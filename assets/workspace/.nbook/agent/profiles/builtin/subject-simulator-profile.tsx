@@ -5,19 +5,13 @@ import {isAbsolute, relative, resolve} from "node:path";
 import {Type, type Static} from "typebox";
 import {createUserMessage} from "nbook/server/agent/messages/message-utils";
 import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
-import {RpActorInputSchema, RpActorOutputSchema} from "nbook/server/agent/profiles/builtin-contracts";
+import {SubjectSimulatorInputSchema, SubjectSimulatorOutputSchema} from "nbook/server/agent/profiles/builtin-contracts";
 import {AppendingSet, Message, ModelContext, ProfilePrompt, RuntimeLocationReminder, System} from "nbook/server/agent/profiles/profile-dsl";
 import type {AgentProfileManifest, ProfilePrepareContext, SidecarProfilePass} from "nbook/server/agent/profiles/types";
 import {profileText} from "nbook/server/agent/profiles/profile-text";
 
-export const profileManifest = {
-    key: "rp.actor",
-    name: "RP Subject Simulator",
-    description: "通用 subject simulator：基于 subject 指令、knowledge/mind/state 和 simulator leader 的戏内消息回应，通过 report_result 返回结构化 actor packet。",
-} as const;
-
-export const InputSchema = RpActorInputSchema;
-export const OutputSchema = RpActorOutputSchema;
+export const InputSchema = SubjectSimulatorInputSchema;
+export const OutputSchema = SubjectSimulatorOutputSchema;
 
 export type Input = Static<typeof InputSchema>;
 export type Output = Static<typeof OutputSchema>;
@@ -116,7 +110,7 @@ async function renderActorContext(ctx: ProfilePrepareContext<Input>): Promise<st
     const mind = await readWorkspaceFile(ctx.session.workspaceRoot, ctx.input.mindPath);
     const state = await readWorkspaceFile(ctx.session.workspaceRoot, ctx.input.statePath);
     return profileText`
-        <rp_subject_context>
+        <subject_simulator_context>
         actorId: ${ctx.input.actorId}
         actorName: ${ctx.input.actorName?.trim() || ctx.input.actorId}
         kind: ${ctx.input.kind?.trim() || "未指定"}
@@ -145,7 +139,7 @@ async function renderActorContext(ctx: ProfilePrepareContext<Input>): Promise<st
         <subject_state>
         ${state}
         </subject_state>
-        </rp_subject_context>
+        </subject_simulator_context>
     `;
 }
 
@@ -300,24 +294,22 @@ export function createSubjectSimulatorProfile(manifest: AgentProfileManifest) {
     });
 }
 
-export default createSubjectSimulatorProfile(profileManifest);
-
 async function readWorkspaceFile(workspaceRoot: string, relativePath: string): Promise<string> {
     const root = resolve(workspaceRoot);
     const normalizedPath = relativePath.trim().replace(/\\/g, "/").replace(/^\/+/, "");
     if (!normalizedPath) {
-        throw new Error("rp.actor 输入路径不能为空。");
+        throw new Error("simulator.actor 输入路径不能为空。");
     }
     const absolutePath = resolve(root, normalizedPath);
     const relativeToWorkspace = relative(root, absolutePath);
     if (relativeToWorkspace.startsWith("..") || isAbsolute(relativeToWorkspace)) {
-        throw new Error(`rp.actor 输入路径越过 workspace: ${relativePath}`);
+        throw new Error(`simulator.actor 输入路径越过 workspace: ${relativePath}`);
     }
     try {
         const content = await readFile(absolutePath, "utf-8");
         return content.trim() || "空";
     } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        throw new Error(`rp.actor 无法读取 ${relativePath}: ${message}`);
+        throw new Error(`simulator.actor 无法读取 ${relativePath}: ${message}`);
     }
 }
