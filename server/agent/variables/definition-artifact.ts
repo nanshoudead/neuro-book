@@ -61,7 +61,7 @@ export async function compileVariableDefinitions(options: {definitionRoot: strin
     try {
         for (const file of files) {
             const existingItem = existingManifest.definitions.find((item) => item.fileName === file.fileName);
-            if (options.skipFresh && existingItem && (await validateVariableDefinitionArtifact(definitionRoot, existingItem)).fresh) {
+            if (options.skipFresh && existingItem && (await validateVariableDefinitionArtifact(definitionRoot, existingItem, {requireTypeArtifact: true})).fresh) {
                 definitions.push(existingItem);
                 continue;
             }
@@ -140,7 +140,9 @@ export async function readVariableDefinitionManifest(definitionRoot: string): Pr
     }
 }
 
-export async function validateVariableDefinitionArtifact(root: string, item: VariableDefinitionManifestItem): Promise<{fresh: boolean; reason?: string}> {
+export async function validateVariableDefinitionArtifact(root: string, item: VariableDefinitionManifestItem, options: {
+    requireTypeArtifact?: boolean;
+} = {}): Promise<{fresh: boolean; reason?: string}> {
     const sourceHash = await hashFile(join(root, ...item.fileName.split("/"))).catch(() => null);
     if (!sourceHash || sourceHash.sha256 !== item.sourceSha256 || sourceHash.bytes !== item.sourceBytes) {
         return {fresh: false, reason: "source_changed"};
@@ -152,6 +154,23 @@ export async function validateVariableDefinitionArtifact(root: string, item: Var
     if (artifactHash.sha256 !== item.artifactSha256 || artifactHash.bytes !== item.artifactBytes) {
         return {fresh: false, reason: "artifact_changed"};
     }
+    if (!options.requireTypeArtifact) {
+        return validateVariableDefinitionDependencies(item);
+    }
+    if (!item.typeFileName || !item.typeSha256 || item.typeBytes === undefined) {
+        return {fresh: false, reason: "type_artifact_missing"};
+    }
+    const typeArtifactHash = await hashFile(join(root, VARIABLE_DEFINITION_COMPILED_DIR, item.typeFileName)).catch(() => null);
+    if (!typeArtifactHash) {
+        return {fresh: false, reason: "type_artifact_missing"};
+    }
+    if (typeArtifactHash.sha256 !== item.typeSha256 || typeArtifactHash.bytes !== item.typeBytes) {
+        return {fresh: false, reason: "type_artifact_changed"};
+    }
+    return validateVariableDefinitionDependencies(item);
+}
+
+async function validateVariableDefinitionDependencies(item: VariableDefinitionManifestItem): Promise<{fresh: boolean; reason?: string}> {
     for (const dependency of item.dependencies) {
         const current = await hashFile(resolveArtifactPath(dependency.path)).catch(() => null);
         if (!current || current.sha256 !== dependency.sha256 || current.bytes !== dependency.bytes) {

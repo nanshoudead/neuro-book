@@ -208,7 +208,12 @@
   - `bun run product:stage`
   - `bun run product:start` preflight 可在 Product Root 内运行。
   - history rewrite 后，`git log --all -- <generated artifact path>` 不再返回历史记录。
-    - 当前未执行：工作树包含大量既有未提交变更，且本机没有安装 `git filter-repo`。
+    - 已执行 `git filter-branch` 清理 generated artifact 历史，并删除 `refs/original/*` / 临时 stash refs 后运行 `git gc --prune=now`。
+    - 已验证以下路径 `git log --all -- <path>` 为空：
+      - `assets/workspace/.nbook/agent/profiles/.compiled/manifest.json`
+      - `assets/workspace/.nbook/agent/variables/.compiled/manifest.json`
+      - `assets/workspace/.nbook/agent/profiles/.system-profile-metadata.json`
+      - `server/agent/variables/generated-profile-variable-types.d.ts`
 
 ## TODO / Follow-ups
 

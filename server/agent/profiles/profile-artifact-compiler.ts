@@ -82,7 +82,7 @@ export async function compileProfileArtifacts(options: CompileProfileArtifactsOp
     try {
         for (const file of targetFiles) {
             const existingItem = existingManifest.profiles.find((item) => item.fileName === file.fileName);
-            if (options.skipFresh && existingItem && (await validateProfileArtifact(profileRoot, existingItem)).fresh) {
+            if (options.skipFresh && existingItem && (await validateProfileArtifact(profileRoot, existingItem, {requireTypeArtifact: true})).fresh) {
                 manifestItems.push(existingItem);
                 continue;
             }
@@ -212,9 +212,11 @@ export function profileArtifactManifestPath(profileRoot: string): string {
 /**
  * 验证 manifest item 对应的源码、依赖和 artifact 是否仍然新鲜。
  */
-export async function validateProfileArtifact(profileRoot: string, item: ProfileArtifactManifestItem): Promise<{
+export async function validateProfileArtifact(profileRoot: string, item: ProfileArtifactManifestItem, options: {
+    requireTypeArtifact?: boolean;
+} = {}): Promise<{
     fresh: boolean;
-    reason?: "source_changed" | "dependency_changed" | "artifact_missing" | "artifact_changed";
+    reason?: "source_changed" | "dependency_changed" | "artifact_missing" | "artifact_changed" | "type_artifact_missing" | "type_artifact_changed";
 }> {
     const root = resolve(profileRoot);
     const sourcePath = join(root, ...item.fileName.split("/"));
@@ -230,6 +232,26 @@ export async function validateProfileArtifact(profileRoot: string, item: Profile
     if (artifactHash.sha256 !== item.artifactSha256 || artifactHash.bytes !== item.artifactBytes) {
         return {fresh: false, reason: "artifact_changed"};
     }
+    if (!options.requireTypeArtifact) {
+        return validateProfileArtifactDependencies(item);
+    }
+    if (!item.typeFileName || !item.typeSha256 || item.typeBytes === undefined) {
+        return {fresh: false, reason: "type_artifact_missing"};
+    }
+    const typeArtifactHash = await hashFile(join(root, PROFILE_COMPILED_DIR_NAME, item.typeFileName)).catch(() => null);
+    if (!typeArtifactHash) {
+        return {fresh: false, reason: "type_artifact_missing"};
+    }
+    if (typeArtifactHash.sha256 !== item.typeSha256 || typeArtifactHash.bytes !== item.typeBytes) {
+        return {fresh: false, reason: "type_artifact_changed"};
+    }
+    return validateProfileArtifactDependencies(item);
+}
+
+async function validateProfileArtifactDependencies(item: ProfileArtifactManifestItem): Promise<{
+    fresh: boolean;
+    reason?: "dependency_changed";
+}> {
     for (const dependency of item.dependencies) {
         const current = await hashFile(resolveArtifactPath(dependency.path)).catch(() => null);
         if (!current || current.sha256 !== dependency.sha256 || current.bytes !== dependency.bytes) {

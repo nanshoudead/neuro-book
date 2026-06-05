@@ -443,6 +443,20 @@ describe("AgentProfileCatalog", () => {
         }));
     });
 
+    it("skipFresh 会在 type artifact 缺失时重新编译 profile", async () => {
+        await writeProfile(systemRoot, "custom.typed.profile.tsx", profileSource("custom.typed", "Typed"));
+        const first = await compileProfileArtifacts({profileRoot: systemRoot});
+        const firstItem = first.manifest.profiles.find((item) => item.profileKey === "custom.typed")!;
+        await rm(join(systemRoot, ".compiled", firstItem.typeFileName!), {force: true});
+
+        const next = await compileProfileArtifacts({profileRoot: systemRoot, skipFresh: true});
+        const nextItem = next.manifest.profiles.find((item) => item.profileKey === "custom.typed")!;
+
+        expect(next.compiled.map((item) => item.profileKey)).toContain("custom.typed");
+        await expect(readFile(join(systemRoot, ".compiled", nextItem.typeFileName!), "utf8")).resolves.toContain("ProfileVariableValueMap");
+        await expect(validateProfileArtifact(systemRoot, nextItem)).resolves.toEqual({fresh: true});
+    });
+
     it("系统 artifact 同步到用户 root 后入口源码依赖可重定位", async () => {
         await writeProfile(systemRoot, "builtin/custom.synced.profile.tsx", profileSource("custom.synced", "Synced"));
         await writeProfile(userRoot, "builtin/custom.synced.profile.tsx", profileSource("custom.synced", "Synced"));

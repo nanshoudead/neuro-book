@@ -674,4 +674,33 @@ describe("Agent variable system", () => {
             await rm(root, {recursive: true, force: true});
         }
     });
+
+    it("skipFresh 会在 type artifact 缺失时重新编译 variable definition", async () => {
+        const root = resolve(".agent", "workspace", "variable-definition-skip-type-test", randomUUID());
+        const definitionPath = resolve(root, "definitions.ts");
+        await mkdir(root, {recursive: true});
+        await writeFile(definitionPath, [
+            "import {Type} from \"typebox\";",
+            "import {defineProjectVariable} from \"nbook/server/agent/variables/registry\";",
+            "export const definitions = [defineProjectVariable({",
+            "    key: \"styleGuide\",",
+            "    schema: Type.String(),",
+            "})];",
+            "export default definitions;",
+            "",
+        ].join("\n"), "utf8");
+        try {
+            const first = await compileVariableDefinitions({definitionRoot: root});
+            const firstItem = first.definitions[0]!;
+            await rm(resolve(root, ".compiled", firstItem.typeFileName!), {force: true});
+
+            const next = await compileVariableDefinitions({definitionRoot: root, skipFresh: true});
+            const nextItem = next.definitions[0]!;
+
+            await expect(readFile(resolve(root, ".compiled", nextItem.typeFileName!), "utf8")).resolves.toContain("ProfileVariableValueMap");
+            await expect(validateVariableDefinitionArtifact(root, nextItem)).resolves.toEqual({fresh: true});
+        } finally {
+            await rm(root, {recursive: true, force: true});
+        }
+    });
 });
