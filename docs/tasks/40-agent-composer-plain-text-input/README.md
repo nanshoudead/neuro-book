@@ -92,6 +92,10 @@ StructuredTextEditor
 - 自动撑高使用 DOM `scrollHeight` 测量，并在测量前临时恢复 `height: auto`，确保内容删除后也能收缩。
 - plain editor 粘贴只消费 `text/plain`，不接收 HTML fragment；XML-like 文本按普通文本保留。
 - slash command trigger 只插入普通文本，不执行 Markdown heading/list/code 等富文本命令，并保留旧 quick trigger 的 `hasPlainTextBeforeTrigger` 过滤语义。
+- 已补充回归修复：`nb-reference-chip` / `nb-skill-chip` 样式抽到全局 stylesheet，避免 plain editor 手写 node view 在未加载 Vue chip 组件时显示成裸文本。
+- 已补充回归修复：`ReferencePlainTextEditor` 现在响应 `menuRefreshKey`，active `$ skill` 菜单会在 skill catalog 首次加载完成后自动从 loading 刷到真实结果。
+- 已补充大文本模式：Agent Composer 可原地展开，展开态使用更大的编辑高度，并把 Enter / Ctrl+Enter 都改成换行语义；提交只走右下角按钮。
+- 已补充根级 workspace 文件引用稳定序列化：菜单插入的 `AGENTS.md` 一类根级文件会序列化成 `workspace/AGENTS.md`，避免重新解析后无法渲染 chip。
 
 `createPlainReferenceTextExtensions(...)` 只保留：
 
@@ -208,6 +212,7 @@ StructuredTextEditor
   - 传入 `resolveMenu` / `menuRefreshKey` / `onSkillTriggerStart`。
   - 统一 placeholder。
   - 统一 `borderless` 和 composer 内部样式。
+  - 根据 `expanded` 切换普通聊天模式和大文本模式的高度与 Enter 语义。
   - 把 `submit` / `shift-tab` 继续向 `AgentComposer.vue` 抛出。
   - expose `focus()` / `insertText()` / `getText()`。
 - 替换现有 `AgentReferenceInput.vue`：
@@ -218,6 +223,7 @@ StructuredTextEditor
 
 - `rg "AgentReferenceInput"` 确认替换范围。
 - 普通 idle 发送、running steer、running Ctrl/Meta+Enter followup 的 submit 分派仍在 `AgentComposer.vue` 中保持。
+- 大文本模式下 Enter / Ctrl+Enter 不触发 submit，右下角按钮仍保持普通 send / running steer / pending continue 语义。
 
 ### Slice 4: request_user_input Single Composer
 
@@ -285,6 +291,11 @@ StructuredTextEditor
 - Generic editor:
   - `app/components/common/form/ReferencePlainTextEditor.vue`
   - `app/components/common/form/tiptap/plain-reference-text-extensions.ts`
+- Shared styles:
+  - `app/styles/reference-chips.css`
+  - `nuxt.config.ts`
+  - `app/components/common/ReferenceChip.vue`
+  - `app/components/common/SkillChip.vue`
 - Agent Composer:
   - `app/components/novel-ide/agent/AgentComposer.vue`
   - `app/components/novel-ide/agent/AgentComposerInput.vue`
@@ -297,8 +308,11 @@ StructuredTextEditor
 ## Verification
 
 - Passed: `bun test shared/reference-trigger.test.ts app/utils/plain-reference-text.test.ts app/components/novel-ide/agent/agent-message.test.ts app/utils/agent-message-projection.test.ts`
-  - 59 tests passed.
-  - 覆盖 XML-like 文本原样保留、XML/template 变量不误转 skill、普通 Markdown link 不转 chip、系统 reference / domain reference / skill token round-trip、多行文本、`hasPlainTextBeforeTrigger` 和 request_user_input projection 相关回归。
+  - 60 tests passed.
+  - 覆盖 XML-like 文本原样保留、XML/template 变量不误转 skill、普通 Markdown link 不转 chip、label 内含方括号的系统 reference、domain reference / skill token round-trip、多行文本、`hasPlainTextBeforeTrigger` 和 request_user_input projection 相关回归。
+- Passed after follow-up fixes: `bun test app/components/novel-ide/agent/tiptap/agent-suggestion.test.ts app/utils/plain-reference-text.test.ts shared/reference-trigger.test.ts app/components/novel-ide/agent/useStructuredReferenceMenu.test.ts`
+  - 34 tests passed.
+  - 覆盖根级 workspace 文件引用稳定序列化、普通 link 不转 chip、XML/template 不误转 skill、trigger 匹配、skill catalog 首次加载菜单刷新，以及 command trigger 的 `hasPlainTextBeforeTrigger` 菜单状态透传。
 - Checked: `rg "AgentReferenceInput|AgentReferenceNode|agentReference" app server shared`
   - 无 active 代码残留。
 - Checked: old legacy files no longer exist.
@@ -314,4 +328,5 @@ StructuredTextEditor
 ## TODO / Follow-ups
 
 - 做一次真实浏览器交互验收：pending request_user_input、普通 running steer/followup、plain paste、chip trigger、自动撑高收缩。
+- 做一次真实浏览器交互验收：第一次输入 `$` 的 skill loading 刷新、根级文件 chip 渲染、大文本模式 Enter 只换行且按钮提交。
 - 后续如果普通表单要使用该能力，直接复用 `ReferencePlainTextEditor`；不要把它塞进 `StructuredTextEditor` 的 mode 系统。

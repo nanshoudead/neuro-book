@@ -13,9 +13,14 @@ Default Project Workspace sketch:
 |-- AGENTS.md
 |-- project.yaml
 |-- agent-context/
-|   |-- generated/
-|   |-- simulator.leader.md
-|   `-- rp.writer.md
+|   |-- simulator.leader/
+|   |   |-- context.md
+|   |   |-- memory.md
+|   |   `-- generated.md
+|   `-- rp.writer/
+|       |-- context.md
+|       |-- memory.md
+|       `-- generated.md
 |-- lorebook/
 |   |-- index.md
 |   |-- world/

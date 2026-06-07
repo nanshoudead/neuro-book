@@ -14,6 +14,7 @@ lorebook/
 |-- item/
 |-- event/
 |-- system/
+|-- note/
 `-- instruction/
 ```
 
@@ -30,6 +31,7 @@ Use `lorebook/index.md` to explain project-specific directory conventions when t
 | `item/` | Artifacts, equipment, documents, consumables and materials. |
 | `event/` | Historical events that already happened in canon. |
 | `system/` | Game-like systems, procedures, mechanics and rule modules. |
+| `note/` | Initialization material, low-confidence facts, temporary lore notes and material waiting to be promoted. |
 | `instruction/` | Reusable AI instructions for this project, such as style, boundaries, retrieval and disclosure rules. |
 
 Supported but not default top-level directories include `species/`, `organization/`, `creature/`, `plant/`, `technology/`, `culture/`, `religion`, `magic`, `profession` and similar project-specific high-frequency categories.
@@ -45,6 +47,7 @@ Supported but not default top-level directories include `species/`, `organizatio
 | `item` | 物品原型、装备、道具、文档、材料、设备、消耗品。 |
 | `event` | 已发生的历史事件、背景事件、战争和事故。 |
 | `system` | 可运行/可模拟机制、玩法模块、状态规则。 |
+| `note` | 初始化素材、低置信设定、待整理说明和临时世界书笔记。 |
 | `instruction` | 作品级 AI 使用说明，例如风格、边界、检索、披露、continuity。 |
 | `species` | 文明、血统、可成为角色身份的种族类型。 |
 | `creature` | 魔物、动物、植物和生态对象。 |
@@ -98,6 +101,7 @@ Use lorebook for:
 - Character canon and background.
 - Locations, factions, items, events and systems.
 - Reusable project instructions, such as style boundaries or disclosure rules.
+- Initialization notes and low-confidence material that have not yet been promoted into stable canon.
 
 Do not use lorebook for:
 

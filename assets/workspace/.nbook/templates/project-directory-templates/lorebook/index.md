@@ -1,0 +1,35 @@
+---
+title: Lorebook
+type: note
+subtype: directory-index
+status: active
+icon: library
+aliases: []
+tags:
+  - 目录说明
+summary: "Project lorebook directory conventions."
+refs: []
+retrieval:
+  enabled: false
+  trigger: null
+governance:
+  source: system-template
+  review: reviewed
+ext: {}
+---
+
+# Lorebook
+
+本目录保存稳定设定、世界规则、角色/地点/势力/物品资料和可复用 AI instruction。运行态状态放入 `simulation/`，临时计划放入 `.agent/plan/` 或 Plot System。
+
+默认目录：
+
+- `world/`：世界结构、历史、地理、文化、生态和世界内规则。
+- `character/`：上帝视角角色设定、背景、秘密和作者备注。
+- `location/`：地点，按真实空间层级组织。
+- `faction/`：国家、阵营、政治实体和冲突集团。
+- `item/`：物品原型、装备、道具、文档、材料和设备。
+- `event/`：已发生的历史事件和背景事件。
+- `system/`：可运行或可模拟的机制、玩法模块和状态规则。
+- `instruction/`：作品级 AI 使用说明，例如创作边界、检索、披露和 continuity。
+- `note/`：初始化素材、低置信设定、待整理说明和临时世界书笔记。

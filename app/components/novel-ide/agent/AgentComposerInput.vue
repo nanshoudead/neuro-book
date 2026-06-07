@@ -12,11 +12,13 @@ const props = withDefaults(defineProps<{
     resolveMenu: (context: AgentTriggerMenuContext) => AgentTriggerMenuState;
     onSkillTriggerStart?: () => void;
     borderless?: boolean;
+    expanded?: boolean;
 }>(), {
     placeholder: "输入消息... (输入 @ 引用, $ 技能, / 命令)",
     menuRefreshKey: "",
     onSkillTriggerStart: () => {},
     borderless: false,
+    expanded: false,
 });
 
 const emit = defineEmits<{
@@ -26,6 +28,8 @@ const emit = defineEmits<{
 }>();
 
 const editorRef = ref<InstanceType<typeof ReferencePlainTextEditor> | null>(null);
+const editorMinHeight = computed(() => props.expanded ? 220 : 44);
+const editorMaxHeight = computed(() => props.expanded ? 420 : 150);
 
 /**
  * 聚焦编辑器。
@@ -59,9 +63,9 @@ defineExpose({
         ref="editorRef"
         :model-value="props.modelValue"
         :placeholder="props.placeholder"
-        :min-height="44"
-        :max-height="150"
-        :submit-on-enter="true"
+        :min-height="editorMinHeight"
+        :max-height="editorMaxHeight"
+        :submit-on-enter="!props.expanded"
         :enable-quick-triggers="true"
         :match-popover-width="true"
         :menu-refresh-key="props.menuRefreshKey"

@@ -11,6 +11,7 @@ import type {
 export interface AgentSuggestionMenuState extends AgentTriggerMenuState {
     contextKind: AgentTriggerMenuContext["kind"];
     query: string;
+    hasPlainTextBeforeTrigger?: boolean;
     items: AgentTriggerMenuItem[];
     command: (item: AgentTriggerMenuItem) => void;
     anchorRect: DOMRect | null;
@@ -27,6 +28,7 @@ interface CreateAgentSuggestionRendererOptions {
     pluginKey: PluginKey;
     controller: AgentSuggestionController;
     resolveMenuState: (query: string) => AgentTriggerMenuState;
+    resolveContext?: (query: string) => AgentTriggerMenuContext;
     contextKind: AgentTriggerMenuContext["kind"];
 }
 
@@ -85,9 +87,11 @@ export function createAgentSuggestionRenderer(
 
             const activeIndex = normalizeSelectableIndex(props.items, options.controller.getActiveIndex());
             options.controller.setActiveIndex(activeIndex);
+            const context = options.resolveContext?.(props.query);
             options.controller.onMenuStateChange({
-                contextKind: options.contextKind,
-                query: props.query,
+                contextKind: context?.kind ?? options.contextKind,
+                query: context?.query ?? props.query,
+                hasPlainTextBeforeTrigger: context?.hasPlainTextBeforeTrigger,
                 title: menuState.title,
                 prefix: menuState.prefix,
                 sections: menuState.sections,

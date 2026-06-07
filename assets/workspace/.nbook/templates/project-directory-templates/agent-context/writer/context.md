@@ -5,7 +5,6 @@ updatedAt: null
 updatedBy: system
 mustRead: []
 candidates: []
-blocked: []
 ---
 
 # Writer Context Notes

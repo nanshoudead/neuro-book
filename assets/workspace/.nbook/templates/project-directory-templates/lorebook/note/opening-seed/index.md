@@ -1,7 +1,7 @@
 ---
-title: 初始剧情种子
+title: 开局种子
 type: note
-subtype: initial-plot-seed
+subtype: opening-seed
 status: draft
 icon: seedling
 aliases: []

@@ -1,7 +1,7 @@
 ---
-title: 类型与基调
+title: 作品定位与简介
 type: note
-subtype: novel-positioning
+subtype: project-profile
 status: draft
 icon: compass
 aliases: []
@@ -29,6 +29,22 @@ ext: {}
 ## 目标读者
 
 说明面向的读者期待、爽点偏好和不能违背的阅读承诺。
+
+## 对外简介
+
+填写一段可同步到小说 summary 的短简介。
+
+## 一句话版本
+
+保留一个更短的对外介绍版本。
+
+## 不剧透说明
+
+记录简介中需要避开的重大剧透或误导性表达。
+
+## 情绪底色
+
+说明作品希望长期维持的阅读感受、正剧/喜剧比例、压迫感、爽点或温度。
 
 ## 状态记录
 

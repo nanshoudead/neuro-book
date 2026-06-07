@@ -8,16 +8,26 @@ Profile context memory 用来替代内容节点 frontmatter 中的 `inject.profi
 {project}/
 |-- lorebook/
 |-- agent-context/
-|   |-- leader.default.md
-|   |-- simulator.leader.md
-|   |-- director.md
-|   |-- writer.md
-|   |-- rp.writer.md
-|   `-- generated/
-|       |-- leader.default.md
-|       |-- simulator.leader.md
-|       |-- director.md
-|       `-- writer.md
+|   |-- leader.default/
+|   |   |-- context.md
+|   |   |-- memory.md
+|   |   `-- generated.md
+|   |-- simulator.leader/
+|   |   |-- context.md
+|   |   |-- memory.md
+|   |   `-- generated.md
+|   |-- director/
+|   |   |-- context.md
+|   |   |-- memory.md
+|   |   `-- generated.md
+|   |-- writer/
+|   |   |-- context.md
+|   |   |-- memory.md
+|   |   `-- generated.md
+|   `-- rp.writer/
+|       |-- context.md
+|       |-- memory.md
+|       `-- generated.md
 `-- .nbook/
     `-- context-access/
         |-- leader.default.json
@@ -26,13 +36,14 @@ Profile context memory 用来替代内容节点 frontmatter 中的 `inject.profi
         `-- writer.json
 ```
 
-- `agent-context/{profile}.md`：Agent 自主维护的 profile-scoped context memory，也可以承载 profile 专用的 Project 运行说明。
-- `agent-context/generated/{profile}.md`：程序根据访问状态渲染的结构化推荐文本，Agent 可读。
+- `agent-context/{profile}/context.md`：Agent 自主维护的 profile-scoped context selection，也可以承载 profile 专用的 Project 运行说明。
+- `agent-context/{profile}/memory.md`：Agent 自主维护的 profile-scoped cross-session memory。
+- `agent-context/{profile}/generated.md`：程序根据访问状态渲染的结构化推荐文本，Agent 可读。
 - `.nbook/context-access/{profile}.json`：程序私有访问状态，Agent 默认不读。
 
 ## Agent-Maintained Context
 
-`agent-context/{profile}.md` 的 frontmatter 可以包含：
+`agent-context/{profile}/context.md` 的 frontmatter 可以包含：
 
 ```yaml
 profile: writer
@@ -41,7 +52,6 @@ updatedAt: "2026-06-06T00:00:00+08:00"
 updatedBy: agent
 mustRead: []
 candidates: []
-blocked: []
 ```
 
 条目使用 Project-relative path，例如 `lorebook/location/castle/`、`manuscript/001-volume/001-chapter/`、`simulation/runs/current.md` 或 `reference/source.md`，不要写绝对路径。程序第一版只要求稳健读取 `path`，`note`、`priority`、`setBy`、`updatedAt` 等字段允许缺省。
@@ -50,9 +60,15 @@ blocked: []
 
 `mustRead` 不是无条件注入。它表示当前 profile 在任务开始时应优先检查或读取的条目，仍受任务目标、token、权限和信息边界约束。
 
+## Cross-Session Memory
+
+`agent-context/{profile}/memory.md` 是当前 profile 的长期记忆文件。它可以记录跨 session 仍然有用的项目判断、用户偏好、长期待办、接手提示和已确认决策。
+
+`memory.md` 不由程序覆盖，也不使用 `mustRead` / `candidates` frontmatter。它只属于当前 profile；其他 profile 不能自动读取。
+
 ## Generated Recommendations
 
-`agent-context/generated/{profile}.md` 是程序覆盖的结构化文本，可以没有 frontmatter。推荐 section 固定为：
+`agent-context/{profile}/generated.md` 是程序覆盖的结构化文本，可以没有 frontmatter。推荐 section 固定为：
 
 - `strong`：程序认为当前 profile 很可能需要的条目。
 - `possible`：可能相关，需要 Agent 结合任务判断。
@@ -71,16 +87,17 @@ blocked: []
 - sessions: 1
 ```
 
-不要写长篇推荐原因。Agent 如果采纳推荐，应把判断整理到自己的 `agent-context/{profile}.md`。
+不要写长篇推荐原因。Agent 如果采纳推荐，应把判断整理到自己的 `agent-context/{profile}/context.md`。
 
 ## Profile Isolation
 
 当前 profile 只能自动读取自己的 context memory：
 
-- `agent-context/{profile}.md`
-- `agent-context/generated/{profile}.md`
+- `agent-context/{profile}/context.md`
+- `agent-context/{profile}/memory.md`
+- `agent-context/{profile}/generated.md`
 
-不能自动读取其他 profile 的 context memory 或 `.nbook/context-access`。例如 `writer` 不能读取 `agent-context/leader.default.md`、`agent-context/simulator.leader.md` 或对应 generated 文件。
+不能自动读取其他 profile 的 context memory 或 `.nbook/context-access`。例如 `writer` 不能读取 `agent-context/leader.default/context.md`、`agent-context/simulator.leader/context.md` 或对应 generated 文件。
 
 跨 profile 信息只能通过显式 handoff、writer-safe brief、invocation input 或 retrieval 结果传递。跨 profile 推荐可以暴露事实信号，例如 `leader-read:3`，但不能泄漏 source profile 私有 context 正文。
 

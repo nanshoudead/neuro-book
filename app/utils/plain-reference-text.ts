@@ -1,5 +1,3 @@
-import {parseReferenceLink} from "nbook/shared/reference-link";
-import {parseWorkspaceReferenceLink} from "nbook/shared/workspace-reference";
 import {parseReferenceUri} from "nbook/shared/reference-core";
 
 export interface PlainReferenceNodeAttrs {
@@ -25,7 +23,6 @@ export interface PlainTextToken {
     skill?: PlainSkillNodeAttrs;
 }
 
-const MARKDOWN_LINK_PATTERN = /\[([^\]]+)\]\(([^)\s]+)(?:\s+["'][^)]*["'])?\)/g;
 const SKILL_PATTERN = /(^|[\s(])(\$(?:([\p{L}_-][\p{L}\p{N}_-]*)|\{([\p{L}_-][\p{L}\p{N}_-]*)\}))/gu;
 const WORKSPACE_REFERENCE_PREFIXES = [
     "agent-context/",
@@ -87,7 +84,7 @@ export function serializePlainReferenceDoc(doc: PlainTextProseMirrorNode): strin
     if (doc.type === "plainReference") {
         const label = doc.attrs?.label ?? "";
         const target = doc.attrs?.target ?? "";
-        return label && target ? `[${label}](${target})` : "";
+        return label && target ? `[${label}](${serializeReferenceTarget(target)})` : "";
     }
     if (doc.type === "agentSkill") {
         const name = doc.attrs?.name ?? "";
@@ -160,22 +157,17 @@ interface TokenMatch {
 
 function collectReferenceMatches(value: string): TokenMatch[] {
     const matches: TokenMatch[] = [];
-    for (const matched of value.matchAll(MARKDOWN_LINK_PATTERN)) {
-        const raw = matched[0] ?? "";
-        const start = matched.index ?? -1;
-        if (start < 0 || !raw) {
-            continue;
-        }
-        const reference = resolveReferenceToken(raw);
+    for (const matched of collectMarkdownLinkMatches(value)) {
+        const reference = resolveReferenceToken(matched);
         if (!reference) {
             continue;
         }
         matches.push({
-            start,
-            end: start + raw.length,
+            start: matched.start,
+            end: matched.end,
             token: {
                 kind: "reference",
-                raw,
+                raw: matched.raw,
                 reference,
             },
         });
@@ -206,34 +198,98 @@ function collectSkillMatches(value: string, referenceMatches: TokenMatch[]): Tok
     return matches;
 }
 
-function resolveReferenceToken(raw: string): PlainReferenceNodeAttrs | null {
-    const domainReference = parseReferenceLink(raw);
+interface MarkdownLinkMatch {
+    start: number;
+    end: number;
+    raw: string;
+    label: string;
+    target: string;
+}
+
+function collectMarkdownLinkMatches(value: string): MarkdownLinkMatch[] {
+    const matches: MarkdownLinkMatch[] = [];
+    let cursor = 0;
+    while (cursor < value.length) {
+        const start = value.indexOf("[", cursor);
+        if (start < 0) {
+            break;
+        }
+        const delimiter = value.indexOf("](", start + 1);
+        if (delimiter < 0) {
+            break;
+        }
+        const close = value.indexOf(")", delimiter + 2);
+        if (close < 0) {
+            break;
+        }
+
+        const label = value.slice(start + 1, delimiter).trim();
+        const target = value.slice(delimiter + 2, close).trim();
+        if (label && target && !/\s/.test(target)) {
+            matches.push({
+                start,
+                end: close + 1,
+                raw: value.slice(start, close + 1),
+                label,
+                target,
+            });
+            cursor = close + 1;
+            continue;
+        }
+        cursor = start + 1;
+    }
+    return matches;
+}
+
+function resolveReferenceToken(link: MarkdownLinkMatch): PlainReferenceNodeAttrs | null {
+    const domainReference = parseReferenceUri(link.target);
     if (domainReference) {
         return {
-            label: domainReference.title,
+            label: link.label,
             target: `${domainReference.kind}://${domainReference.targetId}`,
         };
     }
 
-    const workspaceReference = parseWorkspaceReferenceLink(raw);
-    if (!workspaceReference || !isSystemWorkspaceReferenceTarget(workspaceReference.target)) {
+    if (!isSystemWorkspaceReferenceTarget(link.target)) {
         return null;
     }
     return {
-        label: workspaceReference.label,
-        target: workspaceReference.target,
+        label: link.label,
+        target: link.target,
     };
 }
 
 function isSystemWorkspaceReferenceTarget(target: string): boolean {
-    const normalized = target.trim().replace(/\\/g, "/").replace(/^\.\//, "");
-    if (!normalized || normalized.startsWith("/") || normalized.includes("..")) {
+    const normalized = normalizeWorkspaceTarget(target);
+    if (!isSafeRelativeWorkspaceTarget(normalized)) {
         return false;
     }
     if (parseReferenceUri(normalized)) {
         return true;
     }
     return WORKSPACE_REFERENCE_PREFIXES.some((prefix) => normalized.startsWith(prefix));
+}
+
+function serializeReferenceTarget(target: string): string {
+    const normalized = normalizeWorkspaceTarget(target);
+    if (!isSafeRelativeWorkspaceTarget(normalized)) {
+        return target;
+    }
+    if (parseReferenceUri(normalized) || WORKSPACE_REFERENCE_PREFIXES.some((prefix) => normalized.startsWith(prefix))) {
+        return normalized;
+    }
+    if (/^[a-z][a-z0-9+.-]*:/iu.test(normalized)) {
+        return normalized;
+    }
+    return `workspace/${normalized}`;
+}
+
+function normalizeWorkspaceTarget(target: string): string {
+    return target.trim().replace(/\\/g, "/").replace(/^\.\//, "");
+}
+
+function isSafeRelativeWorkspaceTarget(target: string): boolean {
+    return Boolean(target) && !target.startsWith("/") && !target.includes("..") && !/\s/u.test(target);
 }
 
 function isInsideToken(position: number, matches: TokenMatch[]): boolean {

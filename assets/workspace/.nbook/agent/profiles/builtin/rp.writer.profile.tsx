@@ -12,7 +12,7 @@ import {profileText} from "nbook/server/agent/profiles/profile-text";
 export const profileManifest = {
     key: "rp.writer",
     name: "RP Writer",
-    description: "RP Tick 正文渲染 agent：只消费 writer brief 与 agent-context/rp.writer.md，直接输出用户可见正文，可按 simulator leader 要求读写指定文件。",
+    description: "RP Tick 正文渲染 agent：只消费 writer brief 与 agent-context/rp.writer/context.md，直接输出用户可见正文，可按 simulator leader 要求读写指定文件。",
 } as const;
 
 export const InputSchema = RpWriterInputSchema;
@@ -71,7 +71,7 @@ function renderSystemPrompt(input: Input): string {
         - 你只能使用 <rp_writer_instruction>、稳定 input 约束和当前 writer brief。
         - 你可以读取 brief 中明确指定的正文草稿、临时输出文件或其他写作素材路径；不要自行遍历 simulation/、lorebook/ 或 reference/。
         - 你可以写入 brief 中明确指定的输出路径；不要更新 actor knowledge、mind、state，也不要修改角色设定或 simulator 配置。
-        - 如果 writer brief 和已注入 agent-context/rp.writer.md 冲突，以 writer brief 的本 Tick 信息边界为准；如果 brief 缺关键事实，写短一点，不补隐藏设定。
+        - 如果 writer brief 和已注入 agent-context/rp.writer/context.md 冲突，以 writer brief 的本 Tick 信息边界为准；如果 brief 缺关键事实，写短一点，不补隐藏设定。
         - brief 缺少的信息视为不可写信息，不要自行补完整隐藏设定。
         - do_not_reveal 中的内容绝对不能写出，也不能用明显暗示绕开。
         - allowed_internality 控制可以写谁的心理、写到什么程度；没有授权时优先写可观察动作、台词和环境反应。
@@ -90,7 +90,7 @@ function renderSystemPrompt(input: Input): string {
         # 稳定输入约束
 
         - language: ${input.language?.trim() || "跟随 writer brief"}
-        - style: ${input.style?.trim() || "跟随 agent-context/rp.writer.md 与 writer brief"}
+        - style: ${input.style?.trim() || "跟随 agent-context/rp.writer/context.md 与 writer brief"}
         - outputRequirements:
         ${input.outputRequirements?.length ? input.outputRequirements.map((item) => `  - ${item}`).join("\n") : "  - 无额外稳定约束"}
 

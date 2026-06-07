@@ -1,6 +1,6 @@
 ---
 title: 创作边界
-type: rule
+type: instruction
 subtype: creation-boundaries
 status: draft
 icon: shield-alert
@@ -31,6 +31,6 @@ ext: {}
 
 记录 Agent 或协作者需要特别避开的误读。
 
-## Inject 使用
+## 使用方式
 
-确认内容稳定后，可以按需要把 `inject.always` 改为 `true`，让写作 profile 默认带入。
+确认内容稳定后，由 leader、retrieval、writer handoff 或 `agent-context/{profile}/context.md` 决定是否读取或传递给相关 profile。

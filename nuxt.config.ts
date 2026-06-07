@@ -118,6 +118,7 @@ export default defineNuxtConfig({
     css: [
         "the-new-css-reset/css/reset.css",
         "nbook/app/styles/theme-vars.css",
+        "nbook/app/styles/reference-chips.css",
         "@vue-flow/core/dist/style.css",
         "@vue-flow/core/dist/theme-default.css",
         "@vue-flow/controls/dist/style.css",

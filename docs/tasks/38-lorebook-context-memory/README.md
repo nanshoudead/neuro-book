@@ -6,12 +6,12 @@
 
 本 task 已从第一版 `lorebook/context/` 升级为更通用的 `agent-context/`：
 
-- `agent-context/{profile}.md` 是 Agent 自主维护的 profile-scoped context memory，也可以承载 profile 专用 Project 运行说明。
-- `agent-context/generated/{profile}.md` 是程序生成的推荐文本。
+- `agent-context/{profile}/context.md` 是 Agent 自主维护的 profile-scoped context memory，也可以承载 profile 专用 Project 运行说明。
+- `agent-context/{profile}/generated.md` 是程序生成的推荐文本。
 - `.nbook/context-access/{profile}.json` 仍是程序私有访问状态，不作为 Agent 默认上下文入口。
 - `simulation/` 只保存 runtime state：`subjects/`、`entities/`、`runs/`。
 - 默认模板不再生成 `simulation/config.yaml`、`simulation/cast.yaml`、`simulation/simulator.md` 或 `simulation/writer.md`。
-- `simulator.leader` 读取 `AGENTS.md` 与 `agent-context/simulator.leader.md`；`rp.writer` 读取 `agent-context/rp.writer.md`。
+- `simulator.leader` 读取 `AGENTS.md` 与 `agent-context/simulator.leader/context.md`；`rp.writer` 读取 `agent-context/rp.writer/context.md`。
 
 旧的 `lorebook/context/` 小节保留为 V1 设计记录；当前实现以本 V2 更新和 `reference/agent/profile-context-memory.md` 为准。
 
@@ -35,8 +35,8 @@
 - 明确 Project Workspace 内的 Agent 可读文件布局。
 - 明确 `.nbook` 下程序私有访问状态与 Project 内推荐文本的边界。
 - 明确 profile 隔离规则，尤其是 `writer` 不读取 `leader.default` / `simulator.leader` 私有 context。
-- 明确 `agent-context/{profile}.md` 的 frontmatter 与正文定位。
-- 明确 `agent-context/generated/{profile}.md` 的结构化文本格式。
+- 明确 `agent-context/{profile}/context.md` 的 frontmatter 与正文定位。
+- 明确 `agent-context/{profile}/generated.md` 的结构化文本格式。
 - 给出分阶段实现计划，第一阶段不实现复杂推荐算法。
 
 ## Current State
@@ -93,13 +93,13 @@ inject:
 
 职责分层：
 
-- `lorebook/context/{profile}.md`：Agent 自主维护的 profile-scoped context memory。
-- `lorebook/context/generated/{profile}.md`：程序根据访问状态和其他信号渲染出的 profile-scoped 推荐文本，Agent 可读。
+- `agent-context/{profile}/context.md`：Agent 自主维护的 profile-scoped context memory。
+- `agent-context/{profile}/generated.md`：程序根据访问状态和其他信号渲染出的 profile-scoped 推荐文本，Agent 可读。
 - `.nbook/context-access/{profile}.json`：程序私有访问状态和原始信号，按 Project Workspace 分割；Agent 默认不读。
 
-`.nbook/context-access` 只记录程序状态，不作为 Agent 上下文入口。需要给 Agent 看的推荐必须渲染到 Project Workspace 内的 `lorebook/context/generated/{profile}.md`。
+`.nbook/context-access` 只记录程序状态，不作为 Agent 上下文入口。需要给 Agent 看的推荐必须渲染到 Project Workspace 内的 `agent-context/{profile}/generated.md`。
 
-## `lorebook/context/{profile}.md`
+## `agent-context/{profile}/context.md`
 
 这是 Agent 自主维护的上下文记忆文件，不是 policy 文件。
 
@@ -125,12 +125,6 @@ candidates:
     priority: 70
     setBy: agent
     updatedAt: "2026-06-06T00:00:00+08:00"
-
-blocked:
-  - path: lorebook/system/AI指令/
-    note: SillyTavern 原始提示词迁移材料，不作为 writer 默认上下文。
-    setBy: agent
-    updatedAt: "2026-06-06T00:00:00+08:00"
 ```
 
 字段草案：
@@ -143,7 +137,6 @@ blocked:
 | `updatedBy` | Agent | 最近维护者，第一版可用 `agent` / `user` / `system`。 |
 | `mustRead[]` | Agent | 当前 profile 认为需要优先读取的条目。 |
 | `candidates[]` | Agent | 当前 profile 认为可能需要的条目。 |
-| `blocked[]` | Agent | 当前 profile 不应默认读取的条目或目录。 |
 
 条目字段草案：
 
@@ -190,7 +183,7 @@ blocked:
 
 稳定 policy 仍应放在 profile prompt、`reference/` 或 task / workflow 文档中。
 
-## `lorebook/context/generated/{profile}.md`
+## `agent-context/{profile}/generated.md`
 
 这是程序生成的推荐文本。它给 Agent 看，但不是 Agent 自主维护文件。
 
@@ -201,7 +194,7 @@ blocked:
 - 不写长篇推荐原因。
 - 保留事实数据，供 Agent 自己判断是否采纳。
 - 程序可以覆盖该文件。
-- Agent 可以读取它，但不应手动编辑它；需要采纳时，把结果写入 `lorebook/context/{profile}.md`。
+- Agent 可以读取它，但不应手动编辑它；需要采纳时，把结果写入 `agent-context/{profile}/context.md`。
 
 推荐格式草案：
 
@@ -317,8 +310,8 @@ profile: writer
 硬规则：
 
 - 当前 profile 只能自动读取自己的 context memory：
-  - `lorebook/context/{profile}.md`
-  - `lorebook/context/generated/{profile}.md`
+  - `agent-context/{profile}/context.md`
+  - `agent-context/{profile}/generated.md`
 - 当前 profile 不能自动读取其他 profile 的 context memory：
   - `writer` 不能读取 `lorebook/context/leader.default.md`。
   - `writer` 不能读取 `lorebook/context/simulator.leader.md`。
@@ -340,14 +333,15 @@ profile: writer
 
 每次 profile 启动或 prepare 时：
 
-1. 读取当前 profile 的 `lorebook/context/{profile}.md`，如果存在。
-2. 读取当前 profile 的 `lorebook/context/generated/{profile}.md`，如果存在。
-3. 结合用户任务、Plot、当前章节、当前路径和上游 handoff，决定读取哪些 lorebook 条目。
-4. 若采纳程序推荐，把条目写入自己的 `mustRead` / `candidates` / `blocked`，并在正文中留下简短分析。
-5. 不把 generated recommendation 当成强制上下文；它只是事实化推荐。
-6. 不读取其他 profile 的 context 文件。
+1. 读取当前 profile 的 `agent-context/{profile}/context.md`，如果存在。
+2. 读取当前 profile 的 `agent-context/{profile}/memory.md`，如果存在。
+3. 读取当前 profile 的 `agent-context/{profile}/generated.md`，如果存在。
+4. 结合用户任务、Plot、当前章节、当前路径和上游 handoff，决定读取哪些 lorebook 条目。
+5. 若采纳程序推荐，把条目写入自己的 `mustRead` / `candidates`，并在正文或 memory 中留下简短分析。
+6. 不把 generated recommendation 当成强制上下文；它只是事实化推荐。
+7. 不读取其他 profile 的 context 文件。
 
-Agent 可以维护 `lorebook/context/{profile}.md`，但不应编辑 `lorebook/context/generated/{profile}.md`。generated 文件由程序覆盖。
+Agent 可以维护 `agent-context/{profile}/context.md` 和 `agent-context/{profile}/memory.md`，但不应编辑 `agent-context/{profile}/generated.md`。generated 文件由程序覆盖。
 
 ## Program Usage
 
@@ -364,10 +358,10 @@ Agent 可以维护 `lorebook/context/{profile}.md`，但不应编辑 `lorebook/c
    - 更新 `.nbook/context-access/{profile}.json`。
    - 维护 `accessCount`、`lastAccessedAt`、session 统计和 signals。
 3. 推荐渲染：
-   - 根据访问状态和算法结果生成 `lorebook/context/generated/{profile}.md`。
+   - 根据访问状态和算法结果生成 `agent-context/{profile}/generated.md`。
    - 只输出结构化事实。
    - 不写长篇推荐原因。
-   - 不直接修改 `lorebook/context/{profile}.md`。
+   - 不直接修改 `agent-context/{profile}/context.md`。
 
 ## Implementation Plan
 
@@ -404,7 +398,7 @@ Agent 可以维护 `lorebook/context/{profile}.md`，但不应编辑 `lorebook/c
 
 ### Phase 4: Generated Recommendations
 
-- 根据 `.nbook/context-access/{profile}.json` 渲染 `lorebook/context/generated/{profile}.md`。
+- 根据 `.nbook/context-access/{profile}.json` 渲染 `agent-context/{profile}/generated.md`。
 - 第一版算法可以非常保守：
   - 最近访问次数高的条目进入 `possible`。
   - 当前 profile 显式 lorebookEntries 多次出现的条目进入 `strong`。
@@ -424,12 +418,12 @@ Agent 可以维护 `lorebook/context/{profile}.md`，但不应编辑 `lorebook/c
 ## Decisions
 
 - 删除内容节点级 `inject.profiles` / `inject.always` 是合理方向；它不适合大型 worldbook 的 profile-scoped 上下文治理。
-- `lorebook/context/{profile}.md` 是 Agent 自主维护的 context memory，不是 policy 文件。
-- `lorebook/context/{profile}.md` 的 frontmatter 可以有 `mustRead`、`candidates`、`blocked`，由 Agent 设置和维护。
+- `agent-context/{profile}/context.md` 是 Agent 自主维护的 context selection 和 profile 运行说明入口，不是全局 policy 文件。
+- `agent-context/{profile}/context.md` 的 frontmatter 可以有 `mustRead`、`candidates`，由 Agent 设置和维护。
 - `mustRead` 不是无条件 prompt 注入，也不是新版 `inject.always`。它表示当前 profile 在任务开始时应优先检查 / 读取的条目，但仍受 token、任务目标和 profile 权限约束。
-- `lorebook/context/{profile}.md` 的正文放分析、说明、上下文记忆和待确认事项，不放稳定规则。
+- `agent-context/{profile}/memory.md` 保存 profile-scoped cross-session memory，不由程序覆盖。
 - 稳定规则仍属于 profile prompt、`reference/` 或 workflow/task 文档。
-- 程序推荐放在 Project Workspace 内的 `lorebook/context/generated/{profile}.md`，让 Agent 可读。
+- 程序推荐放在 Project Workspace 内的 `agent-context/{profile}/generated.md`，让 Agent 可读。
 - generated recommendations 不用 JSON，也可以不用 frontmatter；输出结构化 Markdown 事实即可。
 - 推荐文件不写啰嗦原因，优先保留 score、signals、lastAccessedAt、sessions 等事实。
 - generated recommendations 默认可见，但属于程序覆盖产物，不是作者手写 canon；以后 Project Workspace 进入 Git 时，是否追踪 generated 文件可由 Project 配置决定。
@@ -447,10 +441,10 @@ Agent 可以维护 `lorebook/context/{profile}.md`，但不应编辑 `lorebook/c
 2026-06-06 V2 implementation update:
 
 - `lorebook/context/` 已提升为 Project root 下的 `agent-context/`。
-- generated recommendation 输出路径改为 `agent-context/generated/{profile}.md`。
+- generated recommendation 输出路径改为 `agent-context/{profile}/generated.md`。
 - `server/agent/context-access/lorebook-context-access.ts` 已更名为 `profile-context-access.ts`。
 - 默认 Project 模板删除 `simulation/config.yaml`、`simulation/cast.yaml`、`simulation/simulator.md` 和 `simulation/writer.md`，profile 专用运行说明改放 `agent-context/`。
-- `simulator.leader` 读取 `AGENTS.md` 与 `agent-context/simulator.leader.md`；`rp.writer` 读取 `agent-context/rp.writer.md`。
+- `simulator.leader` 读取 `AGENTS.md` 与 `agent-context/simulator.leader/context.md`；`rp.writer` 读取 `agent-context/rp.writer/context.md`。
 
 - `docs/tasks/38-lorebook-context-memory/README.md`
 - `reference/agent/profile-context-memory.md`

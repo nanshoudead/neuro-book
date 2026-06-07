@@ -1,3 +1,12 @@
+---
+profile: simulator.leader
+version: 1
+updatedAt: null
+updatedBy: system
+mustRead: []
+candidates: []
+---
+
 # Simulator Leader 运行上下文
 
 本文件是 `simulator.leader` 的 Project 专用运行上下文。启动 RP/simulation 时，`simulator.leader` 先遵守 Project `AGENTS.md`，再读取本文件、`simulation/runs/current.md`、相关 subject/entity/run、必要 lorebook、Plot 和 reference；通用启动说明由 RP skill 和 simulator profile 承担。

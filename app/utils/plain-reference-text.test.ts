@@ -34,6 +34,44 @@ describe("plain-reference-text", () => {
         expect(serializePlainReferenceDoc(doc)).toBe(text);
     });
 
+    it("将菜单插入的根级 workspace 文件序列化成稳定 target", () => {
+        const doc = {
+            type: "doc",
+            content: [{
+                type: "paragraph",
+                content: [{
+                    type: "plainReference",
+                    attrs: {
+                        label: "AGENTS.md文件",
+                        target: "AGENTS.md",
+                    },
+                }],
+            }],
+        };
+        const text = "[AGENTS.md文件](workspace/AGENTS.md)";
+
+        expect(serializePlainReferenceDoc(doc)).toBe(text);
+        expect(parsePlainReferenceText(text).content?.[0]?.content).toEqual([{
+            type: "plainReference",
+            attrs: {
+                label: "AGENTS.md文件",
+                target: "workspace/AGENTS.md",
+            },
+        }]);
+    });
+
+    it("识别 label 内含方括号的 workspace reference", () => {
+        const text = "打开 [[DLC][角色][雌小鬼与熟女与龙]奥希莉雅](lorebook/character/orxiliya/)。";
+        const doc = parsePlainReferenceText(text);
+
+        expect(doc.content?.[0]?.content).toEqual([
+            {type: "text", text: "打开 "},
+            {type: "plainReference", attrs: {label: "[DLC][角色][雌小鬼与熟女与龙]奥希莉雅", target: "lorebook/character/orxiliya/"}},
+            {type: "text", text: "。"},
+        ]);
+        expect(serializePlainReferenceDoc(doc)).toBe(text);
+    });
+
     it("识别 domain reference 并序列化为 canonical target", () => {
         const text = "剧情 [主线](thread://thread-main) 和 [情节](plot://plot-1)";
         const doc = parsePlainReferenceText(text);

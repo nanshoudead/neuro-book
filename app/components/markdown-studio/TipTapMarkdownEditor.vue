@@ -260,6 +260,7 @@ watch(() => props.referenceRefreshKey, () => {
         const menuState = props.resolveMenu({
             kind: suggestionMenuState.value.contextKind,
             query: suggestionMenuState.value.query,
+            hasPlainTextBeforeTrigger: suggestionMenuState.value.hasPlainTextBeforeTrigger,
         });
         const items = flattenAgentSuggestionItems(menuState.sections);
         const nextActiveIndex = items.length > 0

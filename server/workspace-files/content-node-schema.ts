@@ -1,7 +1,7 @@
 import {toJSONSchema, z} from "zod";
 
 export const WORKSPACE_CONTENT_STATUSES = ["draft", "pending", "active", "archived"] as const;
-export const WORKSPACE_CONTENT_TYPES = ["location", "character", "faction", "item", "rule", "note", "volume", "chapter"] as const;
+export const WORKSPACE_CONTENT_TYPES = ["world", "character", "location", "faction", "item", "event", "system", "instruction", "rule", "note", "species", "creature", "organization", "volume", "chapter"] as const;
 
 export type WorkspaceContentStatus = typeof WORKSPACE_CONTENT_STATUSES[number];
 export type WorkspaceContentType = typeof WORKSPACE_CONTENT_TYPES[number];
@@ -20,7 +20,7 @@ export const WorkspaceContentStatusSchema = z.enum(WORKSPACE_CONTENT_STATUSES)
     .describe("内容节点状态：draft 草稿、pending 待定、active 已确认、archived 已归档。");
 
 export const WorkspaceContentTypeSchema = z.enum(WORKSPACE_CONTENT_TYPES)
-    .describe("内容节点类型。lorebook 使用 location/character/faction/item/rule/note，manuscript 使用 volume/chapter。");
+    .describe("内容节点类型。lorebook 使用 world/character/location/faction/item/event/system/instruction/note 等类型，manuscript 使用 volume/chapter。");
 
 export const WorkspaceContentRefSchema = z.object({
     relation: z.string().describe("引用关系类型，例如 mentions、foreshadows、depends_on。"),

@@ -95,6 +95,7 @@ const inputRef = ref<InstanceType<typeof AgentComposerInput> | null>(null);
 const userInputPromptRef = ref<InstanceType<typeof AgentUserInputPrompt> | null>(null);
 const sessionModelControlsRef = ref<HTMLElement | null>(null);
 const activeQuestionKey = ref("");
+const composerExpanded = ref(false);
 const activeQuestionState = ref({
     canContinue: false,
     submitButtonLabel: "继续",
@@ -147,7 +148,7 @@ const sendButtonTitle = computed(() => {
         return activeQuestionState.value.submitButtonLabel || "继续";
     }
     if (props.running && runInputText.value.trim()) {
-        return "引导；Ctrl+Enter / Ctrl+点击 队列";
+        return composerExpanded.value ? "引导；Ctrl+点击 队列" : "引导；Ctrl+Enter / Ctrl+点击 队列";
     }
     if (props.running) {
         return "停止";
@@ -157,6 +158,9 @@ const sendButtonTitle = computed(() => {
     }
     return "发送";
 });
+
+const expandButtonTitle = computed(() => composerExpanded.value ? "收起大文本编辑" : "展开大文本编辑");
+const expandButtonIcon = computed(() => composerExpanded.value ? "i-lucide-minimize-2" : "i-lucide-maximize-2");
 
 const queuedMessageText = (item: AgentQueuedMessageDto): string => item.message.text.trim();
 
@@ -323,6 +327,7 @@ defineExpose({focus});
                 borderless
                 :model-value="activeComposerValue"
                 :placeholder="composerPlaceholder"
+                :expanded="composerExpanded"
                 :menu-refresh-key="props.menuRefreshKey"
                 :resolve-menu="resolveComposerMenu"
                 :on-skill-trigger-start="props.onSkillTriggerStart"
@@ -399,6 +404,15 @@ defineExpose({focus});
                             </div>
                         </div>
                     </div>
+
+                    <button
+                        class="rounded p-1.5 transition-colors hover:bg-[var(--bg-hover)]"
+                        :class="composerExpanded ? 'bg-[var(--bg-hover)] text-[var(--accent-text)]' : 'text-[var(--text-muted)] hover:text-[var(--text-main)]'"
+                        :title="expandButtonTitle"
+                        @click="composerExpanded = !composerExpanded"
+                    >
+                        <span :class="expandButtonIcon" class="h-3.5 w-3.5"></span>
+                    </button>
 
                     <button
                         class="rounded p-1.5 transition-colors hover:bg-[var(--bg-hover)] disabled:cursor-not-allowed disabled:opacity-50"

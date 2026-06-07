@@ -318,6 +318,11 @@ const PlainSlashCommand = Extension.create<PlainSlashCommandOptions>({
                 pluginKey: plainSlashCommandPluginKey,
                 controller: this.options,
                 contextKind: "command",
+                resolveContext: (query) => ({
+                    kind: "command",
+                    query,
+                    hasPlainTextBeforeTrigger,
+                }),
                 resolveMenuState: (query) => {
                     if (!currentMenuState) {
                         currentMenuState = this.options.resolveMenu({

@@ -173,7 +173,7 @@ const DEFAULT_CHAPTER_ROOT = "manuscript";
 const DEFAULT_WORKSPACE_ROOT = "workspace";
 const CONTENT_NODE_ROOTS = new Set([DEFAULT_CHAPTER_ROOT, DEFAULT_LOREBOOK_ROOT]);
 const HARD_EXCLUDED_DIRS = new Set([".git"]);
-const LOREBOOK_ENTRY_TYPES = new Set(["location", "character", "faction", "item", "rule", "note"]);
+const LOREBOOK_ENTRY_TYPES = new Set(["world", "character", "location", "faction", "item", "event", "system", "instruction", "note", "species", "creature", "organization", "rule"]);
 const MANUSCRIPT_ENTRY_TYPES = new Set(["volume", "chapter"]);
 
 export type WorkspaceIgnoreRule = {

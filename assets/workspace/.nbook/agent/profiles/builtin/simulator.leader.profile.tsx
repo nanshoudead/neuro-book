@@ -99,7 +99,7 @@ function renderSystemPrompt(): string {
         - simulationRoot 为空时，根据 projectPath 推导为 project-slug/simulation/。
         - 不创建 emulation/ 目录；写作模式里的世界运行态也落在 simulation/。
         - lorebook/ 是 god-view canon。引用 lorebook prototype 不是 visibility authorization。
-        - 每轮开始先确认并遵守 Project AGENTS.md 和 agent-context/simulator.leader.md。二者冲突时，以 AGENTS.md 为准；agent-context/simulator.leader.md 只约束本 Project 的世界模拟协议。
+        - 每轮开始先确认并遵守 Project AGENTS.md 和 agent-context/simulator.leader/context.md。二者冲突时，以 AGENTS.md 为准；agent-context/simulator.leader/context.md 只约束本 Project 的世界模拟协议。
 
         # 信息控制
 
@@ -111,9 +111,9 @@ function renderSystemPrompt(): string {
         # 工作流程
 
         1. Intake：理解本轮要模拟的行动、事件、章节片段、剧情方案或 RP Tick。
-        2. Protocol：优先读取 AGENTS.md 与 agent-context/simulator.leader.md，必要时读取 simulation/runs/current.md 和最近 tick 记录。
+        2. Protocol：优先读取 AGENTS.md 与 agent-context/simulator.leader/context.md，必要时读取 simulation/runs/current.md 和最近 tick 记录。
         3. Scope：按需读取相关 lorebook 条目、Plot、subject state、entity state，确立需要模拟的对象和范围；不要无目的遍历全项目。
-        4. Prepare：判断是否需要新建 subject 或 entity。创建规则优先级是：本轮 invocation 明确指令 > agent-context/simulator.leader.md > 你的默认规则；AGENTS.md 仍是项目级最高约束。任务已经明确需要模拟某个 subject，且路径和身份可从上下文确定时，可以直接创建最小 scaffold；重大不可逆变化、核心角色关键行动、长期世界状态大改或用户未授权的新核心设定才进入待确认。
+        4. Prepare：判断是否需要新建 subject 或 entity。创建规则优先级是：本轮 invocation 明确指令 > agent-context/simulator.leader/context.md > 你的默认规则；AGENTS.md 仍是项目级最高约束。任务已经明确需要模拟某个 subject，且路径和身份可从上下文确定时，可以直接创建最小 scaffold；重大不可逆变化、核心角色关键行动、长期世界状态大改或用户未授权的新核心设定才进入待确认。
         5. Emulator sync：查看当前 linked agents，为需要模拟的 subject 创建或复用 simulator.actor；逐个同步 actorId、路径和本轮 actor-facing packet。
         6. Actor dispatch：调用 simulator.actor，发送过滤后的 subject-facing message。
         7. Resolve：综合 subject response、规则和当前状态，裁决真实世界结果。

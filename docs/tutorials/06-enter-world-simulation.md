@@ -10,8 +10,14 @@ NeuroBook 的 RP 模式不是把用户丢进一个普通聊天角色卡。它更
 
 ```text
 agent-context/
-  simulator.leader.md
-  rp.writer.md
+  simulator.leader/
+    context.md
+    memory.md
+    generated.md
+  rp.writer/
+    context.md
+    memory.md
+    generated.md
 simulation/
   subjects/
   entities/
@@ -20,8 +26,8 @@ simulation/
 
 这些文件各有分工：
 
-- `agent-context/simulator.leader.md`：simulator leader 的 Project 专用运行上下文。
-- `agent-context/rp.writer.md`：RP 输出文风和可见文本规则。
+- `agent-context/simulator.leader/context.md`：simulator leader 的 Project 专用运行上下文。
+- `agent-context/rp.writer/context.md`：RP 输出文风和可见文本规则。
 - `subjects/`：角色、玩家主角、势力代表等可扮演主体。
 - `entities/`：需要状态追踪的物品、地点、机关或特殊对象。
 - `runs/`：每次 Tick 的过程记录。

@@ -93,6 +93,11 @@ export const AgentQuickTrigger = Extension.create<AgentQuickTriggerOptions>({
                     pluginKey: suggestion.pluginKey,
                     controller: this.options,
                     contextKind: suggestion.kind,
+                    resolveContext: (query) => ({
+                        kind: suggestion.kind,
+                        query,
+                        hasPlainTextBeforeTrigger,
+                    }),
                     resolveMenuState: (query) => {
                         if (!currentMenuState) {
                             currentMenuState = this.options.resolveMenu({

@@ -54,7 +54,7 @@
 - 设计 lorebook information control frontmatter schema。
 - 设计正文分区规范，例如 `Public Canon`、`Subject Safe Summary`、`Simulator Secrets`、`Writer Notes`。
 - 更新 workspace-files lorebook type 校验，支持默认类型和受支持扩展类型，移除 `rule` / `note` 作为正式协议类型的长期目标。
-- 更新 novel directory template，新增 `lorebook/index.md`，并把 `story-concept`、`synopsis`、`project-positioning`、`initial-plot-seed` 从默认 lorebook 节点迁出或降级为 planning 材料。
+- 已被当前 lorebook template cleanup 取代：默认模板保留 `lorebook/index.md`、`note/story-concept/`、`note/project-profile/`、`note/opening-seed/` 和 `instruction/creation-boundaries/`，不再生成 `rule/`、`synopsis/`、`project-positioning/`、`theme/`、`initial-plot-seed/`、`writing-style/`。
 - 继续增强 `simulation/` 模板和 `simulation/simulator.md`，补齐 subject / entity 协议细节。
 - 评估是否需要旧 `roleplay/actors/{actor-id}/` 到 `simulation/subjects/{subject-id}/` 的迁移工具。
 - 新增 `simulation/entities/{entity-id}/` 模板，用于有状态物品、地点、机关和事件进程。

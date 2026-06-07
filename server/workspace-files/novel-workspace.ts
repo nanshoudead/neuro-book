@@ -39,10 +39,22 @@ const DELETED_MANAGED_SYSTEM_ASSET_PATHS = new Set([
     "templates/project-directory-templates/lorebook/context/leader.default.md",
     "templates/project-directory-templates/lorebook/context/simulator.leader.md",
     "templates/project-directory-templates/lorebook/context/writer.md",
+    "templates/project-directory-templates/agent-context/director.md",
+    "templates/project-directory-templates/agent-context/generated/.gitkeep",
+    "templates/project-directory-templates/agent-context/leader.default.md",
+    "templates/project-directory-templates/agent-context/rp.writer.md",
+    "templates/project-directory-templates/agent-context/simulator.leader.md",
+    "templates/project-directory-templates/agent-context/writer.md",
     "templates/project-directory-templates/simulation/cast.yaml",
     "templates/project-directory-templates/simulation/config.yaml",
     "templates/project-directory-templates/simulation/simulator.md",
     "templates/project-directory-templates/simulation/writer.md",
+    "templates/project-directory-templates/lorebook/rule/writing-style/index.md",
+    "templates/project-directory-templates/lorebook/rule/creation-boundaries/index.md",
+    "templates/project-directory-templates/lorebook/note/project-positioning/index.md",
+    "templates/project-directory-templates/lorebook/note/synopsis/index.md",
+    "templates/project-directory-templates/lorebook/note/theme/index.md",
+    "templates/project-directory-templates/lorebook/note/initial-plot-seed/index.md",
 ]);
 const PROJECT_MANIFEST_FILE = "project.yaml";
 const LEGACY_WORKSPACE_MANIFEST_FILE = "workspace.yaml";

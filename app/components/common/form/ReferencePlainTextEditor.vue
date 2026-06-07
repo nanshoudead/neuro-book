@@ -3,7 +3,7 @@ import {EditorContent, useEditor} from "@tiptap/vue-3";
 import type {Content, Editor} from "@tiptap/core";
 import ReferenceSelectorPopover from "nbook/app/components/common/form/ReferenceSelectorPopover.vue";
 import type {AgentTriggerMenuContext, AgentTriggerMenuState} from "nbook/app/components/novel-ide/agent/trigger-menu";
-import type {AgentSuggestionMenuState} from "nbook/app/components/novel-ide/agent/tiptap/agent-suggestion";
+import {flattenAgentSuggestionItems, type AgentSuggestionMenuState} from "nbook/app/components/novel-ide/agent/tiptap/agent-suggestion";
 import {createPlainReferenceTextExtensions} from "nbook/app/components/common/form/tiptap/plain-reference-text-extensions";
 import {
     parsePlainReferenceInlineContent,
@@ -184,6 +184,10 @@ watch(() => [props.minHeight, props.maxHeight], () => {
     scheduleHeightMeasure();
 });
 
+watch(() => props.menuRefreshKey, () => {
+    refreshActiveMenu();
+});
+
 watch(skillTriggerActive, (active) => {
     if (active && !skillTriggerStarted.value) {
         skillTriggerStarted.value = true;
@@ -248,6 +252,35 @@ function selectMenuItem(itemId: string): void {
 }
 
 /**
+ * 外部数据加载完成后，刷新当前仍打开的 suggestion 菜单。
+ */
+function refreshActiveMenu(): void {
+    const currentState = suggestionMenuState.value;
+    if (!currentState) {
+        return;
+    }
+
+    const menuState = props.resolveMenu({
+        kind: currentState.contextKind,
+        query: currentState.query,
+        hasPlainTextBeforeTrigger: currentState.hasPlainTextBeforeTrigger,
+    });
+    const items = flattenAgentSuggestionItems(menuState.sections);
+    const nextActiveIndex = items.length > 0
+        ? Math.min(items.length - 1, Math.max(0, activeIndex.value))
+        : 0;
+
+    suggestionMenuState.value = {
+        ...currentState,
+        title: menuState.title,
+        prefix: menuState.prefix,
+        sections: menuState.sections,
+        items,
+    };
+    activeIndex.value = nextActiveIndex;
+}
+
+/**
  * 测量内容高度，保持输入框随内容增长。
  */
 function scheduleHeightMeasure(): void {
@@ -286,6 +319,11 @@ function measureHeight(): void {
     const boundedHeight = Math.min(Math.max(wantedHeight, props.minHeight), props.maxHeight);
     heightPx.value = boundedHeight;
     overflowing.value = wantedHeight > props.maxHeight;
+    if (overflowing.value && body.contains(document.activeElement)) {
+        nextTick(() => {
+            body.scrollTop = body.scrollHeight;
+        });
+    }
 }
 
 function insertTextIntoEditor(currentEditor: Editor | null | undefined, text: string): void {
@@ -393,6 +431,7 @@ defineExpose({
 
 :deep(.nb-plain-reference-node) {
     display: inline-flex;
+    margin: 0 0.1rem;
     vertical-align: baseline;
 }
 

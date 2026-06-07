@@ -99,7 +99,7 @@ export const SubjectSimulatorOutputSchema = Type.Object({
  * rp.writer 的实例初始化参数。每轮 writer brief 通过 invoke_agent.message 传入。
  */
 export const RpWriterInputSchema = Type.Object({
-    writerInstructionPath: Type.String({description: "RP writer 提示词素材路径，必须相对于 Agent cwd，例如 project-slug/agent-context/rp.writer.md。"}),
+    writerInstructionPath: Type.String({description: "RP writer 提示词素材路径，必须相对于 Agent cwd，例如 project-slug/agent-context/rp.writer/context.md。"}),
     style: Type.Optional(Type.String({description: "稳定文风偏好。临时 Tick 文风要求应放在 writer brief 中。"})),
     outputRequirements: Type.Optional(Type.Array(Type.String({description: "稳定输出约束，例如人称、篇幅、Markdown 规则。"}), {description: "可选稳定输出约束。"})),
     language: Type.Optional(Type.String({description: "输出语言，例如 zh-CN。默认跟随 writer brief。"})),

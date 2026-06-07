@@ -32,7 +32,7 @@ Old directory migration:
 roleplay/                 -> simulation/
 roleplay/actors/{id}/     -> simulation/subjects/{id}/
 roleplay/playthrough/     -> simulation/runs/
-roleplay/gm.md            -> agent-context/simulator.leader.md
+roleplay/gm.md            -> agent-context/simulator.leader/context.md
 ```
 
 ## Root Files
@@ -45,7 +45,7 @@ roleplay/gm.md            -> agent-context/simulator.leader.md
 
 `actor` is a kind of simulator, not a top-level directory. Character-like simulators live under `simulation/subjects/`.
 
-Profile-specific project guidance lives in `agent-context/`, not in `simulation/`. For example, `simulator.leader` reads `agent-context/simulator.leader.md`, and `rp.writer` reads `agent-context/rp.writer.md`.
+Profile-specific project guidance lives in `agent-context/`, not in `simulation/`. For example, `simulator.leader` reads `agent-context/simulator.leader/context.md`, and `rp.writer` reads `agent-context/rp.writer/context.md`.
 
 ## Runtime Profiles
 
@@ -53,9 +53,9 @@ Current RP / simulation profile contract:
 
 | Profile | Role | Reads | Writes |
 | --- | --- | --- | --- |
-| `simulator.leader` | World simulator leader shared by writing mode and RP. It understands the task or user action, dispatches actor emulators, adjudicates the world, maintains state/entities, builds writer-safe brief and reports the result. | `AGENTS.md`, `agent-context/simulator.leader.md`, recent `simulation/runs/`, subject/entity state, Plot context and god-view lorebook / reference allowed by its context. | Approved subject `state.md`, `simulation/entities/`, necessary `simulation/runs/` and explicit simulation context changes. New subjects/entities should be reported before creation unless the current prompt explicitly grants automatic authority. |
+| `simulator.leader` | World simulator leader shared by writing mode and RP. It understands the task or user action, dispatches actor emulators, adjudicates the world, maintains state/entities, builds writer-safe brief and reports the result. | `AGENTS.md`, `agent-context/simulator.leader/context.md`, recent `simulation/runs/`, subject/entity state, Plot context and god-view lorebook / reference allowed by its context. | Approved subject `state.md`, `simulation/entities/`, necessary `simulation/runs/` and explicit simulation context changes. New subjects/entities should be reported before creation unless the current prompt explicitly grants automatic authority. |
 | `simulator.actor` | Single-subject simulator. It only uses actor-safe context injected by sidecar and the current actor-facing packet to output a character response. | Main run sees actor binding metadata, `<actor_sidecar_context>` and the current actor-facing packet. `actor.context-load` sidecar can read bound `subject.md`, `events.md`, `knowledge.md`, `mind.md`, `state.md` and related actor-safe lorebook context. | Main run does not write files; `actor.memory-save` sidecar may maintain `events.md`, `knowledge.md` and `mind.md`. |
-| `rp.writer` | Tick prose renderer. It turns simulator leader writer brief into user-visible prose. | Bound `agent-context/rp.writer.md` and writer brief; only extra paths explicitly provided by simulator leader. | Normal assistant prose; writes files only when writer brief explicitly specifies an output path. |
+| `rp.writer` | Tick prose renderer. It turns simulator leader writer brief into user-visible prose. | Bound `agent-context/rp.writer/context.md` and writer brief; only extra paths explicitly provided by simulator leader. | Normal assistant prose; writes files only when writer brief explicitly specifies an output path. |
 
 `simulator.leader` must not hand complete `simulation/`, `lorebook/` or `reference/` to actor / writer. It filters god-view context into actor-facing messages or writer briefs.
 

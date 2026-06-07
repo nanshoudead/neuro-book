@@ -97,7 +97,7 @@ describe("RP builtin profiles", () => {
         expect(simulatorLeaderProfile.allowedToolKeys).toContain("bash");
         expect(simulatorLeaderProfile.allowedToolKeys).not.toContain("report_result");
         expect(systemPrompt).toContain("世界模拟主管");
-        expect(systemPrompt).toContain("AGENTS.md 和 agent-context/simulator.leader.md");
+        expect(systemPrompt).toContain("AGENTS.md 和 agent-context/simulator.leader/context.md");
         expect(systemPrompt).toContain("leader.default 和用户入口通常只与你交流");
         expect(systemPrompt).toContain("为需要模拟的 subject 创建或复用 simulator.actor");
         expect(systemPrompt).toContain("最小 subject scaffold");
@@ -287,7 +287,7 @@ describe("RP builtin profiles", () => {
         }
     });
 
-    it("rp.writer 自动注入 agent-context/rp.writer.md，直接输出正文并允许 simulator leader 指定文件工具", async () => {
+    it("rp.writer 自动注入 agent-context/rp.writer/context.md，直接输出正文并允许 simulator leader 指定文件工具", async () => {
         const fixture = await createRoleplayFixture();
         try {
             const prepared = await rpWriterProfile.prepare!({
@@ -300,7 +300,7 @@ describe("RP builtin profiles", () => {
                     planModeActive: false,
                 }),
                 input: {
-                    writerInstructionPath: `${fixture.projectSlug}/agent-context/rp.writer.md`,
+                    writerInstructionPath: `${fixture.projectSlug}/agent-context/rp.writer/context.md`,
                     style: "细腻、轻快、不过度解释。",
                     outputRequirements: ["只输出正文。"],
                     language: "zh-CN",
@@ -381,8 +381,8 @@ async function createRoleplayFixture(): Promise<{workspaceRoot: string; projectS
     await writeFile(join(actorRoot, "knowledge.md"), "她相信主角值得观察，但还不知道世界之心的真名。", "utf-8");
     await writeFile(join(actorRoot, "mind.md"), "她正在判断主角的用意，暂时不想显露紧张。", "utf-8");
     await writeFile(join(actorRoot, "state.md"), "她位于学院区广场边缘，双手空着，状态正常。", "utf-8");
-    await mkdir(join(workspaceRoot, projectSlug, "agent-context"), {recursive: true});
-    await writeFile(join(workspaceRoot, projectSlug, "agent-context", "rp.writer.md"), "正文要保留角色信息差，不泄露 simulator leader 隐藏设定。", "utf-8");
+    await mkdir(join(workspaceRoot, projectSlug, "agent-context", "rp.writer"), {recursive: true});
+    await writeFile(join(workspaceRoot, projectSlug, "agent-context", "rp.writer", "context.md"), "正文要保留角色信息差，不泄露 simulator leader 隐藏设定。", "utf-8");
     return {workspaceRoot, projectSlug};
 }
 

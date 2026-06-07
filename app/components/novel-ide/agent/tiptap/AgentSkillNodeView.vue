@@ -20,6 +20,7 @@ const attrs = computed(() => props.node.attrs as {
 <style scoped>
 .nb-agent-skill-node {
     display: inline-flex;
+    margin: 0 0.1rem;
     vertical-align: baseline;
 }
 </style>
