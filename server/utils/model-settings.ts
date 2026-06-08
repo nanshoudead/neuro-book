@@ -58,8 +58,8 @@ export type AgentProfileSettingDefinition = {
 
 const DEFAULT_MODEL_DISCOVERY_TIMEOUT_MS = 30_000;
 const DEFAULT_MODEL_SMOKE_TIMEOUT_MS = 30_000;
-const DEFAULT_CONTEXT_WINDOW = 128_000;
-const DEFAULT_MAX_TOKENS = 16_384;
+const DEFAULT_CONTEXT_WINDOW = 256_000;
+const DEFAULT_MAX_TOKENS = 256_000;
 const XIAOMI_TOKEN_PLAN_COMPAT: NonNullable<Model<"openai-completions">["compat"]> = {
     supportsDeveloperRole: false,
     maxTokensField: "max_tokens",

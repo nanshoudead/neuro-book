@@ -1737,6 +1737,21 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
     };
 
     /**
+     * 确保至少存在一个默认 Project Workspace，并刷新本地小说列表。
+     */
+    const ensureDefaultNovel = async (): Promise<NovelListItemDto[]> => {
+        let list = await loadNovels();
+        if (list.length > 0) {
+            return list;
+        }
+
+        const novelId = await createDefaultWorkspace();
+        currentNovelId.value = novelId;
+        list = await loadNovels();
+        return list;
+    };
+
+    /**
      * 读取并应用指定章节详情。
      */
     const loadChapterDetail = async (chapterId: string): Promise<ChapterDetailDto | null> => {
@@ -2043,12 +2058,7 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
         loadingWorkspace.value = true;
 
         try {
-            let list = await loadNovels();
-            if (list.length === 0) {
-                const novelId = await createDefaultWorkspace();
-                currentNovelId.value = novelId;
-                list = await loadNovels();
-            }
+            const list = await ensureDefaultNovel();
 
             if (!list.length) {
                 clearActiveChapter();
@@ -2187,6 +2197,7 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
         createWorkspaceDirectory,
         createWorkspaceFile,
         createDefaultWorkspace,
+        ensureDefaultNovel,
         createNovel,
         creatingChapterTree,
         currentNovel,

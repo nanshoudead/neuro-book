@@ -52,12 +52,13 @@ bun .output/server/scripts/deploy/product-start.mjs
 - `product/.env` 由 `product:stage` 生成，包含 `NUXT_SESSION_PASSWORD` 和 SQLite 默认环境；`product:start` / `product-start.mjs` 会自动加载它。
 - `product/` 保留必要运行资产、脚本、SQLite migrations、`assets/workspace` 和 TSX Profile Workbench 编译所需 runtime source 子集。
 - 产品脚本入口使用 `product/.output/server/scripts/**`，从 Product Root 运行，依赖从 `.output/server/node_modules` 解析。
+- 通用 `.output` runner 必须包含 `scripts/deploy/product-start.mjs`、`scripts/build/prepare-system-assets.ts`、SQLite migration 和 CLI 脚本；`nuxt:build` 的 Nitro 后处理会复制这些脚本并做缺失门禁。
 - `product:stage` 会在 Product Root 内重新编译系统 profiles，使 `.compiled` artifact 绑定产品内 `.output/server/node_modules`，而不是开发机根 `node_modules`。
 - Profile Workbench 后端 worker 的 `tsx/esm/api` 和 `tsx` loader 必须通过 `.output/server/index.mjs` 创建的 runtime require 解析到 `.output/server/node_modules`；Product Runtime 不允许从 Product Root 裸 import 或回退到仓库根 `node_modules`。
 - TSX profile artifact 会 bundle 第三方包；用户 profile 在 product 内编译后运行时不需要产品根 `node_modules`。
 - `product/assets/workspace/.nbook/agent/scripts/workspace.ts` 是 launcher，真实执行入口是 `product/.output/server/scripts/agent/workspace.ts`；`agent/bin/workspace(.cmd)`、`profile(.cmd)`、`variable(.cmd)` 也遵循同一 product/source 双入口解析。Product 分支使用 Bun 直接执行 `.output/server/scripts/**`。
 - `.output/server/node_modules/nbook` 是产品内 runtime source 包，负责解析脚本和 worker 中的 `nbook/*` 导入，不回退到开发机源码或根 `node_modules`。
-- `release-meta.json` 是产品版本接口唯一读取的构建期版本元数据，`versionKind` 固定为 `release`，构建来源记录在 `sourceKind`。
+- `release-meta.json` 是产品版本接口优先读取的构建期版本元数据；通用 `.output` runner 无根 `node_modules` 时可回退到 `.output/server/release-meta.json`，`versionKind` 固定为 `release`，构建来源记录在 `sourceKind`。
 
 当前本地验收已覆盖 `product/` 隔离运行和 Windows Product Portable zip 解压运行：避开仓库父级源码和根 `node_modules` 后，通过了 profile status/compile、Profile Workbench HTTP `/api/agent/profiles/compile` dry-run、HTTP `/api/agent/profiles/compile-all`、workspace project create/validate、workspace node validate、SQLite migration、管理员创建、Windows Launcher 启动、Windows Launcher 自动更新 fake-release smoke、Product/zip 内 agent bin wrapper、`product:start` 启动、登录和 `/api/app/version` release metadata smoke。
 
@@ -149,7 +150,7 @@ ghcr.io/notnotype/neuro-book:latest
 
 `ghcr` 模式仍会把 `workspace/` 挂载为持久目录。Provider key、管理员用户、Project Workspace 和 SQLite 数据都保存在本机运行状态中。
 
-GHCR app 镜像保留源码目录用于排障，但运行合同遵循 Product Docker：final runner 使用 Bun runtime，服务入口、SQLite migration 和管理员脚本都从预构建 `.output/server/scripts/**` 运行，依赖由 `.output/server/node_modules` Nitro vendor 承载。部署机和容器启动时不执行 `bun install`，也不要求根 `node_modules`。
+GHCR app 镜像保留源码目录用于排障，但运行合同遵循 Product Docker：final runner 使用 Bun runtime，服务入口、启动前 user-assets 同步、SQLite migration 和管理员脚本都从预构建 `.output/server/scripts/**` 运行，依赖由 `.output/server/node_modules` Nitro vendor 承载。部署机和容器启动时不执行 `bun install`，也不要求根 `node_modules`。GHCR final runner 可不带根 `release-meta.json`；Product Runtime 判定和版本接口会在无根 `node_modules` 时读取 `.output/server/release-meta.json`。
 
 ## Source Docker
 

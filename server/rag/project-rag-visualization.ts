@@ -1,7 +1,8 @@
 import {readFileSync, statSync} from "node:fs";
-import {readFile, readdir, stat, writeFile} from "node:fs/promises";
+import {readFile, readdir, rm, stat, writeFile} from "node:fs/promises";
 import {basename, isAbsolute, join, relative, resolve} from "node:path";
 import {createError} from "h3";
+import {loadEffectiveConfigForAgentRuntime} from "nbook/server/config/config-service";
 import {
     parseSubjectEvent,
     parseSubjectEventsJsonl,
@@ -17,6 +18,7 @@ import {
     markSubjectRagDirty,
     rebuildSubjectRag,
     searchSubjectRag,
+    SUBJECT_RAG_SCHEMA_VERSION,
     type SubjectPaths,
     type SubjectRagSourceType,
 } from "nbook/server/agent/tools/subject-rag-index";
@@ -26,7 +28,11 @@ import type {
     ProjectRagEventDeleteRequestDto,
     ProjectRagEventReorderRequestDto,
     ProjectRagEventWriteRequestDto,
+    ProjectRagDebugRequestDto,
+    ProjectRagDebugResultDto,
     ProjectRagIndexStatusDto,
+    ProjectRagInspectorDto,
+    ProjectRagInspectorRequestDto,
     ProjectRagMemoryDeleteRequestDto,
     ProjectRagMemoryWriteRequestDto,
     ProjectRagOverviewDto,
@@ -45,27 +51,40 @@ type SourceError = {
 };
 
 const RAG_SOURCES: SubjectRagSourceType[] = ["events", "memory"];
+const INSPECTOR_VECTOR_PREVIEW_DIMENSIONS = 8;
+const DEFAULT_INSPECTOR_LIMIT = 200;
 
-type ReadonlySqliteDatabase = {
+type ProjectRagSqliteDatabase = {
+    run(sql: string, ...params: unknown[]): unknown;
     query(sql: string): {
         all(...params: unknown[]): unknown[];
+        get(...params: unknown[]): unknown;
     };
+    loadExtension(path: string): void;
     close(): void;
 };
 
 type BunSqliteModule = {
-    Database: new (path: string, options?: {readonly?: boolean}) => ReadonlySqliteDatabase;
+    Database: new (path: string, options?: {readonly?: boolean}) => ProjectRagSqliteDatabase;
 };
 
 type NodeSqliteDatabase = {
+    exec(sql: string): void;
     prepare(sql: string): {
         all(...params: unknown[]): unknown[];
+        get(...params: unknown[]): unknown;
+        run(...params: unknown[]): unknown;
     };
+    loadExtension(path: string): void;
     close(): void;
 };
 
 type NodeSqliteModule = {
-    DatabaseSync: new (path: string, options?: {readOnly?: boolean}) => NodeSqliteDatabase;
+    DatabaseSync: new (path: string, options?: {readOnly?: boolean; allowExtension?: boolean}) => NodeSqliteDatabase;
+};
+
+type SqliteVecModule = {
+    load(db: ProjectRagSqliteDatabase): void;
 };
 
 /**
@@ -170,6 +189,96 @@ export async function rebuildProjectSubjectRag(projectPathInput: string, input: 
         rebuiltSubjects,
         skippedSubjects,
         results,
+    };
+}
+
+/**
+ * 读取 Project RAG Inspector 所需的索引、chunk 和向量预览信息。
+ */
+export async function readProjectRagInspector(projectPathInput: string, input: ProjectRagInspectorRequestDto): Promise<ProjectRagInspectorDto> {
+    const project = resolveProject(projectPathInput);
+    const sourceFilter = input.sources?.length ? uniqueSources(input.sources) : RAG_SOURCES;
+    const limit = input.limit ?? DEFAULT_INSPECTOR_LIMIT;
+    const subjects = await Promise.all((await listSubjectPaths(project.root)).map((subjectPath) => readSubjectSummary(project, subjectPath)));
+    const selectedSubjectPath = resolveInspectorSubjectPath(subjects, input.subjectPath);
+    const embedding = await readEmbeddingSnapshot(project.projectPath);
+    const dbPath = resolveRagDbPath(project.root);
+    const dbExists = await fileExists(dbPath);
+    const dbSnapshot = dbExists
+        ? await readInspectorDbSnapshot(dbPath, selectedSubjectPath ? resolveSubject(project, selectedSubjectPath) : null, sourceFilter, limit)
+        : createEmptyInspectorDbSnapshot();
+    return {
+        projectPath: project.projectPath,
+        selectedSubjectPath,
+        sourceFilter,
+        limit,
+        embedding,
+        index: {
+            ...dbSnapshot.index,
+            dbExists,
+            metaMatchesEffectiveConfig: resolveMetaMatchesEffectiveConfig(dbSnapshot.index, embedding),
+        },
+        subjects,
+        selectedSubject: selectedSubjectPath
+            ? {
+                subjectPath: selectedSubjectPath,
+                subjectId: basename(selectedSubjectPath),
+                sourceStatuses: subjects.find((subject) => subject.subjectPath === selectedSubjectPath)?.sourceStatuses ?? [],
+                chunkSourceCounts: dbSnapshot.chunkSourceCounts,
+                chunks: dbSnapshot.chunks,
+                chunksTruncated: dbSnapshot.chunksTruncated,
+            }
+            : null,
+    };
+}
+
+/**
+ * 执行 RAG Inspector 的调试操作。只影响可重建缓存或 dirty state。
+ */
+export async function debugProjectRag(projectPathInput: string, input: ProjectRagDebugRequestDto): Promise<ProjectRagDebugResultDto> {
+    const project = resolveProject(projectPathInput);
+    if (input.action === "mark-dirty") {
+        const subjectPaths = input.subjectPath ? [input.subjectPath] : await listSubjectPaths(project.root);
+        const sources = input.sources?.length ? uniqueSources(input.sources) : RAG_SOURCES;
+        for (const subjectPath of subjectPaths) {
+            const subject = resolveSubject(project, subjectPath);
+            for (const source of sources) {
+                await markSubjectRagDirty(subject.paths, source, readTextSync(source === "events" ? subject.paths.eventsPath : subject.paths.memoryPath));
+            }
+        }
+        return {
+            projectPath: project.projectPath,
+            action: input.action,
+            message: `已标记 ${String(subjectPaths.length)} 个 subject 的 ${sources.join(", ")} 待索引。`,
+        };
+    }
+
+    if (input.action === "delete-subject-index") {
+        const subject = resolveSubject(project, input.subjectPath);
+        const deleted = await deleteSubjectIndexRows(resolveRagDbPath(project.root), subject.paths.absolutePath);
+        return {
+            projectPath: project.projectPath,
+            action: input.action,
+            message: `已删除 ${subject.subjectId} 的 ${String(deleted)} 条索引缓存行。`,
+        };
+    }
+
+    if (input.action === "clear-index-cache") {
+        await clearRagIndexCache(project.root);
+        return {
+            projectPath: project.projectPath,
+            action: input.action,
+            message: "已清空 RAG SQLite 缓存。索引不会自动恢复，请手动重建或执行搜索触发重建。",
+        };
+    }
+
+    await clearRagIndexCache(project.root);
+    const rebuild = await rebuildProjectSubjectRag(project.projectPath, {subjectPath: input.subjectPath});
+    return {
+        projectPath: project.projectPath,
+        action: input.action,
+        message: "已清空 RAG SQLite 缓存并执行重建。",
+        rebuild,
     };
 }
 
@@ -289,6 +398,47 @@ function resolveProjectSubject(projectPathInput: string, subjectPathInput: strin
     };
 }
 
+async function readEmbeddingSnapshot(projectPath: string): Promise<ProjectRagInspectorDto["embedding"]> {
+    const config = await loadEffectiveConfigForAgentRuntime({
+        workspaceRoot: WORKSPACE_CONTAINER_ROOT,
+        projectPath,
+    });
+    const embedding = config.embedding;
+    return {
+        enabled: embedding.enabled,
+        provider: embedding.provider,
+        model: embedding.model,
+        dimensions: embedding.dimensions,
+        baseURLConfigured: Boolean(embedding.baseURL.trim()),
+        baseURLLabel: sanitizeBaseUrlLabel(embedding.baseURL),
+        apiKeyConfigured: Boolean(embedding.apiKey.trim()),
+    };
+}
+
+function sanitizeBaseUrlLabel(value: string): string | null {
+    const trimmed = value.trim();
+    if (!trimmed) {
+        return null;
+    }
+    try {
+        const parsed = new URL(trimmed);
+        return parsed.origin;
+    } catch {
+        return trimmed.replace(/[?#].*$/u, "").replace(/\/+$/u, "") || null;
+    }
+}
+
+function resolveInspectorSubjectPath(subjects: ProjectRagSubjectSummaryDto[], subjectPath: string | undefined): string | null {
+    if (subjectPath && subjects.some((subject) => subject.subjectPath === subjectPath)) {
+        return subjectPath;
+    }
+    return subjects.find((subject) => subject.errors.length === 0)?.subjectPath ?? subjects[0]?.subjectPath ?? null;
+}
+
+function uniqueSources(sources: SubjectRagSourceType[]): SubjectRagSourceType[] {
+    return RAG_SOURCES.filter((source) => sources.includes(source));
+}
+
 function resolveProject(projectPathInput: string): {
     projectPath: string;
     root: string;
@@ -335,6 +485,10 @@ function normalizeSubjectPath(value: string): string {
         throwBadRequest("subjectPath 不能包含 . 或 ..");
     }
     return parts.join("/");
+}
+
+function resolveRagDbPath(projectRoot: string): string {
+    return join(projectRoot, ".nbook", "subject-rag.sqlite");
 }
 
 function assertSubjectDirectoryExists(absolutePath: string): void {
@@ -458,7 +612,7 @@ async function writeMemoriesAndMarkDirty(subject: SubjectPaths, memories: Subjec
 }
 
 async function readSourceStatuses(projectRoot: string, subject: SubjectPaths): Promise<ProjectRagSourceStatusDto[]> {
-    const dbPath = join(projectRoot, ".nbook", "subject-rag.sqlite");
+    const dbPath = resolveRagDbPath(projectRoot);
     const rows = await readRagSourceRows(dbPath, subject.absolutePath);
     const dirtyState = await readDirtyState(subject.ragStatePath);
     return RAG_SOURCES.map((source) => {
@@ -479,6 +633,263 @@ async function readSourceStatuses(projectRoot: string, subject: SubjectPaths): P
     });
 }
 
+function createEmptyInspectorDbSnapshot(): {
+    index: Omit<ProjectRagInspectorDto["index"], "dbExists" | "metaMatchesEffectiveConfig">;
+    chunkSourceCounts: NonNullable<ProjectRagInspectorDto["selectedSubject"]>["chunkSourceCounts"];
+    chunks: NonNullable<ProjectRagInspectorDto["selectedSubject"]>["chunks"];
+    chunksTruncated: boolean;
+} {
+    return {
+        index: {
+            schemaVersion: null,
+            embeddingProvider: null,
+            embeddingModel: null,
+            embeddingDimensions: null,
+            readError: null,
+            sourceCount: 0,
+            chunkCount: 0,
+            vectorCount: 0,
+        },
+        chunkSourceCounts: {events: 0, memory: 0},
+        chunks: [],
+        chunksTruncated: false,
+    };
+}
+
+async function readInspectorDbSnapshot(
+    dbPath: string,
+    subject: ReturnType<typeof resolveSubject> | null,
+    sources: SubjectRagSourceType[],
+    limit: 100 | 200 | 500,
+): Promise<ReturnType<typeof createEmptyInspectorDbSnapshot>> {
+    let db: ProjectRagSqliteDatabase | null = null;
+    try {
+        db = await openProjectRagSqliteDatabase(dbPath, {readonly: true, loadVec: true});
+        const index = {
+            schemaVersion: readMetaValue(db, "schemaVersion"),
+            embeddingProvider: readMetaValue(db, "embedding.provider"),
+            embeddingModel: readMetaValue(db, "embedding.model"),
+            embeddingDimensions: toPositiveIntegerOrNull(readMetaValue(db, "embedding.dimensions")),
+            sourceCount: readCount(db, "SELECT COUNT(*) AS count FROM subject_rag_sources"),
+            chunkCount: readCount(db, "SELECT COUNT(*) AS count FROM subject_rag_chunks"),
+            vectorCount: readCount(db, "SELECT COUNT(*) AS count FROM subject_rag_vec"),
+            readError: null,
+        };
+        if (!subject) {
+            return {
+                index,
+                chunkSourceCounts: {events: 0, memory: 0},
+                chunks: [],
+                chunksTruncated: false,
+            };
+        }
+        const chunkSourceCounts = safeReadInspectorChunkSourceCounts(db, subject.paths.absolutePath);
+        const rows = safeReadInspectorChunkRows(db, subject.paths.absolutePath, sources, limit + 1);
+        return {
+            index,
+            chunkSourceCounts,
+            chunks: rows.slice(0, limit).map((row) => toInspectorChunk(row)),
+            chunksTruncated: rows.length > limit,
+        };
+    } catch (error) {
+        const snapshot = createEmptyInspectorDbSnapshot();
+        return {
+            ...snapshot,
+            index: {
+                ...snapshot.index,
+                readError: errorMessage(error),
+            },
+        };
+    } finally {
+        db?.close();
+    }
+}
+
+function safeReadInspectorChunkSourceCounts(
+    db: ProjectRagSqliteDatabase,
+    subjectPath: string,
+): NonNullable<ProjectRagInspectorDto["selectedSubject"]>["chunkSourceCounts"] {
+    try {
+        const rows = db.query(`
+            SELECT source_type AS source, COUNT(*) AS count
+            FROM subject_rag_chunks
+            WHERE subject_path = ?
+            GROUP BY source_type
+        `).all(subjectPath) as Array<{source: SubjectRagSourceType; count: number | bigint}>;
+        return rows.reduce<NonNullable<ProjectRagInspectorDto["selectedSubject"]>["chunkSourceCounts"]>((counts, row) => ({
+            ...counts,
+            [row.source]: Number(row.count),
+        }), {events: 0, memory: 0});
+    } catch {
+        return {events: 0, memory: 0};
+    }
+}
+
+function safeReadInspectorChunkRows(
+    db: ProjectRagSqliteDatabase,
+    subjectPath: string,
+    sources: SubjectRagSourceType[],
+    limit: number,
+): InspectorChunkRow[] {
+    try {
+        return readInspectorChunkRows(db, subjectPath, sources, limit, readSubjectRagChunkColumns(db));
+    } catch {
+        return [];
+    }
+}
+
+function readMetaValue(db: ProjectRagSqliteDatabase, key: string): string | null {
+    const row = db.query("SELECT value FROM subject_rag_meta WHERE key = ?").get(key) as {value: string} | null;
+    return row?.value ?? null;
+}
+
+function readCount(db: ProjectRagSqliteDatabase, sql: string): number {
+    const row = db.query(sql).get() as {count: number | bigint} | null;
+    return Number(row?.count ?? 0);
+}
+
+type InspectorChunkRow = {
+    id: number;
+    source: SubjectRagSourceType;
+    sourcePath: string;
+    sourceKey: string;
+    chunkIndex: number;
+    topic: string | null;
+    tick: string | null;
+    time: string | null;
+    text: string;
+    contentHash: string;
+    createdAt: string;
+    embeddingProvider: string | null;
+    embeddingModel: string | null;
+    embeddingDimensions: number | null;
+    embeddingIndexedAt: string | null;
+    vectorJson: string | null;
+};
+
+type SubjectRagChunkColumns = {
+    embeddingProvider: boolean;
+    embeddingModel: boolean;
+    embeddingDimensions: boolean;
+    embeddingIndexedAt: boolean;
+};
+
+function readSubjectRagChunkColumns(db: ProjectRagSqliteDatabase): SubjectRagChunkColumns {
+    const rows = db.query("PRAGMA table_info(subject_rag_chunks)").all() as Array<{name: string}>;
+    const names = new Set(rows.map((row) => row.name));
+    return {
+        embeddingProvider: names.has("embedding_provider"),
+        embeddingModel: names.has("embedding_model"),
+        embeddingDimensions: names.has("embedding_dimensions"),
+        embeddingIndexedAt: names.has("embedding_indexed_at"),
+    };
+}
+
+function readInspectorChunkRows(
+    db: ProjectRagSqliteDatabase,
+    subjectPath: string,
+    sources: SubjectRagSourceType[],
+    limit: number,
+    columns: SubjectRagChunkColumns,
+): InspectorChunkRow[] {
+    const placeholders = sources.map(() => "?").join(", ");
+    return db.query(`
+        SELECT
+            c.id,
+            c.source_type AS source,
+            c.source_path AS sourcePath,
+            c.source_key AS sourceKey,
+            c.chunk_index AS chunkIndex,
+            c.topic,
+            c.tick,
+            c.time,
+            c.text,
+            c.content_hash AS contentHash,
+            c.created_at AS createdAt,
+            ${columns.embeddingProvider ? "c.embedding_provider" : "NULL"} AS embeddingProvider,
+            ${columns.embeddingModel ? "c.embedding_model" : "NULL"} AS embeddingModel,
+            ${columns.embeddingDimensions ? "c.embedding_dimensions" : "NULL"} AS embeddingDimensions,
+            ${columns.embeddingIndexedAt ? "c.embedding_indexed_at" : "NULL"} AS embeddingIndexedAt,
+            vec_to_json(v.embedding) AS vectorJson
+        FROM subject_rag_chunks c
+        LEFT JOIN subject_rag_vec v ON v.rowid = c.id
+        WHERE c.subject_path = ?
+          AND c.source_type IN (${placeholders})
+        ORDER BY c.source_type, c.source_key, c.chunk_index, c.id
+        LIMIT ?
+    `).all(subjectPath, ...sources, limit) as InspectorChunkRow[];
+}
+
+function toInspectorChunk(row: InspectorChunkRow): NonNullable<ProjectRagInspectorDto["selectedSubject"]>["chunks"][number] {
+    const vector = parseVectorPreview(row.vectorJson);
+    return {
+        id: Number(row.id),
+        source: row.source,
+        sourcePath: row.sourcePath,
+        sourceKey: row.sourceKey,
+        chunkIndex: Number(row.chunkIndex),
+        topic: row.topic,
+        tick: row.tick,
+        time: row.time,
+        text: row.text,
+        contentHash: row.contentHash,
+        createdAt: row.createdAt,
+        vector: {
+            exists: Boolean(row.vectorJson),
+            dimensions: vector.dimensions,
+            preview: vector.preview,
+            previewDimensions: vector.preview.length,
+            embeddingProvider: row.embeddingProvider,
+            embeddingModel: row.embeddingModel,
+            embeddingDimensions: row.embeddingDimensions === null ? null : Number(row.embeddingDimensions),
+            embeddingIndexedAt: row.embeddingIndexedAt,
+        },
+    };
+}
+
+function parseVectorPreview(value: string | null): {dimensions: number | null; preview: number[]} {
+    if (!value) {
+        return {dimensions: null, preview: []};
+    }
+    try {
+        const parsed = JSON.parse(value) as unknown;
+        if (!Array.isArray(parsed)) {
+            return {dimensions: null, preview: []};
+        }
+        const numbers = parsed.filter((item): item is number => typeof item === "number" && Number.isFinite(item));
+        return {
+            dimensions: numbers.length,
+            preview: numbers.slice(0, INSPECTOR_VECTOR_PREVIEW_DIMENSIONS),
+        };
+    } catch {
+        return {dimensions: null, preview: []};
+    }
+}
+
+function resolveMetaMatchesEffectiveConfig(
+    index: Omit<ProjectRagInspectorDto["index"], "dbExists" | "metaMatchesEffectiveConfig">,
+    embedding: ProjectRagInspectorDto["embedding"],
+): boolean | null {
+    if (!index.schemaVersion || !index.embeddingProvider || !index.embeddingModel || !index.embeddingDimensions) {
+        return null;
+    }
+    if (!embedding.enabled || !embedding.model || !embedding.dimensions) {
+        return false;
+    }
+    return index.schemaVersion === SUBJECT_RAG_SCHEMA_VERSION
+        && index.embeddingProvider === embedding.provider
+        && index.embeddingModel === embedding.model
+        && index.embeddingDimensions === embedding.dimensions;
+}
+
+function toPositiveIntegerOrNull(value: string | null): number | null {
+    if (!value) {
+        return null;
+    }
+    const parsed = Number(value);
+    return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+}
+
 async function readRagSourceRows(dbPath: string, subjectPath: string): Promise<Array<{
     sourceType: SubjectRagSourceType;
     sourceHash: string;
@@ -495,7 +906,7 @@ async function readRagSourceRows(dbPath: string, subjectPath: string): Promise<A
         }
         throw error;
     }
-    const db = await openReadonlySqliteDatabase(dbPath);
+    const db = await openProjectRagSqliteDatabase(dbPath, {readonly: true, loadVec: false});
     try {
         return db.query(`
             SELECT
@@ -522,28 +933,92 @@ async function readRagSourceRows(dbPath: string, subjectPath: string): Promise<A
     }
 }
 
-async function openReadonlySqliteDatabase(dbPath: string): Promise<ReadonlySqliteDatabase> {
+async function deleteSubjectIndexRows(dbPath: string, subjectPath: string): Promise<number> {
+    if (!await fileExists(dbPath)) {
+        return 0;
+    }
+    const db = await openProjectRagSqliteDatabase(dbPath, {readonly: false, loadVec: true});
+    try {
+        const sourceRows = db.query("SELECT id FROM subject_rag_sources WHERE subject_path = ?").all(subjectPath) as Array<{id: number}>;
+        for (const row of sourceRows) {
+            db.run("DELETE FROM subject_rag_vec WHERE rowid IN (SELECT id FROM subject_rag_chunks WHERE source_id = ?)", row.id);
+            db.run("DELETE FROM subject_rag_chunks WHERE source_id = ?", row.id);
+            db.run("DELETE FROM subject_rag_sources WHERE id = ?", row.id);
+        }
+        return sourceRows.length;
+    } finally {
+        db.close();
+    }
+}
+
+async function clearRagIndexCache(projectRoot: string): Promise<void> {
+    const dbPath = resolveRagDbPath(projectRoot);
+    await Promise.all([
+        rm(dbPath, {force: true}),
+        rm(`${dbPath}-wal`, {force: true}),
+        rm(`${dbPath}-shm`, {force: true}),
+    ]);
+}
+
+async function openProjectRagSqliteDatabase(dbPath: string, options: {readonly: boolean; loadVec: boolean}): Promise<ProjectRagSqliteDatabase> {
     if ("Bun" in globalThis) {
         const sqliteSpecifier = "bun:sqlite";
         const sqlite = await import(sqliteSpecifier) as BunSqliteModule;
-        return new sqlite.Database(dbPath, {readonly: true});
+        const db = new sqlite.Database(dbPath, {readonly: options.readonly});
+        if (options.loadVec) {
+            await loadSqliteVec(db);
+        }
+        return db;
     }
     const sqliteSpecifier = "node:sqlite";
     const sqlite = await import(sqliteSpecifier) as unknown as NodeSqliteModule;
-    const db = new sqlite.DatabaseSync(dbPath, {readOnly: true});
+    const db = new sqlite.DatabaseSync(dbPath, {readOnly: options.readonly, allowExtension: options.loadVec});
+    const wrapped = wrapNodeSqliteDatabase(db);
+    if (options.loadVec) {
+        await loadSqliteVec(wrapped);
+    }
+    return wrapped;
+}
+
+function wrapNodeSqliteDatabase(db: NodeSqliteDatabase): ProjectRagSqliteDatabase {
     return {
+        run(sql, ...params) {
+            if (params.length === 0) {
+                db.exec(sql);
+                return undefined;
+            }
+            return db.prepare(sql).run(...params.map(normalizeNodeSqliteParam));
+        },
         query(sql) {
             const statement = db.prepare(sql);
             return {
                 all(...params) {
-                    return statement.all(...params);
+                    return statement.all(...params.map(normalizeNodeSqliteParam));
+                },
+                get(...params) {
+                    return statement.get(...params.map(normalizeNodeSqliteParam));
                 },
             };
+        },
+        loadExtension(path) {
+            db.loadExtension(path);
         },
         close() {
             db.close();
         },
     };
+}
+
+function normalizeNodeSqliteParam(value: unknown): unknown {
+    if (typeof value === "number" && Number.isSafeInteger(value)) {
+        return BigInt(value);
+    }
+    return value;
+}
+
+async function loadSqliteVec(db: ProjectRagSqliteDatabase): Promise<void> {
+    const sqliteVec = await import("sqlite-vec") as unknown as SqliteVecModule;
+    sqliteVec.load(db);
 }
 
 function resolveIndexStatus(row: Awaited<ReturnType<typeof readRagSourceRows>>[number] | undefined, dirty: boolean): ProjectRagIndexStatusDto {

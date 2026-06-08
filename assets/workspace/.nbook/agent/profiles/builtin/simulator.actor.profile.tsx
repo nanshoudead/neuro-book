@@ -67,6 +67,7 @@ const actorContextLoadPass: SidecarProfilePass<Input, ActorContextLoadSidecarDat
         - 你可以读取当前 subject 自己的 subject.md、mind.md、state.md。
         - 调用 subject_rag_search 时，subjectPath 必须使用上面的 subjectPath，不要把 eventsPath 或 memoryPath 当作 subjectPath。
         - subject_rag_search 必须显式指定且只能指定一个 sources 值：["events"] 或 ["memory"]。如果需要两层记忆，请分别调用两次，不要一次同时搜索 events 和 memory。
+        - subject_rag_search 第一版只使用 limit 作为可选查询调参；不要传 score、时间范围、tick 范围或内容截断参数。
         - 你应优先调用 subject_rag_search 分别检索当前 subject 的 events.jsonl 与 memory.jsonl，而不是直接读取完整 events.jsonl / memory.jsonl。
         - subject_rag_search 只做粗召回；你负责 rerank、去重、过滤和压缩。
         - 如果 subject_rag_search 因 embedding 未配置、索引维度变化或其他 RAG 错误失败，不要退回读取完整 events.jsonl / memory.jsonl，也不要关键词 fallback；如实报告失败原因。
@@ -160,6 +161,7 @@ export default defineAgentProfile({
     inputSchema: InputSchema,
     outputSchema: OutputSchema,
     allowedToolKeys,
+    mainRunAllowedToolKeys: ["report_result"],
     compaction: {},
     sidecars: [
         actorContextLoadPass,
@@ -201,7 +203,7 @@ function renderSystemPrompt(input: Input, profileKey: string): string {
             - 你只知道 <actor_sidecar_context>、当前 user message 中的戏内标签，以及上级模拟器明确给你的可感知信息。
             - 你看不到 subject.md、events.jsonl、memory.jsonl、mind.md、state.md 原文；这些只由 sidecar 过滤后注入。
             - 你不能把隐藏真相、调度方推理、其他角色私密想法、未注入的 lorebook 设定当成自己知道的事实。
-            - 主扮演阶段不要调用 read、write 或 edit；文件维护由 actor.context-load / actor.memory-save 旁路处理。
+            - 主扮演阶段实际只能执行 report_result；不要调用 read、write、edit、subject_rag_search、subject_event_append 或 memory_bio，文件维护由 actor.context-load / actor.memory-save 旁路处理。
         </actor_context_contract>
 
         <message_tags>

@@ -12,6 +12,7 @@ import NovelIdeSidebar from "nbook/app/components/novel-ide/NovelIdeSidebar.vue"
 import NovelIdeSettingsDialog from "nbook/app/components/novel-ide/NovelIdeSettingsDialog.vue";
 import NovelIdeToolPanel from "nbook/app/components/novel-ide/NovelIdeToolPanel.vue";
 import NovelPromptBar from "nbook/app/components/novel-ide/NovelPromptBar.vue";
+import NovelRagInspectorDialog from "nbook/app/components/novel-ide/rag/NovelRagInspectorDialog.vue";
 import WorkspaceFilePanel from "nbook/app/components/novel-ide/workspace/WorkspaceFilePanel.vue";
 import NovelBookshelfDialog from "nbook/app/components/novel-ide/NovelBookshelfDialog.vue";
 import UserProfileWorkbenchDialog from "nbook/app/components/profile-template-editor/UserProfileWorkbenchDialog.vue";
@@ -66,6 +67,7 @@ const themeHostRef = ref<HTMLElement | null>(null);
 const currentUser = ref<AuthSessionDto["user"]>(null);
 const bookshelfOpen = ref(false);
 const settingsDialogOpen = ref(false);
+const ragInspectorOpen = ref(false);
 const profileWorkbenchOpen = ref(false);
 const frontmatterProfileKind = ref<FrontmatterProfileKind | null>(null);
 const agentStudioFileTreeOpen = ref(false);
@@ -1555,12 +1557,14 @@ onBeforeUnmount(() => {
             @toggle-agent="isAgentMode ? toggleAgentModeStudio() : rightPanelOpen = !rightPanelOpen"
             @open-bookshelf="bookshelfOpen = true"
             @open-plot-workbench="openPlotWorkbench"
+            @open-rag-inspector="ragInspectorOpen = true"
             @open-user-assets="openUserAssets"
             @open-profile-workbench="profileWorkbenchOpen = true"
             @switch-novel="handleSwitchNovel"
             @open-admin="void openAdmin()"
             @logout="void logout()"
         />
+        <NovelRagInspectorDialog v-if="!isUserAssetsWorkspace" v-model="ragInspectorOpen" :project-path="currentNovelId" />
 
         <div class="flex min-h-0 flex-1 overflow-hidden">
             <NovelIdeSidebar class="ide-sidebar" :active-tab="displaySidebarActiveTab" :agent-mode="isAgentMode" :user-assets-mode="isUserAssetsWorkspace" @toggle-tab="handleSidebarToggle" @collapse="activeLeftTab = null" @open-settings="settingsDialogOpen = true" />

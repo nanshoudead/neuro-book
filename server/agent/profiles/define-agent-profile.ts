@@ -14,6 +14,7 @@ export function defineAgentProfile<
     assertProfileManifest(profile.manifest);
     assertProfileSummarizer(profile.manifest.key, profile.summarizer);
     validateCompactionPlan(profile.manifest.key, profile.compaction);
+    assertMainRunAllowedToolKeys(profile.manifest.key, profile.allowedToolKeys, profile.mainRunAllowedToolKeys);
     assertProfileSidecars(profile.manifest.key, profile.allowedToolKeys, profile.sidecars);
     if (profile.context && profile.prepare) {
         throw new Error(`profile ${profile.manifest.key} 不能同时定义 context 和 prepare。`);
@@ -69,6 +70,21 @@ function assertProfileSummarizer(profileKey: string, summarizer: AgentProfile["s
     }
     if (summarizer.input !== undefined && (typeof summarizer.input !== "object" || summarizer.input === null || Array.isArray(summarizer.input))) {
         throw new Error(`profile ${profileKey} summarizer.input 必须是对象`);
+    }
+}
+
+/**
+ * 校验主 run 的执行工具子集，允许 profile 为 sidecar 保留更大的 provider 可见工具集合。
+ */
+function assertMainRunAllowedToolKeys(profileKey: string, allowedToolKeys: readonly string[], mainRunAllowedToolKeys: readonly string[] | undefined): void {
+    if (!mainRunAllowedToolKeys) {
+        return;
+    }
+    const allowed = new Set(allowedToolKeys);
+    for (const toolKey of mainRunAllowedToolKeys) {
+        if (!allowed.has(toolKey)) {
+            throw new Error(`profile ${profileKey} mainRunAllowedToolKeys 必须是 allowedToolKeys 子集：${toolKey}`);
+        }
     }
 }
 

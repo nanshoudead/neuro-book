@@ -123,6 +123,9 @@ describe("assets builtin v3 profiles", () => {
         expect(profile.allowedToolKeys).not.toContain("report_result");
         expect(profile.allowedToolKeys).not.toContain("web_search");
         expect(profile.allowedToolKeys).not.toContain("web_fetch");
+        expect(profile.allowedToolKeys).not.toContain("subject_event_append");
+        expect(profile.allowedToolKeys).not.toContain("subject_rag_search");
+        expect(profile.allowedToolKeys).not.toContain("memory_bio");
         expect(prompt).toContain("默认 Leader Agent");
         expect(prompt).toContain("用户是主创");
         expect(prompt).toContain("共享规范");

@@ -226,6 +226,63 @@ describe("resolvePiModelFromConfig", () => {
         });
     });
 
+    it("未知模型未配置窗口和输出上限时回落到保守默认 256000", () => {
+        const config: Pick<EffectiveConfig, "agent" | "models"> = {
+            agent: {
+                defaultProfileKey: {
+                    novel: null,
+                    userAssets: null,
+                },
+                profileModelDefaults: {
+                    modelKey: null,
+                    temperature: null,
+                    topK: null,
+                    reasoningEffort: "off",
+                    stream: true,
+                },
+                profiles: {},
+            },
+            models: {
+                defaultModelKey: "custom/custom-large",
+                providers: {
+                    custom: {
+                        name: "Custom",
+                        api: "openai-completions",
+                        options: {
+                            apiKey: "sk-custom",
+                            baseURL: "",
+                            proxy: "",
+                            timeoutMs: null,
+                            requestOptions: {},
+                        },
+                        models: {
+                            "custom-large": {
+                                name: "Custom Large",
+                                id: "custom-large",
+                                group: null,
+                                enabled: true,
+                                provider: null,
+                                api: null,
+                                baseUrl: null,
+                                reasoning: null,
+                                input: null,
+                                maxTokens: null,
+                                cost: null,
+                                compat: null,
+                                contextWindowTokens: null,
+                            },
+                        },
+                    },
+                },
+            },
+        };
+
+        const model = resolvePiModelFromConfig(config, "leader.default");
+
+        expect(model.contextWindow).toBe(256_000);
+        expect(model.maxTokens).toBe(256_000);
+    });
+
     it("模型未配置 api 时继承本地 Provider 默认 Pi API", () => {
         const config: Pick<EffectiveConfig, "agent" | "models"> = {
             agent: {

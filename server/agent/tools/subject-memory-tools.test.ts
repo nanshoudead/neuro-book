@@ -262,8 +262,66 @@ describe("subject memory tools", () => {
             const text = result?.content[0]?.type === "text" ? result.content[0].text : "";
 
             expect(text).toContain("粉色头发女孩");
+            expect(text).not.toContain("旧事件只提到了王都学院走廊");
+            expect(result?.details).toBeUndefined();
             await expect(readFile(join(workspaceRoot, "demo", ".nbook", "subject-rag-dirty.json"), "utf-8")).resolves.not.toContain("\"events\"");
             await expect(readFile(join(workspaceRoot, "demo", ".nbook", "subject-rag.sqlite"))).resolves.toBeInstanceOf(Buffer);
+        } finally {
+            globalThis.fetch = originalFetch;
+        }
+    });
+
+    it("subject_rag_search 内部过滤不会误杀中等相关候选", async () => {
+        const originalFetch = globalThis.fetch;
+        const subjectRoot = join(workspaceRoot, "demo", "simulation", "subjects", "heroine");
+        await mkdir(subjectRoot, {recursive: true});
+        await mkdir(join(workspaceRoot, ".nbook"), {recursive: true});
+        await writeFile(join(subjectRoot, "events.jsonl"), [
+            "{\"text\":\"艾琳娜曾在早晨帮我避开迟到。\"}",
+            "{\"text\":\"王都学院走廊今天很安静。\"}",
+            "",
+        ].join("\n"), "utf-8");
+        await writeFile(join(subjectRoot, "memory.jsonl"), "{\"topic\":\"艾琳娜\",\"view\":\"艾琳娜是我的同班同学。\"}\n", "utf-8");
+        await writeFile(join(workspaceRoot, ".nbook", "config.json"), JSON.stringify({
+            embedding: {
+                enabled: true,
+                provider: "openai-compatible",
+                model: "test-embed",
+                dimensions: 2,
+                apiKey: "sk-test",
+                baseURL: "https://embedding.test/v1",
+                timeoutMs: null,
+                requestOptions: {},
+            },
+        }), "utf-8");
+        globalThis.fetch = (async (_url: RequestInfo | URL, init?: RequestInit) => {
+            const body = JSON.parse(String(init?.body ?? "{}")) as {input?: string[]};
+            const input = Array.isArray(body.input) ? body.input : [];
+            return new Response(JSON.stringify({
+                data: input.map((text) => ({
+                    embedding: text === "艾琳娜"
+                        ? [1, 0]
+                        : text.includes("艾琳娜")
+                        ? [0.55, 0.83]
+                        : [0, 1],
+                })),
+            }), {
+                status: 200,
+                headers: {"Content-Type": "application/json"},
+            });
+        }) as typeof fetch;
+        try {
+            const tool = mustTool("subject_rag_search", harness);
+
+            const result = await tool.executeWithContext?.(context, "rag-search-medium-match", {
+                subjectPath: "demo/simulation/subjects/heroine",
+                query: "艾琳娜",
+                sources: ["events"],
+                limit: 2,
+            });
+            const text = result?.content[0]?.type === "text" ? result.content[0].text : "";
+
+            expect(text).toContain("避开迟到");
         } finally {
             globalThis.fetch = originalFetch;
         }

@@ -7,6 +7,7 @@ const ProjectRagSubjectPathSchema = z.string()
 
 const ProjectRagTextSchema = z.string().trim().min(1, "text 不能为空");
 const ProjectRagSourceSchema = z.enum(["events", "memory"]);
+const ProjectRagInspectorLimitSchema = z.union([z.literal(100), z.literal(200), z.literal(500)]);
 
 export const ProjectRagIndexStatusDtoSchema = z.enum(["synced", "dirty", "error", "not_indexed", "unknown"]);
 
@@ -141,6 +142,107 @@ export const ProjectRagMemoryDeleteRequestDtoSchema = z.object({
     topic: z.string().trim().min(1, "topic 不能为空"),
 });
 
+export const ProjectRagDebugActionDtoSchema = z.enum([
+    "mark-dirty",
+    "delete-subject-index",
+    "clear-index-cache",
+    "clear-index-cache-and-rebuild",
+]);
+
+export const ProjectRagInspectorRequestDtoSchema = z.object({
+    subjectPath: ProjectRagSubjectPathSchema.optional(),
+    sources: z.array(ProjectRagSourceSchema).min(1).optional(),
+    limit: ProjectRagInspectorLimitSchema.optional(),
+});
+
+export const ProjectRagInspectorDtoSchema = z.object({
+    projectPath: z.string().trim().min(1),
+    selectedSubjectPath: ProjectRagSubjectPathSchema.nullable(),
+    sourceFilter: z.array(ProjectRagSourceSchema).min(1),
+    limit: ProjectRagInspectorLimitSchema,
+    embedding: z.object({
+        enabled: z.boolean(),
+        provider: z.string(),
+        model: z.string().nullable(),
+        dimensions: z.number().int().positive().nullable(),
+        baseURLConfigured: z.boolean(),
+        baseURLLabel: z.string().nullable(),
+        apiKeyConfigured: z.boolean(),
+    }),
+    index: z.object({
+        dbExists: z.boolean(),
+        schemaVersion: z.string().nullable(),
+        embeddingProvider: z.string().nullable(),
+        embeddingModel: z.string().nullable(),
+        embeddingDimensions: z.number().int().positive().nullable(),
+        metaMatchesEffectiveConfig: z.boolean().nullable(),
+        readError: z.string().nullable(),
+        sourceCount: z.number().int().nonnegative(),
+        chunkCount: z.number().int().nonnegative(),
+        vectorCount: z.number().int().nonnegative(),
+    }),
+    subjects: z.array(ProjectRagSubjectSummaryDtoSchema),
+    selectedSubject: z.object({
+        subjectPath: ProjectRagSubjectPathSchema,
+        subjectId: z.string().trim().min(1),
+        sourceStatuses: z.array(ProjectRagSourceStatusDtoSchema),
+        chunkSourceCounts: z.object({
+            events: z.number().int().nonnegative(),
+            memory: z.number().int().nonnegative(),
+        }),
+        chunks: z.array(z.object({
+            id: z.number().int().positive(),
+            source: ProjectRagSourceSchema,
+            sourcePath: z.string(),
+            sourceKey: z.string(),
+            chunkIndex: z.number().int().nonnegative(),
+            topic: z.string().nullable(),
+            tick: z.string().nullable(),
+            time: z.string().nullable(),
+            text: z.string(),
+            contentHash: z.string(),
+            createdAt: z.string(),
+            vector: z.object({
+                exists: z.boolean(),
+                dimensions: z.number().int().positive().nullable(),
+                preview: z.array(z.number()),
+                previewDimensions: z.number().int().nonnegative(),
+                embeddingProvider: z.string().nullable(),
+                embeddingModel: z.string().nullable(),
+                embeddingDimensions: z.number().int().positive().nullable(),
+                embeddingIndexedAt: z.string().nullable(),
+            }),
+        })),
+        chunksTruncated: z.boolean(),
+    }).nullable(),
+});
+
+export const ProjectRagDebugRequestDtoSchema = z.discriminatedUnion("action", [
+    z.object({
+        action: z.literal("mark-dirty"),
+        subjectPath: ProjectRagSubjectPathSchema.optional(),
+        sources: z.array(ProjectRagSourceSchema).min(1).optional(),
+    }),
+    z.object({
+        action: z.literal("delete-subject-index"),
+        subjectPath: ProjectRagSubjectPathSchema,
+    }),
+    z.object({
+        action: z.literal("clear-index-cache"),
+    }),
+    z.object({
+        action: z.literal("clear-index-cache-and-rebuild"),
+        subjectPath: ProjectRagSubjectPathSchema.optional(),
+    }),
+]);
+
+export const ProjectRagDebugResultDtoSchema = z.object({
+    projectPath: z.string().trim().min(1),
+    action: ProjectRagDebugActionDtoSchema,
+    message: z.string(),
+    rebuild: ProjectRagRebuildResultDtoSchema.optional(),
+});
+
 export type ProjectRagIndexStatusDto = z.infer<typeof ProjectRagIndexStatusDtoSchema>;
 export type ProjectRagSourceStatusDto = z.infer<typeof ProjectRagSourceStatusDtoSchema>;
 export type ProjectRagSubjectSummaryDto = z.infer<typeof ProjectRagSubjectSummaryDtoSchema>;
@@ -157,3 +259,7 @@ export type ProjectRagEventDeleteRequestDto = z.infer<typeof ProjectRagEventDele
 export type ProjectRagEventReorderRequestDto = z.infer<typeof ProjectRagEventReorderRequestDtoSchema>;
 export type ProjectRagMemoryWriteRequestDto = z.infer<typeof ProjectRagMemoryWriteRequestDtoSchema>;
 export type ProjectRagMemoryDeleteRequestDto = z.infer<typeof ProjectRagMemoryDeleteRequestDtoSchema>;
+export type ProjectRagInspectorRequestDto = z.infer<typeof ProjectRagInspectorRequestDtoSchema>;
+export type ProjectRagInspectorDto = z.infer<typeof ProjectRagInspectorDtoSchema>;
+export type ProjectRagDebugRequestDto = z.infer<typeof ProjectRagDebugRequestDtoSchema>;
+export type ProjectRagDebugResultDto = z.infer<typeof ProjectRagDebugResultDtoSchema>;

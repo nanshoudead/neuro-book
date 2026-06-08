@@ -49,6 +49,21 @@ describe("defineAgentRuntime", () => {
         })).toThrow("allowedToolKeys 必须是 profile allowedToolKeys 子集");
     });
 
+    it("拒绝 mainRunAllowedToolKeys 使用 profile 未开放的工具", () => {
+        expect(() => defineAgentProfile({
+            manifest: {
+                key: "test.main-run-tool-subset",
+                name: "Main Run Tool Subset",
+            },
+            inputSchema: Type.Object({}),
+            allowedToolKeys: ["report_result"],
+            mainRunAllowedToolKeys: ["read", "report_result"],
+            prepare() {
+                return {};
+            },
+        })).toThrow("mainRunAllowedToolKeys 必须是 allowedToolKeys 子集");
+    });
+
     it("sidecar 未开放 report_result 时必须声明 outputFallback", () => {
         expect(() => defineAgentProfile({
             manifest: {

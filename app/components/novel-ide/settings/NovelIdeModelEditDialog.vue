@@ -37,6 +37,8 @@ const props = defineProps<{
     deriveGroup: (modelId: string) => string;
     resolveDisplayedContextWindow: (providerId: string, model: ModelDraft) => string;
     modelApiInheritLabel: (model: ModelDraft) => string;
+    modelContextWindowDefaultLabel: (model: ModelDraft) => string;
+    modelMaxTokensDefaultLabel: (model: ModelDraft) => string;
     modelInputDisplayLabel: (model: ModelDraft) => string;
     modelInputEnabled: (model: ModelDraft, inputKind: ModelInputKind) => boolean;
     modelReasoningDisplayLabel: (model: ModelDraft) => string;
@@ -164,12 +166,20 @@ function updateOpen(value: boolean): void {
                         </div>
                         <div class="grid gap-3.5">
                             <div class="space-y-1.5">
-                                <label class="text-xs font-semibold text-[var(--text-secondary)]">上下文窗口</label>
-                                <FormInput v-model="props.editingModel.contextWindowTokens" :placeholder="props.activeProvider ? `留空不配置${props.resolveDisplayedContextWindow(props.activeProvider.id, props.editingModel) ? `，当前 ${props.resolveDisplayedContextWindow(props.activeProvider.id, props.editingModel)}` : ''}` : '留空不配置'" class="bg-[var(--bg-input)] shadow-sm" />
+                                <div class="flex items-center justify-between gap-2">
+                                    <label class="text-xs font-semibold text-[var(--text-secondary)]">上下文窗口</label>
+                                    <span class="truncate text-[10px] text-[var(--text-muted)] font-medium">留空: {{ props.modelContextWindowDefaultLabel(props.editingModel) }}</span>
+                                </div>
+                                <FormInput v-model="props.editingModel.contextWindowTokens" :placeholder="`留空使用 ${props.modelContextWindowDefaultLabel(props.editingModel)}`" class="bg-[var(--bg-input)] shadow-sm" />
+                                <p class="text-[10px] leading-4 text-[var(--text-muted)]">用于判断当前 Session context 是否超过模型窗口，并影响自动压缩触发。</p>
                             </div>
                             <div class="space-y-1.5">
-                                <label class="text-xs font-semibold text-[var(--text-secondary)]">Max Tokens</label>
-                                <FormInput v-model="props.editingModel.maxTokens" placeholder="留空继承" class="bg-[var(--bg-input)] shadow-sm" />
+                                <div class="flex items-center justify-between gap-2">
+                                    <label class="text-xs font-semibold text-[var(--text-secondary)]">Max Tokens</label>
+                                    <span class="truncate text-[10px] text-[var(--text-muted)] font-medium">留空: {{ props.modelMaxTokensDefaultLabel(props.editingModel) }}</span>
+                                </div>
+                                <FormInput v-model="props.editingModel.maxTokens" :placeholder="`留空使用 ${props.modelMaxTokensDefaultLabel(props.editingModel)}`" class="bg-[var(--bg-input)] shadow-sm" />
+                                <p class="text-[10px] leading-4 text-[var(--text-muted)]">用于限制单次模型调用最多生成多少输出 token。</p>
                             </div>
                         </div>
                     </section>

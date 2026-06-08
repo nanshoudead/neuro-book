@@ -10,7 +10,7 @@ neuro-book 当前处于快速开发阶段。项目主线正在从数据库中心
 
 部署最新补充：Windows Launcher 更新入口现在会下载 GitHub latest release 的 `neuro-book-windows-x64.zip` 和 `SHA256SUMS`，校验 SHA256，备份旧 `app/` / `launcher/` / root scripts 后切换新版并保留 `data/`；内置 `runtime/bun/` 在自动更新中保留当前版本，避免替换正在运行的 `bun.exe`。
 
-GHCR / Product Docker 最新边界：app 镜像仍保留源码目录用于容器内排障，但 final image 使用 Bun runtime，不再携带或依赖根 `node_modules`。容器启动走 `scripts/deploy/docker-product-entrypoint.sh`，先用 `bun .output/server/scripts/db/prisma-migrate.mjs --deploy` 执行 SQLite migration，再用 `bun .output/server/scripts/deploy/product-start.mjs` 启动服务；管理员命令同样通过 `bun .output/server/scripts/cli/create-admin.ts` 运行产品内入口，部署机和容器启动时不执行 `bun install` / `bun run generate`。
+GHCR / Product Docker 最新边界：app 镜像仍保留源码目录用于容器内排障，但 final image 使用 Bun runtime，不再携带或依赖根 `node_modules`。容器启动走 `scripts/deploy/docker-product-entrypoint.sh`，先用 `bun .output/server/scripts/db/prisma-migrate.mjs --deploy` 执行 SQLite migration，再用 `bun .output/server/scripts/deploy/product-start.mjs` 启动服务；`product-start.mjs` 会先调用 `.output/server/scripts/build/prepare-system-assets.ts --sync-user-assets` 做启动前 system assets / profile artifact 同步，通用 `.output` 后处理必须把该脚本复制进 `.output/server/scripts/build/` 并做缺失门禁；GHCR / 通用 `.output` runner 在无根 `node_modules` 时可用 `.output/server/release-meta.json` 判定 Product Runtime 并读取版本元数据，避免 profile artifact compiler / Profile Workbench worker 误入源码模式；管理员命令同样通过 `bun .output/server/scripts/cli/create-admin.ts` 运行产品内入口，部署机和容器启动时不执行 `bun install` / `bun run generate`。
 
 模型 Provider 侧已把 `openai-compatible` 收敛为增强版 OpenAI 兼容 adapter，默认接收、标准化并回放 `reasoning_content`，覆盖 MiMo、DeepSeek 网关等 Agent thinking 场景；严格 OpenAI 官方接口使用 `openai-official`，避免把 provider extension 字段发给官方 OpenAI。
 
@@ -69,7 +69,7 @@ GHCR / Product Docker 最新边界：app 镜像仍保留源码目录用于容器
 - 建立 token statistics、写作历史 statistics 和缓存命中统计。
 - 扩展番茄小说导入：补基础数据、评论、全站搜索、正文下载含段评和图片等能力。
 - 将 workspace 保存冲突视图与后续 Git 版本控制能力整合。
-- 独立发版脚本需要保持两段式 profile 产物刷新：源码构建期继续运行 `profile:metadata` 生成 `.system-profile-metadata.json`，`product:stage` 还要在 Product Root 内重新 `profile compile --all --system`，并断言 Profile Workbench worker 的 `tsx/esm/api` 可从 `.output/server/node_modules` 解析，同时断言系统 `.compiled/*.mjs` 不含 CI/本机绝对 Product require 或 `.building.mjs` 临时引用，确保 artifact 可迁移且 dependency hash / 依赖解析都指向产品内 vendor。用户 assets 同步会基于 `.profile-sync-state.json` 自动更新未手改的系统 profile 覆盖，手改或缺 state 时保留用户文件并提示遮蔽。
+- 独立发版脚本需要保持两段式 profile 产物刷新：源码构建期继续运行 `profile:metadata` 生成 `.system-profile-metadata.json`，`product:stage` 还要在 Product Root 内重新 `profile compile --all --system`，并断言 Profile Workbench worker 的 `tsx/esm/api` 可从 `.output/server/node_modules` 解析，同时断言系统 `.compiled/*.mjs` 不含 CI/本机绝对 Product require 或 `.building.mjs` 临时引用，确保 artifact 可迁移且 dependency hash / 依赖解析都指向产品内 vendor。用户 assets 同步会基于 `.profile-sync-state.json` 自动更新未手改的系统 profile 覆盖，手改或缺 state 时保留用户文件并提示遮蔽。发布入口已统一为 `bun run release -- <stable|prerelease|canary|alpha|beta|rc>`；正式版要求 SemVer `X.Y.Z`、干净工作区和 `--yes --push`，也可用 `--next patch|minor|major` 显式自动增长；先行版本按 SemVer channel/tag 校验并继续创建 GitHub prerelease，其中 alpha/beta/rc 默认扫描已有 tag 自动递增序号。
 - 设置页后续继续增强 raw/effective 差异展示；当前配置中心已支持 Global / Project / Browser State 目标切换、Project selector、Project 默认模型、默认 Profile 和 Agent Profile 模型覆盖。
 - 清理动态 profile 渐进迁移 fallback：生产注册路径已切到 assets profile + builtin contract，系统 assets profile 也已改成 `defineAgentProfile`；后续删除旧源码 builtin class，或把仍被复用的 prompt helper 迁成稳定公共 helper。
 - 重新设计 TSX profile 的 TypeBox Schema Builder：旧 Zod 低代码 schema 编辑不再作为新合同保留；新的 Profile Workbench 第一版只做 schema 只读展示和 TypeBox 骨架生成，后续再基于 v3 profile 经验补可稳定定位的局部辅助编辑。

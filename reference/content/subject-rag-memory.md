@@ -53,7 +53,7 @@ type SubjectMemory = {
 
 ## Tools
 
-Subject memory 工具只给 sidecar 使用。`simulator.actor` 主 run 不直接读取完整 subject 文件，也不直接维护文件。工具入参中的 `subjectPath` 是当前 Agent cwd 内的 subject 目录路径；普通 Project session 通常形如 `{project}/simulation/subjects/{subject-id}`。
+Subject memory 工具只给 sidecar 使用。`simulator.actor` 主 run 不直接读取完整 subject 文件，也不直接维护文件；它的主 run 实际执行权限只允许 `report_result`。工具入参中的 `subjectPath` 是当前 Agent cwd 内的 subject 目录路径；普通 Project session 通常形如 `{project}/simulation/subjects/{subject-id}`。
 
 `subject_event_append`：
 
@@ -75,10 +75,11 @@ Subject memory 工具只给 sidecar 使用。`simulator.actor` 主 run 不直接
 
 - 输入当前 `subjectPath`、`query`、`sources` 和 `limit`。
 - `sources` 必须显式指定单一 source：`["events"]` 或 `["memory"]`。工具不提供默认双搜，也不允许一次同时搜索两层；需要两层记忆时由 sidecar 分两次调用。
+- `limit` 是第一版唯一暴露的查询调参；相关性阈值由工具内部设置。
 - 搜索前检查 source hash 和 dirty 状态，必要时同步重建索引。
 - 使用 configured embedding service 生成 query embedding。
 - 只在当前 subject 和指定 source 内召回候选。
-- 返回候选，不直接生成最终 actor context。
+- 返回文本渲染的候选，不返回 score，也不用 JSON 包裹候选；工具不直接生成最终 actor context。
 
 ## RAG Index
 
@@ -147,7 +148,7 @@ Agent runtime 读取配置时必须使用 `workspaceRoot + projectPath` 合并 P
 `actor.context-load` 在 `prepareRun` 阶段执行：
 
 1. 基于 actor-facing packet 和当前 subject 文件生成检索 query。
-2. 调用 `subject_rag_search` 粗召回当前 subject 的 `events.jsonl` 和/或 `memory.jsonl`；如果两层都需要，必须分别传 `["events"]`、`["memory"]` 调用两次。
+2. 调用 `subject_rag_search` 粗召回当前 subject 的 `events.jsonl` 和/或 `memory.jsonl`；如果两层都需要，必须分别传 `["events"]`、`["memory"]` 调用两次。除 `limit` 外不使用额外查询调参。
 3. 自行 rerank、去重、过滤和压缩。
 4. 把少量相关经历和稳定认知写入 `<actor_sidecar_context>`。
 5. 通过 `persistedMessages` 写入 actor session active path，并让本轮主 run 可见。

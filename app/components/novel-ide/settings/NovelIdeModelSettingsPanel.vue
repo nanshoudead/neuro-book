@@ -28,6 +28,8 @@ import type {ConfigEditorSnapshotDto, ConfigModelSettingsDto, ConfigWorkspaceQue
 
 type ProviderRequestOptions = UpdateModelSettingsRequestDto["providers"][number]["options"]["requestOptions"];
 type ConfigSettingsScope = "global" | "project";
+const RUNTIME_DEFAULT_CONTEXT_WINDOW_TOKENS = 256_000;
+const RUNTIME_DEFAULT_MAX_TOKENS = 256_000;
 
 const props = withDefaults(defineProps<{
     scope?: ConfigSettingsScope;
@@ -967,6 +969,27 @@ function modelInputDisplayLabel(model: ModelDraft): string {
 
 function modelReasoningDisplayLabel(model: ModelDraft): string {
     return resolveEffectiveModelMetadata(model).reasoning ? "支持" : "不支持";
+}
+
+function formatTokenLimit(value: number | null | undefined): string {
+    if (typeof value !== "number" || !Number.isFinite(value)) {
+        return "未知";
+    }
+    return new Intl.NumberFormat("zh-CN", {maximumFractionDigits: 0}).format(value);
+}
+
+function modelContextWindowDefaultLabel(model: ModelDraft): string {
+    const piModel = findPiModelForDraft(model);
+    const value = piModel?.contextWindowTokens ?? RUNTIME_DEFAULT_CONTEXT_WINDOW_TOKENS;
+    const source = piModel?.contextWindowTokens ? "Pi" : "运行默认";
+    return `${formatTokenLimit(value)} tokens（${source}）`;
+}
+
+function modelMaxTokensDefaultLabel(model: ModelDraft): string {
+    const piModel = findPiModelForDraft(model);
+    const value = piModel?.maxTokens ?? RUNTIME_DEFAULT_MAX_TOKENS;
+    const source = piModel?.maxTokens ? "Pi" : "运行默认";
+    return `${formatTokenLimit(value)} tokens（${source}）`;
 }
 
 /**
@@ -1990,6 +2013,8 @@ watch(() => [props.scope, props.targetQuery?.workspaceKind, props.targetQuery?.p
         :derive-group="deriveGroup"
         :resolve-displayed-context-window="resolveDisplayedContextWindow"
         :model-api-inherit-label="modelApiInheritLabel"
+        :model-context-window-default-label="modelContextWindowDefaultLabel"
+        :model-max-tokens-default-label="modelMaxTokensDefaultLabel"
         :model-input-display-label="modelInputDisplayLabel"
         :model-input-enabled="modelInputEnabled"
         :model-reasoning-display-label="modelReasoningDisplayLabel"

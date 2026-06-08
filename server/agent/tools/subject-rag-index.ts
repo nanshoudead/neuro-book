@@ -90,9 +90,12 @@ type RagChunk = {
     contentHash: string;
 };
 
-const RAG_SCHEMA_VERSION = "subject-rag-v2";
+export const SUBJECT_RAG_SCHEMA_VERSION = "subject-rag-v3";
 const MAX_MEMORY_CHUNK_CHARS = 1200;
 const MAX_EMBED_BATCH = 32;
+const INTERNAL_NORMALIZED_DISTANCE_CUTOFF = 1.15;
+const INTERNAL_FETCH_MULTIPLIER = 4;
+const INTERNAL_MAX_FETCH_LIMIT = 80;
 
 /**
  * 检索当前 subject 的 events / memory RAG 候选。
@@ -115,12 +118,15 @@ export async function searchSubjectRag(input: {
         if (!queryEmbedding) {
             throw new Error("embedding provider 未返回查询向量。");
         }
+        const fetchLimit = Math.min(Math.max(input.limit * INTERNAL_FETCH_MULTIPLIER, input.limit), INTERNAL_MAX_FETCH_LIMIT);
         const rows = input.sources.flatMap((source) => querySubjectRagSource(db, {
             queryEmbedding,
             subjectPath: input.subject.absolutePath,
             source,
-            limit: input.limit,
-        })).sort((left, right) => left.distance - right.distance).slice(0, input.limit);
+            limit: fetchLimit,
+        })).filter((row) => row.distance <= INTERNAL_NORMALIZED_DISTANCE_CUTOFF)
+            .sort((left, right) => left.distance - right.distance)
+            .slice(0, input.limit);
 
         return rows.map((row, index) => ({
             source: row.sourceType,
@@ -286,6 +292,10 @@ function createSchema(db: SubjectRagDatabase, dimensions: number): void {
             text TEXT NOT NULL,
             content_hash TEXT NOT NULL,
             created_at TEXT NOT NULL,
+            embedding_provider TEXT NOT NULL,
+            embedding_model TEXT NOT NULL,
+            embedding_dimensions INTEGER NOT NULL,
+            embedding_indexed_at TEXT NOT NULL,
             UNIQUE(source_id, source_key, chunk_index)
         )
     `);
@@ -345,25 +355,37 @@ async function ensureRagMeta(db: SubjectRagDatabase, embedding: RagEmbeddingMode
     const currentProvider = readMeta(db, "embedding.provider");
     const currentModel = readMeta(db, "embedding.model");
     const currentDimensions = readMeta(db, "embedding.dimensions");
+    const currentNormalized = readMeta(db, "embedding.normalized");
     const next = {
-        schemaVersion: RAG_SCHEMA_VERSION,
+        schemaVersion: SUBJECT_RAG_SCHEMA_VERSION,
         provider: embedding.providerConfigId,
         model: embedding.modelId,
         dimensions: String(embedding.dimensions),
     };
-    const changed = currentVersion && (
-        currentVersion !== next.schemaVersion
-        || currentProvider !== next.provider
+    const embeddingChanged = Boolean(currentVersion) && (
+        currentProvider !== next.provider
         || currentModel !== next.model
         || currentDimensions !== next.dimensions
     );
-    if (changed) {
+    if (embeddingChanged) {
         throw new Error("subject RAG 索引的 embedding provider/model/dimensions 已变化，请删除 .nbook/subject-rag.sqlite 后重建。");
+    }
+    if (currentVersion && (currentVersion !== next.schemaVersion || currentNormalized !== "true")) {
+        resetSubjectRagCache(db, embedding.dimensions);
     }
     writeMeta(db, "schemaVersion", next.schemaVersion);
     writeMeta(db, "embedding.provider", next.provider);
     writeMeta(db, "embedding.model", next.model);
     writeMeta(db, "embedding.dimensions", next.dimensions);
+    writeMeta(db, "embedding.normalized", "true");
+}
+
+function resetSubjectRagCache(db: SubjectRagDatabase, dimensions: number): void {
+    db.run("DROP TABLE IF EXISTS subject_rag_vec");
+    db.run("DROP TABLE IF EXISTS subject_rag_chunks");
+    db.run("DROP TABLE IF EXISTS subject_rag_sources");
+    db.run("DROP TABLE IF EXISTS subject_rag_meta");
+    createSchema(db, dimensions);
 }
 
 async function syncSubjectSources(
@@ -412,6 +434,7 @@ async function syncSubjectSource(
         });
         db.run("DELETE FROM subject_rag_vec WHERE rowid IN (SELECT id FROM subject_rag_chunks WHERE source_id = ?)", sourceId);
         db.run("DELETE FROM subject_rag_chunks WHERE source_id = ?", sourceId);
+        const indexedAt = new Date().toISOString();
         chunks.forEach((chunk, index) => {
             const vector = embeddings[index];
             if (!vector) {
@@ -420,10 +443,11 @@ async function syncSubjectSource(
             db.run(`
                 INSERT INTO subject_rag_chunks (
                     source_id, subject_id, subject_path, source_type, source_path, source_key,
-                    chunk_index, topic, tick, time, text, content_hash, created_at
+                    chunk_index, topic, tick, time, text, content_hash, created_at,
+                    embedding_provider, embedding_model, embedding_dimensions, embedding_indexed_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            `, sourceId, chunk.subjectId, chunk.subjectPath, chunk.sourceType, resolveSourceRelativePath(subject, chunk.sourceType), chunk.sourceKey, chunk.chunkIndex, chunk.topic, chunk.tick, chunk.time, chunk.text, chunk.contentHash, new Date().toISOString());
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            `, sourceId, chunk.subjectId, chunk.subjectPath, chunk.sourceType, resolveSourceRelativePath(subject, chunk.sourceType), chunk.sourceKey, chunk.chunkIndex, chunk.topic, chunk.tick, chunk.time, chunk.text, chunk.contentHash, indexedAt, embedding.providerConfigId, embedding.modelId, embedding.dimensions, indexedAt);
             const row = db.query("SELECT last_insert_rowid() AS id").get() as {id: number};
             db.run(
                 "INSERT INTO subject_rag_vec(rowid, embedding, subject_path, source_type) VALUES (?, ?, ?, ?)",
@@ -433,7 +457,7 @@ async function syncSubjectSource(
                 chunk.sourceType,
             );
         });
-        db.run("UPDATE subject_rag_sources SET dirty = 0, indexed_at = ?, last_error = NULL WHERE id = ?", new Date().toISOString(), sourceId);
+        db.run("UPDATE subject_rag_sources SET dirty = 0, indexed_at = ?, last_error = NULL WHERE id = ?", indexedAt, sourceId);
     });
     run();
     if (externalDirty) {
@@ -621,7 +645,7 @@ async function embedTextBatch(model: RagEmbeddingModel, texts: string[]): Promis
             throw new Error(`embedding 维度不匹配：expected=${String(model.dimensions)} actual=${String(vector.length)}`);
         }
     }
-    return vectors;
+    return vectors.map((vector, index) => normalizeEmbeddingVector(vector, `${model.key}[${String(index)}]`));
 }
 
 function embeddingRequestOptions(config: EmbeddingServiceConfig): Record<string, unknown> {
@@ -645,6 +669,18 @@ function parseEmbedding(value: unknown, label: string): number[] {
         }
         return item;
     });
+}
+
+function normalizeEmbeddingVector(vector: number[], label: string): number[] {
+    let sumSquares = 0;
+    for (const value of vector) {
+        sumSquares += value * value;
+    }
+    const magnitude = Math.sqrt(sumSquares);
+    if (!Number.isFinite(magnitude) || magnitude <= 0) {
+        throw new Error(`${label} embedding 不能是零向量。`);
+    }
+    return vector.map((value) => value / magnitude);
 }
 
 function readMeta(db: SubjectRagDatabase, key: string): string | null {

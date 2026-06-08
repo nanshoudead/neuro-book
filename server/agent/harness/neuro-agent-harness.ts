@@ -149,6 +149,7 @@ type PreparedRun = {
     compaction?: ProfileCompactionPlan;
     sessionContextEnabled: boolean;
     toolKeys: string[];
+    executionToolKeys?: string[];
     thinkingLevel: ThinkingLevel;
     reportResultReminderEnabled: boolean;
 };
@@ -433,6 +434,7 @@ export class NeuroAgentHarness {
                 compaction: preparedRun.compaction,
                 sessionContextEnabled: preparedRun.sessionContextEnabled,
                 toolKeys: preparedRun.toolKeys,
+                executionToolKeys: preparedRun.executionToolKeys,
                 profileKey: preparedRun.context.profileKey,
                 profile: preparedRun.profile,
                 thinkingLevel: preparedRun.thinkingLevel,
@@ -859,6 +861,7 @@ export class NeuroAgentHarness {
         const apiKey = resolvePiApiKeyForModelFromConfig(config, model);
         const runProfile = await this.profiles.get(context.profileKey);
         const toolKeys = [...runProfile.allowedToolKeys];
+        const executionToolKeys = runProfile.mainRunAllowedToolKeys ? [...runProfile.mainRunAllowedToolKeys] : undefined;
         const thinkingLevel = this.resolveThinkingLevel(context, config, model);
         const systemPrompt = prepareRunHooks.profilePrompt ? prepared.plan.systemPrompt ?? context.systemPrompt : context.systemPrompt;
         const preparedModelContextMessages = prepareRunHooks.sessionContext === true ? prepared.plan.modelContextMessages ?? [] : [];
@@ -889,6 +892,7 @@ export class NeuroAgentHarness {
             compaction: runProfile.compaction,
             sessionContextEnabled: prepareRunHooks.sessionContext === true,
             toolKeys,
+            executionToolKeys,
             thinkingLevel,
             reportResultReminderEnabled: prepareRunHooks.reportResultReminder === true,
         };
@@ -2209,7 +2213,8 @@ export class NeuroAgentHarness {
             ...prepareTurn.requestOptionsPatch,
         };
         const toolKeys = prepareTurn.toolKeysPatch ?? frame.toolKeys;
-        const executionToolKeys = frame.executionToolKeys ?? toolKeys;
+        const executionToolKeySet = frame.executionToolKeys ? new Set(frame.executionToolKeys) : undefined;
+        const executionToolKeys = executionToolKeySet ? toolKeys.filter((toolKey) => executionToolKeySet.has(toolKey)) : toolKeys;
         const toolOverrides = await this.toolOverrides(toolKeys, frame.profileKey);
         const tools = this.tools.allowedWithOverrides(toolKeys, toolOverrides);
         const providerMessages = modelMessages.filter((message): message is Message => {

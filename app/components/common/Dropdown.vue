@@ -5,8 +5,12 @@ import type { DropdownItem } from "nbook/app/components/common/dropdown.types";
 const props = withDefaults(defineProps<{
     items: DropdownItem[];
     menuClass?: string;
+    menuMaxHeight?: string;
+    compact?: boolean;
 }>(), {
     menuClass: "left-0 top-full mt-2 min-w-full",
+    menuMaxHeight: "none",
+    compact: false,
 });
 
 const emit = defineEmits<{
@@ -45,21 +49,25 @@ onClickOutside(rootRef, () => {
 
         <div
             v-if="open"
-            class="absolute z-[60] rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] p-1 shadow-xl backdrop-blur-sm"
+            class="absolute z-[60] overflow-y-auto rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] p-1 shadow-xl backdrop-blur-sm"
             :class="menuClass"
+            :style="{ maxHeight: menuMaxHeight }"
         >
             <button
                 v-for="item in props.items"
                 :key="item.value"
-                class="mb-1 flex w-full items-center justify-between rounded-md px-2.5 py-1.5 text-left text-sm transition-colors last:mb-0"
-                :class="item.active ? 'bg-[var(--bg-hover)] text-[var(--text-main)]' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]'"
+                class="mb-1 flex w-full items-center justify-between gap-3 rounded-md px-2.5 text-left transition-colors last:mb-0"
+                :class="[
+                    props.compact ? 'py-1.5 text-[12px]' : 'py-1.5 text-sm',
+                    item.active ? 'bg-[var(--bg-hover)] text-[var(--text-main)]' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]',
+                ]"
                 @click.stop="select(item.value)"
             >
-                <span class="inline-flex items-center gap-2">
+                <span class="inline-flex min-w-0 items-center gap-2">
                     <span v-if="item.iconClass" :class="item.iconClass" class="h-4 w-4 text-[var(--text-muted)]"></span>
-                    <span>{{ item.label }}</span>
+                    <span class="truncate">{{ item.label }}</span>
                 </span>
-                <span v-if="item.rightIconClass" :class="item.rightIconClass" class="h-4 w-4 text-[var(--accent-text)]"></span>
+                <span v-if="item.rightIconClass" :class="item.rightIconClass" class="h-4 w-4 shrink-0 text-[var(--accent-text)]"></span>
             </button>
         </div>
     </div>

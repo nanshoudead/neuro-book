@@ -1,5 +1,5 @@
 import {randomUUID} from "node:crypto";
-import {copyFile, mkdir, readFile, readdir, rm, symlink, writeFile} from "node:fs/promises";
+import {copyFile, cp, mkdir, readFile, readdir, rm, symlink, writeFile} from "node:fs/promises";
 import {dirname, join, relative, resolve} from "node:path";
 import {afterEach, beforeEach, describe, expect, it} from "vitest";
 import {Type} from "typebox";
@@ -525,6 +525,103 @@ describe("AgentProfileCatalog", () => {
         expect(artifact.slice(0, 2048)).toContain("__nbookResolveProductRequireRoot");
         expect(artifact.slice(0, 2048)).not.toMatch(/file:\/\/\/[A-Za-z]:/u);
         expect(artifact).not.toContain("D:/a/neuro-book/");
+    });
+
+    it("通用 .output Product runner 无根 release-meta 时仍从 output vendor 解析 require", async () => {
+        const productRoot = join(root, "product-output-runner");
+        systemRoot = join(productRoot, "assets", "workspace", ".nbook", "agent", "profiles");
+        userRoot = join(productRoot, "workspace", ".nbook", "agent", "profiles");
+        await mkdir(join(productRoot, ".output", "server", "node_modules", "@nbook", "output-marker"), {recursive: true});
+        await writeFile(join(productRoot, "tsconfig.json"), "{}\n", "utf8");
+        await writeFile(join(productRoot, ".output", "server", "index.mjs"), "", "utf8");
+        await writeFile(join(productRoot, ".output", "server", "release-meta.json"), "{\"versionKind\":\"release\"}\n", "utf8");
+        await writeFile(join(productRoot, ".output", "server", "node_modules", "@nbook", "output-marker", "index.js"), `module.exports = {marker: "output-vendor"};\n`, "utf8");
+        await writeProfile(systemRoot, "custom.output.profile.mjs", `
+            export default {
+                manifest: { key: "custom.output", name: "Output" },
+                inputSchema: { type: "object", properties: {} },
+                outputSchema: { type: "object", properties: {} },
+                allowedToolKeys: [],
+                prepare() {
+                    const marker = require("@nbook/" + "output-marker");
+                    return { systemPrompt: marker.marker };
+                },
+            };
+        `);
+
+        const previousCwd = process.cwd();
+        process.chdir(productRoot);
+        try {
+            await compileProfileArtifacts({
+                profileRoot: systemRoot,
+                rootLabel: "assets/workspace/.nbook/agent/profiles",
+            });
+            const artifact = await readFile(join(systemRoot, ".compiled", "custom.output.mjs"), "utf8");
+            const catalog = new AgentProfileCatalog(systemRoot, userRoot);
+            const profile = await catalog.get("custom.output");
+
+            expect(artifact.slice(0, 2048)).toContain("__nbookResolveProductRequireRoot");
+            expect(await profile.prepare!(context())).toEqual(expect.objectContaining({
+                systemPrompt: "output-vendor",
+            }));
+        } finally {
+            process.chdir(previousCwd);
+        }
+    });
+
+    it("通用 .output Product runner 会重编源码模式遗留 artifact", async () => {
+        const productRoot = join(root, "product-output-stale-artifact");
+        const sourceRoot = join(root, "source-artifact-root");
+        systemRoot = join(productRoot, "assets", "workspace", ".nbook", "agent", "profiles");
+        await mkdir(join(productRoot, ".output", "server"), {recursive: true});
+        await writeFile(join(productRoot, "tsconfig.json"), "{}\n", "utf8");
+        await writeFile(join(productRoot, ".output", "server", "index.mjs"), "", "utf8");
+        await writeFile(join(productRoot, ".output", "server", "release-meta.json"), "{\"versionKind\":\"release\"}\n", "utf8");
+        await writeProfile(systemRoot, "custom.output.profile.mjs", `
+            export default {
+                manifest: { key: "custom.output", name: "Output" },
+                inputSchema: { type: "object", properties: {} },
+                outputSchema: { type: "object", properties: {} },
+                allowedToolKeys: [],
+                prepare() { return { systemPrompt: "ok" }; },
+            };
+        `);
+        await mkdir(join(sourceRoot, "assets", "workspace", ".nbook", "agent"), {recursive: true});
+        await writeFile(join(sourceRoot, "tsconfig.json"), "{}\n", "utf8");
+        await cp(systemRoot, join(sourceRoot, "assets", "workspace", ".nbook", "agent", "profiles"), {recursive: true});
+
+        const previousCwd = process.cwd();
+        process.chdir(sourceRoot);
+        try {
+            await compileProfileArtifacts({
+                profileRoot: join(sourceRoot, "assets", "workspace", ".nbook", "agent", "profiles"),
+                rootLabel: "assets/workspace/.nbook/agent/profiles",
+            });
+        } finally {
+            process.chdir(previousCwd);
+        }
+        await cp(
+            join(sourceRoot, "assets", "workspace", ".nbook", "agent", "profiles", ".compiled"),
+            join(systemRoot, ".compiled"),
+            {recursive: true},
+        );
+        process.chdir(productRoot);
+        try {
+            const staleManifest = await readProfileArtifactManifest(systemRoot);
+            await expect(validateProfileArtifact(systemRoot, staleManifest.profiles[0]!)).resolves.toEqual({
+                fresh: false,
+                reason: "artifact_changed",
+            });
+            await compileProfileArtifacts({
+                profileRoot: systemRoot,
+                rootLabel: "assets/workspace/.nbook/agent/profiles",
+                skipFresh: true,
+            });
+            const artifact = await readFile(join(systemRoot, ".compiled", "custom.output.mjs"), "utf8");
+            expect(artifact.slice(0, 2048)).toContain("__nbookResolveProductRequireRoot");
+        } finally {
+            process.chdir(previousCwd);
+        }
     });
 
     it("Product 用户层 artifact 经过 portable workspace junction 后仍从 app vendor 解析 require", async () => {

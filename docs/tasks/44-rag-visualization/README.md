@@ -13,6 +13,7 @@
 - 范围是 Project 级：用户能看到当前 Project Workspace 中已经存储 / 可被 RAG 使用的数据。
 - 第一版目的偏产品体验：让用户明确感觉到 NeuroBook 里有一个 RAG 显示入口，而不是只能从工具和日志里推断 RAG 是否存在。
 - 2026-06-08 追加 UI 优化：保留现有左侧 RAG 侧边栏，同时在 `app/components/novel-ide/NovelIdeHeader.vue` 右上角增加独立的 RAG Inspector dialog 入口。这个 dialog 需要重新单独设计，比左侧面板更详细，支持查看向量维数、嵌入模型、条目向量元数据和向量预览，并提供更完整的调试操作。
+- 2026-06-08 追加 UI 重写：RAG Inspector 参考 `app/components/novel-ide/plot/workbench/PlotWorkbenchDialog.vue` 的工作台式 UI/UX 重新设计，但不死板照搬剧情工作台。目标是形成 RAG 专用的 Workbench：左侧 subject 浏览，中间 chunk/search 主工作区，右侧详细 inspector 和 debug 操作区。
 
 ## Goal
 
@@ -33,6 +34,7 @@
   - 用户可以查看当前 subject 的 chunk / entry 元数据，例如 source、topic、sourceKey、chunkIndex、contentHash、createdAt、嵌入模型、维数和向量前 8 维预览。
   - 用户可以在 Inspector 中执行更完整的调试操作：重建、标记 dirty、删除某个 subject 的索引行、清空 RAG SQLite 缓存、清空并重建。
   - Inspector 不返回 API key 等 secret；只展示是否已配置。
+  - Inspector UI 第三阶段改为 RAG Workbench：更接近 Plot Workbench 的 dialog shell、header 状态、三栏工作区和右侧 inspector，而不是继续使用简单 tabs 面板。
 
 ## Current State
 
@@ -121,6 +123,12 @@
   - `clear-index-cache` 和 `clear-index-cache-and-rebuild` 两个操作都保留；前者放在更危险区域，文案明确“不会自动恢复索引”。
   - 左侧 RAG 面板偏浏览和轻量入口；Inspector dialog 是重量级操作界面，可以承载更多查看、搜索、索引调试和后续重操作。
   - Debug 操作只影响 RAG 缓存或 dirty state，不修改 `events.jsonl` / `memory.jsonl` 事实源。
+- RAG Inspector Workbench 重写决策：
+  - 参考 `PlotWorkbenchDialog.vue` 的工作台式 shell、自定义 header、顶部模式导航、主体三栏和右侧 inspector 动效，但 RAG 的信息架构独立设计，不套用 story/phase/thread/scene 语义。
+  - 本轮允许完整重构前端结构，也允许拆分组件，避免 `NovelRagInspectorDialog.vue` 继续膨胀成大型单文件组件。
+  - 布局锁定为：左侧 subject 浏览，中间 chunk/search 结果列表，右侧详细 inspector。
+  - 可以前后端一起小改，但后端只补 UI 必需的展示字段，不改变 RAG 索引、搜索和 debug 的核心行为。
+  - 现有 Header 入口、左侧 RAG 面板、`/api/projects/rag/inspector`、`/api/projects/rag/search`、`/api/projects/rag/debug` 路径继续保留。
 
 ## Proposed UX
 
@@ -656,6 +664,32 @@ type ProjectRagDebugResult = {
   - `clear-index-cache` 和 `clear-index-cache-and-rebuild` 都保留；`clear-index-cache` 放在危险区域，文案明确不会自动恢复索引。
   - 破坏性操作使用普通确认 dialog，并在操作成功后刷新 inspector。
 
+### 12.1 RAG Inspector Workbench Rewrite
+
+- 将 `NovelRagInspectorDialog.vue` 从单文件 tabs 面板重写为 RAG Workbench。
+- Dialog 外壳：
+  - 使用 `Dialog size="workbench"`、`overlay-type="blur"`、`:close-on-overlay="false"`、`:show-footer="false"`、`body-class="!gap-0 !overflow-hidden !p-0"`。
+  - 使用自定义 header，显示 RAG Inspector、当前 project、当前 subject、embedding model/dimensions、索引状态点和刷新按钮。
+  - 视觉可参考 `PlotWorkbenchDialog.vue` 的 `workbench-accent-icon`、顶部状态点、紧凑工具按钮和 inspector slide transition。
+- 组件拆分：
+  - `NovelRagInspectorDialog.vue`：数据加载、状态协调、二次确认 dialog、整体 workbench shell。
+  - `NovelRagInspectorSidebar.vue`：subject 列表、event/memory 数量、source 状态、JSONL 错误摘要。
+  - `NovelRagInspectorMain.vue`：中间主区，提供 `Chunks` / `Search` 模式、source filter、limit、chunk 选择、搜索结果列表。
+  - `NovelRagInspectorDetail.vue`：右侧 inspector，展示 Project/Subject/Index/Embedding 状态，选中 chunk 或 search candidate 后展示详情，并承载 debug 操作。
+- 中间主区：
+  - 默认模式为 `Chunks`，展示当前 subject 的 chunk 列表。
+  - `Search` 调用现有真实 search API，不做前端关键词 fallback。
+  - 切换 subject/source filter/limit 时重新加载 inspector，并清空选中 chunk 与旧 search result。
+- 右侧 inspector：
+  - 未选 chunk 时展示 Project / Subject / Index / Embedding 摘要。
+  - 选中 chunk 时展示 source、sourceKey、chunkIndex、topic/tick/time、contentHash、createdAt、embedding provider/model/dimensions/indexedAt、vector dimensions 和前 8 维 preview。
+  - Search result 点击后右侧展示 candidate 详情，但不伪装成 SQLite vector row。
+  - Debug 操作放在右侧操作区；危险操作仍二次确认。
+- DTO / service 小幅补充：
+  - `ProjectRagInspectorDto.index.readError: string | null`：SQLite 存在但读取 meta/chunk 失败时用于 UI 展示，不把 dialog 拖垮。
+  - `ProjectRagInspectorDto.selectedSubject.chunkSourceCounts: {events: number; memory: number}`：右侧摘要和 source filter 计数使用。
+  - 保持不返回完整 raw embedding，不暴露 API key，不提供任意 SQL，不编辑 SQLite 行。
+
 ### 13. RAG Inspector Verification
 
 - 后端 test：
@@ -673,17 +707,20 @@ type ProjectRagDebugResult = {
   - `index.vue` 挂载 `NovelRagInspectorDialog` 并响应 `open-rag-inspector`。
   - Dialog 调用 `/api/projects/rag/inspector` 与 `/api/projects/rag/debug`。
   - Dialog 文案包含向量维数、嵌入模型、向量预览、chunk 元数据、清空缓存、标记 dirty 等关键能力。
+  - Workbench 重写后，Dialog contract 还应确认 `size="workbench"`、`overlay-type="blur"`、拆分组件导入、`Chunks` / `Search` 主模式、右侧 inspector 和 debug 操作入口仍存在。
 - 窄验证命令：
-  - `bunx vitest run server/rag/project-rag-visualization.test.ts app/components/novel-ide/rag/NovelRagPanel.contract.test.ts --reporter=dot`
+  - `bunx vitest run server/rag/project-rag-visualization.test.ts app/components/novel-ide/rag/NovelRagPanel.contract.test.ts server/agent/tools/subject-memory-tools.test.ts server/agent/tools/sqlite-vec-smoke.test.ts --reporter=dot`
   - 如新增独立 inspector contract test，则一并运行。
 
 ## Verification / Test
 
-- `bunx vitest run server/rag/project-rag-visualization.test.ts --reporter=dot` 通过：1 个测试文件，8 个测试通过。覆盖无 subjects 空概览、Project overview/detail、events CRUD/reorder、memory CRUD、坏 JSONL 禁止覆盖、CRUD 不创建不存在 subject、rebuild 未配置 embedding 时返回 subject 级错误、真实 RAG 搜索链路与 dirty 消费。
-- `bunx vitest run app/components/novel-ide/rag/NovelRagPanel.contract.test.ts --reporter=dot` 通过：1 个测试文件，3 个测试通过。覆盖 RAG tab 注册、user-assets 模式隐藏、基础空状态文案、真实 RAG API endpoint 绑定、不出现“打开源文件 / Embedding 设置”入口、加载失败清空旧数据、重建跳过时展示失败原因。
-- `bunx vitest run app/components/novel-ide/rag/NovelRagPanel.contract.test.ts server/rag/project-rag-visualization.test.ts --reporter=dot` 通过：2 个测试文件，11 个测试通过。
-- `bunx vitest run server/agent/tools/subject-memory-tools.test.ts server/agent/tools/sqlite-vec-smoke.test.ts --reporter=dot` 通过：2 个测试文件，12 个测试通过。确认底层 subject memory tools 与 sqlite-vec smoke 仍可用。
+- `bunx vitest run server/rag/project-rag-visualization.test.ts --reporter=dot` 通过：1 个测试文件，13 个测试通过。覆盖无 subjects 空概览、Project overview/detail、events CRUD/reorder、memory CRUD、坏 JSONL 禁止覆盖、CRUD 不创建不存在 subject、rebuild 未配置 embedding 时返回 subject 级错误、真实 RAG 搜索链路与 dirty 消费、Inspector chunk 级 embedding 元数据 / 向量预览、旧版 chunk schema 只读兼容、Inspector debug 操作、删除 subject index 失败不伪装成功、SQLite 读取失败时返回 `readError` 和可展示空状态。
+- `bunx vitest run app/components/novel-ide/rag/NovelRagPanel.contract.test.ts --reporter=dot` 通过：1 个测试文件，4 个测试通过。覆盖 RAG tab 注册、user-assets 模式隐藏、基础空状态文案、真实 RAG API endpoint 绑定、不出现“打开源文件 / Embedding 设置”入口、加载失败清空旧数据、重建跳过时展示失败原因、Header RAG Inspector 入口、Workbench dialog shell、拆分组件、inspector/debug API 绑定和右侧 vector/debug 能力。
+- `bunx vitest run server/rag/project-rag-visualization.test.ts app/components/novel-ide/rag/NovelRagPanel.contract.test.ts server/agent/tools/subject-memory-tools.test.ts server/agent/tools/sqlite-vec-smoke.test.ts --reporter=dot` 通过：4 个测试文件，33 个测试通过。
+- `bunx vitest run server/rag/project-rag-visualization.test.ts server/agent/tools/subject-memory-tools.test.ts server/agent/tools/sqlite-vec-smoke.test.ts --reporter=dot` 通过：3 个测试文件，28 个测试通过。确认 Project RAG visualization、底层 subject memory tools 与 sqlite-vec smoke 仍可用。
 - `bunx tsc --noEmit --pretty false` 仍失败在既有无关类型红灯：`agent-suggestion.test.ts`、`server/agent/harness/compaction.ts`、`server/agent/profiles/catalog.ts`、`server/agent/skills/silly-tavern-card-cli.test.ts`。本次输出未出现 Task 44 新增的 RAG DTO / service / API / panel 类型错误。
+- `bunx tsc --noEmit --pretty false 2>&1 | Select-String -Pattern "project-rag|NovelRag|rag-inspector|RagInspector|project-rag-visualization"` 未输出 Task 44 相关类型错误。
+- `bun run typecheck 2>&1 | Select-String -Pattern "project-rag|NovelRag|rag-inspector|RagInspector|project-rag-visualization"` 未输出 Task 44 相关 Vue 类型错误。
 
 ## Implementation Walkthrough
 
@@ -697,9 +734,13 @@ type ProjectRagDebugResult = {
 - 2026-06-08：修复 scoped review 发现的 RAG 面板状态问题。overview / subject 加载失败时会清空旧 overview、选中 subject、subject detail 和 search result，避免项目或 subject 切换失败后继续显示上一份 RAG 数据；重建索引返回 skipped subjects 时会展示每个失败 subject 的具体 message 摘要，而不是只显示跳过数量。
 - 2026-06-08：新增第二阶段 UI 优化方案。现有左侧 RAG 侧边栏保留；Header 右上角新增独立 RAG Inspector dialog 入口。Inspector 重新单独设计，默认查看当前 Project / 当前 subject，展示 embedding 配置、索引 meta、向量维数、chunk 元数据和向量前 8 维预览，并提供完整 debug 操作：标记 dirty、删除 subject index、清空缓存、清空并重建。Inspector 不返回 API key，不展示完整 raw embedding，不直接编辑 SQLite 行或 JSONL 事实源。
 - 2026-06-08：用户确认 RAG Inspector 第二阶段关键决策：chunk / entry 级 embedding provider、model、dimensions、indexedAt 必须真实落库；破坏性操作使用普通二次确认；base URL 显示脱敏 host / origin；chunk 列表支持 source 筛选与 `100 / 200 / 500` limit；`clear-index-cache` 与 `clear-index-cache-and-rebuild` 都保留；左侧 RAG 面板偏浏览，Inspector dialog 是重量级操作界面。
+- 2026-06-08：已实现第二阶段 RAG Inspector。`subject_rag_chunks` 升级为 `subject-rag-v3` 并落库 `embedding_provider`、`embedding_model`、`embedding_dimensions`、`embedding_indexed_at`；新增 `ProjectRagInspector*` / `ProjectRagDebug*` DTO、`/api/projects/rag/inspector`、`/api/projects/rag/debug`、OpenAPI route map 登记、`readProjectRagInspector()` 与 `debugProjectRag()` service。Header 右上角新增 RAG Inspector 入口，`index.vue` 挂载 `NovelRagInspectorDialog.vue`。Dialog 支持 Status / Chunks / Search / Debug，展示脱敏 base URL、schema/meta、chunk 级 embedding 元数据、向量前 8 维预览，支持 source 筛选、`100 / 200 / 500` limit、mark dirty、delete subject index、clear cache、clear and rebuild。
+- 2026-06-08：修复 scoped review 发现的 RAG Inspector 问题。`project-rag-visualization.test.ts` 改为在临时 cwd 内动态 import service，global embedding config 只写入测试 fixture，不再备份/覆盖真实仓库 `workspace/.nbook/config.json`；`delete-subject-index` 删除缓存时不再吞掉 SQLite 错误，数据库存在但删除失败会向 API 抛错，避免 UI 显示“已删除 0 条”这种假成功。
+- 2026-06-08：用户要求 RAG Inspector UI 参考 `PlotWorkbenchDialog.vue` 重新写。确认方向为完整重构，可拆组件，允许前后端一起小改；布局采用左侧 subject 浏览、中间 chunk/search 列表、右侧详细 inspector，不完全死板照搬 Plot Workbench。第三阶段方案已写入 `12.1 RAG Inspector Workbench Rewrite`。
+- 2026-06-08：已落地第三阶段 RAG Inspector Workbench 重写。`ProjectRagInspectorDto` 增加 `index.readError` 与 `selectedSubject.chunkSourceCounts`；service 在 SQLite 读取失败时返回可展示 readError，不拖垮 dialog。前端拆分为 `NovelRagInspectorSidebar.vue`、`NovelRagInspectorMain.vue`、`NovelRagInspectorDetail.vue` 和协调宿主 `NovelRagInspectorDialog.vue`；Dialog 使用 `size="workbench"` / `overlay-type="blur"`，实现左侧 subject 浏览、中间 Chunks/Search 主区、右侧 Project/Subject/Index/Embedding/Chunk/Search detail 与 debug 操作区。
+- 2026-06-08：修复现场 UI “右侧有 chunks 统计但中间列表为空”的问题。根因是现有 Project 的 `.nbook/subject-rag.sqlite` 仍是旧版 `subject_rag_chunks` schema，缺少 `embedding_provider`、`embedding_model`、`embedding_dimensions`、`embedding_indexed_at`；Inspector 的 chunk list 查询把 chunk 正文和新 embedding 元数据放在同一条 SQL 里，列不存在后被 `safeReadInspectorChunkRows()` 吞掉，导致只剩 count 能展示。修复后 Inspector 会先探测 `subject_rag_chunks` 列集合，旧缓存也能展示 chunk 正文和向量预览；缺失的条目级 embedding 元数据在 UI 中显示为“旧索引未记录 / 需重建索引”。同时将 RAG Inspector UI 文案中文化，顶部状态、左侧 subject 状态、中间索引条目 / 召回测试、右侧检查器和索引操作均使用中文。
 
 ## TODO / Follow-ups
 
-- 落地第二阶段 RAG Inspector：新增 inspector/debug DTO、service、API、Header 入口和独立 dialog。
 - 后续再决定是否做 Project Search / 跨 subject 搜索。
 - 如需要产品级验收，再由用户确认后启动浏览器验证；本轮按项目规则未自动进行浏览器验证。

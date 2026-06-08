@@ -70,10 +70,6 @@ const allowedToolKeys = [
     "variable_schema",
     "variable_read",
     "variable_patch",
-
-    "subject_event_append",
-    "subject_rag_search",
-    "memory_bio",
 ] as const;
 
 export default defineAgentProfile({

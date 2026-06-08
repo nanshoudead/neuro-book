@@ -65,7 +65,7 @@ subject 侧 `events.md` / `knowledge.md` 是旧合同，当前运行时不再读
 
 1. `actor.context-load` 在主 run 前执行。
 2. 它读取小文件 `subject.md`、`mind.md`、`state.md`。
-3. 它调用 `subject_rag_search` 检索当前 subject 的 `events.jsonl` 和 `memory.jsonl`。
+3. 它调用 `subject_rag_search` 检索当前 subject 的 `events.jsonl` 和 `memory.jsonl`。工具只暴露 `limit` 作为查询调参，内部会过滤明显不相关的候选。
 4. 它自己 rerank、去重、过滤和压缩。
 5. 它把少量相关记忆注入 `<actor_sidecar_context>`。
 6. actor 主 run 只根据 actor-facing packet 和这个 sidecar context 扮演角色。

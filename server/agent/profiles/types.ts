@@ -177,6 +177,8 @@ export type AgentProfile<
     inputSchema: TInputSchema;
     outputSchema?: TOutputSchema;
     allowedToolKeys: readonly string[];
+    /** 主 run 实际可执行工具；不声明时等于 allowedToolKeys。sidecar 仍可声明自己的执行子集。 */
+    mainRunAllowedToolKeys?: readonly string[];
     sidecars?: readonly SidecarProfilePass<Static<TInputSchema>, JsonValue>[];
     summarizer?: AgentProfileSummarizerConfig<TSummarizerKey>;
     compaction?: ProfileCompactionPlan;

@@ -14,7 +14,7 @@ const emit = defineEmits<{
 <template>
     <Dialog
         :model-value="props.modelValue"
-        size="workbench"
+        size="full"
         overlay-type="blur"
         :show-footer="false"
         :show-header="false"

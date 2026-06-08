@@ -222,6 +222,9 @@ export async function validateProfileArtifact(profileRoot: string, item: Profile
     if (artifactHash.sha256 !== item.artifactSha256 || artifactHash.bytes !== item.artifactBytes) {
         return {fresh: false, reason: "artifact_changed"};
     }
+    if (isProductRuntimeRoot() && !await artifactHasProductRequireShim(artifactPath)) {
+        return {fresh: false, reason: "artifact_changed"};
+    }
     if (!options.requireTypeArtifact) {
         return validateProfileArtifactDependencies(item);
     }
@@ -372,6 +375,11 @@ async function importCompiledProfile(artifactPath: string, artifactHash: string)
         throw new Error(`compiled profile 没有默认导出有效的 defineAgentProfile 结果：${artifactPath}`);
     }
     return profile;
+}
+
+async function artifactHasProductRequireShim(artifactPath: string): Promise<boolean> {
+    const head = (await readFile(artifactPath, "utf8")).slice(0, 2048);
+    return head.includes("__nbookResolveProductRequireRoot");
 }
 
 function isProfile(value: unknown): value is AgentProfile {
@@ -577,8 +585,24 @@ function resolvePackageRequireRoot(): string {
 }
 
 function isProductRuntimeRoot(): boolean {
-    return existsSync(resolve(process.cwd(), "release-meta.json"))
-        && existsSync(resolve(process.cwd(), ".output", "server", "index.mjs"));
+    return existsSync(resolve(process.cwd(), ".output", "server", "index.mjs"))
+        && Boolean(productReleaseMetaPath());
+}
+
+/**
+ * Product Root 可能来自 `product:stage`，也可能是 GHCR / 通用 `.output`
+ * runner。后者只有 `.output/server/release-meta.json`，且不带根 node_modules。
+ */
+function productReleaseMetaPath(): string | null {
+    const rootMeta = resolve(process.cwd(), "release-meta.json");
+    if (existsSync(rootMeta)) {
+        return rootMeta;
+    }
+    const outputMeta = resolve(process.cwd(), ".output", "server", "release-meta.json");
+    if (existsSync(outputMeta) && !existsSync(resolve(process.cwd(), "node_modules"))) {
+        return outputMeta;
+    }
+    return null;
 }
 
 function resolveBarePackage(specifier: string, requireFromRuntime: NodeJS.Require): {path: string} | undefined {

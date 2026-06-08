@@ -9,11 +9,52 @@ import {computed, onBeforeUnmount, onMounted, ref, useAttrs, watch} from "vue";
  * 样式通过 CSS custom properties 继承项目主题。
  */
 
+type DialogSize = "sm" | "default" | "md" | "lg" | "xl" | "full";
+
+type DialogSizePreset = {
+    width: string;
+    height: string;
+    maxHeight: string;
+};
+
+const DIALOG_SIZE_PRESETS: Record<DialogSize, DialogSizePreset> = {
+    sm: {
+        width: "360px",
+        height: "auto",
+        maxHeight: "85vh",
+    },
+    default: {
+        width: "420px",
+        height: "auto",
+        maxHeight: "85vh",
+    },
+    md: {
+        width: "min(560px, calc(100vw - 32px))",
+        height: "auto",
+        maxHeight: "85vh",
+    },
+    lg: {
+        width: "min(720px, calc(100vw - 32px))",
+        height: "auto",
+        maxHeight: "calc(100vh - 32px)",
+    },
+    xl: {
+        width: "min(1080px, calc(100vw - 20px))",
+        height: "min(780px, calc(100vh - 20px))",
+        maxHeight: "calc(100vh - 20px)",
+    },
+    full: {
+        width: "min(1840px, calc(100vw - 24px))",
+        height: "min(1080px, calc(100vh - 24px))",
+        maxHeight: "calc(100vh - 24px)",
+    },
+};
+
 const props = withDefaults(defineProps<{
     /** 控制对话框显隐 */
     modelValue: boolean;
-    /** 语义尺寸，适合复用大型工作台这类标准尺寸 */
-    size?: "default" | "workbench";
+    /** 语义尺寸，适合复用常见弹窗和大型工作台这类标准尺寸 */
+    size?: DialogSize;
     /** header 默认标题 */
     title?: string;
     /** 是否显示关闭按钮（默认 true） */
@@ -170,9 +211,10 @@ onBeforeUnmount(() => {
 });
 
 const isMounted = ref(false);
-const resolvedWidth = computed(() => props.width ?? (props.size === "workbench" ? "min(1840px, calc(100vw - 24px))" : "420px"));
-const resolvedHeight = computed(() => props.height ?? (props.size === "workbench" ? "min(1080px, calc(100vh - 24px))" : "auto"));
-const resolvedMaxHeight = computed(() => props.maxHeight ?? (props.size === "workbench" ? "calc(100vh - 24px)" : "85vh"));
+const resolvedSizePreset = computed(() => DIALOG_SIZE_PRESETS[props.size]);
+const resolvedWidth = computed(() => props.width ?? resolvedSizePreset.value.width);
+const resolvedHeight = computed(() => props.height ?? resolvedSizePreset.value.height);
+const resolvedMaxHeight = computed(() => props.maxHeight ?? resolvedSizePreset.value.maxHeight);
 
 onMounted(() => {
     isMounted.value = true;

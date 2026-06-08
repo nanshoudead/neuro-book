@@ -90,6 +90,7 @@ export const AgentInvokeRequestDtoSchema = z.object({
 
 export const AgentSessionListQueryDtoSchema = z.object({
     workspaceKey: z.string().trim().min(1).optional(),
+    projectPath: z.string().trim().min(1).optional(),
     includeArchived: z.coerce.boolean().optional(),
     includeSystem: z.coerce.boolean().optional(),
     profileGroup: z.enum(["all", "leader"]).optional(),
@@ -191,6 +192,7 @@ export type AgentSessionSummaryDto = {
     profileKey: string;
     workspaceKey: string;
     workspaceRoot: string;
+    projectPath?: string;
     parentSessionId?: number;
     systemRole?: "summarizer";
     title?: string;

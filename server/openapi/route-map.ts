@@ -65,6 +65,9 @@ import {
     ProjectRagEventDeleteRequestDtoSchema,
     ProjectRagEventReorderRequestDtoSchema,
     ProjectRagEventWriteRequestDtoSchema,
+    ProjectRagDebugRequestDtoSchema,
+    ProjectRagDebugResultDtoSchema,
+    ProjectRagInspectorDtoSchema,
     ProjectRagMemoryDeleteRequestDtoSchema,
     ProjectRagMemoryWriteRequestDtoSchema,
     ProjectRagOverviewDtoSchema,
@@ -134,6 +137,12 @@ const ProjectRagProjectQuerySchema = z_.object({
 
 const ProjectRagSubjectQuerySchema = ProjectRagProjectQuerySchema.extend({
     subjectPath: z_.string().trim().min(1).describe("Project-relative subject path, for example simulation/subjects/<subject-id>"),
+});
+
+const ProjectRagInspectorQuerySchema = ProjectRagProjectQuerySchema.extend({
+    subjectPath: z_.string().trim().min(1).optional().describe("Project-relative subject path, for example simulation/subjects/<subject-id>"),
+    sources: z_.string().optional().describe("Comma-separated source filters: events,memory"),
+    limit: z_.union([z_.literal("100"), z_.literal("200"), z_.literal("500")]).optional().describe("Chunk limit"),
 });
 
 const WorkspaceTreeSnapshotSchema = z_.object({
@@ -221,6 +230,11 @@ export const routeMetaMap: RouteMetaEntry[] = [
             volumeCount: true,
             chapterCount: true,
             totalWords: true,
+            lorebookCount: true,
+            sessionCount: true,
+            threadCount: true,
+            sceneCount: true,
+            plotCount: true,
         }),
     },
     {
@@ -232,6 +246,11 @@ export const routeMetaMap: RouteMetaEntry[] = [
             volumeCount: true,
             chapterCount: true,
             totalWords: true,
+            lorebookCount: true,
+            sessionCount: true,
+            threadCount: true,
+            sceneCount: true,
+            plotCount: true,
         }),
     },
     {
@@ -244,6 +263,11 @@ export const routeMetaMap: RouteMetaEntry[] = [
             volumeCount: true,
             chapterCount: true,
             totalWords: true,
+            lorebookCount: true,
+            sessionCount: true,
+            threadCount: true,
+            sceneCount: true,
+            plotCount: true,
         }),
     },
     {
@@ -545,6 +569,23 @@ export const routeMetaMap: RouteMetaEntry[] = [
         queryParams: ProjectRagProjectQuerySchema,
         requestBody: ProjectRagRebuildRequestDtoSchema,
         responseBody: ProjectRagRebuildResultDtoSchema,
+    },
+    {
+        file: "projects/rag/inspector.get.ts",
+        method: "get",
+        tags: ["Project RAG"],
+        summary: "Read Project RAG inspector metadata and vector previews",
+        queryParams: ProjectRagInspectorQuerySchema,
+        responseBody: ProjectRagInspectorDtoSchema,
+    },
+    {
+        file: "projects/rag/debug.post.ts",
+        method: "post",
+        tags: ["Project RAG"],
+        summary: "Run Project RAG debug operations",
+        queryParams: ProjectRagProjectQuerySchema,
+        requestBody: ProjectRagDebugRequestDtoSchema,
+        responseBody: ProjectRagDebugResultDtoSchema,
     },
     {
         file: "projects/rag/events.post.ts",

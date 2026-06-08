@@ -3085,12 +3085,9 @@ describe("NeuroAgentHarness", () => {
         faux.setResponses([
             (context) => {
                 observedToolNames.push((context.tools ?? []).map((tool) => tool.name));
-                return fauxAssistantMessage([
-                    fauxToolCall("sidecar_extra", {}, {id: "forbidden-extra"}),
-                ], {stopReason: "toolUse"});
-            },
-            (context) => {
-                expect(visibleMessageText(context.messages as AgentMessage[])).toContain("Tool sidecar_extra is not allowed by this profile");
+                const promptText = visibleMessageText(context.messages as AgentMessage[]);
+                expect(promptText).toContain("allowed tools: report_result");
+                expect(promptText).toContain("provider-visible tool schema 仍保持 profile 最大工具集合");
                 return fauxAssistantMessage([
                     fauxToolCall("report_result", {
                         result: "loaded",
@@ -3120,7 +3117,162 @@ describe("NeuroAgentHarness", () => {
 
         expect(result.status).toBe("completed");
         expect(observedToolNames[0]).toEqual(expect.arrayContaining(["report_result", "sidecar_extra"]));
-    });
+    }, 20_000);
+
+    it("主 run 可见 profile 最大工具 schema，但执行权限使用 mainRunAllowedToolKeys", async () => {
+        const observedToolNames: string[][] = [];
+        let mainForbiddenExecuted = false;
+        harness.tools.register({
+            key: "main_forbidden_extra",
+            name: "main_forbidden_extra",
+            label: "Main Forbidden Extra",
+            description: "Visible to provider but not executable in main run.",
+            parameters: Type.Object({}),
+            async execute() {
+                mainForbiddenExecuted = true;
+                return {
+                    content: [{type: "text", text: "extra"}],
+                    details: {},
+                    terminate: true,
+                };
+            },
+        });
+        harness.profiles.register(defineAgentProfile({
+            manifest: {
+                key: "test.main-run-tool-policy",
+                name: "Main Run Tool Policy",
+            },
+            inputSchema: Type.Object({}),
+            allowedToolKeys: ["report_result", "main_forbidden_extra"],
+            mainRunAllowedToolKeys: ["report_result"],
+            prepare() {
+                return {};
+            },
+        }), false);
+        faux.setResponses([
+            (context) => {
+                observedToolNames.push((context.tools ?? []).map((tool) => tool.name));
+                return fauxAssistantMessage([
+                    fauxToolCall("main_forbidden_extra", {}, {id: "forbidden-main-extra"}),
+                    fauxToolCall("report_result", {
+                        result: "main",
+                    }, {id: "main-report"}),
+                ], {stopReason: "toolUse"});
+            },
+        ]);
+        const created = await harness.createAgent({
+            profileKey: "test.main-run-tool-policy",
+            input: {},
+            workspaceRoot: root,
+        });
+
+        const result = await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "run"},
+        });
+        const context = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
+
+        expect(result.status).toBe("completed");
+        expect(observedToolNames[0]).toEqual(expect.arrayContaining(["report_result", "main_forbidden_extra"]));
+        expect(mainForbiddenExecuted).toBe(false);
+        expect(visibleMessageText(context.messages)).toContain("Tool main_forbidden_extra is not allowed by this profile");
+    }, 20_000);
+
+    it("主 run 执行权限同时受 mainRunAllowedToolKeys 和 prepareTurn toolKeysPatch 限制", async () => {
+        const observedToolNames: string[][] = [];
+        let reportExecuted = false;
+        let patchedToolExecuted = false;
+        harness.tools.register({
+            key: "patched_visible_extra",
+            name: "patched_visible_extra",
+            label: "Patched Visible Extra",
+            description: "Visible after prepareTurn patch, but outside main run execution subset.",
+            parameters: Type.Object({}),
+            async execute() {
+                patchedToolExecuted = true;
+                return {
+                    content: [{type: "text", text: "patched"}],
+                    details: {},
+                    terminate: true,
+                };
+            },
+        });
+        harness.tools.register({
+            key: "main_report_gate",
+            name: "main_report_gate",
+            label: "Main Report Gate",
+            description: "Allowed by mainRunAllowedToolKeys but hidden by prepareTurn patch.",
+            parameters: Type.Object({}),
+            async execute() {
+                reportExecuted = true;
+                return {
+                    content: [{type: "text", text: "main"}],
+                    details: {},
+                    terminate: true,
+                };
+            },
+        });
+        harness.profiles.register(defineAgentProfile({
+            manifest: {
+                key: "test.main-run-tool-policy-with-patch",
+                name: "Main Run Tool Policy With Patch",
+            },
+            inputSchema: Type.Object({}),
+            allowedToolKeys: ["main_report_gate", "patched_visible_extra"],
+            mainRunAllowedToolKeys: ["main_report_gate"],
+            runtime: defineAgentRuntime({
+                hooks: [
+                    agentRuntimeBuiltins.sessionRuntime(),
+                    {
+                        name: "patch-tools",
+                        stage: "prepareTurn",
+                        run() {
+                            return {
+                                turnSnapshotPatch: {
+                                    toolKeys: ["patched_visible_extra"],
+                                },
+                            };
+                        },
+                    },
+                ],
+            }),
+            prepare() {
+                return {};
+            },
+        }), false);
+        faux.setResponses([
+            (context) => {
+                observedToolNames.push((context.tools ?? []).map((tool) => tool.name));
+                return fauxAssistantMessage([
+                    fauxToolCall("patched_visible_extra", {}, {id: "patched-extra"}),
+                    fauxToolCall("main_report_gate", {}, {id: "main-gate"}),
+                ], {stopReason: "toolUse"});
+            },
+            fauxAssistantMessage([
+                fauxText("blocked"),
+            ], {stopReason: "stop"}),
+        ]);
+        const created = await harness.createAgent({
+            profileKey: "test.main-run-tool-policy-with-patch",
+            input: {},
+            workspaceRoot: root,
+        });
+
+        const result = await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "run"},
+        });
+        const context = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
+
+        expect(result.status).toBe("completed");
+        expect(observedToolNames[0]).toEqual(["patched_visible_extra"]);
+        expect(reportExecuted).toBe(false);
+        expect(patchedToolExecuted).toBe(false);
+        expect(visibleMessageText(context.messages)).toContain("Tool patched_visible_extra is not allowed by this profile");
+        expect(visibleMessageText(context.messages)).toContain("Tool main_report_gate is not allowed by this profile");
+    }, 20_000);
 
     it("prepareRun sidecar 不会关闭父 run 的 steer 窗口", async () => {
         let releaseMainTool: (() => void) | undefined;

@@ -58,6 +58,7 @@ const runtimeContextPaths = [
     "scripts/cli/sync-user-assets.ts",
     "scripts/deploy/product-start.mjs",
     "scripts/db",
+    "scripts/build/prepare-system-assets.ts",
     "scripts/build/profile.ts",
     "scripts/build/variable.ts",
     "scripts/utils",
@@ -104,6 +105,9 @@ await measure("copy profile import context", async () => {
         await copyDirectory(source, target);
     }
 });
+await measure("assert product output scripts", async () => {
+    await assertProductOutputScripts();
+});
 
 await measure("copy workspace cli runtime script", async () => {
     await copyWorkspaceCliRuntimeScript();
@@ -143,6 +147,28 @@ async function measure(label, action) {
             label,
             seconds: (performance.now() - startedAt) / 1000,
         });
+    }
+}
+
+/**
+ * GHCR / 通用 `.output` runner 不经过 `product:stage`，启动所需脚本必须在
+ * Nitro 后处理阶段进入 `.output/server/scripts/**`。
+ */
+async function assertProductOutputScripts() {
+    const requiredPaths = [
+        "scripts/build/prepare-system-assets.ts",
+        "scripts/deploy/product-start.mjs",
+        "scripts/db/prisma-migrate.mjs",
+        "scripts/cli/create-admin.ts",
+        "scripts/cli/has-users.ts",
+    ];
+    const missing = requiredPaths.filter((runtimePath) => !existsSync(resolve(serverRoot, runtimePath)));
+    if (missing.length > 0) {
+        throw new Error([
+            "Nitro product output is missing required runtime scripts.",
+            "Missing:",
+            ...missing.map((runtimePath) => `- .output/server/${runtimePath}`),
+        ].join("\n"));
     }
 }
 

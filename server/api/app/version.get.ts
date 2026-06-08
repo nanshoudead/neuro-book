@@ -1,4 +1,5 @@
 import {execFile} from "node:child_process";
+import {existsSync} from "node:fs";
 import {readFile} from "node:fs/promises";
 import {join} from "node:path";
 import {promisify} from "node:util";
@@ -28,19 +29,33 @@ type ReleaseMeta = {
  * 读取产品构建期写入的版本元数据。
  */
 async function readReleaseMeta(): Promise<AppVersionDto | null> {
-    try {
-        const meta = JSON.parse(await readFile(join(process.cwd(), "release-meta.json"), "utf8")) as ReleaseMeta;
-        if (meta.versionLabel && meta.versionKind && meta.githubUrl) {
-            return {
-                versionLabel: meta.versionLabel,
-                versionKind: meta.versionKind,
-                githubUrl: meta.githubUrl,
-            };
+    for (const path of releaseMetaCandidates()) {
+        try {
+            const meta = JSON.parse(await readFile(path, "utf8")) as ReleaseMeta;
+            if (meta.versionLabel && meta.versionKind && meta.githubUrl) {
+                return {
+                    versionLabel: meta.versionLabel,
+                    versionKind: meta.versionKind,
+                    githubUrl: meta.githubUrl,
+                };
+            }
+        } catch {
+            continue;
         }
-    } catch {
-        return null;
     }
     return null;
+}
+
+/**
+ * Product Root 优先读根 metadata；GHCR / 通用 `.output` runner 无根
+ * `node_modules` 时，允许回退到 Nitro 后处理写入的 metadata。
+ */
+function releaseMetaCandidates(): string[] {
+    const candidates = [join(process.cwd(), "release-meta.json")];
+    if (!existsSync(join(process.cwd(), "node_modules"))) {
+        candidates.push(join(process.cwd(), ".output", "server", "release-meta.json"));
+    }
+    return candidates;
 }
 
 /**

@@ -3,7 +3,7 @@ import {
     CreateNovelRequestDtoSchema,
     type CreateNovelRequestDto,
 } from "nbook/shared/dto/novel-chapter.dto";
-import {toNovelResponse, validateBody} from "nbook/server/utils/novel-chapter";
+import {invalidateNovelListCache, toNovelResponse, validateBody} from "nbook/server/utils/novel-chapter";
 import {copyNovelDirectoryTemplate} from "nbook/server/workspace-files/novel-workspace";
 import {initProjectDatabase, listProjectWorkspaces, writeProjectManifest} from "nbook/server/workspace-files/project-workspace";
 
@@ -22,6 +22,7 @@ export default defineEventHandler(async (event) => {
     });
     await copyNovelDirectoryTemplate(projectPath);
     await initProjectDatabase(projectPath);
+    invalidateNovelListCache();
 
     return toNovelResponse({
         projectPath,

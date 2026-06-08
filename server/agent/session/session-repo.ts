@@ -148,6 +148,9 @@ export class JsonlSessionRepository {
         if (input.workspaceKey && summary.workspaceKey !== input.workspaceKey) {
             return false;
         }
+        if (input.projectPath && summary.projectPath !== input.projectPath) {
+            return false;
+        }
         if (input.relation === "top" && summary.parentSessionId) {
             return false;
         }
@@ -451,6 +454,7 @@ export class JsonlSessionRepository {
             profileKey: context.profileKey,
             workspaceKey: snapshot.metadata.workspaceKey,
             workspaceRoot: context.workspaceRoot,
+            projectPath: snapshot.metadata.projectPath,
             parentSessionId: snapshot.metadata.parentSessionId,
             systemRole: snapshot.metadata.systemRole,
             title: context.title,

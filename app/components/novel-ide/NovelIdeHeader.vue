@@ -19,6 +19,7 @@ const emit = defineEmits<{
     (e: "toggle-agent"): void;
     (e: "open-bookshelf"): void;
     (e: "open-plot-workbench"): void;
+    (e: "open-rag-inspector"): void;
     (e: "open-user-assets"): void;
     (e: "open-profile-workbench"): void;
     (e: "switch-novel", value: string): void;
@@ -110,11 +111,12 @@ const handleUserMenuSelect = (value: string): void => {
                 </span>
             </button>
             <div class="h-4 w-px bg-[var(--border-color)]"></div>
-            <div v-if="!isUserAssetsMode" class="flex items-center gap-3 text-sm">
-                <Dropdown :items="novelItems" menu-class="left-0 top-full mt-2 w-56" @select="(v) => emit('switch-novel', v)">
-                    <button class="group flex items-center gap-1 rounded-md px-2 py-1 transition-colors hover:bg-[var(--bg-hover)]">
-                        <span class="font-serif text-[13px] italic text-[var(--text-secondary)] group-hover:text-[var(--text-main)] transition-colors">{{ novelTitle || '未选择小说' }}</span>
-                        <span class="i-lucide-chevron-down h-3.5 w-3.5 text-[var(--text-muted)] group-hover:text-[var(--text-main)] transition-colors"></span>
+            <div v-if="!isUserAssetsMode" class="w-44 text-sm">
+                <Dropdown :items="novelItems" menu-class="left-0 top-full mt-2 w-full" menu-max-height="min(360px, calc(100vh - 96px))" compact @select="(v) => emit('switch-novel', v)">
+                    <button class="group flex w-full items-center gap-1.5 rounded-md px-2 py-1 transition-colors hover:bg-[var(--bg-hover)]" :title="novelTitle || '未选择小说'">
+                        <span class="i-lucide-book-open h-3.5 w-3.5 shrink-0 text-[var(--text-muted)] group-hover:text-[var(--text-main)] transition-colors"></span>
+                        <span class="min-w-0 truncate font-serif text-[13px] italic text-[var(--text-secondary)] group-hover:text-[var(--text-main)] transition-colors">{{ novelTitle || '未选择小说' }}</span>
+                        <span class="i-lucide-chevron-down h-3.5 w-3.5 shrink-0 text-[var(--text-muted)] group-hover:text-[var(--text-main)] transition-colors"></span>
                     </button>
                 </Dropdown>
             </div>
@@ -131,6 +133,10 @@ const handleUserMenuSelect = (value: string): void => {
             <button v-if="!isUserAssetsMode" class="hidden items-center gap-2 rounded-full border border-transparent px-4 py-1.5 text-[12px] tracking-[0.2em] uppercase text-[var(--text-secondary)] transition-colors hover:border-[var(--border-color)] hover:bg-[var(--bg-hover)] hover:text-[var(--accent-text)] md:flex" title="剧本工作台" @click="emit('open-plot-workbench')">
                 <span class="i-lucide-panels-top-left h-4 w-4 text-[var(--accent-text)]"></span>
                 <span>剧本工作台</span>
+            </button>
+            <button v-if="!isUserAssetsMode" class="hidden items-center gap-2 rounded-full border border-transparent px-4 py-1.5 text-[12px] tracking-[0.2em] uppercase text-[var(--text-secondary)] transition-colors hover:border-[var(--border-color)] hover:bg-[var(--bg-hover)] hover:text-[var(--accent-text)] md:flex" title="RAG Inspector" @click="emit('open-rag-inspector')">
+                <span class="i-lucide-brain-circuit h-4 w-4 text-[var(--accent-text)]"></span>
+                <span>RAG</span>
             </button>
             <button v-if="!isUserAssetsMode" class="hidden items-center gap-2 rounded-full border border-transparent px-4 py-1.5 text-[12px] tracking-[0.2em] uppercase text-[var(--text-secondary)] transition-colors hover:border-[var(--border-color)] hover:bg-[var(--bg-hover)] hover:text-[var(--accent-text)] md:flex" title="用户资产" @click="emit('open-user-assets')">
                 <span class="i-lucide-folder-cog h-4 w-4 text-[var(--accent-text)]"></span>

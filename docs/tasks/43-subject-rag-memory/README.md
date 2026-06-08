@@ -44,7 +44,7 @@ simulation/subjects/{subject-id}/
 `-- state.md
 ```
 
-- `simulator.actor` 主 run 不直接读取 subject 文件原文；`actor.context-load` sidecar 可读取小文件并使用 `subject_rag_search` 注入 actor-safe context，注入内容会作为 harness-origin user message 持久化到 actor session。
+- `simulator.actor` 主 run 不直接读取 subject 文件原文，且主 run 实际执行权限只允许 `report_result`；`actor.context-load` sidecar 可读取小文件并使用 `subject_rag_search` 注入 actor-safe context，注入内容会作为 harness-origin user message 持久化到 actor session。
 - `actor.memory-save` sidecar 维护 `events.jsonl`、`memory.jsonl` 与 `mind.md`，`state.md` 由 `simulator.leader` 裁决。
 - 旧 `events.md` / `knowledge.md` 合同已 hard cut；工具层不导入、不读取、不做长期双轨同步。
 - Task 42 已把 rollback 和 RAG 分离。本 task 不展开 rollback 实现，只需保证 RAG 索引可重建，且不把被回滚掉的非 active 现实当成当前记忆。
@@ -262,6 +262,8 @@ type SubjectMemoryBioOutput = {
 
 第一版只给 sidecar 使用 RAG / memory 工具，主路 `simulator.actor` 不直接使用。
 
+`simulator.actor` 的 profile 最大工具集合仍包含 sidecar 需要的 `subject_rag_search`、`subject_event_append`、`memory_bio`、`read`、`edit` 和 `report_result`，用于 provider-visible schema 和 sidecar 子集校验；但 profile 通过 `mainRunAllowedToolKeys: ["report_result"]` 把主 run 执行权限硬收窄为只允许 `report_result`。`leader.default` 不直接拥有 subject memory / RAG 工具。
+
 `actor.context-load` 工具：
 
 - `subject_rag_search`
@@ -285,19 +287,9 @@ type SubjectRagSearchInput = {
     sources: ["events"] | ["memory"];
     limit?: number;
 };
-
-type SubjectRagSearchResult = {
-    candidates: Array<{
-        source: "events" | "memory";
-        text: string;
-        topic?: string;
-        tick?: string;
-        time?: string;
-        rank: number;
-        sourcePath: string;
-    }>;
-};
 ```
+
+`limit` 是第一版唯一暴露给 Agent 的常用 RAG 查询参数。工具内部自行处理相似度阈值，防止明显不相关的候选进入结果；不向 Agent 暴露 `score`、`minScore`、`maxCharsPerItem`、时间范围或 tick 范围。工具结果以模型可直接阅读的文本渲染，不用 JSON 包裹候选。
 
 `subject_event_append` 负责追加 `events.jsonl` 并校验 JSONL，不让模型手写文件格式：
 
@@ -336,6 +328,7 @@ RAG 索引原则：
 - 检索必须限定 subject scope，不能跨 subject 泄露。
 - RAG 返回给 actor 时必须保留 `topic` 或事件来源，避免 chunk 切开后失去主体。
 - `subject_rag_search` 必须显式指定单一 source：`["events"]` 或 `["memory"]`。工具层不提供默认双搜，也不允许一次同时搜两层；需要两层记忆时由 sidecar 分别调用两次后自行合并。
+- `subject_rag_search` 只暴露 `limit` 一个查询调参；相关性阈值由工具内部设置，不返回 score，也不要求 Agent 判断 score 标准。
 - 第一版建议使用独立缓存库 `{project}/.nbook/subject-rag.sqlite`，不要混入 Project SQLite `.nbook/project.sqlite`。Project SQLite 是 Plot / Story durable 结构库；subject RAG 是可重建索引缓存，并依赖 sqlite-vec 虚表。
 - Runtime 内 `subject_rag_search` 必须兼容 Node / Bun 两种 SQLite 运行环境：Node server/product 使用 `node:sqlite` 加载 sqlite-vec，Bun smoke 可继续使用 Bun runtime。
 - embedding 未配置时，`subject_rag_search` 直接返回明确错误，不做关键词 fallback，避免误以为 RAG 已经生效。
@@ -475,10 +468,11 @@ CREATE VIRTUAL TABLE subject_rag_vec USING vec0(
 
 ### 4. subject_rag_search Tool
 
-- 输入 `{ subjectPath, query, sources, limit? }`，其中 `sources` 必须是 `["events"]` 或 `["memory"]`。
+- 输入 `{ subjectPath, query, sources, limit? }`，其中 `sources` 必须是 `["events"]` 或 `["memory"]`；`limit` 是唯一查询调参。
 - 检查并按需重建当前 subject 的 dirty source。
 - 使用 embedding model 生成 query embedding，并通过 sqlite-vec 召回候选。
-- 返回候选，不直接生成最终 context；候选包含 `source`、`text`、`topic?`、`tick?`、`time?`、`rank`、`sourcePath`。
+- 工具内部应用相关性阈值，过滤明显无关候选。
+- 返回模型可直接阅读的文本候选，不直接生成最终 context；不返回 score 或 JSON 包裹的候选结构。
 - 检索必须限定当前 subject scope。
 
 ### 5. subject_event_append Tool
@@ -565,6 +559,8 @@ CREATE VIRTUAL TABLE subject_rag_vec USING vec0(
 - 2026-06-08：修复 `subject_rag_search` 在 Node/Nitro runtime 下动态 import `bun:sqlite` 导致的 ESM loader 报错。RAG 索引现在按运行环境创建 SQLite adapter：Node 使用 `node:sqlite` + sqlite-vec，Bun smoke 继续使用 `bun:sqlite`；新增 `subject_event_append` 后立刻 `subject_rag_search` 的回归测试，确认 search 会同步重建 dirty events 并消费 dirty 标记。Global Embedding 设置启用但模型/维度留空时会写入默认 `text-embedding-3-small` / `1536`，Project 空值仍表示继承 Global。复验：`bun scripts/smoke/subject-rag-smoke.ts` 通过；`bunx vitest run server/agent/tools/subject-memory-tools.test.ts --reporter=dot` 通过；`bunx vitest run server/config/config-service.test.ts --reporter=dot` 通过。
 - 2026-06-08：排查 SiliconFlow embedding 卡住问题。官方文档确认 `POST /v1/embeddings` 的 `model` / `input` / Qwen3 `dimensions` 请求形状符合合同；本地探针显示 `/v1/models` 260ms 返回，`BAAI/bge-m3`、`Qwen/Qwen3-Embedding-0.6B` 和 `Qwen/Qwen3-Embedding-4B` 的 embedding 请求 100-250ms 返回，但当前配置的 `Qwen/Qwen3-Embedding-8B` 在 10-20s 内不返回。修复：effective embedding timeout 默认改为 30000ms，前端空 timeout 写入 30000，`subject_rag_search` 捕获 AbortError 并返回明确 `embedding 请求超时`，避免工具无限挂起。复验：`bunx vitest run server/agent/tools/subject-memory-tools.test.ts server/config/config-service.test.ts --reporter=dot` 通过；`bun scripts/smoke/subject-rag-smoke.ts` 通过。
 - 2026-06-08：修复 `subject_rag_search` source 合同漂移。工具不再默认同时搜索 events 和 memory，也不允许一次传两个 source；调用方必须显式传 `["events"]` 或 `["memory"]`，`actor.context-load` 如需两层记忆必须分别调用两次后自行 rerank/合并。新增回归测试覆盖缺失 sources 和双 source 都会失败。
+- 2026-06-08：收窄 `subject_rag_search` 查询接口。第一版只暴露 `limit`；`minScore`、`maxCharsPerItem`、tick/time 范围暂不提供。索引层改为归一化 embedding 后用内部距离阈值过滤明显无关候选；工具结果继续只渲染文本，不向 Agent 返回 score 或 JSON candidates。
+- 2026-06-08：修复 profile 权限边界。`leader.default` 不再暴露 `subject_event_append`、`subject_rag_search`、`memory_bio`；新增 `mainRunAllowedToolKeys` profile 合同和 harness 执行层接入，`simulator.actor` 主 run 只允许执行 `report_result`，RAG / memory 工具只在 `actor.context-load` 与 `actor.memory-save` sidecar 执行子集中可用。
 
 ## TODO / Follow-ups
 

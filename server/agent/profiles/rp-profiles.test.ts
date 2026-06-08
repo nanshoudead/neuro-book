@@ -152,6 +152,7 @@ describe("RP builtin profiles", () => {
                 stage: "settleRun",
                 allowedToolKeys: ["subject_event_append", "memory_bio", "read", "edit", "report_result"],
             }));
+            expect(simulatorActorProfile.mainRunAllowedToolKeys).toEqual(["report_result"]);
             expect((contextLoad?.sidecarDataSchema as SchemaWithProperties | undefined)?.properties).toHaveProperty("actor_safe_context");
             expect((contextLoad?.sidecarDataSchema as SchemaWithProperties | undefined)?.properties).toHaveProperty("sources");
             expect((contextLoad?.sidecarDataSchema as SchemaWithProperties | undefined)?.properties).toHaveProperty("withheld");
@@ -240,7 +241,8 @@ describe("RP builtin profiles", () => {
             expect(systemPrompt).toContain("inner_response");
             expect(systemPrompt).not.toContain("questions");
             expect(systemPrompt).toContain("如果你扮演的是玩家 actor");
-            expect(systemPrompt).toContain("主扮演阶段不要调用 read、write 或 edit");
+            expect(systemPrompt).toContain("主扮演阶段实际只能执行 report_result");
+            expect(systemPrompt).toContain("不要调用 read、write、edit、subject_rag_search、subject_event_append 或 memory_bio");
             expect(systemPrompt).toContain("你看不到 subject.md、events.jsonl、memory.jsonl、mind.md、state.md 原文");
             expect(systemPrompt).toContain("文件维护由 actor.context-load / actor.memory-save 旁路处理");
             expect(systemPrompt).toContain("visible_response");
@@ -308,6 +310,7 @@ describe("RP builtin profiles", () => {
             expect(simulatorActorProfile.inputSchema).toBe(SubjectSimulatorInputSchema);
             expect(simulatorActorProfile.outputSchema).toBe(SubjectSimulatorOutputSchema);
             expect(simulatorActorProfile.allowedToolKeys).toEqual(["subject_rag_search", "subject_event_append", "memory_bio", "read", "edit", "report_result"]);
+            expect(simulatorActorProfile.mainRunAllowedToolKeys).toEqual(["report_result"]);
             expect(systemPrompt).toContain("<profile>simulator.actor</profile>");
             expect(systemPrompt).toContain("<actor id=\"heroine\" kind=\"npc\">绘璃奈</actor>");
             expect(modelContextText).toContain("<actor_binding>");

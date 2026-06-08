@@ -477,3 +477,76 @@
     - `bun run package:windows-portable -- --skip-git-check --output .agent/workspace/windows-package-fix-smoke/neuro-book-windows-x64.zip`
     - 读取 smoke zip 条目，确认 zip 内 11 个系统 profile artifact 都使用 runtime resolver，不含绝对 Product require、`D:/a` 或 `.building.mjs`。
     - `bun vitest run server/agent/profiles/catalog.test.ts server/workspace-files/workspace-files.test.ts -t "Product profile artifact|building artifact|单文件编译失败|profile manifest"`，4 个相关测试通过。
+
+## GHCR Product Output Runtime Script Fix
+
+### User Request
+
+- 检查 `ghcr` 部署模式 / 通用 Product `.output` 部署是否存在启动失败：
+    - `error: Module not found "/app/.output/server/scripts/build/prepare-system-assets.ts"`
+
+### Diagnosis
+
+- `product-start.mjs` 启动服务前会运行 `.output/server/scripts/build/prepare-system-assets.ts --sync-user-assets`，用于启动前同步 system assets 和 profile artifact。
+- 本地 `product:stage` 会显式复制 `scripts/build/prepare-system-assets.ts` 到 `product/.output/server/scripts/build/prepare-system-assets.ts`。
+- GHCR app image 的 release workflow 不先运行 `product:stage`，而是 Dockerfile 直接执行 `bun run nuxt:build`，再把 build stage 的 `.output` 复制进 final image。
+- 因此通用 `.output` 后处理 `scripts/build/patch-nitro-runtime-deps.mjs` 必须负责复制所有 `.output/server/scripts/**` runtime 入口。此前清单漏了 `scripts/build/prepare-system-assets.ts`，所以 GHCR 容器运行时真实缺文件。
+
+### Decisions
+
+- 将 `scripts/build/prepare-system-assets.ts` 加入 `patch-nitro-runtime-deps.mjs` 的 runtime context copy 清单。
+- 在 Nitro 后处理阶段新增 Product output scripts 门禁，要求 `.output/server/scripts/build/prepare-system-assets.ts`、`product-start.mjs`、SQLite migration 和 CLI 脚本都存在；缺失时 `nuxt:build` 直接失败，避免发布到 GHCR 后才崩。
+- GHCR / 通用 `.output` runner 不要求 Product Root 额外存在根 `release-meta.json`；当根 `node_modules` 不存在时，Product Runtime 判定、Profile Workbench worker 和版本接口会回退读取 `.output/server/release-meta.json`，避免 profile artifact compiler 误入源码模式并从根 `node_modules` 解析 native/dynamic require。
+
+### Verification
+
+- `bun scripts/build/patch-nitro-runtime-deps.mjs` 通过，并确认 copied profile import context 包含 `scripts/build/prepare-system-assets.ts`。
+- `bun .output/server/scripts/build/prepare-system-assets.ts --sync-user-assets` 通过，确认 Zeabur 日志里的缺文件路径已存在且可执行。
+- `bash -n scripts/deploy/docker-product-entrypoint.sh` 通过。
+- `bun run nuxt:build` 通过，后处理门禁通过并复制 `scripts/build/prepare-system-assets.ts`。
+- Docker smoke 未执行：当前环境没有 `docker` 命令。
+
+## Unified Release CLI and SemVer Prerelease Channels
+
+### User Request
+
+- 将 canary 和正式版发布合并到一个 `bun run release -- <subcommand>` CLI，一条龙处理版本、tag、GitHub Release 和 workflow watch。
+- 按 SemVer 语义支持 `canary`、`alpha`、`beta`、`rc` 先行版本，同时保留 `release:canary` 兼容入口。
+
+### Decisions
+
+- `scripts/release/release.ts` 是统一发布入口；`release:canary`、`release:alpha`、`release:beta`、`release:rc` 都只是同一 CLI 的快捷 alias。
+- `stable` 只接受 SemVer release 版本 `X.Y.Z`，并在真实执行时要求 `--yes --push`、工作区干净、版本不得低于当前 `package.json.version`。
+- `stable` 支持显式 `--version v0.1.3`，也支持 `--next patch|minor|major` 从当前 `package.json.version` 自动增长；正式版不会在缺少这两个参数时猜版本。
+- `prerelease` / `canary` / `alpha` / `beta` / `rc` 都创建 GitHub prerelease，继续带 `--prerelease`，因此 release workflow 不会给 GHCR 打 `latest`。
+- 显式 `--tag` 必须是白名单 channel 的 SemVer prerelease tag，且 tag 中的 channel 必须与命令 channel 一致，避免 `release beta --tag v0.1.3-alpha.1` 这类语义错乱。
+- 默认 prerelease 使用下一 patch 版本；`--current-patch` 只用于补发当前版本线。
+- `alpha` / `beta` / `rc` 不传 `--sequence` 时，会扫描本地和远端已有 tag 自动生成下一个数字序号；`--sequence` 和 `--tag` 仍可手动覆盖。`canary` 继续使用 UTC 时间戳和短 SHA 保持唯一性。
+
+### Files Changed
+
+- `package.json`
+- `scripts/release/release.ts`
+- `scripts/release/canary.ts`
+- `docs/tasks/26-windows-portable-packaging/README.md`
+
+### Verification
+
+- `bun run release -- prerelease --help`
+- `bun run release -- prerelease --channel beta --version 0.1.3 --sequence 1 --dry-run --allow-dirty`
+- `bun run release:beta -- --version 0.1.3 --sequence 2 --dry-run --allow-dirty`
+- `bun run release -- beta --dry-run --allow-dirty --no-watch` 会按已有 tag 自动选择下一个 `vX.Y.Z-beta.N`。
+- `bun run release -- alpha --version 0.1.3 --sequence 1 --dry-run --allow-dirty --no-watch`
+- `bun run release -- rc --tag v0.1.3-rc.1 --dry-run --allow-dirty --no-watch`
+- `bun run release -- stable --version v0.1.3 --dry-run --push --no-watch`
+- `bun run release -- stable --next patch --dry-run --push --no-watch` 会从当前 `package.json.version` 计算下一个 patch 正式版。
+- `bun run release -- beta --tag v0.1.3-alpha.1 --dry-run --allow-dirty --no-watch` 会拒绝 channel/tag 不一致。
+- `bun run release -- stable --version 0.1.0 --dry-run --push --no-watch` 会拒绝版本低于当前 `package.json.version`。
+- `git tag --list v0.1.3 v0.1.3-alpha.1 v0.1.3-beta.1 v0.1.3-rc.1` 确认 dry-run 未创建本地 tag。
+
+### Follow-up Fix
+
+- 审查发现 `.output/server/release-meta.json` 只写在 Nitro server root 下，而 GHCR final runner 不经过 `product:stage`，Product Root `/app/release-meta.json` 可能不存在。
+- 原 Product Runtime 判定只看根 `release-meta.json`，因此 GHCR 修完缺脚本后仍可能让 profile artifact compiler / Profile Workbench worker 误判为源码模式，回退根 `node_modules`，再次触发 `@libsql/*` 等 native/dynamic package 解析失败。
+- 已修为：根 metadata 存在时优先使用；无根 `node_modules` 且 `.output/server/release-meta.json` 存在时，也视为 Product Runtime。
+- 版本接口同样支持无根 `node_modules` 时从 `.output/server/release-meta.json` 读取 release metadata。

@@ -232,7 +232,7 @@ export function resolveProfileCompileWorkerPathsForRoot(root: string): CompileWo
     const outputRoot = resolve(root, ".output", "server");
     const outputEntry = resolve(outputRoot, "server", "agent", "profiles", "profile-compile-worker-entry.ts");
     const outputRuntime = resolve(outputRoot, "server", "agent", "profiles", "profile-compile-worker-runtime.ts");
-    if (existsSync(resolve(root, "release-meta.json")) && existsSync(outputEntry) && existsSync(outputRuntime)) {
+    if (isProductRuntimeRoot(root) && existsSync(outputEntry) && existsSync(outputRuntime)) {
         const tsxUrls = resolveTsxPackageUrls(resolve(outputRoot, "index.mjs"), true);
         return {
             entry: outputEntry,
@@ -253,6 +253,27 @@ export function resolveProfileCompileWorkerPathsForRoot(root: string): CompileWo
         tsconfig: resolvePreferredTsconfig(root),
         ...resolveTsxPackageUrls(existsSync(resolve(root, "package.json")) ? resolve(root, "package.json") : entry, false),
     };
+}
+
+/**
+ * Product Root 可能不带根 `release-meta.json`。GHCR / 通用 `.output` runner
+ * 使用 `.output/server/release-meta.json`，并且不允许回退到根 node_modules。
+ */
+function isProductRuntimeRoot(root: string): boolean {
+    return existsSync(resolve(root, ".output", "server", "index.mjs"))
+        && Boolean(productReleaseMetaPath(root));
+}
+
+function productReleaseMetaPath(root: string): string | null {
+    const rootMeta = resolve(root, "release-meta.json");
+    if (existsSync(rootMeta)) {
+        return rootMeta;
+    }
+    const outputMeta = resolve(root, ".output", "server", "release-meta.json");
+    if (existsSync(outputMeta) && !existsSync(resolve(root, "node_modules"))) {
+        return outputMeta;
+    }
+    return null;
 }
 
 /**
