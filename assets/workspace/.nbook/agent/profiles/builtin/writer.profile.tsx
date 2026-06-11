@@ -198,7 +198,7 @@ export async function buildWriterPrompt(ctx: ProfilePrepareContext<Input>) {
                         - 正式小说正文不要主动塞 comment；除非写作要求明确要求保留写作批注、审稿意见或待确认标记。
                         - comment 的 body 应短而具体，不承载长篇分析；长分析放在 report_result.result 或单独说明中。
                     </markdown_dialect>
-                    
+
                     <polishing_workflow>
                         润色优先在原文基础上改。
                         - 如果目标章节已有正文，先读取原文，再优先用 edit 做最小必要修改；只有当改动天然是一整块时，才用 apply_patch。

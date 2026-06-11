@@ -7,7 +7,7 @@
 - 开局：`manual/README.md`
 - 玩家手册：`manual/player-guide/README.md`
 - 角色创建：`manual/player-guide/character-creation.md`
-- 默认可玩角色：`manual/player-guide/playable-characters/player.md`
+- 预设可玩角色：`manual/player-guide/playable-characters/README.md`
 - 世界导览：`manual/world-guide.md`
 - 规则：`manual/rules-guide.md`
 - 主持：`manual/gm-guide.md`

@@ -1,11 +1,9 @@
 import {Type} from "typebox";
 
 /**
- * leader.default 的实例初始化参数。它只用于 create_agent，不承载每轮 prompt。
+ * leader.default / leader.assets 的实例初始化参数。Project 归属由 session metadata 承载。
  */
-export const LeaderDefaultInputSchema = Type.Object({
-    role: Type.Optional(Type.String({description: "可选的运行角色提示，用于让 leader 在默认协作模式之外临时偏向某个工作身份。"})),
-});
+export const LeaderDefaultInputSchema = Type.Object({});
 
 /**
  * leader.default 的结构化输出合同。
@@ -15,12 +13,9 @@ export const LeaderDefaultOutputSchema = Type.Object({
 });
 
 /**
- * simulator.leader 的实例初始化参数。每轮模拟任务通过 invoke_agent.message 传入。
+ * simulator.leader 的实例初始化参数。当前 Project 由 session projectPath / Workspace Focus 承载。
  */
-export const SimulatorLeaderInputSchema = Type.Object({
-    projectPath: Type.String({description: "Project Workspace path, e.g. workspace/silver-dragon-hime."}),
-    simulationRoot: Type.Optional(Type.String({description: "Agent cwd-relative simulation root, e.g. silver-dragon-hime/simulation/. Omit to derive from projectPath."})),
-});
+export const SimulatorLeaderInputSchema = Type.Object({});
 
 /**
  * simulator.leader 返回普通 assistant 文本，不绑定 report_result.data 结构。
@@ -28,13 +23,9 @@ export const SimulatorLeaderInputSchema = Type.Object({
 export const SimulatorLeaderOutputSchema = Type.Object({});
 
 /**
- * rp.leader 的实例初始化参数。每轮 RP 主持任务通过 invoke_agent.message 传入。
+ * rp.leader 的实例初始化参数。当前 Project 由 session projectPath / Workspace Focus 承载。
  */
-export const RpLeaderInputSchema = Type.Object({
-    projectPath: Type.String({description: "Project Workspace path, e.g. workspace/silver-dragon-hime."}),
-    manualRoot: Type.Optional(Type.String({description: "Agent cwd-relative manual root, e.g. silver-dragon-hime/manual/. Omit to derive from projectPath."})),
-    simulationRoot: Type.Optional(Type.String({description: "Agent cwd-relative simulation root, e.g. silver-dragon-hime/simulation/. Omit to derive from projectPath."})),
-});
+export const RpLeaderInputSchema = Type.Object({});
 
 /**
  * rp.leader 返回普通 assistant 文本，不绑定 report_result.data 结构。
@@ -90,14 +81,7 @@ export const DirectorOutputSchema = Type.Object({
  * simulator.actor 的实例初始化参数。每轮 actor-facing message 通过 invoke_agent.message 传入。
  */
 export const SubjectSimulatorInputSchema = Type.Object({
-    actorId: Type.String({description: "本局 subject simulator id，通常与 simulation/subjects/{id}/ 目录名对应。"}),
-    actorName: Type.Optional(Type.String({description: "角色可读名。为空时使用 actorId。"})),
-    kind: Type.Optional(Type.String({description: "actor 类型，例如 player、npc、faction、system。"})),
-    instructionPath: Type.String({description: "subject simulator 指令文件路径，必须相对于 Agent cwd，例如 project-slug/simulation/subjects/erina/subject.md。"}),
-    eventsPath: Type.String({description: "角色经历流 JSONL 路径，必须相对于 Agent cwd，例如 project-slug/simulation/subjects/erina/events.jsonl。"}),
-    memoryPath: Type.String({description: "角色稳定认知 JSONL 路径，必须相对于 Agent cwd，例如 project-slug/simulation/subjects/erina/memory.jsonl。"}),
-    mindPath: Type.String({description: "角色当前思维文件路径，必须相对于 Agent cwd，例如 project-slug/simulation/subjects/erina/mind.md。"}),
-    statePath: Type.String({description: "角色当前状态文件路径，必须相对于 Agent cwd，例如 project-slug/simulation/subjects/erina/state.md。"}),
+    subjectPath: Type.String({description: "subject simulator directory path，必须相对于 Agent cwd，例如 project-slug/simulation/subjects/erina。"}),
 });
 
 /**
@@ -135,21 +119,16 @@ export const MemoryCuratorOutputSchema = Type.Object({
 }, {additionalProperties: false});
 
 /**
- * rp.writer 的实例初始化参数。每轮 writer brief 通过 invoke_agent.message 传入。
+ * rp.writer 的创建参数。创建 session 时传空对象；实际正文任务通过每轮 invoke_agent.message 提供。
  */
-export const RpWriterInputSchema = Type.Object({
-    writerInstructionPath: Type.String({description: "RP writer 提示词素材路径，必须相对于 Agent cwd，例如 project-slug/agent-context/rp.writer/context.md。"}),
-    style: Type.Optional(Type.String({description: "稳定文风偏好。临时 Tick 文风要求应放在 writer brief 中。"})),
-    outputRequirements: Type.Optional(Type.Array(Type.String({description: "稳定输出约束，例如人称、篇幅、Markdown 规则。"}), {description: "可选稳定输出约束。"})),
-    language: Type.Optional(Type.String({description: "输出语言，例如 zh-CN。默认跟随 writer brief。"})),
+export const RpWriterInputSchema = Type.Object({}, {
+    additionalProperties: false,
 });
 
 /**
- * rp.writer 的普通输出合同。rp.writer 默认直接回复正文，只有 writer brief 明确要求写入文件时才使用文件工具。
+ * rp.writer 返回普通 assistant 文本，不绑定 report_result.data 结构。
  */
-export const RpWriterOutputSchema = Type.Object({
-    result: Type.Optional(Type.String({description: "可选结果说明。rp.writer 通常直接用普通 assistant 回复输出正文，不要求 report_result。"})),
-});
+export const RpWriterOutputSchema = Type.Object({});
 
 /**
  * summarizer 的实例初始化参数。sourceSessionId 由 harness 注入。

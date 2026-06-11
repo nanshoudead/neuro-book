@@ -195,6 +195,20 @@ describe("JsonlSessionRepository", () => {
             workspaceKey: "workspace",
             title: "assets leader",
         });
+        await repo.createSession({
+            profileKey: "rp.leader",
+            input: {},
+            workspaceRoot: "workspace",
+            workspaceKey: "workspace",
+            title: "rp leader",
+        });
+        await repo.createSession({
+            profileKey: "simulator.leader",
+            input: {},
+            workspaceRoot: "workspace",
+            workspaceKey: "workspace",
+            title: "simulator leader",
+        });
         await repo.appendEntry(assetsLeader.metadata.sessionId, {
             type: "session_archived",
             reason: "test",
@@ -205,7 +219,7 @@ describe("JsonlSessionRepository", () => {
             includeArchived: true,
             profileGroup: "leader",
         });
-        expect(leaders.map((session) => session.profileKey)).toEqual(["leader.assets", "leader.default"]);
+        expect(leaders.map((session) => session.profileKey)).toEqual(["leader.assets", "simulator.leader", "rp.leader", "leader.default"]);
 
         const topActiveLeaders = await repo.listSessions({
             workspaceKey: "workspace",
@@ -216,8 +230,7 @@ describe("JsonlSessionRepository", () => {
         });
         expect(topActiveLeaders).toHaveLength(1);
         expect(topActiveLeaders[0]).toMatchObject({
-            sessionId: leader.metadata.sessionId,
-            profileKey: "leader.default",
+            profileKey: "simulator.leader",
         });
 
         const childSessions = await repo.listSessions({

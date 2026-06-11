@@ -21,7 +21,7 @@ describe("agent session http helpers", () => {
 
         await expect(createAgentSession({
             profileKey: "leader.default",
-            input: {role: "tester"},
+            input: {},
             workspaceRoot: "workspace",
             workspaceKey: "global",
             parentSessionId: 1,
@@ -31,7 +31,7 @@ describe("agent session http helpers", () => {
 
         expect(createAgent).toHaveBeenCalledWith({
             profileKey: "leader.default",
-            input: {role: "tester"},
+            input: {},
             workspaceRoot: "workspace",
             workspaceKey: "global",
             parentSessionId: 1,

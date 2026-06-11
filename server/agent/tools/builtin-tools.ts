@@ -51,6 +51,9 @@ const CreateAgentSchema = Type.Object({
     input: Type.Optional(Type.Record(Type.String(), Type.Unknown(), {
         description: "JSON object matching the target profile InputSchema. Pass a real object, not a JSON string.",
     })),
+    title: Type.Optional(Type.String({
+        description: "Optional display title for the new agent session. Omit to use the target profile name.",
+    })),
     workspaceRoot: Type.Optional(Type.String({description: "Advanced override. Omit to inherit the current agent workspace root."})),
     projectPath: Type.Optional(Type.String({description: "Project Workspace path, for example workspace/<project>. Omit to inherit the current project."})),
 });
@@ -195,6 +198,7 @@ export function createBuiltinTools(harness: NeuroAgentHarness): NeuroAgentTool[]
                 const result = await harness.createAgent({
                     profileKey: agentInput.profileKey,
                     input: normalizeCreateAgentInput(agentInput.profileKey, agentInput.input) as never,
+                    title: agentInput.title,
                     workspaceRoot: agentInput.workspaceRoot,
                     projectPath: agentInput.projectPath,
                 });
@@ -208,6 +212,7 @@ export function createBuiltinTools(harness: NeuroAgentHarness): NeuroAgentTool[]
                 const result = await harness.createAgent({
                     profileKey: agentInput.profileKey,
                     input: normalizeCreateAgentInput(agentInput.profileKey, agentInput.input) as never,
+                    title: agentInput.title,
                     workspaceRoot: agentInput.workspaceRoot ?? context.workspaceRoot,
                     workspaceKey: context.workspaceKey,
                     projectPath: agentInput.projectPath ?? context.projectPath,

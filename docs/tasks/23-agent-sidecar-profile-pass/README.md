@@ -22,7 +22,7 @@
 - 18 号任务已经把 `NeuroAgentHarness` 拆向 Run Kernel / Turn Transaction / runtime hooks：
   - `prepareRun` / `prepareTurn` / `ingestTurn` / `prepareNextTurn` / `settleRun` 已经是可讨论的扩展边界。
   - `runtimeMessages` 可以注入 `RunFrame`，不写入 session history；sidecar V1 后续新增 `persistedMessages`，用于把旁路上下文写回父 session。
-  - `ingestTurn` 可以返回 runtime-only transcript，避免污染持久对话。
+  - `ingestTurn` 可以返回 runtime-only transcript；Sidecar V1 另行使用旁路 leaf 持久化 transcript，避免污染主 active path。
 - 当前 profile 的 `allowedToolKeys` 同时承担“模型可见工具”和“执行上限”两层含义。
 - roleplay 需求要求 actor 主上下文尽量纯净：
   - `simulator.actor` 主扮演阶段只做角色反应，不自行检索完整 lorebook。
@@ -39,7 +39,7 @@
 - sidecar 可在 `prepareRun` 或 `settleRun` 自动触发。
 - sidecar 使用当前 session、当前 profile、当前 input、当前 session tree 上下文继续跑。
 - sidecar 从父 run 当前节点 fork，完成后 merge 回父 run 原位置。
-- sidecar transcript 默认为 `runtime_only`，不污染 actor 主 run 对话历史。
+- sidecar transcript 持久化到 session tree 的旁路 leaf，但不成为主 active path，不污染 actor 主 run 对话历史。
 - sidecar 通过 `report_result.sidecar_data` 返回结构化结果；无 `report_result` 时可 fallback 到最后一条 assistant message。
 - `sidecarDataSchema` 如果存在，只用于 Harness 侧校验 `report_result.sidecar_data` 或 fallback JSON，不参与 provider tool schema 渲染。
 - sidecar 结果通过 `merge()` 转成主线可消费的 runtime 注入、runtime state 或显式写入计划。
@@ -59,7 +59,7 @@
 
 ### Core Concept
 
-`SidecarProfilePass` 是围绕当前 profile run 的旁路 invocation。它不是新的 profile，也不切换 profile 身份，而是在当前 session tree 的同一上下文点 fork 出一段 runtime-only 分支，完成检索、反思或维护任务后，把结果 merge 回主线。
+`SidecarProfilePass` 是围绕当前 profile run 的旁路 invocation。它不是新的 profile，也不切换 profile 身份，而是在当前 session tree 的同一上下文点 fork 出一条旁路 leaf，完成检索、反思或维护任务后，把结果 merge 回主线，并把 active leaf 恢复到父 run 原位置。
 
 它适合表达这些动作：
 
@@ -81,7 +81,8 @@ sidecar 的关键约束：
 - 从父 run 当前节点 fork。
 - 沿用当前 profile 的 system prompt、tools 上限、input 和 session context。
 - 额外注入 `enterPrompt`，让模型进入旁路任务。
-- sidecar 的 assistant / tool result transcript 标记为 `runtime_only`，默认不进入主 run history。
+- sidecar 的 enter reminder、assistant 和 tool result transcript 写入 session tree 的旁路分支，便于审计。
+- sidecar 完成后 active leaf 恢复到父 run 原位置；父 run 默认只看见 `merge()` 注入的 runtimeMessages、persistedMessages、runtimeState 或 writePlans。
 - sidecar 完成后回到父 run 原位置继续，父 run 只看见 `merge()` 注入的结果。
 
 也就是说，sidecar 是“当前 profile 的旁路 phase”，不是“创建另一个 profile 代跑”。
@@ -192,7 +193,7 @@ type ReportResultArgs = {
 
 - sidecar 由 runtime hook stage 触发，但 sidecar 本身是更高层的 profile 作者能力。
 - sidecar invocation 使用 forked `RunFrame`，沿用当前 session tree 上下文。
-- sidecar transcript 默认 `runtime_only`。
+- sidecar transcript 持久化到 session tree 的旁路 leaf；完成后恢复父 run active leaf。
 - sidecar 结果只通过 `merge()` 回到主线。
 - `merge()` 返回的 `runtimeMessages` 进入主 `RunFrame`，不默认落盘。
 - `merge()` 返回的 `persistedMessages` 写入父 session active path，`prepareRun` 阶段会同步注入本轮主 run；第一版只允许 user message，origin 标记为 `harness`。
@@ -285,7 +286,7 @@ V1 策略：
 - `SidecarProfilePass.profileKey` 删除；sidecar 沿用当前 profile，不创建或切换 profile。
 - 第一版只做 profile 声明式自动旁路；agent 主动调用旁路先不做。
 - V1 stage 只做 `prepareRun` 与 `settleRun`。
-- sidecar transcript 默认为 `runtime_only`。
+- sidecar transcript 持久化到 session tree 的旁路 leaf；完成后恢复父 run active leaf。
 - sidecar 结果优先使用 `report_result.sidecar_data`；无 `report_result` 时 fallback 到最后一条 assistant message。
 - `sidecarDataSchema` 如果存在，只用于 Harness runtime 校验 `report_result.sidecar_data` 或 fallback JSON，不参与 provider tool schema 渲染。
 - `report_result.data` 最终字段语义确认降级为 optional；`profile.outputSchema` 不再让 provider-visible `data` 必填，强约束交给 prompt/reminder 和 runtime validator。
@@ -330,12 +331,15 @@ V1 策略：
 - `SidecarProfilePass` 支持 `prepareRun` 和 `settleRun` 两个自动触发点。
 - sidecar 沿用当前 profile、当前 session、当前 session tree 和当前 profile input，不再包含 `profileKey`。
 - sidecar 通过同一个 `runLoop()` 执行，但启用旁路 RunFrame 标志：
-  - `forceRuntimeOnlyTranscript`：assistant/toolResult transcript 不写入 session history。
+  - `forcePersistTranscript`：sidecar assistant/toolResult transcript 写入旁路分支。
+  - `transcriptParentLeafId`：sidecar 多轮工具调用接在同一条旁路分支。
+  - `restoreLeafAfterTranscript`：每轮 sidecar transcript 落盘后把 active leaf 恢复到父 run 原位置。
   - `suppressEvents`：旁路内部 turn 不发公开 runtime event。
   - `disableSteer`：旁路不消费用户 steer。
   - `disableAutomaticCompaction`：旁路不触发自动 compaction。
 - `prepareRun` sidecar 的 `merge().runtimeMessages` 会注入父 run 的模型上下文，不落 session。
 - `prepareRun` sidecar 的 `merge().persistedMessages` 会写入父 session active path，并在本轮主 run 可见；sidecar 合并后如果 provider-visible context 超出模型窗口，父 invocation 直接失败，不依赖 compaction。
+- sidecar 的 enter reminder、assistant 和 tool result transcript 保留在旁路 leaf 上，主 active path 不包含这些旁路过程消息。
 - `settleRun` sidecar 只在父 run completed 后执行，可通过 `merge().writePlans` 写入 session custom state，或让旁路工具自己写文件。
 - sidecar 失败、进入 waiting、缺少 `sidecar_data` 且无 fallback、或 `sidecarDataSchema` 校验失败时，父 run 失败。
 - provider-visible tool schema 保持 profile 最大 `allowedToolKeys`，sidecar 的 `allowedToolKeys` 作为执行权限子集。模型仍能看到稳定工具 schema，但越权工具会返回 tool error 并允许模型同 run 修正。

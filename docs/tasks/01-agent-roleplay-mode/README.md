@@ -2,7 +2,11 @@
 
 ## Current Target: Simulation / Profile Context V2
 
-2026-06-07 update: 本任务里的早期 `leader.rp`、`simulation/simulator.md`、`simulation/writer.md`、`simulation/config.yaml`、`simulation/cast.yaml` 说法已经被 profile context V2 取代。当前合同是：所有 profile 先读 Project root `AGENTS.md`，再读自己的 `agent-context/{profile}/context.md` / `agent-context/{profile}/generated.md`；`simulator.leader` 读 `agent-context/simulator.leader/context.md`，`rp.writer` 读 `agent-context/rp.writer/context.md`；`simulation/` 只保留 `subjects/`、`entities/`、`runs/` runtime state。
+2026-06-07 update: 本任务里的早期 `leader.rp`、`simulation/simulator.md`、`simulation/writer.md`、`simulation/config.yaml`、`simulation/cast.yaml` 说法已经被 profile context V2 取代。当前合同是：Project root `AGENTS.md` 和 `agent-context/{profile}/context.md` / `agent-context/{profile}/generated.md` 作为 profile guidance 入口；`simulator.leader` 读 `agent-context/simulator.leader/context.md`；`simulation/` 只保留 `subjects/`、`entities/`、`runs/` runtime state。
+
+2026-06-10 update: `rp.writer` 的 profile input 已精简为空对象。它不再绑定 `writerInstructionPath` 或自动读取 `agent-context/rp.writer/context.md`；每轮只消费上级注入的 writer brief。若项目维护 `agent-context/rp.writer/context.md`，由 `rp.leader` / `simulator.leader` 读取后把可写偏好注入 brief。`rp.writer` 仍保留“小猫之神”写作预设、`thinking_mode`、文风/段落/视角约束和 `stop-slop` skill，并只在 brief 明确给路径时读写文件。
+
+2026-06-10 update: `rp.leader` 与 `simulator.leader` 的 profile input 也已精简为空对象。当前 Project 不再由 InputSchema 的 `projectPath` / `manualRoot` / `simulationRoot` 指定，而是由 session `projectPath` 和 `WorkspaceFocusReminder` 表达；profile 根据当前 Project 推导 `manual/` 与 `simulation/` 路径。`leader.default` 与 `leader.assets` 的创建 input 同步精简为 `{}`，前端默认 profile 新建入口可以用同一 `input: {}` 创建这些 leader session。
 
 2026-06-08 update: subject memory 合同已 hard cut 到 `memory-seed.md`、`events.jsonl`、`memory.jsonl`、`mind.md`、`state.md`。下文早期出现的 `events.md` / `knowledge.md` 只表示历史设计记录；当前实现和模板以 Subject RAG Memory task 与 `reference/content/simulation.md` 为准。
 
@@ -241,12 +245,12 @@ reporter       # overview.md / inspect.json / unpack-report.md / import-report.m
 - 泛用自然语言编辑工具先记录为 TODO。该工具不是 state 专用，参数方向暂定为：目标文件、自然语言操作说明、可选携带上下文消息数量，后续可接轻量模型。
 - `SidecarProfilePass` 已在 Harness 层实现 V1，详见 `docs/tasks/23-agent-sidecar-profile-pass/README.md`。`simulator.actor` 已接入 `actor.context-load` / `actor.memory-save` 两个旁路：主 run 前检索并注入 actor-safe 设定，主 run 后维护 `events.jsonl`、`memory.jsonl` 与 `mind.md`；`state.md` 与 `simulation/entities/` 由 GM 裁决后写入。`rp.writer` 暂未接入 sidecar，仍由 GM 注入可写 lorebook 摘要。
 - 已新增第一版 RP builtin profiles：
-  - `leader.rp`：用户进入 RP 模式后的 GM 主控 profile，读取 `simulation/` 运行目录，初始化/复用 `simulator.actor` 和 `rp.writer`，按 Tick 协议进行信息过滤、actor 调度、世界裁决、subject state / entity state 写入和 writer brief 构造；GM 直接面向用户叙述，开局负责说明玩家已知信息、当前处境和必要背景。
-  - `simulator.actor`：通用角色扮演 profile，创建 input 绑定 `subject.md`、`events.md`、`knowledge.md`、`mind.md` 与 `state.md`，运行时自动注入这些文件；每轮只根据 GM packet 返回结构化 actor response packet。
-  - `rp.writer`：RP Tick 正文渲染 profile，创建 input 绑定 `simulation/writer.md`，每轮根据 GM writer brief 直接输出正文；可使用 bash 与文件工具，但只操作 GM 明确指定路径，不自主检索完整 lorebook。
+  - `rp.leader`：用户进入 RP 模式后的用户交流与陪伴式主持 profile；需要世界裁决时调用 `simulator.leader`，不直接替代世界模拟主管。
+  - `simulator.actor`：通用 subject simulator profile，创建 input 只接收 `{ subjectPath }`，profile 内部从该目录派生 `subject.md`、`events.jsonl`、`memory.jsonl`、`mind.md` 与 `state.md`；主 run 只根据 actor-facing packet 和 `<actor-sidecar-context>` 返回结构化 actor response packet。
+  - `rp.writer`：RP Tick 正文渲染 profile，input 为空，每轮根据 GM writer brief 直接输出正文；只在 brief 明确指定路径时使用文件工具，不自主检索完整 lorebook。
 - 当前 profile 工具边界：
-  - `leader.rp` 拥有 `read` / `write` / `edit` / `bash`、agent 编排和用户询问工具；写入范围由 prompt 限定为 GM 裁决后的 subject `state.md`、`simulation/entities/`、必要 `simulation/runs/` 和用户明确要求的 simulation 配置调整。
-  - `simulator.actor` 保留 `read` / `write` / `edit` / `report_result` 作为 profile 最大工具集合；主扮演 run 不主动读写文件，只返回 actor packet 与更新摘要。`actor.context-load` 旁路允许 `read` / `report_result`，`actor.memory-save` 旁路允许 `read` / `write` / `edit` / `report_result`，并通过 prompt 限定只维护 `eventsPath`、`knowledgePath` 与 `mindPath`。
+  - `rp.leader` 拥有用户交流、agent 编排和必要文件工具；世界状态写入优先交给 `simulator.leader` 裁决。
+  - `simulator.actor` 保留 `subject_rag_search`、`subject_event_append`、`subject_memory_update`、`read`、`edit`、`report_result` 作为 profile 最大工具集合；主扮演 run 实际只允许 `report_result`。`actor.context-load` 旁路允许 `subject_rag_search` / `read` / `report_result`，`actor.memory-save` 旁路允许 subject memory 工具、`read` / `edit` / `report_result`，并通过 prompt 限定只维护 `events.jsonl`、`memory.jsonl` 与 `mind.md`。
   - `rp.writer` 开放 `read` / `write` / `edit` / `bash`，但提示词约束它只按 GM 明确路径读写；正文用普通 assistant 回复，不强制 `report_result`。
 - 已更新 `leader.default` 的多 Agent 协作说明：进入 roleplay 模式时优先创建或切换到 `leader.rp`；`simulator.actor` 和 `rp.writer` 通常只由 `leader.rp` 调用。
 - 试用反馈已落地到 profile/template：
@@ -255,8 +259,8 @@ reporter       # overview.md / inspect.json / unpack-report.md / import-report.m
   - `leader.rp` prompt 加强直接面向用户的 GM 旁白职责，包括开局介绍玩家已知信息和背景。
   - actor 模板与 profile input 增加 `mind.md`、`state.md`，把角色认知、思维和可变状态从 `knowledge.md` 中拆开。
 - 二轮提示词收紧已落地：
-  - `leader.rp` 明确区分初始化、常规 Tick 和元指令；初始化后必须给用户可行动现场，不输出后台流程。
-  - `leader.rp` 明确 cast 路径需要从 Project Workspace 相对路径转换为 Agent cwd 路径。
+  - `rp.leader` 明确区分初始化、常规 Tick 和元指令；初始化后必须给用户可行动现场，不输出后台流程。
+  - `rp.leader` 明确 cast 路径需要从 Project Workspace 相对路径转换为 Agent cwd 路径。
   - `simulator.actor` 强化玩家 actor 不替用户新增行动、台词、情绪或目标；无真实变化时不要为了更新而改文件。
   - `rp.writer` 强化“正文代笔，不是 GM”，不输出标题、摘要、选项或解释，不替玩家角色补未输入的内心和关键动作。
   - roleplay 模板同步了 GM / writer / actor 的上述提示词边界。
@@ -321,6 +325,13 @@ reporter       # overview.md / inspect.json / unpack-report.md / import-report.m
   - `bun scripts/build/profile.ts check builtin/retrieval.profile.tsx --system`
   - `bun run profile:metadata`
   - `bunx vitest run server/agent/profiles/rp-profiles.test.ts`
+- 2026-06-10 rp.writer 小猫预设同步验证：
+  - `bun scripts/build/profile.ts check builtin/rp.writer.profile.tsx --system` 通过。
+  - `bun scripts/build/profile.ts check builtin/writer.profile.tsx --system` 通过。
+  - `bun scripts/build/profile.ts compile --all --system` 通过，刷新 12 个系统 profile artifact。
+  - `bun run profile:metadata` 通过，compiled stale 为 0。
+  - `bunx vitest run server/agent/profiles/rp-profiles.test.ts` 通过，8 个测试通过。
+  - `bunx vitest run server/agent/profiles/leader-assets-profile.test.ts` 通过，10 个测试通过。
 - 已运行 `bunx vitest run server/agent/profiles/report-result-schema.test.ts`，确认 `report_result` schema 已严格使用 `result`。
 - 已运行 `bunx vitest run server/agent/harness/neuro-agent-harness.test.ts -t "report_result"`，确认 harness 读取 `report_result.result`。
 - 已运行 `bunx vitest run server/agent/profiles/workbench-service.test.ts`，确认 profile workbench 的 report mode 文案仍可通过。

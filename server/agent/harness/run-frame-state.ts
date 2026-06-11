@@ -26,6 +26,10 @@ export type CreateRunFrameInput = {
     abortSignal?: RunFrame["abortSignal"];
     onEvent?: RunFrame["onEvent"];
     forceRuntimeOnlyTranscript?: RunFrame["forceRuntimeOnlyTranscript"];
+    forcePersistTranscript?: RunFrame["forcePersistTranscript"];
+    transcriptParentLeafId?: RunFrame["transcriptParentLeafId"];
+    restoreLeafAfterTranscript?: RunFrame["restoreLeafAfterTranscript"];
+    restoreLeafIdAfterTranscript?: RunFrame["restoreLeafIdAfterTranscript"];
     suppressEvents?: RunFrame["suppressEvents"];
     disableSteer?: RunFrame["disableSteer"];
     disableAutomaticCompaction?: RunFrame["disableAutomaticCompaction"];
@@ -62,6 +66,10 @@ export function createRunFrame(input: CreateRunFrameInput): RunFrame {
         reportResultReminderSent: false,
         reportResultReminderEnabled: input.reportResultReminderEnabled,
         forceRuntimeOnlyTranscript: input.forceRuntimeOnlyTranscript,
+        forcePersistTranscript: input.forcePersistTranscript,
+        transcriptParentLeafId: input.transcriptParentLeafId,
+        restoreLeafAfterTranscript: input.restoreLeafAfterTranscript,
+        restoreLeafIdAfterTranscript: input.restoreLeafIdAfterTranscript,
         suppressEvents: input.suppressEvents,
         disableSteer: input.disableSteer,
         disableAutomaticCompaction: input.disableAutomaticCompaction,
@@ -89,6 +97,9 @@ export function applySuccessfulTurn(frame: RunFrame, turn: RuntimeTurn, ingest: 
     frame.messages.push(...turn.toolResults);
     frame.reportResult = turn.reportResult ?? frame.reportResult;
     frame.lastTurnIngest = ingest;
+    if (ingest.transcriptLeafId !== undefined) {
+        frame.transcriptParentLeafId = ingest.transcriptLeafId;
+    }
     frame.automaticCompactionDoneForTurn = false;
 }
 

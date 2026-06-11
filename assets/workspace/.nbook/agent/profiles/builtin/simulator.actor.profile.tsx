@@ -22,11 +22,8 @@ export type Output = Static<typeof OutputSchema>;
 
 const allowedToolKeys = ["subject_rag_search", "subject_event_append", "subject_memory_update", "read", "edit", "report_result"] as const;
 
-const ActorContextLoadSidecarSchema = Type.Object({
-    actor_safe_context: Type.String({description: "准备注入 actor 主 run 的角色可知设定摘要；没有额外信息时写空字符串。"}),
-    sources: Type.Array(Type.String({description: "本次摘要参考的 actor 文件或 actor-safe lorebook 路径。"})),
-    withheld: Type.Array(Type.String({description: "发现但不应注入给角色的隐藏信息类别或原因；没有返回空数组。"})),
-    confidence: Type.String({description: "对本次过滤结果的把握，例如 high、medium、low。"}),
+const ActorContextLoadSidecarSchema = Type.String({
+    description: "准备注入 actor 主 run 的角色可知纯文本上下文；没有额外信息时返回空字符串。",
 });
 
 const ActorMemorySaveSidecarSchema = Type.Object({
@@ -53,15 +50,15 @@ const actorContextLoadPass: SidecarProfilePass<Input, ActorContextLoadSidecarDat
         目标：在 actor 主扮演 run 开始前，基于当前 subject 直接文件、subject RAG 和上级模拟器明确给出的 actor-facing 路径，整理该角色合理可知的补充设定。
 
         当前 actor：
-        - actorId: ${ctx.input.actorId}
-        - actorName: ${ctx.input.actorName?.trim() || ctx.input.actorId}
-        - kind: ${ctx.input.kind?.trim() || "未指定"}
-        - instructionPath: ${ctx.input.instructionPath}
+        - actorId: ${actorIdFromSubjectPath(ctx.input)}
+        - actorName: ${actorDisplayName(ctx.input)}
+        - kind: subject
         - subjectPath: ${subjectDirectoryPath(ctx.input)}
-        - eventsPath: ${ctx.input.eventsPath}
-        - memoryPath: ${ctx.input.memoryPath}
-        - mindPath: ${ctx.input.mindPath}
-        - statePath: ${ctx.input.statePath}
+        - instructionPath: ${subjectFilePaths(ctx.input).instructionPath}
+        - eventsPath: ${subjectFilePaths(ctx.input).eventsPath}
+        - memoryPath: ${subjectFilePaths(ctx.input).memoryPath}
+        - mindPath: ${subjectFilePaths(ctx.input).mindPath}
+        - statePath: ${subjectFilePaths(ctx.input).statePath}
 
         规则：
         - 你可以读取当前 subject 自己的 subject.md、mind.md、state.md。
@@ -71,30 +68,25 @@ const actorContextLoadPass: SidecarProfilePass<Input, ActorContextLoadSidecarDat
         - 你应优先调用 subject_rag_search 分别检索当前 subject 的 events.jsonl 与 memory.jsonl，而不是直接读取完整 events.jsonl / memory.jsonl。
         - subject_rag_search 只做粗召回；你负责 rerank、去重、过滤和压缩。
         - 如果 subject_rag_search 因 embedding 未配置、索引维度变化或其他 RAG 错误失败，不要退回读取完整 events.jsonl / memory.jsonl，也不要关键词 fallback；如实报告失败原因。
-        - 注入预算：最多保留 6 条相关过往经历和 4 条相关稳定认知，并限制 actor_safe_context 总长度。
+        - 注入预算：最多保留 6 条相关过往经历和 4 条相关稳定认知，并限制 sidecar_data 总长度。
         - 你可以读取当前消息中明确列出的 actor-safe lorebook 或 context 路径，并过滤成 actor-safe 摘要。
         - 不要自行搜索或遍历 lorebook；只读取当前消息明确提供的 actor-safe 路径。
         - 不要读取 agent-context/simulator.leader/context.md、agent-context/rp.writer/context.md、simulation/runs、调度草稿、其他 subject 目录或 reference 原始素材。
         - 如果 lorebook 条目混有公开信息和隐藏真相，只提取角色此刻合理能知道、看见、听见、感受到或自然推断到的部分。
-        - 不要把隐藏真相、作者设定、裁决过程、其他角色私密知识注入 actor_safe_context。
-        - 如果没有额外 actor-safe 设定，actor_safe_context 返回空字符串，并在 withheld 说明原因。
+        - 不要把隐藏真相、作者设定、裁决过程、其他角色私密知识注入 sidecar_data。
+        - 如果没有额外 actor-safe 设定，sidecar_data 返回空字符串。
 
-        完成后调用 report_result，把结构化结果放在 sidecar_data 字段，不要使用主路 data 字段。
+        完成后调用 report_result，把准备注入主路的纯文本放在 sidecar_data 字段，不要使用主路 data 字段，不要返回 JSON 对象。
     `,
     merge(_ctx, result) {
-        const data = result.sidecarData;
-        const context = data.actor_safe_context.trim() || "本 Tick 没有额外 actor-safe 设定注入。";
+        const context = result.sidecarData.trim() || "本 Tick 没有额外 actor-safe 设定注入。";
         return {
             persistedMessages: [
                 createUserMessage({
                     text: profileText`
-                        <actor_sidecar_context source="actor.context-load">
+                        <actor-sidecar-context source="actor.context-load">
                         ${context}
-
-                        sources: ${data.sources.length ? data.sources.join(", ") : "无"}
-                        withheld: ${data.withheld.length ? `有 ${data.withheld.length} 条不应由角色得知的信息已保留。` : "无"}
-                        confidence: ${data.confidence}
-                        </actor_sidecar_context>
+                        </actor-sidecar-context>
                     `,
                 }),
             ],
@@ -113,13 +105,13 @@ const actorMemorySavePass: SidecarProfilePass<Input, ActorMemorySaveSidecarData>
         目标：根据刚刚完成的 actor 主 run 结果，维护该 actor 的 events.jsonl、memory.jsonl 与 mind.md。
 
         当前 actor：
-        - actorId: ${ctx.input.actorId}
-        - actorName: ${ctx.input.actorName?.trim() || ctx.input.actorId}
+        - actorId: ${actorIdFromSubjectPath(ctx.input)}
+        - actorName: ${actorDisplayName(ctx.input)}
         - subjectPath: ${subjectDirectoryPath(ctx.input)}
-        - eventsPath: ${ctx.input.eventsPath}
-        - memoryPath: ${ctx.input.memoryPath}
-        - mindPath: ${ctx.input.mindPath}
-        - statePath: ${ctx.input.statePath}
+        - eventsPath: ${subjectFilePaths(ctx.input).eventsPath}
+        - memoryPath: ${subjectFilePaths(ctx.input).memoryPath}
+        - mindPath: ${subjectFilePaths(ctx.input).mindPath}
+        - statePath: ${subjectFilePaths(ctx.input).statePath}
 
         主 run report_result.data：
         ${formatJson(ctx.runResult?.reportResult?.data)}
@@ -189,18 +181,19 @@ export default defineAgentProfile({
 });
 
 function renderSystemPrompt(input: Input, profileKey: string): string {
-    const actorName = input.actorName?.trim() || input.actorId;
+    const actorId = actorIdFromSubjectPath(input);
+    const actorName = actorDisplayName(input);
     return profileText`
         <actor_definition>
             <profile>${profileKey}</profile>
-            <actor id="${input.actorId}" kind="${input.kind?.trim() || "unknown"}">${actorName}</actor>
+            <actor id="${actorId}" kind="subject">${actorName}</actor>
             <role>你就是这个角色本人。对你来说，“我”指 ${actorName}，不是 agent、模型、作者、调度方或旁白。</role>
             <mission>全心全意以 ${actorName} 的视角理解当前 Tick，并把自然反应报告给 simulator leader。</mission>
             <language>默认使用中文。</language>
         </actor_definition>
 
         <actor_context_contract>
-            - 你只知道 <actor_sidecar_context>、当前 user message 中的戏内标签，以及上级模拟器明确给你的可感知信息。
+            - 你只知道 <actor-sidecar-context>、当前 user message 中的戏内标签，以及上级模拟器明确给你的可感知信息。
             - 你看不到 subject.md、events.jsonl、memory.jsonl、mind.md、state.md 原文；这些只由 sidecar 过滤后注入。
             - 你不能把隐藏真相、调度方推理、其他角色私密想法、未注入的 lorebook 设定当成自己知道的事实。
             - 主扮演阶段实际只能执行 report_result；不要调用 read、write、edit、subject_rag_search、subject_event_append 或 subject_memory_update，文件维护由 actor.context-load / actor.memory-save 旁路处理。
@@ -222,7 +215,7 @@ function renderSystemPrompt(input: Input, profileKey: string): string {
             - 思考过程不要输出；只输出 report_result packet。
             - 你的思考应严格按以下顺序进行：
                 1. 作为 ${actorName} 确认当前处境：我在哪里，身体如何，周围正在发生什么。
-                2. 回顾 <actor_sidecar_context>：确认我已经知道、相信、误解或仍不知道什么。
+                2. 回顾 <actor-sidecar-context>：确认我已经知道、相信、误解或仍不知道什么。
                 3. 回顾当前戏内标签：提取 <gm>、<state>、<旁白>、<角色 name="..."> 中我能看见、听见、触碰或自然感受到的信息。
                 4. 辨别信息边界：区分我亲眼确认的事实、别人告诉我的内容、我的猜测，以及我绝对不该知道的隐藏真相。
                 5. 判断我的当下心理：我现在想要什么、害怕什么、警惕什么、想隐瞒什么。
@@ -250,34 +243,52 @@ function renderSystemPrompt(input: Input, profileKey: string): string {
 }
 
 function renderActorBinding(input: Input): string {
+    const paths = subjectFilePaths(input);
     return profileText`
         <actor_binding>
-        actorId: ${input.actorId}
-        actorName: ${input.actorName?.trim() || input.actorId}
-        kind: ${input.kind?.trim() || "未指定"}
+        actorId: ${actorIdFromSubjectPath(input)}
+        actorName: ${actorDisplayName(input)}
+        kind: subject
         subjectPath: ${subjectDirectoryPath(input)}
-        instructionPath: ${input.instructionPath}
-        eventsPath: ${input.eventsPath}
-        memoryPath: ${input.memoryPath}
-        mindPath: ${input.mindPath}
-        statePath: ${input.statePath}
+        instructionPath: ${paths.instructionPath}
+        eventsPath: ${paths.eventsPath}
+        memoryPath: ${paths.memoryPath}
+        mindPath: ${paths.mindPath}
+        statePath: ${paths.statePath}
 
-        这些路径只供 actor.context-load / actor.memory-save 旁路使用。主扮演 run 不读取这些文件原文，只使用旁路注入的 <actor_sidecar_context>。
+        这些路径只供 actor.context-load / actor.memory-save 旁路使用。主扮演 run 不读取这些文件原文，只使用旁路注入的 <actor-sidecar-context>。
         </actor_binding>
     `;
 }
 
 function subjectDirectoryPath(input: Input): string {
-    const candidate = input.eventsPath.replaceAll("\\", "/").replace(/\/events\.jsonl$/u, "");
-    if (candidate !== input.eventsPath.replaceAll("\\", "/")) {
-        return candidate;
-    }
-    return input.memoryPath.replaceAll("\\", "/").replace(/\/memory\.jsonl$/u, "");
+    return input.subjectPath.trim().replaceAll("\\", "/").replace(/\/+$/u, "");
+}
+
+function subjectFilePaths(input: Input): {instructionPath: string; eventsPath: string; memoryPath: string; mindPath: string; statePath: string} {
+    const subjectPath = subjectDirectoryPath(input);
+    return {
+        instructionPath: `${subjectPath}/subject.md`,
+        eventsPath: `${subjectPath}/events.jsonl`,
+        memoryPath: `${subjectPath}/memory.jsonl`,
+        mindPath: `${subjectPath}/mind.md`,
+        statePath: `${subjectPath}/state.md`,
+    };
+}
+
+function actorIdFromSubjectPath(input: Input): string {
+    const parts = subjectDirectoryPath(input).split("/").filter(Boolean);
+    return parts.at(-1) || "subject";
+}
+
+function actorDisplayName(input: Input): string {
+    return actorIdFromSubjectPath(input);
 }
 
 function renderInvocationReminder(input: Input): string {
+    const actorId = actorIdFromSubjectPath(input);
     return profileText`
-        <actor_run_reminder actorId="${input.actorId}">
+        <actor_run_reminder actorId="${actorId}">
             本轮只回应当前 user message 发来的 actor-facing message。
             保持角色本人视角，并必须调用 report_result。
             不要主动读写文件；主路只返回角色反应，记忆维护交给 sidecar。

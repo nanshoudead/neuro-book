@@ -1,7 +1,7 @@
 import type {AgentMessage, AgentToolCall, AssistantMessage, JsonValue, Message, Model, ThinkingLevel, ToolResultMessage} from "nbook/server/agent/messages/types";
 import type {AgentProfile, ProfileCompactionPlan} from "nbook/server/agent/profiles/types";
 import type {AgentRuntimeHookStage} from "nbook/server/agent/profiles/define-agent-runtime";
-import type {NeuroSessionContext, InvocationErrorInfo, SessionSnapshot} from "nbook/server/agent/session/types";
+import type {NeuroSessionContext, InvocationErrorInfo, SessionEntryId, SessionSnapshot} from "nbook/server/agent/session/types";
 import type {SessionWritePlan} from "nbook/server/agent/session/write-plan";
 import type {AgentToolRegistry} from "nbook/server/agent/tools/tool-registry";
 import type {NeuroAgentTool} from "nbook/server/agent/tools/types";
@@ -67,6 +67,8 @@ export type RuntimeHookExecutionResult = {
 
 export type TurnIngestResult = {
     transcript: "persist" | "runtime_only";
+    /** 非空表示本轮 transcript 实际写入后的末端 entry，用于 sidecar 继续追加同一条旁路分支。 */
+    transcriptLeafId?: SessionEntryId | null;
 };
 
 export type CompletedRunLoopResult = {
@@ -139,6 +141,14 @@ export type RunFrame = {
     caller: AgentInvokeCaller;
     /** sidecar run 强制不把 assistant/toolResult transcript 写入 session。 */
     forceRuntimeOnlyTranscript?: boolean;
+    /** sidecar run 强制把 assistant/toolResult transcript 写入 session。 */
+    forcePersistTranscript?: boolean;
+    /** sidecar transcript 写入的父节点；为空时使用当前 active leaf。 */
+    transcriptParentLeafId?: SessionEntryId | null;
+    /** sidecar transcript 写入后恢复原 active leaf，避免旁路分支成为主路径。 */
+    restoreLeafAfterTranscript?: boolean;
+    /** transcript 写入后要恢复到的 active leaf。 */
+    restoreLeafIdAfterTranscript?: SessionEntryId | null;
     /** sidecar run 默认不向公开事件流发送内部 turn 事件。 */
     suppressEvents?: boolean;
     /** sidecar run 不消费用户 steer，避免旁路吃掉主 run 的引导。 */

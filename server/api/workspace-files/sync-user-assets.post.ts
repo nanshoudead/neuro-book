@@ -1,8 +1,9 @@
-import {syncSystemAssetsToUserAssets} from "nbook/server/workspace-files/novel-workspace";
+import {prepareSystemAssets} from "nbook/server/workspace-files/system-assets-preflight";
 
 /**
- * 同步系统 assets 到用户 assets，只补缺失文件。
+ * 准备最新系统 assets 后同步到用户 assets。
  */
 export default defineEventHandler(async () => {
-    return syncSystemAssetsToUserAssets();
+    const result = await prepareSystemAssets({syncUserAssets: true});
+    return result.userAssetsSync;
 });

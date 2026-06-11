@@ -273,7 +273,7 @@ bun scripts/build/profile.ts compile --all
 
 ## Files Changed
 
-2026-06-06 update: `simulation/simulator.md` / `simulation/writer.md` 已被后续 profile context V2 取代；当前默认 Project 模板把 profile guidance 放在 `agent-context/simulator.leader/context.md` 和 `agent-context/rp.writer/context.md`，`simulation/` 只保留 runtime state 与 runs。
+2026-06-06 update: `simulation/simulator.md` / `simulation/writer.md` 已被后续 profile context V2 取代；当前默认 Project 模板把 simulation guidance 放在 `agent-context/simulator.leader/context.md`，`agent-context/rp.writer/context.md` 只作为可选写作偏好来源，由上级整理进 writer brief；`simulation/` 只保留 runtime state 与 runs。
 
 - `assets/workspace/.nbook/agent/skills/novel-workflow-05-emulation-bootstrap/SKILL.md`
 - `assets/workspace/.nbook/agent/skills/novel-workflow-06-emulation-tick/SKILL.md`

@@ -14,9 +14,9 @@
 
 列出玩家常见行动类型，例如探索、交谈、调查、战斗、交易、学习、休息、求助和长期计划。
 
-## 默认可玩角色
+## 预设可玩角色
 
-默认可玩角色见 `manual/player-guide/playable-characters/player.md`。
+预设可玩角色见 `manual/player-guide/playable-characters/README.md`。
 
 如果玩家想自定义角色，使用 `manual/player-guide/character-creation.md`。如果玩家跳过创建，创建阶段可见信息不应强制提前披露，可以在开场和后续行动中逐步揭示。
 

@@ -15,7 +15,6 @@ import {
     MentionedSkillsReminder,
     PlanModeReminder,
     ProfilePrompt,
-    Reminder,
     RuntimeLocationReminder,
     SkillCatalog,
     System,
@@ -89,16 +88,9 @@ export default defineAgentProfile({
                 </HistorySet>
                 <AppendingSet>
                     <RuntimeLocationReminder mode="userAssets" repeatEveryTurns={20} />
-                    <Reminder id="user-assets-scope" watch={() => readInputRole(ctx)} repeatEveryTurns={20}>
-                        <Message>
-                            {[
-                                "<system-reminder>",
-                                typeof ctx.input.role === "string" && ctx.input.role.trim() ? `Role: ${ctx.input.role.trim()}` : "",
-                                "- When the user wants story content changed, ask them to switch back to the target Project Workspace.",
-                                "</system-reminder>",
-                            ].filter(Boolean).join("\n")}
-                        </Message>
-                    </Reminder>
+                    <Message>
+                        {"<system-reminder>\n- When the user wants story content changed, ask them to switch back to the target Project Workspace.\n</system-reminder>"}
+                    </Message>
                     <LinkedAgentsReminder />
                     <PlanModeReminder />
                     <Message>
@@ -254,8 +246,4 @@ function renderUserAssetsSkillCatalogText(ctx: ProfilePrepareContext<Input>): st
         skillLines,
         "</system-reminder>",
     ].join("\n");
-}
-
-function readInputRole(ctx: ProfilePrepareContext<Input>): string {
-    return typeof ctx.input.role === "string" && ctx.input.role.trim() ? ctx.input.role.trim() : "user-assets";
 }

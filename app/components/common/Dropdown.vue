@@ -6,10 +6,12 @@ const props = withDefaults(defineProps<{
     items: DropdownItem[];
     menuClass?: string;
     menuMaxHeight?: string;
+    rootClass?: string;
     compact?: boolean;
 }>(), {
     menuClass: "left-0 top-full mt-2 min-w-full",
     menuMaxHeight: "none",
+    rootClass: "relative w-full",
     compact: false,
 });
 
@@ -42,7 +44,7 @@ onClickOutside(rootRef, () => {
 
 <template>
     <!-- 下拉菜单容器 -->
-    <div ref="rootRef" class="relative w-full">
+    <div ref="rootRef" :class="props.rootClass">
         <div class="w-full" @click.stop="toggle">
             <slot />
         </div>

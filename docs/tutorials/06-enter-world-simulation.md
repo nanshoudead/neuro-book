@@ -27,7 +27,7 @@ simulation/
 这些文件各有分工：
 
 - `agent-context/simulator.leader/context.md`：simulator leader 的 Project 专用运行上下文。
-- `agent-context/rp.writer/context.md`：RP 输出文风和可见文本规则。
+- `agent-context/rp.writer/context.md`：可选的 RP 输出偏好来源；由上级读取后写入 writer brief，`rp.writer` 自己不绑定这个文件。
 - `subjects/`：角色、玩家主角、势力代表等可扮演主体。
 - `entities/`：需要状态追踪的物品、地点、机关或特殊对象。
 - `runs/`：每次 Tick 的过程记录。
@@ -68,7 +68,7 @@ simulation/
 
 - `simulator.leader`：世界模拟主管，负责场景叙述、世界裁决和 actor 调度。
 - `simulator.actor`：角色扮演 agent，只看到自己应该知道的信息。
-- `rp.writer`：RP 文本渲染 agent，只把 simulator brief 写成用户可读 prose。
+- `rp.writer`：RP 文本渲染 agent，profile input 为空，只把上级注入的 writer brief 写成用户可读 prose。
 
 用户也是故事中的一个扮演者。不同点在于，simulator leader 不直接以内部裁决文本和用户交流，而是通过 writer 输出最终文本。
 
@@ -124,7 +124,7 @@ state.md
 1. `simulator.leader` 理解用户行动或开始请求。
 2. simulator leader 检查相关 subject、entity、lorebook 和当前状态。
 3. simulator leader 向需要反应的 `simulator.actor` 发送 actor-facing message。
-4. `actor.context-load` 检索当前 actor 自己的 `events.jsonl` / `memory.jsonl`，压缩成 `<actor_sidecar_context>`。
+4. `actor.context-load` 检索当前 actor 自己的 `events.jsonl` / `memory.jsonl`，压缩成 `<actor-sidecar-context>`。
 5. actor 只按自己知道的信息回应。
 6. `actor.memory-save` 追加本轮经历，并在稳定认知变化时维护 `memory.jsonl`。
 7. simulator leader 裁决剧情推进和世界变化。

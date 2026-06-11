@@ -2,10 +2,17 @@
 import {computed, ref} from "vue";
 import {onClickOutside} from "@vueuse/core";
 import Dialog from "nbook/app/components/common/Dialog.vue";
+import Dropdown from "nbook/app/components/common/Dropdown.vue";
+import type {DropdownItem} from "nbook/app/components/common/dropdown.types";
 import type {AgentSessionListQueryDto, AgentSessionRelationFilter, AgentSessionStatusFilter, AgentSessionSummaryDto} from "nbook/shared/dto/agent-session.dto";
 import {formatTimestamp} from "nbook/app/components/novel-ide/agent/agent-message";
 
 type SessionProfileFilter = "leader" | "all";
+type CreateProfileOption = {
+    profileKey: string;
+    label: string;
+    iconClass: string;
+};
 
 const props = defineProps<{
     modelValue: boolean;
@@ -14,12 +21,14 @@ const props = defineProps<{
     loading: boolean;
     running: boolean;
     actionId: number | null;
+    createProfileOptions: CreateProfileOption[];
+    canChooseCreateProfile: boolean;
 }>();
 
 const emit = defineEmits<{
     (e: "update:modelValue", value: boolean): void;
     (e: "select", sessionId: number): void;
-    (e: "create"): void;
+    (e: "create", profileKey?: string): void;
     (e: "archive", session: AgentSessionSummaryDto): void;
     (e: "refresh", query: AgentSessionListQueryDto): void;
 }>();
@@ -50,6 +59,11 @@ const relationItems: Array<{value: AgentSessionRelationFilter; label: string}> =
     {value: "top", label: "顶层"},
     {value: "child", label: "子 Agent"},
 ];
+const createDropdownItems = computed<DropdownItem[]>(() => props.createProfileOptions.map((option) => ({
+    label: option.label,
+    value: option.profileKey,
+    iconClass: option.iconClass,
+})));
 
 const query = computed<AgentSessionListQueryDto>(() => ({
     profileGroup: profileFilter.value,
@@ -157,7 +171,13 @@ onClickOutside(filterPanelRef, () => {
                         <span class="i-lucide-list-filter h-4 w-4"></span>
                     </button>
                 </div>
-                <button class="inline-flex h-11 items-center justify-center gap-1.5 rounded-lg bg-[var(--accent-bg)] px-4 text-sm text-[var(--accent-text)] transition-opacity hover:opacity-80 disabled:opacity-40" :disabled="loading || !!actionId" @click="emit('create')">
+                <Dropdown v-if="props.canChooseCreateProfile" :items="createDropdownItems" root-class="relative inline-block" menu-class="right-0 top-full mt-1.5 w-44" @select="emit('create', $event)">
+                    <button class="inline-flex h-11 items-center justify-center gap-1.5 rounded-lg bg-[var(--accent-bg)] px-4 text-sm text-[var(--accent-text)] transition-opacity hover:opacity-80 disabled:opacity-40" :disabled="loading || !!actionId">
+                        <span class="i-lucide-plus h-4 w-4"></span>
+                        新建
+                    </button>
+                </Dropdown>
+                <button v-else class="inline-flex h-11 items-center justify-center gap-1.5 rounded-lg bg-[var(--accent-bg)] px-4 text-sm text-[var(--accent-text)] transition-opacity hover:opacity-80 disabled:opacity-40" :disabled="loading || !!actionId" @click="emit('create')">
                     <span class="i-lucide-plus h-4 w-4"></span>
                     新建
                 </button>

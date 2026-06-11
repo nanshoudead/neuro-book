@@ -355,18 +355,18 @@ actor 不应该：
 
 输入边界：
 
-- `simulator.actor` 只接收该 actor 的 `subject.md`、`events.md`、`knowledge.md`、`mind.md`、`state.md` 和 GM 当前 actor-facing message。
-- 第一版可给 actor 开放文件编辑工具，但主扮演 run 不主动读写文件；`actor.memory-save` 旁路作用域限制为自己的 `events.md`、`knowledge.md`、`mind.md`。
+- `simulator.actor` 创建 input 只接收 `{ subjectPath }`，例如 `{project}/simulation/subjects/heroine`；profile 内部从该目录派生 `subject.md`、`events.jsonl`、`memory.jsonl`、`mind.md`、`state.md`。
+- 第一版可给 actor profile 暴露 sidecar 所需工具，但主扮演 run 实际只允许 `report_result`；`actor.memory-save` 旁路作用域限制为自己的 `events.jsonl`、`memory.jsonl`、`mind.md`。
 - `simulator.actor` 不接收完整 `simulation/`、`lorebook/`、`reference/`、其他 actor knowledge 或 GM scratch。
 
 第一版实现状态：
 
 - 已新增 builtin profile `simulator.actor`。
-- 创建 input 绑定 `actorId`、`actorName?`、`kind?`、`instructionPath`、`eventsPath`、`knowledgePath`、`mindPath`、`statePath`。
-- profile prepare 会自动读取并注入 `subject.md`、`events.md`、`knowledge.md`、`mind.md` 与 `state.md`。
+- 创建 input 只绑定 `subjectPath`；`actorId` / `actorName` / `instructionPath` / `eventsPath` / `memoryPath` / `mindPath` / `statePath` 均由 profile 从 `subjectPath` 派生。
+- 主 profile prepare 不直接读取并注入完整 subject 文件；`actor.context-load` 旁路读取小文件并通过 Subject RAG 注入 actor-safe 摘要。
 - 每轮 GM packet 通过 `invoke_agent.message` 传入，不放进创建 input。
-- 输出必须通过 `report_result.data` 返回 `visible_action`、`spoken_dialogue`、`private_intent`、`emotional_state`、`assumptions`、`questions_to_gm`、`event_update`、`knowledge_update`、`mind_update`、`state_update`。
-- 现有文件工具还不能 runtime-enforce path scope；第一版用 profile prompt 严格要求 actor 主 run 不主动读写文件，memory-save 旁路只能读写自己的 `eventsPath`、`knowledgePath`、`mindPath`。
+- 输出必须通过 `report_result.data` 返回 `visible_response`、`spoken_dialogue`、`inner_response`。
+- 现有文件工具还不能完整 runtime-enforce path scope；第一版用 profile prompt 和 `mainRunAllowedToolKeys` 要求 actor 主 run 不主动读写文件，memory-save 旁路只能维护自己的 `eventsPath`、`memoryPath`、`mindPath`。
 
 ### `rp.writer`
 
@@ -685,7 +685,7 @@ writer 输出最终用户可见文本。输出中不应包含：
 5. actor knowledge 只表达角色视角的已知信息；如果它和 canonical truth 不一致，GM 负责在后台区分。
 6. 用户是 actor，并且应在 `simulation/subjects/{player-id}/` 下拥有自己的 actor 目录；用户输入可以是行动、台词或剧本式指令，GM 负责把它转为故事内可执行意图。
 7. 非抢话模式下，actor 只在用户 Tick 后响应；抢话模式后续单独设计。
-8. `simulator.actor` 主扮演 run 不主动维护文件；`actor.memory-save` 旁路负责更新 `events.md`、`knowledge.md` 与 `mind.md`，`state.md` 和 `simulation/entities/` 由 GM 裁决后维护。
+8. `simulator.actor` 主扮演 run 不主动维护文件；`actor.memory-save` 旁路负责更新 `events.jsonl`、`memory.jsonl` 与 `mind.md`，`state.md` 和 `simulation/entities/` 由 GM 裁决后维护。
 9. 第一版不让 `rp.writer` 自主检索 lorebook；GM 必须把可写信息整理进 writer brief。后续 sidecar 可补“写作前检索相关 lorebook”。
 
 ### Lorebook Visibility Discussion
@@ -718,18 +718,18 @@ visibility:
 
 ## Sidecar Boundary
 
-用户提出的“主流程保持纯净，旁路 run 负责检索或更新知识”的机制已经作为 Harness `SidecarProfilePass` V1 实现，并已接入 `simulator.actor`。V1 设计以 actor 为第一验收对象：sidecar 不切换 profile，不使用 `profileKey`，而是在当前 session tree 上 fork 一段 `runtime_only` 分支，完成后只把 `merge()` 结果注入回主 run。
+用户提出的“主流程保持纯净，旁路 run 负责检索或更新知识”的机制已经作为 Harness `SidecarProfilePass` V1 实现，并已接入 `simulator.actor`。V1 设计以 actor 为第一验收对象：sidecar 不切换 profile，不使用 `profileKey`，而是在当前 session tree 上 fork 一条旁路 leaf；旁路 transcript 会持久化在 session tree 中用于审计，但完成后 active leaf 恢复到父 run 原位置，主 run 只消费 `merge()` 结果。
 
 已接入的两个 actor 旁路：
 
 - `actor.context-load` prepare-run sidecar：GM packet 进入 actor 后、主扮演 run 之前，先退出扮演模式，检索本 Tick 相关且角色可知的设定，再把 actor-safe 摘要注入主上下文。失败时 actor 主 run 直接失败。
-- `actor.memory-save` settle-run sidecar：主扮演回复完成后，退出扮演模式，更新 `events.md`、`knowledge.md` 与 `mind.md`。V1 允许 `write` / `edit`，但不更新 `state.md`。
+- `actor.memory-save` settle-run sidecar：主扮演回复完成后，退出扮演模式，更新 `events.jsonl`、`memory.jsonl` 与 `mind.md`。V1 允许相关 subject memory 工具和 `edit`，但不更新 `state.md`。
 - `rp.writer` prepare-run sidecar：后续扩展用例。先退出写作模式，检索本次 writer brief 相关 lorebook，再把可写摘要注入主写作上下文。
 
 当前 RP profile 策略：
 
 - writer：由 GM 主动整理 lorebook 摘要，writer 只按 GM 明确路径使用文件工具。
-- actor：主 run 只扮演角色并返回 `report_result.data`；context-load 旁路负责检索 actor-safe 设定，memory-save 旁路负责维护 `events.md`、`knowledge.md` 与 `mind.md`。
+- actor：主 run 只扮演角色并返回 `report_result.data`；context-load 旁路负责检索 actor-safe 设定，memory-save 旁路负责维护 `events.jsonl`、`memory.jsonl` 与 `mind.md`。
 
 ## Open Questions
 

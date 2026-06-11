@@ -47,7 +47,7 @@ roleplay/gm.md            -> agent-context/simulator.leader/context.md for world
 
 `actor` is a kind of simulator, not a top-level directory. Character-like simulators live under `simulation/subjects/`.
 
-Profile-specific project guidance lives in `agent-context/`, not in `simulation/`. For example, `rp.leader` reads `agent-context/rp.leader/context.md`, `simulator.leader` reads `agent-context/simulator.leader/context.md`, and `rp.writer` reads `agent-context/rp.writer/context.md`.
+Profile-specific project guidance lives in `agent-context/`, not in `simulation/`. For example, `rp.leader` reads `agent-context/rp.leader/context.md`, and `simulator.leader` reads `agent-context/simulator.leader/context.md`. `rp.writer` does not bind its own context file at profile creation time; upstream coordinators must inject any relevant project guidance into each writer brief.
 
 ## Runtime Profiles
 
@@ -57,8 +57,8 @@ Current RP / simulation profile contract:
 | --- | --- | --- | --- |
 | `rp.leader` | RP host and user-facing coordinator. It manages quickstart, table contract, companion-mode conversation, player-safe explanation and handoff to simulation. It may call `simulator.leader` for world adjudication instead of silently rewriting runtime state. | `AGENTS.md`, `manual/README.md`, `manual/player-guide/`, `manual/gm-guide.md`, `agent-context/rp.leader/context.md`, `agent-context/rp.leader/memory.md`, and user-approved context. | RP-facing notes only when explicitly requested or approved. Runtime state changes should be handed to `simulator.leader` or written only after clear user authorization and simulation contract review. |
 | `simulator.leader` | World simulator leader shared by writing mode and RP. It understands the task or user action, dispatches actor emulators, adjudicates the world, maintains state/entities, builds writer-safe brief and reports the result. | `AGENTS.md`, `agent-context/simulator.leader/context.md`, recent `simulation/runs/`, subject/entity state, Plot context and god-view lorebook / reference allowed by its context. | Approved subject `state.md`, `simulation/entities/`, necessary `simulation/runs/` and explicit simulation context changes. New subjects/entities should be reported before creation unless the current prompt explicitly grants automatic authority. |
-| `simulator.actor` | Single-subject simulator. It only uses actor-safe context injected by sidecar and the current actor-facing packet to output a character response. | Main run sees actor binding metadata, `<actor_sidecar_context>` and the current actor-facing packet. `actor.context-load` sidecar can read small bound files (`subject.md`, `mind.md`, `state.md`) and use subject RAG over `events.jsonl` / `memory.jsonl`. | Main run does not write files; `actor.memory-save` sidecar may append `events.jsonl`, curate `memory.jsonl`, and update `mind.md`. |
-| `rp.writer` | Tick prose renderer. It turns simulator leader writer brief into user-visible prose. | Bound `agent-context/rp.writer/context.md` and writer brief; only extra paths explicitly provided by simulator leader. | Normal assistant prose; writes files only when writer brief explicitly specifies an output path. |
+| `simulator.actor` | Single-subject simulator. It only uses actor-safe context injected by sidecar and the current actor-facing packet to output a character response. | Main run sees actor binding metadata, `<actor-sidecar-context>` and the current actor-facing packet. `actor.context-load` sidecar can read small bound files (`subject.md`, `mind.md`, `state.md`) and use subject RAG over `events.jsonl` / `memory.jsonl`. | Main run does not write files; `actor.memory-save` sidecar may append `events.jsonl`, curate `memory.jsonl`, and update `mind.md`. |
+| `rp.writer` | Tick prose renderer. It turns an upstream writer brief into user-visible prose, keeping the small-cat writer preset and RP storytelling tone. | Profile input is empty. It only consumes the current writer brief and reads extra paths when the brief explicitly asks it to. | Normal assistant prose; writes files only when writer brief explicitly specifies an output path. |
 
 `simulator.leader` must not hand complete `simulation/`, `lorebook/` or `reference/` to actor / writer. It filters god-view context into actor-facing messages or writer briefs.
 
@@ -68,17 +68,15 @@ Current RP / simulation profile contract:
 
 ## Subject To Actor Input
 
-`simulation/subjects/{subject-id}/` to `simulator.actor` input mapping:
+`simulator.actor` input is intentionally narrow:
 
-| subject file | actor input |
-| --- | --- |
-| `subject.md` | `instructionPath` |
-| `events.jsonl` | `eventsPath` |
-| `memory.jsonl` | `memoryPath` |
-| `mind.md` | `mindPath` |
-| `state.md` | `statePath` |
+```ts
+type SubjectSimulatorInput = {
+    subjectPath: string;
+};
+```
 
-Subject paths are Project Workspace relative, such as `simulation/subjects/erina/subject.md`. Before invoking an agent, convert them to Agent cwd-relative project paths, such as `{project}/simulation/subjects/erina/subject.md`.
+`subjectPath` points to the subject directory in Agent cwd-relative project form, such as `{project}/simulation/subjects/erina`. The profile derives `subject.md`, `events.jsonl`, `memory.jsonl`, `mind.md` and `state.md` from that directory for sidecar prompts. Callers should not pass separate file paths.
 
 ## Subjects
 
@@ -109,7 +107,7 @@ simulation/subjects/{subject-id}/
 
 The index is scoped by `subject_path` and `source_type`, so an actor can only recall the current subject's own episodic memories and stable views. It does not search lorebook, Project-wide files or other subjects.
 
-`actor.context-load` uses `subject_rag_search` for coarse recall, reranks and compresses candidates, then persists a small `<actor_sidecar_context>` into the actor session. `actor.memory-save` appends `events.jsonl` through `subject_event_append` and curates `memory.jsonl` through `subject_memory_update`.
+`actor.context-load` uses `subject_rag_search` for coarse recall, reranks and compresses candidates, then persists a small `<actor-sidecar-context>` into the actor session. `actor.memory-save` appends `events.jsonl` through `subject_event_append` and curates `memory.jsonl` through `subject_memory_update`.
 
 Embedding configuration is separate from Pi chat / vision model settings. Global Config owns the OpenAI-compatible embedding service; Project Config may only override embedding model and dimensions.
 

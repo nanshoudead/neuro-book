@@ -270,6 +270,7 @@ export class NeuroAgentHarness {
     async createAgent(input: CreateAgentInput): Promise<CreateAgentResult> {
         const profile = await this.profiles.get(input.profileKey);
         const parsedInput = this.profiles.parseInput(profile, (input.input ?? {}) as JsonValue);
+        const title = this.normalizeCreateTitle(input.title) ?? profile.manifest.name;
         const snapshot = await this.repo.createSession({
             profileKey: input.profileKey,
             input: parsedInput,
@@ -277,7 +278,7 @@ export class NeuroAgentHarness {
             workspaceKey: input.workspaceKey ?? "global",
             projectPath: input.projectPath,
             parentSessionId: input.parentSessionId,
-            title: profile.manifest.name,
+            title,
         });
         if (input.parentSessionId) {
             await new ToolSessionWriteSink({
@@ -296,7 +297,7 @@ export class NeuroAgentHarness {
         return {
             sessionId: snapshot.metadata.sessionId,
             profileKey: input.profileKey,
-            title: profile.manifest.name,
+            title,
         };
     }
 
@@ -483,15 +484,29 @@ export class NeuroAgentHarness {
     }
 
     /**
+     * 规范化创建 session 时显式传入的展示标题。
+     */
+    private normalizeCreateTitle(title: CreateAgentInput["title"]): string | undefined {
+        return this.normalizeSessionTitle(title, "create_agent.title");
+    }
+
+    /**
      * 规范化调用方显式传入的 session 展示标题。
      */
     private normalizeInvokeTitle(title: InvokeAgentInput["title"]): string | undefined {
+        return this.normalizeSessionTitle(title, "invoke_agent.title");
+    }
+
+    /**
+     * 统一处理工具传入的可选 session 标题。
+     */
+    private normalizeSessionTitle(title: string | undefined, fieldName: string): string | undefined {
         if (title === undefined) {
             return undefined;
         }
         const trimmed = title.trim();
         if (!trimmed) {
-            throw new Error("invoke_agent.title 不能为空。");
+            throw new Error(`${fieldName} 不能为空。`);
         }
         return trimmed;
     }
@@ -2360,6 +2375,10 @@ export class NeuroAgentHarness {
             turnIndex: frame.turnIndex,
             pendingWritePlans: frame.pendingWritePlans,
             forceRuntimeOnlyTranscript: frame.forceRuntimeOnlyTranscript,
+            forcePersistTranscript: frame.forcePersistTranscript,
+            transcriptParentLeafId: frame.transcriptParentLeafId,
+            restoreLeafAfterTranscript: frame.restoreLeafAfterTranscript,
+            restoreLeafIdAfterTranscript: frame.restoreLeafIdAfterTranscript,
         });
     }
 
@@ -3485,7 +3504,11 @@ export class NeuroAgentHarness {
     }
 
     private isLeaderProfile(profileKey: string): boolean {
-        return profileKey === "leader.default" || profileKey === "leader.assets" || profileKey.startsWith("leader.");
+        return profileKey === "leader.default"
+            || profileKey === "leader.assets"
+            || profileKey === "rp.leader"
+            || profileKey === "simulator.leader"
+            || profileKey.startsWith("leader.");
     }
 
     private async moveLeafForPosition(
@@ -3603,6 +3626,10 @@ export class NeuroAgentHarness {
         turnIndex: number;
         pendingWritePlans: PendingSessionWritePlan[];
         forceRuntimeOnlyTranscript?: boolean;
+        forcePersistTranscript?: boolean;
+        transcriptParentLeafId?: SessionEntryId | null;
+        restoreLeafAfterTranscript?: boolean;
+        restoreLeafIdAfterTranscript?: SessionEntryId | null;
     }): Promise<TurnIngestResult> {
         const orderedToolResults = this.orderToolResults(input.assistant, input.toolResults);
         this.assertTurnClosed(input.assistant, orderedToolResults, input.waiting);
@@ -3625,7 +3652,7 @@ export class NeuroAgentHarness {
                 messageStatus: input.messageStatus,
             },
         });
-        const transcript = input.forceRuntimeOnlyTranscript ? "runtime_only" : ingest.transcript ?? "runtime_only";
+        const transcript = input.forcePersistTranscript ? "persist" : input.forceRuntimeOnlyTranscript ? "runtime_only" : ingest.transcript ?? "runtime_only";
         if (transcript === "runtime_only") {
             if (input.waiting) {
                 throw new Error("waiting turn 必须显式使用 persist transcript；resume 需要持久化 pending tool call。");
@@ -3644,6 +3671,7 @@ export class NeuroAgentHarness {
                         type: "message",
                         message: input.assistant,
                         origin: "harness",
+                        ...(input.transcriptParentLeafId !== undefined ? {parentId: input.transcriptParentLeafId} : {}),
                         status: input.messageStatus,
                     },
                     ...orderedToolResults.map((toolResult) => ({
@@ -3654,9 +3682,21 @@ export class NeuroAgentHarness {
                 ],
             }],
         };
-        await this.writeExecutor.execute([transcriptPlan, ...this.orderedPendingWritePlans(input.pendingWritePlans)], input.invocationId);
+        const transcriptResult = await this.writeExecutor.execute([transcriptPlan, ...this.orderedPendingWritePlans(input.pendingWritePlans)], input.invocationId);
+        const transcriptEntryCount = 1 + orderedToolResults.length;
+        const transcriptLeafId = transcriptResult.entries.slice(0, transcriptEntryCount).at(-1)?.id ?? input.transcriptParentLeafId;
         input.pendingWritePlans.splice(0, input.pendingWritePlans.length);
-        return {transcript: "persist"};
+        if (input.restoreLeafAfterTranscript) {
+            await this.writeExecutor.execute([{
+                target: {sessionId: input.sessionId},
+                cause: "turn.ingest.restoreLeaf",
+                ops: [{
+                    kind: "moveLeaf",
+                    leafId: input.restoreLeafIdAfterTranscript ?? null,
+                }],
+            }], input.invocationId);
+        }
+        return {transcript: "persist", transcriptLeafId};
     }
 
     private async flushPendingWritePlans(plans: PendingSessionWritePlan[], invocationId?: string): Promise<void> {
@@ -3925,6 +3965,11 @@ export class NeuroAgentHarness {
     private async runSidecarPass(pass: SidecarProfilePass, sidecarRun: SidecarRunContext): Promise<SidecarMergePlan> {
         const context = this.createSidecarContext(pass, sidecarRun);
         const allowedToolKeys = [...pass.allowedToolKeys ?? sidecarRun.toolKeys];
+        const sidecarReminder = createUserMessage({
+            text: this.sidecarReminder(pass, context, allowedToolKeys),
+        });
+        const parentLeafId = sidecarRun.snapshot.leafId ?? null;
+        const sidecarLeafId = await this.appendSidecarEnterMessage(pass.name, sidecarRun, sidecarReminder, parentLeafId);
         const result = await this.runLoop({
             sessionId: sidecarRun.sessionId,
             workspaceKey: sidecarRun.snapshot.metadata.workspaceKey,
@@ -3933,9 +3978,7 @@ export class NeuroAgentHarness {
             systemPrompt: sidecarRun.systemPrompt,
             messages: [
                 ...sidecarRun.messages,
-                createUserMessage({
-                    text: this.sidecarReminder(pass, context, allowedToolKeys),
-                }),
+                sidecarReminder,
             ],
             model: sidecarRun.model,
             apiKey: sidecarRun.apiKey,
@@ -3957,7 +4000,10 @@ export class NeuroAgentHarness {
             },
             abortSignal: sidecarRun.abortSignal,
             invocationId: sidecarRun.invocationId,
-            forceRuntimeOnlyTranscript: true,
+            forcePersistTranscript: true,
+            transcriptParentLeafId: sidecarLeafId,
+            restoreLeafAfterTranscript: true,
+            restoreLeafIdAfterTranscript: parentLeafId,
             suppressEvents: true,
             disableSteer: true,
             disableAutomaticCompaction: true,
@@ -3970,6 +4016,31 @@ export class NeuroAgentHarness {
         }
         const sidecarResult = this.readSidecarResult(pass, result);
         return await pass.merge(context, sidecarResult);
+    }
+
+    private async appendSidecarEnterMessage(passName: string, sidecarRun: SidecarRunContext, message: Message, parentLeafId: SessionEntryId | null): Promise<SessionEntryId | null> {
+        const result = await this.writeExecutor.execute([{
+            target: {sessionId: sidecarRun.sessionId},
+            cause: `sidecar.${passName}.enter`,
+            ops: [{
+                kind: "appendMany",
+                entries: [{
+                    type: "message",
+                    message,
+                    origin: "harness",
+                    parentId: parentLeafId,
+                }],
+            }],
+        }], sidecarRun.invocationId);
+        await this.writeExecutor.execute([{
+            target: {sessionId: sidecarRun.sessionId},
+            cause: `sidecar.${passName}.restoreLeaf`,
+            ops: [{
+                kind: "moveLeaf",
+                leafId: parentLeafId,
+            }],
+        }], sidecarRun.invocationId);
+        return result.entries.findLast((entry) => entry.type === "message")?.id ?? parentLeafId;
     }
 
     private validateSidecarMergePlan(stage: SidecarProfilePassStage, passName: string, mergePlan: SidecarMergePlan): void {
@@ -4029,7 +4100,7 @@ export class NeuroAgentHarness {
             `sidecar: ${pass.name}`,
             `stage: ${pass.stage}`,
             `allowed tools: ${allowedToolKeys.length ? allowedToolKeys.join(", ") : "(none)"}`,
-            "旁路 transcript 只用于本次运行，不会写入主 session history。",
+            "旁路 transcript 会写入 session tree 的旁路分支供审计，但不会成为主 active path；主 run 只能看到 merge 后注入的结果。",
             "provider-visible tool schema 仍保持 profile 最大工具集合；但本旁路阶段只有 allowed tools 列出的工具允许实际执行。",
             "完成旁路后优先调用 report_result，并把旁路结构化结果放在 sidecar_data 字段；不要把旁路结果放在主路 data 字段。",
             "sidecar_data 期望结构：",

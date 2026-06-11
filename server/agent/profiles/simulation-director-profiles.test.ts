@@ -25,15 +25,13 @@ describe("simulation and director builtin profiles", () => {
             session: testSession({
                 profileKey: "simulator.leader",
                 workspaceRoot: resolve("workspace"),
+                projectPath: "workspace/rp-project",
                 customState: {},
                 linkedAgents: [],
                 archived: false,
                 planModeActive: false,
             }),
-            input: {
-                projectPath: "workspace/rp-project",
-                simulationRoot: "rp-project/simulation/",
-            },
+            input: {},
             vars: createTestVariableAccessor(),
             catalog: {profiles: [], issues: []},
             skills: [],

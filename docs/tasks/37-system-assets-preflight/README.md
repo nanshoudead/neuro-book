@@ -169,6 +169,8 @@
   - user sync state 硬切到 `workspace/.nbook/.system-assets-sync-state.json`。
   - 移除旧 Git HEAD 迁移推断。
   - 普通 managed assets 保持黑名单模式，排除 runtime/local state。
+- `server/workspace-files/system-assets-preflight.ts`
+  - 抽出统一 preflight helper，供 CLI 脚本和前端同步 API 复用。
 - `scripts/deploy/product-runtime.mjs`
   - Product stage 复制并运行统一 preflight，stage 时 `--force` 生成 Product-local `.compiled`。
   - Product payload 清理旧 `.system-profile-metadata.json` 和 IDE type cache。
@@ -214,6 +216,16 @@
       - `assets/workspace/.nbook/agent/variables/.compiled/manifest.json`
       - `assets/workspace/.nbook/agent/profiles/.system-profile-metadata.json`
       - `server/agent/variables/generated-profile-variable-types.d.ts`
+
+### Follow-up Fix: Frontend sync refreshes system manifests
+
+- 问题：`/api/workspace-files/sync-user-assets` 之前只调用 `syncSystemAssetsToUserAssets()`，不会先刷新 system profile / variable `.compiled/manifest.json`。因此开发者修改 system profile 源码但未手动编译时，前端同步按钮仍读取旧 manifest，无法感知系统 profile 更新。
+- 修复：新增 `prepareSystemAssets()` helper；CLI `scripts/build/prepare-system-assets.ts` 和前端同步 API 共用该 helper。同步按钮现在会先执行增量 compile，再同步 user-assets。
+- 验证：
+  - `bunx vitest run server/workspace-files/workspace-files.test.ts --testNamePattern "前端同步 preflight|同步系统 assets 会更新仍跟随上游的 Agent skill"`
+    - 通过；2 tests passed。
+  - `bun scripts/build/prepare-system-assets.ts --sync-user-assets`
+    - 通过；当前工作区 system profile 有未提交改动，因此同步更新了 1 个未手改用户 profile。
 
 ## TODO / Follow-ups
 

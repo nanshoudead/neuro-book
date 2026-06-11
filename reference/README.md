@@ -23,5 +23,6 @@
 - 处理 Project Workspace 文件、lorebook、simulation 或导入素材：先读 [agent/project-workspace-guide.md](agent/project-workspace-guide.md) 和 [content/README.md](content/README.md)。
 - 处理 subject 长期记忆、`events.jsonl` / `memory.jsonl`、`subject_rag_search` 或 actor sidecar 记忆注入：读 [content/subject-rag-memory.md](content/subject-rag-memory.md)。
 - 处理小说写作标准流程、emulation tick、writer handoff 或 workflow skill 命名：读 [agent/novel-writing-workflow.md](agent/novel-writing-workflow.md)。
+- 处理 RP Tick 交互协议、LOD 世界模拟、actor-facing packet 格式或 Writer Brief 格式：读 [agent/rp-tick/README.md](agent/rp-tick/README.md)。
 - 处理剧情结构、writer 章节剧情注入或 Plot 工具：先读 [plot/system.md](plot/system.md)。
 - 处理 workspace / project / user-assets 术语：先读 [workspace/TERMS.md](workspace/TERMS.md)。

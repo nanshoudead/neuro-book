@@ -5,7 +5,7 @@
 ## 快速开始
 
 1. 读取 `manual/player-guide/README.md`，确认玩家可见信息。
-2. 选择 `manual/player-guide/playable-characters/player.md` 的默认角色，或按 `manual/player-guide/character-creation.md` 创建角色。
+2. 选择 `manual/player-guide/playable-characters/README.md` 中的预设角色，或按 `manual/player-guide/character-creation.md` 创建角色。
 3. 读取 `manual/world-guide.md`，获得玩家安全的世界观导览。
 4. 读取 `manual/rules-guide.md`，确认本 Project 的规则和系统模块。
 5. 读取 `manual/gm-guide.md` 与 `manual/reference.md`，准备第一场游戏。
@@ -31,6 +31,6 @@ tick 是叙事节拍，不要求玩家说出术语。它只表示世界已经对
 
 ## 阅读顺序
 
-- 玩家：`player-guide/README.md` -> `player-guide/character-creation.md` 或 `player-guide/playable-characters/player.md` -> `world-guide.md`
+- 玩家：`player-guide/README.md` -> `player-guide/character-creation.md` 或 `player-guide/playable-characters/README.md` -> `world-guide.md`
 - 主持人：`gm-guide.md` -> `player-guide/README.md` -> `rules-guide.md` -> `reference.md`
 - 世界和规则细节：需要精确 canon 时查 `lorebook/`。

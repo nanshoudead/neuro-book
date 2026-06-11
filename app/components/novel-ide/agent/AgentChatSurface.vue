@@ -12,6 +12,7 @@ import {useAgentSession} from "nbook/app/components/novel-ide/agent/useAgentSess
 import {useAgentSessionStream, type AgentSessionStreamSnapshotReason} from "nbook/app/components/novel-ide/agent/useAgentSessionStream";
 import {useAgentSessionApi} from "nbook/app/composables/useAgentSessionApi";
 import {useCostDisplay} from "nbook/app/composables/useCostDisplay";
+import Dropdown from "nbook/app/components/common/Dropdown.vue";
 import AgentChatFlow from "nbook/app/components/novel-ide/agent/AgentChatFlow.vue";
 import AgentComposer from "nbook/app/components/novel-ide/agent/AgentComposer.vue";
 import AgentLinkedAgentPanel from "nbook/app/components/novel-ide/agent/AgentLinkedAgentPanel.vue";
@@ -24,12 +25,19 @@ import {resolveApiErrorMessage} from "nbook/app/utils/api-error";
 import {formatCost, formatCostExact, usingCnyRate} from "nbook/app/utils/cost-format";
 import type {ConfigModelSettingsDto} from "nbook/shared/dto/config.dto";
 import type {AgentQueuedMessageDto, AgentSessionListQueryDto, AgentSessionSnapshotDto, AgentSessionSummaryDto} from "nbook/shared/dto/agent-session.dto";
+import type {DropdownItem} from "nbook/app/components/common/dropdown.types";
 import type {ThinkingLevelDto} from "nbook/shared/dto/app-settings.dto";
 import type {InvokeAgentResult} from "nbook/server/agent/harness/types";
 
 type SessionModelDraft = {
     modelKey: string | null;
     reasoningEffort: ThinkingLevelDto | null;
+};
+
+type LeaderCreateProfileOption = {
+    profileKey: string;
+    label: string;
+    iconClass: string;
 };
 
 const props = defineProps<{
@@ -163,6 +171,39 @@ const leaderProfileKey = computed(() => {
     return resolvedDefaultProfileKey.value || systemLeaderProfileKey.value;
 });
 
+const createProfileOptions = computed<LeaderCreateProfileOption[]>(() => {
+    const defaultKey = leaderProfileKey.value;
+    const options: LeaderCreateProfileOption[] = [
+        {
+            profileKey: defaultKey,
+            label: defaultKey === systemLeaderProfileKey.value ? profileDisplayName(defaultKey) : `默认：${profileDisplayName(defaultKey)}`,
+            iconClass: profileIconClass(defaultKey),
+        },
+    ];
+    if (ideStore.workspaceKind !== "user-assets") {
+        options.push(
+            {profileKey: "leader.default", label: "写作助手", iconClass: profileIconClass("leader.default")},
+            {profileKey: "rp.leader", label: "RP 主持", iconClass: profileIconClass("rp.leader")},
+            {profileKey: "simulator.leader", label: "世界模拟", iconClass: profileIconClass("simulator.leader")},
+        );
+    }
+    const seen = new Set<string>();
+    return options.filter((option) => {
+        if (seen.has(option.profileKey)) {
+            return false;
+        }
+        seen.add(option.profileKey);
+        return true;
+    });
+});
+const createProfileDropdownItems = computed<DropdownItem[]>(() => createProfileOptions.value.map((option) => ({
+    label: option.label,
+    value: option.profileKey,
+    iconClass: option.iconClass,
+    active: option.profileKey === activeSummary.value?.profileKey,
+})));
+const canChooseCreateProfile = computed(() => createProfileOptions.value.length > 1);
+
 const workspaceKey = computed(() => {
     if (ideStore.workspaceKind === "user-assets") {
         return "user-assets";
@@ -193,6 +234,32 @@ function pendingUserInputKey(session: typeof pendingUserInputSession.value): str
     return toolKey ? `${session.assistantMessageId}\n${toolKey}` : session.assistantMessageId;
 }
 
+/**
+ * 返回 profile 在抽屉里的短名称。
+ */
+function profileDisplayName(profileKey: string): string {
+    switch (profileKey) {
+        case "leader.assets": return "用户资产助手";
+        case "rp.leader": return "RP 主持";
+        case "simulator.leader": return "世界模拟";
+        case "leader.default": return "AI 写作助手";
+        default: return profileKey;
+    }
+}
+
+/**
+ * 返回创建菜单使用的 profile 图标。
+ */
+function profileIconClass(profileKey: string): string {
+    switch (profileKey) {
+        case "leader.assets": return "i-lucide-folder-heart";
+        case "rp.leader": return "i-lucide-theater";
+        case "simulator.leader": return "i-lucide-orbit";
+        case "leader.default": return "i-lucide-sparkles";
+        default: return "i-lucide-bot";
+    }
+}
+
 const currentPendingUserInputKey = computed(() => pendingUserInputKey(pendingUserInputSession.value));
 const submittingCurrentUserInput = computed(() => {
     return Boolean(submittingUserInputKey.value && submittingUserInputKey.value === currentPendingUserInputKey.value);
@@ -206,7 +273,7 @@ watch(() => pendingUserInputSession.value?.assistantMessageId ?? null, () => {
     userInputNotes.value = {};
 }, {immediate: true});
 
-const activeDrawerTitle = computed(() => activeSummary.value?.profileKey === "leader.assets" ? "用户资产助手" : "AI 写作助手");
+const activeDrawerTitle = computed(() => profileDisplayName(activeSummary.value?.profileKey ?? leaderProfileKey.value));
 const activeSessionTitle = computed(() => activeSummary.value?.title || (activeSessionId.value ? `Session #${String(activeSessionId.value)}` : "未命名对话"));
 const activeSessionSummaryText = computed(() => activeSummary.value?.summary?.trim() || activeDrawerTitle.value);
 const summarizerStatus = computed<null | {
@@ -523,10 +590,10 @@ const ensureSessionReadyInternal = async (): Promise<AgentSessionSummaryDto[]> =
 /**
  * 显式创建一个新的 session。只能由按钮、弹窗或 /new 这类用户命令调用。
  */
-const createSession = async (): Promise<AgentSessionSummaryDto[]> => {
+const createSession = async (profileKey?: string): Promise<AgentSessionSummaryDto[]> => {
     await loadResolvedLeaderProfileKey();
     const created = await agentApi.createSession({
-        profileKey: leaderProfileKey.value,
+        profileKey: profileKey || leaderProfileKey.value,
         input: {},
         workspaceRoot: agentWorkspaceRoot.value,
         workspaceKey: workspaceKey.value,
@@ -1287,13 +1354,13 @@ const selectSession = async (sessionId: number): Promise<void> => {
     }
 };
 
-const createSessionFromDialog = async (): Promise<void> => {
+const createSessionFromDialog = async (profileKey?: string): Promise<void> => {
     if (loadingSession.value || sessionActionId.value) {
         return;
     }
     loadingSession.value = true;
     try {
-        await createSession();
+        await createSession(profileKey);
         sessionDialogOpen.value = false;
     } finally {
         loadingSession.value = false;
@@ -1303,13 +1370,13 @@ const createSessionFromDialog = async (): Promise<void> => {
 /**
  * 从抽屉头部显式创建 session，并避免重复点击连建多个空 session。
  */
-const createSessionFromHeader = async (): Promise<void> => {
+const createSessionFromHeader = async (profileKey?: string): Promise<void> => {
     if (loadingSession.value || sessionActionId.value) {
         return;
     }
     loadingSession.value = true;
     try {
-        await createSession();
+        await createSession(profileKey);
     } finally {
         loadingSession.value = false;
     }
@@ -1521,7 +1588,12 @@ function isApprovalApproved(answer?: {
                     </div>
                 </div>
                 <div class="flex shrink-0 items-center gap-1">
-                    <button class="rounded p-1.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" title="新建对话" :disabled="loadingSession" @click="void createSessionFromHeader()">
+                    <Dropdown v-if="canChooseCreateProfile" :items="createProfileDropdownItems" root-class="relative inline-block" menu-class="right-0 top-full mt-1.5 w-44" compact @select="void createSessionFromHeader($event)">
+                        <button class="rounded p-1.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-40" title="新建对话" :disabled="loadingSession">
+                            <span class="i-lucide-plus h-4 w-4"></span>
+                        </button>
+                    </Dropdown>
+                    <button v-else class="rounded p-1.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-40" title="新建对话" :disabled="loadingSession" @click="void createSessionFromHeader()">
                         <span class="i-lucide-plus h-4 w-4"></span>
                     </button>
                     <button class="flex items-center gap-1.5 rounded p-1.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" :class="{'bg-[var(--bg-hover)] text-[var(--accent-main)]': linkedAgentPanelOpen}" title="关联 Agent" @click="linkedAgentPanelOpen = !linkedAgentPanelOpen">
@@ -1635,8 +1707,10 @@ function isApprovalApproved(answer?: {
                 :loading="loadingSession"
                 :running="running"
                 :action-id="sessionActionId"
+                :create-profile-options="createProfileOptions"
+                :can-choose-create-profile="canChooseCreateProfile"
                 @select="void selectSession($event)"
-                @create="void createSessionFromDialog()"
+                @create="void createSessionFromDialog($event)"
                 @archive="void archiveSessionFromDialog($event)"
                 @refresh="void refreshSessionsWithQuery($event)"
             />

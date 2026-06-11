@@ -40,7 +40,7 @@
 - 默认 Project 模板已包含 `manual/`。
 - 默认 Project 模板已包含 `agent-context/rp.leader/`。
 - `rp.leader` builtin profile 已实现为可运行的 RP 用户交流与陪伴主持层。
-- 默认 Project 模板的 `manual/` 已按 5e 启发重组为人类跑团手册结构：`README.md`、`world-guide.md`、`rules-guide.md`、`gm-guide.md`、`reference.md`、`player-guide/README.md`、`player-guide/character-creation.md` 和 `player-guide/playable-characters/player.md`。
+- 默认 Project 模板的 `manual/` 已按 5e 启发重组为人类跑团手册结构：`README.md`、`world-guide.md`、`rules-guide.md`、`gm-guide.md`、`reference.md`、`player-guide/README.md`、`player-guide/character-creation.md`、`player-guide/playable-characters/README.md` 和 `player-guide/playable-characters/player.md`。
 - `workspace/ming-ding-zhi-shi-2` 已补齐厚版 `manual/`，并把手册正文从 Agent / NeuroBook 原理说明改为面向玩家和人类 GM 的跑团手册；`agent-context/rp.leader/` 仍保存 profile 专用项目上下文。
 
 ## Decisions / Discussion
@@ -70,6 +70,7 @@ manual/
     |-- README.md
     |-- character-creation.md
     `-- playable-characters/
+        |-- README.md
         `-- player.md
 ```
 
@@ -82,6 +83,7 @@ manual/
 - `manual/reference.md`：主持人速查屏。它汇总开局信息、难度、生命层级、初始角色、失败代价、NPC 反应、战斗流程、旅行、经济和提示边界。它回答“跑的时候要快速查什么”。
 - `manual/player-guide/README.md`：玩家手册。它只放玩家可见信息、开局身份、基础行动、角色创建/选择和玩家不该提前知道的边界。它回答“我是谁，我知道什么，我能做什么”。
 - `manual/player-guide/character-creation.md`：玩家侧角色创建指南。它说明创建阶段可披露信息、可自定义项目、默认值、不能提前确认的隐藏真相和开局确认模板。
+- `manual/player-guide/playable-characters/README.md`：预设角色索引。它列出可直接开局的角色入口，帮助新手快速选择。
 - `manual/player-guide/playable-characters/player.md`：默认可玩角色。它让用户不用手动捏角色也能直接开始；具体 Project 可以新增更多可玩角色文件。
 
 暂不进入默认模板的拆分目录：
@@ -128,6 +130,7 @@ manual/
 - 2026-06-09：继续弱化《命定之诗》manual 的跑团桌面感，改为“化身 / 引导者 / 暂停沉浸 / 信息差”口径；删除 `默认桌规`、`GM 屏幕`、`开后门` 等出戏词，并在 `world-guide.md`、`rules-guide.md`、`reference.md` 中加入 Project-relative lorebook 引用。
 - 2026-06-09：同步 Markdown 引用规范：正文链接支持绝对路径、Project-relative path 和 Markdown-relative path，其中 Project-relative path 是推荐写法；更新 `reference/content/markdown-dialect.md`、`reference/content/content-references.md`、`reference/agent/project-workspace-guide.md` 与 `reference/content/state.md`。
 - 2026-06-09：按用户反馈补强开局引导：新增 `manual/player-guide/character-creation.md`，将自定义化身从默认角色文件中拆出；在《命定之诗》manual 中明确 tick 为“处境 -> 行动 -> 世界回应 -> 新选择点”的最小沉浸节拍，并补充创建阶段披露、跳过创建、开场白和第一个 tick 的信息披露边界；同步默认模板、manual reference、`rp.leader` prompt 和窄测试断言。
+- 2026-06-10：继续把《命定之诗》manual 从“可读”推进到“可游玩”：新增 `player-guide/playable-characters/README.md` 与三名预设化身 `observer.md`、`guardian.md`、`spark.md`；扩写 `character-creation.md` 为分步创建与渐进世界观输入；同步 `gm-guide.md` / `reference.md` 的预设化身开场差异和开局速查；默认模板与 `reference/content/manual.md` 也新增预设角色索引。
 - 2026-06-09：审查开局引导补丁后继续优化：移除玩家侧 `character-creation.md` 对命定系统具体核心条目的直接链接，避免创建阶段提前暴露隐藏机制；将《命定之诗》manual 中残留的“用户 / NPC”等桌边称谓改为“你 / 对方 / 人物”，保持化身沉浸口径。
 - 2026-06-09：再次参考 `.agent/5etools-books/books` 中 PHB / DMG / DM Screen：提取 PHB 的“描述环境 -> 说明行动 -> 描述结果”循环、Step-by-Step Characters 的短清单创建法、DMG 的 Know Your Players / Start Small / Resolution and Consequences，以及 DM Screen 的运行速查结构；将这些结构落到 `rp.leader` 与 `RP模式` skill，而不是照搬 D&D 术语。
 - 2026-06-09：优化 `rp.leader` prompt：职责口径从“主持/桌规/NPC”收敛为“RP 引导 / 体验边界 / 化身可见信息 / 人物与环境反应”；新增“处境 -> 行动 -> 世界回应 -> 新选择点”Tick 骨架、默认化身/调整默认化身/自定义化身三入口、创建阶段渐进披露、第一个 Tick 前开场白、失败代价和用户偏好观察规则。
@@ -167,6 +170,7 @@ manual/
   - `reference.md`
   - `player-guide/README.md`
   - `player-guide/character-creation.md`
+  - `player-guide/playable-characters/README.md`
   - `player-guide/playable-characters/player.md`
 - 模板内容只写通用结构和填写提示，不写某个具体作品的设定。
 - `manual/` 文件使用普通 Markdown，不走 lorebook content node frontmatter。

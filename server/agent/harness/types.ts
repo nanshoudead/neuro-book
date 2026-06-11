@@ -18,6 +18,8 @@ import type {
 export type CreateAgentInput = {
     profileKey: string;
     input?: JsonValue;
+    /** 可选展示标题；为空时使用 profile manifest name。 */
+    title?: string;
     workspaceRoot?: string;
     workspaceKey?: string;
     projectPath?: string;

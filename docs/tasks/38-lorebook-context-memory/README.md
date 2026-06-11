@@ -11,7 +11,7 @@
 - `.nbook/context-access/{profile}.json` 仍是程序私有访问状态，不作为 Agent 默认上下文入口。
 - `simulation/` 只保存 runtime state：`subjects/`、`entities/`、`runs/`。
 - 默认模板不再生成 `simulation/config.yaml`、`simulation/cast.yaml`、`simulation/simulator.md` 或 `simulation/writer.md`。
-- `simulator.leader` 读取 `AGENTS.md` 与 `agent-context/simulator.leader/context.md`；`rp.writer` 读取 `agent-context/rp.writer/context.md`。
+- `simulator.leader` 读取 `AGENTS.md` 与 `agent-context/simulator.leader/context.md`；`agent-context/rp.writer/context.md` 只作为可选写作偏好来源，由上级整理进 writer brief，`rp.writer` 自身不绑定读取。
 
 旧的 `lorebook/context/` 小节保留为 V1 设计记录；当前实现以本 V2 更新和 `reference/agent/profile-context-memory.md` 为准。
 
@@ -444,7 +444,7 @@ Agent 可以维护 `agent-context/{profile}/context.md` 和 `agent-context/{prof
 - generated recommendation 输出路径改为 `agent-context/{profile}/generated.md`。
 - `server/agent/context-access/lorebook-context-access.ts` 已更名为 `profile-context-access.ts`。
 - 默认 Project 模板删除 `simulation/config.yaml`、`simulation/cast.yaml`、`simulation/simulator.md` 和 `simulation/writer.md`，profile 专用运行说明改放 `agent-context/`。
-- `simulator.leader` 读取 `AGENTS.md` 与 `agent-context/simulator.leader/context.md`；`rp.writer` 读取 `agent-context/rp.writer/context.md`。
+- `simulator.leader` 读取 `AGENTS.md` 与 `agent-context/simulator.leader/context.md`；`rp.writer` 的 profile input 为空，若项目维护 `agent-context/rp.writer/context.md`，由上级读取后把可写偏好注入 writer brief。
 
 - `docs/tasks/38-lorebook-context-memory/README.md`
 - `reference/agent/profile-context-memory.md`

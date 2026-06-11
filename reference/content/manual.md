@@ -17,6 +17,7 @@ manual/
     |-- README.md
     |-- character-creation.md
     `-- playable-characters/
+        |-- README.md
         `-- player.md
 ```
 
@@ -31,6 +32,7 @@ manual/
 | `reference.md` | GM screen: common rules, quick tables, difficulty, travel, economy, combat flow, spoiler hints and source categories. |
 | `player-guide/README.md` | Player handbook. It only contains player-visible information, starting identities, basic actions, character selection or creation and spoiler boundaries. |
 | `player-guide/character-creation.md` | Player-safe character creation guide. It explains what can be chosen before play, what world facts may be disclosed during creation, and what hidden truth must remain unrevealed. |
+| `player-guide/playable-characters/README.md` | Playable character index. It lists preset characters and explains how to start from one quickly. |
 | `player-guide/playable-characters/player.md` | Default playable character sheet. It lets a Project start without manual character creation. |
 
 ## Boundary

@@ -16,7 +16,7 @@
 - 玩家第一步可以做什么。
 - 哪些信息玩家可见，哪些信息暂时隐藏。
 
-开局前先确认玩家使用默认角色，还是按 `manual/player-guide/character-creation.md` 创建角色。使用默认角色时，可以跳过创建阶段说明，直接进入开场。
+开局前先确认玩家使用预设角色，还是按 `manual/player-guide/character-creation.md` 创建角色。使用预设角色时，可以跳过创建阶段说明，直接进入开场。
 
 ## 开场
 

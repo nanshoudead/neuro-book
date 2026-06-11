@@ -55,7 +55,7 @@ export default defineAgentProfile({
                     <Message><Import path="reference/plot/system.md" /></Message>
                 </HistorySet>
                 <ModelContext>
-                    <Message>{renderRuntimeInput(ctx.input)}</Message>
+                    <Message>{renderRuntimeInput(ctx.session.projectPath)}</Message>
                 </ModelContext>
                 <AppendingSet>
                     <RuntimeLocationReminder />
@@ -90,8 +90,8 @@ function renderSystemPrompt(): string {
         # 路径与目录
 
         - 文件工具 cwd 是 Workspace Root。Project 文件使用 project-slug/... 路径。
-        - 当前 Project 由 profile input 的 projectPath 指定。
-        - simulationRoot 为空时，根据 projectPath 推导为 project-slug/simulation/。
+        - 当前 Project 由 session projectPath / Current Workspace Focus 指定。
+        - simulation/ 路径根据当前 Project 推导为 project-slug/simulation/。
         - 不创建 emulation/ 目录；写作模式里的世界运行态也落在 simulation/。
         - lorebook/ 是 god-view canon。引用 lorebook prototype 不是 visibility authorization。
         - 每轮开始先确认并遵守 Project AGENTS.md 和 agent-context/simulator.leader/context.md。二者冲突时，以 AGENTS.md 为准；agent-context/simulator.leader/context.md 只约束本 Project 的世界模拟协议。
@@ -109,7 +109,7 @@ function renderSystemPrompt(): string {
         2. Protocol：优先读取 AGENTS.md 与 agent-context/simulator.leader/context.md，必要时读取 simulation/runs/current.md 和最近 tick 记录。
         3. Scope：按需读取相关 lorebook 条目、Plot、subject state、entity state，确立需要模拟的对象和范围；不要无目的遍历全项目。
         4. Prepare：判断是否需要新建 subject 或 entity。创建规则优先级是：本轮 invocation 明确指令 > agent-context/simulator.leader/context.md > 你的默认规则；AGENTS.md 仍是项目级最高约束。任务已经明确需要模拟某个 subject，且路径和身份可从上下文确定时，可以直接创建最小 scaffold；重大不可逆变化、核心角色关键行动、长期世界状态大改或用户未授权的新核心设定才进入待确认。
-        5. Emulator sync：查看当前 linked agents，为需要模拟的 subject 创建或复用 simulator.actor；逐个同步 actorId、路径和本轮 actor-facing packet。
+        5. Emulator sync：查看当前 linked agents，为需要模拟的 subject 创建或复用 simulator.actor；创建 simulator.actor 时只传 subjectPath，例如 project-slug/simulation/subjects/erina，并用本轮 actor-facing packet 调用它。
         6. Actor dispatch：调用 simulator.actor，发送过滤后的 subject-facing message。
         7. Resolve：综合 subject response、规则和当前状态，裁决真实世界结果。
         8. State commit：只写已经裁决且被允许提交的 state/entity/run 事实；未确认变化放入 state_change_requests。
@@ -138,12 +138,22 @@ function renderSystemPrompt(): string {
     `;
 }
 
-function renderRuntimeInput(input: Input): string {
+function renderRuntimeInput(projectPath: string | undefined): string {
+    const projectSlug = projectSlugFromProjectPath(projectPath);
     return profileText`
         <simulator_leader_input>
-        projectPath: ${input.projectPath}
-        simulationRoot: ${input.simulationRoot?.trim() || "根据 projectPath 推导 project-slug/simulation/"}
+        projectPath: ${projectPath?.trim() || "Current Workspace Focus"}
+        simulationRoot: ${projectSlug}/simulation/
         mode: 每轮任务 prompt 指定；profile input 不保存稳定模式。
         </simulator_leader_input>
     `;
+}
+
+function projectSlugFromProjectPath(projectPath: string | undefined): string {
+    const normalized = projectPath?.trim().replaceAll("\\", "/").replace(/\/+$/g, "") ?? "";
+    if (!normalized) {
+        return "project-slug";
+    }
+    const parts = normalized.split("/").filter(Boolean);
+    return parts[parts.length - 1] ?? normalized;
 }

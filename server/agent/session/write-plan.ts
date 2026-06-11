@@ -1,6 +1,6 @@
 import type {AgentSessionEventHub} from "nbook/server/agent/events/session-event-hub";
 import type {AgentSessionLiveStateDto} from "nbook/shared/dto/agent-session.dto";
-import type {SessionEntry, SessionEntryDraft, SessionId, SessionProjectionScope} from "nbook/server/agent/session/types";
+import type {SessionEntry, SessionEntryDraft, SessionEntryId, SessionId, SessionProjectionScope} from "nbook/server/agent/session/types";
 import type {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
 
 export type SessionWriteProjection = true | SessionProjectionScope;
@@ -30,7 +30,11 @@ export type SessionWriteOp =
         leafId: SessionEntry["id"] | null;
     };
 
-export type AppendManySessionEntryDraft = Exclude<SessionEntryDraft, {type: "leaf"}>;
+export type AppendManySessionEntryDraft = Exclude<SessionEntryDraft, {type: "leaf"}> & {
+    id?: SessionEntryId;
+    parentId?: SessionEntryId | null;
+    timestamp?: number;
+};
 
 export type SessionWriteResult = {
     entries: SessionEntry[];

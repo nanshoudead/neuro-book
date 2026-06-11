@@ -12,6 +12,7 @@ import {renderWorkspaceContentTemplate, renderWorkspaceContentTemplateBundle, re
 import {copyNovelDirectoryTemplate, readUserAssetsSyncConflictDetail, resolveWorkspaceRootInput, syncSystemAssetsToUserAssets, USER_ASSETS_WORKSPACE_ROOT} from "nbook/server/workspace-files/novel-workspace";
 import {listProjectWorkspaces, readProjectManifest, writeProjectManifest} from "nbook/server/workspace-files/project-workspace";
 import {closeWorkspaceTreeIndex, invalidateProjectWorkspaceIndexAfterMutation, readPlainWorkspaceTreeSnapshot, readProjectWorkspaceTreeSnapshot, setProjectWorkspaceIndexCommitHookForTest} from "nbook/server/workspace-files/project-workspace-index";
+import {prepareSystemAssets} from "nbook/server/workspace-files/system-assets-preflight";
 import {createWorkspaceContentState, createWorkspaceDirectory, readWorkspaceTextFile, scanWorkspaceTree, validateWorkspaceContentNodes, validateWorkspaceTree, writeWorkspaceTextFile} from "nbook/server/workspace-files/workspace-files";
 import {updateNovelByTool} from "nbook/server/utils/novel-chapter";
 
@@ -1323,6 +1324,50 @@ describe("workspace-files", () => {
             await restoreOptionalFile(userSyncStatePath, syncStateBackup);
         }
     });
+
+    it("前端同步 preflight 会先刷新过期 system profile manifest", async () => {
+        const fileName = "builtin/leader.assets.profile.tsx";
+        const userProfilePath = path.join("workspace", ".nbook", "agent", "profiles", ...fileName.split("/"));
+        const systemProfilePath = path.join("assets", "workspace", ".nbook", "agent", "profiles", ...fileName.split("/"));
+        const userSyncStatePath = path.join("workspace", ".nbook", ".system-assets-sync-state.json");
+        const userBackup = await backupOptionalFile(userProfilePath);
+        const systemBackup = await backupOptionalFile(systemProfilePath);
+        const syncStateBackup = await backupOptionalFile(userSyncStatePath);
+        const originalContent = await fs.readFile(systemProfilePath, "utf-8");
+        const originalHash = createHash("sha256").update(originalContent).digest("hex");
+        const nextContent = `${originalContent}\n// test system profile preflight marker\n`;
+
+        try {
+            await fs.mkdir(path.dirname(userProfilePath), {recursive: true});
+            await fs.writeFile(userProfilePath, originalContent, "utf-8");
+            await fs.writeFile(userSyncStatePath, JSON.stringify({
+                profiles: [{
+                    fileName,
+                    profileKey: "leader.assets",
+                    upstreamHash: originalHash,
+                    lastSyncedUserHash: originalHash,
+                    syncedAt: new Date(0).toISOString(),
+                }],
+                assets: [],
+            }, null, 2), "utf-8");
+            await fs.writeFile(systemProfilePath, nextContent, "utf-8");
+
+            const result = await prepareSystemAssets({syncUserAssets: true});
+
+            expect(result.profileResult.compiled.map((item) => item.fileName)).toContain(fileName);
+            expect(result.userAssetsSync?.updatedProfiles).toBeGreaterThanOrEqual(1);
+            expect(result.userAssetsSync?.profileWarnings?.some((warning) => warning.fileName === fileName)).toBe(false);
+            await expect(fs.readFile(userProfilePath, "utf-8")).resolves.toBe(nextContent);
+        } finally {
+            await restoreOptionalFile(systemProfilePath, systemBackup);
+            await restoreOptionalFile(userProfilePath, userBackup);
+            await restoreOptionalFile(userSyncStatePath, syncStateBackup);
+            await compileProfileArtifacts({
+                profileRoot: path.join("assets", "workspace", ".nbook", "agent", "profiles"),
+                rootLabel: "assets/workspace/.nbook/agent/profiles",
+            });
+        }
+    }, 30000);
 
     it("可以读取用户 profile 覆盖的系统版本 diff 内容", async () => {
         const fileName = "builtin/leader.default.profile.tsx";

@@ -1794,11 +1794,6 @@ function readRecord(value: unknown): Record<string, unknown> {
         : {};
 }
 
-function readInputRole(ctx: ProfilePrepareContext<any>): string {
-    const input = readRecord(ctx.input);
-    return typeof input.role === "string" ? input.role : "";
-}
-
 async function readCurrentProjectWorkspace(ctx: ProfilePrepareContext<any>): Promise<string> {
     const value = await ctx.vars.get("client.currentProjectWorkspace");
     const projectWorkspace = typeof value === "string" && value.trim() ? value : ctx.session.projectPath ?? "";

@@ -1,8 +1,8 @@
 # Sidecar Context
 
-Sidecar Context（旁路上下文）是 profile 声明的旁路 run。它会在 Agent 主运行前或运行后 fork 一段 runtime-only 分支，完成检索、反思、记忆维护或状态整理，再把结果合并回主线。
+Sidecar Context（旁路上下文）是 profile 声明的旁路 run。它会在 Agent 主运行前或运行后从当前 session tree fork 一条旁路 leaf，完成检索、反思、记忆维护或状态整理，再把结果合并回主线，并把 active leaf 恢复到主 run 原位置。
 
-它的目标是让主 Agent 任务上下文保持纯净和精简。比如 RP actor 主 run 应该专心扮演角色，不应该一边扮演一边翻完整世界书；检索和记忆维护可以放到 sidecar。sidecar transcript 不进入主 history，只把整理后的结果合并回主线。
+它的目标是让主 Agent 任务上下文保持纯净和精简。比如 RP actor 主 run 应该专心扮演角色，不应该一边扮演一边翻完整世界书；检索和记忆维护可以放到 sidecar。sidecar transcript 会作为旁路分支持久化，便于审计，但不会成为主 active path；主路只消费 `merge()` 结果。
 
 ## 适合什么
 
@@ -24,7 +24,7 @@ Sidecar 不适合确定性上下文注入。确定性内容应优先用 profile 
 
 主 run 仍保持角色扮演纯度。actor 不直接读取完整 `simulation/`、`lorebook/`、`reference/` 或其他 subject。
 
-`actor.context-load` 的结果会以 `<actor_sidecar_context>` 写入 actor session。它不是一次性的隐藏注入；后续 run 和 compaction 都可以看到这条由 Harness 持久化的 actor-safe context。若注入后上下文超过模型窗口，父 invocation 会失败。
+`actor.context-load` 的结果会以 `<actor-sidecar-context>` 写入 actor session 主 active path。它不是一次性的隐藏注入；后续 run 和 compaction 都可以看到这条由 Harness 持久化的 actor-safe context。若注入后上下文超过模型窗口，父 invocation 会失败。
 
 Subject RAG 只检索当前 subject 自己的记忆，不检索 lorebook 或 Project 全局文件。详细机制见 [Subject RAG 记忆](./subject-rag-memory.md)。
 

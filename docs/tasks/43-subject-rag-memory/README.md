@@ -276,7 +276,7 @@ type MemoryCuratorOutput = {
 - `edit`
 - `report_result`
 
-`subject_rag_search` 只做粗召回，不直接生成最终 actor context。`actor.context-load` 承担一部分 rerank 职责：它根据当前 actor-facing packet 过滤候选、合并重复内容、选择真正会影响角色反应的记忆，再压缩注入 `<actor_sidecar_context>`。
+`subject_rag_search` 只做粗召回，不直接生成最终 actor context。`actor.context-load` 承担一部分 rerank 职责：它根据当前 actor-facing packet 过滤候选、合并重复内容、选择真正会影响角色反应的记忆，再通过 `report_result.sidecar_data` 返回纯文本，最终由 `merge()` 压缩注入 `<actor-sidecar-context>`。
 
 ```ts
 type SubjectRagSearchInput = {
@@ -493,7 +493,7 @@ CREATE VIRTUAL TABLE subject_rag_vec USING vec0(
 - `actor.context-load` 根据当前 actor-facing packet 生成检索 query。
 - 调用 `subject_rag_search` 分别检索当前 subject 的 events 与 memory；如果两层都需要，必须分两次调用。
 - 由 `actor.context-load` 对候选做 rerank：过滤无关候选、合并重复信息、优先保留当前情境会影响角色反应的记忆。
-- 将少量相关经历和稳定认知注入 `<actor_sidecar_context>`；该注入使用 sidecar `persistedMessages`，会进入 actor session active path、后续 run 和 compaction。
+- 将少量相关经历和稳定认知注入 `<actor-sidecar-context>`；该注入使用 sidecar `persistedMessages`，会进入 actor session active path、后续 run 和 compaction。
 - 注入文案必须区分“当前状态”“当前心理”“相关过往经历”“相关稳定认知”。
 - 注入预算：最多 6 条 events + 4 条 memory，并限制最终注入文本长度。超出时由 `actor.context-load` 选择更相关的候选，而不是全部塞入主路。
 
@@ -544,7 +544,8 @@ CREATE VIRTUAL TABLE subject_rag_vec USING vec0(
 - 2026-06-08：已新增 SQLite + sqlite-vec subject RAG 索引缓存 `{project}/.nbook/subject-rag.sqlite`，表包括 `subject_rag_meta`、`subject_rag_sources`、`subject_rag_chunks`、`subject_rag_vec`。JSONL 文件仍是事实源；写入只标 dirty，`subject_rag_search` 搜索前按 source hash / dirty 同步重建；events 每行一个 chunk，memory 按 topic/view 切 chunk并保留 topic；`subject_path` 与 `source_type` 进入 sqlite-vec partition，KNN 在当前 subject/source 内发生，避免被其他 subject 或其他 source 的全局近邻挤掉。
 - 2026-06-08：已扩展配置与前端设置，增加独立 Embedding 服务配置。RAG 使用 OpenAI-compatible `/embeddings` adapter 读取 effective embedding provider/model/API Key/baseURL/dimensions；未启用 embedding、缺少 model、缺少 dimensions、缺少 API Key 或缺少 API Base 时明确报错，不做关键词 fallback。
 - 2026-06-08：已接入 `simulator.actor` sidecar：`actor.context-load` 可用 `subject_rag_search` 召回当前 subject 的 events/memory 并 rerank 注入；`actor.memory-save` 可用 `subject_event_append` 和 memory update 工具维护记忆。主 actor run 继续只消费 sidecar 持久化注入的 actor-safe context，不直接读写 subject 文件。
-- 2026-06-08：Harness sidecar merge 新增 `persistedMessages`。`actor.context-load` 的 `<actor_sidecar_context>` 已从 runtime-only 注入改为持久化注入，写入 actor session active path，后续 actor run 可见，并能进入 compaction summary；注入后若 provider-visible context 超出模型窗口，父 invocation 直接失败，已写入的 context 不回滚。
+- 2026-06-08：Harness sidecar merge 新增 `persistedMessages`。`actor.context-load` 的 `<actor-sidecar-context>` 已从 runtime-only 注入改为持久化注入，写入 actor session active path，后续 actor run 可见，并能进入 compaction summary；注入后若 provider-visible context 超出模型窗口，父 invocation 直接失败，已写入的 context 不回滚。
+- 2026-06-10：`actor.context-load` sidecar_data 合同收敛为纯文本 string，不再返回 `{ actor_safe_context, sources, withheld, confidence }` 等对象；sidecar 自身 transcript 改为持久化在 session tree 旁路 leaf 上，完成后恢复父 run active leaf，主路只消费 `<actor-sidecar-context>` merge 结果。
 - 2026-06-08：验证结果：`bun scripts/smoke/subject-rag-smoke.ts` 通过；`bunx vitest run server/agent/tools/subject-memory-tools.test.ts server/agent/tools/sqlite-vec-smoke.test.ts --reporter=dot` 通过；`bunx vitest run shared/dto/app-settings.dto.test.ts server/config/config-service.test.ts server/utils/app-config.test.ts server/utils/model-settings.test.ts --reporter=dot` 通过；`bunx vitest run server/agent/harness/model-resolver.test.ts --reporter=dot` 通过；`simulator.actor 会通过 context-load` 窄测和 `rp-profiles.test.ts` 通过。`bunx tsc --noEmit --pretty false` 仍有既有无关红灯，当前不含本 task 新增的 subject RAG / embedding 类型错误。
 - 2026-06-08：根据用户最新决策删除旧 subject 文件导入兼容。`subject_event_append`、`subject_rag_search` 和 memory update 工具只处理 `events.jsonl` / `memory.jsonl`；旧 `events.md` / `knowledge.md` 即使存在也不会被工具读取或转换。新增测试覆盖旧 md 存在时仍按 JSONL 硬切行为执行。
 - 2026-06-08：补齐 sqlite-vec 产品打包保障。`scripts/build/patch-nitro-runtime-deps.mjs` 已把 `sqlite-vec` 纳入 Nitro runtime package seed，复制其当前平台 native optional package；`product:stage` 新增 `assertProductSqliteVecVendor()`，从 product 的 `.output/server/index.mjs` 解析 `sqlite-vec` 并确认 `load()` 与 native optional package 存在。当前本机验证 `.output/server/node_modules/sqlite-vec` 与 `sqlite-vec-windows-x64/vec0.dll` 存在，并能从 `.output/server/index.mjs` 解析到 `vec0.dll`；`bun run product:stage` 已通过，且 product 内可解析到 `product/.output/server/node_modules/sqlite-vec-windows-x64/vec0.dll`。

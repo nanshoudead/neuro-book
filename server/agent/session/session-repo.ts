@@ -173,7 +173,11 @@ export class JsonlSessionRepository {
      * Leader profile 采用 profileKey 命名约定筛选。
      */
     private isLeaderProfile(profileKey: string): boolean {
-        return profileKey === "leader.default" || profileKey === "leader.assets" || profileKey.startsWith("leader.");
+        return profileKey === "leader.default"
+            || profileKey === "leader.assets"
+            || profileKey === "rp.leader"
+            || profileKey === "simulator.leader"
+            || profileKey.startsWith("leader.");
     }
 
     /**

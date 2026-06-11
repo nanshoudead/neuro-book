@@ -29,12 +29,9 @@ export const defaultAgentProfile = defineAgentProfile({
         "detach_agent",
     ],
     compaction: {},
-    prepare(ctx) {
+    prepare() {
         return {
-            systemPrompt: [
-                "You are Neuro Book Agent.",
-                ctx.input.role ? `Role: ${ctx.input.role}` : "",
-            ].filter(Boolean).join("\n"),
+            systemPrompt: "You are Neuro Book Agent.",
         };
     },
 });

@@ -29,7 +29,7 @@
 
 ## 默认值
 
-说明哪些项目可以直接使用默认值。默认角色见 `manual/player-guide/playable-characters/player.md`。
+说明哪些项目可以直接使用默认值。预设角色见 `manual/player-guide/playable-characters/README.md`。
 
 ## 不应提前确认
 
