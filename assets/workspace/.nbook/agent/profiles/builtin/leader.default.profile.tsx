@@ -2,7 +2,7 @@
 /** @jsxRuntime automatic */
 import type {Static} from "typebox";
 import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
-import {profileToolsFromKeys} from "nbook/server/agent/profiles/profile-tools";
+import {defineProfileTools, tools} from "nbook/server/agent/profiles/profile-tools";
 import {LeaderDefaultInputSchema, LeaderDefaultOutputSchema} from "nbook/server/agent/profiles/builtin-contracts";
 import {
     AgentCatalog,
@@ -39,45 +39,43 @@ export const OutputSchema = LeaderDefaultOutputSchema;
 export type Input = Static<typeof InputSchema>;
 export type Output = Static<typeof OutputSchema>;
 
-const toolKeys = [
-    "read",
-    "write",
-    "edit",
-    "apply_patch",
-    "bash",
-    "create_agent",
-    "invoke_agent",
-    "get_agent",
-    "get_agent_profile",
-    "get_session",
-    "detach_agent",
-    "request_user_input",
-    "enter_plan_mode",
-    "exit_plan_mode",
-    "task_create",
-    "task_set_status",
-    "get_plot_tree",
-    "get_story_thread",
-    "get_story_scene_context",
-    "get_chapter_plot",
-    "create_story_thread",
-    "update_story_thread",
-    "create_story_scene",
-    "update_story_scene",
-    "create_story_plot",
-    "create_story_plots",
-    "update_story_plot",
-    "execute_sql",
-    "variable_schema",
-    "variable_read",
-    "variable_patch",
-] as const;
-
 export default defineAgentProfile({
     manifest: profileManifest,
     inputSchema: InputSchema,
     outputSchema: OutputSchema,
-    tools: profileToolsFromKeys(toolKeys),
+    tools: defineProfileTools({
+        read: tools.read(),
+        write: tools.write(),
+        edit: tools.edit(),
+        apply_patch: tools.applyPatch(),
+        bash: tools.bash(),
+        create_agent: tools.createAgent(),
+        invoke_agent: tools.invokeAgent(),
+        get_agent: tools.getAgent(),
+        get_agent_profile: tools.getAgentProfile(),
+        get_session: tools.getSession(),
+        detach_agent: tools.detachAgent(),
+        request_user_input: tools.requestUserInput(),
+        enter_plan_mode: tools.enterPlanMode(),
+        exit_plan_mode: tools.exitPlanMode(),
+        task_create: tools.taskCreate(),
+        task_set_status: tools.taskSetStatus(),
+        get_plot_tree: tools.getPlotTree(),
+        get_story_thread: tools.getStoryThread(),
+        get_story_scene_context: tools.getStorySceneContext(),
+        get_chapter_plot: tools.getChapterPlot(),
+        create_story_thread: tools.createStoryThread(),
+        update_story_thread: tools.updateStoryThread(),
+        create_story_scene: tools.createStoryScene(),
+        update_story_scene: tools.updateStoryScene(),
+        create_story_plot: tools.createStoryPlot(),
+        create_story_plots: tools.createStoryPlots(),
+        update_story_plot: tools.updateStoryPlot(),
+        execute_sql: tools.executeSql(),
+        variable_schema: tools.variableSchema(),
+        variable_read: tools.variableRead(),
+        variable_patch: tools.variablePatch(),
+    }),
     summarizer: {
         profileKey: "summarizer",
         input: {

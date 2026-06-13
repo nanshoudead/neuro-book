@@ -197,6 +197,12 @@ const messageCacheHitRateLabel = computed(() => {
 
 /** 本次调用费用标签；没有可展示价格时为空。 */
 const messageCostLabel = computed(() => formatCost(messageUsage.value?.cost.total, props.costDisplayOptions));
+const branchSwitcherTitle = computed(() => {
+    if (!props.branchSwitcher) {
+        return "";
+    }
+    return `分支 ${props.branchSwitcher.currentIndex + 1}/${props.branchSwitcher.total}，可左右滑动切换`;
+});
 
 /** 格式化精确 token 数。 */
 function formatTokenCount(value: number | null | undefined): string {
@@ -319,6 +325,8 @@ const startSwipe = (event: PointerEvent): void => {
     if (!props.branchSwitcher || props.actionDisabled || isEditing.value) {
         return;
     }
+    const target = event.currentTarget as HTMLElement | null;
+    target?.setPointerCapture?.(event.pointerId);
     swipeStart.value = {
         x: event.clientX,
         y: event.clientY,
@@ -329,6 +337,10 @@ const startSwipe = (event: PointerEvent): void => {
  * 横向滑动切换消息分支，纵向滚动不拦截。
  */
 const endSwipe = (event: PointerEvent): void => {
+    const target = event.currentTarget as HTMLElement | null;
+    if (target?.hasPointerCapture?.(event.pointerId)) {
+        target.releasePointerCapture(event.pointerId);
+    }
     if (!swipeStart.value || !props.branchSwitcher || props.actionDisabled || isEditing.value) {
         swipeStart.value = null;
         return;
@@ -377,7 +389,7 @@ const endSwipe = (event: PointerEvent): void => {
     <!-- 用户 / Assistant 消息 -->
     <div v-else class="group flex min-w-0 w-full flex-col items-start">
         <!-- 消息头部 -->
-        <div class="mb  -1.5 ml-1 flex w-full items-center gap-2">
+        <div class="mb-1.5 ml-1 flex w-full items-center gap-2">
             <div
                 class="flex h-4 w-4 items-center justify-center rounded-full border"
                 :class="props.node.message.type === 'ai' ? 'border-[var(--accent-main)] bg-[var(--accent-bg)]' : 'border-[var(--border-color)] bg-[var(--bg-input)]'"
@@ -397,21 +409,22 @@ const endSwipe = (event: PointerEvent): void => {
 
             <div class="flex-1"></div>
 
-            <div class="mr-4 flex items-center gap-0.5 text-[var(--text-muted)]">
+            <div class="mr-4 flex items-center gap-1 text-[var(--text-muted)]">
+                <div v-if="props.branchSwitcher" class="mr-1 inline-flex h-7 items-center overflow-hidden rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] text-[var(--text-muted)]" :title="branchSwitcherTitle">
+                    <button class="flex h-7 w-7 items-center justify-center border-r border-[var(--border-color)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-40" :disabled="props.actionDisabled" title="上一条分支" @click="cycleBranch(-1)">
+                        <span class="i-lucide-chevron-left h-3.5 w-3.5"></span>
+                    </button>
+                    <span class="inline-flex h-7 items-center gap-1 px-2 text-[10px] tabular-nums text-[var(--text-secondary)]">
+                        <span class="i-lucide-git-branch h-3 w-3 text-[var(--accent-text)]"></span>
+                        {{ props.branchSwitcher.currentIndex + 1 }} / {{ props.branchSwitcher.total }}
+                    </span>
+                    <button class="flex h-7 w-7 items-center justify-center border-l border-[var(--border-color)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-40" :disabled="props.actionDisabled" title="下一条分支" @click="cycleBranch(1)">
+                        <span class="i-lucide-chevron-right h-3.5 w-3.5"></span>
+                    </button>
+                </div>
                 <button class="rounded p-1 transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-40" :disabled="props.actionDisabled" title="复制" @click="emit('copy', props.node.message)">
                     <span class="i-lucide-copy h-3.5 w-3.5"></span>
                 </button>
-                <template v-if="props.branchSwitcher">
-                    <button class="rounded p-1 transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-40" :disabled="props.actionDisabled" title="上一条分支" @click="cycleBranch(-1)">
-                        <span class="i-lucide-chevron-left h-3.5 w-3.5"></span>
-                    </button>
-                    <span class="px-1 text-[10px] tabular-nums text-[var(--text-muted)]">
-                        {{ props.branchSwitcher.currentIndex + 1 }}/{{ props.branchSwitcher.total }}
-                    </span>
-                    <button class="rounded p-1 transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-40" :disabled="props.actionDisabled" title="下一条分支" @click="cycleBranch(1)">
-                        <span class="i-lucide-chevron-right h-3.5 w-3.5"></span>
-                    </button>
-                </template>
                 <button v-if="canEdit" class="rounded p-1 transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-40" :disabled="props.actionDisabled" title="编辑" @click="startEdit">
                     <span class="i-lucide-pencil h-3.5 w-3.5"></span>
                 </button>

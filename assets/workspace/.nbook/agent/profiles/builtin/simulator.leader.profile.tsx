@@ -2,7 +2,7 @@
 /** @jsxRuntime automatic */
 import type {Static} from "typebox";
 import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
-import {profileToolsFromKeys} from "nbook/server/agent/profiles/profile-tools";
+import {defineProfileTools, tools} from "nbook/server/agent/profiles/profile-tools";
 import {SimulatorLeaderInputSchema, SimulatorLeaderOutputSchema} from "nbook/server/agent/profiles/builtin-contracts";
 import {AgentCatalog, AppendingSet, HistorySet, Import, LinkedAgentsReminder, Message, ModelContext, ProfilePrompt, RuntimeLocationReminder, System, WorkspaceFocusReminder} from "nbook/server/agent/profiles/profile-dsl";
 import {profileText} from "nbook/server/agent/profiles/profile-text";
@@ -19,28 +19,26 @@ export const OutputSchema = SimulatorLeaderOutputSchema;
 export type Input = Static<typeof InputSchema>;
 export type Output = Static<typeof OutputSchema>;
 
-const toolKeys = [
-    "read",
-    "write",
-    "edit",
-    "apply_patch",
-    "bash",
-    "create_agent",
-    "invoke_agent",
-    "get_agent",
-    "get_agent_profile",
-    "get_session",
-    "get_plot_tree",
-    "get_story_thread",
-    "get_story_scene_context",
-    "get_chapter_plot",
-] as const;
-
 export default defineAgentProfile({
     manifest: profileManifest,
     inputSchema: InputSchema,
     outputSchema: OutputSchema,
-    tools: profileToolsFromKeys(toolKeys),
+    tools: defineProfileTools({
+        read: tools.read(),
+        write: tools.write(),
+        edit: tools.edit(),
+        apply_patch: tools.applyPatch(),
+        bash: tools.bash(),
+        create_agent: tools.createAgent(),
+        invoke_agent: tools.invokeAgent(),
+        get_agent: tools.getAgent(),
+        get_agent_profile: tools.getAgentProfile(),
+        get_session: tools.getSession(),
+        get_plot_tree: tools.getPlotTree(),
+        get_story_thread: tools.getStoryThread(),
+        get_story_scene_context: tools.getStorySceneContext(),
+        get_chapter_plot: tools.getChapterPlot(),
+    }),
     compaction: {},
     context(ctx) {
         return (
@@ -57,7 +55,8 @@ export default defineAgentProfile({
                     <Message><Import path="reference/agent/rp-tick/lod-simulation.md" /></Message>
                     <Message><Import path="reference/agent/rp-tick/actor-facing-packet.md" /></Message>
                     <Message><Import path="reference/agent/rp-tick/adjudication-report.md" /></Message>
-                    <Message><Import path="reference/agent/rp-tick/subject-authoring.md" /></Message>
+                    <Message><Import path="reference/content/subjects.md" /></Message>
+                    <Message><Import path="reference/agent/rp-tick/subject-creation-guide.md" /></Message>
                 </HistorySet>
                 <ModelContext>
                     <Message>{renderRuntimeInput(ctx.session.projectPath)}</Message>
@@ -106,7 +105,7 @@ function renderSystemPrompt(): string {
         # 信息控制
 
         - 你可以读取 god-view lorebook、Plot、simulation state，以及 subject 的全知档 subject.md，但不能把隐藏真相直接发送给 subject。
-        - subject 的人设拆成两个文件（见 subject-authoring.md）：soul.md 是角色第一人称扮演手册、会被直接注入 actor 本人，只含角色自知信息；subject.md 是全知秘密档、只有你能读，含隐藏真相与调度提示。
+        - subject 的人设拆成两个文件（见 subjects.md）：soul.md 是角色第一人称扮演手册、会被直接注入 actor 本人，只含角色自知信息；subject.md 是全知秘密档、只有你能读，含隐藏真相与调度提示。
         - 隐藏真相绝不进 actor-facing packet、绝不进 soul.md、绝不进 Subject RAG（RAG 只索引 events.jsonl / memory.jsonl）。秘密只用于你自己裁决。
         - 发给 subject simulator 的消息必须是 actor-facing packet：自然语言、戏内可感知、只包含该 subject 合理能看见、听见、感受到、被告知或推断的信息。
         - 不把 simulator leader 推理、其他 subject 私密意图、完整 lorebook、reference 原文、隐藏真相或工具计划发给 subject。
@@ -119,7 +118,7 @@ function renderSystemPrompt(): string {
         - 调 simulator.actor 时必须传 subjectPath 和 kind 两个参数；kind 取该 subject subject.md frontmatter 的 kind（player 或 npc）。
         - kind=player（用户化身）：actor 不主动行动、不抢话、不自创关键行动，只把你的 <directive> 第一人称自然化复述。所以 player 的 directive 要写得更具体、更贴近用户本轮意图。
         - kind=npc（模拟器扮演）：actor 可按 soul.md 性格自主反应，directive 是建议、可合理偏离。
-        - 冷启动创建新 subject 时按 subject-authoring.md 的初始化流程：先写 soul.md（第一人称、无秘密）、subject.md（全知档），再把初始记忆直接落进 events.jsonl / memory.jsonl（没有 memory-seed.md 中转文件），就绪后才首次 invoke actor。
+        - 冷启动创建新 subject 时按 subject-creation-guide.md 的初始化流程：先写 soul.md（第一人称、无秘密）、subject.md（全知档），再把初始记忆直接落进 events.jsonl / memory.jsonl（没有 memory-seed.md 中转文件），就绪后才首次 invoke actor。
 
         # 工作流程
 
@@ -128,7 +127,7 @@ function renderSystemPrompt(): string {
         3. Scope：按需读取相关 lorebook 条目、Plot、subject state、entity state，确立需要模拟的对象和范围；不要无目的遍历全项目。
         4. LOD：执行 LOD 分层世界模拟（lod-simulation.md）。必须在 subject 模拟之前；数量按剧情密度动态调整；到期的 pending events 纳入本轮。
         5. 世界层裁决：基于 LOD 结果和本轮行动，裁决世界与社会层面的因果。
-        6. Prepare：确定本轮在场角色和需要模拟的 subject，按需创建最小 subject scaffold。新建 subject 按 subject-authoring.md 初始化流程：先写 soul.md（第一人称扮演手册、无秘密）与 subject.md（全知秘密档），再把初始记忆直接落进 events.jsonl / memory.jsonl。创建规则优先级是：本轮 invocation 明确指令 > agent-context/simulator.leader/context.md > 你的默认规则；AGENTS.md 仍是项目级最高约束。
+        6. Prepare：确定本轮在场角色和需要模拟的 subject，按需创建最小 subject scaffold。新建 subject 按 subject-creation-guide.md 初始化流程：先写 soul.md（第一人称扮演手册、无秘密）与 subject.md（全知秘密档），再把初始记忆直接落进 events.jsonl / memory.jsonl。创建规则优先级是：本轮 invocation 明确指令 > agent-context/simulator.leader/context.md > 你的默认规则；AGENTS.md 仍是项目级最高约束。
         7. Emulator sync：为需要模拟的 subject 创建或复用 simulator.actor；调用 simulator.actor 时传 subjectPath 和 kind（取 subject.md frontmatter 的 kind），例如 subjectPath=project-slug/simulation/subjects/erina, kind=npc。
         8. 信息控制检查：LOD 事件按角色感知范围过滤；lorebook 术语转换为角色认知水平描述；<knowledge> 与角色记忆文件去重；隐藏真相不进 packet。
         9. Actor dispatch：按 actor-facing-packet.md 组装 packet（<gm> / <character> / <knowledge> / <directive>），调用 simulator.actor，发送过滤后的 subject-facing message。

@@ -8,7 +8,7 @@ import {Type} from "typebox";
 import {NeuroAgentHarness} from "nbook/server/agent/harness/neuro-agent-harness";
 import {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
 import {defineAgentProfile as defineRuntimeAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
-import {profileToolsFromKeys} from "nbook/server/agent/profiles/profile-tools";
+import {profileToolsFromKeys} from "nbook/server/agent/test/profile-tools";
 import {createUserMessage, messageText} from "nbook/server/agent/messages/message-utils";
 import type {AgentMessage, Message as RuntimeMessage} from "nbook/server/agent/messages/types";
 import type {AgentSessionEventDto, AgentSessionSnapshotDto} from "nbook/shared/dto/agent-session.dto";

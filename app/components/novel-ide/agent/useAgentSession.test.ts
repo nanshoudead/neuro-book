@@ -187,6 +187,46 @@ describe("useAgentSession", () => {
         expect(session.lastSeq.value).toBe(426);
     });
 
+    it("applyRelations 只更新关联 Agent 数据，不重建消息流", () => {
+        const session = useAgentSession();
+        session.applySnapshot(baseSnapshot(7));
+        session.appendOptimisticUserMessage("hello");
+        const messagesBefore = session.messages.value;
+
+        session.applyRelations({
+            sessionId: 1,
+            linkedAgents: [{
+                sessionId: 2,
+                profileKey: "writer",
+                workspaceKey: "global",
+                workspaceRoot: ".",
+                status: "idle",
+                updatedAt: 2,
+                archived: false,
+                detached: false,
+            }],
+            linkedByAgents: [],
+        });
+
+        expect(session.messages.value).toBe(messagesBefore);
+        expect(session.lastSeq.value).toBe(7);
+        expect(session.eventEpoch.value).toBe("epoch-1");
+        expect(session.snapshot.value?.linkedAgents).toEqual([
+            expect.objectContaining({
+                sessionId: 2,
+                detached: false,
+            }),
+        ]);
+
+        session.applyRelations({
+            sessionId: 999,
+            linkedAgents: [],
+            linkedByAgents: [],
+        });
+
+        expect(session.snapshot.value?.linkedAgents).toHaveLength(1);
+    });
+
     it("发现 seq gap 后只标记 snapshot 恢复请求", () => {
         const session = useAgentSession();
         session.applySnapshot(baseSnapshot(10));
@@ -226,6 +266,34 @@ describe("useAgentSession", () => {
         expect(session.snapshot.value?.followUpQueue.items).toEqual([
             expect.objectContaining({id: "follow-1", kind: "followup"}),
         ]);
+    });
+
+    it("agent link custom entry 到达时请求完整 snapshot 恢复关联面板", () => {
+        const session = useAgentSession();
+        session.applySnapshot(baseSnapshot(0));
+
+        applyEvent(session, {
+            seq: 1,
+            sessionId: 1,
+            kind: "session",
+            event: {
+                type: "session_entry",
+                entry: {
+                    id: "entry-agent-link-2",
+                    parentId: null,
+                    timestamp: Date.now(),
+                    type: "custom",
+                    key: "agent.link.2",
+                    value: {
+                        sessionId: 2,
+                        profileKey: "writer",
+                    },
+                },
+            },
+        });
+
+        expect(session.needsSnapshot.value).toBe(true);
+        expect(session.snapshotReasons.value).toContain("linked_agent_changed");
     });
 
     it("session_state_changed.state 只更新 live shell", () => {

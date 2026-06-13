@@ -311,6 +311,62 @@ describe("useAgentSessionStream", () => {
         expect(session.snapshot.value?.activePathRevision).toBe("leaf-move-1");
     });
 
+    it("agent link entry 改变关联关系时通过 snapshot 刷新 linked agents", async () => {
+        const session = useAgentSession();
+        const activeSessionId = ref<number | null>(1);
+        session.applySnapshot(baseSnapshot(1));
+        const api = {
+            getSession: vi.fn(async () => ({
+                ...baseSnapshot(2),
+                linkedAgents: [{
+                    sessionId: 2,
+                    profileKey: "writer",
+                    workspaceKey: "global",
+                    workspaceRoot: ".",
+                    status: "idle" as const,
+                    updatedAt: 2,
+                    archived: false,
+                    detached: false,
+                }],
+            })),
+            subscribeSessionEvents: vi.fn(async (_sessionId: number, _cursor: AgentSessionEventsQueryDto, onEvent: (event: AgentSessionEventDto) => Promise<void> | void, _signal?: AbortSignal, options?: {onOpen?: () => void}) => {
+                options?.onOpen?.();
+                await onEvent(sessionEvent({
+                    seq: 2,
+                    sessionId: 1,
+                    kind: "session",
+                    event: {
+                        type: "session_entry",
+                        entry: {
+                            id: "entry-agent-link-2",
+                            parentId: null,
+                            timestamp: Date.now(),
+                            type: "custom",
+                            key: "agent.link.2",
+                            value: {
+                                sessionId: 2,
+                                profileKey: "writer",
+                            },
+                        },
+                    },
+                }));
+                await new Promise<void>(() => {});
+            }),
+        };
+        const stream = useAgentSessionStream({session, api, activeSessionId});
+
+        await stream.start(1);
+
+        expect(api.getSession).toHaveBeenCalledTimes(1);
+        expect(session.needsSnapshot.value).toBe(false);
+        expect(session.snapshot.value?.linkedAgents).toEqual([
+            expect.objectContaining({
+                sessionId: 2,
+                detached: false,
+            }),
+        ]);
+    });
+
     it("等待异步事件处理完成后再处理下一帧", async () => {
         const session = useAgentSession();
         const activeSessionId = ref<number | null>(1);

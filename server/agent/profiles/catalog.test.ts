@@ -11,7 +11,7 @@ import {
     validateProfileArtifact,
 } from "nbook/server/agent/profiles/profile-artifact-compiler";
 import {defineAgentProfile as defineRuntimeAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
-import {profileToolsFromKeys} from "nbook/server/agent/profiles/profile-tools";
+import {profileToolsFromKeys} from "nbook/server/agent/test/profile-tools";
 import {defaultAgentProfile} from "nbook/server/agent/profiles/default-profile";
 import {messageText} from "nbook/server/agent/messages/message-utils";
 import type {AgentDialogueContent} from "nbook/server/agent/session/dialogue-content";
@@ -49,7 +49,7 @@ describe("AgentProfileCatalog", () => {
         await writeProfile(systemRoot, "good.profile.tsx", `
             import {Type} from "typebox";
             import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
-            import {profileToolsFromKeys} from "nbook/server/agent/profiles/profile-tools";
+            import {profileToolsFromKeys} from "nbook/server/agent/test/profile-tools";
             export const profileManifest = { key: "custom.good", name: "Good" } as const;
             export type Input = { topic: string };
             export type Output = { result: string };
@@ -100,7 +100,7 @@ describe("AgentProfileCatalog", () => {
             /** @jsxRuntime automatic */
             import {Type} from "typebox";
             import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
-            import {profileToolsFromKeys} from "nbook/server/agent/profiles/profile-tools";
+            import {profileToolsFromKeys} from "nbook/server/agent/test/profile-tools";
             import {AppendingSet, Message, ProfilePrompt, System} from "nbook/server/agent/profiles/profile-dsl";
 
             export const profileManifest = { key: "custom.jsx", name: "JSX" } as const;
@@ -135,7 +135,7 @@ describe("AgentProfileCatalog", () => {
         await writeProfile(systemRoot, "custom.session-types.profile.tsx", `
             import {Type} from "typebox";
             import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
-            import {profileToolsFromKeys} from "nbook/server/agent/profiles/profile-tools";
+            import {profileToolsFromKeys} from "nbook/server/agent/test/profile-tools";
             import {defineSessionVariable} from "nbook/server/agent/variables/registry";
 
             export const profileManifest = { key: "custom.sessionTypes", name: "Session Types" } as const;
@@ -191,7 +191,7 @@ describe("AgentProfileCatalog", () => {
         await writeProfile(systemRoot, "custom.helper.profile.tsx", `
             import {Type} from "typebox";
             import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
-            import {profileToolsFromKeys} from "nbook/server/agent/profiles/profile-tools";
+            import {profileToolsFromKeys} from "nbook/server/agent/test/profile-tools";
             import {helperText} from "./prompt-helper";
 
             export const profileManifest = { key: "custom.helper", name: "Helper" } as const;
@@ -225,7 +225,7 @@ describe("AgentProfileCatalog", () => {
         await writeProfile(userRoot, "custom.user-helper.profile.tsx", `
             import {Type} from "typebox";
             import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
-            import {profileToolsFromKeys} from "nbook/server/agent/profiles/profile-tools";
+            import {profileToolsFromKeys} from "nbook/server/agent/test/profile-tools";
             import {helperText} from "./prompt-helper";
 
             export const profileManifest = { key: "custom.user-helper", name: "User Helper" } as const;
@@ -290,7 +290,7 @@ describe("AgentProfileCatalog", () => {
         await writeProfile(userRoot, "custom.broken-artifact.profile.tsx", `
             import {Type} from "typebox";
             import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
-            import {profileToolsFromKeys} from "nbook/server/agent/profiles/profile-tools";
+            import {profileToolsFromKeys} from "nbook/server/agent/test/profile-tools";
             import {helperText} from "./prompt-helper";
 
             export const profileManifest = { key: "custom.broken-artifact", name: "Broken Artifact" } as const;
@@ -324,7 +324,7 @@ describe("AgentProfileCatalog", () => {
         await writeProfile(userRoot, "leader.default.profile.tsx", `
             import {Type} from "typebox";
             import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
-            import {profileToolsFromKeys} from "nbook/server/agent/profiles/profile-tools";
+            import {profileToolsFromKeys} from "nbook/server/agent/test/profile-tools";
             export const profileManifest = { key: "leader.default", name: "User Leader" } as const;
             export type Input = { changed: string };
             export type Output = { changed: string };
@@ -356,7 +356,7 @@ describe("AgentProfileCatalog", () => {
     it("系统 leader.default schema 与 builtin contract 一致时不产生 schema lock issue", async () => {
         await writeProfile(systemRoot, "leader.default.profile.tsx", `
             import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
-            import {profileToolsFromKeys} from "nbook/server/agent/profiles/profile-tools";
+            import {profileToolsFromKeys} from "nbook/server/agent/test/profile-tools";
             import {LeaderDefaultInputSchema, LeaderDefaultOutputSchema} from "nbook/server/agent/profiles/builtin-contracts";
             export const profileManifest = { key: "leader.default", name: "System Leader" } as const;
             export type Input = typeof LeaderDefaultInputSchema.static;
@@ -701,7 +701,7 @@ function profileSource(key: string, name: string): string {
     return `
             import {Type} from "typebox";
             import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
-            import {profileToolsFromKeys} from "nbook/server/agent/profiles/profile-tools";
+            import {profileToolsFromKeys} from "nbook/server/agent/test/profile-tools";
         export const profileManifest = { key: ${JSON.stringify(key)}, name: ${JSON.stringify(name)} } as const;
         export type Input = {};
         export type Output = {};

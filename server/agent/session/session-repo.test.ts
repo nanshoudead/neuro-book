@@ -484,4 +484,34 @@ describe("JsonlSessionRepository", () => {
         const batch = records.find((record) => record.kind === "batch");
         expect(batch?.entries?.map((entry) => (entry as {type: string}).type)).toEqual(["message", "message", "leaf"]);
     });
+
+    it("linked agent 关系按 session 全量 entry reduce，不受 active path 分支影响", async () => {
+        const session = await repo.createSession({
+            profileKey: "leader.default",
+            input: {},
+            workspaceRoot: root,
+            workspaceKey: "global",
+        });
+        const branchPoint = await repo.appendMessage(session.metadata.sessionId, createAssistantTextMessage({text: "branch point"}), session.metadata.workspaceKey);
+        await repo.appendEntry(session.metadata.sessionId, {
+            type: "custom",
+            key: "agent.link.177",
+            value: {
+                sessionId: 177,
+                profileKey: "simulator.leader",
+            },
+        }, session.metadata.workspaceKey);
+        await repo.moveLeaf(session.metadata.sessionId, branchPoint.id, session.metadata.workspaceKey);
+
+        const context = repo.reduce(await repo.readSession(session.metadata.sessionId, session.metadata.workspaceKey));
+
+        expect(context.messages.map((message) => message.role)).toEqual(["assistant"]);
+        expect(context.linkedAgents).toEqual([
+            {
+                sessionId: 177,
+                profileKey: "simulator.leader",
+                detached: false,
+            },
+        ]);
+    });
 });

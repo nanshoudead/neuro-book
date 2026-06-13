@@ -223,6 +223,12 @@ export type AgentLinkedSessionDto = AgentSessionSummaryDto & {
     detached: boolean;
 };
 
+export type AgentSessionRelationsDto = {
+    sessionId: number;
+    linkedAgents: AgentLinkedSessionDto[];
+    linkedByAgents: AgentLinkedSessionDto[];
+};
+
 export type AgentPendingApprovalDto = {
     assistantMessageId?: string;
     toolCallId: string;

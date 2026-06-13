@@ -8,6 +8,7 @@ export type AgentSessionStreamSnapshotReason =
     | "snapshot_required"
     | "event_epoch_changed"
     | "active_path_changed"
+    | "linked_agent_changed"
     | "manual_refresh"
     | "invoke_error_fallback";
 
@@ -139,11 +140,17 @@ export function useAgentSessionStream(options: AgentSessionStreamOptions) {
         await options.onEvent?.(event);
         options.session.applyEvent(event);
         if (options.session.needsSnapshot.value) {
-            const reason = options.session.snapshotReasons.value.includes("event_epoch_changed")
-                ? "event_epoch_changed"
-                : options.session.snapshotReasons.value.includes("snapshot_required")
-                    ? "snapshot_required"
-                    : options.session.snapshotReasons.value.includes("active_path_changed") ? "active_path_changed" : "seq_gap";
+            const reasons = options.session.snapshotReasons.value;
+            let reason: AgentSessionStreamSnapshotReason = "seq_gap";
+            if (reasons.includes("event_epoch_changed")) {
+                reason = "event_epoch_changed";
+            } else if (reasons.includes("snapshot_required")) {
+                reason = "snapshot_required";
+            } else if (reasons.includes("active_path_changed")) {
+                reason = "active_path_changed";
+            } else if (reasons.includes("linked_agent_changed")) {
+                reason = "linked_agent_changed";
+            }
             await syncSnapshot(reason);
         }
     };

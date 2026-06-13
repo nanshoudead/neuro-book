@@ -2,7 +2,7 @@ import {describe, expect, it} from "vitest";
 import {Type} from "typebox";
 import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
 import {agentRuntimeBuiltins, defineAgentRuntime} from "nbook/server/agent/profiles/define-agent-runtime";
-import {profileToolsFromKeys} from "nbook/server/agent/profiles/profile-tools";
+import {profileToolsFromKeys} from "nbook/server/agent/test/profile-tools";
 
 describe("defineAgentRuntime", () => {
     it("profile 未声明 runtime 时使用默认 runtime", () => {

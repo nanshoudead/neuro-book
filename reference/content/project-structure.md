@@ -13,11 +13,14 @@ Default Project Workspace sketch:
 |-- AGENTS.md
 |-- project.yaml
 |-- agent-context/
+|   |-- index.md
 |   |-- simulator.leader/
+|   |   |-- index.md
 |   |   |-- context.md
 |   |   |-- memory.md
 |   |   `-- generated.md
 |   `-- rp.writer/
+|       |-- index.md
 |       |-- context.md
 |       |-- memory.md
 |       `-- generated.md
@@ -32,6 +35,7 @@ Default Project Workspace sketch:
 |   |-- system/
 |   `-- instruction/
 |-- manual/
+|   |-- index.md
 |   |-- README.md
 |   |-- world-guide.md
 |   |-- rules-guide.md
@@ -39,12 +43,22 @@ Default Project Workspace sketch:
 |   |-- reference.md
 |   `-- player-guide/
 |-- manuscript/
+|   |-- index.md
 |   `-- 001-volume/
 |-- simulation/
+|   |-- index.md
 |   |-- subjects/
+|   |   `-- index.md
 |   |-- entities/
+|   |   `-- index.md
 |   `-- runs/
+|       |-- index.md
+|       `-- ticks/
+|           `-- index.md
 |-- reference/
+|   `-- index.md
+|-- upload/
+|   `-- index.md
 |-- .nbook/
 `-- .agent/
 ```
@@ -61,6 +75,7 @@ The top-level directories are extensible, but the default template should stay s
 | `agent-context/` | Profile-scoped context memory, generated recommendations and profile-specific project guidance. | [../agent/profile-context-memory.md](../agent/profile-context-memory.md) |
 | `simulation/` | World runtime state, subjects, entities and run artifacts. | [simulation.md](simulation.md) |
 | `reference/` | External raw materials, import archives and low-confidence migration inputs. | This file |
+| `upload/` | Uploaded files and project-local intake material awaiting organization. | This file |
 | `.nbook/` | Project config, Project SQLite and control files. | `reference/workspace/TERMS.md` |
 | `.agent/` | Temporary execution notes, plans and caches. | Agent docs |
 
@@ -72,6 +87,7 @@ Keep the boundary simple:
 - Formal prose goes to `manuscript/`.
 - Current runtime state goes to `simulation/`.
 - Imported or raw source material goes to `reference/`.
+- Uploaded intake files can land in `upload/` before being curated into `reference/`, `lorebook/`, `manual/` or `manuscript/`.
 - Project config and database files stay under `.nbook/`.
 - Temporary agent work stays under `.agent/` or a system temp directory.
 

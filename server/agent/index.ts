@@ -13,6 +13,6 @@ export * from "nbook/server/agent/session/session-repo";
 export * from "nbook/server/agent/session/types";
 export * from "nbook/server/agent/skills/skill-catalog";
 export * from "nbook/server/agent/tools/approval";
-export * from "nbook/server/agent/tools/builtin-tools";
+export * from "nbook/server/agent/tools/index";
 export * from "nbook/server/agent/tools/tool-registry";
 export * from "nbook/server/agent/tools/types";

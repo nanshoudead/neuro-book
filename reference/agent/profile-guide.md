@@ -21,7 +21,13 @@
 
 需要结构化结果时声明 `outputSchema`。存在 `outputSchema` 时，`report_result.data` 是主路结构化输出的 runtime 校验依据；provider-visible schema 中该字段保持 optional，以便错误说明和 sidecar 复用同一个工具 schema。
 
-`tools` 是 profile 的根工具绑定对象，决定模型可见工具 schema 和 profile 最大执行权限。常见写法是 `tools: profileToolsFromKeys(["read", "report_result"])`；需要定制工具 schema 时使用 `defineProfileTools({ report_result: tools.reportResult({ dataSchema: OutputSchema }) })`。主 run 需要收窄执行权限时声明 `mainRunToolKeys`，sidecar 需要收窄执行权限时声明 `sidecar.toolKeys`，二者都只能引用根 `tools` 中已有的 key。
+`tools` 是 profile 的根工具绑定对象，决定模型可见工具 schema 和 profile 最大执行权限。推荐用 `defineProfileTools({...})` 显式声明工具集合；需要定制 `report_result.data` schema 时使用 `tools.reportResult({ dataSchema: OutputSchema })`。主 run 需要收窄执行权限时声明 `mainRunToolKeys`，sidecar 需要收窄执行权限时声明 `sidecar.toolKeys`，二者都只能引用根 `tools` 中已有的 key。
+
+`tools` 支持三种来源：
+
+- `tools.read()` / `tools.write()` 等：引用内置全局工具。
+- `defineAgentTool({...})`：定义并内联 profile 自带工具，该工具只在当前 profile run 内可见。
+- `tools.registered("plugin_tool")`：引用运行时已注册但没有 typed factory 的插件工具；不要用它内联自带工具。
 
 内置 profile 位于 `assets/workspace/.nbook/agent/profiles/builtin/`，例如：
 
@@ -223,7 +229,7 @@ Agent 需要读写变量时，按工具流程：
 /** @jsxRuntime automatic */
 import {Type} from "typebox";
 import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
-import {profileToolsFromKeys} from "nbook/server/agent/profiles/profile-tools";
+import {defineProfileTools, tools} from "nbook/server/agent/profiles/profile-tools";
 import {
     AppendingSet,
     HistorySet,
@@ -248,12 +254,14 @@ export const InputSchema = Type.Object({
     prompt: Type.String(),
 });
 
-const toolKeys = ["read", "write", "edit"] as const;
-
 export default defineAgentProfile({
     manifest: profileManifest,
     inputSchema: InputSchema,
-    tools: profileToolsFromKeys(toolKeys),
+    tools: defineProfileTools({
+        read: tools.read(),
+        write: tools.write(),
+        edit: tools.edit(),
+    }),
     context() {
         return (
             <ProfilePrompt>
@@ -278,6 +286,33 @@ export default defineAgentProfile({
             </ProfilePrompt>
         );
     },
+});
+```
+
+## Profile-Owned Tool
+
+profile 可以用 `defineAgentTool()` 定义自带工具，并把 definition 本身放进根 `tools`。自带工具的 key 只在当前 profile run 内解析，不会注册进全局 registry。
+
+```ts
+import {Type} from "typebox";
+import {defineAgentTool, defineProfileTools, tools} from "nbook/server/agent/profiles/profile-tools";
+
+const roll_dice = defineAgentTool({
+    key: "roll_dice",
+    description: "Roll one six-sided dice.",
+    parameters: Type.Object({}),
+    async execute() {
+        const value = Math.floor(Math.random() * 6) + 1;
+        return {
+            content: [{type: "text", text: `rolled ${value}`}],
+            details: {value},
+        };
+    },
+});
+
+const profileTools = defineProfileTools({
+    roll_dice,
+    report_result: tools.reportResult(),
 });
 ```
 

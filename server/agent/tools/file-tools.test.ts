@@ -5,7 +5,7 @@ import {Type} from "typebox";
 import {afterEach, beforeEach, describe, expect, it} from "vitest";
 import {NeuroAgentHarness} from "nbook/server/agent/harness/neuro-agent-harness";
 import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
-import {profileToolsFromKeys} from "nbook/server/agent/profiles/profile-tools";
+import {profileToolsFromKeys} from "nbook/server/agent/test/profile-tools";
 import {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
 import type {ToolExecutionContext} from "nbook/server/agent/tools/types";
 import {resolveWorkspacePath} from "nbook/server/agent/tools/file-tool-utils";

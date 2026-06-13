@@ -38,13 +38,13 @@
 - Iteration policy：先做不改行为的定义层抽象，再迁移 binding，再改 harness 解析，最后迁移 profile 与刷新 artifacts；每阶段独立验证。
 - Blocked stop condition：若 compiled artifact 无法携带 execute 函数（已验证可行，见 Current State），或 harness 解析改造破坏现有 approval/sidecar 链路无法收敛，停止并报告具体阻塞点。
 
-## Current State
+## Baseline Before Implementation
 
 ### 三层模型现状对齐
 
-- 定义层（目标 `AgentToolDefinition`）：**不存在**。真工具是 `NeuroAgentTool`（`server/agent/tools/types.ts:22`），由 `createReadTool()` 等各自手写返回，含 `execute`（占位 throw）与 `executeWithContext`（真实入口）双形态。
-- 绑定层（目标 `ToolBinding` 从 definition 派生）：`ToolBinding`（`server/agent/profiles/profile-tools.ts:6`）由 `tools.*()` 32 个手写 factory 或 `profileToolsFromKeys` 生成，与定义层无任何类型联系，key 靠人肉对齐。
-- 运行层（目标由 definition `.runtime()` 生成）：`NeuroAgentTool` 直接手写注册到 `AgentToolRegistry`（`server/agent/tools/tool-registry.ts`）。
+- 创建任务时，定义层（目标 `AgentToolDefinition`）**不存在**。真工具是 `NeuroAgentTool`（`server/agent/tools/types.ts:22`），由 `createReadTool()` 等各自手写返回，含 `execute`（占位 throw）与 `executeWithContext`（真实入口）双形态。
+- 创建任务时，绑定层（目标 `ToolBinding` 从 definition 派生）由 `tools.*()` 32 个手写 factory 或 `profileToolsFromKeys` 生成，与定义层无任何类型联系，key 靠人肉对齐。
+- 创建任务时，运行层（目标由 definition `.runtime()` 生成）直接手写 `NeuroAgentTool` 并注册到 `AgentToolRegistry`（`server/agent/tools/tool-registry.ts`）。
 
 ### `defineAgentProfile.tools` 参数形状
 
@@ -54,7 +54,7 @@
   - `mainRunToolKeys` / `sidecar.toolKeys` 必须是 `keyof tools` 子集（`define-agent-profile.ts:124` / `:139`）。
   - `toolOverrides()`（`neuro-agent-harness.ts:4207`）按 binding 覆盖 provider-visible schema/description；`report_result` 走特判调 `createReportResultTool`。
   - 执行路径 `executeTool()`（`neuro-agent-harness.ts:2970`）用 `toolOverrides[name] ?? this.tools.get(name)` 解析，**只查全局 registry**。
-- 当前调用形态：12 个 builtin profile 中 **10 个**仍用 `tools: profileToolsFromKeys(toolKeys)`（writer / retrieval / researcher / director / leader.default / leader.assets / rp.* / simulator.*），只有 `summarizer` 和 `memory.curator` 用显式 `defineProfileTools({...})`。
+- 创建任务时的调用形态：12 个 builtin profile 中 **10 个**仍用 `tools: profileToolsFromKeys(toolKeys)`（writer / retrieval / researcher / director / leader.default / leader.assets / rp.* / simulator.*），只有 `summarizer` 和 `memory.curator` 用显式 `defineProfileTools({...})`。
 
 ### 审批机制现状
 
@@ -175,9 +175,9 @@ type ReportResultBinding = ToolBinding<"report_result"> & { dataSchema?: TSchema
 ### Phase 2 — `ToolBinding` 携带 definition
 
 - `ToolBinding` 加可选 `definition` 字段；移除 `dataSchema`（下沉到 report_result 专用 binding）。
-- `profile-tools.ts` 的手写 factory 改为引用 `agentTools.*`，单一真相源。
+- `profile-tools.ts` 保持轻量 author API，不静态 import runtime 工具实现；内置工具的 schema / description / execute 仍以 `agentTools.*` definition 为运行时真相源。工具 key 绑定只生成 registry 引用，避免 profile artifact bundle 被 runtime 工具依赖污染。
 - `tools.custom` 改名 `registered("key")`。
-- 删除生产路径的 `profileToolsFromKeys`，降级为 test helper。
+- 删除生产路径的 `profileToolsFromKeys`，测试需要的机械转换迁到 `server/agent/test/profile-tools.ts`。
 
 ### Phase 3 — Harness 解析加 profile 私有层
 
@@ -215,6 +215,34 @@ type ReportResultBinding = ToolBinding<"report_result"> & { dataSchema?: TSchema
 ## Implementation Walkthrough
 
 - 2026-06-12：创建任务。确认三层模型现状、`defineAgentProfile.tools` 形状、审批机制现状与 compiled artifact 可携带 execute（选项 1 验证通过）。确认四项核心决策：自带工具内联进 `tools`、key 仅 profile 内唯一、审批语义 A、`registered()` 取代 `custom()`。审批系统一般化（语义 B 等）已记入 `PROJECT-STATUS.md` TODO。
+- 2026-06-12：实现 `AgentToolDefinition` / `defineAgentTool()`：definition 现在持有 `key`、schema、description、execution mode、approval 标记、参数准备逻辑和执行入口；`.runtime()` 生成与现有 `NeuroAgentTool` shape 对齐的 runtime 工具，definition 本身可直接放进 profile 根 `tools` 作为 profile 自带工具。
+- 2026-06-12：新增 `server/agent/tools/agent-tools.ts` 作为内置工具 definition 聚合层；文件、任务、Plot、变量、Web、Subject Memory、SQL 和 agent 协作工具由 definition `.runtime()` 汇总到 `createBuiltinTools()`，内置工具行为保持不变。`profile-tools.ts` 保持轻量 author API，不静态 import runtime 工具实现，避免 profile artifact bundle 运行时工具实现与外部依赖。随后该聚合层已整理为 `server/agent/tools/index.ts`。
+- 2026-06-12：重构 profile binding：`ToolBinding` 支持可选私有 `definition`，`ReportResultToolBinding` 独占 `dataSchema`；`tools.custom()` 已改名为 `tools.registered(key)`，仅表示引用已注册全局工具。`profileToolsFromKeys()` 已从生产 `profile-tools.ts` 删除，测试机械转换迁到 `server/agent/test/profile-tools.ts`。
+- 2026-06-12：重构 harness 工具解析：provider-visible tools 先读 profile root `tools`，执行时先查当前 profile 私有 definition，再回退全局 registry；`mainRunToolKeys`、sidecar `toolKeys` 和 runtime `toolKeysPatch` 仍只能裁剪 root tools，不能扩大权限。自带审批工具复用现有 suspend + resolution toolResult 语义，approved 后不回调 execute。
+- 2026-06-12：迁移 builtin profiles：writer、retrieval、researcher、director、leader.default、leader.assets、rp.leader、rp.writer、simulator.leader、simulator.actor 与默认 fallback profile 均改为显式 `defineProfileTools({...})`。`simulator.actor` root tools 保留 sidecar 所需最大集合，主 run 继续通过 `mainRunToolKeys: ["report_result"]` 收窄执行权限。
+- 2026-06-12：补测试覆盖：
+  - `defineAgentTool().runtime()` 输出字段与执行行为。
+  - profile 自带工具 provider-visible 且可执行。
+  - profile 自带同名工具只覆盖当前 profile，不污染其他 profile。
+  - `tools.registered("missing")` provider 不可见，执行时返回 tool error。
+  - profile 自带审批工具可 suspend，并通过现有 `tool_approval` resolution 恢复。
+  - sidecar / main run 工具权限边界、`report_result` 与 `create_agent.input` 既有回归不退化。
+- 2026-06-12：刷新系统 profile artifacts 与 metadata：
+  - `bun scripts/build/profile.ts compile --all --system` 成功写入 12 个 compiled artifacts。
+  - `bun run profile:metadata` 成功，12 个 system profiles 均未 stale。
+  - `bun scripts/build/profile.ts check builtin/simulator.actor.profile.tsx --system`、`builtin/leader.default.profile.tsx --system`、`builtin/writer.profile.tsx --system` 均通过。
+- 2026-06-12：窄测试通过：
+  - `bunx vitest run server/agent/tools/agent-tool-definition.test.ts server/agent/profiles/report-result-schema.test.ts server/agent/harness/neuro-agent-harness.test.ts -t "defineAgentTool|profile 自带工具|registered 引用缺失|自带审批工具|sidecar 保持 profile 最大工具 schema|主 run 可见 profile 最大工具 schema|prepareTurn toolKeysPatch|report_result 校验失败|report_result 连续失败|sidecar_data|create_agent.input|create_agent 工具 schema|get_agent_profile|simulator.actor 会通过 context-load" --reporter=dot`
+  - 结果：3 files passed，21 tests passed。
+- 2026-06-12：`bunx tsc --noEmit --pretty false` 仍失败，但剩余错误来自既有无关文件：`app/components/novel-ide/agent/tiptap/agent-suggestion.test.ts`、`server/agent/harness/compaction.ts`、`server/agent/skills/silly-tavern-card-cli.test.ts`。本任务工具层相关类型错误已清空。
+- 2026-06-12：完成 `profileToolsFromKeys` 生产 API 删除：`server/agent/profiles/profile-tools.ts` 不再导出数组式 helper，测试机械转换迁到 `server/agent/test/profile-tools.ts`；动态测试 profile 源码也改为引用 test helper，避免旧生产入口回流。补充验证：
+  - `bunx vitest run server/agent/profiles/catalog.test.ts --reporter=dot`
+  - `bunx vitest run server/agent/harness/neuro-agent-harness.black-box.test.ts --reporter=dot --testTimeout=30000`
+- 2026-06-12：修复审查发现的两个 P2 回归并整理工具目录：
+  - 明确删除 agent 协作工具的旧 direct `execute` 合同；`create_agent` / `invoke_agent` / `get_agent` / `get_agent_profile` / `get_session` / `detach_agent` 只通过 `executeWithContext` 在 agent session 内执行，direct `execute` 保持定义层上下文错误。
+  - `createBuiltinTools()` 改为无参入口，Harness 不再传入死参数 `this`。
+  - `server/agent/tools/builtin-tools.ts` 删除；控制工具迁入 `control-tools.ts`，agent 协作工具迁入 `agent-collaboration-tools.ts`，`index.ts` 只做聚合与 re-export。
+  - 回退 `simulator.actor` 本轮误加的 `write` 权限，`actor.memory-save` 继续只使用 `subject_event_append` / `subject_memory_update` / `read` / `edit` / `report_result`。
 
 ## TODO / Follow-ups
 

@@ -45,6 +45,7 @@ Common Project Workspace paths:
 | `{project}/manuscript/` | Manuscript, volumes, chapters, drafts and chapter-local notes. |
 | `{project}/simulation/` | World simulation, subjects, entities and run artifacts. |
 | `{project}/reference/` | External raw materials and import archives. |
+| `{project}/upload/` | Uploaded intake files awaiting organization. |
 | `{project}/.nbook/` | Project config, Project SQLite and project control files. |
 | `{project}/.agent/` | Temporary plans, caches and execution notes. |
 
@@ -60,6 +61,7 @@ Top-level sketch:
 |-- manuscript/
 |-- simulation/
 |-- reference/
+|-- upload/
 |-- .nbook/
 `-- .agent/
 ```
@@ -71,6 +73,7 @@ Keep the boundary simple:
 - Formal prose goes to `manuscript/`.
 - Current runtime state goes to `simulation/`.
 - Imported or raw source material goes to `reference/`.
+- Uploaded intake files can land in `upload/` before curation.
 - Project config and database files stay under `.nbook/`.
 
 ## Content Node Basics
@@ -158,6 +161,7 @@ Typical structure:
 
 ```text
 manual/
+|-- index.md
 |-- README.md
 |-- world-guide.md
 |-- rules-guide.md
@@ -187,12 +191,18 @@ Minimal structure:
 
 ```text
 simulation/
+|-- index.md
 |-- subjects/
+|   `-- index.md
 |-- entities/
+|   `-- index.md
 `-- runs/
+    |-- index.md
+    `-- ticks/
+        `-- index.md
 ```
 
-Use `simulation/subjects/` for information-control subjects and `simulation/entities/` for stateful instances. `actor` is a simulator profile type, not a top-level project directory.
+Use `simulation/subjects/` for information-control subjects and `simulation/entities/` for stateful entities. `actor` is a simulator profile type, not a top-level project directory.
 
 ### Reference
 

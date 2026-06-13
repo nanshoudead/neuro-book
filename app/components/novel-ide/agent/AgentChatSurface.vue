@@ -60,6 +60,7 @@ const sessions = ref<AgentSessionSummaryDto[]>([]);
 const activeSessionId = ref<number | null>(null);
 const linkedAgentPanelOpen = ref(false);
 const loadingSession = ref(false);
+const linkedAgentsLoading = ref(false);
 const previousSelectedFilePath = ref<string | null>(props.selectedFilePath || null);
 const fileChangedSinceLastSend = ref(false);
 const selectionVersion = ref(0);
@@ -638,6 +639,37 @@ const syncActiveSessionSnapshot = async (reason: AgentSessionStreamSnapshotReaso
         return false;
     }
     return sessionStream.syncSnapshot(reason);
+};
+
+let linkedAgentRelationsRequestId = 0;
+
+/**
+ * 只刷新关联 Agent 面板数据，不触碰当前对话消息流。
+ */
+const refreshLinkedAgentRelations = async (): Promise<void> => {
+    const targetSessionId = activeSessionId.value;
+    if (!targetSessionId) {
+        return;
+    }
+    const requestId = ++linkedAgentRelationsRequestId;
+    linkedAgentsLoading.value = true;
+    try {
+        const relations = await agentApi.getSessionRelations(targetSessionId);
+        if (requestId !== linkedAgentRelationsRequestId || activeSessionId.value !== targetSessionId) {
+            return;
+        }
+        session.applyRelations(relations);
+    } catch (error) {
+        if (requestId !== linkedAgentRelationsRequestId || activeSessionId.value !== targetSessionId) {
+            return;
+        }
+        console.error(`刷新 session ${String(targetSessionId)} 关联 Agent 失败`, error);
+        notifyAgentError(error, "刷新关联 Agent 失败");
+    } finally {
+        if (requestId === linkedAgentRelationsRequestId) {
+            linkedAgentsLoading.value = false;
+        }
+    }
 };
 
 /**
@@ -1458,6 +1490,18 @@ watch(() => props.active, async (active) => {
     });
 });
 
+watch(linkedAgentPanelOpen, (open) => {
+    if (open) {
+        void refreshLinkedAgentRelations();
+    }
+});
+
+watch(activeSessionId, () => {
+    if (linkedAgentPanelOpen.value) {
+        void refreshLinkedAgentRelations();
+    }
+});
+
 watch(leaderProfileKey, async () => {
     if (suppressLeaderProfileReset) {
         return;
@@ -1505,6 +1549,7 @@ defineExpose({
     activeSessionId,
     sessions,
     loadingSession,
+    linkedAgentsLoading,
     running,
     sessionActionId,
     ensureSessionReady,
@@ -1618,9 +1663,9 @@ function isApprovalApproved(answer?: {
                 :session-id="activeSessionId"
                 :owned-agents="linkedAgents"
                 :linked-by-agents="linkedByAgents"
-                :loading="loadingSession"
+                :loading="linkedAgentsLoading"
                 @select="void loadSession($event); linkedAgentPanelOpen = false"
-                @refresh="void syncActiveSessionSnapshot()"
+                @refresh="void refreshLinkedAgentRelations()"
                 @close="linkedAgentPanelOpen = false"
             />
 

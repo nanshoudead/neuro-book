@@ -87,6 +87,13 @@ export async function getAgentSessionSnapshot(sessionId: number, harness = useAg
 }
 
 /**
+ * 返回关联 Agent 面板使用的轻量关系投影。
+ */
+export async function getAgentSessionRelations(sessionId: number, harness = useAgentHarness()) {
+    return harness.getSessionRelations(sessionId);
+}
+
+/**
  * 阻塞调用 Agent session。
  */
 export async function invokeAgentSession(sessionId: number, body: AgentInvokeRequestDto, harness = useAgentHarness()) {

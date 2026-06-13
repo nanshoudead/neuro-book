@@ -12,6 +12,8 @@ import MarkdownStudioToolbar from "nbook/app/components/markdown-studio/Markdown
 import MarkdownStudioWelcome from "nbook/app/components/markdown-studio/MarkdownStudioWelcome.vue";
 import MarkdownCommentFlowPanel from "nbook/app/components/markdown-studio/MarkdownCommentFlowPanel.vue";
 
+type WorkspaceMode = "novel" | "user-assets";
+
 const props = withDefaults(defineProps<{
     controller: MarkdownStudioController;
     content: string;
@@ -26,6 +28,8 @@ const props = withDefaults(defineProps<{
     monacoTemporaryFontSize?: number | null;
     activeTabRows?: number;
     compact?: boolean;
+    agentModeActive?: boolean;
+    workspaceMode?: WorkspaceMode;
     referenceRefreshKey?: string | number;
     resolveMenu?: (context: AgentTriggerMenuContext) => AgentTriggerMenuState;
     openReference?: (target: string) => void;
@@ -33,6 +37,8 @@ const props = withDefaults(defineProps<{
     enableQuickTriggers?: boolean;
 }>(), {
     activeTabRows: 3,
+    agentModeActive: false,
+    workspaceMode: "novel",
     referenceRefreshKey: "",
     resolveMenu: () => ({
         title: "",
@@ -54,6 +60,19 @@ const emit = defineEmits<{
     (e: "save-request"): void;
     (e: "open-frontmatter-profile", kind: FrontmatterProfileKind): void;
     (e: "update-monaco-temporary-font-size", value: number): void;
+    (e: "open-path", path: string): void;
+    (e: "open-files"): void;
+    (e: "create-chapter"): void;
+    (e: "create-markdown-file"): void;
+    (e: "create-lorebook-entry"): void;
+    (e: "open-agent-panel"): void;
+    (e: "switch-agent-mode"): void;
+    (e: "toggle-agent-surface"): void;
+    (e: "open-bookshelf"): void;
+    (e: "open-plot-workbench"): void;
+    (e: "open-rag-inspector"): void;
+    (e: "open-user-assets"): void;
+    (e: "open-profile-workbench"): void;
     (e: "more"): void;
 }>();
 
@@ -89,7 +108,28 @@ watch(() => props.activePath, () => {
         />
 
         <div class="relative flex min-h-0 flex-1 overflow-hidden bg-[var(--editor-canvas-bg)]">
-            <MarkdownStudioWelcome v-if="!props.activePath || !props.node" :node="props.node" />
+            <MarkdownStudioWelcome
+                v-if="!props.activePath || !props.node"
+                :node="props.node"
+                :tabs="props.tabs"
+                :agent-mode-active="props.agentModeActive"
+                :compact="props.compact"
+                :workspace-mode="props.workspaceMode"
+                @select-tab="emit('select-tab', $event)"
+                @open-path="emit('open-path', $event)"
+                @open-files="emit('open-files')"
+                @create-chapter="emit('create-chapter')"
+                @create-markdown-file="emit('create-markdown-file')"
+                @create-lorebook-entry="emit('create-lorebook-entry')"
+                @open-agent-panel="emit('open-agent-panel')"
+                @switch-agent-mode="emit('switch-agent-mode')"
+                @toggle-agent-surface="emit('toggle-agent-surface')"
+                @open-bookshelf="emit('open-bookshelf')"
+                @open-plot-workbench="emit('open-plot-workbench')"
+                @open-rag-inspector="emit('open-rag-inspector')"
+                @open-user-assets="emit('open-user-assets')"
+                @open-profile-workbench="emit('open-profile-workbench')"
+            />
 
             <template v-else-if="canEditCurrentFile && isMarkdownFile">
                 <div class="markdown-comment-layout min-w-0 flex-1" :class="props.controller.commentViewOpen.value ? 'is-comment-view' : ''">
@@ -144,7 +184,28 @@ watch(() => props.activePath, () => {
                 @update-temporary-font-size="emit('update-monaco-temporary-font-size', $event)"
             />
 
-            <MarkdownStudioWelcome v-else :node="props.node" />
+            <MarkdownStudioWelcome
+                v-else
+                :node="props.node"
+                :tabs="props.tabs"
+                :agent-mode-active="props.agentModeActive"
+                :compact="props.compact"
+                :workspace-mode="props.workspaceMode"
+                @select-tab="emit('select-tab', $event)"
+                @open-path="emit('open-path', $event)"
+                @open-files="emit('open-files')"
+                @create-chapter="emit('create-chapter')"
+                @create-markdown-file="emit('create-markdown-file')"
+                @create-lorebook-entry="emit('create-lorebook-entry')"
+                @open-agent-panel="emit('open-agent-panel')"
+                @switch-agent-mode="emit('switch-agent-mode')"
+                @toggle-agent-surface="emit('toggle-agent-surface')"
+                @open-bookshelf="emit('open-bookshelf')"
+                @open-plot-workbench="emit('open-plot-workbench')"
+                @open-rag-inspector="emit('open-rag-inspector')"
+                @open-user-assets="emit('open-user-assets')"
+                @open-profile-workbench="emit('open-profile-workbench')"
+            />
         </div>
     </section>
 </template>

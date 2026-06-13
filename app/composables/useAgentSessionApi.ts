@@ -10,6 +10,7 @@ import type {
     AgentSessionEventDto,
     AgentSessionEventsQueryDto,
     AgentSessionListQueryDto,
+    AgentSessionRelationsDto,
     AgentSessionSnapshotDto,
     AgentSessionSummaryDto,
     AgentTreeRequestDto,
@@ -35,6 +36,10 @@ export function useAgentSessionApi() {
 
     const getSession = (sessionId: number) => {
         return $fetch<AgentSessionSnapshotDto>(`/api/agent/sessions/${sessionId}`);
+    };
+
+    const getSessionRelations = (sessionId: number) => {
+        return $fetch<AgentSessionRelationsDto>(`/api/agent/sessions/${sessionId}/relations`);
     };
 
     const invokeSession = (sessionId: number, body: AgentInvokeRequestDto) => {
@@ -107,6 +112,7 @@ export function useAgentSessionApi() {
         abortSession,
         createSession,
         getSession,
+        getSessionRelations,
         invokeSession,
         listSessions,
         moveTree,

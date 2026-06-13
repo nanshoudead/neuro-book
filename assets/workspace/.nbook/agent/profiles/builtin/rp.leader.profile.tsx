@@ -2,7 +2,7 @@
 /** @jsxRuntime automatic */
 import type {Static} from "typebox";
 import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
-import {profileToolsFromKeys} from "nbook/server/agent/profiles/profile-tools";
+import {defineProfileTools, tools} from "nbook/server/agent/profiles/profile-tools";
 import {RpLeaderInputSchema, RpLeaderOutputSchema} from "nbook/server/agent/profiles/builtin-contracts";
 import {AgentCatalog, AppendingSet, HistorySet, Import, LinkedAgentsReminder, Message, ModelContext, ProfilePrompt, RuntimeLocationReminder, System, WorkspaceFocusReminder} from "nbook/server/agent/profiles/profile-dsl";
 import {profileText} from "nbook/server/agent/profiles/profile-text";
@@ -19,28 +19,26 @@ export const OutputSchema = RpLeaderOutputSchema;
 export type Input = Static<typeof InputSchema>;
 export type Output = Static<typeof OutputSchema>;
 
-const toolKeys = [
-    "read",
-    "write",
-    "edit",
-    "apply_patch",
-    "bash",
-    "create_agent",
-    "invoke_agent",
-    "get_agent",
-    "get_agent_profile",
-    "get_session",
-    "get_plot_tree",
-    "get_story_thread",
-    "get_story_scene_context",
-    "get_chapter_plot",
-] as const;
-
 export default defineAgentProfile({
     manifest: profileManifest,
     inputSchema: InputSchema,
     outputSchema: OutputSchema,
-    tools: profileToolsFromKeys(toolKeys),
+    tools: defineProfileTools({
+        read: tools.read(),
+        write: tools.write(),
+        edit: tools.edit(),
+        apply_patch: tools.applyPatch(),
+        bash: tools.bash(),
+        create_agent: tools.createAgent(),
+        invoke_agent: tools.invokeAgent(),
+        get_agent: tools.getAgent(),
+        get_agent_profile: tools.getAgentProfile(),
+        get_session: tools.getSession(),
+        get_plot_tree: tools.getPlotTree(),
+        get_story_thread: tools.getStoryThread(),
+        get_story_scene_context: tools.getStorySceneContext(),
+        get_chapter_plot: tools.getChapterPlot(),
+    }),
     compaction: {},
     context(ctx) {
         return (
@@ -57,6 +55,7 @@ export default defineAgentProfile({
                     <Message><Import path="reference/content/markdown-dialect.md" /></Message>
                     <Message><Import path="reference/agent/rp-tick/README.md" /></Message>
                     <Message><Import path="reference/agent/rp-tick/writer-brief.md" /></Message>
+                    <Message><Import path="reference/agent/rp-tick/rp-writer-interaction.md" /></Message>
                     <Message><Import path="reference/agent/rp-tick/adjudication-report.md" /></Message>
                 </HistorySet>
                 <ModelContext>
@@ -105,9 +104,12 @@ function renderSystemPrompt(): string {
 
         将用户行动转述为世界变化（world changes，通常 1-3 行戏内事实，例如“薇洛丝悄悄走到眼镜女生旁边，小声问她有没有事”），发给 simulator.leader。不要传裁决问题、渲染指令或叙事偏好——LOD 模拟、角色调度、信息控制和因果裁决都是 simulator.leader 的职责。它会按 adjudication-report.md 的格式返回全知裁决结果报告。你不自己做世界模拟。
 
-        ### 第 3 步：调用 rp.writer 写正文
+        ### 第 3 步：调用 rp.writer 写正文（Phase 4a→4b→4c）
 
-        拿到 simulator 的结果后，准备 Writer Brief 并调用 rp.writer 写正文。Brief 要求见下方「讲述格式」。
+        拿到 simulator 的结果后，执行三阶段交互式流程（详见上方"准备 Writer Brief"）：
+        - Phase 4a：invoke_agent rp.writer {phase: 'check', brief}，收到 questions 数组
+        - Phase 4b：评估问题 → 补充素材 → 组装 supplemental_brief
+        - Phase 4c：invoke_agent rp.writer {phase: 'render', brief, supplemental_brief}，收到"已将正文写入 xxx.md"
 
         ### 第 4 步：组装回复
 
@@ -117,31 +119,64 @@ function renderSystemPrompt(): string {
 
         在世界内，每次推进分两步：
 
-        ### 准备 Writer Brief
+        ### 准备 Writer Brief（Phase 4a/4b/4c 交互式流程）
 
-        双源约定：writer-brief.md 是格式与规则的 source of truth；下面只重复“绝不允许违反”的硬性原则（重复即强调）。后续调整规则改 writer-brief.md，这里只在原则本身变化时才动。
+        双源约定：writer-brief.md 和 rp-writer-interaction.md 是格式与规则的 source of truth；下面只重复”绝不允许违反”的硬性原则（重复即强调）。后续调整规则改这两个文档，这里只在原则本身变化时才动。
 
-        你是编剧——剧情由你来定，然后把完整剧本（Writer Brief）交给 rp.writer 渲染。Brief 格式遵循 writer-brief.md。核心原则：
+        你是编剧——剧情由你来定，然后把剧情骨架和素材层交给 rp.writer 渲染。Brief 格式遵循 writer-brief.md 新格式（XML 结构化）。核心原则：
 
-        - Brief 本身就是信息过滤器。Brief 里有什么 writer 就知道什么；不写进 Brief 的信息对 writer 不存在。不需要也不允许写 do_not_reveal、信息控制段或“不要暴露……”清单。
+        **信息过滤**：
+        - Brief 本身就是信息过滤器。Brief 里有什么 writer 就知道什么；不写进 Brief 的信息对 writer 不存在。不需要也不允许写 do_not_reveal、信息控制段或”不要暴露……”清单。
         - 编剧时从裁决结果报告中只提取用户化身能感知的信息：可见反应、台词、可观察的环境变化。其他角色的内心、lorebook 隐藏设定、simulator 推理过程直接不写。
-        - 角色内心可以转译成可感知线索：法师的注视可以编成“后颈微凉的直觉暗示”，不能写成“法师在怀疑你”。
-        - 从 LOD 世界变化中挑选用户化身能感知的事件，用感官语言织入场景和剧情。
-        - 不使用 lorebook 术语：用户在故事中还不知道名字的概念，用感官描述代替（“淡蓝色的光圈”而不是“知识之环”）。
-        - 不出现后台词汇：brief、tick、裁决、simulator、lorebook、actor、profile。
-        - Brief 要精确到每个 plot point：谁说了什么、谁做了什么、环境变化、感官细节，按分幕剧本组织，结尾给环境音段。writer 是渲染器不是编剧，它不补完缺失信息。
+        - 角色内心可以转译成情绪标签：法师的注视可以编成 <character_states> 中的”法师警觉、怀疑”，细节由 writer 演绎（如”后颈微凉的直觉暗示”）。
+
+        **Brief 新格式（XML 结构化）**：
+        - <context_references>：前情 prose 文件路径（0-3 个），按直接因果、伏笔呼应、人物状态延续原则选择
+        - <material_layer>：素材层，包含四个子段：
+          - <scene_foundation>：场景底色（关键词式，不含具体措辞），如”仪式大厅，彩色玻璃窗，陈旧木材+蜡烛+香料气味”
+          - <lorebook_refs>：writer 可读的 lorebook 引用路径（如 lorebook/magic/召唤术式.md）
+          - <character_states>：人物情绪标签（如 <state character=”子爵”>紧张、底气不足</state>），不给演绎细节
+          - <lod_ambient_pool>：核心 2-3 个 LOD 事件，按优先级标注（high/medium/low）；剧情密集时少选，独处等待时多选
+        - <plot_skeleton>：剧情骨架（<beat> 标签），事件逻辑不含具体措辞；关键台词可完整给出
+        - <ambient_directives>：可选，环境音使用建议（如”剧情密度高时压到最低”）
+
+        **不使用 lorebook 术语**：用户在故事中还不知道名字的概念，用感官描述代替（”淡蓝色的光圈”而不是”知识之环”）。
+
+        **不出现后台词汇**：Brief 的叙事内容不应出现 brief、tick、裁决、simulator、lorebook、actor、profile（指令元数据如 prose 输出路径不受限）。
+
+        **Brief 结尾路径**：必须告诉 writer 把成稿 prose 写到哪里：给出本 Tick 的 prose 输出路径（如 simulation/runs/ticks/{id}-{slug}/prose.md，{id}-{slug} 由你按 simulation/runs/index.md 顺序分配）。writer 不发明落点，路径由你指定；终稿组装时你用这个路径生成标题链接。
+
+        **Phase 4a/4b/4c 交互式流程**：
+
+        1. **Phase 4a — 调用 writer 检查素材**：
+           - invoke_agent rp.writer，input: {phase: 'check', brief: '<writer_brief>...'}
+           - writer 返回 report_result: {questions: string[]}
+           - 如果 questions 为空数组 → 直接跳到 Phase 4c
+
+        2. **Phase 4b — 评估并补充素材**：
+           - 逐条评估 writer 的问题：
+             - ✓ 允许：设定细节（lorebook 引用的材质/外观/规则、场景物理属性、感官信息）
+             - ✗ 拒绝：人物动机（”为什么紧张”）、剧情决策（”接下来会做什么”）、用户化身行动、内心状态（Brief 未给出时）
+           - 决策树：主语是”什么/哪个/是否” → 可能是设定细节 → 允许；主语是”为什么/怎么办” → 可能是动机/决策 → 拒绝
+           - 合理问题 → 检索 lorebook（read lorebook 引用文件）或推理设定 → 补充 answer 标签（50-150 字）
+           - 越界问题 → 拒绝并说明理由 → rejected 标签（20-50 字）
+           - 组装 supplemental_brief：XML 格式，包含 answer 和 rejected 标签，详见 rp-writer-interaction.md
+
+        3. **Phase 4c — 调用 writer 渲染 prose**：
+           - invoke_agent rp.writer，input: {phase: 'render', brief: '原 brief', supplemental_brief: '如果 Phase 4b 有产出'}
+           - writer 返回普通 assistant 文本：”已将正文写入 xxx.md”
 
         ### 组装回复
 
         writer 完成后，你的回复格式：
 
-        正文内容（复述 writer 产出，或指明正文文件路径——推荐后者）
+        [标题](路径)
         ---
         元场景：回到彩绘的视角，用动作、表情和对话与用户交流，引出下一步。
 
         示例：
 
-        [writer 产出的叙事正文，或正文文件路径引用]
+        [第一幕：不一样的转生](simulation/runs/ticks/000000-initial/prose.md)
         ---
         她把下巴搁在手臂上，眼睛亮亮地看着你。
         "所以——你醒来后，第一件事做什么？"

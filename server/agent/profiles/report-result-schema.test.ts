@@ -2,7 +2,7 @@ import {describe, expect, it} from "vitest";
 import {Type} from "typebox";
 import {reportResultSchemaForProfile} from "nbook/server/agent/profiles/report-result-schema";
 import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
-import {profileToolsFromKeys} from "nbook/server/agent/profiles/profile-tools";
+import {profileToolsFromKeys} from "nbook/server/agent/test/profile-tools";
 import type {TSchema} from "typebox";
 
 describe("reportResultSchemaForProfile", () => {
@@ -83,9 +83,9 @@ describe("reportResultSchemaForProfile", () => {
             },
         });
 
-        const schema = reportResultSchemaForProfile(profile) as TSchema & {properties: Record<string, TSchema>};
-        expect(schema.properties.sidecar_data).toEqual(expect.objectContaining({
-            anyOf: [textSchema, objectSchema],
-        }));
+        const schema = reportResultSchemaForProfile(profile) as TSchema & {properties: Record<string, TSchema & {properties: Record<string, unknown>}>};
+        expect(schema.properties.sidecar_data).toBeDefined();
+        expect(schema.properties.sidecar_data.properties?.load).toBeDefined();
+        expect(schema.properties.sidecar_data.properties?.save).toBeDefined();
     });
 });

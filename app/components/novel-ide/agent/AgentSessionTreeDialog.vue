@@ -2,9 +2,11 @@
 import Dialog from "nbook/app/components/common/Dialog.vue";
 import type {SessionTreeNode} from "nbook/server/agent/session/types";
 import {formatTimestamp} from "nbook/app/components/novel-ide/agent/agent-message";
-import {deriveAgentTreeState, isDefaultVisibleTreeNode} from "nbook/app/components/novel-ide/agent/session-tree";
-
-type FilterMode = "default" | "messages" | "all";
+import {
+    deriveAgentSessionTreeRows,
+    deriveAgentTreeState,
+    type AgentSessionTreeFilterMode,
+} from "nbook/app/components/novel-ide/agent/session-tree";
 
 const props = defineProps<{
     modelValue: boolean;
@@ -19,39 +21,28 @@ const emit = defineEmits<{
 }>();
 
 const search = ref("");
-const filterMode = ref<FilterMode>("default");
+const filterMode = ref<AgentSessionTreeFilterMode>("default");
 const selectedEntryId = ref<string | null>(null);
+const filterOptions: {value: AgentSessionTreeFilterMode; label: string; title: string}[] = [
+    {value: "default", label: "Default", title: "显示主要历史节点"},
+    {value: "no-tools", label: "No-tools", title: "隐藏工具结果，保留对话节点"},
+    {value: "user", label: "User", title: "只看用户与系统注入消息"},
+    {value: "labeled", label: "Labeled", title: "只看已标记或分支摘要节点"},
+    {value: "all", label: "All", title: "显示全部节点"},
+];
 
 const treeState = computed(() => deriveAgentTreeState(props.tree));
+const treeRows = computed(() => deriveAgentSessionTreeRows({
+    tree: props.tree,
+    filterMode: filterMode.value,
+    query: search.value,
+}));
+const activeLeafLabel = computed(() => props.activeLeafId ? shortEntryId(props.activeLeafId) : "-");
 const selectedNode = computed(() => {
     if (selectedEntryId.value) {
         return treeState.value.nodeById.get(selectedEntryId.value) ?? null;
     }
     return props.activeLeafId ? treeState.value.nodeById.get(props.activeLeafId) ?? null : props.tree.find((node) => node.active) ?? null;
-});
-
-const filteredTree = computed(() => {
-    const query = search.value.trim().toLowerCase();
-    return treeState.value.flattenedNodes.filter((node) => {
-        if (filterMode.value === "messages" && node.type !== "message" && node.type !== "custom_message") {
-            return false;
-        }
-        if (filterMode.value === "default" && !isDefaultVisibleTreeNode(node)) {
-            return false;
-        }
-        if (!query) {
-            return true;
-        }
-        return [
-            node.id,
-            node.parentId ?? "",
-            node.role ?? "",
-            node.type,
-            node.preview ?? "",
-            node.toolName ?? "",
-            node.label ?? "",
-        ].some((value) => value.toLowerCase().includes(query));
-    });
 });
 
 watch(() => props.modelValue, (visible) => {
@@ -61,20 +52,38 @@ watch(() => props.modelValue, (visible) => {
 });
 
 /**
- * 根据 parent 链计算缩进层级。
+ * 节点角色色彩。
  */
-function nodeDepth(node: SessionTreeNode): number {
-    let depth = 0;
-    let cursor = node.parentId;
-    while (cursor) {
-        const parent = treeState.value.nodeById.get(cursor);
-        if (!parent) {
-            break;
-        }
-        depth += 1;
-        cursor = parent.parentId;
+function roleToneClass(node: SessionTreeNode): string {
+    if (node.role === "user") {
+        return "border-cyan-500/25 bg-cyan-500/10 text-cyan-700 dark:text-cyan-300";
     }
-    return depth;
+    if (node.role === "assistant") {
+        return "border-emerald-500/25 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300";
+    }
+    if (node.role === "toolResult") {
+        return "border-slate-400/25 bg-slate-400/10 text-slate-600 dark:text-slate-300";
+    }
+    if (node.type === "invocation_lifecycle") {
+        return "border-amber-500/25 bg-amber-500/10 text-amber-700 dark:text-amber-300";
+    }
+    return "border-[var(--border-color)] bg-[var(--bg-input)] text-[var(--text-secondary)]";
+}
+
+/**
+ * 节点圆点色彩。
+ */
+function nodeDotClass(node: SessionTreeNode): string {
+    if (node.id === props.activeLeafId) {
+        return "border-[var(--accent-main)] bg-[var(--accent-main)] shadow-[0_0_0_3px_var(--accent-bg)]";
+    }
+    if (node.active) {
+        return "border-[var(--accent-main)] bg-[var(--accent-main)]/70";
+    }
+    if (!node.terminal) {
+        return "border-amber-500/45 bg-amber-500/20";
+    }
+    return "border-[var(--border-color-hover)] bg-[var(--bg-panel)]";
 }
 
 /**
@@ -85,9 +94,44 @@ function roleLabel(node: SessionTreeNode): string {
         return "assistant";
     }
     if (node.role === "toolResult") {
-        return node.toolName ? `tool:${node.toolName}` : "tool";
+        return node.toolName ? compactToolLabel(node.toolName) : "tool";
+    }
+    if (node.type === "invocation_lifecycle") {
+        return "lifecycle";
     }
     return node.role ?? node.type;
+}
+
+/**
+ * 节点角色完整标题。
+ */
+function roleTitle(node: SessionTreeNode): string {
+    if (node.role === "toolResult" && node.toolName) {
+        return `tool:${node.toolName}`;
+    }
+    if (node.type === "invocation_lifecycle") {
+        return "invocation_lifecycle";
+    }
+    return roleLabel(node);
+}
+
+/**
+ * 压缩常见工具名，避免树列表被工具标签挤占。
+ */
+function compactToolLabel(toolName: string): string {
+    if (toolName === "report_result") {
+        return "report";
+    }
+    if (toolName === "subject_rag_search") {
+        return "rag";
+    }
+    if (toolName === "subject_event_append") {
+        return "event";
+    }
+    if (toolName === "subject_memory_update") {
+        return "memory";
+    }
+    return toolName.length > 16 ? `${toolName.slice(0, 14)}...` : toolName;
 }
 
 /**
@@ -117,6 +161,13 @@ function nodeIcon(node: SessionTreeNode): string {
  */
 function nodePreview(node: SessionTreeNode): string {
     return node.preview || node.label || node.type;
+}
+
+/**
+ * 缩短长 entry id，用于标题和局部元数据展示。
+ */
+function shortEntryId(value: string): string {
+    return value.length > 13 ? `${value.slice(0, 8)}...${value.slice(-4)}` : value;
 }
 
 /**
@@ -151,8 +202,8 @@ async function copyId(value: string | null | undefined): Promise<void> {
     <Dialog
         :model-value="props.modelValue"
         title="Session Tree"
-        width="min(1180px, calc(100vw - 32px))"
-        height="min(760px, calc(100vh - 48px))"
+        width="min(1560px, calc(100vw - 16px))"
+        height="min(920px, calc(100vh - 16px))"
         body-class="!p-0 !gap-0 !overflow-hidden"
         :show-footer="false"
         @update:model-value="emit('update:modelValue', $event)"
@@ -161,7 +212,7 @@ async function copyId(value: string | null | undefined): Promise<void> {
             <div class="flex min-w-0 flex-1 items-center justify-between gap-3">
                 <div class="min-w-0">
                     <div class="text-base font-semibold leading-snug tracking-wide text-[var(--text-main)]">Session Tree</div>
-                    <div class="truncate text-[11px] uppercase tracking-[0.2em] text-[var(--text-muted)]">{{ props.tree.length }} nodes · leaf {{ props.activeLeafId ?? "-" }}</div>
+                    <div class="truncate text-[11px] uppercase tracking-[0.2em] text-[var(--text-muted)]">{{ props.tree.length }} nodes · leaf {{ activeLeafLabel }}</div>
                 </div>
                 <button class="flex h-7 w-7 items-center justify-center rounded-md text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" @click="emit('update:modelValue', false)">
                     <span class="i-lucide-x h-4 w-4"></span>
@@ -178,32 +229,51 @@ async function copyId(value: string | null | undefined): Promise<void> {
                         <input v-model="search" class="min-w-0 flex-1 bg-transparent text-sm text-[var(--text-main)] outline-none placeholder:text-[var(--text-muted)]" placeholder="搜索内容、类型或 Entry ID..." />
                     </div>
                     <div class="flex h-9 overflow-hidden rounded-md border border-[var(--border-color)] bg-[var(--bg-input)]">
-                        <button class="px-3 text-xs transition-colors" :class="filterMode === 'default' ? 'bg-[var(--accent-bg)] text-[var(--accent-text)]' : 'text-[var(--text-muted)] hover:bg-[var(--bg-hover)]'" @click="filterMode = 'default'">默认</button>
-                        <button class="border-l border-[var(--border-color)] px-3 text-xs transition-colors" :class="filterMode === 'messages' ? 'bg-[var(--accent-bg)] text-[var(--accent-text)]' : 'text-[var(--text-muted)] hover:bg-[var(--bg-hover)]'" @click="filterMode = 'messages'">消息</button>
-                        <button class="border-l border-[var(--border-color)] px-3 text-xs transition-colors" :class="filterMode === 'all' ? 'bg-[var(--accent-bg)] text-[var(--accent-text)]' : 'text-[var(--text-muted)] hover:bg-[var(--bg-hover)]'" @click="filterMode = 'all'">全部</button>
+                        <button
+                            v-for="option in filterOptions"
+                            :key="option.value"
+                            class="border-l border-[var(--border-color)] px-3 text-xs transition-colors first:border-l-0"
+                            :class="filterMode === option.value ? 'bg-[var(--accent-bg)] text-[var(--accent-text)]' : 'text-[var(--text-muted)] hover:bg-[var(--bg-hover)]'"
+                            :title="option.title"
+                            @click="filterMode = option.value"
+                        >
+                            {{ option.label }}
+                        </button>
                     </div>
                 </div>
 
                 <div class="min-h-0 flex-1 overflow-y-auto px-4 py-3">
-                    <div v-if="filteredTree.length > 0" class="space-y-1.5">
+                    <div v-if="treeRows.length > 0" class="overflow-hidden rounded-md border border-[var(--border-color)] bg-[var(--bg-sidebar)]">
                         <button
-                            v-for="nodeItem in filteredTree"
-                            :key="nodeItem.id"
-                            class="flex w-full min-w-0 items-center gap-2 rounded-md border px-2.5 py-2 text-left transition-colors"
+                            v-for="row in treeRows"
+                            :key="row.node.id"
+                            class="group/node flex min-h-8 w-full min-w-0 items-stretch gap-2 border-b border-[var(--border-color)]/55 px-2 py-1.5 text-left transition-colors last:border-b-0"
                             :class="[
-                                nodeItem.id === selectedNode?.id ? 'border-[var(--accent-main)] bg-[var(--accent-bg)]/40' : nodeItem.active ? 'border-[var(--border-color-hover)] bg-[var(--bg-hover)]/70' : 'border-[var(--border-color)] bg-[var(--bg-sidebar)] hover:bg-[var(--bg-hover)]',
-                                nodeItem.id === props.activeLeafId ? 'shadow-[inset_3px_0_0_var(--accent-main)]' : '',
+                                row.node.id === selectedNode?.id ? 'bg-[var(--accent-bg)]/45' : row.node.active ? 'bg-[var(--bg-hover)]/60' : 'hover:bg-[var(--bg-hover)]/75',
+                                row.node.id === props.activeLeafId ? 'shadow-[inset_3px_0_0_var(--accent-main)]' : '',
                             ]"
-                            @click="selectNode(nodeItem)"
+                            @click="selectNode(row.node)"
                             @dblclick="activateSelected"
                         >
-                            <span class="shrink-0 font-mono text-[11px] text-[var(--text-muted)]" :style="{width: `${Math.min(nodeDepth(nodeItem), 8) * 18}px`}"></span>
-                            <span class="h-2 w-2 shrink-0 rounded-full border" :class="nodeItem.active ? 'border-[var(--accent-main)] bg-[var(--accent-main)]' : 'border-[var(--border-color-hover)] bg-[var(--bg-panel)]'"></span>
-                            <span :class="nodeIcon(nodeItem)" class="h-3.5 w-3.5 shrink-0 text-[var(--text-muted)]"></span>
-                            <span class="shrink-0 rounded border border-[var(--border-color)] bg-[var(--bg-input)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--text-secondary)]">{{ roleLabel(nodeItem) }}</span>
-                            <span class="min-w-0 flex-1 truncate text-sm text-[var(--text-main)]">{{ nodePreview(nodeItem) }}</span>
-                            <span v-if="nodeItem.childCount > 0" class="shrink-0 rounded bg-[var(--bg-input)] px-1.5 py-0.5 text-[10px] text-[var(--text-muted)]">{{ nodeItem.childCount }}</span>
-                            <span class="shrink-0 text-[10px] text-[var(--text-muted)]">{{ formatTimestamp(nodeItem.timestamp) }}</span>
+                            <span class="flex shrink-0 self-stretch" aria-hidden="true">
+                                <span v-for="(part, guideIndex) in row.guideParts" :key="`${row.node.id}-guide-${guideIndex}`" class="relative w-4 shrink-0">
+                                    <span v-if="part === 'line' || part === 'branch'" class="absolute bottom-[-8px] left-1/2 top-[-8px] w-px -translate-x-1/2 bg-[var(--border-color-hover)]/55"></span>
+                                    <span v-else-if="part === 'end'" class="absolute bottom-1/2 left-1/2 top-[-8px] w-px -translate-x-1/2 bg-[var(--border-color-hover)]/55"></span>
+                                    <span v-if="part === 'branch' || part === 'end'" class="absolute left-0 top-1/2 h-px w-1/2 bg-[var(--border-color-hover)]/65"></span>
+                                    <span v-if="part === 'root' || part === 'branch' || part === 'end'" class="absolute left-1/2 top-1/2 z-10 h-2 w-2 -translate-x-1/2 -translate-y-1/2 rounded-full border" :class="nodeDotClass(row.node)"></span>
+                                </span>
+                            </span>
+                            <span :class="nodeIcon(row.node)" class="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--text-muted)]"></span>
+                            <span class="mt-[1px] max-w-[112px] shrink-0 truncate rounded border px-1.5 py-0.5 text-[10px] font-medium leading-none" :class="roleToneClass(row.node)" :title="roleTitle(row.node)">{{ roleLabel(row.node) }}</span>
+                            <span class="min-w-0 flex-1 truncate text-[13px] leading-5 text-[var(--text-main)]">{{ nodePreview(row.node) }}</span>
+                            <span v-if="row.isBranchPoint" class="mt-[1px] inline-flex h-4 shrink-0 items-center gap-1 rounded border border-[var(--border-color)] bg-[var(--bg-input)] px-1.5 text-[10px] text-[var(--text-muted)]" title="分支数量">
+                                <span class="i-lucide-git-fork h-3 w-3"></span>
+                                {{ row.node.childCount }}
+                            </span>
+                            <span v-else-if="row.branchSiblingCount > 1 && row.branchIndex !== null" class="mt-[1px] inline-flex h-4 shrink-0 items-center rounded border border-[var(--border-color)] bg-[var(--bg-input)] px-1.5 text-[10px] text-[var(--text-muted)]" title="所在分支">
+                                {{ row.branchIndex + 1 }}/{{ row.branchSiblingCount }}
+                            </span>
+                            <span class="mt-[1px] shrink-0 text-[10px] leading-4 text-[var(--text-muted)]">{{ formatTimestamp(row.node.timestamp) }}</span>
                         </button>
                     </div>
                     <div v-else class="rounded-md border border-dashed border-[var(--border-color)] bg-[var(--bg-sidebar)] px-4 py-12 text-center text-sm text-[var(--text-muted)]">
@@ -213,7 +283,7 @@ async function copyId(value: string | null | undefined): Promise<void> {
             </div>
 
             <!-- 节点详情 -->
-            <aside class="flex w-[340px] shrink-0 flex-col bg-[var(--bg-main)]">
+            <aside class="flex w-[420px] shrink-0 flex-col bg-[var(--bg-main)]">
                 <div class="border-b border-[var(--border-color)] px-4 py-3">
                     <div class="text-sm font-semibold text-[var(--text-main)]">节点详情</div>
                     <div class="mt-1 text-[11px] uppercase tracking-[0.18em] text-[var(--text-muted)]">Entry Metadata</div>
@@ -221,23 +291,23 @@ async function copyId(value: string | null | undefined): Promise<void> {
                 <div v-if="selectedNode" class="min-h-0 flex-1 overflow-y-auto px-4 py-4">
                     <div class="mb-4 flex items-center gap-2">
                         <span :class="nodeIcon(selectedNode)" class="h-4 w-4 text-[var(--accent-text)]"></span>
-                        <span class="rounded border border-[var(--border-color)] bg-[var(--bg-input)] px-2 py-1 text-xs font-medium text-[var(--text-main)]">{{ roleLabel(selectedNode) }}</span>
+                        <span class="rounded border px-2 py-1 text-xs font-medium" :class="roleToneClass(selectedNode)" :title="roleTitle(selectedNode)">{{ roleLabel(selectedNode) }}</span>
                         <span v-if="selectedNode.id === props.activeLeafId" class="rounded bg-[var(--accent-bg)] px-2 py-1 text-[10px] text-[var(--accent-text)]">LEAF</span>
                     </div>
 
                     <div class="rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] p-3">
                         <div class="mb-2 text-xs font-medium text-[var(--text-main)]">内容</div>
-                        <div class="max-h-[220px] overflow-y-auto whitespace-pre-wrap text-sm leading-relaxed text-[var(--text-secondary)]">{{ nodePreview(selectedNode) }}</div>
+                        <div class="max-h-[360px] overflow-y-auto whitespace-pre-wrap text-sm leading-relaxed text-[var(--text-secondary)]">{{ nodePreview(selectedNode) }}</div>
                     </div>
 
                     <div class="mt-4 space-y-2 rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] p-3 text-xs">
                         <div class="flex items-center justify-between gap-3">
                             <span class="text-[var(--text-muted)]">Entry ID</span>
-                            <button class="min-w-0 truncate font-mono text-[var(--accent-text)]" @click="void copyId(selectedNode.id)">{{ selectedNode.id }}</button>
+                            <button class="min-w-0 truncate font-mono text-[var(--accent-text)]" :title="selectedNode.id" @click="void copyId(selectedNode.id)">{{ shortEntryId(selectedNode.id) }}</button>
                         </div>
                         <div class="flex items-center justify-between gap-3">
                             <span class="text-[var(--text-muted)]">Parent</span>
-                            <button class="min-w-0 truncate font-mono text-[var(--text-secondary)]" @click="void copyId(selectedNode.parentId)">{{ selectedNode.parentId ?? "-" }}</button>
+                            <button class="min-w-0 truncate font-mono text-[var(--text-secondary)]" :title="selectedNode.parentId ?? '-'" @click="void copyId(selectedNode.parentId)">{{ selectedNode.parentId ? shortEntryId(selectedNode.parentId) : "-" }}</button>
                         </div>
                         <div class="flex items-center justify-between gap-3">
                             <span class="text-[var(--text-muted)]">Type</span>

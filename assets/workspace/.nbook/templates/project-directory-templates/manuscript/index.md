@@ -1,5 +1,5 @@
 ---
-title: manuscript
+title: 正文
 type: volume
 subtype: null
 status: draft

@@ -10,6 +10,7 @@ import type {
     AgentQueuedMessageDto,
     AgentRuntimeStreamEventDto,
     AgentSessionListQueryDto,
+    AgentSessionRelationsDto,
     AgentSessionSnapshotDto,
     AgentSessionSummaryDto,
     AgentTreeRequestDto,
@@ -139,6 +140,7 @@ export type AgentAbortResult = {
 export type AgentSessionService = {
     listSessions(query?: AgentSessionListQueryDto): Promise<AgentSessionSummaryDto[]>;
     getSessionSnapshot(sessionId: number): Promise<AgentSessionSnapshotDto>;
+    getSessionRelations(sessionId: number): Promise<AgentSessionRelationsDto>;
     runCommand(sessionId: number, body: AgentCommandRequestDto): Promise<AgentCommandResult>;
     moveTree(sessionId: number, body: AgentTreeRequestDto): Promise<AgentTreeResult>;
     abortInvocation(sessionId: number, body?: AgentAbortRequestDto): Promise<AgentAbortResult>;

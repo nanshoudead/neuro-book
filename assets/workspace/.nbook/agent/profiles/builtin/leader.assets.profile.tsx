@@ -3,7 +3,7 @@
 import type {Static} from "typebox";
 import {resolve} from "node:path";
 import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
-import {profileToolsFromKeys} from "nbook/server/agent/profiles/profile-tools";
+import {defineProfileTools, tools} from "nbook/server/agent/profiles/profile-tools";
 import type {ProfilePrepareContext} from "nbook/server/agent/profiles/types";
 import {LeaderDefaultInputSchema, LeaderDefaultOutputSchema} from "nbook/server/agent/profiles/builtin-contracts";
 import {
@@ -35,31 +35,29 @@ export const OutputSchema = LeaderDefaultOutputSchema;
 export type Input = Static<typeof InputSchema>;
 export type Output = Static<typeof OutputSchema>;
 
-const toolKeys = [
-    "read",
-    "write",
-    "edit",
-    "apply_patch",
-    "bash",
-    "create_agent",
-    "invoke_agent",
-    "get_agent",
-    "get_agent_profile",
-    "get_session",
-    "detach_agent",
-    "request_user_input",
-    "enter_plan_mode",
-    "exit_plan_mode",
-    "variable_schema",
-    "variable_read",
-    "variable_patch",
-] as const;
-
 export default defineAgentProfile({
     manifest: profileManifest,
     inputSchema: InputSchema,
     outputSchema: OutputSchema,
-    tools: profileToolsFromKeys(toolKeys),
+    tools: defineProfileTools({
+        read: tools.read(),
+        write: tools.write(),
+        edit: tools.edit(),
+        apply_patch: tools.applyPatch(),
+        bash: tools.bash(),
+        create_agent: tools.createAgent(),
+        invoke_agent: tools.invokeAgent(),
+        get_agent: tools.getAgent(),
+        get_agent_profile: tools.getAgentProfile(),
+        get_session: tools.getSession(),
+        detach_agent: tools.detachAgent(),
+        request_user_input: tools.requestUserInput(),
+        enter_plan_mode: tools.enterPlanMode(),
+        exit_plan_mode: tools.exitPlanMode(),
+        variable_schema: tools.variableSchema(),
+        variable_read: tools.variableRead(),
+        variable_patch: tools.variablePatch(),
+    }),
     summarizer: {
         profileKey: "summarizer",
         input: {

@@ -115,6 +115,11 @@ function createSubjectRagSearchTool(): NeuroAgentTool {
             });
             return {
                 content: [{type: "text", text: renderSubjectRagCandidates(candidates)}],
+                details: {
+                    subjectPath: input.subjectPath,
+                    source: sources[0],
+                    count: candidates.length,
+                },
             };
         },
         async execute() {
@@ -127,7 +132,7 @@ function defaultSearchLimit(source: SubjectSourceType): number {
     return source === "events" ? 6 : 4;
 }
 
-function normalizeSearchSources(sources: SubjectRagSearchInput["sources"]): SubjectSourceType[] {
+function normalizeSearchSources(sources: SubjectRagSearchInput["sources"]): [SubjectSourceType] {
     if (!Array.isArray(sources) || sources.length !== 1) {
         throw new Error("subject_rag_search 必须显式指定且只能指定一个 source：events 或 memory。需要两层记忆时请分别调用两次。");
     }

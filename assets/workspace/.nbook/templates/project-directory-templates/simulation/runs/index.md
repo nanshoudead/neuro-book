@@ -1,4 +1,24 @@
-# Simulation Runs
+---
+title: 模拟记录
+type: note
+subtype: directory-index
+status: active
+icon: activity
+aliases: []
+tags:
+  - 目录说明
+summary: "Simulation run index."
+refs: []
+retrieval:
+  enabled: false
+  trigger: null
+governance:
+  source: system-template
+  review: reviewed
+ext: {}
+---
+
+# 模拟记录
 
 本文件索引当前 Project Workspace 的 simulation / emulation tick。`runs/` 是过程记录，不是 canonical lorebook，也不是 subject 长期记忆。
 

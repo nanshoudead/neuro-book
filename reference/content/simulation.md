@@ -58,7 +58,7 @@ Current RP / simulation profile contract:
 | `rp.leader` | RP host and user-facing coordinator. It manages quickstart, table contract, companion-mode conversation, player-safe explanation and handoff to simulation. It may call `simulator.leader` for world adjudication instead of silently rewriting runtime state. | `AGENTS.md`, `manual/README.md`, `manual/player-guide/`, `manual/gm-guide.md`, `agent-context/rp.leader/context.md`, `agent-context/rp.leader/memory.md`, and user-approved context. | RP-facing notes only when explicitly requested or approved. Runtime state changes should be handed to `simulator.leader` or written only after clear user authorization and simulation contract review. |
 | `simulator.leader` | World simulator leader shared by writing mode and RP. It understands the task or user action, dispatches actor emulators, adjudicates the world, maintains state/entities, builds writer-safe brief and reports the result. | `AGENTS.md`, `agent-context/simulator.leader/context.md`, recent `simulation/runs/`, subject/entity state, Plot context and god-view lorebook / reference allowed by its context. | Approved subject `state.md`, `simulation/entities/`, necessary `simulation/runs/` and explicit simulation context changes. New subjects/entities should be reported before creation unless the current prompt explicitly grants automatic authority. |
 | `simulator.actor` | Single-subject simulator. Its main run Imports `soul.md` (first-person roleplay handbook) as identity, and only uses actor-safe context injected by sidecar plus the current actor-facing packet. It never sees `subject.md` (god-view secret file). | Main run sees `soul.md`, actor binding metadata, `<actor-sidecar-context>` and the current actor-facing packet. `actor.context-load` sidecar is a pure RAG retriever: it reads no files and only runs subject RAG over `events.jsonl` / `memory.jsonl`. | Main run does not write files; `actor.memory-save` sidecar appends `events.jsonl`, curates `memory.jsonl`, and updates `mind.md`. It reads/writes neither `subject.md`, `soul.md` nor `state.md`. |
-| `rp.writer` | Tick prose renderer. It turns an upstream writer brief into user-visible prose, keeping the small-cat writer preset and RP storytelling tone. | Profile input is empty. It only consumes the current writer brief and reads extra paths when the brief explicitly asks it to. | Normal assistant prose; writes files only when writer brief explicitly specifies an output path. |
+| `rp.writer` | Tick prose renderer. It turns an upstream writer brief into user-visible prose through a multi-step pass: draft, stop-slop self-review, then write and polish. It keeps the small-cat writer preset and RP storytelling tone. | Profile input is empty. It only consumes the current writer brief and reads extra paths when the brief explicitly asks it to. | Writes the final prose to the output path given in the writer brief (typically `simulation/runs/ticks/{id}-{slug}/prose.md`). Falls back to assistant-text prose only when the brief omits an output path. |
 
 `simulator.leader` must not hand complete `simulation/`, `lorebook/` or `reference/` to actor / writer. It filters god-view context into actor-facing messages or writer briefs.
 
@@ -82,6 +82,8 @@ type SubjectSimulatorInput = {
 ## Subjects
 
 `simulation/subjects/{subject-id}/` stores entities that can know, misunderstand, judge, act and hide information. The player character should also be a subject.
+
+详细文件职责与分流规则见 [subjects.md](subjects.md)。
 
 ```text
 simulation/subjects/{subject-id}/
@@ -174,7 +176,7 @@ For a new concept, classify in this order:
 
 1. Is it stable canon, subject-facing knowledge, entity runtime state, plot plan, run process artifact or raw external material?
 2. Stable canon goes to the most fitting `lorebook/` type.
-3. Subject-facing knowledge goes to `simulation/subjects/{id}/`. Split by visibility: what the character knows about itself goes to `soul.md`; hidden truths and author intent go to the god-view `subject.md`. See [../agent/rp-tick/subject-authoring.md](../agent/rp-tick/subject-authoring.md).
+3. Subject-facing knowledge goes to `simulation/subjects/{id}/`. Split by visibility: what the character knows about itself goes to `soul.md`; hidden truths and author intent go to the god-view `subject.md`. See [subjects.md](subjects.md) for file architecture and [../agent/rp-tick/subject-creation-guide.md](../agent/rp-tick/subject-creation-guide.md) for creation flow.
 4. Stateful instances go to `simulation/entities/{id}/`.
 5. Runtime process goes to `simulation/runs/`.
 6. Plot planning goes to Plot System.

@@ -486,7 +486,10 @@ describe("RP builtin profiles", () => {
                     archived: false,
                     planModeActive: false,
                 }),
-                input: {},
+                input: {
+                    phase: 'render',
+                    brief: '<writer_brief>测试 brief</writer_brief>\n\nprose 输出路径：simulation/runs/ticks/000001-test/prose.md',
+                },
                 vars: createTestVariableAccessor(),
                 catalog: {profiles: [], issues: []},
                 skills: [],
@@ -496,7 +499,7 @@ describe("RP builtin profiles", () => {
             const modelContextText = messagesText(prepared.modelContextMessages);
             const appendingText = messagesText(prepared.appendingMessages);
 
-            expect(rpWriterProfile.toolKeys).toEqual(["read", "write", "edit", "bash"]);
+            expect(rpWriterProfile.toolKeys).toEqual(["read", "write", "edit", "bash", "report_result"]);
             expect(systemPrompt).toContain("<writing_reference>");
             expect(systemPrompt).toContain("<role>小猫之神</role>");
             expect(systemPrompt).toContain("<thinking_mode>");
@@ -506,8 +509,10 @@ describe("RP builtin profiles", () => {
             expect(systemPrompt).toContain("<important>");
             expect(systemPrompt).toContain("<paragraph_rhythm>");
             expect(systemPrompt).toContain("<markdown_dialect>");
-            expect(systemPrompt).toContain("只负责把上级通过当前消息注入的 writer brief");
-            expect(systemPrompt).toContain("profile input 是空对象");
+            expect(systemPrompt).toContain("职责根据 phase 参数分为两个阶段");
+            expect(systemPrompt).toContain("Phase 4a（phase=check）：素材检查与提问");
+            expect(systemPrompt).toContain("Phase 4c（phase=render）：渲染 prose");
+            expect(systemPrompt).toContain("profile input 包含 phase、brief、supplemental_brief");
             expect(systemPrompt).toContain("不要期待 chapterPaths、lorebookEntries、writerInstructionPath");
             expect(systemPrompt).toContain("一切素材都由上级在 writer brief 中注入");
             expect(systemPrompt).toContain("不主动读取 lorebook/、manual/、simulation/、agent-context/ 或 reference/");

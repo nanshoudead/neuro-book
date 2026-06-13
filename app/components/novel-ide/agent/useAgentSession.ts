@@ -1,4 +1,4 @@
-import type {AgentRuntimeStreamEventDto, AgentSessionEventDto, AgentSessionLiveStateDto, AgentSessionSnapshotDto} from "nbook/shared/dto/agent-session.dto";
+import type {AgentRuntimeStreamEventDto, AgentSessionEventDto, AgentSessionLiveStateDto, AgentSessionRelationsDto, AgentSessionSnapshotDto} from "nbook/shared/dto/agent-session.dto";
 import {computed, getCurrentScope, onScopeDispose, ref, shallowRef} from "vue";
 import {
     applyRuntimeEventToMessages,
@@ -224,6 +224,20 @@ export function useAgentSession() {
     };
 
     /**
+     * 只更新关联 Agent 面板需要的关系数据，不重建消息流。
+     */
+    const applyRelations = (payload: AgentSessionRelationsDto): void => {
+        if (!snapshot.value || snapshot.value.summary.sessionId !== payload.sessionId) {
+            return;
+        }
+        snapshot.value = {
+            ...snapshot.value,
+            linkedAgents: payload.linkedAgents,
+            linkedByAgents: payload.linkedByAgents,
+        };
+    };
+
+    /**
      * 应用轻量 live state。它只更新运行态 shell，不重建历史消息。
      */
     const applyLiveState = (state: AgentSessionLiveStateDto): void => {
@@ -341,6 +355,10 @@ export function useAgentSession() {
                     pendingUserInputSession.value = null;
                 }
             }
+            if (payload.event.entry.type === "custom"
+                && (payload.event.entry.key.startsWith("agent.link.") || payload.event.entry.key.startsWith("agent.detach."))) {
+                requestSnapshot("linked_agent_changed");
+            }
             return;
         }
 
@@ -380,6 +398,7 @@ export function useAgentSession() {
         appendOptimisticUserMessage,
         applyConnectionStatus,
         applyEvent,
+        applyRelations,
         applySnapshot,
         clearSnapshotRequest,
         clearPendingUserInputSession,

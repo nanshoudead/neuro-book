@@ -2,7 +2,7 @@
 /** @jsxRuntime automatic */
 import type {Static} from "typebox";
 import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
-import {profileToolsFromKeys} from "nbook/server/agent/profiles/profile-tools";
+import {defineProfileTools, tools} from "nbook/server/agent/profiles/profile-tools";
 import {DirectorInputSchema, DirectorOutputSchema} from "nbook/server/agent/profiles/builtin-contracts";
 import {AgentCatalog, AppendingSet, HistorySet, Import, LinkedAgentsReminder, Message, ModelContext, ProfilePrompt, RuntimeLocationReminder, System, WorkspaceFocusReminder} from "nbook/server/agent/profiles/profile-dsl";
 import {profileText} from "nbook/server/agent/profiles/profile-text";
@@ -19,32 +19,30 @@ export const OutputSchema = DirectorOutputSchema;
 export type Input = Static<typeof InputSchema>;
 export type Output = Static<typeof OutputSchema>;
 
-const toolKeys = [
-    "read",
-    "create_agent",
-    "invoke_agent",
-    "get_agent",
-    "get_agent_profile",
-    "get_session",
-    "get_plot_tree",
-    "get_story_thread",
-    "get_story_scene_context",
-    "get_chapter_plot",
-    "create_story_thread",
-    "update_story_thread",
-    "create_story_scene",
-    "update_story_scene",
-    "create_story_plot",
-    "create_story_plots",
-    "update_story_plot",
-    "report_result",
-] as const;
-
 export default defineAgentProfile({
     manifest: profileManifest,
     inputSchema: InputSchema,
     outputSchema: OutputSchema,
-    tools: profileToolsFromKeys(toolKeys),
+    tools: defineProfileTools({
+        read: tools.read(),
+        create_agent: tools.createAgent(),
+        invoke_agent: tools.invokeAgent(),
+        get_agent: tools.getAgent(),
+        get_agent_profile: tools.getAgentProfile(),
+        get_session: tools.getSession(),
+        get_plot_tree: tools.getPlotTree(),
+        get_story_thread: tools.getStoryThread(),
+        get_story_scene_context: tools.getStorySceneContext(),
+        get_chapter_plot: tools.getChapterPlot(),
+        create_story_thread: tools.createStoryThread(),
+        update_story_thread: tools.updateStoryThread(),
+        create_story_scene: tools.createStoryScene(),
+        update_story_scene: tools.updateStoryScene(),
+        create_story_plot: tools.createStoryPlot(),
+        create_story_plots: tools.createStoryPlots(),
+        update_story_plot: tools.updateStoryPlot(),
+        report_result: tools.reportResult(),
+    }),
     compaction: {},
     context(ctx) {
         return (

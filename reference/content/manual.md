@@ -2,12 +2,13 @@
 
 `manual/` stores human-facing handbooks for play, onboarding and tabletop-style RP operation. It is the readable entry for players, GMs and authors; RP-facing agents may read it to communicate in human tabletop terms.
 
-It is not a content node root. Files under `manual/` are ordinary Markdown files unless a future tool explicitly says otherwise.
+It is not a content node root. `manual/index.md` may carry directory display frontmatter for the file tree; other files under `manual/` are ordinary Markdown files unless a future tool explicitly says otherwise.
 
 ## Default Shape
 
 ```text
 manual/
+|-- index.md
 |-- README.md
 |-- world-guide.md
 |-- rules-guide.md

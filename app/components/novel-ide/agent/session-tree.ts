@@ -1,14 +1,106 @@
 import type {SessionTreeNode} from "nbook/server/agent/session/types";
 import type {AgentMessageSwitcherState} from "nbook/app/components/novel-ide/agent/agent-message";
 
+export type AgentSessionTreeFilterMode = "default" | "no-tools" | "user" | "labeled" | "all";
+
+export type TreeGuidePart = "space" | "line" | "branch" | "end" | "root";
+
+export type AgentSessionTreeRow = {
+    node: SessionTreeNode;
+    visibleParentId: string | null;
+    /** 节点所在 lane 的深度，不是原始树递归深度。线性子节点继承父 lane，例如 D1 与 C1 同 depth。 */
+    laneDepth: number;
+    isBranchPoint: boolean;
+    branchSiblingCount: number;
+    branchIndex: number | null;
+    guideParts: TreeGuidePart[];
+};
+
 export type AgentTreeDerivedState = {
     nodeById: Map<string, SessionTreeNode>;
     childrenByParentId: Map<string | null, SessionTreeNode[]>;
     activePathIds: Set<string>;
     flattenedNodes: SessionTreeNode[];
     terminalByBranchRootId: Map<string, SessionTreeNode>;
+    /** 消息气泡 swipe 状态。nodeIds 表示同一 branch point 下的 continuation lane roots，不保证每个 root 都是 message。 */
     switcherByMessageId: Record<string, AgentMessageSwitcherState>;
 };
+
+/**
+ * 将原始 session tree 投影成 UI 可直接渲染的 continuation tree rows。
+ *
+ * 这里的 lane 深度只在真实 branch point 下进入 continuation 时增加；
+ * 线性 parent-child 不会让行继续右移。
+ */
+export function deriveAgentSessionTreeRows(input: {
+    tree: SessionTreeNode[];
+    filterMode: AgentSessionTreeFilterMode;
+    query?: string;
+}): AgentSessionTreeRow[] {
+    const state = deriveAgentTreeState(input.tree);
+    const query = input.query?.trim().toLowerCase() ?? "";
+    const baseVisibleIds = new Set<string>();
+
+    for (const node of state.flattenedNodes) {
+        if (matchesTreeFilterMode(node, input.filterMode) || isRawBranchPoint(node)) {
+            baseVisibleIds.add(node.id);
+        }
+    }
+
+    const visibleIds = query
+        ? visibleIdsForSearch(state, baseVisibleIds, query)
+        : new Set(baseVisibleIds);
+
+    if (!query) {
+        addBranchLaneRoots(state, visibleIds);
+    }
+
+    for (const nodeId of [...visibleIds]) {
+        const node = state.nodeById.get(nodeId);
+        if (node) {
+            addBranchAnchors(node, state, visibleIds);
+        }
+    }
+
+    const depthById = new Map<string, number>();
+    const resolveLaneDepth = (node: SessionTreeNode): number => {
+        const cached = depthById.get(node.id);
+        if (cached !== undefined) {
+            return cached;
+        }
+        const parent = node.parentId ? state.nodeById.get(node.parentId) ?? null : null;
+        const depth = parent
+            ? resolveLaneDepth(parent) + (isRawBranchPoint(parent) ? 1 : 0)
+            : 0;
+        depthById.set(node.id, depth);
+        return depth;
+    };
+
+    for (const node of state.flattenedNodes) {
+        resolveLaneDepth(node);
+    }
+
+    return state.flattenedNodes
+        .filter((node) => visibleIds.has(node.id))
+        .map((node) => {
+            const parent = node.parentId ? state.nodeById.get(node.parentId) ?? null : null;
+            const branchSiblings = parent && isRawBranchPoint(parent)
+                ? state.childrenByParentId.get(parent.id) ?? []
+                : [];
+            const branchIndex = branchSiblings.findIndex((item) => item.id === node.id);
+            const laneDepth = depthById.get(node.id) ?? 0;
+
+            return {
+                node,
+                visibleParentId: nearestVisibleParentId(node, state, visibleIds),
+                laneDepth,
+                isBranchPoint: isRawBranchPoint(node),
+                branchSiblingCount: branchSiblings.length,
+                branchIndex: branchIndex >= 0 ? branchIndex : null,
+                guideParts: treeGuideParts(node, state, laneDepth),
+            };
+        });
+}
 
 /**
  * 从 session tree DTO 派生前端切分支所需索引。
@@ -37,13 +129,15 @@ export function deriveAgentTreeState(tree: SessionTreeNode[]): AgentTreeDerivedS
         terminalByBranchRootId.set(node.id, resolveLatestTerminal(node, childrenByParentId));
     }
 
+    const flattenedNodes = flattenTreeNodes(childrenByParentId);
+
     return {
         nodeById,
         childrenByParentId,
         activePathIds,
-        flattenedNodes: flattenTreeNodes(childrenByParentId),
+        flattenedNodes,
         terminalByBranchRootId,
-        switcherByMessageId: deriveSwitcherByMessageId(tree, childrenByParentId),
+        switcherByMessageId: deriveSwitcherByMessageId({flattenedNodes, childrenByParentId}),
     };
 }
 
@@ -76,29 +170,164 @@ export function isDefaultVisibleTreeNode(node: SessionTreeNode): boolean {
     return node.type === "compaction" || node.type === "branch_summary";
 }
 
-function deriveSwitcherByMessageId(
-    tree: SessionTreeNode[],
+function matchesTreeFilterMode(node: SessionTreeNode, filterMode: AgentSessionTreeFilterMode): boolean {
+    if (filterMode === "all") {
+        return true;
+    }
+    if (filterMode === "no-tools") {
+        const assistantToolOnly = node.role === "assistant" && (node.preview ?? "").startsWith("[tool:");
+        return isDefaultVisibleTreeNode(node) && node.role !== "toolResult" && !node.toolName && !assistantToolOnly;
+    }
+    if (filterMode === "user") {
+        return node.role === "user";
+    }
+    if (filterMode === "labeled") {
+        return Boolean(node.label) || node.type === "branch_summary";
+    }
+    return isDefaultVisibleTreeNode(node);
+}
+
+function visibleIdsForSearch(
+    state: AgentTreeDerivedState,
+    baseVisibleIds: Set<string>,
+    query: string,
+): Set<string> {
+    const visibleIds = new Set<string>();
+    for (const node of state.flattenedNodes) {
+        if (!baseVisibleIds.has(node.id) || !matchesSearchQuery(node, query)) {
+            continue;
+        }
+        visibleIds.add(node.id);
+        addBranchAnchors(node, state, visibleIds);
+    }
+    return visibleIds;
+}
+
+function matchesSearchQuery(node: SessionTreeNode, query: string): boolean {
+    return [
+        node.id,
+        node.parentId ?? "",
+        node.role ?? "",
+        node.type,
+        node.preview ?? "",
+        node.toolName ?? "",
+        node.label ?? "",
+    ].some((value) => value.toLowerCase().includes(query));
+}
+
+function addBranchAnchors(
+    node: SessionTreeNode,
+    state: Pick<AgentTreeDerivedState, "nodeById">,
+    visibleIds: Set<string>,
+): void {
+    const path = pathToRoot(node, state.nodeById).reverse();
+    for (let index = 0; index < path.length - 1; index += 1) {
+        const ancestor = path[index]!;
+        if (!isRawBranchPoint(ancestor)) {
+            continue;
+        }
+        visibleIds.add(ancestor.id);
+        visibleIds.add(path[index + 1]!.id);
+    }
+}
+
+function addBranchLaneRoots(
+    state: Pick<AgentTreeDerivedState, "flattenedNodes" | "childrenByParentId">,
+    visibleIds: Set<string>,
+): void {
+    for (const node of state.flattenedNodes) {
+        if (!visibleIds.has(node.id) || !isRawBranchPoint(node)) {
+            continue;
+        }
+        for (const child of state.childrenByParentId.get(node.id) ?? []) {
+            visibleIds.add(child.id);
+        }
+    }
+}
+
+function pathToRoot(node: SessionTreeNode, nodeById: Map<string, SessionTreeNode>): SessionTreeNode[] {
+    const path: SessionTreeNode[] = [];
+    let cursor: SessionTreeNode | undefined = node;
+    while (cursor) {
+        path.push(cursor);
+        cursor = cursor.parentId ? nodeById.get(cursor.parentId) : undefined;
+    }
+    return path;
+}
+
+function nearestVisibleParentId(
+    node: SessionTreeNode,
+    state: Pick<AgentTreeDerivedState, "nodeById">,
+    visibleIds: Set<string>,
+): string | null {
+    let cursor = node.parentId;
+    while (cursor) {
+        if (visibleIds.has(cursor)) {
+            return cursor;
+        }
+        cursor = state.nodeById.get(cursor)?.parentId ?? null;
+    }
+    return null;
+}
+
+function treeGuideParts(
+    node: SessionTreeNode,
+    state: Pick<AgentTreeDerivedState, "nodeById" | "childrenByParentId">,
+    laneDepth: number,
+): TreeGuidePart[] {
+    if (laneDepth <= 0) {
+        return ["root"];
+    }
+
+    const path = pathToRoot(node, state.nodeById).reverse();
+    const laneRoots = path.filter((item) => {
+        const parent = item.parentId ? state.nodeById.get(item.parentId) ?? null : null;
+        return Boolean(parent && isRawBranchPoint(parent));
+    });
+
+    return laneRoots.map((laneRoot) => {
+        const laneHasFollowingSibling = hasFollowingRawSibling(laneRoot, state.childrenByParentId);
+        if (laneRoot.id === node.id) {
+            return laneHasFollowingSibling ? "branch" : "end";
+        }
+        return laneHasFollowingSibling ? "line" : "space";
+    });
+}
+
+function hasFollowingRawSibling(
+    node: SessionTreeNode,
     childrenByParentId: Map<string | null, SessionTreeNode[]>,
+): boolean {
+    const siblings = childrenByParentId.get(node.parentId) ?? [];
+    const index = siblings.findIndex((item) => item.id === node.id);
+    return index >= 0 && index < siblings.length - 1;
+}
+
+function isRawBranchPoint(node: SessionTreeNode): boolean {
+    return node.childCount > 1;
+}
+
+function deriveSwitcherByMessageId(
+    state: Pick<AgentTreeDerivedState, "flattenedNodes" | "childrenByParentId">,
 ): Record<string, AgentMessageSwitcherState> {
     const result: Record<string, AgentMessageSwitcherState> = {};
-    for (const node of tree) {
-        if (!node.active || node.type !== "message" || !node.role || !node.messageId) {
+    for (const branchPoint of state.flattenedNodes) {
+        if (!isRawBranchPoint(branchPoint)) {
             continue;
         }
-        const siblings = (childrenByParentId.get(node.parentId) ?? []).filter((item) => {
-            return item.type === "message" && item.role === node.role && item.messageId;
-        });
-        if (siblings.length <= 1) {
+        const branchRoots = state.childrenByParentId.get(branchPoint.id) ?? [];
+        if (branchRoots.length <= 1) {
             continue;
         }
-        const currentIndex = siblings.findIndex((item) => item.id === node.id);
+        const currentIndex = branchRoots.findIndex((item) => item.active && Boolean(item.messageId));
         if (currentIndex < 0) {
             continue;
         }
-        result[node.messageId] = {
-            nodeIds: siblings.map((item) => item.id),
+        const currentRoot = branchRoots[currentIndex]!;
+        result[currentRoot.messageId!] = {
+            nodeIds: branchRoots.map((item) => item.id),
             currentIndex,
-            total: siblings.length,
+            total: branchRoots.length,
         };
     }
     return result;

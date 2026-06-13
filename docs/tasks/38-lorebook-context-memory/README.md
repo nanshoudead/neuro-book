@@ -446,6 +446,13 @@ Agent 可以维护 `agent-context/{profile}/context.md` 和 `agent-context/{prof
 - 默认 Project 模板删除 `simulation/config.yaml`、`simulation/cast.yaml`、`simulation/simulator.md` 和 `simulation/writer.md`，profile 专用运行说明改放 `agent-context/`。
 - `simulator.leader` 读取 `AGENTS.md` 与 `agent-context/simulator.leader/context.md`；`rp.writer` 的 profile input 为空，若项目维护 `agent-context/rp.writer/context.md`，由上级读取后把可写偏好注入 writer brief。
 
+2026-06-13 default template display metadata update:
+
+- 默认 Project 模板的 `lorebook/` 及其分类目录新增或更新 `index.md`，使用 `type: note` + `subtype: directory-index` 承载文件树默认中文 title / icon；`lorebook/` 显示为“世界书”。
+- `manuscript/index.md` 的显示标题从 `manuscript` 调整为“正文”。
+- `manual/`、`agent-context/`、`reference/`、`upload/` 和 `simulation/` 顶层补齐目录索引；`simulation/entities/` 显示为“实体”，`simulation/subjects/` 显示为“主体”，`simulation/runs/` 显示为“模拟记录”。
+- 关键二级分类目录也补齐目录索引：`manual/player-guide/`、`manual/player-guide/playable-characters/`、`agent-context/{profile}/`、`simulation/runs/ticks/`。
+
 - `docs/tasks/38-lorebook-context-memory/README.md`
 - `reference/agent/profile-context-memory.md`
 - `reference/content/retrieval.md`
@@ -477,7 +484,12 @@ Agent 可以维护 `agent-context/{profile}/context.md` 和 `agent-context/{prof
 - `assets/workspace/.nbook/templates/content-node-templates/**/index.md`
 - `assets/workspace/.nbook/templates/project-directory-templates/agent-context/**`
 - `assets/workspace/.nbook/templates/project-directory-templates/lorebook/**/index.md`
+- `assets/workspace/.nbook/templates/project-directory-templates/manual/**/index.md`
 - `assets/workspace/.nbook/templates/project-directory-templates/manuscript/**/index.md`
+- `assets/workspace/.nbook/templates/project-directory-templates/reference/index.md`
+- `assets/workspace/.nbook/templates/project-directory-templates/simulation/**/index.md`
+- `assets/workspace/.nbook/templates/project-directory-templates/upload/index.md`
+- `PROJECT-STATUS.md`
 - `app/components/novel-ide/workspace/workspace-frontmatter-profile.ts`
 - `app/components/novel-ide/workspace/WorkspaceFilePanel.vue`
 - `app/components/novel-ide/workspace/WorkspaceCharacterPanel.vue`

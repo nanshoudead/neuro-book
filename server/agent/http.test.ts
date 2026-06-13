@@ -2,6 +2,7 @@ import {describe, expect, it, vi} from "vitest";
 import {
     abortAgentSession,
     createAgentSession,
+    getAgentSessionRelations,
     getAgentSessionSnapshot,
     invokeAgentSession,
     listAgentSessions,
@@ -60,6 +61,18 @@ describe("agent session http helpers", () => {
         await getAgentSessionSnapshot(12, {getSessionSnapshot} as never);
 
         expect(getSessionSnapshot).toHaveBeenCalledWith(12);
+    });
+
+    it("getAgentSessionRelations 调用 harness.getSessionRelations", async () => {
+        const getSessionRelations = vi.fn(async () => ({
+            sessionId: 12,
+            linkedAgents: [],
+            linkedByAgents: [],
+        }));
+
+        await getAgentSessionRelations(12, {getSessionRelations} as never);
+
+        expect(getSessionRelations).toHaveBeenCalledWith(12);
     });
 
     it("invokeAgentSession 调用 harness.invokeAgent", async () => {

@@ -30,7 +30,7 @@ Subject RAG 只检索当前 subject 自己的记忆，不检索 lorebook 或 Pro
 
 ## 工具权限
 
-Sidecar 的 `allowedToolKeys` 必须是当前 profile 工具集合的子集。provider-visible tools 保持 profile 最大集合，以保护工具 schema 缓存；进入 sidecar 时，执行层和 reminder 再限制本段 run 可用工具。
+Sidecar 的 `toolKeys` 必须是当前 profile 根 `tools` 的 key 子集。provider-visible tools 保持 profile 最大集合，以保护工具 schema 缓存；进入 sidecar 时，执行层和 reminder 再限制本段 run 可用工具。旁路结构化结果通过 `report_result.sidecar_data` 返回，校验失败会在 tool execution 阶段生成模型可见 tool error，让同一 run 可以自我修正。
 
 ## 继续阅读
 

@@ -1,5 +1,5 @@
 ---
-title: Lorebook
+title: 世界书
 type: note
 subtype: directory-index
 status: active
@@ -18,7 +18,7 @@ governance:
 ext: {}
 ---
 
-# Lorebook
+# 世界书
 
 本目录保存稳定设定、世界规则、角色/地点/势力/物品资料和可复用 AI instruction。运行态状态放入 `simulation/`，临时计划放入 `.agent/plan/` 或 Plot System。
 

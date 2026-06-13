@@ -61,6 +61,10 @@ type SameDocumentViewTransitionDocument = Document & {
 
 type LayoutModeTransitionDirection = "to-agent" | "to-ide";
 
+const WELCOME_LOREBOOK_ENTRY_TYPES = ["location", "character", "item", "rule", "note"] as const;
+
+type WelcomeLorebookEntryType = typeof WELCOME_LOREBOOK_ENTRY_TYPES[number];
+
 const abortController = ref<AbortController | null>(null);
 const initialized = ref(false);
 const themeHostRef = ref<HTMLElement | null>(null);
@@ -166,7 +170,7 @@ const studio = useMarkdownStudioController({
     viewMode,
 });
 
-const {choose} = useDialog();
+const {choose, prompt} = useDialog();
 const notification = useNotification();
 
 const novelItems = computed(() => novels.value.map((novel) => ({
@@ -1496,6 +1500,228 @@ function openFrontmatterProfile(kind: FrontmatterProfileKind): void {
     frontmatterProfileKind.value = kind;
 }
 
+/**
+ * 从欢迎页打开文件树；Agent Mode 下展开 Studio 内部文件树。
+ */
+function openWelcomeFiles(): void {
+    if (isAgentMode.value) {
+        agentStudioPanelVisible.value = true;
+        agentStudioFileTreeOpen.value = true;
+        return;
+    }
+    activeLeftTab.value = "files";
+}
+
+/**
+ * 从欢迎页打开 Project Workspace 路径。
+ */
+async function openWelcomeWorkspacePath(filePath: string): Promise<void> {
+    openWelcomeFiles();
+    try {
+        await novelIdeStore.selectWorkspacePath(filePath, "permanent");
+    } catch (error) {
+        notification.error(resolveApiErrorMessage(error, `无法打开 ${filePath}`), {title: "打开路径失败"});
+    }
+}
+
+/**
+ * 从欢迎页打开 IDE 右侧 Agent 面板。
+ */
+async function openWelcomeAgentPanel(): Promise<void> {
+    rightPanelOpen.value = true;
+    if (isAgentMode.value) {
+        await agentSurfaceRef.value?.ensureSessionReady();
+    }
+}
+
+/**
+ * 从欢迎页切入 Agent Mode；如果已经在 Agent Mode，则确保 session 已准备好。
+ */
+async function openWelcomeAgentMode(): Promise<void> {
+    if (!isAgentMode.value) {
+        await toggleAgentLayoutMode();
+        return;
+    }
+    await agentSurfaceRef.value?.ensureSessionReady();
+}
+
+/**
+ * 从欢迎页执行顶部 Agent / Studio 主按钮同等动作。
+ */
+function toggleWelcomeAgentSurface(): void {
+    if (isAgentMode.value) {
+        toggleAgentModeStudio();
+        return;
+    }
+    rightPanelOpen.value = true;
+}
+
+/**
+ * 创建欢迎页默认章节文件。
+ */
+async function createWelcomeChapter(): Promise<void> {
+    const input = await prompt("请输入章节路径", "manuscript/001-volume/new-chapter/index.md", "新建章节");
+    const filePath = normalizeWelcomeChapterPath(input);
+    if (!filePath) {
+        return;
+    }
+    await createWelcomeFile(filePath, buildWelcomeMarkdownContent(filePath), "创建章节失败");
+}
+
+/**
+ * 创建欢迎页普通 Markdown 文件。
+ */
+async function createWelcomeMarkdownFile(): Promise<void> {
+    const input = await prompt("请输入 Markdown 文件路径", "manuscript/new-file.md", "新建 Markdown");
+    const filePath = normalizeWelcomeMarkdownPath(input);
+    if (!filePath) {
+        return;
+    }
+    await createWelcomeFile(filePath, buildWelcomeMarkdownContent(filePath), "创建 Markdown 失败");
+}
+
+/**
+ * 创建欢迎页 Lorebook 条目。
+ */
+async function createWelcomeLorebookEntry(): Promise<void> {
+    const selectedType = await choose("请选择世界书条目类型", [
+        {label: "地点", value: "location", tone: "primary"},
+        {label: "角色", value: "character"},
+        {label: "物品", value: "item"},
+        {label: "规则", value: "rule"},
+        {label: "笔记", value: "note"},
+        {label: "取消", value: "cancel"},
+    ], "新建世界书条目");
+    if (!isWelcomeLorebookEntryType(selectedType)) {
+        return;
+    }
+
+    const input = await prompt("请输入世界书条目路径", `lorebook/${selectedType}/new-entry/index.md`, "新建世界书条目");
+    const filePath = normalizeWelcomeLorebookPath(input, selectedType);
+    if (!filePath) {
+        return;
+    }
+    await createWelcomeFile(filePath, buildWelcomeLorebookContent(filePath, selectedType), "创建世界书条目失败");
+}
+
+/**
+ * 通过 workspace file API 创建文件并选中。
+ */
+async function createWelcomeFile(filePath: string, content: string, fallbackMessage: string): Promise<void> {
+    try {
+        const node = await novelIdeStore.createWorkspaceFile(filePath, content);
+        await novelIdeStore.selectWorkspacePath(node.path, "permanent");
+        notification.success(`已创建 ${node.path}`, {title: "创建成功"});
+    } catch (error) {
+        notification.error(resolveApiErrorMessage(error, fallbackMessage), {title: fallbackMessage});
+    }
+}
+
+/**
+ * 判断 choose 返回值是否是欢迎页支持的 Lorebook 类型。
+ */
+function isWelcomeLorebookEntryType(value: string): value is WelcomeLorebookEntryType {
+    return WELCOME_LOREBOOK_ENTRY_TYPES.includes(value as WelcomeLorebookEntryType);
+}
+
+/**
+ * 归一化欢迎页输入的章节路径。章节目录输入默认落到 index.md。
+ */
+function normalizeWelcomeChapterPath(input: string | null): string {
+    const normalizedPath = normalizeWelcomeWorkspacePath(input);
+    if (!normalizedPath) {
+        return "";
+    }
+    if (normalizedPath.toLowerCase().endsWith("/index.md")) {
+        return normalizedPath;
+    }
+    if (normalizedPath.endsWith("/")) {
+        return `${normalizedPath}index.md`;
+    }
+    if (/\.md$/i.test(normalizedPath)) {
+        return normalizedPath;
+    }
+    return `${normalizedPath}/index.md`;
+}
+
+/**
+ * 归一化欢迎页输入的 Markdown 路径。
+ */
+function normalizeWelcomeMarkdownPath(input: string | null): string {
+    const normalizedPath = normalizeWelcomeWorkspacePath(input);
+    if (!normalizedPath) {
+        return "";
+    }
+    if (/\.md$/i.test(normalizedPath)) {
+        return normalizedPath;
+    }
+    return `${normalizedPath}.md`;
+}
+
+/**
+ * 归一化欢迎页输入的 Lorebook 条目路径。
+ */
+function normalizeWelcomeLorebookPath(input: string | null, entryType: WelcomeLorebookEntryType): string {
+    const normalizedPath = normalizeWelcomeWorkspacePath(input);
+    if (!normalizedPath) {
+        return "";
+    }
+
+    const pathWithRoot = normalizedPath.startsWith("lorebook/")
+        ? normalizedPath
+        : `lorebook/${entryType}/${normalizedPath}`;
+    if (pathWithRoot.toLowerCase().endsWith("/index.md")) {
+        return pathWithRoot;
+    }
+    if (/\.md$/i.test(pathWithRoot)) {
+        return `${pathWithRoot.replace(/\.md$/i, "")}/index.md`;
+    }
+    return `${pathWithRoot}/index.md`;
+}
+
+/**
+ * 统一清理欢迎页输入路径中的斜杠和相对前缀。
+ */
+function normalizeWelcomeWorkspacePath(input: string | null): string {
+    if (typeof input !== "string") {
+        return "";
+    }
+    return input
+        .trim()
+        .replace(/\\/g, "/")
+        .replace(/^\.\/+/u, "")
+        .replace(/^\/+/u, "")
+        .replace(/\/+/g, "/");
+}
+
+/**
+ * 生成普通 Markdown 初始内容。
+ */
+function buildWelcomeMarkdownContent(filePath: string): string {
+    return `---\ntitle: ${JSON.stringify(resolveWelcomeTitle(filePath))}\nstatus: draft\n---\n\n`;
+}
+
+/**
+ * 生成 Lorebook 初始内容。
+ */
+function buildWelcomeLorebookContent(filePath: string, entryType: WelcomeLorebookEntryType): string {
+    const subtypeBlock = entryType === "character" ? "subtype: person\n" : "";
+    const characterBlock = entryType === "character"
+        ? `character:\n    logline: ""\n    profile: {}\n    story: {}\n    meta:\n        pinned: false\n        primaryContext: null\n`
+        : "";
+    return `---\ntitle: ${JSON.stringify(resolveWelcomeTitle(filePath))}\ntype: ${entryType}\n${subtypeBlock}status: draft\naliases: []\ntags: []\nsummary: ""\nrefs: []\nretrieval:\n    enabled: true\n    trigger: null\ngovernance:\n    source: manual\n    review: proposed\n${characterBlock}---\n\n`;
+}
+
+/**
+ * 从 workspace 路径推导可读标题。
+ */
+function resolveWelcomeTitle(filePath: string): string {
+    const normalizedPath = filePath.replace(/\/index\.md$/i, "").replace(/\.md$/i, "");
+    const segments = normalizedPath.split("/").filter(Boolean);
+    const lastSegment = segments[segments.length - 1];
+    return lastSegment ?? "new-file";
+}
+
 onMounted(() => {
     void (async () => {
         if (!import.meta.client) {
@@ -1635,6 +1861,8 @@ onBeforeUnmount(() => {
                             :workspace-view-mode="displayCurrentWorkspaceViewMode"
                             :theme="theme"
                             :compact="isAgentMode"
+                            :agent-mode-active="isAgentMode"
+                            :workspace-mode="isUserAssetsWorkspace ? 'user-assets' : 'novel'"
                             :editor-preferences="markdownEditorPreferences"
                             :monaco-preferences="monacoEditorPreferences"
                             :monaco-temporary-font-size="displayMonacoTemporaryFontSize"
@@ -1652,6 +1880,19 @@ onBeforeUnmount(() => {
                             @update-monaco-temporary-font-size="setMonacoFontSizeOverride(displayActiveWorkspaceTabPath, $event)"
                             @save-request="void saveCurrentWorkspaceFile()"
                             @open-frontmatter-profile="openFrontmatterProfile"
+                            @open-path="void openWelcomeWorkspacePath($event)"
+                            @open-files="openWelcomeFiles"
+                            @create-chapter="void createWelcomeChapter()"
+                            @create-markdown-file="void createWelcomeMarkdownFile()"
+                            @create-lorebook-entry="void createWelcomeLorebookEntry()"
+                            @open-agent-panel="void openWelcomeAgentPanel()"
+                            @switch-agent-mode="void openWelcomeAgentMode()"
+                            @toggle-agent-surface="toggleWelcomeAgentSurface"
+                            @open-bookshelf="bookshelfOpen = true"
+                            @open-plot-workbench="openPlotWorkbench"
+                            @open-rag-inspector="ragInspectorOpen = true"
+                            @open-user-assets="openUserAssets"
+                            @open-profile-workbench="profileWorkbenchOpen = true"
                         />
                     </div>
                     <div

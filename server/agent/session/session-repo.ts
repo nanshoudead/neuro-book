@@ -381,9 +381,6 @@ export class JsonlSessionRepository {
             }
             if (entry.type === "custom") {
                 customState[entry.key] = entry.value;
-                if (entry.origin !== "projection") {
-                    this.reduceLinkedAgent(entry.key, entry.value, linkedAgents);
-                }
                 if (entry.origin !== "projection" && entry.key === "ui.planMode.active") {
                     planModeActive = entry.value === true;
                 }
@@ -421,6 +418,15 @@ export class JsonlSessionRepository {
             }
             if (entry.type === "compaction") {
                 compaction = entry;
+            }
+        }
+
+        for (const entry of snapshot.entries) {
+            if (entry.type !== "custom" || entry.origin === "projection") {
+                continue;
+            }
+            if (entry.key.startsWith("agent.link.") || entry.key.startsWith("agent.detach.")) {
+                this.reduceLinkedAgent(entry.key, entry.value, linkedAgents);
             }
         }
 

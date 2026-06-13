@@ -122,14 +122,34 @@ export const MemoryCuratorOutputSchema = Type.Object({
 }, {additionalProperties: false});
 
 /**
- * rp.writer 的创建参数。创建 session 时传空对象；实际正文任务通过每轮 invoke_agent.message 提供。
+ * rp.writer 的输入参数。phase 区分素材检查（check）与正文渲染（render）。
  */
-export const RpWriterInputSchema = Type.Object({}, {
+export const RpWriterInputSchema = Type.Object({
+    phase: Type.Union([
+        Type.Literal('check'),
+        Type.Literal('render'),
+    ], {description: 'Phase 4a: check（素材检查与提问）；Phase 4c: render（渲染 prose）'}),
+    brief: Type.String({description: '初始 Writer Brief（XML 格式，含前情引用+素材层+剧情骨架）'}),
+    supplemental_brief: Type.Optional(Type.String({description: 'Phase 4b 产出的补充素材（XML 格式）；仅 phase=render 时可能存在'})),
+}, {
     additionalProperties: false,
 });
 
 /**
- * rp.writer 返回普通 assistant 文本，不绑定 report_result.data 结构。
+ * rp.writer Phase 4a（check）的结构化输出：问题清单。
+ */
+export const RpWriterCheckOutputSchema = Type.Object({
+    questions: Type.Array(Type.String(), {
+        description: '问题清单（0-5 个）。优先问设定细节（lorebook 引用的材质、外观、规则），不问人物动机或剧情决策。空数组表示无问题，leader 直接跳到 Phase 4c。',
+        minItems: 0,
+        maxItems: 5,
+    }),
+}, {
+    additionalProperties: false,
+});
+
+/**
+ * rp.writer Phase 4c（render）返回普通 assistant 文本，不绑定 report_result.data 结构。
  */
 export const RpWriterOutputSchema = Type.Object({});
 
