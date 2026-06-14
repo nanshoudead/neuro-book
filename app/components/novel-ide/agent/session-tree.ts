@@ -11,6 +11,10 @@ export type AgentSessionTreeRow = {
     /** 节点所在 lane 的深度，不是原始树递归深度。线性子节点继承父 lane，例如 D1 与 C1 同 depth。 */
     laneDepth: number;
     isBranchPoint: boolean;
+    collapsible: boolean;
+    collapsed: boolean;
+    /** 当前折叠状态下实际隐藏的、原本可见的 descendant 行数。 */
+    hiddenDescendantCount: number;
     branchSiblingCount: number;
     branchIndex: number | null;
     guideParts: TreeGuidePart[];
@@ -36,33 +40,139 @@ export function deriveAgentSessionTreeRows(input: {
     tree: SessionTreeNode[];
     filterMode: AgentSessionTreeFilterMode;
     query?: string;
+    collapsedBranchIds?: ReadonlySet<string>;
 }): AgentSessionTreeRow[] {
     const state = deriveAgentTreeState(input.tree);
     const query = input.query?.trim().toLowerCase() ?? "";
-    const baseVisibleIds = new Set<string>();
+    const activeCollapsedBranchIds = query ? undefined : input.collapsedBranchIds;
+    const hasCollapsedBranches = Boolean(activeCollapsedBranchIds?.size);
+    const fullVisibleIds = deriveVisibleIds(state, input.filterMode, query);
+    const visibleIds = hasCollapsedBranches && activeCollapsedBranchIds
+        ? applyCollapsedBranches(state, fullVisibleIds, activeCollapsedBranchIds)
+        : fullVisibleIds;
+    const hiddenDescendantCountById = hasCollapsedBranches && activeCollapsedBranchIds
+        ? deriveHiddenDescendantCountById(state, fullVisibleIds, visibleIds, activeCollapsedBranchIds)
+        : new Map<string, number>();
+    const depthById = deriveLaneDepthById(state);
 
+    return state.flattenedNodes
+        .filter((node) => visibleIds.has(node.id))
+        .map((node) => {
+            const parent = node.parentId ? state.nodeById.get(node.parentId) ?? null : null;
+            const branchSiblings = parent && isRawBranchPoint(parent)
+                ? state.childrenByParentId.get(parent.id) ?? []
+                : [];
+            const branchIndex = branchSiblings.findIndex((item) => item.id === node.id);
+            const laneDepth = depthById.get(node.id) ?? 0;
+            const isBranchPoint = isRawBranchPoint(node);
+            const collapsed = Boolean(isBranchPoint && activeCollapsedBranchIds?.has(node.id));
+
+            return {
+                node,
+                visibleParentId: nearestVisibleParentId(node, state, visibleIds),
+                laneDepth,
+                isBranchPoint,
+                collapsible: isBranchPoint,
+                collapsed,
+                hiddenDescendantCount: hiddenDescendantCountById.get(node.id) ?? 0,
+                branchSiblingCount: branchSiblings.length,
+                branchIndex: branchIndex >= 0 ? branchIndex : null,
+                guideParts: treeGuideParts(node, state, laneDepth),
+            };
+        });
+}
+
+function deriveVisibleIds(
+    state: AgentTreeDerivedState,
+    filterMode: AgentSessionTreeFilterMode,
+    query: string,
+): Set<string> {
+    const baseVisibleIds = new Set<string>();
     for (const node of state.flattenedNodes) {
-        if (matchesTreeFilterMode(node, input.filterMode) || isRawBranchPoint(node)) {
+        if (matchesTreeFilterMode(node, filterMode) || isRawBranchPoint(node)) {
             baseVisibleIds.add(node.id);
         }
     }
-
     const visibleIds = query
         ? visibleIdsForSearch(state, baseVisibleIds, query)
         : new Set(baseVisibleIds);
-
     if (!query) {
         addBranchLaneRoots(state, visibleIds);
     }
-
     for (const nodeId of [...visibleIds]) {
         const node = state.nodeById.get(nodeId);
         if (node) {
             addBranchAnchors(node, state, visibleIds);
         }
     }
+    return visibleIds;
+}
 
+function applyCollapsedBranches(
+    state: Pick<AgentTreeDerivedState, "flattenedNodes" | "nodeById">,
+    visibleIds: Set<string>,
+    collapsedBranchIds: ReadonlySet<string>,
+): Set<string> {
+    const nextVisibleIds = new Set<string>();
+    for (const node of state.flattenedNodes) {
+        if (!visibleIds.has(node.id) || nearestCollapsedAncestorId(node, state.nodeById, collapsedBranchIds)) {
+            continue;
+        }
+        nextVisibleIds.add(node.id);
+    }
+    return nextVisibleIds;
+}
+
+/**
+ * 统计每个已收起 branch point 会隐藏多少条当前过滤下原本可见的 descendant。
+ */
+function deriveHiddenDescendantCountById(
+    state: Pick<AgentTreeDerivedState, "flattenedNodes" | "nodeById">,
+    fullVisibleIds: Set<string>,
+    foldedVisibleIds: Set<string>,
+    collapsedBranchIds: ReadonlySet<string>,
+): Map<string, number> {
+    const counts = new Map<string, number>();
+    for (const node of state.flattenedNodes) {
+        if (!fullVisibleIds.has(node.id) || foldedVisibleIds.has(node.id)) {
+            continue;
+        }
+        const ancestorId = nearestCollapsedAncestorId(node, state.nodeById, collapsedBranchIds);
+        if (ancestorId) {
+            counts.set(ancestorId, (counts.get(ancestorId) ?? 0) + 1);
+        }
+    }
+    return counts;
+}
+
+/**
+ * 返回当前节点最近的已折叠 branch point 祖先；节点自身不参与判断。
+ */
+function nearestCollapsedAncestorId(
+    node: SessionTreeNode,
+    nodeById: Map<string, SessionTreeNode>,
+    collapsedBranchIds: ReadonlySet<string>,
+): string | null {
+    let cursor = node.parentId;
+    while (cursor) {
+        const ancestor = nodeById.get(cursor);
+        if (!ancestor) {
+            return null;
+        }
+        if (isRawBranchPoint(ancestor) && collapsedBranchIds.has(ancestor.id)) {
+            return ancestor.id;
+        }
+        cursor = ancestor.parentId;
+    }
+    return null;
+}
+
+/**
+ * 计算 continuation lane 深度：只有经过真实 branch point 进入子 lane 时才加深。
+ */
+function deriveLaneDepthById(state: Pick<AgentTreeDerivedState, "flattenedNodes" | "nodeById">): Map<string, number> {
     const depthById = new Map<string, number>();
+
     const resolveLaneDepth = (node: SessionTreeNode): number => {
         const cached = depthById.get(node.id);
         if (cached !== undefined) {
@@ -80,26 +190,7 @@ export function deriveAgentSessionTreeRows(input: {
         resolveLaneDepth(node);
     }
 
-    return state.flattenedNodes
-        .filter((node) => visibleIds.has(node.id))
-        .map((node) => {
-            const parent = node.parentId ? state.nodeById.get(node.parentId) ?? null : null;
-            const branchSiblings = parent && isRawBranchPoint(parent)
-                ? state.childrenByParentId.get(parent.id) ?? []
-                : [];
-            const branchIndex = branchSiblings.findIndex((item) => item.id === node.id);
-            const laneDepth = depthById.get(node.id) ?? 0;
-
-            return {
-                node,
-                visibleParentId: nearestVisibleParentId(node, state, visibleIds),
-                laneDepth,
-                isBranchPoint: isRawBranchPoint(node),
-                branchSiblingCount: branchSiblings.length,
-                branchIndex: branchIndex >= 0 ? branchIndex : null,
-                guideParts: treeGuideParts(node, state, laneDepth),
-            };
-        });
+    return depthById;
 }
 
 /**

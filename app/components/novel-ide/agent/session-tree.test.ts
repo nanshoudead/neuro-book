@@ -146,6 +146,49 @@ describe("agent session tree", () => {
         ]);
     });
 
+    it("projection 默认保持分支全展开", () => {
+        const tree = [
+            node({id: "A", parentId: null, timestamp: 1, childCount: 1}),
+            node({id: "B", parentId: "A", timestamp: 2, childCount: 2}),
+            node({id: "C1", parentId: "B", timestamp: 3, childCount: 1}),
+            node({id: "D1", parentId: "C1", timestamp: 4}),
+            node({id: "C2", parentId: "B", timestamp: 5}),
+        ];
+
+        const rows = deriveAgentSessionTreeRows({tree, filterMode: "all"});
+
+        expect(rows.map((row) => row.node.id)).toEqual(["A", "B", "C1", "D1", "C2"]);
+        expect(rows.find((row) => row.node.id === "B")).toMatchObject({
+            collapsible: true,
+            collapsed: false,
+            hiddenDescendantCount: 0,
+        });
+    });
+
+    it("projection 收起 branch point 时保留自身并隐藏整段子树", () => {
+        const tree = [
+            node({id: "A", parentId: null, timestamp: 1, childCount: 1}),
+            node({id: "B", parentId: "A", timestamp: 2, childCount: 2}),
+            node({id: "C1", parentId: "B", timestamp: 3, childCount: 1}),
+            node({id: "D1", parentId: "C1", timestamp: 4}),
+            node({id: "C2", parentId: "B", timestamp: 5, childCount: 1}),
+            node({id: "D2", parentId: "C2", timestamp: 6}),
+        ];
+
+        const rows = deriveAgentSessionTreeRows({
+            tree,
+            filterMode: "all",
+            collapsedBranchIds: new Set(["B"]),
+        });
+
+        expect(rows.map((row) => row.node.id)).toEqual(["A", "B"]);
+        expect(rows.find((row) => row.node.id === "B")).toMatchObject({
+            collapsible: true,
+            collapsed: true,
+            hiddenDescendantCount: 4,
+        });
+    });
+
     it("projection 只在嵌套分支处继续增加 laneDepth", () => {
         const tree = [
             node({id: "A", parentId: null, timestamp: 1, childCount: 1}),
@@ -174,6 +217,38 @@ describe("agent session tree", () => {
         expect(rows.find((row) => row.node.id === "E2")?.guideParts).toEqual(["line", "end"]);
     });
 
+    it("projection 收起嵌套分支时外层 sibling lane 仍显示", () => {
+        const tree = [
+            node({id: "A", parentId: null, timestamp: 1, childCount: 1}),
+            node({id: "B", parentId: "A", timestamp: 2, childCount: 2}),
+            node({id: "C1", parentId: "B", timestamp: 3, childCount: 1}),
+            node({id: "D1", parentId: "C1", timestamp: 4, childCount: 2}),
+            node({id: "E1", parentId: "D1", timestamp: 5}),
+            node({id: "E2", parentId: "D1", timestamp: 6}),
+            node({id: "C2", parentId: "B", timestamp: 7, childCount: 1}),
+            node({id: "D2", parentId: "C2", timestamp: 8}),
+        ];
+
+        const rows = deriveAgentSessionTreeRows({
+            tree,
+            filterMode: "all",
+            collapsedBranchIds: new Set(["D1"]),
+        });
+
+        expect(rows.map((row) => [row.node.id, row.guideParts])).toEqual([
+            ["A", ["root"]],
+            ["B", ["root"]],
+            ["C1", ["branch"]],
+            ["D1", ["line"]],
+            ["C2", ["end"]],
+            ["D2", ["space"]],
+        ]);
+        expect(rows.find((row) => row.node.id === "D1")).toMatchObject({
+            collapsed: true,
+            hiddenDescendantCount: 2,
+        });
+    });
+
     it("projection 在过滤工具时保留 branch point 和直接 continuation", () => {
         const tree = [
             node({id: "A", parentId: null, role: "user", timestamp: 1, childCount: 1}),
@@ -187,6 +262,27 @@ describe("agent session tree", () => {
         expect(rows.map((row) => row.node.id)).toEqual(["A", "T", "U1", "R1"]);
         expect(rows.find((row) => row.node.id === "T")?.isBranchPoint).toBe(true);
         expect(rows.find((row) => row.node.id === "R1")?.laneDepth).toBe(1);
+    });
+
+    it("projection 在过滤工具时按过滤后的可见行统计隐藏数量", () => {
+        const tree = [
+            node({id: "A", parentId: null, role: "user", timestamp: 1, childCount: 1}),
+            node({id: "T", parentId: "A", role: "toolResult", toolName: "read", timestamp: 2, childCount: 2}),
+            node({id: "U1", parentId: "T", role: "user", timestamp: 3}),
+            node({id: "R1", parentId: "T", role: "toolResult", toolName: "read", timestamp: 4}),
+        ];
+
+        const rows = deriveAgentSessionTreeRows({
+            tree,
+            filterMode: "no-tools",
+            collapsedBranchIds: new Set(["T"]),
+        });
+
+        expect(rows.map((row) => row.node.id)).toEqual(["A", "T"]);
+        expect(rows.find((row) => row.node.id === "T")).toMatchObject({
+            collapsed: true,
+            hiddenDescendantCount: 2,
+        });
     });
 
     it("projection 搜索深层命中时只保留命中路径的 branch anchor", () => {
@@ -206,6 +302,30 @@ describe("agent session tree", () => {
         expect(rows.find((row) => row.node.id === "B")?.isBranchPoint).toBe(true);
         expect(rows.find((row) => row.node.id === "C1")?.laneDepth).toBe(1);
         expect(rows.find((row) => row.node.id === "E1")?.laneDepth).toBe(1);
+    });
+
+    it("projection 搜索时临时忽略折叠状态", () => {
+        const tree = [
+            node({id: "A", parentId: null, timestamp: 1, childCount: 1}),
+            node({id: "B", parentId: "A", timestamp: 2, childCount: 2}),
+            node({id: "C1", parentId: "B", timestamp: 3, childCount: 1}),
+            node({id: "D1", parentId: "C1", timestamp: 4, childCount: 1}),
+            node({id: "E1", parentId: "D1", timestamp: 5, preview: "needle"}),
+            node({id: "C2", parentId: "B", timestamp: 6}),
+        ];
+
+        const rows = deriveAgentSessionTreeRows({
+            tree,
+            filterMode: "default",
+            query: "needle",
+            collapsedBranchIds: new Set(["B"]),
+        });
+
+        expect(rows.map((row) => row.node.id)).toEqual(["B", "C1", "E1"]);
+        expect(rows.find((row) => row.node.id === "B")).toMatchObject({
+            collapsed: false,
+            hiddenDescendantCount: 0,
+        });
     });
 
     it("projection 显示 sidecar enter 与 lifecycle end sibling 形成的 branch group", () => {

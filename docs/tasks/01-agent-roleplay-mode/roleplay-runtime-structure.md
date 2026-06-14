@@ -618,7 +618,7 @@ state_update:
 
 - `report_result.walkthrough` 已严格改名为 `result`，description 写成“本次工具调用的可读结果；需要时可以写简短 walkthrough”。
 - `report_result.data` 继续保留结构化 packet，字段设计保持上面这组。
-- 更理想的中期设计是 sidecar result pass：actor 主上下文只沉浸式回应，旁路上下文再通过 `report_result.sidecar_data` 整理回应、文件更新摘要和可选的系统生成 `runs/ticks/{tick-id}-{slug}/actor-packets.json`。
+- 更理想的中期设计是 sidecar result pass：actor 主上下文只沉浸式回应，旁路上下文再通过 `report_sidecar_result.data` 整理回应、文件更新摘要和可选的系统生成 `runs/ticks/{tick-id}-{slug}/actor-packets.json`。
 
 ### 6. GM Resolution
 

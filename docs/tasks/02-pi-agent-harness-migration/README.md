@@ -19,6 +19,7 @@
 - 旧 thread/message Prisma 模型已删除；新的 session 真相来自 JSONL append-only entry tree，前端也已经从 thread/subagent 心智迁到 session/linked agent 心智。
 - 正式 HTTP 入口已经回到 `/api/agent/**`：前端使用 `/api/agent/sessions/**` 的 snapshot、invocation、command、tree、abort 和 events contract；临时 `/api/agent-v3/**` 已删除。
 - Agent 抽屉已接入新的 session snapshot + session event hub：支持聊天、停止、审批/输入恢复、模型选择、Plan Mode、compact slash command、linked agents、edit/retry/rollback/fallback、分支切换和多窗口事件同步的基础链路。
+- Agent 历史 session 读取已兼容缺失或不可运行 profile：snapshot / live state / relations / list 不再因旧 session 引用已删除 profile 失败，summary 会标记 `profileAvailability` 与 `profileIssueMessage`；继续运行类入口会拒绝并给出恢复 profile 或新建/切换 session 的提示。前端对这类 session 进入只读历史模式，保留历史浏览和管理动作，禁用会发起新 run 或改变后续运行参数的入口。
 - TSX Profile runtime 支持 builtin/user assets 动态加载、InputSchema/OutputSchema、allowed tools、workspace 默认 profile、用户资产工作区和 active TSX DSL。profile 输出合同已切到 `ProfileTurnPlan`，普通 profile 可通过 `context(ctx) => <ProfilePrompt />` 声明 `System` / `HistorySet` / `ModelContext` / `AppendingSet` 等分区；高级 profile 可直接覆写 `prepare(ctx) => ProfileTurnPlan`。TSX Profile Workbench 已接入用户 profile 源码写入、新建模板、文件 diagnostics、真实 prepare preview、创建 session 入口和稳定 `<ProfilePrompt>` DSL tree 解析/局部写回。
 - Profile runtime 已硬切为 `.compiled` 运行真相源：源码只负责编辑，catalog/config snapshot/创建 session/invoke 只读 `.compiled/manifest.json` 与 compiled artifact，不再自动编译 TSX。Workbench 自动编辑路径仍只做轻量源码解析，手动编译才写 `.compiled`。
 - 本地 Pi 仓库位于 `.agent/workspace/pi`；已完成基础调研，见 `docs/research/pi-agent-harness.md`。
@@ -871,6 +872,7 @@ type AgentTreeRequest = {
 - Agent CLI / bash PATH 追加验证：`bun test server/agent/tools/file-tools.test.ts server/workspace-files/workspace-files.test.ts server/agent/profiles/leader-assets-profile.test.ts` 通过，覆盖 `workspace --help`、`workspace node parse/validate`、user-assets bin 优先级、user-assets bin 覆盖实际执行、Git Bash 内 PATH 前置、系统 assets 同步补齐 `agent/bin` 与 `agent/scripts`、已有用户覆盖不被 sync 覆盖、`RIPGREP_CONFIG_PATH` 注入与 user-assets rg config 优先级、`rg --files` 输出 `/` 路径，以及 active profile 不再使用 PowerShell 示例、`--path-separator=/`、`MSYS_NO_PATHCONV=1` 或 `(^|[\\/])index` 管道。
 - Agent CLI 交付约束：`assets/workspace/.nbook/agent/bin/workspace` 已进入 Git 索引并标记为 `100755`；`.gitattributes` 固定无扩展 shell wrapper 与 `.ts` 为 LF，避免 Windows `core.autocrlf` 把 shebang wrapper 转成 CRLF。
 - Profile `.compiled` 追加验证：系统 `leader.default`、`leader.assets`、`retrieval`、`writer` 均通过 `bun scripts/profile.ts status --all --system` 检查为 `loaded`；`scripts/prepare-system-profile-metadata.ts` 会生成系统 `.compiled` artifact 与 `.system-profile-metadata.json`。
+- 删除/不可运行 profile 兼容验证：`bunx vitest run server/agent/harness/neuro-agent-harness.test.ts -t "profile 的历史 session|不可运行 profile|pending approval 没有可靠 waiting lifecycle" --testTimeout 20000` 通过，覆盖缺失 profile 的 list/snapshot/live state/relations、全局 pending approval 降级展示、prompt/continue/steer/followup/resolution 拒绝、`new`/`compact`/`tree + invoke` 拒绝且不移动 leaf，以及不可运行 profile 的 `unloadable` 标记。`bun run typecheck` 仍失败在既有无关红灯（tiptap agent-suggestion、ProfileTemplateNodeView、compaction.ts、silly-tavern-card-cli.test.ts）；整份 harness 单跑新增兼容用例通过，但全量 `neuro-agent-harness.test.ts` 当前仍有 compaction/summarizer 持久化断言和少量后台任务串扰失败，本轮未扩大修复范围。
 
 ## TODO / Follow-ups
 

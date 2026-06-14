@@ -14,7 +14,7 @@ import {agentRuntimeBuiltins, defineAgentRuntime} from "nbook/server/agent/profi
 import {defineAgentTool, defineProfileTools, tools} from "nbook/server/agent/profiles/profile-tools";
 import type {ProfileTools} from "nbook/server/agent/profiles/profile-tools";
 import {profileToolsFromKeys} from "nbook/server/agent/test/profile-tools";
-import type {AgentProfileDefinition, SidecarProfilePass} from "nbook/server/agent/profiles/types";
+import type {AgentCatalogSnapshot, AgentProfile, AgentProfileDefinition, SidecarProfilePass} from "nbook/server/agent/profiles/types";
 import {AgentProfileCatalog} from "nbook/server/agent/profiles/catalog";
 import simulatorActorProfile from "../../../assets/workspace/.nbook/agent/profiles/builtin/simulator.actor.profile";
 import {createAssistantTextMessage, createTextToolResult, createUserMessage, messageText} from "nbook/server/agent/messages/message-utils";
@@ -54,21 +54,27 @@ function defineAgentProfile<
         sidecars,
         ...rest
     } = profile;
+    const migratedSidecars = sidecars?.map((sidecar) => {
+        const {
+            allowedToolKeys: sidecarAllowedToolKeys,
+            ...sidecarRest
+        } = sidecar;
+        const legacyToolKeys = sidecarRest.toolKeys ?? sidecarAllowedToolKeys;
+        return {
+            ...sidecarRest,
+            toolKeys: legacyToolKeys?.map((toolKey) => toolKey === "report_result" ? "report_sidecar_result" : toolKey),
+        };
+    });
+    const migratedAllowedToolKeys = [...allowedToolKeys ?? []];
+    if (!rest.tools && migratedSidecars?.some((sidecar) => sidecar.toolKeys?.includes("report_sidecar_result")) && !migratedAllowedToolKeys.includes("report_sidecar_result")) {
+        migratedAllowedToolKeys.push("report_sidecar_result");
+    }
     return defineRuntimeAgentProfile({
         ...rest,
-        tools: rest.tools ?? profileToolsFromKeys(allowedToolKeys ?? []),
+        tools: rest.tools ?? profileToolsFromKeys(migratedAllowedToolKeys),
         mainRunToolKeys: rest.mainRunToolKeys ?? mainRunAllowedToolKeys,
         // 测试 helper 只做旧字段到新字段的机械迁移，最终运行时校验仍由 defineRuntimeAgentProfile 负责。
-        sidecars: sidecars?.map((sidecar) => {
-            const {
-                allowedToolKeys: sidecarAllowedToolKeys,
-                ...sidecarRest
-            } = sidecar;
-            return {
-                ...sidecarRest,
-                toolKeys: sidecarRest.toolKeys ?? sidecarAllowedToolKeys,
-            };
-        }) as AgentProfileDefinition<TInputSchema, TOutputSchema, TSummarizerKey, TTools>["sidecars"],
+        sidecars: migratedSidecars as AgentProfileDefinition<TInputSchema, TOutputSchema, TSummarizerKey, TTools>["sidecars"],
     });
 }
 
@@ -94,6 +100,38 @@ function visibleMessageText(messages: AgentMessage[]): string {
         .filter((message): message is RuntimeMessage => message.role !== "custom")
         .map(messageText)
         .join("\n");
+}
+
+class BrokenProfileCatalog extends AgentProfileCatalog {
+    override async get(profileKey: string): Promise<AgentProfile> {
+        if (profileKey === "test.unloadable") {
+            throw new Error("agent profile test.unloadable 不可运行：源码错误");
+        }
+        return super.get(profileKey);
+    }
+
+    override async snapshot(options: {includeFileIssues?: boolean} = {}): Promise<AgentCatalogSnapshot> {
+        const snapshot = await super.snapshot(options);
+        return {
+            profiles: [
+                ...snapshot.profiles,
+                {
+                    key: "test.unloadable",
+                    name: "Broken Profile",
+                    source: "user",
+                    builtin: false,
+                    loadStatus: "source_error",
+                    issue: {
+                        code: "source_error",
+                        message: "源码错误",
+                        profileKey: "test.unloadable",
+                        source: "user",
+                    },
+                },
+            ],
+            issues: snapshot.issues,
+        };
+    }
 }
 
 async function waitForSessionText(harness: NeuroAgentHarness, sessionId: number, text: string): Promise<ReturnType<JsonlSessionRepository["reduce"]>> {
@@ -1607,11 +1645,9 @@ describe("NeuroAgentHarness", () => {
         }), false);
         faux.setResponses([
             () => fauxAssistantMessage([
-                fauxToolCall("report_result", {
+                fauxToolCall("report_sidecar_result", {
                     result: "loaded",
-                    sidecar_data: {
-                        "actor.context-load": {},
-                    },
+                    data: {},
                 }, {id: "sidecar-report"}),
             ], {stopReason: "toolUse"}),
             () => {
@@ -1688,21 +1724,17 @@ describe("NeuroAgentHarness", () => {
         }), false);
         faux.setResponses([
             () => fauxAssistantMessage([
-                fauxToolCall("report_result", {
+                fauxToolCall("report_sidecar_result", {
                     result: "loaded",
-                    sidecar_data: {
-                        "actor.context-load": {},
-                    },
+                    data: {},
                 }, {id: "first-sidecar-report"}),
             ], {stopReason: "toolUse"}),
             () => {
                 secondSidecarCalls += 1;
                 return fauxAssistantMessage([
-                    fauxToolCall("report_result", {
+                    fauxToolCall("report_sidecar_result", {
                         result: "second",
-                        sidecar_data: {
-                            "actor.second-context-load": {},
-                        },
+                        data: {},
                     }, {id: "second-sidecar-report"}),
                 ], {stopReason: "toolUse"});
             },
@@ -2539,12 +2571,10 @@ describe("NeuroAgentHarness", () => {
             (context) => {
                 providerPrompts.push(context.messages.map((message) => messageText(message as RuntimeMessage)).join("\n"));
                 return fauxAssistantMessage([
-                    fauxToolCall("report_result", {
+                    fauxToolCall("report_sidecar_result", {
                         result: "loaded",
-                        sidecar_data: {
-                            "actor.context-load": {
-                                context: "SAFE_LORE",
-                            },
+                        data: {
+                            context: "SAFE_LORE",
                         },
                     }, {id: "sidecar-report"}),
                 ], {stopReason: "toolUse"});
@@ -2642,12 +2672,10 @@ describe("NeuroAgentHarness", () => {
                 fauxToolCall("sidecar_save_point_state", {}, {id: "sidecar-savepoint"}),
             ], {stopReason: "toolUse"}),
             fauxAssistantMessage([
-                fauxToolCall("report_result", {
+                fauxToolCall("report_sidecar_result", {
                     result: "loaded",
-                    sidecar_data: {
-                        "actor.context-load": {
-                            context: "ok",
-                        },
+                    data: {
+                        context: "ok",
                     },
                 }, {id: "sidecar-report"}),
             ], {stopReason: "toolUse"}),
@@ -2723,12 +2751,10 @@ describe("NeuroAgentHarness", () => {
         }), false);
         faux.setResponses([
             () => fauxAssistantMessage([
-                fauxToolCall("report_result", {
+                fauxToolCall("report_sidecar_result", {
                     result: "loaded",
-                    sidecar_data: {
-                        "actor.context-load": {
-                            context: "SAFE_LORE",
-                        },
+                    data: {
+                        context: "SAFE_LORE",
                     },
                 }, {id: "sidecar-report"}),
             ], {stopReason: "toolUse"}),
@@ -2802,11 +2828,9 @@ describe("NeuroAgentHarness", () => {
         }), false);
         faux.setResponses([
             () => fauxAssistantMessage([
-                fauxToolCall("report_result", {
+                fauxToolCall("report_sidecar_result", {
                     result: "loaded",
-                    sidecar_data: {
-                        "actor.context-load": {},
-                    },
+                    data: {},
                 }, {id: "sidecar-report"}),
             ], {stopReason: "toolUse"}),
             (context) => {
@@ -2885,19 +2909,15 @@ describe("NeuroAgentHarness", () => {
         }), false);
         faux.setResponses([
             () => fauxAssistantMessage([
-                fauxToolCall("report_result", {
+                fauxToolCall("report_sidecar_result", {
                     result: "runtime loaded",
-                    sidecar_data: {
-                        "actor.runtime-context-load": {},
-                    },
+                    data: {},
                 }, {id: "runtime-sidecar-report"}),
             ], {stopReason: "toolUse"}),
             () => fauxAssistantMessage([
-                fauxToolCall("report_result", {
+                fauxToolCall("report_sidecar_result", {
                     result: "persisted loaded",
-                    sidecar_data: {
-                        "actor.persisted-context-load": {},
-                    },
+                    data: {},
                 }, {id: "persisted-sidecar-report"}),
             ], {stopReason: "toolUse"}),
             (context) => {
@@ -2979,12 +2999,10 @@ describe("NeuroAgentHarness", () => {
             (context) => {
                 expect(visibleMessageText(context.messages as AgentMessage[])).toContain("主结果：main");
                 return fauxAssistantMessage([
-                    fauxToolCall("report_result", {
+                    fauxToolCall("report_sidecar_result", {
                         result: "saved",
-                        sidecar_data: {
-                            "actor.memory-save": {
-                                summary: "memory saved",
-                            },
+                        data: {
+                            summary: "memory saved",
                         },
                     }, {id: "memory-report"}),
                 ], {stopReason: "toolUse"});
@@ -3048,11 +3066,9 @@ describe("NeuroAgentHarness", () => {
                 }, {id: "main-report"}),
             ], {stopReason: "toolUse"}),
             () => fauxAssistantMessage([
-                fauxToolCall("report_result", {
+                fauxToolCall("report_sidecar_result", {
                     result: "saved",
-                    sidecar_data: {
-                        "actor.memory-save": {},
-                    },
+                    data: {},
                 }, {id: "sidecar-report"}),
             ], {stopReason: "toolUse"}),
         ]);
@@ -3187,11 +3203,9 @@ describe("NeuroAgentHarness", () => {
                 providerPrompts.push(promptText);
                 expect(promptText).toContain("RAG: 她知道这块五彩石被一些传闻称为世界之心。");
                 return fauxAssistantMessage([
-                    fauxToolCall("report_result", {
+                    fauxToolCall("report_sidecar_result", {
                         result: "loaded actor-safe lore",
-                        sidecar_data: {
-                            "actor.context-load": "你知道这块五彩石被一些传闻称为世界之心，但不知道它的隐藏真相。",
-                        },
+                        data: "你知道这块五彩石被一些传闻称为世界之心，但不知道它的隐藏真相。",
                     }, {id: "context-report"}),
                 ], {stopReason: "toolUse"});
             },
@@ -3216,7 +3230,7 @@ describe("NeuroAgentHarness", () => {
                 const promptText = visibleMessageText(context.messages as AgentMessage[]);
                 providerPrompts.push(promptText);
                 expect(promptText).toContain("sidecar: actor.memory-save");
-                expect(promptText).toContain("state.md 由 simulator.leader 裁决");
+                expect(promptText).toContain("世界的状态（state.md）由上级裁决");
                 return fauxAssistantMessage([
                     fauxToolCall("subject_event_append", {
                         subjectPath: `${projectSlug}/simulation/subjects/heroine`,
@@ -3238,21 +3252,19 @@ describe("NeuroAgentHarness", () => {
                 ], {stopReason: "toolUse"});
             },
             fauxAssistantMessage([
-                fauxToolCall("report_result", {
+                fauxToolCall("report_sidecar_result", {
                     result: "memory saved",
-                    sidecar_data: {
-                        "actor.memory-save": {
-                            changed_files: [
-                                `${projectSlug}/simulation/subjects/heroine/events.jsonl`,
-                                `${projectSlug}/simulation/subjects/heroine/memory.jsonl`,
-                                `${projectSlug}/simulation/subjects/heroine/mind.md`,
-                            ],
-                            events_summary: "记录主角交给她疑似世界之心的五彩石。",
-                            memory_summary: "记录她对世界之心五彩石的当前认知。",
-                            mind_summary: "记录她对主角隐瞒信息的怀疑。",
-                            skipped: ["state_update 交给 GM / 后续状态系统处理。"],
-                            needs_review: [],
-                        },
+                    data: {
+                        changed_files: [
+                            `${projectSlug}/simulation/subjects/heroine/events.jsonl`,
+                            `${projectSlug}/simulation/subjects/heroine/memory.jsonl`,
+                            `${projectSlug}/simulation/subjects/heroine/mind.md`,
+                        ],
+                        events_summary: "记录主角交给她疑似世界之心的五彩石。",
+                        memory_summary: "记录她对世界之心五彩石的当前认知。",
+                        mind_summary: "记录她对主角隐瞒信息的怀疑。",
+                        skipped: ["state_update 交给 GM / 后续状态系统处理。"],
+                        needs_review: [],
                     },
                 }, {id: "memory-report"}),
             ], {stopReason: "toolUse"}),
@@ -3313,7 +3325,7 @@ describe("NeuroAgentHarness", () => {
         expect(messageText(context.messages.at(-1) as RuntimeMessage)).not.toContain("<actor-sidecar-context");
     });
 
-    it("sidecar_data 不符合 schema 时返回工具错误并允许同 run 修正", async () => {
+    it("report_sidecar_result.data 不符合 schema 时返回工具错误并允许同 run 修正", async () => {
         let observedSidecarData: {context: string} | undefined;
         harness.profiles.register(defineAgentProfile({
             manifest: {
@@ -3341,22 +3353,18 @@ describe("NeuroAgentHarness", () => {
         }), false);
         faux.setResponses([
             fauxAssistantMessage([
-                fauxToolCall("report_result", {
+                fauxToolCall("report_sidecar_result", {
                     result: "bad",
-                    sidecar_data: {
-                        "actor.context-load": {
-                            context: 1,
-                        },
+                    data: {
+                        context: 1,
                     },
                 }, {id: "bad-sidecar-report"}),
             ], {stopReason: "toolUse"}),
             fauxAssistantMessage([
-                fauxToolCall("report_result", {
+                fauxToolCall("report_sidecar_result", {
                     result: "fixed",
-                    sidecar_data: {
-                        "actor.context-load": {
-                            context: "已加载 actor 可知上下文。",
-                        },
+                    data: {
+                        context: "已加载 actor 可知上下文。",
                     },
                 }, {id: "fixed-sidecar-report"}),
             ], {stopReason: "toolUse"}),
@@ -3385,10 +3393,10 @@ describe("NeuroAgentHarness", () => {
 
         expect(result.status).toBe("completed");
         expect(observedSidecarData?.context).toBe("已加载 actor 可知上下文。");
-        expect(sidecarErrorText).toContain("sidecar_data");
+        expect(sidecarErrorText).toContain("report_sidecar_result.data");
     }, 30_000);
 
-    it("object sidecar_data 被模型包成 schema 字符串时返回工具错误并等待直接对象", async () => {
+    it("object report_sidecar_result.data 被模型包成 schema 字符串时返回工具错误并等待直接对象", async () => {
         let observedSidecarData: {changed_files: string[]} | undefined;
         harness.profiles.register(defineAgentProfile({
             manifest: {
@@ -3421,36 +3429,32 @@ describe("NeuroAgentHarness", () => {
         }), false);
         faux.setResponses([
             fauxAssistantMessage([
-                fauxToolCall("report_result", {
+                fauxToolCall("report_sidecar_result", {
                     result: "saved",
-                    sidecar_data: {
-                        "actor.memory-save": JSON.stringify({
-                            type: "object",
-                            required: ["changed_files", "events_summary", "memory_summary", "mind_summary", "skipped", "needs_review"],
-                            properties: {
-                                changed_files: ["subject/events.jsonl"],
-                                events_summary: "追加经历。",
-                                memory_summary: "",
-                                mind_summary: "",
-                                skipped: [],
-                                needs_review: [],
-                            },
-                        }),
-                    },
-                }, {id: "sidecar-report"}),
-            ], {stopReason: "toolUse"}),
-            fauxAssistantMessage([
-                fauxToolCall("report_result", {
-                    result: "saved",
-                    sidecar_data: {
-                        "actor.memory-save": {
-                            changed_files: ["subject/events-fixed.jsonl"],
+                    data: JSON.stringify({
+                        type: "object",
+                        required: ["changed_files", "events_summary", "memory_summary", "mind_summary", "skipped", "needs_review"],
+                        properties: {
+                            changed_files: ["subject/events.jsonl"],
                             events_summary: "追加经历。",
                             memory_summary: "",
                             mind_summary: "",
                             skipped: [],
                             needs_review: [],
                         },
+                    }),
+                }, {id: "sidecar-report"}),
+            ], {stopReason: "toolUse"}),
+            fauxAssistantMessage([
+                fauxToolCall("report_sidecar_result", {
+                    result: "saved",
+                    data: {
+                        changed_files: ["subject/events-fixed.jsonl"],
+                        events_summary: "追加经历。",
+                        memory_summary: "",
+                        mind_summary: "",
+                        skipped: [],
+                        needs_review: [],
                     },
                 }, {id: "sidecar-report-fixed"}),
             ], {stopReason: "toolUse"}),
@@ -3476,7 +3480,7 @@ describe("NeuroAgentHarness", () => {
         expect(observedSidecarData?.changed_files).toEqual(["subject/events-fixed.jsonl"]);
     }, 30_000);
 
-    it("object sidecar_data 被模型包成字符串时返回工具错误并允许同 run 修正", async () => {
+    it("object report_sidecar_result.data 被模型包成字符串时返回工具错误并允许同 run 修正", async () => {
         let observedSidecarData: {changed_files: string[]; memory_summary: string} | undefined;
         harness.profiles.register(defineAgentProfile({
             manifest: {
@@ -3509,32 +3513,28 @@ describe("NeuroAgentHarness", () => {
         }), false);
         faux.setResponses([
             fauxAssistantMessage([
-                fauxToolCall("report_result", {
+                fauxToolCall("report_sidecar_result", {
                     result: "saved",
-                    sidecar_data: {
-                        "actor.memory-save": JSON.stringify({
-                            changed_files: ["subject/events.jsonl"],
-                            events_summary: "追加经历。",
-                            memory_summary: "更新同行者 topic。",
-                            mind_summary: "更新心理状态。",
-                            skipped: [],
-                            needs_review: [],
-                        }),
-                    },
+                    data: JSON.stringify({
+                        changed_files: ["subject/events.jsonl"],
+                        events_summary: "追加经历。",
+                        memory_summary: "更新同行者 topic。",
+                        mind_summary: "更新心理状态。",
+                        skipped: [],
+                        needs_review: [],
+                    }),
                 }, {id: "sidecar-report"}),
             ], {stopReason: "toolUse"}),
             fauxAssistantMessage([
-                fauxToolCall("report_result", {
+                fauxToolCall("report_sidecar_result", {
                     result: "saved",
-                    sidecar_data: {
-                        "actor.memory-save": {
-                            changed_files: ["subject/events.jsonl"],
-                            events_summary: "追加经历。",
-                            memory_summary: "更新同行者 topic。",
-                            mind_summary: "更新心理状态。",
-                            skipped: [],
-                            needs_review: [],
-                        },
+                    data: {
+                        changed_files: ["subject/events.jsonl"],
+                        events_summary: "追加经历。",
+                        memory_summary: "更新同行者 topic。",
+                        mind_summary: "更新心理状态。",
+                        skipped: [],
+                        needs_review: [],
                     },
                 }, {id: "sidecar-report-fixed"}),
             ], {stopReason: "toolUse"}),
@@ -3561,7 +3561,7 @@ describe("NeuroAgentHarness", () => {
         expect(observedSidecarData?.memory_summary).toContain("更新同行者 topic");
     }, 30_000);
 
-    it("sidecar report_result 连续失败 3 次后保留真实工具错误", async () => {
+    it("sidecar report_sidecar_result 连续失败 3 次后保留真实工具错误", async () => {
         harness.profiles.register(defineAgentProfile({
             manifest: {
                 key: "test.sidecar-report-error-limit",
@@ -3605,27 +3605,21 @@ describe("NeuroAgentHarness", () => {
                 }, {id: "main-report"}),
             ], {stopReason: "toolUse"}),
             fauxAssistantMessage([
-                fauxToolCall("report_result", {
+                fauxToolCall("report_sidecar_result", {
                     result: "bad-1",
-                    sidecar_data: {
-                        "actor.memory-save": stringifiedResult,
-                    },
+                    data: stringifiedResult,
                 }, {id: "sidecar-bad-report-1"}),
             ], {stopReason: "toolUse"}),
             fauxAssistantMessage([
-                fauxToolCall("report_result", {
+                fauxToolCall("report_sidecar_result", {
                     result: "bad-2",
-                    sidecar_data: {
-                        "actor.memory-save": stringifiedResult,
-                    },
+                    data: stringifiedResult,
                 }, {id: "sidecar-bad-report-2"}),
             ], {stopReason: "toolUse"}),
             fauxAssistantMessage([
-                fauxToolCall("report_result", {
+                fauxToolCall("report_sidecar_result", {
                     result: "bad-3",
-                    sidecar_data: {
-                        "actor.memory-save": stringifiedResult,
-                    },
+                    data: stringifiedResult,
                 }, {id: "sidecar-bad-report-3"}),
             ], {stopReason: "toolUse"}),
         ]);
@@ -3643,12 +3637,74 @@ describe("NeuroAgentHarness", () => {
 
         expect(result.status).toBe("error");
         expect(result.error).toContain("sidecar actor.memory-save 执行失败");
-        expect(result.error).toContain("report_result 连续失败 3 次");
-        expect(result.error).toContain("sidecar_data 校验失败");
-        expect(result.error).not.toContain("没有返回 report_result.sidecar_data");
+        expect(result.error).toContain("report_sidecar_result 连续失败 3 次");
+        expect(result.error).toContain("report_sidecar_result.data 校验失败");
+        expect(result.error).not.toContain("没有返回 report_sidecar_result.data");
     }, 30_000);
 
-    it("sidecar 缺少 report_result 时复用现有 reminder 并继续收集结果", async () => {
+    it("sidecar 错用 report_result 连续失败时按期望结果工具名收口", async () => {
+        harness.profiles.register(defineAgentProfile({
+            manifest: {
+                key: "test.sidecar-wrong-result-tool-limit",
+                name: "Sidecar Wrong Result Tool Limit",
+            },
+            inputSchema: Type.Object({}),
+            allowedToolKeys: ["report_result"],
+            sidecars: [{
+                name: "actor.context-load",
+                stage: "prepareRun",
+                allowedToolKeys: ["report_result"],
+                sidecarDataSchema: Type.Object({
+                    context: Type.String(),
+                }),
+                enterPrompt: "加载上下文。",
+                merge() {
+                    return {};
+                },
+            }],
+            prepare() {
+                return {};
+            },
+        }), false);
+        faux.setResponses([
+            fauxAssistantMessage([
+                fauxToolCall("report_result", {
+                    result: "wrong-1",
+                    data: {context: "bad"},
+                }, {id: "wrong-report-1"}),
+            ], {stopReason: "toolUse"}),
+            fauxAssistantMessage([
+                fauxToolCall("report_result", {
+                    result: "wrong-2",
+                    data: {context: "bad"},
+                }, {id: "wrong-report-2"}),
+            ], {stopReason: "toolUse"}),
+            fauxAssistantMessage([
+                fauxToolCall("report_result", {
+                    result: "wrong-3",
+                    data: {context: "bad"},
+                }, {id: "wrong-report-3"}),
+            ], {stopReason: "toolUse"}),
+        ]);
+        const created = await harness.createAgent({
+            profileKey: "test.sidecar-wrong-result-tool-limit",
+            input: {},
+            workspaceRoot: root,
+        });
+
+        const result = await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "run"},
+        });
+
+        expect(result.status).toBe("error");
+        expect(result.error).toContain("sidecar actor.context-load 执行失败");
+        expect(result.error).toContain("report_sidecar_result 连续失败 3 次");
+        expect(result.error).toContain("不能使用 report_result");
+    }, 30_000);
+
+    it("sidecar 缺少 report_sidecar_result 时复用现有 reminder 并继续收集结果", async () => {
         let observedSidecarData: {context: string} | undefined;
         const sidecarPrompts: string[] = [];
         harness.profiles.register(defineAgentProfile({
@@ -3683,12 +3739,10 @@ describe("NeuroAgentHarness", () => {
             (context) => {
                 sidecarPrompts.push(context.messages.map((message) => messageText(message as RuntimeMessage)).join("\n"));
                 return fauxAssistantMessage([
-                    fauxToolCall("report_result", {
+                    fauxToolCall("report_sidecar_result", {
                         result: "loaded",
-                        sidecar_data: {
-                            "actor.context-load": {
-                                context: "已加载 actor 可知上下文。",
-                            },
+                        data: {
+                            context: "已加载 actor 可知上下文。",
                         },
                     }, {id: "sidecar-report-after-reminder"}),
                 ], {stopReason: "toolUse"});
@@ -3713,8 +3767,27 @@ describe("NeuroAgentHarness", () => {
 
         expect(result.status).toBe("completed");
         expect(observedSidecarData?.context).toBe("已加载 actor 可知上下文。");
-        expect(sidecarPrompts[1]).toContain("必须使用 report_result");
+        expect(sidecarPrompts[1]).toContain("必须使用 report_sidecar_result");
     }, 30_000);
+
+    it("outputFallback sidecar 的 reminder 不要求调用 report_sidecar_result", async () => {
+        const reminder = (harness as unknown as {
+            sidecarReminder(pass: SidecarProfilePass, context: never, executionToolKeys: readonly string[]): string;
+        }).sidecarReminder({
+            name: "actor.context-load",
+            stage: "prepareRun",
+            sidecarDataSchema: Type.String(),
+            outputFallback: "final_message_as_result",
+            enterPrompt: "加载上下文。",
+            merge() {
+                return {};
+            },
+        }, {} as never, []);
+
+        expect(reminder).toContain("当前旁路未开放 report_sidecar_result");
+        expect(reminder).not.toContain("完成旁路后优先调用 report_sidecar_result");
+        expect(reminder).not.toContain("report_sidecar_result.data 期望结构");
+    });
 
     it("profile 自带工具可见并可执行", async () => {
         let observedToolNames: string[] = [];
@@ -4069,15 +4142,13 @@ describe("NeuroAgentHarness", () => {
             (context) => {
                 observedToolNames.push((context.tools ?? []).map((tool) => tool.name));
                 const promptText = visibleMessageText(context.messages as AgentMessage[]);
-                expect(promptText).toContain("allowed tools: report_result");
+                expect(promptText).toContain("allowed tools: report_sidecar_result");
                 expect(promptText).toContain("provider-visible tool schema 仍保持 profile 最大工具集合");
                 return fauxAssistantMessage([
-                    fauxToolCall("report_result", {
+                    fauxToolCall("report_sidecar_result", {
                         result: "loaded",
-                        sidecar_data: {
-                            "actor.context-load": {
-                                context: "ok",
-                            },
+                        data: {
+                            context: "ok",
                         },
                     }, {id: "sidecar-report"}),
                 ], {stopReason: "toolUse"});
@@ -4172,7 +4243,7 @@ describe("NeuroAgentHarness", () => {
             key: "patched_visible_extra",
             name: "patched_visible_extra",
             label: "Patched Visible Extra",
-            description: "Visible after prepareTurn patch, but outside main run execution subset.",
+            description: "Provider-visible root tool outside main run execution subset.",
             parameters: Type.Object({}),
             async execute() {
                 patchedToolExecuted = true;
@@ -4187,7 +4258,7 @@ describe("NeuroAgentHarness", () => {
             key: "main_report_gate",
             name: "main_report_gate",
             label: "Main Report Gate",
-            description: "Allowed by mainRunAllowedToolKeys but hidden by prepareTurn patch.",
+            description: "Allowed by mainRunAllowedToolKeys but removed by prepareTurn execution patch.",
             parameters: Type.Object({}),
             async execute() {
                 reportExecuted = true;
@@ -4252,11 +4323,85 @@ describe("NeuroAgentHarness", () => {
         const context = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
 
         expect(result.status).toBe("completed");
-        expect(observedToolNames[0]).toEqual(["patched_visible_extra"]);
+        expect(observedToolNames[0]).toEqual(["main_report_gate", "patched_visible_extra"]);
         expect(reportExecuted).toBe(false);
         expect(patchedToolExecuted).toBe(false);
         expect(visibleMessageText(context.messages)).toContain("Tool patched_visible_extra is not allowed by this profile");
         expect(visibleMessageText(context.messages)).toContain("Tool main_report_gate is not allowed by this profile");
+    }, 20_000);
+
+    it("缺失结果 reminder 只在当前执行权限允许结果工具时注入", async () => {
+        const observedToolNames: string[][] = [];
+        let providerCalls = 0;
+        harness.tools.register({
+            key: "reminder_patch_extra",
+            name: "reminder_patch_extra",
+            label: "Reminder Patch Extra",
+            description: "Runtime execution patch keeps only this non-result tool.",
+            parameters: Type.Object({}),
+            async execute() {
+                return {
+                    content: [{type: "text", text: "extra"}],
+                    details: {},
+                };
+            },
+        });
+        harness.profiles.register(defineAgentProfile({
+            manifest: {
+                key: "test.result-reminder-execution-policy",
+                name: "Result Reminder Execution Policy",
+            },
+            inputSchema: Type.Object({}),
+            allowedToolKeys: ["report_result", "reminder_patch_extra"],
+            runtime: defineAgentRuntime<object>({
+                hooks: [
+                    agentRuntimeBuiltins.sessionRuntime(),
+                    {
+                        name: "patch-tools",
+                        stage: "prepareTurn",
+                        run() {
+                            return {
+                                turnSnapshotPatch: {
+                                    toolKeys: ["reminder_patch_extra"],
+                                },
+                            };
+                        },
+                    },
+                ],
+            }),
+            prepare() {
+                return {};
+            },
+        }), false);
+        faux.setResponses([
+            (context) => {
+                providerCalls += 1;
+                observedToolNames.push((context.tools ?? []).map((tool) => tool.name));
+                return fauxAssistantMessage("plain completion", {stopReason: "stop"});
+            },
+            () => {
+                providerCalls += 1;
+                return fauxAssistantMessage("unexpected reminder turn", {stopReason: "stop"});
+            },
+        ]);
+        const created = await harness.createAgent({
+            profileKey: "test.result-reminder-execution-policy",
+            input: {},
+            workspaceRoot: root,
+        });
+
+        const result = await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "run"},
+            caller: {kind: "agent", sessionId: 999, profileKey: "test.caller"},
+        });
+        const context = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
+
+        expect(result.status).toBe("completed");
+        expect(providerCalls).toBe(1);
+        expect(observedToolNames[0]).toEqual(["report_result", "reminder_patch_extra"]);
+        expect(visibleMessageText(context.messages)).not.toContain("必须使用 report_result");
     }, 20_000);
 
     it("prepareRun sidecar 不会关闭父 run 的 steer 窗口", async () => {
@@ -4306,12 +4451,10 @@ describe("NeuroAgentHarness", () => {
         }), false);
         faux.setResponses([
             fauxAssistantMessage([
-                fauxToolCall("report_result", {
+                fauxToolCall("report_sidecar_result", {
                     result: "loaded",
-                    sidecar_data: {
-                        "actor.context-load": {
-                            context: "ok",
-                        },
+                    data: {
+                        context: "ok",
                     },
                 }, {id: "sidecar-report"}),
             ], {stopReason: "toolUse"}),
@@ -5543,12 +5686,7 @@ describe("NeuroAgentHarness", () => {
         expect(result.status).toBe("completed");
         expect(result.reportResult?.result).toBe("fixed");
         const context = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
-        expect(context.messages.some((message) => {
-            if (message.role !== "user" || typeof message.content === "string") {
-                return false;
-            }
-            return message.content.some((block) => block.type === "text" && block.text.includes("必须使用 report_result"));
-        })).toBe(true);
+        expect(visibleMessageText(context.messages)).toContain("必须使用 report_result");
     }, 30_000);
 
     it("用户 caller 直接对话时不触发 report_result reminder", async () => {
@@ -7506,6 +7644,180 @@ describe("NeuroAgentHarness", () => {
                 detached: true,
             }),
         ]);
+    });
+
+    it("缺失 profile 的历史 session 仍可读取但不能继续运行", async () => {
+        const profile = defineAgentProfile({
+            manifest: {
+                key: "test.deleted-profile",
+                name: "Deleted Profile",
+            },
+            inputSchema: Type.Object({}),
+            allowedToolKeys: ["request_user_input"],
+            prepare() {
+                return {};
+            },
+        });
+        harness.profiles.register(profile, false);
+        faux.setResponses([
+            fauxAssistantMessage([
+                fauxToolCall("request_user_input", {
+                    questions: [{question: "Continue?"}],
+                }, {id: "deleted-profile-wait"}),
+            ], {stopReason: "toolUse"}),
+        ]);
+        const parent = await harness.createAgent({
+            profileKey: "test.deleted-profile",
+            input: {},
+            workspaceRoot: root,
+        });
+        const child = await harness.createAgent({
+            profileKey: "test.deleted-profile",
+            input: {},
+            workspaceRoot: root,
+            parentSessionId: parent.sessionId,
+        });
+        const waiting = await harness.invokeAgent({
+            sessionId: parent.sessionId,
+            mode: "prompt",
+            message: {text: "wait"},
+        });
+
+        const restored = new NeuroAgentHarness({
+            repo: new JsonlSessionRepository(root),
+            modelResolver: () => faux.getModel(),
+            enableSessionSummarizer: false,
+        });
+        const sessions = await restored.listSessions({workspaceKey: "global"});
+        const parentSnapshot = await restored.getSessionSnapshot(parent.sessionId);
+        const parentLiveState = await restored.getSessionLiveState(parent.sessionId);
+        const childRelations = await restored.getSessionRelations(child.sessionId);
+        const beforeTreeInvoke = await restored.getSessionSnapshot(parent.sessionId);
+        const targetEntryId = beforeTreeInvoke.entries[0]?.id ?? beforeTreeInvoke.activeLeafId;
+        if (!targetEntryId) {
+            throw new Error("缺少可用于 moveTree 测试的 entryId");
+        }
+
+        const continued = await restored.invokeAgent({
+            sessionId: parent.sessionId,
+            mode: "continue",
+            resolution: {
+                kind: "user_input",
+                toolCallId: "deleted-profile-wait",
+                answers: [{
+                    questionIndex: 0,
+                    text: "yes",
+                }],
+            },
+        });
+        const promptRejected = await restored.invokeAgent({
+            sessionId: parent.sessionId,
+            mode: "prompt",
+            message: {text: "should reject prompt"},
+        });
+        const continueRejected = await restored.invokeAgent({
+            sessionId: parent.sessionId,
+            mode: "continue",
+        });
+        const steerRejected = await restored.invokeAgent({
+            sessionId: parent.sessionId,
+            mode: "steer",
+            message: {text: "should reject steer"},
+        });
+        const followupRejected = await restored.invokeAgent({
+            sessionId: parent.sessionId,
+            mode: "followup",
+            message: {text: "should reject followup"},
+        });
+        await expect(restored.runCommand(parent.sessionId, {command: "new"})).rejects.toThrow("已不存在或不可运行");
+        await expect(restored.runCommand(parent.sessionId, {command: "compact"})).rejects.toThrow("已不存在或不可运行");
+        await expect(restored.moveTree(parent.sessionId, {
+            targetEntryId,
+            position: "at",
+            next: {
+                type: "invoke",
+                mode: "continue",
+            },
+        })).rejects.toThrow("已不存在或不可运行");
+        const afterTreeInvoke = await restored.getSessionSnapshot(parent.sessionId);
+
+        expect(waiting.status).toBe("waiting");
+        expect(sessions).toContainEqual(expect.objectContaining({
+            sessionId: parent.sessionId,
+            profileKey: "test.deleted-profile",
+            profileAvailability: "missing",
+            profileIssueMessage: expect.stringContaining("未找到 agent profile"),
+        }));
+        expect(parentSnapshot.summary).toEqual(expect.objectContaining({
+            profileAvailability: "missing",
+            profileIssueMessage: expect.stringContaining("未找到 agent profile"),
+        }));
+        expect(parentSnapshot.pendingApproval).toEqual(expect.objectContaining({
+            toolCallId: "deleted-profile-wait",
+            toolName: "request_user_input",
+        }));
+        expect(parentLiveState.summary.profileAvailability).toBe("missing");
+        expect(parentLiveState.pendingApproval).toEqual(expect.objectContaining({
+            toolCallId: "deleted-profile-wait",
+        }));
+        expect(childRelations.linkedByAgents).toContainEqual(expect.objectContaining({
+            sessionId: parent.sessionId,
+            profileAvailability: "missing",
+        }));
+        expect(continued).toEqual(expect.objectContaining({
+            status: "error",
+            error: expect.stringContaining("已不存在或不可运行"),
+            errorPhase: "pre_loop",
+        }));
+        for (const rejected of [promptRejected, continueRejected, steerRejected, followupRejected]) {
+            expect(rejected).toEqual(expect.objectContaining({
+                status: "error",
+                error: expect.stringContaining("已不存在或不可运行"),
+                errorPhase: "pre_loop",
+            }));
+        }
+        expect(afterTreeInvoke.activeLeafId).toBe(beforeTreeInvoke.activeLeafId);
+    }, 20_000);
+
+    it("不可运行 profile 的历史 session 标记为 unloadable", async () => {
+        harness.profiles.register(defineAgentProfile({
+            manifest: {
+                key: "test.unloadable",
+                name: "Unloadable Before Restore",
+            },
+            inputSchema: Type.Object({}),
+            allowedToolKeys: [],
+            prepare() {
+                return {};
+            },
+        }), false);
+        const created = await harness.createAgent({
+            profileKey: "test.unloadable",
+            input: {},
+            workspaceRoot: root,
+        });
+        const restored = new NeuroAgentHarness({
+            repo: new JsonlSessionRepository(root),
+            profiles: new BrokenProfileCatalog(join(root, "broken-system-profiles"), join(root, "broken-user-profiles")),
+            modelResolver: () => faux.getModel(),
+            enableSessionSummarizer: false,
+        });
+
+        const snapshot = await restored.getSessionSnapshot(created.sessionId);
+        const result = await restored.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "run"},
+        });
+
+        expect(snapshot.summary).toEqual(expect.objectContaining({
+            profileAvailability: "unloadable",
+            profileIssueMessage: "源码错误",
+        }));
+        expect(result).toEqual(expect.objectContaining({
+            status: "error",
+            error: expect.stringContaining("已不存在或不可运行"),
+        }));
     });
 
     it("get_session 默认不返回 tree 和历史消息，显式请求时只返回 active path 最近消息", async () => {

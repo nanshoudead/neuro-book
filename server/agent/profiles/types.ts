@@ -141,8 +141,6 @@ export type SidecarContext<TInput = JsonValue> = {
             success?: boolean;
             /** 为空表示主路未返回结构化 data。 */
             data?: unknown;
-            /** 为空表示本次不是 sidecar 返回，或 sidecar 没有提供结构化旁路结果。 */
-            sidecar_data?: unknown;
         };
     };
 };

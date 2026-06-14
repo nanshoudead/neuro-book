@@ -21,13 +21,21 @@ export type PendingSessionWritePlan = {
 export type RunToolBatchResult = {
     toolResults: ToolResultMessage[];
     reportResult?: InvokeAgentResult["reportResult"];
+    sidecarResult?: RunSidecarToolResult;
     reportResultError?: string;
+    sidecarResultError?: string;
     toolOverrides?: Record<string, NeuroAgentTool>;
     waiting?: {
         toolCallId: string;
         toolName: string;
     };
     shouldContinue: boolean;
+};
+
+export type RunSidecarToolResult = {
+    result: string;
+    /** 旁路结构化结果；成功 report_sidecar_result 后必须存在。 */
+    data?: unknown;
 };
 
 export type RuntimeHookExecutionInput = {
@@ -77,12 +85,14 @@ export type CompletedRunLoopResult = {
     status: "completed";
     finalAssistant?: AssistantMessage;
     reportResult?: InvokeAgentResult["reportResult"];
+    sidecarResult?: RunSidecarToolResult;
 };
 
 export type WaitingRunLoopResult = {
     status: "waiting";
     finalAssistant?: AssistantMessage;
     reportResult?: InvokeAgentResult["reportResult"];
+    sidecarResult?: RunSidecarToolResult;
     waiting: NonNullable<RunToolBatchResult["waiting"]>;
 };
 
@@ -141,10 +151,14 @@ export type RunFrame = {
     /** prepareNextTurn 注入的下一轮临时上下文；进入一次 provider snapshot 后清空。 */
     nextTurnRuntimeMessages: AgentMessage[];
     reportResult?: InvokeAgentResult["reportResult"];
+    /** 当前 sidecar run 通过 report_sidecar_result 返回的结构化结果。 */
+    sidecarResult?: RunSidecarToolResult;
     /** 连续 report_result 工具错误次数；成功 report_result 后清零。 */
     reportResultErrorCount: number;
     /** 最近一次 report_result 工具错误文本；用于超过错误预算后的 Runtime Error。 */
     lastReportResultError?: string;
+    /** 最近一次结果工具错误的工具名；用于超过错误预算后的 Runtime Error。 */
+    lastReportResultErrorTool?: "report_result" | "report_sidecar_result";
     finalAssistant?: AssistantMessage;
     turnIndex: number;
     reportResultReminderSent: boolean;
@@ -200,7 +214,9 @@ export type RuntimeTurn = {
     toolCalls: AgentToolCall[];
     toolResults: ToolResultMessage[];
     reportResult?: InvokeAgentResult["reportResult"];
+    sidecarResult?: RunSidecarToolResult;
     reportResultError?: string;
+    sidecarResultError?: string;
     waiting?: RunToolBatchResult["waiting"];
     shouldContinue: boolean;
 };

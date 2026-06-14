@@ -138,6 +138,25 @@ function statusClass(status: AgentSessionSummaryDto["status"]): string {
 }
 
 /**
+ * 返回 profile 不可运行时的短标签。
+ */
+function profileAvailabilityLabel(session: AgentSessionSummaryDto): string | null {
+    if (!session.profileAvailability || session.profileAvailability === "loaded") {
+        return null;
+    }
+    return session.profileAvailability === "missing" ? "Profile 缺失" : "Profile 不可运行";
+}
+
+/**
+ * 返回 profile 不可运行时的完整说明。
+ */
+function profileAvailabilityTitle(session: AgentSessionSummaryDto): string {
+    return session.profileIssueMessage
+        ? `${session.profileKey}: ${session.profileIssueMessage}`
+        : session.profileKey;
+}
+
+/**
  * 返回 profile 的中文名。
  */
 function profileDisplayName(profileKey: string): string {
@@ -260,6 +279,10 @@ onClickOutside(filterPanelRef, () => {
                             <span class="truncate text-sm font-semibold text-[var(--text-main)] transition-colors group-hover:text-[var(--accent-main)]">{{ sessionTitle(session) }}</span>
                             <span v-if="session.sessionId === activeSessionId" class="rounded px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-[0.1em] text-white bg-[var(--accent-main)] shadow-sm">Active</span>
                             <span class="rounded px-1.5 py-0.5 text-[10px] font-medium" :class="statusClass(session.status)">{{ statusLabel(session.status) }}</span>
+                            <span v-if="profileAvailabilityLabel(session)" class="inline-flex shrink-0 items-center gap-1 rounded border border-amber-500/25 bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:text-amber-300" :title="profileAvailabilityTitle(session)">
+                                <span class="i-lucide-lock h-3 w-3"></span>
+                                {{ profileAvailabilityLabel(session) }}
+                            </span>
                         </div>
                         <div class="mt-2 line-clamp-2 text-xs leading-relaxed text-[var(--text-secondary)]">{{ sessionPreview(session) }}</div>
                         <div class="mt-2.5 flex flex-wrap items-center gap-2 text-[10px] uppercase tracking-[0.16em] text-[var(--text-muted)]">

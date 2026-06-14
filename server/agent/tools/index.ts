@@ -11,7 +11,7 @@ import {defineAgentToolFromRuntime} from "nbook/server/agent/tools/types";
 import type {AgentToolDefinition, NeuroAgentTool} from "nbook/server/agent/tools/types";
 
 export {agentCollaborationTools} from "nbook/server/agent/tools/agent-collaboration-tools";
-export {controlTools, createReportResultTool, ReportResultSchema} from "nbook/server/agent/tools/control-tools";
+export {controlTools, createReportResultTool, createReportSidecarResultTool, ReportResultSchema, ReportSidecarResultSchema} from "nbook/server/agent/tools/control-tools";
 
 function buildAgentTools() {
     const fileTools = definitionsByKey(createFileTools());

@@ -1,8 +1,10 @@
-# 去 AI 味道 Skill 和 CLI 工具
+# 文本润色 Skill 和 CLI 工具
 
 ## User Request / Topic
 
-创建一个完整的"去 AI 味道"skill 系统，帮助识别和修复中文文本中的"AI 写作痕迹"（八股文风格）。
+创建一个完整的 `anti-ai-slop` skill 系统，帮助润色中文文本，并识别和修复套路化表达、AI 写作痕迹与八股文风格。
+
+**2026-06-14 update**：用户面表述从旧的风格清理心智收敛为“文本润色”；步骤 3 增加 stop-slop 风格的快速审查清单和 Directness / Rhythm / Trust / Authenticity / Density 五维 50 分评分；stop-slop 的核心规则已本地化注入 static rules、LLM rules 和 category suggestions。
 
 **核心需求**：
 1. CLI 工具：类似 eslint 的文本检查器，输出问题列表
@@ -21,7 +23,7 @@
 1. **CLI 工具可运行**：`workspace node cli check <file>` 输出类似 eslint 的格式化报告
 2. **规则系统可扩展**：JSON 格式的规则定义，static 和 llm 规则分离
 3. **Skill 可执行**：Agent 能按 6 步流程完成润色任务
-4. **修复结果正确**：能识别并修复典型的 AI 味道问题（填充词、机械过渡、二元对比等）
+4. **修复结果正确**：能识别并修复典型套路化表达（填充词、机械过渡、二元对比、公式化设问、空泛总结、节奏单调等）
 
 **约束**：
 - 第一版保持简单，不使用 jieba/词性标注/句法分析
@@ -45,7 +47,7 @@
 
 ## Current State
 
-**阶段**：设计完成，准备实现
+**阶段**：已实现，2026-06-14 完成文本润色升级
 
 **已完成**：
 - ✅ 需求讨论和确认
@@ -54,16 +56,30 @@
 - ✅ CLI 输出格式设计（类似 eslint）
 - ✅ 完整的 6 步润色流程设计
 - ✅ 规格说明文档（`.agent/workspace/anti-ai-slop-spec.md`）
-
-**待实现**：
-- [ ] 规则 JSON 文件（static-rules.json, llm-rules.json, category-suggestions.json）
-- [ ] CLI 检查工具（checker.ts）
-- [ ] CLI 集成到 workspace CLI
-- [ ] SKILL.md（Agent 工作流程说明）
-- [ ] 参考文档（patterns.md）
-- [ ] 测试和验证
+- ✅ 规则 JSON 文件（static-rules.json, llm-rules.json, category-suggestions.json）
+- ✅ CLI 检查工具（checker.ts）
+- ✅ SKILL.md 和 reference 文档
+- ✅ 2026-06-14：注入 stop-slop 本地化规则，新增快速审查评分流程
+- ✅ 2026-06-14：验证 JSON 解析、CLI static 命中、LLM rule 输出和自然文本反向样例
 
 ## Decisions / Discussion
+
+### 2026-06-14 文本润色升级
+
+**决策**：保持 `anti-ai-slop` 名称、目录和 CLI 命令不变，将用户面表述收敛为“文本润色”。
+
+**变更**：
+- `SKILL.md` 的步骤 3 改为“LLM 深度审查 + 快速审查评分”。
+- `references/workflow.md`、`references/patterns.md`、`references/cli-usage.md` 已同步为文本润色心智。
+- `static-rules.json` 新增公式化设问、强调拐杖、负向列举、商务黑话、懒惰绝对词、金句式收束候选等规则。
+- `llm-rules.json` 新增节奏单调、过度解释、缺少具体信息、隐藏行动者、金句感、段尾机械升华等语义规则。
+- `category-suggestions.json` 新增对应坏例/好例和改写方向。
+
+**验证**：
+- JSON 三个规则文件均可被 PowerShell `ConvertFrom-Json` 解析。
+- `check` 样例命中填充词、二元对比、公式化设问、商务黑话、机械列举等新增规则，high 级别按预期返回 exit code 1。
+- `show-llm-rules` 可输出 8 条 LLM rule。
+- 自然小说段落反向样例输出 `✓ No problems found`。
 
 ### 1. 技术栈选择
 
@@ -598,16 +614,18 @@ write: 生成报告
 ## TODO / Follow-ups
 
 ### 当前 MVP 范围
-- [ ] 实现规则 JSON 文件
-- [ ] 实现 CLI 工具（checker.ts）
-- [ ] 集成到 workspace CLI
-- [ ] 编写 SKILL.md
-- [ ] 测试和验证
-- [ ] 更新 PROJECT-STATUS.md
+- [x] 实现规则 JSON 文件
+- [x] 实现 CLI 工具（checker.ts）
+- [x] 编写 SKILL.md
+- [x] 测试和验证
+- [x] 更新 PROJECT-STATUS.md
+- [x] 2026-06-14：将用户面心智收敛为文本润色
+- [x] 2026-06-14：注入 stop-slop 本地化规则
+- [x] 2026-06-14：加入快速审查清单和 50 分评分
 
 ### 后续增强（第二版）
-- [ ] 添加更多 static rules（基于用户反馈）
-- [ ] 添加更多 llm rules
+- [ ] 基于真实用户反馈继续调低误伤率
+- [ ] 为快速审查评分沉淀更稳定的示例集
 - [ ] 支持 --context 显示详细上下文
 - [ ] 支持 --category 过滤特定类别
 - [ ] 支持配置文件（.anti-slop-rc.json）

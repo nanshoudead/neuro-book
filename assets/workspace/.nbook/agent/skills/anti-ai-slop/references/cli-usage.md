@@ -5,19 +5,19 @@
 检查文件中的 static 规则命中项：
 
 ```bash
-bun assets/workspace/.nbook/agent/skills/anti-ai-slop/cli/checker.ts check <文件路径>
+bun .nbook/agent/skills/anti-ai-slop/cli/checker.ts check <文件路径>
 ```
 
 显示需要 Agent 主动全文审查的 LLM 规则：
 
 ```bash
-bun assets/workspace/.nbook/agent/skills/anti-ai-slop/cli/checker.ts show-llm-rules
+bun .nbook/agent/skills/anti-ai-slop/cli/checker.ts show-llm-rules
 ```
 
 兼容旧用法：
 
 ```bash
-bun assets/workspace/.nbook/agent/skills/anti-ai-slop/cli/checker.ts <文件路径>
+bun .nbook/agent/skills/anti-ai-slop/cli/checker.ts <文件路径>
 ```
 
 ## check 输出格式
@@ -92,12 +92,23 @@ Static rules 负责定位候选文本，例如：
 - 机械过渡：首先...其次...最后...
 - 二元对比：不是...而是...
 - 问题定义对比：问题/答案/关键不是...是...
+- 公式化设问：为什么这么说、这意味着什么、试想一下
+- 强调拐杖：毫无疑问、显而易见、说到底、归根结底
+- 元叙述公告：下面将介绍、接下来将、本文将从
+- 商务黑话：赋能、抓手、闭环、拉通、落地等候选词
+- 懒惰绝对词：所有人、永远、一定、毫无例外等候选词
 
 LLM rules 负责无法靠固定正则稳定定位的问题，例如：
 - 空泛总结段
 - 语体错位
+- 节奏单调
+- 过度解释
+- 缺少具体信息
+- 隐藏行动者
+- 金句感
+- 段尾机械升华
 
-二元对比虽然需要上下文判断是否修复，但候选文本可以稳定识别，所以属于 static rule。Agent 仍然要在修复前读取上下文，不要因为它是 static rule 就自动修改。
+二元对比、公式化设问、商务黑话等虽然可以被 static rule 定位，但修复决策仍需要上下文判断。不要因为 CLI 命中就自动修改。
 
 ## 退出码
 
@@ -114,13 +125,18 @@ LLM rules 负责无法靠固定正则稳定定位的问题，例如：
 2. 执行 `show-llm-rules`，获取需要主动全文审查的 LLM 规则。
 3. 复核 static 命中项，读取上下文后判断修复、保留或需要用户确认。
 4. 对每条 LLM rule 主动审查全文；没有候选也要在计划中说明“未发现明显问题”。
-5. 用面向用户的 Markdown 生成审查结论和修复计划，不要输出 JSON、YAML 或 TypeScript interface。
+5. 执行快速审查清单，并给出 Directness / Rhythm / Trust / Authenticity / Density 五维评分。
+6. 用面向用户的 Markdown 生成审查结论和修复计划，不要输出 JSON、YAML 或 TypeScript interface。
 
 ## 常见问题
 
 ### 为什么“不是...而是...”不是 LLM rule？
 
 因为它可以被正则稳定识别。它确实需要上下文判断是否修复，但这是“修复决策”需要 LLM，不是“候选定位”需要 LLM。
+
+### 为什么 CLI 没有输出 50 分评分？
+
+评分依赖全文语气、语境、节奏和作者意图，由 Agent 在步骤 3 完成。CLI 只负责确定性候选定位。
 
 ### CLI 工具可以自动修复吗？
 
@@ -129,8 +145,8 @@ LLM rules 负责无法靠固定正则稳定定位的问题，例如：
 ### 如何添加自定义规则？
 
 编辑 `cli/rules/` 下的 JSON 文件：
-- `static-rules.json`：添加可以稳定定位候选文本的规则
-- `llm-rules.json`：添加需要 Agent 主动阅读全文审查的语义规则
+- `static-rules.json`：添加可以稳定定位候选文本的规则。
+- `llm-rules.json`：添加需要 Agent 主动阅读全文审查的语义规则。
 
 ### CLI 工具支持哪些文件格式？
 

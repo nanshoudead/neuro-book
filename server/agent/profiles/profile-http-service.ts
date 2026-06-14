@@ -23,7 +23,7 @@ import type {
     AgentProfileSchemaDetailDto,
     AgentProfileVariableGroupDto,
 } from "nbook/shared/dto/agent-profile.dto";
-import {reportResultSchemaForProfile} from "nbook/server/agent/profiles/report-result-schema";
+import {reportResultSchemaForProfile, reportSidecarResultSchemaForProfile} from "nbook/server/agent/profiles/report-result-schema";
 import type {ProfileTemplateNodeDto} from "nbook/shared/dto/profile-template.dto";
 import {buildProfilePromptRoot} from "nbook/server/agent/profiles/profile-dsl-source-parser";
 
@@ -85,6 +85,9 @@ export async function readAgentProfileDetail(
         }),
         reportResultSchema: runtimeProfile && runtimeProfile.toolKeys.includes("report_result")
             ? cloneJsonObject(reportResultSchemaForProfile(runtimeProfile))
+            : null,
+        reportSidecarResultSchema: runtimeProfile && runtimeProfile.toolKeys.includes("report_sidecar_result")
+            ? cloneJsonObject(reportSidecarResultSchemaForProfile(runtimeProfile))
             : null,
         root: buildSystemPromptRoot(source),
     };
@@ -162,6 +165,9 @@ export async function previewAgentProfilePrepare(
             reportResultSchema: profile.toolKeys.includes("report_result")
                 ? cloneJsonObject(reportResultSchemaForProfile(profile))
                 : null,
+            reportSidecarResultSchema: profile.toolKeys.includes("report_sidecar_result")
+                ? cloneJsonObject(reportSidecarResultSchemaForProfile(profile))
+                : null,
         };
     } catch (error) {
         return {
@@ -178,6 +184,9 @@ export async function previewAgentProfilePrepare(
             variables: buildProfileVariableGroups(catalog.profiles.find((item) => item.key === request.profileKey), profile),
             reportResultSchema: profile.toolKeys.includes("report_result")
                 ? cloneJsonObject(reportResultSchemaForProfile(profile))
+                : null,
+            reportSidecarResultSchema: profile.toolKeys.includes("report_sidecar_result")
+                ? cloneJsonObject(reportSidecarResultSchemaForProfile(profile))
                 : null,
         };
     }

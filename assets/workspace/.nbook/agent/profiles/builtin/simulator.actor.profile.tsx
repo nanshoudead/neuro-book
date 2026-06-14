@@ -41,7 +41,7 @@ type ActorMemorySaveSidecarData = Static<typeof ActorMemorySaveSidecarSchema>;
 const actorContextLoadPass: SidecarProfilePass<Input, ActorContextLoadSidecarData> = {
     name: "actor.context-load",
     stage: "prepareRun",
-    toolKeys: ["subject_rag_search", "report_result"],
+    toolKeys: ["subject_rag_search", "report_sidecar_result"],
     sidecarDataSchema: ActorContextLoadSidecarSchema,
     enterPrompt: (ctx) => profileText`
         退出角色扮演模式。你现在是该 actor 的记忆检索预处理器，任务是在主 run 开始前检索并整理该角色的过往记忆，组装成第一人称记忆片段注入主路。
@@ -60,11 +60,11 @@ const actorContextLoadPass: SidecarProfilePass<Input, ActorContextLoadSidecarDat
             3. 以 sources=["memory"] 调用 subject_rag_search 粗召回该角色的稳定认知。
             4. 整理：按相关性排序、去重、过滤无关条目；可以做合理联想与关联。
             5. 如果没有相关记忆，report 空字符串，不要编造内容。
-            6. 有相关内容时，用下方格式写成第一人称记忆片段，调用 report_result。
+            6. 有相关内容时，用下方格式写成第一人称记忆片段，调用 report_sidecar_result。
         </task_steps>
 
         规则：
-        - 只允许调用 subject_rag_search 和 report_result。
+        - 只允许调用 subject_rag_search 和 report_sidecar_result。
         - 不读取任何文件：不读 subject.md、soul.md、mind.md、state.md、events.jsonl、memory.jsonl 原文，也不读 lorebook、simulation/runs 或其他 subject 目录。
         - 调用 subject_rag_search 时，subjectPath 必须使用上面的 subjectPath。
         - subject_rag_search 必须显式指定且只能指定一个 sources 值：["events"] 或 ["memory"]；两层记忆分两次调用，不要一次同时搜。
@@ -74,9 +74,9 @@ const actorContextLoadPass: SidecarProfilePass<Input, ActorContextLoadSidecarDat
         - 不重复 soul.md 中已有的人设（性格、说话方式等），只补该角色的过往经历和对人事的看法。
         - 不把当前消息里已摆在眼前的信息当成记忆复述。
         - 召回到的相关记忆要写得全、写得具体，细节宁多勿少。
-        - 如果没有相关过往记忆，sidecar_data 返回空字符串。
+        - 如果没有相关过往记忆，report_sidecar_result.data 返回空字符串。
 
-        sidecar_data["actor.context-load"] 输出格式（第一人称；只能用 <经历>、<认知>、<联想> 这三种标签，不要自创其他标签）：
+        report_sidecar_result.data 输出格式（第一人称；只能用 <经历>、<认知>、<联想> 这三种标签，不要自创其他标签）：
 
         <经历>
         [第一人称：我经历过的相关往事，具体还原场景、细节和当时的想法]
@@ -88,8 +88,8 @@ const actorContextLoadPass: SidecarProfilePass<Input, ActorContextLoadSidecarDat
         [可选；此刻这个情境自然触发的其他记忆或直觉，有则写，没有则省略该标签]
         </联想>
 
-        完成后调用 report_result，把内容放在 sidecar_data["actor.context-load"] 字段，不要使用主路 data 字段，不要返回 JSON 对象。
-        sidecar_data["actor.context-load"] 必须直接是上述格式的文本；不要写 {"type":"actor-safe-context","text":"..."}，不要把 JSON 字符串当成纯文本。
+        完成后调用 report_sidecar_result，把内容直接放在 report_sidecar_result.data 字段，不要调用 report_result，不要返回 JSON 对象。
+        report_sidecar_result.data 必须直接是上述格式的文本；不要写 {"type":"actor-safe-context","text":"..."}，不要把 JSON 字符串当成纯文本。
     `,
     merge(_ctx, result) {
         const context = actorContextTextFromSidecarData(result.sidecarData).trim() || "本 Tick 没有额外 actor-safe 设定注入。";
@@ -110,7 +110,7 @@ const actorContextLoadPass: SidecarProfilePass<Input, ActorContextLoadSidecarDat
 const actorMemorySavePass: SidecarProfilePass<Input, ActorMemorySaveSidecarData> = {
     name: "actor.memory-save",
     stage: "settleRun",
-    toolKeys: ["subject_event_append", "subject_memory_update", "read", "edit", "report_result"],
+    toolKeys: ["subject_event_append", "subject_memory_update", "read", "edit", "report_sidecar_result"],
     sidecarDataSchema: ActorMemorySaveSidecarSchema,
     enterPrompt: (ctx) => profileText`
         刚才那一幕已经过去。我从那阵情绪里退出来一点，静下心，把这一刻经历的事、心里的转变沉淀进自己的记忆里——这样下一次再面对类似的人和事，我还记得这一程走过什么。
@@ -138,7 +138,7 @@ const actorMemorySavePass: SidecarProfilePass<Input, ActorMemorySaveSidecarData>
             4. 落笔前先看旧账：写 memory.jsonl / mind.md 前，先用 read 看看现有内容，免得重复或打架；events.jsonl 是只追加的，不必先读全文。
             5. 写进记忆：经历用 subject_event_append，看法用 subject_memory_update，心事用 edit 写进 mind.md。
             6. 自检：如果我心里觉得该记却还没调用对应工具，先补上，别急着说记完了。
-            7. report：调用 report_result 汇报这次都沉淀了什么。
+            7. report：调用 report_sidecar_result 汇报这次都沉淀了什么。
         </task_steps>
 
         我整理记忆时守的规矩：
@@ -155,9 +155,9 @@ const actorMemorySavePass: SidecarProfilePass<Input, ActorMemorySaveSidecarData>
         - 只有对应写入工具实际调用成功后，才能说“已追加”“已更新”，才能把路径放进 changed_files。
         - 如果这次只读了文件、没真正写进任何东西，changed_files 必须返回空数组，events_summary / memory_summary / mind_summary 对应写空字符串，并在 skipped 里说清为什么没写。
 
-        完成后调用 report_result，把结构化结果放在 sidecar_data["actor.memory-save"] 字段，不要使用主路 data 字段。
-        sidecar_data["actor.memory-save"] 必须直接是对象，顶层字段必须是 changed_files、events_summary、memory_summary、mind_summary、skipped、needs_review。
-        不要把 sidecar_data["actor.memory-save"] 写成字符串，不要复制 schema 的 type / required / properties 外壳。
+        完成后调用 report_sidecar_result，把结构化结果直接放在 report_sidecar_result.data 字段，不要调用 report_result。
+        report_sidecar_result.data 必须直接是对象，顶层字段必须是 changed_files、events_summary、memory_summary、mind_summary、skipped、needs_review。
+        不要把 report_sidecar_result.data 写成字符串，不要复制 schema 的 type / required / properties 外壳。
     `,
     merge(_ctx, result) {
         return {
@@ -184,6 +184,7 @@ export default defineAgentProfile({
         read: tools.read(),
         edit: tools.edit(),
         report_result: tools.reportResult(),
+        report_sidecar_result: tools.reportSidecarResult(),
     }),
     mainRunToolKeys: ["report_result"],
     compaction: {},

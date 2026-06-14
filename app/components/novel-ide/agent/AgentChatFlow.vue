@@ -24,6 +24,8 @@ const props = defineProps<{
     editingMessageId?: string | null;
     /** 是否禁用消息工具栏动作。 */
     messageActionDisabled?: boolean;
+    /** 是否禁用会重新触发运行的消息动作。 */
+    runActionDisabled?: boolean;
     /** 当前是否正在提交编辑。 */
     savingEdit?: boolean;
     /** 消息级分支切换状态。 */
@@ -236,6 +238,7 @@ defineExpose({ scrollToBottom: forceScrollToBottom, scrollRef });
                     :node="node"
                     :editing-message-id="props.editingMessageId"
                     :action-disabled="props.messageActionDisabled"
+                    :run-action-disabled="props.runActionDisabled"
                     :saving-edit="props.savingEdit"
                     :branch-switcher="props.branchSwitcherStateByMessageId?.[node.message.id]"
                     :menu-refresh-key="props.menuRefreshKey"

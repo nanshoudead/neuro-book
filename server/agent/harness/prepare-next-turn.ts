@@ -35,7 +35,7 @@ function appendReportResultReminder(frame: RunFrame): SessionWritePlan | undefin
     if (frame.reportResultReminderSent) {
         return undefined;
     }
-    const reminder = createReportResultReminder();
+    const reminder = createReportResultReminder(frame);
     frame.messages.push(reminder);
     frame.reportResultReminderSent = true;
 
@@ -45,7 +45,7 @@ function appendReportResultReminder(frame: RunFrame): SessionWritePlan | undefin
 
     return {
         target: {sessionId: frame.sessionId},
-        cause: "report_result.reminder",
+        cause: `${requiredResultToolName(frame)}.reminder`,
         durability: "savePoint",
         ops: [{
             kind: "append",
@@ -61,8 +61,13 @@ function appendReportResultReminder(frame: RunFrame): SessionWritePlan | undefin
 /**
  * 构造 harness 注入的 report_result 提醒消息。
  */
-function createReportResultReminder(): Message {
+function createReportResultReminder(frame: RunFrame): Message {
+    const toolName = requiredResultToolName(frame);
     return createUserMessage({
-        text: "你必须使用 report_result 工具返回最终结果。请不要只回复普通文本。",
+        text: `你必须使用 ${toolName} 工具返回最终结果。请不要只回复普通文本。`,
     });
+}
+
+function requiredResultToolName(frame: RunFrame): "report_result" | "report_sidecar_result" {
+    return frame.activeSidecar ? "report_sidecar_result" : "report_result";
 }

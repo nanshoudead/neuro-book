@@ -8,6 +8,7 @@ const props = defineProps<{
     selectedAnswers: Record<string, number[]>;
     notes: Record<string, string>;
     submitting?: boolean;
+    readonly?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -115,7 +116,7 @@ function switchQuestion(nextIndex: number): void {
  * 选择当前问题答案。
  */
 function selectAnswer(optionIndex: number): void {
-    if (!activeQuestion.value) {
+    if (!activeQuestion.value || props.readonly) {
         return;
     }
     const key = questionKey(activeQuestion.value.toolNodeId, activeQuestion.value.questionIndex);
@@ -181,7 +182,7 @@ function applyDefaultAnswers(): void {
  * 忽略整组当前等待，写入默认答案并终止本轮 ReAct loop。
  */
 function ignoreQuestion(): void {
-    if (props.session.questions.length === 0 || props.submitting) {
+    if (props.session.questions.length === 0 || props.submitting || props.readonly) {
         return;
     }
     emit("submit", {
@@ -199,7 +200,7 @@ function ignoreQuestion(): void {
  * 进入下一题，全部完成后提交。
  */
 function continueQuestion(): void {
-    if (!activeQuestion.value || !hasAnswer(questionKey(activeQuestion.value.toolNodeId, activeQuestion.value.questionIndex)) || props.submitting) {
+    if (!activeQuestion.value || !hasAnswer(questionKey(activeQuestion.value.toolNodeId, activeQuestion.value.questionIndex)) || props.submitting || props.readonly) {
         return;
     }
     if (canSubmit.value) {
@@ -216,7 +217,7 @@ function continueQuestion(): void {
  * 提交整组答案。
  */
 function submit(): void {
-    if (!canSubmit.value || props.submitting) {
+    if (!canSubmit.value || props.submitting || props.readonly) {
         return;
     }
     emit("submit", {
@@ -330,8 +331,9 @@ defineExpose({
                     v-for="(option, index) in activeQuestion.options"
                     :key="index"
                     type="button"
-                    class="group flex w-full items-start gap-2 rounded-md px-1.5 py-1 text-left transition-colors hover:bg-[var(--bg-hover)]"
+                    class="group flex w-full items-start gap-2 rounded-md px-1.5 py-1 text-left transition-colors hover:bg-[var(--bg-hover)] disabled:cursor-not-allowed disabled:opacity-55"
                     :class="activeAnswer.includes(index) ? 'text-[var(--text-main)]' : 'text-[var(--text-secondary)]'"
+                    :disabled="props.readonly"
                     @click="selectAnswer(index)"
                 >
                     <span class="w-5 shrink-0 pt-0.5 text-right text-xs tabular-nums text-[var(--text-muted)]">{{ index + 1 }}.</span>
@@ -352,8 +354,9 @@ defineExpose({
                 <button
                     v-if="activeQuestion.options.length > 0"
                     type="button"
-                    class="group flex w-full items-start gap-2 rounded-md px-1.5 py-1 text-left transition-colors hover:bg-[var(--bg-hover)]"
+                    class="group flex w-full items-start gap-2 rounded-md px-1.5 py-1 text-left transition-colors hover:bg-[var(--bg-hover)] disabled:cursor-not-allowed disabled:opacity-55"
                     :class="activeAnswer.includes(NONE_OF_ABOVE_OPTION_INDEX) ? 'text-[var(--text-main)]' : 'text-[var(--text-muted)]'"
+                    :disabled="props.readonly"
                     @click="selectAnswer(NONE_OF_ABOVE_OPTION_INDEX)"
                 >
                     <span class="w-5 shrink-0 pt-0.5 text-right text-xs tabular-nums text-[var(--text-muted)]">{{ activeQuestion.options.length + 1 }}.</span>
@@ -381,7 +384,7 @@ defineExpose({
                 <button
                     type="button"
                     class="inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-[11px] font-medium text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-40"
-                    :disabled="props.submitting"
+                    :disabled="props.submitting || props.readonly"
                     @click="ignoreQuestion"
                 >
                     <span>{{ ignoreButtonLabel }}</span>
@@ -390,7 +393,7 @@ defineExpose({
                 <button
                     type="button"
                     class="inline-flex h-7 items-center gap-1.5 rounded-md bg-[var(--accent-main)] px-3 text-[11px] font-semibold text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
-                    :disabled="!hasAnswer(questionKey(activeQuestion.toolNodeId, activeQuestion.questionIndex)) || props.submitting"
+                    :disabled="!hasAnswer(questionKey(activeQuestion.toolNodeId, activeQuestion.questionIndex)) || props.submitting || props.readonly"
                     @click="continueQuestion"
                 >
                     <span>{{ submitButtonLabel }}</span>

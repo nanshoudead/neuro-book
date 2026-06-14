@@ -136,7 +136,7 @@ function assertMainRunToolKeys(profileKey: string, toolKeys: readonly string[], 
 /**
  * 校验 profile 声明的 sidecar pass。V1 只支持当前 profile 内 prepareRun/settleRun 自动旁路。
  */
-function assertProfileSidecars(profileKey: string, toolKeys: readonly string[], sidecars: readonly {name: string; stage: string; toolKeys?: readonly string[]; allowedToolKeys?: readonly string[]; outputFallback?: string}[] | undefined): void {
+function assertProfileSidecars(profileKey: string, toolKeys: readonly string[], sidecars: readonly {name: string; stage: string; toolKeys?: readonly string[]; allowedToolKeys?: readonly string[]; outputFallback?: string; sidecarDataSchema?: TSchema}[] | undefined): void {
     if (!sidecars) {
         return;
     }
@@ -162,8 +162,26 @@ function assertProfileSidecars(profileKey: string, toolKeys: readonly string[], 
             }
         }
         const sidecarToolKeys = sidecar.toolKeys ?? toolKeys;
-        if (!sidecarToolKeys.includes("report_result") && !sidecar.outputFallback) {
-            throw new Error(`profile ${profileKey} sidecar ${sidecar.name} 未允许 report_result 时必须声明 outputFallback。`);
+        if (sidecarToolKeys.includes("report_result")) {
+            throw new Error(`profile ${profileKey} sidecar ${sidecar.name} 不能使用 report_result；旁路结果请改用 report_sidecar_result。`);
+        }
+        if (!sidecarToolKeys.includes("report_sidecar_result") && !sidecar.outputFallback) {
+            throw new Error(`profile ${profileKey} sidecar ${sidecar.name} 未允许 report_sidecar_result 时必须声明 outputFallback。`);
+        }
+        if (sidecarToolKeys.includes("report_sidecar_result") && !sidecar.sidecarDataSchema) {
+            throw new Error(`profile ${profileKey} sidecar ${sidecar.name} 使用 report_sidecar_result 时必须声明 sidecarDataSchema。`);
+        }
+        if (sidecar.outputFallback === "final_message_as_result") {
+            if (sidecar.sidecarDataSchema && sidecarDataSchemaType(sidecar.sidecarDataSchema) !== "string") {
+                throw new Error(`profile ${profileKey} sidecar ${sidecar.name} outputFallback=final_message_as_result 只能搭配 string sidecarDataSchema；结构化旁路结果请使用 parse_final_message_json 或 report_sidecar_result。`);
+            }
         }
     }
+}
+
+function sidecarDataSchemaType(schema: TSchema | undefined): string | undefined {
+    if (!schema || typeof schema !== "object" || !("type" in schema)) {
+        return undefined;
+    }
+    return typeof schema.type === "string" ? schema.type : undefined;
 }

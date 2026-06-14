@@ -33,7 +33,7 @@
 | `rp.writer` | RP Tick 用户可见正文渲染 agent。 | 消费上级 writer brief，把裁决结果写成 RP prose 并写入指定路径。 | 裁决世界、主持用户、读取完整 lorebook/simulation、正式章节正文。 | 裁决转 `simulator.leader`；主持和 brief 编剧转 `rp.leader`；正式章节转 `writer`。 |
 | `retrieval` | 内容节点召回和候选判断 agent。 | 为 Leader 查找 lorebook/manuscript 相关节点，输出 entries 给调用方判断。 | 写正文、改文件、裁决剧情、联网研究。 | 正文转 `writer`；联网事实转 `researcher`；项目统筹回 `leader.default`。 |
 | `researcher` | 联网研究 agent。 | 当前网页资料、新闻/版本/价格/政策、外部文档核对、多来源事实检查和引用。 | 本地 Project 文件编辑、正文写作、世界模拟、Plot 落库。 | 本地创作任务回 `leader.default`；正文转 `writer`；世界裁决转 `simulator.leader`。 |
-| `anti-ai-slop` | 中文文本 AI 味识别和修复 agent。 | 检查八股文、模板化表达、AI 写作痕迹，并给出修复建议或改写。 | 设计剧情结构、写完整章节、维护 Project state、联网研究。 | 完整章节写作转 `writer`；剧情规划转 `director`；项目统筹回 `leader.default`。 |
+| `anti-ai-slop` | 中文文本润色和套路化表达审查 agent。 | 润色文本，检查模板化表达、AI 写作痕迹、空泛总结、节奏问题，并给出快速审查评分、修复建议或改写。 | 设计剧情结构、写完整章节、维护 Project state、联网研究。 | 完整章节写作转 `writer`；剧情规划转 `director`；项目统筹回 `leader.default`。 |
 
 ## Handoff Checklist
 

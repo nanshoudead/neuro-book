@@ -1,16 +1,19 @@
 <script setup lang="ts">
 import Dialog from "nbook/app/components/common/Dialog.vue";
-import type {SessionTreeNode} from "nbook/server/agent/session/types";
-import {formatTimestamp} from "nbook/app/components/novel-ide/agent/agent-message";
+import type {SessionEntry, SessionTreeNode} from "nbook/server/agent/session/types";
+import {formatTimestamp, toLocalMessage} from "nbook/app/components/novel-ide/agent/agent-message";
 import {
     deriveAgentSessionTreeRows,
     deriveAgentTreeState,
     type AgentSessionTreeFilterMode,
+    type AgentSessionTreeRow,
+    type TreeGuidePart,
 } from "nbook/app/components/novel-ide/agent/session-tree";
 
 const props = defineProps<{
     modelValue: boolean;
     tree: SessionTreeNode[];
+    entries?: SessionEntry[];
     activeLeafId: string | null;
     running: boolean;
 }>();
@@ -23,6 +26,8 @@ const emit = defineEmits<{
 const search = ref("");
 const filterMode = ref<AgentSessionTreeFilterMode>("default");
 const selectedEntryId = ref<string | null>(null);
+const collapsedBranchIds = ref<Set<string>>(new Set());
+const listContainerRef = ref<HTMLElement | null>(null);
 const filterOptions: {value: AgentSessionTreeFilterMode; label: string; title: string}[] = [
     {value: "default", label: "Default", title: "显示主要历史节点"},
     {value: "no-tools", label: "No-tools", title: "隐藏工具结果，保留对话节点"},
@@ -32,10 +37,12 @@ const filterOptions: {value: AgentSessionTreeFilterMode; label: string; title: s
 ];
 
 const treeState = computed(() => deriveAgentTreeState(props.tree));
+const hasSearchQuery = computed(() => Boolean(search.value.trim()));
 const treeRows = computed(() => deriveAgentSessionTreeRows({
     tree: props.tree,
     filterMode: filterMode.value,
     query: search.value,
+    collapsedBranchIds: collapsedBranchIds.value,
 }));
 const activeLeafLabel = computed(() => props.activeLeafId ? shortEntryId(props.activeLeafId) : "-");
 const selectedNode = computed(() => {
@@ -44,11 +51,36 @@ const selectedNode = computed(() => {
     }
     return props.activeLeafId ? treeState.value.nodeById.get(props.activeLeafId) ?? null : props.tree.find((node) => node.active) ?? null;
 });
+const selectedEntryLabel = computed(() => selectedNode.value ? shortEntryId(selectedNode.value.id) : "-");
+const selectedEntry = computed(() => {
+    if (!selectedNode.value || !props.entries) {
+        return null;
+    }
+    return props.entries.find((e) => e.id === selectedNode.value?.id) ?? null;
+});
+const parsedMessage = computed(() => {
+    if (selectedEntry.value?.type === "message") {
+        return toLocalMessage(selectedEntry.value.id, selectedEntry.value.message as any);
+    }
+    return null;
+});
 
 watch(() => props.modelValue, (visible) => {
     if (visible) {
+        collapsedBranchIds.value = new Set();
         selectedEntryId.value = props.activeLeafId ?? props.tree.find((node) => node.active)?.id ?? props.tree[0]?.id ?? null;
+        nextTick(() => {
+            listContainerRef.value?.focus();
+            if (selectedEntryId.value) {
+                const el = listContainerRef.value?.querySelector(`[data-node-id="${selectedEntryId.value}"]`);
+                if (el) el.scrollIntoView({ block: "nearest" });
+            }
+        });
     }
+});
+
+watch(treeRows, () => {
+    reconcileSelectedNode();
 });
 
 /**
@@ -84,6 +116,131 @@ function nodeDotClass(node: SessionTreeNode): string {
         return "border-amber-500/45 bg-amber-500/20";
     }
     return "border-[var(--border-color-hover)] bg-[var(--bg-panel)]";
+}
+
+/**
+ * 列表行状态色彩。
+ */
+function rowStateClass(row: AgentSessionTreeRow): string[] {
+    const classes = ["border-l-transparent"];
+    if (row.node.id === selectedNode.value?.id) {
+        classes.push("border-l-[var(--accent-main)]", "bg-[var(--accent-bg)]");
+    } else if (row.node.id === props.activeLeafId) {
+        classes.push("border-l-[var(--accent-main)]", "bg-[var(--accent-bg)]/55");
+    } else if (row.node.active) {
+        classes.push("border-l-[var(--border-color-hover)]", "bg-[var(--bg-hover)]/70");
+    } else if (row.isBranchPoint) {
+        classes.push("bg-[var(--bg-input)]/45", "hover:bg-[var(--bg-hover)]/75");
+    } else {
+        classes.push("hover:bg-[var(--bg-hover)]/75");
+    }
+    return classes;
+}
+
+/**
+ * 列表行完整标题，用于长内容 hover 检查。
+ */
+function rowTitle(row: AgentSessionTreeRow): string {
+    return `${roleTitle(row.node)} · ${row.node.id} · ${nodePreview(row.node)}`;
+}
+
+/**
+ * 节点摘要的强调程度。
+ */
+function previewToneClass(row: AgentSessionTreeRow): string {
+    if (row.node.id === selectedNode.value?.id || row.node.id === props.activeLeafId) {
+        return "font-medium text-[var(--text-main)]";
+    }
+    if (row.isBranchPoint) {
+        return "font-medium text-[var(--text-main)]/95";
+    }
+    return "font-normal text-[var(--text-main)]";
+}
+
+/**
+ * 将 lane 语义转换成实际渲染缩进；非 root 行需要先空出主线列。
+ */
+function renderedGuideParts(row: AgentSessionTreeRow): TreeGuidePart[] {
+    if (row.guideParts[0] === "root") {
+        return row.guideParts;
+    }
+    return ["space", ...row.guideParts];
+}
+
+/**
+ * 前置 space cell 承担 parent lane 到 child lane 的桥接线。
+ */
+function guideBridgePart(row: AgentSessionTreeRow, guideIndex: number): TreeGuidePart | null {
+    const firstPart = row.guideParts[0];
+    if (guideIndex !== 0 || !firstPart || firstPart === "root") {
+        return null;
+    }
+    return firstPart;
+}
+
+/**
+ * 树线单元格基础色彩。
+ */
+function guideCellClass(row: AgentSessionTreeRow, part: TreeGuidePart, guideIndex: number): string {
+    return guideCellHasTopLine(row, part, guideIndex)
+        || guideCellHasBottomLine(row, part, guideIndex)
+        || guideCellHasLeftHorizontalLine(row, part, guideIndex)
+        || guideCellHasRightHorizontalLine(row, part, guideIndex)
+        || guideCellHasDot(row, part, guideIndex)
+        ? "text-[var(--border-color-hover)]"
+        : "";
+}
+
+/**
+ * 当前 guide cell 是否绘制上半竖线。
+ */
+function guideCellHasTopLine(row: AgentSessionTreeRow, part: TreeGuidePart, guideIndex: number): boolean {
+    const bridgePart = guideBridgePart(row, guideIndex);
+    const effectivePart = bridgePart ?? part;
+    return effectivePart === "line" || effectivePart === "branch" || effectivePart === "end";
+}
+
+/**
+ * 当前 guide cell 是否绘制下半竖线。
+ */
+function guideCellHasBottomLine(row: AgentSessionTreeRow, part: TreeGuidePart, guideIndex: number): boolean {
+    const bridgePart = guideBridgePart(row, guideIndex);
+    const effectivePart = bridgePart ?? part;
+    if (effectivePart === "line" || effectivePart === "branch") {
+        return true;
+    }
+    const isLastGuideCell = guideIndex === renderedGuideParts(row).length - 1;
+    return isLastGuideCell && row.isBranchPoint && !row.collapsed;
+}
+
+/**
+ * 当前 guide cell 是否绘制左半横向连接线。
+ */
+function guideCellHasLeftHorizontalLine(row: AgentSessionTreeRow, part: TreeGuidePart, guideIndex: number): boolean {
+    if (guideBridgePart(row, guideIndex)) {
+        return false;
+    }
+    return part === "branch" || part === "end";
+}
+
+/**
+ * 当前 guide cell 是否绘制右半横向连接线。
+ */
+function guideCellHasRightHorizontalLine(row: AgentSessionTreeRow, part: TreeGuidePart, guideIndex: number): boolean {
+    const bridgePart = guideBridgePart(row, guideIndex);
+    const effectivePart = bridgePart ?? part;
+    return effectivePart === "branch" || effectivePart === "end";
+}
+
+/**
+ * 当前 guide cell 是否需要绘制节点锚点。
+ */
+function guideCellHasDot(row: AgentSessionTreeRow, part: TreeGuidePart, guideIndex: number): boolean {
+    if (part === "root" || part === "branch" || part === "end") {
+        return true;
+    }
+    const isLastGuideCell = guideIndex === renderedGuideParts(row).length - 1;
+    return isLastGuideCell && (row.node.id === props.activeLeafId || row.isBranchPoint);
 }
 
 /**
@@ -160,7 +317,28 @@ function nodeIcon(node: SessionTreeNode): string {
  * 节点摘要文案。
  */
 function nodePreview(node: SessionTreeNode): string {
-    return node.preview || node.label || node.type;
+    const rawPreview = node.preview || node.label || node.type;
+    if (node.role === "assistant" && rawPreview.startsWith("[tool:") && !rawPreview.includes("] ") && rawPreview.endsWith("]")) {
+        const matches = rawPreview.match(/\[tool:([^\]]+)\]/g);
+        if (matches) {
+            const names = matches.map(m => m.replace(/\[tool:|\]/g, ""));
+            const uniqueNames = Array.from(new Set(names));
+            return `调用工具: ${uniqueNames.join(", ")} (${matches.length}次)`;
+        }
+    }
+    if (rawPreview.startsWith("---") && rawPreview.includes("profile:")) {
+        return "[配置注入] Profile configuration";
+    }
+    if (rawPreview.startsWith("{") && rawPreview.endsWith("}")) {
+        return `[JSON Payload]`;
+    }
+    if (node.type === "invocation_lifecycle") {
+        const parts = rawPreview.split(" ");
+        if (parts.length >= 2) {
+            return `执行状态: ${parts[1].toUpperCase()}`;
+        }
+    }
+    return rawPreview;
 }
 
 /**
@@ -175,6 +353,80 @@ function shortEntryId(value: string): string {
  */
 function selectNode(node: SessionTreeNode): void {
     selectedEntryId.value = node.id;
+}
+
+/**
+ * 展开或收起 branch point 的整段可见子树。
+ */
+function toggleBranch(row: AgentSessionTreeRow): void {
+    if (!row.collapsible || hasSearchQuery.value) {
+        return;
+    }
+    const nextCollapsedIds = new Set(collapsedBranchIds.value);
+    if (nextCollapsedIds.has(row.node.id)) {
+        nextCollapsedIds.delete(row.node.id);
+    } else {
+        nextCollapsedIds.add(row.node.id);
+    }
+    collapsedBranchIds.value = nextCollapsedIds;
+}
+
+/**
+ * 分支展开按钮标题。
+ */
+function branchToggleTitle(row: AgentSessionTreeRow): string {
+    if (hasSearchQuery.value) {
+        return "搜索时临时展开分支";
+    }
+    return row.collapsed ? "展开分支" : "收起分支";
+}
+
+/**
+ * 分支徽标标题。
+ */
+function branchBadgeTitle(row: AgentSessionTreeRow): string {
+    if (row.isBranchPoint) {
+        return row.collapsed ? `已隐藏 ${row.hiddenDescendantCount} 行` : "分支数量";
+    }
+    return "所在分支";
+}
+
+/**
+ * 详情面板中的节点状态标签。
+ */
+function detailStatusLabel(node: SessionTreeNode): string {
+    const pathState = node.active ? "active path" : "inactive";
+    const branchState = node.terminal ? "terminal" : "branch";
+    return `${pathState} · ${branchState}`;
+}
+
+/**
+ * 当前选中节点被折叠隐藏时，回退到最近的折叠祖先。
+ */
+function reconcileSelectedNode(): void {
+    const selectedId = selectedEntryId.value;
+    if (!selectedId || treeRows.value.some((row) => row.node.id === selectedId)) {
+        return;
+    }
+    selectedEntryId.value = nearestCollapsedBranchId(selectedId) ?? treeRows.value[0]?.node.id ?? null;
+}
+
+/**
+ * 查找一个 entry 最近的已折叠 branch point 祖先。
+ */
+function nearestCollapsedBranchId(entryId: string): string | null {
+    let cursor = treeState.value.nodeById.get(entryId)?.parentId ?? null;
+    while (cursor) {
+        const node = treeState.value.nodeById.get(cursor);
+        if (!node) {
+            return null;
+        }
+        if (node.childCount > 1 && collapsedBranchIds.value.has(node.id)) {
+            return node.id;
+        }
+        cursor = node.parentId;
+    }
+    return null;
 }
 
 /**
@@ -196,6 +448,45 @@ async function copyId(value: string | null | undefined): Promise<void> {
     }
     await navigator.clipboard.writeText(value);
 }
+/**
+ * 键盘导航事件处理器
+ */
+function handleKeyDown(e: KeyboardEvent): void {
+    if (hasSearchQuery.value) return;
+    const currentIndex = treeRows.value.findIndex(row => row.node.id === selectedEntryId.value);
+    const currentRow = currentIndex >= 0 ? treeRows.value[currentIndex] : null;
+
+    if (e.key === "ArrowDown") {
+        e.preventDefault();
+        const nextIndex = Math.min(treeRows.value.length - 1, currentIndex + 1);
+        if (nextIndex >= 0) selectNode(treeRows.value[nextIndex].node);
+    } else if (e.key === "ArrowUp") {
+        e.preventDefault();
+        const prevIndex = Math.max(0, currentIndex - 1);
+        if (prevIndex >= 0) selectNode(treeRows.value[prevIndex].node);
+    } else if (e.key === "ArrowRight") {
+        if (currentRow?.collapsible && currentRow.collapsed) {
+            e.preventDefault();
+            toggleBranch(currentRow);
+        } else if (currentRow?.collapsible) {
+            e.preventDefault();
+            const nextIndex = Math.min(treeRows.value.length - 1, currentIndex + 1);
+            if (nextIndex >= 0) selectNode(treeRows.value[nextIndex].node);
+        }
+    } else if (e.key === "ArrowLeft") {
+        if (currentRow?.collapsible && !currentRow.collapsed) {
+            e.preventDefault();
+            toggleBranch(currentRow);
+        } else if (currentRow?.node.parentId) {
+            e.preventDefault();
+            const parentNode = treeState.value.nodeById.get(currentRow.node.parentId);
+            if (parentNode) selectNode(parentNode);
+        }
+    } else if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        activateSelected();
+    }
+}
 </script>
 
 <template>
@@ -204,36 +495,47 @@ async function copyId(value: string | null | undefined): Promise<void> {
         title="Session Tree"
         width="min(1560px, calc(100vw - 16px))"
         height="min(920px, calc(100vh - 16px))"
-        body-class="!p-0 !gap-0 !overflow-hidden"
+        body-class="!p-0 !gap-0 !overflow-hidden !bg-[var(--bg-main)]"
+        header-class="!px-4 !py-3 !bg-[var(--bg-main)]"
         :show-footer="false"
         @update:model-value="emit('update:modelValue', $event)"
     >
         <template #header>
-            <div class="flex min-w-0 flex-1 items-center justify-between gap-3">
-                <div class="min-w-0">
-                    <div class="text-base font-semibold leading-snug tracking-wide text-[var(--text-main)]">Session Tree</div>
-                    <div class="truncate text-[11px] uppercase tracking-[0.2em] text-[var(--text-muted)]">{{ props.tree.length }} nodes · leaf {{ activeLeafLabel }}</div>
+            <div class="flex min-w-0 flex-1 items-center justify-between gap-4">
+                <div class="flex min-w-0 items-center gap-3">
+                    <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] text-[var(--accent-text)]">
+                        <span class="i-lucide-git-branch h-4.5 w-4.5"></span>
+                    </span>
+                    <div class="min-w-0">
+                        <div class="text-base font-semibold leading-snug text-[var(--text-main)]">Session Tree</div>
+                        <div class="mt-0.5 flex min-w-0 flex-wrap items-center gap-2 text-[11px] text-[var(--text-muted)]">
+                            <span>{{ props.tree.length }} nodes</span>
+                            <span class="h-1 w-1 rounded-full bg-[var(--border-color-hover)]"></span>
+                            <span class="truncate font-mono">leaf {{ activeLeafLabel }}</span>
+                        </div>
+                    </div>
                 </div>
-                <button class="flex h-7 w-7 items-center justify-center rounded-md text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" @click="emit('update:modelValue', false)">
+                <button type="button" class="flex h-8 w-8 items-center justify-center rounded-md text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" aria-label="关闭 Session Tree" @click="emit('update:modelValue', false)">
                     <span class="i-lucide-x h-4 w-4"></span>
                 </button>
             </div>
         </template>
 
-        <div class="flex min-h-0 flex-1 bg-[var(--bg-panel)]">
+        <div class="flex min-h-0 flex-1 bg-[var(--bg-main)]">
             <!-- Tree 主列表 -->
-            <div class="flex min-w-0 flex-1 flex-col border-r border-[var(--border-color)]">
-                <div class="flex flex-wrap items-center gap-2 border-b border-[var(--border-color)] bg-[var(--toolbar-bg)] px-4 py-3">
-                    <div class="flex h-9 min-w-[240px] flex-1 items-center gap-2 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2.5">
+            <div class="flex min-w-0 flex-1 flex-col border-r border-[var(--border-color)] bg-[var(--bg-main)]">
+                <div class="sticky top-0 z-20 flex flex-wrap items-center gap-2 border-b border-[var(--border-color)] bg-[var(--toolbar-bg)]/95 px-3 py-2 backdrop-blur">
+                    <div class="flex h-8 min-w-[280px] flex-1 items-center gap-2 rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] px-2.5 shadow-sm">
                         <span class="i-lucide-search h-4 w-4 shrink-0 text-[var(--text-muted)]"></span>
                         <input v-model="search" class="min-w-0 flex-1 bg-transparent text-sm text-[var(--text-main)] outline-none placeholder:text-[var(--text-muted)]" placeholder="搜索内容、类型或 Entry ID..." />
                     </div>
-                    <div class="flex h-9 overflow-hidden rounded-md border border-[var(--border-color)] bg-[var(--bg-input)]">
+                    <div class="flex h-8 overflow-hidden rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] p-0.5 shadow-sm">
                         <button
                             v-for="option in filterOptions"
                             :key="option.value"
-                            class="border-l border-[var(--border-color)] px-3 text-xs transition-colors first:border-l-0"
-                            :class="filterMode === option.value ? 'bg-[var(--accent-bg)] text-[var(--accent-text)]' : 'text-[var(--text-muted)] hover:bg-[var(--bg-hover)]'"
+                            type="button"
+                            class="min-w-[74px] rounded px-2.5 text-xs font-medium transition-colors"
+                            :class="filterMode === option.value ? 'bg-[var(--accent-main)] text-white shadow-sm' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]'"
                             :title="option.title"
                             @click="filterMode = option.value"
                         >
@@ -242,65 +544,175 @@ async function copyId(value: string | null | undefined): Promise<void> {
                     </div>
                 </div>
 
-                <div class="min-h-0 flex-1 overflow-y-auto px-4 py-3">
-                    <div v-if="treeRows.length > 0" class="overflow-hidden rounded-md border border-[var(--border-color)] bg-[var(--bg-sidebar)]">
-                        <button
+                <div
+                    ref="listContainerRef"
+                    class="min-h-0 flex-1 overflow-y-auto px-3 py-3 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--accent-main)]"
+                    tabindex="0"
+                    @keydown="handleKeyDown"
+                >
+                    <div v-if="treeRows.length > 0" class="overflow-hidden rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] shadow-sm">
+                        <div
                             v-for="row in treeRows"
                             :key="row.node.id"
-                            class="group/node flex min-h-8 w-full min-w-0 items-stretch gap-2 border-b border-[var(--border-color)]/55 px-2 py-1.5 text-left transition-colors last:border-b-0"
-                            :class="[
-                                row.node.id === selectedNode?.id ? 'bg-[var(--accent-bg)]/45' : row.node.active ? 'bg-[var(--bg-hover)]/60' : 'hover:bg-[var(--bg-hover)]/75',
-                                row.node.id === props.activeLeafId ? 'shadow-[inset_3px_0_0_var(--accent-main)]' : '',
-                            ]"
+                            :data-node-id="row.node.id"
+                            class="group/node grid min-h-9 w-full min-w-0 grid-cols-[auto_24px_minmax(0,1fr)] items-stretch gap-1 border-b border-l-2 border-[var(--border-color)]/55 px-2 text-left transition-colors last:border-b-0"
+                            :class="rowStateClass(row)"
                             @click="selectNode(row.node)"
                             @dblclick="activateSelected"
                         >
-                            <span class="flex shrink-0 self-stretch" aria-hidden="true">
-                                <span v-for="(part, guideIndex) in row.guideParts" :key="`${row.node.id}-guide-${guideIndex}`" class="relative w-4 shrink-0">
-                                    <span v-if="part === 'line' || part === 'branch'" class="absolute bottom-[-8px] left-1/2 top-[-8px] w-px -translate-x-1/2 bg-[var(--border-color-hover)]/55"></span>
-                                    <span v-else-if="part === 'end'" class="absolute bottom-1/2 left-1/2 top-[-8px] w-px -translate-x-1/2 bg-[var(--border-color-hover)]/55"></span>
-                                    <span v-if="part === 'branch' || part === 'end'" class="absolute left-0 top-1/2 h-px w-1/2 bg-[var(--border-color-hover)]/65"></span>
-                                    <span v-if="part === 'root' || part === 'branch' || part === 'end'" class="absolute left-1/2 top-1/2 z-10 h-2 w-2 -translate-x-1/2 -translate-y-1/2 rounded-full border" :class="nodeDotClass(row.node)"></span>
+                            <span class="mr-0.5 flex shrink-0 self-stretch" aria-hidden="true">
+                                <span v-for="(part, guideIndex) in renderedGuideParts(row)" :key="`${row.node.id}-guide-${guideIndex}`" class="relative w-4 shrink-0" :class="guideCellClass(row, part, guideIndex)">
+                                    <span v-if="guideCellHasTopLine(row, part, guideIndex)" class="absolute left-1/2 top-0 h-1/2 w-px -translate-x-1/2 bg-current opacity-75"></span>
+                                    <span v-if="guideCellHasBottomLine(row, part, guideIndex)" class="absolute bottom-0 left-1/2 h-1/2 w-px -translate-x-1/2 bg-current opacity-75"></span>
+                                    <span v-if="guideCellHasLeftHorizontalLine(row, part, guideIndex)" class="absolute left-0 right-1/2 top-1/2 h-px bg-current opacity-80"></span>
+                                    <span v-if="guideCellHasRightHorizontalLine(row, part, guideIndex)" class="absolute left-1/2 right-0 top-1/2 h-px bg-current opacity-80"></span>
+                                    <span v-if="guideCellHasDot(row, part, guideIndex)" class="absolute left-1/2 top-1/2 z-10 h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full border" :class="nodeDotClass(row.node)"></span>
                                 </span>
                             </span>
-                            <span :class="nodeIcon(row.node)" class="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--text-muted)]"></span>
-                            <span class="mt-[1px] max-w-[112px] shrink-0 truncate rounded border px-1.5 py-0.5 text-[10px] font-medium leading-none" :class="roleToneClass(row.node)" :title="roleTitle(row.node)">{{ roleLabel(row.node) }}</span>
-                            <span class="min-w-0 flex-1 truncate text-[13px] leading-5 text-[var(--text-main)]">{{ nodePreview(row.node) }}</span>
-                            <span v-if="row.isBranchPoint" class="mt-[1px] inline-flex h-4 shrink-0 items-center gap-1 rounded border border-[var(--border-color)] bg-[var(--bg-input)] px-1.5 text-[10px] text-[var(--text-muted)]" title="分支数量">
-                                <span class="i-lucide-git-fork h-3 w-3"></span>
-                                {{ row.node.childCount }}
-                            </span>
-                            <span v-else-if="row.branchSiblingCount > 1 && row.branchIndex !== null" class="mt-[1px] inline-flex h-4 shrink-0 items-center rounded border border-[var(--border-color)] bg-[var(--bg-input)] px-1.5 text-[10px] text-[var(--text-muted)]" title="所在分支">
-                                {{ row.branchIndex + 1 }}/{{ row.branchSiblingCount }}
-                            </span>
-                            <span class="mt-[1px] shrink-0 text-[10px] leading-4 text-[var(--text-muted)]">{{ formatTimestamp(row.node.timestamp) }}</span>
-                        </button>
+                            <button
+                                v-if="row.collapsible"
+                                type="button"
+                                class="flex h-6 w-6 shrink-0 items-center justify-center self-center rounded text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-default disabled:opacity-50 disabled:hover:bg-transparent disabled:hover:text-[var(--text-muted)]"
+                                :title="branchToggleTitle(row)"
+                                :aria-label="branchToggleTitle(row)"
+                                :disabled="hasSearchQuery"
+                                @click.stop="toggleBranch(row)"
+                            >
+                                <span :class="row.collapsed ? 'i-lucide-chevron-right' : 'i-lucide-chevron-down'" class="h-3.5 w-3.5"></span>
+                            </button>
+                            <span v-else class="h-6 w-6 shrink-0" aria-hidden="true"></span>
+                            <button type="button" class="grid min-w-0 flex-1 grid-cols-[16px_auto_minmax(0,1fr)_minmax(46px,auto)_52px] items-center gap-2 rounded px-1.5 py-0.5 text-left transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent-main)]" :title="rowTitle(row)" @click="selectNode(row.node)" @dblclick="activateSelected">
+                                <span :class="nodeIcon(row.node)" class="h-3.5 w-3.5 shrink-0 text-[var(--text-muted)]"></span>
+                                <span class="inline-flex h-5 max-w-[80px] shrink-0 items-center justify-center truncate rounded px-1.5 text-[10px] font-medium leading-none opacity-80 mix-blend-luminosity" :class="roleToneClass(row.node)" :title="roleTitle(row.node)">{{ roleLabel(row.node) }}</span>
+                                <span class="min-w-0 truncate text-[13px] leading-5" :class="previewToneClass(row)">{{ nodePreview(row.node) }}</span>
+                                <span class="flex min-w-[46px] justify-end">
+                                    <span v-if="row.isBranchPoint" class="inline-flex h-5 shrink-0 items-center gap-1 rounded border border-[var(--border-color)] bg-[var(--bg-input)] px-1.5 text-[10px] font-medium text-[var(--text-secondary)]" :title="branchBadgeTitle(row)">
+                                        <span class="i-lucide-git-fork h-3 w-3 text-[var(--text-muted)]"></span>
+                                        {{ row.node.childCount }}
+                                        <span v-if="row.collapsed && row.hiddenDescendantCount > 0" class="text-[var(--accent-text)]">+{{ row.hiddenDescendantCount }}</span>
+                                    </span>
+                                    <span v-else-if="row.branchSiblingCount > 1 && row.branchIndex !== null" class="inline-flex h-5 shrink-0 items-center rounded border border-[var(--border-color)] bg-[var(--bg-input)] px-1.5 text-[10px] font-medium text-[var(--text-muted)]" :title="branchBadgeTitle(row)">
+                                        {{ row.branchIndex + 1 }}/{{ row.branchSiblingCount }}
+                                    </span>
+                                </span>
+                                <span class="justify-self-end truncate whitespace-nowrap font-mono text-[10px] leading-4 text-[var(--text-muted)] opacity-60" :title="formatTimestamp(row.node.timestamp)">{{ formatTimestamp(row.node.timestamp).split(' ')[1] || formatTimestamp(row.node.timestamp) }}</span>
+                            </button>
+                        </div>
                     </div>
-                    <div v-else class="rounded-md border border-dashed border-[var(--border-color)] bg-[var(--bg-sidebar)] px-4 py-12 text-center text-sm text-[var(--text-muted)]">
+                    <div v-else class="rounded-md border border-dashed border-[var(--border-color)] bg-[var(--bg-panel)] px-4 py-12 text-center text-sm text-[var(--text-muted)]">
                         没有匹配的节点
                     </div>
                 </div>
             </div>
 
             <!-- 节点详情 -->
-            <aside class="flex w-[420px] shrink-0 flex-col bg-[var(--bg-main)]">
-                <div class="border-b border-[var(--border-color)] px-4 py-3">
-                    <div class="text-sm font-semibold text-[var(--text-main)]">节点详情</div>
-                    <div class="mt-1 text-[11px] uppercase tracking-[0.18em] text-[var(--text-muted)]">Entry Metadata</div>
+            <aside class="flex w-[440px] shrink-0 flex-col bg-[var(--bg-panel)]">
+                <div class="border-b border-[var(--border-color)] bg-[var(--bg-main)] px-4 py-3">
+                    <div class="flex min-w-0 items-center justify-between gap-3">
+                        <div class="min-w-0">
+                            <div class="text-sm font-semibold text-[var(--text-main)]">节点详情</div>
+                            <div class="mt-1 truncate font-mono text-[11px] text-[var(--text-muted)]">{{ selectedEntryLabel }}</div>
+                        </div>
+                        <button v-if="selectedNode" type="button" class="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" title="复制 Entry ID" @click="void copyId(selectedNode.id)">
+                            <span class="i-lucide-copy h-3.5 w-3.5"></span>
+                        </button>
+                    </div>
                 </div>
                 <div v-if="selectedNode" class="min-h-0 flex-1 overflow-y-auto px-4 py-4">
-                    <div class="mb-4 flex items-center gap-2">
-                        <span :class="nodeIcon(selectedNode)" class="h-4 w-4 text-[var(--accent-text)]"></span>
-                        <span class="rounded border px-2 py-1 text-xs font-medium" :class="roleToneClass(selectedNode)" :title="roleTitle(selectedNode)">{{ roleLabel(selectedNode) }}</span>
-                        <span v-if="selectedNode.id === props.activeLeafId" class="rounded bg-[var(--accent-bg)] px-2 py-1 text-[10px] text-[var(--accent-text)]">LEAF</span>
+                    <div class="mb-4 rounded-md border border-[var(--border-color)] bg-[var(--bg-main)] p-3">
+                        <div class="flex min-w-0 items-center gap-2">
+                            <span :class="nodeIcon(selectedNode)" class="h-4 w-4 shrink-0 text-[var(--accent-text)]"></span>
+                            <span class="min-w-0 truncate rounded border px-2 py-1 text-xs font-medium" :class="roleToneClass(selectedNode)" :title="roleTitle(selectedNode)">{{ roleLabel(selectedNode) }}</span>
+                            <span v-if="selectedNode.id === props.activeLeafId" class="rounded bg-[var(--accent-bg)] px-2 py-1 text-[10px] font-medium text-[var(--accent-text)]">LEAF</span>
+                        </div>
+                        <div class="mt-3 min-w-0 truncate text-sm font-medium text-[var(--text-main)]">{{ nodePreview(selectedNode) }}</div>
+                        <div class="mt-1 text-xs text-[var(--text-muted)]">{{ detailStatusLabel(selectedNode) }}</div>
                     </div>
 
-                    <div class="rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] p-3">
-                        <div class="mb-2 text-xs font-medium text-[var(--text-main)]">内容</div>
-                        <div class="max-h-[360px] overflow-y-auto whitespace-pre-wrap text-sm leading-relaxed text-[var(--text-secondary)]">{{ nodePreview(selectedNode) }}</div>
-                    </div>
+                    <template v-if="parsedMessage">
+                        <!-- Thinking process -->
+                        <div v-if="parsedMessage.thinking" class="mb-4 rounded-md border border-amber-500/25 bg-amber-500/5 p-3">
+                            <div class="mb-2 flex items-center gap-2 text-xs font-medium text-amber-600 dark:text-amber-400">
+                                <span class="i-lucide-brain h-4 w-4"></span>
+                                思考过程
+                            </div>
+                            <div class="max-h-[240px] overflow-y-auto whitespace-pre-wrap text-sm leading-relaxed text-[var(--text-secondary)]">{{ parsedMessage.thinking }}</div>
+                        </div>
 
-                    <div class="mt-4 space-y-2 rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] p-3 text-xs">
+                        <!-- Tool Calls -->
+                        <div v-if="parsedMessage.toolCalls && parsedMessage.toolCalls.length > 0" class="mb-4 space-y-3">
+                            <div v-for="toolCall in parsedMessage.toolCalls" :key="toolCall.id" class="rounded-md border border-[var(--border-color)] bg-[var(--bg-main)] p-3">
+                                <div class="mb-2 flex items-center justify-between gap-3">
+                                    <div class="flex items-center gap-2">
+                                        <span class="i-lucide-wrench h-4 w-4 text-[var(--text-muted)]"></span>
+                                        <span class="font-mono text-xs font-semibold text-[var(--text-main)]">{{ toolCall.name }}</span>
+                                    </div>
+                                    <span class="rounded bg-[var(--bg-panel)] px-1.5 py-0.5 text-[10px] text-[var(--text-muted)]" :title="toolCall.status">{{ toolCall.status }}</span>
+                                </div>
+                                <div class="max-h-[200px] overflow-y-auto rounded bg-[var(--bg-input)] p-2">
+                                    <pre class="whitespace-pre-wrap font-mono text-[11px] leading-relaxed text-[var(--text-secondary)]">{{ toolCall.argsText }}</pre>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Main Content -->
+                        <div v-if="parsedMessage.content" class="rounded-md border border-[var(--border-color)] bg-[var(--bg-main)] p-3">
+                            <div class="mb-2 flex items-center justify-between gap-3">
+                                <div class="text-xs font-medium text-[var(--text-main)]">内容</div>
+                                <span class="font-mono text-[10px] text-[var(--text-muted)]">{{ formatTimestamp(selectedNode.timestamp) }}</span>
+                            </div>
+                            <div class="max-h-[360px] overflow-y-auto whitespace-pre-wrap text-sm leading-relaxed text-[var(--text-secondary)]">{{ parsedMessage.content }}</div>
+                        </div>
+                    </template>
+
+                    <!-- JSON Tool Result or Variables -->
+                    <template v-else-if="selectedEntry?.type === 'custom' || selectedEntry?.type === 'variable_patch'">
+                        <div class="rounded-md border border-[var(--border-color)] bg-[var(--bg-main)] p-3">
+                            <div class="mb-2 flex items-center justify-between gap-3">
+                                <div class="text-xs font-medium text-[var(--text-main)]">数据 ({{ selectedEntry.type }})</div>
+                            </div>
+                            <div class="max-h-[360px] overflow-y-auto rounded bg-[var(--bg-input)] p-2">
+                                <pre class="whitespace-pre-wrap font-mono text-[11px] leading-relaxed text-[var(--text-secondary)]">{{ JSON.stringify(selectedEntry, null, 2) }}</pre>
+                            </div>
+                        </div>
+                    </template>
+                    
+                    <template v-else-if="selectedEntry?.type === 'compaction'">
+                        <div class="rounded-md border border-[var(--border-color)] bg-[var(--bg-main)] p-3">
+                            <div class="mb-2 text-xs font-medium text-[var(--text-main)]">压实详情 (Compaction)</div>
+                            <div class="mb-3 max-h-[160px] overflow-y-auto whitespace-pre-wrap text-sm leading-relaxed text-[var(--text-secondary)]">{{ selectedEntry.summary }}</div>
+                            <div v-if="selectedEntry.details" class="grid grid-cols-2 gap-2 text-xs">
+                                <div class="rounded bg-[var(--bg-panel)] p-2">
+                                    <div class="text-[10px] text-[var(--text-muted)]">Tokens Before</div>
+                                    <div class="mt-0.5 font-mono text-[var(--text-main)]">{{ selectedEntry.details.tokensBefore || selectedEntry.tokensBefore }}</div>
+                                </div>
+                                <div class="rounded bg-[var(--bg-panel)] p-2">
+                                    <div class="text-[10px] text-[var(--text-muted)]">Summarized Tokens</div>
+                                    <div class="mt-0.5 font-mono text-[var(--text-main)]">{{ selectedEntry.details.summarizedTokens ?? '-' }}</div>
+                                </div>
+                            </div>
+                        </div>
+                    </template>
+
+                    <!-- Fallback / Plain text -->
+                    <template v-else>
+                        <div class="rounded-md border border-[var(--border-color)] bg-[var(--bg-main)] p-3">
+                            <div class="mb-2 flex items-center justify-between gap-3">
+                                <div class="text-xs font-medium text-[var(--text-main)]">内容</div>
+                                <span class="font-mono text-[10px] text-[var(--text-muted)]">{{ formatTimestamp(selectedNode.timestamp) }}</span>
+                            </div>
+                            <div class="max-h-[360px] overflow-y-auto whitespace-pre-wrap text-sm leading-relaxed text-[var(--text-secondary)]">
+                                <template v-if="selectedNode.role === 'toolResult' && selectedEntry?.message?.content">
+                                    {{ typeof selectedEntry.message.content === 'string' ? selectedEntry.message.content : JSON.stringify(selectedEntry.message.content, null, 2) }}
+                                </template>
+                                <template v-else>
+                                    {{ nodePreview(selectedNode) }}
+                                </template>
+                            </div>
+                        </div>
+                    </template>
+
+                    <div class="mt-4 space-y-2 rounded-md border border-[var(--border-color)] bg-[var(--bg-main)] p-3 text-xs">
                         <div class="flex items-center justify-between gap-3">
                             <span class="text-[var(--text-muted)]">Entry ID</span>
                             <button class="min-w-0 truncate font-mono text-[var(--accent-text)]" :title="selectedNode.id" @click="void copyId(selectedNode.id)">{{ shortEntryId(selectedNode.id) }}</button>
@@ -319,15 +731,15 @@ async function copyId(value: string | null | undefined): Promise<void> {
                         </div>
                         <div class="flex items-center justify-between gap-3">
                             <span class="text-[var(--text-muted)]">Status</span>
-                            <span class="text-[var(--text-secondary)]">{{ selectedNode.active ? "active path" : "inactive" }} · {{ selectedNode.terminal ? "terminal" : "branch" }}</span>
+                            <span class="text-[var(--text-secondary)]">{{ detailStatusLabel(selectedNode) }}</span>
                         </div>
                     </div>
                 </div>
                 <div v-else class="flex flex-1 items-center justify-center px-4 text-sm text-[var(--text-muted)]">
                     选择一个节点查看详情
                 </div>
-                <div class="border-t border-[var(--border-color)] px-4 py-3">
-                    <button class="inline-flex h-9 w-full items-center justify-center gap-2 rounded-md bg-[var(--accent-main)] text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50" :disabled="props.running || !selectedNode" @click="activateSelected">
+                <div class="border-t border-[var(--border-color)] bg-[var(--bg-main)] px-4 py-3">
+                    <button type="button" class="inline-flex h-9 w-full items-center justify-center gap-2 rounded-md bg-[var(--accent-main)] text-sm font-medium text-white shadow-sm transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50" :disabled="props.running || !selectedNode" @click="activateSelected">
                         <span class="i-lucide-git-branch h-4 w-4"></span>
                         切换到此节点
                     </button>

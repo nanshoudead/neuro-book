@@ -18,6 +18,7 @@ const props = defineProps<{
     node: Extract<ChatNode, { kind: "text" }>;
     editingMessageId?: string | null;
     actionDisabled?: boolean;
+    runActionDisabled?: boolean;
     savingEdit?: boolean;
     branchSwitcher?: {
         nodeIds: string[];
@@ -276,7 +277,7 @@ watch(() => props.node.message.id, () => {
  * 开始编辑当前消息。
  */
 const startEdit = (): void => {
-    if (!canEdit.value || props.actionDisabled) {
+    if (!canEdit.value || props.actionDisabled || props.runActionDisabled) {
         return;
     }
     syncEditingDraft();
@@ -296,7 +297,7 @@ const cancelEdit = (): void => {
  */
 const saveEdit = (): void => {
     const content = decodeEditableContent(editingDraft.value).trim();
-    if (!content || props.savingEdit) {
+    if (!content || props.savingEdit || props.runActionDisabled) {
         return;
     }
     emit("save-edit", {
@@ -425,10 +426,10 @@ const endSwipe = (event: PointerEvent): void => {
                 <button class="rounded p-1 transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-40" :disabled="props.actionDisabled" title="复制" @click="emit('copy', props.node.message)">
                     <span class="i-lucide-copy h-3.5 w-3.5"></span>
                 </button>
-                <button v-if="canEdit" class="rounded p-1 transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-40" :disabled="props.actionDisabled" title="编辑" @click="startEdit">
+                <button v-if="canEdit" class="rounded p-1 transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-40" :disabled="props.actionDisabled || props.runActionDisabled" title="编辑" @click="startEdit">
                     <span class="i-lucide-pencil h-3.5 w-3.5"></span>
                 </button>
-                <button v-if="canRetry" class="rounded p-1 transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-40" :disabled="props.actionDisabled" title="刷新" @click="emit('retry', props.node.message)">
+                <button v-if="canRetry" class="rounded p-1 transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-40" :disabled="props.actionDisabled || props.runActionDisabled" title="刷新" @click="emit('retry', props.node.message)">
                     <span class="i-lucide-rotate-cw h-3.5 w-3.5"></span>
                 </button>
                 <button class="rounded p-1 transition-colors hover:bg-[var(--bg-hover)] hover:text-rose-500 disabled:cursor-not-allowed disabled:opacity-40" :disabled="props.actionDisabled" title="回退" @click="emit('delete', props.node.message)">
@@ -484,6 +485,7 @@ const endSwipe = (event: PointerEvent): void => {
                         :show-toolbar="false"
                         popover-direction="auto"
                         :submit-on-enter="false"
+                        :readonly="props.runActionDisabled"
                         :enable-quick-triggers="true"
                         :menu-refresh-key="props.menuRefreshKey ?? ''"
                         :resolve-menu="props.resolveMenu"
@@ -494,7 +496,7 @@ const endSwipe = (event: PointerEvent): void => {
                         <button class="inline-flex h-7 items-center justify-center rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2.5 text-[11px] text-[var(--text-main)] transition-colors hover:bg-[var(--bg-hover)] disabled:cursor-not-allowed disabled:opacity-50" :disabled="props.savingEdit" @click="cancelEdit">
                             取消
                         </button>
-                        <button class="inline-flex h-7 items-center justify-center rounded-md border border-transparent bg-[var(--accent-main)] px-2.5 text-[11px] text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50" :disabled="props.savingEdit || !editingDraft.trim()" @click="saveEdit">
+                        <button class="inline-flex h-7 items-center justify-center rounded-md border border-transparent bg-[var(--accent-main)] px-2.5 text-[11px] text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50" :disabled="props.savingEdit || props.runActionDisabled || !editingDraft.trim()" @click="saveEdit">
                             {{ props.savingEdit ? "保存中..." : "保存" }}
                         </button>
                     </div>

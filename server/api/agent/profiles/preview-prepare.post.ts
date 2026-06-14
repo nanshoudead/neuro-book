@@ -33,5 +33,6 @@ export default defineEventHandler(async (event) => {
         persistedMessageCount: 0,
         variables: [],
         reportResultSchema: null,
+        reportSidecarResultSchema: null,
     };
 });

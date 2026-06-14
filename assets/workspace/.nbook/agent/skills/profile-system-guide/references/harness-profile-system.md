@@ -134,7 +134,7 @@ Rules:
 - `InputSchema` validates agent/session creation input. It is not the per-turn user prompt.
 - `InputSchema = Type.Object({})` means the agent does not need special creation input.
 - `OutputSchema` describes `report_result.data`. The report protocol is enabled only when root `tools` contains `report_result`.
-- `OutputSchema = Type.Object({})` plus `report_result` means the final report has `walkthrough` but no extra structured data fields.
+- `OutputSchema = Type.Object({})` plus `report_result` means the final report has `result` text but no extra structured data fields.
 - `OutputSchema` without `report_result` is just metadata until a profile allows that tool.
 
 `ctx.runtime.pendingUserMessage` may be available during prompt mode. It lets the profile inspect the current user input before it is written to session. The harness still writes the user message after profile pre-loop writes.
@@ -389,7 +389,7 @@ User override did not receive system update:
 `report_result` behavior is confusing:
 
 - The tool must be in root `tools` to enable report completion.
-- Sidecar structured output must use `report_result.sidecar_data`; validation errors are returned as tool errors so the model can retry.
+- Sidecar structured output must use `report_sidecar_result.data`; validation errors are returned as tool errors so the model can retry.
 - `OutputSchema = Type.Object({})` means walkthrough-only report data.
 - No `report_result` tool means normal assistant completion is allowed.
 

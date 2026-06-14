@@ -66,7 +66,31 @@ describe("defineAgentRuntime", () => {
         })).toThrow("mainRunToolKeys 必须是 tools 子集");
     });
 
-    it("sidecar 未开放 report_result 时必须声明 outputFallback", () => {
+    it("拒绝 sidecar 使用 report_result", () => {
+        expect(() => defineAgentProfile({
+            manifest: {
+                key: "test.sidecar-report-result-forbidden",
+                name: "Sidecar Report Result Forbidden",
+            },
+            inputSchema: Type.Object({}),
+            tools: profileToolsFromKeys(["report_result", "report_sidecar_result"]),
+            sidecars: [{
+                name: "actor.context-load",
+                stage: "prepareRun",
+                toolKeys: ["report_result"],
+                sidecarDataSchema: Type.Object({}),
+                enterPrompt: "load",
+                merge() {
+                    return {};
+                },
+            }],
+            prepare() {
+                return {};
+            },
+        })).toThrow("不能使用 report_result");
+    });
+
+    it("sidecar 未开放 report_sidecar_result 时必须声明 outputFallback", () => {
         expect(() => defineAgentProfile({
             manifest: {
                 key: "test.sidecar-fallback",
@@ -87,6 +111,115 @@ describe("defineAgentRuntime", () => {
                 return {};
             },
         })).toThrow("必须声明 outputFallback");
+    });
+
+    it("final_message_as_result 拒绝结构化 sidecarDataSchema", () => {
+        expect(() => defineAgentProfile({
+            manifest: {
+                key: "test.sidecar-final-message-object",
+                name: "Sidecar Final Message Object",
+            },
+            inputSchema: Type.Object({}),
+            tools: profileToolsFromKeys(["read"]),
+            sidecars: [{
+                name: "actor.context-load",
+                stage: "prepareRun",
+                toolKeys: ["read"],
+                outputFallback: "final_message_as_result",
+                sidecarDataSchema: Type.Object({
+                    context: Type.String(),
+                }),
+                enterPrompt: "load",
+                merge() {
+                    return {};
+                },
+            }],
+            prepare() {
+                return {};
+            },
+        })).toThrow("只能搭配 string sidecarDataSchema");
+    });
+
+    it("final_message_as_result 拒绝 union 等复杂 sidecarDataSchema", () => {
+        expect(() => defineAgentProfile({
+            manifest: {
+                key: "test.sidecar-final-message-union",
+                name: "Sidecar Final Message Union",
+            },
+            inputSchema: Type.Object({}),
+            tools: profileToolsFromKeys(["read"]),
+            sidecars: [{
+                name: "actor.context-load",
+                stage: "prepareRun",
+                toolKeys: ["read"],
+                outputFallback: "final_message_as_result",
+                sidecarDataSchema: Type.Union([
+                    Type.String(),
+                    Type.Object({
+                        context: Type.String(),
+                    }),
+                ]),
+                enterPrompt: "load",
+                merge() {
+                    return {};
+                },
+            }],
+            prepare() {
+                return {};
+            },
+        })).toThrow("只能搭配 string sidecarDataSchema");
+    });
+
+    it("final_message_as_result 允许 string sidecarDataSchema", () => {
+        expect(() => defineAgentProfile({
+            manifest: {
+                key: "test.sidecar-final-message-string",
+                name: "Sidecar Final Message String",
+            },
+            inputSchema: Type.Object({}),
+            tools: profileToolsFromKeys(["read"]),
+            sidecars: [{
+                name: "actor.context-load",
+                stage: "prepareRun",
+                toolKeys: ["read"],
+                outputFallback: "final_message_as_result",
+                sidecarDataSchema: Type.String(),
+                enterPrompt: "load",
+                merge() {
+                    return {};
+                },
+            }],
+            prepare() {
+                return {};
+            },
+        })).not.toThrow();
+    });
+
+    it("parse_final_message_json 允许结构化 sidecarDataSchema", () => {
+        expect(() => defineAgentProfile({
+            manifest: {
+                key: "test.sidecar-json-object",
+                name: "Sidecar Json Object",
+            },
+            inputSchema: Type.Object({}),
+            tools: profileToolsFromKeys(["read"]),
+            sidecars: [{
+                name: "actor.context-load",
+                stage: "prepareRun",
+                toolKeys: ["read"],
+                outputFallback: "parse_final_message_json",
+                sidecarDataSchema: Type.Object({
+                    context: Type.String(),
+                }),
+                enterPrompt: "load",
+                merge() {
+                    return {};
+                },
+            }],
+            prepare() {
+                return {};
+            },
+        })).not.toThrow();
     });
 
     it("defineAgentRuntime 会展开内置 runtime bundle", () => {

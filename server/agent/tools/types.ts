@@ -58,7 +58,9 @@ export type ReportResultToolBinding = ToolBinding<"report_result"> & {
     dataSchema?: TSchema;
 };
 
-export type ProfileToolBinding<TKey extends string = string> = ToolBinding<TKey> | AgentToolDefinition<TKey> | ReportResultToolBinding;
+export type ReportSidecarResultToolBinding = ToolBinding<"report_sidecar_result">;
+
+export type ProfileToolBinding<TKey extends string = string> = ToolBinding<TKey> | AgentToolDefinition<TKey> | ReportResultToolBinding | ReportSidecarResultToolBinding;
 
 export type ProfileTools = Record<string, ProfileToolBinding>;
 

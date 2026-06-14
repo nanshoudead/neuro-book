@@ -49,6 +49,19 @@ const statusLabel = (status: AgentLinkedSessionDto["status"], detached: boolean)
         default: return "闲置";
     }
 };
+
+const profileAvailabilityLabel = (session: AgentLinkedSessionDto): string | null => {
+    if (!session.profileAvailability || session.profileAvailability === "loaded") {
+        return null;
+    }
+    return session.profileAvailability === "missing" ? "Profile 缺失" : "Profile 不可运行";
+};
+
+const profileAvailabilityTitle = (session: AgentLinkedSessionDto): string => {
+    return session.profileIssueMessage
+        ? `${session.profileKey}: ${session.profileIssueMessage}`
+        : session.profileKey;
+};
 </script>
 
 <template>
@@ -86,6 +99,10 @@ const statusLabel = (status: AgentLinkedSessionDto["status"], detached: boolean)
                             <div class="flex items-center gap-2">
                                 <span class="truncate text-xs font-medium text-[var(--text-main)] transition-colors group-hover:text-[var(--accent-main)]">{{ item.title || `Agent #${item.sessionId}` }}</span>
                                 <span class="rounded bg-[var(--bg-input)] px-1.5 py-0.5 text-[10px] text-[var(--text-muted)]">{{ profileLabel(item.profileKey) }}</span>
+                                <span v-if="profileAvailabilityLabel(item)" class="inline-flex shrink-0 items-center gap-1 rounded border border-amber-500/25 bg-amber-500/10 px-1.5 py-0.5 text-[10px] text-amber-700 dark:text-amber-300" :title="profileAvailabilityTitle(item)">
+                                    <span class="i-lucide-lock h-3 w-3"></span>
+                                    {{ profileAvailabilityLabel(item) }}
+                                </span>
                             </div>
                             <div class="mt-0.5 truncate font-mono text-[10px] text-[var(--text-muted)] opacity-70">sessionId: {{ item.sessionId }}</div>
                         </div>
@@ -115,6 +132,10 @@ const statusLabel = (status: AgentLinkedSessionDto["status"], detached: boolean)
                             <div class="flex items-center gap-2">
                                 <span class="truncate text-xs font-medium text-[var(--text-main)] transition-colors group-hover:text-[var(--accent-main)]">{{ item.title || `Agent #${item.sessionId}` }}</span>
                                 <span class="rounded bg-[var(--bg-input)] px-1.5 py-0.5 text-[10px] text-[var(--text-muted)]">{{ profileLabel(item.profileKey) }}</span>
+                                <span v-if="profileAvailabilityLabel(item)" class="inline-flex shrink-0 items-center gap-1 rounded border border-amber-500/25 bg-amber-500/10 px-1.5 py-0.5 text-[10px] text-amber-700 dark:text-amber-300" :title="profileAvailabilityTitle(item)">
+                                    <span class="i-lucide-lock h-3 w-3"></span>
+                                    {{ profileAvailabilityLabel(item) }}
+                                </span>
                             </div>
                             <div class="mt-0.5 truncate font-mono text-[10px] text-[var(--text-muted)] opacity-70">sessionId: {{ item.sessionId }}</div>
                         </div>

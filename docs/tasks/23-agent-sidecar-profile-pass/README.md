@@ -8,8 +8,9 @@
 - 主 run 用 `mainRunToolKeys` 收窄执行权限。
 - sidecar 用 `toolKeys` 收窄执行权限，且只能引用 root `tools` 中已有 key。
 - sidecar 不能覆盖工具 schema、description 或执行函数。
-- `sidecarDataSchema` 会汇总进 profile-stable `report_result.sidecar_data` provider-visible schema。
-- `sidecar_data` 校验失败发生在 `report_result` tool execution 阶段，返回模型可见 error toolResult 并允许同一 run 修正。
+- `report_result.data` 只用于主路结构化结果；sidecar 旁路结构化结果使用独立工具 `report_sidecar_result.data`。
+- `sidecarDataSchema` 会汇总进 profile-stable `report_sidecar_result.data` provider-visible union schema；schema 不随当前 active sidecar 动态变化。
+- `report_sidecar_result.data` 校验失败发生在 tool execution 阶段，运行期按当前 active sidecar 精确校验，返回模型可见 error toolResult 并允许同一 run 修正。
 
 后续实现和 profile author 文档以 [Agent Profile Tool Bindings](../47-agent-profile-tool-bindings/README.md) 和 `reference/agent/sidecar-profile-pass.md` 为准；本文旧字段出现处视为历史设计记录。
 
@@ -53,8 +54,8 @@
 - sidecar 使用当前 session、当前 profile、当前 input、当前 session tree 上下文继续跑。
 - sidecar 从父 run 当前节点 fork，完成后 merge 回父 run 原位置。
 - sidecar transcript 持久化到 session tree 的旁路 leaf，但不成为主 active path，不污染 actor 主 run 对话历史。
-- sidecar 通过 `report_result.sidecar_data` 返回结构化结果；无 `report_result` 时可 fallback 到最后一条 assistant message。
-- `sidecarDataSchema` 如果存在，只用于 Harness 侧校验 `report_result.sidecar_data` 或 fallback JSON，不参与 provider tool schema 渲染。
+- 当前实现中，sidecar 通过 `report_sidecar_result.data` 返回结构化结果；无 `report_sidecar_result` 时可 fallback 到最后一条 assistant message。
+- `sidecarDataSchema` 会参与 `report_sidecar_result.data` 的 profile-stable provider-visible union schema，并在 Harness 执行期按 active sidecar 精确校验。
 - sidecar 结果通过 `merge()` 转成主线可消费的 runtime 注入、runtime state 或显式写入计划。
 - sidecar 失败时直接让父 run 失败；V1 不做 skip/fallback。
 - 禁止嵌套 sidecar。
@@ -109,7 +110,7 @@ sidecar 的关键约束：
 - 主 phase 和 sidecar phase 可以通过 prompt/reminder 与运行时权限表达“当前阶段哪些工具可用”。
 - V1 暂时主要通过提示词限定主 phase 不使用被禁止工具。
 - V1 不做工具违规后的上下文清理；后续可以在 Harness hook 中补“删除违规消息 + 注入 system-reminder + continue run”。
-- provider-visible tool schema 不能因为进入 sidecar 而变化；旁路返回结构通过固定 `report_result.sidecar_data` 字段承载，具体结构只通过 sidecar system reminder 和 Harness runtime validator 约束。
+- provider-visible tool schema 不能因为进入 sidecar 而变化；当前实现用独立的 `report_sidecar_result.data` 承载旁路返回结构，schema 是 profile-stable union，具体结构再通过 sidecar reminder 和 Harness runtime validator 约束。
 
 例子：
 
@@ -162,24 +163,25 @@ type SidecarMergePlan = {
 - `stage`：V1 只支持 `prepareRun` 与 `settleRun`。
 - `enterPrompt`：进入旁路时注入的指令，例如“退出扮演模式，先检索本次 GM packet 相关且角色可知的设定”。
 - `allowedToolKeys`：旁路阶段允许执行的工具，必须是当前 profile `allowedToolKeys` 的子集。
-- `sidecarDataSchema`：旁路期望返回的 `sidecar_data` 结构，只用于 Harness runtime 校验，不参与模型可见 tool schema。
+- `sidecarDataSchema`：旁路期望返回的 `report_sidecar_result.data` 结构，会参与 profile-stable provider-visible union schema，并在 Harness runtime 按 active sidecar 精确校验。
 - `outputFallback`：没有 `report_result` 时如何把最后一条 assistant message 视作结果。
 - `merge`：把旁路结果转成主 run 的 runtime context、runtime state 或写入计划。
 
 注意：接口里不再有 `profileKey`。sidecar 不负责选择另一个 profile。
 
-## report_result Rules
+## Result Tool Rules
 
-- `report_result` 的 provider-visible tool schema 必须稳定，不能按 sidecar 动态替换。
-- `report_result` 固定新增可选字段 `sidecar_data?: JsonValue`，专门给 sidecar phase 返回结构化结果。
+- `report_result` 与 `report_sidecar_result` 的 provider-visible tool schema 都必须稳定，不能按 sidecar 动态替换。
+- `report_result.data` 只用于主路结构化结果。
+- `report_sidecar_result.data` 专门给 sidecar phase 返回结构化结果。
 - 进入 sidecar 时，Harness 注入 system reminder，明确告知模型：
   - 当前处于 sidecar phase。
   - 当前 sidecar 名称，例如 `actor.context-load`。
   - 当前允许使用的工具。
-  - 必须通过 `report_result.sidecar_data` 返回什么结构。
-- 优先要求 sidecar 使用 `report_result.sidecar_data` 退出旁路。
-- `sidecarDataSchema` 只由 Harness 在收到结果后校验 `sidecar_data`，不能用于渲染模型可见 tool schema。
-- `report_result.data` 继续保留给主 profile 输出；sidecar 不应复用 `data` 承载旁路结果，避免和主路 output contract 混淆。
+  - 必须通过 `report_sidecar_result.data` 返回什么结构。
+- 优先要求 sidecar 使用 `report_sidecar_result.data` 退出旁路。
+- `sidecarDataSchema` 会汇总进 `report_sidecar_result.data` 的 profile-stable provider-visible union schema；Harness 执行期再按 active sidecar 精确校验。
+- `report_result.data` 继续保留给主 profile 输出；sidecar 不应复用 `report_result.data` 承载旁路结果，避免和主路 output contract 混淆。
 - `report_result.data` 在 provider-visible tool schema 中也应保持可选。profile 的 `outputSchema` 只能表达“主路期望的结构化输出形状”，不能强制模型每次调用都必须传 `data`；因为任务失败、信息不足或 profile 自己选择只返回错误说明时，`data` 可能无法生成。
 - 主路如果要求 `data`，应由 profile prompt / system reminder / Harness runtime validator 表达，而不是通过 provider-visible required 字段表达。
 - 如果当前没有提供 `report_result` 工具，行为应与当前 `invoke_agent` 逻辑保持一致：将最后一条 assistant message 当成结果。
@@ -191,11 +193,15 @@ type SidecarMergePlan = {
 type ReportResultArgs = {
     result: string;
     data?: JsonValue;
-    sidecar_data?: JsonValue;
+};
+
+type ReportSidecarResultArgs = {
+    result: string;
+    data: JsonValue;
 };
 ```
 
-注意：当前实现中的 `reportResultSchemaForProfile(profile)` 会从 `profile.outputSchema` 派生模型可见 `report_result.data` schema。sidecar V1 需要避免把旁路专属 schema 放进这里，否则主路和旁路 schema 不同会破坏缓存。
+注意：当前实现中的 `reportResultSchemaForProfile(profile)` 只从 `profile.outputSchema` 派生模型可见 `report_result.data` schema。旁路专属 schema 进入 `reportSidecarResultSchemaForProfile(profile)`，并且是当前 profile 的稳定 union，不能按 active sidecar 动态替换，否则会破坏缓存。
 同时，`profile.outputSchema` 不应再让 `report_result.data` 在 provider-visible schema 中变成 required；它应降级为可选字段的结构说明和 runtime 校验依据。
 
 ## Relationship With Run Kernel Hooks
@@ -300,11 +306,11 @@ V1 策略：
 - 第一版只做 profile 声明式自动旁路；agent 主动调用旁路先不做。
 - V1 stage 只做 `prepareRun` 与 `settleRun`。
 - sidecar transcript 持久化到 session tree 的旁路 leaf；完成后恢复父 run active leaf。
-- sidecar 结果优先使用 `report_result.sidecar_data`；无 `report_result` 时 fallback 到最后一条 assistant message。
-- `sidecarDataSchema` 如果存在，只用于 Harness runtime 校验 `report_result.sidecar_data` 或 fallback JSON，不参与 provider tool schema 渲染。
+- 当前实现中，sidecar 结果优先使用 `report_sidecar_result.data`；无 `report_sidecar_result` 时 fallback 到最后一条 assistant message。
+- `sidecarDataSchema` 会汇总进 `report_sidecar_result.data` 的 profile-stable provider-visible union schema，并由 Harness runtime 按 active sidecar 精确校验。
 - `report_result.data` 最终字段语义确认降级为 optional；`profile.outputSchema` 不再让 provider-visible `data` 必填，强约束交给 prompt/reminder 和 runtime validator。
-- `sidecar_data` 确认为旁路结构化返回字段名。
-- 进入 sidecar 时必须注入 system reminder，让模型知道自己处于旁路 phase，并说明当前 `sidecar_data` 的期望结构。
+- `report_sidecar_result.data` 确认为旁路结构化返回字段。
+- 进入 sidecar 时必须注入 system reminder，让模型知道自己处于旁路 phase，并说明当前 `report_sidecar_result.data` 的期望结构。
 - sidecar 结果必须经过 `merge()` 才能注入主上下文。
 - sidecar 失败时父 run 失败。
 - V1 禁止 nested sidecar。
@@ -354,10 +360,10 @@ V1 策略：
 - `prepareRun` sidecar 的 `merge().persistedMessages` 会写入父 session active path，并在本轮主 run 可见；sidecar 合并后如果 provider-visible context 超出模型窗口，父 invocation 直接失败，不依赖 compaction。
 - sidecar 的 enter reminder、assistant 和 tool result transcript 保留在旁路 leaf 上，主 active path 不包含这些旁路过程消息。
 - `settleRun` sidecar 只在父 run completed 后执行，可通过 `merge().writePlans` 写入 session custom state，或让旁路工具自己写文件。
-- sidecar 失败、进入 waiting、缺少 `sidecar_data` 且无 fallback、或 `sidecarDataSchema` 校验失败时，父 run 失败。
-- provider-visible tool schema 保持 profile 最大 `allowedToolKeys`，sidecar 的 `allowedToolKeys` 作为执行权限子集。模型仍能看到稳定工具 schema，但越权工具会返回 tool error 并允许模型同 run 修正。
-- `report_result.data` 改为 optional；`sidecar_data` 固定 optional，专供 sidecar 返回结构化结果。
-- `sidecarDataSchema` 只在 Harness 侧校验 `report_result.sidecar_data` 或 fallback 结果，不参与 provider-visible tool schema。
+- sidecar 失败、进入 waiting、缺少 `report_sidecar_result.data` 且无 fallback、或 `sidecarDataSchema` 校验失败时，父 run 失败。
+- provider-visible tool schema 保持 profile root `tools` 最大集合，sidecar 的 `toolKeys` 作为执行权限子集。模型仍能看到稳定工具 schema，但越权工具会返回 tool error 并允许模型同 run 修正。
+- `report_result.data` 改为 optional 且只供主路使用；`report_sidecar_result.data` 专供 sidecar 返回结构化结果。
+- `sidecarDataSchema` 汇总进 `report_sidecar_result.data` 的 profile-stable provider-visible schema；Harness runtime 再按 active sidecar 精确校验或校验 fallback 结果。
 
 ## TODO / Follow-ups
 

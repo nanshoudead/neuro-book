@@ -121,6 +121,9 @@ const editor = useEditor({
                 return false;
             },
             keydown: (_view, event) => {
+                if (props.readonly) {
+                    return false;
+                }
                 if (event.key === "Tab" && event.shiftKey) {
                     event.preventDefault();
                     emit("shift-tab");
@@ -134,6 +137,10 @@ const editor = useEditor({
                 return false;
             },
             paste: (_view, event) => {
+                if (props.readonly) {
+                    event.preventDefault();
+                    return true;
+                }
                 const text = event.clipboardData?.getData("text/plain") ?? "";
                 event.preventDefault();
                 if (!text) {

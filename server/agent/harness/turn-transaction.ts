@@ -38,6 +38,7 @@ export function applySuccessfulTurnTransaction(frame: RunFrame, outcome: Success
                 status: "waiting",
                 finalAssistant: frame.finalAssistant,
                 reportResult: frame.reportResult,
+                sidecarResult: frame.sidecarResult,
                 waiting: outcome.waiting,
             },
         };

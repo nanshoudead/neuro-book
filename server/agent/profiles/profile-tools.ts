@@ -1,7 +1,7 @@
 import type {TSchema} from "typebox";
-import type {ProfileTools, ReportResultToolBinding, ToolBinding} from "nbook/server/agent/tools/types";
+import type {ProfileTools, ReportResultToolBinding, ReportSidecarResultToolBinding, ToolBinding} from "nbook/server/agent/tools/types";
 
-export type {ProfileTools, ReportResultToolBinding, ToolBinding} from "nbook/server/agent/tools/types";
+export type {ProfileTools, ReportResultToolBinding, ReportSidecarResultToolBinding, ToolBinding} from "nbook/server/agent/tools/types";
 export {defineAgentTool} from "nbook/server/agent/tools/types";
 export type {AgentToolDefinition} from "nbook/server/agent/tools/types";
 
@@ -55,6 +55,9 @@ export const tools = {
     reportResult: (options: {dataSchema?: TSchema} = {}): ReportResultToolBinding => ({
         key: "report_result",
         dataSchema: options.dataSchema,
+    }),
+    reportSidecarResult: (): ReportSidecarResultToolBinding => ({
+        key: "report_sidecar_result",
     }),
     registered: <const TKey extends string>(key: TKey) => registeredTool(key),
 };

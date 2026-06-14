@@ -33,6 +33,8 @@ const props = defineProps<{
     notes: Record<string, string>;
     submittingUserInput: boolean;
     running: boolean;
+    readonly?: boolean;
+    readonlyReason?: string;
     loadingSession: boolean;
     sessionModelSaving: boolean;
     sessionModelPopoverOpen: boolean;
@@ -115,8 +117,12 @@ const composerPlaceholder = computed(() => props.pendingSession
     : "输入消息... (输入 @ 引用, $ 技能, / 命令)");
 
 const runInputText = computed(() => props.inputText);
+const canStopReadonlyRun = computed(() => props.readonly && props.running && !runInputText.value.trim());
 
 const sendDisabled = computed(() => {
+    if (props.readonly) {
+        return !canStopReadonlyRun.value;
+    }
     if (props.pendingSession) {
         return props.submittingUserInput || !activeQuestionState.value.canContinue;
     }
@@ -146,6 +152,12 @@ const sendIconClass = computed(() => {
 });
 
 const sendButtonTitle = computed(() => {
+    if (canStopReadonlyRun.value) {
+        return "停止";
+    }
+    if (props.readonly) {
+        return props.readonlyReason || "当前 Session 只读";
+    }
     if (props.pendingSession) {
         return activeQuestionState.value.submitButtonLabel || "继续";
     }
@@ -242,6 +254,9 @@ function updateSessionModelDraft(patch: Partial<AgentComposerSessionModelDraft>)
  * 处理回答备注输入提交。
  */
 function submitComposer(payload?: {ctrlKey?: boolean; metaKey?: boolean}): void {
+    if (props.readonly) {
+        return;
+    }
     if (props.pendingSession) {
         submitActiveQuestion();
         return;
@@ -261,6 +276,9 @@ function submitComposer(payload?: {ctrlKey?: boolean; metaKey?: boolean}): void 
  * 继续或提交当前 request_user_input 问题。
  */
 function submitActiveQuestion(): void {
+    if (props.readonly) {
+        return;
+    }
     userInputPromptRef.value?.continueQuestion();
 }
 
@@ -268,6 +286,9 @@ function submitActiveQuestion(): void {
  * 处理右下角按钮点击。
  */
 function submitButton(event: MouseEvent): void {
+    if (props.readonly && !canStopReadonlyRun.value) {
+        return;
+    }
     if (props.pendingSession) {
         submitActiveQuestion();
         return;
@@ -301,6 +322,7 @@ defineExpose({focus});
                 :selected-answers="props.selectedAnswers"
                 :notes="props.notes"
                 :submitting="props.submittingUserInput"
+                :readonly="props.readonly"
                 @update:selected-answers="emit('update:selectedAnswers', $event)"
                 @update:notes="emit('update:notes', $event)"
                 @active-question-change="setActiveQuestion"
@@ -330,6 +352,7 @@ defineExpose({focus});
                 :model-value="activeComposerValue"
                 :placeholder="composerPlaceholder"
                 :expanded="composerExpanded"
+                :readonly="props.readonly"
                 :menu-refresh-key="props.menuRefreshKey"
                 :resolve-menu="resolveComposerMenu"
                 :on-skill-trigger-start="props.onSkillTriggerStart"
@@ -348,14 +371,14 @@ defineExpose({focus});
                                 allow-default
                                 :default-label="props.sessionModelDefaultLabel"
                                 placeholder="选择 Session 模型"
-                                :disabled="props.running || props.loadingSession || props.sessionModelSaving"
+                                :disabled="props.readonly || props.running || props.loadingSession || props.sessionModelSaving"
                                 dropdown-direction="up"
                                 @update:model-value="emit('update-session-model-selection', $event)"
                             />
                         </div>
                         <button
                             class="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-50"
-                            :disabled="props.running || props.loadingSession"
+                            :disabled="props.readonly || props.running || props.loadingSession"
                             title="当前 Session 模型参数"
                             @click="emit('toggle-session-model-popover')"
                         >
@@ -382,6 +405,7 @@ defineExpose({focus});
                                         allow-default
                                         :default-label="props.sessionModelDefaultLabel"
                                         placeholder="选择 Session 模型"
+                                        :disabled="props.readonly"
                                         dropdown-direction="up"
                                         @update:model-value="updateSessionModelDraft({modelKey: $event})"
                                     />
@@ -391,17 +415,17 @@ defineExpose({focus});
                                         <label class="text-xs font-medium text-[var(--text-secondary)]">思考强度</label>
                                         <span class="truncate text-[10px] text-[var(--text-muted)]">当前 {{ props.sessionThinkingResolvedLabel }}</span>
                                     </div>
-                                    <select :value="props.sessionModelDraft.reasoningEffort ?? ''" class="h-8 w-full rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2.5 text-[12px] text-[var(--text-main)] outline-none transition-colors focus:border-[var(--accent-main)] focus:ring-1 focus:ring-[var(--accent-main)]/20" @change="updateSessionModelDraft({reasoningEffort: (($event.target as HTMLSelectElement).value || null) as AgentComposerSessionModelDraft['reasoningEffort']})">
+                                    <select :value="props.sessionModelDraft.reasoningEffort ?? ''" class="h-8 w-full rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2.5 text-[12px] text-[var(--text-main)] outline-none transition-colors focus:border-[var(--accent-main)] focus:ring-1 focus:ring-[var(--accent-main)]/20 disabled:cursor-not-allowed disabled:opacity-50" :disabled="props.readonly" @change="updateSessionModelDraft({reasoningEffort: (($event.target as HTMLSelectElement).value || null) as AgentComposerSessionModelDraft['reasoningEffort']})">
                                         <option v-for="option in thinkingLevelOptions" :key="option.label" :value="option.value ?? ''">{{ option.label }}</option>
                                     </select>
                                 </div>
                             </div>
 
                             <div class="mt-4 flex items-center justify-between gap-2">
-                                <button class="inline-flex h-8 items-center justify-center rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-3 text-xs font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" :disabled="props.sessionModelSaving" @click="emit('reset-session-model-settings')">
+                                <button class="inline-flex h-8 items-center justify-center rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-3 text-xs font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-50" :disabled="props.readonly || props.sessionModelSaving" @click="emit('reset-session-model-settings')">
                                     回到 profile 默认
                                 </button>
-                                <button class="inline-flex h-8 items-center justify-center rounded-md bg-[var(--accent-main)] px-3 text-xs font-medium text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50" :disabled="props.sessionModelSaving" @click="emit('apply-session-model-settings')">
+                                <button class="inline-flex h-8 items-center justify-center rounded-md bg-[var(--accent-main)] px-3 text-xs font-medium text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50" :disabled="props.readonly || props.sessionModelSaving" @click="emit('apply-session-model-settings')">
                                     <span v-if="props.sessionModelSaving" class="i-lucide-loader-2 mr-1.5 h-3.5 w-3.5 animate-spin"></span>
                                     应用到当前 Session
                                 </button>
@@ -421,7 +445,7 @@ defineExpose({focus});
                     <button
                         class="rounded p-1.5 transition-colors hover:bg-[var(--bg-hover)] disabled:cursor-not-allowed disabled:opacity-50"
                         :class="props.planModeActive ? 'text-[var(--accent-text)] bg-[var(--accent-bg)]' : 'text-[var(--text-muted)] hover:text-[var(--text-main)]'"
-                        :disabled="props.running"
+                        :disabled="props.readonly || props.running"
                         title="Plan Mode (Shift+Tab)"
                         @click="emit('toggle-plan-mode')"
                     >

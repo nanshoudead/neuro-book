@@ -1763,6 +1763,7 @@ function isApprovalApproved(answer?: {
             <AgentSessionTreeDialog
                 v-model="sessionTreeDialogOpen"
                 :tree="activeSnapshot?.tree ?? []"
+                :entries="activeSnapshot?.entries ?? []"
                 :active-leaf-id="activeSnapshot?.activeLeafId ?? null"
                 :running="running"
                 @select="void selectTreeNode($event)"

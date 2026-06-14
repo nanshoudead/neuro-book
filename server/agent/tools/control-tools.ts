@@ -7,6 +7,22 @@ import type {NeuroAgentTool} from "nbook/server/agent/tools/types";
 export const ReportResultSchema = Type.Object({
     result: Type.String(),
     data: Type.Optional(Type.Unknown()),
+});
+
+const ReportResultValidationSchema = Type.Object({
+    result: Type.String(),
+    data: Type.Optional(Type.Unknown()),
+    sidecar_data: Type.Optional(Type.Unknown()),
+});
+
+export const ReportSidecarResultSchema = Type.Object({
+    result: Type.String(),
+    data: Type.Unknown(),
+});
+
+const ReportSidecarResultValidationSchema = Type.Object({
+    result: Type.String(),
+    data: Type.Optional(Type.Unknown()),
     sidecar_data: Type.Optional(Type.Unknown()),
 });
 
@@ -45,6 +61,23 @@ export const controlTools = {
         parameters: ReportResultSchema,
         async execute(_toolCallId, params: unknown) {
             const report = params as Static<typeof ReportResultSchema>;
+            return {
+                content: [{type: "text", text: report.result}],
+                details: report,
+                terminate: true,
+            };
+        },
+    }),
+    reportSidecarResult: defineAgentTool({
+        key: "report_sidecar_result",
+        name: "report_sidecar_result",
+        label: "Report Sidecar Result",
+        executionMode: "sequential",
+        description: "Report final sidecar result to the harness.",
+        parameters: ReportSidecarResultSchema,
+        validationSchema: ReportSidecarResultValidationSchema,
+        async execute(_toolCallId, params: unknown) {
+            const report = params as Static<typeof ReportSidecarResultValidationSchema>;
             return {
                 content: [{type: "text", text: report.result}],
                 details: report,
@@ -111,7 +144,6 @@ export function createReportResultTool(parameters: TSchema, options: {
     dataSchema?: TSchema;
     activeSidecar?: {
         name: string;
-        sidecarDataSchema?: TSchema;
     };
 } = {}): NeuroAgentTool {
     return {
@@ -121,27 +153,13 @@ export function createReportResultTool(parameters: TSchema, options: {
         executionMode: "sequential",
         description: "Report final agent result to the caller.",
         parameters,
-        validationSchema: ReportResultSchema,
+        validationSchema: ReportResultValidationSchema,
         async execute(_toolCallId, params: unknown) {
-            const report = params as {result: string; data?: unknown; sidecar_data?: Record<string, unknown>};
+            const report = params as {result: string; data?: unknown; sidecar_data?: unknown};
             if (options.activeSidecar) {
-                if ("data" in report) {
-                    throw new Error(`sidecar ${options.activeSidecar.name} 不能通过 report_result.data 返回旁路结果，请改用 sidecar_data["${options.activeSidecar.name}"]。`);
-                }
-                const sidecarFieldData = report.sidecar_data?.[options.activeSidecar.name];
-                if (sidecarFieldData === undefined) {
-                    throw new Error(`sidecar ${options.activeSidecar.name} 必须通过 report_result.sidecar_data["${options.activeSidecar.name}"] 返回旁路结果。`);
-                }
-                if (options.activeSidecar.sidecarDataSchema) {
-                    try {
-                        assertStrictSchemaValue(options.activeSidecar.sidecarDataSchema, sidecarFieldData);
-                    } catch (error) {
-                        const message = error instanceof Error ? error.message : String(error);
-                        throw new Error(`sidecar ${options.activeSidecar.name} sidecar_data 校验失败：${message}`);
-                    }
-                }
+                throw new Error(`当前处于 sidecar ${options.activeSidecar.name} 旁路阶段，不能使用 report_result；请改用 report_sidecar_result，并通过 report_sidecar_result.data 返回旁路结果。`);
             } else if ("sidecar_data" in report) {
-                throw new Error("主 run 不能通过 report_result.sidecar_data 返回结果，请改用 data 或 result。");
+                throw new Error("report_result 不再支持 sidecar_data；主路结构化结果请使用 report_result.data，旁路结果请使用 report_sidecar_result.data。");
             }
             if (options.dataSchema && "data" in report) {
                 try {
@@ -161,9 +179,58 @@ export function createReportResultTool(parameters: TSchema, options: {
 }
 
 /**
+ * 创建带当前 profile sidecarDataSchema union 的 report_sidecar_result 工具。
+ */
+export function createReportSidecarResultTool(parameters: TSchema, options: {
+    activeSidecar?: {
+        name: string;
+        sidecarDataSchema?: TSchema;
+    };
+} = {}): NeuroAgentTool {
+    return {
+        key: "report_sidecar_result",
+        name: "report_sidecar_result",
+        label: "Report Sidecar Result",
+        executionMode: "sequential",
+        description: "Report final sidecar result to the harness.",
+        parameters,
+        validationSchema: ReportSidecarResultValidationSchema,
+        async execute(_toolCallId, params: unknown) {
+            const report = params as {result: string; data?: unknown; sidecar_data?: unknown};
+            if (!options.activeSidecar) {
+                throw new Error("当前是主 run，不能使用 report_sidecar_result；请改用 report_result 返回主路结果。");
+            }
+            if (!("data" in report)) {
+                if ("sidecar_data" in report) {
+                    throw new Error("report_sidecar_result 不再支持 sidecar_data；请把当前旁路结果直接放入 report_sidecar_result.data。");
+                }
+                throw new Error(`sidecar ${options.activeSidecar.name} 必须通过 report_sidecar_result.data 返回旁路结果。`);
+            }
+            if (!options.activeSidecar.sidecarDataSchema) {
+                throw new Error(`sidecar ${options.activeSidecar.name} 未声明 sidecarDataSchema，不能使用 report_sidecar_result。`);
+            }
+            try {
+                assertStrictSchemaValue(options.activeSidecar.sidecarDataSchema, report.data);
+            } catch (error) {
+                const message = error instanceof Error ? error.message : String(error);
+                throw new Error(`sidecar ${options.activeSidecar.name} report_sidecar_result.data 校验失败：${message}`);
+            }
+            return {
+                content: [{type: "text", text: report.result}],
+                details: {
+                    result: report.result,
+                    data: report.data,
+                },
+                terminate: true,
+            };
+        },
+    };
+}
+
+/**
  * 严格校验 schema，不执行 TypeBox Parse/Convert，避免把模型错误参数静默修正。
  */
-function assertStrictSchemaValue(schema: TSchema, value: unknown): void {
+export function assertStrictSchemaValue(schema: TSchema, value: unknown): void {
     if (Value.Check(schema, value)) {
         return;
     }

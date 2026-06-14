@@ -1,6 +1,6 @@
 import {describe, expect, it} from "vitest";
 import {Type} from "typebox";
-import {reportResultSchemaForProfile} from "nbook/server/agent/profiles/report-result-schema";
+import {reportResultSchemaForProfile, reportSidecarResultSchemaForProfile} from "nbook/server/agent/profiles/report-result-schema";
 import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
 import {profileToolsFromKeys} from "nbook/server/agent/test/profile-tools";
 import type {TSchema} from "typebox";
@@ -48,19 +48,49 @@ describe("reportResultSchemaForProfile", () => {
         }));
     });
 
-    it("sidecar_data 使用所有 sidecarDataSchema 生成 profile-stable schema", () => {
+    it("有 sidecar 时 report_result 仍只包含主路结果 schema", () => {
+        const profile = defineAgentProfile({
+            manifest: {key: "agent.sidecar-main-result", name: "Sidecar Main Result"},
+            inputSchema: Type.Object({}),
+            outputSchema: Type.Object({summary: Type.String()}),
+            tools: profileToolsFromKeys(["report_result", "report_sidecar_result"]),
+            sidecars: [{
+                name: "load",
+                stage: "prepareRun",
+                toolKeys: ["report_sidecar_result"],
+                sidecarDataSchema: Type.String(),
+                enterPrompt: "load",
+                merge() {
+                    return {};
+                },
+            }],
+            prepare() {
+                return {};
+            },
+        });
+
+        const schema = reportResultSchemaForProfile(profile) as TSchema & {properties: Record<string, unknown>};
+        expect(schema.properties).toEqual(expect.objectContaining({
+            data: profile.outputSchema,
+        }));
+        expect(schema.properties).not.toHaveProperty("sidecar_data");
+    });
+});
+
+describe("reportSidecarResultSchemaForProfile", () => {
+    it("data 使用所有 sidecarDataSchema 生成 profile-stable union schema", () => {
         const textSchema = Type.String();
         const objectSchema = Type.Object({summary: Type.String()});
         const profile = defineAgentProfile({
             manifest: {key: "agent.sidecar", name: "Sidecar"},
             inputSchema: Type.Object({}),
             outputSchema: Type.Object({}),
-            tools: profileToolsFromKeys(["report_result"]),
+            tools: profileToolsFromKeys(["report_result", "report_sidecar_result"]),
             sidecars: [
                 {
                     name: "load",
                     stage: "prepareRun",
-                    toolKeys: ["report_result"],
+                    toolKeys: ["report_sidecar_result"],
                     sidecarDataSchema: textSchema,
                     enterPrompt: "load",
                     merge() {
@@ -70,7 +100,7 @@ describe("reportResultSchemaForProfile", () => {
                 {
                     name: "save",
                     stage: "settleRun",
-                    toolKeys: ["report_result"],
+                    toolKeys: ["report_sidecar_result"],
                     sidecarDataSchema: objectSchema,
                     enterPrompt: "save",
                     merge() {
@@ -83,9 +113,45 @@ describe("reportResultSchemaForProfile", () => {
             },
         });
 
-        const schema = reportResultSchemaForProfile(profile) as TSchema & {properties: Record<string, TSchema & {properties: Record<string, unknown>}>};
-        expect(schema.properties.sidecar_data).toBeDefined();
-        expect(schema.properties.sidecar_data.properties?.load).toBeDefined();
-        expect(schema.properties.sidecar_data.properties?.save).toBeDefined();
+        const schema = reportSidecarResultSchemaForProfile(profile) as TSchema & {properties: {data?: TSchema & {anyOf?: TSchema[]}}};
+        expect(schema).toEqual(expect.objectContaining({
+            required: ["result", "data"],
+        }));
+        expect(schema.properties.data?.anyOf).toEqual([
+            textSchema,
+            objectSchema,
+        ]);
+    });
+
+    it("忽略 report_sidecar_result binding 上的 dataSchema，避免模型 schema 与执行校验分裂", () => {
+        const sidecarSchema = Type.String();
+        const profile = defineAgentProfile({
+            manifest: {key: "agent.sidecar-schema-source", name: "Sidecar Schema Source"},
+            inputSchema: Type.Object({}),
+            outputSchema: Type.Object({}),
+            tools: {
+                report_result: {key: "report_result"},
+                report_sidecar_result: {
+                    key: "report_sidecar_result",
+                    dataSchema: Type.Unknown(),
+                },
+            } as any,
+            sidecars: [{
+                name: "load",
+                stage: "prepareRun",
+                toolKeys: ["report_sidecar_result"],
+                sidecarDataSchema: sidecarSchema,
+                enterPrompt: "load",
+                merge() {
+                    return {};
+                },
+            }],
+            prepare() {
+                return {};
+            },
+        });
+
+        const schema = reportSidecarResultSchemaForProfile(profile) as TSchema & {properties: {data?: TSchema}};
+        expect(schema.properties.data).toBe(sidecarSchema);
     });
 });

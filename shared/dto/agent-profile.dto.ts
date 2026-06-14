@@ -139,6 +139,7 @@ export const AgentProfileDetailDtoSchema = z.object({
     inputSchema: AgentProfileSchemaDetailDtoSchema,
     outputSchema: AgentProfileSchemaDetailDtoSchema,
     reportResultSchema: z.record(z.string(), z.json()).nullable().optional(),
+    reportSidecarResultSchema: z.record(z.string(), z.json()).nullable().optional(),
     root: AgentProfilePromptNodeDtoSchema.nullable().optional(),
 });
 
@@ -186,6 +187,7 @@ export const AgentProfilePreparePreviewDtoSchema = z.object({
     persistedMessageCount: z.number().int().nonnegative(),
     variables: z.array(AgentProfileVariableGroupDtoSchema),
     reportResultSchema: z.record(z.string(), z.json()).nullable().optional(),
+    reportSidecarResultSchema: z.record(z.string(), z.json()).nullable().optional(),
 });
 
 /**

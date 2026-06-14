@@ -146,6 +146,25 @@ function statusClass(status: AgentSessionSummaryDto["status"]): string {
     }
 }
 
+/**
+ * 返回 profile 不可运行时的短标签。
+ */
+function profileAvailabilityLabel(session: AgentSessionSummaryDto): string | null {
+    if (!session.profileAvailability || session.profileAvailability === "loaded") {
+        return null;
+    }
+    return session.profileAvailability === "missing" ? "Profile 缺失" : "Profile 不可运行";
+}
+
+/**
+ * 返回 profile 不可运行时的完整说明。
+ */
+function profileAvailabilityTitle(session: AgentSessionSummaryDto): string {
+    return session.profileIssueMessage
+        ? `${session.profileKey}: ${session.profileIssueMessage}`
+        : session.profileKey;
+}
+
 watch(storageKey, loadPinnedSessions, {immediate: true});
 </script>
 
@@ -196,6 +215,10 @@ watch(storageKey, loadPinnedSessions, {immediate: true});
                     <span class="flex min-w-0 items-center gap-1.5">
                         <span class="truncate text-[12px] font-semibold text-[var(--text-main)]">{{ sessionTitle(session) }}</span>
                         <span class="shrink-0 rounded border px-1 py-0.5 text-[9px]" :class="statusClass(session.status)">{{ statusLabel(session.status) }}</span>
+                        <span v-if="profileAvailabilityLabel(session)" class="inline-flex shrink-0 items-center gap-1 rounded border border-amber-500/25 bg-amber-500/10 px-1 py-0.5 text-[9px] text-amber-700 dark:text-amber-300" :title="profileAvailabilityTitle(session)">
+                            <span class="i-lucide-lock h-3 w-3"></span>
+                            {{ profileAvailabilityLabel(session) }}
+                        </span>
                     </span>
                     <span class="agent-session-preview mt-1 block text-[11px] leading-relaxed text-[var(--text-secondary)]">{{ sessionPreview(session) }}</span>
                     <span class="mt-1.5 flex items-center gap-1.5 text-[9px] uppercase tracking-[0.12em] text-[var(--text-muted)]">

@@ -70,7 +70,7 @@ export const agentCollaborationTools = {
         name: "create_agent",
         label: "Create Agent",
         executionMode: "sequential",
-        description: "Create a new agent session and link it to current agent. Before every create_agent call, call get_agent_profile({ profileKey }) to inspect the target InputSchema, OutputSchema, report_result schema, and allowed tools. Pass input as a real JSON object matching that InputSchema, not a JSON string. Arrays, strings, numbers, booleans, and key=value text are rejected.",
+        description: "Create a new agent session and link it to current agent. Before every create_agent call, call get_agent_profile({ profileKey }) to inspect the target InputSchema, OutputSchema, report_result schema, and allowed tools. Pass input as a real JSON object matching that InputSchema, not a JSON string. Arrays, strings, numbers, booleans, and key=value text are rejected. This tool don't invoke the agent, use invoke_agent instead",
         parameters: CreateAgentSchema,
         async executeWithContext(context, _toolCallId, params: unknown) {
             const agentInput = params as CreateAgentInput;
@@ -210,7 +210,7 @@ function normalizeCreateAgentInput(profileKey: string, value: unknown): JsonValu
 
 async function getAgentProfileDetail(harness: {profiles: {snapshot(): Promise<{profiles: Array<{key: string; name: string; description?: string; source: string; loadStatus: string; inputSchema?: unknown; outputSchema?: unknown}>}>; get(profileKey: string): Promise<{toolKeys: readonly string[]; inputSchema?: unknown; outputSchema?: unknown}>}}, profileKey: string): Promise<Record<string, JsonValue>> {
     const {renderSchemaSummary} = await import("nbook/server/agent/profiles/profile-dsl");
-    const {reportResultSchemaForProfile} = await import("nbook/server/agent/profiles/report-result-schema");
+    const {reportResultSchemaForProfile, reportSidecarResultSchemaForProfile} = await import("nbook/server/agent/profiles/report-result-schema");
     const snapshot = await harness.profiles.snapshot();
     const item = snapshot.profiles.find((profile) => profile.key === profileKey);
     if (!item || item.loadStatus !== "loaded") {
@@ -227,6 +227,9 @@ async function getAgentProfileDetail(harness: {profiles: {snapshot(): Promise<{p
         outputSchema: item.outputSchema ? renderSchemaSummary(item.outputSchema as never) : "none",
         reportResultSchema: profile.toolKeys.includes("report_result")
             ? renderSchemaSummary(reportResultSchemaForProfile(profile as never))
+            : "none",
+        reportSidecarResultSchema: profile.toolKeys.includes("report_sidecar_result")
+            ? renderSchemaSummary(reportSidecarResultSchemaForProfile(profile as never))
             : "none",
     };
 }

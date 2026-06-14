@@ -176,6 +176,7 @@ export type ClientVariablesDto = z.infer<typeof ClientVariablesDtoSchema>;
 export type ClientStateSnapshotDto = ClientVariablesDto;
 
 export type AgentSessionStatus = "idle" | "running" | "waiting" | "archived" | "interrupted";
+export type AgentSessionProfileAvailability = "loaded" | "missing" | "unloadable";
 
 export type AgentEventCursorDto = {
     eventEpoch: string;
@@ -196,6 +197,13 @@ export type AgentSessionContextUsageDto = {
 export type AgentSessionSummaryDto = {
     sessionId: number;
     profileKey: string;
+    /**
+     * 当前 session 引用的 profile 是否仍可用于后续运行。
+     * 为空只会出现在仓储层原始摘要；HTTP runtime 投影会始终填充。
+     */
+    profileAvailability?: AgentSessionProfileAvailability;
+    /** profile 不可继续运行时的用户可读原因；profile 可用时为空。 */
+    profileIssueMessage?: string;
     workspaceKey: string;
     workspaceRoot: string;
     projectPath?: string;

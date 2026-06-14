@@ -867,6 +867,7 @@ async function validateUserProfile(): Promise<ProfileValidationResult> {
             issues: templateIssuesToProfile(previewResult.issues),
             persistedMessageCount: 0,
             reportResultSchema: detailResult.reportResultSchema,
+            reportSidecarResultSchema: detailResult.reportSidecarResultSchema,
         },
     };
 }
@@ -879,9 +880,12 @@ function validationSuccessText(result: ProfileTemplateDetailDto | ProfileValidat
         return "校验通过";
     }
     const validation = result as ProfileValidationResult;
-    const reportSchemaText = validation.detail.reportResultSchema || validation.preview?.reportResultSchema
-        ? "report_result schema 已生成"
-        : "无 report_result";
+    const hasReportSchema = Boolean(validation.detail.reportResultSchema || validation.preview?.reportResultSchema);
+    const hasSidecarSchema = Boolean(validation.detail.reportSidecarResultSchema || validation.preview?.reportSidecarResultSchema);
+    const reportSchemaText = [
+        hasReportSchema ? "report_result schema 已生成" : "无 report_result",
+        hasSidecarSchema ? "report_sidecar_result schema 已生成" : "",
+    ].filter(Boolean).join(" · ");
     const messageCount = validation.preview?.messages.length ?? 0;
     return `校验通过 · prepare ${messageCount} 条消息 · ${reportSchemaText}`;
 }
@@ -1036,6 +1040,7 @@ function emptyProfileDetail(compileIssues: AgentProfileIssueDto[]): AgentProfile
             sourceRange: null,
         },
         reportResultSchema: null,
+        reportSidecarResultSchema: null,
         root: root.value,
     };
 }

@@ -232,7 +232,7 @@ type ReportResultBinding = ToolBinding<"report_result"> & { dataSchema?: TSchema
   - `bun run profile:metadata` 成功，12 个 system profiles 均未 stale。
   - `bun scripts/build/profile.ts check builtin/simulator.actor.profile.tsx --system`、`builtin/leader.default.profile.tsx --system`、`builtin/writer.profile.tsx --system` 均通过。
 - 2026-06-12：窄测试通过：
-  - `bunx vitest run server/agent/tools/agent-tool-definition.test.ts server/agent/profiles/report-result-schema.test.ts server/agent/harness/neuro-agent-harness.test.ts -t "defineAgentTool|profile 自带工具|registered 引用缺失|自带审批工具|sidecar 保持 profile 最大工具 schema|主 run 可见 profile 最大工具 schema|prepareTurn toolKeysPatch|report_result 校验失败|report_result 连续失败|sidecar_data|create_agent.input|create_agent 工具 schema|get_agent_profile|simulator.actor 会通过 context-load" --reporter=dot`
+  - `bunx vitest run server/agent/tools/agent-tool-definition.test.ts server/agent/profiles/report-result-schema.test.ts server/agent/harness/neuro-agent-harness.test.ts -t "defineAgentTool|profile 自带工具|registered 引用缺失|自带审批工具|sidecar 保持 profile 最大工具 schema|主 run 可见 profile 最大工具 schema|prepareTurn toolKeysPatch|report_result 校验失败|report_result 连续失败|report_sidecar|create_agent.input|create_agent 工具 schema|get_agent_profile|simulator.actor 会通过 context-load" --reporter=dot`
   - 结果：3 files passed，21 tests passed。
 - 2026-06-12：`bunx tsc --noEmit --pretty false` 仍失败，但剩余错误来自既有无关文件：`app/components/novel-ide/agent/tiptap/agent-suggestion.test.ts`、`server/agent/harness/compaction.ts`、`server/agent/skills/silly-tavern-card-cli.test.ts`。本任务工具层相关类型错误已清空。
 - 2026-06-12：完成 `profileToolsFromKeys` 生产 API 删除：`server/agent/profiles/profile-tools.ts` 不再导出数组式 helper，测试机械转换迁到 `server/agent/test/profile-tools.ts`；动态测试 profile 源码也改为引用 test helper，避免旧生产入口回流。补充验证：

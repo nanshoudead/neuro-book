@@ -99,12 +99,15 @@ export function applySuccessfulTurn(frame: RunFrame, turn: RuntimeTurn, ingest: 
     frame.messages.push(turn.assistant);
     frame.messages.push(...turn.toolResults);
     frame.reportResult = turn.reportResult ?? frame.reportResult;
-    if (turn.reportResult) {
+    frame.sidecarResult = turn.sidecarResult ?? frame.sidecarResult;
+    if (turn.reportResult || turn.sidecarResult) {
         frame.reportResultErrorCount = 0;
         frame.lastReportResultError = undefined;
-    } else if (turn.reportResultError) {
+        frame.lastReportResultErrorTool = undefined;
+    } else if (turn.reportResultError || turn.sidecarResultError) {
         frame.reportResultErrorCount += 1;
-        frame.lastReportResultError = turn.reportResultError;
+        frame.lastReportResultError = turn.reportResultError ?? turn.sidecarResultError;
+        frame.lastReportResultErrorTool = turn.reportResultError ? "report_result" : "report_sidecar_result";
     }
     frame.lastTurnIngest = ingest;
     if (ingest.transcriptLeafId !== undefined) {

@@ -246,15 +246,15 @@ describe("RP builtin profiles", () => {
             const contextLoad = sidecars.find((sidecar) => sidecar.name === "actor.context-load");
             const memorySave = sidecars.find((sidecar) => sidecar.name === "actor.memory-save");
 
-            expect(simulatorActorProfile.toolKeys).toEqual(["subject_rag_search", "subject_event_append", "subject_memory_update", "read", "edit", "report_result"]);
+            expect(simulatorActorProfile.toolKeys).toEqual(["subject_rag_search", "subject_event_append", "subject_memory_update", "read", "edit", "report_result", "report_sidecar_result"]);
             expect(sidecars.map((sidecar) => sidecar.name)).toEqual(["actor.context-load", "actor.memory-save"]);
             expect(contextLoad).toEqual(expect.objectContaining({
                 stage: "prepareRun",
-                toolKeys: ["subject_rag_search", "report_result"],
+                toolKeys: ["subject_rag_search", "report_sidecar_result"],
             }));
             expect(memorySave).toEqual(expect.objectContaining({
                 stage: "settleRun",
-                toolKeys: ["subject_event_append", "subject_memory_update", "read", "edit", "report_result"],
+                toolKeys: ["subject_event_append", "subject_memory_update", "read", "edit", "report_sidecar_result"],
             }));
             expect(simulatorActorProfile.mainRunToolKeys).toEqual(["report_result"]);
             expect((contextLoad?.sidecarDataSchema as SchemaWithType | undefined)?.type).toBe("string");
@@ -378,7 +378,7 @@ describe("RP builtin profiles", () => {
         }
     });
 
-    it("simulator.actor context-load sidecar_data 使用纯文本协议", async () => {
+    it("simulator.actor context-load report_sidecar_result.data 使用纯文本协议", async () => {
         const contextLoad = simulatorActorProfile.sidecars?.find((sidecar) => sidecar.name === "actor.context-load");
         const schema = contextLoad?.sidecarDataSchema;
         if (!contextLoad || !schema) {
@@ -464,7 +464,7 @@ describe("RP builtin profiles", () => {
 
             expect(simulatorActorProfile.inputSchema).toBe(SubjectSimulatorInputSchema);
             expect(simulatorActorProfile.outputSchema).toBe(SubjectSimulatorOutputSchema);
-            expect(simulatorActorProfile.toolKeys).toEqual(["subject_rag_search", "subject_event_append", "subject_memory_update", "read", "edit", "report_result"]);
+            expect(simulatorActorProfile.toolKeys).toEqual(["subject_rag_search", "subject_event_append", "subject_memory_update", "read", "edit", "report_result", "report_sidecar_result"]);
             expect(simulatorActorProfile.mainRunToolKeys).toEqual(["report_result"]);
             expect(systemPrompt).toContain("<profile>simulator.actor</profile>");
             expect(systemPrompt).toContain("<subject id=\"heroine\" kind=\"npc\" />");

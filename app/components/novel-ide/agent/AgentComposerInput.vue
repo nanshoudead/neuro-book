@@ -13,12 +13,14 @@ const props = withDefaults(defineProps<{
     onSkillTriggerStart?: () => void;
     borderless?: boolean;
     expanded?: boolean;
+    readonly?: boolean;
 }>(), {
     placeholder: "输入消息... (输入 @ 引用, $ 技能, / 命令)",
     menuRefreshKey: "",
     onSkillTriggerStart: () => {},
     borderless: false,
     expanded: false,
+    readonly: false,
 });
 
 const emit = defineEmits<{
@@ -67,6 +69,7 @@ defineExpose({
         :max-height="editorMaxHeight"
         :submit-on-enter="!props.expanded"
         :enable-quick-triggers="true"
+        :readonly="props.readonly"
         :match-popover-width="true"
         :menu-refresh-key="props.menuRefreshKey"
         :resolve-menu="props.resolveMenu"
