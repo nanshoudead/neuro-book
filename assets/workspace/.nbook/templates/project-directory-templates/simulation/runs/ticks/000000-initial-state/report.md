@@ -83,7 +83,7 @@ Project 模板创建了默认 simulation 目录。
 
 ## Writer-safe Brief
 
-如需向用户展示开场，只写当前可见场景和玩家角色合理已知信息，不泄露 Hidden Facts。
+如需向用户展示开场，生成 Writer Brief 并交给 `rp.writer` 写入本目录 `prose.md`。Brief 只写当前可见场景和玩家角色合理已知信息，不泄露 Hidden Facts。
 
 ## Commits
 

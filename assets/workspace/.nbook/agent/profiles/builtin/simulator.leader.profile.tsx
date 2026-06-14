@@ -46,6 +46,7 @@ export default defineAgentProfile({
                 <System>{renderSystemPrompt()}</System>
                 <HistorySet>
                     <Message><AgentCatalog /></Message>
+                    <Message><Import path="reference/agent/profile-routing.md" /></Message>
                     <Message><Import path="AGENTS.md" /></Message>
                     <Message><Import path="reference/content/project-structure.md" /></Message>
                     <Message><Import path="reference/content/simulation.md" /></Message>

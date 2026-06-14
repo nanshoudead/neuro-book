@@ -7,6 +7,7 @@
 - [profile-guide.md](profile-guide.md)：Profile 作者和 Agent 修改 profile 时的主入口。
 - [context.md](context.md)：TSX Profile DSL 的上下文分区、历史写入和模型可见顺序。
 - [profile-import.md](profile-import.md)：`<Import />` 节点 API、安全边界、渲染格式和 build contract。
+- [profile-routing.md](profile-routing.md)：入口 leader 和专用 profile 的职责地图，说明任务错位时应建议用户切换到哪个 agent。
 - [leader-default.md](leader-default.md)：`leader.default` 工具、任务、多 Agent、SQL、Plan Mode 和 Skills 操作协议。
 - [project-workspace-guide.md](project-workspace-guide.md)：Agent 使用 Project Workspace 文件工具的短指南，覆盖路径、基础内容节点和常用目录。
 - [novel-writing-workflow.md](novel-writing-workflow.md)：写作模式标准流程、emulation 使用边界、小说 workflow skill 分层和 runs 产物建议。
@@ -24,6 +25,7 @@
 ## Reading Rules
 
 - 实现或修改 profile：先读 [profile-guide.md](profile-guide.md)，再读 [context.md](context.md) 和 [profile-import.md](profile-import.md)。
+- 处理 profile 职责边界、用户用错 agent 或入口切换建议：读 [profile-routing.md](profile-routing.md)。
 - 处理默认 Leader prompt、工具、writer / retrieval / researcher、Plan Mode 或 Skills：读 [leader-default.md](leader-default.md)。
 - 处理 Project Workspace 文件、内容节点、lorebook、manuscript 或 simulation：先读 [project-workspace-guide.md](project-workspace-guide.md)，需要完整目录协议时读 [../content/project-structure.md](../content/project-structure.md)。
 - 处理 Plot System：读 [../plot/system.md](../plot/system.md) 和 [../plot/agent-spec.md](../plot/agent-spec.md)。

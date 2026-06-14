@@ -140,7 +140,7 @@ Follow-up update:
 
 `prose.md` 规则：
 
-- RP Tick：保存 `rp.writer` 或 leader 输出的完整正文。
+- RP Tick：保存 `rp.writer` 输出的完整正文；`rp.leader` 只组装正文链接和元场景。
 - 写作设计 Tick：可保存试写片段或场景草稿。
 - 正式章节写作：章节正文仍写入 `manuscript/.../index.md`，`prose.md` 可以只放摘要和目标章节链接。
 

@@ -53,6 +53,6 @@ features:
 - [Profile](/profile/)：内置 profile 分工、writer 边界和 RP profiles。
 - [Profile TSX](/profile-tsx/)：profile 作者使用的 TSX DSL、节点和示例。
 - [Agent Reference](https://github.com/notnotype/neuro-book/blob/master/reference/agent/README.md)：session、linked agent、tool、skill、sidecar、profile 和 TSX DSL 的稳定参考。
-- [Leader 协作协议](https://github.com/notnotype/neuro-book/blob/master/reference/agent/leader-default.md)：leader、writer、retrieval、researcher、RP profiles 的职责和调用边界。
+- [Profile Routing](https://github.com/notnotype/neuro-book/blob/master/reference/agent/profile-routing.md) / [Leader 协作协议](https://github.com/notnotype/neuro-book/blob/master/reference/agent/leader-default.md)：入口 agent 选择、任务错位切换建议，以及 leader、writer、retrieval、researcher、RP profiles 的协作边界。
 - [Profile Guide](https://github.com/notnotype/neuro-book/blob/master/reference/agent/profile-guide.md)：用 TSX 表达 prompt、上下文和运行期提醒。
 - [Agent Harness](https://github.com/notnotype/neuro-book/blob/master/reference/agent/harness.md)：Agent Harness、runtime hooks、SSE 和 session tree 的后续阅读入口。

@@ -9,7 +9,7 @@
 - emulator 应可在项目初始化后由用户选择初始化。
 - 设计 `emulation/runs` / 当前 `simulation/runs` 的 tick 产物结构。
 - runs 文件数需要在 AI 易编辑和分类明确之间取舍；第一版接受 `report.md + prose.md`。
-- `rp.writer` 或 leader 写给用户看的正文应单独保存到 `prose.md`。未来 workflow/runtime 支持后，`input.md` 等机械文件可由系统自动生成。
+- `rp.writer` 写给用户看的正文应单独保存到 `prose.md`。当前 RP 合同已收紧：`rp.leader` 只组装正文链接和元场景，不直接写世界内正文。未来 workflow/runtime 支持后，`input.md` 等机械文件可由系统自动生成。
 
 ## Current Outcome
 
@@ -37,7 +37,7 @@
 - 小说 skill 后续建议分为三类：`novel-workflow-*`、`novel-technique-*`、`novel-import-*`。
 - runs 第一版推荐 `simulation/runs/ticks/{id}-{slug}/report.md` + `prose.md`。
 - `report.md` 保存后台推演、裁决、状态提交、信息边界、writer-safe brief、未决问题和下一步钩子。
-- `prose.md` 保存用户最终看到的正文。RP Tick 应保存 `rp.writer` 或 leader 输出的完整正文；正式章节正文仍以 `manuscript/.../index.md` 为主。
+- `prose.md` 保存用户最终看到的正文。RP Tick 应保存 `rp.writer` 输出的完整正文；`rp.leader` 只组装正文链接和元场景。正式章节正文仍以 `manuscript/.../index.md` 为主。
 - `input.md`、`actor-packets.json`、`commits.json`、`tool-log.json` 等机械产物暂不要求 Agent 手写；未来 workflow/runtime 可以自动生成。
 
 ## Proposed Skill Renaming

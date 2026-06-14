@@ -79,6 +79,9 @@ export default defineAgentProfile({
                         <AgentCatalog />
                     </Message>
                     <Message>
+                        <Import path="reference/agent/profile-routing.md" />
+                    </Message>
+                    <Message>
                         <SkillCatalog text={renderUserAssetsSkillCatalogText} />
                     </Message>
                     <Message>

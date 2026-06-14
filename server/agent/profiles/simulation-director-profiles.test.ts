@@ -67,6 +67,8 @@ describe("simulation and director builtin profiles", () => {
         expect(prompt).toContain("最小 subject scaffold");
         expect(prompt).toContain("直接用普通 assistant 文本返回最终结果");
         expect(prompt).toContain("projectPath: workspace/rp-project");
+        expect(prompt).toContain("reference/agent/profile-routing.md");
+        expect(prompt).toContain("RP 用户体验与叙事组装转 `rp.leader`");
         expect(prompt).toContain("reference/agent/workspace-tool-use.md");
         expect(prompt).toContain("reference/content/simulation.md");
     });

@@ -14,6 +14,10 @@
 
 2026-06-09 prompt update: `rp.leader` 和 `RP模式` skill 已参考 5e PHB / DMG / DM Screen 的运行结构优化：普通 RP 入口优先进入 `rp.leader`，Tick 循环固定为“处境 -> 行动 -> 世界回应 -> 新选择点”；开局先确认默认化身、调整默认化身或自定义化身；世界观披露按化身创建和第一幕逐步展开；世界裁决、人物/环境反应和 state commit 仍交给 `simulator.leader`。
 
+2026-06-14 prompt update: RP 正文归属已收紧为“所有世界内用户可见正文都由 `rp.writer` 写”。开场白 / 初始化正文发生在第一个常规 Tick 前，但不再是 `rp.leader` 亲自写正文的例外；`rp.leader` 必须生成 Writer Brief 并调用 `rp.writer` 写入 `simulation/runs/ticks/000000-initial-state/prose.md`，自己只组装正文链接和元场景引导。
+
+2026-06-14 contract fix: 修复 `rp.writer` Brief 传递合同漂移。`RpWriterInputSchema` 回到空对象，`rp.leader` 创建 writer 时使用 `input: {}`，每轮通过 `invoke_agent.message` 直接发送完整 Writer Brief；`rp.writer` 不再依赖 check/render 阶段参数或旧补充字段，而是在收到 Brief 后自检，缺材料用 `report_result.result` 提问，材料足够则写入 Brief 指定路径并用 `report_result.result` 汇报落点。同步更新系统 profile 与 workspace 覆盖，避免旧 prompt 遮蔽修复。
+
 本任务当前实现目标已从独立 `roleplay/` 运行目录硬切为默认 Project 模板内的 `simulation/`：
 
 - 新 Project 默认使用 `assets/workspace/.nbook/templates/project-directory-templates`。
@@ -22,6 +26,7 @@
 - 旧 `roleplay/actors/{id}/actor.md` 改为 `simulation/subjects/{id}/subject.md`。
 - 旧 `roleplay/playthrough/` 改为 `simulation/runs/`。
 - `rp.leader`、`simulator.leader`、`simulator.actor`、`rp.writer` 是当前 RP/simulation 目标分层；`rp.leader` 已作为 builtin profile 可运行，负责用户交流和陪伴主持。
+- 开场白、初始化 prose 和常规 Tick prose 都由 `rp.writer` 生成；`rp.leader` 不直接撰写世界内正文。
 - `leader.rp` 是已删除的 legacy profile；如果后续恢复 RP 主持能力，应使用 `rp.leader` 名称。
 - `RP目录初始化` skill 已删除；`RP模式` skill 已说明 `rp.leader` 用户层、`simulator.leader` 模拟层和默认 Project `manual/` 入口。
 
@@ -90,7 +95,7 @@
 - 试用反馈后的 RP 交互决策：
   - `rp.writer` 可以开放 bash 与文件读写工具。它不再必须通过 `report_result.data.prose` 报告正文；可以直接写作或写入 GM 指定文件。后续实现要用 profile prompt 和输入参数约束写入范围。
   - `rp.writer` 只负责正文，不负责生成“选项”“下一步行动建议”或 simulator leader 控制面内容。可选行动、提示、确认问题由 `simulator.leader` 生成和呈现。
-  - `simulator.leader` 是直接面向用户的 RP/simulation 主控，需要承担一定旁白职责。开局时它应能介绍玩家角色已知信息、当前处境和必要世界观背景；如果自身文风不够好，可以先调用 `rp.writer` 代笔，再由它转述给玩家，或引用文件让玩家自行打开阅读。
+  - 历史记录：早期曾讨论 `simulator.leader` 直接面向用户并承担旁白职责。当前合同已覆盖这一点：普通 RP 用户入口是 `rp.leader`，世界内正文统一由 `rp.writer` 写，`simulator.leader` 只负责世界模拟、裁决和 runtime state。
   - actor 目录应拆出 `mind.md` 与 `state.md`：`mind.md` 记录角色当前思维、判断、猜测和动机；`state.md` 记录角色当前状态，例如位置、持有物品、伤势、关系压力、短期目标等。
 - RP/simulation 目录入口收束：删除 `simulation/AGENTS.md`，避免它和 profile context 形成双入口混淆；通用启动说明下放到 `RP模式` skill 和 `simulator.leader` profile，作者主要修改 `agent-context/simulator.leader/context.md`。
 - `knowledge.md` 是给 actor 看的角色视角资料，不写上帝视角；模板改为二级章节归类、三级标题作为条目，并新增 `## 世界观`。不再维护“信念与误解”“最近更新”“更新规则”章节；是否误解由 GM / leader 在后台判断，更新规则写在 profile prompt 中。
@@ -256,7 +261,7 @@ reporter       # overview.md / inspect.json / unpack-report.md / import-report.m
 - 试用反馈已落地到 profile/template：
   - `rp.writer` 可使用 bash 与文件工具，并通过写文件或直接正文完成写作，不强制走 `report_result.data.prose`。
   - `rp.writer` prompt 删除“写选项/行动建议”职责，只写正文；选项由 GM 生成。
-  - `leader.rp` prompt 加强直接面向用户的 GM 旁白职责，包括开局介绍玩家已知信息和背景。
+  - 历史记录：旧 `leader.rp` prompt 曾加强直接面向用户的 GM 旁白职责。当前合同已切到 `rp.leader` + `rp.writer`：`rp.leader` 做引导与 brief，世界内正文由 `rp.writer` 写。
   - actor 模板与 profile input 增加 `mind.md`、`state.md`，把角色认知、思维和可变状态从 `knowledge.md` 中拆开。
 - 二轮提示词收紧已落地：
   - `rp.leader` 明确区分初始化、常规 Tick 和元指令；初始化后必须给用户可行动现场，不输出后台流程。

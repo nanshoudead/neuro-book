@@ -128,7 +128,7 @@ describe("assets builtin v3 profiles", () => {
         expect(profile.toolKeys).not.toContain("subject_memory_update");
         expect(prompt).toContain("默认 Leader Agent");
         expect(prompt).toContain("用户是主创");
-        expect(prompt).toContain("共享规范");
+        expect(visiblePrompt).toContain("Profile Routing");
         expect(visiblePrompt).toContain("read");
         expect(visiblePrompt).toContain("bash");
         expect(visiblePrompt).toContain("offset` / `limit");
@@ -207,6 +207,10 @@ describe("assets builtin v3 profiles", () => {
         expect(historyText).toContain("Draft Skill");
         expect(historyText).toContain("Skills are reusable work methods");
         expect(historyText).toContain("These agent profiles are currently available");
+        expect(historyText).toContain("```reference/agent/profile-routing.md");
+        expect(historyText).toContain("当你察觉当前任务与自身职责不同");
+        expect(historyText).toContain("建议用户新建或切换到对应 agent");
+        expect(historyText).toContain("`leader.assets`");
         expect(historyText).toContain("```AGENTS.md");
         expect(historyText).toContain("```reference/agent/workspace-tool-use.md");
         expect(historyText).toContain("Workspace Tool Use");
@@ -460,6 +464,10 @@ describe("assets builtin v3 profiles", () => {
         expect(prompt).toContain("--project <projectPath>");
         expect(prompt).toContain("--strict-variables");
         expect(historyText).toContain("```AGENTS.md");
+        expect(historyText).toContain("```reference/agent/profile-routing.md");
+        expect(historyText).toContain("小说项目任务建议切回目标 Project 的 `leader.default`");
+        expect(historyText).toContain("RP 主持转 `rp.leader`");
+        expect(historyText).toContain("世界状态裁决转 `simulator.leader`");
         expect(prompt).not.toContain("POST /api/agent/profiles/compile");
         expect(prompt).toContain("Agent runtime 能稳定调用的入口");
         expect(prompt).not.toContain("bun scripts/compile-profile.ts");

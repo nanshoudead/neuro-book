@@ -23,12 +23,16 @@ v3 中 profile 就是 agent 类型。系统不再维护旧式 leader / subagent 
 
 普通小说项目默认从 `leader.default` 开始。它负责理解用户意图，并在需要时调用专用 profile：
 
+- `rp.leader`：RP 主持与编剧入口，处理开局、化身行动和用户可见叙事。
+- `director`：剧情导演，设计 Thread / Scene / Plot、章节节奏和 writer handoff。
 - `writer`：写正式章节正文，一章节一 agent。
 - `retrieval`：检索和筛选 lorebook / manuscript 内容节点。
 - `researcher`：联网研究，处理最新资料或外部来源核验。
-- `simulator.leader`：进入 `simulation/` 世界模拟 / RP。
+- `simulator.leader`：负责 `simulation/` 世界模拟、因果裁决和运行态写回。
 - `simulator.actor`：扮演单个 subject，只看到角色可知信息，并通过 Subject RAG 召回自己的经历和稳定认知。
-- `rp.writer`：把 simulator leader brief 渲染成用户可见 RP 文本。
+- `rp.writer`：把 `rp.leader` 编写的 writer brief 渲染成用户可见 RP 文本；brief 可基于 simulator 裁决报告。
+
+当用户选错入口时，入口 leader 应说明任务更适合哪个 profile，并建议新建或切换到对应 agent。稳定路由表见 [Profile Routing](https://github.com/notnotype/neuro-book/blob/master/reference/agent/profile-routing.md)。
 
 ## Agent 会读写什么
 

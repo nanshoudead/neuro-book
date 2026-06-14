@@ -42,6 +42,7 @@
 - `rp.leader` builtin profile 已实现为可运行的 RP 用户交流与陪伴主持层。
 - 默认 Project 模板的 `manual/` 已按 5e 启发重组为人类跑团手册结构：`README.md`、`world-guide.md`、`rules-guide.md`、`gm-guide.md`、`reference.md`、`player-guide/README.md`、`player-guide/character-creation.md`、`player-guide/playable-characters/README.md` 和 `player-guide/playable-characters/player.md`。
 - `workspace/ming-ding-zhi-shi-2` 已补齐厚版 `manual/`，并把手册正文从 Agent / NeuroBook 原理说明改为面向玩家和人类 GM 的跑团手册；`agent-context/rp.leader/` 仍保存 profile 专用项目上下文。
+- RP 正文归属已收紧：开场白、初始化 prose 和常规 Tick prose 都必须由 `rp.writer` 根据 Writer Brief 写入，初始化固定落点为 `simulation/runs/ticks/000000-initial-state/prose.md`；`rp.leader` 只组装正文链接和元场景引导。
 
 ## Decisions / Discussion
 
@@ -54,6 +55,7 @@
 - 玩家和 `rp.leader` 的 meta 讨论不自动成为世界事实；需要由用户确认，或通过 `simulator.leader` / Plot / lorebook / simulation commit 落地。
 - “GM 开后门”可以作为桌规的一部分讨论，但要转化成显式难度、叙事宽容度或失败代价策略，而不是无记录地绕过世界因果。
 - `manual/` 负责“怎么玩”“如何开局”“如何主持”和“如何速查”，`lorebook/` 负责稳定世界事实，`simulation/` 负责当前运行态，`agent-context/` 负责 profile 专用上下文与记忆。人类手册正文不应暴露 NeuroBook / Agent 运行分工。
+- “开场白发生在第一个 Tick 前”只表示它不是用户行动触发的常规 Tick，不表示 `rp.leader` 可以直接写正文。它仍是正文产物，必须走 `rp.writer`。
 
 ## Manual Directory Draft
 
@@ -136,6 +138,9 @@ manual/
 - 2026-06-09：优化 `rp.leader` prompt：职责口径从“主持/桌规/NPC”收敛为“RP 引导 / 体验边界 / 化身可见信息 / 人物与环境反应”；新增“处境 -> 行动 -> 世界回应 -> 新选择点”Tick 骨架、默认化身/调整默认化身/自定义化身三入口、创建阶段渐进披露、第一个 Tick 前开场白、失败代价和用户偏好观察规则。
 - 2026-06-09：重写 `RP模式` skill：普通 RP 入口改为优先创建或切换到 `rp.leader`；只有调试世界模拟或明确 simulation 任务才直接进入 `simulator.leader`；同步当前 subject memory 合同为 `events.jsonl` / `memory.jsonl`，并更新 emulation bootstrap/tick、SillyTavern 导入迁移建议、默认模板和《命定之诗》项目上下文中的旧 `events.md` / `knowledge.md` 提示。
 - 2026-06-09：同步上层 prompt reference：`leader.default` 的 RP 协作说明改为普通 RP 先进入 `rp.leader`，再由 `rp.leader` 委托 `simulator.leader` 裁决；`docs/tasks/01-agent-roleplay-mode/README.md` 与 `PROJECT-STATUS.md` 更新为新的 RP 引导层合同。
+- 2026-06-14：按用户反馈收紧 `rp.leader` 正文归属提示词：开场白 / 初始化正文必须走 `rp.writer`，固定写入 `simulation/runs/ticks/000000-initial-state/prose.md`；同步 `reference/agent/rp-tick/` 协议、默认 `simulation/runs` 模板、`rp-profiles.test.ts` 断言、`docs/tasks/01-agent-roleplay-mode/README.md` 与 `PROJECT-STATUS.md`。
+- 2026-06-14：按用户反馈精简 Writer Brief tag：删除历史格式说明和重复格式模板，将合同收敛为 `<writer_brief>` / `<context>` / `<materials>` / `<beats>` / `<style>` 轻量骨架；`<context>` 内 Markdown 链接成为唯一 read 白名单入口，`<materials>`、`<beats>`、`<style>` 允许自定义语义 tag 但不扩大读取权限；同步 `rp.leader` / `rp.writer` prompt、`rp-writer-interaction.md`、`rp-profiles.test.ts` 和 `PROJECT-STATUS.md`。
+- 2026-06-14：审查后修复 `rp.writer` 链接边界：`<context>` 内 Markdown 链接只作为读取元数据，不能原样写进正文；只有 `<materials>`、`<beats>` 或 `<style>` 明确标为用户可见的 Markdown 链接才可保留，并补充 `rp-profiles.test.ts` 断言。
 
 ## Implementation Plan
 
@@ -311,6 +316,12 @@ manual/
   - `bun run profile:metadata`：通过，系统 profile metadata 更新完成。
   - `bun scripts/build/profile.ts check builtin/rp.leader.profile.tsx --system`：通过。
   - `bunx vitest run server/agent/profiles/rp-profiles.test.ts`：通过，8 个测试通过。
+- 本轮 Writer Brief tag 精简后已验证：
+  - 历史 tag / 历史格式关键词静态搜索：无结果，活跃 reference / profile / status 不再暴露旧 tag 口径。
+  - `bun scripts/build/profile.ts check builtin/rp.leader.profile.tsx --system`：通过；提示 `compile_stale`，因为本轮只做 check 未重新编译 artifact。
+  - `bun scripts/build/profile.ts check builtin/rp.writer.profile.tsx --system`：通过；提示 `compile_stale`，因为本轮只做 check 未重新编译 artifact。
+  - `bunx vitest run server/agent/profiles/rp-profiles.test.ts`：通过，10 个测试通过。
+  - 计划出入：`bun test server/agent/profiles/rp-profiles.test.ts` 会额外运行 `product/server/agent/profiles/rp-profiles.test.ts` 同名测试；目标 `server/...` 测试均通过，但 product 镜像测试有一个既有模板断言失败（sample-npc `events.jsonl` 不含“起始场景”），本轮未处理该无关偏差。
 
 ## TODO / Follow-ups
 

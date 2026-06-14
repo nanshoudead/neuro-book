@@ -35,5 +35,5 @@ ext: {}
 - tick 目录使用 `000001-short-slug` 形式命名。
 - 每个 tick 第一版只要求维护 `report.md` 和可选 `prose.md`。
 - `report.md` 写后台推演、裁决、状态提交和 writer-safe brief。
-- `prose.md` 只写用户可见正文；RP Tick 应保存 `rp.writer` 或 leader 输出的完整正文。
+- `prose.md` 只写用户可见正文；RP Tick 应保存 `rp.writer` 输出的完整正文，`rp.leader` 只负责链接和元场景组装。
 - `input.md`、actor packets、commit log 和 tool log 等机械产物后续可由 workflow/runtime 自动生成，第一版不要求手写。

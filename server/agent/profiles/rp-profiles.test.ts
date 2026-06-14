@@ -70,6 +70,10 @@ describe("RP builtin profiles", () => {
         expect(SubjectSimulatorOutputSchema.properties).not.toHaveProperty("updates");
         expect(SubjectSimulatorOutputSchema.properties).not.toHaveProperty("questions");
 
+        expect(RpWriterInputSchema.properties).toEqual({});
+        expect(RpWriterInputSchema.properties).not.toHaveProperty("phase");
+        expect(RpWriterInputSchema.properties).not.toHaveProperty("brief");
+        expect(RpWriterInputSchema.properties).not.toHaveProperty("supplemental_brief");
         expect(RpWriterInputSchema.properties).not.toHaveProperty("writerInstructionPath");
         expect(RpWriterInputSchema.properties).not.toHaveProperty("style");
         expect(RpWriterInputSchema.properties).not.toHaveProperty("outputRequirements");
@@ -119,6 +123,8 @@ describe("RP builtin profiles", () => {
             "get_story_thread",
             "get_story_scene_context",
             "get_chapter_plot",
+            "task_create",
+            "task_set_status",
         ]);
         expect(rpLeaderProfile.toolKeys).not.toContain("report_result");
         expect(systemPrompt).toContain("你是彩绘");
@@ -129,15 +135,38 @@ describe("RP builtin profiles", () => {
         expect(systemPrompt).toContain("agent-context/rp.leader/");
         expect(systemPrompt).toContain("需要世界裁决时创建或复用 simulator.leader");
         expect(systemPrompt).toContain("simulator.leader");
-        expect(systemPrompt).toContain("每个 tick（用户输入 → 世界推进 → 等待下一条指令）");
+        expect(systemPrompt).toContain("每个常规 tick（用户输入 → 世界推进 → 等待下一条指令）");
+        expect(systemPrompt).toContain("开场白 / 初始化正文");
+        expect(systemPrompt).toContain("simulation/runs/ticks/000000-initial-state/prose.md");
+        expect(systemPrompt).toContain("所有世界内用户可见正文都必须由 rp.writer 写");
+        expect(systemPrompt).toContain("不要因为“发生在第一个 Tick 之前”就自己写");
         expect(systemPrompt).toContain("第 1 步：解读用户行动");
         expect(systemPrompt).toContain("第 2 步：世界模拟");
         expect(systemPrompt).toContain("准备 Writer Brief");
+        expect(systemPrompt).toContain("create_agent({profileKey: \"rp.writer\", input: {}, title})");
+        expect(systemPrompt).toContain("invoke_agent 时把完整 Writer Brief 放进 message");
+        expect(systemPrompt).toContain("再次发送完整新版 Brief");
+        expect(systemPrompt).toContain("<context>：唯一 read 白名单入口");
+        expect(systemPrompt).toContain("<materials>：素材层");
+        expect(systemPrompt).toContain("<beats>：剧情骨架");
+        expect(systemPrompt).toContain("自定义 tag 不扩大 read 权限");
+        expect(systemPrompt).toContain("只允许读取 <context> 内 Markdown 链接的目标路径");
+        expect(systemPrompt).not.toContain("<context_references>");
+        expect(systemPrompt).not.toContain("<material_layer>");
+        expect(systemPrompt).not.toContain("<plot_skeleton>");
+        expect(systemPrompt).not.toContain("<ambient_directives>");
+        expect(systemPrompt).not.toContain("{phase: 'check'");
+        expect(systemPrompt).not.toContain("{phase: 'render'");
+        expect(systemPrompt).not.toContain("supplemental_brief");
         expect(systemPrompt).toContain("你是编剧");
         expect(systemPrompt).toContain("不把 meta 讨论或引导建议静默写成 canon");
         expect(systemPrompt).toContain("rp.leader 是当前唯一 canonical RP 主持名称");
         expect(systemPrompt).toContain("直接用 assistant 文本返回");
         expect(historyText).toContain("```AGENTS.md");
+        expect(historyText).toContain("```reference/agent/profile-routing.md");
+        expect(historyText).toContain("Project 文件/Plot/Lorebook 工程整理转 `leader.default`");
+        expect(historyText).toContain("模拟器调试转 `simulator.leader`");
+        expect(historyText).toContain("资产编辑转 `leader.assets`");
         expect(historyText).toContain("```reference/content/manual.md");
         expect(historyText).toContain("```reference/content/simulation.md");
         expect(historyText).toContain("```reference/agent/workspace-tool-use.md");
@@ -181,6 +210,10 @@ describe("RP builtin profiles", () => {
         expect(systemPrompt).toContain("全自动下一 tick");
         expect(systemPrompt).toContain("直接用普通 assistant 文本返回最终结果");
         expect(historyText).toContain("```AGENTS.md");
+        expect(historyText).toContain("```reference/agent/profile-routing.md");
+        expect(historyText).toContain("RP 用户体验与叙事组装转 `rp.leader`");
+        expect(historyText).toContain("长期剧情结构/Plot 落库转 `director`");
+        expect(historyText).toContain("正式章节正文由上级调用 `writer`");
         expect(historyText).toContain("```reference/agent/workspace-tool-use.md");
         expect(modelContextText).toContain("projectPath: workspace/rp-project");
         expect(modelContextText).toContain("mode: 每轮任务 prompt 指定");
@@ -486,10 +519,7 @@ describe("RP builtin profiles", () => {
                     archived: false,
                     planModeActive: false,
                 }),
-                input: {
-                    phase: 'render',
-                    brief: '<writer_brief>测试 brief</writer_brief>\n\nprose 输出路径：simulation/runs/ticks/000001-test/prose.md',
-                },
+                input: {},
                 vars: createTestVariableAccessor(),
                 catalog: {profiles: [], issues: []},
                 skills: [],
@@ -509,13 +539,30 @@ describe("RP builtin profiles", () => {
             expect(systemPrompt).toContain("<important>");
             expect(systemPrompt).toContain("<paragraph_rhythm>");
             expect(systemPrompt).toContain("<markdown_dialect>");
-            expect(systemPrompt).toContain("职责根据 phase 参数分为两个阶段");
-            expect(systemPrompt).toContain("Phase 4a（phase=check）：素材检查与提问");
-            expect(systemPrompt).toContain("Phase 4c（phase=render）：渲染 prose");
-            expect(systemPrompt).toContain("profile input 包含 phase、brief、supplemental_brief");
-            expect(systemPrompt).toContain("不要期待 chapterPaths、lorebookEntries、writerInstructionPath");
+            expect(systemPrompt).toContain("profile input 为空");
+            expect(systemPrompt).toContain("每轮任务只从最新 user message 读取");
+            expect(systemPrompt).toContain("最新 user message 本身就是完整 Writer Brief");
+            expect(systemPrompt).toContain("不需要外层 invocation wrapper");
+            expect(systemPrompt).toContain("report_result.result");
+            expect(systemPrompt).toContain("不使用 report_result.data 的结构化字段");
+            expect(systemPrompt).not.toContain("report_result.data.questions");
+            expect(systemPrompt).not.toContain("report_result.data.prose");
+            expect(systemPrompt).not.toContain("职责根据 phase 参数分为两个阶段");
+            expect(systemPrompt).not.toContain("Phase 4a（phase=check）：素材检查与提问");
+            expect(systemPrompt).not.toContain("Phase 4c（phase=render）：渲染 prose");
+            expect(systemPrompt).not.toContain("profile input 包含 phase、brief、supplemental_brief");
+            expect(systemPrompt).not.toContain("supplemental_brief");
+            expect(systemPrompt).toContain("旧 Brief 输入字段、chapterPaths、lorebookEntries、writerInstructionPath");
             expect(systemPrompt).toContain("一切素材都由上级在 writer brief 中注入");
             expect(systemPrompt).toContain("不主动读取 lorebook/、manual/、simulation/、agent-context/ 或 reference/");
+            expect(systemPrompt).toContain("<context> 内 Markdown 链接的目标路径");
+            expect(systemPrompt).toContain("<materials>、<beats> 和 <style> 内允许自定义语义 tag");
+            expect(systemPrompt).toContain("其他标签或正文里出现的路径不进入允许列表");
+            expect(systemPrompt).toContain("<context> 里的 Markdown 链接只是读取元数据，不能原样写进正文");
+            expect(systemPrompt).not.toContain("作为用户可见引用，你可以在正文中保留 Markdown link");
+            expect(systemPrompt).not.toContain("<context_references>");
+            expect(systemPrompt).not.toContain("<lorebook_refs>");
+            expect(systemPrompt).not.toContain("<prose_file>");
             expect(systemPrompt).toContain("<storytelling_voice>");
             expect(systemPrompt).toContain("用讲故事的口吻");
             expect(systemPrompt).toContain("默认人称：第二人称");
@@ -525,11 +572,12 @@ describe("RP builtin profiles", () => {
             expect(systemPrompt).toContain("你不是 simulator leader");
             expect(systemPrompt).toContain("不替用户角色添加未输入");
             expect(systemPrompt).toContain("不输出标题、摘要");
-            expect(systemPrompt).not.toContain("必须调用 report_result");
             expect(historyText).toContain("```assets/workspace/.nbook/agent/skills/stop-slop/SKILL.md");
             expect(historyText).toContain("# Stop Slop");
-            expect(modelContextText).toContain("writer brief");
-            expect(modelContextText).toContain("不要生成选项、标题、摘要或解释");
+            expect(modelContextText).toContain("最新 user message 读取完整 Writer Brief");
+            expect(modelContextText).toContain("profile input 为空");
+            expect(modelContextText).toContain("report_result.result");
+            expect(modelContextText).toContain("不生成选项、标题、摘要");
             expect(appendingText).toContain("Runtime Location");
         } finally {
             await fixture.cleanup();
@@ -561,8 +609,8 @@ describe("RP builtin profiles", () => {
         await expect(readFile(join(templateRoot, "subjects", "sample-npc", "memory-seed.md"), "utf-8")).rejects.toThrow();
         await expect(readFile(join(templateRoot, "subjects", "player", "events.jsonl"), "utf-8")).resolves.toMatch(/起始场景/);
         await expect(readFile(join(templateRoot, "subjects", "player", "memory.jsonl"), "utf-8")).resolves.toMatch(/示例 NPC/);
-        await expect(readFile(join(templateRoot, "subjects", "sample-npc", "events.jsonl"), "utf-8")).resolves.toMatch(/起始场景/);
-        await expect(readFile(join(templateRoot, "subjects", "sample-npc", "memory.jsonl"), "utf-8")).resolves.toMatch(/玩家角色/);
+        await expect(readFile(join(templateRoot, "subjects", "sample-npc", "events.jsonl"), "utf-8")).resolves.toMatch(/学徒女仆/);
+        await expect(readFile(join(templateRoot, "subjects", "sample-npc", "memory.jsonl"), "utf-8")).resolves.toMatch(/当前主人/);
         await expect(readFile(join(templateRoot, "subjects", "player", "events.md"), "utf-8")).rejects.toThrow();
         await expect(readFile(join(templateRoot, "subjects", "player", "knowledge.md"), "utf-8")).rejects.toThrow();
 
@@ -574,12 +622,18 @@ describe("RP builtin profiles", () => {
         const reportText = await readFile(join(templateRoot, "runs", "ticks", "000000-initial-state", "report.md"), "utf-8");
         const proseText = await readFile(join(templateRoot, "runs", "ticks", "000000-initial-state", "prose.md"), "utf-8");
         const currentText = await readFile(join(templateRoot, "runs", "current.md"), "utf-8");
+        const indexText = await readFile(join(templateRoot, "runs", "index.md"), "utf-8");
         expect(currentText).toContain("Active Subjects");
         expect(currentText).toContain("sample-npc");
-        await expect(readFile(join(templateRoot, "runs", "index.md"), "utf-8")).resolves.toContain("000000");
+        expect(indexText).toContain("000000");
+        expect(indexText).toContain("`rp.writer` 输出的完整正文");
+        expect(indexText).toContain("`rp.leader` 只负责链接和元场景组装");
         expect(reportText).toContain("Writer-safe Brief");
+        expect(reportText).toContain("交给 `rp.writer` 写入本目录 `prose.md`");
         expect(reportText).toContain("Commits");
         expect(proseText).toContain("用户可见正文");
+        expect(proseText).toContain("由 `rp.writer` 根据 `rp.leader` 提供的 Writer Brief 写入");
+        expect(proseText).not.toContain("或 leader 输出");
         await expect(readFile(join(templateRoot, "runs", "ticks", "000001", "user-input.md"), "utf-8")).rejects.toThrow();
         await expect(readFile(join(templateRoot, "runs", "ticks", "000001", "gm-scratch.md"), "utf-8")).rejects.toThrow();
         await expect(readFile(join(templateRoot, "runs", "ticks", "000001", "writer-brief.md"), "utf-8")).rejects.toThrow();

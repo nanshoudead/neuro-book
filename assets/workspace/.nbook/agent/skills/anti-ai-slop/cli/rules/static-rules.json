@@ -1,0 +1,122 @@
+[
+  {
+    "type": "static",
+    "id": "filler-word-actually",
+    "name": "无意义填充词",
+    "level": "medium",
+    "pattern": "其实|实际上|事实上",
+    "description": "其实、实际上、事实上",
+    "reasoning": "这类词通常不增加实质内容，只是 AI 为了让语气显得自然而添加的填充",
+    "fixSuggestion": "这类填充词通常不增加实质内容，建议直接删除。"
+  },
+  {
+    "type": "static",
+    "id": "filler-worth-noting",
+    "name": "喉舌式开头",
+    "level": "medium",
+    "pattern": "值得注意的是|需要指出的是|需要强调的是",
+    "description": "值得注意的是、需要指出的是、需要强调的是",
+    "reasoning": "这类开头削弱了陈述的力度，是典型的 AI 套路",
+    "fixSuggestion": "删除喉舌式开头，直接进入主题。"
+  },
+  {
+    "type": "static",
+    "id": "filler-can-say",
+    "name": "弱化陈述词",
+    "level": "low",
+    "pattern": "可以说|不得不说",
+    "description": "可以说、不得不说",
+    "reasoning": "这类词弱化了陈述的确定性，通常可以直接删除",
+    "fixSuggestion": "去掉弱化词，让陈述更有力。"
+  },
+  {
+    "type": "static",
+    "id": "filler-lets",
+    "name": "虚假邀请句式",
+    "level": "low",
+    "pattern": "让我们",
+    "description": "让我们",
+    "reasoning": "AI 常用「让我们」营造共同探讨的感觉，但在正式写作中显得做作",
+    "fixSuggestion": "改为「我们」或直接陈述，避免虚假的邀请感。"
+  },
+  {
+    "type": "static",
+    "id": "firstly-secondly",
+    "name": "机械列举过渡",
+    "level": "high",
+    "pattern": "首先.*?其次.*?(?:最后|再次)",
+    "description": "首先...其次...最后...",
+    "reasoning": "这种列举方式过于刻板，缺乏自然的叙述感，是 AI 写作的明显特征",
+    "fixSuggestion": "使用更自然的段落衔接，或用并列句式，或直接用序号列表。"
+  },
+  {
+    "type": "static",
+    "id": "on-one-hand",
+    "name": "机械对比过渡",
+    "level": "medium",
+    "pattern": "一方面.*?另一方面",
+    "description": "一方面...另一方面...",
+    "reasoning": "这种对比方式过于套路化，更自然的写作会使用更灵活的过渡",
+    "fixSuggestion": "用简单的并列关系替代机械对比。"
+  },
+  {
+    "type": "static",
+    "id": "not-but-structure",
+    "name": "二元对比结构",
+    "level": "medium",
+    "pattern": "不是[^。！？\\n，,；;]*?[，,；;]?\\s*而是",
+    "description": "不是...而是...",
+    "reasoning": "「不是...而是...」可以被稳定识别为候选结构，是否生硬仍需要结合上下文判断",
+    "fixSuggestion": "读取上下文判断前半部分是否在纠正真实误解。若只是制造戏剧化，可直接陈述「而是」后的内容；若形成有效对比，则保留。"
+  },
+  {
+    "type": "static",
+    "id": "not-x-is-y",
+    "name": "问题定义对比",
+    "level": "medium",
+    "pattern": "(?:问题|答案|关键)不是[^。！？\\n，,；;]*?[，,；;]?\\s*(?:是|在于)",
+    "description": "问题/答案/关键不是...是...",
+    "reasoning": "「问题不是X，是Y」这类定义式反转可以被静态识别，是否多余需要结合上下文判断",
+    "fixSuggestion": "判断前半部分是否在重新框定问题。若只是铺垫反转，改为直接陈述核心判断；若纠正常见误解或形成洞察，则保留。"
+  },
+  {
+    "type": "static",
+    "id": "dated-opening",
+    "name": "喉舌式时代开头",
+    "level": "medium",
+    "pattern": "在当今社会|随着.*?的发展|众所周知|不可否认",
+    "description": "在当今社会、随着...的发展、众所周知、不可否认",
+    "reasoning": "这些是典型的中学作文开头套路，AI 频繁使用，真人写作中很少见",
+    "fixSuggestion": "直接进入主题，删除时代背景式的开头。"
+  },
+  {
+    "type": "static",
+    "id": "empty-expression",
+    "name": "空洞抽象表达",
+    "level": "low",
+    "pattern": "具有.*?意义|起到.*?作用|产生.*?影响|取得.*?成效",
+    "description": "具有...意义、起到...作用、产生...影响、取得...成效",
+    "reasoning": "这些是抽象的、缺乏具体内容的评价性表达，常见于公文和 AI 生成文本",
+    "fixSuggestion": "用具体的描述替代抽象的评价，说明实际发生了什么。"
+  },
+  {
+    "type": "static",
+    "id": "comprehensive-listing",
+    "name": "全面式并列结构",
+    "level": "medium",
+    "pattern": "无论(?:是)?.*?还是.*?都|不仅.*?而且.*?(?:更|还)",
+    "description": "无论...还是...都...、不仅...而且...更...",
+    "reasoning": "这种面面俱到的并列结构是 AI 为了显得全面而使用的套路",
+    "fixSuggestion": "简化为简单并列，或只保留最重要的一点。"
+  },
+  {
+    "type": "static",
+    "id": "meta-announcement",
+    "name": "元叙述式公告",
+    "level": "low",
+    "pattern": "下面(?:我们)?(?:将)?(?:来)?(?:介绍|分析|探讨)|接下来(?:我们)?(?:将)?|本文(?:将)?(?:从|通过)",
+    "description": "下面将介绍、接下来将、本文将从",
+    "reasoning": "这些是自我引用的结构公告，类似英文的 \"Let me walk you through\"",
+    "fixSuggestion": "直接进入内容，让文章自然流动。"
+  }
+]

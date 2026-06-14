@@ -63,7 +63,7 @@ Task tools are for execution tracking, not for storing novel facts. Stable world
 - 初始化运行态使用 `novel-workflow-05-emulation-bootstrap`；推进一个 tick 或写后提交使用 `novel-workflow-06-emulation-tick`。
 - Leader 可以维护 `simulation/subjects/`、`simulation/entities/` 和 `simulation/runs/`，但应把它视为世界状态 commit，不是随手笔记。
 - `simulation/runs/ticks/{id}-{slug}/report.md` 保存后台推演、裁决、信息边界、状态提交、writer-safe brief、未决问题和下一步钩子。
-- `simulation/runs/ticks/{id}-{slug}/prose.md` 保存用户可见正文。RP Tick 保存 `rp.writer` 或 Leader 输出的完整正文；正式章节正文仍以 `manuscript/.../index.md` 为主。
+- `simulation/runs/ticks/{id}-{slug}/prose.md` 保存用户可见正文。RP Tick 保存 `rp.writer` 输出的完整正文；`rp.leader` 只组装正文链接和元场景。正式章节正文仍以 `manuscript/.../index.md` 为主。
 
 ### Retrieval Collaboration
 
