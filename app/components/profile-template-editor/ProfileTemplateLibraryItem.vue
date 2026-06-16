@@ -144,8 +144,8 @@ const {isDragging} = useDraggable({
     --component-accent: #4f8c8f;
 }
 
-.library-node-WorkdirReminder,
-.library-node-ProjectWorkspaceReminder,
+.library-node-RuntimeLocationReminder,
+.library-node-WorkspaceFocusReminder,
 .library-node-PlanModeAvailabilityReminder {
     --component-accent: #b65f5b;
 }

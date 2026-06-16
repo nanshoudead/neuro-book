@@ -1,6 +1,6 @@
 import {completeSimple} from "@earendil-works/pi-ai";
 import {estimateContextTokens, estimateTokens} from "@earendil-works/pi-agent-core";
-import type {AgentMessage, JsonValue, Message, Model, ThinkingLevel} from "nbook/server/agent/messages/types";
+import type {AgentMessage, AssistantMessage, JsonValue, Message, Model, ThinkingLevel, ToolResultMessage} from "nbook/server/agent/messages/types";
 import type {ProfileCompactionPlan} from "nbook/server/agent/profiles/types";
 import type {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
 import type {CompactionSessionEntry, CustomMessageSessionEntry, MessageSessionEntry, SessionEntry, SessionSnapshot} from "nbook/server/agent/session/types";
@@ -345,17 +345,23 @@ function selectCompactionPlan(path: SessionEntry[], options: CompactionOptions):
  */
 function moveCutBeforeToolResult(path: SessionEntry[], selectedPathIndex: number, boundaryStart: number): number {
     const selected = path[selectedPathIndex];
-    if (!selected || !isModelVisibleEntry(selected) || entryMessage(selected).role !== "toolResult") {
+    if (!selected || !isModelVisibleEntry(selected)) {
         return selectedPathIndex;
     }
     const toolResult = entryMessage(selected);
+    if (!isToolResultMessage(toolResult)) {
+        return selectedPathIndex;
+    }
 
     for (let index = selectedPathIndex - 1; index >= boundaryStart; index -= 1) {
         const entry = path[index];
-        if (!entry || !isModelVisibleEntry(entry) || entryMessage(entry).role !== "assistant") {
+        if (!entry || !isModelVisibleEntry(entry)) {
             continue;
         }
         const message = entryMessage(entry);
+        if (!isAssistantMessage(message)) {
+            continue;
+        }
         const hasMatchingToolCall = message.content.some((block) => {
             return block.type === "toolCall" && block.id === toolResult.toolCallId;
         });
@@ -371,10 +377,10 @@ function moveCutBeforeToolResult(path: SessionEntry[], selectedPathIndex: number
  */
 function assertNoPendingToolCall(messages: AgentMessage[]): void {
     const completedToolCallIds = new Set(messages
-        .filter((message) => message.role === "toolResult")
+        .filter(isToolResultMessage)
         .map((message) => message.toolCallId));
     const pendingToolCall = messages
-        .filter((message) => message.role === "assistant")
+        .filter(isAssistantMessage)
         .flatMap((message) => message.content.filter((block) => block.type === "toolCall"))
         .find((toolCall) => !completedToolCallIds.has(toolCall.id));
     if (pendingToolCall) {
@@ -388,6 +394,14 @@ function isModelVisibleEntry(entry: SessionEntry): entry is ModelVisibleSessionE
 
 function entryMessage(entry: ModelVisibleSessionEntry): AgentMessage {
     return entry.message;
+}
+
+function isAssistantMessage(message: AgentMessage): message is AssistantMessage {
+    return message.role === "assistant";
+}
+
+function isToolResultMessage(message: AgentMessage): message is ToolResultMessage {
+    return message.role === "toolResult";
 }
 
 function countVisibleEntries(entries: SessionEntry[]): number {

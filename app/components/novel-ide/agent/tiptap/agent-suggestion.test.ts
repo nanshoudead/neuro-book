@@ -6,6 +6,7 @@ import type {AgentTriggerMenuItem} from "nbook/app/components/novel-ide/agent/tr
 describe("createAgentSuggestionRenderer", () => {
     it("保留 command trigger 的前置文本状态", () => {
         let menuState: AgentSuggestionMenuState | null = null;
+        const readMenuState = (): AgentSuggestionMenuState | null => menuState;
         const item: AgentTriggerMenuItem = {
             id: "command:plan",
             label: "plan",
@@ -43,8 +44,17 @@ describe("createAgentSuggestionRenderer", () => {
             clientRect: () => null,
         } as never);
 
-        expect(menuState?.contextKind).toBe("command");
-        expect(menuState?.query).toBe("pl");
-        expect(menuState?.hasPlainTextBeforeTrigger).toBe(true);
+        const currentMenuState = readMenuState();
+        assertMenuState(currentMenuState);
+        expect(currentMenuState.contextKind).toBe("command");
+        expect(currentMenuState.query).toBe("pl");
+        expect(currentMenuState.hasPlainTextBeforeTrigger).toBe(true);
     });
 });
+
+function assertMenuState(value: AgentSuggestionMenuState | null): asserts value is AgentSuggestionMenuState {
+    expect(value).not.toBeNull();
+    if (!value) {
+        throw new Error("menu state missing");
+    }
+}

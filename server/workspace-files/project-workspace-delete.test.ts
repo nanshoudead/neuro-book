@@ -1,9 +1,14 @@
 import {randomUUID} from "node:crypto";
-import {mkdir, rm, stat, writeFile} from "node:fs/promises";
+import {mkdir, readFile, rm, stat, writeFile} from "node:fs/promises";
 import {join} from "node:path";
-import {describe, expect, it} from "vitest";
+import os from "node:os";
+import {consola} from "consola";
+import {describe, expect, it, vi} from "vitest";
+import {NeuroAgentHarness} from "nbook/server/agent/harness/neuro-agent-harness";
+import {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
 import {getAgentSqlSchemaSummary, closeAgentSqliteClient} from "nbook/server/agent/tools/sql-tool";
 import {plotFacade} from "nbook/server/plot";
+import {listNovels} from "nbook/server/utils/novel-chapter";
 import {
     resolveProjectAbsolutePath,
     writeProjectManifest,
@@ -31,7 +36,9 @@ describe("deleteProjectWorkspace", () => {
             await getAgentSqlSchemaSummary(projectPath);
             await readProjectWorkspaceTreeSnapshot({root: projectRoot});
 
-            await deleteProjectWorkspace(projectPath);
+            await deleteProjectWorkspace(projectPath, {
+                archiveProjectSessions: async () => undefined,
+            });
 
             await expect(pathExists(projectRoot)).resolves.toBe(false);
         } finally {
@@ -40,7 +47,118 @@ describe("deleteProjectWorkspace", () => {
             await closeWorkspaceTreeIndex(projectRoot).catch(() => undefined);
             await rm(projectRoot, {recursive: true, force: true});
         }
-    });
+    }, 20_000);
+
+    it("归档 Agent sessions 失败时仍完成 Project Workspace 删除", async () => {
+        const originalCwd = process.cwd();
+        const root = join(os.tmpdir(), "neuro-book-delete-project-archive-fail-test", randomUUID());
+        const projectPath = "workspace/archive-fails-book";
+        const projectRoot = join(root, "workspace", "archive-fails-book");
+        const warnSpy = vi.spyOn(consola, "warn").mockImplementation(() => undefined);
+        try {
+            await mkdir(join(root, "assets", "workspace", ".nbook"), {recursive: true});
+            process.chdir(root);
+            await writeProjectManifest(projectPath, {
+                kind: "novel",
+                title: "Archive Fails Book",
+                summary: "",
+            });
+
+            await expect(deleteProjectWorkspace(projectPath, {
+                archiveProjectSessions: async () => {
+                    throw new Error("archive failed");
+                },
+            })).resolves.toBeUndefined();
+
+            await expect(pathExists(projectRoot)).resolves.toBe(false);
+            expect(warnSpy).toHaveBeenCalled();
+        } finally {
+            warnSpy.mockRestore();
+            await closeWorkspaceTreeIndex(projectRoot).catch(() => undefined);
+            process.chdir(originalCwd);
+            await rm(root, {recursive: true, force: true});
+        }
+    }, 20_000);
+
+    it("删除 Project Workspace 时归档绑定到同 projectPath 的 Agent sessions", async () => {
+        const originalCwd = process.cwd();
+        const root = join(os.tmpdir(), "neuro-book-delete-project-session-test", randomUUID());
+        const projectPath = "workspace/same-name-book";
+        const projectRoot = join(root, "workspace", "same-name-book");
+        try {
+            await mkdir(join(root, "assets", "workspace", ".nbook"), {recursive: true});
+            process.chdir(root);
+            await writeProjectManifest(projectPath, {
+                kind: "novel",
+                title: "Same Name Book",
+                summary: "old",
+            });
+            const repo = new JsonlSessionRepository(join(root, "workspace"));
+            const harness = new NeuroAgentHarness({repo});
+            const active = await repo.createSession({
+                profileKey: "leader.default",
+                initial: {},
+                workspaceRoot: "workspace",
+                workspaceKey: "global",
+                projectPath,
+                title: "旧书会话",
+            });
+            const activeBeforeDeleteEntry = await repo.appendUserMessage(active.metadata.sessionId, "delete me", active.metadata.workspaceKey);
+            const system = await repo.createSession({
+                profileKey: "summarizer",
+                initial: {},
+                workspaceRoot: "workspace",
+                workspaceKey: "global",
+                projectPath,
+                systemRole: "summarizer",
+            });
+            const archived = await repo.createSession({
+                profileKey: "leader.default",
+                initial: {},
+                workspaceRoot: "workspace",
+                workspaceKey: "global",
+                projectPath,
+            });
+            await repo.appendEntry(archived.metadata.sessionId, {
+                type: "session_archived",
+                reason: "already.archived",
+            });
+
+            await deleteProjectWorkspace(projectPath, {
+                archiveProjectSessions: async (targetProjectPath, reason) => {
+                    await expect(pathExists(projectRoot)).resolves.toBe(false);
+                    return harness.archiveSessionsByProjectPath(targetProjectPath, reason);
+                },
+            });
+            await writeProjectManifest(projectPath, {
+                kind: "novel",
+                title: "Same Name Book",
+                summary: "new",
+            });
+            await repo.moveLeaf(active.metadata.sessionId, activeBeforeDeleteEntry.id, active.metadata.workspaceKey);
+
+            const [novel] = await listNovels({sessionProvider: repo});
+            const visibleSessions = await repo.listSessions({projectPath, includeArchived: false, includeSystem: false, status: "active"});
+            const allSessions = await repo.listSessions({projectPath, includeArchived: true, includeSystem: true, status: "all"});
+
+            expect(novel).toMatchObject({
+                id: projectPath,
+                summary: "new",
+                sessionCount: 0,
+            });
+            expect(visibleSessions).toHaveLength(0);
+            expect(allSessions).toHaveLength(3);
+            expect(allSessions.every((session) => session.archived)).toBe(true);
+            expect(repo.summary(await repo.readSession(active.metadata.sessionId)).archived).toBe(true);
+            await expect(countArchivedEntries(repo, active.metadata.sessionId)).resolves.toBe(1);
+            await expect(countArchivedEntries(repo, system.metadata.sessionId)).resolves.toBe(1);
+            await expect(countArchivedEntries(repo, archived.metadata.sessionId)).resolves.toBe(1);
+        } finally {
+            await closeWorkspaceTreeIndex(projectRoot).catch(() => undefined);
+            process.chdir(originalCwd);
+            await rm(root, {recursive: true, force: true});
+        }
+    }, 20_000);
 });
 
 async function pathExists(filePath: string): Promise<boolean> {
@@ -53,4 +171,9 @@ async function pathExists(filePath: string): Promise<boolean> {
         }
         throw error;
     }
+}
+
+async function countArchivedEntries(repo: JsonlSessionRepository, sessionId: number): Promise<number> {
+    const text = await readFile(join(repo.rootWorkspace, ".nbook", "agent", "sessions", `${sessionId}.jsonl`), "utf8");
+    return text.split(/\r?\n/u).filter((line) => line.includes('"type":"session_archived"')).length;
 }

@@ -64,6 +64,22 @@ const parsedMessage = computed(() => {
     }
     return null;
 });
+const selectedToolResultContent = computed(() => {
+    const entry = selectedEntry.value;
+    if (entry?.type !== "message" || entry.message.role !== "toolResult") {
+        return null;
+    }
+    return typeof entry.message.content === "string"
+        ? entry.message.content
+        : JSON.stringify(entry.message.content, null, 2);
+});
+const selectedCompactionTokensBefore = computed(() => {
+    const entry = selectedEntry.value;
+    if (entry?.type !== "compaction") {
+        return "-";
+    }
+    return entry.details?.visibleTokensBefore ?? entry.tokensBefore ?? "-";
+});
 
 watch(() => props.modelValue, (visible) => {
     if (visible) {
@@ -328,8 +344,9 @@ function nodePreview(node: SessionTreeNode): string {
     }
     if (node.type === "invocation_lifecycle") {
         const parts = rawPreview.split(" ");
-        if (parts.length >= 2) {
-            return `执行状态: ${parts[1].toUpperCase()}`;
+        const status = parts[1];
+        if (status) {
+            return `执行状态: ${status.toUpperCase()}`;
         }
     }
     return rawPreview;
@@ -347,6 +364,16 @@ function shortEntryId(value: string): string {
  */
 function selectNode(node: SessionTreeNode): void {
     selectedEntryId.value = node.id;
+}
+
+/**
+ * 按行号选中节点；严格索引检查下需要显式处理空行。
+ */
+function selectRowAt(index: number): void {
+    const row = treeRows.value[index];
+    if (row) {
+        selectNode(row.node);
+    }
 }
 
 /**
@@ -453,11 +480,11 @@ function handleKeyDown(e: KeyboardEvent): void {
     if (e.key === "ArrowDown") {
         e.preventDefault();
         const nextIndex = Math.min(treeRows.value.length - 1, currentIndex + 1);
-        if (nextIndex >= 0) selectNode(treeRows.value[nextIndex].node);
+        if (nextIndex >= 0) selectRowAt(nextIndex);
     } else if (e.key === "ArrowUp") {
         e.preventDefault();
         const prevIndex = Math.max(0, currentIndex - 1);
-        if (prevIndex >= 0) selectNode(treeRows.value[prevIndex].node);
+        if (prevIndex >= 0) selectRowAt(prevIndex);
     } else if (e.key === "ArrowRight") {
         if (currentRow?.collapsible && currentRow.collapsed) {
             e.preventDefault();
@@ -465,7 +492,7 @@ function handleKeyDown(e: KeyboardEvent): void {
         } else if (currentRow?.collapsible) {
             e.preventDefault();
             const nextIndex = Math.min(treeRows.value.length - 1, currentIndex + 1);
-            if (nextIndex >= 0) selectNode(treeRows.value[nextIndex].node);
+            if (nextIndex >= 0) selectRowAt(nextIndex);
         }
     } else if (e.key === "ArrowLeft") {
         if (currentRow?.collapsible && !currentRow.collapsed) {
@@ -678,7 +705,7 @@ function handleKeyDown(e: KeyboardEvent): void {
                             <div v-if="selectedEntry.details" class="grid grid-cols-2 gap-2 text-xs">
                                 <div class="rounded bg-[var(--bg-panel)] p-2">
                                     <div class="text-[10px] text-[var(--text-muted)]">Tokens Before</div>
-                                    <div class="mt-0.5 font-mono text-[var(--text-main)]">{{ selectedEntry.details.tokensBefore || selectedEntry.tokensBefore }}</div>
+                                    <div class="mt-0.5 font-mono text-[var(--text-main)]">{{ selectedCompactionTokensBefore }}</div>
                                 </div>
                                 <div class="rounded bg-[var(--bg-panel)] p-2">
                                     <div class="text-[10px] text-[var(--text-muted)]">Summarized Tokens</div>
@@ -696,8 +723,8 @@ function handleKeyDown(e: KeyboardEvent): void {
                                 <span class="font-mono text-[10px] text-[var(--text-muted)]">{{ formatTimestamp(selectedNode.timestamp) }}</span>
                             </div>
                             <div class="max-h-[360px] overflow-y-auto whitespace-pre-wrap text-sm leading-relaxed text-[var(--text-secondary)]">
-                                <template v-if="selectedNode.role === 'toolResult' && selectedEntry?.message?.content">
-                                    {{ typeof selectedEntry.message.content === 'string' ? selectedEntry.message.content : JSON.stringify(selectedEntry.message.content, null, 2) }}
+                                <template v-if="selectedNode.role === 'toolResult' && selectedToolResultContent">
+                                    {{ selectedToolResultContent }}
                                 </template>
                                 <template v-else>
                                     {{ nodePreview(selectedNode) }}

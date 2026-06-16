@@ -99,7 +99,7 @@ describe("plot tools", () => {
 
     it("get_story_plot_context 返回 Plot、所属 Scene、所属 Thread 并更新 selection", async () => {
         const appended: unknown[] = [];
-        const plotFacadeMock = (await import("nbook/server/plot")).plotFacade as {
+        const plotFacadeMock = (await import("nbook/server/plot")).plotFacade as unknown as {
             getStoryPlotDto: ReturnType<typeof vi.fn>;
             getStorySceneDetailDto: ReturnType<typeof vi.fn>;
             getStoryThreadDetailDto: ReturnType<typeof vi.fn>;

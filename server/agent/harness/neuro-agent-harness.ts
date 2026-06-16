@@ -1096,6 +1096,37 @@ export class NeuroAgentHarness {
     }
 
     /**
+     * 归档绑定到指定 Project Workspace 的 session，保留 JSONL 文件但默认从列表和统计中隐藏。
+     */
+    async archiveSessionsByProjectPath(projectPath: string, reason: string): Promise<number> {
+        const sessions = await this.repo.listSessions({
+            projectPath,
+            includeArchived: true,
+            includeSystem: true,
+            status: "all",
+        });
+        let archivedCount = 0;
+        for (const session of sessions) {
+            if (session.archived) {
+                continue;
+            }
+            await this.executeWritePlan({
+                target: {sessionId: session.sessionId},
+                cause: "project.delete.archiveSessions",
+                ops: [{
+                    kind: "append",
+                    entry: {
+                        type: "session_archived",
+                        reason,
+                    },
+                }],
+            });
+            archivedCount += 1;
+        }
+        return archivedCount;
+    }
+
+    /**
      * 按前端 session 状态筛选运行期摘要。
      */
     private matchesSessionStatusFilter(summary: AgentSessionSummaryDto, status: AgentSessionListQueryDto["status"]): boolean {

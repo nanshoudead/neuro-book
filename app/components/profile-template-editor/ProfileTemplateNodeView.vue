@@ -116,8 +116,8 @@ const nodeIconMap: Record<ProfileTemplateNodeType, string> = {
     SystemReminder: "i-lucide-badge-alert",
     LinkedAgentsSummary: "i-lucide-git-merge",
     LinkedAgentsReminder: "i-lucide-network",
-    WorkdirReminder: "i-lucide-folder",
-    ProjectWorkspaceReminder: "i-lucide-folder-kanban",
+    RuntimeLocationReminder: "i-lucide-folder-code",
+    WorkspaceFocusReminder: "i-lucide-folder-kanban",
     PlanModeAvailabilityReminder: "i-lucide-clipboard-plus",
     TaskReminder: "i-lucide-list-checks",
     PlanModeReminder: "i-lucide-clipboard-check",
@@ -169,7 +169,7 @@ function nodeMeta(node: ProfileTemplateNodeDto): string {
     if (node.type === "ToolResult") {
         return `tool: ${String(node.props.toolName ?? "tool")}`;
     }
-    if (node.type === "Reminder" || node.type === "WorkdirReminder" || node.type === "ProjectWorkspaceReminder" || node.type === "PlanModeAvailabilityReminder" || node.type === "TaskReminder" || node.type === "PlanModeReminder" || node.type === "ActivePlanModeReminder") {
+    if (node.type === "Reminder" || node.type === "RuntimeLocationReminder" || node.type === "WorkspaceFocusReminder" || node.type === "PlanModeAvailabilityReminder" || node.type === "TaskReminder" || node.type === "PlanModeReminder" || node.type === "ActivePlanModeReminder") {
         return ["id", "watchPath", "watchValue", "repeatEveryTurns"]
             .filter((key) => node.props[key] !== undefined && node.props[key] !== "")
             .map((key) => `${key}: ${formatPropValue(node.props[key])}`)
@@ -251,11 +251,11 @@ function nodeSummary(node: ProfileTemplateNodeDto): string {
     if (node.type === "LinkedAgentsReminder" || node.type === "LinkedAgentsSummary") {
         return "Linked agents summary.";
     }
-    if (node.type === "WorkdirReminder") {
-        return "Current tool cwd reminder.";
+    if (node.type === "RuntimeLocationReminder") {
+        return "Runtime location reminder.";
     }
-    if (node.type === "ProjectWorkspaceReminder") {
-        return "Current Project Workspace reminder.";
+    if (node.type === "WorkspaceFocusReminder") {
+        return "Workspace focus reminder.";
     }
     if (node.type === "PlanModeAvailabilityReminder") {
         return "Plan mode availability reminder.";
@@ -358,7 +358,7 @@ function prepareDrag(): void {
                     :depth="props.depth + 1"
                     :index="childIndex"
                     :parent-id="props.node.id"
-                    :can-have-children="!['Text', 'ToolCall', 'ToolResult', 'AgentCatalog', 'SkillCatalog', 'ActivatedSkills', 'SqlSchemaSummary', 'Import', 'LinkedAgentsSummary', 'LinkedAgentsReminder', 'WorkdirReminder', 'ProjectWorkspaceReminder', 'PlanModeAvailabilityReminder', 'TaskReminder', 'ActivePlanModeReminder', 'MentionedSkillsReminder'].includes(child.type)"
+                    :can-have-children="!['Text', 'ToolCall', 'ToolResult', 'AgentCatalog', 'SkillCatalog', 'ActivatedSkills', 'SqlSchemaSummary', 'Import', 'LinkedAgentsSummary', 'LinkedAgentsReminder', 'RuntimeLocationReminder', 'WorkspaceFocusReminder', 'PlanModeAvailabilityReminder', 'TaskReminder', 'ActivePlanModeReminder', 'MentionedSkillsReminder'].includes(child.type)"
                     :disabled-drop-node-ids="props.disabledDropNodeIds"
                     @select="emit('select', $event)"
                     @prepare-drag="emit('prepareDrag', $event)"
@@ -542,8 +542,8 @@ function prepareDrag(): void {
 .node-SystemReminder::before,
 .node-LinkedAgentsSummary::before,
 .node-LinkedAgentsReminder::before,
-.node-WorkdirReminder::before,
-.node-ProjectWorkspaceReminder::before,
+.node-RuntimeLocationReminder::before,
+.node-WorkspaceFocusReminder::before,
 .node-PlanModeAvailabilityReminder::before,
 .node-TaskReminder::before,
 .node-PlanModeReminder::before,
@@ -623,8 +623,8 @@ function prepareDrag(): void {
     --profile-node-accent: #4f8c8f;
 }
 
-.node-WorkdirReminder,
-.node-ProjectWorkspaceReminder,
+.node-RuntimeLocationReminder,
+.node-WorkspaceFocusReminder,
 .node-PlanModeAvailabilityReminder {
     --profile-node-accent: #b65f5b;
 }

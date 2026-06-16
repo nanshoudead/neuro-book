@@ -47,12 +47,12 @@ describe("silly-tavern-card cli helpers", () => {
         const inspection = inspectCard(loaded);
 
         expect(
-            inspection.markers.initVar
-            + inspection.markers.updateVariable
-            + inspection.markers.ejs
-            + inspection.markers.inject
-            + inspection.markers.generate
-            + inspection.markers.render,
+            (inspection.markers.initVar ?? 0)
+            + (inspection.markers.updateVariable ?? 0)
+            + (inspection.markers.ejs ?? 0)
+            + (inspection.markers.inject ?? 0)
+            + (inspection.markers.generate ?? 0)
+            + (inspection.markers.render ?? 0),
         ).toBeGreaterThan(0);
     });
 
@@ -100,10 +100,15 @@ describe("silly-tavern-card cli helpers", () => {
         await expect(stat(path.join(unpackDir, "card-body", "first-message.md"))).resolves.toBeDefined();
         const worldbookEntryFiles = await readdir(path.join(unpackDir, "worldbook", "entries"));
         expect(worldbookEntryFiles.length).toBeGreaterThan(0);
-        expect(worldbookEntryFiles[0]).toMatch(/^\d{6}-/);
+        const firstWorldbookEntryFile = worldbookEntryFiles[0];
+        expect(firstWorldbookEntryFile).toBeDefined();
+        if (!firstWorldbookEntryFile) {
+            throw new Error("worldbook entry file missing");
+        }
+        expect(firstWorldbookEntryFile).toMatch(/^\d{6}-/);
         const entryOrders = worldbookEntryFiles.map((file) => Number(file.slice(0, 6)));
         expect(entryOrders).toEqual([...entryOrders].sort((left, right) => left - right));
-        const firstWorldbookEntry = await readFile(path.join(unpackDir, "worldbook", "entries", worldbookEntryFiles[0]), "utf-8");
+        const firstWorldbookEntry = await readFile(path.join(unpackDir, "worldbook", "entries", firstWorldbookEntryFile), "utf-8");
         expect(firstWorldbookEntry).toContain("---\ntitle:");
         expect(firstWorldbookEntry).toContain("source: \"silly-tavern-worldbook\"");
         expect(firstWorldbookEntry).toContain("insertion_order:");
@@ -130,9 +135,14 @@ describe("silly-tavern-card cli helpers", () => {
         await runCli(["bun", "silly-tavern-card", "import", unpackDir, "--project", workspace, "--rp"]);
         const lorebookFiles = await listLorebookIndexFiles(workspace);
         expect(lorebookFiles.length).toBeGreaterThan(5);
-        expect(lorebookFiles[0]).toContain(`${path.sep}lorebook${path.sep}`);
-        expect(path.basename(path.dirname(lorebookFiles[0]))).toMatch(/^\d{6}-/);
-        const firstLorebook = await readFile(lorebookFiles[0], "utf-8");
+        const firstLorebookFile = lorebookFiles[0];
+        expect(firstLorebookFile).toBeDefined();
+        if (!firstLorebookFile) {
+            throw new Error("lorebook index file missing");
+        }
+        expect(firstLorebookFile).toContain(`${path.sep}lorebook${path.sep}`);
+        expect(path.basename(path.dirname(firstLorebookFile))).toMatch(/^\d{6}-/);
+        const firstLorebook = await readFile(firstLorebookFile, "utf-8");
         expect(firstLorebook).not.toContain("sillyTavernWorldbook:");
         expect(firstLorebook).toContain("insertion_order:");
         expect(firstLorebook).not.toContain("extensions:");

@@ -190,7 +190,7 @@ leader 调用 `writer` 时：
 
 ## Verification / Test
 
-- 新增 writer profile contract test：确认 `writer.payloadSchema` 存在、`writer.initialSchema` 为空、root tools 包含 file read/write/edit/apply_patch、Plot 只读工具和 report_result。
+- 新增 writer profile contract test：确认 `writer.payloadSchema` 存在、`writer.initialSchema` 为空、root tools 包含 file read/write/edit/bash、不包含 apply_patch，包含 Plot 只读工具和 report_result。
 - 新增 writer payload prepare 测试：
   - `payload.path + message` 注入 `<target_file>`、读取清单与自然语言写作指令。
   - `threadIds` / `sceneIds` / `plotIds` / `lorebookEntries` / `readablePaths` 出现在读取清单中。
@@ -205,7 +205,9 @@ leader 调用 `writer` 时：
 
 - `bun scripts/build/prepare-system-assets.ts`：完成，编译 stale profile artifact。
 - `bun scripts/build/prepare-system-assets.ts --sync-user-assets`：完成，正式系统 profile 与 `workspace/.nbook` 用户侧副本已同步；后续模板修复后再次同步，updated assets 2；更新 `tsx-profile-editing` skill 旧合同口径后再次同步，updated assets 1。
+- `bun scripts/build/prepare-system-assets.ts --sync-user-assets`：review fix 后再次完成，编译 stale profile 1，updated profiles 1。
 - `bun test ./server/agent/tools/plot-tools.test.ts ./server/agent/tools/agent-collaboration-tools.test.ts ./server/agent/profiles/leader-assets-profile.test.ts ./server/agent/harness/neuro-agent-harness-payload.test.ts`：31 pass。
+- `bun test ./server/agent/profiles/leader-assets-profile.test.ts ./server/agent/harness/neuro-agent-harness-payload.test.ts ./server/agent/tools/agent-collaboration-tools.test.ts`：27 pass。
 - `bun test ./server/agent/profiles/rp-profiles.test.ts ./server/agent/profiles/simulation-director-profiles.test.ts ./server/agent/profiles/profile-dsl.test.ts`：38 pass。
 - `bun scripts/db/migrate-writer-session-initial.ts --dry-run`：scanned=198, migrated=0, skipped=198, failed=0。
 - `bun test ./server/agent/profiles/catalog.test.ts ./server/agent/profiles/report-result-schema.test.ts ./server/agent/profiles/workbench-service.test.ts`：36 pass。顺手修复了 profile workbench 模板中的旧 `defineProfileTools/tools` 残留，并把测试断言同步为当前 `rootToolKeys` 字段。
@@ -217,6 +219,7 @@ leader 调用 `writer` 时：
 - 2026-06-16：进一步确认：第一版不做硬性 file read guard；`lorebookEntries` / `readablePaths` 是建议读，不是授权边界；保留 `get_story_thread`、`get_story_scene_context`、`get_chapter_plot`；新增 `get_story_plot_context` 支持 `plotIds`；任意 Markdown 的职责边界只写入提示词，不做硬性路径拦截。
 - 2026-06-16：实施 `WriterInitialSchema` 空 initial 与 `WriterPayloadSchema`；改造 writer profile 使用 `ctx.invocation.message/payload`；新增 `get_story_plot_context` 工具和 builtin binding；新增 writer session initial 专用迁移脚本；更新 writer / leader / workflow / content reference 文档。
 - 2026-06-16：补充同步 `workspace/.nbook` 用户侧 writer profile，确保实际运行副本也使用长期 writer + payload 合同；修复 `basic-agent` / `report-agent` profile template 的旧工具 DSL import 和 `inputSchema` 残留，并同步更新 `tsx-profile-editing` skill 的 `InitialSchema/PayloadSchema/toolset/ctx.initial` 口径。
+- 2026-06-16：根据 review 修复 writer prompt 残留：删除“没有文件路径时直接输出润色正文”的旧口径，改为缺少 `input.path` 时通过 `report_result.result` 要求调用方补 `invoke_agent.input.path`。
 
 ## TODO / Follow-ups
 

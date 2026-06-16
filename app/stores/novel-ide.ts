@@ -464,6 +464,19 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
     };
 
     /**
+     * 清理指定 Project Workspace 的本地编辑会话，避免同名重建后复用旧标签和 buffer。
+     */
+    const clearNovelWorkspaceSession = (novelId: string): void => {
+        const key = `novel:${novelId}`;
+        if (!(key in workspaceSessions.value)) {
+            return;
+        }
+        const nextSessions = {...workspaceSessions.value};
+        delete nextSessions[key];
+        workspaceSessions.value = nextSessions;
+    };
+
+    /**
      * 构造当前 workspace 查询参数。
      */
     const workspaceQuery = (): WorkspaceQueryInput => {
@@ -2029,10 +2042,10 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
             query: {projectPath: novelId},
         });
 
+        clearNovelWorkspaceSession(novelId);
         await loadNovels();
 
         if (currentNovelId.value === novelId) {
-            persistWorkspaceSession();
             currentNovelId.value = novels.value[0]?.id ?? "";
             selectedChapterId.value = "";
             restoreWorkspaceSession();

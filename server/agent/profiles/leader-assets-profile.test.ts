@@ -522,13 +522,13 @@ describe("assets builtin v3 profiles", () => {
             "read",
             "write",
             "edit",
-            "apply_patch",
             "get_story_thread",
             "get_story_scene_context",
             "get_story_plot_context",
             "get_chapter_plot",
             "report_result",
         ]));
+        expect(writerProfile.rootToolKeys).not.toContain("apply_patch");
         expect(initialProperties).toEqual({});
         expect(payloadProperties).toHaveProperty("path");
         expect(payloadProperties).toHaveProperty("context");

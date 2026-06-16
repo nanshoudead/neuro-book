@@ -358,7 +358,7 @@ export class JsonlSessionRepository {
         let summary = snapshot.metadata.summary;
         let compaction: CompactionSessionEntry | null = null;
         const linkedAgents = new Map<SessionId, LinkedAgentSummary>();
-        let archived = false;
+        let archived = snapshot.entries.some((entry) => entry.type === "session_archived");
         let planModeActive = false;
 
         const reduceEntries = snapshot.entries.filter((entry) => {
