@@ -2,7 +2,7 @@ import {resolve} from "node:path";
 import {describe, expect, it} from "vitest";
 import directorProfile from "../../../assets/workspace/.nbook/agent/profiles/builtin/director.profile";
 import simulatorLeaderProfile from "../../../assets/workspace/.nbook/agent/profiles/builtin/simulator.leader.profile";
-import {DirectorInputSchema, DirectorOutputSchema, SimulatorLeaderInputSchema, SimulatorLeaderOutputSchema} from "nbook/server/agent/profiles/builtin-contracts";
+import {DirectorInitialSchema, DirectorOutputSchema, SimulatorLeaderInitialSchema, SimulatorLeaderOutputSchema} from "nbook/server/agent/profiles/builtin-contracts";
 import {messageText} from "nbook/server/agent/messages/message-utils";
 import type {AgentMessage, Message} from "nbook/server/agent/messages/types";
 import type {RuntimeSessionFacade} from "nbook/server/agent/profiles/define-agent-runtime";
@@ -31,14 +31,14 @@ describe("simulation and director builtin profiles", () => {
                 archived: false,
                 planModeActive: false,
             }),
-            input: {},
+            initial: {},
             vars: createTestVariableAccessor(),
             catalog: {profiles: [], issues: []},
             skills: [],
         });
         const prompt = [prepared.systemPrompt ?? "", messagesText(prepared.historyInitMessages), messagesText(prepared.modelContextMessages)].join("\n");
 
-        expect(simulatorLeaderProfile.inputSchema).toBe(SimulatorLeaderInputSchema);
+        expect(simulatorLeaderProfile.initialSchema).toBe(SimulatorLeaderInitialSchema);
         expect(simulatorLeaderProfile.outputSchema).toBe(SimulatorLeaderOutputSchema);
         expect(simulatorLeaderProfile.rootToolKeys).toEqual([
             "read",
@@ -83,7 +83,7 @@ describe("simulation and director builtin profiles", () => {
                 archived: false,
                 planModeActive: false,
             }),
-            input: {
+            initial: {
                 projectPath: "workspace/rp-project",
                 mode: "writing",
                 defaultChapterPath: "rp-project/manuscript/001-volume/001-chapter/",
@@ -94,7 +94,7 @@ describe("simulation and director builtin profiles", () => {
         });
         const prompt = [prepared.systemPrompt ?? "", messagesText(prepared.historyInitMessages), messagesText(prepared.modelContextMessages)].join("\n");
 
-        expect(directorProfile.inputSchema).toBe(DirectorInputSchema);
+        expect(directorProfile.initialSchema).toBe(DirectorInitialSchema);
         expect(directorProfile.outputSchema).toBe(DirectorOutputSchema);
         expect(directorProfile.rootToolKeys).toContain("create_story_plots");
         expect(directorProfile.rootToolKeys).not.toContain("write");
@@ -126,7 +126,7 @@ function testSession(input: Partial<NeuroSessionContext>): RuntimeSessionFacade 
                     metadata: {
                         sessionId: -1,
                         profileKey: session.profileKey,
-                        input: {},
+                        initial: {},
                         workspaceRoot: session.workspaceRoot,
                         workspaceKey: "test",
                         createdAt: 0,

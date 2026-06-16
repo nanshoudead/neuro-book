@@ -22,7 +22,7 @@ import type {AgentSessionListQueryDto, AgentSessionSummaryDto} from "nbook/share
 
 type CreateSessionInput = {
     profileKey: string;
-    input: JsonValue;
+    initial: JsonValue;
     workspaceRoot: string;
     workspaceKey?: string;
     projectPath?: string;
@@ -57,7 +57,7 @@ export class JsonlSessionRepository {
         const metadata: SessionMetadata = {
             sessionId,
             profileKey: input.profileKey,
-            input: input.input,
+            initial: input.initial,
             workspaceRoot: input.workspaceRoot,
             workspaceKey: input.workspaceKey ?? "global",
             projectPath: input.projectPath,
@@ -569,7 +569,7 @@ export class JsonlSessionRepository {
         const snapshot = await this.readSession(sessionId);
         const fork = await this.createSession({
             profileKey: snapshot.metadata.profileKey,
-            input: snapshot.metadata.input,
+            initial: snapshot.metadata.initial,
             workspaceRoot: snapshot.metadata.workspaceRoot,
             workspaceKey: snapshot.metadata.workspaceKey,
             projectPath: snapshot.metadata.projectPath,

@@ -28,6 +28,8 @@ const props = defineProps<{
     menuRefreshKey?: string | number;
     resolveMenu?: (context: AgentTriggerMenuContext) => AgentTriggerMenuState;
     onSkillTriggerStart?: () => void;
+    /** 打开消息 Markdown 中的 workspace 引用。 */
+    openReference?: (target: string) => void;
     costDisplayOptions: CostDisplayOptions;
     costExchangeRateSuffix?: string;
 }>();
@@ -381,7 +383,7 @@ const endSwipe = (event: PointerEvent): void => {
                 :class="isSystemError ? 'max-h-[240px] border-rose-500/30 bg-rose-500/5' : isSystemReminder ? 'max-h-[180px]' : 'max-h-[320px]'"
             >
                 <div v-if="props.node.message.content" class="min-w-0 text-xs leading-relaxed" :class="isSystemError ? 'text-rose-700' : 'text-[var(--text-muted)]'">
-                    <AgentMarkdownContent :content="props.node.message.content" :html="props.node.message.html" />
+                    <AgentMarkdownContent :content="props.node.message.content" :html="props.node.message.html" :open-reference="props.openReference" />
                 </div>
             </div>
         </div>
@@ -457,7 +459,7 @@ const endSwipe = (event: PointerEvent): void => {
                 </button>
 
                 <div v-if="!isThinkingCollapsed" class="mt-1.5 border-l border-[var(--border-color)]/40 pl-3 text-[13px] leading-relaxed text-[var(--text-muted)]/85">
-                    <AgentMarkdownContent :content="props.node.message.thinking ?? ''" :streaming="props.node.message.status === 'streaming'" />
+                    <AgentMarkdownContent :content="props.node.message.thinking ?? ''" :streaming="props.node.message.status === 'streaming'" :open-reference="props.openReference" />
                 </div>
             </div>
         </div>
@@ -502,7 +504,7 @@ const endSwipe = (event: PointerEvent): void => {
                     </div>
                 </div>
                 <div v-else class="min-w-0 text-sm leading-relaxed text-[var(--text-main)]">
-                    <AgentMarkdownContent :content="props.node.message.content" :html="props.node.message.html" :streaming="props.node.message.status === 'streaming'" />
+                    <AgentMarkdownContent :content="props.node.message.content" :html="props.node.message.html" :streaming="props.node.message.status === 'streaming'" :open-reference="props.openReference" />
                 </div>
             </div>
         </div>

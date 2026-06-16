@@ -7,7 +7,7 @@ export type SessionEntryId = string;
 export type SessionMetadata = {
     sessionId: SessionId;
     profileKey: string;
-    input: JsonValue;
+    initial: JsonValue;
     workspaceRoot: string;
     workspaceKey: string;
     projectPath?: string;

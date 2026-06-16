@@ -86,7 +86,7 @@ export const sourceOptions: SelectOption[] = [
 
 export const libraryVariableItems: LibraryVariableItem[] = [
     {label: "运行时", description: "插入 runtime 变量，如 ${ctx.runtime.now}", value: "${ctx.runtime.now}", iconClass: "i-lucide-braces"},
-    {label: "输入", description: "插入 profile input 变量", value: "${ctx.input.prompt}", iconClass: "i-lucide-triangle"},
+    {label: "初始化", description: "插入 profile initial 变量", value: "${ctx.initial.prompt}", iconClass: "i-lucide-triangle"},
 ];
 
 export const sourceEditorPreferences = {

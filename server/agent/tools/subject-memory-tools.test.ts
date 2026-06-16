@@ -52,7 +52,7 @@ describe("subject memory tools", () => {
                 key: "test.subject-memory-tools",
                 name: "Subject Memory Tools Test",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             tools: profileToolsFromKeys([]),
             prepare() {
                 return {};
@@ -60,7 +60,7 @@ describe("subject memory tools", () => {
         }), false);
         const session = await harness.createAgent({
             profileKey: "test.subject-memory-tools",
-            input: {},
+            initial: {},
             workspaceRoot,
         });
         context = {

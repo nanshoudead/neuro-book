@@ -23,8 +23,8 @@ export type RuntimeAgentDialogueContentInput = {
     snapshot?: SessionSnapshot;
     /** 参与 fingerprint，默认使用当前 profileKey。 */
     profileKey?: string;
-    /** 参与 fingerprint，默认使用当前 profile input。 */
-    input?: JsonValue;
+    /** 参与 fingerprint，默认使用当前 profile initial。 */
+    initial?: JsonValue;
 };
 
 export type RuntimeSessionFacade = NeuroSessionContext & {
@@ -75,33 +75,36 @@ export type AgentRuntimeHookResult = {
     };
 };
 
-export type AgentRuntimeHook<TInput = JsonValue> = {
+export type AgentRuntimeHook<TInitial = JsonValue> = {
     name: string;
     stage: AgentRuntimeHookStage;
     builtin?: true;
-    run(ctx: AgentRuntimeHookContext<TInput>): AgentRuntimeHookResult | Promise<AgentRuntimeHookResult>;
+    run(ctx: AgentRuntimeHookContext<TInitial>): AgentRuntimeHookResult | Promise<AgentRuntimeHookResult>;
 };
 
-export type AgentRuntimeBuiltin<TInput = JsonValue> = {
+export type AgentRuntimeBuiltin<TInitial = JsonValue> = {
     kind: "builtin";
     name: string;
-    hooks: readonly AgentRuntimeHook<TInput>[];
+    hooks: readonly AgentRuntimeHook<TInitial>[];
 };
 
-export type AgentRuntimeItem<TInput = JsonValue> = AgentRuntimeHook<TInput> | AgentRuntimeBuiltin<TInput>;
+export type AgentRuntimeItem<TInitial = JsonValue> = AgentRuntimeHook<TInitial> | AgentRuntimeBuiltin<TInitial>;
 
-export type AgentRuntimeHookContext<TInput = JsonValue> = {
+export type AgentRuntimeHookContext<TInitial = JsonValue> = {
     stage: AgentRuntimeHookStage;
     sessionId: number;
     invocationId: string;
     profileKey: string;
-    input: TInput;
+    initial: TInitial;
+    payload?: JsonValue;
     session: RuntimeSessionFacade;
     runtimeState: JsonValue | undefined;
     turnIndex?: number;
     pendingUserMessage?: Message;
     invocation: {
         caller: AgentInvokeCaller;
+        payload?: JsonValue;
+        message?: string;
     };
     turn?: {
         assistant: AssistantMessage;
@@ -129,12 +132,12 @@ export type AgentRuntimeHookContext<TInput = JsonValue> = {
     modelMessages?: AgentMessage[];
 };
 
-export type AgentRuntimeDefinition<TInput = JsonValue> = {
-    hooks: readonly AgentRuntimeItem<TInput>[];
+export type AgentRuntimeDefinition<TInitial = JsonValue> = {
+    hooks: readonly AgentRuntimeItem<TInitial>[];
 };
 
-export type NormalizedAgentRuntimeDefinition<TInput = JsonValue> = {
-    hooks: readonly AgentRuntimeHook<TInput>[];
+export type NormalizedAgentRuntimeDefinition<TInitial = JsonValue> = {
+    hooks: readonly AgentRuntimeHook<TInitial>[];
 };
 
 /**
@@ -142,7 +145,7 @@ export type NormalizedAgentRuntimeDefinition<TInput = JsonValue> = {
  *
  * 这个 helper 只规范化 hook 声明，不创建 session，也不执行副作用。
  */
-export function defineAgentRuntime<TInput = JsonValue>(runtime: AgentRuntimeDefinition<TInput>): NormalizedAgentRuntimeDefinition<TInput> {
+export function defineAgentRuntime<TInitial = JsonValue>(runtime: AgentRuntimeDefinition<TInitial>): NormalizedAgentRuntimeDefinition<TInitial> {
     const hooks = expandRuntimeHooks(runtime.hooks);
     const seen = new Set<string>();
     for (const hook of hooks) {
@@ -159,50 +162,50 @@ export function defineAgentRuntime<TInput = JsonValue>(runtime: AgentRuntimeDefi
 }
 
 export const agentRuntimeBuiltins = {
-    defaultSessionRuntime<TInput = JsonValue>(): NormalizedAgentRuntimeDefinition<TInput> {
+    defaultSessionRuntime<TInitial = JsonValue>(): NormalizedAgentRuntimeDefinition<TInitial> {
         return defineAgentRuntime({
             hooks: [
-                this.sessionRuntime<TInput>(),
+                this.sessionRuntime<TInitial>(),
             ],
         });
     },
-    sessionRuntime<TInput = JsonValue>(): AgentRuntimeBuiltin<TInput> {
+    sessionRuntime<TInitial = JsonValue>(): AgentRuntimeBuiltin<TInitial> {
         return {
             kind: "builtin",
             name: "sessionRuntime",
             hooks: [
-                this.profilePrompt<TInput>(),
-                this.sessionContext<TInput>(),
-                this.transcriptPersistence<TInput>(),
-                this.reportResult<TInput>(),
+                this.profilePrompt<TInitial>(),
+                this.sessionContext<TInitial>(),
+                this.transcriptPersistence<TInitial>(),
+                this.reportResult<TInitial>(),
             ],
         };
     },
-    profilePrompt<TInput = JsonValue>(): AgentRuntimeHook<TInput> {
+    profilePrompt<TInitial = JsonValue>(): AgentRuntimeHook<TInitial> {
         return builtinHook("profilePrompt", "prepareRun", {
             builtinBehavior: {
                 profilePrompt: true,
             },
         });
     },
-    sessionContext<TInput = JsonValue>(): AgentRuntimeHook<TInput> {
+    sessionContext<TInitial = JsonValue>(): AgentRuntimeHook<TInitial> {
         return builtinHook("sessionContext", "prepareRun", {
             builtinBehavior: {
                 sessionContext: true,
             },
         });
     },
-    transcriptPersistence<TInput = JsonValue>(): AgentRuntimeHook<TInput> {
+    transcriptPersistence<TInitial = JsonValue>(): AgentRuntimeHook<TInitial> {
         return builtinHook("transcriptPersistence", "ingestTurn", {
             transcript: "persist",
         });
     },
-    runtimeOnlyTranscript<TInput = JsonValue>(): AgentRuntimeHook<TInput> {
+    runtimeOnlyTranscript<TInitial = JsonValue>(): AgentRuntimeHook<TInitial> {
         return builtinHook("runtimeOnlyTranscript", "ingestTurn", {
             transcript: "runtime_only",
         });
     },
-    reportResult<TInput = JsonValue>(): AgentRuntimeHook<TInput> {
+    reportResult<TInitial = JsonValue>(): AgentRuntimeHook<TInitial> {
         return {
             name: "builtin.reportResult",
             stage: "prepareRun",
@@ -218,15 +221,15 @@ export const agentRuntimeBuiltins = {
     },
 };
 
-function expandRuntimeHooks<TInput>(items: readonly AgentRuntimeItem<TInput>[]): AgentRuntimeHook<TInput>[] {
+function expandRuntimeHooks<TInitial>(items: readonly AgentRuntimeItem<TInitial>[]): AgentRuntimeHook<TInitial>[] {
     return items.flatMap((item) => isRuntimeBuiltin(item) ? item.hooks : [item]);
 }
 
-function isRuntimeBuiltin<TInput>(item: AgentRuntimeItem<TInput>): item is AgentRuntimeBuiltin<TInput> {
+function isRuntimeBuiltin<TInitial>(item: AgentRuntimeItem<TInitial>): item is AgentRuntimeBuiltin<TInitial> {
     return "kind" in item && item.kind === "builtin";
 }
 
-function builtinHook<TInput = JsonValue>(name: string, stage: AgentRuntimeHookStage, result: AgentRuntimeHookResult = {}): AgentRuntimeHook<TInput> {
+function builtinHook<TInitial = JsonValue>(name: string, stage: AgentRuntimeHookStage, result: AgentRuntimeHookResult = {}): AgentRuntimeHook<TInitial> {
     return {
         name: `builtin.${name}`,
         stage,

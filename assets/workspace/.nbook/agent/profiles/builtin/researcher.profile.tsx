@@ -3,7 +3,7 @@
 import type {Static} from "typebox";
 import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
 import {builtin, toolset} from "nbook/server/agent/profiles/profile-tools";
-import {ResearcherInputSchema} from "nbook/server/agent/profiles/builtin-contracts";
+import {ResearcherInitialSchema} from "nbook/server/agent/profiles/builtin-contracts";
 import {AppendingSet, HistorySet, Message, ProfilePrompt, RuntimeLocationReminder, SkillCatalog, System, WorkspaceFocusReminder} from "nbook/server/agent/profiles/profile-dsl";
 import {profileText} from "nbook/server/agent/profiles/profile-text";
 
@@ -13,13 +13,13 @@ export const profileManifest = {
     description: "联网研究 agent：使用 web_search 和 web_fetch 查找、核对、归纳外部信息，保留连续对话上下文，并在回答中给出来源。",
 } as const;
 
-export const InputSchema = ResearcherInputSchema;
+export const InitialSchema = ResearcherInitialSchema;
 
-export type Input = Static<typeof InputSchema>;
+export type Initial = Static<typeof InitialSchema>;
 
 export default defineAgentProfile({
     manifest: profileManifest,
-    inputSchema: InputSchema,
+    initialSchema: InitialSchema,
     tools: toolset(
         builtin.web.search,
         builtin.web.fetch,
@@ -35,14 +35,14 @@ export default defineAgentProfile({
                 <AppendingSet>
                     <RuntimeLocationReminder />
                     <WorkspaceFocusReminder />
-                    <Message>{renderResearchBrief(ctx.input)}</Message>
+                    <Message>{renderResearchBrief(ctx.initial)}</Message>
                 </AppendingSet>
             </ProfilePrompt>
         );
     },
 });
 
-function renderResearchBrief(input: Input): string {
+function renderResearchBrief(input: Initial): string {
     return profileText`
         Research brief:
         - topic: ${input.topic ?? "general"}

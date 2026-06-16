@@ -141,6 +141,11 @@ type PreparedRunProfile = {
     writePlan?: SessionWritePlan;
 };
 
+type PreparedInvocationPayload = {
+    payload?: JsonValue;
+    message?: string;
+};
+
 type PreparedRun = {
     snapshot: SessionSnapshot;
     context: NeuroSessionContext;
@@ -191,6 +196,8 @@ type AppliedSidecarMerge = {
 type InvocationAdmission = {
     snapshot: SessionSnapshot | null;
     pendingUserMessage: Message | null;
+    pendingInvocationMessage: string | undefined;
+    pendingPayload: JsonValue | undefined;
     pendingResolution: AgentResolution | null;
     currentInvocation: AgentActiveInvocationDto | null;
     invocationId: string;
@@ -286,7 +293,7 @@ export class NeuroAgentHarness {
      */
     async createAgent(input: CreateAgentInput): Promise<CreateAgentResult> {
         const profile = await this.profiles.get(input.profileKey);
-        const parsedInput = this.profiles.parseInput(profile, (input.input ?? {}) as JsonValue);
+        const parsedInitial = this.profiles.parseInitial(profile, (input.initial ?? {}) as JsonValue);
         const title = this.normalizeCreateTitle(input.title) ?? profile.manifest.name;
         const parentSnapshot = input.parentSessionId
             ? await this.repo.readSession(input.parentSessionId)
@@ -294,7 +301,7 @@ export class NeuroAgentHarness {
         const projectPath = input.projectPath ?? parentSnapshot?.metadata.projectPath;
         const snapshot = await this.repo.createSession({
             profileKey: input.profileKey,
-            input: parsedInput,
+            initial: parsedInitial,
             workspaceRoot: normalizeAgentWorkspaceRoot(input.workspaceRoot ?? parentSnapshot?.metadata.workspaceRoot, projectPath),
             workspaceKey: input.workspaceKey ?? parentSnapshot?.metadata.workspaceKey ?? "global",
             projectPath,
@@ -328,17 +335,17 @@ export class NeuroAgentHarness {
      */
     private async createSystemAgent(input: {
         profileKey: string;
-        input: JsonValue;
+        initial: JsonValue;
         workspaceRoot: string;
         workspaceKey: string;
         projectPath?: string;
         systemRole: "summarizer";
     }): Promise<SessionSnapshot> {
         const profile = await this.profiles.get(input.profileKey);
-        const parsedInput = this.profiles.parseInput(profile, input.input);
+        const parsedInitial = this.profiles.parseInitial(profile, input.initial);
         const snapshot = await this.repo.createSession({
             profileKey: input.profileKey,
-            input: parsedInput,
+            initial: parsedInitial,
             workspaceRoot: input.workspaceRoot,
             workspaceKey: input.workspaceKey,
             projectPath: input.projectPath,
@@ -371,6 +378,7 @@ export class NeuroAgentHarness {
      * 调用 agent。prompt 会写入用户消息；continue 只从当前 session 尾部继续。
      */
     async invokeAgent(input: InvokeAgentInput): Promise<InvokeAgentResult> {
+        const startedAt = Date.now();
         if (input.block === false) {
             throw new Error("block:false 第一版尚未实现");
         }
@@ -392,6 +400,8 @@ export class NeuroAgentHarness {
         }
         let snapshot = admission.snapshot;
         const pendingUserMessage = admission.pendingUserMessage;
+        const pendingInvocationMessage = admission.pendingInvocationMessage;
+        const pendingPayload = admission.pendingPayload;
         const pendingResolution = admission.pendingResolution;
         const invocationId = admission.invocationId;
         const abortController = admission.abortController;
@@ -416,6 +426,8 @@ export class NeuroAgentHarness {
                 snapshot,
                 pendingResolution,
                 pendingUserMessage,
+                pendingInvocationMessage,
+                pendingPayload,
                 clientState: input.clientState,
                 runtimeState,
                 caller,
@@ -487,6 +499,7 @@ export class NeuroAgentHarness {
             const finalResult = await this.finalizeInvokeResult({
                 input,
                 invocationId,
+                startedAt,
                 snapshot: preparedRun.snapshot,
                 context: preparedRun.context,
                 prepared: preparedRun.prepared,
@@ -509,6 +522,7 @@ export class NeuroAgentHarness {
             return this.failInvocation({
                 sessionId: input.sessionId,
                 invocationId,
+                startedAt,
                 error,
                 errorPhase,
                 aborted: abortController.signal.aborted,
@@ -569,6 +583,8 @@ export class NeuroAgentHarness {
     private async admitInvocation(input: InvokeAgentInput): Promise<InvocationAdmission> {
         let snapshot: SessionSnapshot | null = null;
         let pendingUserMessage: Message | null = null;
+        let pendingInvocationMessage: string | undefined;
+        let pendingPayload: JsonValue | undefined;
         let pendingResolution: AgentResolution | null = null;
         let currentInvocation = this.activeInvocations.get(input.sessionId) ?? null;
         if (!currentInvocation && input.mode === "continue" && input.resolution) {
@@ -596,18 +612,19 @@ export class NeuroAgentHarness {
         const invocationId = input.resolution && currentInvocation?.status === "waiting"
             ? currentInvocation.invocationId
             : randomUUID();
-        if ((input.mode === "steer" || input.mode === "followup") && !input.message) {
-            throw new Error(`${input.mode} 模式必须提供 message`);
+        const hasInvocationInput = Boolean(input.message) || input.payload !== undefined;
+        if ((input.mode === "steer" || input.mode === "followup") && !hasInvocationInput) {
+            throw new Error(`${input.mode} 模式必须提供 message 或 input`);
         }
         if (currentInvocation && !input.resolution && !input.internalQueued) {
             if (currentInvocation.status === "aborting") {
                 throw new Error("active_invocation_aborting");
             }
-            if (input.mode === "steer" && input.message) {
+            if (input.mode === "steer" && hasInvocationInput) {
                 if (!this.steerableSessions.has(input.sessionId)) {
                     throw new Error("steer_not_available");
                 }
-                const item = this.enqueueSteer(input.sessionId, input.message);
+                const item = this.enqueueSteer(input.sessionId, await this.prepareQueuedInvocationInput(input));
                 return {
                     queued: {
                         sessionId: input.sessionId,
@@ -618,8 +635,8 @@ export class NeuroAgentHarness {
                     },
                 };
             }
-            if ((input.mode === "prompt" || input.mode === "followup") && input.message) {
-                const item = await this.enqueueFollowUp(input.sessionId, input.message);
+            if ((input.mode === "prompt" || input.mode === "followup") && hasInvocationInput) {
+                const item = await this.enqueueFollowUp(input.sessionId, await this.prepareQueuedInvocationInput(input));
                 return {
                     queued: {
                         sessionId: input.sessionId,
@@ -639,10 +656,15 @@ export class NeuroAgentHarness {
             throw new Error("active_invocation_required");
         }
         if (input.mode === "prompt") {
-            if (!input.message) {
-                throw new Error("prompt 模式必须提供 message");
+            if (!hasInvocationInput) {
+                throw new Error("prompt 模式必须提供 message 或 input");
             }
-            pendingUserMessage = createUserMessage(input.message);
+            pendingPayload = input.payload;
+            pendingInvocationMessage = input.message?.text;
+            pendingUserMessage = this.createInvocationUserMessage(input);
+        }
+        if (input.mode === "continue" && (input.message || input.payload !== undefined)) {
+            throw new Error("continue 模式不能提供 message 或 input");
         }
         if (input.mode === "continue" && input.resolution) {
             pendingResolution = input.resolution;
@@ -683,6 +705,8 @@ export class NeuroAgentHarness {
         return {
             snapshot,
             pendingUserMessage,
+            pendingInvocationMessage,
+            pendingPayload,
             pendingResolution,
             currentInvocation,
             invocationId,
@@ -695,6 +719,7 @@ export class NeuroAgentHarness {
     private async finalizeInvokeResult(input: {
         input: InvokeAgentInput;
         invocationId: string;
+        startedAt: number;
         snapshot: SessionSnapshot;
         context: ReturnType<JsonlSessionRepository["reduce"]>;
         prepared: ProfileTurnPlan;
@@ -710,8 +735,9 @@ export class NeuroAgentHarness {
                 error: result.errorInfo.message,
                 errorPhase: result.errorInfo.phase,
                 errorInfo: result.errorInfo,
-                finalMessage: result.finalAssistant ? messageText(result.finalAssistant) : undefined,
+                finalMessage: result.finalAssistant ? messageText(result.finalAssistant, {stripThinking: true}) : undefined,
                 usage: result.finalAssistant?.usage,
+                elapsedMs: Date.now() - input.startedAt,
             };
         }
 
@@ -727,6 +753,7 @@ export class NeuroAgentHarness {
                 status: "waiting",
                 finalMessage: `waiting for ${result.waiting.toolName}`,
                 usage: result.finalAssistant?.usage,
+                elapsedMs: Date.now() - input.startedAt,
             };
         }
 
@@ -734,9 +761,10 @@ export class NeuroAgentHarness {
             sessionId: invokeInput.sessionId,
             invocationId,
             status: "completed",
-            finalMessage: result.finalAssistant ? messageText(result.finalAssistant) : undefined,
+            finalMessage: result.finalAssistant ? messageText(result.finalAssistant, {stripThinking: true}) : undefined,
             reportResult: result.reportResult,
             usage: result.finalAssistant?.usage,
+            elapsedMs: Date.now() - input.startedAt,
         };
     }
 
@@ -826,6 +854,7 @@ export class NeuroAgentHarness {
     private async failInvocation(input: {
         sessionId: number;
         invocationId: string;
+        startedAt: number;
         error: unknown;
         errorPhase: InvocationErrorPhase;
         aborted: boolean;
@@ -841,6 +870,7 @@ export class NeuroAgentHarness {
             error: errorInfo.message,
             errorPhase: errorInfo.phase,
             errorInfo,
+            elapsedMs: Date.now() - input.startedAt,
         };
     }
 
@@ -853,6 +883,8 @@ export class NeuroAgentHarness {
         snapshot: SessionSnapshot;
         pendingResolution: AgentResolution | null;
         pendingUserMessage: Message | null;
+        pendingInvocationMessage: string | undefined;
+        pendingPayload: JsonValue | undefined;
         clientState?: ClientStateSnapshot;
         runtimeState: RunRuntimeState;
         caller: AgentInvokeCaller;
@@ -866,6 +898,7 @@ export class NeuroAgentHarness {
         await this.publishSessionState(input.sessionId, input.invocationId);
 
         const profile = await this.profiles.get(snapshot.metadata.profileKey);
+        const preparedInvocation = this.prepareInvocationPayload(profile, input.pendingInvocationMessage, input.pendingPayload);
         const prepareRunHooks = await this.runRuntimeHooks({
             sessionId: input.sessionId,
             invocationId: input.invocationId,
@@ -874,6 +907,8 @@ export class NeuroAgentHarness {
             stage: "prepareRun",
             snapshot,
             pendingUserMessage: input.pendingUserMessage ?? undefined,
+            payload: preparedInvocation.payload,
+            invocationMessage: preparedInvocation.message,
             caller: input.caller,
         });
 
@@ -881,6 +916,8 @@ export class NeuroAgentHarness {
         const prepared = await this.prepare(snapshot, {
             invocationId: input.invocationId,
             pendingUserMessage: input.pendingUserMessage ?? undefined,
+            invocationPayload: preparedInvocation.payload,
+            invocationMessage: preparedInvocation.message,
             clientState: input.clientState,
             caller: input.caller,
             sessionContextEnabled: prepareRunHooks.sessionContext === true,
@@ -1225,16 +1262,16 @@ export class NeuroAgentHarness {
         if (!this.hasBuiltinHook(profile, "builtin.profilePrompt") || !profile.context) {
             return undefined;
         }
-        const input = this.profiles.parseInput(profile, snapshot.metadata.input);
+        const initial = this.profiles.parseInitial(profile, snapshot.metadata.initial);
         const session = this.createRuntimeSessionFacade({
             sessionId: snapshot.metadata.sessionId,
             profileKey: profile.manifest.key,
-            input,
+            initial,
             context,
         });
         const prepareContext = {
             session,
-            input: input as never,
+            initial: initial as never,
             vars: await this.createProfileVariableAccessor(snapshot, profile, {dryRun: true}),
             catalog: await this.profiles.snapshot(),
             skills: await this.skills.list(),
@@ -1329,7 +1366,7 @@ export class NeuroAgentHarness {
         if (body.command === "new") {
             const created = await this.createAgent({
                 profileKey: snapshot.metadata.profileKey,
-                input: snapshot.metadata.input,
+            initial: snapshot.metadata.initial,
                 workspaceRoot: snapshot.metadata.workspaceRoot,
                 workspaceKey: snapshot.metadata.workspaceKey,
                 projectPath: snapshot.metadata.projectPath,
@@ -1766,25 +1803,28 @@ export class NeuroAgentHarness {
     private async prepare(snapshot: SessionSnapshot, options: {
         invocationId?: string;
         pendingUserMessage?: Message;
+        invocationPayload?: JsonValue;
+        invocationMessage?: string;
         clientState?: ClientStateSnapshot;
         caller: AgentInvokeCaller;
         sessionContextEnabled: boolean;
     }): Promise<PreparedRunProfile> {
         const profile = await this.profiles.get(snapshot.metadata.profileKey);
         const context = this.repo.reduce(snapshot);
-        const parsedInput = this.profiles.parseInput(profile, snapshot.metadata.input);
+        const parsedInitial = this.profiles.parseInitial(profile, snapshot.metadata.initial);
         const session = this.createRuntimeSessionFacade({
             sessionId: snapshot.metadata.sessionId,
             profileKey: profile.manifest.key,
-            input: parsedInput,
+            initial: parsedInitial,
             context,
         });
         const vars = await this.createProfileVariableAccessor(snapshot, profile, {clientState: options.clientState, invocationId: options.invocationId});
         const prepared = await profile.prepare!({
             session,
-            input: parsedInput as never,
+            initial: parsedInitial as never,
             invocation: {
-                input: options.pendingUserMessage ? {message: messageText(options.pendingUserMessage)} : undefined,
+                payload: options.invocationPayload as never,
+                message: options.invocationMessage,
                 clientState: options.clientState,
                 caller: options.caller,
             },
@@ -1809,6 +1849,13 @@ export class NeuroAgentHarness {
         return {
             plan: prepared,
             writePlan,
+        };
+    }
+
+    private prepareInvocationPayload(profile: AgentProfile, message: string | undefined, payload: JsonValue | undefined): PreparedInvocationPayload {
+        return {
+            payload: this.profiles.parsePayload(profile, payload),
+            message,
         };
     }
 
@@ -1882,7 +1929,7 @@ export class NeuroAgentHarness {
         const summarizerInput = this.summarizerInput(sourceSnapshot.metadata.sessionId, config.input);
         const summarizerInputFingerprint = stableJsonHash({
             profileKey,
-            input: summarizerInput,
+            initial: summarizerInput,
         });
         const dialogue = buildAgentDialogueContent({
             repo: this.repo,
@@ -1923,7 +1970,7 @@ export class NeuroAgentHarness {
         const summarizerSession = await this.ensureSummarizerSession({
             sourceSnapshot,
             profileKey,
-            input: summarizerInput,
+            initial: summarizerInput,
             state,
             summarizerInputFingerprint,
         });
@@ -1964,7 +2011,7 @@ export class NeuroAgentHarness {
     private async ensureSummarizerSession(input: {
         sourceSnapshot: SessionSnapshot;
         profileKey: string;
-        input: JsonValue;
+        initial: JsonValue;
         state: SessionSummarizerState;
         summarizerInputFingerprint: string;
     }): Promise<SessionSnapshot> {
@@ -1980,7 +2027,7 @@ export class NeuroAgentHarness {
         }
         return this.createSystemAgent({
             profileKey: input.profileKey,
-            input: input.input,
+            initial: input.initial,
             workspaceRoot: input.sourceSnapshot.metadata.workspaceRoot,
             workspaceKey: input.sourceSnapshot.metadata.workspaceKey,
             projectPath: input.sourceSnapshot.metadata.projectPath,
@@ -2657,15 +2704,15 @@ export class NeuroAgentHarness {
         }
         const snapshot = await this.repo.readSession(frame.sessionId, frame.workspaceKey);
         const context = this.repo.reduce(snapshot);
-        const parsedInput = this.profiles.parseInput(frame.profile, snapshot.metadata.input);
+        const parsedInitial = this.profiles.parseInitial(frame.profile, snapshot.metadata.initial);
         const prepared = await frame.profile.prepare({
             session: this.createRuntimeSessionFacade({
                 sessionId: frame.sessionId,
                 profileKey: frame.profile.manifest.key,
-                input: parsedInput,
+                initial: parsedInitial,
                 context,
             }),
-            input: parsedInput as never,
+            initial: parsedInitial as never,
             vars: await this.createProfileVariableAccessor(snapshot, frame.profile, {dryRun: true}),
             catalog: await this.profiles.snapshot(),
             skills: await this.skills.list(),
@@ -3236,11 +3283,12 @@ export class NeuroAgentHarness {
         }
     }
 
-    private enqueueSteer(sessionId: number, message: AgentUserMessageInput): AgentFollowUpQueueItemDto {
+    private enqueueSteer(sessionId: number, input: {message?: AgentUserMessageInput; payload?: JsonValue}): AgentFollowUpQueueItemDto {
         const item: AgentFollowUpQueueItemDto = {
             id: randomUUID(),
             kind: "steer",
-            message,
+            message: input.message,
+            input: input.payload,
             createdAt: Date.now(),
         };
         const queue = this.steerQueues.get(sessionId) ?? [];
@@ -3257,11 +3305,12 @@ export class NeuroAgentHarness {
         return item;
     }
 
-    private async enqueueFollowUp(sessionId: number, message: AgentUserMessageInput): Promise<AgentFollowUpQueueItemDto> {
+    private async enqueueFollowUp(sessionId: number, input: {message?: AgentUserMessageInput; payload?: JsonValue}): Promise<AgentFollowUpQueueItemDto> {
         const item: AgentFollowUpQueueItemDto = {
             id: randomUUID(),
             kind: "followup",
-            message,
+            message: input.message,
+            input: input.payload,
             createdAt: Date.now(),
         };
         const queue = this.followUpQueueState(sessionId);
@@ -3294,10 +3343,7 @@ export class NeuroAgentHarness {
         const messages: Message[] = [];
         const entries: AppendManySessionEntryDraft[] = [];
         for (const item of queue) {
-            const message = createUserMessage({
-                ...item.message,
-                text: this.steerText(item.message.text),
-            });
+            const message = this.createQueuedUserMessage(item, "steer");
             entries.push({
                 type: "message",
                 message,
@@ -3348,9 +3394,56 @@ export class NeuroAgentHarness {
             sessionId,
             mode: "prompt",
             message: next.message,
+            payload: next.input,
             caller: {kind: "system", sessionId},
             internalQueued: true,
         });
+    }
+
+    /**
+     * 入队前按当前 profile 校验结构化 payload，避免无效 input 滞留到后续 drain 才失败。
+     */
+    private async prepareQueuedInvocationInput(input: InvokeAgentInput): Promise<{message?: AgentUserMessageInput; payload?: JsonValue}> {
+        const snapshot = await this.repo.readSession(input.sessionId);
+        const profile = await this.profiles.get(snapshot.metadata.profileKey);
+        return {
+            message: input.message,
+            payload: this.profiles.parsePayload(profile, input.payload),
+        };
+    }
+
+    private createInvocationUserMessage(input: {message?: AgentUserMessageInput; payload?: JsonValue}): Message {
+        if (input.message && input.payload === undefined) {
+            return createUserMessage(input.message);
+        }
+        return createUserMessage({
+            text: this.invocationMessageText(input),
+            images: input.message?.images,
+        });
+    }
+
+    private createQueuedUserMessage(item: AgentFollowUpQueueItemDto, mode: "steer" | "followup"): Message {
+        const message = this.createInvocationUserMessage({
+            message: item.message,
+            payload: item.input,
+        });
+        if (mode === "steer") {
+            return createUserMessage({
+                text: this.steerText(messageText(message)),
+            });
+        }
+        return message;
+    }
+
+    private invocationMessageText(input: {message?: AgentUserMessageInput; payload?: JsonValue}): string {
+        const parts: string[] = [];
+        if (input.message?.text) {
+            parts.push(input.message.text);
+        }
+        if (input.payload !== undefined) {
+            parts.push(`<payload>\n${JSON.stringify(input.payload, null, 2)}\n</payload>`);
+        }
+        return parts.join("\n\n");
     }
 
     private async pauseFollowUps(sessionId: number, invocationId: string, reason: "error" | "aborted" | "interrupted"): Promise<void> {
@@ -4117,7 +4210,7 @@ export class NeuroAgentHarness {
         }
 
         const context = input.context ?? this.repo.reduce(input.snapshot ?? await this.repo.readSession(input.sessionId));
-        const hookInput = (input.snapshot ?? await this.repo.readSession(input.sessionId)).metadata.input;
+        const hookInitial = (input.snapshot ?? await this.repo.readSession(input.sessionId)).metadata.initial;
         for (const hook of hooks) {
             if (hook.builtin && !this.isExecutableBuiltinHook(hook.name)) {
                 continue;
@@ -4127,11 +4220,12 @@ export class NeuroAgentHarness {
                 sessionId: input.sessionId,
                 invocationId: input.invocationId,
                 profileKey: input.profile.manifest.key,
-                input: hookInput,
+                initial: hookInitial,
+                payload: input.payload,
                 session: this.createRuntimeSessionFacade({
                     sessionId: input.sessionId,
                     profileKey: input.profile.manifest.key,
-                    input: hookInput,
+                    initial: hookInitial,
                     context,
                 }),
                 runtimeState: input.runtimeState.get(hook.name),
@@ -4139,6 +4233,8 @@ export class NeuroAgentHarness {
                 pendingUserMessage: input.pendingUserMessage,
                 invocation: {
                     caller: input.caller,
+                    payload: input.payload,
+                    message: input.invocationMessage,
                 },
                 turn: input.turn,
                 runResult: input.runResult,
@@ -4183,7 +4279,7 @@ export class NeuroAgentHarness {
     private createRuntimeSessionFacade(input: {
         sessionId: number;
         profileKey: string;
-        input: JsonValue;
+        initial: JsonValue;
         context: NeuroSessionContext;
     }): RuntimeSessionFacade {
         return {
@@ -4201,7 +4297,7 @@ export class NeuroAgentHarness {
                     repo: this.repo,
                     snapshot,
                     summarizerProfileKey: contentInput.profileKey ?? input.profileKey,
-                    summarizerInput: contentInput.input ?? input.input,
+                    summarizerInput: contentInput.initial ?? input.initial,
                 });
             },
         };
@@ -4462,10 +4558,10 @@ export class NeuroAgentHarness {
             session: this.createRuntimeSessionFacade({
                 sessionId: sidecarRun.sessionId,
                 profileKey: sidecarRun.context.profileKey,
-                input: sidecarRun.snapshot.metadata.input,
+                initial: sidecarRun.snapshot.metadata.initial,
                 context: sidecarRun.context,
             }),
-            input: sidecarRun.snapshot.metadata.input,
+            initial: sidecarRun.snapshot.metadata.initial,
             invocationId: sidecarRun.invocationId,
             profileKey: sidecarRun.context.profileKey,
             caller: {

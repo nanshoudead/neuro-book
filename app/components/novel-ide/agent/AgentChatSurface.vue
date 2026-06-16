@@ -45,11 +45,14 @@ const props = defineProps<{
     layout: "drawer" | "workbench";
     novelId: string;
     selectedFilePath?: string;
+    /** 打开消息 Markdown 中的 workspace 引用。 */
+    openReference?: (target: string) => void;
 }>();
 
 const emit = defineEmits<{
     (e: "close"): void;
     (e: "sync-workspace", payload: AgentWorkspaceSyncPayload): void;
+    (e: "open-reference", target: string): void;
 }>();
 
 const inputText = ref("");
@@ -104,6 +107,15 @@ const {
     selectedStorySceneId,
     workspaceTree,
 } = storeToRefs(ideStore);
+
+/** 打开 Agent 消息里的 workspace 引用。 */
+function openMessageReference(target: string): void {
+    if (props.openReference) {
+        props.openReference(target);
+        return;
+    }
+    emit("open-reference", target);
+}
 
 const novelIdRef = toRef(props, "novelId");
 const {
@@ -595,7 +607,7 @@ const createSession = async (profileKey?: string): Promise<AgentSessionSummaryDt
     await loadResolvedLeaderProfileKey();
     const created = await agentApi.createSession({
         profileKey: profileKey || leaderProfileKey.value,
-        input: {},
+        initial: {},
         workspaceRoot: agentWorkspaceRoot.value,
         workspaceKey: workspaceKey.value,
         projectPath: ideStore.workspaceKind === "user-assets" ? undefined : ideStore.currentNovelId,
@@ -1683,6 +1695,7 @@ function isApprovalApproved(answer?: {
                 :menu-refresh-key="agentMenuRefreshKey"
                 :resolve-editor-menu="resolveInputMenu"
                 :on-editor-skill-trigger-start="refreshSkillCatalog"
+                :open-reference="openMessageReference"
                 :cost-display-options="costDisplayOptions"
                 :cost-exchange-rate-suffix="costExchangeRateSuffix"
                 @copy="void copyMessage($event)"

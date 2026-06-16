@@ -14,7 +14,7 @@ Profile `prepare()` 会读取 history 和变量快照，调用 profile 的 TSX `
 
 Profile `prepare(context)` 的核心顺序：
 
-1. Harness 构造 `ProfilePrepareContext`，包含 session facade、profile input、变量访问器、catalog 和 runtime 信息。
+1. Harness 构造 `ProfilePrepareContext`，包含 session facade、profile initial、变量访问器、catalog 和 runtime 信息。
 2. 执行 profile `context(ctx)`，要求返回 `<ProfilePrompt>` 根节点。
 3. 编译 `System`、`HistorySet`、`ModelContext`、`AppendingSet`、`Compaction` 和 runtime state 写入。
 4. Harness 把编译后的 `ProfileTurnPlan` 组合进本轮 provider prompt 和写入计划。

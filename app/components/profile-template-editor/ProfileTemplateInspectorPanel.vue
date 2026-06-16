@@ -63,7 +63,7 @@ const emit = defineEmits<{
     (e: "commit-message-text"): void;
     (e: "insert-variable", value: string): void;
     (e: "toggle-variable-group", group: string): void;
-    (e: "save-schema", payload: {schemaName: "InputSchema" | "OutputSchema"; fields: AgentProfileSchemaFieldDto[]}): void;
+    (e: "save-schema", payload: {schemaName: ProfileSchemaName; fields: AgentProfileSchemaFieldDto[]}): void;
 }>();
 
 const schemaTypeOptions = [
@@ -74,7 +74,9 @@ const schemaTypeOptions = [
     {value: "array", label: "array"},
     {value: "object", label: "object"},
 ];
-const editingSchemaName = ref<"InputSchema" | "OutputSchema">("InputSchema");
+type ProfileSchemaName = "InitialSchema" | "PayloadSchema" | "OutputSchema";
+
+const editingSchemaName = ref<ProfileSchemaName>("InitialSchema");
 const schemaFields = ref<SchemaFieldDraft[]>([]);
 
 type SchemaFieldDraft = {
@@ -99,9 +101,7 @@ watch(editingSchemaName, () => {
  * 从 JSON Schema 初始化可编辑字段草稿。
  */
 function resetSchemaDraft(): void {
-    const schema = editingSchemaName.value === "InputSchema"
-        ? props.profileDetail?.inputSchema.jsonSchema
-        : props.profileDetail?.outputSchema.jsonSchema;
+    const schema = currentSchemaDetail()?.jsonSchema;
     schemaFields.value = schema ? fieldsFromJsonSchema(schema) : [];
 }
 
@@ -109,10 +109,21 @@ function resetSchemaDraft(): void {
  * 判断当前 schema 是否允许低代码保存。
  */
 function canSaveSchema(): boolean {
-    const detail = editingSchemaName.value === "InputSchema"
-        ? props.profileDetail?.inputSchema
-        : props.profileDetail?.outputSchema;
+    const detail = currentSchemaDetail();
     return Boolean(detail && detail.editMode === "source");
+}
+
+function currentSchemaDetail(): AgentProfileDetailDto["initialSchema"] | undefined {
+    if (!props.profileDetail) {
+        return undefined;
+    }
+    if (editingSchemaName.value === "InitialSchema") {
+        return props.profileDetail.initialSchema;
+    }
+    if (editingSchemaName.value === "PayloadSchema") {
+        return props.profileDetail.payloadSchema;
+    }
+    return props.profileDetail.outputSchema;
 }
 
 /**
@@ -371,7 +382,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
                         <div class="profile-row"><span>kind</span><code>{{ props.profileDetail.catalogItem.kind ?? "unknown" }}</code></div>
                         <div class="profile-row"><span>来源</span><code>{{ props.profileDetail.catalogItem.source }} / {{ props.profileDetail.catalogItem.overrideState }}</code></div>
                         <div class="profile-row"><span>加载</span><code>{{ props.profileDetail.catalogItem.loadStatus }}</code></div>
-                        <div class="profile-row"><span>schema</span><code>{{ props.profileDetail.catalogItem.schemaLocked ? "builtin locked" : props.profileDetail.inputSchema.editMode }}</code></div>
+                        <div class="profile-row"><span>schema</span><code>{{ props.profileDetail.catalogItem.schemaLocked ? "builtin locked" : props.profileDetail.initialSchema.editMode }}</code></div>
                     </template>
                     <div v-else>当前模板不是动态 Agent Profile。</div>
                 </div>
@@ -383,21 +394,26 @@ function isRecord(value: unknown): value is Record<string, unknown> {
                     <div v-else>未声明工具。</div>
                 </div>
                 <div v-if="props.profileDetail" class="rounded-md border border-[var(--border-color)] bg-[var(--bg-input)]/45 p-3 text-xs leading-5 text-[var(--text-secondary)]">
-                    <div class="mb-2 font-semibold text-[var(--text-main)]">InputSchema</div>
-                    <div>{{ props.profileDetail.inputSchema.reason }}</div>
-                    <pre v-if="props.profileDetail.inputSchema.jsonSchema" class="schema-preview">{{ JSON.stringify(props.profileDetail.inputSchema.jsonSchema, null, 2) }}</pre>
+                    <div class="mb-2 font-semibold text-[var(--text-main)]">InitialSchema</div>
+                    <div>{{ props.profileDetail.initialSchema.reason }}</div>
+                    <pre v-if="props.profileDetail.initialSchema.jsonSchema" class="schema-preview">{{ JSON.stringify(props.profileDetail.initialSchema.jsonSchema, null, 2) }}</pre>
+                </div>
+                <div v-if="props.profileDetail" class="rounded-md border border-[var(--border-color)] bg-[var(--bg-input)]/45 p-3 text-xs leading-5 text-[var(--text-secondary)]">
+                    <div class="mb-2 font-semibold text-[var(--text-main)]">PayloadSchema</div>
+                    <div>{{ props.profileDetail.payloadSchema.reason }}</div>
+                    <pre v-if="props.profileDetail.payloadSchema.jsonSchema" class="schema-preview">{{ JSON.stringify(props.profileDetail.payloadSchema.jsonSchema, null, 2) }}</pre>
                 </div>
                 <div v-if="props.profileDetail" class="rounded-md border border-[var(--border-color)] bg-[var(--bg-input)]/45 p-3 text-xs leading-5 text-[var(--text-secondary)]">
                     <div class="mb-2 flex items-center justify-between gap-2">
                         <div class="font-semibold text-[var(--text-main)]">TypeBox Schema</div>
-                        <FormSelect v-model="editingSchemaName" class="w-36" :options="[{value: 'InputSchema', label: 'InputSchema'}, {value: 'OutputSchema', label: 'OutputSchema'}]" />
+                        <FormSelect v-model="editingSchemaName" class="w-40" :options="[{value: 'InitialSchema', label: 'InitialSchema'}, {value: 'PayloadSchema', label: 'PayloadSchema'}, {value: 'OutputSchema', label: 'OutputSchema'}]" />
                     </div>
                     <div class="mb-3 text-[11px] text-[var(--text-muted)]">
-                        {{ editingSchemaName === "InputSchema" ? props.profileDetail.inputSchema.reason : props.profileDetail.outputSchema.reason }}
+                        {{ currentSchemaDetail()?.reason }}
                     </div>
-                    <pre v-if="editingSchemaName === 'InputSchema' ? props.profileDetail.inputSchema.jsonSchema : props.profileDetail.outputSchema.jsonSchema" class="schema-preview">{{ JSON.stringify(editingSchemaName === "InputSchema" ? props.profileDetail.inputSchema.jsonSchema : props.profileDetail.outputSchema.jsonSchema, null, 2) }}</pre>
+                    <pre v-if="currentSchemaDetail()?.jsonSchema" class="schema-preview">{{ JSON.stringify(currentSchemaDetail()?.jsonSchema, null, 2) }}</pre>
                     <div class="mt-3 rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] p-2 text-[11px] text-[var(--text-muted)]">
-                        TypeBox Schema Builder 第一版暂不写回；请在源码面板中编辑 `InputSchema` / `OutputSchema`。
+                        TypeBox Schema Builder 第一版暂不写回；请在源码面板中编辑 `InitialSchema` / `PayloadSchema` / `OutputSchema`。
                     </div>
                 </div>
             </div>

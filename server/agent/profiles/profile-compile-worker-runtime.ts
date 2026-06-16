@@ -65,8 +65,8 @@ export async function runProfileCompile(input: AgentProfileCompileRequestDto): P
             }), {
                 profileKey: detail.manifest.key,
                 sessionId: input.sessionId,
-                input: input.input,
-                inputOverrides: input.inputOverrides,
+                initial: input.initial,
+                initialOverrides: input.initialOverrides,
             });
             return {
                 ok: preview.ok && issues.every((issue) => issue.severity !== "error"),
@@ -226,8 +226,8 @@ async function runDryRunProfilePreview(input: AgentProfileCompileRequestDto, use
         }), {
             profileKey: detail.manifest.key,
             sessionId: input.sessionId,
-            input: input.input,
-            inputOverrides: input.inputOverrides,
+            initial: input.initial,
+            initialOverrides: input.initialOverrides,
         });
         return {
             ok: preview.ok && issues.every((issue) => issue.severity !== "error"),

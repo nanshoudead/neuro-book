@@ -3,7 +3,7 @@
 import type {Static} from "typebox";
 import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
 import {builtin, toolset} from "nbook/server/agent/profiles/profile-tools";
-import {LeaderDefaultInputSchema, LeaderDefaultOutputSchema} from "nbook/server/agent/profiles/builtin-contracts";
+import {LeaderDefaultInitialSchema, LeaderDefaultOutputSchema} from "nbook/server/agent/profiles/builtin-contracts";
 import {
     AgentCatalog,
     AppendingSet,
@@ -32,16 +32,16 @@ export const profileManifest = {
     description: "默认协作与统筹 agent：协助小说创作、workspace 文件操作、Plot/Lorebook/Manuscript 协调，并按需创建或复用专用 profile agent。",
 } as const;
 
-export const InputSchema = LeaderDefaultInputSchema;
+export const InitialSchema = LeaderDefaultInitialSchema;
 
 export const OutputSchema = LeaderDefaultOutputSchema;
 
-export type Input = Static<typeof InputSchema>;
+export type Initial = Static<typeof InitialSchema>;
 export type Output = Static<typeof OutputSchema>;
 
 export default defineAgentProfile({
     manifest: profileManifest,
-    inputSchema: InputSchema,
+    initialSchema: InitialSchema,
     outputSchema: OutputSchema,
     tools: toolset(
         builtin.file.read,
@@ -182,5 +182,5 @@ const LEADER_SYSTEM_PROMPT = profileText`
 
        # Notes
        
-       - 如果用提提到 “破限”、“预设修改”、“文风调节”，则向他说明这些目前都需要通过调整 profile 的系统提示词来达成，把用户引导到 “用户资产” 界面，右上角点击 “Agent” 打开 “用户资产助手” 代理。
+       - 如果用户提到 “破限”、“预设修改”、“文风调节”，则向他说明这些目前都需要通过调整 profile 的系统提示词来达成，把用户引导到 “用户资产” 界面，右上角点击 “Agent” 打开 “用户资产助手” 代理。
     `;

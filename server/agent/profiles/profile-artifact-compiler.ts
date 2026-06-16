@@ -392,10 +392,10 @@ async function artifactHasNitroImportMetaShim(artifactPath: string): Promise<boo
 
 function isProfile(value: unknown): value is AgentProfile {
     return Boolean(
-        value
+            value
             && typeof value === "object"
             && "manifest" in value
-            && "inputSchema" in value
+            && "initialSchema" in value
             && "tools" in value
             && "rootToolKeys" in value
             && "prepare" in value

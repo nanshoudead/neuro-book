@@ -221,7 +221,7 @@ async function runMemoryCurator(context: ToolExecutionContext, input: SubjectMem
             if (sessionId === null) {
                 const created = await context.harness.createAgent({
                     profileKey: "memory.curator",
-                    input: {
+                    initial: {
                         subjectPath: input.subjectPath,
                         facts: input.facts,
                         currentMemories,

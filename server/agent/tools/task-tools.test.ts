@@ -7,7 +7,7 @@ describe("task tools", () => {
         const harness = new NeuroAgentHarness();
         const created = await harness.createAgent({
             profileKey: "leader.default",
-            input: {},
+            initial: {},
             workspaceRoot: ".agent/task-tools-test",
             workspaceKey: "task-tools-test",
         });

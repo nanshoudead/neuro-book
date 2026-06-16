@@ -68,7 +68,7 @@ simulation/
 
 - `simulator.leader`：世界模拟主管，负责场景叙述、世界裁决和 actor 调度。
 - `simulator.actor`：角色扮演 agent，只看到自己应该知道的信息。
-- `rp.writer`：RP 文本渲染 agent，profile input 为空，只把上级注入的 writer brief 写成用户可读 prose。
+- `rp.writer`：RP 文本渲染 agent，profile initial 为空，只把上级注入的 writer brief 写成用户可读 prose。
 
 用户也是故事中的一个扮演者。不同点在于，simulator leader 不直接以内部裁决文本和用户交流，而是通过 writer 输出最终文本。
 

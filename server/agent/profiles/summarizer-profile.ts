@@ -1,6 +1,6 @@
 import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
 import {agentRuntimeBuiltins, defineAgentRuntime} from "nbook/server/agent/profiles/define-agent-runtime";
-import {SessionSummarizerInputSchema, SessionSummarizerOutputSchema} from "nbook/server/agent/profiles/builtin-contracts";
+import {SessionSummarizerInitialSchema, SessionSummarizerOutputSchema} from "nbook/server/agent/profiles/builtin-contracts";
 import {builtin, toolset} from "nbook/server/agent/profiles/profile-tools";
 
 /**
@@ -12,7 +12,7 @@ export const summarizerProfile = defineAgentProfile({
         name: "Session Summarizer",
         description: "Maintains display title and summary for an Agent session.",
     },
-    inputSchema: SessionSummarizerInputSchema,
+    initialSchema: SessionSummarizerInitialSchema,
     outputSchema: SessionSummarizerOutputSchema,
     tools: toolset(
         builtin.result.main({dataSchema: SessionSummarizerOutputSchema}),

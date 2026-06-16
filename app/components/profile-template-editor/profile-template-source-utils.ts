@@ -18,7 +18,7 @@ export function generateFullTemplateSource(templateName: string, node: ProfileTe
         "import type {ProfilePrepareContext} from \"nbook/server/agent/profiles/types\";",
         "",
         `export default async function ${functionName}(ctx: ProfilePrepareContext) {`,
-        "    const input = ctx.input;",
+        "    const initial = ctx.initial;",
         "    const runtime = ctx.runtime;",
         "    const session = ctx.session;",
         "",

@@ -2,7 +2,7 @@
 
 Writer Brief 是 rp.leader 发给 rp.writer 的完整叙事剧本。rp.writer 不持有世界状态，它只消费 Brief 中的信息来渲染正文，但渲染本身是多步的：先打草稿、用 stop-slop 自查、再把成稿写入 Brief 指定的 prose 路径并润色。
 
-传递方式：Writer Brief 通过 `invoke_agent.message` 作为完整消息载荷发送给 rp.writer。rp.writer 的 profile input 为空，Brief 不进入 `create_agent.input`，也不需要外层 invocation XML 或显式阶段参数。
+传递方式：Writer Brief 通过 `invoke_agent.message` 作为完整消息载荷发送给 rp.writer。rp.writer 的 profile initial 为空，Brief 不进入 `create_agent.initial`，也不需要外层 invocation XML 或显式阶段参数。
 
 ## 核心原则
 

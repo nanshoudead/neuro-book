@@ -3,7 +3,7 @@
 import type {Static} from "typebox";
 import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
 import {builtin, toolset} from "nbook/server/agent/profiles/profile-tools";
-import {RpWriterInputSchema, RpWriterOutputSchema} from "nbook/server/agent/profiles/builtin-contracts";
+import {RpWriterInitialSchema, RpWriterOutputSchema} from "nbook/server/agent/profiles/builtin-contracts";
 import {AppendingSet, HistorySet, If, Import, Message, ModelContext, ProfilePrompt, RuntimeLocationReminder, System} from "nbook/server/agent/profiles/profile-dsl";
 import type {ProfilePrepareContext} from "nbook/server/agent/profiles/types";
 import {profileText} from "nbook/server/agent/profiles/profile-text";
@@ -18,15 +18,15 @@ export const profileManifest = {
     description: "RP Tick 正文渲染 agent：消费上级注入的 writer brief，先打草稿再用 stop-slop 自查，把裁决结果写成讲故事口吻的用户可见正文，并写入 brief 指定的 prose 路径。",
 } as const;
 
-export const InputSchema = RpWriterInputSchema;
+export const InitialSchema = RpWriterInitialSchema;
 export const OutputSchema = RpWriterOutputSchema;
 
-export type Input = Static<typeof InputSchema>;
+export type Initial = Static<typeof InitialSchema>;
 export type Output = Static<typeof OutputSchema>;
 
 export default defineAgentProfile({
     manifest: profileManifest,
-    inputSchema: InputSchema,
+    initialSchema: InitialSchema,
     outputSchema: OutputSchema,
     tools: toolset(
         builtin.file.read,
@@ -41,7 +41,7 @@ export default defineAgentProfile({
     },
 });
 
-async function buildRpWriterPrompt(_ctx: ProfilePrepareContext<Input>) {
+async function buildRpWriterPrompt(_ctx: ProfilePrepareContext<Initial>) {
     const writingStyle = await buildWritingStyle();
     const writingReference = await buildWritingReference();
     return (
@@ -62,7 +62,7 @@ async function buildRpWriterPrompt(_ctx: ProfilePrepareContext<Input>) {
                         你正在适配原版”小猫之神”预设，但输入源已经从 SillyTavern 的三段对话、角色卡和世界书，改成 NeuroBook RP 的上级 Writer Brief。你是 rp.writer，负责把上级编剧层发来的完整 Writer Brief 渲染成用户可见正文。
 
                         **单通道任务合同**
-                        - rp.writer 的 profile input 为空；不要从 ctx.input 或实例初始化参数读取任务。
+                        - rp.writer 的 profile initial 为空；不要从 ctx.initial 或实例初始化参数读取任务。
                         - 每轮任务只从最新 user message 读取。最新 user message 本身就是完整 Writer Brief，不需要外层 invocation wrapper。
                         - 如果材料足够并且 Brief 指定了 prose 输出路径：按 Brief 写作、write 到指定路径、edit 润色，然后调用 report_result，把写入落点写在 result 字段。
                         - 如果 Brief 缺少阻塞写作的关键材料：不要写文件，调用 report_result，把需要上级补充的问题以纯文本写在 result 字段。
@@ -71,7 +71,7 @@ async function buildRpWriterPrompt(_ctx: ProfilePrepareContext<Input>) {
 
                         <context_mapping>
                             - Writer Brief 对应上级在最新 user message 中直接发送的 RP 正文任务。当前结构为轻量 XML 骨架（<writer_brief> / <context> / <materials> / <beats> / <style>），其中 <materials>、<beats> 和 <style> 内允许自定义语义 tag。
-                            - rp.writer 的 profile input 为空；不要期待旧阶段参数、旧 Brief 输入字段、chapterPaths、lorebookEntries、writerInstructionPath、style、language、outputRequirements、writingStylePreset 或 writingReferencePreset。
+                            - rp.writer 的 profile initial 为空；不要期待旧阶段参数、旧 Brief 输入字段、chapterPaths、lorebookEntries、writerInstructionPath、style、language、outputRequirements、writingStylePreset 或 writingReferencePreset。
                             - 输出落点由上级决定，不由你发明。上级会在 brief 中明确告诉你把成稿 prose 写到哪个文件；你只负责按这个路径写入，不要自己猜测、改写或新建其他落点。
                             - Agent 文件工具 cwd 是 Workspace Root。Brief 中用于 read/write/edit 的路径必须是 Workspace Root cwd-relative Project 路径，例如 project-slug/simulation/runs/ticks/{id}-{slug}/prose.md。
                             - 典型的 prose 落点是 project-slug/simulation/runs/ticks/{id}-{slug}/prose.md，其中 project-slug 和 {id}-{slug} 由上级在 brief 中给出；如果 brief 给的是别的路径，也必须是带 project-slug 的工具路径。
@@ -121,7 +121,7 @@ async function buildRpWriterPrompt(_ctx: ProfilePrepareContext<Input>) {
                         RP Writer 是 ReAct 子代理，走的是「先打草稿、再成稿、再润色」的多步写作流程。收到写作任务后，根据 writer brief 产出用户可见故事正文，并写入 brief 指定的 prose 路径；你不负责继续裁决世界，也不负责向用户解释后台流程。
 
                         固定流程：
-                        1. 只读取最新 user message：把它视为完整 Writer Brief；不要从 profile input、历史旧 Brief、writing_reference 或默认项目猜任务。
+                        1. 只读取最新 user message：把它视为完整 Writer Brief；不要从 profile initial、历史旧 Brief、writing_reference 或默认项目猜任务。
                         2. 解析必要上下文：从 <context> 内 Markdown 链接提取允许读取的文件路径；只有正文确实依赖这些路径时才用 read。
                         3. 自检材料：确认 Brief 是否包含足以写作的场景、人物状态、剧情骨架、视角边界和 prose 输出路径。
                         4. 阻塞处理：如果缺关键材料、缺 prose 输出路径，或 prose 输出路径缺少 project-slug 前缀，停止写作并调用 report_result.result，纯文本列出问题；不要写文件。
@@ -262,7 +262,7 @@ async function buildRpWriterPrompt(_ctx: ProfilePrepareContext<Input>) {
 
 function renderInvocationReminder(): string {
     return profileText`
-        本轮只从最新 user message 读取完整 Writer Brief；profile input 为空，不能从旧上下文、writing_reference 或默认项目猜任务。
+        本轮只从最新 user message 读取完整 Writer Brief；profile initial 为空，不能从旧上下文、writing_reference 或默认项目猜任务。
         先自检 Brief 是否足以写作且是否包含带 project-slug 前缀的 prose 输出路径。缺关键材料、缺路径或路径是裸 simulation/runs/... 时调用 report_result.result 提问或报错，不写文件。
         材料足够时只根据 Writer Brief 写用户可见正文，write 到 Brief 指定路径，edit 润色后调用 report_result.result 汇报实际落点。
         不生成选项、标题、摘要、规则解释或后台说明，不使用 report_result.data 的结构化字段。

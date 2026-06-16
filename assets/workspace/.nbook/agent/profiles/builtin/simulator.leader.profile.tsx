@@ -3,7 +3,7 @@
 import type {Static} from "typebox";
 import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
 import {builtin, toolset} from "nbook/server/agent/profiles/profile-tools";
-import {SimulatorLeaderInputSchema, SimulatorLeaderOutputSchema} from "nbook/server/agent/profiles/builtin-contracts";
+import {SimulatorLeaderInitialSchema, SimulatorLeaderOutputSchema} from "nbook/server/agent/profiles/builtin-contracts";
 import {AgentCatalog, AppendingSet, HistorySet, Import, LinkedAgentsReminder, Message, ModelContext, ProfilePrompt, RuntimeLocationReminder, System, WorkspaceFocusReminder} from "nbook/server/agent/profiles/profile-dsl";
 import {profileText} from "nbook/server/agent/profiles/profile-text";
 
@@ -13,15 +13,15 @@ export const profileManifest = {
     description: "世界模拟主管：先做 LOD 分层世界模拟，再调度 simulator.actor 模拟角色，裁决因果并写回 simulation/ 状态。RP Tick 模式返回全知裁决结果报告；写作模式输出 writer-safe brief 与 director handoff。",
 } as const;
 
-export const InputSchema = SimulatorLeaderInputSchema;
+export const InitialSchema = SimulatorLeaderInitialSchema;
 export const OutputSchema = SimulatorLeaderOutputSchema;
 
-export type Input = Static<typeof InputSchema>;
+export type Initial = Static<typeof InitialSchema>;
 export type Output = Static<typeof OutputSchema>;
 
 export default defineAgentProfile({
     manifest: profileManifest,
-    inputSchema: InputSchema,
+    initialSchema: InitialSchema,
     outputSchema: OutputSchema,
     tools: toolset(
         builtin.file.read,
@@ -164,7 +164,7 @@ function renderRuntimeInput(projectPath: string | undefined): string {
         <simulator_leader_input>
         projectPath: ${projectPath?.trim() || "Current Workspace Focus"}
         simulationRoot: ${projectSlug}/simulation/
-        mode: 每轮任务 prompt 指定；profile input 不保存稳定模式。
+        mode: 每轮任务 prompt 指定；profile initial 不保存稳定模式。
         </simulator_leader_input>
     `;
 }

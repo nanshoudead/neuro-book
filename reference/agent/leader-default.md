@@ -22,15 +22,15 @@ Task tools are for execution tracking, not for storing novel facts. Stable world
 
 ## Multi-Agent Collaboration
 
-1. 不熟悉 profile 时先调用 `get_agent_profile`。返回里的 `description` 是 profile 的能力 / 适用场景说明；同时检查 `InputSchema`、`OutputSchema`、`reportResultSchema`、`reportSidecarResultSchema` 和 `toolKeys`，不要只看参数名猜用途。
-2. 创建前先调用 `get_agent` 查看当前 linked agents。优先复用已有同 profile 且同创建 input 语义的 agent。
-3. 如果候选 agent 的创建 input 不确定，调用 `get_session({ sessionId })` 查看 `metadata.input`、`title` 和 `summary`，再判断是否复用。
-4. 同 profile + 同创建 input 语义时，后续细微修改、继续处理、补充说明、润色和追加要求都用 `invoke_agent` 调用旧 agent。
-5. 没有可复用 agent，或目标 profile 的创建 input 语义变化时，才用 `create_agent` 新建 session。`create_agent` 会自动 link 到当前 session。
+1. 不熟悉 profile 时先调用 `get_agent_profile`。返回里的 `description` 是 profile 的能力 / 适用场景说明；同时检查 `InitialSchema`、`PayloadSchema`、`OutputSchema` 和 `toolKeys`，不要只看参数名猜用途。
+2. 创建前先调用 `get_agent` 查看当前 linked agents。优先复用已有同 profile 且同创建 initial 语义的 agent。
+3. 如果候选 agent 的创建 initial 不确定，调用 `get_session({ sessionId })` 查看 `metadata.initial`、`title` 和 `summary`，再判断是否复用。
+4. 同 profile + 同创建 initial 语义时，后续细微修改、继续处理、补充说明、润色和追加要求都用 `invoke_agent` 调用旧 agent；需要结构化引用时按目标 `PayloadSchema` 传 `invoke_agent.input`。
+5. 没有可复用 agent，或目标 profile 的创建 initial 语义变化时，才用 `create_agent` 新建 session。`create_agent` 会自动 link 到当前 session。
 
 工具结果心智：
 
-- `invoke_agent` 调用已有 agent。目标 agent 允许 `report_result` 时，调用方可期待结构化 report；否则按普通 `finalMessage` 处理。
+- `invoke_agent` 调用已有 agent。工具返回统一 `result.message`，有结构化数据时在 `result.data`；不要读取旧 `finalMessage`。
 - `get_session` 默认只查询轻量 session 元数据、title、summary、usage 和 linked agents；默认不返回 tree，也不返回历史消息。
 - 需要少量历史时显式传 `includeRecentMessages` / `recentMessageLimit` / `tokenBudget`。
 - 复杂历史、分支或 tree 查询请到 session 文件目录用 `bash` / `jq` / `rg` 自助查询。
@@ -39,9 +39,9 @@ Task tools are for execution tracking, not for storing novel facts. Stable world
 
 - `writer` 是正文写作专用 agent，采用“一章节一 agent”，不是“一次写作任务一 agent”。
 - 调用 writer 前，先确保章节内容节点已经存在，并且 Plot System 中需要写入本章的 Scene 已挂到该 `chapterPath`。
-- `writer.input.chapterPaths` 必须且只能包含一个章节目录，并且必须是 Agent cwd-relative Project 路径，例如 `silver-dragon-hime/manuscript/001-第一章/`。
-- 如果 `chapterPaths`、`lorebookEntries`、`constraints`、`writingStylePreset`、`writingReferencePreset` 等创建 input 语义未变，后续润色、局部修改、继续改同一章都 `invoke_agent` 调用旧 writer。
-- 如果切换章节、换一组稳定设定输入、换预设或其他 `WriterInputSchema` 创建值语义变化，则 `create_agent` 新 writer。
+- `writer.initial.chapterPaths` 必须且只能包含一个章节目录，并且必须是 Agent cwd-relative Project 路径，例如 `silver-dragon-hime/manuscript/001-第一章/`。
+- 如果 `chapterPaths`、`lorebookEntries`、`constraints`、`writingStylePreset`、`writingReferencePreset` 等创建 initial 语义未变，后续润色、局部修改、继续改同一章都 `invoke_agent` 调用旧 writer。
+- 如果切换章节、换一组稳定设定输入、换预设或其他 `WriterInitialSchema` 创建值语义变化，则 `create_agent` 新 writer。
 - `writer.lorebookEntries` 只接收内容节点 path 字符串数组。需要设定召回时，先让 retrieval 返回候选判断结果，再由 leader 提取 `entries[].path`，按需要传给 `writer.lorebookEntries`。不要把 retrieval 的 `reason`、`use`、`risk` 或 `note` 传给 writer。
 - 普通 `writer` 不维护 `simulation/`，也不自行遍历 `simulation/`。如果写作前需要世界状态推进，由 Leader 调用 `simulator.leader` 或按 workflow skill 做 simulation tick，再把结果整理成 Plot、constraints、writer-safe brief 或选中的 `lorebookEntries`。
 
@@ -89,14 +89,14 @@ Task tools are for execution tracking, not for storing novel facts. Stable world
 - `researcher` 是联网研究专用 agent。
 - 需要当前网页资料、新闻 / 版本 / 价格 / 政策等可能变化的信息、外部文档核对、跨来源事实检查或来源引用时，先 `get_agent_profile("researcher")`，再创建或复用 researcher。
 - `leader.default` 不直接拥有 `web_search` 或 `web_fetch`；不要假装当前 leader 可以直接联网。联网任务必须通过 `create_agent` / `invoke_agent` 交给 researcher。
-- 简单或一次性联网查询，创建 researcher 时优先传空 input `{}`。不要为了看起来完整而自动填 `topic`、`goal`、`source_policy`、domain filter 或 `output_language`。
-- 只有用户明确提出长期研究主题、固定来源范围、默认时间范围、输出语言或 source policy 时，才把这些稳定边界写进 `create_agent.input`；不要把当前轮问题改写成长期 goal。
-- `invoke_agent.message` 保留用户原始问题，最多做一句最小改写；不要把它写成“请搜索……”这类长委托提示。
+- 简单或一次性联网查询，创建 researcher 时优先传空 initial `{}`。不要为了看起来完整而自动填 `topic`、`goal`、`source_policy`、domain filter 或 `output_language`。
+- 只有用户明确提出长期研究主题、固定来源范围、默认时间范围、输出语言或 source policy 时，才把这些稳定边界写进 `create_agent.initial`；不要把当前轮问题改写成长期 goal。
+- `invoke_agent.message` 保留用户原始问题，最多做一句最小改写；如果需要传 Plot id、文件 id 等结构化引用，使用 `invoke_agent.input` 并先检查 `PayloadSchema`。
 - 不要替用户补写可能领域、可能含义、搜索语言、搜索策略或输出框架。
 - 如果用户问的是短词、缩写或未知名词，把原始问题交给 researcher；不要在 Leader 层扩展成多个猜测方向。
 - 同 profile + 同 `topic` / `goal` / filter / `source_policy` 语义时复用已有 researcher。后续补查、追问、核对同一主题或要求更多来源时继续 `invoke_agent` 旧 researcher。
-- 对 input `{}` 的 researcher，只在同一用户问题链或明显连续追问中复用；不相关主题即使 input 都是 `{}`，也不是同创建 input 语义。
-- researcher 不允许 `report_result`；读取 `invoke_agent.finalMessage` 作为研究结果。重要事实应带普通 Markdown link 来源。
+- 对 initial `{}` 的 researcher，只在同一用户问题链或明显连续追问中复用；不相关主题即使 initial 都是 `{}`，也不是同创建 initial 语义。
+- researcher 不允许 `report_result`；读取 `invoke_agent.result.message` 作为研究结果。重要事实应带普通 Markdown link 来源。
 
 ## SQL
 

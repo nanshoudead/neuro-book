@@ -19,8 +19,8 @@ export default defineEventHandler(async (event) => {
         dryRun: true,
         preview: true,
         sessionId: body.sessionId,
-        input: body.input,
-        inputOverrides: body.inputOverrides,
+        initial: body.initial,
+        initialOverrides: body.initialOverrides,
     });
     if (result.preview) {
         return result.preview;

@@ -11,12 +11,15 @@ const props = defineProps<{
     width: number;
     novelId: string;
     selectedFilePath?: string;
+    /** 打开 Agent 消息里的 workspace 引用。 */
+    openReference?: (target: string) => void;
 }>();
 
 const emit = defineEmits<{
     (e: "update:width", value: number): void;
     (e: "close"): void;
     (e: "sync-workspace", payload: AgentWorkspaceSyncPayload): void;
+    (e: "open-reference", target: string): void;
 }>();
 
 const resizeHandleRef = ref<HTMLElement | null>(null);
@@ -52,8 +55,10 @@ const drawerStyle = computed(() => props.isOpen ? panelStyle.value : {width: "0p
                 layout="drawer"
                 :novel-id="props.novelId"
                 :selected-file-path="props.selectedFilePath"
+                :open-reference="props.openReference"
                 @close="emit('close')"
                 @sync-workspace="emit('sync-workspace', $event)"
+                @open-reference="emit('open-reference', $event)"
             />
         </template>
     </aside>

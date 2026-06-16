@@ -23,7 +23,7 @@ describe("Agent Dialogue Content", () => {
     it("只渲染普通 user/assistant 文本和 compaction，并排除 tool/thinking/custom", async () => {
         const session = await repo.createSession({
             profileKey: "leader.default",
-            input: {},
+            initial: {},
             workspaceRoot: root,
             workspaceKey: "global",
         });

@@ -29,7 +29,7 @@ describe("v3 file tools", () => {
                 key: "test.file-tools",
                 name: "File Tools Test",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             tools: profileToolsFromKeys([]),
             prepare() {
                 return {};
@@ -37,7 +37,7 @@ describe("v3 file tools", () => {
         }), false);
         const session = await harness.createAgent({
             profileKey: "test.file-tools",
-            input: {},
+            initial: {},
             workspaceRoot,
         });
         context = {

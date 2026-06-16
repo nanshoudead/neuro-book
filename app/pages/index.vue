@@ -1951,8 +1951,10 @@ onBeforeUnmount(() => {
                     :layout="isAgentMode ? 'workbench' : 'drawer'"
                     :novel-id="displayNovelIdForAgent"
                     :selected-file-path="selectedFilePath"
+                    :open-reference="openWorkspaceReference"
                     @close="closeAgentSurface"
                     @sync-workspace="void handleAgentWorkspaceUpdated($event)"
+                    @open-reference="void openWorkspaceReference($event)"
                 />
             </section>
         </div>

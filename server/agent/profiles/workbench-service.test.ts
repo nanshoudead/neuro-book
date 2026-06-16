@@ -107,7 +107,7 @@ import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profi
 
 export default defineAgentProfile({
     manifest: {key: "agent.parser", name: "Parser"},
-    inputSchema: {},
+    initialSchema: {},
     outputSchema: {},
     tools: {},
     context(ctx) {
@@ -131,7 +131,7 @@ export default defineAgentProfile({
                     <Reminder id="plan">
                         <Message>提醒</Message>
                     </Reminder>
-                    <Watch path="ctx.input.prompt" />
+                    <Watch path="ctx.initial.prompt" />
                 </AppendingSet>
             </ProfilePrompt>
         );

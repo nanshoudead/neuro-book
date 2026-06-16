@@ -6,7 +6,7 @@ import type {Static} from "typebox";
 import {z} from "zod";
 import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
 import {builtin, toolset} from "nbook/server/agent/profiles/profile-tools";
-import {WriterInputSchema, WriterOutputSchema} from "nbook/server/agent/profiles/builtin-contracts";
+import {WriterInitialSchema, WriterOutputSchema} from "nbook/server/agent/profiles/builtin-contracts";
 import {AppendingSet, HistorySet, If, Import, Message, ProfilePrompt, System} from "nbook/server/agent/profiles/profile-dsl";
 import type {ProfilePrepareContext} from "nbook/server/agent/profiles/types";
 import {profileText} from "nbook/server/agent/profiles/profile-text";
@@ -24,10 +24,10 @@ export const profileManifest = {
     description: "单章节正文写作 agent：创建 input 绑定唯一章节和稳定写作上下文，可被多次 invoke 继续润色、局部修改或改同一章。写正文时不要自己写，总是优先使用 writer",
 } as const;
 
-export const InputSchema = WriterInputSchema;
+export const InitialSchema = WriterInitialSchema;
 export const OutputSchema = WriterOutputSchema;
 
-export type Input = Static<typeof InputSchema>;
+export type Initial = Static<typeof InitialSchema>;
 export type Output = Static<typeof OutputSchema>;
 
 const WriterFrontmatterSchema = z.record(z.string(), z.unknown());
@@ -44,7 +44,7 @@ type WriterChapterTarget = {
 
 export default defineAgentProfile({
     manifest: profileManifest,
-    inputSchema: InputSchema,
+    initialSchema: InitialSchema,
     outputSchema: OutputSchema,
     tools: toolset(
         builtin.file.read,
@@ -62,9 +62,9 @@ export default defineAgentProfile({
 /**
  * 构造 writer prompt。保留 v2 的同名 helper 入口，但返回当前 v3 TSX Profile DSL。
  */
-export async function buildWriterPrompt(ctx: ProfilePrepareContext<Input>) {
-    const writingStyle = await buildWritingStyle({preset: ctx.input.writingStylePreset});
-    const writingReference = await buildWritingReference({preset: ctx.input.writingReferencePreset});
+export async function buildWriterPrompt(ctx: ProfilePrepareContext<Initial>) {
+    const writingStyle = await buildWritingStyle({preset: ctx.initial.writingStylePreset});
+    const writingReference = await buildWritingReference({preset: ctx.initial.writingReferencePreset});
     const inputContext = await renderInputContext(ctx);
     return (
         <ProfilePrompt>
@@ -246,7 +246,7 @@ export async function buildWriterPrompt(ctx: ProfilePrepareContext<Input>) {
                 <Message>{inputContext}</Message>
             </HistorySet>
             <AppendingSet>
-                <Message>{`${ctx.input.prompt}`}</Message>
+                <Message>{`${ctx.initial.prompt}`}</Message>
             </AppendingSet>
         </ProfilePrompt>
     );
@@ -254,8 +254,8 @@ export async function buildWriterPrompt(ctx: ProfilePrepareContext<Input>) {
 
 
 
-async function renderInputContext(ctx: ProfilePrepareContext<Input>): Promise<string> {
-    const input = ctx.input;
+async function renderInputContext(ctx: ProfilePrepareContext<Initial>): Promise<string> {
+    const input = ctx.initial;
     const chapterTargets = await resolveWriterChapterTargets(ctx);
     const chapterPlotsText = renderChapterPlotsText(chapterTargets);
     const lorebookText = await buildLorebookText(ctx.session.workspaceRoot, input.lorebookEntries ?? []);
@@ -289,7 +289,7 @@ async function renderInputContext(ctx: ProfilePrepareContext<Input>): Promise<st
 /**
  * 读取 writer 输入中的内容节点引用并组装为 prompt 文本。
  */
-async function buildLorebookText(workspaceRoot: string, entries: NonNullable<Input["lorebookEntries"]>): Promise<string> {
+async function buildLorebookText(workspaceRoot: string, entries: NonNullable<Initial["lorebookEntries"]>): Promise<string> {
     const blocks: string[] = [];
     for (const entry of entries) {
         try {
@@ -312,11 +312,11 @@ async function buildLorebookText(workspaceRoot: string, entries: NonNullable<Inp
 /**
  * 解析 writer 绑定的唯一章节，并读取章节剧情上下文。
  */
-async function resolveWriterChapterTargets(ctx: ProfilePrepareContext<Input>): Promise<WriterChapterTarget[]> {
-    if (ctx.input.chapterPaths.length !== 1) {
+async function resolveWriterChapterTargets(ctx: ProfilePrepareContext<Initial>): Promise<WriterChapterTarget[]> {
+    if (ctx.initial.chapterPaths.length !== 1) {
         throw new Error("writer.chapterPaths 必须且只能包含一个章节路径；多章节写作请创建多个 writer agent。");
     }
-    const chapterPath = ctx.input.chapterPaths[0];
+    const chapterPath = ctx.initial.chapterPaths[0];
     if (!chapterPath) {
         throw new Error("writer.chapterPaths[0] 不能为空。");
     }
@@ -374,7 +374,7 @@ function renderChapterPlotsText(targets: WriterChapterTarget[]): string {
 /**
  * 读取单个内容节点的 index.md 与可选 state.md。
  */
-async function readContentNodeFiles(workspaceRoot: string, entry: NonNullable<Input["lorebookEntries"]>[number]): Promise<{
+async function readContentNodeFiles(workspaceRoot: string, entry: NonNullable<Initial["lorebookEntries"]>[number]): Promise<{
     indexText: string;
     stateText: string | null;
 }> {

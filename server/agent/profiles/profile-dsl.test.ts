@@ -49,24 +49,24 @@ type LegacyTestSidecar<TInput = JsonValue> = Omit<SidecarProfilePass<TInput, Jso
 };
 
 type LegacyTestProfile<
-    TInputSchema extends TSchema = TSchema,
+    TInitialSchema extends TSchema = TSchema,
     TOutputSchema extends TSchema = TSchema,
     TSummarizerKey extends string = string,
     TTools extends ProfileTools = ProfileTools,
-> = Omit<AgentProfileDefinition<TInputSchema, TOutputSchema, TSummarizerKey, TTools>, "tools" | "toolKeys" | "sidecars"> & {
+> = Omit<AgentProfileDefinition<TInitialSchema, TSchema, TOutputSchema, TSummarizerKey, TTools>, "tools" | "toolKeys" | "sidecars"> & {
     tools?: ProfileTools;
     allowedToolKeys?: readonly string[];
     mainRunAllowedToolKeys?: readonly string[];
     toolKeys?: readonly string[];
-    sidecars?: readonly LegacyTestSidecar<Static<TInputSchema>>[];
+    sidecars?: readonly LegacyTestSidecar<Static<TInitialSchema>>[];
 };
 
 function defineAgentProfile<
-    TInputSchema extends TSchema,
+    TInitialSchema extends TSchema,
     TOutputSchema extends TSchema = TSchema,
     TSummarizerKey extends string = string,
     TTools extends ProfileTools = ProfileTools,
->(profile: LegacyTestProfile<TInputSchema, TOutputSchema, TSummarizerKey, TTools>): ReturnType<typeof defineRuntimeAgentProfile> {
+>(profile: LegacyTestProfile<TInitialSchema, TOutputSchema, TSummarizerKey, TTools>): ReturnType<typeof defineRuntimeAgentProfile> {
     const {
         allowedToolKeys,
         mainRunAllowedToolKeys,
@@ -88,7 +88,7 @@ function defineAgentProfile<
                 ...sidecarRest,
                 toolKeys: sidecarRest.toolKeys ?? sidecarAllowedToolKeys,
             };
-        }) as AgentProfileDefinition<TInputSchema, TOutputSchema, TSummarizerKey, TTools>["sidecars"],
+        }) as AgentProfileDefinition<TInitialSchema, TSchema, TOutputSchema, TSummarizerKey, TTools>["sidecars"],
     });
 }
 
@@ -99,7 +99,7 @@ describe("profile TSX DSL", () => {
                 key: "test.summarizer-typing",
                 name: "Summarizer Typing",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: [],
             summarizer: {
                 profileKey: "summarizer",
@@ -122,7 +122,7 @@ describe("profile TSX DSL", () => {
                 key: "test.summarizer-typing-invalid",
                 name: "Summarizer Typing Invalid",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: [],
             summarizer: {
                 profileKey: "summarizer",
@@ -151,7 +151,7 @@ describe("profile TSX DSL", () => {
                 key: "test.dsl",
                 name: "DSL",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: [],
             context() {
                 return ProfilePrompt({
@@ -179,7 +179,7 @@ describe("profile TSX DSL", () => {
                 key: "test.compaction",
                 name: "Compaction",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: [],
             compaction: {
                 triggerPercent: 0.75,
@@ -233,7 +233,7 @@ describe("profile TSX DSL", () => {
                 key: "test.system-message",
                 name: "System Message",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: [],
             context() {
                 return ProfilePrompt({
@@ -253,7 +253,7 @@ describe("profile TSX DSL", () => {
                 key: "test.model-reminder",
                 name: "Model Reminder",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: [],
             context() {
                 return ProfilePrompt({
@@ -272,7 +272,7 @@ describe("profile TSX DSL", () => {
                 key: "test.bad-reminder",
                 name: "Bad Reminder",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: [],
             context() {
                 return ProfilePrompt({
@@ -289,7 +289,7 @@ describe("profile TSX DSL", () => {
                 key: "test.bad-watch",
                 name: "Bad Watch",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: [],
             context() {
                 return ProfilePrompt({
@@ -308,7 +308,7 @@ describe("profile TSX DSL", () => {
                 key: "test.bad-reminder-watch",
                 name: "Bad Reminder Watch",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: [],
             context() {
                 return ProfilePrompt({
@@ -332,7 +332,7 @@ describe("profile TSX DSL", () => {
                 key: "test.bad-reminder-repeat",
                 name: "Bad Reminder Repeat",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: [],
             context() {
                 return ProfilePrompt({
@@ -357,7 +357,7 @@ describe("profile TSX DSL", () => {
                 key: "test.tool-result",
                 name: "Tool Result",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: [],
             context() {
                 return ProfilePrompt({
@@ -382,7 +382,7 @@ describe("profile TSX DSL", () => {
                 key: "test.nested-tool-call",
                 name: "Nested ToolCall",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: [],
             context() {
                 return ProfilePrompt({
@@ -418,7 +418,7 @@ describe("profile TSX DSL", () => {
                 key: "test.tool-call-after-text",
                 name: "ToolCall After Text",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: [],
             context() {
                 return ProfilePrompt({
@@ -445,7 +445,7 @@ describe("profile TSX DSL", () => {
                 key: "test.if",
                 name: "If",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: [],
             context() {
                 return ProfilePrompt({
@@ -473,7 +473,7 @@ describe("profile TSX DSL", () => {
                 key: "test.sql-summary",
                 name: "SQL Summary",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: [],
             context() {
                 return ProfilePrompt({
@@ -499,7 +499,7 @@ describe("profile TSX DSL", () => {
                 key: "test.import",
                 name: "Import",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: [],
             context() {
                 return ProfilePrompt({
@@ -535,7 +535,7 @@ describe("profile TSX DSL", () => {
                 key: "test.import-system-skill",
                 name: "Import System Skill",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: [],
             context() {
                 return ProfilePrompt({
@@ -565,7 +565,7 @@ describe("profile TSX DSL", () => {
                 key: "test.import-optional",
                 name: "Import Optional",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: [],
             context() {
                 return ProfilePrompt({
@@ -586,7 +586,7 @@ describe("profile TSX DSL", () => {
                 key: "test.import-required",
                 name: "Import Required",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: [],
             context() {
                 return ProfilePrompt({
@@ -605,7 +605,7 @@ describe("profile TSX DSL", () => {
                 key: "test.import-traversal",
                 name: "Import Traversal",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: [],
             context() {
                 return ProfilePrompt({
@@ -624,7 +624,7 @@ describe("profile TSX DSL", () => {
                 key: "test.import-disallowed",
                 name: "Import Disallowed",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: [],
             context() {
                 return ProfilePrompt({
@@ -645,7 +645,7 @@ describe("profile TSX DSL", () => {
                 key: "test.skill-catalog",
                 name: "Skill Catalog",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: [],
             context() {
                 return ProfilePrompt({
@@ -701,7 +701,7 @@ describe("profile TSX DSL", () => {
                 key: "test.agent-catalog",
                 name: "Agent Catalog",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: [],
             context() {
                 return ProfilePrompt({
@@ -723,7 +723,7 @@ describe("profile TSX DSL", () => {
                     key: "writer",
                     name: "Writer",
                     description: "写作 agent",
-                    inputSchema: Type.Object({
+                    initialSchema: Type.Object({
                         prompt: Type.String({description: "写作任务说明。"}),
                         outputPath: Type.Optional(Type.String({description: "可选输出路径。"})),
                     }),
@@ -756,7 +756,7 @@ describe("profile TSX DSL", () => {
                 key: "test.runtime-reminders",
                 name: "Runtime Reminders",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: [],
             context() {
                 return ProfilePrompt({
@@ -837,7 +837,7 @@ describe("profile TSX DSL", () => {
                 key: "test.plan-mode-availability",
                 name: "Plan Mode Availability",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: [],
             context() {
                 return ProfilePrompt({
@@ -859,7 +859,7 @@ describe("profile TSX DSL", () => {
                 key: "test.workspace-focus-reminder",
                 name: "Workspace Focus Reminder",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: [],
             context() {
                 return ProfilePrompt({
@@ -940,7 +940,7 @@ describe("profile TSX DSL", () => {
                 key: "test.plan-mode-reminder",
                 name: "Plan Mode Reminder",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: [],
             context() {
                 return ProfilePrompt({
@@ -992,7 +992,7 @@ describe("profile TSX DSL", () => {
                 key: "test.plan-mode-soft-toggle",
                 name: "Plan Mode Soft Toggle",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: [],
             context() {
                 return ProfilePrompt({
@@ -1042,7 +1042,7 @@ describe("profile TSX DSL", () => {
                 key: "test.plan-mode-slots",
                 name: "Plan Mode Slots",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: [],
             context() {
                 return ProfilePrompt({
@@ -1080,7 +1080,7 @@ describe("profile TSX DSL", () => {
                 key: "test.bad-plan-mode-slot",
                 name: "Bad Plan Mode Slot",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: [],
             context() {
                 return ProfilePrompt({
@@ -1100,7 +1100,7 @@ describe("profile TSX DSL", () => {
                 key: "test.variable-schema",
                 name: "Variable Schema",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: [],
             context() {
                 return ProfilePrompt({
@@ -1158,7 +1158,7 @@ function context(): ProfilePrepareContext<object> {
                     metadata: {
                         sessionId: -1,
                         profileKey: "test.dsl",
-                        input: {},
+                        initial: {},
                         workspaceRoot: "workspace",
                         workspaceKey: "test",
                         createdAt: 0,
@@ -1180,7 +1180,7 @@ function context(): ProfilePrepareContext<object> {
     };
     return {
         session,
-        input: {},
+        initial: {},
         vars: createTestVariableAccessor(),
         catalog: {
             profiles: [],

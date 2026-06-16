@@ -4,7 +4,7 @@ import {randomUUID} from "node:crypto";
 import {describe, expect, it, vi} from "vitest";
 import writerProfile from "../../../assets/workspace/.nbook/agent/profiles/builtin/writer.profile";
 import {AgentProfileCatalog} from "nbook/server/agent/profiles/catalog";
-import {ResearcherInputSchema, RetrievalInputSchema, RetrievalOutputSchema, WriterInputSchema} from "nbook/server/agent/profiles/builtin-contracts";
+import {ResearcherInitialSchema, RetrievalInitialSchema, RetrievalOutputSchema, WriterInitialSchema} from "nbook/server/agent/profiles/builtin-contracts";
 import {defaultAgentProfile} from "nbook/server/agent/profiles/default-profile";
 import {messageText} from "nbook/server/agent/messages/message-utils";
 import type {RuntimeSessionFacade} from "nbook/server/agent/profiles/define-agent-runtime";
@@ -70,7 +70,7 @@ describe("assets builtin v3 profiles", () => {
                 archived: false,
                 planModeActive: false,
             }),
-            input: {},
+            initial: {},
             vars: createTestVariableAccessor(),
             catalog: await catalog.snapshot(),
             skills: [{
@@ -152,16 +152,16 @@ describe("assets builtin v3 profiles", () => {
         expect(visiblePrompt).toContain("`researcher` 是联网研究专用 agent");
         expect(visiblePrompt).toContain("`leader.default` 不直接拥有 `web_search` 或 `web_fetch`");
         expect(visiblePrompt).toContain("researcher 不允许 `report_result`");
-        expect(visiblePrompt).toContain("简单或一次性联网查询，创建 researcher 时优先传空 input `{}`");
+        expect(visiblePrompt).toContain("简单或一次性联网查询，创建 researcher 时优先传空 initial `{}`");
         expect(visiblePrompt).toContain("`invoke_agent.message` 保留用户原始问题");
-        expect(visiblePrompt).toContain("不要把它写成“请搜索……”这类长委托提示");
-        expect(visiblePrompt).toContain("不要替用户补写可能领域、可能含义、搜索语言、搜索策略或输出框架");
+        expect(visiblePrompt).toContain("最多做一句最小改写");
+        expect(visiblePrompt).toContain("不要在 Leader 层扩展成多个猜测方向");
         expect(visiblePrompt).toContain("一章节一 agent");
         expect(visiblePrompt).toContain("不是“一次写作任务一 agent”");
         expect(visiblePrompt).toContain("`description` 是 profile 的能力 / 适用场景说明");
-        expect(visiblePrompt).toContain("优先复用已有同 profile 且同创建 input 语义的 agent");
-        expect(visiblePrompt).toContain("`metadata.input`");
-        expect(visiblePrompt).toContain("`WriterInputSchema` 创建值语义变化");
+        expect(visiblePrompt).toContain("优先复用已有同 profile 且同创建 initial 语义的 agent");
+        expect(visiblePrompt).toContain("`metadata.initial`");
+        expect(visiblePrompt).toContain("`WriterInitialSchema` 创建值语义变化");
         expect(visiblePrompt).toContain("chapterPaths");
         expect(visiblePrompt).toContain("`writer.lorebookEntries` 只接收内容节点 path 字符串数组");
         expect(visiblePrompt).toContain("创建 retrieval 时只传自然语言 `prompt`");
@@ -244,7 +244,7 @@ describe("assets builtin v3 profiles", () => {
                 archived: false,
                 planModeActive: false,
             }),
-            input: {},
+            initial: {},
             vars: createTestVariableAccessor({
                 "client.currentProjectWorkspace": "workspace/novel-7",
                 "client.studio.selectedFilePath": "manuscript/001-opening/index.md",
@@ -292,7 +292,7 @@ describe("assets builtin v3 profiles", () => {
                 archived: false,
                 planModeActive: true,
             }),
-            input: {},
+            initial: {},
             vars: createTestVariableAccessor(),
             catalog: await catalog.snapshot(),
             skills: [],
@@ -322,7 +322,7 @@ describe("assets builtin v3 profiles", () => {
                 archived: false,
                 planModeActive: false,
             }),
-            input: {},
+            initial: {},
             vars: createTestVariableAccessor(),
             catalog: await catalog.snapshot(),
             skills: [],
@@ -352,7 +352,7 @@ describe("assets builtin v3 profiles", () => {
                 archived: false,
                 planModeActive: false,
             }),
-            input: {
+            initial: {
                 prompt: "找主角相关设定",
             },
             vars: createTestVariableAccessor(),
@@ -401,7 +401,7 @@ describe("assets builtin v3 profiles", () => {
                 archived: false,
                 planModeActive: false,
             }),
-            input: {},
+            initial: {},
             vars: createTestVariableAccessor(),
             catalog: await catalog.snapshot(),
             skills: [{
@@ -452,7 +452,7 @@ describe("assets builtin v3 profiles", () => {
         expect(prompt).toContain("defineAgentProfile");
         expect(prompt).toContain("ProfilePrompt");
         expect(prompt).toContain("ProfileTurnPlan");
-        expect(prompt).toContain("Static<typeof InputSchema>");
+        expect(prompt).toContain("Static<typeof InitialSchema>");
         expect(prompt).toContain("agent 的配方");
         expect(prompt).toContain("harness");
         expect(prompt).toContain("profile-system-guide");
@@ -471,7 +471,7 @@ describe("assets builtin v3 profiles", () => {
         expect(prompt).not.toContain("POST /api/agent/profiles/compile");
         expect(prompt).toContain("Agent runtime 能稳定调用的入口");
         expect(prompt).not.toContain("bun scripts/compile-profile.ts");
-        expect(prompt).toContain("ctx.input 是 profile 的静态创建输入");
+        expect(prompt).toContain("ctx.initial 是 profile 的静态创建输入");
         expect(prompt).toContain("ctx.vars");
         expect(prompt).toContain("<Variable>");
         expect(prompt).toContain("<VariableSchema>");
@@ -493,7 +493,7 @@ describe("assets builtin v3 profiles", () => {
         expect(prompt).not.toContain("edit_file");
         expect(prompt).not.toContain("execute_shell");
         expect(prompt).not.toContain("ctx.workspace");
-        expect(prompt).not.toContain("ctx.input.studio");
+        expect(prompt).not.toContain("ctx.initial.studio");
         expect(prompt).not.toContain("workspace.yaml");
         expect(prompt).not.toContain("plotPoints");
         expect(prompt).not.toContain("outputPath");
@@ -514,7 +514,7 @@ describe("assets builtin v3 profiles", () => {
     });
 
     it("writer 输入合同硬切为单章节 chapterPaths", () => {
-        const properties = WriterInputSchema.properties;
+        const properties = WriterInitialSchema.properties;
 
         expect(properties).toHaveProperty("prompt");
         expect(properties).toHaveProperty("chapterPaths");
@@ -531,7 +531,7 @@ describe("assets builtin v3 profiles", () => {
     });
 
     it("retrieval 输入输出合同保持 prompt-only 和 Leader-facing entries", () => {
-        const inputProperties = RetrievalInputSchema.properties;
+        const inputProperties = RetrievalInitialSchema.properties;
         const outputProperties = RetrievalOutputSchema.properties;
         const entriesSchema = outputProperties.entries as typeof outputProperties.entries & {items: {properties: Record<string, unknown>; required?: string[]}};
         const entryProperties = entriesSchema.items.properties;
@@ -574,7 +574,7 @@ describe("assets builtin v3 profiles", () => {
                 archived: false,
                 planModeActive: false,
             }),
-            input: {
+            initial: {
                 topic: "web research",
                 goal: "核对外部资料",
                 source_policy: "primary_sources",
@@ -611,7 +611,7 @@ describe("assets builtin v3 profiles", () => {
     });
 
     it("researcher 输入合同包含长期研究边界", () => {
-        const properties = ResearcherInputSchema.properties;
+        const properties = ResearcherInitialSchema.properties;
 
         expect(properties).toHaveProperty("topic");
         expect(properties).toHaveProperty("goal");
@@ -739,7 +739,7 @@ describe("assets builtin v3 profiles", () => {
                     archived: false,
                     planModeActive: false,
                 }),
-                input: {
+                initial: {
                     prompt: "写一段正文",
                     chapterPaths: [`${projectSlug}/manuscript/001-chapter/`],
                     lorebookEntries: ["lorebook/character/hero/"],
@@ -798,28 +798,28 @@ describe("assets builtin v3 profiles", () => {
 
         await expect(writerProfile.prepare!({
             ...contextBase,
-            input: {
+            initial: {
                 prompt: "写一段正文",
                 chapterPaths: ["manuscript/001-chapter/"],
             },
         })).rejects.toThrow("相对于 Agent cwd");
         await expect(writerProfile.prepare!({
             ...contextBase,
-            input: {
+            initial: {
                 prompt: "写一段正文",
                 chapterPaths: ["workspace/silver-dragon-hime/manuscript/001-chapter/"],
             },
         })).rejects.toThrow("相对于 Agent cwd");
         await expect(writerProfile.prepare!({
             ...contextBase,
-            input: {
+            initial: {
                 prompt: "写一段正文",
                 chapterPaths: ["silver-dragon-hime/manuscript/001-chapter/index.md"],
             },
         })).rejects.toThrow("相对于 Agent cwd");
         await expect(writerProfile.prepare!({
             ...contextBase,
-            input: {
+            initial: {
                 prompt: "写一段正文",
                 chapterPaths: ["silver-dragon-hime/manuscript/001-chapter"],
             },
@@ -846,7 +846,7 @@ function testSession(input: Partial<NeuroSessionContext>): RuntimeSessionFacade 
                     metadata: {
                         sessionId: -1,
                         profileKey: session.profileKey,
-                        input: {},
+                        initial: {},
                         workspaceRoot: session.workspaceRoot,
                         workspaceKey: "test",
                         createdAt: 0,

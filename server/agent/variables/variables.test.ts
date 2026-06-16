@@ -104,7 +104,7 @@ describe("Agent variable system", () => {
         const repo = new JsonlSessionRepository(root);
         const snapshot = await repo.createSession({
             profileKey: "test.vars",
-            input: {},
+            initial: {},
             workspaceRoot: root,
             workspaceKey: "test",
         });
@@ -138,7 +138,7 @@ describe("Agent variable system", () => {
         const repo = new JsonlSessionRepository(root);
         const snapshot = await repo.createSession({
             profileKey: "test.vars",
-            input: {},
+            initial: {},
             workspaceRoot: root,
             workspaceKey: "test",
         });
@@ -180,7 +180,7 @@ describe("Agent variable system", () => {
         const repo = new JsonlSessionRepository(root);
         const snapshot = await repo.createSession({
             profileKey: "test.vars",
-            input: {},
+            initial: {},
             workspaceRoot: root,
             workspaceKey: "test",
         });
@@ -222,7 +222,7 @@ describe("Agent variable system", () => {
         const repo = new JsonlSessionRepository(root);
         const snapshot = await repo.createSession({
             profileKey: "test.vars",
-            input: {},
+            initial: {},
             workspaceRoot: root,
             workspaceKey: "test",
         });
@@ -261,7 +261,7 @@ describe("Agent variable system", () => {
         const repo = new JsonlSessionRepository(root);
         const snapshot = await repo.createSession({
             profileKey: "test.vars",
-            input: {},
+            initial: {},
             workspaceRoot: root,
             workspaceKey: "test",
         });
@@ -301,7 +301,7 @@ describe("Agent variable system", () => {
         const repo = new JsonlSessionRepository(root);
         const snapshot = await repo.createSession({
             profileKey: "test.vars",
-            input: {},
+            initial: {},
             workspaceRoot: root,
             workspaceKey: "test",
         });
@@ -357,7 +357,7 @@ describe("Agent variable system", () => {
         const repo = new JsonlSessionRepository(root);
         const snapshot = await repo.createSession({
             profileKey: "test.vars",
-            input: {},
+            initial: {},
             workspaceRoot: root,
             workspaceKey: "test",
         });
@@ -421,7 +421,7 @@ describe("Agent variable system", () => {
         const repo = new JsonlSessionRepository(root);
         const snapshot = await repo.createSession({
             profileKey: "test.vars",
-            input: {},
+            initial: {},
             workspaceRoot: root,
             workspaceKey: "test",
         });
@@ -501,7 +501,7 @@ describe("Agent variable system", () => {
         const repo = new JsonlSessionRepository(root);
         const snapshot = await repo.createSession({
             profileKey: "test.vars",
-            input: {},
+            initial: {},
             workspaceRoot: root,
             workspaceKey: "test",
         });
@@ -536,7 +536,7 @@ describe("Agent variable system", () => {
         const repo = new JsonlSessionRepository(root);
         const snapshot = await repo.createSession({
             profileKey: "test.vars",
-            input: {},
+            initial: {},
             workspaceRoot: root,
             workspaceKey: "test",
         });

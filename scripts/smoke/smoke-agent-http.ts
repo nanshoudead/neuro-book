@@ -5,7 +5,7 @@ async function main(): Promise<void> {
         method: "POST",
         body: {
             profileKey: "leader.default",
-            input: {
+            initial: {
                 role: "http-smoke",
             },
         },

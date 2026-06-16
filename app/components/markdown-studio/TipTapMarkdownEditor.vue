@@ -209,6 +209,18 @@ const editor = useEditor({
                 emit("save-request");
                 return true;
             },
+            paste: (_view, event) => {
+                event.preventDefault();
+                if (props.readonly) {
+                    return true;
+                }
+                const text = event.clipboardData?.getData("text/plain") ?? "";
+                if (!text) {
+                    return true;
+                }
+                insertMarkdown(text);
+                return true;
+            },
         },
     },
     onCreate: ({editor: currentEditor}) => {

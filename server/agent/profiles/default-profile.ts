@@ -1,5 +1,5 @@
 import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
-import {LeaderDefaultInputSchema, LeaderDefaultOutputSchema} from "nbook/server/agent/profiles/builtin-contracts";
+import {LeaderDefaultInitialSchema, LeaderDefaultOutputSchema} from "nbook/server/agent/profiles/builtin-contracts";
 import {builtin, toolset} from "nbook/server/agent/profiles/profile-tools";
 
 /**
@@ -11,7 +11,7 @@ export const defaultAgentProfile = defineAgentProfile({
         name: "Default Leader",
         description: "最小 leader profile，用于 harness 闭环和测试。",
     },
-    inputSchema: LeaderDefaultInputSchema,
+    initialSchema: LeaderDefaultInitialSchema,
     outputSchema: LeaderDefaultOutputSchema,
     tools: toolset(
         builtin.file.read,

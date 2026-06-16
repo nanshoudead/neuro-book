@@ -19,7 +19,7 @@ The Current Project Workspace is usually `workspace/{project}/`. Runtime reminde
 - Use `{project}/reference/...`.
 - Do not default to `workspace/{project}/...` unless a tool explicitly asks for a Project Workspace path.
 
-Tool inputs and profile inputs often need different path shapes:
+Tool inputs and profile initial values often need different path shapes:
 
 | Situation | Preferred path |
 | --- | --- |

@@ -52,11 +52,11 @@ describe("AgentProfileCatalog", () => {
             import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
             import {profileToolsFromKeys} from "nbook/server/agent/test/profile-tools";
             export const profileManifest = { key: "custom.good", name: "Good" } as const;
-            export type Input = { topic: string };
+            export type Initial = { topic: string };
             export type Output = { result: string };
             export default defineAgentProfile({
                 manifest: profileManifest,
-                inputSchema: Type.Object({ topic: Type.String() }),
+                initialSchema: Type.Object({ topic: Type.String() }),
                 outputSchema: Type.Object({ result: Type.String() }),
                 tools: profileToolsFromKeys([]),
                 prepare() { return { systemPrompt: "ok" }; },
@@ -107,7 +107,7 @@ describe("AgentProfileCatalog", () => {
             export const profileManifest = { key: "custom.jsx", name: "JSX" } as const;
             export default defineAgentProfile({
                 manifest: profileManifest,
-                inputSchema: Type.Object({}),
+                initialSchema: Type.Object({}),
                 outputSchema: Type.Object({}),
                 tools: profileToolsFromKeys([]),
                 context() {
@@ -142,7 +142,7 @@ describe("AgentProfileCatalog", () => {
             export const profileManifest = { key: "custom.sessionTypes", name: "Session Types" } as const;
             export default defineAgentProfile({
                 manifest: profileManifest,
-                inputSchema: Type.Object({}),
+                initialSchema: Type.Object({}),
                 outputSchema: Type.Object({}),
                 tools: profileToolsFromKeys([]),
                 variableDefinitions: [
@@ -238,7 +238,7 @@ describe("AgentProfileCatalog", () => {
             export const profileManifest = { key: "custom.helper", name: "Helper" } as const;
             export default defineAgentProfile({
                 manifest: profileManifest,
-                inputSchema: Type.Object({}),
+                initialSchema: Type.Object({}),
                 outputSchema: Type.Object({}),
                 tools: profileToolsFromKeys([]),
                 prepare() { return { systemPrompt: helperText }; },
@@ -272,7 +272,7 @@ describe("AgentProfileCatalog", () => {
             export const profileManifest = { key: "custom.user-helper", name: "User Helper" } as const;
             export default defineAgentProfile({
                 manifest: profileManifest,
-                inputSchema: Type.Object({}),
+                initialSchema: Type.Object({}),
                 outputSchema: Type.Object({}),
                 tools: profileToolsFromKeys([]),
                 prepare() { return { systemPrompt: helperText }; },
@@ -337,7 +337,7 @@ describe("AgentProfileCatalog", () => {
             export const profileManifest = { key: "custom.broken-artifact", name: "Broken Artifact" } as const;
             export default defineAgentProfile({
                 manifest: profileManifest,
-                inputSchema: Type.Object({}),
+                initialSchema: Type.Object({}),
                 outputSchema: Type.Object({}),
                 tools: profileToolsFromKeys([]),
                 prepare() { return { systemPrompt: helperText }; },
@@ -367,11 +367,11 @@ describe("AgentProfileCatalog", () => {
             import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
             import {profileToolsFromKeys} from "nbook/server/agent/test/profile-tools";
             export const profileManifest = { key: "leader.default", name: "User Leader" } as const;
-            export type Input = { changed: string };
+            export type Initial = { changed: string };
             export type Output = { changed: string };
             export default defineAgentProfile({
                 manifest: profileManifest,
-                inputSchema: Type.Object({ changed: Type.String() }),
+                initialSchema: Type.Object({ changed: Type.String() }),
                 outputSchema: Type.Object({ changed: Type.String() }),
                 tools: profileToolsFromKeys([]),
                 prepare() { return { systemPrompt: "user" }; },
@@ -385,7 +385,7 @@ describe("AgentProfileCatalog", () => {
         const snapshot = await catalog.snapshot();
 
         expect(profile.manifest.name).toBe("User Leader");
-        expect(profile.inputSchema).toEqual(defaultAgentProfile.inputSchema);
+        expect(profile.initialSchema).toEqual(defaultAgentProfile.initialSchema);
         expect(snapshot.issues).toEqual(expect.arrayContaining([
             expect.objectContaining({
                 code: "builtin_schema_locked",
@@ -398,13 +398,13 @@ describe("AgentProfileCatalog", () => {
         await writeProfile(systemRoot, "leader.default.profile.tsx", `
             import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
             import {profileToolsFromKeys} from "nbook/server/agent/test/profile-tools";
-            import {LeaderDefaultInputSchema, LeaderDefaultOutputSchema} from "nbook/server/agent/profiles/builtin-contracts";
+            import {LeaderDefaultInitialSchema, LeaderDefaultOutputSchema} from "nbook/server/agent/profiles/builtin-contracts";
             export const profileManifest = { key: "leader.default", name: "System Leader" } as const;
-            export type Input = typeof LeaderDefaultInputSchema.static;
+            export type Initial = typeof LeaderDefaultInitialSchema.static;
             export type Output = typeof LeaderDefaultOutputSchema.static;
             export default defineAgentProfile({
                 manifest: profileManifest,
-                inputSchema: LeaderDefaultInputSchema,
+                initialSchema: LeaderDefaultInitialSchema,
                 outputSchema: LeaderDefaultOutputSchema,
                 tools: profileToolsFromKeys([]),
                 prepare() { return { systemPrompt: "system" }; },
@@ -428,8 +428,8 @@ describe("AgentProfileCatalog", () => {
                 key: "memory.profile",
                 name: "Memory",
             },
-            inputSchema: Type.Object({}),
-            allowedToolKeys: [],
+            initialSchema: Type.Object({}),
+            tools: profileToolsFromKeys([]),
             prepare() {
                 return {};
             },
@@ -564,7 +564,7 @@ describe("AgentProfileCatalog", () => {
         await writeProfile(systemRoot, "custom.product.profile.mjs", `
             export default {
                 manifest: { key: "custom.product", name: "Product" },
-                inputSchema: { type: "object", properties: {} },
+                initialSchema: { type: "object", properties: {} },
                 outputSchema: { type: "object", properties: {} },
                 tools: {},
                 rootToolKeys: [],
@@ -602,7 +602,7 @@ describe("AgentProfileCatalog", () => {
         await writeProfile(systemRoot, "custom.output.profile.mjs", `
             export default {
                 manifest: { key: "custom.output", name: "Output" },
-                inputSchema: { type: "object", properties: {} },
+                initialSchema: { type: "object", properties: {} },
                 outputSchema: { type: "object", properties: {} },
                 tools: {},
                 rootToolKeys: [],
@@ -645,7 +645,7 @@ describe("AgentProfileCatalog", () => {
         await writeProfile(systemRoot, "custom.output.profile.mjs", `
             export default {
                 manifest: { key: "custom.output", name: "Output" },
-                inputSchema: { type: "object", properties: {} },
+                initialSchema: { type: "object", properties: {} },
                 outputSchema: { type: "object", properties: {} },
                 tools: {},
                 rootToolKeys: [],
@@ -707,7 +707,7 @@ describe("AgentProfileCatalog", () => {
         await writeProfile(userRoot, "custom.portable.profile.mjs", `
             export default {
                 manifest: { key: "custom.portable", name: "Portable" },
-                inputSchema: { type: "object", properties: {} },
+                initialSchema: { type: "object", properties: {} },
                 outputSchema: { type: "object", properties: {} },
                 tools: {},
                 rootToolKeys: [],
@@ -747,11 +747,11 @@ function profileSource(key: string, name: string): string {
             import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
             import {profileToolsFromKeys} from "nbook/server/agent/test/profile-tools";
         export const profileManifest = { key: ${JSON.stringify(key)}, name: ${JSON.stringify(name)} } as const;
-        export type Input = {};
+        export type Initial = {};
         export type Output = {};
         export default defineAgentProfile({
             manifest: profileManifest,
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             outputSchema: Type.Object({}),
             tools: profileToolsFromKeys([]),
             prepare() { return { systemPrompt: ${JSON.stringify(name)} }; },
@@ -777,7 +777,7 @@ function context() {
                     metadata: {
                         sessionId: -1,
                         profileKey: "custom.jsx",
-                        input: {},
+                        initial: {},
                         workspaceRoot: "workspace",
                         workspaceKey: "test",
                         createdAt: 0,
@@ -799,7 +799,7 @@ function context() {
     };
     return {
         session,
-        input: {},
+        initial: {},
         vars: createTestVariableAccessor(),
         catalog: {
             profiles: [],

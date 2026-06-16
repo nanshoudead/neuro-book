@@ -69,7 +69,7 @@ describe("SessionWriteExecutor", () => {
     it("按顺序写入 batch 并发布 session events", async () => {
         const session = await repo.createSession({
             profileKey: "leader.default",
-            input: {},
+            initial: {},
             workspaceRoot: root,
             workspaceKey: "global",
         });
@@ -129,7 +129,7 @@ describe("SessionWriteExecutor", () => {
     it("连续 savePoint plans 会合并成同一个 session batch", async () => {
         const session = await repo.createSession({
             profileKey: "leader.default",
-            input: {},
+            initial: {},
             workspaceRoot: root,
             workspaceKey: "global",
         });
@@ -190,7 +190,7 @@ describe("SessionWriteExecutor", () => {
     it("projection 写入不移动 active leaf", async () => {
         const session = await repo.createSession({
             profileKey: "leader.default",
-            input: {},
+            initial: {},
             workspaceRoot: root,
             workspaceKey: "global",
         });
@@ -219,7 +219,7 @@ describe("SessionWriteExecutor", () => {
     it("同一个 session 的并发写入会串行执行", async () => {
         const session = await repo.createSession({
             profileKey: "leader.default",
-            input: {},
+            initial: {},
             workspaceRoot: root,
             workspaceKey: "global",
         });
@@ -271,7 +271,7 @@ describe("SessionWriteExecutor", () => {
     it("moveLeaf op 会移动 active leaf 并发布 session events", async () => {
         const session = await repo.createSession({
             profileKey: "leader.default",
-            input: {},
+            initial: {},
             workspaceRoot: root,
             workspaceKey: "global",
         });

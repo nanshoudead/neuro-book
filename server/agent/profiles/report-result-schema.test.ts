@@ -9,7 +9,7 @@ describe("reportResultSchemaForProfile", () => {
     it("空 OutputSchema 且无 sidecar 时只要求 result", () => {
         const profile = defineAgentProfile({
             manifest: {key: "agent.empty", name: "Empty"},
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             outputSchema: Type.Object({}),
             tools: profileToolsFromKeys(["report_result"]),
             prepare() {
@@ -30,7 +30,7 @@ describe("reportResultSchemaForProfile", () => {
         const outputSchema = Type.Object({summary: Type.String()});
         const profile = defineAgentProfile({
             manifest: {key: "agent.data", name: "Data"},
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             outputSchema,
             tools: profileToolsFromKeys(["report_result"]),
             prepare() {
@@ -49,7 +49,7 @@ describe("reportResultSchemaForProfile", () => {
     it("有 sidecar 时 report_result 仍只包含主路结果 schema", () => {
         const profile = defineAgentProfile({
             manifest: {key: "agent.sidecar-main-result", name: "Sidecar Main Result"},
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             outputSchema: Type.Object({summary: Type.String()}),
             tools: profileToolsFromKeys(["report_result", "report_sidecar_result"]),
             sidecars: [{
@@ -81,7 +81,7 @@ describe("reportSidecarResultSchemaForProfile", () => {
         const objectSchema = Type.Object({summary: Type.String()});
         const profile = defineAgentProfile({
             manifest: {key: "agent.sidecar", name: "Sidecar"},
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             outputSchema: Type.Object({}),
             tools: profileToolsFromKeys(["report_result", "report_sidecar_result"]),
             sidecars: [
@@ -135,7 +135,7 @@ describe("reportSidecarResultSchemaForProfile", () => {
         const sidecarSchema = Type.String();
         const profile = defineAgentProfile({
             manifest: {key: "agent.sidecar-schema-source", name: "Sidecar Schema Source"},
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             outputSchema: Type.Object({}),
             tools: {
                 report_result: {key: "report_result"},

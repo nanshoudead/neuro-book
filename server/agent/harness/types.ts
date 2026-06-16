@@ -18,7 +18,7 @@ import type {
 
 export type CreateAgentInput = {
     profileKey: string;
-    input?: JsonValue;
+    initial?: JsonValue;
     /** 可选展示标题；为空时使用 profile manifest name。 */
     title?: string;
     workspaceRoot?: string;
@@ -37,6 +37,7 @@ export type InvokeAgentInput = {
     sessionId: number;
     mode: "prompt" | "continue" | "steer" | "followup";
     message?: AgentUserMessageInput;
+    payload?: JsonValue;
     /** 可选展示标题；提供时会在 invocation admission 成功后写入目标 session。 */
     title?: string;
     resolution?: AgentResolution;
@@ -73,6 +74,7 @@ export type InvokeAgentResult = {
     errorPhase?: InvocationErrorPhase;
     errorInfo?: InvocationErrorInfo;
     usage?: Usage;
+    elapsedMs?: number;
     queuedItem?: AgentQueuedMessageDto;
 };
 

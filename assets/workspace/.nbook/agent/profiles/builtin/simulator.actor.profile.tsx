@@ -4,7 +4,7 @@ import {Type, type Static} from "typebox";
 import {createUserMessage} from "nbook/server/agent/messages/message-utils";
 import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
 import {builtin, toolset} from "nbook/server/agent/profiles/profile-tools";
-import {SubjectSimulatorInputSchema, SubjectSimulatorOutputSchema} from "nbook/server/agent/profiles/builtin-contracts";
+import {SubjectSimulatorInitialSchema, SubjectSimulatorOutputSchema} from "nbook/server/agent/profiles/builtin-contracts";
 import {AppendingSet, HistorySet, Import, Message, ModelContext, ProfilePrompt, RuntimeLocationReminder, System} from "nbook/server/agent/profiles/profile-dsl";
 import type {SidecarProfilePass} from "nbook/server/agent/profiles/types";
 import {profileText} from "nbook/server/agent/profiles/profile-text";
@@ -15,10 +15,10 @@ export const profileManifest = {
     description: "通用 subject simulator：以角色第一人称消费 actor-facing packet（<gm>/<character>/<knowledge>/<directive>），结合 RAG memory 与 mind/state，通过 report_result 返回第一人称三通道反应。",
 } as const;
 
-export const InputSchema = SubjectSimulatorInputSchema;
+export const InitialSchema = SubjectSimulatorInitialSchema;
 export const OutputSchema = SubjectSimulatorOutputSchema;
 
-export type Input = Static<typeof InputSchema>;
+export type Initial = Static<typeof InitialSchema>;
 export type Output = Static<typeof OutputSchema>;
 
 const EmptySidecarDataSchema = Type.Object({}, {
@@ -29,7 +29,7 @@ const EmptySidecarDataSchema = Type.Object({}, {
 type EmptySidecarData = {[key: string]: never};
 
 
-const actorContextLoadPass: SidecarProfilePass<Input, EmptySidecarData> = {
+const actorContextLoadPass: SidecarProfilePass<Initial, EmptySidecarData> = {
     name: "actor.context-load",
     stage: "prepareRun",
     toolKeys: ["subject_rag_search", "report_sidecar_result"],
@@ -38,8 +38,8 @@ const actorContextLoadPass: SidecarProfilePass<Input, EmptySidecarData> = {
         退出角色扮演模式。你现在是该 actor 的记忆检索预处理器，任务是在主 run 开始前检索并整理该角色的过往记忆，组装成第一人称记忆片段注入主路。
 
         当前 actor：
-        - actorId: ${actorIdFromSubjectPath(ctx.input)}
-        - subjectPath: ${subjectDirectoryPath(ctx.input)}
+        - actorId: ${actorIdFromSubjectPath(ctx.initial)}
+        - subjectPath: ${subjectDirectoryPath(ctx.initial)}
 
         <thinking>
             阅读当前 actor-facing message，确认本轮检索方向：涉及哪些人物、地点、物品、关系、悬念？
@@ -98,7 +98,7 @@ const actorContextLoadPass: SidecarProfilePass<Input, EmptySidecarData> = {
     },
 };
 
-const actorMemorySavePass: SidecarProfilePass<Input, EmptySidecarData> = {
+const actorMemorySavePass: SidecarProfilePass<Initial, EmptySidecarData> = {
     name: "actor.memory-save",
     stage: "settleRun",
     toolKeys: ["subject_event_append", "subject_memory_update", "read", "edit", "report_sidecar_result"],
@@ -109,11 +109,11 @@ const actorMemorySavePass: SidecarProfilePass<Input, EmptySidecarData> = {
         这是一段事后的自我整理，不是继续演下去：我不再添新的台词或动作，只是安静地把刚发生的收进心里。我把经历归进我的经历流，把看法的变化归进我对人事的认知，把此刻的心境归进我的心事。
 
         我是谁，我的记忆存在哪：
-        - actorId: ${actorIdFromSubjectPath(ctx.input)}
-        - subjectPath: ${subjectDirectoryPath(ctx.input)}
-        - eventsPath: ${subjectFilePaths(ctx.input).eventsPath}
-        - memoryPath: ${subjectFilePaths(ctx.input).memoryPath}
-        - mindPath: ${subjectFilePaths(ctx.input).mindPath}
+        - actorId: ${actorIdFromSubjectPath(ctx.initial)}
+        - subjectPath: ${subjectDirectoryPath(ctx.initial)}
+        - eventsPath: ${subjectFilePaths(ctx.initial).eventsPath}
+        - memoryPath: ${subjectFilePaths(ctx.initial).memoryPath}
+        - mindPath: ${subjectFilePaths(ctx.initial).mindPath}
 
         我刚才的反应（report_result.data）：
         ${formatJson(ctx.runResult?.reportResult?.data)}
@@ -156,7 +156,7 @@ const actorMemorySavePass: SidecarProfilePass<Input, EmptySidecarData> = {
 
 export default defineAgentProfile({
     manifest: profileManifest,
-    inputSchema: InputSchema,
+    initialSchema: InitialSchema,
     outputSchema: OutputSchema,
     tools: toolset(
         builtin.subject.ragSearch,
@@ -176,10 +176,10 @@ export default defineAgentProfile({
     context(ctx) {
         // soul.md = 角色第一人称扮演手册（无 frontmatter），Import 进 actor 主路取代旧 actor_definition。
         // B 方案：Import 从 repo root 解析，Agent 文件工具 cwd 是 workspace 容器根，故 soul.md 的 repo-root 相对路径 = workspace/${subjectPath}/soul.md。
-        const soulPath = `workspace/${subjectDirectoryPath(ctx.input)}/soul.md`;
+        const soulPath = `workspace/${subjectDirectoryPath(ctx.initial)}/soul.md`;
         return (
             <ProfilePrompt>
-                <System>{renderSystemPrompt(ctx.input, profileManifest.key)}</System>
+                <System>{renderSystemPrompt(ctx.initial, profileManifest.key)}</System>
                 <HistorySet>
                     <Message><Import path="reference/content/information-control.md" /></Message>
                     <Message><Import path="reference/content/simulation.md" /></Message>
@@ -188,8 +188,8 @@ export default defineAgentProfile({
                     <Message><Import path={soulPath} required={true} /></Message>
                 </HistorySet>
                 <ModelContext>
-                    <Message>{renderActorBinding(ctx.input)}</Message>
-                    <Message>{renderInvocationReminder(ctx.input)}</Message>
+                    <Message>{renderActorBinding(ctx.initial)}</Message>
+                    <Message>{renderInvocationReminder(ctx.initial)}</Message>
                 </ModelContext>
                 <AppendingSet>
                     <RuntimeLocationReminder/>
@@ -199,7 +199,7 @@ export default defineAgentProfile({
     },
 });
 
-function renderSystemPrompt(input: Input, profileKey: string): string {
+function renderSystemPrompt(input: Initial, profileKey: string): string {
     const actorId = actorIdFromSubjectPath(input);
     return profileText`
         <actor>
@@ -265,7 +265,7 @@ function renderSystemPrompt(input: Input, profileKey: string): string {
  * - npc：模拟器自由扮演，directive 是建议可偏离。
  * - player：用户化身，actor 不抢话、不自创关键行动，以 directive 为骨架第一人称自然化复述。
  */
-function renderKindRules(kind: Input["kind"]): string {
+function renderKindRules(kind: Initial["kind"]): string {
     if (kind === "player") {
         return profileText`
         <player_rules>
@@ -283,7 +283,7 @@ function renderKindRules(kind: Input["kind"]): string {
         </npc_rules>`;
 }
 
-function renderActorBinding(input: Input): string {
+function renderActorBinding(input: Initial): string {
     const paths = subjectFilePaths(input);
     return profileText`
         <actor_binding>
@@ -301,11 +301,11 @@ function renderActorBinding(input: Input): string {
     `;
 }
 
-function subjectDirectoryPath(input: Input): string {
+function subjectDirectoryPath(input: Initial): string {
     return input.subjectPath.trim().replaceAll("\\", "/").replace(/\/+$/u, "");
 }
 
-function subjectFilePaths(input: Input): {instructionPath: string; eventsPath: string; memoryPath: string; mindPath: string; statePath: string} {
+function subjectFilePaths(input: Initial): {instructionPath: string; eventsPath: string; memoryPath: string; mindPath: string; statePath: string} {
     const subjectPath = subjectDirectoryPath(input);
     return {
         instructionPath: `${subjectPath}/subject.md`,
@@ -316,12 +316,12 @@ function subjectFilePaths(input: Input): {instructionPath: string; eventsPath: s
     };
 }
 
-function actorIdFromSubjectPath(input: Input): string {
+function actorIdFromSubjectPath(input: Initial): string {
     const parts = subjectDirectoryPath(input).split("/").filter(Boolean);
     return parts.at(-1) || "subject";
 }
 
-function renderInvocationReminder(input: Input): string {
+function renderInvocationReminder(input: Initial): string {
     const actorId = actorIdFromSubjectPath(input);
     return profileText`
         <actor_run_reminder actorId="${actorId}">

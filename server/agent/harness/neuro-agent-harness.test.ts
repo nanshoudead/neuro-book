@@ -30,24 +30,26 @@ type LegacyTestSidecar<TInput = JsonValue> = Omit<SidecarProfilePass<TInput, Jso
 };
 
 type LegacyTestProfile<
-    TInputSchema extends TSchema = TSchema,
+    TInitialSchema extends TSchema = TSchema,
+    TPayloadSchema extends TSchema = TSchema,
     TOutputSchema extends TSchema = TSchema,
     TSummarizerKey extends string = string,
     TTools extends ProfileTools = ProfileTools,
-> = Omit<AgentProfileDefinition<TInputSchema, TOutputSchema, TSummarizerKey, TTools>, "tools" | "toolKeys" | "sidecars"> & {
+> = Omit<AgentProfileDefinition<TInitialSchema, TPayloadSchema, TOutputSchema, TSummarizerKey, TTools>, "tools" | "toolKeys" | "sidecars"> & {
     tools?: ProfileTools;
     allowedToolKeys?: readonly string[];
     mainRunAllowedToolKeys?: readonly string[];
     toolKeys?: readonly string[];
-    sidecars?: readonly LegacyTestSidecar<Static<TInputSchema>>[];
+    sidecars?: readonly LegacyTestSidecar<Static<TInitialSchema>>[];
 };
 
 function defineAgentProfile<
-    TInputSchema extends TSchema,
+    TInitialSchema extends TSchema,
+    TPayloadSchema extends TSchema = TSchema,
     TOutputSchema extends TSchema = TSchema,
     TSummarizerKey extends string = string,
     TTools extends ProfileTools = ProfileTools,
->(profile: LegacyTestProfile<TInputSchema, TOutputSchema, TSummarizerKey, TTools>): ReturnType<typeof defineRuntimeAgentProfile> {
+>(profile: LegacyTestProfile<TInitialSchema, TPayloadSchema, TOutputSchema, TSummarizerKey, TTools>): ReturnType<typeof defineRuntimeAgentProfile> {
     const {
         allowedToolKeys,
         mainRunAllowedToolKeys,
@@ -75,7 +77,7 @@ function defineAgentProfile<
         tools: rest.tools ?? profileToolsFromKeys(migratedAllowedToolKeys),
         toolKeys: toolKeys ?? mainRunAllowedToolKeys,
         // 测试 helper 只做旧字段到新字段的机械迁移，最终运行时校验仍由 defineRuntimeAgentProfile 负责。
-        sidecars: migratedSidecars as AgentProfileDefinition<TInputSchema, TOutputSchema, TSummarizerKey, TTools>["sidecars"],
+        sidecars: migratedSidecars as AgentProfileDefinition<TInitialSchema, TPayloadSchema, TOutputSchema, TSummarizerKey, TTools>["sidecars"],
     });
 }
 
@@ -202,7 +204,7 @@ describe("NeuroAgentHarness", () => {
                 key: "test.reporter",
                 name: "Reporter",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: ["report_result"],
             prepare() {
                 return {};
@@ -221,7 +223,7 @@ describe("NeuroAgentHarness", () => {
         ]);
         const created = await harness.createAgent({
             profileKey: "test.reporter",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
 
@@ -249,7 +251,7 @@ describe("NeuroAgentHarness", () => {
                 key: "test.invoke-title",
                 name: "Invoke Title",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: [],
             prepare() {
                 return {};
@@ -260,7 +262,7 @@ describe("NeuroAgentHarness", () => {
         ]);
         const created = await harness.createAgent({
             profileKey: "test.invoke-title",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
 
@@ -291,7 +293,7 @@ describe("NeuroAgentHarness", () => {
                 key: "test.reporter-retry",
                 name: "Reporter Retry",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             outputSchema: Type.Object({
                 title: Type.String(),
             }),
@@ -320,7 +322,7 @@ describe("NeuroAgentHarness", () => {
         ]);
         const created = await harness.createAgent({
             profileKey: "test.reporter-retry",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
 
@@ -348,7 +350,7 @@ describe("NeuroAgentHarness", () => {
                 key: "test.reporter-error-limit",
                 name: "Reporter Error Limit",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             outputSchema: Type.Object({
                 title: Type.String(),
             }),
@@ -379,7 +381,7 @@ describe("NeuroAgentHarness", () => {
         ]);
         const created = await harness.createAgent({
             profileKey: "test.reporter-error-limit",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
 
@@ -405,7 +407,7 @@ describe("NeuroAgentHarness", () => {
                 key: "test.snapshot-system",
                 name: "Snapshot System",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: [],
             context() {
                 return ProfilePrompt({
@@ -423,7 +425,7 @@ describe("NeuroAgentHarness", () => {
         }), false);
         const created = await harness.createAgent({
             profileKey: "test.snapshot-system",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
 
@@ -439,7 +441,7 @@ describe("NeuroAgentHarness", () => {
     it("session snapshot 和 live state 暴露累计 usage 与 context usage", async () => {
         const created = await harness.createAgent({
             profileKey: "leader.default",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
         await harness.repo.appendMessage(created.sessionId, createAssistantTextMessage({
@@ -455,7 +457,7 @@ describe("NeuroAgentHarness", () => {
         const liveState = await harness.getSessionLiveState(created.sessionId);
 
         expect(snapshot.usage).toMatchObject({
-            input: 32,
+            initial: 32,
             output: 12,
             cacheRead: 8,
             cacheWrite: 1,
@@ -478,7 +480,7 @@ describe("NeuroAgentHarness", () => {
                 key: "test.workspace-container",
                 name: "Workspace Container",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: [],
             prepare() {
                 return {};
@@ -487,7 +489,7 @@ describe("NeuroAgentHarness", () => {
 
         const created = await harness.createAgent({
             profileKey: "test.workspace-container",
-            input: {},
+            initial: {},
             workspaceRoot: "workspace/novel-7",
             workspaceKey: "workspace/novel-7",
             projectPath: "workspace/novel-7",
@@ -501,7 +503,7 @@ describe("NeuroAgentHarness", () => {
     it("/new 创建的新 session 保留 Workspace Root 和 projectPath", async () => {
         const created = await harness.createAgent({
             profileKey: "leader.default",
-            input: {},
+            initial: {},
             workspaceRoot: "workspace/novel-7",
             workspaceKey: "workspace/novel-7",
             projectPath: "workspace/novel-7",
@@ -522,7 +524,7 @@ describe("NeuroAgentHarness", () => {
                 key: "test.approval-reporter",
                 name: "Approval Reporter",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: ["request_user_input", "report_result"],
             prepare() {
                 return {};
@@ -543,7 +545,7 @@ describe("NeuroAgentHarness", () => {
         ]);
         const created = await harness.createAgent({
             profileKey: "test.approval-reporter",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
 
@@ -577,7 +579,7 @@ describe("NeuroAgentHarness", () => {
                 key: "test.approval-reload",
                 name: "Approval Reload",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: ["request_user_input", "report_result"],
             prepare() {
                 return {};
@@ -599,7 +601,7 @@ describe("NeuroAgentHarness", () => {
         ]);
         const created = await harness.createAgent({
             profileKey: "test.approval-reload",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
 
@@ -654,7 +656,7 @@ describe("NeuroAgentHarness", () => {
                 key: "test.approval-concurrent-reload",
                 name: "Approval Concurrent Reload",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: ["request_user_input", "report_result"],
             prepare() {
                 return {};
@@ -676,7 +678,7 @@ describe("NeuroAgentHarness", () => {
         ]);
         const created = await harness.createAgent({
             profileKey: "test.approval-concurrent-reload",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
         const waiting = await harness.invokeAgent({
@@ -731,7 +733,7 @@ describe("NeuroAgentHarness", () => {
                 key: "test.approval-unrecoverable",
                 name: "Approval Unrecoverable",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: ["request_user_input"],
             prepare() {
                 return {};
@@ -746,7 +748,7 @@ describe("NeuroAgentHarness", () => {
         ]);
         const created = await harness.createAgent({
             profileKey: "test.approval-unrecoverable",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
         const waiting = await harness.invokeAgent({
@@ -783,7 +785,7 @@ describe("NeuroAgentHarness", () => {
                 key: "test.approval-reload-abort",
                 name: "Approval Reload Abort",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: ["request_user_input"],
             prepare() {
                 return {};
@@ -799,7 +801,7 @@ describe("NeuroAgentHarness", () => {
         ]);
         const created = await harness.createAgent({
             profileKey: "test.approval-reload-abort",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
         const waiting = await harness.invokeAgent({
@@ -834,7 +836,7 @@ describe("NeuroAgentHarness", () => {
                 key: "test.approval-abort-resolution-race",
                 name: "Approval Abort Resolution Race",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: ["request_user_input", "report_result"],
             prepare() {
                 return {};
@@ -856,7 +858,7 @@ describe("NeuroAgentHarness", () => {
         ]);
         const created = await harness.createAgent({
             profileKey: "test.approval-abort-resolution-race",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
         const waiting = await harness.invokeAgent({
@@ -907,7 +909,7 @@ describe("NeuroAgentHarness", () => {
     it("新 harness 对未完成普通 running snapshot 投影为 interrupted", async () => {
         const created = await harness.createAgent({
             profileKey: "leader.default",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
         await harness.repo.appendEntry(created.sessionId, {
@@ -933,7 +935,7 @@ describe("NeuroAgentHarness", () => {
                 key: "test.approval-batch-barrier",
                 name: "Approval Batch Barrier",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: ["request_user_input", "report_result"],
             prepare() {
                 return {};
@@ -956,7 +958,7 @@ describe("NeuroAgentHarness", () => {
         ]);
         const created = await harness.createAgent({
             profileKey: "test.approval-batch-barrier",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
         const subscription = harness.subscribeSessionEvents(created.sessionId);
@@ -1012,7 +1014,7 @@ describe("NeuroAgentHarness", () => {
                 key: "test.interrupted-tool",
                 name: "Interrupted Tool",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: [],
             prepare() {
                 return {};
@@ -1021,7 +1023,7 @@ describe("NeuroAgentHarness", () => {
         faux.setResponses([fauxAssistantMessage(fauxText("should not run"))]);
         const created = await harness.createAgent({
             profileKey: "test.interrupted-tool",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
         await harness.repo.appendMessage(created.sessionId, createUserMessage({text: "old prompt"}));
@@ -1049,7 +1051,7 @@ describe("NeuroAgentHarness", () => {
                 key: "test.turn-commit",
                 name: "Turn Commit",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: ["get_session"],
             prepare() {
                 return {};
@@ -1064,7 +1066,7 @@ describe("NeuroAgentHarness", () => {
         ]);
         const created = await harness.createAgent({
             profileKey: "test.turn-commit",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
 
@@ -1137,7 +1139,7 @@ describe("NeuroAgentHarness", () => {
                 key: "test.tool-save-point",
                 name: "Tool Save Point",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: ["save_point_state"],
             prepare() {
                 return {};
@@ -1150,7 +1152,7 @@ describe("NeuroAgentHarness", () => {
         ]);
         const created = await harness.createAgent({
             profileKey: "test.tool-save-point",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
 
@@ -1211,7 +1213,7 @@ describe("NeuroAgentHarness", () => {
                 key: "test.parallel-tools",
                 name: "Parallel Tools",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: ["parallel_save_point"],
             prepare() {
                 return {};
@@ -1225,7 +1227,7 @@ describe("NeuroAgentHarness", () => {
         ]);
         const created = await harness.createAgent({
             profileKey: "test.parallel-tools",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
 
@@ -1309,7 +1311,7 @@ describe("NeuroAgentHarness", () => {
                 key: "test.sequential-segment",
                 name: "Sequential Segment",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: ["parallel_marker", "sequential_gate"],
             prepare() {
                 return {};
@@ -1324,7 +1326,7 @@ describe("NeuroAgentHarness", () => {
         ]);
         const created = await harness.createAgent({
             profileKey: "test.sequential-segment",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
 
@@ -1372,7 +1374,7 @@ describe("NeuroAgentHarness", () => {
                 key: "test.global-sequential-tools",
                 name: "Global Sequential Tools",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: ["parallel_gate"],
             prepare() {
                 return {};
@@ -1386,7 +1388,7 @@ describe("NeuroAgentHarness", () => {
         ]);
         const created = await harness.createAgent({
             profileKey: "test.global-sequential-tools",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
 
@@ -1433,7 +1435,7 @@ describe("NeuroAgentHarness", () => {
                 key: "test.compact-before-next-turn",
                 name: "Compact Before Next Turn",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: ["force_continue"],
             compaction: {
                 triggerTokens: 1,
@@ -1462,7 +1464,7 @@ describe("NeuroAgentHarness", () => {
         ]);
         const created = await harness.createAgent({
             profileKey: "test.compact-before-next-turn",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
         await harness.repo.appendMessage(created.sessionId, createUserMessage({text: "OLD CONTEXT"}));
@@ -1503,7 +1505,7 @@ describe("NeuroAgentHarness", () => {
                 key: "test.no-compact-runtime",
                 name: "No Compact Runtime",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: ["force_continue_no_compact"],
             compaction: {
                 triggerTokens: 1,
@@ -1547,7 +1549,7 @@ describe("NeuroAgentHarness", () => {
         ]);
         const created = await harness.createAgent({
             profileKey: "test.no-compact-runtime",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
         await harness.repo.appendMessage(created.sessionId, createUserMessage({text: "OLD CONTEXT"}));
@@ -1584,7 +1586,7 @@ describe("NeuroAgentHarness", () => {
                 key: "test.no-compaction-overflow",
                 name: "No Compaction Overflow",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: [],
             prepare() {
                 return {};
@@ -1592,7 +1594,7 @@ describe("NeuroAgentHarness", () => {
         }), false);
         const created = await harness.createAgent({
             profileKey: "test.no-compaction-overflow",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
 
@@ -1623,7 +1625,7 @@ describe("NeuroAgentHarness", () => {
                 key: "test.sidecar-overflow",
                 name: "Sidecar Overflow",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: ["report_result"],
             compaction: {},
             sidecars: [{
@@ -1660,7 +1662,7 @@ describe("NeuroAgentHarness", () => {
         ]);
         const created = await harness.createAgent({
             profileKey: "test.sidecar-overflow",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
 
@@ -1693,7 +1695,7 @@ describe("NeuroAgentHarness", () => {
                 key: "test.sidecar-overflow-before-next-sidecar",
                 name: "Sidecar Overflow Before Next Sidecar",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: ["report_result"],
             sidecars: [
                 {
@@ -1748,7 +1750,7 @@ describe("NeuroAgentHarness", () => {
         ]);
         const created = await harness.createAgent({
             profileKey: "test.sidecar-overflow-before-next-sidecar",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
 
@@ -1781,7 +1783,7 @@ describe("NeuroAgentHarness", () => {
                 key: "test.reasoning",
                 name: "Reasoning",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: [],
             prepare() {
                 return {};
@@ -1805,7 +1807,7 @@ describe("NeuroAgentHarness", () => {
         });
         const created = await harness.createAgent({
             profileKey: "test.reasoning",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
 
@@ -1837,7 +1839,7 @@ describe("NeuroAgentHarness", () => {
                 key: "test.session-thinking",
                 name: "Session Thinking",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: [],
             prepare() {
                 return {};
@@ -1873,7 +1875,7 @@ describe("NeuroAgentHarness", () => {
         });
         const created = await harness.createAgent({
             profileKey: "test.session-thinking",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
 
@@ -1939,7 +1941,7 @@ describe("NeuroAgentHarness", () => {
                 key: "test.snapshot-thinking",
                 name: "Snapshot Thinking",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: [],
             prepare() {
                 return {};
@@ -1956,7 +1958,7 @@ describe("NeuroAgentHarness", () => {
         });
         const created = await harness.createAgent({
             profileKey: "test.snapshot-thinking",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
         await harness.runCommand(created.sessionId, {
@@ -1976,7 +1978,7 @@ describe("NeuroAgentHarness", () => {
                 key: "test.no-model",
                 name: "No Model",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: [],
             prepare() {
                 return {};
@@ -1992,7 +1994,7 @@ describe("NeuroAgentHarness", () => {
         });
         const created = await harness.createAgent({
             profileKey: "test.no-model",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
 
@@ -2024,7 +2026,7 @@ describe("NeuroAgentHarness", () => {
                 key: "test.runtime-hooks",
                 name: "Runtime Hooks",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: ["runtime_extra"],
             runtime: defineAgentRuntime<object>({
                 hooks: [
@@ -2113,7 +2115,7 @@ describe("NeuroAgentHarness", () => {
         ]);
         const created = await harness.createAgent({
             profileKey: "test.runtime-hooks",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
 
@@ -2158,7 +2160,7 @@ describe("NeuroAgentHarness", () => {
                 key: "test.runtime-tool-root-boundary",
                 name: "Runtime Tool Root Boundary",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: [],
             runtime: defineAgentRuntime<object>({
                 hooks: [
@@ -2184,7 +2186,7 @@ describe("NeuroAgentHarness", () => {
         ]);
         const created = await harness.createAgent({
             profileKey: "test.runtime-tool-root-boundary",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
 
@@ -2205,7 +2207,7 @@ describe("NeuroAgentHarness", () => {
                 key: "test.custom-runtime-no-default-transcript",
                 name: "Custom Runtime No Default Transcript",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: [],
             runtime: defineAgentRuntime<object>({
                 hooks: [
@@ -2227,7 +2229,7 @@ describe("NeuroAgentHarness", () => {
         ]);
         const created = await harness.createAgent({
             profileKey: "test.custom-runtime-no-default-transcript",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
 
@@ -2267,7 +2269,7 @@ describe("NeuroAgentHarness", () => {
                 key: "test.prepare-next-turn",
                 name: "Prepare Next Turn",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: ["runtime_continue"],
             runtime: defineAgentRuntime<object>({
                 hooks: [
@@ -2344,7 +2346,7 @@ describe("NeuroAgentHarness", () => {
         ]);
         const created = await harness.createAgent({
             profileKey: "test.prepare-next-turn",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
 
@@ -2399,7 +2401,7 @@ describe("NeuroAgentHarness", () => {
                 key: "test.runtime-state-merge",
                 name: "Runtime State Merge",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: ["continue_once"],
             runtime: defineAgentRuntime<object>({
                 hooks: [
@@ -2448,7 +2450,7 @@ describe("NeuroAgentHarness", () => {
         ]);
         const created = await harness.createAgent({
             profileKey: "test.runtime-state-merge",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
 
@@ -2472,7 +2474,7 @@ describe("NeuroAgentHarness", () => {
                 key: "test.settle-run",
                 name: "Settle Run",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             outputSchema: Type.Object({
                 title: Type.String(),
             }),
@@ -2522,7 +2524,7 @@ describe("NeuroAgentHarness", () => {
         ]);
         const created = await harness.createAgent({
             profileKey: "test.settle-run",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
 
@@ -2550,7 +2552,7 @@ describe("NeuroAgentHarness", () => {
                 key: "test.sidecar-context-load",
                 name: "Sidecar Context Load",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: ["report_result"],
             sidecars: [{
                 name: "actor.context-load",
@@ -2600,7 +2602,7 @@ describe("NeuroAgentHarness", () => {
         ]);
         const created = await harness.createAgent({
             profileKey: "test.sidecar-context-load",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
 
@@ -2658,7 +2660,7 @@ describe("NeuroAgentHarness", () => {
                 key: "test.sidecar-savepoint-parent",
                 name: "Sidecar SavePoint Parent",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: ["report_result", "sidecar_save_point_state"],
             sidecars: [{
                 name: "actor.context-load",
@@ -2698,7 +2700,7 @@ describe("NeuroAgentHarness", () => {
         ]);
         const created = await harness.createAgent({
             profileKey: "test.sidecar-savepoint-parent",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
 
@@ -2737,7 +2739,7 @@ describe("NeuroAgentHarness", () => {
                 key: "test.sidecar-persisted-context-load",
                 name: "Sidecar Persisted Context Load",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: ["report_result"],
             sidecars: [{
                 name: "actor.context-load",
@@ -2783,7 +2785,7 @@ describe("NeuroAgentHarness", () => {
         ]);
         const created = await harness.createAgent({
             profileKey: "test.sidecar-persisted-context-load",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
 
@@ -2816,7 +2818,7 @@ describe("NeuroAgentHarness", () => {
                 key: "test.sidecar-mixed-context-load",
                 name: "Sidecar Mixed Context Load",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: ["report_result"],
             sidecars: [{
                 name: "actor.context-load",
@@ -2855,7 +2857,7 @@ describe("NeuroAgentHarness", () => {
         ]);
         const created = await harness.createAgent({
             profileKey: "test.sidecar-mixed-context-load",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
 
@@ -2886,7 +2888,7 @@ describe("NeuroAgentHarness", () => {
                 key: "test.sidecar-runtime-before-persisted-context",
                 name: "Sidecar Runtime Before Persisted Context",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: ["report_result"],
             sidecars: [
                 {
@@ -2946,7 +2948,7 @@ describe("NeuroAgentHarness", () => {
         ]);
         const created = await harness.createAgent({
             profileKey: "test.sidecar-runtime-before-persisted-context",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
 
@@ -2976,7 +2978,7 @@ describe("NeuroAgentHarness", () => {
                 key: "test.sidecar-memory-save",
                 name: "Sidecar Memory Save",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: ["report_result"],
             sidecars: [{
                 name: "actor.memory-save",
@@ -3031,7 +3033,7 @@ describe("NeuroAgentHarness", () => {
         ]);
         const created = await harness.createAgent({
             profileKey: "test.sidecar-memory-save",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
 
@@ -3056,7 +3058,7 @@ describe("NeuroAgentHarness", () => {
                 key: "test.sidecar-invalid-settle-merge",
                 name: "Sidecar Invalid Settle Merge",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: ["report_result"],
             sidecars: [{
                 name: "actor.memory-save",
@@ -3097,7 +3099,7 @@ describe("NeuroAgentHarness", () => {
         ]);
         const created = await harness.createAgent({
             profileKey: "test.sidecar-invalid-settle-merge",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
 
@@ -3287,7 +3289,7 @@ describe("NeuroAgentHarness", () => {
         ]);
         const created = await rpHarness.createAgent({
             profileKey: "simulator.actor",
-            input: {
+            initial: {
                 subjectPath: `${projectSlug}/simulation/subjects/heroine`,
                 kind: "npc",
             },
@@ -3348,7 +3350,7 @@ describe("NeuroAgentHarness", () => {
                 key: "test.sidecar-schema-failure",
                 name: "Sidecar Schema Failure",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: ["report_result"],
             sidecars: [{
                 name: "actor.context-load",
@@ -3396,7 +3398,7 @@ describe("NeuroAgentHarness", () => {
         ]);
         const created = await harness.createAgent({
             profileKey: "test.sidecar-schema-failure",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
 
@@ -3423,7 +3425,7 @@ describe("NeuroAgentHarness", () => {
                 key: "test.sidecar-missing-key",
                 name: "Sidecar Missing Key",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: ["report_result"],
             sidecars: [{
                 name: "actor.context-load",
@@ -3471,7 +3473,7 @@ describe("NeuroAgentHarness", () => {
         ]);
         const created = await harness.createAgent({
             profileKey: "test.sidecar-missing-key",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
 
@@ -3498,7 +3500,7 @@ describe("NeuroAgentHarness", () => {
                 key: "test.sidecar-missing-discriminator",
                 name: "Sidecar Missing Discriminator",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: ["report_result"],
             sidecars: [{
                 name: "actor.context-load",
@@ -3546,7 +3548,7 @@ describe("NeuroAgentHarness", () => {
         ]);
         const created = await harness.createAgent({
             profileKey: "test.sidecar-missing-discriminator",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
 
@@ -3573,7 +3575,7 @@ describe("NeuroAgentHarness", () => {
                 key: "test.sidecar-extra-data-field",
                 name: "Sidecar Extra Data Field",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: ["report_result"],
             sidecars: [{
                 name: "actor.context-load",
@@ -3624,7 +3626,7 @@ describe("NeuroAgentHarness", () => {
         ]);
         const created = await harness.createAgent({
             profileKey: "test.sidecar-extra-data-field",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
 
@@ -3651,7 +3653,7 @@ describe("NeuroAgentHarness", () => {
                 key: "test.sidecar-schema-string-wrapper",
                 name: "Sidecar Schema String Wrapper",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: ["report_result"],
             sidecars: [{
                 name: "actor.memory-save",
@@ -3716,7 +3718,7 @@ describe("NeuroAgentHarness", () => {
         ]);
         const created = await harness.createAgent({
             profileKey: "test.sidecar-schema-string-wrapper",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
 
@@ -3737,7 +3739,7 @@ describe("NeuroAgentHarness", () => {
                 key: "test.sidecar-data-tool-error",
                 name: "Sidecar Data Tool Error",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: ["report_result"],
             sidecars: [{
                 name: "actor.memory-save",
@@ -3798,7 +3800,7 @@ describe("NeuroAgentHarness", () => {
         ]);
         const created = await harness.createAgent({
             profileKey: "test.sidecar-data-tool-error",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
 
@@ -3825,7 +3827,7 @@ describe("NeuroAgentHarness", () => {
                 key: "test.sidecar-report-error-limit",
                 name: "Sidecar Report Error Limit",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: ["report_result"],
             sidecars: [{
                 name: "actor.memory-save",
@@ -3883,7 +3885,7 @@ describe("NeuroAgentHarness", () => {
         ]);
         const created = await harness.createAgent({
             profileKey: "test.sidecar-report-error-limit",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
 
@@ -3907,7 +3909,7 @@ describe("NeuroAgentHarness", () => {
                 key: "test.sidecar-wrong-result-tool-limit",
                 name: "Sidecar Wrong Result Tool Limit",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: ["report_result"],
             sidecars: [{
                 name: "actor.context-load",
@@ -3947,7 +3949,7 @@ describe("NeuroAgentHarness", () => {
         ]);
         const created = await harness.createAgent({
             profileKey: "test.sidecar-wrong-result-tool-limit",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
 
@@ -3971,7 +3973,7 @@ describe("NeuroAgentHarness", () => {
                 key: "test.sidecar-report-reminder",
                 name: "Sidecar Report Reminder",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: ["report_result"],
             sidecars: [{
                 name: "actor.context-load",
@@ -4016,7 +4018,7 @@ describe("NeuroAgentHarness", () => {
         ]);
         const created = await harness.createAgent({
             profileKey: "test.sidecar-report-reminder",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
 
@@ -4095,7 +4097,7 @@ describe("NeuroAgentHarness", () => {
                 key: "test.profile-private-tool",
                 name: "Profile Private Tool",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             tools: toolset(
                 profileEcho,
                 builtin.result.main(),
@@ -4119,7 +4121,7 @@ describe("NeuroAgentHarness", () => {
         ]);
         const created = await harness.createAgent({
             profileKey: "test.profile-private-tool",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
 
@@ -4156,7 +4158,7 @@ describe("NeuroAgentHarness", () => {
                 key: "test.profile-private-tool-bind",
                 name: "Profile Private Tool Bind",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             tools: toolset(
                 bindEcho.bind({description: "Profile override description."}),
                 builtin.result.main(),
@@ -4178,7 +4180,7 @@ describe("NeuroAgentHarness", () => {
         ]);
         const created = await harness.createAgent({
             profileKey: "test.profile-private-tool-bind",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
 
@@ -4228,7 +4230,7 @@ describe("NeuroAgentHarness", () => {
         });
         harness.profiles.register(defineAgentProfile({
             manifest: {key: "test.private-shadow", name: "Private Shadow"},
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             tools: toolset(
                 privateShadowTool,
             ),
@@ -4238,7 +4240,7 @@ describe("NeuroAgentHarness", () => {
         }), false);
         harness.profiles.register(defineAgentProfile({
             manifest: {key: "test.global-shadow", name: "Global Shadow"},
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             tools: toolset(
                 pluginTool("shadow_tool"),
             ),
@@ -4254,8 +4256,8 @@ describe("NeuroAgentHarness", () => {
                 fauxToolCall("shadow_tool", {}, {id: "global-shadow-call"}),
             ], {stopReason: "toolUse"}),
         ]);
-        const privateSession = await harness.createAgent({profileKey: "test.private-shadow", input: {}, workspaceRoot: root});
-        const globalSession = await harness.createAgent({profileKey: "test.global-shadow", input: {}, workspaceRoot: root});
+        const privateSession = await harness.createAgent({profileKey: "test.private-shadow", initial: {}, workspaceRoot: root});
+        const globalSession = await harness.createAgent({profileKey: "test.global-shadow", initial: {}, workspaceRoot: root});
 
         await harness.invokeAgent({sessionId: privateSession.sessionId, mode: "prompt", message: {text: "private"}});
         await harness.invokeAgent({sessionId: globalSession.sessionId, mode: "prompt", message: {text: "global"}});
@@ -4271,7 +4273,7 @@ describe("NeuroAgentHarness", () => {
                 key: "test.missing-registered-tool",
                 name: "Missing Registered Tool",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             tools: toolset(
                 pluginTool("missing_plugin"),
             ),
@@ -4290,7 +4292,7 @@ describe("NeuroAgentHarness", () => {
         ]);
         const created = await harness.createAgent({
             profileKey: "test.missing-registered-tool",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
 
@@ -4331,7 +4333,7 @@ describe("NeuroAgentHarness", () => {
                 key: "test.private-approval",
                 name: "Private Approval",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             tools: toolset(
                 privateApproval,
                 builtin.result.main(),
@@ -4354,7 +4356,7 @@ describe("NeuroAgentHarness", () => {
         ]);
         const created = await harness.createAgent({
             profileKey: "test.private-approval",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
 
@@ -4402,7 +4404,7 @@ describe("NeuroAgentHarness", () => {
                 key: "test.sidecar-tool-policy",
                 name: "Sidecar Tool Policy",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: ["report_result", "sidecar_extra"],
             sidecars: [{
                 name: "actor.context-load",
@@ -4450,7 +4452,7 @@ describe("NeuroAgentHarness", () => {
         ]);
         const created = await harness.createAgent({
             profileKey: "test.sidecar-tool-policy",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
 
@@ -4490,7 +4492,7 @@ describe("NeuroAgentHarness", () => {
                 key: "test.main-run-tool-policy",
                 name: "Main Run Tool Policy",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: ["report_result", "main_forbidden_extra"],
             mainRunAllowedToolKeys: ["report_result"],
             prepare() {
@@ -4510,7 +4512,7 @@ describe("NeuroAgentHarness", () => {
         ]);
         const created = await harness.createAgent({
             profileKey: "test.main-run-tool-policy",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
 
@@ -4566,7 +4568,7 @@ describe("NeuroAgentHarness", () => {
                 key: "test.main-run-tool-policy-with-patch",
                 name: "Main Run Tool Policy With Patch",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: ["main_report_gate", "patched_visible_extra"],
             mainRunAllowedToolKeys: ["main_report_gate"],
             runtime: defineAgentRuntime<object>({
@@ -4603,7 +4605,7 @@ describe("NeuroAgentHarness", () => {
         ]);
         const created = await harness.createAgent({
             profileKey: "test.main-run-tool-policy-with-patch",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
 
@@ -4643,7 +4645,7 @@ describe("NeuroAgentHarness", () => {
                 key: "test.result-reminder-execution-policy",
                 name: "Result Reminder Execution Policy",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: ["report_result", "reminder_patch_extra"],
             runtime: defineAgentRuntime<object>({
                 hooks: [
@@ -4678,7 +4680,7 @@ describe("NeuroAgentHarness", () => {
         ]);
         const created = await harness.createAgent({
             profileKey: "test.result-reminder-execution-policy",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
 
@@ -4723,7 +4725,7 @@ describe("NeuroAgentHarness", () => {
                 key: "test.sidecar-keeps-steerable",
                 name: "Sidecar Keeps Steerable",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: ["report_result", "sidecar_steer_gate"],
             sidecars: [{
                 name: "actor.context-load",
@@ -4766,7 +4768,7 @@ describe("NeuroAgentHarness", () => {
         ]);
         const created = await harness.createAgent({
             profileKey: "test.sidecar-keeps-steerable",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
 
@@ -4797,7 +4799,7 @@ describe("NeuroAgentHarness", () => {
                 key: "test.prepare-run-runtime-message",
                 name: "Prepare Run Runtime Message",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: [],
             runtime: defineAgentRuntime<object>({
                 hooks: [
@@ -4826,7 +4828,7 @@ describe("NeuroAgentHarness", () => {
         ]);
         const created = await harness.createAgent({
             profileKey: "test.prepare-run-runtime-message",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
 
@@ -4851,7 +4853,7 @@ describe("NeuroAgentHarness", () => {
                 key: "test.source",
                 name: "Source",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: [],
             prepare() {
                 return {};
@@ -4859,7 +4861,7 @@ describe("NeuroAgentHarness", () => {
         }), false);
         const source = await harness.createAgent({
             profileKey: "test.source",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
         faux.setResponses([
@@ -4876,7 +4878,7 @@ describe("NeuroAgentHarness", () => {
                 key: "test.session-facade",
                 name: "Session Facade",
             },
-            inputSchema: Type.Object({
+            initialSchema: Type.Object({
                 sourceSessionId: Type.Number(),
             }),
             allowedToolKeys: [],
@@ -4886,10 +4888,10 @@ describe("NeuroAgentHarness", () => {
                         name: "sourceContext",
                         stage: "prepareRun",
                         async run(ctx) {
-                            const sourceSession = await ctx.session.read(ctx.input.sourceSessionId);
+                            const sourceSession = await ctx.session.read(ctx.initial.sourceSessionId);
                             const content = await ctx.session.agentDialogueContent({
                                 snapshot: sourceSession.snapshot,
-                                input: ctx.input,
+                                initial: ctx.initial,
                             });
                             return {
                                 runtimeMessages: [
@@ -4929,7 +4931,7 @@ describe("NeuroAgentHarness", () => {
         ]);
         const reader = await harness.createAgent({
             profileKey: "test.session-facade",
-            input: {
+            initial: {
                 sourceSessionId: source.sessionId,
             },
             workspaceRoot: root,
@@ -4962,7 +4964,7 @@ describe("NeuroAgentHarness", () => {
                 key: "test.runtime-only-transcript",
                 name: "Runtime Only Transcript",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             outputSchema: Type.Object({
                 title: Type.String(),
             }),
@@ -5037,7 +5039,7 @@ describe("NeuroAgentHarness", () => {
         ]);
         const created = await harness.createAgent({
             profileKey: "test.runtime-only-transcript",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
 
@@ -5068,7 +5070,7 @@ describe("NeuroAgentHarness", () => {
                 key: "test.runtime-only-waiting",
                 name: "Runtime Only Waiting",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: ["request_user_input"],
             runtime: defineAgentRuntime<object>({
                 hooks: [
@@ -5096,7 +5098,7 @@ describe("NeuroAgentHarness", () => {
         ]);
         const created = await harness.createAgent({
             profileKey: "test.runtime-only-waiting",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
 
@@ -5122,7 +5124,7 @@ describe("NeuroAgentHarness", () => {
                 key: "test.runtime-only-report-reminder",
                 name: "Runtime Only Report Reminder",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             outputSchema: Type.Object({
                 title: Type.String(),
             }),
@@ -5189,7 +5191,7 @@ describe("NeuroAgentHarness", () => {
         ]);
         const created = await harness.createAgent({
             profileKey: "test.runtime-only-report-reminder",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
 
@@ -5221,7 +5223,7 @@ describe("NeuroAgentHarness", () => {
                 key: "test.summarized-source",
                 name: "Summarized Source",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: [],
             summarizer: {
                 profileKey: "summarizer",
@@ -5252,7 +5254,7 @@ describe("NeuroAgentHarness", () => {
         ]);
         const created = await harness.createAgent({
             profileKey: "test.summarized-source",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
 
@@ -5312,7 +5314,7 @@ describe("NeuroAgentHarness", () => {
                 key: "test.summarizer-stale",
                 name: "Summarizer Stale",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: [],
             summarizer: {
                 profileKey: "summarizer",
@@ -5330,7 +5332,7 @@ describe("NeuroAgentHarness", () => {
         }), false);
         const created = await harness.createAgent({
             profileKey: "test.summarizer-stale",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
         faux.setResponses([
@@ -5395,7 +5397,7 @@ describe("NeuroAgentHarness", () => {
                 key: "test.summarizer-too-large",
                 name: "Summarizer Too Large",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: [],
             summarizer: {
                 profileKey: "summarizer",
@@ -5426,7 +5428,7 @@ describe("NeuroAgentHarness", () => {
         ]);
         const created = await harness.createAgent({
             profileKey: "test.summarizer-too-large",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
 
@@ -5462,7 +5464,7 @@ describe("NeuroAgentHarness", () => {
                 key: "test.summarizer-interval",
                 name: "Summarizer Interval",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: [],
             summarizer: {
                 profileKey: "summarizer",
@@ -5503,7 +5505,7 @@ describe("NeuroAgentHarness", () => {
         ]);
         const created = await harness.createAgent({
             profileKey: "test.summarizer-interval",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
 
@@ -5544,7 +5546,7 @@ describe("NeuroAgentHarness", () => {
                 key: "test.summarizer-retry",
                 name: "Summarizer Retry",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: [],
             summarizer: {
                 profileKey: "summarizer",
@@ -5577,7 +5579,7 @@ describe("NeuroAgentHarness", () => {
         ]);
         const created = await harness.createAgent({
             profileKey: "test.summarizer-retry",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
 
@@ -5614,7 +5616,7 @@ describe("NeuroAgentHarness", () => {
                 key: "test.custom-runtime-no-report-reminder",
                 name: "Custom Runtime No Report Reminder",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             outputSchema: Type.Object({
                 title: Type.String(),
             }),
@@ -5642,7 +5644,7 @@ describe("NeuroAgentHarness", () => {
         ]);
         const created = await harness.createAgent({
             profileKey: "test.custom-runtime-no-report-reminder",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
 
@@ -5666,7 +5668,7 @@ describe("NeuroAgentHarness", () => {
                 key: "test.approval-appending",
                 name: "Approval Appending",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: ["request_user_input", "report_result"],
             prepare() {
                 prepareCount++;
@@ -5691,7 +5693,7 @@ describe("NeuroAgentHarness", () => {
         ]);
         const created = await harness.createAgent({
             profileKey: "test.approval-appending",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
 
@@ -5723,7 +5725,7 @@ describe("NeuroAgentHarness", () => {
                 key: "test.approval-state",
                 name: "Approval State",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: ["request_user_input"],
             prepare() {
                 return {};
@@ -5739,7 +5741,7 @@ describe("NeuroAgentHarness", () => {
         ]);
         const created = await harness.createAgent({
             profileKey: "test.approval-state",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
         await harness.invokeAgent({
@@ -5787,7 +5789,7 @@ describe("NeuroAgentHarness", () => {
                 key: "test.plan-mode-preview",
                 name: "Plan Mode Preview",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: ["exit_plan_mode"],
             prepare() {
                 return {};
@@ -5795,7 +5797,7 @@ describe("NeuroAgentHarness", () => {
         }), false);
         const created = await harness.createAgent({
             profileKey: "test.plan-mode-preview",
-            input: {},
+            initial: {},
             workspaceRoot,
             projectPath,
         });
@@ -5870,7 +5872,7 @@ describe("NeuroAgentHarness", () => {
                 key: "test.plan-mode-manual-exit",
                 name: "Plan Mode Manual Exit",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: [],
             context() {
                 return ProfilePrompt({
@@ -5882,7 +5884,7 @@ describe("NeuroAgentHarness", () => {
         }), false);
         const created = await harness.createAgent({
             profileKey: "test.plan-mode-manual-exit",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
 
@@ -5910,7 +5912,7 @@ describe("NeuroAgentHarness", () => {
                 key: "test.plan-mode-bad-preview",
                 name: "Plan Mode Bad Preview",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: ["exit_plan_mode"],
             prepare() {
                 return {};
@@ -5926,7 +5928,7 @@ describe("NeuroAgentHarness", () => {
         ]);
         const created = await harness.createAgent({
             profileKey: "test.plan-mode-bad-preview",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
 
@@ -5949,7 +5951,7 @@ describe("NeuroAgentHarness", () => {
                 key: "test.must-report",
                 name: "Must Report",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: ["report_result"],
             prepare() {
                 return {};
@@ -5966,7 +5968,7 @@ describe("NeuroAgentHarness", () => {
         ]);
         const created = await harness.createAgent({
             profileKey: "test.must-report",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
 
@@ -5989,7 +5991,7 @@ describe("NeuroAgentHarness", () => {
                 key: "test.user-caller-no-report-reminder",
                 name: "User Caller No Report Reminder",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: ["report_result"],
             prepare() {
                 return {};
@@ -6001,7 +6003,7 @@ describe("NeuroAgentHarness", () => {
         ]);
         const created = await harness.createAgent({
             profileKey: "test.user-caller-no-report-reminder",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
 
@@ -6025,7 +6027,7 @@ describe("NeuroAgentHarness", () => {
         ]);
         const created = await harness.createAgent({
             profileKey: "leader.default",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
 
@@ -6048,7 +6050,7 @@ describe("NeuroAgentHarness", () => {
                 key: "test.appending",
                 name: "Appending Test",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: [],
             prepare() {
                 return {
@@ -6071,7 +6073,7 @@ describe("NeuroAgentHarness", () => {
         ]);
         const created = await harness.createAgent({
             profileKey: "test.appending",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
 
@@ -6090,7 +6092,7 @@ describe("NeuroAgentHarness", () => {
                 key: "test.prompt-turns",
                 name: "Prompt Turns",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: [],
             prepare({runtime}) {
                 return {
@@ -6108,7 +6110,7 @@ describe("NeuroAgentHarness", () => {
         ]);
         const created = await harness.createAgent({
             profileKey: "test.prompt-turns",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
 
@@ -6135,7 +6137,7 @@ describe("NeuroAgentHarness", () => {
                 key: "test.pending-prompt",
                 name: "Pending Prompt",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: [],
             prepare({runtime}) {
                 return {
@@ -6150,7 +6152,7 @@ describe("NeuroAgentHarness", () => {
         ]);
         const created = await harness.createAgent({
             profileKey: "test.pending-prompt",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
 
@@ -6172,7 +6174,7 @@ describe("NeuroAgentHarness", () => {
                 key: "test.model-reminder-visible",
                 name: "Model Reminder Visible",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: [],
             prepare() {
                 return {
@@ -6191,7 +6193,7 @@ describe("NeuroAgentHarness", () => {
         ]);
         const created = await harness.createAgent({
             profileKey: "test.model-reminder-visible",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
         const subscription = harness.subscribeSessionEvents(created.sessionId);
@@ -6226,7 +6228,7 @@ describe("NeuroAgentHarness", () => {
                 key: "test.no-session-context-runtime",
                 name: "No Session Context Runtime",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: [],
             runtime: defineAgentRuntime<object>({
                 hooks: [
@@ -6252,7 +6254,7 @@ describe("NeuroAgentHarness", () => {
         ]);
         const created = await harness.createAgent({
             profileKey: "test.no-session-context-runtime",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
 
@@ -6274,7 +6276,7 @@ describe("NeuroAgentHarness", () => {
                 key: "test.no-session-context-writes",
                 name: "No Session Context Writes",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: [],
             runtime: defineAgentRuntime<object>({
                 hooks: [
@@ -6302,7 +6304,7 @@ describe("NeuroAgentHarness", () => {
         ]);
         const created = await harness.createAgent({
             profileKey: "test.no-session-context-writes",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
 
@@ -6339,7 +6341,7 @@ describe("NeuroAgentHarness", () => {
                 key: "test.no-session-context-compact",
                 name: "No Session Context Compact",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: ["force_continue_without_session_context"],
             compaction: {
                 triggerTokens: 1,
@@ -6379,7 +6381,7 @@ describe("NeuroAgentHarness", () => {
         ]);
         const created = await harness.createAgent({
             profileKey: "test.no-session-context-compact",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
         await harness.repo.appendMessage(created.sessionId, createUserMessage({text: "OLD CONTEXT"}));
@@ -6403,7 +6405,7 @@ describe("NeuroAgentHarness", () => {
                 key: "test.no-profile-prompt-runtime",
                 name: "No Profile Prompt Runtime",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: [],
             runtime: defineAgentRuntime<object>({
                 hooks: [
@@ -6432,7 +6434,7 @@ describe("NeuroAgentHarness", () => {
         ]);
         const created = await harness.createAgent({
             profileKey: "test.no-profile-prompt-runtime",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
 
@@ -6454,7 +6456,7 @@ describe("NeuroAgentHarness", () => {
                 key: "test.fake-builtin-behavior",
                 name: "Fake Builtin Behavior",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: [],
             runtime: defineAgentRuntime<object>({
                 hooks: [
@@ -6477,7 +6479,7 @@ describe("NeuroAgentHarness", () => {
         }), false);
         const created = await harness.createAgent({
             profileKey: "test.fake-builtin-behavior",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
 
@@ -6494,12 +6496,12 @@ describe("NeuroAgentHarness", () => {
     it("create_agent 会自动 link 到父 session，get_agent 无参返回当前拥有的 agent", async () => {
         const parent = await harness.createAgent({
             profileKey: "leader.default",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
         const child = await harness.createAgent({
             profileKey: "leader.default",
-            input: {},
+            initial: {},
             title: "  Custom Child Title  ",
             workspaceRoot: root,
             parentSessionId: parent.sessionId,
@@ -6526,14 +6528,14 @@ describe("NeuroAgentHarness", () => {
     it("子 session 未显式传 workspace 时继承父 session 归属并能看到绑定者", async () => {
         const parent = await harness.createAgent({
             profileKey: "leader.default",
-            input: {},
+            initial: {},
             workspaceRoot: root,
             workspaceKey: "novel-one",
             projectPath: "novel-one",
         });
         const child = await harness.createAgent({
             profileKey: "leader.default",
-            input: {},
+            initial: {},
             parentSessionId: parent.sessionId,
         });
 
@@ -6553,12 +6555,12 @@ describe("NeuroAgentHarness", () => {
     it("getSessionRelations 返回与 snapshot 一致的轻量关联关系", async () => {
         const parent = await harness.createAgent({
             profileKey: "leader.default",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
         const child = await harness.createAgent({
             profileKey: "leader.default",
-            input: {},
+            initial: {},
             workspaceRoot: root,
             parentSessionId: parent.sessionId,
         });
@@ -6583,13 +6585,13 @@ describe("NeuroAgentHarness", () => {
     it("反向绑定扫描能兼容旧数据中的 workspaceKey 不一致关系", async () => {
         const parent = await harness.createAgent({
             profileKey: "leader.default",
-            input: {},
+            initial: {},
             workspaceRoot: root,
             workspaceKey: "novel-one",
         });
         const child = await harness.createAgent({
             profileKey: "leader.default",
-            input: {},
+            initial: {},
             workspaceRoot: root,
             workspaceKey: "global",
             parentSessionId: parent.sessionId,
@@ -6610,12 +6612,12 @@ describe("NeuroAgentHarness", () => {
     it("detachAgent 会通知被解绑 session 拉完整 snapshot", async () => {
         const parent = await harness.createAgent({
             profileKey: "leader.default",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
         const child = await harness.createAgent({
             profileKey: "leader.default",
-            input: {},
+            initial: {},
             workspaceRoot: root,
             parentSessionId: parent.sessionId,
         });
@@ -6663,13 +6665,13 @@ describe("NeuroAgentHarness", () => {
         faux.setResponses([fauxAssistantMessage(fauxText("child done"))]);
         const parent = await harness.createAgent({
             profileKey: "leader.default",
-            input: {},
+            initial: {},
             workspaceRoot: childWorkspaceRoot,
             workspaceKey: "novel-one",
         });
         const child = await harness.createAgent({
             profileKey: "leader.default",
-            input: {},
+            initial: {},
             workspaceRoot: childWorkspaceRoot,
             workspaceKey: "novel-one",
             parentSessionId: parent.sessionId,
@@ -6709,7 +6711,7 @@ describe("NeuroAgentHarness", () => {
         faux.setResponses([fauxAssistantMessage("external done")]);
         const created = await harness.createAgent({
             profileKey: "leader.default",
-            input: {},
+            initial: {},
             workspaceRoot: externalProjectRoot,
             workspaceKey: "external-project",
             projectPath: externalProjectRoot,
@@ -6735,7 +6737,7 @@ describe("NeuroAgentHarness", () => {
                 key: "test.invoke-parent",
                 name: "Invoke Parent",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: ["invoke_agent"],
             prepare() {
                 return {};
@@ -6746,7 +6748,7 @@ describe("NeuroAgentHarness", () => {
                 key: "test.invoke-child",
                 name: "Invoke Child",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: ["report_result"],
             prepare() {
                 return {};
@@ -6773,12 +6775,12 @@ describe("NeuroAgentHarness", () => {
         ]);
         const parent = await harness.createAgent({
             profileKey: "test.invoke-parent",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
         const child = await harness.createAgent({
             profileKey: "test.invoke-child",
-            input: {},
+            initial: {},
             workspaceRoot: root,
             parentSessionId: parent.sessionId,
         });
@@ -6829,7 +6831,7 @@ describe("NeuroAgentHarness", () => {
                 key: "test.invoke-self",
                 name: "Invoke Self",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: ["invoke_agent"],
             prepare() {
                 return {};
@@ -6848,7 +6850,7 @@ describe("NeuroAgentHarness", () => {
         ]);
         const session = await harness.createAgent({
             profileKey: "test.invoke-self",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
 
@@ -6865,35 +6867,35 @@ describe("NeuroAgentHarness", () => {
         expect(context.title).toBe("Invoke Self");
     });
 
-    it("create_agent 工具 schema 要求 input 是 object，不再引导模型传 JSON string", () => {
+    it("create_agent 工具 schema 要求 initial 是 object，不再引导模型传 JSON string", () => {
         const tool = harness.tools.get("create_agent");
         expect(tool).toBeDefined();
         expect(tool?.description).toContain("not a JSON string");
         expect(tool?.description).not.toContain("JSON-stringified");
         expect(Value.Check(tool!.parameters, {
             profileKey: "writer",
-            input: {
+            initial: {
                 prompt: "write",
                 chapterPaths: ["manuscript/001/"],
             },
         })).toBe(true);
         expect(Value.Check(tool!.parameters, {
             profileKey: "writer",
-            input: "{\"prompt\":\"write\"}",
+            initial: "{\"prompt\":\"write\"}",
         })).toBe(false);
         expect(Value.Check(tool!.parameters, {
             profileKey: "writer",
-            input: null,
+            initial: null,
         })).toBe(false);
     });
 
-    it("create_agent.input 是字符串时返回工具错误并允许同 run 修正", async () => {
+    it("create_agent.initial 是字符串时返回工具错误并允许同 run 修正", async () => {
         harness.profiles.register(defineAgentProfile({
             manifest: {
                 key: "test.create-agent-parent",
                 name: "Create Agent Parent",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: ["create_agent"],
             prepare() {
                 return {};
@@ -6904,7 +6906,7 @@ describe("NeuroAgentHarness", () => {
                 key: "test.create-agent-child",
                 name: "Create Agent Child",
             },
-            inputSchema: Type.Object({
+            initialSchema: Type.Object({
                 role: Type.String(),
             }),
             allowedToolKeys: [],
@@ -6916,14 +6918,14 @@ describe("NeuroAgentHarness", () => {
             fauxAssistantMessage([
                 fauxToolCall("create_agent", {
                     profileKey: "test.create-agent-child",
-                    input: "{\"role\":\"draft\"}",
+                    initial: "{\"role\":\"draft\"}",
                     title: "Draft Child",
                 }, {id: "create-json"}),
             ], {stopReason: "toolUse"}),
             fauxAssistantMessage([
                 fauxToolCall("create_agent", {
                     profileKey: "test.create-agent-child",
-                    input: {
+                    initial: {
                         role: "draft",
                     },
                     title: "Draft Child",
@@ -6933,7 +6935,7 @@ describe("NeuroAgentHarness", () => {
         ]);
         const parent = await harness.createAgent({
             profileKey: "test.create-agent-parent",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
 
@@ -6953,7 +6955,7 @@ describe("NeuroAgentHarness", () => {
             fauxAssistantMessage([
                 fauxToolCall("create_agent", {
                     profileKey: "test.create-agent-child",
-                    input: null,
+                    initial: null,
                 }, {id: "create-null"} as never),
             ], {stopReason: "toolUse"}),
             fauxAssistantMessage("created from null"),
@@ -6971,7 +6973,7 @@ describe("NeuroAgentHarness", () => {
             fauxAssistantMessage([
                 fauxToolCall("create_agent", {
                     profileKey: "test.create-agent-child",
-                    input: "role=draft",
+                    initial: "role=draft",
                 }, {id: "create-kv"}),
             ], {stopReason: "toolUse"}),
             fauxAssistantMessage("after error"),
@@ -6992,7 +6994,7 @@ describe("NeuroAgentHarness", () => {
                 key: "test.profile-parent",
                 name: "Profile Parent",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: ["get_agent_profile"],
             prepare() {
                 return {};
@@ -7004,7 +7006,7 @@ describe("NeuroAgentHarness", () => {
                 name: "Profile Detail",
                 description: "Detail target.",
             },
-            inputSchema: Type.Object({
+            initialSchema: Type.Object({
                 prompt: Type.String({description: "Task prompt."}),
             }),
             outputSchema: Type.Object({
@@ -7025,7 +7027,7 @@ describe("NeuroAgentHarness", () => {
         ]);
         const parent = await harness.createAgent({
             profileKey: "test.profile-parent",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
 
@@ -7049,7 +7051,7 @@ describe("NeuroAgentHarness", () => {
                 key: "test.snapshot-approval",
                 name: "Snapshot Approval",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: ["request_user_input"],
             prepare() {
                 return {};
@@ -7064,12 +7066,12 @@ describe("NeuroAgentHarness", () => {
         ]);
         const parent = await harness.createAgent({
             profileKey: "test.snapshot-approval",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
         const child = await harness.createAgent({
             profileKey: "leader.default",
-            input: {},
+            initial: {},
             workspaceRoot: root,
             parentSessionId: parent.sessionId,
         });
@@ -7166,7 +7168,7 @@ describe("NeuroAgentHarness", () => {
                 key: "test.steer-loop",
                 name: "Steer Loop",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: ["continue_once"],
             prepare() {
                 return {};
@@ -7181,7 +7183,7 @@ describe("NeuroAgentHarness", () => {
         ]);
         const created = await harness.createAgent({
             profileKey: "test.steer-loop",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
 
@@ -7227,7 +7229,7 @@ describe("NeuroAgentHarness", () => {
                 key: "test.waiting-steer",
                 name: "Waiting Steer",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: ["request_user_input"],
             prepare() {
                 return {};
@@ -7245,7 +7247,7 @@ describe("NeuroAgentHarness", () => {
         ]);
         const created = await harness.createAgent({
             profileKey: "test.waiting-steer",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
 
@@ -7282,7 +7284,7 @@ describe("NeuroAgentHarness", () => {
     it("idle session 拒绝显式 steer 和 followUp，避免生成无法消费的队列", async () => {
         const created = await harness.createAgent({
             profileKey: "leader.default",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
 
@@ -7308,7 +7310,7 @@ describe("NeuroAgentHarness", () => {
         ]);
         const created = await harness.createAgent({
             profileKey: "leader.default",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
         let steerError = "";
@@ -7345,7 +7347,7 @@ describe("NeuroAgentHarness", () => {
                 key: "test.abort-queue",
                 name: "Abort Queue",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: ["request_user_input"],
             prepare() {
                 return {};
@@ -7360,7 +7362,7 @@ describe("NeuroAgentHarness", () => {
         ]);
         const created = await harness.createAgent({
             profileKey: "test.abort-queue",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
         const waiting = await harness.invokeAgent({
@@ -7394,7 +7396,7 @@ describe("NeuroAgentHarness", () => {
                 key: "test.abort-persisted-queue",
                 name: "Abort Persisted Queue",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: ["request_user_input"],
             prepare() {
                 return {};
@@ -7409,7 +7411,7 @@ describe("NeuroAgentHarness", () => {
         ]);
         const created = await harness.createAgent({
             profileKey: "test.abort-persisted-queue",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
         const waiting = await harness.invokeAgent({
@@ -7434,7 +7436,7 @@ describe("NeuroAgentHarness", () => {
                 key: "test.abort-persisted-queue",
                 name: "Abort Persisted Queue",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: ["request_user_input"],
             prepare() {
                 return {};
@@ -7455,7 +7457,7 @@ describe("NeuroAgentHarness", () => {
         ]);
         const created = await harness.createAgent({
             profileKey: "leader.default",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
 
@@ -7483,7 +7485,7 @@ describe("NeuroAgentHarness", () => {
         ]);
         const created = await harness.createAgent({
             profileKey: "leader.default",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
 
@@ -7525,7 +7527,7 @@ describe("NeuroAgentHarness", () => {
         ]);
         const created = await harness.createAgent({
             profileKey: "leader.default",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
 
@@ -7570,7 +7572,7 @@ describe("NeuroAgentHarness", () => {
         ]);
         const created = await harness.createAgent({
             profileKey: "leader.default",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
 
@@ -7616,7 +7618,7 @@ describe("NeuroAgentHarness", () => {
         ]);
         const created = await harness.createAgent({
             profileKey: "leader.default",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
 
@@ -7663,7 +7665,7 @@ describe("NeuroAgentHarness", () => {
                 key: "test.drain-window",
                 name: "Drain Window",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: ["finish_once"],
             prepare() {
                 return {};
@@ -7677,7 +7679,7 @@ describe("NeuroAgentHarness", () => {
         ]);
         const created = await harness.createAgent({
             profileKey: "test.drain-window",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
         let lateSteerError = "";
@@ -7727,7 +7729,7 @@ describe("NeuroAgentHarness", () => {
         ]);
         const created = await harness.createAgent({
             profileKey: "leader.default",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
         await harness.invokeAgent({
@@ -7771,7 +7773,7 @@ describe("NeuroAgentHarness", () => {
         ]);
         const created = await harness.createAgent({
             profileKey: "leader.default",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
         await harness.invokeAgent({
@@ -7805,7 +7807,7 @@ describe("NeuroAgentHarness", () => {
         ]);
         const created = await harness.createAgent({
             profileKey: "leader.default",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
         await harness.invokeAgent({
@@ -7838,12 +7840,12 @@ describe("NeuroAgentHarness", () => {
     it("linked agents 状态来自 session entry，重建 harness 后仍能 reduce", async () => {
         const parent = await harness.createAgent({
             profileKey: "leader.default",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
         const child = await harness.createAgent({
             profileKey: "leader.default",
-            input: {},
+            initial: {},
             workspaceRoot: root,
             parentSessionId: parent.sessionId,
         });
@@ -7872,7 +7874,7 @@ describe("NeuroAgentHarness", () => {
                 key: "test.linked-by",
                 name: "Linked By",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: ["request_user_input"],
             prepare() {
                 return {};
@@ -7888,12 +7890,12 @@ describe("NeuroAgentHarness", () => {
         ]);
         const parent = await harness.createAgent({
             profileKey: "test.linked-by",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
         const child = await harness.createAgent({
             profileKey: "test.linked-by",
-            input: {},
+            initial: {},
             workspaceRoot: root,
             parentSessionId: parent.sessionId,
         });
@@ -7946,7 +7948,7 @@ describe("NeuroAgentHarness", () => {
                 key: "test.deleted-profile",
                 name: "Deleted Profile",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: ["request_user_input"],
             prepare() {
                 return {};
@@ -7962,12 +7964,12 @@ describe("NeuroAgentHarness", () => {
         ]);
         const parent = await harness.createAgent({
             profileKey: "test.deleted-profile",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
         const child = await harness.createAgent({
             profileKey: "test.deleted-profile",
-            input: {},
+            initial: {},
             workspaceRoot: root,
             parentSessionId: parent.sessionId,
         });
@@ -8079,7 +8081,7 @@ describe("NeuroAgentHarness", () => {
                 key: "test.unloadable",
                 name: "Unloadable Before Restore",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: [],
             prepare() {
                 return {};
@@ -8087,7 +8089,7 @@ describe("NeuroAgentHarness", () => {
         }), false);
         const created = await harness.createAgent({
             profileKey: "test.unloadable",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
         const restored = new NeuroAgentHarness({
@@ -8117,7 +8119,7 @@ describe("NeuroAgentHarness", () => {
     it("get_session 默认不返回 tree 和历史消息，显式请求时只返回 active path 最近消息", async () => {
         const created = await harness.createAgent({
             profileKey: "leader.default",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
         await harness.repo.appendMessage(created.sessionId, createUserMessage({text: "hello session"}));
@@ -8179,7 +8181,7 @@ describe("NeuroAgentHarness", () => {
                 key: "test.report-error",
                 name: "Report Error",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: ["report_result"],
             prepare() {
                 return {};
@@ -8193,7 +8195,7 @@ describe("NeuroAgentHarness", () => {
         ]);
         const created = await harness.createAgent({
             profileKey: "test.report-error",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
 
@@ -8233,7 +8235,7 @@ describe("NeuroAgentHarness", () => {
                 key: "test.pre-loop-error",
                 name: "Pre Loop Error",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: [],
             prepare() {
                 throw new Error("prepare exploded");
@@ -8241,7 +8243,7 @@ describe("NeuroAgentHarness", () => {
         }), false);
         const created = await harness.createAgent({
             profileKey: "test.pre-loop-error",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
 
@@ -8276,7 +8278,7 @@ describe("NeuroAgentHarness", () => {
         ]);
         const created = await harness.createAgent({
             profileKey: "leader.default",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
         await harness.repo.appendMessage(created.sessionId, createUserMessage({text: "old context"}));
@@ -8305,7 +8307,7 @@ describe("NeuroAgentHarness", () => {
     it("compact command 失败时写 lifecycle errorInfo", async () => {
         const created = await harness.createAgent({
             profileKey: "leader.default",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
         await harness.repo.appendMessage(created.sessionId, createUserMessage({text: "old context"}));
@@ -8336,7 +8338,7 @@ describe("NeuroAgentHarness", () => {
                 key: "test.manual-compact-without-policy",
                 name: "Manual Compact Without Policy",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: [],
             prepare() {
                 return {};
@@ -8344,7 +8346,7 @@ describe("NeuroAgentHarness", () => {
         }), false);
         const created = await harness.createAgent({
             profileKey: "test.manual-compact-without-policy",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
         await harness.repo.appendMessage(created.sessionId, createUserMessage({text: "old context"}));
@@ -8376,7 +8378,7 @@ describe("NeuroAgentHarness", () => {
                 key: "test.session-vars",
                 name: "Session Vars",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             allowedToolKeys: ["variable_read", "variable_patch"],
             variableDefinitions: [
                 defineSessionVariable({
@@ -8413,7 +8415,7 @@ describe("NeuroAgentHarness", () => {
         ]);
         const created = await harness.createAgent({
             profileKey: "test.session-vars",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
         const events: string[] = [];

@@ -29,13 +29,13 @@ export const profileManifest = {
     description: "示例 profile。",
 } as const;
 
-export const InputSchema = Type.Object({
+export const InitialSchema = Type.Object({
     prompt: Type.String(),
 });
 
 export default defineAgentProfile({
     manifest: profileManifest,
-    inputSchema: InputSchema,
+    initialSchema: InitialSchema,
     tools: toolset(
         builtin.file.read,
         builtin.file.write,

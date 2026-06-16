@@ -64,7 +64,7 @@ export async function pushAgentSessionEvent(
 export async function createAgentSession(body: AgentCreateSessionRequestDto, harness = useAgentHarness()) {
     return harness.createAgent({
         profileKey: body.profileKey,
-        input: body.input,
+        initial: body.initial,
         workspaceRoot: body.workspaceRoot,
         workspaceKey: body.workspaceKey,
         projectPath: body.projectPath,
@@ -150,6 +150,8 @@ export function toInvokeInput(
         sessionId,
         mode: body.mode,
         message: body.message,
+        payload: body.input,
+        title: body.title,
         resolution: body.resolution,
         clientState: body.clientState,
         caller: {kind: "user"},

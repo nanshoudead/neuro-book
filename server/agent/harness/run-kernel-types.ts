@@ -48,6 +48,8 @@ export type RuntimeHookExecutionInput = {
     context?: NeuroSessionContext;
     turnIndex?: number;
     pendingUserMessage?: Message;
+    payload?: JsonValue;
+    invocationMessage?: string;
     caller: AgentInvokeCaller;
     turn?: {
         assistant: AssistantMessage;

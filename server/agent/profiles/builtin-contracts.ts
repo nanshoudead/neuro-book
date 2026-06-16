@@ -3,7 +3,7 @@ import {Type} from "typebox";
 /**
  * leader.default / leader.assets 的实例初始化参数。Project 归属由 session metadata 承载。
  */
-export const LeaderDefaultInputSchema = Type.Object({});
+export const LeaderDefaultInitialSchema = Type.Object({});
 
 /**
  * leader.default 的结构化输出合同。
@@ -15,7 +15,7 @@ export const LeaderDefaultOutputSchema = Type.Object({
 /**
  * simulator.leader 的实例初始化参数。当前 Project 由 session projectPath / Workspace Focus 承载。
  */
-export const SimulatorLeaderInputSchema = Type.Object({});
+export const SimulatorLeaderInitialSchema = Type.Object({});
 
 /**
  * simulator.leader 返回普通 assistant 文本，不绑定 report_result.data 结构。
@@ -25,7 +25,7 @@ export const SimulatorLeaderOutputSchema = Type.Object({});
 /**
  * rp.leader 的实例初始化参数。当前 Project 由 session projectPath / Workspace Focus 承载。
  */
-export const RpLeaderInputSchema = Type.Object({});
+export const RpLeaderInitialSchema = Type.Object({});
 
 /**
  * rp.leader 返回普通 assistant 文本，不绑定 report_result.data 结构。
@@ -35,7 +35,7 @@ export const RpLeaderOutputSchema = Type.Object({});
 /**
  * director 的实例初始化参数。每轮剧情任务通过 invoke_agent.message 传入。
  */
-export const DirectorInputSchema = Type.Object({
+export const DirectorInitialSchema = Type.Object({
     projectPath: Type.String({description: "Project Workspace path, e.g. workspace/silver-dragon-hime."}),
     mode: Type.Optional(Type.Union([
         Type.Literal("writing"),
@@ -80,7 +80,7 @@ export const DirectorOutputSchema = Type.Object({
 /**
  * simulator.actor 的实例初始化参数。每轮 actor-facing message 通过 invoke_agent.message 传入。
  */
-export const SubjectSimulatorInputSchema = Type.Object({
+export const SubjectSimulatorInitialSchema = Type.Object({
     subjectPath: Type.String({description: "subject simulator directory path，必须相对于 Agent cwd，例如 project-slug/simulation/subjects/erina。"}),
     kind: Type.Union([Type.Literal("player"), Type.Literal("npc")], {
         description: "subject 类型。player：用户化身，actor 不主动行动/抢话，只把 leader 的 directive 第一人称自然化复述；npc：模拟器自由扮演。simulator.leader 调 actor 前按 subject.md frontmatter 的 kind 显式传入。第一版仅支持 player/npc。",
@@ -99,7 +99,7 @@ export const SubjectSimulatorOutputSchema = Type.Object({
 /**
  * memory.curator 的输入。调用方报告 facts，不指定具体 patch 操作。
  */
-export const MemoryCuratorInputSchema = Type.Object({
+export const MemoryCuratorInitialSchema = Type.Object({
     subjectPath: Type.String({description: "被维护的 subject directory path。"}),
     facts: Type.Array(Type.String({description: "本轮新增的 subject-facing fact。不要写具体 JSON Patch 操作要求。"}), {minItems: 1, description: "本轮新增的 subject-facing facts。调用方只报告事实，不指定具体 patch 操作。"}),
     currentMemories: Type.Array(Type.Object({
@@ -124,7 +124,7 @@ export const MemoryCuratorOutputSchema = Type.Object({
 /**
  * rp.writer 的实例初始化参数为空。每轮 Writer Brief 通过 invoke_agent.message 传递。
  */
-export const RpWriterInputSchema = Type.Object({}, {
+export const RpWriterInitialSchema = Type.Object({}, {
     additionalProperties: false,
 });
 
@@ -136,7 +136,7 @@ export const RpWriterOutputSchema = Type.Object({});
 /**
  * summarizer 的实例初始化参数。sourceSessionId 由 harness 注入。
  */
-export const SessionSummarizerInputSchema = Type.Object({
+export const SessionSummarizerInitialSchema = Type.Object({
     sourceSessionId: Type.Number({description: "由 harness 注入的 source session id。"}),
     trigger: Type.Optional(Type.Union([
         Type.Literal("afterInvocation"),
@@ -162,7 +162,7 @@ export const SessionSummarizerOutputSchema = Type.Object({
 /**
  * writer 子代理输入：由 leader/create_agent 传入，不承载每轮对话文本。
  */
-export const WriterInputSchema = Type.Object({
+export const WriterInitialSchema = Type.Object({
     prompt: Type.String({description: "本次写作任务。写清要写什么、是重写还是局部修改、章节边界和交付要求。"}),
     chapterPaths: Type.Array(Type.String({description: "章节内容节点目录路径，必须相对于 Agent cwd。普通 Project agent 的 cwd 是 workspace 容器根，因此应传 project-slug/manuscript/.../，不要传 manuscript/.../ 或 workspace/project-slug/.../。"}), {
         minItems: 1,
@@ -186,7 +186,7 @@ export const WriterOutputSchema = Type.Object({
 /**
  * retrieval 子代理输入。
  */
-export const RetrievalInputSchema = Type.Object({
+export const RetrievalInitialSchema = Type.Object({
     prompt: Type.String({description: "检索请求。写清任务目标、要找什么、给谁用、章节/正文上下文、排除项和数量偏好。"}),
 });
 
@@ -206,7 +206,7 @@ export const RetrievalOutputSchema = Type.Object({
 /**
  * researcher 子代理输入：创建 session 时传入长期研究边界；每轮具体问题通过 invoke_agent.message 继续对话。
  */
-export const ResearcherInputSchema = Type.Object({
+export const ResearcherInitialSchema = Type.Object({
     topic: Type.Optional(Type.String({
         maxLength: 500,
         description: "Long-lived research topic for this researcher session. Omit for a general researcher.",

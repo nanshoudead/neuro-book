@@ -32,7 +32,7 @@ Phase 0        Phase 1         Phase 2            Phase 3          Phase 4      
 
 - 初始化正文固定写入当前 Project Workspace 的 `simulation/runs/ticks/000000-initial-state/prose.md`；交给文件工具或 rp.writer 时必须写成 `{project-slug}/simulation/runs/ticks/000000-initial-state/prose.md`。
 - `rp.leader` 负责读取 manual / agent-context、确认化身和初始处境，必要时调用 `simulator.leader` 建立初始运行态。
-- 随后 `rp.leader` 生成开场白 Writer Brief，创建空 input 的 `rp.writer` session，并通过 `invoke_agent.message` 发送完整 Brief。
+- 随后 `rp.leader` 生成开场白 Writer Brief，创建空 initial 的 `rp.writer` session，并通过 `invoke_agent.message` 发送完整 Brief。
 - `rp.writer` 将开场白正文写入带 `{project-slug}/` 前缀的 `000000-initial-state/prose.md`；`rp.leader` 最终只组装正文链接和元场景引导。
 
 ### Phase 1 — rp.leader：IC/OOC 审查
@@ -59,7 +59,7 @@ rp.leader 根据 simulator.leader 返回的世界变化，组装一份 Writer Br
 
 ### Phase 4 — rp.writer：自检、提问或渲染
 
-rp.writer 的 profile input 为空。rp.leader 为每个 prose artifact 创建新的 writer session，并把完整 Writer Brief 作为 `invoke_agent.message` 发送给它。
+rp.writer 的 profile initial 为空。rp.leader 为每个 prose artifact 创建新的 writer session，并把完整 Writer Brief 作为 `invoke_agent.message` 发送给它。
 
 - **解析 context 引用**：从 `<context>` 内 Markdown 链接提取可读路径，按需 read（不强制全读）。
 - **检查素材完整性**：确认场景底色、人物状态、剧情骨架、视角边界和 prose 输出路径足以写作。

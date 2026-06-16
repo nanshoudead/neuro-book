@@ -3,7 +3,7 @@
 import type {Static} from "typebox";
 import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
 import {builtin, toolset} from "nbook/server/agent/profiles/profile-tools";
-import {DirectorInputSchema, DirectorOutputSchema} from "nbook/server/agent/profiles/builtin-contracts";
+import {DirectorInitialSchema, DirectorOutputSchema} from "nbook/server/agent/profiles/builtin-contracts";
 import {AgentCatalog, AppendingSet, HistorySet, Import, LinkedAgentsReminder, Message, ModelContext, ProfilePrompt, RuntimeLocationReminder, System, WorkspaceFocusReminder} from "nbook/server/agent/profiles/profile-dsl";
 import {profileText} from "nbook/server/agent/profiles/profile-text";
 
@@ -13,15 +13,15 @@ export const profileManifest = {
     description: "剧情导演：管理 Thread / Scene / Plot，设计剧情结构、节奏、伏笔和章节 handoff，不写正文也不维护 simulation state。",
 } as const;
 
-export const InputSchema = DirectorInputSchema;
+export const InitialSchema = DirectorInitialSchema;
 export const OutputSchema = DirectorOutputSchema;
 
-export type Input = Static<typeof InputSchema>;
+export type Initial = Static<typeof InitialSchema>;
 export type Output = Static<typeof OutputSchema>;
 
 export default defineAgentProfile({
     manifest: profileManifest,
-    inputSchema: InputSchema,
+    initialSchema: InitialSchema,
     outputSchema: OutputSchema,
     tools: toolset(
         builtin.file.read,
@@ -56,7 +56,7 @@ export default defineAgentProfile({
                     <Message><Import path="reference/agent/project-workspace-guide.md" /></Message>
                 </HistorySet>
                 <ModelContext>
-                    <Message>{renderRuntimeInput(ctx.input)}</Message>
+                    <Message>{renderRuntimeInput(ctx.initial)}</Message>
                 </ModelContext>
                 <AppendingSet>
                     <RuntimeLocationReminder />
@@ -131,7 +131,7 @@ function renderSystemPrompt(): string {
     `;
 }
 
-function renderRuntimeInput(input: Input): string {
+function renderRuntimeInput(input: Initial): string {
     return profileText`
         <director_input>
         projectPath: ${input.projectPath}

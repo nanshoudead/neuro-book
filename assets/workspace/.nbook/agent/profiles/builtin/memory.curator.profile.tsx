@@ -3,7 +3,7 @@
 import {type Static} from "typebox";
 import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
 import {builtin, toolset} from "nbook/server/agent/profiles/profile-tools";
-import {MemoryCuratorInputSchema, MemoryCuratorOutputSchema} from "nbook/server/agent/profiles/builtin-contracts";
+import {MemoryCuratorInitialSchema, MemoryCuratorOutputSchema} from "nbook/server/agent/profiles/builtin-contracts";
 import {Message, ModelContext, ProfilePrompt, System} from "nbook/server/agent/profiles/profile-dsl";
 import {profileText} from "nbook/server/agent/profiles/profile-text";
 
@@ -13,15 +13,15 @@ export const profileManifest = {
     description: "通用记忆整理器：根据 facts 和当前 memory 集合产出 JSON Patch，由工具层校验并写回。",
 } as const;
 
-export const InputSchema = MemoryCuratorInputSchema;
+export const InitialSchema = MemoryCuratorInitialSchema;
 export const OutputSchema = MemoryCuratorOutputSchema;
 
-export type Input = Static<typeof InputSchema>;
+export type Initial = Static<typeof InitialSchema>;
 export type Output = Static<typeof OutputSchema>;
 
 export default defineAgentProfile({
     manifest: profileManifest,
-    inputSchema: InputSchema,
+    initialSchema: InitialSchema,
     outputSchema: OutputSchema,
     tools: toolset(
         builtin.result.main({dataSchema: OutputSchema}),
@@ -32,7 +32,7 @@ export default defineAgentProfile({
             <ProfilePrompt>
                 <System>{renderSystemPrompt()}</System>
                 <ModelContext>
-                    <Message>{renderInput(ctx.input)}</Message>
+                    <Message>{renderInput(ctx.initial)}</Message>
                 </ModelContext>
             </ProfilePrompt>
         );
@@ -74,7 +74,7 @@ function renderSystemPrompt(): string {
     `;
 }
 
-function renderInput(input: Input): string {
+function renderInput(input: Initial): string {
     return profileText`
         <memory_curator_input>
         subjectPath: ${input.subjectPath}

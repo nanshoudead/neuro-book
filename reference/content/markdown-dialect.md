@@ -14,7 +14,7 @@
 不适用范围：
 
 - 工具调用路径。
-- `writer.chapterPaths`、`writer.lorebookEntries`、`create_agent.input` 等结构化参数。
+- `writer.chapterPaths`、`writer.lorebookEntries`、`create_agent.initial` 等结构化参数。
 - Plot / SQL / variable tool 的 JSON 参数。
 
 工具调用和结构化参数必须继续使用对应工具要求的路径格式；不要把正文内部 Markdown 链接当成工具路径。

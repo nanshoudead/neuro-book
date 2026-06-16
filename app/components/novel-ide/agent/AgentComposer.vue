@@ -176,7 +176,13 @@ const sendButtonTitle = computed(() => {
 const expandButtonTitle = computed(() => composerExpanded.value ? "收起大文本编辑" : "展开大文本编辑");
 const expandButtonIcon = computed(() => composerExpanded.value ? "i-lucide-minimize-2" : "i-lucide-maximize-2");
 
-const queuedMessageText = (item: AgentQueuedMessageDto): string => item.message.text.trim();
+const queuedMessageText = (item: AgentQueuedMessageDto): string => {
+    const text = item.message?.text.trim();
+    if (text) {
+        return text;
+    }
+    return item.input === undefined ? "" : JSON.stringify(item.input);
+};
 
 const queuedMessageIcon = (item: AgentQueuedMessageDto): string => item.kind === "steer" ? "i-lucide-corner-down-left" : "i-lucide-list-plus";
 

@@ -135,14 +135,32 @@ export class AgentProfileCatalog {
     }
 
     /**
-     * 解析并校验 profile input。
+     * 解析并校验 profile initial。
      */
-    parseInput(profile: AgentProfile, input: JsonValue): JsonValue {
+    parseInitial(profile: AgentProfile, initial: JsonValue): JsonValue {
         try {
-            return Value.Parse(profile.inputSchema, input) as JsonValue;
+            return Value.Parse(profile.initialSchema, initial) as JsonValue;
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
-            throw new Error(`profile ${profile.manifest.key} input 校验失败：${message}`);
+            throw new Error(`profile ${profile.manifest.key} initial 校验失败：${message}`);
+        }
+    }
+
+    /**
+     * 解析并校验单次 invocation payload。未声明 PayloadSchema 的 profile 不接受 payload。
+     */
+    parsePayload(profile: AgentProfile, payload: JsonValue | undefined): JsonValue | undefined {
+        if (payload === undefined) {
+            return undefined;
+        }
+        if (!profile.payloadSchema) {
+            throw new Error(`profile ${profile.manifest.key} 未声明 PayloadSchema，不能接收 invocation input。`);
+        }
+        try {
+            return Value.Parse(profile.payloadSchema, payload) as JsonValue;
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            throw new Error(`profile ${profile.manifest.key} payload 校验失败：${message}`);
         }
     }
 
@@ -156,7 +174,8 @@ export class AgentProfileCatalog {
             name: profile.manifest.name,
             description: profile.manifest.description,
             toolKeys: profile.rootToolKeys,
-            inputSchema: profile.inputSchema,
+            initialSchema: profile.initialSchema,
+            payloadSchema: profile.payloadSchema,
             outputSchema: profile.outputSchema,
             source,
             sourcePath,
@@ -371,7 +390,7 @@ export class AgentProfileCatalog {
             value
             && typeof value === "object"
             && "manifest" in value
-            && "inputSchema" in value
+            && "initialSchema" in value
             && "tools" in value
             && "rootToolKeys" in value
             && "prepare" in value
@@ -380,7 +399,7 @@ export class AgentProfileCatalog {
     }
 
     private profileIssueCode(value: unknown): AgentProfileIssueCode {
-        if (value && typeof value === "object" && !("inputSchema" in value)) {
+        if (value && typeof value === "object" && !("initialSchema" in value)) {
             return "schema_missing";
         }
         return "invalid_export";
@@ -394,14 +413,15 @@ export class AgentProfileCatalog {
         if (!builtin?.builtin) {
             return {profile};
         }
-        const inputChanged = !this.sameSchema(profile.inputSchema, builtin.profile.inputSchema);
+        const initialChanged = !this.sameSchema(profile.initialSchema, builtin.profile.initialSchema);
+        const payloadChanged = !this.sameSchema(profile.payloadSchema, builtin.profile.payloadSchema);
         const outputChanged = !this.sameSchema(profile.outputSchema, builtin.profile.outputSchema);
-        if (!inputChanged && !outputChanged) {
+        if (!initialChanged && !payloadChanged && !outputChanged) {
             return {profile};
         }
         const issue: AgentProfileIssue = {
             code: "builtin_schema_locked",
-            message: `builtin profile ${profile.manifest.key} 的 Input/Output schema 被锁定，运行时将继续使用内置 schema。`,
+            message: `builtin profile ${profile.manifest.key} 的 Initial/Payload/Output schema 被锁定，运行时将继续使用内置 schema。`,
             profileKey: profile.manifest.key,
             source,
             sourcePath,
@@ -409,7 +429,8 @@ export class AgentProfileCatalog {
         return {
             profile: {
                 ...profile,
-                inputSchema: builtin.profile.inputSchema,
+                initialSchema: builtin.profile.initialSchema,
+                payloadSchema: builtin.profile.payloadSchema,
                 outputSchema: builtin.profile.outputSchema,
             },
             issue,

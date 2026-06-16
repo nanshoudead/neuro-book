@@ -230,7 +230,7 @@ export const PreviewProfileTemplateRequestDtoSchema = z.object({
     source: z.string().optional(),
     root: ProfileTemplateNodeDtoSchema.optional(),
     threadId: z.string().trim().min(1).optional(),
-    inputOverrides: z.record(z.string(), z.json()).optional(),
+    initialOverrides: z.record(z.string(), z.json()).optional(),
 }).refine((value) => value.source !== undefined || value.root !== undefined, {
     message: "source 和 root 至少提供一个",
 });

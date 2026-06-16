@@ -40,7 +40,7 @@
   - 原始 `usage` 转为简洁 `stats`，只保留 input/output/total token 和耗时。
 - Workbench、profile docs、leader 协作说明和相关 tests 同步更新。
 
-## Current State
+## Initial State
 
 - profile DSL 当前使用 `inputSchema`，builtin profiles 常导出 `InputSchema`，`ctx.input` 表示创建期初始化数据。
 - `ProfilePrepareContext.invocation.input` 当前只是从 pending user message 派生的 `{message}`，不是 profile-aware payload。
@@ -52,6 +52,15 @@
 - `get_agent_profile` 工具当前只接受 `{ profileKey }`，返回 `source`、`inputSchema`、`outputSchema`、`reportResultSchema`、`reportSidecarResultSchema`、`toolKeys`。其中 `source` 实际是 profile 文件来源 `memory | system | user`，不是 caller/source。
 - `invoke_agent` 工具当前直接返回 `JSON.stringify(InvokeAgentResult)`，会暴露 `invocationId`、完整 usage、`finalMessage` 和 `reportResult` 二分结构。
 - Harness 黑盒合同已定义 `prompt` / `continue` / `steer` / `followup` 在 `Idle`、`Running`、`WaitingUser`、`Aborting` 下的 admission、queue、session writes 和 SSE 语义。
+
+## Implemented State
+
+- profile DSL、catalog、harness、HTTP DTO、Workbench DTO、builtin profiles 和 active reference 已硬切到 `initialSchema` / `InitialSchema`；runtime/profile context 使用 `ctx.initial`。
+- profile 可声明 `payloadSchema` / `PayloadSchema`；HTTP/API invoke 的 `input` 和 agent tool `invoke_agent.input` 会映射为 harness `payload` 并按目标 profile 校验。未声明 `PayloadSchema` 的 profile 收到 payload 会报错。
+- HTTP/API invoke 已增加 `title` 与 per-invoke `input` payload；API 不接收 caller。
+- `invoke_agent` 工具已支持 `prompt | continue | steer | followup`、`message?: string`、`input?: Record<string, JsonValue>`、`title?`，并保持为 HTTP/API invoke 的 agent-facing 子集。
+- `get_agent_profile` 保持 `{ profileKey }` 参数，只返回 agent 需要的 `initialSchema`、`payloadSchema`、`outputSchema` 和 `toolKeys` 摘要，不暴露 `source` / report schema。
+- `invoke_agent` 返回已收敛为 `result.message/data` 与简洁 `stats`；`finalMessage`、`invocationId`、原始 `usage`、`reportResult` 二分结构不再作为 agent-facing 字段暴露。
 
 ## Decisions / Discussion
 
@@ -370,20 +379,32 @@ agent-facing 返回统一为：
 
 ## Verification / Test
 
-- 本 task 创建阶段未改生产代码，未运行测试。
-- 实现阶段按 Phase 8 执行验证；若 profile compile 或 harness tests 暴露旧命名残留，优先修正源代码和 compiled artifact，而不是添加兼容别名。
+- `bun scripts/build/profile.ts check --all --system`：通过。
+- `bun scripts/build/profile.ts compile --all --system`：通过，重新生成 12 个系统 profile artifact。
+- `bun scripts/build/profile.ts status --all --system`：通过，12 个系统 profile 均为 `loaded`。
+- `bun scripts/build/prepare-system-assets.ts`：通过，准备 1 个变量 definition 文件与 12 个系统 profile。
+- `bun test <源码绝对路径>/server/agent/profiles/profile-dsl.test.ts <源码绝对路径>/server/agent/profiles/catalog.test.ts <源码绝对路径>/server/agent/harness/neuro-agent-harness-payload.test.ts <源码绝对路径>/server/agent/tools/agent-collaboration-tools.test.ts <源码绝对路径>/shared/dto/agent-session.dto.test.ts <源码绝对路径>/server/agent/http.test.ts <源码绝对路径>/server/agent/profiles/leader-assets-profile.test.ts <源码绝对路径>/server/agent/profiles/rp-profiles.test.ts <源码绝对路径>/server/agent/profiles/simulation-director-profiles.test.ts`：通过，共 100 个测试通过。使用绝对路径是为了避免 Bun 同时匹配 `product/` staged output 镜像测试。
+- `rg -n "inputSchema|InputSchema|ctx\\.input|metadata\\.input|parseInput|profile\\.inputSchema|createAgent\\(\\{[^\\n]*input|createSession\\(\\{[^\\n]*input" server\\agent shared\\dto app\\components\\profile-template-editor assets\\workspace\\.nbook\\agent\\profiles\\builtin reference\\agent reference\\content docs\\agent docs\\profile docs\\profile-tsx docs\\tutorials -S`：未发现本任务旧 profile 合同残留；命中的 `StoryRefsInputSchema`、`PiModelInputSchema`、`RequestUserInputSchema` 等是其他领域的普通 schema 命名。
+- `bun run typecheck`：未通过。剩余错误不再是本任务旧合同迁移问题，集中在 `AgentSessionTreeDialog.vue`、`agent-suggestion.test.ts`、`ProfileTemplateNodeView.vue`、`server/agent/harness/compaction.ts`、`silly-tavern-card-cli.test.ts` 的既有或相邻 strict 类型债务。
 
 ## Implementation Walkthrough
 
 - 2026-06-16：创建 task。根据用户决策记录硬切方案：`inputSchema` 改为 `initialSchema`，新增 `payloadSchema`；HTTP/API invoke 增加 `title` 和 payload；agent tool invoke 扩展到 `prompt/continue/steer/followup` 且支持 `message?: string` 与 `input?: object`；`get_agent_profile` 保持 `{profileKey}` 参数并精简返回；`invoke_agent` 返回统一 `result`。
+- 2026-06-16：实现首批生产路径硬切：核心 profile/catalog/harness/session 类型改为 `initialSchema` / `payloadSchema`；HTTP create 使用 `initial`，HTTP invoke 的 `input` 映射为 per-invoke payload；`invoke_agent` 支持 `prompt | continue | steer | followup`、`message?: string`、`input?: object` 和 compact `result/stats` 返回；`get_agent_profile` agent-facing 返回精简为 schema/tool 摘要。
+- 2026-06-16：迁移 builtin profiles 源码和系统 compiled artifacts，`writer`、`summarizer`、`rp.writer` 等生产 profile 均通过 system profile check/compile/status；Workbench DTO 与 profile detail 从 `inputSchema` 切到 `initialSchema` / `payloadSchema`，prepare preview 请求切到 `initial` / `initialOverrides`。
+- 2026-06-16：更新 active reference 和状态文档：`reference/agent/leader-default.md`、`reference/agent/profile-guide.md`、`docs/agent/tools.md` 和 `PROJECT-STATUS.md` 已记录新合同。
+- 2026-06-16：补齐 targeted verification。旧 `inputSchema` / `ctx.input` / `metadata.input` / `createAgent({ input })` / `createSession({ input })` 合同在 active agent/profile 范围内已清理；全仓 typecheck 剩余为本任务之外的 UI/test/union narrowing 类型债务。
+- 2026-06-16：验证注意事项：相对路径运行同一组测试时，Bun 会额外匹配 `product/server/...` 和 `product/shared/...` staged output 镜像测试，导致 product 旧构建输出参与运行并失败；源码绝对路径目标测试通过。`assets/workspace/.nbook/agent/profiles/builtin/*test.ts` 测试文件当前不在工作区内，未作为最终验证项记录。
+- 2026-06-16：completion audit 补漏：修正 `leader.assets` prompt 中旧 `finalMessage` / `report_result schema` 说明，改为 `invoke_agent.result.message/data` 和 `get_agent_profile` 的 `InitialSchema` / `PayloadSchema` / `OutputSchema` / `toolKeys` 摘要；同步清理 `PROJECT-STATUS.md` 中旧 `ctx.input` 术语。重新执行 profile check/compile/status、prepare-system-assets 和 100 个目标测试，均通过。
 
 ## TODO / Follow-ups
 
-- [ ] Phase 1：Profile DSL 类型硬切。
-- [ ] Phase 2：Harness invoke payload 接入。
-- [ ] Phase 3：HTTP DTO/API 接入。
-- [ ] Phase 4：Agent collaboration tools 接入。
-- [ ] Phase 5：Builtin profiles 与 compiled artifacts 迁移。
-- [ ] Phase 6：Workbench 与 DTO 文案迁移。
-- [ ] Phase 7：Docs、prompts、PROJECT-STATUS 同步。
-- [ ] Phase 8：验证并记录实际结果。
+- [x] Phase 1：Profile DSL 类型硬切。
+- [x] Phase 2：Harness invoke payload 接入。
+- [x] Phase 3：HTTP DTO/API 接入。
+- [x] Phase 4：Agent collaboration tools 接入。
+- [x] Phase 5：Builtin profiles 与 compiled artifacts 迁移。
+- [x] Phase 6：Workbench 与 DTO 文案迁移。
+- [x] Phase 7：Docs、prompts、PROJECT-STATUS 同步。
+- [x] Phase 8：迁移测试 fixture，完成 profile/harness/tool/API targeted verification。
+- [ ] Follow-up：清理全仓 typecheck 剩余的 UI/test/union narrowing 类型债务；这些错误当前不再属于 initial/payload 合同迁移残留。

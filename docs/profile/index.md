@@ -10,7 +10,7 @@ Profile 定义一个 Agent 的行为边界。NeuroBook v3 中，profile 就是 a
 
 - `manifest.key`：稳定 profile key，例如 `leader.default`。
 - `manifest.name`：用户可见名称。
-- `inputSchema`：创建 session 时的输入合同。
+- `initialSchema`：创建 session 时的输入合同。
 - `outputSchema`：需要结构化结果时的输出合同。
 - `tools`：这个 profile 的根工具绑定对象，决定模型可见工具 schema 和最大工具权限。
 - `toolKeys`：可选，收窄主 run 实际可执行工具；不声明时等于根 `tools` 的全部 key。

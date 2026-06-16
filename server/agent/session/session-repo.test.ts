@@ -39,14 +39,14 @@ describe("JsonlSessionRepository", () => {
     it("创建 session 使用全局递增 ID 并 reduce active path", async () => {
         const first = await repo.createSession({
             profileKey: "leader.default",
-            input: {},
+            initial: {},
             workspaceRoot: root,
             workspaceKey: "global",
             title: "first",
         });
         const second = await repo.createSession({
             profileKey: "leader.default",
-            input: {},
+            initial: {},
             workspaceRoot: root,
             workspaceKey: "novel-a",
             title: "second",
@@ -75,14 +75,14 @@ describe("JsonlSessionRepository", () => {
     it("workspace session 列表只读取指定 workspaceKey", async () => {
         const workspaceSession = await repo.createSession({
             profileKey: "leader.default",
-            input: {},
+            initial: {},
             workspaceRoot: "workspace",
             workspaceKey: "workspace",
             title: "workspace session",
         });
         const projectSession = await repo.createSession({
             profileKey: "leader.default",
-            input: {},
+            initial: {},
             workspaceRoot: "workspace/novel-7",
             workspaceKey: "workspace/novel-7",
             projectPath: "workspace/novel-7",
@@ -90,7 +90,7 @@ describe("JsonlSessionRepository", () => {
         });
         const userAssetsSession = await repo.createSession({
             profileKey: "leader.assets",
-            input: {},
+            initial: {},
             workspaceRoot: "workspace/.nbook",
             workspaceKey: "user-assets",
             title: "assets session",
@@ -108,7 +108,7 @@ describe("JsonlSessionRepository", () => {
     it("session summary 累加 active path 中所有 assistant usage", async () => {
         const session = await repo.createSession({
             profileKey: "leader.default",
-            input: {},
+            initial: {},
             workspaceRoot: root,
             workspaceKey: "global",
         });
@@ -125,13 +125,13 @@ describe("JsonlSessionRepository", () => {
         const summary = repo.summary(await repo.readSession(session.metadata.sessionId));
 
         expect(summary.usage).toMatchObject({
-            input: 30,
+            initial: 30,
             output: 10,
             cacheRead: 6,
             cacheWrite: 1,
             totalTokens: 47,
             cost: {
-                input: 30,
+                initial: 30,
                 output: 10,
                 cacheRead: 6,
                 cacheWrite: 1,
@@ -143,7 +143,7 @@ describe("JsonlSessionRepository", () => {
     it("session summary usage 不受 compaction 删除上下文影响", async () => {
         const session = await repo.createSession({
             profileKey: "leader.default",
-            input: {},
+            initial: {},
             workspaceRoot: root,
             workspaceKey: "global",
         });
@@ -166,7 +166,7 @@ describe("JsonlSessionRepository", () => {
 
         expect(repo.reduce(snapshot).messages.map((message) => message.role)).toEqual(["user", "assistant"]);
         expect(repo.summary(snapshot).usage).toMatchObject({
-            input: 110,
+            initial: 110,
             output: 22,
             totalTokens: 132,
         });
@@ -175,14 +175,14 @@ describe("JsonlSessionRepository", () => {
     it("session 列表支持 profile、状态、关系和数量筛选", async () => {
         const leader = await repo.createSession({
             profileKey: "leader.default",
-            input: {},
+            initial: {},
             workspaceRoot: "workspace",
             workspaceKey: "workspace",
             title: "leader",
         });
         await repo.createSession({
             profileKey: "writer",
-            input: {},
+            initial: {},
             workspaceRoot: "workspace",
             workspaceKey: "workspace",
             parentSessionId: leader.metadata.sessionId,
@@ -190,21 +190,21 @@ describe("JsonlSessionRepository", () => {
         });
         const assetsLeader = await repo.createSession({
             profileKey: "leader.assets",
-            input: {},
+            initial: {},
             workspaceRoot: "workspace/.nbook",
             workspaceKey: "workspace",
             title: "assets leader",
         });
         await repo.createSession({
             profileKey: "rp.leader",
-            input: {},
+            initial: {},
             workspaceRoot: "workspace",
             workspaceKey: "workspace",
             title: "rp leader",
         });
         await repo.createSession({
             profileKey: "simulator.leader",
-            input: {},
+            initial: {},
             workspaceRoot: "workspace",
             workspaceKey: "workspace",
             title: "simulator leader",
@@ -251,14 +251,14 @@ describe("JsonlSessionRepository", () => {
     it("session 列表默认隐藏 system session，includeSystem 时显示", async () => {
         const leader = await repo.createSession({
             profileKey: "leader.default",
-            input: {},
+            initial: {},
             workspaceRoot: "workspace",
             workspaceKey: "workspace",
             title: "leader",
         });
         const summarizer = await repo.createSession({
             profileKey: "summarizer",
-            input: {sourceSessionId: leader.metadata.sessionId},
+            initial: {sourceSessionId: leader.metadata.sessionId},
             workspaceRoot: "workspace",
             workspaceKey: "workspace",
             systemRole: "summarizer",
@@ -279,7 +279,7 @@ describe("JsonlSessionRepository", () => {
     it("active leaf scoped projection 只影响绑定的分支", async () => {
         const session = await repo.createSession({
             profileKey: "leader.default",
-            input: {},
+            initial: {},
             workspaceRoot: root,
             workspaceKey: "global",
             title: "base",
@@ -338,7 +338,7 @@ describe("JsonlSessionRepository", () => {
     it("active leaf scoped projection 在绑定 leaf 之后的同一路径继续生效", async () => {
         const session = await repo.createSession({
             profileKey: "leader.default",
-            input: {},
+            initial: {},
             workspaceRoot: root,
             workspaceKey: "global",
             title: "base",
@@ -376,7 +376,7 @@ describe("JsonlSessionRepository", () => {
     it("支持 leaf 移动和 fork，历史不删除", async () => {
         const session = await repo.createSession({
             profileKey: "leader.default",
-            input: {},
+            initial: {},
             workspaceRoot: root,
             workspaceKey: "global",
         });
@@ -405,7 +405,7 @@ describe("JsonlSessionRepository", () => {
     it("tree 返回消息展示元数据和终端节点信息", async () => {
         const session = await repo.createSession({
             profileKey: "leader.default",
-            input: {},
+            initial: {},
             workspaceRoot: root,
             workspaceKey: "global",
         });
@@ -452,7 +452,7 @@ describe("JsonlSessionRepository", () => {
     it("appendEntries 以单条 batch record 写入多条 entry 并只移动一次 leaf", async () => {
         const session = await repo.createSession({
             profileKey: "leader.default",
-            input: {},
+            initial: {},
             workspaceRoot: root,
             workspaceKey: "global",
         });
@@ -488,7 +488,7 @@ describe("JsonlSessionRepository", () => {
     it("linked agent 关系按 session 全量 entry reduce，不受 active path 分支影响", async () => {
         const session = await repo.createSession({
             profileKey: "leader.default",
-            input: {},
+            initial: {},
             workspaceRoot: root,
             workspaceKey: "global",
         });

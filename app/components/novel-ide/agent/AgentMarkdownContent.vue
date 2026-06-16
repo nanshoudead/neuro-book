@@ -10,6 +10,8 @@ const props = defineProps<{
     html?: string;
     /** 流式输出期间降频渲染 Markdown，减少主线程连续解析压力。 */
     streaming?: boolean;
+    /** 打开 Markdown 渲染出的 workspace 引用 chip。 */
+    openReference?: (target: string) => void;
 }>();
 
 const sanitizeHtml = inject<Ref<((html: string) => string) | null> | null>("sanitizeHtml", null);
@@ -73,6 +75,23 @@ const scheduleStreamingRender = (): void => {
     }, waitMs);
 };
 
+/** 委托处理 workspace 引用 chip 点击。 */
+const handleReferenceClick = (event: MouseEvent): void => {
+    if (!props.openReference) {
+        return;
+    }
+    const chip = event.target instanceof Element
+        ? event.target.closest<HTMLElement>(".nb-reference-chip[data-reference-target]")
+        : null;
+    const target = chip?.dataset.referenceTarget ?? "";
+    if (!target) {
+        return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    props.openReference(target);
+};
+
 watch([
     () => props.content,
     () => props.html,
@@ -92,7 +111,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-    <div :class="['agent-markdown', `theme-${MARKDOWN_THEME}`]" v-html="renderedHtml"></div>
+    <div :class="['agent-markdown', `theme-${MARKDOWN_THEME}`, {'is-reference-clickable': Boolean(props.openReference)}]" @click="handleReferenceClick" v-html="renderedHtml"></div>
 </template>
 
 <style>
@@ -124,6 +143,13 @@ onUnmounted(() => {
 }
 .agent-markdown :deep(pre code) {
     white-space: pre-wrap;
+}
+.agent-markdown.is-reference-clickable :deep(.nb-reference-chip[data-reference-target]) {
+    cursor: pointer;
+}
+.agent-markdown.is-reference-clickable :deep(.nb-reference-chip[data-reference-target]:hover) {
+    border-color: color-mix(in srgb, currentColor 30%, transparent);
+    background: color-mix(in srgb, currentColor 14%, var(--bg-panel));
 }
 
 /* 默认自带旧有样式 */

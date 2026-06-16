@@ -3,7 +3,7 @@
 import type {Static} from "typebox";
 import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
 import {builtin, toolset} from "nbook/server/agent/profiles/profile-tools";
-import {RpLeaderInputSchema, RpLeaderOutputSchema} from "nbook/server/agent/profiles/builtin-contracts";
+import {RpLeaderInitialSchema, RpLeaderOutputSchema} from "nbook/server/agent/profiles/builtin-contracts";
 import {AgentCatalog, AppendingSet, HistorySet, Import, LinkedAgentsReminder, Message, ModelContext, ProfilePrompt, RuntimeLocationReminder, System, WorkspaceFocusReminder} from "nbook/server/agent/profiles/profile-dsl";
 import {profileText} from "nbook/server/agent/profiles/profile-text";
 
@@ -13,15 +13,15 @@ export const profileManifest = {
     description: "RP 主持与编剧层：负责开局引导、IC/OOC 审查、把世界变化交给 simulator.leader 裁决、以用户化身视角编剧 Writer Brief 并调用 rp.writer，最后组装正文链接与元场景。",
 } as const;
 
-export const InputSchema = RpLeaderInputSchema;
+export const InitialSchema = RpLeaderInitialSchema;
 export const OutputSchema = RpLeaderOutputSchema;
 
-export type Input = Static<typeof InputSchema>;
+export type Initial = Static<typeof InitialSchema>;
 export type Output = Static<typeof OutputSchema>;
 
 export default defineAgentProfile({
     manifest: profileManifest,
-    inputSchema: InputSchema,
+    initialSchema: InitialSchema,
     outputSchema: OutputSchema,
     tools: toolset(
         builtin.file.read,
@@ -104,7 +104,7 @@ function renderSystemPrompt(): string {
         1. 使用 <rp_leader_input>.manualRoot、<rp_leader_input>.simulationRoot 读取手册、agent-context/rp.leader/ 和必要的初始状态。
         2. 如需建立或确认初始运行态，调用 simulator.leader 产出初始化裁决 / report / state commit 建议。
         3. 生成开场白 Writer Brief；<context> 通常为空，<beats> 写开局处境和第一选择点，Brief 末尾必须写带 Project slug 的路径，例如：prose 输出路径：project-slug/simulation/runs/ticks/000000-initial-state/prose.md。
-        4. 为这份 prose artifact 创建一个新的 rp.writer session：create_agent({profileKey: "rp.writer", input: {}, title})，随后 invoke_agent message 直接发送完整 Writer Brief，让 writer 自检并写入 prose.md。
+        4. 为这份 prose artifact 创建一个新的 rp.writer session：create_agent({profileKey: "rp.writer", initial: {}, title})，随后 invoke_agent message 直接发送完整 Writer Brief，让 writer 自检并写入 prose.md。
         5. 你的最终回复只放正文链接和小屋 / 元场景引导，例如询问“你醒来后第一件事做什么？”；不要把开场白正文直接写在 assistant 消息里。
 
         每个常规 tick（用户输入 → 世界推进 → 等待下一条指令）按以下流程执行：
@@ -125,8 +125,8 @@ function renderSystemPrompt(): string {
         ### 第 3 步：调用 rp.writer 写正文
 
         拿到 simulator 的结果后，执行单通道 Writer Brief 流程（详见上方"准备 Writer Brief"）：
-        - 每个 prose artifact 使用一个新的 rp.writer session：create_agent({profileKey: "rp.writer", input: {}, title})
-        - invoke_agent 时把完整 Writer Brief 放进 message；不要把 Brief 放进 create_agent input，也不要空 continue。
+        - 每个 prose artifact 使用一个新的 rp.writer session：create_agent({profileKey: "rp.writer", initial: {}, title})
+        - invoke_agent 时把完整 Writer Brief 放进 message；不要把 Brief 放进 create_agent initial，也不要空 continue。
         - writer 会自检材料：如果 report_result.result 提问，你修改/扩展原 Writer Brief，再次发送完整新版 Brief；如果无阻塞，它会写入 Brief 指定路径并用 report_result.result 汇报落点。
 
         ### 第 4 步：组装回复
@@ -169,8 +169,8 @@ function renderSystemPrompt(): string {
         **rp.writer 调用流程**：
 
         1. 为本次 prose artifact 创建新的 writer：
-           - create_agent({profileKey: "rp.writer", input: {}, title: "rp.writer: {tick-id-or-scene}"})
-           - profile input 必须是空对象；不要在 input 中携带 Brief。
+           - create_agent({profileKey: "rp.writer", initial: {}, title: "rp.writer: {tick-id-or-scene}"})
+           - profile initial 必须是空对象；不要在 initial 中携带 Brief。
 
         2. 发送完整 Brief：
            - invoke_agent({sessionId, message: writerBrief})
@@ -254,7 +254,7 @@ function renderRuntimeInput(projectPath: string | undefined): string {
         simulationRoot: ${projectSlug}/simulation/
         initialProsePath: ${projectSlug}/simulation/runs/ticks/000000-initial-state/prose.md
         proseOutputPathPattern: ${projectSlug}/simulation/runs/ticks/{id}-{slug}/prose.md
-        mode: 每轮任务 prompt 指定；profile input 不保存稳定模式。
+        mode: 每轮任务 prompt 指定；profile initial 不保存稳定模式。
         </rp_leader_input>
     `;
 }

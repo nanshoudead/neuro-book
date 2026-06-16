@@ -47,7 +47,7 @@ If `maxBytes` truncates the import, a short marker is placed before the block:
 Recommended placement:
 
 - Stable shared references: `HistorySet > Message > Import`.
-- Temporary or run-specific context: do not use `Import`; use profile input, variables, runtime reminders, sidecars, or file tools instead.
+- Temporary or run-specific context: do not use `Import`; use profile initial, variables, runtime reminders, sidecars, or file tools instead.
 - System identity and profile-specific behavior should remain in `<System>`.
 
 `Import` can be used anywhere a string fragment is valid, including `<System>` and `<Message>`. For long project specs, prefer `HistorySet` so the content becomes the initial stable prompt prefix.

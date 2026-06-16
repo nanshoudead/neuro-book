@@ -57,7 +57,7 @@ export const AgentResolutionDtoSchema = z.discriminatedUnion("kind", [
 
 export const AgentCreateSessionRequestDtoSchema = z.object({
     profileKey: z.string().trim().min(1, "profileKey 不能为空"),
-    input: JsonValueSchema.optional(),
+    initial: JsonValueSchema.optional(),
     workspaceRoot: z.string().trim().min(1).optional(),
     workspaceKey: z.string().trim().min(1).optional(),
     projectPath: z.string().trim().min(1).optional(),
@@ -67,23 +67,25 @@ export const AgentCreateSessionRequestDtoSchema = z.object({
 export const AgentInvokeRequestDtoSchema = z.object({
     mode: z.enum(["prompt", "continue", "steer", "followup"]),
     message: AgentUserMessageInputDtoSchema.optional(),
+    input: JsonValueSchema.optional(),
+    title: z.string().trim().min(1).optional(),
     resolution: AgentResolutionDtoSchema.optional(),
     clientState: z.lazy(() => ClientVariablesDtoSchema).optional(),
     caller: z.never().optional(),
     block: z.boolean().optional(),
 }).superRefine((value, ctx) => {
-    if ((value.mode === "prompt" || value.mode === "steer" || value.mode === "followup") && !value.message) {
+    if ((value.mode === "prompt" || value.mode === "steer" || value.mode === "followup") && !value.message && value.input === undefined) {
         ctx.addIssue({
             code: "custom",
             path: ["message"],
-            message: `${value.mode} 模式必须提供 message`,
+            message: `${value.mode} 模式必须提供 message 或 input`,
         });
     }
-    if (value.mode === "continue" && value.message) {
+    if (value.mode === "continue" && (value.message || value.input !== undefined)) {
         ctx.addIssue({
             code: "custom",
             path: ["message"],
-            message: "continue 模式不能提供 message",
+            message: "continue 模式不能提供 message 或 input",
         });
     }
 });
@@ -255,7 +257,8 @@ export type AgentPendingApprovalDto = {
 export type AgentQueuedMessageDto = {
     id: string;
     kind: "steer" | "followup";
-    message: AgentUserMessageInputDto;
+    message?: AgentUserMessageInputDto;
+    input?: JsonValue;
     createdAt: number;
 };
 

@@ -8,11 +8,12 @@ import type {ProfileTools} from "nbook/server/agent/profiles/profile-tools";
  * 定义一个 v3 Agent Profile。用户自定义 profile 必须通过这个函数导出。
  */
 export function defineAgentProfile<
-    const TInputSchema extends TSchema,
-    const TOutputSchema extends TSchema,
+    const TInitialSchema extends TSchema,
+    const TPayloadSchema extends TSchema = TSchema,
+    const TOutputSchema extends TSchema = TSchema,
     const TSummarizerKey extends string = string,
     const TTools extends ProfileTools = ProfileTools,
->(profile: AgentProfileDefinition<TInputSchema, TOutputSchema, TSummarizerKey, TTools>): AgentProfile<TInputSchema, TOutputSchema, TSummarizerKey, TTools> {
+>(profile: AgentProfileDefinition<TInitialSchema, TPayloadSchema, TOutputSchema, TSummarizerKey, TTools>): AgentProfile<TInitialSchema, TPayloadSchema, TOutputSchema, TSummarizerKey, TTools> {
     assertProfileManifest(profile.manifest);
     assertNoLegacyToolFields(profile.manifest.key, profile);
     const rootToolKeys = assertProfileTools(profile.manifest.key, profile.tools);
@@ -32,7 +33,7 @@ export function defineAgentProfile<
             validateProfileTurnPlan(profile.manifest.key, plan);
             return plan;
         }
-        : async (...args: Parameters<NonNullable<AgentProfile<TInputSchema, TOutputSchema>["prepare"]>>) => {
+        : async (...args: Parameters<NonNullable<AgentProfile<TInitialSchema, TPayloadSchema, TOutputSchema>["prepare"]>>) => {
             const ctx = args[0];
             const tree = await profile.context!(ctx);
             return compileProfileContext(profile, ctx, tree);

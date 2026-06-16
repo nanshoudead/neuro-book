@@ -30,7 +30,7 @@ async function main(): Promise<void> {
         });
         const agent = await harness.createAgent({
             profileKey: PROFILE_KEY,
-            input: {
+            initial: {
                 role: "smoke",
             },
             workspaceRoot,

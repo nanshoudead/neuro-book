@@ -205,8 +205,8 @@ const threads = ref<AgentSessionSummaryDto[]>([]);
 const selectedThreadId = ref("");
 const loadingThreads = ref(false);
 const previewVariableGroups = ref<PreviewVariableGroup[]>([]);
-const previewInputOverrides = ref<Record<string, string>>({
-    "input.prompt": "",
+const previewInitialOverrides = ref<Record<string, string>>({
+    "initial.prompt": "",
 });
 const componentSearch = ref("");
 const variableSearch = ref("");
@@ -560,7 +560,7 @@ async function previewTemplate(): Promise<void> {
                 body: {
                     source: sourceText.value,
                     sessionId: selectedThreadId.value || undefined,
-                    inputOverrides: normalizePreviewInputOverrides(),
+                    initialOverrides: normalizePreviewInitialOverrides(),
                 },
             });
         issues.value = result.issues;
@@ -616,7 +616,7 @@ async function previewPreparedProfileResult(): Promise<{
                 dryRun: true,
                 preview: true,
                 sessionId: selectedThreadId.value || undefined,
-                inputOverrides: normalizePreviewInputOverrides(),
+                initialOverrides: normalizePreviewInitialOverrides(),
             },
         });
         if (selectedTemplate.value !== submittedFileName || sourceText.value !== submittedSource) {
@@ -690,11 +690,11 @@ function buildAgentPreviewHeaders(): HeadersInit {
 }
 
 /**
- * 过滤空白输入覆盖，避免空值误伤真实线程输入。
+ * 过滤空白 initial 覆盖，避免空值误伤真实线程初始化数据。
  */
-function normalizePreviewInputOverrides(): Record<string, string> {
+function normalizePreviewInitialOverrides(): Record<string, string> {
     return Object.fromEntries(
-        Object.entries(previewInputOverrides.value)
+        Object.entries(previewInitialOverrides.value)
             .filter(([, value]) => value.trim().length > 0),
     );
 }
@@ -936,7 +936,7 @@ async function compileUserProfile(options: {notify?: boolean} = {}): Promise<Age
                 fileName: submittedFileName,
                 preview: true,
                 sessionId: selectedThreadId.value || undefined,
-                inputOverrides: normalizePreviewInputOverrides(),
+                initialOverrides: normalizePreviewInitialOverrides(),
             },
         });
         if (result.stale || selectedTemplate.value !== submittedFileName || sourceText.value !== submittedSource) {
@@ -1027,10 +1027,16 @@ function emptyProfileDetail(compileIssues: AgentProfileIssueDto[]): AgentProfile
         issues: compileIssues,
         variables: [],
         toolKeys: [],
-        inputSchema: {
+        initialSchema: {
             jsonSchema: null,
             editMode: "source",
-            reason: "编译失败，无法读取 InputSchema。",
+            reason: "编译失败，无法读取 InitialSchema。",
+            sourceRange: null,
+        },
+        payloadSchema: {
+            jsonSchema: null,
+            editMode: "source",
+            reason: "编译失败，无法读取 PayloadSchema。",
             sourceRange: null,
         },
         outputSchema: {
@@ -1145,7 +1151,7 @@ async function createSessionForProfile(): Promise<void> {
     try {
         const created = await agentApi.createSession({
             profileKey: selectedProfileKey.value,
-            input: {},
+            initial: {},
             workspaceRoot: novelIdeStore.workspaceKind === "user-assets" ? "workspace/.nbook" : novelIdeStore.currentWorkspaceRoot || undefined,
             workspaceKey: novelIdeStore.workspaceKind === "user-assets" ? "user-assets" : novelIdeStore.currentNovelId || "workspace",
             projectPath: novelIdeStore.workspaceKind === "user-assets" ? undefined : novelIdeStore.currentNovelId || undefined,
@@ -1159,14 +1165,14 @@ async function createSessionForProfile(): Promise<void> {
 }
 
 /**
- * 低代码保存用户 profile 的 InputSchema 或 OutputSchema。
+ * 低代码保存用户 profile 的 InitialSchema、PayloadSchema 或 OutputSchema。
  */
-async function saveProfileSchema(payload: {schemaName: "InputSchema" | "OutputSchema"; fields: AgentProfileSchemaFieldDto[]}): Promise<void> {
+async function saveProfileSchema(payload: {schemaName: "InitialSchema" | "PayloadSchema" | "OutputSchema"; fields: AgentProfileSchemaFieldDto[]}): Promise<void> {
     if (props.mode !== "user-profile" || !selectedTemplate.value || saving.value) {
         return;
     }
     void payload;
-    notification.error("TypeBox Schema Builder 第一版暂不开放写回，请在源码中编辑 InputSchema / OutputSchema。", {title: "请使用源码编辑"});
+    notification.error("TypeBox Schema Builder 第一版暂不开放写回，请在源码中编辑 InitialSchema / PayloadSchema / OutputSchema。", {title: "请使用源码编辑"});
 }
 
 /**
@@ -1508,11 +1514,11 @@ function ensureDerivedTreeEditable(): boolean {
  * 更新预览调试中的可编辑变量。
  */
 function updatePreviewVariable(item: PreviewVariableItem, value: string): void {
-    previewInputOverrides.value = {
-        ...previewInputOverrides.value,
+    previewInitialOverrides.value = {
+        ...previewInitialOverrides.value,
         [item.path]: value,
-        ...(item.path === "input.text" ? {"input.prompt": value} : {}),
-        ...(item.path === "input.prompt" ? {"input.text": value} : {}),
+        ...(item.path === "initial.text" ? {"initial.prompt": value} : {}),
+        ...(item.path === "initial.prompt" ? {"initial.text": value} : {}),
     };
 }
 
@@ -1520,7 +1526,7 @@ function updatePreviewVariable(item: PreviewVariableItem, value: string): void {
  * 读取变量在预览编辑器中的当前输入。
  */
 function previewVariableInputValue(item: PreviewVariableItem): string {
-    const draft = previewInputOverrides.value[item.path];
+    const draft = previewInitialOverrides.value[item.path];
     if (draft !== undefined) {
         return draft;
     }

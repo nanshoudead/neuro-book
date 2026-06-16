@@ -8,7 +8,7 @@ import simulatorActorProfile from "../../../assets/workspace/.nbook/agent/profil
 import simulatorLeaderProfile from "../../../assets/workspace/.nbook/agent/profiles/builtin/simulator.leader.profile";
 import {AgentProfileCatalog} from "nbook/server/agent/profiles/catalog";
 import {defaultAgentProfile} from "nbook/server/agent/profiles/default-profile";
-import {RpLeaderInputSchema, RpLeaderOutputSchema, RpWriterInputSchema, RpWriterOutputSchema, SimulatorLeaderInputSchema, SubjectSimulatorInputSchema, SubjectSimulatorOutputSchema} from "nbook/server/agent/profiles/builtin-contracts";
+import {RpLeaderInitialSchema, RpLeaderOutputSchema, RpWriterInitialSchema, RpWriterOutputSchema, SimulatorLeaderInitialSchema, SubjectSimulatorInitialSchema, SubjectSimulatorOutputSchema} from "nbook/server/agent/profiles/builtin-contracts";
 import {messageText} from "nbook/server/agent/messages/message-utils";
 import type {AgentMessage, Message} from "nbook/server/agent/messages/types";
 import type {RuntimeSessionFacade} from "nbook/server/agent/profiles/define-agent-runtime";
@@ -52,34 +52,34 @@ describe("RP builtin profiles", () => {
     }, 20_000);
 
     it("rp contracts 使用 RP 专用输入输出，不复用普通 writer chapterPaths", () => {
-        expect(SimulatorLeaderInputSchema.properties).toEqual({});
+        expect(SimulatorLeaderInitialSchema.properties).toEqual({});
 
-        expect(RpLeaderInputSchema.properties).toEqual({});
+        expect(RpLeaderInitialSchema.properties).toEqual({});
         expect(RpLeaderOutputSchema.properties).not.toHaveProperty("result");
 
-        expect(SubjectSimulatorInputSchema.properties).toHaveProperty("subjectPath");
-        expect(SubjectSimulatorInputSchema.properties).not.toHaveProperty("actorId");
-        expect(SubjectSimulatorInputSchema.properties).not.toHaveProperty("instructionPath");
-        expect(SubjectSimulatorInputSchema.properties).not.toHaveProperty("eventsPath");
-        expect(SubjectSimulatorInputSchema.properties).not.toHaveProperty("memoryPath");
-        expect(SubjectSimulatorInputSchema.properties).not.toHaveProperty("mindPath");
-        expect(SubjectSimulatorInputSchema.properties).not.toHaveProperty("statePath");
+        expect(SubjectSimulatorInitialSchema.properties).toHaveProperty("subjectPath");
+        expect(SubjectSimulatorInitialSchema.properties).not.toHaveProperty("actorId");
+        expect(SubjectSimulatorInitialSchema.properties).not.toHaveProperty("instructionPath");
+        expect(SubjectSimulatorInitialSchema.properties).not.toHaveProperty("eventsPath");
+        expect(SubjectSimulatorInitialSchema.properties).not.toHaveProperty("memoryPath");
+        expect(SubjectSimulatorInitialSchema.properties).not.toHaveProperty("mindPath");
+        expect(SubjectSimulatorInitialSchema.properties).not.toHaveProperty("statePath");
         expect(SubjectSimulatorOutputSchema.properties).toHaveProperty("visible_response");
         expect(SubjectSimulatorOutputSchema.properties).toHaveProperty("spoken_dialogue");
         expect(SubjectSimulatorOutputSchema.properties).toHaveProperty("inner_response");
         expect(SubjectSimulatorOutputSchema.properties).not.toHaveProperty("updates");
         expect(SubjectSimulatorOutputSchema.properties).not.toHaveProperty("questions");
 
-        expect(RpWriterInputSchema.properties).toEqual({});
-        expect(RpWriterInputSchema.properties).not.toHaveProperty("phase");
-        expect(RpWriterInputSchema.properties).not.toHaveProperty("brief");
-        expect(RpWriterInputSchema.properties).not.toHaveProperty("supplemental_brief");
-        expect(RpWriterInputSchema.properties).not.toHaveProperty("writerInstructionPath");
-        expect(RpWriterInputSchema.properties).not.toHaveProperty("style");
-        expect(RpWriterInputSchema.properties).not.toHaveProperty("outputRequirements");
-        expect(RpWriterInputSchema.properties).not.toHaveProperty("language");
-        expect(RpWriterInputSchema.properties).not.toHaveProperty("chapterPaths");
-        expect(RpWriterInputSchema.properties).not.toHaveProperty("lorebookEntries");
+        expect(RpWriterInitialSchema.properties).toEqual({});
+        expect(RpWriterInitialSchema.properties).not.toHaveProperty("phase");
+        expect(RpWriterInitialSchema.properties).not.toHaveProperty("brief");
+        expect(RpWriterInitialSchema.properties).not.toHaveProperty("supplemental_brief");
+        expect(RpWriterInitialSchema.properties).not.toHaveProperty("writerInstructionPath");
+        expect(RpWriterInitialSchema.properties).not.toHaveProperty("style");
+        expect(RpWriterInitialSchema.properties).not.toHaveProperty("outputRequirements");
+        expect(RpWriterInitialSchema.properties).not.toHaveProperty("language");
+        expect(RpWriterInitialSchema.properties).not.toHaveProperty("chapterPaths");
+        expect(RpWriterInitialSchema.properties).not.toHaveProperty("lorebookEntries");
         expect(RpWriterOutputSchema.properties).not.toHaveProperty("result");
         expect(RpWriterOutputSchema.properties).not.toHaveProperty("prose");
         expect(RpWriterOutputSchema.properties).not.toHaveProperty("summary");
@@ -96,7 +96,7 @@ describe("RP builtin profiles", () => {
                 archived: false,
                 planModeActive: false,
             }),
-            input: {},
+            initial: {},
             vars: createTestVariableAccessor(),
             catalog: {profiles: [], issues: []},
             skills: [],
@@ -106,7 +106,7 @@ describe("RP builtin profiles", () => {
         const modelContextText = messagesText(prepared.modelContextMessages);
         const appendingText = messagesText(prepared.appendingMessages);
 
-        expect(rpLeaderProfile.inputSchema).toBe(RpLeaderInputSchema);
+        expect(rpLeaderProfile.initialSchema).toBe(RpLeaderInitialSchema);
         expect(rpLeaderProfile.outputSchema).toBe(RpLeaderOutputSchema);
         expect(rpLeaderProfile.rootToolKeys).toEqual([
             "read",
@@ -143,7 +143,7 @@ describe("RP builtin profiles", () => {
         expect(systemPrompt).toContain("第 1 步：解读用户行动");
         expect(systemPrompt).toContain("第 2 步：世界模拟");
         expect(systemPrompt).toContain("准备 Writer Brief");
-        expect(systemPrompt).toContain("create_agent({profileKey: \"rp.writer\", input: {}, title})");
+        expect(systemPrompt).toContain("create_agent({profileKey: \"rp.writer\", initial: {}, title})");
         expect(systemPrompt).toContain("invoke_agent 时把完整 Writer Brief 放进 message");
         expect(systemPrompt).toContain("再次发送完整新版 Brief");
         expect(systemPrompt).toContain("<context>：唯一 read 白名单入口");
@@ -189,7 +189,7 @@ describe("RP builtin profiles", () => {
                 archived: false,
                 planModeActive: false,
             }),
-            input: {},
+            initial: {},
             vars: createTestVariableAccessor(),
             catalog: {profiles: [], issues: []},
             skills: [],
@@ -231,7 +231,7 @@ describe("RP builtin profiles", () => {
                     archived: false,
                     planModeActive: false,
                 }),
-                input: {
+                initial: {
                     subjectPath: `${fixture.projectSlug}/simulation/subjects/heroine`,
                     kind: "npc",
                 },
@@ -268,7 +268,7 @@ describe("RP builtin profiles", () => {
                         profileKey: "simulator.actor",
                         workspaceRoot: fixture.workspaceRoot,
                     }),
-                    input: {
+                    initial: {
                         subjectPath: `${fixture.projectSlug}/simulation/subjects/heroine`,
                         kind: "npc",
                     },
@@ -286,7 +286,7 @@ describe("RP builtin profiles", () => {
                     invocationId: "test-invocation",
                     profileKey: "simulator.actor",
                     caller: {kind: "sidecar"},
-                } satisfies SidecarContext<Parameters<typeof memorySave.merge>[0]["input"]>)
+                } satisfies SidecarContext<Parameters<typeof memorySave.merge>[0]["initial"]>)
                 : memorySave?.enterPrompt ?? "";
             const contextLoadPrompt = typeof contextLoad?.enterPrompt === "function"
                 ? contextLoad.enterPrompt({
@@ -297,14 +297,14 @@ describe("RP builtin profiles", () => {
                         profileKey: "simulator.actor",
                         workspaceRoot: fixture.workspaceRoot,
                     }),
-                    input: {
+                    initial: {
                         subjectPath: `${fixture.projectSlug}/simulation/subjects/heroine`,
                         kind: "npc",
                     },
                     invocationId: "test-invocation",
                     profileKey: "simulator.actor",
                     caller: {kind: "sidecar"},
-                } satisfies SidecarContext<Parameters<typeof contextLoad.merge>[0]["input"]>)
+                } satisfies SidecarContext<Parameters<typeof contextLoad.merge>[0]["initial"]>)
                 : contextLoad?.enterPrompt ?? "";
             expect(contextLoadPrompt).toContain(`subjectPath: ${fixture.projectSlug}/simulation/subjects/heroine`);
             expect(contextLoadPrompt).toContain("subjectPath 必须使用上面的 subjectPath");
@@ -393,7 +393,7 @@ describe("RP builtin profiles", () => {
             stage: "prepareRun",
             sessionId: -1,
             session: testSession({profileKey: "simulator.actor"}),
-            input: {subjectPath: "rp-project/simulation/subjects/heroine", kind: "npc"},
+            initial: {subjectPath: "rp-project/simulation/subjects/heroine", kind: "npc"},
             invocationId: "test-invocation",
             profileKey: "simulator.actor",
             caller: {kind: "sidecar"},
@@ -418,7 +418,7 @@ describe("RP builtin profiles", () => {
                     archived: false,
                     planModeActive: false,
                 }),
-                input: {
+                initial: {
                     subjectPath: `${fixture.projectSlug}/simulation/subjects/heroine`,
                     kind: "npc",
                 },
@@ -429,7 +429,7 @@ describe("RP builtin profiles", () => {
             const systemPrompt = prepared.systemPrompt ?? "";
             const modelContextText = messagesText(prepared.modelContextMessages);
 
-            expect(simulatorActorProfile.inputSchema).toBe(SubjectSimulatorInputSchema);
+            expect(simulatorActorProfile.initialSchema).toBe(SubjectSimulatorInitialSchema);
             expect(simulatorActorProfile.outputSchema).toBe(SubjectSimulatorOutputSchema);
             expect(simulatorActorProfile.rootToolKeys).toEqual(["subject_rag_search", "subject_event_append", "subject_memory_update", "read", "edit", "report_result", "report_sidecar_result"]);
             expect(simulatorActorProfile.toolKeys).toEqual(["report_result"]);
@@ -454,7 +454,7 @@ describe("RP builtin profiles", () => {
                     archived: false,
                     planModeActive: false,
                 }),
-                input: {
+                initial: {
                     subjectPath: `${fixture.projectSlug}/simulation/subjects/heroine`,
                     kind: "player",
                 },
@@ -486,7 +486,7 @@ describe("RP builtin profiles", () => {
                     archived: false,
                     planModeActive: false,
                 }),
-                input: {},
+                initial: {},
                 vars: createTestVariableAccessor(),
                 catalog: {profiles: [], issues: []},
                 skills: [],
@@ -506,7 +506,7 @@ describe("RP builtin profiles", () => {
             expect(systemPrompt).toContain("<important>");
             expect(systemPrompt).toContain("<paragraph_rhythm>");
             expect(systemPrompt).toContain("<markdown_dialect>");
-            expect(systemPrompt).toContain("profile input 为空");
+            expect(systemPrompt).toContain("profile initial 为空");
             expect(systemPrompt).toContain("每轮任务只从最新 user message 读取");
             expect(systemPrompt).toContain("最新 user message 本身就是完整 Writer Brief");
             expect(systemPrompt).toContain("不需要外层 invocation wrapper");
@@ -517,7 +517,7 @@ describe("RP builtin profiles", () => {
             expect(systemPrompt).not.toContain("职责根据 phase 参数分为两个阶段");
             expect(systemPrompt).not.toContain("Phase 4a（phase=check）：素材检查与提问");
             expect(systemPrompt).not.toContain("Phase 4c（phase=render）：渲染 prose");
-            expect(systemPrompt).not.toContain("profile input 包含 phase、brief、supplemental_brief");
+            expect(systemPrompt).not.toContain("profile initial 包含 phase、brief、supplemental_brief");
             expect(systemPrompt).not.toContain("supplemental_brief");
             expect(systemPrompt).toContain("旧 Brief 输入字段、chapterPaths、lorebookEntries、writerInstructionPath");
             expect(systemPrompt).toContain("一切素材都由上级在 writer brief 中注入");
@@ -542,7 +542,7 @@ describe("RP builtin profiles", () => {
             expect(historyText).toContain("```assets/workspace/.nbook/agent/skills/stop-slop/SKILL.md");
             expect(historyText).toContain("# Stop Slop");
             expect(modelContextText).toContain("最新 user message 读取完整 Writer Brief");
-            expect(modelContextText).toContain("profile input 为空");
+            expect(modelContextText).toContain("profile initial 为空");
             expect(modelContextText).toContain("report_result.result");
             expect(modelContextText).toContain("不生成选项、标题、摘要");
             expect(appendingText).toContain("Runtime Location");
@@ -651,7 +651,7 @@ function testSession(input: Partial<NeuroSessionContext>): RuntimeSessionFacade 
                     metadata: {
                         sessionId: -1,
                         profileKey: session.profileKey,
-                        input: {},
+                        initial: {},
                         workspaceRoot: session.workspaceRoot,
                         workspaceKey: "test",
                         createdAt: 0,

@@ -40,7 +40,7 @@ describe("compaction", () => {
         ]);
         const session = await repo.createSession({
             profileKey: "leader.default",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
         const writeCompactionEntry = createCompactionEntryWriter(repo, session.metadata.sessionId);
@@ -75,7 +75,7 @@ describe("compaction", () => {
         faux.setResponses([fauxAssistantMessage(fauxText("TOOL SUMMARY"))]);
         const session = await repo.createSession({
             profileKey: "leader.default",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
         const writeCompactionEntry = createCompactionEntryWriter(repo, session.metadata.sessionId);
@@ -115,7 +115,7 @@ describe("compaction", () => {
     it("存在未完成 tool call 时拒绝压缩", async () => {
         const session = await repo.createSession({
             profileKey: "leader.default",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
         const writeCompactionEntry = createCompactionEntryWriter(repo, session.metadata.sessionId);
@@ -140,7 +140,7 @@ describe("compaction", () => {
     it("没有 profile Compaction policy 时不会自动压缩", async () => {
         const session = await repo.createSession({
             profileKey: "leader.default",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
         const writeCompactionEntry = createCompactionEntryWriter(repo, session.metadata.sessionId);
@@ -183,7 +183,7 @@ describe("compaction", () => {
         ]);
         const session = await repo.createSession({
             profileKey: "leader.default",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
         const writeCompactionEntry = createCompactionEntryWriter(repo, session.metadata.sessionId);
@@ -241,7 +241,7 @@ describe("compaction", () => {
         ]);
         const session = await repo.createSession({
             profileKey: "leader.default",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
         const writeCompactionEntry = createCompactionEntryWriter(repo, session.metadata.sessionId);
@@ -308,7 +308,7 @@ describe("compaction", () => {
         ]);
         const session = await repo.createSession({
             profileKey: "leader.default",
-            input: {},
+            initial: {},
             workspaceRoot: root,
         });
         const writeCompactionEntry = createCompactionEntryWriter(repo, session.metadata.sessionId);

@@ -36,6 +36,8 @@ const props = defineProps<{
     resolveEditorMenu?: (context: AgentTriggerMenuContext) => AgentTriggerMenuState;
     /** 编辑器触发技能菜单时的刷新钩子。 */
     onEditorSkillTriggerStart?: () => void;
+    /** 打开消息 Markdown 中的 workspace 引用。 */
+    openReference?: (target: string) => void;
     /** 费用显示币种与汇率。 */
     costDisplayOptions: CostDisplayOptions;
     /** 费用 tooltip 汇率说明。 */
@@ -244,6 +246,7 @@ defineExpose({ scrollToBottom: forceScrollToBottom, scrollRef });
                     :menu-refresh-key="props.menuRefreshKey"
                     :resolve-menu="props.resolveEditorMenu"
                     :on-skill-trigger-start="props.onEditorSkillTriggerStart"
+                    :open-reference="props.openReference"
                     :cost-display-options="props.costDisplayOptions"
                     :cost-exchange-rate-suffix="props.costExchangeRateSuffix"
                     @copy="emit('copy', $event)"

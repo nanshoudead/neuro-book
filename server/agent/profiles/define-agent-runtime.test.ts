@@ -19,7 +19,7 @@ describe("defineAgentRuntime", () => {
                 key: "test.runtime-default",
                 name: "Runtime Default",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             tools: profileToolsFromKeys([]),
             prepare() {
                 return {};
@@ -41,7 +41,7 @@ describe("defineAgentRuntime", () => {
                 key: "test.sidecar-tool-subset",
                 name: "Sidecar Tool Subset",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             tools: profileToolsFromKeys(["report_result"]),
             sidecars: [{
                 name: "actor.context-load",
@@ -64,7 +64,7 @@ describe("defineAgentRuntime", () => {
                 key: "test.main-run-tool-subset",
                 name: "Main Run Tool Subset",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             tools: profileToolsFromKeys(["report_result"]),
             // 故意绕过 TS 静态子集校验，覆盖运行时 profile loader 的错误路径。
             toolKeys: ["read", "report_result"] as any,
@@ -80,7 +80,7 @@ describe("defineAgentRuntime", () => {
                 key: "test.sidecar-report-result-forbidden",
                 name: "Sidecar Report Result Forbidden",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             tools: profileToolsFromKeys(["report_result", "report_sidecar_result"]),
             sidecars: [{
                 name: "actor.context-load",
@@ -104,7 +104,7 @@ describe("defineAgentRuntime", () => {
                 key: "test.sidecar-fallback",
                 name: "Sidecar Fallback",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             tools: profileToolsFromKeys(["read"]),
             sidecars: [{
                 name: "actor.context-load",
@@ -127,7 +127,7 @@ describe("defineAgentRuntime", () => {
                 key: "test.sidecar-final-message-object",
                 name: "Sidecar Final Message Object",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             tools: profileToolsFromKeys(["read"]),
             sidecars: [{
                 name: "actor.context-load",
@@ -154,7 +154,7 @@ describe("defineAgentRuntime", () => {
                 key: "test.sidecar-final-message-union",
                 name: "Sidecar Final Message Union",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             tools: profileToolsFromKeys(["read"]),
             sidecars: [{
                 name: "actor.context-load",
@@ -184,7 +184,7 @@ describe("defineAgentRuntime", () => {
                 key: "test.sidecar-final-message-string",
                 name: "Sidecar Final Message String",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             tools: profileToolsFromKeys(["read"]),
             sidecars: [{
                 name: "actor.context-load",
@@ -209,7 +209,7 @@ describe("defineAgentRuntime", () => {
                 key: "test.sidecar-json-object",
                 name: "Sidecar Json Object",
             },
-            inputSchema: Type.Object({}),
+            initialSchema: Type.Object({}),
             tools: profileToolsFromKeys(["read"]),
             sidecars: [{
                 name: "actor.context-load",
