@@ -9,6 +9,14 @@ import type {
 } from "nbook/shared/dto/config.dto";
 import type {PiBuiltinCatalogDto} from "nbook/shared/dto/app-settings.dto";
 
+type ConfigEditorSnapshotOptions = {
+    includeAgentProfileSettings?: boolean;
+};
+
+type ConfigEditorSnapshotQueryParams = ConfigWorkspaceQueryDto & {
+    includeAgentProfileSettings?: "true";
+};
+
 /**
  * 统一构造当前 IDE 上下文对应的 Config API 查询与保存入口。
  */
@@ -61,11 +69,30 @@ export function useConfigApi() {
     }
 
     /**
+     * 设置页重型衍生数据按需加载，默认 query 保持轻量。
+     */
+    function editorSnapshotQuery(
+        query: ConfigWorkspaceQueryDto,
+        options: ConfigEditorSnapshotOptions,
+    ): ConfigEditorSnapshotQueryParams {
+        if (options.includeAgentProfileSettings !== true) {
+            return query;
+        }
+        return {
+            ...query,
+            includeAgentProfileSettings: "true",
+        };
+    }
+
+    /**
      * 读取设置页编辑快照。后端每次都从配置文件重新读取。
      */
-    async function editorSnapshot(query: ConfigWorkspaceQueryDto = currentQuery()): Promise<ConfigEditorSnapshotDto> {
+    async function editorSnapshot(
+        query: ConfigWorkspaceQueryDto = currentQuery(),
+        options: ConfigEditorSnapshotOptions = {},
+    ): Promise<ConfigEditorSnapshotDto> {
         return $fetch<ConfigEditorSnapshotDto>("/api/config/editor-snapshot", {
-            query,
+            query: editorSnapshotQuery(query, options),
         });
     }
 
@@ -81,10 +108,14 @@ export function useConfigApi() {
     /**
      * 保存 Workspace Root `.nbook/config.json` 并返回后端重新合并后的快照。
      */
-    async function saveGlobal(global: GlobalConfigDto, query: ConfigWorkspaceQueryDto = currentQuery()): Promise<ConfigEditorSnapshotDto> {
+    async function saveGlobal(
+        global: GlobalConfigDto,
+        query: ConfigWorkspaceQueryDto = currentQuery(),
+        options: ConfigEditorSnapshotOptions = {},
+    ): Promise<ConfigEditorSnapshotDto> {
         return $fetch<ConfigEditorSnapshotDto>("/api/config/global", {
             method: "PUT",
-            query,
+            query: editorSnapshotQuery(query, options),
             body: global,
         });
     }
@@ -92,10 +123,14 @@ export function useConfigApi() {
     /**
      * 保存 Project Workspace `.nbook/config.json` 并返回后端重新合并后的快照。
      */
-    async function saveProject(project: ProjectConfigDto, query: ConfigWorkspaceQueryDto = projectQuery()): Promise<ConfigEditorSnapshotDto> {
+    async function saveProject(
+        project: ProjectConfigDto,
+        query: ConfigWorkspaceQueryDto = projectQuery(),
+        options: ConfigEditorSnapshotOptions = {},
+    ): Promise<ConfigEditorSnapshotDto> {
         return $fetch<ConfigEditorSnapshotDto>("/api/config/project", {
             method: "PUT",
-            query,
+            query: editorSnapshotQuery(query, options),
             body: project,
         });
     }

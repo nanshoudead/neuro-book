@@ -1,6 +1,6 @@
 import {getQuery} from "h3";
 import {saveProjectConfig} from "nbook/server/config/config-service";
-import {validateConfigWorkspaceQuery} from "nbook/server/config/query";
+import {validateConfigEditorSnapshotQuery} from "nbook/server/config/query";
 import {validateBody} from "nbook/server/utils/novel-chapter";
 import {ProjectConfigDtoSchema} from "nbook/shared/dto/config.dto";
 
@@ -33,6 +33,12 @@ defineRouteMeta({
                 "type": "string",
                 "minLength": 1
             }
+        },
+        {
+            "name": "includeAgentProfileSettings",
+            "in": "query",
+            "required": true,
+            "schema": {}
         }
     ],
     "requestBody": {
@@ -2545,5 +2551,8 @@ defineRouteMeta({
  */
 export default defineEventHandler(async (event) => {
     const body = await validateBody(event, ProjectConfigDtoSchema);
-    return saveProjectConfig(body, validateConfigWorkspaceQuery(getQuery(event)));
+    const query = validateConfigEditorSnapshotQuery(getQuery(event));
+    return saveProjectConfig(body, query, undefined, {
+        includeAgentProfileSettings: query.includeAgentProfileSettings,
+    });
 });

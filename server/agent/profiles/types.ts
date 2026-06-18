@@ -62,6 +62,7 @@ export type AgentCatalogItem = {
     sourcePath?: string;
     builtin: boolean;
     loadStatus: AgentProfileLoadStatus;
+    hasSettingsForm: boolean;
     issue?: AgentProfileIssue;
 };
 

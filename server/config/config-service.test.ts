@@ -7,7 +7,7 @@ import {Type} from "typebox";
 import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
 import {AgentProfileCatalog} from "nbook/server/agent/profiles/catalog";
 import {toolset} from "nbook/server/agent/profiles/profile-tools";
-import {defineLowCodeForm} from "nbook/server/low-code-form";
+import {defineLowCodeForm, type LowCodeFieldDefinition} from "nbook/server/low-code-form";
 import {
     loadEffectiveConfigForAgentRuntime,
     readConfigBootstrap,
@@ -653,6 +653,38 @@ describe("config service", {timeout: 30_000}, () => {
         });
     });
 
+    it("Agent Profile settings 默认只返回轻量列表且不解析低代码 options", async () => {
+        const optionsProvider = vi.fn(() => [
+            {value: "default-style", label: "默认文风"},
+            {value: "cinematic", label: "电影感"},
+        ]);
+        const lightCatalog = createCatalog(["writer"], {writingStyleOptions: optionsProvider});
+        const snapshot = await readConfigEditorSnapshot({workspaceKind: "user-assets"}, lightCatalog);
+        const writer = snapshot.agentProfileSettings.agentProfiles.find((profile) => profile.profileKey === "writer");
+
+        expect(writer?.settings).toBeNull();
+        expect(writer?.model).toMatchObject({stream: true});
+        expect(optionsProvider).not.toHaveBeenCalled();
+    });
+
+    it("Agent Profile settings 完整模式只读取带 settings form 的 runtime profile", async () => {
+        const profileCatalog = createCatalog(["leader.default", "leader.assets", "custom.agent", "writer"]);
+        const getSpy = vi.spyOn(profileCatalog, "get");
+
+        try {
+            const snapshot = await readConfigEditorSnapshot({workspaceKind: "user-assets"}, profileCatalog, {
+                includeAgentProfileSettings: true,
+            });
+            const writer = snapshot.agentProfileSettings.agentProfiles.find((profile) => profile.profileKey === "writer");
+
+            expect(writer?.settings?.form.fields.map((field) => field.path)).toEqual(["writingStylePreset", "narrativePerson"]);
+            expect(getSpy).toHaveBeenCalledTimes(1);
+            expect(getSpy).toHaveBeenCalledWith("writer");
+        } finally {
+            getSpy.mockRestore();
+        }
+    });
+
     it("Agent Profile settings 支持 Global 保存并返回 form 与 effective value", async () => {
         const snapshot = await saveGlobalConfig({
             agent: {
@@ -667,7 +699,7 @@ describe("config service", {timeout: 30_000}, () => {
                     },
                 },
             },
-        }, {workspaceKind: "user-assets"}, catalog);
+        }, {workspaceKind: "user-assets"}, catalog, {includeAgentProfileSettings: true});
         const writer = snapshot.agentProfileSettings.agentProfiles.find((profile) => profile.profileKey === "writer");
 
         expect(writer?.settings?.form.fields.map((field) => field.path)).toEqual(["writingStylePreset", "narrativePerson"]);
@@ -712,7 +744,7 @@ describe("config service", {timeout: 30_000}, () => {
                     },
                 },
             },
-        }, {workspaceKind: "novel", projectPath: "workspace/config-test-project"}, catalog);
+        }, {workspaceKind: "novel", projectPath: "workspace/config-test-project"}, catalog, {includeAgentProfileSettings: true});
         const overridden = overrideSnapshot.agentProfileSettings.agentProfiles.find((profile) => profile.profileKey === "writer");
 
         expect(overridden?.settings?.value).toMatchObject({
@@ -736,7 +768,7 @@ describe("config service", {timeout: 30_000}, () => {
                     },
                 },
             },
-        }, {workspaceKind: "novel", projectPath: "workspace/config-test-project"}, catalog);
+        }, {workspaceKind: "novel", projectPath: "workspace/config-test-project"}, catalog, {includeAgentProfileSettings: true});
         const inherited = inheritedSnapshot.agentProfileSettings.agentProfiles.find((profile) => profile.profileKey === "writer");
 
         expect(inherited?.settings?.value).toMatchObject({
@@ -833,7 +865,10 @@ async function createProjectFixture(): Promise<void> {
     ].join("\n"), "utf-8");
 }
 
-function createCatalog(profileKeys: string[]): AgentProfileCatalog {
+function createCatalog(
+    profileKeys: string[],
+    options: {writingStyleOptions?: LowCodeFieldDefinition["options"]} = {},
+): AgentProfileCatalog {
     const profileCatalog = new AgentProfileCatalog("__missing_system__", "__missing_user__");
     const writerSettingsForm = defineLowCodeForm({
         schema: Type.Object({
@@ -853,7 +888,7 @@ function createCatalog(profileKeys: string[]): AgentProfileCatalog {
                 path: "writingStylePreset",
                 component: "combobox",
                 label: "文风预设",
-                options: [
+                options: options.writingStyleOptions ?? [
                     {value: "default-style", label: "默认文风"},
                     {value: "cinematic", label: "电影感"},
                     {value: "cross-invalid", label: "交叉校验"},

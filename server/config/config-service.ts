@@ -64,6 +64,10 @@ import {
 
 const GLOBAL_CONFIG_PATH = path.resolve(process.cwd(), "workspace", ".nbook", "config.json");
 
+type ConfigEditorSnapshotOptions = {
+    includeAgentProfileSettings?: boolean;
+};
+
 /**
  * 读取业务运行使用的最新配置快照。
  */
@@ -83,6 +87,7 @@ export async function readConfigSnapshot(query: ConfigWorkspaceQueryDto): Promis
 export async function readConfigEditorSnapshot(
     query: ConfigWorkspaceQueryDto,
     profiles: AgentProfileCatalog = useAgentHarness().profiles,
+    options: ConfigEditorSnapshotOptions = {},
 ): Promise<ConfigEditorSnapshotDto> {
     const target = await resolveConfigTarget(query);
     const {global, project} = await readConfigFiles(query, target);
@@ -105,6 +110,7 @@ export async function readConfigEditorSnapshot(
             profiles,
             catalogProfiles: catalog.profiles,
             query,
+            includeSettings: options.includeAgentProfileSettings === true,
         }),
         defaultProfileSettings: buildDefaultProfileSettingsDto({
             workspaceKind: target.workspaceKind,
@@ -148,6 +154,7 @@ export async function saveGlobalConfig(
     input: GlobalConfigDto,
     query: ConfigWorkspaceQueryDto,
     profiles: AgentProfileCatalog = useAgentHarness().profiles,
+    options: ConfigEditorSnapshotOptions = {},
 ): Promise<ConfigEditorSnapshotDto> {
     await assertProfileSettingsInput(input.agent?.profiles, query, profiles);
     const current = await readGlobalConfigFile();
@@ -162,7 +169,7 @@ export async function saveGlobalConfig(
         ...(input.embedding !== undefined ? {embedding: normalizeGlobalEmbeddingForWrite(input.embedding, current)} : {}),
     });
     await writeJsonFile(GLOBAL_CONFIG_PATH, next);
-    return readConfigEditorSnapshot(query, profiles);
+    return readConfigEditorSnapshot(query, profiles, options);
 }
 
 /**
@@ -172,6 +179,7 @@ export async function saveProjectConfig(
     input: ProjectConfigDto,
     query: ConfigWorkspaceQueryDto,
     profiles: AgentProfileCatalog = useAgentHarness().profiles,
+    options: ConfigEditorSnapshotOptions = {},
 ): Promise<ConfigEditorSnapshotDto> {
     const target = await resolveConfigTarget(query);
     if (!target.projectConfigPath) {
@@ -184,7 +192,7 @@ export async function saveProjectConfig(
     const global = await readGlobalConfigFile();
     await assertProfileSettingsInput(input.agent?.profiles, query, profiles, global.agent?.profiles);
     await writeJsonFile(target.projectConfigPath, normalizeProjectConfig(input as StoredProjectConfig));
-    return readConfigEditorSnapshot(query, profiles);
+    return readConfigEditorSnapshot(query, profiles, options);
 }
 
 /**
@@ -433,6 +441,7 @@ async function buildConfigAgentProfileSettingsDto(input: {
     profiles: AgentProfileCatalog;
     catalogProfiles: AgentCatalogItem[];
     query: ConfigWorkspaceQueryDto;
+    includeSettings: boolean;
 }): Promise<ConfigAgentProfileSettingsDto> {
     return {
         enabledModels: listEnabledModels(input.effective.models),
@@ -444,7 +453,7 @@ async function buildConfigAgentProfileSettingsDto(input: {
                 ...input.effective.agent.profileModelDefaults,
                 ...(input.effective.agent.profiles[definition.key]?.model ?? {}),
             }),
-            settings: await buildProfileSettingsDto(input, definition),
+            settings: input.includeSettings ? await buildProfileSettingsDto(input, definition) : null,
         }))),
     };
 }
@@ -460,6 +469,9 @@ async function buildProfileSettingsDto(input: {
     query: ConfigWorkspaceQueryDto;
 }, definition: AgentCatalogItem): Promise<ConfigAgentProfileSettingsDto["agentProfiles"][number]["settings"]> {
     if (definition.loadStatus !== "loaded") {
+        return null;
+    }
+    if (!definition.hasSettingsForm) {
         return null;
     }
     const profile = await input.profiles.get(definition.key).catch(() => null);

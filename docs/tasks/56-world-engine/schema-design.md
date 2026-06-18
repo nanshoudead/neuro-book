@@ -180,7 +180,8 @@ subjectTypes:
 ## 6. 存储 / 边界定论
 
 - **schema = 项目级配置文件**（YAML/JSON），放 Project Workspace 顶层 **`world-engine/`** 目录（如 `world-engine/schema.yaml`）。schema **不进 SQLite**。
-- **Project SQLite 只存切片（timeline）**。切片只是 op + 值，不内嵌 schema；改 schema 不影响已存切片。
+- **Project SQLite 只存切片（timeline）**。切片只是 op + 值，不内嵌 schema；同一 instant 只允许一个切面，目标 instant 已有切面时默认合并 mutations。
+- **第一版不做 schema 版本化 / 自动迁移**。schema 是当前项目合同；改 schema 不会自动重写历史 mutation，也不保证旧 mutation 语义自动迁移。若 schema 修改影响旧数据，先由作者 / Agent 显式修正。
 - **default 进切面**：subject 创建时生成一条**初始化切面**（在该 subject 起始 instant），把 schema 各属性的 `default` 作为一组 `set` mutation 写入。这样 reduce 从切面序列即可拿到初值，**切面序列自包含**，不需要「reduce 时回查 schema 兜底」的特殊逻辑。
 
 ## 7. 与现有 simulation / RAG 的关系（边界，非本任务实现）

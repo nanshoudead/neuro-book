@@ -42,6 +42,10 @@ const ProviderRequestOptionsSchema = z.record(z.string(), JsonValueSchema).defau
 const ProfileKeySchema = z.string().trim().min(1);
 const WebSearchProviderKeySchema = z.enum(["tavily", "brave"]);
 const WebTimeoutMsSchema = z.number().int().positive().nullable().default(null);
+const ConfigQueryBooleanFlagSchema = z.union([
+    z.boolean(),
+    z.enum(["true", "false"]),
+]).optional().transform((value) => value === true || value === "true");
 
 /**
  * Secret 字段的编辑态。GET 不返回 value；PUT 中 value 缺失表示保留。
@@ -65,10 +69,15 @@ export const ConfigItemMetaDtoSchema = z.object({
     description: z.string().trim().min(1),
 });
 
-export const ConfigWorkspaceQueryDtoSchema = z.object({
+const ConfigWorkspaceQueryBaseDtoSchema = z.object({
     workspaceKind: z.enum(["novel", "user-assets"]).default("novel"),
     projectPath: z.string().trim().min(1).optional(),
-}).superRefine((value, ctx) => {
+});
+
+function refineConfigWorkspaceQuery(
+    value: z.infer<typeof ConfigWorkspaceQueryBaseDtoSchema>,
+    ctx: z.RefinementCtx,
+): void {
     if (value.workspaceKind === "novel" && !value.projectPath) {
         ctx.addIssue({
             code: "custom",
@@ -76,7 +85,13 @@ export const ConfigWorkspaceQueryDtoSchema = z.object({
             message: "Project Workspace 配置必须提供 projectPath",
         });
     }
-});
+}
+
+export const ConfigWorkspaceQueryDtoSchema = ConfigWorkspaceQueryBaseDtoSchema.superRefine(refineConfigWorkspaceQuery);
+
+export const ConfigEditorSnapshotQueryDtoSchema = ConfigWorkspaceQueryBaseDtoSchema.extend({
+    includeAgentProfileSettings: ConfigQueryBooleanFlagSchema,
+}).superRefine(refineConfigWorkspaceQuery);
 
 export const ConfigModelProviderOptionsDtoSchema = z.object({
     apiKey: SecretConfigValueDtoSchema,
@@ -286,6 +301,7 @@ export const ConfigEditorSnapshotDtoSchema = z.object({
 export type SecretConfigValueDto = z.infer<typeof SecretConfigValueDtoSchema>;
 export type ConfigItemMetaDto = z.infer<typeof ConfigItemMetaDtoSchema>;
 export type ConfigWorkspaceQueryDto = z.infer<typeof ConfigWorkspaceQueryDtoSchema>;
+export type ConfigEditorSnapshotQueryDto = z.infer<typeof ConfigEditorSnapshotQueryDtoSchema>;
 export type ConfigModelSettingsDto = z.infer<typeof ConfigModelSettingsDtoSchema>;
 export type EmbeddingServiceConfigDto = z.infer<typeof EmbeddingServiceConfigDtoSchema>;
 export type EmbeddingProjectConfigDto = z.infer<typeof EmbeddingProjectConfigDtoSchema>;

@@ -11,12 +11,13 @@
 - **Project SQLite 只存运行态**：subject 实例、切面（slice）、逐条变更（mutation）。**与现有 plot 表共用同一个 `project.sqlite`**（一套 Prisma schema 维护，model 用 `World*` 前缀隔离）。
 - **mutation 一行一条（关系化）**：reduce 走 `(subjectId, instant)` 索引直接取相关 subject 的行，反查 / 曲线都是带索引 SQL。
 - **instant 用 SQLite INTEGER（64 位）**：原生整数索引，排序 / 范围查询飞快。上限约 2920 亿年（秒为刻）。API 层仍是 `bigint`，仅存储层用 64 位；超 64 位再升级编码，API 不变。
-- **reduce 在应用层算**：DB 只负责「高效取出某 subject ≤t 的全部 mutation，按 (instant, 切面内序, mutation 序) 排好」；按 op 叠加状态由应用层 reduce 函数完成（SQL 无法表达 object 路径 / collection 增删）。
+- **同一 instant 只允许一个切面**：`WorldSlice.instant` 唯一。同一时刻的多 subject / 多属性变化全部合并进同一个 slice；目标 instant 已有 slice 时，`writeSlice` 第一版默认合并 mutations 到已有 slice。
+- **reduce 在应用层算**：DB 只负责「高效取出某 subject ≤t 的全部 mutation，按 (instant, mutation seq) 排好」；按 op 叠加状态由应用层 reduce 函数完成（SQL 无法表达 object 路径 / collection 增删）。
 
 ### 第一版范围（最小化）
 
-- **第一版只做**：subject 实例 + 切面写入 + `getWorldState`（reduce 出全量世界状态）。
-- **第一版不做**（推到后续）：`WorldSnapshot` 缓存、re-settle、`findReferers` / `getAttrHistory` 等细分查询、回退 API。`old` 列保留但可先存简单结构（暂不依赖它做 O(1) 回退）。
+- **第一版只做**：subject 实例 + 切面写入 / 同 instant 合并 + `getWorldState`（全量调试）+ `queryState`（业务 / Agent 入口）+ `listSlices` + 最小 re-settle。
+- **第一版不做**（推到后续）：`WorldSnapshot` 缓存、`findReferers` / `getAttrHistory` 等细分查询、回退 API。`old` 列进第一版，但它是 re-settle 维护的派生缓存，不是权威真相。
 
 ## 2. SQLite 表结构（Prisma schema 草案，第一版最小）
 
@@ -35,13 +36,13 @@ model WorldSubject {
 model WorldSlice {
   id        String   @id @default(cuid())
   instant   BigInt                  // 唯一时间真相源（INTEGER 64 位），可负
-  seq       Int      @default(0)    // 同 instant 内的切面排序（并列时间点定序）
   title     String   @default("")
   summary   String   @default("")
   kind      String   @default("event")  // event / init / correction… 便于区分初始化切面
   createdAt DateTime @default(now())
   mutations WorldMutation[]
-  @@index([instant, seq])           // reduce 截断 + timeline 排序主索引
+  @@unique([instant])               // 同一时间点只能有一个切面
+  @@index([instant])                // reduce 截断 + timeline 排序主索引
 }
 
 // —— 逐条变更：reduce 的原子单位 ——
@@ -81,7 +82,7 @@ model WorldMutation {
 ### 关键设计说明
 
 - **`instant` 在 mutation 冗余存一份**：避免 reduce 时 join slice。复合索引 `(subjectId, instant, seq)` 让「取 erina 在 ≤t 的全部变更并排好序」是一次纯索引扫描。
-- **`seq` 两级定序**：slice.seq 解决「同一 instant 多个切面」；mutation.seq 解决「同一切面内多条变更的应用先后」（如先 set hp 再 listAppend events）。reduce 排序键 = `(instant, slice.seq, mutation.seq)`。
+- **排序规则**：`WorldSlice.instant` 唯一，时间轴只按 instant 排序；同一切面内用 `WorldMutation.seq` 表达 mutation 应用顺序（如先 set hp 再 listAppend events）。reduce 排序键 = `(instant, mutation.seq)`。
 - **`value` / `old` 用 JSON 字符串**：op 的载荷类型多样（数字 / 字符串 / ref / 对象），统一 JSON 编码，应用层按 attr 的 kind 解析。
 - **后续查询索引已预留**：`(subjectId, attr, instant)` 与 `(attr)` 索引为 HP 曲线、反查引用预留，第一版不暴露对应 API 但表结构已支持。
 
@@ -130,14 +131,14 @@ class WorldEngineFacade {
 
     // —— 切面写入 ——
     /** 写一个切面（校验 mutation 合法性，写 slice + mutation 行）。
-     *  instant 决定落点，往任意时间点插切面与此同路径，无需单独 insert API。*/
+     *  instant 决定落点；若该 instant 已有 slice，第一版默认合并 mutations 到已有 slice。*/
     writeSlice(projectPath: string, input: SliceInput): Promise<{ sliceId: string }>;
 
     // —— 状态查询（reduce）——
-    /** 全量 reduce：instant（默认最新）的全量世界状态。给 UI / 调试用，agent 不直接用（会爆 token）。*/
+    /** 全量 reduce：instant（默认最新）的全量世界状态。给 UI / 调试 / 导出用，agent 不直接用（会爆 token）。*/
     getWorldState(projectPath: string, at?: Instant): Promise<WorldState>;
 
-    /** 细粒度查询（agent 用）：按 subject / type / 属性投影 / 时刻过滤，避免一次拉全量。
+    /** 细粒度查询（agent / 常规业务用）：按 subject / type / 属性投影 / 时刻过滤，避免一次拉全量。
      *  - subjectIds: 只 reduce 这些 subject；省略则按 type 过滤；都省略则全部（慎用）。
      *  - type: 只 reduce 该类型的 subject。
      *  - attrs: 属性投影白名单（如 ["hp","location"]）；省略返回全部属性。
@@ -152,17 +153,17 @@ class WorldEngineFacade {
     }): Promise<SubjectState[]>;
 
     // —— timeline ——
-    /** 列切面（按 instant, seq）。range 省略 + limit 取最近 N 个；支持时间段过滤。*/
+    /** 列切面（按 instant）。range 省略 + limit 取最近 N 个；支持时间段过滤。*/
     listSlices(projectPath: string, query?: {
         from?: Instant;
         to?: Instant;
         limit?: number;          // 最近 N 个（按 instant desc 取，再正序返回）
         withMutations?: boolean; // 是否带每个切面的 mutation 明细，默认 false 只给元数据
-    }): Promise<Array<{ id: string; instant: Instant; seq: number; title: string; summary: string; kind: string; mutations?: MutationInput[] }>>;
+    }): Promise<Array<{ id: string; instant: Instant; title: string; summary: string; kind: string; mutations?: MutationInput[] }>>;
 }
 ```
 
-> 后续按需补充：`getAttrHistory`（HP 曲线）、`findReferers`（反查引用）、`editSlice` / `deleteSlice` / `revertSlice`（编辑与回退）。表结构与索引已为它们预留，不需要改 schema。
+> 后续按需补充：`getAttrHistory`（HP 曲线）、`findReferers`（反查引用）、`editSlice` / `deleteSlice` / `revertSlice`（编辑与回退）。表结构与索引已为它们预留，不需要改 schema。re-settle 是写入 / 编辑 / 删除链路的内部能力，不单独作为 Agent API 暴露。
 
 ## 4. reduce 算法（应用层，伪代码）
 
@@ -172,7 +173,7 @@ getWorldState(at = 最新):
   for s in subjects:
     rows = 取 WorldMutation
            WHERE subjectId=s.id AND instant<=at
-           ORDER BY instant, slice.seq, seq
+           ORDER BY instant, seq
     state = {}
     for m in rows:
       state = applyOp(state, m.attr, m.op, decode(m.value))   # set/add/unset/listAppend/collection*
@@ -183,8 +184,30 @@ getWorldState(at = 最新):
 - `applyOp` 按 attr 的 kind（从项目 schema 配置加载）决定叠加语义；未声明属性默认 scalar。
 - 第一版无 snapshot，从头叠；规模变大后再引入缓存，结果不变。
 
-## 5. 遗留待定
+## 5. re-settle（第一版最小）
+
+`old` 是派生缓存，`value` / `op` / `attr` 才是声明式真相。任何会改变过去链条的写入都要触发 re-settle。
+
+第一版触发：
+
+- `writeSlice` 写入的 instant 早于某 subject 的最新 mutation。
+- 同 instant 合并导致已有 slice 增加 mutation。
+- 后续加入 `editSlice` / `deleteSlice` 时，同样走本流程。
+
+第一版范围：
+
+- 按 subject 粗粒度重算，不做 attr/path 级优化。
+- 对本次切面触及的每个 subject，从该 instant 开始读取该 subject 的后续 mutation，按 `(instant, seq)` 排序。
+- 从该 instant 之前的状态开始 reduce，逐条重新计算需要记录 old 的 mutation，并更新其 `old`。
+- `add` 这类逆操作不依赖 old，但仍可在同一流程中保持一致。
+
+## 6. queryState 与 getWorldState 的关系
+
+- `getWorldState`：返回某一时刻所有 subject 的完整状态。用于 UI 调试、导出、开发验证，不作为 Agent 工具暴露。
+- `queryState`：返回某一时刻被 subjectIds / type / attrs / listLimit 收窄后的状态。用于 Agent、常规业务查询和前端局部视图，是第一版正式能力。
+
+## 7. 遗留待定
 
 - subject 身份元数据（type / name 之外是否需要更多）是否也用切面承载，还是固定在 WorldSubject 表。
 - 模糊时间（fuzzy / unknown）如何落到 instant INTEGER（可能需要额外的「时间不确定性」列）。
-- 后续优化：snapshot 缓存策略、re-settle 触发范围、回退 / 编辑切面 API、细分查询（单 subject / 属性历史 / 反查引用）。
+- 后续优化：snapshot 缓存策略、re-settle attr/path 级优化、回退 / 编辑切面 API、细分查询（单 subject / 属性历史 / 反查引用）。

@@ -407,7 +407,7 @@ async function loadSettings(): Promise<void> {
     successText.value = "";
 
     try {
-        const snapshot = await configApi.editorSnapshot(props.targetQuery);
+        const snapshot = await configApi.editorSnapshot(props.targetQuery, {includeAgentProfileSettings: true});
         editorSnapshot.value = snapshot;
         if (isProjectScope.value) {
             applyProjectSettings(snapshot);
@@ -435,8 +435,8 @@ async function saveSettings(): Promise<void> {
 
     try {
         const snapshot = isProjectScope.value
-            ? await configApi.saveProject(buildProjectConfigPayload(), props.targetQuery)
-            : await configApi.saveGlobal(buildGlobalConfigPayload(), props.targetQuery);
+            ? await configApi.saveProject(buildProjectConfigPayload(), props.targetQuery, {includeAgentProfileSettings: true})
+            : await configApi.saveGlobal(buildGlobalConfigPayload(), props.targetQuery, {includeAgentProfileSettings: true});
         editorSnapshot.value = snapshot;
         if (isProjectScope.value) {
             applyProjectSettings(snapshot);
