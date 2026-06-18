@@ -98,6 +98,37 @@ describe("plain-reference-text", () => {
         expect(serializePlainReferenceDoc(doc)).toBe("使用 $draft 和 $review");
     });
 
+    it("识别 selection chip 并保持 canonical 序列化", () => {
+        const text = "处理 [[manuscript/001/chapter.md#L12-L18]] 和 src/server.ts#45-67";
+        const doc = parsePlainReferenceText(text);
+
+        expect(doc.content?.[0]?.content).toEqual([
+            {type: "text", text: "处理 "},
+            {
+                type: "plainSelectionReference",
+                attrs: {
+                    label: "chapter.md:12-18",
+                    target: "manuscript/001/chapter.md",
+                    ref: "[[manuscript/001/chapter.md#L12-L18]]",
+                    startLine: "12",
+                    endLine: "18",
+                },
+            },
+            {type: "text", text: " 和 "},
+            {
+                type: "plainSelectionReference",
+                attrs: {
+                    label: "server.ts:45-67",
+                    target: "src/server.ts",
+                    ref: "[[src/server.ts#L45-L67]]",
+                    startLine: "45",
+                    endLine: "67",
+                },
+            },
+        ]);
+        expect(serializePlainReferenceDoc(doc)).toBe("处理 [[manuscript/001/chapter.md#L12-L18]] 和 [[src/server.ts#L45-L67]]");
+    });
+
     it("不会把 XML/template 内的变量误识别为 skill", () => {
         const text = `<custom-tag value="\${schema}">abc$draft</custom-tag>`;
 

@@ -15,6 +15,7 @@ import {useNotification} from "nbook/app/composables/useNotification";
 import {refreshWorkspaceReferenceNodes, type WorkspaceReferenceResolver} from "nbook/app/components/markdown-studio/tiptap/WorkspaceReference";
 import {DEFAULT_MARKDOWN_EDITOR_PREFERENCES, type FrontmatterProfileKind, type MarkdownEditorPreferences} from "nbook/shared/editor-workbench";
 import {splitMarkdownFrontmatter} from "nbook/shared/editor-workbench";
+import {buildSelectionRefChip, locateSelectionRange, type InlineEditReference} from "nbook/app/utils/inline-editor-selection";
 import YAML from "yaml";
 
 type PopoverDirection = "auto" | "up" | "down";
@@ -70,6 +71,7 @@ const emit = defineEmits<{
     (e: "open-frontmatter-profile", kind: FrontmatterProfileKind): void;
     (e: "inline-comments-change", comments: MarkdownInlineCommentItem[]): void;
     (e: "inline-comment-select", index: number): void;
+    (e: "inline-ai-reference", reference: InlineEditReference): void;
 }>();
 
 const {prompt} = useDialog();
@@ -633,6 +635,35 @@ function selectedClipboardText(): string {
 }
 
 /**
+ * 把当前选区加入 Inline AI 引用。
+ */
+function addAiReferenceFromSelection(): void {
+    const path = props.activePath.trim();
+    if (!path) {
+        notification.warning("当前文件路径为空，无法加入 AI 引用");
+        return;
+    }
+
+    const text = selectedClipboardText().trim();
+    if (!text) {
+        notification.warning("请先选择需要引用的正文");
+        return;
+    }
+
+    const located = locateSelectionRange(getMarkdown(), text);
+    emit("inline-ai-reference", {
+        ref: buildSelectionRefChip({
+            path,
+            range: located.range,
+        }),
+        path,
+        range: located.range,
+        match: located.match,
+        text,
+    });
+}
+
+/**
  * 当前选区是否包含内容。
  */
 function hasSelection(): boolean {
@@ -1039,6 +1070,7 @@ function isSaveShortcut(event: KeyboardEvent): boolean {
             @insert-reference="openReferenceMenuFromContext"
             @insert-image="void insertImageFromMenu()"
             @add-comment="void addCommentFromMenu()"
+            @add-ai-reference="addAiReferenceFromSelection"
         />
 
         <ReferenceSelectorPopover

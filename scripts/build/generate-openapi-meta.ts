@@ -18,9 +18,9 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { routeMetaMap, type RouteMetaEntry } from "../server/openapi/route-map";
+import { routeMetaMap, type RouteMetaEntry } from "../../server/openapi/route-map";
 
-const rootDir = fileURLToPath(new URL("../", import.meta.url));
+const rootDir = fileURLToPath(new URL("../../", import.meta.url));
 const serverApiDir = resolve(rootDir, "server/api");
 
 // ─── Marker comment for idempotent replacement ──────────────────
@@ -105,30 +105,10 @@ function generateOpenAPIOperation(entry: RouteMetaEntry): Record<string, unknown
             },
         };
     } else {
-        // SSE or empty response
-        if (entry.file === "writing/continue.post.ts") {
-            op.responses = {
-                200: {
-                    description: "SSE event stream. Events: token (text chunk), done (fullText), error (message)",
-                    content: {
-                        "text/event-stream": {
-                            schema: {
-                                type: "object",
-                                properties: {
-                                    event: { type: "string", enum: ["token", "done", "error"] },
-                                    data: { type: "string", description: "JSON-encoded payload" },
-                                },
-                            },
-                        },
-                    },
-                },
-            };
-        } else {
-            op.responses = {
-                200: { description: "OK" },
-                400: { description: "Bad Request — validation failed" },
-            };
-        }
+        op.responses = {
+            200: { description: "OK" },
+            400: { description: "Bad Request — validation failed" },
+        };
     }
 
     // Always add 400 for routes with request body validation
@@ -152,7 +132,7 @@ function generateDefineRouteMetaCall(entry: RouteMetaEntry): string {
 
     return `${MARKER} — DO NOT EDIT
 defineRouteMeta({
-    openAPI: ${openAPIJson},
+    openAPI: ${openAPIJson} as never,
 });`;
 }
 

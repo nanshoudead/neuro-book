@@ -18,6 +18,7 @@ GHCR / Product Docker 最新边界：app 镜像仍保留源码目录用于容器
 
 ## Current Focus
 
+- Inline AI 编辑链路已从旧 `/api/writing/continue` 迁到 Agent session：`NovelPromptBar` 重构为默认收起的 Inline AI Prompt Bar，只在 Markdown / 纯文本可编辑文件启用；TipTap selection menu 的 sparkles 改为“加入 AI 引用”，追加 `[[path#Lx-Ly]]` selection chip 和 hidden payload；`AgentChatSurface` 可自动创建 / 复用 `inline.editor` session 并发送 visible message + structured `input`；新增系统 profile `inline.editor`，使用 `read` / `edit` / `write` / `report_result` 直接修改目标文件。旧 writing continue API、DTO 和 OpenAPI SSE 特判已删除。
 - Skills 最新补充：`anti-ai-slop` 当前定位为中文文本润色 skill，保持原目录和 CLI 命令不变；其步骤 3 已加入 stop-slop 风格的快速审查清单和 Directness / Rhythm / Trust / Authenticity / Density 五维 50 分评分，static/LLM 规则也已扩展到公式化设问、商务黑话、隐藏行动者、节奏单调、金句感和段尾机械升华等文本润色问题。
 - RP writer 合同：`rp.writer` profile initial 保持为空；`rp.leader` 通过 `invoke_agent.message` 发送完整 Writer Brief。Writer Brief 已收敛为轻量 XML 骨架：`<context>` 内 Markdown 链接是唯一 read 白名单入口，`<materials>` / `<beats>` / `<style>` 承载素材、节拍和写作提示，并允许自定义语义 tag；`rp.writer` 收到 Brief 后自检，缺关键材料或缺输出路径时用 `report_result.result` 提问/报错，材料足够时写入 Brief 指定路径并用 `report_result.result` 汇报落点，不再使用 check/render 阶段输入或旧补充字段。
 - 文件化 workspace：按 Project Workspace 隔离，根 `project.yaml` 是项目身份与展示元数据真值源；前端通过 SSE 订阅真实文件变化，保存时使用 `mtimeMs` 做冲突检测。
@@ -130,6 +131,7 @@ GHCR / Product Docker 最新边界：app 镜像仍保留源码目录用于容器
 | Agent Session Management | Implemented | [docs/tasks/15-agent-session-management/README.md](docs/tasks/15-agent-session-management/README.md) |
 | Agent Steer / FollowUp Composer | Implemented | [docs/tasks/16-agent-steer-followup-composer/README.md](docs/tasks/16-agent-steer-followup-composer/README.md) |
 | Agent Composer Plain Text Input | Implemented | [docs/tasks/40-agent-composer-plain-text-input/README.md](docs/tasks/40-agent-composer-plain-text-input/README.md) |
+| Inline Editor Agent | Implemented | [docs/tasks/55-inline-editor-agent/README.md](docs/tasks/55-inline-editor-agent/README.md) |
 | Session Title/Summary Enhancement | Implemented | [docs/tasks/17-session-title-summary-enhancement/README.md](docs/tasks/17-session-title-summary-enhancement/README.md) |
 | Agent Runtime Pipeline Hooks | Implemented | [docs/tasks/18-agent-runtime-pipeline-hooks/README.md](docs/tasks/18-agent-runtime-pipeline-hooks/README.md) |
 | Agent Sidecar Profile Pass | Implemented | [docs/tasks/23-agent-sidecar-profile-pass/README.md](docs/tasks/23-agent-sidecar-profile-pass/README.md) |

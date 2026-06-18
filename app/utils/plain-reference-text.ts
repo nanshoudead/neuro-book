@@ -1,4 +1,5 @@
 import {parseReferenceUri} from "nbook/shared/reference-core";
+import {buildSelectionRefChip, readSelectionRefChipAt, type InlineEditReferenceRange} from "nbook/app/utils/inline-editor-selection";
 
 export interface PlainReferenceNodeAttrs {
     label: string;
@@ -9,6 +10,14 @@ export interface PlainSkillNodeAttrs {
     name: string;
 }
 
+export interface PlainSelectionReferenceNodeAttrs {
+    label: string;
+    target: string;
+    ref: string;
+    startLine?: string;
+    endLine?: string;
+}
+
 export interface PlainTextProseMirrorNode {
     type: string;
     text?: string;
@@ -17,10 +26,11 @@ export interface PlainTextProseMirrorNode {
 }
 
 export interface PlainTextToken {
-    kind: "text" | "reference" | "skill";
+    kind: "text" | "reference" | "skill" | "selection";
     raw: string;
     reference?: PlainReferenceNodeAttrs;
     skill?: PlainSkillNodeAttrs;
+    selection?: PlainSelectionReferenceNodeAttrs;
 }
 
 const SKILL_PATTERN = /(^|[\s(])(\$(?:([\p{L}_-][\p{L}\p{N}_-]*)|\{([\p{L}_-][\p{L}\p{N}_-]*)\}))/gu;
@@ -86,6 +96,15 @@ export function serializePlainReferenceDoc(doc: PlainTextProseMirrorNode): strin
         const target = doc.attrs?.target ?? "";
         return label && target ? `[${label}](${serializeReferenceTarget(target)})` : "";
     }
+    if (doc.type === "plainSelectionReference") {
+        const target = doc.attrs?.target ?? "";
+        const startLine = Number(doc.attrs?.startLine ?? "");
+        const endLine = Number(doc.attrs?.endLine ?? "");
+        const range = Number.isInteger(startLine) && startLine > 0 && Number.isInteger(endLine) && endLine >= startLine
+            ? {startLine, endLine}
+            : undefined;
+        return target ? buildSelectionRefChip({path: target, range}) : "";
+    }
     if (doc.type === "agentSkill") {
         const name = doc.attrs?.name ?? "";
         return name ? `$${name}` : "";
@@ -97,9 +116,11 @@ export function serializePlainReferenceDoc(doc: PlainTextProseMirrorNode): strin
  * 把普通文本切分成文本、系统引用和 skill token。
  */
 export function tokenizePlainReferenceText(value: string): PlainTextToken[] {
-    const referenceMatches = collectReferenceMatches(value);
-    const skillMatches = collectSkillMatches(value, referenceMatches);
-    const matches = [...referenceMatches, ...skillMatches].sort((left, right) => left.start - right.start);
+    const selectionMatches = collectSelectionMatches(value);
+    const referenceMatches = collectReferenceMatches(value, selectionMatches);
+    const occupiedMatches = [...selectionMatches, ...referenceMatches];
+    const skillMatches = collectSkillMatches(value, occupiedMatches);
+    const matches = [...occupiedMatches, ...skillMatches].sort((left, right) => left.start - right.start);
     const tokens: PlainTextToken[] = [];
     let cursor = 0;
 
@@ -136,6 +157,18 @@ function tokensToNodes(tokens: PlainTextToken[]): PlainTextProseMirrorNode[] {
                     },
                 };
             }
+            if (token.kind === "selection" && token.selection) {
+                return {
+                    type: "plainSelectionReference",
+                    attrs: {
+                        label: token.selection.label,
+                        target: token.selection.target,
+                        ref: token.selection.ref,
+                        ...(token.selection.startLine ? {startLine: token.selection.startLine} : {}),
+                        ...(token.selection.endLine ? {endLine: token.selection.endLine} : {}),
+                    },
+                };
+            }
             if (token.kind === "skill" && token.skill) {
                 return {
                     type: "agentSkill",
@@ -155,9 +188,41 @@ interface TokenMatch {
     token: PlainTextToken;
 }
 
-function collectReferenceMatches(value: string): TokenMatch[] {
+function collectSelectionMatches(value: string): TokenMatch[] {
+    const matches: TokenMatch[] = [];
+    let cursor = 0;
+    while (cursor < value.length) {
+        const chip = readSelectionRefChipAt(value, cursor);
+        if (!chip) {
+            cursor += 1;
+            continue;
+        }
+        const range = chip.range;
+        matches.push({
+            start: cursor,
+            end: cursor + chip.raw.length,
+            token: {
+                kind: "selection",
+                raw: chip.raw,
+                selection: {
+                    label: chip.label,
+                    target: chip.path,
+                    ref: chip.ref,
+                    ...rangeToAttrs(range),
+                },
+            },
+        });
+        cursor += chip.raw.length;
+    }
+    return matches;
+}
+
+function collectReferenceMatches(value: string, occupiedMatches: TokenMatch[]): TokenMatch[] {
     const matches: TokenMatch[] = [];
     for (const matched of collectMarkdownLinkMatches(value)) {
+        if (isInsideToken(matched.start, occupiedMatches)) {
+            continue;
+        }
         const reference = resolveReferenceToken(matched);
         if (!reference) {
             continue;
@@ -173,6 +238,16 @@ function collectReferenceMatches(value: string): TokenMatch[] {
         });
     }
     return matches;
+}
+
+function rangeToAttrs(range: InlineEditReferenceRange | undefined): Pick<PlainSelectionReferenceNodeAttrs, "startLine" | "endLine"> {
+    if (!range) {
+        return {};
+    }
+    return {
+        startLine: String(range.startLine),
+        endLine: String(range.endLine),
+    };
 }
 
 function collectSkillMatches(value: string, referenceMatches: TokenMatch[]): TokenMatch[] {

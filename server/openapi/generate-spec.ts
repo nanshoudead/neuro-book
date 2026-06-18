@@ -134,32 +134,7 @@ function buildResponses(entry: RouteMetaEntry): Record<string, unknown> {
             },
         };
     } else {
-        // SSE or empty response
-        if (entry.file === "writing/continue.post.ts") {
-            responses["200"] = {
-                description:
-                    "SSE event stream. Events: token (text chunk), done (fullText), error (message)",
-                content: {
-                    "text/event-stream": {
-                        schema: {
-                            type: "object",
-                            properties: {
-                                event: {
-                                    type: "string",
-                                    enum: ["token", "done", "error"],
-                                },
-                                data: {
-                                    type: "string",
-                                    description: "JSON-encoded payload",
-                                },
-                            },
-                        },
-                    },
-                },
-            };
-        } else {
-            responses["200"] = { description: "OK" };
-        }
+        responses["200"] = { description: "OK" };
     }
 
     // Always add 400 for routes with request body validation

@@ -553,3 +553,28 @@
 - 原 Product Runtime 判定只看根 `release-meta.json`，因此 GHCR 修完缺脚本后仍可能让 profile artifact compiler / Profile Workbench worker 误判为源码模式，回退根 `node_modules`，再次触发 `@libsql/*` 等 native/dynamic package 解析失败。
 - 已修为：根 metadata 存在时优先使用；无根 `node_modules` 且 `.output/server/release-meta.json` 存在时，也视为 Product Runtime。
 - 版本接口同样支持无根 `node_modules` 时从 `.output/server/release-meta.json` 读取 release metadata。
+
+## Windows Portable Agent Session Migration Scripts
+
+### User Request
+
+- Windows release 根目录执行 `bun run migrate:agent-session-initial && bun run migrate:writer-session-initial` 报 `Script not found`。
+
+### Diagnosis
+
+- 源码根 `package.json` 已有两个迁移命令，但 Product Root 的 `package.json` 由 `scripts/deploy/product-runtime.mjs` 重新生成，只保留产品启动、数据库迁移和 profile 编译命令。
+- Windows portable zip 根目录此前不包含 `package.json`，用户在 `neuro-book-windows-x64` 根目录执行 `bun run ...` 时没有 script manifest。
+- 两个迁移脚本已经随 `scripts/db` 复制进 Product Payload，缺的是产品 manifest 和 portable root manifest 的命令入口。
+
+### Changes
+
+- Product `app/package.json` 新增：
+  - `migrate:agent-session-initial`
+  - `migrate:writer-session-initial`
+- Windows portable 根目录新增轻量 `package.json`，同名脚本显式调用 `runtime/bun/bun.exe`，并把迁移根指向 `data/workspace`，让用户可在 release 根目录直接运行。
+
+### Verification
+
+- `node --check scripts/deploy/product-runtime.mjs`
+- `node --check scripts/deploy/windows-portable.mjs`
+- `product:stage` 未完成：当前本机 `product/` 目录被占用，Windows 返回 `EACCES: permission denied, rm ...\product`；未强行删除或关闭占用进程。

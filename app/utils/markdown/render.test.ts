@@ -12,6 +12,14 @@ describe("renderMarkdown", () => {
         expect(renderMarkdown("${小说初始化流程}")).toContain("${小说初始化流程}");
     });
 
+    it("会把 inline selection reference 渲染为 chip", () => {
+        const html = renderMarkdown("**润色** [[manuscript/001/chapter.md#L12-L18]]");
+
+        expect(html).toContain("nb-reference-chip is-selection");
+        expect(html).toContain("data-reference-target=\"manuscript/001/chapter.md\"");
+        expect(html).toContain("选区");
+    });
+
     it("会修复流式输出中分隔行缺列的 GFM 表格", () => {
         const html = renderMarkdown("| 因果链 | 起因 | 过程 | 结果 |\n|--------|------|------|");
 

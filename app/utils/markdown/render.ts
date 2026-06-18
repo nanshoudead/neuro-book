@@ -1,5 +1,6 @@
 import {Marked} from "marked";
 import {renderReferenceChipHtml} from "nbook/app/components/common/reference-chip";
+import {parseSelectionRefChip} from "nbook/app/utils/inline-editor-selection";
 import {renderInlineCommentHtml} from "nbook/app/utils/structured-text";
 import {parseWorkspaceReferenceLink} from "nbook/shared/workspace-reference";
 
@@ -155,6 +156,46 @@ function ensureMarked(): void {
     });
     agentMarkdown.use({
         extensions: [
+            {
+                name: "selectionReference",
+                level: "inline",
+                start(src: string) {
+                    const bracketedIndex = src.indexOf("[[");
+                    const lineIndex = src.search(/[\w@~./\\-]+#(?:L)?\d/u);
+                    if (bracketedIndex < 0) {
+                        return lineIndex < 0 ? undefined : lineIndex;
+                    }
+                    if (lineIndex < 0) {
+                        return bracketedIndex;
+                    }
+                    return Math.min(bracketedIndex, lineIndex);
+                },
+                tokenizer(src: string) {
+                    const chip = parseSelectionRefChip(src);
+                    if (!chip) {
+                        return undefined;
+                    }
+                    return {
+                        type: "selectionReference",
+                        raw: chip.raw,
+                        href: chip.path,
+                        text: chip.label,
+                    };
+                },
+                renderer(token) {
+                    const raw = token.raw ?? "";
+                    const chip = parseSelectionRefChip(raw);
+                    if (!chip) {
+                        return raw;
+                    }
+                    return renderReferenceChipHtml({
+                        label: chip.label,
+                        target: chip.path,
+                        entryType: "selection",
+                        icon: "i-lucide-text-select",
+                    });
+                },
+            },
             {
                 name: "workspaceReference",
                 level: "inline",

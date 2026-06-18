@@ -74,6 +74,7 @@ export function createPlainReferenceTextExtensions(options: PlainReferenceTextEx
             getActiveIndex: options.getActiveIndex,
             setActiveIndex: options.setActiveIndex,
         }),
+        PlainSelectionReference,
         PlainSlashCommand.configure({
             resolveMenu: options.resolveMenu,
             onMenuStateChange: options.onMenuStateChange,
@@ -259,6 +260,93 @@ const PlainReference = Node.create<PlainReferenceOptions>({
 });
 
 /**
+ * Inline AI 选区引用节点。只展示 canonical [[path#Lx-Ly]] chip，不参与 @ trigger。
+ */
+const PlainSelectionReference = Node.create({
+    name: "plainSelectionReference",
+    group: "inline",
+    inline: true,
+    atom: true,
+    selectable: false,
+    priority: 1185,
+
+    addAttributes() {
+        return {
+            label: {
+                default: "",
+            },
+            target: {
+                default: "",
+            },
+            ref: {
+                default: "",
+            },
+            startLine: {
+                default: null,
+            },
+            endLine: {
+                default: null,
+            },
+        };
+    },
+
+    parseHTML() {
+        return [{
+            tag: "span[data-plain-selection-reference-target]",
+            getAttrs: (dom) => {
+                const element = dom as HTMLElement;
+                return {
+                    label: element.dataset.plainSelectionReferenceLabel ?? element.textContent?.trim() ?? "",
+                    target: element.dataset.plainSelectionReferenceTarget ?? "",
+                    ref: element.dataset.plainSelectionReferenceRef ?? "",
+                    startLine: element.dataset.plainSelectionReferenceStartLine || null,
+                    endLine: element.dataset.plainSelectionReferenceEndLine || null,
+                };
+            },
+        }];
+    },
+
+    renderHTML({HTMLAttributes}) {
+        return ["span", mergeAttributes(HTMLAttributes, {
+            "data-plain-selection-reference-label": HTMLAttributes.label,
+            "data-plain-selection-reference-target": HTMLAttributes.target,
+            "data-plain-selection-reference-ref": HTMLAttributes.ref,
+            "data-plain-selection-reference-start-line": HTMLAttributes.startLine,
+            "data-plain-selection-reference-end-line": HTMLAttributes.endLine,
+            contenteditable: "false",
+        })];
+    },
+
+    addNodeView() {
+        return ({node}) => ( {
+            dom: createReferenceElement({
+                label: String(node.attrs.label ?? ""),
+                target: String(node.attrs.target ?? ""),
+                entryType: "selection",
+                icon: "i-lucide-text-select",
+                wrapperClass: "nb-plain-selection-reference-node",
+                dataset: {
+                    plainSelectionReferenceLabel: String(node.attrs.label ?? ""),
+                    plainSelectionReferenceTarget: String(node.attrs.target ?? ""),
+                    plainSelectionReferenceRef: String(node.attrs.ref ?? ""),
+                    plainSelectionReferenceStartLine: String(node.attrs.startLine ?? ""),
+                    plainSelectionReferenceEndLine: String(node.attrs.endLine ?? ""),
+                },
+            }),
+        });
+    },
+
+    addKeyboardShortcuts() {
+        return {
+            Backspace: () => this.editor.state.selection.empty
+                && degradeAdjacentReference(this.editor.state.selection.from, -1, this.editor),
+            Delete: () => this.editor.state.selection.empty
+                && degradeAdjacentReference(this.editor.state.selection.from, 1, this.editor),
+        };
+    },
+});
+
+/**
  * 纯文本 / 命令入口。只插入普通文本，不执行 Markdown 格式命令。
  */
 const PlainSlashCommand = Extension.create<PlainSlashCommandOptions>({
@@ -407,11 +495,13 @@ function normalizeReferenceMenuValue(item: AgentTriggerMenuItem): {
 function degradeAdjacentReference(position: number, direction: -1 | 1, editor: Editor): boolean {
     const resolved = editor.state.doc.resolve(position);
     const adjacentNode = direction < 0 ? resolved.nodeBefore : resolved.nodeAfter;
-    if (!adjacentNode || adjacentNode.type?.name !== "plainReference") {
+    if (!adjacentNode || (adjacentNode.type?.name !== "plainReference" && adjacentNode.type?.name !== "plainSelectionReference")) {
         return false;
     }
 
-    const degradedText = `[${String(adjacentNode.attrs?.label ?? "")}](${String(adjacentNode.attrs?.target ?? "")})`;
+    const degradedText = adjacentNode.type.name === "plainSelectionReference"
+        ? String(adjacentNode.attrs?.ref ?? "")
+        : `[${String(adjacentNode.attrs?.label ?? "")}](${String(adjacentNode.attrs?.target ?? "")})`;
     const from = direction < 0 ? position - adjacentNode.nodeSize : position;
     const to = direction < 0 ? position : position + adjacentNode.nodeSize;
 
@@ -425,14 +515,21 @@ function createReferenceElement(options: {
     target: string;
     entryType: string | null;
     icon: string | null;
+    wrapperClass?: string;
+    dataset?: Record<string, string>;
 }): HTMLElement {
     const wrapper = document.createElement("span");
-    wrapper.className = "nb-plain-reference-node";
+    wrapper.className = options.wrapperClass ?? "nb-plain-reference-node";
     wrapper.contentEditable = "false";
-    wrapper.dataset.plainReferenceLabel = options.label;
-    wrapper.dataset.plainReferenceTarget = options.target;
-    wrapper.dataset.plainReferenceEntryType = options.entryType ?? "";
-    wrapper.dataset.plainReferenceIcon = options.icon ?? "";
+    if (!options.wrapperClass) {
+        wrapper.dataset.plainReferenceLabel = options.label;
+        wrapper.dataset.plainReferenceTarget = options.target;
+        wrapper.dataset.plainReferenceEntryType = options.entryType ?? "";
+        wrapper.dataset.plainReferenceIcon = options.icon ?? "";
+    }
+    Object.entries(options.dataset ?? {}).forEach(([key, value]) => {
+        wrapper.dataset[key] = value;
+    });
 
     const meta = getReferenceChipMeta({
         target: options.target,

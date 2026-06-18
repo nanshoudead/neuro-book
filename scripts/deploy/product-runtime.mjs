@@ -248,6 +248,8 @@ async function writeProductPackageJson() {
             start: "bun .output/server/scripts/deploy/product-start.mjs",
             "auth:create-admin": "bun .output/server/scripts/cli/create-admin.ts",
             "migrate:deploy": "bun .output/server/scripts/db/prisma-migrate.mjs --deploy",
+            "migrate:agent-session-initial": "bun .output/server/scripts/db/migrate-agent-session-initial.ts",
+            "migrate:writer-session-initial": "bun .output/server/scripts/db/migrate-writer-session-initial.ts",
             "system-assets:prepare": "bun .output/server/scripts/build/prepare-system-assets.ts",
             "profile:check": "bun .output/server/scripts/build/profile.ts check",
             "profile:compile": "bun .output/server/scripts/build/profile.ts compile",

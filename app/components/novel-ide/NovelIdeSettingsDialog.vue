@@ -43,7 +43,6 @@ const emit = defineEmits<{
 const novelIdeStore = useNovelIdeStore();
 const notification = useNotification();
 const {
-    promptExpanded,
     selectedReasoning,
     theme,
     viewMode,
@@ -155,11 +154,6 @@ const viewModeOptions: SelectOption[] = [
     {value: "source", label: "源码"},
 ];
 
-const promptExpandedOptions: SelectOption[] = [
-    {value: "expanded", label: "默认展开"},
-    {value: "collapsed", label: "默认收起"},
-];
-
 const editorFontOptions: SelectOption[] = [
     {
         value: "\"Source Han Serif SC\", \"Noto Serif SC\", \"Songti SC\", serif",
@@ -201,13 +195,6 @@ const monacoFontOptions: SelectOption[] = [
         label: "Fira Code",
     },
 ];
-
-const promptExpandedValue = computed({
-    get: (): string => promptExpanded.value ? "expanded" : "collapsed",
-    set: (value: string): void => {
-        promptExpanded.value = value === "expanded";
-    },
-});
 
 const projectOptions = computed<SelectOption[]>(() => novelIdeStore.novels.map((novel) => ({
     value: novel.id,
@@ -649,19 +636,6 @@ watch(activeScope, (scope) => {
                                     </div>
                                     <div class="w-40 shrink-0">
                                         <FormSelect :model-value="viewMode" :options="viewModeOptions" @update:model-value="updateViewMode" />
-                                    </div>
-                                </div>
-
-                                <div class="group flex items-center gap-4 rounded-2xl border border-[var(--border-color)] bg-[var(--bg-panel)] px-5 py-4 shadow-sm transition-all duration-300 hover:shadow-md">
-                                    <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[var(--bg-input)] text-[var(--text-secondary)] transition-colors group-hover:bg-[var(--accent-bg)] group-hover:text-[var(--accent-main)]">
-                                        <span class="i-lucide-panel-bottom h-5 w-5"></span>
-                                    </div>
-                                    <div class="min-w-0 flex-1">
-                                        <div class="text-sm font-medium text-[var(--text-main)]">Prompt Bar</div>
-                                        <div class="mt-0.5 text-xs text-[var(--text-secondary)]">控制页面初始进入时底部输入栏的展开状态。</div>
-                                    </div>
-                                    <div class="w-40 shrink-0">
-                                        <FormSelect v-model="promptExpandedValue" :options="promptExpandedOptions" />
                                     </div>
                                 </div>
                             </div>

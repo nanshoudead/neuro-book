@@ -28,6 +28,8 @@ import type {AgentQueuedMessageDto, AgentSessionListQueryDto, AgentSessionSnapsh
 import type {DropdownItem} from "nbook/app/components/common/dropdown.types";
 import type {ThinkingLevelDto} from "nbook/shared/dto/app-settings.dto";
 import type {InvokeAgentResult} from "nbook/server/agent/harness/types";
+import type {JsonValue} from "nbook/server/agent/messages/types";
+import type {InlineEditPayload} from "nbook/app/utils/inline-editor-selection";
 
 type SessionModelDraft = {
     modelKey: string | null;
@@ -39,6 +41,8 @@ type LeaderCreateProfileOption = {
     label: string;
     iconClass: string;
 };
+
+const INLINE_EDITOR_PROFILE_KEY = "inline.editor";
 
 const props = defineProps<{
     active: boolean;
@@ -143,6 +147,29 @@ const queuedMessages = computed<AgentQueuedMessageDto[]>(() => [
 const linkedAgentCount = computed(() => linkedAgents.value.length + linkedByAgents.value.length);
 const planModeActive = computed(() => activeSnapshot.value?.planModeActive ?? false);
 const renderNodes = computed(() => messages.value);
+const inlineEditPreview = computed(() => {
+    const toolCall = messages.value
+        .flatMap((message) => message.toolCalls ?? [])
+        .filter((item) => item.name === "edit" || item.name === "write")
+        .at(-1);
+    if (!toolCall) {
+        return "";
+    }
+    const path = readToolPath(toolCall);
+    const status = toolCall.status === "success"
+        ? "已完成"
+        : toolCall.status === "error"
+            ? "失败"
+            : "进行中";
+    const result = toolCall.error || toolCall.result || "";
+    return [`${status}${path ? `：${path}` : ""}`, result].filter(Boolean).join("\n");
+});
+const inlineEditorSessionLabel = computed(() => {
+    if (activeSummary.value?.profileKey !== INLINE_EDITOR_PROFILE_KEY) {
+        return "自动 Inline AI Session";
+    }
+    return activeSummary.value.title || `Inline AI #${String(activeSummary.value.sessionId)}`;
+});
 const messageActionsDisabled = computed(() => running.value || Boolean(messageActionId.value));
 const canContinueWithoutInput = computed(() => {
     if (running.value || inputText.value.trim() || messages.value.length === 0) {
@@ -234,6 +261,49 @@ const notifyAgentError = (error: unknown, fallback: string, title = fallback): s
     notification.error(message, {title});
     return message;
 };
+
+/**
+ * 将 InlineEditPayload 转成 DTO 接受的 JsonValue。
+ */
+function inlineEditPayloadToJson(payload: InlineEditPayload): JsonValue {
+    return {
+        version: payload.version,
+        task: payload.task,
+        targetPath: payload.targetPath,
+        instruction: payload.instruction,
+        references: payload.references.map((reference) => {
+            const output: {[key: string]: JsonValue} = {
+                ref: reference.ref,
+                path: reference.path,
+                match: reference.match,
+                text: reference.text,
+            };
+            if (reference.range) {
+                output.range = {
+                    startLine: reference.range.startLine,
+                    endLine: reference.range.endLine,
+                };
+            }
+            return output;
+        }),
+    };
+}
+
+/**
+ * 从文件工具参数中读取 path，用于 Inline AI 轻量预览。
+ */
+function readToolPath(toolCall: AgentToolCall): string {
+    const argsText = toolCall.argsJson || toolCall.argsText;
+    if (!argsText.trim()) {
+        return "";
+    }
+    try {
+        const parsed = JSON.parse(argsText) as {path?: string};
+        return typeof parsed.path === "string" ? parsed.path : "";
+    } catch {
+        return "";
+    }
+}
 
 /**
  * 生成等待用户输入实例的稳定 key，用来避免旧 pending 的提交态影响下一组问题。
@@ -990,6 +1060,44 @@ const send = async (): Promise<void> => {
 };
 
 /**
+ * 发送 Inline AI 编辑任务。调用方只负责构造 visible message 与 payload。
+ */
+const sendInlineEditorPrompt = async (payload: InlineEditPayload, visibleMessage: string): Promise<void> => {
+    const targetSession = await ensureInlineEditorSession();
+    if (targetSession.status === "running" || targetSession.status === "waiting") {
+        throw new Error("Inline AI Session 正在运行或等待输入，请先处理当前任务。");
+    }
+
+    if (activeSessionId.value !== targetSession.sessionId) {
+        await loadSession(targetSession.sessionId);
+    }
+    if (!activeSessionId.value) {
+        throw new Error("Inline AI Session 加载失败。");
+    }
+
+    session.appendOptimisticUserMessage(visibleMessage);
+    await ensureActiveSessionEvents();
+    const result = await agentApi.invokeSession(activeSessionId.value, {
+        mode: "prompt",
+        message: {text: visibleMessage},
+        input: inlineEditPayloadToJson(payload),
+        clientState: buildClientState(),
+    });
+    await handleInvokeResult(result);
+};
+
+/**
+ * 打开或创建 Inline AI Session，供 PromptBar 主动绑定。
+ */
+const openInlineEditorSession = async (): Promise<AgentSessionSummaryDto> => {
+    const targetSession = await ensureInlineEditorSession();
+    if (activeSessionId.value !== targetSession.sessionId) {
+        await loadSession(targetSession.sessionId);
+    }
+    return targetSession;
+};
+
+/**
  * 运行中引导当前 Agent loop。
  */
 const steer = async (): Promise<void> => {
@@ -1563,13 +1671,68 @@ defineExpose({
     loadingSession,
     linkedAgentsLoading,
     running,
+    inlineEditPreview,
+    inlineEditorSessionLabel,
     sessionActionId,
     ensureSessionReady,
     refreshSessionsWithQuery,
     selectSession,
     createSession: createSessionFromHeader,
     archiveSessionFromDialog,
+    openInlineEditorSession,
+    sendInlineEditorPrompt,
+    stopInlineEditorPrompt: stopRun,
 });
+
+/**
+ * 确保 Project 级 Inline AI Session 可用。
+ */
+async function ensureInlineEditorSession(): Promise<AgentSessionSummaryDto> {
+    const list = await agentApi.listSessions({
+        workspaceKey: workspaceKey.value,
+        profileGroup: "all",
+        status: "active",
+        relation: "all",
+        limit: 200,
+    });
+    const rememberedId = readInlineEditorSessionId();
+    const remembered = rememberedId
+        ? list.find((item) => item.sessionId === rememberedId && item.profileKey === INLINE_EDITOR_PROFILE_KEY)
+        : undefined;
+    const existing = remembered ?? list.find((item) => item.profileKey === INLINE_EDITOR_PROFILE_KEY);
+    if (existing) {
+        saveInlineEditorSessionId(existing.sessionId);
+        return existing;
+    }
+
+    const created = await agentApi.createSession({
+        profileKey: INLINE_EDITOR_PROFILE_KEY,
+        initial: {},
+        workspaceRoot: agentWorkspaceRoot.value,
+        workspaceKey: workspaceKey.value,
+        projectPath: ideStore.workspaceKind === "user-assets" ? undefined : ideStore.currentNovelId,
+    });
+    saveInlineEditorSessionId(created.sessionId);
+    const snapshot = await agentApi.getSession(created.sessionId);
+    await refreshSessions();
+    return snapshot.summary;
+}
+
+function readInlineEditorSessionId(): number | null {
+    if (!import.meta.client) {
+        return null;
+    }
+    const raw = localStorage.getItem(`agent:inline-editor-session:${workspaceKey.value}`);
+    const parsed = raw ? Number(raw) : NaN;
+    return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+}
+
+function saveInlineEditorSessionId(sessionId: number): void {
+    if (!import.meta.client) {
+        return;
+    }
+    localStorage.setItem(`agent:inline-editor-session:${workspaceKey.value}`, String(sessionId));
+}
 
 function readLastSessionId(): number | null {
     if (!import.meta.client) {

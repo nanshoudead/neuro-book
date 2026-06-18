@@ -92,6 +92,10 @@
     color: #475569;
 }
 
+.nb-reference-chip.is-selection {
+    color: #7c2d12;
+}
+
 .nb-reference-chip.is-folder {
     color: #b45309;
 }

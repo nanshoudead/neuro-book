@@ -261,8 +261,6 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
     const plotWorkbenchOpen = ref(false);
     const rightPanelOpen = ref(false);
     const rightPanelWidth = ref(400);
-    const promptExpanded = ref(true);
-    const requirement = ref("");
     const selectedModel = ref<string>(DEFAULT_MODEL_LABEL);
     const selectedReasoning = ref<string>(REASONING_OPTIONS[2] ?? "中");
     const theme = ref<IdeTheme>("sepia");
@@ -2261,12 +2259,10 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
         pushDetailUndoSnapshot,
         popDetailUndoSnapshot,
         clearDetailUndoStack,
-        promptExpanded,
         reasoningOptions,
         refreshTreeAndLoadChapter,
         reorderChapters,
         reorderVolumes,
-        requirement,
         rightPanelOpen,
         rightPanelWidth,
         saveCurrentChapterContent,
@@ -2335,8 +2331,6 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
             storage: piniaPluginPersistedstate.sessionStorage(),
             pick: [
             "currentNovelId",
-            "promptExpanded",
-            "requirement",
             "selectedChapterId",
             "selectedLorebookEntryId",
             "selectedCharacterId",

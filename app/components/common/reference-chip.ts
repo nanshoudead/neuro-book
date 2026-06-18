@@ -77,6 +77,13 @@ export function getReferenceChipMeta(input: ReferenceKind | Pick<WorkspaceRefere
             badgeLabel: "待定",
         };
     }
+    if (entryType === "selection") {
+        return {
+            iconClass: "i-lucide-text-select",
+            toneClass: "is-selection",
+            badgeLabel: "选区",
+        };
+    }
     if (entryType === "character") {
         return {
             iconClass: "i-lucide-user-round",

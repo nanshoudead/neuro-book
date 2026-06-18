@@ -30,6 +30,7 @@ const emit = defineEmits<{
     (e: "insert-reference"): void;
     (e: "insert-image"): void;
     (e: "add-comment"): void;
+    (e: "add-ai-reference"): void;
 }>();
 
 const {prompt} = useDialog();
@@ -303,11 +304,11 @@ onUnmounted(() => {
             <button
                 type="button"
                 class="markdown-selection-menu__button markdown-selection-menu__button--improve"
-                title="AI Improve 暂未接入"
-                disabled
+                title="加入 AI 引用"
+                @click="closeDropdowns(); emit('add-ai-reference')"
             >
                 <span class="i-lucide-sparkles h-3.5 w-3.5"></span>
-                <span>Improve</span>
+                <span>加入 AI 引用</span>
             </button>
 
             <div class="markdown-selection-menu__divider"></div>

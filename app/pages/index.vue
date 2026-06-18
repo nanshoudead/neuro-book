@@ -2,7 +2,6 @@
 import {storeToRefs} from "pinia";
 import type {AuthSessionDto} from "nbook/shared/dto/auth.dto";
 import type {ConfigBootstrapDto} from "nbook/shared/dto/config.dto";
-import type {NovelContinueRequestDto} from "nbook/shared/dto/novel.dto";
 import {isNovelIdeTab, type NovelIdeTab} from "nbook/app/components/novel-ide/mock-data";
 import MarkdownStudioWorkbench from "nbook/app/components/markdown-studio/MarkdownStudioWorkbench.vue";
 import AgentChatSurface from "nbook/app/components/novel-ide/agent/AgentChatSurface.vue";
@@ -38,18 +37,7 @@ import {
 } from "nbook/app/utils/workspace-reference-search";
 import {buildWorkspaceReferenceSections} from "nbook/app/utils/workspace-reference-menu";
 import {resolveWorkspaceFileExtension, type FrontmatterProfileKind} from "nbook/shared/editor-workbench";
-
-type StreamTokenEvent = {
-    text?: string;
-};
-
-type StreamDoneEvent = {
-    fullText?: string;
-};
-
-type StreamErrorEvent = {
-    message?: string;
-};
+import {buildSelectionRefChip, type InlineEditPayload, type InlineEditReference, type InlineEditTask} from "nbook/app/utils/inline-editor-selection";
 
 type SameDocumentViewTransition = {
     ready: Promise<void>;
@@ -65,7 +53,6 @@ const WELCOME_LOREBOOK_ENTRY_TYPES = ["location", "character", "item", "rule", "
 
 type WelcomeLorebookEntryType = typeof WELCOME_LOREBOOK_ENTRY_TYPES[number];
 
-const abortController = ref<AbortController | null>(null);
 const initialized = ref(false);
 const themeHostRef = ref<HTMLElement | null>(null);
 const currentUser = ref<AuthSessionDto["user"]>(null);
@@ -117,8 +104,6 @@ const {
     agentStudioFileTreeWidth,
     agentStudioPanelWidth,
     novels,
-    promptExpanded,
-    requirement,
     rightPanelOpen,
     savingFile,
     selectedFileContent,
@@ -316,8 +301,6 @@ const displayActiveWorkspaceTabPath = computed(() => workspaceDisplayReady.value
 const displaySelectedFileNode = computed(() => workspaceDisplayReady.value ? selectedFileNode.value : null);
 const displayCurrentEditorKind = computed<WorkspaceEditorKind>(() => workspaceDisplayReady.value ? currentEditorKind.value : "readonly");
 const displayCurrentWorkspaceViewMode = computed<WorkspaceEditorViewMode>(() => workspaceDisplayReady.value ? currentWorkspaceViewMode.value : "source");
-const displayPromptExpanded = computed(() => workspaceBootstrapped.value ? promptExpanded.value : true);
-const displayRequirement = computed(() => workspaceBootstrapped.value ? requirement.value : "");
 const displaySelectedModel = computed(() => workspaceBootstrapped.value ? selectedModel.value : "未配置模型");
 const displaySelectedReasoning = computed(() => workspaceBootstrapped.value ? selectedReasoning.value : "中");
 const displayMonacoTemporaryFontSize = computed(() => displayActiveWorkspaceTabPath.value
@@ -356,6 +339,34 @@ const workspaceReferenceRefreshKey = computed(() => workspaceTree.value
  * Markdown 文件继续进入 MarkdownStudio。
  */
 const isMarkdownFile = computed(() => currentFileExtension.value === ".md");
+const isPlainTextFile = computed(() => [".txt", ".text", ".markdown"].includes(currentFileExtension.value));
+const inlinePromptExpanded = ref(false);
+const inlinePromptInstruction = ref("");
+const inlinePromptTask = ref<InlineEditTask>("polish");
+const inlinePromptReferences = ref<InlineEditReference[]>([]);
+const inlinePromptRunning = ref(false);
+const inlinePromptStatusText = ref("选择文本后点击加入 AI 引用");
+const inlinePromptEditPreview = ref("");
+const displayInlinePromptSessionLabel = computed(() => {
+    return unref(agentSurfaceRef.value?.inlineEditorSessionLabel) || "自动 Inline AI Session";
+});
+const displayInlinePromptEditPreview = computed(() => {
+    return unref(agentSurfaceRef.value?.inlineEditPreview) || inlinePromptEditPreview.value;
+});
+const inlinePromptAvailable = computed(() => {
+    return workspaceDisplayReady.value
+        && selectedFileNode.value?.editable === true
+        && (isMarkdownFile.value || isPlainTextFile.value);
+});
+
+const inlineTaskLabels: Record<InlineEditTask, string> = {
+    rewrite: "改写",
+    polish: "润色",
+    expand: "扩写",
+    condense: "缩写",
+    continue_after: "续写",
+    bridge: "承接",
+};
 
 const markdownCommandSections = [
     {
@@ -760,6 +771,127 @@ const saveCurrentWorkspaceFile = async (): Promise<void> => {
 };
 
 /**
+ * 将 TipTap 选区加入底部 Inline AI 输入栏。
+ */
+function addInlineAiReference(reference: InlineEditReference): void {
+    inlinePromptReferences.value = [
+        ...inlinePromptReferences.value.filter((item) => item.ref !== reference.ref || item.text !== reference.text),
+        reference,
+    ];
+    inlinePromptExpanded.value = true;
+    inlinePromptStatusText.value = reference.match === "unique"
+        ? "已加入选区引用"
+        : "已加入选区引用，行号仅作弱定位";
+}
+
+/**
+ * 清除一个 Inline AI 引用。
+ */
+function clearInlineAiReference(index: number): void {
+    inlinePromptReferences.value = inlinePromptReferences.value.filter((_reference, referenceIndex) => referenceIndex !== index);
+}
+
+/**
+ * 构造发送给 AgentChatFlow 的可见用户消息。
+ */
+function buildInlineVisibleMessage(payload: InlineEditPayload): string {
+    const chips = payload.references.length > 0
+        ? payload.references.map((reference) => reference.ref)
+        : [buildSelectionRefChip({path: payload.targetPath})];
+    const instruction = payload.instruction.trim() || "按当前任务处理。";
+    return `**${inlineTaskLabels[payload.task]}** ${chips.join(" ")}\n\n${instruction}`;
+}
+
+/**
+ * 发送 Inline AI 编辑任务给 inline.editor profile。
+ */
+async function sendInlineEditorPrompt(): Promise<void> {
+    if (inlinePromptRunning.value) {
+        return;
+    }
+    if (!inlinePromptAvailable.value) {
+        notification.warning("当前文件不支持 Inline AI 编辑。", {title: "Inline AI"});
+        return;
+    }
+    if (!selectedFilePath.value) {
+        notification.warning("请先打开一个可编辑文本文件。", {title: "Inline AI"});
+        return;
+    }
+    if (!inlinePromptInstruction.value.trim() && inlinePromptReferences.value.length === 0) {
+        notification.warning("请先输入编辑要求，或从选区菜单加入 AI 引用。", {title: "Inline AI"});
+        return;
+    }
+
+    const payload: InlineEditPayload = {
+        version: 1,
+        task: inlinePromptTask.value,
+        targetPath: selectedFilePath.value,
+        instruction: inlinePromptInstruction.value.trim(),
+        references: inlinePromptReferences.value,
+    };
+    const agentSurface = agentSurfaceRef.value;
+    if (!agentSurface?.sendInlineEditorPrompt) {
+        notification.error("Agent 面板尚未准备好。", {title: "Inline AI"});
+        return;
+    }
+
+    await saveCurrentWorkspaceFile();
+    rightPanelOpen.value = true;
+    inlinePromptRunning.value = true;
+    inlinePromptStatusText.value = "正在发送给 Inline AI...";
+    inlinePromptEditPreview.value = "";
+
+    try {
+        await agentSurface.sendInlineEditorPrompt(payload, buildInlineVisibleMessage(payload));
+        inlinePromptInstruction.value = "";
+        inlinePromptReferences.value = [];
+        inlinePromptStatusText.value = "Inline AI 已开始处理";
+    } catch (error) {
+        inlinePromptStatusText.value = resolveApiErrorMessage(error, "Inline AI 发送失败");
+        notification.error(inlinePromptStatusText.value, {title: "Inline AI"});
+    } finally {
+        inlinePromptRunning.value = false;
+    }
+}
+
+/**
+ * 停止当前 Inline AI 任务。
+ */
+async function stopInlineEditorPrompt(): Promise<void> {
+    await agentSurfaceRef.value?.stopInlineEditorPrompt?.();
+    inlinePromptRunning.value = false;
+    inlinePromptStatusText.value = "已请求停止 Inline AI";
+}
+
+/**
+ * 打开 Inline AI 绑定入口。第一版复用右侧 Agent 面板管理 session。
+ */
+async function bindInlineEditorSession(): Promise<void> {
+    rightPanelOpen.value = true;
+    try {
+        await agentSurfaceRef.value?.openInlineEditorSession?.();
+        inlinePromptStatusText.value = "已绑定 Inline AI Session";
+    } catch (error) {
+        inlinePromptStatusText.value = resolveApiErrorMessage(error, "绑定 Inline AI Session 失败");
+        notification.error(inlinePromptStatusText.value, {title: "Inline AI"});
+    }
+}
+
+/**
+ * 打开模型切换入口。第一版复用右侧 Agent 面板模型控制。
+ */
+async function changeInlineEditorModel(): Promise<void> {
+    rightPanelOpen.value = true;
+    try {
+        await agentSurfaceRef.value?.openInlineEditorSession?.();
+        inlinePromptStatusText.value = "已打开 Inline AI Session，可在 Agent 面板切换模型";
+    } catch (error) {
+        inlinePromptStatusText.value = resolveApiErrorMessage(error, "打开 Inline AI Session 失败");
+        notification.error(inlinePromptStatusText.value, {title: "Inline AI"});
+    }
+}
+
+/**
  * 切换工作区编辑模式。
  */
 const setCurrentWorkspaceViewMode = (mode: WorkspaceEditorViewMode): void => {
@@ -773,6 +905,12 @@ const setCurrentWorkspaceViewMode = (mode: WorkspaceEditorViewMode): void => {
 watch(currentWorkspaceViewMode, (mode) => {
     viewMode.value = mode;
 }, {immediate: true});
+
+watch(selectedFilePath, () => {
+    inlinePromptReferences.value = [];
+    inlinePromptEditPreview.value = "";
+    inlinePromptStatusText.value = "选择文本后点击加入 AI 引用";
+});
 
 /**
  * 关闭标签页，脏文件先确认。
@@ -1220,140 +1358,6 @@ const subscribeWorkspaceEvents = (): void => {
 };
 
 /**
- * 把服务端 SSE 帧解析为续写事件。
- */
-const handleFrame = (frame: string): void => {
-    const lines = frame.split("\n");
-    let eventName = "";
-    let dataText = "";
-
-    for (const line of lines) {
-        if (line.startsWith("event:")) {
-            eventName = line.slice("event:".length).trim();
-            continue;
-        }
-        if (line.startsWith("data:")) {
-            dataText += line.slice("data:".length).trim();
-        }
-    }
-
-    if (!eventName || !dataText) {
-        return;
-    }
-
-    if (eventName === "token") {
-        const tokenPayload = JSON.parse(dataText) as StreamTokenEvent;
-        const text = typeof tokenPayload.text === "string" ? tokenPayload.text : "";
-        if (text) {
-            studio.appendStreamText(text);
-        }
-        return;
-    }
-
-    if (eventName === "done") {
-        const donePayload = JSON.parse(dataText) as StreamDoneEvent;
-        studio.setStatusText(`生成完成，总新增 ${String(donePayload.fullText ?? "").length} 字`);
-        return;
-    }
-
-    if (eventName === "error") {
-        const errorPayload = JSON.parse(dataText) as StreamErrorEvent;
-        studio.setStatusText(errorPayload.message ?? "续写失败");
-    }
-};
-
-/**
- * 停止当前续写请求，并保存当前文件。
- */
-const stopContinue = (): void => {
-    abortController.value?.abort();
-    abortController.value = null;
-    studio.setStatusText("已手动停止续写");
-    studio.abortStream();
-    void saveCurrentWorkspaceFile();
-};
-
-/**
- * 发起续写请求并消费 SSE 流，内容源改为当前文件。
- */
-const startContinue = async (): Promise<void> => {
-    if (studio.loading.value) {
-        return;
-    }
-
-    await saveCurrentWorkspaceFile();
-
-    if (!selectedFileContent.value.trim()) {
-        studio.setStatusText("请先输入部分正文以获取上下文");
-        return;
-    }
-    if (!requirement.value.trim()) {
-        studio.setStatusText("请填写具体的情节续写要求");
-        return;
-    }
-
-    const payload: NovelContinueRequestDto = {
-        content: selectedFileContent.value,
-        requirement: requirement.value,
-    };
-
-    const controller = new AbortController();
-    abortController.value = controller;
-    studio.loading.value = true;
-    studio.setStatusText("AI 加载中...");
-
-    try {
-        const response = await fetch("/api/writing/continue", {
-            method: "POST",
-            headers: {"Content-Type": "application/json"},
-            body: JSON.stringify(payload),
-            signal: controller.signal,
-        });
-
-        if (!response.ok) {
-            throw new Error(`请求失败：${response.status}`);
-        }
-        if (!response.body) {
-            throw new Error("服务端未返回流式数据");
-        }
-
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = "";
-        studio.setStatusText("正在续写中...");
-        studio.startStream();
-
-        while (true) {
-            const {done, value} = await reader.read();
-            if (done) {
-                break;
-            }
-
-            buffer += decoder.decode(value, {stream: true});
-            const frames = buffer.split("\n\n");
-            buffer = frames.pop() ?? "";
-
-            for (const frame of frames) {
-                handleFrame(frame);
-            }
-        }
-
-        if (buffer.trim()) {
-            handleFrame(buffer);
-        }
-    } catch (error) {
-        if (error instanceof DOMException && error.name === "AbortError") {
-            studio.setStatusText("已手动停止续写");
-        } else {
-            studio.setStatusText(error instanceof Error ? error.message : "请求失败获取异常");
-        }
-    } finally {
-        abortController.value = null;
-        studio.finishStream();
-    }
-};
-
-/**
  * 读取后端默认模型展示名。
  */
 const syncDefaultModelLabel = async (): Promise<void> => {
@@ -1755,9 +1759,6 @@ watch(() => route.query.project, () => {
 });
 
 onBeforeUnmount(() => {
-    studio.abortStream();
-    abortController.value?.abort();
-    abortController.value = null;
     workspaceEventAbortController.value?.abort();
     workspaceEventAbortController.value = null;
     if (import.meta.client) {
@@ -1893,6 +1894,7 @@ onBeforeUnmount(() => {
                             @open-rag-inspector="ragInspectorOpen = true"
                             @open-user-assets="openUserAssets"
                             @open-profile-workbench="profileWorkbenchOpen = true"
+                            @inline-ai-reference="addInlineAiReference"
                         />
                     </div>
                     <div
@@ -1911,19 +1913,27 @@ onBeforeUnmount(() => {
                 </div>
 
                 <NovelPromptBar
-                    v-if="!isAgentMode"
+                    v-if="!isAgentMode && inlinePromptAvailable"
                     class="ide-prompt-bar"
-                    :model-value="displayRequirement"
-                    :loading="studio.loading.value || loadingWorkspace"
-                    :typing="studio.typing.value"
-                    :status-text="studio.statusText.value"
+                    :model-value="inlinePromptInstruction"
+                    :loading="inlinePromptRunning || loadingWorkspace"
+                    :status-text="inlinePromptStatusText"
                     :selected-model="displaySelectedModel"
                     :selected-reasoning="displaySelectedReasoning"
-                    :expanded="displayPromptExpanded"
-                    @update:model-value="requirement = $event"
-                    @update:expanded="promptExpanded = $event"
-                    @send="startContinue"
-                    @stop="stopContinue"
+                    :expanded="inlinePromptExpanded"
+                    :task="inlinePromptTask"
+                    :references="inlinePromptReferences"
+                    :current-path="selectedFilePath"
+                    :session-label="displayInlinePromptSessionLabel"
+                    :edit-preview="displayInlinePromptEditPreview"
+                    @update:model-value="inlinePromptInstruction = $event"
+                    @update:expanded="inlinePromptExpanded = $event"
+                    @update:task="inlinePromptTask = $event"
+                    @clear-reference="clearInlineAiReference"
+                    @bind-session="void bindInlineEditorSession()"
+                    @change-model="void changeInlineEditorModel()"
+                    @send="void sendInlineEditorPrompt()"
+                    @stop="void stopInlineEditorPrompt()"
                 />
             </main>
 

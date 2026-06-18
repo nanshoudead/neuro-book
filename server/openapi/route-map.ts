@@ -83,9 +83,6 @@ import {
     FormAnnotationRequestDtoSchema,
     FormAnnotationResponseDtoSchema,
 } from "nbook/shared/dto/ai-form-annotation.dto";
-import {
-    NovelContinueRequestDtoSchema,
-} from "nbook/shared/dto/novel.dto";
 
 // ─── Success response (for DELETE and simple operations) ────────
 import { z as z_ } from "zod";
@@ -716,15 +713,6 @@ export const routeMetaMap: RouteMetaEntry[] = [
         tags: ["Workspace Files"],
         summary: "Convert a workspace markdown file into a directory",
         requestBody: ConvertBodySchema,
-    },
-
-    // ═══ Writing (SSE) ═══
-    {
-        file: "writing/continue.post.ts",
-        method: "post",
-        tags: ["Writing"],
-        summary: "AI novel continuation — returns SSE stream (text/event-stream)",
-        requestBody: NovelContinueRequestDtoSchema,
     },
 
     // ═══ AI ═══

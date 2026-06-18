@@ -49,6 +49,7 @@ async function main() {
     await copyLauncherShell(portableRoot);
     await bundleLauncher(portableRoot);
     const bunRuntime = await stageBunRuntime(portableRoot);
+    await writePortablePackageJson(portableRoot);
     await writePortableRelease(portableRoot, bunRuntime);
 
     const outputPath = resolve(options.output ?? DEFAULT_OUTPUT);
@@ -316,6 +317,23 @@ async function writePortableRelease(portableRoot, bunRuntime) {
         payload: readReleaseMeta(),
         createdAt: new Date().toISOString(),
         zipSchemaVersion: ZIP_SCHEMA_VERSION,
+    }, null, 4)}\n`, "utf8");
+}
+
+/**
+ * 写入 portable 根 package.json，让用户可在 release 根目录直接执行 bun run 维护脚本。
+ */
+async function writePortablePackageJson(portableRoot) {
+    const source = JSON.parse(await readFile(join(REPO_ROOT, "package.json"), "utf8"));
+    await writeFile(join(portableRoot, "package.json"), `${JSON.stringify({
+        name: "neuro-book-windows-portable",
+        version: source.version ?? "0.0.0",
+        private: true,
+        type: "module",
+        scripts: {
+            "migrate:agent-session-initial": "runtime/bun/bun.exe app/.output/server/scripts/db/migrate-agent-session-initial.ts --root data/workspace",
+            "migrate:writer-session-initial": "runtime/bun/bun.exe app/.output/server/scripts/db/migrate-writer-session-initial.ts --root data/workspace",
+        },
     }, null, 4)}\n`, "utf8");
 }
 

@@ -11,6 +11,7 @@ import MarkdownSourceEditor from "nbook/app/components/markdown-studio/MarkdownS
 import MarkdownStudioToolbar from "nbook/app/components/markdown-studio/MarkdownStudioToolbar.vue";
 import MarkdownStudioWelcome from "nbook/app/components/markdown-studio/MarkdownStudioWelcome.vue";
 import MarkdownCommentFlowPanel from "nbook/app/components/markdown-studio/MarkdownCommentFlowPanel.vue";
+import type {InlineEditReference} from "nbook/app/utils/inline-editor-selection";
 
 type WorkspaceMode = "novel" | "user-assets";
 
@@ -74,6 +75,7 @@ const emit = defineEmits<{
     (e: "open-user-assets"): void;
     (e: "open-profile-workbench"): void;
     (e: "more"): void;
+    (e: "inline-ai-reference", reference: InlineEditReference): void;
 }>();
 
 const isMarkdownFile = computed(() => resolveWorkspaceFileExtension(props.activePath) === ".md");
@@ -152,6 +154,7 @@ watch(() => props.activePath, () => {
                         @save-request="emit('save-request')"
                         @open-frontmatter-profile="emit('open-frontmatter-profile', $event)"
                         @update-monaco-temporary-font-size="emit('update-monaco-temporary-font-size', $event)"
+                        @inline-ai-reference="emit('inline-ai-reference', $event)"
                     />
                     <MarkdownCommentFlowPanel
                         v-if="props.controller.commentViewOpen.value"

@@ -167,6 +167,51 @@ export const WriterInitialSchema = Type.Object({}, {
 });
 
 /**
+ * inline.editor 的实例初始化参数为空。每轮编辑任务通过 invoke_agent.message + PayloadSchema 传入。
+ */
+export const InlineEditorInitialSchema = Type.Object({}, {
+    additionalProperties: false,
+});
+
+/**
+ * inline.editor 单次 invocation payload。message 承载用户可见任务回执，payload 是稳定编辑协议。
+ */
+export const InlineEditorPayloadSchema = Type.Object({
+    version: Type.Literal(1),
+    task: Type.Union([
+        Type.Literal("rewrite"),
+        Type.Literal("polish"),
+        Type.Literal("expand"),
+        Type.Literal("condense"),
+        Type.Literal("continue_after"),
+        Type.Literal("bridge"),
+    ], {description: "Inline AI 编辑任务类型。continue_after 在 UI 中显示为续写。"}),
+    targetPath: Type.String({minLength: 1, description: "本轮主要修改目标文件路径，优先使用 Project Workspace 相对路径，如 manuscript/001/index.md。"}),
+    instruction: Type.String({description: "用户输入的自然语言编辑要求。可以为空，表示按 task 默认语义处理。"}),
+    references: Type.Array(Type.Object({
+        ref: Type.String({minLength: 1, description: "可见 selection chip，如 [[manuscript/001/index.md#L12-L18]]。"}),
+        path: Type.String({minLength: 1, description: "引用来源文件路径。"}),
+        range: Type.Optional(Type.Object({
+            startLine: Type.Number({minimum: 1}),
+            endLine: Type.Number({minimum: 1}),
+        }, {additionalProperties: false})),
+        match: Type.Union([
+            Type.Literal("unique"),
+            Type.Literal("ambiguous"),
+            Type.Literal("unknown"),
+        ], {description: "前端对选区正文行号定位的置信状态。"}),
+        text: Type.String({description: "完整选区正文，只出现在 hidden payload 中。"}),
+    }, {additionalProperties: false}), {description: "用户加入的选区引用。为空时由 AI 根据 targetPath 和 instruction 判断最小修改范围。"}),
+}, {additionalProperties: false});
+
+/**
+ * inline.editor 使用 report_result.result 回报修改摘要，不绑定 report_result.data 结构。
+ */
+export const InlineEditorOutputSchema = Type.Object({}, {
+    additionalProperties: false,
+});
+
+/**
  * writer 单次 invocation payload。message 承载自然语言任务，payload 只承载目标文件和建议读取清单。
  */
 export const WriterPayloadSchema = Type.Object({
