@@ -10,6 +10,7 @@ import {
     type AgentMessage,
     type AgentPendingUserInputSession,
 } from "nbook/app/components/novel-ide/agent/agent-message";
+import type {LowCodeFormDto} from "nbook/shared/dto/low-code-form.dto";
 
 export type AgentConnectionStatus = "idle" | "connecting" | "connected" | "reconnecting" | "recovering" | "disconnected";
 
@@ -28,6 +29,25 @@ type PendingMessageUpdate = {
     event: Extract<AgentRuntimeStreamEventDto, {type: "message_update"}>;
     invocationId?: string;
 };
+
+/**
+ * 将 tool.user-input-required 事件转换为前端 AgentPendingUserInputSession。
+ */
+function toLowCodeFormSession(
+    event: Extract<AgentRuntimeStreamEventDto, {type: "tool.user-input-required"}>,
+    assistantMessageId?: string,
+): AgentPendingUserInputSession | null {
+    if (!event.formSpec?.form) {
+        return null;
+    }
+    return {
+        assistantMessageId: assistantMessageId ?? event.toolCallId,
+        status: "pending",
+        questions: [],
+        form: event.formSpec.form as LowCodeFormDto,
+        formToolCallId: event.toolCallId,
+    };
+}
 
 /**
  * 统一管理 session snapshot + live event，并派生当前 UI message 列表。
@@ -339,6 +359,21 @@ export function useAgentSession() {
                 applyRuntimePhase(payload.event);
                 return;
             }
+
+            // 处理 tool.user-input-required 事件
+            if (payload.event.type === "tool.user-input-required") {
+                flushPendingMessageUpdates();
+                const event = payload.event;
+                const assistantMessage = messages.value.find((message) => message.toolCalls?.some((toolCall) => toolCall.id === event.toolCallId));
+                const userInputSession = toLowCodeFormSession(event, assistantMessage?.id);
+                if (userInputSession) {
+                    pendingUserInputSessions.value = [...pendingUserInputSessions.value, userInputSession];
+                    liveRunStatus.value = "waiting";
+                    runPhase.value = "waiting_user";
+                }
+                return;
+            }
+
             flushPendingMessageUpdates();
             messages.value = applyRuntimeEventToMessages(messages.value, payload.event, payload.invocationId);
             applyRuntimePhase(payload.event);
@@ -352,7 +387,15 @@ export function useAgentSession() {
             if (payload.event.entry.type === "message" && payload.event.entry.message.role === "toolResult") {
                 const toolCallId = payload.event.entry.message.toolCallId;
                 pendingUserInputSessions.value = pendingUserInputSessions.value.filter((session): boolean => {
-                    return !session.questions.some((question) => (question.toolCallId ?? question.toolNodeId) === toolCallId);
+                    // 清理 questions 中的匹配项
+                    if (session.questions.some((question) => (question.toolCallId ?? question.toolNodeId) === toolCallId)) {
+                        return false;
+                    }
+                    // 清理 formToolCallId 匹配项（Task 63 Low-Code Form）
+                    if (session.formToolCallId === toolCallId) {
+                        return false;
+                    }
+                    return true;
                 });
             }
             if (payload.event.entry.type === "custom"

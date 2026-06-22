@@ -259,6 +259,12 @@ export class NeuroAgentHarness {
         reject: (error: Error) => void;
         timeout: ReturnType<typeof setTimeout>;
     }>();
+    /** Task 63: 缓存 tool.user-input-required 事件的 formSpec，key 为 `${sessionId}:${toolCallId}`。 */
+    private readonly pendingFormSpecs = new Map<string, {
+        form: import("nbook/shared/dto/low-code-form.dto").LowCodeFormDto;
+        layout?: "dialog" | "inline" | "fullscreen";
+        prompt?: string;
+    }>();
 
     constructor(options: HarnessOptions = {}) {
         this.repo = options.repo ?? new JsonlSessionRepository();
@@ -1333,6 +1339,14 @@ export class NeuroAgentHarness {
             toolName: pending.toolName,
             args: pending.args as JsonValue,
         };
+
+        // Task 63: 填充 formSpec（如果存在）
+        const formSpecKey = `${snapshot.metadata.sessionId}:${pending.toolCallId}`;
+        const formSpec = this.pendingFormSpecs.get(formSpecKey);
+        if (formSpec) {
+            base.formSpec = formSpec;
+        }
+
         if (pending.toolName !== "exit_plan_mode") {
             return base;
         }
@@ -2230,6 +2244,12 @@ export class NeuroAgentHarness {
             }],
         }, invocationId);
 
+        // Task 63: 清理已解决的 formSpec 缓存
+        for (const pending of pendingApprovals) {
+            const formSpecKey = `${snapshot.metadata.sessionId}:${pending.toolCallId}`;
+            this.pendingFormSpecs.delete(formSpecKey);
+        }
+
         // 处理 plan mode transitions
         for (const pending of pendingApprovals) {
             const resolution = resolutionMap.get(pending.toolCallId)!;
@@ -2262,6 +2282,11 @@ export class NeuroAgentHarness {
                 },
             }],
         }, invocationId);
+
+        // Task 63: 清理已解决的 formSpec 缓存
+        const formSpecKey = `${snapshot.metadata.sessionId}:${pending.toolCallId}`;
+        this.pendingFormSpecs.delete(formSpecKey);
+
         if (resolution.kind === "tool_approval" && (pending.toolName === "enter_plan_mode" || pending.toolName === "exit_plan_mode")) {
             await this.appendPlanModeResolution(snapshot, context, pending, resolution.approved, invocationId);
         }
@@ -2978,8 +3003,87 @@ export class NeuroAgentHarness {
 
         for (let index = 0; index < input.toolCalls.length; index += 1) {
             const toolCall = input.toolCalls[index]!;
-            const approvalTool = input.toolOverrides[toolCall.name] ?? this.tools.get(toolCall.name);
-            if (approvalTool?.approvalRequired) {
+            const tool = input.toolOverrides[toolCall.name] ?? this.tools.get(toolCall.name);
+
+            // 检查工具是否需要用户输入
+            if (tool?.userInputRequest) {
+                await flushSegment();
+                try {
+                    const userInputContext = {
+                        args: toolCall.arguments,
+                        session: {
+                            sessionId: input.sessionId,
+                            profileKey: input.profileKey,
+                            workspaceRoot: input.workspaceRoot,
+                            workspaceKey: input.workspaceKey,
+                            projectPath: input.projectPath,
+                        },
+                    };
+                    const formSpec = await tool.userInputRequest.when(userInputContext);
+                    if (formSpec) {
+                        // 缓存 formSpec，供 pendingApprovalDto 使用
+                        const formSpecKey = `${input.sessionId}:${toolCall.id}`;
+                        this.pendingFormSpecs.set(formSpecKey, {
+                            form: formSpec.form,
+                            layout: formSpec.layout,
+                            prompt: formSpec.prompt,
+                        });
+                        // 需要用户输入，暂停执行
+                        await input.emit({
+                            type: "tool_user_input_required",
+                            toolCallId: toolCall.id,
+                            toolName: toolCall.name,
+                            args: toolCall.arguments,
+                            formSpec,
+                        } as unknown as AgentEvent);
+                        // 发布 SSE 事件
+                        this.publishRuntimeEvent(input.sessionId, input.invocationId, {
+                            type: "tool.user-input-required",
+                            toolCallId: toolCall.id,
+                            toolName: toolCall.name,
+                            args: toolCall.arguments,
+                            formSpec: {
+                                form: formSpec.form,
+                                resultSchema: formSpec.resultSchema,
+                                prompt: formSpec.prompt,
+                                layout: formSpec.layout,
+                            },
+                        });
+                        const skippedToolResults = this.skippedToolResultsAfterUserInput(input.toolCalls, toolCall);
+                        await this.emitToolResultMessages(skippedToolResults, input.emit);
+                        return {
+                            toolResults: [
+                                ...toolResults,
+                                ...skippedToolResults,
+                            ],
+                            reportResult,
+                            sidecarResult,
+                            reportResultError,
+                            sidecarResultError,
+                            waiting: {
+                                toolCallId: toolCall.id,
+                                toolName: toolCall.name,
+                            },
+                            shouldContinue: false,
+                        };
+                    }
+                } catch (error) {
+                    // userInputRequest.when() 执行失败，记录错误并继续
+                    const toolResult = createTextToolResult({
+                        toolCallId: toolCall.id,
+                        toolName: toolCall.name,
+                        text: `Failed to check user input requirement: ${error instanceof Error ? error.message : String(error)}`,
+                        isError: true,
+                    });
+                    toolResults.push(toolResult);
+                    await input.emit({type: "message_start", message: toolResult});
+                    await input.emit({type: "message_end", message: toolResult});
+                    allExecutedTerminate = false;
+                    continue;
+                }
+            }
+
+            if (tool?.approvalRequired) {
                 await flushSegment();
                 const approvalError = await this.validateApprovalTool(input.executionToolKeys, input.toolOverrides, input.workspaceRoot, input.projectPath, toolCall);
                 if (approvalError) {
@@ -3274,6 +3378,19 @@ export class NeuroAgentHarness {
             toolCallId: toolCall.id,
             toolName: toolCall.name,
             text: `Skipped because ${waitingToolCall.name} is waiting for user approval. This tool was not executed in this turn.`,
+            isError: true,
+        }));
+    }
+
+    private skippedToolResultsAfterUserInput(toolCalls: AgentToolCall[], waitingToolCall: AgentToolCall): ToolResultMessage[] {
+        const waitingIndex = toolCalls.findIndex((toolCall) => toolCall.id === waitingToolCall.id);
+        if (waitingIndex < 0) {
+            return [];
+        }
+        return toolCalls.slice(waitingIndex + 1).map((toolCall) => createTextToolResult({
+            toolCallId: toolCall.id,
+            toolName: toolCall.name,
+            text: `Skipped because ${waitingToolCall.name} is waiting for user input. This tool was not executed in this turn.`,
             isError: true,
         }));
     }

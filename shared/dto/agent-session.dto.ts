@@ -4,6 +4,7 @@ import type {AgentMessage, JsonValue, Model, Usage} from "nbook/server/agent/mes
 import type {SessionEntry, SessionTreeNode} from "nbook/server/agent/session/types";
 import type {VariablePatchAck, VariablePatchRequest} from "nbook/server/agent/variables/types";
 import {ThinkingLevelSchema} from "nbook/shared/dto/app-settings.dto";
+import type {LowCodeFormDto} from "nbook/shared/dto/low-code-form.dto";
 
 const JsonValueSchema: z.ZodType<JsonValue> = z.lazy(() => z.union([
     z.string(),
@@ -266,6 +267,12 @@ export type AgentPendingUserInputDto = {
     args?: JsonValue;
     planFilePath?: string;
     planContent?: string;
+    /** Task 63: Low-Code Form 规格，从 tool.user-input-required 事件复制；存在时优先于 args.form */
+    formSpec?: {
+        form: LowCodeFormDto;
+        layout?: "dialog" | "inline" | "fullscreen";
+        prompt?: string;
+    };
 };
 
 /** @deprecated 使用 AgentPendingUserInputDto */
@@ -385,6 +392,12 @@ export type AgentRuntimeStreamEventDto =
         toolCallId: string;
         toolName: string;
         args: unknown;
+        formSpec: {
+            form: LowCodeFormDto;
+            resultSchema?: unknown;
+            prompt?: string;
+            layout?: "dialog" | "inline" | "fullscreen";
+        };
         sidecarContext?: { type: string; leafId: string };
     }
     | {

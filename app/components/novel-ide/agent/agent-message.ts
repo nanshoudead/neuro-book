@@ -702,11 +702,23 @@ export const toPendingUserInputSession = (
         return null;
     }
     const assistantMessage = messages.find((message) => message.toolCalls?.some((toolCall) => toolCall.id === pending.toolCallId));
+
+    // Task 63: 优先使用 pending.formSpec（从 snapshot 恢复时可用）
+    if (pending.formSpec) {
+        return {
+            assistantMessageId: assistantMessage?.id ?? pending.assistantMessageId ?? pending.toolCallId,
+            status: "pending",
+            questions: [],
+            form: pending.formSpec.form,
+            formToolCallId: pending.toolCallId,
+        };
+    }
+
     const args = pending.args && typeof pending.args === "object" && !Array.isArray(pending.args)
         ? pending.args as Record<string, unknown>
         : {};
 
-    // Task 63: 检测 Low-Code Form
+    // Fallback: 检测 args.form（兼容旧数据或 SSE 事件直接构建的场景）
     const form = (args as any).form;
     if (form && typeof form === "object" && Array.isArray((form as any).fields)) {
         return {
