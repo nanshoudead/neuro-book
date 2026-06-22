@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import {createHash, randomUUID} from "node:crypto";
+import {pinyin} from "pinyin-pro";
 import {readProfileArtifactManifest, rehomeProfileArtifactItem, validateProfileArtifact, type ProfileArtifactManifestItem} from "nbook/server/agent/profiles/profile-artifact-compiler";
 import {readVariableDefinitionManifest, validateVariableDefinitionArtifact, type VariableDefinitionManifestItem} from "nbook/server/agent/variables/definition-artifact";
 import {assertProjectWorkspaceDirectory, normalizeProjectPath} from "nbook/server/workspace-files/project-workspace";
@@ -148,7 +149,26 @@ export function normalizeWorkspaceSlug(value: string): string {
  * 根据标题生成基础 workspace slug。中文标题无法转写时回落到 novel。
  */
 export function buildWorkspaceSlugBase(title: string): string {
-    return normalizeWorkspaceSlug(title);
+    const tokens = pinyin(title, {toneType: "none", type: "array"});
+    const parts: string[] = [];
+    let latinRun = "";
+    for (const token of tokens) {
+        if (/^[a-z0-9]$/i.test(token)) {
+            latinRun += token;
+            continue;
+        }
+        if (latinRun) {
+            parts.push(latinRun);
+            latinRun = "";
+        }
+        if (token.trim()) {
+            parts.push(token);
+        }
+    }
+    if (latinRun) {
+        parts.push(latinRun);
+    }
+    return normalizeWorkspaceSlug(parts.join("-") || title);
 }
 
 /**
@@ -1031,10 +1051,10 @@ function findUserAssetSyncState(syncState: UserSystemAssetsSyncState, assetPath:
     if (exact) {
         return exact;
     }
-    const writingPresetPrefix = "agent/writing-presets/";
-    if (assetPath.startsWith(writingPresetPrefix)) {
-        const legacyPath = assetPath.slice(writingPresetPrefix.length);
-        return syncState.assets?.find((item) => item.assetPath === legacyPath);
+    const writerHomePrefix = "agent/profiles/builtin/writer.home/";
+    if (assetPath.startsWith(writerHomePrefix)) {
+        const legacyPath = `agent/writing-presets/${assetPath.slice(writerHomePrefix.length)}`;
+        return syncState.assets?.find((item) => item.assetPath === legacyPath || item.assetPath === assetPath.slice(writerHomePrefix.length));
     }
     return undefined;
 }

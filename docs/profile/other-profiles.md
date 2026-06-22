@@ -20,7 +20,7 @@ researcher 通常返回普通 Markdown 结果和来源链接，不使用 `report
 
 ## leader.assets
 
-`leader.assets` 帮助用户维护 `workspace/.nbook` 下的 profile、Skill、模板、writing presets 和配置覆盖层。它适合解释 user-assets 机制、创建 profile 模板、检查 profile 编译状态。
+`leader.assets` 帮助用户维护 `workspace/.nbook` 下的 profile、Skill、模板、profile 默认 home 资源和配置覆盖层。它适合解释 user-assets 机制、创建 profile 模板、检查 profile 编译状态。
 
 ## Simulation profiles
 

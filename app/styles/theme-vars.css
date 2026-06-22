@@ -21,6 +21,18 @@
     --accent-main: #d97743;
     --accent-bg: rgba(217, 119, 67, 0.15);
     --accent-text: #b85a2a;
+    --status-info: #4f6f73;
+    --status-info-bg: rgba(79, 111, 115, 0.14);
+    --status-info-border: rgba(79, 111, 115, 0.35);
+    --status-success: #6f7f35;
+    --status-success-bg: rgba(111, 127, 53, 0.16);
+    --status-success-border: rgba(111, 127, 53, 0.38);
+    --status-warning: #b86b00;
+    --status-warning-bg: rgba(184, 107, 0, 0.15);
+    --status-warning-border: rgba(184, 107, 0, 0.34);
+    --status-danger: #a34d3f;
+    --status-danger-bg: rgba(163, 77, 63, 0.13);
+    --status-danger-border: rgba(163, 77, 63, 0.34);
     --toolbar-bg: rgba(253, 246, 227, 0.92);
     --prompt-bg: #fdf6e3;
     --prompt-border: #d6c7a9;

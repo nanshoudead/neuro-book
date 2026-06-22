@@ -23,6 +23,22 @@ describe("project RAG visualization service", () => {
         service = await import("nbook/server/rag/project-rag-visualization");
         await mkdir(join(root, "workspace", "rag-visual-test", "simulation", "subjects", "heroine"), {recursive: true});
         await writeFile(join(root, "workspace", "rag-visual-test", "project.yaml"), "kind: novel\ntitle: RAG Test\nsummary: ''\n", "utf-8");
+        await writeFile(join(root, "workspace", "rag-visual-test", "simulation", "subjects", "heroine", "subject.md"), [
+            "---",
+            "id: heroine",
+            "name: 艾琳娜",
+            "kind: npc",
+            "profile: simulator.actor",
+            "controlledBy: simulator",
+            "canonicalSource: lorebook/characters/erina/index.md",
+            "---",
+            "",
+            "# Subject",
+            "",
+        ].join("\n"), "utf-8");
+        await writeFile(join(root, "workspace", "rag-visual-test", "simulation", "subjects", "heroine", "soul.md"), "# Soul\n", "utf-8");
+        await writeFile(join(root, "workspace", "rag-visual-test", "simulation", "subjects", "heroine", "mind.md"), "# Mind\n", "utf-8");
+        await writeFile(join(root, "workspace", "rag-visual-test", "simulation", "subjects", "heroine", "state.md"), "# State\n", "utf-8");
         await writeFile(join(root, "workspace", "rag-visual-test", "simulation", "subjects", "heroine", "events.jsonl"), [
             "{\"time\":\"早晨\",\"text\":\"我被艾琳娜帮助，没有迟到。\"}",
             "{\"time\":\"午休\",\"text\":\"我还不确定艾琳娜是否就是粉色头发女孩。\"}",
@@ -46,8 +62,21 @@ describe("project RAG visualization service", () => {
         expect(overview.subjects).toHaveLength(1);
         expect(overview.subjects[0]).toMatchObject({
             subjectPath: "simulation/subjects/heroine",
+            metadata: {
+                id: "heroine",
+                name: "艾琳娜",
+                kind: "npc",
+                profile: "simulator.actor",
+                controlledBy: "simulator",
+                canonicalSource: "lorebook/characters/erina/index.md",
+                frontmatterError: null,
+            },
             eventCount: 2,
             memoryCount: 1,
+            subjectFileExists: true,
+            soulFileExists: true,
+            mindFileExists: true,
+            stateFileExists: true,
         });
 
         const detail = await service.readProjectRagSubject(projectPath, "simulation/subjects/heroine");

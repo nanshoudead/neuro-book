@@ -240,6 +240,55 @@ defineRouteMeta({
                                             "type": "string",
                                             "minLength": 1
                                         },
+                                        "metadata": {
+                                            "type": "object",
+                                            "properties": {
+                                                "id": {
+                                                    "nullable": true,
+                                                    "type": "string",
+                                                    "minLength": 1
+                                                },
+                                                "name": {
+                                                    "nullable": true,
+                                                    "type": "string",
+                                                    "minLength": 1
+                                                },
+                                                "kind": {
+                                                    "nullable": true,
+                                                    "type": "string",
+                                                    "minLength": 1
+                                                },
+                                                "profile": {
+                                                    "nullable": true,
+                                                    "type": "string",
+                                                    "minLength": 1
+                                                },
+                                                "controlledBy": {
+                                                    "nullable": true,
+                                                    "type": "string",
+                                                    "minLength": 1
+                                                },
+                                                "canonicalSource": {
+                                                    "nullable": true,
+                                                    "type": "string",
+                                                    "minLength": 1
+                                                },
+                                                "frontmatterError": {
+                                                    "nullable": true,
+                                                    "type": "string"
+                                                }
+                                            },
+                                            "required": [
+                                                "id",
+                                                "name",
+                                                "kind",
+                                                "profile",
+                                                "controlledBy",
+                                                "canonicalSource",
+                                                "frontmatterError"
+                                            ],
+                                            "additionalProperties": false
+                                        },
                                         "eventCount": {
                                             "type": "integer",
                                             "minimum": 0,
@@ -251,6 +300,9 @@ defineRouteMeta({
                                             "maximum": 9007199254740991
                                         },
                                         "subjectFileExists": {
+                                            "type": "boolean"
+                                        },
+                                        "soulFileExists": {
                                             "type": "boolean"
                                         },
                                         "mindFileExists": {
@@ -332,9 +384,11 @@ defineRouteMeta({
                                     "required": [
                                         "subjectPath",
                                         "subjectId",
+                                        "metadata",
                                         "eventCount",
                                         "memoryCount",
                                         "subjectFileExists",
+                                        "soulFileExists",
                                         "mindFileExists",
                                         "stateFileExists",
                                         "sourceStatuses",

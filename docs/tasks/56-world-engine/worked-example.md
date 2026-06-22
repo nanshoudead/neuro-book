@@ -10,7 +10,7 @@
   - **每年秒数** = 12×30×24×3600 = **31,104,000 秒**。
 - 复兴纪元 N 年 1 月 1 日 00:00 的 instant = `(N-1) × 31,104,000`。
 - 故事「现在」设定在 **复兴纪元 488 年**。
-- 注意：历法只是显示层换算（后续 `world-engine/calendar.yaml`）。下面所有 instant 都是真实 BigInt，可直接比较 / reduce。
+- 注意：历法通过 `world-engine/calendar.yaml` 做项目级 parse/format；底层仍只保存真实 instant，可直接比较 / reduce。下表给出本例字符串对应的 instant，便于核对。
 
 
 | 时间点                               | 含义                   | instant（秒）    |
@@ -28,7 +28,7 @@
 ```text
 world-engine/
 ├── schema.yaml        # subject 类型定义（本例核心）
-├── calendar.yaml      # 时间显示配置（后续，本例先用 §0 的换算）
+├── calendar.yaml      # 项目日历 parse/format 配置（本例采用 §0 的换算）
 └── index.md          # directory-index frontmatter（中文 title + Lucide icon，驱动文件树展示）
 ```
 
@@ -98,7 +98,7 @@ subjectTypes:
 | `capital`   | location  | 王都       |
 | `northgate` | location  | 城北       |
 
-每次 `createSubject` 都会生成一条 **kind=init 的初始化切面**，把 schema 的 `default` 写成一组 set mutation（见 §3 的初始化切面）。
+`createSubject` 会先注册 subject 身份；如果 schema 为该 type 声明了 `default`，则生成或追加 **kind=init 的初始化 mutation**，把 default 写成一组 set mutation（见 §3 的初始化切面）。其中 `list` / `collection` 的 `set []` / `set [...]` 表示整组替换，value 必须是数组并按元素类型校验。自动追加只允许落到同 instant 已有的 `kind=init` 切面；如果该时刻已有普通事件切面，调用方需要用 `editSlice` 显式合并或选择其他初始化时间。没有 default 的 subject 不会创建空切面。
 
 ## 3. 项目初始化：用一个切片表示「公元」（= 世界的第一个切片）
 
@@ -106,7 +106,7 @@ subjectTypes:
 
 **零点不是一个独立机制**：它就是 world subject 的 init 切面的 instant。world 这个 subject 的 init 切面恰好落在 `0`，因此它的角色比其他 subject 多一层 —— **它定义了「什么时候是 0」**。未来若某项目想把零点改成「宇宙大爆炸前 100 年」，只要把 world 的 init 切面 instant 改成 `-3_153_600_000` 即可，所有其他切面照常工作，引擎不需要额外的「零点配置」机制。
 
-后续每创建一个新 subject 都会有自己的 init 切面（在它各自的「出生」instant），但只有 world 的 init 切面同时充当纪元锚点。
+后续创建新 subject 时，如果它有 default，就会在各自的「出生」instant 写入或追加 init mutation；如果同一 instant 已经有 `kind=init` 切面，则追加进该切面的 mutations；如果该 instant 已有普通事件切面，则调用方需要用 `editSlice` 显式合并或选择其他初始化时间。只有 world 的 init 切面同时充当纪元锚点。
 
 ```jsonc
 // 切面 #0：公元 / 纪元锚点  @ instant=0
@@ -173,7 +173,7 @@ subjectTypes:
 }
 ```
 
-> 演示「往前插切面」的灵活性：若作者此刻突然设定「黑潮战争其实还有前因，公元150年有过预兆」，只需在 `instant=4,633,? ` 处再 `writeSlice` 一条，timeline 自动按 instant 归位。若这会影响后续已结算的 `old`，写入接口会返回 `needsResettle` 与影响范围，调用方再显式调用 `resettleTimeline`；本例历史多为 listAppend / 独立 set，无冲突。
+> 演示「往前插切面」的灵活性：若作者此刻突然设定「黑潮战争其实还有前因，公元150年有过预兆」，只需在对应项目日历时间再 `writeSlice` 一条，timeline 自动按底层时间戳归位。add 类 mutation 对前插更稳定；set 类若影响下游语义，写入结果会通过 `base-shifted` / `masked` issues 提醒作者确认。
 
 ## 5. 为世界填现状（接近「现在」的切片）
 
@@ -231,10 +231,10 @@ subjectTypes:
     // 捡到剑：先创建 item subject（实际由应用层先 createSubject），再入背包、装备
     { "subjectId": "sword-01", "attr": "name", "op": "set", "value": "锈蚀长剑" },
     { "subjectId": "erina", "attr": "inventory", "op": "collectionAdd", "value": "subject://sword-01" },
-    { "subjectId": "erina", "attr": "equipment.weapon", "op": "set", "old": null, "value": "subject://sword-01" },
+    { "subjectId": "erina", "attr": "equipment.weapon", "op": "set", "value": "subject://sword-01" },
     // 心理与认知变化
     { "subjectId": "erina", "attr": "mind", "op": "set", "value": "警惕，意识到王都外并不安全" },
-    { "subjectId": "erina", "attr": "memory.师门", "op": "set", "old": "敬畏", "value": "怀疑（为何无人来援）" },
+    { "subjectId": "erina", "attr": "memory.师门", "op": "set", "value": "怀疑（为何无人来援）" },
     // 经历流
     { "subjectId": "erina", "attr": "events", "op": "listAppend",
       "value": "风信之月15日午后，在城北遭伏击，左肩中箭，夺得伏兵的锈蚀长剑。" },
@@ -274,12 +274,12 @@ subjectTypes:
 
 - `hp` 用 `add -30` → reduce 时在前值 80 上累加得 50，**且若有人往 488年之前再插一条扣血切面，本 tick 的 -30 不需改动**。
 - `equipment.weapon` 与 `inventory` 都指向 `subject://sword-01`，**ref 不展开**；要剑的状态另调 `getWorldState` 看 sword-01。
-- 回退本 tick：逐条逆操作（location set 回 capital、hp add +30、inventory remove sword-01、equipment.weapon set 回 null、memory.师门 set 回 "敬畏"、events 砍末尾），世界回到 tick 前。
+- 回退本 tick：第一版使用 `deleteSlice` 物理删除切面 #5，然后重新 reduce；删除后若下游相对 op 缺基，会返回 `broken-relative` issue。`deleteSlice` 不可恢复，也不会自动删除应用层提前创建的 subject 身份（例如 `sword-01`），如果未来需要保留审计轨迹或可恢复撤销，需要另行设计补偿切面 / 撤销机制。
 
 ## 7. 这个例子验证了什么
 
 - **时间初始化**：instant=0 的「公元」切面锚定纪元，自包含。
-- **历史可补**：过去就是更早 instant 的切面；往前插不破坏后续（add 免疫，set 走 re-settle）。
+- **历史可补**：过去就是更早时间点的切面；往前插后由 reduce 得到最新状态，set 对下游语义的影响通过 A issues 提醒确认。
 - **任意时刻世界状态**：同一切面序列 + 不同 `at` → reduce 出 200 年 / 488 年 / tick 后三种世界，主角在 200 年「还没出生」天然成立。
 - **一个 tick**：就是追加一个切面记录该刻所有 subject 变更；reduce 立刻反映。
 - **5 种 op、4 种 kind、subject:// 引用、不双向、不自动解** 全部在一个连贯故事里跑通，模型自洽。

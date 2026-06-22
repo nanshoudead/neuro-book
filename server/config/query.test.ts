@@ -35,4 +35,27 @@ describe("config query", () => {
 
         expect(thrown).toMatchObject({statusCode: 400});
     });
+
+    it("解析并校验 Agent Profile settings scope", () => {
+        expect(validateConfigEditorSnapshotQuery({
+            workspaceKind: "user-assets",
+            agentProfileSettingsScope: "global",
+        }).agentProfileSettingsScope).toBe("global");
+        expect(validateConfigEditorSnapshotQuery({
+            workspaceKind: "user-assets",
+            agentProfileSettingsScope: "project",
+        }).agentProfileSettingsScope).toBe("project");
+
+        let thrown: unknown;
+        try {
+            validateConfigEditorSnapshotQuery({
+                workspaceKind: "user-assets",
+                agentProfileSettingsScope: "workspace",
+            });
+        } catch (error) {
+            thrown = error;
+        }
+
+        expect(thrown).toMatchObject({statusCode: 400});
+    });
 });

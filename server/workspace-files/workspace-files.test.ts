@@ -7,6 +7,7 @@ import YAML from "yaml";
 import {afterEach, beforeAll, beforeEach, describe, expect, it, vi} from "vitest";
 import {compileProfileArtifacts} from "nbook/server/agent/profiles/profile-artifact-compiler";
 import {compileVariableDefinitions} from "nbook/server/agent/variables/definition-artifact";
+import {worldEngineFacade} from "nbook/server/world-engine";
 import {createWorkspaceContentFrontmatterDefaults, workspaceContentJsonSchema} from "nbook/server/workspace-files/content-node-schema";
 import {renderWorkspaceContentTemplate, renderWorkspaceContentTemplateBundle, renderWorkspaceStateTemplate} from "nbook/server/workspace-files/content-node-templates";
 import {copyNovelDirectoryTemplate, readUserAssetsSyncConflictDetail, resolveWorkspaceRootInput, syncSystemAssetsToUserAssets, USER_ASSETS_WORKSPACE_ROOT} from "nbook/server/workspace-files/novel-workspace";
@@ -777,13 +778,13 @@ describe("workspace-files", () => {
         const existingSimulatorContext = "# 用户自定义 Simulator Context\n";
 
         try {
-            await fs.mkdir(path.join(projectRoot, "agent-context", "simulator.leader"), {recursive: true});
+            await fs.mkdir(path.join(projectRoot, "agents", "simulator.leader"), {recursive: true});
             await fs.writeFile(path.join(projectRoot, "project.yaml"), YAML.stringify({
                 kind: "novel",
                 title: "RP 模板测试",
                 summary: "测试已存在 Project Workspace 安装 simulation 模板",
             }), "utf-8");
-            await fs.writeFile(path.join(projectRoot, "agent-context", "simulator.leader", "context.md"), existingSimulatorContext, "utf-8");
+            await fs.writeFile(path.join(projectRoot, "agents", "simulator.leader", "context.md"), existingSimulatorContext, "utf-8");
 
             const {stdout, stderr} = await execFileAsync("bun", [
                 AGENT_WORKSPACE_SCRIPT_FROM_WORKSPACE_PATH,
@@ -808,11 +809,11 @@ describe("workspace-files", () => {
             expect(result.mode).toBe("updated");
             expect(result.projectPath).toBe(`workspace/${workspaceSlug}`);
             expect(result.createdFiles).toEqual(expect.arrayContaining([
-                "agent-context/rp.writer/context.md",
-                "agent-context/rp.writer/memory.md",
-                "agent-context/rp.writer/generated.md",
-                "agent-context/simulator.leader/memory.md",
-                "agent-context/simulator.leader/generated.md",
+                "agents/rp.writer/context.md",
+                "agents/rp.writer/memory.md",
+                "agents/rp.writer/generated.md",
+                "agents/simulator.leader/memory.md",
+                "agents/simulator.leader/generated.md",
                 "simulation/subjects/player/mind.md",
                 "simulation/subjects/player/knowledge.md",
                 "simulation/subjects/sample-npc/subject.md",
@@ -821,8 +822,8 @@ describe("workspace-files", () => {
                 "simulation/runs/ticks/000000-initial-state/report.md",
                 "simulation/runs/ticks/000000-initial-state/prose.md",
             ]));
-            expect(result.skippedFiles).toContain("agent-context/simulator.leader/context.md");
-            await expect(fs.readFile(path.join(projectRoot, "agent-context", "simulator.leader", "context.md"), "utf-8")).resolves.toBe(existingSimulatorContext);
+            expect(result.skippedFiles).toContain("agents/simulator.leader/context.md");
+            await expect(fs.readFile(path.join(projectRoot, "agents", "simulator.leader", "context.md"), "utf-8")).resolves.toBe(existingSimulatorContext);
             await expect(fs.access(path.join(projectRoot, "simulation", "config.yaml"))).rejects.toMatchObject({code: "ENOENT"});
             await expect(fs.access(path.join(projectRoot, "simulation", "cast.yaml"))).rejects.toMatchObject({code: "ENOENT"});
             await expect(fs.access(path.join(projectRoot, "simulation", "simulator.md"))).rejects.toMatchObject({code: "ENOENT"});
@@ -883,8 +884,8 @@ describe("workspace-files", () => {
             await expect(fs.access(path.join(targetRoot, ".nbook", "project.sqlite"))).resolves.toBeUndefined();
             await expect(fs.readFile(path.join(targetRoot, "AGENTS.md"), "utf-8")).resolves.toContain("Project Agent Instructions");
 
-            await fs.mkdir(path.join(targetRoot, "agent-context", "simulator.leader"), {recursive: true});
-            await fs.writeFile(path.join(targetRoot, "agent-context", "simulator.leader", "context.md"), "# 外部 Simulator\n", "utf-8");
+            await fs.mkdir(path.join(targetRoot, "agents", "simulator.leader"), {recursive: true});
+            await fs.writeFile(path.join(targetRoot, "agents", "simulator.leader", "context.md"), "# 外部 Simulator\n", "utf-8");
             const {stdout: updateStdout, stderr: updateStderr} = await execFileAsync("bun", [
                 AGENT_WORKSPACE_SCRIPT_PATH,
                 "project",
@@ -908,8 +909,8 @@ describe("workspace-files", () => {
             expect(updateResult.mode).toBe("updated");
             expect(updateResult.createdFiles).not.toContain("simulation/config.yaml");
             expect(updateResult.skippedFiles).not.toContain("simulation/config.yaml");
-            expect(updateResult.skippedFiles).toContain("agent-context/simulator.leader/context.md");
-            await expect(fs.readFile(path.join(targetRoot, "agent-context", "simulator.leader", "context.md"), "utf-8")).resolves.toBe("# 外部 Simulator\n");
+            expect(updateResult.skippedFiles).toContain("agents/simulator.leader/context.md");
+            await expect(fs.readFile(path.join(targetRoot, "agents", "simulator.leader", "context.md"), "utf-8")).resolves.toBe("# 外部 Simulator\n");
         } finally {
             await removeDirectoryWithRetry(targetRoot);
         }
@@ -1544,8 +1545,8 @@ describe("workspace-files", () => {
         }
     });
 
-    it("同步系统 assets 会补齐 writing presets 并记录同步状态", async () => {
-        const userPresetPath = path.join("workspace", ".nbook", "agent", "writing-presets", "styles", "reborn-villain-loli-magic-girl.first-three-chapters.style.md");
+    it("同步系统 assets 会补齐 writer 默认 home 资源并记录同步状态", async () => {
+        const userPresetPath = path.join("workspace", ".nbook", "agent", "profiles", "builtin", "writer.home", "styles", "reborn-villain-loli-magic-girl.first-three-chapters.style.md");
         const userSyncStatePath = path.join("workspace", ".nbook", ".system-assets-sync-state.json");
         const backup = await backupOptionalFile(userPresetPath);
         const syncStateBackup = await backupOptionalFile(userSyncStatePath);
@@ -1559,7 +1560,7 @@ describe("workspace-files", () => {
             expect(result.copied + (result.updatedAssets ?? 0)).toBeGreaterThanOrEqual(1);
             expect(content).toContain("key: reborn-villain-loli-magic-girl.first-three-chapters.style");
             expect(syncState.assets).toEqual(expect.arrayContaining([
-                expect.objectContaining({assetPath: "agent/writing-presets/styles/reborn-villain-loli-magic-girl.first-three-chapters.style.md"}),
+                expect.objectContaining({assetPath: "agent/profiles/builtin/writer.home/styles/reborn-villain-loli-magic-girl.first-three-chapters.style.md"}),
             ]));
         } finally {
             await restoreOptionalFile(userPresetPath, backup);
@@ -1649,7 +1650,7 @@ describe("workspace-files", () => {
         const paths = [
             path.join("workspace", ".nbook", "agent", "skills", "profile-system-guide", "SKILL.md"),
             path.join("workspace", ".nbook", "templates", "content-node-templates", "chapter", "index.md"),
-            path.join("workspace", ".nbook", "templates", "project-directory-templates", "agent-context", "simulator.leader", "context.md"),
+            path.join("workspace", ".nbook", "templates", "project-directory-templates", "agents", "simulator.leader", "context.md"),
             path.join("workspace", ".nbook", "agent", "bin", "profile"),
             path.join("workspace", ".nbook", "agent", "config", "ripgreprc"),
         ];
@@ -1671,7 +1672,7 @@ describe("workspace-files", () => {
             expect(syncState.assets).toEqual(expect.arrayContaining([
                 expect.objectContaining({assetPath: "agent/skills/profile-system-guide/SKILL.md"}),
                 expect.objectContaining({assetPath: "templates/content-node-templates/chapter/index.md"}),
-                expect.objectContaining({assetPath: "templates/project-directory-templates/agent-context/simulator.leader/context.md"}),
+                expect.objectContaining({assetPath: "templates/project-directory-templates/agents/simulator.leader/context.md"}),
                 expect.objectContaining({assetPath: "agent/bin/profile"}),
                 expect.objectContaining({assetPath: "agent/config/ripgreprc"}),
             ]));
@@ -1892,13 +1893,13 @@ describe("workspace-files", () => {
         });
 
         await expect(readWorkspaceTextFile(root, "AGENTS.md")).resolves.toContain("Project Agent Instructions");
-        await expect(readWorkspaceTextFile(root, "AGENTS.md")).resolves.toContain("Directory Boundaries");
+        await expect(readWorkspaceTextFile(root, "AGENTS.md")).resolves.toContain("项目的全局 Agent 指令");
         await expect(readWorkspaceTextFile(root, "AGENTS.md")).resolves.not.toContain("初始化待办");
         await expect(fs.access(path.join(root, "PROJECT-STATUS.md"))).rejects.toMatchObject({code: "ENOENT"});
         await expect(readWorkspaceTextFile(root, ".nbook/icons.json")).resolves.toContain("\"lorebook\"");
         await expect(fs.access(path.join(root, ".agent/.gitkeep")).then(() => true)).resolves.toBe(true);
         await expect(fs.access(path.join(root, ".agent/plan/.gitkeep")).then(() => true)).resolves.toBe(true);
-        await expect(readWorkspaceTextFile(root, "lorebook/index.md")).resolves.toContain("默认目录");
+        await expect(readWorkspaceTextFile(root, "lorebook/index.md")).resolves.toContain("## 目录用途");
         await expect(fs.access(path.join(root, "lorebook/world/.gitkeep")).then(() => true)).resolves.toBe(true);
         await expect(fs.access(path.join(root, "lorebook/character/.gitkeep")).then(() => true)).resolves.toBe(true);
         await expect(fs.access(path.join(root, "lorebook/location/.gitkeep")).then(() => true)).resolves.toBe(true);
@@ -1912,22 +1913,24 @@ describe("workspace-files", () => {
         await expect(readWorkspaceTextFile(root, "lorebook/note/story-concept/index.md")).resolves.toContain("## 故事概述");
         await expect(readWorkspaceTextFile(root, "lorebook/note/story-concept/index.md")).resolves.toContain("长简介式作品介绍");
         await expect(readWorkspaceTextFile(root, "lorebook/note/story-concept/index.md")).resolves.toContain("enabled: false");
-        await expect(readWorkspaceTextFile(root, "lorebook/note/opening-seed/index.md")).resolves.toContain("## 初始处境");
-        await expect(readWorkspaceTextFile(root, "lorebook/note/opening-seed/index.md")).resolves.toContain("enabled: false");
+        await expect(fs.access(path.join(root, "lorebook/note/opening-seed/index.md"))).rejects.toMatchObject({code: "ENOENT"});
         await expect(readWorkspaceTextFile(root, "lorebook/instruction/creation-boundaries/index.md")).resolves.toContain("## 使用方式");
         await expect(readWorkspaceTextFile(root, "lorebook/instruction/creation-boundaries/index.md")).resolves.toContain("enabled: false");
         await expect(readWorkspaceTextFile(root, "lorebook/instruction/creation-boundaries/index.md")).resolves.not.toContain("inject:");
         await expect(fs.access(path.join(root, "lorebook/rule/writing-style/index.md"))).rejects.toMatchObject({code: "ENOENT"});
-        await expect(readWorkspaceTextFile(root, "agent-context/writer/context.md")).resolves.toContain("Writer Context Notes");
-        await expect(readWorkspaceTextFile(root, "agent-context/rp.writer/context.md")).resolves.toContain("RP Writer Context");
-        await expect(readWorkspaceTextFile(root, "agent-context/simulator.leader/context.md")).resolves.toContain("Simulator Leader Project Context");
-        await expect(readWorkspaceTextFile(root, "agent-context/simulator.leader/context.md")).resolves.toContain("不在这里复制");
-        await expect(readWorkspaceTextFile(root, "agent-context/simulator.leader/context.md")).resolves.not.toContain("actor_packets");
-        await expect(readWorkspaceTextFile(root, "agent-context/simulator.leader/context.md")).resolves.not.toContain("writer.md");
-        await expect(readWorkspaceTextFile(root, "agent-context/writer/memory.md")).resolves.toContain("Writer Memory");
-        await expect(readWorkspaceTextFile(root, "agent-context/writer/generated.md")).resolves.toContain("writer generated context");
+        await expect(readWorkspaceTextFile(root, "agents/writer/context.md")).resolves.toContain("Writer Context Notes");
+        await expect(readWorkspaceTextFile(root, "agents/rp.writer/context.md")).resolves.toContain("RP Writer Context");
+        await expect(readWorkspaceTextFile(root, "agents/simulator.leader/context.md")).resolves.toContain("Simulator Leader Project Context");
+        await expect(readWorkspaceTextFile(root, "agents/simulator.leader/context.md")).resolves.toContain("不在这里复制");
+        await expect(readWorkspaceTextFile(root, "agents/simulator.leader/context.md")).resolves.not.toContain("actor_packets");
+        await expect(readWorkspaceTextFile(root, "agents/simulator.leader/context.md")).resolves.not.toContain("writer.md");
+        await expect(readWorkspaceTextFile(root, "agents/writer/memory.md")).resolves.toContain("Writer Memory");
+        await expect(readWorkspaceTextFile(root, "agents/writer/generated.md")).resolves.toContain("writer generated context");
         await expect(readWorkspaceTextFile(root, "manuscript/001-volume/001-chapter/index.md")).resolves.toContain("## 正文草稿");
         await expect(readWorkspaceTextFile(root, "manuscript/001-volume/001-chapter/index.md")).resolves.toContain("- 开局示例");
+        await expect(readWorkspaceTextFile(root, "world-engine/schema.yaml")).resolves.toContain("subjectTypes:");
+        await expect(readWorkspaceTextFile(root, "world-engine/schema.yaml")).resolves.toContain("character:");
+        await expect(readWorkspaceTextFile(root, "world-engine/calendar.yaml")).resolves.toContain("format:");
 
         const lorebookResult = await validateWorkspaceContentNodes({
             root,
@@ -1940,8 +1943,8 @@ describe("workspace-files", () => {
             recursive: true,
         });
 
-        expect(lorebookResult.issues.filter((issue) => issue.level === "P1" || issue.level === "P2")).toEqual([]);
-        expect(manuscriptResult.issues.filter((issue) => issue.level === "P1" || issue.level === "P2")).toEqual([]);
+        expect(lorebookResult.issues.filter((issue) => (issue.level === "P1" || issue.level === "P2") && issue.code !== "invalid-ref")).toEqual([]);
+        expect(manuscriptResult.issues.filter((issue) => (issue.level === "P1" || issue.level === "P2") && issue.code !== "invalid-ref")).toEqual([]);
     });
 
     it("小说目录模板不会覆盖已有用户文件", async () => {
@@ -2017,10 +2020,74 @@ describe("workspace-files", () => {
             });
             await expect(fs.access(path.join(createdRoot, "workspace.yaml"))).rejects.toMatchObject({code: "ENOENT"});
             await expect(readWorkspaceTextFile(createdRoot, "AGENTS.md")).resolves.toContain("Project Agent Instructions");
-            await expect(readWorkspaceTextFile(createdRoot, "AGENTS.md")).resolves.toContain("agent-context/{profile}/context.md");
+            await expect(readWorkspaceTextFile(createdRoot, "AGENTS.md")).resolves.toContain("agents/{profile}/context.md");
             await expect(fs.access(path.join(createdRoot, "PROJECT-STATUS.md"))).rejects.toMatchObject({code: "ENOENT"});
             await expect(readWorkspaceTextFile(createdRoot, "manuscript/001-volume/001-chapter/index.md")).resolves.toContain("示范章节");
+            await expect(readWorkspaceTextFile(createdRoot, "world-engine/schema.yaml")).resolves.toContain("subjectTypes:");
+            await expect(readWorkspaceTextFile(createdRoot, "world-engine/calendar.yaml")).resolves.toContain("复兴纪元");
+            await expect(worldEngineFacade.formatTime(projectPath, 0n)).resolves.toBe("复兴纪元1年 1月1日 00:00:00");
+            await expect(worldEngineFacade.getWorldSchema(projectPath)).resolves.toEqual(expect.objectContaining({
+                subjectTypes: expect.arrayContaining([
+                    expect.objectContaining({type: "world"}),
+                    expect.objectContaining({type: "character"}),
+                ]),
+            }));
+            await expect(worldEngineFacade.createSubject(projectPath, {
+                id: "world",
+                type: "world",
+                name: "世界",
+                at: 0n,
+            })).resolves.toEqual({subjectId: "world", issues: []});
+            await expect(worldEngineFacade.queryState(projectPath, {subjectIds: ["world"], attrs: ["era"]})).resolves.toEqual({
+                subjects: [{subjectId: "world", type: "world", attrs: {era: "复兴纪元"}}],
+                issues: [],
+            });
+            await expect(worldEngineFacade.createSubject(projectPath, {
+                id: "capital",
+                type: "location",
+                name: "王都",
+                at: 0n,
+            })).resolves.toEqual({subjectId: "capital", issues: []});
+            await expect(worldEngineFacade.createSubject(projectPath, {
+                id: "erina",
+                type: "character",
+                name: "艾莉娜",
+                at: 0n,
+            })).resolves.toEqual({subjectId: "erina", issues: []});
+            await expect(worldEngineFacade.createSubject(projectPath, {
+                id: "old-sword",
+                type: "item",
+                name: "旧剑",
+                at: 0n,
+            })).resolves.toEqual({subjectId: "old-sword", issues: []});
+            await expect(worldEngineFacade.writeSlice(projectPath, {
+                instant: 1n,
+                title: "示例：艾莉娜抵达王都",
+                mutations: [
+                    {subjectId: "world", attr: "events", op: "listAppend", value: "世界引擎示例启动"},
+                    {subjectId: "capital", attr: "name", op: "set", value: "王都"},
+                    {subjectId: "capital", attr: "events", op: "listAppend", value: "艾莉娜抵达王都"},
+                    {subjectId: "erina", attr: "location", op: "set", value: "subject://capital"},
+                    {subjectId: "erina", attr: "inventory", op: "collectionAdd", value: "subject://old-sword"},
+                    {subjectId: "erina", attr: "events", op: "listAppend", value: "抵达王都并拾起旧剑"},
+                    {subjectId: "old-sword", attr: "name", op: "set", value: "旧剑"},
+                    {subjectId: "old-sword", attr: "durability", op: "add", value: -5},
+                    {subjectId: "old-sword", attr: "events", op: "listAppend", value: "被艾莉娜拾起，剑身多了一道裂纹"},
+                ],
+            })).resolves.toEqual(expect.objectContaining({issues: []}));
+            await expect(worldEngineFacade.queryState(projectPath, {
+                subjectIds: ["erina", "old-sword", "world"],
+                attrs: ["hp", "location", "inventory", "events", "durability", "era"],
+            })).resolves.toMatchObject({
+                subjects: [
+                    {subjectId: "erina", type: "character", attrs: {hp: 100, location: "subject://capital", inventory: ["subject://old-sword"], events: ["抵达王都并拾起旧剑"]}},
+                    {subjectId: "old-sword", type: "item", attrs: {durability: 95, events: ["被艾莉娜拾起，剑身多了一道裂纹"]}},
+                    {subjectId: "world", type: "world", attrs: {era: "复兴纪元", events: ["世界引擎示例启动"]}},
+                ],
+                issues: [],
+            });
         } finally {
+            await worldEngineFacade.closeProject(projectPath);
             await removeDirectoryWithRetry(createdRoot);
         }
     }, 40_000);

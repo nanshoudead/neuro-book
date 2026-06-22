@@ -9,6 +9,11 @@ export const AGENT_TASKS_STATE_KEY = "agent.tasks";
 export const PLOT_SELECTION_STATE_KEY = "plot.selection";
 
 /**
+ * World Engine 工具最近查询的 subject 焦点。
+ */
+export const WORLD_FOCUS_STATE_KEY = "world.focus";
+
+/**
  * Plan Mode reminder 状态在 session custom state 中的固定 key。
  */
 export const AGENT_PLAN_MODE_STATE_KEY = "agent.planMode";

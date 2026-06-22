@@ -126,6 +126,7 @@ class BrokenProfileCatalog extends AgentProfileCatalog {
                     builtin: false,
                     loadStatus: "source_error",
                     hasSettingsForm: false,
+                    canResetHome: false,
                     issue: {
                         code: "source_error",
                         message: "源码错误",

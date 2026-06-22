@@ -38,7 +38,7 @@ Common Project Workspace paths:
 | Path | Purpose |
 | --- | --- |
 | `{project}/AGENTS.md` | Project-level collaboration instructions. |
-| `{project}/agent-context/` | Profile-scoped context memory, generated recommendations and profile-specific project guidance. |
+| `{project}/agents/` | Profile-scoped context memory, generated recommendations and profile-specific project guidance. |
 | `{project}/project.yaml` | Project Workspace manifest with kind, title and summary. |
 | `{project}/lorebook/` | Stable canon, prototypes, rules and reusable AI instructions. |
 | `{project}/manual/` | Project handbooks for quickstart, player guide, rules guide, GM guide and quick reference. |
@@ -54,7 +54,7 @@ Top-level sketch:
 ```text
 {project}/
 |-- AGENTS.md
-|-- agent-context/
+|-- agents/
 |-- project.yaml
 |-- lorebook/
 |-- manual/
@@ -109,7 +109,7 @@ Structured refs are `frontmatter.refs` relations that the system should understa
 
 Content-node frontmatter `retrieval.trigger` explains when a node is relevant for task-driven recall. Do not pass retrieval `reason`, `use`, `risk` or `note` directly to writer; caller should judge the candidates and pass only selected content-node paths.
 
-Profile-scoped context lives in `{project}/agent-context/{profile}/context.md`, `{project}/agent-context/{profile}/memory.md` and `{project}/agent-context/{profile}/generated.md`. A profile only reads its own context files. Program-private access state stays in `{project}/.nbook/context-access/{profile}.json` and is not an Agent context entry.
+Profile-scoped context lives in `{project}/agents/{profile}/context.md`, `{project}/agents/{profile}/memory.md` and `{project}/agents/{profile}/generated.md`. A profile only reads its own context files. Program-private access state stays in `{project}/.nbook/context-access/{profile}.json` and is not an Agent context entry.
 
 ## Common Directories
 

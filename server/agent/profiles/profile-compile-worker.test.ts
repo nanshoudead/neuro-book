@@ -7,7 +7,7 @@ import {ProfileCompileWorkerService, resolveProfileCompileWorkerPathsForRoot, us
 import {runProfileCompile, runProfileCompileAll} from "nbook/server/agent/profiles/profile-compile-worker-runtime";
 
 describe("profile compile worker runtime", () => {
-    it("Product Root 仅有 .output release metadata 时从 .output/server vendor 解析 tsx API", async () => {
+    it("Product Root 仅有 .output package manifest 时从 .output/server vendor 解析 tsx API", async () => {
         const productRoot = await createProductWorkerFixture();
         try {
             const paths = resolveProfileCompileWorkerPathsForRoot(productRoot);
@@ -21,6 +21,7 @@ describe("profile compile worker runtime", () => {
             expect(typeof tsxApi.tsImport).toBe("function");
             await expect(pathExists(resolve(productRoot, "node_modules"))).resolves.toBe(false);
             await expect(pathExists(resolve(productRoot, "release-meta.json"))).resolves.toBe(false);
+            await expect(pathExists(resolve(productRoot, ".output", "server", "package.json"))).resolves.toBe(true);
         } finally {
             await rm(productRoot, {recursive: true, force: true});
         }
@@ -257,7 +258,7 @@ async function createProductWorkerFixture(): Promise<string> {
     await mkdir(resolve(outputRoot, "server", "agent", "profiles"), {recursive: true});
     await mkdir(resolve(outputRoot, ".nuxt"), {recursive: true});
     await writeFile(resolve(outputRoot, "index.mjs"), "", "utf8");
-    await writeFile(resolve(outputRoot, "release-meta.json"), "{\"versionKind\":\"release\"}\n", "utf8");
+    await writeFile(resolve(outputRoot, "package.json"), "{\"name\":\"neuro-book-output\",\"version\":\"0.0.0\",\"type\":\"module\"}\n", "utf8");
     await writeFile(resolve(outputRoot, ".nuxt", "tsconfig.server.json"), "{}", "utf8");
     await writeFile(resolve(outputRoot, "server", "agent", "profiles", "profile-compile-worker-entry.ts"), "", "utf8");
     await writeFile(resolve(outputRoot, "server", "agent", "profiles", "profile-compile-worker-runtime.ts"), "", "utf8");

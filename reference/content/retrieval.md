@@ -20,7 +20,7 @@ retrieval:
 - `retrieval.enabled`：是否允许该节点进入 AI 自动检索候选。
 - `retrieval.trigger`：自然语言触发条件。为空表示不需要额外触发判断。
 
-长期稳定的 profile-scoped 上下文选择不写在内容节点 frontmatter 中。它由 `agent-context/{profile}/context.md` 和 `agent-context/{profile}/generated.md` 管理。
+长期稳定的 profile-scoped 上下文选择不写在内容节点 frontmatter 中。它由 `agents/{profile}/context.md` 和 `agents/{profile}/generated.md` 管理。
 
 ## Retrieval Profile
 

@@ -52,7 +52,7 @@ Do not use `manual/` for:
 
 - Stable canon that should be queried as world truth. Put that in `lorebook/`.
 - Current run state, tick logs or combat-in-progress state. Put that in `simulation/`.
-- Profile-private memory or project guidance. Put that in `agent-context/{profile}/`.
+- Profile-private memory or project guidance. Put that in `agents/{profile}/`.
 - Raw imports, card archives or low-confidence migration reports. Put those in `reference/`.
 - Formal prose. Put that in `manuscript/`.
 

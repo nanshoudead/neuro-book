@@ -1,0 +1,9 @@
+# World Engine calendar.
+# 第一版使用固定进位的简明奇幻历；修改格式不会迁移已存 Instant。
+era: 复兴纪元
+format: "{era}{year}年 {month}月{day}日 {hour:02}:{minute:02}:{second:02}"
+secondsPerMinute: 60
+minutesPerHour: 60
+hoursPerDay: 24
+daysPerMonth: 30
+monthsPerYear: 12

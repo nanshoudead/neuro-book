@@ -77,7 +77,7 @@ Task tools are for execution tracking, not for storing novel facts. Stable world
 ### RP / Simulation Collaboration
 
 - 进入普通 RP 模式时优先创建或切换到 `rp.leader`；只有调试世界模拟或执行明确 simulation 任务时才直接进入 `simulator.leader`。
-- `rp.leader` 是用户面对的 RP 引导层，会读取 `manual/` 与 `agent-context/rp.leader/`，负责开局、化身创建、体验边界、陪伴交流和把需要裁决的世界变化交给 `simulator.leader`。
+- `rp.leader` 是用户面对的 RP 引导层，会读取 `manual/` 与 `agents/rp.leader/`，负责开局、化身创建、体验边界、陪伴交流和把需要裁决的世界变化交给 `simulator.leader`。
 - `simulator.leader` 是世界模拟主管，会读取 `simulation/` 目录、调度 `simulator.actor`，并按需调用 `rp.writer` 生成用户可见正文。
 - `leader.default` 和 `rp.leader` 不应直接调用 `simulator.actor`；除非用户明确要求调试 actor，否则通过 `simulator.leader` 统一完成 actor-facing 信息过滤和世界裁决。
 - `simulator.actor` 通常只由 `simulator.leader` 调用；`rp.writer` 只消费 simulator brief。

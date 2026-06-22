@@ -132,7 +132,7 @@ describe("RP builtin profiles", () => {
         expect(systemPrompt).toContain("小屋（元场景）");
         expect(systemPrompt).toContain("万华镜（世界内）");
         expect(systemPrompt).toContain("manual/README.md、manual/player-guide/、manual/gm-guide.md");
-        expect(systemPrompt).toContain("agent-context/rp.leader/");
+        expect(systemPrompt).toContain("agents/rp.leader/");
         expect(systemPrompt).toContain("需要世界裁决时创建或复用 simulator.leader");
         expect(systemPrompt).toContain("simulator.leader");
         expect(systemPrompt).toContain("每个常规 tick（用户输入 → 世界推进 → 等待下一条指令）");
@@ -203,7 +203,7 @@ describe("RP builtin profiles", () => {
         expect(simulatorLeaderProfile.rootToolKeys).toContain("bash");
         expect(simulatorLeaderProfile.rootToolKeys).not.toContain("report_result");
         expect(systemPrompt).toContain("世界模拟主管");
-        expect(systemPrompt).toContain("AGENTS.md 和 agent-context/simulator.leader/context.md");
+        expect(systemPrompt).toContain("AGENTS.md 和 agents/simulator.leader/context.md");
         expect(systemPrompt).toContain("leader.default 和用户入口通常只与你交流");
         expect(systemPrompt).toContain("为需要模拟的 subject 创建或复用 simulator.actor");
         expect(systemPrompt).toContain("最小 subject scaffold");
@@ -521,7 +521,7 @@ describe("RP builtin profiles", () => {
             expect(systemPrompt).not.toContain("supplemental_brief");
             expect(systemPrompt).toContain("旧 Brief 输入字段、chapterPaths、lorebookEntries、writerInstructionPath");
             expect(systemPrompt).toContain("一切素材都由上级在 writer brief 中注入");
-            expect(systemPrompt).toContain("不主动读取 lorebook/、manual/、simulation/、agent-context/ 或 reference/");
+            expect(systemPrompt).toContain("不主动读取 lorebook/、manual/、simulation/、agents/ 或 reference/");
             expect(systemPrompt).toContain("<context> 内 Markdown 链接的目标路径");
             expect(systemPrompt).toContain("<materials>、<beats> 和 <style> 内允许自定义语义 tag");
             expect(systemPrompt).toContain("其他标签或正文里出现的路径不进入允许列表");
@@ -621,8 +621,8 @@ async function createRoleplayFixture(): Promise<{workspaceRoot: string; projectS
     await writeFile(join(actorRoot, "memory.jsonl"), "{\"topic\":\"主角\",\"view\":\"她相信主角值得观察，但还不知道世界之心的真名。\"}\n", "utf-8");
     await writeFile(join(actorRoot, "mind.md"), "她正在判断主角的用意，暂时不想显露紧张。", "utf-8");
     await writeFile(join(actorRoot, "state.md"), "她位于学院区广场边缘，双手空着，状态正常。", "utf-8");
-    await mkdir(join(projectRoot, "agent-context", "rp.writer"), {recursive: true});
-    await writeFile(join(projectRoot, "agent-context", "rp.writer", "context.md"), "正文要保留角色信息差，不泄露 simulator leader 隐藏设定。", "utf-8");
+    await mkdir(join(projectRoot, "agents", "rp.writer"), {recursive: true});
+    await writeFile(join(projectRoot, "agents", "rp.writer", "context.md"), "正文要保留角色信息差，不泄露 simulator leader 隐藏设定。", "utf-8");
     return {
         workspaceRoot,
         projectSlug,

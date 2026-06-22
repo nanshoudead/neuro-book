@@ -252,7 +252,7 @@
 - `bun run product:stage` 生成 `product/`，模拟 release zip 解压后的运行根。
 - `bun run product:start` 从 Product Root 启动标准 Nuxt/Nitro 入口。
 - `bun run product:create-admin` 在 Product Root 内运行管理员创建脚本。
-- `/api/app/version` 在 product 环境优先读取 `release-meta.json`，不依赖 `.git` 或根 `package.json`。
+- `/api/app/version` 在 product 环境优先读取 Product Root `package.json.version`；GHCR / 通用 `.output` runner 可读取 `.output/server/package.json`，不依赖 `.git`。
 - TSX Profile Workbench 在 product 环境继续可编译用户 profile 源码。
 
 ### Decisions
@@ -263,12 +263,12 @@
 - `product:stage` 会生成 Product Root `.env`，包含 `NUXT_SESSION_PASSWORD` 和 SQLite 默认环境；`product:start` 自动加载该 `.env`，并通过 Bun 启动 Nitro 入口。
 - `.output/server/node_modules` 使用 runtime package closure 复制运行依赖，包含 `tsx`、`typescript`、`esbuild`、`@esbuild/win32-x64`、`commander`、`yaml`、`zod`、`h3`、`@libsql/client` 等脚本和服务运行依赖。
 - `.output/server/node_modules/nbook` 是产品内 runtime source 包，包含脚本和 worker 需要的 `server/`、`shared/`、`app/` 导入根；隔离 product smoke 已验证 `nbook/*` 不依赖仓库父级 `node_modules`。
-- Profile compile worker 在 Product Runtime 中只从带 `release-meta.json` 的 Product Root 进入 product 分支，优先从 `.output/server/server/...` 读取运行源码，并通过 `.output/server/index.mjs` 创建 runtime require，把 `tsx/esm/api` 和 `tsx` loader 解析到 `.output/server/node_modules`；开发环境再回退到源码根 `server/...` 和仓库根依赖。
+- Profile compile worker 在 Product Runtime 中通过 package manifest 进入 product 分支：Product Root 使用 `package.json` 的 `name: "neuro-book-product"`，GHCR / 通用 `.output` runner 使用 `.output/server/package.json` 的 `name: "neuro-book-output"` 且根无 `node_modules`；product 分支优先从 `.output/server/server/...` 读取运行源码，并通过 `.output/server/index.mjs` 创建 runtime require，把 `tsx/esm/api` 和 `tsx` loader 解析到 `.output/server/node_modules`；开发环境再回退到源码根 `server/...` 和仓库根依赖。
 - Product Runtime 缺少 `tsx` vendor 时直接报清晰错误，指出缺少 `.output/server/node_modules/tsx`；worker 不再裸 `import("tsx/esm/api")`，Bun worker 也不再裸 `--import tsx`。
-- Profile artifact compiler v4 不再把普通第三方包 external 出去，而是从 runtime 上下文显式解析并 bundle 到 profile artifact；只保留 Node builtin external，并为 artifact ESM 注入 `require` shim 以兼容仍会动态 require builtin 的 CJS 依赖。
+- Profile artifact compiler v5 不再把普通第三方包 external 出去，而是从 runtime 上下文显式解析并 bundle 到 profile artifact；只保留 Node builtin external，并为 artifact ESM 注入 `require` shim 以兼容仍会动态 require builtin 的 CJS 依赖。
 - `product:stage` 会在 Product Root 内重新编译系统 profiles，避免系统 `.compiled` 继续携带源码根 dependency hash。
 - `assets/workspace/.nbook/agent/scripts/profile.ts`、`variable.ts`、`workspace.ts` 和 `agent/bin/workspace(.cmd)` 都支持 product/source 双入口；product copy 下的 `workspace.ts` 是 launcher，真实入口为 `.output/server/scripts/agent/workspace.ts`。
-- `release-meta.json` 的产品形态使用 `versionKind: "release"`；tag/commit/package 来源保存在 `sourceKind`；版本 API 只读 Product Root 的 `release-meta.json`，不再把 `.output/server/release-meta.json` 作为第二来源。
+- `package.json.version` 是产品版本真相源；Windows portable 桥接版仍在 `app/release-meta.json` 写入 deprecated 占位文件，仅用于旧 Windows Launcher 更新校验，下一次 release 删除。
 - Windows Release Zip 仍保持旧 bootstrap 形态；后续再把 zip 从“clone + build”迁移到“解压 product + 启动”。
 
 ### Files Changed
@@ -317,7 +317,7 @@
     - 隔离 product 内 POST `/api/agent/profiles/compile`，用 builtin `leader.default` 源码执行 `dryRun: true`，返回 `ok: true` 且 0 个 error issue。
     - 隔离 product 内 POST `/api/agent/profiles/compile-all`，返回 `ok: true` 且 0 个 error issue，确认不再出现 `Cannot find package 'tsx'` 或 product 根 `node_modules` 依赖。
     - 隔离 product 内启动 `bun .output/server/scripts/deploy/product-start.mjs`，`/api/auth/me` 返回 200，确认 Product Root `.env` 加载后可用。
-    - 隔离 product 内访问 `/api/app/version`，返回 `versionKind: "release"`，确认不依赖 `.git` 或根 `package.json`。
+    - 隔离 product 内访问 `/api/app/version`，返回 `versionKind: "package"` 和 `v${package.json.version}`，确认不依赖 `.git`。
 
 ## Windows Product Launcher Migration
 
@@ -403,7 +403,7 @@
     - 读取 zip 条目，确认不包含 root `.git/`、root `node_modules/`、旧 `bootstrap/`、`Rebuild Neuro Book.*`、`app/.env` 或 `app/workspace/`。
     - 隔离解压 zip 到 `%TEMP%/neuro-book-windows-product-launcher-smoke/neuro-book-windows-x64`，根目录无 `.git`、无 `node_modules`、无 Bun 依赖。
     - 使用内置 Bun 运行 `runtime/bun/bun.exe launcher/launcher.mjs admin`，确认创建 `data/.env`、`data/config.yaml`、`data/workspace/.nbook/config.json`、`data/workspace/.nbook/neuro-book.sqlite` 和 `app/workspace` 目录联接，并成功创建管理员。
-    - 使用 Windows Launcher 启动服务，设置 `NEURO_BOOK_NO_OPEN_BROWSER=1` 做自动化 smoke；通过内置 Bun fetch 登录 `/api/auth/login`，`/api/app/version` 返回 `versionKind: "release"`。
+    - 使用 Windows Launcher 启动服务，设置 `NEURO_BOOK_NO_OPEN_BROWSER=1` 做自动化 smoke；通过内置 Bun fetch 登录 `/api/auth/login`，`/api/app/version` 返回 `versionKind: "package"`。
     - POST `/api/agent/profiles/compile`，使用 builtin `writer.profile.tsx` 源码执行 `dryRun: true`，返回 `ok: true` 且 0 个 issue。
     - POST `/api/agent/profiles/compile-all`，返回 `ok: true`，空用户 profile root 下 `compiledCount: 0`，确认不再出现 `Cannot find package 'tsx'`、`@prisma/adapter-libsql` 或 `@libsql/win32-x64-msvc`。
     - 在隔离 zip 的 `app/workspace` cwd 下用内置 Bun 运行 `app/assets/workspace/.nbook/agent/scripts/workspace.ts project create launcher-smoke ... --json`，确认使用 Product Payload 的 `app/assets/workspace/.nbook/templates/project-directory-templates` 创建 Project Workspace 和 Project SQLite。
@@ -417,7 +417,7 @@
     - `bun scripts/cli/create-admin.ts admin password123` 返回预期错误，确认禁止位置参数密码。
     - `bun run nuxt:build`
     - `bun run product:stage`
-    - Product local smoke：使用 `bun .output/server/scripts/deploy/product-start.mjs` 启动，登录后 `/api/app/version` 返回 `versionKind: "release"`。
+    - Product local smoke：使用 `bun .output/server/scripts/deploy/product-start.mjs` 启动，登录后 `/api/app/version` 返回 `versionKind: "package"`。
     - `bun run package:windows-portable -- --skip-git-check --output .agent/workspace/windows-bun-portable/neuro-book-windows-x64.zip`
     - 读取 zip 条目，确认包含 `runtime/bun/bun.exe`，不包含 `runtime/node/node.exe` 或根 `node_modules`，且包含 `app/.output/server/node_modules`。
     - 读取 `portable-release.json`，确认 `runtimeKind: "bun"`、`bunVersion` 和 `runtimePath: "runtime/bun/bun.exe"`。
@@ -496,7 +496,7 @@
 
 - 将 `scripts/build/prepare-system-assets.ts` 加入 `patch-nitro-runtime-deps.mjs` 的 runtime context copy 清单。
 - 在 Nitro 后处理阶段新增 Product output scripts 门禁，要求 `.output/server/scripts/build/prepare-system-assets.ts`、`product-start.mjs`、SQLite migration 和 CLI 脚本都存在；缺失时 `nuxt:build` 直接失败，避免发布到 GHCR 后才崩。
-- GHCR / 通用 `.output` runner 不要求 Product Root 额外存在根 `release-meta.json`；当根 `node_modules` 不存在时，Product Runtime 判定、Profile Workbench worker 和版本接口会回退读取 `.output/server/release-meta.json`，避免 profile artifact compiler 误入源码模式并从根 `node_modules` 解析 native/dynamic require。
+- GHCR / 通用 `.output` runner 不要求 Product Root 额外存在根 `release-meta.json`；当根 `node_modules` 不存在时，Product Runtime 判定、Profile Workbench worker 和版本接口会回退读取 `.output/server/package.json`，避免 profile artifact compiler 误入源码模式并从根 `node_modules` 解析 native/dynamic require。
 
 ### Verification
 
@@ -521,6 +521,7 @@
 - `prerelease` / `canary` / `alpha` / `beta` / `rc` 都创建 GitHub prerelease，继续带 `--prerelease`，因此 release workflow 不会给 GHCR 打 `latest`。
 - 显式 `--tag` 必须是白名单 channel 的 SemVer prerelease tag，且 tag 中的 channel 必须与命令 channel 一致，避免 `release beta --tag v0.1.3-alpha.1` 这类语义错乱。
 - 默认 prerelease 使用当前发布线的下一 patch 版本，也可用 `--next patch|minor|major` 显式选择基础版本增长；当前发布线取 `package.json.version` 和当前 HEAD 最近可达 SemVer tag 中较新的版本，避免已有 canary 线高于 package version 时继续重复发同一 minor。`--current-patch` 只用于补发当前 package 版本线，且不能和 `--version` / `--next` / `--tag` 混用。
+- 真实执行 prerelease 时，如果目标完整 package version 不同于当前 `package.json.version`，CLI 会先更新 `package.json` 为完整 SemVer prerelease（例如 `0.4.0-canary.<UTC>.<sha>` / `0.4.0-beta.1`）并创建 `chore(release): <tag>` release commit，再以该 commit 作为 GitHub prerelease target；因此 canary / alpha / beta / rc 也会推进包版本真相源。
 - `alpha` / `beta` / `rc` 不传 `--sequence` 时，会扫描本地和远端已有 tag 自动生成下一个数字序号；`--sequence` 和 `--tag` 仍可手动覆盖。`canary` 继续使用 UTC 时间戳和短 SHA 保持唯一性。
 
 ### Files Changed
@@ -529,6 +530,7 @@
 - `scripts/release/release.ts`
 - `scripts/release/canary.ts`
 - `docs/tasks/26-windows-portable-packaging/README.md`
+- `PROJECT-STATUS.md`
 
 ### Verification
 
@@ -537,6 +539,7 @@
 - `bun run release -- beta --version 0.1.3 --sequence 2 --dry-run --allow-dirty`
 - `bun run release -- beta --dry-run --allow-dirty --no-watch` 会按已有 tag 自动选择下一个 `vX.Y.Z-beta.N`。
 - `bun run release -- canary --next minor --dry-run --allow-dirty --no-watch` 会基于当前发布线生成下一 minor 线的 canary tag；已有 `v0.2.0-canary.*` 时会生成 `v0.3.0-canary.<UTC>.<sha>`。
+- `bun run release -- canary --next minor --dry-run --allow-dirty --no-watch` 会打印完整 prerelease package version、`update package.json version <old> -> <new>`、`git add package.json` 和 `git commit -m "chore(release): <tag>"`。
 - `bun run release -- beta --next minor --dry-run --allow-dirty --no-watch` 会基于当前发布线生成下一 minor 线的 beta tag；已有 `v0.2.0-canary.*` 时会生成 `v0.3.0-beta.1`。
 - `bun run release -- canary --next minor --version 0.1.3 --dry-run --allow-dirty --no-watch` 会拒绝多个基础版本参数混用。
 - `bun run release -- alpha --version 0.1.3 --sequence 1 --dry-run --allow-dirty --no-watch`
@@ -549,10 +552,38 @@
 
 ### Follow-up Fix
 
-- 审查发现 `.output/server/release-meta.json` 只写在 Nitro server root 下，而 GHCR final runner 不经过 `product:stage`，Product Root `/app/release-meta.json` 可能不存在。
-- 原 Product Runtime 判定只看根 `release-meta.json`，因此 GHCR 修完缺脚本后仍可能让 profile artifact compiler / Profile Workbench worker 误判为源码模式，回退根 `node_modules`，再次触发 `@libsql/*` 等 native/dynamic package 解析失败。
-- 已修为：根 metadata 存在时优先使用；无根 `node_modules` 且 `.output/server/release-meta.json` 存在时，也视为 Product Runtime。
-- 版本接口同样支持无根 `node_modules` 时从 `.output/server/release-meta.json` 读取 release metadata。
+- 后续 package manifest 迁移已取代该修复：Product Runtime 判定和版本接口不再读取 `release-meta.json`，统一使用 Product Root `package.json` 或 `.output/server/package.json`。
+
+## Product Version Manifest Migration
+
+### Decisions
+
+- `package.json.version` 是 Product / Windows Portable / GHCR 的唯一版本真相源；prerelease 写完整 SemVer prerelease，不带 `v`。
+- 根 `package.json` 使用标准 `repository` 字段；版本 API 从 package manifest 解析 GitHub URL，fallback 到固定仓库地址。
+- `product:stage` 不再生成真实 `release-meta.json`；`patch-nitro-runtime-deps.mjs` 会写 `.output/server/package.json` 供 GHCR / 通用 `.output` runner 使用。
+- Windows zip 桥接版仍在 `app/release-meta.json` 写入 `{ "deprecated": true }`，只为旧 Windows Launcher 自动更新到桥接版时通过 staged 校验。
+- TODO：桥接版发布后的下一次 release 删除 deprecated `app/release-meta.json` 占位文件；更旧安装若直接更新到删除占位文件的版本，可能需要先更新到桥接版或手动下载。
+
+### Verification
+
+- `bun run release -- canary --next minor --dry-run --allow-dirty --no-watch` 应输出完整 prerelease package version。
+- `bun run release -- beta --version 0.4.0 --sequence 1 --dry-run --allow-dirty --no-watch` 应输出 `0.4.0-beta.1` 和 `v0.4.0-beta.1`。
+- `bun run nuxt:build` 后应存在 `.output/server/package.json`，且 Product Runtime 判定不依赖 `.output/server/release-meta.json`。
+- `bun run package:windows-portable` 后 zip 应包含 `app/package.json` 和桥接占位 `app/release-meta.json`；新 launcher staged 校验只要求 `app/package.json`。
+
+### Actual Verification 2026-06-20
+
+- `bun run release -- canary --next minor --dry-run --allow-dirty --no-watch` 通过，输出 `package version: 0.4.0-canary.<UTC>.<sha>`、`tag: v0.4.0-canary.<UTC>.<sha>`，并计划写入 `package.json.version`。
+- `bun run release -- beta --version 0.4.0 --sequence 1 --dry-run --allow-dirty --no-watch` 通过，输出 `package version: 0.4.0-beta.1` 和 `tag: v0.4.0-beta.1`。
+- `bun run release -- canary --tag v0.4.0-canary.1 --dry-run --allow-dirty --no-watch` 通过，显式 tag 会映射为完整 package version `0.4.0-canary.1`。
+- `bun run release -- canary --next minor --yes --allow-dirty --no-watch` 会在写文件前失败，提示 prerelease 需要更新 `package.json` 时必须加 `--push`，避免留下未推送的本地 release commit；失败后 `package.json.version` 仍为 `0.1.1`。
+- `bun run release -- stable --next patch --dry-run --push --no-watch` 通过，stable 路径仍生成 release SemVer、`git tag`、push 和 `gh release create --verify-tag --generate-notes` 计划，不带 `--prerelease`。
+- `node --check scripts/deploy/product-runtime.mjs`、`node --check scripts/build/patch-nitro-runtime-deps.mjs`、`node --check scripts/deploy/windows-portable.mjs`、`node --check scripts/deploy/windows-portable/launcher/launcher.mjs` 通过。
+- `bunx vitest run server/agent/profiles/profile-compile-worker.test.ts -t "Product Root" --reporter=verbose` 通过；`bunx vitest run server/agent/profiles/catalog.test.ts -t "Product" --reporter=verbose` 通过。
+- `bun run typecheck` 未通过，失败点是既有 `server/low-code-form/*` 类型错误，和本次 package manifest 迁移无关。
+- `bun run nuxt:build` 首次在后处理脚本暴露 `spawn is not defined`，已补回 `scripts/build/patch-nitro-runtime-deps.mjs` 的 `node:child_process` import；随后单独运行 `bun scripts/build/patch-nitro-runtime-deps.mjs` 通过，确认 `.output/server/package.json` 存在且 `.output/server/release-meta.json` 不存在。完整 `bun run nuxt:build` 复跑在 5 分钟内未返回结果，残留的 system profile compile 子进程已清理。
+- `bun run product:stage` 通过；`product/package.json` 写入 `name: "neuro-book-product"`、当前 `version` 和 `repository`，且 `product/release-meta.json`、`product/.output/server/release-meta.json` 均不存在。
+- `bun scripts/deploy/windows-portable.mjs --skip-git-check --output .agent/workspace/neuro-book-windows-x64-test.zip` 通过；zip 包含 `app/package.json`、`app/.output/server/package.json` 和桥接占位 `app/release-meta.json`，不包含 `app/.output/server/release-meta.json`；`portable-release.json.payload` 来自 `app/package.json`。
 
 ## Windows Portable Agent Session Migration Scripts
 

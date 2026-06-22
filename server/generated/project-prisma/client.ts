@@ -79,3 +79,18 @@ export type StoryPlot = Prisma.StoryPlotModel
  * 
  */
 export type StorySceneRef = Prisma.StorySceneRefModel
+/**
+ * Model WorldSubject
+ * 
+ */
+export type WorldSubject = Prisma.WorldSubjectModel
+/**
+ * Model WorldSlice
+ * 
+ */
+export type WorldSlice = Prisma.WorldSliceModel
+/**
+ * Model WorldMutation
+ * 
+ */
+export type WorldMutation = Prisma.WorldMutationModel

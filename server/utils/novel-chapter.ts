@@ -38,6 +38,9 @@ type SessionListProvider = {
 
 type NovelListOptions = {
     sessionProvider?: SessionListProvider;
+    limit?: number;
+    includeProjectPaths?: string[];
+    excludeProjectPathPrefixes?: string[];
 };
 
 const EMPTY_NOVEL_STATISTICS: NovelStatisticCounts = {
@@ -148,7 +151,8 @@ export function toNovelResponse(project: {
  * 获取 Project Workspace 列表。
  */
 export async function listNovels(options: NovelListOptions = {}): Promise<NovelListItemDto[]> {
-    if (!options.sessionProvider) {
+    const hasProjectListOptions = Boolean(options.limit || options.includeProjectPaths?.length || options.excludeProjectPathPrefixes?.length);
+    if (!options.sessionProvider && !hasProjectListOptions) {
         const now = Date.now();
         if (defaultNovelListCache && defaultNovelListCache.expiresAt > now) {
             return defaultNovelListCache.value;
@@ -176,7 +180,7 @@ export async function listNovels(options: NovelListOptions = {}): Promise<NovelL
         return defaultNovelListPromise;
     }
 
-    return readNovelList(options.sessionProvider);
+    return readNovelList(options.sessionProvider ?? new JsonlSessionRepository(), options);
 }
 
 /**
@@ -191,15 +195,35 @@ export function invalidateNovelListCache(): void {
 /**
  * 读取 Project Workspace 列表并汇总统计；调用方决定是否缓存。
  */
-async function readNovelList(sessionProvider: SessionListProvider): Promise<NovelListItemDto[]> {
+async function readNovelList(sessionProvider: SessionListProvider, options: NovelListOptions = {}): Promise<NovelListItemDto[]> {
     const [projects, sessionCountByProject] = await Promise.all([
         listProjectWorkspaces(),
         readSessionCountByProject(sessionProvider),
     ]);
-    return Promise.all(projects.map(async (project) => toNovelResponse({
+    const visibleProjects = filterNovelListProjects(projects, options);
+    return Promise.all(visibleProjects.map(async (project) => toNovelResponse({
         ...project,
         statistics: await readNovelStatistics(project.projectPath, sessionCountByProject.get(project.projectPath) ?? 0),
     })));
+}
+
+/**
+ * 按调用方提供的轻量列表参数裁剪 Project；include 项用于保留当前选择或 URL 目标。
+ */
+function filterNovelListProjects<T extends {projectPath: string}>(projects: T[], options: NovelListOptions): T[] {
+    const includeProjectPaths = new Set(options.includeProjectPaths ?? []);
+    const excludePrefixes = options.excludeProjectPathPrefixes ?? [];
+    const filteredProjects = excludePrefixes.length
+        ? projects.filter((project) => !excludePrefixes.some((prefix) => project.projectPath.startsWith(prefix)))
+        : projects;
+    const limitedProjects = typeof options.limit === "number" ? filteredProjects.slice(0, options.limit) : filteredProjects;
+    if (includeProjectPaths.size === 0) {
+        return limitedProjects;
+    }
+
+    const selectedProjectPaths = new Set(limitedProjects.map((project) => project.projectPath));
+    const includedProjects = projects.filter((project) => includeProjectPaths.has(project.projectPath) && !selectedProjectPaths.has(project.projectPath));
+    return [...includedProjects, ...limitedProjects];
 }
 
 /**

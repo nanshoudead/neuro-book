@@ -35,7 +35,7 @@ export interface PlainTextToken {
 
 const SKILL_PATTERN = /(^|[\s(])(\$(?:([\p{L}_-][\p{L}\p{N}_-]*)|\{([\p{L}_-][\p{L}\p{N}_-]*)\}))/gu;
 const WORKSPACE_REFERENCE_PREFIXES = [
-    "agent-context/",
+    "agents/",
     "assets/",
     "docs/",
     "lorebook/",

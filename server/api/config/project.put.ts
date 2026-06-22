@@ -52,6 +52,18 @@ defineRouteMeta({
                     }
                 ]
             }
+        },
+        {
+            "name": "agentProfileSettingsScope",
+            "in": "query",
+            "required": false,
+            "schema": {
+                "type": "string",
+                "enum": [
+                    "global",
+                    "project"
+                ]
+            }
         }
     ],
     "requestBody": {
@@ -190,6 +202,138 @@ defineRouteMeta({
                                                 "type": "object",
                                                 "additionalProperties": {
                                                     "$ref": "#/definitions/__schema0"
+                                                }
+                                            },
+                                            "resourceMutations": {
+                                                "type": "array",
+                                                "items": {
+                                                    "oneOf": [
+                                                        {
+                                                            "type": "object",
+                                                            "properties": {
+                                                                "type": {
+                                                                    "type": "string",
+                                                                    "enum": [
+                                                                        "create"
+                                                                    ]
+                                                                },
+                                                                "fieldPath": {
+                                                                    "type": "string",
+                                                                    "minLength": 1
+                                                                },
+                                                                "label": {
+                                                                    "type": "string",
+                                                                    "minLength": 1
+                                                                },
+                                                                "slug": {
+                                                                    "type": "string",
+                                                                    "minLength": 1
+                                                                },
+                                                                "content": {
+                                                                    "type": "string"
+                                                                }
+                                                            },
+                                                            "required": [
+                                                                "type",
+                                                                "fieldPath",
+                                                                "label",
+                                                                "slug"
+                                                            ],
+                                                            "additionalProperties": false
+                                                        },
+                                                        {
+                                                            "type": "object",
+                                                            "properties": {
+                                                                "type": {
+                                                                    "type": "string",
+                                                                    "enum": [
+                                                                        "update"
+                                                                    ]
+                                                                },
+                                                                "fieldPath": {
+                                                                    "type": "string",
+                                                                    "minLength": 1
+                                                                },
+                                                                "key": {
+                                                                    "type": "string",
+                                                                    "minLength": 1
+                                                                },
+                                                                "label": {
+                                                                    "type": "string",
+                                                                    "minLength": 1
+                                                                },
+                                                                "content": {
+                                                                    "type": "string"
+                                                                }
+                                                            },
+                                                            "required": [
+                                                                "type",
+                                                                "fieldPath",
+                                                                "key"
+                                                            ],
+                                                            "additionalProperties": false
+                                                        },
+                                                        {
+                                                            "type": "object",
+                                                            "properties": {
+                                                                "type": {
+                                                                    "type": "string",
+                                                                    "enum": [
+                                                                        "rename"
+                                                                    ]
+                                                                },
+                                                                "fieldPath": {
+                                                                    "type": "string",
+                                                                    "minLength": 1
+                                                                },
+                                                                "key": {
+                                                                    "type": "string",
+                                                                    "minLength": 1
+                                                                },
+                                                                "label": {
+                                                                    "type": "string",
+                                                                    "minLength": 1
+                                                                },
+                                                                "slug": {
+                                                                    "type": "string",
+                                                                    "minLength": 1
+                                                                }
+                                                            },
+                                                            "required": [
+                                                                "type",
+                                                                "fieldPath",
+                                                                "key",
+                                                                "label",
+                                                                "slug"
+                                                            ],
+                                                            "additionalProperties": false
+                                                        },
+                                                        {
+                                                            "type": "object",
+                                                            "properties": {
+                                                                "type": {
+                                                                    "type": "string",
+                                                                    "enum": [
+                                                                        "remove"
+                                                                    ]
+                                                                },
+                                                                "fieldPath": {
+                                                                    "type": "string",
+                                                                    "minLength": 1
+                                                                },
+                                                                "key": {
+                                                                    "type": "string",
+                                                                    "minLength": 1
+                                                                }
+                                                            },
+                                                            "required": [
+                                                                "type",
+                                                                "fieldPath",
+                                                                "key"
+                                                            ],
+                                                            "additionalProperties": false
+                                                        }
+                                                    ]
                                                 }
                                             }
                                         },
@@ -819,6 +963,138 @@ defineRouteMeta({
                                                             "additionalProperties": {
                                                                 "$ref": "#/definitions/__schema2"
                                                             }
+                                                        },
+                                                        "resourceMutations": {
+                                                            "type": "array",
+                                                            "items": {
+                                                                "oneOf": [
+                                                                    {
+                                                                        "type": "object",
+                                                                        "properties": {
+                                                                            "type": {
+                                                                                "type": "string",
+                                                                                "enum": [
+                                                                                    "create"
+                                                                                ]
+                                                                            },
+                                                                            "fieldPath": {
+                                                                                "type": "string",
+                                                                                "minLength": 1
+                                                                            },
+                                                                            "label": {
+                                                                                "type": "string",
+                                                                                "minLength": 1
+                                                                            },
+                                                                            "slug": {
+                                                                                "type": "string",
+                                                                                "minLength": 1
+                                                                            },
+                                                                            "content": {
+                                                                                "type": "string"
+                                                                            }
+                                                                        },
+                                                                        "required": [
+                                                                            "type",
+                                                                            "fieldPath",
+                                                                            "label",
+                                                                            "slug"
+                                                                        ],
+                                                                        "additionalProperties": false
+                                                                    },
+                                                                    {
+                                                                        "type": "object",
+                                                                        "properties": {
+                                                                            "type": {
+                                                                                "type": "string",
+                                                                                "enum": [
+                                                                                    "update"
+                                                                                ]
+                                                                            },
+                                                                            "fieldPath": {
+                                                                                "type": "string",
+                                                                                "minLength": 1
+                                                                            },
+                                                                            "key": {
+                                                                                "type": "string",
+                                                                                "minLength": 1
+                                                                            },
+                                                                            "label": {
+                                                                                "type": "string",
+                                                                                "minLength": 1
+                                                                            },
+                                                                            "content": {
+                                                                                "type": "string"
+                                                                            }
+                                                                        },
+                                                                        "required": [
+                                                                            "type",
+                                                                            "fieldPath",
+                                                                            "key"
+                                                                        ],
+                                                                        "additionalProperties": false
+                                                                    },
+                                                                    {
+                                                                        "type": "object",
+                                                                        "properties": {
+                                                                            "type": {
+                                                                                "type": "string",
+                                                                                "enum": [
+                                                                                    "rename"
+                                                                                ]
+                                                                            },
+                                                                            "fieldPath": {
+                                                                                "type": "string",
+                                                                                "minLength": 1
+                                                                            },
+                                                                            "key": {
+                                                                                "type": "string",
+                                                                                "minLength": 1
+                                                                            },
+                                                                            "label": {
+                                                                                "type": "string",
+                                                                                "minLength": 1
+                                                                            },
+                                                                            "slug": {
+                                                                                "type": "string",
+                                                                                "minLength": 1
+                                                                            }
+                                                                        },
+                                                                        "required": [
+                                                                            "type",
+                                                                            "fieldPath",
+                                                                            "key",
+                                                                            "label",
+                                                                            "slug"
+                                                                        ],
+                                                                        "additionalProperties": false
+                                                                    },
+                                                                    {
+                                                                        "type": "object",
+                                                                        "properties": {
+                                                                            "type": {
+                                                                                "type": "string",
+                                                                                "enum": [
+                                                                                    "remove"
+                                                                                ]
+                                                                            },
+                                                                            "fieldPath": {
+                                                                                "type": "string",
+                                                                                "minLength": 1
+                                                                            },
+                                                                            "key": {
+                                                                                "type": "string",
+                                                                                "minLength": 1
+                                                                            }
+                                                                        },
+                                                                        "required": [
+                                                                            "type",
+                                                                            "fieldPath",
+                                                                            "key"
+                                                                        ],
+                                                                        "additionalProperties": false
+                                                                    }
+                                                                ]
+                                                            }
                                                         }
                                                     },
                                                     "required": [
@@ -1339,6 +1615,138 @@ defineRouteMeta({
                                                             "type": "object",
                                                             "additionalProperties": {
                                                                 "$ref": "#/definitions/__schema2"
+                                                            }
+                                                        },
+                                                        "resourceMutations": {
+                                                            "type": "array",
+                                                            "items": {
+                                                                "oneOf": [
+                                                                    {
+                                                                        "type": "object",
+                                                                        "properties": {
+                                                                            "type": {
+                                                                                "type": "string",
+                                                                                "enum": [
+                                                                                    "create"
+                                                                                ]
+                                                                            },
+                                                                            "fieldPath": {
+                                                                                "type": "string",
+                                                                                "minLength": 1
+                                                                            },
+                                                                            "label": {
+                                                                                "type": "string",
+                                                                                "minLength": 1
+                                                                            },
+                                                                            "slug": {
+                                                                                "type": "string",
+                                                                                "minLength": 1
+                                                                            },
+                                                                            "content": {
+                                                                                "type": "string"
+                                                                            }
+                                                                        },
+                                                                        "required": [
+                                                                            "type",
+                                                                            "fieldPath",
+                                                                            "label",
+                                                                            "slug"
+                                                                        ],
+                                                                        "additionalProperties": false
+                                                                    },
+                                                                    {
+                                                                        "type": "object",
+                                                                        "properties": {
+                                                                            "type": {
+                                                                                "type": "string",
+                                                                                "enum": [
+                                                                                    "update"
+                                                                                ]
+                                                                            },
+                                                                            "fieldPath": {
+                                                                                "type": "string",
+                                                                                "minLength": 1
+                                                                            },
+                                                                            "key": {
+                                                                                "type": "string",
+                                                                                "minLength": 1
+                                                                            },
+                                                                            "label": {
+                                                                                "type": "string",
+                                                                                "minLength": 1
+                                                                            },
+                                                                            "content": {
+                                                                                "type": "string"
+                                                                            }
+                                                                        },
+                                                                        "required": [
+                                                                            "type",
+                                                                            "fieldPath",
+                                                                            "key"
+                                                                        ],
+                                                                        "additionalProperties": false
+                                                                    },
+                                                                    {
+                                                                        "type": "object",
+                                                                        "properties": {
+                                                                            "type": {
+                                                                                "type": "string",
+                                                                                "enum": [
+                                                                                    "rename"
+                                                                                ]
+                                                                            },
+                                                                            "fieldPath": {
+                                                                                "type": "string",
+                                                                                "minLength": 1
+                                                                            },
+                                                                            "key": {
+                                                                                "type": "string",
+                                                                                "minLength": 1
+                                                                            },
+                                                                            "label": {
+                                                                                "type": "string",
+                                                                                "minLength": 1
+                                                                            },
+                                                                            "slug": {
+                                                                                "type": "string",
+                                                                                "minLength": 1
+                                                                            }
+                                                                        },
+                                                                        "required": [
+                                                                            "type",
+                                                                            "fieldPath",
+                                                                            "key",
+                                                                            "label",
+                                                                            "slug"
+                                                                        ],
+                                                                        "additionalProperties": false
+                                                                    },
+                                                                    {
+                                                                        "type": "object",
+                                                                        "properties": {
+                                                                            "type": {
+                                                                                "type": "string",
+                                                                                "enum": [
+                                                                                    "remove"
+                                                                                ]
+                                                                            },
+                                                                            "fieldPath": {
+                                                                                "type": "string",
+                                                                                "minLength": 1
+                                                                            },
+                                                                            "key": {
+                                                                                "type": "string",
+                                                                                "minLength": 1
+                                                                            }
+                                                                        },
+                                                                        "required": [
+                                                                            "type",
+                                                                            "fieldPath",
+                                                                            "key"
+                                                                        ],
+                                                                        "additionalProperties": false
+                                                                    }
+                                                                ]
                                                             }
                                                         }
                                                     },
@@ -2077,6 +2485,10 @@ defineRouteMeta({
                                                     "type": "string",
                                                     "minLength": 1
                                                 },
+                                                "canResetHome": {
+                                                    "default": false,
+                                                    "type": "boolean"
+                                                },
                                                 "model": {
                                                     "type": "object",
                                                     "properties": {
@@ -2161,7 +2573,8 @@ defineRouteMeta({
                                                                                     "select",
                                                                                     "combobox",
                                                                                     "radio",
-                                                                                    "checkbox"
+                                                                                    "checkbox",
+                                                                                    "resource-preset"
                                                                                 ]
                                                                             },
                                                                             "label": {
@@ -2240,6 +2653,157 @@ defineRouteMeta({
                                                                             },
                                                                             "integer": {
                                                                                 "type": "boolean"
+                                                                            },
+                                                                            "resource": {
+                                                                                "type": "object",
+                                                                                "properties": {
+                                                                                    "contentType": {
+                                                                                        "type": "string",
+                                                                                        "enum": [
+                                                                                            "markdown"
+                                                                                        ]
+                                                                                    },
+                                                                                    "options": {
+                                                                                        "default": [],
+                                                                                        "type": "array",
+                                                                                        "items": {
+                                                                                            "type": "object",
+                                                                                            "properties": {
+                                                                                                "key": {
+                                                                                                    "type": "string",
+                                                                                                    "minLength": 1
+                                                                                                },
+                                                                                                "label": {
+                                                                                                    "type": "string",
+                                                                                                    "minLength": 1
+                                                                                                },
+                                                                                                "description": {
+                                                                                                    "type": "string"
+                                                                                                },
+                                                                                                "editable": {
+                                                                                                    "default": false,
+                                                                                                    "type": "boolean"
+                                                                                                },
+                                                                                                "deletable": {
+                                                                                                    "default": false,
+                                                                                                    "type": "boolean"
+                                                                                                }
+                                                                                            },
+                                                                                            "required": [
+                                                                                                "key",
+                                                                                                "label",
+                                                                                                "editable",
+                                                                                                "deletable"
+                                                                                            ],
+                                                                                            "additionalProperties": false
+                                                                                        }
+                                                                                    },
+                                                                                    "content": {
+                                                                                        "default": null,
+                                                                                        "nullable": true,
+                                                                                        "type": "object",
+                                                                                        "properties": {
+                                                                                            "key": {
+                                                                                                "type": "string",
+                                                                                                "minLength": 1
+                                                                                            },
+                                                                                            "content": {
+                                                                                                "type": "string"
+                                                                                            },
+                                                                                            "contentType": {
+                                                                                                "type": "string",
+                                                                                                "enum": [
+                                                                                                    "markdown"
+                                                                                                ]
+                                                                                            },
+                                                                                            "updatedAt": {
+                                                                                                "type": "string"
+                                                                                            }
+                                                                                        },
+                                                                                        "required": [
+                                                                                            "key",
+                                                                                            "content",
+                                                                                            "contentType"
+                                                                                        ],
+                                                                                        "additionalProperties": false
+                                                                                    },
+                                                                                    "contents": {
+                                                                                        "default": [],
+                                                                                        "type": "array",
+                                                                                        "items": {
+                                                                                            "type": "object",
+                                                                                            "properties": {
+                                                                                                "key": {
+                                                                                                    "type": "string",
+                                                                                                    "minLength": 1
+                                                                                                },
+                                                                                                "content": {
+                                                                                                    "type": "string"
+                                                                                                },
+                                                                                                "contentType": {
+                                                                                                    "type": "string",
+                                                                                                    "enum": [
+                                                                                                        "markdown"
+                                                                                                    ]
+                                                                                                },
+                                                                                                "updatedAt": {
+                                                                                                    "type": "string"
+                                                                                                }
+                                                                                            },
+                                                                                            "required": [
+                                                                                                "key",
+                                                                                                "content",
+                                                                                                "contentType"
+                                                                                            ],
+                                                                                            "additionalProperties": false
+                                                                                        }
+                                                                                    },
+                                                                                    "template": {
+                                                                                        "type": "string"
+                                                                                    },
+                                                                                    "createKeyPrefix": {
+                                                                                        "type": "string"
+                                                                                    },
+                                                                                    "createKeySuffix": {
+                                                                                        "type": "string"
+                                                                                    },
+                                                                                    "capabilities": {
+                                                                                        "type": "object",
+                                                                                        "properties": {
+                                                                                            "create": {
+                                                                                                "default": false,
+                                                                                                "type": "boolean"
+                                                                                            },
+                                                                                            "update": {
+                                                                                                "default": false,
+                                                                                                "type": "boolean"
+                                                                                            },
+                                                                                            "rename": {
+                                                                                                "default": false,
+                                                                                                "type": "boolean"
+                                                                                            },
+                                                                                            "remove": {
+                                                                                                "default": false,
+                                                                                                "type": "boolean"
+                                                                                            }
+                                                                                        },
+                                                                                        "required": [
+                                                                                            "create",
+                                                                                            "update",
+                                                                                            "rename",
+                                                                                            "remove"
+                                                                                        ],
+                                                                                        "additionalProperties": false
+                                                                                    }
+                                                                                },
+                                                                                "required": [
+                                                                                    "contentType",
+                                                                                    "options",
+                                                                                    "content",
+                                                                                    "contents",
+                                                                                    "capabilities"
+                                                                                ],
+                                                                                "additionalProperties": false
                                                                             }
                                                                         },
                                                                         "required": [
@@ -2341,6 +2905,7 @@ defineRouteMeta({
                                             "required": [
                                                 "profileKey",
                                                 "name",
+                                                "canResetHome",
                                                 "model",
                                                 "settings"
                                             ],
@@ -2567,5 +3132,6 @@ export default defineEventHandler(async (event) => {
     const query = validateConfigEditorSnapshotQuery(getQuery(event));
     return saveProjectConfig(body, query, undefined, {
         includeAgentProfileSettings: query.includeAgentProfileSettings,
+        agentProfileSettingsScope: query.agentProfileSettingsScope,
     });
 });

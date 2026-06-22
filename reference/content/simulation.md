@@ -33,8 +33,8 @@ Old directory migration:
 roleplay/                 -> simulation/
 roleplay/actors/{id}/     -> simulation/subjects/{id}/
 roleplay/playthrough/     -> simulation/runs/
-roleplay/gm.md            -> manual/gm-guide.md + agent-context/rp.leader/context.md for user-facing RP hosting
-roleplay/gm.md            -> agent-context/simulator.leader/context.md for world simulation and adjudication rules
+roleplay/gm.md            -> manual/gm-guide.md + agents/rp.leader/context.md for user-facing RP hosting
+roleplay/gm.md            -> agents/simulator.leader/context.md for world simulation and adjudication rules
 ```
 
 ## Root Files
@@ -47,7 +47,7 @@ roleplay/gm.md            -> agent-context/simulator.leader/context.md for world
 
 `actor` is a kind of simulator, not a top-level directory. Character-like simulators live under `simulation/subjects/`.
 
-Profile-specific project guidance lives in `agent-context/`, not in `simulation/`. For example, `rp.leader` reads `agent-context/rp.leader/context.md`, and `simulator.leader` reads `agent-context/simulator.leader/context.md`. `rp.writer` does not bind its own context file at profile creation time; upstream coordinators must inject any relevant project guidance into each writer brief.
+Profile-specific project guidance lives in `agents/`, not in `simulation/`. For example, `rp.leader` reads `agents/rp.leader/context.md`, and `simulator.leader` reads `agents/simulator.leader/context.md`. `rp.writer` does not bind its own context file at profile creation time; upstream coordinators must inject any relevant project guidance into each writer brief.
 
 ## Runtime Profiles
 
@@ -55,8 +55,8 @@ Current RP / simulation profile contract:
 
 | Profile | Role | Reads | Writes |
 | --- | --- | --- | --- |
-| `rp.leader` | RP host and user-facing coordinator. It manages quickstart, table contract, companion-mode conversation, player-safe explanation and handoff to simulation. It may call `simulator.leader` for world adjudication instead of silently rewriting runtime state. | `AGENTS.md`, `manual/README.md`, `manual/player-guide/`, `manual/gm-guide.md`, `agent-context/rp.leader/context.md`, `agent-context/rp.leader/memory.md`, and user-approved context. | RP-facing notes only when explicitly requested or approved. Runtime state changes should be handed to `simulator.leader` or written only after clear user authorization and simulation contract review. |
-| `simulator.leader` | World simulator leader shared by writing mode and RP. It understands the task or user action, dispatches actor emulators, adjudicates the world, maintains state/entities, builds writer-safe brief and reports the result. | `AGENTS.md`, `agent-context/simulator.leader/context.md`, recent `simulation/runs/`, subject/entity state, Plot context and god-view lorebook / reference allowed by its context. | Approved subject `state.md`, `simulation/entities/`, necessary `simulation/runs/` and explicit simulation context changes. New subjects/entities should be reported before creation unless the current prompt explicitly grants automatic authority. |
+| `rp.leader` | RP host and user-facing coordinator. It manages quickstart, table contract, companion-mode conversation, player-safe explanation and handoff to simulation. It may call `simulator.leader` for world adjudication instead of silently rewriting runtime state. | `AGENTS.md`, `manual/README.md`, `manual/player-guide/`, `manual/gm-guide.md`, `agents/rp.leader/context.md`, `agents/rp.leader/memory.md`, and user-approved context. | RP-facing notes only when explicitly requested or approved. Runtime state changes should be handed to `simulator.leader` or written only after clear user authorization and simulation contract review. |
+| `simulator.leader` | World simulator leader shared by writing mode and RP. It understands the task or user action, dispatches actor emulators, adjudicates the world, maintains state/entities, builds writer-safe brief and reports the result. | `AGENTS.md`, `agents/simulator.leader/context.md`, recent `simulation/runs/`, subject/entity state, Plot context and god-view lorebook / reference allowed by its context. | Approved subject `state.md`, `simulation/entities/`, necessary `simulation/runs/` and explicit simulation context changes. New subjects/entities should be reported before creation unless the current prompt explicitly grants automatic authority. |
 | `simulator.actor` | Single-subject simulator. Its main run Imports `soul.md` (first-person roleplay handbook) as identity, and only uses actor-safe context injected by sidecar plus the current actor-facing packet. It never sees `subject.md` (god-view secret file). | Main run sees `soul.md`, actor binding metadata, `<actor-sidecar-context>` and the current actor-facing packet. `actor.context-load` sidecar is a pure RAG retriever: it reads no files and only runs subject RAG over `events.jsonl` / `memory.jsonl`. | Main run does not write files; `actor.memory-save` sidecar appends `events.jsonl`, curates `memory.jsonl`, and updates `mind.md`. It reads/writes neither `subject.md`, `soul.md` nor `state.md`. |
 | `rp.writer` | Tick prose renderer. It turns an upstream writer brief into user-visible prose through a multi-step pass: draft, stop-slop self-review, then write and polish. It keeps the small-cat writer preset and RP storytelling tone. | Profile initial is empty. It only consumes the current writer brief and reads extra paths when the brief explicitly asks it to. | Writes the final prose to the output path given in the writer brief (typically `simulation/runs/ticks/{id}-{slug}/prose.md`). Falls back to assistant-text prose only when the brief omits an output path. |
 

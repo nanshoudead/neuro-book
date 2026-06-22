@@ -1,0 +1,891 @@
+<script setup lang="ts">
+import {computed, onMounted, reactive, ref, shallowRef, watch} from "vue";
+import WorldEnginePreviewActions from "nbook/app/components/novel-ide/world-engine/WorldEnginePreviewActions.vue";
+import WorldEnginePreviewProjectPanel from "nbook/app/components/novel-ide/world-engine/WorldEnginePreviewProjectPanel.vue";
+import WorldEnginePreviewStatePanel from "nbook/app/components/novel-ide/world-engine/WorldEnginePreviewStatePanel.vue";
+import {resolveApiErrorMessage} from "nbook/app/utils/api-error";
+import {
+    filterPreviewProjects,
+    formatWorldEngineConflictMessage,
+    formatPreviewJson,
+    defaultMutationForPreviewAttr,
+    defaultMutationForPreviewSubject,
+    defaultValueForPreviewAttr,
+    isJsonObjectValue,
+    keepSelectedPreviewProject,
+    opOptionsForPreviewAttr,
+    parseCsvList,
+    parseLooseJsonValue,
+    parseMutationJson,
+    previewAttrNeedsJsonObject,
+    previewAttrValueType,
+    previewDemoMutations,
+    previewDemoSubjects,
+    resolvePreviewAttrPath,
+    selectPreviewProjectPath,
+    suggestNextPreviewTime,
+    suggestSliceTime,
+    validatePreviewDemoSchema,
+    type JsonValue,
+    type WorldMutationDraft,
+    type WorldMutationOp,
+    type WorldPreviewSchemaAttr,
+} from "nbook/app/utils/world-engine-preview";
+import type {NovelListItemDto} from "nbook/shared/dto/novel-chapter.dto";
+
+type WorldSchemaProjectionDto = {
+    subjectTypes: Array<{
+        type: string;
+        desc?: string;
+        attrs: WorldPreviewSchemaAttr[];
+    }>;
+    calendar: {
+        format: string;
+        examples: string[];
+    };
+};
+type WorldSubjectDto = {
+    id: string;
+    type: string;
+    name: string;
+};
+type WorldSliceDto = {
+    id: string;
+    time: string;
+    title: string;
+    summary: string;
+    kind: string;
+    mutations?: WorldSliceMutationDto[];
+    issues?: WorldIssueDto[];
+};
+type WorldSliceMutationDto = {
+    subjectId: string;
+    attr: string;
+    op: WorldMutationOp;
+    value?: unknown;
+};
+type SubjectStateDto = {
+    subjectId: string;
+    type: string;
+    attrs: Record<string, JsonValue>;
+};
+type WorldIssueDto = {
+    code: "broken-relative" | "dangling-ref" | "base-shifted" | "masked";
+    sliceId?: string;
+    subjectId: string;
+    attr: string;
+    message: string;
+};
+type WorldStateQueryDto = {
+    subjects: SubjectStateDto[];
+    issues: WorldIssueDto[];
+};
+type SliceWriteResultDto = {
+    sliceId: string;
+    issues: WorldIssueDto[];
+};
+type CreateSubjectResultDto = {
+    subjectId: string;
+    issues: WorldIssueDto[];
+};
+type DeleteSliceResultDto = {
+    issues: WorldIssueDto[];
+};
+
+const route = useRoute();
+
+const previewProjectListLimit = 80;
+const previewProjectTestPrefixes = ["workspace/world-engine-test-", "workspace/world-engine-api-test-", "workspace/world-tools-test-"];
+
+const projects = ref<NovelListItemDto[]>([]);
+const selectedProjectPath = ref("");
+const projectSearch = ref("");
+const schema = shallowRef<WorldSchemaProjectionDto | null>(null);
+const subjects = ref<WorldSubjectDto[]>([]);
+const slices = ref<WorldSliceDto[]>([]);
+const stateResult = ref<SubjectStateDto[]>([]);
+const stateIssues = ref<WorldIssueDto[]>([]);
+const actionIssues = ref<WorldIssueDto[]>([]);
+const lastWriteResult = ref<SliceWriteResultDto | null>(null);
+const loadingProjects = ref(false);
+const loadingWorld = ref(false);
+const actionBusy = ref(false);
+const error = ref("");
+const notice = ref("");
+const editingSliceId = ref("");
+let suppressProjectSelectionWatcher = false;
+
+/** 显示 Preview 错误，并清理旧成功提示，避免作者同时看到互相冲突的反馈。 */
+function setPreviewError(message: string): void {
+    error.value = message;
+    if (message) {
+        notice.value = "";
+    }
+}
+
+/** 显示 Preview 成功 / 状态提示，并清理旧错误。 */
+function setPreviewNotice(message: string): void {
+    notice.value = message;
+    if (message) {
+        error.value = "";
+    }
+}
+
+/** 格式化 Preview 默认 Project 标题中的本地时间戳。 */
+function formatPreviewProjectTitleTimestamp(date: Date): string {
+    const pad = (value: number) => String(value).padStart(2, "0");
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}-${pad(date.getMinutes())}`;
+}
+
+const createProjectForm = reactive({
+    title: `世界引擎试用 ${formatPreviewProjectTitleTimestamp(new Date())}`,
+    summary: "World Engine preview project",
+});
+
+const subjectForm = reactive({
+    id: "world",
+    type: "world",
+    name: "世界",
+    time: "",
+});
+const initialPreviewMutation = defaultMutationForPreviewSubject([], [], "world");
+let lastAutoSliceMutationDraft = JSON.stringify([initialPreviewMutation], null, 2);
+
+const sliceForm = reactive({
+    time: "",
+    title: "第一条世界切面",
+    summary: "",
+    kind: "event",
+    mutations: lastAutoSliceMutationDraft,
+});
+
+const mutationBuilder = reactive({
+    subjectId: "world",
+    attr: initialPreviewMutation.attr,
+    op: initialPreviewMutation.op,
+    value: formatBuilderValue(initialPreviewMutation.value),
+});
+
+const queryForm = reactive({
+    subjectIds: "world",
+    type: "",
+    attrs: "era,events",
+    at: "",
+    listLimit: 10,
+});
+
+const selectedProject = computed(() => projects.value.find((project) => project.projectPath === selectedProjectPath.value) ?? null);
+const projectOptions = computed(() => keepSelectedPreviewProject(filterPreviewProjects(projects.value, projectSearch.value), selectedProject.value));
+const schemaTypes = computed(() => schema.value?.subjectTypes ?? []);
+const selectedTypeAttrs = computed(() => schemaTypes.value.find((item) => item.type === subjectForm.type)?.attrs ?? []);
+const latestSlice = computed(() => slices.value.at(-1) ?? null);
+const projectReady = computed(() => Boolean(selectedProjectPath.value));
+const previewDemoSchemaError = computed(() => schema.value ? validatePreviewDemoSchema(schema.value.subjectTypes, subjects.value) : "Schema 未加载，无法创建示例世界");
+const canSeedDemoWorld = computed(() => projectReady.value && Boolean(schema.value) && !previewDemoSchemaError.value);
+const demoWorldButtonTitle = computed(() => previewDemoSchemaError.value || "创建内置示例世界");
+const stateJson = computed(() => formatPreviewJson(stateResult.value as unknown as JsonValue[]));
+const writeResultJson = computed(() => formatPreviewJson(lastWriteResult.value as unknown as Record<string, JsonValue> | null));
+const sliceActionLabel = computed(() => editingSliceId.value ? "保存 Slice 编辑" : "写入 Slice");
+const mutationBuilderSubject = computed(() => subjects.value.find((subject) => subject.id === mutationBuilder.subjectId) ?? null);
+const mutationBuilderAttrs = computed(() => attrsForSubjectId(mutationBuilder.subjectId));
+const mutationBuilderAttr = computed(() => resolvePreviewAttrPath(mutationBuilderAttrs.value, mutationBuilder.attr));
+const mutationBuilderOpOptions = computed(() => opOptionsForAttr(mutationBuilder.attr));
+const mutationBuilderNeedsJsonObject = computed(() => previewAttrNeedsJsonObject(mutationBuilderAttr.value, mutationBuilder.op));
+const mutationBuilderValueHint = computed(() => {
+    const attr = mutationBuilderAttr.value;
+    if (!attr) {
+        return "dynamic value";
+    }
+    const valueType = previewAttrValueType(attr) ?? "object";
+    return attr.kind === "list" || attr.kind === "collection" ? `${attr.kind}<${valueType}>` : `${attr.kind}:${valueType}`;
+});
+/** 读取 Project 列表并选择当前目标。 */
+async function loadProjects(preferredProjectPath?: string): Promise<void> {
+    loadingProjects.value = true;
+    error.value = "";
+    try {
+        const routeProjectPath = typeof route.query.projectPath === "string" ? route.query.projectPath : "";
+        projects.value = await $fetch<NovelListItemDto[]>("/api/projects", {
+            query: {
+                limit: previewProjectListLimit,
+                includeProjectPath: [preferredProjectPath, routeProjectPath, selectedProjectPath.value].filter((projectPath): projectPath is string => Boolean(projectPath)),
+                excludeProjectPathPrefix: previewProjectTestPrefixes,
+            },
+        });
+        const nextProjectPath = selectPreviewProjectPath(projects.value, preferredProjectPath, routeProjectPath, selectedProjectPath.value);
+        if (selectedProjectPath.value !== nextProjectPath) {
+            suppressProjectSelectionWatcher = true;
+            selectedProjectPath.value = nextProjectPath;
+            suppressProjectSelectionWatcher = false;
+            resetPreviewProjectSessionState();
+        }
+        await loadWorld();
+    } catch (loadError) {
+        setPreviewError(resolveApiErrorMessage(loadError, "读取 Project 列表失败"));
+    } finally {
+        loadingProjects.value = false;
+    }
+}
+
+/** 新建 Project Workspace，并立即选中它。 */
+async function createProject(): Promise<void> {
+    if (!createProjectForm.title.trim()) {
+        setPreviewError("Project 标题不能为空");
+        return;
+    }
+    actionBusy.value = true;
+    error.value = "";
+    notice.value = "";
+    try {
+        const project = await $fetch<NovelListItemDto>("/api/projects", {
+            method: "POST",
+            body: {
+                title: createProjectForm.title.trim(),
+                summary: createProjectForm.summary.trim(),
+            },
+        });
+        await loadProjects(project.projectPath);
+        setPreviewNotice(`已创建 ${project.projectPath}`);
+    } catch (createError) {
+        setPreviewError(resolveApiErrorMessage(createError, "创建 Project 失败"));
+    } finally {
+        actionBusy.value = false;
+    }
+}
+
+/** 在当前 Project 中创建一组可查询、可编辑的真实示例数据。 */
+async function seedDemoWorld(): Promise<void> {
+    if (!selectedProjectPath.value) return;
+    const schemaError = previewDemoSchemaError.value;
+    if (schemaError) {
+        setPreviewError(schemaError);
+        return;
+    }
+    const initTime = schema.value?.calendar.examples[0] ?? "";
+    if (!initTime) {
+        setPreviewError("Calendar examples 为空，无法推导示例时间");
+        return;
+    }
+    actionBusy.value = true;
+    error.value = "";
+    notice.value = "";
+    editingSliceId.value = "";
+    actionIssues.value = [];
+    try {
+        const existingSlices = await $fetch<WorldSliceDto[]>("/api/projects/world-engine/slices", {query: {...projectQuery(), limit: 80}});
+        const occupiedTimes = [...existingSlices.map((slice) => slice.time), initTime];
+        const eventTime = suggestNextPreviewTime(schema.value?.calendar.examples ?? [initTime], occupiedTimes);
+        const subjectResult = await ensureDemoSubjects(initTime);
+        const result = await $fetch<SliceWriteResultDto>("/api/projects/world-engine/slices", {
+            method: "POST",
+            query: projectQuery(),
+            body: {
+                time: eventTime,
+                title: "示例：艾莉娜抵达王都",
+                summary: "一键示例世界生成的第一条事件切面。",
+                kind: "event",
+                mutations: previewDemoMutations(),
+            },
+        });
+        lastWriteResult.value = result;
+        actionIssues.value = [...subjectResult.issues, ...result.issues];
+        await loadWorld();
+        queryForm.subjectIds = "erina, old-sword, world";
+        queryForm.type = "";
+        queryForm.attrs = "hp,location,inventory,events,durability,era";
+        queryForm.at = "";
+        const state = await $fetch<WorldStateQueryDto>("/api/projects/world-engine/state/query", {
+            method: "POST",
+            query: projectQuery(),
+            body: {
+                subjectIds: ["erina", "old-sword", "world"],
+                attrs: ["hp", "location", "inventory", "events", "durability", "era"],
+                listLimit: queryForm.listLimit,
+            },
+        });
+        stateResult.value = state.subjects;
+        stateIssues.value = state.issues;
+        advanceSliceFormTime();
+        setPreviewNotice(actionIssues.value.length
+            ? `已创建示例世界：新增 ${subjectResult.created.length} 个 subject，跳过 ${subjectResult.skipped.length} 个已存在 subject，写入 ${eventTime}，返回 ${actionIssues.value.length} 个 issue`
+            : `已创建示例世界：新增 ${subjectResult.created.length} 个 subject，跳过 ${subjectResult.skipped.length} 个已存在 subject，写入 ${eventTime}`);
+    } catch (seedError) {
+        setPreviewError(formatWorldEngineConflictMessage(resolveApiErrorMessage(seedError, "创建示例世界失败")));
+    } finally {
+        actionBusy.value = false;
+    }
+}
+
+/** 读取当前 Project 的世界引擎 schema、subjects 和 timeline。 */
+async function loadWorld(): Promise<void> {
+    if (!selectedProjectPath.value) {
+        schema.value = null;
+        subjects.value = [];
+        slices.value = [];
+        stateResult.value = [];
+        stateIssues.value = [];
+        return;
+    }
+    loadingWorld.value = true;
+    error.value = "";
+    try {
+        const query = {projectPath: selectedProjectPath.value};
+        const [nextSchema, nextSubjects, nextSlices] = await Promise.all([
+            $fetch<WorldSchemaProjectionDto>("/api/projects/world-engine/schema", {query}),
+            $fetch<WorldSubjectDto[]>("/api/projects/world-engine/subjects", {query}),
+            $fetch<WorldSliceDto[]>("/api/projects/world-engine/slices", {query: {...query, limit: 12, withMutations: "true"}}),
+        ]);
+        schema.value = nextSchema;
+        subjects.value = nextSubjects;
+        slices.value = nextSlices;
+        applyWorldDefaults();
+    } catch (loadError) {
+        schema.value = null;
+        subjects.value = [];
+        slices.value = [];
+        stateResult.value = [];
+        stateIssues.value = [];
+        setPreviewError(resolveApiErrorMessage(loadError, "读取 World Engine 数据失败"));
+    } finally {
+        loadingWorld.value = false;
+    }
+}
+
+/** 创建示例 subject；已存在且 type 匹配时跳过。 */
+async function ensureDemoSubjects(initTime: string): Promise<{created: string[]; skipped: string[]; issues: WorldIssueDto[]}> {
+    const existingIds = new Set(subjects.value.map((subject) => subject.id));
+    const created: string[] = [];
+    const skipped: string[] = [];
+    const issues: WorldIssueDto[] = [];
+    for (const seed of previewDemoSubjects()) {
+        if (existingIds.has(seed.id)) {
+            skipped.push(seed.id);
+            continue;
+        }
+        const result = await $fetch<CreateSubjectResultDto>("/api/projects/world-engine/subjects", {
+            method: "POST",
+            query: projectQuery(),
+            body: {
+                id: seed.id,
+                type: seed.type,
+                name: seed.name,
+                time: initTime,
+            },
+        });
+        existingIds.add(seed.id);
+        created.push(result.subjectId);
+        issues.push(...result.issues);
+    }
+    return {created, skipped, issues};
+}
+
+/** 创建 subject，并刷新 timeline。 */
+async function createSubject(): Promise<void> {
+    if (!selectedProjectPath.value) return;
+    const subjectId = subjectForm.id.trim();
+    const subjectType = subjectForm.type.trim();
+    const subjectTime = subjectForm.time.trim();
+    if (!subjectId) {
+        setPreviewError("subject id 不能为空");
+        return;
+    }
+    if (!subjectType) {
+        setPreviewError("subject type 不能为空");
+        return;
+    }
+    if (!subjectTime) {
+        setPreviewError("subject time 不能为空");
+        return;
+    }
+    if (subjects.value.some((subject) => subject.id === subjectId)) {
+        setPreviewError(`subject ${subjectId} 已存在，请填写新的 id`);
+        return;
+    }
+    actionBusy.value = true;
+    error.value = "";
+    notice.value = "";
+    actionIssues.value = [];
+    try {
+        const result = await $fetch<CreateSubjectResultDto>("/api/projects/world-engine/subjects", {
+            method: "POST",
+            query: projectQuery(),
+            body: {
+                id: subjectId,
+                type: subjectType,
+                name: subjectForm.name.trim(),
+                time: subjectTime,
+            },
+        });
+        actionIssues.value = result.issues;
+        setPreviewNotice(result.issues.length
+            ? `已创建 subject ${result.subjectId}，返回 ${result.issues.length} 个 issue`
+            : `已创建 subject ${result.subjectId}`);
+        subjectForm.id = "";
+        subjectForm.name = "";
+        subjectForm.type = subjectType;
+        subjectForm.time = subjectTime;
+        queryForm.subjectIds = result.subjectId;
+        mutationBuilder.subjectId = result.subjectId;
+        if (sliceForm.time.trim() === subjectTime) {
+            sliceForm.time = suggestSliceTime(schema.value?.calendar.examples ?? [subjectTime]);
+        }
+        await loadWorld();
+        advanceSliceFormTime();
+        if (!editingSliceId.value) {
+            applyDefaultSliceMutation(result.subjectId);
+        }
+        if (queryForm.subjectIds.trim() || queryForm.type.trim()) {
+            await queryState({clearActionIssues: false});
+        }
+    } catch (createError) {
+        setPreviewError(formatWorldEngineConflictMessage(resolveApiErrorMessage(createError, "创建 subject 失败")));
+    } finally {
+        actionBusy.value = false;
+    }
+}
+
+/** 写入新 slice 或整块替换已有 slice。 */
+async function writeSlice(): Promise<void> {
+    if (!selectedProjectPath.value) return;
+    if (!sliceForm.time.trim()) {
+        setPreviewError("time 不能为空");
+        return;
+    }
+    const parsed = parseMutationJson(sliceForm.mutations);
+    if (!parsed.ok) {
+        setPreviewError(parsed.message);
+        return;
+    }
+    actionBusy.value = true;
+    error.value = "";
+    notice.value = "";
+    try {
+        const editing = Boolean(editingSliceId.value);
+        lastWriteResult.value = await $fetch<SliceWriteResultDto>(editing ? `/api/projects/world-engine/slices/${encodeURIComponent(editingSliceId.value)}/edit` : "/api/projects/world-engine/slices", {
+            method: "POST",
+            query: projectQuery(),
+            body: {
+                time: sliceForm.time.trim(),
+                title: sliceForm.title.trim(),
+                summary: sliceForm.summary.trim(),
+                kind: sliceForm.kind.trim() || "event",
+                mutations: parsed.value,
+            },
+        });
+        actionIssues.value = lastWriteResult.value.issues;
+        applyWriteResultFeedback(lastWriteResult.value, editing);
+        editingSliceId.value = "";
+        await loadWorld();
+        advanceSliceFormTime();
+        if (queryForm.subjectIds.trim() || queryForm.type.trim()) {
+            await queryState({clearActionIssues: false});
+        }
+    } catch (writeError) {
+        setPreviewError(formatWorldEngineConflictMessage(resolveApiErrorMessage(writeError, editingSliceId.value ? "编辑 slice 失败" : "写入 slice 失败")));
+    } finally {
+        actionBusy.value = false;
+    }
+}
+
+/** 物理删除 slice；后端返回删后仍显形的持久 issues。 */
+async function deleteSlice(sliceId: string): Promise<void> {
+    if (!selectedProjectPath.value) return;
+    const slice = slices.value.find((item) => item.id === sliceId);
+    if (!slice) {
+        setPreviewError("切面不存在，已刷新列表");
+        await loadWorld();
+        return;
+    }
+    if (import.meta.client && !window.confirm(`确定要删除 slice「${slice.title || slice.id}」吗？此操作不可恢复。`)) {
+        return;
+    }
+    actionBusy.value = true;
+    error.value = "";
+    notice.value = "";
+    try {
+        const result = await $fetch<DeleteSliceResultDto>(`/api/projects/world-engine/slices/${encodeURIComponent(slice.id)}`, {
+            method: "DELETE",
+            query: projectQuery(),
+        });
+        const deleteIssues = result.issues;
+        lastWriteResult.value = null;
+        actionIssues.value = deleteIssues;
+        setPreviewNotice(result.issues.length ? `已删除 slice ${slice.id}，删后返回 ${result.issues.length} 个 issue` : `已删除 slice ${slice.id}`);
+        if (editingSliceId.value === slice.id) {
+            clearSliceEditMode();
+        }
+        await loadWorld();
+        if (queryForm.subjectIds.trim() || queryForm.type.trim()) {
+            await queryState({clearActionIssues: false});
+        }
+    } catch (deleteError) {
+        setPreviewError(resolveApiErrorMessage(deleteError, "删除 slice 失败"));
+    } finally {
+        actionBusy.value = false;
+    }
+}
+
+/** 查询收窄后的世界状态。 */
+async function queryState(options: {clearActionIssues?: boolean} = {}): Promise<void> {
+    if (!selectedProjectPath.value) return;
+    const subjectIds = parseCsvList(queryForm.subjectIds);
+    const attrs = parseCsvList(queryForm.attrs);
+    const type = queryForm.type.trim();
+    if (!subjectIds.length && !type) {
+        setPreviewError("查询必须提供 subjectIds 或 type");
+        return;
+    }
+    actionBusy.value = true;
+    error.value = "";
+    try {
+        const result = await $fetch<WorldStateQueryDto>("/api/projects/world-engine/state/query", {
+            method: "POST",
+            query: projectQuery(),
+            body: {
+                ...(subjectIds.length ? {subjectIds} : {}),
+                ...(type ? {type} : {}),
+                ...(attrs.length ? {attrs} : {}),
+                ...(queryForm.at.trim() ? {at: queryForm.at.trim()} : {}),
+                listLimit: queryForm.listLimit,
+            },
+        });
+        stateResult.value = result.subjects;
+        stateIssues.value = result.issues;
+        if (options.clearActionIssues !== false) {
+            actionIssues.value = [];
+        }
+    } catch (queryError) {
+        stateResult.value = [];
+        stateIssues.value = [];
+        setPreviewError(resolveApiErrorMessage(queryError, "查询世界状态失败"));
+    } finally {
+        actionBusy.value = false;
+    }
+}
+
+function projectQuery(): {projectPath: string} {
+    return {projectPath: selectedProjectPath.value};
+}
+
+function applyWorldDefaults(): void {
+    const firstTime = schema.value?.calendar.examples[0] ?? "复兴纪元1年 1月1日 00:00:00";
+    const sliceTime = suggestSliceTime(schema.value?.calendar.examples ?? [firstTime]);
+    subjectForm.time = subjectForm.time || firstTime;
+    sliceForm.time = sliceForm.time || sliceTime;
+    queryForm.at = queryForm.at || "";
+    if (!schemaTypes.value.some((item) => item.type === subjectForm.type)) {
+        subjectForm.type = schemaTypes.value[0]?.type ?? "world";
+    }
+    const firstSubject = subjects.value[0];
+    if (firstSubject) {
+        const knownSubjectIds = new Set(subjects.value.map((subject) => subject.id));
+        const currentSubjectExists = knownSubjectIds.has(subjectForm.id);
+        const queryHasKnownSubject = parseCsvList(queryForm.subjectIds).some((subjectId) => knownSubjectIds.has(subjectId));
+        if (!currentSubjectExists) {
+            subjectForm.id = firstSubject.id;
+            subjectForm.type = firstSubject.type;
+            subjectForm.name = firstSubject.name;
+        }
+        if (!queryHasKnownSubject) {
+            queryForm.subjectIds = firstSubject.id;
+        }
+        if (!knownSubjectIds.has(mutationBuilder.subjectId)) {
+            mutationBuilder.subjectId = firstSubject.id;
+        }
+        if (shouldRefreshDefaultSliceMutation()) {
+            applyDefaultSliceMutation(mutationBuilder.subjectId);
+        }
+    }
+}
+
+async function loadSubjectIntoQuery(subject: WorldSubjectDto): Promise<void> {
+    queryForm.subjectIds = subject.id;
+    queryForm.type = "";
+    mutationBuilder.subjectId = subject.id;
+    subjectForm.id = subject.id;
+    subjectForm.type = subject.type;
+    subjectForm.name = subject.name;
+    await queryState({clearActionIssues: false});
+}
+
+function fillMutation(typeName: string, attr: WorldPreviewSchemaAttr): void {
+    const subjectId = subjectIdForSchemaType(typeName);
+    const mutation = defaultMutationForPreviewAttr(subjectId, attr, subjects.value);
+    sliceForm.mutations = JSON.stringify([mutation], null, 2);
+    mutationBuilder.subjectId = subjectId;
+    mutationBuilder.attr = attr.name;
+    mutationBuilder.op = mutation.op;
+    mutationBuilder.value = formatBuilderValue(mutation.value);
+}
+
+function loadSliceForEdit(sliceId: string): void {
+    const slice = slices.value.find((item) => item.id === sliceId);
+    if (!slice) {
+        setPreviewError("切面不存在，已刷新列表");
+        void loadWorld();
+        return;
+    }
+    editingSliceId.value = slice.id;
+    sliceForm.time = slice.time;
+    sliceForm.title = slice.title;
+    sliceForm.summary = slice.summary;
+    sliceForm.kind = slice.kind;
+    sliceForm.mutations = JSON.stringify(slice.mutations ?? [], null, 2);
+    setPreviewNotice(`正在编辑 slice ${slice.id}`);
+}
+
+function clearSliceEditMode(): void {
+    editingSliceId.value = "";
+    sliceForm.title = "第一条世界切面";
+    sliceForm.summary = "";
+    sliceForm.kind = "event";
+    advanceSliceFormTime();
+    applyDefaultSliceMutation(subjectForm.id || "world");
+}
+
+function advanceSliceFormTime(): void {
+    const examples = schema.value?.calendar.examples ?? [subjectForm.time];
+    const usedTimes = slices.value.map((slice) => slice.time);
+    sliceForm.time = suggestNextPreviewTime(examples, usedTimes);
+}
+
+function applyDefaultSliceMutation(subjectId: string): void {
+    const mutation = defaultMutationForPreviewSubject(schema.value?.subjectTypes ?? [], subjects.value, subjectId);
+    const nextDraft = JSON.stringify([mutation], null, 2);
+    lastAutoSliceMutationDraft = nextDraft;
+    sliceForm.mutations = nextDraft;
+    mutationBuilder.subjectId = mutation.subjectId;
+    mutationBuilder.attr = mutation.attr;
+    mutationBuilder.op = mutation.op;
+    mutationBuilder.value = formatBuilderValue(mutation.value);
+}
+
+function shouldRefreshDefaultSliceMutation(): boolean {
+    return !editingSliceId.value && sliceForm.mutations === lastAutoSliceMutationDraft;
+}
+
+function applyWriteResultFeedback(result: SliceWriteResultDto, editing: boolean): void {
+    setPreviewNotice(result.issues.length
+        ? `${editing ? "已更新" : "已写入"} slice ${result.sliceId}，返回 ${result.issues.length} 个 issue`
+        : `${editing ? "已更新" : "已写入"} slice ${result.sliceId}`);
+}
+
+function addBuilderMutation(mode: "append" | "replace"): void {
+    if (!mutationBuilder.subjectId.trim()) {
+        setPreviewError("mutation subjectId 不能为空");
+        return;
+    }
+    if (!mutationBuilder.attr.trim()) {
+        setPreviewError("mutation attr 不能为空");
+        return;
+    }
+    const mutation: WorldMutationDraft = {
+        subjectId: mutationBuilder.subjectId.trim(),
+        attr: mutationBuilder.attr.trim(),
+        op: mutationBuilder.op,
+    };
+    if (mutationBuilder.op !== "unset") {
+        const parsedValue = parseLooseJsonValue(mutationBuilder.value);
+        if (!parsedValue.ok) {
+            setPreviewError(parsedValue.message);
+            return;
+        }
+        if (mutationBuilderNeedsJsonObject.value && !isJsonObjectValue(parsedValue.value)) {
+            setPreviewError("mutation value 必须是 JSON object");
+            return;
+        }
+        mutation.value = parsedValue.value;
+    }
+    const current = parseMutationJson(sliceForm.mutations);
+    const next = mode === "append" && current.ok ? [...current.value, mutation] : [mutation];
+    if (mode === "append" && !current.ok && sliceForm.mutations.trim()) {
+        setPreviewError(current.message);
+        return;
+    }
+    sliceForm.mutations = JSON.stringify(next, null, 2);
+    error.value = "";
+}
+
+/** 更新 Preview Builder 字段；op 字段在父层收窄为 WorldMutationOp。 */
+function updateMutationBuilderField(field: "subjectId" | "attr" | "op" | "value", value: string): void {
+    if (field === "op") {
+        mutationBuilder.op = value as WorldMutationOp;
+        return;
+    }
+    mutationBuilder[field] = value;
+}
+
+function attrsForSubjectId(subjectId: string): WorldPreviewSchemaAttr[] {
+    const subject = subjects.value.find((item) => item.id === subjectId);
+    const type = subject?.type ?? subjectForm.type;
+    return schemaTypes.value.find((item) => item.type === type)?.attrs ?? [];
+}
+
+function opOptionsForAttr(attrName: string): WorldMutationOp[] {
+    const attr = resolvePreviewAttrPath(mutationBuilderAttrs.value, attrName);
+    return opOptionsForPreviewAttr(attr);
+}
+
+function subjectIdForSchemaType(typeName: string): string {
+    const currentBuilderSubject = subjects.value.find((subject) => subject.id === mutationBuilder.subjectId);
+    if (currentBuilderSubject?.type === typeName) {
+        return currentBuilderSubject.id;
+    }
+    const currentQuerySubjectId = parseCsvList(queryForm.subjectIds)[0] ?? "";
+    const currentQuerySubject = subjects.value.find((subject) => subject.id === currentQuerySubjectId);
+    if (currentQuerySubject?.type === typeName) {
+        return currentQuerySubject.id;
+    }
+    if (subjectForm.type === typeName && subjectForm.id.trim()) {
+        return subjectForm.id.trim();
+    }
+    const existing = subjects.value.find((subject) => subject.type === typeName);
+    if (existing) {
+        return existing.id;
+    }
+    return subjectForm.id.trim() || "world";
+}
+
+function refreshBuilderDefaults(): void {
+    const attr = resolvePreviewAttrPath(mutationBuilderAttrs.value, mutationBuilder.attr);
+    if (!attr) {
+        return;
+    }
+    mutationBuilder.value = formatBuilderValue(defaultValueForPreviewAttr(attr, subjects.value));
+}
+
+function formatBuilderValue(value: JsonValue | undefined): string {
+    return value === undefined ? "" : typeof value === "string" ? value : JSON.stringify(value, null, 2);
+}
+
+watch(() => mutationBuilder.subjectId, () => {
+    const attrs = attrsForSubjectId(mutationBuilder.subjectId);
+    if (attrs.length && !attrs.some((attr) => attr.name === mutationBuilder.attr)) {
+        mutationBuilder.attr = attrs[0]?.name ?? mutationBuilder.attr;
+        return;
+    }
+    refreshBuilderDefaults();
+});
+
+watch(() => mutationBuilder.attr, () => {
+    const options = opOptionsForAttr(mutationBuilder.attr);
+    if (!options.includes(mutationBuilder.op)) {
+        mutationBuilder.op = options[0] ?? "set";
+    }
+    refreshBuilderDefaults();
+});
+
+function resetPreviewProjectSessionState(): void {
+    lastWriteResult.value = null;
+    editingSliceId.value = "";
+    stateResult.value = [];
+    stateIssues.value = [];
+    actionIssues.value = [];
+    notice.value = "";
+    error.value = "";
+}
+
+watch(selectedProjectPath, () => {
+    if (suppressProjectSelectionWatcher) {
+        return;
+    }
+    resetPreviewProjectSessionState();
+    void loadWorld();
+}, {flush: "sync"});
+
+onMounted(() => {
+    void loadProjects();
+});
+</script>
+
+<template>
+    <!-- World Engine 调试页 -->
+    <div class="min-h-screen bg-[var(--bg-main)] text-[var(--text-main)]">
+        <!-- 页面头部 -->
+        <header class="border-b border-[var(--border-color)] bg-[var(--toolbar-bg)]">
+            <div class="mx-auto flex max-w-[1760px] flex-col gap-4 px-5 py-5 lg:flex-row lg:items-end lg:justify-between">
+                <div class="min-w-0">
+                    <div class="text-[11px] uppercase tracking-[0.24em] text-[var(--text-muted)]">World Engine</div>
+                    <h1 class="mt-2 text-2xl font-semibold">世界引擎调试台</h1>
+                </div>
+                <div class="grid w-full gap-2 sm:w-auto sm:min-w-[520px] sm:grid-cols-[minmax(180px,220px)_minmax(260px,1fr)_auto]">
+                    <input v-model="projectSearch" class="h-9 min-w-0 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-3 text-sm outline-none focus:border-[var(--accent-main)]" placeholder="搜索 Project">
+                    <select v-model="selectedProjectPath" class="h-9 min-w-0 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-3 text-sm outline-none focus:border-[var(--accent-main)]">
+                        <option value="">选择 Project</option>
+                        <option v-for="project in projectOptions" :key="project.projectPath" :value="project.projectPath">{{ project.title }} · {{ project.projectPath }}</option>
+                    </select>
+                    <button type="button" class="inline-flex h-9 items-center gap-2 rounded-md border border-[var(--border-color)] px-3 text-sm hover:bg-[var(--bg-hover)] disabled:opacity-50" :disabled="loadingProjects" @click="void loadProjects()">
+                        <span :class="loadingProjects ? 'i-lucide-loader-2 animate-spin' : 'i-lucide-refresh-cw'" class="h-4 w-4"></span>
+                        刷新
+                    </button>
+                    <div v-if="projectSearch.trim() && projectOptions.length === 0" class="text-xs text-[var(--text-muted)] sm:col-span-3">没有匹配的 Project</div>
+                </div>
+            </div>
+        </header>
+
+        <!-- 主体 -->
+        <main class="mx-auto grid max-w-[1760px] gap-4 px-5 py-5 xl:grid-cols-[340px_minmax(0,1fr)_420px]">
+            <!-- Project 与 Schema -->
+            <WorldEnginePreviewProjectPanel
+                :create-project-form="createProjectForm"
+                :selected-project="selectedProject"
+                :schema="schema"
+                :schema-types="schemaTypes"
+                :project-ready="projectReady"
+                :can-seed-demo-world="canSeedDemoWorld"
+                :demo-world-button-title="demoWorldButtonTitle"
+                :action-busy="actionBusy"
+                @create-project="void createProject()"
+                @seed-demo-world="void seedDemoWorld()"
+                @fill-mutation="fillMutation"
+            />
+
+            <WorldEnginePreviewStatePanel
+                :subjects="subjects"
+                :slices="slices"
+                :latest-slice-time="latestSlice?.time ?? ''"
+                :state-json="stateJson"
+                :state-issues="stateIssues"
+                :action-issues="actionIssues"
+                :error="error"
+                :notice="notice"
+                :loading-world="loadingWorld"
+                :project-ready="projectReady"
+                :editing-slice-id="editingSliceId"
+                @refresh="void loadWorld()"
+                @load-subject="void loadSubjectIntoQuery($event)"
+                @load-slice="loadSliceForEdit"
+                @delete-slice="void deleteSlice($event)"
+            />
+
+            <!-- 写入与查询 -->
+            <WorldEnginePreviewActions
+                :subject-form="subjectForm"
+                :slice-form="sliceForm"
+                :query-form="queryForm"
+                :schema-types="schemaTypes"
+                :selected-type-attrs="selectedTypeAttrs"
+                :project-ready="projectReady"
+                :action-busy="actionBusy"
+                :editing-slice-id="editingSliceId"
+                :slice-action-label="sliceActionLabel"
+                :write-result-json="writeResultJson"
+                :has-write-result="Boolean(lastWriteResult)"
+                :mutation-builder="mutationBuilder"
+                :subjects="subjects"
+                :mutation-builder-subject-type="mutationBuilderSubject?.type ?? subjectForm.type"
+                :mutation-builder-attrs="mutationBuilderAttrs"
+                :mutation-builder-op-options="mutationBuilderOpOptions"
+                :mutation-builder-value-hint="mutationBuilderValueHint"
+                :mutation-builder-needs-json-object="mutationBuilderNeedsJsonObject"
+                :state-result="stateResult"
+                @create-subject="void createSubject()"
+                @clear-slice-edit-mode="clearSliceEditMode"
+                @update-builder-field="updateMutationBuilderField"
+                @add-builder-mutation="addBuilderMutation"
+                @write-slice="void writeSlice()"
+                @query-state="void queryState()"
+            />
+        </main>
+    </div>
+</template>

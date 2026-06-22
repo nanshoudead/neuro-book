@@ -126,7 +126,7 @@ describe("v3 file tools", () => {
                 signals: {"index-read": 1},
             }),
         ]);
-        await expect(readFile(join(projectWorkspaceRoot, "agent-context", "test.file-tools", "generated.md"), "utf-8")).resolves.toContain("lorebook/character/银龙姬/");
+        await expect(readFile(join(projectWorkspaceRoot, "agents", "test.file-tools", "generated.md"), "utf-8")).resolves.toContain("lorebook/character/银龙姬/");
     });
 
     it("resolveWorkspacePath 在 Workspace Root cwd 中归一化完整 Project Path", () => {

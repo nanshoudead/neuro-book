@@ -53,6 +53,7 @@ import {toRunKernelErrorInfo, withRunKernelPhase} from "nbook/server/agent/harne
 import {consumeNextTurnModelMessages, createRunFrame} from "nbook/server/agent/harness/run-frame-state";
 import {isEmptyObjectSchema, reportResultSchemaForProfile, reportSidecarResultSchemaForProfile} from "nbook/server/agent/profiles/report-result-schema";
 import {resolveRuntimeProfileSettings} from "nbook/server/agent/profiles/profile-settings";
+import {ensureProfileHome, resolveProjectRootForProfileHome} from "nbook/server/agent/profiles/profile-home";
 import {resolvePiApiKeyForModelFromConfig, resolvePiModelFromConfig} from "nbook/server/agent/harness/model-resolver";
 import {planModeDirectory, resolvePlanModeFile} from "nbook/server/agent/plan-mode-path";
 import type {EffectiveConfig} from "nbook/server/config/types";
@@ -1846,6 +1847,7 @@ export class NeuroAgentHarness {
         const parsedInitial = this.profiles.parseInitial(profile, snapshot.metadata.initial);
         const config = await loadEffectiveConfig(context);
         const settings = await this.resolveProfileSettings(profile, config, context);
+        const home = await this.ensureProfileHome(profile, context);
         const session = this.createRuntimeSessionFacade({
             sessionId: snapshot.metadata.sessionId,
             profileKey: profile.manifest.key,
@@ -1864,6 +1866,7 @@ export class NeuroAgentHarness {
             },
             vars,
             settings: settings as never,
+            ...(home ? {home} : {}),
             catalog: await this.profiles.snapshot(),
             skills: await this.skills.list(),
             runtime: {
@@ -2742,6 +2745,7 @@ export class NeuroAgentHarness {
         const parsedInitial = this.profiles.parseInitial(frame.profile, snapshot.metadata.initial);
         const config = await loadEffectiveConfig(context);
         const settings = await this.resolveProfileSettings(frame.profile, config, context);
+        const home = await this.ensureProfileHome(frame.profile, context);
         const prepared = await frame.profile.prepare({
             session: this.createRuntimeSessionFacade({
                 sessionId: frame.sessionId,
@@ -2751,6 +2755,7 @@ export class NeuroAgentHarness {
             }),
             initial: parsedInitial as never,
             settings: settings as never,
+            ...(home ? {home} : {}),
             vars: await this.createProfileVariableAccessor(snapshot, frame.profile, {dryRun: true}),
             catalog: await this.profiles.snapshot(),
             skills: await this.skills.list(),
@@ -3435,6 +3440,19 @@ export class NeuroAgentHarness {
             payload: next.input,
             caller: {kind: "system", sessionId},
             internalQueued: true,
+        });
+    }
+
+    private async ensureProfileHome(profile: AgentProfile, context: NeuroSessionContext) {
+        const projectRoot = resolveProjectRootForProfileHome(context.projectPath);
+        if (!projectRoot) {
+            return undefined;
+        }
+        return ensureProfileHome({
+            projectRoot,
+            profileKey: profile.manifest.key,
+            profileVersion: profile.manifest.version ?? 1,
+            definition: profile.home,
         });
     }
 

@@ -2,7 +2,7 @@ import {Worker} from "node:worker_threads";
 import {createRequire} from "node:module";
 import {resolve} from "node:path";
 import {pathToFileURL} from "node:url";
-import {existsSync} from "node:fs";
+import {existsSync, readFileSync} from "node:fs";
 import type {
     AgentProfileCompileAllRequestDto,
     AgentProfileCompileRequestDto,
@@ -256,24 +256,33 @@ export function resolveProfileCompileWorkerPathsForRoot(root: string): CompileWo
 }
 
 /**
- * Product Root 可能不带根 `release-meta.json`。GHCR / 通用 `.output` runner
- * 使用 `.output/server/release-meta.json`，并且不允许回退到根 node_modules。
+ * Product Root 通过 package manifest 标记；GHCR / 通用 `.output` runner
+ * 使用 `.output/server/package.json`，并且不允许回退到根 node_modules。
  */
 function isProductRuntimeRoot(root: string): boolean {
     return existsSync(resolve(root, ".output", "server", "index.mjs"))
-        && Boolean(productReleaseMetaPath(root));
+        && Boolean(productPackageManifestPath(root));
 }
 
-function productReleaseMetaPath(root: string): string | null {
-    const rootMeta = resolve(root, "release-meta.json");
-    if (existsSync(rootMeta)) {
-        return rootMeta;
+function productPackageManifestPath(root: string): string | null {
+    const rootPackage = resolve(root, "package.json");
+    if (packageManifestName(rootPackage) === "neuro-book-product") {
+        return rootPackage;
     }
-    const outputMeta = resolve(root, ".output", "server", "release-meta.json");
-    if (existsSync(outputMeta) && !existsSync(resolve(root, "node_modules"))) {
-        return outputMeta;
+    const outputPackage = resolve(root, ".output", "server", "package.json");
+    if (packageManifestName(outputPackage) === "neuro-book-output" && !existsSync(resolve(root, "node_modules"))) {
+        return outputPackage;
     }
     return null;
+}
+
+function packageManifestName(path: string): string | null {
+    try {
+        const manifest = JSON.parse(readFileSync(path, "utf8")) as {name?: unknown};
+        return typeof manifest.name === "string" ? manifest.name : null;
+    } catch {
+        return null;
+    }
 }
 
 /**

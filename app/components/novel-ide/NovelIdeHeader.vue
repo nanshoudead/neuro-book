@@ -20,6 +20,7 @@ const emit = defineEmits<{
     (e: "toggle-agent"): void;
     (e: "open-bookshelf"): void;
     (e: "open-plot-workbench"): void;
+    (e: "open-world-engine"): void;
     (e: "open-rag-inspector"): void;
     (e: "open-user-assets"): void;
     (e: "open-profile-workbench"): void;
@@ -134,6 +135,10 @@ const handleUserMenuSelect = (value: string): void => {
             <button v-if="!isUserAssetsMode" class="hidden items-center gap-2 rounded-full border border-transparent px-4 py-1.5 text-[12px] tracking-[0.2em] uppercase text-[var(--text-secondary)] transition-colors hover:border-[var(--border-color)] hover:bg-[var(--bg-hover)] hover:text-[var(--accent-text)] md:flex" :title="t('ide.header.plotWorkbench')" @click="emit('open-plot-workbench')">
                 <span class="i-lucide-panels-top-left h-4 w-4 text-[var(--accent-text)]"></span>
                 <span>{{ t("ide.header.plotWorkbench") }}</span>
+            </button>
+            <button v-if="!isUserAssetsMode" class="hidden items-center gap-2 rounded-full border border-transparent px-4 py-1.5 text-[12px] tracking-[0.2em] uppercase text-[var(--text-secondary)] transition-colors hover:border-[var(--border-color)] hover:bg-[var(--bg-hover)] hover:text-[var(--accent-text)] md:flex" :title="t('ide.header.worldEngine')" @click="emit('open-world-engine')">
+                <span class="i-lucide-globe-2 h-4 w-4 text-[var(--accent-text)]"></span>
+                <span>World</span>
             </button>
             <button v-if="!isUserAssetsMode" class="hidden items-center gap-2 rounded-full border border-transparent px-4 py-1.5 text-[12px] tracking-[0.2em] uppercase text-[var(--text-secondary)] transition-colors hover:border-[var(--border-color)] hover:bg-[var(--bg-hover)] hover:text-[var(--accent-text)] md:flex" :title="t('ide.header.ragInspector')" @click="emit('open-rag-inspector')">
                 <span class="i-lucide-brain-circuit h-4 w-4 text-[var(--accent-text)]"></span>

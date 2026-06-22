@@ -77,7 +77,7 @@ async function buildRpWriterPrompt(_ctx: ProfilePrepareContext<Initial>) {
                             - 典型的 prose 落点是 project-slug/simulation/runs/ticks/{id}-{slug}/prose.md，其中 project-slug 和 {id}-{slug} 由上级在 brief 中给出；如果 brief 给的是别的路径，也必须是带 project-slug 的工具路径。
                             - 如果 prose 输出路径以 simulation/ 开头，或缺少 project-slug 前缀：停止写文件，调用 report_result.result 提醒上级“prose 输出路径缺少 Project Workspace 前缀”；不要自行补 project slug。
                             - 如果 brief 没有给出 prose 输出路径：停止写文件，调用 report_result.result 提醒上级补路径；不要自己虚构落点，也不要把正文直接贴在 assistant 文本里。
-                            - 一切素材都由上级在 writer brief 中注入，可写事实也必须来自 brief。不主动读取 lorebook/、manual/、simulation/、agent-context/ 或 reference/ 来补全事实。
+                            - 一切素材都由上级在 writer brief 中注入，可写事实也必须来自 brief。不主动读取 lorebook/、manual/、simulation/、agents/ 或 reference/ 来补全事实。
                             - read 工具限制：只允许读取 brief 中 <context> 内 Markdown 链接的目标路径；其他标签或正文里出现的路径不进入允许列表。尝试读取其他文件时，抛出错误并给出完整允许列表。
                             - writer brief 缺少的信息视为不可写信息。宁可写短、写可观察结果，也不要补隐藏设定。
                             - <writing_reference> 只作为文风样本。里面的人名、道具、地点、项目路径、tick 路径和剧情事实都不是当前故事事实，不得作为本轮素材或输出落点。
@@ -143,7 +143,7 @@ async function buildRpWriterPrompt(_ctx: ProfilePrepareContext<Initial>) {
                         - <context> 里的 Markdown 链接只是读取元数据，不能原样写进正文；只有 <materials>、<beats> 或 <style> 明确标为用户可见的 Markdown 链接，才可以在正文中保留。
                         - 如果 brief 明确要求读取某个内容节点，目录路径代表 index.md，显式 .md 路径代表普通文件；读取后也只能使用 brief 授权可写的部分。
                         - index.md 开头通常有 YAML frontmatter，两个 --- 之间是元数据，后面才是正文。frontmatter 不是故事正文，不要把字段名、配置项或注释写进故事。
-                        - 不要读取其他 profile 的 agent-context/{profile}/context.md 或 generated.md，例如 agent-context/rp.leader/context.md、agent-context/simulator.leader/context.md、agent-context/writer/context.md。
+                        - 不要读取其他 profile 的 agents/{profile}/context.md 或 generated.md，例如 agents/rp.leader/context.md、agents/simulator.leader/context.md、agents/writer/context.md。
                         - 不要维护 subject 或 entity 状态；events.jsonl、memory.jsonl、mind.md、state.md 和 simulation/entities/ 的变更由上级或专门 profile 处理。
                     </content_node_rules>
                     

@@ -41,11 +41,13 @@
 
 第一版字段：
 
-- `writingStylePreset`：默认文风预设，来自 `agent/writing-presets/styles`，用受限 combobox 选择。
-- `writingReferencePreset`：默认文风参考样本，来自 `agent/writing-presets/references`，用受限 combobox 选择。
+- `writingStylePreset`：默认文风预设，来自当前 Project Workspace 的 `agents/writer/styles/`，可在 Project Config 中选择、编辑、新增、重命名和删除非当前资源。
+- `writingReferencePreset`：默认文风参考样本，来自当前 Project Workspace 的 `agents/writer/references/`，可在 Project Config 中选择、编辑、新增、重命名和删除非当前资源。
 - `narrativePerson`：默认人称，支持第一人称、第二人称、第三人称。
 
-这些设置保存在 Config 的 `agent.profiles.writer.settings` patch 中。Global Config 覆盖 profile 内置默认值；Project Config 可对单个字段选择“继承”或“覆盖”。保存后下一次 writer prepare / run 生效，已有长期 session 不需要重建。
+这些设置保存在 Config 的 `agent.profiles.writer.settings` patch 中。Global Config 只能保存 selected key / 人称这类配置值，不绑定某个 Project 的资源文件；Project Config 可对单个字段选择“继承”或“覆盖”，并把资源内容变更随同一次保存提交。保存后下一次 writer prepare / run 生效，已有长期 session 不需要重建。
+
+第一次打开 Project scope 的 Agent Profile 模型面板，或运行当前 Project 的 `writer` 前，系统会确保 `agents/writer/` 已初始化。默认资源来自内置 `writer.home`，写入时只补缺失文件，不覆盖用户已经改过的文风或参考样本。Project scope 中的“重置 Home”会清空并按当前 profile 版本重新生成这些资源。
 
 优先级：
 

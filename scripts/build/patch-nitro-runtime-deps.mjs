@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
+import {spawn} from "node:child_process";
 import {existsSync} from "node:fs";
 import {cp, mkdir, readFile, readdir, rm, stat, writeFile} from "node:fs/promises";
-import {spawn} from "node:child_process";
 import {dirname, relative, resolve} from "node:path";
 import {pathToFileURL} from "node:url";
 
@@ -67,7 +67,6 @@ const runtimeContextPaths = [
     ".nuxt/tsconfig.server.json",
 ];
 const serverRoot = resolve(".output", "server");
-const githubUrl = "https://github.com/notnotype/neuro-book";
 const illegalImportMetaFallback = "file:///_entry.js";
 const importMetaFallbackShape = '{url:"file:///_entry.js",env:process.env}';
 const sourceNodeModulesFileUrl = pathToFileURL(resolve("node_modules")).href.replace(/\/?$/, "/");
@@ -112,8 +111,8 @@ await measure("assert product output scripts", async () => {
 await measure("copy workspace cli runtime script", async () => {
     await copyWorkspaceCliRuntimeScript();
 });
-await measure("write release metadata", async () => {
-    await writeReleaseMeta();
+await measure("write product package manifest", async () => {
+    await writeProductPackageJson();
 });
 await measure("copy nbook runtime package", async () => {
     await copyNbookRuntimePackage();
@@ -268,23 +267,18 @@ async function assertNoRepoNodeModuleFileUrls(root) {
 }
 
 /**
- * 写入构建期版本元数据，生产版本接口优先读取这个文件。
+ * 写入 Product `.output` 运行 manifest，供 GHCR / 通用 runner 读取版本。
  */
-async function writeReleaseMeta() {
+async function writeProductPackageJson() {
     const packageJson = JSON.parse(await readFile(resolve("package.json"), "utf8"));
-    const tag = await runCapture("git", ["describe", "--tags", "--exact-match", "HEAD"]).catch(() => "");
-    const commit = await runCapture("git", ["rev-parse", "--short", "HEAD"]).catch(() => "");
-    const buildCommit = await runCapture("git", ["rev-parse", "HEAD"]).catch(() => "");
-    const versionLabel = tag.trim() || commit.trim() || packageJson.version || "unknown";
-    const sourceKind = tag.trim() ? "tag" : commit.trim() ? "commit" : "package";
-    await writeFile(resolve(serverRoot, "release-meta.json"), `${JSON.stringify({
-        versionLabel,
-        versionKind: "release",
-        sourceKind,
-        buildCommit: buildCommit.trim() || null,
-        packageVersion: packageJson.version ?? null,
-        createdAt: new Date().toISOString(),
-        githubUrl,
+    await writeFile(resolve(serverRoot, "package.json"), `${JSON.stringify({
+        name: "neuro-book-output",
+        version: packageJson.version ?? "0.0.0",
+        description: packageJson.description,
+        license: packageJson.license,
+        repository: packageJson.repository,
+        private: true,
+        type: "module",
     }, null, 4)}\n`, "utf8");
 }
 
@@ -488,34 +482,4 @@ async function listMjsFiles(root) {
         }
     }
     return result;
-}
-
-async function runCapture(command, args) {
-    return await new Promise((resolvePromise, rejectPromise) => {
-        const child = spawn(command, args, {
-            stdio: ["ignore", "pipe", "pipe"],
-            shell: false,
-            windowsHide: true,
-        });
-        let stdout = "";
-        let stderr = "";
-        child.stdout.on("data", (chunk) => {
-            stdout += chunk;
-        });
-        child.stderr.on("data", (chunk) => {
-            stderr += chunk;
-        });
-        child.on("error", rejectPromise);
-        child.on("exit", (code, signal) => {
-            if (signal) {
-                rejectPromise(new Error(`${command} interrupted: ${signal}`));
-                return;
-            }
-            if (code !== 0) {
-                rejectPromise(new Error(stderr.trim() || `${command} exit code ${code ?? 1}`));
-                return;
-            }
-            resolvePromise(stdout);
-        });
-    });
 }

@@ -186,3 +186,42 @@ model StorySceneRef {
   @@index([targetSceneId])
   @@index([targetPlotId])
 }
+
+model WorldSubject {
+  id        String          @id
+  type      String
+  name      String          @default("")
+  createdAt DateTime        @default(now())
+  mutations WorldMutation[]
+
+  @@index([type])
+}
+
+model WorldSlice {
+  id        String          @id @default(cuid())
+  instant   BigInt          @unique
+  title     String          @default("")
+  summary   String          @default("")
+  kind      String          @default("event")
+  createdAt DateTime        @default(now())
+  mutations WorldMutation[]
+
+  @@index([instant])
+}
+
+model WorldMutation {
+  id        String       @id @default(cuid())
+  sliceId   String
+  subjectId String
+  instant   BigInt
+  seq       Int          @default(0)
+  attr      String
+  op        String
+  value     String?
+  slice     WorldSlice   @relation(fields: [sliceId], references: [id], onDelete: Cascade)
+  subject   WorldSubject @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+
+  @@index([subjectId, instant, seq])
+  @@index([subjectId, attr, instant])
+  @@index([attr])
+}

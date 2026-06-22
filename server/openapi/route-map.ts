@@ -56,6 +56,7 @@ import {
     ConfigEditorSnapshotDtoSchema,
     ConfigEditorSnapshotQueryDtoSchema,
     ExchangeRateDtoSchema,
+    ConfigProfileHomeResetRequestDtoSchema,
     ConfigSnapshotDtoSchema,
     ConfigWorkspaceQueryDtoSchema,
     GlobalConfigDtoSchema,
@@ -506,6 +507,15 @@ export const routeMetaMap: RouteMetaEntry[] = [
         summary: "Update current Project Workspace Config",
         queryParams: ConfigEditorSnapshotQueryDtoSchema,
         requestBody: ProjectConfigDtoSchema,
+        responseBody: ConfigEditorSnapshotDtoSchema,
+    },
+    {
+        file: "config/profile-home/reset.post.ts",
+        method: "post",
+        tags: ["Config"],
+        summary: "Reset one Project profile home",
+        queryParams: ConfigEditorSnapshotQueryDtoSchema,
+        requestBody: ConfigProfileHomeResetRequestDtoSchema,
         responseBody: ConfigEditorSnapshotDtoSchema,
     },
     {

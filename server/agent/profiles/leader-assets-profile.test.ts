@@ -2,7 +2,7 @@ import {join, resolve} from "node:path";
 import {mkdir, rm, writeFile} from "node:fs/promises";
 import {randomUUID} from "node:crypto";
 import {describe, expect, it, vi} from "vitest";
-import writerProfile from "../../../assets/workspace/.nbook/agent/profiles/builtin/writer.profile";
+import writerProfile, {WriterSettingsForm} from "../../../assets/workspace/.nbook/agent/profiles/builtin/writer.profile";
 import {AgentProfileCatalog} from "nbook/server/agent/profiles/catalog";
 import {ResearcherInitialSchema, RetrievalInitialSchema, RetrievalOutputSchema, WriterInitialSchema, WriterPayloadSchema} from "nbook/server/agent/profiles/builtin-contracts";
 import {defaultAgentProfile} from "nbook/server/agent/profiles/default-profile";
@@ -10,9 +10,10 @@ import {messageText} from "nbook/server/agent/messages/message-utils";
 import type {RuntimeSessionFacade} from "nbook/server/agent/profiles/define-agent-runtime";
 import type {NeuroSessionContext} from "nbook/server/agent/session/types";
 import type {AgentDialogueContent} from "nbook/server/agent/session/dialogue-content";
-import {DEFAULT_WRITING_REFERENCE_PRESET, loadWritingReferencePresets} from "nbook/server/agent/profiles/writer-writing-reference";
-import {DEFAULT_WRITING_STYLE_PRESET, loadWritingStylePresets} from "nbook/server/agent/profiles/writer-writing-style";
+import {DEFAULT_WRITING_REFERENCE_PRESET, homeReferenceKeyToLegacyKey, loadWritingReferencePresets} from "nbook/server/agent/profiles/writer-writing-reference";
+import {DEFAULT_WRITING_STYLE_PRESET, homeStyleKeyToLegacyKey, loadWritingStylePresets} from "nbook/server/agent/profiles/writer-writing-style";
 import {createTestVariableAccessor} from "nbook/server/agent/variables/test-utils";
+import {validateLowCodeFormValue} from "nbook/server/low-code-form";
 
 vi.mock("nbook/server/utils/prisma", () => ({
     prisma: {
@@ -443,7 +444,7 @@ describe("assets builtin v3 profiles", () => {
             "variable_patch",
         ]);
         expect(prompt).toContain("workspace/.nbook/agent/profiles");
-        expect(prompt).toContain("workspace/.nbook/agent/writing-presets/{styles,references}");
+        expect(prompt).toContain("assets/workspace/.nbook/agent/profiles/builtin/writer.home/{styles,references}");
         expect(prompt).toContain("Workspace Root .nbook");
         expect(prompt).toContain("workspace/.nbook/agent/variables/definitions.ts");
         expect(prompt).toContain("workspace/.nbook/agent/variables/.compiled");
@@ -783,7 +784,7 @@ describe("assets builtin v3 profiles", () => {
 
     it("writer settings 会切换文风参考、文风预设和默认人称", async () => {
         const referenceKey = `test-reference-${randomUUID()}`;
-        const referenceDir = join("workspace", ".nbook", "agent", "writing-presets", "references");
+        const referenceDir = join("workspace", ".nbook", "agent", "profiles", "builtin", "writer.home", "references");
         const referenceFile = join(referenceDir, `${referenceKey}.md`);
         await mkdir(referenceDir, {recursive: true});
         await writeFile(referenceFile, [
@@ -822,6 +823,22 @@ describe("assets builtin v3 profiles", () => {
         } finally {
             await rm(referenceFile, {force: true});
         }
+    });
+
+    it("writer settings Global 校验同时接受 legacy key 和 profile home key", async () => {
+        const legacyResult = await validateLowCodeFormValue(WriterSettingsForm, {
+            writingStylePreset: homeStyleKeyToLegacyKey(DEFAULT_WRITING_STYLE_PRESET),
+            writingReferencePreset: homeReferenceKeyToLegacyKey(DEFAULT_WRITING_REFERENCE_PRESET),
+            narrativePerson: "third",
+        }, {profileKey: "writer", scope: "global"});
+        const homeKeyResult = await validateLowCodeFormValue(WriterSettingsForm, {
+            writingStylePreset: DEFAULT_WRITING_STYLE_PRESET,
+            writingReferencePreset: DEFAULT_WRITING_REFERENCE_PRESET,
+            narrativePerson: "third",
+        }, {profileKey: "writer", scope: "global"});
+
+        expect(legacyResult.issues).toEqual([]);
+        expect(homeKeyResult.issues).toEqual([]);
     });
 
     it("writer 无 payload 时不崩溃，非法 payload path 会明确拒绝", async () => {

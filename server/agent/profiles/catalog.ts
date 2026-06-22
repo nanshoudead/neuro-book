@@ -182,6 +182,7 @@ export class AgentProfileCatalog {
             builtin,
             loadStatus: issue ? statusFromIssue(issue) : "loaded",
             hasSettingsForm: Boolean(profile.settingsForm),
+            canResetHome: Boolean(profile.home?.reset),
             issue,
         }));
         const unloaded = [...catalog.unloadedProfiles.values()].map((profile): AgentCatalogItem => ({
@@ -193,6 +194,7 @@ export class AgentProfileCatalog {
             builtin: profile.builtin,
             loadStatus: profile.loadStatus,
             hasSettingsForm: false,
+            canResetHome: false,
             issue: profile.issue,
         }));
         return {

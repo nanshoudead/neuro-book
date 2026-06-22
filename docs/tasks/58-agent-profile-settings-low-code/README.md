@@ -748,6 +748,11 @@ export default defineAgentProfile({
   - `editor-snapshot`、`global.put`、`project.put` 增加 `includeAgentProfileSettings` query，默认只返回轻量 `agentProfileSettings`。
   - 只有 Agent Profile 模型设置面板请求完整 settings form / value / issues，其他设置面板不触发低代码 options 与自定义校验解析。
   - `AgentProfileCatalog.snapshot()` 增加 `hasSettingsForm`，完整模式也只对带 settings form 的 profile 执行 runtime `profiles.get()`。
+- 2026-06-20：配置中心 UI 收敛：
+  - `useFloatingPanelLayout()` 改为按 viewport 与最近 overflow 裁剪祖先的交集计算上下展开空间，修复 Dialog / 滚动容器内 select 方向误判。
+  - 配置中心默认打开全局配置，并将 `Global Config` / `Project Config` / `Browser State` 等中文 UI 文案本地化。
+  - “默认 Agent Profile”合并进 Agent Profile 模型面板顶部，独立左侧入口和旧面板组件移除。
+  - 模型设置页删除默认模型卡片与新增 Provider 卡片的两段说明文字。
 
 ## Verification
 
@@ -775,6 +780,8 @@ export default defineAgentProfile({
 - Config editor snapshot 按需加载修正后追加验证：
   - `bun test server/config/query.test.ts server/config/config-service.test.ts`：39 pass。
   - `bun run generate:openapi`：Config route meta 已刷新；仍有既有 24 个旧 Plot route 缺失提示，脚本退出成功。
+  - `bun run typecheck`：通过。
+- 配置中心 UI 收敛后追加验证：
   - `bun run typecheck`：通过。
 
 未作为本任务验收门的命令：

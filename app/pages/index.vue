@@ -10,6 +10,7 @@ import NovelIdeHeader from "nbook/app/components/novel-ide/NovelIdeHeader.vue";
 import NovelIdeSidebar from "nbook/app/components/novel-ide/NovelIdeSidebar.vue";
 import NovelIdeSettingsDialog from "nbook/app/components/novel-ide/NovelIdeSettingsDialog.vue";
 import NovelIdeToolPanel from "nbook/app/components/novel-ide/NovelIdeToolPanel.vue";
+import WorldEngineWorkbenchDialog from "nbook/app/components/novel-ide/world-engine/WorldEngineWorkbenchDialog.vue";
 import NovelPromptBar from "nbook/app/components/novel-ide/NovelPromptBar.vue";
 import NovelRagInspectorDialog from "nbook/app/components/novel-ide/rag/NovelRagInspectorDialog.vue";
 import WorkspaceFilePanel from "nbook/app/components/novel-ide/workspace/WorkspaceFilePanel.vue";
@@ -59,6 +60,9 @@ const currentUser = ref<AuthSessionDto["user"]>(null);
 const bookshelfOpen = ref(false);
 const settingsDialogOpen = ref(false);
 const ragInspectorOpen = ref(false);
+const worldEngineWorkbenchOpen = ref(false);
+const worldEngineWorkbenchHasUnsavedDrafts = ref(false);
+const worldEngineWorkbenchSaving = ref(false);
 const profileWorkbenchOpen = ref(false);
 const frontmatterProfileKind = ref<FrontmatterProfileKind | null>(null);
 const agentStudioFileTreeOpen = ref(false);
@@ -192,6 +196,7 @@ const buildProjectRoute = (projectTarget: string): string => {
 };
 
 const workspaceBootstrapped = ref(false);
+const consumingRouteOpenPath = ref(false);
 const displayRightPanelOpen = computed(() => workspaceBootstrapped.value && rightPanelOpen.value);
 const isAgentMode = computed(() => layoutMode.value === "agent");
 const agentSurfaceActive = computed(() => workspaceBootstrapped.value && (rightPanelOpen.value || isAgentMode.value));
@@ -973,6 +978,32 @@ const resolveUnsavedWorkspaceChanges = async (): Promise<WorkspaceSwitchDecision
 };
 
 /**
+ * 切换 Project 前保护 World Engine Workbench 的会话态草稿。
+ */
+const confirmWorldEngineWorkbenchDraftDiscardForProjectSwitch = async (): Promise<boolean> => {
+    if (!worldEngineWorkbenchOpen.value) {
+        return true;
+    }
+    if (worldEngineWorkbenchSaving.value) {
+        await choose("World Engine 正在保存 Slice，请等待保存完成后再切换 Project。", [
+            {label: t("common.confirm"), value: "ok", tone: "primary"},
+        ], "World Engine 正在保存");
+        return false;
+    }
+    if (!worldEngineWorkbenchHasUnsavedDrafts.value) {
+        return true;
+    }
+    const action = await choose("World Engine Workbench 有未保存草稿。切换 Project 会放弃这些会话草稿。", [
+        {label: "放弃草稿并切换", value: "discard", tone: "danger"},
+        {label: t("common.cancel"), value: "cancel"},
+    ], "World Engine 草稿未保存");
+    if (action === "cancel") {
+        return false;
+    }
+    return action === "discard";
+};
+
+/**
  * 切换小说前先处理当前文件保存状态。
  */
 const handleSwitchNovel = async (novelId: string): Promise<void> => {
@@ -980,6 +1011,10 @@ const handleSwitchNovel = async (novelId: string): Promise<void> => {
         if (route.query.project !== novelId) {
             await router.replace(buildProjectRoute(novelId));
         }
+        return;
+    }
+
+    if (!(await confirmWorldEngineWorkbenchDraftDiscardForProjectSwitch())) {
         return;
     }
 
@@ -1428,6 +1463,16 @@ const openPlotWorkbench = (): void => {
 };
 
 /**
+ * 从主 IDE 打开当前 Project 的 World Engine 工作台。
+ */
+const openWorldEngineWorkbench = (): void => {
+    if (isUserAssetsWorkspace.value || !currentNovelId.value) {
+        return;
+    }
+    worldEngineWorkbenchOpen.value = true;
+};
+
+/**
  * 打开全局用户 assets 工作区。
  */
 const openUserAssets = (): void => {
@@ -1477,21 +1522,42 @@ const normalizeNovelRouteQuery = async (): Promise<void> => {
 };
 
 /**
+ * 取消 route 触发的 workspace 切换时，把 URL 拉回当前实际 workspace。
+ */
+const restoreCurrentWorkspaceRoute = async (): Promise<void> => {
+    if (isUserAssetsWorkspace.value) {
+        if (route.query.project === USER_ASSETS_PROJECT_TARGET) {
+            return;
+        }
+        await router.replace(buildProjectRoute(USER_ASSETS_PROJECT_TARGET));
+        return;
+    }
+    await normalizeNovelRouteQuery();
+};
+
+/**
  * 监听页面 query 变化，允许主页面直接切换 novel/user-assets workspace。
  */
 const syncWorkspaceRoute = async (): Promise<void> => {
     if (workspaceRouteSynced()) {
+        await consumeWorkspaceOpenPathFromRoute();
         if (!isUserAssetsWorkspace.value) {
             await normalizeNovelRouteQuery();
         }
         subscribeWorkspaceEvents();
         return;
     }
+    if (!(await confirmWorldEngineWorkbenchDraftDiscardForProjectSwitch())) {
+        await restoreCurrentWorkspaceRoute();
+        return;
+    }
     const decision = await resolveUnsavedWorkspaceChanges();
     if (decision === "cancel") {
+        await restoreCurrentWorkspaceRoute();
         return;
     }
     await initializeWorkspaceFromRoute();
+    await consumeWorkspaceOpenPathFromRoute();
     if (!isUserAssetsWorkspace.value) {
         await normalizeNovelRouteQuery();
     }
@@ -1526,6 +1592,28 @@ async function openWelcomeWorkspacePath(filePath: string): Promise<void> {
         await novelIdeStore.selectWorkspacePath(filePath, "permanent");
     } catch (error) {
         notification.error(resolveApiErrorMessage(error, t("ide.shell.openPathFailed", {path: filePath})), {title: t("ide.shell.openPathFailedTitle")});
+    }
+}
+
+/**
+ * 消费 `openPath` 深链，在当前 Project Workspace 内打开目标文件。
+ */
+async function consumeWorkspaceOpenPathFromRoute(): Promise<void> {
+    if (consumingRouteOpenPath.value || isUserAssetsWorkspace.value || !currentNovelId.value || typeof route.query.openPath !== "string") {
+        return;
+    }
+    const filePath = normalizeWorkspacePath(route.query.openPath);
+    if (!filePath) {
+        return;
+    }
+    consumingRouteOpenPath.value = true;
+    try {
+        await openWelcomeWorkspacePath(filePath);
+        const nextQuery = {...route.query};
+        delete nextQuery.openPath;
+        await router.replace({path: route.path, query: nextQuery});
+    } finally {
+        consumingRouteOpenPath.value = false;
     }
 }
 
@@ -1741,6 +1829,7 @@ onMounted(() => {
             void syncAuthSession();
             await initializeWorkspaceFromRoute();
             await syncDefaultModelLabel();
+            await consumeWorkspaceOpenPathFromRoute();
             if (!isUserAssetsWorkspace.value) {
                 await normalizeNovelRouteQuery();
             }
@@ -1752,7 +1841,7 @@ onMounted(() => {
     })();
 });
 
-watch(() => route.query.project, () => {
+watch(() => [route.query.project, route.query.openPath] as const, () => {
     if (!initialized.value) {
         return;
     }
@@ -1785,6 +1874,7 @@ onBeforeUnmount(() => {
             @toggle-agent="isAgentMode ? toggleAgentModeStudio() : rightPanelOpen = !rightPanelOpen"
             @open-bookshelf="bookshelfOpen = true"
             @open-plot-workbench="openPlotWorkbench"
+            @open-world-engine="openWorldEngineWorkbench"
             @open-rag-inspector="ragInspectorOpen = true"
             @open-user-assets="openUserAssets"
             @open-profile-workbench="profileWorkbenchOpen = true"
@@ -1793,6 +1883,7 @@ onBeforeUnmount(() => {
             @logout="void logout()"
         />
         <NovelRagInspectorDialog v-if="!isUserAssetsWorkspace" v-model="ragInspectorOpen" :project-path="currentNovelId" />
+        <WorldEngineWorkbenchDialog v-if="!isUserAssetsWorkspace" v-model="worldEngineWorkbenchOpen" :project-path="currentNovelId" :project-title="displayNovelTitle" @has-unsaved-drafts-change="worldEngineWorkbenchHasUnsavedDrafts = $event" @saving-change="worldEngineWorkbenchSaving = $event" @open-workspace-path="void openWelcomeWorkspacePath($event)" />
 
         <div class="flex min-h-0 flex-1 overflow-hidden">
             <NovelIdeSidebar class="ide-sidebar" :active-tab="displaySidebarActiveTab" :agent-mode="isAgentMode" :user-assets-mode="isUserAssetsWorkspace" @toggle-tab="handleSidebarToggle" @collapse="activeLeftTab = null" @open-settings="settingsDialogOpen = true" />
@@ -1970,7 +2061,7 @@ onBeforeUnmount(() => {
             </section>
         </div>
 
-        <NovelBookshelfDialog v-model="bookshelfOpen" @switched="void router.replace(buildProjectRoute($event))" />
+        <NovelBookshelfDialog v-model="bookshelfOpen" :before-workspace-switch="confirmWorldEngineWorkbenchDraftDiscardForProjectSwitch" @switched="void router.replace(buildProjectRoute($event))" />
         <NovelIdeSettingsDialog v-model="settingsDialogOpen" />
         <UserProfileWorkbenchDialog v-model="profileWorkbenchOpen" />
         <WorkspaceFileConflictDialog

@@ -63,7 +63,7 @@ describe("profile context access", () => {
             },
         });
 
-        const generated = await readFile(path.join(projectRoot, "agent-context/writer/generated.md"), "utf-8");
+        const generated = await readFile(path.join(projectRoot, "agents/writer/generated.md"), "utf-8");
         expect(generated).toContain("# writer generated context");
         expect(generated).toContain("## possible");
         expect(generated).toContain("### lorebook/location/castle/");
@@ -88,7 +88,7 @@ describe("profile context access", () => {
             now: new Date("2026-06-06T00:01:00.000Z"),
         });
 
-        const generated = await readFile(path.join(projectRoot, "agent-context/writer/generated.md"), "utf-8");
+        const generated = await readFile(path.join(projectRoot, "agents/writer/generated.md"), "utf-8");
         expect(generated).toContain("## strong");
         expect(generated).toContain("### lorebook/character/hero/");
         expect(generated).toContain("- signals: explicitInput:2");

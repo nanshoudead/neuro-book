@@ -215,7 +215,7 @@ async function readContextAccessState(statePath: string, projectSlug: string, pr
 }
 
 async function writeGeneratedRecommendations(projectRoot: string, state: ContextAccessState): Promise<void> {
-    const generatedPath = path.join(projectRoot, "agent-context", safeProfileFileName(state.profile), "generated.md");
+    const generatedPath = path.join(projectRoot, "agents", safeProfileFileName(state.profile), "generated.md");
     await fs.mkdir(path.dirname(generatedPath), {recursive: true});
     await fs.writeFile(generatedPath, renderGeneratedRecommendations(state), "utf-8");
 }

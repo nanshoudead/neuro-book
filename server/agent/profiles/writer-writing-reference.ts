@@ -3,12 +3,14 @@ import path from "node:path";
 import {z} from "zod";
 import {assetResolver} from "nbook/server/assets/asset-resolver";
 import {parseFrontmatterDocument} from "nbook/server/utils/frontmatter-document";
+import type {ProfileHomeFacade} from "nbook/server/agent/profiles/profile-home";
 
-export const DEFAULT_WRITING_REFERENCE_PRESET = "reborn-villain-loli-magic-girl.first-three-chapters";
+export const DEFAULT_WRITING_REFERENCE_PRESET = "references/reborn-villain-loli-magic-girl.first-three-chapters.md";
+const LEGACY_DEFAULT_WRITING_REFERENCE_PRESET = "reborn-villain-loli-magic-girl.first-three-chapters";
 
 const WRITING_REFERENCE_DIR_CANDIDATES = [
-    path.join(assetResolver.systemRoot, "agent", "writing-presets", "references"),
-    path.join(assetResolver.userRoot, "agent", "writing-presets", "references"),
+    path.join(assetResolver.systemRoot, "agent", "profiles", "builtin", "writer.home", "references"),
+    path.join(assetResolver.userRoot, "agent", "profiles", "builtin", "writer.home", "references"),
 ] as const;
 
 const WritingReferenceFrontmatterSchema = z.object({
@@ -32,7 +34,7 @@ type WritingReferenceFile = {
 };
 
 /**
- * 从 agent/writing-presets/references 目录自动发现 Markdown 文风参考正文。
+ * 从 writer profile 默认 home 资源目录自动发现 Markdown 文风参考正文。
  */
 export async function loadWritingReferencePresets(candidates: readonly string[] = WRITING_REFERENCE_DIR_CANDIDATES): Promise<WritingReferenceDefinition[]> {
     const referenceFiles = await listMergedWritingReferenceFiles(candidates);
@@ -56,10 +58,20 @@ export async function loadWritingReferencePresets(candidates: readonly string[] 
 /**
  * 构造 writer 文风参考正文提示词。
  */
-export async function buildWritingReference(input: {preset?: WritingReferencePreset} = {}): Promise<string> {
+export async function buildWritingReference(input: {preset?: WritingReferencePreset; home?: ProfileHomeFacade} = {}): Promise<string> {
     const preset = input.preset ?? DEFAULT_WRITING_REFERENCE_PRESET;
+    if (input.home) {
+        const homeKey = normalizeReferenceHomeKey(preset);
+        const content = await input.home.readText(homeKey);
+        const parsed = parseFrontmatterDocument(content, WritingReferenceFrontmatterSchema.partial());
+        return [
+            "<writing_reference>",
+            parsed.body.trim() ? parsed.body.trim() : "空",
+            "</writing_reference>",
+        ].join("\n");
+    }
     const references = await loadWritingReferencePresets();
-    const reference = references.find((item) => item.key === preset);
+    const reference = references.find((item) => item.key === preset || legacyReferenceKeyToHomeKey(item.key) === preset);
     if (!reference) {
         throw new Error(`Unknown writing reference preset: ${preset}`);
     }
@@ -68,6 +80,18 @@ export async function buildWritingReference(input: {preset?: WritingReferencePre
         reference.content.trim() ? reference.content.trim() : "空",
         "</writing_reference>",
     ].join("\n");
+}
+
+export function legacyReferenceKeyToHomeKey(key: string): string {
+    return `references/${key}.md`;
+}
+
+export function homeReferenceKeyToLegacyKey(key: string): string {
+    return key.replace(/^references\//u, "").replace(/\.md$/u, "") || LEGACY_DEFAULT_WRITING_REFERENCE_PRESET;
+}
+
+export function normalizeReferenceHomeKey(key: string): string {
+    return key.includes("/") ? key : legacyReferenceKeyToHomeKey(key);
 }
 
 async function listMergedWritingReferenceFiles(candidates: readonly string[]): Promise<WritingReferenceFile[]> {

@@ -7,7 +7,7 @@ Profile context memory 用来替代内容节点 frontmatter 中的 `inject.profi
 ```text
 {project}/
 |-- lorebook/
-|-- agent-context/
+|-- agents/
 |   |-- leader.default/
 |   |   |-- context.md
 |   |   |-- memory.md
@@ -41,14 +41,14 @@ Profile context memory 用来替代内容节点 frontmatter 中的 `inject.profi
         `-- writer.json
 ```
 
-- `agent-context/{profile}/context.md`：Agent 自主维护的 profile-scoped context selection，也可以承载 profile 专用的 Project 运行说明。
-- `agent-context/{profile}/memory.md`：Agent 自主维护的 profile-scoped cross-session memory。
-- `agent-context/{profile}/generated.md`：程序根据访问状态渲染的结构化推荐文本，Agent 可读。
+- `agents/{profile}/context.md`：Agent 自主维护的 profile-scoped context selection，也可以承载 profile 专用的 Project 运行说明。
+- `agents/{profile}/memory.md`：Agent 自主维护的 profile-scoped cross-session memory。
+- `agents/{profile}/generated.md`：程序根据访问状态渲染的结构化推荐文本，Agent 可读。
 - `.nbook/context-access/{profile}.json`：程序私有访问状态，Agent 默认不读。
 
 ## Agent-Maintained Context
 
-`agent-context/{profile}/context.md` 的 frontmatter 可以包含：
+`agents/{profile}/context.md` 的 frontmatter 可以包含：
 
 ```yaml
 profile: writer
@@ -67,13 +67,13 @@ candidates: []
 
 ## Cross-Session Memory
 
-`agent-context/{profile}/memory.md` 是当前 profile 的长期记忆文件。它可以记录跨 session 仍然有用的项目判断、用户偏好、长期待办、接手提示和已确认决策。
+`agents/{profile}/memory.md` 是当前 profile 的长期记忆文件。它可以记录跨 session 仍然有用的项目判断、用户偏好、长期待办、接手提示和已确认决策。
 
 `memory.md` 不由程序覆盖，也不使用 `mustRead` / `candidates` frontmatter。它只属于当前 profile；其他 profile 不能自动读取。
 
 ## Generated Recommendations
 
-`agent-context/{profile}/generated.md` 是程序覆盖的结构化文本，可以没有 frontmatter。推荐 section 固定为：
+`agents/{profile}/generated.md` 是程序覆盖的结构化文本，可以没有 frontmatter。推荐 section 固定为：
 
 - `strong`：程序认为当前 profile 很可能需要的条目。
 - `possible`：可能相关，需要 Agent 结合任务判断。
@@ -92,17 +92,17 @@ candidates: []
 - sessions: 1
 ```
 
-不要写长篇推荐原因。Agent 如果采纳推荐，应把判断整理到自己的 `agent-context/{profile}/context.md`。
+不要写长篇推荐原因。Agent 如果采纳推荐，应把判断整理到自己的 `agents/{profile}/context.md`。
 
 ## Profile Isolation
 
 当前 profile 只能自动读取自己的 context memory：
 
-- `agent-context/{profile}/context.md`
-- `agent-context/{profile}/memory.md`
-- `agent-context/{profile}/generated.md`
+- `agents/{profile}/context.md`
+- `agents/{profile}/memory.md`
+- `agents/{profile}/generated.md`
 
-不能自动读取其他 profile 的 context memory 或 `.nbook/context-access`。例如 `writer` 不能读取 `agent-context/leader.default/context.md`、`agent-context/simulator.leader/context.md` 或对应 generated 文件。
+不能自动读取其他 profile 的 context memory 或 `.nbook/context-access`。例如 `writer` 不能读取 `agents/leader.default/context.md`、`agents/simulator.leader/context.md` 或对应 generated 文件。
 
 跨 profile 信息只能通过显式 handoff、writer-safe brief、invocation input 或 retrieval 结果传递。跨 profile 推荐可以暴露事实信号，例如 `leader-read:3`，但不能泄漏 source profile 私有 context 正文。
 

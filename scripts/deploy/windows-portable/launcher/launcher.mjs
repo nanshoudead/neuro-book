@@ -20,7 +20,7 @@ const DEPLOY_DIR = join(DATA_DIR, ".deploy");
 const STATE_PATH = join(DEPLOY_DIR, "windows-launcher.json");
 const BUN_EXE = process.execPath;
 const SERVER_ENTRY = join(APP_DIR, ".output", "server", "index.mjs");
-const RELEASE_META = join(APP_DIR, "release-meta.json");
+const APP_PACKAGE = join(APP_DIR, "package.json");
 const PORTABLE_RELEASE = join(PORTABLE_ROOT, "portable-release.json");
 const PACKAGE_ROOT_NAME = "neuro-book-windows-x64";
 const WINDOWS_ZIP_NAME = `${PACKAGE_ROOT_NAME}.zip`;
@@ -281,7 +281,7 @@ async function findStagedPortableRoot(extractRoot) {
 async function assertStagedPortableRoot(stagedRoot) {
     const requiredFiles = [
         join(stagedRoot, "app", ".output", "server", "index.mjs"),
-        join(stagedRoot, "app", "release-meta.json"),
+        join(stagedRoot, "app", "package.json"),
         join(stagedRoot, "launcher", "launcher.mjs"),
         join(stagedRoot, "portable-release.json"),
         join(stagedRoot, "runtime", "bun", "bun.exe"),
@@ -389,8 +389,8 @@ async function assertProductPayload() {
     if (!existsSync(SERVER_ENTRY)) {
         throw new Error(`缺少 Product Payload 入口：${SERVER_ENTRY}`);
     }
-    if (!existsSync(RELEASE_META)) {
-        throw new Error(`缺少 Product release metadata：${RELEASE_META}`);
+    if (!existsSync(APP_PACKAGE)) {
+        throw new Error(`缺少 Product package manifest：${APP_PACKAGE}`);
     }
 }
 

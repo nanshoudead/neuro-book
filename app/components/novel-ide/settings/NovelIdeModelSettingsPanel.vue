@@ -1703,7 +1703,6 @@ defineExpose({
                     </div>
                     <div class="text-sm font-semibold text-[var(--text-main)]">{{ isProjectScope ? t("settings.panels.models.projectDefaultTitle") : t("settings.panels.models.globalDefaultTitle") }}</div>
                 </div>
-                <div class="mb-3 text-xs leading-5 text-[var(--text-secondary)]">{{ isProjectScope ? t("settings.panels.models.projectDefaultDescription") : t("settings.panels.models.globalDefaultDescription") }}</div>
                 <NovelIdeModelSelect
                     :model-value="draft.defaultModelKey"
                     :models="defaultModelOptions"
@@ -1721,7 +1720,6 @@ defineExpose({
                     </div>
                     <div class="text-sm font-semibold text-[var(--text-main)]">{{ t("settings.panels.models.addProvider") }}</div>
                 </div>
-                <div class="mb-3 text-xs leading-5 text-[var(--text-secondary)]">{{ t("settings.panels.models.addProviderDescription") }}</div>
                 <div class="flex items-center gap-2">
                     <div class="min-w-0 flex-1">
                         <FormSelect :model-value="selectedPreset" :options="providerPresetOptions.map((item) => ({ value: item.value, label: item.label }))" @update:model-value="selectedPreset = $event" />

@@ -1,0 +1,1109 @@
+import {readFile} from "node:fs/promises";
+import {fileURLToPath} from "node:url";
+import {describe, expect, it} from "vitest";
+import {
+    buildWorldWorkbenchEditSliceBody,
+    buildWorldWorkbenchReviewQueueItems,
+    buildWorldWorkbenchSubjectSystemSummariesFromRagOverview,
+    mergeWorldWorkbenchTimelineSlice,
+    mergeWorldWorkbenchSubjectsWithSubjectSystem,
+    normalizeWorldWorkbenchSlices,
+} from "nbook/app/utils/world-engine-workbench-real";
+import type {WorldSliceDto} from "nbook/app/components/novel-ide/world-engine/world-engine-workbench.types";
+import type {
+    WorldWorkbenchPreviewIssueTriageState,
+    WorldWorkbenchPreviewSlice,
+} from "nbook/app/components/novel-ide/world-engine/workbench-preview/world-engine-workbench-preview.types";
+
+const headerPath = fileURLToPath(new URL("../components/novel-ide/NovelIdeHeader.vue", import.meta.url));
+const indexPagePath = fileURLToPath(new URL("../pages/index.vue", import.meta.url));
+const bookshelfPath = fileURLToPath(new URL("../components/novel-ide/NovelBookshelfDialog.vue", import.meta.url));
+const previewPagePath = fileURLToPath(new URL("../pages/world-engine.preview.vue", import.meta.url));
+const workbenchPath = fileURLToPath(new URL("../components/novel-ide/world-engine/WorldEngineWorkbenchDialog.vue", import.meta.url));
+const workbenchPreviewInspectorPath = fileURLToPath(new URL("../components/novel-ide/world-engine/workbench-preview/WorldEngineWorkbenchPreviewInspector.vue", import.meta.url));
+const workbenchPreviewMutationEditorPath = fileURLToPath(new URL("../components/novel-ide/world-engine/workbench-preview/WorldEngineWorkbenchPreviewMutationEditor.vue", import.meta.url));
+const workbenchPreviewSidebarPath = fileURLToPath(new URL("../components/novel-ide/world-engine/workbench-preview/WorldEngineWorkbenchPreviewSidebar.vue", import.meta.url));
+const workbenchPreviewSliceListPath = fileURLToPath(new URL("../components/novel-ide/world-engine/workbench-preview/WorldEngineWorkbenchPreviewSliceList.vue", import.meta.url));
+const workbenchPreviewTypesPath = fileURLToPath(new URL("../components/novel-ide/world-engine/workbench-preview/world-engine-workbench-preview.types.ts", import.meta.url));
+const previewProjectPanelPath = fileURLToPath(new URL("../components/novel-ide/world-engine/WorldEnginePreviewProjectPanel.vue", import.meta.url));
+const previewActionsPath = fileURLToPath(new URL("../components/novel-ide/world-engine/WorldEnginePreviewActions.vue", import.meta.url));
+const previewMutationBuilderPath = fileURLToPath(new URL("../components/novel-ide/world-engine/WorldEnginePreviewMutationBuilder.vue", import.meta.url));
+const previewStatePanelPath = fileURLToPath(new URL("../components/novel-ide/world-engine/WorldEnginePreviewStatePanel.vue", import.meta.url));
+const mutationEditorPath = fileURLToPath(new URL("../components/novel-ide/world-engine/WorldEngineMutationEditor.vue", import.meta.url));
+const mutationEditorHeaderPath = fileURLToPath(new URL("../components/novel-ide/world-engine/WorldEngineMutationEditorHeader.vue", import.meta.url));
+const sliceDraftFormPath = fileURLToPath(new URL("../components/novel-ide/world-engine/WorldEngineSliceDraftForm.vue", import.meta.url));
+const mutationBuilderPath = fileURLToPath(new URL("../components/novel-ide/world-engine/WorldEngineMutationBuilder.vue", import.meta.url));
+const mutationActionButtonsPath = fileURLToPath(new URL("../components/novel-ide/world-engine/WorldEngineMutationActionButtons.vue", import.meta.url));
+const mutationListControlsPath = fileURLToPath(new URL("../components/novel-ide/world-engine/WorldEngineMutationListControls.vue", import.meta.url));
+const objectValueEditorPath = fileURLToPath(new URL("../components/novel-ide/world-engine/WorldEngineObjectValueEditor.vue", import.meta.url));
+const subjectCreatorPath = fileURLToPath(new URL("../components/novel-ide/world-engine/WorldEngineSubjectCreator.vue", import.meta.url));
+const sliceInspectorPath = fileURLToPath(new URL("../components/novel-ide/world-engine/WorldEngineSliceInspector.vue", import.meta.url));
+const stateSummaryPath = fileURLToPath(new URL("../components/novel-ide/world-engine/WorldEngineStateSummary.vue", import.meta.url));
+const timelinePath = fileURLToPath(new URL("../components/novel-ide/world-engine/WorldEngineTimeline.vue", import.meta.url));
+const realWorkbenchUtilPath = fileURLToPath(new URL("./world-engine-workbench-real.ts", import.meta.url));
+
+function removedToken(...parts: string[]): string {
+    return parts.join("");
+}
+
+describe("World Engine IDE entry", () => {
+    it("保留 Header 入口并打开当前 Project 的工作台", async () => {
+        const header = await readFile(headerPath, "utf-8");
+        const indexPage = await readFile(indexPagePath, "utf-8");
+        const bookshelf = await readFile(bookshelfPath, "utf-8");
+        const previewPage = await readFile(previewPagePath, "utf-8");
+        const workbench = await readFile(workbenchPath, "utf-8");
+        const workbenchPreviewInspector = await readFile(workbenchPreviewInspectorPath, "utf-8");
+        const workbenchPreviewMutationEditor = await readFile(workbenchPreviewMutationEditorPath, "utf-8");
+        const workbenchPreviewSidebar = await readFile(workbenchPreviewSidebarPath, "utf-8");
+        const workbenchPreviewSliceList = await readFile(workbenchPreviewSliceListPath, "utf-8");
+        const workbenchPreviewTypes = await readFile(workbenchPreviewTypesPath, "utf-8");
+        const previewProjectPanel = await readFile(previewProjectPanelPath, "utf-8");
+        const previewActions = await readFile(previewActionsPath, "utf-8");
+        const previewMutationBuilder = await readFile(previewMutationBuilderPath, "utf-8");
+        const previewStatePanel = await readFile(previewStatePanelPath, "utf-8");
+        const mutationEditor = await readFile(mutationEditorPath, "utf-8");
+        const mutationEditorHeader = await readFile(mutationEditorHeaderPath, "utf-8");
+        const sliceDraftForm = await readFile(sliceDraftFormPath, "utf-8");
+        const mutationBuilder = await readFile(mutationBuilderPath, "utf-8");
+        const mutationActionButtons = await readFile(mutationActionButtonsPath, "utf-8");
+        const mutationListControls = await readFile(mutationListControlsPath, "utf-8");
+        const objectValueEditor = await readFile(objectValueEditorPath, "utf-8");
+        const subjectCreator = await readFile(subjectCreatorPath, "utf-8");
+        const sliceInspector = await readFile(sliceInspectorPath, "utf-8");
+        const stateSummary = await readFile(stateSummaryPath, "utf-8");
+        const timeline = await readFile(timelinePath, "utf-8");
+        const realWorkbenchUtil = await readFile(realWorkbenchUtilPath, "utf-8");
+
+        expect(header).toContain("open-world-engine");
+        expect(header).toContain("ide.header.worldEngine");
+        expect(header).toContain("i-lucide-globe-2");
+        expect(indexPage).toContain("WorldEngineWorkbenchDialog");
+        expect(indexPage).toContain("openWorldEngineWorkbench");
+        expect(indexPage).toContain(":project-path=\"currentNovelId\"");
+        expect(indexPage).toContain("const worldEngineWorkbenchHasUnsavedDrafts = ref(false);");
+        expect(indexPage).toContain("const worldEngineWorkbenchSaving = ref(false);");
+        expect(indexPage).toContain("if (!worldEngineWorkbenchOpen.value) {");
+        expect(indexPage).toContain("if (worldEngineWorkbenchSaving.value) {");
+        expect(indexPage).toContain("World Engine 正在保存 Slice，请等待保存完成后再切换 Project。");
+        expect(indexPage).toContain("if (!worldEngineWorkbenchHasUnsavedDrafts.value) {");
+        expect(indexPage).toContain("World Engine Workbench 有未保存草稿。切换 Project 会放弃这些会话草稿。");
+        expect(indexPage).toContain("放弃草稿并切换");
+        expect(indexPage).toContain("const confirmWorldEngineWorkbenchDraftDiscardForProjectSwitch = async (): Promise<boolean>");
+        expect(indexPage).toContain("return action === \"discard\";");
+        expect(indexPage).not.toContain("worldEngineWorkbenchOpen.value = false;\n    worldEngineWorkbenchHasUnsavedDrafts.value = false;\n    return true;");
+        expect(indexPage).toContain("const restoreCurrentWorkspaceRoute = async (): Promise<void>");
+        expect(indexPage).toContain("await router.replace(buildProjectRoute(USER_ASSETS_PROJECT_TARGET));");
+        expect(indexPage).toContain("if (!(await confirmWorldEngineWorkbenchDraftDiscardForProjectSwitch())) {\n        await restoreCurrentWorkspaceRoute();\n        return;\n    }");
+        expect(indexPage).toContain("if (decision === \"cancel\") {\n        await restoreCurrentWorkspaceRoute();\n        return;\n    }");
+        expect(indexPage).toContain(":before-workspace-switch=\"confirmWorldEngineWorkbenchDraftDiscardForProjectSwitch\"");
+        expect(indexPage).toContain("@has-unsaved-drafts-change=\"worldEngineWorkbenchHasUnsavedDrafts = $event\"");
+        expect(indexPage).toContain("@saving-change=\"worldEngineWorkbenchSaving = $event\"");
+        expect(indexPage).toContain("@open-workspace-path=\"void openWelcomeWorkspacePath($event)\"");
+        expect(bookshelf).toContain("beforeWorkspaceSwitch?: () => boolean | Promise<boolean>;");
+        expect(bookshelf).toContain("const canSwitchWorkspace = async (): Promise<boolean>");
+        expect(bookshelf).toContain("if (!(await canSwitchWorkspace())) return;");
+        expect(previewPage).toContain("previewAttrValueType");
+        expect(previewPage).toContain("resolvePreviewAttrPath");
+        expect(previewPage).toContain("selectPreviewProjectPath");
+        expect(previewPage).toContain("defaultMutationForPreviewSubject");
+        expect(previewPage).toContain("function applyDefaultSliceMutation");
+        expect(previewPage).toContain("let lastAutoSliceMutationDraft");
+        expect(previewPage).toContain("const knownSubjectIds = new Set(subjects.value.map((subject) => subject.id));");
+        expect(previewPage).toContain("if (!currentSubjectExists) {");
+        expect(previewPage).toContain("function shouldRefreshDefaultSliceMutation(): boolean");
+        expect(previewPage).toContain("schema.value?.subjectTypes ?? []");
+        expect(previewPage).not.toContain("JSON.stringify([{subjectId, attr: \"events\", op: \"listAppend\", value: \"世界引擎初始化\"}]");
+        expect(previewPage).toContain("defaultValueForPreviewAttr");
+        expect(previewPage).toContain("mutationBuilderValueHint");
+        expect(previewPage).toContain("${attr.kind}<${valueType}>");
+        expect(previewPage).toContain("WorldStateQueryDto");
+        expect(previewPage).toContain("CreateSubjectResultDto");
+        expect(previewPage).toContain("stateIssues");
+        expect(previewPage).toContain("actionIssues");
+        expect(previewPage).toContain("function setPreviewError(message: string): void");
+        expect(previewPage).toContain("function setPreviewNotice(message: string): void");
+        expect(previewPage).toContain("function formatPreviewProjectTitleTimestamp(date: Date): string");
+        expect(previewPage).toContain("title: `世界引擎试用 ${formatPreviewProjectTitleTimestamp(new Date())}`");
+        expect(previewPage).toContain("const previewDemoSchemaError = computed(() => schema.value ? validatePreviewDemoSchema(schema.value.subjectTypes, subjects.value) : \"Schema 未加载，无法创建示例世界\");");
+        expect(previewPage).toContain("const canSeedDemoWorld = computed(() => projectReady.value && Boolean(schema.value) && !previewDemoSchemaError.value);");
+        expect(previewPage).toContain("const demoWorldButtonTitle = computed(() => previewDemoSchemaError.value || \"创建内置示例世界\");");
+        expect(previewPage).toContain("const schemaError = previewDemoSchemaError.value;");
+        expect(previewPage).toContain("setPreviewError(\"subject id 不能为空\");");
+        expect(previewPage).toContain("setPreviewError(\"subject type 不能为空\");");
+        expect(previewPage).toContain("setPreviewError(\"subject time 不能为空\");");
+        expect(previewPage).toContain("setPreviewError(`subject ${subjectId} 已存在，请填写新的 id`);");
+        expect(previewPage).toContain("subjectForm.id = \"\";");
+        expect(previewPage).toContain("subjectForm.name = \"\";");
+        expect(previewPage).toContain("subjectForm.type = subjectType;");
+        expect(previewPage).toContain("subjectForm.time = subjectTime;");
+        expect(previewPage).toContain("queryForm.subjectIds = result.subjectId");
+        expect(previewPage).toContain("mutationBuilder.subjectId = result.subjectId");
+        expect(previewPage).toContain("async function loadSubjectIntoQuery(subject: WorldSubjectDto): Promise<void>");
+        expect(previewPage).toContain("queryForm.type = \"\";");
+        expect(previewPage).toContain("await queryState({clearActionIssues: false});");
+        expect(previewPage).toContain("@load-subject=\"void loadSubjectIntoQuery($event)\"");
+        expect(previewPage).toContain("const currentBuilderSubject = subjects.value.find((subject) => subject.id === mutationBuilder.subjectId);");
+        expect(previewPage).toContain("if (currentBuilderSubject?.type === typeName) {");
+        expect(previewPage).toContain("const currentQuerySubjectId = parseCsvList(queryForm.subjectIds)[0] ?? \"\";");
+        expect(previewPage).toContain("if (currentQuerySubject?.type === typeName) {");
+        expect(previewPage.indexOf("await loadWorld();", previewPage.indexOf("subjectForm.id = \"\";"))).toBeGreaterThan(previewPage.indexOf("mutationBuilder.subjectId = result.subjectId"));
+        expect(previewPage.indexOf("advanceSliceFormTime();", previewPage.indexOf("subjectForm.id = \"\";"))).toBeGreaterThan(previewPage.indexOf("await loadWorld();", previewPage.indexOf("subjectForm.id = \"\";")));
+        expect(previewPage).toContain("stateResult.value = []");
+        expect(previewPage).toContain("function advanceSliceFormTime(): void");
+        expect(previewPage).toContain("sliceForm.time = suggestNextPreviewTime(examples, usedTimes);");
+        expect(previewPage).toContain("if (!sliceForm.time.trim()) {");
+        expect(previewPage).toContain("setPreviewError(\"time 不能为空\");");
+        expect(previewPage).toContain("setPreviewError(parsed.message);");
+        expect(previewPage).toContain("setPreviewError(\"查询必须提供 subjectIds 或 type\");");
+        expect(previewPage).toContain("setPreviewNotice(result.issues.length");
+        expect(previewPage.indexOf("await loadWorld();\n        advanceSliceFormTime();")).toBeGreaterThan(-1);
+        expect(previewPage.indexOf("await queryState({clearActionIssues: false});")).toBeGreaterThan(previewPage.indexOf("advanceSliceFormTime();"));
+        expect(previewPage).toContain("formatWorldEngineConflictMessage(resolveApiErrorMessage(writeError");
+        expect(previewPage).toContain("const previewProjectListLimit = 80;");
+        expect(previewPage).toContain("previewProjectTestPrefixes");
+        expect(previewPage).toContain("limit: previewProjectListLimit");
+        expect(previewPage).toContain("includeProjectPath: [preferredProjectPath, routeProjectPath, selectedProjectPath.value]");
+        expect(previewPage).toContain("excludeProjectPathPrefix: previewProjectTestPrefixes");
+        expect(mutationEditor).toContain("formatWorldEngineConflictMessage(resolveApiErrorMessage(error");
+        expect(subjectCreator).toContain("formatWorldEngineConflictMessage(resolveApiErrorMessage(error");
+        expect(previewPage.indexOf("await loadProjects(project.projectPath);")).toBeGreaterThan(-1);
+        expect(previewPage.indexOf("setPreviewNotice(`已创建 ${project.projectPath}`);")).toBeGreaterThan(previewPage.indexOf("await loadProjects(project.projectPath);"));
+        expect(previewPage).toContain("let suppressProjectSelectionWatcher = false;");
+        expect(previewPage).toContain("const nextProjectPath = selectPreviewProjectPath(projects.value, preferredProjectPath, routeProjectPath, selectedProjectPath.value);");
+        expect(previewPage).toContain("if (selectedProjectPath.value !== nextProjectPath) {");
+        expect(previewPage).toContain("suppressProjectSelectionWatcher = true;");
+        expect(previewPage).toContain("selectedProjectPath.value = nextProjectPath;");
+        expect(previewPage).toContain("suppressProjectSelectionWatcher = false;");
+        expect(previewPage).toContain([
+            "function resetPreviewProjectSessionState(): void {",
+            "    lastWriteResult.value = null;",
+            "    editingSliceId.value = \"\";",
+            "    stateResult.value = [];",
+            "    stateIssues.value = [];",
+            "    actionIssues.value = [];",
+            "    notice.value = \"\";",
+            "    error.value = \"\";",
+            "}",
+        ].join("\n"));
+        expect(previewPage).toContain([
+            "watch(selectedProjectPath, () => {",
+            "    if (suppressProjectSelectionWatcher) {",
+            "        return;",
+            "    }",
+            "    resetPreviewProjectSessionState();",
+            "    void loadWorld();",
+            "}, {flush: \"sync\"});",
+        ].join("\n"));
+        expect(previewPage).toContain("deleteSlice");
+        expect(previewPage).toContain("返回 ${result.issues.length} 个 issue");
+        expect(previewPage).toContain("WorldEnginePreviewProjectPanel");
+        expect(previewPage).toContain("WorldEnginePreviewActions");
+        expect(previewPage).toContain("WorldEnginePreviewStatePanel");
+        expect(previewPage).toContain("updateMutationBuilderField");
+        expect(previewProjectPanel).toContain("新建 Project");
+        expect(previewProjectPanel).toContain("创建示例世界");
+        expect(previewProjectPanel).toContain("canSeedDemoWorld: boolean;");
+        expect(previewProjectPanel).toContain("demoWorldButtonTitle: string;");
+        expect(previewProjectPanel).toContain(":disabled=\"!canSeedDemoWorld || actionBusy\"");
+        expect(previewProjectPanel).toContain(":title=\"demoWorldButtonTitle\"");
+        expect(previewProjectPanel).toContain("fill-mutation");
+        expect(previewProjectPanel).toContain("schema.calendar.examples.join");
+        expect(previewProjectPanel).toContain("const schemaSourcePath = \"world-engine/schema.yaml\";");
+        expect(previewProjectPanel).toContain("const calendarSourcePath = \"world-engine/calendar.yaml\";");
+        expect(previewProjectPanel).toContain("function buildIdeOpenPathHref(path: string): string");
+        expect(previewProjectPanel).toContain("new URLSearchParams({project: props.selectedProject.projectPath, openPath: path})");
+        expect(previewProjectPanel).toContain("{{ schemaSourcePath }}");
+        expect(previewProjectPanel).toContain("{{ calendarSourcePath }}");
+        expect(indexPage).toContain("async function consumeWorkspaceOpenPathFromRoute(): Promise<void>");
+        expect(indexPage).toContain("await openWelcomeWorkspacePath(filePath);");
+        expect(indexPage).toContain("watch(() => [route.query.project, route.query.openPath] as const");
+        expect(indexPage).toContain([
+            "if (workspaceRouteSynced()) {",
+            "        await consumeWorkspaceOpenPathFromRoute();",
+            "        if (!isUserAssetsWorkspace.value) {",
+            "            await normalizeNovelRouteQuery();",
+            "        }",
+        ].join("\n"));
+        expect(indexPage).toContain([
+            "await initializeWorkspaceFromRoute();",
+            "    await consumeWorkspaceOpenPathFromRoute();",
+            "    if (!isUserAssetsWorkspace.value) {",
+            "        await normalizeNovelRouteQuery();",
+            "    }",
+        ].join("\n"));
+        expect(previewActions).toContain("WorldEnginePreviewMutationBuilder");
+        expect(previewActions).toContain("const subjectIdAlreadyExists = computed(() => {");
+        expect(previewActions).toContain("props.subjects.some((subject) => subject.id === subjectId)");
+        expect(previewActions).toContain("const canCreateSubject = computed(() => props.projectReady && !props.actionBusy && props.subjectForm.id.trim() && props.subjectForm.type.trim() && props.subjectForm.time.trim() && !subjectIdAlreadyExists.value);");
+        expect(previewActions).toContain("该 subject 已存在。点击左侧 subject 会载入查询上下文；新建 subject 请填写新的 id。");
+        expect(previewActions).toContain(":disabled=\"!canCreateSubject\"");
+        expect(previewActions).toContain("const canWriteSlice = computed(() => props.projectReady && !props.actionBusy && props.sliceForm.time.trim());");
+        expect(previewActions).toContain(":disabled=\"!canWriteSlice\"");
+        expect(previewActions).toContain("Create Subject");
+        expect(previewActions).toContain("Write Slice");
+        expect(previewActions).toContain("Query");
+        expect(previewActions).toContain("write-slice");
+        expect(previewActions).toContain("query-state");
+        expect(previewActions).toContain(":state-result=\"stateResult\"");
+        expect(previewActions).not.toContain("Resettle");
+        expect(previewActions).not.toContain(removedToken("rese", "ttle", "-timeline"));
+        expect(previewMutationBuilder).toContain("Mutation Builder");
+        expect(previewMutationBuilder).toContain("valueHint");
+        expect(previewMutationBuilder).toContain("subjectTypeLabel");
+        expect(previewMutationBuilder).toContain("collectionRemoveValueOptions");
+        expect(previewMutationBuilder).toContain("syncCollectionRemoveValue");
+        expect(previewMutationBuilder).toContain("从当前 State Query 结果中选择要移除的 collection 项");
+        expect(previewMutationBuilder).toContain("attr path, e.g. memory.师门");
+        expect(previewMutationBuilder).toContain("update-builder-field");
+        expect(previewMutationBuilder).toContain("add-builder-mutation");
+        expect(previewMutationBuilder).toContain("builder.op === 'unset'");
+        expect(previewMutationBuilder).toContain("i-lucide-list-plus");
+        expect(previewMutationBuilder).toContain("i-lucide-refresh-ccw");
+        expect(previewStatePanel).toContain("World State");
+        expect(previewStatePanel).toContain("State Query");
+        expect(previewStatePanel).toContain("formatSliceMutations");
+        expect(previewStatePanel).toContain("load-subject");
+        expect(previewStatePanel).toContain("load-slice");
+        expect(previewStatePanel).toContain("delete-slice");
+        expect(previewStatePanel).toContain("stateIssues");
+        expect(previewStatePanel).toContain("本次操作 issues");
+        expect(previewStatePanel).toContain("i-lucide-trash-2");
+        expect(previewStatePanel).toContain("aria-label=\"载入编辑 slice\"");
+        expect(previewStatePanel).toContain("aria-label=\"删除 slice\"");
+        expect(previewStatePanel).toContain("编辑");
+        expect(previewStatePanel).toContain("删除");
+        expect(previewStatePanel).toContain("refresh");
+        expect(workbench).toContain("WorldEngineWorkbenchPreviewSidebar");
+        expect(workbench).toContain("(e: \"openWorkspacePath\", path: string): void;");
+        expect(workbench).toContain("function openWorkspacePathFromWorkbench(path: string): void");
+        expect(workbench).toContain("打开配置文件会关闭 Workbench 并放弃这些会话草稿");
+        expect(workbench).toContain("emit(\"openWorkspacePath\", targetPath);");
+        expect(workbench).toContain("@open-workspace-path=\"openWorkspacePathFromWorkbench\"");
+        expect(workbench).toContain("WorldEngineWorkbenchPreviewSliceList");
+        expect(workbench).toContain("WorldEngineWorkbenchPreviewMutationEditor");
+        expect(workbench).toContain("const workbenchActionBusy = computed(() => loading.value || actionBusy.value || sliceComposerSaving.value);");
+        expect(workbench).toContain("function blockSliceComposerSaving(message = \"Slice Composer 正在保存，请稍候再切换工作台上下文。\"): boolean");
+        expect(workbench).toContain("if (blockSliceComposerSaving(\"Slice Composer 正在保存，请稍候再删除 Slice。\")) {");
+        expect(workbench).toContain("if (blockSliceComposerSaving(\"Slice Composer 正在保存，请稍候再同步主体系统。\")) {");
+        expect(workbench).toContain("if (blockSliceComposerSaving()) {\n        return;\n    }\n    selectedSliceId.value = sliceId;");
+        expect(workbench).toContain("async function updateSelectedSubjectIdsForTimeline(subjectIds: string[]): Promise<void> {\n    if (blockSliceComposerSaving()) {");
+        expect(workbench).toContain("function updateSliceSearchForTimeline(value: string): void {\n    if (blockSliceComposerSaving()) {");
+        expect(workbench).toContain("function updateSliceKindFilterForTimeline(filter: string): void {\n    if (blockSliceComposerSaving()) {");
+        expect(workbench).toContain("function updateSliceHealthFilterForTimeline(filter: WorldWorkbenchPreviewSliceHealthFilter): void {\n    if (blockSliceComposerSaving()) {");
+        expect(workbench).toContain(":busy=\"workbenchActionBusy\"");
+        expect(workbench).toContain(":disabled=\"sliceComposerSaving\"");
+        expect(workbench).toContain(":disabled=\"workbenchActionBusy\"");
+        expect(workbench).toContain(":disabled=\"workbenchActionBusy || !schema\"");
+        expect(workbench).toContain(":disabled=\"workbenchActionBusy || !schema || !selectedSlice\"");
+        expect(workbench).toContain(":disabled=\"workbenchActionBusy || !selectedSlice\"");
+        expect(workbench).toContain("WorldEngineWorkbenchPreviewInspector");
+        expect(workbench).toContain("WorldEngineMutationEditor");
+        expect(workbench).toContain("world-slice-composer");
+        expect(workbench).toContain("新建 Slice");
+        expect(workbench).toContain("handleSliceComposerSaved");
+        expect(workbench).toContain("continueAfterSave: boolean");
+        expect(workbench).toContain("const continueSuffix = payload.continueAfterSave ? \"，已准备下一步草稿\" : \"\";");
+        expect(workbench).toContain("sliceComposerVisible.value = payload.continueAfterSave;");
+        expect(workbench).toContain("const sliceComposerSaving = ref(false);");
+        expect(workbench).toContain("sliceComposerSaving.value || snapshotLoading.value");
+        expect(workbench).toContain("if (!payload.continueAfterSave) {");
+        expect(workbench).toContain("sliceComposerEditorKey.value += 1;");
+        expect(workbench).toContain("contextSubjectId: string");
+        expect(workbench).toContain("const continueSubjectId = payload.continueAfterSave ? payload.contextSubjectId : \"\";");
+        expect(workbench).toContain("focusedSubjectId.value = continueSubjectId;");
+        expect(workbench).toContain("mutations: WorldSliceMutationDto[]");
+        expect(workbench).toContain("clearSubjectFilterIfSavedSliceWouldBeHidden(payload.mutations);");
+        expect(workbench).toContain("function clearSubjectFilterIfSavedSliceWouldBeHidden(mutations: WorldSliceMutationDto[]): void");
+        expect(workbench).toContain("selectedSubjectIds.value = [];");
+        expect(workbench).toContain("@saving-change=\"sliceComposerSaving = $event\"");
+        expect(workbench).toContain("@saved=\"void handleSliceComposerSaved($event)\"");
+        expect(workbench).toContain("world-inspector-restore-rail");
+        expect(workbench).toContain("inspectorVisible = true");
+        expect(workbench).toContain("WorldEngineSubjectCreator");
+        expect(workbench).toContain("const subjectCreatorOpen = ref(false);");
+        expect(workbench).toContain("function openSubjectCreatorPanel(): void");
+        expect(workbench).toContain("sidebarCollapsed.value = false;");
+        expect(workbench).toContain("subjectCreatorOpen.value = true;");
+        expect(workbench).toContain("function updateSubjectCreatorOpen(event: Event): void");
+        expect(workbench).toContain(":open=\"subjectCreatorOpen\"");
+        expect(workbench).toContain("@toggle=\"updateSubjectCreatorOpen\"");
+        expect(workbench).toContain("@click=\"openSubjectCreatorPanel\"");
+        expect(workbench).toContain("isWorldWorkbenchSubjectSystemMaintenanceSlice");
+        expect(workbench).toContain("normalizeWorldWorkbenchSlices");
+        expect(workbench).toContain("buildWorldWorkbenchEditSliceBody");
+        expect(workbench).toContain("buildWorldWorkbenchReviewQueueItems");
+        expect(workbench).toContain("/api/projects/world-engine/schema");
+        expect(workbench).toContain("/api/projects/world-engine/subjects");
+        expect(workbench).toContain("/api/projects/world-engine/slices");
+        expect(workbench).toContain("/api/projects/rag/overview");
+        expect(workbench).toContain("limit: sliceLimit");
+        expect(workbench).toContain("withMutations: \"true\"");
+        expect(workbench).toContain("refreshWorldForCurrentTimeline");
+        expect(workbench).toContain("await loadWorld({...options, preferredSliceId, preferredSubjectIds});");
+        expect(workbench).toContain("!selectedSubjectIds.value.some((subjectId) => worldSubjectIdSet.value.has(subjectId))");
+        expect(workbench).toContain("autoSelectSlice: options.autoSelectSlice");
+        expect(workbench).toContain("reloadTimelineForCurrentSubjectFilter");
+        expect(workbench).toContain("sliceSubjectFilterQuery");
+        expect(workbench).toContain("subjectIds: registeredSubjectIds.join(\",\")");
+        expect(workbench).toContain("subjectMode: subjectFilterMode.value");
+        expect(workbench).toContain("const modeLabel = subjectFilterMode.value === \"all\" ? \"全部 subject\" : \"任一 subject\";");
+        expect(workbench).toContain("@update:selected-subject-ids=\"void updateSelectedSubjectIdsForTimeline($event)\"");
+        expect(workbench).toContain("@update-subject-filter-mode=\"void updateSubjectFilterModeForTimeline($event)\"");
+        expect(workbench).toContain("@update-slice-health-filter=\"updateSliceHealthFilterForTimeline\"");
+        expect(workbench).toContain("@update-slice-kind-filter=\"updateSliceKindFilterForTimeline\"");
+        expect(workbench).toContain("@update-slice-search=\"updateSliceSearchForTimeline\"");
+        expect(workbench).toContain("/api/projects/world-engine/state/query");
+        expect(workbench).toContain("/api/projects/world-engine/state");
+        expect(workbench).toContain("/edit");
+        expect(workbench).not.toContain(removedToken("/api/projects/world-engine/rese", "ttle"));
+        expect(workbench).toContain("/world-engine.preview?");
+        expect(workbench).toContain("full-snapshot-mode");
+        expect(workbench).toContain("loadFullSnapshot");
+        expect(workbench).toContain("loadSelectedSliceSnapshots");
+        expect(workbench).toContain("const snapshotIssues = ref<WorldIssueDto[]>([]);");
+        expect(workbench).toContain("const fullSnapshotIssues = ref<WorldIssueDto[] | null>(null);");
+        expect(workbench).toContain("const snapshotSlice = slice.previousTime === undefined || !slice.mutations.length ? await loadSliceDetailForSnapshot(slice) : slice;");
+        expect(workbench).toContain("function loadSliceDetailForSnapshot(slice: WorldWorkbenchPreviewSlice): Promise<WorldWorkbenchPreviewSlice>");
+        expect(workbench).toContain("`/api/projects/world-engine/slices/${encodeURIComponent(slice.id)}`");
+        expect(workbench).toContain("const existingIndex = slices.value.findIndex((item) => item.id === loadedSlice.id);");
+        expect(workbench).toContain("index === existingIndex ? loadedSlice : item");
+        expect(workbench).toContain(": mergeWorldWorkbenchTimelineSlice(slices.value, loadedSlice);");
+        expect(workbench).toContain("const previousSnapshotTime = snapshotSlice.previousTime ?? \"\";");
+        expect(workbench).not.toContain("const previousSnapshotTime = slice.previousTime ?? previousSlice?.time ?? \"\";");
+        expect(workbench).toContain("previousSnapshotTime ? querySubjectsAt(subjectIds, previousSnapshotTime)");
+        expect(workbench).toContain("snapshotIssues.value = currentResult.issues;");
+        expect(workbench).toContain("fullSnapshotIssues.value = result.issues;");
+        expect(workbench).toContain(":snapshot-issues=\"snapshotIssues\"");
+        expect(workbench).toContain(":full-snapshot-issues=\"fullSnapshotIssues\"");
+        expect(workbenchPreviewInspector).toContain("snapshotIssues?: WorldIssueDto[]");
+        expect(workbenchPreviewInspector).toContain("fullSnapshotIssues?: WorldIssueDto[] | null");
+        expect(workbenchPreviewInspector).toContain("busy?: boolean;");
+        expect(workbenchPreviewInspector).toContain("visibleSnapshotIssues");
+        expect(workbenchPreviewInspector).toContain("data-testid=\"snapshot-query-issues\"");
+        expect(workbenchPreviewInspector).toContain("State issues ·");
+        expect(workbenchPreviewInspector).toContain("grid-cols-[112px_minmax(0,1fr)]");
+        expect(workbenchPreviewInspector).toContain(":title=\"issue.code\"");
+        expect(workbenchPreviewInspector).toContain("issues: visibleSnapshotIssues.value");
+        expect(workbenchPreviewInspector).toContain("metadataPatchMatchesSlice");
+        expect(workbenchPreviewInspector).toContain("外部 slice 成功同步到新值后再自动清理草稿");
+        expect(workbenchPreviewInspector).toContain("if (props.busy || !metadataDraftDirty.value) {");
+        expect(workbenchPreviewInspector).toContain("<FormInput v-model=\"draft.time\" :disabled=\"props.busy\" />");
+        expect(workbenchPreviewInspector).toContain("<FormSelect v-model=\"draft.kind\" :options=\"kindOptions\" :disabled=\"props.busy\" />");
+        expect(workbenchPreviewInspector).toContain("<FormTextarea v-model=\"draft.summary\" :rows=\"4\" :disabled=\"props.busy\" />");
+        expect(workbenchPreviewInspector).toContain(":disabled=\"props.busy || !metadataDraftDirty\"");
+        expect(workbenchPreviewInspector).not.toContain("delete metadataDrafts[props.slice.id];\n    emit(\"applyPatch\"");
+        expect(workbench).toContain("saveMetadataPatch");
+        expect(workbench).toContain("saveMutationValuePatches");
+        expect(workbench).toContain("matchesWorkbenchPreviewKeywordFilter");
+        expect(workbench).toContain("matchesWorkbenchPreviewKindFilter");
+        expect(workbench).toContain("matchesWorkbenchPreviewSubjectFilter");
+        expect(workbench).toContain("clearFiltersIfSavedEditWouldBeHidden");
+        expect(workbench).toContain("if (sliceHealthFilter.value !== \"all\") {");
+        expect(workbench).toContain("handleSubjectCreated");
+        expect(workbench).toContain("preferredSubjectIds");
+        expect(workbench).toContain("latestSliceTouchingSubjects");
+        expect(workbench).toContain("keepEmptyPreferredSubjectView");
+        expect(workbench).toContain("focusedSubjectId.value = preferredSubjectIds.at(-1) ?? \"\";");
+        expect(workbench).toContain("emptySliceState");
+        expect(workbench).toContain("type EmptySliceAction = \"create-subject\" | \"new-slice\" | \"seed-demo\" | \"sync-subject-system\" | \"\";");
+        expect(workbench).toContain("const demoWorldSchemaError = computed(() => {");
+        expect(workbench).toContain("const canSeedDemoWorld = computed(() => Boolean(schema.value) && !demoWorldSchemaError.value);");
+        expect(workbench).toContain("const demoWorldButtonTitle = computed(() => canSeedDemoWorld.value ? \"创建内置示例 subject 和第一条事件 slice\" : demoWorldSchemaError.value);");
+        expect(workbench).toContain("action: worldSubjects.value.length ? \"new-slice\" : \"create-subject\"");
+        expect(workbench).toContain("内置示例暂不可用：${demoWorldSchemaError.value}");
+        expect(workbench).toContain("emptySliceState.action === 'create-subject'");
+        expect(workbench).toContain(":disabled=\"workbenchActionBusy || !canSeedDemoWorld\"");
+        expect(workbench).toContain(":title=\"demoWorldButtonTitle\"");
+        expect(workbench).toContain("const emptyReviewQueueItems = computed(() => reviewQueueItems.value.slice(0, 3));");
+        expect(workbench).toContain("data-testid=\"empty-slice-review-issues\"");
+        expect(workbench).toContain("{{ reviewTriageSummary.open }}/{{ reviewTriageSummary.total }}");
+        expect(workbench).toContain("@click=\"void focusReviewIssue(item)\"");
+        expect(workbench).toContain("action: pendingSubjectSystemSummaries.value.length ? \"sync-subject-system\" : \"\"");
+        expect(workbench).toContain("action: \"sync-subject-system\"");
+        expect(workbench).toContain("emptySliceState.action === 'sync-subject-system'");
+        expect(workbench).toContain(":disabled=\"workbenchActionBusy || !subjectSystemSyncTime\"");
+        expect(workbench).toContain("@click=\"void syncPendingSubjectSystemSubjects()\"");
+        expect(workbench).toContain("当前 subject 时间线暂无 slice");
+        expect(workbench).toContain("当前未选择 slice");
+        expect(workbench).toContain("emptySliceState.action === 'new-slice'");
+        expect(workbench).toContain("清空 subject 过滤");
+        expect(workbench).toContain("await refreshWorldForCurrentTimeline({preferredSubjectIds: [payload.subject.id]});");
+        expect(workbench).toContain("await refreshWorldForCurrentTimeline({preferredSubjectIds: created});");
+        expect(workbench).toContain("deleteSelectedSlice");
+        expect(workbench).toContain("const nextDraftSliceId = firstRemainingDraftSliceId(slice.id);");
+        expect(workbench).toContain("clearSessionStateForDeletedSlice(slice.id);");
+        expect(workbench).toContain("enterDraftViewForSlice(nextDraftSliceId);");
+        expect(workbench).toContain("await refreshWorldForCurrentTimeline({autoSelectSlice: false, preferredSliceId: nextDraftSliceId || undefined});");
+        expect(workbench).toContain("recordTransientIssues(result.issues, slice.id, slice);");
+        expect(workbench).toContain("function firstRemainingDraftSliceId(deletedSliceId: string): string");
+        expect(workbench).toContain("function enterDraftViewForSlice(sliceId: string): void");
+        expect(workbench).toContain("function clearSessionStateForDeletedSlice(sliceId: string): void");
+        expect(workbench).toContain("discardSessionDraftsForSlice(sliceId);");
+        expect(workbench).toContain("function discardSessionDraftsForSlice(sliceId: string): void");
+        expect(workbench).toContain("draftDiscardSliceId.value = sliceId;");
+        expect(workbench).toContain("draftDiscardVersion.value += 1;");
+        expect(workbench).toContain("metadataDraftSummaries.value = metadataDraftSummaries.value.filter((draft) => draft.sliceId !== sliceId);");
+        expect(workbench).toContain("valueDraftSummaries.value = valueDraftSummaries.value.filter((draft) => draft.sliceId !== sliceId);");
+        expect(workbench).toContain("highlightedMutationFocus.value = null;");
+        expect(workbench).toContain(":discard-draft-slice-id=\"draftDiscardSliceId\"");
+        expect(workbench).toContain(":discard-draft-version=\"draftDiscardVersion\"");
+        expect(workbench).toContain("function recordTransientIssues(issues: WorldIssueDto[], fallbackSliceId: string, fallbackSlice?: Pick<WorldWorkbenchPreviewSlice, \"id\" | \"time\" | \"title\">): void");
+        expect(workbench).toContain("?? (fallbackSlice?.id === sliceId ? fallbackSlice : null)");
+        expect(workbench).toContain("?? (selectedSlice.value?.id === sliceId ? selectedSlice.value : null)");
+        expect(workbench).toContain("loadSliceIntoTimeline");
+        expect(workbench).toContain("const targetSlice = await loadSliceIntoTimeline(item.sliceId);");
+        expect(workbench).toContain("`/api/projects/world-engine/slices/${encodeURIComponent(sliceId)}`");
+        expect(workbench).toContain("mergeWorldWorkbenchTimelineSlice");
+        expect(workbench).toContain("slices.value = mergeWorldWorkbenchTimelineSlice(slices.value, loadedSlice);");
+        expect(workbench).toContain("const draftSliceIds = computed(() => collectDraftSliceIds());");
+        expect(workbench).toContain("function collectDraftSliceIds(): string[]");
+        expect(workbench).toContain("const targetDraftSliceIds = draftSliceIds.value;");
+        expect(workbench).toContain("await loadSliceIntoTimeline(sliceId);");
+        expect(workbench).toContain("const firstDraftSliceId = targetDraftSliceIds.find((sliceId) => slices.value.some((slice) => slice.id === sliceId));");
+        expect(workbench).toContain("Issue 所属 slice ${item.sliceId || \"(未知)\"} 当前未加载");
+        expect(workbench.indexOf("highlightedMutationFocus.value = null;", workbench.indexOf("Issue 所属 slice ${item.sliceId || \"(未知)\"} 当前未加载"))).toBeGreaterThan(workbench.indexOf("Issue 所属 slice ${item.sliceId || \"(未知)\"} 当前未加载"));
+        expect(workbench).toContain("if (focus.issueKey) {");
+        expect(workbench).toContain("reviewQueueItems.value.findIndex((item) => item.key === focus.issueKey)");
+        expect(workbench).toContain("issueKey: item.key");
+        expect(workbench).toContain("function clearMissingReviewIssueFocus(): void");
+        expect(workbench).toContain("if (!focus?.issueKey) {");
+        expect(workbench).toContain("!reviewQueueItems.value.some((item) => item.key === focus.issueKey)");
+        expect(workbench).toContain("watch(() => reviewQueueItems.value.map((item) => item.key).join(\"\\u0000\"), clearMissingReviewIssueFocus);");
+        expect(workbench).toContain("sliceSearch.value = \"\";");
+        expect(workbench).toContain("setSubjectFilterForReviewIssue(item.subjectId);");
+        expect(workbench).toContain("await reloadTimelineForCurrentSubjectFilter({preferredSliceId: item.sliceId, preferredSubjectIds: [item.subjectId]});");
+        expect(workbench).toContain("if (!slices.value.some((slice) => slice.id === targetSlice.id)) {");
+        expect(workbench).toContain("let preserveMutationFocusOnSubjectFilterChange = false;");
+        expect(workbench).toContain("preserveMutationFocusOnSubjectFilterChange = true;");
+        expect(workbench).toContain("if (preserveMutationFocusOnSubjectFilterChange) {");
+        expect(workbench).toContain("preserveMutationFocusOnSubjectFilterChange = false;");
+        expect(workbench).toContain([
+            "watch(() => selectedSubjectIds.value.join(\"\\u0000\"), () => {",
+            "    if (!selectedSubjectIds.value.length) {",
+            "        highlightedMutationFocus.value = null;",
+            "        return;",
+            "    }",
+        ].join("\n"));
+        expect(workbenchPreviewInspector).toContain("visibleSnapshotIssues");
+        expect(workbenchPreviewInspector).toContain("discardDraftSliceId?: string;");
+        expect(workbenchPreviewInspector).toContain("discardMetadataDraftForSlice");
+        expect(workbenchPreviewTypes).toContain("issueKey?: string");
+        expect(workbenchPreviewMutationEditor).toContain("currentSliceReviewItems.value.find((item) => item.key === focus.issueKey)");
+        expect(workbenchPreviewMutationEditor).toContain("busy?: boolean;");
+        expect(workbenchPreviewMutationEditor).toContain("discardDraftSliceId?: string;");
+        expect(workbenchPreviewMutationEditor).toContain("discardValueDraftsForSlice");
+        expect(workbenchPreviewMutationEditor).toContain("requestResetAllValueDrafts");
+        expect(workbenchPreviewMutationEditor).toContain("if (props.busy) {\n        return;\n    }\n    const key = valueDraftKey(index);");
+        expect(workbenchPreviewMutationEditor).toContain("const valueDraftIdentities = reactive<Record<string, string>>({});");
+        expect(workbenchPreviewMutationEditor).toContain("function mutationDraftIdentity(mutation: WorldSliceMutationDto): string");
+        expect(workbenchPreviewMutationEditor).toContain("valueDraftIdentities[key] !== mutationDraftIdentity(mutation)");
+        expect(workbenchPreviewMutationEditor).toContain("delete valueDraftIdentities[key];");
+        expect(workbenchPreviewMutationEditor).toContain("props.slice.mutations.map(mutationDraftIdentity).join");
+        expect(workbenchPreviewMutationEditor).toContain(":disabled=\"props.busy || !dirtyValueDraftCount\"");
+        expect(workbenchPreviewMutationEditor).toContain(":disabled=\"props.busy || !isValueDraftDirty(row.index, row.mutation)\"");
+        expect(workbench).toContain("function setWorkbenchError(message: string): void");
+        expect(workbench).toContain("function setWorkbenchNotice(message: string): void");
+        expect(workbench).toContain("setWorkbenchNotice(message);");
+        expect(workbench).toContain("notice.value = \"\";");
+        expect(workbench).toContain("error.value = \"\";");
+        expect(workbench).toContain("@error=\"setWorkbenchError\"");
+        expect(workbench).toContain("@notice=\"setWorkbenchNotice\"");
+        expect(workbench).not.toContain("@error=\"error = $event\"");
+        expect(workbench).not.toContain("@notice=\"notice = $event\"");
+        expect(workbench).toContain("sliceComposerVisible");
+        expect(workbench).toContain("sliceComposerDirty");
+        expect(workbench).toContain("if (!sliceComposerVisible.value) {");
+        expect(workbench).toContain("    sliceComposerDirty.value = false;");
+        expect(workbench).toContain("sliceComposerEditorKey");
+        expect(workbench).toContain("sliceComposerUsedTimes");
+        expect(workbench).toContain("const knownSliceTimes = ref<string[]>([]);");
+        expect(workbench).toContain("const sliceComposerUsedTimes = computed(() => [...new Set([...knownSliceTimes.value, ...sliceTimesFromSlices(slices.value)])]);");
+        expect(workbench).toContain("function replaceKnownSliceTimes(sourceSlices: WorldWorkbenchPreviewSlice[]): void");
+        expect(workbench).toContain("function mergeKnownSliceTimes(sourceSlices: WorldWorkbenchPreviewSlice[]): void");
+        expect(workbench).toContain("const nextTimes = sliceTimesFromSlices(sourceSlices).filter((time) => !existingTimes.has(time));");
+        expect(workbench).toContain("knownSliceTimes.value = [...nextTimes, ...knownSliceTimes.value];");
+        expect(workbench).toContain("replaceKnownSliceTimes(normalizedSlices);");
+        expect(workbench).toContain("mergeKnownSliceTimes(normalizedSlices);");
+        expect(workbench).toContain("mergeKnownSliceTimes([loadedSlice]);");
+        expect(workbench).toContain(":used-times=\"sliceComposerUsedTimes\"");
+        expect(workbench).toContain("openSelectedSliceComposer");
+        expect(workbench).toContain("await nextTick();");
+        expect(workbench).toContain("sliceComposerLoadKey.value += 1;");
+        expect(workbench).toContain("编辑 Slice");
+        expect(workbench).toContain("删除 Slice");
+        expect(workbench).toContain("void deleteSelectedSlice()");
+        expect(workbench).toContain("i-lucide-trash-2");
+        expect(workbench).toContain(":key=\"sliceComposerEditorKey\"");
+        expect(workbench).toContain(":load-slice-key=\"sliceComposerLoadKey\"");
+        expect(workbench).toContain("const sliceComposerNewKey = ref(0);");
+        expect(workbench).toContain("const wasVisible = sliceComposerVisible.value;");
+        expect(workbench).toContain("sliceComposerNewKey.value += 1;");
+        expect(workbench).toContain(":new-slice-key=\"sliceComposerNewKey\"");
+        expect(workbench).toContain("@dirty-change=\"sliceComposerDirty = $event\"");
+        expect(mutationEditor).toContain("loadMutationToBuilder(0, true);");
+        expect(workbench).toContain("当前 Slice Composer 有未保存草稿，确定关闭吗？");
+        expect(workbench).toContain("Slice Composer 正在保存，请稍候再关闭。");
+        expect(workbench).toContain("Slice Composer 正在保存，请稍候再关闭 Workbench。");
+        expect(workbench).toContain("function requestWorkbenchClose(): void");
+        expect(workbench).toContain("function handleWorkbenchModelUpdate(value: boolean): void");
+        expect(workbench).toContain("requestWorkbenchClose();");
+        expect(workbench).toContain("const unsavedLabels = workbenchUnsavedDraftLabels();");
+        expect(workbench).toContain("当前 Workbench 有未保存内容：${unsavedLabels.join(\"、\")}。确定关闭并放弃吗？");
+        expect(workbench).toContain("function workbenchUnsavedDraftLabels(): string[]");
+        expect(workbench).toContain("labels.push(\"Slice Composer 草稿\");");
+        expect(workbench).toContain("labels.push(`${metadataDraftSummaries.value.length} 个 metadata 草稿`);");
+        expect(workbench).toContain("labels.push(`${valueDraftSliceCount.value} 个 value 草稿`);");
+        expect(workbench).toContain("(e: \"hasUnsavedDraftsChange\", value: boolean): void;");
+        expect(workbench).toContain("(e: \"savingChange\", value: boolean): void;");
+        expect(workbench).toContain("emit(\"hasUnsavedDraftsChange\", hasUnsavedDrafts);");
+        expect(workbench).toContain("emit(\"savingChange\", saving);");
+        expect(workbench).toContain("@update:model-value=\"handleWorkbenchModelUpdate\"");
+        expect(workbench).toContain("@request-close=\"requestWorkbenchClose\"");
+        expect(workbench).toContain("if (payload.editing) {\n        discardSessionDraftsForSlice(payload.result.sliceId);\n    }");
+        expect(workbench).toContain("await refreshWorldForCurrentTimeline({preferredSliceId: payload.result.sliceId});");
+        expect(workbench).toContain("recordTransientIssues(payload.result.issues, payload.result.sliceId);");
+        expect(workbench).toContain("pendingSubjectSystemSummaries");
+        expect(workbench).toContain("subjectSystemSyncTimeOverride");
+        expect(workbench).toContain("subjectSystemDefaultSyncTime");
+        expect(workbench).toContain("subjectSystemSyncTime");
+        expect(workbench).toContain("syncPendingSubjectSystemSubjects");
+        expect(workbench).toContain("subject-system-sync-panel");
+        expect(workbench).toContain("初始化时间");
+        expect(workbench).toContain("v-model.trim=\"subjectSystemSyncTimeOverride\"");
+        expect(workbench).toContain("aria-label=\"同步主体系统初始化时间\"");
+        expect(workbench).toContain("if (!created.length) {");
+        expect(workbench).toContain("但后续同步失败");
+        expect(workbench).toContain("同步主体系统");
+        expect(workbench).toContain("const worldSubjectIdSet = computed(() => new Set(worldSubjects.value.map((subject) => subject.id)));");
+        expect(workbench).toContain("const selectedRegisteredSubjectIds = computed(() => selectedSubjectIds.value.filter((subjectId) => worldSubjectIdSet.value.has(subjectId)));");
+        expect(workbench).toContain("if (focusedSubjectId.value && worldSubjectIdSet.value.has(focusedSubjectId.value)) {");
+        expect(workbench).toContain("return selectedRegisteredSubjectIds.value.at(-1) ?? focusedSubjectId.value ?? selectedSubjectIds.value.at(-1) ?? \"\";");
+        expect(workbench).toContain("return worldSubjects.value[0]?.id ?? \"world\";");
+        expect(workbench).toContain("主体 ${subjectName} 尚未接入 World Engine。请先同步主体系统");
+        expect(workbench).toContain("当前 Project 还没有 World Engine subject。请先创建 subject 或同步主体系统。");
+        expect(workbench).toContain("const pendingSubjectTimelineNoticePrefix = \"待接入 subject 暂无 World Engine 时间线\";");
+        expect(workbench).toContain("const pendingSubjectIds = subjectIds.filter((subjectId) => !worldSubjectIdSet.value.has(subjectId));");
+        expect(workbench).toContain("const registeredSubjectIds = subjectIds.filter((subjectId) => worldSubjectIdSet.value.has(subjectId));");
+        expect(workbench).toContain([
+            "if (!subjectIds.length && subjectFilterMode.value !== \"any\") {",
+            "        subjectFilterMode.value = \"any\";",
+            "    }",
+        ].join("\n"));
+        expect(workbench).toContain([
+            "selectedSubjectIds.value = selectedSubjectIds.value.filter((subjectId) => subjectIdSet.has(subjectId));",
+            "    if (!selectedSubjectIds.value.length) {",
+            "        subjectFilterMode.value = \"any\";",
+            "    }",
+        ].join("\n"));
+        expect(workbench).toContain("const switchedSubjectFilterMode = pendingSubjectIds.length > 0 && subjectFilterMode.value === \"all\";");
+        expect(workbench).toContain("subjectFilterMode.value = \"any\";");
+        expect(workbench).toContain("包含待接入 subject 时已切回“任一 subject”过滤");
+        expect(workbench).toContain("if (mode === \"all\" && pendingSubjectIds.length) {");
+        expect(workbench).toContain("暂不能使用“全部 subject”过滤");
+        expect(workbench).toContain("if (mode !== subjectFilterMode.value) {");
+        expect(workbench).toContain("highlightedMutationFocus.value = null;");
+        expect(workbench).toContain([
+            "sliceHealthFilter.value = \"draft\";",
+            "    selectedSubjectIds.value = [];",
+            "    subjectFilterMode.value = \"any\";",
+        ].join("\n"));
+        expect(workbench).toContain("if (subjectIds.length && !registeredSubjectIds.length) {");
+        expect(workbench).toContain("focusedSubjectId.value = subjectIds.at(-1) ?? \"\";");
+        expect(workbench).toContain("请先使用左侧“同步主体系统”，或选择已注册 subject。");
+        expect(workbench).toContain("ProjectRagOverviewDto");
+        expect(workbench).toContain("worldSubjects");
+        expect(workbench).toContain("mergeWorldWorkbenchSubjectsWithSubjectSystem");
+        expect(workbench).toContain("buildWorldWorkbenchSubjectSystemSummariesFromRagOverview");
+        expect(workbench).toContain("subjectSystemOverview");
+        expect(workbench).toContain(":subject-system-summaries=\"subjectSystemSummaries\"");
+        expect(workbench).toContain(":teleport-target=\"false\"");
+        expect(workbench).toContain("--we-bg-canvas: var(--bg-main);");
+        expect(workbench).toContain("--we-bg-panel: var(--bg-panel);");
+        expect(workbench).toContain("--we-accent: var(--accent-main);");
+        expect(workbench).toContain("--we-accent-soft: var(--accent-bg);");
+        expect(workbench).toContain("world-engine-workbench-theme");
+        expect(workbench).toContain("--we-info: var(--status-info);");
+        expect(workbench).toContain("--we-success: var(--status-success);");
+        expect(workbench).toContain("--we-success-soft: var(--status-success-bg);");
+        expect(workbench).toContain("--we-warning: var(--status-warning);");
+        expect(workbench).toContain("--we-warning-border: var(--status-warning-border);");
+        expect(workbench).toContain("--we-danger: var(--status-danger);");
+        expect(workbench).toContain("--we-danger-border: var(--status-danger-border);");
+        expect(workbench).toContain("--we-code-bg: var(--source-bg);");
+        expect(workbench).toContain("syncStatusDotClass");
+        expect(workbench).toContain("bg-[var(--we-success)]");
+        expect(workbench).toContain("border-[var(--we-danger-border)] bg-[var(--we-danger-soft)]");
+        expect(workbench).toContain("border-[var(--we-success-border)] bg-[var(--we-success-soft)]");
+        expect(workbench).not.toContain("--we-bg-canvas: #f6f8f7");
+        expect(workbench).not.toContain("--we-bg-panel: #ffffff");
+        expect(workbench).not.toContain("--we-accent: #078768");
+        expect(workbench).not.toContain("--we-warning: #b86b00");
+        expect(workbench).not.toContain("color-mix(in srgb, #f59e0b 48%");
+        expect(workbench).not.toContain("color-mix(in srgb, #ef4444 14%");
+        expect(workbench).not.toContain("--bg-main: var(--we-bg-canvas)");
+        expect(workbench).not.toContain("--accent-main: var(--we-accent)");
+        expect(workbench).not.toContain("bg-amber-50 px");
+        expect(workbench).not.toContain("hover:bg-amber-100");
+        expect(workbench).not.toContain("bg-white px-1.5");
+        expect(workbench).not.toContain("bg-rose-500");
+        expect(workbench).not.toContain("bg-emerald-500");
+        expect(workbench).not.toContain("border-amber-300");
+        expect(workbench).toContain("CreateSubjectResultDto");
+        expect(workbench).toContain("subjectResult.issues");
+        expect(workbench).toContain("resetWorkbenchSessionState");
+        expect(workbench).toContain("selectedSliceId.value = \"\"");
+        expect(workbench).toContain("selectedSubjectIds.value = []");
+        expect(workbench).toContain("issueTriageStates");
+        expect(workbench).toContain("transientIssues");
+        expect(workbench).toContain("metadataDraftSummaries");
+        expect(workbench).toContain("valueDraftSummaries");
+        expect(workbench).toContain("const actionIssues = [...subjectResult.issues, ...result.issues]");
+        expect(workbench).toContain("method: \"DELETE\"");
+        expect(workbench).toContain("await refreshWorldForCurrentTimeline({autoSelectSlice: false, preferredSliceId: nextDraftSliceId || undefined});");
+        expect(workbench).toContain("options.autoSelectSlice === false");
+        expect(workbench).toContain("@click=\"void refreshWorldForCurrentTimeline()\"");
+        expect(workbench).not.toContain("?? slices.value[0] ?? null");
+        expect(workbenchPreviewSliceList).toContain("if (!props.selectedSliceId) {");
+        expect(workbench).toContain("find((slice) => !isWorldWorkbenchSubjectSystemMaintenanceSlice(slice))");
+        expect(workbench).not.toContain(removedToken("pending", "Rese", "ttle"));
+        expect(workbench).not.toContain(removedToken("rese", "ttle", "PendingTimeline"));
+        expect(workbench).not.toContain("WorldEngineTimeline");
+        expect(workbench).not.toContain("WorldEngineStateSummary");
+        expect(workbench).not.toContain("WorldEngineSliceInspector");
+        expect(workbench).not.toContain("activeTab");
+        expect(workbench).not.toContain("localStorage");
+        expect(workbench).not.toContain("mockWorkbench");
+        expect(workbench).toContain("seedDemoWorld");
+        expect(realWorkbenchUtil).toContain("normalizeWorldWorkbenchSlices");
+        expect(realWorkbenchUtil).toContain("buildWorldWorkbenchEditSliceBody");
+        expect(realWorkbenchUtil).toContain("buildWorldWorkbenchReviewQueueItems");
+        expect(realWorkbenchUtil).toContain("worldWorkbenchSubjectSystemAttrs");
+        expect(realWorkbenchUtil).toContain("buildWorldWorkbenchSubjectSystemSummaries");
+        expect(realWorkbenchUtil).toContain("buildWorldWorkbenchSubjectSystemSummariesFromRagOverview");
+        expect(realWorkbenchUtil).toContain("mergeWorldWorkbenchSubjectsWithSubjectSystem");
+        expect(realWorkbenchUtil).toContain("pending-world-subject");
+        expect(realWorkbenchUtil).toContain("simulation-subjects-overview");
+        expect(realWorkbenchUtil).toContain("subjectFiles");
+        expect(realWorkbenchUtil).toContain("actorImportPath");
+        expect(realWorkbenchUtil).toContain("ragIndexSources");
+        expect(workbenchPreviewSidebar).toContain("subjectSystemSummaries");
+        expect(workbenchPreviewSidebar).toContain("主体系统");
+        expect(workbenchPreviewSidebar).toContain("待接入");
+        expect(workbenchPreviewSidebar).toContain("controlledBy");
+        expect(workbenchPreviewSidebar).toContain("legacyKind");
+        expect(workbenchPreviewSidebar).toContain("eventCount");
+        expect(workbenchPreviewSidebar).toContain("memoryCount");
+        expect(workbenchPreviewInspector).toContain("subject-system-summary");
+        expect(workbenchPreviewInspector).toContain("来自 simulation/subjects 的真实主体系统摘要");
+        expect(workbenchPreviewInspector).toContain("path only");
+        expect(realWorkbenchUtil).toContain("persistedWorldWorkbenchIssueKey");
+        expect(realWorkbenchUtil).toContain("worldWorkbenchIssueIdentity");
+        expect(mutationEditor).toContain("parseMutationJson");
+        expect(mutationEditor).toContain("defaultMutationForPreviewAttr");
+        expect(mutationEditor).toContain("defaultValueForPreviewAttr");
+        expect(mutationEditor).toContain("resolvePreviewAttrPath");
+        expect(mutationEditor).toContain("WorldEngineMutationBuilder");
+        expect(mutationEditor).toContain("WorldEngineMutationEditorHeader");
+        expect(mutationEditor).toContain("WorldEngineSliceDraftForm");
+        expect(mutationEditor).toContain("const initialSubjectId = props.selectedSubjectId || props.subjects[0]?.id || \"world\";");
+        expect(mutationEditor).toContain("defaultMutationForPreviewSubject");
+        expect(mutationEditor).toContain("const initialMutation = defaultMutationForPreviewSubject(props.schema?.subjectTypes ?? [], props.subjects, initialSubjectId);");
+        expect(mutationEditor).toContain("usedTimes?: string[];");
+        expect(mutationEditor).toContain("(e: \"savingChange\", saving: boolean): void;");
+        expect(mutationEditor).toContain("emit(\"savingChange\", true);");
+        expect(mutationEditor).toContain("emit(\"savingChange\", false);");
+        expect(mutationEditor).toContain("if (!props.projectPath || props.busy || saving.value) {");
+        expect(mutationEditor).toContain("if (props.busy || saving.value) {\n        return;\n    }\n    if (hasDirtyDraft.value) {");
+        expect(mutationEditor).toContain("if (props.busy || saving.value) {\n        return;\n    }\n    pendingLoadSelectedSlice.value = false;");
+        expect(mutationEditor).toContain("if (props.busy || saving.value) {\n        return;\n    }\n    if (hasDirtyDraft.value && import.meta.client");
+        expect(mutationEditor).toContain("newSliceKey: number;");
+        expect(mutationEditor).toContain("watch(() => props.newSliceKey, (key) => {");
+        expect(mutationEditor).toContain("clearEditMode();");
+        expect(mutationEditor).toContain("function updateBuilderField(field: \"subjectId\" | \"attr\" | \"op\" | \"value\", value: string): void {\n    if (saving.value) {");
+        expect(mutationEditor).toContain("function addBuilderMutation(mode: \"append\" | \"replace\"): void {\n    if (saving.value) {");
+        expect(mutationEditor).toContain("function loadMutationToBuilder(index: number, silent = false): void {\n    if (saving.value) {");
+        expect(mutationEditor).toContain("function updateObjectBuilderRow(index: number, patch: Partial<ObjectBuilderRow>): void {\n    if (saving.value) {");
+        expect(mutationEditor).toContain("suggestNextPreviewTime");
+        expect(mutationEditor).toContain("time: suggestedNewSliceTime()");
+        expect(mutationEditor).toContain("function suggestedNewSliceTime(extraUsedTimes: string[] = []): string");
+        expect(mutationEditor).toContain("return suggestNextPreviewTime(examples, usedTimes);");
+        expect(mutationEditor).toContain("(e: \"dirtyChange\", dirty: boolean): void;");
+        expect(mutationEditor).toContain("watch(hasDirtyDraft, (dirty) => {");
+        expect(mutationEditor).toContain("emit(\"dirtyChange\", dirty);");
+        expect(mutationEditor).toContain("当前编辑器有未保存草稿，确定切换到新建模式吗？");
+        expect(mutationEditor).toContain("mutations: defaultSliceMutations(initialSubjectId)");
+        expect(mutationEditor).toContain("subjectId: initialMutation.subjectId");
+        expect(mutationEditor).toContain("attr: initialMutation.attr");
+        expect(mutationEditor).toContain("op: initialMutation.op");
+        expect(mutationEditor).toContain("function applyDefaultSliceMutation(subjectId: string): void");
+        expect(mutationEditor).toContain("mutationBuilder.subjectId = mutation.subjectId");
+        expect(mutationEditor).toContain("applyDefaultSliceMutation(subjectId);");
+        expect(mutationEditor).toContain("applyDefaultSliceMutation(props.selectedSubjectId || mutationBuilder.subjectId || \"world\");");
+        expect(mutationEditor).toContain("continueAfterSave: boolean");
+        expect(mutationEditor).toContain("contextSubjectId: string");
+        expect(mutationEditor).toContain("const continueAfterSave = options.continueAfterSave === true && !editing;");
+        expect(mutationEditor).toContain("sliceForm.time = suggestedNewSliceTime([savedTime]);");
+        expect(mutationEditor).toContain("const defaultForSelected = selectedSubjectId ? defaultMutationForPreviewSubject(props.schema?.subjectTypes ?? [], props.subjects, selectedSubjectId) : null;");
+        expect(mutationEditor).toContain("const keepSelectedContext = Boolean(");
+        expect(mutationEditor).toContain("const contextSubjectId = keepSelectedContext ? selectedSubjectId : lastMutation?.subjectId || selectedSubjectId || mutationBuilder.subjectId || \"world\";");
+        expect(mutationEditor).toContain("applyDefaultSliceMutation(contextSubjectId);");
+        expect(mutationEditor).toContain("const lastContinueSaveNotice = ref(\"\");");
+        expect(mutationEditor).toContain("上一条已写入 ${result.sliceId}");
+        expect(mutationEditor).toContain("data-testid=\"slice-composer-continue-save-notice\"");
+        expect(mutationEditor).toContain("function suggestedNewSliceTime(extraUsedTimes: string[] = []): string");
+        expect(mutationEditor).toContain("const usedTimes = [...(props.usedTimes ?? []), ...extraUsedTimes];");
+        expect(mutationEditor).toContain(":show-continue-action=\"!editingSliceId\"");
+        expect(mutationEditor).toContain(":disabled=\"saving\"");
+        expect(mutationEditor).toContain("@submit-and-continue=\"submitSlice({continueAfterSave: true})\"");
+        expect(mutationEditor).toContain("mutations: WorldSliceMutationDto[]");
+        expect(mutationEditor).toContain("emit(\"saved\", {result, time: savedTime, editing, continueAfterSave, contextSubjectId, mutations: parsed.value});");
+        expect(sliceDraftForm).toContain("showContinueAction: boolean;");
+        expect(sliceDraftForm).toContain("(e: \"submit-and-continue\"): void;");
+        expect(sliceDraftForm).toContain(":disabled=\"saving\"");
+        expect(sliceDraftForm).toContain("写入并继续下一步");
+        expect(mutationEditor).toContain("const wasClean = !hasDirtyDraft.value;");
+        expect(mutationEditor).toContain("if (wasClean) {");
+        expect(mutationEditor).toContain("markCleanSliceForm();");
+        expect(mutationEditor).toContain(":state-result=\"props.stateResult\"");
+        expect(mutationEditor).toContain("updateBuilderField");
+        expect(mutationEditor).toContain("updateObjectBuilderRow");
+        expect(mutationEditor).toContain("addBuilderMutation");
+        expect(mutationEditor).toContain("insertAfterSelectedBuilderMutation");
+        expect(mutationEditor).toContain("duplicateSelectedBuilderMutation");
+        expect(mutationEditor).toContain("insertMutationAfter");
+        expect(mutationEditor).toContain("duplicateMutationAt");
+        expect(mutationEditor).toContain("replaceSelectedBuilderMutation");
+        expect(mutationEditor).toContain("deleteSelectedBuilderMutation");
+        expect(mutationEditor).toContain("moveSelectedBuilderMutation");
+        expect(mutationEditor).toContain("buildMutationFromBuilder");
+        expect(mutationEditor).toContain("mutationValidation");
+        expect(mutationEditor).toContain("const sliceValidation = computed(() => {");
+        expect(mutationEditor).toContain("time 不能为空");
+        expect(mutationEditor).toContain("sliceValidation.value.ok");
+        expect(mutationEditor).toContain(":validation-ok=\"sliceValidation.ok\"");
+        expect(mutationEditor).toContain("mutationLoadOptions");
+        expect(mutationEditor).toContain("updateMutationLoadIndex");
+        expect(mutationEditor).toContain("loadMutationToBuilder");
+        expect(mutationEditor).toContain("String(next.length - 1)");
+        expect(mutationEditor).toContain("mutationLoadOptions.value.length");
+        expect(mutationBuilder).toContain("Mutation Builder");
+        expect(mutationBuilder).toContain("builderValueHint");
+        expect(mutationBuilder).toContain("WorldEngineMutationListControls");
+        expect(mutationBuilder).toContain("WorldEngineMutationActionButtons");
+        expect(mutationBuilder).toContain("WorldEngineObjectValueEditor");
+        expect(mutationBuilder).toContain("disabled?: boolean;");
+        expect(mutationBuilder).toContain("<fieldset class=\"m-0 border-0 p-0 disabled:opacity-70\" :disabled=\"props.disabled\">");
+        expect(mutationBuilder).toContain("collectionValueOptions");
+        expect(mutationBuilder).toContain("collectionRemoveValueOptions");
+        expect(mutationBuilder).toContain("syncCollectionRemoveValue");
+        expect(mutationBuilder).toContain("从当前 State Query 结果中选择要移除的 collection 项");
+        expect(mutationBuilder).toContain("update-builder-field");
+        expect(mutationBuilder).toContain("update-object-row");
+        expect(mutationBuilder).toContain("update-mutation-load-index");
+        expect(mutationBuilder).toContain("add-mutation");
+        expect(mutationBuilder).toContain("insert-after-selected-mutation");
+        expect(mutationBuilder).toContain("duplicate-selected-mutation");
+        expect(mutationBuilder).toContain("replace-selected-mutation");
+        expect(mutationBuilder).toContain("delete-selected-mutation");
+        expect(mutationBuilder).toContain("move-selected-mutation");
+        expect(mutationBuilder).toContain("load-mutation");
+        expect(mutationListControls).toContain("mutationLoadOptions");
+        expect(mutationListControls).toContain("载入");
+        expect(mutationListControls).toContain("上移所选 mutation");
+        expect(mutationListControls).toContain("下移所选 mutation");
+        expect(mutationListControls).toContain("move-selected-mutation");
+        expect(mutationListControls).toContain("load-mutation");
+        expect(mutationActionButtons).toContain("canUseSelectedMutation");
+        expect(mutationActionButtons).toContain("add-mutation");
+        expect(mutationActionButtons).toContain("insert-after-selected-mutation");
+        expect(mutationActionButtons).toContain("duplicate-selected-mutation");
+        expect(mutationActionButtons).toContain("replace-selected-mutation");
+        expect(mutationActionButtons).toContain("delete-selected-mutation");
+        expect(mutationActionButtons).toContain("追加");
+        expect(mutationActionButtons).toContain("插入其后");
+        expect(mutationActionButtons).toContain("复制所选");
+        expect(mutationActionButtons).toContain("替换所选");
+        expect(mutationActionButtons).toContain("删除所选");
+        expect(mutationActionButtons).toContain("替换全部");
+        expect(objectValueEditor).toContain("objectBuilderRows");
+        expect(objectValueEditor).toContain("Object Value");
+        expect(objectValueEditor).toContain("Object Fields");
+        expect(objectValueEditor).toContain("row.enabled");
+        expect(objectValueEditor).toContain("启用字段");
+        expect(objectValueEditor).toContain("add-object-row");
+        expect(objectValueEditor).toContain("remove-object-row");
+        expect(objectValueEditor).toContain("update-object-row");
+        expect(objectValueEditor).toContain("objectFieldValueMode(row.key) === 'number'");
+        expect(objectValueEditor).toContain("objectFieldValueMode(row.key) === 'boolean'");
+        expect(objectValueEditor).toContain("objectFieldValueMode(row.key) === 'enum'");
+        expect(objectValueEditor).toContain("objectFieldValueMode(row.key) === 'ref'");
+        expect(objectValueEditor).toContain("objectFieldValueMode(row.key) === 'json'");
+        expect(objectValueEditor).toContain("嵌套 object 字段需要填写 JSON 对象");
+        expect(mutationBuilder).toContain("builderValueMode === 'number'");
+        expect(mutationBuilder).toContain("builderValueMode === 'boolean'");
+        expect(mutationBuilder).toContain("builderValueMode === 'enum'");
+        expect(mutationBuilder).toContain("builderValueMode === 'ref'");
+        expect(mutationBuilder).toContain("builderValueMode === 'object'");
+        expect(mutationBuilder).toContain("builderValueMode === 'json'");
+        expect(mutationBuilder).toContain("当前 value 需要填写 JSON object");
+        expect(mutationBuilder).toContain("attr path, e.g. equipment.weapon / memory.师门");
+        expect(mutationEditor).toContain("/api/projects/world-engine/slices");
+        expect(mutationEditor).toContain("/edit");
+        expect(mutationEditor).toContain("hasDirtyDraft");
+        expect(mutationEditorHeader).toContain("Edit Timeline");
+        expect(mutationEditorHeader).toContain("载入所选 Slice");
+        expect(mutationEditorHeader).toContain("新建模式");
+        expect(mutationEditorHeader).toContain("放弃草稿并载入");
+        expect(mutationEditorHeader).toContain("busy: boolean;");
+        expect(mutationEditorHeader).toContain(":disabled=\"!hasSelectedSlice || saving || busy\"");
+        expect(mutationEditorHeader).toContain(":disabled=\"saving || busy\"");
+        expect(mutationEditorHeader).toContain("load-selected-slice");
+        expect(mutationEditorHeader).toContain("clear-edit-mode");
+        expect(mutationEditorHeader).toContain("discard-draft-and-load-selected-slice");
+        expect(sliceDraftForm).toContain("Slice 草稿表单");
+        expect(sliceDraftForm).toContain("update:time");
+        expect(sliceDraftForm).toContain("update:mutations");
+        expect(sliceDraftForm).toContain("validationMessage");
+        expect(sliceDraftForm).toContain("i-lucide-send");
+        expect(sliceDraftForm).toContain("<slot></slot>");
+        expect(mutationEditor).toContain("builderValueMode");
+        expect(mutationEditor).toContain("builderValueHint");
+        expect(mutationEditor).toContain("${attr.kind}<${valueType}>");
+        expect(mutationEditor).toContain("enumValueOptions");
+        expect(mutationEditor).toContain("refValueOptions");
+        expect(mutationEditor).toContain("objectBuilderRows");
+        expect(mutationEditor).toContain("addObjectBuilderRow");
+        expect(mutationEditor).toContain("syncObjectRowsToBuilderValue");
+        expect(mutationEditor).toContain("objectHasFixedFields");
+        expect(mutationEditor).toContain("objectFieldValueMode");
+        expect(mutationEditor).toContain("const key = rowKey.trim()");
+        expect(mutationEditor).toContain("!key");
+        expect(mutationEditor).toContain("attr.itemType");
+        expect(mutationEditor).toContain("defaultObjectFieldValue(attr)");
+        expect(mutationEditor).toContain("return \"json\"");
+        expect(mutationEditor).toContain("parseJsonObjectBuilderValue");
+        expect(mutationEditor).toContain("valueType === \"object\"");
+        expect(mutationEditor).toContain("mutation value 必须是 JSON object");
+        expect(mutationEditor).toContain("必须是 JSON object");
+        expect(mutationEditor).toContain("objectFieldRefOptions");
+        expect(subjectCreator).toContain("Create Subject");
+        expect(subjectCreator).toContain("/api/projects/world-engine/subjects");
+        expect(subjectCreator).toContain("$fetch<CreateSubjectResultDto>");
+        expect(subjectCreator).toContain("issues: result.issues");
+        expect(subjectCreator).toContain("const formDisabled = computed(() => props.busy || creating.value);");
+        expect(subjectCreator).toContain("body: requestBody");
+        expect(subjectCreator).toContain("type: requestBody.type");
+        expect(subjectCreator).toContain("form.id = \"\";");
+        expect(subjectCreator).toContain("form.name = \"\";");
+        expect(subjectCreator).toContain("const lastAppliedDefaultTime = ref(\"\");");
+        expect(subjectCreator).toContain("function resetFormForProject(): void");
+        expect(subjectCreator).toContain("form.id = \"world\";");
+        expect(subjectCreator).toContain("form.name = \"世界\";");
+        expect(subjectCreator).toContain("if (!form.time || form.time === lastAppliedDefaultTime.value) {");
+        expect(subjectCreator).toContain("watch(() => props.projectPath, () => {");
+        expect(subjectCreator).toContain("<fieldset class=\"space-y-2 disabled:opacity-60\" :disabled=\"formDisabled\">");
+        expect(sliceInspector).toContain("selectedSliceSubjectIds");
+        expect(sliceInspector).toContain("查询此时状态");
+        expect(sliceInspector).toContain("查询切面主体");
+        expect(sliceInspector).toContain("delete-slice");
+        expect(sliceInspector).toContain("selectedSlice.issues");
+        expect(sliceInspector).toContain("i-lucide-user-round");
+        expect(sliceInspector).toContain("i-lucide-trash-2");
+        expect(sliceInspector).toContain("aria-label=\"删除 slice\"");
+        expect(sliceInspector).toContain("删除");
+        expect(sliceInspector).toContain("query-at-slice");
+        expect(sliceInspector).toContain("query-slice-subjects");
+        expect(stateSummary).toContain("stateAttrEntries");
+        expect(stateSummary).toContain("formatStateAttrValue");
+        expect(stateSummary).toContain("Query 返回");
+        expect(stateSummary).toContain("attrs</span>");
+        expect(timeline).toContain("timelineOnlySelectedSubject");
+        expect(timeline).toContain("timelineSearchText");
+        expect(timeline).toContain("timelineSliceSearchText");
+        expect(timeline).toContain("timelineEmptyText");
+        expect(timeline).toContain("visibleSlices");
+        expect(timeline).toContain("totalIssueCount");
+        expect(timeline).toContain("slice.issues");
+        expect(timeline).toContain("搜索 title / time / summary / mutation");
+        expect(timeline).toContain("没有匹配当前搜索条件的 slice");
+        expect(timeline).toContain("当前 subject");
+        expect(timeline).toContain("edit-slice");
+        expect(timeline).toContain("aria-label=\"编辑 slice\"");
+        expect(timeline).toContain("编辑");
+        expect(timeline).toContain("seed-demo");
+    });
+
+    it("真实 Workbench util 保留完整 mutation 并合并 transient issue", () => {
+        const apiSlices: WorldSliceDto[] = [
+            {
+                id: "slice-a",
+                time: "复兴纪元 1 年 1 月 1 日 08:00",
+                title: "初始化",
+                summary: "创建世界",
+                kind: "init",
+            },
+            {
+                id: "slice-b",
+                time: "复兴纪元 1 年 1 月 1 日 09:00",
+                title: "旧剑磨损",
+                summary: "艾莉娜进入东塔",
+                kind: "event",
+                mutations: [
+                    {subjectId: "old-sword", attr: "durability", op: "set", value: 80},
+                    {subjectId: "erina", attr: "events", op: "listAppend", value: "进入东塔"},
+                ],
+                issues: [
+                    {code: "masked", subjectId: "old-sword", attr: "durability", message: "后续 set 覆盖当前值", sliceId: "slice-b"},
+                ],
+            },
+        ];
+        const normalized = normalizeWorldWorkbenchSlices(apiSlices);
+        expect(normalized[0]?.mutations).toEqual([]);
+        expect(normalized[0]?.issues).toEqual([]);
+
+        const mergedTimeline = mergeWorldWorkbenchTimelineSlice(normalized, {
+            id: "slice-middle",
+            previousTime: "复兴纪元 1 年 1 月 1 日 08:00",
+            time: "复兴纪元 1 年 1 月 1 日 08:30",
+            title: "中间补切片",
+            summary: "",
+            kind: "event",
+            mutations: [],
+            issues: [],
+        });
+        expect(mergedTimeline.map((slice) => slice.id)).toEqual(["slice-a", "slice-middle", "slice-b"]);
+
+        const editBody = buildWorldWorkbenchEditSliceBody(normalized[1] as WorldWorkbenchPreviewSlice, {title: "旧剑重新评估"}, [
+            {sliceId: "slice-b", mutationIndex: 0, value: 82},
+        ]);
+        expect(editBody).toMatchObject({
+            time: "复兴纪元 1 年 1 月 1 日 09:00",
+            title: "旧剑重新评估",
+            summary: "艾莉娜进入东塔",
+            kind: "event",
+        });
+        expect(editBody.mutations).toEqual([
+            {subjectId: "old-sword", attr: "durability", op: "set", value: 82},
+            {subjectId: "erina", attr: "events", op: "listAppend", value: "进入东塔"},
+        ]);
+
+        const triage = new Map<string, WorldWorkbenchPreviewIssueTriageState["status"]>();
+        const items = buildWorldWorkbenchReviewQueueItems({
+            slices: normalized,
+            transientIssues: [
+                {
+                    attr: "hp",
+                    code: "broken-relative",
+                    issueIndex: 0,
+                    key: "transient:hp",
+                    message: "add 没有基准",
+                    sliceId: "slice-b",
+                    sliceTime: "复兴纪元 1 年 1 月 1 日 09:00",
+                    sliceTitle: "旧剑磨损",
+                    subjectId: "erina",
+                },
+            ],
+            triageStatus: triage,
+        });
+        expect(items.map((item) => item.code)).toEqual(["masked", "broken-relative"]);
+        expect(items.every((item) => item.status === "open")).toBe(true);
+
+        triage.set(items[0]?.key ?? "", "confirmed");
+        expect(items[1]?.identity).toBeTruthy();
+        triage.set(items[1]?.identity ?? "", "ignored");
+        const reorderedItems = buildWorldWorkbenchReviewQueueItems({
+            slices: [{
+                ...(normalized[1] as WorldWorkbenchPreviewSlice),
+                issues: [
+                    {code: "broken-relative", subjectId: "erina", attr: "hp", message: "add 没有基准", sliceId: "slice-b"},
+                    {code: "masked", subjectId: "old-sword", attr: "durability", message: "后续 set 覆盖当前值", sliceId: "slice-b"},
+                ],
+            }],
+            transientIssues: [],
+            triageStatus: triage,
+        });
+        expect(reorderedItems.map((item) => `${item.code}:${item.status}`)).toEqual(["broken-relative:ignored", "masked:confirmed"]);
+    });
+
+    it("真实 Workbench util 用主体系统 overview 补齐待接入 subject", () => {
+        const overview = {
+            projectPath: "workspace/demo",
+            subjects: [
+                {
+                    subjectPath: "simulation/subjects/player",
+                    subjectId: "player",
+                    metadata: {
+                        id: "player",
+                        name: "薇洛丝",
+                        kind: "player",
+                        profile: "simulator.actor",
+                        controlledBy: "user",
+                        canonicalSource: "reference/card.md",
+                        frontmatterError: null,
+                    },
+                    eventCount: 7,
+                    memoryCount: 3,
+                    subjectFileExists: true,
+                    soulFileExists: true,
+                    mindFileExists: true,
+                    stateFileExists: true,
+                    sourceStatuses: [
+                        {source: "events" as const, status: "dirty" as const, recordCount: 6, indexedAt: null, lastError: null},
+                        {source: "memory" as const, status: "synced" as const, recordCount: 3, indexedAt: "2026-01-01T00:00:00.000Z", lastError: null},
+                    ],
+                    errors: [],
+                },
+                {
+                    subjectPath: "simulation/subjects/sample-npc",
+                    subjectId: "sample-npc",
+                    metadata: {
+                        id: "sample-npc",
+                        name: "示例 NPC",
+                        kind: "npc",
+                        profile: "simulator.actor",
+                        controlledBy: "simulator",
+                        canonicalSource: null,
+                        frontmatterError: null,
+                    },
+                    eventCount: 1,
+                    memoryCount: 1,
+                    subjectFileExists: true,
+                    soulFileExists: true,
+                    mindFileExists: true,
+                    stateFileExists: true,
+                    sourceStatuses: [],
+                    errors: [],
+                },
+            ],
+        };
+        const worldSubjects = [{id: "world", type: "world", name: "世界"}];
+
+        const merged = mergeWorldWorkbenchSubjectsWithSubjectSystem({overview, worldSubjects});
+        expect(merged.map((subject) => subject.id)).toEqual(["world", "player"]);
+        expect(merged.find((subject) => subject.id === "player")).toMatchObject({name: "薇洛丝", type: "character"});
+
+        const summaries = buildWorldWorkbenchSubjectSystemSummariesFromRagOverview({overview, worldSubjects});
+        expect(summaries).toHaveLength(1);
+        expect(summaries[0]).toMatchObject({
+            canonicalSource: "reference/card.md",
+            controlledBy: "user",
+            displayName: "薇洛丝",
+            eventCount: 7,
+            legacyKind: "player",
+            memoryCount: 3,
+            sourcePath: "simulation/subjects/player",
+            subjectId: "player",
+            syncStatus: "pending-world-subject",
+        });
+        expect(summaries[0]?.sourceStatuses.map((status) => `${status.source}:${status.status}`)).toEqual(["events:dirty", "memory:synced"]);
+
+        const linked = mergeWorldWorkbenchSubjectsWithSubjectSystem({
+            overview,
+            worldSubjects: [
+                {id: "player", type: "character", name: "旧名"},
+            ],
+        });
+        expect(linked).toEqual([{id: "player", type: "character", name: "薇洛丝"}]);
+    });
+});

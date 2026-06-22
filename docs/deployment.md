@@ -4,7 +4,7 @@ NeuroBook 默认面向本地或单机部署。正式 release 主线采用 Produc
 
 ## 发布模型
 
-- Product Payload：预构建应用本体，包含 `.output/`、运行资产、SQLite migrations、产品脚本、`release-meta.json` 和 `.output/server/node_modules` Nitro vendor。
+- Product Payload：预构建应用本体，包含 `package.json`、`.output/`、运行资产、SQLite migrations、产品脚本和 `.output/server/node_modules` Nitro vendor。
 - Platform Launcher：平台启动壳，负责初始化运行状态、迁移数据库、创建管理员、启动服务和后续更新。Windows Launcher 是第一版落地。
 - 运行状态：`workspace/`、`.env`、`config.yaml` 和 SQLite 数据库属于用户数据，升级时保留，不随 Product Payload 覆盖。
 
@@ -58,9 +58,9 @@ bun .output/server/scripts/deploy/product-start.mjs
 - TSX profile artifact 会 bundle 第三方包；用户 profile 在 product 内编译后运行时不需要产品根 `node_modules`。
 - `product/assets/workspace/.nbook/agent/scripts/workspace.ts` 是 launcher，真实执行入口是 `product/.output/server/scripts/agent/workspace.ts`；`agent/bin/workspace(.cmd)`、`profile(.cmd)`、`variable(.cmd)` 也遵循同一 product/source 双入口解析。Product 分支使用 Bun 直接执行 `.output/server/scripts/**`。
 - `.output/server/node_modules/nbook` 是产品内 runtime source 包，负责解析脚本和 worker 中的 `nbook/*` 导入，不回退到开发机源码或根 `node_modules`。
-- `release-meta.json` 是产品版本接口优先读取的构建期版本元数据；通用 `.output` runner 无根 `node_modules` 时可回退到 `.output/server/release-meta.json`，`versionKind` 固定为 `release`，构建来源记录在 `sourceKind`。
+- `package.json.version` 是产品版本接口优先读取的版本真相源；通用 `.output` runner 无根 `node_modules` 时可回退到 `.output/server/package.json`。Windows portable 桥接版仍在 `app/release-meta.json` 放 deprecated 占位文件，只用于旧 Launcher 更新校验。
 
-当前本地验收已覆盖 `product/` 隔离运行和 Windows Product Portable zip 解压运行：避开仓库父级源码和根 `node_modules` 后，通过了 profile status/compile、Profile Workbench HTTP `/api/agent/profiles/compile` dry-run、HTTP `/api/agent/profiles/compile-all`、workspace project create/validate、workspace node validate、SQLite migration、管理员创建、Windows Launcher 启动、Windows Launcher 自动更新 fake-release smoke、Product/zip 内 agent bin wrapper、`product:start` 启动、登录和 `/api/app/version` release metadata smoke。
+当前本地验收已覆盖 `product/` 隔离运行和 Windows Product Portable zip 解压运行：避开仓库父级源码和根 `node_modules` 后，通过了 profile status/compile、Profile Workbench HTTP `/api/agent/profiles/compile` dry-run、HTTP `/api/agent/profiles/compile-all`、workspace project create/validate、workspace node validate、SQLite migration、管理员创建、Windows Launcher 启动、Windows Launcher 自动更新 fake-release smoke、Product/zip 内 agent bin wrapper、`product:start` 启动、登录和 `/api/app/version` package version smoke。
 
 ## Windows Product Portable
 
@@ -150,7 +150,7 @@ ghcr.io/notnotype/neuro-book:latest
 
 `ghcr` 模式仍会把 `workspace/` 挂载为持久目录。Provider key、管理员用户、Project Workspace 和 SQLite 数据都保存在本机运行状态中。
 
-GHCR app 镜像保留源码目录用于排障，但运行合同遵循 Product Docker：final runner 使用 Bun runtime，服务入口、启动前 user-assets 同步、SQLite migration 和管理员脚本都从预构建 `.output/server/scripts/**` 运行，依赖由 `.output/server/node_modules` Nitro vendor 承载。部署机和容器启动时不执行 `bun install`，也不要求根 `node_modules`。GHCR final runner 可不带根 `release-meta.json`；Product Runtime 判定和版本接口会在无根 `node_modules` 时读取 `.output/server/release-meta.json`。
+GHCR app 镜像保留源码目录用于排障，但运行合同遵循 Product Docker：final runner 使用 Bun runtime，服务入口、启动前 user-assets 同步、SQLite migration 和管理员脚本都从预构建 `.output/server/scripts/**` 运行，依赖由 `.output/server/node_modules` Nitro vendor 承载。部署机和容器启动时不执行 `bun install`，也不要求根 `node_modules`。Product Runtime 判定会在无根 `node_modules` 时使用 `.output/server/package.json`，版本接口优先读取可用的 package manifest。
 
 ## Source Docker
 

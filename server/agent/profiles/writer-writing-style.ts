@@ -3,12 +3,14 @@ import path from "node:path";
 import {z} from "zod";
 import {assetResolver} from "nbook/server/assets/asset-resolver";
 import {parseFrontmatterDocument} from "nbook/server/utils/frontmatter-document";
+import type {ProfileHomeFacade} from "nbook/server/agent/profiles/profile-home";
 
-export const DEFAULT_WRITING_STYLE_PRESET = "reborn-villain-loli-magic-girl.first-three-chapters.style";
+export const DEFAULT_WRITING_STYLE_PRESET = "styles/reborn-villain-loli-magic-girl.first-three-chapters.style.md";
+const LEGACY_DEFAULT_WRITING_STYLE_PRESET = "reborn-villain-loli-magic-girl.first-three-chapters.style";
 
 const WRITING_STYLE_DIR_CANDIDATES = [
-    path.join(assetResolver.systemRoot, "agent", "writing-presets", "styles"),
-    path.join(assetResolver.userRoot, "agent", "writing-presets", "styles"),
+    path.join(assetResolver.systemRoot, "agent", "profiles", "builtin", "writer.home", "styles"),
+    path.join(assetResolver.userRoot, "agent", "profiles", "builtin", "writer.home", "styles"),
 ] as const;
 
 const WritingStyleFrontmatterSchema = z.object({
@@ -34,7 +36,7 @@ type WritingStyleFile = {
 };
 
 /**
- * 从 agent/writing-presets/styles 目录自动发现 Markdown 文风预设。
+ * 从 writer profile 默认 home 资源目录自动发现 Markdown 文风预设。
  */
 export async function loadWritingStylePresets(candidates: readonly string[] = WRITING_STYLE_DIR_CANDIDATES): Promise<WritingStyleDefinition[]> {
     const styleFiles = await listMergedWritingStyleFiles(candidates);
@@ -58,10 +60,22 @@ export async function loadWritingStylePresets(candidates: readonly string[] = WR
 /**
  * 构造 writer 文风提示词。
  */
-export async function buildWritingStyle(input: {preset?: WritingStylePreset} = {}): Promise<string> {
+export async function buildWritingStyle(input: {preset?: WritingStylePreset; home?: ProfileHomeFacade} = {}): Promise<string> {
     const preset = input.preset ?? DEFAULT_WRITING_STYLE_PRESET;
+    if (input.home) {
+        const homeKey = normalizeStyleHomeKey(preset);
+        const content = await input.home.readText(homeKey);
+        const parsed = parseFrontmatterDocument(content, WritingStyleFrontmatterSchema.partial());
+        const label = parsed.metadata.label ?? homeKey;
+        const key = parsed.metadata.key ?? homeKey;
+        return [
+            `<writing_style preset="${escapeXmlAttribute(label)}" key="${escapeXmlAttribute(key)}" source="${escapeXmlAttribute(parsed.metadata.sourcePreset ?? "profile-home")}">`,
+            parsed.body.trim() ? parsed.body.trim() : "空",
+            "</writing_style>",
+        ].join("\n");
+    }
     const styles = await loadWritingStylePresets();
-    const style = styles.find((item) => item.key === preset);
+    const style = styles.find((item) => item.key === preset || legacyStyleKeyToHomeKey(item.key) === preset);
     if (!style) {
         throw new Error(`Unknown writing style preset: ${preset}`);
     }
@@ -70,6 +84,18 @@ export async function buildWritingStyle(input: {preset?: WritingStylePreset} = {
         style.content.trim() ? style.content.trim() : "空",
         "</writing_style>",
     ].join("\n");
+}
+
+export function legacyStyleKeyToHomeKey(key: string): string {
+    return `styles/${key}.md`;
+}
+
+export function homeStyleKeyToLegacyKey(key: string): string {
+    return key.replace(/^styles\//u, "").replace(/\.md$/u, "") || LEGACY_DEFAULT_WRITING_STYLE_PRESET;
+}
+
+export function normalizeStyleHomeKey(key: string): string {
+    return key.includes("/") ? key : legacyStyleKeyToHomeKey(key);
 }
 
 async function listMergedWritingStyleFiles(candidates: readonly string[]): Promise<WritingStyleFile[]> {

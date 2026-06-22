@@ -1751,14 +1751,14 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
      * 确保至少存在一个默认 Project Workspace，并刷新本地小说列表。
      */
     const ensureDefaultNovel = async (): Promise<NovelListItemDto[]> => {
-        let list = await loadNovels();
+        let list = await loadNovels(currentNovelId.value ? {includeProjectPath: currentNovelId.value} : undefined);
         if (list.length > 0) {
             return list;
         }
 
         const novelId = await createDefaultWorkspace();
         currentNovelId.value = novelId;
-        list = await loadNovels();
+        list = await loadNovels({includeProjectPath: currentNovelId.value});
         return list;
     };
 
@@ -1953,8 +1953,9 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
     /**
      * 加载小说列表。
      */
-    const loadNovels = async (): Promise<NovelListItemDto[]> => {
-        const list = await $fetch<NovelListItemDto[]>("/api/projects");
+    const loadNovels = async (options: {includeProjectPath?: string} = {}): Promise<NovelListItemDto[]> => {
+        const query = options.includeProjectPath ? {includeProjectPath: options.includeProjectPath} : undefined;
+        const list = await $fetch<NovelListItemDto[]>("/api/projects", {query});
         novels.value = list;
         return list;
     };

@@ -3,7 +3,6 @@ import {storeToRefs} from "pinia";
 import type {SelectOption} from "nbook/app/components/common/form/FormSelect.vue";
 import Dialog from "nbook/app/components/common/Dialog.vue";
 import FormSelect from "nbook/app/components/common/form/FormSelect.vue";
-import NovelIdeAgentProfileDefaultSettingsPanel from "nbook/app/components/novel-ide/settings/NovelIdeAgentProfileDefaultSettingsPanel.vue";
 import NovelIdeAgentProfileModelSettingsPanel from "nbook/app/components/novel-ide/settings/NovelIdeAgentProfileModelSettingsPanel.vue";
 import NovelIdeCostSettingsPanel from "nbook/app/components/novel-ide/settings/NovelIdeCostSettingsPanel.vue";
 import NovelIdeEmbeddingSettingsPanel from "nbook/app/components/novel-ide/settings/NovelIdeEmbeddingSettingsPanel.vue";
@@ -15,7 +14,7 @@ import type {IdeTheme} from "nbook/app/utils/theme/theme-tokens";
 import type {MarkdownStudioViewMode} from "nbook/app/composables/useMarkdownStudioController";
 import {DEFAULT_MARKDOWN_EDITOR_PREFERENCES, DEFAULT_MONACO_EDITOR_PREFERENCES, type MarkdownEditorPreferences, type MonacoEditorPreferences} from "nbook/shared/editor-workbench";
 
-type SettingsSection = "frontend" | "editor" | "models" | "embedding" | "cost" | "web-tools" | "agent-profile-defaults" | "agent-profile-models";
+type SettingsSection = "frontend" | "editor" | "models" | "embedding" | "cost" | "web-tools" | "agent-profile-models";
 type SettingsScope = "global" | "project" | "browser";
 type AppVersionKind = "release" | "tag" | "commit" | "package";
 
@@ -51,8 +50,8 @@ const {
     monacoEditorPreferences,
 } = storeToRefs(novelIdeStore);
 
-const activeSection = ref<SettingsSection>("frontend");
-const activeScope = ref<SettingsScope>("browser");
+const activeSection = ref<SettingsSection>("models");
+const activeScope = ref<SettingsScope>("global");
 const targetNovelId = ref("");
 const appVersion = ref<AppVersionDto | null>(null);
 const appVersionPending = ref(false);
@@ -60,7 +59,6 @@ const modelSettingsPanelRef = ref<SettingsSavePanelExpose | null>(null);
 const embeddingSettingsPanelRef = ref<SettingsSavePanelExpose | null>(null);
 const costSettingsPanelRef = ref<SettingsSavePanelExpose | null>(null);
 const webSettingsPanelRef = ref<SettingsSavePanelExpose | null>(null);
-const agentProfileDefaultSettingsPanelRef = ref<SettingsSavePanelExpose | null>(null);
 const agentProfileModelSettingsPanelRef = ref<SettingsSavePanelExpose | null>(null);
 
 const frontendSectionItems = computed<Array<{value: SettingsSection; label: string; description: string; iconClass: string}>>(() => [
@@ -101,12 +99,6 @@ const frontendSectionItems = computed<Array<{value: SettingsSection; label: stri
         iconClass: "i-lucide-search-code",
     },
     {
-        value: "agent-profile-defaults",
-        label: t("settings.section.agentProfileDefaults.label"),
-        description: t("settings.section.agentProfileDefaults.description"),
-        iconClass: "i-lucide-route",
-    },
-    {
         value: "agent-profile-models",
         label: t("settings.section.agentProfileModels.label"),
         description: t("settings.section.agentProfileModels.description"),
@@ -135,8 +127,8 @@ const scopeOptions = computed<Array<{value: SettingsScope; label: string; descri
     },
 ]);
 
-const globalConfigSections: SettingsSection[] = ["models", "embedding", "cost", "web-tools", "agent-profile-defaults", "agent-profile-models"];
-const projectConfigSections: SettingsSection[] = ["models", "embedding", "web-tools", "agent-profile-defaults", "agent-profile-models"];
+const globalConfigSections: SettingsSection[] = ["models", "embedding", "cost", "web-tools", "agent-profile-models"];
+const projectConfigSections: SettingsSection[] = ["models", "embedding", "web-tools", "agent-profile-models"];
 const browserSections: SettingsSection[] = ["frontend", "editor"];
 
 const themeOptions: SelectOption[] = [
@@ -261,8 +253,6 @@ const activeSavePanel = computed<SettingsSavePanelExpose | null>(() => {
             return costSettingsPanelRef.value;
         case "web-tools":
             return webSettingsPanelRef.value;
-        case "agent-profile-defaults":
-            return agentProfileDefaultSettingsPanelRef.value;
         case "agent-profile-models":
             return agentProfileModelSettingsPanelRef.value;
         case "frontend":
@@ -311,18 +301,14 @@ async function saveActivePanel(): Promise<void> {
 }
 
 /**
- * 有未保存修改时阻止切换配置目标、设置分区或关闭弹窗。
+ * 设置页允许直接离开 dirty 草稿；只在加载或保存中阻止切换。
  */
 function canLeaveCurrentPanel(): boolean {
     if (activeSaveLoading.value || activeSaveSaving.value) {
         notification.info(activeSaveSaving.value ? t("settings.feedback.saving") : t("settings.feedback.loading"));
         return false;
     }
-    if (!activeSaveDirty.value) {
-        return true;
-    }
-    notification.warning(t("settings.feedback.dirty"));
-    return false;
+    return true;
 }
 
 /**
@@ -337,7 +323,7 @@ function selectScope(scope: SettingsScope): void {
     }
     if (scope === "project" && novelIdeStore.workspaceKind === "user-assets") {
         activeScope.value = "global";
-        activeSection.value = "agent-profile-defaults";
+        activeSection.value = "models";
         return;
     }
     activeScope.value = scope;
@@ -346,7 +332,7 @@ function selectScope(scope: SettingsScope): void {
 }
 
 /**
- * 选择配置分区；保存型面板有未保存修改时先阻止卸载。
+ * 选择配置分区；dirty 草稿会随面板切换自然丢弃。
  */
 function selectSection(section: SettingsSection): void {
     if (section === activeSection.value) {
@@ -496,7 +482,7 @@ watch(() => props.modelValue, (open) => {
     targetNovelId.value = novelIdeStore.currentNovelId || novelIdeStore.novels[0]?.id || "";
     if (novelIdeStore.workspaceKind === "user-assets" && activeScope.value === "project") {
         activeScope.value = "global";
-        activeSection.value = "agent-profile-defaults";
+        activeSection.value = "models";
     }
 }, {immediate: true});
 
@@ -851,11 +837,6 @@ watch(activeScope, alignActiveSectionToScope, {immediate: true});
                         <!-- Web 工具设定 -->
                         <div v-else-if="activeSection === 'web-tools'" key="web-tools">
                             <NovelIdeWebSettingsPanel ref="webSettingsPanelRef" :key="`web-tools:${settingsPanelKey}`" :target-query="targetQuery" :target-label="targetLabel" />
-                        </div>
-
-                        <!-- 默认 Profile 设定 -->
-                        <div v-else-if="activeSection === 'agent-profile-defaults'" key="agent-profile-defaults">
-                            <NovelIdeAgentProfileDefaultSettingsPanel ref="agentProfileDefaultSettingsPanelRef" :key="`defaults:${settingsPanelKey}`" :scope="activeScope === 'project' ? 'project' : 'global'" :target-query="targetQuery" :target-label="targetLabel" />
                         </div>
 
                         <!-- Agent Profile 模型设定 -->

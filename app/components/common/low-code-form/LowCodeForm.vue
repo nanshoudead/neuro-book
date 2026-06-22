@@ -4,13 +4,13 @@ import LowCodeComboboxField from "nbook/app/components/common/low-code-form/LowC
 import LowCodeFieldShell from "nbook/app/components/common/low-code-form/LowCodeFieldShell.vue";
 import LowCodeNumberField from "nbook/app/components/common/low-code-form/LowCodeNumberField.vue";
 import LowCodeRadioField from "nbook/app/components/common/low-code-form/LowCodeRadioField.vue";
+import LowCodeResourcePresetField from "nbook/app/components/common/low-code-form/LowCodeResourcePresetField.vue";
 import LowCodeSelectField from "nbook/app/components/common/low-code-form/LowCodeSelectField.vue";
 import LowCodeSwitchField from "nbook/app/components/common/low-code-form/LowCodeSwitchField.vue";
 import LowCodeTextareaField from "nbook/app/components/common/low-code-form/LowCodeTextareaField.vue";
 import LowCodeTextField from "nbook/app/components/common/low-code-form/LowCodeTextField.vue";
 import {
     deleteLowCodePath,
-    formatLowCodeValue,
     hasLowCodePath,
     readLowCodePath,
     setLowCodePath,
@@ -21,29 +21,36 @@ import type {
     LowCodeFormIssueDto,
     LowCodeJsonObject,
     LowCodeJsonValue,
+    LowCodeResourceMutationDto,
 } from "nbook/shared/dto/low-code-form.dto";
 
 type LowCodeFormScope = "global" | "project";
+type LowCodeFormInheritanceMode = "manual" | "always-override";
 
 const props = withDefaults(defineProps<{
     form: LowCodeFormDto;
     modelValue: LowCodeJsonObject;
     issues?: LowCodeFormIssueDto[];
     scope?: LowCodeFormScope;
+    inheritanceMode?: LowCodeFormInheritanceMode;
     inheritedValue?: LowCodeJsonObject;
     overridePaths?: string[];
+    resourceMutations?: LowCodeResourceMutationDto[];
     disabled?: boolean;
 }>(), {
     issues: () => [],
     scope: "global",
+    inheritanceMode: "manual",
     inheritedValue: () => ({}),
     overridePaths: () => [],
+    resourceMutations: () => [],
     disabled: false,
 });
 
 const emit = defineEmits<{
     (e: "update:modelValue", value: LowCodeJsonObject): void;
     (e: "update:overridePaths", value: string[]): void;
+    (e: "update:resourceMutations", value: LowCodeResourceMutationDto[]): void;
 }>();
 
 const {t} = useI18n();
@@ -52,6 +59,9 @@ const {t} = useI18n();
  * 判断当前字段在 Project Config 中是否为覆盖态。
  */
 function isOverridden(field: LowCodeFieldDto): boolean {
+    if (props.inheritanceMode === "always-override") {
+        return true;
+    }
     return props.overridePaths.includes(field.path);
 }
 
@@ -83,7 +93,7 @@ function fieldValue(field: LowCodeFieldDto): LowCodeJsonValue | undefined {
  */
 function updateField(field: LowCodeFieldDto, value: LowCodeJsonValue): void {
     emit("update:modelValue", setLowCodePath(props.modelValue, field.path, value));
-    if (props.scope === "project" && !isOverridden(field)) {
+    if (props.scope === "project" && props.inheritanceMode === "manual" && !isOverridden(field)) {
         emit("update:overridePaths", [...props.overridePaths, field.path]);
     }
 }
@@ -95,6 +105,7 @@ function setOverrideMode(field: LowCodeFieldDto, mode: "inherit" | "override"): 
     if (mode === "inherit") {
         emit("update:modelValue", deleteLowCodePath(props.modelValue, field.path));
         emit("update:overridePaths", props.overridePaths.filter((path) => path !== field.path));
+        emit("update:resourceMutations", props.resourceMutations.filter((mutation) => mutation.fieldPath !== field.path));
         return;
     }
     if (isOverridden(field)) {
@@ -150,7 +161,24 @@ function fieldHasPatch(field: LowCodeFieldDto): boolean {
  * 读取字段禁用状态。
  */
 function fieldDisabled(field: LowCodeFieldDto): boolean {
-    return props.disabled || (props.scope === "project" && !isOverridden(field) && !fieldHasPatch(field));
+    if (props.disabled || field.component === "resource-preset" && props.scope !== "project") {
+        return true;
+    }
+    if (props.scope === "project" && props.inheritanceMode === "manual") {
+        return !isOverridden(field) && !fieldHasPatch(field);
+    }
+    return false;
+}
+
+function fieldResourceMutations(field: LowCodeFieldDto): LowCodeResourceMutationDto[] {
+    return props.resourceMutations.filter((mutation) => mutation.fieldPath === field.path);
+}
+
+function updateFieldResourceMutations(field: LowCodeFieldDto, mutations: LowCodeResourceMutationDto[]): void {
+    emit("update:resourceMutations", [
+        ...props.resourceMutations.filter((mutation) => mutation.fieldPath !== field.path),
+        ...mutations,
+    ]);
 }
 </script>
 
@@ -158,7 +186,7 @@ function fieldDisabled(field: LowCodeFieldDto): boolean {
     <div class="grid gap-4">
         <LowCodeFieldShell v-for="field in props.form.fields" :key="field.path" :field="field" :issues="issuesForField(field)">
             <template #actions>
-                <div v-if="props.scope === 'project'" class="flex shrink-0 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] p-0.5">
+                <div v-if="props.scope === 'project' && props.inheritanceMode === 'manual'" class="flex shrink-0 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] p-0.5">
                     <button
                         type="button"
                         class="h-6 rounded px-2 text-[11px] transition-colors"
@@ -186,10 +214,8 @@ function fieldDisabled(field: LowCodeFieldDto): boolean {
             <LowCodeComboboxField v-else-if="field.component === 'combobox'" :field="field" :model-value="fieldValue(field)" :disabled="fieldDisabled(field)" @update:model-value="updateField(field, $event)" />
             <LowCodeRadioField v-else-if="field.component === 'radio'" :field="field" :model-value="fieldValue(field)" :disabled="fieldDisabled(field)" @update:model-value="updateField(field, $event)" />
             <LowCodeCheckboxField v-else-if="field.component === 'checkbox'" :field="field" :model-value="fieldValue(field)" :disabled="fieldDisabled(field)" @update:model-value="updateField(field, $event)" />
+            <LowCodeResourcePresetField v-else-if="field.component === 'resource-preset'" :field="field" :model-value="fieldValue(field)" :disabled="fieldDisabled(field)" :mutations="fieldResourceMutations(field)" @update:model-value="updateField(field, $event)" @update:mutations="updateFieldResourceMutations(field, $event)" />
 
-            <p v-if="props.scope === 'project' && !isOverridden(field)" class="text-[11px] text-[var(--text-muted)]">
-                {{ t("settings.panels.profileModels.inheritedCurrent", {value: formatLowCodeValue(hasLowCodePath(props.inheritedValue, field.path) ? readLowCodePath(props.inheritedValue, field.path) : fieldDefaultValue(field))}) }}
-            </p>
         </LowCodeFieldShell>
     </div>
 </template>

@@ -4,6 +4,7 @@ import {createSqlTool} from "nbook/server/agent/tools/sql-tool";
 import {createSubjectMemoryTools} from "nbook/server/agent/tools/subject-memory-tools";
 import {createTaskTools} from "nbook/server/agent/tools/task-tools";
 import {createWebTools} from "nbook/server/agent/tools/web-tools";
+import {createWorldEngineTools} from "nbook/server/agent/tools/world-engine-tools";
 import {agentCollaborationTools} from "nbook/server/agent/tools/agent-collaboration-tools";
 import {controlTools} from "nbook/server/agent/tools/control-tools";
 import {createVariableTools} from "nbook/server/agent/variables/tools";
@@ -19,6 +20,7 @@ function buildAgentTools() {
     const plotTools = definitionsByKey(createPlotTools());
     const variableTools = definitionsByKey(createVariableTools());
     const webTools = definitionsByKey(createWebTools());
+    const worldEngineTools = definitionsByKey(createWorldEngineTools());
     const subjectMemoryTools = definitionsByKey(createSubjectMemoryTools());
     const sqlTool = defineAgentToolFromRuntime(createSqlTool());
     return {
@@ -48,6 +50,14 @@ function buildAgentTools() {
         subjectRagSearch: requireDefinition(subjectMemoryTools, "subject_rag_search"),
         subjectEventAppend: requireDefinition(subjectMemoryTools, "subject_event_append"),
         subjectMemoryUpdate: requireDefinition(subjectMemoryTools, "subject_memory_update"),
+        getWorldState: requireDefinition(worldEngineTools, "get_world_state"),
+        listWorldSlices: requireDefinition(worldEngineTools, "list_world_slices"),
+        writeWorldSlice: requireDefinition(worldEngineTools, "write_world_slice"),
+        editWorldSlice: requireDefinition(worldEngineTools, "edit_world_slice"),
+        deleteWorldSlice: requireDefinition(worldEngineTools, "delete_world_slice"),
+        createWorldSubject: requireDefinition(worldEngineTools, "create_world_subject"),
+        getWorldSchema: requireDefinition(worldEngineTools, "get_world_schema"),
+        listWorldSubjects: requireDefinition(worldEngineTools, "list_world_subjects"),
         webSearch: requireDefinition(webTools, "web_search"),
         webFetch: requireDefinition(webTools, "web_fetch"),
         ...controlTools,

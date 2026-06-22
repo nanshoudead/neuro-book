@@ -33,4 +33,4 @@ ext: {}
 
 ## 使用方式
 
-确认内容稳定后，由 leader、retrieval、writer handoff 或 `agent-context/{profile}/context.md` 决定是否读取或传递给相关 profile。
+确认内容稳定后，由 leader、retrieval、writer handoff 或 `agents/{profile}/context.md` 决定是否读取或传递给相关 profile。

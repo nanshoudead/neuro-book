@@ -12,6 +12,7 @@ import {
     LowCodeFormDtoSchema,
     LowCodeFormIssueDtoSchema,
     LowCodeJsonObjectSchema,
+    LowCodeResourceMutationDtoSchema,
 } from "nbook/shared/dto/low-code-form.dto";
 
 const JsonValueSchema: z.ZodType<unknown> = z.lazy(() => z.union([
@@ -91,7 +92,12 @@ export const ConfigWorkspaceQueryDtoSchema = ConfigWorkspaceQueryBaseDtoSchema.s
 
 export const ConfigEditorSnapshotQueryDtoSchema = ConfigWorkspaceQueryBaseDtoSchema.extend({
     includeAgentProfileSettings: ConfigQueryBooleanFlagSchema,
+    agentProfileSettingsScope: z.enum(["global", "project"]).optional(),
 }).superRefine(refineConfigWorkspaceQuery);
+
+export const ConfigProfileHomeResetRequestDtoSchema = z.object({
+    profileKey: ProfileKeySchema,
+});
 
 export const ConfigModelProviderOptionsDtoSchema = z.object({
     apiKey: SecretConfigValueDtoSchema,
@@ -144,6 +150,7 @@ export const ConfigAgentProfileSettingsDtoSchema = z.object({
     agentProfiles: z.array(z.object({
         profileKey: ProfileKeySchema,
         name: z.string().trim().min(1),
+        canResetHome: z.boolean().default(false),
         model: AgentProfileModelConfigDtoSchema,
         settings: z.object({
             form: LowCodeFormDtoSchema,
@@ -205,6 +212,7 @@ export const EditorConfigDtoSchema = z.object({
 export const ConfigAgentProfileMapDtoSchema = z.record(z.string(), z.object({
     model: AgentProfileModelConfigDtoSchema.partial().default({}),
     settings: LowCodeJsonObjectSchema.optional(),
+    resourceMutations: z.array(LowCodeResourceMutationDtoSchema).optional(),
 })).default({});
 
 export const WebConfigDtoSchema = z.object({
@@ -303,7 +311,9 @@ export type ConfigItemMetaDto = z.infer<typeof ConfigItemMetaDtoSchema>;
 export type ConfigWorkspaceQueryDto = z.infer<typeof ConfigWorkspaceQueryDtoSchema>;
 export type ConfigEditorSnapshotQueryDto = ConfigWorkspaceQueryDto & {
     includeAgentProfileSettings: boolean;
+    agentProfileSettingsScope?: "global" | "project";
 };
+export type ConfigProfileHomeResetRequestDto = z.infer<typeof ConfigProfileHomeResetRequestDtoSchema>;
 export type ConfigModelSettingsDto = z.infer<typeof ConfigModelSettingsDtoSchema>;
 export type EmbeddingServiceConfigDto = z.infer<typeof EmbeddingServiceConfigDtoSchema>;
 export type EmbeddingProjectConfigDto = z.infer<typeof EmbeddingProjectConfigDtoSchema>;

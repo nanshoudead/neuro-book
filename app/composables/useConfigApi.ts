@@ -11,10 +11,12 @@ import type {PiBuiltinCatalogDto} from "nbook/shared/dto/app-settings.dto";
 
 type ConfigEditorSnapshotOptions = {
     includeAgentProfileSettings?: boolean;
+    agentProfileSettingsScope?: "global" | "project";
 };
 
 type ConfigEditorSnapshotQueryParams = ConfigWorkspaceQueryDto & {
     includeAgentProfileSettings?: "true";
+    agentProfileSettingsScope?: "global" | "project";
 };
 
 /**
@@ -81,6 +83,7 @@ export function useConfigApi() {
         return {
             ...query,
             includeAgentProfileSettings: "true",
+            ...(options.agentProfileSettingsScope ? {agentProfileSettingsScope: options.agentProfileSettingsScope} : {}),
         };
     }
 
@@ -136,6 +139,23 @@ export function useConfigApi() {
     }
 
     /**
+     * 重置 Project Workspace 中指定 profile 的 profile home，并返回完整 Agent Profile settings 快照。
+     */
+    async function resetProfileHome(
+        profileKey: string,
+        query: ConfigWorkspaceQueryDto = projectQuery(),
+    ): Promise<ConfigEditorSnapshotDto> {
+        return $fetch<ConfigEditorSnapshotDto>("/api/config/profile-home/reset", {
+            method: "POST",
+            query: editorSnapshotQuery(query, {
+                includeAgentProfileSettings: true,
+                agentProfileSettingsScope: "project",
+            }),
+            body: {profileKey},
+        });
+    }
+
+    /**
      * 读取 Pi 内置 Provider/Model 目录。
      */
     async function piModelCatalog(): Promise<PiBuiltinCatalogDto> {
@@ -163,6 +183,7 @@ export function useConfigApi() {
         editorSnapshot,
         saveGlobal,
         saveProject,
+        resetProfileHome,
         piModelCatalog,
         exchangeRate,
     };

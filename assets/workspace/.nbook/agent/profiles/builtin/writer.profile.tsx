@@ -8,9 +8,10 @@ import {WriterInitialSchema, WriterOutputSchema, WriterPayloadSchema} from "nboo
 import {AppendingSet, HistorySet, If, Import, Message, ProfilePrompt, System} from "nbook/server/agent/profiles/profile-dsl";
 import type {ProfilePrepareContext} from "nbook/server/agent/profiles/types";
 import {profileText} from "nbook/server/agent/profiles/profile-text";
-import {DEFAULT_WRITING_REFERENCE_PRESET, buildWritingReference, loadWritingReferencePresets} from "nbook/server/agent/profiles/writer-writing-reference";
-import {DEFAULT_WRITING_STYLE_PRESET, buildWritingStyle, loadWritingStylePresets} from "nbook/server/agent/profiles/writer-writing-style";
-import {defineLowCodeForm} from "nbook/server/low-code-form";
+import {DEFAULT_WRITING_REFERENCE_PRESET, buildWritingReference, legacyReferenceKeyToHomeKey, loadWritingReferencePresets, normalizeReferenceHomeKey} from "nbook/server/agent/profiles/writer-writing-reference";
+import {DEFAULT_WRITING_STYLE_PRESET, buildWritingStyle, legacyStyleKeyToHomeKey, loadWritingStylePresets, normalizeStyleHomeKey} from "nbook/server/agent/profiles/writer-writing-style";
+import {defineLowCodeForm, profileHomeResource} from "nbook/server/low-code-form";
+import {defineProfileHome} from "nbook/server/agent/profiles/profile-home";
 import {normalizeProjectPath, readProjectManifest} from "nbook/server/workspace-files/project-workspace";
 
 const ENABLE_KITTEN_ADULT_STYLE = false;
@@ -18,6 +19,7 @@ const ENABLE_KITTEN_ADULT_STYLE = false;
 export const profileManifest = {
     key: "writer",
     name: "正文写作",
+    version: 2,
     description: "长期可复用正文写作 agent：创建 initial 为空，每轮 invoke.message 写任务，invoke.input 指定目标 Markdown path 与建议读取上下文。写正文时不要自己写，总是优先使用 writer",
 } as const;
 
@@ -49,31 +51,25 @@ export const WriterSettingsForm = defineLowCodeForm({
     fields: [
         {
             path: "writingStylePreset",
-            component: "combobox",
+            component: "resource-preset",
             label: "文风预设",
             placeholder: "选择默认文风",
-            async options() {
-                const styles = await loadWritingStylePresets();
-                return styles.map((style) => ({
-                    value: style.key,
-                    label: style.label,
-                    description: style.sourceFile,
-                }));
-            },
+            resource: profileHomeResource({
+                directory: "styles",
+                extension: ".md",
+                template: "在这里写入文风要求。",
+            }),
         },
         {
             path: "writingReferencePreset",
-            component: "combobox",
+            component: "resource-preset",
             label: "文风参考",
             placeholder: "选择默认参考样本",
-            async options() {
-                const references = await loadWritingReferencePresets();
-                return references.map((reference) => ({
-                    value: reference.key,
-                    label: reference.label,
-                    description: reference.sourceFile,
-                }));
-            },
+            resource: profileHomeResource({
+                directory: "references",
+                extension: ".md",
+                template: "在这里写入文风参考样本。",
+            }),
         },
         {
             path: "narrativePerson",
@@ -86,16 +82,22 @@ export const WriterSettingsForm = defineLowCodeForm({
             ],
         },
     ],
-    async validate(value) {
+    async validate(value, ctx) {
         const [styles, references] = await Promise.all([
             loadWritingStylePresets(),
             loadWritingReferencePresets(),
         ]);
         const issues: Array<{path: string; severity: "error"; message: string}> = [];
-        if (!styles.some((style) => style.key === value.writingStylePreset)) {
+        const styleExists = ctx.home
+            ? await ctx.home.exists(normalizeStyleHomeKey(value.writingStylePreset))
+            : styles.some((style) => style.key === value.writingStylePreset || legacyStyleKeyToHomeKey(style.key) === value.writingStylePreset);
+        const referenceExists = ctx.home
+            ? await ctx.home.exists(normalizeReferenceHomeKey(value.writingReferencePreset))
+            : references.some((reference) => reference.key === value.writingReferencePreset || legacyReferenceKeyToHomeKey(reference.key) === value.writingReferencePreset);
+        if (!styleExists) {
             issues.push({path: "writingStylePreset", severity: "error" as const, message: "选择的文风预设不存在。"});
         }
-        if (!references.some((reference) => reference.key === value.writingReferencePreset)) {
+        if (!referenceExists) {
             issues.push({path: "writingReferencePreset", severity: "error" as const, message: "选择的文风参考不存在。"});
         }
         return issues;
@@ -109,12 +111,69 @@ type WriterPayloadTarget = {
     chapterPath: string | null;
 };
 
+async function initializeWriterHome(home: NonNullable<ProfilePrepareContext<Initial, Payload, Settings>["home"]>): Promise<void> {
+    const [styles, references] = await Promise.all([
+        loadWritingStylePresets(),
+        loadWritingReferencePresets(),
+    ]);
+    for (const style of styles) {
+        await home.writeText(legacyStyleKeyToHomeKey(style.key), renderStyleResource(style), {mode: "create"});
+    }
+    for (const reference of references) {
+        await home.writeText(legacyReferenceKeyToHomeKey(reference.key), renderReferenceResource(reference), {mode: "create"});
+    }
+}
+
+function renderStyleResource(style: Awaited<ReturnType<typeof loadWritingStylePresets>>[number]): string {
+    return [
+        "---",
+        `key: "${style.key}"`,
+        `title: "${style.label.replaceAll("\"", "\\\"")}"`,
+        `label: "${style.label.replaceAll("\"", "\\\"")}"`,
+        `sourcePreset: "${style.sourcePreset.replaceAll("\"", "\\\"")}"`,
+        `identifier: "${style.identifier.replaceAll("\"", "\\\"")}"`,
+        `name: "${style.name.replaceAll("\"", "\\\"")}"`,
+        `enabled: ${style.enabled === null ? "null" : style.enabled}`,
+        `role: ${style.role === null ? "null" : `"${style.role.replaceAll("\"", "\\\"")}"`}`,
+        "---",
+        "",
+        style.content,
+    ].join("\n");
+}
+
+function renderReferenceResource(reference: Awaited<ReturnType<typeof loadWritingReferencePresets>>[number]): string {
+    return [
+        "---",
+        `key: "${reference.key}"`,
+        `title: "${reference.label.replaceAll("\"", "\\\"")}"`,
+        `label: "${reference.label.replaceAll("\"", "\\\"")}"`,
+        `sourceTitle: "${reference.sourceTitle.replaceAll("\"", "\\\"")}"`,
+        `sourceChapters: "${reference.sourceChapters.replaceAll("\"", "\\\"")}"`,
+        `generatedFrom: "${reference.generatedFrom.replaceAll("\"", "\\\"")}"`,
+        "---",
+        "",
+        reference.content,
+    ].join("\n");
+}
+
 export default defineAgentProfile({
     manifest: profileManifest,
     initialSchema: InitialSchema,
     payloadSchema: PayloadSchema,
     outputSchema: OutputSchema,
     settingsForm: WriterSettingsForm,
+    home: defineProfileHome({
+        async init(ctx) {
+            await initializeWriterHome(ctx.home);
+        },
+        async upgrade(ctx) {
+            await initializeWriterHome(ctx.home);
+        },
+        async reset(ctx) {
+            await ctx.home.clear();
+            await initializeWriterHome(ctx.home);
+        },
+    }),
     tools: toolset(
         builtin.file.read,
         builtin.file.write,
@@ -136,8 +195,8 @@ export default defineAgentProfile({
  * 构造 writer prompt。保留 v2 的同名 helper 入口，但返回当前 v3 TSX Profile DSL。
  */
 export async function buildWriterPrompt(ctx: ProfilePrepareContext<Initial, Payload, Settings>) {
-    const writingStyle = await buildWritingStyle({preset: ctx.settings.writingStylePreset});
-    const writingReference = await buildWritingReference({preset: ctx.settings.writingReferencePreset});
+    const writingStyle = await buildWritingStyle({preset: ctx.settings.writingStylePreset, home: ctx.home});
+    const writingReference = await buildWritingReference({preset: ctx.settings.writingReferencePreset, home: ctx.home});
     const narrativePerson = narrativePersonText(ctx.settings.narrativePerson);
     const inputContext = await renderInputContext(ctx);
     return (
@@ -164,7 +223,7 @@ export async function buildWriterPrompt(ctx: ProfilePrepareContext<Initial, Payl
                             - 如果 <target_file> 是 manuscript/**/index.md，系统会给出 chapterPath；只有整章写作、续写整章或检查覆盖度时，才按需使用 get_chapter_plot。
                             - lorebookEntries 是调用方建议读取的内容节点路径。需要设定时先 read 节点 index.md，必要时 read 同级 state.md；不要机械读取全部节点。
                             - readablePaths 是调用方建议读取的普通 Markdown 文件。需要前情、草稿、提纲或参考片段时再 read。
-                            - agent-context/writer/context.md 与 agent-context/writer/generated.md 是 writer 自己的上下文记忆和程序推荐；只有任务明确要求整理或采纳这些推荐时才读取。不要读取其他 profile 的 context memory。
+                            - agents/writer/context.md 与 agents/writer/generated.md 是 writer 自己的上下文记忆和程序推荐；只有任务明确要求整理或采纳这些推荐时才读取。不要读取其他 profile 的 context memory。
                             - <writing_request> 对应 invoke_agent.message，是用户本次要求写什么、改写什么、补全什么、写到哪里停止。
                             - Agent 文件工具 cwd 是 workspace 容器根。所有工具路径必须保留 project-slug 前缀；不要使用裸 manuscript/...，也不要使用 workspace/project-slug/...。
                         </context_mapping>
@@ -311,7 +370,7 @@ export async function buildWriterPrompt(ctx: ProfilePrepareContext<Initial, Payl
                         - frontmatter.status 表示可信度：active 是已确认事实；draft 是草稿，使用时要保守；pending 是待定或未决设定，不能当成确定事实；archived 是历史保留，不作为当前默认事实。
                         - frontmatter.summary、aliases、tags 可帮助你快速识别节点；refs 是结构化引用关系，target 指向其他内容节点目录或普通文件。
                         - 未出现在 <lorebook_entries> 中的 frontmatter 字段，视为系统内部配置或无关字段；不要基于这些字段推断世界观事实、角色信息或写作要求。
-                        - 不要默认展开 god-view lorebook，也不要读取其他 profile 的 agent-context/{profile}/context.md 或 agent-context/{profile}/generated.md，例如 agent-context/leader.default/context.md、agent-context/simulator.leader/context.md。需要额外设定时，依赖调用方在 message 中给出的 writer-safe 信息或 input.context.lorebookEntries。
+                        - 不要默认展开 god-view lorebook，也不要读取其他 profile 的 agents/{profile}/context.md 或 agents/{profile}/generated.md，例如 agents/leader.default/context.md、agents/simulator.leader/context.md。需要额外设定时，依赖调用方在 message 中给出的 writer-safe 信息或 input.context.lorebookEntries。
                         - state.md 的 frontmatter 可能包含 statusNote、updatedAt、knowledge[]。statusNote 是当前状态摘要，updatedAt 是状态更新时间。
                         - knowledge[] 只说明谁知道什么、谁误解什么、谁尚不知道什么；它不是全员共享情报，也不是要求读者立刻知道全部设定。
                     </content_node_rules>

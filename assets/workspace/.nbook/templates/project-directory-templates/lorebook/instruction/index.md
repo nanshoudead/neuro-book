@@ -24,7 +24,7 @@ ext: {}
 
 ## 目录用途
 
-`lorebook/instruction/` 存储 AI 在执行创作任务时的专用指令，如"哪些内容不应直接展示"（creation-boundaries）、"如何选择检索内容"（retrieval）、"如何处理秘密披露"（disclosure）等。这些指令是作品级的创作规范，不是 profile 级的技术指导（profile 指导放入 `agent-context/`）。
+`lorebook/instruction/` 存储 AI 在执行创作任务时的专用指令，如"哪些内容不应直接展示"（creation-boundaries）、"如何选择检索内容"（retrieval）、"如何处理秘密披露"（disclosure）等。这些指令是作品级的创作规范，不是 profile 级的技术指导（profile 指导放入 `agents/`）。
 
 ## 基本结构
 

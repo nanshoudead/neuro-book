@@ -558,7 +558,7 @@ describe("AgentProfileCatalog", () => {
         systemRoot = join(productRoot, "assets", "workspace", ".nbook", "agent", "profiles");
         userRoot = join(productRoot, "workspace", ".nbook", "agent", "profiles");
         await mkdir(join(productRoot, ".output", "server"), {recursive: true});
-        await writeFile(join(productRoot, "release-meta.json"), "{}\n", "utf8");
+        await writeFile(join(productRoot, "package.json"), "{\"name\":\"neuro-book-product\",\"version\":\"0.0.0\",\"type\":\"module\"}\n", "utf8");
         await writeFile(join(productRoot, "tsconfig.json"), "{}\n", "utf8");
         await writeFile(join(productRoot, ".output", "server", "index.mjs"), "", "utf8");
         await writeProfile(systemRoot, "custom.product.profile.mjs", `
@@ -590,14 +590,14 @@ describe("AgentProfileCatalog", () => {
         expect(artifact).not.toContain("D:/a/neuro-book/");
     });
 
-    it("通用 .output Product runner 无根 release-meta 时仍从 output vendor 解析 require", async () => {
+    it("通用 .output Product runner 无根 Product package 时仍从 output vendor 解析 require", async () => {
         const productRoot = join(root, "product-output-runner");
         systemRoot = join(productRoot, "assets", "workspace", ".nbook", "agent", "profiles");
         userRoot = join(productRoot, "workspace", ".nbook", "agent", "profiles");
         await mkdir(join(productRoot, ".output", "server", "node_modules", "@nbook", "output-marker"), {recursive: true});
         await writeFile(join(productRoot, "tsconfig.json"), "{}\n", "utf8");
         await writeFile(join(productRoot, ".output", "server", "index.mjs"), "", "utf8");
-        await writeFile(join(productRoot, ".output", "server", "release-meta.json"), "{\"versionKind\":\"release\"}\n", "utf8");
+        await writeFile(join(productRoot, ".output", "server", "package.json"), "{\"name\":\"neuro-book-output\",\"version\":\"0.0.0\",\"type\":\"module\"}\n", "utf8");
         await writeFile(join(productRoot, ".output", "server", "node_modules", "@nbook", "output-marker", "index.js"), `module.exports = {marker: "output-vendor"};\n`, "utf8");
         await writeProfile(systemRoot, "custom.output.profile.mjs", `
             export default {
@@ -641,7 +641,7 @@ describe("AgentProfileCatalog", () => {
         await mkdir(join(productRoot, ".output", "server"), {recursive: true});
         await writeFile(join(productRoot, "tsconfig.json"), "{}\n", "utf8");
         await writeFile(join(productRoot, ".output", "server", "index.mjs"), "", "utf8");
-        await writeFile(join(productRoot, ".output", "server", "release-meta.json"), "{\"versionKind\":\"release\"}\n", "utf8");
+        await writeFile(join(productRoot, ".output", "server", "package.json"), "{\"name\":\"neuro-book-output\",\"version\":\"0.0.0\",\"type\":\"module\"}\n", "utf8");
         await writeProfile(systemRoot, "custom.output.profile.mjs", `
             export default {
                 manifest: { key: "custom.output", name: "Output" },
@@ -700,7 +700,7 @@ describe("AgentProfileCatalog", () => {
         await mkdir(join(productRoot, ".output", "server", "node_modules", "@nbook", "portable-marker"), {recursive: true});
         await mkdir(dataWorkspaceRoot, {recursive: true});
         await symlink(dataWorkspaceRoot, join(productRoot, "workspace"), process.platform === "win32" ? "junction" : "dir");
-        await writeFile(join(productRoot, "release-meta.json"), "{}\n", "utf8");
+        await writeFile(join(productRoot, "package.json"), "{\"name\":\"neuro-book-product\",\"version\":\"0.0.0\",\"type\":\"module\"}\n", "utf8");
         await writeFile(join(productRoot, "tsconfig.json"), "{}\n", "utf8");
         await writeFile(join(productRoot, ".output", "server", "index.mjs"), "", "utf8");
         await writeFile(join(productRoot, ".output", "server", "node_modules", "@nbook", "portable-marker", "index.js"), `module.exports = {marker: "portable-vendor"};\n`, "utf8");

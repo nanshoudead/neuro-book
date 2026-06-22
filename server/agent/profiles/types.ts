@@ -11,11 +11,13 @@ import type {AgentInvokeCaller} from "nbook/server/agent/harness/types";
 import type {ProfileTools} from "nbook/server/agent/profiles/profile-tools";
 import type {LowCodeFormDefinition} from "nbook/server/low-code-form";
 import type {LowCodeJsonObject} from "nbook/shared/dto/low-code-form.dto";
+import type {ProfileHomeDefinition, ProfileHomeFacade} from "nbook/server/agent/profiles/profile-home";
 
 export type AgentProfileManifest<TKey extends string = string> = {
     key: TKey;
     name: string;
     description?: string;
+    version?: number;
 };
 
 export type AgentProfileSourceKind = "memory" | "system" | "user";
@@ -63,6 +65,7 @@ export type AgentCatalogItem = {
     builtin: boolean;
     loadStatus: AgentProfileLoadStatus;
     hasSettingsForm: boolean;
+    canResetHome: boolean;
     issue?: AgentProfileIssue;
 };
 
@@ -104,6 +107,8 @@ export type ProfilePrepareContext<TInitial = JsonValue, TPayload = unknown, TSet
         /** prompt 模式下尚未写入 session 的本轮用户输入；continue 时为空。 */
         pendingUserMessage?: Message;
     };
+    /** 当前 Project Workspace 下的 profile home。仅 Project session / Project settings 可用。 */
+    home?: ProfileHomeFacade;
 } & ProfileSettingsContext<TSettings>;
 
 export type ProfileTurnPlan = {
@@ -196,6 +201,7 @@ export type AgentProfileDefinition<
     payloadSchema?: TPayloadSchema;
     outputSchema?: TOutputSchema;
     settingsForm?: TSettingsSchema extends TSchema ? LowCodeFormDefinition<TSettingsSchema> : undefined;
+    home?: ProfileHomeDefinition;
     tools: TTools;
     /** 主 run 实际可执行工具；不声明时等于 tools 的全部 key。sidecar 仍可声明自己的执行子集。 */
     toolKeys?: readonly (keyof TTools & string)[];

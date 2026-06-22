@@ -23,6 +23,7 @@ import {
     type SubjectRagSourceType,
 } from "nbook/server/agent/tools/subject-rag-index";
 import {normalizeProjectPath, resolveProjectAbsolutePath} from "nbook/server/workspace-files/project-workspace";
+import {parseMarkdownDocument} from "nbook/server/workspace-files/workspace-files";
 import {WORKSPACE_CONTAINER_ROOT} from "nbook/server/workspace-files/novel-workspace";
 import type {
     ProjectRagEventDeleteRequestDto,
@@ -520,25 +521,61 @@ async function listSubjectPaths(projectRoot: string): Promise<string[]> {
 
 async function readSubjectSummary(project: ReturnType<typeof resolveProject>, subjectPath: string): Promise<ProjectRagSubjectSummaryDto> {
     const subject = resolveSubject(project, subjectPath);
-    const [eventsResult, memoriesResult, sourceStatuses, subjectFileExists, mindFileExists, stateFileExists] = await Promise.all([
+    const [eventsResult, memoriesResult, sourceStatuses, subjectFileText, soulFileExists, mindFileExists, stateFileExists] = await Promise.all([
         readEvents(subject.paths.eventsPath),
         readMemories(subject.paths.memoryPath),
         readSourceStatuses(project.root, subject.paths),
-        fileExists(join(subject.paths.absolutePath, "subject.md")),
+        readTextIfExists(join(subject.paths.absolutePath, "subject.md")),
+        fileExists(join(subject.paths.absolutePath, "soul.md")),
         fileExists(join(subject.paths.absolutePath, "mind.md")),
         fileExists(join(subject.paths.absolutePath, "state.md")),
     ]);
+    const metadata = readSubjectMetadata(subjectFileText);
     return {
         subjectPath: subject.subjectPath,
         subjectId: subject.subjectId,
+        metadata,
         eventCount: eventsResult.events.length,
         memoryCount: memoriesResult.memories.length,
-        subjectFileExists,
+        subjectFileExists: subjectFileText.length > 0,
+        soulFileExists,
         mindFileExists,
         stateFileExists,
         sourceStatuses,
         errors: [...eventsResult.errors, ...memoriesResult.errors],
     };
+}
+
+function readSubjectMetadata(subjectFileText: string): ProjectRagSubjectSummaryDto["metadata"] {
+    if (!subjectFileText) {
+        return emptySubjectMetadata(null);
+    }
+    const parsed = parseMarkdownDocument(subjectFileText);
+    return {
+        id: stringFrontmatterValue(parsed.frontmatter.id),
+        name: stringFrontmatterValue(parsed.frontmatter.name),
+        kind: stringFrontmatterValue(parsed.frontmatter.kind),
+        profile: stringFrontmatterValue(parsed.frontmatter.profile),
+        controlledBy: stringFrontmatterValue(parsed.frontmatter.controlledBy),
+        canonicalSource: stringFrontmatterValue(parsed.frontmatter.canonicalSource),
+        frontmatterError: parsed.error,
+    };
+}
+
+function emptySubjectMetadata(frontmatterError: string | null): ProjectRagSubjectSummaryDto["metadata"] {
+    return {
+        id: null,
+        name: null,
+        kind: null,
+        profile: null,
+        controlledBy: null,
+        canonicalSource: null,
+        frontmatterError,
+    };
+}
+
+function stringFrontmatterValue(value: unknown): string | null {
+    return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
 async function readEvents(filePath: string): Promise<{events: SubjectEvent[]; errors: SourceError[]}> {

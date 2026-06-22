@@ -257,7 +257,7 @@ System baselines:
 
 - profiles: `assets/workspace/.nbook/agent/profiles`
 - skills: `assets/workspace/.nbook/agent/skills`
-- writing presets: `assets/workspace/.nbook/agent/writing-presets`
+- writer default home resources: `assets/workspace/.nbook/agent/profiles/builtin/writer.home`
 - variable definitions: `assets/workspace/.nbook/agent/variables`
 - templates: `assets/workspace/.nbook/templates`
 
@@ -265,7 +265,7 @@ User editable overlay:
 
 - profiles: `workspace/.nbook/agent/profiles`
 - skills: `workspace/.nbook/agent/skills`
-- writing presets: `workspace/.nbook/agent/writing-presets`
+- project writer resources: `{Project Workspace}/agents/writer`
 - variable definitions: `workspace/.nbook/agent/variables`
 - templates: `workspace/.nbook/templates`
 

@@ -35,5 +35,6 @@ export function validateConfigEditorSnapshotQuery(query: unknown): ConfigEditorS
         ...parsed.data,
         includeAgentProfileSettings: parsed.data.includeAgentProfileSettings === true
             || parsed.data.includeAgentProfileSettings === "true",
+        ...(parsed.data.agentProfileSettingsScope ? {agentProfileSettingsScope: parsed.data.agentProfileSettingsScope} : {}),
     };
 }

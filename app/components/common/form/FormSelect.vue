@@ -16,9 +16,11 @@ const props = withDefaults(defineProps<{
     options: SelectOption[];
     placeholder?: string;
     dropdownDirection?: FloatingPanelDirection;
+    disabled?: boolean;
 }>(), {
     placeholder: "",
     dropdownDirection: "auto",
+    disabled: false,
 });
 
 const emit = defineEmits<{
@@ -46,6 +48,9 @@ onClickOutside(rootRef, () => {
 });
 
 const toggle = async () => {
+    if (props.disabled) {
+        return;
+    }
     open.value = !open.value;
     if (open.value) {
         await nextTick();
@@ -54,6 +59,9 @@ const toggle = async () => {
 };
 
 const selectOption = (opt: SelectOption) => {
+    if (props.disabled) {
+        return;
+    }
     emit("update:modelValue", opt.value);
     open.value = false;
 };
@@ -63,9 +71,10 @@ const selectOption = (opt: SelectOption) => {
 <template>
     <div ref="rootRef" class="relative">
         <div
-            class="flex h-7 w-full items-center justify-between rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2.5 text-[12px] text-[var(--text-main)] outline-none cursor-pointer transition-colors hover:bg-[var(--bg-hover)] select-none"
-            :class="open ? '!border-[var(--accent-main)] ring-1 ring-[var(--accent-main)]/30' : ''"
-            tabindex="0"
+            class="flex h-7 w-full items-center justify-between rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2.5 text-[12px] text-[var(--text-main)] outline-none transition-colors select-none"
+            :class="[open ? '!border-[var(--accent-main)] ring-1 ring-[var(--accent-main)]/30' : '', props.disabled ? 'cursor-default opacity-80' : 'cursor-pointer hover:bg-[var(--bg-hover)]']"
+            :tabindex="props.disabled ? -1 : 0"
+            :aria-disabled="props.disabled"
             @focus="emit('focus', $event)"
             @click="toggle"
         >

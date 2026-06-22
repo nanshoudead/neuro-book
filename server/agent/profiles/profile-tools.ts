@@ -78,6 +78,16 @@ export const builtin = {
         eventAppend: registeredTool("subject_event_append"),
         memoryUpdate: registeredTool("subject_memory_update"),
     },
+    world: {
+        getState: registeredTool("get_world_state"),
+        listSlices: registeredTool("list_world_slices"),
+        writeSlice: registeredTool("write_world_slice"),
+        editSlice: registeredTool("edit_world_slice"),
+        deleteSlice: registeredTool("delete_world_slice"),
+        createSubject: registeredTool("create_world_subject"),
+        getSchema: registeredTool("get_world_schema"),
+        listSubjects: registeredTool("list_world_subjects"),
+    },
     web: {
         search: registeredTool("web_search"),
         fetch: registeredTool("web_fetch"),

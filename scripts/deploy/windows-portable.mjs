@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 import {createHash} from "node:crypto";
-import {createWriteStream, existsSync, readFileSync} from "node:fs";
+import {createWriteStream, existsSync} from "node:fs";
 import {cp, mkdir, readFile, readdir, realpath, rm, stat, writeFile} from "node:fs/promises";
 import {basename, dirname, join, relative, resolve} from "node:path";
 import {fileURLToPath} from "node:url";
@@ -137,7 +137,8 @@ async function assertCleanTrackedWorktree() {
 async function assertProductPayload() {
     const requiredFiles = [
         join(PRODUCT_ROOT, ".output", "server", "index.mjs"),
-        join(PRODUCT_ROOT, "release-meta.json"),
+        join(PRODUCT_ROOT, "package.json"),
+        join(PRODUCT_ROOT, ".output", "server", "package.json"),
         join(PRODUCT_ROOT, ".output", "server", "node_modules"),
     ];
     for (const path of requiredFiles) {
@@ -171,6 +172,16 @@ async function stageProductPayload(portableRoot) {
     await cp(PRODUCT_ROOT, appRoot, {recursive: true});
     await rm(join(appRoot, ".env"), {force: true});
     await rm(join(appRoot, "workspace"), {recursive: true, force: true});
+    await writeDeprecatedReleaseMetaBridge(appRoot);
+}
+
+/**
+ * 桥接旧 Windows Launcher：旧版更新校验仍要求 app/release-meta.json。
+ */
+async function writeDeprecatedReleaseMetaBridge(appRoot) {
+    await writeFile(join(appRoot, "release-meta.json"), `${JSON.stringify({
+        deprecated: true,
+    }, null, 4)}\n`, "utf8");
 }
 
 /**
@@ -307,14 +318,12 @@ async function resolveScoopBun(path) {
  */
 async function writePortableRelease(portableRoot, bunRuntime) {
     const releaseTag = process.env.GITHUB_REF_NAME ?? `v${JSON.parse(await readFile(join(REPO_ROOT, "package.json"), "utf8")).version}`;
-    const buildCommit = await runCapture("git", ["rev-parse", "HEAD"], {cwd: REPO_ROOT}).then((value) => value.trim());
     await writeFile(join(portableRoot, "portable-release.json"), `${JSON.stringify({
         releaseTag,
-        buildCommit,
         runtimeKind: "bun",
         bunVersion: bunRuntime.version,
         runtimePath: bunRuntime.path,
-        payload: readReleaseMeta(),
+        payload: await readProductPackageManifest(join(portableRoot, "app")),
         createdAt: new Date().toISOString(),
         zipSchemaVersion: ZIP_SCHEMA_VERSION,
     }, null, 4)}\n`, "utf8");
@@ -337,12 +346,13 @@ async function writePortablePackageJson(portableRoot) {
     }, null, 4)}\n`, "utf8");
 }
 
-function readReleaseMeta() {
-    return JSON.parse(readFileSyncUtf8(join(PRODUCT_ROOT, "release-meta.json")));
-}
-
-function readFileSyncUtf8(path) {
-    return new TextDecoder().decode(readFileSync(path));
+async function readProductPackageManifest(root) {
+    const manifest = JSON.parse(await readFile(join(root, "package.json"), "utf8"));
+    return {
+        name: manifest.name ?? "unknown",
+        version: manifest.version ?? "unknown",
+        repository: manifest.repository ?? null,
+    };
 }
 
 /**

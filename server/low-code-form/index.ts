@@ -8,14 +8,22 @@ import type {
     LowCodeFormDto,
     LowCodeFormIssueDto,
     LowCodeJsonObject,
+    LowCodeResourceMutationDto,
+    LowCodeResourcePresetDto,
     LowCodeJsonValue,
 } from "nbook/shared/dto/low-code-form.dto";
+import type {ProfileHomeFacade} from "nbook/server/agent/profiles/profile-home";
+import {defineResourcePreset, profileHomeResource, type ResourcePresetDefinition} from "nbook/server/low-code-form/resource-preset";
+
+export {defineResourcePreset, profileHomeResource};
 
 export type LowCodeFormResolveContext = {
     profileKey: string;
     scope: "global" | "project";
     workspaceRoot?: string;
     projectPath?: string;
+    values?: LowCodeJsonObject;
+    home?: ProfileHomeFacade;
 };
 
 export type LowCodeFieldOptionsProvider = (
@@ -36,6 +44,7 @@ export type LowCodeFieldDefinition = {
     max?: number;
     step?: number;
     integer?: boolean;
+    resource?: ResourcePresetDefinition;
 };
 
 export type LowCodeFormDefinition<TSettingsSchema extends TSchema = TSchema> = {
@@ -51,6 +60,12 @@ export type LowCodeFormDefinition<TSettingsSchema extends TSchema = TSchema> = {
 export type LowCodeFormValidationResult<TValue> = {
     value: TValue;
     issues: LowCodeFormIssueDto[];
+};
+
+export type LowCodeResourceMutationResult = {
+    fieldPath: string;
+    issues: LowCodeFormIssueDto[];
+    finalKeys?: string[];
 };
 
 /**
@@ -130,6 +145,7 @@ export async function validateLowCodeFormValue<TSettingsSchema extends TSchema>(
     const defaults = cloneJsonObject(form.defaults as LowCodeJsonObject);
     const resolvedFields = await Promise.all(form.fields.map((field) => resolveField(field, ctx, defaults)));
     issues = issues.concat(optionIssues(value as LowCodeJsonObject, resolvedFields));
+    issues = issues.concat(await resourcePresetIssues(value as LowCodeJsonObject, form.fields, ctx));
     if (form.validate) {
         issues = issues.concat([...(await form.validate(value, ctx))]);
     }
@@ -154,15 +170,18 @@ async function resolveField(
     ctx: LowCodeFormResolveContext,
     defaults: LowCodeJsonObject,
 ): Promise<LowCodeFieldDto> {
+    const {resource: _serverResource, ...serializableField} = field;
     const options = await resolveFieldOptions(field.options, ctx);
     const normalizedOptions = normalizeOptions(options);
     assertFieldOptions(field, normalizedOptions);
     const defaultValue = field.defaultValue ?? readPath(defaults, field.path);
+    const resource = field.resource ? await resolveResourcePresetField(field, ctx, defaultValue) : undefined;
     return {
-        ...field,
+        ...serializableField,
         required: field.required ?? false,
         ...(defaultValue !== undefined ? {defaultValue} : {}),
         options: normalizedOptions,
+        ...(resource ? {resource} : {}),
     };
 }
 
@@ -179,6 +198,9 @@ function assertLowCodeFormDefinition(form: LowCodeFormDefinition): void {
         paths.add(field.path);
         if (Array.isArray(field.options)) {
             assertFieldOptions(field, field.options);
+        }
+        if (field.component === "resource-preset" && !field.resource) {
+            throw new Error(`低代码 resource-preset 字段 ${field.path} 必须声明 resource resolver。`);
         }
     }
 }
@@ -293,6 +315,314 @@ function requiresOptionsValidation(component: LowCodeFieldComponentDto): boolean
         || component === "combobox"
         || component === "radio"
         || component === "checkbox";
+}
+
+async function resolveResourcePresetField(
+    field: LowCodeFieldDefinition,
+    ctx: LowCodeFormResolveContext,
+    defaultValue: LowCodeJsonValue | undefined,
+): Promise<LowCodeResourcePresetDto> {
+    if (!field.resource) {
+        throw new Error(`低代码 resource-preset 字段 ${field.path} 缺少 resource resolver。`);
+    }
+    if (ctx.scope !== "project") {
+        return {
+            contentType: field.resource.contentType,
+            options: [],
+            content: null,
+            contents: [],
+            ...(field.resource.template !== undefined ? {template: field.resource.template} : {}),
+            ...(field.resource.createKeyPrefix !== undefined ? {createKeyPrefix: field.resource.createKeyPrefix} : {}),
+            ...(field.resource.createKeySuffix !== undefined ? {createKeySuffix: field.resource.createKeySuffix} : {}),
+            capabilities: {
+                create: false,
+                update: false,
+                rename: false,
+                remove: false,
+            },
+        };
+    }
+    const options = [...await field.resource.list(ctx)];
+    const selected = readPath(ctx.values ?? {}, field.path) ?? defaultValue;
+    const selectedKey = typeof selected === "string" ? selected : options[0]?.key;
+    const contents = await Promise.all(options.map(async (option) => {
+        try {
+            return await field.resource!.read(ctx, option.key);
+        } catch {
+            return null;
+        }
+    }));
+    const availableContents = contents.filter((content): content is NonNullable<LowCodeResourcePresetDto["content"]> => Boolean(content));
+    const content = selectedKey ? availableContents.find((item) => item.key === selectedKey) ?? null : null;
+    return {
+        contentType: field.resource.contentType,
+        options: options.map((option) => ({
+            key: option.key,
+            label: option.label,
+            ...(option.description ? {description: option.description} : {}),
+            editable: option.editable ?? false,
+            deletable: option.deletable ?? false,
+        })),
+        content,
+        contents: availableContents,
+        ...(field.resource.template !== undefined ? {template: field.resource.template} : {}),
+        ...(field.resource.createKeyPrefix !== undefined ? {createKeyPrefix: field.resource.createKeyPrefix} : {}),
+        ...(field.resource.createKeySuffix !== undefined ? {createKeySuffix: field.resource.createKeySuffix} : {}),
+        capabilities: {
+            create: hasResourceKeyTemplate(field.resource) && Boolean(field.resource.create && field.resource.createKey),
+            update: Boolean(field.resource.update),
+            rename: hasResourceKeyTemplate(field.resource) && Boolean(field.resource.rename && field.resource.renameKey),
+            remove: Boolean(field.resource.remove),
+        },
+    };
+}
+
+async function resourcePresetIssues(
+    value: LowCodeJsonObject,
+    fields: readonly LowCodeFieldDefinition[],
+    ctx: LowCodeFormResolveContext,
+): Promise<LowCodeFormIssueDto[]> {
+    const issues: LowCodeFormIssueDto[] = [];
+    for (const field of fields) {
+        if (field.component !== "resource-preset" || !field.resource) {
+            continue;
+        }
+        if (ctx.scope !== "project") {
+            continue;
+        }
+        const current = readPath(value, field.path);
+        if (current === undefined || current === null || current === "") {
+            continue;
+        }
+        if (typeof current !== "string") {
+            issues.push({
+                path: field.path,
+                severity: "error",
+                code: "resource_key",
+                message: `字段 ${field.label} 必须保存资源 key。`,
+            });
+            continue;
+        }
+        const candidateKeys = [current];
+        if (!current.includes("/") && field.resource.createKeyPrefix && field.resource.createKeySuffix) {
+            const suffix = field.resource.createKeySuffix;
+            const slug = current.endsWith(suffix) ? current.slice(0, -suffix.length) : current;
+            candidateKeys.push(`${field.resource.createKeyPrefix}${slug}${suffix}`);
+        }
+        const uniqueCandidateKeys = [...new Set(candidateKeys)];
+        let valid = false;
+        if (field.resource.validateKey) {
+            for (const key of uniqueCandidateKeys) {
+                if (await field.resource.validateKey(ctx, key)) {
+                    valid = true;
+                    break;
+                }
+            }
+        } else {
+            valid = (await field.resource.list(ctx)).some((option) => uniqueCandidateKeys.includes(option.key));
+        }
+        if (!valid) {
+            issues.push({
+                path: field.path,
+                severity: "error",
+                code: "resource_key",
+                message: `字段 ${field.label} 选择的资源不存在。`,
+            });
+        }
+    }
+    return issues;
+}
+
+export async function applyLowCodeResourceMutations(
+    form: LowCodeFormDefinition,
+    mutations: readonly LowCodeResourceMutationDto[] | undefined,
+    ctx: LowCodeFormResolveContext,
+    currentValues: LowCodeJsonObject,
+): Promise<LowCodeResourceMutationResult[]> {
+    if (!mutations?.length) {
+        return [];
+    }
+    const validationResults = await validateLowCodeResourceMutations(form, mutations, ctx, currentValues);
+    if (validationResults.some((result) => result.issues.some((issue) => issue.severity === "error"))) {
+        return validationResults;
+    }
+    const results: LowCodeResourceMutationResult[] = [];
+    for (const mutation of mutations) {
+        const field = form.fields.find((item) => item.path === mutation.fieldPath);
+        if (!field?.resource) {
+            continue;
+        }
+        try {
+            await applyResourceMutation(field.resource, mutation, ctx);
+            results.push({fieldPath: field.path, issues: []});
+        } catch (error) {
+            results.push({
+                fieldPath: field.path,
+                issues: [{
+                    path: field.path,
+                    severity: "error",
+                    code: "resource_action",
+                    message: error instanceof Error ? error.message : "资源操作失败。",
+                }],
+            });
+        }
+    }
+    return results;
+}
+
+export async function validateLowCodeResourceMutations(
+    form: LowCodeFormDefinition,
+    mutations: readonly LowCodeResourceMutationDto[] | undefined,
+    ctx: LowCodeFormResolveContext,
+    currentValues: LowCodeJsonObject,
+): Promise<LowCodeResourceMutationResult[]> {
+    if (!mutations?.length) {
+        return [];
+    }
+    const states = new Map<string, Set<string>>();
+    const results: LowCodeResourceMutationResult[] = [];
+    for (const mutation of mutations) {
+        const field = form.fields.find((item) => item.path === mutation.fieldPath);
+        if (!field || field.component !== "resource-preset" || !field.resource) {
+            results.push({
+                fieldPath: mutation.fieldPath,
+                issues: [{path: mutation.fieldPath, severity: "error", code: "resource_field", message: "资源字段不存在。"}],
+            });
+            continue;
+        }
+        const state = await resourceKeyState(states, field.path, field.resource, ctx);
+        const issue = await validateResourceMutation(field, mutation, state, currentValues, ctx);
+        results.push({
+            fieldPath: field.path,
+            issues: issue ? [issue] : [],
+            finalKeys: [...state],
+        });
+    }
+    return results;
+}
+
+async function validateResourceMutation(
+    field: LowCodeFieldDefinition,
+    mutation: LowCodeResourceMutationDto,
+    state: Set<string>,
+    currentValues: LowCodeJsonObject,
+    ctx: LowCodeFormResolveContext,
+): Promise<LowCodeFormIssueDto | null> {
+    if (!field.resource) {
+        return {path: field.path, severity: "error", code: "resource_field", message: "资源字段不存在。"};
+    }
+    if (mutation.type === "create") {
+        if (!field.resource.create) return {path: field.path, severity: "error", code: "resource_action", message: "该资源不支持新建。"};
+        if (!hasResourceKeyTemplate(field.resource)) return {path: field.path, severity: "error", code: "resource_action", message: "该资源缺少可序列化 key 模板。"};
+        if (!field.resource.createKey) return {path: field.path, severity: "error", code: "resource_action", message: "该资源缺少新建 key 预校验能力。"};
+        const keyResult = await resourceCreateKey(field.resource, ctx, mutation);
+        if (typeof keyResult !== "string") return {path: field.path, severity: "error", code: "resource_key", message: keyResult.message};
+        const key = keyResult;
+        if (state.has(key)) return {path: field.path, severity: "error", code: "resource_exists", message: `资源已存在：${key}`};
+        state.add(key);
+        return null;
+    }
+    if (mutation.type === "update") {
+        if (!field.resource.update) return {path: field.path, severity: "error", code: "resource_action", message: "该资源不支持编辑。"};
+        if (!state.has(normalizeResourceMutationKey(mutation.key))) return {path: field.path, severity: "error", code: "resource_missing", message: `资源不存在：${mutation.key}`};
+        return null;
+    }
+    if (mutation.type === "rename") {
+        if (!field.resource.rename) return {path: field.path, severity: "error", code: "resource_action", message: "该资源不支持重命名。"};
+        if (!hasResourceKeyTemplate(field.resource)) return {path: field.path, severity: "error", code: "resource_action", message: "该资源缺少可序列化 key 模板。"};
+        if (!field.resource.renameKey) return {path: field.path, severity: "error", code: "resource_action", message: "该资源缺少重命名 key 预校验能力。"};
+        const oldKey = normalizeResourceMutationKey(mutation.key);
+        const keyResult = await resourceRenameKey(field.resource, ctx, mutation);
+        if (typeof keyResult !== "string") return {path: field.path, severity: "error", code: "resource_key", message: keyResult.message};
+        const nextKey = keyResult;
+        if (!state.has(oldKey)) return {path: field.path, severity: "error", code: "resource_missing", message: `资源不存在：${mutation.key}`};
+        if (state.has(nextKey)) return {path: field.path, severity: "error", code: "resource_exists", message: `资源已存在：${nextKey}`};
+        state.delete(oldKey);
+        state.add(nextKey);
+        return null;
+    }
+    if (!field.resource.remove) return {path: field.path, severity: "error", code: "resource_action", message: "该资源不支持删除。"};
+    const key = normalizeResourceMutationKey(mutation.key);
+    if (readPath(currentValues, field.path) === mutation.key) {
+        return {path: field.path, severity: "error", code: "resource_in_use", message: "不能删除当前正在使用的资源。"};
+    }
+    if (!state.has(key)) return {path: field.path, severity: "error", code: "resource_missing", message: `资源不存在：${mutation.key}`};
+    state.delete(key);
+    return null;
+}
+
+async function resourceKeyState(
+    states: Map<string, Set<string>>,
+    fieldPath: string,
+    resource: ResourcePresetDefinition,
+    ctx: LowCodeFormResolveContext,
+): Promise<Set<string>> {
+    const cached = states.get(fieldPath);
+    if (cached) {
+        return cached;
+    }
+    const state = new Set((await resource.list(ctx)).map((option) => normalizeResourceMutationKey(option.key)));
+    states.set(fieldPath, state);
+    return state;
+}
+
+async function resourceCreateKey(
+    resource: ResourcePresetDefinition,
+    ctx: LowCodeFormResolveContext,
+    mutation: Extract<LowCodeResourceMutationDto, {type: "create"}>,
+): Promise<string | {message: string}> {
+    try {
+        return normalizeResourceMutationKey(await resource.createKey!(ctx, mutation));
+    } catch (error) {
+        return {message: error instanceof Error ? error.message : "资源 key 不合法。"};
+    }
+}
+
+async function resourceRenameKey(
+    resource: ResourcePresetDefinition,
+    ctx: LowCodeFormResolveContext,
+    mutation: Extract<LowCodeResourceMutationDto, {type: "rename"}>,
+): Promise<string | {message: string}> {
+    try {
+        return normalizeResourceMutationKey(await resource.renameKey!(ctx, mutation.key, {label: mutation.label, slug: mutation.slug}));
+    } catch (error) {
+        return {message: error instanceof Error ? error.message : "资源 key 不合法。"};
+    }
+}
+
+function normalizeResourceMutationKey(key: string): string {
+    return key.trim().replaceAll("\\", "/").replace(/^\/+|\/+$/gu, "");
+}
+
+function hasResourceKeyTemplate(resource: ResourcePresetDefinition): boolean {
+    return resource.createKeyPrefix !== undefined && resource.createKeySuffix !== undefined;
+}
+
+async function applyResourceMutation(
+    resource: ResourcePresetDefinition,
+    mutation: LowCodeResourceMutationDto,
+    ctx: LowCodeFormResolveContext,
+): Promise<void> {
+    if (mutation.type === "create") {
+        if (!resource.create) throw new Error("该资源不支持新建。");
+        await resource.create(ctx, mutation);
+        return;
+    }
+    if (mutation.type === "update") {
+        if (!resource.update) throw new Error("该资源不支持编辑。");
+        await resource.update(ctx, mutation.key, {
+            ...(mutation.label !== undefined ? {label: mutation.label} : {}),
+            ...(mutation.content !== undefined ? {content: mutation.content} : {}),
+        });
+        return;
+    }
+    if (mutation.type === "rename") {
+        if (!resource.rename) throw new Error("该资源不支持重命名。");
+        await resource.rename(ctx, mutation.key, {label: mutation.label, slug: mutation.slug});
+        return;
+    }
+    if (!resource.remove) throw new Error("该资源不支持删除。");
+    await resource.remove(ctx, mutation.key);
 }
 
 /**

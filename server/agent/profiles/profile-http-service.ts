@@ -25,6 +25,7 @@ import type {
 } from "nbook/shared/dto/agent-profile.dto";
 import {reportResultSchemaForProfile, reportSidecarResultSchemaForProfile} from "nbook/server/agent/profiles/report-result-schema";
 import {resolveRuntimeProfileSettings} from "nbook/server/agent/profiles/profile-settings";
+import {ensureProfileHome, resolveProjectRootForProfileHome} from "nbook/server/agent/profiles/profile-home";
 import type {ProfileTemplateNodeDto} from "nbook/shared/dto/profile-template.dto";
 import {buildProfilePromptRoot} from "nbook/server/agent/profiles/profile-dsl-source-parser";
 
@@ -121,12 +122,22 @@ export async function previewAgentProfilePrepare(
         workspaceRoot: sessionContext.workspaceRoot,
         ...(sessionContext.projectPath ? {projectPath: sessionContext.projectPath} : {}),
     });
+    const projectRoot = resolveProjectRootForProfileHome(sessionContext.projectPath);
+    const home = projectRoot
+        ? await ensureProfileHome({
+            projectRoot,
+            profileKey: profile.manifest.key,
+            profileVersion: profile.manifest.version ?? 1,
+            definition: profile.home,
+        })
+        : undefined;
 
     try {
         const prepared = await profile.prepare!({
             session,
             initial,
             settings: settings as never,
+            ...(home ? {home} : {}),
             vars: createProfileVariableAccessor({
                 repo: harness.repo,
                 snapshot: previewSnapshot ?? previewSessionSnapshot(request.profileKey, sessionContext),

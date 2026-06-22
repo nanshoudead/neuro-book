@@ -12,7 +12,7 @@ Default Project Workspace sketch:
 {project}/
 |-- AGENTS.md
 |-- project.yaml
-|-- agent-context/
+|-- agents/
 |   |-- index.md
 |   |-- simulator.leader/
 |   |   |-- index.md
@@ -72,7 +72,7 @@ The top-level directories are extensible, but the default template should stay s
 | `lorebook/` | Mostly stateless canon, prototypes, rules and reusable AI instructions. | [lorebook.md](lorebook.md) |
 | `manual/` | Play and RP handbooks: quickstart, player guide, world overview, rules guide, GM guide and quick reference. | [manual.md](manual.md) |
 | `manuscript/` | Formal prose, volumes, chapters, drafts and chapter-local notes. | [manuscript.md](manuscript.md) |
-| `agent-context/` | Profile-scoped context memory, generated recommendations and profile-specific project guidance. | [../agent/profile-context-memory.md](../agent/profile-context-memory.md) |
+| `agents/` | Profile-scoped context memory, generated recommendations and profile-specific project guidance. | [../agent/profile-context-memory.md](../agent/profile-context-memory.md) |
 | `simulation/` | World runtime state, subjects, entities and run artifacts. | [simulation.md](simulation.md) |
 | `reference/` | External raw materials, import archives and low-confidence migration inputs. | This file |
 | `upload/` | Uploaded files and project-local intake material awaiting organization. | This file |
@@ -83,7 +83,7 @@ Keep the boundary simple:
 
 - Stable project knowledge goes to `lorebook/`.
 - Play instructions, player-safe handbooks and RP host manuals go to `manual/`.
-- Profile-specific project guidance and context memory go to `agent-context/`.
+- Profile-specific project guidance and context memory go to `agents/`.
 - Formal prose goes to `manuscript/`.
 - Current runtime state goes to `simulation/`.
 - Imported or raw source material goes to `reference/`.
@@ -108,7 +108,7 @@ Do not store story canon in `.nbook/` or `.agent/`.
 
 - `lorebook/` rules and type taxonomy live in [lorebook.md](lorebook.md).
 - `manual/` handbook and RP play guide rules live in [manual.md](manual.md).
-- `agent-context/` profile context memory lives in [../agent/profile-context-memory.md](../agent/profile-context-memory.md).
+- `agents/` profile context memory lives in [../agent/profile-context-memory.md](../agent/profile-context-memory.md).
 - `manuscript/` volume/chapter rules live in [manuscript.md](manuscript.md).
 - `simulation/` subjects/entities/runs and simulator profile contracts live in [simulation.md](simulation.md).
 - Content node links, refs and validation rules live in [content-references.md](content-references.md).

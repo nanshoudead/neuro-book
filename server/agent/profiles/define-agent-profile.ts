@@ -78,6 +78,9 @@ export function assertProfileManifest(manifest: AgentProfileManifest): void {
     if (!manifest.name.trim()) {
         throw new Error(`profile ${manifest.key} manifest.name 不能为空`);
     }
+    if (manifest.version !== undefined && (!Number.isInteger(manifest.version) || manifest.version < 1)) {
+        throw new Error(`profile ${manifest.key} manifest.version 必须是正整数。`);
+    }
 }
 
 /**

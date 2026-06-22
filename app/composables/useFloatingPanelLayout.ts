@@ -29,6 +29,42 @@ export function useFloatingPanelLayout(options: UseFloatingPanelLayoutOptions) {
     const panelMaxHeight = ref(maxHeight);
 
     /**
+     * 查找会裁剪下拉层的最近祖先，Dialog 滚动容器内的 select 需要按它的边界计算空间。
+     */
+    function clippingBounds(anchorElement: HTMLElement): {top: number; bottom: number} {
+        let top = viewportGap;
+        let bottom = window.innerHeight - viewportGap;
+        let element = anchorElement.parentElement;
+        while (element && element !== document.body && element !== document.documentElement) {
+            const style = window.getComputedStyle(element);
+            const overflow = `${style.overflow} ${style.overflowX} ${style.overflowY}`;
+            if (/(auto|scroll|hidden|clip)/u.test(overflow)) {
+                const rect = element.getBoundingClientRect();
+                top = Math.max(top, rect.top + viewportGap);
+                bottom = Math.min(bottom, rect.bottom - viewportGap);
+            }
+            element = element.parentElement;
+        }
+        return {
+            top,
+            bottom: Math.max(bottom, top),
+        };
+    }
+
+    /**
+     * 根据可用空间限制下拉高度，空间不足时宁愿变矮也不让容器裁掉。
+     */
+    function resolvePanelMaxHeight(availableSpace: number): number {
+        if (availableSpace <= 0) {
+            return minHeight;
+        }
+        if (availableSpace < minHeight) {
+            return Math.floor(availableSpace);
+        }
+        return Math.max(Math.min(availableSpace, maxHeight), minHeight);
+    }
+
+    /**
      * 根据锚点与视口空间刷新浮层布局。
      */
     const updateLayout = (): void => {
@@ -54,8 +90,9 @@ export function useFloatingPanelLayout(options: UseFloatingPanelLayoutOptions) {
 
         const anchorRect = anchorElement.getBoundingClientRect();
         const contentHeight = Math.min(panelElement?.scrollHeight || maxHeight, maxHeight);
-        const bottomSpace = Math.max(window.innerHeight - anchorRect.bottom - viewportGap, 0);
-        const topSpace = Math.max(anchorRect.top - viewportGap, 0);
+        const bounds = clippingBounds(anchorElement);
+        const bottomSpace = Math.max(bounds.bottom - anchorRect.bottom, 0);
+        const topSpace = Math.max(anchorRect.top - bounds.top, 0);
 
         if (bottomSpace >= contentHeight) {
             resolvedDirection.value = "down";
@@ -66,7 +103,7 @@ export function useFloatingPanelLayout(options: UseFloatingPanelLayoutOptions) {
         }
 
         const availableSpace = resolvedDirection.value === "down" ? bottomSpace : topSpace;
-        panelMaxHeight.value = Math.max(Math.min(availableSpace, maxHeight), minHeight);
+        panelMaxHeight.value = resolvePanelMaxHeight(availableSpace);
     };
 
     watch(

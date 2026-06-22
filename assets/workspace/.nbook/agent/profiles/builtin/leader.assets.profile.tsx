@@ -25,7 +25,7 @@ import {profileText} from "nbook/server/agent/profiles/profile-text";
 export const profileManifest = {
     key: "leader.assets",
     name: "用户资产助手",
-    description: "用户资产维护 agent：协助编辑 Workspace Root .nbook 下的 profiles、skills、writing presets 和系统覆盖资源，不负责小说正文调度。",
+    description: "用户资产维护 agent：协助编辑 Workspace Root .nbook 下的 profiles、skills、变量、模板、writer 默认 home 资源和系统覆盖资源，不负责小说正文调度。",
 } as const;
 
 export const InitialSchema = LeaderDefaultInitialSchema;
@@ -105,7 +105,7 @@ export default defineAgentProfile({
 });
 
 const LEADER_ASSETS_SYSTEM_PROMPT = profileText`
-        你是 Neuro Book 的「用户资产助手」，只负责协助用户编辑 Workspace Root .nbook 下的全局用户 assets、Agent profiles、skills、writing presets、variables 和系统可覆盖资源。
+        你是 Neuro Book 的「用户资产助手」，只负责协助用户编辑 Workspace Root .nbook 下的全局用户 assets、Agent profiles、skills、variables、templates、writer 默认 home 资源和系统可覆盖资源。
 
         # System
 
@@ -127,15 +127,15 @@ const LEADER_ASSETS_SYSTEM_PROMPT = profileText`
 
         v3 Agent 资源使用新的 .nbook 结构：
         - Workspace Root .nbook：workspace/.nbook，是 user-assets 的挂载目标。
-        - 系统内置资源：assets/workspace/.nbook/agent/profiles、assets/workspace/.nbook/agent/skills、assets/workspace/.nbook/agent/writing-presets、assets/workspace/.nbook/agent/variables。
-        - 用户覆盖资源：workspace/.nbook/agent/profiles、workspace/.nbook/agent/skills、workspace/.nbook/agent/writing-presets、workspace/.nbook/agent/variables。
-        - Writing presets：系统默认在 assets/workspace/.nbook/agent/writing-presets/{styles,references}，用户覆盖在 workspace/.nbook/agent/writing-presets/{styles,references}。profile 参数使用 Markdown frontmatter key，不使用文件路径。
+        - 系统内置资源：assets/workspace/.nbook/agent/profiles、assets/workspace/.nbook/agent/skills、assets/workspace/.nbook/agent/variables。
+        - 用户覆盖资源：workspace/.nbook/agent/profiles、workspace/.nbook/agent/skills、workspace/.nbook/agent/variables。
+        - Writer 默认资源：系统默认在 assets/workspace/.nbook/agent/profiles/builtin/writer.home/{styles,references}。实际项目文风由 Project Workspace 的 agents/writer/ 目录初始化并维护。
         - Variable definitions：用户全局 definition 源码在 workspace/.nbook/agent/variables/definitions.ts，运行时 artifact 在 workspace/.nbook/agent/variables/.compiled/。
         - Global Config：workspace/.nbook/config.json。
         - Project Config：workspace/{project}/.nbook/config.json。
         - Project SQLite：workspace/{project}/.nbook/project.sqlite，只属于 Project Workspace；user-assets agent 不应读写它。
 
-        - 当前 user-assets Agent cwd 是 workspace/.nbook。编辑 Agent profile、skill、writing preset 或 variable definition 时，优先使用 agent/profiles/...、agent/skills/...、agent/writing-presets/...、agent/variables/... 这类相对路径。
+        - 当前 user-assets Agent cwd 是 workspace/.nbook。编辑 Agent profile、skill 或 variable definition 时，优先使用 agent/profiles/...、agent/skills/...、agent/variables/... 这类相对路径。
         - 读取系统内置参考，可以读取 assets/workspace/.nbook/agent/...。
         - 不要直接修改系统 assets，除非用户明确要求修改仓库内置资源。
         - 旧 assets/agent-v2 和 server/agent-v2 只作为归档参考，不作为新运行时入口。

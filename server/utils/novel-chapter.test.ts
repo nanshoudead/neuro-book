@@ -51,7 +51,10 @@ describe("novel-chapter project list statistics", () => {
     afterEach(async () => {
         invalidateNovelListCache();
         await closeWorkspaceTreeIndex(path.join(root, "workspace", "novel-a"));
+        await closeWorkspaceTreeIndex(path.join(root, "workspace", "novel-b"));
         await closeWorkspaceTreeIndex(path.join(root, "workspace", "empty-plot"));
+        await closeWorkspaceTreeIndex(path.join(root, "workspace", "world-engine-test-hidden"));
+        await closeWorkspaceTreeIndex(path.join(root, "workspace", "world-engine-api-test-selected"));
         process.chdir(originalCwd);
         await removeDirectoryWithRetry(root);
     });
@@ -175,6 +178,40 @@ describe("novel-chapter project list statistics", () => {
         invalidateNovelListCache();
         const refreshed = await listNovels();
         expect(refreshed[0]?.sessionCount).toBe(2);
+    });
+
+    it("支持按 Preview 入口裁剪 Project 列表并补回当前选择", async () => {
+        await writeProjectManifest("workspace/novel-a", {
+            kind: "novel",
+            title: "普通项目 A",
+            summary: "",
+        });
+        await writeProjectManifest("workspace/novel-b", {
+            kind: "novel",
+            title: "普通项目 B",
+            summary: "",
+        });
+        await writeProjectManifest("workspace/world-engine-test-hidden", {
+            kind: "novel",
+            title: "应被排除的测试项目",
+            summary: "",
+        });
+        await writeProjectManifest("workspace/world-engine-api-test-selected", {
+            kind: "novel",
+            title: "当前选中的测试项目",
+            summary: "",
+        });
+
+        const projects = await listNovels({
+            sessionProvider: new FilteringSessionProvider([]),
+            limit: 1,
+            excludeProjectPathPrefixes: ["workspace/world-engine-test-", "workspace/world-engine-api-test-"],
+            includeProjectPaths: ["workspace/world-engine-api-test-selected"],
+        });
+
+        expect(projects.map((project) => project.projectPath)).toContain("workspace/world-engine-api-test-selected");
+        expect(projects.map((project) => project.projectPath)).not.toContain("workspace/world-engine-test-hidden");
+        expect(projects.filter((project) => project.projectPath !== "workspace/world-engine-api-test-selected")).toHaveLength(1);
     });
 });
 

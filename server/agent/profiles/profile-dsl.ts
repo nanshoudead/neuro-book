@@ -572,7 +572,7 @@ export function RuntimeLocationReminder(props: {id?: string; repeatEveryTurns?: 
                     `- Source root: ${location.sourceRoot}`,
                     `- Reference root: ${location.referenceRoot}`,
                     "- user-assets is Workspace Root .nbook, not a Project Workspace.",
-                    "- Agent profiles, skills, writing presets, and variables live under agent/ in the current user-assets cwd.",
+                    "- Agent profiles, skills, variables, and profile default home resources live under agent/ in the current user-assets cwd.",
                     "- Do not write novel lorebook, manuscript, plot data, chapter prose, world facts, or Project SQLite into user-assets.",
                 ].join("\n"))});
             }

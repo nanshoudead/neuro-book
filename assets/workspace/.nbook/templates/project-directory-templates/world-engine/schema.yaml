@@ -1,0 +1,44 @@
+# World Engine subject schema.
+# 这是第一版通用模板：项目可以按自己的世界观增删 subject type 与 attrs。
+subjectTypes:
+  world:
+    desc: 世界本身，承载纪元、世界级状态和大事记
+    attrs:
+      era: { kind: scalar, type: text, default: "复兴纪元" }
+      currentYear: { kind: scalar, type: int, default: 1 }
+      events: { kind: list, itemType: text, default: [] }
+
+  character:
+    desc: 角色主体
+    attrs:
+      hp: { kind: scalar, type: int, default: 100 }
+      maxHp: { kind: scalar, type: int, default: 100 }
+      location: { kind: scalar, type: ref(location) }
+      faction: { kind: scalar, type: ref(faction) }
+      mind: { kind: scalar, type: text }
+      memory: { kind: object, itemType: text }
+      inventory: { kind: collection, itemType: ref(item), default: [] }
+      events: { kind: list, itemType: text, default: [] }
+
+  faction:
+    desc: 阵营、国家、组织或政治实体
+    attrs:
+      name: { kind: scalar, type: text }
+      capital: { kind: scalar, type: ref(location) }
+      treasury: { kind: scalar, type: int, default: 0 }
+      events: { kind: list, itemType: text, default: [] }
+
+  location:
+    desc: 地点、区域或可停留空间
+    attrs:
+      name: { kind: scalar, type: text }
+      control: { kind: scalar, type: ref(faction) }
+      events: { kind: list, itemType: text, default: [] }
+
+  item:
+    desc: 需要独立追踪状态的物品
+    attrs:
+      name: { kind: scalar, type: text }
+      durability: { kind: scalar, type: int, default: 100 }
+      enchants: { kind: collection, itemType: text, default: [] }
+      events: { kind: list, itemType: text, default: [] }

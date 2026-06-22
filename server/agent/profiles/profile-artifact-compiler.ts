@@ -1,5 +1,5 @@
 import {createHash, randomUUID} from "node:crypto";
-import {existsSync} from "node:fs";
+import {existsSync, readFileSync} from "node:fs";
 import {copyFile, mkdir, readFile, readdir, rename, rm, stat, writeFile} from "node:fs/promises";
 import {basename, dirname, isAbsolute, join, relative, resolve} from "node:path";
 import {pathToFileURL} from "node:url";
@@ -600,23 +600,32 @@ function resolvePackageRequireRoot(): string {
 
 function isProductRuntimeRoot(): boolean {
     return existsSync(resolve(process.cwd(), ".output", "server", "index.mjs"))
-        && Boolean(productReleaseMetaPath());
+        && Boolean(productPackageManifestPath());
 }
 
 /**
  * Product Root 可能来自 `product:stage`，也可能是 GHCR / 通用 `.output`
- * runner。后者只有 `.output/server/release-meta.json`，且不带根 node_modules。
+ * runner。后者只有 `.output/server/package.json`，且不带根 node_modules。
  */
-function productReleaseMetaPath(): string | null {
-    const rootMeta = resolve(process.cwd(), "release-meta.json");
-    if (existsSync(rootMeta)) {
-        return rootMeta;
+function productPackageManifestPath(): string | null {
+    const rootPackage = resolve(process.cwd(), "package.json");
+    if (packageManifestName(rootPackage) === "neuro-book-product") {
+        return rootPackage;
     }
-    const outputMeta = resolve(process.cwd(), ".output", "server", "release-meta.json");
-    if (existsSync(outputMeta) && !existsSync(resolve(process.cwd(), "node_modules"))) {
-        return outputMeta;
+    const outputPackage = resolve(process.cwd(), ".output", "server", "package.json");
+    if (packageManifestName(outputPackage) === "neuro-book-output" && !existsSync(resolve(process.cwd(), "node_modules"))) {
+        return outputPackage;
     }
     return null;
+}
+
+function packageManifestName(path: string): string | null {
+    try {
+        const manifest = JSON.parse(readFileSync(path, "utf8")) as {name?: unknown};
+        return typeof manifest.name === "string" ? manifest.name : null;
+    } catch {
+        return null;
+    }
 }
 
 function resolveBarePackage(specifier: string, requireFromRuntime: NodeJS.Require): {path: string} | undefined {

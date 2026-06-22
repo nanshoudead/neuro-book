@@ -8,6 +8,7 @@ import type {NovelListItemDto} from "nbook/shared/dto/novel-chapter.dto";
 
 const props = defineProps<{
     modelValue: boolean;
+    beforeWorkspaceSwitch?: () => boolean | Promise<boolean>;
 }>();
 
 const emit = defineEmits<{
@@ -33,6 +34,13 @@ type WorkspaceSwitchDecision = "save" | "discard" | "cancel";
 
 const handleClose = () => {
     emit("update:modelValue", false);
+};
+
+/**
+ * 切换 Project Workspace 前允许宿主拦截，例如保护外层工作台的会话草稿。
+ */
+const canSwitchWorkspace = async (): Promise<boolean> => {
+    return await props.beforeWorkspaceSwitch?.() ?? true;
 };
 
 /**
@@ -90,6 +98,7 @@ const handleCreateNovel = async () => {
     }
 
     try {
+        if (!(await canSwitchWorkspace())) return;
         const decision = await resolveUnsavedWorkspaceChanges();
         if (decision === "cancel") return;
         isCreating.value = true;
@@ -109,6 +118,7 @@ const handleSwitchNovel = async (novelId: string) => {
     if (novelId === currentNovelId.value) return;
     try {
         bookshelfError.value = "";
+        if (!(await canSwitchWorkspace())) return;
         const decision = await resolveUnsavedWorkspaceChanges();
         if (decision === "cancel") return;
         await switchNovel(novelId, {discardWorkspaceChanges: decision === "discard"});
@@ -126,6 +136,7 @@ const handleDeleteNovel = async (novelId: string, title: string) => {
     try {
         bookshelfError.value = "";
         if (novelId === currentNovelId.value) {
+            if (!(await canSwitchWorkspace())) return;
             const decision = await resolveUnsavedWorkspaceChanges();
             if (decision === "cancel") return;
         }

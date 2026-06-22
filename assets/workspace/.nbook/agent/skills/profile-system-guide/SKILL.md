@@ -29,8 +29,8 @@ For harness/profile architecture explanations, read `references/harness-profile-
 - System profiles: `assets/workspace/.nbook/agent/profiles/`
 - User skills: `workspace/.nbook/agent/skills/`
 - System skills: `assets/workspace/.nbook/agent/skills/`
-- User writing presets: `workspace/.nbook/agent/writing-presets/{styles,references}/`
-- System writing presets: `assets/workspace/.nbook/agent/writing-presets/{styles,references}/`
+- Writer default home resources: `assets/workspace/.nbook/agent/profiles/builtin/writer.home/{styles,references}/`
+- Project writer resources: `{Project Workspace}/agents/writer/{styles,references}/`
 - User global variable definitions: `workspace/.nbook/agent/variables/definitions.ts`
 - Variable definition artifacts: `workspace/.nbook/agent/variables/.compiled/`
 - Profile templates: `assets/workspace/.nbook/agent/profile-templates/`

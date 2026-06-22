@@ -1,13 +1,9 @@
-import {execFile} from "node:child_process";
-import {existsSync} from "node:fs";
 import {readFile} from "node:fs/promises";
 import {join} from "node:path";
-import {promisify} from "node:util";
 
-const execFileAsync = promisify(execFile);
 const GITHUB_URL = "https://github.com/notnotype/neuro-book";
 
-type AppVersionKind = "release" | "tag" | "commit" | "package";
+type AppVersionKind = "package";
 
 interface AppVersionDto {
     versionLabel: string;
@@ -16,28 +12,34 @@ interface AppVersionDto {
 }
 
 interface PackageManifest {
+    homepage?: string;
+    repository?: string | {
+        url?: string;
+    };
     version?: string;
 }
 
-type ReleaseMeta = {
-    versionLabel?: string;
-    versionKind?: AppVersionKind;
-    githubUrl?: string;
-};
+/**
+ * 返回设置页底部展示用的版本和仓库地址。
+ */
+export default defineEventHandler(async (): Promise<AppVersionDto> => {
+    const manifest = await readProductPackageManifest();
+    return {
+        versionLabel: versionLabel(manifest?.version ?? "unknown"),
+        versionKind: "package",
+        githubUrl: githubUrl(manifest),
+    };
+});
 
 /**
- * 读取产品构建期写入的版本元数据。
+ * Product Root 优先读根 package；GHCR / 通用 `.output` runner 可只带 server package。
  */
-async function readReleaseMeta(): Promise<AppVersionDto | null> {
-    for (const path of releaseMetaCandidates()) {
+async function readProductPackageManifest(): Promise<PackageManifest | null> {
+    for (const path of packageManifestCandidates()) {
         try {
-            const meta = JSON.parse(await readFile(path, "utf8")) as ReleaseMeta;
-            if (meta.versionLabel && meta.versionKind && meta.githubUrl) {
-                return {
-                    versionLabel: meta.versionLabel,
-                    versionKind: meta.versionKind,
-                    githubUrl: meta.githubUrl,
-                };
+            const manifest = JSON.parse(await readFile(path, "utf8")) as PackageManifest;
+            if (manifest.version) {
+                return manifest;
             }
         } catch {
             continue;
@@ -46,77 +48,41 @@ async function readReleaseMeta(): Promise<AppVersionDto | null> {
     return null;
 }
 
-/**
- * Product Root 优先读根 metadata；GHCR / 通用 `.output` runner 无根
- * `node_modules` 时，允许回退到 Nitro 后处理写入的 metadata。
- */
-function releaseMetaCandidates(): string[] {
-    const candidates = [join(process.cwd(), "release-meta.json")];
-    if (!existsSync(join(process.cwd(), "node_modules"))) {
-        candidates.push(join(process.cwd(), ".output", "server", "release-meta.json"));
-    }
-    return candidates;
+function packageManifestCandidates(): string[] {
+    return [
+        join(process.cwd(), "package.json"),
+        join(process.cwd(), ".output", "server", "package.json"),
+    ];
 }
 
-/**
- * 读取 git 命令输出的首行文本。
- */
-async function readGitOutput(args: string[]): Promise<string | null> {
-    try {
-        const {stdout} = await execFileAsync("git", args, {
-            cwd: process.cwd(),
-            windowsHide: true,
-        });
-        const value = stdout.trim().split(/\r?\n/u)[0]?.trim();
-        return value || null;
-    } catch {
+function versionLabel(version: string): string {
+    const normalized = version.trim();
+    if (!normalized || normalized === "unknown" || normalized.startsWith("v")) {
+        return normalized || "unknown";
+    }
+    return `v${normalized}`;
+}
+
+function githubUrl(manifest: PackageManifest | null): string {
+    const repository = typeof manifest?.repository === "string"
+        ? manifest.repository
+        : manifest?.repository?.url;
+    return normalizeGithubUrl(repository ?? manifest?.homepage) ?? GITHUB_URL;
+}
+
+function normalizeGithubUrl(value?: string): string | null {
+    if (!value) {
         return null;
     }
+    const trimmed = value.trim()
+        .replace(/^git\+/u, "")
+        .replace(/\.git$/u, "");
+    const sshMatch = /^git@github\.com:([^/]+\/[^/]+)$/u.exec(trimmed);
+    if (sshMatch) {
+        return `https://github.com/${sshMatch[1]}`;
+    }
+    if (/^https:\/\/github\.com\/[^/]+\/[^/]+/u.test(trimmed)) {
+        return trimmed;
+    }
+    return null;
 }
-
-/**
- * 读取 package.json 中的兜底版本。
- */
-async function readPackageVersion(): Promise<string> {
-    try {
-        const content = await readFile(join(process.cwd(), "package.json"), "utf8");
-        const manifest = JSON.parse(content) as PackageManifest;
-        return manifest.version || "unknown";
-    } catch {
-        return "unknown";
-    }
-}
-
-/**
- * 返回设置页底部展示用的版本和仓库地址。
- */
-export default defineEventHandler(async (): Promise<AppVersionDto> => {
-    const releaseMeta = await readReleaseMeta();
-    if (releaseMeta) {
-        return releaseMeta;
-    }
-
-    const tag = await readGitOutput(["describe", "--tags", "--exact-match", "HEAD"]);
-    if (tag) {
-        return {
-            versionLabel: tag,
-            versionKind: "tag",
-            githubUrl: GITHUB_URL,
-        };
-    }
-
-    const commit = await readGitOutput(["rev-parse", "--short", "HEAD"]);
-    if (commit) {
-        return {
-            versionLabel: commit,
-            versionKind: "commit",
-            githubUrl: GITHUB_URL,
-        };
-    }
-
-    return {
-        versionLabel: await readPackageVersion(),
-        versionKind: "package",
-        githubUrl: GITHUB_URL,
-    };
-});

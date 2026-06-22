@@ -58,9 +58,10 @@ type ParsedVersion = {
 };
 
 type ParsedPrereleaseTag = {
+    baseVersion: string;
     channel: PrereleaseChannel;
+    packageVersion: string;
     tag: string;
-    version: string;
 };
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -227,14 +228,19 @@ async function runPrerelease(options: PrereleaseOptions): Promise<void> {
     });
     const channel = tagPlan.channel;
     const tag = tagPlan.tag;
-    const target = options.target ?? head;
+    const shouldBumpPackage = packageVersion !== tagPlan.packageVersion;
+    const target = options.target ?? (shouldBumpPackage ? "<release-commit>" : head);
+
+    if (options.target && shouldBumpPackage) {
+        throw new Error("prerelease 需要更新 package.json 时不能同时使用 --target；请从当前分支发布，或先手动提交目标版本。");
+    }
 
     if (options.dryRun) {
         const notes = await prereleaseNotes({
             channel,
             tag,
             target,
-            packageVersion,
+            packageVersion: tagPlan.packageVersion,
         }, options.repo);
         const ghArgs = prereleaseArgs({
             draft: options.draft,
@@ -246,49 +252,61 @@ async function runPrerelease(options: PrereleaseOptions): Promise<void> {
         await printCanaryDryRun({
             branch,
             channel,
+            currentPackageVersion: packageVersion,
             ghArgs,
             options,
+            shouldBumpPackage,
             tag,
             target,
+            packageVersion: tagPlan.packageVersion,
         });
         return;
+    }
+
+    if (!options.yes) {
+        throw new Error("即将创建远端 prerelease。确认执行请加 --yes；预览请加 --dry-run。");
+    }
+    if (shouldBumpPackage && !options.push) {
+        throw new Error("prerelease 需要更新 package.json 时必须加 --push，确保 release commit 先到远端；预览请加 --dry-run。");
     }
 
     await assertGhAvailable();
     await assertReleaseDoesNotExist(tag, options.repo);
     await assertGitTagDoesNotExist(tag);
-    if (!options.allowDirty && !options.dryRun) {
+    if (shouldBumpPackage || !options.allowDirty) {
         await assertCleanTrackedWorktree();
     }
+    if (shouldBumpPackage) {
+        await writePackageVersion(tagPlan.packageVersion);
+        await run("git", ["add", "package.json"], {cwd: REPO_ROOT});
+        await run("git", ["commit", "-m", `chore(release): ${tag}`], {cwd: REPO_ROOT});
+    }
+    const releaseHead = options.target ?? await currentHead();
     if (options.push && !options.dryRun) {
         await pushCurrentHead(branch);
     } else if (!options.target && !options.dryRun) {
-        await assertCurrentHeadPushed(branch, head);
+        await assertCurrentHeadPushed(branch, releaseHead);
     }
 
     const notes = await prereleaseNotes({
         channel,
         tag,
-        target,
-        packageVersion,
+        target: releaseHead,
+        packageVersion: tagPlan.packageVersion,
     }, options.repo);
     const ghArgs = prereleaseArgs({
         draft: options.draft,
         notes,
         repo: options.repo,
         tag,
-        target,
+        target: releaseHead,
     });
-
-    if (!options.yes) {
-        throw new Error("即将创建远端 prerelease。确认执行请加 --yes；预览请加 --dry-run。");
-    }
 
     await run("gh", ghArgs, {cwd: REPO_ROOT});
     console.log(`Created ${channel} prerelease: ${tag}`);
 
     if (options.watch && !options.draft) {
-        await watchReleaseWorkflow({head, repo: options.repo, tag});
+        await watchReleaseWorkflow({head: releaseHead, repo: options.repo, tag});
     }
 }
 
@@ -342,23 +360,37 @@ async function printStableDryRun(input: {
 async function printCanaryDryRun(input: {
     branch: string;
     channel: PrereleaseChannel;
+    currentPackageVersion: string;
     ghArgs: string[];
     options: PrereleaseOptions;
+    shouldBumpPackage: boolean;
     tag: string;
     target: string;
+    packageVersion: string;
 }): Promise<void> {
     console.log("mode: prerelease");
     console.log(`channel: ${input.channel}`);
+    console.log(`package version: ${input.packageVersion}`);
     console.log(`tag: ${input.tag}`);
     console.log(`target: ${input.target}`);
     console.log(`repo: ${input.options.repo}`);
     console.log(`branch: ${input.branch}`);
+    console.log(`current package version: ${input.currentPackageVersion}`);
     await printDryRunTagWarnings(input.tag, input.options.repo);
+    if (input.shouldBumpPackage) {
+        console.log(`command: update package.json version ${input.currentPackageVersion} -> ${input.packageVersion}`);
+        console.log("command: git add package.json");
+        console.log(`command: git commit -m ${shellQuote(`chore(release): ${input.tag}`)}`);
+    } else {
+        console.log("note: package.json.version 已是目标 package version，不会创建版本 bump commit。");
+    }
     if (!input.options.allowDirty && await trackedWorktreeIsDirty()) {
         console.log("warning: tracked worktree 不干净；真实 canary release 会停止。");
     }
     if (input.options.push) {
         console.log(`command: git push origin HEAD:${input.branch}`);
+    } else if (input.shouldBumpPackage) {
+        console.log("warning: 未传 --push；真实 prerelease 需要推送 release commit，会提前停止。");
     } else if (!input.options.target) {
         console.log("note: dry-run 未检查 HEAD 是否已推送；真实 release 会检查，或可加 --push。");
     }
@@ -460,7 +492,7 @@ async function resolvePrereleaseTag(input: {
         if (input.channel !== parsed.channel) {
             throw new Error(`显式 tag channel 与命令 channel 不一致：${parsed.channel} != ${input.channel}`);
         }
-        assertVersionNotLower(parsed.version, releaseVersionOf(input.currentVersion), "prerelease tag version");
+        assertVersionNotLower(parsed.baseVersion, releaseVersionOf(input.currentVersion), "prerelease tag version");
         return parsed;
     }
 
@@ -472,9 +504,10 @@ async function resolvePrereleaseTag(input: {
         throw new Error(`先行版本标识不符合 SemVer：${prerelease}`);
     }
     return {
+        baseVersion,
         channel: input.channel,
+        packageVersion: `${baseVersion}-${prerelease}`,
         tag: `v${baseVersion}-${prerelease}`,
-        version: baseVersion,
     };
 }
 
@@ -494,7 +527,7 @@ async function resolvePrereleaseBaseVersion(input: {
         return normalizeReleaseVersion(input.version);
     }
     if (input.currentPatch) {
-        return normalizeReleaseVersion(input.currentVersion);
+        return normalizeReleaseVersion(releaseVersionOf(input.currentVersion));
     }
     return incrementReleaseVersion(await prereleaseNextBaseline(input.currentVersion), input.next ?? "patch");
 }
@@ -585,9 +618,10 @@ function parsePrereleaseTag(input: string): ParsedPrereleaseTag {
     }
     const channel = parsePrereleaseChannel(match[4]);
     return {
+        baseVersion: `${match[1]}.${match[2]}.${match[3]}`,
         channel,
+        packageVersion: version,
         tag: tag.startsWith("v") ? tag : `v${tag}`,
-        version: `${match[1]}.${match[2]}.${match[3]}`,
     };
 }
 

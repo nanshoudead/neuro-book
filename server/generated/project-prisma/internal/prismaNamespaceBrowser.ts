@@ -58,7 +58,10 @@ export const ModelName = {
   StoryThread: 'StoryThread',
   StoryScene: 'StoryScene',
   StoryPlot: 'StoryPlot',
-  StorySceneRef: 'StorySceneRef'
+  StorySceneRef: 'StorySceneRef',
+  WorldSubject: 'WorldSubject',
+  WorldSlice: 'WorldSlice',
+  WorldMutation: 'WorldMutation'
 } as const
 
 export type ModelName = (typeof ModelName)[keyof typeof ModelName]
@@ -192,6 +195,42 @@ export const StorySceneRefScalarFieldEnum = {
 } as const
 
 export type StorySceneRefScalarFieldEnum = (typeof StorySceneRefScalarFieldEnum)[keyof typeof StorySceneRefScalarFieldEnum]
+
+
+export const WorldSubjectScalarFieldEnum = {
+  id: 'id',
+  type: 'type',
+  name: 'name',
+  createdAt: 'createdAt'
+} as const
+
+export type WorldSubjectScalarFieldEnum = (typeof WorldSubjectScalarFieldEnum)[keyof typeof WorldSubjectScalarFieldEnum]
+
+
+export const WorldSliceScalarFieldEnum = {
+  id: 'id',
+  instant: 'instant',
+  title: 'title',
+  summary: 'summary',
+  kind: 'kind',
+  createdAt: 'createdAt'
+} as const
+
+export type WorldSliceScalarFieldEnum = (typeof WorldSliceScalarFieldEnum)[keyof typeof WorldSliceScalarFieldEnum]
+
+
+export const WorldMutationScalarFieldEnum = {
+  id: 'id',
+  sliceId: 'sliceId',
+  subjectId: 'subjectId',
+  instant: 'instant',
+  seq: 'seq',
+  attr: 'attr',
+  op: 'op',
+  value: 'value'
+} as const
+
+export type WorldMutationScalarFieldEnum = (typeof WorldMutationScalarFieldEnum)[keyof typeof WorldMutationScalarFieldEnum]
 
 
 export const SortOrder = {

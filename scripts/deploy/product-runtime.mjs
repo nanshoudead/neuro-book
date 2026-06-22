@@ -9,8 +9,6 @@ import {fileURLToPath, pathToFileURL} from "node:url";
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const PRODUCT_ROOT = resolve(REPO_ROOT, "product");
-const GITHUB_URL = "https://github.com/notnotype/neuro-book";
-const RELEASE_META_FILE = "release-meta.json";
 
 const command = process.argv[2] ?? "stage";
 
@@ -48,7 +46,6 @@ async function stageProduct() {
     await writeProductTsConfig();
     await writeProductPackageJson();
     await writeProductEnv();
-    await writeReleaseMeta(PRODUCT_ROOT);
     await copyNbookRuntimePackage();
     await prepareProductSystemAssets();
     await assertProductTsxVendor();
@@ -235,13 +232,16 @@ async function writeProductTsConfig() {
 }
 
 /**
- * 写入 product 根 package.json，只保留产品脚本和 metadata。
+ * 写入 product 根 package.json，只保留产品脚本和标准 manifest metadata。
  */
 async function writeProductPackageJson() {
     const source = JSON.parse(await readFile(resolve(REPO_ROOT, "package.json"), "utf8"));
     const manifest = {
         name: "neuro-book-product",
         version: source.version ?? "0.0.0",
+        description: source.description,
+        license: source.license,
+        repository: source.repository,
         private: true,
         type: "module",
         scripts: {
@@ -269,27 +269,6 @@ async function writeProductEnv() {
         "DATABASE_URL=file:./workspace/.nbook/neuro-book.sqlite",
         "",
     ].join("\n"), "utf8");
-}
-
-/**
- * 写入 release metadata，供产品版本 API 读取。
- */
-async function writeReleaseMeta(root) {
-    const packageJson = JSON.parse(await readFile(resolve(REPO_ROOT, "package.json"), "utf8"));
-    const tag = await runCapture("git", ["describe", "--tags", "--exact-match", "HEAD"], {cwd: REPO_ROOT}).catch(() => "");
-    const commit = await runCapture("git", ["rev-parse", "--short", "HEAD"], {cwd: REPO_ROOT}).catch(() => "");
-    const buildCommit = await runCapture("git", ["rev-parse", "HEAD"], {cwd: REPO_ROOT}).catch(() => "");
-    const versionLabel = tag.trim() || commit.trim() || packageJson.version || "unknown";
-    const sourceKind = tag.trim() ? "tag" : commit.trim() ? "commit" : "package";
-    await writeJson(resolve(root, RELEASE_META_FILE), {
-        versionLabel,
-        versionKind: "release",
-        sourceKind,
-        buildCommit: buildCommit.trim() || null,
-        packageVersion: packageJson.version ?? null,
-        createdAt: new Date().toISOString(),
-        githubUrl: GITHUB_URL,
-    });
 }
 
 /**
@@ -405,41 +384,6 @@ async function run(command, args, options = {}) {
                 return;
             }
             resolvePromise();
-        });
-    });
-}
-
-/**
- * 执行命令并返回 stdout。
- */
-async function runCapture(command, args, options = {}) {
-    return await new Promise((resolvePromise, rejectPromise) => {
-        const child = spawn(command, args, {
-            cwd: options.cwd,
-            env: options.env,
-            stdio: ["ignore", "pipe", "pipe"],
-            shell: false,
-            windowsHide: true,
-        });
-        let stdout = "";
-        let stderr = "";
-        child.stdout.on("data", (chunk) => {
-            stdout += chunk;
-        });
-        child.stderr.on("data", (chunk) => {
-            stderr += chunk;
-        });
-        child.on("error", rejectPromise);
-        child.on("exit", (code, signal) => {
-            if (signal) {
-                rejectPromise(new Error(`${command} 被信号中断：${signal}`));
-                return;
-            }
-            if (code !== 0) {
-                rejectPromise(new Error(stderr.trim() || `${command} 退出码：${code ?? 1}`));
-                return;
-            }
-            resolvePromise(stdout);
         });
     });
 }
