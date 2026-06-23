@@ -32,6 +32,7 @@ const baseSnapshot = (lastSeq = 0): AgentSessionSnapshotDto => ({
     entries: [],
     linkedAgents: [],
     linkedByAgents: [],
+    pendingUserInputs: [],
     pendingApprovals: [],
     steerQueue: [],
     followUpQueue: {
@@ -355,6 +356,7 @@ describe("useAgentSession", () => {
                     },
                     activeLeafId: null,
                     activePathRevision: null,
+                    pendingUserInputs: [],
                     pendingApprovals: [],
                     steerQueue: [],
                     followUpQueue: {
@@ -394,6 +396,7 @@ describe("useAgentSession", () => {
                     activeInvocation: null,
                     activeLeafId: "entry-1",
                     activePathRevision: "leaf-move-1",
+                    pendingUserInputs: [],
                     pendingApprovals: [],
                     steerQueue: [],
                     followUpQueue: {
@@ -440,6 +443,7 @@ describe("useAgentSession", () => {
                     activeInvocation: null,
                     activeLeafId: null,
                     activePathRevision: "leaf-move-1",
+                    pendingUserInputs: [],
                     pendingApprovals: [],
                     steerQueue: [],
                     followUpQueue: {
@@ -645,5 +649,187 @@ describe("useAgentSession", () => {
             name: "read",
             status: "running",
         }));
+    });
+
+    it("处理 tool.user-input-required 事件并更新 pendingUserInputSessions", () => {
+        const session = useAgentSession();
+        session.applySnapshot(baseSnapshot(0));
+
+        // 先发送 assistant message with tool call
+        applyEvent(session, {
+            seq: 1,
+            sessionId: 1,
+            invocationId: "run-1",
+            kind: "runtime",
+            event: {
+                type: "message_start",
+                message: {
+                    ...assistantMessage(1),
+                    content: [{
+                        type: "toolCall",
+                        id: "call-1",
+                        name: "request_user_input",
+                        arguments: {form: {fields: []}},
+                    }],
+                },
+            },
+        });
+
+        // 发送 tool.user-input-required 事件
+        applyEvent(session, {
+            seq: 2,
+            sessionId: 1,
+            invocationId: "run-1",
+            kind: "runtime",
+            event: {
+                type: "tool.user-input-required",
+                toolCallId: "call-1",
+                toolName: "request_user_input",
+                args: {},
+                formSpec: {
+                    form: {
+                        defaults: {},
+                        fields: [
+                            {path: "username", label: "用户名", component: "text", required: true, options: []},
+                            {path: "age", label: "年龄", component: "number", required: false, options: []},
+                        ],
+                    },
+                },
+            },
+        });
+
+        // 验证 pendingUserInputSessions 被更新
+        expect(session.pendingUserInputSession.value).toBeTruthy();
+        expect(session.pendingUserInputSession.value?.formToolCallId).toBe("call-1");
+        expect(session.pendingUserInputSession.value?.form).toEqual({
+            defaults: {},
+            fields: [
+                {path: "username", label: "用户名", component: "text", required: true, options: []},
+                {path: "age", label: "年龄", component: "number", required: false, options: []},
+            ],
+        });
+        expect(session.pendingUserInputSession.value?.questions).toEqual([]);
+
+        // 验证状态变为 waiting
+        expect(session.liveRunStatus.value).toBe("waiting");
+        expect(session.runPhase.value).toBe("waiting_user");
+    });
+
+    it("tool.user-input-required 事件关联到对应的 assistant message", () => {
+        const session = useAgentSession();
+        session.applySnapshot(baseSnapshot(0));
+
+        // 先发送 assistant message with tool call
+        applyEvent(session, {
+            seq: 1,
+            sessionId: 1,
+            invocationId: "run-1",
+            kind: "runtime",
+            event: {
+                type: "message_start",
+                message: {
+                    ...assistantMessage(1),
+                    content: [{
+                        type: "toolCall",
+                        id: "call-1",
+                        name: "request_user_input",
+                        arguments: {},
+                    }],
+                },
+            },
+        });
+
+        const messageId = session.messages.value[0]?.id;
+
+        // 发送 tool.user-input-required 事件
+        applyEvent(session, {
+            seq: 2,
+            sessionId: 1,
+            invocationId: "run-1",
+            kind: "runtime",
+            event: {
+                type: "tool.user-input-required",
+                toolCallId: "call-1",
+                toolName: "request_user_input",
+                args: {},
+                formSpec: {
+                    form: {defaults: {}, fields: []},
+                },
+            },
+        });
+
+        // 验证 assistantMessageId 正确关联
+        expect(session.pendingUserInputSession.value?.assistantMessageId).toBe(messageId);
+    });
+
+    it("工具结果到来时清理对应的 form pendingUserInputSession", () => {
+        const session = useAgentSession();
+        session.applySnapshot(baseSnapshot(0));
+
+        // 先发送 assistant message with tool call
+        applyEvent(session, {
+            seq: 1,
+            sessionId: 1,
+            invocationId: "run-1",
+            kind: "runtime",
+            event: {
+                type: "message_start",
+                message: {
+                    ...assistantMessage(1),
+                    content: [{
+                        type: "toolCall",
+                        id: "call-1",
+                        name: "request_user_input",
+                        arguments: {},
+                    }],
+                },
+            },
+        });
+
+        // 发送 tool.user-input-required 事件
+        applyEvent(session, {
+            seq: 2,
+            sessionId: 1,
+            invocationId: "run-1",
+            kind: "runtime",
+            event: {
+                type: "tool.user-input-required",
+                toolCallId: "call-1",
+                toolName: "request_user_input",
+                args: {},
+                formSpec: {
+                    form: {defaults: {}, fields: []},
+                },
+            },
+        });
+
+        expect(session.pendingUserInputSession.value).toBeTruthy();
+
+        // 发送工具结果
+        applyEvent(session, {
+            seq: 3,
+            sessionId: 1,
+            kind: "session",
+            event: {
+                type: "session_entry",
+                entry: {
+                    id: "entry-1",
+                    parentId: "parent-1",
+                    type: "message",
+                    message: {
+                        role: "toolResult",
+                        toolCallId: "call-1",
+                        toolName: "request_user_input",
+                        content: [{type: "text", text: "用户输入结果"}],
+                        isError: false,
+                        timestamp: 1,
+                    },
+                    timestamp: 1,
+                },
+            },
+        });
+
+        // 验证 pendingUserInputSession 被清理
+        expect(session.pendingUserInputSession.value).toBeNull();
     });
 });

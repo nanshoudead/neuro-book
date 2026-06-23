@@ -52,6 +52,7 @@ const DELETED_MANAGED_SYSTEM_ASSET_PATHS = new Set([
     "templates/project-directory-templates/simulation/simulator.md",
     "templates/project-directory-templates/simulation/writer.md",
     "templates/project-directory-templates/PROJECT-STATUS.md",
+    "templates/project-directory-templates/world-engine/calendar.yaml",
     "templates/project-directory-templates/lorebook/rule/writing-style/index.md",
     "templates/project-directory-templates/lorebook/rule/creation-boundaries/index.md",
     "templates/project-directory-templates/lorebook/note/project-positioning/index.md",
@@ -59,6 +60,9 @@ const DELETED_MANAGED_SYSTEM_ASSET_PATHS = new Set([
     "templates/project-directory-templates/lorebook/note/theme/index.md",
     "templates/project-directory-templates/lorebook/note/initial-plot-seed/index.md",
 ]);
+const DELETED_MANAGED_SYSTEM_ASSET_PREFIXES = [
+    "templates/project-directory-templates/simulation/",
+];
 const LEGACY_WORKSPACE_MANIFEST_FILE = "workspace.yaml";
 const USER_ASSETS_DIFF_MAX_BYTES = 512 * 1024;
 
@@ -358,6 +362,13 @@ async function normalizeNovelDirectoryTemplateArtifacts(templateRoot: string): P
         const templateRelativePath = assetPath.slice(PROJECT_DIRECTORY_TEMPLATE_ASSET_PREFIX.length);
         await fs.rm(path.join(templateRoot, templateRelativePath), {force: true});
     }
+    for (const assetPrefix of DELETED_MANAGED_SYSTEM_ASSET_PREFIXES) {
+        if (!assetPrefix.startsWith(PROJECT_DIRECTORY_TEMPLATE_ASSET_PREFIX)) {
+            continue;
+        }
+        const templateRelativePath = assetPrefix.slice(PROJECT_DIRECTORY_TEMPLATE_ASSET_PREFIX.length);
+        await fs.rm(path.join(templateRoot, templateRelativePath), {recursive: true, force: true});
+    }
 }
 
 /**
@@ -437,7 +448,7 @@ async function syncManagedSystemAssetsToUserAssets(result: UserAssetsSyncResult,
 async function removeDeletedManagedSystemAssets(syncState: UserSystemAssetsSyncState, activeAssetPaths: Set<string>, result: UserAssetsSyncResult): Promise<boolean> {
     let changed = false;
     for (const item of [...syncState.assets ?? []]) {
-        if (activeAssetPaths.has(item.assetPath) || !DELETED_MANAGED_SYSTEM_ASSET_PATHS.has(item.assetPath)) {
+        if (activeAssetPaths.has(item.assetPath) || !isDeletedManagedSystemAssetPath(item.assetPath)) {
             continue;
         }
         const userPath = resolveInsideRoot(USER_NBOOK_ABSOLUTE_ROOT, item.assetPath);
@@ -459,6 +470,14 @@ async function removeDeletedManagedSystemAssets(syncState: UserSystemAssetsSyncS
         });
     }
     return changed;
+}
+
+/**
+ * 判断受管系统资源是否属于已从 bundled assets 删除的旧路径。
+ */
+function isDeletedManagedSystemAssetPath(assetPath: string): boolean {
+    return DELETED_MANAGED_SYSTEM_ASSET_PATHS.has(assetPath)
+        || DELETED_MANAGED_SYSTEM_ASSET_PREFIXES.some((prefix) => assetPath.startsWith(prefix));
 }
 
 async function syncSystemProfilesToUserAssets(result: UserAssetsSyncResult, options: UserAssetsSyncOptions): Promise<void> {
@@ -721,7 +740,7 @@ function isManagedAssetBlacklisted(assetPath: string): boolean {
         || normalized === "agent/profiles/.profile-sync-state.json"
         || normalized === "agent/profiles/.system-profile-metadata.json"
         || normalized.startsWith("agent/sessions/")
-        || normalized.startsWith("agent/profiles/")
+        || (normalized.startsWith("agent/profiles/") && !normalized.startsWith("agent/profiles/builtin/writer.home/"))
         || normalized === "agent/variables/definitions.ts"
         || parts.includes(".compiled");
 }

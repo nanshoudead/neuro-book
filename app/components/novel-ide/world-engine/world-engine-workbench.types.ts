@@ -77,3 +77,18 @@ export type CreateSubjectResultDto = {
 export type DeleteSliceResultDto = {
     issues: WorldIssueDto[];
 };
+
+export type SubjectEventCommitResultDto = {
+    status: "appended" | "already-exists";
+    subjectId: string;
+    subjectPath: string;
+    eventsPath: string;
+    sliceId?: string;
+    event: {
+        tick?: string;
+        time?: string;
+        text: string;
+    };
+    line: string;
+    dirty: boolean;
+};

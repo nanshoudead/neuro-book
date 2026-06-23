@@ -32,7 +32,7 @@
 
 - 当前 `WorldEngineWorkbenchDialog.vue` 已替换为真实 API 三栏 Workbench：
   - 左侧复用 preview Sidebar，并通过 actions slot 保留 `WorldEngineSubjectCreator`。
-  - 左侧 Schema 区域会展示 `world-engine/schema.yaml` 与 `world-engine/calendar.yaml` 两个 Project Workspace 内配置文件路径；点击路径会关闭 Workbench 并复用主 IDE 文件树打开对应文件，存在会话草稿时先确认。
+  - 左侧 Schema 区域会展示 `world-engine/schema.yaml` 与 `world-engine/calendar.ts` 两个 Project Workspace 内配置文件路径；点击路径会关闭 Workbench 并复用主 IDE 文件树打开对应文件，存在会话草稿时先确认；旧 Project 缺少 `calendar.ts` 时，主 IDE 会先通过文件树判断缺失、创建默认 Simple Calendar 草稿，再打开文件。
   - 中间为 slice list + 底部审查工作台。
   - 右侧为 Inspector，支持 metadata 保存、触及 subjects、State Snapshot 与按需完整世界状态。
 - 当前 `/world-engine.workbench-preview` 继续作为 mock-only UI / UX 实验场：
@@ -80,7 +80,35 @@
   - 已将 API slices normalize 为 `WorldWorkbenchPreviewSlice[]`：`mutations ?? []`、`issues ?? []`。
   - 已管理真实页面状态：selected slice、selected subjects、focused subject、filter、Inspector 显示、底部审查工作台展开、panel size、metadata/value drafts、issue triage。
   - 已保留 Dialog header：Project 标题、同步状态、刷新、Drafts 汇总、新建 Slice、Inspector 开关、独立 Preview 入口、关闭按钮。
+  - Preview、关闭 Workbench、打开 schema/calendar 配置文件这类离开上下文入口会在 `workbenchActionBusy` 中禁用，并由函数层 guard 兜住事件绕过。
+  - 左侧 Sidebar 会在 `workbenchActionBusy` 中禁用 subject 选择、`整体世界` 和 schema/calendar 路径按钮，避免同步回流中切换真实 timeline 上下文；本地搜索、筛选、折叠和 resize 仍可用。
+  - 右侧 Inspector 的完整世界状态读取会在 `workbenchActionBusy` 或 full snapshot 加载中禁用；busy 结束后如仍保持展开，会按需补发一次真实 `state` 查询。
+  - 底部审查工作台的 `跳到草稿`、issue 定位、subject 相关 slice 上 / 下一个会在 `workbenchActionBusy` 中禁用并由函数层 guard 兜住；本地 triage、模式切换和折叠仍可用。
+  - 无选中 slice 空状态里的待处理 issue 摘要行也会在 `workbenchActionBusy` 中禁用，避免绕过底部审查工作台继续触发 issue 定位。
   - 已把真实 API `WorldEngineMutationEditor` 作为 Workbench 内 Slice Composer 浮层接回主三栏，可直接在主 Workbench 写入新 slice 或载入当前 slice 整块编辑。
+  - 已补真实作者流 P0：历史 `files N` 会稳定打开 clicked slice 的主体文件建议；`world.events` slice 会保留 focused subject 语境；Composer Builder text value 不再把 `[验收]` 前缀误解析为 JSON，保存前会兜底同步未应用 Builder 草稿。
+  - Round 382 已补真实作者流常用动作：左栏 `语境` 按钮可在整体时间线下设置主体文件建议语境而不改变 subject filter；proposal 的复制建议 / 复制全部 / 复制 events.jsonl 行 / 复制 state.md 审查提示、打开 `events.jsonl` / `state.md`、历史 Step A/B/C proposal 回看已在 `ming-ding-zhi-shi-2` 真实浏览器验收通过。Slice Composer 关闭保护补充父层实时查询子组件 `hasUnsavedDraft()` 与原生 `input/change` dirty 兜底；原生 `window.confirm` 取消分支仍需人工可见浏览器补验。
+  - Round 383 已补 subject filter 退出入口可发现性：中间 Slice List 顶部当前视角旁在存在 subject filter 时显示 `清空过滤`，复用既有 `clearSubjectFilter` 事件回到整体世界视角，避免作者进入单 subject timeline 后找不到返回入口。
+  - Round 384 已补关闭入口可访问性：Workbench 关闭按钮和 Slice Composer 关闭按钮现在都有 `aria-label`、`title` 与稳定 `data-testid`，便于作者辅助技术、可见检查和后续自动化定位；原生 `window.confirm` 取消分支在 in-app browser 自动化中仍无法可靠证明。
+  - Round 385 已把 Workbench 关闭、Slice Composer 草稿关闭、打开 workspace 文件和删除 slice 等高风险确认从原生 `window.confirm` 迁到应用内 `useDialog()`；真实浏览器已确认 Slice Composer 草稿关闭点 `取消` 后，Composer 仍打开、标题草稿和 `当前有未保存草稿` 提示都保留。
+  - Round 386 已把 Slice Composer 内部“新建模式”草稿确认迁到应用内 `useDialog()`；父层新建请求和 Header `新建模式` 入口都通过 async `clearEditMode()` 处理，不再依赖原生确认。
+  - Round 387 已补真实浏览器验收：编辑已有 `[验收]` slice 后，把 title 改成 `[验收草稿-新建模式取消] Round 387`，点击 `新建模式` 出现应用内 `Slice Composer 草稿未保存` Dialog，点 `取消` 后 title 草稿、`当前有未保存草稿` 和 `当前将整块替换 slice` 都保留。
+  - Round 388 已补真实浏览器验收：Workbench 关闭、打开 `events.jsonl` 工作区文件、删除 slice 的应用内确认取消分支都通过；取消后 Workbench / 会话草稿 / 当前 slice 状态保留，没有保存或删除数据。
+  - Round 389 已补主体文件建议语境的显式清空入口：左栏设置 `语境` 后会显示 `清语境`，当前主体按钮显示 `语境中`；点击 `清语境` 只清空 focused subject，不改变 timeline subject filter。
+  - Round 390 已补主体文件建议 `复制并打开`：Inspector 里的 `events.jsonl / memory.jsonl / state.md` 建议可先复制目标文本，复制成功后再打开对应 Project Workspace 文件；真实 Dialog 打开文件链路改为先关闭 Workbench、再 emit `openWorkspacePath`。
+  - Round 391 已过滤 `init` slice 的主体文件建议：初始化切面不再生成 `files N` 或 Inspector proposal，避免把 subject 注册 / schema default 当成角色经历；真实浏览器确认 event slice 在主体语境下仍保留 `files 1`。
+  - Round 392 已把独立 `/world-engine.preview` 的删除 slice 确认迁到应用内 `useDialog()`；真实浏览器确认取消分支不删除数据。
+  - Round 393 已清理主体文件建议里的内部验收前缀：`[验收]` / `[验收-...]` 只作为浏览器验收记录标记，不会进入 `events.jsonl` 候选正文。
+  - Round 394 已补主体文件建议的落地提示：复制并打开 `events.jsonl` 时提示确认后追加末尾，`memory.jsonl` 提示追加新行或按 `topic` 改写，`state.md` 提示打开后检查对应区块。
+  - Round 395 已只读验收 schema/calendar 配置入口：Preview 生成的 `_blank` deep link 能进入主 IDE 并打开配置文件；Round 420 已把 Calendar 入口从 `world-engine/calendar.yaml` 收敛到 `world-engine/calendar.ts`；Round 421 已确认旧 Project 缺少 `calendar.ts` 时会先创建默认草稿再打开，且不新增 ENOENT 日志。
+  - Round 424 已用临时 Project 做主 IDE Workbench 空项目极窄浏览器验收：默认模板 Project 打开后，顶栏 `World` 能进入 Workbench，左侧显示 `world-engine/schema.yaml` / `world-engine/calendar.ts`，空状态提供 `创建 world subject` / `创建 Subject` / `新建 Slice`，点击 `创建 world subject` 后 API 返回 `world` subject 和一条 `kind=init` slice；临时 Project 已删除，3001 已释放。
+  - Round 396 已修复主体文件建议语境的可见状态：`focusedSubjectId` 可继续服务切片焦点 / Composer 默认 subject，但左栏 `清语境` / `语境中` 只认主体系统 subject，避免选中 `world.events` 后误显示假角色语境。
+  - Round 397 已形成 P1 显式 commit 决策清单：推荐第一版只做单个 proposal 的 `events.jsonl` 追加 API / 按钮，`memory.jsonl` 与 `state.md` 暂不自动写。
+  - Round 398 已先落后端 API：`POST /api/projects/world-engine/subject-file-proposals/events/commit` 支持单条 `events.jsonl` proposal 幂等追加、目标路径校验和 events RAG dirty 标记；真实 Workbench Inspector 按钮尚未接入。
+  - Round 399 已接真实 Workbench Inspector：`events.jsonl draft` 的 `追加` 按钮会触发应用内确认，确认后调用 commit API，并刷新主体系统 overview；mock preview 浏览器烟测确认同一按钮只显示 mock 提示、不写真实文件。
+  - Round 400 已在真实 `ming-ding-zhi-shi-2` Workbench 验收 `追加 events.jsonl` 应用内确认取消分支：Dialog 内容包含目标 path、主体名和 JSONL 行；点击 `取消` 后 Dialog 消失、Workbench 保持原位，`simulation/subjects/player/events.jsonl` SHA256 与验收前一致。
+  - Round 401 已修正真实 proposal 中暴露的主体人称残留：`events.jsonl draft` 会把 `给了她继续观察...她决定...` 收敛为 `给了我继续观察...我决定...`；本轮只改 proposal 文本，不改 slice metadata / `world.events` 原文。
+  - Round 402 已补 commit 后的会话态反馈：真实 Workbench 收到 `appended` 或 `already-exists` 后，会把同一 proposal 记录为已处理，Inspector 按钮显示 `已追加` 并禁用；切换 Project 或关闭 Workbench 会清空该会话态。
 - State Snapshot
   - 选中 slice 后查询当前触及 subjects snapshot。
   - 同时查询上一 slice 时刻同一批 subjects，供底部审查工作台显示切片前 / 切片后。
@@ -97,6 +125,13 @@
   - triage 状态只影响当前会话的 filter、badge、Review Panel，不回写后端。
 - preview 兼容
   - mock preview route 保持可用；组件批量 patch 事件已同步适配本地 reducer。
+  - 独立 `/world-engine.preview` 继续作为真实 API 调试页保留；其 Mutation Builder 已复用主 Workbench 的 mutation 列表选择 / 载入 / 移动控制条和追加 / 替换所选 / 插入 / 复制 / 删除动作区，便于在独立入口编辑多 mutation slice。
+  - 主 IDE Slice Composer 与独立 Preview 都区分提交解析和编辑解析；删除最后一条 mutation 后，`[]` 可以作为临时草稿继续追加，真实保存前仍由提交解析拒绝空 mutations。
+  - 独立 Preview 载入已有 slice 编辑时会同步第一条 mutation 到 Builder，保持与主 IDE Slice Composer 的编辑载入体验一致。
+  - 独立 Preview 保存已有 slice 编辑后会回到新建草稿，避免退出编辑模式后下一次写入误复制旧 slice。
+  - 独立 Preview 点击 subject 时会在安全条件下同步自动 mutation 草稿到该 subject，避免真实调试入口写错 subject。
+  - 独立 Preview 请求飞行、Project 列表加载或 `loadWorld()` 回流中会禁用 Project 创建表单、Write Slice、Create Subject、Query、World State 面板、Schema attr 快捷填充和顶部 Project 切换 / 刷新入口，避免飞行中继续输入、改写草稿或切换上下文后被刷新覆盖。
+  - 独立 Preview route 同时接受 `projectPath` 与主 IDE 通用的 `project` query，主 IDE 项目 URL 语境下手动打开 Preview 不会选错 Project。
 
 ## Verification / Test
 
@@ -235,6 +270,25 @@
 - 2026-06-22：[Preview Subject Duplicate Guard](../56-world-engine/walkthroughs/2026-06-22-round-300-preview-subject-duplicate-guard.md)。
 - 2026-06-22：[Preview Schema Fill Current Subject](../56-world-engine/walkthroughs/2026-06-22-round-301-preview-schema-fill-current-subject.md)。
 - 2026-06-22：[Preview Write Slice Time Disabled](../56-world-engine/walkthroughs/2026-06-22-round-302-preview-write-slice-time-disabled.md)。
+- 2026-06-22：[Preview Demo Schema Guard](../56-world-engine/walkthroughs/2026-06-22-round-303-preview-demo-schema-guard.md)。
+- 2026-06-22：[Preview Query Scope Disabled](../56-world-engine/walkthroughs/2026-06-22-round-304-preview-query-scope-disabled.md)。
+- 2026-06-22：[Preview State Busy Guard](../56-world-engine/walkthroughs/2026-06-22-round-312-preview-state-busy-guard.md)。
+- 2026-06-22：[Preview Project Switch Busy Guard](../56-world-engine/walkthroughs/2026-06-22-round-313-preview-project-switch-busy-guard.md)。
+- 2026-06-22：[Preview Actions Form Busy Guard](../56-world-engine/walkthroughs/2026-06-22-round-314-preview-actions-form-busy-guard.md)。
+- 2026-06-22：[Preview Schema Shortcut Busy Guard](../56-world-engine/walkthroughs/2026-06-22-round-315-preview-schema-shortcut-busy-guard.md)。
+- 2026-06-22：[Preview Project Form Busy Guard](../56-world-engine/walkthroughs/2026-06-22-round-316-preview-project-form-busy-guard.md)。
+- 2026-06-22：[Preview Project Loading Guard](../56-world-engine/walkthroughs/2026-06-22-round-317-preview-project-loading-guard.md)。
+- 2026-06-22：[Preview Actions Loading World Guard](../56-world-engine/walkthroughs/2026-06-22-round-318-preview-actions-loading-world-guard.md)。
+- 2026-06-22：[Preview Project Panel Loading World Guard](../56-world-engine/walkthroughs/2026-06-22-round-319-preview-project-panel-loading-world-guard.md)。
+- 2026-06-22：[Preview Project Form Reset](../56-world-engine/walkthroughs/2026-06-22-round-320-preview-project-form-reset.md)。
+- 2026-06-22：[Workbench Timeline Loading Action Guard](../56-world-engine/walkthroughs/2026-06-22-round-321-workbench-timeline-loading-action-guard.md)。
+- 2026-06-22：[Workbench Timeline Filter Action Guard](../56-world-engine/walkthroughs/2026-06-22-round-322-workbench-timeline-filter-action-guard.md)。
+- 2026-06-22：[Workbench Draft Summary Busy State](../56-world-engine/walkthroughs/2026-06-22-round-323-workbench-draft-summary-busy-state.md)。
+- 2026-06-22：[Workbench Exit Busy Guard](../56-world-engine/walkthroughs/2026-06-22-round-324-workbench-exit-busy-guard.md)。
+- 2026-06-22：[Workbench Sidebar Busy Guard](../56-world-engine/walkthroughs/2026-06-22-round-325-workbench-sidebar-busy-guard.md)。
+- 2026-06-22：[Inspector Full State Busy Guard](../56-world-engine/walkthroughs/2026-06-22-round-326-inspector-full-state-busy-guard.md)。
+- 2026-06-22：[Review Workbench Navigation Busy Guard](../56-world-engine/walkthroughs/2026-06-22-round-327-review-workbench-navigation-busy-guard.md)。
+- 2026-06-22：[Empty Review Issue Busy State](../56-world-engine/walkthroughs/2026-06-22-round-328-empty-review-issue-busy-state.md)。
 
 ## TODO / Follow-ups
 
@@ -243,7 +297,7 @@
 - 已按主体系统信息边界完成当前 state 收口：`character` schema 不再声明 `subjectFile / soulFile / visibleState / mind / memory / events` 这类全文或 RAG 镜像字段，新增 `主体系统信息边界收口` slice 对 6 个真实角色 unset 旧字段；当前 reduce state 只保留拓扑、RAG 来源、链接字段和计数。
 - 已给真实三栏 Workbench 增加主体系统摘要 UI，并在本轮纠偏为真实 `simulation/subjects` discovery：真实 Dialog 通过 `/api/projects/rag/overview` 读取主体目录、frontmatter、六文件存在性、events / memory 计数与 RAG source 状态；左栏 subject 行展示“主体系统 / 待接入 / 孤儿”连接状态，Inspector 在 State Snapshot 前展示 actor import、leader-only、direct state 与 RAG 来源，并标记 `path only` 避免把路径摘要误解为全文暴露。浏览器已验证 `ming-ding-zhi-shi-2` 深链接可打开真实 Workbench，左栏显示 6 个真实角色，排除 `sample-npc`，并实际请求 `/api/projects/rag/overview`。如其它 Project 存在 pending 主体，左栏会出现 `主体系统待接入` 面板，可显式同步为 World Engine subject 身份；当前已接入项目不会误显示该面板。
 - 后续如继续调整 UI，建议再覆盖 1920 宽屏和较窄桌面视口。
-- 后续扩展前优先拆分 `WorldEngineWorkbenchDialog.vue` 的真实 API/session composable 或 shell 子组件，降低当前约 1021 行容器继续增长的风险。
+- 后续扩展前优先拆分 `WorldEngineWorkbenchDialog.vue` 的真实 API/session composable 或 shell 子组件；当前该容器约 2294 行，已经远超项目单文件组件约束，后续不应继续把真实 Workbench 编排堆回这个文件。
 - 主 IDE Workbench 已有最小新建 slice 正门；后续如果继续强化作者推演流程，优先评估把 Slice Composer 从 Dialog 容器里拆成独立 shell/composable，并补浏览器实跑 2-3 步切片推演。
 - 已处理 `createSubject` list/collection default 与 `editSlice` 校验不一致的问题：后端/API 现在允许 `list` / `collection` 用 `set` 做整组替换，主 Workbench 载入 init slice 后可原样保存。
 - 主 Workbench 创建 subject 或同步主体系统后，会优先定位到触及新 subject 的最近 slice，避免左侧已选中新 subject、右侧却仍停在旧 slice 状态。
@@ -270,12 +324,15 @@
 - 主 Workbench 已清理未实际展示的 `previousSnapshotIssues` 死状态；当前底部审查工作台只消费前态 subjects，前态 issues 若要展示需另行设计明确 UI。
 - 独立 Preview 的写入 / 编辑 slice 入口也会前置校验 `time` 必填；time 为空时直接提示 `time 不能为空`，不再把请求打到后端。
 - 独立 Preview 的错误 / 成功提示现在也使用互斥 helper；连续 Project、示例世界、subject、slice、state query 或 Mutation Builder 操作后，不会同时残留旧成功提示和新错误提示。
-- 独立 Preview 的 Schema / Calendar 路径 chip 现在会深链打开主 IDE，并通过 `openPath` query 直接选中 `world-engine/schema.yaml` 或 `world-engine/calendar.yaml`，让新建 Project 后设置 schema/calendar 有可执行入口。
+- 独立 Preview 的 Schema / Calendar 路径 chip 现在会深链打开主 IDE，并通过 `openPath` query 直接选中 `world-engine/schema.yaml` 或 `world-engine/calendar.ts`，让新建 Project 后设置 schema/calendar 有可执行入口；旧 Project 缺少 `calendar.ts` 时会先创建默认 Simple Calendar 草稿再打开。
+- 默认 Project 模板在 `calendar.ts` 硬切后已完成真实 API 烟测：新建临时 Project 后，使用 `新生纪元1年1月1日 00:00:00/01` 创建 `world` / `player`、写入 event slice、查询 state、删除 slice 并确认状态回退，所有 issues 均为 0。记录见 [../56-world-engine/walkthroughs/2026-06-23-round-423-calendar-ts-default-template-api-smoke.md](../56-world-engine/walkthroughs/2026-06-23-round-423-calendar-ts-default-template-api-smoke.md)。
 - 主 IDE 消费 `openPath` 的顺序已修正为先打开目标文件、再规范 URL，避免 Preview 深链进入 Project 后因为 `normalizeNovelRouteQuery()` 提前清掉 `openPath` 而没有选中文件。
 - 独立 Preview 创建 subject 现在和主 Workbench 一样前置校验 `id/type/time`，创建成功后清空 `id/name` 并保留 `type/time`，减少连续录入时误重复提交同一 subject id。
 - 独立 Preview 点击已有 subject 载入查询上下文后，会识别当前 id 已存在并禁用创建入口；函数入口也会直接提示填写新 id，避免重复提交同一 subject。
 - 独立 Preview 的 Schema attr 快捷填充会优先使用当前 Builder / Query subject，避免 `ming-ding-zhi-shi-2` 这类多角色项目里点 `character` 属性时写到同类型第一个 subject。
 - 独立 Preview 的写入 / 编辑 slice 按钮现在会在 `time` 为空时禁用；函数入口仍保留 `time 不能为空` 校验。
+- 独立 Preview 的“创建示例世界”按钮现在会在 schema 不适配内置示例时禁用，并用 title 暴露原因，避免自定义 schema 项目点下后才报错。
+- 独立 Preview 的 State Query 按钮现在会在 `subjectIds` 和 `type` 同时为空时禁用；函数入口仍保留同样的 scope 校验。
 - 主 Workbench Review Queue issue 定位会先确认目标 slice 已加载；目标存在时清理 search / kind / status / subject 阻挡过滤并聚焦对应 subject，目标不存在时提示当前 timeline 无法定位，避免选中不存在的 slice。
 - Review Focus 现在会携带 `issueKey`，同一 slice / subject / attr 下有多条 issue 时，底部审查工作台会显示用户点击的那一条，而不是第一条同属性 issue。
 - Review Focus 会在当前 `issueKey` 从 Review Queue 消失后自动清空；作者修掉 issue 后，底部审查区不再保留旧定位并退化成 `manual-focus`。
@@ -302,7 +359,7 @@
 - 清空 subject 过滤、进入 Drafts 草稿视角时会把隐藏的 subject filter mode 复位为“任一 subject”，避免回到整体世界后下一次多 subject 选择继承旧 `all` 模式。
 - 刷新后 selected subjects 被过滤为空时，真实 Workbench 会同步复位 subject mode；mock preview 移除最后 subject chip 或恢复旧草稿后 subject ids 全失效时，也会复位为“任一 subject”。
 - Slice Composer 的默认下一时间现在会参考已知整体 timeline 时间窗口；subject 过滤刷新和 Review Queue 懒加载切片会把时间并入缓存，减少过滤视角下默认时间撞到其它 subject 已占用 instant 的概率。
-- 已知时间窗口的局部合并会把新发现的时间补到现有窗口前方，保留完整 timeline 末尾作为默认下一时间基准，避免较早 subject 切片影响“推演下一步”。
+- 已知时间窗口的局部合并会把新发现的时间并入 `knownSliceTimes`；下一条默认时间由可解析 instant 排序决定，不再依赖完整 timeline 或局部合并后的数组尾项，避免较早 subject 切片影响“推演下一步”。
 - 主 Workbench 在 subject 过滤视角下点击刷新、保存编辑、创建 / 同步 subject、删除 slice 或保存 Composer 后，会在刷新基础数据后继续调用服务端 subject timeline；长时间线下不再退回“最近 200 条全量结果 + 前端本地过滤”。
 - Slice Composer 与 Workbench 关闭动作现在会检查未保存草稿；作者修改 title / summary / kind / time / mutations 后点右上角关闭、关闭整个 Workbench 或按 Esc，会先确认是否放弃草稿，避免误关无声丢失本轮推演。
 - Composer 已经打开时，再次点击顶部 `新建 Slice` 会请求子编辑器切回新建模式，并沿用内部未保存草稿确认；点击顶部 `编辑 Slice` 仍不会直接清掉父层 dirty 状态，需在子编辑器内确认后才会载入所选 slice。
@@ -334,12 +391,98 @@
 - 主 Workbench 的用户入口函数也会检查 `sliceComposerSaving`；保存请求飞行中，即使组件事件绕过按钮 disabled，也不会切换 slice / subject timeline、定位 Review Queue、删除 slice、同步主体系统或打开其它 Slice Composer 上下文。
 - 中间 Slice List 也会接收 `workbenchActionBusy`；保存请求飞行中 search / kind / status / Draft Queue / 可见切片 stepper / 维护切片开关禁用，过滤结果变化 watcher 不会自动改选 slice，避免保存回流前上下文漂移。
 - Slice Composer 保存请求飞行中会禁用草稿表单和 Mutation Builder；Builder 的字段更新、object 行编辑、mutation 追加 / 替换 / 删除 / 移动等事件函数也会直接返回，避免慢请求下继续编辑旧草稿后被成功回流覆盖或误标记 clean。
+- Slice Composer 在父 Workbench 回流 busy 中也会禁用 Mutation Builder 与 schema attr 快捷填充；`写入并继续下一步` 后刷新 timeline/state/issues 时，作者不会在自动下一步草稿还未稳定前改写 Builder / mutations JSON。
+- 独立 Preview 的 Mutation Builder 也会在 `loadingWorld || actionBusy` 中禁用；mutation list controls、action buttons 和父页面事件函数都对齐请求飞行状态，避免 Project / 世界数据回流期间改写草稿。
+- 独立 Preview 的“取消编辑”用户入口现在走 `requestClearSliceEditMode()`，请求飞行中会直接返回；内部写入 / 删除成功后的 `clearSliceEditMode()` 清理仍可执行。
+- 独立 Preview StatePanel 的用户刷新现在走 `refreshWorldFromStatePanel()`，会在 `loadingWorld/actionBusy` 中返回；删除 slice 入口也会先检查 `loadingWorld`，避免世界数据回流中触发删除。
+- 本轮只读审查 `ming-ding-zhi-shi-2` 后确认一个比 busy guard 更大的作者流问题：真实角色的叙事状态在 `simulation/subjects/*/state.md`、经历在 `events.jsonl`，而当前 World Engine Slice Composer 只能写 Project SQLite 里的结构化 mutations；角色没有 `events` attr 时默认回退到 `world.events`，能避免写错 `hp`，但不能回答“这一轮角色状态文档怎么推进”。后续需要先决策 slice 与主体六文件的桥接策略，再继续做实现。
+- 桥接策略已收敛为下一步 P0：主 Workbench 先展示“主体文件更新建议”，根据 slice time/title/summary/mutations 和 `simulation/subjects` discovery 生成 `events.jsonl` 经历草稿、`memory.jsonl` facts 草稿和 `state.md` 待审查提示；P0 不自动写六文件，也不把 `world.engine` profile 扩展成旧 simulation owner。
+- P0 主体文件建议面已接入右侧 Inspector：真实 Dialog 通过已加载的 `subjectSystemSummaries`、selected slice 和 focused subject 生成建议；当角色没有 `events` attr、默认 mutation 回退到 `world.events` 时，仍可用 focused subject 生成角色六文件跟进建议。该入口不写文件、不调用 Agent 工具。
+- 主体文件建议面已增加复制入口：每个 proposal 可复制为包含 subject path、events draft、memory facts、state review reasons 和边界提示的文本，方便作者手动审查或交给后续 Agent。
+- mock `/world-engine.workbench-preview` 已补主体系统摘要 mock 数据并传给 Sidebar / Inspector，方便在不连真实 API 的沙盘中检查主体文件建议面。
+- 主体文件建议面已增加目标路径打开入口：真实 Workbench Inspector 会把 `events.jsonl / memory.jsonl / state.md` 路径交给现有 Project Workspace 打开链路，mock 沙盘只显示路径 notice；仍不自动写六文件。
+- 主体文件建议面已把 `events.jsonl` 和 `memory.jsonl` 草稿升级为可粘贴 JSONL candidate：event 输出 `text/time`，memory 输出 `topic/view`，复制文本同时保留 readable 摘要；真实写入仍由作者人工确认。
+- `events.jsonl` 候选在 slice summary 为空时会优先使用 `events` mutation 的字符串 value，不再直接退回 `world.events listAppend = ...` 这类技术摘要。
+- 即使 proposal 来源是 direct subject mutation，只要同一 slice 存在 `events` 叙事值，`events.jsonl` 候选也会优先使用该叙事值，而不是退回 `player.location set ...` 这类技术摘要。
+- `events.jsonl` 候选的事件语境只会借当前 subject 自己的 `events` 和 `world.events`；多主体 slice 中其它角色自己的 `events` 不会串进当前角色 proposal。
+- `events.jsonl` 候选会在 title 与事件值重复时去重，避免输出 `我走向大厅。我走向大厅。` 这类需要作者再清理的草稿。
+- Slice Composer 写入 / 编辑成功后会根据刷新后的真实 slice 计算主体文件建议数量；若存在建议，顶部成功提示会追加 `可在右侧 Inspector 查看 N 个主体文件建议`，只做发现入口，不自动写六文件。
+- 保存后的 proposal 计算与 Inspector 实际展示会使用同一个 context subject；如果 `payload.contextSubjectId` 能为保存后的 slice 生成建议，且该主体已注册，真实 Dialog 会把 `focusedSubjectId` 对齐到该主体。
+- Inspector 顶栏会在当前 slice 有主体文件建议时显示 `N proposals` 徽标，避免建议列表在滚动下方时作者误以为当前切片没有六文件跟进内容。
+- Inspector 隐藏时，真实 Dialog 顶栏 Inspector 按钮和右侧恢复 rail 也会显示当前 slice 的主体文件建议数量；metadata 草稿高亮仍优先，按钮 title 会同时列出 metadata 草稿和主体文件建议；隐藏状态下点击会用 `subject-file-proposals` 目标打开 Inspector 并滚到建议区。
+- Timeline slice card 会显示可点击的 `files N` 主体文件建议入口；真实 Dialog 和 mock preview 都会把 `subjectSystemSummaries` 透传给 SliceList / SliceCard，用同一套 proposal 规则计算卡片数量；入口 title 明确说明数量按当前主体语境计算，点击后会选中 slice、打开右侧 Inspector，并滚到 `Subject file proposals` 区域。
+- Proposal 可发现性改动后已运行 `bun run typecheck`；当前全量 typecheck 仍被无关 `server/agent/tools/control-tools.test.ts` 类型漂移阻塞，输出中未出现 World Engine / Workbench 相关类型错误。
+- 已补真实作者流浏览器验收清单，覆盖打开 `ming-ding-zhi-shi-2`、主体同步、多步 slice 推演、主体文件建议、历史 slice 回看和常用编辑 / 删除 / 查询操作；等待用户明确允许后执行。
+- 主体文件建议面已增加 JSONL 行精确复制：event 可复制单条 `events.jsonl` 行，memory 可复制全部候选 `memory.jsonl` 行；完整 proposal 复制仍用于保留审查上下文。
+- 主体文件建议复制动作已有失败反馈：浏览器剪贴板写入失败时会提示作者手动选择文本复制，避免常用落地动作失败时没有反馈。
+- `events.jsonl` 候选行已避免在 `text` 正文中重复写入时间前缀；时间只在 JSONL `time` 字段中，readable 摘要仍保留时间供 Inspector 审查。
+- `state.md review` 已从纯技术 mutation 摘要升级为文档区块提示，常见可见状态 attr 会指向 `当前位置 / 资源 / 持有物品 / 身体与姿态 / 关系压力 / 短期目标` 等区块，仍只提示、不自动 patch。
+- `events.jsonl` 候选正文已从 `某某相关` 外部标签改为 `我经历了这件事` 主体经历草稿，并保守替换当前 subject name 为 `我`；真实写入前仍需作者确认角色口吻。
+- 主体文件建议 UI 与复制文本已补人工确认提示：event 写入前确认第一人称与角色认知边界，memory 写入前确认追加新 topic 还是改写已有 topic。
+- 主体系统同步入口已明确：同步只注册 World Engine subject 身份，不复制或改写 `simulation/subjects` 六文件正文；六文件维护继续由主体文件建议和作者人工确认承接。
+- 左栏 subject 卡片已支持直接打开主体系统常用文件：`subject.md / events.jsonl / memory.jsonl / state.md`，复用主 IDE Project Workspace 打开链路，只导航、不读写内容。
+- mock `/world-engine.workbench-preview` 已补齐左栏 subject 文件按钮接线，点击会显示 mock path notice；真实 Workbench 已继续复用主 IDE 文件打开链路。
+- `state.md review` 已支持独立复制审查提示；作者打开 `state.md` 后可以只带走 review reasons，不必复制整份 proposal。该入口仍只复制文本，不自动写六文件。
+- 主体文件建议已增加来源标签：直接触及 subject 的建议显示为 `直接触及该主体`；当前 focused subject 承接 `world.events` 时显示为 `当前主体语境下的 world 事件建议`，避免作者误以为 slice 已经写入角色 subject。
+- 主体文件建议已支持 `复制全部`：多主体 slice 可一次性复制全部 subject proposal，并用 `---` 分隔，方便整条 slice 进入人工审查或后续 Agent 处理；仍不自动写六文件。
+- 主体文件建议复制文本已带 `sliceId / sliceTime / sliceTitle / sliceKind`，后续人工审查或 Agent 处理时可以稳定回查原切面。
 - 手动创建 subject 成功后会清空 `id/name` 并保留 `type/time`，请求飞行中禁用表单且父层回调使用请求体快照，避免作者连续录入时撞 duplicate 或慢请求期间表单变化污染真实创建结果。
 - Subject Creator 在 Project 切换后会重置为 `world / 世界 / 当前 schema 默认时间`；schema 刷新只会替换空 time 或仍是旧默认值的 time，避免普通刷新覆盖作者手动改过的初始化时间，也避免跨 Project 沿用旧时间。
 - 没有 slice 且没有待接入主体的空 Project 主画布现在会同时提供 `创建 Subject` 和 `一键示例世界`；点击 `创建 Subject` 会展开左侧创建面板并取消侧栏折叠，避免第一步入口藏在折叠 details 里。
 - Slice Composer 载入所选 slice 进入编辑模式时，会自动把第一条 mutation 同步进 Builder；textarea、mutation 选择器和 Builder 默认对齐，避免作者误用旧默认 mutation 替换当前 slice。
 - Slice Composer 会在前端校验 `time` 必填；time 为空时直接显示 `time 不能为空` 并禁用写入，不再等后端 API 返回同样错误。
 - `写入并继续下一步` 成功后，Composer 内会显示上一条 slice 已写入的回执；即使 overlay 继续打开、父层 notice 被遮住，作者也能确认上一条已保存并继续编辑下一条草稿。
+- `ming-ding-zhi-shi-2` 的真实 Project SQLite 已做只读预检：当前有 7 个 World Engine subject、6 个初始化 / 迁移 slice，所有 slice 与 `player` / `character` 查询读时 issues 均为 0；`sample-npc` 虽存在于 `simulation/subjects`，但当前 Workbench 工具层会显式忽略它，不能作为待接入主体路径的验收点。
+- 浏览器验收前静态审查已确认真实 Dialog / mock preview / 独立 Preview 的 World Engine 关键入口仍在：真实 API、主体系统同步、`Subject file proposals`、`files N` 直达、复制失败反馈、写入 / 删除 / 查询入口均有静态证据；`bunx vitest run app/utils/world-engine-ide-entry.test.ts app/utils/world-engine-workbench-preview.test.ts app/utils/world-engine-preview.test.ts` 通过 28 条。
+- 浏览器验收清单已把“同步主体系统”改为条件项：当前 `ming-ding-zhi-shi-2` 没有可用 pending subject，默认验收主线应覆盖已注册真实主体的推演 / 编辑 / 删除 / 查询 / 主体文件建议；如需验收 pending subject，需要先准备真实未注册 subject，不能使用 `sample-npc`。
+- 浏览器验收前的底层链路目标测试已通过：`server/world-engine/world-engine.facade.test.ts`、`server/api/projects/world-engine/[...segments].test.ts`、`server/agent/tools/world-engine-tools.test.ts`、`server/agent/profiles/world-engine-profile.test.ts` 共 4 个文件 138 条测试通过；这证明后端 / HTTP API / Agent 工具与 profile 当前契约健康，但不替代真实 UI 验收。
+- 真实浏览器验收 runbook 已准备：以 `player` 为上下文主体，使用 `复兴纪元488年 1月15日 14:00:06` 到 `14:00:08` 写入三步 `world.events listAppend` slice，再用 `14:00:09` 的 `[验收-可删除]` slice 覆盖删除入口；同时检查 proposal 直达、复制、目标文件打开、metadata/value 编辑、state query 与草稿保护。
+- 浏览器验收后的数据处理策略已补充：三条 `[验收]` 主线 slice 默认先保留到 walkthrough 记录完成；专门的 `[验收-可删除]` slice 应在删除测试中删除。若用户决定清理，优先通过 Workbench UI 搜索 `[验收]` 后逐条删除，不直接改 Project SQLite。
+- Runbook 时间窗口只读预检已通过：`复兴纪元488年 1月15日 14:00:06` 到 `14:00:09` 分别解析为 `15148908006..15148908009`，当前区间 `sliceCount: 0`，正式验收可使用；若验收延后，执行前应再次确认没有同 instant 冲突。
+- 浏览器验收结果模板已准备：把打开真实项目、schema/calendar、连续三步 slice、主体文件建议、历史 slice 回看、metadata/value 编辑、state query、删除和草稿保护拆成 `pass/fail/skip`、证据和后续动作表格，授权执行后可直接复制为结果 walkthrough。
+- 真实浏览器验收已执行：结果记录见 [../56-world-engine/walkthroughs/2026-06-22-round-380-real-browser-acceptance-result.md](../56-world-engine/walkthroughs/2026-06-22-round-380-real-browser-acceptance-result.md)。后续 P0 修复记录见 [../56-world-engine/walkthroughs/2026-06-22-round-381-author-flow-p0-fixes.md](../56-world-engine/walkthroughs/2026-06-22-round-381-author-flow-p0-fixes.md)：历史 `files N` proposal 直达、Composer 编辑 mutation value 落库、proposal 反映最新 value 已通过真实浏览器复验；草稿保护仍待后续单独复验。
+- 作者流常用动作补验记录见 [../56-world-engine/walkthroughs/2026-06-22-round-382-author-flow-common-actions.md](../56-world-engine/walkthroughs/2026-06-22-round-382-author-flow-common-actions.md)：真实 API 下 Step C state snapshot 可读，`issues` 未出现；Composer 删除 / 移动 mutation 后旧 Builder dirty 草稿覆盖风险已修；前端已补独立 `语境` 入口，让 `focusedSubjectId` 不再必须借 subject filter 设置，Step C `world.events` 可在整体时间线下显示 `files 1` 并直达 `薇洛丝` proposal。
+- subject filter 清空入口补验记录见 [../56-world-engine/walkthroughs/2026-06-22-round-383-subject-filter-clear-discoverability.md](../56-world-engine/walkthroughs/2026-06-22-round-383-subject-filter-clear-discoverability.md)：真实浏览器确认从 `眼镜长发女生` 的 `只看` 进入单 subject timeline 后，顶部 `清空过滤` 可直接回到整体世界视角，按钮消失，左栏恢复 `无筛选`，kind 计数恢复 `全部 4 / init 1 / event 3`。
+- 关闭按钮可访问性与 confirm 审查记录见 [../56-world-engine/walkthroughs/2026-06-22-round-384-close-button-accessibility-and-confirm-audit.md](../56-world-engine/walkthroughs/2026-06-22-round-384-close-button-accessibility-and-confirm-audit.md)：真实页面已出现 `world-workbench-close` / `world-slice-composer-close`；Slice Composer 中真实键盘输入后可见未保存草稿提示；in-app browser 自动化仍不能可靠 dismiss 原生 confirm，因此取消分支不作为已通过项。
+- 应用内草稿确认记录见 [../56-world-engine/walkthroughs/2026-06-22-round-385-app-dialog-draft-confirm.md](../56-world-engine/walkthroughs/2026-06-22-round-385-app-dialog-draft-confirm.md)：主 Workbench 的高风险确认已迁到应用内 `useDialog()`；真实浏览器确认 Slice Composer 关闭取消分支会保留未保存草稿，不写入数据库。
+- Slice Composer 新建模式确认迁移记录见 [../56-world-engine/walkthroughs/2026-06-22-round-386-mutation-editor-new-mode-dialog.md](../56-world-engine/walkthroughs/2026-06-22-round-386-mutation-editor-new-mode-dialog.md)：主 Workbench 子编辑器内部“切换到新建模式”确认也已迁到应用内 `useDialog()`；本轮只跑静态契约测试，未启动新浏览器验收。
+- Slice Composer 新建模式取消分支浏览器验收记录见 [../56-world-engine/walkthroughs/2026-06-23-round-387-new-mode-dialog-browser-acceptance.md](../56-world-engine/walkthroughs/2026-06-23-round-387-new-mode-dialog-browser-acceptance.md)：真实浏览器确认编辑模式下点击 `新建模式` 后取消，会保留编辑模式和未保存草稿；本轮没有写入 Project SQLite。
+- Workbench 确认取消分支浏览器验收记录见 [../56-world-engine/walkthroughs/2026-06-23-round-388-workbench-confirm-cancel-branches.md](../56-world-engine/walkthroughs/2026-06-23-round-388-workbench-confirm-cancel-branches.md)：真实浏览器确认 Workbench 关闭、打开工作区文件和删除 slice 的取消分支均保留当前上下文；本轮没有保存或删除数据。
+- 主体文件建议语境清空入口记录见 [../56-world-engine/walkthroughs/2026-06-23-round-389-clear-subject-context.md](../56-world-engine/walkthroughs/2026-06-23-round-389-clear-subject-context.md)：真实浏览器确认 `清语境` 会让 `语境中` 回到 `语境`、当前视角回到 `整体世界视角`，并且不会出现 `清空过滤`。
+- 主体文件建议 `复制并打开` 记录见 [../56-world-engine/walkthroughs/2026-06-23-round-390-copy-and-open-subject-file-proposal.md](../56-world-engine/walkthroughs/2026-06-23-round-390-copy-and-open-subject-file-proposal.md)：真实页面可见组合按钮；当前 in-app browser 自动化拒绝页面剪贴板写入，因此只验证到复制失败时不会打开文件，成功路径由静态测试固定。
+- 初始化切面主体文件建议过滤记录见 [../56-world-engine/walkthroughs/2026-06-23-round-391-hide-init-subject-file-proposals.md](../56-world-engine/walkthroughs/2026-06-23-round-391-hide-init-subject-file-proposals.md)：真实浏览器确认 init 不显示 `files N`，三条 `[验收]` event slice 在 `薇洛丝` 主体语境下仍显示 `files 1`，并可打开 `Subject file proposals`。
+- 独立 Preview 删除确认迁移记录见 [../56-world-engine/walkthroughs/2026-06-23-round-392-preview-delete-app-dialog.md](../56-world-engine/walkthroughs/2026-06-23-round-392-preview-delete-app-dialog.md)：真实浏览器确认 `删除 World Engine Slice` 应用内 Dialog 出现，取消后仍为 `7 subjects · 9 slices`，没有删除提示。
+- 主体文件建议验收标签清理记录见 [../56-world-engine/walkthroughs/2026-06-23-round-393-strip-acceptance-tags-from-proposals.md](../56-world-engine/walkthroughs/2026-06-23-round-393-strip-acceptance-tags-from-proposals.md)：真实浏览器确认 `[验收]` event slice 生成的 `events.jsonl` 候选不含内部验收标记，仍保留干净叙事正文和原始 `time` 字段。
+- 主体文件建议落地提示记录见 [../56-world-engine/walkthroughs/2026-06-23-round-394-proposal-landing-hints.md](../56-world-engine/walkthroughs/2026-06-23-round-394-proposal-landing-hints.md)：真实浏览器确认 `events.jsonl` 追加末尾提示和 `state.md` 检查区块 title 可见；memory 路径本轮由静态契约测试覆盖。
+- 单条 `events.jsonl` commit 与取消分支记录见 [../56-world-engine/walkthroughs/2026-06-23-round-399-subject-event-commit-ui.md](../56-world-engine/walkthroughs/2026-06-23-round-399-subject-event-commit-ui.md) 和 [../56-world-engine/walkthroughs/2026-06-23-round-400-real-event-commit-cancel-acceptance.md](../56-world-engine/walkthroughs/2026-06-23-round-400-real-event-commit-cancel-acceptance.md)：真实 Workbench 已能打开确认框，取消后不写 `events.jsonl`；确认写入真实项目仍需另行授权。
+- 主体经历草稿人称修正记录见 [../56-world-engine/walkthroughs/2026-06-23-round-401-event-proposal-subject-voice-pronouns.md](../56-world-engine/walkthroughs/2026-06-23-round-401-event-proposal-subject-voice-pronouns.md)：真实 Workbench 已确认同一 slice 的 `events.jsonl draft` 不再残留 `给了她 / 她决定`。
+- commit 后会话态反馈记录见 [../56-world-engine/walkthroughs/2026-06-23-round-402-event-commit-session-state.md](../56-world-engine/walkthroughs/2026-06-23-round-402-event-commit-session-state.md)：API 成功或幂等返回后同一 proposal 按钮变为 `已追加`，避免作者重复点击。
+- 临时 Project commit 真实浏览器验收记录见 [../56-world-engine/walkthroughs/2026-06-23-round-403-temp-project-event-commit-browser-acceptance.md](../56-world-engine/walkthroughs/2026-06-23-round-403-temp-project-event-commit-browser-acceptance.md)：主 IDE Workbench 已跑通 `appended`、刷新后 `already-exists`、overview refresh、events dirty 和 `已追加` disabled；临时 Project 已清理，真实 `ming-ding-zhi-shi-2` hash 未变。
+- Project 删除资源释放修复记录见 [../56-world-engine/walkthroughs/2026-06-23-round-404-project-delete-world-engine-client-release.md](../56-world-engine/walkthroughs/2026-06-23-round-404-project-delete-world-engine-client-release.md)：`deleteProjectWorkspace()` 删除前会关闭 World Engine Project PrismaClient，临时 Project 验收后的正式清理链路不再复现 `.nbook` 残留。
+- 主体系统 init attrs 同步记录见 [../56-world-engine/walkthroughs/2026-06-23-round-405-subject-system-init-attrs-sync.md](../56-world-engine/walkthroughs/2026-06-23-round-405-subject-system-init-attrs-sync.md)：Workbench 同步待接入 `simulation/subjects` 时，会把当前 schema 已声明的主体系统路径、六文件拓扑、RAG source 和计数元数据写入 World Engine init slice；通用 schema 未声明时仍只注册身份。
+- 新 Project 主 Workbench 浏览器验收记录见 [../56-world-engine/walkthroughs/2026-06-23-round-406-new-project-subject-sync-browser-acceptance.md](../56-world-engine/walkthroughs/2026-06-23-round-406-new-project-subject-sync-browser-acceptance.md)：Preview 新建临时 Project 后，主 IDE Workbench 跑通主体同步、连续 slice 写入、主体文件建议、状态快照和删除 slice；发现缺少 `world` subject 时写 `world.events` 会失败。
+- `world` subject 显式 bootstrap 记录见 [../56-world-engine/walkthroughs/2026-06-23-round-407-world-subject-bootstrap.md](../56-world-engine/walkthroughs/2026-06-23-round-407-world-subject-bootstrap.md)：真实 Workbench 侧已接现有 create subject API 创建 `world`，并禁用没有同类型 subject 的 schema shortcut；尚未做浏览器复验。
+- `world` subject bootstrap 浏览器验收记录见 [../56-world-engine/walkthroughs/2026-06-23-round-408-world-subject-bootstrap-browser-acceptance.md](../56-world-engine/walkthroughs/2026-06-23-round-408-world-subject-bootstrap-browser-acceptance.md)：真实 Workbench + API 已确认 `player:character` 与 `world:world` 共存后，可通过 UI 写入 `world.events`，State Query 返回该事件且 `issues=0`。
+- Project 删除 `EBUSY` 重试窗口记录见 [../56-world-engine/walkthroughs/2026-06-23-round-409-project-delete-ebusy-retry-window.md](../56-world-engine/walkthroughs/2026-06-23-round-409-project-delete-ebusy-retry-window.md)：`deleteProjectWorkspace()` 删除 Project 根目录的 `fs.rm()` retry 窗口已扩大，避免 Windows 句柄释放稍慢时把临时 Project 清理暴露成 500。
+- `world` bootstrap 保留主体语境记录见 [../56-world-engine/walkthroughs/2026-06-23-round-410-world-bootstrap-preserve-subject-context.md](../56-world-engine/walkthroughs/2026-06-23-round-410-world-bootstrap-preserve-subject-context.md)：真实 Workbench 在创建 `world` subject 后会恢复已有主体系统语境；临时 Project 浏览器验收确认后续 `world.events` 写入能继续生成 `player` 的主体文件建议。
+- 默认 Project 模板主体系统 schema 记录见 [../56-world-engine/walkthroughs/2026-06-23-round-411-default-template-subject-system-schema.md](../56-world-engine/walkthroughs/2026-06-23-round-411-default-template-subject-system-schema.md)：模板 `character` schema 已声明主体系统映射 attrs；新 Project 同步内置 `player` 时，真实 API 会把六文件路径和 RAG source 写入 init state。
+- 默认 Project 模板浏览器验收记录见 [../56-world-engine/walkthroughs/2026-06-23-round-412-default-template-browser-acceptance.md](../56-world-engine/walkthroughs/2026-06-23-round-412-default-template-browser-acceptance.md)：新建临时 Project 后不手写 schema，真实 Workbench 同步内置 `player`，State Query 返回 `sourcePath / subjectFiles / ragIndexSources / eventCount / memoryCount / subjectSystemVersion` 且 `issues=[]`。
+- 默认 Project 完整作者流记录见 [../56-world-engine/walkthroughs/2026-06-23-round-413-default-template-full-flow-acceptance.md](../56-world-engine/walkthroughs/2026-06-23-round-413-default-template-full-flow-acceptance.md)：真实 Workbench 已用默认模板临时 Project 跑通同步 `player`、创建 `world`、`world.events` / `player.events` 写入、`写入并继续下一步`、删除、编辑和最终 State Query 对账。
+- Project 删除 marker 兜底记录见 [../56-world-engine/walkthroughs/2026-06-23-round-414-project-delete-marker-fallback.md](../56-world-engine/walkthroughs/2026-06-23-round-414-project-delete-marker-fallback.md)：删除 API 在 Windows/Nuxt 下不再等待物理目录同步清空；若移动失败，会写 `.nbook/deleted-project.json`，保证 Project 从列表消失且同 slug 不被新建复用。
+- 删除兜底后真实 Workbench 复验记录见 [../56-world-engine/walkthroughs/2026-06-23-round-415-default-template-workbench-after-delete-marker.md](../56-world-engine/walkthroughs/2026-06-23-round-415-default-template-workbench-after-delete-marker.md)：新建临时 Project 后通过主 IDE 真实 API 创建 `world`、同步 `player`、写入 `player.events`、看到 `files 1` 与 State Snapshot 变更，再通过书架 UI 删除 Project；删除后 API 列表不再返回该 Project，物理目录按 marker 兜底残留。
+- 书架新建 Project route 同步记录见 [../56-world-engine/walkthroughs/2026-06-23-round-416-bookshelf-create-project-route-sync.md](../56-world-engine/walkthroughs/2026-06-23-round-416-bookshelf-create-project-route-sync.md)：`createNovel()` 会用新 Project 的 `includeProjectPath` 刷新列表，真实浏览器确认提交后 URL 立即变成新 Project。
+- 新建 Project 刷新 / 已删除 Project 旧链接 404 记录见 [../56-world-engine/walkthroughs/2026-06-23-round-417-refresh-deeplink-deleted-project-404.md](../56-world-engine/walkthroughs/2026-06-23-round-417-refresh-deeplink-deleted-project-404.md)：Project Workspace 缺失目录现在由统一断言返回稳定 404，避免 `/api/config/bootstrap`、文件树和 editor snapshot 等真实入口在旧链接下抛未处理 ENOENT；真实浏览器确认新建临时 Project 后刷新仍保持新 Project，并可打开默认模板 Workbench。
+- 已删除 Project 旧链接前端恢复记录见 [../56-world-engine/walkthroughs/2026-06-23-round-418-stale-project-route-recovery.md](../56-world-engine/walkthroughs/2026-06-23-round-418-stale-project-route-recovery.md)：主 IDE route 初始化会先用 `includeProjectPath` 查目标 Project，缺失时切到可用 Project 并规范 URL；真实浏览器确认恢复后不再继续用旧 `projectPath` 打 Workbench API，且可打开 World Engine。
+- 已删除 Project 旧链接携带 `openPath` 的恢复记录见 [../56-world-engine/walkthroughs/2026-06-23-round-419-stale-project-openpath-discard.md](../56-world-engine/walkthroughs/2026-06-23-round-419-stale-project-openpath-discard.md)：Project fallback 时会移除 `openPath`，避免 fallback Project 的同名 schema/calendar 文件被误打开。
+- 下一条默认 slice 时间会按可解析默认数字历 instant 从新到旧推导，不再依赖 timeline / subject timeline / Review Queue 懒加载合并后的数组尾项顺序；乱序 `knownSliceTimes` 下仍从最新 instant 往后推，日末也会跨到下一天。
 - 删除 slice 返回的 transient issue 现在会使用被删除 slice 作为来源；刷新后即使当前选中项变成其它 slice，Review Queue 也不会把删后 issue 错挂到新的当前 slice。
 - 无选中 slice 的底部空状态会展示当前 Review Queue issue 摘要；删除后即使没有 selected slice，作者也能看到 issue code、来源时间、subject/attr，并点击复用现有定位逻辑。
 - 如果要让其它旧 Project Workspace 自动获得同样主体系统映射，再单独设计通用 `simulation/subjects -> World Engine` 迁移工具；本任务当前只适配 `ming-ding-zhi-shi-2`。
+- 单条 `events.jsonl` commit 的后端 API、Inspector 按钮、真实取消分支、会话态反馈和临时 Project 真实确认写入验收已完成；下一步若继续推进，应转向 `memory.jsonl` / `state.md` 是否需要显式 commit 的产品决策，而不是继续重复验证 `events.jsonl` 追加机制。
+- 临时 Project 验收后的删除清理链路已补上 World Engine client 释放，并在 Round 414 改为 deleted marker 兜底；如果后续仍出现物理残留，优先检查后台清理和 deleted marker 生命周期，不再把作者删除动作阻塞在同步 `fs.rm()` 上。
+- 已删除 / 已物理清理 Project 的旧链接现在会走稳定 404；这保护真实 API 入口免于未处理 `ENOENT`。下一步若继续改善作者体验，应设计前端 404 Project 恢复流，而不是继续扩展后端 guard 矩阵。
+- 前端 404 Project 恢复流已补第一版：route target 缺失时不再把旧 `projectPath` 传给 config / tree / World Engine API，而是切到可用 Project 并提示；如果旧链接包含 `openPath`，会清理该 query，不打开 fallback Project 的同名文件。
+- 同步主体系统已能在 schema 声明字段时初始化映射 attrs；如果后续要刷新已存在 subject 的映射元数据，需要单独设计显式 refresh，不在打开 Workbench 时自动改旧 state。
+- 新 Project 浏览器验收暴露的 `world` subject bootstrap 问题已按显式引导修复并复验：不自动创建 `world`，而是在 Workbench 左栏和空状态提供创建入口；未实例化 type 的 schema shortcut 会禁用；创建后不会抢走已有 `player` 主体文件建议语境，`world.events` 可通过 UI 写入、被 State Query 读回，并继续生成角色六文件后续建议。
+- 默认 Project Workspace 模板现在直接声明主体系统映射 attrs，避免“模板带 player 六文件，但同步到 World Engine state 只剩通用字段”的割裂；这让新 Project 的真实 API 路径更接近 `ming-ding-zhi-shi-2`。
+- 阶段收尾审计见 [../56-world-engine/walkthroughs/2026-06-23-round-425-stage-closeout-audit.md](../56-world-engine/walkthroughs/2026-06-23-round-425-stage-closeout-audit.md)：真实 Workbench API 接入已覆盖创建 Project / 配置入口 / subject 创建与同步 / 连续写 slice / 编辑 / 删除 / State Query / issues / 主体文件建议 / 确认保护 / Project 删除与旧链接恢复。当前 real API 拼接阶段可以收尾，剩余 `memory.jsonl` / `state.md` commit 等进入后续产品决策。

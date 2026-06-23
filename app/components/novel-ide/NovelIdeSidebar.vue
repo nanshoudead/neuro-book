@@ -23,8 +23,6 @@ const emit = defineEmits<{
 const items: SidebarItem[] = [
     { value: "files", label: "Files", iconClass: "i-lucide-files" },
     { value: "characters", label: "Characters", iconClass: "i-lucide-users-round" },
-    { value: "outline", label: "Outline", iconClass: "i-lucide-puzzle" },
-    { value: "rag", label: "RAG", iconClass: "i-lucide-brain-circuit" },
 ];
 const sessionItems: SidebarItem[] = [
     { value: "sessions", label: "Sessions", iconClass: "i-lucide-messages-square" },

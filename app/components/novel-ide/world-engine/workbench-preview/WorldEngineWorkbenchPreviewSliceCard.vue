@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import {computed} from "vue";
+import {buildWorldWorkbenchSubjectFileProposals} from "nbook/app/utils/world-engine-workbench-real";
 import type {
     WorldWorkbenchPreviewMetadataDraftSummary,
     WorldWorkbenchPreviewReviewQueueItem,
@@ -7,6 +8,7 @@ import type {
     WorldWorkbenchPreviewSliceReviewSummary,
     WorldWorkbenchPreviewSubject,
     WorldWorkbenchPreviewSubjectGroup,
+    WorldWorkbenchPreviewSubjectSystemSummary,
     WorldWorkbenchPreviewJsonValue,
 } from "nbook/app/components/novel-ide/world-engine/workbench-preview/world-engine-workbench-preview.types";
 
@@ -18,6 +20,7 @@ const props = defineProps<{
     selectedSubjectIds: string[];
     sliceReviewSummary?: WorldWorkbenchPreviewSliceReviewSummary;
     reviewItems: WorldWorkbenchPreviewReviewQueueItem[];
+    subjectSystemSummaries?: WorldWorkbenchPreviewSubjectSystemSummary[];
     metadataDraftCount: number;
     metadataDraftSummary?: WorldWorkbenchPreviewMetadataDraftSummary;
     valueDraftCount: number;
@@ -28,10 +31,19 @@ const emit = defineEmits<{
     (e: "focusSubject", subjectId: string): void;
     (e: "focusReviewIssue", item: WorldWorkbenchPreviewReviewQueueItem): void;
     (e: "filterSubject", subjectId: string): void;
+    (e: "openSubjectFileProposals", sliceId: string, subjectId: string): void;
 }>();
 
 const maxVisibleMutationsPerSubject = 6;
 const subjectMap = computed(() => new Map(props.subjects.map((subject) => [subject.id, subject])));
+const subjectNameMap = computed(() => new Map(props.subjects.map((subject) => [subject.id, subject.name || subject.id])));
+const subjectFileProposals = computed(() => buildWorldWorkbenchSubjectFileProposals({
+    contextSubjectId: props.focusedSubjectId,
+    slice: props.slice,
+    subjectNames: subjectNameMap.value,
+    subjectSystemSummaries: props.subjectSystemSummaries ?? [],
+}));
+const subjectFileProposalCount = computed(() => subjectFileProposals.value.length);
 const reviewSummary = computed(() => props.sliceReviewSummary ?? {
     confirmed: 0,
     done: 0,
@@ -154,6 +166,11 @@ function filterSubject(subjectId: string): void {
     emit("filterSubject", subjectId);
 }
 
+/** 从 proposal 徽标直接进入右侧 Inspector 的主体文件建议区域。 */
+function openSubjectFileProposals(): void {
+    emit("openSubjectFileProposals", props.slice.id, subjectFileProposals.value[0]?.subjectId ?? "");
+}
+
 /** 将 World Engine issue code 映射成 A/E，便于主画布快速扫读。 */
 function issueLevel(code: WorldWorkbenchPreviewReviewQueueItem["code"]): "A" | "E" {
     return code === "base-shifted" || code === "masked" ? "A" : "E";
@@ -216,6 +233,10 @@ function issueStatusClass(status: WorldWorkbenchPreviewReviewQueueItem["status"]
                             <span class="rounded-md border border-[var(--we-border)] bg-[var(--we-bg-subtle)] px-2 py-1 text-[11px] text-[var(--we-text-secondary)]">{{ mutationGroups.length }} subjects</span>
                             <span v-if="hasMetadataDraft" class="rounded-md border border-amber-300 bg-[var(--we-warning-soft)] px-2 py-1 text-[11px] font-semibold text-[var(--we-warning)]" :title="`未应用 metadata 草稿：${metadataDraftDiffLabel}`">meta draft</span>
                             <span v-if="hasValueDraft" class="rounded-md border border-amber-300 bg-[var(--we-warning-soft)] px-2 py-1 text-[11px] font-semibold text-[var(--we-warning)]" :title="`${props.valueDraftCount} 个未应用 value 草稿`">value draft {{ props.valueDraftCount }}</span>
+                            <button v-if="subjectFileProposalCount" data-testid="slice-card-subject-file-proposal-count" type="button" class="inline-flex items-center gap-1 rounded-md border border-[var(--we-accent-border)] bg-[var(--we-accent-soft)] px-2 py-1 text-[11px] font-semibold text-[var(--we-accent-strong)] transition-colors hover:bg-[var(--we-bg-active)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--we-accent-border)]" title="按当前主体语境，当前切片有主体文件建议；打开右侧 Inspector 查看" @click.stop="openSubjectFileProposals">
+                                <span class="i-lucide-files h-3 w-3"></span>
+                                files {{ subjectFileProposalCount }}
+                            </button>
                             <span v-if="hasIssues" class="rounded-md border px-2 py-1 text-[11px] font-semibold" :class="hasOpenIssues ? 'border-amber-300 bg-[var(--we-warning-soft)] text-[var(--we-warning)]' : 'border-[var(--we-accent-border)] bg-[var(--we-accent-soft)] text-[var(--we-accent-strong)]'">{{ reviewBadgeLabel }}</span>
                         </div>
                         <div class="mt-2 truncate text-[14px] font-semibold text-[var(--we-text-main)]" :title="hasMetadataDraft ? `草稿：${displayTitle}；已应用：${props.slice.title || props.slice.id}` : displayTitle">{{ displayTitle }}</div>

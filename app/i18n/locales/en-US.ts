@@ -1497,6 +1497,8 @@ const enUS = {
             answerPrefix: "Answer: {text}",
             choicePrefix: "Choice: {text}",
             notePrefix: "Note: {text}",
+            formRequest: "Form Request",
+            fillForm: "Fill out and submit",
         },
     },
     markdownStudio: {

@@ -9,12 +9,14 @@ import {
     cloneMockWorkbenchSnapshots,
     findMockSnapshot,
     mockWorkbenchSchema,
+    mockWorkbenchSubjectSystemSummaries,
     mockWorkbenchSubjects,
 } from "nbook/app/utils/world-engine-workbench-preview-mock";
 import {
     applyWorkbenchPreviewMutationPatch,
     reduceWorkbenchPreviewSnapshots,
 } from "nbook/app/utils/world-engine-workbench-preview-state";
+import {buildWorldWorkbenchSubjectFileProposals} from "nbook/app/utils/world-engine-workbench-real";
 import type {
     WorldWorkbenchPreviewIssueStatus,
     WorldWorkbenchPreviewIssueTriagePatch,
@@ -33,6 +35,7 @@ import type {
     WorldWorkbenchPreviewSubjectStat,
     WorldWorkbenchPreviewSubjectFilterMode,
     WorldWorkbenchPreviewValueDraftSummary,
+    WorldWorkbenchSubjectFileProposal,
 } from "nbook/app/components/novel-ide/world-engine/workbench-preview/world-engine-workbench-preview.types";
 
 type WorldWorkbenchPreviewLocalDraft = {
@@ -79,6 +82,7 @@ const issueTriageStates = ref<WorldWorkbenchPreviewIssueTriageState[]>([]);
 const reviewQueueMode = ref<WorldWorkbenchPreviewReviewQueueMode>("open");
 const sidebarCollapsed = ref(false);
 const inspectorVisible = ref(true);
+const subjectFileProposalFocusVersion = ref(0);
 const mutationEditorCollapsed = ref(true);
 const sidebarWidth = ref(defaultSidebarWidth);
 const inspectorWidth = ref(defaultInspectorWidth);
@@ -125,6 +129,21 @@ const worldViewFilterParts = computed<string[]>(() => {
 const worldViewLabel = computed(() => worldViewFilterParts.value.length ? `当前视角：${worldViewFilterParts.value.join(" · ")}` : "整体世界视角");
 const metadataDraftSliceCount = computed(() => metadataDraftSummaries.value.length);
 const valueDraftSliceCount = computed(() => new Set(valueDraftSummaries.value.map((draft) => draft.sliceId)).size);
+const selectedSliceSubjectFileProposalCount = computed(() => selectedSlice.value ? buildWorldWorkbenchSubjectFileProposals({
+    contextSubjectId: focusedSubjectId.value,
+    slice: selectedSlice.value,
+    subjectNames: subjectNameMap,
+    subjectSystemSummaries: mockWorkbenchSubjectSystemSummaries,
+}).length : 0);
+const inspectorButtonAttentionClass = computed(() => {
+    if (metadataDraftSliceCount.value && !inspectorVisible.value) {
+        return "border-amber-300 bg-[var(--we-warning-soft)] text-[var(--we-warning)] hover:bg-[var(--we-bg-hover)]";
+    }
+    if (selectedSliceSubjectFileProposalCount.value && !inspectorVisible.value) {
+        return "border-[var(--we-accent-border)] bg-[var(--we-accent-soft)] text-[var(--we-accent-strong)] hover:bg-[var(--we-bg-hover)]";
+    }
+    return "border-[var(--we-border)] bg-[var(--we-bg-panel)] text-[var(--we-text-secondary)] hover:bg-[var(--we-bg-hover)] hover:text-[var(--we-text-main)]";
+});
 const draftSliceIds = computed(() => {
     const draftIds = new Set([
         ...metadataDraftSummaries.value.map((draft) => draft.sliceId),
@@ -134,12 +153,19 @@ const draftSliceIds = computed(() => {
 });
 const totalDraftSliceCount = computed(() => draftSliceIds.value.length);
 const inspectorButtonTitle = computed(() => {
-    if (!metadataDraftSliceCount.value) {
+    const pendingParts: string[] = [];
+    if (metadataDraftSliceCount.value) {
+        pendingParts.push(`${metadataDraftSliceCount.value} 个 metadata 草稿`);
+    }
+    if (selectedSliceSubjectFileProposalCount.value) {
+        pendingParts.push(`${selectedSliceSubjectFileProposalCount.value} 个主体文件建议`);
+    }
+    if (!pendingParts.length) {
         return inspectorVisible.value ? "隐藏检查器" : "打开检查器";
     }
     return inspectorVisible.value
-        ? `隐藏检查器；${metadataDraftSliceCount.value} 个 metadata 草稿仍会保留`
-        : `打开检查器处理 ${metadataDraftSliceCount.value} 个 metadata 草稿`;
+        ? `隐藏检查器；${pendingParts.join("、")}仍会保留`
+        : `打开检查器处理 ${pendingParts.join("、")}`;
 });
 const draftSummaryTitle = computed(() => {
     const parts = [];
@@ -307,6 +333,23 @@ function focusSubject(subjectId: string): void {
     mutationEditorCollapsed.value = false;
 }
 
+/** 只设置主体文件建议语境，不改变中间 timeline 过滤。 */
+function focusSubjectContext(subjectId: string): void {
+    focusedSubjectId.value = subjectId;
+    highlightedMutationFocus.value = null;
+    notice.value = `已将 ${subjectNameMap.get(subjectId) ?? subjectId} 设为主体文件建议语境。`;
+}
+
+/** 清空主体文件建议语境，不改变中间 timeline 过滤。 */
+function clearSubjectContext(): void {
+    if (!focusedSubjectId.value) {
+        return;
+    }
+    focusedSubjectId.value = "";
+    highlightedMutationFocus.value = null;
+    notice.value = "已清空主体文件建议语境。";
+}
+
 /** 从 Review Queue 跳转并定位到指定 issue。 */
 function focusReviewIssue(item: WorldWorkbenchPreviewReviewQueueItem): void {
     selectedSliceId.value = item.sliceId;
@@ -318,9 +361,21 @@ function focusReviewIssue(item: WorldWorkbenchPreviewReviewQueueItem): void {
     mutationEditorCollapsed.value = false;
 }
 
-/** 打开右侧 Inspector，用于 Draft Queue 直达 metadata 草稿处理。 */
-function openInspectorPanel(): void {
+/** 打开右侧 Inspector；主体文件入口会额外滚动到 proposal 区域。 */
+function openInspectorPanel(target?: "subject-file-proposals"): void {
     inspectorVisible.value = true;
+    if (target === "subject-file-proposals") {
+        subjectFileProposalFocusVersion.value += 1;
+    }
+}
+
+/** 顶栏 / 恢复 rail 打开 Inspector；若当前 slice 有主体文件建议，直达建议区。 */
+function toggleInspectorPanel(): void {
+    if (inspectorVisible.value) {
+        inspectorVisible.value = false;
+        return;
+    }
+    openInspectorPanel(selectedSliceSubjectFileProposalCount.value ? "subject-file-proposals" : undefined);
 }
 
 /** 展开底部审查工作台，用于 Draft Queue 直达 value 草稿处理。 */
@@ -365,6 +420,20 @@ function updateIssueTriage(patch: WorldWorkbenchPreviewIssueTriagePatch): void {
 /** 清除当前 review issue 的 attr 级定位，但保留用户正在看的 subject / slice。 */
 function clearMutationFocus(): void {
     highlightedMutationFocus.value = null;
+}
+
+/** mock 页面不连接真实文件树，只展示 Inspector 请求打开的 Project Workspace 路径。 */
+function openMockWorkspacePath(path: string): void {
+    const targetPath = path.trim();
+    if (!targetPath) {
+        return;
+    }
+    notice.value = `mock 预览不会打开真实文件：${targetPath}`;
+}
+
+/** mock 页面不执行真实 commit，只显示将要追加的目标与内容。 */
+function commitMockSubjectEventProposal(proposal: WorldWorkbenchSubjectFileProposal): void {
+    notice.value = `mock 预览不会写入 events.jsonl：${proposal.eventsPath} ← ${proposal.eventJsonLine}`;
 }
 
 /** 从主画布切到单 subject timeline，同时保持 Inspector / Editor 对齐。 */
@@ -738,13 +807,14 @@ onMounted(restoreLocalDraft);
                     type="button"
                     data-testid="world-workbench-inspector-toggle"
                     class="inline-flex h-8 items-center gap-1.5 rounded-md border px-3 text-[12px] transition-colors"
-                    :class="metadataDraftSliceCount && !inspectorVisible ? 'border-amber-300 bg-[var(--we-warning-soft)] text-[var(--we-warning)] hover:bg-[var(--we-bg-hover)]' : 'border-[var(--we-border)] bg-[var(--we-bg-panel)] text-[var(--we-text-secondary)] hover:bg-[var(--we-bg-hover)] hover:text-[var(--we-text-main)]'"
+                    :class="inspectorButtonAttentionClass"
                     :title="inspectorButtonTitle"
-                    @click="inspectorVisible = !inspectorVisible"
+                    @click="toggleInspectorPanel"
                 >
                     <span :class="inspectorVisible ? 'i-lucide-panel-right-close' : 'i-lucide-panel-right-open'" class="h-3.5 w-3.5"></span>
                     {{ t("worldEngine.workbenchPreview.inspector") }}
                     <span v-if="metadataDraftSliceCount" class="rounded border border-amber-300 bg-[var(--we-warning-soft)] px-1.5 py-0.5 font-mono text-[10px] font-semibold text-[var(--we-warning)]">meta {{ metadataDraftSliceCount }}</span>
+                    <span v-if="selectedSliceSubjectFileProposalCount" data-testid="world-workbench-inspector-proposal-count" class="rounded bg-[var(--we-bg-panel)] px-1.5 font-mono text-[10px]">{{ selectedSliceSubjectFileProposalCount }}</span>
                 </button>
             </div>
         </header>
@@ -753,13 +823,18 @@ onMounted(restoreLocalDraft);
             <WorldEngineWorkbenchPreviewSidebar
                 v-model:selected-subject-ids="selectedSubjectIds"
                 :collapsed="sidebarCollapsed"
+                :focused-subject-id="focusedSubjectId"
                 :reset-key="resetVersion"
                 :schema="mockWorkbenchSchema"
                 :width="sidebarWidth"
                 :subject-stats="subjectStats"
+                :subject-system-summaries="mockWorkbenchSubjectSystemSummaries"
                 :subjects="mockWorkbenchSubjects"
                 :value-draft-summaries="valueDraftSummaries"
                 @update:width="sidebarWidth = $event"
+                @clear-subject-context="clearSubjectContext"
+                @focus-subject-context="focusSubjectContext"
+                @open-workspace-path="openMockWorkspacePath"
                 @toggle-collapsed="sidebarCollapsed = !sidebarCollapsed"
             />
 
@@ -776,9 +851,11 @@ onMounted(restoreLocalDraft);
                     :slice-review-summaries="sliceReviewSummaries"
                     :review-queue-items="reviewQueueItems"
                     :slice-search="sliceSearch"
+                    :subject-system-summaries="mockWorkbenchSubjectSystemSummaries"
                     :subject-filter-mode="subjectFilterMode"
                     :metadata-draft-summaries="metadataDraftSummaries"
                     :value-draft-summaries="valueDraftSummaries"
+                    :open-inspector-panel="openInspectorPanel"
                     :open-draft-inspector="openInspectorPanel"
                     :expand-draft-editor="expandMutationEditorPanel"
                     @clear-subject-filter="clearSubjectFilter"
@@ -837,20 +914,25 @@ onMounted(restoreLocalDraft);
                     :focused-subject-id="focusedSubjectId"
                     :reset-key="resetVersion"
                     :slice="selectedSlice"
+                    :subject-system-summaries="mockWorkbenchSubjectSystemSummaries"
+                    :subject-file-proposal-focus-version="subjectFileProposalFocusVersion"
                     :subjects="mockWorkbenchSubjects"
                     :snapshot-subjects="selectedSnapshotSubjects"
                     :width="inspectorWidth"
                     @close="inspectorVisible = false"
+                    @commit-subject-event-proposal="commitMockSubjectEventProposal"
                     @focus-subject="focusSubject"
+                    @open-workspace-path="openMockWorkspacePath"
                     @update-metadata-drafts="metadataDraftSummaries = $event"
                     @update:width="inspectorWidth = $event"
                     @apply-patch="applySlicePatch"
                 />
             </Transition>
             <aside v-if="selectedSlice && !inspectorVisible" data-testid="world-inspector-restore-rail" class="flex w-10 shrink-0 flex-col items-center border-l border-[var(--we-border)] bg-[var(--we-bg-panel)] py-2">
-                <button type="button" class="inline-flex h-8 w-8 items-center justify-center rounded-md text-[var(--we-text-muted)] transition-colors hover:bg-[var(--we-bg-hover)] hover:text-[var(--we-text-main)]" title="展开检查器" @click="inspectorVisible = true">
+                <button type="button" class="inline-flex h-8 w-8 items-center justify-center rounded-md text-[var(--we-text-muted)] transition-colors hover:bg-[var(--we-bg-hover)] hover:text-[var(--we-text-main)]" :title="selectedSliceSubjectFileProposalCount ? '展开检查器并定位主体文件建议' : '展开检查器'" @click="toggleInspectorPanel">
                     <span class="i-lucide-panel-right-open h-4 w-4"></span>
                 </button>
+                <span v-if="selectedSliceSubjectFileProposalCount" data-testid="world-inspector-restore-proposal-count" class="mt-2 rounded border border-[var(--we-accent-border)] bg-[var(--we-accent-soft)] px-1.5 py-0.5 font-mono text-[10px] font-semibold text-[var(--we-accent-strong)]" title="当前切片有主体文件建议">{{ selectedSliceSubjectFileProposalCount }}</span>
                 <span class="mt-3 [writing-mode:vertical-rl] text-[11px] tracking-[0.16em] text-[var(--we-text-muted)]">{{ t("worldEngine.workbenchPreview.inspector") }}</span>
             </aside>
         </div>

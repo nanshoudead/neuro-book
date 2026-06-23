@@ -29,7 +29,7 @@ import {profileText} from "nbook/server/agent/profiles/profile-text";
 export const profileManifest = {
     key: "leader.default",
     name: "主创",
-    description: "默认协作与统筹 agent：协助小说创作、workspace 文件操作、Plot/Lorebook/Manuscript 协调，并按需创建或复用专用 profile agent。",
+    description: "默认协作与统筹 agent：协助小说创作、workspace 文件操作、World Engine 世界状态 / Lorebook / Manuscript 协调，并按需创建或复用专用 profile agent。",
 } as const;
 
 export const InitialSchema = LeaderDefaultInitialSchema;
@@ -60,17 +60,14 @@ export default defineAgentProfile({
         builtin.control.exitPlanMode,
         builtin.task.create,
         builtin.task.setStatus,
-        builtin.plot.getTree,
-        builtin.plot.getThread,
-        builtin.plot.getSceneContext,
-        builtin.plot.getChapter,
-        builtin.plot.createThread,
-        builtin.plot.updateThread,
-        builtin.plot.createScene,
-        builtin.plot.updateScene,
-        builtin.plot.createPlot,
-        builtin.plot.createPlots,
-        builtin.plot.updatePlot,
+        builtin.world.getState,
+        builtin.world.listSlices,
+        builtin.world.writeSlice,
+        builtin.world.editSlice,
+        builtin.world.deleteSlice,
+        builtin.world.createSubject,
+        builtin.world.getSchema,
+        builtin.world.listSubjects,
         builtin.sql.execute,
         builtin.variable.schema,
         builtin.variable.read,
@@ -118,7 +115,10 @@ export default defineAgentProfile({
                         <Import path="reference/agent/project-workspace-guide.md" />
                     </Message>
                     <Message>
-                        <Import path="reference/plot/system.md" />
+                        <Import path="reference/world-engine/workflow.md" />
+                    </Message>
+                    <Message>
+                        <Import path="reference/world-engine/recording-principles.md" />
                     </Message>
                 </HistorySet>
                 <ModelContext>
@@ -176,9 +176,24 @@ const LEADER_SYSTEM_PROMPT = profileText`
         - 当世界观问题需要用户参与时，优先问宏观选择，例如力量体系、主题气质、冲突方向，而不是追问零散细枝末节。
         
         # Agent
-        
+
         - 默认你应该尽可能的派发子代理来完成任务，除非用户明确要你自己完成
         - 如果遇到任何写作任务，必须使用 writer 来完成，你可以制定 writer 应该把文件写到哪里。并且不需要复述一遍文件给用户，而是直接使用文件应用
+
+        # World Engine（世界引擎）
+
+        写作模式下，**动态世界状态与时间线的唯一真相源是 World Engine**。完整原理见已注入的 reference/world-engine/workflow.md 与 recording-principles.md，这里是高频要点：
+
+        - **你默认处于写作模式**，世界状态一律走 World Engine。本 leader 不提供 Roleplay（RP）模式，也不维护旧 Plot / simulation 系统——这些在你这里不存在，不要尝试调用、创建或路由到它们；用户要 RP 体验时如实告知当前是写作模式。
+        - 世界状态、剧情时间线、角色随时间的状态变化都走 World Engine 工具（create_world_subject / write_world_slice / edit_world_slice / delete_world_slice / get_world_state / list_world_slices / get_world_schema / list_world_subjects）。
+        - **写入前先查**：首次初始化或写切面前，先 get_world_schema 看清这个项目有哪些 subject type、attr、kind、op / ref 约束；引用已有 subject 前先 list_world_subjects / get_world_state 确认 id 与 type，避免写出 ref 不匹配、subject 不存在、kind 拼错的非法 mutation。
+        - 技术细节对用户透明：用户只讲故事、设计角色、推进剧情，不需要理解 slice / mutation / reduce / instant / op / schema。回复用户时给「时间线 + 当前状态」的人读摘要，不要把 slice id、mutation JSON、op 名字甩给用户。
+        - 时间一律用项目日历字符串。第一版历法月份是数字（如 「星辉历312年 5月15日 14:00」），不要用「风信之月」这类月份名（尚未实现，会被工具拒绝）；工具入参禁止 raw instant（instant:<number>）。
+        - **初始化时机**：当项目有明确时间线、且有需要追踪状态的角色时再引入 World Engine（通常是用户从"探索想法"转向"正经写这个故事"，或明确说"建立 World Engine"）。纯灵感探索阶段不要初始化。初始化要和用户确认纪年、故事"现在"时间点、开局追踪哪些角色，再建 world subject（纪元锚点）、登记初始角色、写入开局状态。具体引导见 novel-workflow 系列 skill。
+        - **记录原则（最少支持当前叙事）**：只记录会被后续剧情读取 / 引用 / 依赖的事实。群体角色先用单一 subject、需要时再拆分重要个体；每个 subject 通常 1-2 条切面（起因 + 当前状态）；临时龙套不建 subject，只在主角切面 events 文本里提及；背景按需向更早 instant 插切面溯源，不预先填满。
+        - **两种录入模式**：A) 先设计世界 / 状态再写剧情（结构化）；B) 先听用户讲一段剧情叙述，再提取时间 / 地点 / 事件 / 状态变化补回 World Engine（自然）。两者都支持、可混用。
+        - **与 writer 协作**：先推进好 World Engine 世界状态，再调用 writer。writer 拥有 World Engine 只读查询能力，能自查角色状态，所以给它的 brief 要简化——只传章节目标、关键剧情点、信息控制（谁知道什么）、写作约束和「查哪些 subject / 哪个时间范围」的提示，不要把 HP / 位置 / 完整状态塞进 brief。
+        - **issues**：写 / 编辑 / 删除 / 查询返回的 E issues（broken-relative / dangling-ref）是数据错误必须修；A issues（base-shifted / masked）是补过去时的一次性提醒，确认语义即可。向用户解释用人话（"缺少初始值""引用了一个不存在的对象"），不要直接抛 broken-relative 这类术语。
 
        # Notes
        

@@ -93,6 +93,87 @@ describe("/api/projects/world-engine", () => {
         expect(readSubjectState(stateAfterDelete, "erina")).toMatchObject({attrs: {hp: 90}});
     });
 
+    it("HTTP subjects 支持初始化 schema 声明 attrs", async () => {
+        const projectPath = await createProject([
+            "subjectTypes:",
+            "  character:",
+            "    attrs:",
+            "      sourcePath: { kind: scalar, type: text }",
+            "      subjectFiles: { kind: object, itemType: text }",
+            "      eventCount: { kind: scalar, type: int, default: 0 }",
+            "",
+        ]);
+        const handler = (await import("nbook/server/api/projects/world-engine/[...segments]")).default;
+
+        await callApi(handler, projectPath, "POST", "subjects", {
+            id: "player",
+            type: "character",
+            name: "薇洛丝",
+            time: "复兴纪元1年 1月1日 00:00:00",
+            attrs: {
+                eventCount: 7,
+                sourcePath: "simulation/subjects/player",
+                subjectFiles: {
+                    events: "simulation/subjects/player/events.jsonl",
+                    subject: "simulation/subjects/player/subject.md",
+                },
+            },
+        });
+        const state = await callApi(handler, projectPath, "POST", "state/query", {
+            subjectIds: ["player"],
+            attrs: ["sourcePath", "subjectFiles", "eventCount"],
+        });
+
+        expect(readSubjectState(state, "player")).toMatchObject({
+            attrs: {
+                eventCount: 7,
+                sourcePath: "simulation/subjects/player",
+                subjectFiles: {
+                    events: "simulation/subjects/player/events.jsonl",
+                    subject: "simulation/subjects/player/subject.md",
+                },
+            },
+        });
+    });
+
+    it("subject-file proposal event commit 只追加一次并拒绝错误目标文件", async () => {
+        const projectPath = await createProject();
+        const handler = (await import("nbook/server/api/projects/world-engine/[...segments]")).default;
+        const projectRoot = path.join(resolveWorkspaceContainerRoot(), projectPath.slice("workspace/".length));
+        const subjectPath = "simulation/subjects/player";
+        const eventsPath = `${subjectPath}/events.jsonl`;
+        const subjectRoot = path.join(projectRoot, "simulation", "subjects", "player");
+        await fs.mkdir(subjectRoot, {recursive: true});
+        await fs.writeFile(path.join(subjectRoot, "events.jsonl"), "{\"text\":\"旧经历\",\"time\":\"复兴纪元1年 1月1日 00:00:00\"}\n", "utf-8");
+
+        const body = {
+            subjectId: "player",
+            subjectPath,
+            eventsPath,
+            sliceId: "slice-demo",
+            eventJsonLine: "{\"text\":\"我经历了新的世界变化。\",\"time\":\"复兴纪元1年 1月1日 00:00:10\"}",
+        };
+        const appended = await callApi(handler, projectPath, "POST", "subject-file-proposals/events/commit", body);
+        const duplicated = await callApi(handler, projectPath, "POST", "subject-file-proposals/events/commit", body);
+        const eventsText = await fs.readFile(path.join(subjectRoot, "events.jsonl"), "utf-8");
+        const dirtyText = await fs.readFile(path.join(projectRoot, ".nbook", "subject-rag-dirty.json"), "utf-8");
+
+        expect(appended).toMatchObject({status: "appended", subjectId: "player", subjectPath, eventsPath, dirty: true});
+        expect(duplicated).toMatchObject({status: "already-exists", subjectId: "player", subjectPath, eventsPath, dirty: false});
+        expect(eventsText.trim().split(/\r?\n/u).map((line) => JSON.parse(line) as unknown)).toEqual([
+            {text: "旧经历", time: "复兴纪元1年 1月1日 00:00:00"},
+            {text: "我经历了新的世界变化。", time: "复兴纪元1年 1月1日 00:00:10"},
+        ]);
+        expect(dirtyText).toContain("\"events\"");
+        await expect(callApi(handler, projectPath, "POST", "subject-file-proposals/events/commit", {
+            ...body,
+            eventsPath: `${subjectPath}/memory.jsonl`,
+        })).rejects.toMatchObject({
+            statusCode: 400,
+            message: "eventsPath 必须匹配 subjectPath/events.jsonl",
+        });
+    });
+
     it("GET slices 支持按 subjectIds 过滤作者查看的 subject 时间线", async () => {
         const projectPath = await createProject();
         const handler = (await import("nbook/server/api/projects/world-engine/[...segments]")).default;

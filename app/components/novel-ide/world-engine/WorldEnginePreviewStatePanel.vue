@@ -42,6 +42,7 @@ defineProps<{
     notice: string;
     loadingWorld: boolean;
     projectReady: boolean;
+    actionBusy: boolean;
     editingSliceId: string;
 }>();
 
@@ -102,12 +103,12 @@ function formatSliceMutations(mutations: PreviewSliceMutation[] | undefined): st
             <div class="border-b border-[var(--border-color)] lg:border-b-0 lg:border-r">
                 <div class="flex items-center justify-between border-b border-[var(--border-color)] px-3 py-2">
                     <div class="text-xs font-semibold uppercase text-[var(--text-secondary)]">Subjects</div>
-                    <button type="button" class="rounded p-1 hover:bg-[var(--bg-hover)] disabled:opacity-50" :disabled="loadingWorld || !projectReady" title="刷新" @click="emit('refresh')">
+                    <button type="button" class="rounded p-1 hover:bg-[var(--bg-hover)] disabled:opacity-50" :disabled="loadingWorld || actionBusy || !projectReady" title="刷新" @click="emit('refresh')">
                         <span :class="loadingWorld ? 'i-lucide-loader-2 animate-spin' : 'i-lucide-refresh-cw'" class="h-4 w-4"></span>
                     </button>
                 </div>
                 <div class="max-h-[700px] overflow-auto p-2">
-                    <button v-for="subject in subjects" :key="subject.id" type="button" class="mb-2 w-full rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] p-3 text-left hover:bg-[var(--bg-hover)]" @click="emit('load-subject', subject)">
+                    <button v-for="subject in subjects" :key="subject.id" type="button" class="mb-2 w-full rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] p-3 text-left hover:bg-[var(--bg-hover)] disabled:opacity-50" :disabled="loadingWorld || actionBusy || !projectReady" @click="emit('load-subject', subject)">
                         <div class="truncate text-sm font-medium">{{ subject.name || subject.id }}</div>
                         <div class="mt-1 flex items-center justify-between gap-2 text-xs text-[var(--text-muted)]">
                             <span>{{ subject.id }}</span>
@@ -139,11 +140,11 @@ function formatSliceMutations(mutations: PreviewSliceMutation[] | undefined): st
                                     {{ slice.issues.length }}
                                 </div>
                                 <div class="text-xs text-[var(--text-muted)]">{{ slice.mutations?.length ?? 0 }} mutations</div>
-                                <button type="button" class="inline-flex h-7 items-center gap-1 rounded-md border border-[var(--border-color)] px-2 text-[11px] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" title="载入编辑" aria-label="载入编辑 slice" @click="emit('load-slice', slice.id)">
+                                <button type="button" class="inline-flex h-7 items-center gap-1 rounded-md border border-[var(--border-color)] px-2 text-[11px] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:opacity-50" :disabled="loadingWorld || actionBusy || !projectReady" title="载入编辑" aria-label="载入编辑 slice" @click="emit('load-slice', slice.id)">
                                     <span class="i-lucide-pencil h-3.5 w-3.5"></span>
                                     编辑
                                 </button>
-                                <button type="button" class="inline-flex h-7 items-center gap-1 rounded-md border border-transparent px-2 text-[11px] text-[var(--text-secondary)] hover:bg-rose-500/10 hover:text-rose-600 disabled:opacity-50" :disabled="loadingWorld || !projectReady" title="删除 slice" aria-label="删除 slice" @click="emit('delete-slice', slice.id)">
+                                <button type="button" class="inline-flex h-7 items-center gap-1 rounded-md border border-transparent px-2 text-[11px] text-[var(--text-secondary)] hover:bg-rose-500/10 hover:text-rose-600 disabled:opacity-50" :disabled="loadingWorld || actionBusy || !projectReady" title="删除 slice" aria-label="删除 slice" @click="emit('delete-slice', slice.id)">
                                     <span class="i-lucide-trash-2 h-3.5 w-3.5"></span>
                                     删除
                                 </button>

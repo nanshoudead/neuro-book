@@ -19,6 +19,7 @@ import {
     parseCsvList,
     parseLooseJsonValue,
     parseMutationJson,
+    parseMutationListJson,
     previewAttrNeedsJsonObject,
     previewAttrValueType,
     previewDemoMutations,
@@ -101,6 +102,8 @@ describe("world-engine-preview utils", () => {
 
     it("拒绝空数组和非法 op", () => {
         expect(parseMutationJson("[]")).toEqual({ok: false, message: "mutations 必须是非空数组"});
+        expect(parseMutationListJson("[]")).toEqual({ok: true, value: []});
+        expect(parseMutationListJson("{}")).toEqual({ok: false, message: "mutations 必须是数组"});
         expect(parseMutationJson(JSON.stringify([{subjectId: "erina", attr: "hp", op: "push"}]))).toEqual({ok: false, message: "mutation.op 不合法"});
         expect(parseMutationJson(JSON.stringify([{subjectId: "erina", attr: "hp", op: "set"}]))).toEqual({ok: false, message: "mutation.value 不能为空"});
         expect(parseMutationJson(JSON.stringify([{subjectId: "erina", attr: "hp", op: "unset", value: null}]))).toEqual({ok: false, message: "mutation.value 在 unset 时必须省略"});
@@ -220,6 +223,19 @@ describe("world-engine-preview utils", () => {
             "复兴纪元488年 1月15日 14:00:01",
             "复兴纪元488年 1月15日 14:00:02",
         ])).toBe("复兴纪元488年 1月15日 14:00:03");
+        expect(suggestNextPreviewTime(["复兴纪元1年 1月1日 00:00:00"], [
+            "复兴纪元1年 1月1日 00:00:10",
+            "复兴纪元1年 1月1日 00:00:02",
+        ])).toBe("复兴纪元1年 1月1日 00:00:11");
+        expect(suggestNextPreviewTime(["复兴纪元1年 1月1日 00:00:00"], [
+            "复兴纪元1年 1月1日 00:00:10",
+            "复兴纪元1年 1月1日 00:00:11",
+            "复兴纪元1年 1月1日 00:00:02",
+        ])).toBe("复兴纪元1年 1月1日 00:00:12");
+        expect(suggestNextPreviewTime(["复兴纪元488年 1月15日 00:00:00"], [
+            "复兴纪元488年 1月15日 23:59:59",
+            "复兴纪元488年 1月15日 00:00:01",
+        ])).toBe("复兴纪元488年 1月16日 00:00:00");
         expect(suggestNextPreviewTime(["某个时代", "另一个时代"], ["某个时代"])).toBe("另一个时代");
     });
 

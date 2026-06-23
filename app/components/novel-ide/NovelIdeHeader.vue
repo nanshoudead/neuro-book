@@ -19,9 +19,7 @@ const emit = defineEmits<{
     (e: "toggle-layout-mode"): void;
     (e: "toggle-agent"): void;
     (e: "open-bookshelf"): void;
-    (e: "open-plot-workbench"): void;
     (e: "open-world-engine"): void;
-    (e: "open-rag-inspector"): void;
     (e: "open-user-assets"): void;
     (e: "open-profile-workbench"): void;
     (e: "switch-novel", value: string): void;
@@ -132,17 +130,9 @@ const handleUserMenuSelect = (value: string): void => {
                 <span class="i-lucide-library h-4 w-4"></span>
                 <span>{{ t("ide.header.bookshelf") }}</span>
             </button>
-            <button v-if="!isUserAssetsMode" class="hidden items-center gap-2 rounded-full border border-transparent px-4 py-1.5 text-[12px] tracking-[0.2em] uppercase text-[var(--text-secondary)] transition-colors hover:border-[var(--border-color)] hover:bg-[var(--bg-hover)] hover:text-[var(--accent-text)] md:flex" :title="t('ide.header.plotWorkbench')" @click="emit('open-plot-workbench')">
-                <span class="i-lucide-panels-top-left h-4 w-4 text-[var(--accent-text)]"></span>
-                <span>{{ t("ide.header.plotWorkbench") }}</span>
-            </button>
             <button v-if="!isUserAssetsMode" class="hidden items-center gap-2 rounded-full border border-transparent px-4 py-1.5 text-[12px] tracking-[0.2em] uppercase text-[var(--text-secondary)] transition-colors hover:border-[var(--border-color)] hover:bg-[var(--bg-hover)] hover:text-[var(--accent-text)] md:flex" :title="t('ide.header.worldEngine')" @click="emit('open-world-engine')">
                 <span class="i-lucide-globe-2 h-4 w-4 text-[var(--accent-text)]"></span>
                 <span>World</span>
-            </button>
-            <button v-if="!isUserAssetsMode" class="hidden items-center gap-2 rounded-full border border-transparent px-4 py-1.5 text-[12px] tracking-[0.2em] uppercase text-[var(--text-secondary)] transition-colors hover:border-[var(--border-color)] hover:bg-[var(--bg-hover)] hover:text-[var(--accent-text)] md:flex" :title="t('ide.header.ragInspector')" @click="emit('open-rag-inspector')">
-                <span class="i-lucide-brain-circuit h-4 w-4 text-[var(--accent-text)]"></span>
-                <span>RAG</span>
             </button>
             <button v-if="!isUserAssetsMode" class="hidden items-center gap-2 rounded-full border border-transparent px-4 py-1.5 text-[12px] tracking-[0.2em] uppercase text-[var(--text-secondary)] transition-colors hover:border-[var(--border-color)] hover:bg-[var(--bg-hover)] hover:text-[var(--accent-text)] md:flex" :title="t('ide.header.userAssetsTitle')" @click="emit('open-user-assets')">
                 <span class="i-lucide-folder-cog h-4 w-4 text-[var(--accent-text)]"></span>

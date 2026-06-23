@@ -1,7 +1,17 @@
 import { fileURLToPath } from "node:url";
 
 const rootDir = fileURLToPath(new URL("./", import.meta.url));
+const serverDir = fileURLToPath(new URL("./server/", import.meta.url));
 const i18nConfigPath = fileURLToPath(new URL("./app/i18n/i18n.config.ts", import.meta.url));
+const runtimeWorkspaceRoot = fileURLToPath(new URL("./workspace/", import.meta.url)).replace(/\\/g, "/").replace(/\/$/, "");
+const runtimeWorkspaceWatchIgnore = [
+    runtimeWorkspaceRoot,
+    `${runtimeWorkspaceRoot}/**`,
+    runtimeWorkspaceRoot.replace(/\//g, "\\"),
+    `${runtimeWorkspaceRoot.replace(/\//g, "\\")}\\**`,
+    "workspace",
+    "workspace/**",
+];
 
 /**
  * 将 node_modules 依赖拆成稳定 vendor chunk。
@@ -38,6 +48,11 @@ export default defineNuxtConfig({
         nbook: rootDir,
     },
     vite: {
+        server: {
+            watch: {
+                ignored: runtimeWorkspaceWatchIgnore,
+            },
+        },
         optimizeDeps: {
             entries: [
                 "./app/app.vue",
@@ -95,6 +110,27 @@ export default defineNuxtConfig({
         },
     ],
     nitro: {
+        devStorage: {
+            root: {
+                driver: "fs",
+                readOnly: true,
+                base: rootDir,
+                watchOptions: {
+                    ignored: runtimeWorkspaceWatchIgnore,
+                },
+            },
+            src: {
+                driver: "fs",
+                readOnly: true,
+                base: serverDir,
+                watchOptions: {
+                    ignored: runtimeWorkspaceWatchIgnore,
+                },
+            },
+        },
+        watchOptions: {
+            ignored: runtimeWorkspaceWatchIgnore,
+        },
         externals: {
             external: [
                 "@earendil-works/pi-ai",

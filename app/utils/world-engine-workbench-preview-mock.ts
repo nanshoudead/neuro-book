@@ -6,6 +6,7 @@ import type {
     WorldWorkbenchPreviewSlice,
     WorldWorkbenchPreviewSnapshot,
     WorldWorkbenchPreviewSubject,
+    WorldWorkbenchPreviewSubjectSystemSummary,
 } from "nbook/app/components/novel-ide/world-engine/workbench-preview/world-engine-workbench-preview.types";
 
 export const mockWorkbenchSchema: WorldSchemaProjectionDto = {
@@ -66,6 +67,78 @@ export const mockWorkbenchSubjects: WorldWorkbenchPreviewSubject[] = [
     {id: "erina", type: "character", name: "艾莉娜"},
     {id: "moran", type: "character", name: "莫然"},
     {id: "old-sword", type: "item", name: "旧剑"},
+];
+
+export const mockWorkbenchSubjectSystemSummaries: WorldWorkbenchPreviewSubjectSystemSummary[] = [
+    {
+        actorImportPath: "simulation/subjects/erina/soul.md",
+        canonicalSource: "reference/mock/erina.md",
+        controlledBy: "simulator",
+        directStatePath: "simulation/subjects/erina/state.md",
+        displayName: "艾莉娜",
+        eventCount: 8,
+        leaderOnlyPath: "simulation/subjects/erina/subject.md",
+        legacyKind: "npc",
+        memoryCount: 3,
+        mindFileExists: true,
+        profile: "simulator.actor",
+        ragIndexSources: [
+            {label: "events", path: "simulation/subjects/erina/events.jsonl"},
+            {label: "memory", path: "simulation/subjects/erina/memory.jsonl"},
+        ],
+        sourcePath: "simulation/subjects/erina",
+        sourceStatuses: [
+            {source: "events", status: "dirty", recordCount: 8, indexedAt: null, lastError: null},
+            {source: "memory", status: "synced", recordCount: 3, indexedAt: "2026-06-22T00:00:00.000Z", lastError: null},
+        ],
+        stateFileExists: true,
+        subjectFileExists: true,
+        subjectFiles: [
+            {label: "subject", path: "simulation/subjects/erina/subject.md"},
+            {label: "soul", path: "simulation/subjects/erina/soul.md"},
+            {label: "mind", path: "simulation/subjects/erina/mind.md"},
+            {label: "state", path: "simulation/subjects/erina/state.md"},
+            {label: "events", path: "simulation/subjects/erina/events.jsonl"},
+            {label: "memory", path: "simulation/subjects/erina/memory.jsonl"},
+        ],
+        subjectId: "erina",
+        subjectSystemVersion: "mock-simulation-subjects",
+        syncStatus: "linked",
+        soulFileExists: true,
+    },
+    {
+        actorImportPath: "simulation/subjects/moran/soul.md",
+        canonicalSource: "reference/mock/moran.md",
+        controlledBy: "simulator",
+        directStatePath: "simulation/subjects/moran/state.md",
+        displayName: "莫然",
+        eventCount: 4,
+        leaderOnlyPath: "simulation/subjects/moran/subject.md",
+        legacyKind: "npc",
+        memoryCount: 2,
+        mindFileExists: true,
+        profile: "simulator.actor",
+        ragIndexSources: [
+            {label: "events", path: "simulation/subjects/moran/events.jsonl"},
+            {label: "memory", path: "simulation/subjects/moran/memory.jsonl"},
+        ],
+        sourcePath: "simulation/subjects/moran",
+        sourceStatuses: [],
+        stateFileExists: true,
+        subjectFileExists: true,
+        subjectFiles: [
+            {label: "subject", path: "simulation/subjects/moran/subject.md"},
+            {label: "soul", path: "simulation/subjects/moran/soul.md"},
+            {label: "mind", path: "simulation/subjects/moran/mind.md"},
+            {label: "state", path: "simulation/subjects/moran/state.md"},
+            {label: "events", path: "simulation/subjects/moran/events.jsonl"},
+            {label: "memory", path: "simulation/subjects/moran/memory.jsonl"},
+        ],
+        subjectId: "moran",
+        subjectSystemVersion: "mock-simulation-subjects",
+        syncStatus: "linked",
+        soulFileExists: true,
+    },
 ];
 
 export const mockWorkbenchSlices: WorldWorkbenchPreviewSlice[] = [

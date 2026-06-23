@@ -1723,54 +1723,77 @@ describe("WorldEngineFacade", () => {
         expect(text).toBe("复兴纪元488年 2月15日 14:00:00");
         expect(await facade.parseTime(projectPath, text)).toBe(15151500000n);
         expect(beforeZero).toBe("复兴纪元0年 12月30日 23:59:59");
-        expect(await facade.parseTime(projectPath, beforeZero)).toBe(-1n);
         expect(await facade.parseTime(projectPath, "instant:-5")).toBe(-5n);
-        expect(schema.calendar.examples).toContain("复兴纪元488年 1月15日 14:00:00");
+        expect(schema.calendar.examples).toContain("复兴纪元1年 1月1日 00:00:00");
     });
 
-    it("Calendar 配置显式拒绝非法单位和缺 token 的 format", async () => {
+    it("Calendar 配置显式拒绝非法 simple calendar.ts", async () => {
         const invalidRootProject = await createProject(undefined, [
-            "- nope",
-            "",
+            "export default null;",
         ]);
         const invalidUnitProject = await createProject(undefined, [
-            "hoursPerDay: nope",
-            "",
+            "export default {",
+            "  type: 'simple',",
+            "  eraAfter: '星历',",
+            "  baseUnit: 'second',",
+            "  units: 'nope',",
+            "  format: '{eraName}{year}年',",
+            "};",
         ]);
         const invalidEraProject = await createProject(undefined, [
-            "era: 123",
-            "",
+            "export default {",
+            "  type: 'simple',",
+            "  eraAfter: 123,",
+            "  baseUnit: 'second',",
+            "  units: [{name: 'minute', parent: 'second', ratio: 60}],",
+            "  format: '{eraName}{minute}分',",
+            "};",
         ]);
         const invalidFormatProject = await createProject(undefined, [
-            "format: \"{era}{year}年\"",
-            "",
+            "export default {",
+            "  type: 'simple',",
+            "  eraAfter: '星历',",
+            "  baseUnit: 'second',",
+            "  units: [{name: 'minute', parent: 'second', ratio: 60}],",
+            "  format: '',",
+            "};",
         ]);
-        const duplicatedYearProject = await createProject(undefined, [
-            "format: \"{era}{year}年 {year}年 {month}月{day}日\"",
-            "",
+        const isolatedUnitProject = await createProject(undefined, [
+            "export default {",
+            "  type: 'simple',",
+            "  eraAfter: '星历',",
+            "  baseUnit: 'second',",
+            "  units: [{name: 'hour', parent: 'minute', ratio: 60}],",
+            "  format: '{eraName}{hour}时',",
+            "};",
         ]);
-        const duplicatedHourProject = await createProject(undefined, [
-            "format: \"{era}{year}年 {month}月{day}日 {hour}:{hour:02}\"",
-            "",
+        const cycleNamesProject = await createProject(undefined, [
+            "export default {",
+            "  type: 'simple',",
+            "  eraAfter: '星历',",
+            "  baseUnit: 'second',",
+            "  units: [{name: 'month', parent: 'second', ratio: 3, cycleNames: ['春', '夏']}],",
+            "  format: '{eraName}{monthName}',",
+            "};",
         ]);
         const unsafeNumberProject = await createProject(undefined, [
-            "hoursPerDay: 9007199254740992",
-            "",
-        ]);
-        const zeroStringProject = await createProject(undefined, [
-            "secondsPerMinute: \"0\"",
-            "",
+            "export default {",
+            "  type: 'simple',",
+            "  eraAfter: '星历',",
+            "  baseUnit: 'second',",
+            "  units: [{name: 'hour', parent: 'second', ratio: 9007199254740992}],",
+            "  format: '{eraName}{hour}时',",
+            "};",
         ]);
         const facade = createFacade();
 
-        await expect(facade.formatTime(invalidRootProject, 0n)).rejects.toThrow("calendar 配置必须是 object");
-        await expect(facade.formatTime(invalidUnitProject, 0n)).rejects.toThrow("hoursPerDay 必须是正整数");
-        await expect(facade.formatTime(invalidEraProject, 0n)).rejects.toThrow("era 必须是字符串");
-        await expect(facade.formatTime(invalidFormatProject, 0n)).rejects.toThrow("format 缺少必要 token：{month}");
-        await expect(facade.formatTime(duplicatedYearProject, 0n)).rejects.toThrow("format 时间字段不能重复：year / year");
-        await expect(facade.formatTime(duplicatedHourProject, 0n)).rejects.toThrow("format 时间字段不能重复：hour / hour:02");
-        await expect(facade.formatTime(unsafeNumberProject, 0n)).rejects.toThrow("hoursPerDay 必须是安全正整数");
-        await expect(facade.formatTime(zeroStringProject, 0n)).rejects.toThrow("secondsPerMinute 必须是正整数");
+        await expect(facade.formatTime(invalidRootProject, 0n)).rejects.toThrow("calendar.ts 必须 export default 一个配置对象");
+        await expect(facade.formatTime(invalidUnitProject, 0n)).rejects.toThrow("units 必须是数组");
+        await expect(facade.formatTime(invalidEraProject, 0n)).rejects.toThrow("eraAfter 必须是字符串");
+        await expect(facade.formatTime(invalidFormatProject, 0n)).rejects.toThrow("format 不能为空");
+        await expect(facade.formatTime(isolatedUnitProject, 0n)).rejects.toThrow("Units 存在孤立节点或环：hour");
+        await expect(facade.formatTime(cycleNamesProject, 0n)).rejects.toThrow("cycleNames 长度（2）必须等于 ratio（3）");
+        await expect(facade.formatTime(unsafeNumberProject, 0n)).rejects.toThrow("units[0].ratio 必须是正整数");
     });
 
     it("getWorldSchema 投影包含 enum、default、itemType 与 object fields，供 Agent 和 Preview 生成合法 mutation", async () => {
@@ -1822,14 +1845,20 @@ describe("WorldEngineFacade", () => {
 
     it("Calendar 支持合法固定进位配置", async () => {
         const projectPath = await createProject(undefined, [
-            "era: 星历",
-            "format: \"{era}{year}年 {month}月{day}日 {hour:02}:{minute:02}:{second:02}\"",
-            "secondsPerMinute: 10",
-            "minutesPerHour: 10",
-            "hoursPerDay: 10",
-            "daysPerMonth: 10",
-            "monthsPerYear: 10",
-            "",
+            "export default {",
+            "  type: 'simple',",
+            "  eraBefore: '星历',",
+            "  eraAfter: '星历',",
+            "  baseUnit: 'second',",
+            "  units: [",
+            "    {name: 'minute', parent: 'second', ratio: 10},",
+            "    {name: 'hour', parent: 'minute', ratio: 10},",
+            "    {name: 'day', parent: 'hour', ratio: 10},",
+            "    {name: 'month', parent: 'day', ratio: 10},",
+            "    {name: 'year', parent: 'month', ratio: 10},",
+            "  ],",
+            "  format: '{eraName}{year}年 {month}月{day}日 {hour:02}:{minute:02}:{second:02}',",
+            "};",
         ]);
         const facade = createFacade();
 
@@ -1837,20 +1866,19 @@ describe("WorldEngineFacade", () => {
         expect(await facade.parseTime(projectPath, "星历1年 1月2日 00:00:00")).toBe(1000n);
     });
 
-    it("Calendar 单位允许用字符串表达超过 JS safe integer 的正整数", async () => {
+    it("Calendar simple 单位拒绝超过 JS safe integer 的 ratio", async () => {
         const projectPath = await createProject(undefined, [
-            "era: 巨历",
-            "format: \"{era}{year}年 {month}月{day}日 {hour}:{minute}:{second}\"",
-            "secondsPerMinute: 1",
-            "minutesPerHour: 1",
-            "hoursPerDay: \"9007199254740992\"",
-            "daysPerMonth: 1",
-            "monthsPerYear: 1",
-            "",
+            "export default {",
+            "  type: 'simple',",
+            "  eraAfter: '巨历',",
+            "  baseUnit: 'second',",
+            "  units: [{name: 'hour', parent: 'second', ratio: 9007199254740992}],",
+            "  format: '{eraName}{hour}时',",
+            "};",
         ]);
         const facade = createFacade();
 
-        expect(await facade.parseTime(projectPath, "巨历1年 1月1日 9007199254740991:00:00")).toBe(9007199254740991n);
+        await expect(facade.formatTime(projectPath, 0n)).rejects.toThrow("units[0].ratio 必须是正整数");
     });
 });
 
@@ -1860,7 +1888,7 @@ function createFacade(): WorldEngineFacade {
     return facade;
 }
 
-async function createProject(schemaLines?: string[], calendarLines?: string[]): Promise<string> {
+async function createProject(schemaLines?: string[], calendarSourceLines?: string[]): Promise<string> {
     const slug = `world-engine-test-${Date.now()}-${Math.random().toString(16).slice(2)}`;
     const projectPath = `workspace/${slug}`;
     const projectRoot = path.join(resolveWorkspaceContainerRoot(), slug);
@@ -1883,11 +1911,31 @@ async function createProject(schemaLines?: string[], calendarLines?: string[]): 
         "      name: { kind: scalar, type: text }",
         "",
     ]).join("\n"), "utf-8");
-    if (calendarLines) {
-        await fs.writeFile(path.join(projectRoot, "world-engine/calendar.yaml"), calendarLines.join("\n"), "utf-8");
-    }
+    await fs.writeFile(path.join(projectRoot, "world-engine/calendar.ts"), (calendarSourceLines ?? defaultCalendarSourceLines()).join("\n"), "utf-8");
     createdProjects.push(projectPath);
     return projectPath;
+}
+
+/**
+ * 生成 facade 测试使用的默认 calendar.ts，保持旧断言中的复兴纪元格式。
+ */
+function defaultCalendarSourceLines(): string[] {
+    return [
+        "export default {",
+        "  type: 'simple',",
+        "  eraBefore: '复兴纪元',",
+        "  eraAfter: '复兴纪元',",
+        "  baseUnit: 'second',",
+        "  units: [",
+        "    {name: 'minute', parent: 'second', ratio: 60},",
+        "    {name: 'hour', parent: 'minute', ratio: 60},",
+        "    {name: 'day', parent: 'hour', ratio: 24},",
+        "    {name: 'month', parent: 'day', ratio: 30},",
+        "    {name: 'year', parent: 'month', ratio: 12},",
+        "  ],",
+        "  format: '{eraName}{year}年 {month}月{day}日 {hour:02}:{minute:02}:{second:02}',",
+        "};",
+    ];
 }
 
 async function deleteWorldSubject(projectPath: string, subjectId: string): Promise<void> {

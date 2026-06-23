@@ -9,7 +9,7 @@ subjectTypes:
       events: { kind: list, itemType: text, default: [] }
 
   character:
-    desc: 角色主体
+    desc: 角色主体；默认对接 simulation/subjects 六文件主体系统
     attrs:
       hp: { kind: scalar, type: int, default: 100 }
       maxHp: { kind: scalar, type: int, default: 100 }
@@ -19,6 +19,19 @@ subjectTypes:
       memory: { kind: object, itemType: text }
       inventory: { kind: collection, itemType: ref(item), default: [] }
       events: { kind: list, itemType: text, default: [] }
+      sourcePath: { kind: scalar, type: text, desc: "simulation/subjects/<id> 根路径" }
+      legacyKind: { kind: scalar, type: text }
+      controlledBy: { kind: scalar, type: text }
+      profile: { kind: scalar, type: text }
+      canonicalSource: { kind: scalar, type: text }
+      subjectFiles: { kind: object, itemType: text, desc: "六文件主体系统文件拓扑：subject/soul/events/memory/mind/state" }
+      actorImportPath: { kind: scalar, type: text, desc: "actor 主路直接 Import 的文件路径" }
+      leaderOnlyPath: { kind: scalar, type: text, desc: "仅 simulator.leader 可见的全知文件路径" }
+      directStatePath: { kind: scalar, type: text, desc: "上级直接读取的可见状态文件路径" }
+      ragIndexSources: { kind: object, itemType: text, desc: "Subject RAG 索引源，通常为 events.jsonl 和 memory.jsonl" }
+      eventCount: { kind: scalar, type: int, default: 0 }
+      memoryCount: { kind: scalar, type: int, default: 0 }
+      subjectSystemVersion: { kind: scalar, type: text }
 
   faction:
     desc: 阵营、国家、组织或政治实体

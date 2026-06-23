@@ -1,8 +1,13 @@
 import type {H3Event} from "h3";
+import {readFile, stat, writeFile} from "node:fs/promises";
+import {basename, isAbsolute, join, relative} from "node:path";
 import {z} from "zod";
+import {parseSubjectEvent, parseSubjectEventsJsonl, serializeSubjectEventsJsonl, type SubjectEvent} from "nbook/server/agent/tools/subject-memory";
+import {markSubjectRagDirty, type SubjectPaths} from "nbook/server/agent/tools/subject-rag-index";
 import {worldEngineFacade} from "nbook/server/world-engine";
 import type {JsonValue, MutationInput, SliceInput, SliceListItem, WorldSliceSubjectFilterMode, WorldState} from "nbook/server/world-engine";
 import {requireProjectPathQuery, validateBody} from "nbook/server/utils/novel-chapter";
+import {assertProjectWorkspaceDirectory, resolveProjectAbsolutePath} from "nbook/server/workspace-files/project-workspace";
 
 const JsonValueSchema: z.ZodType<JsonValue> = z.lazy(() => z.union([
     z.null(),
@@ -41,17 +46,36 @@ const CreateSubjectBodySchema = z.object({
     type: z.string().min(1, "type 不能为空"),
     name: z.string().optional(),
     time: z.string().min(1, "time 不能为空"),
+    attrs: z.record(z.string(), JsonValueSchema).optional(),
 }).strict();
+
+const SubjectEventInputSchema = z.object({
+    tick: z.string().optional(),
+    time: z.string().optional(),
+    text: z.string().min(1, "text 不能为空"),
+}).strict();
+
+const SubjectFileEventCommitBodySchema = z.object({
+    subjectId: z.string().min(1, "subjectId 不能为空"),
+    subjectPath: z.string().min(1, "subjectPath 不能为空"),
+    eventsPath: z.string().min(1, "eventsPath 不能为空"),
+    sliceId: z.string().min(1, "sliceId 不能为空").optional(),
+    event: SubjectEventInputSchema.optional(),
+    eventJsonLine: z.string().min(1, "eventJsonLine 不能为空").optional(),
+}).strict().refine((body) => Boolean(body.event || body.eventJsonLine), {
+    message: "event 或 eventJsonLine 至少提供一个",
+});
 
 type SliceBody = z.infer<typeof SliceBodySchema>;
 type QueryStateBody = z.infer<typeof QueryStateBodySchema>;
 type CreateSubjectBody = z.infer<typeof CreateSubjectBodySchema>;
+type SubjectFileEventCommitBody = z.infer<typeof SubjectFileEventCommitBodySchema>;
 
 /**
  * World Engine Project API：所有时间入参和出参都使用项目日历字符串。
  */
 export default defineEventHandler(async (event) => {
-    const projectPath = requireProjectPathQuery(event);
+    const projectPath = await assertProjectWorkspaceDirectory(requireProjectPathQuery(event));
     const segments = readSegments(event);
     const method = event.method.toUpperCase();
 
@@ -88,6 +112,9 @@ export default defineEventHandler(async (event) => {
     if (method === "POST" && matchSegments(segments, ["state", "query"])) {
         return queryState(projectPath, await validateBody<QueryStateBody>(event, QueryStateBodySchema));
     }
+    if (method === "POST" && matchSegments(segments, ["subject-file-proposals", "events", "commit"])) {
+        return commitSubjectFileEvent(projectPath, await validateBody<SubjectFileEventCommitBody>(event, SubjectFileEventCommitBodySchema));
+    }
 
     throw createError({statusCode: 404, message: "未知 World Engine API"});
 });
@@ -98,6 +125,7 @@ async function createSubject(projectPath: string, body: CreateSubjectBody): Prom
         type: body.type,
         name: body.name,
         at: await parsePublicTime(projectPath, body.time, "time"),
+        attrs: body.attrs,
     });
 }
 
@@ -136,6 +164,65 @@ async function queryState(projectPath: string, body: QueryStateBody): Promise<un
         at: body.at ? await parsePublicTime(projectPath, body.at, "at") : undefined,
         listLimit: body.listLimit,
     });
+}
+
+async function commitSubjectFileEvent(projectPath: string, body: SubjectFileEventCommitBody): Promise<unknown> {
+    const subjectPath = normalizeCommitSubjectPath(body.subjectPath);
+    if (body.subjectId !== basename(subjectPath)) {
+        throw createError({statusCode: 400, message: "subjectId 必须匹配 subjectPath 末段"});
+    }
+    const eventsPath = normalizeCommitFilePath(body.eventsPath, "eventsPath");
+    const expectedEventsPath = `${subjectPath}/events.jsonl`;
+    if (eventsPath !== expectedEventsPath) {
+        throw createError({statusCode: 400, message: "eventsPath 必须匹配 subjectPath/events.jsonl"});
+    }
+
+    const projectRoot = resolveProjectAbsolutePath(projectPath);
+    const absoluteSubjectPath = join(projectRoot, subjectPath);
+    const relativeSubjectPath = relative(projectRoot, absoluteSubjectPath);
+    if (relativeSubjectPath.startsWith("..") || isAbsolute(relativeSubjectPath)) {
+        throw createError({statusCode: 400, message: "subjectPath 越界"});
+    }
+    await assertCommitSubjectDirectory(absoluteSubjectPath);
+
+    const subject: SubjectPaths = {
+        absolutePath: absoluteSubjectPath,
+        eventsPath: join(absoluteSubjectPath, "events.jsonl"),
+        memoryPath: join(absoluteSubjectPath, "memory.jsonl"),
+        ragStatePath: join(projectRoot, ".nbook", "subject-rag-dirty.json"),
+    };
+    const currentText = await readCommitEventsText(subject.eventsPath);
+    const events = parseCommitEvents(currentText, subject.eventsPath);
+    const event = parseCommitEvent(body);
+    const line = serializeSubjectEventsJsonl([event]);
+    if (events.some((item) => item.text === event.text && (item.time ?? "") === (event.time ?? ""))) {
+        return {
+            status: "already-exists",
+            subjectId: body.subjectId,
+            subjectPath,
+            eventsPath,
+            ...(body.sliceId ? {sliceId: body.sliceId} : {}),
+            event,
+            line,
+            dirty: false,
+        };
+    }
+
+    const nextEvents = [...events, event];
+    const serialized = serializeSubjectEventsJsonl(nextEvents);
+    const nextText = serialized ? `${serialized}\n` : "";
+    await writeFile(subject.eventsPath, nextText, "utf-8");
+    await markSubjectRagDirty(subject, "events", nextText);
+    return {
+        status: "appended",
+        subjectId: body.subjectId,
+        subjectPath,
+        eventsPath,
+        ...(body.sliceId ? {sliceId: body.sliceId} : {}),
+        event,
+        line,
+        dirty: true,
+    };
 }
 
 async function toSliceInput(projectPath: string, body: SliceBody): Promise<SliceInput> {
@@ -286,4 +373,76 @@ function requireSegment(label: string, value: string | undefined): string {
         throw createError({statusCode: 400, message: `${label} 不能包含前后空白：${text}`});
     }
     return text;
+}
+
+function normalizeCommitSubjectPath(value: string): string {
+    if (value !== value.trim()) {
+        throw createError({statusCode: 400, message: `subjectPath 不能包含前后空白：${value}`});
+    }
+    const normalized = value.replaceAll("\\", "/").replace(/^\/+|\/+$/g, "");
+    const parts = normalized.split("/").filter(Boolean);
+    if (parts.length !== 3 || parts[0] !== "simulation" || parts[1] !== "subjects" || !parts[2]) {
+        throw createError({statusCode: 400, message: "subjectPath 必须形如 simulation/subjects/<subject-id>"});
+    }
+    if (parts.some((part) => part === "." || part === "..")) {
+        throw createError({statusCode: 400, message: "subjectPath 不能包含 . 或 .."});
+    }
+    return parts.join("/");
+}
+
+function normalizeCommitFilePath(value: string, label: string): string {
+    if (value !== value.trim()) {
+        throw createError({statusCode: 400, message: `${label} 不能包含前后空白：${value}`});
+    }
+    const normalized = value.replaceAll("\\", "/").replace(/^\/+|\/+$/g, "");
+    if (!normalized || normalized.split("/").some((part) => part === "." || part === "..")) {
+        throw createError({statusCode: 400, message: `${label} 不是合法 Project Workspace 相对路径`});
+    }
+    return normalized;
+}
+
+async function assertCommitSubjectDirectory(absolutePath: string): Promise<void> {
+    try {
+        const subjectStat = await stat(absolutePath);
+        if (!subjectStat.isDirectory()) {
+            throw createError({statusCode: 404, message: "subject 目录不存在"});
+        }
+    } catch (error) {
+        if (typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT") {
+            throw createError({statusCode: 404, message: "subject 目录不存在"});
+        }
+        throw error;
+    }
+}
+
+async function readCommitEventsText(filePath: string): Promise<string> {
+    try {
+        return await readFile(filePath, "utf-8");
+    } catch (error) {
+        if (typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT") {
+            throw createError({statusCode: 404, message: "events.jsonl 不存在"});
+        }
+        throw error;
+    }
+}
+
+function parseCommitEvents(text: string, filePath: string): SubjectEvent[] {
+    try {
+        return parseSubjectEventsJsonl(text, filePath);
+    } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        throw createError({statusCode: 409, message: `events.jsonl 无效，请先修复源文件：${message}`});
+    }
+}
+
+function parseCommitEvent(body: SubjectFileEventCommitBody): SubjectEvent {
+    if (body.event) {
+        return parseSubjectEvent(body.event, "event");
+    }
+    try {
+        return parseSubjectEvent(JSON.parse(body.eventJsonLine ?? ""), "eventJsonLine");
+    } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        throw createError({statusCode: 400, message: `eventJsonLine 不是合法 subject event：${message}`});
+    }
 }

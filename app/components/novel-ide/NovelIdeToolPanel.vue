@@ -1,6 +1,5 @@
 <script setup lang="ts">
-import {onMounted, ref, useAttrs} from "vue";
-import {storeToRefs} from "pinia";
+import {ref, useAttrs} from "vue";
 import Dialog from "nbook/app/components/common/Dialog.vue";
 import Dropdown from "nbook/app/components/common/Dropdown.vue";
 import DiffWorkbenchDialog from "nbook/app/components/common/diff/DiffWorkbenchDialog.vue";
@@ -8,8 +7,6 @@ import type {DiffWorkbenchActionPayload, DiffWorkbenchDocument} from "nbook/app/
 import type {DropdownItem} from "nbook/app/components/common/dropdown.types";
 import WorkspaceFilePanel from "nbook/app/components/novel-ide/workspace/WorkspaceFilePanel.vue";
 import WorkspaceCharacterPanel from "nbook/app/components/novel-ide/workspace/WorkspaceCharacterPanel.vue";
-import NovelPlotPanel from "nbook/app/components/novel-ide/plot/NovelPlotPanel.vue";
-import NovelRagPanel from "nbook/app/components/novel-ide/rag/NovelRagPanel.vue";
 import type { NovelIdeTab } from "nbook/app/components/novel-ide/mock-data";
 import {useNotification} from "nbook/app/composables/useNotification";
 import {useResizablePanel} from "nbook/app/composables/useResizablePanel";
@@ -44,16 +41,12 @@ const {t} = useI18n();
 const titleMap = computed<Record<NovelIdeTab, string>>(() => ({
     files: t("ide.toolPanel.files"),
     characters: t("ide.toolPanel.characters"),
-    outline: t("ide.toolPanel.outline"),
-    rag: "RAG",
 }));
 const displayTitle = computed(() => props.userAssetsMode ? t("ide.toolPanel.userAssets") : titleMap.value[props.activeTab ?? "files"]);
 
 const novelIdeStore = useNovelIdeStore();
-const {plotWorkbenchOpen} = storeToRefs(novelIdeStore);
 const notification = useNotification();
 const attrs = useAttrs();
-const isMounted = ref(false);
 const downloadingWorkspace = ref(false);
 const uploadingSingleFile = ref(false);
 const uploadingProject = ref(false);
@@ -348,9 +341,6 @@ function handleSyncDiffAction(payload: DiffWorkbenchActionPayload): void {
     }
 }
 
-onMounted(() => {
-    isMounted.value = true;
-});
 </script>
 
 <template>
@@ -399,15 +389,8 @@ onMounted(() => {
                 <WorkspaceFilePanel v-if="activeTab === 'files'" />
 
                 <WorkspaceCharacterPanel v-else-if="activeTab === 'characters' && !props.userAssetsMode" />
-
-                <NovelPlotPanel v-else-if="activeTab === 'outline' && !props.userAssetsMode" />
-
-                <NovelRagPanel v-else-if="activeTab === 'rag' && !props.userAssetsMode" />
             </div>
         </aside>
-
-        <!-- 剧本工作台 Dialog 宿主：允许顶部按钮直接打开，不强制切换左侧剧情大纲 tab。 -->
-        <NovelPlotPanel v-if="isMounted && !props.userAssetsMode && activeTab !== 'outline' && plotWorkbenchOpen" class="hidden" />
 
         <Dialog v-model="downloadConfirmOpen" :title="t('ide.toolPanel.downloadTitle', {target: downloadTargetLabel})" width="420px" show-cancel :busy="downloadingWorkspace" @confirm="confirmDownloadWorkspace">
             <p>{{ t("ide.toolPanel.downloadConfirm", {target: downloadTargetLabel}) }}</p>

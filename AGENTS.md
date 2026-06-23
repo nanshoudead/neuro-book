@@ -23,6 +23,7 @@
 - `PROJECT-STATUS.md`：仓库级现状、当前重点、模块状态、风险和近期任务。TODO 也记录在这里，注意 TODO 完成后记得删除
 - `docs/README.md`：文档体系入口，说明 `docs/` 目录分工。
 - `reference/README.md`：NeuroBook Reference Bookshelf，按模块链接到 `reference/<module>/`。
+- `reference/world-engine/README.md`：World Engine 世界引擎 reference 入口。写作模式动态世界状态 + 时间线真相源；处理 slice / subject / instant / reduce / schema / Calendar / 记录原则 / leader-writer 协作时先读这里。
 - `reference/workspace/TERMS.md`：Workspace Root、Workspace Root `.nbook`、Project Workspace、Project Workspace `.nbook`、user-assets、Bundled Workspace Template 的标准术语。涉及 workspace / project / user-assets / assets 覆盖时必须优先引用这里，不要把 Project Workspace 缩写成 workspace。
 - `docs/modules`：模块文档索引，链接模块说明、需求整理和开发参考。在你直接查询 node_modules 前先看看这个文件，可能有 research 或者库的本地 git 仓库位置
 - `docs/tasks/README.md`：重大任务 walkthrough 规则和维护要求。
@@ -89,4 +90,4 @@
 - 可以使用 get_file_contents、search_code、issue_read 搜寻 github 项目
 - .agent/workspace 为你可随意操作的目录（.agent 目录不是），你可以再此编写临时文件、clone 代码等
 - 可以通过编写测试脚本并运行来测试数据
-- 如果要写 commit message 的时候，可以从 docs/tasks PROJECT-STATUS.md 获取信息，查看他们的最新变更
+- 如果要写 commit message 的时候，可以从 docs/tasks PROJECT-STATUS.md 获取信息，查看他们的最新变更。提交信息要丰富，覆盖所有相关 tasks。重点关心新功能

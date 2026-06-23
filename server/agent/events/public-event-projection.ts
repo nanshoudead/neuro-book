@@ -1,12 +1,24 @@
 import type {AgentEvent} from "@earendil-works/pi-agent-core";
 import type {AgentRuntimeStreamEventDto} from "nbook/shared/dto/agent-session.dto";
+import type {UserInputFormSpec} from "nbook/server/agent/tools/types";
+
+/**
+ * 扩展 AgentEvent 以支持 user input required 事件
+ */
+type ExtendedAgentEvent = AgentEvent | {
+    type: "tool_user_input_required";
+    toolCallId: string;
+    toolName: string;
+    args: unknown;
+    formSpec: UserInputFormSpec;
+};
 
 /**
  * 把 provider/tool 运行期原始事件投影成公开 SSE 事件。
  *
  * `agent_end` / `turn_end` 由 Run Kernel 直接构造 public event，不从 raw Pi 事件透出大字段。
  */
-export function projectRuntimeEvent(event: AgentEvent): AgentRuntimeStreamEventDto | null {
+export function projectRuntimeEvent(event: ExtendedAgentEvent): AgentRuntimeStreamEventDto | null {
     if (event.type === "message_start" || event.type === "message_end") {
         return {
             type: event.type,
@@ -44,6 +56,15 @@ export function projectRuntimeEvent(event: AgentEvent): AgentRuntimeStreamEventD
             toolName: event.toolName,
             result: event.result,
             isError: event.isError,
+        };
+    }
+    if (event.type === "tool_user_input_required") {
+        return {
+            type: "tool.user-input-required",
+            toolCallId: event.toolCallId,
+            toolName: event.toolName,
+            args: event.args,
+            formSpec: event.formSpec,
         };
     }
     return null;

@@ -146,6 +146,26 @@ export type WorldWorkbenchPreviewSubjectSystemSummary = {
     soulFileExists: boolean;
 };
 
+export type WorldWorkbenchSubjectFileProposal = {
+    eventDraft: string;
+    eventJsonLine: string;
+    eventsPath: string;
+    memoryFacts: string[];
+    memoryJsonLines: string[];
+    memoryPath: string;
+    statePath: string;
+    stateReviewReasons: string[];
+    subjectId: string;
+    subjectName: string;
+    subjectPath: string;
+    sliceId: string;
+    sliceKind: string;
+    sliceTime: string;
+    sliceTitle: string;
+    sourceKind: "direct-mutation" | "focused-world-context";
+    sourceLabel: string;
+};
+
 export type WorldWorkbenchPreviewSubjectGroup = {
     subject: WorldWorkbenchPreviewSubject | null;
     subjectId: string;

@@ -39,6 +39,12 @@ const props = defineProps<{
     mutationLoadOptions: Array<{label: string; value: string}>;
     mutationLoadIndex: string;
     stateResult: SubjectStateDto[];
+    addMutationAction?: (mode: "append" | "replace") => void;
+    deleteSelectedMutationAction?: () => void;
+    duplicateSelectedMutationAction?: () => void;
+    insertAfterSelectedMutationAction?: () => void;
+    replaceSelectedMutationAction?: () => void;
+    updateBuilderFieldAction?: (field: keyof MutationBuilderModel, value: string) => void;
 }>();
 
 const emit = defineEmits<{
@@ -61,6 +67,15 @@ function inputValue(event: Event): string {
     return (event.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value;
 }
 
+/** 更新 Builder 字段；真实 Workbench 优先走函数 prop，保留 emit 给 mock/旧入口。 */
+function updateBuilderField(field: keyof MutationBuilderModel, value: string): void {
+    if (props.updateBuilderFieldAction) {
+        props.updateBuilderFieldAction(field, value);
+        return;
+    }
+    emit("update-builder-field", field, value);
+}
+
 const collectionValueOptions = computed<Array<{label: string; value: string; key: string}>>(() => {
     if (props.builder.op !== "collectionRemove") {
         return [];
@@ -80,7 +95,7 @@ function syncCollectionRemoveValue(options: Array<{value: string}>): void {
     if (options.some((option) => option.value === props.builder.value)) {
         return;
     }
-    emit("update-builder-field", "value", options[0]?.value ?? "");
+    updateBuilderField("value", options[0]?.value ?? "");
 }
 </script>
 
@@ -94,6 +109,7 @@ function syncCollectionRemoveValue(options: Array<{value: string}>): void {
                     <span class="shrink-0 rounded border border-[var(--border-color)] px-1.5 py-0.5 font-mono text-[11px] text-[var(--text-muted)]">{{ builderValueHint }}</span>
                 </div>
                 <WorldEngineMutationListControls
+                    :disabled="props.disabled"
                     :selected-subject-type-label="selectedSubjectTypeLabel"
                     :mutation-load-options="mutationLoadOptions"
                     :mutation-load-index="mutationLoadIndex"
@@ -103,35 +119,35 @@ function syncCollectionRemoveValue(options: Array<{value: string}>): void {
                 />
             </div>
             <div class="grid grid-cols-2 gap-2">
-                <select :value="builder.subjectId" class="h-8 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[12px] outline-none focus:border-[var(--accent-main)]" @change="emit('update-builder-field', 'subjectId', inputValue($event))">
+                <select :value="builder.subjectId" class="h-8 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[12px] outline-none focus:border-[var(--accent-main)]" @change="updateBuilderField('subjectId', inputValue($event))">
                     <option v-for="subject in subjects" :key="`builder:${subject.id}`" :value="subject.id">{{ subject.id }} · {{ subject.type }}</option>
                 </select>
-                <select :value="builder.attr" class="h-8 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[12px] outline-none focus:border-[var(--accent-main)]" @change="emit('update-builder-field', 'attr', inputValue($event))">
+                <select :value="builder.attr" class="h-8 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[12px] outline-none focus:border-[var(--accent-main)]" @change="updateBuilderField('attr', inputValue($event))">
                     <option v-if="builder.attr && !builderHasSchemaAttr" :value="builder.attr">自定义 · {{ builder.attr }}</option>
                     <option v-for="attr in builderAttrs" :key="`builder-attr:${attr.name}`" :value="attr.name">{{ attr.name }}</option>
                 </select>
-                <input :value="builder.attr" list="world-engine-builder-attrs" class="col-span-2 h-8 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 font-mono text-[12px] outline-none focus:border-[var(--accent-main)]" placeholder="attr path, e.g. equipment.weapon / memory.师门" @input="emit('update-builder-field', 'attr', inputValue($event))">
+                <input :value="builder.attr" list="world-engine-builder-attrs" class="col-span-2 h-8 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 font-mono text-[12px] outline-none focus:border-[var(--accent-main)]" placeholder="attr path, e.g. equipment.weapon / memory.师门" @input="updateBuilderField('attr', inputValue($event))">
                 <datalist id="world-engine-builder-attrs">
                     <option v-for="attr in builderAttrs" :key="`builder-attr-option:${attr.name}`" :value="attr.name"></option>
                 </datalist>
-                <select :value="builder.op" class="h-8 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[12px] outline-none focus:border-[var(--accent-main)]" @change="emit('update-builder-field', 'op', inputValue($event))">
+                <select :value="builder.op" class="h-8 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[12px] outline-none focus:border-[var(--accent-main)]" @change="updateBuilderField('op', inputValue($event))">
                     <option v-for="op in builderOpOptions" :key="op" :value="op">{{ op }}</option>
                 </select>
-                <select v-if="builder.op === 'collectionRemove' && collectionValueOptions.length" :value="builder.value" class="h-8 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[12px] outline-none focus:border-[var(--accent-main)]" title="从当前 State Query 结果中选择要移除的 collection 项" @change="emit('update-builder-field', 'value', inputValue($event))">
+                <select v-if="builder.op === 'collectionRemove' && collectionValueOptions.length" :value="builder.value" class="h-8 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[12px] outline-none focus:border-[var(--accent-main)]" title="从当前 State Query 结果中选择要移除的 collection 项" @change="updateBuilderField('value', inputValue($event))">
                     <option v-for="option in collectionValueOptions" :key="option.key" :value="option.value">{{ option.label }}</option>
                 </select>
-                <input v-else-if="builderValueMode === 'number'" :value="builder.value" type="number" class="h-8 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[12px] outline-none focus:border-[var(--accent-main)]" placeholder="value" @input="emit('update-builder-field', 'value', inputValue($event))">
-                <select v-else-if="builderValueMode === 'boolean'" :value="builder.value" class="h-8 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[12px] outline-none focus:border-[var(--accent-main)]" @change="emit('update-builder-field', 'value', inputValue($event))">
+                <input v-else-if="builderValueMode === 'number'" :value="builder.value" type="number" class="h-8 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[12px] outline-none focus:border-[var(--accent-main)]" placeholder="value" @input="updateBuilderField('value', inputValue($event))">
+                <select v-else-if="builderValueMode === 'boolean'" :value="builder.value" class="h-8 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[12px] outline-none focus:border-[var(--accent-main)]" @change="updateBuilderField('value', inputValue($event))">
                     <option value="true">true</option>
                     <option value="false">false</option>
                 </select>
-                <select v-else-if="builderValueMode === 'enum'" :value="builder.value" class="h-8 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[12px] outline-none focus:border-[var(--accent-main)]" @change="emit('update-builder-field', 'value', inputValue($event))">
+                <select v-else-if="builderValueMode === 'enum'" :value="builder.value" class="h-8 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[12px] outline-none focus:border-[var(--accent-main)]" @change="updateBuilderField('value', inputValue($event))">
                     <option v-for="option in enumValueOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
                 </select>
-                <select v-else-if="builderValueMode === 'ref' && refValueOptions.length" :value="builder.value" class="h-8 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[12px] outline-none focus:border-[var(--accent-main)]" @change="emit('update-builder-field', 'value', inputValue($event))">
+                <select v-else-if="builderValueMode === 'ref' && refValueOptions.length" :value="builder.value" class="h-8 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[12px] outline-none focus:border-[var(--accent-main)]" @change="updateBuilderField('value', inputValue($event))">
                     <option v-for="option in refValueOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
                 </select>
-                <input v-else-if="builderValueMode === 'ref'" :value="builder.value" class="h-8 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[12px] outline-none focus:border-[var(--accent-main)]" placeholder="subject://" @input="emit('update-builder-field', 'value', inputValue($event))">
+                <input v-else-if="builderValueMode === 'ref'" :value="builder.value" class="h-8 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[12px] outline-none focus:border-[var(--accent-main)]" placeholder="subject://" @input="updateBuilderField('value', inputValue($event))">
                 <WorldEngineObjectValueEditor
                     v-else-if="builderValueMode === 'object'"
                     :builder-value="builder.value"
@@ -144,12 +160,18 @@ function syncCollectionRemoveValue(options: Array<{value: string}>): void {
                     @add-object-row="emit('add-object-row')"
                     @remove-object-row="emit('remove-object-row', $event)"
                 />
-                <textarea v-else-if="builderValueMode === 'json'" :value="builder.value" rows="4" class="col-span-2 min-h-[96px] resize-y rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 py-1.5 font-mono text-[12px] leading-5 outline-none focus:border-[var(--accent-main)]" placeholder="{&quot;key&quot;: &quot;value&quot;}" title="当前 value 需要填写 JSON object" @input="emit('update-builder-field', 'value', inputValue($event))"></textarea>
-                <input v-else-if="builderValueMode === 'text'" :value="builder.value" class="h-8 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[12px] outline-none focus:border-[var(--accent-main)]" placeholder="value" @input="emit('update-builder-field', 'value', inputValue($event))">
+                <textarea v-else-if="builderValueMode === 'json'" :value="builder.value" rows="4" class="col-span-2 min-h-[96px] resize-y rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 py-1.5 font-mono text-[12px] leading-5 outline-none focus:border-[var(--accent-main)]" placeholder="{&quot;key&quot;: &quot;value&quot;}" title="当前 value 需要填写 JSON object" @input="updateBuilderField('value', inputValue($event))"></textarea>
+                <input v-else-if="builderValueMode === 'text'" :value="builder.value" class="h-8 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[12px] outline-none focus:border-[var(--accent-main)]" placeholder="value" @input="updateBuilderField('value', inputValue($event))">
                 <input v-else class="h-8 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[12px] opacity-50 outline-none" disabled placeholder="unset">
             </div>
             <WorldEngineMutationActionButtons
+                :disabled="props.disabled"
                 :can-use-selected-mutation="Boolean(mutationLoadOptions.length)"
+                :add-mutation-action="props.addMutationAction"
+                :delete-selected-mutation-action="props.deleteSelectedMutationAction"
+                :duplicate-selected-mutation-action="props.duplicateSelectedMutationAction"
+                :insert-after-selected-mutation-action="props.insertAfterSelectedMutationAction"
+                :replace-selected-mutation-action="props.replaceSelectedMutationAction"
                 @add-mutation="emit('add-mutation', $event)"
                 @insert-after-selected-mutation="emit('insert-after-selected-mutation')"
                 @duplicate-selected-mutation="emit('duplicate-selected-mutation')"

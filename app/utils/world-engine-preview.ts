@@ -170,11 +170,23 @@ export function collectionRemoveValueOptions(states: WorldPreviewStateSubject[],
 
 /** 将 JSON mutation textarea 解析为 World Engine API 可接受的 mutation 数组。 */
 export function parseMutationJson(input: string): ParseResult<WorldMutationDraft[]> {
+    const parsed = parseMutationListJson(input);
+    if (!parsed.ok) {
+        return parsed;
+    }
+    if (parsed.value.length === 0) {
+        return {ok: false, message: "mutations 必须是非空数组"};
+    }
+    return parsed;
+}
+
+/** 将 JSON mutation textarea 解析为编辑器内部列表；允许空数组作为临时草稿。 */
+export function parseMutationListJson(input: string): ParseResult<WorldMutationDraft[]> {
     try {
         // JSON.parse 是外部输入边界，必须先以 unknown 接住再逐层校验。
         const parsed: unknown = JSON.parse(input);
-        if (!Array.isArray(parsed) || parsed.length === 0) {
-            return {ok: false, message: "mutations 必须是非空数组"};
+        if (!Array.isArray(parsed)) {
+            return {ok: false, message: "mutations 必须是数组"};
         }
         const mutations: WorldMutationDraft[] = [];
         for (const item of parsed) {
@@ -348,10 +360,9 @@ export function suggestSliceTime(examples: string[]): string {
 /** 从 calendar examples 与已占用时间里推导一个未占用的 preview 示例切面时间。 */
 export function suggestNextPreviewTime(examples: string[], usedTimes: string[]): string {
     const used = new Set(usedTimes.map((item) => item.trim()).filter(Boolean));
-    for (let index = usedTimes.length - 1; index >= 0; index -= 1) {
-        const base = usedTimes[index]?.trim() ?? "";
+    for (const base of orderedPreviewTimeBases(usedTimes)) {
         for (let offset = 1; offset < 3600; offset += 1) {
-            const candidate = addSecondsWithinDay(base, offset);
+            const candidate = addSecondsToPreviewTime(base, offset);
             if (candidate && !used.has(candidate)) {
                 return candidate;
             }
@@ -368,6 +379,54 @@ export function suggestNextPreviewTime(examples: string[], usedTimes: string[]):
         }
     }
     return suggestSliceTime(examples);
+}
+
+/** 按可解析时间从新到旧尝试；不可解析字符串保留原来的后写优先。 */
+function orderedPreviewTimeBases(usedTimes: string[]): string[] {
+    return usedTimes
+        .map((item, index) => ({index, key: previewTimeSortKey(item.trim()), time: item.trim()}))
+        .filter((item) => item.time)
+        .sort((left, right) => {
+            if (left.key !== null && right.key !== null) {
+                if (left.key === right.key) {
+                    return right.index - left.index;
+                }
+                return left.key > right.key ? -1 : 1;
+            }
+            if (left.key !== null) {
+                return -1;
+            }
+            if (right.key !== null) {
+                return 1;
+            }
+            return right.index - left.index;
+        })
+        .map((item) => item.time);
+}
+
+/** 解析 Workbench 默认数字历 / 时分秒字符串，用于前端默认时间排序。 */
+function previewTimeSortKey(input: string): bigint | null {
+    const dateTime = /^(.*?)(-?\d+)年\s+(\d{1,2})月(\d{1,2})日\s+(\d{1,2}):(\d{2}):(\d{2})$/.exec(input);
+    if (dateTime) {
+        const year = BigInt(dateTime[2] ?? "0");
+        const month = Number.parseInt(dateTime[3] ?? "", 10);
+        const day = Number.parseInt(dateTime[4] ?? "", 10);
+        const hour = Number.parseInt(dateTime[5] ?? "", 10);
+        const minute = Number.parseInt(dateTime[6] ?? "", 10);
+        const second = Number.parseInt(dateTime[7] ?? "", 10);
+        if (month < 1 || month > 12 || day < 1 || day > 30 || !isValidPreviewClock(hour, minute, second)) {
+            return null;
+        }
+        return (((year * 12n + BigInt(month - 1)) * 30n + BigInt(day - 1)) * 86400n) + BigInt(hour * 3600 + minute * 60 + second);
+    }
+    const time = /^(.*?)(\d{1,2}):(\d{2}):(\d{2})$/.exec(input);
+    if (!time) {
+        return null;
+    }
+    const hour = Number.parseInt(time[2] ?? "", 10);
+    const minute = Number.parseInt(time[3] ?? "", 10);
+    const second = Number.parseInt(time[4] ?? "", 10);
+    return isValidPreviewClock(hour, minute, second) ? BigInt(hour * 3600 + minute * 60 + second) : null;
 }
 
 /** 返回 preview 一键示例世界需要创建的 subjects。 */

@@ -1,4 +1,3 @@
-import {PrismaLibSql} from "@prisma/adapter-libsql";
 import {Prisma, PrismaClient} from "nbook/server/generated/project-prisma/client";
 import {PlotDtoAssembler} from "nbook/server/plot/assemblers/plot-dto.assembler";
 import {PrismaPlotDataRepository} from "nbook/server/plot/repositories/prisma-plot-data.repository";
@@ -8,6 +7,7 @@ import {PrismaThreadRepository} from "nbook/server/plot/repositories/prisma-thre
 import type {PrismaExecutor} from "nbook/server/plot/core/types";
 import {PlotInputParser} from "nbook/server/plot/http/plot-input.parser";
 import {collectReleasedSqliteHandles} from "nbook/server/workspace-files/sqlite-handle-release";
+import {TrackedPrismaLibSql} from "nbook/server/workspace-files/tracked-prisma-libsql";
 import {OrderService} from "nbook/server/plot/services/order.service";
 import {PlotService} from "nbook/server/plot/services/plot.service";
 import {PlotScopeGuard} from "nbook/server/plot/services/plot-scope.guard";
@@ -61,11 +61,16 @@ type PlotModule = {
     refResolverService: RefResolverService;
 };
 
+type PlotClientEntry = {
+    client: PrismaClient;
+    adapter: TrackedPrismaLibSql;
+};
+
 /**
  * 剧情模块门面。
  */
 export class PlotFacade {
-    private readonly clients = new Map<string, PrismaClient>();
+    private readonly clients = new Map<string, PlotClientEntry>();
 
     constructor() {}
 
@@ -76,12 +81,13 @@ export class PlotFacade {
         const normalizedProjectPath = normalizeProjectPath(projectPath);
         const databasePath = resolveProjectDatabasePath(normalizedProjectPath);
         const cacheKey = databasePath.replace(/\\/g, "/");
-        const client = this.clients.get(cacheKey);
-        if (!client) {
+        const entry = this.clients.get(cacheKey);
+        if (!entry) {
             return;
         }
         this.clients.delete(cacheKey);
-        await client.$disconnect();
+        await entry.client.$disconnect();
+        entry.adapter.closeTrackedClients();
         collectReleasedSqliteHandles();
     }
 
@@ -421,12 +427,13 @@ export class PlotFacade {
         const cacheKey = databasePath.replace(/\\/g, "/");
         const existing = this.clients.get(cacheKey);
         if (existing) {
-            return existing;
+            return existing.client;
         }
+        const adapter = new TrackedPrismaLibSql({url: toSqliteFileUrl(databasePath)});
         const client = new PrismaClient({
-            adapter: new PrismaLibSql({url: toSqliteFileUrl(databasePath)}),
+            adapter,
         });
-        this.clients.set(cacheKey, client);
+        this.clients.set(cacheKey, {client, adapter});
         return client;
     }
 

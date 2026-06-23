@@ -14,17 +14,17 @@ const headerPath = fileURLToPath(new URL("../NovelIdeHeader.vue", import.meta.ur
 const indexPagePath = fileURLToPath(new URL("../../../pages/index.vue", import.meta.url));
 
 describe("NovelRagPanel contract", () => {
-    it("注册 RAG tab 并在 user-assets 模式隐藏入口", async () => {
-        expect(NOVEL_IDE_TABS).toContain("rag");
-        expect(isNovelIdeTab("rag")).toBe(true);
+    it("写作模式主路径隐藏 RAG tab，但保留底层组件文件", async () => {
+        expect(NOVEL_IDE_TABS).not.toContain("rag");
+        expect(isNovelIdeTab("rag")).toBe(false);
 
         const sidebar = await readFile(sidebarPath, "utf-8");
         const toolPanel = await readFile(toolPanelPath, "utf-8");
-        expect(sidebar).toContain("value: \"rag\"");
-        expect(sidebar).toContain("label: \"RAG\"");
+        expect(sidebar).not.toContain("value: \"rag\"");
+        expect(sidebar).not.toContain("label: \"RAG\"");
         expect(sidebar).toContain("props.userAssetsMode ? items.filter((item) => item.value === \"files\") : items");
-        expect(toolPanel).toContain("NovelRagPanel");
-        expect(toolPanel).toContain("activeTab === 'rag' && !props.userAssetsMode");
+        expect(toolPanel).not.toContain("NovelRagPanel");
+        expect(toolPanel).not.toContain("activeTab === 'rag' && !props.userAssetsMode");
     });
 
     it("保留基础空状态和真实 RAG API 入口", async () => {
@@ -52,7 +52,7 @@ describe("NovelRagPanel contract", () => {
         expect(panel).toContain("失败原因：");
     });
 
-    it("注册 Header RAG Inspector 入口和独立 dialog", async () => {
+    it("隐藏 Header RAG Inspector 入口，但保留独立 dialog 实现", async () => {
         const header = await readFile(headerPath, "utf-8");
         const indexPage = await readFile(indexPagePath, "utf-8");
         const inspector = await readFile(ragInspectorPath, "utf-8");
@@ -60,14 +60,13 @@ describe("NovelRagPanel contract", () => {
         const inspectorMain = await readFile(ragInspectorMainPath, "utf-8");
         const inspectorDetail = await readFile(ragInspectorDetailPath, "utf-8");
 
-        expect(header).toContain("open-rag-inspector");
-        expect(header).toContain("title=\"RAG Inspector\"");
-        expect(header).toContain("i-lucide-brain-circuit");
-        expect(indexPage).toContain("NovelRagInspectorDialog");
-        expect(indexPage).toContain("ragInspectorOpen");
+        expect(header).not.toContain("open-rag-inspector");
+        expect(header).not.toContain("title=\"RAG Inspector\"");
+        expect(indexPage).not.toContain("NovelRagInspectorDialog");
+        expect(indexPage).not.toContain("ragInspectorOpen");
         expect(inspector).toContain("/api/projects/rag/inspector");
         expect(inspector).toContain("/api/projects/rag/debug");
-        expect(inspector).toContain("size=\"workbench\"");
+        expect(inspector).toContain("size=\"full\"");
         expect(inspector).toContain("overlay-type=\"blur\"");
         expect(inspector).toContain("NovelRagInspectorSidebar");
         expect(inspector).toContain("NovelRagInspectorMain");

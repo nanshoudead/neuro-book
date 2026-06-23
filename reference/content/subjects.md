@@ -194,5 +194,5 @@ memory.jsonl：
 ## 参考资料
 
 - **创建流程**：[subject-creation-guide.md](../agent/rp-tick/subject-creation-guide.md)（simulator.leader 创建新 subject 的 7 步任务清单）
-- **模板示例**：`assets/workspace/.nbook/templates/project-directory-templates/simulation/subjects/sample-npc/`（具体填充示例）
+- **模板示例**：`assets/workspace/.nbook/templates/archived/project-directory-templates/simulation/subjects/sample-npc/`（legacy / RP 具体填充示例）
 - **调度规则**：[simulation.md](simulation.md) L82-115（简版目录树与职责表）

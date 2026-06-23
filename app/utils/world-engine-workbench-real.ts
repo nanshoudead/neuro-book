@@ -8,13 +8,18 @@ import type {
 } from "nbook/app/components/novel-ide/world-engine/world-engine-workbench.types";
 import type {
     WorldWorkbenchPreviewIssueStatus,
+    WorldWorkbenchPreviewIssueTriageSummary,
     WorldWorkbenchPreviewMutationValuePatch,
     WorldWorkbenchPreviewReviewQueueItem,
     WorldWorkbenchPreviewSlice,
+    WorldWorkbenchPreviewSliceReviewSummary,
+    WorldWorkbenchSubjectFileProposal,
+    WorldWorkbenchPreviewSubjectStat,
     WorldWorkbenchPreviewSubjectSystemPath,
     WorldWorkbenchPreviewSubjectSystemSummary,
 } from "nbook/app/components/novel-ide/world-engine/workbench-preview/world-engine-workbench-preview.types";
 import type {ProjectRagOverviewDto, ProjectRagSubjectSummaryDto} from "nbook/shared/dto/project-rag.dto";
+import {isWorldWorkbenchSubjectSystemMaintenanceSlice} from "nbook/app/utils/world-engine-workbench-slice-classifier";
 
 export type WorldWorkbenchEditSliceBody = {
     time: string;
@@ -36,6 +41,21 @@ export type WorldWorkbenchTransientIssue = {
     subjectId: string;
 };
 
+export type WorldWorkbenchSubjectFileProposalInput = {
+    contextSubjectId?: string;
+    slice: WorldWorkbenchPreviewSlice;
+    subjectNames?: Map<string, string>;
+    subjectSystemSummaries: WorldWorkbenchPreviewSubjectSystemSummary[];
+};
+
+export type WorldWorkbenchEmptySliceAction = "create-subject" | "create-world-subject" | "new-slice" | "seed-demo" | "sync-subject-system" | "";
+
+export type WorldWorkbenchEmptySliceState = {
+    action: WorldWorkbenchEmptySliceAction;
+    description: string;
+    title: string;
+};
+
 export const worldWorkbenchSubjectSystemAttrs = [
     "sourcePath",
     "legacyKind",
@@ -52,7 +72,50 @@ export const worldWorkbenchSubjectSystemAttrs = [
     "subjectSystemVersion",
 ];
 
+/** 把主体系统摘要转换成可写入 World Engine init slice 的 schema attrs。 */
+export function buildWorldWorkbenchSubjectSystemInitialAttrs(summary: WorldWorkbenchPreviewSubjectSystemSummary): Record<string, WorkbenchJsonValue> {
+    return {
+        actorImportPath: summary.actorImportPath,
+        canonicalSource: summary.canonicalSource,
+        controlledBy: summary.controlledBy,
+        directStatePath: summary.directStatePath,
+        eventCount: summary.eventCount,
+        leaderOnlyPath: summary.leaderOnlyPath,
+        legacyKind: summary.legacyKind,
+        memoryCount: summary.memoryCount,
+        profile: summary.profile,
+        ragIndexSources: pathEntriesRecord(summary.ragIndexSources),
+        sourcePath: summary.sourcePath,
+        subjectFiles: pathEntriesRecord(summary.subjectFiles),
+        subjectSystemVersion: summary.subjectSystemVersion,
+    };
+}
+
 const ignoredSubjectSystemIds = new Set(["sample-npc"]);
+const stateReviewAttrRoots = new Set([
+    "appearance",
+    "body",
+    "equipment",
+    "exp",
+    "faction",
+    "goal",
+    "goals",
+    "hp",
+    "inventory",
+    "location",
+    "maxHp",
+    "maxMp",
+    "maxSp",
+    "mp",
+    "posture",
+    "relationship",
+    "relationships",
+    "shortTermGoal",
+    "shortTermGoals",
+    "sp",
+    "state",
+    "status",
+]);
 
 /** 将真实 API slice 规范成 Workbench 组件需要的强数组结构。 */
 export function normalizeWorldWorkbenchSlices(slices: WorldSliceDto[]): WorldWorkbenchPreviewSlice[] {
@@ -61,6 +124,198 @@ export function normalizeWorldWorkbenchSlices(slices: WorldSliceDto[]): WorldWor
         issues: slice.issues ?? [],
         mutations: slice.mutations ?? [],
     }));
+}
+
+/** 从切片列表抽取非空时间字符串，供 Composer 避开已知 instant。 */
+export function collectWorldWorkbenchSliceTimes(slices: Pick<WorldWorkbenchPreviewSlice, "time">[]): string[] {
+    return slices.map((slice) => slice.time.trim()).filter(Boolean);
+}
+
+/** 把局部 timeline 或懒加载切片并入已知时间窗口，新的时间排在前面。 */
+export function mergeWorldWorkbenchKnownSliceTimes(existingTimes: string[], slices: Pick<WorldWorkbenchPreviewSlice, "time">[]): string[] {
+    const existing = new Set(existingTimes);
+    const nextTimes = collectWorldWorkbenchSliceTimes(slices).filter((time) => !existing.has(time));
+    return [...nextTimes, ...existingTimes];
+}
+
+/** 汇总当前会话里所有未应用草稿 slice，并优先按当前 timeline 顺序展示。 */
+export function collectWorldWorkbenchDraftSliceIds(input: {
+    metadataDraftSliceIds: string[];
+    slices: Pick<WorldWorkbenchPreviewSlice, "id">[];
+    valueDraftSliceIds: string[];
+}): string[] {
+    const draftIds = new Set([
+        ...input.metadataDraftSliceIds,
+        ...input.valueDraftSliceIds,
+    ].filter(Boolean));
+    const timelineIds = input.slices
+        .map((slice) => slice.id)
+        .filter((sliceId) => {
+            const matched = draftIds.has(sliceId);
+            if (matched) {
+                draftIds.delete(sliceId);
+            }
+            return matched;
+        });
+    return [...timelineIds, ...draftIds];
+}
+
+/** 决定主时间线空状态给作者展示的下一步动作，避免入口文案规则散落在 Dialog 模板附近。 */
+export function buildWorldWorkbenchEmptySliceState(input: {
+    canCreateWorldSubject: boolean;
+    canSeedDemoWorld: boolean;
+    demoWorldSchemaError: string;
+    hasSlices: boolean;
+    hasWorldViewFilters: boolean;
+    pendingSubjectSystemCount: number;
+    selectedSubjectIds: string[];
+    subjectLabel: string;
+    worldSubjectIds: Set<string>;
+    worldSubjectCount: number;
+}): WorldWorkbenchEmptySliceState {
+    if (input.selectedSubjectIds.length && input.selectedSubjectIds.every((subjectId) => !input.worldSubjectIds.has(subjectId))) {
+        return {
+            action: input.pendingSubjectSystemCount ? "sync-subject-system" : "",
+            description: input.subjectLabel
+                ? `${input.subjectLabel} 暂无 World Engine 时间线。请先同步主体系统注册身份；同步不会复制或改写 simulation/subjects 六文件正文。`
+                : "当前 subject 暂无 World Engine 时间线。请先同步主体系统注册身份；同步不会复制或改写 simulation/subjects 六文件正文。",
+            title: "当前 subject 尚未接入 World Engine",
+        };
+    }
+    if (input.selectedSubjectIds.length) {
+        return {
+            action: "new-slice",
+            description: input.subjectLabel
+                ? `${input.subjectLabel} 在当前视角下暂无 slice。可以新建 Slice 写入第一条变更，或清空 subject 过滤回到整体世界。`
+                : "当前 subject 时间线暂无 slice。可以新建 Slice 写入第一条变更，或清空 subject 过滤回到整体世界。",
+            title: "当前 subject 时间线暂无 slice",
+        };
+    }
+    if (input.hasSlices || input.hasWorldViewFilters) {
+        return {
+            action: "new-slice",
+            description: "可以选择一条 slice 继续检查，或新建 Slice 推演下一步。",
+            title: "当前未选择 slice",
+        };
+    }
+    if (input.pendingSubjectSystemCount) {
+        return {
+            action: "sync-subject-system",
+            description: "可以先同步主体系统，把 simulation/subjects 注册为 World Engine subject；同步只注册身份，不复制或改写六文件正文。",
+            title: "当前 Project 还没有 World Engine slice",
+        };
+    }
+    if (!input.canSeedDemoWorld) {
+        return {
+            action: input.canCreateWorldSubject ? "create-world-subject" : input.worldSubjectCount ? "new-slice" : "create-subject",
+            description: input.worldSubjectCount
+                ? `内置示例暂不可用：${input.demoWorldSchemaError} 可以直接新建 Slice 推演当前世界。`
+                : input.canCreateWorldSubject
+                    ? `内置示例暂不可用：${input.demoWorldSchemaError} 可以先创建 world subject，承载全局世界事件。`
+                    : `内置示例暂不可用：${input.demoWorldSchemaError} 请先创建 subject，再写入第一条 slice。`,
+            title: "当前 Project 还没有 slice",
+        };
+    }
+    return {
+        action: "seed-demo",
+        description: "可以先创建 subject，或写入示例世界后再回到这里检查时间线。",
+        title: "当前 Project 还没有 slice",
+    };
+}
+
+/** 汇总 review issue 的处理状态，供顶部队列和空状态提示共用。 */
+export function buildWorldWorkbenchIssueTriageSummary(reviewQueueItems: WorldWorkbenchPreviewReviewQueueItem[]): WorldWorkbenchPreviewIssueTriageSummary {
+    return summarizeWorldWorkbenchReviewItems(reviewQueueItems);
+}
+
+/** 按 slice 汇总 review issue 状态，供 timeline 和 mutation editor 标记切片健康度。 */
+export function buildWorldWorkbenchSliceReviewSummaries(input: {
+    reviewQueueItems: WorldWorkbenchPreviewReviewQueueItem[];
+    slices: Pick<WorldWorkbenchPreviewSlice, "id">[];
+}): WorldWorkbenchPreviewSliceReviewSummary[] {
+    const itemsBySliceId = new Map<string, WorldWorkbenchPreviewReviewQueueItem[]>();
+    for (const item of input.reviewQueueItems) {
+        const items = itemsBySliceId.get(item.sliceId) ?? [];
+        items.push(item);
+        itemsBySliceId.set(item.sliceId, items);
+    }
+    return input.slices.map((slice) => ({
+        ...summarizeWorldWorkbenchReviewItems(itemsBySliceId.get(slice.id) ?? []),
+        sliceId: slice.id,
+    }));
+}
+
+/** 统计左栏 subject 的世界事件、mutation 和 review issue 概览，项目级维护 slice 不计入作者浏览时间线。 */
+export function buildWorldWorkbenchSubjectStats(input: {
+    reviewQueueItems: WorldWorkbenchPreviewReviewQueueItem[];
+    slices: WorldWorkbenchPreviewSlice[];
+    subjects: WorldSubjectDto[];
+}): WorldWorkbenchPreviewSubjectStat[] {
+    const statMap = new Map(input.subjects.map((subject) => [subject.id, {
+        confirmedIssueCount: 0,
+        doneIssueCount: 0,
+        ignoredIssueCount: 0,
+        issueCount: 0,
+        latestKind: "",
+        latestTime: "",
+        mutationCount: 0,
+        openIssueCount: 0,
+        sliceCount: 0,
+        subjectId: subject.id,
+    }]));
+    for (const slice of input.slices) {
+        if (isWorldWorkbenchSubjectSystemMaintenanceSlice(slice)) {
+            continue;
+        }
+        const touchedSubjectIds = new Set(slice.mutations.map((mutation) => mutation.subjectId));
+        for (const subjectId of touchedSubjectIds) {
+            const stat = statMap.get(subjectId);
+            if (stat) {
+                stat.sliceCount += 1;
+                stat.latestTime = slice.time;
+                stat.latestKind = slice.kind;
+            }
+        }
+        for (const mutation of slice.mutations) {
+            const stat = statMap.get(mutation.subjectId);
+            if (stat) {
+                stat.mutationCount += 1;
+            }
+        }
+    }
+    for (const item of input.reviewQueueItems) {
+        const stat = statMap.get(item.subjectId);
+        if (!stat) {
+            continue;
+        }
+        stat.issueCount += 1;
+        if (item.status === "confirmed") {
+            stat.confirmedIssueCount += 1;
+            stat.doneIssueCount += 1;
+        } else if (item.status === "ignored") {
+            stat.ignoredIssueCount += 1;
+            stat.doneIssueCount += 1;
+        } else {
+            stat.openIssueCount += 1;
+        }
+    }
+    return [...statMap.values()];
+}
+
+function summarizeWorldWorkbenchReviewItems(reviewQueueItems: WorldWorkbenchPreviewReviewQueueItem[]): WorldWorkbenchPreviewIssueTriageSummary {
+    let confirmed = 0;
+    let ignored = 0;
+    let open = 0;
+    for (const item of reviewQueueItems) {
+        if (item.status === "confirmed") {
+            confirmed += 1;
+        } else if (item.status === "ignored") {
+            ignored += 1;
+        } else {
+            open += 1;
+        }
+    }
+    return {confirmed, done: confirmed + ignored, ignored, open, total: reviewQueueItems.length};
 }
 
 /** 把懒加载的 slice 合并进当前时间线，尽量保留可见时间顺序。 */
@@ -195,8 +450,252 @@ export function mergeWorldWorkbenchSubjectsWithSubjectSystem(input: {
     return [...merged.values()];
 }
 
+/** 为 slice 生成主体六文件后续维护建议；只提示，不自动写 simulation/subjects。 */
+export function buildWorldWorkbenchSubjectFileProposals(input: WorldWorkbenchSubjectFileProposalInput): WorldWorkbenchSubjectFileProposal[] {
+    if (input.slice.kind === "init") {
+        return [];
+    }
+    const summaryMap = new Map(input.subjectSystemSummaries.map((summary) => [summary.subjectId, summary]));
+    const subjectIds = subjectFileProposalSubjectIds(input.slice, input.contextSubjectId, summaryMap);
+    return subjectIds.map((subjectId) => {
+        const summary = summaryMap.get(subjectId);
+        if (!summary) {
+            return null;
+        }
+        const subjectMutations = input.slice.mutations.filter((mutation) => mutation.subjectId === subjectId);
+        const contextMutations = subjectMutations.length ? subjectMutations : input.slice.mutations;
+        const eventContextMutations = eventContextMutationsForSubject(input.slice.mutations, subjectId, contextMutations);
+        const sourceKind = subjectMutations.length ? "direct-mutation" : "focused-world-context";
+        const subjectName = input.subjectNames?.get(subjectId) || summary.displayName || subjectId;
+        const eventDraft = buildSubjectEventDraft(input.slice, subjectName, eventContextMutations);
+        const eventText = buildSubjectEventText(input.slice, subjectName, eventContextMutations);
+        return {
+            eventDraft,
+            eventJsonLine: JSON.stringify({text: eventText, time: input.slice.time}),
+            eventsPath: subjectSystemPath(summary, "events", `${summary.sourcePath}/events.jsonl`),
+            memoryFacts: buildSubjectMemoryFacts(contextMutations, input.slice),
+            memoryJsonLines: buildSubjectMemoryJsonLines(contextMutations, input.slice),
+            memoryPath: subjectSystemPath(summary, "memory", `${summary.sourcePath}/memory.jsonl`),
+            statePath: summary.directStatePath || `${summary.sourcePath}/state.md`,
+            stateReviewReasons: buildStateReviewReasons(contextMutations, input.slice),
+            subjectId,
+            subjectName,
+            subjectPath: summary.sourcePath || subjectId,
+            sliceId: input.slice.id,
+            sliceKind: input.slice.kind,
+            sliceTime: input.slice.time,
+            sliceTitle: input.slice.title,
+            sourceKind,
+            sourceLabel: sourceKind === "direct-mutation" ? "直接触及该主体" : "当前主体语境下的 world 事件建议",
+        };
+    }).filter((proposal): proposal is WorldWorkbenchSubjectFileProposal => Boolean(proposal));
+}
+
+/** 格式化主体文件建议，供作者复制到审查 / Agent 任务中手动使用。 */
+export function formatWorldWorkbenchSubjectFileProposal(proposal: WorldWorkbenchSubjectFileProposal): string {
+    const lines = [
+        `# Subject file proposal: ${proposal.subjectName} (${proposal.subjectId})`,
+        "",
+        `sliceId: ${proposal.sliceId}`,
+        `sliceTime: ${proposal.sliceTime}`,
+        `sliceTitle: ${proposal.sliceTitle || "-"}`,
+        `sliceKind: ${proposal.sliceKind || "-"}`,
+        `subjectPath: ${proposal.subjectPath}`,
+        `source: ${proposal.sourceLabel}`,
+        "",
+        "## events.jsonl draft",
+        `path: ${proposal.eventsPath}`,
+        "jsonl:",
+        proposal.eventJsonLine,
+        "review: 写入前确认第一人称口吻、角色当时知道什么，以及这条经历是否应追加到 events.jsonl。",
+        "",
+        "readable:",
+        proposal.eventDraft,
+    ];
+    if (proposal.memoryFacts.length) {
+        lines.push("", "## memory.jsonl candidates", `path: ${proposal.memoryPath}`, "jsonl:");
+        lines.push(...proposal.memoryJsonLines);
+        lines.push("review: memory.jsonl 是当前认知快照；写入前确认是追加新 topic，还是改写已有 topic。");
+        lines.push("", "readable:", ...proposal.memoryFacts.map((fact) => `- ${fact}`));
+    }
+    if (proposal.stateReviewReasons.length) {
+        lines.push("", "## state.md review", `path: ${proposal.statePath}`, ...proposal.stateReviewReasons.map((reason) => `- ${reason}`));
+    }
+    lines.push("", "注意：这是 World Engine 生成的建议，不会自动写入 simulation/subjects。");
+    return lines.join("\n");
+}
+
+/** 标识当前会话内已经显式处理过的 event proposal。 */
+export function worldWorkbenchSubjectEventProposalKey(proposal: Pick<WorldWorkbenchSubjectFileProposal, "eventJsonLine" | "eventsPath">): string {
+    return `${proposal.eventsPath}\n${proposal.eventJsonLine}`;
+}
+
 function visibleRagSubjects(subjects: ProjectRagSubjectSummaryDto[]): ProjectRagSubjectSummaryDto[] {
     return subjects.filter((subject) => !ignoredSubjectSystemIds.has(subject.subjectId));
+}
+
+function pathEntriesRecord(entries: WorldWorkbenchPreviewSubjectSystemPath[]): Record<string, WorkbenchJsonValue> {
+    const record: Record<string, WorkbenchJsonValue> = {};
+    for (const entry of entries) {
+        record[entry.label] = entry.path;
+    }
+    return record;
+}
+
+function subjectFileProposalSubjectIds(
+    slice: WorldWorkbenchPreviewSlice,
+    contextSubjectId: string | undefined,
+    summaryMap: Map<string, WorldWorkbenchPreviewSubjectSystemSummary>,
+): string[] {
+    const ids = new Set(slice.mutations.map((mutation) => mutation.subjectId).filter((subjectId) => summaryMap.has(subjectId)));
+    const contextId = contextSubjectId?.trim() ?? "";
+    if (contextId && summaryMap.has(contextId) && (ids.size === 0 || slice.mutations.some((mutation) => mutation.subjectId === "world"))) {
+        ids.add(contextId);
+    }
+    return [...ids];
+}
+
+function buildSubjectEventDraft(slice: WorldWorkbenchPreviewSlice, subjectName: string, mutations: WorldSliceMutationDto[]): string {
+    return `${slice.time}｜${buildSubjectEventText(slice, subjectName, mutations)}`;
+}
+
+function buildSubjectEventText(slice: WorldWorkbenchPreviewSlice, subjectName: string, mutations: WorldSliceMutationDto[]): string {
+    const title = stripAcceptanceEventPrefix(slice.title.trim() || slice.kind || "未命名切片");
+    const summary = eventMutationNarrative(mutations) || stripAcceptanceEventPrefix(slice.summary.trim()) || mutations.map(formatMutationSummary).join("；") || "发生了新的世界状态变化。";
+    const titleText = subjectVoiceText(title, subjectName);
+    const summaryText = subjectVoiceText(summary, subjectName);
+    if (normalizedSubjectEventText(titleText) === normalizedSubjectEventText(summaryText)) {
+        return `我经历了这件事：${titleText}。`;
+    }
+    return `我经历了这件事：${titleText}。${summaryText}`;
+}
+
+function eventContextMutationsForSubject(
+    mutations: WorldSliceMutationDto[],
+    subjectId: string,
+    fallbackMutations: WorldSliceMutationDto[],
+): WorldSliceMutationDto[] {
+    const eventMutations = mutations.filter((mutation) => (mutation.subjectId === subjectId || mutation.subjectId === "world")
+        && attrRoot(mutation.attr) === "events"
+        && typeof mutation.value === "string"
+        && mutation.value.trim());
+    return eventMutations.length ? eventMutations : fallbackMutations;
+}
+
+function eventMutationNarrative(mutations: WorldSliceMutationDto[]): string {
+    return mutations
+        .filter((mutation) => attrRoot(mutation.attr) === "events" && typeof mutation.value === "string" && mutation.value.trim())
+        .map((mutation) => stripAcceptanceEventPrefix((mutation.value as string).trim()))
+        .join("；");
+}
+
+/** 去掉真实浏览器验收写入的内部标记，避免复制到角色 events.jsonl。 */
+function stripAcceptanceEventPrefix(text: string): string {
+    return text.replace(/^\s*\[验收(?:-[^\]]+)?\]\s*/, "");
+}
+
+function normalizedSubjectEventText(text: string): string {
+    return text.replace(/[，。！？、；：,.!?:;\s]/g, "");
+}
+
+function subjectVoiceText(text: string, subjectName: string): string {
+    const name = subjectName.trim();
+    if (!name) {
+        return text;
+    }
+    return normalizeSubjectVoicePronouns(text.split(name).join("我"));
+}
+
+/** 收敛常见“主体名已替换为我，但后续仍残留他/她”的事件草稿。 */
+function normalizeSubjectVoicePronouns(text: string): string {
+    return text
+        .replace(/([给让使令])([了过]?)(?:他|她|它)(?=[^，。！？、；：,.!?:;]*?(?:机会|理由|空间|时间|可能|余地|压力|警觉|信心|怀疑|判断|决定|选择|意识|感觉|想法|念头|目标|继续))/g, "$1$2我")
+        .replace(/(^|[。！？；;]\s*)(?:他|她|它)(?=(?:决定|选择|意识到|发现|判断|认为|知道|明白|继续|暂时|没有|未|不会|不能|可以|需要|想|打算|准备|保持|开始|转而|感到|觉得))/g, "$1我");
+}
+
+function buildSubjectMemoryFacts(mutations: WorldSliceMutationDto[], slice: WorldWorkbenchPreviewSlice): string[] {
+    return mutations
+        .filter((mutation) => isMemoryMutation(mutation))
+        .map((mutation) => `${slice.time} ${formatMutationSummary(mutation)}`);
+}
+
+function buildSubjectMemoryJsonLines(mutations: WorldSliceMutationDto[], slice: WorldWorkbenchPreviewSlice): string[] {
+    return mutations
+        .filter((mutation) => isMemoryMutation(mutation))
+        .map((mutation) => JSON.stringify({
+            topic: memoryProposalTopic(mutation.attr, slice),
+            view: memoryProposalView(mutation, slice),
+        }));
+}
+
+function buildStateReviewReasons(mutations: WorldSliceMutationDto[], slice: WorldWorkbenchPreviewSlice): string[] {
+    const reasons = mutations
+        .filter((mutation) => stateReviewAttrRoots.has(attrRoot(mutation.attr)))
+        .map((mutation) => `检查 state.md「${stateReviewSection(mutation.attr)}」：${formatMutationSummary(mutation)}`);
+    if (!reasons.length && slice.summary.trim()) {
+        return ["slice summary 可能包含位置、关系压力、短期目标或可见状态变化，需要人工确认 state.md 是否要更新。"];
+    }
+    return reasons;
+}
+
+function stateReviewSection(attr: string): string {
+    const root = attrRoot(attr);
+    if (root === "location") {
+        return "当前位置";
+    }
+    if (root === "hp" || root === "maxHp" || root === "mp" || root === "maxMp" || root === "sp" || root === "maxSp" || root === "exp") {
+        return "资源";
+    }
+    if (root === "inventory" || root === "equipment") {
+        return "持有物品";
+    }
+    if (root === "appearance" || root === "body" || root === "posture" || root === "state" || root === "status") {
+        return "身体与姿态";
+    }
+    if (root === "relationship" || root === "relationships" || root === "faction") {
+        return "关系压力";
+    }
+    if (root === "goal" || root === "goals" || root === "shortTermGoal" || root === "shortTermGoals") {
+        return "短期目标";
+    }
+    return "可见状态";
+}
+
+function isMemoryMutation(mutation: WorldSliceMutationDto): boolean {
+    const root = attrRoot(mutation.attr);
+    return root === "memory" || root === "relationship" || root === "relationships";
+}
+
+function memoryProposalTopic(attr: string, slice: WorldWorkbenchPreviewSlice): string {
+    const parts = attr.split(".").map((part) => part.trim()).filter(Boolean);
+    return parts.slice(1).join(".") || slice.title.trim() || attr;
+}
+
+function memoryProposalView(mutation: WorldSliceMutationDto, slice: WorldWorkbenchPreviewSlice): string {
+    if (mutation.op !== "unset" && typeof mutation.value === "string" && mutation.value.trim()) {
+        return mutation.value.trim();
+    }
+    return `${slice.time} ${formatMutationSummary(mutation)}`.trim();
+}
+
+function attrRoot(attr: string): string {
+    return attr.split(".")[0] ?? attr;
+}
+
+function formatMutationSummary(mutation: WorldSliceMutationDto): string {
+    const value = mutation.op === "unset" ? "" : ` = ${formatProposalValue(mutation.value)}`;
+    return `${mutation.subjectId}.${mutation.attr} ${mutation.op}${value}`;
+}
+
+function formatProposalValue(value: WorkbenchJsonValue | undefined): string {
+    if (value === undefined) {
+        return "";
+    }
+    return typeof value === "string" ? value : JSON.stringify(value);
+}
+
+function subjectSystemPath(summary: WorldWorkbenchPreviewSubjectSystemSummary, label: string, fallback: string): string {
+    return summary.ragIndexSources.find((source) => source.label === label)?.path || fallback;
 }
 
 /** 为真实持久 issue 构造稳定 key。 */

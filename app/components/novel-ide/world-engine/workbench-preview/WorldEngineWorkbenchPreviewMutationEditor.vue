@@ -353,7 +353,7 @@ function clearReviewFocus(): void {
 
 /** 从底部问题处理区或 compact list 定位到指定 issue。 */
 function focusReviewIssue(item: WorldWorkbenchPreviewReviewQueueItem | null): void {
-    if (!item) {
+    if (props.busy || !item) {
         return;
     }
     emit("focusReviewIssue", item);
@@ -659,6 +659,9 @@ function readableValue(value: WorkbenchJsonValue | undefined): string {
 
 /** 跳转到当前 subject 的上一个或下一个相关切片。 */
 function navigateSubjectSlice(direction: "previous" | "next"): void {
+    if (props.busy) {
+        return;
+    }
     const target = direction === "previous" ? previousRelatedSlice.value : nextRelatedSlice.value;
     if (!target) {
         return;
@@ -668,7 +671,7 @@ function navigateSubjectSlice(direction: "previous" | "next"): void {
 
 /** 跳转到下一个不在当前 slice 的未应用 value 草稿。 */
 function navigateToOtherDraft(): void {
-    if (!nextOtherSliceDraft.value) {
+    if (props.busy || !nextOtherSliceDraft.value) {
         return;
     }
     emit("selectSlice", nextOtherSliceDraft.value.sliceId);
@@ -1018,7 +1021,7 @@ watch(() => props.selectedSubjectIds.length, (count) => {
                 <span class="hidden shrink-0 whitespace-nowrap rounded-md border px-2 py-0.5 text-[11px] xl:inline" :class="dirtyValueDraftCount || otherSliceDirtyDraftCount ? 'border-amber-300 bg-[var(--we-warning-soft)] text-[var(--we-warning)]' : 'border-[var(--we-border)] bg-[var(--we-bg-subtle)] text-[var(--we-text-muted)]'">{{ valueDraftStatusLabel }}</span>
             </div>
             <div class="flex shrink-0 items-center gap-2">
-                <button v-if="nextOtherSliceDraft" data-testid="mutation-editor-next-draft-toolbar" type="button" class="inline-flex h-7 items-center gap-1.5 rounded-md border border-amber-300 bg-[var(--we-warning-soft)] px-2 text-[11px] font-medium text-[var(--we-warning)] transition-colors hover:bg-[var(--we-bg-hover)]" :title="`跳到 ${nextOtherSliceDraft.sliceTitle} 的未应用草稿`" @click="navigateToOtherDraft">
+                <button v-if="nextOtherSliceDraft" data-testid="mutation-editor-next-draft-toolbar" type="button" class="inline-flex h-7 items-center gap-1.5 rounded-md border border-amber-300 bg-[var(--we-warning-soft)] px-2 text-[11px] font-medium text-[var(--we-warning)] transition-colors hover:bg-[var(--we-bg-hover)] disabled:opacity-45" :disabled="props.busy" :title="`跳到 ${nextOtherSliceDraft.sliceTitle} 的未应用草稿`" @click="navigateToOtherDraft">
                     <span class="i-lucide-arrow-right-from-line h-3.5 w-3.5"></span>
                     <span class="hidden xl:inline">跳到草稿</span>
                 </button>
@@ -1053,7 +1056,7 @@ watch(() => props.selectedSubjectIds.length, (count) => {
                         </span>
                     </div>
                     <div class="flex shrink-0 items-center gap-1.5">
-                        <button v-if="nextOtherSliceDraft" data-testid="mutation-editor-next-draft-slice" type="button" class="inline-flex h-7 items-center gap-1.5 rounded-md border border-amber-300 bg-[var(--we-bg-panel)] px-2 text-[11px] font-medium text-[var(--we-warning)] transition-colors hover:bg-[var(--we-bg-hover)]" :title="`跳到 ${nextOtherSliceDraft.sliceTitle} 的未应用草稿`" @click="navigateToOtherDraft">
+                        <button v-if="nextOtherSliceDraft" data-testid="mutation-editor-next-draft-slice" type="button" class="inline-flex h-7 items-center gap-1.5 rounded-md border border-amber-300 bg-[var(--we-bg-panel)] px-2 text-[11px] font-medium text-[var(--we-warning)] transition-colors hover:bg-[var(--we-bg-hover)] disabled:opacity-45" :disabled="props.busy" :title="`跳到 ${nextOtherSliceDraft.sliceTitle} 的未应用草稿`" @click="navigateToOtherDraft">
                             <span class="i-lucide-arrow-right-from-line h-3.5 w-3.5"></span>
                             跳到草稿
                         </button>
@@ -1129,11 +1132,11 @@ watch(() => props.selectedSubjectIds.length, (count) => {
                         </div>
                     </div>
                     <div class="flex shrink-0 items-center gap-1.5">
-                        <button v-if="reviewFocusContext.status !== 'manual'" type="button" class="inline-flex h-7 items-center gap-1 rounded-md border border-amber-300 bg-[var(--we-bg-panel)] px-2 text-[11px] text-[var(--we-warning)] transition-colors hover:bg-[var(--we-bg-hover)] disabled:opacity-45" :disabled="!previousReviewQueueItem" :title="previousReviewQueueItem ? `${previousReviewQueueItem.sliceTime} · ${previousReviewQueueItem.sliceTitle}` : '没有上一个可见 issue'" @click="focusReviewIssue(previousReviewQueueItem)">
+                        <button v-if="reviewFocusContext.status !== 'manual'" type="button" class="inline-flex h-7 items-center gap-1 rounded-md border border-amber-300 bg-[var(--we-bg-panel)] px-2 text-[11px] text-[var(--we-warning)] transition-colors hover:bg-[var(--we-bg-hover)] disabled:opacity-45" :disabled="props.busy || !previousReviewQueueItem" :title="previousReviewQueueItem ? `${previousReviewQueueItem.sliceTime} · ${previousReviewQueueItem.sliceTitle}` : '没有上一个可见 issue'" @click="focusReviewIssue(previousReviewQueueItem)">
                             <span class="i-lucide-arrow-up h-3.5 w-3.5"></span>
                             {{ reviewQueueMode === "open" ? t("worldEngine.workbenchPreview.previousOpen") : t("worldEngine.workbenchPreview.previousIssue") }}
                         </button>
-                        <button v-if="reviewFocusContext.status !== 'manual'" type="button" class="inline-flex h-7 items-center gap-1 rounded-md border border-amber-300 bg-[var(--we-bg-panel)] px-2 text-[11px] text-[var(--we-warning)] transition-colors hover:bg-[var(--we-bg-hover)] disabled:opacity-45" :disabled="!nextReviewQueueItem" :title="nextReviewQueueItem ? `${nextReviewQueueItem.sliceTime} · ${nextReviewQueueItem.sliceTitle}` : '没有下一个可见 issue'" @click="focusReviewIssue(nextReviewQueueItem)">
+                        <button v-if="reviewFocusContext.status !== 'manual'" type="button" class="inline-flex h-7 items-center gap-1 rounded-md border border-amber-300 bg-[var(--we-bg-panel)] px-2 text-[11px] text-[var(--we-warning)] transition-colors hover:bg-[var(--we-bg-hover)] disabled:opacity-45" :disabled="props.busy || !nextReviewQueueItem" :title="nextReviewQueueItem ? `${nextReviewQueueItem.sliceTime} · ${nextReviewQueueItem.sliceTitle}` : '没有下一个可见 issue'" @click="focusReviewIssue(nextReviewQueueItem)">
                             {{ reviewQueueMode === "open" ? t("worldEngine.workbenchPreview.nextOpen") : t("worldEngine.workbenchPreview.nextIssue") }}
                             <span class="i-lucide-arrow-down h-3.5 w-3.5"></span>
                         </button>
@@ -1224,8 +1227,9 @@ watch(() => props.selectedSubjectIds.length, (count) => {
                         :key="`editor-slice-issue:${item.key}`"
                         type="button"
                         data-testid="mutation-editor-issue-row"
-                        class="grid min-w-0 grid-cols-[28px_minmax(72px,0.65fr)_minmax(0,1fr)_auto] items-center gap-2 rounded-md border border-[var(--we-border)] bg-[var(--we-bg-panel)] px-2 py-1.5 text-left text-[11px] transition-colors hover:border-amber-300 hover:bg-[var(--we-warning-soft)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--we-accent-border)]"
+                        class="grid min-w-0 grid-cols-[28px_minmax(72px,0.65fr)_minmax(0,1fr)_auto] items-center gap-2 rounded-md border border-[var(--we-border)] bg-[var(--we-bg-panel)] px-2 py-1.5 text-left text-[11px] transition-colors hover:border-amber-300 hover:bg-[var(--we-warning-soft)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--we-accent-border)] disabled:opacity-45"
                         :title="item.message"
+                        :disabled="props.busy"
                         @click="focusReviewIssue(item)"
                     >
                         <span class="rounded border px-1.5 py-0.5 font-mono text-[10px] font-semibold" :class="issueLevelClass(item.code)">{{ issueLevel(item.code) }}</span>
@@ -1266,11 +1270,11 @@ watch(() => props.selectedSubjectIds.length, (count) => {
                         <div class="flex items-center gap-1.5">
                             <SegmentedControl :model-value="subjectNavigationScope" :options="subjectNavigationScopeOptions" size="xs" @update:model-value="updateSubjectNavigationScope" />
                             <span class="hidden rounded-md border border-[var(--we-border)] bg-[var(--we-bg-panel)] px-2 py-1 font-mono text-[10px] text-[var(--we-text-muted)] 2xl:inline" :title="subjectNavigationScopeLabel">{{ relatedSlicePosition }}</span>
-                            <button type="button" class="inline-flex h-7 items-center gap-1 rounded-md border border-[var(--we-border)] bg-[var(--we-bg-panel)] px-2 text-[11px] text-[var(--we-text-secondary)] transition-colors hover:bg-[var(--we-bg-hover)] disabled:opacity-50" :disabled="!previousRelatedSlice" @click="navigateSubjectSlice('previous')">
+                            <button type="button" class="inline-flex h-7 items-center gap-1 rounded-md border border-[var(--we-border)] bg-[var(--we-bg-panel)] px-2 text-[11px] text-[var(--we-text-secondary)] transition-colors hover:bg-[var(--we-bg-hover)] disabled:opacity-50" :disabled="props.busy || !previousRelatedSlice" @click="navigateSubjectSlice('previous')">
                                 <span class="i-lucide-arrow-left h-3.5 w-3.5"></span>
                                 上一个
                             </button>
-                            <button type="button" class="inline-flex h-7 items-center gap-1 rounded-md border border-[var(--we-border)] bg-[var(--we-bg-panel)] px-2 text-[11px] text-[var(--we-text-secondary)] transition-colors hover:bg-[var(--we-bg-hover)] disabled:opacity-50" :disabled="!nextRelatedSlice" @click="navigateSubjectSlice('next')">
+                            <button type="button" class="inline-flex h-7 items-center gap-1 rounded-md border border-[var(--we-border)] bg-[var(--we-bg-panel)] px-2 text-[11px] text-[var(--we-text-secondary)] transition-colors hover:bg-[var(--we-bg-hover)] disabled:opacity-50" :disabled="props.busy || !nextRelatedSlice" @click="navigateSubjectSlice('next')">
                                 下一个
                                 <span class="i-lucide-arrow-right h-3.5 w-3.5"></span>
                             </button>

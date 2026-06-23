@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import {computed, watch} from "vue";
+import WorldEngineMutationActionButtons from "nbook/app/components/novel-ide/world-engine/WorldEngineMutationActionButtons.vue";
+import WorldEngineMutationListControls from "nbook/app/components/novel-ide/world-engine/WorldEngineMutationListControls.vue";
 import {collectionRemoveValueOptions, type WorldMutationOp, type WorldPreviewSchemaAttr, type WorldPreviewStateSubject} from "nbook/app/utils/world-engine-preview";
 
 type PreviewMutationBuilderModel = {
@@ -15,6 +17,7 @@ type PreviewSubjectOption = {
 };
 
 const props = defineProps<{
+    disabled?: boolean;
     builder: PreviewMutationBuilderModel;
     subjects: PreviewSubjectOption[];
     subjectFormId: string;
@@ -24,11 +27,21 @@ const props = defineProps<{
     valueHint: string;
     valueRequiresJsonObject: boolean;
     stateResult: WorldPreviewStateSubject[];
+    mutationLoadOptions: Array<{label: string; value: string}>;
+    mutationLoadIndex: string;
+    canUseSelectedMutation: boolean;
 }>();
 
 const emit = defineEmits<{
     (e: "update-builder-field", field: keyof PreviewMutationBuilderModel, value: string): void;
     (e: "add-builder-mutation", mode: "append" | "replace"): void;
+    (e: "update-mutation-load-index", value: string): void;
+    (e: "load-mutation", index: number): void;
+    (e: "insert-after-selected-mutation"): void;
+    (e: "duplicate-selected-mutation"): void;
+    (e: "replace-selected-mutation"): void;
+    (e: "delete-selected-mutation"): void;
+    (e: "move-selected-mutation", direction: "up" | "down"): void;
 }>();
 
 /** 读取原生表单事件中的字符串值，让模板保持简洁。 */
@@ -61,12 +74,21 @@ function syncCollectionRemoveValue(options: Array<{value: string}>): void {
 <template>
     <!-- Preview Mutation Builder -->
     <div class="rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] p-3">
-        <div class="mb-2 flex items-center justify-between gap-2">
-            <div class="text-xs font-semibold text-[var(--text-secondary)]">Mutation Builder</div>
-            <div class="flex min-w-0 items-center gap-2 text-[11px] text-[var(--text-muted)]">
-                <span class="truncate">{{ subjectTypeLabel }}</span>
+        <fieldset class="m-0 border-0 p-0 disabled:opacity-70" :disabled="props.disabled">
+        <div class="mb-2 flex flex-col gap-2">
+            <div class="flex items-center justify-between gap-2">
+                <div class="text-xs font-semibold text-[var(--text-secondary)]">Mutation Builder</div>
                 <span class="shrink-0 rounded border border-[var(--border-color)] px-1.5 py-0.5 font-mono">{{ valueHint }}</span>
             </div>
+            <WorldEngineMutationListControls
+                :disabled="props.disabled"
+                :selected-subject-type-label="subjectTypeLabel"
+                :mutation-load-options="mutationLoadOptions"
+                :mutation-load-index="mutationLoadIndex"
+                @update-mutation-load-index="emit('update-mutation-load-index', $event)"
+                @load-mutation="emit('load-mutation', $event)"
+                @move-selected-mutation="emit('move-selected-mutation', $event)"
+            />
         </div>
         <div class="grid grid-cols-2 gap-2">
             <select :value="builder.subjectId" class="h-8 rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] px-2 text-xs outline-none focus:border-[var(--accent-main)]" @change="emit('update-builder-field', 'subjectId', inputValue($event))">
@@ -89,15 +111,15 @@ function syncCollectionRemoveValue(options: Array<{value: string}>): void {
             <textarea v-else-if="valueRequiresJsonObject" :value="builder.value" rows="4" class="col-span-2 min-h-[92px] resize-y rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] px-2 py-1.5 font-mono text-xs leading-5 outline-none focus:border-[var(--accent-main)]" placeholder="{&quot;key&quot;: &quot;value&quot;}" title="当前 value 必须是 JSON object" @input="emit('update-builder-field', 'value', inputValue($event))"></textarea>
             <input v-else :value="builder.value" class="h-8 rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] px-2 text-xs outline-none focus:border-[var(--accent-main)] disabled:opacity-50" :disabled="builder.op === 'unset'" placeholder="value" @input="emit('update-builder-field', 'value', inputValue($event))">
         </div>
-        <div class="mt-2 flex gap-2">
-            <button type="button" class="inline-flex h-8 flex-1 items-center justify-center gap-1 rounded-md border border-[var(--border-color)] px-2 text-xs hover:bg-[var(--bg-hover)]" @click="emit('add-builder-mutation', 'append')">
-                <span class="i-lucide-list-plus h-3.5 w-3.5"></span>
-                追加
-            </button>
-            <button type="button" class="inline-flex h-8 flex-1 items-center justify-center gap-1 rounded-md border border-[var(--border-color)] px-2 text-xs hover:bg-[var(--bg-hover)]" @click="emit('add-builder-mutation', 'replace')">
-                <span class="i-lucide-refresh-ccw h-3.5 w-3.5"></span>
-                替换
-            </button>
-        </div>
+        <WorldEngineMutationActionButtons
+            :disabled="props.disabled"
+            :can-use-selected-mutation="canUseSelectedMutation"
+            @add-mutation="emit('add-builder-mutation', $event)"
+            @insert-after-selected-mutation="emit('insert-after-selected-mutation')"
+            @duplicate-selected-mutation="emit('duplicate-selected-mutation')"
+            @replace-selected-mutation="emit('replace-selected-mutation')"
+            @delete-selected-mutation="emit('delete-selected-mutation')"
+        />
+        </fieldset>
     </div>
 </template>

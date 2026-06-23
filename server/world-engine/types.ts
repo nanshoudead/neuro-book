@@ -124,6 +124,15 @@ export type CreateWorldSubjectResult = {
     issues: WorldIssue[];
 };
 
+/** 创建 subject 的输入；attrs 只初始化 schema 已声明属性，不复制外部文件正文。 */
+export type CreateWorldSubjectInput = {
+    id: string;
+    type: string;
+    name?: string;
+    at: Instant;
+    attrs?: Record<string, JsonValue>;
+};
+
 /** Agent 友好的 schema 属性投影。 */
 export type WorldSchemaProjectionAttr = {
     name: string;

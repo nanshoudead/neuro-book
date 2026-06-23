@@ -9,6 +9,17 @@ description: 小说流程 03：世界书初始化。用于在 novel-workflow-02-
 
 如果用户明确想继续扩展世界书，可以在基础条目完成后继续深入历史、势力、地点、力量体系、普通生活、资源生态等模块。扩展时仍按用户意图和当前作品需要推进，不为了完整性机械补全百科。
 
+## lorebook 与 World Engine 各管什么
+
+lorebook 不是世界状态的唯一去处。它和 World Engine（世界引擎）职责互补：
+
+- **lorebook 存静态设定**：世界观、规则、身份底设、力量体系、地理、势力关系——这些是不随剧情时间改变的 canon。例如「艾莉娜是凤凰骑士团成员」「灵气枯竭会引发狂化」。
+- **World Engine 存动态状态与时间线**：随剧情演变的东西——谁现在在哪、HP 多少、当前关系如何、何时发生了什么。例如「艾莉娜在某年加入骑士团」「她现在 HP 80/100，身处星陨遗迹」。
+
+判断一条信息归谁，只问一句：**它会不会随剧情时间演变？** 会演变的进 World Engine，稳定不变的 canon 进 lorebook。本流程只负责写 lorebook 这一侧的静态设定；动态状态留到 World Engine 初始化时录入。原理见 `reference/world-engine/workflow.md` 第 2 节。
+
+lorebook 设定可以在初始化 World Engine 时映射成结构化属性：lorebook 里写的力量体系等级、货币、阵营、状态规则，到 `novel-workflow-world-engine-init` 时可映射成 character 等 subject 的 schema 属性。一句话区分：**lorebook 定义「是什么」，World Engine 记录「何时变成什么」**。所以这里把设定写清楚、写稳定即可，不必担心当前状态没处放。
+
 ## 前置要求
 
 开始前应至少具备：
@@ -184,9 +195,9 @@ description: 小说流程 03：世界书初始化。用于在 novel-workflow-02-
 
 ## 后续衔接
 
-世界书初始化完成后，按需要进入 `novel-workflow-05-emulation-bootstrap` 初始化运行态，或进入 `novel-workflow-06-emulation-tick` 推进一个世界运行 tick。
+世界书骨架完成后，如果用户要开始追踪世界状态、推进剧情时间线（谁在哪、何时发生了什么、当前状态如何），进入 `novel-workflow-world-engine-init` 初始化 World Engine：把需要追踪的角色、地点、势力登记为 subject，把 lorebook 里的力量体系、阶层、货币等设定映射成对应 schema 属性，并录入开局状态。
 
-如果用户已经要设计开局剧情，emulation 之后再进入 `novel-workflow-07-opening-plot-design`。如果用户要规划更长阶段，再进入 `novel-workflow-08-plot-planning`。
+如果用户只想继续扩展静态设定，留在本流程沿历史、势力、地点、资源、普通生活等方向深入即可。
 
 ## 完成标准
 
@@ -199,4 +210,4 @@ description: 小说流程 03：世界书初始化。用于在 novel-workflow-02-
 - 关键设定已经进入 lorebook 真相源。
 - 可变状态没有混进 `index.md`，需要时写入 `state.md`。
 - 重要未定项被显式保留。
-- 下一步可以直接做 emulation bootstrap / tick，或进入 `novel-workflow-07-opening-plot-design`。
+- 下一步可以直接进入 `novel-workflow-world-engine-init` 初始化 World Engine 追踪世界状态。

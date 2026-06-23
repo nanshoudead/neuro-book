@@ -124,6 +124,12 @@ const PROJECT_METADATA_FILE = "project.yaml";
 const LEGACY_WORKSPACE_METADATA_FILE = "workspace.yaml";
 const DEFAULT_TEMPLATE_NAME = "project-directory-templates";
 const WORKSPACE_ROOT_NAME = "workspace";
+const DELETED_PROJECT_TEMPLATE_PATHS = [
+    "world-engine/calendar.yaml",
+];
+const DELETED_PROJECT_TEMPLATE_DIRECTORIES = [
+    "simulation",
+];
 const SYSTEM_TEMPLATE_ROOT = await resolveSystemTemplateRoot();
 
 program
@@ -650,6 +656,12 @@ async function listFilesRecursively(root: string): Promise<string[]> {
  */
 async function normalizeProjectTemplateArtifacts(projectRoot: string): Promise<void> {
     await fs.rm(path.join(projectRoot, LEGACY_WORKSPACE_METADATA_FILE), {force: true});
+    for (const relativePath of DELETED_PROJECT_TEMPLATE_PATHS) {
+        await fs.rm(path.join(projectRoot, relativePath), {force: true});
+    }
+    for (const relativePath of DELETED_PROJECT_TEMPLATE_DIRECTORIES) {
+        await fs.rm(path.join(projectRoot, relativePath), {recursive: true, force: true});
+    }
     const statusPath = path.join(projectRoot, "PROJECT-STATUS.md");
     try {
         const content = await fs.readFile(statusPath, "utf-8");

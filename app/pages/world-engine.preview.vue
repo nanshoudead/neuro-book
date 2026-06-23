@@ -3,8 +3,12 @@ import {computed, onMounted, reactive, ref, shallowRef, watch} from "vue";
 import WorldEnginePreviewActions from "nbook/app/components/novel-ide/world-engine/WorldEnginePreviewActions.vue";
 import WorldEnginePreviewProjectPanel from "nbook/app/components/novel-ide/world-engine/WorldEnginePreviewProjectPanel.vue";
 import WorldEnginePreviewStatePanel from "nbook/app/components/novel-ide/world-engine/WorldEnginePreviewStatePanel.vue";
+import {useDialog} from "nbook/app/composables/useDialog";
 import {resolveApiErrorMessage} from "nbook/app/utils/api-error";
 import {
+    clampMutationIndex,
+    deleteMutationAt,
+    duplicateMutationAt,
     filterPreviewProjects,
     formatWorldEngineConflictMessage,
     formatPreviewJson,
@@ -12,15 +16,19 @@ import {
     defaultMutationForPreviewSubject,
     defaultValueForPreviewAttr,
     isJsonObjectValue,
+    insertMutationAfter,
     keepSelectedPreviewProject,
+    moveMutationAt,
     opOptionsForPreviewAttr,
     parseCsvList,
     parseLooseJsonValue,
     parseMutationJson,
+    parseMutationListJson,
     previewAttrNeedsJsonObject,
     previewAttrValueType,
     previewDemoMutations,
     previewDemoSubjects,
+    replaceMutationAt,
     resolvePreviewAttrPath,
     selectPreviewProjectPath,
     suggestNextPreviewTime,
@@ -93,6 +101,7 @@ type DeleteSliceResultDto = {
 };
 
 const route = useRoute();
+const {confirm: confirmDialog} = useDialog();
 
 const previewProjectListLimit = 80;
 const previewProjectTestPrefixes = ["workspace/world-engine-test-", "workspace/world-engine-api-test-", "workspace/world-tools-test-"];
@@ -113,6 +122,7 @@ const actionBusy = ref(false);
 const error = ref("");
 const notice = ref("");
 const editingSliceId = ref("");
+const mutationLoadIndex = ref("0");
 let suppressProjectSelectionWatcher = false;
 
 /** 显示 Preview 错误，并清理旧成功提示，避免作者同时看到互相冲突的反馈。 */
@@ -134,11 +144,22 @@ function setPreviewNotice(message: string): void {
 /** 格式化 Preview 默认 Project 标题中的本地时间戳。 */
 function formatPreviewProjectTitleTimestamp(date: Date): string {
     const pad = (value: number) => String(value).padStart(2, "0");
-    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}-${pad(date.getMinutes())}`;
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}-${pad(date.getMinutes())}-${pad(date.getSeconds())}`;
+}
+
+/** 生成 Preview 新建 Project 表单的默认值。 */
+function defaultPreviewProjectTitle(date = new Date()): string {
+    return `世界引擎试用 ${formatPreviewProjectTitleTimestamp(date)}`;
+}
+
+/** 新建 Project 成功后准备下一条默认表单，避免重复创建同名试用 Project。 */
+function resetCreateProjectForm(): void {
+    createProjectForm.title = defaultPreviewProjectTitle();
+    createProjectForm.summary = "World Engine preview project";
 }
 
 const createProjectForm = reactive({
-    title: `世界引擎试用 ${formatPreviewProjectTitleTimestamp(new Date())}`,
+    title: defaultPreviewProjectTitle(),
     summary: "World Engine preview project",
 });
 
@@ -191,6 +212,18 @@ const mutationBuilderAttrs = computed(() => attrsForSubjectId(mutationBuilder.su
 const mutationBuilderAttr = computed(() => resolvePreviewAttrPath(mutationBuilderAttrs.value, mutationBuilder.attr));
 const mutationBuilderOpOptions = computed(() => opOptionsForAttr(mutationBuilder.attr));
 const mutationBuilderNeedsJsonObject = computed(() => previewAttrNeedsJsonObject(mutationBuilderAttr.value, mutationBuilder.op));
+const mutationLoadOptions = computed(() => {
+    const parsed = parseMutationJson(sliceForm.mutations);
+    if (!parsed.ok) {
+        return [];
+    }
+    return parsed.value.map((mutation, index) => ({
+        label: `${index + 1}. ${mutation.subjectId}.${mutation.attr} · ${mutation.op}`,
+        value: String(index),
+    }));
+});
+const canUseSelectedMutation = computed(() => mutationLoadOptions.value.length > 0);
+const previewBuilderDisabled = computed(() => loadingWorld.value || actionBusy.value);
 const mutationBuilderValueHint = computed(() => {
     const attr = mutationBuilderAttr.value;
     if (!attr) {
@@ -204,7 +237,9 @@ async function loadProjects(preferredProjectPath?: string): Promise<void> {
     loadingProjects.value = true;
     error.value = "";
     try {
-        const routeProjectPath = typeof route.query.projectPath === "string" ? route.query.projectPath : "";
+        const routeProjectPath = typeof route.query.projectPath === "string"
+            ? route.query.projectPath
+            : typeof route.query.project === "string" ? route.query.project : "";
         projects.value = await $fetch<NovelListItemDto[]>("/api/projects", {
             query: {
                 limit: previewProjectListLimit,
@@ -227,8 +262,18 @@ async function loadProjects(preferredProjectPath?: string): Promise<void> {
     }
 }
 
+/** 用户手动刷新 Project 列表；请求飞行中不切换当前上下文。 */
+async function refreshProjects(): Promise<void> {
+    if (loadingWorld.value) return;
+    if (actionBusy.value) return;
+    await loadProjects();
+}
+
 /** 新建 Project Workspace，并立即选中它。 */
 async function createProject(): Promise<void> {
+    if (loadingProjects.value) return;
+    if (loadingWorld.value) return;
+    if (actionBusy.value) return;
     if (!createProjectForm.title.trim()) {
         setPreviewError("Project 标题不能为空");
         return;
@@ -245,6 +290,7 @@ async function createProject(): Promise<void> {
             },
         });
         await loadProjects(project.projectPath);
+        resetCreateProjectForm();
         setPreviewNotice(`已创建 ${project.projectPath}`);
     } catch (createError) {
         setPreviewError(resolveApiErrorMessage(createError, "创建 Project 失败"));
@@ -255,6 +301,9 @@ async function createProject(): Promise<void> {
 
 /** 在当前 Project 中创建一组可查询、可编辑的真实示例数据。 */
 async function seedDemoWorld(): Promise<void> {
+    if (loadingProjects.value) return;
+    if (loadingWorld.value) return;
+    if (actionBusy.value) return;
     if (!selectedProjectPath.value) return;
     const schemaError = previewDemoSchemaError.value;
     if (schemaError) {
@@ -351,6 +400,13 @@ async function loadWorld(): Promise<void> {
     }
 }
 
+/** 用户从 StatePanel 刷新世界数据；请求飞行中不抢当前 Project / action 上下文。 */
+async function refreshWorldFromStatePanel(): Promise<void> {
+    if (loadingWorld.value) return;
+    if (actionBusy.value) return;
+    await loadWorld();
+}
+
 /** 创建示例 subject；已存在且 type 匹配时跳过。 */
 async function ensureDemoSubjects(initTime: string): Promise<{created: string[]; skipped: string[]; issues: WorldIssueDto[]}> {
     const existingIds = new Set(subjects.value.map((subject) => subject.id));
@@ -381,6 +437,8 @@ async function ensureDemoSubjects(initTime: string): Promise<{created: string[];
 
 /** 创建 subject，并刷新 timeline。 */
 async function createSubject(): Promise<void> {
+    if (loadingWorld.value) return;
+    if (actionBusy.value) return;
     if (!selectedProjectPath.value) return;
     const subjectId = subjectForm.id.trim();
     const subjectType = subjectForm.type.trim();
@@ -446,6 +504,8 @@ async function createSubject(): Promise<void> {
 
 /** 写入新 slice 或整块替换已有 slice。 */
 async function writeSlice(): Promise<void> {
+    if (loadingWorld.value) return;
+    if (actionBusy.value) return;
     if (!selectedProjectPath.value) return;
     if (!sliceForm.time.trim()) {
         setPreviewError("time 不能为空");
@@ -476,7 +536,11 @@ async function writeSlice(): Promise<void> {
         applyWriteResultFeedback(lastWriteResult.value, editing);
         editingSliceId.value = "";
         await loadWorld();
-        advanceSliceFormTime();
+        if (editing) {
+            clearSliceEditMode();
+        } else {
+            advanceSliceFormTime();
+        }
         if (queryForm.subjectIds.trim() || queryForm.type.trim()) {
             await queryState({clearActionIssues: false});
         }
@@ -489,6 +553,8 @@ async function writeSlice(): Promise<void> {
 
 /** 物理删除 slice；后端返回删后仍显形的持久 issues。 */
 async function deleteSlice(sliceId: string): Promise<void> {
+    if (loadingWorld.value) return;
+    if (actionBusy.value) return;
     if (!selectedProjectPath.value) return;
     const slice = slices.value.find((item) => item.id === sliceId);
     if (!slice) {
@@ -496,7 +562,7 @@ async function deleteSlice(sliceId: string): Promise<void> {
         await loadWorld();
         return;
     }
-    if (import.meta.client && !window.confirm(`确定要删除 slice「${slice.title || slice.id}」吗？此操作不可恢复。`)) {
+    if (!await confirmDialog(`确定要删除 slice「${slice.title || slice.id}」吗？此操作不可恢复。`, "删除 World Engine Slice")) {
         return;
     }
     actionBusy.value = true;
@@ -527,6 +593,8 @@ async function deleteSlice(sliceId: string): Promise<void> {
 
 /** 查询收窄后的世界状态。 */
 async function queryState(options: {clearActionIssues?: boolean} = {}): Promise<void> {
+    if (loadingWorld.value && options.clearActionIssues !== false) return;
+    if (actionBusy.value && options.clearActionIssues !== false) return;
     if (!selectedProjectPath.value) return;
     const subjectIds = parseCsvList(queryForm.subjectIds);
     const attrs = parseCsvList(queryForm.attrs);
@@ -599,19 +667,27 @@ function applyWorldDefaults(): void {
 }
 
 async function loadSubjectIntoQuery(subject: WorldSubjectDto): Promise<void> {
+    if (loadingWorld.value) return;
+    if (actionBusy.value) return;
     queryForm.subjectIds = subject.id;
     queryForm.type = "";
     mutationBuilder.subjectId = subject.id;
     subjectForm.id = subject.id;
     subjectForm.type = subject.type;
     subjectForm.name = subject.name;
+    if (!editingSliceId.value && shouldRefreshDefaultSliceMutation()) {
+        applyDefaultSliceMutation(subject.id);
+    }
     await queryState({clearActionIssues: false});
 }
 
 function fillMutation(typeName: string, attr: WorldPreviewSchemaAttr): void {
+    if (loadingProjects.value) return;
+    if (previewBuilderDisabled.value) return;
     const subjectId = subjectIdForSchemaType(typeName);
     const mutation = defaultMutationForPreviewAttr(subjectId, attr, subjects.value);
     sliceForm.mutations = JSON.stringify([mutation], null, 2);
+    mutationLoadIndex.value = "0";
     mutationBuilder.subjectId = subjectId;
     mutationBuilder.attr = attr.name;
     mutationBuilder.op = mutation.op;
@@ -619,6 +695,8 @@ function fillMutation(typeName: string, attr: WorldPreviewSchemaAttr): void {
 }
 
 function loadSliceForEdit(sliceId: string): void {
+    if (loadingWorld.value) return;
+    if (actionBusy.value) return;
     const slice = slices.value.find((item) => item.id === sliceId);
     if (!slice) {
         setPreviewError("切面不存在，已刷新列表");
@@ -631,6 +709,10 @@ function loadSliceForEdit(sliceId: string): void {
     sliceForm.summary = slice.summary;
     sliceForm.kind = slice.kind;
     sliceForm.mutations = JSON.stringify(slice.mutations ?? [], null, 2);
+    mutationLoadIndex.value = "0";
+    if ((slice.mutations ?? []).length) {
+        loadMutationToBuilder(0, false);
+    }
     setPreviewNotice(`正在编辑 slice ${slice.id}`);
 }
 
@@ -640,7 +722,13 @@ function clearSliceEditMode(): void {
     sliceForm.summary = "";
     sliceForm.kind = "event";
     advanceSliceFormTime();
-    applyDefaultSliceMutation(subjectForm.id || "world");
+    applyDefaultSliceMutation(mutationBuilder.subjectId || subjectForm.id || "world");
+}
+
+/** 用户点击取消编辑时走请求飞行 guard；内部保存 / 删除成功后的清理仍可直接调用 clearSliceEditMode。 */
+function requestClearSliceEditMode(): void {
+    if (previewBuilderDisabled.value) return;
+    clearSliceEditMode();
 }
 
 function advanceSliceFormTime(): void {
@@ -654,6 +742,7 @@ function applyDefaultSliceMutation(subjectId: string): void {
     const nextDraft = JSON.stringify([mutation], null, 2);
     lastAutoSliceMutationDraft = nextDraft;
     sliceForm.mutations = nextDraft;
+    mutationLoadIndex.value = "0";
     mutationBuilder.subjectId = mutation.subjectId;
     mutationBuilder.attr = mutation.attr;
     mutationBuilder.op = mutation.op;
@@ -670,14 +759,14 @@ function applyWriteResultFeedback(result: SliceWriteResultDto, editing: boolean)
         : `${editing ? "已更新" : "已写入"} slice ${result.sliceId}`);
 }
 
-function addBuilderMutation(mode: "append" | "replace"): void {
+function buildMutationFromBuilder(): WorldMutationDraft | null {
     if (!mutationBuilder.subjectId.trim()) {
         setPreviewError("mutation subjectId 不能为空");
-        return;
+        return null;
     }
     if (!mutationBuilder.attr.trim()) {
         setPreviewError("mutation attr 不能为空");
-        return;
+        return null;
     }
     const mutation: WorldMutationDraft = {
         subjectId: mutationBuilder.subjectId.trim(),
@@ -688,31 +777,169 @@ function addBuilderMutation(mode: "append" | "replace"): void {
         const parsedValue = parseLooseJsonValue(mutationBuilder.value);
         if (!parsedValue.ok) {
             setPreviewError(parsedValue.message);
-            return;
+            return null;
         }
         if (mutationBuilderNeedsJsonObject.value && !isJsonObjectValue(parsedValue.value)) {
             setPreviewError("mutation value 必须是 JSON object");
-            return;
+            return null;
         }
         mutation.value = parsedValue.value;
     }
-    const current = parseMutationJson(sliceForm.mutations);
+    return mutation;
+}
+
+function addBuilderMutation(mode: "append" | "replace"): void {
+    if (previewBuilderDisabled.value) return;
+    const mutation = buildMutationFromBuilder();
+    if (!mutation) {
+        return;
+    }
+    const current = parseMutationListJson(sliceForm.mutations);
     const next = mode === "append" && current.ok ? [...current.value, mutation] : [mutation];
     if (mode === "append" && !current.ok && sliceForm.mutations.trim()) {
         setPreviewError(current.message);
         return;
     }
     sliceForm.mutations = JSON.stringify(next, null, 2);
+    mutationLoadIndex.value = mode === "append" ? String(next.length - 1) : "0";
     error.value = "";
+}
+
+function loadMutationToBuilder(index: number, showNotice = true): void {
+    if (previewBuilderDisabled.value) return;
+    const parsed = parseMutationJson(sliceForm.mutations);
+    if (!parsed.ok) {
+        setPreviewError(parsed.message);
+        return;
+    }
+    const safeIndex = clampMutationIndex(parsed.value.length, index);
+    const mutation = parsed.value[safeIndex];
+    if (!mutation) {
+        setPreviewError("请选择要载入的 mutation。");
+        return;
+    }
+    mutationLoadIndex.value = String(safeIndex);
+    mutationBuilder.subjectId = mutation.subjectId;
+    mutationBuilder.attr = mutation.attr;
+    mutationBuilder.op = mutation.op;
+    mutationBuilder.value = formatBuilderValue(mutation.value);
+    if (showNotice) {
+        setPreviewNotice(`已载入第 ${safeIndex + 1} 条 mutation 到 Builder`);
+    }
+}
+
+function replaceSelectedBuilderMutation(): void {
+    if (previewBuilderDisabled.value) return;
+    const mutation = buildMutationFromBuilder();
+    if (!mutation) {
+        return;
+    }
+    const parsed = parseMutationJson(sliceForm.mutations);
+    if (!parsed.ok) {
+        setPreviewError(parsed.message);
+        return;
+    }
+    const result = replaceMutationAt(parsed.value, Number(mutationLoadIndex.value), mutation);
+    if (!result.ok) {
+        setPreviewError(result.message);
+        return;
+    }
+    sliceForm.mutations = JSON.stringify(result.value.mutations, null, 2);
+    mutationLoadIndex.value = String(result.value.index);
+    setPreviewNotice(`已替换第 ${result.value.index + 1} 条 mutation`);
+}
+
+function insertAfterSelectedBuilderMutation(): void {
+    if (previewBuilderDisabled.value) return;
+    const mutation = buildMutationFromBuilder();
+    if (!mutation) {
+        return;
+    }
+    const parsed = parseMutationJson(sliceForm.mutations);
+    if (!parsed.ok) {
+        setPreviewError(parsed.message);
+        return;
+    }
+    const result = insertMutationAfter(parsed.value, Number(mutationLoadIndex.value), mutation);
+    if (!result.ok) {
+        setPreviewError(result.message);
+        return;
+    }
+    sliceForm.mutations = JSON.stringify(result.value.mutations, null, 2);
+    mutationLoadIndex.value = String(result.value.index);
+    setPreviewNotice(`已在第 ${result.value.index} 条 mutation 后插入新 mutation`);
+}
+
+function duplicateSelectedBuilderMutation(): void {
+    if (previewBuilderDisabled.value) return;
+    const parsed = parseMutationJson(sliceForm.mutations);
+    if (!parsed.ok) {
+        setPreviewError(parsed.message);
+        return;
+    }
+    const result = duplicateMutationAt(parsed.value, Number(mutationLoadIndex.value));
+    if (!result.ok) {
+        setPreviewError(result.message);
+        return;
+    }
+    sliceForm.mutations = JSON.stringify(result.value.mutations, null, 2);
+    mutationLoadIndex.value = String(result.value.index);
+    loadMutationToBuilder(result.value.index, false);
+    setPreviewNotice(`已复制所选 mutation 到第 ${result.value.index + 1} 位`);
+}
+
+function deleteSelectedBuilderMutation(): void {
+    if (previewBuilderDisabled.value) return;
+    const parsed = parseMutationJson(sliceForm.mutations);
+    if (!parsed.ok) {
+        setPreviewError(parsed.message);
+        return;
+    }
+    const deletedIndex = Number(mutationLoadIndex.value);
+    const result = deleteMutationAt(parsed.value, deletedIndex);
+    if (!result.ok) {
+        setPreviewError(result.message);
+        return;
+    }
+    sliceForm.mutations = JSON.stringify(result.value.mutations, null, 2);
+    mutationLoadIndex.value = String(result.value.index);
+    setPreviewNotice(result.value.mutations.length ? `已删除第 ${deletedIndex + 1} 条 mutation` : "已删除最后一条 mutation，保存前请先添加新的 mutation");
+}
+
+function moveSelectedBuilderMutation(direction: "up" | "down"): void {
+    if (previewBuilderDisabled.value) return;
+    const parsed = parseMutationJson(sliceForm.mutations);
+    if (!parsed.ok) {
+        setPreviewError(parsed.message);
+        return;
+    }
+    const result = moveMutationAt(parsed.value, Number(mutationLoadIndex.value), direction);
+    if (!result.ok) {
+        setPreviewError(result.message);
+        return;
+    }
+    if (!result.value.changed) {
+        setPreviewNotice(result.value.message ?? "所选 mutation 已经在边界");
+        return;
+    }
+    sliceForm.mutations = JSON.stringify(result.value.mutations, null, 2);
+    mutationLoadIndex.value = String(result.value.index);
+    setPreviewNotice(`已将 mutation 移动到第 ${result.value.index + 1} 位`);
 }
 
 /** 更新 Preview Builder 字段；op 字段在父层收窄为 WorldMutationOp。 */
 function updateMutationBuilderField(field: "subjectId" | "attr" | "op" | "value", value: string): void {
+    if (previewBuilderDisabled.value) return;
     if (field === "op") {
         mutationBuilder.op = value as WorldMutationOp;
         return;
     }
     mutationBuilder[field] = value;
+}
+
+function updateMutationLoadIndex(value: string): void {
+    if (previewBuilderDisabled.value) return;
+    mutationLoadIndex.value = value;
 }
 
 function attrsForSubjectId(subjectId: string): WorldPreviewSchemaAttr[] {
@@ -775,9 +1002,21 @@ watch(() => mutationBuilder.attr, () => {
     refreshBuilderDefaults();
 });
 
+watch(() => mutationLoadOptions.value.length, (length) => {
+    if (length === 0) {
+        mutationLoadIndex.value = "0";
+        return;
+    }
+    const index = Number(mutationLoadIndex.value);
+    if (!Number.isInteger(index) || index < 0 || index >= length) {
+        mutationLoadIndex.value = String(clampMutationIndex(length, index));
+    }
+});
+
 function resetPreviewProjectSessionState(): void {
     lastWriteResult.value = null;
     editingSliceId.value = "";
+    mutationLoadIndex.value = "0";
     stateResult.value = [];
     stateIssues.value = [];
     actionIssues.value = [];
@@ -810,11 +1049,11 @@ onMounted(() => {
                 </div>
                 <div class="grid w-full gap-2 sm:w-auto sm:min-w-[520px] sm:grid-cols-[minmax(180px,220px)_minmax(260px,1fr)_auto]">
                     <input v-model="projectSearch" class="h-9 min-w-0 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-3 text-sm outline-none focus:border-[var(--accent-main)]" placeholder="搜索 Project">
-                    <select v-model="selectedProjectPath" class="h-9 min-w-0 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-3 text-sm outline-none focus:border-[var(--accent-main)]">
+                    <select v-model="selectedProjectPath" class="h-9 min-w-0 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-3 text-sm outline-none focus:border-[var(--accent-main)] disabled:opacity-50" :disabled="loadingProjects || loadingWorld || actionBusy">
                         <option value="">选择 Project</option>
                         <option v-for="project in projectOptions" :key="project.projectPath" :value="project.projectPath">{{ project.title }} · {{ project.projectPath }}</option>
                     </select>
-                    <button type="button" class="inline-flex h-9 items-center gap-2 rounded-md border border-[var(--border-color)] px-3 text-sm hover:bg-[var(--bg-hover)] disabled:opacity-50" :disabled="loadingProjects" @click="void loadProjects()">
+                    <button type="button" class="inline-flex h-9 items-center gap-2 rounded-md border border-[var(--border-color)] px-3 text-sm hover:bg-[var(--bg-hover)] disabled:opacity-50" :disabled="loadingProjects || loadingWorld || actionBusy" @click="void refreshProjects()">
                         <span :class="loadingProjects ? 'i-lucide-loader-2 animate-spin' : 'i-lucide-refresh-cw'" class="h-4 w-4"></span>
                         刷新
                     </button>
@@ -834,6 +1073,8 @@ onMounted(() => {
                 :project-ready="projectReady"
                 :can-seed-demo-world="canSeedDemoWorld"
                 :demo-world-button-title="demoWorldButtonTitle"
+                :loading-projects="loadingProjects"
+                :loading-world="loadingWorld"
                 :action-busy="actionBusy"
                 @create-project="void createProject()"
                 @seed-demo-world="void seedDemoWorld()"
@@ -851,8 +1092,9 @@ onMounted(() => {
                 :notice="notice"
                 :loading-world="loadingWorld"
                 :project-ready="projectReady"
+                :action-busy="actionBusy"
                 :editing-slice-id="editingSliceId"
-                @refresh="void loadWorld()"
+                @refresh="void refreshWorldFromStatePanel()"
                 @load-subject="void loadSubjectIntoQuery($event)"
                 @load-slice="loadSliceForEdit"
                 @delete-slice="void deleteSlice($event)"
@@ -866,6 +1108,7 @@ onMounted(() => {
                 :schema-types="schemaTypes"
                 :selected-type-attrs="selectedTypeAttrs"
                 :project-ready="projectReady"
+                :loading-world="loadingWorld"
                 :action-busy="actionBusy"
                 :editing-slice-id="editingSliceId"
                 :slice-action-label="sliceActionLabel"
@@ -879,10 +1122,20 @@ onMounted(() => {
                 :mutation-builder-value-hint="mutationBuilderValueHint"
                 :mutation-builder-needs-json-object="mutationBuilderNeedsJsonObject"
                 :state-result="stateResult"
+                :mutation-load-options="mutationLoadOptions"
+                :mutation-load-index="mutationLoadIndex"
+                :can-use-selected-mutation="canUseSelectedMutation"
                 @create-subject="void createSubject()"
-                @clear-slice-edit-mode="clearSliceEditMode"
+                @clear-slice-edit-mode="requestClearSliceEditMode"
                 @update-builder-field="updateMutationBuilderField"
                 @add-builder-mutation="addBuilderMutation"
+                @update-mutation-load-index="updateMutationLoadIndex"
+                @load-mutation="loadMutationToBuilder"
+                @insert-after-selected-mutation="insertAfterSelectedBuilderMutation"
+                @duplicate-selected-mutation="duplicateSelectedBuilderMutation"
+                @replace-selected-mutation="replaceSelectedBuilderMutation"
+                @delete-selected-mutation="deleteSelectedBuilderMutation"
+                @move-selected-mutation="moveSelectedBuilderMutation"
                 @write-slice="void writeSlice()"
                 @query-state="void queryState()"
             />

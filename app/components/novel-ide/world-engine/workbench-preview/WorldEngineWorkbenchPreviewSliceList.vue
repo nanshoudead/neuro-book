@@ -14,6 +14,7 @@ import type {
     WorldWorkbenchPreviewReviewQueueItem,
     WorldWorkbenchPreviewSubject,
     WorldWorkbenchPreviewSubjectFilterMode,
+    WorldWorkbenchPreviewSubjectSystemSummary,
     WorldWorkbenchPreviewValueDraftSummary,
 } from "nbook/app/components/novel-ide/world-engine/workbench-preview/world-engine-workbench-preview.types";
 
@@ -59,9 +60,11 @@ const props = defineProps<{
     sliceReviewSummaries: WorldWorkbenchPreviewSliceReviewSummary[];
     reviewQueueItems: WorldWorkbenchPreviewReviewQueueItem[];
     sliceSearch: string;
+    subjectSystemSummaries?: WorldWorkbenchPreviewSubjectSystemSummary[];
     subjectFilterMode: WorldWorkbenchPreviewSubjectFilterMode;
     metadataDraftSummaries: WorldWorkbenchPreviewMetadataDraftSummary[];
     valueDraftSummaries: WorldWorkbenchPreviewValueDraftSummary[];
+    openInspectorPanel: (target?: "subject-file-proposals") => void;
     openDraftInspector: () => void;
     expandDraftEditor: () => void;
 }>();
@@ -408,6 +411,18 @@ function focusDraftQueueItem(item: WorkbenchPreviewDraftQueueItem): void {
     }
 }
 
+/** 从切片 proposal 徽标进入 Inspector，并保持当前选中切片与主体语境同步。 */
+function openSubjectFileProposals(sliceId: string, subjectId: string): void {
+    if (props.busy) {
+        return;
+    }
+    emit("selectSlice", sliceId);
+    if (subjectId) {
+        emit("focusSubject", subjectId);
+    }
+    props.openInspectorPanel("subject-file-proposals");
+}
+
 /** 从 Draft Queue 顶部进入完整草稿视角，清掉会遮挡草稿的过滤条件。 */
 function showDraftSlices(): void {
     if (props.busy) {
@@ -528,6 +543,18 @@ watch(() => props.resetKey, () => {
                     </span>
                     <SegmentedControl v-else :model-value="props.subjectFilterMode" :options="subjectFilterModeOptions" tone="accent" @update:model-value="updateSubjectFilterMode" />
                     <button
+                        v-if="props.selectedSubjectIds.length"
+                        type="button"
+                        data-testid="slice-list-clear-subject-filter-top"
+                        class="inline-flex h-7 items-center gap-1.5 rounded-md border border-[var(--we-accent-border)] bg-[var(--we-accent-soft)] px-2 text-[11px] font-medium text-[var(--we-accent-strong)] transition-colors hover:bg-[var(--we-bg-active)] disabled:opacity-45"
+                        :disabled="props.busy"
+                        title="清空 subject 过滤，回到整体世界时间线"
+                        @click="emit('clearSubjectFilter')"
+                    >
+                        <span class="i-lucide-filter-x h-3.5 w-3.5"></span>
+                        清空过滤
+                    </button>
+                    <button
                         v-if="hiddenMaintenanceSliceCount || showMaintenanceSlices"
                         type="button"
                         data-testid="slice-list-maintenance-toggle"
@@ -643,12 +670,14 @@ watch(() => props.resetKey, () => {
                         :selected-subject-ids="props.selectedSubjectIds"
                         :slice-review-summary="sliceReviewSummaryMap.get(slice.id)"
                         :review-items="reviewQueueItemsBySlice.get(slice.id) ?? []"
+                        :subject-system-summaries="props.subjectSystemSummaries ?? []"
                         :metadata-draft-count="metadataDraftCountMap.get(slice.id) ?? 0"
                         :metadata-draft-summary="metadataDraftSummaryMap.get(slice.id)"
                         :value-draft-count="valueDraftCountMap.get(slice.id) ?? 0"
                         @filter-subject="emit('filterSubject', $event)"
                         @focus-subject="emit('focusSubject', $event)"
                         @focus-review-issue="emit('focusReviewIssue', $event)"
+                        @open-subject-file-proposals="openSubjectFileProposals"
                         @select="emit('selectSlice', $event)"
                     />
                 </div>

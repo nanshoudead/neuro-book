@@ -1495,6 +1495,8 @@ const zhCN = {
             answerPrefix: "回答：{text}",
             choicePrefix: "选择：{text}",
             notePrefix: "备注：{text}",
+            formRequest: "表单请求",
+            fillForm: "填写完成后提交",
         },
     },
     markdownStudio: {

@@ -33,6 +33,7 @@ describe("SessionWriteExecutor", () => {
                 },
                 activeLeafId: null,
                 activePathRevision: null,
+                pendingUserInputs: [],
                 pendingApprovals: [],
                 steerQueue: [],
                 followUpQueue: {

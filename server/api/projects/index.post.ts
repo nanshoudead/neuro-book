@@ -4,7 +4,7 @@ import {
 } from "nbook/shared/dto/novel-chapter.dto";
 import {invalidateNovelListCache, toNovelResponse, validateBody} from "nbook/server/utils/novel-chapter";
 import {buildWorkspaceSlugBase, copyNovelDirectoryTemplate} from "nbook/server/workspace-files/novel-workspace";
-import {initProjectDatabase, listProjectWorkspaces, writeProjectManifest} from "nbook/server/workspace-files/project-workspace";
+import {initProjectDatabase, listProjectWorkspaces, projectWorkspaceDirectoryExists, writeProjectManifest} from "nbook/server/workspace-files/project-workspace";
 
 /**
  * 新建 Project Workspace。
@@ -38,7 +38,7 @@ async function allocateProjectPath(title: string): Promise<string> {
     while (true) {
         const slug = suffix === 0 ? base : `${base}-${String(suffix + 1)}`;
         const projectPath = `workspace/${slug}`;
-        if (!existing.has(projectPath)) {
+        if (!existing.has(projectPath) && !(await projectWorkspaceDirectoryExists(projectPath))) {
             return projectPath;
         }
         suffix += 1;

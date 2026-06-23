@@ -37,8 +37,6 @@ const emit = defineEmits<{
     (e: "switch-agent-mode"): void;
     (e: "toggle-agent-surface"): void;
     (e: "open-bookshelf"): void;
-    (e: "open-plot-workbench"): void;
-    (e: "open-rag-inspector"): void;
     (e: "open-user-assets"): void;
     (e: "open-profile-workbench"): void;
 }>();
@@ -152,13 +150,6 @@ const projectEntries = computed<WelcomeAction[]>(() => {
             action: () => emit("open-path", "manual/README.md"),
         },
         {
-            id: "simulation",
-            label: "simulation",
-            description: t("markdownStudio.welcome.runtimeDescription"),
-            iconClass: "i-lucide-orbit",
-            action: () => emit("open-path", "simulation/"),
-        },
-        {
             id: "reference",
             label: "reference",
             description: t("markdownStudio.welcome.materialsDescription"),
@@ -202,20 +193,6 @@ const headerActions = computed<WelcomeAction[]>(() => {
             description: t("markdownStudio.welcome.bookshelfDescription"),
             iconClass: "i-lucide-library",
             action: () => emit("open-bookshelf"),
-        },
-        {
-            id: "plot",
-            label: t("markdownStudio.welcome.plotWorkbench"),
-            description: t("markdownStudio.welcome.plotWorkbenchDescription"),
-            iconClass: "i-lucide-panels-top-left",
-            action: () => emit("open-plot-workbench"),
-        },
-        {
-            id: "rag",
-            label: "RAG",
-            description: t("markdownStudio.welcome.ragDescription"),
-            iconClass: "i-lucide-brain-circuit",
-            action: () => emit("open-rag-inspector"),
         },
         {
             id: "assets",

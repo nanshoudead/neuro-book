@@ -2028,7 +2028,7 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
             body: { title, summary },
         });
 
-        await loadNovels();
+        await loadNovels({includeProjectPath: novel.id});
         return novel.id;
     };
 

@@ -92,6 +92,7 @@ const userInputNotes = ref<Record<string, string>>({});
 let defaultProfileResolveRequest = 0;
 let ensureSessionRequest: Promise<AgentSessionSummaryDto[]> | null = null;
 let suppressLeaderProfileReset = false;
+const hiddenWritingModeProfileKeys = new Set(["rp.leader", "simulator.leader"]);
 
 const sanitizeHtml = ref<((html: string) => string) | null>(null);
 const session = useAgentSession();
@@ -214,6 +215,9 @@ const systemLeaderProfileKey = computed(() => {
 });
 
 const leaderProfileKey = computed(() => {
+    if (ideStore.workspaceKind !== "user-assets" && hiddenWritingModeProfileKeys.has(resolvedDefaultProfileKey.value)) {
+        return systemLeaderProfileKey.value;
+    }
     return resolvedDefaultProfileKey.value || systemLeaderProfileKey.value;
 });
 
@@ -229,8 +233,6 @@ const createProfileOptions = computed<LeaderCreateProfileOption[]>(() => {
     if (ideStore.workspaceKind !== "user-assets") {
         options.push(
             {profileKey: "leader.default", label: profileDisplayName("leader.default"), iconClass: profileIconClass("leader.default")},
-            {profileKey: "rp.leader", label: profileDisplayName("rp.leader"), iconClass: profileIconClass("rp.leader")},
-            {profileKey: "simulator.leader", label: profileDisplayName("simulator.leader"), iconClass: profileIconClass("simulator.leader")},
         );
     }
     const seen = new Set<string>();

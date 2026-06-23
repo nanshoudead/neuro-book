@@ -1,17 +1,16 @@
-import {PrismaLibSql} from "@prisma/adapter-libsql";
-import {Prisma, PrismaClient} from "nbook/server/generated/project-prisma/client";
+import {createClient, type Client} from "@libsql/client";
 import {WorldCalendarLoader} from "nbook/server/world-engine/calendar";
-import {WorldSchemaLoader} from "nbook/server/world-engine/schema-loader";
+import {flattenAttrs, WorldSchemaLoader} from "nbook/server/world-engine/schema-loader";
 import {WorldEngineRepository} from "nbook/server/world-engine/world-engine.repository";
 import {WorldEngineService} from "nbook/server/world-engine/world-engine.service";
 import type {
+    CreateWorldSubjectInput,
     DeleteSliceResult,
     QueryStateResult,
     SliceInput,
     SliceListItem,
     SliceWriteResult,
     CreateWorldSubjectResult,
-    WorldPrismaExecutor,
     WorldSchemaProjection,
     WorldSliceSubjectFilterMode,
     WorldState,
@@ -24,28 +23,23 @@ type WorldEngineModule = {
     service: WorldEngineService;
 };
 
+type WorldEngineClientEntry = {
+    client: Client;
+};
+
 /** 世界引擎后端门面。 */
 export class WorldEngineFacade {
-    private readonly clients = new Map<string, PrismaClient>();
     private readonly schemaLoader = new WorldSchemaLoader();
     private readonly calendarLoader = new WorldCalendarLoader();
 
     /** 关闭指定 Project SQLite 的 PrismaClient。 */
-    async closeProject(projectPath: string): Promise<void> {
-        const normalizedProjectPath = normalizeProjectPath(projectPath);
-        const databasePath = resolveProjectDatabasePath(normalizedProjectPath);
-        const cacheKey = databasePath.replace(/\\/g, "/");
-        const client = this.clients.get(cacheKey);
-        if (!client) {
-            return;
-        }
-        this.clients.delete(cacheKey);
-        await client.$disconnect();
+    async closeProject(_projectPath: string): Promise<void> {
+        // World Engine 不持久缓存 Project PrismaClient；这里保留为删除流程的释放兜底。
         collectReleasedSqliteHandles();
     }
 
     /** 创建 subject + 初始化切面。 */
-    async createSubject(projectPath: string, input: {id: string; type: string; name?: string; at: bigint}): Promise<CreateWorldSubjectResult> {
+    async createSubject(projectPath: string, input: CreateWorldSubjectInput): Promise<CreateWorldSubjectResult> {
         return this.runInTransaction(projectPath, (module) => module.service.createSubject(input));
     }
 
@@ -66,32 +60,42 @@ export class WorldEngineFacade {
 
     /** 读取单个切面及 mutation。 */
     async getSlice(projectPath: string, sliceId: string): Promise<SliceListItem> {
-        return (await this.createModule(projectPath)).service.getSlice(sliceId);
+        return this.runWithModule(projectPath, (module) => module.service.getSlice(sliceId));
     }
 
     /** 查询某时刻完整世界状态。 */
     async getWorldState(projectPath: string, at?: bigint): Promise<WorldState> {
-        return (await this.createModule(projectPath)).service.getWorldState(at);
+        return this.runWithModule(projectPath, (module) => module.service.getWorldState(at));
     }
 
     /** 查询收窄后的世界状态。 */
     async queryState(projectPath: string, query: {subjectIds?: string[]; type?: string; attrs?: string[]; at?: bigint; listLimit?: number}): Promise<QueryStateResult> {
-        return (await this.createModule(projectPath)).service.queryState(query);
+        return this.runWithModule(projectPath, (module) => module.service.queryState(query));
     }
 
     /** 列出切面。 */
     async listSlices(projectPath: string, query: {from?: bigint; to?: bigint; limit?: number; withMutations?: boolean; subjectIds?: string[]; subjectMode?: WorldSliceSubjectFilterMode} = {}): Promise<SliceListItem[]> {
-        return (await this.createModule(projectPath)).service.listSlices(query);
+        return this.runWithModule(projectPath, (module) => module.service.listSlices(query));
     }
 
     /** 列出 subject 身份。 */
     async listWorldSubjects(projectPath: string, query: {type?: string} = {}): Promise<WorldSubjectListItem[]> {
-        return (await this.createModule(projectPath)).service.listWorldSubjects(query);
+        return this.runWithModule(projectPath, (module) => module.service.listWorldSubjects(query));
     }
 
     /** 返回 Agent 友好的 world schema 投影。 */
     async getWorldSchema(projectPath: string): Promise<WorldSchemaProjection> {
-        return (await this.createModule(projectPath)).service.getWorldSchema();
+        const normalizedProjectPath = normalizeProjectPath(projectPath);
+        const schema = await this.schemaLoader.load(normalizedProjectPath);
+        const calendar = await this.calendarLoader.load(normalizedProjectPath);
+        return {
+            subjectTypes: Object.entries(schema.subjectTypes).map(([type, subjectType]) => ({
+                type,
+                desc: subjectType.desc,
+                attrs: flattenAttrs(subjectType.attrs),
+            })),
+            calendar: calendar.projection(),
+        };
     }
 
     /** 解析项目日历字符串。 */
@@ -107,35 +111,32 @@ export class WorldEngineFacade {
     }
 
     private async runInTransaction<TResult>(projectPath: string, callback: (module: WorldEngineModule) => Promise<TResult>): Promise<TResult> {
-        const prisma = await this.client(projectPath);
-        const normalizedProjectPath = normalizeProjectPath(projectPath);
-        return prisma.$transaction(async (transactionClient: Prisma.TransactionClient) => {
-            return callback(await this.createModuleFromExecutor(transactionClient, normalizedProjectPath));
-        });
+        return this.runWithModule(projectPath, callback);
     }
 
-    private async createModule(projectPath: string): Promise<WorldEngineModule> {
+    private async runWithModule<TResult>(projectPath: string, callback: (module: WorldEngineModule) => Promise<TResult>): Promise<TResult> {
+        const entry = await this.createClientEntry(projectPath);
         const normalizedProjectPath = normalizeProjectPath(projectPath);
-        return this.createModuleFromExecutor(await this.client(normalizedProjectPath), normalizedProjectPath);
+        try {
+            return await callback(await this.createModuleFromExecutor(entry.client, normalizedProjectPath));
+        } finally {
+            await this.closeClientEntry(entry);
+        }
     }
 
-    private async client(projectPath: string): Promise<PrismaClient> {
+    private async createClientEntry(projectPath: string): Promise<WorldEngineClientEntry> {
         const normalizedProjectPath = normalizeProjectPath(projectPath);
         await initProjectDatabase(normalizedProjectPath);
         const databasePath = resolveProjectDatabasePath(normalizedProjectPath);
-        const cacheKey = databasePath.replace(/\\/g, "/");
-        const existing = this.clients.get(cacheKey);
-        if (existing) {
-            return existing;
-        }
-        const client = new PrismaClient({
-            adapter: new PrismaLibSql({url: toSqliteFileUrl(databasePath)}),
-        });
-        this.clients.set(cacheKey, client);
-        return client;
+        return {client: createClient({url: toSqliteFileUrl(databasePath)})};
     }
 
-    private async createModuleFromExecutor(executor: WorldPrismaExecutor, projectPath: string): Promise<WorldEngineModule> {
+    private async closeClientEntry(entry: WorldEngineClientEntry): Promise<void> {
+        entry.client.close();
+        collectReleasedSqliteHandles();
+    }
+
+    private async createModuleFromExecutor(executor: Client, projectPath: string): Promise<WorldEngineModule> {
         const schema = await this.schemaLoader.load(projectPath);
         const calendar = await this.calendarLoader.load(projectPath);
         return {

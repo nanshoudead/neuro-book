@@ -4,6 +4,7 @@ import type {AgentMessage as PiAgentMessage, AgentToolCall as PiAgentToolCall, A
 import type {AgentRuntimeStreamEventDto, AgentSessionSnapshotDto, AgentPendingApprovalDto} from "nbook/shared/dto/agent-session.dto";
 import type {SessionEntry} from "nbook/server/agent/session/types";
 import type {LowCodeFormDto} from "nbook/shared/dto/low-code-form.dto";
+import {LowCodeFormDtoSchema} from "nbook/shared/dto/low-code-form.dto";
 import {toStableArgsJson} from "nbook/app/components/novel-ide/agent/tool-args-stream";
 
 type PiAssistantContent = PiAssistantMessage["content"][number];
@@ -705,11 +706,16 @@ export const toPendingUserInputSession = (
 
     // Task 63: 优先使用 pending.formSpec（从 snapshot 恢复时可用）
     if (pending.formSpec) {
+        const formValidation = LowCodeFormDtoSchema.safeParse(pending.formSpec.form);
+        if (!formValidation.success) {
+            console.warn("pending.formSpec.form 验证失败", formValidation.error);
+            return null;
+        }
         return {
             assistantMessageId: assistantMessage?.id ?? pending.assistantMessageId ?? pending.toolCallId,
             status: "pending",
             questions: [],
-            form: pending.formSpec.form,
+            form: formValidation.data,
             formToolCallId: pending.toolCallId,
         };
     }
@@ -721,11 +727,16 @@ export const toPendingUserInputSession = (
     // Fallback: 检测 args.form（兼容旧数据或 SSE 事件直接构建的场景）
     const form = (args as any).form;
     if (form && typeof form === "object" && Array.isArray((form as any).fields)) {
+        const formValidation = LowCodeFormDtoSchema.safeParse(form);
+        if (!formValidation.success) {
+            console.warn("args.form 验证失败", formValidation.error);
+            return null;
+        }
         return {
             assistantMessageId: assistantMessage?.id ?? pending.assistantMessageId ?? pending.toolCallId,
             status: "pending",
             questions: [],
-            form: form as import("nbook/shared/dto/low-code-form.dto").LowCodeFormDto,
+            form: formValidation.data,
             formToolCallId: pending.toolCallId,
         };
     }

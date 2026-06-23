@@ -70,8 +70,6 @@ const emit = defineEmits<{
     (e: "switch-agent-mode"): void;
     (e: "toggle-agent-surface"): void;
     (e: "open-bookshelf"): void;
-    (e: "open-plot-workbench"): void;
-    (e: "open-rag-inspector"): void;
     (e: "open-user-assets"): void;
     (e: "open-profile-workbench"): void;
     (e: "more"): void;
@@ -127,8 +125,6 @@ watch(() => props.activePath, () => {
                 @switch-agent-mode="emit('switch-agent-mode')"
                 @toggle-agent-surface="emit('toggle-agent-surface')"
                 @open-bookshelf="emit('open-bookshelf')"
-                @open-plot-workbench="emit('open-plot-workbench')"
-                @open-rag-inspector="emit('open-rag-inspector')"
                 @open-user-assets="emit('open-user-assets')"
                 @open-profile-workbench="emit('open-profile-workbench')"
             />
@@ -204,8 +200,6 @@ watch(() => props.activePath, () => {
                 @switch-agent-mode="emit('switch-agent-mode')"
                 @toggle-agent-surface="emit('toggle-agent-surface')"
                 @open-bookshelf="emit('open-bookshelf')"
-                @open-plot-workbench="emit('open-plot-workbench')"
-                @open-rag-inspector="emit('open-rag-inspector')"
                 @open-user-assets="emit('open-user-assets')"
                 @open-profile-workbench="emit('open-profile-workbench')"
             />

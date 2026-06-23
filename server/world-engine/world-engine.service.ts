@@ -3,6 +3,7 @@ import {collectDefaultAttrs, findAttrSchema, flattenAttrs, normalizeAttrKind} fr
 import {WorldEngineRepository} from "nbook/server/world-engine/world-engine.repository";
 import type {WorldCalendar} from "nbook/server/world-engine/calendar";
 import type {
+    CreateWorldSubjectInput,
     JsonValue,
     CreateWorldSubjectResult,
     DeleteSliceResult,
@@ -41,8 +42,8 @@ export class WorldEngineService {
         private readonly calendar: WorldCalendar,
     ) {}
 
-    /** 创建 subject；只有 schema default 非空时才写入 init slice，空 default 类型只注册身份。 */
-    async createSubject(input: {id: string; type: string; name?: string; at: bigint}): Promise<CreateWorldSubjectResult> {
+    /** 创建 subject；只有 schema default 或初始化 attrs 非空时才写入 init slice。 */
+    async createSubject(input: CreateWorldSubjectInput): Promise<CreateWorldSubjectResult> {
         assertSubjectId(input.id, "id");
         this.assertSubjectType(input.type);
         assertSqliteInstant(input.at, "at");
@@ -50,39 +51,51 @@ export class WorldEngineService {
         if (existing) {
             throw createError({statusCode: 409, message: `subject 已存在：${input.id}（当前 type=${existing.type}${existing.name ? `, name=${existing.name}` : ""}）`});
         }
+
+        const initMutationByAttr = new Map<string, MutationInput>();
+        for (const item of collectDefaultAttrs(this.schema, input.type)) {
+            initMutationByAttr.set(item.attr, {
+                subjectId: input.id,
+                attr: item.attr,
+                op: "set",
+                value: item.value,
+            });
+        }
+        for (const [attr, value] of Object.entries(input.attrs ?? {})) {
+            initMutationByAttr.set(attr, {
+                subjectId: input.id,
+                attr,
+                op: "set",
+                value,
+            });
+        }
+        const initMutations = [...initMutationByAttr.values()];
+        await this.validateInitialMutations(input.type, initMutations);
+        const slice = initMutations.length > 0 ? await this.repository.findSliceByInstant(input.at) : null;
+        if (slice && slice.kind !== "init") {
+            throw createError({statusCode: 409, message: this.renderInstantConflict(slice, "目标时间已有非 init 切面，不能把 subject 初始化追加进去；请使用 editSlice 显式合并，或选择其他初始化时间。")});
+        }
         await this.repository.createSubject({id: input.id, type: input.type, name: input.name ?? ""});
 
-        const defaultMutations: MutationInput[] = collectDefaultAttrs(this.schema, input.type).map((item) => ({
-            subjectId: input.id,
-            attr: item.attr,
-            op: "set",
-            value: item.value,
-        }));
-        await this.validateDefaultMutations(input.type, defaultMutations);
-
-        if (defaultMutations.length === 0) {
+        if (initMutations.length === 0) {
             return {subjectId: input.id, issues: []};
         }
 
-        const slice = await this.repository.findSliceByInstant(input.at);
         if (slice) {
-            if (slice.kind !== "init") {
-                throw createError({statusCode: 409, message: this.renderInstantConflict(slice, "目标时间已有非 init 切面，不能把 subject 初始化追加进去；请使用 editSlice 显式合并，或选择其他初始化时间。")});
-            }
             const startSeq = await this.repository.maxSeq(slice.id) + 1;
-            assertMutationCapacity(startSeq + defaultMutations.length);
-            await this.repository.appendMutations(slice.id, input.at, withSeq(defaultMutations, startSeq));
+            assertMutationCapacity(startSeq + initMutations.length);
+            await this.repository.appendMutations(slice.id, input.at, withSeq(initMutations, startSeq));
         } else {
-            assertMutationCapacity(defaultMutations.length);
+            assertMutationCapacity(initMutations.length);
             await this.repository.createSlice({
                 instant: input.at,
                 title: input.name ? `创建 ${input.name}` : `创建 ${input.id}`,
                 summary: "",
                 kind: "init",
-                mutations: defaultMutations,
-            }, withSeq(defaultMutations, 0));
+                mutations: initMutations,
+            }, withSeq(initMutations, 0));
         }
-        // 新建 subject 只写自身 default（set），不会与既有链条产生 E/A，issues 恒为空。
+        // 新建 subject 只写自身初始化 set，不会与既有链条产生 E/A，issues 恒为空。
         return {subjectId: input.id, issues: []};
     }
 
@@ -508,13 +521,16 @@ export class WorldEngineService {
         }
     }
 
-    private async validateDefaultMutations(subjectType: string, mutations: MutationInput[]): Promise<void> {
+    private async validateInitialMutations(subjectType: string, mutations: MutationInput[]): Promise<void> {
+        assertMutationCapacity(mutations.length);
         for (const mutation of mutations) {
+            assertAttrPath(mutation.attr);
             const attrSchema = findAttrSchema(this.schema, subjectType, mutation.attr);
             if (!attrSchema) {
-                throw createError({statusCode: 400, message: `默认属性不存在：${mutation.attr}`});
+                throw createError({statusCode: 400, message: `初始化属性不存在：${mutation.attr}`});
             }
-            await this.validateDefaultValue(mutation.attr, mutation.value ?? null, attrSchema);
+            this.validateOp(mutation, attrSchema);
+            await this.validateValue(mutation, attrSchema);
         }
     }
 
@@ -586,30 +602,6 @@ export class WorldEngineService {
             return;
         }
         await this.validateTypedValue(mutation.attr, mutation.value, type, attrSchema, "mutation");
-    }
-
-    private async validateDefaultValue(attr: string, value: JsonValue, attrSchema: WorldAttrSchema): Promise<void> {
-        const kind = normalizeAttrKind(attrSchema);
-        if (kind === "list" || kind === "collection") {
-            if (!Array.isArray(value)) {
-                throw createError({statusCode: 400, message: `${attr} default 必须是 array`});
-            }
-            const itemType = attrSchema.itemType ?? attrSchema.type;
-            if (itemType) {
-                for (const [index, item] of value.entries()) {
-                    await this.validateTypedValue(`${attr}[${index}]`, item, itemType, attrSchema, "default");
-                }
-            }
-            return;
-        }
-        if (kind === "object") {
-            await this.validateObjectValue(attr, value, attrSchema, "default");
-            return;
-        }
-        const type = attrSchema.type ?? attrSchema.itemType;
-        if (type) {
-            await this.validateTypedValue(attr, value, type, attrSchema, "default");
-        }
     }
 
     private async validateObjectValue(attr: string, value: JsonValue, attrSchema: WorldAttrSchema, mode: "mutation" | "default"): Promise<void> {

@@ -44,8 +44,8 @@ const DIALOG_SIZE_PRESETS: Record<DialogSize, DialogSizePreset> = {
         maxHeight: "calc(100vh - 20px)",
     },
     full: {
-        width: "min(1840px, calc(100vw - 24px))",
-        height: "min(1080px, calc(100vh - 24px))",
+        width: "calc(100vw - 24px)",
+        height: "calc(100vh - 24px)",
         maxHeight: "calc(100vh - 24px)",
     },
 };

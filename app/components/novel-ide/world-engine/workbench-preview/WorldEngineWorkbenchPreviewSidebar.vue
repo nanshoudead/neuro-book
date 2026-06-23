@@ -14,7 +14,9 @@ import type {
 } from "nbook/app/components/novel-ide/world-engine/workbench-preview/world-engine-workbench-preview.types";
 
 const props = withDefaults(defineProps<{
+    busy?: boolean;
     collapsed: boolean;
+    focusedSubjectId?: string;
     resetKey: number;
     schema: WorldWorkbenchPreviewSchema;
     width: number;
@@ -24,12 +26,16 @@ const props = withDefaults(defineProps<{
     selectedSubjectIds: string[];
     valueDraftSummaries: WorldWorkbenchPreviewValueDraftSummary[];
 }>(), {
+    busy: false,
+    focusedSubjectId: "",
     subjectSystemSummaries: () => [],
 });
 
 const emit = defineEmits<{
     (e: "update:selectedSubjectIds", value: string[]): void;
     (e: "update:width", value: number): void;
+    (e: "clearSubjectContext"): void;
+    (e: "focusSubjectContext", subjectId: string): void;
     (e: "toggleCollapsed"): void;
     (e: "openWorkspacePath", path: string): void;
 }>();
@@ -41,7 +47,7 @@ const selectedType = ref("");
 const subjectReviewFilter = ref<SubjectReviewFilter>("all");
 const resizeHandleRef = ref<HTMLElement | null>(null);
 const schemaSourcePath = "world-engine/schema.yaml";
-const calendarSourcePath = "world-engine/calendar.yaml";
+const calendarSourcePath = "world-engine/calendar.ts";
 const {t} = useI18n();
 
 const schemaTypes = computed(() => props.schema.subjectTypes);
@@ -52,6 +58,7 @@ const typeOptions = computed(() => [
 const selectedSubjectSet = computed(() => new Set(props.selectedSubjectIds));
 const subjectStatMap = computed(() => new Map(props.subjectStats.map((stat) => [stat.subjectId, stat])));
 const subjectSystemSummaryMap = computed(() => new Map(props.subjectSystemSummaries.map((summary) => [summary.subjectId, summary])));
+const activeSubjectContextId = computed(() => props.focusedSubjectId && subjectSystemSummaryMap.value.has(props.focusedSubjectId) ? props.focusedSubjectId : "");
 const subjectDraftCountMap = computed(() => {
     const countMap = new Map<string, number>();
     for (const draft of props.valueDraftSummaries) {
@@ -124,6 +131,9 @@ const {isResizing, panelStyle} = useResizablePanel(resizeHandleRef, {
 
 /** 选择或取消选择一个 subject，用于驱动中间 timeline 过滤。 */
 function toggleSubject(subjectId: string): void {
+    if (props.busy) {
+        return;
+    }
     const next = selectedSubjectSet.value.has(subjectId)
         ? props.selectedSubjectIds.filter((id) => id !== subjectId)
         : [...props.selectedSubjectIds, subjectId];
@@ -132,7 +142,26 @@ function toggleSubject(subjectId: string): void {
 
 /** 清空 subject 过滤，回到整体世界视角。 */
 function clearSubjects(): void {
+    if (props.busy) {
+        return;
+    }
     emit("update:selectedSubjectIds", []);
+}
+
+/** 设置主体文件建议使用的当前主体语境，不改变中间 timeline 过滤。 */
+function focusSubjectContext(subjectId: string): void {
+    if (props.busy) {
+        return;
+    }
+    emit("focusSubjectContext", subjectId);
+}
+
+/** 清空主体文件建议语境，不改变中间 timeline 过滤。 */
+function clearSubjectContext(): void {
+    if (props.busy) {
+        return;
+    }
+    emit("clearSubjectContext");
 }
 
 /** 清空左侧本地搜索和 type 过滤，恢复完整 subject 列表。 */
@@ -234,6 +263,33 @@ function subjectSystemSyncTitle(summary: WorldWorkbenchPreviewSubjectSystemSumma
     ].filter(Boolean).join("\n");
 }
 
+/** 返回主体系统常见文件路径，用于左栏快速打开六文件。 */
+function subjectSystemFilePath(summary: WorldWorkbenchPreviewSubjectSystemSummary | undefined, label: string): string {
+    if (!summary) {
+        return "";
+    }
+    const sourcePath = summary.sourcePath.trim();
+    if (label === "state") {
+        return summary.directStatePath || (sourcePath ? `${sourcePath}/state.md` : "");
+    }
+    const fallbackExt = label === "events" || label === "memory" ? "jsonl" : "md";
+    return summary.subjectFiles.find((file) => file.label === label)?.path
+        || summary.ragIndexSources.find((file) => file.label === label)?.path
+        || (sourcePath ? `${sourcePath}/${label}.${fallbackExt}` : "");
+}
+
+/** 请求外层 IDE 打开主体系统文件；Sidebar 只做导航，不改写六文件。 */
+function openSubjectSystemFile(summary: WorldWorkbenchPreviewSubjectSystemSummary | undefined, label: string): void {
+    if (props.busy) {
+        return;
+    }
+    const path = subjectSystemFilePath(summary, label).trim();
+    if (!path) {
+        return;
+    }
+    emit("openWorkspacePath", path);
+}
+
 watch(() => props.resetKey, clearLocalFilters);
 </script>
 
@@ -289,11 +345,11 @@ watch(() => props.resetKey, clearLocalFilters);
                         </div>
                     </div>
                     <div class="mt-2 flex min-w-0 flex-wrap gap-1.5" title="Project Workspace 内的 World Engine 配置文件">
-                        <button type="button" class="inline-flex min-w-0 items-center gap-1 rounded border border-[var(--we-border)] bg-[var(--we-bg-subtle)] px-1.5 py-0.5 font-mono text-[10px] text-[var(--we-text-secondary)] transition-colors hover:bg-[var(--we-bg-hover)] hover:text-[var(--we-text-main)]" title="打开 schema 配置文件" @click="emit('openWorkspacePath', schemaSourcePath)">
+                        <button type="button" class="inline-flex min-w-0 items-center gap-1 rounded border border-[var(--we-border)] bg-[var(--we-bg-subtle)] px-1.5 py-0.5 font-mono text-[10px] text-[var(--we-text-secondary)] transition-colors hover:bg-[var(--we-bg-hover)] hover:text-[var(--we-text-main)] disabled:opacity-45" :disabled="props.busy" title="打开 schema 配置文件" @click="emit('openWorkspacePath', schemaSourcePath)">
                             <span class="i-lucide-table-properties h-3 w-3 shrink-0"></span>
                             <span class="min-w-0 truncate">{{ schemaSourcePath }}</span>
                         </button>
-                        <button type="button" class="inline-flex min-w-0 items-center gap-1 rounded border border-[var(--we-border)] bg-[var(--we-bg-subtle)] px-1.5 py-0.5 font-mono text-[10px] text-[var(--we-text-secondary)] transition-colors hover:bg-[var(--we-bg-hover)] hover:text-[var(--we-text-main)]" title="打开 calendar 配置文件" @click="emit('openWorkspacePath', calendarSourcePath)">
+                        <button type="button" class="inline-flex min-w-0 items-center gap-1 rounded border border-[var(--we-border)] bg-[var(--we-bg-subtle)] px-1.5 py-0.5 font-mono text-[10px] text-[var(--we-text-secondary)] transition-colors hover:bg-[var(--we-bg-hover)] hover:text-[var(--we-text-main)] disabled:opacity-45" :disabled="props.busy" title="打开 calendar.ts 配置文件" @click="emit('openWorkspacePath', calendarSourcePath)">
                             <span class="i-lucide-calendar-clock h-3 w-3 shrink-0"></span>
                             <span class="min-w-0 truncate">{{ calendarSourcePath }}</span>
                         </button>
@@ -302,7 +358,10 @@ watch(() => props.resetKey, clearLocalFilters);
 
                 <div class="flex items-center justify-between gap-2 pt-1">
                     <div class="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--we-text-muted)]">{{ t("worldEngine.workbenchPreview.subjects") }}</div>
-                    <button type="button" class="text-[11px] text-[var(--we-text-secondary)] transition-colors hover:text-[var(--we-accent)]" @click="clearSubjects">整体世界</button>
+                    <div class="flex shrink-0 items-center gap-2">
+                        <button v-if="activeSubjectContextId" type="button" class="text-[11px] font-medium text-[var(--we-accent-strong)] transition-colors hover:text-[var(--we-accent)] disabled:opacity-45" :disabled="props.busy" title="清空主体文件建议语境，不改变 timeline 过滤" @click="clearSubjectContext">清语境</button>
+                        <button type="button" class="text-[11px] text-[var(--we-text-secondary)] transition-colors hover:text-[var(--we-accent)] disabled:opacity-45" :disabled="props.busy" @click="clearSubjects">整体世界</button>
+                    </div>
                 </div>
 
                 <div class="grid grid-cols-[minmax(0,1fr)_100px] gap-2">
@@ -330,47 +389,68 @@ watch(() => props.resetKey, clearLocalFilters);
 
             <div class="min-h-0 flex-1 overflow-y-auto px-3 py-3 custom-scrollbar">
                 <div class="space-y-1">
-                    <button
+                    <div
                         v-for="subject in filteredSubjects"
                         :key="subject.id"
-                        type="button"
                         class="w-full rounded-md border px-2.5 py-2 text-left transition-colors"
-                        :aria-pressed="selectedSubjectSet.has(subject.id)"
                         :class="selectedSubjectSet.has(subject.id) ? 'border-[var(--we-accent-border)] bg-[var(--we-accent-soft)] shadow-[inset_3px_0_0_var(--we-accent)]' : 'border-[var(--we-border)] bg-[var(--we-bg-panel)] hover:border-[var(--we-border-strong)] hover:bg-[var(--we-bg-hover)]'"
-                        @click="toggleSubject(subject.id)"
                     >
-                        <div class="flex items-center justify-between gap-2">
-                            <span class="min-w-0 truncate text-[13px] font-semibold text-[var(--we-text-main)]">{{ subject.name || subject.id }}</span>
-                            <span class="shrink-0 rounded-full border border-[var(--we-border)] bg-[var(--we-bg-subtle)] px-1.5 py-0.5 text-[10px] text-[var(--we-text-muted)]">{{ subject.type }}</span>
-                        </div>
-                        <div class="mt-0.5 truncate font-mono text-[11px] text-[var(--we-text-muted)]">{{ subject.id }}</div>
-                        <div v-if="subjectSystemSummary(subject.id)" class="mt-2 flex min-w-0 flex-wrap items-center gap-1" :title="subjectSystemSyncTitle(subjectSystemSummary(subject.id))">
-                            <span class="inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[10px] font-medium" :class="subjectSystemSummary(subject.id)?.syncStatus === 'linked' ? 'border-[var(--we-accent-border)] bg-[var(--we-accent-soft)] text-[var(--we-accent-strong)]' : subjectSystemSummary(subject.id)?.syncStatus === 'pending-world-subject' ? 'border-amber-300 bg-[var(--we-warning-soft)] text-[var(--we-warning)]' : 'border-[var(--we-border)] bg-[var(--we-bg-muted)] text-[var(--we-text-muted)]'">
-                                <span class="i-lucide-folder-tree h-3 w-3"></span>
-                                {{ subjectSystemSyncLabel(subjectSystemSummary(subject.id)) }}
-                            </span>
-                            <span v-if="subjectSystemSummary(subject.id)?.eventCount !== null" class="rounded border border-[var(--we-border)] bg-[var(--we-bg-subtle)] px-1.5 py-0.5 font-mono text-[10px] text-[var(--we-text-muted)]">{{ subjectSystemSummary(subject.id)?.eventCount }} events</span>
-                            <span v-if="subjectSystemSummary(subject.id)?.memoryCount !== null" class="rounded border border-[var(--we-border)] bg-[var(--we-bg-subtle)] px-1.5 py-0.5 font-mono text-[10px] text-[var(--we-text-muted)]">{{ subjectSystemSummary(subject.id)?.memoryCount }} memory</span>
-                            <span v-if="subjectSystemSummary(subject.id)?.legacyKind" class="rounded border border-[var(--we-border)] bg-[var(--we-bg-subtle)] px-1.5 py-0.5 text-[10px] text-[var(--we-text-muted)]">{{ subjectSystemSummary(subject.id)?.legacyKind }}</span>
-                            <span v-if="subjectSystemSummary(subject.id)?.controlledBy" class="rounded border border-[var(--we-border)] bg-[var(--we-bg-subtle)] px-1.5 py-0.5 text-[10px] text-[var(--we-text-muted)]">{{ subjectSystemSummary(subject.id)?.controlledBy }}</span>
-                        </div>
-                        <div class="mt-2 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 text-[10px]">
-                            <div class="min-w-0 truncate text-[var(--we-text-muted)]">
-                                <span class="font-mono">{{ subjectStat(subject.id)?.latestTime || "no slice" }}</span>
-                                <span v-if="subjectStat(subject.id)?.latestKind" class="ml-1 rounded border border-[var(--we-border)] bg-[var(--we-bg-subtle)] px-1 font-mono text-[var(--we-text-secondary)]">{{ subjectStat(subject.id)?.latestKind }}</span>
+                        <button type="button" class="w-full text-left disabled:opacity-45" :aria-pressed="selectedSubjectSet.has(subject.id)" :disabled="props.busy" @click="toggleSubject(subject.id)">
+                            <div class="flex items-center justify-between gap-2">
+                                <span class="min-w-0 truncate text-[13px] font-semibold text-[var(--we-text-main)]">{{ subject.name || subject.id }}</span>
+                                <span class="shrink-0 rounded-full border border-[var(--we-border)] bg-[var(--we-bg-subtle)] px-1.5 py-0.5 text-[10px] text-[var(--we-text-muted)]">{{ subject.type }}</span>
                             </div>
-                            <div class="flex min-w-0 flex-wrap items-center justify-end gap-1">
-                                <span class="rounded border border-[var(--we-border)] bg-[var(--we-bg-subtle)] px-1.5 py-0.5 font-mono text-[var(--we-text-muted)]">{{ t("worldEngine.workbenchPreview.mutationCountShort", {count: subjectStat(subject.id)?.mutationCount ?? 0}) }}</span>
-                                <span v-if="subjectDraftCount(subject.id)" class="rounded border border-amber-300 bg-[var(--we-warning-soft)] px-1.5 py-0.5 font-mono font-semibold text-[var(--we-warning)]" :title="t('worldEngine.workbenchPreview.valueDraftCountTitle', {count: subjectDraftCount(subject.id)})">{{ t("worldEngine.workbenchPreview.valueCountShort", {count: subjectDraftCount(subject.id)}) }}</span>
-                                <span v-if="subjectStat(subject.id)?.openIssueCount" class="rounded border border-amber-300 bg-[var(--we-warning-soft)] px-1.5 py-0.5 font-mono font-semibold text-[var(--we-warning)]" :title="subjectReviewTitle(subjectStat(subject.id))">{{ t("worldEngine.workbenchPreview.openCountShort", {count: subjectStat(subject.id)?.openIssueCount}) }}</span>
-                                <template v-if="subjectStat(subject.id)?.doneIssueCount">
-                                    <span class="rounded border border-[var(--we-accent-border)] bg-[var(--we-accent-soft)] px-1.5 py-0.5 font-mono font-semibold text-[var(--we-accent-strong)]" :title="subjectReviewTitle(subjectStat(subject.id))">{{ t("worldEngine.workbenchPreview.doneCountShort", {count: subjectStat(subject.id)?.doneIssueCount}) }}</span>
-                                    <span v-if="subjectStat(subject.id)?.confirmedIssueCount" class="rounded border border-[var(--we-accent-border)] bg-[var(--we-bg-panel)] px-1.5 py-0.5 font-mono text-[var(--we-accent-strong)]" :title="subjectReviewTitle(subjectStat(subject.id))">{{ t("worldEngine.workbenchPreview.confirmedCountShort", {count: subjectStat(subject.id)?.confirmedIssueCount}) }}</span>
-                                    <span v-if="subjectStat(subject.id)?.ignoredIssueCount" class="rounded border border-[var(--we-border)] bg-[var(--we-bg-muted)] px-1.5 py-0.5 font-mono text-[var(--we-text-muted)]" :title="subjectReviewTitle(subjectStat(subject.id))">{{ t("worldEngine.workbenchPreview.ignoredCountShort", {count: subjectStat(subject.id)?.ignoredIssueCount}) }}</span>
-                                </template>
+                            <div class="mt-0.5 truncate font-mono text-[11px] text-[var(--we-text-muted)]">{{ subject.id }}</div>
+                            <div v-if="subjectSystemSummary(subject.id)" class="mt-2 flex min-w-0 flex-wrap items-center gap-1" :title="subjectSystemSyncTitle(subjectSystemSummary(subject.id))">
+                                <span class="inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[10px] font-medium" :class="subjectSystemSummary(subject.id)?.syncStatus === 'linked' ? 'border-[var(--we-accent-border)] bg-[var(--we-accent-soft)] text-[var(--we-accent-strong)]' : subjectSystemSummary(subject.id)?.syncStatus === 'pending-world-subject' ? 'border-amber-300 bg-[var(--we-warning-soft)] text-[var(--we-warning)]' : 'border-[var(--we-border)] bg-[var(--we-bg-muted)] text-[var(--we-text-muted)]'">
+                                    <span class="i-lucide-folder-tree h-3 w-3"></span>
+                                    {{ subjectSystemSyncLabel(subjectSystemSummary(subject.id)) }}
+                                </span>
+                                <span v-if="subjectSystemSummary(subject.id)?.eventCount !== null" class="rounded border border-[var(--we-border)] bg-[var(--we-bg-subtle)] px-1.5 py-0.5 font-mono text-[10px] text-[var(--we-text-muted)]">{{ subjectSystemSummary(subject.id)?.eventCount }} events</span>
+                                <span v-if="subjectSystemSummary(subject.id)?.memoryCount !== null" class="rounded border border-[var(--we-border)] bg-[var(--we-bg-subtle)] px-1.5 py-0.5 font-mono text-[10px] text-[var(--we-text-muted)]">{{ subjectSystemSummary(subject.id)?.memoryCount }} memory</span>
+                                <span v-if="subjectSystemSummary(subject.id)?.legacyKind" class="rounded border border-[var(--we-border)] bg-[var(--we-bg-subtle)] px-1.5 py-0.5 text-[10px] text-[var(--we-text-muted)]">{{ subjectSystemSummary(subject.id)?.legacyKind }}</span>
+                                <span v-if="subjectSystemSummary(subject.id)?.controlledBy" class="rounded border border-[var(--we-border)] bg-[var(--we-bg-subtle)] px-1.5 py-0.5 text-[10px] text-[var(--we-text-muted)]">{{ subjectSystemSummary(subject.id)?.controlledBy }}</span>
                             </div>
+                            <div class="mt-2 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 text-[10px]">
+                                <div class="min-w-0 truncate text-[var(--we-text-muted)]">
+                                    <span class="font-mono">{{ subjectStat(subject.id)?.latestTime || "no slice" }}</span>
+                                    <span v-if="subjectStat(subject.id)?.latestKind" class="ml-1 rounded border border-[var(--we-border)] bg-[var(--we-bg-subtle)] px-1 font-mono text-[var(--we-text-secondary)]">{{ subjectStat(subject.id)?.latestKind }}</span>
+                                </div>
+                                <div class="flex min-w-0 flex-wrap items-center justify-end gap-1">
+                                    <span class="rounded border border-[var(--we-border)] bg-[var(--we-bg-subtle)] px-1.5 py-0.5 font-mono text-[var(--we-text-muted)]">{{ t("worldEngine.workbenchPreview.mutationCountShort", {count: subjectStat(subject.id)?.mutationCount ?? 0}) }}</span>
+                                    <span v-if="subjectDraftCount(subject.id)" class="rounded border border-amber-300 bg-[var(--we-warning-soft)] px-1.5 py-0.5 font-mono font-semibold text-[var(--we-warning)]" :title="t('worldEngine.workbenchPreview.valueDraftCountTitle', {count: subjectDraftCount(subject.id)})">{{ t("worldEngine.workbenchPreview.valueCountShort", {count: subjectDraftCount(subject.id)}) }}</span>
+                                    <span v-if="subjectStat(subject.id)?.openIssueCount" class="rounded border border-amber-300 bg-[var(--we-warning-soft)] px-1.5 py-0.5 font-mono font-semibold text-[var(--we-warning)]" :title="subjectReviewTitle(subjectStat(subject.id))">{{ t("worldEngine.workbenchPreview.openCountShort", {count: subjectStat(subject.id)?.openIssueCount}) }}</span>
+                                    <template v-if="subjectStat(subject.id)?.doneIssueCount">
+                                        <span class="rounded border border-[var(--we-accent-border)] bg-[var(--we-accent-soft)] px-1.5 py-0.5 font-mono font-semibold text-[var(--we-accent-strong)]" :title="subjectReviewTitle(subjectStat(subject.id))">{{ t("worldEngine.workbenchPreview.doneCountShort", {count: subjectStat(subject.id)?.doneIssueCount}) }}</span>
+                                        <span v-if="subjectStat(subject.id)?.confirmedIssueCount" class="rounded border border-[var(--we-accent-border)] bg-[var(--we-bg-panel)] px-1.5 py-0.5 font-mono text-[var(--we-accent-strong)]" :title="subjectReviewTitle(subjectStat(subject.id))">{{ t("worldEngine.workbenchPreview.confirmedCountShort", {count: subjectStat(subject.id)?.confirmedIssueCount}) }}</span>
+                                        <span v-if="subjectStat(subject.id)?.ignoredIssueCount" class="rounded border border-[var(--we-border)] bg-[var(--we-bg-muted)] px-1.5 py-0.5 font-mono text-[var(--we-text-muted)]" :title="subjectReviewTitle(subjectStat(subject.id))">{{ t("worldEngine.workbenchPreview.ignoredCountShort", {count: subjectStat(subject.id)?.ignoredIssueCount}) }}</span>
+                                    </template>
+                                </div>
+                            </div>
+                        </button>
+                        <div v-if="subjectSystemSummary(subject.id)" class="mt-2 flex min-w-0 flex-wrap gap-1 border-t border-[var(--we-border)] pt-2">
+                            <button type="button" class="inline-flex h-6 items-center gap-1 rounded border px-1.5 font-mono text-[10px] transition-colors hover:bg-[var(--we-bg-hover)] disabled:opacity-45" :class="activeSubjectContextId === subject.id ? 'border-[var(--we-accent-border)] bg-[var(--we-accent-soft)] text-[var(--we-accent-strong)]' : 'border-[var(--we-border)] bg-[var(--we-bg-subtle)] text-[var(--we-text-secondary)] hover:text-[var(--we-text-main)]'" :aria-pressed="activeSubjectContextId === subject.id" :disabled="props.busy" :title="activeSubjectContextId === subject.id ? '当前主体文件建议语境，不改变 timeline 过滤' : '设为主体语境，不改变 timeline 过滤'" @click="focusSubjectContext(subject.id)">
+                                <span class="i-lucide-target h-3 w-3"></span>
+                                {{ activeSubjectContextId === subject.id ? "语境中" : "语境" }}
+                            </button>
+                            <button type="button" class="inline-flex h-6 items-center gap-1 rounded border border-[var(--we-border)] bg-[var(--we-bg-subtle)] px-1.5 font-mono text-[10px] text-[var(--we-text-secondary)] transition-colors hover:bg-[var(--we-bg-hover)] hover:text-[var(--we-text-main)] disabled:opacity-45" :disabled="props.busy" title="打开 subject.md" @click="openSubjectSystemFile(subjectSystemSummary(subject.id), 'subject')">
+                                <span class="i-lucide-file-text h-3 w-3"></span>
+                                subject
+                            </button>
+                            <button type="button" class="inline-flex h-6 items-center gap-1 rounded border border-[var(--we-border)] bg-[var(--we-bg-subtle)] px-1.5 font-mono text-[10px] text-[var(--we-text-secondary)] transition-colors hover:bg-[var(--we-bg-hover)] hover:text-[var(--we-text-main)] disabled:opacity-45" :disabled="props.busy" title="打开 events.jsonl" @click="openSubjectSystemFile(subjectSystemSummary(subject.id), 'events')">
+                                <span class="i-lucide-list-plus h-3 w-3"></span>
+                                events
+                            </button>
+                            <button type="button" class="inline-flex h-6 items-center gap-1 rounded border border-[var(--we-border)] bg-[var(--we-bg-subtle)] px-1.5 font-mono text-[10px] text-[var(--we-text-secondary)] transition-colors hover:bg-[var(--we-bg-hover)] hover:text-[var(--we-text-main)] disabled:opacity-45" :disabled="props.busy" title="打开 memory.jsonl" @click="openSubjectSystemFile(subjectSystemSummary(subject.id), 'memory')">
+                                <span class="i-lucide-brain h-3 w-3"></span>
+                                memory
+                            </button>
+                            <button type="button" class="inline-flex h-6 items-center gap-1 rounded border border-[var(--we-border)] bg-[var(--we-bg-subtle)] px-1.5 font-mono text-[10px] text-[var(--we-text-secondary)] transition-colors hover:bg-[var(--we-bg-hover)] hover:text-[var(--we-text-main)] disabled:opacity-45" :disabled="props.busy" title="打开 state.md" @click="openSubjectSystemFile(subjectSystemSummary(subject.id), 'state')">
+                                <span class="i-lucide-eye h-3 w-3"></span>
+                                state
+                            </button>
                         </div>
-                    </button>
+                    </div>
                 </div>
                 <div v-if="!filteredSubjects.length" class="rounded-md border border-dashed border-[var(--we-border)] bg-[var(--we-bg-subtle)] px-3 py-8 text-center">
                     <div class="text-[12px] font-semibold text-[var(--we-text-secondary)]">没有匹配的 subject</div>

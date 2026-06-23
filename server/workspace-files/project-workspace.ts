@@ -9,6 +9,7 @@ import {collectReleasedSqliteHandles} from "nbook/server/workspace-files/sqlite-
 export const PROJECT_MANIFEST_FILE = "project.yaml";
 export const PROJECT_DATABASE_RELATIVE_PATH = ".nbook/project.sqlite";
 export const PROJECT_CONFIG_RELATIVE_PATH = ".nbook/config.json";
+export const PROJECT_DELETED_MARKER_RELATIVE_PATH = ".nbook/deleted-project.json";
 
 export type ProjectManifest = {
     kind: "novel";
@@ -203,11 +204,37 @@ export function resolveProjectAbsolutePath(projectPath: string): string {
 export async function assertProjectWorkspaceDirectory(projectPath: string): Promise<string> {
     const normalizedProjectPath = normalizeProjectPath(projectPath);
     const projectRoot = resolveProjectAbsolutePath(normalizedProjectPath);
-    const stat = await fs.stat(projectRoot);
+    let stat: Awaited<ReturnType<typeof fs.stat>>;
+    try {
+        stat = await fs.stat(projectRoot);
+    } catch (error) {
+        if (typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT") {
+            throw createError({statusCode: 404, message: "Project Workspace 不存在"});
+        }
+        throw error;
+    }
     if (!stat.isDirectory()) {
         throw createError({statusCode: 400, message: "projectPath 必须指向 Project Workspace 目录"});
     }
+    if (await isProjectRootDeleted(projectRoot)) {
+        throw createError({statusCode: 404, message: "Project Workspace 已删除"});
+    }
     return normalizedProjectPath;
+}
+
+/**
+ * 判断 Project Workspace 目录是否存在。包含已标记删除但尚未物理清理的目录。
+ */
+export async function projectWorkspaceDirectoryExists(projectPath: string): Promise<boolean> {
+    try {
+        const stat = await fs.stat(resolveProjectAbsolutePath(projectPath));
+        return stat.isDirectory();
+    } catch (error) {
+        if (typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT") {
+            return false;
+        }
+        throw error;
+    }
 }
 
 /**
@@ -288,6 +315,9 @@ export async function listProjectWorkspaces(): Promise<ProjectListItem[]> {
         if (!entry.isDirectory() || entry.name === ".nbook") {
             continue;
         }
+        if (await isProjectRootDeleted(path.join(workspaceRoot, entry.name))) {
+            continue;
+        }
         const projectPath = path.posix.join("workspace", entry.name);
         try {
             const manifest = await readProjectManifest(projectPath);
@@ -309,6 +339,21 @@ export async function listProjectWorkspaces(): Promise<ProjectListItem[]> {
         }
     }
     return projects.sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+}
+
+/**
+ * 判断 Project Root 是否已经被删除流程标记。用于隐藏物理清理尚未完成的 Project。
+ */
+export async function isProjectRootDeleted(projectRoot: string): Promise<boolean> {
+    try {
+        const stat = await fs.stat(path.join(projectRoot, PROJECT_DELETED_MARKER_RELATIVE_PATH));
+        return stat.isFile();
+    } catch (error) {
+        if (typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT") {
+            return false;
+        }
+        throw error;
+    }
 }
 
 /**

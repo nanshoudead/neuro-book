@@ -12,7 +12,6 @@ import NovelIdeSettingsDialog from "nbook/app/components/novel-ide/NovelIdeSetti
 import NovelIdeToolPanel from "nbook/app/components/novel-ide/NovelIdeToolPanel.vue";
 import WorldEngineWorkbenchDialog from "nbook/app/components/novel-ide/world-engine/WorldEngineWorkbenchDialog.vue";
 import NovelPromptBar from "nbook/app/components/novel-ide/NovelPromptBar.vue";
-import NovelRagInspectorDialog from "nbook/app/components/novel-ide/rag/NovelRagInspectorDialog.vue";
 import WorkspaceFilePanel from "nbook/app/components/novel-ide/workspace/WorkspaceFilePanel.vue";
 import NovelBookshelfDialog from "nbook/app/components/novel-ide/NovelBookshelfDialog.vue";
 import UserProfileWorkbenchDialog from "nbook/app/components/profile-template-editor/UserProfileWorkbenchDialog.vue";
@@ -59,7 +58,6 @@ const themeHostRef = ref<HTMLElement | null>(null);
 const currentUser = ref<AuthSessionDto["user"]>(null);
 const bookshelfOpen = ref(false);
 const settingsDialogOpen = ref(false);
-const ragInspectorOpen = ref(false);
 const worldEngineWorkbenchOpen = ref(false);
 const worldEngineWorkbenchHasUnsavedDrafts = ref(false);
 const worldEngineWorkbenchSaving = ref(false);
@@ -148,6 +146,7 @@ const {
     switchNovel,
     switchToNovelWorkspace,
     switchToUserAssetsWorkspace,
+    loadNovels,
 } = novelIdeStore;
 const {mountThemeHost} = useIdeTheme(theme);
 const workspaceFileEvents = useWorkspaceFileEvents();
@@ -197,6 +196,8 @@ const buildProjectRoute = (projectTarget: string): string => {
 
 const workspaceBootstrapped = ref(false);
 const consumingRouteOpenPath = ref(false);
+const lastMissingProjectNoticeTarget = ref("");
+const discardOpenPathForProjectFallback = ref(false);
 const displayRightPanelOpen = computed(() => workspaceBootstrapped.value && rightPanelOpen.value);
 const isAgentMode = computed(() => layoutMode.value === "agent");
 const agentSurfaceActive = computed(() => workspaceBootstrapped.value && (rightPanelOpen.value || isAgentMode.value));
@@ -1453,16 +1454,6 @@ const toggleLeftTab = (tab: NovelIdeTab): void => {
 };
 
 /**
- * 从顶部栏直接打开剧本工作台。
- */
-const openPlotWorkbench = (): void => {
-    if (isUserAssetsWorkspace.value) {
-        return;
-    }
-    novelIdeStore.plotWorkbenchOpen = true;
-};
-
-/**
  * 从主 IDE 打开当前 Project 的 World Engine 工作台。
  */
 const openWorldEngineWorkbench = (): void => {
@@ -1491,7 +1482,18 @@ const initializeWorkspaceFromRoute = async (): Promise<void> => {
         return;
     }
 
-    await switchToNovelWorkspace(target.kind === "project" ? target.projectPath : undefined);
+    if (target.kind === "project") {
+        const list = await loadNovels({includeProjectPath: target.projectPath});
+        const routeProjectExists = list.some((novel) => novel.id === target.projectPath);
+        discardOpenPathForProjectFallback.value = !routeProjectExists;
+        await switchToNovelWorkspace(routeProjectExists ? target.projectPath : list[0]?.id);
+        notifyProjectRouteFallback(target);
+        return;
+    }
+
+    discardOpenPathForProjectFallback.value = false;
+    await switchToNovelWorkspace();
+    notifyProjectRouteFallback(target);
 };
 
 /**
@@ -1519,6 +1521,26 @@ const normalizeNovelRouteQuery = async (): Promise<void> => {
         return;
     }
     await router.replace(buildProjectRoute(currentNovelId.value));
+};
+
+/**
+ * URL 指定的 Project 不存在或已删除时，告知作者已切回当前可用 Project。
+ */
+const notifyProjectRouteFallback = (target: ProjectRouteTarget): void => {
+    if (target.kind !== "project") {
+        return;
+    }
+    if (workspaceKind.value !== "novel" || currentNovelId.value === target.projectPath) {
+        lastMissingProjectNoticeTarget.value = "";
+        return;
+    }
+    if (lastMissingProjectNoticeTarget.value === target.projectPath) {
+        return;
+    }
+    lastMissingProjectNoticeTarget.value = target.projectPath;
+    const fallbackTitle = displayNovelTitle.value || currentNovelId.value || "可用 Project";
+    const openPathHint = typeof route.query.openPath === "string" ? " 已忽略原链接中的文件路径。" : "";
+    notification.warning(`Project ${target.projectPath} 不存在或已删除，已切换到 ${fallbackTitle}。${openPathHint}`, {title: "Project 已不可用"});
 };
 
 /**
@@ -1589,6 +1611,14 @@ function openWelcomeFiles(): void {
 async function openWelcomeWorkspacePath(filePath: string): Promise<void> {
     openWelcomeFiles();
     try {
+        if (filePath === "world-engine/calendar.ts") {
+            const created = await ensureWorldEngineCalendarFile();
+            await novelIdeStore.selectWorkspacePath(filePath, "permanent");
+            if (created) {
+                notification.success("已创建 world-engine/calendar.ts", {title: "Calendar 配置已就绪"});
+            }
+            return;
+        }
         await novelIdeStore.selectWorkspacePath(filePath, "permanent");
     } catch (error) {
         notification.error(resolveApiErrorMessage(error, t("ide.shell.openPathFailed", {path: filePath})), {title: t("ide.shell.openPathFailedTitle")});
@@ -1596,10 +1626,66 @@ async function openWelcomeWorkspacePath(filePath: string): Promise<void> {
 }
 
 /**
+ * 为旧 Project 补齐新版 Calendar 入口文件。
+ */
+async function ensureWorldEngineCalendarFile(): Promise<boolean> {
+    const nodes = await novelIdeStore.loadWorkspaceTree();
+    if (nodes.some((node) => node.path === "world-engine/calendar.ts")) {
+        return false;
+    }
+    await createMissingWorldEngineCalendarFile();
+    return true;
+}
+
+/**
+ * 创建新版 Calendar 入口文件。
+ */
+async function createMissingWorldEngineCalendarFile(): Promise<void> {
+    await novelIdeStore.createWorkspaceFile("world-engine/calendar.ts", buildWorldEngineCalendarTemplate());
+}
+
+/**
+ * 默认 Calendar 草稿，保持和项目模板同一套 simple calendar 语义。
+ */
+function buildWorldEngineCalendarTemplate(): string {
+    return [
+        "/**",
+        " * World Engine Calendar.",
+        " *",
+        " * 默认使用 Simple Calendar。可以改成 type: 'gregorian' 使用真实公历，",
+        " * 或改成 type: 'custom' 手写 format / parse。",
+        " */",
+        "",
+        "export default {",
+        "  type: 'simple',",
+        "  eraBefore: '蒙昧纪元',",
+        "  eraAfter: '新生纪元',",
+        "  baseUnit: 'second',",
+        "  units: [",
+        "    { name: 'minute', parent: 'second', ratio: 60 },",
+        "    { name: 'hour', parent: 'minute', ratio: 60 },",
+        "    { name: 'day', parent: 'hour', ratio: 24 },",
+        "    { name: 'month', parent: 'day', ratio: 30 },",
+        "    { name: 'year', parent: 'month', ratio: 12 }",
+        "  ],",
+        "  format: '{eraName}{year}年{month}月{day}日 {hour:02}:{minute:02}:{second:02}'",
+        "};",
+        "",
+    ].join("\n");
+}
+
+/**
  * 消费 `openPath` 深链，在当前 Project Workspace 内打开目标文件。
  */
 async function consumeWorkspaceOpenPathFromRoute(): Promise<void> {
     if (consumingRouteOpenPath.value || isUserAssetsWorkspace.value || !currentNovelId.value || typeof route.query.openPath !== "string") {
+        return;
+    }
+    if (discardOpenPathForProjectFallback.value) {
+        discardOpenPathForProjectFallback.value = false;
+        const nextQuery = {...route.query};
+        delete nextQuery.openPath;
+        await router.replace({path: route.path, query: nextQuery});
         return;
     }
     const filePath = normalizeWorkspacePath(route.query.openPath);
@@ -1873,16 +1959,13 @@ onBeforeUnmount(() => {
             @toggle-layout-mode="void toggleAgentLayoutMode()"
             @toggle-agent="isAgentMode ? toggleAgentModeStudio() : rightPanelOpen = !rightPanelOpen"
             @open-bookshelf="bookshelfOpen = true"
-            @open-plot-workbench="openPlotWorkbench"
             @open-world-engine="openWorldEngineWorkbench"
-            @open-rag-inspector="ragInspectorOpen = true"
             @open-user-assets="openUserAssets"
             @open-profile-workbench="profileWorkbenchOpen = true"
             @switch-novel="handleSwitchNovel"
             @open-admin="void openAdmin()"
             @logout="void logout()"
         />
-        <NovelRagInspectorDialog v-if="!isUserAssetsWorkspace" v-model="ragInspectorOpen" :project-path="currentNovelId" />
         <WorldEngineWorkbenchDialog v-if="!isUserAssetsWorkspace" v-model="worldEngineWorkbenchOpen" :project-path="currentNovelId" :project-title="displayNovelTitle" @has-unsaved-drafts-change="worldEngineWorkbenchHasUnsavedDrafts = $event" @saving-change="worldEngineWorkbenchSaving = $event" @open-workspace-path="void openWelcomeWorkspacePath($event)" />
 
         <div class="flex min-h-0 flex-1 overflow-hidden">
@@ -1982,8 +2065,6 @@ onBeforeUnmount(() => {
                             @switch-agent-mode="void openWelcomeAgentMode()"
                             @toggle-agent-surface="toggleWelcomeAgentSurface"
                             @open-bookshelf="bookshelfOpen = true"
-                            @open-plot-workbench="openPlotWorkbench"
-                            @open-rag-inspector="ragInspectorOpen = true"
                             @open-user-assets="openUserAssets"
                             @open-profile-workbench="profileWorkbenchOpen = true"
                             @inline-ai-reference="addInlineAiReference"

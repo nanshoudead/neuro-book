@@ -3,6 +3,7 @@ import {computed, reactive, ref, watch} from "vue";
 import WorldEngineMutationBuilder from "nbook/app/components/novel-ide/world-engine/WorldEngineMutationBuilder.vue";
 import WorldEngineMutationEditorHeader from "nbook/app/components/novel-ide/world-engine/WorldEngineMutationEditorHeader.vue";
 import WorldEngineSliceDraftForm from "nbook/app/components/novel-ide/world-engine/WorldEngineSliceDraftForm.vue";
+import {useDialog} from "nbook/app/composables/useDialog";
 import {resolveApiErrorMessage} from "nbook/app/utils/api-error";
 import {
     clampMutationIndex,
@@ -19,6 +20,7 @@ import {
     opOptionsForPreviewAttr,
     parseLooseJsonValue,
     parseMutationJson,
+    parseMutationListJson,
     previewAttrValueType,
     replaceMutationAt,
     resolvePreviewAttrPath,
@@ -83,6 +85,8 @@ const cleanSnapshot = ref("");
 const pendingLoadSelectedSlice = ref(false);
 const mutationLoadIndex = ref("0");
 const lastContinueSaveNotice = ref("");
+const builderDraftDirty = ref(false);
+const {confirm: confirmDialog} = useDialog();
 
 const schemaTypes = computed<WorldPreviewSchemaType[]>(() => props.schema?.subjectTypes ?? []);
 const selectedSubject = computed<WorldSubjectDto | null>(() => props.subjects.find((subject) => subject.id === mutationBuilder.subjectId) ?? null);
@@ -116,6 +120,7 @@ const sliceValidation = computed(() => {
     }
     return mutationValidation.value;
 });
+const builderDisabled = computed(() => Boolean(props.busy) || saving.value);
 const mutationLoadOptions = computed<Array<{label: string; value: string}>>(() => {
     const parsed = mutationValidation.value;
     if (!parsed.ok) {
@@ -128,12 +133,15 @@ const mutationLoadOptions = computed<Array<{label: string; value: string}>>(() =
 });
 const sliceActionLabel = computed(() => editingSliceId.value ? "保存 Slice 编辑" : "写入 Slice");
 const canSubmit = computed(() => Boolean(props.projectPath) && !props.busy && !saving.value && sliceValidation.value.ok);
-const hasDirtyDraft = computed(() => cleanSnapshot.value !== "" && serializeSliceForm() !== cleanSnapshot.value);
+const hasDirtyDraft = computed(() => cleanSnapshot.value !== "" && (serializeSliceForm() !== cleanSnapshot.value || builderDraftDirty.value));
 markCleanSliceForm();
 
 /** 写入新 slice 或整块替换当前编辑中的 slice。 */
 async function submitSlice(options: {continueAfterSave?: boolean} = {}): Promise<void> {
     if (!props.projectPath || props.busy || saving.value) {
+        return;
+    }
+    if (!applyDirtyBuilderDraftBeforeSubmit()) {
         return;
     }
     const validation = sliceValidation.value;
@@ -200,6 +208,11 @@ async function submitSlice(options: {continueAfterSave?: boolean} = {}): Promise
     }
 }
 
+/** 写入并继续下一步的按钮回调。 */
+function submitSliceAndContinue(): Promise<void> {
+    return submitSlice({continueAfterSave: true});
+}
+
 /** 将当前选中的 timeline slice 载入编辑表单。 */
 function loadSelectedSlice(): void {
     if (props.busy || saving.value) {
@@ -239,16 +252,17 @@ function forceLoadSelectedSlice(): void {
     if ((slice.mutations ?? []).length) {
         loadMutationToBuilder(0, true);
     }
+    builderDraftDirty.value = false;
     markCleanSliceForm();
     emit("notice", `正在编辑 slice ${slice.id}`);
 }
 
 /** 回到新建 slice 模式。 */
-function clearEditMode(): void {
+async function clearEditMode(): Promise<void> {
     if (props.busy || saving.value) {
         return;
     }
-    if (hasDirtyDraft.value && import.meta.client && !window.confirm("当前编辑器有未保存草稿，确定切换到新建模式吗？")) {
+    if (hasDirtyDraft.value && import.meta.client && !await confirmDialog("当前编辑器有未保存草稿，确定切换到新建模式吗？", "Slice Composer 草稿未保存")) {
         return;
     }
     editingSliceId.value = "";
@@ -260,12 +274,20 @@ function clearEditMode(): void {
     applyDefaultSliceMutation(props.selectedSubjectId || mutationBuilder.subjectId || "world");
     mutationLoadIndex.value = "0";
     pendingLoadSelectedSlice.value = false;
+    builderDraftDirty.value = false;
     markCleanSliceForm();
 }
 
 /** 使用 schema attr 快速填充一条 mutation。 */
 function fillMutation(typeName: string, attr: WorldPreviewSchemaAttr): void {
+    if (builderDisabled.value) {
+        return;
+    }
     const subjectId = subjectIdForSchemaType(typeName);
+    if (!subjectId) {
+        emit("error", `当前 Project 还没有 ${typeName} subject，不能使用该 schema shortcut。请先创建对应 subject。`);
+        return;
+    }
     const mutation = defaultMutationForPreviewAttr(subjectId, attr, props.subjects);
     sliceForm.mutations = JSON.stringify([mutation], null, 2);
     mutationLoadIndex.value = "0";
@@ -274,18 +296,19 @@ function fillMutation(typeName: string, attr: WorldPreviewSchemaAttr): void {
     mutationBuilder.op = mutation.op;
     mutationBuilder.value = formatBuilderValue(mutation.value);
     syncObjectRowsFromBuilderValue();
+    builderDraftDirty.value = false;
 }
 
 /** 将 Builder 当前输入追加或替换到 mutations JSON。 */
 function addBuilderMutation(mode: "append" | "replace"): void {
-    if (saving.value) {
+    if (builderDisabled.value) {
         return;
     }
     const mutation = buildMutationFromBuilder();
     if (!mutation) {
         return;
     }
-    const current = parseMutationJson(sliceForm.mutations);
+    const current = parseMutationListJson(sliceForm.mutations);
     if (mode === "append" && !current.ok && sliceForm.mutations.trim()) {
         emit("error", current.message);
         return;
@@ -293,11 +316,12 @@ function addBuilderMutation(mode: "append" | "replace"): void {
     const next = mode === "append" && current.ok ? [...current.value, mutation] : [mutation];
     sliceForm.mutations = JSON.stringify(next, null, 2);
     mutationLoadIndex.value = mode === "append" ? String(next.length - 1) : "0";
+    builderDraftDirty.value = false;
 }
 
 /** 在当前选中的 mutation 后插入 Builder 当前内容。 */
 function insertAfterSelectedBuilderMutation(): void {
-    if (saving.value) {
+    if (builderDisabled.value) {
         return;
     }
     const mutation = buildMutationFromBuilder();
@@ -316,12 +340,13 @@ function insertAfterSelectedBuilderMutation(): void {
     }
     sliceForm.mutations = JSON.stringify(result.value.mutations, null, 2);
     mutationLoadIndex.value = String(result.value.index);
+    builderDraftDirty.value = false;
     emit("notice", `已在第 ${result.value.index} 条 mutation 后插入新 mutation。`);
 }
 
 /** 复制当前选中的 mutation 到下一位。 */
 function duplicateSelectedBuilderMutation(): void {
-    if (saving.value) {
+    if (builderDisabled.value) {
         return;
     }
     const parsed = parseMutationJson(sliceForm.mutations);
@@ -337,12 +362,13 @@ function duplicateSelectedBuilderMutation(): void {
     sliceForm.mutations = JSON.stringify(result.value.mutations, null, 2);
     mutationLoadIndex.value = String(result.value.index);
     loadMutationToBuilder(result.value.index, true);
+    builderDraftDirty.value = false;
     emit("notice", `已复制所选 mutation 到第 ${result.value.index + 1} 位。`);
 }
 
 /** 用 Builder 当前输入原位替换 mutations JSON 中选中的 mutation。 */
 function replaceSelectedBuilderMutation(): void {
-    if (saving.value) {
+    if (builderDisabled.value) {
         return;
     }
     const mutation = buildMutationFromBuilder();
@@ -361,12 +387,13 @@ function replaceSelectedBuilderMutation(): void {
     }
     sliceForm.mutations = JSON.stringify(result.value.mutations, null, 2);
     mutationLoadIndex.value = String(result.value.index);
+    builderDraftDirty.value = false;
     emit("notice", `已替换第 ${result.value.index + 1} 条 mutation。`);
 }
 
 /** 删除 mutations JSON 中当前选中的 mutation。 */
 function deleteSelectedBuilderMutation(): void {
-    if (saving.value) {
+    if (builderDisabled.value) {
         return;
     }
     const parsed = parseMutationJson(sliceForm.mutations);
@@ -382,12 +409,17 @@ function deleteSelectedBuilderMutation(): void {
     }
     sliceForm.mutations = JSON.stringify(result.value.mutations, null, 2);
     mutationLoadIndex.value = String(result.value.index);
+    if (result.value.mutations.length) {
+        loadMutationToBuilder(result.value.index, true);
+    } else {
+        builderDraftDirty.value = false;
+    }
     emit("notice", result.value.mutations.length ? `已删除第 ${deletedIndex + 1} 条 mutation。` : "已删除最后一条 mutation，保存前请先添加新的 mutation。");
 }
 
 /** 将当前选中的 mutation 上移或下移一位。 */
 function moveSelectedBuilderMutation(direction: "up" | "down"): void {
-    if (saving.value) {
+    if (builderDisabled.value) {
         return;
     }
     const parsed = parseMutationJson(sliceForm.mutations);
@@ -406,7 +438,33 @@ function moveSelectedBuilderMutation(direction: "up" | "down"): void {
     }
     sliceForm.mutations = JSON.stringify(result.value.mutations, null, 2);
     mutationLoadIndex.value = String(result.value.index);
+    loadMutationToBuilder(result.value.index, true);
     emit("notice", `已将 mutation 移动到第 ${result.value.index + 1} 位。`);
+}
+
+/** 保存前把作者已编辑但尚未应用的 Builder 草稿同步进 mutations JSON，避免提交旧值。 */
+function applyDirtyBuilderDraftBeforeSubmit(): boolean {
+    if (!builderDraftDirty.value) {
+        return true;
+    }
+    const mutation = buildMutationFromBuilder();
+    if (!mutation) {
+        return false;
+    }
+    const parsed = parseMutationJson(sliceForm.mutations);
+    if (!parsed.ok) {
+        emit("error", parsed.message);
+        return false;
+    }
+    const result = replaceMutationAt(parsed.value, Number(mutationLoadIndex.value), mutation);
+    if (!result.ok) {
+        emit("error", result.message);
+        return false;
+    }
+    sliceForm.mutations = JSON.stringify(result.value.mutations, null, 2);
+    mutationLoadIndex.value = String(result.value.index);
+    builderDraftDirty.value = false;
+    return true;
 }
 
 /** 从 Builder 表单构造 mutation，集中处理 subject / attr / value 校验。 */
@@ -426,11 +484,7 @@ function buildMutationFromBuilder(): WorldMutationDraft | null {
         op: mutationBuilder.op,
     };
     if (mutationBuilder.op !== "unset") {
-        const parsedValue = builderValueMode.value === "object"
-            ? parseObjectBuilderRows()
-            : builderValueMode.value === "json"
-                ? parseJsonObjectBuilderValue()
-                : parseLooseJsonValue(mutationBuilder.value);
+        const parsedValue = parseBuilderValue();
         if (!parsedValue.ok) {
             emit("error", parsedValue.message);
             return null;
@@ -438,6 +492,20 @@ function buildMutationFromBuilder(): WorldMutationDraft | null {
         mutation.value = parsedValue.value;
     }
     return mutation;
+}
+
+/** 按输入控件语义解析 Builder value；文本框保持原始字符串，避免 `[验收]` 被误当 JSON 数组。 */
+function parseBuilderValue(): ReturnType<typeof parseLooseJsonValue> {
+    if (builderValueMode.value === "object") {
+        return parseObjectBuilderRows();
+    }
+    if (builderValueMode.value === "json") {
+        return parseJsonObjectBuilderValue();
+    }
+    if (builderValueMode.value === "text" || builderValueMode.value === "ref") {
+        return {ok: true, value: mutationBuilder.value};
+    }
+    return parseLooseJsonValue(mutationBuilder.value);
 }
 
 /** 解析顶层 JSON object value；用于 list / collection 的 object item 输入。 */
@@ -454,7 +522,7 @@ function parseJsonObjectBuilderValue(): ReturnType<typeof parseLooseJsonValue> {
 
 /** 把 mutations JSON 的指定 mutation 回填到 Builder，便于编辑已有 slice。 */
 function loadMutationToBuilder(index: number, silent = false): void {
-    if (saving.value) {
+    if (builderDisabled.value) {
         return;
     }
     const parsed = parseMutationJson(sliceForm.mutations);
@@ -473,6 +541,7 @@ function loadMutationToBuilder(index: number, silent = false): void {
     mutationBuilder.op = mutation.op;
     mutationBuilder.value = mutation.op === "unset" ? "" : formatBuilderValue(mutation.value);
     syncObjectRowsFromBuilderValue();
+    builderDraftDirty.value = false;
     if (!silent) {
         emit("notice", `已把第 ${index + 1} 条 mutation 载入 Builder。`);
     }
@@ -480,19 +549,21 @@ function loadMutationToBuilder(index: number, silent = false): void {
 
 /** 接收 Builder 子组件的字段更新，保留父组件里的 watcher 与校验链路。 */
 function updateBuilderField(field: "subjectId" | "attr" | "op" | "value", value: string): void {
-    if (saving.value) {
+    if (builderDisabled.value) {
         return;
     }
     if (field === "op") {
         mutationBuilder.op = value as WorldMutationOp;
+        builderDraftDirty.value = true;
         return;
     }
     mutationBuilder[field] = value;
+    builderDraftDirty.value = true;
 }
 
 /** 更新 Builder 要从 mutations JSON 载入的 mutation 序号。 */
 function updateMutationLoadIndex(value: string): void {
-    if (saving.value) {
+    if (builderDisabled.value) {
         return;
     }
     mutationLoadIndex.value = value;
@@ -510,10 +581,17 @@ function opOptionsForAttr(attrName: string): WorldMutationOp[] {
 }
 
 function subjectIdForSchemaType(typeName: string): string {
-    return props.subjects.find((subject) => subject.type === typeName)?.id
-        ?? props.subjects[0]?.id
-        ?? props.selectedSubjectId
-        ?? "world";
+    return props.subjects.find((subject) => subject.type === typeName)?.id ?? "";
+}
+
+function schemaTypeShortcutDisabled(typeName: string): boolean {
+    return builderDisabled.value || !subjectIdForSchemaType(typeName);
+}
+
+function schemaTypeShortcutTitle(typeName: string): string {
+    return subjectIdForSchemaType(typeName)
+        ? `使用 ${typeName} subject 创建 mutation`
+        : `当前 Project 还没有 ${typeName} subject`;
 }
 
 function refreshBuilderDefaultValue(): void {
@@ -585,25 +663,27 @@ function resolveBuilderValueMode(attr: WorldPreviewSchemaAttr | null, op: WorldM
 
 /** 新增一行 object value 的 key/value 输入。 */
 function addObjectBuilderRow(): void {
-    if (saving.value) {
+    if (builderDisabled.value) {
         return;
     }
     objectBuilderRows.value = [...objectBuilderRows.value, {key: "", value: "", enabled: true}];
+    builderDraftDirty.value = true;
 }
 
 /** 删除一行 object value 输入，至少保留一行空输入。 */
 function removeObjectBuilderRow(index: number): void {
-    if (saving.value) {
+    if (builderDisabled.value) {
         return;
     }
     const nextRows = objectBuilderRows.value.filter((_, rowIndex) => rowIndex !== index);
     objectBuilderRows.value = nextRows.length ? nextRows : [{key: "", value: "", enabled: true}];
     syncObjectRowsToBuilderValue();
+    builderDraftDirty.value = true;
 }
 
 /** 更新 object 行后同步生成 JSON 字符串。 */
 function updateObjectBuilderRow(index: number, patch: Partial<ObjectBuilderRow>): void {
-    if (saving.value) {
+    if (builderDisabled.value) {
         return;
     }
     objectBuilderRows.value = objectBuilderRows.value.map((row, rowIndex) => {
@@ -621,6 +701,7 @@ function updateObjectBuilderRow(index: number, patch: Partial<ObjectBuilderRow>)
         return nextRow;
     });
     syncObjectRowsToBuilderValue();
+    builderDraftDirty.value = true;
 }
 
 function objectFieldAttr(rowKey: string): WorldPreviewSchemaAttr | null {
@@ -744,6 +825,7 @@ function applyDefaultSliceMutation(subjectId: string): void {
     mutationBuilder.op = mutation.op;
     mutationBuilder.value = mutation.op === "unset" ? "" : formatBuilderValue(mutation.value);
     syncObjectRowsFromBuilderValue();
+    builderDraftDirty.value = false;
 }
 
 function suggestedNewSliceTime(extraUsedTimes: string[] = []): string {
@@ -812,7 +894,7 @@ watch(() => props.usedTimes?.join("\u0000") ?? "", () => {
 
 watch(hasDirtyDraft, (dirty) => {
     emit("dirtyChange", dirty);
-}, {immediate: true});
+}, {flush: "sync", immediate: true});
 
 watch(() => mutationBuilder.subjectId, () => {
     const attrs = attrsForSubjectId(mutationBuilder.subjectId);
@@ -853,8 +935,13 @@ watch(() => props.loadSliceKey, () => {
 
 watch(() => props.newSliceKey, (key) => {
     if (key > 0) {
-        clearEditMode();
+        void clearEditMode();
     }
+});
+
+defineExpose({
+    /** 供父级 Workbench 在关闭前同步查询，避免事件 flush 时机导致草稿保护失效。 */
+    hasUnsavedDraft: () => hasDirtyDraft.value,
 });
 </script>
 
@@ -868,7 +955,7 @@ watch(() => props.newSliceKey, (key) => {
             :has-dirty-draft="hasDirtyDraft"
             :pending-load-selected-slice="pendingLoadSelectedSlice"
             @load-selected-slice="loadSelectedSlice"
-            @clear-edit-mode="clearEditMode"
+            @clear-edit-mode="void clearEditMode()"
             @discard-draft-and-load-selected-slice="discardDraftAndLoadSelectedSlice"
         />
 
@@ -891,11 +978,13 @@ watch(() => props.newSliceKey, (key) => {
                 :editing-slice-id="editingSliceId"
                 :action-label="sliceActionLabel"
                 :show-continue-action="!editingSliceId"
+                :submit-action="submitSlice"
+                :submit-and-continue-action="submitSliceAndContinue"
                 @submit="submitSlice"
                 @submit-and-continue="submitSlice({continueAfterSave: true})"
             >
                 <WorldEngineMutationBuilder
-                    :disabled="saving"
+                    :disabled="builderDisabled"
                     :builder="mutationBuilder"
                     :subjects="props.subjects"
                     :selected-subject-type-label="selectedSubject?.type ?? 'subject'"
@@ -914,6 +1003,12 @@ watch(() => props.newSliceKey, (key) => {
                     :mutation-load-options="mutationLoadOptions"
                     :mutation-load-index="mutationLoadIndex"
                     :state-result="props.stateResult"
+                    :add-mutation-action="addBuilderMutation"
+                    :delete-selected-mutation-action="deleteSelectedBuilderMutation"
+                    :duplicate-selected-mutation-action="duplicateSelectedBuilderMutation"
+                    :insert-after-selected-mutation-action="insertAfterSelectedBuilderMutation"
+                    :replace-selected-mutation-action="replaceSelectedBuilderMutation"
+                    :update-builder-field-action="updateBuilderField"
                     @update-builder-field="updateBuilderField"
                     @update-object-row="updateObjectBuilderRow"
                     @update-mutation-load-index="updateMutationLoadIndex"
@@ -935,7 +1030,7 @@ watch(() => props.newSliceKey, (key) => {
                     <div v-for="type in schemaTypes" :key="`editor:${type.type}`" class="mb-3 last:mb-0">
                         <div class="mb-1 text-[12px] font-medium text-[var(--text-main)]">{{ type.type }}</div>
                         <div class="flex flex-wrap gap-1">
-                            <button v-for="attr in type.attrs" :key="`editor:${type.type}:${attr.name}`" type="button" class="rounded-md border border-[var(--border-color)] px-2 py-1 text-[11px] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" @click="fillMutation(type.type, attr)">
+                            <button v-for="attr in type.attrs" :key="`editor:${type.type}:${attr.name}`" type="button" class="rounded-md border border-[var(--border-color)] px-2 py-1 text-[11px] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:opacity-50" :disabled="schemaTypeShortcutDisabled(type.type)" :title="schemaTypeShortcutTitle(type.type)" @click="fillMutation(type.type, attr)">
                                 {{ attr.name }}
                             </button>
                         </div>

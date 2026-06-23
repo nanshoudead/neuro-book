@@ -2,7 +2,7 @@ import type {ClientStateSnapshotDto} from "nbook/shared/dto/agent-session.dto";
 import type {JsonValue} from "nbook/server/agent/messages/types";
 import type {VariablePatchRequest} from "nbook/server/agent/variables/types";
 import type {NovelIdeTab} from "nbook/app/components/novel-ide/mock-data";
-import {isNovelIdeTab} from "nbook/app/components/novel-ide/mock-data";
+import {isNovelIdeTab, NOVEL_IDE_TABS} from "nbook/app/components/novel-ide/mock-data";
 import type {IdeTheme} from "nbook/app/utils/theme/theme-tokens";
 import {themeTokens} from "nbook/app/utils/theme/theme-tokens";
 
@@ -95,7 +95,7 @@ function applyKnownClientState(path: string, value: JsonValue, options: {
 }): void {
     if (path === "ide.activePanel") {
         if (value !== null && (typeof value !== "string" || !isNovelIdeTab(value))) {
-            const values = ["files", "characters", "outline"].join("/");
+            const values = NOVEL_IDE_TABS.join("/");
             throw new Error(translate("agent.clientVariables.activePanelInvalid", `client.ide.activePanel 只能写入 ${values} 或 null。`, {values}));
         }
         options.setActivePanel?.(value);
