@@ -175,7 +175,12 @@ export function schemaNodeToAttrSchema(node: WorldSchemaNode): WorldAttrSchema {
 
     // 基础类型
     if (node.type !== "array" && node.type !== "object") {
-        base.type = node.type;
+        // ref 类型需要编码目标到 type 字段
+        if (node.type === "ref" && "ref" in node && node.ref) {
+            base.type = `ref(${node.ref})`;
+        } else {
+            base.type = node.type;
+        }
         if ("values" in node && node.values) {
             base.enum = node.values;
         }
