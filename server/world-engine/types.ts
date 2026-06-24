@@ -193,7 +193,12 @@ export function schemaNodeToAttrSchema(node: WorldSchemaNode): WorldAttrSchema {
         const itemNode = node.items;
         // 如果元素是基础类型，直接用 itemType
         if (itemNode.type !== "array" && itemNode.type !== "object") {
-            base.itemType = itemNode.type;
+            // ref 类型需要编码目标
+            if (itemNode.type === "ref" && "ref" in itemNode && itemNode.ref) {
+                base.itemType = `ref(${itemNode.ref})`;
+            } else {
+                base.itemType = itemNode.type;
+            }
         } else {
             // 如果元素是复合类型，标记为 object（旧系统可能不支持深度嵌套）
             base.itemType = "object";
