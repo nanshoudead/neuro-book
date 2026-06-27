@@ -756,9 +756,7 @@ describe("assets builtin v3 profiles", () => {
             const appendingContext = (prepared.appendingMessages ?? []).map(messageText).join("\n");
 
             expect(historyContext).toContain("<writer_input_context>");
-            expect(historyContext).toContain("```assets/workspace/.nbook/agent/skills/stop-slop/SKILL.md");
-            expect(historyContext).toContain("# Stop Slop");
-            expect(historyContext).toContain("Eliminate predictable AI writing patterns from prose.");
+            expect(prepared.systemPrompt).toContain(".nbook/agent/skills/stop-slop/SKILL.md");
             expect(historyContext).toContain("<target_file>");
             expect(historyContext).toContain(`path: ${projectSlug}/manuscript/001-chapter/index.md`);
             expect(historyContext).toContain(`projectSlug: ${projectSlug}`);
@@ -811,6 +809,10 @@ describe("assets builtin v3 profiles", () => {
                     writingStylePreset: "darkside-kitten.light-lively",
                     writingReferencePreset: referenceKey,
                     narrativePerson: "second",
+                    paragraphRhythm: "自定义段落节奏：一拍一行。",
+                    wordCountControl: "3200-3600 字",
+                    polishingWorkflow: "自定义润色流程：先按 stop-slop 检查，再逐句修正。",
+                    adultStylePrompt: "自定义成人风格：强调温柔互动和关系变化。",
                 },
                 vars: createTestVariableAccessor(),
                 catalog: {profiles: [], issues: []},
@@ -821,6 +823,11 @@ describe("assets builtin v3 profiles", () => {
             expect(prepared.systemPrompt).toContain("正文用轻松、活泼的风格");
             expect(prepared.systemPrompt).toContain("测试参考正文：句子短促，节奏明快。");
             expect(prepared.systemPrompt).toContain("默认人称：第二人称");
+            expect(prepared.systemPrompt).toContain("自定义段落节奏：一拍一行。");
+            expect(prepared.systemPrompt).toContain("默认字数：3200-3600 字");
+            expect(prepared.systemPrompt).toContain("自定义润色流程：先按 stop-slop 检查，再逐句修正。");
+            expect(prepared.systemPrompt).toContain("<adult_style>");
+            expect(prepared.systemPrompt).toContain("自定义成人风格：强调温柔互动和关系变化。");
         } finally {
             await rm(referenceFile, {force: true});
         }
@@ -831,15 +838,34 @@ describe("assets builtin v3 profiles", () => {
             writingStylePreset: homeStyleKeyToLegacyKey(DEFAULT_WRITING_STYLE_PRESET),
             writingReferencePreset: homeReferenceKeyToLegacyKey(DEFAULT_WRITING_REFERENCE_PRESET),
             narrativePerson: "third",
+            paragraphRhythm: "短段分行。",
+            wordCountControl: "2000-2600 字",
+            polishingWorkflow: "使用 stop-slop。",
+            adultStylePrompt: "",
         }, {profileKey: "writer", scope: "global"});
         const homeKeyResult = await validateLowCodeFormValue(WriterSettingsForm, {
             writingStylePreset: DEFAULT_WRITING_STYLE_PRESET,
             writingReferencePreset: DEFAULT_WRITING_REFERENCE_PRESET,
             narrativePerson: "third",
+            paragraphRhythm: "短段分行。",
+            wordCountControl: "2000-2600 字",
+            polishingWorkflow: "使用 stop-slop。",
+            adultStylePrompt: "",
+        }, {profileKey: "writer", scope: "global"});
+        const legacyAdultStyleResult = await validateLowCodeFormValue(WriterSettingsForm, {
+            writingStylePreset: DEFAULT_WRITING_STYLE_PRESET,
+            writingReferencePreset: DEFAULT_WRITING_REFERENCE_PRESET,
+            narrativePerson: "third",
+            paragraphRhythm: "短段分行。",
+            wordCountControl: "2000-2600 字",
+            polishingWorkflow: "使用 stop-slop。",
+            adultStylePrompt: "",
+            enableKittenAdultStyle: true,
         }, {profileKey: "writer", scope: "global"});
 
         expect(legacyResult.issues).toEqual([]);
         expect(homeKeyResult.issues).toEqual([]);
+        expect(legacyAdultStyleResult.issues).toEqual([]);
     });
 
     it("leader.default settings 注入自定义槽位、人设和行为偏好", async () => {
@@ -1025,6 +1051,10 @@ function defaultWriterSettings() {
         writingStylePreset: DEFAULT_WRITING_STYLE_PRESET,
         writingReferencePreset: DEFAULT_WRITING_REFERENCE_PRESET,
         narrativePerson: "third" as const,
+        paragraphRhythm: "段落节奏偏短段分行，接近网络小说排版：一句话、一个动作节拍或一个情绪转折可以单独成段。",
+        wordCountControl: "2000-2600 字",
+        polishingWorkflow: "润色时使用 .nbook/agent/skills/stop-slop/SKILL.md 作为自查流程，并优先在原文基础上做最小必要修改。",
+        adultStylePrompt: "",
     };
 }
 

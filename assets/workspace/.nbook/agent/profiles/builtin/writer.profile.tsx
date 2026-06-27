@@ -14,7 +14,15 @@ import {defineLowCodeForm, profileHomeResource} from "nbook/server/low-code-form
 import {defineProfileHome} from "nbook/server/agent/profiles/profile-home";
 import {normalizeProjectPath, readProjectManifest} from "nbook/server/workspace-files/project-workspace";
 
-const ENABLE_KITTEN_ADULT_STYLE = false;
+const DEFAULT_PARAGRAPH_RHYTHM = "段落节奏偏短段分行，接近网络小说排版：一句话、一个动作节拍或一个情绪转折可以单独成段；不要为了凑短段打碎完整语义，场景描写、复杂动作和连续心理变化可以保留为较短自然段。";
+const DEFAULT_WORD_COUNT_CONTROL = "2000-2600 字";
+const DEFAULT_POLISHING_WORKFLOW = "润色时使用 .nbook/agent/skills/stop-slop/SKILL.md 作为自查流程，并优先在原文基础上做最小必要修改。不要输出 <refine> JSON，不把润色分析混进正文。";
+const DEFAULT_ADULT_STYLE_PROMPT = `- nsfw要注重色情，要有细节。五感上的色情特写以及语言上的低俗挑逗，用词直白（直接使用肉棒、鸡巴、小穴、逼、乳、奶子……等下流词汇）色情不避讳，最大化欲望与色情氛围。
+色情场景要细致，在没有用户的要求时，不应结束性爱，而是将回复停止在性爱中途
+- nsfw剧情要温柔！不许有任何粗暴、过度激烈的行为，生理反应要弱化，身体反弓剧烈颤抖尖叫痉挛是千万避免的禁止项。
+- 氛围保持温柔、亲密、尊重角色关系，不使用粗暴、过度激烈或破坏人设的表达。
+- 重点写角色互动、情绪推进和关系变化，避免把场景写成机械细节堆叠。
+- 成人场景也必须遵守 <char_performance> 与 <writing_style>，不能因为题材变化就丢掉角色逻辑、视角边界和文风禁用项。`;
 
 export const profileManifest = {
     key: "writer",
@@ -34,6 +42,11 @@ export const SettingsSchema = Type.Object({
         Type.Literal("second"),
         Type.Literal("third"),
     ]),
+    paragraphRhythm: Type.String(),
+    wordCountControl: Type.String(),
+    polishingWorkflow: Type.String(),
+    adultStylePrompt: Type.String(),
+    enableKittenAdultStyle: Type.Optional(Type.Boolean()),
 }, {additionalProperties: false});
 
 export type Initial = Static<typeof InitialSchema>;
@@ -47,6 +60,10 @@ export const WriterSettingsForm = defineLowCodeForm({
         writingStylePreset: DEFAULT_WRITING_STYLE_PRESET,
         writingReferencePreset: DEFAULT_WRITING_REFERENCE_PRESET,
         narrativePerson: "third",
+        paragraphRhythm: DEFAULT_PARAGRAPH_RHYTHM,
+        wordCountControl: DEFAULT_WORD_COUNT_CONTROL,
+        polishingWorkflow: DEFAULT_POLISHING_WORKFLOW,
+        adultStylePrompt: "",
     },
     fields: [
         {
@@ -80,6 +97,31 @@ export const WriterSettingsForm = defineLowCodeForm({
                 {value: "first", label: "第一人称"},
                 {value: "second", label: "第二人称"},
             ],
+        },
+        {
+            path: "paragraphRhythm",
+            component: "textarea",
+            label: "段落节奏",
+            rows: 4,
+            placeholder: "描述你偏好的长段、短段或分行节奏。",
+        },
+        {
+            path: "wordCountControl",
+            component: "text",
+            label: "字数控制",
+            placeholder: "例如：2000-2600 字",
+        },
+        {
+            path: "polishingWorkflow",
+            component: "text",
+            label: "润色工作流",
+            placeholder: "描述写完后如何复查和润色。",
+        },
+        {
+            path: "adultStylePrompt",
+            component: "text",
+            label: "成人风格增强",
+            placeholder: "留空则不注入；填写后作为成人场景写作约束注入。",
         },
     ],
     async validate(value, ctx) {
@@ -195,6 +237,7 @@ export async function buildWriterPrompt(ctx: ProfilePrepareContext<Initial, Payl
     const writingStyle = await buildWritingStyle({preset: ctx.settings.writingStylePreset, home: ctx.home});
     const writingReference = await buildWritingReference({preset: ctx.settings.writingReferencePreset, home: ctx.home});
     const narrativePerson = narrativePersonText(ctx.settings.narrativePerson);
+    const adultStylePrompt = ctx.settings.adultStylePrompt.trim() || (ctx.settings.enableKittenAdultStyle ? DEFAULT_ADULT_STYLE_PROMPT : "");
     const inputContext = await renderInputContext(ctx);
     return (
         <ProfilePrompt>
@@ -221,6 +264,7 @@ export async function buildWriterPrompt(ctx: ProfilePrepareContext<Initial, Payl
                         详细的输入契约和路径规则见 reference/agent/project-workspace-guide.md。
                         <hard_rules>
                             - 只根据已有设定、剧情点和明确要求写作，不新增超出任务范围的关键设定。
+                            - Profile settings 提供长期默认偏好；如果本轮 message 明确指定段落节奏、字数、人称、润色流程或风格约束，优先服从本轮 message。
                             - 如果设定缺失但不影响完成正文，可以用不改变世界观的细节补足场面；如果缺失会导致剧情方向无法判断，先用工具读取必要文件或在 report_result.result 里说明限制。
                             - 完成任务后必须调用 report_result 提交最终结果；调用 report_result 成功后对话会自动结束。
                             - report_result.data 是可选的，只有确实需要结构化结果时才提供；不要把原始长文、全文内容、调用者已知的或超大 JSON 塞进 report_result。
@@ -292,7 +336,7 @@ export async function buildWriterPrompt(ctx: ProfilePrepareContext<Initial, Payl
                     <writing_style>
                         ${writingStyle}
                     </writing_style>
-
+                    
                     <avoid_words>
                         禁止使用以下词汇：一丝、不容置疑、不易察觉、几不可察。
                         禁止使用以下句式：他没有……，而是……；不是……，而是……；与其说……不如说是……。
@@ -300,8 +344,14 @@ export async function buildWriterPrompt(ctx: ProfilePrepareContext<Initial, Payl
                     </avoid_words>
                     
                     <paragraph_rhythm>
-
+                        ${ctx.settings.paragraphRhythm}
                     </paragraph_rhythm>
+
+                    <word_count_control>
+                        默认字数：${ctx.settings.wordCountControl}。
+                        - 如果本轮 message 明确指定字数、篇幅或章节长度，优先服从本轮要求。
+                        - 如果材料不足以支撑默认字数，不要硬凑水分；写足必要剧情并在 report_result.result 说明。
+                    </word_count_control>
                     
                     <narrative_person>
                         默认人称：${narrativePerson}。
@@ -323,11 +373,7 @@ export async function buildWriterPrompt(ctx: ProfilePrepareContext<Initial, Payl
                     </markdown_dialect>
 
                     <polishing_workflow>
-                        润色优先在原文基础上改：
-                        - 目标文件已有正文 → 先 read，再用 edit 做最小必要修改
-                        - 本轮先 write 了新正文 → 复查后用 edit 逐处修正
-                        - 只给片段且没有 input.path → 通过 report_result.result 要求补充路径
-                        - 不输出 <refine> JSON，不把润色分析混进正文
+                        ${ctx.settings.polishingWorkflow}
                     </polishing_workflow>
 
                     <output_protocol>
@@ -338,15 +384,10 @@ export async function buildWriterPrompt(ctx: ProfilePrepareContext<Initial, Payl
                         - report_result.data：默认不填，除非调用方明确需要结构化结果
                     </output_protocol>
                     `}
-                    <If condition={ENABLE_KITTEN_ADULT_STYLE}>
+                    <If condition={adultStylePrompt.length > 0}>
                         {`
                         <adult_style>
-                            - nsfw要注重色情，要有细节。五感上的色情特写以及语言上的低俗挑逗，用词直白（直接使用肉棒、鸡巴、小穴、逼、乳、奶子……等下流词汇）色情不避讳，最大化欲望与色情氛围。
-色情场景要细致，在没有用户的要求时，不应结束性爱，而是将回复停止在性爱中途
-                            - nsfw剧情要温柔！不许有任何粗暴、过度激烈的行为，生理反应要弱化，身体反弓剧烈颤抖尖叫痉挛是千万避免的禁止项。
-                            - 氛围保持温柔、亲密、尊重角色关系，不使用粗暴、过度激烈或破坏人设的表达。
-                            - 重点写角色互动、情绪推进和关系变化，避免把场景写成机械细节堆叠。
-                            - 成人场景也必须遵守 <char_performance> 与 <writing_style>，不能因为题材变化就丢掉角色逻辑、视角边界和文风禁用项。
+                            ${adultStylePrompt}
                         </adult_style>
                         `}
                     </If>
@@ -357,10 +398,6 @@ export async function buildWriterPrompt(ctx: ProfilePrepareContext<Initial, Payl
                 <Message><Import path="reference/content/information-control.md" /></Message>
                 <Message><Import path="reference/world-engine/workflow.md" /></Message>
                 <Message><Import path="reference/agent/profile-context-memory.md" /></Message>
-                <Message><Import path="assets/workspace/.nbook/agent/skills/stop-slop/SKILL.md" /></Message>
-                <Message><Import path="assets/workspace/.nbook/agent/skills/stop-slop/references/examples.md" /></Message>
-                <Message><Import path="assets/workspace/.nbook/agent/skills/stop-slop/references/phrases.md" /></Message>
-                <Message><Import path="assets/workspace/.nbook/agent/skills/stop-slop/references/structures.md" /></Message>
                 <Message><Import path="assets/workspace/.nbook/agent/skills/novel-workflow-writer-execution/SKILL.md" /></Message>
                 <Message>{inputContext}</Message>
             </HistorySet>
