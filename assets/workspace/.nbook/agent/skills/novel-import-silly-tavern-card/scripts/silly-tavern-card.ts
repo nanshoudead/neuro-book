@@ -1061,8 +1061,8 @@ ${pendingEntries || "- none"}
 - Run \`workspace node validate\` on the affected lorebook roots above.
 - Review the classification queue before treating pending notes as canon.
 - Do not copy god-view worldbook content directly into \`simulation/subjects/*/memory.jsonl\`.
-- If the project needs RP or world simulation, use \`novel-workflow-05-emulation-bootstrap\` after reviewing this report.
-- If the user wants plot progression, use \`novel-workflow-06-emulation-tick\` after simulation is initialized.
+- For normal writing mode, initialize dynamic state with \`novel-workflow-world-engine-init\`, then use \`novel-workflow-08-plot-planning\` for plot/state progression.
+- Use \`novel-workflow-05-emulation-bootstrap\` or \`novel-workflow-06-emulation-tick\` only when the user explicitly wants RP / legacy simulation.
 `;
 }
 

@@ -10,7 +10,7 @@ import {profileText} from "nbook/server/agent/profiles/profile-text";
 export const profileManifest = {
     key: "world.engine",
     name: "世界引擎",
-    description: "世界引擎验证与维护 agent：使用 World Engine 2 工具（execute_world_query 只读查询 + write_world_slice 写入切面）管理 subject 与 slice、按时刻 reduce 世界状态，不接旧 simulation workflow。",
+    description: "世界引擎验证与维护 agent：使用 World Engine 查询、写入、删除工具管理 subject 与 slice、按时刻 reduce 世界状态，不接旧 simulation workflow。",
 } as const;
 
 export const InitialSchema = Type.Object({});
@@ -34,6 +34,7 @@ export default defineAgentProfile({
         builtin.agent.getSession,
         builtin.world.query,
         builtin.world.writeSlice,
+        builtin.world.deleteSlice,
     ),
     compaction: {},
     context(ctx) {
@@ -75,7 +76,7 @@ const WORLD_ENGINE_SYSTEM_PROMPT = profileText`
     # 工作方式
 
     - 每轮先确认 projectPath。工具都必须显式传 projectPath。
-    - 使用 2 个核心工具：(execute_world_query) 只读查询 + (write_world_slice) 写入切面。
+    - 使用 3 个核心工具：(execute_world_query) 只读查询 + (write_world_slice) 写入切面 + (delete_world_slice) 删除切面。
 
     ## 只读查询（execute_world_query）
 
@@ -104,8 +105,14 @@ const WORLD_ENGINE_SYSTEM_PROMPT = profileText`
     - 时间必须是项目日历字符串（如「星辉历312年 5月5日 14:00」），不要传 raw instant
     - 一个 slice = 一个 time + 一组 patches，原子写入。每条 patch：{ subjectId, path（JSON Pointer，如 /hp、/equipment/head）, op, value?, summary?, type?（仅首写）, name?（仅首写） }
     - 支持 4 种 op：replace（设绝对值）/ increment（数值增减）/ remove（移除路径；collection 可提供 value 按 stable JSON 值删除元素，list 不支持按值删）/ append（数组追加，collection/unique 数组自动去重）
-    - 同一时间点只能有一个 slice；目标时间已有切面时会冲突报错，改用相邻时间。本 agent 没有改/删切面的工具，不要假设能覆盖已有 slice
+    - 同一时间点只能有一个 slice；目标时间已有切面时会冲突报错，改用相邻时间，不要假设能覆盖已有 slice
     - 写入返回 issues：E（broken-relative / dangling-ref）是数据错误必须修；A（base-shifted / masked）是补过去时的提醒，确认语义即可
+
+    ## 删除切面（delete_world_slice）
+
+    - 物理删除，不可恢复；只用于剧情回退、修正错误切面或清理误写数据
+    - 必须先用 execute_world_query 的 world.slices() 获取 sliceId，再调用 delete_world_slice
+    - 删除后会重新 reduce 受影响 subject，并返回可能显形的 E issues
 
     # 边界
 

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import {computed} from "vue";
+import {computed, ref} from "vue";
 import {
     buildWorldWorkbenchSubjectFileProposals,
     worldWorkbenchIssueLevel,
@@ -16,7 +16,7 @@ import type {
     WorldWorkbenchPreviewSubjectSystemSummary,
 } from "nbook/app/components/novel-ide/world-engine/workbench-preview/world-engine-workbench-preview.types";
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
     slice: WorldWorkbenchPreviewSlice;
     subjects: WorldWorkbenchPreviewSubject[];
     focusedSubjectId: string;
@@ -28,7 +28,10 @@ const props = defineProps<{
     metadataDraftCount: number;
     metadataDraftSummary?: WorldWorkbenchPreviewMetadataDraftSummary;
     valueDraftCount: number;
-}>();
+    layoutCols?: "single" | "double";
+}>(), {
+    layoutCols: "single",
+});
 
 const emit = defineEmits<{
     (e: "select", sliceId: string): void;
@@ -117,6 +120,16 @@ const patchGroups = computed<WorldWorkbenchPreviewSubjectGroup[]>(() => {
     return [...groups.values()];
 });
 
+const expandedSubjectIds = ref<Record<string, boolean>>({});
+
+function isSubjectExpanded(subjectId: string): boolean {
+    return !!expandedSubjectIds.value[subjectId];
+}
+
+function toggleSubjectExpanded(subjectId: string): void {
+    expandedSubjectIds.value[subjectId] = !expandedSubjectIds.value[subjectId];
+}
+
 /** patch op 的人话标签。 */
 function opLabel(op: string): string {
     return opLabels[op] ?? op;
@@ -124,11 +137,17 @@ function opLabel(op: string): string {
 
 /** 主画布每个 subject 只展示前几条 patch，完整编辑留给底部审查工作台。 */
 function visiblePatches(group: WorldWorkbenchPreviewSubjectGroup): WorldWorkbenchPreviewSubjectGroup["mutations"] {
+    if (isSubjectExpanded(group.subjectId)) {
+        return group.mutations;
+    }
     return group.mutations.slice(0, maxVisiblePatchesPerSubject);
 }
 
 /** 当前 subject group 被折叠的 patch 数。 */
 function hiddenPatchCount(group: WorldWorkbenchPreviewSubjectGroup): number {
+    if (isSubjectExpanded(group.subjectId)) {
+        return 0;
+    }
     return Math.max(0, group.mutations.length - maxVisiblePatchesPerSubject);
 }
 
@@ -218,17 +237,13 @@ function issueStatusClass(status: WorldWorkbenchPreviewReviewQueueItem["status"]
         @keydown.space.stop="selectSliceByKeyboard"
     >
         <div class="grid gap-3 p-3 xl:grid-cols-[184px_minmax(0,1fr)]">
-            <div class="border-b border-[var(--we-border)] pb-3 xl:border-b-0 xl:border-r xl:pb-0 xl:pr-3">
+            <div class="flex flex-col gap-1.5 border-b border-[var(--we-border)] pb-3 xl:border-b-0 xl:border-r xl:pb-0 xl:pr-3">
                 <div class="font-mono text-[12px] font-semibold leading-5 text-[var(--we-text-main)]">{{ displayTime }}</div>
-                <div class="mt-2 inline-flex max-w-full rounded-md border border-[var(--we-border)] bg-[var(--we-code-bg)] px-2 py-1 font-mono text-[11px] text-[var(--we-code-text)]">
-                    <span class="truncate">{{ displayKind }}</span>
+                <div class="flex items-center gap-1.5">
+                    <span class="inline-flex max-w-full rounded bg-[var(--we-bg-muted)] px-1.5 py-0.5 font-mono text-[10px] font-medium text-[var(--we-text-secondary)]">{{ displayKind }}</span>
+                    <span class="font-mono text-[10px] text-[var(--we-text-muted)]" :title="props.slice.id">#{{ props.slice.id.slice(0, 8) }}</span>
                 </div>
-                <div class="mt-2 truncate font-mono text-[10px] text-[var(--we-text-muted)]">{{ props.slice.id }}</div>
-                <div v-if="hasMetadataDraft" class="mt-2 rounded-md border border-amber-300 bg-[var(--we-warning-soft)] px-2 py-1 text-[10px] leading-4 text-[var(--we-warning)]" :title="`已应用：${props.slice.time} · ${props.slice.kind} · ${props.slice.title || props.slice.id}`">
-                    draft preview
-                    <span v-if="metadataDraftDiffLabel" class="font-mono">· {{ metadataDraftDiffLabel }}</span>
-                </div>
-                <div class="mt-3 line-clamp-4 text-[12px] leading-5 text-[var(--we-text-secondary)]">{{ displaySummary }}</div>
+                <div v-if="displaySummary" class="mt-2 line-clamp-4 text-[11px] leading-relaxed text-[var(--we-text-secondary)]" :title="displaySummary">{{ displaySummary }}</div>
             </div>
 
             <div class="min-w-0">
@@ -268,17 +283,17 @@ function issueStatusClass(status: WorldWorkbenchPreviewReviewQueueItem["status"]
                             </div>
                         </div>
                     </div>
-                    <div class="flex shrink-0 items-center gap-1 rounded-md border border-[var(--we-border)] bg-[var(--we-bg-subtle)] p-0.5">
-                        <button type="button" class="inline-flex h-7 w-7 items-center justify-center rounded text-[var(--we-text-muted)] transition-colors hover:bg-[var(--we-bg-hover)] hover:text-[var(--we-text-main)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--we-accent-border)]" title="在此 Slice 之前插入新 Slice" aria-label="在此 Slice 之前插入新 Slice" @click.stop="insertSliceBefore">
-                            <span class="i-lucide-arrow-up-to-line h-3.5 w-3.5"></span>
+                    <div class="flex shrink-0 items-center gap-0.5 rounded-md border border-[var(--we-border)] bg-[var(--we-bg-subtle)] p-0.5">
+                        <button type="button" class="inline-flex h-6 w-6 items-center justify-center rounded text-[var(--we-text-muted)] transition-colors hover:bg-[var(--we-bg-hover)] hover:text-[var(--we-text-main)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--we-accent-border)]" title="在此 Slice 之前插入新 Slice" aria-label="在此 Slice 之前插入新 Slice" @click.stop="insertSliceBefore">
+                            <span class="i-lucide-arrow-up-to-line h-3 w-3"></span>
                         </button>
-                        <button type="button" class="inline-flex h-7 w-7 items-center justify-center rounded text-[var(--we-text-muted)] transition-colors hover:bg-[var(--we-bg-hover)] hover:text-[var(--we-text-main)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--we-accent-border)]" title="在此 Slice 之后插入新 Slice" aria-label="在此 Slice 之后插入新 Slice" @click.stop="insertSliceAfter">
-                            <span class="i-lucide-arrow-down-to-line h-3.5 w-3.5"></span>
+                        <button type="button" class="inline-flex h-6 w-6 items-center justify-center rounded text-[var(--we-text-muted)] transition-colors hover:bg-[var(--we-bg-hover)] hover:text-[var(--we-text-main)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--we-accent-border)]" title="在此 Slice 之后插入新 Slice" aria-label="在此 Slice 之后插入新 Slice" @click.stop="insertSliceAfter">
+                            <span class="i-lucide-arrow-down-to-line h-3 w-3"></span>
                         </button>
                     </div>
                 </div>
 
-                <div class="mt-3 grid gap-2 2xl:grid-cols-2">
+                <div class="mt-3 grid gap-2" :class="props.layoutCols === 'double' ? '2xl:grid-cols-2' : 'grid-cols-1'">
                     <div
                         v-for="group in patchGroups"
                         :key="`${props.slice.id}:${group.subjectId}`"
@@ -291,26 +306,40 @@ function issueStatusClass(status: WorldWorkbenchPreviewReviewQueueItem["status"]
                         @keydown.enter.stop.prevent="focusSubject(group.subjectId)"
                         @keydown.space.stop.prevent="focusSubject(group.subjectId)"
                     >
-                        <div class="flex items-center justify-between gap-2 border-b border-[var(--we-border)] px-2.5 py-1.5">
-                            <div class="min-w-0">
-                                <span class="text-[12px] font-semibold text-[var(--we-text-main)]">{{ group.subject?.name || group.subjectId }}</span>
-                                <span class="ml-2 font-mono text-[10px] text-[var(--we-text-muted)]">{{ group.subjectId }} · {{ group.subject?.type ?? "unknown" }}</span>
+                        <div class="flex items-center justify-between gap-2 border-b border-[var(--we-border)] bg-[var(--we-bg-subtle)] px-2.5 py-1.5">
+                            <div class="flex min-w-0 items-center gap-2">
+                                <span class="text-[12px] font-bold text-[var(--we-text-main)]">{{ group.subject?.name || group.subjectId }}</span>
+                                <span class="rounded bg-[var(--we-bg-muted)] px-1.5 py-0.5 font-mono text-[9px] font-semibold uppercase tracking-wider text-[var(--we-text-secondary)]">{{ group.subject?.type ?? "unknown" }}</span>
+                                <span class="font-mono text-[10px] text-[var(--we-text-muted)]" :title="group.subjectId">({{ group.subjectId.slice(0, 8) }})</span>
                             </div>
                         </div>
                         <div class="divide-y divide-[var(--we-border)]">
                             <div
                                 v-for="mutation in visiblePatches(group)"
                                 :key="`${mutation.subjectId}:${mutation.path}:${mutation.op}:${mutation.summary ?? ''}`"
-                                class="grid grid-cols-[minmax(88px,0.56fr)_44px_minmax(96px,0.72fr)_minmax(0,1.65fr)] gap-1 px-2.5 py-1.5 text-[11px]"
+                                class="grid grid-cols-[minmax(88px,0.56fr)_44px_minmax(96px,1.65fr)_minmax(0,0.72fr)] gap-1 px-2.5 py-1.5 text-[11px]"
                             >
                                 <span class="min-w-0 truncate font-mono text-[var(--we-code-text)]">{{ mutation.path }}</span>
                                 <span class="min-w-0 truncate text-[var(--we-accent-strong)]">{{ opLabel(mutation.op) }}</span>
                                 <span class="min-w-0 truncate font-mono text-[var(--we-code-text)]" :title="patchValueLabel(mutation)">{{ patchValueLabel(mutation) }}</span>
                                 <span class="min-w-0 truncate text-[var(--we-text-secondary)]" :title="mutation.summary ?? ''">{{ mutation.summary ?? "" }}</span>
                             </div>
-                            <div v-if="hiddenPatchCount(group)" class="px-2.5 py-1.5 text-[11px] font-medium text-[var(--we-text-muted)]">
-                                +{{ hiddenPatchCount(group) }} patches
-                            </div>
+                            <button
+                                v-if="hiddenPatchCount(group)"
+                                type="button"
+                                class="w-full text-left px-2.5 py-1.5 text-[11px] font-medium text-[var(--we-text-muted)] hover:bg-[var(--we-bg-hover)] hover:text-[var(--we-text-main)] transition-colors"
+                                @click.stop="toggleSubjectExpanded(group.subjectId)"
+                            >
+                                +{{ hiddenPatchCount(group) }} patches (点击展开)
+                            </button>
+                            <button
+                                v-if="isSubjectExpanded(group.subjectId) && group.mutations.length > maxVisiblePatchesPerSubject"
+                                type="button"
+                                class="w-full text-left px-2.5 py-1.5 text-[11px] font-medium text-[var(--we-text-muted)] hover:bg-[var(--we-bg-hover)] hover:text-[var(--we-text-main)] transition-colors"
+                                @click.stop="toggleSubjectExpanded(group.subjectId)"
+                            >
+                                收起
+                            </button>
                         </div>
                     </div>
                 </div>

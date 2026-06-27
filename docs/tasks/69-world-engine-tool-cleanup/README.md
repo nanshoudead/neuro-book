@@ -111,6 +111,20 @@
 - 仍能搜索到的 `WorldMutation` / `mutations` 命名主要来自前端 Preview / Workbench 的历史 UI draft 名称、旧任务记录、归档 workflow 与本任务说明。前端 `WorldEngine*Mutation*` 组件大规模改名已按本任务决策留作后续，不代表旧写入协议仍可用。
 - 仍能搜索到的 `getWorldState`、`listWorldSubjects`、`codePath` 主要来自旧任务文档、归档文档或本任务的历史背景说明。稳定 reference 与 `PROJECT-STATUS.md` 已记录新契约：`queryState` 内部可全量，公开 `POST /state/query` 仍需 `subjectIds` 或 `type` 收窄，`execute_world_query` 只接受 inline `code`。
 
+## Follow-up Update（delete_world_slice + summary / 2026-06-27）
+
+- Agent 工具新增 `delete_world_slice`：输入 `projectPath` 与 `sliceId`，直调 `worldEngineFacade.deleteSlice(projectPath, sliceId)`，只返回 `{issues}`；slice 不存在时抛出明确的友好错误，提示 `sliceId` 不存在或已删除。
+- 工具注册已同步到 `server/agent/tools/index.ts` 与 `server/agent/profiles/profile-tools.ts`；`leader.default` 与 `world.engine` profile 可见该工具，`writer` 仍保持 World Engine 只读边界。
+- profile 文案已从“两工具 / 无删除工具”收口到当前三工具契约：删除是物理删除、不可恢复，只用于剧情回退或修正错误切面，必须先用 `execute_world_query` 的 `world.slices()` 获取 `sliceId`。
+- `summary` 保持当前非 nullable 契约：`WorldSlice.summary` 为必有字符串，DB schema 继续使用 `String @default("")`，HTTP/API/Agent 写入与读取测试覆盖带 summary 的 slice；未引入 `null`。
+- 为旧 Project SQLite 增加幂等补列：缺少 `WorldSlice.summary` 时自动执行 `ALTER TABLE "WorldSlice" ADD COLUMN "summary" TEXT NOT NULL DEFAULT ''`。
+- profile 测试同步当前契约：`leader.default` settings 缺省值不再因空 settings 崩溃；默认 persona 使用 `personas/caihui-lite.md`；writer payload 继续只注入目标文件、`lorebookEntries` 和 `readablePaths`，不注入旧 Plot IDs。
+- 验证结果：
+  - `bun test C:/Users/notnotype/Documents/CodeRepository/GithubProjects/neuro-book/server/agent/tools/world-engine-tools.test.ts C:/Users/notnotype/Documents/CodeRepository/GithubProjects/neuro-book/server/agent/tools/builtin-tools-smoke.test.ts`：13 pass。
+  - `bun test C:/Users/notnotype/Documents/CodeRepository/GithubProjects/neuro-book/server/world-engine/world-engine.facade.test.ts C:/Users/notnotype/Documents/CodeRepository/GithubProjects/neuro-book/server/api/projects/world-engine/[...segments].test.ts`：15 pass。
+  - `bun test C:/Users/notnotype/Documents/CodeRepository/GithubProjects/neuro-book/server/agent/profiles/world-engine-profile.test.ts C:/Users/notnotype/Documents/CodeRepository/GithubProjects/neuro-book/server/agent/profiles/leader-assets-profile.test.ts`：16 pass。
+  - `bun run typecheck`：通过。
+
 ## TODO / Follow-ups
 
 - [ ] 前端 `WorldEngine*Mutation*Editor/Builder.vue` 等 UI 命名统一为 Patch + 清理可能的 mock/preview 死代码（单独一轮）。

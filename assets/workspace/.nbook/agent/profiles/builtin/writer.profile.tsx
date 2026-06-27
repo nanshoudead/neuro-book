@@ -239,7 +239,7 @@ export async function buildWriterPrompt(ctx: ProfilePrepareContext<Initial, Payl
 
                     <tool_permissions>
                         Writer 拥有以下工具：
-                        - **read / write / edit / apply_patch**：文件操作
+                        - **read / write / edit**：文件操作
                         - **bash**：执行 CLI 工具（如 anti-ai-slop checker）
                         - **execute_world_query**：World Engine 只读查询（CodeAct 沙盒）
                         - **report_result**：提交最终结果

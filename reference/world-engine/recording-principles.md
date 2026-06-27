@@ -221,6 +221,6 @@ write_world_slice({
 
 - **第一版不接旧 simulation workflow，也不依赖 Plot 系统**。记录世界状态只用 World Engine 工具（`execute_world_query` 查询 + `write_world_slice` 写入），不要为了记录状态去调 plot / simulation 工具。
 - **patch 不存旧值，后端不自动改写后续切片**。声明式的 patch 序列是唯一真相源，状态永远由 reduce 得来；补过去时要意识到这一点，必要的下游影响由 issues 提醒。
-- **同一 instant 只能有一个切片**。目标时间点已存在切片时，`write_world_slice` 会冲突报错。Agent 没有改/删已有切片的工具（编辑/删除只在 Workbench HTTP 层），所以同一时刻要补内容时改用相邻时间点写入，不要假设能覆盖已有切片。
+- **同一 instant 只能有一个切片**。目标时间点已存在切片时，`write_world_slice` 会冲突报错。Agent 没有编辑已有切片的工具，所以同一时刻要补内容时改用相邻时间点写入，不要假设能覆盖已有切片；确实误写时可先用 `world.slices()` 找到 `sliceId`，再用 `delete_world_slice` 物理删除错误切片。
 - **issues 分两类，处理方式不同**。E issues（`broken-relative` / `dangling-ref`）是持久的数据错误，必须修；A issues（`base-shifted` / `masked`）是补过去时的一次性提醒，确认本次修改的语义符合预期即可，不落库。
 - **writer 对 World Engine 只读**。writer 拥有 `execute_world_query` 的查询能力用于读取世界状态，但不能写入；所有切片记录由 leader 负责。

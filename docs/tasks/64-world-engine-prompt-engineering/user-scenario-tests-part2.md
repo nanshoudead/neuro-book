@@ -3,6 +3,8 @@
 > 创建日期：2026-06-22
 > 来源：Task 64 用户体验设计讨论（续）
 
+> Legacy note：本文保留 Writer 协作早期草案，示例里仍可能出现 `get_world_state`、`list_world_slices`、`mutations` 等旧协议。当前实现以 `reference/world-engine/api-migration-zod.md`、`novel-workflow-08-plot-planning` 和 `novel-workflow-09-chapter-writing` 为准：writer 通过 `execute_world_query` 只读查询，leader 用 `write_world_slice` 的 `patches` 写入状态。
+
 本文档是 [user-scenario-tests.md](user-scenario-tests.md) 的续篇，专注于 Writer 协作场景。
 
 ---

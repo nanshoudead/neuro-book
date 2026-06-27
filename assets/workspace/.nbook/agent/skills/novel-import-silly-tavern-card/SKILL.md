@@ -44,7 +44,7 @@ bun assets/workspace/.nbook/agent/skills/novel-import-silly-tavern-card/scripts/
 3. 运行 `unpack`。生成 `reference/silly-tavern/{slug}/`，保存 raw card、inspect.json、overview、card-body、worldbook entries、regex scripts、Tavern Helper 脚本和变量，以及 unpack report。
 4. 运行 `import`。从解包目录重新分类 worldbook，避免旧 inspect 结果过期；稳定条目写入 `lorebook/`，动态条目写入 `dynamic-worldbook/`，低置信和混合职责条目写入 report / pending note。
 5. 如用户需要 RP 或世界模拟，加 `--rp` 生成 `reference/silly-tavern/{slug}/simulation-migration/`。它只包含 simulator、writer、subject、entity 和 unsupported runtime 的迁移候选，不初始化运行态。
-6. 导入后阅读 `import-report.md`。先 review classification queue，再根据需要执行 `workspace node validate`、`novel-workflow-05-emulation-bootstrap` 或 `novel-workflow-06-emulation-tick`。
+6. 导入后阅读 `import-report.md`。先 review classification queue，再根据需要执行 `workspace node validate`。普通写作模式需要追踪时间线时，进入 `novel-workflow-world-engine-init` 和 `novel-workflow-08-plot-planning`；只有用户明确要 RP / legacy simulation 时，才使用 `novel-workflow-05-emulation-bootstrap` 或 `novel-workflow-06-emulation-tick`。
 
 ## Classification Targets
 
@@ -75,10 +75,11 @@ bun assets/workspace/.nbook/agent/skills/novel-import-silly-tavern-card/scripts/
 - `Dynamic Migration Summary`: 动态机制规模。
 - `Classification Review Queue`: 不应自动拆分或需要人工判断的条目。
 - `Pending Lorebook Notes`: 已落到 `lorebook/note` 但不可直接当 canon 的条目。
-- `Recommended Next Steps`: 下一步 validate、review、emulation bootstrap 或 tick。
+- `Recommended Next Steps`: 下一步 validate、review、World Engine 初始化 / 剧情推进，或明确 RP 时的 legacy simulation。
 
 ## Follow-up Skills
 
-- 需要初始化世界运行态时，使用 `novel-workflow-05-emulation-bootstrap`。
-- 需要推进一个世界模拟 tick 时，使用 `novel-workflow-06-emulation-tick`。
+- 普通写作模式需要初始化动态状态时，使用 `novel-workflow-world-engine-init`。
+- 普通写作模式需要推进剧情状态时，使用 `novel-workflow-08-plot-planning`。
+- 用户明确要求 RP / legacy simulation 时，才使用 `novel-workflow-05-emulation-bootstrap` 或 `novel-workflow-06-emulation-tick`。
 - 需要正式章节正文时，使用 `novel-workflow-09-chapter-writing` 或普通 `writer`。

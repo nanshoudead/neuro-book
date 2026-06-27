@@ -28,7 +28,7 @@ ext: {}
 
 ## 基本结构
 
-每个 profile 有一个子目录（如 `rp.leader/`、`rp.writer/`、`simulator.leader/`），包含三个标准文件：`context.md`（Agent 自主维护）、`memory.md`（跨 session 记忆）、`generated.md`（程序生成推荐）。
+每个 profile 可按需拥有一个子目录（如 `leader.default/`、`writer/`），包含三个标准文件：`context.md`（Agent 自主维护）、`memory.md`（跨 session 记忆）、`generated.md`（程序生成推荐）。普通写作模式默认不创建 RP / simulator / director 上下文目录；需要 RP 或 legacy simulation 时使用专用模板或手工迁移。
 
 ## 相关文档
 

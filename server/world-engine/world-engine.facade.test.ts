@@ -26,6 +26,7 @@ describe("WorldEngineFacade", () => {
         const result = await facade.writeSlice(projectPath, {
             instant: 10n,
             title: "艾莉娜登场",
+            summary: "艾莉娜在祭坛醒来并拿到旧剑",
             patches: [
                 {subjectId: "old-sword", type: "item", name: "旧剑", path: "/durability", op: "replace", value: 80},
                 {subjectId: "erina", type: "character", name: "艾莉娜", path: "/hp", op: "increment", value: -20},
@@ -35,8 +36,12 @@ describe("WorldEngineFacade", () => {
         });
         const state = await facade.queryState(projectPath, {subjectIds: ["erina"], attrs: ["hp", "events", "inventory"]});
         const subjects = await facade.listSubjects(projectPath);
+        const slice = await facade.getSlice(projectPath, result.sliceId);
+        const slices = await facade.listSlices(projectPath);
 
         expect(result.issues).toEqual([]);
+        expect(slice.summary).toBe("艾莉娜在祭坛醒来并拿到旧剑");
+        expect(slices.find((item) => item.id === result.sliceId)?.summary).toBe("艾莉娜在祭坛醒来并拿到旧剑");
         expect(subjects).toEqual(expect.arrayContaining([
             {id: "erina", type: "character", name: "艾莉娜"},
             {id: "old-sword", type: "item", name: "旧剑"},

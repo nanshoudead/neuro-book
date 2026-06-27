@@ -46,10 +46,12 @@ describe("/api/projects/world-engine", () => {
         const first = await callApi(handler, projectPath, "POST", "slices", {
             time: "复兴纪元1日 00:00:10",
             title: "艾莉娜登场",
+            summary: "初始体力记录",
             patches: [
                 {subjectId: "erina", type: "character", name: "艾莉娜", path: "/hp", op: "replace", value: 100},
             ],
         });
+        const createdSlice = await callApi(handler, projectPath, "GET", `slices/${readSliceId(first)}`);
         const second = await callApi(handler, projectPath, "POST", "slices", {
             time: "复兴纪元1日 00:00:20",
             title: "受伤",
@@ -58,17 +60,22 @@ describe("/api/projects/world-engine", () => {
         const edited = await callApi(handler, projectPath, "POST", `slices/${readSliceId(first)}/edit`, {
             time: "复兴纪元1日 00:00:10",
             title: "体力修正",
+            summary: "体力修正摘要",
             patches: [{subjectId: "erina", path: "/hp", op: "replace", value: 80}],
         });
         const queried = await callApi(handler, projectPath, "POST", "state/query", {subjectIds: ["erina"], attrs: ["hp"]});
         const full = await callApi(handler, projectPath, "GET", "state");
         const slices = await callApi(handler, projectPath, "GET", "slices", undefined, {withPatches: "true"});
+        const singleSlice = await callApi(handler, projectPath, "GET", `slices/${readSliceId(first)}`);
         await callApi(handler, projectPath, "POST", `slices/${readSliceId(second)}/delete`);
         const afterDelete = await callApi(handler, projectPath, "POST", "state/query", {subjectIds: ["erina"], attrs: ["hp"]});
 
         expect(edited).toMatchObject({issues: [expect.objectContaining({code: "base-shifted", subjectId: "erina", attr: "hp"})]});
+        expect(createdSlice).toMatchObject({title: "艾莉娜登场", summary: "初始体力记录"});
         expect(readSubjectState(queried, "erina").attrs.hp).toBe(70);
         expect(readSubjectState(full, "erina").attrs.hp).toBe(70);
+        expect(readSlices(slices)[0]).toMatchObject({title: "体力修正", summary: "体力修正摘要"});
+        expect(singleSlice).toMatchObject({title: "体力修正", summary: "体力修正摘要"});
         expect(readSlices(slices)[0]?.patches?.[0]).toMatchObject({subjectId: "erina", path: "/hp", op: "replace"});
         expect(readSubjectState(afterDelete, "erina").attrs.hp).toBe(80);
     });
@@ -196,9 +203,9 @@ function readSubjects(input: unknown): Array<{subjectId: string; attrs: Record<s
     throw new Error("测试没有拿到 subjects");
 }
 
-function readSlices(input: unknown): Array<{title: string; patches?: Array<{subjectId: string; path: string; op: string}>}> {
+function readSlices(input: unknown): Array<{title: string; summary: string; patches?: Array<{subjectId: string; path: string; op: string}>}> {
     if (Array.isArray(input)) {
-        return input as Array<{title: string; patches?: Array<{subjectId: string; path: string; op: string}>}>;
+        return input as Array<{title: string; summary: string; patches?: Array<{subjectId: string; path: string; op: string}>}>;
     }
     throw new Error("测试没有拿到 slices");
 }

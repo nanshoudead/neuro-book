@@ -11,6 +11,8 @@ when_to_use:
 
 本 skill 指导 leader 调用普通 `writer` profile，把设计好的章节写成正文。原理见 `reference/world-engine/workflow.md` 第 6 节 Leader-Writer 协作；本文只讲操作流程。
 
+`09` 不负责重新设计剧情。默认前提是本章剧情事实已经在 `novel-workflow-08-plot-planning` 中由用户确认，并且涉及的状态变化已经推进进 World Engine。若用户只是说“写这一章”但剧情事实、时间范围、参与角色或结尾位置还没确认，先回 `08` 讨论和推进状态，再回来调用 writer。
+
 核心契约：**writer 对 World Engine 只读**。所以协作围绕"写作前 leader 已经把世界状态推进好"展开——leader 先演化世界、设计剧情，再调用 writer；writer 自己查询 World Engine 写正文。
 
 ## 前置检查
@@ -20,11 +22,12 @@ when_to_use:
 - 当前 Project Workspace 明确。
 - 目标章节内容节点存在，例如 `project-slug/manuscript/001-volume/001-chapter/`，其中 `index.md` 是写入目标。**若目标章节节点还不存在（新用户写第一章时常如此），先用 `workspace node new <project-slug>/manuscript/NNN-volume --type volume` 建卷，再用 `workspace node new <project-slug>/manuscript/NNN-volume/NNN-chapter --type chapter` 建章节，再继续。**
 - World Engine 已初始化（有 calendar、纪元锚点、需追踪的角色 subject）。**若未初始化，先用 `novel-workflow-world-engine-init` 把 World Engine 建好，再回来写章节。**
+- 本章剧情事实已经确认，且通常已由 `novel-workflow-08-plot-planning` 写入 World Engine。若还没有确认，不要在本流程里替用户临时定稿。
 - 需要设定上下文时，已确定要建议 writer 读取的 lorebook 内容节点 path。
 
 ## 第一步：写作前先推进 World Engine（关键）
 
-**世界状态先行。** 在调用 writer 之前，leader 先把本章要发生的剧情事件，按时间顺序用 `write_world_slice` 写入 World Engine（解封、交流、追入、对峙……）。这样 writer 查到的永远是已推进到位的一致状态，而不是滞后于正文的旧状态。
+**世界状态先行。** 在调用 writer 之前，leader 先确认本章要发生的剧情事件已经按时间顺序写入 World Engine（解封、交流、追入、对峙……）。如果 `08` 已经推进过，只需用 `execute_world_query` 抽查相关 subject 和时间范围；如果还没推进，先回 `08` 完成剧情事实确认与状态写入，不要在 `09` 里边设计边写。
 
 推进时遵循**最少支持当前叙事**原则（详见 `reference/world-engine/recording-principles.md`）：
 
@@ -35,8 +38,8 @@ when_to_use:
 
 操作边界（详见 `reference/world-engine/calendar-system.md` 与 `subject-lifecycle.md`）：
 
-- 时间一律用项目日历字符串（第一版月份是数字，如「星辉历312年 5月5日 14:00」），禁止 raw instant。
-- 同一 instant 只能有一个切面；**Agent 没有改/删已有切面的工具**，目标时刻已存在切面时会冲突报错，改用相邻时间点写入，不要试图覆盖（编辑/删除切面只在 Workbench HTTP 层可用）。
+- 时间一律用项目 `world-engine/calendar.ts` 能 parse 的日历字符串。Simple Calendar 若配置了 `cycleNames` / `monthName`，可使用月份名；否则使用数字月份。禁止 raw instant。
+- 同一 instant 只能有一个切面；目标时刻已存在切面时会冲突报错，优先改用相邻时间点写入。明确是误写或需要剧情回退时，先用 `execute_world_query` 的 `world.slices()` 取得 `sliceId`，再用 `delete_world_slice` 物理删除后重写；不要假设可以覆盖已有切面。
 - 写完后检查返回的 issues：E issues（`broken-relative` / `dangling-ref`）必须修；A issues（`base-shifted` / `masked`）确认本次语义符合预期即可，不落库。
 - 对用户用人话解释做了什么（"我把这段剧情记到时间线里了"），不抛 slice / mutation / op 这些术语。
 

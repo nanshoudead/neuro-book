@@ -13,13 +13,14 @@ describe("writer.profile", () => {
         expect(toolKeys).toContain("bash");
     });
 
-    test("profile has all required plot tools", () => {
+    test("profile has World Engine read-only query tool and no Plot tools", () => {
         const toolKeys = writerProfile.rootToolKeys;
 
-        expect(toolKeys).toContain("get_story_thread");
-        expect(toolKeys).toContain("get_story_scene_context");
-        expect(toolKeys).toContain("get_story_plot_context");
-        expect(toolKeys).toContain("get_chapter_plot");
+        expect(toolKeys).toContain("execute_world_query");
+        expect(toolKeys).not.toContain("get_story_thread");
+        expect(toolKeys).not.toContain("get_story_scene_context");
+        expect(toolKeys).not.toContain("get_story_plot_context");
+        expect(toolKeys).not.toContain("get_chapter_plot");
     });
 
     test("profile has file tools", () => {
@@ -28,6 +29,7 @@ describe("writer.profile", () => {
         expect(toolKeys).toContain("read");
         expect(toolKeys).toContain("write");
         expect(toolKeys).toContain("edit");
+        expect(toolKeys).not.toContain("apply_patch");
     });
 
     test("profile schemas are defined", () => {

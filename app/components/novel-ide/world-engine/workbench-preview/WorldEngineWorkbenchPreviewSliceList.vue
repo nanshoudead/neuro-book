@@ -88,6 +88,12 @@ const scrollerRef = ref<HTMLElement | null>(null);
 const showMaintenanceSlices = ref(false);
 const {t} = useI18n();
 
+const layoutCols = ref<"single" | "double">("single");
+const layoutOptions = computed<SegmentedControlOption[]>(() => [
+    { value: "single", label: "单列", iconClass: "i-lucide-list", disabled: props.busy },
+    { value: "double", label: "双列", iconClass: "i-lucide-layout-grid", disabled: props.busy }
+]);
+
 const browsableSlices = computed(() => props.slices.filter((slice) => showMaintenanceSlices.value || !isWorldWorkbenchSubjectSystemMaintenanceSlice(slice)));
 const hiddenMaintenanceSliceCount = computed(() => props.slices.length - browsableSlices.value.length);
 const filteredSlices = computed(() => {
@@ -621,6 +627,11 @@ watch(() => props.resetKey, () => {
                     <span class="px-1 font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--we-text-muted)]">status</span>
                     <SegmentedControl :model-value="props.sliceHealthFilter" :options="statusFilterOptions" @update:model-value="updateSliceHealthFilter" />
                 </div>
+                <div class="h-5 w-px bg-[var(--we-border)]"></div>
+                <div class="flex min-w-0 flex-wrap items-center gap-1">
+                    <span class="px-1 font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--we-text-muted)]">layout</span>
+                    <SegmentedControl :model-value="layoutCols" :options="layoutOptions" tone="accent" @update:model-value="layoutCols = $event as 'single' | 'double'" />
+                </div>
                 <button v-if="props.sliceKindFilter !== 'all' || props.sliceHealthFilter !== 'all'" type="button" class="ml-auto inline-flex h-7 items-center gap-1 rounded-md border border-[var(--we-border)] bg-[var(--we-bg-panel)] px-2 text-[11px] text-[var(--we-text-secondary)] transition-colors hover:bg-[var(--we-bg-hover)] hover:text-[var(--we-text-main)] disabled:opacity-45" :disabled="props.busy" title="清空 kind / status 过滤" @click="clearKindAndHealthFilters">
                     <span class="i-lucide-rotate-ccw h-3.5 w-3.5"></span>
                     清空
@@ -676,6 +687,7 @@ watch(() => props.resetKey, () => {
                         :metadata-draft-count="metadataDraftCountMap.get(slice.id) ?? 0"
                         :metadata-draft-summary="metadataDraftSummaryMap.get(slice.id)"
                         :value-draft-count="valueDraftCountMap.get(slice.id) ?? 0"
+                        :layout-cols="layoutCols"
                         @filter-subject="emit('filterSubject', $event)"
                         @focus-subject="emit('focusSubject', $event)"
                         @focus-review-issue="emit('focusReviewIssue', $event)"

@@ -2,6 +2,8 @@
 
 > 创建日期：2026-06-22
 
+> Legacy note：本文是 Task 64 早期初始化需求草案，部分段落仍以 `schema.yaml` 和旧多工具 API 表述。当前实现以 `reference/world-engine/api-migration-zod.md` 与 `novel-workflow-world-engine-init` 为准：schema 真相源是 `world-engine/schema/index.ts`，subject 首次写入由 `write_world_slice` 的 patch `type` 自动创建。
+
 ## 背景
 
 World Engine 目前已完成后端实现，但用户初始化流程需要进一步完善。当前 calendar 和 schema 设计需要用户深度参与，但这些流程还没有标准化的引导。

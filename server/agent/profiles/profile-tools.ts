@@ -79,9 +79,10 @@ export const builtin = {
         memoryUpdate: registeredTool("subject_memory_update"),
     },
     world: {
-        // World Engine 重构后只剩两个工具：CodeAct 只读查询 + 结构化写入。
+        // World Engine 当前暴露：CodeAct 只读查询 + 结构化写入 + 物理删除切面。
         query: registeredTool("execute_world_query"),
         writeSlice: registeredTool("write_world_slice"),
+        deleteSlice: registeredTool("delete_world_slice"),
     },
     web: {
         search: registeredTool("web_search"),

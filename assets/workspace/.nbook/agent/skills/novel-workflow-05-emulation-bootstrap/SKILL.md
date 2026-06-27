@@ -1,20 +1,22 @@
 ---
 name: novel-workflow-05-emulation-bootstrap
-description: 用于在小说项目已有基础 lorebook 后，初始化当前世界运行态 simulation/，建立最小 subjects、entities、runs/current.md、runs/index.md 和 000000-initial-state tick；不推进剧情，不写章节正文。
+description: Legacy / RP simulation 初始化。用于旧 simulation/ 工作流或 RP 项目，不作为普通写作模式的默认状态源；普通写作模式应使用 novel-workflow-world-engine-init。
 when_to_use:
-  - 用户要求初始化世界运行态、emulation、simulation 当前状态或 RP/写作共享状态
-  - `novel-workflow-07-opening-plot-design` 或剧情推进前，项目已有 lorebook 但 simulation/subjects 或 runs/current.md 还没有可用状态
-  - 从导入素材或已有设定进入写作/RP 前，需要建立主角、关键 NPC、重要实体的当前状态
+  - 用户明确要求初始化旧 RP / legacy simulation 当前状态
+  - legacy RP 项目已有 lorebook，但 simulation/subjects 或 runs/current.md 还没有可用状态
+  - 从导入素材或已有设定进入 legacy RP 前，需要建立主角、关键 NPC、重要实体的当前状态
 ---
 
 # novel-workflow-05-emulation-bootstrap：Emulation 初始化
 
-本 skill 只负责初始化世界运行态。当前目录名仍是 `simulation/`；`emulation` 是写作流程里的概念，表示“当前世界已经运行到什么状态”。
+> Legacy 边界：本 skill 保留给旧 simulation/ 与 RP 项目。普通写作模式下，动态世界状态与时间线真相源是 World Engine；需要初始化状态追踪时使用 `novel-workflow-world-engine-init`，不要新建或维护 `simulation/` 作为写作状态源。
+
+本 skill 只负责初始化 legacy RP 的世界运行态。当前目录名仍是 `simulation/`；`emulation` 在这里表示旧流程中的“当前世界已经运行到什么状态”。
 
 ## 目标
 
 - 建立最小可用 `simulation/` 状态。
-- 让后续 `simulator.leader`、`novel-workflow-06-emulation-tick`、`novel-workflow-07-opening-plot-design`、RP Tick 或普通写作都能读取同一份当前状态。
+- 让后续 `simulator.leader`、`novel-workflow-06-emulation-tick` 或 RP Tick 能读取同一份旧 runtime 状态。
 - 明确哪些信息是 subject-facing，哪些仍是 GM / leader 全知视角。
 
 ## 不做什么
@@ -62,4 +64,4 @@ when_to_use:
 - `simulation/runs/current.md` 能说明当前世界状态。
 - `simulation/runs/index.md` 能索引 `000000-initial-state`。
 - `000000-initial-state/report.md` 说明初始化依据、状态边界和未决问题。
-- 后续可以直接进入 `simulator.leader` / emulation tick、`novel-workflow-07-opening-plot-design` 或 RP 初始化。
+- 后续可以直接进入 `simulator.leader` / emulation tick 或 RP 初始化。

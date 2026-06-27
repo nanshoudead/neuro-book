@@ -3,6 +3,8 @@
 > 创建日期：2026-06-22
 > 来源：Task 64 用户体验设计讨论
 
+> Legacy note：本文保留 Task 64 早期用户场景草案，示例里仍可能出现 `create_world_subject`、`get_world_state`、`mutations`、月份名限制等旧协议。当前实现以 `reference/world-engine/api-migration-zod.md`、`novel-workflow-world-engine-init`、`novel-workflow-08-plot-planning` 和 `novel-workflow-09-chapter-writing` 为准：Zod schema + `execute_world_query` / `write_world_slice` / `delete_world_slice` + `patches`。
+
 ## 测试目的
 
 通过模拟真实用户场景，验证 World Engine 在写作模式下的协作流程设计是否自然、流畅、符合直觉。

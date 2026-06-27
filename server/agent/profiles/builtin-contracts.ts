@@ -222,15 +222,15 @@ export const WriterPayloadSchema = Type.Object({
     context: Type.Optional(Type.Object({
         threadIds: Type.Optional(Type.Array(Type.String({
             minLength: 1,
-            description: "建议 writer 按需读取的 Thread id。使用 get_story_thread 读取。",
+            description: "Legacy Plot 兼容字段。普通写作模式 writer 会忽略；请改用 message 中的 World Engine 查询提示、lorebookEntries 或 readablePaths。",
         }))),
         sceneIds: Type.Optional(Type.Array(Type.String({
             minLength: 1,
-            description: "建议 writer 按需读取的 Scene id。使用 get_story_scene_context 读取。",
+            description: "Legacy Plot 兼容字段。普通写作模式 writer 会忽略；请改用 message 中的 World Engine 查询提示、lorebookEntries 或 readablePaths。",
         }))),
         plotIds: Type.Optional(Type.Array(Type.String({
             minLength: 1,
-            description: "建议 writer 按需读取的 Plot id。使用 get_story_plot_context 读取。",
+            description: "Legacy Plot 兼容字段。普通写作模式 writer 会忽略；请改用 message 中的 World Engine 查询提示、lorebookEntries 或 readablePaths。",
         }))),
         lorebookEntries: Type.Optional(Type.Array(Type.String({
             minLength: 1,

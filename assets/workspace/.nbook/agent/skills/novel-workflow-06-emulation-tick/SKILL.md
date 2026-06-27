@@ -1,13 +1,15 @@
 ---
 name: novel-workflow-06-emulation-tick
-description: 用于在写作模式或 RP/simulation 中推进一个世界运行 tick，根据用户指令或 leader 判断推演当前局势，写入 simulation/runs/ticks/{id}-{slug}/report.md 和 prose.md，并提交已裁决的 subject/entity 状态。
+description: Legacy / RP simulation tick。用于旧 simulation/ 或 RP 项目推进世界运行 tick；普通写作模式应使用 novel-workflow-08-plot-planning 查询并推进 World Engine。
 when_to_use:
-  - 用户问接下来会发生什么、当前局势如何演化、某个行动会导致什么
-  - `novel-workflow-07-opening-plot-design`、`novel-workflow-08-plot-planning` 或 `novel-workflow-09-chapter-writing` 前，需要先确定角色、势力、地点或实体的当前反应
-  - 写完一章或一个 RP Tick 后，需要把已发生事实提交到 simulation/subjects 或 simulation/entities
+  - 用户明确要求旧 RP / legacy simulation 推进一个 tick
+  - legacy RP 项目需要先确定角色、势力、地点或实体的当前反应
+  - 写完一个 RP Tick 后，需要把已发生事实提交到 simulation/subjects 或 simulation/entities
 ---
 
 # novel-workflow-06-emulation-tick：Emulation Tick
+
+> Legacy 边界：本 skill 保留给旧 simulation/ 与 RP 项目。普通写作模式下，剧情事实与状态变化走 World Engine；需要推演和落库时使用 `novel-workflow-08-plot-planning`，不要把 `simulation/subjects` 或 `simulation/runs` 当作写作状态源。
 
 本 skill 负责推进一个世界运行 tick。当前落地目录仍是 `simulation/`；不要新建 `emulation/` 目录，除非用户明确要求做目录迁移。新 profile 链路下，优先创建或复用 `simulator.leader` 执行世界推演和状态裁决。
 
@@ -113,4 +115,4 @@ worldTimeAfter: ""
 - `report.md` 记录触发、输入、因果链、裁决、信息边界、状态提交和下一步钩子。
 - 需要用户可见正文时，`prose.md` 单独保存正文。
 - 已裁决状态写回 `simulation/subjects/` 或 `simulation/entities/`。
-- 可写入 Plot System 的结果已经列为 Plot handoff，并交给 `director` 整理，不混在 prose 里。
+- 旧 Plot System 结果只列为 legacy handoff，并交给对应旧流程整理，不混在 prose 里。

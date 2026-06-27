@@ -52,7 +52,7 @@ Constraints:
 - Timeout: 5s
 - Max result size: 10KB
 - Blocked APIs: fetch, fs, process, require, eval, Function, Bun, globalThis
-- READ-ONLY：查询世界用本工具；写入世界请用 write_world_slice。
+- READ-ONLY：查询世界用本工具；写入世界请用 write_world_slice；删除切片请用 delete_world_slice。
 
 Example queries:
 
@@ -145,6 +145,17 @@ Example:
 Returns { sliceId, issues }. 同一时间点只能有一个 slice，目标时间已有切面时会冲突报错（改用相邻时间）。查询世界请用 execute_world_query（只读）。`,
 });
 
+const DeleteWorldSliceSchema = Type.Object({
+    ...ProjectScopedSchema.properties,
+    sliceId: NonEmptyString("Slice id from execute_world_query world.slices()."),
+}, {
+    additionalProperties: false,
+    description: `Delete a World Engine slice by id.
+
+物理删除，不可恢复。删除后会重新 reduce 受影响的 subject，并返回可能出现的 E issues。
+必须先用 execute_world_query 的 world.slices() 获取 sliceId。`,
+});
+
 /** 构造 World Engine Agent 工具。 */
 export function createWorldEngineTools(): NeuroAgentTool[] {
     return [
@@ -190,6 +201,23 @@ export function createWorldEngineTools(): NeuroAgentTool[] {
                     })),
                 });
                 return worldResult(result);
+            },
+        ),
+        tool(
+            "delete_world_slice",
+            "Delete a World Engine slice by id. Physical deletion, irreversible; use execute_world_query world.slices() to get sliceId first.",
+            DeleteWorldSliceSchema,
+            async (_context, input) => {
+                const facade = await loadWorldEngineFacade();
+                try {
+                    const result = await facade.deleteSlice(input.projectPath, input.sliceId);
+                    return worldResult({issues: result.issues});
+                } catch (error) {
+                    if (isMissingSliceError(error)) {
+                        throw new Error(`删除世界切片失败：sliceId 不存在或已删除：${input.sliceId}`);
+                    }
+                    throw error;
+                }
             },
         ),
     ];
@@ -246,6 +274,15 @@ function normalizeToolDetails(value: unknown): AgentJsonValue {
 
 async function loadWorldEngineFacade(): Promise<typeof import("nbook/server/world-engine").worldEngineFacade> {
     return (await import("nbook/server/world-engine")).worldEngineFacade;
+}
+
+/** 判断 facade 抛出的错误是否表示目标切面不存在。 */
+function isMissingSliceError(error: unknown): boolean {
+    if (!(error instanceof Error)) {
+        return false;
+    }
+    const statusCode = "statusCode" in error && typeof error.statusCode === "number" ? error.statusCode : undefined;
+    return statusCode === 404 || error.message.includes("切面不存在");
 }
 
 /**

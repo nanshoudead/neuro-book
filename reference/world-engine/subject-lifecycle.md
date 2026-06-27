@@ -129,11 +129,11 @@ editSlice(projectPath, sliceId, {
 
 ## 6. 回退能力
 
-删除切面是 Workbench / HTTP 的 `deleteSlice` 能力（Agent 的 2 个工具里没有删除入口）：
+删除切面可通过 Agent `delete_world_slice`、Workbench 或 HTTP `deleteSlice` 完成：
 
 ```typescript
-// 注意：HTTP / Workbench 能力；Agent 不能删除切面
-deleteSlice(projectPath, sliceId) -> { issues: WorldIssue[] }
+delete_world_slice(projectPath, { sliceId }) -> { issues: WorldIssue[] }
+deleteSlice(projectPath, sliceId) -> { issues: WorldIssue[] } // HTTP / Workbench
 ```
 
 - **物理删除，不可恢复。** 删除某条切面后重新 reduce。没有旧值字段做 O(1) 逆操作，也没有可恢复的撤销。

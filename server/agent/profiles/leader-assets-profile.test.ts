@@ -110,6 +110,7 @@ describe("assets builtin v3 profiles", () => {
             "task_set_status",
             "execute_world_query",
             "write_world_slice",
+            "delete_world_slice",
             "execute_sql",
             "variable_schema",
             "variable_read",
@@ -143,6 +144,7 @@ describe("assets builtin v3 profiles", () => {
         expect(visiblePrompt).toContain("variable_patch");
         expect(visiblePrompt).toContain("execute_world_query");
         expect(visiblePrompt).toContain("write_world_slice");
+        expect(visiblePrompt).toContain("delete_world_slice");
         expect(visiblePrompt).toContain("writer");
         expect(visiblePrompt).toContain("retrieval");
         expect(visiblePrompt).toContain("`researcher` 是联网研究专用 agent");
@@ -173,7 +175,7 @@ describe("assets builtin v3 profiles", () => {
         expect(visiblePrompt).toContain("\"StoryScene\"");
         expect(visiblePrompt).toContain("\"chapterPath\"");
         expect(visiblePrompt).toContain("\"threadSortOrder\"");
-        expect(visiblePrompt).toContain("character motivation");
+        expect(visiblePrompt).toContain("动态世界状态与时间线的唯一真相源");
         expect(visiblePrompt).toContain("Plan Mode 工作目录会在 system-reminder");
         expect(visiblePrompt).not.toContain("{sessionId}");
         expect(visiblePrompt).not.toContain("read_file");
@@ -212,9 +214,9 @@ describe("assets builtin v3 profiles", () => {
         expect(historyText).toContain("Workspace Tool Use");
         expect(historyText).toContain("```reference/agent/leader-default.md");
         expect(historyText).toContain("Leader Default Operational Protocol");
-        expect(historyText).toContain("Writing Emulation");
-        expect(historyText).toContain("novel-workflow-05-emulation-bootstrap");
-        expect(historyText).toContain("simulation/runs/ticks/{id}-{slug}/prose.md");
+        expect(historyText).toContain("World Engine 写作模式工作流");
+        expect(historyText).toContain("关注度等级系统");
+        expect(historyText).toContain("World Engine 记录原则");
         expect(historyText).toContain("```reference/content/markdown-dialect.md");
         expect(historyText).toContain("NeuroBook Markdown Dialect");
         expect(historyText).toContain("```reference/agent/project-workspace-guide.md");
@@ -763,9 +765,9 @@ describe("assets builtin v3 profiles", () => {
             expect(historyContext).toContain(`projectPath: workspace/${projectSlug}`);
             expect(historyContext).toContain("chapterPath: manuscript/001-chapter/");
             expect(historyContext).toContain("<suggested_context>");
-            expect(historyContext).toContain("thread-main");
-            expect(historyContext).toContain("scene-ledger");
-            expect(historyContext).toContain("plot-missing-page");
+            expect(writerInputContext).not.toContain("thread-main");
+            expect(writerInputContext).not.toContain("scene-ledger");
+            expect(writerInputContext).not.toContain("plot-missing-page");
             expect(historyContext).toContain(`${projectSlug}/lorebook/character/hero/`);
             expect(historyContext).toContain(`${projectSlug}/manuscript/000-prologue/index.md`);
             expect(appendingContext).toContain("请续写这一章，写到账册缺页被发现为止。");
@@ -862,7 +864,7 @@ describe("assets builtin v3 profiles", () => {
                 collaborationMode: "conservative",
                 neuroBookFamiliarity: "beginner",
                 questionStrategy: "thorough",
-                leaderPersonaPreset: "personas/default.md",
+                leaderPersonaPreset: "personas/caihui-lite.md",
                 customTopSystemPrompt: "最高规则：先确认用户意图。",
             },
             vars: createTestVariableAccessor(),
@@ -874,12 +876,16 @@ describe("assets builtin v3 profiles", () => {
         expect(leader?.hasSettingsForm).toBe(true);
         expect(validation.issues).toEqual([]);
         expect(systemPrompt.trimStart().startsWith("<custom_top_system_prompt>")).toBe(true);
-        expect(systemPrompt.indexOf("最高规则：先确认用户意图。")).toBeLessThan(systemPrompt.indexOf("<leader_persona>"));
-        expect(systemPrompt.indexOf("<leader_persona>")).toBeLessThan(systemPrompt.indexOf("<leader_settings>"));
-        expect(systemPrompt.indexOf("<leader_settings>")).toBeLessThan(systemPrompt.indexOf("你现在在 Neuro Book 中作为默认 Leader Agent 工作"));
-        expect(systemPrompt).toContain("采用保守协作模式");
+        expect(systemPrompt.indexOf("最高规则：先确认用户意图。")).toBeLessThan(systemPrompt.indexOf("<leader_persona"));
+        expect(systemPrompt.indexOf("<leader_persona")).toBeLessThan(systemPrompt.indexOf("<collaboration_mode"));
+        expect(systemPrompt.indexOf("<collaboration_mode")).toBeLessThan(systemPrompt.indexOf("<neurobook_familiarity"));
+        expect(systemPrompt.indexOf("<neurobook_familiarity")).toBeLessThan(systemPrompt.indexOf("<question_strategy"));
+        expect(systemPrompt.indexOf("<question_strategy")).toBeLessThan(systemPrompt.indexOf("你现在在 Neuro Book 中作为默认 Leader Agent 工作"));
+        expect(systemPrompt).toContain("<collaboration_mode value=\"conservative\">");
+        expect(systemPrompt).toContain("更倾向先提问");
         expect(systemPrompt).toContain("优先通过 researcher agent 调研");
-        expect(systemPrompt).toContain("默认用户刚开始使用 NeuroBook");
+        expect(systemPrompt).toContain("<neurobook_familiarity value=\"beginner\">");
+        expect(systemPrompt).toContain("第一次抛出 World Engine");
         expect(systemPrompt).toContain("接近创作访谈");
     });
 
@@ -897,7 +903,7 @@ describe("assets builtin v3 profiles", () => {
                 collaborationMode: "default",
                 neuroBookFamiliarity: "default",
                 questionStrategy: "concise",
-                leaderPersonaPreset: "personas/default.md",
+                leaderPersonaPreset: "personas/caihui-lite.md",
                 customTopSystemPrompt: "",
             }, {
                 profileKey: "leader.default",
@@ -914,7 +920,7 @@ describe("assets builtin v3 profiles", () => {
                     collaborationMode: "default",
                     neuroBookFamiliarity: "default",
                     questionStrategy: "concise",
-                    leaderPersonaPreset: "personas/default.md",
+                    leaderPersonaPreset: "personas/caihui-lite.md",
                     customTopSystemPrompt: "",
                 },
                 home,
@@ -922,13 +928,13 @@ describe("assets builtin v3 profiles", () => {
                 catalog: {profiles: [], issues: []},
                 skills: [],
             });
-            const persona = await home.readText("personas/default.md");
+            const persona = await home.readText("personas/caihui-lite.md");
 
             expect(validation.issues).toEqual([]);
-            expect(persona).toContain("彩绘（精简主创伙伴）");
-            expect(prepared.systemPrompt).toContain("像长期一起写故事的创作伙伴");
-            expect(prepared.systemPrompt).toContain("不要使用万华镜");
-            expect(prepared.systemPrompt).toContain("少问问题");
+            expect(persona).toContain("精简彩绘");
+            expect(prepared.systemPrompt).toContain("有创作陪伴感");
+            expect(prepared.systemPrompt).toContain("不引入 RP 小屋、万华镜");
+            expect(prepared.systemPrompt).toContain("少问，优先给建议和默认路径");
         } finally {
             await rm(projectRoot, {recursive: true, force: true});
         }

@@ -1,6 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import {createClient} from "@libsql/client";
+import {createClient, type Client} from "@libsql/client";
 import {createError} from "h3";
 import * as yaml from "yaml";
 import {resolveWorkspaceContainerRoot} from "nbook/server/workspace-files/workspace-assets-root";
@@ -380,6 +380,7 @@ export async function initProjectDatabaseAtRoot(projectRoot: string): Promise<st
         for (const statement of splitSqlStatements(PROJECT_MIGRATION_SQL)) {
             await client.execute(statement);
         }
+        await ensureWorldSliceSummaryColumn(client);
     } finally {
         await client.close();
         collectReleasedSqliteHandles();
@@ -396,4 +397,13 @@ export function toSqliteFileUrl(filePath: string): string {
 
 function splitSqlStatements(sql: string): string[] {
     return sql.split(";").map((statement) => statement.trim()).filter(Boolean);
+}
+
+/** 旧 Project SQLite 可能早于 slice-level summary，初始化时做幂等补列。 */
+async function ensureWorldSliceSummaryColumn(client: Client): Promise<void> {
+    const result = await client.execute(`PRAGMA table_info("WorldSlice")`);
+    const hasSummary = result.rows.some((row) => String(row.name ?? "") === "summary");
+    if (!hasSummary) {
+        await client.execute(`ALTER TABLE "WorldSlice" ADD COLUMN "summary" TEXT NOT NULL DEFAULT ''`);
+    }
 }

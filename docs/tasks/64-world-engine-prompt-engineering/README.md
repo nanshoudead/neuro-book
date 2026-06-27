@@ -1,8 +1,32 @@
 # World Engine 提示词工程改造
 
-> 状态：**写作模式 v1 收口中** | 创建日期：2026-06-22
+> 状态：**写作模式 v1 提示词收口完成，历史草案保留** | 创建日期：2026-06-22
+
+> 当前协议提示（2026-06 收口）：本任务早期调研与场景测试中保留了旧 API 名称，例如 `schema.yaml`、`create_world_subject`、`get_world_state`、`mutations`。现行写作模式以 `reference/world-engine/` 与 `assets/workspace/.nbook/agent/skills/` 为准：schema 使用 `world-engine/schema/index.ts`（Zod），Agent 工具使用 `execute_world_query` / `write_world_slice` / `delete_world_slice`，写入字段为 `patches`。
 
 ## 实施记录（Walkthrough）
+
+### 2026-06-27：World Engine 写作流程与模板收口
+
+本轮把普通 `leader.default` 能见的写作模式主链收束为：`灵感探索 → 项目/Lorebook → World Engine 初始化 → 08 剧情规划/状态推进 → 09 章节写作 → 写后回补/修订`。RP / simulation / director / 旧 Plot 资料保留为 legacy 或专用资料，不再作为普通写作入口、默认模板或 `ming-ding-zhi-shi-2` 的默认引导。
+
+关键调整：
+
+- `novel-workflow-08-plot-planning` 重写为 World Engine 剧情规划与状态推进手册：先判断意图、查询当前状态、按 LOD0-LOD3 判断记录粒度、确认剧情事实，再拆分事件写入 World Engine slice，最后处理 issues 并向用户回报人话摘要。未确认推演不是 canon，不写 World Engine。
+- `novel-workflow-09-chapter-writing` 明确不重新设计剧情；默认本章剧情事实已由 `08` 确认并推进进 World Engine，再由 writer 基于简化 brief 与只读查询写正文。写后如有新事实，回到 `08` 确认并补切面。
+- `novel-workflow-10-revision` 的状态变化回补从 emulation commit 改为 World Engine 回补；`05/06 emulation` 明确标为 legacy RP / simulation skill，不作为普通写作推荐路径。
+- `leader.default.profile.tsx` 修正 Calendar 提示：只要求时间能被项目 `world-engine/calendar.ts` parse，Simple Calendar 配置 `cycleNames/monthName` 时允许月份名；LOD 指向 `reference/world-engine/workflow.md` 的写作模式 LOD。
+- `reference/world-engine/` 补齐 `api-migration-zod.md`，说明 `schema.yaml`、`create_world_subject`、`get_world_state`、`mutations` 的当前替代：`world-engine/schema/index.ts` + `execute_world_query` / `write_world_slice` / `delete_world_slice` + `patches`。
+- `reference/world-engine/schema-system.md` 降低旧 YAML 示例噪声，优先指向 Zod schema；`workflow.md` 同步写作模式 LOD0-LOD3 表。
+- 默认 Project 模板的 `agents/` 目录只保留 `leader.default/` 与 `writer/` 上下文；`director`、`rp.leader`、`rp.writer`、`simulator.leader` 不再默认创建。
+- `workspace/ming-ding-zhi-shi-2` 明确标注为 legacy RP / SillyTavern 导入项目，不作为普通写作模式 World Engine 验收样本；其 `leader.default` 项目级上下文不再自动读取或优先进入 `simulation/runs/current.md`。
+
+静态验证：
+
+- 默认模板 `agents/` 只剩 `leader.default` 与 `writer` 标准上下文。
+- 普通写作主路径 `leader.default` / `world-engine-init` / `08` / `09` 不再推荐用 director、simulation、emulation 或旧 Plot 作为状态源。
+- 旧 API 名称 `schema.yaml`、`create_world_subject`、`get_world_state`、`mutations` 仍只出现在历史草案、迁移速查、legacy 说明或“旧版差异”语境中，不作为当前协议。
+- Calendar 提示不再禁止项目已支持的月份名。
 
 ### 2026-06-23：写作模式 v1 收口整理
 

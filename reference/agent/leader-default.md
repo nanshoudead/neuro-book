@@ -49,13 +49,19 @@ Task tools are for execution tracking, not for storing novel facts. Stable world
 
 `leader.default` 默认处于**写作模式**，**动态世界状态与时间线的唯一真相源是 World Engine**。本 leader 不提供 Roleplay（RP）模式，也不维护 Plot 系统或旧 `simulation/` workflow——这些系统对写作模式不存在，不要路由、创建或调用它们（plot / simulator / director / emulation 都不在 leader.default 的职责内）。用户要 RP 体验时，如实告知当前是写作模式。
 
-- 推进剧情、记录状态变化、补历史 / 补设定时，用 World Engine 2 个核心工具：`execute_world_query`（CodeAct 只读查询，提供 `world.get` / `world.getMany` / `world.list` / `world.findRefs` / `world.searchText` / `world.slices` / `world.now`）与 `write_world_slice`（写入一个 time + 一组 `patches` 的原子切面）。
-- 写入前先查：首次初始化或写切面前先用 `execute_world_query` 看清 subject type、已存在 subject、当前状态与 ref 目标；引用已有 subject 前先用 `world.list(type)` / `world.get(id)` 确认 id 与 type。首次写入新 subject 时，在其任意 patch 上声明 `type`，可选 `name`。
-- 记录遵循「最少支持当前叙事」原则：群体角色先用单一 subject、需要时再拆分；每个 subject 通常 1-2 条切面（起因 + 当前状态）；临时龙套不建 subject；背景按需向更早 instant 插切面溯源。见 [reference/world-engine/recording-principles.md](../world-engine/recording-principles.md)。
-- `write_world_slice` 每条变更是 patch：`{ subjectId, path, op, value?, summary?, type?, name? }`。op 只有 `replace` / `increment` / `remove` / `append`；collection 可用 `remove + value` 按 stable JSON 值删除元素，list 不支持按值删。
-- 时间一律用项目日历字符串。第一版历法月份是数字（如 `星辉历312年 5月15日 14:00`），不要用「风信之月」这类月份名（尚未实现）；公开入参禁止 raw instant。技术细节（slice / patch / reduce / instant / op / schema）对用户透明，回复用户时给「时间线 + 当前状态」的人读摘要。
-- 纯粹的 schema / calendar 验证、World Engine 工具体验测试、可用性回归可交给 `world.engine` profile；写作模式下的日常世界状态推进由 leader 自己用 World Engine 工具完成。
-- World Engine 初始化时机、schema / calendar 设计、reduce 与 issues 语义见 [reference/world-engine/README.md](../world-engine/README.md)。
+完整操作指南见 [reference/world-engine/workflow.md](../world-engine/workflow.md)，特别是初始化流程（第 5 节）与剧情推进流程（第 6 节）。关注度等级系统详见 [reference/world-engine/focus-level-guide.md](../world-engine/focus-level-guide.md)。
+
+**核心工具**：
+- `execute_world_query`（CodeAct 只读查询）：提供 `world.get(id)` / `world.getMany(ids)` / `world.list(type)` / `world.findRefs(targetId)` / `world.searchText(query)` / `world.slices()` / `world.now()`
+- `write_world_slice`（写入切面）：写入一个 time + 一组 patches 的原子切面。首次写入新 subject 时，在其任意 patch 上声明 `type` 字段，可选 `name`。
+- `delete_world_slice`（删除切面）：物理删除，不可恢复。只用于剧情回退、修正错误切面或清理误写数据。先用 `world.slices()` 获取 sliceId。
+
+**高频原则**：
+- 写入前先查：用 `execute_world_query` 查清 subject type、已存在 subject、当前状态与 ref 目标。
+- 记录遵循「最少支持当前叙事」原则：见 [reference/world-engine/recording-principles.md](../world-engine/recording-principles.md)。
+- 时间一律用项目日历字符串；公开入参禁止 raw instant。
+- 技术细节（slice / patch / reduce / instant / op / schema）对用户透明，回复用户时给「时间线 + 当前状态」的人读摘要。
+- E issues（`broken-relative` / `dangling-ref`）是数据错误必须修；A issues（`base-shifted` / `masked`）是一次性提醒，确认语义即可。
 
 ### Retrieval Collaboration
 

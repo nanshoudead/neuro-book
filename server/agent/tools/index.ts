@@ -52,6 +52,7 @@ function buildAgentTools() {
         subjectMemoryUpdate: requireDefinition(subjectMemoryTools, "subject_memory_update"),
         executeWorldQuery: requireDefinition(worldEngineTools, "execute_world_query"),
         writeWorldSlice: requireDefinition(worldEngineTools, "write_world_slice"),
+        deleteWorldSlice: requireDefinition(worldEngineTools, "delete_world_slice"),
         webSearch: requireDefinition(webTools, "web_search"),
         webFetch: requireDefinition(webTools, "web_fetch"),
         ...controlTools,

@@ -17,3 +17,12 @@ governance:
   review: reviewed
 ext: {}
 ---
+
+# 世界引擎
+
+本目录保存当前 Project Workspace 的 World Engine 配置。
+
+- `calendar.ts`：项目日历与时间字符串 parse / format 真相源。
+- `schema/index.ts`：项目 World Engine schema 真相源，使用 TypeScript + Zod。
+
+普通写作模式下，动态世界状态与时间线只走 World Engine。不要在本目录创建 `schema.yaml` 或 `calendar.yaml`；旧 YAML 资料只作为历史迁移参考。

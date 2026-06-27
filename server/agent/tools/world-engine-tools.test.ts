@@ -34,13 +34,13 @@ describe("world engine agent tools", () => {
         const builtinKeys = createBuiltinTools().map((tool) => tool.key);
         const worldKeys = createWorldEngineTools().map((tool) => tool.key);
 
-        expect(worldKeys).toEqual(["execute_world_query", "write_world_slice"]);
+        expect(worldKeys).toEqual(["execute_world_query", "write_world_slice", "delete_world_slice"]);
         expect(builtinKeys).toContain("execute_world_query");
         expect(builtinKeys).toContain("write_world_slice");
+        expect(builtinKeys).toContain("delete_world_slice");
         expect(builtinKeys).not.toContain("get_world_state");
         expect(builtinKeys).not.toContain("list_world_slices");
         expect(builtinKeys).not.toContain("edit_world_slice");
-        expect(builtinKeys).not.toContain("delete_world_slice");
         expect(builtinKeys).not.toContain("create_world_subject");
         expect(builtinKeys).not.toContain("get_world_schema");
         expect(builtinKeys).not.toContain("list_world_subjects");
@@ -87,6 +87,7 @@ describe("world engine agent tools", () => {
             projectPath,
             time: "复兴纪元1日 00:00:10",
             title: "城北遭遇",
+            summary: "艾莉娜在城北遭遇伏击",
             patches: [
                 {subjectId: "erina", path: "/hp", op: "increment", value: -30, summary: "伏击受伤"},
                 {subjectId: "erina", path: "/events", op: "append", value: "城北遭遇伏击", summary: "记录遭遇"},
@@ -99,9 +100,17 @@ describe("world engine agent tools", () => {
                 return { hp: erina.hp, events: erina.events };
             `,
         });
+        const slices = await executeTool("execute_world_query", context, {
+            projectPath,
+            code: `
+                const slices = await world.slices({ limit: 10 });
+                return slices.map((slice) => ({ title: slice.title, summary: slice.summary }));
+            `,
+        });
 
         expect(written.details).toEqual({sliceId: expect.any(String), issues: []});
         expect(queried.details).toEqual({hp: 70, events: ["城北遭遇伏击"]});
+        expect(slices.details).toContainEqual({title: "城北遭遇", summary: "艾莉娜在城北遭遇伏击"});
     });
 
     it("write_world_slice 支持 collection 按值 remove", async () => {
@@ -133,6 +142,73 @@ describe("world engine agent tools", () => {
         });
 
         expect(queried.details).toEqual(["coin"]);
+    });
+
+    it("delete_world_slice 删除存在切片后重新 reduce", async () => {
+        await worldEngineFacade.createSubject(projectPath, {
+            id: "erina",
+            type: "character",
+            name: "艾莉娜",
+            at: BigInt(0),
+        });
+
+        const damaged = await executeTool("write_world_slice", context, {
+            projectPath,
+            time: "复兴纪元1日 00:00:13",
+            title: "受伤",
+            patches: [
+                {subjectId: "erina", path: "/hp", op: "increment", value: -40},
+            ],
+        });
+        const deleted = await executeTool("delete_world_slice", context, {
+            projectPath,
+            sliceId: readSliceId(damaged),
+        });
+        const queried = await executeTool("execute_world_query", context, {
+            projectPath,
+            code: `
+                const erina = await world.get("erina");
+                return { hp: erina.hp };
+            `,
+        });
+
+        expect(deleted.details).toEqual({issues: []});
+        expect(queried.details).toEqual({hp: 100});
+    });
+
+    it("delete_world_slice 删除基准切片会返回 E issues", async () => {
+        const base = await executeTool("write_world_slice", context, {
+            projectPath,
+            time: "复兴纪元1日 00:00:14",
+            title: "魔力初始化",
+            patches: [
+                {subjectId: "erina", type: "character", name: "艾莉娜", path: "/mana", op: "replace", value: 10},
+            ],
+        });
+        await executeTool("write_world_slice", context, {
+            projectPath,
+            time: "复兴纪元1日 00:00:15",
+            title: "消耗魔力",
+            patches: [
+                {subjectId: "erina", path: "/mana", op: "increment", value: -3},
+            ],
+        });
+
+        const deleted = await executeTool("delete_world_slice", context, {
+            projectPath,
+            sliceId: readSliceId(base),
+        });
+
+        expect(deleted.details).toEqual({
+            issues: [expect.objectContaining({code: "broken-relative", subjectId: "erina", attr: "mana"})],
+        });
+    });
+
+    it("delete_world_slice 删除不存在切片时提示 sliceId 不存在", async () => {
+        await expect(executeTool("delete_world_slice", context, {
+            projectPath,
+            sliceId: "missing-slice",
+        })).rejects.toThrow("sliceId 不存在或已删除：missing-slice");
     });
 
     it("write_world_slice 首写新 subject 时按 type 自动注册并应用 schema 默认值（C1）", async () => {
@@ -245,6 +321,14 @@ function readText(result: AgentToolResult<unknown>): string {
     return item.text;
 }
 
+function readSliceId(result: AgentToolResult<unknown>): string {
+    const details = result.details;
+    if (typeof details === "object" && details !== null && "sliceId" in details && typeof details.sliceId === "string") {
+        return details.sliceId;
+    }
+    throw new Error("测试没有拿到 sliceId");
+}
+
 async function createProject(): Promise<string> {
     const slug = `world-tools-test-${Date.now()}-${Math.random().toString(16).slice(2)}`;
     const projectPath = `workspace/${slug}`;
@@ -272,6 +356,7 @@ function schemaFixture(): string {
         "export const WorldSchema = {",
         "    character: z.object({",
         "        hp: z.number().int().default(100).describe('生命值'),",
+        "        mana: z.number().int().optional().describe('魔力'),",
         "        inventory: z.array(z.string()).unique().default([]).describe('背包'),",
         "        events: z.array(z.string()).default([]).describe('经历'),",
         "    }),",
