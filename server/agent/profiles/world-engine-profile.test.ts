@@ -64,8 +64,10 @@ describe("world.engine profile", () => {
         expect(systemPrompt).toContain("旧 simulation/ workflow 暂不接入");
         expect(systemPrompt).toContain("使用单一核心工具 execute_world");
         expect(systemPrompt).toContain("首次写入某 subject 时会自动创建（不需要单独 create 步骤）");
-        expect(systemPrompt).toContain("world.parseTime");
-        expect(systemPrompt).toContain("world.editMutations");
+        expect(systemPrompt).toContain("world.time.parse");
+        expect(systemPrompt).toContain("world.slice.editPatches");
+        expect(systemPrompt).not.toContain("world.parseTime");
+        expect(systemPrompt).not.toContain("world.editMutations");
         expect(systemPrompt).toContain("物理删除，不可恢复");
         expect(systemPrompt).toContain("issues");
         expect(historyText).toContain("```reference/world-engine/README.md");

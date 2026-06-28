@@ -149,9 +149,5 @@ defineRouteMeta({
  */
 export default defineEventHandler(async (event) => {
     const timing = createServerTiming(event);
-    try {
-        return await timing.measure("config.bootstrap", () => readConfigBootstrap(validateConfigWorkspaceQuery(getQuery(event))));
-    } finally {
-        timing.commit();
-    }
+    return timing.measure("config.bootstrap", () => readConfigBootstrap(validateConfigWorkspaceQuery(getQuery(event))));
 });

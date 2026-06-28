@@ -6,7 +6,6 @@ import type {AgentMessage, JsonValue, Message} from "nbook/server/agent/messages
 import {createUserMessage, messageText, sumAssistantUsage} from "nbook/server/agent/messages/message-utils";
 import type {
     CompactionSessionEntry,
-    LinkedAgentSummary,
     NeuroSessionContext,
     SessionEntry,
     SessionEntryId,
@@ -19,6 +18,7 @@ import type {
     SessionEntryDraft,
 } from "nbook/server/agent/session/types";
 import type {AgentSessionListQueryDto, AgentSessionSummaryDto} from "nbook/shared/dto/agent-session.dto";
+import {reduceRelationLedger} from "nbook/server/agent/session/relation-ledger";
 
 type CreateSessionInput = {
     profileKey: string;
@@ -380,7 +380,6 @@ export class JsonlSessionRepository {
         let title = snapshot.metadata.title;
         let summary = snapshot.metadata.summary;
         let compaction: CompactionSessionEntry | null = null;
-        const linkedAgents = new Map<SessionId, LinkedAgentSummary>();
         let archived = snapshot.entries.some((entry) => entry.type === "session_archived");
         let planModeActive = false;
 
@@ -444,15 +443,6 @@ export class JsonlSessionRepository {
             }
         }
 
-        for (const entry of snapshot.entries) {
-            if (entry.type !== "custom" || entry.origin === "projection") {
-                continue;
-            }
-            if (entry.key.startsWith("agent.link.") || entry.key.startsWith("agent.detach.")) {
-                this.reduceLinkedAgent(entry.key, entry.value, linkedAgents);
-            }
-        }
-
         const compactedMessages = compaction ? this.applyCompaction(path, compaction, messages) : messages;
 
         return {
@@ -464,7 +454,7 @@ export class JsonlSessionRepository {
             workspaceRoot: snapshot.metadata.workspaceRoot,
             projectPath: snapshot.metadata.projectPath,
             customState,
-            linkedAgents: [...linkedAgents.values()].sort((left, right) => left.sessionId - right.sessionId),
+            linkedAgents: reduceRelationLedger(snapshot.entries),
             title,
             summary,
             archived,
@@ -638,50 +628,11 @@ export class JsonlSessionRepository {
         return [summaryMessage, ...keptMessages.length ? keptMessages : messages.slice(-4)];
     }
 
-    private reduceLinkedAgent(key: string, value: JsonValue, linkedAgents: Map<SessionId, LinkedAgentSummary>): void {
-        if (key.startsWith("agent.link.") && this.isLinkedAgentValue(value)) {
-            const current = linkedAgents.get(value.sessionId);
-            linkedAgents.set(value.sessionId, {
-                sessionId: value.sessionId,
-                profileKey: value.profileKey,
-                detached: current?.detached ?? false,
-            });
-            return;
-        }
-        if (key.startsWith("agent.detach.") && this.isDetachedAgentValue(value)) {
-            const current = linkedAgents.get(value.sessionId);
-            linkedAgents.set(value.sessionId, {
-                sessionId: value.sessionId,
-                profileKey: current?.profileKey ?? "unknown",
-                detached: true,
-            });
-        }
-    }
-
     private projectionApplies(scope: SessionProjectionScope | undefined, activePathIds: Set<SessionEntryId>): boolean {
         if (!scope) {
             return true;
         }
         return scope.scope === "activeLeaf" && (scope.leafId === null ? activePathIds.size === 0 : activePathIds.has(scope.leafId));
-    }
-
-    private isLinkedAgentValue(value: JsonValue): value is {sessionId: number; profileKey: string} {
-        return Boolean(
-            value
-            && typeof value === "object"
-            && !Array.isArray(value)
-            && typeof value.sessionId === "number"
-            && typeof value.profileKey === "string",
-        );
-    }
-
-    private isDetachedAgentValue(value: JsonValue): value is {sessionId: number} {
-        return Boolean(
-            value
-            && typeof value === "object"
-            && !Array.isArray(value)
-            && typeof value.sessionId === "number",
-        );
     }
 
     private async nextSessionId(): Promise<SessionId> {

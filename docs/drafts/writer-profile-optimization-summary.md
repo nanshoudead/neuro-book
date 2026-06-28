@@ -12,7 +12,7 @@
 - **文件**: `assets/workspace/.nbook/agent/profiles/builtin/writer.profile.tsx`
 - **位置**: 第 43-52 行
 - **改动**: 在 `toolset()` 中添加 `builtin.file.bash`
-- **目的**: 使 writer 能够执行 anti-ai-slop CLI 检查
+- **目的**: 使 writer 能够执行 llmlint CLI 检查
 
 ### 2. 重构 `<thinking_mode>` 章节 ✅
 - **位置**: 第 104-119 行
@@ -36,14 +36,14 @@
   4. 角色表现设计（新增）
   5. 脑内打草稿（新增）
   6. 质量自查（新增）
-  7. 写入成稿并 CLI 检查（集成 anti-ai-slop CLI）
+  7. 写入成稿并 CLI 检查（集成 llmlint CLI）
   8. 报告落点
 
 ### 4. 新增 `<tool_usage_guide>` 章节 ✅
 - **位置**: 第 174-230 行（在 `</execution_workflow>` 之后）
 - **内容**:
   - `<plot_tools>`: 说明 4 个 plot 工具的使用时机和返回内容
-  - `<anti_ai_slop_tool>`: 说明 CLI 工具的执行方式和处理原则
+  - `<llmlint_tool>`: 说明 CLI 工具的执行方式和处理原则
   - `<file_tools>`: 说明 read/write/edit/apply_patch 的使用场景
 - **目的**: 明确工具使用时机，避免机械读取全部上下文
 
@@ -81,7 +81,7 @@
 
   <tool_usage_guide>                  <!-- 新增 -->
     <plot_tools>何时用哪个工具</plot_tools>
-    <anti_ai_slop_tool>CLI使用方法</anti_ai_slop_tool>
+    <llmlint_tool>CLI使用方法</llmlint_tool>
     <file_tools>文件工具使用场景</file_tools>
   </tool_usage_guide>
 
@@ -147,10 +147,10 @@ bun run typecheck
 2. **实际写作任务测试**
    - 使用实际写作任务验证新流程
    - 观察 agent 是否按新的 thinking 和 execution 流程执行
-   - 验证是否执行了 anti-ai-slop CLI 检查
+   - 验证是否执行了 llmlint CLI 检查
 
 3. **CLI 工具测试**
-   - 验证 anti-ai-slop CLI 是否可正常执行
+   - 验证 llmlint CLI 是否可正常执行
    - 测试错误处理（CLI 执行失败时的回退机制）
 
 ## 向后兼容性
@@ -169,14 +169,14 @@ bun run typecheck
 - ✅ `assets/workspace/.nbook/agent/profiles/builtin/writer.profile.tsx` - 已修改
 - 📖 `assets/workspace/.nbook/agent/profiles/builtin/rp.writer.profile.tsx` - 参考文件
 - 📖 `reference/agent/rp-tick/writer-brief.md` - Writer Brief 格式参考
-- 📖 `assets/workspace/.nbook/agent/skills/anti-ai-slop/SKILL.md` - Anti-AI-slop 工具文档
+- 📖 `assets/workspace/.nbook/agent/skills/llmlint/SKILL.md` - llmlint 工具文档
 
 ## 后续建议
 
 1. **测试新流程**
    - 使用简单的续写任务测试新的 8 步流程
    - 验证信息三层隔离是否生效
-   - 检查 anti-ai-slop CLI 是否正常工作
+   - 检查 llmlint CLI 是否正常工作
 
 2. **收集反馈**
    - 观察实际写作任务中的表现

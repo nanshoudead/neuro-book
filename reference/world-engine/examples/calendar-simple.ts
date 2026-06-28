@@ -2,7 +2,7 @@
  * Simple Calendar 示例：奇幻世界四季历法
  *
  * 特点：
- * - 一年 4 个月（春夏秋冬），每月 90 天
+ * - 一年 4 个月，每月 90 天
  * - 一天 24 小时
  * - 支持星期（7天循环）
  * - Era 前后缀（新纪元/旧纪元）
@@ -31,12 +31,11 @@ export default {
       startOffset: 0  // instant=0 是周一
     },
 
-    // 月份（4 个月，每月 90 天）
+    // 月份（4 个月，每月 90 天）。cycleNames 长度必须等于 ratio，所以这里使用数字月份。
     {
       name: 'month',
       parent: 'day',
-      ratio: 90,
-      cycleNames: ['春之月', '夏之月', '秋之月', '冬之月']
+      ratio: 90
     },
 
     // 年（一年 = 4 个月）
@@ -44,15 +43,15 @@ export default {
   ],
 
   // Format 模板（可用 token 见 reference/world-engine/calendar-system.md）
-  format: '{eraName}{year}年{monthName}{day}日 {week} {hour:02}:{minute:02}'
+  format: '{eraName}{year}年{month}月{day}日 {week} {hour:02}:{minute:02}'
 };
 
 /**
  * 示例输出：
  *
  * instant = 0
- * → "新纪元1年春之月1日 周一 00:00"
+ * → "新纪元1年1月1日 周一 00:00"
  *
  * instant = 31536000  (约一年后)
- * → "新纪元2年春之月1日 周一 00:00"
+ * → "新纪元2年1月1日 周一 00:00"
  */

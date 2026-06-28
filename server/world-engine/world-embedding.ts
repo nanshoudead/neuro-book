@@ -37,16 +37,16 @@ export async function resolveWorldEmbedding(input: {projectPath: string; workspa
     });
     const embedding = config.embedding;
     if (!embedding.enabled) {
-        throw new Error("world.searchText 需要 embedding 服务，但尚未启用。请在 Embedding 设置中启用嵌入服务。");
+        throw new Error("world.search.text 需要 embedding 服务，但尚未启用。请在 Embedding 设置中启用嵌入服务。");
     }
     if (embedding.provider !== "openai-compatible") {
-        throw new Error(`world.searchText 暂不支持 embedding provider：${embedding.provider}`);
+        throw new Error(`world.search.text 暂不支持 embedding provider：${embedding.provider}`);
     }
     if (!embedding.model) {
-        throw new Error("world.searchText 缺少 embedding model。请在 Embedding 设置中配置模型名。");
+        throw new Error("world.search.text 缺少 embedding model。请在 Embedding 设置中配置模型名。");
     }
     if (!embedding.dimensions) {
-        throw new Error("world.searchText 缺少 embedding dimensions。请在 Embedding 设置中配置嵌入维度。");
+        throw new Error("world.search.text 缺少 embedding dimensions。请在 Embedding 设置中配置嵌入维度。");
     }
     const apiKey = embedding.apiKey.trim();
     if (!apiKey) {

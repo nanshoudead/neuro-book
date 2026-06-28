@@ -182,6 +182,7 @@ export async function saveProfileSource(profiles: AgentProfileCatalog, request: 
     const filePath = resolveUserProfilePath(request.fileName, userProfileRoot);
     await mkdir(dirname(filePath), {recursive: true});
     await writeFile(filePath, request.source, "utf8");
+    profiles.invalidate();
     return readProfileSource(profiles, {fileName: request.fileName}, roots);
 }
 
@@ -223,6 +224,7 @@ export async function createProfileSource(profiles: AgentProfileCatalog, request
     const source = renderTemplate(template, request);
     await mkdir(dirname(filePath), {recursive: true});
     await writeFile(filePath, source, "utf8");
+    profiles.invalidate();
     return readProfileSource(profiles, {fileName}, roots);
 }
 

@@ -6,6 +6,7 @@ import {AgentSessionEventHub} from "nbook/server/agent/events/session-event-hub"
 import {createAssistantTextMessage, createTextToolResult} from "nbook/server/agent/messages/message-utils";
 import {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
 import {SessionWriteExecutor} from "nbook/server/agent/session/write-plan";
+import type {SessionWriteTimingSink} from "nbook/server/agent/session/write-plan";
 import type {AgentSessionEventDto} from "nbook/shared/dto/agent-session.dto";
 
 describe("SessionWriteExecutor", () => {
@@ -13,39 +14,44 @@ describe("SessionWriteExecutor", () => {
     let repo: JsonlSessionRepository;
     let eventHub: AgentSessionEventHub;
     let executor: SessionWriteExecutor;
+    let liveStateCalls: number;
 
     beforeEach(() => {
         root = join(".agent", "agent-write-plan-test", randomUUID());
         repo = new JsonlSessionRepository(root);
         eventHub = new AgentSessionEventHub();
+        liveStateCalls = 0;
         executor = new SessionWriteExecutor({
             repo,
             eventHub,
-            liveStateProvider: async (sessionId) => ({
-                summary: {
-                    sessionId,
-                    profileKey: "leader.default",
-                    workspaceKey: "global",
-                    workspaceRoot: root,
-                    status: "idle",
-                    updatedAt: 1,
-                    archived: false,
-                },
-                activeLeafId: null,
-                activePathRevision: null,
-                pendingUserInputs: [],
-                pendingApprovals: [],
-                steerQueue: [],
-                followUpQueue: {
-                    status: "ready",
-                    items: [],
-                },
-                activeInvocation: null,
-                model: null,
-                thinkingLevel: null,
-                effectiveThinkingLevel: "off",
-                planModeActive: false,
-            }),
+            liveStateProvider: async (sessionId) => {
+                liveStateCalls += 1;
+                return {
+                    summary: {
+                        sessionId,
+                        profileKey: "leader.default",
+                        workspaceKey: "global",
+                        workspaceRoot: root,
+                        status: "idle",
+                        updatedAt: 1,
+                        archived: false,
+                    },
+                    activeLeafId: null,
+                    activePathRevision: null,
+                    pendingUserInputs: [],
+                    pendingApprovals: [],
+                    steerQueue: [],
+                    followUpQueue: {
+                        status: "ready",
+                        items: [],
+                    },
+                    activeInvocation: null,
+                    model: null,
+                    thinkingLevel: null,
+                    effectiveThinkingLevel: "off",
+                    planModeActive: false,
+                };
+            },
         });
     });
 
@@ -78,6 +84,7 @@ describe("SessionWriteExecutor", () => {
         let stateChangedEvent: AgentSessionEventDto | undefined;
         const subscription = eventHub.subscribe(session.metadata.sessionId);
         const iterator = subscription[Symbol.asyncIterator]();
+        const timing = createTimingRecorder();
 
         const result = await executor.execute([{
             target: {sessionId: session.metadata.sessionId},
@@ -101,7 +108,7 @@ describe("SessionWriteExecutor", () => {
                     },
                 ],
             }],
-        }], "invoke-1");
+        }], "invoke-1", {timing: timing.sink});
 
         for (let index = 0; index < 3; index += 1) {
             const event = await iterator.next();
@@ -125,6 +132,18 @@ describe("SessionWriteExecutor", () => {
             expect(JSON.stringify(stateChangedEvent).length).toBeLessThan(50_000);
         }
         expect(repo.reduce(await repo.readSession(session.metadata.sessionId)).messages.map((message) => message.role)).toEqual(["assistant", "toolResult"]);
+        expect(result.liveStates.get(session.metadata.sessionId)).toBe(
+            stateChangedEvent?.kind === "session" && stateChangedEvent.event.type === "session_state_changed"
+                ? stateChangedEvent.event.state
+                : undefined,
+        );
+        expect(liveStateCalls).toBe(1);
+        expect(timing.events).toEqual([
+            "writePlan:start",
+            "writePlan:end",
+            `liveState:${String(session.metadata.sessionId)}:start`,
+            `liveState:${String(session.metadata.sessionId)}:end`,
+        ]);
     });
 
     it("连续 savePoint plans 会合并成同一个 session batch", async () => {
@@ -134,6 +153,7 @@ describe("SessionWriteExecutor", () => {
             workspaceRoot: root,
             workspaceKey: "global",
         });
+        const timing = createTimingRecorder();
 
         await executor.execute([
             {
@@ -173,7 +193,7 @@ describe("SessionWriteExecutor", () => {
                     },
                 }],
             },
-        ], "invoke-1");
+        ], "invoke-1", {timing: timing.sink});
 
         const sessionPath = join(root, ".nbook", "agent", "sessions", `${String(session.metadata.sessionId)}.jsonl`);
         const records = (await readFile(sessionPath, "utf8")).trim().split(/\r?\n/).map((line) => JSON.parse(line) as {kind: string; entries?: Array<{type: string; key?: string; message?: {role?: string}}>});
@@ -186,6 +206,172 @@ describe("SessionWriteExecutor", () => {
             "toolResult",
             "test.tool.state",
         ]);
+        expect(timing.events).toEqual([
+            "writePlan:start",
+            "writePlan:end",
+            `liveState:${String(session.metadata.sessionId)}:start`,
+            `liveState:${String(session.metadata.sessionId)}:end`,
+        ]);
+    });
+
+    it("after-write observer 收到实际落盘 batch，且早于 live state 计算", async () => {
+        const session = await repo.createSession({
+            profileKey: "leader.default",
+            initial: {},
+            workspaceRoot: root,
+            workspaceKey: "global",
+        });
+        const observed: Array<{
+            sessionId: number;
+            cause: string;
+            invocationId?: string;
+            entries: string[];
+            liveStateCallsAtNotify: number;
+        }> = [];
+        executor = new SessionWriteExecutor({
+            repo,
+            eventHub,
+            liveStateProvider: async (sessionId) => {
+                liveStateCalls += 1;
+                return {
+                    summary: {
+                        sessionId,
+                        profileKey: "leader.default",
+                        workspaceKey: "global",
+                        workspaceRoot: root,
+                        status: "idle",
+                        updatedAt: 1,
+                        archived: false,
+                    },
+                    activeLeafId: null,
+                    activePathRevision: null,
+                    pendingUserInputs: [],
+                    pendingApprovals: [],
+                    steerQueue: [],
+                    followUpQueue: {
+                        status: "ready",
+                        items: [],
+                    },
+                    activeInvocation: null,
+                    model: null,
+                    thinkingLevel: null,
+                    effectiveThinkingLevel: "off",
+                    planModeActive: false,
+                };
+            },
+            onEntriesWritten: (batch) => {
+                observed.push({
+                    sessionId: batch.sessionId,
+                    cause: batch.cause,
+                    invocationId: batch.invocationId,
+                    entries: batch.entries.map((entry) => entry.type === "custom" ? entry.key : entry.type),
+                    liveStateCallsAtNotify: liveStateCalls,
+                });
+            },
+        });
+
+        const result = await executor.execute([
+            {
+                target: {sessionId: session.metadata.sessionId},
+                cause: "turn.ingest",
+                durability: "savePoint",
+                ops: [{
+                    kind: "append",
+                    entry: {
+                        type: "message",
+                        message: createAssistantTextMessage({text: "assistant"}),
+                        origin: "harness",
+                    },
+                }],
+            },
+            {
+                target: {sessionId: session.metadata.sessionId},
+                cause: "tool.state",
+                durability: "savePoint",
+                ops: [{
+                    kind: "append",
+                    entry: {
+                        type: "custom",
+                        key: "test.tool.state",
+                        value: "queued",
+                    },
+                }],
+            },
+        ], "invoke-observer");
+
+        expect(observed).toEqual([
+            {
+                sessionId: session.metadata.sessionId,
+                cause: "turn.ingest",
+                invocationId: "invoke-observer",
+                entries: ["message", "test.tool.state"],
+                liveStateCallsAtNotify: 0,
+            },
+        ]);
+        expect(result.liveStates.get(session.metadata.sessionId)).toBeDefined();
+        expect(liveStateCalls).toBe(1);
+    });
+
+    it("after-write observer 失败不阻断已落盘写入和 live state 发布", async () => {
+        const session = await repo.createSession({
+            profileKey: "leader.default",
+            initial: {},
+            workspaceRoot: root,
+            workspaceKey: "global",
+        });
+        executor = new SessionWriteExecutor({
+            repo,
+            eventHub,
+            liveStateProvider: async (sessionId) => {
+                liveStateCalls += 1;
+                return {
+                    summary: {
+                        sessionId,
+                        profileKey: "leader.default",
+                        workspaceKey: "global",
+                        workspaceRoot: root,
+                        status: "idle",
+                        updatedAt: 1,
+                        archived: false,
+                    },
+                    activeLeafId: null,
+                    activePathRevision: null,
+                    pendingUserInputs: [],
+                    pendingApprovals: [],
+                    steerQueue: [],
+                    followUpQueue: {
+                        status: "ready",
+                        items: [],
+                    },
+                    activeInvocation: null,
+                    model: null,
+                    thinkingLevel: null,
+                    effectiveThinkingLevel: "off",
+                    planModeActive: false,
+                };
+            },
+            onEntriesWritten: () => {
+                throw new Error("observer failed");
+            },
+        });
+
+        const result = await executor.execute([{
+            target: {sessionId: session.metadata.sessionId},
+            cause: "observer.failure",
+            ops: [{
+                kind: "append",
+                entry: {
+                    type: "message",
+                    message: createAssistantTextMessage({text: "still persisted"}),
+                    origin: "harness",
+                },
+            }],
+        }], "invoke-observer-failure");
+
+        expect(result.entries).toHaveLength(1);
+        expect(result.liveStates.get(session.metadata.sessionId)).toBeDefined();
+        expect(liveStateCalls).toBe(1);
+        expect(repo.reduce(await repo.readSession(session.metadata.sessionId)).messages.map((message) => message.role)).toEqual(["assistant"]);
     });
 
     it("projection 写入不移动 active leaf", async () => {
@@ -279,6 +465,7 @@ describe("SessionWriteExecutor", () => {
         const user = await repo.appendUserMessage(session.metadata.sessionId, "hello");
         const subscription = eventHub.subscribe(session.metadata.sessionId);
         const iterator = subscription[Symbol.asyncIterator]();
+        const timing = createTimingRecorder();
 
         const result = await executor.execute([{
             target: {sessionId: session.metadata.sessionId},
@@ -287,7 +474,7 @@ describe("SessionWriteExecutor", () => {
                 kind: "moveLeaf",
                 leafId: user.parentId,
             }],
-        }], "invoke-1");
+        }], "invoke-1", {timing: timing.sink});
 
         const firstEvent = await iterator.next();
         const secondEvent = await iterator.next();
@@ -297,5 +484,36 @@ describe("SessionWriteExecutor", () => {
         expect(snapshot.leafId).toBeNull();
         expect(firstEvent.done ? undefined : firstEvent.value.kind === "session" ? firstEvent.value.event.type : firstEvent.value.kind).toBe("session_entry");
         expect(secondEvent.done ? undefined : secondEvent.value.kind === "session" ? secondEvent.value.event.type : secondEvent.value.kind).toBe("session_state_changed");
+        expect(timing.events).toEqual([
+            "writePlan:start",
+            "writePlan:end",
+            `liveState:${String(session.metadata.sessionId)}:start`,
+            `liveState:${String(session.metadata.sessionId)}:end`,
+        ]);
     });
 });
+
+function createTimingRecorder(): {sink: SessionWriteTimingSink; events: string[]} {
+    const events: string[] = [];
+    return {
+        events,
+        sink: {
+            async measureWritePlan<T>(task: () => Promise<T>): Promise<T> {
+                events.push("writePlan:start");
+                try {
+                    return await task();
+                } finally {
+                    events.push("writePlan:end");
+                }
+            },
+            async measureLiveState<T>(sessionId: number, task: () => Promise<T>): Promise<T> {
+                events.push(`liveState:${String(sessionId)}:start`);
+                try {
+                    return await task();
+                } finally {
+                    events.push(`liveState:${String(sessionId)}:end`);
+                }
+            },
+        },
+    };
+}

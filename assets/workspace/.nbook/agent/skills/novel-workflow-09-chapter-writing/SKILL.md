@@ -27,7 +27,7 @@ when_to_use:
 
 ## 第一步：写作前先推进 World Engine（关键）
 
-**世界状态先行。** 在调用 writer 之前，leader 先确认本章要发生的剧情事件已经按时间顺序写入 World Engine（解封、交流、追入、对峙……）。如果 `08` 已经推进过，只需用 `execute_world_query` 抽查相关 subject 和时间范围；如果还没推进，先回 `08` 完成剧情事实确认与状态写入，不要在 `09` 里边设计边写。
+**世界状态先行。** 在调用 writer 之前，leader 先确认本章要发生的剧情事件已经按时间顺序写入 World Engine（解封、交流、追入、对峙……）。如果 `08` 已经推进过，只需用 `execute_world` 抽查相关 subject 和时间范围；如果还没推进，先回 `08` 完成剧情事实确认与状态写入，不要在 `09` 里边设计边写。
 
 推进时遵循**最少支持当前叙事**原则（详见 `reference/world-engine/recording-principles.md`）：
 
@@ -39,9 +39,9 @@ when_to_use:
 操作边界（详见 `reference/world-engine/calendar-system.md` 与 `subject-lifecycle.md`）：
 
 - 时间一律用项目 `world-engine/calendar.ts` 能 parse 的日历字符串。Simple Calendar 若配置了 `cycleNames` / `monthName`，可使用月份名；否则使用数字月份。禁止 raw instant。
-- 同一 instant 只能有一个切面；目标时刻已存在切面时会冲突报错，优先改用相邻时间点写入。明确是误写或需要剧情回退时，先用 `execute_world_query` 的 `world.slices()` 取得 `sliceId`，再用 `delete_world_slice` 物理删除后重写；不要假设可以覆盖已有切面。
+- 同一 instant 只能有一个切面；目标时刻已存在切面时会冲突报错。优先用 `execute_world` 的 `world.slice.list({withPatches:true})` 或 `world.slice.get(sliceId)` 取得 `sliceId` / `patchId`，再用 `world.slice.editPatches` 合并或修正。只有整条切面作废时才用 `world.slice.delete` 物理删除。
 - 写完后检查返回的 issues：E issues（`broken-relative` / `dangling-ref`）必须修；A issues（`base-shifted` / `masked`）确认本次语义符合预期即可，不落库。
-- 对用户用人话解释做了什么（"我把这段剧情记到时间线里了"），不抛 slice / mutation / op 这些术语。
+- 对用户用人话解释做了什么（"我把这段剧情记到时间线里了"），不抛 slice / patch / op 这些术语。
 
 ## 第二步：准备简化 brief 调用 writer
 
@@ -60,9 +60,9 @@ brief 应当**简化**——因为写作前世界状态已推进好、writer 又
 | 信息控制（谁知道什么 / 谁不知道什么） | 完整世界状态 |
 | 写作约束（视角、节奏、章节如何收尾） | HP / 位置等可查询的细节 |
 | 建议读取的 lorebook（也可放 input.context） | 完整时间线记录 |
-| World Engine 查询提示（查哪些 subject、哪个时间范围） | mutation 细节 |
+| World Engine 查询提示（查哪些 subject、哪个时间范围） | patch 细节 |
 
-**不要**把 HP、位置、完整状态塞进 brief。writer 会自己用 `execute_world_query` 查到当前真值；把状态都塞进 brief 既冗余，又会让 writer 退化成纯执行者，还浪费了它的查询能力。
+**不要**把 HP、位置、完整状态塞进 brief。writer 会自己用 readonly `execute_world` 查到当前真值；把状态都塞进 brief 既冗余，又会让 writer 退化成纯执行者，还浪费了它的查询能力。
 
 信息控制是 brief 的硬要求：按 subject 视角分别说明知识边界，例如「薇洛丝视角：不知道莉雅的真实身份」「反派视角：从教会典籍见过项链记载，认出标志但不确定眼前女孩是谁」。writer 据此控制每个角色的言行与心理披露。
 
@@ -73,13 +73,13 @@ brief 示例（节选）：
 关键剧情点：1) 解封过程的异象 2) 莉雅失忆、只记得片段 3) 邪教徒追入，章末停在对峙瞬间。
 信息控制：薇洛丝不知道莉雅真实身份与被封印原因；莉雅失忆，不知外面世界过了多久。
 写作约束：薇洛丝单视角第三人称；节奏由探索转紧张；章末收在对峙未发生战斗的悬念上。
-World Engine 查询提示：用 execute_world_query 查 weiluosi、liya、cultist-patrol-01 在「星辉历312年 5月5日」当天的状态。
+World Engine 查询提示：用 execute_world 查 weiluosi、liya、cultist-patrol-01 在「公元2020年4月12日 18:00」附近的状态。
 建议读取：project-slug/lorebook/location/ruins-meteor/。
 ```
 
 ## 第三步：writer 侧（自查状态后写正文）
 
-writer 拥有 `execute_world_query` 只读能力。它的典型流程是：读 brief 指定的 lorebook → 用 `execute_world_query` 按提示查相关 subject 在章节时间范围的状态 → 构思并写入正文到章节 `index.md` → `report_result` 报告落点。
+writer 拥有 readonly `execute_world` 能力。它的典型流程是：读 brief 指定的 lorebook → 用 `execute_world` 按提示查相关 subject 在章节时间范围的状态 → 构思并写入正文到章节 `index.md` → `report_result` 报告落点。
 
 leader 不需要在此步骤干预；writer 是自主子代理。注意 writer 能查到角色真值，但在某个角色视角的叙述里不会让该角色"知道"他不该知道的设定——查询服务于写作一致性，不等于授权角色越界知情。
 

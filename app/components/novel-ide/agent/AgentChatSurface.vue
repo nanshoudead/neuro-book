@@ -10,6 +10,7 @@ import {useDialog} from "nbook/app/composables/useDialog";
 import {useNotification} from "nbook/app/composables/useNotification";
 import {useAgentSession} from "nbook/app/components/novel-ide/agent/useAgentSession";
 import {useAgentSessionStream, type AgentSessionStreamSnapshotReason} from "nbook/app/components/novel-ide/agent/useAgentSessionStream";
+import {applyAgentCommandResult} from "nbook/app/components/novel-ide/agent/agent-command-result";
 import {useAgentSessionApi} from "nbook/app/composables/useAgentSessionApi";
 import {useCostDisplay} from "nbook/app/composables/useCostDisplay";
 import Dropdown from "nbook/app/components/common/Dropdown.vue";
@@ -28,7 +29,7 @@ import type {ConfigModelSettingsDto} from "nbook/shared/dto/config.dto";
 import type {AgentQueuedMessageDto, AgentSessionListPageDto, AgentSessionListQueryDto, AgentSessionSnapshotDto, AgentSessionSummaryDto, AgentPendingApprovalDto} from "nbook/shared/dto/agent-session.dto";
 import type {DropdownItem} from "nbook/app/components/common/dropdown.types";
 import type {ThinkingLevelDto} from "nbook/shared/dto/app-settings.dto";
-import type {InvokeAgentResult} from "nbook/server/agent/harness/types";
+import type {AgentCommandResult, InvokeAgentResult} from "nbook/server/agent/harness/types";
 import type {JsonValue} from "nbook/server/agent/messages/types";
 import type {InlineEditPayload} from "nbook/app/utils/inline-editor-selection";
 import {LowCodeJsonObjectSchema} from "nbook/shared/dto/low-code-form.dto";
@@ -849,6 +850,20 @@ const applySnapshotOrSync = async (snapshot?: AgentSessionSnapshotDto | null): P
 };
 
 /**
+ * 应用 command HTTP 返回。轻控制命令只更新 live shell，不补拉完整 snapshot。
+ */
+const applyCommandResult = async (result: AgentCommandResult): Promise<void> => {
+    await applyAgentCommandResult(result, {
+        activeSessionId: () => activeSessionId.value,
+        applyLiveState: session.applyLiveState,
+        syncSessionModelState,
+        refreshSessions,
+        loadSession,
+        applySnapshotOrSync,
+    });
+};
+
+/**
  * 统一处理阻塞 invoke 的 HTTP 返回。SSE 正常时错误会以 session entry 进入消息流；
  * 这里负责补 snapshot，并在事件流缺失时给一个即时通知兜底。
  */
@@ -1228,7 +1243,7 @@ const togglePlanMode = async (): Promise<void> => {
             command: "plan",
             active: !planModeActive.value,
         });
-        await applySnapshotOrSync(result.snapshot);
+        await applyCommandResult(result);
     } catch (error) {
         console.error("切换 Plan Mode 失败", error);
         notifyAgentError(error, t("agent.chatSurface.togglePlanFailed"));
@@ -1408,7 +1423,7 @@ const handleSlashCommand = async (message: string): Promise<boolean> => {
             command: "model",
             modelKey: rest[0] ?? null,
         });
-        await applySnapshotOrSync(result.snapshot);
+        await applyCommandResult(result);
         return true;
     }
     return false;
@@ -1427,7 +1442,7 @@ const compactSession = async (instructions?: string): Promise<void> => {
             command: "compact",
             instructions,
         });
-        await applySnapshotOrSync(result.snapshot);
+        await applyCommandResult(result);
     } catch (error) {
         console.error("压缩 Session 失败", error);
         notifyAgentError(error, t("agent.chatSurface.compactFailed"));
@@ -1496,7 +1511,7 @@ const updateSessionModelSelection = async (modelKey: string | null): Promise<voi
             command: "model",
             modelKey,
         });
-        await applySnapshotOrSync(result.snapshot);
+        await applyCommandResult(result);
     } catch (error) {
         console.error("更新 session 模型失败", error);
         notifyAgentError(error, t("agent.chatSurface.updateModelFailed"));
@@ -1523,7 +1538,7 @@ const updateSessionThinkingLevel = async (thinkingLevel: ThinkingLevelDto | null
             command: "thinking",
             thinkingLevel,
         });
-        await applySnapshotOrSync(result.snapshot);
+        await applyCommandResult(result);
     } catch (error) {
         console.error("更新 session 推理强度失败", error);
         notifyAgentError(error, t("agent.chatSurface.updateThinkingFailed"));

@@ -35,7 +35,7 @@ bun test ./assets/workspace/.nbook/agent/profiles/builtin/writer.profile.test.ts
 echo "这是一个测试文本。不是很好，而是非常好。一丝不苟地完成任务。" > .agent/test-slop.md
 
 # 手动运行 CLI 检查
-bun assets/workspace/.nbook/agent/skills/anti-ai-slop/cli/checker.ts check .agent/test-slop.md
+bun assets/workspace/.nbook/agent/skills/llmlint/bin/llmlint.ts check .agent/test-slop.md
 ```
 
 **预期输出**:
@@ -84,7 +84,7 @@ await invokeAgent(session.id, {
    - 写入成稿并 CLI 检查
    - 报告落点
 
-3. 是否执行了 anti-ai-slop CLI 检查？
+3. 是否执行了 llmlint CLI 检查？
    - 查看日志中是否有 bash 工具调用
    - 是否有 CLI 输出
 
@@ -297,9 +297,9 @@ else
 fi
 
 # 3. CLI 工具测试
-echo "3. 测试 anti-ai-slop CLI..."
+echo "3. 测试 llmlint CLI..."
 echo "这是一个测试。不是很好，而是非常好。" > .agent/test-slop.md
-bun assets/workspace/.nbook/agent/skills/anti-ai-slop/cli/checker.ts check .agent/test-slop.md
+bun assets/workspace/.nbook/agent/skills/llmlint/bin/llmlint.ts check .agent/test-slop.md
 if [ $? -eq 0 ]; then
     echo "✅ CLI 工具可执行"
 else

@@ -20,7 +20,7 @@ Agent 聊天同步由三层组成：
 - `GET /api/agent/sessions/:sessionId/events?eventEpoch=<epoch>&after=<seq>`：建立 SSE，按 cursor replay 之后的事件。
 - `POST /api/agent/sessions/:sessionId/invocations`：发起 blocking invocation；运行过程仍通过 SSE 实时同步。
 - `POST /api/agent/sessions/:sessionId/abort`：中止当前 active invocation。
-- `POST /api/agent/sessions/:sessionId/commands`：执行 session command，例如 model、plan、compact。
+- `POST /api/agent/sessions/:sessionId/commands`：执行 session command，例如 model、plan、compact。轻控制命令返回 `kind:"live_state"`，前端只应用 live state，不额外补拉 snapshot；`retry/tree` 返回 `kind:"snapshot"`，`new/fork` 返回 `kind:"created_session"`。
 - `POST /api/agent/sessions/:sessionId/tree`：移动 session tree leaf，必要时继续 invoke。
 
 ## Event Envelope

@@ -79,34 +79,35 @@ const WORLD_ENGINE_SYSTEM_PROMPT = profileText`
     ## 查询
 
     在 CodeAct 沙盒中执行 JavaScript 查询世界状态。可用 API：
-    - world.get(id, options?) - 查询单个 subject，options.deref=true 可自动解引用
-    - world.getMany(ids) - 批量查询多个 subject
-    - world.list(type?) - 列出指定类型或全部 subject
-    - world.findRefs(targetId, sourceType?) - 反向查找：哪些 subject 引用了目标
-    - world.searchText(query, options?) - 向量搜索（存活集去重 + 同 model 过滤）
-    - world.slices(options?) - 查询时间轴切面；需要 patch 明细时传 {withPatches: true}
-    - world.getSlice(id) - 读取单个切面及 patchId
-    - world.parseTime(text) / world.formatTime(instant) - 项目日历字符串与 instant 互转
-    - world.now() - 获取当前时间
+    - world.time.parse(text) / world.time.format(instant) - 项目日历字符串与 instant 互转
+    - world.time.now() - 获取当前时间
+    - world.subject.get(id, options?) - 查询单个 subject，options.deref=true 可自动解引用
+    - world.subject.gets(ids) - 批量查询多个 subject，缺失项返回 null
+    - world.subject.list(type?) - 列出指定类型或全部 subject
+    - world.subject.findRefs(targetId, sourceType?) - 反向查找：哪些 subject 引用了目标
+    - world.search.text(query, options?) - 向量搜索（存活集去重 + 同 model 过滤）
+    - world.slice.list(options?) - 查询时间轴切面；需要 patch 明细时传 {withPatches: true}
+    - world.slice.get(sliceId) - 读取单个切面及 patchId
 
     示例：
     查询 schema：列出所有 character
-    const characters = await world.list("character");
+    const characters = await world.subject.list("character");
 
     确认 subject 是否存在
-    const erina = await world.get("erina");
+    const erina = await world.subject.get("erina");
 
     查询并解引用
-    const erina = await world.get("erina", { deref: true, derefDepth: 1 });
+    const erina = await world.subject.get("erina", { deref: true, derefDepth: 1 });
 
     ## 写入与精确编辑
 
     - 首次写入某 subject 时会自动创建（不需要单独 create 步骤）
-    - 对用户说项目日历字符串；脚本内用 world.parseTime("星辉历312年 5月5日 14:00") 转成 instant 后写入
+    - 对用户说项目日历字符串；脚本内用 world.time.parse("星辉历312年 5月5日 14:00") 转成 instant 后写入
+    - 写入新切面用 world.slice.write({time, title, summary?, kind?, patches})
     - 一个 slice = 一个 time + 一组 patches，原子写入。每条 patch：{ subjectId, path（JSON Pointer，如 /hp、/equipment/head）, op, value?, summary?, type?（仅首写）, name?（仅首写） }
     - 支持 4 种 op：replace（设绝对值）/ increment（数值增减）/ remove（移除路径；collection 可提供 value 按 stable JSON 值删除元素，list 不支持按值删）/ append（数组追加，collection/unique 数组自动去重）
-    - 同一时间点只能有一个 slice；目标时间已有切面且只是补/改某条 patch 时，用 world.editMutations，不要改用相邻时间制造重复事件
-    - 改错时先用 world.getSlice 或 world.slices({withPatches:true}) 取得 patchId，再 world.editMutations(sliceId, edits, meta?)
+    - 同一时间点只能有一个 slice；目标时间已有切面且只是补/改某条 patch 时，用 world.slice.editPatches，不要改用相邻时间制造重复事件
+    - 改错时先用 world.slice.get 或 world.slice.list({withPatches:true}) 取得 sliceId 与 patchId，再 world.slice.editPatches(sliceId, edits, meta?)
     - 删除是物理删除，不可恢复；只用于剧情回退、整条切面作废或清理误写数据
     - execute_world 统一返回 {data, issues}；E（broken-relative / dangling-ref）是数据错误必须修，A（base-shifted / masked）是补过去时的提醒，确认语义即可
 

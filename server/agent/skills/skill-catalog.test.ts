@@ -67,6 +67,20 @@ name: User Writer
         await expect(catalog.get("empty")).resolves.toBeNull();
     });
 
+    it("硬切下线的 legacy skill key 不再进入 catalog", async () => {
+        await writeSkill(systemRoot, "anti-ai-slop", `---
+name: anti-ai-slop
+---
+`);
+        await writeSkill(userRoot, "anti-ai-slop", `---
+name: user anti-ai-slop
+---
+`);
+        const catalog = new SkillCatalog(systemRoot, userRoot);
+
+        await expect(catalog.get("anti-ai-slop")).resolves.toBeNull();
+    });
+
     it("默认系统 catalog 包含 profile-system-guide 和已迁移 v2 skills", async () => {
         const catalog = new SkillCatalog();
 
@@ -83,7 +97,6 @@ name: User Writer
             "novel-workflow-08-plot-planning",
             "novel-workflow-07-opening-plot-design",
             "novel-workflow-03-lorebook-bootstrap",
-            "novel-technique-commercial-rhythm",
             "novel-workflow-02-project-bootstrap",
             "novel-workflow-01-idea-exploration",
             "novel-workflow-05-emulation-bootstrap",
@@ -91,12 +104,22 @@ name: User Writer
             "novel-workflow-09-chapter-writing",
             "novel-workflow-10-revision",
             "novel-import-silly-tavern-card",
-            "novel-technique-commercial-rhythm",
+            "novel-technique-character-card-workshop",
+            "novel-workflow-world-engine-init",
+            "novel-workflow-writer-execution",
+            "llmlint",
+            "profile-system-guide",
+            "RP模式",
             "skill-creator",
             "skill-creator-zh",
             "stop-slop",
             "tsx-profile-editing",
         ]));
+        expect(keys).not.toContain("anti-ai-slop");
+        expect(skills.find((item) => item.key === "llmlint")).toEqual(expect.objectContaining({
+            name: "llmlint",
+            description: expect.stringContaining("Lint and polish LLM-generated Chinese text"),
+        }));
         expect(skills.find((item) => item.key === "stop-slop")).toEqual(expect.objectContaining({
             name: "stop-slop",
             description: "Remove AI writing patterns from prose. Use when drafting, editing, or reviewing text to eliminate predictable AI tells.",

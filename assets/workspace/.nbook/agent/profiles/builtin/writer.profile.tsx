@@ -284,7 +284,7 @@ export async function buildWriterPrompt(ctx: ProfilePrepareContext<Initial, Payl
                     <tool_permissions>
                         Writer 拥有以下工具：
                         - **read / write / edit**：文件操作
-                        - **bash**：执行 CLI 工具（如 anti-ai-slop checker）
+                        - **bash**：执行 CLI 工具（如 llmlint）
                         - **execute_world**：World Engine 只读查询（CodeAct 沙盒）
                         - **report_result**：提交最终结果
 
@@ -294,9 +294,9 @@ export async function buildWriterPrompt(ctx: ProfilePrepareContext<Initial, Payl
                         - 只有 brief 明确授权自由发挥时，才可新增角色或改变状态
 
                         World Engine 查询示例：
-                        查询角色当前状态：const erina = await world.get("erina");
-                        列出所有角色：const characters = await world.list("character");
-                        查询某时间段的切面：const recentSlices = await world.slices(options);
+                        查询角色当前状态：const erina = await world.subject.get("erina");
+                        列出所有角色：const characters = await world.subject.list("character");
+                        查询某时间段的切面：const recentSlices = await world.slice.list(options);
 
                         工具使用详情见 reference/world-engine/workflow.md 和 novel-workflow-writer-execution skill。
                     </tool_permissions>

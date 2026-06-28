@@ -58,8 +58,8 @@
 ### Phase 1：Era 切片
 - [ ] 创建 world subject（如"阿斯塔利亚"）
 - [ ] 写入第一个切片（纪年第 1 年第 1 月第 1 日）
-- [ ] `world.list("world")` 返回 1 个 world subject
-- [ ] `world.now()` 能返回正确的当前时间
+- [ ] `world.subject.list("world")` 返回 1 个 world subject
+- [ ] `world.time.now()` 能返回正确的当前时间
 
 ### Phase 2：初始化核心 subject
 - [ ] 为每个核心角色（★★★★★ 或 ★★★★☆）建立 subject
@@ -78,7 +78,7 @@
 - [ ] 写入故事"现在"时间点的切片
 - [ ] 所有核心角色都有明确的当前位置
 - [ ] 故事起点的切片是时间线上最新的一条
-- [ ] `world.slices()` 返回的切片列表符合预期
+- [ ] `world.slice.list()` 返回的切片列表符合预期
 
 ## 剧情推进检查清单
 
@@ -91,7 +91,7 @@
 ### Phase 2：写入切片
 - [ ] 把剧情框架拆分为若干场景或关键状态变化
 - [ ] 为每个场景确定时间点（精确到小时或分钟）
-- [ ] 为每个场景写入切片（`execute_world` 中调用 `world.writeSlice`）
+- [ ] 为每个场景写入切片（`execute_world` 中调用 `world.slice.write`）
 - [ ] 更新角色 `location`、`hp`、`events`、`relationships`、`knowledge`
 - [ ] 验证：每个切片的时间点符合剧情顺序
 - [ ] 验证：所有角色的状态变化都已记录
@@ -117,31 +117,31 @@
 
 ```javascript
 // 时间转换：写入用 instant，展示给人看时再格式化
-const time = world.parseTime("星辉历312年 5月10日 00:00");
+const time = world.time.parse("公元2020年4月12日 18:00");
 
 // 查询单个 subject
-const veiluosi = await world.get("veiluosi");
+const veiluosi = await world.subject.get("veiluosi");
 
 // 查询多个 subject
-const heroes = await world.getMany(["veiluosi", "yuelian", "gelushi", "erina"]);
+const heroes = await world.subject.gets(["veiluosi", "yuelian", "gelushi", "erina"]);
 
 // 列出某类型所有 subject
-const allCharacters = await world.list("character");
+const allCharacters = await world.subject.list("character");
 
 // 反向查找引用
-const whoReferencesVeiluosi = await world.findRefs("veiluosi");
+const whoReferencesVeiluosi = await world.subject.findRefs("veiluosi");
 
 // 向量搜索
-const results = await world.searchText("岩石魔法");
+const results = await world.search.text("岩石魔法");
 
 // 查询时间轴切面
-const slices = await world.slices({limit: 10, withPatches: true});
+const slices = await world.slice.list({limit: 10, withPatches: true});
 
 // 获取当前时间
-const now = world.now();
+const now = world.time.now();
 
 // 首次写入新 subject（自动创建）
-const created = await world.writeSlice({
+const created = await world.slice.write({
     time,
     title: "薇洛丝转生",
     patches: [
@@ -157,8 +157,8 @@ const created = await world.writeSlice({
 });
 
 // 后续写入（不需要 type 和 name）
-await world.writeSlice({
-    time: world.parseTime("星辉历312年 5月10日 00:05"),
+await world.slice.write({
+    time: world.time.parse("公元2020年4月12日 18:05"),
     title: "初次对话",
     patches: [
         {subjectId: "veiluosi", path: "/location", op: "replace", value: "subject://castle-brauer"},
@@ -166,26 +166,26 @@ await world.writeSlice({
             subjectId: "veiluosi",
             path: "/events",
             op: "append",
-            value: {time: "星辉历312年 5月10日 00:05", text: "听到维克托解释召唤目的"},
+            value: {text: "公元2020年4月12日 18:05，听到维克托解释召唤目的"},
             summary: "薇洛丝听到召唤者的解释",
         },
     ],
 });
 
-// 精确修正已有 mutation：先拿 patchId，再 editMutations
-const slice = await world.getSlice(created.sliceId);
+// 精确修正已有 patch：先拿 patchId，再 editPatches
+const slice = await world.slice.get(created.sliceId);
 const agePatch = slice.patches.find((patch) => patch.path === "/age");
-await world.editMutations(created.sliceId, [
+await world.slice.editPatches(created.sliceId, [
     {patchId: agePatch.patchId, set: {path: "/realAge", summary: "年龄字段修正"}},
 ]);
 
 // 整条切面作废时才物理删除
-await world.deleteSlice(created.sliceId);
+await world.slice.delete(created.sliceId);
 
 return "已完成 World Engine 更新";
 ```
 
-**注意**：删除是物理删除，不可恢复。修正单条 mutation 时优先使用 `editMutations`，不要整片删除重写。
+**注意**：删除是物理删除，不可恢复。修正单条 patch 时优先使用 `world.slice.editPatches`，不要整片删除重写。
 
 ## 4-op 语义速查
 

@@ -8,21 +8,17 @@ import type {AuthSessionDto} from "nbook/shared/dto/auth.dto";
  */
 export default defineEventHandler(async (event): Promise<AuthSessionDto> => {
     const timing = createServerTiming(event);
-    try {
-        const authEnabled = isAuthEnabled();
-        if (!authEnabled) {
-            return {
-                authEnabled: false,
-                user: null,
-            };
-        }
-
-        const user = await timing.measure("auth.user", () => getCurrentUser(event));
+    const authEnabled = isAuthEnabled();
+    if (!authEnabled) {
         return {
-            authEnabled: true,
-            user: user ? toAuthUser(user) : null,
+            authEnabled: false,
+            user: null,
         };
-    } finally {
-        timing.commit();
     }
+
+    const user = await timing.measure("auth.user", () => getCurrentUser(event));
+    return {
+        authEnabled: true,
+        user: user ? toAuthUser(user) : null,
+    };
 });

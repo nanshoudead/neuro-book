@@ -51,7 +51,7 @@ describe("CodeAct Integration", () => {
         createdProjects.splice(0);
     }, 30_000);
 
-    test("Execute simple query with world.get()", async () => {
+    test("Execute simple query with world.subject.get()", async () => {
         const createResult = await facade.createSubject(testProjectPath, {
             id: "hero",
             type: "character",
@@ -72,7 +72,7 @@ describe("CodeAct Integration", () => {
         });
 
         const result = await facade.executeCodeActQuery(testProjectPath, `
-            const hero = await world.get("hero");
+            const hero = await world.subject.get("hero");
             return hero;
         `);
 
@@ -82,6 +82,38 @@ describe("CodeAct Integration", () => {
             level: 1,
             inventory: [],
         });
+    });
+
+    test("Execute batch query with world.subject.gets()", async () => {
+        await facade.createSubject(testProjectPath, {
+            id: "hero",
+            type: "character",
+            name: "英雄",
+            at: BigInt(1000),
+        });
+
+        await facade.writeSlice(testProjectPath, {
+            instant: BigInt(1001),
+            title: "设置英雄属性",
+            patches: [
+                {subjectId: "hero", path: "/name", op: "replace", value: "张三"},
+                {subjectId: "hero", path: "/hp", op: "replace", value: 100},
+            ],
+        });
+
+        const result = await facade.executeCodeActQuery(testProjectPath, `
+            return await world.subject.gets(["hero", "missing"]);
+        `);
+
+        expect(result).toEqual([
+            {
+                name: "张三",
+                hp: 100,
+                level: 1,
+                inventory: [],
+            },
+            null,
+        ]);
     });
 
     test("Execute query with deref", async () => {
@@ -118,7 +150,7 @@ describe("CodeAct Integration", () => {
         });
 
         const result = await facade.executeCodeActQuery(testProjectPath, `
-            const hero = await world.get("hero", { deref: true });
+            const hero = await world.subject.get("hero", { deref: true });
             return hero;
         `);
 
@@ -157,7 +189,7 @@ describe("CodeAct Integration", () => {
         });
 
         const result = await facade.executeCodeActQuery(testProjectPath, `
-            return await world.findRefs("village", "character");
+            return await world.subject.findRefs("village", "character");
         `);
 
         expect(result).toEqual([{subjectId: "hero", attr: "/location"}]);
@@ -173,7 +205,7 @@ describe("CodeAct Integration", () => {
         });
 
         const result = await facade.executeCodeActQuery(testProjectPath, `
-            const slices = await world.slices({withPatches: true});
+            const slices = await world.slice.list({withPatches: true});
             return slices.map((slice) => ({
                 title: slice.title,
                 patchId: slice.patches.find((patch) => patch.path === "/hp").patchId,
@@ -193,13 +225,13 @@ describe("CodeAct Integration", () => {
 
         await expect(
             facade.executeCodeActQuery(testProjectPath, `
-                const hero = await world.get("hero");
+                const hero = await world.subject.get("hero");
                 return hero.name + (;
             `),
         ).rejects.toThrow();
     });
 
-    test("Execute query with world.list()", async () => {
+    test("Execute query with world.subject.list()", async () => {
         await facade.createSubject(testProjectPath, {
             id: "hero1",
             type: "character",
@@ -214,7 +246,7 @@ describe("CodeAct Integration", () => {
         });
 
         const result = await facade.executeCodeActQuery(testProjectPath, `
-            const characters = await world.list("character");
+            const characters = await world.subject.list("character");
             return characters;
         `);
 
@@ -224,7 +256,7 @@ describe("CodeAct Integration", () => {
         ]);
     });
 
-    test("Execute query with world.now()", async () => {
+    test("Execute query with world.time.now()", async () => {
         await facade.createSubject(testProjectPath, {
             id: "hero",
             type: "character",
@@ -233,7 +265,7 @@ describe("CodeAct Integration", () => {
         });
 
         const result = await facade.executeCodeActQuery(testProjectPath, `
-            const currentTime = world.now();
+            const currentTime = world.time.now();
             return currentTime;
         `);
 
@@ -243,19 +275,19 @@ describe("CodeAct Integration", () => {
 
     test("executeCodeActWorld 读写合一并统一返回 issues", async () => {
         const result = await facade.executeCodeActWorld(testProjectPath, `
-            const time = world.parseTime("测试纪元1日 00:20:00");
-            const written = await world.writeSlice({
+            const time = world.time.parse("测试纪元1日 00:20:00");
+            const written = await world.slice.write({
                 time,
                 title: "英雄登场",
                 patches: [
                     {subjectId: "hero", type: "character", name: "英雄", path: "/hp", op: "replace", value: 88},
                 ],
             });
-            const hero = await world.get("hero");
-            const slice = await world.getSlice(written.sliceId);
+            const hero = await world.subject.get("hero");
+            const slice = await world.slice.get(written.sliceId);
             return {
                 hp: hero.hp,
-                formatted: world.formatTime(time),
+                formatted: world.time.format(time),
                 patchId: slice.patches.find((patch) => patch.path === "/hp").patchId,
             };
         `, "readwrite");
@@ -270,22 +302,22 @@ describe("CodeAct Integration", () => {
         });
     });
 
-    test("executeCodeActWorld editMutations 精确修正 patch", async () => {
+    test("executeCodeActWorld slice.editPatches 精确修正 patch", async () => {
         const result = await facade.executeCodeActWorld(testProjectPath, `
-            const written = await world.writeSlice({
-                time: world.parseTime("测试纪元1日 00:21:00"),
+            const written = await world.slice.write({
+                time: world.time.parse("测试纪元1日 00:21:00"),
                 title: "误写 HP",
                 patches: [
                     {subjectId: "hero", type: "character", name: "英雄", path: "/HP", op: "replace", value: 77},
                 ],
             });
-            const before = await world.getSlice(written.sliceId);
+            const before = await world.slice.get(written.sliceId);
             const wrong = before.patches.find((patch) => patch.path === "/HP");
-            await world.editMutations(written.sliceId, [
+            await world.slice.editPatches(written.sliceId, [
                 {patchId: wrong.patchId, set: {path: "/hp", summary: "修正 hp 路径"}},
             ]);
-            const after = await world.getSlice(written.sliceId);
-            const hero = await world.get("hero");
+            const after = await world.slice.get(written.sliceId);
+            const hero = await world.subject.get("hero");
             return {
                 hp: hero.hp,
                 beforePatchId: wrong.patchId,
@@ -309,8 +341,8 @@ describe("CodeAct Integration", () => {
 
     test("executeCodeActWorld throw 后回滚写入", async () => {
         await expect(facade.executeCodeActWorld(testProjectPath, `
-            await world.writeSlice({
-                time: world.parseTime("测试纪元1日 00:22:00"),
+            await world.slice.write({
+                time: world.time.parse("测试纪元1日 00:22:00"),
                 title: "应回滚",
                 patches: [
                     {subjectId: "rollback", type: "character", name: "回滚者", path: "/hp", op: "replace", value: 1},
@@ -320,7 +352,7 @@ describe("CodeAct Integration", () => {
         `, "readwrite")).rejects.toThrow("主动回滚");
 
         const result = await facade.executeCodeActWorld(testProjectPath, `
-            const subjects = await world.list("character");
+            const subjects = await world.subject.list("character");
             return subjects.map((subject) => subject.id);
         `, "readonly");
 
@@ -329,8 +361,8 @@ describe("CodeAct Integration", () => {
 
     test("executeCodeActWorld 超时后回滚写入", async () => {
         await expect(facade.executeCodeActWorld(testProjectPath, `
-            await world.writeSlice({
-                time: world.parseTime("测试纪元1日 00:23:00"),
+            await world.slice.write({
+                time: world.time.parse("测试纪元1日 00:23:00"),
                 title: "超时回滚",
                 patches: [
                     {subjectId: "timeout-rollback", type: "character", name: "超时者", path: "/hp", op: "replace", value: 1},
@@ -341,7 +373,7 @@ describe("CodeAct Integration", () => {
         `, "readwrite", {timeout: 50})).rejects.toThrow("执行超时");
 
         const result = await facade.executeCodeActWorld(testProjectPath, `
-            const subjects = await world.list("character");
+            const subjects = await world.subject.list("character");
             return subjects.map((subject) => subject.id);
         `, "readonly");
 
@@ -352,8 +384,8 @@ describe("CodeAct Integration", () => {
         await expect(facade.executeCodeActWorld(testProjectPath, `
             setTimeout(async () => {
                 try {
-                    await world.writeSlice({
-                        time: world.parseTime("测试纪元1日 00:24:00"),
+                    await world.slice.write({
+                        time: world.time.parse("测试纪元1日 00:24:00"),
                         title: "后台写入应失败",
                         patches: [
                             {subjectId: "late-timeout-write", type: "character", name: "迟到写入", path: "/hp", op: "replace", value: 1},
@@ -370,7 +402,7 @@ describe("CodeAct Integration", () => {
         await new Promise((resolve) => setTimeout(resolve, 250));
 
         const result = await facade.executeCodeActWorld(testProjectPath, `
-            const subjects = await world.list("character");
+            const subjects = await world.subject.list("character");
             return subjects.map((subject) => subject.id);
         `, "readonly");
 

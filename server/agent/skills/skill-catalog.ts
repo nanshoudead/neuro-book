@@ -14,6 +14,8 @@ export type SkillCatalogItem = {
     skillPath: string;
 };
 
+const DISABLED_LEGACY_SKILL_KEYS = new Set(["anti-ai-slop"]);
+
 /**
  * v3 skill catalog。用户同名目录整体覆盖系统目录。
  */
@@ -52,6 +54,9 @@ export class SkillCatalog {
         const skills: SkillCatalogItem[] = [];
         for (const entry of entries) {
             if (!entry.isDirectory()) {
+                continue;
+            }
+            if (DISABLED_LEGACY_SKILL_KEYS.has(entry.name)) {
                 continue;
             }
             const rootPath = join(root, entry.name);

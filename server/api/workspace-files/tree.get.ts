@@ -133,26 +133,22 @@ export default defineEventHandler(async (event) => {
         depth: parsedDepth,
     });
 
-    try {
-        const root = await timing.measure("workspace.resolve", () => resolveWorkspaceRootInput({projectPath, workspaceKind}));
-        if (workspaceKind === "user-assets") {
-            return await timing.measure("workspace.tree", () => readPlainWorkspaceTreeSnapshot({
-                root,
-                targets,
-                type,
-                depth: parsedDepth,
-            }));
-        }
-
-        return await timing.measure("workspace.index", () => readProjectWorkspaceTreeSnapshot({
+    const root = await timing.measure("workspace.resolve", () => resolveWorkspaceRootInput({projectPath, workspaceKind}));
+    if (workspaceKind === "user-assets") {
+        return timing.measure("workspace.tree", () => readPlainWorkspaceTreeSnapshot({
             root,
             targets,
             type,
             depth: parsedDepth,
         }));
-    } finally {
-        timing.commit();
     }
+
+    return timing.measure("workspace.index", () => readProjectWorkspaceTreeSnapshot({
+        root,
+        targets,
+        type,
+        depth: parsedDepth,
+    }));
 });
 
 /**

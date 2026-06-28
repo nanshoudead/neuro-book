@@ -777,6 +777,14 @@ export class WorldEngineService {
             throw createError({statusCode: 400, message: `${patch.path} value 必须是 JSON 值`});
         }
 
+        if (patch.op === "replace" && attrSchema?.embedding && !isEmptyEmbeddingContainer(patch.value, attrSchema.embedding)) {
+            const hint = attrSchema.embedding === "record" ? `replace ${patch.path}/<key>` : `append ${patch.path}`;
+            throw createError({
+                statusCode: 400,
+                message: `embedding 字段 ${patch.path} 禁止整块 replace 写入非空内容；空容器 replace（[] / {}）仅可用于初始化。真实文本请按 key/元素单条写入（如 ${hint}，value: {text:"..."}），vector 由系统维护。`,
+            });
+        }
+
         const kind = normalizeAttrKind(attrSchema);
         if (patch.op === "append") {
             if (kind !== "list" && kind !== "collection") {
@@ -1168,6 +1176,14 @@ function limitAttrRecord(value: Record<string, JsonValue>, limit: number, schema
 
 function isObject(input: JsonValue | undefined): input is Record<string, JsonValue> {
     return typeof input === "object" && input !== null && !Array.isArray(input);
+}
+
+/** 空 EmbeddingText 容器 replace 只用于建立相对 op 基准。 */
+function isEmptyEmbeddingContainer(value: JsonValue, embedding: "record" | "array"): boolean {
+    if (embedding === "array") {
+        return Array.isArray(value) && value.length === 0;
+    }
+    return isObject(value) && Object.keys(value).length === 0;
 }
 
 function isJsonValue(input: unknown): input is JsonValue {

@@ -15,8 +15,9 @@ import {compileProfileSystemPrompt, validateProfileTurnPlan} from "nbook/server/
 import {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
 import {buildAgentDialogueContent} from "nbook/server/agent/session/dialogue-content";
 import {SessionWriteExecutor} from "nbook/server/agent/session/write-plan";
-import type {AppendManySessionEntryDraft, SessionWritePlan} from "nbook/server/agent/session/write-plan";
+import type {AppendManySessionEntryDraft, SessionWriteEntryBatch, SessionWritePlan, SessionWriteResult, SessionWriteTimingSink} from "nbook/server/agent/session/write-plan";
 import {ToolSessionWriteSink} from "nbook/server/agent/session/tool-session-write-sink";
+import {relationLedgerChange} from "nbook/server/agent/session/relation-ledger";
 import {AGENT_FOLLOW_UP_QUEUE_STATE_KEY, AGENT_PENDING_USER_RESOLUTION_STATE_PREFIX, AGENT_PLAN_MODE_STATE_KEY, SESSION_SUMMARIZER_STATE_KEY} from "nbook/server/agent/session/custom-state-keys";
 import type {InvocationErrorInfo, InvocationErrorPhase, ModelChangeEntry, NeuroSessionContext, SessionEntry, SessionEntryDraft, SessionEntryId, SessionSnapshot} from "nbook/server/agent/session/types";
 import type {AgentRuntimeHook, AgentRuntimeHookResult, RuntimeSessionFacade} from "nbook/server/agent/profiles/define-agent-runtime";
@@ -100,6 +101,7 @@ import {normalizeClientState} from "nbook/server/agent/variables/accessor";
 import {createVariableRegistryForProfile, createVariableRegistryForSession} from "nbook/server/agent/variables/profile-registry";
 import type {ClientStateSnapshot, ProfileVariableAccessor, VariableInvocationState, VariableJsonPatchOperation, VariablePatchAck, VariablePatchRequest} from "nbook/server/agent/variables/types";
 import {appLogger} from "nbook/server/app-logs/logger";
+import type {ServerTimingSink} from "nbook/server/utils/server-timing";
 import {LowCodeFormDtoSchema} from "nbook/shared/dto/low-code-form.dto";
 
 type HarnessOptions = {
@@ -113,6 +115,8 @@ type HarnessOptions = {
     toolExecution?: ToolExecutionMode;
     /** 测试可关闭后台 summarizer，避免 fire-and-forget 消耗 faux provider 响应；生产默认开启。 */
     enableSessionSummarizer?: boolean;
+    /** HTTP runtime 开启 profile 文件 watcher；测试和脚本默认不开启，避免短生命周期句柄泄漏。 */
+    watchProfiles?: boolean;
 };
 
 const REPORT_RESULT_ERROR_LIMIT = 3;
@@ -242,6 +246,105 @@ type TranscriptReplayAnchor = {
     firstSeq: number;
 };
 
+type SessionRelationIndexLink = {
+    ownerSessionId: number;
+    targetSessionId: number;
+    profileKey: string;
+    detached: boolean;
+};
+
+type SessionRelationIndex = {
+    ownerToLinked: Map<number, Map<number, SessionRelationIndexLink>>;
+    targetToOwners: Map<number, Map<number, SessionRelationIndexLink>>;
+};
+
+type PendingRelationIndexEntries = {
+    ownerSessionId: number;
+    entries: SessionEntry[];
+};
+
+type AgentOperationTiming = {
+    readSession: number;
+    reduce: number;
+    profileRuntime: number;
+    /** 只统计 durable append、session_entry publish 和 after-write observer，不包含 live state。 */
+    writePlan: number;
+    /** 只统计 live state projection 和 session_state_changed publish。 */
+    liveState: number;
+    relations: number;
+    snapshotSystemPrompt: number;
+    total: number;
+};
+
+type AgentOperationTimingKey = Exclude<keyof AgentOperationTiming, "total">;
+
+const AGENT_TIMING_KEYS: Array<keyof AgentOperationTiming> = [
+    "readSession",
+    "reduce",
+    "profileRuntime",
+    "writePlan",
+    "liveState",
+    "relations",
+    "snapshotSystemPrompt",
+    "total",
+];
+
+const AGENT_COMMAND_SLOW_MS = 500;
+const AGENT_RELATIONS_SLOW_MS = 500;
+const AGENT_SNAPSHOT_SLOW_MS = 1000;
+
+function createAgentOperationTiming(): AgentOperationTiming {
+    return {
+        readSession: 0,
+        reduce: 0,
+        profileRuntime: 0,
+        writePlan: 0,
+        liveState: 0,
+        relations: 0,
+        snapshotSystemPrompt: 0,
+        total: 0,
+    };
+}
+
+async function measureAgentTimingStep<T>(
+    timing: AgentOperationTiming | undefined,
+    key: AgentOperationTimingKey,
+    task: () => Promise<T>,
+): Promise<T> {
+    if (!timing) {
+        return task();
+    }
+    const startedAt = performance.now();
+    try {
+        return await task();
+    } finally {
+        timing[key] += performance.now() - startedAt;
+    }
+}
+
+function measureAgentTimingStepSync<T>(
+    timing: AgentOperationTiming | undefined,
+    key: AgentOperationTimingKey,
+    task: () => T,
+): T {
+    if (!timing) {
+        return task();
+    }
+    const startedAt = performance.now();
+    try {
+        return task();
+    } finally {
+        timing[key] += performance.now() - startedAt;
+    }
+}
+
+function roundAgentOperationTiming(timing: AgentOperationTiming): AgentOperationTiming {
+    return AGENT_TIMING_KEYS.reduce((result, key) => {
+        result[key] = Math.round(timing[key] * 100) / 100;
+        return result;
+    }, createAgentOperationTiming());
+}
+
 /**
  * Neuro Book 自有 Agent Harness。它拥有 session/profile/tool 语义，底层使用 Pi Agent loop。
  */
@@ -266,6 +369,9 @@ export class NeuroAgentHarness {
     private readonly admissionQueues = new Map<number, Promise<void>>();
     private readonly summarizerRuns = new Map<number, SessionSummarizerJob>();
     private readonly transcriptReplayAnchors = new Map<number, TranscriptReplayAnchor>();
+    private sessionRelationIndex: SessionRelationIndex | null = null;
+    private sessionRelationIndexLoad: Promise<SessionRelationIndex> | null = null;
+    private pendingRelationIndexEntries: PendingRelationIndexEntries[] = [];
     private readonly pendingClientPatches = new Map<string, {
         request: VariablePatchRequest;
         resolve: (ack: VariablePatchAck) => void;
@@ -282,6 +388,7 @@ export class NeuroAgentHarness {
             repo: this.repo,
             eventHub: this.eventHub,
             liveStateProvider: (sessionId) => this.getSessionLiveState(sessionId),
+            onEntriesWritten: (batch) => this.trackRelationIndexEntries(batch),
         });
         this.modelResolver = options.modelResolver ?? resolvePiModelFromConfig;
         this.toolExecution = options.toolExecution ?? "parallel";
@@ -291,6 +398,58 @@ export class NeuroAgentHarness {
         for (const tool of createBuiltinTools()) {
             this.tools.register(tool);
         }
+        if (options.watchProfiles) {
+            void this.profiles.startWatching().catch((error) => {
+                void appLogger.warn("agent.profileCatalog.watchStartFailed", {
+                    error: error instanceof Error ? error.message : String(error),
+                });
+            });
+        }
+    }
+
+    /**
+     * 给 Agent HTTP 热路径收集统一分段耗时，并只在超过阈值时写慢请求日志。
+     */
+    private async withAgentOperationTiming<T>(
+        event: "agent.command.slow" | "agent.relations.slow" | "agent.snapshot.slow",
+        thresholdMs: number,
+        data: Record<string, unknown>,
+        task: (timing: AgentOperationTiming) => Promise<T>,
+        timingSink?: ServerTimingSink,
+    ): Promise<T> {
+        const timing = createAgentOperationTiming();
+        const startedAt = performance.now();
+        try {
+            return await task(timing);
+        } finally {
+            timing.total = performance.now() - startedAt;
+            this.writeAgentServerTiming(timingSink, timing);
+            if (timing.total > thresholdMs) {
+                void appLogger.warn(event, {
+                    ...data,
+                    timing: roundAgentOperationTiming(timing),
+                });
+            }
+        }
+    }
+
+    private writeAgentServerTiming(timingSink: ServerTimingSink | undefined, timing: AgentOperationTiming): void {
+        if (!timingSink) {
+            return;
+        }
+        for (const key of AGENT_TIMING_KEYS) {
+            timingSink.mark(key, timing[key]);
+        }
+    }
+
+    private sessionWriteTiming(timing: AgentOperationTiming | undefined): SessionWriteTimingSink | undefined {
+        if (!timing) {
+            return undefined;
+        }
+        return {
+            measureWritePlan: (task) => measureAgentTimingStep(timing, "writePlan", task),
+            measureLiveState: (_sessionId, task) => measureAgentTimingStep(timing, "liveState", task),
+        };
     }
 
     /**
@@ -300,6 +459,13 @@ export class NeuroAgentHarness {
         while (this.summarizerRuns.size > 0) {
             await Promise.all([...this.summarizerRuns.values()].map((job) => job.promise));
         }
+    }
+
+    /**
+     * 释放 harness 持有的运行期资源。测试或临时 runtime 开启 watcher 时需要显式调用。
+     */
+    async dispose(): Promise<void> {
+        await this.profiles.dispose();
     }
 
     /**
@@ -1359,18 +1525,35 @@ export class NeuroAgentHarness {
     /**
      * 返回完整前端 snapshot，作为 UI 恢复真相。
      */
-    async getSessionSnapshot(sessionId: number): Promise<AgentSessionSnapshotDto> {
-        const projection = await this.resolveSessionRuntimeProjection(sessionId);
+    async getSessionSnapshot(sessionId: number, timingSink?: ServerTimingSink): Promise<AgentSessionSnapshotDto> {
+        return this.withAgentOperationTiming("agent.snapshot.slow", AGENT_SNAPSHOT_SLOW_MS, {sessionId}, (timing) => {
+            return this.buildSessionSnapshot(sessionId, undefined, timing);
+        }, timingSink);
+    }
+
+    /**
+     * 构建完整 snapshot DTO。command 内嵌 snapshot 复用同一个 timing，避免另起一次 operation 后丢失分段归因。
+     */
+    private async buildSessionSnapshot(
+        sessionId: number,
+        sourceSnapshot: SessionSnapshot | undefined,
+        timing: AgentOperationTiming,
+    ): Promise<AgentSessionSnapshotDto> {
+        const projection = await this.resolveSessionRuntimeProjection(sessionId, sourceSnapshot, timing);
         const {snapshot, context} = projection;
-        const relations = await this.sessionRelations(projection);
-        const systemPrompt = await this.snapshotSystemPrompt(snapshot, context, projection.profile);
+        const relations = await measureAgentTimingStep(timing, "relations", () => this.sessionRelations(projection, timing));
+        const systemPrompt = await measureAgentTimingStep(
+            timing,
+            "snapshotSystemPrompt",
+            () => this.snapshotSystemPrompt(snapshot, context, projection.profile),
+        );
         const effectiveThinkingLevel = await this.snapshotThinkingLevel(snapshot, context);
         const summarizer = this.sessionSummarizerStateDto(context);
         const followUpQueue = this.followUpQueueState(sessionId, context);
         const latestSeq = this.eventHub.lastSeq(sessionId);
         const eventCursor = this.snapshotEventCursor(sessionId, latestSeq);
 
-        const dto = {
+        return {
             eventEpoch: this.eventHub.eventEpoch,
             eventCursor,
             latestSeq,
@@ -1397,7 +1580,6 @@ export class NeuroAgentHarness {
             usage: this.repo.usage(snapshot),
             contextUsage: await this.sessionContextUsage(snapshot, context),
         };
-        return dto;
     }
 
     private snapshotEventCursor(sessionId: number, latestSeq = this.eventHub.lastSeq(sessionId)): AgentSessionSnapshotDto["eventCursor"] {
@@ -1411,8 +1593,11 @@ export class NeuroAgentHarness {
     /**
      * 返回关联 Agent 面板使用的轻量关系投影。
      */
-    async getSessionRelations(sessionId: number): Promise<AgentSessionRelationsDto> {
-        return this.sessionRelations(await this.resolveSessionRuntimeProjection(sessionId));
+    async getSessionRelations(sessionId: number, timingSink?: ServerTimingSink): Promise<AgentSessionRelationsDto> {
+        return this.withAgentOperationTiming("agent.relations.slow", AGENT_RELATIONS_SLOW_MS, {sessionId}, async (timing) => {
+            const projection = await this.resolveSessionRuntimeProjection(sessionId, undefined, timing);
+            return measureAgentTimingStep(timing, "relations", () => this.sessionRelations(projection, timing));
+        }, timingSink);
     }
 
     /**
@@ -1432,47 +1617,157 @@ export class NeuroAgentHarness {
         };
     }
 
-    private async sessionRelations(projection: SessionRuntimeProjection): Promise<AgentSessionRelationsDto> {
+    private async sessionRelations(
+        projection: SessionRuntimeProjection,
+        timing?: AgentOperationTiming,
+    ): Promise<AgentSessionRelationsDto> {
+        const index = await this.relationIndex();
+        const sessionId = projection.snapshot.metadata.sessionId;
         const linkedAgents: AgentLinkedSessionDto[] = [];
-        for (const linked of projection.context.linkedAgents) {
-            const linkedSnapshot = await this.repo.readSession(linked.sessionId);
-            const linkedProjection = await this.resolveSessionRuntimeProjection(linked.sessionId, linkedSnapshot);
+        const ownerLinks = index.ownerToLinked.get(sessionId) ?? new Map<number, SessionRelationIndexLink>();
+        for (const linked of ownerLinks.values()) {
+            const linkedSnapshot = await measureAgentTimingStep(timing, "readSession", () => this.repo.readSession(linked.targetSessionId));
+            const linkedProjection = await this.resolveSessionRuntimeProjection(linked.targetSessionId, linkedSnapshot, timing);
             linkedAgents.push({
                 ...linkedProjection.summary,
                 detached: linked.detached,
             });
         }
         return {
-            sessionId: projection.snapshot.metadata.sessionId,
+            sessionId,
             linkedAgents,
-            linkedByAgents: await this.linkedByAgents(projection.snapshot.metadata.sessionId),
+            linkedByAgents: await this.linkedByAgentsFromIndex(sessionId, index, timing),
         };
     }
 
     /**
-     * 查找哪些 session 仍记录了指向目标 session 的 agent link。
-     * sessionId 是全局唯一的，显式 link 比 workspaceKey 更适合作为反向关系真相。
+     * 返回哪些 session 仍记录了指向目标 session 的 agent link。
+     * 索引按全局 sessionId 建立，兼容旧数据中 parent/child workspaceKey 不一致的关系。
      */
-    private async linkedByAgents(sessionId: number): Promise<AgentLinkedSessionDto[]> {
-        const summaries = await this.repo.listSessions({includeArchived: true});
+    private async linkedByAgentsFromIndex(
+        sessionId: number,
+        index: SessionRelationIndex,
+        timing?: AgentOperationTiming,
+    ): Promise<AgentLinkedSessionDto[]> {
+        const ownerLinks = index.targetToOwners.get(sessionId) ?? new Map<number, SessionRelationIndexLink>();
         const linkedByAgents: AgentLinkedSessionDto[] = [];
-        for (const summary of summaries) {
-            if (summary.sessionId === sessionId) {
+        for (const linked of ownerLinks.values()) {
+            if (linked.ownerSessionId === sessionId) {
                 continue;
             }
-            const ownerSnapshot = await this.repo.readSession(summary.sessionId, summary.workspaceKey);
-            const ownerContext = this.repo.reduce(ownerSnapshot);
-            const linked = ownerContext.linkedAgents.find((item) => item.sessionId === sessionId);
-            if (!linked) {
-                continue;
-            }
-            const ownerProjection = await this.resolveSessionRuntimeProjection(summary.sessionId, ownerSnapshot);
+            const ownerSnapshot = await measureAgentTimingStep(timing, "readSession", () => this.repo.readSession(linked.ownerSessionId));
+            const ownerProjection = await this.resolveSessionRuntimeProjection(linked.ownerSessionId, ownerSnapshot, timing);
             linkedByAgents.push({
                 ...ownerProjection.summary,
                 detached: linked.detached,
             });
         }
         return linkedByAgents.sort((left, right) => right.updatedAt - left.updatedAt);
+    }
+
+    private async relationIndex(): Promise<SessionRelationIndex> {
+        if (this.sessionRelationIndex) {
+            return this.sessionRelationIndex;
+        }
+        if (this.sessionRelationIndexLoad) {
+            return this.sessionRelationIndexLoad;
+        }
+        const load = this.rebuildRelationIndex().finally(() => {
+            if (this.sessionRelationIndexLoad === load) {
+                this.sessionRelationIndexLoad = null;
+            }
+        });
+        this.sessionRelationIndexLoad = load;
+        return load;
+    }
+
+    private async rebuildRelationIndex(): Promise<SessionRelationIndex> {
+        this.pendingRelationIndexEntries = [];
+        const index: SessionRelationIndex = {
+            ownerToLinked: new Map(),
+            targetToOwners: new Map(),
+        };
+        try {
+            const summaries = await this.repo.listSessions({includeArchived: true, status: "all"});
+            for (const summary of summaries) {
+                const snapshot = await this.repo.readSession(summary.sessionId);
+                const context = this.repo.reduce(snapshot);
+                // Relation 是 session 级 append-only 账本，不随 active path/tree 分支切换回滚。
+                for (const linked of context.linkedAgents) {
+                    this.upsertRelationIndexLink(index, summary.sessionId, linked.sessionId, linked.profileKey, linked.detached);
+                }
+            }
+        } catch (error) {
+            this.pendingRelationIndexEntries = [];
+            throw error;
+        }
+        for (const pending of this.pendingRelationIndexEntries) {
+            this.applyRelationIndexEntries(index, pending.ownerSessionId, pending.entries);
+        }
+        this.pendingRelationIndexEntries = [];
+        this.sessionRelationIndex = index;
+        return index;
+    }
+
+    private trackRelationIndexEntries(batch: SessionWriteEntryBatch): void {
+        const entries = batch.entries.filter((entry) => relationLedgerChange(entry) !== null);
+        if (entries.length === 0) {
+            return;
+        }
+        if (this.sessionRelationIndex) {
+            this.applyRelationIndexEntries(this.sessionRelationIndex, batch.sessionId, entries);
+            return;
+        }
+        if (this.sessionRelationIndexLoad) {
+            this.pendingRelationIndexEntries.push({
+                ownerSessionId: batch.sessionId,
+                entries,
+            });
+        }
+    }
+
+    private applyRelationIndexEntries(index: SessionRelationIndex, ownerSessionId: number, entries: SessionEntry[]): void {
+        for (const entry of entries) {
+            const change = relationLedgerChange(entry);
+            if (!change) {
+                continue;
+            }
+            if (change.kind === "link") {
+                const current = index.ownerToLinked.get(ownerSessionId)?.get(change.targetSessionId);
+                this.upsertRelationIndexLink(
+                    index,
+                    ownerSessionId,
+                    change.targetSessionId,
+                    change.profileKey,
+                    current?.detached ?? false,
+                );
+                continue;
+            }
+            const current = index.ownerToLinked.get(ownerSessionId)?.get(change.targetSessionId);
+            this.upsertRelationIndexLink(
+                index,
+                ownerSessionId,
+                change.targetSessionId,
+                current?.profileKey ?? "unknown",
+                true,
+            );
+        }
+    }
+
+    private upsertRelationIndexLink(
+        index: SessionRelationIndex,
+        ownerSessionId: number,
+        targetSessionId: number,
+        profileKey: string,
+        detached: boolean,
+    ): void {
+        const link: SessionRelationIndexLink = {ownerSessionId, targetSessionId, profileKey, detached};
+        const ownerLinks = index.ownerToLinked.get(ownerSessionId) ?? new Map<number, SessionRelationIndexLink>();
+        ownerLinks.set(targetSessionId, link);
+        index.ownerToLinked.set(ownerSessionId, ownerLinks);
+        const targetOwners = index.targetToOwners.get(targetSessionId) ?? new Map<number, SessionRelationIndexLink>();
+        targetOwners.set(ownerSessionId, link);
+        index.targetToOwners.set(targetSessionId, targetOwners);
     }
 
     /**
@@ -1659,59 +1954,77 @@ export class NeuroAgentHarness {
     /**
      * 执行 session 控制命令。命令不作为普通用户消息进入模型。
      */
-    async runCommand(sessionId: number, body: AgentCommandRequestDto): Promise<AgentCommandResult> {
+    async runCommand(sessionId: number, body: AgentCommandRequestDto, timingSink?: ServerTimingSink): Promise<AgentCommandResult> {
+        return this.withAgentOperationTiming("agent.command.slow", AGENT_COMMAND_SLOW_MS, {
+            sessionId,
+            command: body.command,
+        }, (timing) => this.runCommandMeasured(sessionId, body, timing), timingSink);
+    }
+
+    private async runCommandMeasured(
+        sessionId: number,
+        body: AgentCommandRequestDto,
+        timing: AgentOperationTiming,
+    ): Promise<AgentCommandResult> {
         if (body.command !== "compact") {
             this.assertSessionIdle(sessionId);
         }
-        const snapshot = await this.repo.readSession(sessionId);
+        const snapshot = await measureAgentTimingStep(timing, "readSession", () => this.repo.readSession(sessionId));
         if (body.command === "new" || body.command === "compact") {
-            await this.assertProfileRunnable(snapshot);
+            await measureAgentTimingStep(timing, "profileRuntime", () => this.assertProfileRunnable(snapshot));
         }
         if (body.command === "new") {
             const created = await this.createAgent({
                 profileKey: snapshot.metadata.profileKey,
-            initial: snapshot.metadata.initial,
+                initial: snapshot.metadata.initial,
                 workspaceRoot: snapshot.metadata.workspaceRoot,
                 workspaceKey: snapshot.metadata.workspaceKey,
                 projectPath: snapshot.metadata.projectPath,
             });
             return {
+                kind: "created_session",
                 status: "completed",
                 sessionId: created.sessionId,
-                createdSession: (await this.resolveSessionRuntimeProjection(created.sessionId)).summary,
+                createdSession: (await this.resolveSessionRuntimeProjection(created.sessionId, undefined, timing)).summary,
             };
         }
         if (body.command === "fork") {
             const forked = await this.repo.forkSession(sessionId, body.entryId ?? snapshot.leafId ?? undefined);
-            await this.publishSessionState(forked.metadata.sessionId);
+            await measureAgentTimingStep(timing, "liveState", () => this.publishSessionState(forked.metadata.sessionId));
             return {
+                kind: "created_session",
                 status: "completed",
                 sessionId: forked.metadata.sessionId,
-                createdSession: (await this.resolveSessionRuntimeProjection(forked.metadata.sessionId, forked)).summary,
+                createdSession: (await this.resolveSessionRuntimeProjection(forked.metadata.sessionId, forked, timing)).summary,
             };
         }
         if (body.command === "retry") {
             const targetId = body.entryId ?? snapshot.leafId;
             if (targetId) {
-                await this.moveLeafForPosition(sessionId, targetId, "before");
+                await this.moveLeafForPosition(sessionId, targetId, "before", timing);
             }
             return {
+                kind: "snapshot",
                 status: "completed",
                 sessionId,
-                snapshot: await this.getSessionSnapshot(sessionId),
+                snapshot: await this.buildSessionSnapshot(sessionId, undefined, timing),
             };
         }
         if (body.command === "tree") {
-            await this.moveLeafForPosition(sessionId, body.targetEntryId, body.position);
+            await this.moveLeafForPosition(sessionId, body.targetEntryId, body.position, timing);
             return {
+                kind: "snapshot",
                 status: "completed",
                 sessionId,
-                snapshot: await this.getSessionSnapshot(sessionId),
+                snapshot: await this.buildSessionSnapshot(sessionId, undefined, timing),
             };
         }
         if (body.command === "plan") {
             const active = body.active;
-            const context = this.repo.reduce(snapshot);
+            const context = measureAgentTimingStepSync(timing, "reduce", () => this.repo.reduce(snapshot));
+            if (context.planModeActive === active) {
+                return this.commandLiveStateResult(sessionId, "completed", undefined, timing);
+            }
             const previous = context.customState[AGENT_PLAN_MODE_STATE_KEY];
             const previousRecord = previous && typeof previous === "object" && !Array.isArray(previous)
                 ? previous as Record<string, JsonValue>
@@ -1719,7 +2032,7 @@ export class NeuroAgentHarness {
             const reminderKind = active
                 ? previousRecord.hasExited ? "reentry_full" : "full"
                 : "exit";
-            await this.executeWritePlan({
+            const result = await this.executeWritePlanResult({
                 target: {sessionId},
                 cause: "command.plan",
                 ops: [{
@@ -1739,43 +2052,35 @@ export class NeuroAgentHarness {
                         },
                     ],
                 }],
-            });
-            return {
-                status: "completed",
-                sessionId,
-                snapshot: await this.getSessionSnapshot(sessionId),
-            };
+            }, undefined, timing);
+            return this.commandLiveStateResult(sessionId, "completed", result, timing);
         }
         if (body.command === "model") {
+            const context = measureAgentTimingStepSync(timing, "reduce", () => this.repo.reduce(snapshot));
             const config = await loadEffectiveConfig(snapshot.metadata);
             const entry: Omit<ModelChangeEntry, "id" | "parentId" | "timestamp"> = {
                 type: "model_change",
                 model: body.modelKey ? this.modelResolver(config, snapshot.metadata.profileKey, {modelKey: body.modelKey}) : null,
             };
-            await this.executeWritePlan({
+            if (this.modelSelectionKey(context.model) === this.modelSelectionKey(entry.model)) {
+                return this.commandLiveStateResult(sessionId, "completed", undefined, timing);
+            }
+            const result = await this.executeWritePlanResult({
                 target: {sessionId},
                 cause: "command.model",
                 ops: [{
                     kind: "append",
                     entry,
                 }],
-            });
-            return {
-                status: "completed",
-                sessionId,
-                snapshot: await this.getSessionSnapshot(sessionId),
-            };
+            }, undefined, timing);
+            return this.commandLiveStateResult(sessionId, "completed", result, timing);
         }
         if (body.command === "thinking") {
-            const context = this.repo.reduce(snapshot);
+            const context = measureAgentTimingStepSync(timing, "reduce", () => this.repo.reduce(snapshot));
             if (context.thinkingLevel === body.thinkingLevel) {
-                return {
-                    status: "completed",
-                    sessionId,
-                    snapshot: await this.getSessionSnapshot(sessionId),
-                };
+                return this.commandLiveStateResult(sessionId, "completed", undefined, timing);
             }
-            await this.executeWritePlan({
+            const result = await this.executeWritePlanResult({
                 target: {sessionId},
                 cause: "command.thinking",
                 ops: [{
@@ -1785,15 +2090,11 @@ export class NeuroAgentHarness {
                         thinkingLevel: body.thinkingLevel,
                     },
                 }],
-            });
-            return {
-                status: "completed",
-                sessionId,
-                snapshot: await this.getSessionSnapshot(sessionId),
-            };
+            }, undefined, timing);
+            return this.commandLiveStateResult(sessionId, "completed", result, timing);
         }
         if (body.command === "archive") {
-            await this.executeWritePlan({
+            const result = await this.executeWritePlanResult({
                 target: {sessionId},
                 cause: "command.archive",
                 ops: [{
@@ -1803,26 +2104,19 @@ export class NeuroAgentHarness {
                         reason: body.reason,
                     },
                 }],
-            });
-            return {
-                status: "completed",
-                sessionId,
-                snapshot: await this.getSessionSnapshot(sessionId),
-            };
+            }, undefined, timing);
+            return this.commandLiveStateResult(sessionId, "completed", result, timing);
         }
         if (body.command === "compact") {
             this.assertSessionIdle(sessionId);
             void this.runCompactCommand(sessionId, body.instructions);
-            return {
-                status: "started",
-                sessionId,
-                snapshot: await this.getSessionSnapshot(sessionId),
-            };
+            return this.commandLiveStateResult(sessionId, "started", undefined, timing);
         }
         return {
+            kind: "snapshot",
             status: "completed",
             sessionId,
-            snapshot: await this.getSessionSnapshot(sessionId),
+            snapshot: await this.buildSessionSnapshot(sessionId, undefined, timing),
         };
     }
 
@@ -4107,8 +4401,39 @@ export class NeuroAgentHarness {
         }
     }
 
-    private async executeWritePlan(plan: SessionWritePlan, invocationId?: string): Promise<SessionEntry[]> {
-        return (await this.writeExecutor.execute([plan], invocationId)).entries;
+    private async executeWritePlan(plan: SessionWritePlan, invocationId?: string, timing?: AgentOperationTiming): Promise<SessionEntry[]> {
+        const result = await this.executeWritePlanResult(plan, invocationId, timing);
+        return result.entries;
+    }
+
+    private async executeWritePlanResult(plan: SessionWritePlan, invocationId?: string, timing?: AgentOperationTiming): Promise<SessionWriteResult> {
+        return this.writeExecutor.execute([plan], invocationId, {timing: this.sessionWriteTiming(timing)});
+    }
+
+    private async commandLiveStateResult(
+        sessionId: number,
+        status: Extract<AgentCommandResult, {kind: "live_state"}>["status"],
+        result?: SessionWriteResult,
+        timing?: AgentOperationTiming,
+    ): Promise<Extract<AgentCommandResult, {kind: "live_state"}>> {
+        const state = result?.liveStates.get(sessionId)
+            ?? await measureAgentTimingStep(timing, "liveState", () => this.getSessionLiveState(sessionId));
+        return {
+            kind: "live_state",
+            status,
+            sessionId,
+            state,
+        };
+    }
+
+    private modelSelectionKey(model: Model<any> | null): string | null {
+        if (!model) {
+            return null;
+        }
+        const providerConfigId = "providerConfigId" in model && typeof model.providerConfigId === "string"
+            ? model.providerConfigId
+            : model.provider;
+        return `${providerConfigId}/${model.id}`;
     }
 
     private followUpQueueState(sessionId: number, context?: NeuroSessionContext): AgentFollowUpQueueStateDto {
@@ -4395,16 +4720,18 @@ export class NeuroAgentHarness {
         });
     }
 
-    private async publishSessionState(sessionId: number, invocationId?: string): Promise<void> {
+    private async publishSessionState(sessionId: number, invocationId?: string): Promise<AgentSessionLiveStateDto> {
+        const state = await this.getSessionLiveState(sessionId);
         this.eventHub.publish({
             sessionId,
             invocationId,
             kind: "session",
             event: {
                 type: "session_state_changed",
-                state: await this.getSessionLiveState(sessionId),
+                state,
             },
         });
+        return state;
     }
 
     private resolveSessionStatus(
@@ -4425,10 +4752,19 @@ export class NeuroAgentHarness {
         return baseStatus;
     }
 
-    private async resolveSessionRuntimeProjection(sessionId: number, snapshot?: SessionSnapshot): Promise<SessionRuntimeProjection> {
-        const currentSnapshot = snapshot ?? await this.repo.readSession(sessionId);
-        const context = this.repo.reduce(currentSnapshot);
-        const profileRuntime = await this.resolveProfileRuntime(currentSnapshot.metadata.profileKey);
+    private async resolveSessionRuntimeProjection(
+        sessionId: number,
+        snapshot?: SessionSnapshot,
+        timing?: AgentOperationTiming,
+    ): Promise<SessionRuntimeProjection> {
+        const currentSnapshot = snapshot
+            ?? await measureAgentTimingStep(timing, "readSession", () => this.repo.readSession(sessionId));
+        const context = measureAgentTimingStepSync(timing, "reduce", () => this.repo.reduce(currentSnapshot));
+        const profileRuntime = await measureAgentTimingStep(
+            timing,
+            "profileRuntime",
+            () => this.resolveProfileRuntime(currentSnapshot.metadata.profileKey),
+        );
         const pendingMessages = context.messages.filter((message): message is Message => {
             return message.role === "user" || message.role === "assistant" || message.role === "toolResult";
         });
@@ -4602,8 +4938,9 @@ export class NeuroAgentHarness {
         sessionId: number,
         targetEntryId: SessionEntryId,
         position: "at" | "before",
+        timing?: AgentOperationTiming,
     ): Promise<void> {
-        const snapshot = await this.repo.readSession(sessionId);
+        const snapshot = await measureAgentTimingStep(timing, "readSession", () => this.repo.readSession(sessionId));
         const target = snapshot.entries.find((entry) => entry.id === targetEntryId);
         if (!target || target.type === "leaf") {
             throw new Error(`未找到目标 entry：${targetEntryId}`);
@@ -4615,7 +4952,7 @@ export class NeuroAgentHarness {
                 kind: "moveLeaf",
                 leafId: position === "before" ? target.parentId : target.id,
             }],
-        });
+        }, undefined, timing);
     }
 
     private async runCompactCommand(sessionId: number, instructions?: string): Promise<void> {

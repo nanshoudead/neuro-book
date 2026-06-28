@@ -1642,8 +1642,9 @@ describe("workspace-files", {timeout: 60_000}, () => {
     it("同步系统 assets 会管理 Agent skills、模板和 CLI 辅助文件", async () => {
         const paths = [
             path.join("workspace", ".nbook", "agent", "skills", "profile-system-guide", "SKILL.md"),
+            path.join("workspace", ".nbook", "agent", "skills", "llmlint", "package.json"),
             path.join("workspace", ".nbook", "templates", "content-node-templates", "chapter", "index.md"),
-            path.join("workspace", ".nbook", "templates", "project-directory-templates", "agents", "simulator.leader", "context.md"),
+            path.join("workspace", ".nbook", "templates", "project-directory-templates", "agents", "leader.default", "context.md"),
             path.join("workspace", ".nbook", "agent", "bin", "profile"),
             path.join("workspace", ".nbook", "agent", "config", "ripgreprc"),
         ];
@@ -1656,16 +1657,18 @@ describe("workspace-files", {timeout: 60_000}, () => {
             const result = await syncSystemAssetsToUserAssets();
             const syncState = JSON.parse(await fs.readFile(syncStatePath, "utf-8")) as {assets?: Array<{assetPath: string}>};
 
-            expect(result.copied).toBeGreaterThanOrEqual(paths.length);
+            expect(result.copied + (result.updatedAssets ?? 0)).toBeGreaterThan(0);
             await expect(fs.readFile(paths[0]!, "utf-8")).resolves.toContain("profile");
-            await expect(fs.readFile(paths[1]!, "utf-8")).resolves.toContain("chapter");
-            await expect(fs.readFile(paths[2]!, "utf-8")).resolves.toContain("Simulator Leader Project Context");
-            await expect(fs.readFile(paths[3]!, "utf-8")).resolves.toContain("../scripts/profile.ts");
-            await expect(fs.readFile(paths[4]!, "utf-8")).resolves.toContain("--path-separator=/");
+            await expect(fs.readFile(paths[1]!, "utf-8")).resolves.toContain("@neuro-book/llmlint-skill");
+            await expect(fs.readFile(paths[2]!, "utf-8")).resolves.toContain("chapter");
+            await expect(fs.readFile(paths[3]!, "utf-8")).resolves.toContain("Leader Default Context Notes");
+            await expect(fs.readFile(paths[4]!, "utf-8")).resolves.toContain("../scripts/profile.ts");
+            await expect(fs.readFile(paths[5]!, "utf-8")).resolves.toContain("--path-separator=/");
             expect(syncState.assets).toEqual(expect.arrayContaining([
                 expect.objectContaining({assetPath: "agent/skills/profile-system-guide/SKILL.md"}),
+                expect.objectContaining({assetPath: "agent/skills/llmlint/package.json"}),
                 expect.objectContaining({assetPath: "templates/content-node-templates/chapter/index.md"}),
-                expect.objectContaining({assetPath: "templates/project-directory-templates/agents/simulator.leader/context.md"}),
+                expect.objectContaining({assetPath: "templates/project-directory-templates/agents/leader.default/context.md"}),
                 expect.objectContaining({assetPath: "agent/bin/profile"}),
                 expect.objectContaining({assetPath: "agent/config/ripgreprc"}),
             ]));

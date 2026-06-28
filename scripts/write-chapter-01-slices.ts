@@ -29,8 +29,8 @@ async function writeSlice(slice: {time: string; title: string; kind?: string; pa
         projectPath,
         code: `
             const slice = ${JSON.stringify(slice)};
-            const written = await world.writeSlice({
-                time: world.parseTime(slice.time),
+            const written = await world.slice.write({
+                time: world.time.parse(slice.time),
                 title: slice.title,
                 kind: slice.kind,
                 patches: slice.patches,
@@ -48,7 +48,7 @@ async function main() {
 
     // ========== 场景 1：初次对话与身份确认 ==========
     await writeSlice({
-        time: "复兴纪元488年5月10日 00:05:00",
+        time: "复兴纪元488年5月10日 00:05",
         title: "初次对话：身份与来历",
         kind: "event",
         patches: [
@@ -74,7 +74,7 @@ async function main() {
 
     // ========== 场景 2：安排休息，前往客房 ==========
     await writeSlice({
-        time: "复兴纪元488年5月10日 00:30:00",
+        time: "复兴纪元488年5月10日 00:30",
         title: "前往客房：初步探索",
         kind: "event",
         patches: [
@@ -101,7 +101,7 @@ async function main() {
 
     // ========== 场景 3：深夜对话，走廊偶遇 ==========
     await writeSlice({
-        time: "复兴纪元488年5月10日 03:00:00",
+        time: "复兴纪元488年5月10日 03:00",
         title: "深夜对话：建立初步信任",
         kind: "event",
         patches: [
@@ -127,7 +127,7 @@ async function main() {
 
     // ========== 场景 4：黎明的决定 ==========
     await writeSlice({
-        time: "复兴纪元488年5月10日 05:00:00",
+        time: "复兴纪元488年5月10日 05:00",
         title: "黎明决定：临时共识",
         kind: "event",
         patches: [

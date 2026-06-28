@@ -123,6 +123,28 @@ describe("agent session http helpers", () => {
         expect(runCommand).toHaveBeenCalledWith(12, {command: "plan", active: true});
     });
 
+    it("热路径 helper 会把 Server-Timing sink 传给 harness", async () => {
+        const timingSink = {mark: vi.fn()};
+        const getSessionSnapshot = vi.fn(async () => ({sessionId: 12}));
+        const getSessionRelations = vi.fn(async () => ({
+            sessionId: 12,
+            linkedAgents: [],
+            linkedByAgents: [],
+        }));
+        const runCommand = vi.fn(async () => ({
+            status: "completed",
+            sessionId: 12,
+        }));
+
+        await getAgentSessionSnapshot(12, {getSessionSnapshot} as never, timingSink);
+        await getAgentSessionRelations(12, {getSessionRelations} as never, timingSink);
+        await runAgentSessionCommand(12, {command: "plan", active: true}, {runCommand} as never, timingSink);
+
+        expect(getSessionSnapshot).toHaveBeenCalledWith(12, timingSink);
+        expect(getSessionRelations).toHaveBeenCalledWith(12, timingSink);
+        expect(runCommand).toHaveBeenCalledWith(12, {command: "plan", active: true}, timingSink);
+    });
+
     it("moveAgentSessionTree 调用 harness.moveTree", async () => {
         const moveTree = vi.fn(async () => ({
             status: "completed",

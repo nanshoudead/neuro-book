@@ -60,6 +60,21 @@ describe("GregorianCalendar", () => {
         expect(formatted).toBe(input);
     });
 
+    test("parse: 默认现实日历格式到分钟且不带秒", () => {
+        const calendar = new GregorianCalendar({
+            type: "gregorian",
+            eraBefore: "公元前",
+            eraAfter: "公元",
+            format: "{eraName}{year}年{month}月{day}日 {hour:02}:{minute:02}",
+        });
+
+        const input = "公元2020年4月12日 18:00";
+        const instant = calendar.parse(input);
+        const formatted = calendar.format(instant);
+
+        expect(formatted).toBe(input);
+    });
+
     test("parse: 2月29日应校验闰年", () => {
         const calendar = new GregorianCalendar({
             type: "gregorian",

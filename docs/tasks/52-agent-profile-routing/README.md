@@ -21,7 +21,7 @@
 
 - 新增 `reference/agent/profile-routing.md`：
   - 覆盖入口 leader：`leader.default`、`leader.assets`、`rp.leader`、`simulator.leader`。
-  - 覆盖专用 profile：`director`、`writer`、`rp.writer`、`retrieval`、`researcher`、`anti-ai-slop`。
+  - 覆盖专用 profile：`director`、`writer`、`rp.writer`、`retrieval`、`researcher`、`llmlint`。
   - 写明职责、适合/不适合任务、错位时建议转向和交接 checklist。
 - 更新四个 builtin leader profile，在 `AgentCatalog` 附近导入 `reference/agent/profile-routing.md`。
 - 更新 reference 和 docs 入口：

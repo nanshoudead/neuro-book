@@ -53,6 +53,47 @@ describe("WorldEngineFacade", () => {
         });
     });
 
+    it("EmbeddingText 空容器 default 能初始化后继续写入单条内容", async () => {
+        const projectPath = await createProject(embeddingSchemaSource());
+        const facade = createFacade();
+
+        const result = await facade.writeSlice(projectPath, {
+            instant: 10n,
+            title: "艾莉娜登场",
+            patches: [
+                {subjectId: "erina", type: "character", name: "艾莉娜", path: "/events", op: "append", value: {text: "在祭坛醒来"}},
+                {subjectId: "erina", path: "/memory/师门", op: "replace", value: {text: "她信任师门留下的线索"}},
+            ],
+        });
+        const state = await facade.queryState(projectPath, {subjectIds: ["erina"], attrs: ["events", "memory"]});
+        const slice = await facade.getSlice(projectPath, result.sliceId);
+
+        expect(result.issues).toEqual([]);
+        expect(state.subjects[0]?.attrs).toEqual({
+            events: [{text: "在祭坛醒来"}],
+            memory: {"师门": {text: "她信任师门留下的线索"}},
+        });
+        expect(slice.patches).toEqual(expect.arrayContaining([
+            expect.objectContaining({path: "/events", op: "replace", value: []}),
+            expect.objectContaining({path: "/memory", op: "replace", value: {}}),
+            expect.objectContaining({path: "/events", op: "append", value: {text: "在祭坛醒来"}}),
+            expect.objectContaining({path: "/memory/师门", op: "replace", value: {text: "她信任师门留下的线索"}}),
+        ]));
+    });
+
+    it("EmbeddingText 非空整块 replace 仍被拒绝", async () => {
+        const projectPath = await createProject(embeddingSchemaSource());
+        const facade = createFacade();
+
+        await expect(facade.writeSlice(projectPath, {
+            instant: 10n,
+            title: "错误整块写入经历",
+            patches: [
+                {subjectId: "erina", type: "character", name: "艾莉娜", path: "/events", op: "replace", value: [{text: "在祭坛醒来"}]},
+            ],
+        })).rejects.toThrow("embedding 字段 /events 禁止整块 replace");
+    });
+
     it("collection append 去重，remove 可按值删除且幂等", async () => {
         const projectPath = await createProject();
         const facade = createFacade();
@@ -258,13 +299,13 @@ function createFacade(): WorldEngineFacade {
     return facade;
 }
 
-async function createProject(): Promise<string> {
+async function createProject(schema = schemaSource()): Promise<string> {
     const slug = `world-engine-test-${Date.now()}-${Math.random().toString(16).slice(2)}`;
     const projectPath = `workspace/${slug}`;
     const root = projectRoot(projectPath);
     await fs.mkdir(path.join(root, "world-engine", "schema"), {recursive: true});
     await fs.writeFile(path.join(root, "project.yaml"), "kind: novel\ntitle: World Engine Test\nsummary: ''\n", "utf-8");
-    await fs.writeFile(path.join(root, "world-engine", "schema", "index.ts"), schemaSource(), "utf-8");
+    await fs.writeFile(path.join(root, "world-engine", "schema", "index.ts"), schema, "utf-8");
     await fs.writeFile(path.join(root, "world-engine", "calendar.ts"), calendarSource(), "utf-8");
     createdProjects.push(projectPath);
     return projectPath;
@@ -340,6 +381,26 @@ function schemaSource(): string {
         "    }),",
         "    location: z.object({",
         "        name: z.string().optional().describe('名称'),",
+        "    }),",
+        "} as const;",
+        "",
+    ].join("\n");
+}
+
+function embeddingSchemaSource(): string {
+    return [
+        'import {z} from "zod";',
+        "",
+        "const EmbeddingText = () => z.object({",
+        "    text: z.string().describe('文本内容'),",
+        "    vector: z.array(z.number()).optional().describe('向量，为空表示未向量化'),",
+        "    model: z.string().optional().describe('向量化模型'),",
+        "});",
+        "",
+        "export const WorldSchema = {",
+        "    character: z.object({",
+        "        events: z.array(EmbeddingText()).default([]).describe('经历'),",
+        "        memory: z.record(z.string(), EmbeddingText()).default({}).describe('记忆'),",
         "    }),",
         "} as const;",
         "",

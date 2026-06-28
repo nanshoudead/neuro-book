@@ -25,11 +25,11 @@
 ## 核心边界（务必记住）
 
 - **第一版不接旧 simulation workflow，也不依赖 Plot 系统**。在写作模式提示词层面把这两个系统当做不存在，记录世界状态只用 World Engine 工具，不要调 plot / simulation 工具。
-- **时间对作者 / HTTP 公开入口一律用项目日历字符串**，必须能被项目 `world-engine/calendar.ts` parse。`execute_world` 沙箱内部使用 instant bigint：写入前调用 `world.parseTime()`，展示给人看时调用 `world.formatTime()`。
+- **时间对作者 / HTTP 公开入口一律用项目日历字符串**，必须能被项目 `world-engine/calendar.ts` parse。`execute_world` 沙箱内部使用 instant bigint：写入前调用 `world.time.parse()`，展示给人看时调用 `world.time.format()`。
 - **patch 不存旧值字段，后端不自动改写后续切面**。声明式 patch 序列是唯一真相源，状态永远由 reduce 得来。
-- **同一 instant 只能有一个 slice**。Agent 写入冲突时优先判断是否应合并到已有切面：用 `world.slices({withPatches:true})` 或 `world.getSlice()` 取得 patchId，再用 `world.editMutations()` 精确增删改；只有整条切面作废时才 `world.deleteSlice()` 物理删除。
+- **同一 instant 只能有一个 slice**。Agent 写入冲突时优先判断是否应合并到已有切面：用 `world.slice.list({withPatches:true})` 或 `world.slice.get(sliceId)` 取得 sliceId / patchId，再用 `world.slice.editPatches()` 精确增删改；只有整条切面作废时才 `world.slice.delete()` 物理删除。
 - **E issues**（`broken-relative` / `dangling-ref`）是持久数据错误，必须修；**A issues**（`base-shifted` / `masked`）是一次性提醒，确认语义即可。
-- **writer 对 World Engine 只读**：writer 也使用 `execute_world`，但 readonly 模式不注入 `world.writeSlice` / `world.editMutations` / `world.deleteSlice`。
+- **writer 对 World Engine 只读**：writer 也使用 `execute_world`，但 readonly 模式不注入 `world.slice.write` / `world.slice.editPatches` / `world.slice.delete`。
 
 ## 契约真相源
 

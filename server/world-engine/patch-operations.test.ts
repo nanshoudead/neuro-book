@@ -402,22 +402,42 @@ describe("Patch Operations", () => {
 });
 
 describe("embedding 字段保护 (Decision #16)", () => {
-    test("禁止对 embedding record（memory）整块 replace", () => {
+    test("允许对 embedding record（memory）空对象 replace 作为初始化基准", () => {
+        const state = {};
+        const patch: PatchInput = { subjectId: "erina", op: "replace", path: "/memory", value: {} };
+        const issue = applyPatch(state, patch, { kind: "object", itemType: "object", embedding: "record" }, new Set());
+        expect(issue).toBeNull();
+        expect(state).toEqual({ memory: {} });
+    });
+
+    test("禁止对 embedding record（memory）非空整块 replace", () => {
         const state = { memory: { s1: { text: "旧" } } };
         const patch: PatchInput = { subjectId: "erina", op: "replace", path: "/memory", value: { s2: { text: "新" } } };
         const issue = applyPatch(state, patch, { kind: "object", itemType: "object", embedding: "record" }, new Set());
         expect(issue?.code).toBe("embedding-whole-replace");
-        expect(issue?.message).toContain("/memory/<key>");
+        expect(issue?.message).toContain("replace /memory/<key>");
+        expect(issue?.message).toContain("空容器 replace");
+        expect(issue?.message).toContain("vector 由系统维护");
         // state 未被修改
         expect(state.memory).toEqual({ s1: { text: "旧" } });
     });
 
-    test("禁止对 embedding array（events）整块 replace", () => {
-        const state = { events: [{ text: "e1" }] };
+    test("允许对 embedding array（events）空数组 replace 作为初始化基准", () => {
+        const state = {};
         const patch: PatchInput = { subjectId: "erina", op: "replace", path: "/events", value: [] };
+        const issue = applyPatch(state, patch, { kind: "list", itemType: "object", embedding: "array" }, new Set());
+        expect(issue).toBeNull();
+        expect(state).toEqual({ events: [] });
+    });
+
+    test("禁止对 embedding array（events）非空整块 replace", () => {
+        const state = { events: [{ text: "e1" }] };
+        const patch: PatchInput = { subjectId: "erina", op: "replace", path: "/events", value: [{ text: "e2" }] };
         const issue = applyPatch(state, patch, { kind: "list", itemType: "object", embedding: "array" }, new Set());
         expect(issue?.code).toBe("embedding-whole-replace");
         expect(issue?.message).toContain("append /events");
+        expect(issue?.message).toContain("空容器 replace");
+        expect(issue?.message).toContain("vector 由系统维护");
     });
 
     test("允许按 key 写入 memory 单条（非整块）", () => {

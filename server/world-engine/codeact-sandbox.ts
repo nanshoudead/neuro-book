@@ -21,19 +21,31 @@
  */
 
 export type WorldApi = {
-    get(id: string, options?: { deref?: boolean; derefDepth?: number }): Promise<any>;
-    getMany(ids: string[]): Promise<any[]>;
-    list(type?: string): Promise<Array<{ id: string; name: string }>>;
-    findRefs(targetId: string, sourceType?: string): Promise<Array<{ subjectId: string; attr: string }>>;
-    searchText(query: string, options?: { k?: number; threshold?: number; types?: string[]; attrs?: string[]; at?: bigint }): Promise<Array<{ subjectId: string; attr: string; text: string; score: number }>>;
-    slices(options?: { from?: bigint; to?: bigint; limit?: number; withPatches?: boolean }): Promise<any[]>;
-    getSlice(id: string): Promise<any>;
-    parseTime(calendarText: string): bigint;
-    formatTime(instant: bigint): string;
-    now(): bigint;
-    writeSlice?: (input: any) => Promise<{sliceId: string; issues: any[]}>;
-    editMutations?: (sliceId: string, edits: any[], meta?: any) => Promise<{sliceId: string; issues: any[]}>;
-    deleteSlice?: (sliceId: string) => Promise<{issues: any[]}>;
+    /** 时间与项目 Calendar 互转。 */
+    time: {
+        parse(calendarText: string): bigint;
+        format(instant: bigint): string;
+        now(): bigint;
+    };
+    /** Subject 状态读取与引用查询。 */
+    subject: {
+        get(id: string, options?: { deref?: boolean; derefDepth?: number }): Promise<any | null>;
+        gets(ids: string[]): Promise<Array<any | null>>;
+        list(type?: string): Promise<Array<{ id: string; type: string; name: string }>>;
+        findRefs(targetId: string, sourceType?: string): Promise<Array<{ subjectId: string; attr: string }>>;
+    };
+    /** 语义搜索。 */
+    search: {
+        text(query: string, options?: { k?: number; threshold?: number; types?: string[]; attrs?: string[]; at?: bigint }): Promise<Array<{ subjectId: string; attr: string; text: string; score: number }>>;
+    };
+    /** Timeline slice 读取与可选写入能力。readonly 模式不注入写方法。 */
+    slice: {
+        list(options?: { from?: bigint; to?: bigint; limit?: number; withPatches?: boolean }): Promise<any[]>;
+        get(id: string): Promise<any>;
+        write?: (input: any) => Promise<{sliceId: string; issues: any[]}>;
+        editPatches?: (sliceId: string, edits: any[], meta?: any) => Promise<{sliceId: string; issues: any[]}>;
+        delete?: (sliceId: string) => Promise<{issues: any[]}>;
+    };
 };
 
 export type ExecuteCodeActOptions = {
@@ -112,7 +124,7 @@ export async function executeCodeAct(
         const result = await Promise.race([executePromise, timeoutPromise]);
 
         // 检查结果大小（BigInt 无法被 JSON.stringify，需 replacer 转字符串；
-        // world.now() / slices 的 instant 都是 BigInt）。返回值交由工具层归一化。
+        // world.time.now() / world.slice.list() 的 instant 都是 BigInt）。返回值交由工具层归一化。
         const resultStr = JSON.stringify(result, (_key, value) => typeof value === "bigint" ? value.toString() : value);
         if (resultStr.length > maxResultSize) {
             throw new Error(

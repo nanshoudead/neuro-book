@@ -54,7 +54,7 @@ function mustTool(key: string): NeuroAgentTool {
 
 // ========== 类型 ==========
 
-/** 一条 patch；字段对齐 world.writeSlice 的 patches 入参。 */
+/** 一条 patch；字段对齐 world.slice.write 的 patches 入参。 */
 type Patch = {
     subjectId: string;
     path: string;
@@ -79,13 +79,13 @@ const ERROR_ISSUE_CODES = new Set(["dangling-ref", "broken-relative"]);
 // ========== 示范数据集 ==========
 //
 // 世界观：阿斯塔利亚（《命定之诗2》）。复兴纪元历，12 月/年、30 天/月、24h/天，
-// 时间串格式 `复兴纪元{year}年{month}月{day}日 HH:MM:SS`（见 world-engine/calendar.ts）。
+// 时间串格式 `复兴纪元{year}年{month}月{day}日 HH:MM`（见 world-engine/calendar.ts）。
 // 字段以 world-engine/schema/index.ts 为准。
 
 const SLICES: Slice[] = [
     {
         // #1 纪元锚点 + 帝国立国：首写 world 与 faction（type 触发自动创建）。
-        time: "复兴纪元1年1月1日 00:00:00",
+        time: "复兴纪元1年1月1日 00:00",
         title: "世界起源与帝国立国",
         kind: "backstory",
         patches: [
@@ -96,7 +96,7 @@ const SLICES: Slice[] = [
     },
     {
         // #2 地点初立：首写两个 location；学院 control 引用帝国（ref 写入）。
-        time: "复兴纪元1年6月1日 00:00:00",
+        time: "复兴纪元1年6月1日 00:00",
         title: "学院与遗迹",
         kind: "backstory",
         patches: [
@@ -107,7 +107,7 @@ const SLICES: Slice[] = [
     },
     {
         // #3 铸剑：首写 item，嵌套对象 replace（equipmentStats）、集合 append（enchants）。owner 留到角色出场后再设。
-        time: "复兴纪元100年1月1日 00:00:00",
+        time: "复兴纪元100年1月1日 00:00",
         title: "晨曦之剑铸成",
         kind: "backstory",
         patches: [
@@ -121,7 +121,7 @@ const SLICES: Slice[] = [
     {
         // #4 角色登场：首写两名 character，五维属性、tier、ref（location/faction）、集合（skills/inventory）、字典（equipment）。
         //    剑认主：erina 在本切面已注册，故可安全设置 item owner ref。
-        time: "复兴纪元312年3月1日 08:00:00",
+        time: "复兴纪元312年3月1日 08:00",
         title: "晨曦学子入学",
         kind: "backstory",
         patches: [
@@ -159,7 +159,7 @@ const SLICES: Slice[] = [
     },
     {
         // #5 当前事件：星陨遗迹遭遇战。四种 op 全覆盖 —— replace(位置/mp) + increment(hp) + append(技能/经历) + collection remove+value(用掉药水)。
-        time: "复兴纪元312年5月15日 14:00:00",
+        time: "复兴纪元312年5月15日 14:00",
         title: "星陨遗迹遭遇战",
         kind: "event",
         patches: [
@@ -174,7 +174,7 @@ const SLICES: Slice[] = [
     },
     {
         // #6 列强格局（溯源到立国初期）：首写另外两个 faction，leader 留到对应人物登场后再设。
-        time: "复兴纪元1年1月15日 00:00:00",
+        time: "复兴纪元1年1月15日 00:00",
         title: "三强鼎立",
         kind: "backstory",
         patches: [
@@ -187,7 +187,7 @@ const SLICES: Slice[] = [
     },
     {
         // #7 都城与王城：首写两个 location，control 引用各自阵营。
-        time: "复兴纪元1年7月1日 00:00:00",
+        time: "复兴纪元1年7月1日 00:00",
         title: "两座王都",
         kind: "backstory",
         patches: [
@@ -199,7 +199,7 @@ const SLICES: Slice[] = [
     },
     {
         // #8 魔女传说（溯源）：首写反派 character 与第二件 item（禁忌魔导书，owner 引用魔女）。
-        time: "复兴纪元290年1月1日 00:00:00",
+        time: "复兴纪元290年1月1日 00:00",
         title: "残响魔女",
         kind: "backstory",
         patches: [
@@ -219,7 +219,7 @@ const SLICES: Slice[] = [
     },
     {
         // #9 导师与王：首写两名 character；为王国设置 leader 引用（npc-king 本切面已登记）。
-        time: "复兴纪元312年2月1日 00:00:00",
+        time: "复兴纪元312年2月1日 00:00",
         title: "师长与君王",
         kind: "backstory",
         patches: [
@@ -239,7 +239,7 @@ const SLICES: Slice[] = [
     },
     {
         // #10 学院试炼（成长）：increment(exp/gold/str) + replace(level/personality/appearance) + append(skills) + record(memory)。
-        time: "复兴纪元312年4月1日 10:00:00",
+        time: "复兴纪元312年4月1日 10:00",
         title: "学院晋级试炼",
         kind: "event",
         patches: [
@@ -259,14 +259,14 @@ const SLICES: Slice[] = [
         ],
     },
     {
-        // #11 遗迹余波（当前最新）：故意把 /hp 写成 /HP，随后用 editMutations 精确修正。
+        // #11 遗迹余波（当前最新）：故意把 /hp 写成 /HP，随后用 editPatches 精确修正。
         //     其余 patches 覆盖 replace(位置/元素亲和/饰品) + append(战利品/经历) + record(memory)。
-        time: "复兴纪元312年5月20日 09:00:00",
+        time: "复兴纪元312年5月20日 09:00",
         title: "遗迹余波：撤返学院",
         kind: "event",
         patches: [
             {subjectId: "erina", path: "/location", op: "replace", value: "subject://location-academy", summary: "撤回学院疗伤"},
-            {subjectId: "erina", path: "/HP", op: "replace", value: 90, summary: "故意写错 path，稍后用 editMutations 修正为 /hp"},
+            {subjectId: "erina", path: "/HP", op: "replace", value: 90, summary: "故意写错 path，稍后用 editPatches 修正为 /hp"},
             {subjectId: "erina", path: "/elementalAffinity", op: "replace", value: {fire: 0, water: 2, wind: 3, earth: 0, light: 12, dark: 1}},
             {subjectId: "erina", path: "/equipment/accessory", op: "replace", value: "晨曦徽记"},
             {subjectId: "erina", path: "/inventory", op: "append", value: "古代徽记"},
@@ -319,18 +319,18 @@ async function seed(): Promise<{written: number; errorIssues: WorldIssue[]; note
                 else noteIssues.push(issue);
             }
             const editTag = editResult.issues.length ? `（${editResult.issues.length} issues）` : "";
-            console.log(`  🛠️  editMutations 修正 /HP -> ${editResult.path}，erina.hp=${editResult.hp}${editTag}`);
+            console.log(`  🛠️  editPatches 修正 /HP -> ${editResult.path}，erina.hp=${editResult.hp}${editTag}`);
         }
     }
     return {written, errorIssues, noteIssues};
 }
 
-/** 调用 execute_world 中的 world.writeSlice。 */
+/** 调用 execute_world 中的 world.slice.write。 */
 async function callWrite(slice: Slice): Promise<WriteResult> {
     const result = await executeWorld<{sliceId: string}>(`
         const slice = ${JSON.stringify(slice)};
-        const written = await world.writeSlice({
-            time: world.parseTime(slice.time),
+        const written = await world.slice.write({
+            time: world.time.parse(slice.time),
             title: slice.title,
             kind: slice.kind,
             patches: slice.patches,
@@ -340,24 +340,24 @@ async function callWrite(slice: Slice): Promise<WriteResult> {
     return {sliceId: result.data.sliceId, issues: result.issues};
 }
 
-/** 演示通过 patchId 精确修复已有 mutation。 */
+/** 演示通过 patchId 精确修复已有 patch。 */
 async function repairHpTypo(sliceId: string): Promise<{path: string; hp: number; issues: WorldIssue[]}> {
     const result = await executeWorld<{path: string; hp: number}>(`
         const sliceId = ${JSON.stringify(sliceId)};
-        const before = await world.getSlice(sliceId);
+        const before = await world.slice.get(sliceId);
         const wrong = before.patches.find((patch) => patch.path === "/HP");
         if (!wrong) {
             throw new Error("seed demo 预期存在 /HP 误写 patch");
         }
-        await world.editMutations(sliceId, [
+        await world.slice.editPatches(sliceId, [
             {patchId: wrong.patchId, set: {path: "/hp", summary: "修正 seed demo 中故意写错的 HP 路径"}},
         ]);
-        const after = await world.getSlice(sliceId);
+        const after = await world.slice.get(sliceId);
         const fixed = after.patches.find((patch) => patch.path === "/hp" && patch.summary === "修正 seed demo 中故意写错的 HP 路径");
         if (!fixed) {
             throw new Error("seed demo 未找到修正后的 /hp patch");
         }
-        const erina = await world.get("erina");
+        const erina = await world.subject.get("erina");
         return {path: fixed.path, hp: erina.hp};
     `);
     return {path: result.data.path, hp: result.data.hp, issues: result.issues};
@@ -388,12 +388,12 @@ async function verify(): Promise<void> {
     }>(`
         const types = ["world", "faction", "location", "item", "character"];
         const counts = {};
-        for (const t of types) counts[t] = (await world.list(t)).length;
-        const worldList = (await world.list("world")).map(s => s.id);
-        const erina = await world.get("erina");
-        const empireRefs = await world.findRefs("faction-empire");
-        const kingdom = await world.get("faction-kingdom");
-        const slices = await world.slices({ limit: 50, withPatches: true });
+        for (const t of types) counts[t] = (await world.subject.list(t)).length;
+        const worldList = (await world.subject.list("world")).map(s => s.id);
+        const erina = await world.subject.get("erina");
+        const empireRefs = await world.subject.findRefs("faction-empire");
+        const kingdom = await world.subject.get("faction-kingdom");
+        const slices = await world.slice.list({ limit: 50, withPatches: true });
         const sliceInstants = slices.map(s => Number(s.instant));
         const typoPatchPaths = slices
             .flatMap((slice) => slice.patches ?? [])
@@ -433,7 +433,7 @@ async function verify(): Promise<void> {
     assert(snapshot.counts.character === 5, `character 数应为 5，实际 ${snapshot.counts.character}`);
 
     // erina 状态：跨多个切面累积（含溯源、increment、replace、collection remove+value）。
-    assert(snapshot.erina.hp === 90, `erina.hp 应为 90（先 -30，后由 editMutations 修正 /HP replace 为 /hp），实际 ${snapshot.erina.hp}`);
+    assert(snapshot.erina.hp === 90, `erina.hp 应为 90（先 -30，后由 editPatches 修正 /HP replace 为 /hp），实际 ${snapshot.erina.hp}`);
     assert(snapshot.erina.HP === undefined, `erina.HP 不应残留，实际 ${String(snapshot.erina.HP)}`);
     assert(snapshot.erina.mp === 50, `erina.mp 应为 50，实际 ${snapshot.erina.mp}`);
     assert(snapshot.erina.level === 3, `erina.level 应为 3，实际 ${snapshot.erina.level}`);
@@ -458,7 +458,7 @@ async function verify(): Promise<void> {
     assert(snapshot.sliceInstants.length === 11, `切面数应为 11，实际 ${snapshot.sliceInstants.length}`);
     const sorted = [...snapshot.sliceInstants].sort((a, b) => a - b);
     assert(JSON.stringify(sorted) === JSON.stringify(snapshot.sliceInstants), `切面应按 instant 升序，实际 ${snapshot.sliceInstants.join(",")}`);
-    assert(JSON.stringify(snapshot.typoPatchPaths) === JSON.stringify(["/hp"]), `editMutations 应把 seed demo 的 /HP 修正为 /hp，实际 ${snapshot.typoPatchPaths.join(",")}`);
+    assert(JSON.stringify(snapshot.typoPatchPaths) === JSON.stringify(["/hp"]), `editPatches 应把 seed demo 的 /HP 修正为 /hp，实际 ${snapshot.typoPatchPaths.join(",")}`);
 
     console.log("\n✅ 全部断言通过。");
 }

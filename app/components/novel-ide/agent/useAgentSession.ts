@@ -441,6 +441,7 @@ export function useAgentSession() {
         appendOptimisticUserMessage,
         applyConnectionStatus,
         applyEvent,
+        applyLiveState,
         applyRelations,
         applySnapshot,
         clearSnapshotRequest,

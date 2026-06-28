@@ -5,19 +5,25 @@
 检查文件中的 static 规则命中项：
 
 ```bash
-bun .nbook/agent/skills/anti-ai-slop/cli/checker.ts check <文件路径>
+bun .nbook/agent/skills/llmlint/bin/llmlint.ts check <文件路径>
 ```
 
 显示需要 Agent 主动全文审查的 LLM 规则：
 
 ```bash
-bun .nbook/agent/skills/anti-ai-slop/cli/checker.ts show-llm-rules
+bun .nbook/agent/skills/llmlint/bin/llmlint.ts show-llm-rules
+```
+
+指定配置文件：
+
+```bash
+bun .nbook/agent/skills/llmlint/bin/llmlint.ts --config llmlint.config.ts check <文件路径>
 ```
 
 兼容旧用法：
 
 ```bash
-bun .nbook/agent/skills/anti-ai-slop/cli/checker.ts <文件路径>
+bun .nbook/agent/skills/llmlint/bin/llmlint.ts <文件路径>
 ```
 
 ## check 输出格式
@@ -144,7 +150,20 @@ LLM rules 负责无法靠固定正则稳定定位的问题，例如：
 
 ### 如何添加自定义规则？
 
-编辑 `cli/rules/` 下的 JSON 文件：
+优先创建 `llmlint.config.ts` 调整规则级别或关闭规则：
+
+```typescript
+export default {
+    presets: ["anti-ai-slop"],
+    rules: {
+        "filler-word-actually": "warn",
+        "firstly-secondly": "error",
+        "filler-lets": "off",
+    },
+};
+```
+
+需要扩展内置规则时，编辑 `presets/anti-ai-slop/` 下的 JSON 文件：
 - `static-rules.json`：添加可以稳定定位候选文本的规则。
 - `llm-rules.json`：添加需要 Agent 主动阅读全文审查的语义规则。
 

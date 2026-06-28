@@ -2682,15 +2682,11 @@ defineRouteMeta({
  */
 export default defineEventHandler(async (event) => {
     const timing = createServerTiming(event);
-    try {
-        return await timing.measure("config.editor", () => {
-            const query = validateConfigEditorSnapshotQuery(getQuery(event));
-            return readConfigEditorSnapshot(query, undefined, {
-                includeAgentProfileSettings: query.includeAgentProfileSettings,
-                agentProfileSettingsScope: query.agentProfileSettingsScope,
-            });
+    return timing.measure("config.editor", () => {
+        const query = validateConfigEditorSnapshotQuery(getQuery(event));
+        return readConfigEditorSnapshot(query, undefined, {
+            includeAgentProfileSettings: query.includeAgentProfileSettings,
+            agentProfileSettingsScope: query.agentProfileSettingsScope,
         });
-    } finally {
-        timing.commit();
-    }
+    });
 });

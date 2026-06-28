@@ -14,22 +14,22 @@ export default {
   eraBefore: '公元前',
   eraAfter: '公元',
 
-  // Format 模板
-  format: '{eraName}{year}年{month}月{day}日 {hour:02}:{minute:02}:{second:02}'
+  // Format 模板：默认到分钟，不带秒
+  format: '{eraName}{year}年{month}月{day}日 {hour:02}:{minute:02}'
 };
 
 /**
  * 示例输出：
  *
  * instant = 0
- * → "公元1年1月1日 00:00:00"
+ * → "公元1年1月1日 00:00"
  *
  * 2000年2月29日（闰年）
- * → "公元2000年2月29日 00:00:00"
+ * → "公元2000年2月29日 00:00"
  *
  * 2001年2月29日（非闰年，parse 时报错）
  * → Error: 日期超出范围（2月最多28天）
  *
  * instant < 0
- * → "公元前1年1月1日 00:00:00"
+ * → "公元前1年1月1日 00:00"
  */

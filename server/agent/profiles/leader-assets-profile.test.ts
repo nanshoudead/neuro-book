@@ -141,7 +141,8 @@ describe("assets builtin v3 profiles", () => {
         expect(visiblePrompt).toContain("variable_read");
         expect(visiblePrompt).toContain("variable_patch");
         expect(visiblePrompt).toContain("execute_world");
-        expect(visiblePrompt).toContain("world.editMutations");
+        expect(visiblePrompt).toContain("world.slice.editPatches");
+        expect(visiblePrompt).not.toContain("world.editMutations");
         expect(visiblePrompt).toContain("writer");
         expect(visiblePrompt).toContain("retrieval");
         expect(visiblePrompt).toContain("`researcher` 是联网研究专用 agent");

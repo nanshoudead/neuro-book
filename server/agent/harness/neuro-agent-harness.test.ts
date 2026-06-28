@@ -515,7 +515,7 @@ describe("NeuroAgentHarness", () => {
         const liveState = await harness.getSessionLiveState(created.sessionId);
 
         expect(snapshot.usage).toMatchObject({
-            initial: 32,
+            input: 32,
             output: 12,
             cacheRead: 8,
             cacheWrite: 1,
@@ -572,8 +572,157 @@ describe("NeuroAgentHarness", () => {
         });
         const context = harness.repo.reduce(await harness.repo.readSession(result.sessionId));
 
+        expect(result.kind).toBe("created_session");
         expect(context.workspaceRoot).toBe("workspace");
         expect(context.projectPath).toBe("workspace/novel-7");
+    });
+
+    it("轻控制 command 返回 live state，plan no-op 不追加 entry", async () => {
+        const created = await harness.createAgent({
+            profileKey: "leader.default",
+            initial: {},
+            workspaceRoot: root,
+        });
+        const initialEntryCount = (await harness.repo.readSession(created.sessionId)).entries.length;
+
+        const enabled = await harness.runCommand(created.sessionId, {
+            command: "plan",
+            active: true,
+        });
+        const afterEnableEntryCount = (await harness.repo.readSession(created.sessionId)).entries.length;
+        const enabledAgain = await harness.runCommand(created.sessionId, {
+            command: "plan",
+            active: true,
+        });
+        const afterNoopEntryCount = (await harness.repo.readSession(created.sessionId)).entries.length;
+        const thinking = await harness.runCommand(created.sessionId, {
+            command: "thinking",
+            thinkingLevel: "low",
+        });
+
+        expect(enabled.kind).toBe("live_state");
+        if (enabled.kind === "live_state") {
+            expect(enabled.state.planModeActive).toBe(true);
+            expect(enabled).not.toHaveProperty("snapshot");
+        }
+        expect(afterEnableEntryCount).toBeGreaterThan(initialEntryCount);
+        expect(enabledAgain.kind).toBe("live_state");
+        expect(afterNoopEntryCount).toBe(afterEnableEntryCount);
+        expect(thinking.kind).toBe("live_state");
+        if (thinking.kind === "live_state") {
+            expect(thinking.state.thinkingLevel).toBe("low");
+        }
+    });
+
+    it("command timing sink 会记录热路径分段", async () => {
+        const created = await harness.createAgent({
+            profileKey: "leader.default",
+            initial: {},
+            workspaceRoot: root,
+        });
+        const marks = new Map<string, number>();
+
+        await harness.runCommand(created.sessionId, {
+            command: "plan",
+            active: true,
+        }, {
+            mark(name, durationMs) {
+                marks.set(name, durationMs);
+            },
+        });
+
+        expect([...marks.keys()]).toEqual(expect.arrayContaining([
+            "readSession",
+            "reduce",
+            "profileRuntime",
+            "writePlan",
+            "liveState",
+            "relations",
+            "snapshotSystemPrompt",
+            "total",
+        ]));
+        expect(marks.get("writePlan")).toBeGreaterThan(0);
+        expect(marks.get("liveState")).toBeGreaterThan(0);
+        expect(marks.get("relations")).toBe(0);
+        expect(marks.get("snapshotSystemPrompt")).toBe(0);
+    });
+
+    it("command no-op timing 不记录 writePlan，但仍记录 liveState", async () => {
+        const created = await harness.createAgent({
+            profileKey: "leader.default",
+            initial: {},
+            workspaceRoot: root,
+        });
+        await harness.runCommand(created.sessionId, {
+            command: "plan",
+            active: true,
+        });
+        const marks = new Map<string, number>();
+
+        await harness.runCommand(created.sessionId, {
+            command: "plan",
+            active: true,
+        }, {
+            mark(name, durationMs) {
+                marks.set(name, durationMs);
+            },
+        });
+
+        expect(marks.get("writePlan")).toBe(0);
+        expect(marks.get("liveState")).toBeGreaterThan(0);
+    });
+
+    it("retry 返回 snapshot，fork 返回 created session", async () => {
+        faux.setResponses([fauxAssistantMessage(fauxText("first"))]);
+        const created = await harness.createAgent({
+            profileKey: "leader.default",
+            initial: {},
+            workspaceRoot: root,
+        });
+        await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "run"},
+        });
+        const beforeRetry = await harness.getSessionSnapshot(created.sessionId);
+        const assistantEntry = beforeRetry.entries.findLast((entry) => entry.type === "message" && entry.message.role === "assistant");
+        const originalGetSessionSnapshot = harness.getSessionSnapshot.bind(harness);
+        const timingMarks = new Map<string, number>();
+        (harness as {getSessionSnapshot: NeuroAgentHarness["getSessionSnapshot"]}).getSessionSnapshot = async () => {
+            throw new Error("retry command 不应另起 public snapshot operation");
+        };
+
+        let retry: Awaited<ReturnType<NeuroAgentHarness["runCommand"]>>;
+        try {
+            retry = await harness.runCommand(created.sessionId, {
+                command: "retry",
+                entryId: assistantEntry?.id,
+            }, {
+                mark(name, durationMs) {
+                    timingMarks.set(name, durationMs);
+                },
+            });
+        } finally {
+            (harness as {getSessionSnapshot: NeuroAgentHarness["getSessionSnapshot"]}).getSessionSnapshot = originalGetSessionSnapshot;
+        }
+        const fork = await harness.runCommand(created.sessionId, {
+            command: "fork",
+        });
+
+        expect(retry.kind).toBe("snapshot");
+        if (retry.kind === "snapshot") {
+            expect(retry.snapshot.summary.sessionId).toBe(created.sessionId);
+            expect(retry).not.toHaveProperty("state");
+        }
+        expect(timingMarks.get("writePlan")).toBeGreaterThan(0);
+        expect(timingMarks.get("liveState")).toBeGreaterThan(0);
+        expect(timingMarks.get("relations")).toBeGreaterThan(0);
+        expect(timingMarks.get("snapshotSystemPrompt")).toBeGreaterThan(0);
+        expect(fork.kind).toBe("created_session");
+        if (fork.kind === "created_session") {
+            expect(fork.sessionId).not.toBe(created.sessionId);
+            expect(fork.createdSession.sessionId).toBe(fork.sessionId);
+        }
     });
 
     it("approval 工具调用会停在 assistant tool call，resolution 后继续", async () => {
@@ -6956,6 +7105,170 @@ describe("NeuroAgentHarness", () => {
         ]);
     });
 
+    it("relation index rebuild 期间创建 child 不会丢失 pending link", async () => {
+        const parent = await harness.createAgent({
+            profileKey: "leader.default",
+            initial: {},
+            workspaceRoot: root,
+        });
+        const blocker = await harness.createAgent({
+            profileKey: "leader.default",
+            initial: {},
+            workspaceRoot: root,
+        });
+        const originalReadSession = harness.repo.readSession.bind(harness.repo);
+        const parentSummary = harness.repo.summary(await originalReadSession(parent.sessionId));
+        const blockerSummary = harness.repo.summary(await originalReadSession(blocker.sessionId));
+        let rebuildBlocked = false;
+        let blockerReadCount = 0;
+        const releaseRebuild = createDeferred();
+        harness.repo.listSessions = async () => [parentSummary, blockerSummary];
+        harness.repo.readSession = async (...args: Parameters<JsonlSessionRepository["readSession"]>): ReturnType<JsonlSessionRepository["readSession"]> => {
+            const [sessionId] = args;
+            if (sessionId === blocker.sessionId && blockerReadCount === 0) {
+                blockerReadCount += 1;
+                rebuildBlocked = true;
+                await releaseRebuild.promise;
+            }
+            return originalReadSession(...args);
+        };
+
+        const relationsPromise = harness.getSessionRelations(parent.sessionId);
+        await waitFor(() => expect(rebuildBlocked).toBe(true));
+        const child = await harness.createAgent({
+            profileKey: "leader.default",
+            initial: {},
+            workspaceRoot: root,
+            parentSessionId: parent.sessionId,
+        });
+        releaseRebuild.resolve();
+
+        const parentRelations = await relationsPromise;
+        const childRelations = await harness.getSessionRelations(child.sessionId);
+
+        expect(parentRelations.linkedAgents).toContainEqual(expect.objectContaining({
+            sessionId: child.sessionId,
+            detached: false,
+        }));
+        expect(childRelations.linkedByAgents).toContainEqual(expect.objectContaining({
+            sessionId: parent.sessionId,
+            detached: false,
+        }));
+    });
+
+    it("relation index rebuild 期间 detach 会 replay 到新索引", async () => {
+        const parent = await harness.createAgent({
+            profileKey: "leader.default",
+            initial: {},
+            workspaceRoot: root,
+        });
+        const child = await harness.createAgent({
+            profileKey: "leader.default",
+            initial: {},
+            workspaceRoot: root,
+            parentSessionId: parent.sessionId,
+        });
+        const blocker = await harness.createAgent({
+            profileKey: "leader.default",
+            initial: {},
+            workspaceRoot: root,
+        });
+        const originalReadSession = harness.repo.readSession.bind(harness.repo);
+        const parentSummary = harness.repo.summary(await originalReadSession(parent.sessionId));
+        const blockerSummary = harness.repo.summary(await originalReadSession(blocker.sessionId));
+        const childSummary = harness.repo.summary(await originalReadSession(child.sessionId));
+        let rebuildBlocked = false;
+        let blockerReadCount = 0;
+        const releaseRebuild = createDeferred();
+        harness.repo.listSessions = async () => [parentSummary, blockerSummary, childSummary];
+        harness.repo.readSession = async (...args: Parameters<JsonlSessionRepository["readSession"]>): ReturnType<JsonlSessionRepository["readSession"]> => {
+            const [sessionId] = args;
+            if (sessionId === blocker.sessionId && blockerReadCount === 0) {
+                blockerReadCount += 1;
+                rebuildBlocked = true;
+                await releaseRebuild.promise;
+            }
+            return originalReadSession(...args);
+        };
+
+        const relationsPromise = harness.getSessionRelations(child.sessionId);
+        await waitFor(() => expect(rebuildBlocked).toBe(true));
+        await harness.detachAgent(child.sessionId, parent.sessionId);
+        releaseRebuild.resolve();
+
+        const childRelations = await relationsPromise;
+
+        expect(childRelations.linkedByAgents).toContainEqual(expect.objectContaining({
+            sessionId: parent.sessionId,
+            detached: true,
+        }));
+    });
+
+    it("relation index 已加载后的 create/detach/restart 与 session 账本真相一致", async () => {
+        const parent = await harness.createAgent({
+            profileKey: "leader.default",
+            initial: {},
+            workspaceRoot: root,
+            workspaceKey: "novel-one",
+        });
+        await expectRelationsMatchSessionLedger(harness, parent.sessionId);
+
+        const child = await harness.createAgent({
+            profileKey: "leader.default",
+            initial: {},
+            workspaceRoot: root,
+            workspaceKey: "global",
+            parentSessionId: parent.sessionId,
+        });
+        await expectRelationsMatchSessionLedger(harness, parent.sessionId);
+        await expectRelationsMatchSessionLedger(harness, child.sessionId);
+
+        await harness.detachAgent(child.sessionId, parent.sessionId);
+        await expectRelationsMatchSessionLedger(harness, parent.sessionId);
+        await expectRelationsMatchSessionLedger(harness, child.sessionId);
+
+        const restored = new NeuroAgentHarness({
+            repo: new JsonlSessionRepository(root),
+            modelResolver: () => faux.getModel(),
+            enableSessionSummarizer: false,
+        });
+        try {
+            await expectRelationsMatchSessionLedger(restored, parent.sessionId);
+            await expectRelationsMatchSessionLedger(restored, child.sessionId);
+        } finally {
+            await restored.dispose();
+        }
+    });
+
+    it("moveLeaf、tree empty、retry 不改变 session 级 relation 账本", async () => {
+        const parent = await harness.createAgent({
+            profileKey: "leader.default",
+            initial: {},
+            workspaceRoot: root,
+        });
+        const child = await harness.createAgent({
+            profileKey: "leader.default",
+            initial: {},
+            workspaceRoot: root,
+            parentSessionId: parent.sessionId,
+        });
+        await expectRelationsMatchSessionLedger(harness, parent.sessionId);
+        const branchPoint = await harness.repo.appendMessage(parent.sessionId, createAssistantTextMessage({text: "branch point"}));
+
+        await harness.moveTree(parent.sessionId, {position: "empty"});
+        await expectRelationsMatchSessionLedger(harness, parent.sessionId);
+        await expectRelationsMatchSessionLedger(harness, child.sessionId);
+
+        const retry = await harness.runCommand(parent.sessionId, {
+            command: "retry",
+            entryId: branchPoint.id,
+        });
+
+        expect(retry.kind).toBe("snapshot");
+        await expectRelationsMatchSessionLedger(harness, parent.sessionId);
+        await expectRelationsMatchSessionLedger(harness, child.sessionId);
+    });
+
     it("反向绑定扫描能兼容旧数据中的 workspaceKey 不一致关系", async () => {
         const parent = await harness.createAgent({
             profileKey: "leader.default",
@@ -8131,10 +8444,11 @@ describe("NeuroAgentHarness", () => {
         expect(moved.status).toBe("invoked");
         expect(moved.invocation?.finalMessage).toBe("retry");
 
-        await harness.runCommand(created.sessionId, {
+        const archived = await harness.runCommand(created.sessionId, {
             command: "archive",
             reason: "done",
         });
+        expect(archived.kind).toBe("live_state");
         expect((await harness.getSessionSnapshot(created.sessionId)).summary.archived).toBe(true);
         expect(await harness.listSessions({workspaceKey: "global"})).toEqual([]);
         expect(await harness.listSessions({workspaceKey: "global", includeArchived: true})).toHaveLength(1);
@@ -8680,6 +8994,7 @@ describe("NeuroAgentHarness", () => {
         const context = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
 
         expect(result.status).toBe("started");
+        expect(result.kind).toBe("live_state");
         expect(context.messages.some((message) => messageText(message as never).includes("COMPACTED"))).toBe(true);
         expect(context.messages.every((message) => !messageText(message as never).includes("/compact"))).toBe(true);
     });
@@ -8710,6 +9025,7 @@ describe("NeuroAgentHarness", () => {
         });
 
         expect(result.status).toBe("started");
+        expect(result.kind).toBe("live_state");
     });
 
     it("没有 compaction 配置的 profile 执行 compact command 会写 lifecycle error", async () => {
@@ -8750,6 +9066,7 @@ describe("NeuroAgentHarness", () => {
         });
 
         expect(result.status).toBe("started");
+        expect(result.kind).toBe("live_state");
     });
 
     it("profile 内 session variable definition 会进入工具 registry", async () => {
@@ -8844,6 +9161,69 @@ describe("NeuroAgentHarness", () => {
         }));
     });
 });
+
+type RelationIdentity = {
+    sessionId: number;
+    profileKey: string;
+    detached: boolean;
+};
+
+async function expectRelationsMatchSessionLedger(targetHarness: NeuroAgentHarness, sessionId: number): Promise<void> {
+    const snapshot = await targetHarness.getSessionSnapshot(sessionId);
+    const relations = await targetHarness.getSessionRelations(sessionId);
+    const ownerContext = targetHarness.repo.reduce(await targetHarness.repo.readSession(sessionId));
+
+    expect(relations).toEqual({
+        sessionId,
+        linkedAgents: snapshot.linkedAgents,
+        linkedByAgents: snapshot.linkedByAgents,
+    });
+    expect(sortRelationIdentities(relations.linkedAgents)).toEqual(sortRelationIdentities(ownerContext.linkedAgents));
+    expect(sortRelationIdentities(relations.linkedByAgents)).toEqual(await linkedByLedgerIdentities(targetHarness, sessionId));
+}
+
+async function linkedByLedgerIdentities(targetHarness: NeuroAgentHarness, sessionId: number): Promise<RelationIdentity[]> {
+    const summaries = await targetHarness.repo.listSessions({includeArchived: true, status: "all"});
+    const result: RelationIdentity[] = [];
+    for (const summary of summaries) {
+        if (summary.sessionId === sessionId) {
+            continue;
+        }
+        const ownerSnapshot = await targetHarness.repo.readSession(summary.sessionId);
+        const ownerContext = targetHarness.repo.reduce(ownerSnapshot);
+        const linked = ownerContext.linkedAgents.find((item) => item.sessionId === sessionId);
+        if (!linked) {
+            continue;
+        }
+        result.push({
+            sessionId: summary.sessionId,
+            profileKey: ownerContext.profileKey,
+            detached: linked.detached,
+        });
+    }
+    return sortRelationIdentities(result);
+}
+
+function sortRelationIdentities(items: Iterable<RelationIdentity>): RelationIdentity[] {
+    return [...items]
+        .map((item) => ({
+            sessionId: item.sessionId,
+            profileKey: item.profileKey,
+            detached: item.detached,
+        }))
+        .sort((left, right) => left.sessionId - right.sessionId);
+}
+
+/**
+ * 创建测试用 deferred，用于稳定卡住异步 rebuild 窗口。
+ */
+function createDeferred(): {promise: Promise<void>; resolve: () => void} {
+    let resolve!: () => void;
+    const promise = new Promise<void>((nextResolve) => {
+        resolve = nextResolve;
+    });
+    return {promise, resolve};
+}
 
 async function waitFor(assertion: () => Promise<void> | void, timeoutMs = 1_000): Promise<void> {
     const startedAt = Date.now();

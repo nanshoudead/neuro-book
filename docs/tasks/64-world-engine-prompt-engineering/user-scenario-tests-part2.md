@@ -214,7 +214,7 @@ Writer 的工作流程：
 
 4. **Anti-AI-Slop 检查**（如果配置）：
    ```bash
-   bun .nbook/agent/skills/anti-ai-slop/cli/checker.ts check project-slug/manuscript/001-volume/001-chapter/index.md
+   bun .nbook/agent/skills/llmlint/bin/llmlint.ts check project-slug/manuscript/001-volume/001-chapter/index.md
    ```
 
 5. **报告结果**：

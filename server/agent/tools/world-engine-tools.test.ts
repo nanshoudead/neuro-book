@@ -43,8 +43,8 @@ describe("world engine agent tools", () => {
 
     it("execute_world 在一个脚本内写入并查询，统一返回 data 和 issues", async () => {
         const result = await executeWorld(context, projectPath, `
-            const time = world.parseTime("复兴纪元1日 00:00:10");
-            const written = await world.writeSlice({
+            const time = world.time.parse("复兴纪元1日 00:00:10");
+            const written = await world.slice.write({
                 time,
                 title: "城北遭遇",
                 summary: "艾莉娜在城北遭遇伏击",
@@ -53,8 +53,8 @@ describe("world engine agent tools", () => {
                     {subjectId: "erina", path: "/events", op: "append", value: "城北遭遇伏击", summary: "记录遭遇"},
                 ],
             });
-            const erina = await world.get("erina");
-            const slices = await world.slices({limit: 10, withPatches: true});
+            const erina = await world.subject.get("erina");
+            const slices = await world.slice.list({limit: 10, withPatches: true});
             return {written, hp: erina.hp, events: erina.events, patchId: slices[0].patches[0].patchId};
         `);
 
@@ -72,8 +72,8 @@ describe("world engine agent tools", () => {
 
     it("execute_world 支持 collection 按值 remove", async () => {
         const result = await executeWorld(context, projectPath, `
-            await world.writeSlice({
-                time: world.parseTime("复兴纪元1日 00:00:11"),
+            await world.slice.write({
+                time: world.time.parse("复兴纪元1日 00:00:11"),
                 title: "获得旧剑",
                 patches: [
                     {subjectId: "erina", type: "character", name: "艾莉娜", path: "/inventory", op: "append", value: "old-sword"},
@@ -81,34 +81,34 @@ describe("world engine agent tools", () => {
                     {subjectId: "erina", path: "/inventory", op: "append", value: "coin"},
                 ],
             });
-            await world.writeSlice({
-                time: world.parseTime("复兴纪元1日 00:00:12"),
+            await world.slice.write({
+                time: world.time.parse("复兴纪元1日 00:00:12"),
                 title: "交出旧剑",
                 patches: [{subjectId: "erina", path: "/inventory", op: "remove", value: "old-sword"}],
             });
-            const erina = await world.get("erina");
+            const erina = await world.subject.get("erina");
             return erina.inventory;
         `);
 
         expect(result.details).toEqual({data: ["coin"], issues: []});
     });
 
-    it("editMutations 能精确修正已有 patch path，编辑后 patchId 失效需重读", async () => {
+    it("slice.editPatches 能精确修正已有 patch path，编辑后 patchId 失效需重读", async () => {
         const result = await executeWorld(context, projectPath, `
-            const written = await world.writeSlice({
-                time: world.parseTime("复兴纪元1日 00:00:20"),
+            const written = await world.slice.write({
+                time: world.time.parse("复兴纪元1日 00:00:20"),
                 title: "误写 HP",
                 patches: [
                     {subjectId: "erina", type: "character", name: "艾莉娜", path: "/HP", op: "replace", value: 40, summary: "误写大写路径"},
                 ],
             });
-            const before = await world.getSlice(written.sliceId);
+            const before = await world.slice.get(written.sliceId);
             const wrongPatch = before.patches.find((patch) => patch.path === "/HP");
-            await world.editMutations(written.sliceId, [
+            await world.slice.editPatches(written.sliceId, [
                 {patchId: wrongPatch.patchId, set: {path: "/hp", summary: "修正为标准 hp 路径"}},
             ]);
-            const after = await world.getSlice(written.sliceId);
-            const erina = await world.get("erina");
+            const after = await world.slice.get(written.sliceId);
+            const erina = await world.subject.get("erina");
             return {
                 hp: erina.hp,
                 beforePatchId: wrongPatch.patchId,
@@ -132,8 +132,8 @@ describe("world engine agent tools", () => {
 
     it("脚本 throw 会回滚前面已经执行的写入", async () => {
         await expect(executeWorld(context, projectPath, `
-            await world.writeSlice({
-                time: world.parseTime("复兴纪元1日 00:00:30"),
+            await world.slice.write({
+                time: world.time.parse("复兴纪元1日 00:00:30"),
                 title: "应回滚",
                 patches: [{subjectId: "rollback", type: "character", name: "回滚者", path: "/hp", op: "replace", value: 1}],
             });
@@ -141,7 +141,7 @@ describe("world engine agent tools", () => {
         `)).rejects.toThrow("主动回滚");
 
         const result = await executeWorld(context, projectPath, `
-            const subjects = await world.list("character");
+            const subjects = await world.subject.list("character");
             return subjects.map((item) => item.id);
         `);
         expect(result.details).toEqual({data: [], issues: []});
@@ -151,13 +151,13 @@ describe("world engine agent tools", () => {
         const writerContext = {...context, profileKey: "writer"};
 
         await expect(executeWorld(writerContext, projectPath, `
-            return typeof world.writeSlice;
+            return typeof world.slice.write;
         `)).resolves.toMatchObject({
             details: {data: "undefined", issues: []},
         });
         await expect(executeWorld(writerContext, projectPath, `
-            await world.writeSlice({
-                time: world.parseTime("复兴纪元1日 00:00:40"),
+            await world.slice.write({
+                time: world.time.parse("复兴纪元1日 00:00:40"),
                 title: "writer 不应写入",
                 patches: [{subjectId: "bad", type: "character", path: "/hp", op: "replace", value: 1}],
             });
@@ -168,7 +168,7 @@ describe("world engine agent tools", () => {
         let savedPath: string | undefined;
         try {
             await executeWorld(context, projectPath, `
-                const hero = await world.get("erina");
+                const hero = await world.subject.get("erina");
                 return hero.name + (;
             `);
             throw new Error("测试期望 execute_world 抛错");

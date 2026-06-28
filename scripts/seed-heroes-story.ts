@@ -60,7 +60,7 @@ async function seed() {
     const slices: Array<{time: string; title: string; kind?: string; patches: any[]}> = [
         // ========== Step 1: 纪元锚点 ==========
         {
-            time: "复兴纪元1年1月1日 00:00:00",
+            time: "复兴纪元1年1月1日 00:00",
             title: "阿斯塔利亚纪元起始",
             kind: "backstory",
             patches: [
@@ -70,7 +70,7 @@ async function seed() {
 
         // ========== Step 2: 帝国与子爵领 ==========
         {
-            time: "复兴纪元1年2月1日 00:00:00",
+            time: "复兴纪元1年2月1日 00:00",
             title: "奥古斯提姆帝国立国",
             kind: "backstory",
             patches: [
@@ -79,7 +79,7 @@ async function seed() {
             ],
         },
         {
-            time: "复兴纪元380年1月1日 00:00:00",
+            time: "复兴纪元380年1月1日 00:00",
             title: "布劳尔家族封地",
             kind: "backstory",
             patches: [
@@ -90,7 +90,7 @@ async function seed() {
 
         // ========== Step 3: 布劳尔子爵的历史 ==========
         {
-            time: "复兴纪元453年3月15日 08:00:00",
+            time: "复兴纪元453年3月15日 08:00",
             title: "维克托·布劳尔出生",
             kind: "backstory",
             patches: [
@@ -103,7 +103,7 @@ async function seed() {
             ],
         },
         {
-            time: "复兴纪元478年6月1日 00:00:00",
+            time: "复兴纪元478年6月1日 00:00",
             title: "父亲去世，维克托继承爵位",
             kind: "backstory",
             patches: [
@@ -111,7 +111,7 @@ async function seed() {
             ],
         },
         {
-            time: "复兴纪元487年12月20日 00:00:00",
+            time: "复兴纪元487年12月20日 00:00",
             title: "维克托决定进行召唤仪式",
             kind: "backstory",
             patches: [
@@ -121,7 +121,7 @@ async function seed() {
 
         // ========== Step 4: 四名勇者的 backstory（召唤前） ==========
         {
-            time: "复兴纪元488年5月9日 18:00:00",
+            time: "复兴纪元488年5月9日 18:00",
             title: "薇洛丝：地球生命的终结",
             kind: "backstory",
             patches: [
@@ -133,7 +133,7 @@ async function seed() {
             ],
         },
         {
-            time: "复兴纪元488年5月9日 20:00:00",
+            time: "复兴纪元488年5月9日 20:00",
             title: "月涟：泰拉城市的消失",
             kind: "backstory",
             patches: [
@@ -146,7 +146,7 @@ async function seed() {
             ],
         },
         {
-            time: "复兴纪元488年5月9日 22:00:00",
+            time: "复兴纪元488年5月9日 22:00",
             title: "格鲁什：血牙部落的狩猎夜",
             kind: "backstory",
             patches: [
@@ -160,7 +160,7 @@ async function seed() {
             ],
         },
         {
-            time: "复兴纪元488年5月9日 23:30:00",
+            time: "复兴纪元488年5月9日 23:30",
             title: "艾莉娜：野外调研的意外",
             kind: "backstory",
             patches: [
@@ -178,7 +178,7 @@ async function seed() {
 
         // ========== Step 5: 召唤仪式成功 ==========
         {
-            time: "复兴纪元488年5月10日 00:00:00",
+            time: "复兴纪元488年5月10日 00:00",
             title: "勇者召唤仪式成功",
             kind: "event",
             patches: [
@@ -196,7 +196,7 @@ async function seed() {
 
         // ========== Step 6: 当前时刻（5月15日，勇者们初步探索）==========
         {
-            time: "复兴纪元488年5月15日 10:00:00",
+            time: "复兴纪元488年5月15日 10:00",
             title: "勇者们的初步对话",
             kind: "event",
             patches: [
@@ -213,8 +213,8 @@ async function seed() {
     for (const slice of slices) {
         const result = await executeWorld<{sliceId: string}>(`
             const slice = ${JSON.stringify(slice)};
-            const written = await world.writeSlice({
-                time: world.parseTime(slice.time),
+            const written = await world.slice.write({
+                time: world.time.parse(slice.time),
                 title: slice.title,
                 kind: slice.kind,
                 patches: slice.patches,
@@ -249,16 +249,16 @@ async function verify() {
         sliceCount: number;
     }>(`
         const counts = {
-            world: (await world.list("world")).length,
-            faction: (await world.list("faction")).length,
-            location: (await world.list("location")).length,
-            character: (await world.list("character")).length,
+            world: (await world.subject.list("world")).length,
+            faction: (await world.subject.list("faction")).length,
+            location: (await world.subject.list("location")).length,
+            character: (await world.subject.list("character")).length,
         };
 
-        const worldList = (await world.list("world")).map(s => s.id);
-        const viktorEvents = (await world.get("viktor-brauer")).events || [];
-        const veiluosiLocation = (await world.get("veiluosi")).location;
-        const sliceCount = (await world.slices()).length;
+        const worldList = (await world.subject.list("world")).map(s => s.id);
+        const viktorEvents = (await world.subject.get("viktor-brauer")).events || [];
+        const veiluosiLocation = (await world.subject.get("veiluosi")).location;
+        const sliceCount = (await world.slice.list()).length;
 
         return {counts, worldList, viktorEvents, veiluosiLocation, sliceCount};
     `);

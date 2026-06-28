@@ -45,4 +45,45 @@ describe("useAgentSessionApi", () => {
             query: {workspaceKey: "global", limit: 50},
         });
     });
+
+    it("runCommand 返回判别联合结果", async () => {
+        const result = {
+            kind: "live_state",
+            status: "completed",
+            sessionId: 12,
+            state: {
+                summary: {
+                    sessionId: 12,
+                    profileKey: "leader.default",
+                    workspaceKey: "global",
+                    workspaceRoot: "workspace",
+                    status: "idle",
+                    updatedAt: 1,
+                    archived: false,
+                },
+                activeLeafId: null,
+                activePathRevision: null,
+                pendingUserInputs: [],
+                pendingApprovals: [],
+                steerQueue: [],
+                followUpQueue: {status: "ready", items: []},
+                activeInvocation: null,
+                model: null,
+                thinkingLevel: null,
+                effectiveThinkingLevel: "off",
+                planModeActive: true,
+            },
+        };
+        const fetchMock = vi.fn(async () => result);
+        previousFetch = globalWithFetch.$fetch;
+        globalWithFetch.$fetch = fetchMock;
+
+        const api = useAgentSessionApi();
+
+        await expect(api.runCommand(12, {command: "plan", active: true})).resolves.toEqual(result);
+        expect(fetchMock).toHaveBeenCalledWith("/api/agent/sessions/12/commands", {
+            method: "POST",
+            body: {command: "plan", active: true},
+        });
+    });
 });

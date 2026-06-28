@@ -65,7 +65,8 @@ world.now(): bigint                       // 最新时间，脚本开始快照
 
 // 读
 world.get(id, {deref?, derefDepth?})      // -> attrs | null（摊平，保留便利访问）
-world.getMany(ids)                        // -> (attrs|null)[]
+world.gets(ids)                           // -> (attrs|null)[]，按输入顺序返回，不存在为 null
+world.getMany(ids)                        // -> gets 的旧别名，兼容历史脚本
 world.list(type?)                         // -> {id,name}[]
 world.findRefs(targetId, sourceType?)     // -> {subjectId, attr}[]，attr=JSON Pointer；内部一次批量 queryState
 world.searchText(query, opts)             // -> {subjectId, attr, text, score}[]，attr=JSON Pointer

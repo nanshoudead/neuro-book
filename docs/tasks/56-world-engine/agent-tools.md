@@ -6,10 +6,10 @@
 ## 1. 核心原则
 
 - **单工具读写合一**：Leader / world.engine 使用 `execute_world` 在一个 JavaScript 脚本里查询、写入、精确编辑和删除切面。
-- **writer 只读**：writer profile 也绑定 `execute_world`，但运行时使用 readonly 模式，不注入 `world.writeSlice` / `world.editMutations` / `world.deleteSlice`。
+- **writer 只读**：writer profile 也绑定 `execute_world`，但运行时使用 readonly 模式，不注入 `world.slice.write` / `world.slice.editPatches` / `world.slice.delete`。
 - **事务边界在脚本级**：一次 `execute_world` 调用运行在一个 deferred 事务中；脚本正常结束 commit，脚本 throw 或超时 rollback。
 - **脚本只返回数据**：工具 details 永远是 `{data, issues}`。写方法返回的 issues 可供脚本自查，但运行时也会统一收集，不要在脚本 return 里重复塞 issues。
-- **时间在沙箱内用 instant bigint**：写入前用 `world.parseTime("项目日历字符串")` 得到 `bigint`，需要给人看时用 `world.formatTime(instant)`。
+- **时间在沙箱内用 instant bigint**：写入前用 `world.time.parse("项目日历字符串")` 得到 `bigint`，需要给人看时用 `world.time.format(instant)`。
 - **路径统一 JSON Pointer**：读写两侧都使用 `/hp`、`/memory/师门` 这类 JSON Pointer；`findRefs` / `searchText` 返回的 attr 也是 JSON Pointer。
 
 ## 2. 工具入口
@@ -34,33 +34,37 @@ execute_world({
 ### 3.1 时间
 
 ```ts
-world.parseTime(calendarText: string): bigint;
-world.formatTime(instant: bigint): string;
-world.now(): bigint;
+world.time.parse(calendarText: string): bigint;
+world.time.format(instant: bigint): string;
+world.time.now(): bigint;
 ```
 
-`world.now()` 是脚本开始时的最新切面时间快照。写入时间必须显式传入，不要依赖 now 自动推进。
+`world.time.now()` 是脚本开始时的最新切面时间快照。写入时间必须显式传入，不要依赖 now 自动推进。
 
 ### 3.2 查询
 
 ```ts
-world.get(id, options?: {deref?: boolean, derefDepth?: number}): Promise<any | null>;
-world.getMany(ids: string[]): Promise<Array<any | null>>;
-world.list(type?: string): Promise<Array<{id: string, type: string, name: string}>>;
-world.findRefs(targetId: string, sourceType?: string): Promise<Array<{subjectId: string, attr: string}>>;
-world.searchText(query: string, options?: {k?: number, threshold?: number, types?: string[], attrs?: string[], at?: bigint}): Promise<Array<{subjectId: string, attr: string, text: string, score: number}>>;
-world.slices(options?: {from?: bigint, to?: bigint, limit?: number, withPatches?: boolean}): Promise<SliceListItem[]>;
-world.getSlice(id: string): Promise<SliceListItem>;
+world.subject.get(id, options?: {deref?: boolean, derefDepth?: number}): Promise<any | null>;
+world.subject.gets(ids: string[]): Promise<Array<any | null>>;
+world.subject.list(type?: string): Promise<Array<{id: string, type: string, name: string}>>;
+world.subject.findRefs(targetId: string, sourceType?: string): Promise<Array<{subjectId: string, attr: string}>>;
+
+world.search.text(query: string, options?: {k?: number, threshold?: number, types?: string[], attrs?: string[], at?: bigint}): Promise<Array<{subjectId: string, attr: string, text: string, score: number}>>;
+
+world.slice.list(options?: {from?: bigint, to?: bigint, limit?: number, withPatches?: boolean}): Promise<SliceListItem[]>;
+world.slice.get(sliceId: string): Promise<SliceListItem>;
 ```
 
 - 写入前先查 schema 语义和现有 subject，避免 id/type/ref 拼错。
-- 需要精确编辑 mutation 时，用 `world.getSlice(id)` 或 `world.slices({withPatches:true})` 取得 `patchId`。
-- `world.findRefs` 内部批量查询 subject；返回 attr 已转成 JSON Pointer。
+- 批量读取用 `world.subject.gets(ids)`；缺失 subject 按输入顺序返回 `null`。
+- 需要精确编辑 patch 时，用 `world.slice.get(sliceId)` 或 `world.slice.list({withPatches:true})` 取得 `sliceId` 与 `patchId`。
+- `world.subject.findRefs` 内部批量查询 subject；返回 attr 已转成 JSON Pointer。
+- `world.search.text` 的 `types` 过滤 subject type（如 `character` / `location`），不是 slice kind；要搜经历流文本，用 `attrs: ["events"]`。
 
 ### 3.3 写入与编辑
 
 ```ts
-world.writeSlice({
+world.slice.write({
     time: bigint,
     title?: string,
     summary?: string,
@@ -76,7 +80,7 @@ world.writeSlice({
     }>,
 }): Promise<{sliceId: string, issues: WorldIssue[]}>;
 
-world.editMutations(
+world.slice.editPatches(
     sliceId: string,
     edits: Array<
         | {patchId: string, set: {path?: string, op?: string, value?: unknown, summary?: string}}
@@ -86,27 +90,27 @@ world.editMutations(
     meta?: {time?: bigint, title?: string, summary?: string, kind?: string},
 ): Promise<{sliceId: string, issues: WorldIssue[]}>;
 
-world.deleteSlice(sliceId: string): Promise<{issues: WorldIssue[]}>;
+world.slice.delete(sliceId: string): Promise<{issues: WorldIssue[]}>;
 ```
 
-- 首次写入新 subject 时，在任意 patch 上声明 `type`，可选 `name`，`writeSlice` 会自动创建 subject 并写入 schema default。
-- 同一 instant 只能有一个 slice；确实要补同一时刻内容时，读出已有切面的 patches 后用 `editMutations` 增加 patch。
-- 修一条写错的 mutation 时优先 `editMutations`，不要 delete 整片重写。
-- `editMutations` 复用 `service.editSlice`，会整块替换该 slice 的 patch 行；编辑后所有旧 `patchId` 都失效，连续编辑同一 slice 必须重新 `getSlice`。
-- `editMutations.add` 不继承首写自动建 subject 规则；创建新 subject 仍走 `writeSlice`。
-- `deleteSlice` 是物理删除，不可恢复，只用于整条切面作废。
+- 首次写入新 subject 时，在任意 patch 上声明 `type`，可选 `name`，`world.slice.write` 会自动创建 subject 并写入 schema default。
+- 同一 instant 只能有一个 slice；确实要补同一时刻内容时，读出已有切面的 patches 后用 `world.slice.editPatches` 增加 patch。
+- 修一条写错的 patch 时优先 `world.slice.editPatches`，不要 delete 整片重写。
+- `world.slice.editPatches` 复用 `service.editSlice`，会整块替换该 slice 的 patch 行；编辑后所有旧 `patchId` 都失效，连续编辑同一 slice 必须重新 `world.slice.get`。
+- `world.slice.editPatches` 的 `{add:{...}}` 不继承首写自动建 subject 规则；创建新 subject 仍走 `world.slice.write`。
+- `world.slice.delete` 是物理删除，不可恢复，只用于整条切面作废。
 
 ## 4. 推荐脚本范式
 
 ```js
-const time = world.parseTime("复兴纪元312年5月20日 09:00:00");
+const time = world.time.parse("公元2020年4月12日 18:00");
 
-const written = await world.writeSlice({
+const written = await world.slice.write({
     time,
     title: "遗迹余波",
     kind: "event",
     patches: [
-        {subjectId: "erina", path: "/hp", op: "replace", value: 90},
+        {subjectId: "erina", type: "character", name: "艾莉娜", path: "/hp", op: "replace", value: 90},
     ],
 });
 
@@ -114,10 +118,10 @@ if (written.issues.some((issue) => issue.code === "broken-relative" || issue.cod
     throw new Error("写入产生 E issue，回滚本次脚本");
 }
 
-const erina = await world.get("erina");
+const erina = await world.subject.get("erina");
 return {
     sliceId: written.sliceId,
-    time: world.formatTime(time),
+    time: world.time.format(time),
     hp: erina.hp,
 };
 ```

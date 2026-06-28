@@ -1,6 +1,6 @@
 # 完整流程详解
 
-本文档解释 `anti-ai-slop` 的 6 步文本润色流程，包括 CLI 候选定位、LLM 全文审查、快速审查评分、用户审批和修复报告。
+本文档解释 `llmlint` 的 6 步文本润色流程，包括 CLI 候选定位、LLM 全文审查、快速审查评分、用户审批和修复报告。
 
 ## 流程概览
 
@@ -60,7 +60,7 @@ if (用户消息包含文件路径) {
 
 **执行命令**：
 ```bash
-bun .nbook/agent/skills/anti-ai-slop/cli/checker.ts check <文件路径>
+bun .nbook/agent/skills/llmlint/bin/llmlint.ts check <文件路径>
 ```
 
 **解析输出**：
@@ -108,7 +108,7 @@ filler-word-actually (其实、实际上、事实上)
 必须先执行：
 
 ```bash
-bun .nbook/agent/skills/anti-ai-slop/cli/checker.ts show-llm-rules
+bun .nbook/agent/skills/llmlint/bin/llmlint.ts show-llm-rules
 ```
 
 这一步仍属于步骤 3，不单独拆成新步骤。`show-llm-rules` 的输出是本轮全文语义审查的规则来源。

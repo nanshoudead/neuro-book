@@ -2,6 +2,7 @@ import {existsSync} from "node:fs";
 import {copyFile, mkdir, readFile, readdir, stat} from "node:fs/promises";
 import {basename, join, relative, resolve} from "node:path";
 import {pathToFileURL} from "node:url";
+import {watch, type FSWatcher} from "chokidar";
 import {Value} from "typebox/value";
 import type {JsonValue} from "nbook/server/agent/messages/types";
 import {
@@ -21,6 +22,7 @@ import type {
     AgentProfileIssueCode,
     AgentProfileSourceKind,
 } from "nbook/server/agent/profiles/types";
+import {appLogger} from "nbook/server/app-logs/logger";
 
 type ProfileSource = {
     profile: AgentProfile;
@@ -74,7 +76,16 @@ type CatalogCache = {
 
 type PendingCatalogLoad = {
     signature: string;
+    generation: number;
     promise: Promise<LoadedProfileCatalog>;
+};
+
+type ProfileCatalogTiming = {
+    cacheHit: number;
+    inventory: number;
+    signature: number;
+    loadInventory: number;
+    total: number;
 };
 
 export type AgentProfileRuntimeResolution = {
@@ -85,6 +96,45 @@ export type AgentProfileRuntimeResolution = {
 
 const SYSTEM_PROFILE_ROOT = resolve(process.cwd(), "assets", "workspace", ".nbook", "agent", "profiles");
 const USER_PROFILE_ROOT = resolve(process.cwd(), "workspace", ".nbook", "agent", "profiles");
+const PROFILE_CATALOG_SLOW_MS = 500;
+const PROFILE_WATCH_AWAIT_WRITE_MS = 200;
+const PROFILE_CATALOG_TIMING_KEYS: Array<keyof ProfileCatalogTiming> = [
+    "cacheHit",
+    "inventory",
+    "signature",
+    "loadInventory",
+    "total",
+];
+
+function createProfileCatalogTiming(): ProfileCatalogTiming {
+    return {
+        cacheHit: 0,
+        inventory: 0,
+        signature: 0,
+        loadInventory: 0,
+        total: 0,
+    };
+}
+
+async function measureProfileCatalogStep<T>(
+    timing: ProfileCatalogTiming,
+    key: Exclude<keyof ProfileCatalogTiming, "total">,
+    task: () => Promise<T>,
+): Promise<T> {
+    const startedAt = performance.now();
+    try {
+        return await task();
+    } finally {
+        timing[key] += performance.now() - startedAt;
+    }
+}
+
+function roundProfileCatalogTiming(timing: ProfileCatalogTiming): ProfileCatalogTiming {
+    return PROFILE_CATALOG_TIMING_KEYS.reduce((result, key) => {
+        result[key] = Math.round(timing[key] * 100) / 100;
+        return result;
+    }, createProfileCatalogTiming());
+}
 
 /**
  * 动态 profile catalog。用户 profile 按 key 覆盖系统 profile。
@@ -93,8 +143,12 @@ const USER_PROFILE_ROOT = resolve(process.cwd(), "workspace", ".nbook", "agent",
 export class AgentProfileCatalog {
     private readonly memoryProfiles = new Map<string, ProfileSource>();
     private memoryRevision = 0;
+    private catalogGeneration = 0;
     private catalogCache?: CatalogCache;
     private pendingCatalogLoad?: PendingCatalogLoad;
+    private catalogDirty = true;
+    private watcher: FSWatcher | null = null;
+    private watcherStart?: Promise<void>;
 
     constructor(
         private readonly systemRoot = SYSTEM_PROFILE_ROOT,
@@ -112,16 +166,115 @@ export class AgentProfileCatalog {
             source: "memory",
         });
         this.memoryRevision += 1;
-        this.catalogCache = undefined;
-        this.pendingCatalogLoad = undefined;
+        this.invalidate("register");
     }
 
     /**
      * 清理 catalog 缓存。手动编译或源码保存后可显式刷新。
      */
-    invalidate(): void {
+    invalidate(_reason = "manual"): void {
+        this.catalogGeneration += 1;
+        this.catalogDirty = true;
         this.catalogCache = undefined;
         this.pendingCatalogLoad = undefined;
+    }
+
+    /**
+     * 启动 profile root 文件 watcher。HTTP runtime 使用它感知外部编辑器或 bash 写入。
+     */
+    async startWatching(): Promise<void> {
+        if (this.watcherStart) {
+            return this.watcherStart;
+        }
+        if (this.watcher) {
+            return;
+        }
+        const roots = [...new Set([this.systemRoot, this.userRoot])];
+        let resolveReady: () => void = () => {};
+        let rejectReady: (error: Error) => void = () => {};
+        let readySettled = false;
+        let watcherReady = false;
+        let watcherFailed = false;
+        this.watcherStart = new Promise<void>((resolve, reject) => {
+            resolveReady = resolve;
+            rejectReady = reject;
+        });
+        let watcher: FSWatcher;
+        try {
+            watcher = watch(roots, {
+                ignoreInitial: true,
+                persistent: true,
+                awaitWriteFinish: {
+                    stabilityThreshold: PROFILE_WATCH_AWAIT_WRITE_MS,
+                    pollInterval: 50,
+                },
+            });
+            this.watcher = watcher;
+        } catch (error) {
+            this.watcherStart = undefined;
+            const message = error instanceof Error ? error.message : String(error);
+            void appLogger.warn("agent.profileCatalog.watchStartFailed", {
+                error: message,
+            });
+            throw error;
+        }
+        watcher.on("all", (eventName, changedPath) => {
+            this.invalidate(`watch:${eventName}`);
+            void appLogger.debug("agent.profileCatalog.watchDirty", {
+                eventName,
+                path: String(changedPath),
+            });
+        });
+        watcher.on("ready", () => {
+            watcherReady = true;
+            if (!readySettled) {
+                readySettled = true;
+                resolveReady();
+            }
+        });
+        watcher.on("error", (error) => {
+            if (watcherFailed) {
+                return;
+            }
+            watcherFailed = true;
+            this.invalidate("watch_error");
+            const message = error instanceof Error ? error.message : String(error);
+            void appLogger.warn("agent.profileCatalog.watchError", {
+                error: message,
+                startup: !watcherReady,
+            });
+            this.closeFailedWatcher(watcher);
+            if (!readySettled) {
+                readySettled = true;
+                rejectReady(error instanceof Error ? error : new Error(message));
+            }
+        });
+        await this.watcherStart.finally(() => {
+            this.watcherStart = undefined;
+        });
+    }
+
+    /**
+     * 关闭 profile watcher。测试和临时 catalog 用它避免文件句柄泄漏。
+     */
+    async dispose(): Promise<void> {
+        const watcher = this.watcher;
+        this.watcher = null;
+        this.watcherStart = undefined;
+        if (watcher) {
+            await watcher.close();
+        }
+    }
+
+    private closeFailedWatcher(watcher: FSWatcher): void {
+        if (this.watcher === watcher) {
+            this.watcher = null;
+        }
+        void watcher.close().catch((error) => {
+            void appLogger.warn("agent.profileCatalog.watchCloseFailed", {
+                error: error instanceof Error ? error.message : String(error),
+            });
+        });
     }
 
     /**
@@ -246,25 +399,70 @@ export class AgentProfileCatalog {
     }
 
     private async loadAll(): Promise<LoadedProfileCatalog> {
-        const inventory = await this.readProfileInventory();
-        const signature = await this.catalogSignature(inventory);
-        if (this.catalogCache?.signature === signature) {
-            return this.catalogCache.catalog;
-        }
-        if (this.pendingCatalogLoad?.signature === signature) {
-            return this.pendingCatalogLoad.promise;
-        }
-
-        const promise = this.loadInventory(inventory).then((catalog) => {
-            this.catalogCache = {signature, catalog};
-            return catalog;
-        }).finally(() => {
-            if (this.pendingCatalogLoad?.promise === promise) {
-                this.pendingCatalogLoad = undefined;
+        const timing = createProfileCatalogTiming();
+        const startedAt = performance.now();
+        const dirtyAtStart = this.catalogDirty;
+        const generationAtStart = this.catalogGeneration;
+        let cacheState: "memory_hit" | "signature_hit" | "pending_join" | "loaded" = "loaded";
+        try {
+            if (this.catalogCache && !this.catalogDirty) {
+                cacheState = "memory_hit";
+                timing.cacheHit = performance.now() - startedAt;
+                return this.catalogCache.catalog;
             }
-        });
-        this.pendingCatalogLoad = {signature, promise};
-        return promise;
+            const inventory = await measureProfileCatalogStep(timing, "inventory", () => this.readProfileInventory());
+            const signature = await measureProfileCatalogStep(timing, "signature", () => this.catalogSignature(inventory));
+            if (this.catalogCache?.signature === signature) {
+                cacheState = "signature_hit";
+                if (this.catalogGeneration === generationAtStart) {
+                    this.catalogDirty = false;
+                }
+                return this.catalogCache.catalog;
+            }
+            if (
+                this.pendingCatalogLoad?.signature === signature
+                && this.pendingCatalogLoad.generation === generationAtStart
+                && this.catalogGeneration === generationAtStart
+            ) {
+                cacheState = "pending_join";
+                return measureProfileCatalogStep(timing, "loadInventory", () => this.pendingCatalogLoad!.promise);
+            }
+
+            const promise = this.loadInventory(inventory).then((catalog) => {
+                if (this.catalogGeneration === generationAtStart) {
+                    this.catalogCache = {signature, catalog};
+                    this.catalogDirty = false;
+                }
+                return catalog;
+            }).finally(() => {
+                if (this.pendingCatalogLoad?.promise === promise) {
+                    this.pendingCatalogLoad = undefined;
+                }
+            });
+            if (this.catalogGeneration === generationAtStart) {
+                this.pendingCatalogLoad = {signature, generation: generationAtStart, promise};
+            }
+            return await measureProfileCatalogStep(timing, "loadInventory", () => promise);
+        } finally {
+            timing.total = performance.now() - startedAt;
+            this.logCatalogTiming(cacheState, dirtyAtStart, timing);
+        }
+    }
+
+    private logCatalogTiming(cacheState: "memory_hit" | "signature_hit" | "pending_join" | "loaded", dirtyAtStart: boolean, timing: ProfileCatalogTiming): void {
+        if (cacheState === "memory_hit" && timing.total <= PROFILE_CATALOG_SLOW_MS) {
+            return;
+        }
+        const data = {
+            cacheState,
+            dirtyAtStart,
+            timing: roundProfileCatalogTiming(timing),
+        };
+        if (timing.total > PROFILE_CATALOG_SLOW_MS) {
+            void appLogger.warn("agent.profileCatalog.slow", data);
+            return;
+        }
+        void appLogger.debug("agent.profileCatalog.resolve", data);
     }
 
     private async loadInventory(inventory: ProfileInventory): Promise<LoadedProfileCatalog> {

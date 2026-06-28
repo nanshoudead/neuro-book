@@ -2,6 +2,7 @@ import type {AgentUserMessageInput, JsonValue, Usage} from "nbook/server/agent/m
 import type {InvocationErrorInfo, InvocationErrorPhase, SessionMetadata} from "nbook/server/agent/session/types";
 import type {AgentResolution} from "nbook/server/agent/tools/types";
 import type {ClientStateSnapshot} from "nbook/server/agent/variables/types";
+import type {ServerTimingSink} from "nbook/server/utils/server-timing";
 import type {
     AgentAbortRequestDto,
     AgentActiveInvocationDto,
@@ -11,6 +12,7 @@ import type {
     AgentRuntimeStreamEventDto,
     AgentSessionListPageDto,
     AgentSessionListQueryDto,
+    AgentSessionLiveStateDto,
     AgentSessionRelationsDto,
     AgentSessionSnapshotDto,
     AgentSessionSummaryDto,
@@ -123,12 +125,25 @@ export type AgentRuntimeState = {
     followUpQueue: AgentFollowUpQueueStateDto;
 };
 
-export type AgentCommandResult = {
-    status: "completed" | "started";
-    sessionId: number;
-    snapshot?: AgentSessionSnapshotDto;
-    createdSession?: AgentSessionSummaryDto;
-};
+export type AgentCommandResult =
+    | {
+        kind: "live_state";
+        status: "completed" | "started";
+        sessionId: number;
+        state: AgentSessionLiveStateDto;
+    }
+    | {
+        kind: "snapshot";
+        status: "completed";
+        sessionId: number;
+        snapshot: AgentSessionSnapshotDto;
+    }
+    | {
+        kind: "created_session";
+        status: "completed";
+        sessionId: number;
+        createdSession: AgentSessionSummaryDto;
+    };
 
 export type AgentTreeResult = {
     status: "completed" | "invoked";
@@ -144,9 +159,9 @@ export type AgentAbortResult = {
 export type AgentSessionService = {
     listSessions(query?: AgentSessionListQueryDto): Promise<AgentSessionSummaryDto[]>;
     listSessionPage(query?: AgentSessionListQueryDto): Promise<AgentSessionListPageDto>;
-    getSessionSnapshot(sessionId: number): Promise<AgentSessionSnapshotDto>;
-    getSessionRelations(sessionId: number): Promise<AgentSessionRelationsDto>;
-    runCommand(sessionId: number, body: AgentCommandRequestDto): Promise<AgentCommandResult>;
+    getSessionSnapshot(sessionId: number, timingSink?: ServerTimingSink): Promise<AgentSessionSnapshotDto>;
+    getSessionRelations(sessionId: number, timingSink?: ServerTimingSink): Promise<AgentSessionRelationsDto>;
+    runCommand(sessionId: number, body: AgentCommandRequestDto, timingSink?: ServerTimingSink): Promise<AgentCommandResult>;
     moveTree(sessionId: number, body: AgentTreeRequestDto): Promise<AgentTreeResult>;
     abortInvocation(sessionId: number, body?: AgentAbortRequestDto): Promise<AgentAbortResult>;
 };

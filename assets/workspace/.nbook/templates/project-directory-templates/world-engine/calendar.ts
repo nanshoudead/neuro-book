@@ -1,46 +1,42 @@
 /**
  * World Engine Calendar for new projects.
  *
- * 使用 Simple Calendar（通用单位链），支持自定义单位层级。
- * 也可改为 type: 'gregorian'（真实公历）或 type: 'custom'（完全自定义）。
+ * 默认使用 Gregorian Calendar（真实公历），适合现代、校园、都市、近未来等题材。
+ * 架空世界可改为 type: 'simple' 或 type: 'custom'。
  */
 
 export default {
-  type: 'simple',
+    type: 'gregorian',
 
-  // Era 前后缀
-  eraBefore: '蒙昧纪元',  // instant < 0 时
-  eraAfter: '新生纪元',   // instant >= 0 时
+    // Era 前后缀
+    eraBefore: '公元前',
+    eraAfter: '公元',
 
-  baseUnit: 'second',
-
-  // 单位定义（可乱序，系统会自动拓扑排序）
-  units: [
-    { name: 'minute', parent: 'second', ratio: 60 },
-    { name: 'hour', parent: 'minute', ratio: 60 },
-    { name: 'day', parent: 'hour', ratio: 24 },
-    { name: 'month', parent: 'day', ratio: 30 },
-    { name: 'year', parent: 'month', ratio: 12 }
-  ],
-
-  // Format 模板
-  format: '{eraName}{year}年{month}月{day}日 {hour:02}:{minute:02}:{second:02}'
+    // 默认到分钟，不带秒。示例：公元2020年4月12日 18:00
+    format: '{eraName}{year}年{month}月{day}日 {hour:02}:{minute:02}'
 };
 
 /**
  * 其他选项：
  *
- * 1. 月份名（春之月/夏之月等）：
- *    在 month unit 添加 cycleNames:
- *    { name: 'month', parent: 'day', ratio: 90,
- *      cycleNames: ['春之月', '夏之月', '秋之月', '冬之月'] }
- *    format: '{eraName}{year}年{monthName}{day}日'
+ * 1. Simple Calendar（固定单位链，适合架空历法）：
+ *    type: 'simple',
+ *    eraBefore: '旧纪元',
+ *    eraAfter: '新纪元',
+ *    baseUnit: 'second',
+ *    units: [
+ *      { name: 'minute', parent: 'second', ratio: 60 },
+ *      { name: 'hour', parent: 'minute', ratio: 60 },
+ *      { name: 'day', parent: 'hour', ratio: 24 },
+ *      { name: 'month', parent: 'day', ratio: 30 },
+ *      { name: 'year', parent: 'month', ratio: 12 }
+ *    ],
+ *    format: '{eraName}{year}年{month}月{day}日 {hour:02}:{minute:02}'
  *
- * 2. 真实公历（带闰年）：
- *    type: 'gregorian',
- *    eraBefore: '公元前',
- *    eraAfter: '公元',
- *    format: '{eraName}{year}年{month}月{day}日'
+ * 2. cycleNames：
+ *    cycleNames 长度必须等于 ratio。星期适合使用 cycleNames：
+ *    { name: 'week', parent: 'day', ratio: 7,
+ *      cycleNames: ['周一', '周二', '周三', '周四', '周五', '周六', '周日'] }
  *
  * 3. 完全自定义（如农历闰月）：
  *    type: 'custom',

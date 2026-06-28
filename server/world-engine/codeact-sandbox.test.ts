@@ -10,7 +10,10 @@ describe("CodeAct Sandbox", () => {
     describe("基础执行", () => {
         test("执行简单代码", async () => {
             const mockApi = createMockWorldApi({
-                async get() { return { hp: 100 }; },
+                subject: {
+                    ...createMockWorldApi().subject,
+                    async get() { return { hp: 100 }; },
+                },
             });
 
             const result = await executeCodeAct("return 1 + 1", mockApi);
@@ -19,13 +22,16 @@ describe("CodeAct Sandbox", () => {
 
         test("可以访问 world API", async () => {
             const mockApi = createMockWorldApi({
-                async get(id: string) {
-                    return id === "test" ? { hp: 100 } : null;
+                subject: {
+                    ...createMockWorldApi().subject,
+                    async get(id: string) {
+                        return id === "test" ? { hp: 100 } : null;
+                    },
                 },
             });
 
             const result = await executeCodeAct(
-                `const data = await world.get("test"); return data.hp;`,
+                `const data = await world.subject.get("test"); return data.hp;`,
                 mockApi,
             );
             expect(result).toBe(100);
@@ -33,14 +39,46 @@ describe("CodeAct Sandbox", () => {
 
         test("支持 async/await", async () => {
             const mockApi = createMockWorldApi({
-                async list() { return [{ id: "a", name: "A" }]; },
+                subject: {
+                    ...createMockWorldApi().subject,
+                    async list() { return [{ id: "a", type: "character", name: "A" }]; },
+                },
             });
 
             const result = await executeCodeAct(
-                `const items = await world.list("character"); return items.length;`,
+                `const items = await world.subject.list("character"); return items.length;`,
                 mockApi,
             );
             expect(result).toBe(1);
+        });
+
+        test("不暴露旧平铺 World API alias", async () => {
+            const mockApi = createMockWorldApi();
+
+            const result = await executeCodeAct(
+                `return {
+                    getMany: typeof world.getMany,
+                    gets: typeof world.gets,
+                    get: typeof world.get,
+                    list: typeof world.list,
+                    parseTime: typeof world.parseTime,
+                    writeSlice: typeof world.writeSlice,
+                    editMutations: typeof world.editMutations,
+                    getSlice: typeof world.getSlice,
+                };`,
+                mockApi,
+            );
+
+            expect(result).toEqual({
+                getMany: "undefined",
+                gets: "undefined",
+                get: "undefined",
+                list: "undefined",
+                parseTime: "undefined",
+                writeSlice: "undefined",
+                editMutations: "undefined",
+                getSlice: "undefined",
+            });
         });
     });
 
@@ -102,16 +140,24 @@ describe("CodeAct Sandbox", () => {
 
 function createMockWorldApi(overrides: Partial<WorldApi> = {}): WorldApi {
     return {
-        async get() { return null; },
-        async getMany() { return []; },
-        async list() { return []; },
-        async findRefs() { return []; },
-        async searchText() { return []; },
-        async slices() { return []; },
-        async getSlice() { return null; },
-        parseTime() { return BigInt(0); },
-        formatTime(instant: bigint) { return instant.toString(); },
-        now() { return BigInt(0); },
+        time: {
+            parse() { return BigInt(0); },
+            format(instant: bigint) { return instant.toString(); },
+            now() { return BigInt(0); },
+        },
+        subject: {
+            async get() { return null; },
+            async gets() { return []; },
+            async list() { return []; },
+            async findRefs() { return []; },
+        },
+        search: {
+            async text() { return []; },
+        },
+        slice: {
+            async list() { return []; },
+            async get() { return null; },
+        },
         ...overrides,
     };
 }

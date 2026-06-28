@@ -2,9 +2,11 @@
 
 ## User Request / Topic
 
-创建一个完整的 `anti-ai-slop` skill 系统，帮助润色中文文本，并识别和修复套路化表达、AI 写作痕迹与八股文风格。
+创建一个完整的文本润色 skill 系统，帮助润色中文文本，并识别和修复套路化表达、AI 写作痕迹与八股文风格。系统原名 `anti-ai-slop`，2026-06-28 硬切重命名为 `llmlint`。
 
 **2026-06-14 update**：用户面表述从旧的风格清理心智收敛为“文本润色”；步骤 3 增加 stop-slop 风格的快速审查清单和 Directness / Rhythm / Trust / Authenticity / Density 五维 50 分评分；stop-slop 的核心规则已本地化注入 static rules、LLM rules 和 category suggestions。
+
+**2026-06-28 update**：`anti-ai-slop` 硬切重命名为 `llmlint`，旧 skill key 不保留 alias；CLI 模块化为自包含 ESM package，规则迁移为默认 `anti-ai-slop` preset，并支持 `llmlint.config.ts` 规则覆盖。
 
 **核心需求**：
 1. CLI 工具：类似 eslint 的文本检查器，输出问题列表
@@ -20,7 +22,7 @@
 
 创建一个中文文本润色系统，验证点包括：
 
-1. **CLI 工具可运行**：`workspace node cli check <file>` 输出类似 eslint 的格式化报告
+1. **CLI 工具可运行**：`bun .nbook/agent/skills/llmlint/bin/llmlint.ts check <file>` 输出类似 eslint 的格式化报告
 2. **规则系统可扩展**：JSON 格式的规则定义，static 和 llm 规则分离
 3. **Skill 可执行**：Agent 能按 6 步流程完成润色任务
 4. **修复结果正确**：能识别并修复典型套路化表达（填充词、机械过渡、二元对比、公式化设问、空泛总结、节奏单调等）
@@ -32,13 +34,13 @@
 - 不支持自动多轮迭代
 
 **使用范围**：
-- 可读写 `assets/workspace/.nbook/agent/skills/anti-ai-slop/` 下所有文件
+- 可读写 `assets/workspace/.nbook/agent/skills/llmlint/` 下所有文件
 - 可集成到 workspace CLI
 - 可调用 researcher agent 进行 web 调研
 
 **迭代策略**：
 - 先实现规则 JSON 文件（定义具体规则）
-- 再实现 CLI 工具（checker.ts）
+- 再实现 CLI 工具（llmlint package）
 - 最后编写 SKILL.md（Agent 工作流程说明）
 - 每个组件独立验证后再集成
 
@@ -47,7 +49,7 @@
 
 ## Current State
 
-**阶段**：已实现，2026-06-14 完成文本润色升级
+**阶段**：已实现，2026-06-28 完成 llmlint 系统化重构
 
 **已完成**：
 - ✅ 需求讨论和确认
@@ -56,13 +58,30 @@
 - ✅ CLI 输出格式设计（类似 eslint）
 - ✅ 完整的 6 步润色流程设计
 - ✅ 规格说明文档（`.agent/workspace/anti-ai-slop-spec.md`）
-- ✅ 规则 JSON 文件（static-rules.json, llm-rules.json, category-suggestions.json）
-- ✅ CLI 检查工具（checker.ts）
+- ✅ 规则 JSON 文件（presets/anti-ai-slop/static-rules.json, llm-rules.json, category-suggestions.json）
+- ✅ CLI 检查工具（llmlint/bin/llmlint.ts + src 模块）
 - ✅ SKILL.md 和 reference 文档
 - ✅ 2026-06-14：注入 stop-slop 本地化规则，新增快速审查评分流程
 - ✅ 2026-06-14：验证 JSON 解析、CLI static 命中、LLM rule 输出和自然文本反向样例
+- ✅ 2026-06-28：硬切重命名为 `llmlint`，不保留 `anti-ai-slop` skill alias
+- ✅ 2026-06-28：新增 `package.json`、`llmlint.config.example.ts`、模块化 `src/` 与默认 preset
 
 ## Decisions / Discussion
+
+### 2026-06-28 llmlint 系统化重构
+
+**决策**：将系统 skill key 从 `anti-ai-slop` 硬切为 `llmlint`，不保留旧 alias。`anti-ai-slop` 只作为默认规则 preset 名保留。
+
+**理由**：
+- `llmlint` 更准确表达“像 eslint 一样规范 LLM 输出”的能力边界。
+- 不保留双入口，避免 SkillCatalog 中长期出现两个候选，导致 Agent 选错旧 skill。
+- 当前只有一个工具包，不做 monorepo；先在 skill 目录内按 ESM package 组织。
+
+**变更**：
+- 新入口：`assets/workspace/.nbook/agent/skills/llmlint/bin/llmlint.ts`。
+- 规则迁移到 `presets/anti-ai-slop/`。
+- 新增 `llmlint.config.ts` 配置加载，支持 `off` / `warn` / `error` / `low` / `medium` / `high`。
+- CLI 拆分为 config / rules / scanner / reporter / types / cli 模块，后续 Web 或编辑器复用时不需要解析命令行输出。
 
 ### 2026-06-14 文本润色升级
 
@@ -313,7 +332,7 @@ python -m json.tool <file>.json  # 所有 JSON 文件通过验证
 
 **验证**：
 ```bash
-bun assets/workspace/.nbook/agent/skills/anti-ai-slop/cli/checker.ts .agent/test-input.md
+bun assets/workspace/.nbook/agent/skills/llmlint/bin/llmlint.ts check .agent/test-input.md
 ```
 
 输出示例：
@@ -387,12 +406,12 @@ bun assets/workspace/.nbook/agent/skills/anti-ai-slop/cli/checker.ts .agent/test
 ### 已完成的产物
 
 1. **规则文件**（3 个 JSON）：
-   - `cli/rules/static-rules.json`（6 个规则）
-   - `cli/rules/llm-rules.json`（2 个规则）
-   - `cli/rules/category-suggestions.json`（3 个类别）
+   - `presets/anti-ai-slop/static-rules.json`
+   - `presets/anti-ai-slop/llm-rules.json`
+   - `presets/anti-ai-slop/category-suggestions.json`
 
 2. **CLI 工具**：
-   - `cli/checker.ts`（约 200 行 TypeScript）
+   - `bin/llmlint.ts` + `src/` 模块
    - 支持多种选项
    - 类似 eslint 的输出格式
 
@@ -412,7 +431,7 @@ bun assets/workspace/.nbook/agent/skills/anti-ai-slop/cli/checker.ts .agent/test
 
 **CLI 工具测试**：
 ```bash
-bun assets/workspace/.nbook/agent/skills/anti-ai-slop/cli/checker.ts .agent/test-input.md
+bun assets/workspace/.nbook/agent/skills/llmlint/bin/llmlint.ts check .agent/test-input.md
 ```
 
 成功检测：
@@ -459,7 +478,7 @@ bun assets/workspace/.nbook/agent/skills/anti-ai-slop/cli/checker.ts .agent/test
 
 ### 当前 MVP 范围（已完成）
 - ✅ 实现规则 JSON 文件
-- ✅ 实现 CLI 工具（checker.ts）
+- ✅ 实现 CLI 工具（llmlint package）
 - ⏸️ 集成到 workspace CLI（暂缓，独立工具即可）
 - ✅ 编写 SKILL.md
 - ✅ 创建参考文档
@@ -615,20 +634,22 @@ write: 生成报告
 
 ### 当前 MVP 范围
 - [x] 实现规则 JSON 文件
-- [x] 实现 CLI 工具（checker.ts）
+- [x] 实现 CLI 工具（llmlint package）
 - [x] 编写 SKILL.md
 - [x] 测试和验证
 - [x] 更新 PROJECT-STATUS.md
 - [x] 2026-06-14：将用户面心智收敛为文本润色
 - [x] 2026-06-14：注入 stop-slop 本地化规则
 - [x] 2026-06-14：加入快速审查清单和 50 分评分
+- [x] 2026-06-28：重命名为 llmlint 并硬切旧 skill key
+- [x] 2026-06-28：改为自包含 ESM package 与默认 preset
+- [x] 2026-06-28：支持 `llmlint.config.ts` 规则覆盖
 
 ### 后续增强（第二版）
 - [ ] 基于真实用户反馈继续调低误伤率
 - [ ] 为快速审查评分沉淀更稳定的示例集
 - [ ] 支持 --context 显示详细上下文
 - [ ] 支持 --category 过滤特定类别
-- [ ] 支持配置文件（.anti-slop-rc.json）
 - [ ] 性能优化（大文件处理）
 
 ### 长期规划

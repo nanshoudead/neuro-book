@@ -63,12 +63,12 @@ export function applyPatch(
     // embedding 字段（memory / events）必须按 key/元素写入，一条 EmbeddingText = 一行 patch，
     // 这样向量才能落到 WorldPatch 的 vector 列。整块 replace 会让一行承载多个向量，无法表达。
     // attrSchema 由调用方按 path 解析；当它带 embedding 标记时，说明 path 命中的是容器本身。
-    if (patch.op === "replace" && attrSchema?.embedding) {
-        const hint = attrSchema.embedding === "record" ? `${path}/<key>` : `append ${path}`;
+    if (patch.op === "replace" && attrSchema?.embedding && !isEmptyEmbeddingContainer(patch.value, attrSchema.embedding)) {
+        const hint = attrSchema.embedding === "record" ? `replace ${path}/<key>` : `append ${path}`;
         return {
             code: "embedding-whole-replace",
             path,
-            message: `embedding 字段 ${path} 禁止整块 replace；请按 key/元素写入（如 ${hint}）。`,
+            message: `embedding 字段 ${path} 禁止整块 replace 写入非空内容；空容器 replace（[] / {}）仅可用于初始化。真实文本请按 key/元素单条写入（如 ${hint}，value: {text:"..."}），vector 由系统维护。`,
         };
     }
 
@@ -554,6 +554,26 @@ function navigateToValue(
  */
 function isObject(value: JsonValue): value is Record<string, JsonValue> {
     return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+/**
+ * EmbeddingText 容器允许空 replace 作为初始化基准。
+ *
+ * 非空内容仍必须按单条写入，保证一条 EmbeddingText 对应一行 WorldPatch/vector。
+ */
+function isEmptyEmbeddingContainer(value: unknown, embedding: "record" | "array"): boolean {
+    if (embedding === "array") {
+        return Array.isArray(value) && value.length === 0;
+    }
+    return isObjectLike(value) && Object.keys(value).length === 0;
+}
+
+function isObjectLike(value: unknown): value is Record<string, unknown> {
+    if (typeof value !== "object" || value === null || Array.isArray(value)) {
+        return false;
+    }
+    const prototype = Object.getPrototypeOf(value);
+    return prototype === Object.prototype || prototype === null;
 }
 
 /**

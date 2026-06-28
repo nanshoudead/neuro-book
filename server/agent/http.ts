@@ -1,6 +1,7 @@
 import {createError, getRouterParam} from "h3";
 import {NeuroAgentHarness} from "nbook/server/agent/harness/neuro-agent-harness";
 import type {InvokeAgentInput} from "nbook/server/agent/harness/types";
+import type {ServerTimingSink} from "nbook/server/utils/server-timing";
 import {
     AgentSessionIdSchema,
     type AgentAbortRequestDto,
@@ -26,7 +27,7 @@ const globalForAgentHttp = globalThis as typeof globalThis & GlobalAgentHttp;
  */
 export function useAgentHarness(): NeuroAgentHarness {
     if (!globalForAgentHttp.agentHarness) {
-        globalForAgentHttp.agentHarness = new NeuroAgentHarness();
+        globalForAgentHttp.agentHarness = new NeuroAgentHarness({watchProfiles: true});
     }
     return globalForAgentHttp.agentHarness;
 }
@@ -93,15 +94,19 @@ export async function listAgentSessions(query: AgentSessionListQueryDto, harness
 /**
  * 返回前端恢复用 session snapshot。
  */
-export async function getAgentSessionSnapshot(sessionId: number, harness = useAgentHarness()) {
-    return harness.getSessionSnapshot(sessionId);
+export async function getAgentSessionSnapshot(sessionId: number, harness = useAgentHarness(), timingSink?: ServerTimingSink) {
+    return timingSink
+        ? harness.getSessionSnapshot(sessionId, timingSink)
+        : harness.getSessionSnapshot(sessionId);
 }
 
 /**
  * 返回关联 Agent 面板使用的轻量关系投影。
  */
-export async function getAgentSessionRelations(sessionId: number, harness = useAgentHarness()) {
-    return harness.getSessionRelations(sessionId);
+export async function getAgentSessionRelations(sessionId: number, harness = useAgentHarness(), timingSink?: ServerTimingSink) {
+    return timingSink
+        ? harness.getSessionRelations(sessionId, timingSink)
+        : harness.getSessionRelations(sessionId);
 }
 
 /**
@@ -114,8 +119,10 @@ export async function invokeAgentSession(sessionId: number, body: AgentInvokeReq
 /**
  * 执行 session command。slash command 在前端识别后进入这里。
  */
-export async function runAgentSessionCommand(sessionId: number, body: AgentCommandRequestDto, harness = useAgentHarness()) {
-    return harness.runCommand(sessionId, body);
+export async function runAgentSessionCommand(sessionId: number, body: AgentCommandRequestDto, harness = useAgentHarness(), timingSink?: ServerTimingSink) {
+    return timingSink
+        ? harness.runCommand(sessionId, body, timingSink)
+        : harness.runCommand(sessionId, body);
 }
 
 /**

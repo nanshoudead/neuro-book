@@ -2,6 +2,7 @@ import type {AgentSessionEventHub} from "nbook/server/agent/events/session-event
 import type {AgentSessionLiveStateDto} from "nbook/shared/dto/agent-session.dto";
 import type {SessionEntry, SessionEntryDraft, SessionEntryId, SessionId, SessionProjectionScope} from "nbook/server/agent/session/types";
 import type {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
+import {appLogger} from "nbook/server/app-logs/logger";
 
 export type SessionWriteProjection = true | SessionProjectionScope;
 
@@ -38,12 +39,30 @@ export type AppendManySessionEntryDraft = Exclude<SessionEntryDraft, {type: "lea
 
 export type SessionWriteResult = {
     entries: SessionEntry[];
+    liveStates: Map<SessionId, AgentSessionLiveStateDto>;
+};
+
+export type SessionWriteTimingSink = {
+    measureWritePlan<T>(task: () => Promise<T>): Promise<T>;
+    measureLiveState<T>(sessionId: SessionId, task: () => Promise<T>): Promise<T>;
+};
+
+export type SessionWriteExecutionOptions = {
+    timing?: SessionWriteTimingSink;
+};
+
+export type SessionWriteEntryBatch = {
+    sessionId: SessionId;
+    cause: string;
+    invocationId?: string;
+    entries: SessionEntry[];
 };
 
 export type SessionWriteExecutorInput = {
     repo: JsonlSessionRepository;
     eventHub: AgentSessionEventHub;
     liveStateProvider: (sessionId: SessionId) => Promise<AgentSessionLiveStateDto>;
+    onEntriesWritten?: (batch: SessionWriteEntryBatch) => void | Promise<void>;
 };
 
 /**
@@ -56,26 +75,28 @@ export class SessionWriteExecutor {
     private readonly repo: JsonlSessionRepository;
     private readonly eventHub: AgentSessionEventHub;
     private readonly liveStateProvider: (sessionId: SessionId) => Promise<AgentSessionLiveStateDto>;
+    private readonly onEntriesWritten?: (batch: SessionWriteEntryBatch) => void | Promise<void>;
     private readonly writeQueues = new Map<SessionId, Promise<void>>();
 
     constructor(input: SessionWriteExecutorInput) {
         this.repo = input.repo;
         this.eventHub = input.eventHub;
         this.liveStateProvider = input.liveStateProvider;
+        this.onEntriesWritten = input.onEntriesWritten;
     }
 
     /**
      * 执行一组 plan，并在写入后发布 session_entry 和 session_state_changed。
      */
-    async execute(plans: SessionWritePlan[], invocationId?: string): Promise<SessionWriteResult> {
+    async execute(plans: SessionWritePlan[], invocationId?: string, options: SessionWriteExecutionOptions = {}): Promise<SessionWriteResult> {
         for (const plan of plans) {
             this.assertValidPlan(plan);
         }
         const sessionIds = [...new Set(plans.map((plan) => plan.target.sessionId))].sort((left, right) => left - right);
-        return this.withSessionWriteLocks(sessionIds, () => this.executeUnlocked(plans, invocationId));
+        return this.withSessionWriteLocks(sessionIds, () => this.executeUnlocked(plans, invocationId, options));
     }
 
-    private async executeUnlocked(plans: SessionWritePlan[], invocationId?: string): Promise<SessionWriteResult> {
+    private async executeUnlocked(plans: SessionWritePlan[], invocationId: string | undefined, options: SessionWriteExecutionOptions): Promise<SessionWriteResult> {
         const written: SessionEntry[] = [];
         const touchedSessionIds = new Set<SessionId>();
 
@@ -83,30 +104,37 @@ export class SessionWriteExecutor {
             const plan = plans[index]!;
             if (plan.durability === "savePoint" && this.canMergeSavePoint(plan)) {
                 const merge = this.collectSavePointPlans(plans, index);
-                const entries = await this.repo.appendEntries(plan.target.sessionId, merge.entries);
-                for (const entry of entries) {
-                    written.push(entry);
-                    this.publishSessionEntry(plan.target.sessionId, invocationId, entry);
-                }
-                touchedSessionIds.add(plan.target.sessionId);
+                await this.measureWritePlan(options, async () => {
+                    const entries = await this.repo.appendEntries(plan.target.sessionId, merge.entries);
+                    for (const entry of entries) {
+                        written.push(entry);
+                        this.publishSessionEntry(plan.target.sessionId, invocationId, entry);
+                    }
+                    await this.notifyEntriesWritten(plan.target.sessionId, plan.cause, invocationId, entries);
+                    touchedSessionIds.add(plan.target.sessionId);
+                });
                 index = merge.endIndex;
                 continue;
             }
             for (const op of plan.ops) {
-                const entries = await this.executeOp(plan.target.sessionId, op);
-                for (const entry of entries) {
-                    written.push(entry);
-                    this.publishSessionEntry(plan.target.sessionId, invocationId, entry);
-                }
-                touchedSessionIds.add(plan.target.sessionId);
+                await this.measureWritePlan(options, async () => {
+                    const entries = await this.executeOp(plan.target.sessionId, op);
+                    for (const entry of entries) {
+                        written.push(entry);
+                        this.publishSessionEntry(plan.target.sessionId, invocationId, entry);
+                    }
+                    await this.notifyEntriesWritten(plan.target.sessionId, plan.cause, invocationId, entries);
+                    touchedSessionIds.add(plan.target.sessionId);
+                });
             }
         }
 
+        const liveStates = new Map<SessionId, AgentSessionLiveStateDto>();
         for (const sessionId of touchedSessionIds) {
-            await this.publishSessionState(sessionId, invocationId);
+            liveStates.set(sessionId, await this.measureLiveState(options, sessionId, () => this.publishSessionState(sessionId, invocationId)));
         }
 
-        return {entries: written};
+        return {entries: written, liveStates};
     }
 
     private async withSessionWriteLocks<TResult>(sessionIds: SessionId[], task: () => Promise<TResult>): Promise<TResult> {
@@ -201,15 +229,47 @@ export class SessionWriteExecutor {
         });
     }
 
-    private async publishSessionState(sessionId: number, invocationId?: string): Promise<void> {
+    private async notifyEntriesWritten(sessionId: number, cause: string, invocationId: string | undefined, entries: SessionEntry[]): Promise<void> {
+        if (!this.onEntriesWritten || entries.length === 0) {
+            return;
+        }
+        try {
+            await this.onEntriesWritten({
+                sessionId,
+                cause,
+                ...(invocationId === undefined ? {} : {invocationId}),
+                entries,
+            });
+        } catch (error) {
+            void appLogger.warn("agent.sessionWrite.afterWriteObserverFailed", {
+                sessionId,
+                cause,
+                invocationId: invocationId ?? null,
+                entryCount: entries.length,
+                error: error instanceof Error ? error.message : String(error),
+            });
+        }
+    }
+
+    private async publishSessionState(sessionId: number, invocationId?: string): Promise<AgentSessionLiveStateDto> {
+        const state = await this.liveStateProvider(sessionId);
         this.eventHub.publish({
             sessionId,
             invocationId,
             kind: "session",
             event: {
                 type: "session_state_changed",
-                state: await this.liveStateProvider(sessionId),
+                state,
             },
         });
+        return state;
+    }
+
+    private measureWritePlan<T>(options: SessionWriteExecutionOptions, task: () => Promise<T>): Promise<T> {
+        return options.timing ? options.timing.measureWritePlan(task) : task();
+    }
+
+    private measureLiveState<T>(options: SessionWriteExecutionOptions, sessionId: SessionId, task: () => Promise<T>): Promise<T> {
+        return options.timing ? options.timing.measureLiveState(sessionId, task) : task();
     }
 }

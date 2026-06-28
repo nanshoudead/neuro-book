@@ -26,8 +26,8 @@ subject 不需要单独注册。**首次对某个 subject 写入切面时，Worl
 
 ```typescript
 // 首次写入 erina 时自动创建 subject：在某条 patch 上声明 type（必填）+ name（可选）
-await world.writeSlice({
-    time: world.parseTime("星辉历312年 5月5日 14:00"),
+await world.slice.write({
+    time: world.time.parse("公元2020年4月12日 18:00"),
     title: "艾莉娜转生到祭坛",
     patches: [
         { subjectId: "erina", type: "character", name: "艾莉娜", path: "/hp", op: "replace", value: 100 },
@@ -40,13 +40,13 @@ await world.writeSlice({
 
 - **`subjectId` 全局唯一，不能为空白。** 首次出现某个 subjectId 时会创建 subject。重复 id 会复用已有 subject（不会创建第二个）。
 - **`type` 必须是 schema 已声明的类型。** 首次写入时必须在该 subject 的某条 patch 上明确指定 `type` 字段（如 `{ subjectId: "erina", type: "character", ... }`），可选附 `name`。subject 已存在后再写时 type/name 被忽略，可省略。
-- **Agent 脚本里 `time` 用 instant bigint。** 先用 `world.parseTime("项目日历字符串")` 转换；给用户展示时再用 `world.formatTime(instant)`。
+- **Agent 脚本里 `time` 用 instant bigint。** 先用 `world.time.parse("项目日历字符串")` 转换；给用户展示时再用 `world.time.format(instant)`。
 - **schema default 会自动应用。** 如果 schema 为该 type 声明了非空 default，创建 subject 时会自动生成初始值（作为 init patch 写入）。
 
 **与旧 `create_world_subject` 的差异**：
 
 - 旧版需要先调用 `create_world_subject` 注册，再用旧写入工具写入状态。
-- 新版合并为一步：首次 `world.writeSlice` 时自动创建 subject。
+- 新版合并为一步：首次 `world.slice.write` 时自动创建 subject。
 - 好处：减少一次 API 调用，避免"忘记注册导致 dangling-ref"的错误。
 
 ## 3. 切面是状态变更，不是快照
@@ -76,20 +76,20 @@ interface Patch {
 关键性质：
 
 - **切面是增量（delta），不是全量快照。** 世界不存"当前状态"，只存切面序列。这个选择是被需求锁定的：核心诉求是"往前插切面补历史/补设定"。全量快照在往前插时会让所有后续快照失效；增量模型则让后续变更自然叠加，对补历史天然友好。
-- **同一 instant 只能有一个 slice。** 同一刻发生的多 subject / 多 path 变化，必须放进同一个 slice 的 `patches` 数组。`world.writeSlice` 遇到目标 instant 已存在会报错；要补同一时刻的内容，先用 `world.slices({withPatches:true})` 或 `world.getSlice()` 读出已有切面，再用 `world.editMutations()` 精确添加 patch。
-- **补过去与写当前是同一个工具。** 给 `world.writeSlice` 传一个比当前最新切面更早的 `time`，timeline 自动按底层时间戳归位。这就是"溯源"——为角色补一段早年经历，就是在更早的 instant 上插一条切面。
+- **同一 instant 只能有一个 slice。** 同一刻发生的多 subject / 多 path 变化，必须放进同一个 slice 的 `patches` 数组。`world.slice.write` 遇到目标 instant 已存在会报错；要补同一时刻的内容，先用 `world.slice.list({withPatches:true})` 或 `world.slice.get(sliceId)` 读出已有切面，再用 `world.slice.editPatches()` 精确添加 patch。
+- **补过去与写当前是同一个工具。** 给 `world.slice.write` 传一个比当前最新切面更早的 `time`，timeline 自动按底层时间戳归位。这就是"溯源"——为角色补一段早年经历，就是在更早的 instant 上插一条切面。
 
-**精确编辑已有 mutation（Agent `world.editMutations`）**：先读取完整切面拿到 `patchId`，再按 patchId 修改、删除或新增 patch：
+**精确编辑已有 patch（Agent `world.slice.editPatches`）**：先读取完整切面拿到 `patchId`，再按 patchId 修改、删除或新增 patch：
 
 ```typescript
-const slice = await world.getSlice(sliceId);
+const slice = await world.slice.get(sliceId);
 const wrong = slice.patches.find((patch) => patch.path === "/HP");
-await world.editMutations(sliceId, [
+await world.slice.editPatches(sliceId, [
     {patchId: wrong.patchId, set: {path: "/hp", summary: "修正 HP 路径大小写"}},
 ]);
 ```
 
-`editMutations` 内部复用 `editSlice` 整块替换该切面的 patch 行，因此编辑后原有 `patchId` 全部失效；连续编辑同一切面必须重新 `getSlice`。新增 patch 可用 `{add:{...}}`，但 `add` 不负责首写创建 subject，建新 subject 仍走 `world.writeSlice`。
+`world.slice.editPatches` 内部复用 `editSlice` 整块替换该切面的 patch 行，因此编辑后原有 `patchId` 全部失效；连续编辑同一切面必须重新 `world.slice.get`。新增 patch 可用 `{add:{...}}`，但 `add` 不负责首写创建 subject，建新 subject 仍走 `world.slice.write`。
 
 ## 4. reduce 语义
 
@@ -126,10 +126,10 @@ await world.editMutations(sliceId, [
 
 ## 6. 回退能力
 
-删除切面可通过 Agent `world.deleteSlice`、Workbench 或 HTTP `deleteSlice` 完成：
+删除切面可通过 Agent `world.slice.delete`、Workbench 或 HTTP `deleteSlice` 完成：
 
 ```typescript
-await world.deleteSlice(sliceId) -> { issues: WorldIssue[] }
+await world.slice.delete(sliceId) -> { issues: WorldIssue[] }
 deleteSlice(projectPath, sliceId) -> { issues: WorldIssue[] } // HTTP / Workbench
 ```
 
@@ -167,44 +167,45 @@ A issues **不落库**，也不要求改数据；它们只是在你"往过去插
 
 ```javascript
 // 时间转换
-const time = world.parseTime("星辉历312年 5月5日 14:00");
-const display = world.formatTime(time);
+const time = world.time.parse("公元2020年4月12日 18:00");
+const display = world.time.format(time);
 
 // 查询单个 subject（本质是 reduce）
-const erina = await world.get("erina");
+const erina = await world.subject.get("erina");
 
 // 查询并自动解引用
-const erina = await world.get("erina", { deref: true, derefDepth: 1 });
+const erina = await world.subject.get("erina", { deref: true, derefDepth: 1 });
 
 // 批量查询
-const states = await world.getMany(["erina", "phoenix-faction"]);
+const states = await world.subject.gets(["erina", "phoenix-faction"]);
 
 // 列出某类型的所有 subject
-const characters = await world.list("character");
+const characters = await world.subject.list("character");
 
 // 反向查找引用
-const refs = await world.findRefs("phoenix-faction", "character");
+const refs = await world.subject.findRefs("phoenix-faction", "character");
 
 // 向量搜索
-const results = await world.searchText("遗迹封印", { k: 5, types: ["event"] });
+const results = await world.search.text("遗迹封印", { k: 5, attrs: ["events"] });
 
 // 查询时间轴切面
-const slices = await world.slices({ limit: 10, withPatches: true });
+const slices = await world.slice.list({ limit: 10, withPatches: true });
 
 // 写入 / 编辑 / 删除（writer profile 下不可用）
-const written = await world.writeSlice({time, title: "状态更新", patches: [{subjectId: "erina", path: "/hp", op: "replace", value: 90}]});
-await world.editMutations(written.sliceId, [{add: {subjectId: "erina", path: "/events", op: "append", value: "状态更新完成"}}]);
-await world.deleteSlice(written.sliceId);
+const written = await world.slice.write({time, title: "状态更新", patches: [{subjectId: "erina", type: "character", name: "艾莉娜", path: "/hp", op: "replace", value: 90}]});
+await world.slice.editPatches(written.sliceId, [{add: {subjectId: "erina", path: "/events", op: "append", value: {text: "状态更新完成"}}}]);
+await world.slice.delete(written.sliceId);
 ```
 
 防全量倾倒是硬契约——成熟世界有几百 subject、每个几十属性：
 
-- Agent 的 CodeAct API 不提供裸 `queryState({})` 入口；使用 `world.get` / `world.getMany` / `world.list(type)` / `world.slices()` 等收窄方法查询。HTTP `POST /state/query` 公开入口同样必须传 `subjectIds` 或 `type` 至少其一；都省略会报错要求收窄。完整世界状态导出只走 UI / debug 专用的 `GET /state`，内部复用 `queryState({at})`，不暴露给 Agent。
+- Agent 的 CodeAct API 不提供裸 `queryState({})` 入口；使用 `world.subject.get` / `world.subject.gets` / `world.subject.list(type)` / `world.slice.list()` 等收窄方法查询。HTTP `POST /state/query` 公开入口同样必须传 `subjectIds` 或 `type` 至少其一；都省略会报错要求收窄。完整世界状态导出只走 UI / debug 专用的 `GET /state`，内部复用 `queryState({at})`，不暴露给 Agent。
 - `subjectIds` 若传，必须是非空数组且每项唯一；空数组或重复 id 返回 400。
 - `attrs` 若传，必须是非空数组且每项唯一；用它**投影**只取关心的属性，省下无关字段。
 - `type` 若传，必须是 schema 已声明的类型，拼错会被拒绝。
 - `at` 在 CodeAct 里使用 instant bigint；省略取最新。
 - `listLimit` 控制 list / collection 属性最多返回多少条，避免长 events 流把上下文撑爆。
+- `world.search.text` 的 `types` 过滤 subject type（如 `character` / `location`），不是 slice kind；要搜经历流文本，用 `attrs: ["events"]`。
 - 返回的 `issues` 是当前 reduce 显形的 E 问题；如果传了 `attrs`，issues 也跟随投影范围收窄（查 `hp` 不会带回 `location` 的 `dangling-ref` 噪音）。
 
 典型用法：
@@ -212,11 +213,11 @@ await world.deleteSlice(written.sliceId);
 - 「主角现在什么状态」→ `{ subjectIds: ["erina"] }`
 - 「主角的血量和位置」→ `{ subjectIds: ["erina"], attrs: ["hp","location"] }`
 - 「所有角色现在在哪」→ `{ type: "character", attrs: ["location"] }`
-- 「倒叙：主角 200 年时」→ `{ subjectIds: ["erina"], at: "复兴历200年 1月1日 00:00:00" }`
+- 「倒叙：主角 200 年时」（HTTP `POST /state/query`）→ `{ subjectIds: ["erina"], at: "复兴历200年1月1日 00:00" }`
 
 ## 9. writer 的只读边界
 
-writer 角色拥有 World Engine **只读** `execute_world`，用于读取世界状态辅助写作，**不能写入**。readonly 模式不会注入 `world.writeSlice`、`world.editMutations`、`world.deleteSlice`；需要改变世界状态时，由具备写入能力的角色承担。
+writer 角色拥有 World Engine **只读** `execute_world`，用于读取世界状态辅助写作，**不能写入**。readonly 模式不会注入 `world.slice.write`、`world.slice.editPatches`、`world.slice.delete`；需要改变世界状态时，由具备写入能力的角色承担。
 
 ## 相关文档
 
