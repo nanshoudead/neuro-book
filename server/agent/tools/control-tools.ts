@@ -4,6 +4,7 @@ import {Value} from "typebox/value";
 import {defineAgentTool} from "nbook/server/agent/tools/types";
 import type {NeuroAgentTool, UserInputRequestContext, UserInputFormSpec} from "nbook/server/agent/tools/types";
 import type {LowCodeFieldDto} from "nbook/shared/dto/low-code-form.dto";
+import {buildRequestUserInputResult} from "nbook/server/agent/tools/request-user-input-result";
 
 export const ReportResultSchema = Type.Object({
     result: Type.String(),
@@ -28,22 +29,19 @@ const ReportSidecarResultValidationSchema = Type.Object({
 const RequestUserInputQuestionOptionSchema = Type.Object({
     label: Type.String({description: "User-facing option label, preferably 1-5 words."}),
     description: Type.Optional(Type.String({description: "Optional short sentence explaining the impact or tradeoff of this option."})),
-    recommended: Type.Optional(Type.Boolean({description: "Whether this option is visually marked as recommended."})),
-    defaultSelected: Type.Optional(Type.Boolean({description: "Whether this option should be selected by default when the prompt opens."})),
-});
+}, {additionalProperties: false});
 
 const RequestUserInputQuestionSchema = Type.Object({
     header: Type.Optional(Type.String({description: "Short header shown above this question."})),
     question: Type.String({description: "Prompt shown to the user."}),
     options: Type.Optional(Type.Array(RequestUserInputQuestionOptionSchema, {description: "Options for this question. Omit or pass an empty array for open-ended questions."})),
-    multiSelect: Type.Optional(Type.Boolean({description: "Whether the user may select multiple options. Ignored when options is empty."})),
-    defaultOptionIndex: Type.Optional(Type.Integer({minimum: -1, description: "Default selected option index for single-select questions. -1 selects the alternative answer option."})),
-    defaultOptionIndexes: Type.Optional(Type.Array(Type.Integer({minimum: -1}), {description: "Default selected option indexes for multi-select questions. -1 selects the alternative answer option."})),
-});
+}, {additionalProperties: false});
 
 const RequestUserInputSchema = Type.Object({
     questions: Type.Array(RequestUserInputQuestionSchema, {minItems: 1, description: "Questions to ask in one user-input request."}),
-});
+}, {additionalProperties: false});
+
+type RequestUserInputParams = Static<typeof RequestUserInputSchema>;
 
 const PlanModeSchema = Type.Object({
     reason: Type.Optional(Type.String({description: "Short reason shown to the user for this Plan Mode transition."})),
@@ -92,62 +90,8 @@ export const controlTools = {
         description: "Ask the user for input and wait for continue resolution.",
         parameters: RequestUserInputSchema,
         userInputRequest: {
-            when(context: UserInputRequestContext): UserInputFormSpec {
-                const params = context.args as Static<typeof RequestUserInputSchema>;
-                const questions = params.questions;
-
-                // 构建 Low-Code Form 字段
-                const fields: LowCodeFieldDto[] = questions.map((question, index) => {
-                    const path = `answer_${index}`;
-
-                    if (question.options && question.options.length > 0) {
-                        // 有选项：使用 radio 或 checkbox
-                        const component = question.multiSelect ? ("checkbox" as const) : ("radio" as const);
-                        const options = question.options.map((opt, optIndex) => ({
-                            value: optIndex,
-                            label: opt.label,
-                            description: opt.description,
-                        }));
-
-                        // 处理默认值
-                        let defaultValue: number | number[] | undefined;
-                        if (question.multiSelect && question.defaultOptionIndexes) {
-                            defaultValue = question.defaultOptionIndexes;
-                        } else if (!question.multiSelect && question.defaultOptionIndex !== undefined) {
-                            defaultValue = question.defaultOptionIndex;
-                        }
-
-                        return {
-                            path,
-                            component,
-                            label: question.question,
-                            description: question.header,
-                            required: true,
-                            options: options,
-                            defaultValue,
-                        };
-                    } else {
-                        // 无选项：使用 textarea 用于开放式问题
-                        return {
-                            path,
-                            component: "textarea" as const,
-                            label: question.question,
-                            description: question.header,
-                            required: true,
-                            rows: 3,
-                            options: [],
-                        };
-                    }
-                });
-
-                return {
-                    form: {
-                        defaults: {},
-                        fields,
-                    },
-                    prompt: "请回答以下问题",
-                    layout: "dialog",
-                };
+            when(_context: UserInputRequestContext): true {
+                return true;
             },
         },
         async executeWithContext(_context, _toolCallId, _params, userInput) {
@@ -156,55 +100,11 @@ export const controlTools = {
             }
 
             const params = _params as Static<typeof RequestUserInputSchema>;
-            const formData = userInput as Record<string, string | number | number[]>;
-
-            // 将 Low-Code Form 数据转换为 answers 格式
-            const answers = params.questions.map((question, index) => {
-                const answerKey = `answer_${index}`;
-                const value = formData[answerKey];
-
-                if (question.options && question.options.length > 0) {
-                    if (question.multiSelect) {
-                        // 多选：value 是 number[]
-                        const selectedIndexes = Array.isArray(value) ? value : [value];
-                        const selectedLabels = selectedIndexes
-                            .map((idx) => question.options![idx as number]?.label)
-                            .filter(Boolean);
-                        return {
-                            questionIndex: index,
-                            text: selectedLabels.join(", "),
-                            selectedOptionIndexes: selectedIndexes as number[],
-                        };
-                    } else {
-                        // 单选：value 是 number
-                        const selectedIndex = typeof value === "number" ? value : Number(value);
-                        const selectedLabel = question.options[selectedIndex]?.label ?? "";
-                        return {
-                            questionIndex: index,
-                            text: selectedLabel,
-                            selectedOptionIndex: selectedIndex,
-                        };
-                    }
-                } else {
-                    // 开放式问题：value 是 string
-                    return {
-                        questionIndex: index,
-                        text: String(value),
-                    };
-                }
-            });
-
-            // 构建响应文本
-            const responseText = answers
-                .map((answer, index) => {
-                    const question = params.questions[index]!;
-                    return `${question.question}\n回答：${answer.text}`;
-                })
-                .join("\n\n");
+            const result = buildRequestUserInputResult(params, userInput);
 
             return {
-                content: [{type: "text", text: responseText}],
-                details: {answers},
+                content: [{type: "text", text: result.text}],
+                details: {answers: result.answers},
                 terminate: true,
             };
         },

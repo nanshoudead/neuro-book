@@ -22,7 +22,6 @@ export const FormAnnotationKindSchema = z.enum([
     "chapter_meta",
     "story_thread",
     "story_scene",
-    "story_plot",
 ]);
 
 export const FormAnnotationRequestDtoSchema = z.object({

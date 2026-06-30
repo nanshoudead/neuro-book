@@ -1,5 +1,5 @@
-import {mkdir, readFile, readdir, writeFile} from "node:fs/promises";
-import {basename, join, resolve} from "node:path";
+import {mkdir, readFile, readdir, rm, writeFile} from "node:fs/promises";
+import {basename, dirname, join, relative, resolve} from "node:path";
 import {DEFAULT_BASE_RULES} from "./base-rules";
 import {CURATED_RULE_SLUGS} from "./curated-slugs";
 import {DEFAULT_NAMESPACE_ALIASES} from "./namespaces";
@@ -235,8 +235,13 @@ async function buildRuleset(
         ...DEFAULT_BASE_RULES,
         ...curatedRules,
     ];
+    const groupedRules = groupRulesByNamespace(rules);
     const rulesetRoot = join(outputRoot, ...spec.id.split("/"));
+    const rulesRoot = join(rulesetRoot, "rules");
     await mkdir(rulesetRoot, {recursive: true});
+    await rm(join(rulesetRoot, "rules.json"), {force: true});
+    await rm(rulesRoot, {recursive: true, force: true});
+    await mkdir(rulesRoot, {recursive: true});
     await writeFile(join(rulesetRoot, "ruleset.json"), JSON.stringify({
         id: spec.id,
         title: spec.title,
@@ -244,7 +249,15 @@ async function buildRuleset(
         description: spec.description,
         namespaceAliases: DEFAULT_NAMESPACE_ALIASES,
     }, null, 2), "utf-8");
-    await writeFile(join(rulesetRoot, "rules.json"), JSON.stringify(rules, null, 2), "utf-8");
+    for (const [namespace, namespaceRules] of groupedRules) {
+        const ruleFile = join(rulesetRoot, createNamespaceRulePath(namespace));
+        await mkdir(dirname(ruleFile), {recursive: true});
+        await writeFile(
+            ruleFile,
+            JSON.stringify(namespaceRules, null, 2),
+            "utf-8",
+        );
+    }
 
     return {
         rulesetId: spec.id,
@@ -259,8 +272,53 @@ async function buildRuleset(
 }
 
 async function readGeneratedRules(outputRoot: string, rulesetId: string): Promise<Array<{id: string}>> {
-    const source = await readFile(join(outputRoot, ...rulesetId.split("/"), "rules.json"), "utf-8");
-    return JSON.parse(source) as Array<{id: string}>;
+    const rulesetRoot = join(outputRoot, ...rulesetId.split("/"));
+    const ruleFiles = await listRuleJsonFiles(rulesetRoot, join(rulesetRoot, "rules"));
+    const rules: Array<{id: string}> = [];
+    for (const ruleFile of ruleFiles) {
+        const source = await readFile(join(rulesetRoot, ruleFile), "utf-8");
+        rules.push(...JSON.parse(source) as Array<{id: string}>);
+    }
+    return rules;
+}
+
+function groupRulesByNamespace(rules: LintRuleRecord[]): Map<string, LintRuleRecord[]> {
+    const grouped = new Map<string, LintRuleRecord[]>();
+    for (const rule of rules) {
+        const current = grouped.get(rule.namespace) ?? [];
+        current.push(rule);
+        grouped.set(rule.namespace, current);
+    }
+    return new Map([...grouped.entries()].sort(([left], [right]) => left.localeCompare(right)));
+}
+
+function createNamespaceRulePath(namespace: string): string {
+    const parts = namespace.split(".");
+    for (const part of parts) {
+        if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(part)) {
+            throw new Error(`namespace 无法作为规则文件路径: ${namespace}`);
+        }
+    }
+    if (parts.length === 1) {
+        return `rules/${parts[0]}/index.json`;
+    }
+    return `rules/${parts.slice(0, -1).join("/")}/${parts.at(-1)}.json`;
+}
+
+async function listRuleJsonFiles(rulesetRoot: string, currentRoot: string): Promise<string[]> {
+    const entries = await readdir(currentRoot, {withFileTypes: true});
+    const files: string[] = [];
+    for (const entry of entries) {
+        const entryPath = join(currentRoot, entry.name);
+        if (entry.isDirectory()) {
+            files.push(...await listRuleJsonFiles(rulesetRoot, entryPath));
+            continue;
+        }
+        if (entry.isFile() && entry.name.endsWith(".json")) {
+            files.push(relative(rulesetRoot, entryPath).replace(/\\/g, "/"));
+        }
+    }
+    return files.sort((left, right) => left.localeCompare(right));
 }
 
 function toRuleRecord(draft: CuratedRuleDraft): LintRuleRecord {

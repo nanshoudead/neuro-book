@@ -25,7 +25,7 @@ if (mode === "deploy") {
     });
 } else {
     const args = ["prisma", "migrate", mode, "--config", "./prisma.config.ts"];
-    const bunCommand = process.platform === "win32" ? "bun.exe" : "bun";
+    const bunCommand = process.execPath;
     const child = spawn(bunCommand, ["x", ...args], {
         env: {...process.env, DATABASE_KIND: env.kind, DATABASE_URL: env.databaseUrl},
         stdio: "inherit",

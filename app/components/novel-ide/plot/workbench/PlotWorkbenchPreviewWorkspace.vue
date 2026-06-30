@@ -2,7 +2,6 @@
 import {computed, ref} from "vue";
 import {plotPreviewDataset} from "nbook/app/components/novel-ide/plot/plot-preview.data";
 import type {
-    PlotPreviewPlot,
     PlotPreviewRef,
     PlotPreviewScene,
     PlotPreviewThread,
@@ -10,7 +9,6 @@ import type {
 import PlotThreadPanelShell from "nbook/app/components/novel-ide/plot/thread-panel/PlotThreadPanelShell.vue";
 import type {
     PlotThreadPanelDetail,
-    PlotThreadPanelPlot,
     PlotThreadPanelRef,
     PlotThreadPanelScene,
     PlotThreadPanelThread,
@@ -18,9 +16,19 @@ import type {
 import PlotWorkbenchDialog from "nbook/app/components/novel-ide/plot/workbench/PlotWorkbenchDialog.vue";
 
 const workbenchVisible = ref(true);
+const emptyWorldAnchor = {
+    startTime: null,
+    endTime: null,
+    startInstant: null,
+    endInstant: null,
+    subjectIds: [],
+    locationSubjectId: null,
+    subjects: [],
+    locationSubject: null,
+    unresolvedSubjectIds: [],
+} satisfies PlotThreadPanelScene["worldAnchor"];
 const selectedThreadId = ref<string | null>("thread-main");
 const selectedSceneId = ref<string | null>("scene-auction");
-const selectedPlotId = ref<string | null>("plot-bid-war");
 const pinnedThreadIds = ref<string[]>(["thread-main"]);
 const extraThreads: PlotThreadPanelThread[] = [
     {
@@ -85,6 +93,7 @@ const extraScenes: PlotThreadPanelScene[] = [
         threadSortOrder: 3,
         chapterSortOrder: 2,
         writingTip: "反杀要显得勉强，重点放在代价和判断，不要写成突然开挂。",
+        worldAnchor: emptyWorldAnchor,
         refs: [],
     },
     {
@@ -98,22 +107,13 @@ const extraScenes: PlotThreadPanelScene[] = [
         threadSortOrder: 4,
         chapterSortOrder: 3,
         writingTip: "传送不是胜利，而是从局部危机进入更大的未知。",
+        worldAnchor: emptyWorldAnchor,
         refs: [],
     },
 ];
 
-const extraPlots: PlotThreadPanelPlot[] = [
-    {id: "plot-ritual-conflict", sceneId: "scene-auction", sortOrder: 2, kind: "conflict", summary: "祭司出现并开始仪式，准备献祭主角，火焰符文亮起，紧张感被彻底激活。", effect: "外部威胁从环境转为行动，推动主角立即脱身。", writingTip: null},
-    {id: "plot-system-setup", sceneId: "scene-auction", sortOrder: 3, kind: "setup", summary: "主角在濒死之际感知到体内的“系统”被触发，眼前出现半透明的界面与提示。", effect: "系统的出现带来一线生机，但也伴随未知代价与限制。", writingTip: "关联 [荒野祭坛](lorebook/location/initial-stage/) 与 [祭司现身](plot://plot-ritual-conflict)。"},
-    {id: "plot-near-threat", sceneId: "scene-cage", sortOrder: 1, kind: "conflict", summary: "邪物逼近走廊，主角必须在声音抵达前完成脱身。", effect: "把压迫感转换成明确倒计时。", writingTip: null},
-    {id: "plot-dark-choice", sceneId: "scene-ledger", sortOrder: 1, kind: "twist", summary: "系统提示的安全路线反而通向更深处，主角意识到自己只能赌一次。", effect: "让系统不再只是帮助，也成为悬念来源。", writingTip: null},
-    {id: "plot-counterattack", sceneId: "scene-counterattack", sortOrder: 0, kind: "reward", summary: "主角反杀落单追兵，夺得第一件可用武器。", effect: "获得短暂主动权。", writingTip: null},
-    {id: "plot-teleport", sceneId: "scene-message", sortOrder: 0, kind: "payoff", summary: "传送阵启动，祭坛空间在身后坍塌。", effect: "阶段性逃离祭坛区域。", writingTip: null},
-];
-
 const threads = ref<PlotThreadPanelThread[]>(cloneThreads(plotPreviewDataset.threads));
 const scenes = ref<PlotThreadPanelScene[]>(cloneScenes(plotPreviewDataset.scenes));
-const plots = ref<PlotThreadPanelPlot[]>(clonePlots(plotPreviewDataset.plots));
 const chapters = plotPreviewDataset.chapters;
 
 const threadMap = computed(() => new Map(threads.value.map((thread) => [thread.id, thread])));
@@ -134,7 +134,6 @@ const detail = computed<PlotThreadPanelDetail | null>(() => {
         thread,
         scene,
         chapter: scene.chapterPath ? (chapterMap.value.get(scene.chapterPath) ?? null) : null,
-        plots: plots.value.filter((plot) => plot.sceneId === scene.id).sort((left, right) => left.sortOrder - right.sortOrder),
         effectiveRefs: [
             ...thread.refs.map((refItem) => ({...refItem, source: "thread" as const})),
             ...scene.refs.map((refItem) => ({...refItem, source: "scene" as const})),
@@ -152,7 +151,6 @@ function selectThread(threadId: string): void {
         .filter((scene) => scene.threadId === threadId)
         .sort((left, right) => left.threadSortOrder - right.threadSortOrder)[0] ?? null;
     selectedSceneId.value = nextScene?.id ?? null;
-    selectedPlotId.value = nextScene ? (plots.value.find((plot) => plot.sceneId === nextScene.id)?.id ?? null) : null;
 }
 
 /**
@@ -166,21 +164,6 @@ function selectScene(sceneId: string): void {
 
     selectedSceneId.value = scene.id;
     selectedThreadId.value = scene.threadId;
-    selectedPlotId.value = plots.value.find((plot) => plot.sceneId === scene.id)?.id ?? null;
-}
-
-/**
- * 选中 Plot，并同步到所属 Scene。
- */
-function selectPlot(plotId: string): void {
-    const plot = plots.value.find((item) => item.id === plotId) ?? null;
-    if (!plot) {
-        return;
-    }
-
-    selectedPlotId.value = plot.id;
-    selectScene(plot.sceneId);
-    selectedPlotId.value = plot.id;
 }
 
 /**
@@ -188,7 +171,6 @@ function selectPlot(plotId: string): void {
  */
 function closeDetail(): void {
     selectedSceneId.value = null;
-    selectedPlotId.value = null;
 }
 
 /**
@@ -219,46 +201,13 @@ function createScene(threadId: string): void {
         threadSortOrder: nextOrder,
         chapterSortOrder: null,
         writingTip: "先写目标，再补动作，不要让场景只承担说明功能。",
+        worldAnchor: emptyWorldAnchor,
         refs: [],
     };
 
     scenes.value = [...scenes.value, nextScene];
     selectedThreadId.value = threadId;
     selectedSceneId.value = nextScene.id;
-    selectedPlotId.value = null;
-}
-
-/**
- * 按当前 Scene 列表顺序重排 Plot。
- */
-function reorderPlots(payload: {sceneId: string; plotIds: string[]}): void {
-    const orderMap = new Map(payload.plotIds.map((plotId, index) => [plotId, index]));
-    plots.value = plots.value.map((plot) => plot.sceneId === payload.sceneId
-        ? {
-            ...plot,
-            sortOrder: orderMap.get(plot.id) ?? plot.sortOrder,
-        }
-        : plot);
-}
-
-/**
- * 在 Scene 下新增一个 Plot 草稿。
- */
-function createPlot(sceneId: string): void {
-    const scenePlots = plots.value.filter((plot) => plot.sceneId === sceneId);
-    const nextPlot: PlotThreadPanelPlot = {
-        id: `plot-preview-${Date.now()}`,
-        sceneId,
-        sortOrder: scenePlots.length,
-        kind: "setup",
-        summary: "新建 Plot：记录这个情节点的动作、信息或转折。",
-        effect: null,
-        writingTip: null,
-        note: null,
-    };
-
-    plots.value = [...plots.value, nextPlot];
-    selectPlot(nextPlot.id);
 }
 
 /**
@@ -281,7 +230,6 @@ function createThread(): void {
     threads.value = [nextThread, ...threads.value];
     selectedThreadId.value = nextThread.id;
     selectedSceneId.value = null;
-    selectedPlotId.value = null;
 }
 
 /**
@@ -306,13 +254,11 @@ function toggleThreadMain(threadId: string): void {
 }
 
 /**
- * 删除 preview Thread，并清理其下 Scene/Plot。
+ * 删除 preview Thread，并清理其下 Scene。
  */
 function deleteThread(threadId: string): void {
-    const deletedSceneIds = new Set(scenes.value.filter((scene) => scene.threadId === threadId).map((scene) => scene.id));
     threads.value = threads.value.filter((thread) => thread.id !== threadId);
     scenes.value = scenes.value.filter((scene) => scene.threadId !== threadId);
-    plots.value = plots.value.filter((plot) => !deletedSceneIds.has(plot.sceneId));
     pinnedThreadIds.value = pinnedThreadIds.value.filter((id) => id !== threadId);
 
     if (selectedThreadId.value !== threadId) {
@@ -324,7 +270,6 @@ function deleteThread(threadId: string): void {
         ? scenes.value.filter((scene) => scene.threadId === nextThread.id).sort((left, right) => left.threadSortOrder - right.threadSortOrder)[0] ?? null
         : null;
     selectedSceneId.value = nextScene?.id ?? null;
-    selectedPlotId.value = nextScene ? (plots.value.find((plot) => plot.sceneId === nextScene.id)?.id ?? null) : null;
 }
 
 /**
@@ -349,33 +294,6 @@ function updateScene(sceneId: string, patch: Partial<PlotThreadPanelScene>): voi
             ...patch,
         }
         : scene);
-}
-
-/**
- * 更新 Plot mock 数据。
- */
-function updatePlot(plotId: string, patch: Partial<PlotThreadPanelPlot>): void {
-    plots.value = plots.value.map((plot) => plot.id === plotId
-        ? {
-            ...plot,
-            ...patch,
-        }
-        : plot);
-}
-
-/**
- * 删除一个 Plot。
- */
-function deletePlot(plotId: string): void {
-    const target = plots.value.find((plot) => plot.id === plotId) ?? null;
-    plots.value = plots.value.filter((plot) => plot.id !== plotId);
-    if (selectedPlotId.value !== plotId || !target) {
-        return;
-    }
-
-    selectedPlotId.value = plots.value
-        .filter((plot) => plot.sceneId === target.sceneId)
-        .sort((left, right) => left.sortOrder - right.sortOrder)[0]?.id ?? null;
 }
 
 /**
@@ -411,11 +329,12 @@ function cloneThreads(source: PlotPreviewThread[]): PlotThreadPanelThread[] {
 function cloneScenes(source: PlotPreviewScene[]): PlotThreadPanelScene[] {
     return [...source.map((scene) => ({
         ...scene,
+        worldAnchor: emptyWorldAnchor,
         ...(scene.id === "scene-auction"
             ? {
                 title: "祭坛苏醒",
                 summary: "主角在 [荒野祭坛](lorebook/location/initial-stage/) 醒来，意识混乱，发现自己被困在诡异的仪式现场。四周烛火摇曳，空气中弥漫着血与香料的混合气味，远处传来低沉的吟诵声。身体的疼痛让他判断自己被卷入一场以献祭为名的仪式，必须尽快挣脱束缚并理解眼前的规则，才能找到逃生的机会。",
-                purpose: "建立环境压迫感，引出主角身份危机与系统触发，为后续 [系统触发](plot://plot-system-setup) 与逃脱对抗埋下伏笔。",
+                purpose: "建立环境压迫感，引出主角身份危机与系统触发，为后续逃脱对抗埋下伏笔。",
                 writingTip: "通过感官描写与碎片记忆渲染混乱；节奏压抑，避免过早释出关键信息。",
             }
             : {}),
@@ -439,35 +358,6 @@ function cloneScenes(source: PlotPreviewScene[]): PlotThreadPanelScene[] {
     })), ...extraScenes];
 }
 
-/**
- * 克隆 Plot mock 数据。
- */
-function clonePlots(source: PlotPreviewPlot[]): PlotThreadPanelPlot[] {
-    return [...source.map((plot) => ({
-        ...plot,
-        ...(plot.id === "plot-bid-war"
-            ? {
-                kind: "mystery" as const,
-                summary: "主角睁眼，头晕目眩，视线模糊，只能听到低沉的吟诵与心跳声，四周是刻满符文的石柱。",
-                effect: "读者先进入混乱感，再逐步确认这是献祭现场。",
-            }
-            : {}),
-        ...(plot.id === "plot-price-backfire"
-            ? {
-                kind: "reveal" as const,
-                summary: "他尝试起身，发现双手被粗糙锁链锁在祭坛石柱上，身体无法动弹，记忆也一片空白。",
-                effect: "确认主角处于被献祭的位置，形成第一层求生目标。",
-            }
-            : {}),
-        ...(plot.id === "plot-cage-probe"
-            ? {
-                kind: "conflict" as const,
-                summary: "祭司出现并开始仪式，准备献祭主角，火焰符文亮起，紧张感被彻底激活。",
-                effect: "外部威胁从环境转为行动，推动主角立即脱身。",
-            }
-            : {}),
-    })), ...extraPlots];
-}
 </script>
 
 <template>
@@ -478,7 +368,6 @@ function clonePlots(source: PlotPreviewPlot[]): PlotThreadPanelPlot[] {
                 :threads="threads"
                 :scenes="scenes"
                 :chapters="chapters"
-                :plots="plots"
                 :selected-thread-id="selectedThreadId"
                 :selected-scene-id="selectedSceneId"
                 :detail="detail"
@@ -517,32 +406,26 @@ function clonePlots(source: PlotPreviewPlot[]): PlotThreadPanelPlot[] {
 
         <PlotWorkbenchDialog
             v-model="workbenchVisible"
+            project-path="workspace/preview"
             :story="plotPreviewDataset.story"
             :phases="plotPreviewDataset.phases"
             :threads="threads"
             :scenes="scenes"
-            :plots="plots"
             :chapters="chapters"
             :selected-thread-id="selectedThreadId"
             :selected-scene-id="selectedSceneId"
-            :selected-plot-id="selectedPlotId"
             :pinned-thread-ids="pinnedThreadIds"
             @select-thread="selectThread"
             @select-scene="selectScene"
-            @select-plot="selectPlot"
             @create-thread="createThread"
             @toggle-thread-pin="toggleThreadPin"
             @toggle-thread-main="toggleThreadMain"
             @delete-thread="deleteThread"
             @create-scene="createScene"
-            @create-plot="createPlot"
-            @delete-plot="deletePlot"
             @auto-sort-scenes="reorderScenes"
             @reorder-scenes="reorderScenes"
-            @reorder-plots="reorderPlots"
             @update-thread="updateThread"
             @update-scene="updateScene"
-            @update-plot="updatePlot"
         />
     </div>
 </template>

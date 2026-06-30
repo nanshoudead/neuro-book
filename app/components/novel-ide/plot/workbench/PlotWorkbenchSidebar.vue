@@ -5,7 +5,6 @@ import ContextMenu, {type ContextMenuItem} from "nbook/app/components/common/Con
 import {
     PLOT_THREAD_STATUS_LABELS,
     PLOT_THREAD_TONE_STYLES,
-    type PlotThreadPanelPlot,
     type PlotThreadPanelScene,
     type PlotThreadPanelThread,
 } from "nbook/app/components/novel-ide/plot/thread-panel/plot-thread-panel.types";
@@ -15,7 +14,6 @@ type ThreadFilterMode = "all" | "main" | "support" | "active" | "draft" | "pause
 const props = defineProps<{
     threads: PlotThreadPanelThread[];
     scenes: PlotThreadPanelScene[];
-    plots: PlotThreadPanelPlot[];
     selectedThreadId: string | null;
     search: string;
     mode: ThreadFilterMode;
@@ -60,18 +58,6 @@ const threadSceneMap = computed(() => {
     }
     return map;
 });
-const threadPlotMap = computed(() => {
-    const sceneThreadMap = new Map(props.scenes.map((scene) => [scene.id, scene.threadId]));
-    const map = new Map<string, number>();
-    for (const plot of props.plots) {
-        const threadId = sceneThreadMap.get(plot.sceneId);
-        if (!threadId) {
-            continue;
-        }
-        map.set(threadId, (map.get(threadId) ?? 0) + 1);
-    }
-    return map;
-});
 const pinnedThreadSet = computed(() => new Set(props.pinnedThreadIds));
 const filteredThreads = computed(() => {
     const keyword = props.search.trim().toLowerCase();
@@ -97,8 +83,6 @@ const statusCounts = computed(() => props.threads.reduce<Record<string, number>>
     map[thread.status] = (map[thread.status] ?? 0) + 1;
     return map;
 }, {}));
-const totalScenes = computed(() => props.scenes.length);
-const totalPlots = computed(() => props.plots.length);
 const mainThreadCount = computed(() => props.threads.filter((thread) => thread.isMainThread).length);
 
 /**
@@ -195,7 +179,7 @@ onClickOutside(filterPanelRef, () => {
                         </span>
                     </div>
                     <div class="mt-1 truncate text-[10px] text-[var(--text-muted)]">
-                        {{ selectedThread.isMainThread ? "主线" : "支线" }} · {{ threadSceneMap.get(selectedThread.id) ?? 0 }} 场景 · {{ threadPlotMap.get(selectedThread.id) ?? 0 }} Plot
+                        {{ selectedThread.isMainThread ? "主线" : "支线" }} · {{ threadSceneMap.get(selectedThread.id) ?? 0 }} 场景
                     </div>
                 </button>
             </section>
@@ -237,7 +221,6 @@ onClickOutside(filterPanelRef, () => {
                     </div>
                     <div class="mt-1 flex items-center gap-2 text-[10px] text-[var(--text-muted)]">
                         <span>{{ threadSceneMap.get(thread.id) ?? 0 }} 场景</span>
-                        <span>{{ threadPlotMap.get(thread.id) ?? 0 }} Plot</span>
                         <span class="ml-auto">{{ PLOT_THREAD_STATUS_LABELS[thread.status] }}</span>
                     </div>
                 </button>
@@ -269,7 +252,6 @@ onClickOutside(filterPanelRef, () => {
                     </div>
                     <div class="mt-1 flex items-center gap-2 text-[10px] text-[var(--text-muted)]">
                         <span>{{ threadSceneMap.get(thread.id) ?? 0 }} 场景</span>
-                        <span>{{ threadPlotMap.get(thread.id) ?? 0 }} Plot</span>
                         <span class="ml-auto">{{ PLOT_THREAD_STATUS_LABELS[thread.status] }}</span>
                     </div>
                 </button>
@@ -310,8 +292,8 @@ onClickOutside(filterPanelRef, () => {
                         <div class="font-semibold text-[var(--text-main)]">{{ props.scenes.length }}</div>
                     </div>
                     <div class="rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 py-2">
-                        <div class="text-[10px] text-[var(--text-muted)]">Plots</div>
-                        <div class="font-semibold text-[var(--text-main)]">{{ props.plots.length }}</div>
+                        <div class="text-[10px] text-[var(--text-muted)]">Main</div>
+                        <div class="font-semibold text-[var(--text-main)]">{{ mainThreadCount }}</div>
                     </div>
                 </div>
 

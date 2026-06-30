@@ -1,169 +1,47 @@
 import {describe, expect, it} from "vitest";
-import {Type} from "typebox";
 import {Value} from "typebox/value";
-import type {Static} from "typebox";
 import type {AgentToolResult} from "@earendil-works/pi-agent-core";
 import {controlTools} from "nbook/server/agent/tools/control-tools";
-import type {UserInputRequestContext, ToolExecutionContext} from "nbook/server/agent/tools/types";
+import type {UserInputRequestContext, ToolExecutionContext, UserInputFormSpec} from "nbook/server/agent/tools/types";
 
 describe("request_user_input userInputRequest", () => {
     const requestUserInputTool = controlTools.requestUserInput.runtime();
 
-    it("单个开放式问题返回正确的 formSpec", async () => {
-        // 1. 模拟工具参数
-        const params = {
-            questions: [
-                {
-                    question: "请输入您的名字",
-                    header: "用户信息",
-                },
-            ],
-        };
+    it("等待用户输入但不生成 Low-Code formSpec", async () => {
+        const result = await requestUserInputTool.userInputRequest!.when(requestContext({
+            questions: [{question: "请输入您的名字", header: "用户信息"}],
+        }));
 
-        // 2. 构造 UserInputRequestContext
-        const context: UserInputRequestContext = {
-            args: params,
-            session: {
-                sessionId: 1,
-                profileKey: "test-profile",
-                workspaceRoot: "/test/workspace",
-                workspaceKey: "test-workspace",
-            },
-        };
-
-        // 3. 调用 userInputRequest.when()
-        const formSpec = await requestUserInputTool.userInputRequest!.when(context);
-
-        // 4. 验证返回的 formSpec
-        expect(formSpec).not.toBeNull();
-        expect(formSpec!.form.fields).toHaveLength(1);
-
-        const field = formSpec!.form.fields[0]!;
-        expect(field.path).toBe("answer_0");
-        expect(field.component).toBe("textarea");
-        expect(field.label).toBe("请输入您的名字");
-        expect(field.description).toBe("用户信息");
-        expect(field.required).toBe(true);
-        expect(field.rows).toBe(3);
+        expect(result).toBe(true);
     });
 
-    it("单选问题返回正确的 radio formSpec", async () => {
-        const params = {
-            questions: [
-                {
-                    question: "选择您的偏好",
-                    options: [
-                        {label: "选项 A", description: "这是 A"},
-                        {label: "选项 B", description: "这是 B"},
-                        {label: "选项 C"},
-                    ],
-                    defaultOptionIndex: 1,
-                },
-            ],
-        };
-
-        const context: UserInputRequestContext = {
-            args: params,
-            session: {
-                sessionId: 1,
-                profileKey: "test-profile",
-                workspaceRoot: "/test/workspace",
-                workspaceKey: "test-workspace",
-            },
-        };
-
-        const formSpec = await requestUserInputTool.userInputRequest!.when(context);
-
-        expect(formSpec).not.toBeNull();
-        expect(formSpec!.form.fields).toHaveLength(1);
-
-        const field = formSpec!.form.fields[0]!;
-        expect(field.path).toBe("answer_0");
-        expect(field.component).toBe("radio");
-        expect(field.label).toBe("选择您的偏好");
-        expect(field.required).toBe(true);
-        expect(field.options).toHaveLength(3);
-        expect(field.options![0]).toEqual({value: 0, label: "选项 A", description: "这是 A"});
-        expect(field.options![1]).toEqual({value: 1, label: "选项 B", description: "这是 B"});
-        expect(field.options![2]).toEqual({value: 2, label: "选项 C", description: undefined});
-        expect(field.defaultValue).toBe(1);
+    it("schema 接受问题、header 和单选 options", () => {
+        expect(Value.Check(requestUserInputTool.parameters, {
+            questions: [{
+                header: "偏好",
+                question: "选择您的偏好",
+                options: [
+                    {label: "选项 A", description: "这是 A"},
+                    {label: "选项 B"},
+                ],
+            }],
+        })).toBe(true);
     });
 
-    it("多选问题返回正确的 checkbox formSpec", async () => {
-        const params = {
-            questions: [
-                {
-                    question: "选择多个选项",
-                    options: [
-                        {label: "A"},
-                        {label: "B"},
-                        {label: "C"},
-                    ],
-                    multiSelect: true,
-                    defaultOptionIndexes: [0, 2],
-                },
-            ],
-        };
+    it("schema 拒绝默认值、推荐和多选旧字段", () => {
+        const invalidQuestions = [
+            {question: "Pick", options: [{label: "A", recommended: true}]},
+            {question: "Pick", options: [{label: "A", defaultSelected: true}]},
+            {question: "Pick", options: [{label: "A"}], defaultOptionIndex: 0},
+            {question: "Pick", options: [{label: "A"}], defaultOptionIndexes: [0]},
+            {question: "Pick", options: [{label: "A"}], multiSelect: true},
+        ];
 
-        const context: UserInputRequestContext = {
-            args: params,
-            session: {
-                sessionId: 1,
-                profileKey: "test-profile",
-                workspaceRoot: "/test/workspace",
-                workspaceKey: "test-workspace",
-            },
-        };
-
-        const formSpec = await requestUserInputTool.userInputRequest!.when(context);
-
-        expect(formSpec).not.toBeNull();
-        expect(formSpec!.form.fields).toHaveLength(1);
-
-        const field = formSpec!.form.fields[0]!;
-        expect(field.path).toBe("answer_0");
-        expect(field.component).toBe("checkbox");
-        expect(field.label).toBe("选择多个选项");
-        expect(field.required).toBe(true);
-        expect(field.options).toHaveLength(3);
-        expect(field.defaultValue).toEqual([0, 2]);
-    });
-
-    it("多个问题返回正确的 fields 数组", async () => {
-        const params = {
-            questions: [
-                {question: "第一个问题"},
-                {
-                    question: "第二个问题",
-                    options: [{label: "是"}, {label: "否"}],
-                },
-                {question: "第三个问题"},
-            ],
-        };
-
-        const context: UserInputRequestContext = {
-            args: params,
-            session: {
-                sessionId: 1,
-                profileKey: "test-profile",
-                workspaceRoot: "/test/workspace",
-                workspaceKey: "test-workspace",
-            },
-        };
-
-        const formSpec = await requestUserInputTool.userInputRequest!.when(context);
-
-        expect(formSpec).not.toBeNull();
-        expect(formSpec!.form.fields).toHaveLength(3);
-
-        expect(formSpec!.form.fields[0]!.path).toBe("answer_0");
-        expect(formSpec!.form.fields[0]!.component).toBe("textarea");
-
-        expect(formSpec!.form.fields[1]!.path).toBe("answer_1");
-        expect(formSpec!.form.fields[1]!.component).toBe("radio");
-
-        expect(formSpec!.form.fields[2]!.path).toBe("answer_2");
-        expect(formSpec!.form.fields[2]!.component).toBe("textarea");
+        for (const question of invalidQuestions) {
+            expect(Value.Check(requestUserInputTool.parameters, {
+                questions: [question],
+            })).toBe(false);
+        }
     });
 
     it("executeWithContext 正确处理开放式问题的用户输入", async () => {
@@ -179,16 +57,8 @@ describe("request_user_input userInputRequest", () => {
             answer_1: "阅读",
         };
 
-        const context = {
-            harness: {} as any,
-            sessionId: 1,
-            profileKey: "test-profile",
-            workspaceRoot: "/test/workspace",
-            workspaceKey: "test-workspace",
-        };
-
         const result = await requestUserInputTool.executeWithContext!(
-            context,
+            toolContext(),
             "call-1",
             params,
             userInput,
@@ -228,16 +98,8 @@ describe("request_user_input userInputRequest", () => {
             answer_0: 1, // 选择 "蓝色"
         };
 
-        const context = {
-            harness: {} as any,
-            sessionId: 1,
-            profileKey: "test-profile",
-            workspaceRoot: "/test/workspace",
-            workspaceKey: "test-workspace",
-        };
-
         const result = await requestUserInputTool.executeWithContext!(
-            context,
+            toolContext(),
             "call-1",
             params,
             userInput,
@@ -254,46 +116,72 @@ describe("request_user_input userInputRequest", () => {
         });
     });
 
-    it("executeWithContext 正确处理多选问题的用户输入", async () => {
+    it("executeWithContext 不会为未提交字段套默认选项", async () => {
         const params = {
             questions: [
                 {
-                    question: "选择多个颜色",
+                    question: "第一章正文从哪里开始？",
+                    options: [
+                        {label: "从村口出发写起"},
+                        {label: "从遇狼战斗写起"},
+                        {label: "从抵达遗迹写起"},
+                    ],
+                },
+                {
+                    question: "第一章的核心冲突是什么？",
+                    options: [
+                        {label: "遗迹探索"},
+                        {label: "遗迹中的秘密"},
+                    ],
+                },
+            ],
+        };
+
+        const result = await requestUserInputTool.executeWithContext!(
+            toolContext(),
+            "call-1",
+            params,
+            {answer_1: 1},
+        );
+
+        expect(readText(result)).toContain("1. 第一章正文从哪里开始？\n回答：");
+        expect(readText(result)).toContain("2. 第一章的核心冲突是什么？\n回答：遗迹中的秘密");
+        expect(result.details).toEqual({
+            answers: [
+                {questionIndex: 0, text: ""},
+                {questionIndex: 1, text: "遗迹中的秘密", selectedOptionIndex: 1},
+            ],
+        });
+    });
+
+    it("executeWithContext 正确处理 note-only answers", async () => {
+        const params = {
+            questions: [
+                {
+                    question: "选择颜色",
                     options: [
                         {label: "红色"},
                         {label: "蓝色"},
                         {label: "绿色"},
                     ],
-                    multiSelect: true,
                 },
             ],
         };
 
-        const userInput = {
-            answer_0: [0, 2], // 选择 "红色" 和 "绿色"
-        };
-
-        const context = {
-            harness: {} as any,
-            sessionId: 1,
-            profileKey: "test-profile",
-            workspaceRoot: "/test/workspace",
-            workspaceKey: "test-workspace",
-        };
-
         const result = await requestUserInputTool.executeWithContext!(
-            context,
+            toolContext(),
             "call-1",
             params,
-            userInput,
+            [{questionIndex: 0, note: "我想选黄色"}],
         );
 
+        expect(readText(result)).toContain("选择颜色\n回答：我想选黄色");
         expect(result.details).toEqual({
             answers: [
                 {
                     questionIndex: 0,
-                    text: "红色, 绿色",
-                    selectedOptionIndexes: [0, 2],
+                    text: "我想选黄色",
+                    note: "我想选黄色",
                 },
             ],
         });
@@ -307,30 +195,18 @@ describe("request_user_input userInputRequest", () => {
                     question: "性别？",
                     options: [{label: "男"}, {label: "女"}],
                 },
-                {
-                    question: "兴趣爱好？",
-                    options: [{label: "阅读"}, {label: "运动"}, {label: "旅游"}],
-                    multiSelect: true,
-                },
+                {question: "兴趣爱好？"},
             ],
         };
 
         const userInput = {
             answer_0: "李四",
             answer_1: 0,
-            answer_2: [0, 2],
-        };
-
-        const context = {
-            harness: {} as any,
-            sessionId: 1,
-            profileKey: "test-profile",
-            workspaceRoot: "/test/workspace",
-            workspaceKey: "test-workspace",
+            answer_2: "阅读和旅游",
         };
 
         const result = await requestUserInputTool.executeWithContext!(
-            context,
+            toolContext(),
             "call-1",
             params,
             userInput,
@@ -340,7 +216,39 @@ describe("request_user_input userInputRequest", () => {
             answers: [
                 {questionIndex: 0, text: "李四"},
                 {questionIndex: 1, text: "男", selectedOptionIndex: 0},
-                {questionIndex: 2, text: "阅读, 旅游", selectedOptionIndexes: [0, 2]},
+                {questionIndex: 2, text: "阅读和旅游"},
+            ],
+        });
+    });
+
+    it("executeWithContext 不再把数组旧值解释成多选答案", async () => {
+        const params = {
+            questions: [
+                {
+                    question: "选择标签",
+                    options: [
+                        {label: "剧情"},
+                        {label: "人物"},
+                        {label: "节奏"},
+                    ],
+                },
+            ],
+        };
+
+        const result = await requestUserInputTool.executeWithContext!(
+            toolContext(),
+            "call-1",
+            params,
+            {answer_0: [0, 2]},
+        );
+
+        expect(readText(result)).toContain("选择标签\n回答：");
+        expect(result.details).toEqual({
+            answers: [
+                {
+                    questionIndex: 0,
+                    text: "",
+                },
             ],
         });
     });
@@ -350,16 +258,8 @@ describe("request_user_input userInputRequest", () => {
             questions: [{question: "测试问题"}],
         };
 
-        const context = {
-            harness: {} as any,
-            sessionId: 1,
-            profileKey: "test-profile",
-            workspaceRoot: "/test/workspace",
-            workspaceKey: "test-workspace",
-        };
-
         await expect(
-            requestUserInputTool.executeWithContext!(context, "call-1", params, undefined),
+            requestUserInputTool.executeWithContext!(toolContext(), "call-1", params, undefined),
         ).rejects.toThrow("request_user_input 需要用户输入数据");
     });
 });
@@ -382,12 +282,11 @@ describe("enter_plan_mode userInputRequest", () => {
             },
         };
 
-        const formSpec = await enterPlanModeTool.userInputRequest!.when(context);
+        const formSpec = expectUserInputFormSpec(await enterPlanModeTool.userInputRequest!.when(context));
 
-        expect(formSpec).not.toBeNull();
-        expect(formSpec!.form.fields).toHaveLength(1);
+        expect(formSpec.form.fields).toHaveLength(1);
 
-        const field = formSpec!.form.fields[0]!;
+        const field = formSpec.form.fields[0]!;
         expect(field.path).toBe("approved");
         expect(field.component).toBe("radio");
         expect(field.label).toBe("是否批准进入计划模式？");
@@ -455,12 +354,11 @@ describe("exit_plan_mode userInputRequest", () => {
             },
         };
 
-        const formSpec = await exitPlanModeTool.userInputRequest!.when(context);
+        const formSpec = expectUserInputFormSpec(await exitPlanModeTool.userInputRequest!.when(context));
 
-        expect(formSpec).not.toBeNull();
-        expect(formSpec!.form.fields).toHaveLength(1);
+        expect(formSpec.form.fields).toHaveLength(1);
 
-        const field = formSpec!.form.fields[0]!;
+        const field = formSpec.form.fields[0]!;
         expect(field.path).toBe("approved");
         expect(field.component).toBe("radio");
         expect(field.label).toBe("是否批准退出计划模式？");
@@ -483,16 +381,15 @@ describe("exit_plan_mode userInputRequest", () => {
             },
         };
 
-        const formSpec = await exitPlanModeTool.userInputRequest!.when(context);
+        const formSpec = expectUserInputFormSpec(await exitPlanModeTool.userInputRequest!.when(context));
 
-        expect(formSpec).not.toBeNull();
-        expect(formSpec!.form.fields).toHaveLength(2);
+        expect(formSpec.form.fields).toHaveLength(2);
 
-        const approvalField = formSpec!.form.fields[0]!;
+        const approvalField = formSpec.form.fields[0]!;
         expect(approvalField.path).toBe("approved");
         expect(approvalField.component).toBe("radio");
 
-        const previewField = formSpec!.form.fields[1]!;
+        const previewField = formSpec.form.fields[1]!;
         expect(previewField.path).toBe("planPreviewNote");
         expect(previewField.component).toBe("text");
         expect(previewField.label).toBe("计划文件");
@@ -541,11 +438,10 @@ describe("exit_plan_mode userInputRequest", () => {
     });
 });
 
-describe("向后兼容性", () => {
-    it("request_user_input schema 保持向后兼容", () => {
+describe("协议边界", () => {
+    it("request_user_input schema 不兼容默认值和多选旧字段", () => {
         const tool = controlTools.requestUserInput.runtime();
 
-        // 旧格式：带 defaultOptionIndex
         expect(Value.Check(tool.parameters, {
             questions: [
                 {
@@ -554,9 +450,8 @@ describe("向后兼容性", () => {
                     defaultOptionIndex: 0,
                 },
             ],
-        })).toBe(true);
+        })).toBe(false);
 
-        // 新格式：带 defaultSelected
         expect(Value.Check(tool.parameters, {
             questions: [
                 {
@@ -567,9 +462,8 @@ describe("向后兼容性", () => {
                     ],
                 },
             ],
-        })).toBe(true);
+        })).toBe(false);
 
-        // 多选格式
         expect(Value.Check(tool.parameters, {
             questions: [
                 {
@@ -579,7 +473,7 @@ describe("向后兼容性", () => {
                     defaultOptionIndexes: [0, 1],
                 },
             ],
-        })).toBe(true);
+        })).toBe(false);
     });
 
     it("plan mode schema 保持向后兼容", () => {
@@ -607,6 +501,29 @@ function readText(result: AgentToolResult<unknown>): string {
         throw new Error("测试期望工具返回 text content");
     }
     return item.text;
+}
+
+function requestContext(args: unknown): UserInputRequestContext {
+    return {
+        args,
+        session: {
+            sessionId: 1,
+            profileKey: "test-profile",
+            workspaceRoot: "/test/workspace",
+            workspaceKey: "test-workspace",
+        },
+    };
+}
+
+function toolContext(): ToolExecutionContext {
+    return createToolContext();
+}
+
+function expectUserInputFormSpec(value: UserInputFormSpec | true | null): UserInputFormSpec & {form: NonNullable<UserInputFormSpec["form"]>} {
+    if (!value || value === true || !value.form) {
+        throw new Error("测试期望工具生成 Low-Code formSpec");
+    }
+    return value as UserInputFormSpec & {form: NonNullable<UserInputFormSpec["form"]>};
 }
 
 function createToolContext(): ToolExecutionContext {

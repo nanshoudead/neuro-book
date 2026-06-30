@@ -71,16 +71,17 @@ describe("world-engine-preview utils", () => {
     });
 
     it("把同 instant 冲突提示改写为 UI 可执行动作", () => {
-        const rawMessage = "该时间已有切面。请选择相邻时间，或先删除已有切面再重新写入。 existingSliceId=slice-1, time=复兴纪元1年 1月1日 00:00:01, title=示例";
+        const rawMessage = "该时间已有切面。请读取 existingSliceId 并合并 patches；只有整条切面作废时才删除重写。 existingSliceId=slice-1, time=复兴纪元1年 1月1日 00:00:01, title=示例";
         const message = formatWorldEngineConflictMessage(rawMessage);
 
         expect(message).toContain("点击“载入编辑”");
         expect(message).toContain("existingSliceId=slice-1");
-        const initConflict = formatWorldEngineConflictMessage("目标时间已有非 init 切面，不能把 subject 初始化追加进去；请使用 editSlice 显式合并，或选择其他初始化时间。 existingSliceId=slice-2, time=复兴纪元1年 1月1日 00:00:00, title=开场");
+        const initConflict = formatWorldEngineConflictMessage("目标时间已有非 init 切面，不能把 subject 初始化自动追加进去。请读取 existingSliceId 并显式合并初始化 patches，或选择其他初始化时间。 existingSliceId=slice-2, time=复兴纪元1年 1月1日 00:00:00, title=开场");
         expect(initConflict).toContain("不能自动追加 subject 初始化");
         expect(initConflict).toContain("载入这个时间的 slice");
         expect(initConflict).toContain("existingSliceId=slice-2");
         expect(initConflict).not.toContain("editSlice");
+        expect(initConflict).not.toContain("请读取 existingSliceId");
         expect(formatWorldEngineConflictMessage("普通错误")).toBe("普通错误");
     });
 

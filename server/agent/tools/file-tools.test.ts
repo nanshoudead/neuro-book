@@ -2,6 +2,7 @@ import {mkdir, mkdtemp, readFile, rm, writeFile} from "node:fs/promises";
 import {dirname, join, resolve} from "node:path";
 import {tmpdir} from "node:os";
 import {Type} from "typebox";
+import {Value} from "typebox/value";
 import {afterEach, beforeEach, describe, expect, it} from "vitest";
 import {NeuroAgentHarness} from "nbook/server/agent/harness/neuro-agent-harness";
 import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
@@ -64,8 +65,64 @@ describe("v3 file tools", () => {
         });
 
         expect(result?.content).toEqual([
-            {type: "text", text: "b\nc\n\n[1 more lines in file. Use offset=4 to continue.]"},
+            {type: "text", text: "2 | b\n3 | c\n\n[1 more lines in file. Use offset=4 to continue.]"},
         ]);
+        expect(result?.details).toEqual(expect.objectContaining({
+            startLine: 2,
+            endLine: 3,
+            totalLines: 4,
+            nextOffset: 4,
+        }));
+    });
+
+    it("read 短文件默认不显示行号，但支持显式开启", async () => {
+        await writeFile(join(workspaceRoot, "short.md"), "a\nb", "utf-8");
+        const tool = mustTool("read", harness);
+
+        const plain = await tool.executeWithContext?.(context, "read-short-plain", {
+            path: "short.md",
+        });
+        const numbered = await tool.executeWithContext?.(context, "read-short-numbered", {
+            path: "short.md",
+            lineNumbers: true,
+        });
+
+        expect(plain?.content).toEqual([{type: "text", text: "a\nb"}]);
+        expect(numbered?.content).toEqual([{type: "text", text: "1 | a\n2 | b"}]);
+    });
+
+    it("read 参数 schema 拒绝非正整数 offset/limit", () => {
+        const tool = mustTool("read", harness);
+
+        expect(Value.Check(tool.parameters, {path: "notes.md", offset: 0})).toBe(false);
+        expect(Value.Check(tool.parameters, {path: "notes.md", offset: -1})).toBe(false);
+        expect(Value.Check(tool.parameters, {path: "notes.md", offset: 1.5})).toBe(false);
+        expect(Value.Check(tool.parameters, {path: "notes.md", limit: 0})).toBe(false);
+        expect(Value.Check(tool.parameters, {path: "notes.md", limit: 2.5})).toBe(false);
+    });
+
+    it("read 截断输出自动显示行号并返回 nextOffset", async () => {
+        await writeFile(
+            join(workspaceRoot, "long.md"),
+            Array.from({length: 2001}, (_, index) => `line ${index + 1}`).join("\n"),
+            "utf-8",
+        );
+        const tool = mustTool("read", harness);
+
+        const result = await tool.executeWithContext?.(context, "read-truncated", {
+            path: "long.md",
+        });
+        const text = result?.content[0]?.type === "text" ? result.content[0].text : "";
+
+        expect(text).toContain("1 | line 1");
+        expect(text).toContain("2000 | line 2000");
+        expect(text).toContain("[Showing lines 1-2000 of 2001. Use offset=2001 to continue.]");
+        expect(result?.details).toEqual(expect.objectContaining({
+            startLine: 1,
+            endLine: 2000,
+            totalLines: 2001,
+            nextOffset: 2001,
+        }));
     });
 
     it("read 图片时保留模型可见 image block", async () => {
@@ -194,7 +251,35 @@ describe("v3 file tools", () => {
         await expect(tool.executeWithContext?.(context, "edit-2", {
             path: "edit.txt",
             edits: [{oldText: "dup", newText: "x"}],
-        })).rejects.toThrow("multiple occurrences");
+        })).rejects.toThrow("oldText matched 2 locations at lines 1, 2");
+    });
+
+    it("edit 批量预检失败时不写文件，并报告已匹配行号", async () => {
+        await writeFile(join(workspaceRoot, "edit-preflight.txt"), "one\ntwo\nthree", "utf-8");
+        const tool = mustTool("edit", harness);
+
+        await expect(tool.executeWithContext?.(context, "edit-preflight", {
+            path: "edit-preflight.txt",
+            edits: [
+                {oldText: "one", newText: "ONE"},
+                {oldText: "missing", newText: "MISSING"},
+            ],
+        })).rejects.toThrow(/Matched edits:\n- edits\[0\] matched lines 1-1\./);
+        await expect(readFile(join(workspaceRoot, "edit-preflight.txt"), "utf-8")).resolves.toBe("one\ntwo\nthree");
+    });
+
+    it("edit 批量预检拒绝重叠 edit，并保持文件不变", async () => {
+        await writeFile(join(workspaceRoot, "edit-overlap.txt"), "abcdef\n", "utf-8");
+        const tool = mustTool("edit", harness);
+
+        await expect(tool.executeWithContext?.(context, "edit-overlap", {
+            path: "edit-overlap.txt",
+            edits: [
+                {oldText: "abc", newText: "ABC"},
+                {oldText: "bcd", newText: "BCD"},
+            ],
+        })).rejects.toThrow("overlaps edits[0] at lines 1-1");
+        await expect(readFile(join(workspaceRoot, "edit-overlap.txt"), "utf-8")).resolves.toBe("abcdef\n");
     });
 
     it("apply_patch 应用 Codex patch JSON 参数", async () => {

@@ -73,7 +73,6 @@ const toneClass = computed(() => {
         ? "border-amber-500/35"
         : PLOT_THREAD_TONE_STYLES[thread.tone].borderClass;
 });
-const plotCount = computed(() => props.detail?.plots.length ?? 0);
 const refCount = computed(() => props.detail?.effectiveRefs.length ?? 0);
 const chapterLabel = computed(() => {
     if (!props.detail?.chapter) {
@@ -169,6 +168,7 @@ function buildPayload(): PlotThreadQuickSceneUpdate | null {
         writingTip: draft.writingTip.trim() || null,
         status: draft.status,
         chapterPath: draft.chapterPath || null,
+        worldAnchor: scene.worldAnchor,
     };
 }
 
@@ -325,7 +325,7 @@ watch(() => props.detail, () => {
                 <div class="grid grid-cols-2 gap-2 text-[10px] text-[var(--text-muted)]">
                     <span class="rounded-full border border-[var(--border-color)] bg-[var(--bg-input)] px-2 py-1">{{ chapterLabel }}</span>
                     <span class="rounded-full border border-[var(--border-color)] bg-[var(--bg-input)] px-2 py-1 text-right">#{{ props.detail.scene.threadSortOrder + 1 }}</span>
-                    <span class="rounded-full border border-[var(--border-color)] bg-[var(--bg-input)] px-2 py-1">P {{ plotCount }}</span>
+                    <span class="rounded-full border border-[var(--border-color)] bg-[var(--bg-input)] px-2 py-1">Scene</span>
                     <span class="rounded-full border border-[var(--border-color)] bg-[var(--bg-input)] px-2 py-1 text-right">R {{ refCount }}</span>
                 </div>
 

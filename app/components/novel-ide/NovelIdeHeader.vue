@@ -19,6 +19,7 @@ const emit = defineEmits<{
     (e: "toggle-layout-mode"): void;
     (e: "toggle-agent"): void;
     (e: "open-bookshelf"): void;
+    (e: "open-plot-workbench"): void;
     (e: "open-world-engine"): void;
     (e: "open-user-assets"): void;
     (e: "open-profile-workbench"): void;
@@ -68,21 +69,21 @@ const handleUserMenuSelect = (value: string): void => {
 
 <template>
     <!-- 顶部导航栏 -->
-    <header class="ide-panel flex h-12 shrink-0 items-center justify-between border-b border-[var(--border-color)] bg-[var(--bg-panel)] px-4 text-[var(--text-main)]">
-        <div class="flex items-center gap-4">
+    <header class="ide-panel flex h-12 shrink-0 items-center justify-between border-b border-[var(--border-color)] bg-[var(--bg-panel)] px-2 text-[var(--text-main)] sm:px-4">
+        <div class="flex min-w-0 items-center gap-2 sm:gap-4">
             <div class="flex items-center gap-2.5 font-medium">
                 <div class="flex h-7 w-7 items-center justify-center rounded-full border border-[var(--border-color)] bg-[var(--bg-input)] shadow-sm">
                     <span class="i-lucide-feather h-3.5 w-3.5 text-[var(--accent-text)]"></span>
                 </div>
-                <span class="text-[13px] font-bold tracking-[0.3em] uppercase">Neuro Book</span>
+                <span class="hidden text-[13px] font-bold tracking-[0.3em] uppercase lg:inline">Neuro Book</span>
             </div>
-            <div class="h-4 w-px bg-[var(--border-color)]"></div>
+            <div class="hidden h-4 w-px bg-[var(--border-color)] sm:block"></div>
             <button
                 type="button"
                 role="switch"
                 :aria-label="t('ide.header.layoutMode')"
                 :aria-checked="agentModeActive"
-                class="ide-agent-mode-switch relative flex h-8 w-[150px] items-center rounded-full border border-[var(--border-color)] bg-[var(--bg-input)] p-[3px] transition-colors hover:border-[var(--border-color-hover)]"
+                class="ide-agent-mode-switch relative hidden h-8 w-[150px] items-center rounded-full border border-[var(--border-color)] bg-[var(--bg-input)] p-[3px] transition-colors hover:border-[var(--border-color-hover)] sm:flex"
                 :title="agentModeActive ? t('ide.header.switchToIde') : t('ide.header.switchToAgent')"
                 @click="emit('toggle-layout-mode')"
             >
@@ -110,8 +111,8 @@ const handleUserMenuSelect = (value: string): void => {
                     <span class="tracking-[0.04em]">IDE</span>
                 </span>
             </button>
-            <div class="h-4 w-px bg-[var(--border-color)]"></div>
-            <div v-if="!isUserAssetsMode" class="w-44 text-sm">
+            <div class="hidden h-4 w-px bg-[var(--border-color)] sm:block"></div>
+            <div v-if="!isUserAssetsMode" class="w-28 min-w-0 text-sm sm:w-44">
                 <Dropdown :items="novelItems" menu-class="left-0 top-full mt-2 w-full" menu-max-height="min(360px, calc(100vh - 96px))" compact @select="(v) => emit('switch-novel', v)">
                     <button class="group flex w-full items-center gap-1.5 rounded-md px-2 py-1 transition-colors hover:bg-[var(--bg-hover)]" :title="novelTitle || t('ide.header.noNovelSelected')">
                         <span class="i-lucide-book-open h-3.5 w-3.5 shrink-0 text-[var(--text-muted)] group-hover:text-[var(--text-main)] transition-colors"></span>
@@ -125,7 +126,7 @@ const handleUserMenuSelect = (value: string): void => {
             </div>
         </div>
 
-        <div class="flex items-center gap-2">
+        <div class="flex shrink-0 items-center gap-1 sm:gap-2">
             <button v-if="!isUserAssetsMode" class="hidden items-center gap-2 rounded-full border border-transparent px-4 py-1.5 text-[12px] tracking-[0.2em] uppercase text-[var(--text-secondary)] transition-colors hover:border-[var(--border-color)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] md:flex" :title="t('ide.header.bookshelfTitle')" @click="emit('open-bookshelf')">
                 <span class="i-lucide-library h-4 w-4"></span>
                 <span>{{ t("ide.header.bookshelf") }}</span>
@@ -133,6 +134,10 @@ const handleUserMenuSelect = (value: string): void => {
             <button v-if="!isUserAssetsMode" class="hidden items-center gap-2 rounded-full border border-transparent px-4 py-1.5 text-[12px] tracking-[0.2em] uppercase text-[var(--text-secondary)] transition-colors hover:border-[var(--border-color)] hover:bg-[var(--bg-hover)] hover:text-[var(--accent-text)] md:flex" :title="t('ide.header.worldEngine')" @click="emit('open-world-engine')">
                 <span class="i-lucide-globe-2 h-4 w-4 text-[var(--accent-text)]"></span>
                 <span>World</span>
+            </button>
+            <button v-if="!isUserAssetsMode" data-testid="plot-workbench-entry" class="flex items-center gap-2 rounded-full border border-transparent px-3 py-1.5 text-[12px] tracking-[0.2em] uppercase text-[var(--text-secondary)] transition-colors hover:border-[var(--border-color)] hover:bg-[var(--bg-hover)] hover:text-[var(--accent-text)] sm:px-4" :title="t('ide.header.plotWorkbench')" @click="emit('open-plot-workbench')">
+                <span class="i-lucide-git-branch h-4 w-4 text-[var(--accent-text)]"></span>
+                <span>Plot</span>
             </button>
             <button v-if="!isUserAssetsMode" class="hidden items-center gap-2 rounded-full border border-transparent px-4 py-1.5 text-[12px] tracking-[0.2em] uppercase text-[var(--text-secondary)] transition-colors hover:border-[var(--border-color)] hover:bg-[var(--bg-hover)] hover:text-[var(--accent-text)] md:flex" :title="t('ide.header.userAssetsTitle')" @click="emit('open-user-assets')">
                 <span class="i-lucide-folder-cog h-4 w-4 text-[var(--accent-text)]"></span>
@@ -143,16 +148,16 @@ const handleUserMenuSelect = (value: string): void => {
                 <span>Profile</span>
             </button>
             <button
-                class="flex items-center gap-2 rounded-full border px-4 py-1.5 text-[12px] tracking-[0.2em] uppercase transition-colors"
+                class="flex items-center gap-2 rounded-full border px-2 py-1.5 text-[12px] tracking-[0.2em] uppercase transition-colors sm:px-4"
                 :class="rightPanelOpen ? 'border-[var(--border-color)] bg-[var(--bg-hover)] text-[var(--text-main)]' : 'border-transparent text-[var(--text-secondary)] hover:border-[var(--border-color)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]'"
                 :title="agentModeActive ? rightPanelOpen ? t('ide.header.collapseStudio') : t('ide.header.expandStudio') : rightPanelOpen ? t('ide.header.closeAgentPanel') : t('ide.header.openAgentPanel')"
                 @click="emit('toggle-agent')"
             >
                 <span :class="agentModeActive ? 'i-lucide-panel-right' : 'i-lucide-bot'" class="h-4 w-4"></span>
-                <span>{{ agentModeActive ? 'Studio' : 'Agent' }}</span>
+                <span class="hidden sm:inline">{{ agentModeActive ? 'Studio' : 'Agent' }}</span>
             </button>
 
-            <div class="mx-2 h-4 w-px bg-[var(--border-color)]"></div>
+            <div class="mx-1 h-4 w-px bg-[var(--border-color)] sm:mx-2"></div>
 
             <div class="w-8 shrink-0">
                 <Dropdown :items="userMenuItems" menu-class="right-0 top-full mt-2 w-40" @select="handleUserMenuSelect">

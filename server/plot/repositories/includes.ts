@@ -13,9 +13,4 @@ export const STORY_SCENE_REF_INCLUDE = {
             id: true,
         },
     },
-    targetPlot: {
-        select: {
-            id: true,
-        },
-    },
 } as const;

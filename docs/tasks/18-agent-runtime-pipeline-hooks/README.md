@@ -2391,9 +2391,25 @@ export default defineAgentProfile({
 - 2026-06-01：修复 barrier skipped toolResult 的实时事件一致性。approval / `report_result` barrier 后生成的 skipped toolResult 现在会和普通 toolResult 一样发布 `message_start` / `message_end`，避免 session 已落盘但 SSE 实时 transcript 缺少 skipped message；`report_result` 校验失败仍只闭合后续 tool calls 并继续下一轮，让模型看到错误后修正。targeted 回归 `bunx vitest run server/agent/harness/neuro-agent-harness.test.ts --reporter=dot`，1 file / 86 tests passed。
 - 2026-05-29：修复 waiting/running abort terminal 语义。waiting 状态下 abort 会先写 harness error toolResult 闭合 pending approval tool call，再写 lifecycle `aborted` 并释放 active invocation；running 状态 provider 返回 aborted/interrupted failed outcome 时，RunLoop failed result 会携带 `terminalStatus`，terminal lifecycle 写 `aborted`，follow-up queue 以 `aborted` reason 暂停而不是误记为普通 error。targeted 回归 `bunx vitest run server/agent/harness/neuro-agent-harness.test.ts server/agent/harness/turn-failure.test.ts --reporter=dot`，2 files / 78 tests passed；18 宽套件 18 files / 202 tests passed；`bunx tsc --noEmit --pretty false` 仍只剩既有 unrelated `server/agent/skills/silly-tavern-card-cli.test.ts` marker optional 错误。
 - 2026-05-31：针对“Agent 运行中后端 dev reload 后无法 continue”补充系统性恢复设计。新增 SSE `(eventEpoch, seq)` cursor / connected handshake / snapshot cursor reset 合同，明确 `after > lastSeq` 和 epoch mismatch 都触发 snapshot recovery；补充 waiting hydration 设计，要求 snapshot 可从 session active path 的 pending approval + waiting lifecycle 恢复 `activeInvocation.status = "waiting"`，`continue(resolution)` 在内存 active 丢失时仍复用原 logical `invocationId`。本次只更新设计和实现计划，代码实现待下一切片。
+- 2026-06-30：修复 session 311 暴露的 Agent 基础工具协议问题。`request_user_input` 的模型可见结果改为格式化文本，Low-Code Form 提交会合并 `form.defaults` 和字段 `defaultValue`，内部 `details.answers` 继续保留结构化答案；`read` 新增 `lineNumbers`，在 offset/limit 或截断时自动显示 `123 | 内容` 行号并返回 `startLine/endLine/totalLines/nextOffset`；`edit` 保持 exact replacement，但批量编辑先完整预检，任一项失败时不写文件并返回匹配/失败/重复/重叠诊断；`task_create/task_set_status` 修复 savePoint batch leaf 计算，tool transcript 与 tool custom state 留在同一 active path，避免 task custom state 落成下一轮读不到的 sibling。
+- 2026-06-30：本轮不改 `list/tree`，也不新增模糊 edit 或 line-based edit。宽跑聚焦套件中 `safe point drain 期间拒绝新的 steer` 曾出现一次并发/清理波动，单测独立复跑通过，未作为本轮工具协议阻塞项。
+- 2026-06-30：补齐遗漏修复。`request_user_input` 已从 Low-Code Form 拆出，前端 snapshot/SSE 路径恢复为专用 questions UI；schema 只支持问题、单选 options 与开放 note，拒绝多选、默认选项和 option-level `defaultSelected`，历史气泡只展示单选、note-only 与 text-only 答案。后端等待态 custom state 不再为 `request_user_input` 持久化 `formSpec`，重载 snapshot 也按普通 pending question 恢复。`read.offset/limit` 收紧为正整数 schema；`edit` 新增重叠 edit 拒绝与失败不写文件覆盖；harness 队列测试补齐 active invocation 等待点，避免 steer/followup 入队测试依赖异步 race。
+- 2026-06-30：修复当前工作区回写回归。再次移除 `request_user_input` 的 Low-Code Form 生成、`selectedOptionIndexes`、多选和默认值协议；snapshot/reload 即使遇到旧 waiting `formSpec` 也按普通 questions UI 恢复；Low-Code Form 仍只服务非 `request_user_input` 用户输入工具。本轮没有扩大 `read/edit/task` 功能面。
 
 ## Files Changed
 
+- `server/agent/tools/control-tools.ts`
+- `server/agent/tools/request-user-input-result.ts`
+- `server/agent/tools/types.ts`
+- `server/agent/tools/approval.ts`
+- `server/agent/tools/control-tools.test.ts`
+- `server/agent/tools/approval.test.ts`
+- `server/agent/tools/file-tools.ts`
+- `server/agent/tools/file-tools.test.ts`
+- `server/agent/tools/task-tools.test.ts`
+- `app/components/common/low-code-form/low-code-form-utils.ts`
+- `app/components/novel-ide/agent/AgentUserInputPrompt.vue`
+- `app/utils/low-code-form-utils.test.ts`
 - `server/agent/session/tool-session-write-sink.ts`
 - `server/agent/session/write-plan.ts`
 - `server/agent/session/write-plan.test.ts`
@@ -2426,6 +2442,8 @@ export default defineAgentProfile({
 - `server/agent/harness/compaction.ts`
 - `server/agent/variables/accessor.ts`
 - `shared/dto/agent-session.dto.ts`
+- `app/components/novel-ide/agent/agent-message.ts`
+- `app/components/novel-ide/agent/agent-message-low-code-form.test.ts`
 - `app/components/novel-ide/agent/useAgentSession.ts`
 - `app/components/novel-ide/agent/useAgentSession.test.ts`
 - `app/components/novel-ide/agent/useAgentSessionStream.test.ts`
@@ -2438,6 +2456,14 @@ export default defineAgentProfile({
 
 ## Verification
 
+- `bunx vitest run app/utils/agent-message-projection.test.ts app/components/novel-ide/agent/agent-message-low-code-form.test.ts app/components/novel-ide/agent/useAgentSession.test.ts --testTimeout 60000 --hookTimeout 60000 --exclude "product/**" --pool forks`
+  - 3 files / 39 tests passed after repairing the `request_user_input` regression back to dedicated questions UI while keeping Low-Code Form for non-request tools.
+- `bunx vitest run server/agent/tools/control-tools.test.ts server/agent/tools/approval.test.ts server/agent/tools/file-tools.test.ts server/agent/tools/task-tools.test.ts --testTimeout 60000 --hookTimeout 60000 --exclude "product/**" --pool forks`
+  - 4 files / 69 tests passed after request schema narrowing, `read` positive integer, and `edit` overlap coverage.
+- `bunx vitest run server/agent/session/session-repo.test.ts server/agent/session/write-plan.test.ts server/agent/harness/neuro-agent-harness.test.ts --testTimeout 60000 --hookTimeout 60000 --exclude "product/**" --pool forks`
+  - 3 files / 170 tests passed after removing `request_user_input` formSpec persistence and stabilizing queue admission tests around active invocation registration.
+- `bunx tsc --noEmit --pretty false`
+  - Passed.
 - `bunx vitest run server/agent/profiles/define-agent-runtime.test.ts server/agent/session/write-plan.test.ts server/agent/harness/neuro-agent-harness.test.ts --reporter=dot`
   - 3 files, 60 tests passed.
 - `bunx vitest run server/agent/harness/neuro-agent-harness.test.ts --reporter=dot`
@@ -2500,6 +2526,12 @@ export default defineAgentProfile({
   - 1 file, 16 tests passed after adding Harness black-box coverage for prompt/continue/steer/followup/waiting/error/SSE replay/slow tool observation/waiting abort/running abort.
 - `bunx tsc --noEmit --pretty false`
   - 18 相关类型错误已清掉；仍失败于既有 unrelated SillyTavern 类型错误。
+- `bunx vitest run server/agent/tools/control-tools.test.ts server/agent/tools/approval.test.ts app/utils/low-code-form-utils.test.ts server/agent/tools/file-tools.test.ts --testTimeout 60000 --hookTimeout 60000 --exclude "product/**" --pool forks`
+  - 4 files / 63 tests passed after `request_user_input` result formatting/default-option schema coverage, Low-Code Form default merge, `read` line number/image preservation, and `edit` preflight diagnostics coverage.
+- `bunx vitest run server/agent/harness/neuro-agent-harness.test.ts -t 'approval 工具调用会停在 assistant tool call|task_create 后同 run 继续输出时下一轮 task_set_status|safe point drain 期间拒绝新的 steer' --testTimeout 60000 --hookTimeout 60000 --exclude "product/**" --pool forks`
+  - 1 file / 3 tests passed, 145 skipped. Covers approval waiting snapshot, task custom state active-path persistence, and the safe-point drain regression that previously showed one wider-suite fluctuation.
+- `bunx vitest run server/agent/tools/task-tools.test.ts --testTimeout 60000 --hookTimeout 60000 --exclude "product/**" --pool forks`
+  - 1 file / 2 tests passed. Covers direct task custom state writes and the branch semantic where moving the active leaf back before the savePoint does not inherit the newer task list.
 - 已核对 PI 文档与源码入口：
   - `.agent/workspace/pi/packages/agent/docs/agent-harness.md`
   - `.agent/workspace/pi/packages/agent/docs/durable-harness.md`

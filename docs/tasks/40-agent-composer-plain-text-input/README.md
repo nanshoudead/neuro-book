@@ -96,6 +96,8 @@ StructuredTextEditor
 - 已补充回归修复：`ReferencePlainTextEditor` 现在响应 `menuRefreshKey`，active `$ skill` 菜单会在 skill catalog 首次加载完成后自动从 loading 刷到真实结果。
 - 已补充大文本模式：Agent Composer 可原地展开，展开态使用更大的编辑高度，并把 Enter / Ctrl+Enter 都改成换行语义；提交只走右下角按钮。
 - 已补充根级 workspace 文件引用稳定序列化：菜单插入的 `AGENTS.md` 一类根级文件会序列化成 `workspace/AGENTS.md`，避免重新解析后无法渲染 chip。
+- 已补充长文滚动 UX 修复：`ReferencePlainTextEditor` 不再因 selection-only transaction 测高并强制滚到底部，内部滚动改为接近底部才吸底，用户在上方点选或用方向键移动光标时会保留当前位置。
+- 已补齐已有长文打开/切换场景：`ReferencePlainTextEditor` 初始和外部 `modelValue` 替换长文本时默认回到顶部；只有用户已经在底部附近时，内部输入增长才继续贴底。
 
 `createPlainReferenceTextExtensions(...)` 只保留：
 
@@ -319,9 +321,9 @@ StructuredTextEditor
   - `app/components/novel-ide/agent/AgentReferenceInput.vue`
   - `app/components/novel-ide/agent/tiptap/AgentReferenceNode.ts`
   - `app/components/novel-ide/agent/tiptap/AgentReferenceNodeView.vue`
-- Attempted: `bun run typecheck`
-  - 失败点仍是既有无关类型噪音：`ProfileTemplateNodeView.vue` 的 `WorkdirReminder` / `ProjectWorkspaceReminder` 类型、`server/agent/profiles/catalog.ts` 的 `type_artifact_*` reason 类型、`server/agent/skills/silly-tavern-card-cli.test.ts` 的 undefined 检查。
-  - 本任务新增的 `ReferencePlainTextEditor`、plain extension、Agent Composer 文件没有出现在 typecheck error 列表中。
+- Checked after long-text scroll fix: `rg "onTransaction|scrollTop = body.scrollHeight|scrollBodyToBottom|handleBodyScroll|scrollToTopOnNextMeasure" app/components/common/form/ReferencePlainTextEditor.vue`
+  - `ReferencePlainTextEditor` 已无 selection-only transaction 测高与无条件滚到底部逻辑；自动贴底只走内部 sticky-bottom 状态，外部内容替换会重置下一次测高到顶部。
+- Passed after latest long-text scroll fix: `bun run typecheck`
 - Not run: browser interaction verification.
   - 仓库指令要求不自动做浏览器验证；后续建议在 dev server 中手工确认 pending request_user_input 单 Composer、Enter/Shift+Enter、queue chip 隐藏、自动撑高和 chip 渲染。
 

@@ -43,11 +43,6 @@ const ProviderRequestOptionsSchema = z.record(z.string(), JsonValueSchema).defau
 const ProfileKeySchema = z.string().trim().min(1);
 const WebSearchProviderKeySchema = z.enum(["tavily", "brave"]);
 const WebTimeoutMsSchema = z.number().int().positive().nullable().default(null);
-const ConfigQueryBooleanFlagSchema = z.union([
-    z.boolean(),
-    z.enum(["true", "false"]),
-]).optional();
-
 /**
  * Secret 字段的编辑态。GET 不返回 value；PUT 中 value 缺失表示保留。
  */
@@ -90,9 +85,10 @@ function refineConfigWorkspaceQuery(
 
 export const ConfigWorkspaceQueryDtoSchema = ConfigWorkspaceQueryBaseDtoSchema.superRefine(refineConfigWorkspaceQuery);
 
-export const ConfigEditorSnapshotQueryDtoSchema = ConfigWorkspaceQueryBaseDtoSchema.extend({
-    includeAgentProfileSettings: ConfigQueryBooleanFlagSchema,
-    agentProfileSettingsScope: z.enum(["global", "project"]).optional(),
+export const ConfigEditorSnapshotQueryDtoSchema = ConfigWorkspaceQueryBaseDtoSchema.superRefine(refineConfigWorkspaceQuery);
+
+export const ConfigAgentProfileSettingsQueryDtoSchema = ConfigWorkspaceQueryBaseDtoSchema.extend({
+    scope: z.enum(["global", "project"]).default("global"),
 }).superRefine(refineConfigWorkspaceQuery);
 
 export const ConfigProfileHomeResetRequestDtoSchema = z.object({
@@ -144,6 +140,30 @@ export const ConfigEmbeddingSettingsDtoSchema = z.object({
     effective: EmbeddingServiceConfigDtoSchema,
 });
 
+export const ConfigAgentProfileLoadStatusDtoSchema = z.enum([
+    "loaded",
+    "compiling",
+    "compile_failed",
+    "not_compiled",
+    "compile_stale",
+    "compiled_load_failed",
+    "source_error",
+]);
+
+export const ConfigAgentProfileIssueDtoSchema = z.object({
+    code: z.string().trim().min(1),
+    message: z.string().trim().min(1),
+    profileKey: ProfileKeySchema.nullable().default(null),
+    sourcePath: z.string().trim().min(1).nullable().default(null),
+});
+
+export const ConfigAgentProfileBuildStateDtoSchema = z.object({
+    running: z.boolean().default(false),
+    queued: z.boolean().default(false),
+    reason: z.string().trim().min(1).nullable().default(null),
+    updatedAt: z.string().trim().min(1).nullable().default(null),
+});
+
 export const ConfigAgentProfileSettingsDtoSchema = z.object({
     enabledModels: z.array(EnabledModelOptionDtoSchema).default([]),
     profileModelDefaults: AgentProfileModelConfigDtoSchema,
@@ -152,6 +172,11 @@ export const ConfigAgentProfileSettingsDtoSchema = z.object({
         name: z.string().trim().min(1),
         canResetHome: z.boolean().default(false),
         model: AgentProfileModelConfigDtoSchema,
+        loadStatus: ConfigAgentProfileLoadStatusDtoSchema,
+        hasSettingsForm: z.boolean().default(false),
+        issue: ConfigAgentProfileIssueDtoSchema.nullable().default(null),
+        sourcePath: z.string().trim().min(1).nullable().default(null),
+        buildState: ConfigAgentProfileBuildStateDtoSchema,
         settings: z.object({
             form: LowCodeFormDtoSchema,
             value: LowCodeJsonObjectSchema,
@@ -175,7 +200,17 @@ export const ConfigDefaultProfileSettingsDtoSchema = z.object({
         profileKey: ProfileKeySchema,
         name: z.string().trim().min(1),
         description: z.string().trim().nullable(),
-        loadStatus: z.enum(["loaded", "not_compiled", "compile_stale", "compiled_load_failed", "source_error"]),
+        loadStatus: ConfigAgentProfileLoadStatusDtoSchema,
+    })).default([]),
+});
+
+export const ConfigAgentProfileBuildStatusDtoSchema = z.object({
+    profiles: z.array(z.object({
+        profileKey: ProfileKeySchema,
+        name: z.string().trim().min(1),
+        loadStatus: ConfigAgentProfileLoadStatusDtoSchema,
+        issue: ConfigAgentProfileIssueDtoSchema.nullable().default(null),
+        buildState: ConfigAgentProfileBuildStateDtoSchema,
     })).default([]),
 });
 
@@ -324,23 +359,22 @@ export const ConfigEditorSnapshotDtoSchema = z.object({
     meta: z.array(ConfigItemMetaDtoSchema),
     modelSettings: ConfigModelSettingsDtoSchema,
     embeddingSettings: ConfigEmbeddingSettingsDtoSchema,
-    agentProfileSettings: ConfigAgentProfileSettingsDtoSchema,
     defaultProfileSettings: ConfigDefaultProfileSettingsDtoSchema,
 });
 
 export type SecretConfigValueDto = z.infer<typeof SecretConfigValueDtoSchema>;
 export type ConfigItemMetaDto = z.infer<typeof ConfigItemMetaDtoSchema>;
 export type ConfigWorkspaceQueryDto = z.infer<typeof ConfigWorkspaceQueryDtoSchema>;
-export type ConfigEditorSnapshotQueryDto = ConfigWorkspaceQueryDto & {
-    includeAgentProfileSettings: boolean;
-    agentProfileSettingsScope?: "global" | "project";
-};
+export type ConfigEditorSnapshotQueryDto = z.infer<typeof ConfigEditorSnapshotQueryDtoSchema>;
+export type ConfigAgentProfileSettingsQueryDto = z.infer<typeof ConfigAgentProfileSettingsQueryDtoSchema>;
 export type ConfigProfileHomeResetRequestDto = z.infer<typeof ConfigProfileHomeResetRequestDtoSchema>;
 export type ConfigModelSettingsDto = z.infer<typeof ConfigModelSettingsDtoSchema>;
 export type EmbeddingServiceConfigDto = z.infer<typeof EmbeddingServiceConfigDtoSchema>;
 export type EmbeddingProjectConfigDto = z.infer<typeof EmbeddingProjectConfigDtoSchema>;
 export type ConfigEmbeddingSettingsDto = z.infer<typeof ConfigEmbeddingSettingsDtoSchema>;
+export type ConfigAgentProfileBuildStateDto = z.infer<typeof ConfigAgentProfileBuildStateDtoSchema>;
 export type ConfigAgentProfileSettingsDto = z.infer<typeof ConfigAgentProfileSettingsDtoSchema>;
+export type ConfigAgentProfileBuildStatusDto = z.infer<typeof ConfigAgentProfileBuildStatusDtoSchema>;
 export type ConfigDefaultProfileSettingsDto = z.infer<typeof ConfigDefaultProfileSettingsDtoSchema>;
 export type WebConfigDto = z.infer<typeof WebConfigDtoSchema>;
 export type GlobalConfigDto = z.infer<typeof GlobalConfigDtoSchema>;

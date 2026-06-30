@@ -13,12 +13,12 @@ export const LeaderDefaultOutputSchema = Type.Object({
 });
 
 /**
- * simulator.leader 的实例初始化参数。当前 Project 由 session projectPath / Workspace Focus 承载。
+ * Legacy / RP 世界模拟主管的实例初始化参数。当前 Project 由 session projectPath / Workspace Focus 承载。
  */
 export const SimulatorLeaderInitialSchema = Type.Object({});
 
 /**
- * simulator.leader 返回普通 assistant 文本，不绑定 report_result.data 结构。
+ * Legacy / RP 世界模拟主管返回普通 assistant 文本，不绑定 report_result.data 结构。
  */
 export const SimulatorLeaderOutputSchema = Type.Object({});
 
@@ -59,7 +59,6 @@ export const DirectorOutputSchema = Type.Object({
         kind: Type.Union([
             Type.Literal("thread"),
             Type.Literal("scene"),
-            Type.Literal("plot"),
         ], {description: "被处理的 Plot System 对象类型。"}),
         action: Type.Union([
             Type.Literal("created"),
@@ -70,12 +69,12 @@ export const DirectorOutputSchema = Type.Object({
         id: Type.Optional(Type.String({description: "对象 id；没有落库时为空。"})),
         title: Type.Optional(Type.String({description: "对象标题；没有时为空。"})),
         summary: Type.String({description: "该对象的操作摘要。"}),
-    }), {description: "本轮 Plot System 读写摘要。没有则返回空数组。"}),
+    }, {additionalProperties: false}), {description: "本轮 Plot System 读写摘要。没有则返回空数组。"}),
     chapter_plan: Type.String({description: "章节级剧情计划或空字符串。"}),
     writer_handoff: Type.String({description: "可交给 writer 的剧情结构 handoff。"}),
-    simulator_requests: Type.Array(Type.String({description: "需要 simulator.leader 裁决的世界状态问题。"}), {description: "没有则返回空数组。"}),
+    world_engine_requests: Type.Array(Type.String({description: "需要 leader.default 用 World Engine 处理，或由 leader.default 转交 world.engine 的未决世界状态问题。director 不直接写 World Engine。"}), {description: "没有则返回空数组。"}),
     open_questions: Type.Array(Type.String({description: "需要 leader 或用户确认的问题。"}), {description: "没有则返回空数组。"}),
-});
+}, {additionalProperties: false});
 
 /**
  * simulator.actor 的实例初始化参数。每轮 actor-facing message 通过 invoke_agent.message 传入。
@@ -83,7 +82,7 @@ export const DirectorOutputSchema = Type.Object({
 export const SubjectSimulatorInitialSchema = Type.Object({
     subjectPath: Type.String({description: "subject simulator directory path，必须相对于 Agent cwd，例如 project-slug/simulation/subjects/erina。"}),
     kind: Type.Union([Type.Literal("player"), Type.Literal("npc")], {
-        description: "subject 类型。player：用户化身，actor 不主动行动/抢话，只把 leader 的 directive 第一人称自然化复述；npc：模拟器自由扮演。simulator.leader 调 actor 前按 subject.md frontmatter 的 kind 显式传入。第一版仅支持 player/npc。",
+        description: "subject 类型。player：用户化身，actor 不主动行动/抢话，只把 leader 的 directive 第一人称自然化复述；npc：模拟器自由扮演。调用 actor 前按 subject.md frontmatter 的 kind 显式传入。第一版仅支持 player/npc。",
     }),
 });
 
@@ -222,15 +221,15 @@ export const WriterPayloadSchema = Type.Object({
     context: Type.Optional(Type.Object({
         threadIds: Type.Optional(Type.Array(Type.String({
             minLength: 1,
-            description: "Legacy Plot 兼容字段。普通写作模式 writer 会忽略；请改用 message 中的 World Engine 查询提示、lorebookEntries 或 readablePaths。",
+            description: "Legacy Plot 兼容字段。普通写作模式 writer 会忽略；请改用 message 中完整的 Scene / World Context brief、World Engine 查询提示、lorebookEntries 或 readablePaths。",
         }))),
         sceneIds: Type.Optional(Type.Array(Type.String({
             minLength: 1,
-            description: "Legacy Plot 兼容字段。普通写作模式 writer 会忽略；请改用 message 中的 World Engine 查询提示、lorebookEntries 或 readablePaths。",
+            description: "Legacy Plot 兼容字段。普通写作模式 writer 会忽略；请改用 message 中完整的 Scene / World Context brief、World Engine 查询提示、lorebookEntries 或 readablePaths。",
         }))),
         plotIds: Type.Optional(Type.Array(Type.String({
             minLength: 1,
-            description: "Legacy Plot 兼容字段。普通写作模式 writer 会忽略；请改用 message 中的 World Engine 查询提示、lorebookEntries 或 readablePaths。",
+            description: "Legacy Plot 兼容字段。普通写作模式 writer 会忽略；请改用 message 中完整的 Scene / World Context brief、World Engine 查询提示、lorebookEntries 或 readablePaths。",
         }))),
         lorebookEntries: Type.Optional(Type.Array(Type.String({
             minLength: 1,

@@ -1,7 +1,9 @@
 import {createError} from "h3";
 import {
+    ConfigAgentProfileSettingsQueryDtoSchema,
     ConfigEditorSnapshotQueryDtoSchema,
     ConfigWorkspaceQueryDtoSchema,
+    type ConfigAgentProfileSettingsQueryDto,
     type ConfigEditorSnapshotQueryDto,
     type ConfigWorkspaceQueryDto,
 } from "nbook/shared/dto/config.dto";
@@ -21,7 +23,7 @@ export function validateConfigWorkspaceQuery(query: unknown): ConfigWorkspaceQue
 }
 
 /**
- * 校验设置页编辑快照 query。includeAgentProfileSettings 只接受 true/false。
+ * 校验设置页编辑快照 query。Phase 0 后 editor-snapshot 不再承载 profile settings 大包。
  */
 export function validateConfigEditorSnapshotQuery(query: unknown): ConfigEditorSnapshotQueryDto {
     const parsed = ConfigEditorSnapshotQueryDtoSchema.safeParse(query);
@@ -31,10 +33,19 @@ export function validateConfigEditorSnapshotQuery(query: unknown): ConfigEditorS
             message: parsed.error.issues[0]?.message ?? "配置请求参数不合法",
         });
     }
-    return {
-        ...parsed.data,
-        includeAgentProfileSettings: parsed.data.includeAgentProfileSettings === true
-            || parsed.data.includeAgentProfileSettings === "true",
-        ...(parsed.data.agentProfileSettingsScope ? {agentProfileSettingsScope: parsed.data.agentProfileSettingsScope} : {}),
-    };
+    return parsed.data;
+}
+
+/**
+ * 校验 Agent Profile settings 专用接口 query。
+ */
+export function validateConfigAgentProfileSettingsQuery(query: unknown): ConfigAgentProfileSettingsQueryDto {
+    const parsed = ConfigAgentProfileSettingsQueryDtoSchema.safeParse(query);
+    if (!parsed.success) {
+        throw createError({
+            statusCode: 400,
+            message: parsed.error.issues[0]?.message ?? "配置请求参数不合法",
+        });
+    }
+    return parsed.data;
 }

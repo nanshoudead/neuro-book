@@ -76,7 +76,7 @@ export interface AgentTriggerMenuSection {
  * 输入器当前激活的 trigger。
  */
 export interface AgentTriggerMenuContext {
-    kind: "reference-root" | "chapter" | "volume" | "lorebook" | "thread" | "scene" | "plot" | "skill" | "command";
+    kind: "reference-root" | "chapter" | "volume" | "lorebook" | "thread" | "scene" | "skill" | "command";
     query: string;
     /** true 表示触发符前已经有普通内容，命令菜单可据此隐藏会改写 session 的动作。 */
     hasPlainTextBeforeTrigger?: boolean;

@@ -1,25 +1,21 @@
 import type {Prisma} from "nbook/server/generated/project-prisma/client";
 import type {
     StoryPhase,
-    StoryPlot,
     StoryScene,
     StorySceneRef,
     StoryThread,
 } from "nbook/server/generated/project-prisma/client";
 import type {
-    CreateStoryPlotRequestDto,
-    CreateStoryPlotsRequestDto,
     CreateStorySceneRequestDto,
     CreateStoryThreadRequestDto,
     ReorderStoryPhasesRequestDto,
-    ReorderStoryPlotsRequestDto,
     ReorderStoryScenesRequestDto,
     ReorderStoryThreadsRequestDto,
     StoryRefDto,
-    UpdateStoryPlotRequestDto,
     UpdateStorySceneRequestDto,
     UpdateStoryThreadRequestDto,
 } from "nbook/shared/dto/plot.dto";
+import type {Instant} from "nbook/server/world-engine/types";
 
 /**
  * 剧情模块可用的 Prisma 执行器。
@@ -29,10 +25,22 @@ export type PrismaExecutor = Prisma.TransactionClient | {
     storyPhase: Prisma.TransactionClient["storyPhase"];
     storyThread: Prisma.TransactionClient["storyThread"];
     storyScene: Prisma.TransactionClient["storyScene"];
-    storyPlot: Prisma.TransactionClient["storyPlot"];
     storySceneRef: Prisma.TransactionClient["storySceneRef"];
     $executeRaw: Prisma.TransactionClient["$executeRaw"];
     $executeRawUnsafe: Prisma.TransactionClient["$executeRawUnsafe"];
+};
+
+/**
+ * Scene 与 World Engine 的桥接锚点。
+ */
+export type SceneWorldAnchor = {
+    // `null` 表示 Scene 尚未连接 World Engine 起点。
+    startInstant: Instant | null;
+    // `null` 表示 Scene 尚未连接 World Engine 终点。
+    endInstant: Instant | null;
+    subjectIds: string[];
+    // `null` 表示 Scene 没有指定地点 subject。
+    locationSubjectId: string | null;
 };
 
 /**
@@ -41,7 +49,6 @@ export type PrismaExecutor = Prisma.TransactionClient | {
 export type StorySceneRefWithTargets = StorySceneRef & {
     targetThread: Pick<StoryThread, "id" | "name"> | null;
     targetScene: Pick<StoryScene, "id"> | null;
-    targetPlot: Pick<StoryPlot, "id"> | null;
 };
 
 /**
@@ -65,7 +72,6 @@ export type StoryThreadWithScenes = StoryThreadEntity & {
  * Scene 详情聚合结果。
  */
 export type StorySceneWithDetails = StoryScene & {
-    plots: StoryPlot[];
     refs: StorySceneRefWithTargets[];
     thread: StoryThreadEntity;
 };
@@ -74,7 +80,6 @@ export type StorySceneWithDetails = StoryScene & {
  * Workbench Scene 聚合结果。
  */
 export type StoryWorkbenchScene = StoryScene & {
-    plots: StoryPlot[];
     refs: StorySceneRefWithTargets[];
 };
 
@@ -96,8 +101,14 @@ export type StoryWorkbenchPhase = StoryPhase & {
  * 章节剧情详情聚合结果。
  */
 export type ChapterPlotSceneWithThread = StoryScene & {
-    plots: StoryPlot[];
     thread: Pick<StoryThread, "id" | "title" | "isMainThread">;
+};
+
+/**
+ * Chapter writer brief 专用 Scene read model。
+ */
+export type ChapterWriterBriefSceneWithThread = StoryScene & {
+    thread: Pick<StoryThread, "id" | "title" | "isMainThread" | "summary" | "writingTip">;
 };
 
 /**
@@ -107,10 +118,9 @@ export type ResolvedStoryRefInput = {
     sortOrder: number;
     relation: string;
     rawTarget: string;
-    targetKind: "content" | "thread" | "scene" | "plot";
+    targetKind: "content" | "thread" | "scene";
     targetThreadId: number | null;
     targetSceneId: number | null;
-    targetPlotId: number | null;
     visibility: StoryRefDto["visibility"];
     // `note` 为空表示该引用没有额外备注。
     note: string | null;
@@ -145,15 +155,6 @@ export type ParsedReorderStorySceneItem = {
 };
 
 /**
- * 情节点重排项。
- */
-export type ParsedReorderStoryPlotItem = {
-    plotId: number;
-    sceneId: number;
-    sortOrder: number;
-};
-
-/**
  * 线程创建输入。
  */
 export type ParsedCreateStoryThreadInput = Omit<CreateStoryThreadRequestDto, "storyPhaseId"> & {
@@ -171,18 +172,19 @@ export type ParsedUpdateStoryThreadInput = Omit<UpdateStoryThreadRequestDto, "st
 /**
  * 场景创建输入。
  */
-export type ParsedCreateStorySceneInput = Omit<CreateStorySceneRequestDto, "threadId" | "chapterPath" | "refs"> & {
+export type ParsedCreateStorySceneInput = Omit<CreateStorySceneRequestDto, "threadId" | "chapterPath" | "refs" | "worldAnchor"> & {
     threadId: number;
     chapterPath: string | null;
     refs: StoryRefDto[];
     // `resolvedRefs` 非空表示内容层已经完成目标存在性校验，可直接写库。
     resolvedRefs?: ResolvedStoryRefInput[];
+    worldAnchor: SceneWorldAnchor;
 };
 
 /**
  * 场景更新输入。
  */
-export type ParsedUpdateStorySceneInput = Omit<UpdateStorySceneRequestDto, "threadId" | "chapterPath" | "refs"> & {
+export type ParsedUpdateStorySceneInput = Omit<UpdateStorySceneRequestDto, "threadId" | "chapterPath" | "refs" | "worldAnchor"> & {
     // `threadId` 为 undefined 表示不修改所属线程。
     threadId?: number;
     // `chapterPath` 为 undefined 表示不修改；null 表示从章节顺序中移除。
@@ -190,31 +192,10 @@ export type ParsedUpdateStorySceneInput = Omit<UpdateStorySceneRequestDto, "thre
     refs?: StoryRefDto[];
     // `resolvedRefs` 非空表示内容层已经完成目标存在性校验，可直接写库。
     resolvedRefs?: ResolvedStoryRefInput[];
-};
-
-/**
- * 情节点创建输入。
- */
-export type ParsedCreateStoryPlotInput = Omit<CreateStoryPlotRequestDto, "sceneId"> & {
-    sceneId: number;
-};
-
-/**
- * 情节点批量创建输入。
- */
-export type ParsedCreateStoryPlotsInput = Omit<CreateStoryPlotsRequestDto, "sceneId"> & {
-    sceneId: number;
-};
-
-/**
- * 情节点更新输入。
- */
-export type ParsedUpdateStoryPlotInput = Omit<UpdateStoryPlotRequestDto, "sceneId"> & {
-    // `sceneId` 为 undefined 表示不修改所属 Scene。
-    sceneId?: number;
+    // `worldAnchor` 为 undefined 表示不修改 World Engine 桥接锚点。
+    worldAnchor?: SceneWorldAnchor;
 };
 
 export type ReorderStoryPhaseItem = ReorderStoryPhasesRequestDto["items"][number];
 export type ReorderStoryThreadItem = ReorderStoryThreadsRequestDto["items"][number];
 export type ReorderStorySceneItem = ReorderStoryScenesRequestDto["items"][number];
-export type ReorderStoryPlotItem = ReorderStoryPlotsRequestDto["items"][number];

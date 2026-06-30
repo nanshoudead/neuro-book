@@ -197,6 +197,17 @@ export type EnumStorySceneStatusFilter<$PrismaModel = never> = {
   not?: Prisma.NestedEnumStorySceneStatusFilter<$PrismaModel> | $Enums.StorySceneStatus
 }
 
+export type BigIntNullableFilter<$PrismaModel = never> = {
+  equals?: bigint | number | Prisma.BigIntFieldRefInput<$PrismaModel> | null
+  in?: bigint[] | number[] | null
+  notIn?: bigint[] | number[] | null
+  lt?: bigint | number | Prisma.BigIntFieldRefInput<$PrismaModel>
+  lte?: bigint | number | Prisma.BigIntFieldRefInput<$PrismaModel>
+  gt?: bigint | number | Prisma.BigIntFieldRefInput<$PrismaModel>
+  gte?: bigint | number | Prisma.BigIntFieldRefInput<$PrismaModel>
+  not?: Prisma.NestedBigIntNullableFilter<$PrismaModel> | bigint | number | null
+}
+
 export type EnumStorySceneStatusWithAggregatesFilter<$PrismaModel = never> = {
   equals?: $Enums.StorySceneStatus | Prisma.EnumStorySceneStatusFieldRefInput<$PrismaModel>
   in?: $Enums.StorySceneStatus[]
@@ -207,21 +218,20 @@ export type EnumStorySceneStatusWithAggregatesFilter<$PrismaModel = never> = {
   _max?: Prisma.NestedEnumStorySceneStatusFilter<$PrismaModel>
 }
 
-export type EnumStoryPlotKindFilter<$PrismaModel = never> = {
-  equals?: $Enums.StoryPlotKind | Prisma.EnumStoryPlotKindFieldRefInput<$PrismaModel>
-  in?: $Enums.StoryPlotKind[]
-  notIn?: $Enums.StoryPlotKind[]
-  not?: Prisma.NestedEnumStoryPlotKindFilter<$PrismaModel> | $Enums.StoryPlotKind
-}
-
-export type EnumStoryPlotKindWithAggregatesFilter<$PrismaModel = never> = {
-  equals?: $Enums.StoryPlotKind | Prisma.EnumStoryPlotKindFieldRefInput<$PrismaModel>
-  in?: $Enums.StoryPlotKind[]
-  notIn?: $Enums.StoryPlotKind[]
-  not?: Prisma.NestedEnumStoryPlotKindWithAggregatesFilter<$PrismaModel> | $Enums.StoryPlotKind
-  _count?: Prisma.NestedIntFilter<$PrismaModel>
-  _min?: Prisma.NestedEnumStoryPlotKindFilter<$PrismaModel>
-  _max?: Prisma.NestedEnumStoryPlotKindFilter<$PrismaModel>
+export type BigIntNullableWithAggregatesFilter<$PrismaModel = never> = {
+  equals?: bigint | number | Prisma.BigIntFieldRefInput<$PrismaModel> | null
+  in?: bigint[] | number[] | null
+  notIn?: bigint[] | number[] | null
+  lt?: bigint | number | Prisma.BigIntFieldRefInput<$PrismaModel>
+  lte?: bigint | number | Prisma.BigIntFieldRefInput<$PrismaModel>
+  gt?: bigint | number | Prisma.BigIntFieldRefInput<$PrismaModel>
+  gte?: bigint | number | Prisma.BigIntFieldRefInput<$PrismaModel>
+  not?: Prisma.NestedBigIntNullableWithAggregatesFilter<$PrismaModel> | bigint | number | null
+  _count?: Prisma.NestedIntNullableFilter<$PrismaModel>
+  _avg?: Prisma.NestedFloatNullableFilter<$PrismaModel>
+  _sum?: Prisma.NestedBigIntNullableFilter<$PrismaModel>
+  _min?: Prisma.NestedBigIntNullableFilter<$PrismaModel>
+  _max?: Prisma.NestedBigIntNullableFilter<$PrismaModel>
 }
 
 export type EnumStoryRefTargetKindFilter<$PrismaModel = never> = {
@@ -502,6 +512,17 @@ export type NestedEnumStorySceneStatusFilter<$PrismaModel = never> = {
   not?: Prisma.NestedEnumStorySceneStatusFilter<$PrismaModel> | $Enums.StorySceneStatus
 }
 
+export type NestedBigIntNullableFilter<$PrismaModel = never> = {
+  equals?: bigint | number | Prisma.BigIntFieldRefInput<$PrismaModel> | null
+  in?: bigint[] | number[] | null
+  notIn?: bigint[] | number[] | null
+  lt?: bigint | number | Prisma.BigIntFieldRefInput<$PrismaModel>
+  lte?: bigint | number | Prisma.BigIntFieldRefInput<$PrismaModel>
+  gt?: bigint | number | Prisma.BigIntFieldRefInput<$PrismaModel>
+  gte?: bigint | number | Prisma.BigIntFieldRefInput<$PrismaModel>
+  not?: Prisma.NestedBigIntNullableFilter<$PrismaModel> | bigint | number | null
+}
+
 export type NestedEnumStorySceneStatusWithAggregatesFilter<$PrismaModel = never> = {
   equals?: $Enums.StorySceneStatus | Prisma.EnumStorySceneStatusFieldRefInput<$PrismaModel>
   in?: $Enums.StorySceneStatus[]
@@ -512,21 +533,20 @@ export type NestedEnumStorySceneStatusWithAggregatesFilter<$PrismaModel = never>
   _max?: Prisma.NestedEnumStorySceneStatusFilter<$PrismaModel>
 }
 
-export type NestedEnumStoryPlotKindFilter<$PrismaModel = never> = {
-  equals?: $Enums.StoryPlotKind | Prisma.EnumStoryPlotKindFieldRefInput<$PrismaModel>
-  in?: $Enums.StoryPlotKind[]
-  notIn?: $Enums.StoryPlotKind[]
-  not?: Prisma.NestedEnumStoryPlotKindFilter<$PrismaModel> | $Enums.StoryPlotKind
-}
-
-export type NestedEnumStoryPlotKindWithAggregatesFilter<$PrismaModel = never> = {
-  equals?: $Enums.StoryPlotKind | Prisma.EnumStoryPlotKindFieldRefInput<$PrismaModel>
-  in?: $Enums.StoryPlotKind[]
-  notIn?: $Enums.StoryPlotKind[]
-  not?: Prisma.NestedEnumStoryPlotKindWithAggregatesFilter<$PrismaModel> | $Enums.StoryPlotKind
-  _count?: Prisma.NestedIntFilter<$PrismaModel>
-  _min?: Prisma.NestedEnumStoryPlotKindFilter<$PrismaModel>
-  _max?: Prisma.NestedEnumStoryPlotKindFilter<$PrismaModel>
+export type NestedBigIntNullableWithAggregatesFilter<$PrismaModel = never> = {
+  equals?: bigint | number | Prisma.BigIntFieldRefInput<$PrismaModel> | null
+  in?: bigint[] | number[] | null
+  notIn?: bigint[] | number[] | null
+  lt?: bigint | number | Prisma.BigIntFieldRefInput<$PrismaModel>
+  lte?: bigint | number | Prisma.BigIntFieldRefInput<$PrismaModel>
+  gt?: bigint | number | Prisma.BigIntFieldRefInput<$PrismaModel>
+  gte?: bigint | number | Prisma.BigIntFieldRefInput<$PrismaModel>
+  not?: Prisma.NestedBigIntNullableWithAggregatesFilter<$PrismaModel> | bigint | number | null
+  _count?: Prisma.NestedIntNullableFilter<$PrismaModel>
+  _avg?: Prisma.NestedFloatNullableFilter<$PrismaModel>
+  _sum?: Prisma.NestedBigIntNullableFilter<$PrismaModel>
+  _min?: Prisma.NestedBigIntNullableFilter<$PrismaModel>
+  _max?: Prisma.NestedBigIntNullableFilter<$PrismaModel>
 }
 
 export type NestedEnumStoryRefTargetKindFilter<$PrismaModel = never> = {

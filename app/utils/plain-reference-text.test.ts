@@ -73,14 +73,14 @@ describe("plain-reference-text", () => {
     });
 
     it("识别 domain reference 并序列化为 canonical target", () => {
-        const text = "剧情 [主线](thread://thread-main) 和 [情节](plot://plot-1)";
+        const text = "剧情 [主线](thread://thread-main) 和 [场景](scene://scene-1)";
         const doc = parsePlainReferenceText(text);
 
         expect(doc.content?.[0]?.content).toEqual([
             {type: "text", text: "剧情 "},
             {type: "plainReference", attrs: {label: "主线", target: "thread://thread-main"}},
             {type: "text", text: " 和 "},
-            {type: "plainReference", attrs: {label: "情节", target: "plot://plot-1"}},
+            {type: "plainReference", attrs: {label: "场景", target: "scene://scene-1"}},
         ]);
         expect(serializePlainReferenceDoc(doc)).toBe(text);
     });

@@ -8,6 +8,7 @@ import {WorkspaceWriteConflictDtoSchema} from "nbook/shared/dto/workspace-file-c
 const createdRoots: string[] = [];
 const originalReadBody = (globalThis as typeof globalThis & {readBody?: unknown}).readBody;
 const originalDefineEventHandler = (globalThis as typeof globalThis & {defineEventHandler?: unknown}).defineEventHandler;
+const originalDefineRouteMeta = (globalThis as typeof globalThis & {defineRouteMeta?: unknown}).defineRouteMeta;
 let readBodyMock: ReturnType<typeof vi.fn>;
 
 describe("PUT /api/workspace-files/write", () => {
@@ -16,9 +17,11 @@ describe("PUT /api/workspace-files/write", () => {
         readBodyMock = vi.fn();
         const globals = globalThis as typeof globalThis & {
             defineEventHandler?: <THandler>(handler: THandler) => THandler;
+            defineRouteMeta?: (meta: unknown) => void;
             readBody?: typeof readBodyMock;
         };
         globals.defineEventHandler = (handler) => handler;
+        globals.defineRouteMeta = () => undefined;
         globals.readBody = readBodyMock;
         vi.doMock("nbook/server/utils/prisma", () => ({
             prisma: {},
@@ -28,9 +31,11 @@ describe("PUT /api/workspace-files/write", () => {
     afterEach(async () => {
         const globals = globalThis as typeof globalThis & {
             defineEventHandler?: unknown;
+            defineRouteMeta?: unknown;
             readBody?: unknown;
         };
         globals.defineEventHandler = originalDefineEventHandler;
+        globals.defineRouteMeta = originalDefineRouteMeta;
         globals.readBody = originalReadBody;
         vi.doUnmock("nbook/server/utils/prisma");
         await Promise.all(createdRoots.splice(0).map((root) => fs.rm(root, {recursive: true, force: true})));

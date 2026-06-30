@@ -2,13 +2,15 @@ import {execFile} from "node:child_process";
 import {randomUUID} from "node:crypto";
 import {mkdir, mkdtemp, readFile, readdir, rm, writeFile} from "node:fs/promises";
 import {tmpdir} from "node:os";
-import {join, resolve} from "node:path";
+import {dirname, join, resolve} from "node:path";
 import {promisify} from "node:util";
 import {afterEach, describe, expect, it, vi} from "vitest";
 import {runCli} from "nbook/assets/workspace/.nbook/agent/skills/llmlint/src/cli";
 import {loadConfig} from "nbook/assets/workspace/.nbook/agent/skills/llmlint/src/config";
 import {importCuratedRulesets} from "nbook/assets/workspace/.nbook/agent/skills/llmlint/src/curated-import";
 import {CURATED_RULE_SLUGS} from "nbook/assets/workspace/.nbook/agent/skills/llmlint/src/curated-slugs";
+import {computeMaskedRanges, isMasked} from "nbook/assets/workspace/.nbook/agent/skills/llmlint/src/markdown-mask";
+import {formatCheckReport} from "nbook/assets/workspace/.nbook/agent/skills/llmlint/src/reporter";
 import {loadRules} from "nbook/assets/workspace/.nbook/agent/skills/llmlint/src/rules";
 import {scanText} from "nbook/assets/workspace/.nbook/agent/skills/llmlint/src/scanner";
 import type {LintRuleRecord} from "nbook/assets/workspace/.nbook/agent/skills/llmlint/src/types";
@@ -70,7 +72,7 @@ describe("llmlint", () => {
             trustedRulesets: [],
             rulesetOverrides: {},
             namespaces: {
-                "vocabulary.r18": "off",
+                "vocabulary.r18": {enabled: false},
             },
             rules: {},
             output: "stylish",
@@ -115,6 +117,77 @@ describe("llmlint", () => {
                 nextRuleset: secondRuleset,
             }),
         ]));
+    });
+
+    it("ruleset 会递归扫描 rules 目录并按路径稳定加载", async () => {
+        const rulesetId = `test/${randomUUID()}`;
+        tempRoots.push(join(RULESETS_ROOT, "test"));
+        await writeMultiFileRuleset(rulesetId, {
+            "rules/a.json": [
+                regexRule("test.multi.first", "test.multi", "第一条", "甲词"),
+            ],
+            "rules/nested/b.json": [
+                regexRule("test.multi.second", "test.multi", "第二条", "乙词"),
+            ],
+        });
+
+        const loadedRules = await loadRules(emptyConfig([rulesetId]));
+        const issues = scanText("甲词 乙词", loadedRules.regexRules);
+
+        expect(loadedRules.rules.map((rule) => rule.id)).toEqual([
+            "test.multi.first",
+            "test.multi.second",
+        ]);
+        expect(issues.map((issue) => issue.rule.id)).toEqual([
+            "test.multi.first",
+            "test.multi.second",
+        ]);
+    });
+
+    it("rules 目录层级不参与 namespace 语义", async () => {
+        const rulesetId = `test/${randomUUID()}`;
+        tempRoots.push(join(RULESETS_ROOT, "test"));
+        await writeMultiFileRuleset(rulesetId, {
+            "rules/unrelated/path.json": [
+                regexRule("test.path.semantic", "semantic.namespace", "路径不参与语义", "甲词"),
+            ],
+        });
+
+        const loadedRules = await loadRules(emptyConfig([rulesetId]));
+        const rule = loadedRules.rules.find((item) => item.id === "test.path.semantic");
+
+        expect(rule?.namespace).toBe("semantic.namespace");
+    });
+
+    it("ruleset 硬切拒绝旧 ruleFiles / rulesRoot / 根 rules.json 入口", async () => {
+        const ruleFilesRuleset = `test/${randomUUID()}`;
+        const rulesRootRuleset = `test/${randomUUID()}`;
+        const rootRulesJsonRuleset = `test/${randomUUID()}`;
+        tempRoots.push(join(RULESETS_ROOT, "test"));
+        await writeMultiFileRuleset(ruleFilesRuleset, {
+            "rules/index.json": [regexRule("test.removed.ruleFiles", "test.removed", "旧 ruleFiles", "甲词")],
+        }, {ruleFiles: ["rules/index.json"]});
+        await writeMultiFileRuleset(rulesRootRuleset, {
+            "rules/index.json": [regexRule("test.removed.rulesRoot", "test.removed", "旧 rulesRoot", "乙词")],
+        }, {rulesRoot: "rules"});
+        await writeLegacyRootRulesJsonRuleset(rootRulesJsonRuleset, [
+            regexRule("test.removed.root", "test.removed", "旧 rules.json", "丙词"),
+        ]);
+
+        await expect(loadRules(emptyConfig([ruleFilesRuleset]))).rejects.toThrow("不再支持 ruleFiles");
+        await expect(loadRules(emptyConfig([rulesRootRuleset]))).rejects.toThrow("不再支持 rulesRoot");
+        await expect(loadRules(emptyConfig([rootRulesJsonRuleset]))).rejects.toThrow("不再支持根目录 rules.json");
+    });
+
+    it("ruleset 会明确报告 rules 目录形态和 JSON 语法错误", async () => {
+        const fileRulesPathRuleset = `test/${randomUUID()}`;
+        const invalidJsonRuleset = `test/${randomUUID()}`;
+        tempRoots.push(join(RULESETS_ROOT, "test"));
+        await writeRulesPathAsFileRuleset(fileRulesPathRuleset);
+        await writeInvalidJsonRuleset(invalidJsonRuleset);
+
+        await expect(loadRules(emptyConfig([fileRulesPathRuleset]))).rejects.toThrow("rules/ 必须是规则目录");
+        await expect(loadRules(emptyConfig([invalidJsonRuleset]))).rejects.toThrow(`规则包 ${invalidJsonRuleset} 的 rules/broken.json 不是合法 JSON`);
     });
 
     it("rulesetOverrides off 的规则包不参与同 ID 覆盖", async () => {
@@ -162,10 +235,10 @@ describe("llmlint", () => {
                 [rulesetId]: "off",
             },
             namespaces: {
-                tone: "low",
+                tone: {enabled: true, level: "low"},
             },
             rules: {
-                "test.explicit.rule": "high",
+                "test.explicit.rule": {enabled: true, level: "high"},
             },
             output: "stylish",
         });
@@ -192,6 +265,62 @@ describe("llmlint", () => {
         const issues = scanText("ALPHA beta", loadedRules.regexRules);
 
         expect(issues.map((issue) => issue.match)).toEqual(["ALPHA", "beta"]);
+        expect(issues.map((issue) => `${issue.line}:${issue.column}-${issue.endColumn}`)).toEqual(["1:1-5", "1:7-10"]);
+    });
+
+    it("regex detector 的结束列按人类可读字符计算", async () => {
+        const rulesetId = `test/${randomUUID()}`;
+        tempRoots.push(join(RULESETS_ROOT, "test"));
+        await writeRuleset(rulesetId, [{
+            ...regexRule("test.codepoint-range", "test.regex", "字符列规则", "😀"),
+            detector: {type: "regex", targets: ["😀", "😀A", "甲\n乙"]},
+        }]);
+
+        const loadedRules = await loadRules(emptyConfig([rulesetId]));
+        const issues = scanText("😀 😀A\n甲\n乙", loadedRules.regexRules);
+
+        expect(issues.map((issue) => `${issue.line}:${issue.column}-${issue.endLine}:${issue.endColumn}`)).toEqual([
+            "1:1-1:1",
+            "1:3-1:3",
+            "1:3-1:4",
+            "2:1-3:1",
+        ]);
+    });
+
+    it("stylish check 默认输出紧凑位置范围，不重复完整命中行", async () => {
+        const rulesetId = `test/${randomUUID()}`;
+        tempRoots.push(join(RULESETS_ROOT, "test"));
+        await writeRuleset(rulesetId, [
+            {...regexRule("test.high", "test.output", "高等级规则", "高风险词"), level: "high"},
+            {...regexRule("test.low", "test.output", "低等级规则", "低风险词"), level: "low"},
+        ]);
+        const loadedRules = await loadRules(emptyConfig([rulesetId]));
+        const text = "同一行有高风险词，也有低风险词。";
+        const issues = scanText(text, loadedRules.regexRules);
+
+        const output = formatCheckReport("input.md", issues, loadedRules);
+
+        expect(output.indexOf("high (1 problem)")).toBeLessThan(output.indexOf("low (1 problem)"));
+        expect(output).toContain("1:5-8  match: 高风险词");
+        expect(output).toContain("1:12-15  match: 低风险词");
+        expect(output).not.toContain("同一行有高风险词，也有低风险词。");
+        expect(output).not.toContain("<mark>");
+        expect(output).not.toContain("^^");
+    });
+
+    it("stylish check showLines 模式输出完整行并用 mark 标注", async () => {
+        const rulesetId = `test/${randomUUID()}`;
+        tempRoots.push(join(RULESETS_ROOT, "test"));
+        await writeRuleset(rulesetId, [
+            {...regexRule("test.high.lines", "test.output", "高等级规则", "高风险词"), level: "high"},
+        ]);
+        const loadedRules = await loadRules(emptyConfig([rulesetId]));
+        const text = "这是一个很长的完整行，前面有足够多的上下文用于验证不会被截断，高风险词后面也应该保留完整上下文。";
+        const issues = scanText(text, loadedRules.regexRules);
+
+        const output = formatCheckReport("input.md", issues, loadedRules, {showLines: true});
+
+        expect(output).toContain("1:32-35  这是一个很长的完整行，前面有足够多的上下文用于验证不会被截断，<mark>高风险词</mark>后面也应该保留完整上下文。");
     });
 
     it("handler rule 第一版会跳过并产生 warning", async () => {
@@ -266,13 +395,71 @@ describe("llmlint", () => {
         expect(report.rules.map((rule) => rule.id)).toContain("mechanical-elevation-ending");
     });
 
+    it("JSON check 输出保留 context 并包含结束位置", async () => {
+        const rulesetId = `test/${randomUUID()}`;
+        const root = await mkdtemp(join(tmpdir(), "llmlint-json-issue-"));
+        tempRoots.push(root, join(RULESETS_ROOT, "test"));
+        await writeRuleset(rulesetId, [
+            regexRule("test.json.issue", "test.output", "JSON 规则", "高风险词"),
+        ]);
+        const configPath = join(root, "llmlint.config.ts");
+        const textPath = join(root, "input.md");
+        await writeFile(configPath, `export default {
+    rulesets: ["${rulesetId}"],
+};
+`, "utf-8");
+        await writeFile(textPath, "前文高风险词后文", "utf-8");
+        const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+
+        await runCli(["bun", "llmlint", "--config", configPath, "--format", "json", "check", textPath]);
+
+        const report = JSON.parse(String(log.mock.calls[0]?.[0])) as {issues: Array<{line: number; column: number; endLine: number; endColumn: number; context: {before: string; current: string; after: string}}>};
+        expect(report.issues[0]).toMatchObject({
+            line: 1,
+            column: 3,
+            endLine: 1,
+            endColumn: 6,
+            context: {
+                before: "前文",
+                current: "高风险词",
+                after: "后文",
+            },
+        });
+    });
+
+    it("CLI check 支持按最低级别过滤输出", async () => {
+        const rulesetId = `test/${randomUUID()}`;
+        const root = await mkdtemp(join(tmpdir(), "llmlint-min-level-"));
+        tempRoots.push(root, join(RULESETS_ROOT, "test"));
+        await writeRuleset(rulesetId, [
+            {...regexRule("test.high.filter", "test.output", "高等级过滤", "高风险词"), level: "high"},
+            {...regexRule("test.low.filter", "test.output", "低等级过滤", "低风险词"), level: "low"},
+        ]);
+        const configPath = join(root, "llmlint.config.ts");
+        const textPath = join(root, "input.md");
+        await writeFile(configPath, `export default {
+    rulesets: ["${rulesetId}"],
+};
+`, "utf-8");
+        await writeFile(textPath, "高风险词 低风险词", "utf-8");
+        const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+
+        await runCli(["bun", "llmlint", "--config", configPath, "check", textPath, "--min-level", "medium", "--show-lines"]);
+
+        const output = String(log.mock.calls[0]?.[0]);
+        expect(output).toContain("显示级别：medium 及以上；已隐藏 1 条较低级别命中。");
+        expect(output).toContain("test.high.filter");
+        expect(output).toContain("<mark>高风险词</mark>");
+        expect(output).not.toContain("test.low.filter");
+    });
+
     it("CLI help 只暴露硬切后的公开命令", async () => {
         const {stdout} = await execFileAsync("bun", [LLMLINT_BIN, "--help"], {
             encoding: "utf-8",
             timeout: 10000,
         });
 
-        expect(stdout).toContain("check [options] <file>");
+        expect(stdout).toContain("check [options] <files...>");
         expect(stdout).toContain("show-llm-rules [options]");
         expect(stdout).not.toContain("import-legacy");
         expect(stdout).not.toContain("import-curated");
@@ -305,32 +492,44 @@ describe("llmlint", () => {
         expect(source).not.toContain("source.legacy");
     });
 
-    it("curated import 会生成单个内置中文精选 ruleset 并去重合并策展素材", async () => {
+    it("curated import 会生成按 namespace 拆分的内置默认 ruleset", async () => {
         const root = await mkdtemp(join(tmpdir(), "llmlint-curated-"));
         tempRoots.push(root);
         const report = await importCuratedRulesets({
             sourceRoot: ".agent/workspace/llmlint_rules",
             outputRoot: root,
         });
-        const rules = JSON.parse(await readFile(join(root, "builtin", "default", "rules.json"), "utf-8")) as Array<{
+        const rulesetRoot = join(root, "builtin", "default");
+        const manifest = JSON.parse(await readFile(join(rulesetRoot, "ruleset.json"), "utf-8")) as Record<string, unknown>;
+        const rules = await readRulesetRules(rulesetRoot) as Array<{
             id: string;
             namespace: string;
             enabled?: boolean;
             detector: {type: "regex"; targets: string[]} | {type: "llm"; prompt: string};
-            action: {replacements: string[]};
+            action: {replacements?: string[]};
             source?: {canonicalKey?: string; importedFrom?: string};
         }>;
+        const r18Rules = JSON.parse(await readFile(join(rulesetRoot, "rules", "vocabulary", "r18.json"), "utf-8")) as Array<{namespace: string}>;
 
         expect(report.rulesets.map((ruleset) => ruleset.rulesetId)).toEqual([
             "builtin/default",
         ]);
+        await expect(readFile(join(rulesetRoot, "rules.json"), "utf-8")).rejects.toMatchObject({code: "ENOENT"});
+        expect(manifest.ruleFiles).toBeUndefined();
+        expect(manifest.rulesRoot).toBeUndefined();
+        expect(r18Rules).toHaveLength(20);
+        expect(r18Rules.every((rule) => rule.namespace === "vocabulary.r18")).toBe(true);
         expect(report.skipped).toHaveLength(0);
         expect(report.converted.text).toBeGreaterThan(0);
         expect(report.converted.simple).toBeGreaterThan(0);
         expect(report.converted.regex).toBeGreaterThan(0);
-        expect(report.uniqueRules).toBe(292);
-        expect(rules).toHaveLength(292);
+        expect(report.uniqueRules).toBe(340);
+        expect(rules).toHaveLength(340);
+        expect(rules.filter((rule) => rule.enabled !== false)).toHaveLength(311);
         expect(rules.some((rule) => rule.id === "mechanical-elevation-ending")).toBe(true);
+        expect(rules.some((rule) => rule.id === "opening-cliche-announce" && rule.namespace === "opening.cliche")).toBe(true);
+        expect(rules.some((rule) => rule.id === "inflation-novelty" && rule.namespace === "inflation.significance")).toBe(true);
+        expect(rules.some((rule) => rule.id === "mechanical-zero-width" && rule.namespace === "mechanical.zero-width")).toBe(true);
         expect(rules.some((rule) => /^cn\..+\.[0-9a-f]{10}$/.test(rule.id))).toBe(false);
         expect(rules.some((rule) => rule.namespace === "vocabulary.r18" && rule.enabled !== false)).toBe(true);
         expect(rules.some((rule) => rule.namespace === "modifier.extreme" && rule.enabled !== false)).toBe(false);
@@ -371,11 +570,355 @@ describe("llmlint", () => {
         }
     });
 
+    it("loader 解析 review / fixability：命名空间策略优先于 detector/action 推导", async () => {
+        const rulesetId = `test/${randomUUID()}`;
+        tempRoots.push(join(RULESETS_ROOT, "test"));
+        await writeRuleset(rulesetId, [
+            regexRule("test.policy.dash", "punctuation.dash", "破折号", "甲词"),
+            {
+                id: "test.policy.dedup",
+                namespace: "punctuation.dedup",
+                title: "连续符号去重",
+                level: "medium",
+                detector: {type: "regex", targets: ["乙词"]},
+                action: {type: "replace", replacements: ["乙"]},
+            },
+            regexRule("test.policy.plain", "test.plain", "普通替换", "丙词"),
+            {
+                id: "test.policy.suggest",
+                namespace: "test.plain",
+                title: "纯提示",
+                level: "medium",
+                detector: {type: "regex", targets: ["丁词"]},
+                action: {type: "suggest", message: "读取上下文"},
+            },
+        ]);
+
+        const loadedRules = await loadRules(emptyConfig([rulesetId]));
+        const byId = new Map(loadedRules.rules.map((rule) => [rule.id, rule]));
+
+        expect(byId.get("test.policy.dash")).toMatchObject({review: "human", fixability: "candidate"});
+        expect(byId.get("test.policy.dedup")).toMatchObject({review: "none", fixability: "auto"});
+        expect(byId.get("test.policy.plain")).toMatchObject({review: "agent", fixability: "candidate"});
+        expect(byId.get("test.policy.suggest")).toMatchObject({review: "agent", fixability: "manual"});
+    });
+
+    it("config 对象覆盖能调整 review，rule id 优先于 namespace", async () => {
+        const rulesetId = `test/${randomUUID()}`;
+        tempRoots.push(join(RULESETS_ROOT, "test"));
+        await writeRuleset(rulesetId, [
+            regexRule("test.review.a", "test.review", "规则 A", "甲词"),
+            regexRule("test.review.b", "test.review", "规则 B", "乙词"),
+        ]);
+
+        const loadedRules = await loadRules({
+            rulesets: [rulesetId],
+            trustedRulesets: [],
+            rulesetOverrides: {},
+            namespaces: {"test.review": {review: "human"}},
+            rules: {"test.review.a": {review: "none"}},
+            output: "stylish",
+        });
+        const byId = new Map(loadedRules.rules.map((rule) => [rule.id, rule]));
+
+        expect(byId.get("test.review.a")?.review).toBe("none");
+        expect(byId.get("test.review.b")?.review).toBe("human");
+    });
+
+    it("CLI check 默认按 review=agent 过滤，--review human 显示人工桶", async () => {
+        const rulesetId = `test/${randomUUID()}`;
+        const root = await mkdtemp(join(tmpdir(), "llmlint-review-"));
+        tempRoots.push(root, join(RULESETS_ROOT, "test"));
+        await writeRuleset(rulesetId, [
+            regexRule("test.review.agent", "test.plain", "Agent 桶", "甲词"),
+            regexRule("test.review.human", "punctuation.dash", "人工桶", "乙词"),
+        ]);
+        const configPath = join(root, "llmlint.config.ts");
+        const textPath = join(root, "input.md");
+        await writeFile(configPath, `export default {\n    rulesets: ["${rulesetId}"],\n};\n`, "utf-8");
+        await writeFile(textPath, "甲词 乙词", "utf-8");
+        const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+
+        await runCli(["bun", "llmlint", "--config", configPath, "check", textPath]);
+        const defaultOutput = String(log.mock.calls[0]?.[0]);
+        expect(defaultOutput).toContain("test.review.agent");
+        expect(defaultOutput).not.toContain("test.review.human");
+        expect(defaultOutput).toContain("显示范围：review=agent；已隐藏 1 条非 agent 命中。");
+
+        log.mockClear();
+        await runCli(["bun", "llmlint", "--config", configPath, "check", textPath, "--review", "human"]);
+        const humanOutput = String(log.mock.calls[0]?.[0]);
+        expect(humanOutput).toContain("test.review.human");
+        expect(humanOutput).not.toContain("test.review.agent");
+    });
+
+    it("JSON check filter 暴露 review 过滤与隐藏统计，issues[].rule 带 review/fixability", async () => {
+        const rulesetId = `test/${randomUUID()}`;
+        const root = await mkdtemp(join(tmpdir(), "llmlint-review-json-"));
+        tempRoots.push(root, join(RULESETS_ROOT, "test"));
+        await writeRuleset(rulesetId, [
+            regexRule("test.json.agent", "test.plain", "Agent 桶", "甲词"),
+            regexRule("test.json.human", "punctuation.dash", "人工桶", "乙词"),
+        ]);
+        const configPath = join(root, "llmlint.config.ts");
+        const textPath = join(root, "input.md");
+        await writeFile(configPath, `export default {\n    rulesets: ["${rulesetId}"],\n    output: "json",\n};\n`, "utf-8");
+        await writeFile(textPath, "甲词 乙词", "utf-8");
+        const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+
+        await runCli(["bun", "llmlint", "--config", configPath, "check", textPath]);
+        const report = JSON.parse(String(log.mock.calls[0]?.[0])) as {
+            filter: {review: string; hiddenByReview: number; minLevel: string; hiddenByLevel: number};
+            issues: Array<{rule: {review: string; fixability: string}}>;
+        };
+        expect(report.filter).toMatchObject({review: "agent", hiddenByReview: 1, minLevel: "low", hiddenByLevel: 0});
+        expect(report.issues).toHaveLength(1);
+        expect(report.issues[0]?.rule).toMatchObject({review: "agent", fixability: "candidate"});
+    });
+
+    it("config review 非法值返回明确 schema 错误", async () => {
+        const root = await mkdtemp(join(tmpdir(), "llmlint-bad-review-"));
+        tempRoots.push(root);
+        const configPath = join(root, "llmlint.config.ts");
+        await writeFile(configPath, `export default {\n    rulesets: ["builtin/default"],\n    rules: {"filler-word-actually": {review: "robot"}},\n};\n`, "utf-8");
+
+        await expect(loadConfig({cwd: process.cwd(), configPath})).rejects.toThrow("review 无效");
+    });
+
+    it("对象覆盖 {enabled:true} 能启用默认禁用的规则并同时设级别与受众", async () => {
+        const rulesetId = `test/${randomUUID()}`;
+        tempRoots.push(join(RULESETS_ROOT, "test"));
+        await writeRuleset(rulesetId, [
+            {...regexRule("test.enable.obj", "test.enable", "默认禁用规则", "甲词"), enabled: false},
+        ]);
+
+        const baseline = await loadRules(emptyConfig([rulesetId]));
+        expect(baseline.rules.some((rule) => rule.id === "test.enable.obj")).toBe(false);
+
+        const loadedRules = await loadRules({
+            rulesets: [rulesetId],
+            trustedRulesets: [],
+            rulesetOverrides: {},
+            namespaces: {},
+            rules: {"test.enable.obj": {enabled: true, level: "high", review: "human"}},
+            output: "stylish",
+        });
+        const rule = loadedRules.rules.find((item) => item.id === "test.enable.obj");
+        expect(rule).toMatchObject({level: "high", review: "human"});
+    });
+
+    it("纯属性对象覆盖不复活被关闭 ruleset 的规则，显式 {enabled:true} 才复活", async () => {
+        const rulesetId = `test/${randomUUID()}`;
+        tempRoots.push(join(RULESETS_ROOT, "test"));
+        await writeRuleset(rulesetId, [
+            regexRule("test.resurrect.rule", "test.resurrect", "规则", "甲词"),
+        ]);
+
+        const attrOnly = await loadRules({
+            rulesets: [rulesetId],
+            trustedRulesets: [],
+            rulesetOverrides: {[rulesetId]: "off"},
+            namespaces: {"test.resurrect": {review: "human"}},
+            rules: {},
+            output: "stylish",
+        });
+        expect(attrOnly.rules.some((rule) => rule.id === "test.resurrect.rule")).toBe(false);
+
+        const withEnable = await loadRules({
+            rulesets: [rulesetId],
+            trustedRulesets: [],
+            rulesetOverrides: {[rulesetId]: "off"},
+            namespaces: {"test.resurrect": {enabled: true, review: "human"}},
+            rules: {},
+            output: "stylish",
+        });
+        expect(withEnable.rules.some((rule) => rule.id === "test.resurrect.rule")).toBe(true);
+    });
+
+    it("config 文件中的字符串简写仍能启用被关闭 ruleset 的规则", async () => {
+        const rulesetId = `test/${randomUUID()}`;
+        const root = await mkdtemp(join(tmpdir(), "llmlint-sugar-"));
+        tempRoots.push(root, join(RULESETS_ROOT, "test"));
+        await writeRuleset(rulesetId, [
+            regexRule("test.sugar.rule", "test.sugar", "规则", "甲词"),
+        ]);
+        const configPath = join(root, "llmlint.config.ts");
+        await writeFile(configPath, `export default {\n    rulesets: ["${rulesetId}"],\n    rulesetOverrides: {"${rulesetId}": "off"},\n    rules: {"test.sugar.rule": "high"},\n};\n`, "utf-8");
+
+        const {config} = await loadConfig({cwd: process.cwd(), configPath});
+        const loadedRules = await loadRules(config);
+        const rule = loadedRules.rules.find((item) => item.id === "test.sugar.rule");
+        expect(rule?.level).toBe("high");
+    });
+
     it("显式配置路径不存在时返回明确错误", async () => {
         await expect(loadConfig({
             cwd: process.cwd(),
             configPath: join(tmpdir(), "missing-llmlint.config.ts"),
         })).rejects.toThrow("配置文件不存在");
+    });
+
+    it("computeMaskedRanges 覆盖 frontmatter / 代码块 / 行内代码 / 链接", () => {
+        const content = [
+            "---",
+            "title: x",
+            "---",
+            "正文 `code` 与 [note](http://e.com)。",
+            "```js",
+            "const a = 1;",
+            "```",
+        ].join("\n");
+        const ranges = computeMaskedRanges(content);
+
+        expect(ranges[0]?.[0]).toBe(0); // frontmatter 从文件首字符开始
+        expect(isMasked(content.indexOf("`code`"), ranges)).toBe(true);
+        expect(isMasked(content.indexOf("[note]"), ranges)).toBe(true);
+        expect(isMasked(content.indexOf("const a"), ranges)).toBe(true);
+        expect(isMasked(content.indexOf("正文 "), ranges)).toBe(false);
+    });
+
+    it("scanText 跳过 Markdown 遮罩区域内的命中，但保留正文命中与定位", async () => {
+        const rulesetId = `test/${randomUUID()}`;
+        tempRoots.push(join(RULESETS_ROOT, "test"));
+        await writeRuleset(rulesetId, [regexRule("test.mask.filler", "test.plain", "填充", "其实")]);
+        const loadedRules = await loadRules(emptyConfig([rulesetId]));
+        const content = "正文其实在这。\n\n```\n代码其实不算\n```\n";
+
+        const unmasked = scanText(content, loadedRules.regexRules);
+        const masked = scanText(content, loadedRules.regexRules, {maskedRanges: computeMaskedRanges(content)});
+
+        expect(unmasked).toHaveLength(2);
+        expect(masked).toHaveLength(1);
+        expect(masked[0]?.line).toBe(1);
+        expect(masked[0]?.match).toBe("其实");
+    });
+
+    it("CLI check 单文件 JSON 仍为 check 形态（回归保护）", async () => {
+        const root = await mkdtemp(join(tmpdir(), "llmlint-single-"));
+        tempRoots.push(root);
+        const textPath = join(root, "input.md");
+        await writeFile(textPath, "其实甲。", "utf-8");
+        const configPath = join(root, "llmlint.config.ts");
+        await writeFile(configPath, `export default {rulesets:["builtin/default"], output:"json"};\n`, "utf-8");
+        const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+
+        await runCli(["bun", "llmlint", "--config", configPath, "check", textPath, "--review", "all"]);
+        const report = JSON.parse(String(log.mock.calls[0]?.[0])) as {kind: string; filePath: string};
+        expect(report.kind).toBe("check");
+        expect(report.filePath).toContain("input.md");
+    });
+
+    it("CLI check 多文件目录递归聚合，JSON 为 check-multi 形态", async () => {
+        const root = await mkdtemp(join(tmpdir(), "llmlint-multi-"));
+        tempRoots.push(root);
+        await writeFile(join(root, "a.md"), "其实甲。", "utf-8");
+        await mkdir(join(root, "sub"), {recursive: true});
+        await writeFile(join(root, "sub", "b.md"), "其实乙。", "utf-8");
+        const configPath = join(root, "llmlint.config.ts");
+        await writeFile(configPath, `export default {rulesets:["builtin/default"], output:"json"};\n`, "utf-8");
+        const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+
+        await runCli(["bun", "llmlint", "--config", configPath, "check", root, "--review", "all"]);
+        const report = JSON.parse(String(log.mock.calls[0]?.[0])) as {kind: string; files: Array<{filePath: string; issues: unknown[]}>; summary: {total: number}};
+        expect(report.kind).toBe("check-multi");
+        expect(report.files).toHaveLength(2);
+        expect(report.summary.total).toBeGreaterThanOrEqual(2);
+    });
+
+    it("CLI check --scan-all 关闭 Markdown 遮罩，代码块命中回来", async () => {
+        const root = await mkdtemp(join(tmpdir(), "llmlint-scanall-"));
+        tempRoots.push(root);
+        const textPath = join(root, "input.md");
+        await writeFile(textPath, "正文。\n\n```\n其实代码\n```\n", "utf-8");
+        const configPath = join(root, "llmlint.config.ts");
+        await writeFile(configPath, `export default {rulesets:["builtin/default"]};\n`, "utf-8");
+        const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+
+        await runCli(["bun", "llmlint", "--config", configPath, "check", textPath, "--review", "all"]);
+        expect(String(log.mock.calls[0]?.[0])).not.toContain("其实");
+
+        log.mockClear();
+        await runCli(["bun", "llmlint", "--config", configPath, "check", textPath, "--review", "all", "--scan-all"]);
+        expect(String(log.mock.calls[0]?.[0])).toContain("其实");
+    });
+
+    it("CLI check 输入路径不存在时报错并非零退出", async () => {
+        const result = await runFailedCommand([LLMLINT_BIN, "check", join(tmpdir(), `missing-${randomUUID()}.md`)]);
+
+        expect(result.code).not.toBe(0);
+        expect(result.stderr).toContain("不存在");
+    });
+
+    it("fix dry-run 检出 auto 修复但不改文件，退出码非零", async () => {
+        const root = await mkdtemp(join(tmpdir(), "llmlint-fix-dry-"));
+        tempRoots.push(root);
+        const filePath = join(root, "doc.md");
+        const zwsp = String.fromCharCode(0x200B);
+        const original = `正文${zwsp}有零宽。\n\n真的？？？\n`;
+        await writeFile(filePath, original, "utf-8");
+        const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+
+        await runCli(["bun", "llmlint", "fix", filePath]);
+
+        expect(process.exitCode).toBe(1);
+        expect(await readFile(filePath, "utf-8")).toBe(original);
+        expect(String(log.mock.calls[0]?.[0])).toContain("dry-run");
+    });
+
+    it("fix --write 落盘：删零宽、连续符号去重，退出码不为 1", async () => {
+        const root = await mkdtemp(join(tmpdir(), "llmlint-fix-write-"));
+        tempRoots.push(root);
+        const filePath = join(root, "doc.md");
+        const zwsp = String.fromCharCode(0x200B);
+        await writeFile(filePath, `正文${zwsp}有零宽。\n\n真的？？？\n`, "utf-8");
+        vi.spyOn(console, "log").mockImplementation(() => undefined);
+
+        await runCli(["bun", "llmlint", "fix", filePath, "--write"]);
+
+        expect(await readFile(filePath, "utf-8")).toBe("正文有零宽。\n\n真的？\n");
+        expect(process.exitCode).not.toBe(1);
+    });
+
+    it("fix 尊重 Markdown 遮罩：代码块内连续符号不被修复", async () => {
+        const root = await mkdtemp(join(tmpdir(), "llmlint-fix-mask-"));
+        tempRoots.push(root);
+        const filePath = join(root, "doc.md");
+        await writeFile(filePath, "真的？？？\n\n```\n代码？？？保留\n```\n", "utf-8");
+        vi.spyOn(console, "log").mockImplementation(() => undefined);
+
+        await runCli(["bun", "llmlint", "fix", filePath, "--write"]);
+        const fixed = await readFile(filePath, "utf-8");
+
+        expect(fixed).toContain("真的？\n");
+        expect(fixed).toContain("代码？？？保留");
+    });
+
+    it("fix 不自动应用 candidate 规则（filler 其实 不被删）", async () => {
+        const root = await mkdtemp(join(tmpdir(), "llmlint-fix-candidate-"));
+        tempRoots.push(root);
+        const filePath = join(root, "doc.md");
+        await writeFile(filePath, "其实没什么。\n", "utf-8");
+        vi.spyOn(console, "log").mockImplementation(() => undefined);
+
+        await runCli(["bun", "llmlint", "fix", filePath, "--write"]);
+
+        expect(await readFile(filePath, "utf-8")).toBe("其实没什么。\n");
+    });
+
+    it("fix --format json 输出 kind:fix 与逐文件计数", async () => {
+        const root = await mkdtemp(join(tmpdir(), "llmlint-fix-json-"));
+        tempRoots.push(root);
+        const filePath = join(root, "doc.md");
+        await writeFile(filePath, "真的？？？\n", "utf-8");
+        const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+
+        await runCli(["bun", "llmlint", "fix", filePath, "--format", "json"]);
+
+        const report = JSON.parse(String(log.mock.calls[0]?.[0])) as {kind: string; write: boolean; totalOccurrences: number; files: Array<{changed: boolean}>};
+        expect(report.kind).toBe("fix");
+        expect(report.write).toBe(false);
+        expect(report.totalOccurrences).toBeGreaterThanOrEqual(1);
+        expect(report.files[0]?.changed).toBe(true);
     });
 });
 
@@ -405,6 +948,22 @@ async function writeRuleset(id: string, rules: LintRuleRecord[]): Promise<void> 
     await writeRawRuleset(id, rules);
 }
 
+async function writeMultiFileRuleset(id: string, ruleFiles: Record<string, LintRuleRecord[]>, manifestExtra: Record<string, unknown> = {}): Promise<void> {
+    const root = join(RULESETS_ROOT, ...id.split("/"));
+    await mkdir(root, {recursive: true});
+    await writeFile(join(root, "ruleset.json"), JSON.stringify({
+        id,
+        title: id,
+        version: "1.0.0",
+        ...manifestExtra,
+    }), "utf-8");
+    for (const [ruleFile, rules] of Object.entries(ruleFiles)) {
+        const filePath = join(root, ruleFile);
+        await mkdir(dirname(filePath), {recursive: true});
+        await writeFile(filePath, JSON.stringify(rules), "utf-8");
+    }
+}
+
 async function writeRawRuleset(id: string, rules: object[]): Promise<void> {
     const root = join(RULESETS_ROOT, ...id.split("/"));
     await mkdir(root, {recursive: true});
@@ -413,7 +972,52 @@ async function writeRawRuleset(id: string, rules: object[]): Promise<void> {
         title: id,
         version: "1.0.0",
     }), "utf-8");
+    await mkdir(join(root, "rules"), {recursive: true});
+    await writeFile(join(root, "rules", "index.json"), JSON.stringify(rules), "utf-8");
+}
+
+async function writeLegacyRootRulesJsonRuleset(id: string, rules: object[]): Promise<void> {
+    const root = join(RULESETS_ROOT, ...id.split("/"));
+    await mkdir(root, {recursive: true});
+    await writeFile(join(root, "ruleset.json"), JSON.stringify({
+        id,
+        title: id,
+        version: "1.0.0",
+    }), "utf-8");
     await writeFile(join(root, "rules.json"), JSON.stringify(rules), "utf-8");
+}
+
+async function writeRulesPathAsFileRuleset(id: string): Promise<void> {
+    const root = join(RULESETS_ROOT, ...id.split("/"));
+    await mkdir(root, {recursive: true});
+    await writeFile(join(root, "ruleset.json"), JSON.stringify({
+        id,
+        title: id,
+        version: "1.0.0",
+    }), "utf-8");
+    await writeFile(join(root, "rules"), "not a directory", "utf-8");
+}
+
+async function writeInvalidJsonRuleset(id: string): Promise<void> {
+    const root = join(RULESETS_ROOT, ...id.split("/"));
+    await mkdir(join(root, "rules"), {recursive: true});
+    await writeFile(join(root, "ruleset.json"), JSON.stringify({
+        id,
+        title: id,
+        version: "1.0.0",
+    }), "utf-8");
+    await writeFile(join(root, "rules", "broken.json"), "[", "utf-8");
+}
+
+async function readRulesetRules(root: string): Promise<unknown[]> {
+    const ruleFiles = (await listFiles(join(root, "rules")))
+        .filter((file) => file.endsWith(".json"))
+        .sort((left, right) => left.localeCompare(right));
+    const rules = await Promise.all(ruleFiles.map(async (ruleFile) => {
+        const source = await readFile(ruleFile, "utf-8");
+        return JSON.parse(source) as unknown[];
+    }));
+    return rules.flat();
 }
 
 async function listFiles(root: string): Promise<string[]> {

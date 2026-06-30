@@ -7,6 +7,16 @@ defineRouteMeta({
         "Novels"
     ],
     "summary": "Get a novel",
+    "parameters": [
+        {
+            "name": "novelId",
+            "in": "path",
+            "required": true,
+            "schema": {
+                "type": "string"
+            }
+        }
+    ],
     "responses": {
         "200": {
             "description": "OK",

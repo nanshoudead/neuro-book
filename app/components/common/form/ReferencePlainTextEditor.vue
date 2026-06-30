@@ -59,9 +59,13 @@ const syncingFromOutside = ref(false);
 const editorSnapshot = ref(props.modelValue);
 const heightPx = ref(props.minHeight);
 const overflowing = ref(false);
+const shouldStickToBottom = ref(false);
 const skillTriggerStarted = ref(false);
 let resizeObserver: ResizeObserver | null = null;
 let resizeFrame: number | null = null;
+// 外部替换内容时从顶部开始；用户在编辑器内继续输入时仍按 sticky-bottom 状态处理。
+let scrollToTopOnNextMeasure = Boolean(props.modelValue);
+const STICKY_BOTTOM_THRESHOLD_PX = 12;
 
 const menuVisible = computed(() => Boolean(suggestionMenuState.value && suggestionMenuState.value.items.length > 0));
 const skillTriggerActive = computed(() => suggestionMenuState.value?.contextKind === "skill");
@@ -163,9 +167,6 @@ const editor = useEditor({
         editorSnapshot.value = nextValue;
         emit("update:modelValue", nextValue);
     },
-    onTransaction: () => {
-        scheduleHeightMeasure();
-    },
 });
 
 watch(() => props.modelValue, (nextValue) => {
@@ -177,6 +178,8 @@ watch(() => props.modelValue, (nextValue) => {
     editor.value?.commands.setContent(parsePlainReferenceText(nextValue) as Content, {
         emitUpdate: false,
     });
+    scrollToTopOnNextMeasure = true;
+    shouldStickToBottom.value = false;
     scheduleHeightMeasure();
     queueMicrotask(() => {
         syncingFromOutside.value = false;
@@ -312,9 +315,15 @@ function measureHeight(): void {
     if (!body) {
         heightPx.value = props.minHeight;
         overflowing.value = false;
+        shouldStickToBottom.value = true;
         return;
     }
 
+    const previousScrollTop = body.scrollTop;
+    const shouldResetScrollToTop = scrollToTopOnNextMeasure;
+    scrollToTopOnNextMeasure = false;
+    // 输入更新后 DOM 可能已经变高，当前 near-bottom 会失真；用滚动事件记录用户变更前是否吸底。
+    const wasStickyToBottom = !shouldResetScrollToTop && (shouldStickToBottom.value || isBodyNearBottom(body));
     const previousHeight = body.style.height;
     const previousOverflowY = body.style.overflowY;
     body.style.height = "auto";
@@ -324,13 +333,63 @@ function measureHeight(): void {
     body.style.overflowY = previousOverflowY;
 
     const boundedHeight = Math.min(Math.max(wantedHeight, props.minHeight), props.maxHeight);
+    const nextOverflowing = wantedHeight > props.maxHeight;
     heightPx.value = boundedHeight;
-    overflowing.value = wantedHeight > props.maxHeight;
-    if (overflowing.value && body.contains(document.activeElement)) {
+    overflowing.value = nextOverflowing;
+    if (!nextOverflowing) {
+        shouldStickToBottom.value = true;
         nextTick(() => {
-            body.scrollTop = body.scrollHeight;
+            if (bodyRef.value === body) {
+                body.scrollTop = 0;
+            }
         });
+        return;
     }
+
+    nextTick(() => {
+        if (bodyRef.value !== body) {
+            return;
+        }
+        if (shouldResetScrollToTop) {
+            body.scrollTop = 0;
+            shouldStickToBottom.value = isBodyNearBottom(body);
+            return;
+        }
+        // 只有用户原本就在底部时才吸底；在上方编辑长文时要保留当前位置。
+        if (wasStickyToBottom) {
+            scrollBodyToBottom(body);
+            return;
+        }
+        body.scrollTop = previousScrollTop;
+        shouldStickToBottom.value = isBodyNearBottom(body);
+    });
+}
+
+/**
+ * 输入框内部滚动时更新吸底状态。
+ */
+function handleBodyScroll(): void {
+    const body = bodyRef.value;
+    if (!body) {
+        shouldStickToBottom.value = true;
+        return;
+    }
+    shouldStickToBottom.value = isBodyNearBottom(body);
+}
+
+/**
+ * 判断当前滚动位置是否接近底部。
+ */
+function isBodyNearBottom(body: HTMLElement): boolean {
+    return body.scrollHeight - (body.scrollTop + body.clientHeight) <= STICKY_BOTTOM_THRESHOLD_PX;
+}
+
+/**
+ * 滚动到输入框底部，并记录为吸底状态。
+ */
+function scrollBodyToBottom(body: HTMLElement): void {
+    body.scrollTop = body.scrollHeight;
+    shouldStickToBottom.value = true;
 }
 
 function insertTextIntoEditor(currentEditor: Editor | null | undefined, text: string): void {
@@ -359,7 +418,7 @@ defineExpose({
         class="reference-plain-text-editor relative overflow-visible"
         :class="[rootClass, props.borderless ? 'border-none bg-[var(--bg-panel)] shadow-none' : 'rounded-xl border border-[var(--border-color)] bg-[var(--bg-panel)]']"
     >
-        <div ref="bodyRef" class="reference-plain-text-editor__body" :style="bodyStyle">
+        <div ref="bodyRef" class="reference-plain-text-editor__body" :style="bodyStyle" @scroll="handleBodyScroll">
             <EditorContent v-if="editor" :editor="editor" class="reference-plain-text-editor__content" />
         </div>
 

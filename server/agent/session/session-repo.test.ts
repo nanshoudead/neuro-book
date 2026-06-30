@@ -195,13 +195,13 @@ describe("JsonlSessionRepository", () => {
         const summary = repo.summary(await repo.readSession(session.metadata.sessionId));
 
         expect(summary.usage).toMatchObject({
-            initial: 30,
+            input: 30,
             output: 10,
             cacheRead: 6,
             cacheWrite: 1,
             totalTokens: 47,
             cost: {
-                initial: 30,
+                input: 30,
                 output: 10,
                 cacheRead: 6,
                 cacheWrite: 1,
@@ -236,7 +236,7 @@ describe("JsonlSessionRepository", () => {
 
         expect(repo.reduce(snapshot).messages.map((message) => message.role)).toEqual(["user", "assistant"]);
         expect(repo.summary(snapshot).usage).toMatchObject({
-            initial: 110,
+            input: 110,
             output: 22,
             totalTokens: 132,
         });

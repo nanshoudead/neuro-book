@@ -2,7 +2,6 @@ import type {
     Story,
 } from "nbook/server/generated/project-prisma/client";
 import type {
-    PlotRepository,
     StoryRepository,
     ThreadRepository,
 } from "nbook/server/plot/contracts/plot-repositories";
@@ -28,7 +27,6 @@ export class StoryService {
     constructor(
         private readonly storyRepository: StoryRepository,
         private readonly threadRepository: ThreadRepository,
-        private readonly plotRepository: PlotRepository,
         private readonly orderService: OrderService,
         private readonly assembler: PlotDtoAssembler,
         private readonly scopeGuard: PlotScopeGuard,
@@ -76,17 +74,15 @@ export class StoryService {
      */
     async getPlotTree(projectPath: string): Promise<PlotTreeDto> {
         const story = await this.ensureStory(projectPath);
-        const [phases, ungroupedThreads, totalPlots] = await Promise.all([
+        const [phases, ungroupedThreads] = await Promise.all([
             this.threadRepository.findPhaseThreadsWithScenes(story.id),
             this.threadRepository.findUngroupedThreads(story.id),
-            this.plotRepository.countPlotsByStory(story.id),
         ]);
 
         return this.assembler.toPlotTreeDto({
             story,
             phases,
             ungroupedThreads,
-            totalPlots,
         });
     }
 
@@ -95,17 +91,15 @@ export class StoryService {
      */
     async getPlotWorkbench(projectPath: string): Promise<PlotWorkbenchDto> {
         const story = await this.ensureStory(projectPath);
-        const [phases, ungroupedThreads, totalPlots] = await Promise.all([
+        const [phases, ungroupedThreads] = await Promise.all([
             this.threadRepository.findWorkbenchPhaseThreads(story.id),
             this.threadRepository.findUngroupedWorkbenchThreads(story.id),
-            this.plotRepository.countPlotsByStory(story.id),
         ]);
 
         return this.assembler.toPlotWorkbenchDto({
             story,
             phases,
             ungroupedThreads,
-            totalPlots,
         });
     }
 

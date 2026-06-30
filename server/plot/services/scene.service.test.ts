@@ -61,7 +61,6 @@ describe("SceneService", () => {
                 totalPhases: 0,
                 totalThreads: 0,
                 totalScenes: 2,
-                totalPlots: 0,
             })),
         } as unknown as StoryService;
         const scopeGuard = {
@@ -113,7 +112,6 @@ describe("SceneService", () => {
                 totalPhases: 0,
                 totalThreads: 0,
                 totalScenes: 3,
-                totalPlots: 0,
             })),
         } as unknown as StoryService;
         const scopeGuard = {

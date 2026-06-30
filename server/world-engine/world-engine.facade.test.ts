@@ -51,6 +51,75 @@ describe("WorldEngineFacade", () => {
         });
     });
 
+    it("同 instant 写入冲突提示合并 patches", async () => {
+        const projectPath = await createProject();
+        const facade = createFacade();
+
+        await facade.writeSlice(projectPath, {
+            instant: 10n,
+            title: "艾莉娜登场",
+            patches: [
+                {subjectId: "erina", type: "character", name: "艾莉娜", path: "/hp", op: "replace", value: 100},
+            ],
+        });
+
+        await expect(facade.writeSlice(projectPath, {
+            instant: 10n,
+            title: "同刻补充地点",
+            patches: [
+                {subjectId: "erina", path: "/events", op: "append", value: "同一时刻补充地点登记"},
+            ],
+        })).rejects.toThrow("请读取 existingSliceId 并合并 patches");
+    });
+
+    it("editSlice 移动到已有 instant 时提示合并 patches", async () => {
+        const projectPath = await createProject();
+        const facade = createFacade();
+
+        const first = await facade.writeSlice(projectPath, {
+            instant: 10n,
+            title: "艾莉娜登场",
+            patches: [
+                {subjectId: "erina", type: "character", name: "艾莉娜", path: "/hp", op: "replace", value: 100},
+            ],
+        });
+        await facade.writeSlice(projectPath, {
+            instant: 20n,
+            title: "艾莉娜观察祭坛",
+            patches: [
+                {subjectId: "erina", path: "/events", op: "append", value: "观察祭坛"},
+            ],
+        });
+
+        await expect(facade.editSlice(projectPath, first.sliceId, {
+            instant: 20n,
+            title: "移动到已占用时间",
+            patches: [
+                {subjectId: "erina", path: "/hp", op: "replace", value: 100},
+            ],
+        })).rejects.toThrow("请读取 existingSliceId 并合并 patches");
+    });
+
+    it("createSubject 初始化撞上非 init slice 时提示显式合并初始化 patches", async () => {
+        const projectPath = await createProject();
+        const facade = createFacade();
+
+        await facade.writeSlice(projectPath, {
+            instant: 10n,
+            title: "普通事件切面",
+            patches: [
+                {subjectId: "erina", type: "character", name: "艾莉娜", path: "/hp", op: "replace", value: 100},
+            ],
+        });
+
+        await expect(facade.createSubject(projectPath, {
+            id: "moran",
+            type: "character",
+            name: "莫兰",
+            at: 10n,
+        })).rejects.toThrow("请读取 existingSliceId 并显式合并初始化 patches");
+    });
+
     it("EmbeddingText 空容器 default 能初始化后继续写入单条内容", async () => {
         const projectPath = await createProject(embeddingSchemaSource());
         const facade = createFacade();

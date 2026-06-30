@@ -1,6 +1,5 @@
 import type {
-    PlotLookupRepository,
-    PlotRepository,
+    SceneRepository,
     StoryRepository,
     ThreadRepository,
 } from "nbook/server/plot/contracts/plot-repositories";
@@ -23,6 +22,7 @@ describe("StoryService", () => {
         const threadUpdates: Array<{threadId: number; data: {storyPhaseId?: number | null; sortOrder?: number}}> = [];
 
         const storyRepository = {
+            findStory: vi.fn(async () => ({id: 10, novelId: 100, title: "小说", summary: "", note: null, createdAt: new Date(), updatedAt: new Date()})),
             upsertStoryForNovel: vi.fn(async () => ({id: 10, novelId: 100, title: "小说", summary: "", note: null, createdAt: new Date(), updatedAt: new Date()})),
             findPhaseById: vi.fn(async (phaseId: number) => phases.find((phase) => phase.id === phaseId) ?? null),
             findPhasesByStory: vi.fn(async () => [...phases].sort((left, right) => left.sortOrder - right.sortOrder)),
@@ -57,28 +57,27 @@ describe("StoryService", () => {
                 return ungroupedThreads[0]!;
             }),
         } as ThreadRepository;
-        const lookupRepository = {
-            findNovelById: vi.fn(async () => ({id: 100, title: "小说", summary: "", workspaceSlug: "test"})),
-        } as PlotLookupRepository;
-        const plotRepository = {} as PlotRepository;
+        const sceneRepository = {} as SceneRepository;
         const orderService = new OrderService(
             storyRepository,
             threadRepository,
-            {} as never,
-            plotRepository,
+            sceneRepository,
         );
         const scopeGuard = new PlotScopeGuard(
             storyRepository,
             threadRepository,
-            {} as never,
-            plotRepository,
-            lookupRepository,
+            sceneRepository,
         );
+        scopeGuard.assertPhase = vi.fn(async (_storyId: number, phaseId: number) => {
+            const phase = phases.find((item) => item.id === phaseId);
+            if (!phase) {
+                throw new Error("phase 不存在");
+            }
+            return phase;
+        });
         const service = new StoryService(
             storyRepository,
             threadRepository,
-            plotRepository,
-            lookupRepository,
             orderService,
             new PlotDtoAssembler(),
             scopeGuard,

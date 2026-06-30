@@ -1,12 +1,10 @@
 import type {
     StoryPhase,
-    StoryPlot,
     StoryScene,
 } from "nbook/server/generated/project-prisma/client";
 import type {StoryThreadEntity} from "nbook/server/plot/core/types";
 import {statWorkspacePath} from "nbook/server/workspace-files/workspace-files";
 import type {
-    PlotRepository,
     SceneRepository,
     StoryRepository,
     ThreadRepository,
@@ -22,7 +20,6 @@ export class PlotScopeGuard {
         private readonly storyRepository: StoryRepository,
         private readonly threadRepository: ThreadRepository,
         private readonly sceneRepository: SceneRepository,
-        private readonly plotRepository: PlotRepository,
     ) {}
 
     /**
@@ -56,17 +53,6 @@ export class PlotScopeGuard {
             throwPlotNotFound("剧情场景不存在");
         }
         return scene;
-    }
-
-    /**
-     * 校验情节点属于当前 Story。
-     */
-    async assertPlot(storyId: number, plotId: number): Promise<StoryPlot> {
-        const plot = await this.plotRepository.findPlotByIdWithStory(plotId);
-        if (!plot || plot.scene.storyId !== storyId) {
-            throwPlotNotFound("情节点不存在");
-        }
-        return plot as StoryPlot;
     }
 
     /**

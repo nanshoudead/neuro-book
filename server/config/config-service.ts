@@ -4,7 +4,7 @@ import path from "node:path";
 import {createError} from "h3";
 import {useAgentHarness} from "nbook/server/agent/http";
 import type {AgentProfileCatalog} from "nbook/server/agent/profiles/catalog";
-import type {AgentCatalogItem} from "nbook/server/agent/profiles/types";
+import type {AgentCatalogItem, AgentProfileIssue} from "nbook/server/agent/profiles/types";
 import {resolveProfileSettings} from "nbook/server/agent/profiles/profile-settings";
 import {
     USER_ASSETS_WORKSPACE_KIND,
@@ -16,6 +16,7 @@ import {assertProjectWorkspaceDirectory} from "nbook/server/workspace-files/proj
 import {GlobalConfigDtoSchema} from "nbook/shared/dto/config.dto";
 import type {
     ConfigAgentProfileSettingsDto,
+    ConfigAgentProfileBuildStatusDto,
     ConfigBootstrapDto,
     ConfigDefaultProfileSettingsDto,
     ConfigEditorSnapshotDto,
@@ -70,8 +71,7 @@ import {
 
 const GLOBAL_CONFIG_PATH = path.resolve(process.cwd(), "workspace", ".nbook", "config.json");
 
-type ConfigEditorSnapshotOptions = {
-    includeAgentProfileSettings?: boolean;
+type ConfigAgentProfileSettingsOptions = {
     agentProfileSettingsScope?: "global" | "project";
 };
 
@@ -91,15 +91,10 @@ export async function readConfigSnapshot(query: ConfigWorkspaceQueryDto): Promis
 /**
  * 读取设置页使用的编辑快照，包含 raw global/project 与衍生面板数据。
  */
-export async function readConfigEditorSnapshot(
-    query: ConfigWorkspaceQueryDto,
-    profiles: AgentProfileCatalog = useAgentHarness().profiles,
-    options: ConfigEditorSnapshotOptions = {},
-): Promise<ConfigEditorSnapshotDto> {
+export async function readConfigEditorSnapshot(query: ConfigWorkspaceQueryDto): Promise<ConfigEditorSnapshotDto> {
     const target = await resolveConfigTarget(query);
     const {global, project} = await readConfigFiles(query, target);
     const effective = resolveEffectiveConfig(global, project);
-    const catalog = await profiles.snapshot();
 
     return {
         version: CONFIG_VERSION,
@@ -110,23 +105,54 @@ export async function readConfigEditorSnapshot(
         meta: CONFIG_REGISTRY,
         modelSettings: buildConfigModelSettingsDto(effective),
         embeddingSettings: buildConfigEmbeddingSettingsDto(global, project, effective),
-        agentProfileSettings: await buildConfigAgentProfileSettingsDto({
-            effective,
-            global,
-            project,
-            profiles,
-            catalogProfiles: catalog.profiles,
-            query,
-            includeSettings: options.includeAgentProfileSettings === true,
-            settingsScope: options.agentProfileSettingsScope ?? (target.workspaceKind === "novel" ? "project" : "global"),
-        }),
         defaultProfileSettings: buildDefaultProfileSettingsDto({
             workspaceKind: target.workspaceKind,
             projectConfigAvailable: Boolean(target.projectConfigPath),
             global,
             project,
-            catalog,
         }),
+    };
+}
+
+/**
+ * 读取 Agent Profile settings 专用快照。只有此入口会解析 lowcode form 结构和值。
+ */
+export async function readConfigAgentProfileSettings(
+    query: ConfigWorkspaceQueryDto,
+    profiles: AgentProfileCatalog = useAgentHarness().profiles,
+    options: ConfigAgentProfileSettingsOptions = {},
+): Promise<ConfigAgentProfileSettingsDto> {
+    const target = await resolveConfigTarget(query);
+    const {global, project} = await readConfigFiles(query, target);
+    const effective = resolveEffectiveConfig(global, project);
+    const catalog = await profiles.snapshot();
+    return buildConfigAgentProfileSettingsDto({
+        effective,
+        global,
+        project,
+        profiles,
+        catalogProfiles: catalog.profiles,
+        query,
+        includeSettings: true,
+        settingsScope: options.agentProfileSettingsScope ?? (target.workspaceKind === "novel" ? "project" : "global"),
+    });
+}
+
+/**
+ * 读取 Agent Profile 构建状态。Phase 2 前暂由 catalog 静态状态投影，Coordinator 接入后填充 running/queued。
+ */
+export async function readConfigAgentProfileBuildStatus(
+    profiles: AgentProfileCatalog = useAgentHarness().profiles,
+): Promise<ConfigAgentProfileBuildStatusDto> {
+    const catalog = await profiles.snapshot({includeFileIssues: false});
+    return {
+        profiles: catalog.profiles.map((profile) => ({
+            profileKey: profile.key,
+            name: profile.name,
+            loadStatus: profile.loadStatus,
+            issue: toConfigProfileIssue(profile.issue),
+            buildState: profiles.buildStateFor(profile.key),
+        })),
     };
 }
 
@@ -135,7 +161,6 @@ export async function readConfigEditorSnapshot(
  */
 export async function readConfigBootstrap(
     query: ConfigWorkspaceQueryDto,
-    profiles: AgentProfileCatalog = useAgentHarness().profiles,
 ): Promise<ConfigBootstrapDto> {
     const target = await resolveConfigTarget(query);
     const {global, project} = await readConfigFiles(query, target);
@@ -162,7 +187,6 @@ export async function saveGlobalConfig(
     input: GlobalConfigUpdateDto,
     query: ConfigWorkspaceQueryDto,
     profiles: AgentProfileCatalog = useAgentHarness().profiles,
-    options: ConfigEditorSnapshotOptions = {},
 ): Promise<ConfigEditorSnapshotDto> {
     await assertProfileSettingsInput(input.agent?.profiles, query, profiles, undefined, {
         includeResourceMutationFinalKeys: true,
@@ -180,7 +204,7 @@ export async function saveGlobalConfig(
         ...(input.embedding !== undefined ? {embedding: normalizeGlobalEmbeddingForWrite(input.embedding, current)} : {}),
     });
     await writeJsonFile(GLOBAL_CONFIG_PATH, next);
-    return readConfigEditorSnapshot(query, profiles, {...options, agentProfileSettingsScope: "global"});
+    return readConfigEditorSnapshot(query);
 }
 
 /**
@@ -190,7 +214,6 @@ export async function saveProjectConfig(
     input: ProjectConfigDto,
     query: ConfigWorkspaceQueryDto,
     profiles: AgentProfileCatalog = useAgentHarness().profiles,
-    options: ConfigEditorSnapshotOptions = {},
 ): Promise<ConfigEditorSnapshotDto> {
     const target = await resolveConfigTarget(query);
     if (!target.projectConfigPath) {
@@ -206,7 +229,7 @@ export async function saveProjectConfig(
     }, "project");
     await applyProfileResourceMutations(input.agent?.profiles, query, profiles, global.agent?.profiles);
     await writeJsonFile(target.projectConfigPath, normalizeProjectConfig(stripProfileResourceMutations(input) as StoredProjectConfig));
-    return readConfigEditorSnapshot(query, profiles, {...options, agentProfileSettingsScope: "project"});
+    return readConfigEditorSnapshot(query);
 }
 
 /**
@@ -238,10 +261,7 @@ export async function resetProjectProfileHome(
         profileVersion: profile.manifest.version ?? 1,
         definition: profile.home,
     });
-    return readConfigEditorSnapshot(query, profiles, {
-        includeAgentProfileSettings: true,
-        agentProfileSettingsScope: "project",
-    });
+    return readConfigEditorSnapshot(query);
 }
 
 /**
@@ -504,6 +524,11 @@ async function buildConfigAgentProfileSettingsDto(input: {
                 ...input.effective.agent.profileModelDefaults,
                 ...(input.effective.agent.profiles[definition.key]?.model ?? {}),
             }),
+            loadStatus: definition.loadStatus,
+            hasSettingsForm: definition.hasSettingsForm,
+            issue: toConfigProfileIssue(definition.issue),
+            sourcePath: definition.sourcePath ?? null,
+            buildState: input.profiles.buildStateFor(definition.key),
             settings: input.includeSettings ? await buildProfileSettingsDto(input, definition) : null,
         }))),
     };
@@ -871,7 +896,7 @@ function buildDefaultProfileSettingsDto(input: {
     projectConfigAvailable: boolean;
     global: StoredGlobalConfig;
     project: StoredProjectConfig | null;
-    catalog: Awaited<ReturnType<AgentProfileCatalog["snapshot"]>>;
+    profiles?: ConfigDefaultProfileSettingsDto["profiles"];
 }): ConfigDefaultProfileSettingsDto {
     const systemDefaultProfileKey = systemDefaultProfileKeyFor(input.workspaceKind);
     return {
@@ -883,12 +908,19 @@ function buildDefaultProfileSettingsDto(input: {
             : input.global.agent?.defaultProfileKey?.novel ?? null,
         projectDefaultProfileKey: input.project?.agent?.defaultProfileKey ?? null,
         effectiveProfileKey: resolveDefaultProfileKeyFromConfig(input.workspaceKind, input.global, input.project),
-        profiles: input.catalog.profiles.map((profile) => ({
-            profileKey: profile.key,
-            name: profile.name,
-            description: profile.description ?? null,
-            loadStatus: profile.loadStatus,
-        })),
+        profiles: input.profiles ?? [],
+    };
+}
+
+function toConfigProfileIssue(issue: AgentProfileIssue | undefined): ConfigAgentProfileSettingsDto["agentProfiles"][number]["issue"] {
+    if (!issue) {
+        return null;
+    }
+    return {
+        code: issue.code,
+        message: issue.message,
+        profileKey: issue.profileKey ?? null,
+        sourcePath: issue.sourcePath ?? null,
     };
 }
 

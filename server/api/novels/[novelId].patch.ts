@@ -11,6 +11,16 @@ defineRouteMeta({
         "Novels"
     ],
     "summary": "Update novel title and/or summary",
+    "parameters": [
+        {
+            "name": "novelId",
+            "in": "path",
+            "required": true,
+            "schema": {
+                "type": "string"
+            }
+        }
+    ],
     "requestBody": {
         "content": {
             "application/json": {

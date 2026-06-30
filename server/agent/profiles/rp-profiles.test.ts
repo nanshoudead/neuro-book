@@ -165,7 +165,7 @@ describe("RP builtin profiles", () => {
         expect(systemPrompt).toContain("直接用 assistant 文本返回");
         expect(historyText).toContain("```AGENTS.md");
         expect(historyText).toContain("```reference/agent/profile-routing.md");
-        expect(historyText).toContain("Project 文件/Plot/Lorebook 工程整理转 `leader.default`");
+        expect(historyText).toContain("Project 文件/Lorebook 工程整理转 `leader.default`");
         expect(historyText).toContain("模拟器调试转 `simulator.leader`");
         expect(historyText).toContain("资产编辑转 `leader.assets`");
         expect(historyText).toContain("```reference/content/manual.md");
@@ -214,7 +214,8 @@ describe("RP builtin profiles", () => {
         expect(historyText).toContain("```AGENTS.md");
         expect(historyText).toContain("```reference/agent/profile-routing.md");
         expect(historyText).toContain("RP 用户体验与叙事组装转 `rp.leader`");
-        expect(historyText).toContain("长期剧情结构/Plot 落库转 `director`");
+        expect(historyText).toContain("长期 Thread / Scene 设计");
+        expect(historyText).toContain("World Engine 数据维护转 `world.engine`");
         expect(historyText).toContain("正式章节正文由上级调用 `writer`");
         expect(historyText).toContain("```reference/agent/workspace-tool-use.md");
         expect(modelContextText).toContain("projectPath: workspace/rp-project");
@@ -558,11 +559,13 @@ describe("RP builtin profiles", () => {
     });
 
     it("simulation 模板使用 subject frontmatter、runs 新结构和不产生断链的 entity 示例", async () => {
-        const templateRoot = resolve("assets", "workspace", ".nbook", "templates", "project-directory-templates", "simulation");
-        await expect(readFile(join(templateRoot, "config.yaml"), "utf-8")).rejects.toThrow();
-        await expect(readFile(join(templateRoot, "cast.yaml"), "utf-8")).rejects.toThrow();
-        await expect(readFile(join(templateRoot, "simulator.md"), "utf-8")).rejects.toThrow();
-        await expect(readFile(join(templateRoot, "writer.md"), "utf-8")).rejects.toThrow();
+        const activeTemplateRoot = resolve("assets", "workspace", ".nbook", "templates", "project-directory-templates", "simulation");
+        await expect(readFile(join(activeTemplateRoot, "config.yaml"), "utf-8")).rejects.toThrow();
+        await expect(readFile(join(activeTemplateRoot, "cast.yaml"), "utf-8")).rejects.toThrow();
+        await expect(readFile(join(activeTemplateRoot, "simulator.md"), "utf-8")).rejects.toThrow();
+        await expect(readFile(join(activeTemplateRoot, "writer.md"), "utf-8")).rejects.toThrow();
+
+        const templateRoot = resolve("assets", "workspace", ".nbook", "templates", "archived", "project-directory-templates", "simulation");
 
         const playerSubject = await readFile(join(templateRoot, "subjects", "player", "subject.md"), "utf-8");
         const npcSubject = await readFile(join(templateRoot, "subjects", "sample-npc", "subject.md"), "utf-8");

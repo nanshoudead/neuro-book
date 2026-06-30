@@ -4,7 +4,6 @@ import PlotThreadScenePanel from "nbook/app/components/novel-ide/plot/thread-pan
 import type {
     PlotThreadPanelChapter,
     PlotThreadPanelDetail,
-    PlotThreadPanelPlot,
     PlotThreadPanelScene,
     PlotThreadPanelThread,
     PlotThreadQuickSceneUpdate,
@@ -14,7 +13,6 @@ const props = defineProps<{
     threads: PlotThreadPanelThread[];
     scenes: PlotThreadPanelScene[];
     chapters: PlotThreadPanelChapter[];
-    plots: PlotThreadPanelPlot[];
     selectedThreadId: string | null;
     selectedSceneId: string | null;
     detail: PlotThreadPanelDetail | null;
@@ -76,7 +74,6 @@ const emit = defineEmits<{
             :threads="props.threads"
             :scenes="props.scenes"
             :chapters="props.chapters"
-            :plots="props.plots"
             :selected-thread-id="props.selectedThreadId"
             :selected-scene-id="props.selectedSceneId"
             @select-thread="emit('selectThread', $event)"

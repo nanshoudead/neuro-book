@@ -14,8 +14,9 @@ import {applyCodexPatch} from "nbook/server/agent/tools/apply-patch";
 
 const ReadSchema = Type.Object({
     path: Type.String({description: "Path to the file to read (relative or absolute)."}),
-    offset: Type.Optional(Type.Number({description: "Line number to start reading from (1-indexed)."})),
-    limit: Type.Optional(Type.Number({description: "Maximum number of lines to read."})),
+    offset: Type.Optional(Type.Integer({minimum: 1, description: "Line number to start reading from (1-indexed)."})),
+    limit: Type.Optional(Type.Integer({minimum: 1, description: "Maximum number of lines to read."})),
+    lineNumbers: Type.Optional(Type.Boolean({description: "Whether to prefix text output lines with 1-indexed line numbers. Defaults to true when offset/limit is used or output is truncated."})),
 }, {additionalProperties: false});
 
 const WriteSchema = Type.Object({
@@ -48,6 +49,10 @@ type BashInput = Static<typeof BashSchema>;
 type ReadDetails = {
     truncation?: TruncationResult;
     path: string;
+    startLine?: number;
+    endLine?: number;
+    totalLines?: number;
+    nextOffset?: number;
 };
 
 type EditDetails = {
@@ -79,7 +84,7 @@ function createReadTool(): NeuroAgentTool {
         name: "read",
         label: "read",
         executionMode: "parallel",
-        description: `Read the contents of a file. Supports text files and images (jpg, png, gif, webp). Images are sent as attachments. For text files, output is truncated to 2000 lines or ${DEFAULT_MAX_BYTES / 1024}KB (whichever is hit first). Use offset/limit for large files. When you need the full file, continue with offset until complete. Agent cwd is the Workspace Root, so Project files should use project-slug/lorebook/... or project-slug/manuscript/.... Fully-qualified Project Paths like workspace/silver-dragon-hime/lorebook/... are accepted as compatibility aliases. Use read to examine files instead of cat/head/tail/sed.`,
+        description: `Read the contents of a file. Supports text files and images (jpg, png, gif, webp). Images are sent as attachments. For text files, output is truncated to 2000 lines or ${DEFAULT_MAX_BYTES / 1024}KB (whichever is hit first). Use offset/limit for large files. When you need the full file, continue with offset until complete. Text output includes line numbers automatically when offset/limit is used or output is truncated; pass lineNumbers=true to force them for short full-file reads. Agent cwd is the Workspace Root, so Project files should use project-slug/lorebook/... or project-slug/manuscript/.... Fully-qualified Project Paths like workspace/silver-dragon-hime/lorebook/... are accepted as compatibility aliases. Use read to examine files instead of cat/head/tail/sed.`,
         parameters: ReadSchema,
         async executeWithContext(context: ToolExecutionContext, _toolCallId: string, params: unknown, _userInput?: unknown, signal?: AbortSignal) {
             const input = params as ReadInput;
@@ -108,20 +113,28 @@ function createReadTool(): NeuroAgentTool {
                 ? lines.slice(startLine, startLine + input.limit).join("\n")
                 : lines.slice(startLine).join("\n");
             const truncation = truncateHead(selected);
-            let outputText = truncation.content;
+            const shouldShowLineNumbers = input.lineNumbers ?? (input.offset !== undefined || input.limit !== undefined || truncation.truncated);
+            const endLine = startLine + truncation.outputLines;
+            const nextOffset = truncation.truncated
+                ? endLine + 1
+                : input.limit !== undefined && startLine + input.limit < lines.length ? startLine + input.limit + 1 : undefined;
+            let outputText = shouldShowLineNumbers ? addLineNumbers(truncation.content, startLine + 1) : truncation.content;
             if (truncation.firstLineExceedsLimit) {
                 const firstLineSize = formatSize(Buffer.byteLength(lines[startLine] ?? "", "utf-8"));
                 outputText = `[Line ${startLine + 1} is ${firstLineSize}, exceeds ${formatSize(DEFAULT_MAX_BYTES)} limit. Use bash: sed -n '${startLine + 1}p' ${input.path} | head -c ${DEFAULT_MAX_BYTES}]`;
             } else if (truncation.truncated) {
-                const endLine = startLine + truncation.outputLines;
                 outputText += `\n\n[Showing lines ${startLine + 1}-${endLine} of ${lines.length}. Use offset=${endLine + 1} to continue.]`;
-            } else if (input.limit !== undefined && startLine + input.limit < lines.length) {
-                outputText += `\n\n[${lines.length - startLine - input.limit} more lines in file. Use offset=${startLine + input.limit + 1} to continue.]`;
+            } else if (nextOffset !== undefined) {
+                outputText += `\n\n[${lines.length - startLine - input.limit!} more lines in file. Use offset=${nextOffset} to continue.]`;
             }
             return {
                 content: [{type: "text", text: outputText}],
                 details: {
                     path: absolutePath,
+                    startLine: startLine + 1,
+                    endLine,
+                    totalLines: lines.length,
+                    nextOffset,
                     truncation: truncation.truncated ? truncation : undefined,
                 },
             };
@@ -148,6 +161,11 @@ async function recordReadContextAccess(context: ToolExecutionContext, absolutePa
     } catch {
         // 访问推荐是辅助状态，不能影响 read 主流程。
     }
+}
+
+function addLineNumbers(content: string, firstLine: number): string {
+    const lines = content.split("\n");
+    return lines.map((line, index) => `${firstLine + index} | ${line}`).join("\n");
 }
 
 function resolveContextAccessProject(context: ToolExecutionContext, absolutePath: string): {root: string; slug: string; filePath: string} | null {
@@ -334,36 +352,22 @@ function createBashTool(): NeuroAgentTool {
     };
 }
 
-function applyExactEdits(content: string, edits: EditInput["edits"], filePath: string): string {
-    const matches = edits.map((edit, index) => {
-        if (!edit.oldText) {
-            throw new Error(`edits[${index}].oldText must not be empty in ${filePath}.`);
-        }
-        const first = content.indexOf(edit.oldText);
-        if (first === -1) {
-            throw new Error(`Could not find edits[${index}] in ${filePath}. The oldText must match exactly.`);
-        }
-        if (content.indexOf(edit.oldText, first + edit.oldText.length) !== -1) {
-            throw new Error(`Found multiple occurrences of edits[${index}] in ${filePath}. oldText must be unique.`);
-        }
-        return {
-            index,
-            start: first,
-            end: first + edit.oldText.length,
-            newText: edit.newText,
-        };
-    }).sort((left, right) => left.start - right.start);
+type ExactEditMatch = {
+    index: number;
+    start: number;
+    end: number;
+    startLine: number;
+    endLine: number;
+    newText: string;
+};
 
-    for (let index = 1; index < matches.length; index++) {
-            const previous = matches[index - 1];
-            const current = matches[index];
-            if (!previous || !current) {
-                continue;
-            }
-        if (previous.end > current.start) {
-            throw new Error(`edits[${previous.index}] and edits[${current.index}] overlap in ${filePath}.`);
-        }
-    }
+type ExactEditFailure = {
+    index: number;
+    reason: string;
+};
+
+function applyExactEdits(content: string, edits: EditInput["edits"], filePath: string): string {
+    const matches = preflightExactEdits(content, edits, filePath);
 
     let updated = content;
     for (const match of [...matches].reverse()) {
@@ -373,6 +377,93 @@ function applyExactEdits(content: string, edits: EditInput["edits"], filePath: s
         throw new Error(`No changes made to ${filePath}.`);
     }
     return updated;
+}
+
+function preflightExactEdits(content: string, edits: EditInput["edits"], filePath: string): ExactEditMatch[] {
+    const failures: ExactEditFailure[] = [];
+    const matches = edits.flatMap((edit, index): ExactEditMatch[] => {
+        if (!edit.oldText) {
+            failures.push({index, reason: "oldText must not be empty."});
+            return [];
+        }
+        const occurrences = findOccurrences(content, edit.oldText);
+        if (occurrences.length === 0) {
+            failures.push({index, reason: "oldText was not found. It must match exactly."});
+            return [];
+        }
+        if (occurrences.length > 1) {
+            failures.push({
+                index,
+                reason: `oldText matched ${occurrences.length} locations at lines ${occurrences.map((start) => lineNumberAt(content, start)).join(", ")}. It must be unique.`,
+            });
+            return [];
+        }
+        const first = occurrences[0]!;
+        return [{
+            index,
+            start: first,
+            end: first + edit.oldText.length,
+            startLine: lineNumberAt(content, first),
+            endLine: lineNumberAt(content, first + edit.oldText.length),
+            newText: edit.newText,
+        }];
+    }).sort((left, right) => left.start - right.start);
+
+    for (let index = 1; index < matches.length; index++) {
+        const previous = matches[index - 1];
+        const current = matches[index];
+        if (!previous || !current) {
+            continue;
+        }
+        if (previous.end > current.start) {
+            failures.push({
+                index: current.index,
+                reason: `overlaps edits[${previous.index}] at lines ${previous.startLine}-${previous.endLine}.`,
+            });
+        }
+    }
+
+    if (failures.length) {
+        throw new Error(formatEditPreflightError(filePath, matches, failures));
+    }
+    return matches;
+}
+
+function formatEditPreflightError(filePath: string, matches: ExactEditMatch[], failures: ExactEditFailure[]): string {
+    const matchedText = matches.length
+        ? matches
+            .map((match) => `- edits[${match.index}] matched lines ${match.startLine}-${match.endLine}.`)
+            .join("\n")
+        : "- none";
+    const failedText = failures
+        .sort((left, right) => left.index - right.index)
+        .map((failure) => `- edits[${failure.index}] failed: ${failure.reason}`)
+        .join("\n");
+    return [
+        `Edit preflight failed for ${filePath}. No changes were written.`,
+        "Matched edits:",
+        matchedText,
+        "Failed edits:",
+        failedText,
+    ].join("\n");
+}
+
+function findOccurrences(content: string, needle: string): number[] {
+    const occurrences: number[] = [];
+    let start = 0;
+    while (start <= content.length) {
+        const found = content.indexOf(needle, start);
+        if (found === -1) {
+            break;
+        }
+        occurrences.push(found);
+        start = found + Math.max(needle.length, 1);
+    }
+    return occurrences;
+}
+
+function lineNumberAt(content: string, index: number): number {
+    return content.slice(0, Math.max(0, index)).split("\n").length;
 }
 
 function resolveBashPath(): string {

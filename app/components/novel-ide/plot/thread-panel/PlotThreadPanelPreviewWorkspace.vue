@@ -4,7 +4,6 @@ import Dialog from "nbook/app/components/common/Dialog.vue";
 import ContextMenu, {type ContextMenuItem} from "nbook/app/components/common/ContextMenu.vue";
 import {plotPreviewDataset} from "nbook/app/components/novel-ide/plot/plot-preview.data";
 import type {
-    PlotPreviewPlot,
     PlotPreviewRef,
     PlotPreviewScene,
     PlotPreviewThread,
@@ -14,7 +13,6 @@ import PlotThreadPanelShell from "nbook/app/components/novel-ide/plot/thread-pan
 import type {
     PlotThreadEditorSave,
     PlotThreadPanelDetail,
-    PlotThreadPanelPlot,
     PlotThreadPanelRef,
     PlotThreadQuickSceneUpdate,
     PlotThreadPanelScene,
@@ -22,12 +20,22 @@ import type {
 } from "nbook/app/components/novel-ide/plot/thread-panel/plot-thread-panel.types";
 
 const toneCycle: PlotPreviewThread["tone"][] = ["amber", "sky", "emerald", "rose"];
+const emptyWorldAnchor = {
+    startTime: null,
+    endTime: null,
+    startInstant: null,
+    endInstant: null,
+    subjectIds: [],
+    locationSubjectId: null,
+    subjects: [],
+    locationSubject: null,
+    unresolvedSubjectIds: [],
+} satisfies PlotThreadPanelScene["worldAnchor"];
 
 const selectedThreadId = ref<string | null>("thread-main");
 const selectedSceneId = ref<string | null>("scene-auction");
 const threads = ref(cloneThreads(plotPreviewDataset.threads));
 const scenes = ref(cloneScenes(plotPreviewDataset.scenes));
-const plots = ref(clonePlots(plotPreviewDataset.plots));
 const chapters = plotPreviewDataset.chapters;
 const editorVisible = ref(false);
 const editorMode = ref<"create" | "edit">("create");
@@ -78,19 +86,6 @@ const editingScene = computed(() => {
 const editingSceneRefs = computed(() => editingScene.value?.refs ?? []);
 
 /**
- * 当前编辑中的 Scene plots。
- */
-const editingScenePlots = computed(() => {
-    if (!editingScene.value) {
-        return [];
-    }
-
-    return plots.value
-        .filter((plot) => plot.sceneId === editingScene.value?.id)
-        .sort((left, right) => left.sortOrder - right.sortOrder);
-});
-
-/**
  * 当前详情面板所需的完整数据。
  */
 const detail = computed<PlotThreadPanelDetail | null>(() => {
@@ -101,15 +96,10 @@ const detail = computed<PlotThreadPanelDetail | null>(() => {
         return null;
     }
 
-    const scenePlots = plots.value
-        .filter((plot) => plot.sceneId === scene.id)
-        .sort((left, right) => left.sortOrder - right.sortOrder);
-
     return {
         thread,
         scene,
         chapter: scene?.chapterPath ? (chapterMap.value.get(scene.chapterPath) ?? null) : null,
-        plots: scenePlots,
         effectiveRefs: buildEffectiveRefs(thread.refs, scene?.refs ?? []),
     };
 });
@@ -124,11 +114,11 @@ const deleteMessage = computed(() => {
 
     if (deleteTarget.value.type === "thread") {
         const thread = threadMap.value.get(deleteTarget.value.id);
-        return `确认删除「${thread?.title ?? "当前 Thread"}」吗？该 Thread 下的 Scene 和 Plot 会一起删除。`;
+        return `确认删除「${thread?.title ?? "当前 Thread"}」吗？该 Thread 下的 Scene 会一起删除。`;
     }
 
     const scene = sceneMap.value.get(deleteTarget.value.id);
-    return `确认删除「${scene?.title ?? "当前 Scene"}」吗？该 Scene 下的 Plot 会一起删除。`;
+    return `确认删除「${scene?.title ?? "当前 Scene"}」吗？`;
 });
 
 /**
@@ -440,21 +430,15 @@ function saveScene(payload: {
     status: PlotThreadPanelScene["status"];
     chapterPath: string | null;
     writingTip: string | null;
+    worldAnchor: PlotThreadPanelScene["worldAnchor"];
     refs: PlotPreviewRef[];
-    plots: Array<{
-        id: string;
-        kind: PlotPreviewPlot["kind"];
-        summary: string;
-        effect: string | null;
-        writingTip: string | null;
-    }>;
 }): void {
     if (!selectedThreadId.value) {
         return;
     }
 
     if (editorMode.value === "create") {
-        const nextScene: PlotPreviewScene = {
+        const nextScene: PlotThreadPanelScene = {
             id: createId("scene"),
             threadId: selectedThreadId.value,
             chapterPath: payload.chapterPath,
@@ -467,13 +451,10 @@ function saveScene(payload: {
                 ? scenes.value.filter((scene) => scene.chapterPath === payload.chapterPath).length
                 : null,
             writingTip: payload.writingTip,
+            worldAnchor: payload.worldAnchor,
             refs: payload.refs.map((refItem) => ({...refItem})),
         };
         scenes.value = [...scenes.value, nextScene];
-        plots.value = [
-            ...plots.value,
-            ...buildScenePlots(nextScene.id, payload.plots),
-        ];
         selectScene(nextScene.id);
         return;
     }
@@ -496,25 +477,18 @@ function saveScene(payload: {
                 : (scene.chapterPath === payload.chapterPath
                     ? scene.chapterSortOrder
                     : scenes.value.filter((item) => item.chapterPath === payload.chapterPath).length),
+            worldAnchor: payload.worldAnchor,
             refs: payload.refs.map((refItem) => ({...refItem})),
         }
         : scene);
-
-    plots.value = [
-        ...plots.value.filter((plot) => plot.sceneId !== editingSceneId.value),
-        ...buildScenePlots(editingSceneId.value, payload.plots),
-    ];
 }
 
 /**
- * 删除一条 Thread，并清理子 Scene / Plot。
+ * 删除一条 Thread，并清理子 Scene。
  */
 function deleteThread(threadId: string): void {
-    const removedSceneIds = new Set(scenes.value.filter((scene) => scene.threadId === threadId).map((scene) => scene.id));
-
     threads.value = threads.value.filter((thread) => thread.id !== threadId);
     scenes.value = scenes.value.filter((scene) => scene.threadId !== threadId);
-    plots.value = plots.value.filter((plot) => !removedSceneIds.has(plot.sceneId));
 
     if (selectedThreadId.value === threadId) {
         const nextThread = threads.value[0] ?? null;
@@ -535,7 +509,6 @@ function deleteScene(sceneId: string): void {
     }
 
     scenes.value = scenes.value.filter((item) => item.id !== sceneId);
-    plots.value = plots.value.filter((plot) => plot.sceneId !== sceneId);
     normalizeThreadScenes(scene.threadId);
 
     if (selectedSceneId.value === sceneId) {
@@ -570,30 +543,8 @@ function normalizeThreadScenes(threadId: string): void {
 /**
  * 生成预览态 id。
  */
-function createId(prefix: "thread" | "scene" | "plot" | "ref"): string {
+function createId(prefix: "thread" | "scene" | "ref"): string {
     return `${prefix}-preview-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-}
-
-/**
- * 把表单里的 Plot 草稿转换为当前 Scene 的正式预览数据。
- */
-function buildScenePlots(sceneId: string, draftPlots: Array<{
-    id: string;
-    kind: PlotPreviewPlot["kind"];
-    summary: string;
-    effect: string | null;
-    writingTip: string | null;
-}>): PlotThreadPanelPlot[] {
-    return draftPlots.map((plot, index) => ({
-        id: plot.id || createId("plot"),
-        sceneId,
-        sortOrder: index,
-        kind: plot.kind,
-        summary: plot.summary,
-        effect: plot.effect,
-        writingTip: plot.writingTip,
-        note: null,
-    }));
 }
 
 /**
@@ -620,19 +571,14 @@ function cloneThreads(source: PlotPreviewThread[]): PlotPreviewThread[] {
 /**
  * 克隆 Scene 数据，避免直接改写静态 mock。
  */
-function cloneScenes(source: PlotPreviewScene[]): PlotPreviewScene[] {
+function cloneScenes(source: PlotPreviewScene[]): PlotThreadPanelScene[] {
     return source.map((scene) => ({
         ...scene,
+        worldAnchor: emptyWorldAnchor,
         refs: scene.refs.map((refItem) => ({...refItem})),
     }));
 }
 
-/**
- * 克隆 Plot 数据，避免直接改写静态 mock。
- */
-function clonePlots(source: PlotPreviewPlot[]): PlotPreviewPlot[] {
-    return source.map((plot) => ({...plot}));
-}
 </script>
 
 <template>
@@ -642,7 +588,6 @@ function clonePlots(source: PlotPreviewPlot[]): PlotPreviewPlot[] {
             :threads="threads"
             :scenes="scenes"
             :chapters="chapters"
-            :plots="plots"
             :selected-thread-id="selectedThreadId"
             :selected-scene-id="selectedSceneId"
             :detail="detail"
@@ -669,7 +614,6 @@ function clonePlots(source: PlotPreviewPlot[]): PlotPreviewPlot[] {
         :scene="editingScene"
         :chapters="chapters"
         :scene-refs="editingSceneRefs"
-        :scene-plots="editingScenePlots"
         @update:visible="editorVisible = $event"
         @save="handleEditorSave"
     />

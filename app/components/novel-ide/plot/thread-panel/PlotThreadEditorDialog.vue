@@ -1,10 +1,4 @@
 <script setup lang="ts">
-import type {Data} from "@dnd-kit/abstract";
-import {defaultPreset} from "@dnd-kit/dom";
-import {move} from "@dnd-kit/helpers";
-import {DragDropProvider, KeyboardSensor, PointerSensor} from "@dnd-kit/vue";
-import type {DragDropProviderEmits} from "@dnd-kit/vue";
-import {isSortable} from "@dnd-kit/vue/sortable";
 import {computed, reactive, ref, watch} from "vue";
 import {storeToRefs} from "pinia";
 import Dialog from "nbook/app/components/common/Dialog.vue";
@@ -24,28 +18,15 @@ import {
 } from "nbook/app/components/novel-ide/plot/thread-panel/plot-thread-panel.types";
 import type {
     PlotThreadPanelChapter,
-    PlotThreadPanelPlot,
     PlotThreadPanelRef,
     PlotThreadPanelScene,
     PlotThreadPanelThread,
 } from "nbook/app/components/novel-ide/plot/thread-panel/plot-thread-panel.types";
-import PlotThreadEditorPlotRow from "nbook/app/components/novel-ide/plot/thread-panel/PlotThreadEditorPlotRow.vue";
 import type {
-    PlotThreadEditorPlotDraft,
     PlotThreadEditorSave,
 } from "nbook/app/components/novel-ide/plot/thread-panel/plot-thread-panel.types";
 import {useNovelIdeStore} from "nbook/app/stores/novel-ide";
 import type {JsonObject} from "nbook/shared/dto/ai-form-annotation.dto";
-
-type DragStartPayload = DragDropProviderEmits["dragStart"][0];
-type DragOverPayload = DragDropProviderEmits["dragOver"][0];
-type DragEndPayload = DragDropProviderEmits["dragEnd"][0];
-
-type PlotDragData = {
-    kind: "plot";
-    plotId: string;
-    sceneId: string;
-};
 
 const props = defineProps<{
     visible: boolean;
@@ -55,7 +36,6 @@ const props = defineProps<{
     scene: PlotThreadPanelScene | null;
     chapters: PlotThreadPanelChapter[];
     sceneRefs: PlotThreadPanelRef[];
-    scenePlots: PlotThreadPanelPlot[];
     saving?: boolean;
     error?: string;
 }>();
@@ -64,15 +44,6 @@ const emit = defineEmits<{
     (e: "update:visible", value: boolean): void;
     (e: "save", payload: PlotThreadEditorSave): void;
 }>();
-
-const dndSensors = [
-    PointerSensor.configure({
-        activatorElements(source) {
-            return [source.handle];
-        },
-    }),
-    KeyboardSensor,
-];
 
 const threadDraft = reactive({
     title: "",
@@ -93,8 +64,6 @@ const sceneDraft = reactive({
 });
 
 const sceneRefsDraft = ref<PlotThreadPanelRef[]>([]);
-const scenePlotsDraft = ref<PlotThreadPanelPlot[]>([]);
-const dragPlots = ref<PlotThreadPanelPlot[] | null>(null);
 const threadTags = ref<string[]>([]);
 const aiDialogOpen = ref(false);
 const initialThreadSnapshot = ref("");
@@ -153,10 +122,6 @@ const dialogTitle = computed(() => {
     return props.mode === "create" ? "新建 Scene" : "编辑 Scene";
 });
 
-/**
- * 当前渲染用的 Plot 列表。
- */
-const renderedPlots = computed(() => dragPlots.value ?? scenePlotsDraft.value);
 const isDirty = computed(() => {
     if (props.target === "thread") {
         return JSON.stringify({
@@ -177,7 +142,6 @@ const isDirty = computed(() => {
         chapterPath: sceneDraft.chapterPath,
         writingTip: sceneDraft.writingTip,
         refs: sceneRefsDraft.value,
-        plots: scenePlotsDraft.value,
     }) !== initialSceneSnapshot.value;
 });
 
@@ -213,10 +177,6 @@ function resetSceneDraft(): void {
     sceneDraft.chapterPath = props.scene?.chapterPath ?? "";
     sceneDraft.writingTip = props.scene?.writingTip ?? "";
     sceneRefsDraft.value = props.sceneRefs.map((refItem) => ({...refItem}));
-    scenePlotsDraft.value = [...props.scenePlots]
-        .sort((left, right) => left.sortOrder - right.sortOrder)
-        .map((plot) => ({...plot}));
-    dragPlots.value = null;
     initialSceneSnapshot.value = JSON.stringify({
         title: sceneDraft.title,
         summary: sceneDraft.summary,
@@ -225,7 +185,6 @@ function resetSceneDraft(): void {
         chapterPath: sceneDraft.chapterPath,
         writingTip: sceneDraft.writingTip,
         refs: sceneRefsDraft.value,
-        plots: scenePlotsDraft.value,
     });
 }
 
@@ -281,17 +240,8 @@ async function handleDialogRequestClose(reason: "overlay" | "cancel" | "close-bu
 /**
  * 生成预览态本地 id。
  */
-function createLocalId(prefix: "ref" | "plot"): string {
+function createLocalId(prefix: "ref"): string {
     return `${prefix}-preview-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-}
-
-/**
- * 判断当前拖拽数据是否为 Plot。
- */
-function isPlotDragData(data: Data | undefined): data is PlotDragData {
-    return data?.kind === "plot"
-        && typeof data.plotId === "string"
-        && typeof data.sceneId === "string";
 }
 
 /**
@@ -329,112 +279,6 @@ function removeSceneRef(refId: string): void {
     sceneRefsDraft.value = sceneRefsDraft.value.filter((refItem) => refItem.id !== refId);
 }
 
-/**
- * 新增一条 Plot 草稿。
- */
-function addScenePlot(): void {
-    scenePlotsDraft.value = [
-        ...scenePlotsDraft.value,
-        {
-            id: createLocalId("plot"),
-            sceneId: props.scene?.id ?? "scene-draft",
-            sortOrder: scenePlotsDraft.value.length,
-            kind: "setup",
-            summary: "",
-            effect: null,
-            writingTip: null,
-            note: null,
-        },
-    ];
-}
-
-/**
- * 更新一条 Plot 草稿。
- */
-function updateScenePlot(payload: {
-    plotId: string;
-        patch: {
-        kind?: PlotThreadPanelPlot["kind"];
-        summary?: string;
-        effect?: string | null;
-        writingTip?: string | null;
-    };
-}): void {
-    scenePlotsDraft.value = scenePlotsDraft.value.map((plot) => plot.id === payload.plotId
-        ? {
-            ...plot,
-            ...payload.patch,
-        }
-        : plot);
-}
-
-/**
- * 删除一条 Plot 草稿。
- */
-function removeScenePlot(plotId: string): void {
-    scenePlotsDraft.value = scenePlotsDraft.value
-        .filter((plot) => plot.id !== plotId)
-        .map((plot, index) => ({
-            ...plot,
-            sortOrder: index,
-        }));
-}
-
-/**
- * Plot 拖拽开始时记录本地快照。
- */
-function handlePlotDragStart(event: DragStartPayload): void {
-    const source = event.operation.source;
-
-    if (!source || !isSortable(source) || !isPlotDragData(source.data)) {
-        dragPlots.value = null;
-        return;
-    }
-
-    dragPlots.value = [...scenePlotsDraft.value];
-}
-
-/**
- * Plot 拖拽经过时实时更新预览顺序。
- */
-function handlePlotDragOver(event: DragOverPayload): void {
-    const source = event.operation.source;
-    const target = event.operation.target;
-
-    if (!source || !isSortable(source) || !isPlotDragData(source.data)) {
-        event.preventDefault();
-        return;
-    }
-
-    if (!target || !isSortable(target) || !isPlotDragData(target.data)) {
-        event.preventDefault();
-        return;
-    }
-
-    if (!dragPlots.value) {
-        dragPlots.value = [...scenePlotsDraft.value];
-    }
-
-    dragPlots.value = move(dragPlots.value, event) as PlotThreadPanelPlot[];
-}
-
-/**
- * Plot 拖拽结束后提交最终顺序。
- */
-function handlePlotDragEnd(event: DragEndPayload): void {
-    const source = event.operation.source;
-    const nextPlots = dragPlots.value;
-    dragPlots.value = null;
-
-    if (!source || !isSortable(source) || !isPlotDragData(source.data) || !nextPlots || event.canceled) {
-        return;
-    }
-
-    scenePlotsDraft.value = nextPlots.map((plot, index) => ({
-        ...plot,
-        sortOrder: index,
-    }));
-}
 
 /**
  * 提交当前表单。
@@ -466,16 +310,6 @@ function submit(): void {
         }))
         .filter((refItem) => refItem.relation.length > 0 || refItem.target.length > 0);
 
-    const plots: PlotThreadEditorPlotDraft[] = scenePlotsDraft.value
-        .map((plot, index) => ({
-            id: plot.id,
-            kind: plot.kind,
-            summary: plot.summary.trim(),
-            effect: plot.effect?.trim() || null,
-            writingTip: plot.writingTip?.trim() || null,
-        }))
-        .filter((plot) => plot.summary.length > 0 || plot.effect !== null || plot.writingTip !== null);
-
     emit("save", {
         target: "scene",
         title: sceneDraft.title.trim() || "未命名 Scene",
@@ -484,8 +318,18 @@ function submit(): void {
         status: sceneDraft.status,
         chapterPath: sceneDraft.chapterPath || null,
         writingTip: sceneDraft.writingTip.trim() || null,
+        worldAnchor: props.scene?.worldAnchor ?? {
+            startTime: null,
+            endTime: null,
+            startInstant: null,
+            endInstant: null,
+            subjectIds: [],
+            locationSubjectId: null,
+            subjects: [],
+            locationSubject: null,
+            unresolvedSubjectIds: [],
+        },
         refs,
-        plots,
     });
 }
 
@@ -673,48 +517,6 @@ watch(threadTags, (value) => {
                     :resolve-menu="resolveMenu"
                 />
             </FormField>
-
-            <!-- Plots -->
-            <section class="space-y-2 rounded-lg border border-[var(--border-color)] bg-[var(--bg-panel)] p-3">
-                <div class="flex items-center justify-between gap-3">
-                    <div>
-                        <div class="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--text-muted)]">Plots</div>
-                    </div>
-                    <button
-                        type="button"
-                        class="inline-flex h-7 items-center gap-1 rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] px-2.5 text-[11px] text-[var(--text-main)] transition-colors hover:bg-[var(--bg-hover)]"
-                        @click="addScenePlot"
-                    >
-                        <span class="i-lucide-plus h-3 w-3"></span>
-                        <span>新增 Plot</span>
-                    </button>
-                </div>
-
-                <DragDropProvider
-                    v-if="renderedPlots.length"
-                    :plugins="defaultPreset.plugins"
-                    :sensors="dndSensors"
-                    @drag-start="handlePlotDragStart"
-                    @drag-over="handlePlotDragOver"
-                    @drag-end="handlePlotDragEnd"
-                >
-                    <div class="space-y-2">
-                        <PlotThreadEditorPlotRow
-                            v-for="(plot, index) in renderedPlots"
-                            :key="plot.id"
-                            :plot="plot"
-                            :index="index"
-                            :scene-id="props.scene?.id ?? 'scene-draft'"
-                            @update="updateScenePlot"
-                            @remove="removeScenePlot"
-                        />
-                    </div>
-                </DragDropProvider>
-
-                <div v-else class="rounded-md border border-dashed border-[var(--border-color)] bg-[var(--bg-panel)]/50 px-3 py-4 text-center text-[12px] text-[var(--text-muted)]">
-                    当前 Scene 还没有 Plot。
-                </div>
-            </section>
 
             <!-- Refs -->
             <section class="space-y-2 rounded-lg border border-[var(--border-color)] bg-[var(--bg-panel)] p-3">

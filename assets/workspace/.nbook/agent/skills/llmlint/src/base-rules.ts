@@ -1,9 +1,19 @@
 import type {LintRuleRecord} from "./types";
+import {OPENER_RULES} from "./base-rules/openers";
+import {INFLATION_RULES} from "./base-rules/inflation";
+import {TRANSITION_SUMMARY_RULES} from "./base-rules/transitions";
+import {ATTRIBUTION_RULES} from "./base-rules/attribution";
+import {ASSISTANT_RULES} from "./base-rules/assistant";
+import {JARGON_RULES} from "./base-rules/jargon";
+import {TRANSLATIONESE_RULES} from "./base-rules/translationese";
+import {TIER2_RULES} from "./base-rules/tier2";
+import {MECHANICAL_RULES} from "./base-rules/mechanical";
 
 /**
- * llmlint 官方默认规则集中人工维护的基础规则。
+ * llmlint 官方默认规则集中人工维护的核心基础规则（最早一批 anti-ai-slop 规则）。
+ * 新增的成体系规则按主题拆到 base-rules/ 目录下的模块，再在文件末尾聚合。
  */
-export const DEFAULT_BASE_RULES = [
+const CORE_BASE_RULES = [
     {
         "id": "filler-word-actually",
         "namespace": "filler",
@@ -543,4 +553,21 @@ export const DEFAULT_BASE_RULES = [
             }
         ]
     }
+] satisfies LintRuleRecord[];
+
+/**
+ * 官方默认规则集人工维护规则的聚合入口：核心规则 + 各主题模块。
+ * curated-import 仍从这里读取 `DEFAULT_BASE_RULES`，再与中文样本去重合并生成 builtin/default。
+ */
+export const DEFAULT_BASE_RULES = [
+    ...CORE_BASE_RULES,
+    ...OPENER_RULES,
+    ...INFLATION_RULES,
+    ...TRANSITION_SUMMARY_RULES,
+    ...ATTRIBUTION_RULES,
+    ...ASSISTANT_RULES,
+    ...JARGON_RULES,
+    ...TRANSLATIONESE_RULES,
+    ...TIER2_RULES,
+    ...MECHANICAL_RULES,
 ] satisfies LintRuleRecord[];

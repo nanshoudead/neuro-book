@@ -7,6 +7,8 @@
 **优先级**：P1（功能增强）  
 **前置依赖**：Task 62.1.2（多 pendingApprovals 支持）
 
+> 注意：这是 Task 63 的早期设计副本，已被上层 `docs/tasks/63-tool-approval-policy-system/README.md` 的当前实现记录取代。当前 `request_user_input` 不再复用 Low-Code Form，也不支持多选、默认值或推荐字段；Low-Code Form 只保留给其它/未来结构化表单工具。
+
 ### 背景
 
 **核心认知转变**：工具"审批"本质上不是"批准/拒绝"，而是**工具在执行过程中主动请求用户输入**。

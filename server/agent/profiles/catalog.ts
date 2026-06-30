@@ -1,19 +1,22 @@
 import {existsSync} from "node:fs";
-import {copyFile, mkdir, readFile, readdir, stat} from "node:fs/promises";
+import {mkdir, readFile, readdir, stat} from "node:fs/promises";
 import {basename, join, relative, resolve} from "node:path";
-import {pathToFileURL} from "node:url";
-import {watch, type FSWatcher} from "chokidar";
 import {Value} from "typebox/value";
 import type {JsonValue} from "nbook/server/agent/messages/types";
 import {
     PROFILE_COMPILED_DIR_NAME,
     readProfileArtifactManifest,
-    resolveArtifactPath,
-    validateProfileArtifact,
     type ProfileArtifactManifest,
+    type ProfileArtifactManifestEntry,
     type ProfileArtifactManifestItem,
+    type ProfileReleaseRegistrySink,
 } from "nbook/server/agent/profiles/profile-artifact-compiler";
+import {ProfileArtifactStore, ProfileArtifactStoreError} from "nbook/server/agent/profiles/profile-artifact-store";
+import {ProfileFreshnessChecker} from "nbook/server/agent/profiles/profile-freshness-checker";
+import {ProfileRegistry} from "nbook/server/agent/profiles/profile-registry";
+import {ProfileSourceWatcher, type ProfileSourceWatchEvent} from "nbook/server/agent/profiles/profile-source-watcher";
 import {readSystemProfileMetadata, sha256File} from "nbook/server/workspace-files/novel-workspace";
+import {resolveSystemNbookRoot, resolveUserNbookRoot} from "nbook/server/workspace-files/workspace-assets-root";
 import type {
     AgentCatalogSnapshot,
     AgentCatalogItem,
@@ -94,10 +97,22 @@ export type AgentProfileRuntimeResolution = {
     issueMessage?: string;
 };
 
-const SYSTEM_PROFILE_ROOT = resolve(process.cwd(), "assets", "workspace", ".nbook", "agent", "profiles");
-const USER_PROFILE_ROOT = resolve(process.cwd(), "workspace", ".nbook", "agent", "profiles");
+export type AgentProfileBuildState = {
+    running: boolean;
+    queued: boolean;
+    /** 为空表示当前没有构建任务；非空描述最近一次入队/运行原因。 */
+    reason: string | null;
+    /** 为空表示尚无构建状态更新时间。 */
+    updatedAt: string | null;
+};
+
+export type AgentProfileBuildCoordinatorPort = {
+    stateFor(profileKey: string): AgentProfileBuildState;
+    enqueue(input: {fileName?: string; reason: string}): Promise<void> | void;
+    dispose?(): Promise<void>;
+};
+
 const PROFILE_CATALOG_SLOW_MS = 500;
-const PROFILE_WATCH_AWAIT_WRITE_MS = 200;
 const PROFILE_CATALOG_TIMING_KEYS: Array<keyof ProfileCatalogTiming> = [
     "cacheHit",
     "inventory",
@@ -136,23 +151,46 @@ function roundProfileCatalogTiming(timing: ProfileCatalogTiming): ProfileCatalog
     }, createProfileCatalogTiming());
 }
 
+function idleProfileBuildState(): AgentProfileBuildState {
+    return {
+        running: false,
+        queued: false,
+        reason: null,
+        updatedAt: null,
+    };
+}
+
+function defaultSystemProfileRoot(): string {
+    return join(resolveSystemNbookRoot(), "agent", "profiles");
+}
+
+function defaultUserProfileRoot(): string {
+    return join(resolveUserNbookRoot(), "agent", "profiles");
+}
+
 /**
  * 动态 profile catalog。用户 profile 按 key 覆盖系统 profile。
  * Runtime 只加载 `.compiled` artifact，不在普通请求中编译 TSX 源码。
  */
-export class AgentProfileCatalog {
+export class AgentProfileCatalog implements ProfileReleaseRegistrySink {
     private readonly memoryProfiles = new Map<string, ProfileSource>();
     private memoryRevision = 0;
     private catalogGeneration = 0;
     private catalogCache?: CatalogCache;
     private pendingCatalogLoad?: PendingCatalogLoad;
     private catalogDirty = true;
-    private watcher: FSWatcher | null = null;
-    private watcherStart?: Promise<void>;
+    private sourceWatcher?: ProfileSourceWatcher;
+    private buildCoordinator?: AgentProfileBuildCoordinatorPort;
+    private runtimeRegistryEnabled = false;
+    private runtimeRegistryLoad?: Promise<LoadedProfileCatalog>;
+    private runtimeRegistryLoadGeneration = -1;
+    private readonly artifactStore = new ProfileArtifactStore();
+    private readonly freshness = new ProfileFreshnessChecker();
+    private readonly runtimeRegistry = new ProfileRegistry<LoadedProfileCatalog>();
 
     constructor(
-        private readonly systemRoot = SYSTEM_PROFILE_ROOT,
-        private readonly userRoot = USER_PROFILE_ROOT,
+        private readonly systemRoot = defaultSystemProfileRoot(),
+        private readonly userRoot = defaultUserProfileRoot(),
         private readonly _legacyModuleCacheRoot?: string,
     ) {}
 
@@ -170,10 +208,132 @@ export class AgentProfileCatalog {
     }
 
     /**
+     * 挂载 HTTP runtime 的 profile build coordinator。测试和 CLI 默认不挂载。
+     */
+    attachBuildCoordinator(coordinator: AgentProfileBuildCoordinatorPort): void {
+        this.buildCoordinator = coordinator;
+    }
+
+    /**
+     * 启用 server 进程内 Registry。启用后 get/resolveMany/snapshot 只读内存视图；
+     * 文件系统扫描/import 只发生在显式 refresh seam。
+     */
+    enableRuntimeRegistry(): void {
+        if (this.runtimeRegistryEnabled) {
+            return;
+        }
+        this.runtimeRegistryEnabled = true;
+        void this.refreshRuntimeRegistry("startup").catch((error) => {
+            void appLogger.warn("agent.profileCatalog.registryStartupFailed", {
+                error: error instanceof Error ? error.message : String(error),
+            });
+        });
+    }
+
+    /**
+     * 从当前 `.compiled/manifest.json` 重建 server 内存 Registry。
+     */
+    async refreshRuntimeRegistry(reason = "manual"): Promise<void> {
+        if (!this.runtimeRegistryEnabled) {
+            this.invalidate(reason);
+            return;
+        }
+        if (this.runtimeRegistryLoad && this.runtimeRegistryLoadGeneration === this.catalogGeneration) {
+            await this.runtimeRegistryLoad;
+            return;
+        }
+        const generationAtStart = this.catalogGeneration;
+        const load = (async () => {
+            const inventory = await this.readProfileInventory();
+            const catalog = await this.loadInventory(inventory);
+            if (this.catalogGeneration === generationAtStart) {
+                this.runtimeRegistry.publish(catalog);
+                this.catalogCache = {
+                    signature: `runtime:${this.catalogGeneration}`,
+                    catalog,
+                };
+                this.catalogDirty = false;
+            }
+            return catalog;
+        })().finally(() => {
+            if (this.runtimeRegistryLoad === load) {
+                this.runtimeRegistryLoad = undefined;
+                this.runtimeRegistryLoadGeneration = -1;
+            }
+        });
+        this.runtimeRegistryLoad = load;
+        this.runtimeRegistryLoadGeneration = generationAtStart;
+        await load;
+    }
+
+    /**
+     * in-process Publisher 的 Registry 翻转入口。磁盘 manifest 已经原子提交后，
+     * 这里用同一份 manifest 构建 server 进程内存视图，避免路由层再手动补刷。
+     */
+    async publishProfileRelease(profileRoot: string, manifest: ProfileArtifactManifest): Promise<void> {
+        if (!this.runtimeRegistryEnabled) {
+            this.invalidate("profile_release_published");
+            return;
+        }
+        const root = resolve(profileRoot);
+        const systemRoot = resolve(this.systemRoot);
+        const userRoot = resolve(this.userRoot);
+        if (root !== systemRoot && root !== userRoot) {
+            await this.refreshRuntimeRegistry("profile_release_unknown_root");
+            return;
+        }
+        const generationAtStart = this.catalogGeneration + 1;
+        this.catalogGeneration = generationAtStart;
+        this.runtimeRegistryLoad = undefined;
+        this.runtimeRegistryLoadGeneration = -1;
+        this.pendingCatalogLoad = undefined;
+        const inventory = await this.readProfileInventory();
+        const nextInventory: ProfileInventory = {
+            ...inventory,
+            systemManifest: root === systemRoot ? manifest : inventory.systemManifest,
+            userManifest: root === userRoot ? manifest : inventory.userManifest,
+        };
+        const catalog = await this.loadInventory(nextInventory);
+        if (this.catalogGeneration !== generationAtStart) {
+            return;
+        }
+        this.runtimeRegistry.publish(catalog);
+        this.catalogCache = {
+            signature: `runtime:${this.catalogGeneration}`,
+            catalog,
+        };
+        this.catalogDirty = false;
+    }
+
+    /**
+     * 返回指定 profile 的当前构建状态；未挂载 Coordinator 时返回 idle。
+     */
+    buildStateFor(profileKey: string): AgentProfileBuildState {
+        return this.buildCoordinator?.stateFor(profileKey) ?? idleProfileBuildState();
+    }
+
+    /**
+     * 源码保存/创建后请求后台编译。未挂载 Coordinator 时只标 dirty。
+     */
+    async enqueueBuild(input: {fileName?: string; reason: string}): Promise<void> {
+        this.invalidate(input.reason);
+        await this.buildCoordinator?.enqueue(input);
+    }
+
+    /**
      * 清理 catalog 缓存。手动编译或源码保存后可显式刷新。
      */
     invalidate(_reason = "manual"): void {
         this.catalogGeneration += 1;
+        if (this.runtimeRegistryEnabled) {
+            void this.refreshRuntimeRegistry(_reason).catch((error) => {
+                void appLogger.warn("agent.profileCatalog.registryRefreshFailed", {
+                    error: error instanceof Error ? error.message : String(error),
+                    reason: _reason,
+                });
+            });
+            return;
+        }
         this.catalogDirty = true;
         this.catalogCache = undefined;
         this.pendingCatalogLoad = undefined;
@@ -183,104 +343,90 @@ export class AgentProfileCatalog {
      * 启动 profile root 文件 watcher。HTTP runtime 使用它感知外部编辑器或 bash 写入。
      */
     async startWatching(): Promise<void> {
-        if (this.watcherStart) {
-            return this.watcherStart;
-        }
-        if (this.watcher) {
-            return;
-        }
-        const roots = [...new Set([this.systemRoot, this.userRoot])];
-        let resolveReady: () => void = () => {};
-        let rejectReady: (error: Error) => void = () => {};
-        let readySettled = false;
-        let watcherReady = false;
-        let watcherFailed = false;
-        this.watcherStart = new Promise<void>((resolve, reject) => {
-            resolveReady = resolve;
-            rejectReady = reject;
-        });
-        let watcher: FSWatcher;
-        try {
-            watcher = watch(roots, {
-                ignoreInitial: true,
-                persistent: true,
-                awaitWriteFinish: {
-                    stabilityThreshold: PROFILE_WATCH_AWAIT_WRITE_MS,
-                    pollInterval: 50,
+        if (!this.sourceWatcher) {
+            this.sourceWatcher = new ProfileSourceWatcher({
+                systemRoot: this.systemRoot,
+                userRoot: this.userRoot,
+                onEvent: (event) => this.handleWatchEvent(event),
+                onError: (error, startup) => {
+                    this.invalidate("watch_error");
+                    void appLogger.warn("agent.profileCatalog.watchError", {
+                        error: error.message,
+                        startup,
+                    });
                 },
             });
-            this.watcher = watcher;
+        }
+        try {
+            await this.sourceWatcher.start();
         } catch (error) {
-            this.watcherStart = undefined;
             const message = error instanceof Error ? error.message : String(error);
             void appLogger.warn("agent.profileCatalog.watchStartFailed", {
                 error: message,
             });
             throw error;
         }
-        watcher.on("all", (eventName, changedPath) => {
-            this.invalidate(`watch:${eventName}`);
-            void appLogger.debug("agent.profileCatalog.watchDirty", {
-                eventName,
-                path: String(changedPath),
-            });
+    }
+
+    private handleWatchEvent(event: ProfileSourceWatchEvent): void {
+        void appLogger.debug("agent.profileCatalog.watchDirty", {
+            eventName: event.eventName,
+            path: event.changedPath,
         });
-        watcher.on("ready", () => {
-            watcherReady = true;
-            if (!readySettled) {
-                readySettled = true;
-                resolveReady();
-            }
-        });
-        watcher.on("error", (error) => {
-            if (watcherFailed) {
+        if (event.kind === "user_profile" && event.fileName) {
+            if (event.eventName === "unlink" || event.eventName === "unlinkDir") {
+                void this.enqueueBuild({
+                    reason: `watch:${event.eventName}`,
+                }).catch((error) => {
+                    void appLogger.warn("agent.profileCatalog.watchEnqueueFailed", {
+                        error: error instanceof Error ? error.message : String(error),
+                        path: event.changedPath,
+                    });
+                });
                 return;
             }
-            watcherFailed = true;
-            this.invalidate("watch_error");
-            const message = error instanceof Error ? error.message : String(error);
-            void appLogger.warn("agent.profileCatalog.watchError", {
-                error: message,
-                startup: !watcherReady,
+            void this.enqueueBuild({
+                fileName: event.fileName,
+                reason: `watch:${event.eventName}`,
+            }).catch((error) => {
+                void appLogger.warn("agent.profileCatalog.watchEnqueueFailed", {
+                    error: error instanceof Error ? error.message : String(error),
+                    path: event.changedPath,
+                });
             });
-            this.closeFailedWatcher(watcher);
-            if (!readySettled) {
-                readySettled = true;
-                rejectReady(error instanceof Error ? error : new Error(message));
-            }
-        });
-        await this.watcherStart.finally(() => {
-            this.watcherStart = undefined;
-        });
+            return;
+        }
+        if (event.kind === "user_dependency") {
+            void this.enqueueBuild({
+                reason: `watch:${event.eventName}`,
+            }).catch((error) => {
+                void appLogger.warn("agent.profileCatalog.watchEnqueueFailed", {
+                    error: error instanceof Error ? error.message : String(error),
+                    path: event.changedPath,
+                });
+            });
+            return;
+        }
+        this.invalidate(`watch:${event.eventName}`);
     }
 
     /**
      * 关闭 profile watcher。测试和临时 catalog 用它避免文件句柄泄漏。
      */
     async dispose(): Promise<void> {
-        const watcher = this.watcher;
-        this.watcher = null;
-        this.watcherStart = undefined;
-        if (watcher) {
-            await watcher.close();
-        }
-    }
-
-    private closeFailedWatcher(watcher: FSWatcher): void {
-        if (this.watcher === watcher) {
-            this.watcher = null;
-        }
-        void watcher.close().catch((error) => {
-            void appLogger.warn("agent.profileCatalog.watchCloseFailed", {
-                error: error instanceof Error ? error.message : String(error),
-            });
-        });
+        await this.buildCoordinator?.dispose?.();
+        await this.sourceWatcher?.dispose();
+        this.sourceWatcher = undefined;
     }
 
     /**
      * 返回指定 profile。用户文件覆盖系统文件和内存 builtin。
      */
     async get(profileKey: string): Promise<AgentProfile> {
+        const buildState = this.buildStateFor(profileKey);
+        if (buildState.running || buildState.queued) {
+            throw new Error(`agent profile ${profileKey} 正在编译，当前不可运行。`);
+        }
         const catalog = await this.loadAll();
         const profile = catalog.profiles.get(profileKey)?.profile;
         if (!profile) {
@@ -301,6 +447,15 @@ export class AgentProfileCatalog {
         const catalog = await this.loadAll();
         const result = new Map<string, AgentProfileRuntimeResolution>();
         for (const profileKey of [...new Set(profileKeys)]) {
+            const buildState = this.buildStateFor(profileKey);
+            if (buildState.running || buildState.queued) {
+                result.set(profileKey, {
+                    profile: null,
+                    availability: "unloadable",
+                    issueMessage: `agent profile ${profileKey} 正在编译，当前不可运行。`,
+                });
+                continue;
+            }
             const source = catalog.profiles.get(profileKey);
             if (source) {
                 result.set(profileKey, {
@@ -362,34 +517,40 @@ export class AgentProfileCatalog {
      */
     async snapshot(options: {includeFileIssues?: boolean} = {}): Promise<AgentCatalogSnapshot> {
         const catalog = await this.loadAll();
-        const loaded = [...catalog.profiles.values()].map(({profile, source, sourcePath, builtin, issue}): AgentCatalogItem => ({
-            key: profile.manifest.key,
-            name: profile.manifest.name,
-            description: profile.manifest.description,
-            toolKeys: profile.rootToolKeys,
-            initialSchema: profile.initialSchema,
-            payloadSchema: profile.payloadSchema,
-            outputSchema: profile.outputSchema,
-            source,
-            sourcePath,
-            builtin,
-            loadStatus: issue ? statusFromIssue(issue) : "loaded",
-            hasSettingsForm: Boolean(profile.settingsForm),
-            canResetHome: Boolean(profile.home?.reset),
-            issue,
-        }));
-        const unloaded = [...catalog.unloadedProfiles.values()].map((profile): AgentCatalogItem => ({
-            key: profile.key,
-            name: profile.name,
-            description: profile.description,
-            source: profile.source,
-            sourcePath: profile.sourcePath,
-            builtin: profile.builtin,
-            loadStatus: profile.loadStatus,
-            hasSettingsForm: false,
-            canResetHome: false,
-            issue: profile.issue,
-        }));
+        const loaded = [...catalog.profiles.values()].map(({profile, source, sourcePath, builtin, issue}): AgentCatalogItem => {
+            const buildState = this.buildStateFor(profile.manifest.key);
+            return {
+                key: profile.manifest.key,
+                name: profile.manifest.name,
+                description: profile.manifest.description,
+                toolKeys: profile.rootToolKeys,
+                initialSchema: profile.initialSchema,
+                payloadSchema: profile.payloadSchema,
+                outputSchema: profile.outputSchema,
+                source,
+                sourcePath,
+                builtin,
+                loadStatus: buildState.running || buildState.queued ? "compiling" : issue ? statusFromIssue(issue) : "loaded",
+                hasSettingsForm: Boolean(profile.settingsForm),
+                canResetHome: Boolean(profile.home?.reset),
+                issue,
+            };
+        });
+        const unloaded = [...catalog.unloadedProfiles.values()].map((profile): AgentCatalogItem => {
+            const buildState = this.buildStateFor(profile.key);
+            return {
+                key: profile.key,
+                name: profile.name,
+                description: profile.description,
+                source: profile.source,
+                sourcePath: profile.sourcePath,
+                builtin: profile.builtin,
+                loadStatus: buildState.running || buildState.queued ? "compiling" : profile.loadStatus,
+                hasSettingsForm: false,
+                canResetHome: false,
+                issue: profile.issue,
+            };
+        });
         return {
             profiles: [...loaded, ...unloaded].sort((left, right) => left.key.localeCompare(right.key)),
             issues: options.includeFileIssues === false
@@ -399,6 +560,15 @@ export class AgentProfileCatalog {
     }
 
     private async loadAll(): Promise<LoadedProfileCatalog> {
+        if (this.runtimeRegistryEnabled) {
+            if (this.runtimeRegistry.catalog) {
+                return this.runtimeRegistry.catalog;
+            }
+            await this.refreshRuntimeRegistry("loadAll");
+            if (this.runtimeRegistry.catalog) {
+                return this.runtimeRegistry.catalog;
+            }
+        }
         const timing = createProfileCatalogTiming();
         const startedAt = performance.now();
         const dirtyAtStart = this.catalogDirty;
@@ -513,27 +683,31 @@ export class AgentProfileCatalog {
         const unloadedSources: UnloadedProfileSource[] = [];
         const issues: AgentProfileIssue[] = [];
         for (const file of files) {
-            const manifestItem = manifest.profiles.find((item) => item.fileName === file.fileName);
-            if (!manifestItem) {
+            const manifestEntry = manifest.entries.find((item) => item.fileName === file.fileName);
+            if (!manifestEntry) {
                 const issue = this.notCompiledIssue(source, file);
                 issues.push(issue);
                 unloadedSources.push(this.unloadedFromFile(file, source, builtin, "not_compiled", issue));
                 continue;
             }
-            const freshness = await validateProfileArtifact(source === "system" ? this.systemRoot : this.userRoot, manifestItem);
-            let loadIssue: AgentProfileIssue | undefined;
+            if (manifestEntry.status === "compile_failed") {
+                const issue = this.compileFailedIssue(source, file, manifestEntry);
+                issues.push(issue);
+                unloadedSources.push(this.unloadedFromManifest(file, manifestEntry, source, builtin, "compile_failed", issue));
+                continue;
+            }
+            const manifestItem = manifestEntry;
+            const freshness = await this.freshness.validate(source === "system" ? this.systemRoot : this.userRoot, manifestItem, {
+                checkDependencies: false,
+            });
             if (!freshness.fresh) {
                 const issue = this.staleIssue(source, file, manifestItem, freshness.reason);
-                if (source !== "user" || (freshness.reason !== "dependency_changed" && freshness.reason !== "source_changed")) {
-                    issues.push(issue);
-                    unloadedSources.push(this.unloadedFromManifest(file, manifestItem, source, builtin, "compile_stale", issue));
-                    continue;
-                }
-                loadIssue = issue;
                 issues.push(issue);
+                unloadedSources.push(this.unloadedFromManifest(file, manifestItem, source, builtin, "compile_stale", issue));
+                continue;
             }
             try {
-                const profile = await this.importCompiledProfile(source === "system" ? this.systemRoot : this.userRoot, manifestItem);
+                const profile = await this.artifactStore.importProfile(source === "system" ? this.systemRoot : this.userRoot, manifestItem);
                 const locked = this.applyBuiltinSchemaLock(profile, source, file.file);
                 const filenameIssue = this.filenameIssue(locked.profile, source, file.file);
                 sources.push({
@@ -541,7 +715,7 @@ export class AgentProfileCatalog {
                     sourcePath: file.file,
                     builtin,
                     source,
-                    issue: locked.issue ?? filenameIssue ?? loadIssue,
+                    issue: locked.issue ?? filenameIssue,
                 });
                 if (locked.issue) {
                     issues.push(locked.issue);
@@ -609,35 +783,9 @@ export class AgentProfileCatalog {
             user: inventory.user,
             systemManifest: inventory.systemManifest,
             userManifest: inventory.userManifest,
-            systemDependencies: await dependencySignatures(inventory.systemManifest),
-            userDependencies: await dependencySignatures(inventory.userManifest),
+            systemDependencies: await this.freshness.dependencySignatures(inventory.systemManifest),
+            userDependencies: await this.freshness.dependencySignatures(inventory.userManifest),
         });
-    }
-
-    private async importCompiledProfile(profileRoot: string, item: ProfileArtifactManifestItem): Promise<AgentProfile> {
-        const artifactPath = join(profileRoot, PROFILE_COMPILED_DIR_NAME, item.artifactFileName);
-        const importPath = await prepareCompiledProfileImportPath(artifactPath, item);
-        const mod = await import(pathToFileURL(importPath).href) as {
-            default?: unknown;
-        };
-        const profile = mod.default;
-        if (!this.isProfile(profile)) {
-            throw new ProfileCatalogError("invalid_export", `compiled profile 没有默认导出有效的 defineAgentProfile 结果：${artifactPath}`);
-        }
-        return profile;
-    }
-
-    private isProfile(value: unknown): value is AgentProfile {
-        return Boolean(
-            value
-            && typeof value === "object"
-            && "manifest" in value
-            && "initialSchema" in value
-            && "tools" in value
-            && "rootToolKeys" in value
-            && "prepare" in value
-            && typeof (value as {prepare?: unknown}).prepare === "function",
-        );
     }
 
     private profileIssueCode(value: unknown): AgentProfileIssueCode {
@@ -680,7 +828,7 @@ export class AgentProfileCatalog {
     }
 
     private issueFromError(error: unknown, source: AgentProfileSourceKind, sourcePath: string, profileKey?: string, fallbackCode: AgentProfileIssueCode = "load_failed"): AgentProfileIssue {
-        const code = error instanceof ProfileCatalogError ? error.code : fallbackCode;
+        const code = error instanceof ProfileArtifactStoreError ? error.code : fallbackCode;
         const message = error instanceof Error ? error.message : String(error);
         return {
             code,
@@ -749,25 +897,20 @@ export class AgentProfileCatalog {
         };
     }
 
+    private compileFailedIssue(source: Exclude<AgentProfileSourceKind, "memory">, file: ProfileFileEntry, manifestItem: ProfileArtifactManifestEntry): AgentProfileIssue {
+        const message = manifestItem.status === "compile_failed" && manifestItem.issues[0]?.message
+            ? manifestItem.issues[0].message
+            : `profile ${manifestItem.profileKey} 最近一次编译失败。`;
+        return {
+            code: "compile_failed",
+            message,
+            profileKey: manifestItem.profileKey,
+            source,
+            sourcePath: file.file,
+        };
+    }
+
     private staleIssue(source: Exclude<AgentProfileSourceKind, "memory">, file: ProfileFileEntry, manifestItem: ProfileArtifactManifestItem, reason?: "source_changed" | "dependency_changed" | "artifact_missing" | "artifact_changed" | "type_artifact_missing" | "type_artifact_changed"): AgentProfileIssue {
-        if (source === "user" && reason === "source_changed") {
-            return {
-                code: "source_stale",
-                message: `profile ${manifestItem.profileKey} 的源码已修改但尚未编译，当前继续使用上次编译产物；保存后的源码需要手动编译后才会生效。`,
-                profileKey: manifestItem.profileKey,
-                source,
-                sourcePath: file.file,
-            };
-        }
-        if (source === "user" && reason === "dependency_changed") {
-            return {
-                code: "dependency_stale",
-                message: `profile ${manifestItem.profileKey} 的依赖已变化，当前继续使用上次编译产物；重新编译后可采用最新运行时能力。`,
-                profileKey: manifestItem.profileKey,
-                source,
-                sourcePath: file.file,
-            };
-        }
         const message = reason === "artifact_missing"
             ? `profile ${manifestItem.profileKey} 缺少 compiled artifact，需要重新编译。`
             : reason === "artifact_changed"
@@ -802,7 +945,7 @@ export class AgentProfileCatalog {
         };
     }
 
-    private unloadedFromManifest(file: ProfileFileEntry, manifestItem: ProfileArtifactManifestItem, source: Exclude<AgentProfileSourceKind, "memory">, builtin: boolean, loadStatus: UnloadedProfileSource["loadStatus"], issue: AgentProfileIssue): UnloadedProfileSource {
+    private unloadedFromManifest(file: ProfileFileEntry, manifestItem: ProfileArtifactManifestEntry, source: Exclude<AgentProfileSourceKind, "memory">, builtin: boolean, loadStatus: UnloadedProfileSource["loadStatus"], issue: AgentProfileIssue): UnloadedProfileSource {
         return {
             key: manifestItem.profileKey,
             name: manifestItem.profileKey,
@@ -823,7 +966,7 @@ function statusFromIssue(issue: AgentProfileIssue): AgentCatalogItem["loadStatus
     if (issue.code === "filename_mismatch" || issue.code === "builtin_schema_locked" || issue.code === "system_profile_shadowed" || issue.code === "source_stale" || issue.code === "dependency_stale") {
         return "loaded";
     }
-    if (issue.code === "not_compiled" || issue.code === "compile_stale" || issue.code === "compiled_load_failed" || issue.code === "source_error") {
+    if (issue.code === "not_compiled" || issue.code === "compile_failed" || issue.code === "compile_stale" || issue.code === "compiled_load_failed" || issue.code === "source_error") {
         return issue.code;
     }
     return "source_error";
@@ -831,44 +974,4 @@ function statusFromIssue(issue: AgentProfileIssue): AgentCatalogItem["loadStatus
 
 function keyFromFileName(fileName: string): string {
     return basename(fileName).replace(/\.profile\.(tsx|ts|mjs|js)$/, "");
-}
-
-async function dependencySignatures(manifest: ProfileArtifactManifest): Promise<unknown[]> {
-    const dependencyPaths = [...new Set(manifest.profiles.flatMap((profile) => profile.dependencies.map((dependency) => dependency.path)))].sort();
-    return Promise.all(dependencyPaths.map(async (filePath) => {
-        try {
-            const fileStat = await stat(resolveArtifactPath(filePath));
-            return {
-                path: filePath,
-                mtimeMs: fileStat.mtimeMs,
-                size: fileStat.size,
-            };
-        } catch {
-            return {
-                path: filePath,
-                missing: true,
-            };
-        }
-    }));
-}
-
-class ProfileCatalogError extends Error {
-    constructor(readonly code: AgentProfileIssueCode, message: string) {
-        super(message);
-    }
-}
-
-/**
- * Bun 会忽略 file URL query 的模块缓存差异；复制到带 hash 的物理路径后再 import。
- */
-async function prepareCompiledProfileImportPath(artifactPath: string, item: ProfileArtifactManifestItem): Promise<string> {
-    const cacheRoot = resolve(process.cwd(), ".agent", "workspace", "profile-import-cache");
-    const importPath = join(cacheRoot, item.artifactFileName.replace(/\.mjs$/u, `.${item.artifactSha256.slice(0, 16)}.mjs`));
-    const existing = await stat(importPath).catch(() => null);
-    if (existing?.size === item.artifactBytes) {
-        return importPath;
-    }
-    await mkdir(cacheRoot, {recursive: true});
-    await copyFile(artifactPath, importPath);
-    return importPath;
 }

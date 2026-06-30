@@ -2,6 +2,7 @@ import type {StoryScene} from "nbook/server/generated/project-prisma/client";
 import type {SceneRepository} from "nbook/server/plot/contracts/plot-repositories";
 import type {
     ChapterPlotSceneWithThread,
+    ChapterWriterBriefSceneWithThread,
     PrismaExecutor,
     ResolvedStoryRefInput,
     StorySceneWithDetails,
@@ -32,12 +33,6 @@ export class PrismaSceneRepository implements SceneRepository {
         const scene = await this.prisma.storyScene.findUnique({
             where: {id: sceneId},
             include: {
-                plots: {
-                    orderBy: [
-                        {sortOrder: "asc"},
-                        {id: "asc"},
-                    ],
-                },
                 refs: {
                     orderBy: [
                         {sortOrder: "asc"},
@@ -75,9 +70,9 @@ export class PrismaSceneRepository implements SceneRepository {
     }
 
     /**
-     * 查询章节下的 Scene 与 Plot。
+     * 查询章节下的 Scene。
      */
-    async findChapterScenesWithPlots(chapterPath: string): Promise<ChapterPlotSceneWithThread[]> {
+    async findChapterScenes(chapterPath: string): Promise<ChapterPlotSceneWithThread[]> {
         return this.prisma.storyScene.findMany({
             where: {chapterPath},
             orderBy: [
@@ -92,14 +87,32 @@ export class PrismaSceneRepository implements SceneRepository {
                         isMainThread: true,
                     },
                 },
-                plots: {
-                    orderBy: [
-                        {sortOrder: "asc"},
-                        {id: "asc"},
-                    ],
-                },
             },
         }) as Promise<ChapterPlotSceneWithThread[]>;
+    }
+
+    /**
+     * 查询 Chapter writer brief 所需的 Scene 与 Thread 只读字段。
+     */
+    async findChapterScenesForBrief(chapterPath: string): Promise<ChapterWriterBriefSceneWithThread[]> {
+        return this.prisma.storyScene.findMany({
+            where: {chapterPath},
+            orderBy: [
+                {chapterSortOrder: "asc"},
+                {id: "asc"},
+            ],
+            include: {
+                thread: {
+                    select: {
+                        id: true,
+                        title: true,
+                        isMainThread: true,
+                        summary: true,
+                        writingTip: true,
+                    },
+                },
+            },
+        }) as Promise<ChapterWriterBriefSceneWithThread[]>;
     }
 
     /**
@@ -128,6 +141,10 @@ export class PrismaSceneRepository implements SceneRepository {
         purpose: string | null;
         writingTip: string | null;
         note: string | null;
+        startInstant: bigint | null;
+        endInstant: bigint | null;
+        subjectIdsJson: string;
+        locationSubjectId: string | null;
     }): Promise<StoryScene> {
         return this.prisma.storyScene.create({
             data: input,
@@ -141,7 +158,7 @@ export class PrismaSceneRepository implements SceneRepository {
         sceneId: number,
         data: Partial<Pick<
         StoryScene,
-        "threadId" | "chapterPath" | "threadSortOrder" | "chapterSortOrder" | "title" | "status" | "summary" | "purpose" | "writingTip" | "note"
+        "threadId" | "chapterPath" | "threadSortOrder" | "chapterSortOrder" | "title" | "status" | "summary" | "purpose" | "writingTip" | "note" | "startInstant" | "endInstant" | "subjectIdsJson" | "locationSubjectId"
     >>,
     ): Promise<StoryScene> {
         return this.prisma.storyScene.update({
@@ -180,7 +197,6 @@ export class PrismaSceneRepository implements SceneRepository {
                 targetKind: ref.targetKind,
                 targetThreadId: ref.targetThreadId,
                 targetSceneId: ref.targetSceneId,
-                targetPlotId: ref.targetPlotId,
                 visibility: ref.visibility,
                 note: ref.note,
             })),

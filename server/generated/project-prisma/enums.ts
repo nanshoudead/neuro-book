@@ -31,28 +31,10 @@ export const StorySceneStatus = {
 export type StorySceneStatus = (typeof StorySceneStatus)[keyof typeof StorySceneStatus]
 
 
-export const StoryPlotKind = {
-  setup: 'setup',
-  action: 'action',
-  conflict: 'conflict',
-  despair: 'despair',
-  relief: 'relief',
-  reward: 'reward',
-  mystery: 'mystery',
-  reveal: 'reveal',
-  twist: 'twist',
-  payoff: 'payoff',
-  result: 'result'
-} as const
-
-export type StoryPlotKind = (typeof StoryPlotKind)[keyof typeof StoryPlotKind]
-
-
 export const StoryRefTargetKind = {
   content: 'content',
   thread: 'thread',
-  scene: 'scene',
-  plot: 'plot'
+  scene: 'scene'
 } as const
 
 export type StoryRefTargetKind = (typeof StoryRefTargetKind)[keyof typeof StoryRefTargetKind]

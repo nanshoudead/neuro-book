@@ -50,7 +50,14 @@ describe("world engine agent tools", () => {
         expect(description).toContain('subjectMode?: "any" | "all"');
         expect(description).toContain("title/message/explanation");
         expect(description).toContain("human-readable string summary");
+        expect(description).toContain("returns attrs directly");
+        expect(description).toContain("hero.hp, not hero.attrs.hp");
+        expect(description).toContain("One instant can have only one slice");
+        expect(description).toContain("world.slice.list({from: time, to: time, withPatches: true})");
+        expect(description).toContain("world.slice.editPatches(existingSliceId, [{add:{...}}])");
+        expect(description).toContain("world.slice.editPatches({add}) does not register new subjects");
         expect(description).not.toContain("current Project Workspace World Engine");
+        expect(description).not.toContain("先删除已有切面");
     });
 
     it("execute_world 在一个脚本内写入并查询，统一返回 data 和 issues", async () => {

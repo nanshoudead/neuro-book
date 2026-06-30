@@ -4,16 +4,26 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import {promisify} from "node:util";
 import YAML from "yaml";
-import {afterEach, beforeAll, beforeEach, describe, expect, it, vi} from "vitest";
-import {compileProfileArtifacts} from "nbook/server/agent/profiles/profile-artifact-compiler";
+import {afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi} from "vitest";
+import {compileProfileArtifacts, ProfileReleaseCommittedButRegistryFailedError, readProfileArtifactManifest, type ProfileArtifactManifest, type ProfileArtifactManifestItem} from "nbook/server/agent/profiles/profile-artifact-compiler";
 import {compileVariableDefinitions} from "nbook/server/agent/variables/definition-artifact";
 import {worldEngineFacade} from "nbook/server/world-engine";
 import {createWorkspaceContentFrontmatterDefaults, workspaceContentJsonSchema} from "nbook/server/workspace-files/content-node-schema";
 import {renderWorkspaceContentTemplate, renderWorkspaceContentTemplateBundle, renderWorkspaceStateTemplate} from "nbook/server/workspace-files/content-node-templates";
-import {copyNovelDirectoryTemplate, readUserAssetsSyncConflictDetail, resolveWorkspaceRootInput, syncSystemAssetsToUserAssets, USER_ASSETS_WORKSPACE_ROOT} from "nbook/server/workspace-files/novel-workspace";
+import {
+    copyNovelDirectoryTemplate,
+    readUserAssetsSyncConflictDetail,
+    resolveWorkspaceRootInput,
+    setUserAssetsProfileArtifactStagedHookForTest,
+    setUserAssetsSyncStateWriteHookForTest,
+    syncSystemAssetsToUserAssets,
+    USER_ASSETS_WORKSPACE_ROOT,
+} from "nbook/server/workspace-files/novel-workspace";
 import {listProjectWorkspaces, readProjectManifest, writeProjectManifest} from "nbook/server/workspace-files/project-workspace";
 import {closeWorkspaceTreeIndex, invalidateProjectWorkspaceIndexAfterMutation, readPlainWorkspaceTreeSnapshot, readProjectWorkspaceTreeSnapshot, setProjectWorkspaceIndexCommitHookForTest} from "nbook/server/workspace-files/project-workspace-index";
 import {prepareSystemAssets} from "nbook/server/workspace-files/system-assets-preflight";
+import {resolveSystemNbookRoot, resolveUserNbookRoot} from "nbook/server/workspace-files/workspace-assets-root";
+import {createIsolatedWorkspaceAssets, type IsolatedWorkspaceAssets} from "nbook/server/workspace-files/workspace-assets-test-helper";
 import {createWorkspaceContentState, createWorkspaceDirectory, readWorkspaceTextFile, scanWorkspaceTree, validateWorkspaceContentNodes, validateWorkspaceTree, writeWorkspaceTextFile} from "nbook/server/workspace-files/workspace-files";
 import {updateNovelByTool} from "nbook/server/utils/novel-chapter";
 
@@ -23,8 +33,11 @@ const execFileAsync = promisify(execFile);
 
 describe("workspace-files", {timeout: 60_000}, () => {
     let root: string;
+    let assets: IsolatedWorkspaceAssets;
+    let baseAssets: IsolatedWorkspaceAssets;
 
     beforeAll(async () => {
+        baseAssets = await createIsolatedWorkspaceAssets({useAsCwd: true});
         await compileVariableDefinitions({
             definitionRoot: path.join("assets", "workspace", ".nbook", "agent", "variables"),
             rootLabel: "assets/workspace/.nbook/agent/variables",
@@ -38,14 +51,43 @@ describe("workspace-files", {timeout: 60_000}, () => {
     });
 
     beforeEach(async () => {
+        assets = await createIsolatedWorkspaceAssets({
+            sourceSystemNbookRoot: baseAssets.systemNbookRoot,
+            useAsCwd: true,
+        });
         root = path.join(".agent", "workspace-files-test", randomUUID());
         await fs.mkdir(root, {recursive: true});
     });
 
+    afterAll(async () => {
+        await baseAssets.dispose();
+    });
+
     afterEach(async () => {
+        setUserAssetsSyncStateWriteHookForTest(null);
+        setUserAssetsProfileArtifactStagedHookForTest(null);
         setProjectWorkspaceIndexCommitHookForTest(null);
         await closeWorkspaceTreeIndex(root);
         await fs.rm(root, {recursive: true, force: true});
+        await assets.dispose();
+    });
+
+    it("隔离 Workspace assets context 支持嵌套恢复", async () => {
+        const outerSystemRoot = assets.systemNbookRoot;
+        const outerUserRoot = assets.userNbookRoot;
+        const innerAssets = await createIsolatedWorkspaceAssets({
+            sourceSystemNbookRoot: outerSystemRoot,
+            useAsCwd: true,
+        });
+        try {
+            expect(resolveSystemNbookRoot()).toBe(innerAssets.systemNbookRoot);
+            expect(resolveUserNbookRoot()).toBe(innerAssets.userNbookRoot);
+        } finally {
+            await innerAssets.dispose();
+        }
+
+        expect(resolveSystemNbookRoot()).toBe(outerSystemRoot);
+        expect(resolveUserNbookRoot()).toBe(outerUserRoot);
     });
 
     it("允许 lorebook 使用目录 index.md 表达嵌套设定节点", async () => {
@@ -775,16 +817,16 @@ describe("workspace-files", {timeout: 60_000}, () => {
     it("workspace project create 给已有 Project Workspace 补模板时不再生成 simulation 目录", async () => {
         const workspaceSlug = `writing-template-test-${randomUUID()}`;
         const projectRoot = path.join("workspace", workspaceSlug);
-        const existingSimulatorContext = "# 用户自定义 Simulator Context\n";
+        const existingWriterContext = "# 用户自定义 Writer Context\n";
 
         try {
-            await fs.mkdir(path.join(projectRoot, "agents", "simulator.leader"), {recursive: true});
+            await fs.mkdir(path.join(projectRoot, "agents", "writer"), {recursive: true});
             await fs.writeFile(path.join(projectRoot, "project.yaml"), YAML.stringify({
                 kind: "novel",
                 title: "写作模式模板测试",
                 summary: "测试已存在 Project Workspace 安装写作模式模板",
             }), "utf-8");
-            await fs.writeFile(path.join(projectRoot, "agents", "simulator.leader", "context.md"), existingSimulatorContext, "utf-8");
+            await fs.writeFile(path.join(projectRoot, "agents", "writer", "context.md"), existingWriterContext, "utf-8");
 
             const {stdout, stderr} = await execFileAsync("bun", [
                 AGENT_WORKSPACE_SCRIPT_FROM_WORKSPACE_PATH,
@@ -809,19 +851,18 @@ describe("workspace-files", {timeout: 60_000}, () => {
             expect(result.mode).toBe("updated");
             expect(result.projectPath).toBe(`workspace/${workspaceSlug}`);
             expect(result.createdFiles).toEqual(expect.arrayContaining([
-                "agents/rp.writer/context.md",
-                "agents/rp.writer/memory.md",
-                "agents/simulator.leader/memory.md",
-                "world-engine/schema.yaml",
+                "agents/writer/index.md",
+                "agents/writer/memory.md",
+                "world-engine/schema/index.ts",
                 "world-engine/calendar.ts",
             ]));
             expect(result.createdFiles.some((filePath) => filePath === "simulation" || filePath.startsWith("simulation/"))).toBe(false);
             expect(result.skippedFiles.some((filePath) => filePath === "simulation" || filePath.startsWith("simulation/"))).toBe(false);
-            expect(result.skippedFiles).toContain("agents/simulator.leader/context.md");
-            await expect(fs.readFile(path.join(projectRoot, "agents", "simulator.leader", "context.md"), "utf-8")).resolves.toBe(existingSimulatorContext);
+            expect(result.skippedFiles).toContain("agents/writer/context.md");
+            await expect(fs.readFile(path.join(projectRoot, "agents", "writer", "context.md"), "utf-8")).resolves.toBe(existingWriterContext);
             await expect(fs.access(path.join(projectRoot, "simulation"))).rejects.toMatchObject({code: "ENOENT"});
-            await expect(fs.readFile(path.join(projectRoot, "world-engine", "schema.yaml"), "utf-8")).resolves.toContain("subjectTypes:");
-            await expect(fs.readFile(path.join(projectRoot, "world-engine", "calendar.ts"), "utf-8")).resolves.toContain("type: 'simple'");
+            await expect(fs.readFile(path.join(projectRoot, "world-engine", "schema", "index.ts"), "utf-8")).resolves.toContain("WorldSchema");
+            await expect(fs.readFile(path.join(projectRoot, "world-engine", "calendar.ts"), "utf-8")).resolves.toContain("type: 'gregorian'");
 
             await expect(execFileAsync("bun", [
                 AGENT_WORKSPACE_SCRIPT_FROM_WORKSPACE_PATH,
@@ -873,8 +914,8 @@ describe("workspace-files", {timeout: 60_000}, () => {
             await expect(fs.access(path.join(targetRoot, ".nbook", "project.sqlite"))).resolves.toBeUndefined();
             await expect(fs.readFile(path.join(targetRoot, "AGENTS.md"), "utf-8")).resolves.toContain("Project Agent Instructions");
 
-            await fs.mkdir(path.join(targetRoot, "agents", "simulator.leader"), {recursive: true});
-            await fs.writeFile(path.join(targetRoot, "agents", "simulator.leader", "context.md"), "# 外部 Simulator\n", "utf-8");
+            await fs.mkdir(path.join(targetRoot, "agents", "writer"), {recursive: true});
+            await fs.writeFile(path.join(targetRoot, "agents", "writer", "context.md"), "# 外部 Writer\n", "utf-8");
             const {stdout: updateStdout, stderr: updateStderr} = await execFileAsync("bun", [
                 AGENT_WORKSPACE_SCRIPT_PATH,
                 "project",
@@ -899,11 +940,11 @@ describe("workspace-files", {timeout: 60_000}, () => {
             expect(updateResult.createdFiles.some((filePath) => filePath === "simulation" || filePath.startsWith("simulation/"))).toBe(false);
             expect(updateResult.createdFiles).not.toContain("simulation/config.yaml");
             expect(updateResult.skippedFiles).not.toContain("simulation/config.yaml");
-            expect(updateResult.skippedFiles).toContain("agents/simulator.leader/context.md");
-            await expect(fs.readFile(path.join(targetRoot, "agents", "simulator.leader", "context.md"), "utf-8")).resolves.toBe("# 外部 Simulator\n");
+            expect(updateResult.skippedFiles).toContain("agents/writer/context.md");
+            await expect(fs.readFile(path.join(targetRoot, "agents", "writer", "context.md"), "utf-8")).resolves.toBe("# 外部 Writer\n");
             await expect(fs.access(path.join(targetRoot, "simulation"))).rejects.toMatchObject({code: "ENOENT"});
-            await expect(fs.readFile(path.join(targetRoot, "world-engine", "schema.yaml"), "utf-8")).resolves.toContain("subjectTypes:");
-            await expect(fs.readFile(path.join(targetRoot, "world-engine", "calendar.ts"), "utf-8")).resolves.toContain("type: 'simple'");
+            await expect(fs.readFile(path.join(targetRoot, "world-engine", "schema", "index.ts"), "utf-8")).resolves.toContain("WorldSchema");
+            await expect(fs.readFile(path.join(targetRoot, "world-engine", "calendar.ts"), "utf-8")).resolves.toContain("type: 'gregorian'");
         } finally {
             await removeDirectoryWithRetry(targetRoot);
         }
@@ -1159,13 +1200,13 @@ describe("workspace-files", {timeout: 60_000}, () => {
             expect(content).toBe(systemContent);
             expect(content).toContain("profileManifest");
             expect(content).toContain("export default");
-            const manifest = JSON.parse(await fs.readFile(userCompiledManifestPath, "utf-8")) as {profiles: Array<{fileName: string; sourceSha256: string; artifactFileName: string; artifactSha256: string; typeFileName?: string; dependencies: Array<{path: string; sha256: string}>}>};
+            const manifest = await readProfileArtifactManifest(path.join("workspace", ".nbook", "agent", "profiles"));
             const item = manifest.profiles.find((profile) => profile.fileName === "builtin/leader.default.profile.tsx");
             expect(item?.sourceSha256).toBe(await sha256ForTest(userProfilePath));
             expect(item?.dependencies.find((dependency) => dependency.path === "workspace/.nbook/agent/profiles/builtin/leader.default.profile.tsx")?.sha256).toBe(item?.sourceSha256);
             expect(item?.typeFileName).toMatch(/types\.d\.ts$/);
-            expect(await sha256ForTest(path.join("workspace", ".nbook", "agent", "profiles", ".compiled", item!.artifactFileName))).toBe(item.artifactSha256);
-            await expect(fs.readFile(path.join("workspace", ".nbook", "agent", "profiles", ".compiled", item!.typeFileName!), "utf-8")).resolves.toContain("ProfileVariableValueMap");
+            expect(await sha256ForTest(profileArtifactPath("workspace", item!))).toBe(item!.artifactSha256);
+            await expect(fs.readFile(profileTypeArtifactPath("workspace", item!), "utf-8")).resolves.toContain("ProfileVariableValueMap");
             await expect(fs.access(staleArtifactPath)).rejects.toMatchObject({code: "ENOENT"});
             await expect(fs.access(staleTypePath)).rejects.toMatchObject({code: "ENOENT"});
         } finally {
@@ -1175,6 +1216,22 @@ describe("workspace-files", {timeout: 60_000}, () => {
             await restoreOptionalFile(staleArtifactPath, staleArtifactBackup);
             await restoreOptionalFile(staleTypePath, staleTypeBackup);
         }
+    });
+
+    it("测试隔离 root 写入 user-assets 不触碰真实 workspace .nbook", async () => {
+        const fileName = `codex-isolation-${randomUUID()}.profile.tsx`;
+        const realProfilePath = path.join(assets.applicationRoot, "workspace", ".nbook", "agent", "profiles", fileName);
+        const isolatedProfilePath = path.join("workspace", ".nbook", "agent", "profiles", fileName);
+        const isolatedSyncStatePath = path.join("workspace", ".nbook", ".system-assets-sync-state.json");
+
+        await expect(fs.access(realProfilePath)).rejects.toMatchObject({code: "ENOENT"});
+        await fs.mkdir(path.dirname(isolatedProfilePath), {recursive: true});
+        await fs.writeFile(isolatedProfilePath, "export const profileManifest = { key: \"codex.isolation\", name: \"Isolation\" } as const;\n", "utf-8");
+        await fs.writeFile(isolatedSyncStatePath, JSON.stringify({profiles: [], assets: []}, null, 2), "utf-8");
+
+        await expect(fs.access(isolatedProfilePath)).resolves.toBeUndefined();
+        await expect(fs.access(isolatedSyncStatePath)).resolves.toBeUndefined();
+        await expect(fs.access(realProfilePath)).rejects.toMatchObject({code: "ENOENT"});
     });
 
     it("同步系统 assets 会修复用户 profile manifest 与 artifact 不一致", async () => {
@@ -1191,22 +1248,258 @@ describe("workspace-files", {timeout: 60_000}, () => {
             await fs.mkdir(path.dirname(userProfilePath), {recursive: true});
             await fs.copyFile(systemProfilePath, userProfilePath);
             await syncSystemAssetsToUserAssets();
-            const manifest = JSON.parse(await fs.readFile(userCompiledManifestPath, "utf-8")) as {profiles: Array<{fileName: string; artifactFileName: string; artifactSha256: string}>};
+            const manifest = await readProfileArtifactManifest(path.join("workspace", ".nbook", "agent", "profiles"));
             const item = manifest.profiles.find((profile) => profile.fileName === "builtin/leader.default.profile.tsx")!;
-            await fs.writeFile(path.join(userCompiledRoot, item.artifactFileName), "export default {};\n", "utf-8");
+            await fs.writeFile(profileArtifactPath("workspace", item), "export default {};\n", "utf-8");
 
             const result = await syncSystemAssetsToUserAssets();
-            const nextManifest = JSON.parse(await fs.readFile(userCompiledManifestPath, "utf-8")) as {profiles: Array<{fileName: string; artifactFileName: string; artifactSha256: string}>};
+            const nextManifest = await readProfileArtifactManifest(path.join("workspace", ".nbook", "agent", "profiles"));
             const nextItem = nextManifest.profiles.find((profile) => profile.fileName === "builtin/leader.default.profile.tsx")!;
 
             expect(result.profileWarnings?.some((warning) => warning.fileName === "builtin/leader.default.profile.tsx")).toBe(false);
-            expect(await sha256ForTest(path.join(userCompiledRoot, nextItem.artifactFileName))).toBe(nextItem.artifactSha256);
+            expect(await sha256ForTest(profileArtifactPath("workspace", nextItem))).toBe(nextItem.artifactSha256);
         } finally {
             await restoreOptionalFile(userProfilePath, backup);
             await restoreOptionalFile(userCompiledManifestPath, manifestBackup);
             await restoreOptionalFile(userSyncStatePath, syncStateBackup);
         }
-    }, 30000);
+    }, 120000);
+
+    it("运行时同步 user profile assets 只发布一次并同步翻转 Registry", async () => {
+        const fileNames = [
+            "builtin/leader.default.profile.tsx",
+            "builtin/leader.assets.profile.tsx",
+        ];
+        const userSyncStatePath = path.join("workspace", ".nbook", ".system-assets-sync-state.json");
+        const userCompiledManifestPath = path.join("workspace", ".nbook", "agent", "profiles", ".compiled", "manifest.json");
+        const profileBackups = await Promise.all(fileNames.map((fileName) => backupOptionalFile(path.join("workspace", ".nbook", "agent", "profiles", ...fileName.split("/")))));
+        const syncStateBackup = await backupOptionalFile(userSyncStatePath);
+        const manifestBackup = await backupOptionalFile(userCompiledManifestPath);
+        const registryCalls: ProfileArtifactManifest[] = [];
+        const registry = {
+            publishProfileRelease(_profileRoot: string, manifest: ProfileArtifactManifest): void {
+                registryCalls.push(manifest);
+            },
+        };
+
+        try {
+            for (const fileName of fileNames) {
+                const userProfilePath = path.join("workspace", ".nbook", "agent", "profiles", ...fileName.split("/"));
+                const systemProfilePath = path.join("assets", "workspace", ".nbook", "agent", "profiles", ...fileName.split("/"));
+                await fs.mkdir(path.dirname(userProfilePath), {recursive: true});
+                await fs.copyFile(systemProfilePath, userProfilePath);
+            }
+            await fs.writeFile(userSyncStatePath, JSON.stringify({profiles: [], assets: []}, null, 2), "utf-8");
+
+            const result = await syncSystemAssetsToUserAssets({
+                profileRelease: {
+                    mode: "in_process",
+                    registry,
+                },
+            });
+
+            expect(result.profileWarnings?.filter((warning) => fileNames.includes(warning.fileName))).toEqual([]);
+            expect(registryCalls).toHaveLength(1);
+            expect(registryCalls[0]!.entries.map((entry) => entry.fileName)).toEqual(expect.arrayContaining(fileNames));
+        } finally {
+            await Promise.all(fileNames.map((fileName, index) => restoreOptionalFile(path.join("workspace", ".nbook", "agent", "profiles", ...fileName.split("/")), profileBackups[index]!)));
+            await restoreOptionalFile(userSyncStatePath, syncStateBackup);
+            await restoreOptionalFile(userCompiledManifestPath, manifestBackup);
+        }
+    }, 120000);
+
+    it("user profile patch 发布成功后 sync state 写失败不会回滚源码", async () => {
+        const fileName = "builtin/leader.default.profile.tsx";
+        const userProfilePath = path.join("workspace", ".nbook", "agent", "profiles", ...fileName.split("/"));
+        const systemProfilePath = path.join("assets", "workspace", ".nbook", "agent", "profiles", ...fileName.split("/"));
+        const userCompiledManifestPath = path.join("workspace", ".nbook", "agent", "profiles", ".compiled", "manifest.json");
+        const userSyncStatePath = path.join("workspace", ".nbook", ".system-assets-sync-state.json");
+        const profileBackup = await backupOptionalFile(userProfilePath);
+        const manifestBackup = await backupOptionalFile(userCompiledManifestPath);
+        const syncStateBackup = await backupOptionalFile(userSyncStatePath);
+        const oldSource = "export const profileManifest = { key: \"leader.default\", name: \"Old Leader\" } as const;\n";
+        let profileRegistryPublished = false;
+        setUserAssetsSyncStateWriteHookForTest(async () => {
+            const [userSource, systemSource] = await Promise.all([
+                fs.readFile(userProfilePath, "utf-8").catch(() => ""),
+                fs.readFile(systemProfilePath, "utf-8"),
+            ]);
+            if (userSource === systemSource) {
+                throw new Error("sync state denied");
+            }
+        });
+        const registry = {
+            publishProfileRelease(_profileRoot: string, manifest: ProfileArtifactManifest): void {
+                if (manifest.entries.some((entry) => entry.fileName === fileName)) {
+                    profileRegistryPublished = true;
+                }
+            },
+        };
+
+        try {
+            await fs.mkdir(path.dirname(userProfilePath), {recursive: true});
+            await fs.writeFile(userProfilePath, oldSource, "utf-8");
+            const oldHash = await sha256AndBytesForTest(userProfilePath);
+            await fs.writeFile(userSyncStatePath, JSON.stringify({
+                profiles: [{
+                    fileName,
+                    profileKey: "leader.default",
+                    upstreamHash: "old-upstream",
+                    lastSyncedUserHash: oldHash.sha256,
+                    syncedAt: "2026-01-01T00:00:00.000Z",
+                }],
+                assets: [],
+            }, null, 2), "utf-8");
+
+            await expect(syncSystemAssetsToUserAssets({
+                profileRelease: {
+                    mode: "in_process",
+                    registry,
+                },
+            })).rejects.toThrow("sync state denied");
+
+            const [userSource, systemSource] = await Promise.all([
+                fs.readFile(userProfilePath, "utf-8"),
+                fs.readFile(systemProfilePath, "utf-8"),
+            ]);
+            const userHash = await sha256AndBytesForTest(userProfilePath);
+            const manifest = await readProfileArtifactManifest(path.join("workspace", ".nbook", "agent", "profiles"));
+            const item = manifest.profiles.find((profile) => profile.fileName === fileName)!;
+
+            expect(profileRegistryPublished).toBe(true);
+            expect(userSource).toBe(systemSource);
+            expect(item.sourceSha256).toBe(userHash.sha256);
+            expect(item.sourceBytes).toBe(userHash.bytes);
+        } finally {
+            setUserAssetsSyncStateWriteHookForTest(null);
+            await restoreOptionalFile(userProfilePath, profileBackup);
+            await restoreOptionalFile(userCompiledManifestPath, manifestBackup);
+            await restoreOptionalFile(userSyncStatePath, syncStateBackup);
+        }
+    }, 120000);
+
+    it("user profile patch 磁盘发布后 Registry 失败不会回滚源码", async () => {
+        const fileName = "builtin/leader.default.profile.tsx";
+        const userProfilePath = path.join("workspace", ".nbook", "agent", "profiles", ...fileName.split("/"));
+        const systemProfilePath = path.join("assets", "workspace", ".nbook", "agent", "profiles", ...fileName.split("/"));
+        const userCompiledManifestPath = path.join("workspace", ".nbook", "agent", "profiles", ".compiled", "manifest.json");
+        const userSyncStatePath = path.join("workspace", ".nbook", ".system-assets-sync-state.json");
+        const profileBackup = await backupOptionalFile(userProfilePath);
+        const manifestBackup = await backupOptionalFile(userCompiledManifestPath);
+        const syncStateBackup = await backupOptionalFile(userSyncStatePath);
+        const oldSource = "export const profileManifest = { key: \"leader.default\", name: \"Old Leader\" } as const;\n";
+        let registryAttempts = 0;
+        const registry = {
+            publishProfileRelease(): void {
+                registryAttempts += 1;
+                throw new Error("registry denied");
+            },
+        };
+
+        try {
+            await fs.mkdir(path.dirname(userProfilePath), {recursive: true});
+            await fs.writeFile(userProfilePath, oldSource, "utf-8");
+            const oldHash = await sha256AndBytesForTest(userProfilePath);
+            await fs.writeFile(userSyncStatePath, JSON.stringify({
+                profiles: [{
+                    fileName,
+                    profileKey: "leader.default",
+                    upstreamHash: "old-upstream",
+                    lastSyncedUserHash: oldHash.sha256,
+                    syncedAt: "2026-01-01T00:00:00.000Z",
+                }],
+                assets: [],
+            }, null, 2), "utf-8");
+
+            await expect(syncSystemAssetsToUserAssets({
+                profileRelease: {
+                    mode: "in_process",
+                    registry,
+                },
+            })).rejects.toBeInstanceOf(ProfileReleaseCommittedButRegistryFailedError);
+
+            const [userSource, systemSource] = await Promise.all([
+                fs.readFile(userProfilePath, "utf-8"),
+                fs.readFile(systemProfilePath, "utf-8"),
+            ]);
+            const userHash = await sha256AndBytesForTest(userProfilePath);
+            const manifest = await readProfileArtifactManifest(path.join("workspace", ".nbook", "agent", "profiles"));
+            const item = manifest.profiles.find((profile) => profile.fileName === fileName)!;
+
+            expect(registryAttempts).toBe(2);
+            expect(userSource).toBe(systemSource);
+            expect(item.sourceSha256).toBe(userHash.sha256);
+            expect(item.sourceBytes).toBe(userHash.bytes);
+        } finally {
+            await restoreOptionalFile(userProfilePath, profileBackup);
+            await restoreOptionalFile(userCompiledManifestPath, manifestBackup);
+            await restoreOptionalFile(userSyncStatePath, syncStateBackup);
+        }
+    }, 120000);
+
+    it("user profile patch 发布前源码变化会放弃发布并回滚本轮源码替换", async () => {
+        const fileName = "builtin/leader.default.profile.tsx";
+        const userProfilePath = path.join("workspace", ".nbook", "agent", "profiles", ...fileName.split("/"));
+        const userCompiledManifestPath = path.join("workspace", ".nbook", "agent", "profiles", ".compiled", "manifest.json");
+        const userSyncStatePath = path.join("workspace", ".nbook", ".system-assets-sync-state.json");
+        const profileBackup = await backupOptionalFile(userProfilePath);
+        const manifestBackup = await backupOptionalFile(userCompiledManifestPath);
+        const syncStateBackup = await backupOptionalFile(userSyncStatePath);
+        const oldSource = "export const profileManifest = { key: \"leader.default\", name: \"Old Leader\" } as const;\n";
+        const externalSource = "export const profileManifest = { key: \"leader.default\", name: \"External Edit\" } as const;\n";
+        let sourceMutated = false;
+        let profileRegistryPublished = false;
+        setUserAssetsProfileArtifactStagedHookForTest(async (stagedFileName) => {
+            if (!sourceMutated && stagedFileName === fileName) {
+                sourceMutated = true;
+                await fs.writeFile(userProfilePath, externalSource, "utf-8");
+            }
+        });
+        const registry = {
+            publishProfileRelease(): void {
+                profileRegistryPublished = true;
+            },
+        };
+
+        try {
+            await fs.mkdir(path.dirname(userProfilePath), {recursive: true});
+            await fs.writeFile(userProfilePath, oldSource, "utf-8");
+            const oldHash = await sha256AndBytesForTest(userProfilePath);
+            await fs.writeFile(userSyncStatePath, JSON.stringify({
+                profiles: [{
+                    fileName,
+                    profileKey: "leader.default",
+                    upstreamHash: "old-upstream",
+                    lastSyncedUserHash: oldHash.sha256,
+                    syncedAt: "2026-01-01T00:00:00.000Z",
+                }],
+                assets: [],
+            }, null, 2), "utf-8");
+
+            await expect(syncSystemAssetsToUserAssets({
+                profileRelease: {
+                    mode: "in_process",
+                    registry,
+                },
+            })).rejects.toThrow("同步发布前源码又发生变化");
+
+            const userSource = await fs.readFile(userProfilePath, "utf-8");
+            const syncState = JSON.parse(await fs.readFile(userSyncStatePath, "utf-8")) as {
+                profiles?: Array<{fileName: string; lastSyncedUserHash: string}>;
+            };
+            const stateItem = syncState.profiles?.find((profile) => profile.fileName === fileName);
+
+            expect(sourceMutated).toBe(true);
+            expect(profileRegistryPublished).toBe(false);
+            expect(userSource).toBe(oldSource);
+            expect(stateItem?.lastSyncedUserHash).toBe(oldHash.sha256);
+        } finally {
+            setUserAssetsProfileArtifactStagedHookForTest(null);
+            await restoreOptionalFile(userProfilePath, profileBackup);
+            await restoreOptionalFile(userCompiledManifestPath, manifestBackup);
+            await restoreOptionalFile(userSyncStatePath, syncStateBackup);
+        }
+    }, 120000);
 
     it("同步系统 assets 会修复用户 profile manifest 指向 building artifact", async () => {
         const userProfilePath = path.join("workspace", ".nbook", "agent", "profiles", "builtin", "leader.default.profile.tsx");
@@ -1223,24 +1516,15 @@ describe("workspace-files", {timeout: 60_000}, () => {
             await fs.mkdir(path.dirname(userProfilePath), {recursive: true});
             await fs.copyFile(systemProfilePath, userProfilePath);
             await syncSystemAssetsToUserAssets();
-            const manifest = JSON.parse(await fs.readFile(userCompiledManifestPath, "utf-8")) as {profiles: Array<{fileName: string; artifactFileName: string; artifactSha256: string}>};
-            const item = manifest.profiles.find((profile) => profile.fileName === "builtin/leader.default.profile.tsx")!;
-            const brokenManifest = {
-                ...manifest,
-                profiles: manifest.profiles.map((profile) => profile.fileName === item.fileName
-                    ? {...profile, artifactFileName: "builtin__leader.default.fake.building.mjs"}
-                    : profile),
-            };
             await fs.writeFile(buildingArtifactPath, "export default {};\n", "utf-8");
-            await fs.writeFile(userCompiledManifestPath, `${JSON.stringify(brokenManifest, null, 2)}\n`, "utf-8");
 
             const result = await syncSystemAssetsToUserAssets();
-            const nextManifest = JSON.parse(await fs.readFile(userCompiledManifestPath, "utf-8")) as {profiles: Array<{fileName: string; artifactFileName: string; artifactSha256: string}>};
+            const nextManifest = await readProfileArtifactManifest(path.join("workspace", ".nbook", "agent", "profiles"));
             const nextItem = nextManifest.profiles.find((profile) => profile.fileName === "builtin/leader.default.profile.tsx")!;
 
             expect(result.profileWarnings?.some((warning) => warning.fileName === "builtin/leader.default.profile.tsx")).toBe(false);
-            expect(nextItem.artifactFileName).toBe("builtin__leader.default.mjs");
-            expect(await sha256ForTest(path.join(userCompiledRoot, nextItem.artifactFileName))).toBe(nextItem.artifactSha256);
+            expect(nextItem.artifactFileName).toMatch(/^artifacts\/[a-f0-9]{64}\.mjs$/);
+            expect(await sha256ForTest(profileArtifactPath("workspace", nextItem))).toBe(nextItem.artifactSha256);
             await expect(fs.access(buildingArtifactPath)).rejects.toMatchObject({code: "ENOENT"});
         } finally {
             await restoreOptionalFile(userProfilePath, backup);
@@ -1264,9 +1548,9 @@ describe("workspace-files", {timeout: 60_000}, () => {
             await fs.mkdir(path.dirname(userProfilePath), {recursive: true});
             await fs.copyFile(systemProfilePath, userProfilePath);
             await syncSystemAssetsToUserAssets();
-            const manifest = JSON.parse(await fs.readFile(userCompiledManifestPath, "utf-8")) as {profiles: Array<{fileName: string; artifactFileName: string}>};
+            const manifest = await readProfileArtifactManifest(path.join("workspace", ".nbook", "agent", "profiles"));
             const item = manifest.profiles.find((profile) => profile.fileName === "builtin/leader.default.profile.tsx")!;
-            const artifactPath = path.join(userCompiledRoot, item.artifactFileName);
+            const artifactPath = profileArtifactPath("workspace", item);
             await fs.appendFile(userProfilePath, "\n// user custom change\n", "utf-8");
             await fs.writeFile(artifactPath, "export default { custom: true };\n", "utf-8");
             const beforeArtifact = await fs.readFile(artifactPath, "utf-8");
@@ -1334,20 +1618,20 @@ describe("workspace-files", {timeout: 60_000}, () => {
             await fs.mkdir(path.dirname(userProfilePath), {recursive: true});
             await fs.copyFile(systemProfilePath, userProfilePath);
             await syncSystemAssetsToUserAssets();
-            const manifest = JSON.parse(await fs.readFile(userCompiledManifestPath, "utf-8")) as {profiles: Array<{fileName: string; artifactFileName: string; artifactSha256: string}>};
+            const manifest = await readProfileArtifactManifest(path.join("workspace", ".nbook", "agent", "profiles"));
             const item = manifest.profiles.find((profile) => profile.fileName === fileName)!;
-            const artifactPath = path.join(userCompiledRoot, item.artifactFileName);
+            const artifactPath = profileArtifactPath("workspace", item);
             await fs.appendFile(userProfilePath, "\n// user custom change before force sync\n", "utf-8");
             await fs.writeFile(artifactPath, "export default { custom: true };\n", "utf-8");
 
             const result = await syncSystemAssetsToUserAssets({force: true});
-            const nextManifest = JSON.parse(await fs.readFile(userCompiledManifestPath, "utf-8")) as {profiles: Array<{fileName: string; artifactFileName: string; artifactSha256: string}>};
+            const nextManifest = await readProfileArtifactManifest(path.join("workspace", ".nbook", "agent", "profiles"));
             const nextItem = nextManifest.profiles.find((profile) => profile.fileName === fileName)!;
 
             expect(result.updatedProfiles).toBeGreaterThanOrEqual(1);
             expect(result.profileWarnings?.some((warning) => warning.fileName === fileName)).toBe(false);
             await expect(fs.readFile(userProfilePath, "utf-8")).resolves.toBe(await fs.readFile(systemProfilePath, "utf-8"));
-            expect(await sha256ForTest(path.join(userCompiledRoot, nextItem.artifactFileName))).toBe(nextItem.artifactSha256);
+            expect(await sha256ForTest(profileArtifactPath("workspace", nextItem))).toBe(nextItem.artifactSha256);
         } finally {
             await restoreOptionalFile(userProfilePath, profileBackup);
             await restoreOptionalFile(userCompiledManifestPath, manifestBackup);
@@ -1397,7 +1681,7 @@ describe("workspace-files", {timeout: 60_000}, () => {
                 rootLabel: "assets/workspace/.nbook/agent/profiles",
             });
         }
-    }, 30000);
+    }, 120000);
 
     it("可以读取用户 profile 覆盖的系统版本 diff 内容", async () => {
         const fileName = "builtin/leader.default.profile.tsx";
@@ -1644,6 +1928,7 @@ describe("workspace-files", {timeout: 60_000}, () => {
             path.join("workspace", ".nbook", "agent", "skills", "profile-system-guide", "SKILL.md"),
             path.join("workspace", ".nbook", "agent", "skills", "llmlint", "package.json"),
             path.join("workspace", ".nbook", "agent", "skills", "llmlint", "rulesets", "builtin", "default", "ruleset.json"),
+            path.join("workspace", ".nbook", "agent", "skills", "llmlint", "rulesets", "builtin", "default", "rules", "vocabulary", "r18.json"),
             path.join("workspace", ".nbook", "agent", "skills", "llmlint", "src", "curated-slugs.ts"),
             path.join("workspace", ".nbook", "templates", "content-node-templates", "chapter", "index.md"),
             path.join("workspace", ".nbook", "templates", "project-directory-templates", "agents", "leader.default", "context.md"),
@@ -1661,17 +1946,28 @@ describe("workspace-files", {timeout: 60_000}, () => {
 
             expect(result.copied + (result.updatedAssets ?? 0)).toBeGreaterThan(0);
             await expect(fs.readFile(paths[0]!, "utf-8")).resolves.toContain("profile");
-            await expect(fs.readFile(paths[1]!, "utf-8")).resolves.toContain("@neuro-book/llmlint-skill");
+            const llmlintPackage = JSON.parse(await fs.readFile(paths[1]!, "utf-8")) as {
+                name: string;
+                version: string;
+                license: string;
+            };
+            expect(llmlintPackage).toMatchObject({
+                name: "llmlint",
+                version: "2.0.0",
+                license: "PolyForm-Noncommercial-1.0.0",
+            });
             await expect(fs.readFile(paths[2]!, "utf-8")).resolves.toContain("builtin/default");
-            await expect(fs.readFile(paths[3]!, "utf-8")).resolves.toContain("CURATED_RULE_SLUGS");
-            await expect(fs.readFile(paths[4]!, "utf-8")).resolves.toContain("chapter");
-            await expect(fs.readFile(paths[5]!, "utf-8")).resolves.toContain("Leader Default Context Notes");
-            await expect(fs.readFile(paths[6]!, "utf-8")).resolves.toContain("../scripts/profile.ts");
-            await expect(fs.readFile(paths[7]!, "utf-8")).resolves.toContain("--path-separator=/");
+            await expect(fs.readFile(paths[3]!, "utf-8")).resolves.toContain("vocabulary.r18");
+            await expect(fs.readFile(paths[4]!, "utf-8")).resolves.toContain("CURATED_RULE_SLUGS");
+            await expect(fs.readFile(paths[5]!, "utf-8")).resolves.toContain("chapter");
+            await expect(fs.readFile(paths[6]!, "utf-8")).resolves.toContain("Leader Default Context Notes");
+            await expect(fs.readFile(paths[7]!, "utf-8")).resolves.toContain("../scripts/profile.ts");
+            await expect(fs.readFile(paths[8]!, "utf-8")).resolves.toContain("--path-separator=/");
             expect(syncState.assets).toEqual(expect.arrayContaining([
                 expect.objectContaining({assetPath: "agent/skills/profile-system-guide/SKILL.md"}),
                 expect.objectContaining({assetPath: "agent/skills/llmlint/package.json"}),
                 expect.objectContaining({assetPath: "agent/skills/llmlint/rulesets/builtin/default/ruleset.json"}),
+                expect.objectContaining({assetPath: "agent/skills/llmlint/rulesets/builtin/default/rules/vocabulary/r18.json"}),
                 expect.objectContaining({assetPath: "agent/skills/llmlint/src/curated-slugs.ts"}),
                 expect.objectContaining({assetPath: "templates/content-node-templates/chapter/index.md"}),
                 expect.objectContaining({assetPath: "templates/project-directory-templates/agents/leader.default/context.md"}),
@@ -1792,6 +2088,7 @@ describe("workspace-files", {timeout: 60_000}, () => {
             "agent/skills/llmlint/presets/anti-ai-slop/category-suggestions.json",
             "agent/skills/llmlint/rulesets/builtin/anti-ai-slop/ruleset.json",
             "agent/skills/llmlint/rulesets/builtin/cn/ruleset.json",
+            "agent/skills/llmlint/rulesets/builtin/default/rules.json",
             "agent/skills/llmlint/rulesets/builtin/cn-light/ruleset.json",
             "agent/skills/llmlint/rulesets/builtin/cn-standard/ruleset.json",
             "agent/skills/llmlint/rulesets/builtin/cn-strong/ruleset.json",
@@ -1801,6 +2098,9 @@ describe("workspace-files", {timeout: 60_000}, () => {
             "agent/skills/llmlint/rulesets/builtin/cn-light/rules.json",
             "agent/skills/llmlint/rulesets/builtin/cn-standard/rules.json",
         ];
+        const staleManagedAssetPath = "agent/skills/llmlint/rulesets/builtin/default/rules/vocabulary.r18.json";
+        const editedStaleManagedAssetPath = "agent/skills/llmlint/rulesets/builtin/default/rules/vocabulary.body.json";
+        const editedDeletedAssetPath = "agent/skills/llmlint/presets/anti-ai-slop/user-edited-static-rules.json";
         const updatedAssetPaths = [
             "agent/skills/llmlint/src/cli.ts",
             "agent/skills/llmlint/src/rules.ts",
@@ -1809,11 +2109,20 @@ describe("workspace-files", {timeout: 60_000}, () => {
         const deletedSystemPaths = deletedAssetPaths.map((assetPath) => path.join("assets", "workspace", ".nbook", ...assetPath.split("/")));
         const orphanDeletedUserPaths = orphanDeletedAssetPaths.map((assetPath) => path.join("workspace", ".nbook", ...assetPath.split("/")));
         const orphanDeletedSystemPaths = orphanDeletedAssetPaths.map((assetPath) => path.join("assets", "workspace", ".nbook", ...assetPath.split("/")));
+        const staleManagedUserPath = path.join("workspace", ".nbook", ...staleManagedAssetPath.split("/"));
+        const staleManagedSystemPath = path.join("assets", "workspace", ".nbook", ...staleManagedAssetPath.split("/"));
+        const editedStaleManagedUserPath = path.join("workspace", ".nbook", ...editedStaleManagedAssetPath.split("/"));
+        const editedStaleManagedSystemPath = path.join("assets", "workspace", ".nbook", ...editedStaleManagedAssetPath.split("/"));
+        const editedDeletedUserPath = path.join("workspace", ".nbook", ...editedDeletedAssetPath.split("/"));
+        const editedDeletedSystemPath = path.join("assets", "workspace", ".nbook", ...editedDeletedAssetPath.split("/"));
         const updatedUserPaths = updatedAssetPaths.map((assetPath) => path.join("workspace", ".nbook", ...assetPath.split("/")));
         const updatedSystemPaths = updatedAssetPaths.map((assetPath) => path.join("assets", "workspace", ".nbook", ...assetPath.split("/")));
         const syncStatePath = path.join("workspace", ".nbook", ".system-assets-sync-state.json");
         const deletedBackups = await Promise.all(deletedUserPaths.map((userPath) => backupOptionalFile(userPath)));
         const orphanDeletedBackups = await Promise.all(orphanDeletedUserPaths.map((userPath) => backupOptionalFile(userPath)));
+        const staleManagedBackup = await backupOptionalFile(staleManagedUserPath);
+        const editedStaleManagedBackup = await backupOptionalFile(editedStaleManagedUserPath);
+        const editedDeletedBackup = await backupOptionalFile(editedDeletedUserPath);
         const updatedBackups = await Promise.all(updatedUserPaths.map((userPath) => backupOptionalFile(userPath)));
         const syncStateBackup = await backupOptionalFile(syncStatePath);
         const syncedContents = [
@@ -1823,12 +2132,21 @@ describe("workspace-files", {timeout: 60_000}, () => {
             "{\"id\":\"category-suggestions\"}\n",
             "{\"id\":\"builtin/anti-ai-slop\"}\n",
             "{\"id\":\"builtin/cn\"}\n",
+            "[{\"id\":\"old builtin/default rules\"}]\n",
             "{\"id\":\"builtin/cn-light\"}\n",
             "{\"id\":\"builtin/cn-standard\"}\n",
             "{\"id\":\"builtin/cn-strong\"}\n",
             "{\"id\":\"builtin/cn-extreme\"}\n",
         ];
         const syncedHashes = syncedContents.map((content) => createHash("sha256").update(content).digest("hex"));
+        const staleManagedSyncedContent = "[{\"id\":\"old flat vocabulary r18\"}]\n";
+        const editedStaleManagedSyncedContent = "[{\"id\":\"old flat vocabulary body\"}]\n";
+        const editedStaleManagedContent = "[{\"id\":\"user edited old flat vocabulary body\"}]\n";
+        const staleManagedSyncedHash = createHash("sha256").update(staleManagedSyncedContent).digest("hex");
+        const editedStaleManagedSyncedHash = createHash("sha256").update(editedStaleManagedSyncedContent).digest("hex");
+        const editedDeletedSyncedContent = "{\"id\":\"old managed llmlint rule\"}\n";
+        const editedDeletedContent = "{\"id\":\"user edited old managed llmlint rule\"}\n";
+        const editedDeletedSyncedHash = createHash("sha256").update(editedDeletedSyncedContent).digest("hex");
         const oldUpdatedContents = [
             "import {formatLegacyImportReport} from \"./legacy-import\";\nprogram.command(\"import-legacy\");\nprogram.command(\"import-curated\");\nprogram.argument(\"[file]\");\n",
             "function readLegacySources() {}\nconst key = \"source.legacy\";\n",
@@ -1843,6 +2161,9 @@ describe("workspace-files", {timeout: 60_000}, () => {
             for (const orphanDeletedSystemPath of orphanDeletedSystemPaths) {
                 await expect(fs.access(orphanDeletedSystemPath)).rejects.toMatchObject({code: "ENOENT"});
             }
+            await expect(fs.access(staleManagedSystemPath)).rejects.toMatchObject({code: "ENOENT"});
+            await expect(fs.access(editedStaleManagedSystemPath)).rejects.toMatchObject({code: "ENOENT"});
+            await expect(fs.access(editedDeletedSystemPath)).rejects.toMatchObject({code: "ENOENT"});
             for (let index = 0; index < deletedUserPaths.length; index++) {
                 const deletedUserPath = deletedUserPaths[index]!;
                 await fs.mkdir(path.dirname(deletedUserPath), {recursive: true});
@@ -1852,6 +2173,12 @@ describe("workspace-files", {timeout: 60_000}, () => {
                 await fs.mkdir(path.dirname(orphanDeletedUserPath), {recursive: true});
                 await fs.writeFile(orphanDeletedUserPath, "{\"id\":\"orphan old builtin\"}\n", "utf-8");
             }
+            await fs.mkdir(path.dirname(staleManagedUserPath), {recursive: true});
+            await fs.writeFile(staleManagedUserPath, staleManagedSyncedContent, "utf-8");
+            await fs.mkdir(path.dirname(editedStaleManagedUserPath), {recursive: true});
+            await fs.writeFile(editedStaleManagedUserPath, editedStaleManagedContent, "utf-8");
+            await fs.mkdir(path.dirname(editedDeletedUserPath), {recursive: true});
+            await fs.writeFile(editedDeletedUserPath, editedDeletedContent, "utf-8");
             for (let index = 0; index < updatedUserPaths.length; index++) {
                 const updatedUserPath = updatedUserPaths[index]!;
                 await fs.mkdir(path.dirname(updatedUserPath), {recursive: true});
@@ -1866,6 +2193,24 @@ describe("workspace-files", {timeout: 60_000}, () => {
                         lastSyncedUserHash: syncedHashes[index],
                         syncedAt: new Date(0).toISOString(),
                     })),
+                    {
+                        assetPath: staleManagedAssetPath,
+                        upstreamHash: staleManagedSyncedHash,
+                        lastSyncedUserHash: staleManagedSyncedHash,
+                        syncedAt: new Date(0).toISOString(),
+                    },
+                    {
+                        assetPath: editedStaleManagedAssetPath,
+                        upstreamHash: editedStaleManagedSyncedHash,
+                        lastSyncedUserHash: editedStaleManagedSyncedHash,
+                        syncedAt: new Date(0).toISOString(),
+                    },
+                    {
+                        assetPath: editedDeletedAssetPath,
+                        upstreamHash: editedDeletedSyncedHash,
+                        lastSyncedUserHash: editedDeletedSyncedHash,
+                        syncedAt: new Date(0).toISOString(),
+                    },
                     ...updatedAssetPaths.map((assetPath, index) => ({
                         assetPath,
                         upstreamHash: oldUpdatedHashes[index],
@@ -1875,7 +2220,7 @@ describe("workspace-files", {timeout: 60_000}, () => {
                 ],
             }, null, 2), "utf-8");
 
-            await syncSystemAssetsToUserAssets();
+            const result = await syncSystemAssetsToUserAssets();
             const syncState = JSON.parse(await fs.readFile(syncStatePath, "utf-8")) as {assets?: Array<{assetPath: string}>};
             const assetPaths = syncState.assets?.map((asset) => asset.assetPath) ?? [];
             const cliSource = await fs.readFile(updatedUserPaths[0]!, "utf-8");
@@ -1891,9 +2236,17 @@ describe("workspace-files", {timeout: 60_000}, () => {
             for (const orphanDeletedUserPath of orphanDeletedUserPaths) {
                 await expect(fs.access(orphanDeletedUserPath)).rejects.toMatchObject({code: "ENOENT"});
             }
+            await expect(fs.access(staleManagedUserPath)).rejects.toMatchObject({code: "ENOENT"});
+            await expect(fs.readFile(editedStaleManagedUserPath, "utf-8")).resolves.toBe(editedStaleManagedContent);
+            await expect(fs.readFile(editedDeletedUserPath, "utf-8")).resolves.toBe(editedDeletedContent);
             for (const deletedAssetPath of deletedAssetPaths) {
                 expect(assetPaths).not.toContain(deletedAssetPath);
             }
+            expect(assetPaths).not.toContain(staleManagedAssetPath);
+            expect(assetPaths).toContain(editedStaleManagedAssetPath);
+            expect(assetPaths).toContain(editedDeletedAssetPath);
+            expect(result.assetWarnings?.filter((warning) => warning.assetPath === editedStaleManagedAssetPath)).toHaveLength(1);
+            expect(result.assetWarnings?.filter((warning) => warning.assetPath === editedDeletedAssetPath)).toHaveLength(1);
             for (let index = 0; index < updatedUserPaths.length; index++) {
                 await expect(fs.readFile(updatedUserPaths[index]!, "utf-8")).resolves.toBe(await fs.readFile(updatedSystemPaths[index]!, "utf-8"));
             }
@@ -1910,6 +2263,9 @@ describe("workspace-files", {timeout: 60_000}, () => {
         } finally {
             await Promise.all(deletedUserPaths.map((userPath, index) => restoreOptionalFile(userPath, deletedBackups[index]!)));
             await Promise.all(orphanDeletedUserPaths.map((userPath, index) => restoreOptionalFile(userPath, orphanDeletedBackups[index]!)));
+            await restoreOptionalFile(staleManagedUserPath, staleManagedBackup);
+            await restoreOptionalFile(editedStaleManagedUserPath, editedStaleManagedBackup);
+            await restoreOptionalFile(editedDeletedUserPath, editedDeletedBackup);
             await Promise.all(updatedUserPaths.map((userPath, index) => restoreOptionalFile(userPath, updatedBackups[index]!)));
             await restoreOptionalFile(syncStatePath, syncStateBackup);
         }
@@ -2088,20 +2444,14 @@ describe("workspace-files", {timeout: 60_000}, () => {
         await expect(readWorkspaceTextFile(root, "lorebook/instruction/creation-boundaries/index.md")).resolves.not.toContain("inject:");
         await expect(fs.access(path.join(root, "lorebook/rule/writing-style/index.md"))).rejects.toMatchObject({code: "ENOENT"});
         await expect(readWorkspaceTextFile(root, "agents/writer/context.md")).resolves.toContain("Writer Context Notes");
-        await expect(readWorkspaceTextFile(root, "agents/rp.writer/context.md")).resolves.toContain("RP Writer Context");
-        await expect(readWorkspaceTextFile(root, "agents/simulator.leader/context.md")).resolves.toContain("Simulator Leader Project Context");
-        await expect(readWorkspaceTextFile(root, "agents/simulator.leader/context.md")).resolves.toContain("不在这里复制");
-        await expect(readWorkspaceTextFile(root, "agents/simulator.leader/context.md")).resolves.not.toContain("actor_packets");
-        await expect(readWorkspaceTextFile(root, "agents/simulator.leader/context.md")).resolves.not.toContain("writer.md");
         await expect(readWorkspaceTextFile(root, "agents/writer/memory.md")).resolves.toContain("Writer Memory");
         await expect(readWorkspaceTextFile(root, "manuscript/001-volume/001-chapter/index.md")).resolves.toContain("## 正文草稿");
         await expect(readWorkspaceTextFile(root, "manuscript/001-volume/001-chapter/index.md")).resolves.toContain("- 开局示例");
-        await expect(readWorkspaceTextFile(root, "world-engine/schema.yaml")).resolves.toContain("subjectTypes:");
-        await expect(readWorkspaceTextFile(root, "world-engine/schema.yaml")).resolves.toContain("character:");
-        await expect(readWorkspaceTextFile(root, "world-engine/schema.yaml")).resolves.toContain("sourcePath:");
-        await expect(readWorkspaceTextFile(root, "world-engine/schema.yaml")).resolves.toContain("subjectFiles:");
-        await expect(readWorkspaceTextFile(root, "world-engine/schema.yaml")).resolves.toContain("ragIndexSources:");
-        await expect(readWorkspaceTextFile(root, "world-engine/calendar.ts")).resolves.toContain("type: 'simple'");
+        await expect(readWorkspaceTextFile(root, "world-engine/schema/index.ts")).resolves.toContain("WorldSchema");
+        await expect(readWorkspaceTextFile(root, "world-engine/schema/index.ts")).resolves.toContain("character");
+        await expect(readWorkspaceTextFile(root, "world-engine/schema/index.ts")).resolves.toContain("location");
+        await expect(readWorkspaceTextFile(root, "world-engine/calendar.ts")).resolves.toContain("type: 'gregorian'");
+        await expect(fs.access(path.join(root, "world-engine", "schema.yaml"))).rejects.toMatchObject({code: "ENOENT"});
         await expect(fs.access(path.join(root, "world-engine", "calendar.yaml"))).rejects.toMatchObject({code: "ENOENT"});
         await expect(fs.access(path.join(root, "simulation"))).rejects.toMatchObject({code: "ENOENT"});
 
@@ -2202,12 +2552,13 @@ describe("workspace-files", {timeout: 60_000}, () => {
             await expect(readWorkspaceTextFile(createdRoot, "AGENTS.md")).resolves.toContain("agents/{profile}/context.md");
             await expect(fs.access(path.join(createdRoot, "PROJECT-STATUS.md"))).rejects.toMatchObject({code: "ENOENT"});
             await expect(readWorkspaceTextFile(createdRoot, "manuscript/001-volume/001-chapter/index.md")).resolves.toContain("示范章节");
-            await expect(readWorkspaceTextFile(createdRoot, "world-engine/schema.yaml")).resolves.toContain("subjectTypes:");
-            await expect(readWorkspaceTextFile(createdRoot, "world-engine/schema.yaml")).resolves.toContain("subjectSystemVersion:");
-            await expect(readWorkspaceTextFile(createdRoot, "world-engine/calendar.ts")).resolves.toContain("type: 'simple'");
+            await expect(readWorkspaceTextFile(createdRoot, "world-engine/schema/index.ts")).resolves.toContain("WorldSchema");
+            await expect(readWorkspaceTextFile(createdRoot, "world-engine/schema/index.ts")).resolves.toContain("Character");
+            await expect(fs.access(path.join(createdRoot, "world-engine", "schema.yaml"))).rejects.toMatchObject({code: "ENOENT"});
+            await expect(readWorkspaceTextFile(createdRoot, "world-engine/calendar.ts")).resolves.toContain("type: 'gregorian'");
             await expect(fs.access(path.join(createdRoot, "world-engine", "calendar.yaml"))).rejects.toMatchObject({code: "ENOENT"});
             await expect(fs.access(path.join(createdRoot, "simulation"))).rejects.toMatchObject({code: "ENOENT"});
-            await expect(worldEngineFacade.formatTime(projectPath, 0n)).resolves.toBe("新生纪元1年1月1日 00:00:00");
+            await expect(worldEngineFacade.formatTime(projectPath, 0n)).resolves.toBe("公元1年1月1日 00:00");
             await expect(worldEngineFacade.getWorldSchema(projectPath)).resolves.toEqual(expect.objectContaining({
                 subjectTypes: expect.arrayContaining([
                     expect.objectContaining({type: "world"}),
@@ -2222,7 +2573,7 @@ describe("workspace-files", {timeout: 60_000}, () => {
             })).resolves.toEqual({subjectId: "world", issues: []});
             await expect(worldEngineFacade.queryState(projectPath, {subjectIds: ["world"], attrs: ["era"]})).resolves.toMatchObject({
                 instant: 0n,
-                subjects: [{subjectId: "world", type: "world", attrs: {era: "复兴纪元"}}],
+                subjects: [{subjectId: "world", type: "world", attrs: {era: "新纪元"}}],
                 issues: [],
             });
             await expect(worldEngineFacade.createSubject(projectPath, {
@@ -2247,15 +2598,15 @@ describe("workspace-files", {timeout: 60_000}, () => {
                 instant: 1n,
                 title: "示例：艾莉娜抵达王都",
                 patches: [
-                    {subjectId: "world", path: "/events", op: "append", value: "世界引擎示例启动"},
+                    {subjectId: "world", path: "/events", op: "append", value: {text: "世界引擎示例启动"}},
                     {subjectId: "capital", path: "/name", op: "replace", value: "王都"},
-                    {subjectId: "capital", path: "/events", op: "append", value: "艾莉娜抵达王都"},
+                    {subjectId: "capital", path: "/events", op: "append", value: {text: "艾莉娜抵达王都"}},
                     {subjectId: "erina", path: "/location", op: "replace", value: "subject://capital"},
                     {subjectId: "erina", path: "/inventory", op: "append", value: "subject://old-sword"},
-                    {subjectId: "erina", path: "/events", op: "append", value: "抵达王都并拾起旧剑"},
+                    {subjectId: "erina", path: "/events", op: "append", value: {text: "抵达王都并拾起旧剑"}},
                     {subjectId: "old-sword", path: "/name", op: "replace", value: "旧剑"},
                     {subjectId: "old-sword", path: "/durability", op: "increment", value: -5},
-                    {subjectId: "old-sword", path: "/events", op: "append", value: "被艾莉娜拾起，剑身多了一道裂纹"},
+                    {subjectId: "old-sword", path: "/events", op: "append", value: {text: "被艾莉娜拾起，剑身多了一道裂纹"}},
                 ],
             })).resolves.toEqual(expect.objectContaining({issues: []}));
             await expect(worldEngineFacade.queryState(projectPath, {
@@ -2263,9 +2614,9 @@ describe("workspace-files", {timeout: 60_000}, () => {
                 attrs: ["hp", "location", "inventory", "events", "durability", "era"],
             })).resolves.toMatchObject({
                 subjects: [
-                    {subjectId: "erina", type: "character", attrs: {hp: 100, location: "subject://capital", inventory: ["subject://old-sword"], events: ["抵达王都并拾起旧剑"]}},
-                    {subjectId: "old-sword", type: "item", attrs: {durability: 95, events: ["被艾莉娜拾起，剑身多了一道裂纹"]}},
-                    {subjectId: "world", type: "world", attrs: {era: "复兴纪元", events: ["世界引擎示例启动"]}},
+                    {subjectId: "erina", type: "character", attrs: {hp: 100, location: "subject://capital", inventory: ["subject://old-sword"], events: [{text: "抵达王都并拾起旧剑"}]}},
+                    {subjectId: "old-sword", type: "item", attrs: {durability: 95, events: [{text: "被艾莉娜拾起，剑身多了一道裂纹"}]}},
+                    {subjectId: "world", type: "world", attrs: {era: "新纪元", events: [{text: "世界引擎示例启动"}]}},
                 ],
                 issues: [],
             });
@@ -2387,7 +2738,7 @@ describe("workspace-files", {timeout: 60_000}, () => {
     }
 
     /**
-     * 备份真实用户 assets 中可能已经存在的同路径测试文件。
+     * 备份当前测试隔离 user-assets 中可能已经存在的同路径测试文件。
      */
     async function backupOptionalFile(filePath: string): Promise<string | null> {
         try {
@@ -2401,7 +2752,7 @@ describe("workspace-files", {timeout: 60_000}, () => {
     }
 
     /**
-     * 还原被测试临时覆盖的用户 assets 文件。
+     * 还原被测试临时覆盖的隔离 user-assets 文件。
      */
     async function restoreOptionalFile(filePath: string, content: string | null): Promise<void> {
         if (content === null) {
@@ -2434,6 +2785,34 @@ describe("workspace-files", {timeout: 60_000}, () => {
      */
     async function sha256ForTest(filePath: string): Promise<string> {
         return createHash("sha256").update(await fs.readFile(filePath)).digest("hex");
+    }
+
+    /**
+     * 计算文件 sha256 和 byte length，用于验证 manifest entry 与源码一致。
+     */
+    async function sha256AndBytesForTest(filePath: string): Promise<{sha256: string; bytes: number}> {
+        const buffer = await fs.readFile(filePath);
+        return {
+            sha256: createHash("sha256").update(buffer).digest("hex"),
+            bytes: buffer.byteLength,
+        };
+    }
+
+    function profileArtifactPath(root: "workspace" | "assets", item: ProfileArtifactManifestItem): string {
+        const profileRoot = root === "assets"
+            ? path.join("assets", "workspace", ".nbook", "agent", "profiles")
+            : path.join("workspace", ".nbook", "agent", "profiles");
+        return path.join(profileRoot, ".compiled", ...item.artifactFileName.split("/"));
+    }
+
+    function profileTypeArtifactPath(root: "workspace" | "assets", item: ProfileArtifactManifestItem): string {
+        if (!item.typeFileName) {
+            throw new Error(`profile ${item.profileKey} 缺少 type artifact。`);
+        }
+        const profileRoot = root === "assets"
+            ? path.join("assets", "workspace", ".nbook", "agent", "profiles")
+            : path.join("workspace", ".nbook", "agent", "profiles");
+        return path.join(profileRoot, ".compiled", ...item.typeFileName.split("/"));
     }
 
     /**

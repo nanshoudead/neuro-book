@@ -41,7 +41,6 @@ export class RefResolverService {
                     targetKind: "content",
                     targetThreadId: null,
                     targetSceneId: null,
-                    targetPlotId: null,
                     visibility: ref.visibility,
                     note: ref.note,
                 });
@@ -63,7 +62,6 @@ export class RefResolverService {
                     targetKind: "thread",
                     targetThreadId: thread.id,
                     targetSceneId: null,
-                    targetPlotId: null,
                     visibility: ref.visibility,
                     note: ref.note,
                 });
@@ -79,23 +77,6 @@ export class RefResolverService {
                     targetKind: "scene",
                     targetThreadId: null,
                     targetSceneId: scene.id,
-                    targetPlotId: null,
-                    visibility: ref.visibility,
-                    note: ref.note,
-                });
-                continue;
-            }
-
-            if (parsedTarget.kind === "plot" && /^\d+$/.test(parsedTarget.targetId)) {
-                const plot = await this.scopeGuard.assertPlot(storyId, Number.parseInt(parsedTarget.targetId, 10));
-                resolvedRefs.push({
-                    sortOrder: index,
-                    relation: ref.relation,
-                    rawTarget: buildReferenceUri("plot", String(plot.id)),
-                    targetKind: "plot",
-                    targetThreadId: null,
-                    targetSceneId: null,
-                    targetPlotId: plot.id,
                     visibility: ref.visibility,
                     note: ref.note,
                 });

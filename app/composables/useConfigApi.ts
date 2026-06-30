@@ -1,5 +1,7 @@
 import {useNovelIdeStore} from "nbook/app/stores/novel-ide";
 import type {
+    ConfigAgentProfileBuildStatusDto,
+    ConfigAgentProfileSettingsDto,
     ConfigBootstrapDto,
     ConfigEditorSnapshotDto,
     ConfigWorkspaceQueryDto,
@@ -9,14 +11,8 @@ import type {
 } from "nbook/shared/dto/config.dto";
 import type {PiBuiltinCatalogDto} from "nbook/shared/dto/app-settings.dto";
 
-type ConfigEditorSnapshotOptions = {
-    includeAgentProfileSettings?: boolean;
-    agentProfileSettingsScope?: "global" | "project";
-};
-
-type ConfigEditorSnapshotQueryParams = ConfigWorkspaceQueryDto & {
-    includeAgentProfileSettings?: "true";
-    agentProfileSettingsScope?: "global" | "project";
+type AgentProfileSettingsQueryParams = ConfigWorkspaceQueryDto & {
+    scope: "global" | "project";
 };
 
 /**
@@ -71,32 +67,36 @@ export function useConfigApi() {
     }
 
     /**
-     * 设置页重型衍生数据按需加载，默认 query 保持轻量。
-     */
-    function editorSnapshotQuery(
-        query: ConfigWorkspaceQueryDto,
-        options: ConfigEditorSnapshotOptions,
-    ): ConfigEditorSnapshotQueryParams {
-        if (options.includeAgentProfileSettings !== true) {
-            return query;
-        }
-        return {
-            ...query,
-            includeAgentProfileSettings: "true",
-            ...(options.agentProfileSettingsScope ? {agentProfileSettingsScope: options.agentProfileSettingsScope} : {}),
-        };
-    }
-
-    /**
      * 读取设置页编辑快照。后端每次都从配置文件重新读取。
      */
     async function editorSnapshot(
         query: ConfigWorkspaceQueryDto = currentQuery(),
-        options: ConfigEditorSnapshotOptions = {},
     ): Promise<ConfigEditorSnapshotDto> {
         return $fetch<ConfigEditorSnapshotDto>("/api/config/editor-snapshot", {
-            query: editorSnapshotQuery(query, options),
+            query,
         });
+    }
+
+    /**
+     * 读取 Agent Profile settings 专用快照。
+     */
+    async function agentProfileSettings(
+        query: ConfigWorkspaceQueryDto = currentQuery(),
+        scope: "global" | "project" = "global",
+    ): Promise<ConfigAgentProfileSettingsDto> {
+        return $fetch<ConfigAgentProfileSettingsDto>("/api/agent/profiles/settings", {
+            query: {
+                ...query,
+                scope,
+            } satisfies AgentProfileSettingsQueryParams,
+        });
+    }
+
+    /**
+     * 读取 Agent Profile 编译/加载状态。
+     */
+    async function agentProfileBuildStatus(): Promise<ConfigAgentProfileBuildStatusDto> {
+        return $fetch<ConfigAgentProfileBuildStatusDto>("/api/agent/profiles/build-status");
     }
 
     /**
@@ -114,11 +114,10 @@ export function useConfigApi() {
     async function saveGlobal(
         global: GlobalConfigDto,
         query: ConfigWorkspaceQueryDto = currentQuery(),
-        options: ConfigEditorSnapshotOptions = {},
     ): Promise<ConfigEditorSnapshotDto> {
         return $fetch<ConfigEditorSnapshotDto>("/api/config/global", {
             method: "PUT",
-            query: editorSnapshotQuery(query, options),
+            query,
             body: global,
         });
     }
@@ -129,11 +128,10 @@ export function useConfigApi() {
     async function saveProject(
         project: ProjectConfigDto,
         query: ConfigWorkspaceQueryDto = projectQuery(),
-        options: ConfigEditorSnapshotOptions = {},
     ): Promise<ConfigEditorSnapshotDto> {
         return $fetch<ConfigEditorSnapshotDto>("/api/config/project", {
             method: "PUT",
-            query: editorSnapshotQuery(query, options),
+            query,
             body: project,
         });
     }
@@ -147,10 +145,7 @@ export function useConfigApi() {
     ): Promise<ConfigEditorSnapshotDto> {
         return $fetch<ConfigEditorSnapshotDto>("/api/config/profile-home/reset", {
             method: "POST",
-            query: editorSnapshotQuery(query, {
-                includeAgentProfileSettings: true,
-                agentProfileSettingsScope: "project",
-            }),
+            query,
             body: {profileKey},
         });
     }
@@ -181,6 +176,8 @@ export function useConfigApi() {
         projectQuery,
         bootstrap,
         editorSnapshot,
+        agentProfileSettings,
+        agentProfileBuildStatus,
         saveGlobal,
         saveProject,
         resetProfileHome,

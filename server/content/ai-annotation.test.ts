@@ -1,7 +1,23 @@
-import {describe, expect, it} from "vitest";
+import {afterAll, beforeAll, describe, expect, it} from "vitest";
 import {parseAiAnnotationBlocks} from "nbook/server/content/ai-annotation";
 
+type CreateErrorInput = {statusCode?: number; message?: string};
+type TestGlobal = typeof globalThis & {
+    createError?: (input: CreateErrorInput) => Error & CreateErrorInput;
+};
+
 describe("parseAiAnnotationBlocks", () => {
+    const testGlobal = globalThis as TestGlobal;
+    const previousCreateError = testGlobal.createError;
+
+    beforeAll(() => {
+        testGlobal.createError = (input) => Object.assign(new Error(input.message ?? "未知错误"), input);
+    });
+
+    afterAll(() => {
+        testGlobal.createError = previousCreateError;
+    });
+
     it("解析 replace 与 command 批注块", () => {
         const text = "A %{取一个名字}% B %!{统一润色}%";
         const replaceRaw = "%{取一个名字}%";

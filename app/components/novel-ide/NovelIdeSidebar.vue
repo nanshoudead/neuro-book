@@ -23,13 +23,15 @@ const emit = defineEmits<{
 const items: SidebarItem[] = [
     { value: "files", label: "Files", iconClass: "i-lucide-files" },
     { value: "characters", label: "Characters", iconClass: "i-lucide-users-round" },
+    { value: "plot", label: "Plot", iconClass: "i-lucide-git-branch" },
 ];
 const sessionItems: SidebarItem[] = [
     { value: "sessions", label: "Sessions", iconClass: "i-lucide-messages-square" },
+    { value: "plot", label: "Plot", iconClass: "i-lucide-git-branch" },
 ];
 const visibleItems = computed(() => {
     if (props.agentMode) {
-        return sessionItems;
+        return props.userAssetsMode ? sessionItems.filter((item) => item.value === "sessions") : sessionItems;
     }
     return props.userAssetsMode ? items.filter((item) => item.value === "files") : items;
 });

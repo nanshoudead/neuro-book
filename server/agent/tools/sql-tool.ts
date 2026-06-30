@@ -21,7 +21,7 @@ const SQLITE_TABLE_QUERY = `
         AND name <> '_prisma_migrations'
     ORDER BY name ASC
 `;
-const AGENT_SQL_DETAIL_TABLES = new Set(["Story", "StoryPhase", "StoryThread", "StoryScene", "StoryPlot", "StorySceneRef", "ProjectMetadata"]);
+const AGENT_SQL_DETAIL_TABLES = new Set(["Story", "StoryPhase", "StoryThread", "StoryScene", "StorySceneRef", "ProjectMetadata"]);
 
 type AgentSqlSchemaRow = {
     tableName: string;

@@ -390,7 +390,6 @@ export const ModelName = {
   StoryPhase: 'StoryPhase',
   StoryThread: 'StoryThread',
   StoryScene: 'StoryScene',
-  StoryPlot: 'StoryPlot',
   StorySceneRef: 'StorySceneRef',
   WorldSubject: 'WorldSubject',
   WorldSlice: 'WorldSlice',
@@ -410,7 +409,7 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
     omit: GlobalOmitOptions
   }
   meta: {
-    modelProps: "projectMetadata" | "databaseLock" | "story" | "storyPhase" | "storyThread" | "storyScene" | "storyPlot" | "storySceneRef" | "worldSubject" | "worldSlice" | "worldPatch"
+    modelProps: "projectMetadata" | "databaseLock" | "story" | "storyPhase" | "storyThread" | "storyScene" | "storySceneRef" | "worldSubject" | "worldSlice" | "worldPatch"
     txIsolationLevel: TransactionIsolationLevel
   }
   model: {
@@ -858,80 +857,6 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
         }
       }
     }
-    StoryPlot: {
-      payload: Prisma.$StoryPlotPayload<ExtArgs>
-      fields: Prisma.StoryPlotFieldRefs
-      operations: {
-        findUnique: {
-          args: Prisma.StoryPlotFindUniqueArgs<ExtArgs>
-          result: runtime.Types.Utils.PayloadToResult<Prisma.$StoryPlotPayload> | null
-        }
-        findUniqueOrThrow: {
-          args: Prisma.StoryPlotFindUniqueOrThrowArgs<ExtArgs>
-          result: runtime.Types.Utils.PayloadToResult<Prisma.$StoryPlotPayload>
-        }
-        findFirst: {
-          args: Prisma.StoryPlotFindFirstArgs<ExtArgs>
-          result: runtime.Types.Utils.PayloadToResult<Prisma.$StoryPlotPayload> | null
-        }
-        findFirstOrThrow: {
-          args: Prisma.StoryPlotFindFirstOrThrowArgs<ExtArgs>
-          result: runtime.Types.Utils.PayloadToResult<Prisma.$StoryPlotPayload>
-        }
-        findMany: {
-          args: Prisma.StoryPlotFindManyArgs<ExtArgs>
-          result: runtime.Types.Utils.PayloadToResult<Prisma.$StoryPlotPayload>[]
-        }
-        create: {
-          args: Prisma.StoryPlotCreateArgs<ExtArgs>
-          result: runtime.Types.Utils.PayloadToResult<Prisma.$StoryPlotPayload>
-        }
-        createMany: {
-          args: Prisma.StoryPlotCreateManyArgs<ExtArgs>
-          result: BatchPayload
-        }
-        createManyAndReturn: {
-          args: Prisma.StoryPlotCreateManyAndReturnArgs<ExtArgs>
-          result: runtime.Types.Utils.PayloadToResult<Prisma.$StoryPlotPayload>[]
-        }
-        delete: {
-          args: Prisma.StoryPlotDeleteArgs<ExtArgs>
-          result: runtime.Types.Utils.PayloadToResult<Prisma.$StoryPlotPayload>
-        }
-        update: {
-          args: Prisma.StoryPlotUpdateArgs<ExtArgs>
-          result: runtime.Types.Utils.PayloadToResult<Prisma.$StoryPlotPayload>
-        }
-        deleteMany: {
-          args: Prisma.StoryPlotDeleteManyArgs<ExtArgs>
-          result: BatchPayload
-        }
-        updateMany: {
-          args: Prisma.StoryPlotUpdateManyArgs<ExtArgs>
-          result: BatchPayload
-        }
-        updateManyAndReturn: {
-          args: Prisma.StoryPlotUpdateManyAndReturnArgs<ExtArgs>
-          result: runtime.Types.Utils.PayloadToResult<Prisma.$StoryPlotPayload>[]
-        }
-        upsert: {
-          args: Prisma.StoryPlotUpsertArgs<ExtArgs>
-          result: runtime.Types.Utils.PayloadToResult<Prisma.$StoryPlotPayload>
-        }
-        aggregate: {
-          args: Prisma.StoryPlotAggregateArgs<ExtArgs>
-          result: runtime.Types.Utils.Optional<Prisma.AggregateStoryPlot>
-        }
-        groupBy: {
-          args: Prisma.StoryPlotGroupByArgs<ExtArgs>
-          result: runtime.Types.Utils.Optional<Prisma.StoryPlotGroupByOutputType>[]
-        }
-        count: {
-          args: Prisma.StoryPlotCountArgs<ExtArgs>
-          result: runtime.Types.Utils.Optional<Prisma.StoryPlotCountAggregateOutputType> | number
-        }
-      }
-    }
     StorySceneRef: {
       payload: Prisma.$StorySceneRefPayload<ExtArgs>
       fields: Prisma.StorySceneRefFieldRefs
@@ -1342,27 +1267,15 @@ export const StorySceneScalarFieldEnum = {
   purpose: 'purpose',
   writingTip: 'writingTip',
   note: 'note',
+  startInstant: 'startInstant',
+  endInstant: 'endInstant',
+  subjectIdsJson: 'subjectIdsJson',
+  locationSubjectId: 'locationSubjectId',
   createdAt: 'createdAt',
   updatedAt: 'updatedAt'
 } as const
 
 export type StorySceneScalarFieldEnum = (typeof StorySceneScalarFieldEnum)[keyof typeof StorySceneScalarFieldEnum]
-
-
-export const StoryPlotScalarFieldEnum = {
-  id: 'id',
-  sceneId: 'sceneId',
-  sortOrder: 'sortOrder',
-  kind: 'kind',
-  summary: 'summary',
-  effect: 'effect',
-  writingTip: 'writingTip',
-  note: 'note',
-  createdAt: 'createdAt',
-  updatedAt: 'updatedAt'
-} as const
-
-export type StoryPlotScalarFieldEnum = (typeof StoryPlotScalarFieldEnum)[keyof typeof StoryPlotScalarFieldEnum]
 
 
 export const StorySceneRefScalarFieldEnum = {
@@ -1374,7 +1287,6 @@ export const StorySceneRefScalarFieldEnum = {
   targetKind: 'targetKind',
   targetThreadId: 'targetThreadId',
   targetSceneId: 'targetSceneId',
-  targetPlotId: 'targetPlotId',
   visibility: 'visibility',
   note: 'note',
   createdAt: 'createdAt',
@@ -1489,9 +1401,9 @@ export type EnumStorySceneStatusFieldRefInput<$PrismaModel> = FieldRefInputType<
 
 
 /**
- * Reference to a field of type 'StoryPlotKind'
+ * Reference to a field of type 'BigInt'
  */
-export type EnumStoryPlotKindFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'StoryPlotKind'>
+export type BigIntFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'BigInt'>
     
 
 
@@ -1506,13 +1418,6 @@ export type EnumStoryRefTargetKindFieldRefInput<$PrismaModel> = FieldRefInputTyp
  * Reference to a field of type 'StoryRefVisibility'
  */
 export type EnumStoryRefVisibilityFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'StoryRefVisibility'>
-    
-
-
-/**
- * Reference to a field of type 'BigInt'
- */
-export type BigIntFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'BigInt'>
     
 
 
@@ -1630,7 +1535,6 @@ export type GlobalOmitConfig = {
   storyPhase?: Prisma.StoryPhaseOmit
   storyThread?: Prisma.StoryThreadOmit
   storyScene?: Prisma.StorySceneOmit
-  storyPlot?: Prisma.StoryPlotOmit
   storySceneRef?: Prisma.StorySceneRefOmit
   worldSubject?: Prisma.WorldSubjectOmit
   worldSlice?: Prisma.WorldSliceOmit

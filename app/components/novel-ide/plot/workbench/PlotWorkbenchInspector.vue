@@ -1,30 +1,28 @@
 <script setup lang="ts">
 import {computed, watch} from "vue";
-import Combobox from "nbook/app/components/common/form/Combobox.vue";
 import FormField from "nbook/app/components/common/form/FormField.vue";
 import FormInput from "nbook/app/components/common/form/FormInput.vue";
 import FormSelect from "nbook/app/components/common/form/FormSelect.vue";
 import type {SelectOption} from "nbook/app/components/common/form/FormSelect.vue";
 import StructuredTextEditor from "nbook/app/components/common/form/StructuredTextEditor.vue";
 import RefEditorPopover from "./RefEditorPopover.vue";
+import SubjectMultiSelect from "nbook/app/components/novel-ide/plot/workbench/SubjectMultiSelect.vue";
+import SubjectSingleSelect from "nbook/app/components/novel-ide/plot/workbench/SubjectSingleSelect.vue";
+import WorldEngineContextPanel from "nbook/app/components/novel-ide/plot/workbench/WorldEngineContextPanel.vue";
 import type {WorkbenchManualRef} from "nbook/app/components/novel-ide/plot/workbench/plot-workbench.types";
 import {
-    PLOT_KIND_LABELS,
     PLOT_SCENE_STATUS_LABELS,
     PLOT_THREAD_STATUS_LABELS,
     type PlotThreadPanelChapter,
-    type PlotThreadPanelPlot,
-    type PlotThreadPanelRef,
     type PlotThreadPanelScene,
     type PlotThreadPanelThread,
 } from "nbook/app/components/novel-ide/plot/thread-panel/plot-thread-panel.types";
 import type {
-    StoryPlotKindDto,
     StorySceneStatusDto,
     StoryThreadStatusDto,
 } from "nbook/shared/dto/plot.dto";
 
-type WorkbenchInlineRefKind = "content" | "thread" | "scene" | "plot";
+type WorkbenchInlineRefKind = "content" | "thread" | "scene";
 type WorkbenchInlineRefSource = "scene";
 
 type WorkbenchInlineRef = {
@@ -33,13 +31,13 @@ type WorkbenchInlineRef = {
     title: string;
     target: string;
     source: WorkbenchInlineRefSource;
-    field: "summary" | "purpose" | "writingTip" | "effect";
+    field: "summary" | "purpose" | "writingTip";
 };
 const props = defineProps<{
-    mode: "thread" | "scene" | "plot";
+    mode: "thread" | "scene";
+    projectPath: string;
     thread: PlotThreadPanelThread | null;
     scene: PlotThreadPanelScene | null;
-    plot: PlotThreadPanelPlot | null;
     chapters: PlotThreadPanelChapter[];
     effectiveRefs: WorkbenchInlineRef[];
     manualRefs: WorkbenchManualRef[];
@@ -50,14 +48,15 @@ const emit = defineEmits<{
     (e: "close"): void;
     (e: "updateThread", threadId: string, patch: Partial<PlotThreadPanelThread>): void;
     (e: "updateScene", sceneId: string, patch: Partial<PlotThreadPanelScene>): void;
-    (e: "updatePlot", plotId: string, patch: Partial<PlotThreadPanelPlot>): void;
     (e: "updateRefs", refs: WorkbenchManualRef[]): void;
+    (e: "openWorldEngine"): void;
 }>();
 
 const activeRefId = ref<string | null>(null);
 const refCardRefs = ref<Record<string, HTMLElement>>({});
 const manualRefsDraft = ref<WorkbenchManualRef[]>([]);
 const manualRefsDraftSceneId = ref<string | null>(null);
+const worldContextVisible = ref(false);
 
 watch(() => [props.scene?.id, props.manualRefs], () => {
     const sceneId = props.scene?.id ?? null;
@@ -109,10 +108,6 @@ const sceneStatusOptions: SelectOption[] = Object.entries(PLOT_SCENE_STATUS_LABE
     value,
     label,
 }));
-const plotKindOptions: SelectOption[] = Object.entries(PLOT_KIND_LABELS).map(([value, label]) => ({
-    value,
-    label,
-}));
 const RELATION_LABELS: Record<string, string> = {
     mentions: "提及 (mentions)",
     foreshadows: "伏笔 (foreshadows)",
@@ -146,14 +141,13 @@ const currentTitle = computed(() => {
     if (props.mode === "scene") {
         return props.scene?.title ?? "Scene";
     }
-    return props.plot ? (PLOT_KIND_LABELS[props.plot.kind] ?? "Plot") : "Plot";
+    return "Scene";
 });
 const refsByKind = computed(() => {
     const groups: Record<WorkbenchInlineRefKind, WorkbenchInlineRef[]> = {
         content: [],
         thread: [],
         scene: [],
-        plot: [],
     };
     for (const refItem of props.effectiveRefs) {
         groups[refItem.kind].push(refItem);
@@ -164,7 +158,6 @@ const visibleRefGroups = computed(() => [
     {kind: "content" as const, label: "内容节点", items: refsByKind.value.content},
     {kind: "thread" as const, label: "Thread", items: refsByKind.value.thread},
     {kind: "scene" as const, label: "Scene", items: refsByKind.value.scene},
-    {kind: "plot" as const, label: "Plot", items: refsByKind.value.plot},
 ].filter((group) => group.items.length > 0));
 const showRefs = computed(() => props.mode === "scene" && Boolean(props.scene));
 
@@ -186,16 +179,6 @@ function updateScene(patch: Partial<PlotThreadPanelScene>): void {
         return;
     }
     emit("updateScene", props.scene.id, patch);
-}
-
-/**
- * 更新当前 Plot。
- */
-function updatePlot(patch: Partial<PlotThreadPanelPlot>): void {
-    if (!props.plot) {
-        return;
-    }
-    emit("updatePlot", props.plot.id, patch);
 }
 
 /**
@@ -258,6 +241,21 @@ function emitCompleteManualRefs(refs: WorkbenchManualRef[]): void {
             note: refItem.note?.trim() || null,
         })));
 }
+
+/**
+ * 更新当前 Scene 的 World Anchor。
+ */
+function updateWorldAnchor(patch: Partial<PlotThreadPanelScene["worldAnchor"]>): void {
+    if (!props.scene) {
+        return;
+    }
+    emit("updateScene", props.scene.id, {
+        worldAnchor: {
+            ...props.scene.worldAnchor,
+            ...patch,
+        },
+    });
+}
 </script>
 
 <template>
@@ -291,7 +289,7 @@ function emitCompleteManualRefs(refs: WorkbenchManualRef[]): void {
                         :rows="12"
                         :min-height="228"
                         :max-height="380"
-                        placeholder="Thread 摘要，可使用 [标题](lorebook/...) 或 [节点](plot://...)"
+                        placeholder="Thread 摘要，可使用 [标题](lorebook/...) 或 [Scene](scene://...)"
                         @update:model-value="updateThread({summary: $event})"
                     />
                 </FormField>
@@ -327,7 +325,7 @@ function emitCompleteManualRefs(refs: WorkbenchManualRef[]): void {
                         :rows="12"
                         :min-height="228"
                         :max-height="380"
-                        placeholder="Scene 摘要，可使用内容节点或 plot inline ref"
+                        placeholder="Scene 摘要，可使用内容节点或 scene inline ref"
                         @update:model-value="updateScene({summary: $event})"
                     />
                     <div class="mt-1 text-right text-[10px] text-[var(--text-muted)]">{{ props.scene.summary.length }}/5000</div>
@@ -352,42 +350,38 @@ function emitCompleteManualRefs(refs: WorkbenchManualRef[]): void {
                         @update:model-value="updateScene({writingTip: $event || null})"
                     />
                 </FormField>
-            </section>
 
-            <section v-else-if="props.mode === 'plot' && props.plot" class="space-y-3">
-                <FormField label="Plot 类型">
-                    <FormSelect :model-value="props.plot.kind" :options="plotKindOptions" @update:model-value="updatePlot({kind: $event as StoryPlotKindDto})" />
-                </FormField>
-                <FormField label="摘要">
-                    <StructuredTextEditor
-                        :model-value="props.plot.summary"
-                        :rows="12"
-                        :min-height="228"
-                        :max-height="380"
-                        placeholder="Plot 摘要，可使用 [标题](lorebook/...) 或 [节点](plot://...)"
-                        @update:model-value="updatePlot({summary: $event})"
-                    />
-                </FormField>
-                <FormField label="效果">
-                    <StructuredTextEditor
-                        :model-value="props.plot.effect ?? ''"
-                        :rows="8"
-                        :min-height="152"
-                        :max-height="380"
-                        placeholder="Plot 效果"
-                        @update:model-value="updatePlot({effect: $event || null})"
-                    />
-                </FormField>
-                <FormField label="写作提示">
-                    <StructuredTextEditor
-                        :model-value="props.plot.writingTip ?? ''"
-                        :rows="6"
-                        :min-height="114"
-                        :max-height="380"
-                        placeholder="写作提示"
-                        @update:model-value="updatePlot({writingTip: $event || null})"
-                    />
-                </FormField>
+                <div class="mt-4 space-y-3 border-t border-[var(--border-color)] pt-4">
+                    <div class="flex items-center justify-between">
+                        <div class="text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--text-muted)]">World Engine</div>
+                        <button type="button" class="inline-flex h-7 items-center gap-1.5 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2.5 text-[11px] text-[var(--text-main)] hover:bg-[var(--bg-hover)]" @click="worldContextVisible = !worldContextVisible">
+                            <span class="i-lucide-orbit h-3.5 w-3.5"></span>
+                            上下文
+                        </button>
+                    </div>
+                    <div class="grid grid-cols-1 gap-2">
+                        <FormField label="开始时间">
+                            <FormInput :model-value="props.scene.worldAnchor.startTime ?? ''" placeholder="项目日历时间，留空表示未连接" @update:model-value="updateWorldAnchor({startTime: $event.trim() || null, startInstant: null})" />
+                        </FormField>
+                        <FormField label="结束时间">
+                            <FormInput :model-value="props.scene.worldAnchor.endTime ?? ''" placeholder="项目日历时间，留空表示未连接" @update:model-value="updateWorldAnchor({endTime: $event.trim() || null, endInstant: null})" />
+                        </FormField>
+                    </div>
+                    <FormField label="出场 Subjects">
+                        <SubjectMultiSelect :project-path="props.projectPath" :model-value="props.scene.worldAnchor.subjectIds" @update:model-value="updateWorldAnchor({subjectIds: $event})" />
+                    </FormField>
+                    <FormField label="地点">
+                        <SubjectSingleSelect :project-path="props.projectPath" :model-value="props.scene.worldAnchor.locationSubjectId" @update:model-value="updateWorldAnchor({locationSubjectId: $event})" />
+                    </FormField>
+                    <div v-if="props.scene.worldAnchor.unresolvedSubjectIds.length" class="rounded-md border border-amber-500/20 bg-amber-500/10 px-2.5 py-2 text-[11px] leading-relaxed text-amber-700 dark:text-amber-300">
+                        <div class="mb-1 flex items-center gap-1 font-semibold">
+                            <span class="i-lucide-alert-triangle h-3.5 w-3.5"></span>
+                            World Engine subject 尚未接入
+                        </div>
+                        <div class="break-all font-mono">{{ props.scene.worldAnchor.unresolvedSubjectIds.join("，") }}</div>
+                    </div>
+                    <WorldEngineContextPanel v-if="worldContextVisible" :project-path="props.projectPath" :scene-id="props.scene.id" @open-world-engine="emit('openWorldEngine')" />
+                </div>
             </section>
 
             <section v-else class="rounded-lg border border-dashed border-[var(--border-color)] bg-[var(--bg-input)]/30 px-4 py-8 text-center text-[12px] text-[var(--text-muted)]">

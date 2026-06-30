@@ -2,7 +2,7 @@ import type {PlotPreviewDataset} from "nbook/app/components/novel-ide/plot/plot-
 
 /**
  * 剧情测试页 mock 数据。
- * 数据故意覆盖主线、支线、未挂章 Scene 和多种 Plot.kind。
+ * 数据故意覆盖主线、支线、未挂章 Scene 和多种 Scene 承载关系。
  */
 export const plotPreviewDataset: PlotPreviewDataset = {
     story: {
@@ -54,7 +54,7 @@ export const plotPreviewDataset: PlotPreviewDataset = {
             writingTip: "钥匙线不要一次解释完，尽量让每次出现都只推进半步理解。",
             tone: "sky",
             refs: [
-                {id: "ref-thread-key-1", relation: "foreshadows", target: "plot://plot-vault-open", visibility: "author", note: "钥匙首次出现时正文不解释。"},
+                {id: "ref-thread-key-1", relation: "foreshadows", target: "scene://scene-vault-open", visibility: "author", note: "钥匙首次出现时正文不解释。"},
             ],
         },
         {
@@ -100,7 +100,7 @@ export const plotPreviewDataset: PlotPreviewDataset = {
             chapterSortOrder: 0,
             writingTip: "要让现场像金融对赌，不是单纯的人口买卖陈列。",
             refs: [
-                {id: "ref-scene-auction-1", relation: "setup_for", target: "plot://plot-price-backfire", visibility: "author", note: "高价会成为后续被反咬的理由。"},
+                {id: "ref-scene-auction-1", relation: "setup_for", target: "scene://scene-ledger", visibility: "author", note: "高价会成为后续被反咬的理由。"},
             ],
         },
         {
@@ -130,7 +130,7 @@ export const plotPreviewDataset: PlotPreviewDataset = {
             chapterSortOrder: 0,
             writingTip: "不要聚焦钥匙本体，重点放在少女为什么不愿解释。",
             refs: [
-                {id: "ref-scene-key-first-1", relation: "foreshadows", target: "plot://plot-vault-open", visibility: "author", note: null},
+                {id: "ref-scene-key-first-1", relation: "foreshadows", target: "scene://scene-vault-open", visibility: "author", note: null},
             ],
         },
         {
@@ -207,116 +207,6 @@ export const plotPreviewDataset: PlotPreviewDataset = {
             refs: [
                 {id: "ref-scene-harbor-1", relation: "mentions", target: "lorebook/note/灰鸥商会/", visibility: "author", note: "该势力还没正式写进 lorebook。"},
             ],
-        },
-    ],
-    plots: [
-        {
-            id: "plot-bid-war",
-            sceneId: "scene-auction",
-            sortOrder: 0,
-            kind: "conflict",
-            summary: "竞价被抬到失控边缘，买主硬压全场。",
-            effect: "买主取得所有权，但暴露财务压力。",
-            writingTip: "台词尽量短，靠数字和停顿制造压迫。",
-        },
-        {
-            id: "plot-price-backfire",
-            sceneId: "scene-auction",
-            sortOrder: 1,
-            kind: "setup",
-            summary: "异常高价成为后续账册房反咬的因果起点。",
-            effect: null,
-            writingTip: null,
-        },
-        {
-            id: "plot-cage-probe",
-            sceneId: "scene-cage",
-            sortOrder: 0,
-            kind: "action",
-            summary: "笼边试探，双方都在判断对方的破绽。",
-            effect: "少女第一次确认买主不是单纯善人。",
-            writingTip: null,
-        },
-        {
-            id: "plot-self-pricing",
-            sceneId: "scene-cage",
-            sortOrder: 1,
-            kind: "twist",
-            summary: "少女用自己的价值反向谈判，打破被动姿态。",
-            effect: "买主开始重新定义她的危险级别。",
-            writingTip: "反转要像轻轻抬刀，不要喊出来。",
-        },
-        {
-            id: "plot-key-glimpse",
-            sceneId: "scene-key-first",
-            sortOrder: 0,
-            kind: "mystery",
-            summary: "钥匙只出现一瞬，来源不明。",
-            effect: "读者知道这是重要物件，但不知道为什么。",
-            writingTip: null,
-        },
-        {
-            id: "plot-ledger-discovery",
-            sceneId: "scene-ledger",
-            sortOrder: 0,
-            kind: "reveal",
-            summary: "主角发现买主账册上的亏空漏洞。",
-            effect: "掌握第一份实质筹码。",
-            writingTip: null,
-        },
-        {
-            id: "plot-ledger-reward",
-            sceneId: "scene-ledger",
-            sortOrder: 1,
-            kind: "reward",
-            summary: "主角第一次在关系里占据上风。",
-            effect: "完成小型逆袭爽点。",
-            writingTip: "这里的爽点要稳，不要写成嘴炮胜利。",
-        },
-        {
-            id: "plot-map-assembly",
-            sceneId: "scene-vault-map",
-            sortOrder: 0,
-            kind: "setup",
-            summary: "地图和钥匙齿纹被拼出一条可疑路线。",
-            effect: null,
-            writingTip: null,
-        },
-        {
-            id: "plot-confession-slip",
-            sceneId: "scene-storm-confession",
-            sortOrder: 0,
-            kind: "reveal",
-            summary: "买主说漏了关于旧主人的信息。",
-            effect: "情感线第一次获得真正的新信息。",
-            writingTip: null,
-        },
-        {
-            id: "plot-vault-open",
-            sceneId: "scene-vault-open",
-            sortOrder: 0,
-            kind: "payoff",
-            summary: "旧钥匙终于开启塔楼秘库。",
-            effect: "兑现前期所有钥匙铺垫。",
-            writingTip: null,
-        },
-        {
-            id: "plot-vault-reversal",
-            sceneId: "scene-vault-open",
-            sortOrder: 1,
-            kind: "twist",
-            summary: "秘库里不是财富，而是身份记录。",
-            effect: "剧情目标从求生切换到改名与夺权。",
-            writingTip: "先给读者一秒钟的宝藏预期，再迅速打碎。",
-        },
-        {
-            id: "plot-harbor-gap",
-            sceneId: "scene-harbor-balance",
-            sortOrder: 0,
-            kind: "result",
-            summary: "港口出现新的权力真空。",
-            effect: "为后续多线并行提供世界层空档。",
-            writingTip: null,
         },
     ],
     chapters: [

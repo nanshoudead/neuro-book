@@ -12,15 +12,12 @@ const props = defineProps<{
     index: number;
     threadId: string;
     chapter: PlotThreadPanelChapter | null;
-    plotCount: number;
-    expanded: boolean;
     canMoveUp: boolean;
     canMoveDown: boolean;
 }>();
 
 const emit = defineEmits<{
     (e: "editScene", sceneId: string): void;
-    (e: "toggleScene", sceneId: string): void;
     (e: "moveScene", payload: {sceneId: string; direction: "up" | "down"}): void;
 }>();
 
@@ -46,6 +43,28 @@ const {isDragging, isDropTarget} = useSortable({
     feedback: "default",
 });
 
+const hasWorldAnchor = computed(() => {
+    const anchor = props.scene.worldAnchor;
+    return Boolean(
+        anchor.startTime ||
+        anchor.endTime ||
+        anchor.startInstant ||
+        anchor.endInstant ||
+        anchor.subjectIds.length ||
+        anchor.locationSubjectId,
+    );
+});
+
+const worldTimeLabel = computed(() => {
+    const anchor = props.scene.worldAnchor;
+    if (anchor.startTime && anchor.endTime) {
+        return `${anchor.startTime} ~ ${anchor.endTime}`;
+    }
+    return anchor.startTime ?? anchor.endTime ?? "未设定时间";
+});
+const locationLabel = computed(() => props.scene.worldAnchor.locationSubject?.name ?? props.scene.worldAnchor.locationSubjectId);
+const locationResolved = computed(() => props.scene.worldAnchor.locationSubject?.resolved ?? false);
+
 /**
  * 卡片只展示 inline ref 的标题，Markdown 源码仍由 Inspector 保留。
  */
@@ -62,7 +81,7 @@ function displayInlineText(text: string | null): string {
         :data-dragging="isDragging || undefined"
         :data-drop-target="isDropTarget || undefined"
         class="plot-workbench-scene-card group flex flex-col rounded-xl border bg-[var(--bg-panel)] transition-all duration-200"
-        :class="props.expanded ? 'border-amber-500/40 shadow-[0_8px_24px_rgba(15,23,42,0.06)] ring-1 ring-amber-500/10' : 'border-[var(--border-color)] hover:border-[var(--border-color-hover)] shadow-sm hover:shadow-md'"
+        :class="'border-[var(--border-color)] shadow-sm hover:border-[var(--border-color-hover)] hover:shadow-md'"
     >
         <div class="flex items-start gap-3 p-3.5">
             <!-- 拖拽手柄与序号 -->
@@ -95,10 +114,6 @@ function displayInlineText(text: string | null): string {
                                 <span class="i-lucide-hash h-3.5 w-3.5 opacity-70"></span>
                                 #{{ props.scene.threadSortOrder + 1 }}
                             </span>
-                            <span class="flex items-center gap-1.5">
-                                <span class="i-lucide-layers h-3.5 w-3.5 opacity-70"></span>
-                                {{ props.plotCount }} Plots
-                            </span>
                         </div>
                     </div>
                     
@@ -113,11 +128,32 @@ function displayInlineText(text: string | null): string {
                         <button type="button" class="inline-flex h-7 w-7 items-center justify-center rounded-md text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" title="编辑 Scene" @click.stop="emit('editScene', props.scene.id)">
                             <span class="i-lucide-pencil-line h-3.5 w-3.5"></span>
                         </button>
-                        <span class="mx-1 h-3.5 w-[1px] bg-[var(--border-color)]"></span>
-                        <button type="button" class="inline-flex h-7 w-7 items-center justify-center rounded-md transition-all duration-200" :class="props.expanded ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400' : 'text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]'" :title="props.expanded ? '收起 Plots' : '展开 Plots'" @click.stop="emit('toggleScene', props.scene.id)">
-                            <span class="i-lucide-chevron-down h-4 w-4 transition-transform duration-200" :class="props.expanded ? 'rotate-180' : ''"></span>
-                        </button>
                     </div>
+                </div>
+
+                <div class="mt-2 flex flex-wrap items-center gap-1.5 text-[11px]">
+                    <template v-if="hasWorldAnchor">
+                        <span class="inline-flex items-center gap-1 rounded bg-blue-500/10 px-1.5 py-0.5 text-blue-700 ring-1 ring-inset ring-blue-500/20 dark:text-blue-300">
+                            <span class="i-lucide-clock h-3 w-3"></span>
+                            {{ worldTimeLabel }}
+                        </span>
+                        <span v-if="props.scene.worldAnchor.locationSubjectId" class="inline-flex items-center gap-1 rounded px-1.5 py-0.5 ring-1 ring-inset" :class="locationResolved ? 'bg-emerald-500/10 text-emerald-700 ring-emerald-500/20 dark:text-emerald-300' : 'bg-amber-500/10 text-amber-700 ring-amber-500/20 dark:text-amber-300'">
+                            <span class="i-lucide-map-pin h-3 w-3"></span>
+                            {{ locationLabel }}
+                        </span>
+                        <span class="inline-flex items-center gap-1 rounded bg-[var(--bg-main)] px-1.5 py-0.5 text-[var(--text-muted)] ring-1 ring-inset ring-[var(--border-color)]/50">
+                            <span class="i-lucide-users h-3 w-3"></span>
+                            出场 {{ props.scene.worldAnchor.subjectIds.length }}
+                        </span>
+                        <span v-if="props.scene.worldAnchor.unresolvedSubjectIds.length" class="inline-flex items-center gap-1 rounded bg-amber-500/10 px-1.5 py-0.5 text-amber-700 ring-1 ring-inset ring-amber-500/20 dark:text-amber-300">
+                            <span class="i-lucide-alert-triangle h-3 w-3"></span>
+                            占位 {{ props.scene.worldAnchor.unresolvedSubjectIds.length }}
+                        </span>
+                    </template>
+                    <span v-else class="inline-flex items-center gap-1 rounded bg-[var(--bg-main)] px-1.5 py-0.5 text-[var(--text-muted)] ring-1 ring-inset ring-[var(--border-color)]/50">
+                        <span class="i-lucide-unlink h-3 w-3"></span>
+                        未连接到世界引擎
+                    </span>
                 </div>
 
                 <!-- 场景摘要框 -->
@@ -132,8 +168,6 @@ function displayInlineText(text: string | null): string {
                 </div>
             </div>
         </div>
-
-        <slot />
     </article>
 </template>
 

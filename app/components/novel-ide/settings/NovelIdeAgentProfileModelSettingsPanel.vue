@@ -38,6 +38,11 @@ type AgentProfileDraft = {
     name: string;
     canResetHome: boolean;
     model: AgentProfileModelDraft;
+    loadStatus: ConfigAgentProfileSettingsDto["agentProfiles"][number]["loadStatus"];
+    hasSettingsForm: boolean;
+    issue: ConfigAgentProfileSettingsDto["agentProfiles"][number]["issue"];
+    sourcePath: string | null;
+    buildState: ConfigAgentProfileSettingsDto["agentProfiles"][number]["buildState"];
     settings: AgentProfileSettingsDraft | null;
 };
 
@@ -80,6 +85,7 @@ const profileModelDefaults = ref<AgentProfileModelDraft>({
 const profiles = ref([]) as Ref<AgentProfileDraft[]>;
 const expandedProfileSettings = ref<Set<string>>(new Set());
 const snapshotText = ref("");
+let buildStatusPollTimer: ReturnType<typeof setTimeout> | null = null;
 const configApi = useConfigApi();
 const dialog = useDialog();
 const novelIdeStore = useNovelIdeStore();
@@ -110,7 +116,7 @@ const reasoningEffortBaseOptions = computed<SelectOption[]>(() => [
     {value: "xhigh", label: t("settings.panels.profileModels.xhigh")},
 ]);
 const defaultProfileOptions = computed<SelectOption[]>(() => {
-    const options = editorSnapshot.value?.defaultProfileSettings.profiles.map((profile) => ({
+    const options = profiles.value.map((profile) => ({
         value: profile.profileKey,
         label: profile.profileKey,
         description: profile.name,
@@ -126,6 +132,47 @@ const defaultProfileOptions = computed<SelectOption[]>(() => {
         ...options,
     ];
 });
+
+/**
+ * 当前 Profile 的 lowcode 表单是否可以直接编辑。
+ */
+function canEditProfileSettings(profile: AgentProfileDraft): boolean {
+    return profile.loadStatus === "loaded" && Boolean(profile.settings);
+}
+
+/**
+ * 将 Profile 加载状态显示为简短文案。
+ */
+function profileStatusLabel(profile: AgentProfileDraft): string {
+    switch (profile.loadStatus) {
+        case "loaded":
+            return profile.hasSettingsForm
+                ? t("settings.panels.profileModels.settingsUnavailable")
+                : t("settings.panels.profileModels.noSettingsForm");
+        case "compiling": return t("settings.panels.profileModels.profileCompiling");
+        case "compile_failed": return t("settings.panels.profileModels.profileCompileFailed");
+        case "compile_stale": return t("settings.panels.profileModels.profileCompileStale");
+        case "not_compiled": return t("settings.panels.profileModels.profileNotCompiled");
+        case "compiled_load_failed": return t("settings.panels.profileModels.profileCompiledLoadFailed");
+        case "source_error": return t("settings.panels.profileModels.profileSourceError");
+    }
+}
+
+/**
+ * 将 Profile 加载问题显示为可读说明。
+ */
+function profileStatusDescription(profile: AgentProfileDraft): string {
+    if (profile.issue?.message) {
+        return profile.issue.message;
+    }
+    if (profile.loadStatus === "loaded" && !profile.hasSettingsForm) {
+        return t("settings.panels.profileModels.noSettingsFormDescription");
+    }
+    if (profile.loadStatus === "compiling" || profile.buildState.running || profile.buildState.queued) {
+        return t("settings.panels.profileModels.profileCompilingDescription");
+    }
+    return t("settings.panels.profileModels.profileUnavailableDescription");
+}
 
 /**
  * 判断指定 profile 的自定义 settings 表单是否展开。
@@ -459,29 +506,91 @@ function applySettings(settings: ConfigAgentProfileSettingsDto): void {
         name: profile.name,
         canResetHome: profile.canResetHome,
         model: cloneModelDraft(editorSnapshot.value?.global.agent?.profiles?.[profile.profileKey]?.model),
+        loadStatus: profile.loadStatus,
+        hasSettingsForm: profile.hasSettingsForm,
+        issue: profile.issue,
+        sourcePath: profile.sourcePath,
+        buildState: profile.buildState,
         settings: cloneSettingsDraft(profile.settings, "global"),
     }));
     snapshotText.value = JSON.stringify(buildGlobalSavePayload());
+    scheduleBuildStatusPolling();
 }
 
 /**
  * 将 Project Config 中的 profile 覆盖应用到本地草稿。
  */
-function applyProjectSettings(snapshot: ConfigEditorSnapshotDto): void {
-    selectedDefaultProfileKey.value = snapshot.defaultProfileSettings.projectDefaultProfileKey ?? "";
-    enabledModels.value = snapshot.agentProfileSettings.enabledModels;
-    profileModelDefaults.value = cloneModelDraft(snapshot.project?.agent?.profileModelDefaults);
-    profiles.value = snapshot.agentProfileSettings.agentProfiles.map((profile) => {
-        const override = snapshot.project?.agent?.profiles?.[profile.profileKey]?.model;
+function applyProjectSettings(settings: ConfigAgentProfileSettingsDto): void {
+    selectedDefaultProfileKey.value = editorSnapshot.value?.defaultProfileSettings.projectDefaultProfileKey ?? "";
+    enabledModels.value = settings.enabledModels;
+    profileModelDefaults.value = cloneModelDraft(editorSnapshot.value?.project?.agent?.profileModelDefaults);
+    profiles.value = settings.agentProfiles.map((profile) => {
+        const override = editorSnapshot.value?.project?.agent?.profiles?.[profile.profileKey]?.model;
         return {
             profileKey: profile.profileKey,
             name: profile.name,
             canResetHome: profile.canResetHome,
             model: cloneModelDraft(override),
+            loadStatus: profile.loadStatus,
+            hasSettingsForm: profile.hasSettingsForm,
+            issue: profile.issue,
+            sourcePath: profile.sourcePath,
+            buildState: profile.buildState,
             settings: cloneSettingsDraft(profile.settings, "project"),
         };
     });
     snapshotText.value = JSON.stringify(buildProjectDirtyPayload());
+    scheduleBuildStatusPolling();
+}
+
+function clearBuildStatusPolling(): void {
+    if (!buildStatusPollTimer) {
+        return;
+    }
+    clearTimeout(buildStatusPollTimer);
+    buildStatusPollTimer = null;
+}
+
+function shouldPollBuildStatus(): boolean {
+    return profiles.value.some((profile) => profile.loadStatus === "compiling" || profile.buildState.running || profile.buildState.queued);
+}
+
+function scheduleBuildStatusPolling(): void {
+    clearBuildStatusPolling();
+    if (!shouldPollBuildStatus()) {
+        return;
+    }
+    buildStatusPollTimer = setTimeout(() => {
+        void refreshBuildStatus();
+    }, 1200);
+}
+
+/**
+ * 轮询 profile 编译状态；从 compiling/running 回到 loaded/failed 时重取 settings。
+ */
+async function refreshBuildStatus(): Promise<void> {
+    try {
+        const previousRunning = shouldPollBuildStatus();
+        const status = await configApi.agentProfileBuildStatus();
+        const byKey = new Map(status.profiles.map((profile) => [profile.profileKey, profile]));
+        for (const profile of profiles.value) {
+            const next = byKey.get(profile.profileKey);
+            if (!next) {
+                continue;
+            }
+            profile.loadStatus = next.loadStatus;
+            profile.issue = next.issue;
+            profile.buildState = next.buildState;
+        }
+        if (previousRunning && !shouldPollBuildStatus()) {
+            await loadSettings();
+            return;
+        }
+    } catch {
+        // 状态轮询只是 UI 增量刷新，失败时保持当前 settings 表单，不打断用户编辑。
+    } finally {
+        scheduleBuildStatusPolling();
+    }
 }
 
 /**
@@ -516,15 +625,15 @@ async function loadSettings(): Promise<void> {
     successText.value = "";
 
     try {
-        const snapshot = await configApi.editorSnapshot(props.targetQuery, {
-            includeAgentProfileSettings: true,
-            agentProfileSettingsScope: isProjectScope.value ? "project" : "global",
-        });
+        const [snapshot, settings] = await Promise.all([
+            configApi.editorSnapshot(props.targetQuery),
+            configApi.agentProfileSettings(props.targetQuery, isProjectScope.value ? "project" : "global"),
+        ]);
         editorSnapshot.value = snapshot;
         if (isProjectScope.value) {
-            applyProjectSettings(snapshot);
+            applyProjectSettings(settings);
         } else {
-            applySettings(snapshot.agentProfileSettings);
+            applySettings(settings);
         }
     } catch (error) {
         errorText.value = resolveApiErrorMessage(error, t("settings.panels.profileModels.loadFailed"));
@@ -547,14 +656,15 @@ async function saveSettings(): Promise<void> {
 
     try {
         const snapshot = isProjectScope.value
-            ? await configApi.saveProject(buildProjectConfigPayload(), props.targetQuery, {includeAgentProfileSettings: true, agentProfileSettingsScope: "project"})
-            : await configApi.saveGlobal(buildGlobalConfigPayload(), props.targetQuery, {includeAgentProfileSettings: true, agentProfileSettingsScope: "global"});
+            ? await configApi.saveProject(buildProjectConfigPayload(), props.targetQuery)
+            : await configApi.saveGlobal(buildGlobalConfigPayload(), props.targetQuery);
+        const settings = await configApi.agentProfileSettings(props.targetQuery, isProjectScope.value ? "project" : "global");
         editorSnapshot.value = snapshot;
         if (isProjectScope.value) {
-            applyProjectSettings(snapshot);
+            applyProjectSettings(settings);
             successText.value = t("settings.panels.profileModels.projectSaveSuccess");
         } else {
-            applySettings(snapshot.agentProfileSettings);
+            applySettings(settings);
             successText.value = t("settings.panels.profileModels.globalSaveSuccess");
         }
     } catch (error) {
@@ -583,8 +693,9 @@ async function resetProfileHome(profile: AgentProfileDraft): Promise<void> {
     successText.value = "";
     try {
         const snapshot = await configApi.resetProfileHome(profile.profileKey, props.targetQuery);
+        const settings = await configApi.agentProfileSettings(props.targetQuery, "project");
         editorSnapshot.value = snapshot;
-        applyProjectSettings(snapshot);
+        applyProjectSettings(settings);
         successText.value = t("settings.panels.profileModels.resetHomeSuccess", {profile: profile.profileKey});
     } catch (error) {
         errorText.value = resolveApiErrorMessage(error, t("settings.panels.profileModels.resetHomeFailed"));
@@ -700,6 +811,10 @@ const sortedProfiles = computed(() => [...profiles.value].sort((left, right) => 
 
 onMounted(() => {
     void loadSettings();
+});
+
+onBeforeUnmount(() => {
+    clearBuildStatusPolling();
 });
 
 watch(() => [props.scope, props.targetQuery?.workspaceKind, props.targetQuery?.projectPath] as const, () => {
@@ -880,8 +995,9 @@ defineExpose({
                         </div>
 
                         <!-- Profile 自定义低代码设置 -->
-                        <div v-if="profile.settings" class="mt-4 border-t border-[var(--border-color)] pt-4">
+                        <div class="mt-4 border-t border-[var(--border-color)] pt-4">
                             <button
+                                v-if="canEditProfileSettings(profile)"
                                 type="button"
                                 class="mb-3 flex w-full items-center gap-2 text-left"
                                 :aria-expanded="isProfileSettingsExpanded(profile.profileKey)"
@@ -891,7 +1007,16 @@ defineExpose({
                                 <span class="min-w-0 flex-1 text-xs font-semibold text-[var(--text-main)]">{{ t("settings.panels.profileModels.profilePresets") }}</span>
                                 <span class="h-4 w-4 shrink-0 text-[var(--text-muted)]" :class="isProfileSettingsExpanded(profile.profileKey) ? 'i-lucide-chevron-up' : 'i-lucide-chevron-down'"></span>
                             </button>
-                            <div v-if="isProfileSettingsExpanded(profile.profileKey)">
+                            <div v-else class="rounded-md border border-[var(--border-color)] bg-[var(--bg-input)]/20 px-3 py-2">
+                                <div class="flex items-start gap-2">
+                                    <span class="mt-0.5 h-3.5 w-3.5 shrink-0" :class="profile.loadStatus === 'compiling' || profile.buildState.running || profile.buildState.queued ? 'i-lucide-loader-circle animate-spin text-[var(--accent-color)]' : profile.loadStatus === 'loaded' ? 'i-lucide-info text-[var(--text-muted)]' : 'i-lucide-circle-alert text-amber-500'"></span>
+                                    <div class="min-w-0">
+                                        <p class="text-xs font-semibold text-[var(--text-main)]">{{ profileStatusLabel(profile) }}</p>
+                                        <p class="mt-1 break-words text-xs text-[var(--text-secondary)]">{{ profileStatusDescription(profile) }}</p>
+                                    </div>
+                                </div>
+                            </div>
+                            <div v-if="profile.settings && canEditProfileSettings(profile) && isProfileSettingsExpanded(profile.profileKey)">
                                 <LowCodeForm
                                     v-model="profile.settings.values"
                                     v-model:override-paths="profile.settings.overridePaths"

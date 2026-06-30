@@ -39,11 +39,11 @@ export type UserInputRequestContext = {
 
 /**
  * 用户输入表单规格。
- * 完全复用 Low-Code Form 系统，支持 8 种基础组件。
+ * Low-Code Form 是可选能力；用户输入工具可返回此结构，让前端渲染结构化表单。
  */
 export type UserInputFormSpec = {
-    /** Low-Code Form 定义 */
-    form: LowCodeFormDto;
+    /** Low-Code Form 定义；存在时前端按结构化表单提交 data.userInput。 */
+    form?: LowCodeFormDto;
     /** 可选的返回值 schema，用于校验用户提交的数据 */
     resultSchema?: TSchema;
     /** 展示给用户的提示文本 */
@@ -67,11 +67,12 @@ export type NeuroAgentTool = AgentTool<any, any> & {
      */
     userInputRequest?: {
         /**
-         * 判断是否需要用户输入，返回表单规格或 null。
+         * 判断是否需要用户输入，返回表单规格 / true 或 null。
+         * - 返回 true：暂停执行，由前端根据工具参数渲染专用 UI
          * - 返回 UserInputFormSpec：暂停执行，展示表单，等待用户提交
          * - 返回 null：直接执行，无需用户输入
          */
-        when: (context: UserInputRequestContext) => Promise<UserInputFormSpec | null> | UserInputFormSpec | null;
+        when: (context: UserInputRequestContext) => Promise<UserInputFormSpec | true | null> | UserInputFormSpec | true | null;
     };
     /**
      * v3 harness 自己执行工具时使用的上下文入口。Pi 的 AgentTool.execute 没有当前 session 信息，
@@ -204,9 +205,8 @@ export type ToolApprovalResolution = {
 
 export type UserInputAnswer = {
     questionIndex: number;
-    text: string;
+    text?: string;
     selectedOptionIndex?: number;
-    selectedOptionIndexes?: number[];
     note?: string;
     ignored?: boolean;
 };

@@ -51,6 +51,18 @@
     "极其替换": "modifier.extreme",
     "极其删除": "modifier.extreme",
     "由于删除": "causal.due-to",
-    "生理删除": "modifier.physiological"
+    "生理删除": "modifier.physiological",
+    "开场套话": "opening.cliche",
+    "渲染性强调": "inflation.significance",
+    "价值拔高": "inflation.significance",
+    "过渡废话": "transition.summary",
+    "无源引用": "attribution.vague",
+    "正能量收尾": "cliche.uplift",
+    "谄媚": "sycophantic",
+    "工程师腔": "jargon.engineer",
+    "调试腔": "jargon.engineer",
+    "自媒体腔": "jargon.social",
+    "翻译腔": "translationese",
+    "戏剧化碎句": "structure.fragment"
   }
 }

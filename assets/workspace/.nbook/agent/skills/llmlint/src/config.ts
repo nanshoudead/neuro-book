@@ -1,7 +1,7 @@
 import {existsSync} from "node:fs";
 import {dirname, isAbsolute, join, resolve} from "node:path";
 import {pathToFileURL} from "node:url";
-import type {LlmlintConfig, LlmlintOutput, NormalizedLlmlintConfig, RuleOverride, RulesetOverride} from "./types";
+import type {Fixability, LlmlintConfig, LlmlintOutput, NormalizedLlmlintConfig, NormalizedRuleOverride, Review, RuleLevel, RuleOverride, RulesetOverride} from "./types";
 
 const DEFAULT_CONFIG: NormalizedLlmlintConfig = {
     rulesets: ["builtin/default"],
@@ -12,7 +12,9 @@ const DEFAULT_CONFIG: NormalizedLlmlintConfig = {
     output: "stylish",
 };
 
-const VALID_RULE_OVERRIDES = new Set<RuleOverride>(["off", "warn", "error", "high", "medium", "low"]);
+const VALID_LEVELS = new Set<RuleLevel>(["high", "medium", "low"]);
+const VALID_REVIEWS = new Set<Review>(["agent", "human", "none"]);
+const VALID_FIXABILITIES = new Set<Fixability>(["auto", "candidate", "manual"]);
 const VALID_RULESET_OVERRIDES = new Set<RulesetOverride>(["off", "on"]);
 const VALID_OUTPUTS = new Set<LlmlintOutput>(["stylish", "json"]);
 
@@ -105,7 +107,7 @@ function normalizeRulesetOverrides(value: LlmlintConfig["rulesetOverrides"]): Re
     return normalized;
 }
 
-function normalizeRuleOverrides(value: Record<string, RuleOverride> | undefined, fieldName: string): Record<string, RuleOverride> {
+function normalizeRuleOverrides(value: Record<string, RuleOverride> | undefined, fieldName: string): Record<string, NormalizedRuleOverride> {
     if (value === undefined) {
         return {};
     }
@@ -113,14 +115,79 @@ function normalizeRuleOverrides(value: Record<string, RuleOverride> | undefined,
         throw new Error(`配置 ${fieldName} 必须是对象。`);
     }
 
-    const normalized: Record<string, RuleOverride> = {};
+    const normalized: Record<string, NormalizedRuleOverride> = {};
     for (const [key, override] of Object.entries(value)) {
-        if (!VALID_RULE_OVERRIDES.has(override as RuleOverride)) {
-            throw new Error(`${fieldName} ${key} 的覆盖值无效: ${String(override)}`);
-        }
-        normalized[key] = override as RuleOverride;
+        normalized[key] = normalizeOverrideValue(override, `${fieldName} ${key}`);
     }
     return normalized;
+}
+
+/**
+ * 覆盖项归一为单一 patch 形态：字符串简写是语法糖，对象是显式 patch。
+ * 这里是字符串→patch 的唯一去糖点，loader 不再二次解释字符串，避免两处语义跑偏。
+ */
+function normalizeOverrideValue(override: unknown, fieldName: string): NormalizedRuleOverride {
+    if (typeof override === "string") {
+        return expandStringOverride(override, fieldName);
+    }
+    if (isConfigObject(override)) {
+        return normalizeOverrideObject(override, fieldName);
+    }
+    throw new Error(`${fieldName} 的覆盖值必须是字符串或对象: ${String(override)}`);
+}
+
+/** 字符串简写展开为 patch：off=禁用，warn/error/level=启用并设级别（保留历史「设级别即启用」语义）。 */
+function expandStringOverride(override: string, fieldName: string): NormalizedRuleOverride {
+    if (override === "off") {
+        return {enabled: false};
+    }
+    if (override === "warn") {
+        return {enabled: true, level: "medium"};
+    }
+    if (override === "error") {
+        return {enabled: true, level: "high"};
+    }
+    if (VALID_LEVELS.has(override as RuleLevel)) {
+        return {enabled: true, level: override as RuleLevel};
+    }
+    throw new Error(`${fieldName} 的覆盖值无效: ${override}`);
+}
+
+function normalizeOverrideObject(value: Record<string, unknown>, fieldName: string): NormalizedRuleOverride {
+    const result: NormalizedRuleOverride = {};
+    for (const key of Object.keys(value)) {
+        if (key !== "enabled" && key !== "level" && key !== "review" && key !== "fixability") {
+            throw new Error(`${fieldName}.${key} 不是允许的覆盖字段。`);
+        }
+    }
+    if (value.enabled !== undefined) {
+        if (typeof value.enabled !== "boolean") {
+            throw new Error(`${fieldName}.enabled 必须是布尔值。`);
+        }
+        result.enabled = value.enabled;
+    }
+    if (value.level !== undefined) {
+        if (!VALID_LEVELS.has(value.level as RuleLevel)) {
+            throw new Error(`${fieldName}.level 无效: ${String(value.level)}`);
+        }
+        result.level = value.level as RuleLevel;
+    }
+    if (value.review !== undefined) {
+        if (!VALID_REVIEWS.has(value.review as Review)) {
+            throw new Error(`${fieldName}.review 无效: ${String(value.review)}`);
+        }
+        result.review = value.review as Review;
+    }
+    if (value.fixability !== undefined) {
+        if (!VALID_FIXABILITIES.has(value.fixability as Fixability)) {
+            throw new Error(`${fieldName}.fixability 无效: ${String(value.fixability)}`);
+        }
+        result.fixability = value.fixability as Fixability;
+    }
+    if (result.enabled === undefined && result.level === undefined && result.review === undefined && result.fixability === undefined) {
+        throw new Error(`${fieldName} 覆盖对象至少要设置 enabled、level、review 或 fixability 之一。`);
+    }
+    return result;
 }
 
 function normalizeStringArray(value: string[] | undefined, fallback: string[], fieldName: string): string[] {

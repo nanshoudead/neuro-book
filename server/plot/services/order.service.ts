@@ -1,5 +1,4 @@
 import type {
-    PlotRepository,
     SceneRepository,
     StoryRepository,
     ThreadRepository,
@@ -7,7 +6,6 @@ import type {
 import {throwPlotBadRequest} from "nbook/server/plot/core/errors";
 import type {
     ParsedReorderStoryPhaseItem,
-    ParsedReorderStoryPlotItem,
     ParsedReorderStorySceneItem,
     ParsedReorderStoryThreadItem,
 } from "nbook/server/plot/core/types";
@@ -20,7 +18,6 @@ export class OrderService {
         private readonly storyRepository: StoryRepository,
         private readonly threadRepository: ThreadRepository,
         private readonly sceneRepository: SceneRepository,
-        private readonly plotRepository: PlotRepository,
     ) {}
 
     /**
@@ -63,15 +60,6 @@ export class OrderService {
         return lastScene?.chapterSortOrder === undefined || lastScene.chapterSortOrder === null
             ? 0
             : lastScene.chapterSortOrder + 1;
-    }
-
-    /**
-     * 读取 Scene 内 Plot 的下一个排序值。
-     */
-    async getNextPlotSortOrder(sceneId: number): Promise<number> {
-        const plots = await this.plotRepository.findPlotsByScene(sceneId);
-        const lastPlot = plots.at(-1);
-        return lastPlot ? lastPlot.sortOrder + 1 : 0;
     }
 
     /**
@@ -127,19 +115,6 @@ export class OrderService {
                 continue;
             }
             await this.sceneRepository.updateScene(scene.id, {chapterSortOrder: index});
-        }
-    }
-
-    /**
-     * 压缩 Scene 内 Plot 排序。
-     */
-    async normalizePlots(sceneId: number): Promise<void> {
-        const plots = await this.plotRepository.findPlotsByScene(sceneId);
-        for (const [index, plot] of plots.entries()) {
-            if (plot.sortOrder === index) {
-                continue;
-            }
-            await this.plotRepository.updatePlot(plot.id, {sortOrder: index});
         }
     }
 
@@ -218,37 +193,6 @@ export class OrderService {
                 (groupKey) => `章节 ${groupKey} 下的 Scene`,
             );
         }
-
-        return items;
-    }
-
-    /**
-     * 校验 Plot 重排输入。
-     */
-    validatePlotReorderItems(
-        existingPlotIds: number[],
-        existingSceneIds: number[],
-        items: ParsedReorderStoryPlotItem[],
-    ): ParsedReorderStoryPlotItem[] {
-        const existingSceneIdSet = new Set(existingSceneIds);
-
-        this.assertDistinctIds(items.map((item) => item.plotId), "情节点");
-        for (const item of items) {
-            if (!existingPlotIds.includes(item.plotId)) {
-                throwPlotBadRequest(`情节点 ${item.plotId} 不属于当前小说`);
-            }
-        }
-        for (const item of items) {
-            if (!existingSceneIdSet.has(item.sceneId)) {
-                throwPlotBadRequest(`剧情场景 ${item.sceneId} 不属于当前小说`);
-            }
-        }
-        this.assertGroupedContinuousOrders(
-            items,
-            (item) => String(item.sceneId),
-            (item) => item.sortOrder,
-            (groupKey) => `剧情场景 ${groupKey} 下的情节点`,
-        );
 
         return items;
     }

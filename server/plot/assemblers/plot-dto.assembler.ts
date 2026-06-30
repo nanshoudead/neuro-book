@@ -1,7 +1,6 @@
 import type {
     Story,
     StoryPhase,
-    StoryPlot,
     StoryScene,
 } from "nbook/server/generated/project-prisma/client";
 import type {
@@ -23,9 +22,9 @@ import type {
     StoryDto,
     StoryEffectiveRefDto,
     StoryPhaseDto,
-    StoryPlotDto,
     StoryRefDto,
     StorySceneDetailDto,
+    StorySceneWorldAnchorDto,
     StorySceneSummaryDto,
     StoryWorkbenchPhaseDto,
     StoryWorkbenchSceneDto,
@@ -113,26 +112,31 @@ export class PlotDtoAssembler {
             purpose: scene.purpose,
             writingTip: scene.writingTip,
             note: scene.note,
+            worldAnchor: this.toStorySceneWorldAnchorDto(scene),
             createdAt: scene.createdAt.toISOString(),
             updatedAt: scene.updatedAt.toISOString(),
         };
     }
 
     /**
-     * 映射 Plot DTO。
+     * 映射 Scene World Anchor DTO。
      */
-    toStoryPlotDto(plot: StoryPlot): StoryPlotDto {
+    toStorySceneWorldAnchorDto(scene: StoryScene): StorySceneWorldAnchorDto {
+        const subjectIds = parseSubjectIdsJson(scene.subjectIdsJson);
+        const locationSubjectId = scene.locationSubjectId;
         return {
-            id: stringifyEntityId(plot.id),
-            sceneId: stringifyEntityId(plot.sceneId),
-            sortOrder: plot.sortOrder,
-            kind: plot.kind,
-            summary: plot.summary,
-            effect: plot.effect,
-            writingTip: plot.writingTip,
-            note: plot.note,
-            createdAt: plot.createdAt.toISOString(),
-            updatedAt: plot.updatedAt.toISOString(),
+            startTime: null,
+            endTime: null,
+            startInstant: scene.startInstant === null ? null : scene.startInstant.toString(),
+            endInstant: scene.endInstant === null ? null : scene.endInstant.toString(),
+            subjectIds,
+            locationSubjectId,
+            subjects: subjectIds.map(createUnresolvedAnchorSubject),
+            locationSubject: locationSubjectId === null ? null : createUnresolvedAnchorSubject(locationSubjectId),
+            unresolvedSubjectIds: uniqueSubjectIds([
+                ...subjectIds,
+                ...(locationSubjectId === null ? [] : [locationSubjectId]),
+            ]),
         };
     }
 
@@ -152,12 +156,6 @@ export class PlotDtoAssembler {
 
         if (ref.targetKind === "scene") {
             return ref.targetScene ? buildReferenceUri("scene", stringifyEntityId(ref.targetScene.id)) : (
-                parseStructuredReferenceTarget(ref.rawTarget)?.canonicalTarget ?? ref.rawTarget
-            );
-        }
-
-        if (ref.targetKind === "plot") {
-            return ref.targetPlot ? buildReferenceUri("plot", stringifyEntityId(ref.targetPlot.id)) : (
                 parseStructuredReferenceTarget(ref.rawTarget)?.canonicalTarget ?? ref.rawTarget
             );
         }
@@ -204,7 +202,6 @@ export class PlotDtoAssembler {
     toStorySceneDetailDto(scene: StorySceneWithDetails): StorySceneDetailDto {
         return {
             ...this.toStorySceneSummaryDto(scene),
-            plots: scene.plots.map((plot) => this.toStoryPlotDto(plot)),
             refs: scene.refs.map((ref) => this.toStoryRefDto(ref)),
             effectiveRefs: this.buildEffectiveSceneRefs(scene),
         };
@@ -226,7 +223,7 @@ export class PlotDtoAssembler {
             status: scene.status,
             summary: scene.summary,
             purpose: scene.purpose,
-            plots: scene.plots.map((plot) => this.toStoryPlotDto(plot)),
+            worldAnchor: this.toStorySceneWorldAnchorDto(scene),
         };
     }
 
@@ -238,7 +235,6 @@ export class PlotDtoAssembler {
             chapterPath,
             scenes: scenes.map((scene) => this.toChapterPlotSceneDto(scene)),
             totalScenes: scenes.length,
-            totalPlots: scenes.reduce((sum, scene) => sum + scene.plots.length, 0),
         };
     }
 
@@ -248,7 +244,6 @@ export class PlotDtoAssembler {
     toStoryWorkbenchSceneDto(scene: StoryWorkbenchScene): StoryWorkbenchSceneDto {
         return {
             ...this.toStorySceneSummaryDto(scene),
-            plots: scene.plots.map((plot) => this.toStoryPlotDto(plot)),
             refs: scene.refs.map((ref) => this.toStoryRefDto(ref)),
         };
     }
@@ -280,7 +275,6 @@ export class PlotDtoAssembler {
         story: Story;
         phases: Array<StoryPhase & {threads: Array<StoryThreadEntity & {scenes: StoryScene[]}>}>;
         ungroupedThreads: Array<StoryThreadEntity & {scenes: StoryScene[]}>;
-        totalPlots: number;
     }): PlotTreeDto {
         const phases = input.phases.map((phase) => ({
             ...this.toStoryPhaseDto(phase),
@@ -303,7 +297,6 @@ export class PlotDtoAssembler {
             totalScenes: phases.reduce((sum, phase) => (
                 sum + phase.threads.reduce((threadSum, thread) => threadSum + thread.scenes.length, 0)
             ), 0) + ungroupedThreads.reduce((sum, thread) => sum + thread.scenes.length, 0),
-            totalPlots: input.totalPlots,
         };
     }
 
@@ -314,7 +307,6 @@ export class PlotDtoAssembler {
         story: Story;
         phases: StoryWorkbenchPhase[];
         ungroupedThreads: StoryWorkbenchThread[];
-        totalPlots: number;
     }): PlotWorkbenchDto {
         const phases = input.phases.map((phase) => this.toStoryWorkbenchPhaseDto(phase));
         const ungroupedThreads = input.ungroupedThreads.map((thread) => this.toStoryWorkbenchThreadDto(thread));
@@ -329,7 +321,52 @@ export class PlotDtoAssembler {
             totalPhases: phases.length,
             totalThreads: phases.reduce((sum, phase) => sum + phase.threads.length, 0) + ungroupedThreads.length,
             totalScenes,
-            totalPlots: input.totalPlots,
         };
     }
+}
+
+/**
+ * 解析 Scene 出场 subject 列表。
+ */
+function parseSubjectIdsJson(value: string): string[] {
+    try {
+        const parsed = JSON.parse(value) as unknown;
+        if (!Array.isArray(parsed)) {
+            return [];
+        }
+        return parsed
+            .filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+            .map((item) => item.trim());
+    } catch {
+        return [];
+    }
+}
+
+/**
+ * 生成尚未解析到 World Engine subject 的占位展示项。
+ */
+function createUnresolvedAnchorSubject(subjectId: string): StorySceneWorldAnchorDto["subjects"][number] {
+    return {
+        id: subjectId,
+        name: subjectId,
+        type: "unknown",
+        resolved: false,
+    };
+}
+
+/**
+ * 保留顺序去重 subject id。
+ */
+function uniqueSubjectIds(subjectIds: string[]): string[] {
+    const result: string[] = [];
+    const seen = new Set<string>();
+    for (const subjectId of subjectIds) {
+        const normalized = subjectId.trim();
+        if (!normalized || seen.has(normalized)) {
+            continue;
+        }
+        seen.add(normalized);
+        result.push(normalized);
+    }
+    return result;
 }

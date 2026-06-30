@@ -11,14 +11,12 @@ export const INLINE_REFERENCE_KINDS = [
     "lorebook",
     "thread",
     "scene",
-    "plot",
 ] as const;
 
 export const STRUCTURED_REFERENCE_KINDS = [
     "content",
     "thread",
     "scene",
-    "plot",
 ] as const;
 
 export const LOREBOOK_STRUCTURED_REFERENCE_KINDS = [
@@ -29,7 +27,6 @@ export const STORY_STRUCTURED_REFERENCE_KINDS = [
     "content",
     "thread",
     "scene",
-    "plot",
 ] as const;
 
 export type ReferenceKind = typeof INLINE_REFERENCE_KINDS[number];
@@ -170,7 +167,7 @@ export function parseStructuredReferenceTarget(raw: string): ParsedStructuredRef
  * 判断 URI kind 是否是 structured refs 允许的协议型目标。
  */
 function isStructuredUriKind(kind: ReferenceKind): kind is Extract<StructuredReferenceKind, ReferenceKind> {
-    return kind === "thread" || kind === "scene" || kind === "plot";
+    return kind === "thread" || kind === "scene";
 }
 
 /**

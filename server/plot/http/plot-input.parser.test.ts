@@ -32,19 +32,24 @@ describe("PlotInputParser", () => {
         });
     });
 
-    it("会解析 Plot 重排项", () => {
-        const result = parser.parseReorderPlots({
-            items: [{
-                plotId: "101",
-                sceneId: "11",
-                sortOrder: 0,
-            }],
+    it("会保留已解析的 Scene World Anchor", () => {
+        const result = parser.parseCreateScene({
+            threadId: "8",
+            title: "连接世界的 Scene",
+            worldAnchor: {
+                startInstant: 1n,
+                endInstant: 2n,
+                subjectIds: ["hero"],
+                locationSubjectId: "temple",
+            },
         });
 
-        expect(result).toEqual([{
-            plotId: 101,
-            sceneId: 11,
-            sortOrder: 0,
-        }]);
+        expect(result.worldAnchor).toEqual({
+            startInstant: 1n,
+            endInstant: 2n,
+            subjectIds: ["hero"],
+            locationSubjectId: "temple",
+        });
+        expect(result.threadId).toBe(8);
     });
 });

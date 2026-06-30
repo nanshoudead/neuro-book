@@ -22,15 +22,12 @@ describe("v3 execute_sql tool", () => {
             row("StoryScene", "storyId", 2),
             row("StoryScene", "threadId", 3),
             row("StoryScene", "chapterPath", 4),
-            row("StoryPlot", "id", 1),
-            row("StoryPlot", "sceneId", 2),
             row("StorySceneRef", "id", 1),
             row("StorySceneRef", "sceneId", 2),
         ], []);
 
         expect(summary).toContain('"StoryScene":');
         expect(summary).toContain('- "storyId": integer');
-        expect(summary).toContain('"StoryPlot":');
         expect(summary).toContain('- "sceneId": integer');
         expect(summary).toContain('"StorySceneRef":');
         expect(summary).not.toContain('"StoryScene"(id, "storyId", "threadId", "chapterPath", "sceneId")');

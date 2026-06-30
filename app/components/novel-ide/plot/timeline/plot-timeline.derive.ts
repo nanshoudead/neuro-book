@@ -31,17 +31,15 @@ export function buildPlotTimelinePhaseView(
         .sort(compareTimelineThreads(dataset.threads));
     const threadIds = new Set(orderedThreads.map((thread) => thread.id));
     const phaseScenes = dataset.scenes.filter((scene) => threadIds.has(scene.threadId));
-    const phasePlots = dataset.plots.filter((plot) => phaseScenes.some((scene) => scene.id === plot.sceneId));
     const coveredChapters = resolveCoveredChapters(dataset.chapters, phaseScenes);
     const chapterCounts = resolveChapterSlotCounts(coveredChapters, phaseScenes);
     const draftSlotCount = resolveDraftSlotCount(orderedThreads, phaseScenes);
     const segments = buildTimelineSegments(coveredChapters, chapterCounts, draftSlotCount);
     const slots = buildTimelineSlots(segments);
     const sceneSlots = resolveSceneSlotIndices(phaseScenes, segments);
-    const plotCountMap = resolvePlotCountMap(phasePlots);
     const chapterMap = new Map(coveredChapters.map((chapter) => [chapter.id, chapter]));
     const lanes = orderedThreads.map((thread) => {
-        return buildTimelineLane(thread, phaseScenes, slots, sceneSlots, plotCountMap, chapterMap);
+        return buildTimelineLane(thread, phaseScenes, slots, sceneSlots, chapterMap);
     });
     const draftSegment = segments.find((segment) => segment.kind === "draft") ?? null;
 
@@ -51,7 +49,6 @@ export function buildPlotTimelinePhaseView(
         threads: orderedThreads,
         chapters: coveredChapters,
         scenes: phaseScenes,
-        plots: phasePlots,
         segments,
         slots,
         lanes,
@@ -238,19 +235,6 @@ function resolveSceneSlotIndices(
 }
 
 /**
- * 统计每个 Scene 下挂了多少 Plot。
- */
-function resolvePlotCountMap(plots: PlotPreviewDataset["plots"]): Map<string, number> {
-    const countMap = new Map<string, number>();
-
-    for (const plot of plots) {
-        countMap.set(plot.sceneId, (countMap.get(plot.sceneId) ?? 0) + 1);
-    }
-
-    return countMap;
-}
-
-/**
  * 生成单条泳道的全部槽位内容。
  */
 function buildTimelineLane(
@@ -258,7 +242,6 @@ function buildTimelineLane(
     allScenes: PlotPreviewScene[],
     slots: PlotTimelineSlot[],
     sceneSlots: Map<string, number>,
-    plotCountMap: Map<string, number>,
     chapterMap: Map<string, PlotPreviewChapter>,
 ): PlotTimelineLane {
     const threadScenes = allScenes
@@ -275,7 +258,6 @@ function buildTimelineLane(
 
         slotCards[slotIndex].push({
             scene,
-            plotCount: plotCountMap.get(scene.id) ?? 0,
             slotIndex,
             slotLabel: slots[slotIndex]?.label ?? `槽位 ${slotIndex + 1}`,
             chapter: scene.chapterPath ? (chapterMap.get(scene.chapterPath) ?? null) : null,

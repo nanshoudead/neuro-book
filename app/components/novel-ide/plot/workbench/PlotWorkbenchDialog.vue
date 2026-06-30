@@ -6,7 +6,6 @@ import PlotWorkbenchSceneList from "nbook/app/components/novel-ide/plot/workbenc
 import PlotWorkbenchSidebar from "nbook/app/components/novel-ide/plot/workbench/PlotWorkbenchSidebar.vue";
 import type {
     PlotThreadPanelChapter,
-    PlotThreadPanelPlot,
     PlotThreadPanelRef,
     PlotThreadPanelScene,
     PlotThreadPanelThread,
@@ -26,7 +25,7 @@ type PlotWorkbenchPhase = {
     summary: string;
 };
 
-type WorkbenchInlineRefKind = "content" | "thread" | "scene" | "plot";
+type WorkbenchInlineRefKind = "content" | "thread" | "scene";
 type WorkbenchInlineRefSource = "scene";
 type WorkbenchInlineRef = {
     id: string;
@@ -34,19 +33,18 @@ type WorkbenchInlineRef = {
     title: string;
     target: string;
     source: WorkbenchInlineRefSource;
-    field: "summary" | "purpose" | "writingTip" | "effect";
+    field: "summary" | "purpose" | "writingTip";
 };
 const props = defineProps<{
     modelValue: boolean;
+    projectPath: string;
     story: PlotWorkbenchStory;
     phases: PlotWorkbenchPhase[];
     threads: PlotThreadPanelThread[];
     scenes: PlotThreadPanelScene[];
-    plots: PlotThreadPanelPlot[];
     chapters: PlotThreadPanelChapter[];
     selectedThreadId: string | null;
     selectedSceneId: string | null;
-    selectedPlotId: string | null;
     pinnedThreadIds: string[];
     loading?: boolean;
     error?: string;
@@ -56,7 +54,6 @@ const emit = defineEmits<{
     (e: "update:modelValue", value: boolean): void;
     (e: "selectThread", threadId: string): void;
     (e: "selectScene", sceneId: string): void;
-    (e: "selectPlot", plotId: string): void;
     (e: "createThread"): void;
     (e: "toggleThreadPin", threadId: string): void;
     (e: "toggleThreadMain", threadId: string): void;
@@ -64,18 +61,15 @@ const emit = defineEmits<{
     (e: "createScene", threadId: string): void;
     (e: "autoSortScenes", sceneIds: string[]): void;
     (e: "reorderScenes", sceneIds: string[]): void;
-    (e: "reorderPlots", payload: {sceneId: string; plotIds: string[]}): void;
-    (e: "createPlot", sceneId: string): void;
-    (e: "deletePlot", plotId: string): void;
     (e: "updateThread", threadId: string, patch: Partial<PlotThreadPanelThread>): void;
     (e: "updateScene", sceneId: string, patch: Partial<PlotThreadPanelScene>): void;
-    (e: "updatePlot", plotId: string, patch: Partial<PlotThreadPanelPlot>): void;
+    (e: "openWorldEngine"): void;
 }>();
 
 const MARKDOWN_LINK_PATTERN = /\[([^\]]+)]\(([^)]+)\)/g;
 
 const activeTab = ref<"overview" | "chapter" | "thread" | "draft" | "timeline" | "tree">("thread");
-const inspectorMode = ref<"thread" | "scene" | "plot" | null>(null);
+const inspectorMode = ref<"thread" | "scene" | null>(null);
 const search = ref("");
 const threadMode = ref<"all" | "main" | "support" | "active" | "draft" | "paused" | "unmounted" | "pinned">("all");
 
@@ -93,9 +87,6 @@ const selectedThread = computed(() => {
 });
 const selectedScene = computed(() => {
     return props.scenes.find((scene) => scene.id === props.selectedSceneId) ?? null;
-});
-const selectedPlot = computed(() => {
-    return props.plots.find((plot) => plot.id === props.selectedPlotId) ?? null;
 });
 const selectedPhase = computed(() => {
     return props.phases.find((phase) => phase.id === selectedThread.value?.phaseId) ?? props.phases[0] ?? null;
@@ -133,13 +124,6 @@ function selectScene(sceneId: string): void {
 }
 
 /**
- * 同步选中 Plot。
- */
-function selectPlot(plotId: string): void {
-    emit("selectPlot", plotId);
-}
-
-/**
  * 打开 Thread 检查器。
  */
 function editThread(threadId: string): void {
@@ -153,14 +137,6 @@ function editThread(threadId: string): void {
 function editScene(sceneId: string): void {
     emit("selectScene", sceneId);
     inspectorMode.value = "scene";
-}
-
-/**
- * 打开 Plot 检查器。
- */
-function editPlot(plotId: string): void {
-    emit("selectPlot", plotId);
-    inspectorMode.value = "plot";
 }
 
 /**
@@ -182,9 +158,6 @@ function buildRefTargetOptions(): SelectOption[] {
     }
     for (const scene of props.scenes) {
         options.push({ value: `scene://${scene.id}`, label: scene.title || "未命名 Scene", iconClass: "i-lucide-clapperboard", description: scene.summary });
-    }
-    for (const plot of props.plots) {
-        options.push({ value: `plot://${plot.id}`, label: plot.summary || "未命名 Plot", iconClass: "i-lucide-message-square-dashed" });
     }
     options.push({ value: "lorebook/location/initial-stage/", label: "初始舞台", iconClass: "i-lucide-map-pin", description: "lorebook/location/initial-stage/" });
     options.push({ value: "lorebook/character/slave-girl/", label: "奴隶少女", iconClass: "i-lucide-user", description: "lorebook/character/slave-girl/" });
@@ -237,9 +210,6 @@ function resolveInlineRefKind(target: string): WorkbenchInlineRefKind | null {
     if (target.startsWith("scene://")) {
         return "scene";
     }
-    if (target.startsWith("plot://")) {
-        return "plot";
-    }
     if (target && !target.startsWith("#") && !/^[a-z][a-z0-9+.-]*:\/\//i.test(target)) {
         return "content";
     }
@@ -254,7 +224,7 @@ function normalizeInlineTarget(raw: string): string {
 }
 
 /**
- * 把现有 plot refs 类型转换成通用 content-node refs 形状。
+ * 把现有 Scene refs 类型转换成通用 content-node refs 形状。
  */
 function toManualRefs(refs: PlotThreadPanelRef[]): WorkbenchManualRef[] {
     return refs.map((refItem) => ({
@@ -338,7 +308,6 @@ function toPanelRefs(refs: WorkbenchManualRef[]): PlotThreadPanelRef[] {
                     v-model:mode="threadMode"
                     :threads="props.threads"
                     :scenes="props.scenes"
-                    :plots="props.plots"
                     :pinned-thread-ids="props.pinnedThreadIds"
                     :selected-thread-id="props.selectedThreadId"
                     @select-thread="selectThread"
@@ -353,28 +322,22 @@ function toPanelRefs(refs: WorkbenchManualRef[]): PlotThreadPanelRef[] {
                     :thread="selectedThread"
                     :phase-title="selectedPhase?.title ?? null"
                     :scenes="props.scenes"
-                    :plots="props.plots"
                     :chapters="props.chapters"
                     :selected-scene-id="props.selectedSceneId"
                     @select-scene="selectScene"
-                    @select-plot="selectPlot"
                     @edit-scene="editScene"
-                    @edit-plot="editPlot"
-                    @delete-plot="emit('deletePlot', $event)"
-                    @create-plot="emit('createPlot', $event)"
                     @create-scene="emit('createScene', $event)"
                     @auto-sort-scenes="emit('autoSortScenes', $event)"
                     @reorder-scenes="emit('reorderScenes', $event)"
-                    @reorder-plots="emit('reorderPlots', $event)"
                 />
 
                 <Transition name="inspector">
                     <PlotWorkbenchInspector
                         v-if="inspectorMode"
                         :mode="inspectorMode"
+                        :project-path="props.projectPath"
                         :thread="selectedThread"
                         :scene="selectedScene"
-                        :plot="selectedPlot"
                         :chapters="props.chapters"
                         :effective-refs="effectiveRefs"
                         :manual-refs="manualRefs"
@@ -382,8 +345,8 @@ function toPanelRefs(refs: WorkbenchManualRef[]): PlotThreadPanelRef[] {
                         @close="inspectorMode = null"
                         @update-thread="(threadId, patch) => emit('updateThread', threadId, patch)"
                         @update-scene="(sceneId, patch) => emit('updateScene', sceneId, patch)"
-                        @update-plot="(plotId, patch) => emit('updatePlot', plotId, patch)"
                         @update-refs="updateManualRefs"
+                        @open-world-engine="emit('openWorldEngine')"
                     />
                 </Transition>
             </div>

@@ -1,12 +1,12 @@
 import type {
     Story,
     StoryPhase,
-    StoryPlot,
     StoryScene,
     StoryThread,
 } from "nbook/server/generated/project-prisma/client";
 import type {
     ChapterPlotSceneWithThread,
+    ChapterWriterBriefSceneWithThread,
     ResolvedStoryRefInput,
     StoryThreadEntity,
     StorySceneWithDetails,
@@ -71,7 +71,8 @@ export interface ThreadRepository {
 export interface SceneRepository {
     findSceneById(sceneId: number): Promise<StoryScene | null>;
     findSceneWithDetailsById(sceneId: number): Promise<StorySceneWithDetails | null>;
-    findChapterScenesWithPlots(chapterPath: string): Promise<ChapterPlotSceneWithThread[]>;
+    findChapterScenes(chapterPath: string): Promise<ChapterPlotSceneWithThread[]>;
+    findChapterScenesForBrief(chapterPath: string): Promise<ChapterWriterBriefSceneWithThread[]>;
     findSceneIdsByStory(storyId: number): Promise<number[]>;
     createScene(input: {
         storyId: number;
@@ -85,39 +86,17 @@ export interface SceneRepository {
         purpose: string | null;
         writingTip: string | null;
         note: string | null;
+        startInstant: bigint | null;
+        endInstant: bigint | null;
+        subjectIdsJson: string;
+        locationSubjectId: string | null;
     }): Promise<StoryScene>;
     updateScene(sceneId: number, data: Partial<Pick<
         StoryScene,
-        "threadId" | "chapterPath" | "threadSortOrder" | "chapterSortOrder" | "title" | "status" | "summary" | "purpose" | "writingTip" | "note"
+        "threadId" | "chapterPath" | "threadSortOrder" | "chapterSortOrder" | "title" | "status" | "summary" | "purpose" | "writingTip" | "note" | "startInstant" | "endInstant" | "subjectIdsJson" | "locationSubjectId"
     >>): Promise<StoryScene>;
     deleteScene(sceneId: number): Promise<void>;
     replaceRefs(sceneId: number, refs: ResolvedStoryRefInput[]): Promise<void>;
     findScenesByThread(threadId: number): Promise<Pick<StoryScene, "id" | "threadSortOrder">[]>;
     findScenesByChapter(chapterPath: string): Promise<Pick<StoryScene, "id" | "chapterSortOrder">[]>;
-}
-
-/**
- * Plot 仓储接口。
- */
-export interface PlotRepository {
-    findPlotById(plotId: number): Promise<StoryPlot | null>;
-    findPlotByIdWithStory(plotId: number): Promise<(StoryPlot & {scene: Pick<StoryScene, "storyId">}) | null>;
-    findPlotIdsByStory(storyId: number): Promise<number[]>;
-    createPlot(input: {
-        sceneId: number;
-        sortOrder: number;
-        kind: StoryPlot["kind"];
-        summary: string;
-        effect: string | null;
-        writingTip: string | null;
-        note: string | null;
-    }): Promise<StoryPlot>;
-    updatePlot(plotId: number, data: Partial<Pick<
-        StoryPlot,
-        "sceneId" | "sortOrder" | "kind" | "summary" | "effect" | "writingTip" | "note"
-    >>): Promise<StoryPlot>;
-    deletePlot(plotId: number): Promise<void>;
-    findPlotsByScene(sceneId: number): Promise<Pick<StoryPlot, "id" | "sortOrder">[]>;
-    lockPlotOrderBucket(sceneId: number): Promise<void>;
-    countPlotsByStory(storyId: number): Promise<number>;
 }

@@ -13,7 +13,6 @@ import {
     type PlotThreadEditorSave,
     type PlotThreadPanelChapter,
     type PlotThreadPanelDetail,
-    type PlotThreadPanelPlot,
     type PlotThreadPanelRef,
     type PlotThreadPanelScene,
     type PlotThreadPanelThread,
@@ -22,22 +21,18 @@ import {
 } from "nbook/app/components/novel-ide/plot/thread-panel/plot-thread-panel.types";
 import {useNovelIdeStore} from "nbook/app/stores/novel-ide";
 import type {
-    CreateStoryPlotRequestDto,
     CreateStorySceneRequestDto,
     CreateStoryThreadRequestDto,
     PlotTreeDto,
     PlotWorkbenchDto,
-    ReorderStoryPlotsRequestDto,
     ReorderStoryScenesRequestDto,
-    StoryPlotDto,
-    StoryPlotWriteResponseDto,
     StoryRefDto,
     StorySceneDetailDto,
+    StorySceneWorldAnchorDto,
     StorySceneWriteResponseDto,
     StoryThreadDetailDto,
     StoryThreadTreeNodeDto,
     StoryThreadWriteResponseDto,
-    UpdateStoryPlotRequestDto,
     UpdateStorySceneRequestDto,
     UpdateStoryThreadRequestDto,
 } from "nbook/shared/dto/plot.dto";
@@ -56,6 +51,10 @@ const {
     plotRefreshVersion,
 } = storeToRefs(novelIdeStore);
 
+const emit = defineEmits<{
+    (e: "openWorldEngine"): void;
+}>();
+
 const threads = ref<PlotThreadPanelThread[]>([]);
 const scenes = ref<PlotThreadPanelScene[]>([]);
 const selectedThreadId = selectedStoryThreadId;
@@ -68,12 +67,11 @@ const loadingDetail = ref(false);
 const savingQuickScene = ref(false);
 const savingEditor = ref(false);
 const reorderingScenes = ref(false);
-const reorderingPlots = ref(false);
 const contextMenuVisible = ref(false);
 const contextMenuX = ref(0);
 const contextMenuY = ref(0);
 const contextMenuItems = ref<ContextMenuItem[]>([]);
-const deleteTarget = ref<{type: "thread" | "scene" | "plot"; id: string} | null>(null);
+const deleteTarget = ref<{type: "thread" | "scene"; id: string} | null>(null);
 const editorVisible = ref(false);
 const editorMode = ref<"create" | "edit">("create");
 const editorTarget = ref<"thread" | "scene">("scene");
@@ -83,7 +81,6 @@ const threadDetailMap = ref<Record<string, StoryThreadDetailDto>>({});
 const sceneDetailMap = ref<Record<string, StorySceneDetailDto>>({});
 const plotWorkbenchData = ref<PlotWorkbenchDto | null>(null);
 const detailPanelRef = ref<InstanceType<typeof PlotThreadDetailPanel> | null>(null);
-const selectedPlotId = ref<string | null>(null);
 const pinnedWorkbenchThreadIds = ref<string[]>([]);
 const loadingWorkbench = ref(false);
 const workbenchError = ref("");
@@ -95,6 +92,23 @@ function projectPlotOptions(options: Record<string, unknown> = {}): Record<strin
             ...(typeof options.query === "object" && options.query !== null ? options.query : {}),
             projectPath: currentNovelId.value,
         },
+    };
+}
+
+/**
+ * 创建未连接 World Engine 的 Scene Anchor。
+ */
+function createEmptyWorldAnchor(): StorySceneWorldAnchorDto {
+    return {
+        startTime: null,
+        endTime: null,
+        startInstant: null,
+        endInstant: null,
+        subjectIds: [],
+        locationSubjectId: null,
+        subjects: [],
+        locationSubject: null,
+        unresolvedSubjectIds: [],
     };
 }
 
@@ -150,19 +164,6 @@ const editingScene = computed(() => {
     return editingSceneId.value
         ? (scenes.value.find((scene) => scene.id === editingSceneId.value) ?? null)
         : null;
-});
-
-/**
- * 当前 Thread 下已缓存的 Plot，用于列表统计。
- */
-const visiblePlots = computed<PlotThreadPanelPlot[]>(() => {
-    if (!selectedThreadId.value) {
-        return [];
-    }
-
-    return Object.values(sceneDetailMap.value)
-        .filter((detail) => detail.threadId === selectedThreadId.value)
-        .flatMap((detail) => detail.plots.map(mapPlotDto));
 });
 
 /**
@@ -254,21 +255,9 @@ const workbenchScenes = computed<PlotThreadPanelScene[]>(() => {
         threadSortOrder: scene.threadSortOrder,
         chapterSortOrder: scene.chapterSortOrder,
         writingTip: scene.writingTip,
+        worldAnchor: scene.worldAnchor,
         refs: scene.refs.map((refItem, index) => mapStoryRefDto(refItem, `scene:${scene.id}:ref:${String(index)}`, "scene")),
     })));
-});
-
-/**
- * 剧本工作台 Plot 视图，优先来自聚合接口。
- */
-const workbenchPlots = computed<PlotThreadPanelPlot[]>(() => {
-    const nodes = flattenWorkbenchThreads();
-    if (!nodes.length) {
-        return Object.values(sceneDetailMap.value)
-            .flatMap((detail) => detail.plots.map(mapPlotDto));
-    }
-
-    return nodes.flatMap((item) => item.thread.scenes.flatMap((scene) => scene.plots.map(mapPlotDto)));
 });
 
 /**
@@ -291,21 +280,6 @@ const editingSceneRefs = computed<PlotThreadPanelRef[]>(() => {
 });
 
 /**
- * 当前编辑 Scene 的 plots。
- */
-const editingScenePlots = computed<PlotThreadPanelPlot[]>(() => {
-    const sceneId = editingSceneId.value;
-    if (!sceneId) {
-        return [];
-    }
-
-    return (sceneDetailMap.value[sceneId]?.plots ?? [])
-        .slice()
-        .sort((left, right) => left.sortOrder - right.sortOrder)
-        .map(mapPlotDto);
-});
-
-/**
  * 当前 detail 面板所需数据。
  */
 const currentDetail = computed<PlotThreadPanelDetail | null>(() => {
@@ -324,7 +298,6 @@ const currentDetail = computed<PlotThreadPanelDetail | null>(() => {
         thread,
         scene,
         chapter,
-        plots: (sceneDetail?.plots ?? []).map(mapPlotDto),
         effectiveRefs: sceneDetail
             ? sceneDetail.effectiveRefs.map(createPanelRefFromEffectiveRef)
             : [...thread.refs, ...scene.refs],
@@ -341,17 +314,11 @@ const deleteMessage = computed(() => {
 
     if (deleteTarget.value.type === "thread") {
         const thread = threads.value.find((item) => item.id === deleteTarget.value?.id);
-        return `确认删除「${thread?.title ?? "当前 Thread"}」吗？该 Thread 下的 Scene 和 Plot 会一起删除。`;
-    }
-
-    if (deleteTarget.value.type === "plot") {
-        const plot = workbenchPlots.value.find((item) => item.id === deleteTarget.value?.id)
-            ?? visiblePlots.value.find((item) => item.id === deleteTarget.value?.id);
-        return `确认删除「${plot?.summary.slice(0, 40) || "当前 Plot"}」吗？`;
+        return `确认删除「${thread?.title ?? "当前 Thread"}」吗？该 Thread 下的 Scene 会一起删除。`;
     }
 
     const scene = scenes.value.find((item) => item.id === deleteTarget.value?.id);
-    return `确认删除「${scene?.title ?? "当前 Scene"}」吗？该 Scene 下的 Plot 会一起删除。`;
+    return `确认删除「${scene?.title ?? "当前 Scene"}」吗？`;
 });
 
 /**
@@ -417,22 +384,6 @@ function buildChapterLabel(path: string, fallbackIndex: number): string {
  */
 function resolveThreadTone(index: number): PlotThreadTone {
     return toneCycle[index % toneCycle.length] ?? "amber";
-}
-
-/**
- * 把 Plot DTO 映射成面板 Plot。
- */
-function mapPlotDto(plot: StoryPlotDto): PlotThreadPanelPlot {
-    return {
-        id: plot.id,
-        sceneId: plot.sceneId,
-        sortOrder: plot.sortOrder,
-        kind: plot.kind,
-        summary: plot.summary,
-        effect: plot.effect,
-        writingTip: plot.writingTip,
-        note: plot.note,
-    };
 }
 
 /**
@@ -547,6 +498,7 @@ function applyPlotTree(tree: PlotTreeDto): void {
         threadSortOrder: scene.threadSortOrder,
         chapterSortOrder: scene.chapterSortOrder,
         writingTip: scene.writingTip,
+        worldAnchor: scene.worldAnchor,
         refs: mapSceneRefs(scene.id),
     })));
 }
@@ -632,6 +584,7 @@ function applySceneDetail(detail: StorySceneDetailDto): void {
             threadSortOrder: detail.threadSortOrder,
             chapterSortOrder: detail.chapterSortOrder,
             writingTip: detail.writingTip,
+            worldAnchor: detail.worldAnchor,
             refs: mapSceneRefs(detail.id),
         }
         : scene);
@@ -799,7 +752,6 @@ function selectThread(threadId: string): void {
         .filter((scene) => scene.threadId === threadId)
         .sort((left, right) => left.threadSortOrder - right.threadSortOrder)[0] ?? null;
     selectedSceneId.value = nextScene?.id ?? null;
-    selectedPlotId.value = null;
     detailError.value = "";
 
     void ensureThreadDetail(threadId);
@@ -834,29 +786,11 @@ function selectScene(sceneId: string): void {
 
     selectedThreadId.value = scene.threadId;
     selectedSceneId.value = scene.id;
-    selectedPlotId.value = null;
     detailError.value = "";
 
     void ensureThreadDetail(scene.threadId);
     void preloadThreadScenes(scene.threadId);
     void ensureSceneDetail(scene.id);
-}
-
-/**
- * 选中 Plot，并同步所属 Scene。
- */
-function selectPlot(plotId: string): void {
-    const plot = workbenchPlots.value.find((item) => item.id === plotId)
-        ?? visiblePlots.value.find((item) => item.id === plotId)
-        ?? Object.values(sceneDetailMap.value).flatMap((detail) => detail.plots.map(mapPlotDto)).find((item) => item.id === plotId)
-        ?? null;
-    if (!plot) {
-        return;
-    }
-
-    selectedPlotId.value = plot.id;
-    selectScene(plot.sceneId);
-    selectedPlotId.value = plot.id;
 }
 
 /**
@@ -1064,7 +998,7 @@ function openRootMenu(event: MouseEvent): void {
 /**
  * 缓存待删除对象。
  */
-function queueDelete(type: "thread" | "scene" | "plot", id: string | null): void {
+function queueDelete(type: "thread" | "scene", id: string | null): void {
     if (!id) {
         return;
     }
@@ -1080,6 +1014,14 @@ function toggleWorkbenchThreadPin(threadId: string): void {
     pinnedWorkbenchThreadIds.value = pinnedWorkbenchThreadIds.value.includes(threadId)
         ? pinnedWorkbenchThreadIds.value.filter((id) => id !== threadId)
         : [threadId, ...pinnedWorkbenchThreadIds.value];
+}
+
+/**
+ * 从 Plot 工作台切换到 World Engine 工作台。
+ */
+function openWorldEngineFromPlot(): void {
+    plotWorkbenchOpen.value = false;
+    emit("openWorldEngine");
 }
 
 /**
@@ -1137,6 +1079,7 @@ async function updateWorkbenchScene(sceneId: string, patch: Partial<PlotThreadPa
                 summary: patch.summary,
                 purpose: patch.purpose,
                 writingTip: patch.writingTip,
+                worldAnchor: patch.worldAnchor,
                 refs: patch.refs ? toStoryRefs(patch.refs) : undefined,
             } satisfies UpdateStorySceneRequestDto,
         }));
@@ -1145,39 +1088,6 @@ async function updateWorkbenchScene(sceneId: string, patch: Partial<PlotThreadPa
         await loadPlotWorkbench(true);
     } catch (error) {
         setWorkbenchError(error, "保存 Scene 失败");
-    }
-}
-
-/**
- * 快速更新 Plot 字段。
- */
-async function updateWorkbenchPlot(plotId: string, patch: Partial<PlotThreadPanelPlot>): Promise<void> {
-    if (!currentNovelId.value) {
-        return;
-    }
-
-    workbenchError.value = "";
-
-    try {
-        const updated = await $fetch<StoryPlotWriteResponseDto>(`/api/projects/plot/plots/${plotId}`, projectPlotOptions({
-            method: "PATCH",
-            body: {
-                sceneId: patch.sceneId,
-                kind: patch.kind,
-                summary: patch.summary,
-                effect: patch.effect,
-                writingTip: patch.writingTip,
-                note: patch.note,
-            } satisfies UpdateStoryPlotRequestDto,
-        }));
-        detailDiagnostics.value = formatDiagnosticsText(updated);
-        const sceneId = updated.sceneId;
-        if (sceneId) {
-            await ensureSceneDetail(sceneId, true);
-        }
-        await loadPlotWorkbench(true);
-    } catch (error) {
-        setWorkbenchError(error, "保存 Plot 失败");
     }
 }
 
@@ -1202,6 +1112,7 @@ async function quickUpdateScene(payload: PlotThreadQuickSceneUpdate): Promise<vo
                 writingTip: payload.writingTip,
                 status: payload.status,
                 chapterPath: payload.chapterPath,
+                worldAnchor: payload.worldAnchor,
             } satisfies UpdateStorySceneRequestDto,
         }));
 
@@ -1307,6 +1218,7 @@ async function saveScene(payload: PlotThreadEditorSave): Promise<void> {
                     summary: payload.summary,
                     purpose: payload.purpose,
                     writingTip: payload.writingTip,
+                    worldAnchor: payload.worldAnchor,
                     refs: toStoryRefs(payload.refs),
                 } satisfies CreateStorySceneRequestDto,
             }));
@@ -1314,35 +1226,6 @@ async function saveScene(payload: PlotThreadEditorSave): Promise<void> {
 
             sceneId = createdScene.id;
             applySceneDetail(createdScene);
-
-            const createdPlots: StoryPlotDto[] = [];
-            for (const plot of payload.plots) {
-                const createdPlot = await $fetch<StoryPlotWriteResponseDto>(`/api/projects/plot/plots`, projectPlotOptions({
-                    method: "POST",
-                    body: {
-                        sceneId: createdScene.id,
-                        kind: plot.kind,
-                        summary: plot.summary,
-                        effect: plot.effect,
-                        writingTip: plot.writingTip,
-                    } satisfies CreateStoryPlotRequestDto,
-                }));
-                detailDiagnostics.value = [detailDiagnostics.value, formatDiagnosticsText(createdPlot)].filter(Boolean).join("；");
-                createdPlots.push(createdPlot);
-            }
-
-            if (createdPlots.length) {
-                await $fetch(`/api/projects/plot/plots/reorder`, projectPlotOptions({
-                    method: "POST",
-                    body: {
-                        items: createdPlots.map((plot, index) => ({
-                            plotId: plot.id,
-                            sceneId: createdScene.id,
-                            sortOrder: index,
-                        })),
-                    } satisfies ReorderStoryPlotsRequestDto,
-                }));
-            }
         } else if (sceneId) {
             const updatedScene = await $fetch<StorySceneWriteResponseDto>(`/api/projects/plot/scenes/${sceneId}`, projectPlotOptions({
                 method: "PATCH",
@@ -1354,66 +1237,12 @@ async function saveScene(payload: PlotThreadEditorSave): Promise<void> {
                     summary: payload.summary,
                     purpose: payload.purpose,
                     writingTip: payload.writingTip,
+                    worldAnchor: payload.worldAnchor,
                     refs: toStoryRefs(payload.refs),
                 } satisfies UpdateStorySceneRequestDto,
             }));
             detailDiagnostics.value = formatDiagnosticsText(updatedScene);
             applySceneDetail(updatedScene);
-
-            const existingPlots = new Map((sceneDetailMap.value[sceneId]?.plots ?? []).map((plot) => [plot.id, plot]));
-            const nextPlotIds = new Set(payload.plots.map((plot) => plot.id));
-
-            for (const plot of existingPlots.values()) {
-                if (!nextPlotIds.has(plot.id)) {
-                    await $fetch(`/api/projects/plot/plots/${plot.id}`, projectPlotOptions({
-                        method: "DELETE",
-                    }));
-                }
-            }
-
-            const orderedIds: string[] = [];
-            for (const plot of payload.plots) {
-                if (existingPlots.has(plot.id)) {
-                    const updatedPlot = await $fetch<StoryPlotWriteResponseDto>(`/api/projects/plot/plots/${plot.id}`, projectPlotOptions({
-                        method: "PATCH",
-                        body: {
-                            kind: plot.kind,
-                            summary: plot.summary,
-                            effect: plot.effect,
-                            writingTip: plot.writingTip,
-                        } satisfies UpdateStoryPlotRequestDto,
-                    }));
-                    detailDiagnostics.value = [detailDiagnostics.value, formatDiagnosticsText(updatedPlot)].filter(Boolean).join("；");
-                    orderedIds.push(updatedPlot.id);
-                    continue;
-                }
-
-                const createdPlot = await $fetch<StoryPlotWriteResponseDto>(`/api/projects/plot/plots`, projectPlotOptions({
-                    method: "POST",
-                    body: {
-                        sceneId: sceneId!,
-                        kind: plot.kind,
-                        summary: plot.summary,
-                        effect: plot.effect,
-                        writingTip: plot.writingTip,
-                    } satisfies CreateStoryPlotRequestDto,
-                }));
-                detailDiagnostics.value = [detailDiagnostics.value, formatDiagnosticsText(createdPlot)].filter(Boolean).join("；");
-                orderedIds.push(createdPlot.id);
-            }
-
-            if (orderedIds.length) {
-                await $fetch(`/api/projects/plot/plots/reorder`, projectPlotOptions({
-                    method: "POST",
-                    body: {
-                        items: orderedIds.map((plotId, index) => ({
-                            plotId,
-                            sceneId: sceneId!,
-                            sortOrder: index,
-                        })),
-                    } satisfies ReorderStoryPlotsRequestDto,
-                }));
-            }
         }
 
         await loadPlotTree({
@@ -1485,62 +1314,6 @@ async function deleteScene(sceneId: string): Promise<void> {
 }
 
 /**
- * 删除 Plot。
- */
-async function deletePlot(plotId: string): Promise<void> {
-    if (!currentNovelId.value) {
-        return;
-    }
-
-    const fallbackSceneId = workbenchPlots.value.find((plot) => plot.id === plotId)?.sceneId
-        ?? visiblePlots.value.find((plot) => plot.id === plotId)?.sceneId
-        ?? selectedSceneId.value;
-    await $fetch(`/api/projects/plot/plots/${plotId}`, projectPlotOptions({
-        method: "DELETE",
-    }));
-
-    if (selectedPlotId.value === plotId) {
-        selectedPlotId.value = null;
-    }
-    if (fallbackSceneId) {
-        await ensureSceneDetail(fallbackSceneId, true);
-    }
-    await loadPlotWorkbench(true);
-}
-
-/**
- * 在指定 Scene 下创建一个 Plot 草稿。
- */
-async function createWorkbenchPlot(sceneId: string): Promise<void> {
-    if (!currentNovelId.value) {
-        return;
-    }
-
-    workbenchError.value = "";
-
-    try {
-        const created = await $fetch<StoryPlotWriteResponseDto>(`/api/projects/plot/plots`, projectPlotOptions({
-            method: "POST",
-            body: {
-                sceneId,
-                kind: "setup",
-                summary: "新建 Plot：记录这个情节点的动作、信息或转折。",
-                effect: null,
-                writingTip: null,
-            } satisfies CreateStoryPlotRequestDto,
-        }));
-        detailDiagnostics.value = formatDiagnosticsText(created);
-        selectedPlotId.value = created.id;
-        selectScene(sceneId);
-        selectedPlotId.value = created.id;
-        await ensureSceneDetail(sceneId, true);
-        await loadPlotWorkbench(true);
-    } catch (error) {
-        setWorkbenchError(error, "创建 Plot 失败");
-    }
-}
-
-/**
  * 在指定 Thread 下创建一个 Scene 草稿。
  */
 async function createWorkbenchScene(threadId: string): Promise<void> {
@@ -1561,6 +1334,7 @@ async function createWorkbenchScene(threadId: string): Promise<void> {
                 summary: "",
                 purpose: null,
                 writingTip: null,
+                worldAnchor: createEmptyWorldAnchor(),
                 refs: [],
             } satisfies CreateStorySceneRequestDto,
         }));
@@ -1572,7 +1346,6 @@ async function createWorkbenchScene(threadId: string): Promise<void> {
         });
         selectedThreadId.value = threadId;
         selectedSceneId.value = created.id;
-        selectedPlotId.value = null;
         await loadPlotWorkbench(true);
     } catch (error) {
         setWorkbenchError(error, "创建 Scene 失败");
@@ -1601,11 +1374,6 @@ async function confirmDelete(): Promise<void> {
             return;
         }
 
-        if (target.type === "plot") {
-            await deletePlot(target.id);
-            return;
-        }
-
         await deleteScene(target.id);
     } catch (error) {
         if (plotWorkbenchOpen.value) {
@@ -1613,38 +1381,6 @@ async function confirmDelete(): Promise<void> {
         } else {
             treeError.value = resolveErrorMessage(error, "删除剧情对象失败");
         }
-    }
-}
-
-/**
- * 保存 Scene 内的 Plot 排序。
- */
-async function reorderPlots(payload: {sceneId: string; plotIds: string[]}): Promise<void> {
-    if (!currentNovelId.value || reorderingPlots.value) {
-        return;
-    }
-
-    reorderingPlots.value = true;
-    workbenchError.value = "";
-
-    try {
-        await $fetch(`/api/projects/plot/plots/reorder`, projectPlotOptions({
-            method: "POST",
-            body: {
-                items: payload.plotIds.map((plotId, index) => ({
-                    plotId,
-                    sceneId: payload.sceneId,
-                    sortOrder: index,
-                })),
-            } satisfies ReorderStoryPlotsRequestDto,
-        }));
-
-        await ensureSceneDetail(payload.sceneId, true);
-        await loadPlotWorkbench(true);
-    } catch (error) {
-        setWorkbenchError(error, "保存 Plot 顺序失败");
-    } finally {
-        reorderingPlots.value = false;
     }
 }
 
@@ -1714,7 +1450,6 @@ watch(() => ({
     if (!isInitialMount) {
         plotWorkbenchOpen.value = false;
     }
-    selectedPlotId.value = null;
     treeError.value = "";
     detailError.value = "";
     detailDiagnostics.value = "";
@@ -1775,6 +1510,24 @@ watch(plotRefreshVersion, async (version, previousVersion) => {
             </div>
         </div>
 
+        <!-- Plot 工作台入口 -->
+        <div class="flex shrink-0 items-center justify-between gap-3 border-b border-[var(--border-color)] bg-[var(--bg-panel)] px-3 py-2">
+            <div class="min-w-0">
+                <div class="truncate text-[12px] font-semibold text-[var(--text-main)]">剧情编排</div>
+                <div class="truncate text-[11px] text-[var(--text-muted)]">Thread / Scene / World Anchor</div>
+            </div>
+            <button
+                type="button"
+                data-testid="plot-panel-workbench-entry"
+                class="inline-flex h-8 shrink-0 items-center gap-2 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-3 text-[12px] font-semibold text-[var(--text-secondary)] transition-colors hover:border-[var(--border-color-hover)] hover:bg-[var(--bg-hover)] hover:text-[var(--accent-text)]"
+                :disabled="loadingWorkbench"
+                @click="plotWorkbenchOpen = true"
+            >
+                <span :class="loadingWorkbench ? 'i-lucide-loader-2 animate-spin' : 'i-lucide-git-branch-plus'" class="h-4 w-4"></span>
+                <span>剧本工作台</span>
+            </button>
+        </div>
+
         <!-- 剧情面板主体 -->
         <div class="relative flex min-h-0 flex-1 flex-col bg-[var(--bg-panel)]">
             <div
@@ -1789,7 +1542,6 @@ watch(plotRefreshVersion, async (version, previousVersion) => {
                     :threads="threads"
                     :scenes="scenes"
                     :chapters="chapters"
-                    :plots="visiblePlots"
                     :selected-thread-id="selectedThreadId"
                     :selected-scene-id="selectedSceneId"
                     @select-thread="selectThreadFromPanel"
@@ -1825,34 +1577,29 @@ watch(plotRefreshVersion, async (version, previousVersion) => {
 
         <PlotWorkbenchDialog
             v-model="plotWorkbenchOpen"
+            :project-path="currentNovelId ?? ''"
             :story="workbenchStory"
             :phases="workbenchPhases"
             :threads="workbenchThreads"
             :scenes="workbenchScenes"
-            :plots="workbenchPlots"
             :chapters="chapters"
             :selected-thread-id="selectedThreadId"
             :selected-scene-id="selectedSceneId"
-            :selected-plot-id="selectedPlotId"
             :pinned-thread-ids="pinnedWorkbenchThreadIds"
             :loading="loadingWorkbench"
             :error="workbenchError"
             @select-thread="selectThread"
             @select-scene="selectScene"
-            @select-plot="selectPlot"
             @create-thread="openThreadEditor('create')"
             @toggle-thread-pin="toggleWorkbenchThreadPin"
             @toggle-thread-main="(threadId) => void updateWorkbenchThread(threadId, {isMainThread: !workbenchThreads.find((thread) => thread.id === threadId)?.isMainThread})"
             @delete-thread="queueDelete('thread', $event)"
             @create-scene="(threadId) => void createWorkbenchScene(threadId)"
-            @create-plot="(sceneId) => void createWorkbenchPlot(sceneId)"
-            @delete-plot="queueDelete('plot', $event)"
             @auto-sort-scenes="reorderScenes"
             @reorder-scenes="reorderScenes"
-            @reorder-plots="reorderPlots"
             @update-thread="(threadId, patch) => void updateWorkbenchThread(threadId, patch)"
             @update-scene="(sceneId, patch) => void updateWorkbenchScene(sceneId, patch)"
-            @update-plot="(plotId, patch) => void updateWorkbenchPlot(plotId, patch)"
+            @open-world-engine="openWorldEngineFromPlot"
         />
 
         <PlotThreadEditorDialog
@@ -1863,7 +1610,6 @@ watch(plotRefreshVersion, async (version, previousVersion) => {
             :scene="editingScene"
             :chapters="chapters"
             :scene-refs="editingSceneRefs"
-            :scene-plots="editingScenePlots"
             :saving="savingEditor"
             :error="detailError"
             @update:visible="editorVisible = $event"

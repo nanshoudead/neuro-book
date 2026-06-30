@@ -24,6 +24,8 @@ export type AgentProfileSourceKind = "memory" | "system" | "user";
 
 export type AgentProfileLoadStatus =
     | "loaded"
+    | "compiling"
+    | "compile_failed"
     | "not_compiled"
     | "compile_stale"
     | "compiled_load_failed"
@@ -38,6 +40,7 @@ export type AgentProfileIssueCode =
     | "system_profile_shadowed"
     | "file_missing"
     | "not_compiled"
+    | "compile_failed"
     | "compile_stale"
     | "source_stale"
     | "dependency_stale"

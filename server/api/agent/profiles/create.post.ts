@@ -9,6 +9,9 @@ import {useAgentHarness} from "nbook/server/agent/http";
 export default defineEventHandler(async (event) => {
     const body = await validateBody(event, AgentProfileCreateRequestDtoSchema);
     const result = await createProfileSourceDraft(body);
-    useAgentHarness().profiles.invalidate();
+    await useAgentHarness().profiles.enqueueBuild({
+        fileName: body.fileName ?? `${body.profileKey}.profile.tsx`,
+        reason: "profile_source_created",
+    });
     return result;
 });

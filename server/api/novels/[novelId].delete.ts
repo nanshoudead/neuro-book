@@ -8,6 +8,16 @@ defineRouteMeta({
         "Novels"
     ],
     "summary": "Delete a novel and its plot data",
+    "parameters": [
+        {
+            "name": "novelId",
+            "in": "path",
+            "required": true,
+            "schema": {
+                "type": "string"
+            }
+        }
+    ],
     "responses": {
         "200": {
             "description": "OK",

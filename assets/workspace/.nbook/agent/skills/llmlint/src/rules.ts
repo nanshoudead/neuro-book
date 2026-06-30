@@ -1,26 +1,29 @@
 import {existsSync} from "node:fs";
-import {readFile} from "node:fs/promises";
+import {readFile, readdir, stat} from "node:fs/promises";
 import {dirname, relative, resolve} from "node:path";
 import {fileURLToPath} from "node:url";
-import {DEFAULT_NAMESPACE_ALIASES} from "./namespaces";
+import {DEFAULT_NAMESPACE_ALIASES, DEFAULT_NAMESPACE_POLICY} from "./namespaces";
 import type {
     ActiveRuleRecord,
     DeclarativeRuleRecord,
+    Fixability,
     HandlerRuleRecord,
     LintRuleRecord,
     LoadedRules,
     LLMRuleRecord,
     NormalizedLlmlintConfig,
+    NormalizedRuleOverride,
     RegistryDiagnostic,
     RegistrySummary,
     RegexRuleRecord,
+    Review,
     RuleLevel,
-    RuleOverride,
     RulesetManifest,
 } from "./types";
 
 const SKILL_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const RULESETS_ROOT = resolve(SKILL_ROOT, "rulesets");
+const RULES_DIRECTORY = "rules";
 
 type RegistryItem = {
     rule: ActiveRuleRecord;
@@ -41,7 +44,7 @@ export async function loadRules(config: NormalizedLlmlintConfig): Promise<Loaded
         const manifest = await loadManifest(rulesetId);
         Object.assign(namespaceAliases, manifest.namespaceAliases ?? {});
 
-        const rules = await loadRulesetRecords(manifest.id);
+        const rules = await loadRulesetRecords(manifest);
         let mergedRules = 0;
         let skippedByRulesetOff = 0;
         for (const rawRule of rules) {
@@ -107,13 +110,15 @@ export function normalizeNamespace(namespace: string, aliases: Record<string, st
 
 async function loadManifest(rulesetId: string): Promise<RulesetManifest> {
     const root = resolveRulesetRoot(rulesetId);
-    const manifest = await readJson(resolve(root, "ruleset.json"));
+    const manifest = await readJson(resolve(root, "ruleset.json"), `规则包 ${rulesetId} 的 ruleset.json`);
     if (!isObject(manifest)) {
         throw new Error(`规则包 ${rulesetId} 的 ruleset.json 必须是对象。`);
     }
     const id = readRequiredString(manifest, "id", `规则包 ${rulesetId}.id`);
     const title = readRequiredString(manifest, "title", `规则包 ${rulesetId}.title`);
     const version = readRequiredString(manifest, "version", `规则包 ${rulesetId}.version`);
+    rejectRemovedManifestField(manifest, "ruleFiles", rulesetId);
+    rejectRemovedManifestField(manifest, "rulesRoot", rulesetId);
     const description = readOptionalString(manifest, "description", `规则包 ${rulesetId}.description`);
     const namespaceAliases = readOptionalStringRecord(manifest, "namespaceAliases", `规则包 ${rulesetId}.namespaceAliases`);
     if (id !== rulesetId) {
@@ -122,13 +127,33 @@ async function loadManifest(rulesetId: string): Promise<RulesetManifest> {
     return {id, title, version, description, namespaceAliases};
 }
 
-async function loadRulesetRecords(rulesetId: string): Promise<LintRuleRecord[]> {
-    const root = resolveRulesetRoot(rulesetId);
-    const rules = await readJson(resolve(root, "rules.json"));
-    if (!Array.isArray(rules)) {
-        throw new Error(`规则包 ${rulesetId} 的 rules.json 必须是数组。`);
+async function loadRulesetRecords(manifest: RulesetManifest): Promise<LintRuleRecord[]> {
+    const root = resolveRulesetRoot(manifest.id);
+    const rulesRoot = resolve(root, RULES_DIRECTORY);
+    if (existsSync(resolve(root, "rules.json"))) {
+        throw new Error(`规则包 ${manifest.id} 不再支持根目录 rules.json；请把规则放入 ${RULES_DIRECTORY}/。`);
     }
-    return rules.map((rule, index) => validateRuleRecord(rule, `${rulesetId}.rules[${index}]`));
+    if (!existsSync(rulesRoot)) {
+        throw new Error(`规则包 ${manifest.id} 必须包含 ${RULES_DIRECTORY}/ 规则目录。`);
+    }
+    if (!(await stat(rulesRoot)).isDirectory()) {
+        throw new Error(`规则包 ${manifest.id} 的 ${RULES_DIRECTORY}/ 必须是规则目录。`);
+    }
+    const ruleFiles = await listRuleJsonFiles(root, rulesRoot);
+    if (ruleFiles.length === 0) {
+        throw new Error(`规则包 ${manifest.id} 的 ${RULES_DIRECTORY}/ 目录下没有 .json 规则文件。`);
+    }
+    const records: LintRuleRecord[] = [];
+
+    for (const ruleFile of ruleFiles) {
+        const filePath = resolve(root, ruleFile);
+        const rules = await readJson(filePath, `规则包 ${manifest.id} 的 ${ruleFile}`);
+        if (!Array.isArray(rules)) {
+            throw new Error(`规则包 ${manifest.id} 的 ${ruleFile} 必须是数组。`);
+        }
+        records.push(...rules.map((rule, index) => validateRuleRecord(rule, `${manifest.id}.${ruleFile}[${index}]`)));
+    }
+    return records;
 }
 
 function normalizeRule(
@@ -161,47 +186,73 @@ function normalizeRule(
         });
     }
 
+    // 解析最终 review / fixability，优先级：规则自带字段 > 命名空间策略表 > detector/action 推导。
+    const policy = DEFAULT_NAMESPACE_POLICY[namespace];
     return {
         ...rule,
         namespace,
         ruleset: manifest.id,
+        review: rule.review ?? policy?.review ?? deriveReview(rule),
+        fixability: rule.fixability ?? policy?.fixability ?? deriveFixability(rule),
     };
 }
 
+/** detector/action 推导默认审查受众：默认都交给 Agent，再由命名空间策略表下调到 human/none。 */
+function deriveReview(_rule: DeclarativeRuleRecord): Review {
+    return "agent";
+}
+
+/** detector/action 推导默认修复能力：有替换候选记 candidate，否则 manual。 */
+function deriveFixability(rule: DeclarativeRuleRecord): Fixability {
+    if (rule.detector.type === "llm") {
+        return "manual";
+    }
+    return rule.action.type === "replace" ? "candidate" : "manual";
+}
+
+/** 规则在应用配置覆盖过程中的可变状态。 */
+type RuleState = {
+    enabled: boolean;
+    level: RuleLevel;
+    review: Review;
+    fixability: Fixability;
+};
+
 function applyConfig(item: RegistryItem, config: NormalizedLlmlintConfig, aliases: Record<string, string>): ActiveRuleRecord[] {
     const rulesetSetting = config.rulesetOverrides[item.rule.ruleset];
-    let enabled = item.defaultEnabled;
-    let level = item.rule.level;
+    let state: RuleState = {
+        enabled: item.defaultEnabled,
+        level: item.rule.level,
+        review: item.rule.review,
+        fixability: item.rule.fixability,
+    };
 
     if (rulesetSetting === "on") {
-        enabled = true;
+        state = {...state, enabled: true};
     }
 
-    const namespaceOverride = resolveNamespaceOverride(config.namespaces, item.rule.namespace, aliases);
-    const namespaceResult = applyOverride(enabled, level, namespaceOverride);
-    enabled = namespaceResult.enabled;
-    level = namespaceResult.level;
+    // 覆盖优先级：rule id > namespace。后应用者覆盖前者。
+    state = applyOverride(state, resolveNamespaceOverride(config.namespaces, item.rule.namespace, aliases));
+    state = applyOverride(state, config.rules[item.rule.id]);
 
-    const ruleResult = applyOverride(enabled, level, config.rules[item.rule.id]);
-    enabled = ruleResult.enabled;
-    level = ruleResult.level;
-
-    return enabled ? [{...item.rule, level}] : [];
+    return state.enabled
+        ? [{...item.rule, level: state.level, review: state.review, fixability: state.fixability}]
+        : [];
 }
 
 function isExplicitlyEnabled(rule: ActiveRuleRecord, config: NormalizedLlmlintConfig, aliases: Record<string, string>): boolean {
+    // 与 applyOverride 共用同一套语义：是否「显式启用」只看覆盖 patch 里的 enabled。
+    // rule 覆盖显式设了 enabled 就由它决定；否则看 namespace 覆盖是否显式 enable。
+    // 纯属性对象（只设 review/fixability/level，无 enabled）不算显式启用，不复活被关闭的 ruleset。
     const ruleOverride = config.rules[rule.id];
-    if (ruleOverride === "off") {
-        return false;
-    }
-    if (ruleOverride) {
-        return true;
+    if (ruleOverride?.enabled !== undefined) {
+        return ruleOverride.enabled;
     }
     const namespaceOverride = resolveNamespaceOverride(config.namespaces, rule.namespace, aliases);
-    return namespaceOverride !== undefined && namespaceOverride !== "off";
+    return namespaceOverride?.enabled === true;
 }
 
-function resolveNamespaceOverride(overrides: Record<string, RuleOverride>, namespace: string, aliases: Record<string, string>): RuleOverride | undefined {
+function resolveNamespaceOverride(overrides: Record<string, NormalizedRuleOverride>, namespace: string, aliases: Record<string, string>): NormalizedRuleOverride | undefined {
     for (const [key, override] of Object.entries(overrides)) {
         if (normalizeNamespace(key, aliases) === namespace) {
             return override;
@@ -210,27 +261,17 @@ function resolveNamespaceOverride(overrides: Record<string, RuleOverride>, names
     return undefined;
 }
 
-function applyOverride(enabled: boolean, level: RuleLevel, override: RuleOverride | undefined): {enabled: boolean; level: RuleLevel} {
-    if (!override) {
-        return {enabled, level};
-    }
-    if (override === "off") {
-        return {enabled: false, level};
+/** 应用单个归一覆盖 patch：只对显式设置的字段做覆盖，未设置的字段保持原状。 */
+function applyOverride(state: RuleState, override: NormalizedRuleOverride | undefined): RuleState {
+    if (override === undefined) {
+        return state;
     }
     return {
-        enabled: true,
-        level: normalizeLevel(override),
+        enabled: override.enabled ?? state.enabled,
+        level: override.level ?? state.level,
+        review: override.review ?? state.review,
+        fixability: override.fixability ?? state.fixability,
     };
-}
-
-function normalizeLevel(override: Exclude<RuleOverride, "off">): RuleLevel {
-    if (override === "warn") {
-        return "medium";
-    }
-    if (override === "error") {
-        return "high";
-    }
-    return override;
 }
 
 function summarizeRegistry(items: RegistryItem[], activeRules: ActiveRuleRecord[], rulesets: string[]): RegistrySummary {
@@ -271,8 +312,42 @@ function resolveRulesetRoot(rulesetId: string): string {
     return root;
 }
 
-async function readJson(filePath: string): Promise<unknown> {
-    return JSON.parse(await readFile(filePath, "utf-8")) as unknown;
+async function readJson(filePath: string, sourceLabel: string): Promise<unknown> {
+    const source = await readFile(filePath, "utf-8");
+    try {
+        return JSON.parse(source) as unknown;
+    } catch (error) {
+        if (error instanceof SyntaxError) {
+            throw new Error(`${sourceLabel} 不是合法 JSON：${error.message}`);
+        }
+        throw error;
+    }
+}
+
+async function listRuleJsonFiles(rulesetRoot: string, currentRoot: string): Promise<string[]> {
+    const entries = await readdir(currentRoot, {withFileTypes: true});
+    const files: string[] = [];
+    for (const entry of entries) {
+        const entryPath = resolve(currentRoot, entry.name);
+        if (entry.isDirectory()) {
+            files.push(...await listRuleJsonFiles(rulesetRoot, entryPath));
+            continue;
+        }
+        if (entry.isFile() && entry.name.endsWith(".json")) {
+            files.push(toRulesetRelativePath(rulesetRoot, entryPath));
+        }
+    }
+    return files.sort((left, right) => left.localeCompare(right));
+}
+
+function toRulesetRelativePath(rulesetRoot: string, filePath: string): string {
+    return relative(rulesetRoot, filePath).replace(/\\/g, "/");
+}
+
+function rejectRemovedManifestField(manifest: Record<string, unknown>, key: string, rulesetId: string): void {
+    if (manifest[key] !== undefined) {
+        throw new Error(`规则包 ${rulesetId}.ruleset.json 不再支持 ${key}；规则文件固定从 ${RULES_DIRECTORY}/ 递归加载。`);
+    }
 }
 
 function validateRuleRecord(value: unknown, fieldName: string): LintRuleRecord {

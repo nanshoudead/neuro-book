@@ -15,7 +15,6 @@ import {
 import PlotThreadSortableSceneRow from "nbook/app/components/novel-ide/plot/thread-panel/PlotThreadSortableSceneRow.vue";
 import type {
     PlotThreadPanelChapter,
-    PlotThreadPanelPlot,
     PlotThreadPanelScene,
     PlotThreadPanelThread,
 } from "nbook/app/components/novel-ide/plot/thread-panel/plot-thread-panel.types";
@@ -34,7 +33,6 @@ const props = defineProps<{
     threads: PlotThreadPanelThread[];
     scenes: PlotThreadPanelScene[];
     chapters: PlotThreadPanelChapter[];
-    plots: PlotThreadPanelPlot[];
     selectedThreadId: string | null;
     selectedSceneId: string | null;
 }>();
@@ -86,16 +84,6 @@ const threadItems = computed<DropdownItem[]>(() => {
  */
 const chapterMap = computed(() => {
     return new Map(props.chapters.map((chapter) => [chapter.id, chapter]));
-});
-
-/**
- * Scene 下挂接的 Plot 数量索引。
- */
-const plotCountMap = computed(() => {
-    return props.plots.reduce<Record<string, number>>((map, plot) => {
-        map[plot.sceneId] = (map[plot.sceneId] ?? 0) + 1;
-        return map;
-    }, {});
 });
 
 /**
@@ -320,7 +308,6 @@ watch(() => [props.selectedThreadId, props.scenes], () => {
                         :selected="props.selectedSceneId === scene.id"
                         :drag-disabled="dragDisabled"
                         :chapter="scene.chapterPath ? (chapterMap.get(scene.chapterPath) ?? null) : null"
-                        :plot-count="plotCountMap[scene.id] ?? 0"
                         @select="emit('selectScene', $event)"
                         @open-editor="emit('editScene', $event)"
                         @open-menu="emit('openSceneMenu', $event)"
@@ -338,7 +325,6 @@ watch(() => [props.selectedThreadId, props.scenes], () => {
                     :selected="props.selectedSceneId === scene.id"
                     :drag-disabled="true"
                     :chapter="scene.chapterPath ? (chapterMap.get(scene.chapterPath) ?? null) : null"
-                    :plot-count="plotCountMap[scene.id] ?? 0"
                     @select="emit('selectScene', $event)"
                     @open-editor="emit('editScene', $event)"
                     @open-menu="emit('openSceneMenu', $event)"

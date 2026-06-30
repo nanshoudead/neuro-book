@@ -1,6 +1,7 @@
 import type {
     LowCodeFieldOptionDto,
     LowCodeFieldOptionValueDto,
+    LowCodeFormDto,
     LowCodeJsonObject,
     LowCodeJsonValue,
 } from "nbook/shared/dto/low-code-form.dto";
@@ -125,4 +126,23 @@ export function deleteLowCodePath(source: LowCodeJsonObject, path: string): LowC
  */
 export function hasLowCodePath(source: LowCodeJsonObject, path: string): boolean {
     return readLowCodePath(source, path) !== undefined;
+}
+
+/**
+ * 提交表单时把展示层默认值合并进 payload。
+ */
+export function withLowCodeFormDefaults(form: LowCodeFormDto, value: LowCodeJsonObject): LowCodeJsonObject {
+    let next = cloneLowCodeObject(value);
+    for (const field of form.fields) {
+        if (hasLowCodePath(next, field.path)) {
+            continue;
+        }
+        const defaultValue = hasLowCodePath(form.defaults, field.path)
+            ? readLowCodePath(form.defaults, field.path)
+            : field.defaultValue;
+        if (defaultValue !== undefined) {
+            next = setLowCodePath(next, field.path, defaultValue);
+        }
+    }
+    return next;
 }

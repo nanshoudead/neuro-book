@@ -3,7 +3,6 @@ import {computed} from "vue";
 import {PLOT_TONE_STYLES} from "nbook/app/components/novel-ide/plot/plot-preview.types";
 import type {
     PlotPreviewChapter,
-    PlotPreviewPlot,
     PlotPreviewScene,
     PlotPreviewThread,
 } from "nbook/app/components/novel-ide/plot/plot-preview.types";
@@ -12,16 +11,13 @@ const props = defineProps<{
     chapters: PlotPreviewChapter[];
     threads: PlotPreviewThread[];
     scenes: PlotPreviewScene[];
-    plots: PlotPreviewPlot[];
     selectedChapterId: string | null;
     selectedSceneId: string | null;
-    selectedPlotId: string | null;
 }>();
 
 const emit = defineEmits<{
     (e: "selectChapter", chapterId: string): void;
     (e: "selectScene", sceneId: string): void;
-    (e: "selectPlot", plotId: string): void;
 }>();
 
 /**
@@ -44,22 +40,10 @@ const threadMap = computed(() => {
     return new Map(props.threads.map((thread) => [thread.id, thread]));
 });
 
-/**
- * 场景下的情节点列表。
- */
-const plotsByScene = computed(() => {
-    return props.plots.reduce<Record<string, PlotPreviewPlot[]>>((map, plot) => {
-        const currentPlots = map[plot.sceneId] ?? [];
-        currentPlots.push(plot);
-        currentPlots.sort((left, right) => left.sortOrder - right.sortOrder);
-        map[plot.sceneId] = currentPlots;
-        return map;
-    }, {});
-});
 </script>
 
 <template>
-    <!-- Chapter / Scene / Plot 规划视图 -->
+    <!-- Chapter / Scene 规划视图 -->
     <div class="grid min-h-0 gap-4 xl:grid-cols-[280px_minmax(0,1fr)]">
         <section class="flex min-h-0 flex-col overflow-hidden rounded-[22px] border border-[var(--border-color)] bg-[var(--bg-panel)] shadow-[0_18px_50px_rgba(0,0,0,0.08)]">
             <div class="border-b border-[var(--border-color)] px-4 py-3">
@@ -128,28 +112,17 @@ const plotsByScene = computed(() => {
                             <div class="mt-2 text-sm leading-7 text-[var(--text-secondary)]">{{ scene.summary }}</div>
                         </button>
 
-                        <div class="mt-4 grid gap-2">
-                            <button
-                                v-for="plot in plotsByScene[scene.id] ?? []"
-                                :key="plot.id"
-                                type="button"
-                                class="flex items-start gap-3 rounded-2xl border px-3 py-3 text-left transition-colors"
-                                :class="props.selectedPlotId === plot.id
-                                    ? 'border-[var(--accent-main)] bg-[var(--accent-bg)]'
-                                    : 'border-[var(--border-color)] bg-[var(--bg-panel)] hover:bg-[var(--bg-hover)]'"
-                                @click="emit('selectPlot', plot.id)"
-                            >
-                                <div class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-[var(--border-color)] text-[11px] text-[var(--text-muted)]">
-                                    {{ plot.sortOrder + 1 }}
-                                </div>
-                                <div class="min-w-0 flex-1">
-                                    <div class="flex flex-wrap items-center gap-2">
-                                        <span class="rounded-full bg-[var(--accent-bg)] px-2 py-0.5 text-[11px] text-[var(--accent-text)]">{{ plot.kind }}</span>
-                                    </div>
-                                    <div class="mt-2 text-sm font-semibold text-[var(--text-main)]">{{ plot.summary }}</div>
-                                    <div v-if="plot.effect" class="mt-1 text-xs leading-6 text-[var(--text-secondary)]">结果：{{ plot.effect }}</div>
-                                </div>
-                            </button>
+                        <div class="mt-4 grid gap-2 text-xs leading-6 text-[var(--text-secondary)]">
+                            <div v-if="scene.purpose" class="rounded-lg border border-[var(--border-color)] bg-[var(--bg-panel)] px-3 py-2">
+                                目的：{{ scene.purpose }}
+                            </div>
+                            <div v-if="scene.writingTip" class="rounded-lg border border-[var(--border-color)] bg-[var(--bg-panel)] px-3 py-2">
+                                写作提示：{{ scene.writingTip }}
+                            </div>
+                            <div class="flex flex-wrap gap-2">
+                                <span class="rounded-full border border-[var(--border-color)] bg-[var(--bg-panel)] px-2 py-0.5">Refs {{ scene.refs.length }}</span>
+                                <span class="rounded-full border border-[var(--border-color)] bg-[var(--bg-panel)] px-2 py-0.5">Thread 位次 {{ scene.threadSortOrder + 1 }}</span>
+                            </div>
                         </div>
                     </section>
                 </div>
@@ -157,7 +130,7 @@ const plotsByScene = computed(() => {
                 <div v-else class="flex min-h-[260px] items-center justify-center rounded-[22px] border border-dashed border-[var(--border-color)] bg-[var(--bg-input)]/30 px-6 text-center">
                     <div>
                         <div class="text-sm font-semibold text-[var(--text-main)]">当前章节还没有挂接 Scene</div>
-                        <div class="mt-2 text-sm leading-7 text-[var(--text-secondary)]">这个视图会以 `Chapter -> Scene -> Plot` 的方式展示一章内部节奏。目前适合用来观察章级承载是否过空或过满。</div>
+                        <div class="mt-2 text-sm leading-7 text-[var(--text-secondary)]">这个视图会以 `Chapter -> Scene` 的方式展示一章内部承载。目前适合用来观察章级 Scene 是否过空或过满。</div>
                     </div>
                 </div>
             </div>

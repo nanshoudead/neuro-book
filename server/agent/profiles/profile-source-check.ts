@@ -5,9 +5,8 @@ import {dirname, relative, resolve, sep} from "node:path";
 import {createError} from "h3";
 import {AgentProfileCatalog} from "nbook/server/agent/profiles/catalog";
 import {compileProfileArtifacts} from "nbook/server/agent/profiles/profile-artifact-compiler";
+import {resolveSystemNbookRoot, resolveUserNbookRoot} from "nbook/server/workspace-files/workspace-assets-root";
 
-const DEFAULT_SYSTEM_PROFILE_ROOT = resolve(process.cwd(), "assets", "workspace", ".nbook", "agent", "profiles");
-const DEFAULT_USER_PROFILE_ROOT = resolve(process.cwd(), "workspace", ".nbook", "agent", "profiles");
 const PROFILE_SOURCE_CHECK_ROOT = resolve(process.cwd(), ".agent", "workspace", "profile-source-check");
 
 export type ProfileSourceCheckRoots = {
@@ -26,8 +25,8 @@ export async function withProfileSourceOverride<T>(
     },
     callback: (catalog: AgentProfileCatalog, userProfileRoot: string) => Promise<T>,
 ): Promise<T> {
-    const sourceRoot = input.roots?.userProfileRoot ?? DEFAULT_USER_PROFILE_ROOT;
-    const systemRoot = input.roots?.systemProfileRoot ?? DEFAULT_SYSTEM_PROFILE_ROOT;
+    const sourceRoot = input.roots?.userProfileRoot ?? defaultUserProfileRoot();
+    const systemRoot = input.roots?.systemProfileRoot ?? defaultSystemProfileRoot();
     const temporaryRoot = resolve(PROFILE_SOURCE_CHECK_ROOT, randomUUID());
     try {
         if (existsSync(sourceRoot)) {
@@ -70,4 +69,12 @@ function resolveProfileFilePath(fileName: string, root: string): string {
         });
     }
     return resolved;
+}
+
+function defaultSystemProfileRoot(): string {
+    return resolve(resolveSystemNbookRoot(), "agent", "profiles");
+}
+
+function defaultUserProfileRoot(): string {
+    return resolve(resolveUserNbookRoot(), "agent", "profiles");
 }

@@ -1,21 +1,24 @@
 import {Prisma, PrismaClient} from "nbook/server/generated/project-prisma/client";
 import {PlotDtoAssembler} from "nbook/server/plot/assemblers/plot-dto.assembler";
-import {PrismaPlotDataRepository} from "nbook/server/plot/repositories/prisma-plot-data.repository";
 import {PrismaSceneRepository} from "nbook/server/plot/repositories/prisma-scene.repository";
 import {PrismaStoryRepository} from "nbook/server/plot/repositories/prisma-story.repository";
 import {PrismaThreadRepository} from "nbook/server/plot/repositories/prisma-thread.repository";
-import type {PrismaExecutor} from "nbook/server/plot/core/types";
+import type {PrismaExecutor, SceneWorldAnchor} from "nbook/server/plot/core/types";
 import {PlotInputParser} from "nbook/server/plot/http/plot-input.parser";
 import {collectReleasedSqliteHandles} from "nbook/server/workspace-files/sqlite-handle-release";
 import {TrackedPrismaLibSql} from "nbook/server/workspace-files/tracked-prisma-libsql";
 import {OrderService} from "nbook/server/plot/services/order.service";
-import {PlotService} from "nbook/server/plot/services/plot.service";
+import {ChapterWriterBriefService} from "nbook/server/plot/services/chapter-writer-brief.service";
 import {PlotScopeGuard} from "nbook/server/plot/services/plot-scope.guard";
 import {RefResolverService} from "nbook/server/plot/services/ref-resolver.service";
 import {SceneService} from "nbook/server/plot/services/scene.service";
+import {SceneWorldAnchorValidator} from "nbook/server/plot/services/scene-world-anchor.validator";
+import {SceneWorldAnchorResolutionService} from "nbook/server/plot/services/scene-world-anchor-resolution.service";
+import {SceneWorldContextService} from "nbook/server/plot/services/scene-world-context.service";
 import {StoryService} from "nbook/server/plot/services/story.service";
 import {ThreadService} from "nbook/server/plot/services/thread.service";
 import {initProjectDatabase, normalizeProjectPath, resolveProjectDatabasePath, toSqliteFileUrl} from "nbook/server/workspace-files/project-workspace";
+import {worldEngineFacade} from "nbook/server/world-engine";
 import {
     mergeContentDiagnostics,
     processTextFieldsWithResults,
@@ -25,31 +28,28 @@ import {
 import {STORY_STRUCTURED_REFERENCE_KINDS} from "nbook/shared/reference-core";
 import type {
     ChapterPlotDetailDto,
+    ChapterWriterBriefDto,
     PlotWorkbenchDto,
     CreateStoryPhaseRequestDto,
-    CreateStoryPlotRequestDto,
-    CreateStoryPlotsRequestDto,
-    CreateStoryPlotsResponseDto,
     CreateStorySceneRequestDto,
     CreateStoryThreadRequestDto,
     PlotTreeDto,
     ReorderStoryPhasesRequestDto,
-    ReorderStoryPlotsRequestDto,
     ReorderStoryScenesRequestDto,
     ReorderStoryThreadsRequestDto,
+    SceneWorldContextDto,
     StoryDto,
     StoryPhaseDto,
-    StoryPlotDto,
     StorySceneDetailDto,
     StorySceneWriteResponseDto,
     StoryThreadDetailDto,
     StoryThreadWriteResponseDto,
-    StoryPlotWriteResponseDto,
     UpdateStoryPhaseRequestDto,
-    UpdateStoryPlotRequestDto,
     UpdateStoryRequestDto,
     UpdateStorySceneRequestDto,
     UpdateStoryThreadRequestDto,
+    StorySceneWorldAnchorInputDto,
+    StorySceneWorldAnchorDto,
 } from "nbook/shared/dto/plot.dto";
 
 type PlotModule = {
@@ -57,7 +57,8 @@ type PlotModule = {
     storyService: StoryService;
     threadService: ThreadService;
     sceneService: SceneService;
-    plotService: PlotService;
+    sceneWorldContextService: SceneWorldContextService;
+    chapterWriterBriefService: ChapterWriterBriefService;
     refResolverService: RefResolverService;
 };
 
@@ -71,6 +72,7 @@ type PlotClientEntry = {
  */
 export class PlotFacade {
     private readonly clients = new Map<string, PlotClientEntry>();
+    private readonly sceneWorldAnchorResolutionService = new SceneWorldAnchorResolutionService(worldEngineFacade);
 
     constructor() {}
 
@@ -109,14 +111,16 @@ export class PlotFacade {
      * 查询剧情树。
      */
     async getPlotTree(projectPath: string): Promise<PlotTreeDto> {
-        return (await this.createModule(projectPath)).storyService.getPlotTree(normalizeProjectPath(projectPath));
+        const normalizedProjectPath = normalizeProjectPath(projectPath);
+        return this.formatPlotTreeAnchors(normalizedProjectPath, await (await this.createModule(projectPath)).storyService.getPlotTree(normalizedProjectPath));
     }
 
     /**
      * 查询剧本工作台聚合数据。
      */
     async getPlotWorkbench(projectPath: string): Promise<PlotWorkbenchDto> {
-        return (await this.createModule(projectPath)).storyService.getPlotWorkbench(normalizeProjectPath(projectPath));
+        const normalizedProjectPath = normalizeProjectPath(projectPath);
+        return this.formatPlotWorkbenchAnchors(normalizedProjectPath, await (await this.createModule(projectPath)).storyService.getPlotWorkbench(normalizedProjectPath));
     }
 
     /**
@@ -160,7 +164,8 @@ export class PlotFacade {
      * 查询线程详情。
      */
     async getStoryThreadDetailDto(projectPath: string, threadId: number): Promise<StoryThreadDetailDto> {
-        return (await this.createModule(projectPath)).threadService.getStoryThreadDetailDto(normalizeProjectPath(projectPath), threadId);
+        const normalizedProjectPath = normalizeProjectPath(projectPath);
+        return this.formatThreadDetailAnchors(normalizedProjectPath, await (await this.createModule(projectPath)).threadService.getStoryThreadDetailDto(normalizedProjectPath, threadId));
     }
 
     /**
@@ -223,14 +228,32 @@ export class PlotFacade {
      * 查询 Scene 详情。
      */
     async getStorySceneDetailDto(projectPath: string, sceneId: number): Promise<StorySceneDetailDto> {
-        return (await this.createModule(projectPath)).sceneService.getStorySceneDetailDto(normalizeProjectPath(projectPath), sceneId);
+        const normalizedProjectPath = normalizeProjectPath(projectPath);
+        return this.formatSceneDetailAnchor(normalizedProjectPath, await (await this.createModule(projectPath)).sceneService.getStorySceneDetailDto(normalizedProjectPath, sceneId));
     }
 
     /**
-     * 查询章节下的剧情 Scene 与 Plot。
+     * 查询章节下的剧情 Scene。
      */
     async getChapterPlotDetailDto(projectPath: string, chapterPath: string): Promise<ChapterPlotDetailDto> {
-        return (await this.createModule(projectPath)).sceneService.getChapterPlotDetailDto(normalizeProjectPath(projectPath), chapterPath);
+        const normalizedProjectPath = normalizeProjectPath(projectPath);
+        return this.formatChapterPlotAnchors(normalizedProjectPath, await (await this.createModule(projectPath)).sceneService.getChapterPlotDetailDto(normalizedProjectPath, chapterPath));
+    }
+
+    /**
+     * 查询章节 writer brief。
+     */
+    async getChapterWriterBrief(projectPath: string, chapterPath: string): Promise<ChapterWriterBriefDto> {
+        const normalizedProjectPath = normalizeProjectPath(projectPath);
+        return (await this.createModule(projectPath)).chapterWriterBriefService.getChapterWriterBrief(normalizedProjectPath, chapterPath);
+    }
+
+    /**
+     * 查询 Scene 对应的 World Engine 上下文。
+     */
+    async getSceneWorldContext(projectPath: string, sceneId: number): Promise<SceneWorldContextDto> {
+        const normalizedProjectPath = normalizeProjectPath(projectPath);
+        return (await this.createModule(projectPath)).sceneWorldContextService.getSceneWorldContext(normalizedProjectPath, sceneId);
     }
 
     /**
@@ -238,8 +261,9 @@ export class PlotFacade {
      */
     async createStoryScene(projectPath: string, input: CreateStorySceneRequestDto): Promise<StorySceneWriteResponseDto> {
         const processedInput = processTextFieldsWithResults(input, ["summary", "purpose", "writingTip", "note"]);
-        return this.runInTransaction(projectPath, async (module) => {
-            const story = await module.storyService.ensureStory(normalizeProjectPath(projectPath));
+        const normalizedProjectPath = normalizeProjectPath(projectPath);
+        const result = await this.runInTransaction(projectPath, async (module) => {
+            const story = await module.storyService.ensureStory(normalizedProjectPath);
             const processedRefs = await processStructuredReferences({
                 refs: processedInput.values.refs ?? [],
                 allowedKinds: STORY_STRUCTURED_REFERENCE_KINDS,
@@ -248,17 +272,22 @@ export class PlotFacade {
             });
             const detail = await module.sceneService.createStoryScene(normalizeProjectPath(projectPath), module.inputParser.parseCreateScene({
                 ...processedInput.values,
+                worldAnchor: await this.parseWorldAnchorDto(normalizedProjectPath, processedInput.values.worldAnchor),
                 refs: processedRefs.normalized,
                 resolvedRefs: processedRefs.resolved,
             }));
             return {
-                ...detail,
+                detail,
                 diagnostics: toResponseContentDiagnostics(mergeContentDiagnostics(
                     processedInput.diagnostics,
                     processedRefs.diagnostics,
                 )),
             };
         });
+        return {
+            ...await this.formatSceneDetailAnchor(normalizedProjectPath, result.detail),
+            diagnostics: result.diagnostics,
+        };
     }
 
     /**
@@ -270,8 +299,9 @@ export class PlotFacade {
         patch: UpdateStorySceneRequestDto,
     ): Promise<StorySceneWriteResponseDto> {
         const processedPatch = processTextFieldsWithResults(patch, ["summary", "purpose", "writingTip", "note"]);
-        return this.runInTransaction(projectPath, async (module) => {
-            const story = await module.storyService.ensureStory(normalizeProjectPath(projectPath));
+        const normalizedProjectPath = normalizeProjectPath(projectPath);
+        const result = await this.runInTransaction(projectPath, async (module) => {
+            const story = await module.storyService.ensureStory(normalizedProjectPath);
             const processedRefs = processedPatch.values.refs === undefined
                 ? null
                 : await processStructuredReferences({
@@ -281,22 +311,29 @@ export class PlotFacade {
                     resolve: (nextRefs) => module.refResolverService.resolveRefs(story.id, nextRefs),
                 });
             const detail = await module.sceneService.updateStoryScene(
-                normalizeProjectPath(projectPath),
+                normalizedProjectPath,
                 sceneId,
                 module.inputParser.parseUpdateScene({
                     ...processedPatch.values,
+                    worldAnchor: processedPatch.values.worldAnchor === undefined
+                        ? undefined
+                        : await this.parseWorldAnchorDto(normalizedProjectPath, processedPatch.values.worldAnchor),
                     refs: processedRefs?.normalized,
                     resolvedRefs: processedRefs?.resolved,
                 }),
             );
             return {
-                ...detail,
+                detail,
                 diagnostics: toResponseContentDiagnostics(mergeContentDiagnostics(
                     processedPatch.diagnostics,
                     processedRefs?.diagnostics ?? {errors: [], warnings: [], notes: []},
                 )),
             };
         });
+        return {
+            ...await this.formatSceneDetailAnchor(normalizedProjectPath, result.detail),
+            diagnostics: result.diagnostics,
+        };
     }
 
     /**
@@ -310,93 +347,141 @@ export class PlotFacade {
      * 重排 Scene。
      */
     async reorderStoryScenes(projectPath: string, input: ReorderStoryScenesRequestDto): Promise<PlotTreeDto> {
-        return this.runInTransaction(projectPath, (module) => (
-            module.sceneService.reorderStoryScenes(normalizeProjectPath(projectPath), module.inputParser.parseReorderScenes(input))
+        const normalizedProjectPath = normalizeProjectPath(projectPath);
+        const tree = await this.runInTransaction(projectPath, async (module) => (
+            module.sceneService.reorderStoryScenes(normalizedProjectPath, module.inputParser.parseReorderScenes(input))
         ));
+        return this.formatPlotTreeAnchors(normalizedProjectPath, tree);
     }
 
     /**
-     * 查询 Plot 详情。
+     * 将 HTTP DTO 的日历字符串解析为服务层 World Anchor。
      */
-    async getStoryPlotDto(projectPath: string, plotId: number): Promise<StoryPlotDto> {
-        return (await this.createModule(projectPath)).plotService.getStoryPlotDto(normalizeProjectPath(projectPath), plotId);
-    }
-
-    /**
-     * 创建 Plot。
-     */
-    async createStoryPlot(projectPath: string, input: CreateStoryPlotRequestDto): Promise<StoryPlotWriteResponseDto> {
-        const processedInput = processTextFieldsWithResults(input, ["summary", "effect", "writingTip", "note"]);
-        return this.runInTransaction(projectPath, async (module) => {
-            const detail = await module.plotService.createStoryPlot(
-                normalizeProjectPath(projectPath),
-                module.inputParser.parseCreatePlot(processedInput.values),
-            );
+    private async parseWorldAnchorDto(projectPath: string, dto?: StorySceneWorldAnchorInputDto): Promise<SceneWorldAnchor> {
+        if (!dto) {
             return {
-                ...detail,
-                diagnostics: toResponseContentDiagnostics(processedInput.diagnostics),
+                startInstant: null,
+                endInstant: null,
+                subjectIds: [],
+                locationSubjectId: null,
             };
-        });
+        }
+
+        return {
+            startInstant: dto.startTime === null ? null : await worldEngineFacade.parseTime(projectPath, dto.startTime),
+            endInstant: dto.endTime === null ? null : await worldEngineFacade.parseTime(projectPath, dto.endTime),
+            subjectIds: dto.subjectIds.map((subjectId) => subjectId.trim()),
+            locationSubjectId: dto.locationSubjectId === null ? null : dto.locationSubjectId.trim(),
+        };
     }
 
     /**
-     * 在同一 Scene 下批量创建 Plot。
+     * 格式化剧情树里所有 Scene 的 World Anchor。
      */
-    async createStoryPlots(projectPath: string, input: CreateStoryPlotsRequestDto): Promise<CreateStoryPlotsResponseDto> {
-        let diagnostics = {errors: [] as string[], warnings: [] as string[], notes: [] as string[]};
-        const processedPlots = input.plots.map((plot) => {
-            const processedPlot = processTextFieldsWithResults(plot, ["summary", "effect", "writingTip", "note"]);
-            diagnostics = mergeContentDiagnostics(diagnostics, processedPlot.diagnostics);
-            return processedPlot.values;
-        });
-        const processedInput = {...input, plots: processedPlots};
-
-        return this.runInTransaction(projectPath, async (module) => {
-            const normalizedProjectPath = normalizeProjectPath(projectPath);
-            const parsedInput = module.inputParser.parseCreatePlots(processedInput);
-            const createdPlots = await module.plotService.createStoryPlots(normalizedProjectPath, parsedInput);
-            const scene = await module.sceneService.getStorySceneDetailDto(normalizedProjectPath, parsedInput.sceneId);
-
-            return {
-                scene,
-                createdPlots,
-                diagnostics: toResponseContentDiagnostics(diagnostics),
-            };
-        });
+    private async formatPlotTreeAnchors(projectPath: string, tree: PlotTreeDto): Promise<PlotTreeDto> {
+        const anchorMap = await this.resolveSceneAnchorMap(projectPath, [
+            ...tree.phases.flatMap((phase) => phase.threads.flatMap((thread) => thread.scenes)),
+            ...tree.ungroupedThreads.flatMap((thread) => thread.scenes),
+        ]);
+        return {
+            ...tree,
+            phases: await Promise.all(tree.phases.map(async (phase) => ({
+                ...phase,
+                threads: await Promise.all(phase.threads.map(async (thread) => ({
+                    ...thread,
+                    scenes: thread.scenes.map((scene) => this.attachResolvedAnchor(scene, anchorMap)),
+                }))),
+            }))),
+            ungroupedThreads: await Promise.all(tree.ungroupedThreads.map(async (thread) => ({
+                ...thread,
+                scenes: thread.scenes.map((scene) => this.attachResolvedAnchor(scene, anchorMap)),
+            }))),
+        };
     }
 
     /**
-     * 更新 Plot。
+     * 格式化工作台里所有 Scene 的 World Anchor。
      */
-    async updateStoryPlot(projectPath: string, plotId: number, patch: UpdateStoryPlotRequestDto): Promise<StoryPlotWriteResponseDto> {
-        const processedPatch = processTextFieldsWithResults(patch, ["summary", "effect", "writingTip", "note"]);
-        return this.runInTransaction(projectPath, async (module) => {
-            const detail = await module.plotService.updateStoryPlot(
-                normalizeProjectPath(projectPath),
-                plotId,
-                module.inputParser.parseUpdatePlot(processedPatch.values),
-            );
-            return {
-                ...detail,
-                diagnostics: toResponseContentDiagnostics(processedPatch.diagnostics),
-            };
-        });
+    private async formatPlotWorkbenchAnchors(projectPath: string, workbench: PlotWorkbenchDto): Promise<PlotWorkbenchDto> {
+        const anchorMap = await this.resolveSceneAnchorMap(projectPath, [
+            ...workbench.phases.flatMap((phase) => phase.threads.flatMap((thread) => thread.scenes)),
+            ...workbench.ungroupedThreads.flatMap((thread) => thread.scenes),
+        ]);
+        return {
+            ...workbench,
+            phases: await Promise.all(workbench.phases.map(async (phase) => ({
+                ...phase,
+                threads: await Promise.all(phase.threads.map(async (thread) => ({
+                    ...thread,
+                    scenes: thread.scenes.map((scene) => this.attachResolvedAnchor(scene, anchorMap)),
+                }))),
+            }))),
+            ungroupedThreads: await Promise.all(workbench.ungroupedThreads.map(async (thread) => ({
+                ...thread,
+                scenes: thread.scenes.map((scene) => this.attachResolvedAnchor(scene, anchorMap)),
+            }))),
+        };
     }
 
     /**
-     * 删除 Plot。
+     * 格式化 Thread 详情里的 Scene World Anchor。
      */
-    async deleteStoryPlot(projectPath: string, plotId: number): Promise<void> {
-        await this.runInTransaction(projectPath, (module) => module.plotService.deleteStoryPlot(normalizeProjectPath(projectPath), plotId));
+    private async formatThreadDetailAnchors(projectPath: string, detail: StoryThreadDetailDto): Promise<StoryThreadDetailDto> {
+        const anchorMap = await this.resolveSceneAnchorMap(projectPath, detail.scenes ?? []);
+        return {
+            ...detail,
+            scenes: detail.scenes === undefined
+                ? undefined
+                : detail.scenes.map((scene) => this.attachResolvedAnchor(scene, anchorMap)),
+        };
     }
 
     /**
-     * 重排 Plot。
+     * 格式化 Scene 详情里的 World Anchor。
      */
-    async reorderStoryPlots(projectPath: string, input: ReorderStoryPlotsRequestDto): Promise<PlotTreeDto> {
-        return this.runInTransaction(projectPath, (module) => (
-            module.plotService.reorderStoryPlots(normalizeProjectPath(projectPath), module.inputParser.parseReorderPlots(input))
-        ));
+    private async formatSceneDetailAnchor(projectPath: string, detail: StorySceneDetailDto): Promise<StorySceneDetailDto> {
+        return {
+            ...detail,
+            worldAnchor: await this.sceneWorldAnchorResolutionService.resolve(projectPath, detail.worldAnchor),
+        };
+    }
+
+    /**
+     * 格式化章节剧情里的 Scene World Anchor。
+     */
+    private async formatChapterPlotAnchors(projectPath: string, detail: ChapterPlotDetailDto): Promise<ChapterPlotDetailDto> {
+        const anchorMap = await this.resolveSceneAnchorMap(projectPath, detail.scenes);
+        return {
+            ...detail,
+            scenes: detail.scenes.map((scene) => this.attachResolvedAnchor(scene, anchorMap)),
+        };
+    }
+
+    /**
+     * 批量解析 Scene 摘要中的 World Anchor。
+     */
+    private async resolveSceneAnchorMap<TScene extends {worldAnchor: StorySceneWorldAnchorDto}>(
+        projectPath: string,
+        scenes: TScene[],
+    ): Promise<Map<TScene, StorySceneWorldAnchorDto>> {
+        const resolvedAnchors = await this.sceneWorldAnchorResolutionService.resolveMany(
+            projectPath,
+            scenes.map((scene) => scene.worldAnchor),
+        );
+        return new Map(scenes.map((scene, index) => [scene, resolvedAnchors[index] ?? scene.worldAnchor]));
+    }
+
+    /**
+     * 把已解析的 World Anchor 接回 Scene DTO。
+     */
+    private attachResolvedAnchor<TScene extends {worldAnchor: StorySceneWorldAnchorDto}>(
+        scene: TScene,
+        anchorMap: Map<TScene, StorySceneWorldAnchorDto>,
+    ): TScene {
+        return {
+            ...scene,
+            worldAnchor: anchorMap.get(scene) ?? scene.worldAnchor,
+        };
     }
 
     /**
@@ -446,23 +531,21 @@ export class PlotFacade {
         const storyRepository = new PrismaStoryRepository(executor);
         const threadRepository = new PrismaThreadRepository(executor);
         const sceneRepository = new PrismaSceneRepository(executor);
-        const plotRepository = new PrismaPlotDataRepository(executor);
-        const orderService = new OrderService(storyRepository, threadRepository, sceneRepository, plotRepository);
+        const orderService = new OrderService(storyRepository, threadRepository, sceneRepository);
         const scopeGuard = new PlotScopeGuard(
             storyRepository,
             threadRepository,
             sceneRepository,
-            plotRepository,
         );
         const storyService = new StoryService(
             storyRepository,
             threadRepository,
-            plotRepository,
             orderService,
             assembler,
             scopeGuard,
         );
         const refResolverService = new RefResolverService(threadRepository, scopeGuard);
+        const worldAnchorValidator = new SceneWorldAnchorValidator();
         const threadService = new ThreadService(
             threadRepository,
             storyService,
@@ -476,14 +559,20 @@ export class PlotFacade {
             scopeGuard,
             orderService,
             refResolverService,
+            worldAnchorValidator,
             assembler,
         );
-        const plotService = new PlotService(
-            plotRepository,
+        const sceneWorldContextService = new SceneWorldContextService(
             sceneRepository,
             storyService,
             scopeGuard,
-            orderService,
+            worldEngineFacade,
+        );
+        const chapterWriterBriefService = new ChapterWriterBriefService(
+            sceneRepository,
+            scopeGuard,
+            sceneWorldContextService,
+            this.sceneWorldAnchorResolutionService,
             assembler,
         );
 
@@ -492,7 +581,8 @@ export class PlotFacade {
             storyService,
             threadService,
             sceneService,
-            plotService,
+            sceneWorldContextService,
+            chapterWriterBriefService,
             refResolverService,
         };
     }

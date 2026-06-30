@@ -68,7 +68,6 @@ const emit = defineEmits<{
             toolNodeId: string;
             questionIndex?: number;
             selectedOptionIndex?: number;
-            selectedOptionIndexes?: number[];
             note?: string;
             ignored?: boolean;
         }>;
@@ -79,6 +78,7 @@ const emit = defineEmits<{
         toolCallId: string;
         data: import("nbook/shared/dto/low-code-form.dto").LowCodeJsonObject;
     }): void;
+    (e: "cancel-user-input", payload: {assistantMessageId: string}): void;
     (e: "send"): void;
     (e: "steer"): void;
     (e: "followup"): void;
@@ -327,7 +327,7 @@ defineExpose({focus});
     <!-- Agent 底部输入容器 -->
     <div class="relative shrink-0 bg-[var(--bg-panel)] px-2 pb-1">
         <!-- request_user_input 回答区 -->
-        <div v-if="props.pendingSession" class="flex min-w-0 justify-center px-1 pb-2">
+        <div v-if="props.pendingSession" class="flex min-w-0 w-full pb-2">
             <AgentUserInputPrompt
                 ref="userInputPromptRef"
                 :session="props.pendingSession"
@@ -340,6 +340,7 @@ defineExpose({focus});
                 @active-question-change="setActiveQuestion"
                 @submit="emit('submit-user-input', $event)"
                 @submit-form="emit('submit-user-input-form', $event)"
+                @cancel="emit('cancel-user-input', $event)"
             />
         </div>
 

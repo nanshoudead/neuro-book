@@ -16,7 +16,6 @@ const story = plotPreviewDataset.story;
 const phases = plotPreviewDataset.phases;
 const threads = plotPreviewDataset.threads;
 const scenes = plotPreviewDataset.scenes;
-const plots = plotPreviewDataset.plots;
 const chapters = plotPreviewDataset.chapters;
 
 const timeline = computed(() => {
@@ -61,7 +60,6 @@ const selectedChapter = computed(() => {
  */
 const focus = computed<PlotPreviewFocus | null>(() => {
     if (selectedScene.value) {
-        const scenePlots = plots.filter((plot) => plot.sceneId === selectedScene.value?.id);
         const thread = threadMap.value.get(selectedScene.value.threadId) ?? null;
         const chapter = selectedScene.value.chapterPath ? (chapterMap.value.get(selectedScene.value.chapterPath) ?? null) : null;
 
@@ -72,8 +70,8 @@ const focus = computed<PlotPreviewFocus | null>(() => {
             meta: [
                 `线程：${thread?.title ?? "未知 Thread"}`,
                 `章节：${chapter?.numberLabel ?? "未挂章"}`,
-                `Plot：${scenePlots.length}`,
                 `状态：${selectedScene.value.status}`,
+                `Refs：${selectedScene.value.refs.length}`,
             ],
             refs: [...(thread?.refs ?? []), ...selectedScene.value.refs],
             writingTip: selectedScene.value.writingTip,

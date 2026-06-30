@@ -45,7 +45,6 @@ const { panelStyle, resolvedDirection } = useFloatingPanelLayout({
 const targetSections = computed<AgentTriggerMenuSection[]>(() => {
     const threadItems = [];
     const sceneItems = [];
-    const plotItems = [];
     const lorebookItems = [];
     
     const query = searchQuery.value.trim().toLowerCase();
@@ -65,7 +64,6 @@ const targetSections = computed<AgentTriggerMenuSection[]>(() => {
         
         if (value.startsWith("thread://")) threadItems.push(item);
         else if (value.startsWith("scene://")) sceneItems.push(item);
-        else if (value.startsWith("plot://")) plotItems.push(item);
         else if (value.startsWith("lorebook/")) lorebookItems.push(item);
         else lorebookItems.push(item);
     }
@@ -73,7 +71,6 @@ const targetSections = computed<AgentTriggerMenuSection[]>(() => {
     return [
         { id: "thread", title: "Thread", items: threadItems },
         { id: "scene", title: "Scene", items: sceneItems },
-        { id: "plot", title: "Plot", items: plotItems },
         { id: "lorebook", title: "Lorebook", items: lorebookItems }
     ].filter(s => s.items.length > 0);
 });

@@ -72,20 +72,6 @@ export type PlotPreviewScene = {
 };
 
 /**
- * Plot 数据。
- */
-export type PlotPreviewPlot = {
-    id: string;
-    sceneId: string;
-    sortOrder: number;
-    kind: "setup" | "action" | "conflict" | "despair" | "relief" | "reward" | "mystery" | "reveal" | "twist" | "payoff" | "result";
-    summary: string;
-    // 为空表示当前情节点未单独记录结果。
-    effect: string | null;
-    writingTip: string | null;
-};
-
-/**
  * Chapter 数据。
  */
 export type PlotPreviewChapter = {
@@ -104,7 +90,6 @@ export type PlotPreviewDataset = {
     phases: PlotPreviewPhase[];
     threads: PlotPreviewThread[];
     scenes: PlotPreviewScene[];
-    plots: PlotPreviewPlot[];
     chapters: PlotPreviewChapter[];
 };
 
@@ -116,7 +101,6 @@ export type PlotPreviewSelection = {
     threadId: string | null;
     sceneId: string | null;
     chapterId: string | null;
-    plotId: string | null;
 };
 
 /**
@@ -142,7 +126,7 @@ export type PlotPreviewTreeLayoutState = {
  * 当前选中对象摘要。
  */
 export type PlotPreviewFocus = {
-    kind: "story" | "phase" | "thread" | "scene" | "chapter" | "plot";
+    kind: "story" | "phase" | "thread" | "scene" | "chapter";
     title: string;
     summary: string;
     meta: string[];

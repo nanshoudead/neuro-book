@@ -6,6 +6,7 @@ const prismaMock = {
         update: vi.fn(),
     },
     $executeRaw: vi.fn(),
+    $executeRawUnsafe: vi.fn(),
     $transaction: vi.fn(),
 };
 
@@ -69,7 +70,7 @@ describe("PUT /api/admin/users/:userId/password", () => {
         } as never);
 
         expect(prismaMock.$transaction).toHaveBeenCalledTimes(1);
-        expect(prismaMock.$executeRaw).toHaveBeenCalledTimes(1);
+        expect(prismaMock.$executeRawUnsafe).toHaveBeenCalledTimes(1);
         expect(prismaMock.user.update).toHaveBeenCalledWith({
             where: {id: 1},
             data: {

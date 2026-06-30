@@ -2,9 +2,20 @@ import {performance} from "node:perf_hooks";
 import {randomUUID} from "node:crypto";
 import {cp, rm} from "node:fs/promises";
 import {resolve} from "node:path";
-import {compileProfileArtifacts} from "nbook/server/agent/profiles/profile-artifact-compiler";
+import {
+    compileProfileArtifacts,
+    cleanupProfileArtifactStaging,
+    listProfileArtifactSourceFiles,
+    PROFILE_ARTIFACT_COMPILER_VERSION,
+    profileFullReleaseChangedSinceCompile,
+    ProfileArtifactSourceMissingError,
+    stageProfileArtifactEntry,
+    stageProfileArtifacts,
+} from "nbook/server/agent/profiles/profile-artifact-compiler";
 import {AgentProfileCatalog} from "nbook/server/agent/profiles/catalog";
 import {listProfileFiles, readProfileSource, saveProfileSourceDraft} from "nbook/server/agent/profiles/workbench-service";
+import type {ProfileCompileWorkerResult} from "nbook/server/agent/profiles/profile-compile-worker-types";
+import {resolveUserNbookRoot} from "nbook/server/workspace-files/workspace-assets-root";
 import type {
     AgentProfileCompileAllRequestDto,
     AgentProfileCompileRequestDto,
@@ -12,14 +23,22 @@ import type {
     AgentProfileIssueDto,
 } from "nbook/shared/dto/agent-profile.dto";
 
+type InternalProfileCompileRequest = AgentProfileCompileRequestDto & {
+    userProfileRoot?: string;
+};
+
+type InternalProfileCompileAllRequest = AgentProfileCompileAllRequestDto & {
+    userProfileRoot?: string;
+};
+
 /**
  * Worker 内执行真实 profile 编译。这里允许走完整 runtime loader，
  * 因为它运行在 worker 线程中，不阻塞 Nitro 主事件循环。
  */
-export async function runProfileCompile(input: AgentProfileCompileRequestDto): Promise<AgentProfileCompileResultDto> {
+export async function runProfileCompile(input: InternalProfileCompileRequest): Promise<ProfileCompileWorkerResult> {
     const startedAt = performance.now();
     try {
-        const userProfileRoot = resolve(process.cwd(), "workspace", ".nbook", "agent", "profiles");
+        const userProfileRoot = resolveUserProfileRoot(input);
         if (input.dryRun) {
             const result = await runDryRunProfilePreview(input, userProfileRoot);
             return {
@@ -27,60 +46,52 @@ export async function runProfileCompile(input: AgentProfileCompileRequestDto): P
                 elapsedMs: Math.round((performance.now() - startedAt) * 100) / 100,
             };
         }
-        await compileProfileArtifacts({
+        const staged = await stageProfileArtifactEntry({
             profileRoot: userProfileRoot,
             fileName: input.fileName,
-            rootLabel: "workspace/.nbook/agent/profiles",
         });
-        const profiles = new AgentProfileCatalog(undefined, userProfileRoot);
-        const result = await (async () => {
-            const detail = await readProfileSource(profiles, {fileName: input.fileName}, {
-                userProfileRoot,
-            });
-            const issues = detail.issues;
-            if (issues.some((issue) => issue.severity === "error") || !detail.manifest?.key) {
-                return {
-                    ok: false,
-                    stale: false,
-                    detail,
-                    preview: null,
-                    issues,
-                } satisfies AgentProfileCompileResultDto;
-            }
-            if (!input.preview) {
-                return {
-                    ok: true,
-                    stale: false,
-                    detail,
-                    preview: null,
-                    issues,
-                } satisfies AgentProfileCompileResultDto;
-            }
-            const [{NeuroAgentHarness}, {previewAgentProfilePrepare}] = await Promise.all([
-                import("nbook/server/agent/harness/neuro-agent-harness"),
-                import("nbook/server/agent/profiles/profile-http-service"),
-            ]);
-            const preview = await previewAgentProfilePrepare(new NeuroAgentHarness({
-                profiles,
-            }), {
-                profileKey: detail.manifest.key,
-                sessionId: input.sessionId,
-                initial: input.initial,
-                initialOverrides: input.initialOverrides,
-            });
-            return {
-                ok: preview.ok && issues.every((issue) => issue.severity !== "error"),
-                stale: false,
-                detail,
-                preview,
-                issues: [...issues, ...preview.issues],
-            } satisfies AgentProfileCompileResultDto;
-        })();
+        const entry = staged.entry;
+        const issues = entry.status === "compile_failed"
+            ? entry.issues.map((issue) => issueFromCompileFailure(issue, input.fileName))
+            : [];
         return {
-            ...result,
+            ok: entry.status !== "compile_failed",
+            stale: false,
+            detail: null,
+            preview: null,
+            issues,
+            compiledCount: staged.compiled ? 1 : 0,
+            profiles: [{
+                profileKey: entry.profileKey,
+                fileName: entry.fileName,
+                loadStatus: entry.status === "compile_failed" ? "compile_failed" : "loaded",
+            }],
+            stagedRelease: {
+                profileRoot: staged.profileRoot,
+                buildCompiledDir: staged.buildCompiledDir,
+                manifest: {
+                    compilerVersion: PROFILE_ARTIFACT_COMPILER_VERSION,
+                    generatedAt: new Date().toISOString(),
+                    profilesRoot: "workspace/.nbook/agent/profiles",
+                    entries: [entry],
+                    profiles: staged.compiled ? [staged.compiled] : [],
+                },
+            },
             elapsedMs: Math.round((performance.now() - startedAt) * 100) / 100,
         };
     } catch (error) {
+        if (error instanceof ProfileArtifactSourceMissingError) {
+            return {
+                ok: false,
+                stale: true,
+                detail: null,
+                preview: null,
+                issues: [],
+                compiledCount: 0,
+                profiles: [],
+                elapsedMs: Math.round((performance.now() - startedAt) * 100) / 100,
+            };
+        }
         return {
             ok: false,
             stale: false,
@@ -93,71 +104,112 @@ export async function runProfileCompile(input: AgentProfileCompileRequestDto): P
 }
 
 /**
- * Worker 内全量编译用户 profile root，供 Workbench 的“编译全部”使用。
+ * Worker 池 full build 的单文件 fan-out 入口。它只返回单条 entry 的 staging release，
+ * 不读取旧 manifest，也不发布真实 `.compiled`。
  */
-export async function runProfileCompileAll(_input: AgentProfileCompileAllRequestDto = {preview: false}): Promise<AgentProfileCompileResultDto> {
+export async function runProfileCompileEntry(input: InternalProfileCompileRequest): Promise<ProfileCompileWorkerResult> {
     const startedAt = performance.now();
     try {
-        const userProfileRoot = resolve(process.cwd(), "workspace", ".nbook", "agent", "profiles");
-        const files = await listProfileFiles({userProfileRoot});
-        const compiledResults: Array<{
-            ok: boolean;
-            fileName: string;
-            compiled: Awaited<ReturnType<typeof compileProfileArtifacts>> | null;
-            issue: AgentProfileIssueDto | null;
-        }> = [];
-        for (const file of files) {
-            try {
-                const compiled = await compileProfileArtifacts({
-                    profileRoot: userProfileRoot,
-                    fileName: file.fileName,
-                    rootLabel: "workspace/.nbook/agent/profiles",
-                });
-                compiledResults.push({
-                    ok: true as const,
-                    fileName: file.fileName,
-                    compiled,
-                    issue: null,
-                });
-            } catch (error) {
-                compiledResults.push({
-                    ok: false as const,
-                    fileName: file.fileName,
-                    compiled: null,
-                    issue: issueFromError(error, file.fileName),
-                });
-            }
-        }
-        const compiledItems = compiledResults.flatMap((result) => result.compiled?.compiled ?? []);
-        const profiles = new AgentProfileCatalog(undefined, userProfileRoot);
-        const snapshot = await profiles.snapshot();
-        const profileItems = compiledItems.map((item) => {
-            const catalogItem = snapshot.profiles.find((profile) => profile.key === item.profileKey || profile.sourcePath?.replaceAll("\\", "/").endsWith(item.fileName));
-            return {
-                profileKey: item.profileKey,
-                fileName: item.fileName,
-                loadStatus: catalogItem?.loadStatus ?? ("compiled_load_failed" as const),
-            };
+        const userProfileRoot = resolveUserProfileRoot(input);
+        const staged = await stageProfileArtifactEntry({
+            profileRoot: userProfileRoot,
+            fileName: input.fileName,
         });
-        const issues = snapshot.issues
-            .filter((issue) => profileItems.some((item) => item.profileKey === issue.profileKey || issue.sourcePath?.replaceAll("\\", "/").endsWith(item.fileName)))
-            .map((issue) => ({
-                severity: issue.code === "filename_mismatch" || issue.code === "builtin_schema_locked" || issue.code === "system_profile_shadowed" || issue.code === "source_stale" || issue.code === "dependency_stale" || issue.code === "not_compiled" || issue.code === "compile_stale" ? "warning" as const : "error" as const,
-                message: issue.message,
-                code: issue.code,
-                profileKey: issue.profileKey,
-                fileName: profileItems.find((item) => item.profileKey === issue.profileKey || issue.sourcePath?.replaceAll("\\", "/").endsWith(item.fileName))?.fileName,
-            }));
-        const compileIssues = compiledResults.flatMap((result) => result.issue ? [result.issue] : []);
-        const allIssues = [...compileIssues, ...issues];
+        const entry = staged.entry;
+        const issues = entry.status === "compile_failed"
+            ? entry.issues.map((issue) => issueFromCompileFailure(issue, entry.fileName))
+            : [];
         return {
-            ok: allIssues.every((issue) => issue.severity !== "error") && profileItems.every((item) => item.loadStatus === "loaded") && profileItems.length === files.length,
+            ok: entry.status !== "compile_failed",
             stale: false,
             detail: null,
             preview: null,
-            issues: allIssues,
-            compiledCount: compiledItems.length,
+            issues,
+            compiledCount: staged.compiled ? 1 : 0,
+            profiles: [{
+                profileKey: entry.profileKey,
+                fileName: entry.fileName,
+                loadStatus: entry.status === "compile_failed" ? "compile_failed" : "loaded",
+            }],
+            stagedRelease: {
+                profileRoot: staged.profileRoot,
+                buildCompiledDir: staged.buildCompiledDir,
+                manifest: {
+                    compilerVersion: PROFILE_ARTIFACT_COMPILER_VERSION,
+                    generatedAt: new Date().toISOString(),
+                    profilesRoot: "workspace/.nbook/agent/profiles",
+                    entries: [entry],
+                    profiles: staged.compiled ? [staged.compiled] : [],
+                },
+            },
+            elapsedMs: Math.round((performance.now() - startedAt) * 100) / 100,
+        };
+    } catch (error) {
+        return {
+            ok: false,
+            stale: false,
+            detail: null,
+            preview: null,
+            issues: [issueFromError(error, input.fileName)],
+            compiledCount: 0,
+            profiles: [],
+            elapsedMs: Math.round((performance.now() - startedAt) * 100) / 100,
+        };
+    }
+}
+
+/**
+ * Worker 内全量编译用户 profile root，供 Workbench 的“编译全部”使用。
+ */
+export async function runProfileCompileAll(input: InternalProfileCompileAllRequest = {preview: false}): Promise<ProfileCompileWorkerResult> {
+    const startedAt = performance.now();
+    try {
+        const userProfileRoot = resolveUserProfileRoot(input);
+        const sourceFilesAtStart = await listProfileArtifactSourceFiles(userProfileRoot);
+        const files = await listProfileFiles({userProfileRoot});
+        const staged = await stageProfileArtifacts({
+            profileRoot: userProfileRoot,
+            rootLabel: "workspace/.nbook/agent/profiles",
+        });
+        const profileItems = files.map((file) => {
+            const manifestEntry = staged.manifest.entries.find((profile) => profile.fileName === file.fileName);
+            return {
+                profileKey: manifestEntry?.profileKey ?? file.profileKey ?? file.fileName,
+                fileName: file.fileName,
+                loadStatus: manifestEntry
+                    ? manifestEntry.status === "compile_failed" ? "compile_failed" as const : "loaded" as const
+                    : "not_compiled" as const,
+            };
+        });
+        const issues = staged.manifest.entries.flatMap((entry) => entry.status === "compile_failed"
+            ? entry.issues.map((issue) => issueFromCompileFailure(issue, entry.fileName))
+            : []);
+        if (await profileFullReleaseChangedSinceCompile(userProfileRoot, sourceFilesAtStart, staged.manifest.entries)) {
+            await cleanupProfileArtifactStaging(staged.buildCompiledDir);
+            return {
+                ok: false,
+                stale: true,
+                detail: null,
+                preview: null,
+                issues: [],
+                compiledCount: staged.compiled.length,
+                profiles: profileItems,
+                elapsedMs: Math.round((performance.now() - startedAt) * 100) / 100,
+            };
+        }
+        return {
+            ok: issues.every((issue) => issue.severity !== "error") && profileItems.every((item) => item.loadStatus === "loaded") && profileItems.length === files.length,
+            stale: false,
+            detail: null,
+            preview: null,
+            issues,
+            compiledCount: staged.compiled.length,
             profiles: profileItems,
+            stagedRelease: {
+                profileRoot: staged.profileRoot,
+                buildCompiledDir: staged.buildCompiledDir,
+                manifest: staged.manifest,
+            },
             elapsedMs: Math.round((performance.now() - startedAt) * 100) / 100,
         };
     } catch (error) {
@@ -251,5 +303,22 @@ function issueFromError(error: unknown, fileName: string): AgentProfileIssueDto 
         code: "compile_failed",
         fileName,
         stack: process.env.NODE_ENV === "production" ? undefined : error instanceof Error ? error.stack : undefined,
+    };
+}
+
+function resolveUserProfileRoot(input: {userProfileRoot?: string}): string {
+    return input.userProfileRoot ? resolve(input.userProfileRoot) : resolve(resolveUserNbookRoot(), "agent", "profiles");
+}
+
+/**
+ * 将 manifest 中的编译失败项转换为前端统一 issue。
+ */
+function issueFromCompileFailure(issue: {code: "compile_failed"; message: string; stack?: string}, fileName: string): AgentProfileIssueDto {
+    return {
+        severity: "error",
+        message: issue.message,
+        code: issue.code,
+        fileName,
+        stack: issue.stack,
     };
 }

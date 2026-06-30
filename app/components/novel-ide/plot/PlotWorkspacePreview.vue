@@ -12,7 +12,6 @@ import type {
 } from "nbook/app/components/novel-ide/plot/tree/plot-tree.types";
 import type {
     PlotPreviewFocus,
-    PlotPreviewPlot,
     PlotPreviewScene,
     PlotPreviewSelection,
     PlotPreviewThread,
@@ -27,14 +26,12 @@ const selection = reactive<PlotPreviewSelection>({
     threadId: "thread-main",
     sceneId: "scene-cage",
     chapterId: "chapter-01",
-    plotId: "plot-self-pricing",
 });
 
 const story = plotPreviewDataset.story;
 const phases = plotPreviewDataset.phases;
 const threads = plotPreviewDataset.threads;
 const scenes = plotPreviewDataset.scenes;
-const plots = plotPreviewDataset.plots;
 const chapters = plotPreviewDataset.chapters;
 
 /**
@@ -49,13 +46,6 @@ const threadMap = computed(() => {
  */
 const sceneMap = computed(() => {
     return new Map(scenes.map((scene) => [scene.id, scene]));
-});
-
-/**
- * 情节点索引。
- */
-const plotMap = computed(() => {
-    return new Map(plots.map((plot) => [plot.id, plot]));
 });
 
 /**
@@ -140,13 +130,6 @@ const selectedScene = computed(() => {
 });
 
 /**
- * 当前选中情节点。
- */
-const selectedPlot = computed(() => {
-    return selection.plotId ? plotMap.value.get(selection.plotId) ?? null : null;
-});
-
-/**
  * 当前选中章节。
  */
 const selectedChapter = computed(() => {
@@ -162,14 +145,13 @@ const resolveEffectiveRefs = (scene: PlotPreviewScene) => {
 };
 
 /**
- * 选中线程，并同步 phase / scene / chapter / plot。
+ * 选中线程，并同步 phase / scene / chapter。
  */
 const selectThread = (threadId: string | null): void => {
     if (threadId === null) {
         selection.threadId = null;
         selection.sceneId = null;
         selection.chapterId = null;
-        selection.plotId = null;
         return;
     }
 
@@ -188,7 +170,6 @@ const selectThread = (threadId: string | null): void => {
     if (!nextScene) {
         selection.sceneId = null;
         selection.chapterId = null;
-        selection.plotId = null;
         return;
     }
 
@@ -196,12 +177,11 @@ const selectThread = (threadId: string | null): void => {
 };
 
 /**
- * 选中 Scene，并同步 thread / chapter / plot。
+ * 选中 Scene，并同步 thread / chapter。
  */
 const selectScene = (sceneId: string | null): void => {
     if (sceneId === null) {
         selection.sceneId = null;
-        selection.plotId = null;
         return;
     }
 
@@ -214,15 +194,10 @@ const selectScene = (sceneId: string | null): void => {
     selection.threadId = scene.threadId;
     selection.chapterId = scene.chapterPath;
     selection.phaseId = threadMap.value.get(scene.threadId)?.phaseId ?? null;
-
-    const nextPlot = plots
-        .filter((plot) => plot.sceneId === scene.id)
-        .sort((left, right) => left.sortOrder - right.sortOrder)[0] ?? null;
-    selection.plotId = nextPlot?.id ?? null;
 };
 
 /**
- * 选中 Chapter，并优先同步到该章的第一个 Scene / Plot。
+ * 选中 Chapter，并优先同步到该章的第一个 Scene。
  */
 const selectChapter = (chapterId: string): void => {
     selection.chapterId = chapterId;
@@ -233,25 +208,10 @@ const selectChapter = (chapterId: string): void => {
 
     if (!nextScene) {
         selection.sceneId = null;
-        selection.plotId = null;
         return;
     }
 
     selectScene(nextScene.id);
-};
-
-/**
- * 选中 Plot，并同步回 Scene / Thread / Chapter。
- */
-const selectPlot = (plotId: string): void => {
-    const plot = plotMap.value.get(plotId);
-    if (!plot) {
-        return;
-    }
-
-    selection.plotId = plot.id;
-    selectScene(plot.sceneId);
-    selection.plotId = plot.id;
 };
 
 /**
@@ -273,7 +233,6 @@ const selectPhase = (phaseId: string | null): void => {
         selection.threadId = null;
         selection.sceneId = null;
         selection.chapterId = null;
-        selection.plotId = null;
         return;
     }
 
@@ -324,28 +283,11 @@ const currentFocus = computed<PlotPreviewFocus | null>(() => {
             meta: [
                 selectedChapter.value.volumeTitle,
                 `Scene：${scenes.filter((scene) => scene.chapterPath === selectedChapter.value?.id).length}`,
-                `Plot：${plots.filter((plot) => {
-                    const scene = sceneMap.value.get(plot.sceneId);
-                    return scene?.chapterPath === selectedChapter.value?.id;
-                }).length}`,
             ],
             refs: [],
             writingTip: null,
         };
     };
-
-    const buildPlotFocus = (plot: PlotPreviewPlot): PlotPreviewFocus => ({
-        kind: "plot",
-        title: plot.summary,
-        summary: plot.effect ? `结果：${plot.effect}` : "当前 Plot 还没有单独记录结果。",
-        meta: [
-            `kind：${plot.kind}`,
-            `排序：${plot.sortOrder + 1}`,
-            `所属 Scene：${sceneMap.value.get(plot.sceneId)?.title ?? "-"}`,
-        ],
-        refs: [],
-        writingTip: plot.writingTip,
-    });
 
     if (activeView.value === "locator" && selectedThread.value) {
         return buildThreadFocus(selectedThread.value);
@@ -361,9 +303,6 @@ const currentFocus = computed<PlotPreviewFocus | null>(() => {
     }
 
     if (activeView.value === "chapter") {
-        if (selectedPlot.value) {
-            return buildPlotFocus(selectedPlot.value);
-        }
         if (selectedScene.value) {
             return buildSceneFocus(selectedScene.value);
         }
@@ -387,7 +326,6 @@ const currentFocus = computed<PlotPreviewFocus | null>(() => {
             `Phase：${phases.length}`,
             `Thread：${threads.length}`,
             `Scene：${scenes.length}`,
-            `Plot：${plots.length}`,
         ],
         refs: [],
         writingTip: null,
@@ -407,7 +345,7 @@ const currentFocus = computed<PlotPreviewFocus | null>(() => {
                 </div>
             </div>
 
-            <div class="grid gap-2 sm:grid-cols-4">
+            <div class="grid gap-2 sm:grid-cols-3">
                 <div class="rounded-2xl border border-[var(--border-color)] bg-[var(--bg-panel)] px-3 py-3 text-center">
                     <div class="text-[10px] uppercase tracking-[0.18em] text-[var(--text-muted)]">Phase</div>
                     <div class="mt-1 text-lg font-semibold text-[var(--text-main)]">{{ phases.length }}</div>
@@ -419,10 +357,6 @@ const currentFocus = computed<PlotPreviewFocus | null>(() => {
                 <div class="rounded-2xl border border-[var(--border-color)] bg-[var(--bg-panel)] px-3 py-3 text-center">
                     <div class="text-[10px] uppercase tracking-[0.18em] text-[var(--text-muted)]">Scene</div>
                     <div class="mt-1 text-lg font-semibold text-[var(--text-main)]">{{ scenes.length }}</div>
-                </div>
-                <div class="rounded-2xl border border-[var(--border-color)] bg-[var(--bg-panel)] px-3 py-3 text-center">
-                    <div class="text-[10px] uppercase tracking-[0.18em] text-[var(--text-muted)]">Plot</div>
-                    <div class="mt-1 text-lg font-semibold text-[var(--text-main)]">{{ plots.length }}</div>
                 </div>
             </div>
         </div>
@@ -462,13 +396,10 @@ const currentFocus = computed<PlotPreviewFocus | null>(() => {
                     :chapters="chapters"
                     :threads="threads"
                     :scenes="scenes"
-                    :plots="plots"
                     :selected-chapter-id="selection.chapterId"
                     :selected-scene-id="selection.sceneId"
-                    :selected-plot-id="selection.plotId"
                     @select-chapter="selectChapter"
                     @select-scene="selectScene"
-                    @select-plot="selectPlot"
                 />
 
                 <PlotTreeView

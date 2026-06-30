@@ -9,11 +9,9 @@ import {computed, nextTick, ref, watch} from "vue";
 import {
     PLOT_SCENE_STATUS_LABELS,
     type PlotThreadPanelChapter,
-    type PlotThreadPanelPlot,
     type PlotThreadPanelScene,
     type PlotThreadPanelThread,
 } from "nbook/app/components/novel-ide/plot/thread-panel/plot-thread-panel.types";
-import PlotWorkbenchSortablePlotRow from "nbook/app/components/novel-ide/plot/workbench/PlotWorkbenchSortablePlotRow.vue";
 import PlotWorkbenchSortableSceneCard from "nbook/app/components/novel-ide/plot/workbench/PlotWorkbenchSortableSceneCard.vue";
 
 type DragStartPayload = DragDropProviderEmits["dragStart"][0];
@@ -24,32 +22,20 @@ type SceneDragData = {
     sceneId: string;
     threadId: string;
 };
-type PlotDragData = {
-    kind: "plot";
-    plotId: string;
-    sceneId: string;
-};
-
 const props = defineProps<{
     thread: PlotThreadPanelThread | null;
     phaseTitle: string | null;
     scenes: PlotThreadPanelScene[];
-    plots: PlotThreadPanelPlot[];
     chapters: PlotThreadPanelChapter[];
     selectedSceneId: string | null;
 }>();
 
 const emit = defineEmits<{
     (e: "selectScene", sceneId: string): void;
-    (e: "selectPlot", plotId: string): void;
     (e: "editScene", sceneId: string): void;
-    (e: "editPlot", plotId: string): void;
-    (e: "deletePlot", plotId: string): void;
-    (e: "createPlot", sceneId: string): void;
     (e: "createScene", threadId: string): void;
     (e: "autoSortScenes", sceneIds: string[]): void;
     (e: "reorderScenes", sceneIds: string[]): void;
-    (e: "reorderPlots", payload: {sceneId: string; plotIds: string[]}): void;
 }>();
 
 const dndSensors = [
@@ -62,7 +48,6 @@ const dndSensors = [
 ];
 const chapterMap = computed(() => new Map(props.chapters.map((chapter) => [chapter.id, chapter])));
 const dragScenes = ref<PlotThreadPanelScene[] | null>(null);
-const dragPlots = ref<{sceneId: string; plots: PlotThreadPanelPlot[]} | null>(null);
 const sceneStackRef = ref<HTMLElement | null>(null);
 const visibleScenes = computed(() => {
     if (!props.thread) {
@@ -74,30 +59,9 @@ const visibleScenes = computed(() => {
         .sort((left, right) => left.threadSortOrder - right.threadSortOrder);
 });
 const sceneCount = computed(() => visibleScenes.value.length);
-const plotCount = computed(() => visibleScenes.value.reduce((count, scene) => count + scenePlots(scene.id).length, 0));
 const focusScene = computed(() => visibleScenes.value.find((scene) => scene.status === "active") ?? visibleScenes.value[0] ?? null);
-const expandedSceneIds = ref<string[]>([]);
 const sceneCheckMessage = ref<string | null>(null);
 const renderedScenes = computed(() => dragScenes.value ?? visibleScenes.value);
-
-/**
- * 返回当前 Scene 下的 Plot 列表。
- */
-function scenePlots(sceneId: string): PlotThreadPanelPlot[] {
-    return props.plots
-        .filter((plot) => plot.sceneId === sceneId)
-        .sort((left, right) => left.sortOrder - right.sortOrder);
-}
-
-/**
- * 返回拖拽中的 Plot 乐观排序列表。
- */
-function renderedScenePlots(sceneId: string): PlotThreadPanelPlot[] {
-    if (dragPlots.value?.sceneId === sceneId) {
-        return dragPlots.value.plots;
-    }
-    return scenePlots(sceneId);
-}
 
 /**
  * 判断是否为 Scene 拖拽数据。
@@ -106,34 +70,6 @@ function isSceneDragData(data: Data | undefined): data is SceneDragData {
     return data?.kind === "scene"
         && typeof data.sceneId === "string"
         && typeof data.threadId === "string";
-}
-
-/**
- * 判断是否为 Plot 拖拽数据。
- */
-function isPlotDragData(data: Data | undefined): data is PlotDragData {
-    return data?.kind === "plot"
-        && typeof data.plotId === "string"
-        && typeof data.sceneId === "string";
-}
-
-/**
- * 判断当前 Scene 是否展开 Plot 组。
- */
-function isExpanded(sceneId: string): boolean {
-    return expandedSceneIds.value.includes(sceneId);
-}
-
-/**
- * 展开或收起 Scene 下的 Plot 组。
- */
-function toggleScene(sceneId: string): void {
-    if (isExpanded(sceneId)) {
-        expandedSceneIds.value = expandedSceneIds.value.filter((id) => id !== sceneId);
-        return;
-    }
-
-    expandedSceneIds.value = [...expandedSceneIds.value, sceneId];
 }
 
 /**
@@ -150,26 +86,6 @@ function snapshotSceneRects(): Map<string, DOMRect> {
         const sceneId = element.dataset.workbenchSceneId;
         if (sceneId) {
             rects.set(sceneId, element.getBoundingClientRect());
-        }
-    });
-
-    return rects;
-}
-
-/**
- * 记录指定 Scene 下 Plot 行的当前位置，供按钮排序后做 FLIP 动画。
- */
-function snapshotPlotRects(sceneId: string): Map<string, DOMRect> {
-    const rects = new Map<string, DOMRect>();
-    const stack = sceneStackRef.value;
-    if (!stack) {
-        return rects;
-    }
-
-    stack.querySelectorAll<HTMLElement>(`[data-workbench-plot-id][data-workbench-plot-scene-id="${sceneId}"]`).forEach((element) => {
-        const plotId = element.dataset.workbenchPlotId;
-        if (plotId) {
-            rects.set(plotId, element.getBoundingClientRect());
         }
     });
 
@@ -230,59 +146,6 @@ async function animateSceneReorder(previousRects: Map<string, DOMRect>): Promise
 }
 
 /**
- * 在 Plot 数据提交后用 DOM 位移补间，避免上移/下移按钮造成行直接跳位。
- */
-async function animatePlotReorder(sceneId: string, previousRects: Map<string, DOMRect>): Promise<void> {
-    if (!previousRects.size) {
-        return;
-    }
-
-    await nextTick();
-    const stack = sceneStackRef.value;
-    if (!stack) {
-        return;
-    }
-
-    const animatedItems: HTMLElement[] = [];
-    stack.querySelectorAll<HTMLElement>(`[data-workbench-plot-id][data-workbench-plot-scene-id="${sceneId}"]`).forEach((element) => {
-        const plotId = element.dataset.workbenchPlotId;
-        const previousRect = plotId ? previousRects.get(plotId) : undefined;
-        if (!previousRect) {
-            return;
-        }
-
-        const nextRect = element.getBoundingClientRect();
-        const deltaY = previousRect.top - nextRect.top;
-        if (Math.abs(deltaY) < 1) {
-            return;
-        }
-
-        element.style.transition = "none";
-        element.style.transform = `translate3d(0, ${deltaY}px, 0)`;
-        animatedItems.push(element);
-    });
-
-    if (!animatedItems.length) {
-        return;
-    }
-
-    void stack.offsetHeight;
-    window.requestAnimationFrame(() => {
-        animatedItems.forEach((element) => {
-            const cleanup = (): void => {
-                element.style.transition = "";
-                element.style.transform = "";
-                element.removeEventListener("transitionend", cleanup);
-            };
-
-            element.addEventListener("transitionend", cleanup, {once: true});
-            element.style.transition = "transform 220ms cubic-bezier(0.2, 0, 0, 1)";
-            element.style.transform = "translate3d(0, 0, 0)";
-        });
-    });
-}
-
-/**
  * 通过按钮上移或下移 Scene。
  */
 function moveScene(payload: {sceneId: string; direction: "up" | "down"}): void {
@@ -309,45 +172,6 @@ function moveScene(payload: {sceneId: string; direction: "up" | "down"}): void {
     window.setTimeout(() => {
         if (dragScenes.value === nextScenes) {
             dragScenes.value = null;
-        }
-    }, 900);
-}
-
-/**
- * 通过按钮上移或下移 Plot。
- */
-function movePlot(payload: {sceneId: string; plotId: string; direction: "up" | "down"}): void {
-    const currentPlots = renderedScenePlots(payload.sceneId);
-    const currentIndex = currentPlots.findIndex((plot) => plot.id === payload.plotId);
-    if (currentIndex < 0) {
-        return;
-    }
-
-    const targetIndex = payload.direction === "up" ? currentIndex - 1 : currentIndex + 1;
-    if (targetIndex < 0 || targetIndex >= currentPlots.length) {
-        return;
-    }
-
-    const nextPlots = [...currentPlots];
-    const [plot] = nextPlots.splice(currentIndex, 1);
-    if (!plot) {
-        return;
-    }
-    nextPlots.splice(targetIndex, 0, plot);
-
-    const previousRects = snapshotPlotRects(payload.sceneId);
-    dragPlots.value = {
-        sceneId: payload.sceneId,
-        plots: nextPlots,
-    };
-    emit("reorderPlots", {
-        sceneId: payload.sceneId,
-        plotIds: nextPlots.map((item) => item.id),
-    });
-    void animatePlotReorder(payload.sceneId, previousRects);
-    window.setTimeout(() => {
-        if (dragPlots.value?.sceneId === payload.sceneId && dragPlots.value.plots === nextPlots) {
-            dragPlots.value = null;
         }
     }, 900);
 }
@@ -386,11 +210,9 @@ function autoSortScenes(): void {
 function checkSceneDependencies(): void {
     const unmountedScenes = visibleScenes.value.filter((scene) => !scene.chapterPath).length;
     const emptyPurposeScenes = visibleScenes.value.filter((scene) => !(scene.purpose ?? "").trim()).length;
-    const emptyPlotScenes = visibleScenes.value.filter((scene) => scenePlots(scene.id).length === 0).length;
     const issues = [
         unmountedScenes ? `${unmountedScenes} 个 Scene 未挂章` : "",
         emptyPurposeScenes ? `${emptyPurposeScenes} 个 Scene 缺少目的` : "",
-        emptyPlotScenes ? `${emptyPlotScenes} 个 Scene 没有 Plot` : "",
     ].filter(Boolean);
 
     sceneCheckMessage.value = issues.length ? `检查完成：${issues.join("，")}。` : "检查完成：当前 Thread 依赖信息完整。";
@@ -458,78 +280,8 @@ function handleSceneDragEnd(event: DragEndPayload): void {
     emit("reorderScenes", nextIds);
 }
 
-/**
- * Plot 拖拽开始时记录当前 Scene 下列表快照。
- */
-function handlePlotDragStart(event: DragStartPayload): void {
-    const source = event.operation.source;
-    if (!source || !isSortable(source) || !isPlotDragData(source.data)) {
-        dragPlots.value = null;
-        return;
-    }
-
-    dragPlots.value = {
-        sceneId: source.data.sceneId,
-        plots: scenePlots(source.data.sceneId),
-    };
-}
-
-/**
- * Plot 拖拽经过时实时更新本地排序。
- */
-function handlePlotDragOver(event: DragOverPayload): void {
-    const source = event.operation.source;
-    const target = event.operation.target;
-
-    if (!source || !isSortable(source) || !isPlotDragData(source.data)) {
-        return;
-    }
-    if (!target || !isSortable(target) || !isPlotDragData(target.data) || source.data.sceneId !== target.data.sceneId) {
-        event.preventDefault();
-        return;
-    }
-    if (!dragPlots.value) {
-        dragPlots.value = {
-            sceneId: source.data.sceneId,
-            plots: scenePlots(source.data.sceneId),
-        };
-    }
-
-    dragPlots.value = {
-        sceneId: source.data.sceneId,
-        plots: move(dragPlots.value.plots, event) as PlotThreadPanelPlot[],
-    };
-}
-
-/**
- * Plot 拖拽结束后提交当前 Scene 内的新顺序。
- */
-function handlePlotDragEnd(event: DragEndPayload): void {
-    const source = event.operation.source;
-    const nextPlots = dragPlots.value;
-    dragPlots.value = null;
-
-    if (!source || !isSortable(source) || !isPlotDragData(source.data) || !nextPlots || event.canceled) {
-        return;
-    }
-
-    const previousIds = scenePlots(source.data.sceneId).map((plot) => plot.id);
-    const nextIds = nextPlots.plots.map((plot) => plot.id);
-    if (previousIds.length === nextIds.length && previousIds.every((plotId, index) => plotId === nextIds[index])) {
-        return;
-    }
-
-    emit("reorderPlots", {
-        sceneId: source.data.sceneId,
-        plotIds: nextIds,
-    });
-}
-
 watch(() => props.thread?.id, () => {
-    const firstScene = visibleScenes.value[0] ?? null;
-    expandedSceneIds.value = firstScene ? [firstScene.id] : [];
     dragScenes.value = null;
-    dragPlots.value = null;
 }, {immediate: true});
 </script>
 
@@ -574,7 +326,7 @@ watch(() => props.thread?.id, () => {
                         </div>
                         <span class="text-[11px] font-semibold tracking-wider text-[var(--text-muted)]">当前推进</span>
                     </div>
-                    <span class="rounded bg-[var(--bg-panel)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--text-muted)] ring-1 ring-inset ring-[var(--border-color)]/50">{{ sceneCount }} Scenes · {{ plotCount }} Plots</span>
+                    <span class="rounded bg-[var(--bg-panel)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--text-muted)] ring-1 ring-inset ring-[var(--border-color)]/50">{{ sceneCount }} Scenes</span>
                 </div>
 
                 <div class="flex flex-col gap-2 rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] p-2.5 shadow-sm">
@@ -640,53 +392,11 @@ watch(() => props.thread?.id, () => {
                         :index="index"
                         :thread-id="props.thread?.id ?? 'thread-empty'"
                         :chapter="scene.chapterPath ? (chapterMap.get(scene.chapterPath) ?? null) : null"
-                        :plot-count="renderedScenePlots(scene.id).length"
-                        :expanded="isExpanded(scene.id)"
                         :can-move-up="index > 0"
                         :can-move-down="index < renderedScenes.length - 1"
                         @edit-scene="emit('editScene', $event)"
                         @move-scene="moveScene"
-                        @toggle-scene="toggleScene"
-                    >
-                        <!-- 展开的 Plot 列表 -->
-                        <div v-if="isExpanded(scene.id)" class="border-t border-[var(--border-color)]/60 bg-transparent px-4 pb-4 pt-3">
-                            <div class="ml-[38px] rounded-lg bg-[var(--bg-main)]/70 px-3 py-3 shadow-inner ring-1 ring-inset ring-[var(--border-color)]/50">
-                                <div class="mb-3 flex items-center justify-between">
-                                    <div class="flex items-center gap-2">
-                                        <span class="i-lucide-git-commit h-4 w-4 text-[var(--text-muted)]"></span>
-                                        <div class="text-[12px] font-semibold text-[var(--text-main)]">Plots ({{ renderedScenePlots(scene.id).length }})</div>
-                                    </div>
-                                    <button type="button" class="inline-flex h-7 items-center gap-1.5 rounded-md border border-[var(--border-color)]/80 bg-[var(--bg-panel)] px-2.5 text-[11px] font-medium text-[var(--text-secondary)] shadow-sm transition-colors hover:border-[var(--border-color-hover)] hover:text-[var(--text-main)]" @click="emit('createPlot', scene.id)">
-                                        <span class="i-lucide-plus h-3.5 w-3.5"></span>
-                                        添加 Plot
-                                    </button>
-                                </div>
-                                <DragDropProvider
-                                    v-if="renderedScenePlots(scene.id).length"
-                                    :plugins="defaultPreset.plugins"
-                                    :sensors="dndSensors"
-                                    @drag-start="handlePlotDragStart"
-                                    @drag-over="handlePlotDragOver"
-                                    @drag-end="handlePlotDragEnd"
-                                >
-                                    <div class="space-y-2">
-                                        <PlotWorkbenchSortablePlotRow
-                                            v-for="(plot, plotIndex) in renderedScenePlots(scene.id)"
-                                            :key="plot.id"
-                                            :plot="plot"
-                                            :index="plotIndex"
-                                            :scene-id="scene.id"
-                                            :can-move-up="plotIndex > 0"
-                                            :can-move-down="plotIndex < renderedScenePlots(scene.id).length - 1"
-                                            @edit-plot="emit('editPlot', $event)"
-                                            @delete-plot="emit('deletePlot', $event)"
-                                            @move-plot="movePlot"
-                                        />
-                                    </div>
-                                </DragDropProvider>
-                            </div>
-                        </div>
-                    </PlotWorkbenchSortableSceneCard>
+                    />
                 </div>
             </DragDropProvider>
 

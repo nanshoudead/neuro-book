@@ -3,7 +3,7 @@
 ## 任务概述
 
 **创建时间**：2026-06-21  
-**状态**：🟢 已实施，本轮完成 durable pending / resume 收口  
+**状态**：🟢 已实施，`request_user_input` 已从 Low-Code Form 拆出  
 **优先级**：P1（功能增强）  
 **前置依赖**：Task 62.1.2（多 pendingApprovals 支持）
 
@@ -46,10 +46,10 @@ async execute(toolCallId, args) {
 - **本质**：单个 `radio` 字段
 
 **2. 问答列表（Request User Input）**
-- **展示**：多个问题，每个问题可以是文本输入、单选、多选
-- **返回**：`{ answer_0: "val1", answer_1: "val2", ... }`
+- **展示**：分页问题，每题支持开放文本或单选 options；composer 文本作为当前题 note
+- **返回**：`answers[]`，每项包含 `questionIndex`、可选 `selectedOptionIndex`、`note`、`ignored`
 - **示例**：Agent 需要用户回答多个问题
-- **本质**：多个 `text`/`select`/`checkbox` 字段
+- **本质**：专用问答协议，不走 Low-Code Form
 
 **3. 结构化表单（LLM 生成）**
 - **展示**：复杂表单（文本、数字、下拉、开关等）
@@ -57,15 +57,16 @@ async execute(toolCallId, args) {
 - **示例**：配置数据库连接、API 参数等
 - **本质**：完整的 Low-Code Form
 
-### 统一方案：复用 Low-Code Form
+### 当前方案：问答协议与 Low-Code Form 分离
 
-所有"获取用户输入"都通过 Low-Code Form 实现：
+Low-Code Form 基础设施保留给结构化表单工具；`request_user_input` 不再复用 Low-Code Form：
 - ✅ 已有完整的前端组件（`app/components/common/low-code-form/`）
 - ✅ 支持 8 种基础组件：text、textarea、number、switch、select、combobox、radio、checkbox
 - ✅ 支持嵌套路径、验证、默认值
 - ⚠️ 第一版不支持：文件上传、动态字段刷新、条件显隐
+- ✅ `request_user_input` 只支持问题、单选 options、开放 note；不支持默认值、多选或推荐字段
 
-**不需要新建"审批专用"组件**，直接复用现有基础设施。
+**不需要删除 Low-Code Form 基础设施**，但它不再是 `request_user_input` 的入口。
 
 ---
 
@@ -134,3 +135,14 @@ type UserInputFormSpec = {
 - 权限校验必须前置：`approvalRequired` 与 `userInputRequest` 都属于 user resolution suspend point，进入 waiting 前必须通过工具存在性、profile allowed keys 和 exit plan preview 路径校验；未授权工具写错误 toolResult，不展示 pending UI。
 - Plan Mode resolution 必须按 toolName + decision 处理：`enter_plan_mode` / `exit_plan_mode` 同时接受旧 `tool_approval.approved` 与 Low-Code Form `user_input.data.approved`，并统一更新 `ui.planMode.active` / `agent.planMode`。
 - `exit_plan_mode` 的计划预览继续保留在 toolResult `details.data.planFilePath` / `details.data.planContent`，同时 Low-Code Form 用户提交保留在 `details.data.userInput`。
+
+### 2026-06-30 request_user_input 协议收窄
+
+本轮把 `request_user_input` 从 Low-Code Form 分支中拆出，避免专用问答工具继续承担复杂表单协议：
+
+- LLM 参数只保留 `questions[].header/question/options[].label/description`；`recommended/defaultSelected/defaultOptionIndex/defaultOptionIndexes/multiSelect` 均被 schema 拒绝。
+- `request_user_input.userInputRequest.when()` 只返回 `true`，pending snapshot / SSE / session projection 均不再给 request 工具附带或恢复 `formSpec`。
+- 用户答案只保留单选 `selectedOptionIndex`、`note`、`ignored` 和可读 `text`；`selectedOptionIndexes` 与多选历史展示删除。
+- 前端 `AgentUserInputPrompt` 继续使用分页问答卡：一题一页，note-only 可推进当前题，最后一题提交完整 `answers`。
+- Low-Code Form 仍服务其它工具和未来独立表单工具，不再作为 `request_user_input` 的测试案例。
+- 用户输入公开事件收敛为 `input.emit(raw event) -> projectRuntimeEvent() -> emitRuntimeEvent()` 单一路径，避免 SSE 重复 pending；`request_user_input` 继续不公开 `formSpec`。

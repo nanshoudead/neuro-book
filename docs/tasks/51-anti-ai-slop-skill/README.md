@@ -16,6 +16,8 @@
 
 **2026-06-29 update 4**：硬切删除旧格式兼容字段和公开单文件导入入口；`.agent/workspace/llmlint_rules` 只作为官方默认规则集的策展素材。
 
+**2026-06-30 update**：`builtin/default` 规则资产硬切为 `rules/` 层级目录递归加载，`ruleset.json` 不再声明规则文件清单，也不兼容旧根 `rules.json`。
+
 **核心需求**：
 1. CLI 工具：类似 eslint 的文本检查器，输出问题列表
 2. Agent Skill：完整的润色工作流程，包含 LLM 审查 + Web 调研 + 用户审批 + 自动修复
@@ -66,7 +68,7 @@
 - ✅ CLI 输出格式设计（类似 eslint）
 - ✅ 完整的 6 步润色流程设计
 - ✅ 规格说明文档（`.agent/workspace/anti-ai-slop-spec.md`）
-- ✅ 规则 JSON 文件（rulesets/builtin/default/ruleset.json, rules.json）
+- ✅ 规则 JSON 文件（rulesets/builtin/default/ruleset.json + rules/ 层级目录）
 - ✅ CLI 检查工具（llmlint/bin/llmlint.ts + src 模块）
 - ✅ SKILL.md 和 reference 文档
 - ✅ 2026-06-14：注入 stop-slop 本地化规则，新增快速审查评分流程
@@ -77,6 +79,7 @@
 - ✅ 2026-06-29：策展合并中文规则样本，并最终收敛到默认 `builtin/default`
 - ✅ 2026-06-29：默认入口合并为 `builtin/default`，中文规则 ID 改为语义 slug
 - ✅ 2026-06-29：硬切删除旧格式兼容字段和公开单文件导入入口
+- ✅ 2026-06-30：默认规则资产硬切为 `rules/` 层级目录递归加载
 
 ## Decisions / Discussion
 
@@ -253,9 +256,9 @@
 
 **测试用例 1**：基本检查
 ```bash
-workspace node cli check test-input.md
+bun .nbook/agent/skills/llmlint/bin/llmlint.ts check test-input.md
 ```
-期望输出：按类别分组的问题列表，包含行号、问题类型、修复建议
+期望输出：按 high / medium / low 分段的问题列表，包含行列范围、规则、命中文本和修复建议
 
 **测试用例 2**：测试文本内容
 ```markdown
@@ -339,7 +342,7 @@ python -m json.tool <file>.json  # 所有 JSON 文件通过验证
 - ✅ 使用 Bun.file().json() API 加载规则（避免编码问题）
 - ✅ 实现按类别分组输出
 - ✅ 实现类似 eslint 的格式化输出
-- ✅ 支持 --static-only 和 --category 选项
+- ✅ 支持 `--min-level` 级别过滤
 - ✅ 正确的退出码（error 时返回 1）
 
 **验证**：
@@ -417,9 +420,10 @@ bun assets/workspace/.nbook/agent/skills/llmlint/bin/llmlint.ts check .agent/tes
 
 ### 已完成的产物
 
-1. **规则文件**（3 个 JSON）：
+1. **规则文件**（rules/ 层级目录）：
    - `rulesets/builtin/default/ruleset.json`
-   - `rulesets/builtin/default/rules.json`
+   - `rulesets/builtin/default/rules/absolute/index.json`
+   - `rulesets/builtin/default/rules/vocabulary/r18.json`
 
 2. **CLI 工具**：
    - `bin/llmlint.ts` + `src/` 模块
@@ -569,7 +573,7 @@ printReport(grouped, suggestions);
 ```
 
 **验证**：
-- 运行 `workspace node cli check test.md`
+- 运行 `bun .nbook/agent/skills/llmlint/bin/llmlint.ts check test.md`
 - 检查输出格式
 - 验证行号准确性
 
@@ -614,7 +618,10 @@ printReport(grouped, suggestions);
 ## 工具使用
 
 ### CLI 检查
-bash: workspace node cli check <file>
+```bash
+bun .nbook/agent/skills/llmlint/bin/llmlint.ts check <file>
+bun .nbook/agent/skills/llmlint/bin/llmlint.ts check <file> --min-level medium
+```
 
 ### Web 调研
 当遇到专有名词、科幻设定、同人梗等不确定内容时：
@@ -658,11 +665,13 @@ write: 生成报告
 - [x] 2026-06-29：升级为 flat Rule Registry，加入 ruleset / namespace / rule 三层配置、override diagnostics、curated 默认规则集生成和 JSON 输出
 - [x] 2026-06-29：策展合并 `.agent/workspace/llmlint_rules`，通过内部模块生成单一中文精选 ruleset
 - [x] 2026-06-29：合并官方默认 ruleset 为 `builtin/default`，中文规则 ID 语义化
+- [x] 2026-06-29：优化 CLI stylish 输出，按 high / medium / low 分段，默认紧凑显示行列范围和命中文本，并支持 `--min-level`
+- [x] 2026-06-29：新增 `--show-lines`，小文件或人类阅读时显示完整命中行与 `<mark>`
 
 ### 后续增强（第二版）
 - [ ] 为快速审查评分沉淀更稳定的示例集
-- [ ] 支持 --context 显示详细上下文
-- [ ] 支持 --category 过滤特定类别
+- [x] 支持完整命中行上下文
+- [ ] 支持 namespace / rule 维度的临时 CLI 过滤
 - [ ] 性能优化（大文件处理）
 
 ### 长期规划

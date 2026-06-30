@@ -9,7 +9,6 @@ import {
     ChapterStatusSchema,
 } from "nbook/shared/dto/novel-chapter.dto";
 import {
-    StoryPlotKindSchema,
     StoryRefDtoSchema,
     StorySceneStatusSchema,
     StoryThreadStatusSchema,
@@ -151,37 +150,6 @@ const storySceneSchema = z.object({
     description: "用于编辑场景摘要、目的、写作提示和引用。",
 } satisfies FormMeta);
 
-const storyPlotSchema = z.object({
-    kind: StoryPlotKindSchema.optional().meta({
-        label: "Plot 类型",
-        aiEditable: true,
-        inlineAnnotation: false,
-    } satisfies FieldMeta),
-    summary: z.string().optional().meta({
-        label: "摘要",
-        aiEditable: true,
-        inlineAnnotation: true,
-    } satisfies FieldMeta),
-    effect: z.string().nullable().optional().meta({
-        label: "结果",
-        aiEditable: true,
-        inlineAnnotation: true,
-    } satisfies FieldMeta),
-    writingTip: z.string().nullable().optional().meta({
-        label: "写作提示",
-        aiEditable: true,
-        inlineAnnotation: true,
-    } satisfies FieldMeta),
-    note: z.string().nullable().optional().meta({
-        label: "备注",
-        aiEditable: true,
-        inlineAnnotation: true,
-    } satisfies FieldMeta),
-}).meta({
-    title: "Plot 表单",
-    description: "用于编辑单个 plot 节点的摘要、结果、写作提示与备注。",
-} satisfies FormMeta);
-
 function buildSchemaMeta(
     formKind: FormAnnotationKindDto,
     schema: z.ZodObject<Record<string, z.ZodType<JsonValue | undefined>>>,
@@ -220,5 +188,4 @@ export const FORM_ANNOTATION_REGISTRY: Record<FormAnnotationKindDto, FormAnnotat
     chapter_meta: createRegistryItem("chapter_meta", chapterMetaSchema),
     story_thread: createRegistryItem("story_thread", storyThreadSchema),
     story_scene: createRegistryItem("story_scene", storySceneSchema),
-    story_plot: createRegistryItem("story_plot", storyPlotSchema),
 };

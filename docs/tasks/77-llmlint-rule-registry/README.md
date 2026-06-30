@@ -404,6 +404,336 @@ export default {
 - `bun workspace/.nbook/agent/skills/llmlint/bin/llmlint.ts --help`：通过，只显示 `check` 和 `show-llm-rules`。
 - `bun workspace/.nbook/agent/skills/llmlint/bin/llmlint.ts show-llm-rules --format json`：通过，默认 registry 为 `builtin/default`，292 rules / 263 active。
 
+后续修正：
+
+- 修复手改旧 llmlint 官方文件的重复 warning：deleted-state 清理阶段已经报告“用户覆盖已手改”后，hard-cut 目录扫描不再对同一个 asset 追加第二条 warning。
+- `bun vitest run server/workspace-files/workspace-files.test.ts -t "旧 llmlint"`：通过，覆盖手改旧文件保留且仅产生 1 条 warning。
+- `bun run typecheck`：通过。
+
+### 2026-06-29 CLI 输出格式优化
+
+问题：
+
+- `check` 的 stylish 输出只截取命中前后各 20 个字符，长句上下文不完整，不利于 Agent 按行号定位修稿。
+- 原来的 `^^` 指示线在中文双宽字符下视觉对齐不可靠。
+- 长文默认规则命中较多，缺少 CLI 级别过滤手段，只能靠配置关闭规则。
+
+已完成：
+
+- `src/scanner.ts` 的 issue context 改为完整命中行三段式：`before` / `current` / `after` 覆盖整行。
+- `src/reporter.ts` 的 stylish 输出改为 high / medium / low 分段，再按 rule 分组；命中位置用 `<mark>...</mark>` 标注，不再输出 caret 指示线。
+- `check` 新增 `--min-level high|medium|low`，默认 `low`；过滤时 stylish 和 JSON 都记录隐藏数量。
+- JSON check report 新增可选 `filter` 字段：`minLevel` 与 `hiddenIssues`。
+- `SKILL.md`、`references/cli-usage.md`、`references/workflow.md` 同步到新输出格式。
+- 通过 user-assets 同步更新真实 `workspace/.nbook/agent/skills/llmlint/` 副本。
+
+修复方式统计：
+
+- 默认 `builtin/default` 中 regex 静态规则共 284 条。
+- `replace` action 269 条，其中删除建议 126 条，替换候选 143 条。
+- `suggest` action 15 条。
+- 第一版仍不自动 `--fix`；修复由 Agent 根据上下文和用户审批执行。
+
+验证结果：
+
+- `bun vitest run server/agent/skills/llmlint.test.ts`：通过，覆盖 severity 分段、完整行 `<mark>` 标注和 `--min-level` 过滤。
+- `bun run typecheck`：通过。
+- `bun scripts/cli/sync-user-assets.ts`：通过，`updatedAssets=1`。
+- `bun workspace/.nbook/agent/skills/llmlint/bin/llmlint.ts check --help`：通过，显示 `--min-level <level>`。
+- `bun workspace/.nbook/agent/skills/llmlint/bin/llmlint.ts check workspace/ming-ding-zhi-shi-2/manuscript/001-volume/001-chapter/index.md --min-level medium`：通过，输出完整行 `<mark>`，显示 343 条 medium，隐藏 6 条 low。
+- `bun workspace/.nbook/agent/skills/llmlint/bin/llmlint.ts check workspace/ming-ding-zhi-shi-2/manuscript/001-volume/001-chapter/index.md --min-level high`：通过，未发现 high，隐藏 349 条较低级别命中。
+
+计划出入：
+
+- 本轮没有新增自动修复；只优化候选报告和过滤体验。
+- 真实章节验证显示默认规则在中文小说上 medium 候选仍偏多，尤其破折号、比喻、泛词类规则需要后续做规则质量和误伤治理。
+
+### 2026-06-29 CLI 紧凑输出模式
+
+问题：
+
+- 完整行 `<mark>` 输出在同一行有多条命中时会反复打印同一原文行，长文报告噪声过高。
+
+已完成：
+
+- `Issue` 增加 `endLine` / `endColumn`，JSON 输出保留完整 context 并携带结束位置。
+- stylish 默认输出改为紧凑模式：`line:start-end  match: 命中文本`，不显示完整原文行。
+- `check` 新增 `--show-lines`，显式开启完整行 `<mark>` 输出；该 flag 只影响 stylish，不影响 JSON。
+- `--min-level` 可与 `--show-lines` 组合使用。
+- `SKILL.md`、`references/cli-usage.md`、`references/workflow.md` 同步为默认紧凑输出口径。
+
+验证目标：
+
+- 默认 stylish 输出不包含完整原文行或 `<mark>`。
+- `--show-lines` 输出完整命中行并包含 `<mark>`。
+- JSON 输出继续包含 `context`，并新增 `endLine` / `endColumn`。
+
+后续修正：
+
+- 更广审查发现 `endColumn` 对 surrogate pair 字符会多算 1，例如 `😀` 被输出为 `1:1-2`，不符合“人类可读字符列”契约。
+- 修复 scanner 的结束位置计算：起点仍按 code point 前缀计数，终点改为用匹配 exclusive end 统计 code point 闭区间列；跨行命中继续显示 `startLine:startColumn-endLine:endColumn`。
+- 增加 emoji、emoji + 普通字符、跨行命中的单测。
+- `bun vitest run server/agent/skills/llmlint.test.ts server/agent/skills/skill-catalog.test.ts`：通过。
+- `bun run typecheck`：通过。
+- `bun scripts/cli/sync-user-assets.ts`：通过，用户侧 `workspace/.nbook/agent/skills/llmlint/src/scanner.ts` 已同步系统源。
+- 边界验证：`😀` 输出 `1:1-1:1`，`😀A` 输出 `1:3-1:4`，`甲\n乙` 输出 `2:1-3:1`。
+
+### 2026-06-29 Review / Fixability 维度与默认降噪
+
+问题：
+
+- 默认 `check` 把标点、比喻、泛词等 regex 命中一并刷给 Agent，真实章节默认 349 条 medium 候选，噪声过高（上一轮“CLI 紧凑输出模式”遗留）。
+- `level` 同时承担严重度、是否喂 LLM、退出码三件事，受众语义被挤压。
+
+决策（按本轮讨论收敛）：
+
+- `level` 保持 3 档只表严重度，不细分。
+- 新增独立维度 `review`（agent / human / none）决定一条命中默认进入哪个审查出口；用 `agent` 而非 `llm` 避免与 `detector.type === "llm"` 撞名。
+- 新增独立维度 `fixability`（auto / candidate / manual）描述机械修复能力，本轮只展示、不实现 `--fix`。
+- curation 主交付物是命名空间策略表 `DEFAULT_NAMESPACE_POLICY`（`src/namespaces.ts`），不是 schema 本身；review/fixability 在 loader 加载时解析，不重生成 `rules.json`。
+
+已完成：
+
+- `src/types.ts`：新增 `Review` / `Fixability` / `RuleOverrideObject`；`RuleOverride` 扩成「字符串简写 | 对象形态」；`BaseLintRuleRecord` 加可选 `review` / `fixability`，`ActiveRuleRecord` 加解析后必有的 `review` / `fixability`；`CheckJsonReport.filter` 改为必有的 `{review, hiddenByReview, minLevel, hiddenByLevel}`。
+- `src/namespaces.ts`：新增 `DEFAULT_NAMESPACE_POLICY`，把 `punctuation.dedup` 降为 review:none/fixability:auto，把 `punctuation.dash*`、`proliferation.mixed`、`metaphor*`、`modifier*`、`absolute`、`abstraction.hollow`、`paragraph.*`、`rhythm`、`numeral.three` 降为 review:human。
+- `src/rules.ts`：loader 解析 review/fixability，优先级 `用户config规则 > 用户config命名空间 > 规则自带字段 > 命名空间策略表 > detector/action 推导`；`applyOverride` 支持对象覆盖只调整不禁用。
+- `src/config.ts`：`namespaces` / `rules` 覆盖同时接受字符串和 `{level,review,fixability}` 对象，并校验非法 review/fixability/level 值。
+- `src/reporter.ts`：规则来源行展示 `级别/审查/修复`；新增 review 过滤表头与 review/level 双桶隐藏统计；JSON filter 重构。
+- `src/cli.ts`：`check` 新增 `--review agent|human|none|all`，默认 `agent`；两段过滤（先受众后级别）各自独立统计隐藏数。
+- `SKILL.md`、`references/cli-usage.md`、`references/workflow.md`、`llmlint.config.example.ts` 同步新口径，并明确 `detector:llm`（检测手段）与 `review:agent`（审查受众）是互补的两个 Agent 审查面。
+
+计划出入：
+
+- 不引入单独的 NormalizedRuleOverride 类型：为避免破坏 `loadRules({namespaces:{tone:"low"}})` 等传字符串的既有测试，改为把 `RuleOverride` 扩成联合类型、消费端兼容两种形态。
+- 不改 `curated-import.ts`、不重生成 `rules.json`：review/fixability 全部 load 时解析；命名空间策略表是唯一改动单点。
+- fixability 本轮只标注与展示，未实现 `--fix`；`auto` 仅为后续自动修复预留能力标注。
+- 命名空间策略首批只覆盖最响的噪声主犯；`sentence.compound`、`regex.advanced`、`punchline` 等仍默认 `agent`，按项目偏好可继续调表（改表不需重生成 rules.json）。
+
+验证结果：
+
+- `bun run typecheck`：通过。
+- `bun vitest run server/agent/skills/llmlint.test.ts`：通过，27 个用例（含 review/fixability 解析、对象覆盖优先级、CLI review 过滤、JSON filter、非法值 schema 错误 5 个新用例）。
+- `bun scripts/cli/sync-user-assets.ts`：通过，`updatedAssets=10`，真实用户侧 workspace 已拉齐。
+- 真实章节 `workspace/ming-ding-zhi-shi-2/manuscript/001-volume/001-chapter/index.md`：默认 `--review agent` 61 条（隐藏 288）、`--review all` 349 条（旧基线）、`--review human` 288 条（modifier / punctuation.dash / proliferation.mixed / modifier.measure / metaphor / absolute / numeral.three）、`--review none` 0 条；来源行与 review 表头渲染正确。
+
+### 2026-06-30 Override 语义统一（修审查发现 #1/#2/#3/#4）
+
+问题（high-effort code review 发现）：
+
+- #1：对象形态覆盖无法启用「默认禁用」的规则（applyOverride 对象分支不碰 enabled），与字符串 `"medium"` 会启用不对称，迁移时静默丢规则。
+- #2：对象形态覆盖会复活被 `rulesetOverrides off` 关闭的规则（isExplicitlyEnabled 把任何非 off 真值覆盖判为显式启用），与「对象只调整」文档矛盾。
+- #3：默认 `--review agent` 把 human/none 桶的 high 命中排除在退出码外（潜在）。
+- #4：隐藏数量在过滤表头和总结行重复打印。
+
+根因：override 有「字符串 / 对象」两种形态，而 `applyOverride`（应用）与 `isExplicitlyEnabled`（门控）两处各自解释，对「对象是否算启用」判断不一致。
+
+决策（用户确认）：
+
+- 对象覆盖暴露显式 `enabled?: boolean`；字符串成为它的语法糖（off→{enabled:false}、warn/error/level→{enabled:true,level:X}）。
+- 退出码跟随可见视图，保持现状，只加注释与文档说明。
+
+已完成：
+
+- `src/types.ts`：新增内部归一形态 `NormalizedRuleOverride`；`RuleOverrideObject` 加 `enabled?`；`NormalizedLlmlintConfig.namespaces/rules` 改为 `Record<string, NormalizedRuleOverride>`，loader 输入契约变为「已归一」。
+- `src/config.ts`：`normalizeOverrideValue` 把字符串与对象都归一为单一 patch（唯一去糖点 `expandStringOverride`）；对象允许 `enabled`，warn/error→level 映射从 rules.ts 上移到此。
+- `src/rules.ts`：`applyOverride` 改为无分支字段 patch；`isExplicitlyEnabled` 改为只看 patch 的 `enabled`（rule 覆盖显式 enabled 决定，否则看 namespace `enabled===true`）；删除 `normalizeLevel`。两个解释器合一。
+- `src/reporter.ts`：总结行不再重复隐藏统计，非空结果只由顶部 `formatFilterHeader` 展示一次。
+- `src/cli.ts`：退出码处加注释说明跟随可见视图。
+- `SKILL.md`、`cli-usage.md`、`llmlint.config.example.ts`：补 `enabled` 字段、字符串=语法糖语义、退出码过滤说明。
+
+设计约束（防再犯）：override 现在只有 config 一处去糖、一个归一形态，消费端无分支 patch，结构上杜绝「两处解释器跑偏」。
+
+验证：
+
+- `bun run typecheck`：通过（仅 3 处直传 loadRules 字符串的测试需改归一对象，已改）。
+- `bun vitest run server/agent/skills/llmlint.test.ts server/agent/skills/skill-catalog.test.ts`：35 通过，含新增「对象 enabled 启用默认禁用规则」「纯属性对象不复活 off ruleset / 显式 enabled 才复活」「config 字符串语法糖仍启用」3 例。
+- `bun scripts/cli/sync-user-assets.ts`：`updatedAssets=8`。
+- 真实章节默认 `--review agent` 仍 61 条，隐藏统计只在表头出现一次（#4）。
+- 真实 CLI + config 文件 e2e：关闭 ruleset 后，纯属性 `{review:"human"}` 不复活（✓ No problems），`{enabled:true,review:"human"}` 复活并在 `--review human` 可见（#1/#2）。
+
+### 2026-06-30 Rules 目录硬切自动加载
+
+问题：
+
+- `builtin/default/rules.json` 已膨胀到约 18 万字符，所有人工基础规则、中文策展规则和 R18 词汇混在一个大 JSON 中，维护与审查都不方便。
+- 上一版 `ruleFiles` 清单把文件组织继续写进 `ruleset.json`，会制造新的维护清单；旧根目录 `rules.json` 回退也会让内置默认规则存在双入口风险。
+
+决策：
+
+- 不拆公开 ruleset；`builtin/default` 仍是唯一默认入口，继续包含 R18。
+- 本轮硬切，不保留 `ruleFiles`、`rulesRoot` 或旧根目录 `rules.json` 兼容。
+- 每个 ruleset 固定从根目录下 `rules/` 递归扫描所有 `.json` 规则数组文件，按相对路径字典序加载。
+- 目录层级只服务人工维护，不参与规则语义；唯一语义来源仍是 rule record 内的 `namespace`。
+- 内置默认规则按 namespace 生成层级文件：单段 namespace 写 `rules/<namespace>/index.json`，点号 namespace 写 `rules/<a>/<b>.json`，例如 `rules/absolute/index.json`、`rules/abstraction/hollow.json`、`rules/vocabulary/r18.json`。用户开关类别仍使用 `namespaces`，不要手改内置规则文件。
+
+已完成：
+
+- `src/types.ts`：`RulesetManifest` 删除 `ruleFiles`，不新增 `rulesRoot`。
+- `src/rules.ts`：loader 拒绝 manifest 中的 `ruleFiles` / `rulesRoot`，拒绝根目录 `rules.json`，要求 `rules/` 存在且至少包含一个 `.json` 文件；JSON 不是数组或 rule schema 非法时错误带 ruleset 相对路径与数组索引。
+- `src/curated-import.ts`：生成前删除旧 `rules.json` 并清空 `rules/`，按 namespace 输出层级规则文件，生成的 `ruleset.json` 只保留元信息与 `namespaceAliases`。
+- `rulesets/builtin/default/`：已重建为层级 `rules/` 目录；总计仍为 292 rules / 263 active，其中 `rules/vocabulary/r18.json` 为 20 条 R18 规则。
+- `server/workspace-files/novel-workspace.ts`：user-assets 同步新增受管目录 stale asset 清理，能删除上一版未手改的旧平铺文件，例如 `rules/vocabulary.r18.json`；手改旧受管文件 warning 保留。
+- `SKILL.md`、`references/cli-usage.md`、`references/patterns.md`、`PROJECT-STATUS.md` 同步到新口径。
+
+验证：
+
+- `bun vitest run server/agent/skills/llmlint.test.ts server/agent/skills/skill-catalog.test.ts`：通过，2 files / 38 tests，覆盖递归加载、目录不参与 namespace 语义、旧 `ruleFiles` / `rulesRoot` / 根 `rules.json` 拒绝，以及 curated import 层级规则文件结构。
+- `bun vitest run server/workspace-files/workspace-files.test.ts -t "llmlint|系统 assets"`：通过，17 passed / 67 skipped，覆盖新 `rules/vocabulary/r18.json` 同步、旧 `rules/vocabulary.r18.json` 清理和手改旧受管文件 warning 保留。
+- `bun scripts/cli/sync-user-assets.ts`：通过，`copied=47, skipped=204, updatedProfiles=0, updatedAssets=7`，真实 user-assets 已同步新层级规则文件并清理旧入口。
+- `bun workspace/.nbook/agent/skills/llmlint/bin/llmlint.ts show-llm-rules --format json`：通过，真实用户侧默认 registry 仍为 `builtin/default`，292 rules / 263 active，`vocabulary.r18` 20 active。
+- 结构审计：系统源与真实 workspace 均无 `ruleFiles` / `rulesRoot`、无根 `rules.json`、无旧平铺 `rules/vocabulary.r18.json`；`rules/vocabulary/r18.json` 存在，47 个规则文件，292 rules / 263 active，重复 id 为 0。
+- `bun run typecheck`：通过。
+
+计划出入：
+
+- 相比上一版“`ruleset.json` 写 `ruleFiles` 清单”，本轮按用户决策改为零清单递归扫描。
+- 不再为了测试 fixture 或未来自定义 ruleset 保留旧 `rules.json` 回退；所有 ruleset 都必须迁移到 `rules/`。
+- 本轮没有把 R18 做成独立 ruleset；它只是拆到 `rules/vocabulary/r18.json`，配置仍用 `namespaces: {"vocabulary.r18": "off"}` 控制。
+
+### 2026-06-30 Rules 目录硬切审查修复
+
+审查发现：
+
+- `rules` 路径如果被误建为文件，loader 会冒出底层 `ENOTDIR`，不如其它 ruleset 错误清晰。
+- 规则 JSON 语法错误直接冒出 `JSON.parse` 原始错误，缺少 ruleset 相对路径，不利于维护。
+- Task 51 当前状态仍写旧 `rules.json` 产物，容易让后续维护者误读当前结构。
+
+已完成：
+
+- `src/rules.ts`：校验 `rules/` 必须是目录；JSON 语法错误会报告 `规则包 <id> 的 <relative-rule-file> 不是合法 JSON`。
+- `server/agent/skills/llmlint.test.ts`：新增 `rules` 为文件、规则 JSON 语法损坏两个负向用例。
+- `docs/tasks/51-anti-ai-slop-skill/README.md`：当前状态与产物清单改为 `rules/` 层级目录口径，保留早期历史段落。
+
+验证：
+
+- `bun vitest run server/agent/skills/llmlint.test.ts server/agent/skills/skill-catalog.test.ts`：通过，2 files / 39 tests。
+- `bun scripts/cli/sync-user-assets.ts`：通过，`copied=0, skipped=257, updatedProfiles=0, updatedAssets=1`。
+- `bun workspace/.nbook/agent/skills/llmlint/bin/llmlint.ts show-llm-rules --format json`：通过，真实用户侧默认 registry 仍为 `builtin/default`，292 rules / 263 active。
+- `bun workspace/.nbook/agent/skills/llmlint/bin/llmlint.ts check assets/workspace/.nbook/agent/skills/llmlint/SKILL.md --format json`：通过，registry 无 diagnostics。
+- `bun run typecheck`：失败，但失败不在 llmlint；当前错误为 `server/agent/tools/control-tools.ts(95,24)` 找不到 `buildRequestUserInputFormSpec`。
+
+### 2026-06-30 v1 规则内容建设：取三同类项目精华
+
+需求：让 llmlint 规则内容成体系、默认即最佳实践，从用户提供的三个同类项目（`.agent/github/`）取精华。v1 原则：规则越多越细越好、容忍误杀、尽量 static。
+
+决策（用户确认）：三项目 = shuorenhua（主矿，中文原生）/ avoid-ai-writing（44 类 taxonomy + 通用机械规则）/ humanizer（Wikipedia 概念清单）；保留并扩充现有 292 条、合并进 builtin/default；扩展生成器（手写规则进 base-rules，curated-import 仍是唯一源头，绝不手改生成产物 `rules/`）。
+
+已完成：
+
+- `src/base-rules.ts` 改为聚合器：保留原 27 条核心规则为 `CORE_BASE_RULES`，新增规则按主题拆到 `src/base-rules/` 目录（openers/inflation/transitions/attribution/assistant/jargon/translationese/tier2），共 34 条新 static 规则。
+- 主来源 shuorenhua/phrases-zh.md，按其 severity Tier 模型映射：Tier1 → agent 桶（medium），Tier2/3 密度类 → human 桶（low）。误杀防护 11 条写进规则 `note`。Tier3 单字常用词（重要/关键/核心）故意不收（逐次 regex 误杀过大）。
+- 新增 agent 桶命名空间：`opening.cliche` / `inflation.significance` / `transition.summary` / `attribution.vague` / `cliche.uplift` / `sycophantic`；新增 human 桶命名空间：`jargon.engineer` / `jargon.social` / `translationese` / `structure.fragment`。
+- `src/namespaces.ts`：`DEFAULT_NAMESPACE_POLICY` 给 4 个 human 桶新命名空间定策略；`DEFAULT_NAMESPACE_ALIASES` 补中文组名 alias。
+- 重生成 `builtin/default`：326 rules / 297 active（原 292 / 263，+34）。`llmlint.test.ts` 计数 292→326、263→297 已更新，并加 `opening-cliche-announce` / `inflation-novelty` 断言。
+- 文档：`SKILL.md` / `references/patterns.md` / `llmlint.config.example.ts` 同步新命名空间、Tier→桶映射、规则来源与最佳实践用法。
+
+验证：
+
+- `bun run typecheck`：通过。
+- `bun vitest run server/agent/skills/llmlint.test.ts server/agent/skills/skill-catalog.test.ts`：39 通过。
+- 重生成报告：源 11 文件 / 533 target / 326 unique / 297 active。
+- `bun scripts/cli/sync-user-assets.ts`：通过。
+- 样例文本（含「值得一提的是/前所未有/综上所述/赋能/研究表明/让我们拭目以待」）：8 条新规则全部命中并给出动作。
+- 真实小说章节默认 `--review agent` 仍 61 条（新规则多为 article/chat 腔，在干净小说里休眠、不增噪），`--review all` 349→352；human 桶正确捕获 `structure.fragment` 戏剧化碎句。registry 57 namespaces。
+
+计划出入：
+
+- 新规则在真实小说章节几乎不命中——这是预期：这批主要是 AI 文章/聊天腔，面向小说时休眠、面向 AI 生成文章时密集命中，不给小说默认视图增噪。
+- 规模约 34 条（覆盖 shuorenhua Tier1 主体 + 关键 Tier2）；Tier3 密度类与英文字面 regex 按计划不搬。
+
+### 2026-06-30 审查后补充：机械痕迹包 + 覆盖扩充
+
+审查发现两处缺口：①规则数 34 低于计划的 50–80；②avoid-ai-writing 的通用机械检测器（语言无关）完全没挖。另修了 3 处 target 重叠双命中（众所周知 / 不可否认 / 闭环）。
+
+已补：
+
+- 新增 `src/base-rules/mechanical.ts`（移植自 avoid-ai-writing，语言无关、高精度）：`mechanical.zero-width`（零宽字符，review:none/auto 直接删）、`mechanical.homoglyph`（西里尔/希腊同形字，review:human）、`mechanical.placeholder`（未填充占位符 `{{}}`/`[姓名]`/`（此处…）`，agent）、`mechanical.chatbot-artifact`（`:contentReference`/`oaicite`/Bing 角标/chatgpt utm 泄漏，agent）。
+- 扩充 shuorenhua 覆盖：sycophantic（郑重预告/身份认证夸奖）、inflation（不仅是…更是/最后比拼的是/宏大叙事）、openers（更重要的是/具体来说）、jargon.engineer/social 补充、translationese（基于…）、attribution（泛化共识）。
+- 共 +14 条，新规则累计 48；`builtin/default` 重生成为 **340 rules / 311 active**。`namespaces.ts` 加 `mechanical.zero-width`(none/auto) 与 `mechanical.homoglyph`(human) 策略。
+- 测试计数 326→340、297→311 已更新，加 `mechanical-zero-width` 断言。`SKILL.md` / `patterns.md` 同步机械痕迹包。
+
+验证：
+
+- `bun run typecheck`：通过。`bun vitest run ...llmlint... ...skill-catalog...`：39 通过。
+- 机械规则实测命中：ZWSP、`[姓名]`/`[XX]` 占位符、`:contentReference[oaicite:0]{index=0}` 均命中。
+- 真实小说默认 `--review agent` 仍 61 条（机械/article 规则在干净小说休眠不增噪）。registry 340/311/61 namespaces。
+
+### 2026-06-30 GitHub 发布骨架收口
+
+需求：把 llmlint 按 GitHub-only + Bun CLI + Agent Skill 的形态准备为独立上游仓库，neuro-book 继续保留 bundled vendored snapshot，不引入 submodule。
+
+决策：
+
+- 独立 repo 工作副本放在 `.agent/workspace/llmlint`，仓库名按计划固定为 `llmlint`。
+- 第一版不做 npm、Homebrew、Docker、VS Code/Cursor 扩展；`package.json.private` 保持 `true`，`bin.llmlint` 保留给本地 link 或未来改 npm 使用。
+- 许可证使用 PolyForm Noncommercial 1.0.0。
+- 版本源为 `package.json.version`；`SKILL.md metadata.version` 和 `src/version.ts` 必须同步，当前均为 `2.0.0`。
+- `assets/workspace/.nbook/agent/skills/llmlint` 是 neuro-book runtime vendored snapshot；`package.json` 保留发布名称、版本、许可、repository、bin 和运行依赖，但有意不带独立 repo 的 `scripts`、`devDependencies`、测试和发布脚本，避免 bundled skill 内出现无效脚本入口。
+
+已完成：
+
+- `.agent/workspace/llmlint` 已初始化为独立 git 工作副本，并保留 `SKILL.md`、`references/`、`rulesets/`、`src/`、`bin/`、`llmlint.config.example.ts`。
+- 独立 repo 新增 `README.md`、`CHANGELOG.md`、`CONTRIBUTING.md`、`AGENTS.md`、`LICENSE`、`tsconfig.json`、`scripts/verify-release.ts`、`tests/llmlint.test.ts`、`.gitignore`、`.gitattributes` 和 `bun.lock`。
+- 独立 repo 与 bundled source 的默认规则资产已对齐为 61 个规则文件、340 rules / 311 active；`rules/vocabulary/r18.json` 仍为 20 条 `vocabulary.r18`，mechanical 规则文件也纳入发布校验。
+- neuro-book `workspace-files` 集成测试已从旧包名 `@neuro-book/llmlint-skill` 更新为断言 `name/version/license`，包名硬切为 `llmlint`。
+
+验证：
+
+- 独立 repo：`bun install` 通过，`bun test` 9 通过，`bun run typecheck` 通过，`bun run verify` 通过，`bun bin/llmlint.ts --version` 输出 `2.0.0`。
+- 独立 repo CLI：`show-llm-rules --format json` 输出 340 total / 311 active；`check README.md --format json` 输出 340 / 311 且可正常返回 issues。
+- neuro-book：`bun vitest run server/agent/skills/llmlint.test.ts server/agent/skills/skill-catalog.test.ts` 2 files / 39 tests 通过。
+- neuro-book：`bun vitest run server/workspace-files/workspace-files.test.ts -t "Agent skills|旧 llmlint" --hookTimeout 60000` 2 passed / 82 skipped，通过新 package 断言和旧 llmlint stale asset 清理。
+- neuro-book：`bun workspace/.nbook/agent/skills/llmlint/bin/llmlint.ts show-llm-rules --format json` 通过，真实 workspace registry 为 340 / 311。
+- neuro-book：`bun run typecheck` 通过。
+
+计划出入：
+
+- 未创建 GitHub remote、commit 或 tag；本轮只收口本地独立 repo 骨架和 neuro-book vendored 集成。
+- 第一次 `bun install` 曾 120 秒超时，但留下的安装状态可复用；重试后 `bun install` 通过并生成/确认 `bun.lock`。
+- bundled runtime snapshot 没有完整复制独立 repo 的测试和发布脚本；这是有意裁剪，避免 user-assets 内出现对 bundled skill 不成立的开发脚本。
+
+### 2026-06-30 GitHub 发布骨架审查修复
+
+审查发现：
+
+- `.agent/workspace/llmlint` 曾在早期 `git add` 后继续更新，git index 处于半旧状态，`bun.lock` 和 `rules/mechanical/*.json` 仍未追踪；如果直接提交会漏发布文件。
+- 真实 `workspace/.nbook/agent/skills/llmlint/package.json` 还未同步 bundled snapshot 的 `repository` 字段。
+
+已修复：
+
+- 在独立 repo 工作副本执行 `git add -A`，当前发布文件全部 staged，未追踪文件为 0。
+- 执行 `bun scripts/cli/sync-user-assets.ts`，结果 `copied=1, skipped=279, updatedProfiles=0, updatedAssets=3`；真实 workspace package 已包含 `name=llmlint`、`version=2.0.0`、`license=PolyForm-Noncommercial-1.0.0` 和 `repository=https://github.com/notnotype/llmlint.git`。
+
+验证：
+
+- `git status --short`（独立 repo）：只剩新增文件 staged，无 untracked。
+- `bun workspace/.nbook/agent/skills/llmlint/bin/llmlint.ts show-llm-rules --format json`：通过，registry 仍为 340 total / 311 active / 29 disabled。
+
+### 2026-06-30 CLI 能力扩展：--fix(auto) + 多文件/目录 + Markdown 感知
+
+需求：把 CLI 从「单文件提示器」做成「稿件级工具」，补三块已实测的短板（代码块/链接误杀、`--fix` 名存实亡、不支持多文件）。
+
+实现（三个独立测试切片）：
+
+- **Markdown 区域遮罩**（新增 `src/markdown-mask.ts`）：纯函数 `computeMaskedRanges` 标出 frontmatter / 围栏代码块 / 行内代码 / 链接图片 / 裸 URL 区间；`scanText` 新增 `maskedRanges` 选项跳过落入其中的命中，不动 `Issue` 类型与行列定位。`.md`/`.markdown` 默认开，`--scan-all` 关。
+- **多文件 / 目录**（`src/cli.ts`）：`check` 与 `fix` 参数改 variadic `<files...>`；目录递归收集 `.md/.markdown/.txt`。单文件 JSON 形态不变（`kind:check`，回归保护），多文件用 `kind:check-multi`（顶层 registry/diagnostics/filter 全局 + `files[]` + 聚合 `summary`）；退出码跨文件取或。
+- **`fix` 命令**（auto 桶）：`fix <files...>` 只应用 `fixability:auto` 规则（当前 = `mechanical.zero-width` + `punctuation.dedup`）；用原生 `String.replace` 支持 `$1` 反向引用与 lookbehind（dedup 规则 `([,，。~！?？])\1+`→`$1`、`(?<=……)[….]+`）；按 masked ranges 分段应用，不改动代码块 / frontmatter；默认 dry-run（有待修退出 1，可做 CI 门禁）、`--write` 落盘。candidate/manual 仍交 Agent + 审批写 `polish-output.md`，不在 `fix` 范围。
+
+变更文件：新增 `src/markdown-mask.ts`；改 `src/scanner.ts`（masked 跳过 + 导出 `ensureGlobalFlags`）、`src/cli.ts`（多文件 + fix + `expandInputs`/`resolveMaskedRanges`/`applyAutoFix`）、`src/reporter.ts`（多文件聚合 + fix 报告 + `revealInvisible` 显形零宽）、`src/types.ts`（`MaskedRange`/`CheckFilterInfo`/`CheckMultiJsonReport`/`Fix*`）；文档 SKILL.md / cli-usage.md / patterns.md；测试 `server/agent/skills/llmlint.test.ts` +11。
+
+验证：
+
+- `bun vitest run server/agent/skills/llmlint.test.ts server/agent/skills/skill-catalog.test.ts`：2 files / 50 passed（llmlint 34→45，+11）。
+- `bun run typecheck`：0 错误（本轮新代码零类型错误；早前 2 个 `server/agent/tools/*` 无关错误已由并行工作修复）。
+- 真实样本：`.md` 默认跳过代码块内 `其实` 与 `[note](url)`，`--scan-all` 复现；`fix` dry-run 退出 1 不改文件、`--write` 删零宽 + `？？？→？` 退出 0，代码块内 `？？？` 完整保留。
+- 真实章节 `ming-ding-zhi-shi-2/.../001-chapter/index.md`：默认 `--review agent` 仍 61（与基线一致），`--scan-all` 也 61（该章无代码块/链接，遮罩零影响），`fix` dry-run 0 处（干净小说无机械垃圾）。
+- 双拷贝：`bun scripts/cli/sync-user-assets.ts`（updatedAssets=2）后 `diff -rq` `assets` 与 `workspace` 两副本 src+SKILL+references 零差异。
+
+计划出入：
+
+- 原计划 glob 用 `Bun.Glob`；实测仓库未装 bun-types（`Bun` 全局无类型，测试传递性 typecheck 会报错），且 bash globstar 默认关、`@types/node` 的 `globSync` 不可靠。改为强类型零依赖的 `node:fs` 目录递归（`readdirSync recursive`）+ 显式多文件，覆盖「扫整部稿件」的真实需求，不留类型债；代价是不支持裸 `*.md` glob 模式（用目录递归或 shell 展开替代）。
+- 标准 GitHub 发布仓库 `.agent/workspace/llmlint` 本轮未同步、未 republish；属独立发布动作，留作后续。
+
 ## References
 
 - 当前 llmlint skill：`assets/workspace/.nbook/agent/skills/llmlint/`

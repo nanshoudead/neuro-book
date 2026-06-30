@@ -10,6 +10,7 @@ export const PROJECT_MANIFEST_FILE = "project.yaml";
 export const PROJECT_DATABASE_RELATIVE_PATH = ".nbook/project.sqlite";
 export const PROJECT_CONFIG_RELATIVE_PATH = ".nbook/config.json";
 export const PROJECT_DELETED_MARKER_RELATIVE_PATH = ".nbook/deleted-project.json";
+const STORY_PLOT_BACKUP_RELATIVE_PATH = ".nbook/story-plot-backup.json";
 
 export type ProjectManifest = {
     kind: "novel";
@@ -85,23 +86,14 @@ CREATE TABLE IF NOT EXISTS "StoryScene" (
     "purpose" TEXT,
     "writingTip" TEXT,
     "note" TEXT,
+    "startInstant" BIGINT,
+    "endInstant" BIGINT,
+    "subjectIdsJson" TEXT NOT NULL DEFAULT '[]',
+    "locationSubjectId" TEXT,
     "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT "StoryScene_storyId_fkey" FOREIGN KEY ("storyId") REFERENCES "Story" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
     CONSTRAINT "StoryScene_threadId_fkey" FOREIGN KEY ("threadId") REFERENCES "StoryThread" ("id") ON DELETE CASCADE ON UPDATE CASCADE
-);
-CREATE TABLE IF NOT EXISTS "StoryPlot" (
-    "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
-    "sceneId" INTEGER NOT NULL,
-    "sortOrder" INTEGER NOT NULL,
-    "kind" TEXT NOT NULL,
-    "summary" TEXT NOT NULL DEFAULT '',
-    "effect" TEXT,
-    "writingTip" TEXT,
-    "note" TEXT,
-    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT "StoryPlot_sceneId_fkey" FOREIGN KEY ("sceneId") REFERENCES "StoryScene" ("id") ON DELETE CASCADE ON UPDATE CASCADE
 );
 CREATE TABLE IF NOT EXISTS "StorySceneRef" (
     "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
@@ -112,15 +104,13 @@ CREATE TABLE IF NOT EXISTS "StorySceneRef" (
     "targetKind" TEXT NOT NULL,
     "targetThreadId" INTEGER,
     "targetSceneId" INTEGER,
-    "targetPlotId" INTEGER,
     "visibility" TEXT NOT NULL DEFAULT 'author',
     "note" TEXT,
     "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT "StorySceneRef_sceneId_fkey" FOREIGN KEY ("sceneId") REFERENCES "StoryScene" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
     CONSTRAINT "StorySceneRef_targetThreadId_fkey" FOREIGN KEY ("targetThreadId") REFERENCES "StoryThread" ("id") ON DELETE SET NULL ON UPDATE CASCADE,
-    CONSTRAINT "StorySceneRef_targetSceneId_fkey" FOREIGN KEY ("targetSceneId") REFERENCES "StoryScene" ("id") ON DELETE SET NULL ON UPDATE CASCADE,
-    CONSTRAINT "StorySceneRef_targetPlotId_fkey" FOREIGN KEY ("targetPlotId") REFERENCES "StoryPlot" ("id") ON DELETE SET NULL ON UPDATE CASCADE
+    CONSTRAINT "StorySceneRef_targetSceneId_fkey" FOREIGN KEY ("targetSceneId") REFERENCES "StoryScene" ("id") ON DELETE SET NULL ON UPDATE CASCADE
 );
 CREATE TABLE IF NOT EXISTS "WorldSubject" (
     "id" TEXT NOT NULL PRIMARY KEY,
@@ -162,12 +152,9 @@ CREATE UNIQUE INDEX IF NOT EXISTS "StoryScene_threadId_threadSortOrder_key" ON "
 CREATE INDEX IF NOT EXISTS "StoryScene_threadId_threadSortOrder_idx" ON "StoryScene"("threadId", "threadSortOrder");
 CREATE INDEX IF NOT EXISTS "StoryScene_chapterPath_chapterSortOrder_idx" ON "StoryScene"("chapterPath", "chapterSortOrder");
 CREATE INDEX IF NOT EXISTS "StoryScene_storyId_status_idx" ON "StoryScene"("storyId", "status");
-CREATE UNIQUE INDEX IF NOT EXISTS "StoryPlot_sceneId_sortOrder_key" ON "StoryPlot"("sceneId", "sortOrder");
-CREATE INDEX IF NOT EXISTS "StoryPlot_sceneId_sortOrder_idx" ON "StoryPlot"("sceneId", "sortOrder");
 CREATE INDEX IF NOT EXISTS "StorySceneRef_sceneId_sortOrder_idx" ON "StorySceneRef"("sceneId", "sortOrder");
 CREATE INDEX IF NOT EXISTS "StorySceneRef_targetThreadId_idx" ON "StorySceneRef"("targetThreadId");
 CREATE INDEX IF NOT EXISTS "StorySceneRef_targetSceneId_idx" ON "StorySceneRef"("targetSceneId");
-CREATE INDEX IF NOT EXISTS "StorySceneRef_targetPlotId_idx" ON "StorySceneRef"("targetPlotId");
 CREATE UNIQUE INDEX IF NOT EXISTS "WorldSlice_instant_key" ON "WorldSlice"("instant");
 CREATE INDEX IF NOT EXISTS "WorldSlice_instant_idx" ON "WorldSlice"("instant");
 CREATE INDEX IF NOT EXISTS "WorldSubject_type_idx" ON "WorldSubject"("type");
@@ -380,6 +367,7 @@ export async function initProjectDatabaseAtRoot(projectRoot: string): Promise<st
         for (const statement of splitSqlStatements(PROJECT_MIGRATION_SQL)) {
             await client.execute(statement);
         }
+        await migratePlotSceneBridgeSchema(client, projectRoot);
         await ensureWorldSliceSummaryColumn(client);
     } finally {
         await client.close();
@@ -406,4 +394,194 @@ async function ensureWorldSliceSummaryColumn(client: Client): Promise<void> {
     if (!hasSummary) {
         await client.execute(`ALTER TABLE "WorldSlice" ADD COLUMN "summary" TEXT NOT NULL DEFAULT ''`);
     }
+}
+
+/** 将旧 StoryPlot 模型迁移为 Scene 字段，并清理 plot:// 剧情引用。 */
+async function migratePlotSceneBridgeSchema(client: Client, projectRoot: string): Promise<void> {
+    await ensureStorySceneWorldAnchorColumns(client);
+    await client.execute("PRAGMA foreign_keys = OFF");
+    try {
+        await backupAndMergeStoryPlots(client, projectRoot);
+        await rebuildStorySceneRefWithoutPlotTarget(client);
+        await client.execute(`DROP INDEX IF EXISTS "StoryPlot_sceneId_sortOrder_key"`);
+        await client.execute(`DROP INDEX IF EXISTS "StoryPlot_sceneId_sortOrder_idx"`);
+        await client.execute(`DROP TABLE IF EXISTS "StoryPlot"`);
+    } finally {
+        await client.execute("PRAGMA foreign_keys = ON");
+    }
+}
+
+/** 补齐早期 Project SQLite 缺少的 Scene World Anchor 列。 */
+async function ensureStorySceneWorldAnchorColumns(client: Client): Promise<void> {
+    const columns = await tableColumns(client, "StoryScene");
+    if (!columns.has("startInstant")) {
+        await client.execute(`ALTER TABLE "StoryScene" ADD COLUMN "startInstant" BIGINT`);
+    }
+    if (!columns.has("endInstant")) {
+        await client.execute(`ALTER TABLE "StoryScene" ADD COLUMN "endInstant" BIGINT`);
+    }
+    if (!columns.has("subjectIdsJson")) {
+        await client.execute(`ALTER TABLE "StoryScene" ADD COLUMN "subjectIdsJson" TEXT NOT NULL DEFAULT '[]'`);
+    }
+    if (!columns.has("locationSubjectId")) {
+        await client.execute(`ALTER TABLE "StoryScene" ADD COLUMN "locationSubjectId" TEXT`);
+    }
+    await client.execute(`CREATE INDEX IF NOT EXISTS "StoryScene_startInstant_idx" ON "StoryScene"("startInstant")`);
+}
+
+/** 备份旧 Plot 行，并将其剧情信息分段合并到所属 Scene。 */
+async function backupAndMergeStoryPlots(client: Client, projectRoot: string): Promise<void> {
+    if (!await sqliteTableExists(client, "StoryPlot")) {
+        return;
+    }
+
+    const plotRows = await client.execute(`
+        SELECT "id", "sceneId", "sortOrder", "kind", "summary", "effect", "writingTip", "note", "createdAt", "updatedAt"
+        FROM "StoryPlot"
+        ORDER BY "sceneId" ASC, "sortOrder" ASC, "id" ASC
+    `);
+    if (plotRows.rows.length === 0) {
+        return;
+    }
+
+    const backupPath = path.join(projectRoot, STORY_PLOT_BACKUP_RELATIVE_PATH);
+    if (!await fileExists(backupPath)) {
+        await fs.writeFile(backupPath, JSON.stringify({
+            migratedAt: new Date().toISOString(),
+            sourceTable: "StoryPlot",
+            plots: plotRows.rows,
+        }, null, 2), "utf-8");
+    }
+
+    const rowsByScene = new Map<number, Array<Record<string, unknown>>>();
+    for (const row of plotRows.rows) {
+        const sceneId = Number(row.sceneId);
+        const rows = rowsByScene.get(sceneId) ?? [];
+        rows.push(row);
+        rowsByScene.set(sceneId, rows);
+    }
+
+    for (const [sceneId, rows] of rowsByScene) {
+        const sceneResult = await client.execute({
+            sql: `SELECT "summary", "purpose", "writingTip" FROM "StoryScene" WHERE "id" = ?`,
+            args: [sceneId],
+        });
+        const scene = sceneResult.rows[0];
+        if (!scene) {
+            continue;
+        }
+
+        await client.execute({
+            sql: `
+                UPDATE "StoryScene"
+                SET "summary" = ?, "purpose" = ?, "writingTip" = ?, "updatedAt" = CURRENT_TIMESTAMP
+                WHERE "id" = ?
+            `,
+            args: [
+                appendSection(String(scene.summary ?? ""), "原 Plot 摘要", rows.map(formatPlotSummary)),
+                appendSection(nullableText(scene.purpose), "原 Plot 效果", rows.map(formatPlotEffect)),
+                appendSection(nullableText(scene.writingTip), "原 Plot 写作提示", rows.map(formatPlotWritingTip)),
+                sceneId,
+            ],
+        });
+    }
+}
+
+/** SQLite 不能稳定跨版本 DROP COLUMN，这里重建 StorySceneRef 来删除 targetPlotId。 */
+async function rebuildStorySceneRefWithoutPlotTarget(client: Client): Promise<void> {
+    const columns = await tableColumns(client, "StorySceneRef");
+    if (!columns.has("targetPlotId")) {
+        return;
+    }
+
+    await client.execute(`DROP INDEX IF EXISTS "StorySceneRef_sceneId_sortOrder_idx"`);
+    await client.execute(`DROP INDEX IF EXISTS "StorySceneRef_targetThreadId_idx"`);
+    await client.execute(`DROP INDEX IF EXISTS "StorySceneRef_targetSceneId_idx"`);
+    await client.execute(`DROP INDEX IF EXISTS "StorySceneRef_targetPlotId_idx"`);
+    await client.execute(`
+        CREATE TABLE "StorySceneRef_next" (
+            "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+            "sceneId" INTEGER NOT NULL,
+            "sortOrder" INTEGER NOT NULL,
+            "relation" TEXT NOT NULL,
+            "rawTarget" TEXT NOT NULL,
+            "targetKind" TEXT NOT NULL,
+            "targetThreadId" INTEGER,
+            "targetSceneId" INTEGER,
+            "visibility" TEXT NOT NULL DEFAULT 'author',
+            "note" TEXT,
+            "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            CONSTRAINT "StorySceneRef_sceneId_fkey" FOREIGN KEY ("sceneId") REFERENCES "StoryScene" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
+            CONSTRAINT "StorySceneRef_targetThreadId_fkey" FOREIGN KEY ("targetThreadId") REFERENCES "StoryThread" ("id") ON DELETE SET NULL ON UPDATE CASCADE,
+            CONSTRAINT "StorySceneRef_targetSceneId_fkey" FOREIGN KEY ("targetSceneId") REFERENCES "StoryScene" ("id") ON DELETE SET NULL ON UPDATE CASCADE
+        )
+    `);
+    await client.execute(`
+        INSERT INTO "StorySceneRef_next" (
+            "id", "sceneId", "sortOrder", "relation", "rawTarget", "targetKind",
+            "targetThreadId", "targetSceneId", "visibility", "note", "createdAt", "updatedAt"
+        )
+        SELECT
+            "id", "sceneId", "sortOrder", "relation", "rawTarget", "targetKind",
+            "targetThreadId", "targetSceneId", "visibility", "note", "createdAt", "updatedAt"
+        FROM "StorySceneRef"
+        WHERE "targetKind" != 'plot' AND "rawTarget" NOT LIKE 'plot://%'
+    `);
+    await client.execute(`DROP TABLE "StorySceneRef"`);
+    await client.execute(`ALTER TABLE "StorySceneRef_next" RENAME TO "StorySceneRef"`);
+    await client.execute(`CREATE INDEX IF NOT EXISTS "StorySceneRef_sceneId_sortOrder_idx" ON "StorySceneRef"("sceneId", "sortOrder")`);
+    await client.execute(`CREATE INDEX IF NOT EXISTS "StorySceneRef_targetThreadId_idx" ON "StorySceneRef"("targetThreadId")`);
+    await client.execute(`CREATE INDEX IF NOT EXISTS "StorySceneRef_targetSceneId_idx" ON "StorySceneRef"("targetSceneId")`);
+}
+
+async function sqliteTableExists(client: Client, tableName: string): Promise<boolean> {
+    const result = await client.execute({
+        sql: `SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = ? LIMIT 1`,
+        args: [tableName],
+    });
+    return result.rows.length > 0;
+}
+
+async function tableColumns(client: Client, tableName: string): Promise<Set<string>> {
+    const result = await client.execute(`PRAGMA table_info("${tableName}")`);
+    return new Set(result.rows.map((row) => String(row.name ?? "")));
+}
+
+async function fileExists(filePath: string): Promise<boolean> {
+    try {
+        await fs.access(filePath);
+        return true;
+    } catch (error) {
+        if (typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT") {
+            return false;
+        }
+        throw error;
+    }
+}
+
+function nullableText(value: unknown): string {
+    return typeof value === "string" ? value : "";
+}
+
+function appendSection(base: string, title: string, lines: string[]): string {
+    const content = lines.map((line) => line.trim()).filter(Boolean).join("\n");
+    if (!content) {
+        return base;
+    }
+    return [base.trim(), `\n\n## ${title}\n${content}`.trim()].filter(Boolean).join("\n\n");
+}
+
+function formatPlotSummary(row: Record<string, unknown>): string {
+    return `- #${String(row.sortOrder ?? "")} ${String(row.kind ?? "plot")}：${String(row.summary ?? "").trim()}`;
+}
+
+function formatPlotEffect(row: Record<string, unknown>): string {
+    const effect = nullableText(row.effect).trim();
+    return effect ? `- #${String(row.sortOrder ?? "")}：${effect}` : "";
+}
+
+function formatPlotWritingTip(row: Record<string, unknown>): string {
+    const writingTip = nullableText(row.writingTip).trim();
+    return writingTip ? `- #${String(row.sortOrder ?? "")}：${writingTip}` : "";
 }

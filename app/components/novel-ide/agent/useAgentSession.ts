@@ -10,7 +10,6 @@ import {
     type AgentMessage,
     type AgentPendingUserInputSession,
 } from "nbook/app/components/novel-ide/agent/agent-message";
-import type {LowCodeFormDto} from "nbook/shared/dto/low-code-form.dto";
 
 export type AgentConnectionStatus = "idle" | "connecting" | "connected" | "reconnecting" | "recovering" | "disconnected";
 
@@ -33,20 +32,25 @@ type PendingMessageUpdate = {
 /**
  * 将 tool.user-input-required 事件转换为前端 AgentPendingUserInputSession。
  */
-function toLowCodeFormSession(
+function toUserInputSession(
     event: Extract<AgentRuntimeStreamEventDto, {type: "tool.user-input-required"}>,
     assistantMessageId?: string,
 ): AgentPendingUserInputSession | null {
-    if (!event.formSpec?.form) {
-        return null;
-    }
-    return {
-        assistantMessageId: assistantMessageId ?? event.toolCallId,
-        status: "pending",
-        questions: [],
-        form: event.formSpec.form as LowCodeFormDto,
-        formToolCallId: event.toolCallId,
-    };
+    return toPendingUserInputSession({
+        assistantMessageId,
+        toolCallId: event.toolCallId,
+        toolName: event.toolName,
+        args: event.args as AgentPendingApprovalDto["args"],
+        ...(event.formSpec?.form
+            ? {
+                formSpec: {
+                    form: event.formSpec.form,
+                    layout: event.formSpec.layout,
+                    prompt: event.formSpec.prompt,
+                },
+            }
+            : {}),
+    }, []);
 }
 
 /**
@@ -365,7 +369,7 @@ export function useAgentSession() {
                 flushPendingMessageUpdates();
                 const event = payload.event;
                 const assistantMessage = messages.value.find((message) => message.toolCalls?.some((toolCall) => toolCall.id === event.toolCallId));
-                const userInputSession = toLowCodeFormSession(event, assistantMessage?.id);
+                const userInputSession = toUserInputSession(event, assistantMessage?.id);
                 if (userInputSession) {
                     pendingUserInputSessions.value = [...pendingUserInputSessions.value, userInputSession];
                     liveRunStatus.value = "waiting";

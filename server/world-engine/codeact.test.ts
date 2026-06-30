@@ -654,6 +654,32 @@ describe("CodeAct Integration", () => {
         expect(result).toEqual({data: [], issues: []});
     });
 
+    test("executeCodeActWorld 同 instant 冲突后回滚事务内临时 slice", async () => {
+        await expect(facade.executeCodeActWorld(testProjectPath, `
+            const time = world.time.parse("测试纪元1日 00:25:00");
+            await world.slice.write({
+                time,
+                title: "事务内第一条",
+                patches: [
+                    {subjectId: "same-instant-rollback", type: "character", name: "同刻回滚", path: "/hp", op: "replace", value: 1},
+                ],
+            });
+            await world.slice.write({
+                time,
+                title: "事务内第二条",
+                patches: [
+                    {subjectId: "same-instant-rollback", path: "/events", op: "append", value: "第二条同刻写入"},
+                ],
+            });
+            return "不应到达";
+        `, "readwrite")).rejects.toThrow("请读取 existingSliceId 并合并 patches");
+
+        const instant = await facade.parseTime(testProjectPath, "测试纪元1日 00:25:00");
+        const slices = await facade.listSlices(testProjectPath, {from: instant, to: instant, withPatches: true});
+
+        expect(slices).toEqual([]);
+    });
+
     test("executeCodeActWorld 超时后回滚写入", async () => {
         await expect(facade.executeCodeActWorld(testProjectPath, `
             await world.slice.write({

@@ -2,7 +2,6 @@ import type {
     PlotPreviewChapter,
     PlotPreviewDataset,
     PlotPreviewPhase,
-    PlotPreviewPlot,
     PlotPreviewScene,
     PlotPreviewThread,
 } from "nbook/app/components/novel-ide/plot/plot-preview.types";
@@ -42,7 +41,6 @@ export type PlotTimelineSegment = {
  */
 export type PlotTimelineCard = {
     scene: PlotPreviewScene;
-    plotCount: number;
     slotIndex: number;
     slotLabel: string;
     // 为空表示当前 Scene 尚未挂章。
@@ -69,7 +67,6 @@ export type PlotTimelinePhaseView = {
     threads: PlotPreviewThread[];
     chapters: PlotPreviewChapter[];
     scenes: PlotPreviewScene[];
-    plots: PlotPreviewPlot[];
     segments: PlotTimelineSegment[];
     slots: PlotTimelineSlot[];
     lanes: PlotTimelineLane[];

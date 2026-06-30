@@ -1,6 +1,45 @@
 export type RuleLevel = "high" | "medium" | "low";
 
-export type RuleOverride = "off" | "warn" | "error" | RuleLevel;
+/**
+ * 审查受众：决定一条命中默认进入哪个审查出口，独立于严重度 level。
+ * 用 agent 而不是 llm，避免和 detector.type === "llm" 撞名（那是“检测手段”，这是“给谁看”）。
+ * - agent：需要 Agent/LLM 读上下文判断，check 默认输出。
+ * - human：偏人工或作者风格偏好的检查，默认不喂给 Agent。
+ * - none：机械/诊断类规则，默认不进入审查输出。
+ */
+export type Review = "agent" | "human" | "none";
+
+/**
+ * 机械修复能力：描述规则能否被确定性替换，预留给未来 opt-in 的 --fix。
+ * - auto：单一确定替换，未来可自动修复。
+ * - candidate：有删除/替换候选，但仍需判断上下文。
+ * - manual：无机械替换，需要人工或 LLM 改写。
+ */
+export type Fixability = "auto" | "candidate" | "manual";
+
+/** 配置里按规则/命名空间覆盖时的对象形态；与字符串简写并存，可显式 enable/disable 并调整维度。 */
+export type RuleOverrideObject = {
+    /** 显式启停；未设置=不改变规则的 enable 状态。 */
+    enabled?: boolean;
+    level?: RuleLevel;
+    review?: Review;
+    fixability?: Fixability;
+};
+
+export type RuleOverride = "off" | "warn" | "error" | RuleLevel | RuleOverrideObject;
+
+/**
+ * 归一化后的覆盖项：字符串简写也展开成这个 patch 形态，是 loader 的唯一消费形态。
+ * 字符串语法糖：off→{enabled:false}，warn→{enabled:true,level:medium}，error→{enabled:true,level:high}，
+ * high/medium/low→{enabled:true,level:X}。未设置的字段表示「不改变」。
+ */
+export type NormalizedRuleOverride = {
+    /** 未设置=不改变 enable 状态。 */
+    enabled?: boolean;
+    level?: RuleLevel;
+    review?: Review;
+    fixability?: Fixability;
+};
 
 export type RulesetOverride = "off" | "on";
 
@@ -24,8 +63,8 @@ export type NormalizedLlmlintConfig = {
     rulesets: string[];
     trustedRulesets: string[];
     rulesetOverrides: Record<string, RulesetOverride>;
-    namespaces: Record<string, RuleOverride>;
-    rules: Record<string, RuleOverride>;
+    namespaces: Record<string, NormalizedRuleOverride>;
+    rules: Record<string, NormalizedRuleOverride>;
     output: LlmlintOutput;
 };
 
@@ -46,6 +85,10 @@ export type BaseLintRuleRecord = {
     ruleset?: string;
     title: string;
     level: RuleLevel;
+    /** 审查受众；缺省时由命名空间策略表或 detector/action 推导。 */
+    review?: Review;
+    /** 修复能力；缺省时由命名空间策略表或 detector/action 推导。 */
+    fixability?: Fixability;
     enabled?: boolean;
     note?: string;
     examples?: Array<{
@@ -88,6 +131,10 @@ export type HandlerRuleRecord = BaseLintRuleRecord & {
 
 export type ActiveRuleRecord = DeclarativeRuleRecord & {
     ruleset: string;
+    /** loader 解析后的最终审查受众，下游一定有值。 */
+    review: Review;
+    /** loader 解析后的最终修复能力，下游一定有值。 */
+    fixability: Fixability;
 };
 
 export type RegexRuleRecord = ActiveRuleRecord & {
@@ -129,10 +176,15 @@ export type LoadedRules = {
     summary: RegistrySummary;
 };
 
+/** Markdown 遮罩区间：半开 `[start, end)`，字符索引空间与 scanner 的 `match.index` 一致。 */
+export type MaskedRange = [number, number];
+
 export interface Issue {
     rule: RegexRuleRecord;
     line: number;
     column: number;
+    endLine: number;
+    endColumn: number;
     match: string;
     target: string;
     context: {
@@ -154,9 +206,19 @@ export type CheckJsonReport = {
     filePath: string;
     configPath: string | null;
     summary: CheckSummary;
+    /** CLI 级别 / 审查受众过滤信息；check 默认按 review 过滤，故一定存在。 */
+    filter: CheckFilterInfo;
     registry: RegistrySummary;
     diagnostics: RegistryDiagnostic[];
     issues: Issue[];
+};
+
+/** CLI 级别 / 审查受众过滤信息，check 与 check-multi 共用。 */
+export type CheckFilterInfo = {
+    review: Review | "all";
+    hiddenByReview: number;
+    minLevel: RuleLevel;
+    hiddenByLevel: number;
 };
 
 export type LLMRulesJsonReport = {
@@ -165,6 +227,58 @@ export type LLMRulesJsonReport = {
     registry: RegistrySummary;
     diagnostics: RegistryDiagnostic[];
     rules: LLMRuleRecord[];
+};
+
+/** 多文件 check 的单文件条目。 */
+export type CheckFileEntry = {
+    filePath: string;
+    summary: CheckSummary;
+    issues: Issue[];
+};
+
+/** 多文件 check 报告；registry/diagnostics/filter 为全局，files 为逐文件结果，summary 为聚合。 */
+export type CheckMultiJsonReport = {
+    kind: "check-multi";
+    configPath: string | null;
+    filter: CheckFilterInfo;
+    registry: RegistrySummary;
+    diagnostics: RegistryDiagnostic[];
+    files: CheckFileEntry[];
+    summary: CheckSummary;
+};
+
+/** fix 命令的逐规则修复计数。 */
+export type FixRuleCount = {
+    ruleId: string;
+    title: string;
+    count: number;
+};
+
+/** fix 命令的单文件结果（占位/统计用，不含正文）。 */
+export type FixFileEntry = {
+    filePath: string;
+    changed: boolean;
+    /** 该文件在可编辑区域内命中的 auto 规则次数。 */
+    occurrences: number;
+    ruleCounts: FixRuleCount[];
+};
+
+/** fix 命令报告。write=false 为 dry-run（仅预览，不落盘）。 */
+export type FixReport = {
+    kind: "fix";
+    configPath: string | null;
+    write: boolean;
+    files: FixFileEntry[];
+    totalOccurrences: number;
+};
+
+/** fix 命令在内存中的完整单文件结果（含正文，供预览与写盘）。 */
+export type FixFileResult = {
+    filePath: string;
+    content: string;
+    fixed: string;
+    changed: boolean;
+    issues: Issue[];
 };
 
 export type CuratedRulesetReport = {

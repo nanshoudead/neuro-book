@@ -5,16 +5,9 @@ import type {JsonValue} from "nbook/server/agent/messages/types";
 import {PLOT_SELECTION_STATE_KEY} from "nbook/server/agent/session/custom-state-keys";
 import type {NeuroAgentTool, ToolExecutionContext} from "nbook/server/agent/tools/types";
 import type {AgentToolResult} from "@earendil-works/pi-agent-core";
-import {MAX_STORY_SUMMARY_LENGTH} from "nbook/shared/dto/plot.dto";
 
 const NonEmptyString = (description: string) => Type.String({minLength: 1, description});
 const NullableString = (description: string) => Type.Union([Type.String({minLength: 1, description}), Type.Null({description: "显式清空。"})]);
-const NonBlankPlotSummaryString = (description: string) => Type.String({
-    minLength: 1,
-    maxLength: MAX_STORY_SUMMARY_LENGTH,
-    pattern: "\\S",
-    description,
-});
 const StoryRefSchema = Type.Object({
     relation: Type.String(),
     target: Type.String(),
@@ -24,6 +17,15 @@ const StoryRefSchema = Type.Object({
 
 const ProjectScopedSchema = Type.Object({
     projectPath: NonEmptyString("Required Project Path, e.g. workspace/silver-dragon-hime. The agent must pass it explicitly."),
+});
+
+const SceneWorldAnchorSchema = Type.Object({
+    startTime: Type.Union([Type.String({minLength: 1}), Type.Null()]),
+    endTime: Type.Union([Type.String({minLength: 1}), Type.Null()]),
+    startInstant: Type.Union([Type.String(), Type.Null()]),
+    endInstant: Type.Union([Type.String(), Type.Null()]),
+    subjectIds: Type.Array(Type.String({minLength: 1}), {maxItems: 100}),
+    locationSubjectId: Type.Union([Type.String({minLength: 1}), Type.Null()]),
 });
 
 const ThreadPatchSchema = {
@@ -59,56 +61,19 @@ const ScenePatchSchema = {
     purpose: Type.Optional(NullableString("Scene purpose/function. Null clears it.")),
     writingTip: Type.Optional(NullableString("Writing tip for the scene. Null clears it.")),
     note: Type.Optional(NullableString("Optional note. Null clears it.")),
+    worldAnchor: Type.Optional(SceneWorldAnchorSchema),
     refs: Type.Optional(Type.Array(StoryRefSchema)),
 };
-
-const PlotKindSchema = Type.Union([
-    Type.Literal("setup"),
-    Type.Literal("action"),
-    Type.Literal("conflict"),
-    Type.Literal("despair"),
-    Type.Literal("relief"),
-    Type.Literal("reward"),
-    Type.Literal("mystery"),
-    Type.Literal("reveal"),
-    Type.Literal("twist"),
-    Type.Literal("payoff"),
-    Type.Literal("result"),
-]);
-
-const PlotPatchSchema = {
-    sceneId: Type.Optional(NonEmptyString("Scene ID. Defaults to plot.selection selected scene when omitted.")),
-    kind: Type.Optional(PlotKindSchema),
-    summary: Type.Optional(Type.String()),
-    effect: Type.Optional(NullableString("Plot effect/outcome. Null clears it.")),
-    writingTip: Type.Optional(NullableString("Writing tip for this plot. Null clears it.")),
-    note: Type.Optional(NullableString("Optional note. Null clears it.")),
-};
-
-const CreateStoryPlotItemSchema = Type.Object({
-    kind: PlotKindSchema,
-    summary: NonBlankPlotSummaryString("Action-level plot summary. Required for batch creation."),
-    effect: Type.Optional(NullableString("Plot effect/outcome. Null leaves it empty.")),
-    writingTip: Type.Optional(NullableString("Writing tip for this plot. Null leaves it empty.")),
-    note: Type.Optional(NullableString("Optional note. Null leaves it empty.")),
-});
 
 const GetPlotTreeSchema = ProjectScopedSchema;
 const GetStoryThreadSchema = Type.Object({...ProjectScopedSchema.properties, threadId: Type.Optional(NonEmptyString("Thread ID. Defaults to plot.selection selected thread."))});
 const GetStorySceneContextSchema = Type.Object({...ProjectScopedSchema.properties, sceneId: Type.Optional(NonEmptyString("Scene ID. Defaults to plot.selection selected scene."))});
-const GetStoryPlotContextSchema = Type.Object({...ProjectScopedSchema.properties, plotId: NonEmptyString("Plot ID.")});
 const GetChapterPlotSchema = Type.Object({...ProjectScopedSchema.properties, chapterPath: NonEmptyString("Manuscript chapter path, e.g. manuscript/001-opening/.")});
+const GetChapterWriterBriefSchema = Type.Object({...ProjectScopedSchema.properties, chapterPath: NonEmptyString("Manuscript chapter path, e.g. manuscript/001-opening/.")});
 const CreateStoryThreadSchema = Type.Object({...ProjectScopedSchema.properties, ...ThreadPatchSchema, name: NonEmptyString("Machine-friendly thread name."), title: NonEmptyString("Human-readable thread title.")});
 const UpdateStoryThreadSchema = Type.Object({...ProjectScopedSchema.properties, threadId: Type.Optional(NonEmptyString("Thread ID. Defaults to plot.selection selected thread.")), ...ThreadPatchSchema});
 const CreateStorySceneSchema = Type.Object({...ProjectScopedSchema.properties, ...ScenePatchSchema, title: NonEmptyString("Human-readable scene title.")});
 const UpdateStorySceneSchema = Type.Object({...ProjectScopedSchema.properties, sceneId: Type.Optional(NonEmptyString("Scene ID. Defaults to plot.selection selected scene.")), ...ScenePatchSchema});
-const CreateStoryPlotSchema = Type.Object({...ProjectScopedSchema.properties, ...PlotPatchSchema, kind: PlotKindSchema, summary: Type.Optional(Type.String())});
-const CreateStoryPlotsSchema = Type.Object({
-    ...ProjectScopedSchema.properties,
-    sceneId: Type.Optional(NonEmptyString("Scene ID. Defaults to plot.selection selected scene.")),
-    plots: Type.Array(CreateStoryPlotItemSchema, {minItems: 1, maxItems: 50, description: "Plots to append to the same scene, in array order."}),
-});
-const UpdateStoryPlotSchema = Type.Object({...ProjectScopedSchema.properties, plotId: NonEmptyString("Plot ID to update."), ...PlotPatchSchema});
 
 type PlotSelection = {
     projectPath?: string;
@@ -152,17 +117,24 @@ export function createPlotTools(): NeuroAgentTool[] {
             await writeSelection(context, {projectPath: input.projectPath, threadId: scene.threadId, sceneId: String(sceneId)});
             return plotResult({thread, scene, chapterPlot});
         }),
-        tool("get_story_plot_context", "Read a story plot with its parent scene and thread.", GetStoryPlotContextSchema, async (context, input) => {
+        tool("get_scene_world_context", "Read filtered World Engine slices and subject states for a story scene. sceneId defaults to plot.selection.", GetStorySceneContextSchema, async (context, input) => {
+            const sceneId = await resolveSceneId(context, input.projectPath, input.sceneId);
             const facade = await loadPlotFacade();
-            const plot = await facade.getStoryPlotDto(input.projectPath, parseEntityId("plotId", input.plotId));
-            const scene = await facade.getStorySceneDetailDto(input.projectPath, parseEntityId("sceneId", plot.sceneId));
-            const thread = await facade.getStoryThreadDetailDto(input.projectPath, parseEntityId("threadId", scene.threadId));
-            await writeSelection(context, {projectPath: input.projectPath, threadId: scene.threadId, sceneId: scene.id});
-            return plotResult({thread, scene, plot});
+            const result = await facade.getSceneWorldContext(input.projectPath, sceneId);
+            await writeSelection(context, {projectPath: input.projectPath, sceneId: String(sceneId)});
+            return plotResult(result);
         }),
-        tool("get_chapter_plot", "Read scenes and plots attached to a manuscript chapter content-node.", GetChapterPlotSchema, async (_context, input) => {
+        tool("get_chapter_plot", "Read scenes attached to a manuscript chapter content-node.", GetChapterPlotSchema, async (_context, input) => {
             const facade = await loadPlotFacade();
             return plotResult(await facade.getChapterPlotDetailDto(input.projectPath, input.chapterPath));
+        }),
+        tool("get_chapter_writer_brief", "Compile a chapter writer brief from Plot Scenes and filtered World Engine context. Returns markdown text for writer handoff and full DTO in details.", GetChapterWriterBriefSchema, async (_context, input) => {
+            const facade = await loadPlotFacade();
+            const result = await facade.getChapterWriterBrief(input.projectPath, input.chapterPath);
+            return {
+                content: [{type: "text" as const, text: result.suggestedBriefMarkdown}],
+                details: result as JsonValue,
+            };
         }),
         tool("create_story_thread", "Create a new story thread and return its detail.", CreateStoryThreadSchema, async (context, input) => {
             const facade = await loadPlotFacade();
@@ -193,29 +165,6 @@ export function createPlotTools(): NeuroAgentTool[] {
             const {projectPath, sceneId: _sceneId, ...payload} = input;
             const result = await facade.updateStoryScene(projectPath, sceneId, normalizeScenePayload(payload));
             await writeSelection(context, {projectPath, threadId: result.threadId, sceneId: result.id});
-            return plotResult(result);
-        }),
-        tool("create_story_plot", "Create a plot under a story scene. sceneId defaults to plot.selection.", CreateStoryPlotSchema, async (context, input) => {
-            const sceneId = await resolveSceneId(context, input.projectPath, input.sceneId);
-            const facade = await loadPlotFacade();
-            const {projectPath, ...payload} = input;
-            const result = await facade.createStoryPlot(projectPath, {...payload, sceneId: String(sceneId)} as never);
-            await writeSelection(context, {projectPath, sceneId: result.sceneId});
-            return plotResult(result);
-        }),
-        tool("create_story_plots", "Create multiple plots under the same story scene. sceneId defaults to plot.selection; plots are appended in array order.", CreateStoryPlotsSchema, async (context, input) => {
-            const sceneId = await resolveSceneId(context, input.projectPath, input.sceneId);
-            const facade = await loadPlotFacade();
-            const {projectPath, plots} = input;
-            const result = await facade.createStoryPlots(projectPath, {sceneId: String(sceneId), plots});
-            await writeSelection(context, {projectPath, threadId: result.scene.threadId, sceneId: result.scene.id});
-            return plotResult(result);
-        }),
-        tool("update_story_plot", "Update a plot. plotId is required; sceneId can move the plot.", UpdateStoryPlotSchema, async (context, input) => {
-            const facade = await loadPlotFacade();
-            const {projectPath, plotId, ...payload} = input;
-            const result = await facade.updateStoryPlot(projectPath, parseEntityId("plotId", plotId), payload);
-            await writeSelection(context, {projectPath, sceneId: result.sceneId});
             return plotResult(result);
         }),
     ];

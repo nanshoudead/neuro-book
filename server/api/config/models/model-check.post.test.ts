@@ -5,6 +5,7 @@ describe("POST /api/config/models/model-check", () => {
         vi.resetModules();
         vi.clearAllMocks();
         vi.stubGlobal("defineEventHandler", (handler: unknown) => handler);
+        vi.stubGlobal("defineRouteMeta", () => undefined);
         vi.stubGlobal("readBody", (event: {body?: unknown}) => event.body);
     });
 

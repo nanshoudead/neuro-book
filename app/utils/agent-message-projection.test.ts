@@ -2,30 +2,43 @@ import {describe, expect, it} from "vitest";
 import {RequestUserInputToolArgsSchema, applyRuntimeEventToMessages, applySessionEntryToMessages, deriveMessagesFromSessionSnapshot, deriveRequestUserInputAnswerViews, hasVisibleInvocationError, messageStatusLabel, toLocalMessage, toPendingUserInputSession} from "nbook/app/components/novel-ide/agent/agent-message";
 
 describe("agent message projection helpers", () => {
-    it("request_user_input schema 保留默认选项字段", () => {
+    it("request_user_input schema 拒绝默认值、推荐和多选旧字段", () => {
+        const invalidArgs = [
+            {questions: [{question: "Pick", defaultOptionIndex: 0}]},
+            {questions: [{question: "Pick", defaultOptionIndexes: [0]}]},
+            {questions: [{question: "Pick", multiSelect: true}]},
+            {questions: [{question: "Pick", options: [{label: "A", defaultSelected: true}]}]},
+            {questions: [{question: "Pick", options: [{label: "A", recommended: true}]}]},
+        ];
+
+        for (const args of invalidArgs) {
+            expect(RequestUserInputToolArgsSchema.safeParse(args).success).toBe(false);
+        }
+    });
+
+    it("request_user_input schema 接受问题、header 和单选 options", () => {
         const parsed = RequestUserInputToolArgsSchema.parse({
             questions: [{
+                header: "偏好",
                 question: "Pick",
                 options: [
-                    {label: "A", defaultSelected: true},
+                    {label: "A", description: "使用 A 路径"},
                     {label: "B"},
                 ],
-                defaultOptionIndex: 0,
-                defaultOptionIndexes: [0],
             }],
         });
 
-        expect(parsed.questions[0]).toEqual(expect.objectContaining({
-            defaultOptionIndex: 0,
-            defaultOptionIndexes: [0],
+        expect(parsed.questions[0]).toEqual({
+            header: "偏好",
+            question: "Pick",
             options: [
-                expect.objectContaining({label: "A", defaultSelected: true}),
-                expect.objectContaining({label: "B"}),
+                {label: "A", description: "使用 A 路径"},
+                {label: "B"},
             ],
-        }));
+        });
     });
 
-    it("approval pending session 默认选中批准", () => {
+    it("approval pending session 保留批准和拒绝选项", () => {
         const session = toPendingUserInputSession({
             toolCallId: "plan-1",
             toolName: "enter_plan_mode",
@@ -35,9 +48,8 @@ describe("agent message projection helpers", () => {
         }, []);
 
         expect(session?.questions[0]).toEqual(expect.objectContaining({
-            defaultOptionIndex: 0,
             options: [
-                expect.objectContaining({label: "批准", defaultSelected: true}),
+                expect.objectContaining({label: "批准"}),
                 expect.objectContaining({label: "拒绝"}),
             ],
         }));
@@ -107,6 +119,32 @@ describe("agent message projection helpers", () => {
                 selectedLabel: "",
                 note: "继续推进",
                 openAnswer: true,
+            }),
+        ]);
+    });
+
+    it("request_user_input 历史答案展示支持单选加备注", () => {
+        const args = RequestUserInputToolArgsSchema.parse({
+            questions: [
+                {
+                    question: "选择标签",
+                    options: [{label: "剧情"}, {label: "人物"}, {label: "节奏"}],
+                },
+            ],
+        });
+        const views = deriveRequestUserInputAnswerViews(args, {
+            answers: [
+                {questionIndex: 0, selectedOptionIndex: 2, note: "节奏更适合当前章节"},
+            ],
+        });
+
+        expect(views).toEqual([
+            expect.objectContaining({
+                questionIndex: 0,
+                question: "选择标签",
+                selectedLabel: "节奏",
+                note: "节奏更适合当前章节",
+                openAnswer: false,
             }),
         ]);
     });

@@ -16,7 +16,7 @@ import {
 } from "nbook/app/components/novel-ide/agent/tiptap/agent-suggestion";
 import {findAgentTriggerMatch} from "nbook/shared/reference-trigger";
 
-type ReferenceTriggerKind = Extract<AgentTriggerMenuContext["kind"], "reference-root" | "chapter" | "volume" | "lorebook" | "thread" | "scene" | "plot">;
+type ReferenceTriggerKind = Extract<AgentTriggerMenuContext["kind"], "reference-root" | "chapter" | "volume" | "lorebook" | "thread" | "scene">;
 
 export interface PlainReferenceTextExtensionOptions extends AgentSuggestionController {
     placeholder: string;
@@ -121,7 +121,6 @@ const PlainReference = Node.create<PlainReferenceOptions>({
                 {kind: "lorebook", pluginKey: new PluginKey("plain-reference-lorebook")},
                 {kind: "thread", pluginKey: new PluginKey("plain-reference-thread")},
                 {kind: "scene", pluginKey: new PluginKey("plain-reference-scene")},
-                {kind: "plot", pluginKey: new PluginKey("plain-reference-plot")},
             ],
         };
     },

@@ -1,8 +1,8 @@
 import type {
     StoryEffectiveRefDto,
-    StoryPlotKindDto,
     StoryRefDto,
     StorySceneStatusDto,
+    StorySceneWorldAnchorDto,
     StoryThreadStatusDto,
 } from "nbook/shared/dto/plot.dto";
 
@@ -62,21 +62,8 @@ export type PlotThreadPanelScene = {
     threadSortOrder: number;
     chapterSortOrder: number | null;
     writingTip: string | null;
+    worldAnchor: StorySceneWorldAnchorDto;
     refs: PlotThreadPanelRef[];
-};
-
-/**
- * 单 Thread 面板使用的 Plot 视图模型。
- */
-export type PlotThreadPanelPlot = {
-    id: string;
-    sceneId: string;
-    sortOrder: number;
-    kind: StoryPlotKindDto;
-    summary: string;
-    effect: string | null;
-    writingTip: string | null;
-    note?: string | null;
 };
 
 /**
@@ -87,7 +74,6 @@ export type PlotThreadPanelDetail = {
     scene: PlotThreadPanelScene;
     // 为空表示当前 Scene 未挂章。
     chapter: PlotThreadPanelChapter | null;
-    plots: PlotThreadPanelPlot[];
     effectiveRefs: PlotThreadPanelRef[];
 };
 
@@ -102,6 +88,7 @@ export type PlotThreadQuickSceneUpdate = {
     status: StorySceneStatusDto;
     chapterPath: string | null;
     writingTip: string | null;
+    worldAnchor: StorySceneWorldAnchorDto;
 };
 
 /**
@@ -118,17 +105,6 @@ export type PlotThreadEditorThreadSave = {
 };
 
 /**
- * Scene 编辑器里的 Plot 草稿。
- */
-export type PlotThreadEditorPlotDraft = {
-    id: string;
-    kind: StoryPlotKindDto;
-    summary: string;
-    effect: string | null;
-    writingTip: string | null;
-};
-
-/**
  * Scene 编辑器保存载荷。
  */
 export type PlotThreadEditorSceneSave = {
@@ -139,8 +115,8 @@ export type PlotThreadEditorSceneSave = {
     status: StorySceneStatusDto;
     chapterPath: string | null;
     writingTip: string | null;
+    worldAnchor: StorySceneWorldAnchorDto;
     refs: PlotThreadPanelRef[];
-    plots: PlotThreadEditorPlotDraft[];
 };
 
 /**
@@ -168,23 +144,6 @@ export const PLOT_SCENE_STATUS_LABELS: Record<StorySceneStatusDto, string> = {
     draft: "草稿",
     revised: "已修订",
     written: "已成稿",
-};
-
-/**
- * Plot 类型中文标签。
- */
-export const PLOT_KIND_LABELS: Record<StoryPlotKindDto, string> = {
-    setup: "铺垫",
-    action: "行动",
-    conflict: "冲突",
-    despair: "低谷",
-    relief: "释放",
-    reward: "回报",
-    mystery: "悬念",
-    reveal: "揭示",
-    twist: "反转",
-    payoff: "回收",
-    result: "结果",
 };
 
 /**

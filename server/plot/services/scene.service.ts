@@ -10,6 +10,7 @@ import {throwPlotBadRequest} from "nbook/server/plot/core/errors";
 import {OrderService} from "nbook/server/plot/services/order.service";
 import {PlotScopeGuard} from "nbook/server/plot/services/plot-scope.guard";
 import {RefResolverService} from "nbook/server/plot/services/ref-resolver.service";
+import {SceneWorldAnchorValidator} from "nbook/server/plot/services/scene-world-anchor.validator";
 import {StoryService} from "nbook/server/plot/services/story.service";
 import type {
     ChapterPlotDetailDto,
@@ -27,6 +28,7 @@ export class SceneService {
         private readonly scopeGuard: PlotScopeGuard,
         private readonly orderService: OrderService,
         private readonly refResolverService: RefResolverService,
+        private readonly worldAnchorValidator: SceneWorldAnchorValidator,
         private readonly assembler: PlotDtoAssembler,
     ) {}
 
@@ -45,11 +47,11 @@ export class SceneService {
     }
 
     /**
-     * 查询章节下的剧情 Scene 与 Plot。
+     * 查询章节下的剧情 Scene。
      */
     async getChapterPlotDetailDto(projectPath: string, chapterPath: string): Promise<ChapterPlotDetailDto> {
         const normalizedChapterPath = await this.scopeGuard.assertChapterPath(projectPath, chapterPath);
-        const scenes = await this.sceneRepository.findChapterScenesWithPlots(normalizedChapterPath);
+        const scenes = await this.sceneRepository.findChapterScenes(normalizedChapterPath);
         return this.assembler.toChapterPlotDetailDto(normalizedChapterPath, scenes);
     }
 
@@ -61,6 +63,7 @@ export class SceneService {
 
         await this.scopeGuard.assertThread(story.id, input.threadId);
         const chapterPath = input.chapterPath === null ? null : await this.scopeGuard.assertChapterPath(projectPath, input.chapterPath);
+        this.worldAnchorValidator.validate(input.worldAnchor);
 
         const refs = input.resolvedRefs ?? await this.refResolverService.resolveRefs(story.id, input.refs);
         const scene = await this.sceneRepository.createScene({
@@ -75,6 +78,10 @@ export class SceneService {
             purpose: input.purpose ?? null,
             writingTip: input.writingTip ?? null,
             note: input.note ?? null,
+            startInstant: input.worldAnchor.startInstant,
+            endInstant: input.worldAnchor.endInstant,
+            subjectIdsJson: JSON.stringify(input.worldAnchor.subjectIds),
+            locationSubjectId: input.worldAnchor.locationSubjectId,
         });
 
         await this.sceneRepository.replaceRefs(scene.id, refs);
@@ -107,6 +114,9 @@ export class SceneService {
         const refs = patch.refs === undefined
             ? null
             : patch.resolvedRefs ?? await this.refResolverService.resolveRefs(story.id, patch.refs);
+        if (patch.worldAnchor !== undefined) {
+            this.worldAnchorValidator.validate(patch.worldAnchor);
+        }
         await this.sceneRepository.updateScene(scene.id, {
             threadId: nextThreadId,
             chapterPath: patch.chapterPath === undefined ? undefined : nextChapterPath,
@@ -124,6 +134,10 @@ export class SceneService {
             purpose: patch.purpose,
             writingTip: patch.writingTip,
             note: patch.note,
+            startInstant: patch.worldAnchor?.startInstant,
+            endInstant: patch.worldAnchor?.endInstant,
+            subjectIdsJson: patch.worldAnchor === undefined ? undefined : JSON.stringify(patch.worldAnchor.subjectIds),
+            locationSubjectId: patch.worldAnchor?.locationSubjectId,
         });
 
         if (refs !== null) {

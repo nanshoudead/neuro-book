@@ -2,15 +2,15 @@
 
 本文件是给 Agent 使用 Plot System 的操作规范。数据结构总合同见 [system.md](system.md)。
 
-Plot System 是作者视角剧情结构系统，不是 lorebook、正文、subject knowledge 或 simulation state。稳定世界事实进入 `lorebook/`；当前运行态进入 `simulation/subjects/`、`simulation/entities/` 或 `simulation/runs/`；正式正文进入 `manuscript/`。
+Plot System 是作者视角剧情结构系统，不是 lorebook、正文、subject knowledge 或 World Engine state。稳定世界事实进入 `lorebook/`；动态世界状态、时间线和事实推进进入 World Engine；正式正文进入 `manuscript/`。
 
 ## Core Contract
 
 - Thread 记录长期因果线、冲突线、成长线、承诺线、伏笔线和回收线。
 - Scene 记录一场可写的戏，或一个连续叙事单元。
-- Plot 记录 Scene 内部的最小行动 / 节奏点，应该细到 writer 可以逐点展开正文。
-- Agent 不能用空泛词代替具体行动，例如“推进关系”“制造冲突”“埋下伏笔”不能单独成为 Plot summary。
-- Plot 数量是 prompt-level recommendation / warning threshold，不是数据库硬校验。
+- Scene 是最小剧情单位；不要再创建 Scene 内部 Plot Beat。
+- 事实推进、状态变化、位置变化和资源变化应通过 World Engine patch 表达，不要在 Plot System 里保存第二份动态状态。
+- Agent 不能用空泛词代替具体行动，例如“推进关系”“制造冲突”“埋下伏笔”不能单独成为 Scene summary 或 purpose。
 
 ## Thread Summary
 
@@ -29,84 +29,69 @@ Thread `summary` 应覆盖：
 
 ## Scene Summary
 
-Scene `summary` 是给未参与前文的 writer / director / leader 看的详细场景记录。它应详细到另一个 agent 只读 Scene + Plot，就能知道这场戏发生什么、为什么发生、谁做了什么、谁知道什么、读者知道什么、结尾状态如何变化。
+Scene `summary` 是给未参与前文的 writer / director / leader 看的详细场景记录。它应详细到另一个 agent 只读 Scene + World Engine 上下文，就能知道这场戏发生什么、为什么发生、谁做了什么、谁知道什么、读者知道什么、结尾状态如何变化。
 
 Scene `summary` 应覆盖：
 
 - 场景开始时的前置状态：地点、时间、参与角色、目标、压力、隐藏条件。
 - 场景内部主要行动链：角色观察、移动、选择、对话、试探、冲突、揭露、误解、转折。
 - 信息状态：哪些信息被角色获得，哪些只被读者知道，哪些仍是作者视角隐藏信息。
-- simulation 结果：角色状态、物品状态、位置、关系、承诺、危险、倒计时等变化。
+- World Engine 结果：角色状态、物品状态、位置、关系、承诺、危险、倒计时等变化应在 World Engine patch 中落定；Scene summary 只做作者视角摘要。
 - 场景结尾：谁处于什么状态，下一场戏自然接什么压力或机会。
 
 Scene `purpose` 写这场戏在剧情结构中的功能。Scene `writingTip` 写正文落实建议，例如 POV、情绪曲线、节奏、对白密度、动作描写重点、哪些信息要明说或压住，不重复 `summary`。
 
-## Plot Granularity
+## Scene Granularity
 
-Plot 是行动级节拍，不是五段式大纲。
+Scene 不是五段式大纲，也不是单个动作点。一个 Scene 应能被 writer 展开成连续正文，且具备明确起点、冲突或信息变化、结尾状态。
 
-| Scene 类型 | 推荐 Plot 数 | 粒度标准 |
-| --- | --- | --- |
-| 短过渡 Scene | 4 到 8 | 只承载移动、时间跳转、简单交接或短反应；即使短，也要写清可见行动和后果。 |
-| 普通 Scene | 8 到 16 | 每个 Plot 对应一个可写行动、反应、选择、信息交换、状态变化或小转折。 |
-| 关键 Scene | 16 到 30 | 冲突、情绪、信息揭露、误解形成、关系变化、伏笔投放/回收应拆成多个节拍。 |
-| 高密度对话 Scene | 16 到 30+ | 不按每句台词拆，而按试探、回避、追问、承认、反击、沉默、误解、让步等对话功能变化拆。 |
-| 战斗 / 追逐 Scene | 16 到 30+ | 按攻防选择、位置变化、资源消耗、伤势、战术误判、逆转、代价拆，不写成“双方激烈战斗”。 |
-| 推理 / 调查 Scene | 16 到 30+ | 按观察、假设、排除、证据发现、误导、验证、结论变化拆。 |
-| RP Tick 转正文 | 8 到 24+ | 按用户行动、simulation 裁决、subject 反应、信息注入、状态变化、writer 展现节拍拆。 |
+| Scene 类型 | 粒度标准 |
+| --- | --- |
+| 短过渡 Scene | 只承载移动、时间跳转、简单交接或短反应；也要写清可见行动和后果。 |
+| 普通 Scene | 有明确目标、压力、行动链、信息变化或关系变化。 |
+| 关键 Scene | 冲突、情绪、信息揭露、误解形成、关系变化、伏笔投放/回收需要在 summary 中写出完整链条。 |
+| 高密度对话 Scene | 按试探、回避、追问、承认、反击、沉默、误解、让步等对话功能变化组织 summary。 |
+| 战斗 / 追逐 Scene | 写清攻防选择、位置变化、资源消耗、伤势、战术误判、逆转和代价；具体状态进入 World Engine。 |
+| 推理 / 调查 Scene | 写清观察、假设、排除、证据发现、误导、验证和结论变化。 |
 
-合格 Plot 应满足：
+合格 Scene 应满足：
 
-- 一条 Plot 只承载一个主要行动、发现、选择、交换、反应、转折或结果。
-- Plot `summary` 写可见动作和可写内容，最好能直接变成 1 到数个正文段落。
-- Plot `effect` 写该节拍造成的后果：因果推进、信息变化、关系变化、状态变化、节奏变化、伏笔投放或回收。
-- Plot `writingTip` 写给 writer 的落地提示：视角、语气、节奏、动作/对白比例、感官重点、潜台词、需要避免的明说。
+- `summary` 写可见行动链和信息变化，不只写功能标签。
+- `purpose` 写该 Scene 对长期因果线、伏笔或章节节奏的功能。
+- `writingTip` 写给 writer 的落地提示：视角、语气、节奏、动作/对白比例、感官重点、潜台词、需要避免的明说。
+- `worldAnchor` 尽量连接时间范围、相关 subjects 和地点；规划阶段未知时可以先为空。
 
-不合格 Plot 示例：
+不合格 Scene 示例：
 
 - “推进男女主关系。”
 - “发生冲突。”
 - “揭露真相。”
 - “埋伏笔。”
 
-合格 Plot 示例：
+合格 Scene 示例：
 
-- `summary`：女主接过五彩石后没有立刻收下，而是先用袖口隔着触碰，确认石头会随她的呼吸产生微弱共鸣。
-- `effect`：女主意识到这不是普通宝石，但仍不知道它是世界之心碎片；她对主角的警惕从怀疑转为谨慎求证。
+- `summary`：女主接过五彩石后没有立刻收下，而是先用袖口隔着触碰，确认石头会随她的呼吸产生微弱共鸣。主角没有解释来源，只说这是能让她离开矿坑的筹码；女主因此决定暂时合作，但要求主角先交出一半路线。
+- `purpose`：让女主从怀疑转为谨慎求证，同时把五彩石从道具升级为逃离矿坑的关键筹码。
 - `writingTip`：用细小动作写警惕，不要让女主直接说破神器身份；对白保持试探感。
 
-## Split / Merge Rules
+## World Engine Anchor
 
-- 如果一个 Plot 同时包含“角色行动 + 他人反应 + 新信息揭露 + 状态改变”，通常应拆成 2 到 4 个 Plot。
-- 如果两个 Plot 的 `effect` 完全相同，且正文只能写成同一小段，可以合并。
-- 如果一个 Plot 只能写成一句功能性说明，通常太抽象，应继续下钻到可见行动。
-- 如果一个 Plot 会导致关系、位置、物品、知识、危险、承诺或节奏发生变化，应在 `effect` 中明确写出变化。
+Scene 连接 World Engine 时优先填写：
 
-## Field Rules
+- `startTime` / `endTime`：项目日历字符串，允许为空。
+- `subjectIds`：所有相关 World Engine subjects。
+- `locationSubjectId`：单个主地点 subject，允许为空。
 
-| 字段 | 应写什么 | 不应写什么 |
-| --- | --- | --- |
-| `summary` | 具体发生的可见行动、对话交换、发现、选择或转折 | “推进剧情”“制造冲突”“铺垫后文”等功能性概括 |
-| `effect` | 这一步造成的因果、关系、信息、状态、节奏、伏笔变化 | 重复 `summary`，或只写“气氛紧张” |
-| `writingTip` | 给正文 writer 的表现建议：视角、节奏、潜台词、感官、对白/动作比例 | 继续补剧情设计，或复制 `summary/effect` |
+使用规则：
+
+- 先规划、后连接时间线是合法工作流；不要为了填时间而伪造 instant。
+- 如果 Scene 事实已经发生或被确认，应由 World Engine patch 记录状态变化。
+- `get_scene_world_context` 用于读取 Scene 时间范围内的 slices 和 subject states；不要用 SQL 手写替代它。
+- 如果 Scene 的 World Engine 上下文为空，先确认 `worldAnchor` 是否缺时间、subjects 或地点。
 
 ## Update Discipline
 
-- 创建或重写 Scene Plot 后，应同步更新 Scene `summary`，否则 Scene 摘要会落后于 Plot。
 - Scene 有新增、删除、重排或关键状态变化后，应同步更新所属 Thread `summary`。
-- `director` 落库前应先确认 Plot 细度，不要把功能性大纲直接写入 Plot System。
-- 第一版暂不加入“writer 遇到 Plot 太粗时必须退回 leader / director”的硬提醒；只在角色边界中保留 writer 不主动接管 Plot 设计的原则。
-
-## Batch Creation
-
-Director 为同一个 Scene 创建多个行动级 Plot 时，优先使用 `create_story_plots`。
-
-第一版工具约束：
-
-- 只支持同一 `sceneId`。
-- `plots` 按数组顺序追加到当前 Scene 末尾。
-- 不支持显式 `sortOrder`。
-- `summary` 必填非空。
-- 一次最多创建 50 个 Plot。
-- 整批创建在一个 transaction 内完成；任意一条失败则整批失败。
-- 不做跨 Scene 批量、全量替换、删除或局部插入。
+- Scene summary 与 World Engine patch 不应互相矛盾；若正文修订产生新事实，先回到 World Engine 做 patch，再更新 Scene / Thread 摘要。
+- Leader（或手动 director）落库前应确认 Scene 粒度足够 writer 使用，不要把功能性大纲直接写入 Plot System。
+- Writer 不主动接管长期剧情结构；遇到 Scene 过粗、缺少 World Engine 上下文或事实矛盾时，默认回报 leader。

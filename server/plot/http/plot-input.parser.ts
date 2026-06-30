@@ -1,28 +1,21 @@
 import {parseEntityId, parseNullableEntityId} from "nbook/server/utils/novel-chapter";
 import type {
-    ParsedCreateStoryPlotInput,
-    ParsedCreateStoryPlotsInput,
     ParsedCreateStorySceneInput,
     ParsedCreateStoryThreadInput,
     ParsedReorderStoryPhaseItem,
-    ParsedReorderStoryPlotItem,
     ParsedReorderStorySceneItem,
     ParsedReorderStoryThreadItem,
-    ParsedUpdateStoryPlotInput,
     ParsedUpdateStorySceneInput,
     ParsedUpdateStoryThreadInput,
     ResolvedStoryRefInput,
+    SceneWorldAnchor,
 } from "nbook/server/plot/core/types";
 import type {
-    CreateStoryPlotRequestDto,
-    CreateStoryPlotsRequestDto,
     CreateStorySceneRequestDto,
     CreateStoryThreadRequestDto,
     ReorderStoryPhasesRequestDto,
-    ReorderStoryPlotsRequestDto,
     ReorderStoryScenesRequestDto,
     ReorderStoryThreadsRequestDto,
-    UpdateStoryPlotRequestDto,
     UpdateStorySceneRequestDto,
     UpdateStoryThreadRequestDto,
 } from "nbook/shared/dto/plot.dto";
@@ -80,7 +73,7 @@ export class PlotInputParser {
      * 解析场景创建输入。
      */
     parseCreateScene(
-        input: CreateStorySceneRequestDto & {resolvedRefs?: ResolvedStoryRefInput[]},
+        input: Omit<CreateStorySceneRequestDto, "worldAnchor"> & {resolvedRefs?: ResolvedStoryRefInput[]; worldAnchor: SceneWorldAnchor},
     ): ParsedCreateStorySceneInput {
         return {
             ...input,
@@ -94,7 +87,7 @@ export class PlotInputParser {
      * 解析场景更新输入。
      */
     parseUpdateScene(
-        input: UpdateStorySceneRequestDto & {resolvedRefs?: ResolvedStoryRefInput[]},
+        input: Omit<UpdateStorySceneRequestDto, "worldAnchor"> & {resolvedRefs?: ResolvedStoryRefInput[]; worldAnchor?: SceneWorldAnchor},
     ): ParsedUpdateStorySceneInput {
         return {
             ...input,
@@ -114,47 +107,6 @@ export class PlotInputParser {
             chapterPath: item.chapterPath,
             threadSortOrder: item.threadSortOrder,
             chapterSortOrder: item.chapterSortOrder,
-        }));
-    }
-
-    /**
-     * 解析情节点创建输入。
-     */
-    parseCreatePlot(input: CreateStoryPlotRequestDto): ParsedCreateStoryPlotInput {
-        return {
-            ...input,
-            sceneId: parseEntityId("sceneId", input.sceneId),
-        };
-    }
-
-    /**
-     * 解析情节点批量创建输入。
-     */
-    parseCreatePlots(input: CreateStoryPlotsRequestDto): ParsedCreateStoryPlotsInput {
-        return {
-            ...input,
-            sceneId: parseEntityId("sceneId", input.sceneId),
-        };
-    }
-
-    /**
-     * 解析情节点更新输入。
-     */
-    parseUpdatePlot(input: UpdateStoryPlotRequestDto): ParsedUpdateStoryPlotInput {
-        return {
-            ...input,
-            sceneId: input.sceneId === undefined ? undefined : parseEntityId("sceneId", input.sceneId),
-        };
-    }
-
-    /**
-     * 解析情节点重排输入。
-     */
-    parseReorderPlots(input: ReorderStoryPlotsRequestDto): ParsedReorderStoryPlotItem[] {
-        return input.items.map((item) => ({
-            plotId: parseEntityId("plotId", item.plotId),
-            sceneId: parseEntityId("sceneId", item.sceneId),
-            sortOrder: item.sortOrder,
         }));
     }
 }

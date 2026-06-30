@@ -17,7 +17,6 @@ import {useDetailSession} from "nbook/app/composables/useDetailSession";
 import NovelChapterVolumeCard from "nbook/app/components/novel-ide/NovelChapterVolumeCard.vue";
 import {useNovelIdeStore} from "nbook/app/stores/novel-ide";
 import {
-    PLOT_KIND_LABELS,
     PLOT_SCENE_STATUS_LABELS,
 } from "nbook/app/components/novel-ide/plot/thread-panel/plot-thread-panel.types";
 import {
@@ -514,7 +513,7 @@ function openVolumeEditorFromDetail(): void {
 }
 
 /**
- * 读取章节下的剧情 Scene / Plot。
+ * 读取章节下的剧情 Scene。
  */
 async function loadChapterPlotDetail(chapterId: string): Promise<void> {
     if (!novelIdeStore.currentNovelId || !chapterId) {
@@ -1110,7 +1109,7 @@ watch(selectedVolume, () => {
                             <div class="flex items-center justify-between">
                                 <span class="text-[11px] font-semibold tracking-[0.16em] text-[var(--text-secondary)]">{{ t("ide.chapterPanel.plotScene") }}</span>
                                 <span v-if="selectedChapterPlotDetail" class="text-[10px] text-[var(--text-muted)]">
-                                    {{ selectedChapterPlotDetail.totalScenes }} Scene / {{ selectedChapterPlotDetail.totalPlots }} Plot
+                                    {{ selectedChapterPlotDetail.totalScenes }} Scene
                                 </span>
                             </div>
 
@@ -1148,7 +1147,6 @@ watch(selectedVolume, () => {
                                                 <span>{{ sceneStatusLabel(scene.status) }}</span>
                                             </div>
                                         </div>
-                                        <span class="shrink-0 text-[10px] text-[var(--text-muted)]">{{ scene.plots.length }} Plot</span>
                                     </div>
 
                                     <div v-if="scene.summary" class="mt-2 text-[11px] leading-5 text-[var(--text-secondary)]">
@@ -1156,31 +1154,6 @@ watch(selectedVolume, () => {
                                     </div>
                                     <div v-if="scene.purpose" class="mt-1 text-[10px] leading-5 text-[var(--text-muted)]">
                                         {{ t("ide.chapterPanel.purpose", {purpose: scene.purpose}) }}
-                                    </div>
-
-                                    <div v-if="scene.plots.length > 0" class="mt-2 space-y-1.5 border-t border-[var(--border-color)]/70 pt-2">
-                                        <div
-                                            v-for="plot in scene.plots"
-                                            :key="plot.id"
-                                            class="rounded-lg bg-[var(--bg-input)]/60 px-2 py-1.5"
-                                        >
-                                            <div class="flex items-center gap-2 text-[10px] text-[var(--text-muted)]">
-                                                <span class="font-mono">#{{ plot.sortOrder + 1 }}</span>
-                                                <span class="rounded-full border border-[var(--border-color)] bg-[var(--bg-panel)] px-1.5 py-0.5">
-                                                    {{ PLOT_KIND_LABELS[plot.kind] }}
-                                                </span>
-                                            </div>
-                                            <div class="mt-1 text-[11px] leading-5 text-[var(--text-secondary)]">
-                                                {{ plot.summary || t("ide.chapterPanel.noPlotSummary") }}
-                                            </div>
-                                            <div v-if="plot.effect" class="mt-1 text-[10px] leading-5 text-[var(--text-muted)]">
-                                                {{ t("ide.chapterPanel.effect", {effect: plot.effect}) }}
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    <div v-else class="mt-2 rounded-lg border border-dashed border-[var(--border-color)] px-2 py-1.5 text-[10px] text-[var(--text-muted)]">
-                                        {{ t("ide.chapterPanel.noPlot") }}
                                     </div>
                                 </div>
                             </div>

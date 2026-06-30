@@ -13,7 +13,7 @@
 
 ## 内置规则包
 
-默认启用 `builtin/default`。它合并人工维护的 anti-ai-slop 规则与 `.agent/workspace/llmlint_rules` 中文规则样本的策展结果：同 detector 去重、同 target 的替换候选取并集。它包含 R18/成人词汇规则；普通项目如果不希望检查这类词汇，可以在配置中设置：
+默认启用 `builtin/default`。它合并人工维护的 anti-ai-slop 规则与 `.agent/workspace/llmlint_rules` 中文规则样本的策展结果：同 detector 去重、同 target 的替换候选取并集。内置资产放在 `rules/` 目录下并按维护需要分层，例如 `rules/vocabulary/r18.json`；用户仍通过 `llmlint.config.ts` 控制 ruleset、namespace 或 rule id。它包含 R18/成人词汇规则；普通项目如果不希望检查这类词汇，可以在配置中设置：
 
 ```typescript
 export default {
@@ -178,6 +178,45 @@ export default {
 **示例**：
 - 坏例：所有人都会被这个问题影响。
 - 好例：客服组的 18 名同事每天都会遇到这个问题。
+
+## v1 规则内容扩充（取三同类项目精华）
+
+builtin/default 在原有规则上扩充了一批成体系的中文 regex 规则，主要取材自三个同类项目：
+**shuorenhua（说人话，主来源，中文原生）**、**avoid-ai-writing（44 类 taxonomy + 通用机械规则）**、
+**humanizer（Wikipedia「Signs of AI writing」概念清单）**。原则是 static 优先、覆盖优先、容忍误差。
+
+按 shuorenhua 的 Tier 模型映射到 `level` / `review`：
+- **Tier 1（默认替换、AI 高频）→ `review: agent`**：正文默认展示。
+- **Tier 2/3（同段聚集 / 全文密度才算）→ `review: human`**：regex 无法判密度，降到 human 桶避免逐次误杀。
+
+新增命名空间（agent 桶，默认展示）：
+- `opening.cliche` 开场套话：值得一提的是、不难发现、众所周知、让我们一起来看看、在当今这个…的时代。
+- `inflation.significance` 渲染性强调：深刻的影响、至关重要、前所未有、颠覆性、范式转移、令人瞩目、发人深省。
+- `transition.summary` 过渡废话：综上所述、由此可见、换句话说、本质上、核心在于。
+- `attribution.vague` 无源引用：研究表明、数据显示、有专家指出、据报道。
+- `cliche.uplift` 正能量收尾：让我们拭目以待、未来可期、与其…不如积极拥抱。
+- `sycophantic` 谄媚 / 助手腔：好问题、你说得很对、希望这对你有帮助、要不要我、稳稳接住你。
+
+新增命名空间（human 桶，默认不刷 agent 视图，用 `--review human` 查看）：
+- `jargon.engineer` 工程师 / 调试腔：稳稳兜住、收口、根因、落盘、拍板、揪出来（技术语境合理，误杀率高）。
+- `jargon.social` 自媒体腔：保姆级、干货、一文读懂、建议收藏、绝绝子（网络用语，真人也用）。
+- `translationese` 翻译腔：对于…而言、在…方面、从…的角度来看、通过…来…、基于…。
+- `structure.fragment` 戏剧化碎句：连续极短句制造假力量感（对话/刻意节奏应保留）。
+
+机械痕迹（移植自 avoid-ai-writing 的语言无关检测器，高精度、低误杀）：
+- `mechanical.zero-width`（`review: none` / 自动修复）：零宽空格 / 连接符 / BOM 等不可见字符，humanizer 工具常插入来绕过检测；直接删除。
+- `mechanical.homoglyph`（`review: human`）：西里尔 / 希腊字母里冒充拉丁字母的同形字。
+- `mechanical.placeholder`（`review: agent`）：成稿里残留的模板占位符 `{{...}}` / `[姓名]` / `（此处…）`。
+- `mechanical.chatbot-artifact`（`review: agent`）：复制 AI 输出带进来的内部标记，如 `:contentReference`、`oaicite`、Bing 角标、chatgpt utm。
+
+误杀防护（取自 shuorenhua `severity.md` 11 条）写进各规则 `note`：引用原文、术语定义、代码/配置、
+特定行业语境、技术报告中的工程术语、系统主语行为等场景即使命中也应保留。v1 容忍误差，不为防护牺牲覆盖。
+
+跳过项：shuorenhua Tier 3 单字常用词（重要/关键/核心/优化/提升…）是「全文密度高才算」，逐次 regex 会大量误杀，
+本版不收，留给 Agent 的密度判断或后续 density 引擎。
+
+扫描层面：对 Markdown 文件，`check` / `fix` 默认跳过代码块 / frontmatter / 行内代码 / 链接等结构区域（用 `--scan-all` 关闭），
+所以代码、链接里的内容不会被规则误杀；`fix` 也不会改动代码块 / frontmatter 内的内容。
 
 ## LLM Rule 语义模式
 

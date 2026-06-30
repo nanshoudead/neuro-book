@@ -1,4 +1,4 @@
-import {describe, expect, it} from "vitest";
+import {beforeAll, describe, expect, it} from "vitest";
 import {
     normalizeStructuredReferences,
     processContentText,
@@ -8,12 +8,18 @@ import {
     STORY_STRUCTURED_REFERENCE_KINDS,
 } from "nbook/shared/reference-core";
 
+beforeAll(() => {
+    (globalThis as typeof globalThis & {
+        createError?: (input: {statusCode?: number; message?: string}) => Error & {statusCode?: number};
+    }).createError = ({statusCode, message}) => Object.assign(new Error(message), {statusCode});
+});
+
 describe("content-middleware", () => {
     it("规范化 legacy inline markdown，并提取完整 inline ref 结果", () => {
-        const result = processContentText("A [旧章](@chapter://1) B @plot://24 %{写一个转折}%");
+        const result = processContentText("A [旧章](@chapter://1) B @scene://24 %{写一个转折}%");
 
-        expect(result.raw).toBe("A [旧章](@chapter://1) B @plot://24 %{写一个转折}%");
-        expect(result.normalized).toBe("A [旧章](chapter://1) B @plot://24 %{写一个转折}%");
+        expect(result.raw).toBe("A [旧章](@chapter://1) B @scene://24 %{写一个转折}%");
+        expect(result.normalized).toBe("A [旧章](chapter://1) B @scene://24 %{写一个转折}%");
         expect(result.resolved).toBe(result.normalized);
         expect(result.diagnostics).toEqual({
             errors: [],
@@ -41,13 +47,13 @@ describe("content-middleware", () => {
                 syntax: "markdown",
             },
             {
-                kind: "plot",
+                kind: "scene",
                 targetId: "24",
-                raw: "@plot://24",
-                target: "plot://24",
+                raw: "@scene://24",
+                target: "scene://24",
                 title: null,
-                start: result.normalized.indexOf("@plot://24"),
-                end: result.normalized.indexOf("@plot://24") + "@plot://24".length,
+                start: result.normalized.indexOf("@scene://24"),
+                end: result.normalized.indexOf("@scene://24") + "@scene://24".length,
                 syntax: "bare",
             },
         ]);

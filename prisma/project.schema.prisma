@@ -25,25 +25,10 @@ enum StorySceneStatus {
   archived
 }
 
-enum StoryPlotKind {
-  setup
-  action
-  conflict
-  despair
-  relief
-  reward
-  mystery
-  reveal
-  twist
-  payoff
-  result
-}
-
 enum StoryRefTargetKind {
   content
   thread
   scene
-  plot
 }
 
 enum StoryRefVisibility {
@@ -130,11 +115,14 @@ model StoryScene {
   purpose            String?
   writingTip         String?
   note               String?
+  startInstant       BigInt?
+  endInstant         BigInt?
+  subjectIdsJson     String            @default("[]")
+  locationSubjectId  String?
   createdAt          DateTime          @default(now())
   updatedAt          DateTime          @default(now()) @updatedAt
   story              Story             @relation(fields: [storyId], references: [id], onDelete: Cascade)
   thread             StoryThread       @relation(fields: [threadId], references: [id], onDelete: Cascade)
-  plots              StoryPlot[]
   refs               StorySceneRef[]   @relation("StorySceneRefs")
   incomingSceneRefs  StorySceneRef[]   @relation("StorySceneRefTargetScene")
 
@@ -142,24 +130,7 @@ model StoryScene {
   @@index([threadId, threadSortOrder])
   @@index([chapterPath, chapterSortOrder])
   @@index([storyId, status])
-}
-
-model StoryPlot {
-  id                 Int               @id @default(autoincrement())
-  sceneId            Int
-  sortOrder          Int
-  kind               StoryPlotKind
-  summary            String            @default("")
-  effect             String?
-  writingTip         String?
-  note               String?
-  createdAt          DateTime          @default(now())
-  updatedAt          DateTime          @default(now()) @updatedAt
-  scene              StoryScene        @relation(fields: [sceneId], references: [id], onDelete: Cascade)
-  incomingSceneRefs  StorySceneRef[]   @relation("StorySceneRefTargetPlot")
-
-  @@unique([sceneId, sortOrder])
-  @@index([sceneId, sortOrder])
+  @@index([startInstant])
 }
 
 model StorySceneRef {
@@ -171,7 +142,6 @@ model StorySceneRef {
   targetKind           StoryRefTargetKind
   targetThreadId       Int?
   targetSceneId        Int?
-  targetPlotId         Int?
   visibility           StoryRefVisibility @default(author)
   note                 String?
   createdAt            DateTime           @default(now())
@@ -179,12 +149,10 @@ model StorySceneRef {
   scene                StoryScene         @relation("StorySceneRefs", fields: [sceneId], references: [id], onDelete: Cascade)
   targetThread         StoryThread?       @relation("StorySceneRefTargetThread", fields: [targetThreadId], references: [id], onDelete: SetNull, onUpdate: Cascade)
   targetScene          StoryScene?        @relation("StorySceneRefTargetScene", fields: [targetSceneId], references: [id], onDelete: SetNull, onUpdate: Cascade)
-  targetPlot           StoryPlot?         @relation("StorySceneRefTargetPlot", fields: [targetPlotId], references: [id], onDelete: SetNull, onUpdate: Cascade)
 
   @@index([sceneId, sortOrder])
   @@index([targetThreadId])
   @@index([targetSceneId])
-  @@index([targetPlotId])
 }
 
 model WorldSubject {

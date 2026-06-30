@@ -10,7 +10,7 @@ type ExtendedAgentEvent = AgentEvent | {
     toolCallId: string;
     toolName: string;
     args: unknown;
-    formSpec: UserInputFormSpec;
+    formSpec?: UserInputFormSpec;
 };
 
 /**
@@ -59,12 +59,18 @@ export function projectRuntimeEvent(event: ExtendedAgentEvent): AgentRuntimeStre
         };
     }
     if (event.type === "tool_user_input_required") {
+        const formSpec = event.toolName !== "request_user_input" && event.formSpec?.form ? {
+            form: event.formSpec.form,
+            resultSchema: event.formSpec.resultSchema,
+            prompt: event.formSpec.prompt,
+            layout: event.formSpec.layout,
+        } : undefined;
         return {
             type: "tool.user-input-required",
             toolCallId: event.toolCallId,
             toolName: event.toolName,
             args: event.args,
-            formSpec: event.formSpec,
+            ...(formSpec ? {formSpec} : {}),
         };
     }
     return null;

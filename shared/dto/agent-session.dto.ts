@@ -35,9 +35,8 @@ export const AgentResolutionDtoSchema = z.discriminatedUnion("kind", [
         data: JsonValueSchema.optional(),
         answers: z.array(z.object({
             questionIndex: z.number().int().nonnegative(),
-            text: z.string(),
+            text: z.string().optional(),
             selectedOptionIndex: z.number().int().min(-1).optional(),
-            selectedOptionIndexes: z.array(z.number().int().min(-1)).optional(),
             note: z.string().optional(),
             ignored: z.boolean().optional(),
         })).optional(),
@@ -49,9 +48,8 @@ export const AgentResolutionDtoSchema = z.discriminatedUnion("kind", [
         data: JsonValueSchema.optional(),
         answers: z.array(z.object({
             questionIndex: z.number().int().nonnegative(),
-            text: z.string(),
+            text: z.string().optional(),
             selectedOptionIndex: z.number().int().min(-1).optional(),
-            selectedOptionIndexes: z.array(z.number().int().min(-1)).optional(),
             note: z.string().optional(),
             ignored: z.boolean().optional(),
         })).optional(),
@@ -279,7 +277,7 @@ export type AgentPendingUserInputDto = {
     args?: JsonValue;
     planFilePath?: string;
     planContent?: string;
-    /** Task 63: Low-Code Form 规格，从 tool.user-input-required 事件复制；存在时优先于 args.form */
+    /** Low-Code Form 规格，从 tool.user-input-required 事件复制；存在时优先于 args.form。 */
     formSpec?: {
         form: LowCodeFormDto;
         layout?: "dialog" | "inline" | "fullscreen";
@@ -404,7 +402,7 @@ export type AgentRuntimeStreamEventDto =
         toolCallId: string;
         toolName: string;
         args: unknown;
-        formSpec: {
+        formSpec?: {
             form: LowCodeFormDto;
             resultSchema?: unknown;
             prompt?: string;

@@ -48,11 +48,6 @@ export type StoryThread = Prisma.StoryThreadModel
  */
 export type StoryScene = Prisma.StorySceneModel
 /**
- * Model StoryPlot
- * 
- */
-export type StoryPlot = Prisma.StoryPlotModel
-/**
  * Model StorySceneRef
  * 
  */

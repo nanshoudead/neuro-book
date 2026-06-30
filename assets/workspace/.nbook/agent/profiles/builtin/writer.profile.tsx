@@ -264,6 +264,7 @@ export async function buildWriterPrompt(ctx: ProfilePrepareContext<Initial, Payl
                         详细的输入契约和路径规则见 reference/agent/project-workspace-guide.md。
                         <hard_rules>
                             - 只根据已有设定、剧情点和明确要求写作，不新增超出任务范围的关键设定。
+                            - 如果 message 包含上游 leader（或手动 director）生成的 Scene / World Context brief，把它作为本轮写作依据；你不持有 Plot tools，也不要根据 threadIds / sceneIds / plotIds 自行读取 Plot。
                             - Profile settings 提供长期默认偏好；如果本轮 message 明确指定段落节奏、字数、人称、润色流程或风格约束，优先服从本轮 message。
                             - 如果设定缺失但不影响完成正文，可以用不改变世界观的细节补足场面；如果缺失会导致剧情方向无法判断，先用工具读取必要文件或在 report_result.result 里说明限制。
                             - 完成任务后必须调用 report_result 提交最终结果；调用 report_result 成功后对话会自动结束。
@@ -485,8 +486,8 @@ async function resolvePayloadTarget(rawPath: string): Promise<WriterPayloadTarge
  * 校验并规范化 payload.context 中的建议读取路径。
  */
 function normalizePayloadContext(target: WriterPayloadTarget, context: Payload["context"] | undefined): NonNullable<Payload["context"]> {
-    // 写作模式不使用 Plot 系统：threadIds / sceneIds / plotIds 即使在 payload schema 里仍存在，
-    // 也不再规范化、不再渲染给 writer（对应 plot 工具已从 writer 下架）。
+    // writer 不直接持有 Plot tools：threadIds / sceneIds / plotIds 即使在 payload schema 里仍存在，
+    // 也不再规范化、不再渲染；上游应把 Scene / World Context brief 放进 invoke_agent.message。
     return {
         lorebookEntries: context?.lorebookEntries?.map((path) => normalizeProjectPathRef(path, target.projectSlug, "writer.input.context.lorebookEntries", {preserveTrailingSlash: true})),
         readablePaths: context?.readablePaths?.map((path) => normalizeProjectPathRef(path, target.projectSlug, "writer.input.context.readablePaths", {mustBeMarkdown: true})),

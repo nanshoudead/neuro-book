@@ -52,7 +52,7 @@ const cardClass = computed(() => {
 
         <div class="mt-auto flex flex-wrap items-center gap-1.5 pt-3 text-[11px] text-[var(--text-muted)]">
             <span class="rounded-full border border-[var(--border-color)] bg-[var(--bg-input)] px-2 py-0.5">{{ props.card.slotLabel }}</span>
-            <span class="rounded-full border border-[var(--border-color)] bg-[var(--bg-input)] px-2 py-0.5">{{ props.card.plotCount }} Plot</span>
+            <span class="rounded-full border border-[var(--border-color)] bg-[var(--bg-input)] px-2 py-0.5">{{ props.card.scene.refs.length }} Refs</span>
         </div>
     </button>
 </template>

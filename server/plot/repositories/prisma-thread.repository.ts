@@ -200,12 +200,6 @@ export class PrismaThreadRepository implements ThreadRepository {
                         {id: "asc"},
                     ],
                     include: {
-                        plots: {
-                            orderBy: [
-                                {sortOrder: "asc"},
-                                {id: "asc"},
-                            ],
-                        },
                         refs: {
                             orderBy: [
                                 {sortOrder: "asc"},
@@ -278,12 +272,6 @@ export class PrismaThreadRepository implements ThreadRepository {
                                 {id: "asc"},
                             ],
                             include: {
-                                plots: {
-                                    orderBy: [
-                                        {sortOrder: "asc"},
-                                        {id: "asc"},
-                                    ],
-                                },
                                 refs: {
                                     orderBy: [
                                         {sortOrder: "asc"},

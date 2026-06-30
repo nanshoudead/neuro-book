@@ -22,7 +22,7 @@ import {createAssistantTextMessage, createTextToolResult, createUserMessage, mes
 import {HistorySet, Message, ModelContext, ProfilePrompt, Reminder, System} from "nbook/server/agent/profiles/profile-dsl";
 import type {AgentMessage, JsonValue, Message as RuntimeMessage, Usage} from "nbook/server/agent/messages/types";
 import type {AgentSessionEventDto} from "nbook/shared/dto/agent-session.dto";
-import {AGENT_PLAN_MODE_STATE_KEY} from "nbook/server/agent/session/custom-state-keys";
+import {AGENT_PLAN_MODE_STATE_KEY, AGENT_TASKS_STATE_KEY} from "nbook/server/agent/session/custom-state-keys";
 import {defineSessionVariable} from "nbook/server/agent/variables/registry";
 
 type LegacyTestSidecar<TInput = JsonValue> = Omit<SidecarProfilePass<TInput, JsonValue>, "toolKeys"> & {
@@ -767,17 +767,13 @@ describe("NeuroAgentHarness", () => {
         expect(waitingSnapshot.pendingApprovals[0]).toEqual(expect.objectContaining({
             toolCallId: "ask-1",
             toolName: "request_user_input",
-            formSpec: expect.objectContaining({
-                form: expect.objectContaining({
-                    fields: expect.arrayContaining([
-                        expect.objectContaining({
-                            path: "answer_0",
-                            component: "textarea",
-                        }),
-                    ]),
-                }),
+            args: expect.objectContaining({
+                questions: [expect.objectContaining({
+                    question: "给一个名字",
+                })],
             }),
         }));
+        expect(waitingSnapshot.pendingApprovals[0]?.formSpec).toBeUndefined();
         const waitingContext = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
         expect(waitingContext.messages.map((message) => message.role)).toEqual(["user", "assistant"]);
 
@@ -787,9 +783,7 @@ describe("NeuroAgentHarness", () => {
             resolution: {
                 kind: "user_input",
                 toolCallId: "ask-1",
-                data: {
-                    answer_0: "Alice",
-                },
+                answers: [{questionIndex: 0, note: "Alice"}],
             },
         });
 
@@ -944,9 +938,7 @@ describe("NeuroAgentHarness", () => {
             resolution: {
                 kind: "user_input",
                 toolCallId: "ask-reload",
-                data: {
-                    answer_0: "Alice",
-                },
+                answers: [{questionIndex: 0, note: "Alice"}],
             },
         });
         await restored.drainBackgroundTasks();
@@ -956,15 +948,13 @@ describe("NeuroAgentHarness", () => {
         expect(reloadedSnapshot.pendingApprovals[0]).toEqual(expect.objectContaining({
             toolCallId: "ask-reload",
             toolName: "request_user_input",
-            formSpec: expect.objectContaining({
-                form: expect.objectContaining({
-                    fields: [expect.objectContaining({
-                        path: "answer_0",
-                        component: "textarea",
-                    })],
-                }),
+            args: expect.objectContaining({
+                questions: [expect.objectContaining({
+                    question: "给一个名字",
+                })],
             }),
         }));
+        expect(reloadedSnapshot.pendingApprovals[0]?.formSpec).toBeUndefined();
         expect(reloadedSessions).toContainEqual(expect.objectContaining({
             sessionId: created.sessionId,
             status: "waiting",
@@ -1399,8 +1389,12 @@ describe("NeuroAgentHarness", () => {
         });
         const subscription = harness.subscribeSessionEvents(created.sessionId);
         const streamedToolResults: string[] = [];
+        const userInputRequiredEvents: AgentSessionEventDto[] = [];
         const collect = (async () => {
             for await (const event of subscription) {
+                if (event.kind === "runtime" && event.event.type === "tool.user-input-required") {
+                    userInputRequiredEvents.push(event);
+                }
                 if (event.kind === "runtime" && event.event.type === "message_start" && event.event.message.role === "toolResult") {
                     streamedToolResults.push(messageText(event.event.message));
                 }
@@ -1420,9 +1414,21 @@ describe("NeuroAgentHarness", () => {
         expect(waiting.status).toBe("waiting");
         const waitingContext = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
         expect(waitingContext.messages.map((message) => message.role)).toEqual(["user", "assistant", "toolResult"]);
-        expect(messageText(waitingContext.messages[2] as never)).toContain("waiting for user approval");
+        expect(messageText(waitingContext.messages[2] as never)).toContain("waiting for user input");
         expect(streamedToolResults).toHaveLength(1);
-        expect(streamedToolResults[0]).toContain("waiting for user approval");
+        expect(streamedToolResults[0]).toContain("waiting for user input");
+        expect(userInputRequiredEvents).toHaveLength(1);
+        expect(userInputRequiredEvents[0]?.event).toEqual(expect.objectContaining({
+            type: "tool.user-input-required",
+            toolCallId: "ask-barrier",
+            toolName: "request_user_input",
+            args: expect.objectContaining({
+                questions: [expect.objectContaining({
+                    question: "继续？",
+                })],
+            }),
+        }));
+        expect(userInputRequiredEvents[0]?.event).not.toHaveProperty("formSpec");
         expect(await harness.getSessionSnapshot(created.sessionId)).toEqual(expect.objectContaining({
             pendingApprovals: [expect.objectContaining({
                 toolCallId: "ask-barrier",
@@ -1616,6 +1622,68 @@ describe("NeuroAgentHarness", () => {
             "test.tool.savePoint",
         ]);
     });
+
+    it("task_create 后同 run 继续输出时下一轮 task_set_status 仍能读到任务清单", async () => {
+        harness.profiles.register(defineAgentProfile({
+            manifest: {
+                key: "test.task-savepoint-parent",
+                name: "Task SavePoint Parent",
+            },
+            initialSchema: Type.Object({}),
+            allowedToolKeys: ["task_create", "task_set_status", "report_result"],
+            prepare() {
+                return {};
+            },
+        }), false);
+        faux.setResponses([
+            fauxAssistantMessage([
+                fauxToolCall("task_create", {
+                    title: "第一章写作流程",
+                    steps: [
+                        {id: "design", text: "剧情初步设计", status: "in_progress"},
+                        {id: "write", text: "调用 writer", status: "pending"},
+                    ],
+                }, {id: "task-create-call"}),
+            ], {stopReason: "toolUse"}),
+            fauxAssistantMessage("框架 OK 吗？"),
+            fauxAssistantMessage([
+                fauxToolCall("task_set_status", {
+                    id: "design",
+                    status: "completed",
+                }, {id: "task-set-call"}),
+            ], {stopReason: "toolUse"}),
+            fauxAssistantMessage([
+                fauxToolCall("report_result", {
+                    result: "done",
+                }, {id: "report-task"}),
+            ], {stopReason: "toolUse"}),
+        ]);
+        const created = await harness.createAgent({
+            profileKey: "test.task-savepoint-parent",
+            initial: {},
+            workspaceRoot: root,
+        });
+
+        await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "继续按照流程写第一章"},
+        });
+        const result = await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "可以"},
+        });
+        const context = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
+        const tasks = context.customState[AGENT_TASKS_STATE_KEY] as {steps?: Array<{id: string; status: string}>};
+
+        expect(result.status).toBe("completed");
+        expect(visibleMessageText(context.messages)).not.toContain("当前 session 还没有任务清单");
+        expect(tasks.steps).toEqual([
+            expect.objectContaining({id: "design", status: "completed"}),
+            expect.objectContaining({id: "write", status: "pending"}),
+        ]);
+    }, 30_000);
 
     it("parallel 工具会并发执行，但 toolResult 和 savePoint writes 按 tool call 顺序落盘", async () => {
         const releases = new Map<string, () => void>();
@@ -1917,7 +1985,7 @@ describe("NeuroAgentHarness", () => {
         expect(providerPrompts[1]).toContain("COMPACT SUMMARY");
         expect(providerPrompts[1]).toContain("HISTORY AFTER AUTO COMPACT");
         expect(providerPrompts[1]).not.toContain("OLD CONTEXT");
-        expect(context.messages[0] && messageText(context.messages[0] as never)).toContain("COMPACT SUMMARY");
+        expect(context.messages[0] && messageText(context.messages[0] as never)).toContain("OLD CONTEXT");
     });
 
     it("自定义 runtime 有 profile compaction 配置时仍会自动 compaction", async () => {
@@ -7488,10 +7556,9 @@ describe("NeuroAgentHarness", () => {
         expect(toolResult).toEqual(expect.objectContaining({
             role: "toolResult",
             details: expect.objectContaining({
-                sessionId: child.sessionId,
                 status: "completed",
-                reportResult: expect.objectContaining({
-                    result: "child done",
+                result: expect.objectContaining({
+                    message: "child done",
                     data: {
                         answer: "structured child data",
                     },
@@ -7499,9 +7566,8 @@ describe("NeuroAgentHarness", () => {
             }),
         }));
         expect(JSON.parse(messageText(toolResult!))).toEqual(expect.objectContaining({
-            sessionId: child.sessionId,
             status: "completed",
-            reportResult: expect.objectContaining({
+            result: expect.objectContaining({
                 data: {
                     answer: "structured child data",
                 },
@@ -7729,7 +7795,7 @@ describe("NeuroAgentHarness", () => {
         expect(text).toContain("test.profile-detail");
         expect(text).toContain("toolKeys");
         expect(text).toContain("Task prompt.");
-        expect(text).toContain("reportResultSchema");
+        expect(text).toContain("outputSchema");
     }, 30_000);
 
     it("session snapshot 暴露 linked agents、pending approval、plan/model/followUp 状态", async () => {
@@ -7797,13 +7863,13 @@ describe("NeuroAgentHarness", () => {
             kind: "steer",
             message: {text: "adjust"},
         }));
-        expect(snapshot.pendingApprovals[0]).toEqual({
+        expect(snapshot.pendingApprovals[0]).toEqual(expect.objectContaining({
             toolCallId: "ask-snapshot",
             toolName: "request_user_input",
             args: {
                 questions: [{question: "Name?"}],
             },
-        });
+        }));
         expect(snapshot.followUpQueue.items).toEqual([
             expect.objectContaining({
                 kind: "followup",
@@ -7878,6 +7944,10 @@ describe("NeuroAgentHarness", () => {
             sessionId: created.sessionId,
             mode: "prompt",
             message: {text: "start"},
+        });
+        await waitFor(async () => {
+            const snapshot = await harness.getSessionSnapshot(created.sessionId);
+            expect(snapshot.activeInvocation).not.toBeNull();
         });
         await harness.invokeAgent({
             sessionId: created.sessionId,
@@ -8140,7 +8210,10 @@ describe("NeuroAgentHarness", () => {
 
     it("模型错误结束时清理已入队但无法再消费的 steer", async () => {
         faux.setResponses([
-            fauxAssistantMessage("failed", {stopReason: "error", errorMessage: "provider failed"}),
+            async () => {
+                await new Promise((resolve) => setTimeout(resolve, 30));
+                return fauxAssistantMessage("failed", {stopReason: "error", errorMessage: "provider failed"});
+            },
         ]);
         const created = await harness.createAgent({
             profileKey: "leader.default",
@@ -8180,6 +8253,10 @@ describe("NeuroAgentHarness", () => {
             sessionId: created.sessionId,
             mode: "prompt",
             message: {text: "start"},
+        });
+        await waitFor(async () => {
+            const snapshot = await harness.getSessionSnapshot(created.sessionId);
+            expect(snapshot.activeInvocation).not.toBeNull();
         });
         await harness.invokeAgent({
             sessionId: created.sessionId,
@@ -8222,6 +8299,10 @@ describe("NeuroAgentHarness", () => {
             sessionId: created.sessionId,
             mode: "prompt",
             message: {text: "start"},
+        });
+        await waitFor(async () => {
+            const snapshot = await harness.getSessionSnapshot(created.sessionId);
+            expect(snapshot.activeInvocation).not.toBeNull();
         });
         await harness.invokeAgent({
             sessionId: created.sessionId,
@@ -8267,6 +8348,10 @@ describe("NeuroAgentHarness", () => {
             sessionId: created.sessionId,
             mode: "prompt",
             message: {text: "start"},
+        });
+        await waitFor(async () => {
+            const snapshot = await harness.getSessionSnapshot(created.sessionId);
+            expect(snapshot.activeInvocation).not.toBeNull();
         });
         await harness.invokeAgent({
             sessionId: created.sessionId,
@@ -8359,9 +8444,12 @@ describe("NeuroAgentHarness", () => {
             },
         }), false);
         faux.setResponses([
-            fauxAssistantMessage([
-                fauxToolCall("finish_once", {}, {id: "finish-1"}),
-            ], {stopReason: "toolUse"}),
+            async () => {
+                await new Promise((resolve) => setTimeout(resolve, 30));
+                return fauxAssistantMessage([
+                    fauxToolCall("finish_once", {}, {id: "finish-1"}),
+                ], {stopReason: "toolUse"});
+            },
             fauxAssistantMessage("after steer"),
         ]);
         const created = await harness.createAgent({

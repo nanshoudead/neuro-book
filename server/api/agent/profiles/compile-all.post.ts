@@ -8,7 +8,9 @@ import {useAgentHarness} from "nbook/server/agent/http";
  */
 export default defineEventHandler(async (event) => {
     const body = await validateBody(event, AgentProfileCompileAllRequestDtoSchema);
-    const result = await useProfileCompileWorker().compileAll(body);
-    useAgentHarness().profiles.invalidate();
-    return result;
+    const harness = useAgentHarness();
+    return useProfileCompileWorker().compileAll(body, {
+        mode: "in_process",
+        registry: harness.profiles,
+    });
 });

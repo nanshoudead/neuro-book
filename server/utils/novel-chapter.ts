@@ -322,15 +322,14 @@ async function readPlotCounts(projectPath: string): Promise<Pick<NovelStatisticC
 
     const client = createClient({url: toSqliteFileUrl(databasePath)});
     try {
-        const [threadCount, sceneCount, plotCount] = await Promise.all([
+        const [threadCount, sceneCount] = await Promise.all([
             readSqliteTableCount(client, "StoryThread"),
             readSqliteTableCount(client, "StoryScene"),
-            readSqliteTableCount(client, "StoryPlot"),
         ]);
         return {
             threadCount,
             sceneCount,
-            plotCount,
+            plotCount: 0,
         };
     } catch (error) {
         consola.warn({projectPath, error}, "读取 Project Plot 统计失败");
@@ -348,7 +347,7 @@ async function readPlotCounts(projectPath: string): Promise<Pick<NovelStatisticC
 /**
  * 读取 SQLite 表行数，表不存在时返回 0。
  */
-async function readSqliteTableCount(client: {execute(statement: string): Promise<{rows: Array<Record<string, unknown>>}>}, tableName: "StoryThread" | "StoryScene" | "StoryPlot"): Promise<number> {
+async function readSqliteTableCount(client: {execute(statement: string): Promise<{rows: Array<Record<string, unknown>>}>}, tableName: "StoryThread" | "StoryScene"): Promise<number> {
     try {
         const result = await client.execute(`SELECT COUNT(*) AS count FROM "${tableName}"`);
         const value = result.rows[0]?.count;

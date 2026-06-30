@@ -15,7 +15,6 @@ const props = defineProps<{
     selected: boolean;
     dragDisabled: boolean;
     chapter: PlotThreadPanelChapter | null;
-    plotCount: number;
 }>();
 
 const emit = defineEmits<{
@@ -45,6 +44,18 @@ const {isDragging, isDropTarget} = useSortable({
     handle: handleRef,
     feedback: "default",
     disabled: computed(() => props.dragDisabled),
+});
+
+const hasWorldAnchor = computed(() => {
+    const anchor = props.scene.worldAnchor;
+    return Boolean(
+        anchor.startTime ||
+        anchor.endTime ||
+        anchor.startInstant ||
+        anchor.endInstant ||
+        anchor.subjectIds.length ||
+        anchor.locationSubjectId,
+    );
 });
 </script>
 
@@ -107,7 +118,9 @@ const {isDragging, isDropTarget} = useSortable({
                 <span v-if="chapter" class="rounded-full border border-[var(--border-color)] px-1.5 py-0.5">{{ chapter.numberLabel }}</span>
                 <span v-else class="rounded-full border border-dashed border-[var(--border-color)] px-1.5 py-0.5">未挂章</span>
                 <span v-if="scene.purpose" class="rounded-full border border-[var(--border-color)] px-1.5 py-0.5">目的</span>
-                <span class="rounded-full border border-[var(--border-color)] px-1.5 py-0.5">P {{ plotCount }}</span>
+                <span class="rounded-full border px-1.5 py-0.5" :class="hasWorldAnchor ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300' : 'border-dashed border-[var(--border-color)]'">
+                    {{ hasWorldAnchor ? "World" : "未连接 World" }}
+                </span>
                 <span class="rounded-full border border-[var(--border-color)] px-1.5 py-0.5">R {{ scene.refs.length }}</span>
                 <span class="rounded-full border border-[var(--border-color)] px-1.5 py-0.5">
                     C {{ scene.chapterSortOrder === null ? "-" : scene.chapterSortOrder + 1 }}

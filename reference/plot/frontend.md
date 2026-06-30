@@ -16,12 +16,11 @@
 - `Thread`
 - `Scene`
 - `Chapter`
-- `Plot`
 
 其中：
 
 - `Story`、`StoryPhase` 主要承担定位、分组、检索作用
-- `Thread`、`Scene`、`Chapter`、`Plot` 才是前端高频操作中心
+- `Thread`、`Scene`、`Chapter` 才是前端高频操作中心
 
 ---
 
@@ -84,7 +83,6 @@
 
 - `Thread`
 - `Scene`
-- `Plot`
 
 其中：
 
@@ -150,7 +148,7 @@
 
 - `线索` = 视图一：`Story / Phase / Thread`
 - `线程` = 视图二：`Thread / Scene`
-- `章节` = 视图三：`Chapter / Plot`
+- `章节` = 视图三：`Chapter / Scene`
 - `树图` = 视图四：类 git tree 图
 
 不建议直接把按钮名写成“视图一 / 视图二”。
@@ -268,7 +266,7 @@
 - 简短 `summary`
 - `purpose`
 - 关联 `Chapter`
-- `Plot` 数量
+- World Engine 连接状态
 - `refs` 数量
 - 当前状态
 
@@ -281,7 +279,7 @@
 - `chapterId`
 - `writingTip`
 - `refs`
-- `plots`
+- `worldAnchor`
 
 ---
 
@@ -308,14 +306,14 @@
 
 ---
 
-### 3. 视图三：`Chapter / Plot` 视角
+### 3. 视图三：`Chapter / Scene` 视角
 
 ### 3.1 目标
 
 此视图用于：
 
 - 规划一章的内容
-- 理解一章内部承载了哪些 `Scene` 与 `Plot`
+- 理解一章内部承载了哪些 `Scene`
 
 这里的主问题不是“这条线怎么走”，而是：
 
@@ -332,7 +330,7 @@
 ```text
 左列：Chapter 列表
 中列：当前 Chapter 内容结构
-右列：当前 Plot / Scene 详情
+右列：当前 Scene 详情
 ```
 
 左列：
@@ -343,53 +341,35 @@
 中列：
 
 - 显示当前 `Chapter` 下的 `Scene` 列表
-- 每个 `Scene` 下展开其 `Plot`
 - 即：
 
 ```text
 Chapter
   ├── Scene A
-  │     ├── Plot 1
-  │     ├── Plot 2
   ├── Scene B
-        ├── Plot 3
+  ├── Scene C
 ```
 
 右列：
 
-- 编辑选中 `Scene` 或 `Plot`
-- 如果选中 `Plot`，重点编辑：
-  - `kind`
-  - `summary`
-  - `effect`
-  - `writingTip`
+- 编辑选中 `Scene`
+- 重点编辑 `summary`、`purpose`、`writingTip`、`worldAnchor`
 
 ---
 
-### 3.3 为什么这里是 `Chapter / Plot`，而不是 `Chapter / Scene`
+### 3.3 为什么这里是 `Chapter / Scene`
 
-因为这个视图的目标是规划一章内部的节奏承载。
+因为当前 Plot System 已经把 Scene 作为最小剧情单位。章级视图的目标是规划一章承载哪些 Scene，以及这些 Scene 在正文中的呈现顺序。
 
-而节奏通常更接近：
-
-- 铺垫
-- 冲突
-- 反转
-- 揭示
-- 爽点
-- 结果
-
-这些更直接对应 `Plot`。
-
-但界面中仍然要保留 `Scene` 作为分组层，否则 `Plot` 会失去上下文。
+Scene 内部事实推进由 World Engine patch 表达；节奏、POV、语气和章节收尾等 writer-facing 指令放在 Scene 字段或 Chapter 覆盖中，不再维护独立 Plot Beat。
 
 所以它的真实结构应该是：
 
 ```text
-Chapter -> Scene -> Plot
+Chapter -> Scene
 ```
 
-只是用户心智目标是“我在规划这一章的 Plot 节奏”。
+用户心智目标是“我在规划这一章承载哪些 Scene，以及它们如何形成正文节奏”。
 
 ---
 
@@ -397,8 +377,8 @@ Chapter -> Scene -> Plot
 
 - 左侧切换 `Chapter`
 - 中部可拖拽 `Scene` 调整 `chapterSortOrder`
-- `Scene` 内部可拖拽 `Plot`
-- 点击某个 `Plot.kind` 标签，支持按 `despair / relief / reward / conflict / twist / mystery` 快速筛看
+- 点击 `Scene` 可查看 summary、purpose、writingTip、refs 和 World Engine 连接状态
+- 已连接 World Engine 的 Scene 可查看对应时间范围内的世界上下文
 
 ---
 
@@ -527,7 +507,7 @@ Story
 ### 5. 与其他视图的区别
 
 - `Thread / Scene` 视图更像因果规划器
-- `Chapter / Plot` 视图更像章节节奏编辑器
+- `Chapter / Scene` 视图更像章节节奏编辑器
 - 时间轴 Preview 更像正文编排器
 
 也就是说：
@@ -571,7 +551,7 @@ Story
 - 允许在工具区切换不同 `Thread`
 - 当前 `Thread` 下的 `Scene` 按 `threadSortOrder` 自上而下排列
 - 主列表只负责定位和浏览
-- 底部 detail 面板负责展示 `summary / purpose / chapter / plots / refs / writingTip`
+- 底部 detail 面板负责展示 `summary / purpose / chapter / refs / writingTip / worldAnchor`
 - detail 面板可以展开、收起、最小化、拖拽高度
 - 首版不做拖拽、不做保存、不做跨 Thread 操作
 
@@ -641,7 +621,7 @@ Story
 - 新建线程
 - 新建场景
 - 把当前 Scene 挂到某章
-- 为当前 Scene 添加第一个 Plot
+- 为当前 Scene 补充 World Engine 连接或写作提示
 
 ---
 
@@ -714,7 +694,7 @@ Story
 
 再做视图三：
 
-- 把 `Chapter -> Scene -> Plot` 的章级规划视图补上
+- 把 `Chapter -> Scene` 的章级规划视图补上
 
 这一步才真正把剧情和正文编排联起来。
 
@@ -737,4 +717,4 @@ Story
 
 > 剧情模块前端不应只是“剧情大纲侧栏”，而应成为与章节编辑器平级的主工作区。  
 > 四个视图共享同一套上下文：视图一负责找 `Thread`，视图二负责规划 `Thread`，视图三负责规划 `Chapter`，视图四负责理解多线结构。  
-> 真正的高频编辑中心应始终落在 `Thread / Scene / Chapter / Plot` 上。
+> 真正的高频编辑中心应始终落在 `Thread / Scene / Chapter` 上。

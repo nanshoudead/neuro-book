@@ -56,7 +56,7 @@ if (用户消息包含文件路径) {
 
 快速识别可以稳定定位的候选问题，生成可供 Agent 复核的报告。
 
-默认配置会加载 `builtin/default`。它包含 R18/成人词汇规则；用户若关闭了 `vocabulary.r18` namespace，Agent 不应再按该 namespace 提出候选。
+默认配置会加载 `builtin/default`。它包含 R18/成人词汇规则，内置文件按 namespace 拆分只是资产维护结构；用户若在配置中关闭了 `vocabulary.r18` namespace，Agent 不应再按该 namespace 提出候选。
 
 ### 实现细节
 
@@ -65,14 +65,28 @@ if (用户消息包含文件路径) {
 bun .nbook/agent/skills/llmlint/bin/llmlint.ts check <文件路径>
 ```
 
-**解析输出**：
-CLI 输出按 regex rule 分组，包含规则 ID、namespace、ruleset 来源、命中上下文、行号、列号和 action 建议：
-```text
-filler-word-actually (其实、实际上、事实上)
-  1:9  这个问题很复杂。其实我们可以从另一个角度来看。
-                 ^^
+候选过多时先看中高等级：
 
-  1 occurrence. 修复建议：这类填充词通常不增加实质内容，建议直接删除。
+```bash
+bun .nbook/agent/skills/llmlint/bin/llmlint.ts check <文件路径> --min-level medium
+```
+
+小文件或人类阅读时显示完整命中行：
+
+```bash
+bun .nbook/agent/skills/llmlint/bin/llmlint.ts check <文件路径> --show-lines
+```
+
+**解析输出**：
+CLI 默认输出先按 high / medium / low 分段，再按 regex rule 分组。每条命中包含规则 ID、namespace、ruleset 来源、行号、闭区间列范围、命中文本和 action 建议：
+```text
+medium (1 problem)
+
+filler-word-actually [filler] (无意义填充词)
+  来源：builtin/default；级别：medium
+  1:9-10  match: 其实
+
+  1 occurrence. 建议删除。
 ```
 
 注意：CLI 只负责定位候选文本，不负责决定是否修复。所有 regex 命中项都需要结合上下文复核。
@@ -89,7 +103,9 @@ filler-word-actually (其实、实际上、事实上)
 - 仍然进入步骤 3 的快速审查评分，确认全文是否有语义级问题。
 
 **问题过多**：
-- 超过 50 个候选时，建议分段处理或先处理 high / medium 项。
+- `check` 默认只展示 `review: agent` 的命中（需要 Agent/LLM 处理的）；破折号、比喻、泛词形副词等已默认归入 `human` 桶不展示。需要查看时用 `--review human` 或 `--review all`。
+- 超过 50 个候选时，优先使用 `--min-level medium` 或 `--min-level high` 降噪，再分段处理。
+- `--min-level` 和 `--review` 只隐藏展示结果，不改变规则配置；需要关闭某类规则时使用 `llmlint.config.ts` 的 `namespaces` 或 `rules`。
 
 ### 错误恢复
 
@@ -118,7 +134,8 @@ bun .nbook/agent/skills/llmlint/bin/llmlint.ts show-llm-rules
 ### 审查流程
 
 1. 复核 CLI regex 命中项：
-   - 读取命中位置上下文。
+   - 先根据行列范围和 `match` 定位候选；需要判断语境时继续读取原文前后段落。
+   - 如果输出用于人类快速阅读或小文件审查，可以重新运行 `check --show-lines` 查看 `<mark>` 标出的完整命中行。
    - 判断候选是否真的影响自然度、密度或可信度。
    - 给出建议修复、建议保留或需要用户确认。
 

@@ -124,6 +124,7 @@ const {
     workspaceKind,
     isUserAssetsWorkspace,
     leftPanelWidth,
+    plotWorkbenchOpen,
     rightPanelWidth,
 } = storeToRefs(novelIdeStore);
 const {
@@ -1385,7 +1386,7 @@ const toggleAgentModeStudio = (): void => {
 };
 
 /**
- * 左侧窄 sidebar 在 Agent Mode 下只作为 Sessions 入口，不切换 IDE 工具 tab。
+ * 处理左侧窄 sidebar 的模式入口。
  */
 const handleSidebarToggle = (tab: NovelIdeTab | "sessions"): void => {
     if (tab === "sessions") {
@@ -1393,6 +1394,11 @@ const handleSidebarToggle = (tab: NovelIdeTab | "sessions"): void => {
         return;
     }
     if (isAgentMode.value) {
+        void runLayoutModeTransition(() => {
+            layoutMode.value = "ide";
+            rightPanelOpen.value = true;
+            activeLeftTab.value = tab;
+        });
         return;
     }
     toggleLeftTab(tab);
@@ -1541,6 +1547,27 @@ const openWorldEngineWorkbench = (): void => {
         return;
     }
     worldEngineWorkbenchOpen.value = true;
+};
+
+/**
+ * 从主 IDE 打开当前 Project 的 Plot 工作台。
+ */
+const openPlotWorkbench = async (): Promise<void> => {
+    if (isUserAssetsWorkspace.value) {
+        return;
+    }
+
+    if (isAgentMode.value) {
+        await runLayoutModeTransition(() => {
+            layoutMode.value = "ide";
+            rightPanelOpen.value = true;
+            activeLeftTab.value = "plot";
+        });
+    } else {
+        activeLeftTab.value = "plot";
+    }
+
+    plotWorkbenchOpen.value = true;
 };
 
 /**
@@ -2039,6 +2066,7 @@ onBeforeUnmount(() => {
             @toggle-layout-mode="void toggleAgentLayoutMode()"
             @toggle-agent="isAgentMode ? toggleAgentModeStudio() : rightPanelOpen = !rightPanelOpen"
             @open-bookshelf="bookshelfOpen = true"
+            @open-plot-workbench="openPlotWorkbench"
             @open-world-engine="openWorldEngineWorkbench"
             @open-user-assets="openUserAssets"
             @open-profile-workbench="profileWorkbenchOpen = true"
@@ -2075,7 +2103,7 @@ onBeforeUnmount(() => {
                 ]"
                 :style="ideToolPanelStyle"
             >
-                <NovelIdeToolPanel v-model:width="leftPanelWidth" class="ide-panel h-full" :active-tab="displayActiveLeftTab" :user-assets-mode="isUserAssetsWorkspace" @close="activeLeftTab = null" />
+                <NovelIdeToolPanel v-model:width="leftPanelWidth" class="ide-panel h-full" :active-tab="displayActiveLeftTab" :user-assets-mode="isUserAssetsWorkspace" @close="activeLeftTab = null" @open-world-engine="openWorldEngineWorkbench" />
             </div>
 
             <!-- Studio 工作区 -->

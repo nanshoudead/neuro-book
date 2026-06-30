@@ -103,6 +103,7 @@ import type {ClientStateSnapshot, ProfileVariableAccessor, VariableInvocationSta
 import {appLogger} from "nbook/server/app-logs/logger";
 import type {ServerTimingSink} from "nbook/server/utils/server-timing";
 import {LowCodeFormDtoSchema} from "nbook/shared/dto/low-code-form.dto";
+import {ProfileBuildCoordinator} from "nbook/server/agent/profiles/profile-build-coordinator";
 
 type HarnessOptions = {
     repo?: JsonlSessionRepository;
@@ -372,6 +373,7 @@ export class NeuroAgentHarness {
     private sessionRelationIndex: SessionRelationIndex | null = null;
     private sessionRelationIndexLoad: Promise<SessionRelationIndex> | null = null;
     private pendingRelationIndexEntries: PendingRelationIndexEntries[] = [];
+    private readonly profileBuildCoordinator?: ProfileBuildCoordinator;
     private readonly pendingClientPatches = new Map<string, {
         request: VariablePatchRequest;
         resolve: (ack: VariablePatchAck) => void;
@@ -395,6 +397,18 @@ export class NeuroAgentHarness {
         this.enableSessionSummarizer = options.enableSessionSummarizer ?? true;
         this.profiles.register(defaultAgentProfile);
         this.profiles.register(summarizerProfile);
+        if (options.watchProfiles) {
+            this.profiles.enableRuntimeRegistry();
+            this.profileBuildCoordinator = new ProfileBuildCoordinator({
+                catalog: this.profiles,
+            });
+            this.profiles.attachBuildCoordinator(this.profileBuildCoordinator);
+            void this.profiles.refreshRuntimeRegistry("startup").then(() => this.profileBuildCoordinator?.bootSweep()).catch((error) => {
+                void appLogger.warn("agent.profileBuild.bootSweepFailed", {
+                    error: error instanceof Error ? error.message : String(error),
+                });
+            });
+        }
         for (const tool of createBuiltinTools()) {
             this.tools.register(tool);
         }
@@ -1817,7 +1831,7 @@ export class NeuroAgentHarness {
         };
 
         const pendingState = this.pendingUserResolutionState(snapshot, pending.toolCallId);
-        if (pendingState?.formSpec) {
+        if (pending.toolName !== "request_user_input" && pendingState?.formSpec) {
             const formValidation = LowCodeFormDtoSchema.safeParse(pendingState.formSpec.form);
             if (formValidation.success) {
                 base.formSpec = {
@@ -1879,7 +1893,7 @@ export class NeuroAgentHarness {
     }
 
     private pendingUserResolutionEntry(waiting: RunToolBatchResult["waiting"] | undefined): AppendManySessionEntryDraft | null {
-        if (!waiting?.formSpec) {
+        if (!waiting?.formSpec || waiting.toolName === "request_user_input") {
             return null;
         }
         const formSpec = this.pendingUserResolutionFormSpec(waiting.formSpec);
@@ -2922,10 +2936,10 @@ export class NeuroAgentHarness {
             return userInput.approved;
         }
         const firstAnswer = resolution.answers?.[0];
-        if (firstAnswer?.selectedOptionIndex === 0 || firstAnswer?.selectedOptionIndexes?.includes(0)) {
+        if (firstAnswer?.selectedOptionIndex === 0) {
             return true;
         }
-        if (firstAnswer?.selectedOptionIndex === 1 || firstAnswer?.selectedOptionIndexes?.includes(1)) {
+        if (firstAnswer?.selectedOptionIndex === 1) {
             return false;
         }
         return null;
@@ -3615,29 +3629,17 @@ export class NeuroAgentHarness {
                             projectPath: input.projectPath,
                         },
                     };
-                    const formSpec = await tool.userInputRequest.when(userInputContext);
-                    if (formSpec) {
+                    const userInputRequest = await tool.userInputRequest.when(userInputContext);
+                    if (userInputRequest) {
+                        const formSpec = userInputRequest === true ? undefined : userInputRequest;
                         // 需要用户输入，暂停执行
                         await input.emit({
                             type: "tool_user_input_required",
                             toolCallId: toolCall.id,
                             toolName: toolCall.name,
                             args: toolCall.arguments,
-                            formSpec,
+                            ...(formSpec ? {formSpec} : {}),
                         } as unknown as AgentEvent);
-                        // 发布 SSE 事件
-                        this.publishRuntimeEvent(input.sessionId, input.invocationId, {
-                            type: "tool.user-input-required",
-                            toolCallId: toolCall.id,
-                            toolName: toolCall.name,
-                            args: toolCall.arguments,
-                            formSpec: {
-                                form: formSpec.form,
-                                resultSchema: formSpec.resultSchema,
-                                prompt: formSpec.prompt,
-                                layout: formSpec.layout,
-                            },
-                        });
                         const skippedToolResults = this.skippedToolResultsAfterUserInput(input.toolCalls, toolCall);
                         await this.emitToolResultMessages(skippedToolResults, input.emit);
                         return {
@@ -3652,7 +3654,7 @@ export class NeuroAgentHarness {
                             waiting: {
                                 toolCallId: toolCall.id,
                                 toolName: toolCall.name,
-                                formSpec,
+                                ...(formSpec ? {formSpec} : {}),
                             },
                             shouldContinue: false,
                         };
@@ -5110,7 +5112,11 @@ export class NeuroAgentHarness {
         };
         const transcriptResult = await this.writeExecutor.execute([transcriptPlan, ...this.orderedPendingWritePlans(input.pendingWritePlans)], input.invocationId);
         const transcriptEntryCount = 1 + orderedToolResults.length + (pendingUserResolutionEntry ? 1 : 0);
-        const transcriptLeafId = transcriptResult.entries.slice(0, transcriptEntryCount).at(-1)?.id ?? input.transcriptParentLeafId;
+        const transcriptOnlyLeafId = transcriptResult.entries.slice(0, transcriptEntryCount).at(-1)?.id ?? input.transcriptParentLeafId;
+        const savePointLeafId = transcriptResult.entries
+            .filter((entry) => !("origin" in entry) || entry.origin !== "projection")
+            .at(-1)?.id ?? transcriptOnlyLeafId;
+        const transcriptLeafId = input.restoreLeafAfterTranscript ? transcriptOnlyLeafId : savePointLeafId;
         input.pendingWritePlans.splice(0, input.pendingWritePlans.length);
         if (input.restoreLeafAfterTranscript) {
             await this.writeExecutor.execute([{

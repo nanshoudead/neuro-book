@@ -2,6 +2,7 @@
 import type {AgentPendingUserInputSession} from "nbook/app/components/novel-ide/agent/agent-message";
 import type {LowCodeJsonObject} from "nbook/shared/dto/low-code-form.dto";
 import LowCodeForm from "nbook/app/components/common/low-code-form/LowCodeForm.vue";
+import {withLowCodeFormDefaults} from "nbook/app/components/common/low-code-form/low-code-form-utils";
 
 const NONE_OF_ABOVE_OPTION_INDEX = -1;
 
@@ -24,7 +25,6 @@ const emit = defineEmits<{
             toolNodeId: string;
             questionIndex?: number;
             selectedOptionIndex?: number;
-            selectedOptionIndexes?: number[];
             note?: string;
             ignored?: boolean;
         }>;
@@ -35,6 +35,7 @@ const emit = defineEmits<{
         toolCallId: string;
         data: LowCodeJsonObject;
     }): void;
+    (e: "cancel", payload: {assistantMessageId: string}): void;
 }>();
 
 const activeToolNodeId = ref("");
@@ -86,7 +87,7 @@ const submitButtonLabel = computed(() => {
         : t("agent.userInput.submit");
 });
 
-const ignoreButtonLabel = computed(() => isToolApproval.value ? t("agent.userInput.terminateRun") : t("agent.userInput.ignore"));
+const cancelButtonLabel = computed(() => t("agent.userInput.terminateRun"));
 const noneOfAboveLabel = computed(() => isExitPlanModeApproval.value ? t("agent.userInput.addSuggestion") : t("agent.userInput.otherAnswer"));
 const noneOfAboveDescription = computed(() => isExitPlanModeApproval.value
     ? t("agent.userInput.suggestionDescription")
@@ -105,10 +106,10 @@ function hasAnswer(toolNodeId: string): boolean {
         return false;
     }
     const key = questionKey(question.toolNodeId, question.questionIndex);
-    if (question.options.length === 0) {
-        return Boolean(props.notes[key]?.trim());
+    if (props.notes[key]?.trim()) {
+        return true;
     }
-    return Boolean(props.selectedAnswers[key]?.length);
+    return question.options.length > 0 && Boolean(props.selectedAnswers[key]?.length);
 }
 
 /**
@@ -137,15 +138,7 @@ function selectAnswer(optionIndex: number): void {
     }
     const key = questionKey(activeQuestion.value.toolNodeId, activeQuestion.value.questionIndex);
     const nextAnswers = {...props.selectedAnswers};
-    if (!activeQuestion.value.multiSelect || optionIndex === NONE_OF_ABOVE_OPTION_INDEX) {
-        nextAnswers[key] = [optionIndex];
-        emit("update:selectedAnswers", nextAnswers);
-        return;
-    }
-    const current = props.selectedAnswers[key] ?? [];
-    nextAnswers[key] = current.includes(optionIndex)
-        ? current.filter((item) => item !== optionIndex)
-        : current.filter((item) => item !== NONE_OF_ABOVE_OPTION_INDEX).concat(optionIndex);
+    nextAnswers[key] = [optionIndex];
     emit("update:selectedAnswers", nextAnswers);
 }
 
@@ -154,24 +147,10 @@ function questionKey(toolNodeId: string, questionIndex: number): string {
 }
 
 function normalizeDefaultAnswers(question: AgentPendingUserInputSession["questions"][number]): number[] {
-    if (question.options.length === 0) {
+    if (question.kind !== "tool_approval" || question.options.length === 0) {
         return [];
     }
-    const candidateIndexes = question.defaultOptionIndexes?.length
-        ? question.defaultOptionIndexes
-        : question.defaultOptionIndex !== undefined
-            ? [question.defaultOptionIndex]
-            : question.options
-                .map((option, index) => option.defaultSelected ? index : null)
-                .filter((index): index is number => index !== null);
-    const uniqueIndexes = [...new Set(candidateIndexes)]
-        .filter((index) => index === NONE_OF_ABOVE_OPTION_INDEX || Boolean(question.options[index]));
-    if (!question.multiSelect && uniqueIndexes.length > 1) {
-        return uniqueIndexes.slice(0, 1);
-    }
-    return uniqueIndexes.includes(NONE_OF_ABOVE_OPTION_INDEX)
-        ? [NONE_OF_ABOVE_OPTION_INDEX]
-        : uniqueIndexes;
+    return [0];
 }
 
 function applyDefaultAnswers(): void {
@@ -195,21 +174,13 @@ function applyDefaultAnswers(): void {
 }
 
 /**
- * 忽略整组当前等待，写入默认答案并终止本轮 ReAct loop。
+ * 取消当前等待并终止本轮 ReAct loop。
  */
-function ignoreQuestion(): void {
+function cancelQuestion(): void {
     if (props.session.questions.length === 0 || props.submitting || props.readonly) {
         return;
     }
-    emit("submit", {
-        assistantMessageId: props.session.assistantMessageId,
-        resume: false,
-        answers: props.session.questions.map((question) => ({
-            toolNodeId: question.toolNodeId,
-            questionIndex: question.questionIndex,
-            ignored: true,
-        })),
-    });
+    emit("cancel", {assistantMessageId: props.session.assistantMessageId});
 }
 
 /**
@@ -249,8 +220,7 @@ function submit(): void {
             return {
                 toolNodeId: question.toolNodeId,
                 questionIndex: question.questionIndex,
-                selectedOptionIndex: question.multiSelect ? undefined : selected[0],
-                selectedOptionIndexes: question.multiSelect ? selected : undefined,
+                selectedOptionIndex: selected[0],
                 note: props.notes[key]?.trim() || undefined,
             };
         }),
@@ -267,26 +237,29 @@ function submitLowCodeForm(): void {
     emit("submit-form", {
         assistantMessageId: props.session.assistantMessageId,
         toolCallId: props.session.formToolCallId,
-        data: lowCodeFormData.value,
+        data: lowCodeFormSubmitData(),
     });
 }
 
 /**
- * Task 63: 忽略 Low-Code Form 请求。
+ * 提交时补齐 Low-Code Form 展示层默认值，避免未触碰字段丢失。
  */
-function ignoreLowCodeForm(): void {
+function lowCodeFormSubmitData(): LowCodeJsonObject {
+    const form = props.session.form;
+    if (!form) {
+        return lowCodeFormData.value;
+    }
+    return withLowCodeFormDefaults(form, lowCodeFormData.value);
+}
+
+/**
+ * Task 63: 取消 Low-Code Form 请求。
+ */
+function cancelLowCodeForm(): void {
     if (!props.session.form || !props.session.formToolCallId || props.submitting || props.readonly) {
         return;
     }
-    emit("submit", {
-        assistantMessageId: props.session.assistantMessageId,
-        resume: false,
-        answers: [{
-            toolNodeId: props.session.formToolCallId,
-            questionIndex: 0,
-            ignored: true,
-        }],
-    });
+    emit("cancel", {assistantMessageId: props.session.assistantMessageId});
 }
 
 watch(() => props.session.assistantMessageId, () => {
@@ -343,7 +316,7 @@ defineExpose({
 
 <template>
     <!-- Task 63: Low-Code Form 模式 -->
-    <div v-if="isLowCodeFormMode && props.session.form" class="min-w-0 w-full max-w-full sm:max-w-[560px] overflow-hidden rounded-lg border border-[var(--border-color)] bg-[var(--bg-input)] shadow-lg shadow-black/5">
+    <div v-if="isLowCodeFormMode && props.session.form" class="min-w-0 w-full overflow-hidden rounded-lg border border-[var(--border-color)] bg-[var(--bg-input)] shadow-lg shadow-black/5">
         <div class="flex items-center justify-between gap-3 border-b border-[var(--border-color)]/60 px-3 py-1.5">
             <div class="min-w-0">
                 <div class="flex items-center gap-2 text-[11px] font-medium text-[var(--text-muted)]">
@@ -378,10 +351,9 @@ defineExpose({
                     type="button"
                     class="inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-[11px] font-medium text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-40"
                     :disabled="props.submitting || props.readonly"
-                    @click="ignoreLowCodeForm"
+                    @click="cancelLowCodeForm"
                 >
-                    <span>{{ t("agent.userInput.ignore") }}</span>
-                    <span class="rounded bg-[var(--bg-panel)] px-1.5 py-0.5 text-[10px]">ESC</span>
+                    <span>{{ t("agent.userInput.terminateRun") }}</span>
                 </button>
                 <button
                     type="button"
@@ -398,7 +370,7 @@ defineExpose({
     </div>
 
     <!-- 挂起中的结构化问题 -->
-    <div v-else-if="activeQuestion" class="min-w-0 w-full max-w-full sm:max-w-[560px] overflow-hidden rounded-lg border border-[var(--border-color)] bg-[var(--bg-input)] shadow-lg shadow-black/5">
+    <div v-else-if="activeQuestion" class="flex h-[220px] min-w-0 w-full flex-col overflow-hidden rounded-lg border border-[var(--border-color)] bg-[var(--bg-input)] shadow-lg shadow-black/5 sm:h-[240px]">
         <div class="flex items-center justify-between gap-3 border-b border-[var(--border-color)]/60 px-3 py-1.5">
             <div class="min-w-0">
                 <div class="flex items-center gap-2 text-[11px] font-medium text-[var(--text-muted)]">
@@ -435,60 +407,62 @@ defineExpose({
             </div>
         </div>
 
-        <div v-if="!isCollapsed" class="max-h-[260px] overflow-y-auto px-3 pb-2 pt-2">
-            <div class="min-w-0 break-words text-[13px] font-semibold leading-5 text-[var(--text-main)]">
-                <span v-if="activeQuestion.header" class="mb-0.5 block text-[11px] font-medium text-[var(--text-muted)]">{{ activeQuestion.header }}</span>
-                <span>{{ activeQuestion.question }}</span>
-            </div>
+        <div class="min-h-0 flex-1 overflow-y-auto px-3 pb-2 pt-2">
+            <template v-if="!isCollapsed">
+                <div class="min-w-0 break-words text-[13px] font-semibold leading-5 text-[var(--text-main)]">
+                    <span v-if="activeQuestion.header" class="mb-0.5 block text-[11px] font-medium text-[var(--text-muted)]">{{ activeQuestion.header }}</span>
+                    <span>{{ activeQuestion.question }}</span>
+                </div>
 
-            <div v-if="activeQuestion.options.length > 0" class="mt-2 space-y-0.5">
-                <button
-                    v-for="(option, index) in activeQuestion.options"
-                    :key="index"
-                    type="button"
-                    class="group flex w-full items-start gap-2 rounded-md px-1.5 py-1 text-left transition-colors hover:bg-[var(--bg-hover)] disabled:cursor-not-allowed disabled:opacity-55"
-                    :class="activeAnswer.includes(index) ? 'text-[var(--text-main)]' : 'text-[var(--text-secondary)]'"
-                    :disabled="props.readonly"
-                    @click="selectAnswer(index)"
-                >
-                    <span class="w-5 shrink-0 pt-0.5 text-right text-xs tabular-nums text-[var(--text-muted)]">{{ index + 1 }}.</span>
-                    <span class="min-w-0 flex-1">
-                        <span class="inline-flex flex-wrap items-center gap-1.5 text-[13px] font-semibold leading-5">
-                            <span>{{ option.label }}</span>
-                            <span v-if="option.recommended">(Recommended)</span>
-                            <span v-if="option.description" class="i-lucide-info h-3 w-3 text-[var(--text-muted)]" :title="option.description"></span>
+                <div v-if="activeQuestion.options.length === 0" class="mt-1.5 inline-flex items-center gap-1.5 text-[11px] font-medium leading-4 text-[var(--text-muted)]">
+                    <span class="i-lucide-message-square-text h-3 w-3"></span>
+                    <span>{{ t("agent.userInput.openAnswer") }}</span>
+                </div>
+
+                <div v-if="activeQuestion.options.length > 0" class="mt-2 space-y-0.5">
+                    <button
+                        v-for="(option, index) in activeQuestion.options"
+                        :key="index"
+                        type="button"
+                        class="group flex w-full items-start gap-2 rounded-md px-1.5 py-1 text-left transition-colors hover:bg-[var(--bg-hover)] disabled:cursor-not-allowed disabled:opacity-55"
+                        :class="activeAnswer.includes(index) ? 'text-[var(--text-main)]' : 'text-[var(--text-secondary)]'"
+                        :disabled="props.readonly"
+                        @click="selectAnswer(index)"
+                    >
+                        <span class="w-5 shrink-0 pt-0.5 text-right text-xs tabular-nums text-[var(--text-muted)]">{{ index + 1 }}.</span>
+                        <span class="min-w-0 flex-1">
+                            <span class="inline-flex flex-wrap items-center gap-1.5 text-[13px] font-semibold leading-5">
+                                <span>{{ option.label }}</span>
+                                <span v-if="option.description" class="i-lucide-info h-3 w-3 text-[var(--text-muted)]" :title="option.description"></span>
+                            </span>
+                            <span v-if="option.description" class="block text-[11px] leading-4 text-[var(--text-muted)]">{{ option.description }}</span>
                         </span>
-                        <span v-if="option.description" class="block text-[11px] leading-4 text-[var(--text-muted)]">{{ option.description }}</span>
-                    </span>
-                    <span
-                        class="mt-1 h-2.5 w-2.5 rounded-full border transition-colors"
-                        :class="activeAnswer.includes(index) ? 'border-[var(--accent-main)] bg-[var(--accent-main)]' : 'border-[var(--border-color)] group-hover:border-[var(--text-muted)]'"
-                    ></span>
-                </button>
+                        <span
+                            class="mt-1 h-2.5 w-2.5 rounded-full border transition-colors"
+                            :class="activeAnswer.includes(index) ? 'border-[var(--accent-main)] bg-[var(--accent-main)]' : 'border-[var(--border-color)] group-hover:border-[var(--text-muted)]'"
+                        ></span>
+                    </button>
 
-                <button
-                    v-if="activeQuestion.options.length > 0"
-                    type="button"
-                    class="group flex w-full items-start gap-2 rounded-md px-1.5 py-1 text-left transition-colors hover:bg-[var(--bg-hover)] disabled:cursor-not-allowed disabled:opacity-55"
-                    :class="activeAnswer.includes(NONE_OF_ABOVE_OPTION_INDEX) ? 'text-[var(--text-main)]' : 'text-[var(--text-muted)]'"
-                    :disabled="props.readonly"
-                    @click="selectAnswer(NONE_OF_ABOVE_OPTION_INDEX)"
-                >
-                    <span class="w-5 shrink-0 pt-0.5 text-right text-xs tabular-nums text-[var(--text-muted)]">{{ activeQuestion.options.length + 1 }}.</span>
-                    <span class="min-w-0 flex-1">
-                        <span class="block text-[13px] font-semibold leading-5">{{ noneOfAboveLabel }}</span>
-                        <span class="block text-[11px] leading-4 text-[var(--text-muted)]">{{ noneOfAboveDescription }}</span>
-                    </span>
-                    <span
-                        class="mt-1 h-2.5 w-2.5 rounded-full border transition-colors"
-                        :class="activeAnswer.includes(NONE_OF_ABOVE_OPTION_INDEX) ? 'border-[var(--accent-main)] bg-[var(--accent-main)]' : 'border-[var(--border-color)] group-hover:border-[var(--text-muted)]'"
-                    ></span>
-                </button>
-            </div>
-
-            <div v-if="activeQuestion.options.length === 0" class="mt-2 rounded-md border border-dashed border-[var(--border-color)] bg-[var(--bg-panel)] px-2.5 py-2 text-[11px] leading-4 text-[var(--text-muted)]">
-                {{ t("agent.userInput.freeAnswerHint") }}
-            </div>
+                    <button
+                        v-if="isToolApproval && activeQuestion.options.length > 0"
+                        type="button"
+                        class="group flex w-full items-start gap-2 rounded-md px-1.5 py-1 text-left transition-colors hover:bg-[var(--bg-hover)] disabled:cursor-not-allowed disabled:opacity-55"
+                        :class="activeAnswer.includes(NONE_OF_ABOVE_OPTION_INDEX) ? 'text-[var(--text-main)]' : 'text-[var(--text-muted)]'"
+                        :disabled="props.readonly"
+                        @click="selectAnswer(NONE_OF_ABOVE_OPTION_INDEX)"
+                    >
+                        <span class="w-5 shrink-0 pt-0.5 text-right text-xs tabular-nums text-[var(--text-muted)]">{{ activeQuestion.options.length + 1 }}.</span>
+                        <span class="min-w-0 flex-1">
+                            <span class="block text-[13px] font-semibold leading-5">{{ noneOfAboveLabel }}</span>
+                            <span class="block text-[11px] leading-4 text-[var(--text-muted)]">{{ noneOfAboveDescription }}</span>
+                        </span>
+                        <span
+                            class="mt-1 h-2.5 w-2.5 rounded-full border transition-colors"
+                            :class="activeAnswer.includes(NONE_OF_ABOVE_OPTION_INDEX) ? 'border-[var(--accent-main)] bg-[var(--accent-main)]' : 'border-[var(--border-color)] group-hover:border-[var(--text-muted)]'"
+                        ></span>
+                    </button>
+                </div>
+            </template>
         </div>
 
         <div class="flex flex-wrap items-center justify-between gap-2 border-t border-[var(--border-color)]/70 bg-[var(--bg-panel)]/35 px-3 py-1.5">
@@ -500,10 +474,9 @@ defineExpose({
                     type="button"
                     class="inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-[11px] font-medium text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-40"
                     :disabled="props.submitting || props.readonly"
-                    @click="ignoreQuestion"
+                    @click="cancelQuestion"
                 >
-                    <span>{{ ignoreButtonLabel }}</span>
-                    <span class="rounded bg-[var(--bg-panel)] px-1.5 py-0.5 text-[10px]">ESC</span>
+                    <span>{{ cancelButtonLabel }}</span>
                 </button>
                 <button
                     type="button"

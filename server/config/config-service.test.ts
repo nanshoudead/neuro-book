@@ -10,6 +10,7 @@ import {AgentProfileCatalog} from "nbook/server/agent/profiles/catalog";
 import {toolset} from "nbook/server/agent/profiles/profile-tools";
 import {defineLowCodeForm, defineResourcePreset, profileHomeResource, type LowCodeFieldDefinition} from "nbook/server/low-code-form";
 import {
+    readConfigAgentProfileSettings,
     loadEffectiveConfigForAgentRuntime,
     readConfigBootstrap,
     readConfigEditorSnapshot,
@@ -591,7 +592,7 @@ describe("config service", {timeout: 30_000}, () => {
             },
         }, {workspaceKind: "novel", projectPath: "workspace/config-test-project"});
 
-        const snapshot = await saveProjectConfig({
+        await saveProjectConfig({
             agent: {
                 profileModelDefaults: {
                     topK: 5,
@@ -607,10 +608,13 @@ describe("config service", {timeout: 30_000}, () => {
             },
         }, {workspaceKind: "novel", projectPath: "workspace/config-test-project"});
 
-        const leader = snapshot.agentProfileSettings.agentProfiles.find((profile) => profile.profileKey === "leader.default");
-        const assets = snapshot.agentProfileSettings.agentProfiles.find((profile) => profile.profileKey === "leader.assets");
+        const settings = await readConfigAgentProfileSettings({workspaceKind: "novel", projectPath: "workspace/config-test-project"}, catalog, {
+            agentProfileSettingsScope: "project",
+        });
+        const leader = settings.agentProfiles.find((profile) => profile.profileKey === "leader.default");
+        const assets = settings.agentProfiles.find((profile) => profile.profileKey === "leader.assets");
 
-        expect(snapshot.agentProfileSettings.profileModelDefaults).toMatchObject({
+        expect(settings.profileModelDefaults).toMatchObject({
             reasoningEffort: "low",
             stream: false,
             topK: 5,
@@ -646,7 +650,7 @@ describe("config service", {timeout: 30_000}, () => {
             },
         }, {workspaceKind: "novel", projectPath: "workspace/config-test-project"});
 
-        const snapshot = await saveProjectConfig({
+        await saveProjectConfig({
             agent: {
                 profileModelDefaults: {
                     reasoningEffort: "xhigh",
@@ -654,7 +658,10 @@ describe("config service", {timeout: 30_000}, () => {
             },
         }, {workspaceKind: "novel", projectPath: "workspace/config-test-project"});
 
-        const leader = snapshot.agentProfileSettings.agentProfiles.find((profile) => profile.profileKey === "leader.default");
+        const settings = await readConfigAgentProfileSettings({workspaceKind: "novel", projectPath: "workspace/config-test-project"}, catalog, {
+            agentProfileSettingsScope: "project",
+        });
+        const leader = settings.agentProfiles.find((profile) => profile.profileKey === "leader.default");
 
         expect(leader?.model).toMatchObject({
             temperature: 0.3,
@@ -663,31 +670,31 @@ describe("config service", {timeout: 30_000}, () => {
         });
     });
 
-    it("Agent Profile settings 默认只返回轻量列表且不解析低代码 options", async () => {
+    it("editor snapshot 不读取 Agent Profile catalog", async () => {
         const optionsProvider = vi.fn(() => [
             {value: "default-style", label: "默认文风"},
             {value: "cinematic", label: "电影感"},
         ]);
         const lightCatalog = createCatalog(["writer"], {writingStyleOptions: optionsProvider});
+        const snapshotSpy = vi.spyOn(lightCatalog, "snapshot");
         const snapshot = await readConfigEditorSnapshot({workspaceKind: "user-assets"}, lightCatalog);
-        const writer = snapshot.agentProfileSettings.agentProfiles.find((profile) => profile.profileKey === "writer");
 
-        expect(writer?.settings).toBeNull();
-        expect(writer?.model).toMatchObject({stream: true});
+        expect(snapshotSpy).not.toHaveBeenCalled();
+        expect("agentProfileSettings" in snapshot).toBe(false);
         expect(optionsProvider).not.toHaveBeenCalled();
     });
 
-    it("Agent Profile settings 完整模式只读取带 settings form 的 runtime profile", async () => {
+    it("Agent Profile settings 专用接口只读取带 settings form 的 runtime profile", async () => {
         const profileCatalog = createCatalog(["leader.default", "leader.assets", "custom.agent", "writer"]);
         const getSpy = vi.spyOn(profileCatalog, "get");
 
         try {
-            const snapshot = await readConfigEditorSnapshot({workspaceKind: "user-assets"}, profileCatalog, {
-                includeAgentProfileSettings: true,
-            });
-            const writer = snapshot.agentProfileSettings.agentProfiles.find((profile) => profile.profileKey === "writer");
+            const settings = await readConfigAgentProfileSettings({workspaceKind: "user-assets"}, profileCatalog);
+            const writer = settings.agentProfiles.find((profile) => profile.profileKey === "writer");
 
             expect(writer?.settings?.form.fields.map((field) => field.path)).toEqual(["writingStylePreset", "narrativePerson"]);
+            expect(writer?.loadStatus).toBe("loaded");
+            expect(writer?.hasSettingsForm).toBe(true);
             expect(getSpy).toHaveBeenCalledTimes(1);
             expect(getSpy).toHaveBeenCalledWith("writer");
         } finally {
@@ -696,7 +703,7 @@ describe("config service", {timeout: 30_000}, () => {
     });
 
     it("Agent Profile settings 支持 Global 保存并返回 form 与 effective value", async () => {
-        const snapshot = await saveGlobalConfig({
+        await saveGlobalConfig({
             agent: {
                 defaultProfileKey: {novel: "leader.default", userAssets: "leader.assets"},
                 profiles: {
@@ -709,8 +716,9 @@ describe("config service", {timeout: 30_000}, () => {
                     },
                 },
             },
-        }, {workspaceKind: "user-assets"}, catalog, {includeAgentProfileSettings: true});
-        const writer = snapshot.agentProfileSettings.agentProfiles.find((profile) => profile.profileKey === "writer");
+        }, {workspaceKind: "user-assets"}, catalog);
+        const settings = await readConfigAgentProfileSettings({workspaceKind: "user-assets"}, catalog);
+        const writer = settings.agentProfiles.find((profile) => profile.profileKey === "writer");
 
         expect(writer?.settings?.form.fields.map((field) => field.path)).toEqual(["writingStylePreset", "narrativePerson"]);
         expect(writer?.settings?.value).toMatchObject({
@@ -743,7 +751,7 @@ describe("config service", {timeout: 30_000}, () => {
             },
         }, {workspaceKind: "novel", projectPath: "workspace/config-test-project"}, catalog);
 
-        const overrideSnapshot = await saveProjectConfig({
+        await saveProjectConfig({
             agent: {
                 profiles: {
                     writer: {
@@ -754,8 +762,11 @@ describe("config service", {timeout: 30_000}, () => {
                     },
                 },
             },
-        }, {workspaceKind: "novel", projectPath: "workspace/config-test-project"}, catalog, {includeAgentProfileSettings: true});
-        const overridden = overrideSnapshot.agentProfileSettings.agentProfiles.find((profile) => profile.profileKey === "writer");
+        }, {workspaceKind: "novel", projectPath: "workspace/config-test-project"}, catalog);
+        const overrideSettings = await readConfigAgentProfileSettings({workspaceKind: "novel", projectPath: "workspace/config-test-project"}, catalog, {
+            agentProfileSettingsScope: "project",
+        });
+        const overridden = overrideSettings.agentProfiles.find((profile) => profile.profileKey === "writer");
 
         expect(overridden?.settings?.value).toMatchObject({
             writingStylePreset: "cinematic",
@@ -769,7 +780,7 @@ describe("config service", {timeout: 30_000}, () => {
             narrativePerson: "second",
         });
 
-        const inheritedSnapshot = await saveProjectConfig({
+        await saveProjectConfig({
             agent: {
                 profiles: {
                     writer: {
@@ -778,8 +789,11 @@ describe("config service", {timeout: 30_000}, () => {
                     },
                 },
             },
-        }, {workspaceKind: "novel", projectPath: "workspace/config-test-project"}, catalog, {includeAgentProfileSettings: true});
-        const inherited = inheritedSnapshot.agentProfileSettings.agentProfiles.find((profile) => profile.profileKey === "writer");
+        }, {workspaceKind: "novel", projectPath: "workspace/config-test-project"}, catalog);
+        const inheritedSettings = await readConfigAgentProfileSettings({workspaceKind: "novel", projectPath: "workspace/config-test-project"}, catalog, {
+            agentProfileSettingsScope: "project",
+        });
+        const inherited = inheritedSettings.agentProfiles.find((profile) => profile.profileKey === "writer");
 
         expect(inherited?.settings?.value).toMatchObject({
             writingStylePreset: "cinematic",
@@ -941,7 +955,7 @@ describe("config service", {timeout: 30_000}, () => {
     it("Project 保存按 resource mutations 最终 key 校验没有 validateKey 的 resolver", async () => {
         const resourceCatalog = createCatalog(["writer"], {customWritingStyleResourceWithoutValidateKey: true});
 
-        const snapshot = await saveProjectConfig({
+        await saveProjectConfig({
             agent: {
                 profiles: {
                     writer: {
@@ -959,8 +973,11 @@ describe("config service", {timeout: 30_000}, () => {
                     },
                 },
             },
-        }, {workspaceKind: "novel", projectPath: "workspace/config-test-project"}, resourceCatalog, {includeAgentProfileSettings: true});
-        const writer = snapshot.agentProfileSettings.agentProfiles.find((profile) => profile.profileKey === "writer");
+        }, {workspaceKind: "novel", projectPath: "workspace/config-test-project"}, resourceCatalog);
+        const settings = await readConfigAgentProfileSettings({workspaceKind: "novel", projectPath: "workspace/config-test-project"}, resourceCatalog, {
+            agentProfileSettingsScope: "project",
+        });
+        const writer = settings.agentProfiles.find((profile) => profile.profileKey === "writer");
 
         expect(writer?.settings?.projectPatch).toEqual({writingStylePreset: "styles/new.md"});
     });
@@ -1080,7 +1097,7 @@ describe("config service", {timeout: 30_000}, () => {
             },
         }, {workspaceKind: "user-assets"}, resourceCatalog);
 
-        const snapshot = await saveProjectConfig({
+        await saveProjectConfig({
             agent: {
                 profiles: {
                     writer: {
@@ -1098,8 +1115,11 @@ describe("config service", {timeout: 30_000}, () => {
                     },
                 },
             },
-        }, {workspaceKind: "novel", projectPath: "workspace/config-test-project"}, resourceCatalog, {includeAgentProfileSettings: true});
-        const writer = snapshot.agentProfileSettings.agentProfiles.find((profile) => profile.profileKey === "writer");
+        }, {workspaceKind: "novel", projectPath: "workspace/config-test-project"}, resourceCatalog);
+        const settings = await readConfigAgentProfileSettings({workspaceKind: "novel", projectPath: "workspace/config-test-project"}, resourceCatalog, {
+            agentProfileSettingsScope: "project",
+        });
+        const writer = settings.agentProfiles.find((profile) => profile.profileKey === "writer");
 
         expect(writer?.settings?.projectPatch).toEqual({writingStylePreset: "styles/global-only.md"});
         await expect(fs.readFile(path.join("workspace", "config-test-project", "agents", "writer", "styles", "global-only.md"), "utf-8")).resolves.toContain("项目固化正文");
@@ -1111,10 +1131,13 @@ describe("config service", {timeout: 30_000}, () => {
         await fs.mkdir(path.dirname(customPath), {recursive: true});
         await fs.writeFile(customPath, "用户自定义", "utf-8");
 
-        const snapshot = await resetProjectProfileHome({
+        await resetProjectProfileHome({
             profileKey: "writer",
         }, {workspaceKind: "novel", projectPath: "workspace/config-test-project"}, resourceCatalog);
-        const writer = snapshot.agentProfileSettings.agentProfiles.find((profile) => profile.profileKey === "writer");
+        const settings = await readConfigAgentProfileSettings({workspaceKind: "novel", projectPath: "workspace/config-test-project"}, resourceCatalog, {
+            agentProfileSettingsScope: "project",
+        });
+        const writer = settings.agentProfiles.find((profile) => profile.profileKey === "writer");
 
         await expect(fs.access(customPath)).rejects.toMatchObject({code: "ENOENT"});
         await expect(fs.readFile(path.join("workspace", "config-test-project", "agents", "writer", "styles", "reset.md"), "utf-8")).resolves.toBe("reset");
@@ -1125,7 +1148,7 @@ describe("config service", {timeout: 30_000}, () => {
     it("Global 保存完整 Agent Profile settings 时初始化 Global profile home 且不初始化 Project profile home", async () => {
         const resourceCatalog = createCatalog(["writer"], {writingStyleResource: true});
 
-        const snapshot = await saveGlobalConfig({
+        await saveGlobalConfig({
             agent: {
                 defaultProfileKey: {novel: "leader.default", userAssets: "leader.assets"},
                 profiles: {
@@ -1145,11 +1168,11 @@ describe("config service", {timeout: 30_000}, () => {
                     },
                 },
             },
-        }, {workspaceKind: "novel", projectPath: "workspace/config-test-project"}, resourceCatalog, {
-            includeAgentProfileSettings: true,
+        }, {workspaceKind: "novel", projectPath: "workspace/config-test-project"}, resourceCatalog);
+        const settings = await readConfigAgentProfileSettings({workspaceKind: "novel", projectPath: "workspace/config-test-project"}, resourceCatalog, {
             agentProfileSettingsScope: "global",
         });
-        const writer = snapshot.agentProfileSettings.agentProfiles.find((profile) => profile.profileKey === "writer");
+        const writer = settings.agentProfiles.find((profile) => profile.profileKey === "writer");
 
         expect(writer?.settings?.form.fields[0]?.resource?.options).toEqual([expect.objectContaining({
             key: "styles/global-only.md",

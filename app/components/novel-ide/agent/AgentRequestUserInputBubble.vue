@@ -3,7 +3,7 @@ import type {AgentToolCall} from "nbook/app/components/novel-ide/agent/agent-mes
 import {AGENT_REQUEST_USER_INPUT_CONTEXT_KEY} from "nbook/app/components/novel-ide/agent/request-user-input-context";
 import {RequestUserInputToolArgsSchema, deriveRequestUserInputAnswerViews} from "nbook/app/components/novel-ide/agent/agent-message";
 
-const DEFAULT_QUESTION_OPTIONS: Array<{label: string; description?: string; recommended?: boolean}> = [];
+const DEFAULT_QUESTION_OPTIONS: Array<{label: string; description?: string}> = [];
 
 const props = defineProps<{
     toolCall: AgentToolCall;
@@ -93,7 +93,6 @@ const toolArgsText = computed(() => {
                     >
                         <div class="flex items-center gap-2">
                             <span class="text-xs font-medium text-[var(--text-main)]">{{ option.label }}</span>
-                            <span v-if="option.recommended" class="rounded border border-emerald-500/20 bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700">{{ t("agent.userInput.recommended") }}</span>
                         </div>
                         <div v-if="option.description" class="mt-1 text-[11px] leading-4 text-[var(--text-muted)]">
                             {{ option.description }}
@@ -102,7 +101,6 @@ const toolArgsText = computed(() => {
                 </div>
                 <div class="flex flex-wrap gap-1.5 text-[10px] text-[var(--text-muted)]">
                     <span v-if="questionOptions.length === 0" class="rounded border border-[var(--border-color)] bg-[var(--bg-input)] px-1.5 py-0.5">{{ t("agent.userInput.openAnswer") }}</span>
-                    <span v-if="questionOptions.length > 0" class="rounded border border-[var(--border-color)] bg-[var(--bg-input)] px-1.5 py-0.5">{{ isExitPlanModeApproval ? t("agent.userInput.allowSuggestion") : t("agent.userInput.allowOtherAnswer") }}</span>
                     <span class="rounded border border-[var(--border-color)] bg-[var(--bg-input)] px-1.5 py-0.5">{{ t("agent.userInput.allowNote") }}</span>
                 </div>
             </div>

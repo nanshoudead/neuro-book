@@ -32,7 +32,7 @@ describe("findAgentTriggerMatch", () => {
         });
     });
 
-    it("匹配 plot 系列协议 trigger", () => {
+    it("匹配剧情协议 trigger", () => {
         expect(findAgentTriggerMatch("看主线 @thread://8", "thread")).toEqual({
             text: "@thread://8",
             query: "8",
@@ -45,13 +45,6 @@ describe("findAgentTriggerMatch", () => {
             query: "23",
             from: 4,
             to: 15,
-            hasPlainTextBeforeTrigger: true,
-        });
-        expect(findAgentTriggerMatch("看节点 @plot://24", "plot")).toEqual({
-            text: "@plot://24",
-            query: "24",
-            from: 4,
-            to: 14,
             hasPlainTextBeforeTrigger: true,
         });
     });

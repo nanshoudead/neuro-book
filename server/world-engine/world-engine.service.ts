@@ -83,7 +83,7 @@ export class WorldEngineService {
         await this.validateInitialPatches(input.type, initPatches);
         const slice = initPatches.length > 0 ? await this.repository.findSliceByInstant(input.at) : null;
         if (slice && slice.kind !== "init") {
-            throw createError({statusCode: 409, message: this.renderInstantConflict(slice, "目标时间已有非 init 切面，不能把 subject 初始化追加进去；请使用 editSlice 显式合并，或选择其他初始化时间。")});
+            throw createError({statusCode: 409, message: this.renderInstantConflict(slice, "目标时间已有非 init 切面，不能把 subject 初始化自动追加进去。请读取 existingSliceId 并显式合并初始化 patches，或选择其他初始化时间。")});
         }
         await this.repository.createSubject({id: input.id, type: input.type, name: input.name ?? ""});
 
@@ -116,7 +116,7 @@ export class WorldEngineService {
 
         const existing = await this.repository.findSliceByInstant(input.instant);
         if (existing) {
-            throw createError({statusCode: 409, message: this.renderInstantConflict(existing, "该时间已有切面。请选择相邻时间，或先删除已有切面再重新写入。")});
+            throw createError({statusCode: 409, message: this.renderInstantConflict(existing, "该时间已有切面。请读取 existingSliceId 并合并 patches；只有整条切面作废时才删除重写。")});
         }
         // C1：首写自动注册 subject。把新 subject 的 WorldSubject 行登记掉，并把其 schema default
         // 作为本切面的前置 replace patch 写入（不另开 init 切面，保持单切面语义；用户 patch 在后覆盖默认值）。
@@ -243,7 +243,7 @@ export class WorldEngineService {
         }
         const sliceAtNewInstant = await this.repository.findSliceByInstant(input.instant);
         if (sliceAtNewInstant && sliceAtNewInstant.id !== sliceId) {
-            throw createError({statusCode: 409, message: this.renderInstantConflict(sliceAtNewInstant, "目标时间已有其他切面，不能把两个切面改到同一 instant。")});
+            throw createError({statusCode: 409, message: this.renderInstantConflict(sliceAtNewInstant, "目标时间已有其他切面，不能把两个切面改到同一 instant。请读取 existingSliceId 并合并 patches；只有整条切面作废时才删除重写。")});
         }
 
         const previousPatches = existing.patches.map(decodeRowPatch);

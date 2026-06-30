@@ -613,9 +613,9 @@ const buildClientState = () => {
  */
 const loadSelectableModels = async (): Promise<void> => {
     try {
-        const snapshot = await configApi.editorSnapshot();
-        selectableModels.value = snapshot.modelSettings.enabledModels;
-        costDisplay.setCostCurrency(readSnapshotCostCurrency(snapshot.effective.ui));
+        const settings = await configApi.bootstrap();
+        selectableModels.value = settings.modelSettings.enabledModels;
+        costDisplay.setCostCurrency(settings.ui.costCurrency);
         void costDisplay.ensureExchangeRate(configApi.exchangeRate);
     } catch (error) {
         console.error("读取模型列表失败", error);
@@ -650,16 +650,6 @@ const loadResolvedLeaderProfileKey = async (): Promise<void> => {
         resolvedDefaultProfileKey.value = systemLeaderProfileKey.value;
     }
 };
-
-/**
- * 从配置快照的通用 JSON 字段读取费用显示币种。
- */
-function readSnapshotCostCurrency(ui: unknown): "USD" | "CNY" {
-    if (ui && typeof ui === "object" && !Array.isArray(ui) && "costCurrency" in ui && ui.costCurrency === "CNY") {
-        return "CNY";
-    }
-    return "USD";
-}
 
 /**
  * 刷新 session 列表。
@@ -1045,7 +1035,6 @@ const submitUserInputAnswers = async (payload: {
         toolNodeId: string;
         questionIndex?: number;
         selectedOptionIndex?: number;
-        selectedOptionIndexes?: number[];
         note?: string;
         ignored?: boolean;
     }>;
@@ -1075,9 +1064,8 @@ const submitUserInputAnswers = async (payload: {
                 questionIndex,
                 text: answer.ignored
                     ? t("agent.chatSurface.userTerminated")
-                    : formatAnswerText(question.options, answer.selectedOptionIndex, answer.selectedOptionIndexes, answer.note),
+                    : formatAnswerText(question.options, answer.selectedOptionIndex, answer.note),
                 selectedOptionIndex: answer.selectedOptionIndex,
-                selectedOptionIndexes: answer.selectedOptionIndexes,
                 note: answer.note,
                 ignored: answer.ignored,
             };
@@ -1093,7 +1081,6 @@ const submitUserInputAnswers = async (payload: {
                 questionIndex: number;
                 text: string;
                 selectedOptionIndex?: number;
-                selectedOptionIndexes?: number[];
                 note?: string;
                 ignored?: boolean;
             };
@@ -1122,7 +1109,6 @@ const submitUserInputAnswers = async (payload: {
                         questionIndex: 0,
                         text: t("agent.userInput.approve"),
                         selectedOptionIndex: 0,
-                        selectedOptionIndexes: [0],
                     }];
 
                 if (sessionFirstQuestion.kind === "tool_approval") {
@@ -1198,8 +1184,7 @@ const submitPendingUserInputAnswers = (): void => {
             return {
                 toolNodeId: question.toolNodeId,
                 questionIndex: question.questionIndex,
-                selectedOptionIndex: question.multiSelect ? undefined : selected[0],
-                selectedOptionIndexes: question.multiSelect ? selected : undefined,
+                selectedOptionIndex: selected[0],
                 note: userInputNotes.value[key]?.trim() || undefined,
             };
         }),
@@ -1215,6 +1200,42 @@ provide(AGENT_REQUEST_USER_INPUT_CONTEXT_KEY, {
     },
     submitAnswers: submitPendingUserInputAnswers,
 });
+
+/**
+ * 取消当前等待中的用户输入并终止本轮 ReAct loop。
+ */
+const cancelPendingUserInput = async (payload?: {assistantMessageId: string}): Promise<void> => {
+    if (!activeSessionId.value || !pendingUserInputSession.value) {
+        return;
+    }
+    const pendingSession = pendingUserInputSession.value;
+    if (payload?.assistantMessageId && payload.assistantMessageId !== pendingSession.assistantMessageId) {
+        return;
+    }
+    const pendingKey = pendingUserInputKey(pendingSession);
+    if (pendingKey && submittingUserInputKey.value === pendingKey) {
+        return;
+    }
+    try {
+        submittingUserInputKey.value = pendingKey;
+        await agentApi.abortSession(activeSessionId.value, {
+            reason: "user cancelled pending user input",
+            clearQueue: true,
+        });
+        session.clearPendingUserInputSession();
+        userInputSelectedAnswers.value = {};
+        userInputNotes.value = {};
+        await syncActiveSessionSnapshot();
+    } catch (error) {
+        console.error("取消用户输入等待失败", error);
+        await syncActiveSessionSnapshot();
+        notifyAgentError(error, t("agent.chatSurface.cancelUserInputFailed"));
+    } finally {
+        if (submittingUserInputKey.value === pendingKey) {
+            submittingUserInputKey.value = null;
+        }
+    }
+};
 
 /**
  * 停止当前运行。
@@ -2097,12 +2118,11 @@ function saveLastSessionId(sessionId: number): void {
 function formatAnswerText(
     options: Array<{label: string}>,
     selectedOptionIndex?: number,
-    selectedOptionIndexes?: number[],
     note?: string,
 ): string {
-    const indexes = selectedOptionIndexes?.length ? selectedOptionIndexes : selectedOptionIndex === undefined ? [] : [selectedOptionIndex];
-    const labels = indexes.map((index) => index === -1 ? t("agent.userInput.otherAnswer") : options[index]?.label ?? String(index));
-    const selectedText = labels.join(t("agent.planApproval.separator"));
+    const selectedText = selectedOptionIndex === undefined
+        ? ""
+        : selectedOptionIndex === -1 ? t("agent.userInput.otherAnswer") : options[selectedOptionIndex]?.label ?? String(selectedOptionIndex);
     if (selectedText && note?.trim()) {
         return `${selectedText}\n${t("agent.planApproval.note", {note: note.trim()})}`;
     }
@@ -2111,16 +2131,12 @@ function formatAnswerText(
 
 function isApprovalApproved(answer?: {
     selectedOptionIndex?: number;
-    selectedOptionIndexes?: number[];
     ignored?: boolean;
 }): boolean {
     if (!answer || answer.ignored) {
         return false;
     }
-    const indexes = answer.selectedOptionIndexes?.length
-        ? answer.selectedOptionIndexes
-        : answer.selectedOptionIndex === undefined ? [] : [answer.selectedOptionIndex];
-    return indexes.includes(0);
+    return answer.selectedOptionIndex === 0;
 }
 </script>
 
@@ -2252,6 +2268,7 @@ function isApprovalApproved(answer?: {
                 :on-skill-trigger-start="refreshSkillCatalog"
                 @submit-user-input="void submitUserInputAnswers($event)"
                 @submit-user-input-form="void submitUserInputForm($event)"
+                @cancel-user-input="void cancelPendingUserInput($event)"
                 @send="void send()"
                 @steer="void steer()"
                 @followup="void followup()"

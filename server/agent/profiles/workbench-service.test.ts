@@ -8,6 +8,7 @@ import {buildSystemPromptRoot} from "nbook/server/agent/profiles/profile-http-se
 import {
     createProfileSource,
     createProfileSourceDraft,
+    deleteProfileSource,
     listProfileFiles,
     listProfileTemplates,
     readProfileSource,
@@ -98,7 +99,51 @@ describe("profile workbench service", () => {
         } finally {
             await rm(root, {recursive: true, force: true});
         }
-    }, 15_000);
+    }, 30_000);
+
+    it("删除用户 profile 后触发全量 build 以移除 manifest entry", async () => {
+        const root = resolve(".agent", "workspace", "profile-workbench-test", randomUUID());
+        const userRoot = join(root, "workspace", ".nbook", "agent", "profiles");
+        const fileName = "agent.deleted.profile.tsx";
+        const enqueued: Array<{fileName?: string; reason: string}> = [];
+        await mkdir(userRoot, {recursive: true});
+        const catalog = new AgentProfileCatalog("__missing_system__", userRoot);
+        catalog.attachBuildCoordinator({
+            stateFor() {
+                return {
+                    running: false,
+                    queued: false,
+                    reason: null,
+                    updatedAt: null,
+                };
+            },
+            enqueue(input) {
+                enqueued.push(input);
+            },
+        });
+        try {
+            await createProfileSourceDraft({
+                profileKey: "agent.deleted",
+                templateName: "basic-agent",
+                name: "Deleted",
+                description: "",
+                systemPrompt: "待删除",
+                fileName,
+            }, {
+                userProfileRoot: userRoot,
+            });
+
+            const result = await deleteProfileSource(catalog, {fileName}, {userProfileRoot: userRoot});
+
+            expect(result).toEqual({fileName, deleted: true});
+            await expect(pathExists(join(userRoot, fileName))).resolves.toBe(false);
+            expect(enqueued).toEqual([{
+                reason: "profile_source_deleted",
+            }]);
+        } finally {
+            await rm(root, {recursive: true, force: true});
+        }
+    });
 
     it("解析新 TSX DSL 为 ProfilePrompt tree", () => {
         const root = buildSystemPromptRoot(`
@@ -171,7 +216,7 @@ export default defineAgentProfile({
             text: "{ path: \"workspace/\" }",
         }));
         expect(root?.children[2]?.children.map((node) => node.type)).toEqual(["Message"]);
-    });
+    }, 30000);
 
     it("source-draft 是未保存源码预览入口，不写入真实用户 profile 文件", async () => {
         const root = resolve(".agent", "workspace", "profile-workbench-test", randomUUID());

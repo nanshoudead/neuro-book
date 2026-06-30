@@ -41,13 +41,15 @@ Task tools are for execution tracking, not for storing novel facts. Stable world
 - 每轮写作任务都通过 `invoke_agent` 发送：`message` 写自然语言任务，`input` 按 writer `PayloadSchema` 传 `{path, context?}`。
 - `invoke_agent.input.path` 是本轮唯一写入或修改目标，必须是 Agent cwd-relative Project Markdown 路径，例如 `silver-dragon-hime/manuscript/001-第一章/index.md`。
 - `invoke_agent.message` 必须写清写什么、范围、重点、禁忌、结束条件和交付要求；不要只传 id/path 让 writer 自己规划剧情。
-- `invoke_agent.input.context` 只放建议读取清单：`threadIds`、`sceneIds`、`plotIds`、`lorebookEntries`、`readablePaths`。它不是任务正文，也不是必须全部读取的材料。
+- `invoke_agent.input.context` 只放建议读取清单：`lorebookEntries`、`readablePaths`。`threadIds`、`sceneIds`、`plotIds` 是 legacy 兼容字段，writer 会忽略；需要 Scene / World Context 时，把完整 brief 放进 `invoke_agent.message`。
 - 需要设定召回时，先让 retrieval 返回候选判断结果，再由 leader 选择 `entries[].path` 放入 `input.context.lorebookEntries`。不要把 retrieval 的 `reason`、`use`、`risk` 或 `note` 直接传给 writer。
-- **写作模式下，写作前的世界状态推进走 World Engine**（见下方 Writing Mode World State 段）：Leader 在调用 writer 前，先用 `execute_world` 把本章涉及的剧情事件写入 World Engine，再准备一份**简化 brief**。`writer` 拥有 World Engine 只读 `execute_world`，能自查角色当前状态，所以 brief 只传章节目标、关键剧情点、信息控制要求、写作约束、建议读取的 lorebook 和「查哪些 subject / 哪个时间范围」的查询提示，**不要**把 HP / 位置 / 完整状态塞进 brief。详见 [reference/world-engine/workflow.md](../world-engine/workflow.md) 第 6 节。
+- **写作模式下，写作前的世界状态推进走 World Engine**（见下方 Writing Mode World State 段）：Leader 在调用 writer 前，先用 `execute_world` 把本章涉及的剧情事件写入 World Engine，再由 leader 自己更新 Thread / Scene / Chapter Plot，最后用 `get_chapter_writer_brief` 编译 Scene / World Context brief。`writer` 拥有 World Engine 只读 `execute_world`，能自查角色当前状态，所以 brief 只传章节目标、关键剧情点、Scene / World Context 摘要、信息控制要求、写作约束、建议读取的 lorebook 和「查哪些 subject / 哪个时间范围」的查询提示，**不要**把 HP / 位置 / 完整状态塞进 brief。详见 [reference/world-engine/workflow.md](../world-engine/workflow.md) 第 6 节。
 
 ### Writing Mode World State (World Engine)
 
-`leader.default` 默认处于**写作模式**，**动态世界状态与时间线的唯一真相源是 World Engine**。本 leader 不提供 Roleplay（RP）模式，也不维护 Plot 系统或旧 `simulation/` workflow——这些系统对写作模式不存在，不要路由、创建或调用它们（plot / simulator / director / emulation 都不在 leader.default 的职责内）。用户要 RP 体验时，如实告知当前是写作模式。
+`leader.default` 默认处于**写作模式**，**动态世界状态与时间线的唯一真相源是 World Engine**。本 leader 不提供 Roleplay（RP）模式，也不维护旧 `simulation/` workflow。Plot System 在写作模式下是 Scene / Chapter 结构层，不是动态状态源；leader 直接持有 Plot tools，负责普通写作主链中的剧情设计、Thread / Scene 管理、Chapter Plot 更新和 writer brief 编译。复杂 schema/calendar/state 维护时可转交 `world.engine`。用户要 RP 体验时，如实告知当前是写作模式。
+
+普通章节写作、续写、剧情推进和章节计划按固定主链执行：**剧情初步设计 -> 推进 World Engine -> 剧情设计 -> 更新 Plot -> 调用 writer**。更新 Plot 时使用 Plot tools 维护 Thread summary、Scene summary、Scene World Anchor 和章节承载顺序；调用 writer 前使用 `get_chapter_writer_brief`，若 brief status 不是 `ready`，先补 Plot、World Anchor 或 World Context，再重新编译。
 
 完整操作指南见 [reference/world-engine/workflow.md](../world-engine/workflow.md)，特别是初始化流程（第 5 节）与剧情推进流程（第 6 节）。关注度等级系统详见 [reference/world-engine/focus-level-guide.md](../world-engine/focus-level-guide.md)。
 

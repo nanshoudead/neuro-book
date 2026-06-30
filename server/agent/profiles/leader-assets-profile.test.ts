@@ -35,7 +35,6 @@ vi.mock("nbook/server/plot", () => ({
         getChapterPlotDetailDto: vi.fn(async (_novelId: number, chapterPath: string) => ({
             chapterPath,
             totalScenes: 1,
-            totalPlots: 1,
             scenes: [{
                 id: "1",
                 title: "测试场景",
@@ -45,7 +44,17 @@ vi.mock("nbook/server/plot", () => ({
                 purpose: "验证 writer 章节剧情注入。",
                 chapterSortOrder: 0,
                 threadSortOrder: 0,
-                plots: [{kind: "setup", summary: "测试情节点。"}],
+                worldAnchor: {
+                    startTime: null,
+                    endTime: null,
+                    startInstant: null,
+                    endInstant: null,
+                    subjectIds: [],
+                    locationSubjectId: null,
+                    subjects: [],
+                    locationSubject: null,
+                    unresolvedSubjectIds: [],
+                },
             }],
         })),
     },
@@ -109,6 +118,16 @@ describe("assets builtin v3 profiles", () => {
             "task_create",
             "task_set_status",
             "execute_world",
+            "get_plot_tree",
+            "get_story_thread",
+            "get_story_scene_context",
+            "get_scene_world_context",
+            "get_chapter_plot",
+            "get_chapter_writer_brief",
+            "create_story_thread",
+            "update_story_thread",
+            "create_story_scene",
+            "update_story_scene",
             "execute_sql",
             "variable_schema",
             "variable_read",
@@ -174,6 +193,14 @@ describe("assets builtin v3 profiles", () => {
         expect(visiblePrompt).toContain("\"chapterPath\"");
         expect(visiblePrompt).toContain("\"threadSortOrder\"");
         expect(visiblePrompt).toContain("动态世界状态与时间线的唯一真相源");
+        expect(visiblePrompt).toContain("剧情初步设计 -> 推进 World Engine -> 剧情设计 -> 更新 Plot -> 调用 writer");
+        expect(visiblePrompt).toContain("get_chapter_writer_brief");
+        expect(visiblePrompt).toContain("Scene World Anchor");
+        expect(visiblePrompt).not.toContain("Thread / Scene / Chapter Plot / writer brief 编译转 `director`");
+        expect(visiblePrompt).not.toContain("创建或复用 `director`");
+        expect(visiblePrompt).not.toContain("director 返回 world_engine_requests");
+        expect(visiblePrompt).not.toContain("leader.default 是写作模式入口，不路由到 Plot / simulator / director / RP");
+        expect(visiblePrompt).not.toContain("plot / simulator / director / emulation 都不在 leader.default 的职责内");
         expect(visiblePrompt).toContain("Plan Mode 工作目录会在 system-reminder");
         expect(visiblePrompt).not.toContain("{sessionId}");
         expect(visiblePrompt).not.toContain("read_file");
@@ -193,7 +220,7 @@ describe("assets builtin v3 profiles", () => {
         expect(prompt).not.toContain("(^|[\\\\/])index");
         expect(historyText).toContain("Available Agents");
         expect(historyText).toContain("writer");
-        expect(historyText).toContain("长期可复用正文写作 agent");
+        expect(historyText).toContain("长期可复用正式正文写作 agent");
         expect(historyText).toContain("invoke.input 指定目标 Markdown path");
         expect(historyText).toContain("内容节点召回和候选判断 agent");
         expect(historyText).toContain("get_agent_profile");
@@ -468,7 +495,7 @@ describe("assets builtin v3 profiles", () => {
         expect(historyText).toContain("```reference/agent/profile-routing.md");
         expect(historyText).toContain("小说项目任务建议切回目标 Project 的 `leader.default`");
         expect(historyText).toContain("RP 主持转 `rp.leader`");
-        expect(historyText).toContain("世界状态裁决转 `simulator.leader`");
+        expect(historyText).toContain("World Engine 维护转 `world.engine`");
         expect(prompt).not.toContain("POST /api/agent/profiles/compile");
         expect(prompt).toContain("Agent runtime 能稳定调用的入口");
         expect(prompt).not.toContain("bun scripts/compile-profile.ts");
@@ -528,6 +555,10 @@ describe("assets builtin v3 profiles", () => {
             "report_result",
         ]));
         expect(writerProfile.rootToolKeys).not.toContain("apply_patch");
+        expect(writerProfile.rootToolKeys).not.toContain("get_plot_tree");
+        expect(writerProfile.rootToolKeys).not.toContain("get_chapter_plot");
+        expect(writerProfile.rootToolKeys).not.toContain("get_chapter_writer_brief");
+        expect(writerProfile.rootToolKeys).not.toContain("create_story_scene");
         expect(initialProperties).toEqual({});
         expect(payloadProperties).toHaveProperty("path");
         expect(payloadProperties).toHaveProperty("context");
@@ -755,6 +786,8 @@ describe("assets builtin v3 profiles", () => {
 
             expect(historyContext).toContain("<writer_input_context>");
             expect(prepared.systemPrompt).toContain(".nbook/agent/skills/stop-slop/SKILL.md");
+            expect(prepared.systemPrompt).toContain("Scene / World Context brief");
+            expect(prepared.systemPrompt).toContain("你不持有 Plot tools");
             expect(historyContext).toContain("<target_file>");
             expect(historyContext).toContain(`path: ${projectSlug}/manuscript/001-chapter/index.md`);
             expect(historyContext).toContain(`projectSlug: ${projectSlug}`);

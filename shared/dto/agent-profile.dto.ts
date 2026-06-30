@@ -19,6 +19,8 @@ export const AgentProfileSourceSchema = z.enum(["system", "user", "contract"]);
 export const AgentProfileKindSchema = z.enum(["agent"]);
 export const AgentProfileLoadStatusSchema = z.enum([
     "loaded",
+    "compiling",
+    "compile_failed",
     "not_compiled",
     "compile_stale",
     "compiled_load_failed",

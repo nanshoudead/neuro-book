@@ -126,28 +126,22 @@ export const isContinuationPointMessage = (
 export const AgentUserInputQuestionOptionSchema = z.object({
     label: z.string(),
     description: z.string().optional(),
-    recommended: z.boolean().optional(),
-    defaultSelected: z.boolean().optional(),
-});
+}).strict();
 
 export const AgentUserInputQuestionSchema = z.object({
     header: z.string().optional(),
     question: z.string(),
     options: z.array(AgentUserInputQuestionOptionSchema).default([]),
-    multiSelect: z.boolean().default(false),
-    defaultOptionIndex: z.number().int().min(-1).optional(),
-    defaultOptionIndexes: z.array(z.number().int().min(-1)).optional(),
-});
+}).strict();
 
 export const RequestUserInputToolArgsSchema = z.object({
-    questions: z.array(AgentUserInputQuestionSchema).default([]),
-});
+    questions: z.array(AgentUserInputQuestionSchema).min(1),
+}).strict();
 
 export const RequestUserInputToolAnswerSchema = z.object({
     questionIndex: z.number().int().nonnegative().optional(),
     text: z.string().optional(),
     selectedOptionIndex: z.number().int().min(-1).optional(),
-    selectedOptionIndexes: z.array(z.number().int().min(-1)).optional(),
     note: z.string().trim().optional(),
     ignored: z.boolean().optional(),
 });
@@ -704,7 +698,31 @@ export const toPendingUserInputSession = (
     }
     const assistantMessage = messages.find((message) => message.toolCalls?.some((toolCall) => toolCall.id === pending.toolCallId));
 
-    // Task 63: 优先使用 pending.formSpec（从 snapshot 恢复时可用）
+    const args = pending.args && typeof pending.args === "object" && !Array.isArray(pending.args)
+        ? pending.args as Record<string, unknown>
+        : {};
+
+    if (pending.toolName === "request_user_input") {
+        const parsed = RequestUserInputToolArgsSchema.safeParse(args);
+        if (!parsed.success) {
+            console.warn("request_user_input args 验证失败", parsed.error);
+            return null;
+        }
+        return {
+            assistantMessageId: assistantMessage?.id ?? pending.assistantMessageId ?? pending.toolCallId,
+            status: "pending",
+            questions: parsed.data.questions.map((question, index) => ({
+                ...question,
+                toolNodeId: pending.toolCallId,
+                questionIndex: index,
+                toolCallId: pending.toolCallId,
+                toolName: pending.toolName,
+                kind: "question" as const,
+            })),
+        };
+    }
+
+    // 非 request_user_input 的用户输入工具可使用 Low-Code Form 渲染结构化表单。
     if (pending.formSpec) {
         const formValidation = LowCodeFormDtoSchema.safeParse(pending.formSpec.form);
         if (!formValidation.success) {
@@ -720,10 +738,6 @@ export const toPendingUserInputSession = (
         };
     }
 
-    const args = pending.args && typeof pending.args === "object" && !Array.isArray(pending.args)
-        ? pending.args as Record<string, unknown>
-        : {};
-
     // Fallback: 检测 args.form（兼容旧数据或 SSE 事件直接构建的场景）
     const form = (args as any).form;
     if (form && typeof form === "object" && Array.isArray((form as any).fields)) {
@@ -738,23 +752,6 @@ export const toPendingUserInputSession = (
             questions: [],
             form: formValidation.data,
             formToolCallId: pending.toolCallId,
-        };
-    }
-
-    if (pending.toolName === "request_user_input") {
-        const parsed = RequestUserInputToolArgsSchema.safeParse(args);
-        const questions = parsed.success ? parsed.data.questions : [];
-        return {
-            assistantMessageId: assistantMessage?.id ?? pending.assistantMessageId ?? pending.toolCallId,
-            status: "pending",
-            questions: questions.map((question, index) => ({
-                ...question,
-                toolNodeId: pending.toolCallId,
-                questionIndex: index,
-                toolCallId: pending.toolCallId,
-                toolName: pending.toolName,
-                kind: "question",
-            })),
         };
     }
 
@@ -776,11 +773,9 @@ export const toPendingUserInputSession = (
             header: pending.toolName === "skill" ? "Skill" : translate("agent.approval.header", "审批"),
             question: approvalQuestion(pending.toolName, args),
             options: [
-                {label: translate("agent.userInput.approve", "批准"), description: translate("agent.approval.allowDescription", "允许 Agent 继续执行该动作。"), recommended: true, defaultSelected: true},
+                {label: translate("agent.userInput.approve", "批准"), description: translate("agent.approval.allowDescription", "允许 Agent 继续执行该动作。")},
                 {label: translate("agent.planApproval.reject", "拒绝"), description: translate("agent.approval.rejectDescription", "阻止该动作，并把结果返回给 Agent。")},
             ],
-            multiSelect: false,
-            defaultOptionIndex: 0,
         }],
     };
 };
@@ -813,24 +808,22 @@ export const deriveRequestUserInputAnswerViews = (
             ? options.fallbackQuestion
             : args?.questions[questionIndex] ?? options?.fallbackQuestion ?? args?.questions[0];
         const questionOptions = question?.options ?? [];
-        const selectedIndexes = answer.selectedOptionIndexes?.length
-            ? answer.selectedOptionIndexes
-            : answer.selectedOptionIndex === undefined ? [] : [answer.selectedOptionIndex];
-        const selectedLabel = selectedIndexes.map((optionIndex) => {
-            return optionIndex === -1
+        const selectedOptionIndex = answer.selectedOptionIndex;
+        const selectedLabel = selectedOptionIndex === undefined
+            ? ""
+            : selectedOptionIndex === -1
                 ? options?.otherLabel ?? translate("agent.userInput.otherAnswer", "其他答案")
-                : questionOptions[optionIndex]?.label ?? String(optionIndex);
-        }).join("、");
+                : questionOptions[selectedOptionIndex]?.label ?? String(selectedOptionIndex);
 
         return {
             questionIndex,
             question: question?.question ?? "",
             options: questionOptions,
             selectedLabel,
-            text: selectedIndexes.length === 0 && !answer.note ? answer.text : undefined,
+            text: selectedOptionIndex === undefined && !answer.note ? answer.text : undefined,
             note: answer.note,
             ignored: Boolean(answer.ignored),
-            openAnswer: !answer.ignored && selectedIndexes.length === 0,
+            openAnswer: !answer.ignored && selectedOptionIndex === undefined,
         };
     });
 };

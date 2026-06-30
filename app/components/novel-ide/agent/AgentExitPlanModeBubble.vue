@@ -85,9 +85,6 @@ const selectedIndexes = computed(() => {
     if (!parsedAnswer.value) {
         return [];
     }
-    if (parsedAnswer.value.selectedOptionIndexes?.length) {
-        return parsedAnswer.value.selectedOptionIndexes;
-    }
     return parsedAnswer.value.selectedOptionIndex === undefined ? [] : [parsedAnswer.value.selectedOptionIndex];
 });
 

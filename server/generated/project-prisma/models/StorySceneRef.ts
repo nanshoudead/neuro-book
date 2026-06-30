@@ -32,7 +32,6 @@ export type StorySceneRefAvgAggregateOutputType = {
   sortOrder: number | null
   targetThreadId: number | null
   targetSceneId: number | null
-  targetPlotId: number | null
 }
 
 export type StorySceneRefSumAggregateOutputType = {
@@ -41,7 +40,6 @@ export type StorySceneRefSumAggregateOutputType = {
   sortOrder: number | null
   targetThreadId: number | null
   targetSceneId: number | null
-  targetPlotId: number | null
 }
 
 export type StorySceneRefMinAggregateOutputType = {
@@ -53,7 +51,6 @@ export type StorySceneRefMinAggregateOutputType = {
   targetKind: $Enums.StoryRefTargetKind | null
   targetThreadId: number | null
   targetSceneId: number | null
-  targetPlotId: number | null
   visibility: $Enums.StoryRefVisibility | null
   note: string | null
   createdAt: Date | null
@@ -69,7 +66,6 @@ export type StorySceneRefMaxAggregateOutputType = {
   targetKind: $Enums.StoryRefTargetKind | null
   targetThreadId: number | null
   targetSceneId: number | null
-  targetPlotId: number | null
   visibility: $Enums.StoryRefVisibility | null
   note: string | null
   createdAt: Date | null
@@ -85,7 +81,6 @@ export type StorySceneRefCountAggregateOutputType = {
   targetKind: number
   targetThreadId: number
   targetSceneId: number
-  targetPlotId: number
   visibility: number
   note: number
   createdAt: number
@@ -100,7 +95,6 @@ export type StorySceneRefAvgAggregateInputType = {
   sortOrder?: true
   targetThreadId?: true
   targetSceneId?: true
-  targetPlotId?: true
 }
 
 export type StorySceneRefSumAggregateInputType = {
@@ -109,7 +103,6 @@ export type StorySceneRefSumAggregateInputType = {
   sortOrder?: true
   targetThreadId?: true
   targetSceneId?: true
-  targetPlotId?: true
 }
 
 export type StorySceneRefMinAggregateInputType = {
@@ -121,7 +114,6 @@ export type StorySceneRefMinAggregateInputType = {
   targetKind?: true
   targetThreadId?: true
   targetSceneId?: true
-  targetPlotId?: true
   visibility?: true
   note?: true
   createdAt?: true
@@ -137,7 +129,6 @@ export type StorySceneRefMaxAggregateInputType = {
   targetKind?: true
   targetThreadId?: true
   targetSceneId?: true
-  targetPlotId?: true
   visibility?: true
   note?: true
   createdAt?: true
@@ -153,7 +144,6 @@ export type StorySceneRefCountAggregateInputType = {
   targetKind?: true
   targetThreadId?: true
   targetSceneId?: true
-  targetPlotId?: true
   visibility?: true
   note?: true
   createdAt?: true
@@ -256,7 +246,6 @@ export type StorySceneRefGroupByOutputType = {
   targetKind: $Enums.StoryRefTargetKind
   targetThreadId: number | null
   targetSceneId: number | null
-  targetPlotId: number | null
   visibility: $Enums.StoryRefVisibility
   note: string | null
   createdAt: Date
@@ -295,7 +284,6 @@ export type StorySceneRefWhereInput = {
   targetKind?: Prisma.EnumStoryRefTargetKindFilter<"StorySceneRef"> | $Enums.StoryRefTargetKind
   targetThreadId?: Prisma.IntNullableFilter<"StorySceneRef"> | number | null
   targetSceneId?: Prisma.IntNullableFilter<"StorySceneRef"> | number | null
-  targetPlotId?: Prisma.IntNullableFilter<"StorySceneRef"> | number | null
   visibility?: Prisma.EnumStoryRefVisibilityFilter<"StorySceneRef"> | $Enums.StoryRefVisibility
   note?: Prisma.StringNullableFilter<"StorySceneRef"> | string | null
   createdAt?: Prisma.DateTimeFilter<"StorySceneRef"> | Date | string
@@ -303,7 +291,6 @@ export type StorySceneRefWhereInput = {
   scene?: Prisma.XOR<Prisma.StorySceneScalarRelationFilter, Prisma.StorySceneWhereInput>
   targetThread?: Prisma.XOR<Prisma.StoryThreadNullableScalarRelationFilter, Prisma.StoryThreadWhereInput> | null
   targetScene?: Prisma.XOR<Prisma.StorySceneNullableScalarRelationFilter, Prisma.StorySceneWhereInput> | null
-  targetPlot?: Prisma.XOR<Prisma.StoryPlotNullableScalarRelationFilter, Prisma.StoryPlotWhereInput> | null
 }
 
 export type StorySceneRefOrderByWithRelationInput = {
@@ -315,7 +302,6 @@ export type StorySceneRefOrderByWithRelationInput = {
   targetKind?: Prisma.SortOrder
   targetThreadId?: Prisma.SortOrderInput | Prisma.SortOrder
   targetSceneId?: Prisma.SortOrderInput | Prisma.SortOrder
-  targetPlotId?: Prisma.SortOrderInput | Prisma.SortOrder
   visibility?: Prisma.SortOrder
   note?: Prisma.SortOrderInput | Prisma.SortOrder
   createdAt?: Prisma.SortOrder
@@ -323,7 +309,6 @@ export type StorySceneRefOrderByWithRelationInput = {
   scene?: Prisma.StorySceneOrderByWithRelationInput
   targetThread?: Prisma.StoryThreadOrderByWithRelationInput
   targetScene?: Prisma.StorySceneOrderByWithRelationInput
-  targetPlot?: Prisma.StoryPlotOrderByWithRelationInput
 }
 
 export type StorySceneRefWhereUniqueInput = Prisma.AtLeast<{
@@ -338,7 +323,6 @@ export type StorySceneRefWhereUniqueInput = Prisma.AtLeast<{
   targetKind?: Prisma.EnumStoryRefTargetKindFilter<"StorySceneRef"> | $Enums.StoryRefTargetKind
   targetThreadId?: Prisma.IntNullableFilter<"StorySceneRef"> | number | null
   targetSceneId?: Prisma.IntNullableFilter<"StorySceneRef"> | number | null
-  targetPlotId?: Prisma.IntNullableFilter<"StorySceneRef"> | number | null
   visibility?: Prisma.EnumStoryRefVisibilityFilter<"StorySceneRef"> | $Enums.StoryRefVisibility
   note?: Prisma.StringNullableFilter<"StorySceneRef"> | string | null
   createdAt?: Prisma.DateTimeFilter<"StorySceneRef"> | Date | string
@@ -346,7 +330,6 @@ export type StorySceneRefWhereUniqueInput = Prisma.AtLeast<{
   scene?: Prisma.XOR<Prisma.StorySceneScalarRelationFilter, Prisma.StorySceneWhereInput>
   targetThread?: Prisma.XOR<Prisma.StoryThreadNullableScalarRelationFilter, Prisma.StoryThreadWhereInput> | null
   targetScene?: Prisma.XOR<Prisma.StorySceneNullableScalarRelationFilter, Prisma.StorySceneWhereInput> | null
-  targetPlot?: Prisma.XOR<Prisma.StoryPlotNullableScalarRelationFilter, Prisma.StoryPlotWhereInput> | null
 }, "id">
 
 export type StorySceneRefOrderByWithAggregationInput = {
@@ -358,7 +341,6 @@ export type StorySceneRefOrderByWithAggregationInput = {
   targetKind?: Prisma.SortOrder
   targetThreadId?: Prisma.SortOrderInput | Prisma.SortOrder
   targetSceneId?: Prisma.SortOrderInput | Prisma.SortOrder
-  targetPlotId?: Prisma.SortOrderInput | Prisma.SortOrder
   visibility?: Prisma.SortOrder
   note?: Prisma.SortOrderInput | Prisma.SortOrder
   createdAt?: Prisma.SortOrder
@@ -382,7 +364,6 @@ export type StorySceneRefScalarWhereWithAggregatesInput = {
   targetKind?: Prisma.EnumStoryRefTargetKindWithAggregatesFilter<"StorySceneRef"> | $Enums.StoryRefTargetKind
   targetThreadId?: Prisma.IntNullableWithAggregatesFilter<"StorySceneRef"> | number | null
   targetSceneId?: Prisma.IntNullableWithAggregatesFilter<"StorySceneRef"> | number | null
-  targetPlotId?: Prisma.IntNullableWithAggregatesFilter<"StorySceneRef"> | number | null
   visibility?: Prisma.EnumStoryRefVisibilityWithAggregatesFilter<"StorySceneRef"> | $Enums.StoryRefVisibility
   note?: Prisma.StringNullableWithAggregatesFilter<"StorySceneRef"> | string | null
   createdAt?: Prisma.DateTimeWithAggregatesFilter<"StorySceneRef"> | Date | string
@@ -401,7 +382,6 @@ export type StorySceneRefCreateInput = {
   scene: Prisma.StorySceneCreateNestedOneWithoutRefsInput
   targetThread?: Prisma.StoryThreadCreateNestedOneWithoutIncomingSceneRefsInput
   targetScene?: Prisma.StorySceneCreateNestedOneWithoutIncomingSceneRefsInput
-  targetPlot?: Prisma.StoryPlotCreateNestedOneWithoutIncomingSceneRefsInput
 }
 
 export type StorySceneRefUncheckedCreateInput = {
@@ -413,7 +393,6 @@ export type StorySceneRefUncheckedCreateInput = {
   targetKind: $Enums.StoryRefTargetKind
   targetThreadId?: number | null
   targetSceneId?: number | null
-  targetPlotId?: number | null
   visibility?: $Enums.StoryRefVisibility
   note?: string | null
   createdAt?: Date | string
@@ -432,7 +411,6 @@ export type StorySceneRefUpdateInput = {
   scene?: Prisma.StorySceneUpdateOneRequiredWithoutRefsNestedInput
   targetThread?: Prisma.StoryThreadUpdateOneWithoutIncomingSceneRefsNestedInput
   targetScene?: Prisma.StorySceneUpdateOneWithoutIncomingSceneRefsNestedInput
-  targetPlot?: Prisma.StoryPlotUpdateOneWithoutIncomingSceneRefsNestedInput
 }
 
 export type StorySceneRefUncheckedUpdateInput = {
@@ -444,7 +422,6 @@ export type StorySceneRefUncheckedUpdateInput = {
   targetKind?: Prisma.EnumStoryRefTargetKindFieldUpdateOperationsInput | $Enums.StoryRefTargetKind
   targetThreadId?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   targetSceneId?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
-  targetPlotId?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   visibility?: Prisma.EnumStoryRefVisibilityFieldUpdateOperationsInput | $Enums.StoryRefVisibility
   note?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -460,7 +437,6 @@ export type StorySceneRefCreateManyInput = {
   targetKind: $Enums.StoryRefTargetKind
   targetThreadId?: number | null
   targetSceneId?: number | null
-  targetPlotId?: number | null
   visibility?: $Enums.StoryRefVisibility
   note?: string | null
   createdAt?: Date | string
@@ -487,7 +463,6 @@ export type StorySceneRefUncheckedUpdateManyInput = {
   targetKind?: Prisma.EnumStoryRefTargetKindFieldUpdateOperationsInput | $Enums.StoryRefTargetKind
   targetThreadId?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   targetSceneId?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
-  targetPlotId?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   visibility?: Prisma.EnumStoryRefVisibilityFieldUpdateOperationsInput | $Enums.StoryRefVisibility
   note?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -513,7 +488,6 @@ export type StorySceneRefCountOrderByAggregateInput = {
   targetKind?: Prisma.SortOrder
   targetThreadId?: Prisma.SortOrder
   targetSceneId?: Prisma.SortOrder
-  targetPlotId?: Prisma.SortOrder
   visibility?: Prisma.SortOrder
   note?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
@@ -526,7 +500,6 @@ export type StorySceneRefAvgOrderByAggregateInput = {
   sortOrder?: Prisma.SortOrder
   targetThreadId?: Prisma.SortOrder
   targetSceneId?: Prisma.SortOrder
-  targetPlotId?: Prisma.SortOrder
 }
 
 export type StorySceneRefMaxOrderByAggregateInput = {
@@ -538,7 +511,6 @@ export type StorySceneRefMaxOrderByAggregateInput = {
   targetKind?: Prisma.SortOrder
   targetThreadId?: Prisma.SortOrder
   targetSceneId?: Prisma.SortOrder
-  targetPlotId?: Prisma.SortOrder
   visibility?: Prisma.SortOrder
   note?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
@@ -554,7 +526,6 @@ export type StorySceneRefMinOrderByAggregateInput = {
   targetKind?: Prisma.SortOrder
   targetThreadId?: Prisma.SortOrder
   targetSceneId?: Prisma.SortOrder
-  targetPlotId?: Prisma.SortOrder
   visibility?: Prisma.SortOrder
   note?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
@@ -567,7 +538,6 @@ export type StorySceneRefSumOrderByAggregateInput = {
   sortOrder?: Prisma.SortOrder
   targetThreadId?: Prisma.SortOrder
   targetSceneId?: Prisma.SortOrder
-  targetPlotId?: Prisma.SortOrder
 }
 
 export type StorySceneRefCreateNestedManyWithoutTargetThreadInput = {
@@ -696,48 +666,6 @@ export type StorySceneRefUncheckedUpdateManyWithoutTargetSceneNestedInput = {
   deleteMany?: Prisma.StorySceneRefScalarWhereInput | Prisma.StorySceneRefScalarWhereInput[]
 }
 
-export type StorySceneRefCreateNestedManyWithoutTargetPlotInput = {
-  create?: Prisma.XOR<Prisma.StorySceneRefCreateWithoutTargetPlotInput, Prisma.StorySceneRefUncheckedCreateWithoutTargetPlotInput> | Prisma.StorySceneRefCreateWithoutTargetPlotInput[] | Prisma.StorySceneRefUncheckedCreateWithoutTargetPlotInput[]
-  connectOrCreate?: Prisma.StorySceneRefCreateOrConnectWithoutTargetPlotInput | Prisma.StorySceneRefCreateOrConnectWithoutTargetPlotInput[]
-  createMany?: Prisma.StorySceneRefCreateManyTargetPlotInputEnvelope
-  connect?: Prisma.StorySceneRefWhereUniqueInput | Prisma.StorySceneRefWhereUniqueInput[]
-}
-
-export type StorySceneRefUncheckedCreateNestedManyWithoutTargetPlotInput = {
-  create?: Prisma.XOR<Prisma.StorySceneRefCreateWithoutTargetPlotInput, Prisma.StorySceneRefUncheckedCreateWithoutTargetPlotInput> | Prisma.StorySceneRefCreateWithoutTargetPlotInput[] | Prisma.StorySceneRefUncheckedCreateWithoutTargetPlotInput[]
-  connectOrCreate?: Prisma.StorySceneRefCreateOrConnectWithoutTargetPlotInput | Prisma.StorySceneRefCreateOrConnectWithoutTargetPlotInput[]
-  createMany?: Prisma.StorySceneRefCreateManyTargetPlotInputEnvelope
-  connect?: Prisma.StorySceneRefWhereUniqueInput | Prisma.StorySceneRefWhereUniqueInput[]
-}
-
-export type StorySceneRefUpdateManyWithoutTargetPlotNestedInput = {
-  create?: Prisma.XOR<Prisma.StorySceneRefCreateWithoutTargetPlotInput, Prisma.StorySceneRefUncheckedCreateWithoutTargetPlotInput> | Prisma.StorySceneRefCreateWithoutTargetPlotInput[] | Prisma.StorySceneRefUncheckedCreateWithoutTargetPlotInput[]
-  connectOrCreate?: Prisma.StorySceneRefCreateOrConnectWithoutTargetPlotInput | Prisma.StorySceneRefCreateOrConnectWithoutTargetPlotInput[]
-  upsert?: Prisma.StorySceneRefUpsertWithWhereUniqueWithoutTargetPlotInput | Prisma.StorySceneRefUpsertWithWhereUniqueWithoutTargetPlotInput[]
-  createMany?: Prisma.StorySceneRefCreateManyTargetPlotInputEnvelope
-  set?: Prisma.StorySceneRefWhereUniqueInput | Prisma.StorySceneRefWhereUniqueInput[]
-  disconnect?: Prisma.StorySceneRefWhereUniqueInput | Prisma.StorySceneRefWhereUniqueInput[]
-  delete?: Prisma.StorySceneRefWhereUniqueInput | Prisma.StorySceneRefWhereUniqueInput[]
-  connect?: Prisma.StorySceneRefWhereUniqueInput | Prisma.StorySceneRefWhereUniqueInput[]
-  update?: Prisma.StorySceneRefUpdateWithWhereUniqueWithoutTargetPlotInput | Prisma.StorySceneRefUpdateWithWhereUniqueWithoutTargetPlotInput[]
-  updateMany?: Prisma.StorySceneRefUpdateManyWithWhereWithoutTargetPlotInput | Prisma.StorySceneRefUpdateManyWithWhereWithoutTargetPlotInput[]
-  deleteMany?: Prisma.StorySceneRefScalarWhereInput | Prisma.StorySceneRefScalarWhereInput[]
-}
-
-export type StorySceneRefUncheckedUpdateManyWithoutTargetPlotNestedInput = {
-  create?: Prisma.XOR<Prisma.StorySceneRefCreateWithoutTargetPlotInput, Prisma.StorySceneRefUncheckedCreateWithoutTargetPlotInput> | Prisma.StorySceneRefCreateWithoutTargetPlotInput[] | Prisma.StorySceneRefUncheckedCreateWithoutTargetPlotInput[]
-  connectOrCreate?: Prisma.StorySceneRefCreateOrConnectWithoutTargetPlotInput | Prisma.StorySceneRefCreateOrConnectWithoutTargetPlotInput[]
-  upsert?: Prisma.StorySceneRefUpsertWithWhereUniqueWithoutTargetPlotInput | Prisma.StorySceneRefUpsertWithWhereUniqueWithoutTargetPlotInput[]
-  createMany?: Prisma.StorySceneRefCreateManyTargetPlotInputEnvelope
-  set?: Prisma.StorySceneRefWhereUniqueInput | Prisma.StorySceneRefWhereUniqueInput[]
-  disconnect?: Prisma.StorySceneRefWhereUniqueInput | Prisma.StorySceneRefWhereUniqueInput[]
-  delete?: Prisma.StorySceneRefWhereUniqueInput | Prisma.StorySceneRefWhereUniqueInput[]
-  connect?: Prisma.StorySceneRefWhereUniqueInput | Prisma.StorySceneRefWhereUniqueInput[]
-  update?: Prisma.StorySceneRefUpdateWithWhereUniqueWithoutTargetPlotInput | Prisma.StorySceneRefUpdateWithWhereUniqueWithoutTargetPlotInput[]
-  updateMany?: Prisma.StorySceneRefUpdateManyWithWhereWithoutTargetPlotInput | Prisma.StorySceneRefUpdateManyWithWhereWithoutTargetPlotInput[]
-  deleteMany?: Prisma.StorySceneRefScalarWhereInput | Prisma.StorySceneRefScalarWhereInput[]
-}
-
 export type EnumStoryRefTargetKindFieldUpdateOperationsInput = {
   set?: $Enums.StoryRefTargetKind
 }
@@ -757,7 +685,6 @@ export type StorySceneRefCreateWithoutTargetThreadInput = {
   updatedAt?: Date | string
   scene: Prisma.StorySceneCreateNestedOneWithoutRefsInput
   targetScene?: Prisma.StorySceneCreateNestedOneWithoutIncomingSceneRefsInput
-  targetPlot?: Prisma.StoryPlotCreateNestedOneWithoutIncomingSceneRefsInput
 }
 
 export type StorySceneRefUncheckedCreateWithoutTargetThreadInput = {
@@ -768,7 +695,6 @@ export type StorySceneRefUncheckedCreateWithoutTargetThreadInput = {
   rawTarget: string
   targetKind: $Enums.StoryRefTargetKind
   targetSceneId?: number | null
-  targetPlotId?: number | null
   visibility?: $Enums.StoryRefVisibility
   note?: string | null
   createdAt?: Date | string
@@ -812,7 +738,6 @@ export type StorySceneRefScalarWhereInput = {
   targetKind?: Prisma.EnumStoryRefTargetKindFilter<"StorySceneRef"> | $Enums.StoryRefTargetKind
   targetThreadId?: Prisma.IntNullableFilter<"StorySceneRef"> | number | null
   targetSceneId?: Prisma.IntNullableFilter<"StorySceneRef"> | number | null
-  targetPlotId?: Prisma.IntNullableFilter<"StorySceneRef"> | number | null
   visibility?: Prisma.EnumStoryRefVisibilityFilter<"StorySceneRef"> | $Enums.StoryRefVisibility
   note?: Prisma.StringNullableFilter<"StorySceneRef"> | string | null
   createdAt?: Prisma.DateTimeFilter<"StorySceneRef"> | Date | string
@@ -830,7 +755,6 @@ export type StorySceneRefCreateWithoutSceneInput = {
   updatedAt?: Date | string
   targetThread?: Prisma.StoryThreadCreateNestedOneWithoutIncomingSceneRefsInput
   targetScene?: Prisma.StorySceneCreateNestedOneWithoutIncomingSceneRefsInput
-  targetPlot?: Prisma.StoryPlotCreateNestedOneWithoutIncomingSceneRefsInput
 }
 
 export type StorySceneRefUncheckedCreateWithoutSceneInput = {
@@ -841,7 +765,6 @@ export type StorySceneRefUncheckedCreateWithoutSceneInput = {
   targetKind: $Enums.StoryRefTargetKind
   targetThreadId?: number | null
   targetSceneId?: number | null
-  targetPlotId?: number | null
   visibility?: $Enums.StoryRefVisibility
   note?: string | null
   createdAt?: Date | string
@@ -868,7 +791,6 @@ export type StorySceneRefCreateWithoutTargetSceneInput = {
   updatedAt?: Date | string
   scene: Prisma.StorySceneCreateNestedOneWithoutRefsInput
   targetThread?: Prisma.StoryThreadCreateNestedOneWithoutIncomingSceneRefsInput
-  targetPlot?: Prisma.StoryPlotCreateNestedOneWithoutIncomingSceneRefsInput
 }
 
 export type StorySceneRefUncheckedCreateWithoutTargetSceneInput = {
@@ -879,7 +801,6 @@ export type StorySceneRefUncheckedCreateWithoutTargetSceneInput = {
   rawTarget: string
   targetKind: $Enums.StoryRefTargetKind
   targetThreadId?: number | null
-  targetPlotId?: number | null
   visibility?: $Enums.StoryRefVisibility
   note?: string | null
   createdAt?: Date | string
@@ -927,60 +848,6 @@ export type StorySceneRefUpdateManyWithWhereWithoutTargetSceneInput = {
   data: Prisma.XOR<Prisma.StorySceneRefUpdateManyMutationInput, Prisma.StorySceneRefUncheckedUpdateManyWithoutTargetSceneInput>
 }
 
-export type StorySceneRefCreateWithoutTargetPlotInput = {
-  sortOrder: number
-  relation: string
-  rawTarget: string
-  targetKind: $Enums.StoryRefTargetKind
-  visibility?: $Enums.StoryRefVisibility
-  note?: string | null
-  createdAt?: Date | string
-  updatedAt?: Date | string
-  scene: Prisma.StorySceneCreateNestedOneWithoutRefsInput
-  targetThread?: Prisma.StoryThreadCreateNestedOneWithoutIncomingSceneRefsInput
-  targetScene?: Prisma.StorySceneCreateNestedOneWithoutIncomingSceneRefsInput
-}
-
-export type StorySceneRefUncheckedCreateWithoutTargetPlotInput = {
-  id?: number
-  sceneId: number
-  sortOrder: number
-  relation: string
-  rawTarget: string
-  targetKind: $Enums.StoryRefTargetKind
-  targetThreadId?: number | null
-  targetSceneId?: number | null
-  visibility?: $Enums.StoryRefVisibility
-  note?: string | null
-  createdAt?: Date | string
-  updatedAt?: Date | string
-}
-
-export type StorySceneRefCreateOrConnectWithoutTargetPlotInput = {
-  where: Prisma.StorySceneRefWhereUniqueInput
-  create: Prisma.XOR<Prisma.StorySceneRefCreateWithoutTargetPlotInput, Prisma.StorySceneRefUncheckedCreateWithoutTargetPlotInput>
-}
-
-export type StorySceneRefCreateManyTargetPlotInputEnvelope = {
-  data: Prisma.StorySceneRefCreateManyTargetPlotInput | Prisma.StorySceneRefCreateManyTargetPlotInput[]
-}
-
-export type StorySceneRefUpsertWithWhereUniqueWithoutTargetPlotInput = {
-  where: Prisma.StorySceneRefWhereUniqueInput
-  update: Prisma.XOR<Prisma.StorySceneRefUpdateWithoutTargetPlotInput, Prisma.StorySceneRefUncheckedUpdateWithoutTargetPlotInput>
-  create: Prisma.XOR<Prisma.StorySceneRefCreateWithoutTargetPlotInput, Prisma.StorySceneRefUncheckedCreateWithoutTargetPlotInput>
-}
-
-export type StorySceneRefUpdateWithWhereUniqueWithoutTargetPlotInput = {
-  where: Prisma.StorySceneRefWhereUniqueInput
-  data: Prisma.XOR<Prisma.StorySceneRefUpdateWithoutTargetPlotInput, Prisma.StorySceneRefUncheckedUpdateWithoutTargetPlotInput>
-}
-
-export type StorySceneRefUpdateManyWithWhereWithoutTargetPlotInput = {
-  where: Prisma.StorySceneRefScalarWhereInput
-  data: Prisma.XOR<Prisma.StorySceneRefUpdateManyMutationInput, Prisma.StorySceneRefUncheckedUpdateManyWithoutTargetPlotInput>
-}
-
 export type StorySceneRefCreateManyTargetThreadInput = {
   id?: number
   sceneId: number
@@ -989,7 +856,6 @@ export type StorySceneRefCreateManyTargetThreadInput = {
   rawTarget: string
   targetKind: $Enums.StoryRefTargetKind
   targetSceneId?: number | null
-  targetPlotId?: number | null
   visibility?: $Enums.StoryRefVisibility
   note?: string | null
   createdAt?: Date | string
@@ -1007,7 +873,6 @@ export type StorySceneRefUpdateWithoutTargetThreadInput = {
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   scene?: Prisma.StorySceneUpdateOneRequiredWithoutRefsNestedInput
   targetScene?: Prisma.StorySceneUpdateOneWithoutIncomingSceneRefsNestedInput
-  targetPlot?: Prisma.StoryPlotUpdateOneWithoutIncomingSceneRefsNestedInput
 }
 
 export type StorySceneRefUncheckedUpdateWithoutTargetThreadInput = {
@@ -1018,7 +883,6 @@ export type StorySceneRefUncheckedUpdateWithoutTargetThreadInput = {
   rawTarget?: Prisma.StringFieldUpdateOperationsInput | string
   targetKind?: Prisma.EnumStoryRefTargetKindFieldUpdateOperationsInput | $Enums.StoryRefTargetKind
   targetSceneId?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
-  targetPlotId?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   visibility?: Prisma.EnumStoryRefVisibilityFieldUpdateOperationsInput | $Enums.StoryRefVisibility
   note?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -1033,7 +897,6 @@ export type StorySceneRefUncheckedUpdateManyWithoutTargetThreadInput = {
   rawTarget?: Prisma.StringFieldUpdateOperationsInput | string
   targetKind?: Prisma.EnumStoryRefTargetKindFieldUpdateOperationsInput | $Enums.StoryRefTargetKind
   targetSceneId?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
-  targetPlotId?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   visibility?: Prisma.EnumStoryRefVisibilityFieldUpdateOperationsInput | $Enums.StoryRefVisibility
   note?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -1048,7 +911,6 @@ export type StorySceneRefCreateManySceneInput = {
   targetKind: $Enums.StoryRefTargetKind
   targetThreadId?: number | null
   targetSceneId?: number | null
-  targetPlotId?: number | null
   visibility?: $Enums.StoryRefVisibility
   note?: string | null
   createdAt?: Date | string
@@ -1063,7 +925,6 @@ export type StorySceneRefCreateManyTargetSceneInput = {
   rawTarget: string
   targetKind: $Enums.StoryRefTargetKind
   targetThreadId?: number | null
-  targetPlotId?: number | null
   visibility?: $Enums.StoryRefVisibility
   note?: string | null
   createdAt?: Date | string
@@ -1081,7 +942,6 @@ export type StorySceneRefUpdateWithoutSceneInput = {
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   targetThread?: Prisma.StoryThreadUpdateOneWithoutIncomingSceneRefsNestedInput
   targetScene?: Prisma.StorySceneUpdateOneWithoutIncomingSceneRefsNestedInput
-  targetPlot?: Prisma.StoryPlotUpdateOneWithoutIncomingSceneRefsNestedInput
 }
 
 export type StorySceneRefUncheckedUpdateWithoutSceneInput = {
@@ -1092,7 +952,6 @@ export type StorySceneRefUncheckedUpdateWithoutSceneInput = {
   targetKind?: Prisma.EnumStoryRefTargetKindFieldUpdateOperationsInput | $Enums.StoryRefTargetKind
   targetThreadId?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   targetSceneId?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
-  targetPlotId?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   visibility?: Prisma.EnumStoryRefVisibilityFieldUpdateOperationsInput | $Enums.StoryRefVisibility
   note?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -1107,7 +966,6 @@ export type StorySceneRefUncheckedUpdateManyWithoutSceneInput = {
   targetKind?: Prisma.EnumStoryRefTargetKindFieldUpdateOperationsInput | $Enums.StoryRefTargetKind
   targetThreadId?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   targetSceneId?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
-  targetPlotId?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   visibility?: Prisma.EnumStoryRefVisibilityFieldUpdateOperationsInput | $Enums.StoryRefVisibility
   note?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -1125,7 +983,6 @@ export type StorySceneRefUpdateWithoutTargetSceneInput = {
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   scene?: Prisma.StorySceneUpdateOneRequiredWithoutRefsNestedInput
   targetThread?: Prisma.StoryThreadUpdateOneWithoutIncomingSceneRefsNestedInput
-  targetPlot?: Prisma.StoryPlotUpdateOneWithoutIncomingSceneRefsNestedInput
 }
 
 export type StorySceneRefUncheckedUpdateWithoutTargetSceneInput = {
@@ -1136,7 +993,6 @@ export type StorySceneRefUncheckedUpdateWithoutTargetSceneInput = {
   rawTarget?: Prisma.StringFieldUpdateOperationsInput | string
   targetKind?: Prisma.EnumStoryRefTargetKindFieldUpdateOperationsInput | $Enums.StoryRefTargetKind
   targetThreadId?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
-  targetPlotId?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   visibility?: Prisma.EnumStoryRefVisibilityFieldUpdateOperationsInput | $Enums.StoryRefVisibility
   note?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -1151,66 +1007,6 @@ export type StorySceneRefUncheckedUpdateManyWithoutTargetSceneInput = {
   rawTarget?: Prisma.StringFieldUpdateOperationsInput | string
   targetKind?: Prisma.EnumStoryRefTargetKindFieldUpdateOperationsInput | $Enums.StoryRefTargetKind
   targetThreadId?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
-  targetPlotId?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
-  visibility?: Prisma.EnumStoryRefVisibilityFieldUpdateOperationsInput | $Enums.StoryRefVisibility
-  note?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
-  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
-  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
-}
-
-export type StorySceneRefCreateManyTargetPlotInput = {
-  id?: number
-  sceneId: number
-  sortOrder: number
-  relation: string
-  rawTarget: string
-  targetKind: $Enums.StoryRefTargetKind
-  targetThreadId?: number | null
-  targetSceneId?: number | null
-  visibility?: $Enums.StoryRefVisibility
-  note?: string | null
-  createdAt?: Date | string
-  updatedAt?: Date | string
-}
-
-export type StorySceneRefUpdateWithoutTargetPlotInput = {
-  sortOrder?: Prisma.IntFieldUpdateOperationsInput | number
-  relation?: Prisma.StringFieldUpdateOperationsInput | string
-  rawTarget?: Prisma.StringFieldUpdateOperationsInput | string
-  targetKind?: Prisma.EnumStoryRefTargetKindFieldUpdateOperationsInput | $Enums.StoryRefTargetKind
-  visibility?: Prisma.EnumStoryRefVisibilityFieldUpdateOperationsInput | $Enums.StoryRefVisibility
-  note?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
-  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
-  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
-  scene?: Prisma.StorySceneUpdateOneRequiredWithoutRefsNestedInput
-  targetThread?: Prisma.StoryThreadUpdateOneWithoutIncomingSceneRefsNestedInput
-  targetScene?: Prisma.StorySceneUpdateOneWithoutIncomingSceneRefsNestedInput
-}
-
-export type StorySceneRefUncheckedUpdateWithoutTargetPlotInput = {
-  id?: Prisma.IntFieldUpdateOperationsInput | number
-  sceneId?: Prisma.IntFieldUpdateOperationsInput | number
-  sortOrder?: Prisma.IntFieldUpdateOperationsInput | number
-  relation?: Prisma.StringFieldUpdateOperationsInput | string
-  rawTarget?: Prisma.StringFieldUpdateOperationsInput | string
-  targetKind?: Prisma.EnumStoryRefTargetKindFieldUpdateOperationsInput | $Enums.StoryRefTargetKind
-  targetThreadId?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
-  targetSceneId?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
-  visibility?: Prisma.EnumStoryRefVisibilityFieldUpdateOperationsInput | $Enums.StoryRefVisibility
-  note?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
-  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
-  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
-}
-
-export type StorySceneRefUncheckedUpdateManyWithoutTargetPlotInput = {
-  id?: Prisma.IntFieldUpdateOperationsInput | number
-  sceneId?: Prisma.IntFieldUpdateOperationsInput | number
-  sortOrder?: Prisma.IntFieldUpdateOperationsInput | number
-  relation?: Prisma.StringFieldUpdateOperationsInput | string
-  rawTarget?: Prisma.StringFieldUpdateOperationsInput | string
-  targetKind?: Prisma.EnumStoryRefTargetKindFieldUpdateOperationsInput | $Enums.StoryRefTargetKind
-  targetThreadId?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
-  targetSceneId?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   visibility?: Prisma.EnumStoryRefVisibilityFieldUpdateOperationsInput | $Enums.StoryRefVisibility
   note?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -1228,7 +1024,6 @@ export type StorySceneRefSelect<ExtArgs extends runtime.Types.Extensions.Interna
   targetKind?: boolean
   targetThreadId?: boolean
   targetSceneId?: boolean
-  targetPlotId?: boolean
   visibility?: boolean
   note?: boolean
   createdAt?: boolean
@@ -1236,7 +1031,6 @@ export type StorySceneRefSelect<ExtArgs extends runtime.Types.Extensions.Interna
   scene?: boolean | Prisma.StorySceneDefaultArgs<ExtArgs>
   targetThread?: boolean | Prisma.StorySceneRef$targetThreadArgs<ExtArgs>
   targetScene?: boolean | Prisma.StorySceneRef$targetSceneArgs<ExtArgs>
-  targetPlot?: boolean | Prisma.StorySceneRef$targetPlotArgs<ExtArgs>
 }, ExtArgs["result"]["storySceneRef"]>
 
 export type StorySceneRefSelectCreateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
@@ -1248,7 +1042,6 @@ export type StorySceneRefSelectCreateManyAndReturn<ExtArgs extends runtime.Types
   targetKind?: boolean
   targetThreadId?: boolean
   targetSceneId?: boolean
-  targetPlotId?: boolean
   visibility?: boolean
   note?: boolean
   createdAt?: boolean
@@ -1256,7 +1049,6 @@ export type StorySceneRefSelectCreateManyAndReturn<ExtArgs extends runtime.Types
   scene?: boolean | Prisma.StorySceneDefaultArgs<ExtArgs>
   targetThread?: boolean | Prisma.StorySceneRef$targetThreadArgs<ExtArgs>
   targetScene?: boolean | Prisma.StorySceneRef$targetSceneArgs<ExtArgs>
-  targetPlot?: boolean | Prisma.StorySceneRef$targetPlotArgs<ExtArgs>
 }, ExtArgs["result"]["storySceneRef"]>
 
 export type StorySceneRefSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
@@ -1268,7 +1060,6 @@ export type StorySceneRefSelectUpdateManyAndReturn<ExtArgs extends runtime.Types
   targetKind?: boolean
   targetThreadId?: boolean
   targetSceneId?: boolean
-  targetPlotId?: boolean
   visibility?: boolean
   note?: boolean
   createdAt?: boolean
@@ -1276,7 +1067,6 @@ export type StorySceneRefSelectUpdateManyAndReturn<ExtArgs extends runtime.Types
   scene?: boolean | Prisma.StorySceneDefaultArgs<ExtArgs>
   targetThread?: boolean | Prisma.StorySceneRef$targetThreadArgs<ExtArgs>
   targetScene?: boolean | Prisma.StorySceneRef$targetSceneArgs<ExtArgs>
-  targetPlot?: boolean | Prisma.StorySceneRef$targetPlotArgs<ExtArgs>
 }, ExtArgs["result"]["storySceneRef"]>
 
 export type StorySceneRefSelectScalar = {
@@ -1288,31 +1078,27 @@ export type StorySceneRefSelectScalar = {
   targetKind?: boolean
   targetThreadId?: boolean
   targetSceneId?: boolean
-  targetPlotId?: boolean
   visibility?: boolean
   note?: boolean
   createdAt?: boolean
   updatedAt?: boolean
 }
 
-export type StorySceneRefOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "sceneId" | "sortOrder" | "relation" | "rawTarget" | "targetKind" | "targetThreadId" | "targetSceneId" | "targetPlotId" | "visibility" | "note" | "createdAt" | "updatedAt", ExtArgs["result"]["storySceneRef"]>
+export type StorySceneRefOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "sceneId" | "sortOrder" | "relation" | "rawTarget" | "targetKind" | "targetThreadId" | "targetSceneId" | "visibility" | "note" | "createdAt" | "updatedAt", ExtArgs["result"]["storySceneRef"]>
 export type StorySceneRefInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   scene?: boolean | Prisma.StorySceneDefaultArgs<ExtArgs>
   targetThread?: boolean | Prisma.StorySceneRef$targetThreadArgs<ExtArgs>
   targetScene?: boolean | Prisma.StorySceneRef$targetSceneArgs<ExtArgs>
-  targetPlot?: boolean | Prisma.StorySceneRef$targetPlotArgs<ExtArgs>
 }
 export type StorySceneRefIncludeCreateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   scene?: boolean | Prisma.StorySceneDefaultArgs<ExtArgs>
   targetThread?: boolean | Prisma.StorySceneRef$targetThreadArgs<ExtArgs>
   targetScene?: boolean | Prisma.StorySceneRef$targetSceneArgs<ExtArgs>
-  targetPlot?: boolean | Prisma.StorySceneRef$targetPlotArgs<ExtArgs>
 }
 export type StorySceneRefIncludeUpdateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   scene?: boolean | Prisma.StorySceneDefaultArgs<ExtArgs>
   targetThread?: boolean | Prisma.StorySceneRef$targetThreadArgs<ExtArgs>
   targetScene?: boolean | Prisma.StorySceneRef$targetSceneArgs<ExtArgs>
-  targetPlot?: boolean | Prisma.StorySceneRef$targetPlotArgs<ExtArgs>
 }
 
 export type $StorySceneRefPayload<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
@@ -1321,7 +1107,6 @@ export type $StorySceneRefPayload<ExtArgs extends runtime.Types.Extensions.Inter
     scene: Prisma.$StoryScenePayload<ExtArgs>
     targetThread: Prisma.$StoryThreadPayload<ExtArgs> | null
     targetScene: Prisma.$StoryScenePayload<ExtArgs> | null
-    targetPlot: Prisma.$StoryPlotPayload<ExtArgs> | null
   }
   scalars: runtime.Types.Extensions.GetPayloadResult<{
     id: number
@@ -1332,7 +1117,6 @@ export type $StorySceneRefPayload<ExtArgs extends runtime.Types.Extensions.Inter
     targetKind: $Enums.StoryRefTargetKind
     targetThreadId: number | null
     targetSceneId: number | null
-    targetPlotId: number | null
     visibility: $Enums.StoryRefVisibility
     note: string | null
     createdAt: Date
@@ -1734,7 +1518,6 @@ export interface Prisma__StorySceneRefClient<T, Null = never, ExtArgs extends ru
   scene<T extends Prisma.StorySceneDefaultArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.StorySceneDefaultArgs<ExtArgs>>): Prisma.Prisma__StorySceneClient<runtime.Types.Result.GetResult<Prisma.$StoryScenePayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions> | Null, Null, ExtArgs, GlobalOmitOptions>
   targetThread<T extends Prisma.StorySceneRef$targetThreadArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.StorySceneRef$targetThreadArgs<ExtArgs>>): Prisma.Prisma__StoryThreadClient<runtime.Types.Result.GetResult<Prisma.$StoryThreadPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
   targetScene<T extends Prisma.StorySceneRef$targetSceneArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.StorySceneRef$targetSceneArgs<ExtArgs>>): Prisma.Prisma__StorySceneClient<runtime.Types.Result.GetResult<Prisma.$StoryScenePayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
-  targetPlot<T extends Prisma.StorySceneRef$targetPlotArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.StorySceneRef$targetPlotArgs<ExtArgs>>): Prisma.Prisma__StoryPlotClient<runtime.Types.Result.GetResult<Prisma.$StoryPlotPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
   /**
    * Attaches callbacks for the resolution and/or rejection of the Promise.
    * @param onfulfilled The callback to execute when the Promise is resolved.
@@ -1772,7 +1555,6 @@ export interface StorySceneRefFieldRefs {
   readonly targetKind: Prisma.FieldRef<"StorySceneRef", 'StoryRefTargetKind'>
   readonly targetThreadId: Prisma.FieldRef<"StorySceneRef", 'Int'>
   readonly targetSceneId: Prisma.FieldRef<"StorySceneRef", 'Int'>
-  readonly targetPlotId: Prisma.FieldRef<"StorySceneRef", 'Int'>
   readonly visibility: Prisma.FieldRef<"StorySceneRef", 'StoryRefVisibility'>
   readonly note: Prisma.FieldRef<"StorySceneRef", 'String'>
   readonly createdAt: Prisma.FieldRef<"StorySceneRef", 'DateTime'>
@@ -2206,25 +1988,6 @@ export type StorySceneRef$targetSceneArgs<ExtArgs extends runtime.Types.Extensio
    */
   include?: Prisma.StorySceneInclude<ExtArgs> | null
   where?: Prisma.StorySceneWhereInput
-}
-
-/**
- * StorySceneRef.targetPlot
- */
-export type StorySceneRef$targetPlotArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
-  /**
-   * Select specific fields to fetch from the StoryPlot
-   */
-  select?: Prisma.StoryPlotSelect<ExtArgs> | null
-  /**
-   * Omit specific fields from the StoryPlot
-   */
-  omit?: Prisma.StoryPlotOmit<ExtArgs> | null
-  /**
-   * Choose, which related nodes to fetch as well
-   */
-  include?: Prisma.StoryPlotInclude<ExtArgs> | null
-  where?: Prisma.StoryPlotWhereInput
 }
 
 /**

@@ -121,6 +121,8 @@ const time = world.time.parse("公元2020年4月12日 18:00");
 
 // 查询单个 subject
 const veiluosi = await world.subject.get("veiluosi");
+// 返回 attrs 本体，直接访问属性；不是 veiluosi.attrs.age
+const age = veiluosi?.age;
 
 // 查询多个 subject
 const heroes = await world.subject.gets(["veiluosi", "yuelian", "gelushi", "erina"]);
@@ -159,6 +161,25 @@ const created = await world.slice.write({
     ],
 });
 
+// 同一 instant 只能有一个 slice；同刻多个变更必须合并到同一个 patches 数组
+await world.slice.write({
+    time: world.time.parse("公元2020年4月12日 18:01"),
+    title: "开局初始化",
+    patches: [
+        {subjectId: "castle-brauer", type: "location", name: "布劳尔城堡", path: "/description", op: "replace", value: "召唤仪式发生地"},
+        {subjectId: "veiluosi", path: "/location", op: "replace", value: "subject://castle-brauer"},
+        {subjectId: "veiluosi", path: "/events", op: "append", value: {text: "公元2020年4月12日 18:01，薇洛丝在布劳尔城堡苏醒"}},
+    ],
+});
+
+// 如果目标 instant 已有 slice，先读取再合并已登记 subject 的补充 patch
+const existing = await world.slice.list({from: time, to: time, withPatches: true});
+if (existing[0]) {
+    await world.slice.editPatches(existing[0].id, [
+        {add: {subjectId: "veiluosi", path: "/events", op: "append", value: {text: "补充同刻事件"}}},
+    ]);
+}
+
 // 后续写入（不需要 type 和 name）
 await world.slice.write({
     time: world.time.parse("公元2020年4月12日 18:05"),
@@ -188,7 +209,7 @@ await world.slice.delete(created.sliceId);
 return "已完成 World Engine 更新";
 ```
 
-**注意**：删除是物理删除，不可恢复。修正单条 patch 时优先使用 `world.slice.editPatches`，不要整片删除重写。
+**注意**：删除是物理删除，不可恢复。修正单条 patch 时优先使用 `world.slice.editPatches`，不要整片删除重写。`editPatches({add})` 不负责首写创建 subject；同一 instant 里如果包含新 subject，必须在第一次 `world.slice.write` 中把这些新 subject 的 `type/name` patch 一起合并进去。
 
 ## 4-op 语义速查
 

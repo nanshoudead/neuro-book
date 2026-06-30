@@ -28,9 +28,7 @@ import {resolveRuntimeProfileSettings} from "nbook/server/agent/profiles/profile
 import {createLayeredProfileHomeFacade, ensureGlobalProfileHome, ensureProfileHome, resolveProjectRootForProfileHome} from "nbook/server/agent/profiles/profile-home";
 import type {ProfileTemplateNodeDto} from "nbook/shared/dto/profile-template.dto";
 import {buildProfilePromptRoot} from "nbook/server/agent/profiles/profile-dsl-source-parser";
-
-const SYSTEM_PROFILE_ROOT = resolve(process.cwd(), "assets", "workspace", ".nbook", "agent", "profiles");
-const USER_PROFILE_ROOT = resolve(process.cwd(), "workspace", ".nbook", "agent", "profiles");
+import {resolveSystemNbookRoot, resolveUserNbookRoot} from "nbook/server/workspace-files/workspace-assets-root";
 
 /**
  * 列出 v3 Agent Profile catalog，并适配旧 profile 工作台 DTO。
@@ -602,11 +600,19 @@ function toProfileIssueDto(issue: AgentProfileIssue, profileKey: string, fileNam
  * 计算 profile root 相对路径，保持前端文件选择器的 fileName 语义。
  */
 function relativeProfilePath(sourcePath: string, source: AgentCatalogItem["source"] | AgentProfileIssue["source"]): string {
-    const root = source === "user" ? USER_PROFILE_ROOT : source === "system" ? SYSTEM_PROFILE_ROOT : null;
+    const root = source === "user" ? defaultUserProfileRoot() : source === "system" ? defaultSystemProfileRoot() : null;
     if (!root) {
         return basename(sourcePath);
     }
     return relative(root, sourcePath).split(sep).join("/");
+}
+
+function defaultSystemProfileRoot(): string {
+    return resolve(resolveSystemNbookRoot(), "agent", "profiles");
+}
+
+function defaultUserProfileRoot(): string {
+    return resolve(resolveUserNbookRoot(), "agent", "profiles");
 }
 
 /**

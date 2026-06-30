@@ -22,8 +22,7 @@ defineRouteMeta({
                             "enum": [
                                 "chapter_meta",
                                 "story_thread",
-                                "story_scene",
-                                "story_plot"
+                                "story_scene"
                             ]
                         },
                         "draft": {
@@ -116,8 +115,7 @@ defineRouteMeta({
                                         "enum": [
                                             "chapter_meta",
                                             "story_thread",
-                                            "story_scene",
-                                            "story_plot"
+                                            "story_scene"
                                         ]
                                     },
                                     "title": {

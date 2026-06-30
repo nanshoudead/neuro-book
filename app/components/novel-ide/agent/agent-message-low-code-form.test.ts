@@ -4,7 +4,7 @@ import type {AgentPendingApprovalDto} from "nbook/shared/dto/agent-session.dto";
 import type {LowCodeFormDto} from "nbook/shared/dto/low-code-form.dto";
 
 describe("agent-message Low-Code Form 集成", () => {
-    test("当 pending.formSpec 存在时，优先生成 Low-Code Form session", () => {
+    test("非 request_user_input 工具存在 pending.formSpec 时，生成 Low-Code Form session", () => {
         const form: LowCodeFormDto = {
             defaults: {},
             fields: [
@@ -20,14 +20,9 @@ describe("agent-message Low-Code Form 集成", () => {
 
         const pending: AgentPendingApprovalDto = {
             toolCallId: "call_form_spec",
-            toolName: "request_user_input",
+            toolName: "custom_form_tool",
             args: {
-                questions: [
-                    {
-                        question: "旧问题参数不应优先",
-                        options: [],
-                    },
-                ],
+                reason: "需要表单输入",
             },
             formSpec: {
                 form,
@@ -45,6 +40,57 @@ describe("agent-message Low-Code Form 集成", () => {
             form,
             formToolCallId: "call_form_spec",
         });
+    });
+
+    test("request_user_input 即使存在 pending.formSpec 也生成普通问题 session", () => {
+        const form: LowCodeFormDto = {
+            defaults: {},
+            fields: [
+                {
+                    path: "answer_0",
+                    component: "textarea",
+                    label: "姓名",
+                    required: true,
+                    options: [],
+                },
+            ],
+        };
+
+        const pending: AgentPendingApprovalDto = {
+            toolCallId: "call_request_user_input",
+            toolName: "request_user_input",
+            args: {
+                questions: [
+                    {
+                        question: "请问您的姓名？",
+                        options: [],
+                    },
+                ],
+            },
+            formSpec: {
+                form,
+                prompt: "请填写",
+                layout: "dialog",
+            },
+        };
+
+        const session = toPendingUserInputSession(pending, []);
+
+        expect(session).toMatchObject({
+            assistantMessageId: "call_request_user_input",
+            status: "pending",
+            questions: [{
+                toolNodeId: "call_request_user_input",
+                questionIndex: 0,
+                toolCallId: "call_request_user_input",
+                toolName: "request_user_input",
+                kind: "question",
+                question: "请问您的姓名？",
+                options: [],
+            }],
+        });
+        expect(session?.form).toBeUndefined();
+        expect(session?.formToolCallId).toBeUndefined();
     });
 
     test("当 args 包含 form 时，生成 Low-Code Form session", () => {
@@ -87,7 +133,7 @@ describe("agent-message Low-Code Form 集成", () => {
         });
     });
 
-    test("当 args 不包含 form 时，保持原有 questions 模式", () => {
+    test("request_user_input 没有 formSpec 时生成普通问题 session", () => {
         const pending: AgentPendingApprovalDto = {
             toolCallId: "call_456",
             toolName: "request_user_input",
@@ -106,19 +152,17 @@ describe("agent-message Low-Code Form 集成", () => {
         expect(session).toMatchObject({
             assistantMessageId: "call_456",
             status: "pending",
-            questions: [
-                {
-                    question: "请问您的姓名？",
-                    toolNodeId: "call_456",
-                    questionIndex: 0,
-                    toolCallId: "call_456",
-                    toolName: "request_user_input",
-                    kind: "question",
-                },
-            ],
+            questions: [{
+                toolNodeId: "call_456",
+                questionIndex: 0,
+                toolCallId: "call_456",
+                toolName: "request_user_input",
+                kind: "question",
+                question: "请问您的姓名？",
+                options: [],
+            }],
         });
         expect(session?.form).toBeUndefined();
-        expect(session?.formToolCallId).toBeUndefined();
     });
 
     test("当 args.form 结构不完整时，回退到 tool_approval 模式", () => {

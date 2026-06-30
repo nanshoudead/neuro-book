@@ -97,6 +97,28 @@ export class WorldEngineFacade {
         return this.runWithModule(projectPath, (module) => module.service.listSubjects(query));
     }
 
+    /**
+     * 列出 subject 身份元数据，不加载 World Engine schema/calendar。
+     *
+     * 该入口只服务 Plot ↔ World Engine 桥接读取：Plot 需要判断 subject 是否已登记，
+     * 但不应该因为旧 Project 尚未初始化 calendar.ts 而无法打开。
+     */
+    async listSubjectIdentities(projectPath: string, query: {ids?: string[]; type?: string} = {}): Promise<WorldSubjectListItem[]> {
+        const entry = await this.createClientEntry(projectPath);
+        const client = this.requireClient(entry);
+        try {
+            const repository = new WorldEngineRepository(client);
+            const subjects = await repository.listSubjects(query);
+            return subjects.map((subject) => ({
+                id: subject.id,
+                type: subject.type,
+                name: subject.name,
+            }));
+        } finally {
+            await this.closeClientEntry(entry);
+        }
+    }
+
     /** 返回 Agent 友好的 world schema 投影。 */
     async getWorldSchema(projectPath: string): Promise<WorldSchemaProjection> {
         const normalizedProjectPath = normalizeProjectPath(projectPath);

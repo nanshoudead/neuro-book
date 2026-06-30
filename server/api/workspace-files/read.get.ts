@@ -57,9 +57,6 @@ defineRouteMeta({
     "responses": {
         "200": {
             "description": "OK"
-        },
-        "400": {
-            "description": "Bad Request — validation failed"
         }
     }
 } as never,

@@ -651,7 +651,7 @@ describe("useAgentSession", () => {
         }));
     });
 
-    it("处理 tool.user-input-required 事件并更新 pendingUserInputSessions", () => {
+    it("处理非 request_user_input 的 tool.user-input-required formSpec 事件", () => {
         const session = useAgentSession();
         session.applySnapshot(baseSnapshot(0));
 
@@ -668,7 +668,7 @@ describe("useAgentSession", () => {
                     content: [{
                         type: "toolCall",
                         id: "call-1",
-                        name: "request_user_input",
+                        name: "custom_form_tool",
                         arguments: {form: {fields: []}},
                     }],
                 },
@@ -684,7 +684,7 @@ describe("useAgentSession", () => {
             event: {
                 type: "tool.user-input-required",
                 toolCallId: "call-1",
-                toolName: "request_user_input",
+                toolName: "custom_form_tool",
                 args: {},
                 formSpec: {
                     form: {
@@ -715,7 +715,7 @@ describe("useAgentSession", () => {
         expect(session.runPhase.value).toBe("waiting_user");
     });
 
-    it("tool.user-input-required 事件关联到对应的 assistant message", () => {
+    it("request_user_input 的 tool.user-input-required 事件生成普通问题 session", () => {
         const session = useAgentSession();
         session.applySnapshot(baseSnapshot(0));
 
@@ -733,7 +733,9 @@ describe("useAgentSession", () => {
                         type: "toolCall",
                         id: "call-1",
                         name: "request_user_input",
-                        arguments: {},
+                        arguments: {
+                            questions: [{question: "选择方案", options: [{label: "A"}, {label: "B"}]}],
+                        },
                     }],
                 },
             },
@@ -751,7 +753,9 @@ describe("useAgentSession", () => {
                 type: "tool.user-input-required",
                 toolCallId: "call-1",
                 toolName: "request_user_input",
-                args: {},
+                args: {
+                    questions: [{question: "选择方案", options: [{label: "A"}, {label: "B"}]}],
+                },
                 formSpec: {
                     form: {defaults: {}, fields: []},
                 },
@@ -760,9 +764,20 @@ describe("useAgentSession", () => {
 
         // 验证 assistantMessageId 正确关联
         expect(session.pendingUserInputSession.value?.assistantMessageId).toBe(messageId);
+        expect(session.pendingUserInputSession.value?.formToolCallId).toBeUndefined();
+        expect(session.pendingUserInputSession.value?.form).toBeUndefined();
+        expect(session.pendingUserInputSession.value?.questions).toEqual([expect.objectContaining({
+            toolNodeId: "call-1",
+            toolCallId: "call-1",
+            toolName: "request_user_input",
+            kind: "question",
+            questionIndex: 0,
+            question: "选择方案",
+            options: [{label: "A"}, {label: "B"}],
+        })]);
     });
 
-    it("工具结果到来时清理对应的 form pendingUserInputSession", () => {
+    it("工具结果到来时清理对应的 request_user_input pendingUserInputSession", () => {
         const session = useAgentSession();
         session.applySnapshot(baseSnapshot(0));
 
@@ -780,7 +795,7 @@ describe("useAgentSession", () => {
                         type: "toolCall",
                         id: "call-1",
                         name: "request_user_input",
-                        arguments: {},
+                        arguments: {questions: [{question: "Name?", options: []}]},
                     }],
                 },
             },
@@ -796,7 +811,7 @@ describe("useAgentSession", () => {
                 type: "tool.user-input-required",
                 toolCallId: "call-1",
                 toolName: "request_user_input",
-                args: {},
+                args: {questions: [{question: "Name?", options: []}]},
                 formSpec: {
                     form: {defaults: {}, fields: []},
                 },

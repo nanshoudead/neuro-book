@@ -39,6 +39,10 @@ export function buildExecuteWorldDescription(mode: ExecuteWorldMode): string {
 
             Writing rules:
             - Write time is an instant bigint. Use world.time.parse("项目日历字符串") before writing and world.time.format(instant) when returning human-readable summaries.
+            - One instant can have only one slice. If several location, character, or event changes happen at the same instant, put all of them into one world.slice.write({patches:[...]}) call.
+            - Before writing to a target time, check for an existing slice with world.slice.list({from: time, to: time, withPatches: true}).
+            - If a slice already exists and every added subject is already registered, merge extra changes with world.slice.editPatches(existingSliceId, [{add:{...}}]).
+            - If a same-instant change introduces a new subject, include that subject's first-write type/name patches in the original world.slice.write call. world.slice.editPatches({add}) does not register new subjects.
             - Use JSON Pointer paths everywhere, such as /hp or /memory/师门.
             - Do not catch and swallow write errors. If returned issues include severity: "error", throw to roll back the whole script.
             - If returned issues include severity: "advisory", do not roll back automatically; include a concise user-facing confirmation or follow-up using title/message/explanation.
@@ -73,8 +77,8 @@ export function buildExecuteWorldDescription(mode: ExecuteWorldMode): string {
         world.time.format(instant: bigint): string;
         world.time.now(): bigint;
 
-        world.subject.get(id: string, options?: {deref?: boolean, derefDepth?: number}): Promise<any | null>;
-        world.subject.gets(ids: string[]): Promise<Array<any | null>>;
+        world.subject.get(id: string, options?: {deref?: boolean, derefDepth?: number}): Promise<any | null>; // returns attrs directly, e.g. hero.hp, not hero.attrs.hp
+        world.subject.gets(ids: string[]): Promise<Array<any | null>>; // each item is attrs directly or null
         world.subject.list(type?: string): Promise<Array<{id: string, type: string, name: string}>>;
         world.subject.findRefs(targetId: string, sourceType?: string): Promise<Array<{subjectId: string, attr: string}>>;
 
@@ -88,6 +92,7 @@ export function buildExecuteWorldDescription(mode: ExecuteWorldMode): string {
         - world.search.text options.types filters subject types such as character or location; it does not mean event text or slice kind.
         - To search event text, use attrs: ["events"].
         - world.slice.get only accepts sliceId. To find slices touching a subject, use world.slice.list({subjectIds:["subject-id"], withPatches:true}).
+        - world.subject.get returns the subject's attrs object directly: const hero = await world.subject.get("hero"); return hero.hp.
 
         ${writeApi}
 

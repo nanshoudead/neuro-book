@@ -1,6 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import {afterAll, beforeEach, describe, expect, it} from "bun:test";
+import {afterAll, beforeEach, describe, expect, it} from "vitest";
 import {worldEngineFacade} from "nbook/server/world-engine";
 import {resolveWorkspaceContainerRoot} from "nbook/server/workspace-files/workspace-assets-root";
 import {collectReleasedSqliteHandles} from "nbook/server/workspace-files/sqlite-handle-release";

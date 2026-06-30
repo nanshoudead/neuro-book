@@ -22,6 +22,7 @@ export const MAX_STORY_TARGET_LENGTH = MAX_REFERENCE_TARGET_LENGTH;
 export const MAX_STORY_TAG_LENGTH = 120;
 export const MAX_STORY_TAG_COUNT = 50;
 export const MAX_STORY_REFS_COUNT = MAX_REFERENCE_COUNT;
+export const MAX_STORY_SCENE_SUBJECT_COUNT = 100;
 
 const NonEmptyStringSchema = z.string().trim().min(1, "不能为空");
 const StoryNameSchema = z.string()
@@ -34,9 +35,18 @@ const StorySummarySchema = z.string().max(MAX_STORY_SUMMARY_LENGTH, "summary 过
 const StoryNoteSchema = z.string().max(Math.max(MAX_STORY_NOTE_LENGTH, MAX_REFERENCE_NOTE_LENGTH), "note 过长");
 const StoryTipSchema = z.string().max(MAX_STORY_TIP_LENGTH, "writingTip 过长");
 
+type PlotJsonValue = null | boolean | number | string | PlotJsonValue[] | {[key: string]: PlotJsonValue};
+const PlotJsonValueSchema: z.ZodType<PlotJsonValue> = z.lazy(() => z.union([
+    z.null(),
+    z.boolean(),
+    z.number(),
+    z.string(),
+    z.array(PlotJsonValueSchema),
+    z.record(z.string(), PlotJsonValueSchema),
+]));
+
 export const StoryThreadStatusSchema = z.enum(["active", "draft", "paused", "done", "archived"]);
 export const StorySceneStatusSchema = z.enum(["draft", "active", "written", "revised", "archived"]);
-export const StoryPlotKindSchema = z.enum(["setup", "action", "conflict", "despair", "relief", "reward", "mystery", "reveal", "twist", "payoff", "result"]);
 export const StoryRefTargetKindSchema = StoryStructuredReferenceKindSchema;
 export const StoryRefVisibilitySchema = ReferenceVisibilitySchema;
 
@@ -52,6 +62,52 @@ export const StoryEffectiveRefDtoSchema = StoryRefDtoSchema.extend({
 
 const StoryRefsInputSchema = z.array(StoryRefDtoSchema).max(MAX_STORY_REFS_COUNT, "refs 过多");
 const StoryTagsInputSchema = z.array(StoryShortTextSchema).max(MAX_STORY_TAG_COUNT, "tags 过多");
+
+export const StorySceneWorldAnchorInputDtoSchema = z.object({
+    // `startTime` 为空表示 Scene 尚未连接 World Engine 起点。
+    startTime: z.string().trim().min(1, "startTime 不能为空").nullable(),
+    // `endTime` 为空表示 Scene 尚未连接 World Engine 终点。
+    endTime: z.string().trim().min(1, "endTime 不能为空").nullable(),
+    // `startInstant` 只用字符串承载 bigint，普通 UI 不直接编辑。
+    startInstant: z.string().nullable(),
+    // `endInstant` 只用字符串承载 bigint，普通 UI 不直接编辑。
+    endInstant: z.string().nullable(),
+    subjectIds: z.array(z.string().trim().min(1, "subjectId 不能为空")).max(MAX_STORY_SCENE_SUBJECT_COUNT, "出场 subjects 过多"),
+    // `locationSubjectId` 为空表示 Scene 没有指定地点 subject。
+    locationSubjectId: z.string().trim().min(1, "locationSubjectId 不能为空").nullable(),
+});
+
+export const StorySceneWorldAnchorSubjectDtoSchema = z.object({
+    id: z.string(),
+    name: z.string(),
+    type: z.string(),
+    resolved: z.boolean(),
+});
+
+export const StorySceneWorldAnchorDtoSchema = StorySceneWorldAnchorInputDtoSchema.extend({
+    subjects: z.array(StorySceneWorldAnchorSubjectDtoSchema),
+    // `locationSubject` 为空表示未指定地点；resolved=false 表示占位 subject 尚未接入 World Engine。
+    locationSubject: StorySceneWorldAnchorSubjectDtoSchema.nullable(),
+    unresolvedSubjectIds: z.array(z.string()),
+});
+
+export const SceneWorldContextDtoSchema = z.object({
+    slices: z.array(z.object({
+        id: z.string(),
+        time: z.string(),
+        title: z.string(),
+        summary: z.string(),
+        kind: z.string(),
+        patchCount: z.number().int().nonnegative(),
+    })),
+    subjectStates: z.array(z.object({
+        subjectId: z.string(),
+        type: z.string(),
+        name: z.string(),
+        attrs: z.record(z.string(), PlotJsonValueSchema),
+    })),
+    unresolvedSubjectIds: z.array(z.string()),
+});
 
 export const StoryDtoSchema = z.object({
     id: z.string(),
@@ -96,22 +152,6 @@ export const StoryThreadSummaryDtoSchema = z.object({
     updatedAt: z.string(),
 });
 
-export const StoryPlotDtoSchema = z.object({
-    id: z.string(),
-    sceneId: z.string(),
-    sortOrder: z.number().int().nonnegative(),
-    kind: StoryPlotKindSchema,
-    summary: z.string(),
-    // `effect` 为空表示当前情节点未显式记录结果。
-    effect: z.string().nullable(),
-    // `writingTip` 为空表示没有额外写作提示。
-    writingTip: z.string().nullable(),
-    // `note` 为空表示没有额外备注。
-    note: z.string().nullable(),
-    createdAt: z.string(),
-    updatedAt: z.string(),
-});
-
 export const StorySceneSummaryDtoSchema = z.object({
     id: z.string(),
     storyId: z.string(),
@@ -130,6 +170,7 @@ export const StorySceneSummaryDtoSchema = z.object({
     writingTip: z.string().nullable(),
     // `note` 为空表示没有额外备注。
     note: z.string().nullable(),
+    worldAnchor: StorySceneWorldAnchorDtoSchema,
     createdAt: z.string(),
     updatedAt: z.string(),
 });
@@ -140,7 +181,6 @@ export const StoryThreadDetailDtoSchema = StoryThreadSummaryDtoSchema.extend({
 export const StoryThreadWriteResponseDtoSchema = withWriteDiagnosticsSchema(StoryThreadDetailDtoSchema);
 
 export const StorySceneDetailDtoSchema = StorySceneSummaryDtoSchema.extend({
-    plots: z.array(StoryPlotDtoSchema),
     refs: z.array(StoryRefDtoSchema),
     effectiveRefs: z.array(StoryEffectiveRefDtoSchema),
 });
@@ -158,16 +198,54 @@ export const ChapterPlotSceneDtoSchema = z.object({
     status: StorySceneStatusSchema,
     summary: z.string(),
     purpose: z.string().nullable(),
-    plots: z.array(StoryPlotDtoSchema),
+    worldAnchor: StorySceneWorldAnchorDtoSchema,
 });
 
 export const ChapterPlotDetailDtoSchema = z.object({
     chapterPath: z.string(),
     scenes: z.array(ChapterPlotSceneDtoSchema),
     totalScenes: z.number().int().nonnegative(),
-    totalPlots: z.number().int().nonnegative(),
 });
-export const StoryPlotWriteResponseDtoSchema = withWriteDiagnosticsSchema(StoryPlotDtoSchema);
+
+export const ChapterWriterBriefStatusSchema = z.enum([
+    "ready",
+    "needs_plot",
+    "needs_world_anchor",
+    "needs_world_context",
+]);
+
+export const ChapterWriterBriefSceneDtoSchema = z.object({
+    id: z.string(),
+    threadId: z.string(),
+    threadTitle: z.string(),
+    threadIsMain: z.boolean(),
+    threadSummary: z.string(),
+    // `threadWritingTip` 为空表示该 Thread 没有额外写作提示。
+    threadWritingTip: z.string().nullable(),
+    chapterPath: z.string().nullable(),
+    chapterSortOrder: z.number().int().nonnegative().nullable(),
+    threadSortOrder: z.number().int().nonnegative(),
+    title: z.string(),
+    status: StorySceneStatusSchema,
+    summary: z.string(),
+    // `purpose` 为空表示 Scene 没有单独的场景功能说明。
+    purpose: z.string().nullable(),
+    // `writingTip` 为空表示 Scene 没有单独的写作提示。
+    writingTip: z.string().nullable(),
+    worldAnchor: StorySceneWorldAnchorDtoSchema,
+    // `worldContext` 为空表示该 Scene 尚不能安全提供 World Engine 上下文。
+    worldContext: SceneWorldContextDtoSchema.nullable(),
+    warnings: z.array(z.string()),
+});
+
+export const ChapterWriterBriefDtoSchema = z.object({
+    chapterPath: z.string(),
+    status: ChapterWriterBriefStatusSchema,
+    scenes: z.array(ChapterWriterBriefSceneDtoSchema),
+    totalScenes: z.number().int().nonnegative(),
+    warnings: z.array(z.string()),
+    suggestedBriefMarkdown: z.string().min(1),
+});
 
 export const StoryThreadTreeNodeDtoSchema = StoryThreadSummaryDtoSchema.extend({
     scenes: z.array(StorySceneSummaryDtoSchema),
@@ -184,11 +262,9 @@ export const PlotTreeDtoSchema = z.object({
     totalPhases: z.number().int().nonnegative(),
     totalThreads: z.number().int().nonnegative(),
     totalScenes: z.number().int().nonnegative(),
-    totalPlots: z.number().int().nonnegative(),
 });
 
 export const StoryWorkbenchSceneDtoSchema = StorySceneSummaryDtoSchema.extend({
-    plots: z.array(StoryPlotDtoSchema),
     refs: z.array(StoryRefDtoSchema),
 });
 
@@ -207,7 +283,6 @@ export const PlotWorkbenchDtoSchema = z.object({
     totalPhases: z.number().int().nonnegative(),
     totalThreads: z.number().int().nonnegative(),
     totalScenes: z.number().int().nonnegative(),
-    totalPlots: z.number().int().nonnegative(),
 });
 
 export const UpdateStoryRequestDtoSchema = z.object({
@@ -317,7 +392,8 @@ export const CreateStorySceneRequestDtoSchema = z.object({
     writingTip: StoryTipSchema.nullable().optional().describe("Writing tip for the scene. Null clears it."),
     // `note` 为空表示显式清空备注。
     note: StoryNoteSchema.nullable().optional().describe("Optional note. Null clears it."),
-    refs: StoryRefsInputSchema.optional().describe("Structured references (max 100). Use workspace content-node paths for lore, e.g. lorebook/character/foo/. Use thread://, scene://, plot:// for plot entities. pending:// is not supported."),
+    worldAnchor: StorySceneWorldAnchorInputDtoSchema.optional().describe("World Engine time/subject anchor for this scene."),
+    refs: StoryRefsInputSchema.optional().describe("Structured references (max 100). Use workspace content-node paths for lore, e.g. lorebook/character/foo/. Use thread:// or scene:// for plot entities. pending:// is not supported."),
 });
 
 export const UpdateStorySceneRequestDtoSchema = z.object({
@@ -333,7 +409,8 @@ export const UpdateStorySceneRequestDtoSchema = z.object({
     writingTip: StoryTipSchema.nullable().optional().describe("Writing tip for the scene. Null clears it."),
     // `note` 为空表示显式清空备注。
     note: StoryNoteSchema.nullable().optional().describe("Optional note. Null clears it."),
-    refs: StoryRefsInputSchema.optional().describe("Structured references (max 100). Use workspace content-node paths for lore, e.g. lorebook/character/foo/. Use thread://, scene://, plot:// for plot entities. pending:// is not supported."),
+    worldAnchor: StorySceneWorldAnchorInputDtoSchema.optional().describe("World Engine time/subject anchor for this scene."),
+    refs: StoryRefsInputSchema.optional().describe("Structured references (max 100). Use workspace content-node paths for lore, e.g. lorebook/character/foo/. Use thread:// or scene:// for plot entities. pending:// is not supported."),
 }).refine((value) => (
     value.threadId !== undefined
     || value.chapterPath !== undefined
@@ -343,6 +420,7 @@ export const UpdateStorySceneRequestDtoSchema = z.object({
     || value.purpose !== undefined
     || value.writingTip !== undefined
     || value.note !== undefined
+    || value.worldAnchor !== undefined
     || value.refs !== undefined
 ), {
     message: "至少提供一个更新字段",
@@ -362,77 +440,16 @@ export const ReorderStoryScenesRequestDtoSchema = z.object({
     items: z.array(ReorderStorySceneItemDtoSchema).min(1, "items 不能为空"),
 });
 
-export const CreateStoryPlotRequestDtoSchema = z.object({
-    sceneId: z.string().trim().min(1, "sceneId 不能为空").describe("Scene ID to attach this plot to."),
-    kind: StoryPlotKindSchema.describe("Plot kind (setup, action, conflict, despair, relief, reward, mystery, reveal, twist, payoff, result)."),
-    summary: StorySummarySchema.optional().describe("Plot summary (max 5000 characters)."),
-    // `effect` 为空表示显式清空结果描述。
-    effect: StorySummarySchema.nullable().optional().describe("Plot effect/outcome description. Null clears it."),
-    // `writingTip` 为空表示显式清空写作提示。
-    writingTip: StoryTipSchema.nullable().optional().describe("Writing tip for this plot. Null clears it."),
-    // `note` 为空表示显式清空备注。
-    note: StoryNoteSchema.nullable().optional().describe("Optional note. Null clears it."),
-});
-
-export const CreateStoryPlotItemDtoSchema = z.object({
-    kind: StoryPlotKindSchema.describe("Plot kind (setup, action, conflict, despair, relief, reward, mystery, reveal, twist, payoff, result)."),
-    summary: z.string().trim().min(1, "summary 不能为空").max(MAX_STORY_SUMMARY_LENGTH, "summary 过长").describe("Plot summary (max 5000 characters)."),
-    // `effect` 为空表示没有结果描述。
-    effect: StorySummarySchema.nullable().optional().describe("Plot effect/outcome description."),
-    // `writingTip` 为空表示没有写作提示。
-    writingTip: StoryTipSchema.nullable().optional().describe("Writing tip for this plot."),
-    // `note` 为空表示没有备注。
-    note: StoryNoteSchema.nullable().optional().describe("Optional note."),
-});
-
-export const CreateStoryPlotsRequestDtoSchema = z.object({
-    sceneId: z.string().trim().min(1, "sceneId 不能为空").describe("Scene ID to attach these plots to."),
-    plots: z.array(CreateStoryPlotItemDtoSchema).min(1, "plots 不能为空").max(50, "一次最多创建 50 个 Plot"),
-});
-
-export const CreateStoryPlotsResponseDtoSchema = withWriteDiagnosticsSchema(z.object({
-    scene: StorySceneDetailDtoSchema,
-    createdPlots: z.array(StoryPlotDtoSchema),
-}));
-
-export const UpdateStoryPlotRequestDtoSchema = z.object({
-    sceneId: z.string().trim().min(1, "sceneId 不能为空").optional().describe("Scene ID to move this plot to."),
-    kind: StoryPlotKindSchema.optional().describe("Plot kind (setup, action, conflict, despair, relief, reward, mystery, reveal, twist, payoff, result)."),
-    summary: StorySummarySchema.optional().describe("Plot summary (max 5000 characters)."),
-    // `effect` 为空表示显式清空结果描述。
-    effect: StorySummarySchema.nullable().optional().describe("Plot effect/outcome description. Null clears it."),
-    // `writingTip` 为空表示显式清空写作提示。
-    writingTip: StoryTipSchema.nullable().optional().describe("Writing tip for this plot. Null clears it."),
-    // `note` 为空表示显式清空备注。
-    note: StoryNoteSchema.nullable().optional().describe("Optional note. Null clears it."),
-}).refine((value) => (
-    value.sceneId !== undefined
-    || value.kind !== undefined
-    || value.summary !== undefined
-    || value.effect !== undefined
-    || value.writingTip !== undefined
-    || value.note !== undefined
-), {
-    message: "至少提供一个更新字段",
-});
-
-export const ReorderStoryPlotItemDtoSchema = z.object({
-    plotId: z.string().trim().min(1, "plotId 不能为空"),
-    sceneId: z.string().trim().min(1, "sceneId 不能为空"),
-    sortOrder: z.number().int().nonnegative(),
-});
-
-export const ReorderStoryPlotsRequestDtoSchema = z.object({
-    items: z.array(ReorderStoryPlotItemDtoSchema).min(1, "items 不能为空"),
-});
-
 export type StoryThreadStatusDto = z.infer<typeof StoryThreadStatusSchema>;
 export type StorySceneStatusDto = z.infer<typeof StorySceneStatusSchema>;
-export type StoryPlotKindDto = z.infer<typeof StoryPlotKindSchema>;
 export type StoryRefTargetKindDto = z.infer<typeof StoryRefTargetKindSchema>;
 export type StoryRefVisibilityDto = z.infer<typeof StoryRefVisibilitySchema>;
 export type StoryRefDto = z.infer<typeof StoryRefDtoSchema>;
 export type StoryEffectiveRefDto = z.infer<typeof StoryEffectiveRefDtoSchema>;
+export type StorySceneWorldAnchorInputDto = z.infer<typeof StorySceneWorldAnchorInputDtoSchema>;
+export type StorySceneWorldAnchorSubjectDto = z.infer<typeof StorySceneWorldAnchorSubjectDtoSchema>;
+export type StorySceneWorldAnchorDto = z.infer<typeof StorySceneWorldAnchorDtoSchema>;
+export type SceneWorldContextDto = z.infer<typeof SceneWorldContextDtoSchema>;
 export type StoryDto = z.infer<typeof StoryDtoSchema>;
 export type StoryPhaseDto = z.infer<typeof StoryPhaseDtoSchema>;
 export type StoryThreadSummaryDto = z.infer<typeof StoryThreadSummaryDtoSchema>;
@@ -443,8 +460,9 @@ export type StorySceneDetailDto = z.infer<typeof StorySceneDetailDtoSchema>;
 export type StorySceneWriteResponseDto = z.infer<typeof StorySceneWriteResponseDtoSchema>;
 export type ChapterPlotSceneDto = z.infer<typeof ChapterPlotSceneDtoSchema>;
 export type ChapterPlotDetailDto = z.infer<typeof ChapterPlotDetailDtoSchema>;
-export type StoryPlotDto = z.infer<typeof StoryPlotDtoSchema>;
-export type StoryPlotWriteResponseDto = z.infer<typeof StoryPlotWriteResponseDtoSchema>;
+export type ChapterWriterBriefStatus = z.infer<typeof ChapterWriterBriefStatusSchema>;
+export type ChapterWriterBriefSceneDto = z.infer<typeof ChapterWriterBriefSceneDtoSchema>;
+export type ChapterWriterBriefDto = z.infer<typeof ChapterWriterBriefDtoSchema>;
 export type StoryThreadTreeNodeDto = z.infer<typeof StoryThreadTreeNodeDtoSchema>;
 export type StoryPhaseTreeNodeDto = z.infer<typeof StoryPhaseTreeNodeDtoSchema>;
 export type PlotTreeDto = z.infer<typeof PlotTreeDtoSchema>;
@@ -462,9 +480,3 @@ export type ReorderStoryThreadsRequestDto = z.infer<typeof ReorderStoryThreadsRe
 export type CreateStorySceneRequestDto = z.infer<typeof CreateStorySceneRequestDtoSchema>;
 export type UpdateStorySceneRequestDto = z.infer<typeof UpdateStorySceneRequestDtoSchema>;
 export type ReorderStoryScenesRequestDto = z.infer<typeof ReorderStoryScenesRequestDtoSchema>;
-export type CreateStoryPlotRequestDto = z.infer<typeof CreateStoryPlotRequestDtoSchema>;
-export type CreateStoryPlotItemDto = z.infer<typeof CreateStoryPlotItemDtoSchema>;
-export type CreateStoryPlotsRequestDto = z.infer<typeof CreateStoryPlotsRequestDtoSchema>;
-export type CreateStoryPlotsResponseDto = z.infer<typeof CreateStoryPlotsResponseDtoSchema>;
-export type UpdateStoryPlotRequestDto = z.infer<typeof UpdateStoryPlotRequestDtoSchema>;
-export type ReorderStoryPlotsRequestDto = z.infer<typeof ReorderStoryPlotsRequestDtoSchema>;

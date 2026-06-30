@@ -57,7 +57,6 @@ export const ModelName = {
   StoryPhase: 'StoryPhase',
   StoryThread: 'StoryThread',
   StoryScene: 'StoryScene',
-  StoryPlot: 'StoryPlot',
   StorySceneRef: 'StorySceneRef',
   WorldSubject: 'WorldSubject',
   WorldSlice: 'WorldSlice',
@@ -155,27 +154,15 @@ export const StorySceneScalarFieldEnum = {
   purpose: 'purpose',
   writingTip: 'writingTip',
   note: 'note',
+  startInstant: 'startInstant',
+  endInstant: 'endInstant',
+  subjectIdsJson: 'subjectIdsJson',
+  locationSubjectId: 'locationSubjectId',
   createdAt: 'createdAt',
   updatedAt: 'updatedAt'
 } as const
 
 export type StorySceneScalarFieldEnum = (typeof StorySceneScalarFieldEnum)[keyof typeof StorySceneScalarFieldEnum]
-
-
-export const StoryPlotScalarFieldEnum = {
-  id: 'id',
-  sceneId: 'sceneId',
-  sortOrder: 'sortOrder',
-  kind: 'kind',
-  summary: 'summary',
-  effect: 'effect',
-  writingTip: 'writingTip',
-  note: 'note',
-  createdAt: 'createdAt',
-  updatedAt: 'updatedAt'
-} as const
-
-export type StoryPlotScalarFieldEnum = (typeof StoryPlotScalarFieldEnum)[keyof typeof StoryPlotScalarFieldEnum]
 
 
 export const StorySceneRefScalarFieldEnum = {
@@ -187,7 +174,6 @@ export const StorySceneRefScalarFieldEnum = {
   targetKind: 'targetKind',
   targetThreadId: 'targetThreadId',
   targetSceneId: 'targetSceneId',
-  targetPlotId: 'targetPlotId',
   visibility: 'visibility',
   note: 'note',
   createdAt: 'createdAt',

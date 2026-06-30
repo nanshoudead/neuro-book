@@ -3,6 +3,7 @@ import {createAssistantTextMessage, createTextToolResult} from "nbook/server/age
 import {Value} from "typebox/value";
 import {NeuroAgentHarness} from "nbook/server/agent/harness/neuro-agent-harness";
 import {findPendingApprovalCall, resolutionToToolResult} from "nbook/server/agent/tools/approval";
+import {AgentResolutionDtoSchema} from "nbook/shared/dto/agent-session.dto";
 import type {Message} from "nbook/server/agent/messages/types";
 
 describe("approval helpers", () => {
@@ -45,10 +46,16 @@ describe("approval helpers", () => {
         }, {
             toolCallId: "call-1",
             toolName: "request_user_input",
+            args: {
+                questions: [
+                    {question: "First?"},
+                    {question: "Second?"},
+                ],
+            },
         }) as Message;
 
         expect(message.role).toBe("toolResult");
-        expect(messageText(message)).toBe("1. first\n2. second");
+        expect(messageText(message)).toBe("1. First?\n回答：first\n\n2. Second?\n回答：second");
     });
 
     it("保留 request_user_input resolution 的结构化详情", () => {
@@ -72,20 +79,39 @@ describe("approval helpers", () => {
         expect(message.details).toEqual(resolution);
     });
 
-    it("把 Low-Code Form data resolution 转成可恢复 toolResult", () => {
+    it("把 data resolution 转成可恢复 toolResult 且不补默认选项", () => {
         const message = resolutionToToolResult({
             kind: "user_input",
             toolCallId: "call-1",
             data: {
-                answer_0: "Alice",
+                answer_1: 1,
             },
         }, {
             toolCallId: "call-1",
             toolName: "request_user_input",
+            args: {
+                questions: [
+                    {
+                        question: "第一章正文从哪里开始？",
+                        options: [
+                            {label: "从村口出发写起"},
+                            {label: "从遇狼战斗写起"},
+                            {label: "从抵达遗迹写起"},
+                        ],
+                    },
+                    {
+                        question: "第一章的核心冲突是什么？",
+                        options: [
+                            {label: "遗迹探索"},
+                            {label: "遗迹中的秘密"},
+                        ],
+                    },
+                ],
+            },
         }) as Message;
 
         expect(message.role).toBe("toolResult");
-        expect(messageText(message)).toBe("{\n  \"answer_0\": \"Alice\"\n}");
+        expect(messageText(message)).toBe("1. 第一章正文从哪里开始？\n回答：\n\n2. 第一章的核心冲突是什么？\n回答：遗迹中的秘密");
         if (message.role !== "toolResult") {
             throw new Error("expected toolResult");
         }
@@ -94,9 +120,13 @@ describe("approval helpers", () => {
             toolCallId: "call-1",
             data: {
                 userInput: {
-                    answer_0: "Alice",
+                    answer_1: 1,
                 },
             },
+            answers: [
+                {questionIndex: 0, text: ""},
+                {questionIndex: 1, text: "遗迹中的秘密", selectedOptionIndex: 1},
+            ],
         });
     });
 
@@ -136,7 +166,7 @@ describe("approval helpers", () => {
         });
     });
 
-    it("request_user_input schema 拒绝空问题和非法默认选项", () => {
+    it("request_user_input schema 拒绝空问题和已删除字段", () => {
         const schema = requestUserInputSchema();
 
         expect(Value.Check(schema, {
@@ -145,31 +175,61 @@ describe("approval helpers", () => {
         expect(Value.Check(schema, {
             questions: [{
                 question: "Pick",
-                defaultOptionIndex: -2,
+                options: [{label: "A"}],
+                defaultOptionIndex: 0,
             }],
         })).toBe(false);
-        expect(Value.Check(schema, {
-            questions: [{
-                question: "Pick",
-                defaultOptionIndexes: [0.5],
-            }],
-        })).toBe(false);
-    });
-
-    it("request_user_input schema 接受合法默认选项", () => {
-        const schema = requestUserInputSchema();
-
         expect(Value.Check(schema, {
             questions: [{
                 question: "Pick",
                 options: [
-                    {label: "A", defaultSelected: true},
+                    {label: "A", recommended: true},
+                ],
+            }],
+        })).toBe(false);
+        expect(Value.Check(schema, {
+            questions: [{
+                question: "Pick",
+                options: [{label: "A"}],
+                defaultOptionIndexes: [0],
+            }],
+        })).toBe(false);
+        expect(Value.Check(schema, {
+            questions: [{
+                question: "Pick",
+                options: [{label: "A"}],
+                multiSelect: true,
+            }],
+        })).toBe(false);
+        expect(Value.Check(schema, {
+            questions: [{
+                question: "Pick",
+                options: [{label: "A", defaultSelected: true}],
+            }],
+        })).toBe(false);
+    });
+
+    it("request_user_input schema 接受问题、header 和单选 options", () => {
+        const schema = requestUserInputSchema();
+
+        expect(Value.Check(schema, {
+            questions: [{
+                header: "偏好",
+                question: "Pick",
+                options: [
+                    {label: "A", description: "使用 A 路径"},
                     {label: "B"},
                 ],
-                defaultOptionIndex: 0,
-                defaultOptionIndexes: [0, -1],
             }],
         })).toBe(true);
+    });
+
+    it("user_input resolution DTO 接受 note-only answers", () => {
+        expect(AgentResolutionDtoSchema.safeParse({
+            kind: "user_input",
+            toolCallId: "ask-1",
+            answers: [{questionIndex: 0, note: "Alice"}],
+        }).success).toBe(true);
     });
 
     it("用户 resolution 工具集合包含动态用户输入工具", () => {

@@ -9,6 +9,6 @@ import {useAgentHarness} from "nbook/server/agent/http";
 export default defineEventHandler(async (event) => {
     const body = await validateBody(event, AgentProfileSaveRequestDtoSchema);
     const result = await saveProfileSourceDraft(body);
-    useAgentHarness().profiles.invalidate();
+    await useAgentHarness().profiles.enqueueBuild({fileName: body.fileName, reason: "profile_source_saved"});
     return result;
 });

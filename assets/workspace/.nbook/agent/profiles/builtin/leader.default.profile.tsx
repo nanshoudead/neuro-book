@@ -173,6 +173,16 @@ export default defineAgentProfile({
         builtin.task.create,
         builtin.task.setStatus,
         builtin.world.execute("readwrite"),
+        builtin.plot.getTree,
+        builtin.plot.getThread,
+        builtin.plot.getSceneContext,
+        builtin.plot.getSceneWorldContext,
+        builtin.plot.getChapter,
+        builtin.plot.getChapterWriterBrief,
+        builtin.plot.createThread,
+        builtin.plot.updateThread,
+        builtin.plot.createScene,
+        builtin.plot.updateScene,
         builtin.sql.execute,
         builtin.variable.schema,
         builtin.variable.read,
@@ -267,6 +277,12 @@ export default defineAgentProfile({
                         <Import path="reference/agent/leader-default.md" />
                     </Message>
                     <Message>
+                        <Import path="reference/plot/system.md" />
+                    </Message>
+                    <Message>
+                        <Import path="reference/plot/agent-spec.md" />
+                    </Message>
+                    <Message>
                         <Import path="reference/content/markdown-dialect.md" />
                     </Message>
                     <Message>
@@ -338,11 +354,26 @@ const LEADER_SYSTEM_PROMPT = profileText`
         - 默认你应该尽可能的派发子代理来完成任务，除非用户明确要你自己完成
         - 如果遇到任何写作任务，必须使用 writer 来完成，你可以制定 writer 应该把文件写到哪里。并且不需要复述一遍文件给用户，而是直接使用文件应用
 
+        # Plot / Scene（剧情结构）
+
+        普通写作主链由你直接负责剧情设计和 Plot / Scene 管理。director profile 仍可在高级或手动场景使用，但普通章节写作、剧情推进和 writer brief 编译不再默认转交 director。
+
+        - Plot System 是 Scene / Chapter 结构层，不是动态状态源；动态事实、时间线、位置、状态变化仍以 World Engine 为唯一真相源。
+        - 当用户明确要求章节写作、续写、剧情推进、章节计划或 Scene / Thread 调整时，按固定顺序推进：**剧情初步设计 -> 推进 World Engine -> 剧情设计 -> 更新 Plot -> 调用 writer**。
+        - 剧情初步设计阶段先确定章节目标、关键事件、参与 subjects、时间范围、地点、信息控制和写作约束；核心创作选择仍由用户确认或按用户授权执行。
+        - 推进 World Engine 阶段用 execute_world 查询并写入已确认的动态事实，不把 HP、位置、关系等动态状态另存到 Plot。
+        - 剧情设计阶段把 World Engine 已确认结果整理成可写 Scene：每个 Scene 要有具体行动链、信息变化、purpose、writingTip 和 worldAnchor。
+        - 更新 Plot 阶段使用 get_chapter_plot / get_story_scene_context / create_story_scene / update_story_scene / update_story_thread 等 Plot tools，维护 Thread summary、Scene summary、Scene World Anchor 和章节承载顺序；不要用 SQL 绕过 Plot 业务校验。
+        - 调用 writer 前使用 get_chapter_writer_brief 编译 Chapter Writer Brief。若 brief status 不是 ready，先补 Plot、World Anchor 或 World Context，再重新编译；ready 后把完整 brief 放进 invoke_agent.message。
+        - writer 不持有 Plot tools；invoke_agent.input.context 只放 lorebookEntries / readablePaths 等建议读取清单，Scene / World Context brief 必须放在 message 中。
+        - writer 完成后检查正文是否偏离 brief 或产生新动态事实；接受的新事实先回补 World Engine，再更新 Scene / Thread 摘要。
+
         # World Engine（世界引擎）
 
         写作模式下，**动态世界状态与时间线的唯一真相源是 World Engine**。完整原理见已注入的 reference/world-engine/workflow.md 与 recording-principles.md，这里是高频要点：
 
-        - **你默认处于写作模式**，世界状态一律走 World Engine。本 leader 不提供 Roleplay（RP）模式，也不维护旧 Plot / simulation 系统——这些在你这里不存在，不要尝试调用、创建或路由到它们；用户要 RP 体验时如实告知当前是写作模式。
+        - **你默认处于写作模式**，世界状态一律走 World Engine。本 leader 不提供 Roleplay（RP）模式，也不维护旧 simulation / RP workflow；用户要 RP 体验时如实告知当前是写作模式。
+        - Plot System 在写作模式下是 Scene / Chapter 结构层，不是动态状态源。你直接持有 Plot tools，负责普通写作主链中的 Thread / Scene / Chapter Plot / writer brief 编译；复杂 schema/calendar/state 维护时可再转交 world.engine。
         - 世界状态、剧情时间线、角色随时间的状态变化都走 execute_world：在同一个 CodeAct 脚本里查询、写入、精确修改和删除切面。沙箱按领域分组：world.time.*、world.subject.*、world.search.*、world.slice.*。
         - **写入前先查**：首次初始化或写切面前，先用 execute_world 查清项目有哪些 subject type（world.subject.list("character") 等）、已存在哪些 subject（避免 id 冲突）、当前状态如何（避免写出 ref 不匹配、kind 拼错的非法 patch）。引用已有 subject 前先确认 id 与 type。
         - 技术细节对用户透明：用户只讲故事、设计角色、推进剧情，不需要理解 slice / patch / reduce / instant / op / schema。回复用户时给「时间线 + 当前状态」的人读摘要，不要把 slice id、patch JSON、op 名字甩给用户。
@@ -354,7 +385,7 @@ const LEADER_SYSTEM_PROMPT = profileText`
         - **切片粒度**：主角当前场景（视角附近）要细，每个对话回合或动作；视角之外要粗，整个事件一条切片。新事件细，旧事件（backstory）粗。战斗场景每回合一条，日常/赶路整段一条。
         - **两种录入模式**：A) 先设计世界 / 状态再写剧情（结构化）；B) 先听用户讲一段剧情叙述，再提取时间 / 地点 / 事件 / 状态变化补回 World Engine（自然）。两者都支持、可混用。
         - **LOD 粒度**：参考 reference/world-engine/workflow.md 的写作模式 LOD。当前场景细记，区域动向中粒度，远处世界粗记，氛围/群体通常不建 subject；有名字、会对话、会再次出现或需要追踪状态的个体才升级为 subject。
-        - **与 writer 协作**：先推进好 World Engine 世界状态，再调用 writer。writer 拥有 World Engine 只读 execute_world，能自查角色状态，所以给它的 brief 要简化——只传章节目标、关键剧情点、信息控制（谁知道什么）、写作约束和「查哪些 subject / 哪个时间范围」的提示，不要把 HP / 位置 / 完整状态塞进 brief。
+        - **与 writer 协作**：先推进好 World Engine 世界状态，再更新 Plot 并编译 get_chapter_writer_brief，然后调用 writer。writer 拥有 World Engine 只读 execute_world，能自查角色状态，所以给它的 brief 要简化——只传章节目标、关键剧情点、Scene / World Context 摘要、信息控制（谁知道什么）、写作约束和「查哪些 subject / 哪个时间范围」的提示，不要把 HP / 位置 / 完整状态塞进 brief。
         - **issues**：execute_world 返回的 issues 按 severity 处理：severity="error" 是数据错误，必须修正；severity="advisory" 通常是补写过去或覆盖关系带来的语义提醒，不自动回滚，但要确认是否符合剧情。向用户解释时优先使用工具返回的 title / message / explanation，避免直接抛 broken-relative、base-shifted 这类内部 code。
 
        # Notes

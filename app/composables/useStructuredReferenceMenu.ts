@@ -11,8 +11,6 @@ import {buildWorkspaceReferenceSections} from "nbook/app/utils/workspace-referen
 import type {AgentSkillCatalogItemDto} from "nbook/shared/dto/agent-session.dto";
 import type {
     PlotTreeDto,
-    StorySceneDetailDto,
-    StoryPlotDto,
 } from "nbook/shared/dto/plot.dto";
 
 type QuickTextItem = {
@@ -40,15 +38,6 @@ type PlotSceneReferenceCandidate = {
     chapterPath: string | null;
 };
 
-type PlotReferenceCandidate = {
-    id: string;
-    sceneId: string;
-    sceneTitle: string;
-    threadTitle: string;
-    summary: string;
-    kind: StoryPlotDto["kind"];
-};
-
 const PLOT_RESULT_LIMIT = 20;
 
 type RuntimeI18n = {
@@ -66,11 +55,8 @@ const referenceMenuFallbacks = {
     "ide.referenceMenu.plotTreeLoadingDescription": "正在拉取当前小说的剧情树。",
     "ide.referenceMenu.sceneTitle": "场景引用",
     "ide.referenceMenu.sceneLoading": "加载场景中",
-    "ide.referenceMenu.plotTitle": "节点引用",
-    "ide.referenceMenu.plotLoading": "加载情节点中",
-    "ide.referenceMenu.plotLoadingDescription": "正在拉取当前场景的情节点。",
     "ide.referenceMenu.missingContext": "缺少上下文",
-    "ide.referenceMenu.missingContextDescription": "请先选中剧情场景，再插入 plot 引用。",
+    "ide.referenceMenu.missingContextDescription": "请先选中剧情场景。",
     "ide.referenceMenu.skillTitle": "调用技能",
     "ide.referenceMenu.skillLoading": "加载技能中",
     "ide.referenceMenu.skillLoadingDescription": "正在读取当前仓库的 skills catalog。",
@@ -80,7 +66,6 @@ const referenceMenuFallbacks = {
     "ide.referenceMenu.commandTitle": "执行命令",
     "ide.referenceMenu.plotThreadSection": "剧情线程",
     "ide.referenceMenu.plotSceneSection": "剧情场景",
-    "ide.referenceMenu.plotNodeSection": "情节点",
     "ide.referenceMenu.plotSection": "剧情",
     "ide.referenceMenu.plotRootLoading": "加载剧情中",
     "ide.referenceMenu.noMatch": "没有匹配结果",
@@ -124,9 +109,6 @@ export function useStructuredReferenceMenu(options: UseStructuredReferenceMenuOp
     const plotTree = ref<PlotTreeDto | null>(null);
     const plotTreeLoadedNovelId = ref("");
     const loadingPlotTreeEntries = ref(false);
-    const selectedScenePlotDetail = ref<StorySceneDetailDto | null>(null);
-    const selectedScenePlotLoadedId = ref("");
-    const loadingSelectedScenePlotDetail = ref(false);
     const refreshVersion = ref(0);
     const commandItems = computed<QuickTextItem[]>(() => [
         {id: "command:plan", label: "plan", description: t("ide.referenceMenu.commandPlanDescription"), iconClass: "i-lucide-clipboard-list", value: "/plan"},
@@ -139,13 +121,6 @@ export function useStructuredReferenceMenu(options: UseStructuredReferenceMenuOp
     watch(options.novelId, () => {
         plotTree.value = null;
         plotTreeLoadedNovelId.value = "";
-        selectedScenePlotDetail.value = null;
-        selectedScenePlotLoadedId.value = "";
-    });
-
-    watch(options.selectedStorySceneId, () => {
-        selectedScenePlotDetail.value = null;
-        selectedScenePlotLoadedId.value = "";
     });
 
     function matchesReferenceQuery(query: string, fields: Array<string | null | undefined>): boolean {
@@ -214,32 +189,6 @@ export function useStructuredReferenceMenu(options: UseStructuredReferenceMenuOp
             .slice(0, PLOT_RESULT_LIMIT);
     }
 
-    function getSelectedThreadTitle(): string {
-        const selectedThreadIdValue = options.selectedStoryThreadId.value;
-        if (!selectedThreadIdValue || !plotTree.value) {
-            return t("ide.referenceMenu.currentThread");
-        }
-
-        const thread = [...plotTree.value.phases.flatMap((phase) => phase.threads), ...plotTree.value.ungroupedThreads]
-            .find((item) => item.id === selectedThreadIdValue);
-        return thread?.title ?? t("ide.referenceMenu.currentThread");
-    }
-
-    function getPlotCandidates(query: string): PlotReferenceCandidate[] {
-        const sceneCandidates = selectedScenePlotDetail.value?.plots.map((plot) => ({
-            id: plot.id,
-            sceneId: plot.sceneId,
-            sceneTitle: selectedScenePlotDetail.value?.title ?? t("ide.referenceMenu.currentScene"),
-            threadTitle: getSelectedThreadTitle(),
-            summary: plot.summary,
-            kind: plot.kind,
-        })) ?? [];
-
-        return sceneCandidates
-            .filter((plot) => matchesReferenceQuery(query, [plot.id, plot.sceneTitle, plot.threadTitle, plot.summary, plot.kind]))
-            .slice(0, PLOT_RESULT_LIMIT);
-    }
-
     async function ensurePlotTreeLoaded(): Promise<void> {
         if (!options.novelId.value || loadingPlotTreeEntries.value || plotTreeLoadedNovelId.value === options.novelId.value) {
             return;
@@ -255,21 +204,6 @@ export function useStructuredReferenceMenu(options: UseStructuredReferenceMenuOp
         }
     }
 
-    async function ensureSelectedScenePlotDetailLoaded(): Promise<void> {
-        if (!options.novelId.value || !options.selectedStorySceneId.value || loadingSelectedScenePlotDetail.value || selectedScenePlotLoadedId.value === options.selectedStorySceneId.value) {
-            return;
-        }
-
-        loadingSelectedScenePlotDetail.value = true;
-        try {
-            selectedScenePlotDetail.value = await $fetch<StorySceneDetailDto>(`/api/projects/plot/scenes/${options.selectedStorySceneId.value}`, projectPlotOptions());
-            selectedScenePlotLoadedId.value = options.selectedStorySceneId.value;
-            refreshVersion.value += 1;
-        } finally {
-            loadingSelectedScenePlotDetail.value = false;
-        }
-    }
-
     function projectPlotOptions(): {query: {projectPath: string}} {
         return {query: {projectPath: options.novelId.value}};
     }
@@ -282,10 +216,6 @@ export function useStructuredReferenceMenu(options: UseStructuredReferenceMenuOp
             }
 
             void ensurePlotTreeLoaded();
-            if (options.selectedStorySceneId.value) {
-                void ensureSelectedScenePlotDetailLoaded();
-            }
-
             const workspaceSections = options.workspaceTree
                 ? buildWorkspaceReferenceSections(options.workspaceTree.value, context.query)
                 : [];
@@ -336,24 +266,6 @@ export function useStructuredReferenceMenu(options: UseStructuredReferenceMenuOp
 
             const items = sceneCandidates.map(toSceneMenuItem);
             return {title: t("ide.referenceMenu.sceneTitle"), prefix: "@scene://", sections: items.length > 0 ? [{id: "scene", items}] : []};
-        }
-
-        if (context.kind === "plot") {
-            if (options.selectedStorySceneId.value) {
-                void ensureSelectedScenePlotDetailLoaded();
-            }
-
-            const plotCandidates = getPlotCandidates(context.query);
-            if (loadingSelectedScenePlotDetail.value && plotCandidates.length === 0) {
-                return {title: t("ide.referenceMenu.plotTitle"), prefix: "@plot://", sections: [{id: "plot-loading", items: [{id: "plot:loading", label: t("ide.referenceMenu.plotLoading"), description: t("ide.referenceMenu.plotLoadingDescription"), iconClass: "i-lucide-loader-circle animate-spin"}]}]};
-            }
-
-            if (!options.selectedStorySceneId.value && plotCandidates.length === 0) {
-                return {title: t("ide.referenceMenu.plotTitle"), prefix: "@plot://", sections: [{id: "plot-empty", items: [{id: "plot:empty", label: t("ide.referenceMenu.missingContext"), description: t("ide.referenceMenu.missingContextDescription"), iconClass: "i-lucide-info"}]}]};
-            }
-
-            const items = plotCandidates.map(toPlotMenuItem);
-            return {title: t("ide.referenceMenu.plotTitle"), prefix: "@plot://", sections: items.length > 0 ? [{id: "plot", items}] : []};
         }
 
         if (context.kind === "skill") {
@@ -415,15 +327,15 @@ export function useStructuredReferenceMenu(options: UseStructuredReferenceMenuOp
     }
 
     /**
-     * 显式输入 @thread:// / @scene:// / @plot:// 时切到对应剧情引用菜单。
+     * 显式输入 @thread:// / @scene:// 时切到对应剧情引用菜单。
      */
     function routeReferenceRootQuery(query: string): AgentTriggerMenuContext | null {
-        const matched = /^(thread|scene|plot):\/\/(.*)$/u.exec(query.trim());
+        const matched = /^(thread|scene):\/\/(.*)$/u.exec(query.trim());
         if (!matched) {
             return null;
         }
         return {
-            kind: matched[1] as Extract<AgentTriggerMenuContext["kind"], "thread" | "scene" | "plot">,
+            kind: matched[1] as Extract<AgentTriggerMenuContext["kind"], "thread" | "scene">,
             query: matched[2] ?? "",
         };
     }
@@ -441,11 +353,6 @@ export function useStructuredReferenceMenu(options: UseStructuredReferenceMenuOp
         const sceneItems = getSceneCandidates(query).map(toSceneMenuItem);
         if (sceneItems.length > 0) {
             sections.push({id: "plot-scene", title: t("ide.referenceMenu.plotSceneSection"), items: sceneItems});
-        }
-
-        const plotItems = getPlotCandidates(query).map(toPlotMenuItem);
-        if (plotItems.length > 0) {
-            sections.push({id: "plot-node", title: t("ide.referenceMenu.plotNodeSection"), items: plotItems});
         }
 
         if (loadingPlotTreeEntries.value && threadItems.length === 0 && sceneItems.length === 0) {
@@ -509,25 +416,6 @@ export function useStructuredReferenceMenu(options: UseStructuredReferenceMenuOp
         };
     }
 
-    /**
-     * 转换情节点候选。
-     */
-    function toPlotMenuItem(candidate: PlotReferenceCandidate): AgentTriggerMenuItem {
-        const label = candidate.summary || `${candidate.sceneTitle} · ${candidate.kind}`;
-        return {
-            id: `plot:${candidate.id}`,
-            label,
-            description: `${candidate.threadTitle} / ${candidate.sceneTitle} · ${candidate.kind}`,
-            iconClass: "i-lucide-spline-pointer",
-            hint: "plot",
-            reference: {
-                kind: "plot" as const,
-                title: label,
-                targetId: candidate.id,
-            },
-        };
-    }
-
     const menuRefreshKey = computed(() => [
         refreshVersion.value,
         options.workspaceTree?.value.map((node) => `${node.path}:${node.mtimeMs}`).join("|") ?? "",
@@ -538,9 +426,6 @@ export function useStructuredReferenceMenu(options: UseStructuredReferenceMenuOp
         plotTreeLoadedNovelId.value,
         plotTree.value?.phases.length ?? 0,
         plotTree.value?.ungroupedThreads.length ?? 0,
-        loadingSelectedScenePlotDetail.value ? "ls1" : "ls0",
-        selectedScenePlotLoadedId.value,
-        selectedScenePlotDetail.value?.plots.length ?? 0,
     ].join("|"));
 
     return {
