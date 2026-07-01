@@ -36,7 +36,7 @@ export async function importSingleFileTypeScriptConfig<TModule extends object>(
         return await cached as TModule;
     }
 
-    const pending = importValidatedHashedTypeScript<TModule>(filePath, cachePath, content, label);
+    const pending = importValidatedHashedTypeScript<TModule>(filePath, cachePath, content, label, hash);
     importCache.set(cachePath, pending);
     try {
         return await pending;
@@ -200,9 +200,10 @@ async function importValidatedHashedTypeScript<TModule extends object>(
     cachePath: string,
     content: Buffer,
     label: string,
+    hash: string,
 ): Promise<TModule> {
     await assertSingleFileConfig(filePath, content.toString("utf-8"), label);
-    return await importHashedTypeScript<TModule>(filePath, cachePath, content, label);
+    return await importHashedTypeScript<TModule>(filePath, cachePath, content, label, hash);
 }
 
 /** 转译成稳定临时 mjs 并导入，导入完成后清理磁盘文件。 */
@@ -211,15 +212,41 @@ async function importHashedTypeScript<TModule extends object>(
     cachePath: string,
     content: Buffer,
     label: string,
+    hash: string,
 ): Promise<TModule> {
     await cleanupStaleTempFiles(path.dirname(cachePath), label);
     const compiled = await compileSingleFileTypeScript(filePath, content.toString("utf-8"));
     await fs.writeFile(cachePath, compiled, "utf-8");
     try {
-        return await importRuntimeArtifact<TModule>(cachePath);
+        return await importRuntimeArtifact<TModule>(cachePath, {
+            cacheKey: hash,
+            cacheNamespace: `world-engine-${label}`,
+            expectedBytes: Buffer.byteLength(compiled, "utf-8"),
+        });
+    } catch (error) {
+        throw worldEngineArtifactImportError(error, {
+            label,
+            filePath,
+            cachePath,
+            hash,
+        });
     } finally {
         await fs.rm(cachePath, {force: true}).catch(() => undefined);
     }
+}
+
+function worldEngineArtifactImportError(
+    error: unknown,
+    input: {label: string; filePath: string; cachePath: string; hash: string},
+): Error {
+    const originalMessage = error instanceof Error ? error.message : String(error);
+    return new Error([
+        `World Engine ${input.label} 配置已转译为运行时 artifact，但导入失败。`,
+        `source=${input.filePath}`,
+        `artifact=${input.cachePath}`,
+        `hash=${input.hash}`,
+        `原始错误：${originalMessage}`,
+    ].join(" "), {cause: error});
 }
 
 /** 只编译用户入口和 nbook 公共 helper；第三方包由当前 runtime vendor 解析。 */

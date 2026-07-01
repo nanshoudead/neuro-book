@@ -5,9 +5,10 @@
  */
 
 import {afterAll, afterEach, beforeEach, describe, expect, test} from "vitest";
+import {createHash} from "node:crypto";
 import {mkdirSync, readdirSync, writeFileSync} from "node:fs";
 import {rm} from "node:fs/promises";
-import {join} from "node:path";
+import {join, resolve} from "node:path";
 import {pathToFileURL} from "node:url";
 import {resolveWorkspaceContainerRoot} from "nbook/server/workspace-files/workspace-assets-root";
 import {WorldEngineFacade} from "./world-engine.facade";
@@ -317,9 +318,9 @@ describe("CodeAct Integration", () => {
         expect(after.subjectTypes.find((item) => item.type === "character")?.attrs.map((attr) => attr.name)).toContain("mana");
     });
 
-    test("schema/index.ts 支持 TS-only 语法和 nbook helper，并清理临时模块", async () => {
+    test("schema/index.ts 支持 TS-only 语法和 nbook helper，并走 runtime artifact cache", async () => {
         const projectRoot = join(resolveWorkspaceContainerRoot(), testProjectPath.slice("workspace/".length));
-        writeFileSync(join(projectRoot, "world-engine/schema/index.ts"), [
+        const schemaSource = [
             'import {z} from "zod";',
             'import {Ref, EmbeddingText} from "nbook/world-engine/schema";',
             "",
@@ -341,7 +342,8 @@ describe("CodeAct Integration", () => {
             "    location: Location,",
             "} satisfies Record<string, z.ZodObject<any>>;",
             "",
-        ].join("\n"), "utf-8");
+        ].join("\n");
+        writeFileSync(join(projectRoot, "world-engine/schema/index.ts"), schemaSource, "utf-8");
 
         const schema = await facade.getWorldSchema(testProjectPath);
         const character = schema.subjectTypes.find((item) => item.type === "character");
@@ -350,6 +352,8 @@ describe("CodeAct Integration", () => {
         await facade.parseTime(testProjectPath, "测试纪元1日 00:00:00");
         expect(listWorldEngineTempFiles(join(projectRoot, "world-engine"))).toEqual([]);
         expect(listWorldEngineTempFiles(join(projectRoot, "world-engine/schema"))).toEqual([]);
+        expect(listRuntimeArtifactCacheFiles("world-engine-calendar")).toContain(`${sourceHash(calendarFixture())}.mjs`);
+        expect(listRuntimeArtifactCacheFiles("world-engine-schema")).toContain(`${sourceHash(schemaSource)}.mjs`);
     });
 
     test("calendar.ts 使用 Project 本地相对 import 时加载失败", async () => {
@@ -632,6 +636,40 @@ describe("CodeAct Integration", () => {
         });
     });
 
+    test("executeCodeActWorld 支持用户提供形态的 Gregorian calendar 与基础 schema", async () => {
+        const projectRoot = join(resolveWorkspaceContainerRoot(), testProjectPath.slice("workspace/".length));
+        writeFileSync(join(projectRoot, "world-engine/calendar.ts"), userGregorianCalendarFixture(), "utf-8");
+        writeFileSync(join(projectRoot, "world-engine/schema/index.ts"), userBasicSchemaFixture(), "utf-8");
+
+        const result = await facade.executeCodeActWorld(testProjectPath, `
+            const time = world.time.parse("公元2026年6月1日 08:30");
+            await world.slice.write({
+                time,
+                title: "用户配置 smoke",
+                patches: [
+                    {subjectId: "hero", type: "character", path: "/name", op: "replace", value: "用户配置主角"},
+                    {subjectId: "hero", path: "/events", op: "replace", value: []},
+                    {subjectId: "hero", path: "/events", op: "append", value: {text: "首次写入"}},
+                ],
+            });
+            return {hero: await world.subject.get("hero"), formatted: world.time.format(time)};
+        `, "readwrite");
+
+        expect(result).toEqual({
+            data: {
+                hero: {
+                    hp: 100,
+                    power_level: 0,
+                    hypnosis_level: 0,
+                    events: [{text: "首次写入"}],
+                    name: "用户配置主角",
+                },
+                formatted: "公元2026年6月1日 08:30",
+            },
+            issues: [],
+        });
+    });
+
     test("executeCodeActWorld slice.editPatches 精确修正 patch", async () => {
         const result = await facade.executeCodeActWorld(testProjectPath, `
             const written = await world.slice.write({
@@ -835,6 +873,75 @@ function calendarFixture(): string {
     ].join("\n");
 }
 
+/** 用户报告中提供的公历 calendar 形态。 */
+function userGregorianCalendarFixture(): string {
+    return [
+        "// 公历日历",
+        "// 故事时间：2026年6月~7月，当代都市背景",
+        "export default {",
+        "  type: 'gregorian',",
+        "  eraBefore: '公元前',",
+        "  eraAfter: '公元',",
+        "  format: '{eraName}{year}年{month}月{day}日 {hour:02}:{minute:02}'",
+        "};",
+        "",
+    ].join("\n");
+}
+
+/** 用户报告中提供的基础 Zod schema 形态。 */
+function userBasicSchemaFixture(): string {
+    return [
+        'import {z} from "zod";',
+        "",
+        "const World = z.object({",
+        "    era: z.string().default('公元'),",
+        "    year: z.number().int().default(2026),",
+        "    events: z.array(z.object({text: z.string()})).default([]),",
+        "});",
+        "",
+        "const Character = z.object({",
+        "    name: z.string().optional(),",
+        "    age: z.number().int().optional(),",
+        "    sex: z.string().optional(),",
+        "    hp: z.number().int().default(100),",
+        "    location: z.string().optional(),",
+        "    mind: z.string().optional(),",
+        "    job_title: z.string().optional(),",
+        "    power_level: z.number().int().default(0),",
+        "    hypnosis_level: z.number().int().default(0),",
+        "    hypnotist: z.string().optional(),",
+        "    faction: z.string().optional(),",
+        "    events: z.array(z.object({text: z.string()})).default([]),",
+        "});",
+        "",
+        "const Location = z.object({",
+        "    name: z.string().optional(),",
+        "    events: z.array(z.object({text: z.string()})).default([]),",
+        "});",
+        "",
+        "const Faction = z.object({",
+        "    name: z.string().optional(),",
+        "    members: z.array(z.string()).default([]),",
+        "    events: z.array(z.object({text: z.string()})).default([]),",
+        "});",
+        "",
+        "const Item = z.object({",
+        "    name: z.string().optional(),",
+        "    owner: z.string().optional(),",
+        "    events: z.array(z.object({text: z.string()})).default([]),",
+        "});",
+        "",
+        "export const WorldSchema = {",
+        "    world: World,",
+        "    character: Character,",
+        "    location: Location,",
+        "    faction: Faction,",
+        "    item: Item,",
+        "};",
+        "",
+    ].join("\n");
+}
+
 async function removeProjectRoot(projectRoot: string): Promise<void> {
     for (let attempt = 0; attempt < 20; attempt += 1) {
         try {
@@ -853,4 +960,18 @@ function listWorldEngineTempFiles(directory: string): string[] {
     return readdirSync(directory)
         .filter((name) => /^\.world-engine-.+\.(?:ts|mjs)$/.test(name))
         .sort();
+}
+
+/** 计算 loader 入口内容 hash，必须与生产 loader 的 cache key 保持一致。 */
+function sourceHash(source: string): string {
+    return createHash("sha256").update(Buffer.from(source, "utf-8")).digest("hex").slice(0, 16);
+}
+
+/** 读取统一 runtime artifact cache 中某个 namespace 的文件列表。 */
+function listRuntimeArtifactCacheFiles(namespace: string): string[] {
+    try {
+        return readdirSync(resolve(".agent", "workspace", "runtime-artifact-import-cache", namespace)).sort();
+    } catch {
+        return [];
+    }
 }

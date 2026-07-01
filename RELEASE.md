@@ -16,7 +16,10 @@ local-git / source 源码运行时如果缺少 `server/generated/prisma/client.t
 4. 构建门禁补齐 Product 运行文件
 Nuxt/Nitro 后处理和 Product staging 都会检查管理员脚本、`has-users`、Prisma preflight、SQLite migration、Prisma schema/config 和打包后的 Prisma Client，避免镜像发布后才发现运行文件缺失。
 
-本轮已验证管理员脚本最小复现、GHCR dry-run、GHCR tag dry-run、`bun run nuxt:build` 和 `bun run product:stage`。Docker smoke 因当前本机没有 `docker` 命令未执行。
+5. World Engine 配置加载不再依赖项目目录临时模块
+`calendar.ts` 与 `schema/index.ts` 仍保持单文件 TypeScript 配置入口，但转译后的 `.mjs` 现在会进入统一 runtime artifact cache 后再导入。Project Workspace 下的 `.world-engine-*.mjs` 只作为短暂中转文件，避免 Product / Agent 环境在加载时误把被清理的临时文件当成根因。
+
+本轮已验证管理员脚本最小复现、GHCR dry-run、GHCR tag dry-run、World Engine 用户配置 smoke、Product runtime smoke、`bun run nuxt:build` 和 `bun run product:stage`。Docker smoke 因当前本机没有 `docker` 命令未执行。
 
 ## 0.5.3-canary - 2026-07-01
 
