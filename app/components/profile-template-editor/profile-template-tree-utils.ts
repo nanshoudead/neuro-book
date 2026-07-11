@@ -72,7 +72,7 @@ export function createNode(type: ProfileTemplateNodeType): ProfileTemplateNodeDt
         base.props = {text: "${sqlSchemaSummaryText}"};
     }
     if (type === "FileChangeNotice") {
-        base.props = {mode: "minimal", diffMaxChars: 512};
+        base.props = {mode: "minimal"};
     }
     if (type === "Import") {
         base.props = {path: "reference/agent/neurobook-project-guide.md"};

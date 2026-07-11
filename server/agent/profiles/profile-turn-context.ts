@@ -5,6 +5,7 @@ import {
     readAgentChangeDiffDetails,
     type AgentChangeDiffDetail,
 } from "nbook/server/workspace-history/agent-change-diff";
+import {isSensitiveHistoryDiffPath} from "nbook/server/workspace-history/history-diff";
 import {
     DEFAULT_AGENT_DIFF_MAX_CHARS,
     MAX_AGENT_CHANGE_LISTED_FILES,
@@ -46,7 +47,7 @@ export function previewProfileTurnContexts(plans: ProfileTurnContextPlan[]): Mat
     return plans.map((plan) => ({
         appendingIndex: plan.appendingIndex,
         message: createUserMessage({
-            text: `<file-change-notice runtime-data="preview" mode="${plan.mode}" diff-max-chars="${plan.diffMaxChars}">\n运行时按当前 session 未见变更生成。\n</file-change-notice>`,
+            text: `<file-change-notice runtime-data="preview" mode="${plan.mode}" diff-max-chars="${plan.diffMaxChars}">\nGenerated at runtime from project file changes not yet seen by this session.\n</file-change-notice>`,
         }),
     }));
 }
@@ -136,15 +137,21 @@ export function buildFileChangeReminder(
 ): string {
     const header = [
         "<file-change-notice>",
-        `自你上次查看以来，以下 ${groups.length} 个项目文件发生了你未见过的变更：`,
+        groups.length === 1
+            ? "The following project file changed since you last viewed it:"
+            : `The following ${groups.length} project files changed since you last viewed them:`,
     ];
-    const hasReadablePath = groups.some((group) => group.endHash !== null);
+    const hasSensitivePath = groups.some((group) => isSensitiveHistoryDiffPath(group.path));
+    const hasReadableNonSensitivePath = groups.some((group) => group.endHash !== null && !isSensitiveHistoryDiffPath(group.path));
+    const hasDeletedPath = groups.some((group) => group.endHash === null);
     const footer = [
-        hasReadablePath
+        hasReadableNonSensitivePath
             ? mode === "full"
-                ? "这些文件的当前内容可能与你记忆中的不同。小型 diff 只覆盖变更片段；对仍存在且未内联的文件，任务需要完整上下文时使用 read 读取对应引用，不要依赖旧内容；已删除文件的当前路径不可 read。"
-                : "小型 diff 只覆盖变更片段；对仍存在且未内联的文件，需要完整上下文时使用 read 读取对应引用；已删除文件的当前路径不可 read。"
-            : "这些变更均指向已删除文件；当前路径不可 read，需要旧内容时请让用户通过文件变更收件箱审查或还原。",
+                ? `Non-sensitive files may no longer match versions you read earlier. Inline diffs show changed fragments only; use read only when the task needs complete current content from a non-sensitive path.${hasSensitivePath ? " Sensitive paths are excluded from the prompt and must be reviewed in the file change inbox." : ""}${hasDeletedPath ? " Deleted paths cannot be read." : ""}`
+                : `Inline diffs show changed fragments only. Use read only for complete current content from a non-sensitive path when needed.${hasSensitivePath ? " Sensitive paths must be reviewed in the file change inbox." : ""}${hasDeletedPath ? " Deleted paths cannot be read." : ""}`
+            : hasSensitivePath
+                ? `Sensitive file contents and diffs are excluded from the prompt. Review sensitive paths in the file change inbox instead of reading them because of this notice.${hasDeletedPath ? " Deleted paths cannot be read." : ""}`
+                : "All listed files were deleted. Their current paths cannot be read; ask the user to inspect or restore them from the file change inbox if earlier content is needed.",
         "</file-change-notice>",
     ];
     const lines: string[] = [];
@@ -176,42 +183,50 @@ export function buildFileChangeReminder(
 /** 渲染单个文件的引用、摘要与可选小型 diff。 */
 function renderFileChange(group: UnseenGroup, mode: "minimal" | "full", detail: AgentChangeDiffDetail | undefined, diffMaxChars: number): string[] {
     const metadata = mode === "minimal"
-        ? `${group.entries.length} 条变更`
-        : `${group.entries.length} 条变更；${describeActors(group)}；${describeOperations(group)}`;
+        ? changeCount(group.entries.length)
+        : `${changeCount(group.entries.length)}; ${describeActors(group)}; ${describeOperations(group)}`;
     const deleted = group.endHash === null;
-    const target = deleted ? `已删除：${escapeMarkdownLabel(group.path)}` : workspaceReference(group.path);
-    const lines = [`- ${target}（${metadata}）`];
+    const sensitive = isSensitiveHistoryDiffPath(group.path);
+    const status = primaryOperationLabel(group);
+    const target = deleted || sensitive ? escapeMarkdownLabel(group.path) : workspaceReference(group.path);
+    const lines = [`- ${status}: ${target} — ${metadata}`];
+    if (sensitive) {
+        lines.push(deleted
+            ? "  Sensitive path: file content and diff are excluded from the prompt. The file was deleted and its current path cannot be read; ask the user to inspect or restore it from the file change inbox if earlier content is needed."
+            : "  Sensitive path: file content and diff are excluded from the prompt. Review it in the file change inbox; do not retrieve or reproduce its contents solely because of this notice.");
+        return lines;
+    }
     if (!detail) {
         return lines;
     }
     if (detail.kind === "inline") {
         lines.push(
-            `  变更位置：${detail.locations.join("；")}`,
-            `  小型 diff：${detail.charCount} 字符 / ${detail.changedLineCount} 条变更行。`,
+            `  Location: ${detail.locations.map(translateLocation).join("; ")}`,
+            `  Diff: ${detail.charCount} characters, ${detail.changedLineCount} changed lines.`,
             renderDiffFence(detail.diff),
         );
         return lines;
     }
     if (detail.kind === "reference") {
         lines.push(
-            `  变更位置：${detail.locations.join("；")}`,
+            `  Location: ${detail.locations.map(translateLocation).join("; ")}`,
             deleted
-                ? `  diff 为 ${detail.charCount} 字符 / ${detail.changedLineCount} 条变更行，超过当前 ${diffMaxChars} 字符 / ${detail.lineLimit} 行的内联门槛。文件已删除，当前路径不可 read；需要旧内容时请让用户通过文件变更收件箱审查或还原。`
-                : `  diff 为 ${detail.charCount} 字符 / ${detail.changedLineCount} 条变更行，超过当前 ${diffMaxChars} 字符 / ${detail.lineLimit} 行的内联门槛。需要时使用 read 读取该引用文件，不要猜测未展示的正文。`,
+                ? `  Diff size: ${detail.charCount} characters, ${detail.changedLineCount} changed lines; above the inline limit of ${diffMaxChars} characters / ${detail.lineLimit} lines. The file was deleted and its current path cannot be read; ask the user to inspect or restore it from the file change inbox if earlier content is needed.`
+                : `  Diff size: ${detail.charCount} characters, ${detail.changedLineCount} changed lines; above the inline limit of ${diffMaxChars} characters / ${detail.lineLimit} lines. Use read for the complete current file instead of guessing unseen content.`,
         );
         return lines;
     }
     if (detail.kind === "blocked") {
-        lines.push("  这是敏感路径；正文和 diff 均不进入 prompt，不要在回复中回显其内容。");
+        lines.push("  File content and diff are excluded from the prompt. Review the path in the file change inbox instead of reading it because of this notice.");
         return lines;
     }
     if (detail.kind === "unchanged") {
-        lines.push("  文件内容未变化；本组可能只包含重命名或等价写入。");
+        lines.push("  File content is unchanged; this group may contain only a rename or an equivalent write.");
         return lines;
     }
     lines.push(deleted
-        ? `  diff 当前不可用（${detail.reason}）；文件已删除，当前路径不可 read。`
-        : `  diff 当前不可用（${detail.reason}）；任务涉及该文件时使用 read 重新读取。`);
+        ? `  Diff unavailable (${detail.reason}); the file was deleted and its current path cannot be read.`
+        : `  Diff unavailable (${detail.reason}); use read if the task depends on this file.`);
     return lines;
 }
 
@@ -223,7 +238,7 @@ function noticeFits(header: string[], current: string[], candidate: string[], om
 
 /** 大批量变更只保留准确数量，避免 prompt 与预处理成本无界增长。 */
 function omittedFileSummary(count: number): string {
-    return `- 另有 ${count} 个文件发生变化，未逐项展开；本轮提醒已覆盖这些变更。`;
+    return `- ${count} additional changed file${count === 1 ? " was" : "s were"} not expanded; this notice still accounts for them.`;
 }
 
 /** Agent 字符预算按 Unicode code point 计数，与单文件 diff 策略保持一致。 */
@@ -256,19 +271,19 @@ function describeActors(group: UnseenGroup): string {
     for (const entry of group.entries) {
         labels.add(actorLabel(entry.actor));
     }
-    return `来自 ${[...labels].join("、")}`;
+    return `by ${[...labels].join(", ")}`;
 }
 
 function actorLabel(actor: OperationActor): string {
     switch (actor.kind) {
         case "user":
-            return "用户";
+            return "the user";
         case "external":
-            return "外部工具";
+            return "an external tool";
         case "agent":
             return `agent#${actor.sessionId}`;
         case "system":
-            return `系统(${actor.source})`;
+            return `the system (${actor.source})`;
     }
 }
 
@@ -279,24 +294,67 @@ function describeOperations(group: UnseenGroup): string {
         const label = operationLabel(entry.operation.type);
         counts.set(label, (counts.get(label) ?? 0) + 1);
     }
-    return [...counts.entries()].map(([label, count]) => count > 1 ? `${label}×${count}` : label).join("、");
+    return [...counts.entries()].map(([label, count]) => count > 1 ? `${label} x${count}` : label).join(", ");
 }
 
 function operationLabel(type: string): string {
     switch (type) {
         case "file.create":
-            return "新建";
+            return "added";
         case "file.edit":
-            return "修改";
+            return "modified";
         case "file.delete":
-            return "删除";
+            return "deleted";
         case "file.rename":
-            return "改名";
+            return "renamed";
         case "file.revert":
-            return "还原";
+            return "reverted";
         case "file.restore":
-            return "恢复";
+            return "restored";
         default:
             return type;
     }
+}
+
+/**
+ * 按文件的净状态和本组操作历史选择 Git 风格主状态。
+ * 后续 edit 不应抹掉 create / rename / restore / revert 的用户可见语义。
+ */
+function primaryOperationLabel(group: UnseenGroup): string {
+    const operations = new Set(group.entries.map((entry) => entry.operation.type));
+    if (group.endHash === null) {
+        return "deleted";
+    }
+    if (group.baseHash === null) {
+        if (operations.has("file.restore")) {
+            return "restored";
+        }
+        if (operations.has("file.revert")) {
+            return "reverted";
+        }
+        return "added";
+    }
+    if (operations.has("file.rename")) {
+        return "renamed";
+    }
+    if (operations.has("file.revert")) {
+        return "reverted";
+    }
+    if (operations.has("file.restore")) {
+        return "restored";
+    }
+    return "modified";
+}
+
+/** 英文变化计数。 */
+function changeCount(count: number): string {
+    return `${count} change${count === 1 ? "" : "s"}`;
+}
+
+/** nb-history hunk 位置当前使用中文标记，在提示层转换为英文。 */
+function translateLocation(location: string): string {
+    return location
+        .replace(/^新 /u, "new ")
+        .replace(/ \/ 旧 /u, " / old ")
+        .replace(/^旧 /u, "old ");
 }

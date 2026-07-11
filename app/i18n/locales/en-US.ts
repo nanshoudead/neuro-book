@@ -162,6 +162,10 @@ const enUS = {
     settings: {
         title: "Settings",
         scope: {
+            boot: {
+                label: "Boot Config",
+                description: "Root config.yaml; changes require a restart",
+            },
             global: {
                 label: "Global Config",
                 description: "Workspace Root .nbook/config.json",
@@ -180,6 +184,10 @@ const enUS = {
             browserState: "Browser State",
         },
         section: {
+            security: {
+                label: "Password Protection",
+                description: "Review startup authentication settings and security impact.",
+            },
             frontend: {
                 label: "Frontend",
                 description: "Local UI preferences. Changes apply immediately.",
@@ -212,6 +220,16 @@ const enUS = {
                 label: "Observability",
                 description: "Pi request trace recording and retention.",
             },
+        },
+        security: {
+            title: "Password protection is managed by Boot Config",
+            description: "Edit auth.enabled in the root config.yaml and restart NeuroBook. This setting is not written to Workspace Root .nbook/config.json and cannot be hot-reloaded from Settings.",
+            runtimeStatusDescription: "The state loaded when this process started; it does not reflect un-restarted file edits.",
+            statusEnabled: "Currently enabled",
+            statusDisabled: "Currently disabled",
+            statusUnknown: "Reading status",
+            exampleTitle: "config.yaml example",
+            warning: "When disabled, every user can access the application directly and admin APIs lose authentication protection. Use this only in a trusted local development environment.",
         },
         frontend: {
             languageTitle: "Interface Language",

@@ -109,6 +109,15 @@ describe("normalizeMarkdownDialectBlocks（读时规范化）", () => {
             .toBe("说明\n\n<html>\n<div>x</div>\n</html>\n");
     });
 
+    it("与方言块 pattern 非同构的伪形态不拆（拆了 tokenizer 也不认领）", () => {
+        // align 必须带合法 value 属性（ALIGN_PATTERN）
+        const bareAlign = "正文<align>\n内容\n</align>\n";
+        expect(normalizeMarkdownDialectBlocks(bareAlign)).toBe(bareAlign);
+        // html 嵌入块只认裸 <html>（HTML_EMBED_PATTERN）
+        const attrHtml = "说明<html lang=\"x\">\n<div>y</div>\n</html>\n";
+        expect(normalizeMarkdownDialectBlocks(attrHtml)).toBe(attrHtml);
+    });
+
     it("已是行首的标准块级形态不动", () => {
         const source = "abc\n\n<comment>\ncontent\n</comment>\n";
         expect(normalizeMarkdownDialectBlocks(source)).toBe(source);

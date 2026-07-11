@@ -1,41 +1,14 @@
 import {MarkdownManager} from "@tiptap/markdown";
-import {Markdown} from "@tiptap/markdown";
-import {StarterKit} from "@tiptap/starter-kit";
 import {describe, expect, it} from "vitest";
-import {Comment, CommentBlock} from "nbook/app/components/markdown-studio/tiptap/Comment";
-import {HtmlBlock, HtmlBlockBridge, RawInlineHtml} from "nbook/app/components/markdown-studio/tiptap/HtmlFallback";
-import {HtmlEmbed} from "nbook/app/components/markdown-studio/tiptap/HtmlEmbed";
-import {MarkdownAlign} from "nbook/app/components/markdown-studio/tiptap/MarkdownAlign";
-import {MarkdownBilingual} from "nbook/app/components/markdown-studio/tiptap/MarkdownBilingual";
-import {MarkdownRuby} from "nbook/app/components/markdown-studio/tiptap/MarkdownRuby";
-import {MarkdownHighlight, MarkdownTextColor} from "nbook/app/components/markdown-studio/tiptap/MarkdownTextMarks";
+import {createMarkdownDialectExtensions} from "nbook/app/components/markdown-studio/tiptap/markdown-dialect-extensions";
 import {normalizeMarkdownDialectBlocks} from "nbook/shared/markdown-workbench";
 
 /**
- * 创建 Markdown Studio 的真实 TipTap Markdown manager，方言扩展组合与编辑器一致（去掉纯 UI 扩展）。
+ * 创建 Markdown Studio 的真实 TipTap Markdown manager，方言扩展组与真实编辑器共用单一来源。
  */
 function createManager(): MarkdownManager {
     return new MarkdownManager({
-        extensions: [
-            Markdown,
-            StarterKit.configure({
-                code: false,
-                hardBreak: false,
-                link: false,
-                trailingNode: false,
-            }),
-            Comment,
-            CommentBlock,
-            MarkdownRuby,
-            MarkdownBilingual,
-            HtmlEmbed,
-            HtmlBlock,
-            HtmlBlockBridge,
-            RawInlineHtml,
-            MarkdownAlign,
-            MarkdownTextColor,
-            MarkdownHighlight,
-        ],
+        extensions: createMarkdownDialectExtensions(),
     });
 }
 
@@ -255,6 +228,14 @@ describe("markdown-studio TipTap Markdown extensions", () => {
         const source = "返回值是 Vec<String> 列表。";
         const parsed = manager.parse(source);
         expect(JSON.stringify(parsed)).toContain("\"type\":\"rawInlineHtml\"");
+        expect(manager.serialize(parsed)).toBe(source);
+    });
+
+    it("配对闭合后还挂残片的畸形块不交 DOM 自愈，保源码块（防残片被静默丢弃）", () => {
+        const manager = createManager();
+        const source = "<comment>\na</comment>x</comment>";
+        const parsed = manager.parse(source);
+        expect(JSON.stringify(parsed)).toContain("\"type\":\"htmlBlock\"");
         expect(manager.serialize(parsed)).toBe(source);
     });
 });

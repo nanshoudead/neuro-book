@@ -27,7 +27,7 @@
 
 ## Current State
 
-已实施完成（2026-07-10，含三轮用户反馈修复）。反馈轮 2（源码模式 CPU、空文件卡片、卡片样式、整体审查、文本回退/冲突审查）与反馈轮 3（comment 混合形态 A 规范化 + B 兜底保数据、冲突提示文案）全部处理：shared+app 全量 299/299、typecheck 全绿。浏览器实测由用户自行验收。
+已实施完成（2026-07-11，含三轮用户反馈修复 + 审查修复轮）。反馈轮 2（源码模式 CPU、空文件卡片、卡片样式、整体审查、文本回退/冲突审查）、反馈轮 3（comment 混合形态 A 规范化 + B 兜底保数据、冲突提示文案）与审查修复轮（/code-review 7 findings：StructuredTextEditor 模式切换丢防抖尾巴等）全部处理：shared+app 全量 301/301、本轮文件 typecheck 干净。浏览器实测由用户自行验收。
 
 ## Decisions / Discussion
 
@@ -122,6 +122,20 @@
 
 - 计划中「多段混合残片 → chip 保数据」的 editor 用例原想在 node 环境断言 `<comment>` 字面保留，实测 node 下 Bridge 交回 DOM 的退化分支会把标签转义为 `&lt;comment&gt;`（文本不丢但形态变了）——该环境行为无断言价值，删除 node 版用例，DOM 真实路径由 jsdom 文件覆盖（Plan 代理审查时已预警此点）。
 - 其余按计划执行，无方向修正。验证：shared+app 全量 299/299、typecheck 全绿。
+
+### 2026-07-11 审查修复轮（/code-review high 7 findings 全处置）
+
+审查过程：8 个 finder 子代理全被 API 429 击落，主会话内联完成 8 角度审查（30+ 疑点逐一核实代码路径），7 条存活并全修：
+
+- **F1（真 bug）`StructuredTextEditor.vue`**：rich/source 模式切换用 v-if 销毁编辑器，而防抖改造后编辑器 unmount 只 cancel 不上报——该组件数据宿主（modelValue）不变，销毁前必须结算，否则打字 300ms 内切换丢尾巴（此前靠「点按钮触发 blur→flush」隐式兜底，外部 `:mode` prop 程序化切换完全无兜底；组件被 Plot/章节/Profile/Agent 气泡等 15+ 处消费）。修复：`watch(effectiveMode, flush 两个 handle, {flush: "sync"})` 统一覆盖内外两条切换路径（sync 时机保证旧实例仍挂载）。**不改 v-show**：Monaco 重资源 × 一页多实例，懒挂载是有意设计。组件级自动化测试挂不了 .vue（vitest 无 vue 插件），靠时序推演 + 用户浏览器验收。
+- **F2 `markdown-workbench.ts`**：normalize 开标签正则改为与各方言块 pattern 逐标签同构（comment/bilingual 宽松属性、align 必须带合法 value、html 只认裸标签），消除 `<align>`（无 value）/`<html lang>` 被拆段却无 tokenizer 认领的孤立源码块中间态；测试钉住两个伪形态不拆。
+- **F3 测试 schema 单一来源**：新建 `markdown-dialect-extensions.ts` 导出 `createMarkdownDialectExtensions()`（基座 + 全部带 markdownTokenizer/markdownTokenName 的方言与兜底，无 .vue 依赖），真实 `markdown-editor-extensions.ts` 消费它再追加 UI 层；三个测试文件删掉手拼列表改 import 同一函数。审查时已证实漂移真实发生过（extensions 测试环境缺 MarkdownParagraph 1500）。
+- **F4 `HtmlFallback.ts`**：Bridge 完整性自愈从 `endsWith` 后缀判据换成复用 `findMatchingCloseEnd` 的真配对判据（配对闭合恰好覆盖到结尾才交 DOM），堵住 `<comment>a</comment>x</comment>` 构造下第二个孤立闭标签被 DOM 静默丢弃；node 测试钉住。
+- **F5 `InlineAiReferenceHighlight.ts`**：`buildTextMap`（O(全文)）上提到引用循环外构建一次传入，消除 O(refs×全文)。
+- **F6 `markdown-workbench.ts`**：fence 状态机抽 `createFenceLineFilter()`（闭包持状态，返回 true=该行属围栏应跳过），主循环与闭标签搜索共用，消除两份同构代码。
+- **F7 `markdown-workbench.ts`**：normalize 早退从 `includes("<")` 强化为方言开标签宽松预检 `DIALECT_OPEN_TAG_HINT_PATTERN`，含 `<mark>` 等行内标签的常见文档零成本跳过全行扫描。
+
+验证：shared+app 全量 301/301（含新增 F2 两用例 + F4 一用例）；本轮全部文件 typecheck 干净（仓库当前唯一类型错误在 `server/agent/variables/variables.test.ts`，来自并行会话未完成的变量系统重构，与本轮无关）。待用户浏览器抽验 F1：任一 StructuredTextEditor 宿主打字后 300ms 内切 rich/source，内容不丢。
 
 ## TODO / Follow-ups
 

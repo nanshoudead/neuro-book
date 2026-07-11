@@ -46,7 +46,6 @@ export const SettingsSchema = Type.Object({
         Type.Literal("minimal"),
         Type.Literal("full"),
     ]),
-    fileChangeDiffMaxChars: Type.Integer({minimum: 0, maximum: 8192}),
 }, {additionalProperties: false});
 
 export type Initial = Static<typeof InitialSchema>;
@@ -66,7 +65,6 @@ export const WriterSettingsForm = defineLowCodeForm({
         polishingWorkflow: DEFAULT_POLISHING_WORKFLOW,
         adultStylePrompt: "",
         fileChangeAwareness: "minimal",
-        fileChangeDiffMaxChars: 512,
     },
     fields: [
         {
@@ -151,15 +149,6 @@ export const WriterSettingsForm = defineLowCodeForm({
                 {value: "full", label: "完整", description: "含归因（谁改的）与操作类型，并提示续写前先重读相关文件。"},
                 {value: "off", label: "关闭", description: "不注入文件变更提醒。"},
             ],
-        },
-        {
-            path: "fileChangeDiffMaxChars",
-            component: "number",
-            label: "单文件 diff 字符上限",
-            description: "单个文件默认 512 字符，约等于 256 tokens；变更行门槛按每 32 字符一行自动推算。设为 0 时只给文件引用和变更位置，不直接注入 diff。",
-            min: 0,
-            max: 8192,
-            step: 64,
         },
     ],
     async validate(value, ctx) {
@@ -456,7 +445,7 @@ export async function buildWriterPrompt(ctx: ProfilePrepareContext<Initial, Payl
                 <Message>{inputContext}</Message>
             </HistorySet>
             <AppendingSet>
-                <FileChangeNotice mode={ctx.settings.fileChangeAwareness} diffMaxChars={ctx.settings.fileChangeDiffMaxChars} />
+                <FileChangeNotice mode={ctx.settings.fileChangeAwareness} />
                 <If condition={!ctx.invocation?.message}>
                     <Message>本轮没有收到 invoke_agent.message。不要写文件；请通过 report_result.result 要求调用方补充本轮写作任务。</Message>
                 </If>

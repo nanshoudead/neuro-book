@@ -3,30 +3,14 @@
 // 背景：ProseMirror 空文档默认块取 schema 注册序（priority 降序）第一个可默认创建的块节点，
 // HtmlBlock 为 marked tokenizer 顺序持 1400 高 priority，曾把空文件填充成空 htmlBlock（HTML 卡片 bug）。
 import {Editor} from "@tiptap/core";
-import {Markdown} from "@tiptap/markdown";
-import {StarterKit} from "@tiptap/starter-kit";
 import {describe, expect, it} from "vitest";
-import {Comment, CommentBlock} from "nbook/app/components/markdown-studio/tiptap/Comment";
-import {HtmlBlock, HtmlBlockBridge, RawInlineHtml} from "nbook/app/components/markdown-studio/tiptap/HtmlFallback";
-import {HtmlEmbed} from "nbook/app/components/markdown-studio/tiptap/HtmlEmbed";
-import {MarkdownAlign} from "nbook/app/components/markdown-studio/tiptap/MarkdownAlign";
-import {MarkdownBilingual} from "nbook/app/components/markdown-studio/tiptap/MarkdownBilingual";
-import {MarkdownParagraph} from "nbook/app/components/markdown-studio/tiptap/MarkdownParagraph";
-import {MarkdownRuby} from "nbook/app/components/markdown-studio/tiptap/MarkdownRuby";
-import {MarkdownHighlight, MarkdownTextColor} from "nbook/app/components/markdown-studio/tiptap/MarkdownTextMarks";
+import {createMarkdownDialectExtensions} from "nbook/app/components/markdown-studio/tiptap/markdown-dialect-extensions";
 
 function createEditor(content: string): Editor {
     return new Editor({
         content,
         contentType: "markdown",
-        extensions: [
-            Markdown,
-            StarterKit.configure({code: false, hardBreak: false, link: false, trailingNode: false, paragraph: false}),
-            MarkdownParagraph,
-            Comment, CommentBlock, MarkdownRuby, MarkdownBilingual,
-            HtmlEmbed, HtmlBlock, HtmlBlockBridge, RawInlineHtml,
-            MarkdownAlign, MarkdownTextColor, MarkdownHighlight,
-        ],
+        extensions: createMarkdownDialectExtensions(),
     });
 }
 

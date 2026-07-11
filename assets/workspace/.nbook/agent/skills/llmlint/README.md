@@ -96,6 +96,8 @@ bun bin/llmlint.ts check chapter.md --format json
 - **`review`** —— `agent` / `human` / `none`。*审查受众*：一条命中默认给谁看。`check` 默认 `--review agent`，把破折号、比喻、泛词形副词等更偏作者偏好的命中放进 `human` 桶、机械命中放进 `none` 桶。用 `--review human` / `--review all` 查看其它桶。
 - **`fixability`** —— `auto` / `candidate` / `manual`。机械修复能力。`fix` 只应用 `auto` 规则。
 
+默认规则集中只有 3 条无需语境判断的机械规则是 `auto`，没有默认 `candidate`，其余规则均为 `manual`。用户仍可在配置中把明确选中的 regex `replace` 规则提升为 `candidate`，供逐条人工确认。规则数据里的 `action.replace` 只是替换模板，**不代表允许直接应用**；最终权限始终由 materialize 后的 `fixability` 决定。
+
 `review`（受众）和 `detector`（检测手段）是**两个不同概念**：
 
 - **`detector`** 决定问题*怎么被发现*：`regex` 由 `check` 静态扫描命中；`llm` 由 `show-llm-rules` 交给 Agent 全文审查。

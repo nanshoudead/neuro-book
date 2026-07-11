@@ -10,7 +10,7 @@ import {createTextToolResult, createToolResultFromResult, createUserMessage, mes
 import {AgentProfileCatalog, type AgentProfileRuntimeResolution} from "nbook/server/agent/profiles/catalog";
 import {defaultAgentProfile} from "nbook/server/agent/profiles/default-profile";
 import {summarizerProfile} from "nbook/server/agent/profiles/summarizer-profile";
-import type {AgentProfile, ProfileCompactionPlan, ProfileTurnPlan, SidecarContext, SidecarMergePlan, SidecarProfilePass, SidecarProfilePassStage, SidecarResult} from "nbook/server/agent/profiles/types";
+import type {AgentProfile, AgentProfileSummarizerConfig, ProfileCompactionPlan, ProfileTurnPlan, SidecarContext, SidecarMergePlan, SidecarProfilePass, SidecarProfilePassStage, SidecarResult} from "nbook/server/agent/profiles/types";
 import {compileProfileSystemPrompt, validateProfileTurnPlan} from "nbook/server/agent/profiles/profile-dsl";
 import {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
 import {buildAgentDialogueContent} from "nbook/server/agent/session/dialogue-content";
@@ -65,6 +65,8 @@ import {
 import {resolvePiApiKeyForModelFromConfig, resolvePiModelFromConfig} from "nbook/server/agent/harness/model-resolver";
 import {planModeDirectory, resolvePlanModeFile} from "nbook/server/agent/plan-mode-path";
 import {resolveWorkspacePath} from "nbook/server/agent/tools/file-tool-utils";
+import {DEFAULT_AGENT_DIFF_MAX_CHARS} from "nbook/shared/agent/file-change-policy";
+import {resolveProfileSummarizer} from "nbook/server/agent/profiles/profile-summarizer";
 import {extractPatchTargetPaths} from "nbook/server/agent/tools/apply-patch";
 import {isReadonlyMode, type AgentMode} from "nbook/shared/dto/agent-session.dto";
 import type {EffectiveConfig} from "nbook/server/config/types";
@@ -1157,7 +1159,7 @@ export class NeuroAgentHarness {
         if (input.finalResult.status !== "waiting") {
             await this.finishInvocation(input.sessionId, input.invocationId);
         }
-        if (this.enableSessionSummarizer && input.finalResult.status === "completed" && input.profile.summarizer && input.profile.summarizer.enabled !== false) {
+        if (this.enableSessionSummarizer && input.finalResult.status === "completed") {
             this.scheduleSessionSummarizer(input.sessionId).catch((error) => {
                 void appLogger.error("agent.summarizer.schedule.error", {
                     sessionId: input.sessionId,
@@ -2191,11 +2193,6 @@ export class NeuroAgentHarness {
             return this.commandLiveStateResult(sessionId, "completed", result, timing);
         }
         if (body.command === "summarize") {
-            // 预检：profile 必须声明 summarizer 才能手动生成摘要；预检失败时不动标题所有权。
-            const profile = await this.profiles.get(snapshot.metadata.profileKey);
-            if (!profile.summarizer) {
-                throw new Error(`agent profile ${snapshot.metadata.profileKey} 未声明会话摘要功能，无法手动生成摘要。`);
-            }
             // 把标题所有权交还给 auto，并以 force 语义强制 summarizer 立即重跑一次（绕过 fingerprint 判定与配置禁用）。
             await this.executeWritePlan({
                 target: {sessionId},
@@ -2726,8 +2723,9 @@ export class NeuroAgentHarness {
     }
 
     private async runSessionSummarizerJob(sourceSessionId: number, job: SessionSummarizerJob): Promise<void> {
-        // 配置禁用检查每个 job 只做一次（不进 do/while，避免每轮 rerun 重复读配置文件）。
-        let configDisabled: boolean | null = null;
+        // 每个 job 只读取一次有效配置，后续 dirty rerun 复用同一开关快照。
+        let configuredEnabled: boolean | undefined;
+        let configLoaded = false;
         do {
             job.rerunRequested = false;
             const force = job.forceRequested;
@@ -2737,22 +2735,18 @@ export class NeuroAgentHarness {
                 return;
             }
             const sourceProfile = await this.profiles.get(sourceSnapshot.metadata.profileKey);
-            const config = sourceProfile.summarizer;
-            if (!config || config.enabled === false) {
-                return;
-            }
-            // 用户可在配置中按 profile 禁用后台摘要；force（用户显式 summarize 命令）绕过该禁用。
-            // 禁用时不 return 而是回到循环条件：运行中排队进来的 force 请求仍能被下一轮处理。
             if (!force) {
-                if (configDisabled === null) {
+                if (!configLoaded) {
                     const effectiveConfig = await loadEffectiveConfig(sourceSnapshot.metadata);
-                    configDisabled = effectiveConfig.agent.profiles[sourceSnapshot.metadata.profileKey]?.summarizer?.enabled === false;
-                }
-                if (configDisabled) {
-                    continue;
+                    configuredEnabled = effectiveConfig.agent.profiles[sourceSnapshot.metadata.profileKey]?.summarizer?.enabled;
+                    configLoaded = true;
                 }
             }
-            await this.runSessionSummarizer(sourceSnapshot, sourceProfile, force);
+            const config = resolveProfileSummarizer(sourceProfile, configuredEnabled, force);
+            if (!config) {
+                continue;
+            }
+            await this.runSessionSummarizer(sourceSnapshot, config, force);
             const latest = await this.repo.readSession(sourceSessionId);
             const latestState = this.readSummarizerState(this.repo.reduce(latest));
             if (latestState.dirty && this.shouldAttemptDirtySummarizerRerun(latestState)) {
@@ -2778,11 +2772,7 @@ export class NeuroAgentHarness {
      * 运行一次 summarizer preflight + 隐藏 run。force=true 时跳过 fingerprint/间隔判定
      * （用户显式 summarize 命令），但仍受 maxDialogueContentTokens 上限约束。
      */
-    private async runSessionSummarizer(sourceSnapshot: SessionSnapshot, sourceProfile: AgentProfile, force = false): Promise<void> {
-        const config = sourceProfile.summarizer;
-        if (!config || config.enabled === false) {
-            return;
-        }
+    private async runSessionSummarizer(sourceSnapshot: SessionSnapshot, config: AgentProfileSummarizerConfig, force = false): Promise<void> {
         const profileKey = config.profileKey;
         const summarizerInput = this.summarizerInput(sourceSnapshot.metadata.sessionId, config.input);
         const summarizerInputFingerprint = stableJsonHash({
@@ -2863,7 +2853,77 @@ export class NeuroAgentHarness {
                 dirty: false,
                 lastError: result.error ?? "summarizer 运行失败。",
             }, "summarizer.error");
+            return;
         }
+        await this.settleSessionSummarizerResult(sourceSnapshot.metadata.sessionId, result.reportResult?.data);
+    }
+
+    /**
+     * 把 hidden summarizer 的结构化结果写回 source session。
+     * source leaf 在运行期间变化时不覆盖展示信息，只标 dirty 让 job 基于新 leaf 重跑。
+     */
+    private async settleSessionSummarizerResult(sourceSessionId: number, data: unknown): Promise<void> {
+        const result = isRecord(data) ? data : {};
+        if (typeof result.title !== "string" || typeof result.summary !== "string") {
+            const current = this.readSummarizerState(this.repo.reduce(await this.repo.readSession(sourceSessionId)));
+            await this.writeSummarizerState(sourceSessionId, {
+                ...current,
+                running: false,
+                dirty: false,
+                lastError: "summarizer 未返回合法 title/summary。",
+            }, "summarizer.result.invalid");
+            return;
+        }
+        const latestSnapshot = await this.repo.readSession(sourceSessionId);
+        const latestContext = this.repo.reduce(latestSnapshot);
+        const current = this.readSummarizerState(latestContext);
+        if (latestSnapshot.leafId !== current.sourceLeafId) {
+            await this.writeSummarizerState(sourceSessionId, {
+                ...current,
+                running: false,
+                dirty: true,
+            }, "summarizer.result.stale");
+            return;
+        }
+        const {
+            runningDialogueContentFingerprint,
+            runningDialogueContentTokens,
+            runningSourcePromptUserTurnCount,
+            lastError: _lastError,
+            ...settled
+        } = current;
+        const updates = {
+            ...(readTitleOwner(latestContext.customState) === "auto" ? {title: this.normalizeSessionTitle(result.title, "summarizer.title")} : {}),
+            summary: result.summary.trim(),
+        };
+        await this.executeWritePlan({
+            target: {sessionId: sourceSessionId},
+            cause: "summarizer.result",
+            ops: [
+                {
+                    kind: "append",
+                    projection: true,
+                    entry: {type: "session_update", updates},
+                },
+                {
+                    kind: "append",
+                    projection: true,
+                    entry: {
+                        type: "custom",
+                        key: SESSION_SUMMARIZER_STATE_KEY,
+                        value: {
+                            ...settled,
+                            running: false,
+                            dirty: false,
+                            ...(runningSourcePromptUserTurnCount !== undefined ? {sourcePromptUserTurnCount: runningSourcePromptUserTurnCount} : {}),
+                            ...(runningDialogueContentTokens !== undefined ? {lastDialogueContentTokens: runningDialogueContentTokens} : {}),
+                            ...(runningDialogueContentFingerprint !== undefined ? {lastDialogueContentFingerprint: runningDialogueContentFingerprint} : {}),
+                            lastRunAt: Date.now(),
+                        },
+                    },
+                },
+            ],
+        });
     }
 
     private async ensureSummarizerSession(input: {
@@ -5275,7 +5335,7 @@ export class NeuroAgentHarness {
         context: Pick<NeuroSessionContext, "profileKey" | "workspaceRoot" | "projectPath">,
     ): Promise<Record<string, JsonValue>> {
         const home = await this.ensureProfileHome(profile, context);
-        return resolveRuntimeProfileSettings(
+        const customSettings = await resolveRuntimeProfileSettings(
             profile,
             config.agent.profiles[context.profileKey]?.settings,
             {
@@ -5286,6 +5346,10 @@ export class NeuroAgentHarness {
                 ...(home ? {home, allowGlobalResourceKeys: true} : {}),
             },
         );
+        return {
+            ...customSettings,
+            fileChangeDiffMaxChars: config.agent.profiles[context.profileKey]?.fileChangeNotice.diffMaxChars ?? DEFAULT_AGENT_DIFF_MAX_CHARS,
+        };
     }
 
     private piStreamOptions(requestOptions: Record<string, JsonValue> | undefined): Record<string, unknown> {

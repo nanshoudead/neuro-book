@@ -133,9 +133,6 @@ describe("assets builtin v3 profiles", () => {
             "save_promise_beat",
             "save_story_decision",
             "execute_sql",
-            "variable_schema",
-            "variable_read",
-            "variable_patch",
         ]);
         expect(profile.rootToolKeys).not.toContain("report_result");
         expect(profile.rootToolKeys).not.toContain("web_search");
@@ -160,9 +157,9 @@ describe("assets builtin v3 profiles", () => {
         expect(visiblePrompt).toContain("Task tools are for execution tracking, not for storing novel facts");
         expect(visiblePrompt).toContain("task_create");
         expect(visiblePrompt).toContain("execute_sql");
-        expect(visiblePrompt).toContain("variable_schema");
-        expect(visiblePrompt).toContain("variable_read");
-        expect(visiblePrompt).toContain("variable_patch");
+        expect(visiblePrompt).not.toContain("variable_schema");
+        expect(visiblePrompt).not.toContain("variable_read");
+        expect(visiblePrompt).not.toContain("variable_patch");
         expect(visiblePrompt).toContain("execute_world");
         expect(visiblePrompt).toContain("world.slice.editPatches");
         expect(visiblePrompt).not.toContain("world.editMutations");
@@ -272,6 +269,15 @@ describe("assets builtin v3 profiles", () => {
                 agentMode: "normal",
             }),
             initial: {},
+            invocation: {
+                caller: {kind: "user"},
+                clientState: {
+                    studio: {
+                        workspace: "workspace/novel-7",
+                        selectedFilePath: "manuscript/001-opening/index.md",
+                    },
+                },
+            },
             vars: createTestVariableAccessor({
                 "client.currentProjectWorkspace": "workspace/novel-7",
                 "client.studio.selectedFilePath": "manuscript/001-opening/index.md",
@@ -288,16 +294,16 @@ describe("assets builtin v3 profiles", () => {
             return Array.isArray(content) ? content.flatMap((block) => block.type === "text" ? [block.text] : []) : [];
         }).join("\n");
         const runtimeAppendingText = (runtimePrepared.appendingMessages ?? []).map(messageText).join("\n");
-        expect(runtimeModelContextText).toContain("\"path\": \"client.currentProjectWorkspace\"");
-        expect(runtimeModelContextText).toContain("\"path\": \"client.studio.selectedFilePath\"");
+        expect(runtimeModelContextText).not.toContain("client.currentProjectWorkspace");
+        expect(runtimeModelContextText).not.toContain("client.studio.selectedFilePath");
         expect(runtimeModelContextText).not.toContain("\"ide\"");
         expect(runtimeModelContextText).not.toContain("<dynamic-context>");
         expect(runtimeAppendingText).toContain("Runtime Location:");
-        expect(runtimeAppendingText).toContain("- Tool cwd: workspace/");
-        expect(runtimeAppendingText).toContain("This is the cwd itself");
+        expect(runtimeAppendingText).toContain("- Tool cwd / Workspace Root: workspace/");
+        expect(runtimeAppendingText).toContain("not an access boundary");
         expect(runtimeAppendingText).toContain("Current Workspace Focus:");
         expect(runtimeAppendingText).toContain("Current Project Workspace: workspace/novel-7");
-        expect(runtimeAppendingText).toContain("use novel-7/lorebook/... or novel-7/manuscript/...");
+        expect(runtimeAppendingText).toContain("novel-7/lorebook/..., novel-7/manuscript/..., or novel-7/reference/...");
         expect(runtimeAppendingText).toContain("Current selected file: novel-7/manuscript/001-opening/index.md");
         expect(runtimeAppendingText).toContain("You are in normal mode. switch_mode is available");
         expect(runtimeAppendingText).not.toContain("Current plot focus:");
@@ -471,15 +477,12 @@ describe("assets builtin v3 profiles", () => {
             "detach_agent",
             "request_user_input",
             "switch_mode",
-            "variable_schema",
-            "variable_read",
-            "variable_patch",
         ]);
         expect(prompt).toContain("workspace/.nbook/agent/profiles");
         expect(prompt).toContain("assets/workspace/.nbook/agent/profiles/builtin/writer.home/{styles,references}");
         expect(prompt).toContain("Workspace Root .nbook");
-        expect(prompt).toContain("agent/variables/definitions.ts");
-        expect(prompt).toContain("workspace/.nbook/agent/variables/.compiled");
+        expect(prompt).not.toContain("agent/variables/definitions.ts");
+        expect(prompt).not.toContain("workspace/.nbook/agent/variables/.compiled");
         expect(prompt).toContain("Project SQLite");
         expect(prompt).toContain("assets/workspace/.nbook/agent/skills");
         expect(prompt).toContain("agents/{profileKey}/");
@@ -514,8 +517,7 @@ describe("assets builtin v3 profiles", () => {
         expect(prompt).toContain(".compiled 是 runtime 真相源");
         expect(prompt).toContain("profile compile");
         expect(prompt).toContain("profile preview");
-        expect(prompt).toContain("--project <projectPath>");
-        expect(prompt).toContain("--strict-variables");
+        expect(prompt).not.toContain("--strict-variables");
         expect(historyText).toContain("```AGENTS.md");
         expect(historyText).toContain("```reference/agent/profile-routing.md");
         expect(historyText).toContain("小说项目任务建议切回目标 Project 的 `leader.default`");
@@ -524,16 +526,12 @@ describe("assets builtin v3 profiles", () => {
         expect(prompt).not.toContain("POST /api/agent/profiles/compile");
         expect(prompt).toContain("Agent runtime 能稳定调用的入口");
         expect(prompt).not.toContain("bun scripts/compile-profile.ts");
-        expect(prompt).toContain("ctx.initial 是 profile 的静态创建输入");
-        expect(prompt).toContain("ctx.vars");
-        expect(prompt).toContain("<Variable>");
-        expect(prompt).toContain("<VariableSchema>");
-        expect(prompt).toContain("client、global、project、session");
-        expect(prompt).toContain("variable_schema");
-        expect(prompt).toContain("variable_read");
-        expect(prompt).toContain("variable_patch");
-        expect(prompt).toContain("variable_patch 需要先 variable_read");
-        expect(prompt).toContain("generated .d.ts");
+        expect(prompt).not.toContain("ctx.vars");
+        expect(prompt).not.toContain("<Variable>");
+        expect(prompt).not.toContain("<VariableSchema>");
+        expect(prompt).not.toContain("variable_schema");
+        expect(prompt).not.toContain("variable_read");
+        expect(prompt).not.toContain("variable_patch");
         expect(prompt).toContain("session 是 append-only tree");
         expect(prompt).toContain("owned agents");
         expect(prompt).toContain("linked-by agents");

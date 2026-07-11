@@ -34,8 +34,6 @@ const components = {
     ActivatedSkills: dsl.ActivatedSkills,
     SqlSchemaSummary: dsl.SqlSchemaSummary,
     Import: dsl.Import,
-    Variable: dsl.Variable,
-    VariableSchema: dsl.VariableSchema,
 };
 
 export const Fragment = dsl.Fragment;
@@ -91,7 +89,5 @@ export namespace JSX {
         ActivatedSkills: Parameters<typeof dsl.ActivatedSkills>[0];
         SqlSchemaSummary: Parameters<typeof dsl.SqlSchemaSummary>[0];
         Import: Parameters<typeof dsl.Import>[0];
-        Variable: Parameters<typeof dsl.Variable>[0];
-        VariableSchema: Parameters<typeof dsl.VariableSchema>[0];
     }
 }

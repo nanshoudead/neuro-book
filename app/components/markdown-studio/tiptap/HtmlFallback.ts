@@ -248,8 +248,13 @@ export const HtmlBlockBridge = Extension.create({
             // <br> 等真 HTML 行内标签独占一行时按行内语义 DOM 解析，不变源码块
             return [];
         }
-        if (firstTag && DOM_PARSEABLE_DIALECT_TAGS.has(firstTag) && html.endsWith(`</${firstTag}>`)) {
-            // 完整闭合的方言标签交回 DOM 自愈；截断形态（不以配对闭标签结尾）保源码块
+        const openTagEnd = OPEN_TAG_PATTERN.exec(html)?.[0].length ?? 0;
+        if (
+            firstTag && DOM_PARSEABLE_DIALECT_TAGS.has(firstTag) && openTagEnd > 0
+            && findMatchingCloseEnd(html, firstTag, openTagEnd) === html.length
+        ) {
+            // 配对闭合恰好覆盖到结尾的方言标签交回 DOM 自愈；中途闭合（结尾还挂着
+            // 残片，如 <comment>a</comment>x</comment>）保源码块，防 DOM 静默丢残片
             return [];
         }
         return helpers.createNode("htmlBlock", {html});

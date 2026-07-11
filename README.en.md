@@ -93,7 +93,7 @@ Check manuscripts the way eslint checks code. 340 rules cover filler words, mech
 .\Start Neuro Book.cmd
 ```
 
-The package bundles the Bun runtime, prebuilt artifacts, and a full source snapshot — no dependency install, no build; first start initializes data and works password-free by default. Run `.\Create Admin.cmd` anytime to create an administrator and enable password protection. Upgrade later with `.\Update Neuro Book.cmd`; everything in `data/` is preserved.
+The package bundles the Bun runtime, prebuilt artifacts, and a full source snapshot — no dependency install, no build; first start initializes data and works password-free by default. Run `.\Create Admin.cmd` anytime to create an administrator and enable password protection, then restart NeuroBook. Upgrade later with `.\Update Neuro Book.cmd`; everything in `data/` is preserved.
 
 **Server / Docker:**
 
@@ -168,10 +168,12 @@ Original works created, edited, or published with NeuroBook do not automatically
 
 ## Star History
 
+## Star History
+
 <a href="https://www.star-history.com/?repos=notnotype%2Fneuro-book&type=date&legend=top-left">
  <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=notnotype/neuro-book&type=date&theme=dark&legend=top-left" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=notnotype/neuro-book&type=date&legend=top-left" />
-   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=notnotype/neuro-book&type=date&legend=top-left" />
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=notnotype/neuro-book&type=date&theme=dark&legend=top-left&sealed_token=ago-VvdvFFQoL3gwjchdv-mcsM5c6Jq5jL8IHxVu4HwYL6d45RujQKDxAzgV-pzxLGddtmU92wJo44_ZhFx-zOI0MXUc46jN6Dq27ZwiLyXfoBdUYSJlVQ" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=notnotype/neuro-book&type=date&legend=top-left&sealed_token=ago-VvdvFFQoL3gwjchdv-mcsM5c6Jq5jL8IHxVu4HwYL6d45RujQKDxAzgV-pzxLGddtmU92wJo44_ZhFx-zOI0MXUc46jN6Dq27ZwiLyXfoBdUYSJlVQ" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=notnotype/neuro-book&type=date&legend=top-left&sealed_token=ago-VvdvFFQoL3gwjchdv-mcsM5c6Jq5jL8IHxVu4HwYL6d45RujQKDxAzgV-pzxLGddtmU92wJo44_ZhFx-zOI0MXUc46jN6Dq27ZwiLyXfoBdUYSJlVQ" />
  </picture>
 </a>

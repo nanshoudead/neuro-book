@@ -94,7 +94,7 @@ AI 已经是一匹好马，NeuroBook 是那副鞍（NeuroAgentHarness——Harne
 .\Start Neuro Book.cmd
 ```
 
-包内内置 Bun runtime、预构建产物和完整源码快照，不装依赖、不跑构建；首次启动自动初始化数据，默认免密码直接使用，需要时运行 `.\Create Admin.cmd` 创建管理员并开启密码保护。之后用 `.\Update Neuro Book.cmd` 一键升级，`data/` 中的作品和配置全部保留。
+包内内置 Bun runtime、预构建产物和完整源码快照，不装依赖、不跑构建；首次启动自动初始化数据，默认免密码直接使用。需要时运行 `.\Create Admin.cmd` 创建管理员并开启密码保护，然后重启 NeuroBook。之后用 `.\Update Neuro Book.cmd` 一键升级，`data/` 中的作品和配置全部保留。
 
 **服务器 / Docker：**
 
@@ -170,10 +170,12 @@ NeuroBook 是采用 [GNU Affero General Public License v3.0（仅此版本）](L
 
 ## Star History
 
+## Star History
+
 <a href="https://www.star-history.com/?repos=notnotype%2Fneuro-book&type=date&legend=top-left">
  <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=notnotype/neuro-book&type=date&theme=dark&legend=top-left" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=notnotype/neuro-book&type=date&legend=top-left" />
-   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=notnotype/neuro-book&type=date&legend=top-left" />
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=notnotype/neuro-book&type=date&theme=dark&legend=top-left&sealed_token=ago-VvdvFFQoL3gwjchdv-mcsM5c6Jq5jL8IHxVu4HwYL6d45RujQKDxAzgV-pzxLGddtmU92wJo44_ZhFx-zOI0MXUc46jN6Dq27ZwiLyXfoBdUYSJlVQ" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=notnotype/neuro-book&type=date&legend=top-left&sealed_token=ago-VvdvFFQoL3gwjchdv-mcsM5c6Jq5jL8IHxVu4HwYL6d45RujQKDxAzgV-pzxLGddtmU92wJo44_ZhFx-zOI0MXUc46jN6Dq27ZwiLyXfoBdUYSJlVQ" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=notnotype/neuro-book&type=date&legend=top-left&sealed_token=ago-VvdvFFQoL3gwjchdv-mcsM5c6Jq5jL8IHxVu4HwYL6d45RujQKDxAzgV-pzxLGddtmU92wJo44_ZhFx-zOI0MXUc46jN6Dq27ZwiLyXfoBdUYSJlVQ" />
  </picture>
 </a>

@@ -22,7 +22,6 @@ import {
     SqlSchemaSummary,
     System,
     TaskReminder,
-    VariableSchema,
     WorkspaceFocusReminder,
 } from "nbook/server/agent/profiles/profile-dsl";
 import {defineProfileHome, type ProfileHomeFacade} from "nbook/server/agent/profiles/profile-home";
@@ -60,7 +59,6 @@ export const SettingsSchema = Type.Object({
         Type.Literal("minimal"),
         Type.Literal("full"),
     ]),
-    fileChangeDiffMaxChars: Type.Integer({minimum: 0, maximum: 8192}),
 }, {additionalProperties: false});
 
 export type Initial = Static<typeof InitialSchema>;
@@ -78,7 +76,6 @@ export const LeaderDefaultSettingsForm = defineLowCodeForm({
         leaderPersonaPreset: DEFAULT_LEADER_PERSONA_PRESET,
         customTopSystemPrompt: "",
         fileChangeAwareness: "full",
-        fileChangeDiffMaxChars: 512,
     },
     fields: [
         {
@@ -141,15 +138,6 @@ export const LeaderDefaultSettingsForm = defineLowCodeForm({
                 {value: "off", label: "关闭", description: "不注入文件变更提醒。"},
             ],
         },
-        {
-            path: "fileChangeDiffMaxChars",
-            component: "number",
-            label: "单文件 diff 字符上限",
-            description: "单个文件默认 512 字符，约等于 256 tokens；变更行门槛按每 32 字符一行自动推算。设为 0 时只给文件引用和变更位置，不直接注入 diff。",
-            min: 0,
-            max: 8192,
-            step: 64,
-        },
     ],
 });
 
@@ -206,9 +194,6 @@ export default defineAgentProfile({
         ...plotReadBindings,
         ...plotWriteBindings,
         builtin.sql.execute,
-        builtin.variable.schema,
-        builtin.variable.read,
-        builtin.variable.patch,
     ),
     summarizer: {
         profileKey: "summarizer",
@@ -321,12 +306,11 @@ export default defineAgentProfile({
                     <Message>
                         <SqlSchemaSummary />
                     </Message>
-                    <VariableSchema paths={["client.currentProjectWorkspace", "client.studio.selectedFilePath"]} includeToolGuide />
                 </ModelContext>
                 <AppendingSet>
                     <RuntimeLocationReminder />
                     <WorkspaceFocusReminder />
-                    <FileChangeNotice mode={ctx.settings.fileChangeAwareness} diffMaxChars={ctx.settings.fileChangeDiffMaxChars} />
+                    <FileChangeNotice mode={ctx.settings.fileChangeAwareness} />
                     <ModeAvailabilityReminder />
                     <LinkedAgentsReminder />
                     <TaskReminder stateKey="agent.tasks" repeatEveryTurns={8} />

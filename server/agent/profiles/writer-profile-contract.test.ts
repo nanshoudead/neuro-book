@@ -65,6 +65,7 @@ describe("writer profile contract", () => {
             vars: createTestVariableAccessor(),
             catalog: {profiles: [], issues: []},
             skills: [],
+            settings: {},
         });
 
         expect((prepared.appendingMessages ?? []).map(messageText)).not.toContain("只应由 Harness 作为 CurrentUserInput 注入");

@@ -43,15 +43,82 @@ describe("file-change-reminder 纯函数", () => {
         }];
         const minimal = buildFileChangeReminder(groups, "minimal");
         expect(minimal).toContain("<file-change-notice>");
-        expect(minimal).toContain("[manuscript/ch1.md](manuscript/ch1.md)（2 条变更）");
+        expect(minimal).toContain("added: [manuscript/ch1.md](manuscript/ch1.md) — 2 changes");
         expect(minimal).not.toContain("agent#12");
 
         const full = buildFileChangeReminder(groups, "full");
-        expect(full).toContain("用户");
+        expect(full).toContain("the user");
         expect(full).toContain("agent#12");
-        expect(full).toContain("新建");
-        expect(full).toContain("修改");
+        expect(full).toContain("added");
+        expect(full).toContain("modified");
         expect(full).toContain("read");
+    });
+
+    it("组合操作按净状态保留 Git 风格主状态", () => {
+        const actor = {kind: "user", userId: "local"} as const;
+        const entry = (id: number, operation: UnseenGroup["entries"][number]["operation"]): UnseenGroup["entries"][number] => ({
+            id,
+            occurredAt: new Date(id * 1000).toISOString(),
+            actor,
+            operation,
+        });
+        const groups: UnseenGroup[] = [
+            {
+                path: "notes/added.md",
+                baseHash: null,
+                endHash: "added-2",
+                maxEntryId: 2,
+                entries: [
+                    entry(1, {type: "file.create", path: "notes/added.md", afterHash: "added-1"}),
+                    entry(2, {type: "file.edit", path: "notes/added.md", beforeHash: "added-1", afterHash: "added-2"}),
+                ],
+            },
+            {
+                path: "notes/renamed.md",
+                baseHash: "rename-1",
+                endHash: "rename-2",
+                maxEntryId: 4,
+                entries: [
+                    entry(3, {type: "file.rename", fromPath: "notes/old.md", toPath: "notes/renamed.md", contentHash: "rename-1"}),
+                    entry(4, {type: "file.edit", path: "notes/renamed.md", beforeHash: "rename-1", afterHash: "rename-2"}),
+                ],
+            },
+            {
+                path: "notes/restored.md",
+                baseHash: null,
+                endHash: "restore-2",
+                maxEntryId: 6,
+                entries: [
+                    entry(5, {type: "file.restore", path: "notes/restored.md", beforeHash: null, afterHash: "restore-1", sourceEntryId: 1}),
+                    entry(6, {type: "file.edit", path: "notes/restored.md", beforeHash: "restore-1", afterHash: "restore-2"}),
+                ],
+            },
+            {
+                path: "notes/reverted.md",
+                baseHash: "revert-before",
+                endHash: "revert-2",
+                maxEntryId: 8,
+                entries: [
+                    entry(7, {type: "file.revert", path: "notes/reverted.md", beforeHash: "revert-before", afterHash: "revert-1", revertedEntryIds: [1]}),
+                    entry(8, {type: "file.edit", path: "notes/reverted.md", beforeHash: "revert-1", afterHash: "revert-2"}),
+                ],
+            },
+            {
+                path: "notes/deleted.md",
+                baseHash: "delete-before",
+                endHash: null,
+                maxEntryId: 9,
+                entries: [entry(9, {type: "file.revert", path: "notes/deleted.md", beforeHash: "delete-before", afterHash: null, revertedEntryIds: [2]})],
+            },
+        ];
+
+        const notice = buildFileChangeReminder(groups, "minimal");
+
+        expect(notice).toContain("added: [notes/added.md]");
+        expect(notice).toContain("renamed: [notes/renamed.md]");
+        expect(notice).toContain("restored: [notes/restored.md]");
+        expect(notice).toContain("reverted: [notes/reverted.md]");
+        expect(notice).toContain("deleted: notes/deleted.md");
     });
 
     it("安全小 diff 内联，超限 diff 只给引用与变更位置", () => {
@@ -71,7 +138,7 @@ describe("file-change-reminder 纯函数", () => {
             lineLimit: 16,
         }]]);
         const inline = buildFileChangeReminder(groups, "minimal", inlineDetails, 512);
-        expect(inline).toContain("小型 diff");
+        expect(inline).toContain("Diff: 31 characters, 2 changed lines");
         expect(inline).toContain("+new");
 
         const referenceDetails = new Map<string, AgentChangeDiffDetail>([["manuscript/ch1.md", {
@@ -82,8 +149,63 @@ describe("file-change-reminder 纯函数", () => {
             lineLimit: 16,
         }]]);
         const reference = buildFileChangeReminder(groups, "minimal", referenceDetails, 512);
-        expect(reference).toContain("变更位置：新 L20-L40 / 旧 L18-L35");
-        expect(reference).toContain("使用 read 读取该引用文件");
+        expect(reference).toContain("Location: new L20-L40 / old L18-L35");
+        expect(reference).toContain("Use read for the complete current file");
+    });
+
+    it("单个敏感文件只给普通路径和 inbox 指引，不生成链接或 read 建议", () => {
+        const group = unseenGroup(".env.local", 1);
+        const details = new Map<string, AgentChangeDiffDetail>([[group.path, {kind: "blocked"}]]);
+
+        const notice = buildFileChangeReminder([group], "full", details, 512);
+
+        expect(notice).toContain("modified: .env.local");
+        expect(notice).not.toContain("[.env.local](.env.local)");
+        expect(notice).toContain("Sensitive path");
+        expect(notice).toContain("file change inbox");
+        expect(notice).not.toContain("use read");
+        expect(notice).not.toContain("Use read");
+    });
+
+    it("敏感文件不在前四个 diff detail 中时仍保持阻断表现", () => {
+        const groups = [
+            unseenGroup("notes/one.md", 1),
+            unseenGroup("notes/two.md", 2),
+            unseenGroup("notes/three.md", 3),
+            unseenGroup("notes/four.md", 4),
+            unseenGroup(".env.production", 5),
+        ];
+
+        const notice = buildFileChangeReminder(groups, "minimal", new Map(), 512);
+
+        expect(notice).toContain("modified: .env.production");
+        expect(notice).not.toContain("[.env.production](.env.production)");
+        expect(notice).toContain("Sensitive path");
+        expect(notice).toContain("Sensitive paths must be reviewed in the file change inbox");
+    });
+
+    it("敏感与普通文件混合时 read 指引只适用于非敏感路径", () => {
+        const groups = [unseenGroup("manuscript/ch1.md", 1), unseenGroup(".env.local", 2)];
+
+        const notice = buildFileChangeReminder(groups, "full", new Map(), 512);
+
+        expect(notice).toContain("[manuscript/ch1.md](manuscript/ch1.md)");
+        expect(notice).not.toContain("[.env.local](.env.local)");
+        expect(notice).toContain("use read only when the task needs complete current content from a non-sensitive path");
+        expect(notice).toContain("Sensitive paths are excluded from the prompt and must be reviewed in the file change inbox");
+    });
+
+    it("敏感删除文件无链接且明确当前路径不可读取", () => {
+        const group = unseenGroup("credentials/private.key", 1, null);
+
+        const notice = buildFileChangeReminder([group], "full", new Map(), 512);
+
+        expect(notice).toContain("deleted: credentials/private.key");
+        expect(notice).not.toContain("[credentials/private.key](credentials/private.key)");
+        expect(notice).toContain("Sensitive path");
+        expect(notice).toContain("current path cannot be read");
+        expect(notice).not.toContain("use read");
+        expect(notice).not.toContain("Use read");
     });
 
     it("批量变更最多逐项列出 50 个文件，并保留准确遗漏数量", () => {
@@ -93,7 +215,7 @@ describe("file-change-reminder 纯函数", () => {
 
         expect(notice).toContain("notes/change-49.md");
         expect(notice).not.toContain("notes/change-50.md");
-        expect(notice).toContain("另有 5 个文件发生变化");
+        expect(notice).toContain("5 additional changed files were not expanded");
         expect(Array.from(notice).length).toBeLessThanOrEqual(12_288);
     });
 
@@ -109,10 +231,10 @@ describe("file-change-reminder 纯函数", () => {
 
         const notice = buildFileChangeReminder([group], "full", details, 512);
 
-        expect(notice).toContain("已删除：manuscript/deleted.md");
+        expect(notice).toContain("deleted: manuscript/deleted.md");
         expect(notice).not.toContain("[manuscript/deleted.md](manuscript/deleted.md)");
-        expect(notice).toContain("当前路径不可 read");
-        expect(notice).not.toContain("使用 read 读取该引用文件");
+        expect(notice).toContain("current path cannot be read");
+        expect(notice).not.toContain("Use read for the complete current file");
     });
 
     it("动态 notice 按 Profile 声明的位置插回 AppendingSet", () => {
@@ -236,7 +358,7 @@ describe("file-change notice 端到端（FauxProvider 黑盒）", () => {
             .map((message) => messageText(message))
             .find((text) => text.includes("<file-change-notice>"));
         expect(notice).toContain("manuscript/ch1.md");
-        expect(notice).toContain("小型 diff");
+        expect(notice).toContain("Diff:");
         expect(notice).toContain("+用户改动");
 
         // 第三轮：游标已推进且无新变更，不再注入
@@ -338,7 +460,7 @@ describe("file-change notice 端到端（FauxProvider 黑盒）", () => {
             tools: profileToolsFromKeys([]),
             context() {
                 return ProfilePrompt({
-                    children: AppendingSet({children: FileChangeNotice({mode: "full", diffMaxChars: 512})}),
+                    children: AppendingSet({children: FileChangeNotice({mode: "full"})}),
                 });
             },
         }), false);
@@ -368,7 +490,7 @@ describe("file-change notice 端到端（FauxProvider 黑盒）", () => {
             .find((text) => text.includes("<file-change-notice>"));
 
         expect(notice).toContain(".env.local");
-        expect(notice).toContain("敏感路径");
+        expect(notice).toContain("Sensitive path");
         expect(notice).not.toContain("SUPER_SECRET_VALUE");
         expect(notice).not.toContain("never-echo");
     }, 30_000);

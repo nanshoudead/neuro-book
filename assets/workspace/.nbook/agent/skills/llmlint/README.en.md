@@ -96,6 +96,8 @@ Every rule carries three orthogonal axes — don't conflate them:
 - **`review`** — `agent` / `human` / `none`. *Audience*: who should look at a hit. `check` defaults to `--review agent`, so author-preference noise (dashes, similes, generic adverbs) is parked in the `human` bucket and mechanical hits in `none`. Use `--review human` / `--review all` to see the rest.
 - **`fixability`** — `auto` / `candidate` / `manual`. Mechanical fix capability. `fix` only applies `auto` rules.
 
+The default ruleset has only three context-free mechanical `auto` rules, no default `candidate` rules, and treats everything else as `manual`. A user config may still promote explicitly chosen regex `replace` rules to `candidate` for one-by-one confirmation. An `action.replace` value is only a replacement template; **it does not grant permission to apply the edit**. The final authority always comes from the materialized `fixability` value.
+
 `review` (audience) is **not** the same as `detector` (detection method):
 
 - **`detector`** decides *how* a problem is found: `regex` → matched statically by `check`; `llm` → reviewed by the agent via `show-llm-rules`.

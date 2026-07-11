@@ -60,8 +60,19 @@ const ALIGN_PATTERN = /^<align\s+value="(left|center|right|justify)">\n?([\s\S]*
  */
 export const MARKDOWN_BLOCK_DIALECT_TAGS = ["comment", "bilingual", "align", "html"] as const;
 
-// 行中块级方言开标签且紧跟行尾（与 COMMENT_BLOCK_PATTERN 的开标签部分同构，防止「拆了但块 tokenizer 不认」）
-const DIALECT_OPEN_TAG_AT_LINE_END_PATTERN = new RegExp(`<(?:${MARKDOWN_BLOCK_DIALECT_TAGS.join("|")})(?:\\s[^>\\n]*)?>[ \\t]*$`);
+// 行中块级方言开标签且紧跟行尾。⚠️ 各标签的属性形态必须与本文件对应块级 pattern 同构
+// （comment/bilingual 宽松属性、align 必须带合法 value、html 只认裸标签），否则会出现
+// 「规范化拆了段、块 tokenizer 却不认领」的孤立源码块中间态。
+const DIALECT_OPEN_TAG_AT_LINE_END_PATTERN = new RegExp([
+    "<(?:",
+    "comment(?:\\s[^>\\n]*)?",          // 同 COMMENT_BLOCK_PATTERN
+    "|bilingual(?:\\s[^>\\n]*)?",       // 同 BILINGUAL_BLOCK_PATTERN
+    "|align\\s+value=\"(?:left|center|right|justify)\"", // 同 ALIGN_PATTERN
+    "|html",                             // 同 HTML_EMBED_PATTERN（HtmlEmbed.ts，裸标签）
+    ")>[ \\t]*$",
+].join(""));
+// 快速预检：文档里连方言开标签的影子都没有时跳过整个规范化扫描（宽松匹配，命中才走全逻辑）
+const DIALECT_OPEN_TAG_HINT_PATTERN = new RegExp(`<(?:${MARKDOWN_BLOCK_DIALECT_TAGS.join("|")})[\\s>]`);
 // 开标签前缀仅由空白与容器标记（引用 >、列表 -*+、有序列表 1. / 1)）组成 = 逻辑行首
 const CONTAINER_ONLY_PREFIX_PATTERN = /^[ \t]*(?:(?:>|[-*+]|\d{1,9}[.)])[ \t]*)*$/;
 // fenced code 开栏：最多 3 空格缩进 + ``` 或 ~~~（info string 任意）
@@ -103,12 +114,12 @@ export function findMarkdownBlockTagStart(src: string, tag: string): number {
  *   Monaco 源码编辑器与 replaceSelection / appendMarkdown（流式 chunk 语义）故意不调。
  */
 export function normalizeMarkdownDialectBlocks(markdown: string): string {
-    if (!markdown.includes("<")) {
+    if (!DIALECT_OPEN_TAG_HINT_PATTERN.test(markdown)) {
         return markdown;
     }
     const endsWithNewline = markdown.endsWith("\n");
     const lines = markdown.split("\n");
-    let fence: {marker: string; length: number} | null = null;
+    const isFenceLine = createFenceLineFilter();
     let changed = false;
 
     for (let index = 0; index < lines.length; index += 1) {
@@ -116,16 +127,7 @@ export function normalizeMarkdownDialectBlocks(markdown: string): string {
         const hasCarriageReturn = rawLine.endsWith("\r");
         const line = hasCarriageReturn ? rawLine.slice(0, -1) : rawLine;
 
-        const fenceMatched = FENCE_OPEN_PATTERN.exec(line);
-        if (fence) {
-            // 闭栏：同字符、长度不小于开栏、行内容仅围栏
-            if (fenceMatched && fenceMatched[1]!.startsWith(fence.marker) && fenceMatched[1]!.length >= fence.length && !line.slice(fenceMatched[0].length).trim()) {
-                fence = null;
-            }
-            continue;
-        }
-        if (fenceMatched) {
-            fence = {marker: fenceMatched[1]![0]!, length: fenceMatched[1]!.length};
+        if (isFenceLine(line)) {
             continue;
         }
 
@@ -159,23 +161,38 @@ export function normalizeMarkdownDialectBlocks(markdown: string): string {
 }
 
 /**
+ * 创建 fenced code 围栏行过滤器：逐行喂入（须已剥 \r），返回 true 表示该行属于
+ * 围栏（开栏 / 栏内 / 闭栏），调用方应跳过。闭包持有围栏状态，一次遍历用一个实例。
+ */
+function createFenceLineFilter(): (line: string) => boolean {
+    let fence: {marker: string; length: number} | null = null;
+    return (line: string): boolean => {
+        const fenceMatched = FENCE_OPEN_PATTERN.exec(line);
+        if (fence) {
+            // 闭栏：同字符、长度不小于开栏、行内容仅围栏
+            if (fenceMatched && fenceMatched[1]!.startsWith(fence.marker) && fenceMatched[1]!.length >= fence.length && !line.slice(fenceMatched[0].length).trim()) {
+                fence = null;
+            }
+            return true;
+        }
+        if (fenceMatched) {
+            fence = {marker: fenceMatched[1]![0]!, length: fenceMatched[1]!.length};
+            return true;
+        }
+        return false;
+    };
+}
+
+/**
  * 从 fromIndex 起向下查找独立成行的 </tag> 闭标签（fence 感知，围栏内不算数）。
  */
 function hasClosingDialectTagBelow(lines: string[], fromIndex: number, tag: string): boolean {
     const closePattern = new RegExp(`^[ \\t]*</${tag}>[ \\t]*$`);
-    let fence: {marker: string; length: number} | null = null;
+    const isFenceLine = createFenceLineFilter();
     for (let index = fromIndex; index < lines.length; index += 1) {
         const rawLine = lines[index]!;
         const line = rawLine.endsWith("\r") ? rawLine.slice(0, -1) : rawLine;
-        const fenceMatched = FENCE_OPEN_PATTERN.exec(line);
-        if (fence) {
-            if (fenceMatched && fenceMatched[1]!.startsWith(fence.marker) && fenceMatched[1]!.length >= fence.length && !line.slice(fenceMatched[0].length).trim()) {
-                fence = null;
-            }
-            continue;
-        }
-        if (fenceMatched) {
-            fence = {marker: fenceMatched[1]![0]!, length: fenceMatched[1]!.length};
+        if (isFenceLine(line)) {
             continue;
         }
         if (closePattern.test(line)) {

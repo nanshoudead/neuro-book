@@ -156,7 +156,6 @@ export type ProfileTemplateVariableItemDto = {
     label: string;
     value: string;
     path: string;
-    token: string;
     currentValue?: unknown;
     editable: boolean;
     description?: string;
@@ -170,7 +169,6 @@ export const ProfileTemplateVariableItemDtoSchema: z.ZodType<ProfileTemplateVari
     label: z.string().trim().min(1),
     value: z.string().trim().min(1),
     path: z.string().trim().min(1),
-    token: z.string().trim().min(1),
     currentValue: z.json().nullable().optional(),
     editable: z.boolean().default(false),
     description: z.string().trim().min(1).optional(),

@@ -116,13 +116,15 @@ export function countMarkdownLines(markdown: string): number {
  */
 function buildReferenceDecorations(editor: Editor, input: InlineAiReferenceHighlightInput): DecorationSet {
     const decorations: Decoration[] = [];
+    // 文本位置映射对整个文档只需构建一次，供全部引用的精确定位共用（O(全文)）
+    const mappedText = buildTextMap(editor);
 
     for (const reference of input.references) {
         if (!referencePathMatches(reference.path, input.activePath)) {
             continue;
         }
         const highlighted = referenceEquals(reference, input.highlightedReference);
-        const textRange = locateReferenceText(editor, reference, input.frontmatterLineOffset);
+        const textRange = locateReferenceText(mappedText, reference, input.frontmatterLineOffset);
         if (textRange) {
             decorations.push(Decoration.inline(textRange.from, textRange.to, {
                 class: highlighted
@@ -140,13 +142,12 @@ function buildReferenceDecorations(editor: Editor, input: InlineAiReferenceHighl
 /**
  * 优先用 reference.text 定位具体字符范围；chip 行号只用于缩小搜索范围。
  */
-function locateReferenceText(editor: Editor, reference: InlineEditReference, frontmatterLineOffset: number): {from: number; to: number} | null {
+function locateReferenceText(mappedText: {text: string; positions: Array<number | null>}, reference: InlineEditReference, frontmatterLineOffset: number): {from: number; to: number} | null {
     const needle = normalizeReferenceText(reference.text);
     if (!needle) {
         return null;
     }
 
-    const mappedText = buildTextMap(editor);
     const searchBounds = referenceSearchBounds(mappedText.text, reference, frontmatterLineOffset);
     const globalIndex = bestTextIndex(mappedText.text, needle, searchBounds, reference.textRange);
     if (globalIndex < 0) {

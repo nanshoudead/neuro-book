@@ -84,12 +84,11 @@ System + HistorySet/history -> ModelContext -> AppendingSet -> CurrentUserInput
 
 `ModelContext` 用于本轮临时上下文，只进入 provider prompt，不写入产品历史。
 
-允许内容通常是普通 `<Message>`、`<Variable>`、`<VariableSchema>`、`Reminder`、`Watch`、`If` / fragment 展开的普通消息。适合放当前线程摘要、当前变量 schema、只对本轮有意义的状态、临时工具说明等。
+允许内容通常是普通 `<Message>`、`Reminder`、`Watch`、`If` / fragment 展开的普通消息。适合放当前线程摘要、只对本轮有意义的状态、临时工具说明等。
 
 注意：
 
 - `Reminder` / `Watch` 在 `ModelContext` 中生成的消息进入 `modelContextAppendingMessages`，不写入产品历史。
-- `Variable` / `VariableSchema` 第一版只能直接放在 `ModelContext`。
 - 裸文本必须放在 `<Message>` 或其他 string-like 节点内。
 
 `SkillCatalog` / `ActivatedSkills` 本身只是 string 片段，也必须放进 `<Message>` 内。需要持久化的 catalog 放 `HistorySet`；显式激活 skill 内容通常放 `AppendingSet`。
@@ -132,19 +131,20 @@ System + HistorySet/history -> ModelContext -> AppendingSet -> CurrentUserInput
 ```tsx
 <AppendingSet>
     <RuntimeLocationReminder />
-    <FileChangeNotice mode={ctx.settings.fileChangeAwareness} diffMaxChars={ctx.settings.fileChangeDiffMaxChars} />
+    <FileChangeNotice mode={ctx.settings.fileChangeAwareness} />
     <ModeAvailabilityReminder />
 </AppendingSet>
 ```
 
 - `mode="off"` 不产生计划；`minimal` 只描述路径和条数；`full` 额外描述归因与操作类型。
-- `diffMaxChars` 控制每个文件最终 unified diff 的字符预算，范围 0–8192，缺省 512（约 256 tokens）；变更行门槛按每 32 字符一行自动推导，默认 16 行。字符或变更行任一超限时降级为 reference；0 表示不内联 diff。
+- `<FileChangeNotice>` 只声明 awareness mode。每个文件最终 unified diff 的字符预算来自当前 Profile 的通用运行设置 `agent.profiles[profileKey].fileChangeNotice.diffMaxChars`，范围 0–8192，缺省 512（约 256 tokens）；0 表示不内联 diff。
 - 系统整轮预算不可由 Profile 放宽：inline 总额为 `min(8192, diffMaxChars × 4)`，最多计算 4 个文件详情、逐项列出 50 个文件，最终 `<file-change-notice>` 不超过 12,288 字符。reference 只保留 hunk 位置、字符数和变更行统计，不保存 diff 正文；某段放不下时整段降级，不截断正文。
 - 敏感路径在读取 snapshot 正文前由服务端硬阻断：`.ssh/.aws/.azure/.kube/.docker/.gnupg`、所有 `.env` 变体与 `.envrc`、明确凭据文件、私钥名和 `.pem/.key/.p12/.pfx/.jks/.keystore`。策略不扫描内容，也不使用 `secret` 等宽泛子串；Profile 不能放宽，notice 不得出现正文或 diff。
 - 删除文件不生成可点击的当前文件引用。小型删除可内联 removed diff；超限或不可用时明确说明当前路径不可 `read`，需要旧内容时交由文件变更收件箱审查或还原。
 - Profile 未声明该节点时，即使 Project 存在 unseen 文件变更也不会注入提醒。
 - Workbench dry-run 只显示占位消息，不读取真实 history。
 - 真实运行只在 notice 进入模型且 turn ingest 成功后推进游标；失败时下轮仍会重现，保持 at-least-once。
+- notice 正文使用英文 Git 风格状态：`added`、`modified`、`deleted`、`renamed`、`restored`、`reverted`；组合操作按净状态与历史分类，不用最后一条 edit 覆盖 create/rename 等主语义。
 
 ## Continue 模式
 

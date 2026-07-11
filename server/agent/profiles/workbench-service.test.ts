@@ -173,7 +173,7 @@ export default defineAgentProfile({
                     <Message>{ctx.runtime?.now}</Message>
                 </ModelContext>
                 <AppendingSet>
-                    <FileChangeNotice mode={ctx.settings.fileChangeAwareness} diffMaxChars={ctx.settings.fileChangeDiffMaxChars} />
+                    <FileChangeNotice mode={ctx.settings.fileChangeAwareness} />
                     <Reminder id="plan">
                         <Message>提醒</Message>
                     </Reminder>
@@ -223,10 +223,6 @@ export default defineAgentProfile({
             kind: "expression",
             code: "ctx.settings.fileChangeAwareness",
         });
-        expect(appendingChildren[0]?.props.diffMaxChars).toEqual({
-            kind: "expression",
-            code: "ctx.settings.fileChangeDiffMaxChars",
-        });
     }, 30000);
 
     it("FileChangeNotice literal 属性可由 Inspector 源码往返解析", () => {
@@ -243,7 +239,7 @@ export default defineAgentProfile({
         return (
             <ProfilePrompt>
                 <AppendingSet>
-                    <FileChangeNotice mode="minimal" diffMaxChars={512} />
+                    <FileChangeNotice mode="minimal" />
                 </AppendingSet>
             </ProfilePrompt>
         );
@@ -254,7 +250,7 @@ export default defineAgentProfile({
 
         expect(notice).toEqual(expect.objectContaining({
             type: "FileChangeNotice",
-            props: {mode: "minimal", diffMaxChars: 512},
+            props: {mode: "minimal"},
         }));
     });
 

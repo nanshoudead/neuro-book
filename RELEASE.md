@@ -1,5 +1,37 @@
 # Release Notes
 
+## 0.7.2-canary - 2026-07-11
+
+这次 patch 集中收口 Agent Profile 的通用运行设置、自动摘要、Workspace 语义和发布产物一致性，同时修复 Markdown 编辑器的若干边界问题，并降低 llmlint 自动改写风险。
+
+1. 所有 Profile 都能配置自动摘要
+Global / Project 设置现在会为每个 Profile 提供自动摘要开关。声明专用 summarizer 策略的 Profile 默认开启，普通 Profile 默认关闭；用户显式开启普通 Profile 或手动执行 `/summarize` 时，会使用系统默认摘要策略。摘要结果由 Harness 统一写回，继续遵守用户改名后的标题所有权；摘要运行期间 source leaf 变化会标记 dirty 并基于新内容重跑，summarizer 自身不会递归摘要。
+
+2. Profile Workbench 公开表面进一步简化
+`FileChangeNotice` 节点只保留 `mode`，单文件 diff 预算迁移到每个 Profile 的通用 Global / Project 设置。Variable 系统的运行时能力、`ctx.vars`、definition artifact 和全局工具仍然保留，但 `Variable` / `VariableSchema` TSX helper、`builtin.variable` Profile 绑定和 Workbench 变量插入暂时下线，减少 Profile 作者面对的重复入口。
+
+发布前同时修复了 Profile settings fallback 的优先级回归：直接调用 Profile prepare 时，用户设置现在稳定覆盖表单默认值，通用 diff 上限只在缺失时补入默认 512；`leader.assets` 的“最高优先级置顶提示词”不会再被空默认值覆盖。通用设置保留键会从 schema、defaults 和 fields 三个入口统一拦截，避免 Profile 自定义表单再次取得重复所有权。
+
+3. Agent 文件提醒和 Workspace 语义更准确
+文件变更 notice 改为英文 Git 风格状态，能区分 added、modified、deleted、renamed、restored 和 reverted，并继续保留 hunk、diff 统计、安全阻断、预算与 at-least-once 游标语义。敏感路径即使超出前四个 diff detail，也只显示不可点击路径与 file change inbox 指引，不会通过通用 footer 建议 Agent 主动读取。Reminder 状态分离“已观察值”和“实际注入轮次”，空 linked agents 不再产生空提醒，清空后重新关联同一 Agent 仍能再次通知。文档与提示词明确：Current Project Workspace 只是默认焦点，不是访问边界；普通 Agent cwd 始终是 Workspace Root。
+
+4. Markdown 方言和模式切换更稳
+`StructuredTextEditor` 在 rich/source 模式切换前同步结算两个编辑器的防抖输入，修复 300ms 窗口内切换可能丢失末尾输入的问题。Markdown 方言扩展组改为真实编辑器与测试共用的单一来源；HTML fallback 使用真实配对闭合判据，规范化规则与 tokenizer 保持同构；Inline AI 引用高亮的全文文本映射改为每轮只构建一次，避免随引用数量重复扫描全文。
+
+5. Portable Profile artifacts 发布校验加强
+`profile status` 发现 `compile_stale` 时会返回非零退出码。Product staging 会按 manifest 当前引用清理隔离副本中的历史 Profile artifacts，并同时校验 artifact / type artifact 是否存在、是否携带构建机绝对路径；Windows Portable 使用同一套 manifest 归一化规则，兼容数组与按 Profile key 索引的序列化形态。
+
+6. 鉴权配置迁移到 Boot Config
+`auth.enabled` 从可热更新的 Global Config 移到启动期 `config.yaml`。服务器部署默认开启、Windows Portable 默认关闭；创建管理员后会更新 Boot Config，并在重启后生效。管理员 API 统一使用同一守卫，鉴权关闭时本地放行；非法 Boot Config 会明确失败，不再静默伪装成默认值。
+
+7. llmlint 自动修复权限更保守
+默认规则集只保留 3 条无需语境判断的机械规则为 `fixability:auto`，不默认启用 candidate，其余规则均为 manual。规则带有 `action.replace` 只表示存在替换模板，不再隐含允许自动应用；最终是否可自动或候选修复，统一以配置合并后的 `fixability` 为准。
+
+8. Profile 设置合并与旧 artifact 升级修复
+Profile 直接 prepare 的默认设置遵循“表单默认值 < 调用方设置”，通用文件 diff 预算只补缺失项，不再覆盖用户已有设置。Profile 核心 helper 的语义变化会通过 compilerVersion 7 强制旧 bundle 失效重编，避免状态显示 loaded 但实际仍执行旧设置合并逻辑。
+
+本轮发布前执行全仓类型检查，并覆盖 Profile / Harness / Config、Markdown 方言、Portable manifest、llmlint 与相关契约测试。浏览器验收未自动执行，建议重点手动检查普通 Profile 的自动摘要开关、StructuredTextEditor 快速切换模式，以及 Profile Workbench 精简后的编辑流程。
+
 ## 0.7.1-canary - 2026-07-10
 
 这次 patch 是 0.7.0 canary 的验收与契约同步版，不新增业务代码，主要补齐 Agent 文件变更收件箱的最终验证结果和公开行为说明。

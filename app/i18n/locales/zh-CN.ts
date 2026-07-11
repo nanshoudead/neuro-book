@@ -160,6 +160,10 @@ const zhCN = {
     settings: {
         title: "配置中心",
         scope: {
+            boot: {
+                label: "启动配置",
+                description: "根目录 config.yaml，修改后需要重启",
+            },
             global: {
                 label: "全局配置",
                 description: "Workspace Root .nbook/config.json",
@@ -178,6 +182,10 @@ const zhCN = {
             browserState: "浏览器状态",
         },
         section: {
+            security: {
+                label: "密码保护",
+                description: "查看启动期鉴权配置和安全影响。",
+            },
             frontend: {
                 label: "前端设定",
                 description: "本地 UI 偏好，即改即生效。",
@@ -210,6 +218,16 @@ const zhCN = {
                 label: "可观测",
                 description: "Pi 请求 trace 记录开关与保留策略。",
             },
+        },
+        security: {
+            title: "密码保护由 Boot Config 管理",
+            description: "请编辑根目录 config.yaml 中的 auth.enabled，并重启 NeuroBook。该开关不会写入 Workspace Root .nbook/config.json，也不能在配置中心热更新。",
+            runtimeStatusDescription: "当前进程启动时加载的状态，不代表磁盘文件的未重启修改。",
+            statusEnabled: "当前已开启",
+            statusDisabled: "当前已关闭",
+            statusUnknown: "状态读取中",
+            exampleTitle: "config.yaml 配置示例",
+            warning: "关闭后所有用户都能直接访问应用，管理员接口也会失去鉴权保护。仅在可信的本地开发环境中使用。",
         },
         frontend: {
             languageTitle: "界面语言",

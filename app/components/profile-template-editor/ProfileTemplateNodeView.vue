@@ -270,7 +270,7 @@ function nodeSummary(node: ProfileTemplateNodeDto): string {
         return "Reminder for explicit $skill mentions.";
     }
     if (node.type === "FileChangeNotice") {
-        return `Workspace file changes · mode: ${String(node.props.mode ?? "minimal")} · diff chars: ${String(node.props.diffMaxChars ?? 512)}`;
+        return `Workspace file changes · mode: ${String(node.props.mode ?? "minimal")}`;
     }
     return "";
 }
