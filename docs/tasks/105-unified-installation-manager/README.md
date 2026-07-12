@@ -393,6 +393,7 @@ uninstall
 - Release assemble只上传候选Actions artifact。Linux/Windows verify成功后，最终publish job才上传正式Manifest、SHA256和应用资产；Resolver仍以正式Manifest作为完整Release标志。
 - Windows/POSIX Stage 0固定Bun 1.3.14官方archive与executable checksum，每次复用缓存时同时校验checksum和版本，损坏缓存会整版本重建。
 - npm入口文档明确禁止`bunx run @notnotype/neuro-book-manager`，标准形式保持`bunx --bun @notnotype/neuro-book-manager@<tag> <command>`；该错误发生在Manager启动前，只能通过正确入口和发布smoke防止复发。
+- 发布后Arch Source Docker实机build/start成功，但默认启用鉴权使Manager访问`/api/app/version`得到401并误判失败。版本接口现作为只读公共部署探针，其他App/日志/配置接口仍受鉴权；新增middleware聚焦测试约束该边界。
 
 ## TODO / Follow-ups
 
