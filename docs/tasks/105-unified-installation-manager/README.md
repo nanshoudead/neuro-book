@@ -318,6 +318,7 @@ uninstall
 - 全新 `bun run nuxt:build` 通过。无根 `node_modules` 的 Product 隔离 smoke 已覆盖 migration、管理员、system profile、variable CLI、workspace project create、State Root 映射与 HTTP 版本接口。
 - Product system profiles 改为 Nitro vendor 完成后以 Product 模式重新编译，避免源码环境 artifact 在无根 `node_modules` 下出现 `compile_stale`。
 - Task 105 收口聚焦回归通过：`workspace-assets-product-root`、Profile Catalog、Profile CLI path 与 installation paths 共 4 个测试文件、51 项测试。期间发现 Profile Catalog 测试仍写死 compiler version 6；实现实际已使用公开常量 version 7，现已让测试直接消费 `PROFILE_ARTIFACT_COMPILER_VERSION`，避免后续 compiler contract 升级再次产生同类假失败。
+- 首次 Manager canary CI 暴露 `paths.test.ts` 写死 Windows 盘符，Linux runner 会把它解析为相对路径；测试已改用当前平台的 `resolve/join` 表达同一目录合同，本地 Manager 23 项测试复跑通过。
 
 当前未完成的环境级验收：
 
