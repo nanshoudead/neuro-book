@@ -413,7 +413,8 @@ uninstall
 - 用户已在npm为Manager配置GitHub Trusted Publisher。Manager workflow从`NPM_TOKEN`硬切到GitHub OIDC：job增加`id-token: write`，固定使用支持Trusted Publishing的npm 11.5.1，并通过`npm publish --provenance`发布。
 - canary publish job不再尝试删除错误的`latest` dist-tag。Trusted Publisher负责包发布，dist-tag修正属于独立registry管理操作；把两者串在同一job会造成包已成功发布但workflow最终失败的假象。
 - 本轮将发布新的Manager canary patch验证OIDC链。成功标准是GitHub Actions无需`NPM_TOKEN`即可发布、npm `canary`指向新版本且包带provenance；历史`latest → 0.1.0-canary.4`仍单独处理，不用它判断Trusted Publisher是否成功。
-- `0.1.0-canary.6`首次实测中，OIDC权限、验证和provenance签名均成功，但`actions/setup-node`的`registry-url`生成临时npmrc并注入占位`NODE_AUTH_TOKEN`，npm优先使用该无权限token，registry最终返回隐藏授权失败的404。根因不是包名或tarball，workflow已移除registry-url/token配置，将用下一canary让npm直接交换OIDC凭据复测。
+- `0.1.0-canary.6`首次实测中，OIDC权限、验证和provenance签名均成功，但registry返回隐藏授权失败的404。日志中的临时npmrc和占位`NODE_AUTH_TOKEN`一度被怀疑覆盖OIDC，因此下一canary先移除registry-url以分离变量。
+- `0.1.0-canary.7`移除registry-url后变为明确`ENEEDAUTH`。对照npm官方Trusted Publisher故障排查后确认独立Manager package缺少必需的`repository.url`，npm无法把GitHub OIDC身份绑定到`notnotype/neuro-book`。现补齐精确repository URL和workspace directory，并恢复官方推荐的setup-node registry配置；下一canary验证包身份绑定。
 
 ## TODO / Follow-ups
 
