@@ -364,7 +364,6 @@ describe("useAgentSessionStream", () => {
                     status: "idle" as const,
                     updatedAt: 2,
                     archived: false,
-                    detached: false,
                 }],
             })),
             subscribeSessionEvents: vi.fn(async (_sessionId: number, _cursor: AgentSessionEventsQueryDto, onEvent: (event: AgentSessionEventDto) => Promise<void> | void, _signal?: AbortSignal, options?: {onOpen?: () => void}) => {
@@ -400,7 +399,6 @@ describe("useAgentSessionStream", () => {
         expect(session.snapshot.value?.linkedAgents).toEqual([
             expect.objectContaining({
                 sessionId: 2,
-                detached: false,
             }),
         ]);
     });

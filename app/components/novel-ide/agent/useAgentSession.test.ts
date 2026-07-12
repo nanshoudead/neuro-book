@@ -216,7 +216,6 @@ describe("useAgentSession", () => {
                 status: "idle",
                 updatedAt: 2,
                 archived: false,
-                detached: false,
             }],
             linkedByAgents: [],
         });
@@ -227,7 +226,6 @@ describe("useAgentSession", () => {
         expect(session.snapshot.value?.linkedAgents).toEqual([
             expect.objectContaining({
                 sessionId: 2,
-                detached: false,
             }),
         ]);
 

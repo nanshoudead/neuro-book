@@ -620,6 +620,7 @@ function thinkingLevelLabel(level: ThinkingLevelDto): string {
         case "medium": return t("agent.composer.medium");
         case "high": return t("agent.composer.high");
         case "xhigh": return t("agent.composer.xhigh");
+        case "max": return t("agent.composer.max");
     }
 }
 

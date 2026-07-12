@@ -2,9 +2,9 @@ import "dotenv/config";
 import {existsSync, mkdirSync, readFileSync} from "node:fs";
 import {dirname, resolve} from "node:path";
 import * as yaml from "yaml";
+import {resolveBootConfigPath, resolveStateRoot} from "nbook/server/runtime/installation-paths";
 
 const DEFAULT_SQLITE_URL = "file:./workspace/.nbook/neuro-book.sqlite";
-const BOOT_CONFIG_PATH = resolve(process.cwd(), "config.yaml");
 
 export function resolveDatabaseKind() {
     const rawKind = process.env.DATABASE_KIND?.trim().toLowerCase();
@@ -47,16 +47,17 @@ export function preparePrismaEnv() {
     if (!databaseUrl.startsWith("file:")) {
         throw new Error(`DATABASE_URL 只支持 SQLite file: URL，当前为：${databaseUrl || "<empty>"}`);
     }
-    mkdirSync(dirname(resolve(process.cwd(), databaseUrl.slice("file:".length))), {recursive: true});
+    mkdirSync(dirname(resolve(resolveStateRoot(), databaseUrl.slice("file:".length))), {recursive: true});
     return {kind, databaseUrl};
 }
 
 function readBootDatabaseConfig() {
-    if (!existsSync(BOOT_CONFIG_PATH)) {
+    const bootConfigPath = resolveBootConfigPath();
+    if (!existsSync(bootConfigPath)) {
         return {};
     }
 
-    const text = readFileSync(BOOT_CONFIG_PATH, "utf-8");
+    const text = readFileSync(bootConfigPath, "utf-8");
     const expanded = expandEnvTemplates(text);
     const parsed = yaml.parse(expanded);
     return parsed?.database && typeof parsed.database === "object" ? parsed.database : {};

@@ -4,6 +4,7 @@ import {existsSync} from "node:fs";
 import {cp, mkdir, readFile, readdir, rm, stat, writeFile} from "node:fs/promises";
 import {dirname, relative, resolve} from "node:path";
 import {pathToFileURL} from "node:url";
+import {compileProfileArtifacts} from "nbook/server/agent/profiles/profile-artifact-compiler";
 
 const runtimePackageSeeds = [
     "@clack/core",
@@ -67,7 +68,8 @@ const runtimeContextPaths = [
     ".nuxt/tsconfig.json",
     ".nuxt/tsconfig.server.json",
 ];
-const serverRoot = resolve(".output", "server");
+const outputRoot = resolve(process.env.NEURO_BOOK_OUTPUT_DIR ?? ".output");
+const serverRoot = resolve(outputRoot, "server");
 const illegalImportMetaFallback = "file:///_entry.js";
 const importMetaFallbackShape = '{url:"file:///_entry.js",env:process.env}';
 const sourceNodeModulesFileUrl = pathToFileURL(resolve("node_modules")).href.replace(/\/?$/, "/");
@@ -120,6 +122,19 @@ await measure("copy nbook runtime package", async () => {
 });
 await measure("assert nbook runtime package", async () => {
     assertNbookRuntimePackage(resolve(serverRoot, "node_modules", "nbook"));
+});
+await measure("compile Product system profiles", async () => {
+    const previous = process.env.NEURO_BOOK_PRODUCT_BUILD;
+    process.env.NEURO_BOOK_PRODUCT_BUILD = "1";
+    try {
+        await compileProfileArtifacts({
+            profileRoot: resolve(serverRoot, "assets", "workspace", ".nbook", "agent", "profiles"),
+            rootLabel: relative(process.cwd(), resolve(serverRoot, "assets", "workspace", ".nbook", "agent", "profiles")).replaceAll("\\", "/"),
+        });
+    } finally {
+        if (previous === undefined) delete process.env.NEURO_BOOK_PRODUCT_BUILD;
+        else process.env.NEURO_BOOK_PRODUCT_BUILD = previous;
+    }
 });
 const patchedImportMetaFiles = await measure("patch import.meta fallbacks", async () => {
     return await patchImportMetaFallbacks(resolve(serverRoot, "chunks"));
@@ -366,7 +381,7 @@ async function copyRuntimePackageClosure(seedPackages) {
         }
         seen.add(packageName);
         const source = resolve("node_modules", ...packageName.split("/"));
-        const target = resolve(".output", "server", "node_modules", ...packageName.split("/"));
+        const target = resolve(outputRoot, "server", "node_modules", ...packageName.split("/"));
         if (!existsSync(source)) {
             if (requiredPackages.has(packageName)) {
                 throw new Error(`缺少 Nitro runtime package: ${packageName}`);

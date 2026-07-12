@@ -6,6 +6,7 @@ import {useAgentHarness} from "nbook/server/agent/http";
 import type {AgentProfileCatalog} from "nbook/server/agent/profiles/catalog";
 import type {AgentCatalogItem, AgentProfileIssue} from "nbook/server/agent/profiles/types";
 import {resolveProfileSettings} from "nbook/server/agent/profiles/profile-settings";
+import {resolveProfileRuntimeSettings} from "nbook/server/agent/profiles/profile-runtime-settings";
 import {
     USER_ASSETS_WORKSPACE_KIND,
     USER_ASSETS_WORKSPACE_ROOT,
@@ -28,6 +29,7 @@ import type {
     GlobalConfigUpdateDto,
     ProjectConfigDto,
 } from "nbook/shared/dto/config.dto";
+import {resolveStateWorkspaceRoot} from "nbook/server/runtime/installation-paths";
 import {CONFIG_REGISTRY, CONFIG_VERSION} from "nbook/server/config/registry";
 import {
     normalizeAgentProfileModelConfig,
@@ -69,9 +71,12 @@ import {
     resolveConfiguredModel,
 } from "nbook/server/utils/model-settings";
 import {assertProjectOpen, markProjectActivity} from "nbook/server/workspace-files/project-session";
-import {DEFAULT_AGENT_DIFF_MAX_CHARS} from "nbook/shared/agent/file-change-policy";
+import {resolveUserNbookRoot} from "nbook/server/workspace-files/workspace-assets-root";
 
-const GLOBAL_CONFIG_PATH = path.resolve(process.cwd(), "workspace", ".nbook", "config.json");
+/** Global Config 路径跟随当前 State Root。 */
+function globalConfigPath(): string {
+    return path.join(resolveUserNbookRoot(), "config.json");
+}
 
 type ConfigAgentProfileSettingsOptions = {
     agentProfileSettingsScope?: "global" | "project";
@@ -212,7 +217,7 @@ export async function saveGlobalConfig(
         ...(input.models !== undefined ? {models: normalizeGlobalModelsForWrite(input.models, current)} : {}),
         ...(input.embedding !== undefined ? {embedding: normalizeGlobalEmbeddingForWrite(input.embedding, current)} : {}),
     });
-    await writeJsonFile(GLOBAL_CONFIG_PATH, next);
+    await writeJsonFile(globalConfigPath(), next);
     return readConfigEditorSnapshot(query);
 }
 
@@ -340,7 +345,7 @@ export async function loadEffectiveConfigForAgentRuntime(input: {workspaceRoot?:
  * 同步读取 Global Config。仅用于 provider key 这类同步入口。
  */
 export function loadGlobalEffectiveConfigSync(): EffectiveConfig {
-    const global = readJsonFileSync<StoredGlobalConfig>(GLOBAL_CONFIG_PATH);
+    const global = readJsonFileSync<StoredGlobalConfig>(globalConfigPath());
     return resolveEffectiveConfig(normalizeGlobalConfig(global), null);
 }
 
@@ -353,7 +358,7 @@ export async function saveModelSettings(config: ModelSettingsConfig, query: Conf
         ...current,
         models: serializeModelSettings(config),
     });
-    await writeJsonFile(GLOBAL_CONFIG_PATH, next);
+    await writeJsonFile(globalConfigPath(), next);
     return readConfigEditorSnapshot(query);
 }
 
@@ -372,7 +377,7 @@ export async function saveAgentProfileSettings(
             profiles: normalizeAgentProfiles(config),
         },
     });
-    await writeJsonFile(GLOBAL_CONFIG_PATH, next);
+    await writeJsonFile(globalConfigPath(), next);
     return readConfigEditorSnapshot(query);
 }
 
@@ -444,7 +449,7 @@ async function readConfigFiles(query: ConfigWorkspaceQueryDto, knownTarget?: Con
 }
 
 async function readGlobalConfigFile(): Promise<StoredGlobalConfig> {
-    return normalizeGlobalConfig(await readJsonFile<StoredGlobalConfig>(GLOBAL_CONFIG_PATH));
+    return normalizeGlobalConfig(await readJsonFile<StoredGlobalConfig>(globalConfigPath()));
 }
 
 async function readProjectConfigFile(configPath: string): Promise<StoredProjectConfig> {
@@ -549,23 +554,39 @@ async function buildConfigAgentProfileSettingsDto(input: {
     return {
         enabledModels: listEnabledModels(input.effective.models),
         profileModelDefaults: normalizeAgentProfileModelConfig(input.effective.agent.profileModelDefaults),
-        agentProfiles: await Promise.all(input.catalogProfiles.map(async (definition) => ({
-            profileKey: definition.key,
-            name: definition.name,
-            canResetHome: definition.canResetHome,
-            model: normalizeAgentProfileModelConfig({
-                ...input.effective.agent.profileModelDefaults,
-                ...(input.effective.agent.profiles[definition.key]?.model ?? {}),
-            }),
-            loadStatus: definition.loadStatus,
-            hasSettingsForm: definition.hasSettingsForm,
-            hasSummarizer: definition.hasSummarizer,
-            fileChangeDiffMaxChars: input.effective.agent.profiles[definition.key]?.fileChangeNotice.diffMaxChars ?? DEFAULT_AGENT_DIFF_MAX_CHARS,
-            issue: toConfigProfileIssue(definition.issue),
-            sourcePath: definition.sourcePath ?? null,
-            buildState: input.profiles.buildStateFor(definition.key),
-            settings: input.includeSettings ? await buildProfileSettingsDto(input, definition) : null,
-        }))),
+        harnessRuntimeDefaults: resolveProfileRuntimeSettings(undefined, undefined),
+        profileRuntimeDefaults: resolveProfileRuntimeSettings(undefined, input.effective.agent.profileRuntimeDefaults),
+        globalRuntimeDefaultsPatch: input.global.agent?.profileRuntimeDefaults ?? {},
+        projectRuntimeDefaultsPatch: input.project?.agent?.profileRuntimeDefaults ?? {},
+        agentProfiles: await Promise.all(input.catalogProfiles.map(async (definition) => {
+            const profile = definition.loadStatus === "loaded" ? await input.profiles.get(definition.key) : null;
+            return {
+                profileKey: definition.key,
+                name: definition.name,
+                canResetHome: definition.canResetHome,
+                model: normalizeAgentProfileModelConfig({
+                    ...input.effective.agent.profileModelDefaults,
+                    ...(input.effective.agent.profiles[definition.key]?.model ?? {}),
+                }),
+                loadStatus: definition.loadStatus,
+                hasSettingsForm: definition.hasSettingsForm,
+                runtime: {
+                    profileDefaults: profile?.runtimeDefaults ?? {},
+                    effective: resolveProfileRuntimeSettings(
+                        profile?.runtimeDefaults,
+                        input.effective.agent.profiles[definition.key]?.runtime ?? input.effective.agent.profileRuntimeDefaults,
+                    ),
+                    globalDefaultsPatch: input.global.agent?.profileRuntimeDefaults ?? {},
+                    globalProfilePatch: input.global.agent?.profiles?.[definition.key]?.runtime ?? {},
+                    projectDefaultsPatch: input.project?.agent?.profileRuntimeDefaults ?? {},
+                    projectProfilePatch: input.project?.agent?.profiles?.[definition.key]?.runtime ?? {},
+                },
+                issue: toConfigProfileIssue(definition.issue),
+                sourcePath: definition.sourcePath ?? null,
+                buildState: input.profiles.buildStateFor(definition.key),
+                settings: input.includeSettings ? await buildProfileSettingsDto(input, definition, profile) : null,
+            };
+        })),
     };
 }
 
@@ -579,14 +600,13 @@ async function buildProfileSettingsDto(input: {
     profiles: AgentProfileCatalog;
     query: ConfigWorkspaceQueryDto;
     settingsScope: "global" | "project";
-}, definition: AgentCatalogItem): Promise<ConfigAgentProfileSettingsDto["agentProfiles"][number]["settings"]> {
+}, definition: AgentCatalogItem, profile: Awaited<ReturnType<AgentProfileCatalog["get"]>> | null): Promise<ConfigAgentProfileSettingsDto["agentProfiles"][number]["settings"]> {
     if (definition.loadStatus !== "loaded") {
         return null;
     }
     if (!definition.hasSettingsForm) {
         return null;
     }
-    const profile = await input.profiles.get(definition.key).catch(() => null);
     if (!profile?.settingsForm) {
         return null;
     }
@@ -923,8 +943,7 @@ function stripProfileResourceMutations(input: ProjectConfigDto): ProjectConfigDt
                 {
                     model: profileConfig.model,
                     ...(profileConfig.settings !== undefined ? {settings: profileConfig.settings} : {}),
-                    ...(profileConfig.summarizer !== undefined ? {summarizer: profileConfig.summarizer} : {}),
-                    ...(profileConfig.fileChangeNotice !== undefined ? {fileChangeNotice: profileConfig.fileChangeNotice} : {}),
+                    ...(profileConfig.runtime !== undefined ? {runtime: profileConfig.runtime} : {}),
                 },
             ]))),
         },
@@ -1187,7 +1206,7 @@ function resolveExternalWorkspaceRoot(workspaceRoot: string | undefined): string
         return null;
     }
     const absoluteRoot = path.resolve(workspaceRoot);
-    const repoWorkspaceRoot = path.resolve(process.cwd(), "workspace");
+    const repoWorkspaceRoot = resolveStateWorkspaceRoot();
     const relativeToRepoWorkspace = path.relative(repoWorkspaceRoot, absoluteRoot);
     if (!relativeToRepoWorkspace || !relativeToRepoWorkspace.startsWith("..") && !path.isAbsolute(relativeToRepoWorkspace)) {
         return null;
