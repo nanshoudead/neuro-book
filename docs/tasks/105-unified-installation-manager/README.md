@@ -416,6 +416,8 @@ uninstall
 - `0.1.0-canary.6`首次实测中，OIDC权限、验证和provenance签名均成功，但registry返回隐藏授权失败的404。日志中的临时npmrc和占位`NODE_AUTH_TOKEN`一度被怀疑覆盖OIDC，因此下一canary先移除registry-url以分离变量。
 - `0.1.0-canary.7`移除registry-url后变为明确`ENEEDAUTH`。对照npm官方Trusted Publisher故障排查后确认独立Manager package缺少必需的`repository.url`，npm无法把GitHub OIDC身份绑定到`notnotype/neuro-book`。现补齐精确repository URL和workspace directory，并恢复官方推荐的setup-node registry配置；下一canary验证包身份绑定。
 - `0.1.0-canary.8`补齐repository后仍返回授权404。用户提供的npm配置截图确认Trusted Publisher额外绑定Environment `npm`，而workflow job没有声明Environment；该字段属于OIDC subject的一部分，必须精确匹配。publish job现增加`environment: npm`，并把repository URL写成npm实际规范化的`git+https`形式，下一canary验证完整身份四元组。
+- `0.1.0-canary.9`Trusted Publisher实测成功：[workflow 29197120842](https://github.com/notnotype/neuro-book/actions/runs/29197120842)全绿，无`NPM_TOKEN`完成publish并由npm自动生成provenance。registry侧`canary`已指向`0.1.0-canary.9`，package repository/gitHead/integrity与发布提交一致；公开npm真实执行`--version`和`instances config`通过。
+- 实际结论：Trusted Publisher配置必须同时匹配`notnotype / neuro-book / release-manager.yml / environment npm / allow npm publish`，Manager package还必须声明精确repository URL。历史错误`latest → 0.1.0-canary.4`不属于OIDC publish能力，仍按独立dist-tag操作处理。
 
 ## TODO / Follow-ups
 

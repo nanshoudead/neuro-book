@@ -21,6 +21,7 @@
 - Manager npm发布改用GitHub Actions Trusted Publisher：workflow申请`id-token: write`并执行带provenance的无token发布，不再读取`NPM_TOKEN`。npm dist-tag修正不混入OIDC publish job，避免包已发布后因额外registry写操作让workflow误报失败。
 - Trusted Publisher前两次实测把问题收敛到包身份元数据：Manager workspace package缺少`repository.url`，npm无法把GitHub OIDC身份绑定到目标包。现补齐精确仓库URL和workspace directory，并按npm官方示例使用checkout/setup-node v6、registry-url和最新npm CLI。
 - npm配置截图确认Trusted Publisher绑定了GitHub Environment `npm`；此前workflow job未声明该Environment，OIDC subject因此无法匹配并返回隐藏授权失败的404。Manager publish job现显式使用`environment: npm`，repository URL也改为npm规范化的`git+https`形式。
+- Manager `0.1.0-canary.9`已通过GitHub Trusted Publisher无token发布，workflow全绿并生成npm provenance；公开npm `canary`已指向该版本，真实`bunx --bun ...@canary --version`与用户配置命令通过。历史`latest → 0.1.0-canary.4`仍需独立dist-tag管理，不影响OIDC发布链结论。
 - Docker实机验证发现服务器默认鉴权会让Manager版本健康检查收到401；`/api/app/version`现作为只读公共部署探针，不开放日志、配置或业务数据接口，Source Docker与GHCR可在启用鉴权时完成安装和更新健康检查。
 - 本轮已通过完整应用与Manager typecheck、23项Manager测试、npm tarball空目录审计、Windows Portable组装，以及Release/Portable脚本和workflow YAML校验。SSH Arch进一步通过Stage 0 managed Bun 1.3.14的Source Dev安装/启动、Linux Product无根依赖运行、Source Docker容器内install/build/start和既有公开GHCR digest smoke。应用`0.7.4`因鉴权健康探针401在正式资产发布前主动取消且保持零资产；修复后的`0.7.5` Source、Linux Product和GHCR镜像CI已通过，Windows Product、assemble、verify和最终publish仍以Actions结果为准，不能提前视为完整Release。
 
