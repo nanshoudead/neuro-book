@@ -1,6 +1,6 @@
 # 105 - 统一安装目录与 NeuroBook Manager
 
-> 当前状态：实现中。Manager `0.1.0-canary.12`已通过Trusted Publisher公开；应用`v0.7.7-canary.20260713.084528Z.d7818432`的[Release workflow 29236572553](https://github.com/notnotype/neuro-book/actions/runs/29236572553)因Portable空`data/logs/`目录未进入ZIP而停止在Windows verify，保持零公开资产。目录归档合同与本地解压doctor已修复，[`v0.7.8-canary.20260713.100743Z.f36a8440`](https://github.com/notnotype/neuro-book/releases/tag/v0.7.8-canary.20260713.100743Z.f36a8440)已创建并在后台重新验证完整publish；公开Portable/Product Bun与GHCR A→B终验仍未完成，因此Task 105不归档。
+> 当前状态：实现中。Manager [`0.1.0-canary.13`](https://github.com/notnotype/neuro-book/actions/runs/29252645123)已通过Trusted Publisher公开，npm `canary`与真实bunx均已验证。公开`0.7.8`存在CMD闪退和生产Chunk循环依赖白屏，不再作为推荐测试版；[`v0.7.9-canary.20260713.131204Z.3b064b83`](https://github.com/notnotype/neuro-book/releases/tag/v0.7.9-canary.20260713.131204Z.3b064b83)已按`--no-watch`创建，Windows/Linux真实浏览器门禁正在后台运行。公开Portable/Product Bun与GHCR A→B终验仍未完成，因此Task 105不归档。
 
 ## Relative documents refs
 
@@ -521,6 +521,8 @@ uninstall
 
 - 最初计划让Smoke对所有HTTP 4xx/5xx失败。本地真实首启发现Project Session打开期间可出现由业务界面自行恢复的409，它不阻止Vue挂载。最终门禁严格阻断HTML/JS/CSS、page error、应用console error和版本失配，不把生产挂载Smoke扩张成全量业务E2E。
 - Playwright Node API在Bun 1.3.14宿主下会稳定挂起，同一脚本由Node 24 + tsx运行正常。因此CI明确使用Node执行，Product应用运行时仍然是Bun，没有改变部署合同。
+- 本地完整验证为：应用/Manager typecheck、Manager 14文件42测试、Release/路径聚焦5文件8测试、全新Nuxt Product build、57,787条目Windows Portable组装、Portable doctor和真实Chrome首页挂载均通过。安装根特意放在名为`workspace`的祖先目录下，日志无State Root越界和ESM初始化异常。
+- Manager `0.1.0-canary.13`发布workflow `29252645123`全绿，npm与公开bunx均返回`.13`。随后创建应用`v0.7.9-canary.20260713.131204Z.3b064b83`；按发布约定不等待Release Actions，公开资产仍需后续验证。
 
 ## TODO / Follow-ups
 
