@@ -1,6 +1,6 @@
 # 105 - 统一安装目录与 NeuroBook Manager
 
-> 当前状态：实现中。Manager `0.1.0-canary.5` 已公开发布；应用 `v0.7.5-canary.20260712.122532Z.ee84760d` 正在通过 [Release workflow 29192621638](https://github.com/notnotype/neuro-book/actions/runs/29192621638) 装配候选资产。Source、Linux Product和GHCR镜像job已通过，Windows Product、assemble、verify和最终publish尚未得出结论；Manager GHCR回滚和Windows Portable交互终验也未完成，因此 Task 105 不归档。
+> 当前状态：实现中。Manager `0.1.0-canary.12`已通过Trusted Publisher公开；应用`v0.7.7-canary.20260713.084528Z.d7818432`正在通过[Release workflow 29236572553](https://github.com/notnotype/neuro-book/actions/runs/29236572553)装配包含Stage 0脚本的新资产。最终publish、公开Portable/Product Bun与GHCR A→B终验尚未完成，因此Task 105不归档。
 
 ## Relative documents refs
 
@@ -476,6 +476,7 @@ uninstall
 - Portable的CMD/PowerShell Start、Update和Create Admin入口迁入Manager唯一Launcher Module。六个脚本只显式传递`--root`并调用Manager命令，安装器与Portable打包器不再复制模板；退出码由CMD/PowerShell完整透传。
 - Release run `29229409817`确认Windows Product、Portable和四个托管可执行程序均正常。失败根因是verify job从Portable外部目录直接调用wrapper且未传`--root`，Manager按当前目录查找实例后输出Clack ANSI错误，随后被`ConvertFrom-Json`误判。CI现先检查退出码，再解析JSON，并以外部cwd加显式root验证跨目录合同。
 - 首次尝试发布Manager `.12`时，Windows高负载让包含两个真实Git fixture的Discovery集成测试偶发超过Vitest默认5秒，超时中断又导致临时仓库清理EBUSY。隔离复跑2.46秒通过，确认不是Discovery回归；该复杂I/O用例现与其他集成测试一样声明20秒门限，发布脚本未留下commit或tag后再安全重试。
+- Manager `0.1.0-canary.12`重试后workflow全绿，npm `canary`已更新且真实`bunx --bun ...@canary --version`返回`.12`。随后创建应用`0.7.7` patch canary并按发布规则使用`--no-watch`返回；新Release workflow在后台运行，不提前把候选资产视为公开完成。
 
 ### 实际结果与计划差异
 

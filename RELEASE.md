@@ -32,6 +32,7 @@
 - Windows、Linux Stage 0现作为`install.ps1`、`install.cmd`和`install.sh`独立进入完整Release与`SHA256SUMS`；主README按Windows Portable/Manager和Linux统一Manager重新分流，并明确六种Profile与Portable准确资产名。
 - Windows Portable六个Launcher收敛到Manager唯一模板Module，只负责显式传递`--root`并调用`start`、`update`或`admin create`，CMD与PowerShell均透传退出码。Portable打包器不再维护第二套Launcher文本。
 - Release run `29229409817`的Windows verify失败不是Portable损坏，而是CI从外部工作目录调用Manager wrapper却没有指定Installation Root，Clack错误ANSI随后被误当JSON解析。verify现显式传`--root`、先检查退出码再解析`doctor --json`，并检查Stage 0语法与六个Launcher委托合同。
+- Manager `0.1.0-canary.12`已通过Trusted Publisher公开，npm `canary`和真实bunx均返回该版本。应用`v0.7.7-canary.20260713.084528Z.d7818432`已创建并触发修复后的Release workflow；最终公开资产仍以后台verify/publish结果为准。
 - Docker实机验证发现服务器默认鉴权会让Manager版本健康检查收到401；`/api/app/version`现作为只读公共部署探针，不开放日志、配置或业务数据接口，Source Docker与GHCR可在启用鉴权时完成安装和更新健康检查。
 - 本轮已通过完整应用与Manager typecheck、23项Manager测试、npm tarball空目录审计、Windows Portable组装，以及Release/Portable脚本和workflow YAML校验。SSH Arch进一步通过Stage 0 managed Bun 1.3.14的Source Dev安装/启动、Linux Product无根依赖运行、Source Docker容器内install/build/start和既有公开GHCR digest smoke。应用`0.7.4`因鉴权健康探针401在正式资产发布前主动取消且保持零资产；修复后的`0.7.5` Source、Linux Product和GHCR镜像CI已通过，Windows Product、assemble、verify和最终publish仍以Actions结果为准，不能提前视为完整Release。
 
