@@ -1,6 +1,6 @@
 # 105 - 统一安装目录与 NeuroBook Manager
 
-> 当前状态：实现中。Manager [`0.1.0-canary.13`](https://github.com/notnotype/neuro-book/actions/runs/29252645123)已通过Trusted Publisher公开，npm `canary`与真实bunx均已验证。[`v0.7.9-canary.20260713.131204Z.3b064b83`](https://github.com/notnotype/neuro-book/releases/tag/v0.7.9-canary.20260713.131204Z.3b064b83)的Release workflow `29252852294`全绿，九个资产已公开，Windows Portable与Linux Product真实浏览器门禁通过。公开Portable/Product Bun与GHCR A→B终验仍未完成，因此Task 105不归档。
+> 当前状态：实现中。Manager [`0.1.0-canary.14`](https://github.com/notnotype/neuro-book/actions/runs/29258344967)已通过Trusted Publisher公开，npm `canary`与真实bunx均已验证。[`v0.7.9-canary.20260713.131204Z.3b064b83`](https://github.com/notnotype/neuro-book/releases/tag/v0.7.9-canary.20260713.131204Z.3b064b83)的Release workflow `29252852294`全绿，九个资产已公开，Windows Portable与Linux Product真实浏览器门禁通过。公开Portable/Product Bun与GHCR A→B终验仍未完成，因此Task 105不归档。
 
 ## Relative documents refs
 
@@ -532,6 +532,7 @@ uninstall
 - Release发布拆成`publish-payload → verify-public-payload → publish-index`。Source/Product/Portable/Stage 0先公开并从GitHub公开URL重新下载校验；正式Manifest与SHA256SUMS最后上传，因此任一公开Payload损坏都不会形成Manager可安装Release。
 - Stage 0文档统一为“可审计的联网引导脚本”：固定Bun资产并运行Manager `@canary`，应用版本由Manager选择最新完整Release；不再承诺离线安装或固定应用Release。
 - 实际计划差异：Docker镜像必须在build成功后立即写入Journal，不能等`prepareUpdate()`整体返回，否则后续Manager/Compose准备失败会留下孤儿镜像；实现因此把Journal更新推进到build完成点，并让catch统一重新读取持久化Journal恢复。
+- Manager `0.1.0-canary.14` release workflow `29258344967`全绿，npm `canary`与真实`bunx --bun ...@canary --version`均返回`.14`。
 
 ## TODO / Follow-ups
 
