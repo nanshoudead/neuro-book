@@ -475,6 +475,7 @@ uninstall
 - `install.ps1`、`install.cmd`和`install.sh`成为独立Release候选与正式资产，统一进入`SHA256SUMS`。Release verifier严格拒绝Stage 0脚本缺失、额外checksum条目或文件被篡改，Release Manifest schema保持不变。
 - Portable的CMD/PowerShell Start、Update和Create Admin入口迁入Manager唯一Launcher Module。六个脚本只显式传递`--root`并调用Manager命令，安装器与Portable打包器不再复制模板；退出码由CMD/PowerShell完整透传。
 - Release run `29229409817`确认Windows Product、Portable和四个托管可执行程序均正常。失败根因是verify job从Portable外部目录直接调用wrapper且未传`--root`，Manager按当前目录查找实例后输出Clack ANSI错误，随后被`ConvertFrom-Json`误判。CI现先检查退出码，再解析JSON，并以外部cwd加显式root验证跨目录合同。
+- 首次尝试发布Manager `.12`时，Windows高负载让包含两个真实Git fixture的Discovery集成测试偶发超过Vitest默认5秒，超时中断又导致临时仓库清理EBUSY。隔离复跑2.46秒通过，确认不是Discovery回归；该复杂I/O用例现与其他集成测试一样声明20秒门限，发布脚本未留下commit或tag后再安全重试。
 
 ### 实际结果与计划差异
 

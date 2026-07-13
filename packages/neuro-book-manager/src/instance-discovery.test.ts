@@ -54,7 +54,7 @@ describe("实例检测与有限发现", () => {
         expect(result.candidates).toHaveLength(1);
         expect(result.candidates[0]?.root.replaceAll("\\", "/")).toMatch(/\/group\/candidate$/u);
         expect((await discoverInstances([search], [candidate], 3)).candidates).toEqual([]);
-    });
+    }, 20_000);
 
     it("不把其他JavaScript Git仓库当作NeuroBook候选，空搜索根关闭发现", async () => {
         const search = await temporaryRoot("nbook-unrelated-");
