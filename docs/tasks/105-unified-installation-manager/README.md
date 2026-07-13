@@ -1,6 +1,6 @@
 # 105 - 统一安装目录与 NeuroBook Manager
 
-> 当前状态：实现中。Manager `0.1.0-canary.12`已通过Trusted Publisher公开；应用`v0.7.7-canary.20260713.084528Z.d7818432`的[Release workflow 29236572553](https://github.com/notnotype/neuro-book/actions/runs/29236572553)因Portable空`data/logs/`目录未进入ZIP而停止在Windows verify，保持零公开资产。目录归档合同与本地解压doctor已修复，等待下一patch canary重新验证完整publish、公开Portable/Product Bun与GHCR A→B终验，因此Task 105不归档。
+> 当前状态：实现中。Manager `0.1.0-canary.12`已通过Trusted Publisher公开；应用`v0.7.7-canary.20260713.084528Z.d7818432`的[Release workflow 29236572553](https://github.com/notnotype/neuro-book/actions/runs/29236572553)因Portable空`data/logs/`目录未进入ZIP而停止在Windows verify，保持零公开资产。目录归档合同与本地解压doctor已修复，[`v0.7.8-canary.20260713.100743Z.f36a8440`](https://github.com/notnotype/neuro-book/releases/tag/v0.7.8-canary.20260713.100743Z.f36a8440)已创建并在后台重新验证完整publish；公开Portable/Product Bun与GHCR A→B终验仍未完成，因此Task 105不归档。
 
 ## Relative documents refs
 
@@ -488,7 +488,7 @@ uninstall
 ### Portable空目录阶段的实际结果与计划差异
 
 - 原计划只要求新增ZIP空目录回归；实施时发现既有`scripts/release/release-checksums.test.ts`不在根Vitest include内，常规测试不会执行。现只补入既有Release测试目录，没有扩大到新的发布协议或doctor长期能力。
-- Manager bundle、Manifest schema和npm接口均未变化，因此不发布新Manager canary；下一应用patch继续复用公开的`.12`。
+- Manager bundle、Manifest schema和npm接口均未变化，因此没有发布新Manager canary；应用`v0.7.8-canary.20260713.100743Z.f36a8440`继续复用公开的`.12`并已按`--no-watch`启动后台Release链。
 
 ### 部署入口阶段的实际结果与计划差异
 
