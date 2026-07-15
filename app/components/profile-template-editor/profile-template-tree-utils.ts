@@ -71,6 +71,9 @@ export function createNode(type: ProfileTemplateNodeType): ProfileTemplateNodeDt
     if (type === "SqlSchemaSummary") {
         base.props = {text: "${sqlSchemaSummaryText}"};
     }
+    if (type === "FileChangeNotice") {
+        base.props = {mode: "minimal"};
+    }
     if (type === "Import") {
         base.props = {path: "reference/agent/neurobook-project-guide.md"};
     }
@@ -80,10 +83,11 @@ export function createNode(type: ProfileTemplateNodeType): ProfileTemplateNodeDt
     if (type === "TaskReminder") {
         base.props = {stateKey: "agent.tasks", repeatEveryTurns: 8};
     }
-    if (type === "PlanModeReminder" || type === "ActivePlanModeReminder") {
-        base.props = {stateKey: "agent.planMode"};
+    if (type === "ModeReminder") {
+        base.props = {stateKey: "agent.mode"};
     }
-    if (isPlanModeSlotNodeType(type)) {
+    if (type === "ModeSlot") {
+        base.props = {kind: "plan_enter"};
         base.children = [createNode("Text")];
     }
     return base;
@@ -122,10 +126,10 @@ export function canHaveChildren(type: ProfileTemplateNodeType): boolean {
         "LinkedAgentsReminder",
         "RuntimeLocationReminder",
         "WorkspaceFocusReminder",
-        "PlanModeAvailabilityReminder",
+        "ModeAvailabilityReminder",
         "TaskReminder",
-        "ActivePlanModeReminder",
         "MentionedSkillsReminder",
+        "FileChangeNotice",
     ].includes(type);
 }
 
@@ -154,13 +158,13 @@ export function canInsertNodeIntoParent(parent: ProfileTemplateNodeDto, node: Pr
     if (parent.type === "SystemReminder") {
         return node.type === "Text" || node.type === "If";
     }
-    if (parent.type === "PlanModeReminder") {
-        return isPlanModeSlotNodeType(node.type);
+    if (parent.type === "ModeReminder") {
+        return isModeSlotNodeType(node.type);
     }
-    if (isPlanModeSlotNodeType(parent.type)) {
+    if (isModeSlotNodeType(parent.type)) {
         return node.type === "Text" || node.type === "If" || isInlineStringNodeType(node.type);
     }
-    if (isPlanModeSlotNodeType(node.type)) {
+    if (isModeSlotNodeType(node.type)) {
         return false;
     }
     if (node.type === "ToolCall") {
@@ -194,7 +198,7 @@ export function canInsertNodeIntoParent(parent: ProfileTemplateNodeDto, node: Pr
         return ["Message", "AIMessage", "ToolResult", "Reminder", "Watch", "If"].includes(node.type);
     }
     if (parent.type === "AppendingSet") {
-        return ["Message", "AIMessage", "ToolResult", "Reminder", "Watch", "If"].includes(node.type);
+        return ["Message", "AIMessage", "ToolResult", "Reminder", "Watch", "If", "FileChangeNotice"].includes(node.type);
     }
     if (parent.type === "Reminder" || parent.type === "Watch") {
         return ["Message", "AIMessage", "If"].includes(node.type);
@@ -229,13 +233,10 @@ export function isInlineStringNodeType(type: ProfileTemplateNodeType): boolean {
 }
 
 /**
- * 返回该节点是否是 PlanModeReminder 的文案插槽。
+ * 返回该节点是否是 ModeReminder 的文案插槽。
  */
-export function isPlanModeSlotNodeType(type: ProfileTemplateNodeType): boolean {
-    return type === "PlanModeFull"
-        || type === "PlanModeSparse"
-        || type === "PlanModeExit"
-        || type === "PlanModeReentry";
+export function isModeSlotNodeType(type: ProfileTemplateNodeType): boolean {
+    return type === "ModeSlot";
 }
 
 /**
@@ -245,10 +246,9 @@ export function isReminderNodeType(type: ProfileTemplateNodeType): boolean {
     return type === "LinkedAgentsReminder"
         || type === "RuntimeLocationReminder"
         || type === "WorkspaceFocusReminder"
-        || type === "PlanModeAvailabilityReminder"
+        || type === "ModeAvailabilityReminder"
         || type === "TaskReminder"
-        || type === "PlanModeReminder"
-        || type === "ActivePlanModeReminder";
+        || type === "ModeReminder";
 }
 
 /**

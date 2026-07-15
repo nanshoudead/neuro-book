@@ -16,6 +16,16 @@ import {
     PLOT_SCENE_STATUS_LABELS,
     PLOT_THREAD_STATUS_LABELS,
 } from "nbook/app/components/novel-ide/plot/thread-panel/plot-thread-panel.types";
+import {
+    SCENE_OUTCOME_TYPE_OPTIONS,
+    SCENE_PACING_ROLE_OPTIONS,
+    THREAD_MICE_TYPE_OPTIONS,
+} from "nbook/app/components/novel-ide/plot/planning/plot-planning.types";
+import type {
+    StorySceneOutcomeTypeDto,
+    StoryScenePacingRoleDto,
+    StoryThreadMiceTypeDto,
+} from "nbook/shared/dto/plot.dto";
 import type {
     PlotThreadPanelChapter,
     PlotThreadPanelRef,
@@ -50,6 +60,8 @@ const threadDraft = reactive({
     summary: "",
     status: "draft" as PlotThreadPanelThread["status"],
     isMainThread: false,
+    // MICE 线型;空串表示未填写,提交映射 null。
+    miceType: "" as StoryThreadMiceTypeDto | "",
     tagsText: "",
     writingTip: "",
 });
@@ -59,7 +71,10 @@ const sceneDraft = reactive({
     summary: "",
     purpose: "",
     status: "draft" as PlotThreadPanelScene["status"],
-    chapterPath: "",
+    // 结果类型/张弛角色;空串表示未填写,提交映射 null。
+    outcomeType: "" as StorySceneOutcomeTypeDto | "",
+    pacingRole: "" as StoryScenePacingRoleDto | "",
+    chapterId: "",
     writingTip: "",
 });
 
@@ -129,6 +144,7 @@ const isDirty = computed(() => {
             summary: threadDraft.summary,
             status: threadDraft.status,
             isMainThread: threadDraft.isMainThread,
+            miceType: threadDraft.miceType,
             tags: threadTags.value,
             writingTip: threadDraft.writingTip,
         }) !== initialThreadSnapshot.value;
@@ -139,7 +155,9 @@ const isDirty = computed(() => {
         summary: sceneDraft.summary,
         purpose: sceneDraft.purpose,
         status: sceneDraft.status,
-        chapterPath: sceneDraft.chapterPath,
+        outcomeType: sceneDraft.outcomeType,
+        pacingRole: sceneDraft.pacingRole,
+        chapterId: sceneDraft.chapterId,
         writingTip: sceneDraft.writingTip,
         refs: sceneRefsDraft.value,
     }) !== initialSceneSnapshot.value;
@@ -153,6 +171,7 @@ function resetThreadDraft(): void {
     threadDraft.summary = props.thread?.summary ?? "";
     threadDraft.status = props.thread?.status ?? "draft";
     threadDraft.isMainThread = props.thread?.isMainThread ?? false;
+    threadDraft.miceType = props.thread?.miceType ?? "";
     threadDraft.tagsText = props.thread?.tags.join(" / ") ?? "";
     threadDraft.writingTip = props.thread?.writingTip ?? "";
     threadTags.value = [...(props.thread?.tags ?? [])];
@@ -161,6 +180,7 @@ function resetThreadDraft(): void {
         summary: threadDraft.summary,
         status: threadDraft.status,
         isMainThread: threadDraft.isMainThread,
+        miceType: threadDraft.miceType,
         tags: threadTags.value,
         writingTip: threadDraft.writingTip,
     });
@@ -174,7 +194,9 @@ function resetSceneDraft(): void {
     sceneDraft.summary = props.scene?.summary ?? "";
     sceneDraft.purpose = props.scene?.purpose ?? "";
     sceneDraft.status = props.scene?.status ?? "draft";
-    sceneDraft.chapterPath = props.scene?.chapterPath ?? "";
+    sceneDraft.outcomeType = props.scene?.outcomeType ?? "";
+    sceneDraft.pacingRole = props.scene?.pacingRole ?? "";
+    sceneDraft.chapterId = props.scene?.chapterId ?? "";
     sceneDraft.writingTip = props.scene?.writingTip ?? "";
     sceneRefsDraft.value = props.sceneRefs.map((refItem) => ({...refItem}));
     initialSceneSnapshot.value = JSON.stringify({
@@ -182,7 +204,9 @@ function resetSceneDraft(): void {
         summary: sceneDraft.summary,
         purpose: sceneDraft.purpose,
         status: sceneDraft.status,
-        chapterPath: sceneDraft.chapterPath,
+        outcomeType: sceneDraft.outcomeType,
+        pacingRole: sceneDraft.pacingRole,
+        chapterId: sceneDraft.chapterId,
         writingTip: sceneDraft.writingTip,
         refs: sceneRefsDraft.value,
     });
@@ -295,6 +319,7 @@ function submit(): void {
             summary: threadDraft.summary.trim(),
             status: threadDraft.status,
             isMainThread: threadDraft.isMainThread,
+            miceType: threadDraft.miceType || null,
             tags: threadTags.value.map((tag) => tag.trim()).filter(Boolean),
             writingTip: threadDraft.writingTip.trim() || null,
         });
@@ -316,7 +341,9 @@ function submit(): void {
         summary: sceneDraft.summary.trim(),
         purpose: sceneDraft.purpose.trim() || null,
         status: sceneDraft.status,
-        chapterPath: sceneDraft.chapterPath || null,
+        outcomeType: sceneDraft.outcomeType || null,
+        pacingRole: sceneDraft.pacingRole || null,
+        chapterId: sceneDraft.chapterId || null,
         writingTip: sceneDraft.writingTip.trim() || null,
         worldAnchor: props.scene?.worldAnchor ?? {
             startTime: null,
@@ -359,6 +386,9 @@ function applyThreadAiDraft(nextDraft: JsonObject): void {
     if (typeof nextDraft.isMainThread === "boolean") {
         threadDraft.isMainThread = nextDraft.isMainThread;
     }
+    if (typeof nextDraft.miceType === "string" || nextDraft.miceType === null) {
+        threadDraft.miceType = (nextDraft.miceType ?? "") as StoryThreadMiceTypeDto | "";
+    }
 }
 
 /**
@@ -379,6 +409,12 @@ function applySceneAiDraft(nextDraft: JsonObject): void {
     }
     if (typeof nextDraft.status === "string") {
         sceneDraft.status = nextDraft.status as PlotThreadPanelScene["status"];
+    }
+    if (typeof nextDraft.outcomeType === "string" || nextDraft.outcomeType === null) {
+        sceneDraft.outcomeType = (nextDraft.outcomeType ?? "") as StorySceneOutcomeTypeDto | "";
+    }
+    if (typeof nextDraft.pacingRole === "string" || nextDraft.pacingRole === null) {
+        sceneDraft.pacingRole = (nextDraft.pacingRole ?? "") as StoryScenePacingRoleDto | "";
     }
 }
 
@@ -417,13 +453,13 @@ watch(threadTags, (value) => {
                     <span class="i-lucide-loader-circle animate-spin"></span>
                     保存中
                 </span>
-                <span v-else class="text-rose-500">{{ props.error }}</span>
+                <span v-else class="text-[var(--status-danger)]">{{ props.error }}</span>
             </div>
         </template>
         <template #footer>
             <button class="inline-flex items-center justify-center h-8 px-4 rounded-md text-[13px] font-medium cursor-pointer border border-[var(--border-color)] bg-[var(--bg-input)] text-[var(--text-main)] transition-colors duration-200 hover:bg-[var(--bg-hover)] active:scale-95 disabled:cursor-not-allowed disabled:opacity-50" :disabled="props.saving" @click="closeDialog">取消</button>
             <button class="inline-flex items-center justify-center h-8 px-4 rounded-md text-[13px] font-medium cursor-pointer border border-[var(--border-color)] bg-[var(--bg-input)] text-[var(--text-main)] transition-colors duration-200 hover:bg-[var(--bg-hover)] active:scale-95 disabled:cursor-not-allowed disabled:opacity-50" :disabled="props.saving" @click="openAiDialog">AI 批注</button>
-            <button class="inline-flex items-center justify-center h-8 min-w-[92px] px-4 rounded-md text-[13px] font-medium cursor-pointer border border-transparent bg-[var(--accent-main)] text-white transition-all duration-200 hover:opacity-90 hover:shadow-md active:scale-95 disabled:cursor-not-allowed disabled:opacity-50" :disabled="props.saving" @click="submit">
+            <button class="inline-flex items-center justify-center h-8 min-w-[92px] px-4 rounded-md text-[13px] font-medium cursor-pointer border border-transparent bg-[var(--accent-main)] text-[var(--text-inverse)] transition-all duration-200 hover:opacity-90 hover:shadow-md active:scale-95 disabled:cursor-not-allowed disabled:opacity-50" :disabled="props.saving" @click="submit">
                 <span v-if="props.saving" class="flex items-center gap-1">
                     <span class="i-lucide-loader-circle h-4 w-4 animate-spin"></span>
                     保存中
@@ -442,6 +478,10 @@ watch(threadTags, (value) => {
                     <FormSelect v-model="threadDraft.status" :options="threadStatusOptions" />
                 </FormField>
             </div>
+
+            <FormField label="线型(MICE)">
+                <FormSelect v-model="threadDraft.miceType" :options="THREAD_MICE_TYPE_OPTIONS" placeholder="未填写" />
+            </FormField>
 
             <FormField label="标签">
                 <TagInput v-model="threadTags" placeholder="输入标签后回车" />
@@ -482,8 +522,18 @@ watch(threadTags, (value) => {
             </div>
             
             <FormField label="所属章节">
-                <FormSelect v-model="sceneDraft.chapterPath" :options="chapterOptions" placeholder="未挂章" />
+                <FormSelect v-model="sceneDraft.chapterId" :options="chapterOptions" placeholder="未挂章" />
             </FormField>
+
+            <!-- 节奏字段:本场结果与张弛角色(Task 93 规划层,null=未填写) -->
+            <div class="grid grid-cols-2 gap-2">
+                <FormField label="结果类型">
+                    <FormSelect v-model="sceneDraft.outcomeType" :options="SCENE_OUTCOME_TYPE_OPTIONS" placeholder="未填写" />
+                </FormField>
+                <FormField label="节奏角色">
+                    <FormSelect v-model="sceneDraft.pacingRole" :options="SCENE_PACING_ROLE_OPTIONS" placeholder="未填写" />
+                </FormField>
+            </div>
 
             <FormField label="摘要">
                 <StructuredTextEditor
@@ -554,7 +604,7 @@ watch(threadTags, (value) => {
                             />
                             <button
                                 type="button"
-                                class="inline-flex h-7 w-7 items-center justify-center rounded-md text-[var(--text-muted)] transition-colors hover:bg-rose-500/10 hover:text-rose-500"
+                                class="inline-flex h-7 w-7 items-center justify-center rounded-md text-[var(--text-muted)] transition-colors hover:bg-[var(--status-danger-bg)] hover:text-[var(--status-danger)]"
                                 title="删除 Ref"
                                 @click="removeSceneRef(refItem.id)"
                             >
@@ -588,6 +638,7 @@ watch(threadTags, (value) => {
                     summary: threadDraft.summary,
                     status: threadDraft.status,
                     isMainThread: threadDraft.isMainThread,
+                    miceType: threadDraft.miceType || null,
                     tags: threadTags,
                     writingTip: threadDraft.writingTip,
                 }
@@ -596,7 +647,9 @@ watch(threadTags, (value) => {
                     summary: sceneDraft.summary,
                     purpose: sceneDraft.purpose,
                     status: sceneDraft.status,
-                    chapterPath: sceneDraft.chapterPath || null,
+                    outcomeType: sceneDraft.outcomeType || null,
+                    pacingRole: sceneDraft.pacingRole || null,
+                    chapterId: sceneDraft.chapterId || null,
                     writingTip: sceneDraft.writingTip,
                     refs: sceneRefsDraft,
                 }"

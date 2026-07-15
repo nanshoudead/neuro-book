@@ -46,7 +46,7 @@ describe("simulation and director builtin profiles", () => {
                 customState: {},
                 linkedAgents: [],
                 archived: false,
-                planModeActive: false,
+                agentMode: "normal",
             }),
             initial: {},
             vars: createTestVariableAccessor(),
@@ -70,10 +70,10 @@ describe("simulation and director builtin profiles", () => {
             "get_agent",
             "get_agent_profile",
             "get_session",
-            "get_plot_tree",
+            "get_story_tree",
             "get_story_thread",
             "get_story_scene_context",
-            "get_chapter_plot",
+            "get_story_chapter",
         ]);
         expect(simulatorLeaderProfile.rootToolKeys).not.toContain("create_story_plot");
         expect(simulatorLeaderProfile.rootToolKeys).not.toContain("report_result");
@@ -102,7 +102,7 @@ describe("simulation and director builtin profiles", () => {
                 customState: {},
                 linkedAgents: [],
                 archived: false,
-                planModeActive: false,
+                agentMode: "normal",
             }),
             initial: {
                 projectPath: "workspace/rp-project",
@@ -180,7 +180,7 @@ function testSession(input: Partial<NeuroSessionContext>): RuntimeSessionFacade 
         customState: {},
         linkedAgents: [],
         archived: false,
-        planModeActive: false,
+        agentMode: "normal",
         ...input,
         async read() {
             return {

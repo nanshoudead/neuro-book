@@ -5,7 +5,9 @@ import type {ClientStateSnapshot} from "nbook/server/agent/variables/types";
 import type {ServerTimingSink} from "nbook/server/utils/server-timing";
 import type {
     AgentAbortRequestDto,
+    AgentAbortResult,
     AgentActiveInvocationDto,
+    AgentCommandResult,
     AgentCommandRequestDto,
     AgentFollowUpQueueStateDto,
     AgentQueuedMessageDto,
@@ -13,10 +15,14 @@ import type {
     AgentSessionListPageDto,
     AgentSessionListQueryDto,
     AgentSessionLiveStateDto,
+    AgentSessionQueryDto,
+    AgentSessionQueryResultDto,
+    AgentSessionRecoveryDto,
     AgentSessionRelationsDto,
-    AgentSessionSnapshotDto,
     AgentSessionSummaryDto,
+    AgentTreeResult,
     AgentTreeRequestDto,
+    InvokeAgentResult,
 } from "nbook/shared/dto/agent-session.dto";
 
 export type CreateAgentInput = {
@@ -63,34 +69,18 @@ export type AgentInvokeCaller = {
     toolCallId?: string;
 };
 
-export type InvokeAgentStatus = "completed" | "waiting" | "error";
-
-export type InvokeAgentResult = {
-    sessionId: number;
-    invocationId: string;
-    status: InvokeAgentStatus;
-    finalMessage?: string;
-    reportResult?: {
-        result: string;
-        success?: boolean;
-        /** 为空表示本次主路没有可用结构化结果，例如任务失败或只返回可读错误说明。 */
-        data?: unknown;
-    };
-    error?: string;
-    errorPhase?: InvocationErrorPhase;
-    errorInfo?: InvocationErrorInfo;
-    usage?: Usage;
-    elapsedMs?: number;
-    queuedItem?: AgentQueuedMessageDto;
-};
-
 export type AgentSummary = {
     sessionId: number;
     profileKey: string;
     workspaceRoot: string;
     title?: string;
     summary?: string;
-    status: "idle" | "detached";
+    status: "idle";
+};
+
+export type DetachAgentResult = {
+    sessionId: number;
+    status: "detached" | "already_detached" | "not_linked";
 };
 
 export type SessionRecentMessage = {
@@ -125,47 +115,13 @@ export type AgentRuntimeState = {
     followUpQueue: AgentFollowUpQueueStateDto;
 };
 
-export type AgentCommandResult =
-    | {
-        kind: "live_state";
-        status: "completed" | "started";
-        sessionId: number;
-        state: AgentSessionLiveStateDto;
-    }
-    | {
-        kind: "snapshot";
-        status: "completed";
-        sessionId: number;
-        snapshot: AgentSessionSnapshotDto;
-    }
-    | {
-        kind: "created_session";
-        status: "completed";
-        sessionId: number;
-        createdSession: AgentSessionSummaryDto;
-    };
-
-export type AgentTreeResult = {
-    status: "completed" | "invoked";
-    snapshot: AgentSessionSnapshotDto;
-    invocation?: InvokeAgentResult;
-};
-
-export type AgentAbortResult = {
-    status: "idle" | "aborted";
-    sessionId: number;
-};
-
 export type AgentSessionService = {
     listSessions(query?: AgentSessionListQueryDto): Promise<AgentSessionSummaryDto[]>;
     listSessionPage(query?: AgentSessionListQueryDto): Promise<AgentSessionListPageDto>;
-    getSessionSnapshot(sessionId: number, timingSink?: ServerTimingSink, options?: AgentSessionSnapshotOptions): Promise<AgentSessionSnapshotDto>;
+    getSessionQuery(sessionId: number, query?: AgentSessionQueryDto, timingSink?: ServerTimingSink): Promise<AgentSessionQueryResultDto>;
+    getSessionRecovery(sessionId: number, timingSink?: ServerTimingSink): Promise<AgentSessionRecoveryDto>;
     getSessionRelations(sessionId: number, timingSink?: ServerTimingSink): Promise<AgentSessionRelationsDto>;
-    runCommand(sessionId: number, body: AgentCommandRequestDto, timingSink?: ServerTimingSink, options?: AgentSessionSnapshotOptions): Promise<AgentCommandResult>;
-    moveTree(sessionId: number, body: AgentTreeRequestDto, options?: AgentSessionSnapshotOptions): Promise<AgentTreeResult>;
+    runCommand(sessionId: number, body: AgentCommandRequestDto, timingSink?: ServerTimingSink): Promise<AgentCommandResult>;
+    moveTree(sessionId: number, body: AgentTreeRequestDto): Promise<AgentTreeResult>;
     abortInvocation(sessionId: number, body?: AgentAbortRequestDto): Promise<AgentAbortResult>;
-};
-
-export type AgentSessionSnapshotOptions = {
-    entriesLimit?: number | null;
 };

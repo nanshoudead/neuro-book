@@ -2,6 +2,8 @@ import type {JsonValue} from "nbook/server/agent/messages/types";
 import type {MarkdownEditorPreferences, MonacoEditorPreferences} from "nbook/shared/editor-workbench";
 import type {ThinkingLevelDto} from "nbook/shared/dto/app-settings.dto";
 import type {ModelInputKind} from "nbook/shared/dto/app-settings.dto";
+import type {CustomThemeDto} from "nbook/shared/theme/theme-vars";
+import type {ProfileRuntimeSettingsPatch} from "nbook/shared/agent/profile-runtime-settings";
 
 export type ConfigScope = "boot" | "global" | "global-workspace";
 export type ConfigEffect = "hot" | "next-run" | "next-session" | "restart-required";
@@ -31,11 +33,13 @@ export type AgentProfileSettingsConfig = {
 export type AgentProfileConfig = {
     model: AgentProfileModelConfig;
     settings: AgentProfileSettingsConfig;
+    runtime?: ProfileRuntimeSettingsPatch;
 };
 
 export type StoredAgentProfileConfig = {
     model: Partial<AgentProfileModelConfig>;
     settings?: AgentProfileSettingsConfig;
+    runtime?: ProfileRuntimeSettingsPatch;
 };
 
 export type StoredAgentProfileModelDefaultsConfig = Partial<AgentProfileModelConfig>;
@@ -45,9 +49,7 @@ export type ConfiguredModelConfig = {
     id: string;
     group: string | null;
     enabled: boolean;
-    provider: string | null;
     api: string | null;
-    baseUrl: string | null;
     reasoning: boolean | null;
     input: ModelInputKind[] | null;
     maxTokens: number | null;
@@ -56,9 +58,26 @@ export type ConfiguredModelConfig = {
         output: number;
         cacheRead: number;
         cacheWrite: number;
+        tiers: Array<{
+            inputTokensAbove: number;
+            input: number;
+            output: number;
+            cacheRead: number;
+            cacheWrite: number;
+        }>;
     } | null;
     compat: Record<string, JsonValue> | null;
+    headers: Record<string, string | null> | null;
+    thinkingLevelMap: Record<string, string | null> | null;
     contextWindowTokens: number | null;
+};
+
+export type ProviderDiscoveryAdapter = "openai-models" | "openrouter-models" | "google-models" | "none";
+
+export type ProviderDiscoveryConfig = {
+    adapter: ProviderDiscoveryAdapter;
+    /** 相对 Provider Base URL 的发现路径；为空时使用 Adapter 默认路径。 */
+    endpointPath: string | null;
 };
 
 export type ModelProviderOptionsConfig = {
@@ -72,7 +91,9 @@ export type ModelProviderOptionsConfig = {
 export type ConfiguredProviderConfig = {
     name: string;
     enabled: boolean;
-    api: string | null;
+    /** 创建、发现和新模型草稿使用的默认 API；runtime 只读取 model.api。 */
+    defaultApi: string | null;
+    discovery: ProviderDiscoveryConfig;
     options: ModelProviderOptionsConfig;
     models: Record<string, ConfiguredModelConfig>;
 };
@@ -152,9 +173,6 @@ export type StoredWebSettingsConfig = {
 };
 
 export type EffectiveConfig = {
-    auth: {
-        enabled: boolean;
-    };
     models: ModelSettingsConfig;
     embedding: EmbeddingServiceConfig;
     agent: {
@@ -163,10 +181,12 @@ export type EffectiveConfig = {
             userAssets: string | null;
         };
         profileModelDefaults: AgentProfileModelConfig;
+        profileRuntimeDefaults?: ProfileRuntimeSettingsPatch;
         profiles: Record<string, AgentProfileConfig>;
     };
     ui: {
-        theme: "sepia" | "light" | "dark";
+        theme: string;
+        customThemes: CustomThemeDto[];
         costCurrency: "USD" | "CNY";
     };
     editor: {
@@ -174,6 +194,39 @@ export type EffectiveConfig = {
         monaco: MonacoEditorPreferences;
     };
     web: WebSettingsConfig;
+    observability: ObservabilityConfig;
+    history: WorkspaceHistorySettingsConfig;
+};
+
+/** 可观测配置。第一版只有 Pi 请求 trace。 */
+export type ObservabilityConfig = {
+    piTrace: PiTraceConfig;
+};
+
+/** Pi 请求 trace 开关。enabled 默认开；maxRecords 是每 session 保留条数。 */
+export type PiTraceConfig = {
+    enabled: boolean;
+    /** 每 session 保留最近多少条 trace。 */
+    maxRecords: number;
+    /** 是否完整存 provider 原生请求体（含 prompt）。false 时只留元数据（暂未实现摘要）。 */
+    capturePayload: boolean;
+};
+
+/**
+ * 工作区文件历史（操作日志）配置。enabled 是 Global 独有总开关；其余四项 Project 可覆盖。
+ * 改动在项目下次 open 时生效（history 库随 ProjectSession 生命周期打开）。
+ */
+export type WorkspaceHistorySettingsConfig = {
+    /** 总开关。false 时不开库、不记账、不注入变更提醒。 */
+    enabled: boolean;
+    /** 保留窗口天数：窗口内日志条目全量保留。 */
+    retentionFullDays: number;
+    /** 窗口外是否每文件每自然日保留末条（false = 窗口外全删，未接受段等保护规则仍生效）。 */
+    keepDailyLastAfterWindow: boolean;
+    /** 是否自动接受长期未审查的收件箱条目（防止「未接受段永不 prune」导致库只增不减）。 */
+    autoAcceptEnabled: boolean;
+    /** 收件箱组内最后一条条目超过该天数未审查时，整组自动接受。 */
+    autoAcceptDays: number;
 };
 
 export type StoredProviderConfig = Omit<ConfiguredProviderConfig, "models"> & {
@@ -182,9 +235,6 @@ export type StoredProviderConfig = Omit<ConfiguredProviderConfig, "models"> & {
 };
 
 export type StoredGlobalConfig = {
-    auth?: {
-        enabled?: boolean;
-    };
     models?: {
         default?: string | null;
         providers?: StoredProviderConfig[];
@@ -196,6 +246,7 @@ export type StoredGlobalConfig = {
             userAssets?: string | null;
         };
         profileModelDefaults?: StoredAgentProfileModelDefaultsConfig;
+        profileRuntimeDefaults?: ProfileRuntimeSettingsPatch;
         profiles?: Record<string, StoredAgentProfileConfig>;
     };
     ui?: Partial<EffectiveConfig["ui"]>;
@@ -204,6 +255,10 @@ export type StoredGlobalConfig = {
         monaco?: Partial<MonacoEditorPreferences>;
     };
     web?: StoredWebSettingsConfig;
+    observability?: {
+        piTrace?: Partial<PiTraceConfig>;
+    };
+    history?: Partial<WorkspaceHistorySettingsConfig>;
 };
 
 export type StoredProjectConfig = {
@@ -214,12 +269,15 @@ export type StoredProjectConfig = {
     agent?: {
         defaultProfileKey?: string | null;
         profileModelDefaults?: StoredAgentProfileModelDefaultsConfig;
+        profileRuntimeDefaults?: ProfileRuntimeSettingsPatch;
         profiles?: Record<string, StoredAgentProfileConfig>;
     };
     editor?: {
         markdown?: Partial<MarkdownEditorPreferences>;
         monaco?: Partial<MonacoEditorPreferences>;
     };
+    /** Project 侧只允许覆盖 retention / auto-accept 四项；enabled 是 Global 独有。 */
+    history?: Partial<Omit<WorkspaceHistorySettingsConfig, "enabled">>;
 };
 
 export type ConfigTarget = {

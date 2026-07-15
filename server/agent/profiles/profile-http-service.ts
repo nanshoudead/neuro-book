@@ -3,7 +3,7 @@ import {basename, relative, resolve, sep} from "node:path";
 import {createError} from "h3";
 import type {TSchema} from "typebox";
 import type {AgentProfileCatalog} from "nbook/server/agent/profiles/catalog";
-import type {AgentCatalogItem, AgentCatalogSnapshot, AgentProfile, AgentProfileIssue, ProfileCompactionPlan, ProfilePrepareContext} from "nbook/server/agent/profiles/types";
+import type {AgentCatalogItem, AgentCatalogSnapshot, AgentProfile, AgentProfileIssue, ProfilePrepareContext} from "nbook/server/agent/profiles/types";
 import {createProfileVariableAccessor} from "nbook/server/agent/variables/accessor";
 import {createVariableRegistryForProfile, createVariableRegistryForSession} from "nbook/server/agent/variables/profile-registry";
 import {resolveCompactionOptions} from "nbook/server/agent/harness/compaction";
@@ -29,6 +29,12 @@ import {createLayeredProfileHomeFacade, ensureGlobalProfileHome, ensureProfileHo
 import type {ProfileTemplateNodeDto} from "nbook/shared/dto/profile-template.dto";
 import {buildProfilePromptRoot} from "nbook/server/agent/profiles/profile-dsl-source-parser";
 import {resolveSystemNbookRoot, resolveUserNbookRoot} from "nbook/server/workspace-files/workspace-assets-root";
+import {assertManagedProjectDataPlaneOpen} from "nbook/server/workspace-files/project-data-plane-guard";
+import {assembleProfilePromptMessages} from "nbook/server/agent/profiles/prompt-order";
+import {mergeProfileTurnContextMessages, previewProfileTurnContexts} from "nbook/server/agent/profiles/profile-turn-context";
+import {resolveProfileRuntimeSettings} from "nbook/server/agent/profiles/profile-runtime-settings";
+import {resolveStateWorkspaceRoot} from "nbook/server/runtime/installation-paths";
+import type {ProfileRuntimeSettings} from "nbook/shared/agent/profile-runtime-settings";
 
 /**
  * 列出 v3 Agent Profile catalog，并适配旧 profile 工作台 DTO。
@@ -116,6 +122,9 @@ export async function previewAgentProfilePrepare(
     const effectiveConfig = await loadPreviewEffectiveConfig(sessionContext);
     const needsHome = profileNeedsHome(profile);
     const projectRoot = resolveProjectRootForProfileHome(sessionContext.projectPath);
+    if (projectRoot && needsHome) {
+        assertManagedProjectDataPlaneOpen(sessionContext.projectPath);
+    }
     const globalHome = needsHome
         ? await ensureGlobalProfileHome({
             workspaceRoot: sessionContext.workspaceRoot,
@@ -133,19 +142,23 @@ export async function previewAgentProfilePrepare(
         })
         : undefined;
     const home = projectHome ? createLayeredProfileHomeFacade(projectHome, globalHome) : globalHome;
-    const settings = await resolveRuntimeProfileSettings(profile, effectiveConfig.agent.profiles[request.profileKey]?.settings, {
+    const customSettings = await resolveRuntimeProfileSettings(profile, effectiveConfig.agent.profiles[request.profileKey]?.settings, {
         profileKey: request.profileKey,
         scope: sessionContext.projectPath ? "project" : "global",
         workspaceRoot: sessionContext.workspaceRoot,
         ...(sessionContext.projectPath ? {projectPath: sessionContext.projectPath} : {}),
         ...(home ? {home, allowGlobalResourceKeys: true} : {}),
     });
+    const runtimeSettings = resolveProfileRuntimeSettings(
+        profile.runtimeDefaults,
+        effectiveConfig.agent.profiles[request.profileKey]?.runtime ?? effectiveConfig.agent.profileRuntimeDefaults,
+    );
 
     try {
         const prepared = await profile.prepare!({
             session,
             initial,
-            settings: settings as never,
+            settings: customSettings as never,
             ...(home ? {home} : {}),
             vars: createProfileVariableAccessor({
                 repo: harness.repo,
@@ -162,26 +175,29 @@ export async function previewAgentProfilePrepare(
         });
         const historyMessages = prepared.historyInitMessages ?? [];
         const modelContextAppendingMessages = prepared.modelContextAppendingMessages ?? [];
-        const explicitAppendingMessages = prepared.appendingMessages ?? [];
+        const explicitAppendingMessages = mergeProfileTurnContextMessages(
+            prepared.appendingMessages ?? [],
+            previewProfileTurnContexts(prepared.turnContexts ?? [], runtimeSettings.fileChangeNotice.diffMaxChars),
+        );
         const appendingMessages = [
             ...modelContextAppendingMessages,
             ...explicitAppendingMessages,
         ];
         const modelContextMessages = prepared.modelContextMessages ?? [];
         const historyMessagesForReact = sessionContext.messages.length === 0 ? historyMessages : [];
-        const finalMessages = [
-            ...sessionContext.messages,
-            ...historyMessagesForReact,
-            ...appendingMessages,
-            ...modelContextMessages,
-        ];
+        const finalMessages = assembleProfilePromptMessages({
+            history: [...sessionContext.messages, ...historyMessagesForReact],
+            modelContext: modelContextMessages,
+            appending: appendingMessages,
+            currentUserInput: [],
+        });
         const messages = [
             ...prepared.systemPrompt ? [systemPromptPreviewMessage(prepared.systemPrompt)] : [],
             ...historyMessages.map((message) => toPreviewMessage(message, "history")),
+            ...modelContextMessages.map((message) => toPreviewMessage(message, "modelContext")),
             ...modelContextAppendingMessages.map((message) => toPreviewMessage(message, "modelContextAppending")),
             ...explicitAppendingMessages.map((message) => toPreviewMessage(message, "appending")),
-            ...modelContextMessages.map((message) => toPreviewMessage(message, "modelContext")),
-            ...profile.compaction ? [compactionPreviewMessage(profile.compaction, session.model)] : [],
+            compactionPreviewMessage(runtimeSettings.compaction, session.model),
             ...finalMessages.map((message) => toPreviewMessage(message, "reactMessages")),
             ...(prepared.stateWrites ?? []).map((write) => ({
                 role: "custom",
@@ -314,11 +330,11 @@ async function buildPreviewSession(harness: NeuroAgentHarness, request: AgentPro
         model: null,
         thinkingLevel: "off",
         profileKey: request.profileKey,
-        workspaceRoot: resolve(process.cwd(), "workspace"),
+        workspaceRoot: resolveStateWorkspaceRoot(),
         customState: {},
         linkedAgents: [],
         archived: false,
-        planModeActive: false,
+        agentMode: "normal",
     };
 }
 
@@ -428,7 +444,7 @@ function systemPromptPreviewMessage(systemPrompt: string): AgentProfilePreparePr
 /**
  * Compaction policy 在工作台预览中作为独立配置卡片展示。
  */
-function compactionPreviewMessage(compaction: ProfileCompactionPlan, model: NeuroSessionContext["model"]): AgentProfilePreparePreviewDto["messages"][number] {
+function compactionPreviewMessage(compaction: ProfileRuntimeSettings["compaction"], model: NeuroSessionContext["model"]): AgentProfilePreparePreviewDto["messages"][number] {
     const options = resolveCompactionOptions(compaction, model ?? PREVIEW_COMPACTION_MODEL);
     return {
         role: "compaction",
@@ -477,7 +493,6 @@ function buildProfileVariableGroups(profile: AgentCatalogItem | undefined, runti
                 label: "InitialSchema",
                 value: "initialSchema",
                 path: "initialSchema",
-                token: "{{initialSchema}}",
                 editable: false,
                 valueType: "jsonSchema",
                 source: "profile",
@@ -487,7 +502,6 @@ function buildProfileVariableGroups(profile: AgentCatalogItem | undefined, runti
                 label: "PayloadSchema",
                 value: "payloadSchema",
                 path: "payloadSchema",
-                token: "{{payloadSchema}}",
                 editable: false,
                 valueType: "jsonSchema",
                 source: "profile",
@@ -497,7 +511,6 @@ function buildProfileVariableGroups(profile: AgentCatalogItem | undefined, runti
                 label: "OutputSchema",
                 value: "outputSchema",
                 path: "outputSchema",
-                token: "{{outputSchema}}",
                 editable: false,
                 valueType: "jsonSchema",
                 source: "profile",
@@ -521,7 +534,6 @@ function buildProfileVariableGroups(profile: AgentCatalogItem | undefined, runti
                     label: fullPath,
                     value: key,
                     path: fullPath,
-                    token: `<VariableSchema paths={["${fullPath}"]} />`,
                     editable: false,
                     valueType: "jsonSchema",
                     source: "runtime",

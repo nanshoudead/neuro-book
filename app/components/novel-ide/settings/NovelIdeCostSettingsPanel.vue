@@ -6,7 +6,7 @@ import {useCostDisplay} from "nbook/app/composables/useCostDisplay";
 import {useNotification} from "nbook/app/composables/useNotification";
 import {resolveApiErrorMessage} from "nbook/app/utils/api-error";
 import type {CostDisplayCurrency} from "nbook/app/utils/cost-format";
-import type {ConfigEditorSnapshotDto, ConfigWorkspaceQueryDto, GlobalConfigDto} from "nbook/shared/dto/config.dto";
+import type {ConfigEditorSnapshotDto, ConfigWorkspaceQueryDto, GlobalConfigUpdateDto} from "nbook/shared/dto/config.dto";
 
 const props = withDefaults(defineProps<{
     targetQuery?: ConfigWorkspaceQueryDto;
@@ -65,13 +65,13 @@ function readSnapshotCostCurrency(snapshot: ConfigEditorSnapshotDto): CostDispla
 /**
  * 构造 Global Config 写回体。
  */
-function buildGlobalConfigPayload(): GlobalConfigDto {
+function buildGlobalConfigPayload(): GlobalConfigUpdateDto {
     const base = editorSnapshot.value?.global ?? {};
     return {
-        ...base,
         ui: {
             ...(base.ui ?? {}),
             theme: base.ui?.theme ?? "sepia",
+            customThemes: base.ui?.customThemes ?? [],
             costCurrency: costCurrency.value,
         },
     };
@@ -182,7 +182,7 @@ defineExpose({
         </div>
 
         <div v-else class="grid gap-4">
-            <section class="rounded-xl border border-[var(--border-color)] border-opacity-60 bg-[var(--bg-input)] bg-opacity-20 p-5 space-y-5 shadow-sm transition-all duration-300 hover:shadow-[0_4px_20px_rgba(0,0,0,0.02)]">
+            <section class="rounded-xl border border-[var(--border-color)] border-opacity-60 bg-[var(--bg-input)] bg-opacity-20 p-5 space-y-5 shadow-sm transition-all duration-300 hover:shadow-[0_4px_20px_color-mix(in_srgb,var(--shadow-color)_2%,transparent)]">
                 <div class="space-y-1.5">
                     <div class="flex items-center gap-2">
                         <span class="flex h-5 w-5 items-center justify-center rounded bg-[var(--accent-bg)] text-[var(--accent-text)]">

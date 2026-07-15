@@ -1,5 +1,7 @@
 # Portable Project Workspace
 
+> 2026-07-11 Workspace 语义补充：普通 Agent 的工具 cwd 始终是 Workspace Root；Project Slug 是单段目录名，Project Path 固定为 `workspace/{slug}`。Current Project Workspace 只是模糊项目操作的默认焦点，不是访问边界。文件工具使用 `{project-slug}/...`，项目级 API 使用 `workspace/{project-slug}`；所有受管 Project Workspace 都可跨项目访问。仓库源码与仓库级 `reference/` 位于 cwd 外，通过 Runtime Location reminder 给出的绝对路径访问。
+
 > Active task directory format: `NN-kebab-case-name/`. Archived tasks move to `docs/tasks/archived/<task-slug>/`.
 
 ## User Request
@@ -10,7 +12,7 @@
 - 评估是否删除 `execute_sql` 工具，改为让 Agent 通过 `bash` 操作数据库。
 - 应用级数据库仍然保留，用于保存 `User` 等全局数据；`User` 不进入 Project Workspace-local SQLite。
 - Project Workspace 级数据库允许文件化，路径使用相对 path，便于打包迁移。
-- 任务最后一步必须同步修改 `README.md`、`docs/operator-bridge.md`、`scripts/migrate-config-system.ts`、`scripts/deploy.mjs`、`scripts/neuro-book-deploy.mjs`。
+- 任务最后一步必须同步修改 `README.md`、`docs/operator-bridge.md`、`scripts/migrate-config-system.ts`、`scripts/deploy.mjs`和当时的旧部署脚本。
 
 ## Goal
 
@@ -224,7 +226,7 @@
 - `scripts/deploy.mjs`
     - 删除 PostgreSQL 相关同步、compose override 和远端环境假设。
     - 确认远端部署只需要 app + workspace 数据目录。
-- `scripts/neuro-book-deploy.mjs`
+- 当时的旧部署脚本（已删除）
     - 删除数据库类型选择。
     - 不再生成 PostgreSQL password、service、override 或外部 URL 配置。
     - 输出 SQLite-only 的备份和 Project Workspace 打包提示。
@@ -303,7 +305,7 @@
 - `scripts/prisma-migrate.mjs`
 - `scripts/docker-entrypoint.sh`
 - `scripts/deploy.mjs`
-- `scripts/neuro-book-deploy.mjs`
+- 当时的旧部署脚本（已删除）
 - `scripts/migrate-config-system.ts`
 - `README.md`
 - `docs/operator-bridge.md`

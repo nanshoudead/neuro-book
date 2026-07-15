@@ -146,22 +146,22 @@ const {isDragging} = useDraggable({
 
 .library-node-RuntimeLocationReminder,
 .library-node-WorkspaceFocusReminder,
-.library-node-PlanModeAvailabilityReminder {
+.library-node-ModeAvailabilityReminder {
     --component-accent: #b65f5b;
 }
 
 .library-node-TaskReminder,
-.library-node-PlanModeReminder,
-.library-node-PlanModeFull,
-.library-node-PlanModeSparse,
-.library-node-PlanModeExit,
-.library-node-PlanModeReentry,
-.library-node-ActivePlanModeReminder {
+.library-node-ModeReminder,
+.library-node-ModeSlot {
     --component-accent: #8a639e;
 }
 
 .library-node-MentionedSkillsReminder {
     --component-accent: #b1843e;
+}
+
+.library-node-FileChangeNotice {
+    --component-accent: #4f8c8f;
 }
 
 .library-node-ActivatedSkills {

@@ -26,6 +26,7 @@ type CheckModelResponse = {
 
 type CheckModelOptions = {
     signal?: AbortSignal;
+    trace?: unknown;
 };
 
 function createTestEvent(body: unknown): ModelCheckTestEvent {
@@ -48,7 +49,8 @@ function createProviderDraft() {
     return {
         id: "custom",
         name: "Custom",
-        api: "openai-completions",
+        defaultApi: "openai-completions",
+        discovery: {adapter: "none", endpointPath: null},
         options: {
             apiKey: "",
             baseURL: "https://example.com/v1",
@@ -64,15 +66,15 @@ function createModelDraft() {
         name: "Draft",
         id: "draft-model",
         group: null,
-        provider: null,
-        api: null,
-        baseUrl: null,
-        reasoning: null,
-        input: null,
-        maxTokens: null,
+        api: "openai-completions",
+        reasoning: false,
+        input: ["text"],
+        maxTokens: 1024,
         cost: null,
         compat: null,
-        contextWindowTokens: null,
+        headers: null,
+        thinkingLevelMap: null,
+        contextWindowTokens: 8192,
     };
 }
 
@@ -94,6 +96,11 @@ function mockConfigService(): void {
                     },
                 },
             },
+        })),
+    }));
+    vi.doMock("nbook/server/agent/http", () => ({
+        useAgentHarness: vi.fn(() => ({
+            traceBinding: vi.fn(() => ({kind: "test-trace"})),
         })),
     }));
 }
@@ -133,6 +140,7 @@ describe("POST /api/config/models/model-check", () => {
 
         expect(checkModelHealth).toHaveBeenCalledWith(body.provider, body.model, {
             signal: expect.any(AbortSignal),
+            trace: {kind: "test-trace"},
         });
         const options = checkModelHealth.mock.calls[0]?.[2] as CheckModelOptions | undefined;
         expect(options?.signal?.aborted).toBe(false);

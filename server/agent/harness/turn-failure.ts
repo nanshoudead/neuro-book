@@ -1,6 +1,7 @@
 import type {AssistantMessage} from "nbook/server/agent/messages/types";
 import {createAssistantTextMessage} from "nbook/server/agent/messages/message-utils";
 import type {FailedRunLoopResult, FailedTurnOutcome, RunFrame, TurnIngestResult} from "nbook/server/agent/harness/run-kernel-types";
+import {providerErrorText, sanitizeProviderErrorMessage} from "nbook/server/agent/observability/provider-error-sanitizer";
 
 export type FailedTurnIngestDraft = {
     assistant: AssistantMessage;
@@ -21,9 +22,24 @@ export function sanitizePartialAssistant(assistant: AssistantMessage): Assistant
     if (!content.some((block) => block.type === "text" && block.text.trim())) {
         return null;
     }
-    return {
+    return sanitizeProviderAssistant({
         ...assistant,
         content,
+    });
+}
+
+/**
+ * 清理 Provider assistant 终态中的错误文本，正文与 usage 保持不变。
+ */
+export function sanitizeProviderAssistant(assistant: AssistantMessage): AssistantMessage {
+    for (const block of assistant.content) {
+        if (block.type === "toolCall" && (!block.id.trim() || Buffer.byteLength(block.id, "utf8") > 512)) {
+            throw new Error("provider_tool_call_id_invalid");
+        }
+    }
+    return {
+        ...assistant,
+        errorMessage: assistant.errorMessage ? sanitizeProviderErrorMessage(assistant.errorMessage) : undefined,
     };
 }
 
@@ -33,7 +49,7 @@ export function sanitizePartialAssistant(assistant: AssistantMessage): Assistant
  * 该 message 只用于 run result / SSE 终态，不应在没有 partial content 时写入 session。
  */
 export function createRuntimeErrorAssistant(error: unknown): AssistantMessage {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = providerErrorText(error);
     return {
         ...createAssistantTextMessage({
             text: "",

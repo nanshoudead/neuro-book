@@ -4,9 +4,10 @@ import * as yaml from "yaml";
 import {parseAppConfigText} from "nbook/server/utils/app-config";
 import {normalizeGlobalConfig} from "nbook/server/config/normalizer";
 import type {StoredGlobalConfig, StoredProviderConfig} from "nbook/server/config/types";
+import {resolveBootConfigPath, resolveStateWorkspaceRoot} from "nbook/server/runtime/installation-paths";
 
-const BOOT_CONFIG_PATH = path.resolve(process.cwd(), "config.yaml");
-const GLOBAL_CONFIG_PATH = path.resolve(process.cwd(), "workspace", ".nbook", "config.json");
+const BOOT_CONFIG_PATH = resolveBootConfigPath();
+const GLOBAL_CONFIG_PATH = path.join(resolveStateWorkspaceRoot(), ".nbook", "config.json");
 
 /**
  * 迁移旧 config.yaml 中的业务配置到 Workspace Root `.nbook/config.json`。
@@ -39,7 +40,6 @@ function buildGlobalConfig(oldBootText: string | null, existingGlobal: StoredGlo
     const legacy = oldBootText ? parseAppConfigText(oldBootText) : parseAppConfigText("");
     const existing = normalizeGlobalConfig(existingGlobal);
     const fromLegacy = normalizeGlobalConfig({
-        auth: legacy.auth,
         models: {
             default: legacy.models.defaultModelKey,
             providers: Object.entries(legacy.models.providers).map(([providerId, provider]) => ({
@@ -60,7 +60,6 @@ function buildGlobalConfig(oldBootText: string | null, existingGlobal: StoredGlo
     return normalizeGlobalConfig({
         ...fromLegacy,
         ...existingGlobal,
-        auth: existingGlobal?.auth ?? fromLegacy.auth,
         models: {
             default: existingGlobal?.models?.default ?? fromLegacy.models?.default ?? null,
             providers: mergeProviders(fromLegacy.models?.providers ?? [], existing.models?.providers ?? []),
@@ -112,7 +111,11 @@ function mergeProviders(legacyProviders: StoredProviderConfig[], existingProvide
 
 function buildBootConfig(oldBootText: string | null): Record<string, unknown> {
     const oldConfig = oldBootText ? yaml.parse(oldBootText) as Record<string, unknown> : {};
+    const authEnabled = normalizeRecord(oldConfig.auth).enabled;
     return {
+        ...(typeof authEnabled === "boolean" ? {
+            auth: {enabled: authEnabled},
+        } : {}),
         server: normalizeRecord(oldConfig.server),
         database: {
             kind: "${DATABASE_KIND:-sqlite}",

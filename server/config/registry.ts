@@ -5,8 +5,8 @@ export const CONFIG_VERSION = "config-v1";
 export const CONFIG_REGISTRY: ConfigItemMeta[] = [
     {
         key: "auth.enabled",
-        scope: "global",
-        effect: "hot",
+        scope: "boot",
+        effect: "restart-required",
         merge: "replace",
         secret: false,
         description: "是否启用整站鉴权。关闭时管理员接口也退化为本地无鉴权访问。",
@@ -68,12 +68,20 @@ export const CONFIG_REGISTRY: ConfigItemMeta[] = [
         description: "所有 Agent Profile 共同继承的模型参数默认值。",
     },
     {
+        key: "agent.profileRuntimeDefaults",
+        scope: "global-workspace",
+        effect: "next-run",
+        merge: "deep-merge",
+        secret: false,
+        description: "所有 Agent Profile 共同继承的摘要、压缩和文件变更提醒运行策略。",
+    },
+    {
         key: "agent.profiles",
         scope: "global-workspace",
         effect: "next-run",
         merge: "deep-merge",
         secret: false,
-        description: "Agent Profile 默认模型参数。",
+        description: "Agent Profile 模型、自定义 settings 与通用运行策略覆盖。",
     },
     {
         key: "ui.theme",
@@ -81,7 +89,15 @@ export const CONFIG_REGISTRY: ConfigItemMeta[] = [
         effect: "hot",
         merge: "replace",
         secret: false,
-        description: "Novel IDE 默认主题。",
+        description: "Novel IDE 当前主题 ID。可指向内置主题或现存自定义主题。",
+    },
+    {
+        key: "ui.customThemes",
+        scope: "global",
+        effect: "hot",
+        merge: "replace",
+        secret: false,
+        description: "Novel IDE 用户自定义主题列表，保存调色盘变量覆盖。",
     },
     {
         key: "editor.markdown",
@@ -122,5 +138,13 @@ export const CONFIG_REGISTRY: ConfigItemMeta[] = [
         merge: "deep-merge",
         secret: false,
         description: "Agent web_fetch 的本地抓取限制和外部 provider fallback 策略。",
+    },
+    {
+        key: "history",
+        scope: "global-workspace",
+        effect: "next-session",
+        merge: "deep-merge",
+        secret: false,
+        description: "工作区文件历史（操作日志）配置。Global 持有总开关 enabled；retentionFullDays / keepDailyLastAfterWindow / autoAcceptEnabled / autoAcceptDays 可被 Project Config 覆盖。改动在项目下次 open 时生效。",
     },
 ];

@@ -8,13 +8,17 @@ import type {
     AgentTriggerMenuContext,
     AgentTriggerMenuState,
 } from "nbook/app/components/novel-ide/agent/trigger-menu";
+import {
+    prependAnchoredScrollTop,
+    shouldAutoScrollChat,
+    shouldLoadPreviousHistory,
+} from "nbook/app/components/novel-ide/agent/agent-chat-history-ui";
 
 const AUTO_SCROLL_RELEASE_THRESHOLD_PX = 12;
 
 const props = defineProps<{
     /** 消息列表。 */
     messages: AgentMessage[];
-    hiddenMessageCount?: number;
     /** 当前 session ID；变化时认为是整段历史切换，需要立即定位到底部。 */
     sessionId?: number | null;
     /** 是否正在执行中。 */
@@ -43,6 +47,12 @@ const props = defineProps<{
     costDisplayOptions: CostDisplayOptions;
     /** 费用 tooltip 汇率说明。 */
     costExchangeRateSuffix?: string;
+    /** 当前 durable history 是否还有更早一页。 */
+    historyHasPrevious?: boolean;
+    /** 是否正在加载更早历史。 */
+    historyLoading?: boolean;
+    /** 更早历史的局部加载错误。 */
+    historyError?: string;
 }>();
 
 const emit = defineEmits<{
@@ -54,16 +64,20 @@ const emit = defineEmits<{
     (e: "retry", message: AgentMessage): void;
     (e: "delete", message: AgentMessage): void;
     (e: "cycle-branch", payload: {messageId: string; direction: -1 | 1}): void;
+    (e: "load-previous"): void;
 }>();
 
 const scrollRef = ref<HTMLDivElement | null>(null);
-const contentRef = ref<HTMLDivElement | null>(null);
 const shouldStickToBottom = ref(true);
 const lastScrollTop = ref(0);
 let pendingImmediateScroll = true;
 let autoScrollFrame: number | null = null;
-let forcedScrollTimer: ReturnType<typeof setTimeout> | null = null;
-let contentResizeObserver: ResizeObserver | null = null;
+let pendingPrependAnchor: {
+    sessionId: number | null;
+    firstMessageId: string;
+    scrollHeight: number;
+    scrollTop: number;
+} | null = null;
 const {t} = useI18n();
 
 const chatNodes = computed(() => {
@@ -175,43 +189,26 @@ const scheduleScrollToBottom = (): void => {
     });
 };
 
-/** 强制吸底时跨多个绘制帧重试，等待 Markdown 和 tool bubble 把真实高度撑开。 */
-const scheduleForcedScrollToBottom = (): void => {
-    shouldStickToBottom.value = true;
-    pendingImmediateScroll = false;
-    cancelScheduledScrollToBottom();
-    if (forcedScrollTimer) {
-        clearTimeout(forcedScrollTimer);
-        forcedScrollTimer = null;
-    }
-    scrollToBottom();
-    if (typeof requestAnimationFrame === "function") {
-        requestAnimationFrame(() => {
-            scrollToBottom();
-            requestAnimationFrame(() => {
-                scrollToBottom();
-            });
-        });
-    }
-    forcedScrollTimer = setTimeout(() => {
-        forcedScrollTimer = null;
-        scrollToBottom();
-    }, 140);
-};
-
-/** 监听消息内容高度变化，避免初次加载长会话时 Markdown / tool bubble 后撑高导致停在顶部。 */
-const attachContentResizeObserver = (): void => {
-    contentResizeObserver?.disconnect();
-    contentResizeObserver = null;
-    if (!import.meta.client || typeof ResizeObserver !== "function" || !contentRef.value) {
+/**
+ * 记录 prepend 前的滚动快照，并请求更早 durable history。
+ * cursor 去重与 revision 校验由 session state 统一负责。
+ */
+const requestPreviousHistory = (): void => {
+    if (!scrollRef.value || !props.historyHasPrevious || props.historyLoading) {
         return;
     }
-    contentResizeObserver = new ResizeObserver(() => {
-        if (shouldStickToBottom.value) {
-            scheduleScrollToBottom();
-        }
-    });
-    contentResizeObserver.observe(contentRef.value);
+    const firstMessageId = props.messages[0]?.id;
+    if (!firstMessageId) {
+        return;
+    }
+    pendingPrependAnchor = {
+        sessionId: props.sessionId ?? null,
+        firstMessageId,
+        scrollHeight: scrollRef.value.scrollHeight,
+        scrollTop: scrollRef.value.scrollTop,
+    };
+    cancelScheduledScrollToBottom();
+    emit("load-previous");
 };
 
 /** 滚动事件处理。 */
@@ -231,12 +228,53 @@ const onScroll = (): void => {
     }
 
     lastScrollTop.value = currentScrollTop;
+
+    if (!pendingImmediateScroll && shouldLoadPreviousHistory({
+        scrollTop: currentScrollTop,
+        hasPrevious: props.historyHasPrevious ?? false,
+        loading: props.historyLoading ?? false,
+    })) {
+        requestPreviousHistory();
+    }
 };
+
+/** prepend 完成后恢复原有可见内容的位置。 */
+watch(() => props.messages[0]?.id, async () => {
+    const anchor = pendingPrependAnchor;
+    if (!anchor || anchor.sessionId !== (props.sessionId ?? null)) {
+        return;
+    }
+    const oldFirstIndex = props.messages.findIndex((message) => message.id === anchor.firstMessageId);
+    if (oldFirstIndex <= 0) {
+        return;
+    }
+    await nextTick();
+    if (!scrollRef.value || pendingPrependAnchor !== anchor) {
+        return;
+    }
+    scrollRef.value.scrollTop = prependAnchoredScrollTop({
+        previousScrollTop: anchor.scrollTop,
+        previousScrollHeight: anchor.scrollHeight,
+        nextScrollHeight: scrollRef.value.scrollHeight,
+    });
+    lastScrollTop.value = scrollRef.value.scrollTop;
+    pendingPrependAnchor = null;
+});
+
+/** 请求结束但没有 prepend（错误或 cursor 失效）时释放旧锚点。 */
+watch(() => props.historyLoading, (loading, previousLoading) => {
+    if (previousLoading && !loading && props.messages[0]?.id === pendingPrependAnchor?.firstMessageId) {
+        pendingPrependAnchor = null;
+    }
+});
 
 /** 消息变化时自动吸底。 */
 watch(messageScrollSignature, async () => {
     await nextTick();
-    if (shouldStickToBottom.value) {
+    if (shouldAutoScrollChat({
+        stickToBottom: shouldStickToBottom.value,
+        prependPending: pendingPrependAnchor !== null,
+    })) {
         if (pendingImmediateScroll && props.messages.length > 0) {
             pendingImmediateScroll = false;
             cancelScheduledScrollToBottom();
@@ -249,29 +287,23 @@ watch(messageScrollSignature, async () => {
 
 /** 切换 session 时，下一次消息渲染后直接定位到底部，避免长历史从顶部滚到底。 */
 watch(() => props.sessionId, () => {
+    pendingPrependAnchor = null;
     pendingImmediateScroll = true;
     shouldStickToBottom.value = true;
     lastScrollTop.value = 0;
     cancelScheduledScrollToBottom();
 });
 
-watch(contentRef, () => {
-    attachContentResizeObserver();
-}, {flush: "post"});
-
 /** 外部可调用：强制滚动到底部。 */
 const forceScrollToBottom = (): void => {
-    scheduleForcedScrollToBottom();
+    shouldStickToBottom.value = true;
+    pendingImmediateScroll = false;
+    cancelScheduledScrollToBottom();
+    scrollToBottom();
 };
 
 onUnmounted(() => {
     cancelScheduledScrollToBottom();
-    contentResizeObserver?.disconnect();
-    contentResizeObserver = null;
-    if (forcedScrollTimer) {
-        clearTimeout(forcedScrollTimer);
-        forcedScrollTimer = null;
-    }
 });
 
 defineExpose({ scrollToBottom: forceScrollToBottom, scrollRef });
@@ -280,45 +312,56 @@ defineExpose({ scrollToBottom: forceScrollToBottom, scrollRef });
 <template>
     <!-- 通用对话流容器 -->
     <div ref="scrollRef" class="flex flex-1 flex-col overflow-y-auto p-4 pb-12 bg-[var(--bg-panel)]" @scroll="onScroll">
-        <div ref="contentRef" class="flex min-h-full flex-col">
-            <template v-if="props.messages.length > 0">
-                <div v-if="props.hiddenMessageCount" class="mb-4 rounded-lg border border-dashed border-[var(--border-color)] bg-[var(--bg-input)] px-3 py-2 text-center text-[11px] text-[var(--text-muted)]">
-                    已隐藏 {{ props.hiddenMessageCount }} 条较早消息，仅显示最近消息以保持界面流畅。
-                </div>
-                <div
-                    v-for="(node, index) in chatNodes"
-                    :key="getNodeKey(node)"
-                    :class="nodeSpacingClass(index)"
-                >
-                    <AgentTextBubble
-                        v-if="node.kind === 'text'"
-                        :node="node"
-                        :editing-message-id="props.editingMessageId"
-                        :action-disabled="props.messageActionDisabled"
-                        :run-action-disabled="props.runActionDisabled"
-                        :saving-edit="props.savingEdit"
-                        :branch-switcher="props.branchSwitcherStateByMessageId?.[node.message.id]"
-                        :menu-refresh-key="props.menuRefreshKey"
-                        :resolve-menu="props.resolveEditorMenu"
-                        :on-skill-trigger-start="props.onEditorSkillTriggerStart"
-                        :open-reference="props.openReference"
-                        :cost-display-options="props.costDisplayOptions"
-                        :cost-exchange-rate-suffix="props.costExchangeRateSuffix"
-                        @copy="emit('copy', $event)"
-                        @start-edit="emit('start-edit', $event)"
-                        @cancel-edit="emit('cancel-edit', $event)"
-                        @save-edit="emit('save-edit', $event)"
-                        @retry="emit('retry', $event)"
-                        @delete="emit('delete', $event)"
-                        @cycle-branch="emit('cycle-branch', $event)"
-                    />
-                    <AgentToolBubble
-                        v-else-if="node.kind === 'tool'"
-                        :tool-call="node.toolCall"
-                        @copy="emit('copy-tool', $event)"
-                    />
-                </div>
-            </template>
+        <!-- 更早历史局部状态；失败不会遮断当前已加载对话。 -->
+        <div v-if="props.historyHasPrevious || props.historyLoading || props.historyError" class="mb-4 flex shrink-0 items-center justify-center">
+            <button
+                type="button"
+                class="inline-flex min-h-8 items-center gap-2 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-3 py-1.5 text-xs text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-wait disabled:opacity-60"
+                :disabled="props.historyLoading"
+                @click="requestPreviousHistory"
+            >
+                <span :class="props.historyLoading ? 'i-lucide-loader-circle animate-spin' : props.historyError ? 'i-lucide-rotate-ccw' : 'i-lucide-chevron-up'" class="h-3.5 w-3.5"></span>
+                <span v-if="props.historyLoading">{{ t("agent.chat.loadingPrevious") }}</span>
+                <span v-else-if="props.historyError">{{ t("agent.chat.retryPrevious") }}</span>
+                <span v-else>{{ t("agent.chat.loadPrevious") }}</span>
+            </button>
+            <span v-if="props.historyError && !props.historyLoading" class="ml-2 max-w-[360px] truncate text-xs text-[var(--status-danger)]" :title="props.historyError">{{ props.historyError }}</span>
+        </div>
+        <template v-if="props.messages.length > 0">
+            <div
+                v-for="(node, index) in chatNodes"
+                :key="getNodeKey(node)"
+                :class="nodeSpacingClass(index)"
+            >
+                <AgentTextBubble
+                    v-if="node.kind === 'text'"
+                    :node="node"
+                    :editing-message-id="props.editingMessageId"
+                    :action-disabled="props.messageActionDisabled"
+                    :run-action-disabled="props.runActionDisabled"
+                    :saving-edit="props.savingEdit"
+                    :branch-switcher="props.branchSwitcherStateByMessageId?.[node.message.id]"
+                    :menu-refresh-key="props.menuRefreshKey"
+                    :resolve-menu="props.resolveEditorMenu"
+                    :on-skill-trigger-start="props.onEditorSkillTriggerStart"
+                    :open-reference="props.openReference"
+                    :cost-display-options="props.costDisplayOptions"
+                    :cost-exchange-rate-suffix="props.costExchangeRateSuffix"
+                    @copy="emit('copy', $event)"
+                    @start-edit="emit('start-edit', $event)"
+                    @cancel-edit="emit('cancel-edit', $event)"
+                    @save-edit="emit('save-edit', $event)"
+                    @retry="emit('retry', $event)"
+                    @delete="emit('delete', $event)"
+                    @cycle-branch="emit('cycle-branch', $event)"
+                />
+                <AgentToolBubble
+                    v-else-if="node.kind === 'tool'"
+                    :tool-call="node.toolCall"
+                    @copy="emit('copy-tool', $event)"
+                />
+            </div>
+        </template>
 
         <!-- 空状态 -->
         <div v-else class="flex h-full flex-col items-center justify-center space-y-6 px-4 text-center">
@@ -339,7 +382,6 @@ defineExpose({ scrollToBottom: forceScrollToBottom, scrollRef });
                 </div>
                 <p class="text-xs text-[var(--text-muted)]">{{ t("agent.chat.waiting") }}</p>
             </template>
-        </div>
         </div>
     </div>
 </template>

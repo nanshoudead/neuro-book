@@ -1,4 +1,4 @@
-import {existsSync} from "node:fs";
+import {existsSync, type Stats} from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import YAML from "yaml";
@@ -9,6 +9,7 @@ import {
     WORKSPACE_CONTENT_STATUSES,
 } from "nbook/server/workspace-files/content-node-schema";
 import type {WorkspaceIssueSummaryDto} from "nbook/shared/dto/workspace-tree.dto";
+import {resolveStateRoot} from "nbook/server/runtime/installation-paths";
 
 export {WORKSPACE_CONTENT_STATUSES, WORKSPACE_STATUS_DESCRIPTIONS} from "nbook/server/workspace-files/content-node-schema";
 
@@ -209,7 +210,7 @@ function hasLegacyCharacterExt(frontmatter: WorkspaceFrontmatter): boolean {
  * 将工作区根目录解析为项目根内的绝对路径。
  */
 export function resolveWorkspaceRoot(rootInput = DEFAULT_WORKSPACE_ROOT): string {
-    return resolveWorkspacePath(process.cwd(), rootInput);
+    return resolveWorkspacePath(resolveStateRoot(), rootInput);
 }
 
 /**
@@ -1773,7 +1774,7 @@ export async function pathExists(filePath: string): Promise<boolean> {
     }
 }
 
-function formatMode(stat: Awaited<ReturnType<typeof fs.stat>>, isDirectory: boolean): string {
+function formatMode(stat: Stats, isDirectory: boolean): string {
     const prefix = isDirectory ? "d" : "-";
     const mode = Number(stat.mode);
     const bits = [

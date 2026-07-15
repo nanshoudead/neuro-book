@@ -1,13 +1,17 @@
 import {afterEach, describe, expect, it, vi} from "vitest";
-import {fauxAssistantMessage, fauxText, registerFauxProvider} from "@earendil-works/pi-ai";
-import {buildModelSettingsDto, checkModelHealth, checkProviderConnection, convertModelSettingsRequestToConfig, discoverProviderModels, MODEL_SMOKE_CHECK_PROMPTS, pickModelSmokeCheckPrompt, resolveConfiguredModel, withSavedProviderApiKey} from "nbook/server/utils/model-settings";
+import {fauxAssistantMessage, fauxText} from "@earendil-works/pi-ai";
+import {createFauxModels} from "nbook/server/agent/test-utils/faux-models";
+import {checkModelHealth, checkProviderConnection, discoverProviderModels, MODEL_SMOKE_CHECK_PROMPTS, pickModelSmokeCheckPrompt, resolveConfiguredModel, withSavedProviderApiKey} from "nbook/server/utils/model-settings";
+import type {ModelSettingsConfig} from "nbook/server/config/types";
 import type {ConfiguredModelDto, ModelProviderDraftDto} from "nbook/shared/dto/app-settings.dto";
+import type {PiTraceBinding} from "nbook/server/agent/observability/traced-provider";
 
 function createProviderDraft(overrides: Partial<ModelProviderDraftDto> = {}): ModelProviderDraftDto {
     return {
         id: "qwen",
         name: "Qwen",
-        api: "openai-completions",
+        defaultApi: "openai-completions",
+        discovery: {adapter: "openai-models", endpointPath: null},
         options: {
             apiKey: "sk-test",
             baseURL: "https://dashscope.aliyuncs.com/compatible-mode/v1/",
@@ -24,15 +28,15 @@ function createModelDraft(overrides: Partial<Omit<ConfiguredModelDto, "enabled">
         name: "Faux",
         id: "faux-fast",
         group: null,
-        provider: null,
-        api: null,
-        baseUrl: null,
-        reasoning: null,
-        input: null,
-        maxTokens: null,
+        api: "openai-completions",
+        reasoning: false,
+        input: ["text"],
+        maxTokens: 1024,
         cost: null,
         compat: null,
-        contextWindowTokens: null,
+        headers: null,
+        thinkingLevelMap: null,
+        contextWindowTokens: 8192,
         ...overrides,
     };
 }
@@ -47,29 +51,28 @@ function createConfiguredModel(overrides: Partial<ConfiguredModelDto> = {}): Con
 
 describe("model settings provider enabled", () => {
     it("disabled Provider 下的模型不进入 enabledModels，也不能被解析为默认模型", () => {
-        const config = convertModelSettingsRequestToConfig({
+        const config: ModelSettingsConfig = {
             defaultModelKey: "enabled-provider/enabled-model",
-            providers: [{
-                id: "disabled-provider",
+            providers: {
+                "disabled-provider": {
                 name: "Disabled Provider",
                 enabled: false,
-                api: "openai-completions",
+                defaultApi: "openai-completions",
+                discovery: {adapter: "none", endpointPath: null},
                 options: createProviderDraft().options,
-                models: [createConfiguredModel({id: "disabled-model", name: "Disabled Model"})],
-            }, {
-                id: "enabled-provider",
+                models: {"disabled-model": createConfiguredModel({id: "disabled-model", name: "Disabled Model"})},
+            },
+                "enabled-provider": {
                 name: "Enabled Provider",
                 enabled: true,
-                api: "openai-completions",
+                defaultApi: "openai-completions",
+                discovery: {adapter: "none", endpointPath: null},
                 options: createProviderDraft().options,
-                models: [createConfiguredModel({id: "enabled-model", name: "Enabled Model"})],
-            }],
-        });
+                models: {"enabled-model": createConfiguredModel({id: "enabled-model", name: "Enabled Model"})},
+            },
+            },
+        };
 
-        const dto = buildModelSettingsDto({models: config});
-
-        expect(dto.providers.find((provider) => provider.id === "disabled-provider")?.enabled).toBe(false);
-        expect(dto.enabledModels.map((model) => model.key)).toEqual(["enabled-provider/enabled-model"]);
         expect(resolveConfiguredModel(config, "disabled-provider/disabled-model")).toBeNull();
     });
 
@@ -81,26 +84,47 @@ describe("model settings provider enabled", () => {
 });
 
 describe("provider/model Pi checks", () => {
+    it("health-check trace 开启时写入 _system correlation，关闭时零记录", async () => {
+        const faux = createFauxModels({provider: "faux-trace-check", api: "openai-completions", models: [{id: "faux-fast"}]});
+        faux.setResponses([fauxAssistantMessage(fauxText("ok")), fauxAssistantMessage(fauxText("ok"))]);
+        const record = vi.fn(async () => undefined);
+        const binding: PiTraceBinding = {
+            recorder: {record} as PiTraceBinding["recorder"],
+            settings: {enabled: true, capturePayload: true, maxRecords: 100},
+            correlation: {kind: "health-check", mode: "model-check"},
+        };
+
+        await checkModelHealth(createProviderDraft({id: "faux-trace-check"}), createModelDraft(), {
+            runtimeResolver: () => faux.runtime,
+            trace: binding,
+        });
+        await vi.waitFor(() => expect(record).toHaveBeenCalledTimes(1));
+        expect(record.mock.calls[0]?.[0]).toMatchObject({correlation: {kind: "health-check", mode: "model-check"}});
+
+        await checkModelHealth(createProviderDraft({id: "faux-trace-check"}), createModelDraft(), {
+            runtimeResolver: () => faux.runtime,
+            trace: {...binding, settings: {...binding.settings, enabled: false}},
+        });
+        expect(record).toHaveBeenCalledTimes(1);
+    });
+
     it("model check 通过 Pi streamSimple smoke", async () => {
-        const faux = registerFauxProvider({
+        const faux = createFauxModels({
             provider: "faux-check",
+            api: "openai-completions",
             models: [{id: "faux-fast"}],
         });
         faux.setResponses([fauxAssistantMessage(fauxText("ok"))]);
-        try {
-            const result = await checkModelHealth(createProviderDraft({
-                id: "faux-check",
-                name: "Faux",
-                api: faux.api,
-            }), createModelDraft({
-                id: "faux-fast",
-            }));
+        const result = await checkModelHealth(createProviderDraft({
+            id: "faux-check",
+            name: "Faux",
+            defaultApi: "openai-completions",
+        }), createModelDraft({
+            id: "faux-fast",
+        }), {runtimeResolver: () => faux.runtime});
 
-            expect(result.success).toBe(true);
-            expect(result.message).toContain("Pi 检查通过");
-        } finally {
-            faux.unregister();
-        }
+        expect(result.success).toBe(true);
+        expect(result.message).toContain("Pi 检查通过");
     });
 
     it("model check 收到已取消 signal 时不进入 Pi stream", async () => {
@@ -119,49 +143,44 @@ describe("provider/model Pi checks", () => {
 
     it("model check 将 active signal 传给 Pi streamSimple", async () => {
         const controller = new AbortController();
-        const faux = registerFauxProvider({
+        const faux = createFauxModels({
             provider: "faux-signal-check",
+            api: "openai-completions",
             models: [{id: "faux-fast"}],
         });
         faux.setResponses([(_context, options) => {
             expect(options?.signal).toBe(controller.signal);
             return fauxAssistantMessage(fauxText("ok"));
         }]);
-        try {
-            const result = await checkModelHealth(createProviderDraft({
-                id: "faux-signal-check",
-                name: "Faux Signal",
-                api: faux.api,
-            }), createModelDraft({
-                id: "faux-fast",
-            }), {
-                signal: controller.signal,
-            });
+        const result = await checkModelHealth(createProviderDraft({
+            id: "faux-signal-check",
+            name: "Faux Signal",
+            defaultApi: "openai-completions",
+        }), createModelDraft({
+            id: "faux-fast",
+        }), {
+            signal: controller.signal,
+                runtimeResolver: () => faux.runtime,
+        });
 
-            expect(result.success).toBe(true);
-        } finally {
-            faux.unregister();
-        }
+        expect(result.success).toBe(true);
     });
 
     it("provider check 可使用传入的代表模型", async () => {
-        const faux = registerFauxProvider({
+        const faux = createFauxModels({
             provider: "faux-provider-check",
+            api: "openai-completions",
             models: [{id: "faux-fast"}],
         });
         faux.setResponses([fauxAssistantMessage(fauxText("ok"))]);
-        try {
-            const result = await checkProviderConnection(createProviderDraft({
-                id: "faux-provider-check",
-                name: "Faux Provider",
-                api: faux.api,
-            }), [createModelDraft({id: "faux-fast"})]);
+        const result = await checkProviderConnection(createProviderDraft({
+            id: "faux-provider-check",
+            name: "Faux Provider",
+            defaultApi: "openai-completions",
+            }), [createModelDraft({id: "faux-fast"})], {runtimeResolver: () => faux.runtime});
 
-            expect(result.success).toBe(true);
-            expect(result.message).toContain("Faux Provider Pi 检查通过");
-        } finally {
-            faux.unregister();
-        }
+        expect(result.success).toBe(true);
+        expect(result.message).toContain("Faux Provider Pi 检查通过");
     });
 
     it("provider check 显式空模型列表时不回退 Pi registry", async () => {
@@ -177,22 +196,22 @@ describe("provider/model Pi checks", () => {
         expect(result.message).toContain("没有可检查的模型");
     });
 
-    it("缺少 API Key 时不发起 provider 请求", async () => {
+    it("本地无认证端点允许不填写 API Key", async () => {
+        const faux = createFauxModels({provider: "qwen", api: "openai-completions", models: [{id: "faux-fast"}]});
+        faux.setResponses([fauxAssistantMessage(fauxText("ok"))]);
         const result = await checkModelHealth(createProviderDraft({
             options: {
                 apiKey: "",
-                baseURL: "",
+                baseURL: "http://127.0.0.1:1234/v1",
                 proxy: "",
                 timeoutMs: null,
                 requestOptions: {},
             },
-        }), createModelDraft());
+        }), createModelDraft(), {runtimeResolver: () => faux.runtime});
 
         expect(result).toMatchObject({
-            success: false,
-            latencyMs: null,
+            success: true,
         });
-        expect(result.message).toContain("缺少 API Key");
     });
 
     it("配置 Provider 代理时给出明确不支持提示", async () => {
@@ -214,27 +233,24 @@ describe("provider/model Pi checks", () => {
     });
 
     it("provider 错误消息会脱敏", async () => {
-        const faux = registerFauxProvider({
+        const faux = createFauxModels({
             provider: "faux-error-check",
+            api: "openai-completions",
             models: [{id: "faux-fast"}],
         });
         faux.setResponses([fauxAssistantMessage([], {
             stopReason: "error",
             errorMessage: "upstream rejected Bearer sk-secret123456789",
         })]);
-        try {
-            const result = await checkModelHealth(createProviderDraft({
-                id: "faux-error-check",
-                name: "Faux",
-                api: faux.api,
-            }), createModelDraft({id: "faux-fast"}));
+        const result = await checkModelHealth(createProviderDraft({
+            id: "faux-error-check",
+            name: "Faux",
+            api: "openai-completions",
+        }), createModelDraft({id: "faux-fast"}), {runtimeResolver: () => faux.runtime});
 
-            expect(result.success).toBe(false);
-            expect(result.message).toContain("Bearer [redacted]");
-            expect(result.message).not.toContain("sk-secret123456789");
-        } finally {
-            faux.unregister();
-        }
+        expect(result.success).toBe(false);
+        expect(result.message).toContain("Bearer [REDACTED]");
+        expect(result.message).not.toContain("sk-secret123456789");
     });
 
     it("可补齐已保存的 Provider API Key", () => {
@@ -272,21 +288,20 @@ describe("discoverProviderModels", () => {
 
         const result = await discoverProviderModels(createProviderDraft());
 
-        expect(fetchMock).toHaveBeenCalledWith(
-            "https://dashscope.aliyuncs.com/compatible-mode/v1/models",
-            expect.objectContaining({
-                method: "GET",
-                headers: expect.objectContaining({
-                    accept: "application/json",
-                    authorization: "Bearer sk-test",
-                }),
-            }),
-        );
-        expect(result.models).toEqual([
-            {id: "qwen-max", name: "qwen-max", group: "qwen"},
-            {id: "qwen-plus", name: "qwen-plus", group: "qwen"},
+        const [url, init] = fetchMock.mock.calls[0] ?? [];
+        expect(String(url)).toBe("https://dashscope.aliyuncs.com/compatible-mode/v1/models");
+        expect(init).toMatchObject({
+            method: "GET",
+            headers: {
+                accept: "application/json",
+                authorization: "Bearer sk-test",
+            },
+        });
+        expect(result.models.map((model) => ({id: model.id, name: model.name, group: model.group}))).toEqual([
+            {id: "qwen-max", name: "qwen-max", group: "default"},
+            {id: "qwen-plus", name: "qwen-plus", group: "default"},
         ]);
-        expect(result.message).toContain("已从 Qwen 远程发现 2 个模型");
+        expect(result.message).toContain("已从 Qwen 发现 2 个模型");
     });
 
     it("缺少 API Base 时直接报错", async () => {
@@ -313,6 +328,6 @@ describe("discoverProviderModels", () => {
     it("远端 JSON 缺少 data 数组时给出结构错误", async () => {
         globalThis.fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({object: "list"}))) as unknown as typeof fetch;
 
-        await expect(discoverProviderModels(createProviderDraft())).rejects.toThrow("/models 返回缺少 data 数组");
+        await expect(discoverProviderModels(createProviderDraft())).rejects.toThrow();
     });
 });

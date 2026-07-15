@@ -12,6 +12,8 @@ import type {JsonValue} from "nbook/server/agent/messages/types";
 import {generateBuiltinVariableTypes} from "nbook/server/agent/variables/generated-types";
 import {builtinVariableDefinitions} from "nbook/server/agent/variables/registry";
 import {readVariableDefinitionManifest, VARIABLE_DEFINITION_COMPILED_DIR} from "nbook/server/agent/variables/definition-artifact";
+import {resolveApplicationRoot, resolveSystemNbookRoot, resolveUserNbookRoot} from "nbook/server/workspace-files/workspace-assets-root";
+import {resolveStateRoot} from "nbook/server/runtime/installation-paths";
 
 type ProfileCommand = "status" | "check" | "compile" | "preview";
 
@@ -26,10 +28,15 @@ type CliOptions = {
     strictVariables: boolean;
 };
 
-const SYSTEM_PROFILE_ROOT = path.resolve(process.cwd(), "assets", "workspace", ".nbook", "agent", "profiles");
-const USER_PROFILE_ROOT = path.resolve(process.cwd(), "workspace", ".nbook", "agent", "profiles");
-const SYSTEM_VARIABLE_ROOT = path.resolve(process.cwd(), "assets", "workspace", ".nbook", "agent", "variables");
-const USER_VARIABLE_ROOT = path.resolve(process.cwd(), "workspace", ".nbook", "agent", "variables");
+const APPLICATION_ROOT = resolveApplicationRoot();
+process.chdir(APPLICATION_ROOT);
+
+const SYSTEM_NBOOK_ROOT = resolveSystemNbookRoot(APPLICATION_ROOT);
+const USER_NBOOK_ROOT = resolveUserNbookRoot(APPLICATION_ROOT);
+const SYSTEM_PROFILE_ROOT = path.join(SYSTEM_NBOOK_ROOT, "agent", "profiles");
+const USER_PROFILE_ROOT = path.join(USER_NBOOK_ROOT, "agent", "profiles");
+const SYSTEM_VARIABLE_ROOT = path.join(SYSTEM_NBOOK_ROOT, "agent", "variables");
+const USER_VARIABLE_ROOT = path.join(USER_NBOOK_ROOT, "agent", "variables");
 
 await main();
 
@@ -143,14 +150,19 @@ async function runStatus(options: CliOptions): Promise<void> {
         }
         return;
     }
+    let stale = false;
     for (const item of items) {
         const validation = await validateProfileArtifact(target.root, item);
         console.log(`${item.profileKey}: ${validation.fresh ? "loaded" : "compile_stale"}`);
         console.log(`  fileName: ${item.fileName}`);
         console.log(`  artifact: ${item.artifactFileName}`);
         if (!validation.fresh) {
+            stale = true;
             console.log(`  reason: ${validation.reason}`);
         }
+    }
+    if (stale) {
+        process.exitCode = 1;
     }
 }
 
@@ -464,7 +476,7 @@ async function prepareVariableTypeEnvironment(target: Awaited<ReturnType<typeof 
 
     await collectVariableDefinitionTypes(options.system ? SYSTEM_VARIABLE_ROOT : USER_VARIABLE_ROOT, knownPaths, typeFiles);
     if (options.projectPath) {
-        await collectVariableDefinitionTypes(path.resolve(process.cwd(), options.projectPath, ".nbook", "agent", "variables"), knownPaths, typeFiles);
+        await collectVariableDefinitionTypes(path.resolve(resolveStateRoot(), options.projectPath, ".nbook", "agent", "variables"), knownPaths, typeFiles);
     }
     await collectProfileSessionTypes(target, knownPaths, typeFiles, tempRoot);
 
@@ -591,7 +603,7 @@ function collectCtxVarsCallPath(node: ts.CallExpression, sourceFile: ts.SourceFi
 }
 
 function collectDslObjectPath(node: ts.CallExpression, paths: Set<string>): void {
-    if (!ts.isIdentifier(node.expression) || (node.expression.text !== "Variable" && node.expression.text !== "VariableSchema" && node.expression.text !== "Reminder")) {
+    if (!ts.isIdentifier(node.expression) || node.expression.text !== "Reminder") {
         return;
     }
     const firstArg = node.arguments[0];

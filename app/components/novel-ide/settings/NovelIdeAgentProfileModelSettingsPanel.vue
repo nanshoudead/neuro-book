@@ -2,9 +2,20 @@
 import type {Ref} from "vue";
 import type {
     AgentProfileModelConfigDto,
+    EnabledModelOptionDto,
     ThinkingLevelDto,
 } from "nbook/shared/dto/app-settings.dto";
 import NovelIdeModelSelect from "nbook/app/components/novel-ide/settings/NovelIdeModelSelect.vue";
+import ProfileRuntimeSettingsFields from "nbook/app/components/novel-ide/settings/ProfileRuntimeSettingsFields.vue";
+import {
+    buildProfileRuntimeSettingsPatch,
+    createProfileRuntimeSettingsDraft,
+    parseProfileRuntimeSettingsDraft,
+    resolveProfileRuntimeInheritance,
+    type ProfileRuntimeSettingsDraft,
+    type ProfileRuntimeSettingsErrors,
+    type ProfileRuntimeSettingsSources,
+} from "nbook/app/components/novel-ide/settings/profile-runtime-settings";
 import FormInput from "nbook/app/components/common/form/FormInput.vue";
 import FormSelect, {type SelectOption} from "nbook/app/components/common/form/FormSelect.vue";
 import LowCodeForm from "nbook/app/components/common/low-code-form/LowCodeForm.vue";
@@ -18,7 +29,7 @@ import {useDialog} from "nbook/app/composables/useDialog";
 import {useConfigApi} from "nbook/app/composables/useConfigApi";
 import {useNovelIdeStore} from "nbook/app/stores/novel-ide";
 import {resolveApiErrorMessage} from "nbook/app/utils/api-error";
-import type {ConfigAgentProfileSettingsDto, ConfigEditorSnapshotDto, ConfigWorkspaceQueryDto, GlobalConfigDto, ProjectConfigDto} from "nbook/shared/dto/config.dto";
+import type {ConfigAgentProfileSettingsDto, ConfigEditorSnapshotDto, ConfigWorkspaceQueryDto, GlobalConfigDto, GlobalConfigUpdateDto, ProfileRuntimeSettingsPatchDto, ProjectConfigDto} from "nbook/shared/dto/config.dto";
 import type {LowCodeFormDto, LowCodeFormIssueDto, LowCodeJsonObject, LowCodeResourceMutationDto} from "nbook/shared/dto/low-code-form.dto";
 
 type ConfigSettingsScope = "global" | "project";
@@ -40,6 +51,10 @@ type AgentProfileDraft = {
     model: AgentProfileModelDraft;
     loadStatus: ConfigAgentProfileSettingsDto["agentProfiles"][number]["loadStatus"];
     hasSettingsForm: boolean;
+    runtime: ProfileRuntimeSettingsDraft;
+    runtimeEffective: ConfigAgentProfileSettingsDto["agentProfiles"][number]["runtime"]["effective"];
+    runtimeSources: ProfileRuntimeSettingsSources;
+    runtimeErrors: ProfileRuntimeSettingsErrors;
     issue: ConfigAgentProfileSettingsDto["agentProfiles"][number]["issue"];
     sourcePath: string | null;
     buildState: ConfigAgentProfileSettingsDto["agentProfiles"][number]["buildState"];
@@ -67,6 +82,7 @@ type AgentProfileConfigDraft = {
     model: Partial<AgentProfileModelConfigDto>;
     settings?: LowCodeJsonObject;
     resourceMutations?: LowCodeResourceMutationDto[];
+    runtime?: ProfileRuntimeSettingsPatchDto;
 };
 
 const loading = ref(false);
@@ -75,6 +91,7 @@ const errorText = ref("");
 const successText = ref("");
 const resettingHomeProfileKey = ref("");
 const enabledModels = ref<ConfigAgentProfileSettingsDto["enabledModels"]>([]);
+const validationIssues = ref<ConfigAgentProfileSettingsDto["validationIssues"]>([]);
 const profileModelDefaults = ref<AgentProfileModelDraft>({
     modelKey: null,
     temperature: "",
@@ -82,6 +99,10 @@ const profileModelDefaults = ref<AgentProfileModelDraft>({
     reasoningEffort: "off",
     stream: true,
 });
+const profileRuntimeDefaults = ref<ProfileRuntimeSettingsDraft>(createProfileRuntimeSettingsDraft(undefined));
+const profileRuntimeDefaultsEffective = ref<ConfigAgentProfileSettingsDto["profileRuntimeDefaults"] | null>(null);
+const profileRuntimeDefaultsSources = ref<ProfileRuntimeSettingsSources | null>(null);
+const profileRuntimeDefaultsErrors = ref<ProfileRuntimeSettingsErrors>({});
 const profiles = ref([]) as Ref<AgentProfileDraft[]>;
 const expandedProfileSettings = ref<Set<string>>(new Set());
 const snapshotText = ref("");
@@ -114,20 +135,21 @@ const reasoningEffortBaseOptions = computed<SelectOption[]>(() => [
     {value: "medium", label: t("settings.panels.profileModels.medium")},
     {value: "high", label: t("settings.panels.profileModels.high")},
     {value: "xhigh", label: t("settings.panels.profileModels.xhigh")},
+    {value: "max", label: t("settings.panels.profileModels.max")},
 ]);
 const defaultProfileOptions = computed<SelectOption[]>(() => {
     const options = profiles.value.map((profile) => ({
         value: profile.profileKey,
         label: profile.profileKey,
         description: profile.name,
-        indicatorClass: profile.loadStatus === "loaded" ? "bg-emerald-500" : "bg-rose-500",
+        indicatorClass: profile.loadStatus === "loaded" ? "bg-[var(--status-success)]" : "bg-[var(--status-danger)]",
     })) ?? [];
     return [
         {
             value: "",
             label: t("settings.panels.defaultProfile.followDefault", {profile: inheritedDefaultProfileKey.value}),
             description: t("settings.panels.defaultProfile.followDefaultDescription"),
-            indicatorClass: "bg-slate-400",
+            indicatorClass: "bg-[var(--text-muted)]",
         },
         ...options,
     ];
@@ -192,6 +214,7 @@ function thinkingLevelLabel(level: ThinkingLevelDto): string {
         case "medium": return t("settings.panels.profileModels.medium");
         case "high": return t("settings.panels.profileModels.high");
         case "xhigh": return t("settings.panels.profileModels.xhigh");
+        case "max": return t("settings.panels.profileModels.max");
     }
 }
 
@@ -319,7 +342,7 @@ function buildSettingsPatch(settings: AgentProfileSettingsDraft | null): LowCode
 /**
  * 判断 JSON object 是否为空。
  */
-function isEmptyObject(value: LowCodeJsonObject | Partial<AgentProfileModelConfigDto>): boolean {
+function isEmptyObject(value: object): boolean {
     return Object.keys(value).length === 0;
 }
 
@@ -330,13 +353,15 @@ function buildProfileConfig(profile: AgentProfileDraft): AgentProfileConfigDraft
     const modelPatch = isProjectScope.value ? buildProjectModelPatch(profile.model) : buildModelPatch(profile.model);
     const settingsPatch = buildSettingsPatch(profile.settings);
     const resourceMutations = profile.settings?.resourceMutations ?? [];
-    if (isEmptyObject(modelPatch) && (!profile.settings || isEmptyObject(settingsPatch)) && resourceMutations.length === 0) {
+    const runtimePatch = buildProfileRuntimeSettingsPatch(profile.runtime);
+    if (isEmptyObject(modelPatch) && (!profile.settings || isEmptyObject(settingsPatch)) && resourceMutations.length === 0 && isEmptyObject(runtimePatch)) {
         return null;
     }
     return {
         model: modelPatch,
         ...(profile.settings && !isEmptyObject(settingsPatch) ? {settings: settingsPatch} : {}),
         ...(resourceMutations.length > 0 ? {resourceMutations} : {}),
+        ...(!isEmptyObject(runtimePatch) ? {runtime: runtimePatch} : {}),
     };
 }
 
@@ -366,6 +391,7 @@ function buildGlobalProfileConfigMap(): Record<string, AgentProfileConfigDraft> 
             .map(([profileKey, config]) => [profileKey, {
                 model: config.model ?? {},
                 ...(config.settings !== undefined ? {settings: cloneLowCodeObject(config.settings)} : {}),
+                ...(config.runtime !== undefined ? {runtime: config.runtime} : {}),
             } satisfies AgentProfileConfigDraft]),
     );
     for (const profile of profiles.value) {
@@ -396,14 +422,14 @@ function buildGlobalDefaultProfileKey(): NonNullable<NonNullable<GlobalConfigDto
 /**
  * 构造 Global Config 写回体，统一替换 agent 默认 Profile、模型默认值和 profile 覆盖。
  */
-function buildGlobalConfigPayload(): GlobalConfigDto {
+function buildGlobalConfigPayload(): GlobalConfigUpdateDto {
     const base = editorSnapshot.value?.global ?? {};
     return {
-        ...base,
         agent: {
             ...(base.agent ?? {}),
             defaultProfileKey: buildGlobalDefaultProfileKey(),
             profileModelDefaults: buildCompleteModelConfig(profileModelDefaults.value),
+            profileRuntimeDefaults: buildProfileRuntimeSettingsPatch(profileRuntimeDefaults.value),
             profiles: buildGlobalProfileConfigMap(),
         },
     };
@@ -413,13 +439,11 @@ function buildGlobalConfigPayload(): GlobalConfigDto {
  * 构造 Project Config 写回体，统一替换 agent 默认 Profile、模型默认值和 profile 覆盖。
  */
 function buildProjectConfigPayload(): ProjectConfigDto {
-    const base = editorSnapshot.value?.project ?? {};
     return {
-        ...base,
         agent: {
-            ...(base.agent ?? {}),
             defaultProfileKey: selectedDefaultProfileKey.value || null,
             profileModelDefaults: buildModelPatch(profileModelDefaults.value),
+            profileRuntimeDefaults: buildProfileRuntimeSettingsPatch(profileRuntimeDefaults.value),
             profiles: buildProfileConfigMap(),
         },
     };
@@ -460,6 +484,7 @@ function buildCompleteModelConfig(model: AgentProfileModelDraft): AgentProfileMo
 function applySettings(settings: ConfigAgentProfileSettingsDto): void {
     selectedDefaultProfileKey.value = editorSnapshot.value?.global.agent?.defaultProfileKey?.[globalDefaultProfileSlot.value] ?? "";
     enabledModels.value = settings.enabledModels;
+    validationIssues.value = settings.validationIssues;
     profileModelDefaults.value = cloneModelDraft(settings.profileModelDefaults);
     if (profileModelDefaults.value.reasoningEffort === null) {
         profileModelDefaults.value.reasoningEffort = "off";
@@ -467,18 +492,33 @@ function applySettings(settings: ConfigAgentProfileSettingsDto): void {
     if (profileModelDefaults.value.stream === null) {
         profileModelDefaults.value.stream = true;
     }
-    profiles.value = settings.agentProfiles.map((profile) => ({
+    profileRuntimeDefaults.value = createProfileRuntimeSettingsDraft(editorSnapshot.value?.global.agent?.profileRuntimeDefaults);
+    const globalDefaultsInheritance = resolveProfileRuntimeInheritance(settings.harnessRuntimeDefaults, []);
+    profileRuntimeDefaultsEffective.value = globalDefaultsInheritance.settings;
+    profileRuntimeDefaultsSources.value = globalDefaultsInheritance.sources;
+    profileRuntimeDefaultsErrors.value = {};
+    profiles.value = settings.agentProfiles.map((profile) => {
+        const inheritance = resolveProfileRuntimeInheritance(settings.harnessRuntimeDefaults, [
+            {source: "profileDefault", patch: profile.runtime.profileDefaults},
+            {source: "globalDefault", patch: profile.runtime.globalDefaultsPatch},
+        ]);
+        return ({
         profileKey: profile.profileKey,
         name: profile.name,
         canResetHome: profile.canResetHome,
         model: cloneModelDraft(editorSnapshot.value?.global.agent?.profiles?.[profile.profileKey]?.model),
         loadStatus: profile.loadStatus,
         hasSettingsForm: profile.hasSettingsForm,
+        runtime: createProfileRuntimeSettingsDraft(editorSnapshot.value?.global.agent?.profiles?.[profile.profileKey]?.runtime),
+        runtimeEffective: inheritance.settings,
+        runtimeSources: inheritance.sources,
+        runtimeErrors: {},
         issue: profile.issue,
         sourcePath: profile.sourcePath,
         buildState: profile.buildState,
         settings: cloneSettingsDraft(profile.settings, "global"),
-    }));
+        });
+    });
     snapshotText.value = JSON.stringify(buildGlobalSavePayload());
     scheduleBuildStatusPolling();
 }
@@ -489,9 +529,23 @@ function applySettings(settings: ConfigAgentProfileSettingsDto): void {
 function applyProjectSettings(settings: ConfigAgentProfileSettingsDto): void {
     selectedDefaultProfileKey.value = editorSnapshot.value?.defaultProfileSettings.projectDefaultProfileKey ?? "";
     enabledModels.value = settings.enabledModels;
+    validationIssues.value = settings.validationIssues;
     profileModelDefaults.value = cloneModelDraft(editorSnapshot.value?.project?.agent?.profileModelDefaults);
+    profileRuntimeDefaults.value = createProfileRuntimeSettingsDraft(editorSnapshot.value?.project?.agent?.profileRuntimeDefaults);
+    const projectDefaultsInheritance = resolveProfileRuntimeInheritance(settings.harnessRuntimeDefaults, [
+        {source: "globalDefault", patch: settings.globalRuntimeDefaultsPatch},
+    ]);
+    profileRuntimeDefaultsEffective.value = projectDefaultsInheritance.settings;
+    profileRuntimeDefaultsSources.value = projectDefaultsInheritance.sources;
+    profileRuntimeDefaultsErrors.value = {};
     profiles.value = settings.agentProfiles.map((profile) => {
         const override = editorSnapshot.value?.project?.agent?.profiles?.[profile.profileKey]?.model;
+        const inheritance = resolveProfileRuntimeInheritance(settings.harnessRuntimeDefaults, [
+            {source: "profileDefault", patch: profile.runtime.profileDefaults},
+            {source: "globalDefault", patch: profile.runtime.globalDefaultsPatch},
+            {source: "globalProfile", patch: profile.runtime.globalProfilePatch},
+            {source: "projectDefault", patch: profile.runtime.projectDefaultsPatch},
+        ]);
         return {
             profileKey: profile.profileKey,
             name: profile.name,
@@ -499,6 +553,10 @@ function applyProjectSettings(settings: ConfigAgentProfileSettingsDto): void {
             model: cloneModelDraft(override),
             loadStatus: profile.loadStatus,
             hasSettingsForm: profile.hasSettingsForm,
+            runtime: createProfileRuntimeSettingsDraft(editorSnapshot.value?.project?.agent?.profiles?.[profile.profileKey]?.runtime),
+            runtimeEffective: inheritance.settings,
+            runtimeSources: inheritance.sources,
+            runtimeErrors: {},
             issue: profile.issue,
             sourcePath: profile.sourcePath,
             buildState: profile.buildState,
@@ -570,6 +628,7 @@ function buildGlobalSavePayload(): Record<string, unknown> {
     return {
         defaultProfileKey: buildGlobalDefaultProfileKey(),
         profileModelDefaults: buildCompleteModelConfig(profileModelDefaults.value),
+        profileRuntimeDefaults: buildProfileRuntimeSettingsPatch(profileRuntimeDefaults.value),
         profiles: buildGlobalProfileConfigMap(),
     };
 }
@@ -578,8 +637,22 @@ function buildProjectDirtyPayload(): Record<string, unknown> {
     return {
         defaultProfileKey: selectedDefaultProfileKey.value || null,
         profileModelDefaults: buildModelPatch(profileModelDefaults.value),
+        profileRuntimeDefaults: buildProfileRuntimeSettingsPatch(profileRuntimeDefaults.value),
         profiles: buildProjectSavePayload(),
     };
+}
+
+/** 校验所有 runtime 草稿，并将字段问题写回对应编辑区。 */
+function validateRuntimeDrafts(): boolean {
+    const defaults = parseProfileRuntimeSettingsDraft(profileRuntimeDefaults.value);
+    profileRuntimeDefaultsErrors.value = defaults.errors;
+    let valid = Object.keys(defaults.errors).length === 0;
+    for (const profile of profiles.value) {
+        const result = parseProfileRuntimeSettingsDraft(profile.runtime);
+        profile.runtimeErrors = result.errors;
+        valid = valid && Object.keys(result.errors).length === 0;
+    }
+    return valid;
 }
 
 /**
@@ -620,6 +693,10 @@ async function restoreSettings(): Promise<void> {
  */
 async function saveSettings(): Promise<void> {
     if (!dirty.value || saving.value) {
+        return;
+    }
+    if (!validateRuntimeDrafts()) {
+        errorText.value = t("settings.panels.profileModels.runtime.validationFailed");
         return;
     }
 
@@ -688,6 +765,7 @@ function resetProfile(profile: AgentProfileDraft): void {
         reasoningEffort: null,
         stream: null,
     };
+    profile.runtime = createProfileRuntimeSettingsDraft(undefined);
     if (profile.settings) {
         profile.settings.values = isProjectScope.value
             ? {}
@@ -697,7 +775,7 @@ function resetProfile(profile: AgentProfileDraft): void {
     }
 }
 
-function resetProfileModelDefaults(): void {
+function resetProfileDefaults(): void {
     profileModelDefaults.value = isProjectScope.value
         ? cloneModelDraft(undefined)
         : {
@@ -707,6 +785,7 @@ function resetProfileModelDefaults(): void {
             reasoningEffort: "off",
             stream: true,
         };
+    profileRuntimeDefaults.value = createProfileRuntimeSettingsDraft(undefined);
 }
 
 function globalProfileModelDefaults(): AgentProfileModelConfigDto {
@@ -755,6 +834,30 @@ function defaultModelSelectLabel(): string {
     }
     const inherited = globalProfileModelDefaults().modelKey;
     return inherited ? t("settings.panels.profileModels.inheritGlobal", {value: inherited}) : t("settings.panels.profileModels.inheritGlobalDefaultModel");
+}
+
+/** 为历史无效 modelKey 合成只在当前字段显示的不可运行选项。 */
+function modelOptions(modelKey: string | null): EnabledModelOptionDto[] {
+    const normalized = modelKey?.trim() ?? "";
+    if (!normalized || enabledModels.value.some((model) => model.key === normalized)) {
+        return enabledModels.value;
+    }
+    const separatorIndex = normalized.indexOf("/");
+    const providerId = separatorIndex > 0 ? normalized.slice(0, separatorIndex) : "invalid";
+    const modelId = separatorIndex > 0 ? normalized.slice(separatorIndex + 1) : normalized;
+    return [{
+        key: normalized,
+        label: t("settings.panels.profileModels.unrunnableModel", {key: normalized}),
+        providerId,
+        modelId: modelId || "invalid",
+        contextWindowTokens: null,
+    }, ...enabledModels.value];
+}
+
+/** 返回当前历史模型引用对应的字段级问题。 */
+function modelIssues(modelKey: string | null): ConfigAgentProfileSettingsDto["validationIssues"] {
+    const normalized = modelKey?.trim() ?? "";
+    return normalized ? validationIssues.value.filter((issue) => issue.modelKey === normalized) : [];
 }
 
 function defaultReasoningOptions(): SelectOption[] {
@@ -823,13 +926,13 @@ defineExpose({
             leave-to-class="opacity-0 scale-[0.98]"
             class="relative flex flex-col gap-2"
         >
-            <div v-if="errorText" key="error" class="flex items-start gap-3 rounded-xl border border-rose-500/20 bg-rose-500/10 px-4 py-3 shadow-sm backdrop-blur-md">
-                <span class="i-lucide-alert-circle mt-0.5 h-4 w-4 shrink-0 text-rose-500"></span>
-                <div class="text-sm text-rose-700">{{ errorText }}</div>
+            <div v-if="errorText" key="error" class="flex items-start gap-3 rounded-xl border border-[var(--status-danger-border)] bg-[var(--status-danger-bg)] px-4 py-3 shadow-sm backdrop-blur-md">
+                <span class="i-lucide-alert-circle mt-0.5 h-4 w-4 shrink-0 text-[var(--status-danger)]"></span>
+                <div class="text-sm text-[var(--status-danger)]">{{ errorText }}</div>
             </div>
-            <div v-if="successText" key="success" class="flex items-start gap-3 rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 shadow-sm backdrop-blur-md">
-                <span class="i-lucide-check-circle-2 mt-0.5 h-4 w-4 shrink-0 text-emerald-500"></span>
-                <div class="text-sm text-emerald-700">{{ successText }}</div>
+            <div v-if="successText" key="success" class="flex items-start gap-3 rounded-xl border border-[var(--status-success-border)] bg-[var(--status-success-bg)] px-4 py-3 shadow-sm backdrop-blur-md">
+                <span class="i-lucide-check-circle-2 mt-0.5 h-4 w-4 shrink-0 text-[var(--status-success)]"></span>
+                <div class="text-sm text-[var(--status-success)]">{{ successText }}</div>
             </div>
         </TransitionGroup>
 
@@ -854,7 +957,7 @@ defineExpose({
                     <div class="space-y-1.5">
                         <label class="text-xs font-medium text-[var(--text-secondary)]">{{ t("settings.panels.defaultProfile.currentEffective") }}</label>
                         <div class="flex h-7 w-full items-center gap-2 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)]/30 px-2.5 text-[12px] select-all">
-                            <span class="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-emerald-500"></span>
+                            <span class="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-[var(--status-success)]"></span>
                             <span class="truncate font-mono text-[11px] font-semibold text-[var(--text-main)]">{{ effectiveDefaultProfileKey || "-" }}</span>
                         </div>
                     </div>
@@ -867,7 +970,7 @@ defineExpose({
                         <h4 class="text-sm font-semibold text-[var(--text-main)]">{{ t("settings.panels.profileModels.defaultParameters") }}</h4>
                         <p class="mt-1 text-xs text-[var(--text-secondary)]">{{ isProjectScope ? t("settings.panels.profileModels.projectDefaultDescription") : t("settings.panels.profileModels.globalDefaultDescription") }}</p>
                     </div>
-                    <button class="inline-flex h-7 items-center gap-1.5 rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] px-3 text-[11px] font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" @click="resetProfileModelDefaults">
+                    <button class="inline-flex h-7 items-center gap-1.5 rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] px-3 text-[11px] font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" @click="resetProfileDefaults">
                         <span class="i-lucide-rotate-ccw h-3 w-3"></span>
                         {{ t("settings.panels.profileModels.resetDefault") }}
                     </button>
@@ -878,12 +981,13 @@ defineExpose({
                         <label class="text-xs font-medium text-[var(--text-secondary)]">{{ t("settings.panels.profileModels.defaultModel") }}</label>
                         <NovelIdeModelSelect
                             :model-value="profileModelDefaults.modelKey"
-                            :models="enabledModels"
+                            :models="modelOptions(profileModelDefaults.modelKey)"
                             allow-default
                             :default-label="defaultModelSelectLabel()"
                             :placeholder="t('settings.panels.profileModels.selectDefaultModel')"
                             @update:model-value="profileModelDefaults.modelKey = $event"
                         />
+                        <p v-if="modelIssues(profileModelDefaults.modelKey).length > 0" class="text-[11px] text-[var(--status-warning)]">{{ modelIssues(profileModelDefaults.modelKey)[0]?.message }}</p>
                     </div>
                     <div class="space-y-1.5">
                         <label class="text-xs font-medium text-[var(--text-secondary)]">{{ t("settings.panels.profileModels.temperature") }}</label>
@@ -902,6 +1006,10 @@ defineExpose({
                         <FormSelect :model-value="streamSelectValue(profileModelDefaults.stream)" :options="defaultStreamOptions()" @update:model-value="setDefaultStream" />
                     </div>
                 </div>
+                <div v-if="profileRuntimeDefaultsEffective && profileRuntimeDefaultsSources" class="mt-5 border-t border-[var(--border-color)] pt-5">
+                    <h5 class="mb-3 text-xs font-semibold text-[var(--text-main)]">{{ t("settings.panels.profileModels.runtime.defaultsTitle") }}</h5>
+                    <ProfileRuntimeSettingsFields v-model="profileRuntimeDefaults" :inherited="profileRuntimeDefaultsEffective" :sources="profileRuntimeDefaultsSources" :errors="profileRuntimeDefaultsErrors" />
+                </div>
             </section>
 
             <section class="rounded-2xl border border-[var(--border-color)] bg-[var(--bg-panel)] p-5 shadow-sm">
@@ -918,7 +1026,7 @@ defineExpose({
                                 <div class="mt-1 text-[11px] text-[var(--text-muted)]">{{ profile.profileKey }}</div>
                             </div>
                             <div class="flex flex-wrap items-center gap-2">
-                                <button v-if="isProjectScope && profile.canResetHome" class="inline-flex h-7 items-center gap-1.5 rounded-md border border-rose-500/40 bg-rose-500/5 px-3 text-[11px] font-medium text-rose-600 transition-colors hover:bg-rose-500/10 disabled:opacity-50" :disabled="Boolean(resettingHomeProfileKey) || saving" @click="void resetProfileHome(profile)">
+                                <button v-if="isProjectScope && profile.canResetHome" class="inline-flex h-7 items-center gap-1.5 rounded-md border border-[var(--status-danger-border)] bg-[var(--status-danger-bg)] px-3 text-[11px] font-medium text-[var(--status-danger)] transition-colors hover:bg-[var(--status-danger-bg)] disabled:opacity-50" :disabled="Boolean(resettingHomeProfileKey) || saving" @click="void resetProfileHome(profile)">
                                     <span :class="resettingHomeProfileKey === profile.profileKey ? 'i-lucide-loader-2 animate-spin' : 'i-lucide-rotate-ccw'" class="h-3 w-3"></span>
                                     {{ t("settings.panels.profileModels.resetHome") }}
                                 </button>
@@ -935,12 +1043,13 @@ defineExpose({
                                 <label class="text-xs font-medium text-[var(--text-secondary)]">{{ t("settings.panels.profileModels.defaultModel") }}</label>
                                 <NovelIdeModelSelect
                                     :model-value="profile.model.modelKey"
-                                    :models="enabledModels"
+                                    :models="modelOptions(profile.model.modelKey)"
                                     allow-default
                                     :default-label="modelDefaultLabel(profile)"
                                     :placeholder="t('settings.panels.profileModels.selectDefaultModel')"
                                     @update:model-value="profile.model.modelKey = $event"
                                 />
+                                <p v-if="modelIssues(profile.model.modelKey).length > 0" class="text-[11px] text-[var(--status-warning)]">{{ modelIssues(profile.model.modelKey)[0]?.message }}</p>
                             </div>
 
                             <!-- 温度 -->
@@ -966,6 +1075,11 @@ defineExpose({
                                 <label class="text-xs font-medium text-[var(--text-secondary)]">{{ t("settings.panels.profileModels.stream") }}</label>
                                 <FormSelect :model-value="streamSelectValue(profile.model.stream)" :options="streamOptionsForProfile(profile)" @update:model-value="setProfileStream(profile, $event)" />
                             </div>
+                        </div>
+
+                        <div class="mt-4 border-t border-[var(--border-color)] pt-4">
+                            <h5 class="mb-3 text-xs font-semibold text-[var(--text-main)]">{{ t("settings.panels.profileModels.runtime.profileOverrideTitle") }}</h5>
+                            <ProfileRuntimeSettingsFields v-model="profile.runtime" :inherited="profile.runtimeEffective" :sources="profile.runtimeSources" :errors="profile.runtimeErrors" />
                         </div>
 
                         <!-- Profile 自定义低代码设置 -->

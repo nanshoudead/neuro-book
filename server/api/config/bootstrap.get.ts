@@ -77,6 +77,7 @@ defineRouteMeta({
                                                     "default": null,
                                                     "nullable": true,
                                                     "type": "integer",
+                                                    "minimum": 0,
                                                     "exclusiveMinimum": true,
                                                     "maximum": 9007199254740991
                                                 }
@@ -115,6 +116,49 @@ defineRouteMeta({
                             "ui": {
                                 "type": "object",
                                 "properties": {
+                                    "theme": {
+                                        "default": "sepia",
+                                        "type": "string",
+                                        "minLength": 1
+                                    },
+                                    "customThemes": {
+                                        "default": [],
+                                        "type": "array",
+                                        "items": {
+                                            "type": "object",
+                                            "properties": {
+                                                "id": {
+                                                    "type": "string",
+                                                    "pattern": "^custom-[a-z0-9-]+$"
+                                                },
+                                                "name": {
+                                                    "type": "string",
+                                                    "minLength": 1,
+                                                    "maxLength": 50
+                                                },
+                                                "appearance": {
+                                                    "type": "string",
+                                                    "enum": [
+                                                        "light",
+                                                        "dark"
+                                                    ]
+                                                },
+                                                "vars": {
+                                                    "type": "object",
+                                                    "additionalProperties": {
+                                                        "type": "string"
+                                                    }
+                                                }
+                                            },
+                                            "required": [
+                                                "id",
+                                                "name",
+                                                "appearance",
+                                                "vars"
+                                            ],
+                                            "additionalProperties": false
+                                        }
+                                    },
                                     "costCurrency": {
                                         "default": "USD",
                                         "type": "string",
@@ -125,6 +169,8 @@ defineRouteMeta({
                                     }
                                 },
                                 "required": [
+                                    "theme",
+                                    "customThemes",
                                     "costCurrency"
                                 ],
                                 "additionalProperties": false

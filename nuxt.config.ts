@@ -1,4 +1,5 @@
 import { fileURLToPath } from "node:url";
+import { resolve } from "node:path";
 
 const rootDir = fileURLToPath(new URL("./", import.meta.url));
 const serverDir = fileURLToPath(new URL("./server/", import.meta.url));
@@ -12,35 +13,6 @@ const runtimeWorkspaceWatchIgnore = [
     "workspace",
     "workspace/**",
 ];
-
-/**
- * 将 node_modules 依赖拆成稳定 vendor chunk。
- * 这不是 lazyload；它只是给 Rollup 输出更稳定的缓存边界和分析命名。
- */
-function resolveVendorChunk(id: string): string | undefined {
-    const normalizedId = id.replace(/\\/g, "/");
-    if (!normalizedId.includes("/node_modules/")) {
-        return undefined;
-    }
-
-    if (normalizedId.includes("/monaco-editor/")) {
-        return "vendor-monaco";
-    }
-    if (normalizedId.includes("/@tiptap/") || normalizedId.includes("/@milkdown/") || normalizedId.includes("/prosemirror-")) {
-        return "vendor-rich-editor";
-    }
-    if (
-        normalizedId.includes("/@vue-flow/")
-        || normalizedId.includes("/@dnd-kit/")
-        || normalizedId.includes("/json-editor-vue/")
-        || normalizedId.includes("/jsoneditor/")
-        || normalizedId.includes("/vanilla-jsoneditor/")
-    ) {
-        return "vendor-studio-widgets";
-    }
-
-    return undefined;
-}
 
 export default defineNuxtConfig({
     ssr: false,
@@ -86,11 +58,6 @@ export default defineNuxtConfig({
         },
         build: {
             reportCompressedSize: false,
-            rollupOptions: {
-                output: {
-                    manualChunks: resolveVendorChunk,
-                },
-            },
         },
     },
     components: [
@@ -110,6 +77,7 @@ export default defineNuxtConfig({
         },
     ],
     nitro: {
+        output: process.env.NEURO_BOOK_OUTPUT_DIR ? {dir: resolve(process.env.NEURO_BOOK_OUTPUT_DIR)} : undefined,
         devStorage: {
             root: {
                 driver: "fs",

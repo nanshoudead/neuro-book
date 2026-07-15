@@ -4,10 +4,6 @@
 
 `leader.default` 的身份、创作协作口吻和用户主创边界仍属于 profile 私有 system prompt；本文只保存稳定操作规则。
 
-## Variables
-
-- 需要读写变量时，先用 `variable_schema` 查询局部 schema，再用 `variable_read` 读取当前值，最后用 `variable_patch` 提交 JSON Patch；重要修改后再次读取验证。
-
 ## Task Management
 
 Task tools are for execution tracking, not for storing novel facts. Stable world facts belong in Lorebook; dynamic world state and timeline belong in World Engine.
@@ -38,12 +34,13 @@ Task tools are for execution tracking, not for storing novel facts. Stable world
 ### Writer Collaboration
 
 - `writer` 是正文写作专用 agent，是长期可复用写作工位。创建 writer 时使用 `create_agent({profileKey: "writer", initial: {}, title})`。
-- 每轮写作任务都通过 `invoke_agent` 发送：`message` 写自然语言任务，`input` 按 writer `PayloadSchema` 传 `{path, context?}`。
+- 每轮写作任务都通过 `invoke_agent` 发送：`message` 写自然语言任务，`input` 按 writer `PayloadSchema` 传 `{path, chapterId?, context?}`。
 - `invoke_agent.input.path` 是本轮唯一写入或修改目标，必须是 Agent cwd-relative Project Markdown 路径，例如 `silver-dragon-hime/manuscript/001-第一章/index.md`。
-- `invoke_agent.message` 必须写清写什么、范围、重点、禁忌、结束条件和交付要求；不要只传 id/path 让 writer 自己规划剧情。
-- `invoke_agent.input.context` 只放建议读取清单：`lorebookEntries`、`readablePaths`。`threadIds`、`sceneIds`、`plotIds` 是 legacy 兼容字段，writer 会忽略；需要 Scene / World Context 时，把完整 brief 放进 `invoke_agent.message`。
+- `invoke_agent.input.chapterId` 是本章 `StoryChapter` id：writer 处于 `autonomous`（自主全知，默认）模式，有 Plot 只读能力，会用它自取 `get_chapter_writer_brief` 编译好的本章 brief。传了 chapterId 就不必把整份 brief 复制进 message；message 仍写清任务重点与结束条件。
+- `invoke_agent.message` 必须写清写什么、范围、重点、禁忌、结束条件和交付要求；不要只传 id/path 让 writer 自己规划剧情。剧情设计权仍在 leader，writer 只读 Plot、不创建 / 修改 Thread / Scene / Chapter。
+- `invoke_agent.input.context` 只放建议读取清单：`lorebookEntries`、`readablePaths`。legacy `threadIds` / `sceneIds` / `plotIds` 已从 PayloadSchema 删除，不要再传；需要章节剧情时传 `chapterId` 让 writer 自取，或把关键点写进 `message`。
 - 需要设定召回时，先让 retrieval 返回候选判断结果，再由 leader 选择 `entries[].path` 放入 `input.context.lorebookEntries`。不要把 retrieval 的 `reason`、`use`、`risk` 或 `note` 直接传给 writer。
-- **写作模式下，写作前的世界状态推进走 World Engine**（见下方 Writing Mode World State 段）：Leader 在调用 writer 前，先用 `execute_world` 把本章涉及的剧情事件写入 World Engine，再由 leader 自己更新 Thread / Scene / Chapter Plot，最后用 `get_chapter_writer_brief` 编译 Scene / World Context brief。`writer` 拥有 World Engine 只读 `execute_world`，能自查角色当前状态，所以 brief 只传章节目标、关键剧情点、Scene / World Context 摘要、信息控制要求、写作约束、建议读取的 lorebook 和「查哪些 subject / 哪个时间范围」的查询提示，**不要**把 HP / 位置 / 完整状态塞进 brief。详见 [reference/world-engine/workflow.md](../world-engine/workflow.md) 第 6 节。
+- **写作模式下，写作前的世界状态推进走 World Engine**（见下方 Writing Mode World State 段）：Leader 在调用 writer 前，先用 `execute_world` 把本章涉及的剧情事件写入 World Engine，再由 leader 自己更新 Thread / Scene / Chapter Plot 与 ChapterBrief，最后（可选）用 `get_chapter_writer_brief` 自查确认 status = `ready`。`writer` 在 autonomous 模式下拥有 World Engine 只读 + Plot 只读，能自查角色当前状态与本章 brief，所以 leader **不要**把 HP / 位置 / 完整状态或设定复述塞进 brief，也**不要**传文风约束（writer profile 自带）。信息控制（读者已知 / 主角已知 / 必须隐藏 / 可暗示）必须落在 ChapterBrief 上，否则 brief status 停在 `needs_chapter_brief`。brief 格式契约见 [reference/plot/writer-brief.md](../plot/writer-brief.md)，协作原理见 [reference/world-engine/workflow.md](../world-engine/workflow.md) 第 6 / 12 节。
 
 ### Writing Mode World State (World Engine)
 
@@ -102,26 +99,25 @@ Task tools are for execution tracking, not for storing novel facts. Stable world
 ```sql
 SELECT id, title
 FROM "StoryScene"
-WHERE "chapterPath" = 'manuscript/001-opening/'
+WHERE "chapterId" = 12
 ORDER BY "threadSortOrder";
 ```
 
 - 文件正文、manuscript、lorebook 和普通文档必须用 `read` / `write` / `edit` / `apply_patch`，不要用 SQL 读写长正文。
 
-## Plan Mode
+## Agent 模式（normal / discuss / plan）
 
-- `enter_plan_mode` 用于请求进入计划模式，适合大型、多步、风险高或需求仍需共同确认的改动。
-- `exit_plan_mode` 用于请求退出计划模式。
+- Agent 有三种工作模式：`normal`（可读可写，默认）、`discuss`（只读讨论）、`plan`（只读计划）。
+- `switch_mode` 用于发起一次模式切换审批；切换只在用户批准后生效。`targetMode: "plan"` 适合大型、多步、风险高或需求仍需共同确认的改动前先做计划；`targetMode: "discuss"` 适合用户想先讨论方向、分析方案而不动手；`targetMode: "normal"` 用于结论或计划确认后开始执行。
+- discuss / plan 都是只读模式：仍可读文件、搜索、运行只读命令；文件写工具会挂起等待用户审批，bash 只做只读查询。改状态的非文件工具（`execute_sql` 的 INSERT/UPDATE/DELETE、`execute_world` 的切面写入/patch、plot 的 `save_*`）也一律保持只读，只做查询（SELECT、world 读取、`get_*`），需要写入时用 `switch_mode` 切回 normal 再操作。两者的区别是导向：discuss 面向回答与方案对比，plan 面向产出可执行计划。
 - 计划模式里的计划应足够具体，可直接执行，但不要把当前对话里的临时口癖写进长期提示词。
-- Plan Mode 是 soft mode：进入后仍可做只读调查、列计划、阅读源码和运行不会改写仓库状态的验证；不要执行产品代码、配置、数据或工作区内容修改。
-- 需要实现时，先准备执行计划，再用 `exit_plan_mode` 请求用户批准。不要用普通文本或 `request_user_input` 代替 `exit_plan_mode`。
-- Plan Mode 工作目录会在 system-reminder 中给出，固定为当前 Project Workspace 的 `.agent/plan/`，适合保存计划草案、walkthrough 和调研 notes。
-- 普通 Project agent 的文件工具 cwd 是 Workspace Root；写计划文件时使用 system-reminder 给出的文件工具路径，例如 `<project>/.agent/plan/<slug>.md`。调用 `exit_plan_mode` 时，`planFilePath` 必须使用 Project Workspace 相对路径，例如 `.agent/plan/<slug>.md`。
-- 进入 Plan Mode 时不会绑定固定文件名；需要持久化计划时自行选择短且可读的 Markdown 文件名。
-- Plan Mode 激活时，只能编辑 `.agent/plan/` 内的 Markdown 计划 / 记录文件。
+- 需要开始实现时，用 `switch_mode`（`targetMode: "normal"`）请求用户批准。不要用普通文本或 `request_user_input` 代替 `switch_mode` 请求计划批准。
+- Plan Mode 工作目录会在 system-reminder 中给出，固定为当前 Project Workspace 的 `.agent/plan/`，适合保存计划草案、walkthrough 和调研 notes；plan 模式下写该目录内的 Markdown 文件不需要审批。
+- 普通 Project agent 的文件工具 cwd 是 Workspace Root；写计划文件时使用 system-reminder 给出的文件工具路径，例如 `<project>/.agent/plan/<slug>.md`。调用 `switch_mode` 退出到 normal 时，`planFilePath` 必须使用 Project Workspace 相对路径，例如 `.agent/plan/<slug>.md`。
+- 进入 plan 模式时不会绑定固定文件名；需要持久化计划时自行选择短且可读的 Markdown 文件名。
 - 不要把 scratch / cache / 命令输出草稿放进 Project Workspace `.agent`，临时文件使用系统 tmp。
 - 不要创建或调用 Explore agent。需要探索时使用当前 agent 的只读 `read` / search / `bash` 验证能力。
-- 退出 Plan Mode 前，如果写了计划文件，先在聊天中简短报告计划状态并引用 `.agent/plan/` 内的 Markdown 文件路径，再用 `exit_plan_mode` 请求批准；正式计划文件必须传 `planFilePath`，让审批 UI 展示该 Project Workspace 计划文件。
+- 退出 plan 模式前，如果写了计划文件，先在聊天中简短报告计划状态并引用 `.agent/plan/` 内的 Markdown 文件路径，再用 `switch_mode` 请求批准；正式计划文件必须传 `planFilePath`，让审批 UI 展示该 Project Workspace 计划文件。
 
 ## Skills
 

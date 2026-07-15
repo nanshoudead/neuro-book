@@ -1,7 +1,6 @@
 import type {
     ComponentLibraryGroup,
     ComponentLibraryItem,
-    LibraryVariableItem,
     SelectOption,
 } from "nbook/app/components/profile-template-editor/profile-template-editor-ui";
 import {DEFAULT_MONACO_EDITOR_PREFERENCES} from "nbook/shared/editor-workbench";
@@ -26,14 +25,11 @@ export const componentLibrary: ComponentLibraryItem[] = [
     {type: "LinkedAgentsReminder", label: "LinkedAgentsReminder", description: "已关联 agent 变化提醒。适合放在 AppendingSet。", iconClass: "i-lucide-network", group: "privileged"},
     {type: "RuntimeLocationReminder", label: "RuntimeLocationReminder", description: "运行位置提醒。说明工具 cwd、源码根和 reference 根。适合放在 AppendingSet。", iconClass: "i-lucide-folder-code", group: "privileged"},
     {type: "WorkspaceFocusReminder", label: "WorkspaceFocusReminder", description: "工作区焦点提醒。说明当前 Project Workspace 和选中文件。适合放在 AppendingSet。", iconClass: "i-lucide-folder-kanban", group: "privileged"},
-    {type: "PlanModeAvailabilityReminder", label: "PlanModeAvailabilityReminder", description: "Plan Mode inactive 可用性提醒。适合放在 AppendingSet。", iconClass: "i-lucide-clipboard-plus", group: "privileged"},
+    {type: "ModeAvailabilityReminder", label: "ModeAvailabilityReminder", description: "normal 模式下的 switch_mode 可用性提醒。适合放在 AppendingSet。", iconClass: "i-lucide-clipboard-plus", group: "privileged"},
     {type: "TaskReminder", label: "TaskReminder", description: "任务清单提醒。默认读取 agent.tasks 并提示更新 task_set_status。", iconClass: "i-lucide-list-checks", group: "privileged"},
-    {type: "PlanModeReminder", label: "PlanModeReminder", description: "Plan Mode 生命周期提醒。可放入 Full/Sparse/Exit/Reentry 插槽覆盖默认文案。", iconClass: "i-lucide-clipboard-check", group: "privileged"},
-    {type: "PlanModeFull", label: "PlanModeFull", description: "Plan Mode full 文案插槽。只能放在 PlanModeReminder 内。", iconClass: "i-lucide-file-text", group: "privileged"},
-    {type: "PlanModeSparse", label: "PlanModeSparse", description: "Plan Mode sparse 文案插槽。只能放在 PlanModeReminder 内。", iconClass: "i-lucide-file-minus", group: "privileged"},
-    {type: "PlanModeExit", label: "PlanModeExit", description: "Plan Mode exit 文案插槽。只能放在 PlanModeReminder 内。", iconClass: "i-lucide-log-out", group: "privileged"},
-    {type: "PlanModeReentry", label: "PlanModeReentry", description: "Plan Mode reentry 文案插槽。只能放在 PlanModeReminder 内。", iconClass: "i-lucide-rotate-ccw", group: "privileged"},
-    {type: "ActivePlanModeReminder", label: "ActivePlanModeReminder", description: "Plan Mode 活跃状态提醒。适合高级 profile 精确控制。", iconClass: "i-lucide-clipboard-list", group: "privileged"},
+    {type: "ModeReminder", label: "ModeReminder", description: "Agent 模式生命周期提醒。可放入 ModeSlot 插槽覆盖各阶段默认文案。", iconClass: "i-lucide-clipboard-check", group: "privileged"},
+    {type: "FileChangeNotice", label: "FileChangeNotice", description: "按当前 session 未见文件变更生成提醒。只能直接放在 AppendingSet；mode 支持 off/minimal/full，单文件 diff 上限由 Profile 通用运行设置控制。", iconClass: "i-lucide-file-diff", group: "privileged"},
+    {type: "ModeSlot", label: "ModeSlot", description: "模式文案插槽。kind 取 plan_enter/plan_reentry/plan_steady/discuss_enter/discuss_steady/exit_from_plan/exit_plain，只能放在 ModeReminder 内。", iconClass: "i-lucide-file-text", group: "privileged"},
     {type: "MentionedSkillsReminder", label: "MentionedSkillsReminder", description: "用户输入显式 $skill 时的激活提醒。", iconClass: "i-lucide-at-sign", group: "privileged"},
     {type: "ActivatedSkills", label: "ActivatedSkills", description: "激活技能内容。把本轮启用的 skill 文本注入 prompt，通常由运行时维护。", iconClass: "i-lucide-sparkles", group: "privileged"},
     {type: "AgentCatalog", label: "AgentCatalog", description: "Agent 目录索引。展示可创建/调用的 profile 基础信息，详情用 get_agent_profile 查询。", iconClass: "i-lucide-bot", group: "privileged"},
@@ -47,7 +43,6 @@ export const groupLabels: Record<ComponentLibraryGroup, string> = {
     sets: "集合",
     messages: "消息",
     flow: "流程控制",
-    variables: "变量与引用",
     privileged: "特权节点",
 };
 
@@ -64,7 +59,6 @@ export const componentGroupTabs: Array<{value: ComponentLibraryGroup; label: str
     {value: "messages", label: "消息"},
     {value: "sets", label: "集合"},
     {value: "flow", label: "流程控制"},
-    {value: "variables", label: "变量"},
     {value: "privileged", label: "工具"},
 ];
 
@@ -82,11 +76,6 @@ export const toolStatusOptions: SelectOption[] = [
 export const sourceOptions: SelectOption[] = [
     {value: "context", label: "context"},
     {value: "input", label: "input"},
-];
-
-export const libraryVariableItems: LibraryVariableItem[] = [
-    {label: "运行时", description: "插入 runtime 变量，如 ${ctx.runtime.now}", value: "${ctx.runtime.now}", iconClass: "i-lucide-braces"},
-    {label: "初始化", description: "插入 profile initial 变量", value: "${ctx.initial.prompt}", iconClass: "i-lucide-triangle"},
 ];
 
 export const sourceEditorPreferences = {

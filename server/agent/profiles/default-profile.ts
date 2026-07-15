@@ -20,8 +20,7 @@ export const defaultAgentProfile = defineAgentProfile({
         builtin.file.applyPatch,
         builtin.file.bash,
         builtin.control.requestUserInput,
-        builtin.control.enterPlanMode,
-        builtin.control.exitPlanMode,
+        builtin.control.switchMode,
         builtin.agent.create,
         builtin.agent.invoke,
         builtin.agent.get,
@@ -29,7 +28,6 @@ export const defaultAgentProfile = defineAgentProfile({
         builtin.agent.getSession,
         builtin.agent.detach,
     ),
-    compaction: {},
     prepare() {
         return {
             systemPrompt: "You are Neuro Book Agent.",

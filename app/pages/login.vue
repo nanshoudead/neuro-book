@@ -16,8 +16,8 @@ const password = ref("");
 const busy = ref(false);
 const errorMessage = ref("");
 const novelIdeStore = useNovelIdeStore();
-const {theme} = storeToRefs(novelIdeStore);
-const {mountThemeHost} = useIdeTheme(theme);
+const {activeThemeId, customThemes, themeVarsSnapshot} = storeToRefs(novelIdeStore);
+const {mountThemeHost} = useIdeTheme(activeThemeId, customThemes, themeVarsSnapshot);
 const {t} = useI18n();
 
 /**
@@ -166,23 +166,32 @@ onMounted(() => {
                         <FormInput v-model="password" type="password" autocomplete="current-password" :placeholder="t('auth.passwordPlaceholder')" />
                     </label>
 
-                    <div v-if="errorMessage" class="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-500">
+                    <div v-if="errorMessage" class="rounded-lg border border-[var(--status-danger-border)] bg-[var(--status-danger-bg)] px-3 py-2 text-sm text-[var(--status-danger)]">
                         {{ errorMessage }}
                     </div>
 
                     <button
                         type="submit"
-                        class="inline-flex h-10 w-full items-center justify-center rounded-lg bg-[var(--accent-main)] px-4 text-sm font-medium text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+                        class="inline-flex h-10 w-full items-center justify-center rounded-lg bg-[var(--accent-main)] px-4 text-sm font-medium text-[var(--text-inverse)] transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
                         :disabled="busy"
                     >
                         {{ busy ? t("auth.loggingIn") : t("auth.loginButton") }}
                     </button>
 
-                    <p class="pt-1 text-center text-xs text-[var(--text-secondary)]">
-                        {{ t("auth.testSiteHintBefore") }}
-                        <a class="text-[var(--accent-text)] hover:underline" href="mailto:notnotype@qq.com">notnotype@qq.com</a>
-                        {{ t("auth.testSiteHintAfter") }}
-                    </p>
+                    <!-- 首次部署与关闭认证指引 -->
+                    <div class="space-y-2 rounded-lg border border-[var(--status-info-border)] bg-[var(--status-info-bg)] px-3 py-3 text-xs text-[var(--text-secondary)]">
+                        <div class="font-medium text-[var(--text-main)]">{{ t("auth.setupAdminTitle") }}</div>
+                        <p>
+                            {{ t("auth.setupAdminCommandBefore") }}
+                            <code class="rounded bg-[var(--bg-main)] px-1.5 py-0.5 font-mono text-[var(--status-info)]">bun run create-admin</code>
+                            {{ t("auth.setupAdminCommandAfter") }}
+                        </p>
+                        <p>
+                            {{ t("auth.disableAuthBefore") }}
+                            <code class="rounded bg-[var(--bg-main)] px-1.5 py-0.5 font-mono text-[var(--status-info)]">config.yaml</code>
+                            {{ t("auth.disableAuthAfter") }}
+                        </p>
+                    </div>
                 </form>
             </div>
         </div>

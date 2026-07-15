@@ -36,7 +36,7 @@ describe("world.engine profile", () => {
                 customState: {},
                 linkedAgents: [],
                 archived: false,
-                planModeActive: false,
+                agentMode: "normal",
             }),
             initial: {},
             vars: createTestVariableAccessor(),
@@ -58,7 +58,7 @@ describe("world.engine profile", () => {
             "execute_world",
         ]);
         expect(worldEngineProfile.rootToolKeys).not.toContain("subject_rag_search");
-        expect(worldEngineProfile.rootToolKeys).not.toContain("get_plot_tree");
+        expect(worldEngineProfile.rootToolKeys).not.toContain("get_story_tree");
         expect(worldEngineProfile.rootToolKeys).not.toContain("invoke_agent");
         expect(systemPrompt).toContain("世界引擎验证与维护 agent");
         expect(systemPrompt).toContain("旧 simulation/ workflow 暂不接入");
@@ -98,7 +98,7 @@ function testSession(input: Partial<NeuroSessionContext>): RuntimeSessionFacade 
         customState: {},
         linkedAgents: [],
         archived: false,
-        planModeActive: false,
+        agentMode: "normal",
         ...input,
         async read() {
             return {

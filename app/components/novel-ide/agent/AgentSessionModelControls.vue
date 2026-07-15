@@ -2,13 +2,13 @@
 import {onClickOutside} from "@vueuse/core";
 import NovelIdeModelSelect from "nbook/app/components/novel-ide/settings/NovelIdeModelSelect.vue";
 import type {AgentSessionModelDraft} from "nbook/app/components/novel-ide/agent/agent-session-model-controls";
-import type {ModelSettingsDto, ThinkingLevelDto} from "nbook/shared/dto/app-settings.dto";
+import type {EnabledModelOptionDto, ThinkingLevelDto} from "nbook/shared/dto/app-settings.dto";
 
 const props = withDefaults(defineProps<{
     sessionModelSelectionValue: string | null;
     sessionThinkingResolvedLabel: string;
     sessionModelDraft: AgentSessionModelDraft;
-    selectableModels: ModelSettingsDto["enabledModels"];
+    selectableModels: EnabledModelOptionDto[];
     sessionModelSaving: boolean;
     sessionModelPopoverOpen: boolean;
     readonly?: boolean;
@@ -46,6 +46,7 @@ const thinkingLevelOptions = computed<Array<{value: ThinkingLevelDto | null; lab
     {value: "medium", label: t("agent.composer.medium")},
     {value: "high", label: t("agent.composer.high")},
     {value: "xhigh", label: t("agent.composer.xhigh")},
+    {value: "max", label: t("agent.composer.max")},
 ]);
 
 const actionDisabled = computed(() => props.readonly || props.running || props.loadingSession || props.sessionModelSaving);
@@ -125,7 +126,7 @@ function updateSessionModelDraft(patch: Partial<AgentSessionModelDraft>): void {
                 <button class="inline-flex h-8 items-center justify-center rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-3 text-xs font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-50" :disabled="actionDisabled" @click="emit('reset-session-model-settings')">
                     {{ t("agent.composer.resetProfileDefault") }}
                 </button>
-                <button class="inline-flex h-8 items-center justify-center rounded-md bg-[var(--accent-main)] px-3 text-xs font-medium text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50" :disabled="actionDisabled" @click="emit('apply-session-model-settings')">
+                <button class="inline-flex h-8 items-center justify-center rounded-md bg-[var(--accent-main)] px-3 text-xs font-medium text-[var(--text-inverse)] transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50" :disabled="actionDisabled" @click="emit('apply-session-model-settings')">
                     <span v-if="props.sessionModelSaving" class="i-lucide-loader-2 mr-1.5 h-3.5 w-3.5 animate-spin"></span>
                     {{ t("agent.composer.applySession") }}
                 </button>

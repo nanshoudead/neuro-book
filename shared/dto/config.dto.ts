@@ -3,6 +3,8 @@ import {
     AgentProfileModelConfigDtoSchema,
     ConfiguredModelDtoSchema,
     EnabledModelOptionDtoSchema,
+    ModelValidationIssueDtoSchema,
+    ProviderDiscoveryConfigSchema,
 } from "nbook/shared/dto/app-settings.dto";
 import {
     DEFAULT_MARKDOWN_EDITOR_PREFERENCES,
@@ -14,6 +16,20 @@ import {
     LowCodeJsonObjectSchema,
     LowCodeResourceMutationDtoSchema,
 } from "nbook/shared/dto/low-code-form.dto";
+import {themeAppearanceValues, themeVarNames} from "nbook/shared/theme/theme-vars";
+import {
+    CompactionKeepRecentSchema,
+    CompactionTriggerSchema,
+    ProfileCompactionRuntimePatchSchema,
+    ProfileFileChangeNoticeRuntimePatchSchema,
+    ProfileRuntimeSettingsPatchSchema,
+    ProfileSummarizerRuntimePatchSchema,
+    SummarizerIntervalSchema,
+} from "nbook/shared/agent/profile-runtime-settings";
+import {MAX_AGENT_DIFF_MAX_CHARS} from "nbook/shared/agent/file-change-policy";
+import {PiSimpleRequestOptionsSchema} from "nbook/shared/dto/pi-request-options.dto";
+
+const themeVarNameSet = new Set<string>(themeVarNames);
 
 const JsonValueSchema: z.ZodType<unknown> = z.lazy(() => z.union([
     z.string(),
@@ -100,14 +116,20 @@ export const ConfigModelProviderOptionsDtoSchema = z.object({
     baseURL: ProviderOptionTextSchema,
     proxy: ProviderOptionTextSchema,
     timeoutMs: ProviderTimeoutMsSchema,
-    requestOptions: ProviderRequestOptionsSchema,
+    requestOptions: PiSimpleRequestOptionsSchema,
 });
 
 export const ConfiguredProviderConfigDtoSchema = z.object({
+    /**
+     * 编辑快照中的原始数组位置。仅用于坏配置修复时保留对应 secret，
+     * 新建 Provider 可缺省；服务端写盘前必须移除。
+     */
+    sourceIndex: z.number().int().nonnegative().optional(),
     id: ProviderIdSchema,
     name: z.string().trim().min(1),
     enabled: z.boolean().default(true),
-    api: NullableTextSchema,
+    defaultApi: NullableTextSchema,
+    discovery: ProviderDiscoveryConfigSchema,
     options: ConfigModelProviderOptionsDtoSchema,
     models: z.array(ConfiguredModelDtoSchema).default([]),
 });
@@ -117,6 +139,7 @@ export const ConfigModelSettingsDtoSchema = z.object({
     defaultModelLabel: z.string().trim().nullable().default(null),
     enabledModels: z.array(EnabledModelOptionDtoSchema).default([]),
     providers: z.array(ConfiguredProviderConfigDtoSchema).default([]),
+    validationIssues: z.array(ModelValidationIssueDtoSchema).default([]),
 });
 
 export const EmbeddingServiceConfigDtoSchema = z.object({
@@ -167,7 +190,12 @@ export const ConfigAgentProfileBuildStateDtoSchema = z.object({
 
 export const ConfigAgentProfileSettingsDtoSchema = z.object({
     enabledModels: z.array(EnabledModelOptionDtoSchema).default([]),
+    validationIssues: z.array(ModelValidationIssueDtoSchema).default([]),
     profileModelDefaults: AgentProfileModelConfigDtoSchema,
+    harnessRuntimeDefaults: z.lazy(() => ProfileRuntimeSettingsDtoSchema),
+    profileRuntimeDefaults: z.lazy(() => ProfileRuntimeSettingsDtoSchema),
+    globalRuntimeDefaultsPatch: z.lazy(() => ProfileRuntimeSettingsPatchDtoSchema).default({}),
+    projectRuntimeDefaultsPatch: z.lazy(() => ProfileRuntimeSettingsPatchDtoSchema).default({}),
     agentProfiles: z.array(z.object({
         profileKey: ProfileKeySchema,
         name: z.string().trim().min(1),
@@ -175,6 +203,14 @@ export const ConfigAgentProfileSettingsDtoSchema = z.object({
         model: AgentProfileModelConfigDtoSchema,
         loadStatus: ConfigAgentProfileLoadStatusDtoSchema,
         hasSettingsForm: z.boolean().default(false),
+        runtime: z.object({
+            profileDefaults: z.lazy(() => ProfileRuntimeSettingsPatchDtoSchema).default({}),
+            effective: z.lazy(() => ProfileRuntimeSettingsDtoSchema),
+            globalDefaultsPatch: z.lazy(() => ProfileRuntimeSettingsPatchDtoSchema).default({}),
+            globalProfilePatch: z.lazy(() => ProfileRuntimeSettingsPatchDtoSchema).default({}),
+            projectDefaultsPatch: z.lazy(() => ProfileRuntimeSettingsPatchDtoSchema).default({}),
+            projectProfilePatch: z.lazy(() => ProfileRuntimeSettingsPatchDtoSchema).default({}),
+        }),
         issue: ConfigAgentProfileIssueDtoSchema.nullable().default(null),
         sourcePath: z.string().trim().min(1).nullable().default(null),
         buildState: ConfigAgentProfileBuildStateDtoSchema,
@@ -235,8 +271,26 @@ export const MonacoEditorConfigDtoSchema = z.object({
     renderWhitespace: z.boolean().default(DEFAULT_MONACO_EDITOR_PREFERENCES.renderWhitespace),
 });
 
+export const CustomThemeDtoSchema = z.object({
+    id: z.string().trim().regex(/^custom-[a-z0-9-]+$/u),
+    name: z.string().trim().min(1).max(50),
+    appearance: z.enum(themeAppearanceValues),
+    vars: z.record(z.string(), z.string()).superRefine((vars, ctx) => {
+        for (const key of Object.keys(vars)) {
+            if (!themeVarNameSet.has(key)) {
+                ctx.addIssue({
+                    code: "custom",
+                    path: [key],
+                    message: `未知主题变量：${key}`,
+                });
+            }
+        }
+    }),
+}).strict();
+
 export const UiConfigDtoSchema = z.object({
-    theme: z.enum(["sepia", "light", "dark"]).default("sepia"),
+    theme: z.string().trim().min(1).default("sepia"),
+    customThemes: z.array(CustomThemeDtoSchema).max(50).default([]),
     costCurrency: z.enum(["USD", "CNY"]).default("USD"),
 });
 
@@ -245,10 +299,40 @@ export const EditorConfigDtoSchema = z.object({
     monaco: MonacoEditorConfigDtoSchema.default(DEFAULT_MONACO_EDITOR_PREFERENCES),
 });
 
+export const SummarizerIntervalDtoSchema = SummarizerIntervalSchema;
+export const CompactionTriggerDtoSchema = CompactionTriggerSchema;
+export const CompactionKeepRecentDtoSchema = CompactionKeepRecentSchema;
+export const ProfileSummarizerRuntimePatchDtoSchema = ProfileSummarizerRuntimePatchSchema;
+export const ProfileCompactionRuntimePatchDtoSchema = ProfileCompactionRuntimePatchSchema;
+export const ProfileFileChangeNoticeRuntimePatchDtoSchema = ProfileFileChangeNoticeRuntimePatchSchema;
+export const ProfileRuntimeSettingsPatchDtoSchema = ProfileRuntimeSettingsPatchSchema;
+
+export const ProfileRuntimeSettingsDtoSchema = z.object({
+    summarizer: z.object({
+        enabled: z.boolean(),
+        profileKey: ProfileKeySchema,
+        trigger: z.literal("afterInvocation"),
+        interval: SummarizerIntervalDtoSchema,
+        maxDialogueContentTokens: z.number().positive(),
+    }),
+    compaction: z.object({
+        enabled: z.boolean(),
+        trigger: CompactionTriggerDtoSchema,
+        reserveTokens: z.number().int().positive(),
+        keepRecent: CompactionKeepRecentDtoSchema,
+        prompt: z.string().min(1),
+        summaryPrefix: z.string().min(1),
+    }),
+    fileChangeNotice: z.object({
+        diffMaxChars: z.number().int().min(0).max(MAX_AGENT_DIFF_MAX_CHARS),
+    }),
+});
+
 export const ConfigAgentProfileMapDtoSchema = z.record(z.string(), z.object({
     model: AgentProfileModelConfigDtoSchema.partial().default({}),
     settings: LowCodeJsonObjectSchema.optional(),
     resourceMutations: z.array(LowCodeResourceMutationDtoSchema).optional(),
+    runtime: ProfileRuntimeSettingsPatchDtoSchema.optional(),
 })).default({});
 
 export const WebConfigDtoSchema = z.object({
@@ -285,10 +369,30 @@ export const WebConfigDtoSchema = z.object({
     }).partial().default({}),
 }).partial().default({});
 
+/** 可观测配置（Pi 请求 trace 开关）。无 secret 字段，不需要掩码。 */
+export const ObservabilityConfigDtoSchema = z.object({
+    piTrace: z.object({
+        enabled: z.boolean(),
+        maxRecords: z.number().int().nonnegative(),
+        capturePayload: z.boolean(),
+    }).partial().default({}),
+}).partial().default({});
+
+/** 文件历史（操作日志）字段集。enabled 是 Global 独有总开关；其余四项 Project 可覆盖。 */
+const WorkspaceHistoryFieldsDtoSchema = z.object({
+    enabled: z.boolean(),
+    retentionFullDays: z.number().int().min(1),
+    keepDailyLastAfterWindow: z.boolean(),
+    autoAcceptEnabled: z.boolean(),
+    autoAcceptDays: z.number().int().min(1),
+});
+
+export const WorkspaceHistoryConfigDtoSchema = WorkspaceHistoryFieldsDtoSchema.partial().default({});
+
+/** Project 侧文件历史覆盖：结构性不含 enabled。 */
+export const ProjectWorkspaceHistoryConfigDtoSchema = WorkspaceHistoryFieldsDtoSchema.omit({enabled: true}).partial();
+
 export const GlobalConfigDtoSchema = z.object({
-    auth: z.object({
-        enabled: z.boolean().default(true),
-    }).default({enabled: true}),
     models: z.object({
         default: NullableModelKeySchema,
         providers: z.array(ConfiguredProviderConfigDtoSchema).default([]),
@@ -300,20 +404,20 @@ export const GlobalConfigDtoSchema = z.object({
             userAssets: ProfileKeySchema.nullable().default(null),
         }).default({novel: null, userAssets: null}),
         profileModelDefaults: AgentProfileModelConfigDtoSchema.partial().default({}),
+        profileRuntimeDefaults: ProfileRuntimeSettingsPatchDtoSchema.default({}),
         profiles: ConfigAgentProfileMapDtoSchema,
-    }).default({defaultProfileKey: {novel: null, userAssets: null}, profileModelDefaults: {}, profiles: {}}),
-    ui: UiConfigDtoSchema.default({theme: "sepia", costCurrency: "USD"}),
+    }).default({defaultProfileKey: {novel: null, userAssets: null}, profileModelDefaults: {}, profileRuntimeDefaults: {}, profiles: {}}),
+    ui: UiConfigDtoSchema.default({theme: "sepia", customThemes: [], costCurrency: "USD"}),
     editor: EditorConfigDtoSchema.default({
         markdown: DEFAULT_MARKDOWN_EDITOR_PREFERENCES,
         monaco: DEFAULT_MONACO_EDITOR_PREFERENCES,
     }),
     web: WebConfigDtoSchema,
+    observability: ObservabilityConfigDtoSchema,
+    history: WorkspaceHistoryConfigDtoSchema,
 }).partial().passthrough();
 
 export const GlobalConfigUpdateDtoSchema = z.object({
-    auth: z.object({
-        enabled: z.boolean().default(true),
-    }).optional(),
     models: z.object({
         default: NullableModelKeySchema,
         providers: z.array(ConfiguredProviderConfigDtoSchema).default([]),
@@ -325,11 +429,14 @@ export const GlobalConfigUpdateDtoSchema = z.object({
             userAssets: ProfileKeySchema.nullable().default(null),
         }).default({novel: null, userAssets: null}),
         profileModelDefaults: AgentProfileModelConfigDtoSchema.partial().default({}),
+        profileRuntimeDefaults: ProfileRuntimeSettingsPatchDtoSchema.default({}),
         profiles: ConfigAgentProfileMapDtoSchema,
     }).optional(),
     ui: UiConfigDtoSchema.optional(),
     editor: EditorConfigDtoSchema.optional(),
     web: z.preprocess((value) => value === undefined ? undefined : value, WebConfigDtoSchema).optional(),
+    observability: ObservabilityConfigDtoSchema.optional(),
+    history: WorkspaceHistoryConfigDtoSchema.optional(),
 }).partial().passthrough();
 
 export const ProjectConfigDtoSchema = z.object({
@@ -340,9 +447,11 @@ export const ProjectConfigDtoSchema = z.object({
     agent: z.object({
         defaultProfileKey: ProfileKeySchema.nullable().optional(),
         profileModelDefaults: AgentProfileModelConfigDtoSchema.partial().optional(),
+        profileRuntimeDefaults: ProfileRuntimeSettingsPatchDtoSchema.optional(),
         profiles: ConfigAgentProfileMapDtoSchema.optional(),
     }).partial().optional(),
     editor: EditorConfigDtoSchema.partial().optional(),
+    history: ProjectWorkspaceHistoryConfigDtoSchema.optional(),
 }).partial().passthrough();
 
 export const ConfigSnapshotDtoSchema = z.object({
@@ -370,14 +479,18 @@ export type ConfigEditorSnapshotQueryDto = z.infer<typeof ConfigEditorSnapshotQu
 export type ConfigAgentProfileSettingsQueryDto = z.infer<typeof ConfigAgentProfileSettingsQueryDtoSchema>;
 export type ConfigProfileHomeResetRequestDto = z.infer<typeof ConfigProfileHomeResetRequestDtoSchema>;
 export type ConfigModelSettingsDto = z.infer<typeof ConfigModelSettingsDtoSchema>;
+export type CustomThemeDto = z.infer<typeof CustomThemeDtoSchema>;
 export type EmbeddingServiceConfigDto = z.infer<typeof EmbeddingServiceConfigDtoSchema>;
 export type EmbeddingProjectConfigDto = z.infer<typeof EmbeddingProjectConfigDtoSchema>;
 export type ConfigEmbeddingSettingsDto = z.infer<typeof ConfigEmbeddingSettingsDtoSchema>;
+export type ProfileRuntimeSettingsPatchDto = z.infer<typeof ProfileRuntimeSettingsPatchDtoSchema>;
+export type ProfileRuntimeSettingsDto = z.infer<typeof ProfileRuntimeSettingsDtoSchema>;
 export type ConfigAgentProfileBuildStateDto = z.infer<typeof ConfigAgentProfileBuildStateDtoSchema>;
 export type ConfigAgentProfileSettingsDto = z.infer<typeof ConfigAgentProfileSettingsDtoSchema>;
 export type ConfigAgentProfileBuildStatusDto = z.infer<typeof ConfigAgentProfileBuildStatusDtoSchema>;
 export type ConfigDefaultProfileSettingsDto = z.infer<typeof ConfigDefaultProfileSettingsDtoSchema>;
 export type WebConfigDto = z.infer<typeof WebConfigDtoSchema>;
+export type ObservabilityConfigDto = z.infer<typeof ObservabilityConfigDtoSchema>;
 export type GlobalConfigDto = z.infer<typeof GlobalConfigDtoSchema>;
 export type GlobalConfigUpdateDto = z.infer<typeof GlobalConfigUpdateDtoSchema>;
 export type ProjectConfigDto = z.infer<typeof ProjectConfigDtoSchema>;
@@ -404,6 +517,8 @@ export const ConfigBootstrapDtoSchema = z.object({
         effectiveProfileKey: ProfileKeySchema.nullable(),
     }),
     ui: z.object({
+        theme: z.string().trim().min(1).default("sepia"),
+        customThemes: z.array(CustomThemeDtoSchema).default([]),
         costCurrency: z.enum(["USD", "CNY"]).default("USD"),
     }),
 });

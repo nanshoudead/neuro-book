@@ -515,3 +515,15 @@ SSE 断线不是 run error，不应投影为聊天错误卡。短暂断线在 co
 - 真实浏览器验收前端 SSE 重连、手动重连、snapshot single-flight、dev reload 恢复、多窗口、长工具参数流式和工具执行输出流式。当前未做自动浏览器验证。
 - 保留 tool execution streaming 合同；具体工具输出流式可以后置实现，优先保证工具参数流式、start/end 和最终结果可靠。
 - 后续如启用工具执行输出流式，将通用工具气泡的 streaming result 体验做成默认能力，专用工具气泡只做更高质量展示。
+
+## Task 106 后续合同演进（2026-07-15）
+
+本任务前文保留的是当时实现记录；当前恢复合同已由 Task 106 演进：
+
+- `GET /api/agent/sessions/:id` 默认返回有界 recovery shell 与最新 history 尾页；更早历史通过同一 GET 的 `view=history&cursor=...` 查询。
+- command/tree active-path mutation 返回 `AgentSessionLiveStateDto`，不再内嵌完整 snapshot。若 revision 变化，前端进入与 SSE 共用的 recovery single-flight。
+- `session_state_changed` 只携带 live state，不再携带完整 snapshot；它可以更新 shell 并触发统一 recovery，但不能直接替代 recovery response。
+- `snapshot_required`、seq gap、event epoch 变化、active path 变化和 invalid history cursor 都复用同一 recovery 调度，不建立平行请求状态。
+- Task 107 已将 runtime event 改为有界公开投影；Task 106 的 durable history 使用同一个 `AgentChatEntryDto` projector。
+
+因此前文关于 `session_state_changed.snapshot`、command/tree response snapshot 和 `applySnapshotOrSync()` 的描述仅是历史实现记录，不是当前接口契约。

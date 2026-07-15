@@ -8,5 +8,5 @@ import {validateBody} from "nbook/server/utils/novel-chapter";
 export default defineEventHandler(async (event) => {
     const sessionId = requireAgentSessionId(event);
     const body = await validateBody(event, AgentTreeRequestDtoSchema);
-    return moveAgentSessionTree(sessionId, body, undefined, {entriesLimit: 100});
+    return moveAgentSessionTree(sessionId, body);
 });

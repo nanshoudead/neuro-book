@@ -1,13 +1,15 @@
-import type {AgentSessionEventDto, AgentSessionEventsQueryDto, AgentSessionSnapshotDto} from "nbook/shared/dto/agent-session.dto";
+import type {AgentSessionEventDto, AgentSessionEventsQueryDto, AgentSessionRecoveryDto} from "nbook/shared/dto/agent-session.dto";
+import type {AgentRecoveryApplyResult} from "nbook/app/components/novel-ide/agent/useAgentSession";
 import type {Ref} from "vue";
 import {ref} from "vue";
 
-export type AgentSessionStreamSnapshotReason =
+export type AgentSessionStreamRecoveryReason =
     | "initial_load"
     | "seq_gap"
     | "snapshot_required"
     | "event_epoch_changed"
     | "active_path_changed"
+    | "invalid_history_cursor"
     | "linked_agent_changed"
     | "manual_refresh"
     | "invoke_error_fallback";
@@ -15,16 +17,16 @@ export type AgentSessionStreamSnapshotReason =
 type AgentSessionStreamStore = {
     eventEpoch: Ref<string | null>;
     lastSeq: Ref<number>;
-    needsSnapshot: Ref<boolean>;
-    snapshotReasons: Ref<string[]>;
+    needsRecovery: Ref<boolean>;
+    recoveryReasons: Ref<string[]>;
     applyConnectionStatus(status: "idle" | "connecting" | "connected" | "reconnecting" | "recovering" | "disconnected"): void;
     applyEvent(event: AgentSessionEventDto): void;
-    applySnapshot(snapshot: AgentSessionSnapshotDto): void;
-    clearSnapshotRequest(): void;
+    applyRecovery(recovery: AgentSessionRecoveryDto): AgentRecoveryApplyResult;
+    clearRecoveryRequest(): void;
 };
 
 type AgentSessionStreamApi = {
-    getSession(sessionId: number): Promise<AgentSessionSnapshotDto>;
+    getSessionRecovery(sessionId: number): Promise<AgentSessionRecoveryDto>;
     subscribeSessionEvents(
         sessionId: number,
         cursor: AgentSessionEventsQueryDto,
@@ -38,7 +40,7 @@ type AgentSessionStreamOptions = {
     session: AgentSessionStreamStore;
     api: AgentSessionStreamApi;
     activeSessionId: Ref<number | null>;
-    applySnapshotSideEffects?: (snapshot: AgentSessionSnapshotDto) => void;
+    applyRecoverySideEffects?: (recovery: AgentSessionRecoveryDto, result: AgentRecoveryApplyResult) => void | Promise<void>;
     onEvent?: (event: AgentSessionEventDto) => void | Promise<void>;
     onError?: (error: unknown, fallback: string) => void;
 };
@@ -68,7 +70,7 @@ function translate(key: string, fallback: string): string {
 }
 
 /**
- * 管理 Agent session SSE 连接、重连和 snapshot single-flight。
+ * 管理 Agent session SSE 连接、重连和 recovery single-flight。
  */
 export function useAgentSessionStream(options: AgentSessionStreamOptions) {
     const controller = ref<AbortController | null>(null);
@@ -79,8 +81,8 @@ export function useAgentSessionStream(options: AgentSessionStreamOptions) {
     let resolveReady: (() => void) | null = null;
     let rejectReady: ((error: unknown) => void) | null = null;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-    let snapshotPromise: {sessionId: number; promise: Promise<boolean>} | null = null;
-    let snapshotGeneration = 0;
+    let recoveryPromise: {sessionId: number; promise: Promise<boolean>} | null = null;
+    let recoveryGeneration = 0;
     let stopped = false;
 
     const clearReconnectTimer = (): void => {
@@ -112,40 +114,40 @@ export function useAgentSessionStream(options: AgentSessionStreamOptions) {
         }, delay);
     };
 
-    const syncSnapshot = async (reason: AgentSessionStreamSnapshotReason): Promise<boolean> => {
+    const syncRecovery = async (reason: AgentSessionStreamRecoveryReason): Promise<boolean> => {
         const targetSessionId = options.activeSessionId.value;
         if (!targetSessionId) {
             return false;
         }
-        if (snapshotPromise?.sessionId === targetSessionId) {
-            return snapshotPromise.promise;
+        if (recoveryPromise?.sessionId === targetSessionId) {
+            return recoveryPromise.promise;
         }
-        const generation = snapshotGeneration;
+        const generation = recoveryGeneration;
         if (reason !== "manual_refresh" && reason !== "invoke_error_fallback") {
             options.session.applyConnectionStatus("recovering");
         }
         const request = {sessionId: targetSessionId, promise: Promise.resolve(false)};
         const promise = (async () => {
             try {
-                const snapshot = await options.api.getSession(targetSessionId);
-                if (generation !== snapshotGeneration || targetSessionId !== options.activeSessionId.value) {
+                const recovery = await options.api.getSessionRecovery(targetSessionId);
+                if (generation !== recoveryGeneration || targetSessionId !== options.activeSessionId.value) {
                     return false;
                 }
-                options.session.applySnapshot(snapshot);
-                options.session.clearSnapshotRequest();
-                options.applySnapshotSideEffects?.(snapshot);
+                const applyResult = options.session.applyRecovery(recovery);
+                options.session.clearRecoveryRequest();
+                await options.applyRecoverySideEffects?.(recovery, applyResult);
                 return true;
             } catch (error) {
                 options.onError?.(error, translate("agent.chatSurface.syncSessionFailed", "同步 Agent session 失败"));
                 return false;
             } finally {
-                if (snapshotPromise === request) {
-                    snapshotPromise = null;
+                if (recoveryPromise === request) {
+                    recoveryPromise = null;
                 }
             }
         })();
         request.promise = promise;
-        snapshotPromise = request;
+        recoveryPromise = request;
         return promise;
     };
 
@@ -155,19 +157,21 @@ export function useAgentSessionStream(options: AgentSessionStreamOptions) {
         }
         await options.onEvent?.(event);
         options.session.applyEvent(event);
-        if (options.session.needsSnapshot.value) {
-            const reasons = options.session.snapshotReasons.value;
-            let reason: AgentSessionStreamSnapshotReason = "seq_gap";
+        if (options.session.needsRecovery.value) {
+            const reasons = options.session.recoveryReasons.value;
+            let reason: AgentSessionStreamRecoveryReason = "seq_gap";
             if (reasons.includes("event_epoch_changed")) {
                 reason = "event_epoch_changed";
             } else if (reasons.includes("snapshot_required")) {
                 reason = "snapshot_required";
             } else if (reasons.includes("active_path_changed")) {
                 reason = "active_path_changed";
+            } else if (reasons.includes("invalid_history_cursor")) {
+                reason = "invalid_history_cursor";
             } else if (reasons.includes("linked_agent_changed")) {
                 reason = "linked_agent_changed";
             }
-            await syncSnapshot(reason);
+            await syncRecovery(reason);
         }
     };
 
@@ -244,8 +248,8 @@ export function useAgentSessionStream(options: AgentSessionStreamOptions) {
         controller.value = null;
         sessionId.value = null;
         readyPromise = null;
-        snapshotGeneration += 1;
-        snapshotPromise = null;
+        recoveryGeneration += 1;
+        recoveryPromise = null;
         options.session.applyConnectionStatus("idle");
     };
 
@@ -256,6 +260,6 @@ export function useAgentSessionStream(options: AgentSessionStreamOptions) {
         reconnectAttempt,
         start,
         stop,
-        syncSnapshot,
+        syncRecovery,
     };
 }

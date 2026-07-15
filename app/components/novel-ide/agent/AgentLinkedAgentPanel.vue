@@ -14,9 +14,7 @@ const emit = defineEmits<{
     (e: "close"): void;
 }>();
 
-const visibleOwnedAgents = computed(() => props.ownedAgents);
-const visibleLinkedByAgents = computed(() => props.linkedByAgents);
-const totalRelations = computed(() => visibleOwnedAgents.value.length + visibleLinkedByAgents.value.length);
+const totalRelations = computed(() => props.ownedAgents.length + props.linkedByAgents.length);
 const {t} = useI18n();
 
 const profileLabel = (profileKey: string) => {
@@ -29,19 +27,17 @@ const profileLabel = (profileKey: string) => {
     }
 };
 
-const statusDotClass = (status: AgentLinkedSessionDto["status"], detached: boolean) => {
-    if (detached) return "bg-[var(--text-muted)]";
+const statusDotClass = (status: AgentLinkedSessionDto["status"]) => {
     switch (status) {
-        case "running": return "animate-pulse bg-blue-500";
-        case "waiting": return "animate-pulse bg-amber-500";
-        case "interrupted": return "bg-rose-500";
+        case "running": return "animate-pulse bg-[var(--status-info)]";
+        case "waiting": return "animate-pulse bg-[var(--status-warning)]";
+        case "interrupted": return "bg-[var(--status-danger)]";
         case "archived": return "bg-[var(--text-muted)]";
-        default: return "bg-green-500";
+        default: return "bg-[var(--status-success)]";
     }
 };
 
-const statusLabel = (status: AgentLinkedSessionDto["status"], detached: boolean) => {
-    if (detached) return t("agent.linkedAgents.detached");
+const statusLabel = (status: AgentLinkedSessionDto["status"]) => {
     switch (status) {
         case "running": return t("agent.linkedAgents.running");
         case "waiting": return t("agent.linkedAgents.waiting");
@@ -72,7 +68,7 @@ const profileAvailabilityTitle = (session: AgentLinkedSessionDto): string => {
             <span class="flex items-center gap-2 text-xs font-semibold tracking-wider text-[var(--accent-text)]">
                 <span class="i-lucide-boxes h-4 w-4"></span>
                 {{ t("agent.linkedAgents.title") }}
-                <span v-if="totalRelations" class="rounded-sm bg-[var(--accent-main)] px-1.5 py-0.5 text-[9px] font-bold text-white">{{ totalRelations }}</span>
+                <span v-if="totalRelations" class="rounded-sm bg-[var(--accent-main)] px-1.5 py-0.5 text-[9px] font-bold text-[var(--text-inverse)]">{{ totalRelations }}</span>
             </span>
             <div class="flex shrink-0 gap-1.5">
                 <button class="flex h-6 w-6 items-center justify-center rounded text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" :disabled="props.loading" :title="t('agent.linkedAgents.refresh')" @click.stop="emit('refresh')">
@@ -89,10 +85,10 @@ const profileAvailabilityTitle = (session: AgentLinkedSessionDto): string => {
             <section>
                 <div class="mb-1.5 flex items-center justify-between text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--text-muted)]">
                     <span>{{ t("agent.linkedAgents.owned") }}</span>
-                    <span>{{ visibleOwnedAgents.length }}</span>
+                    <span>{{ props.ownedAgents.length }}</span>
                 </div>
-                <div v-if="visibleOwnedAgents.length > 0" class="space-y-2">
-                    <button v-for="item in visibleOwnedAgents" :key="`owned-${item.sessionId}`" type="button" class="group flex w-full cursor-pointer items-center gap-3 rounded-lg border px-3 py-2 text-left transition-all hover:border-[var(--accent-main)] hover:bg-[var(--bg-hover)] hover:shadow-sm" :class="item.detached ? 'border-[var(--border-color)] bg-[var(--bg-panel)] opacity-65' : 'border-[var(--border-color)] bg-[var(--bg-panel)]'" @click.stop="emit('select', item.sessionId)">
+                <div v-if="props.ownedAgents.length > 0" class="space-y-2">
+                    <button v-for="item in props.ownedAgents" :key="`owned-${item.sessionId}`" type="button" class="group flex w-full cursor-pointer items-center gap-3 rounded-lg border border-[var(--border-color)] bg-[var(--bg-panel)] px-3 py-2 text-left transition-all hover:border-[var(--accent-main)] hover:bg-[var(--bg-hover)] hover:shadow-sm" @click.stop="emit('select', item.sessionId)">
                         <div class="flex h-7 w-7 shrink-0 items-center justify-center rounded border border-[var(--border-color)] bg-[var(--bg-input)] transition-colors group-hover:border-[var(--accent-main)] group-hover:bg-[var(--accent-bg)]">
                             <span class="i-lucide-arrow-up-right h-4 w-4 text-[var(--text-muted)] transition-colors group-hover:text-[var(--accent-main)]"></span>
                         </div>
@@ -100,7 +96,7 @@ const profileAvailabilityTitle = (session: AgentLinkedSessionDto): string => {
                             <div class="flex items-center gap-2">
                                 <span class="truncate text-xs font-medium text-[var(--text-main)] transition-colors group-hover:text-[var(--accent-main)]">{{ item.title || `Agent #${item.sessionId}` }}</span>
                                 <span class="rounded bg-[var(--bg-input)] px-1.5 py-0.5 text-[10px] text-[var(--text-muted)]">{{ profileLabel(item.profileKey) }}</span>
-                                <span v-if="profileAvailabilityLabel(item)" class="inline-flex shrink-0 items-center gap-1 rounded border border-amber-500/25 bg-amber-500/10 px-1.5 py-0.5 text-[10px] text-amber-700 dark:text-amber-300" :title="profileAvailabilityTitle(item)">
+                                <span v-if="profileAvailabilityLabel(item)" class="inline-flex shrink-0 items-center gap-1 rounded border border-[var(--status-warning-border)] bg-[var(--status-warning-bg)] px-1.5 py-0.5 text-[10px] text-[var(--status-warning)]" :title="profileAvailabilityTitle(item)">
                                     <span class="i-lucide-lock h-3 w-3"></span>
                                     {{ profileAvailabilityLabel(item) }}
                                 </span>
@@ -108,8 +104,8 @@ const profileAvailabilityTitle = (session: AgentLinkedSessionDto): string => {
                             <div class="mt-0.5 truncate font-mono text-[10px] text-[var(--text-muted)] opacity-70">sessionId: {{ item.sessionId }}</div>
                         </div>
                         <div class="flex shrink-0 items-center gap-1.5 rounded border border-[var(--border-color)] bg-[var(--bg-input)] px-2 py-1 transition-colors group-hover:border-[var(--accent-main)]/30">
-                            <span class="h-1.5 w-1.5 rounded-full" :class="statusDotClass(item.status, item.detached)"></span>
-                            <span class="text-[10px] font-medium text-[var(--text-main)]">{{ statusLabel(item.status, item.detached) }}</span>
+                            <span class="h-1.5 w-1.5 rounded-full" :class="statusDotClass(item.status)"></span>
+                            <span class="text-[10px] font-medium text-[var(--text-main)]">{{ statusLabel(item.status) }}</span>
                         </div>
                     </button>
                 </div>
@@ -122,10 +118,10 @@ const profileAvailabilityTitle = (session: AgentLinkedSessionDto): string => {
             <section>
                 <div class="mb-1.5 flex items-center justify-between text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--text-muted)]">
                     <span>{{ t("agent.linkedAgents.linkedBy") }}</span>
-                    <span>{{ visibleLinkedByAgents.length }}</span>
+                    <span>{{ props.linkedByAgents.length }}</span>
                 </div>
-                <div v-if="visibleLinkedByAgents.length > 0" class="space-y-2">
-                    <button v-for="item in visibleLinkedByAgents" :key="`owner-${item.sessionId}`" type="button" class="group flex w-full cursor-pointer items-center gap-3 rounded-lg border px-3 py-2 text-left transition-all hover:border-[var(--accent-main)] hover:bg-[var(--bg-hover)] hover:shadow-sm" :class="item.detached ? 'border-[var(--border-color)] bg-[var(--bg-panel)] opacity-65' : 'border-[var(--border-color)] bg-[var(--bg-panel)]'" @click.stop="emit('select', item.sessionId)">
+                <div v-if="props.linkedByAgents.length > 0" class="space-y-2">
+                    <button v-for="item in props.linkedByAgents" :key="`owner-${item.sessionId}`" type="button" class="group flex w-full cursor-pointer items-center gap-3 rounded-lg border border-[var(--border-color)] bg-[var(--bg-panel)] px-3 py-2 text-left transition-all hover:border-[var(--accent-main)] hover:bg-[var(--bg-hover)] hover:shadow-sm" @click.stop="emit('select', item.sessionId)">
                         <div class="flex h-7 w-7 shrink-0 items-center justify-center rounded border border-[var(--border-color)] bg-[var(--bg-input)] transition-colors group-hover:border-[var(--accent-main)] group-hover:bg-[var(--accent-bg)]">
                             <span class="i-lucide-arrow-down-left h-4 w-4 text-[var(--text-muted)] transition-colors group-hover:text-[var(--accent-main)]"></span>
                         </div>
@@ -133,7 +129,7 @@ const profileAvailabilityTitle = (session: AgentLinkedSessionDto): string => {
                             <div class="flex items-center gap-2">
                                 <span class="truncate text-xs font-medium text-[var(--text-main)] transition-colors group-hover:text-[var(--accent-main)]">{{ item.title || `Agent #${item.sessionId}` }}</span>
                                 <span class="rounded bg-[var(--bg-input)] px-1.5 py-0.5 text-[10px] text-[var(--text-muted)]">{{ profileLabel(item.profileKey) }}</span>
-                                <span v-if="profileAvailabilityLabel(item)" class="inline-flex shrink-0 items-center gap-1 rounded border border-amber-500/25 bg-amber-500/10 px-1.5 py-0.5 text-[10px] text-amber-700 dark:text-amber-300" :title="profileAvailabilityTitle(item)">
+                                <span v-if="profileAvailabilityLabel(item)" class="inline-flex shrink-0 items-center gap-1 rounded border border-[var(--status-warning-border)] bg-[var(--status-warning-bg)] px-1.5 py-0.5 text-[10px] text-[var(--status-warning)]" :title="profileAvailabilityTitle(item)">
                                     <span class="i-lucide-lock h-3 w-3"></span>
                                     {{ profileAvailabilityLabel(item) }}
                                 </span>
@@ -141,8 +137,8 @@ const profileAvailabilityTitle = (session: AgentLinkedSessionDto): string => {
                             <div class="mt-0.5 truncate font-mono text-[10px] text-[var(--text-muted)] opacity-70">sessionId: {{ item.sessionId }}</div>
                         </div>
                         <div class="flex shrink-0 items-center gap-1.5 rounded border border-[var(--border-color)] bg-[var(--bg-input)] px-2 py-1 transition-colors group-hover:border-[var(--accent-main)]/30">
-                            <span class="h-1.5 w-1.5 rounded-full" :class="statusDotClass(item.status, item.detached)"></span>
-                            <span class="text-[10px] font-medium text-[var(--text-main)]">{{ statusLabel(item.status, item.detached) }}</span>
+                            <span class="h-1.5 w-1.5 rounded-full" :class="statusDotClass(item.status)"></span>
+                            <span class="text-[10px] font-medium text-[var(--text-main)]">{{ statusLabel(item.status) }}</span>
                         </div>
                     </button>
                 </div>

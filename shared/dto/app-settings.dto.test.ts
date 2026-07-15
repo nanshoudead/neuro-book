@@ -1,125 +1,107 @@
 import {describe, expect, it} from "vitest";
-import {CheckModelRequestDtoSchema, CheckProviderRequestDtoSchema} from "nbook/shared/dto/app-settings.dto";
+import {CheckModelRequestDtoSchema, CheckProviderRequestDtoSchema, ConfiguredModelDtoSchema, ThinkingLevelSchema} from "nbook/shared/dto/app-settings.dto";
+import {PiSimpleRequestOptionsSchema} from "nbook/shared/dto/pi-request-options.dto";
+import {inspectModelSettings} from "nbook/shared/models/provider-config-contract";
 
-describe("CheckProviderRequestDtoSchema", () => {
-    it("保留当前 Provider 检查携带的模型草稿", () => {
-        const parsed = CheckProviderRequestDtoSchema.parse({
-            provider: {
-                id: "custom",
-                name: "Custom",
-                api: "openai-completions",
-                options: {
-                    apiKey: "",
-                    baseURL: "https://example.com/v1",
-                    proxy: "",
-                    timeoutMs: null,
-                    requestOptions: {},
-                },
-            },
-            models: [{
-                name: "Draft Model",
-                id: "draft-model",
-                group: null,
-                provider: "xiaomi-token-plan-cn",
-                api: "openai-completions",
-                baseUrl: null,
-                reasoning: true,
-                input: ["text"],
-                maxTokens: 4096,
-                cost: null,
-                compat: {
-                    maxTokensField: "max_tokens",
-                },
-                contextWindowTokens: 128000,
-            }],
-        });
-
-        expect(parsed.models).toEqual([expect.objectContaining({
-            id: "draft-model",
-            provider: "xiaomi-token-plan-cn",
-            compat: {
-                maxTokensField: "max_tokens",
-            },
-        })]);
+describe("Pi settings contracts", () => {
+    it("thinking level 接受 max", () => {
+        expect(ThinkingLevelSchema.parse("max")).toBe("max");
     });
 
-    it("兼容旧调用未传模型草稿", () => {
-        const parsed = CheckProviderRequestDtoSchema.parse({
-            provider: {
-                id: "custom",
-                name: "Custom",
-                api: "openai-completions",
-                options: {
-                    apiKey: "",
-                    baseURL: "https://example.com/v1",
-                    proxy: "",
-                    timeoutMs: null,
-                    requestOptions: {},
-                },
-            },
-        });
+    it("Provider requestOptions 拒绝 runtime-owned 字段", () => {
+        expect(() => PiSimpleRequestOptionsSchema.parse({apiKey: "hidden"})).toThrow("apiKey");
+    });
 
-        expect(parsed.models).toEqual([]);
+    it("保存时拒绝未知 Pi API", () => {
+        const request = modelSettingsRequest();
+        request.providers[0]!.models[0]!.api = "mystery-api";
+        const result = inspectModelSettings({
+            defaultModelKey: request.defaultModelKey,
+            providers: request.providers,
+        });
+        expect(result.issues[0]?.code).toBe("unsupported_api");
+    });
+
+    it("启用模型必须保存完整能力", () => {
+        const request = modelSettingsRequest();
+        (request.providers[0]!.models[0] as {reasoning: boolean | null}).reasoning = null;
+        const result = inspectModelSettings({defaultModelKey: request.defaultModelKey, providers: request.providers});
+        expect(result.issues[0]?.code).toBe("missing_reasoning");
+    });
+
+    it("cost tiers 拒绝重复 threshold", () => {
+        const request = modelSettingsRequest();
+        const cost = {input: 1, output: 2, cacheRead: 0, cacheWrite: 0};
+        (request.providers[0]!.models[0] as {cost: null | {input: number; output: number; cacheRead: number; cacheWrite: number; tiers: Array<{inputTokensAbove: number; input: number; output: number; cacheRead: number; cacheWrite: number}>}}).cost = {...cost, tiers: [{...cost, inputTokensAbove: 100}, {...cost, inputTokensAbove: 100}]};
+        expect(() => ConfiguredModelDtoSchema.parse(request.providers[0]!.models[0])).toThrow("tier threshold 重复");
+    });
+});
+
+describe("Provider/model check DTO", () => {
+    it("保留完整 Provider 与模型草稿", () => {
+        const provider = providerDraft();
+        const model = modelDraft();
+        const parsed = CheckProviderRequestDtoSchema.parse({provider, models: [model]});
+
+        expect(parsed.provider.discovery).toEqual({adapter: "none", endpointPath: null});
+        expect(parsed.models).toEqual([expect.objectContaining({id: "draft-model", headers: {"X-Test": "value"}})]);
         expect(parsed.useSavedApiKey).toBe(true);
         expect(parsed.useSavedModels).toBe(true);
     });
 
-    it("保留检查回退开关", () => {
-        const parsed = CheckProviderRequestDtoSchema.parse({
-            provider: {
-                id: "custom",
-                name: "Custom",
-                api: "openai-completions",
-                options: {
-                    apiKey: "",
-                    baseURL: "https://example.com/v1",
-                    proxy: "",
-                    timeoutMs: null,
-                    requestOptions: {},
-                },
-            },
-            models: [],
-            useSavedApiKey: false,
-            useSavedModels: false,
-        });
+    it("未传模型草稿时使用空列表默认值", () => {
+        expect(CheckProviderRequestDtoSchema.parse({provider: providerDraft()}).models).toEqual([]);
+    });
 
+    it("保留检查回退开关", () => {
+        const parsed = CheckProviderRequestDtoSchema.parse({provider: providerDraft(), models: [], useSavedApiKey: false, useSavedModels: false});
         expect(parsed.useSavedApiKey).toBe(false);
         expect(parsed.useSavedModels).toBe(false);
     });
-});
 
-describe("CheckModelRequestDtoSchema", () => {
-    it("保留 API Key 回退开关", () => {
-        const parsed = CheckModelRequestDtoSchema.parse({
-            provider: {
-                id: "custom",
-                name: "Custom",
-                api: "openai-completions",
-                options: {
-                    apiKey: "",
-                    baseURL: "https://example.com/v1",
-                    proxy: "",
-                    timeoutMs: null,
-                    requestOptions: {},
-                },
-            },
-            model: {
-                name: "Draft Model",
-                id: "draft-model",
-                group: null,
-                provider: null,
-                api: null,
-                baseUrl: null,
-                reasoning: null,
-                input: null,
-                maxTokens: null,
-                cost: null,
-                compat: null,
-                contextWindowTokens: null,
-            },
-            useSavedApiKey: false,
-        });
-
-        expect(parsed.useSavedApiKey).toBe(false);
+    it("单模型检查保留 API Key 回退开关", () => {
+        expect(CheckModelRequestDtoSchema.parse({provider: providerDraft(), model: modelDraft(), useSavedApiKey: false}).useSavedApiKey).toBe(false);
     });
 });
+
+function modelSettingsRequest() {
+    return {
+        defaultModelKey: "custom/model",
+        providers: [{
+            id: "custom",
+            name: "Custom",
+            enabled: true,
+            defaultApi: "openai-completions" as string,
+            discovery: {adapter: "none" as const, endpointPath: null},
+            options: {apiKey: "", baseURL: "https://example.com/v1", proxy: "", timeoutMs: null, requestOptions: {}},
+            models: [{...modelDraft(), id: "model", name: "Model", enabled: true}],
+        }],
+    };
+}
+
+function providerDraft() {
+    return {
+        id: "custom",
+        name: "Custom",
+        defaultApi: "openai-completions",
+        discovery: {adapter: "none", endpointPath: null},
+        options: {apiKey: "", baseURL: "https://example.com/v1", proxy: "", timeoutMs: null, requestOptions: {}},
+    };
+}
+
+function modelDraft() {
+    return {
+        name: "Draft Model",
+        id: "draft-model",
+        group: null,
+        api: "openai-completions",
+        reasoning: true,
+        input: ["text"],
+        maxTokens: 4096,
+        cost: null,
+        compat: {maxTokensField: "max_tokens"},
+        headers: {"X-Test": "value"},
+        thinkingLevelMap: null,
+        contextWindowTokens: 128000,
+    };
+}

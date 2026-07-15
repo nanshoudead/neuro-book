@@ -17,7 +17,6 @@ import {
     componentLibrary,
     groupLabels,
     inspectorTabs,
-    libraryVariableItems,
     roleOptions,
     sourceEditorPreferences,
     sourceOptions,
@@ -51,6 +50,7 @@ import {
     publicRuntimeProps,
     renderPreviewNodeText,
 } from "nbook/app/components/profile-template-editor/profile-template-source-utils";
+import {resolveRefreshedTemplateSelection} from "nbook/app/components/profile-template-editor/profile-template-selection-utils";
 import {
     canHaveChildren,
     canInsertNodeIntoParent,
@@ -78,7 +78,6 @@ import {useIdeTheme} from "nbook/app/composables/useIdeTheme";
 import {useAgentSessionApi} from "nbook/app/composables/useAgentSessionApi";
 import {useNotification} from "nbook/app/composables/useNotification";
 import {useNovelIdeStore} from "nbook/app/stores/novel-ide";
-import type {IdeTheme} from "nbook/app/utils/theme/theme-tokens";
 import type {AgentSessionSummaryDto} from "nbook/shared/dto/agent-session.dto";
 import type {
     AgentProfileCatalogItemDto,
@@ -169,13 +168,15 @@ const emit = defineEmits<{
 
 const themeHostRef = ref<HTMLElement | null>(null);
 const novelIdeStore = useNovelIdeStore();
-const theme = computed<IdeTheme>({
+const theme = computed<string>({
     get: () => novelIdeStore.theme,
     set: (value) => {
-        novelIdeStore.theme = value;
+        novelIdeStore.applyThemeSelection(value);
     },
 });
-const {mountThemeHost} = useIdeTheme(theme);
+const customThemes = computed(() => novelIdeStore.customThemes);
+const themeVarsSnapshot = computed(() => novelIdeStore.themeVarsSnapshot);
+const {mountThemeHost} = useIdeTheme(theme, customThemes, themeVarsSnapshot);
 
 const templates = ref<ProfileTemplateSummaryDto[]>([]);
 const profileCatalog = ref<AgentProfileCatalogItemDto[]>([]);
@@ -205,9 +206,6 @@ const threads = ref<AgentSessionSummaryDto[]>([]);
 const selectedThreadId = ref("");
 const loadingThreads = ref(false);
 const previewVariableGroups = ref<PreviewVariableGroup[]>([]);
-const previewInitialOverrides = ref<Record<string, string>>({
-    "initial.prompt": "",
-});
 const componentSearch = ref("");
 const variableSearch = ref("");
 const collapsedVariableGroups = ref<Record<string, boolean>>({});
@@ -215,7 +213,6 @@ const activeComponentGroup = ref<ComponentLibraryGroup>("all");
 const inspectorTab = ref<InspectorTab>("source");
 const libraryPanelCollapsed = ref(false);
 const inspectorPanelCollapsed = ref(false);
-const activeTextTarget = ref<"text" | string>("text");
 const dragSnapshot = ref<ProfileTemplateNodeDto | null>(null);
 const dragVisualRoot = ref<ProfileTemplateNodeDto | null>(null);
 const activeDragSource = ref<ActiveDragSource>(null);
@@ -468,18 +465,12 @@ async function loadTemplates(): Promise<void> {
     } else {
         templates.value = await $fetch<ProfileTemplateSummaryDto[]>("/api/agent/profile-templates");
     }
-    const preferred = props.preferredTemplate || selectedTemplate.value;
-    const hasPreferred = templates.value.some((item) => props.mode === "user-profile"
-        ? item.fileName === preferred
-        : item.name === preferred);
-    if (hasPreferred) {
-        selectedTemplate.value = preferred;
-        return;
-    }
-    const defaultUserProfile = templates.value.find((item) => item.fileName.includes("leader.default.profile.tsx") || item.fileName.includes("leader-default.profile.tsx"));
-    selectedTemplate.value = props.mode === "user-profile"
-        ? defaultUserProfile?.fileName ?? templates.value[0]?.fileName ?? ""
-        : templates.value[0]?.name ?? "";
+    selectedTemplate.value = resolveRefreshedTemplateSelection({
+        mode: props.mode,
+        templates: templates.value,
+        currentTemplate: selectedTemplate.value,
+        preferredTemplate: props.preferredTemplate,
+    });
 }
 
 /**
@@ -510,20 +501,9 @@ async function loadThreads(): Promise<void> {
         if (!selectedThreadId.value || !threads.value.some((thread) => String(thread.sessionId) === selectedThreadId.value)) {
             selectedThreadId.value = threads.value[0]?.sessionId ? String(threads.value[0].sessionId) : "";
         }
-        await syncSelectedThreadScope();
     } finally {
         loadingThreads.value = false;
     }
-}
-
-/**
- * 通过线程详情接口同步当前 IDE 客户端变量到线程 scope。
- */
-async function syncSelectedThreadScope(): Promise<void> {
-    if (!selectedThreadId.value) {
-        return;
-    }
-    await agentApi.getSession(Number(selectedThreadId.value));
 }
 
 /**
@@ -552,7 +532,6 @@ async function previewTemplate(): Promise<void> {
     previewing.value = true;
     statusText.value = "正在生成 Prompt 预览...";
     try {
-        await syncSelectedThreadScope();
         const result = props.mode === "user-profile"
             ? await previewPreparedProfile()
             : await $fetch<ProfileTemplatePreviewDto>("/api/agent/profile-templates/preview", {
@@ -561,7 +540,6 @@ async function previewTemplate(): Promise<void> {
                 body: {
                     source: sourceText.value,
                     sessionId: selectedThreadId.value || undefined,
-                    initialOverrides: normalizePreviewInitialOverrides(),
                 },
             });
         issues.value = result.issues;
@@ -617,7 +595,6 @@ async function previewPreparedProfileResult(): Promise<{
                 dryRun: true,
                 preview: true,
                 sessionId: selectedThreadId.value || undefined,
-                initialOverrides: normalizePreviewInitialOverrides(),
             },
         });
         if (selectedTemplate.value !== submittedFileName || sourceText.value !== submittedSource) {
@@ -688,16 +665,6 @@ function fileItemToCatalogItem(item: AgentProfileFileItemDto): AgentProfileCatal
  */
 function buildAgentPreviewHeaders(): HeadersInit {
     return {};
-}
-
-/**
- * 过滤空白 initial 覆盖，避免空值误伤真实线程初始化数据。
- */
-function normalizePreviewInitialOverrides(): Record<string, string> {
-    return Object.fromEntries(
-        Object.entries(previewInitialOverrides.value)
-            .filter(([, value]) => value.trim().length > 0),
-    );
 }
 
 /**
@@ -937,7 +904,6 @@ async function compileUserProfile(options: {notify?: boolean} = {}): Promise<Age
                 fileName: submittedFileName,
                 preview: true,
                 sessionId: selectedThreadId.value || undefined,
-                initialOverrides: normalizePreviewInitialOverrides(),
             },
         });
         if (result.stale || selectedTemplate.value !== submittedFileName || sourceText.value !== submittedSource) {
@@ -1293,7 +1259,6 @@ function profileVariablesToTemplate(groups: AgentProfileDetailDto["variables"]):
             label: item.label,
             value: item.value,
             path: item.path,
-            token: item.token,
             editable: item.editable,
             valueType: item.valueType ?? "unknown",
             source: item.source ?? "profile",
@@ -1312,7 +1277,6 @@ function templateVariablesToProfile(groups: ProfileTemplateDetailDto["variables"
             label: item.label,
             value: item.value,
             path: item.path,
-            token: item.token,
             editable: item.editable,
             valueType: item.valueType ?? null,
             source: item.source ?? null,
@@ -1455,50 +1419,6 @@ function commitMessageText(): void {
 }
 
 /**
- * 插入变量到当前活跃字段。
- */
-function insertVariable(value: string): void {
-    if (!ensureDerivedTreeEditable() || !selectedNode.value) {
-        return;
-    }
-    pushHistory();
-    if (activeTextTarget.value === "text") {
-        const target = ["System", "Message", "AIMessage", "ToolResult"].includes(selectedNode.value.type)
-            ? ensureInlineTextNode(selectedNode.value)
-            : selectedNode.value;
-        target.text = `${target.text ?? ""}${value}`;
-        refreshRootView();
-        refreshDraftAfterCanvasEdit();
-        return;
-    }
-    const current = selectedNode.value.props[activeTextTarget.value];
-    if (isExpressionValue(current)) {
-        selectedNode.value.props[activeTextTarget.value] = {
-            kind: "expression",
-            code: `${current.code}${value}`,
-        };
-    } else {
-        selectedNode.value.props[activeTextTarget.value] = `${typeof current === "string" ? current : ""}${value}`;
-    }
-    refreshRootView();
-    refreshDraftAfterCanvasEdit();
-}
-
-/**
- * 为消息容器补一个可编辑 Text 子节点。
- */
-function ensureInlineTextNode(node: ProfileTemplateNodeDto): ProfileTemplateNodeDto {
-    const existing = node.children.find((child) => child.type === "Text");
-    if (existing) {
-        return existing;
-    }
-    const textNode = createNode("Text");
-    textNode.text = "";
-    node.children.unshift(textNode);
-    return textNode;
-}
-
-/**
  * 确保当前源码已经成功解析，避免用旧画布树覆盖正在修复的源码。
  */
 function ensureDerivedTreeEditable(): boolean {
@@ -1509,33 +1429,6 @@ function ensureDerivedTreeEditable(): boolean {
         ? "源码解析中，暂不能编辑画布"
         : "源码存在错误，修复后才能编辑画布";
     return false;
-}
-
-/**
- * 更新预览调试中的可编辑变量。
- */
-function updatePreviewVariable(item: PreviewVariableItem, value: string): void {
-    previewInitialOverrides.value = {
-        ...previewInitialOverrides.value,
-        [item.path]: value,
-        ...(item.path === "initial.text" ? {"initial.prompt": value} : {}),
-        ...(item.path === "initial.prompt" ? {"initial.text": value} : {}),
-    };
-}
-
-/**
- * 读取变量在预览编辑器中的当前输入。
- */
-function previewVariableInputValue(item: PreviewVariableItem): string {
-    const draft = previewInitialOverrides.value[item.path];
-    if (draft !== undefined) {
-        return draft;
-    }
-    const value = item.currentValue;
-    if (typeof value === "string") {
-        return value;
-    }
-    return value === null || value === undefined ? "" : JSON.stringify(value, null, 2);
 }
 
 /**
@@ -2261,7 +2154,6 @@ watch(selectedTemplate, () => {
 });
 
 watch(selectedThreadId, async () => {
-    await syncSelectedThreadScope();
     if (previewDialogOpen.value) {
         await previewTemplate();
     }
@@ -2375,10 +2267,8 @@ onBeforeUnmount(() => {
                 v-model:active-group="activeComponentGroup"
                 :group-tabs="componentGroupTabs"
                 :component-groups="filteredComponentGroups"
-                :variable-items="libraryVariableItems"
                 @collapse="libraryPanelCollapsed = true"
                 @add-node="addNode"
-                @insert-variable="insertVariable"
             />
 
             <ProfileTemplateCanvasPanel
@@ -2431,14 +2321,12 @@ onBeforeUnmount(() => {
                     :is-variable-group-collapsed="isVariableGroupCollapsed"
                     :profile-detail="profileDetail"
                     @collapse="inspectorPanelCollapsed = true"
-                    @update-active-target="activeTextTarget = $event"
                     @source-change="handleSourceTextChange"
                     @source-save-request="void saveTemplate()"
                     @update-prop="updateProp"
                     @update-expression-prop="updateExpressionProp"
                     @update-text="updateText"
                     @commit-message-text="commitMessageText"
-                    @insert-variable="insertVariable"
                     @toggle-variable-group="toggleVariableGroup"
                     @save-schema="saveProfileSchema"
                 />
@@ -2464,12 +2352,9 @@ onBeforeUnmount(() => {
             :format-variable-schema="formatVariableSchema"
             :format-variable-value="formatVariableValue"
             :should-show-variable-value="shouldShowVariableValue"
-            :preview-variable-input-value="previewVariableInputValue"
             :issue-detail="issueDetail"
             @refresh-preview="void previewTemplate()"
             @toggle-variable-group="toggleVariableGroup"
-            @insert-variable="insertVariable"
-            @update-preview-variable="updatePreviewVariable"
         />
 
         <Dialog
@@ -2528,7 +2413,7 @@ onBeforeUnmount(() => {
     background: var(--bg-panel);
     padding: 10px 6px;
     color: var(--text-muted);
-    box-shadow: 0 16px 44px rgba(15, 23, 42, 0.05);
+    box-shadow: 0 16px 44px color-mix(in srgb, var(--shadow-color) 5%, transparent);
     transition: border-color 0.18s ease, background-color 0.18s ease, color 0.18s ease;
 }
 
@@ -2542,7 +2427,7 @@ onBeforeUnmount(() => {
     border-radius: 8px;
     background: var(--bg-panel);
     padding: 8px 5px;
-    box-shadow: 0 16px 44px rgba(15, 23, 42, 0.05);
+    box-shadow: 0 16px 44px color-mix(in srgb, var(--shadow-color) 5%, transparent);
 }
 
 .rail-icon-btn {
@@ -2564,7 +2449,7 @@ onBeforeUnmount(() => {
 }
 
 .rail-icon-btn:hover {
-    border-color: var(--border-color-hover);
+    border-color: var(--border-strong);
     background: var(--bg-hover);
     color: var(--accent-text);
     transform: translateY(-1px);
@@ -2657,22 +2542,22 @@ onBeforeUnmount(() => {
 
 .library-node-RuntimeLocationReminder,
 .library-node-WorkspaceFocusReminder,
-.library-node-PlanModeAvailabilityReminder {
+.library-node-ModeAvailabilityReminder {
     --component-accent: #b65f5b;
 }
 
 .library-node-TaskReminder,
-.library-node-PlanModeReminder,
-.library-node-PlanModeFull,
-.library-node-PlanModeSparse,
-.library-node-PlanModeExit,
-.library-node-PlanModeReentry,
-.library-node-ActivePlanModeReminder {
+.library-node-ModeReminder,
+.library-node-ModeSlot {
     --component-accent: #8a639e;
 }
 
 .library-node-MentionedSkillsReminder {
     --component-accent: #b1843e;
+}
+
+.library-node-FileChangeNotice {
+    --component-accent: #4f8c8f;
 }
 
 .library-node-ActivatedSkills {
@@ -2696,7 +2581,7 @@ onBeforeUnmount(() => {
 }
 
 .panel-rail:hover {
-    border-color: var(--border-color-hover);
+    border-color: var(--border-strong);
     background: var(--bg-hover);
     color: var(--accent-text);
 }

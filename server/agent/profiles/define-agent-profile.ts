@@ -1,9 +1,11 @@
 import type {TSchema} from "typebox";
 import type {AgentProfile, AgentProfileDefinition, AgentProfileManifest, ProfilePrepareContext} from "nbook/server/agent/profiles/types";
-import {compileProfileContext, validateCompactionPlan, validateProfileTurnPlan} from "nbook/server/agent/profiles/profile-dsl";
+import {compileProfileContext, validateProfileTurnPlan} from "nbook/server/agent/profiles/profile-dsl";
 import {agentRuntimeBuiltins, defineAgentRuntime} from "nbook/server/agent/profiles/define-agent-runtime";
 import type {ProfileTools} from "nbook/server/agent/profiles/profile-tools";
 import {parseLowCodeFormValue, type LowCodeFormDefinition} from "nbook/server/low-code-form";
+import {validateProfileRuntimeSettingsPatch} from "nbook/server/agent/profiles/profile-runtime-settings";
+import type {LowCodeJsonObject} from "nbook/shared/dto/low-code-form.dto";
 
 /**
  * 定义一个 v3 Agent Profile。用户自定义 profile 必须通过这个函数导出。
@@ -19,8 +21,8 @@ export function defineAgentProfile<
     assertProfileManifest(profile.manifest);
     assertNoLegacyToolFields(profile.manifest.key, profile);
     const rootToolKeys = assertProfileTools(profile.manifest.key, profile.tools);
-    assertProfileSummarizer(profile.manifest.key, profile.summarizer);
-    validateCompactionPlan(profile.manifest.key, profile.compaction);
+    validateProfileRuntimeSettingsPatch(`profile ${profile.manifest.key} runtimeDefaults`, profile.runtimeDefaults);
+    assertProfileSkills(profile.manifest.key, profile.skills);
     assertProfileToolKeys(profile.manifest.key, rootToolKeys, profile.toolKeys);
     assertProfileSidecars(profile.manifest.key, rootToolKeys, profile.sidecars);
     if (profile.context && profile.prepare) {
@@ -31,13 +33,13 @@ export function defineAgentProfile<
     }
     const prepare = profile.prepare
         ? async (...args: Parameters<NonNullable<typeof profile.prepare>>) => {
-            const ctx = withDefaultSettings(profile, args[0]);
+            const ctx = withSkillInclude(profile, withDefaultSettings(profile, args[0]));
             const plan = await profile.prepare!(ctx as never);
             validateProfileTurnPlan(profile.manifest.key, plan);
             return plan;
         }
         : async (...args: Parameters<NonNullable<AgentProfile<TInitialSchema, TPayloadSchema, TOutputSchema, TSettingsSchema>["prepare"]>>) => {
-            const ctx = withDefaultSettings(profile, args[0]);
+            const ctx = withSkillInclude(profile, withDefaultSettings(profile, args[0]));
             const tree = await profile.context!(ctx);
             return compileProfileContext(profile, ctx, tree);
         };
@@ -53,18 +55,39 @@ export function defineAgentProfile<
 }
 
 /**
- * 为手工调用 profile.prepare 的旧测试和预览路径补齐默认 settings。
+ * 为直接调用 profile.prepare 的路径补齐 Profile 自定义 settings defaults。
+ * Harness 通用运行配置不进入 ctx.settings。
  */
 function withDefaultSettings<TContext extends ProfilePrepareContext>(
     profile: {settingsForm?: LowCodeFormDefinition},
     ctx: TContext,
 ): TContext {
-    if (ctx.settings !== undefined) {
-        return ctx;
-    }
+    const providedSettings = (ctx.settings ?? {}) as LowCodeJsonObject;
+    const profileSettings: LowCodeJsonObject = profile.settingsForm
+        ? parseLowCodeFormValue(profile.settingsForm, providedSettings) as LowCodeJsonObject
+        : providedSettings;
     return {
         ...ctx,
-        settings: profile.settingsForm ? parseLowCodeFormValue(profile.settingsForm, undefined) : {},
+        settings: profileSettings,
+    } as TContext;
+}
+
+/**
+ * 按 profile 声明的 skill 白名单过滤 prepare ctx 的可见 skill 快照。
+ * 在 prepare 包装层统一过滤，SkillCatalog 与自定义 text 函数等所有消费者拿到的都是同一份过滤结果。
+ * 白名单外的 key 静默丢弃；未声明 skills 时保持全量。
+ */
+function withSkillInclude<TContext extends ProfilePrepareContext>(
+    profile: {skills?: {include: readonly string[]}},
+    ctx: TContext,
+): TContext {
+    if (!profile.skills) {
+        return ctx;
+    }
+    const include = new Set(profile.skills.include);
+    return {
+        ...ctx,
+        skills: ctx.skills.filter((skill) => include.has(skill.key)),
     } as TContext;
 }
 
@@ -83,21 +106,26 @@ export function assertProfileManifest(manifest: AgentProfileManifest): void {
     }
 }
 
+
 /**
- * 校验 summarizer 静态声明的最小 shape。
+ * 校验 profile skill 白名单声明：include 必须是非空、去重的 skill key 数组。
  */
-function assertProfileSummarizer(profileKey: string, summarizer: AgentProfile["summarizer"]): void {
-    if (!summarizer) {
+function assertProfileSkills(profileKey: string, skills: AgentProfileDefinition["skills"]): void {
+    if (!skills) {
         return;
     }
-    if (summarizer.enabled === false) {
-        return;
+    if (!Array.isArray(skills.include)) {
+        throw new Error(`profile ${profileKey} skills.include 必须是 skill key 数组。`);
     }
-    if (!summarizer.profileKey || !summarizer.profileKey.trim()) {
-        throw new Error(`profile ${profileKey} summarizer.profileKey 不能为空`);
-    }
-    if (summarizer.input !== undefined && (typeof summarizer.input !== "object" || summarizer.input === null || Array.isArray(summarizer.input))) {
-        throw new Error(`profile ${profileKey} summarizer.input 必须是对象`);
+    const seen = new Set<string>();
+    for (const skillKey of skills.include) {
+        if (typeof skillKey !== "string" || !skillKey.trim()) {
+            throw new Error(`profile ${profileKey} skills.include 不能包含空 key。`);
+        }
+        if (seen.has(skillKey)) {
+            throw new Error(`profile ${profileKey} skills.include 重复：${skillKey}`);
+        }
+        seen.add(skillKey);
     }
 }
 

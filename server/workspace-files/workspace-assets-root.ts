@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import {fileURLToPath} from "node:url";
+import {resolveStateWorkspaceRoot} from "nbook/server/runtime/installation-paths";
 
 export const WORKSPACE_CONTAINER_ROOT = "workspace";
 export const WORKSPACE_NBOOK_ROOT = path.posix.join(WORKSPACE_CONTAINER_ROOT, ".nbook");
@@ -77,7 +78,12 @@ export function resolveSystemNbookRoot(startPath = process.cwd()): string {
     if (workspaceAssetRootContext?.systemNbookRoot) {
         return workspaceAssetRootContext.systemNbookRoot;
     }
-    return path.join(resolveApplicationRoot(startPath), SYSTEM_ASSETS_RELATIVE_ROOT);
+    const applicationRoot = resolveApplicationRoot(startPath);
+    const productAssetsRoot = path.join(applicationRoot, ".output", "server", SYSTEM_ASSETS_RELATIVE_ROOT);
+    if (!fs.existsSync(path.join(applicationRoot, "node_modules")) && fs.existsSync(productAssetsRoot)) {
+        return productAssetsRoot;
+    }
+    return path.join(applicationRoot, SYSTEM_ASSETS_RELATIVE_ROOT);
 }
 
 /**
@@ -86,6 +92,11 @@ export function resolveSystemNbookRoot(startPath = process.cwd()): string {
 export function resolveWorkspaceContainerRoot(startPath = process.cwd()): string {
     if (workspaceAssetRootContext?.workspaceContainerRoot) {
         return workspaceAssetRootContext.workspaceContainerRoot;
+    }
+    // Manager/Product 已经给出运行时根时，它就是用户状态的真相源。
+    // 不能再因为安装路径的某个祖先目录恰好名为 workspace 而改写它。
+    if (process.env.NEURO_BOOK_STATE_ROOT?.trim() || process.env.NEURO_BOOK_APPLICATION_ROOT?.trim()) {
+        return resolveStateWorkspaceRoot();
     }
     const cwd = path.resolve(startPath);
     let currentPath = cwd;
@@ -101,7 +112,7 @@ export function resolveWorkspaceContainerRoot(startPath = process.cwd()): string
         currentPath = parentPath;
     }
 
-    return path.join(resolveApplicationRoot(startPath), WORKSPACE_CONTAINER_ROOT);
+    return resolveStateWorkspaceRoot(resolveApplicationRoot(startPath));
 }
 
 /**

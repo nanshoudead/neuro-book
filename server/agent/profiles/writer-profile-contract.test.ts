@@ -3,6 +3,7 @@ import {mkdir, rm, writeFile} from "node:fs/promises";
 import {join, resolve} from "node:path";
 import {describe, expect, it} from "vitest";
 import writerProfile from "../../../assets/workspace/.nbook/agent/profiles/builtin/writer.profile";
+import inlineEditorProfile from "../../../assets/workspace/.nbook/agent/profiles/builtin/inline.editor.profile";
 import {DEFAULT_WRITING_REFERENCE_PRESET} from "nbook/server/agent/profiles/writer-writing-reference";
 import {DEFAULT_WRITING_STYLE_PRESET} from "nbook/server/agent/profiles/writer-writing-style";
 import {messageText} from "nbook/server/agent/messages/message-utils";
@@ -30,21 +31,46 @@ describe("writer profile contract", () => {
         expect(toolKeys).toContain("bash");
         expect(toolKeys).toContain("execute_world");
         expect(toolKeys).toContain("report_result");
-        // autonomous 模式:writer 自主读 Plot。
+        // autonomous 模式:writer 自主读 Plot（plotReadBindings bundle）。
         expect(toolKeys).toContain("get_chapter_writer_brief");
-        expect(toolKeys).toContain("get_chapter_plot");
+        expect(toolKeys).toContain("get_story_chapter");
         expect(toolKeys).toContain("get_story_scene_context");
         expect(toolKeys).toContain("get_scene_world_context");
-        expect(toolKeys).toContain("get_plot_tree");
+        expect(toolKeys).toContain("get_story_tree");
         expect(toolKeys).toContain("get_story_thread");
-        // 只读:不持有 Plot 写工具与文件 apply_patch。
+        // 只读:不持有 Plot save_* 写工具与文件 apply_patch。
         expect(toolKeys).not.toContain("apply_patch");
-        expect(toolKeys).not.toContain("create_story_scene");
-        expect(toolKeys).not.toContain("update_story_scene");
-        expect(toolKeys).not.toContain("create_story_thread");
-        expect(toolKeys).not.toContain("create_story_chapter");
+        expect(toolKeys).not.toContain("save_story_scene");
+        expect(toolKeys).not.toContain("save_story_thread");
+        expect(toolKeys).not.toContain("save_story_chapter");
+        expect(toolKeys).not.toContain("save_story_act");
+        expect(toolKeys).not.toContain("save_story_promise");
+        expect(toolKeys).not.toContain("save_promise_beat");
+        expect(toolKeys).not.toContain("save_story_decision");
         expect(toolKeys).not.toContain("write_world_slice");
         expect(toolKeys).not.toContain("delete_world_slice");
+    });
+
+    it("builtin profile 不把 CurrentUserInput 复制进 AppendingSet", async () => {
+        const prepared = await inlineEditorProfile.prepare!({
+            session: testSession({
+                profileKey: "inline.editor",
+                workspaceRoot: resolve("workspace"),
+                projectPath: "workspace/current-user-input-test",
+            }),
+            initial: {},
+            invocation: {
+                message: "只应由 Harness 作为 CurrentUserInput 注入",
+                caller: {kind: "user"},
+            },
+            vars: createTestVariableAccessor(),
+            catalog: {profiles: [], issues: []},
+            skills: [],
+            settings: {},
+        });
+
+        expect((prepared.appendingMessages ?? []).map(messageText)).not.toContain("只应由 Harness 作为 CurrentUserInput 注入");
+        expect(prepared.turnContexts ?? []).toEqual([]);
     });
 
     it("提示词声明 autonomous 自主模式，并渲染 input.chapterId 自取 brief 提示", async () => {
@@ -92,6 +118,13 @@ describe("writer profile contract", () => {
             expect(writerInputContext).toContain("get_chapter_writer_brief");
             expect(writerInputContext).toContain(`${projectSlug}/lorebook/character/hero/`);
             expect(writerInputContext).toContain(`${projectSlug}/manuscript/000-prologue/index.md`);
+            // CurrentUserInput 由 Harness 独立追加；Profile 不得再把 invocation.message 复制进 AppendingSet。
+            expect((prepared.appendingMessages ?? []).map(messageText)).not.toContain("请根据本章 brief 写正文。");
+            expect(prepared.turnContexts).toEqual([{
+                kind: "file-change-notice",
+                mode: "minimal",
+                appendingIndex: 0,
+            }]);
         } finally {
             await rm(projectRoot, {recursive: true, force: true});
         }
@@ -103,6 +136,7 @@ describe("writer profile contract", () => {
  */
 function defaultWriterSettings() {
     return {
+        customTopSystemPrompt: "",
         writingStylePreset: DEFAULT_WRITING_STYLE_PRESET,
         writingReferencePreset: DEFAULT_WRITING_REFERENCE_PRESET,
         narrativePerson: "third" as const,
@@ -110,6 +144,7 @@ function defaultWriterSettings() {
         wordCountControl: "2000-2600 字",
         polishingWorkflow: "使用 stop-slop 做自查。",
         adultStylePrompt: "",
+        fileChangeAwareness: "minimal" as const,
     };
 }
 
@@ -124,7 +159,7 @@ function testSession(input: Partial<NeuroSessionContext>): RuntimeSessionFacade 
         customState: {},
         linkedAgents: [],
         archived: false,
-        planModeActive: false,
+        agentMode: "normal",
         ...input,
         async read() {
             return {

@@ -1,6 +1,6 @@
 import {describe, expectTypeOf, it} from "vitest";
 import type {AgentRuntimeStreamEventDto} from "nbook/shared/dto/agent-session.dto";
-import type {InvokeAgentResult} from "nbook/server/agent/harness/types";
+import type {InvokeAgentResult} from "nbook/shared/dto/agent-session.dto";
 
 describe("InvokeAgentResult public contract", () => {
     it("不返回历史 runtime events，事件只走 SSE/onEvent", () => {

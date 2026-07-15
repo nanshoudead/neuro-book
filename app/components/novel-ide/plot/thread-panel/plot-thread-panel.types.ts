@@ -1,8 +1,12 @@
 import type {
     StoryEffectiveRefDto,
     StoryRefDto,
+    StorySceneOutcomeTypeDto,
+    StoryScenePacingRoleDto,
+    StoryScenePromiseBeatDto,
     StorySceneStatusDto,
     StorySceneWorldAnchorDto,
+    StoryThreadMiceTypeDto,
     StoryThreadStatusDto,
 } from "nbook/shared/dto/plot.dto";
 
@@ -16,6 +20,7 @@ export type PlotThreadTone = "amber" | "sky" | "emerald" | "rose";
  * 单 Thread 面板使用的章节视图模型。
  */
 export type PlotThreadPanelChapter = {
+    // StoryChapter 实体 id。
     id: string;
     volumeTitle: string;
     numberLabel: string;
@@ -42,6 +47,8 @@ export type PlotThreadPanelThread = {
     summary: string;
     status: StoryThreadStatusDto;
     isMainThread: boolean;
+    // MICE 线型(提示这条线怎样才算关);为空表示未填写。
+    miceType: StoryThreadMiceTypeDto | null;
     tags: string[];
     writingTip: string | null;
     tone: PlotThreadTone;
@@ -54,11 +61,16 @@ export type PlotThreadPanelThread = {
 export type PlotThreadPanelScene = {
     id: string;
     threadId: string;
-    chapterPath: string | null;
+    // 挂载章节实体 id;为空表示 Scene 尚未挂章。
+    chapterId: string | null;
     title: string;
     summary: string;
     purpose: string | null;
     status: StorySceneStatusDto;
+    // 本场主要行动者主动尝试的结果;为空仅表示未填写(D29)。
+    outcomeType: StorySceneOutcomeTypeDto | null;
+    // 本场张弛角色;为空表示未填写。
+    pacingRole: StoryScenePacingRoleDto | null;
     threadSortOrder: number;
     chapterSortOrder: number | null;
     writingTip: string | null;
@@ -75,6 +87,8 @@ export type PlotThreadPanelDetail = {
     // 为空表示当前 Scene 未挂章。
     chapter: PlotThreadPanelChapter | null;
     effectiveRefs: PlotThreadPanelRef[];
+    // 本场服务的承诺线(promise beats);Scene 详情未加载时为空数组。
+    promiseBeats: StoryScenePromiseBeatDto[];
 };
 
 /**
@@ -86,7 +100,8 @@ export type PlotThreadQuickSceneUpdate = {
     summary: string;
     purpose: string | null;
     status: StorySceneStatusDto;
-    chapterPath: string | null;
+    // 挂载章节实体 id;为空表示取消挂章。
+    chapterId: string | null;
     writingTip: string | null;
     worldAnchor: StorySceneWorldAnchorDto;
 };
@@ -100,6 +115,8 @@ export type PlotThreadEditorThreadSave = {
     summary: string;
     status: StoryThreadStatusDto;
     isMainThread: boolean;
+    // MICE 线型;为空表示显式清空(未填写)。
+    miceType: StoryThreadMiceTypeDto | null;
     tags: string[];
     writingTip: string | null;
 };
@@ -113,7 +130,12 @@ export type PlotThreadEditorSceneSave = {
     summary: string;
     purpose: string | null;
     status: StorySceneStatusDto;
-    chapterPath: string | null;
+    // 本场结果类型;为空表示显式清空(未填写)。
+    outcomeType: StorySceneOutcomeTypeDto | null;
+    // 本场张弛角色;为空表示显式清空(未填写)。
+    pacingRole: StoryScenePacingRoleDto | null;
+    // 挂载章节实体 id;为空表示取消挂章。
+    chapterId: string | null;
     writingTip: string | null;
     worldAnchor: StorySceneWorldAnchorDto;
     refs: PlotThreadPanelRef[];

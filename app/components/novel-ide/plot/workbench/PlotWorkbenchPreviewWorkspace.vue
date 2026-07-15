@@ -38,6 +38,7 @@ const extraThreads: PlotThreadPanelThread[] = [
         summary: "系统从濒死触发到逐步开放能力，服务逃亡与反击节奏。",
         status: "active",
         isMainThread: false,
+        miceType: null,
         tags: ["系统", "成长"],
         writingTip: "系统信息只在主角做选择时出现，避免独立说明段。",
         tone: "sky",
@@ -50,6 +51,7 @@ const extraThreads: PlotThreadPanelThread[] = [
         summary: "祭坛、血脉与邪教仪式背后的规则线。",
         status: "paused",
         isMainThread: false,
+        miceType: null,
         tags: ["血脉", "仪式"],
         writingTip: "每次揭示只给一个规则，不要一次解释完整体系。",
         tone: "rose",
@@ -62,6 +64,7 @@ const extraThreads: PlotThreadPanelThread[] = [
         summary: "邪教追杀、祭司命令与献祭目标的压力来源。",
         status: "paused",
         isMainThread: false,
+        miceType: null,
         tags: ["邪教", "追杀"],
         writingTip: "反派行动要有组织性，让追杀不是随机遭遇。",
         tone: "emerald",
@@ -74,6 +77,7 @@ const extraThreads: PlotThreadPanelThread[] = [
         summary: "用于承接后续世界观扩展与异界通道。",
         status: "draft",
         isMainThread: false,
+        miceType: null,
         tags: ["世界", "通道"],
         writingTip: null,
         tone: "sky",
@@ -85,11 +89,13 @@ const extraScenes: PlotThreadPanelScene[] = [
     {
         id: "scene-counterattack",
         threadId: "thread-main",
-        chapterPath: "chapter-02",
+        chapterId: "chapter-02",
         title: "反杀落单敌人，激活系统",
         summary: "主角利用祭坛阴影诱导追兵分散，在绝境中反杀落单敌人，并第一次触发系统反馈。",
         purpose: "把逃亡线从被动闪避推进到主动求生，建立系统能力的第一次可信使用。",
         status: "draft",
+        outcomeType: null,
+        pacingRole: null,
         threadSortOrder: 3,
         chapterSortOrder: 2,
         writingTip: "反杀要显得勉强，重点放在代价和判断，不要写成突然开挂。",
@@ -99,11 +105,13 @@ const extraScenes: PlotThreadPanelScene[] = [
     {
         id: "scene-message",
         threadId: "thread-main",
-        chapterPath: "chapter-02",
+        chapterId: "chapter-02",
         title: "传送阵逃脱",
         summary: "主角抢在追兵合围前启动残破传送阵，带着未解的身份线索逃离祭坛区域。",
         purpose: "完成第一阶段逃亡，同时把下一阶段目的地和追杀后果抛给读者。",
         status: "draft",
+        outcomeType: null,
+        pacingRole: null,
         threadSortOrder: 4,
         chapterSortOrder: 3,
         writingTip: "传送不是胜利，而是从局部危机进入更大的未知。",
@@ -133,11 +141,13 @@ const detail = computed<PlotThreadPanelDetail | null>(() => {
     return {
         thread,
         scene,
-        chapter: scene.chapterPath ? (chapterMap.value.get(scene.chapterPath) ?? null) : null,
+        chapter: scene.chapterId ? (chapterMap.value.get(scene.chapterId) ?? null) : null,
         effectiveRefs: [
             ...thread.refs.map((refItem) => ({...refItem, source: "thread" as const})),
             ...scene.refs.map((refItem) => ({...refItem, source: "scene" as const})),
         ],
+        // 预览 mock 无规划层数据,promise beats 恒为空。
+        promiseBeats: [],
     };
 });
 
@@ -193,11 +203,13 @@ function createScene(threadId: string): void {
     const nextScene: PlotThreadPanelScene = {
         id: `scene-preview-${Date.now()}`,
         threadId,
-        chapterPath: null,
+        chapterId: null,
         title: `新建 Scene ${nextOrder + 1}`,
         summary: "这里记录新 Scene 的主要事件、场面变化和读者需要获得的信息。",
         purpose: "明确这个 Scene 推进哪一段冲突或揭示哪一条线索。",
         status: "draft",
+        outcomeType: null,
+        pacingRole: null,
         threadSortOrder: nextOrder,
         chapterSortOrder: null,
         writingTip: "先写目标，再补动作，不要让场景只承担说明功能。",
@@ -222,6 +234,7 @@ function createThread(): void {
         summary: "用于临时验证剧本工作台里的 Thread 创建、筛选与右键操作。",
         status: "draft",
         isMainThread: false,
+        miceType: null,
         tags: ["mock"],
         writingTip: "先写清楚这条线承担的冲突，再拆成 Scene。",
         tone: "sky",
@@ -318,6 +331,7 @@ function cloneThreads(source: PlotPreviewThread[]): PlotThreadPanelThread[] {
             }
             : {}),
         status: thread.status as PlotThreadPanelThread["status"],
+        miceType: null,
         tags: thread.id === "thread-main" ? ["逃亡", "仪式", "系统"] : [...thread.tags],
         refs: cloneRefs(thread.refs),
     })), ...extraThreads];
@@ -327,8 +341,14 @@ function cloneThreads(source: PlotPreviewThread[]): PlotThreadPanelThread[] {
  * 克隆 Scene mock 数据。
  */
 function cloneScenes(source: PlotPreviewScene[]): PlotThreadPanelScene[] {
-    return [...source.map((scene) => ({
-        ...scene,
+    return [...source.map((scene) => {
+        const {chapterPath, ...rest} = scene;
+        return {
+        ...rest,
+        // 预览 mock 仍以路径占位;桥接到面板模型时映射为 chapterId 占位值。
+        chapterId: chapterPath,
+        outcomeType: null,
+        pacingRole: null,
         worldAnchor: emptyWorldAnchor,
         ...(scene.id === "scene-auction"
             ? {
@@ -355,7 +375,8 @@ function cloneScenes(source: PlotPreviewScene[]): PlotThreadPanelScene[] {
             }
             : {}),
         refs: cloneRefs(scene.refs),
-    })), ...extraScenes];
+    };
+    }), ...extraScenes];
 }
 
 </script>
@@ -363,7 +384,7 @@ function cloneScenes(source: PlotPreviewScene[]): PlotThreadPanelScene[] {
 <template>
     <!-- 剧情大纲侧边栏 + 工作台 Dialog 预览 -->
     <div class="flex min-h-[760px] w-full gap-5">
-        <div class="flex min-h-[760px] shrink-0 overflow-hidden rounded-xl border border-[var(--border-color)] bg-[var(--bg-panel)] shadow-[0_24px_70px_rgba(15,23,42,0.10)]">
+        <div class="flex min-h-[760px] shrink-0 overflow-hidden rounded-xl border border-[var(--border-color)] bg-[var(--bg-panel)] shadow-[0_24px_70px_color-mix(in_srgb,var(--shadow-color)_10%,transparent)]">
             <PlotThreadPanelShell
                 :threads="threads"
                 :scenes="scenes"
@@ -387,7 +408,7 @@ function cloneScenes(source: PlotPreviewScene[]): PlotThreadPanelScene[] {
         </div>
 
         <section class="flex min-w-0 flex-1 flex-col justify-center rounded-xl border border-dashed border-[var(--border-color)] bg-[var(--bg-panel)]/70 px-8 py-10 text-center">
-            <div class="mx-auto flex h-12 w-12 items-center justify-center rounded-xl border border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300">
+            <div class="mx-auto flex h-12 w-12 items-center justify-center rounded-xl border border-[var(--status-warning-border)] bg-[var(--status-warning-bg)] text-[var(--status-warning)]">
                 <span class="i-lucide-panels-top-left h-6 w-6"></span>
             </div>
             <h2 class="mt-4 text-xl font-semibold text-[var(--text-main)]">剧本工作台 Dialog 预览</h2>
@@ -396,7 +417,7 @@ function cloneScenes(source: PlotPreviewScene[]): PlotThreadPanelScene[] {
             </p>
             <button
                 type="button"
-                class="mx-auto mt-5 inline-flex h-10 items-center gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-4 text-sm font-semibold text-amber-700 transition-colors hover:bg-amber-500/15 dark:text-amber-300"
+                class="mx-auto mt-5 inline-flex h-10 items-center gap-2 rounded-md border border-[var(--status-warning-border)] bg-[var(--status-warning-bg)] px-4 text-sm font-semibold text-[var(--status-warning)] transition-colors hover:bg-[var(--bg-hover)]"
                 @click="workbenchVisible = true"
             >
                 <span class="i-lucide-panels-top-left h-4 w-4"></span>

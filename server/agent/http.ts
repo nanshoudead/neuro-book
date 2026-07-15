@@ -1,5 +1,6 @@
 import {createError, getRouterParam} from "h3";
 import {NeuroAgentHarness} from "nbook/server/agent/harness/neuro-agent-harness";
+import {AgentHistoryQueryError} from "nbook/server/agent/session/history-query";
 import type {InvokeAgentInput} from "nbook/server/agent/harness/types";
 import type {ServerTimingSink} from "nbook/server/utils/server-timing";
 import {
@@ -9,10 +10,11 @@ import {
     type AgentCreateSessionRequestDto,
     type ClientVariablePatchAckDto,
     type AgentInvokeRequestDto,
-    type AgentSessionEventDto,
     type AgentSessionEventsQueryDto,
     type AgentSessionListPageDto,
     type AgentSessionListQueryDto,
+    type AgentSessionQueryDto,
+    type AgentSessionQueryResultDto,
     type AgentTreeRequestDto,
 } from "nbook/shared/dto/agent-session.dto";
 
@@ -48,19 +50,6 @@ export function requireAgentSessionId(event: Parameters<typeof getRouterParam>[0
 }
 
 /**
- * 将 session event envelope 推送为 SSE 帧。
- */
-export async function pushAgentSessionEvent(
-    eventStream: {push(input: {event: string; data: string}): Promise<void>},
-    payload: AgentSessionEventDto,
-): Promise<void> {
-    await eventStream.push({
-        event: payload.event.type,
-        data: JSON.stringify(payload),
-    });
-}
-
-/**
  * 创建 Agent session。
  */
 export async function createAgentSession(body: AgentCreateSessionRequestDto, harness = useAgentHarness()) {
@@ -92,18 +81,28 @@ export async function listAgentSessions(query: AgentSessionListQueryDto, harness
 }
 
 /**
- * 返回前端恢复用 session snapshot。
+ * 按 query view 返回 session recovery、history 或 system prompt。
  */
-export async function getAgentSessionSnapshot(sessionId: number, harness = useAgentHarness(), timingSink?: ServerTimingSink, options?: {entriesLimit?: number | null}) {
-    if (!timingSink && !options) {
-        return harness.getSessionSnapshot(sessionId);
+export async function getAgentSessionQuery(
+    sessionId: number,
+    query: AgentSessionQueryDto,
+    harness = useAgentHarness(),
+    timingSink?: ServerTimingSink,
+): Promise<AgentSessionQueryResultDto> {
+    try {
+        return timingSink
+            ? await harness.getSessionQuery(sessionId, query, timingSink)
+            : await harness.getSessionQuery(sessionId, query);
+    } catch (error) {
+        if (error instanceof AgentHistoryQueryError) {
+            throw createError({
+                statusCode: error.statusCode,
+                message: error.message,
+                data: {code: error.code},
+            });
+        }
+        throw error;
     }
-    if (timingSink && !options) {
-        return harness.getSessionSnapshot(sessionId, timingSink);
-    }
-    return timingSink
-        ? harness.getSessionSnapshot(sessionId, timingSink, options)
-        : harness.getSessionSnapshot(sessionId, undefined, options);
 }
 
 /**
@@ -125,16 +124,10 @@ export async function invokeAgentSession(sessionId: number, body: AgentInvokeReq
 /**
  * 执行 session command。slash command 在前端识别后进入这里。
  */
-export async function runAgentSessionCommand(sessionId: number, body: AgentCommandRequestDto, harness = useAgentHarness(), timingSink?: ServerTimingSink, options?: {entriesLimit?: number | null}) {
-    if (!timingSink && !options) {
-        return harness.runCommand(sessionId, body);
-    }
-    if (timingSink && !options) {
-        return harness.runCommand(sessionId, body, timingSink);
-    }
+export async function runAgentSessionCommand(sessionId: number, body: AgentCommandRequestDto, harness = useAgentHarness(), timingSink?: ServerTimingSink) {
     return timingSink
-        ? harness.runCommand(sessionId, body, timingSink, options)
-        : harness.runCommand(sessionId, body, undefined, options);
+        ? harness.runCommand(sessionId, body, timingSink)
+        : harness.runCommand(sessionId, body);
 }
 
 /**
@@ -142,10 +135,8 @@ export async function runAgentSessionCommand(sessionId: number, body: AgentComma
  *
  * 当前实现先移动 leaf 再 invoke；若 invoke 失败，leaf 不会自动回滚。
  */
-export async function moveAgentSessionTree(sessionId: number, body: AgentTreeRequestDto, harness = useAgentHarness(), options?: {entriesLimit?: number | null}) {
-    return options
-        ? harness.moveTree(sessionId, body, options)
-        : harness.moveTree(sessionId, body);
+export async function moveAgentSessionTree(sessionId: number, body: AgentTreeRequestDto, harness = useAgentHarness()) {
+    return harness.moveTree(sessionId, body);
 }
 
 /**

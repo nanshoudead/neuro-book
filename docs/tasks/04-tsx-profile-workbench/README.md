@@ -16,7 +16,7 @@
 
 - 当前 Agent 主链路已切到 Pi-based `server/agent`，profile runtime 使用 `defineAgentProfile({ manifest, inputSchema, outputSchema, allowedToolKeys, context?, prepare?, ingest? })`。
 - 当前 active v3 profile 底层输出是 `ProfileTurnPlan`：`systemPrompt`、`historyInitMessages`、`appendingMessages`、`modelContextAppendingMessages`、`modelContextMessages`、`stateWrites`。普通 profile 推荐写 `context(ctx) => <ProfilePrompt />`，由 `server/agent/profiles/profile-dsl.ts` 编译为 `ProfileTurnPlan`；高级 profile 可以直接覆写 `prepare(ctx) => ProfileTurnPlan`。`context` 与 `prepare` 不能同时存在。
-- `ProfilePrompt` / `System` / `HistorySet` / `ModelContext` / `AppendingSet` / `Compaction` / `CompactionPrompt` / `CompactionSummaryPrefix` / `Reminder` / `Watch` / `SkillCatalog` / `ActivatedSkills` 已成为 `server/agent` active profile 的可执行 TSX DSL。旧 `DynamicSet` 已硬切删除，model-only 分区统一使用 `ModelContext`。
+- `ProfilePrompt` / `System` / `HistorySet` / `ModelContext` / `AppendingSet` / `FileChangeNotice` / `Compaction` / `CompactionPrompt` / `CompactionSummaryPrefix` / `Reminder` / `Watch` / `SkillCatalog` / `ActivatedSkills` 已成为 `server/agent` active profile 的可执行 TSX DSL。旧 `DynamicSet` 已硬切删除，model-only 分区统一使用 `ModelContext`。
 - Profile 真相源是完整 `.profile.tsx` 单文件：
   - 系统 profile root：`assets/workspace/.nbook/agent/profiles`
   - 用户 profile root：`workspace/.nbook/agent/profiles`
@@ -80,7 +80,7 @@
 - 已实现两个系统模板：`assets/workspace/.nbook/agent/profile-templates/basic-agent.profile-template.tsx` 与 `report-agent.profile-template.tsx`。模板只做 key/name/description/systemPrompt 占位替换，不引入模板引擎。
 - 已把 `ProfileTemplateVisualEditor mode="user-profile"` 切到新 `/api/agent/profiles/*` 写入 API。旧 `profile-templates` / `user-profile-templates` tombstone route 仍保留 501 helper，避免开发服务器启动期 import 崩溃；普通 user profile 工作台不再依赖这些旧写入 API。
 - 第一版可视化辅助编辑已从旧 `systemPrompt` / `renderSystemPrompt()` range 升级为解析 `context()` 返回的 `<ProfilePrompt>` TSX DSL tree。源码仍是真相源，复杂 prompt/helper/schema/工具逻辑继续走源码编辑；画布写回只替换已定位的 `ProfilePrompt` JSX 片段。
-- Prepare Preview 现在展示 `systemPrompt`、`history`、`modelContextAppending`、`appending`、`modelContext`、`compaction`、`stateWrites` 与 `reactMessages`。`reactMessages` 按真实 harness 规则近似组装：非空 session 不重复注入 HistorySet，AppendingSet 与 ModelContext 内触发的 Reminder 作为 pre-loop 可见消息进入最终输入，ModelContext 普通消息只作为 model-only 片段进入最终输入。
+- Prepare Preview 现在展示 `systemPrompt`、`history`、`modelContext`、`modelContextAppending`、`appending`、`compaction`、`stateWrites` 与 `reactMessages`。`reactMessages` 与真实 Harness 共用顺序组装器：非空 session 不重复注入 HistorySet，ModelContext 普通消息先进入 model-only 分区，随后是 ModelContext 动态追加与 AppendingSet，真实 CurrentUserInput 始终位于最后。`FileChangeNotice` 在 dry-run 中只显示运行时占位消息，不读取真实 history。
 - 已把 user-assets 顶部 Header 的 Agent 按钮旁接入 Profile 工作台入口，挂载 `UserProfileWorkbenchDialog`；默认打开用户资产中的 `builtin/leader.assets.profile.tsx`。
 - 已把 `/tsx-profile-editor.preview` 调试页切到 `ProfileTemplateVisualEditor mode="user-profile"`，不再默认触发旧 `profile-templates` tombstone API。
 - 已把 user-profile 模式下的源码解析、预览和显式验证改为基于当前编辑器源码：服务端在 `.agent/workspace/profile-source-check/*` 临时 user profile root 中覆盖当前文件，再走真实 catalog/detail/prepare 链路，不污染 `workspace/.nbook/agent/profiles`。
@@ -112,7 +112,7 @@
   - 系统 `.compiled` 由 `scripts/prepare-system-profile-metadata.ts` 生成，并接入 `dev` / `build` / `nuxt:build`。
   - Workbench 编译按钮保存源码后进入后台 worker，worker 写用户 root `.compiled`；保存和预览都不会改变运行可用状态。
   - 新增 Agent runtime `profile status/check/compile/preview` CLI，系统 wrapper 位于 `assets/workspace/.nbook/agent/bin/profile`。
-  - 删除旧 `scripts/compile-profile.ts`、`scripts/check-profile.ts`、`scripts/profile-compile-cli.ts`；项目根 `scripts/profile.ts` 只作为开发 convenience 入口。
+  - 删除旧 `scripts/compile-profile.ts`、`scripts/check-profile.ts`、`scripts/profile-compile-cli.ts`；项目根 `scripts/build/profile.ts` 是开发 convenience 入口。
 
 ## Decisions
 
@@ -289,9 +289,33 @@
    - 后续实现 `report_result` 新语义时，需要把当前 `result/data` 工具参数调整为按目标 profile 派生的动态 schema：`OutputSchema = Type.Object({})` 只暴露并校验 `walkthrough`，非空 OutputSchema 暴露并校验 `walkthrough + data`，其中 `data` 的模型可见类型来自 `OutputSchema`。
    - `ProfilePrompt` 可视化辅助编辑写回后是否自动跑 prepare preview、源码保存后是否自动刷新 runtime catalog/detail，先调研旧编辑器节奏、当前 dynamic import/cache 行为和 UI 成本后再决定。
 
+## 2026-07-06 Profile CLI / Workbench CWD Fix
+
+- 修复 profile CLI 从 Workspace Root `.nbook` 执行时把用户 profile root 解析成嵌套 `workspace/.nbook/workspace/.nbook` 的问题。`scripts/build/profile.ts` 改为复用 Workspace assets root resolver，并在 CLI build 入口统一切到应用根。
+- `agent/scripts/profile.ts` 改为先识别 Product Runtime manifest；Product Root 走 `.output/server/scripts/build/profile.ts`，源码仓即使存在旧 `.output` 仍走根源码入口，避免 user-assets wrapper 吃到 stale product copy。
+- Product 分支 `agent/bin/profile` / `profile.cmd` 使用 `neuro-book-product` / `neuro-book-output` manifest 判定，执行 `.output/server/scripts/build/profile.ts` 前切到 Product Root，保持 Product Runtime 的 cwd 合同。
+- Workbench 刷新 profile 文件列表时改为优先保留当前选中项；仅当前文件不存在时才 fallback 到 `preferredTemplate` 或 `leader.default`，避免保存 `leader.default` 后跳回 `leader.assets` 并误触发“编译未开始”。
+
+## 2026-07-10 Task 102 DSL / Preview 演进
+
+- Workbench DTO、源码 parser、节点库、画布节点和图标已识别 `FileChangeNotice`；节点只能直接放在 `AppendingSet`，公开属性只保留 `mode`，支持 `off/minimal/full` 或 settings 表达式。单文件 diff 上限由 Profile 通用运行设置控制。
+- 组件库新建 `FileChangeNotice` 的 literal 默认固定为 `{mode: "minimal"}`；Inspector 对 literal mode 使用 `off/minimal/full` 下拉，不再编辑 diff 字符预算。
+- source parser 回归锁定 `<FileChangeNotice mode={ctx.settings.fileChangeAwareness} />` 的表达式往返，不把它降级成普通源码文本。
+- literal 回归锁定 `<FileChangeNotice mode="minimal" />` 的画布生成与 parser round-trip。
+- Profile Preview 的分区展示顺序已改为 `history → modelContext → modelContextAppending/appending`，最终 `reactMessages` 通过统一 assembler 生成。
+- 当前用户输入属于 Harness 的 `CurrentUserInput`，Workbench 不建议 profile 作者把 `ctx.invocation.message` 复制到 AppendingSet。
+- 验证：Task 102/Profile 聚焦套件 7 files / 70 tests、14 个 builtin Profile artifacts 全部 loaded、全仓 typecheck 通过；Task 102 浏览器终验已完成。
+
+详见 [Task 102](../102-agent-change-inbox-and-prompt-order/README.md)。
+
 ## Files Changed
 
 - `docs/tasks/04-tsx-profile-workbench/README.md`
+- `scripts/build/profile.ts`
+- `scripts/build/profile-cli-path.test.ts`
+- `assets/workspace/.nbook/agent/bin/profile`
+- `assets/workspace/.nbook/agent/bin/profile.cmd`
+- `assets/workspace/.nbook/agent/scripts/profile.ts`
 - `docs/tasks/02-pi-agent-harness-migration/README.md`
 - `docs/tasks/05-leader-profile-v2-adaptation/README.md`
 - `docs/modules/agent/harness.md`
@@ -300,6 +324,8 @@
 - `app/components/profile-template-editor/ProfileTemplateHeader.vue`
 - `app/components/profile-template-editor/ProfileTemplateInspectorPanel.vue`
 - `app/components/profile-template-editor/ProfileTemplateVisualEditor.vue`
+- `app/components/profile-template-editor/profile-template-selection-utils.ts`
+- `app/components/profile-template-editor/profile-template-selection-utils.test.ts`
 - `app/components/profile-template-editor/UserProfileWorkbenchDialog.vue`
 - `app/components/profile-template-editor/profile-template-form-utils.ts`
 - `app/components/novel-ide/NovelAgentDrawer.vue`
@@ -321,20 +347,32 @@
 - `shared/dto/agent-profile.dto.ts`
 - `shared/dto/profile-template.dto.ts`
 - `server/agent/test/setup.ts`
+- `vitest.config.ts`
+- `scripts/build/profile.ts`
 
 ## Verification
 
+- 2026-07-06 本轮修复验证：
+  - `bash -c './workspace/.nbook/agent/bin/profile status leader.default'`：通过，返回 `leader.default: loaded`。
+  - `bash -c './assets/workspace/.nbook/agent/bin/profile status leader.default'`：通过，源码仓存在 `.output` 时仍返回 `leader.default: loaded`。
+  - 在 `workspace/.nbook` 下执行 `bash -c './agent/bin/profile status leader.default'`：通过，返回 `leader.default: loaded`。
+  - 在 `workspace/.nbook` 下执行 `bash -c './agent/bin/profile check leader.default'`：通过，返回 `profile check passed`。
+  - 临时 Product Root smoke：同时放置根 `scripts/build/profile.ts` 与 `.output/server/scripts/build/profile.ts` 后运行 `assets/workspace/.nbook/agent/bin/profile`，输出 `product-bin` 且 cwd 为临时 Product Root，确认 sh wrapper 命中 `.output/server`。
+  - `bunx vitest run app/components/profile-template-editor/profile-template-selection-utils.test.ts scripts/build/profile-cli-path.test.ts server/agent/profiles/workbench-service.test.ts --testTimeout=120000 --hookTimeout=120000`：通过，3 files / 15 tests passed。
+  - `bunx vitest run server/agent/profiles/profile-compile-worker.test.ts -t "Product Root 仅有 .output package manifest" --testTimeout=120000 --hookTimeout=120000`：通过，1 test passed / 20 skipped。
+  - `bunx vitest run server/agent/profiles/catalog.test.ts -t "Product profile artifact|通用 .output Product runner|Product 用户层 artifact" --testTimeout=120000 --hookTimeout=120000`：通过，4 tests passed / 39 skipped。
+  - `bunx vitest run server/agent/profiles/catalog.test.ts server/agent/profiles/profile-compile-worker.test.ts --testTimeout=120000 --hookTimeout=120000`：本轮复查中超过 2 分钟无增量输出且未按单测超时退出，已中断；改用上方 Product 相关窄用例覆盖本轮改动边界。
 - `bunx tsc --noEmit --pretty false` 通过。
 - `bunx vitest run server/agent/profiles/workbench-service.test.ts server/agent/profiles/profile-compile-worker.test.ts server/agent/profiles/catalog.test.ts` 通过，覆盖轻量 draft 读取不触发 runtime catalog、真实 worker service 后台编译、worker crash 结构化 issue、catalog compiled-only 加载和 user profile 文件读写。
 - 手动跑过 Node worker service 探针：`useProfileCompileWorker().compile({ fileName: "builtin/leader.default.profile.tsx", preview: false })` 返回 `ok: true`、`manifest.key = leader.default`、error issue 数为 0。
 - 手动跑过 Bun worker service 探针：同样返回 `ok: true`、`manifest.key = leader.default`、error issue 数为 0。
 - Workbench 自动编辑路径已复查：源码输入和画布编辑只调用 `source-draft` 轻量解析；用户显式点击预览时调用后台 worker 的 `compile` dry-run 模式，只在临时 profile root 编译并清理，不写真实用户 `.compiled`；普通 `compile` endpoint 非 dry-run 模式是唯一写用户 `.compiled` 的 UI 入口。`preview-prepare + sourceOverride` 后端保留为兼容 API，但 Workbench 不再使用它。
 - `bunx vitest run server/agent/profiles/workbench-service.test.ts server/agent/profiles/report-result-schema.test.ts server/agent/profiles/catalog.test.ts` 通过，覆盖模板发现、受控 `fileName`、新建 profile 加载、临时源码覆盖不写入真实用户 profile 文件、runtime catalog 与 report_result schema 派生。
-- `bunx vitest run server/agent/profiles/workbench-service.test.ts` 通过，覆盖新 TSX DSL tree 解析：`ProfilePrompt` / `System` / `HistorySet` / `ModelContext` / `AppendingSet` / `ToolCall` / `ToolResult`。后续需要补覆盖 `Compaction` tree round-trip。
+- `bunx vitest run server/agent/profiles/workbench-service.test.ts` 通过，覆盖新 TSX DSL tree 解析：`ProfilePrompt` / `System` / `HistorySet` / `ModelContext` / `AppendingSet` / `FileChangeNotice` / `ToolCall` / `ToolResult`，其中 `FileChangeNotice.mode` 保留 settings expression。后续需要补覆盖 `Compaction` tree round-trip。
 - `bunx vitest run server/agent/profiles/catalog.test.ts server/agent/profiles/workbench-service.test.ts server/agent/profiles/profile-compile-worker.test.ts server/agent/profiles/leader-assets-profile.test.ts server/agent/profiles/profile-dsl.test.ts` 通过，46 tests passed，覆盖 active DSL、compiled-only catalog、leader profile、Workbench parser、后台编译，以及 `dryRun` preview 不写真实用户源码或 `.compiled`。
 - `bun scripts/prepare-system-profile-metadata.ts` 通过，生成 4 个系统 profile 的 `.compiled` artifact 与 `.system-profile-metadata.json`。
-- `bun scripts/profile.ts status --all --system` 通过，系统 `leader.assets`、`leader.default`、`retrieval`、`writer` 均为 `loaded`。
-- `bun scripts/profile.ts check builtin/leader.default.profile.tsx --system` 通过。
+- `bun scripts/build/profile.ts status --all --system` 通过，系统 profiles 均为 `loaded`。
+- `bun scripts/build/profile.ts check builtin/leader.default.profile.tsx --system` 通过。
 - `bun assets/workspace/.nbook/agent/scripts/profile.ts status --all --system` 通过，确认 Agent runtime wrapper 可用。
 - 未自动做浏览器验证；按项目规则需要用户明确要求后再打开浏览器检查 UI。
 

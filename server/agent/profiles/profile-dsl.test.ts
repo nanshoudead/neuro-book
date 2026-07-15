@@ -7,19 +7,18 @@ import {
     AIMessage,
     AgentCatalog,
     AppendingSet,
+    FileChangeNotice,
     HistorySet,
     If,
     Import,
     LinkedAgentsReminder,
+    LinkedAgentsSummary,
     Message,
     MentionedSkillsReminder,
+    ModeAvailabilityReminder,
+    ModeReminder,
+    ModeSlot,
     ModelContext,
-    PlanModeAvailabilityReminder,
-    PlanModeExit,
-    PlanModeFull,
-    PlanModeReminder,
-    PlanModeReentry,
-    PlanModeSparse,
     ProfilePrompt,
     Reminder,
     RuntimeLocationReminder,
@@ -29,19 +28,19 @@ import {
     TaskReminder,
     ToolCall,
     ToolResult,
-    validateCompactionPlan,
     validateProfileTurnPlan,
     Watch,
-    VariableSchema,
     WorkspaceFocusReminder,
 } from "nbook/server/agent/profiles/profile-dsl";
 import {defineAgentProfile as defineRuntimeAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
+import {validateProfileRuntimeSettingsPatch} from "nbook/server/agent/profiles/profile-runtime-settings";
 import {profileToolsFromKeys} from "nbook/server/agent/test/profile-tools";
 import type {ProfileTools} from "nbook/server/agent/profiles/profile-tools";
 import type {AgentProfileDefinition, ProfilePrepareContext, SidecarProfilePass} from "nbook/server/agent/profiles/types";
 import type {AgentDialogueContent} from "nbook/server/agent/session/dialogue-content";
 import type {JsonValue} from "nbook/server/agent/messages/types";
 import {createTestVariableAccessor} from "nbook/server/agent/variables/test-utils";
+import {defineLowCodeForm} from "nbook/server/low-code-form";
 
 type LegacyTestSidecar<TInput = JsonValue> = Omit<SidecarProfilePass<TInput, JsonValue>, "toolKeys"> & {
     toolKeys?: readonly string[];
@@ -93,7 +92,66 @@ function defineAgentProfile<
 }
 
 describe("profile TSX DSL", () => {
-    it("profileKey 为 summarizer 时会把 input 收窄为 profile 作者可填参数", () => {
+    it("直接调用 prepare 时只按 defaults < 调用方 settings 合并 Profile 自定义设置", async () => {
+        const SettingsSchema = Type.Object({
+            customPrompt: Type.String(),
+            untouched: Type.String(),
+        }, {additionalProperties: false});
+        const settingsForm = defineLowCodeForm({
+            schema: SettingsSchema,
+            defaults: {
+                customPrompt: "默认提示",
+                untouched: "保留默认值",
+            },
+            fields: [],
+        });
+        let contextSettings: Record<string, unknown> | undefined;
+        const contextProfile = defineRuntimeAgentProfile({
+            manifest: {key: "test.settings-context", name: "Settings Context"},
+            initialSchema: Type.Object({}),
+            tools: profileToolsFromKeys([]),
+            settingsForm,
+            context(ctx) {
+                contextSettings = ctx.settings;
+                return ProfilePrompt({children: System({children: "ok"})});
+            },
+        });
+
+        await contextProfile.prepare!({
+            ...context(),
+            settings: {customPrompt: "用户提示"} as never,
+        });
+
+        expect(contextSettings).toMatchObject({
+            customPrompt: "用户提示",
+            untouched: "保留默认值",
+        });
+
+        let prepareSettings: Record<string, unknown> | undefined;
+        const prepareProfile = defineRuntimeAgentProfile({
+            manifest: {key: "test.settings-prepare", name: "Settings Prepare"},
+            initialSchema: Type.Object({}),
+            tools: profileToolsFromKeys([]),
+            settingsForm,
+            prepare(ctx) {
+                prepareSettings = ctx.settings;
+                return {};
+            },
+        });
+
+        await prepareProfile.prepare!({
+            ...context(),
+            settings: {customPrompt: "用户提示", fileChangeDiffMaxChars: 0} as never,
+        });
+
+        expect(prepareSettings).toMatchObject({
+            customPrompt: "用户提示",
+            untouched: "保留默认值",
+        });
+        expect(prepareSettings).not.toHaveProperty("fileChangeDiffMaxChars");
+    });
+
+    it("Profile 可以声明 summarizer 出厂默认值", () => {
         const profile = defineAgentProfile({
             manifest: {
                 key: "test.summarizer-typing",
@@ -101,9 +159,10 @@ describe("profile TSX DSL", () => {
             },
             initialSchema: Type.Object({}),
             allowedToolKeys: [],
-            summarizer: {
-                profileKey: "summarizer",
-                input: {
+            runtimeDefaults: {
+                summarizer: {
+                    enabled: true,
+                    profileKey: "summarizer",
                     trigger: "afterInvocation",
                     interval: {
                         kind: "sourceInvocation",
@@ -117,26 +176,8 @@ describe("profile TSX DSL", () => {
             },
         });
 
-        defineAgentProfile({
-            manifest: {
-                key: "test.summarizer-typing-invalid",
-                name: "Summarizer Typing Invalid",
-            },
-            initialSchema: Type.Object({}),
-            allowedToolKeys: [],
-            summarizer: {
-                profileKey: "summarizer",
-                input: {
-                    // @ts-expect-error sourceSessionId 由 harness 注入，profile 作者不能填写。
-                    sourceSessionId: 1,
-                },
-            },
-            context() {
-                return ProfilePrompt({children: Message({children: "ok"})});
-            },
-        });
-
-        expect(profile.summarizer?.input).toMatchObject({
+        expect(profile.runtimeDefaults?.summarizer).toMatchObject({
+            enabled: true,
             trigger: "afterInvocation",
             interval: {
                 kind: "sourceInvocation",
@@ -173,7 +214,39 @@ describe("profile TSX DSL", () => {
         expect((plan.appendingMessages ?? []).map(messageText)).toEqual(["append"]);
     });
 
-    it("使用 profile 顶层 compaction 配置", () => {
+    it("FileChangeNotice 由 Profile 在 AppendingSet 中声明位置", async () => {
+        const profile = defineRuntimeAgentProfile({
+            manifest: {key: "test.file-change", name: "File Change"},
+            initialSchema: Type.Object({}),
+            tools: profileToolsFromKeys([]),
+            context() {
+                return ProfilePrompt({
+                    children: AppendingSet({
+                        children: [
+                            Message({children: "BEFORE"}),
+                            FileChangeNotice({mode: "full"}),
+                            Message({children: "AFTER"}),
+                        ],
+                    }),
+                });
+            },
+        });
+
+        const baseContext = context();
+        const plan = await profile.prepare!({
+            ...baseContext,
+            settings: {...baseContext.settings, fileChangeDiffMaxChars: 640},
+        });
+
+        expect((plan.appendingMessages ?? []).map(messageText)).toEqual(["BEFORE", "AFTER"]);
+        expect(plan.turnContexts).toEqual([{
+            kind: "file-change-notice",
+            mode: "full",
+            appendingIndex: 1,
+        }]);
+    });
+
+    it("使用 profile runtimeDefaults compaction 配置", () => {
         const profile = defineAgentProfile({
             manifest: {
                 key: "test.compaction",
@@ -181,11 +254,13 @@ describe("profile TSX DSL", () => {
             },
             initialSchema: Type.Object({}),
             allowedToolKeys: [],
-            compaction: {
-                triggerPercent: 0.75,
-                keepRecentTokens: 12_000,
-                prompt: "compact prompt",
-                summaryPrefix: "summary prefix",
+            runtimeDefaults: {
+                compaction: {
+                    trigger: {kind: "percent", value: 0.75},
+                    keepRecent: {kind: "tokens", value: 12_000},
+                    prompt: "compact prompt",
+                    summaryPrefix: "summary prefix",
+                },
             },
             context() {
                 return ProfilePrompt({
@@ -194,32 +269,31 @@ describe("profile TSX DSL", () => {
             },
         });
 
-        expect(profile.compaction).toEqual({
-            triggerPercent: 0.75,
-            keepRecentTokens: 12_000,
+        expect(profile.runtimeDefaults?.compaction).toEqual({
+            trigger: {kind: "percent", value: 0.75},
+            keepRecent: {kind: "tokens", value: 12_000},
             prompt: "compact prompt",
             summaryPrefix: "summary prefix",
         });
     });
 
     it("校验 Compaction 参数合同", async () => {
-        expect(() => validateCompactionPlan("test.dsl", {
-            triggerPercent: 0.8,
-            triggerTokens: 1000,
-        })).toThrow("triggerPercent");
+        expect(() => validateProfileRuntimeSettingsPatch("test.dsl", {
+            compaction: {trigger: {kind: "percent", value: 1.2}},
+        })).toThrow("compaction.trigger.value");
 
-        expect(() => validateCompactionPlan("test.dsl", {
-            keepRecentPercent: 0.5,
-            keepRecentTokens: 1000,
-        })).toThrow("keepRecentPercent");
-
-        expect(() => validateCompactionPlan("test.dsl", {
-            triggerPercent: 1.2,
-        })).toThrow("(0, 1]");
-
-        expect(() => validateCompactionPlan("test.dsl", {
-            keepRecentTokens: 0,
-        })).toThrow("正整数");
+        expect(() => validateProfileRuntimeSettingsPatch("test.dsl", {
+            compaction: {keepRecent: {kind: "tokens", value: 0}},
+        })).toThrow("compaction.keepRecent.value");
+        expect(() => validateProfileRuntimeSettingsPatch("test.dsl", {
+            summarizer: {interval: {kind: "unknown", value: 1}},
+        } as never)).toThrow("summarizer.interval.kind");
+        expect(() => validateProfileRuntimeSettingsPatch("test.dsl", {
+            compaction: {trigger: {kind: "autoReserve", value: 1}},
+        } as never)).toThrow("compaction.trigger");
+        expect(() => validateProfileRuntimeSettingsPatch("test.dsl", {
+            compaction: {keepRecent: {kind: "tokens"}},
+        } as never)).toThrow("compaction.keepRecent.value");
     });
 
     it("拒绝旧 PreparedTurn 字段和 Message system role", async () => {
@@ -697,6 +771,118 @@ describe("profile TSX DSL", () => {
         expect(text).not.toContain("writer");
     });
 
+    it("SkillCatalog mode=userAssets 切换 roots 与长期资产纪律行", async () => {
+        const renderCatalog = async (mode?: "workspace" | "userAssets") => {
+            const profile = defineAgentProfile({
+                manifest: {
+                    key: "test.skill-catalog-mode",
+                    name: "Skill Catalog Mode",
+                },
+                initialSchema: Type.Object({}),
+                allowedToolKeys: [],
+                context() {
+                    return ProfilePrompt({
+                        children: [
+                            HistorySet({
+                                children: Message({
+                                    children: SkillCatalog(mode ? {mode} : {}),
+                                }),
+                            }),
+                        ],
+                    });
+                },
+            });
+            const plan = await profile.prepare!({
+                ...context(),
+                skills: [{
+                    key: "draft",
+                    name: "Draft Skill",
+                    description: "Write a draft.",
+                    source: "system",
+                    rootPath: "assets/workspace/.nbook/agent/skills/draft",
+                    skillPath: "assets/workspace/.nbook/agent/skills/draft/SKILL.md",
+                }],
+            });
+            return (plan.historyInitMessages ?? []).map(messageText).join("\n");
+        };
+        const workspaceText = await renderCatalog();
+        const userAssetsText = await renderCatalog("userAssets");
+
+        expect(workspaceText).toContain("- Skill roots: workspace/.nbook/agent/skills/ overrides assets/workspace/.nbook/agent/skills/.");
+        expect(workspaceText).toContain("Stable world facts belong in Lorebook, plot progress belongs in Plot System");
+        expect(userAssetsText).toContain("- Skill roots: agent/skills/ overrides assets/workspace/.nbook/agent/skills/.");
+        expect(userAssetsText).not.toContain("Stable world facts belong in Lorebook");
+        expect(userAssetsText).toContain("Do not hard-code temporary conversation preferences into long-term profiles or skill files");
+        // 两种 mode 共享同一份主体原则。
+        expect(userAssetsText).toContain("You may proactively choose a skill");
+        expect(userAssetsText).toContain("If a skill conflicts with the user's goal, prioritize the user's goal");
+        expect(userAssetsText).toContain("After using a skill, the final response should report key output");
+    });
+
+    it("profile skills.include 白名单在 prepare 层过滤可见 skill", async () => {
+        const profile = defineAgentProfile({
+            manifest: {
+                key: "test.skill-include",
+                name: "Skill Include",
+            },
+            initialSchema: Type.Object({}),
+            allowedToolKeys: [],
+            skills: {include: ["profile-system-guide"]},
+            context() {
+                return ProfilePrompt({
+                    children: [
+                        HistorySet({
+                            children: Message({
+                                children: SkillCatalog({}),
+                            }),
+                        }),
+                    ],
+                });
+            },
+        });
+        const plan = await profile.prepare!({
+            ...context(),
+            skills: [{
+                key: "profile-system-guide",
+                name: "Profile System Guide",
+                description: "Profile 系统指南。",
+                source: "system",
+                rootPath: "assets/workspace/.nbook/agent/skills/profile-system-guide",
+                skillPath: "assets/workspace/.nbook/agent/skills/profile-system-guide/SKILL.md",
+            }, {
+                key: "novel-workflow-09-chapter-writing",
+                name: "Chapter Writing",
+                description: "章节写作流程。",
+                source: "system",
+                rootPath: "assets/workspace/.nbook/agent/skills/novel-workflow-09-chapter-writing",
+                skillPath: "assets/workspace/.nbook/agent/skills/novel-workflow-09-chapter-writing/SKILL.md",
+            }],
+        });
+        const text = (plan.historyInitMessages ?? []).map(messageText).join("\n");
+
+        expect(text).toContain("key: profile-system-guide");
+        expect(text).not.toContain("novel-workflow-09-chapter-writing");
+
+        expect(() => defineAgentProfile({
+            manifest: {key: "test.skill-include-dup", name: "Dup"},
+            initialSchema: Type.Object({}),
+            allowedToolKeys: [],
+            skills: {include: ["a", "a"]},
+            context() {
+                return ProfilePrompt({children: []});
+            },
+        })).toThrow("skills.include 重复");
+        expect(() => defineAgentProfile({
+            manifest: {key: "test.skill-include-empty", name: "Empty"},
+            initialSchema: Type.Object({}),
+            allowedToolKeys: [],
+            skills: {include: [" "]},
+            context() {
+                return ProfilePrompt({children: []});
+            },
+        })).toThrow("skills.include 不能包含空 key");
+    });
+
     it("AgentCatalog 只渲染 agent profile 索引", async () => {
         const profile = defineAgentProfile({
             manifest: {
@@ -774,10 +960,10 @@ describe("profile TSX DSL", () => {
                             children: [
                                 RuntimeLocationReminder(),
                                 WorkspaceFocusReminder(),
-                                PlanModeAvailabilityReminder(),
+                                ModeAvailabilityReminder(),
                                 LinkedAgentsReminder(),
                                 TaskReminder({repeatEveryTurns: 8}),
-                                PlanModeReminder(),
+                                ModeReminder(),
                                 Message({children: MentionedSkillsReminder()}),
                             ],
                         }),
@@ -788,10 +974,15 @@ describe("profile TSX DSL", () => {
 
         const plan = await profile.prepare!({
             ...context(),
-            vars: createTestVariableAccessor({
-                "client.currentProjectWorkspace": "workspace/novel-7",
-                "client.studio.selectedFilePath": "manuscript/001-opening/index.md",
-            }),
+            invocation: {
+                caller: {kind: "user"},
+                clientState: {
+                    studio: {
+                        workspace: "workspace/novel-7",
+                        selectedFilePath: "manuscript/001-opening/index.md",
+                    },
+                },
+            },
             session: {
                 ...context().session,
                 projectPath: "workspace/novel-7",
@@ -801,14 +992,15 @@ describe("profile TSX DSL", () => {
                         title: "Test plan",
                         steps: [{id: "one", text: "Do one", status: "pending"}],
                     },
-                    "agent.planMode": {
-                        active: true,
-                        reminderKind: "full",
+                    "agent.mode": {
+                        mode: "plan",
+                        phase: "enter",
+                        fromMode: "normal",
                         workDirectory: "workspace/.agent/123",
                     },
                 },
                 linkedAgents: [{sessionId: 7, profileKey: "writer", detached: false}],
-                planModeActive: true,
+                agentMode: "plan",
             },
         });
         const modelText = (plan.modelContextMessages ?? []).map((message) => message.role === "user" ? messageText(message) : "").join("\n");
@@ -817,44 +1009,123 @@ describe("profile TSX DSL", () => {
         expect(modelText).toBe("SQL_SCHEMA");
         expect(modelText).not.toContain("<dynamic-context>");
         expect(appendingText).toContain("Runtime Location:");
-        expect(appendingText).toContain("- Tool cwd: workspace/");
-        expect(appendingText).toContain("- Source root:");
-        expect(appendingText).toContain("- Reference root:");
+        expect(appendingText).toContain("- Tool cwd / Workspace Root: workspace/");
+        expect(appendingText).toContain("- Repository Source Root:");
+        expect(appendingText).toContain("- Repository Reference Root:");
+        expect(appendingText).toContain("not an access boundary");
         expect(appendingText).toContain("Current Workspace Focus:");
         expect(appendingText).toContain("Current Project Workspace: workspace/novel-7");
-        expect(appendingText).toContain("use novel-7/lorebook/... or novel-7/manuscript/...");
+        expect(appendingText).toContain("novel-7/lorebook/..., novel-7/manuscript/..., or novel-7/reference/...");
         expect(appendingText).toContain("Current selected file: novel-7/manuscript/001-opening/index.md");
-        expect(appendingText).not.toContain("Plan mode is inactive");
+        expect(appendingText).not.toContain("You are in normal mode. switch_mode is available");
         expect(appendingText).toContain("Current linked agents:");
         expect(appendingText).toContain("Current task list: Test plan");
-        expect(appendingText).toContain("## Thread Work Directory");
-        expect(appendingText).toContain("## Restrictions");
+        expect(appendingText).toContain("## Mode Constraints");
+        expect(appendingText).toContain("## Plan Work Directory");
         expect(appendingText).toContain("## Workflow");
         expect(appendingText).toContain("The user explicitly mentioned skill(s): $draft");
         expect(appendingText).toContain("read the matching SKILL.md location");
         expect(appendingText).not.toContain("{sessionId}");
     });
 
-    it("PlanModeAvailabilityReminder 首轮 inactive 时注入可用性提醒", async () => {
+    it("LinkedAgentsReminder 空渲染只更新观察基线，不记录注入轮次", async () => {
+        const profile = defineAgentProfile({
+            manifest: {key: "test.empty-linked-agents", name: "Empty Linked Agents"},
+            initialSchema: Type.Object({}),
+            allowedToolKeys: [],
+            context() {
+                return ProfilePrompt({children: AppendingSet({children: LinkedAgentsReminder()})});
+            },
+        });
+
+        const plan = await profile.prepare!(context());
+
+        expect(plan.appendingMessages ?? []).toEqual([]);
+        expect(plan.stateWrites).toEqual([{
+            type: "custom",
+            key: "profileState.test.empty-linked-agents",
+            value: {
+                reminders: {
+                    "linked-agents": {
+                        hasValue: true,
+                        value: [],
+                        fingerprint: "[]",
+                    },
+                },
+            },
+        }]);
+    });
+
+    it("LinkedAgentsReminder 在清空后重新关联同一 Agent 时再次提醒", async () => {
+        const profile = defineAgentProfile({
+            manifest: {key: "test.linked-agent-sequence", name: "Linked Agent Sequence"},
+            initialSchema: Type.Object({}),
+            allowedToolKeys: [],
+            context() {
+                return ProfilePrompt({children: AppendingSet({children: LinkedAgentsReminder()})});
+            },
+        });
+        const base = context();
+        const linkedAgent = {sessionId: 42, profileKey: "writer", detached: false};
+
+        const empty = await profile.prepare!({...base, session: {...base.session, profileKey: "test.linked-agent-sequence", linkedAgents: []}});
+        const emptyState = empty.stateWrites?.find((write) => write.type === "custom")?.value;
+        const linked = await profile.prepare!({...base, session: {...base.session, profileKey: "test.linked-agent-sequence", linkedAgents: [linkedAgent], customState: {"profileState.test.linked-agent-sequence": emptyState!}}});
+        const linkedState = linked.stateWrites?.find((write) => write.type === "custom")?.value;
+        const cleared = await profile.prepare!({...base, session: {...base.session, profileKey: "test.linked-agent-sequence", linkedAgents: [], customState: {"profileState.test.linked-agent-sequence": linkedState!}}});
+        const clearedState = cleared.stateWrites?.find((write) => write.type === "custom")?.value;
+        const relinked = await profile.prepare!({...base, session: {...base.session, profileKey: "test.linked-agent-sequence", linkedAgents: [linkedAgent], customState: {"profileState.test.linked-agent-sequence": clearedState!}}});
+
+        expect((linked.appendingMessages ?? []).map(messageText).join("\n")).toContain("Current linked agents:");
+        expect(cleared.appendingMessages ?? []).toEqual([]);
+        expect((relinked.appendingMessages ?? []).map(messageText).join("\n")).toContain("Current linked agents:");
+        expect(JSON.stringify(clearedState)).toContain('"injectedAtTurn"');
+    });
+
+    it("LinkedAgentsSummary 为空时由通用 Message 空过滤删除", async () => {
+        const profile = defineAgentProfile({
+            manifest: {key: "test.empty-linked-summary", name: "Empty Linked Summary"},
+            initialSchema: Type.Object({}),
+            allowedToolKeys: [],
+            context() {
+                return ProfilePrompt({children: AppendingSet({children: Message({children: LinkedAgentsSummary()})})});
+            },
+        });
+
+        const plan = await profile.prepare!(context());
+
+        expect(plan.appendingMessages ?? []).toEqual([]);
+    });
+
+    it("ModeAvailabilityReminder 只在 normal 模式注入可用性提醒", async () => {
         const profile = defineAgentProfile({
             manifest: {
-                key: "test.plan-mode-availability",
-                name: "Plan Mode Availability",
+                key: "test.mode-availability",
+                name: "Mode Availability",
             },
             initialSchema: Type.Object({}),
             allowedToolKeys: [],
             context() {
                 return ProfilePrompt({
                     children: AppendingSet({
-                        children: PlanModeAvailabilityReminder(),
+                        children: ModeAvailabilityReminder(),
                     }),
                 });
             },
         });
 
-        const plan = await profile.prepare!(context());
+        const normal = await profile.prepare!(context());
+        expect((normal.appendingMessages ?? []).map(messageText).join("\n")).toContain("You are in normal mode. switch_mode is available");
 
-        expect((plan.appendingMessages ?? []).map(messageText).join("\n")).toContain("Plan mode is inactive");
+        const base = context();
+        const plan = await profile.prepare!({
+            ...base,
+            session: {
+                ...base.session,
+                agentMode: "plan",
+            },
+        });
+        expect(plan.appendingMessages ?? []).toEqual([]);
     });
 
     it("WorkspaceFocusReminder 在 Project Workspace 或选中文件变化时注入焦点提醒", async () => {
@@ -891,10 +1162,10 @@ describe("profile TSX DSL", () => {
         };
         const unchanged = await profile.prepare!({
             ...base,
-            vars: createTestVariableAccessor({
-                "client.currentProjectWorkspace": "workspace/a",
-                "client.studio.selectedFilePath": "manuscript/001/index.md",
-            }),
+            invocation: {
+                caller: {kind: "user"},
+                clientState: {studio: {workspace: "workspace/a", selectedFilePath: "manuscript/001/index.md"}},
+            },
             session: {
                 ...base.session,
                 profileKey: "test.workspace-focus-reminder",
@@ -903,10 +1174,10 @@ describe("profile TSX DSL", () => {
         });
         const projectChanged = await profile.prepare!({
             ...base,
-            vars: createTestVariableAccessor({
-                "client.currentProjectWorkspace": "workspace/b",
-                "client.studio.selectedFilePath": null,
-            }),
+            invocation: {
+                caller: {kind: "user"},
+                clientState: {studio: {workspace: "workspace/b", selectedFilePath: null}},
+            },
             session: {
                 ...base.session,
                 profileKey: "test.workspace-focus-reminder",
@@ -915,10 +1186,10 @@ describe("profile TSX DSL", () => {
         });
         const fileChanged = await profile.prepare!({
             ...base,
-            vars: createTestVariableAccessor({
-                "client.currentProjectWorkspace": "workspace/a",
-                "client.studio.selectedFilePath": "manuscript/002/index.md",
-            }),
+            invocation: {
+                caller: {kind: "user"},
+                clientState: {studio: {workspace: "workspace/a", selectedFilePath: "manuscript/002/index.md"}},
+            },
             session: {
                 ...base.session,
                 profileKey: "test.workspace-focus-reminder",
@@ -929,79 +1200,60 @@ describe("profile TSX DSL", () => {
         expect(unchanged.appendingMessages ?? []).toEqual([]);
         const text = (projectChanged.appendingMessages ?? []).map(messageText).join("\n");
         expect(text).toContain("User switched Current Project Workspace to workspace/b");
-        expect(text).toContain("Tool cwd is unchanged");
+        expect(text).toContain("Tool cwd and accessible Project Workspaces are unchanged");
         expect(text).toContain("Use b/lorebook/..., b/manuscript/..., and b/reference/...");
-        expect(text).toContain("Do not use workspace/b/...");
+        expect(text).toContain("Use workspace/b only when a tool explicitly asks for projectPath");
 
         const fileText = (fileChanged.appendingMessages ?? []).map(messageText).join("\n");
         expect(fileText).toContain("Current selected file changed to a/manuscript/002/index.md");
         expect(fileText).toContain("Use this cwd-relative path directly in file tools.");
     });
 
-    it("PlanModeReminder 支持 exit 和 reentry lifecycle 文案", async () => {
+    it("ModeReminder 支持 exit 和 reentry lifecycle 文案", async () => {
         const profile = defineAgentProfile({
             manifest: {
-                key: "test.plan-mode-reminder",
-                name: "Plan Mode Reminder",
+                key: "test.mode-reminder",
+                name: "Mode Reminder",
             },
             initialSchema: Type.Object({}),
             allowedToolKeys: [],
             context() {
                 return ProfilePrompt({
                     children: [
-                        AppendingSet({children: PlanModeReminder()}),
+                        AppendingSet({children: ModeReminder()}),
                     ],
                 });
             },
         });
 
-        const exitPlan = await profile.prepare!({
-            ...context(),
-            session: {
-                ...context().session,
-                planModeActive: false,
-                customState: {
-                    "agent.planMode": {
-                        active: false,
-                        reminderKind: "exit",
-                        workDirectory: "workspace/.agent/123",
-                    },
-                },
-            },
-        });
-        const reentryPlan = await profile.prepare!({
-            ...context(),
-            session: {
-                ...context().session,
-                planModeActive: true,
-                customState: {
-                    "agent.planMode": {
-                        active: true,
-                        reminderKind: "reentry_full",
-                        workDirectory: "workspace/.agent/123",
-                    },
-                },
-            },
-        });
+        const exitFromPlan = await profile.prepare!(modeContext("normal", "exit", "plan"));
+        const exitFromDiscuss = await profile.prepare!(modeContext("normal", "exit", "discuss"));
+        const reentryPlan = await profile.prepare!(modeContext("plan", "reentry", "normal"));
 
-        const exitText = (exitPlan.appendingMessages ?? []).map(messageText).join("\n");
-        expect(exitText).toContain("## Exited Plan Mode");
-        expect(exitText).not.toContain("Plan mode still active");
+        const exitPlanText = (exitFromPlan.appendingMessages ?? []).map(messageText).join("\n");
+        expect(exitPlanText).toContain("## Left Plan Mode");
+        expect(exitPlanText).toContain("Implement the approved plan");
+        expect(exitPlanText).not.toContain("Plan mode is still active");
+
+        const exitDiscussText = (exitFromDiscuss.appendingMessages ?? []).map(messageText).join("\n");
+        expect(exitDiscussText).toContain("## Left Discuss Mode");
+        expect(exitDiscussText).not.toContain("Implement the approved plan");
+
         expect((reentryPlan.appendingMessages ?? []).map(messageText).join("\n")).toContain("## Re-entering Plan Mode");
     });
 
-    it("PlanModeReminder 在 UI soft toggle active 时也会注入 full reminder", async () => {
+    it("ModeReminder 状态变化出全文，周期重放出 steady 轻文案", async () => {
         const profile = defineAgentProfile({
             manifest: {
-                key: "test.plan-mode-soft-toggle",
-                name: "Plan Mode Soft Toggle",
+                key: "test.mode-reminder-steady",
+                name: "Mode Reminder Steady",
             },
             initialSchema: Type.Object({}),
             allowedToolKeys: [],
             context() {
                 return ProfilePrompt({
                     children: [
-                        AppendingSet({children: PlanModeReminder()}),
+                        AppendingSet({children: ModeReminder()}),
                     ],
                 });
             },
@@ -1009,42 +1261,77 @@ describe("profile TSX DSL", () => {
 
         const idle = await profile.prepare!(context());
 
+        // normal 模式无 reminder：不注入消息，但会写观察基线且不记录注入轮次
         expect(idle.appendingMessages ?? []).toEqual([]);
-        expect(idle.stateWrites).toBeUndefined();
-
-        const toggled = await profile.prepare!({
-            ...context(),
-            session: {
-                ...context().session,
-                projectPath: "workspace/alpha",
-                planModeActive: true,
-                customState: {
-                    "profileState.test.plan-mode-soft-toggle": {
-                        reminders: {
-                            "plan-mode": {
-                                fingerprint: "__undefined__",
-                                injectedAtTurn: 1,
-                            },
-                        },
-                    },
+        expect(idle.stateWrites?.find((write) => write.type === "custom")?.value).toEqual({
+            reminders: {
+                "agent-mode": {
+                    hasValue: true,
+                    value: {mode: "normal", state: null},
+                    fingerprint: "{\"mode\":\"normal\",\"state\":null}",
                 },
             },
         });
-        const text = (toggled.appendingMessages ?? []).map(messageText).join("\n");
 
-        expect(text).toContain("## Thread Work Directory");
-        expect(text).toContain("## Restrictions");
-        expect(text).toContain("workspace/alpha/.agent/plan");
-        expect(text).toContain("alpha/.agent/plan/<slug>.md");
-        expect(text).toContain("planFilePath like .agent/plan/<slug>.md");
-        expect(text).toContain("approval UI displays that Project Workspace file");
+        const base = context();
+        const modeState = {
+            "agent.mode": {
+                mode: "plan",
+                phase: "enter",
+                fromMode: "normal",
+                workDirectory: "workspace/alpha/.agent/plan",
+            },
+        };
+        const entered = await profile.prepare!({
+            ...base,
+            session: {
+                ...base.session,
+                profileKey: "test.mode-reminder-steady",
+                projectPath: "workspace/alpha",
+                agentMode: "plan",
+                customState: modeState,
+            },
+        });
+        const enteredText = (entered.appendingMessages ?? []).map(messageText).join("\n");
+
+        expect(enteredText).toContain("Plan mode is active");
+        expect(enteredText).toContain("## Mode Constraints");
+        expect(enteredText).toContain("## Plan Work Directory");
+        expect(enteredText).toContain("workspace/alpha/.agent/plan");
+        expect(enteredText).toContain("planFilePath like .agent/plan/<slug>.md");
+        expect(enteredText).toContain("approval UI displays that Project Workspace file");
+
+        // 把第一次 prepare 写下的 reminder 指纹回填 customState，模拟 6 轮后的周期重放
+        const reminderWrite = (entered.stateWrites ?? []).flatMap((write) => {
+            return write.type === "custom" && write.key === "profileState.test.mode-reminder-steady" ? [write] : [];
+        })[0];
+        expect(reminderWrite).toBeDefined();
+        const steady = await profile.prepare!({
+            ...base,
+            runtime: {now: "2026-05-23T00:00:00.000Z", promptUserTurnCount: 7},
+            session: {
+                ...base.session,
+                profileKey: "test.mode-reminder-steady",
+                projectPath: "workspace/alpha",
+                agentMode: "plan",
+                customState: {
+                    ...modeState,
+                    "profileState.test.mode-reminder-steady": reminderWrite!.value,
+                },
+            },
+        });
+        const steadyText = (steady.appendingMessages ?? []).map(messageText).join("\n");
+
+        expect(steadyText).toContain("Plan mode is still active");
+        expect(steadyText).not.toContain("## Mode Constraints");
+        expect(steadyText).not.toContain("## Workflow");
     });
 
-    it("PlanModeReminder 支持四种子节点插槽覆盖默认文案", async () => {
+    it("ModeReminder 支持 ModeSlot 插槽覆盖默认文案", async () => {
         const profile = defineAgentProfile({
             manifest: {
-                key: "test.plan-mode-slots",
-                name: "Plan Mode Slots",
+                key: "test.mode-slots",
+                name: "Mode Slots",
             },
             initialSchema: Type.Object({}),
             allowedToolKeys: [],
@@ -1052,12 +1339,12 @@ describe("profile TSX DSL", () => {
                 return ProfilePrompt({
                     children: [
                         AppendingSet({
-                            children: PlanModeReminder({
+                            children: ModeReminder({
                                 children: [
-                                    PlanModeFull({children: "CUSTOM_FULL"}),
-                                    PlanModeSparse({children: "CUSTOM_SPARSE"}),
-                                    PlanModeExit({children: "CUSTOM_EXIT"}),
-                                    PlanModeReentry({children: "CUSTOM_REENTRY"}),
+                                    ModeSlot({kind: "plan_enter", children: "CUSTOM_PLAN_ENTER"}),
+                                    ModeSlot({kind: "plan_steady", children: "CUSTOM_PLAN_STEADY"}),
+                                    ModeSlot({kind: "discuss_enter", children: "CUSTOM_DISCUSS_ENTER"}),
+                                    ModeSlot({kind: "exit_from_plan", children: "CUSTOM_EXIT_FROM_PLAN"}),
                                 ],
                             }),
                         }),
@@ -1066,61 +1353,41 @@ describe("profile TSX DSL", () => {
             },
         });
 
-        const full = await profile.prepare!(planModeContext("full", true));
-        const sparse = await profile.prepare!(planModeContext("sparse", true));
-        const exit = await profile.prepare!(planModeContext("exit", false));
-        const reentry = await profile.prepare!(planModeContext("reentry_full", true));
+        const planEnter = await profile.prepare!(modeContext("plan", "enter", "normal"));
+        const planSteady = await profile.prepare!(modeContext("plan", "steady", "normal"));
+        const discussEnter = await profile.prepare!(modeContext("discuss", "enter", "normal"));
+        const exitFromPlan = await profile.prepare!(modeContext("normal", "exit", "plan"));
+        // 未覆盖的插槽档位回落默认文案
+        const exitPlain = await profile.prepare!(modeContext("normal", "exit", "discuss"));
 
-        expect((full.appendingMessages ?? []).map(messageText).join("\n")).toContain("CUSTOM_FULL");
-        expect((full.appendingMessages ?? []).map(messageText).join("\n")).not.toContain("## Thread Work Directory");
-        expect((sparse.appendingMessages ?? []).map(messageText).join("\n")).toContain("CUSTOM_SPARSE");
-        expect((exit.appendingMessages ?? []).map(messageText).join("\n")).toContain("CUSTOM_EXIT");
-        expect((reentry.appendingMessages ?? []).map(messageText).join("\n")).toContain("CUSTOM_REENTRY");
+        const planEnterText = (planEnter.appendingMessages ?? []).map(messageText).join("\n");
+        expect(planEnterText).toContain("CUSTOM_PLAN_ENTER");
+        expect(planEnterText).toContain("Thread work directory:");
+        expect(planEnterText).not.toContain("## Plan Work Directory");
+        expect((planSteady.appendingMessages ?? []).map(messageText).join("\n")).toContain("CUSTOM_PLAN_STEADY");
+        expect((discussEnter.appendingMessages ?? []).map(messageText).join("\n")).toContain("CUSTOM_DISCUSS_ENTER");
+        expect((exitFromPlan.appendingMessages ?? []).map(messageText).join("\n")).toContain("CUSTOM_EXIT_FROM_PLAN");
+        expect((exitPlain.appendingMessages ?? []).map(messageText).join("\n")).toContain("## Left Discuss Mode");
     });
 
-    it("PlanMode slot 不能脱离 PlanModeReminder 使用", async () => {
+    it("ModeSlot 不能脱离 ModeReminder 使用", async () => {
         const profile = defineAgentProfile({
             manifest: {
-                key: "test.bad-plan-mode-slot",
-                name: "Bad Plan Mode Slot",
+                key: "test.bad-mode-slot",
+                name: "Bad Mode Slot",
             },
             initialSchema: Type.Object({}),
             allowedToolKeys: [],
             context() {
                 return ProfilePrompt({
                     children: [
-                        AppendingSet({children: PlanModeFull({children: "bad"})}),
+                        AppendingSet({children: ModeSlot({kind: "plan_enter", children: "bad"})}),
                     ],
                 });
             },
         });
 
-        await expect(profile.prepare!(context())).rejects.toThrow("PlanModeFull");
-    });
-
-    it("VariableSchema 默认输出局部 schema", async () => {
-        const profile = defineAgentProfile({
-            manifest: {
-                key: "test.variable-schema",
-                name: "Variable Schema",
-            },
-            initialSchema: Type.Object({}),
-            allowedToolKeys: [],
-            context() {
-                return ProfilePrompt({
-                    children: ModelContext({
-                        children: VariableSchema({paths: ["client.currentProjectWorkspace"], includeToolGuide: false}),
-                    }),
-                });
-            },
-        });
-
-        const plan = await profile.prepare!(context());
-        const text = (plan.modelContextMessages ?? []).map((message) => message.role === "user" ? messageText(message) : "").join("\n");
-
-        expect(text).toContain("\"schemas\"");
-        expect(text).toContain("\"path\": \"client.currentProjectWorkspace\"");
-        expect(text).toContain("\"schema\"");
+        await expect(profile.prepare!(context())).rejects.toThrow("ModeSlot");
     });
 
     it("拒绝 prepare 写入非 object 的 profile runtime state", () => {
@@ -1155,7 +1422,7 @@ function context(): ProfilePrepareContext<object> {
         customState: {},
         linkedAgents: [],
         archived: false,
-        planModeActive: false,
+        agentMode: "normal",
         async read() {
             return {
                 snapshot: {
@@ -1199,16 +1466,18 @@ function context(): ProfilePrepareContext<object> {
     };
 }
 
-function planModeContext(kind: string, active: boolean): ProfilePrepareContext<object> {
+/** 构造带 agent.mode 状态的 prepare 上下文；mode/phase/fromMode 对应新模式状态。 */
+function modeContext(mode: "normal" | "discuss" | "plan", phase: string, fromMode: "normal" | "discuss" | "plan"): ProfilePrepareContext<object> {
     return {
         ...context(),
         session: {
             ...context().session,
-            planModeActive: active,
+            agentMode: mode,
             customState: {
-                "agent.planMode": {
-                    active,
-                    reminderKind: kind,
+                "agent.mode": {
+                    mode,
+                    phase,
+                    fromMode,
                     workDirectory: "workspace/.agent/custom",
                 },
             },

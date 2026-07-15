@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from "vue";
-import type { AgentToolCall } from "nbook/app/components/novel-ide/agent/agent-message";
+import {formatByteCount, type AgentToolCall} from "nbook/app/components/novel-ide/agent/agent-message";
 import {
     extractStreamingStringField,
     parseToolArgsObject,
@@ -25,10 +25,22 @@ const parsedArgs = computed<EditFileArgs>(() => {
     return parsed ?? {};
 });
 
+const publicArgs = computed(() => props.toolCall.publicArgs?.kind === "edit" ? props.toolCall.publicArgs : null);
 const firstEdit = computed(() => parsedArgs.value.edits?.[0] ?? {});
-const filePathText = computed(() => parsedArgs.value.path ?? extractStreamingStringField(props.toolCall.argsText, "path"));
-const oldStringText = computed(() => firstEdit.value.oldText ?? extractStreamingStringField(props.toolCall.argsText, "oldText"));
-const newStringText = computed(() => firstEdit.value.newText ?? extractStreamingStringField(props.toolCall.argsText, "newText"));
+const publicFirstEdit = computed(() => publicArgs.value?.edits[0]);
+const filePathText = computed(() => publicArgs.value?.path ?? parsedArgs.value.path ?? extractStreamingStringField(props.toolCall.argsText, "path"));
+const oldStringText = computed(() => publicFirstEdit.value?.oldTextPreview ?? firstEdit.value.oldText ?? extractStreamingStringField(props.toolCall.argsText, "oldText"));
+const newStringText = computed(() => publicFirstEdit.value?.newTextPreview ?? firstEdit.value.newText ?? extractStreamingStringField(props.toolCall.argsText, "newText"));
+const previewNotice = computed(() => {
+    const edit = publicFirstEdit.value;
+    if (!edit || (!edit.oldTextOmitted && !edit.newTextOmitted && (publicArgs.value?.omittedEdits ?? 0) === 0)) {
+        return "";
+    }
+    return `仅显示预览 · old ${formatByteCount(edit.oldTextBytes)} / new ${formatByteCount(edit.newTextBytes)}`;
+});
+const diffDetails = computed(() => props.toolCall.publicResult?.details?.kind === "file_change"
+    ? props.toolCall.publicResult.details
+    : null);
 
 const resultText = computed(() => props.toolCall.result?.trim() ?? "");
 </script>
@@ -46,22 +58,29 @@ const resultText = computed(() => props.toolCall.result?.trim() ?? "");
         
         <!-- Diff 预览：old/new 都允许在半截 JSON 阶段逐步增长 -->
         <div class="grid grid-cols-2 gap-2 mt-2">
-            <div class="rounded border border-[var(--border-color)] bg-rose-500/5">
-                <div class="px-2 py-1 border-b border-[var(--border-color)]/50 text-[10px] text-rose-500/80 uppercase">Old String</div>
-                <div class="p-2 font-mono text-xs whitespace-pre-wrap text-rose-500 line-through opacity-80 max-h-40 overflow-y-auto">
+            <div class="rounded border border-[var(--border-color)] bg-[var(--status-danger-bg)]">
+                <div class="border-b border-[var(--border-color)]/50 px-2 py-1 text-[10px] uppercase text-[var(--status-danger)]">Old String</div>
+                <div class="max-h-40 overflow-y-auto whitespace-pre-wrap p-2 font-mono text-xs text-[var(--status-danger)] line-through opacity-80">
                     {{ oldStringText || "..." }}
                 </div>
             </div>
             
-            <div class="rounded border border-[var(--border-color)] bg-green-500/5">
-                <div class="px-2 py-1 border-b border-[var(--border-color)]/50 text-[10px] text-green-500/80 uppercase">New String</div>
-                <div class="p-2 font-mono text-xs whitespace-pre-wrap text-green-500 max-h-40 overflow-y-auto">
+            <div class="rounded border border-[var(--border-color)] bg-[var(--status-success-bg)]">
+                <div class="border-b border-[var(--border-color)]/50 px-2 py-1 text-[10px] uppercase text-[var(--status-success)]">New String</div>
+                <div class="max-h-40 overflow-y-auto whitespace-pre-wrap p-2 font-mono text-xs text-[var(--status-success)]">
                     {{ newStringText || "..." }}
                 </div>
             </div>
         </div>
+        <div v-if="previewNotice" class="text-[11px] text-[var(--status-info)]">{{ previewNotice }}</div>
 
-        <div v-if="props.toolCall.error" class="break-all whitespace-pre-wrap rounded border border-rose-500/30 bg-rose-500/5 p-2 font-mono text-xs text-rose-500 mt-2">
+        <div v-if="diffDetails?.diffPreview" class="rounded border border-[var(--border-color)] bg-[var(--bg-panel)]">
+            <div class="border-b border-[var(--border-color)]/50 px-2 py-1 text-[10px] uppercase text-[var(--text-muted)]">Diff Preview</div>
+            <pre class="max-h-48 overflow-y-auto whitespace-pre-wrap break-all p-2 font-mono text-xs text-[var(--text-secondary)]">{{ diffDetails.diffPreview }}</pre>
+            <div v-if="diffDetails.diffOmitted" class="px-2 pb-2 text-[11px] text-[var(--status-info)]">仅显示预览 · 原 diff {{ formatByteCount(diffDetails.diffBytes) }}</div>
+        </div>
+
+        <div v-if="props.toolCall.error" class="mt-2 break-all whitespace-pre-wrap rounded border border-[var(--status-danger-border)] bg-[var(--status-danger-bg)] p-2 font-mono text-xs text-[var(--status-danger)]">
             {{ props.toolCall.error }}
         </div>
         
@@ -69,7 +88,7 @@ const resultText = computed(() => props.toolCall.result?.trim() ?? "");
             {{ resultText }}
         </div>
 
-        <div v-if="props.toolCall.status === 'success'" class="flex items-center text-[11px] text-green-500/80 mt-2 gap-1.5 font-medium">
+        <div v-if="props.toolCall.status === 'success'" class="mt-2 flex items-center gap-1.5 text-[11px] font-medium text-[var(--status-success)]">
             <span class="i-lucide-check-circle h-3.5 w-3.5"></span>
             {{ t("agent.tool.fileEdited") }}
         </div>

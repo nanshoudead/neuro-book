@@ -1,5 +1,6 @@
 import type {RunFrame, RuntimeTurn, TurnIngestResult} from "nbook/server/agent/harness/run-kernel-types";
 import type {AppliedFailedTurn} from "nbook/server/agent/harness/turn-failure";
+import {createPublicRuntimeProjectionState} from "nbook/server/agent/events/public-event-projection";
 
 export type CreateRunFrameInput = {
     invocationId?: RunFrame["invocationId"];
@@ -9,16 +10,22 @@ export type CreateRunFrameInput = {
     projectPath?: RunFrame["projectPath"];
     systemPrompt: RunFrame["systemPrompt"];
     messages: RunFrame["messages"];
+    models: RunFrame["models"];
     model: RunFrame["model"];
     apiKey?: RunFrame["apiKey"];
     timeoutMs?: RunFrame["timeoutMs"];
     requestOptions?: RunFrame["requestOptions"];
     compaction?: RunFrame["compaction"];
+    piTrace?: RunFrame["piTrace"];
     sessionContextEnabled: RunFrame["sessionContextEnabled"];
     toolKeys: RunFrame["toolKeys"];
     executionToolKeys?: RunFrame["executionToolKeys"];
     profileKey: RunFrame["profileKey"];
     profile: RunFrame["profile"];
+    agentMode: RunFrame["agentMode"];
+    profileTurnContexts?: RunFrame["profileTurnContexts"];
+    fileChangeDiffMaxChars?: RunFrame["fileChangeDiffMaxChars"];
+    pendingProfileTurnContextSettlements?: RunFrame["pendingProfileTurnContextSettlements"];
     thinkingLevel: RunFrame["thinkingLevel"];
     runtimeState: RunFrame["runtimeState"];
     reportResultReminderEnabled: RunFrame["reportResultReminderEnabled"];
@@ -48,16 +55,22 @@ export function createRunFrame(input: CreateRunFrameInput): RunFrame {
         projectPath: input.projectPath,
         systemPrompt: input.systemPrompt,
         messages: input.messages.slice(),
+        models: input.models,
         model: input.model,
         apiKey: input.apiKey,
         timeoutMs: input.timeoutMs,
         requestOptions: input.requestOptions,
         compaction: input.compaction,
+        piTrace: input.piTrace,
         sessionContextEnabled: input.sessionContextEnabled,
         toolKeys: input.toolKeys,
         executionToolKeys: input.executionToolKeys,
         profileKey: input.profileKey,
         profile: input.profile,
+        agentMode: input.agentMode,
+        profileTurnContexts: input.profileTurnContexts ?? [],
+        fileChangeDiffMaxChars: input.fileChangeDiffMaxChars,
+        pendingProfileTurnContextSettlements: input.pendingProfileTurnContextSettlements ?? [],
         thinkingLevel: input.thinkingLevel,
         runtimeState: input.runtimeState,
         caller: input.caller,
@@ -78,6 +91,7 @@ export function createRunFrame(input: CreateRunFrameInput): RunFrame {
         activeSidecar: input.activeSidecar,
         automaticCompactionDoneForTurn: false,
         pendingWritePlans: [],
+        publicEventProjection: createPublicRuntimeProjectionState(),
         onEvent: input.onEvent,
     };
 }

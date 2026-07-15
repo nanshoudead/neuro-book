@@ -13,7 +13,8 @@ import {generateVariableTypes, VARIABLE_TYPES_FILE_NAME, type VariableTypeGenera
 import {appLogger} from "nbook/server/app-logs/logger";
 import {importRuntimeArtifact} from "nbook/server/utils/runtime-artifact-import";
 
-export const PROFILE_ARTIFACT_COMPILER_VERSION = 6;
+// Profile 核心 DSL / prepare wrapper 会被 bundle 进 artifact；共享依赖语义变化时必须提升版本，强制旧 bundle 重编。
+export const PROFILE_ARTIFACT_COMPILER_VERSION = 7;
 export const PROFILE_COMPILED_DIR_NAME = ".compiled";
 export const PROFILE_COMPILED_ARTIFACTS_DIR_NAME = "artifacts";
 export const PROFILE_COMPILED_MANIFEST_FILE = "manifest.json";
@@ -1367,7 +1368,8 @@ function productPackageManifestPath(): string | null {
         return rootPackage;
     }
     const outputPackage = resolve(process.cwd(), ".output", "server", "package.json");
-    if (packageManifestName(outputPackage) === "neuro-book-output" && !existsSync(resolve(process.cwd(), "node_modules"))) {
+    if (packageManifestName(outputPackage) === "neuro-book-output"
+        && (process.env.NEURO_BOOK_PRODUCT_BUILD === "1" || !existsSync(resolve(process.cwd(), "node_modules")))) {
         return outputPackage;
     }
     return null;

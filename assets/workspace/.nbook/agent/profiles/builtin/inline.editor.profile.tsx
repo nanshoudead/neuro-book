@@ -4,7 +4,7 @@ import type {Static} from "typebox";
 import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
 import {InlineEditorInitialSchema, InlineEditorOutputSchema, InlineEditorPayloadSchema} from "nbook/server/agent/profiles/builtin-contracts";
 import {builtin, toolset} from "nbook/server/agent/profiles/profile-tools";
-import {AppendingSet, Message, ProfilePrompt, System} from "nbook/server/agent/profiles/profile-dsl";
+import {AppendingSet, If, Message, ProfilePrompt, System} from "nbook/server/agent/profiles/profile-dsl";
 import type {ProfilePrepareContext} from "nbook/server/agent/profiles/types";
 import {profileText} from "nbook/server/agent/profiles/profile-text";
 
@@ -17,7 +17,6 @@ export const profileManifest = {
 export const InitialSchema = InlineEditorInitialSchema;
 export const PayloadSchema = InlineEditorPayloadSchema;
 export const OutputSchema = InlineEditorOutputSchema;
-
 export type Initial = Static<typeof InitialSchema>;
 export type Payload = Static<typeof PayloadSchema>;
 export type Output = Static<typeof OutputSchema>;
@@ -33,7 +32,6 @@ export default defineAgentProfile({
         builtin.file.write,
         builtin.result.main(),
     ),
-    compaction: {},
     context(ctx) {
         const inputContext = renderInlineEditContext(ctx);
         return (
@@ -65,7 +63,9 @@ export default defineAgentProfile({
                     `}
                 </System>
                 <AppendingSet>
-                    <Message>{ctx.invocation?.message ?? "本轮没有收到用户可见消息；请根据 hidden payload 执行，若 payload 也缺失则 report_result 说明无法编辑。"}</Message>
+                    <If condition={!ctx.invocation?.message}>
+                        <Message>本轮没有收到用户可见消息；请根据 hidden payload 执行，若 payload 也缺失则 report_result 说明无法编辑。</Message>
+                    </If>
                 </AppendingSet>
             </ProfilePrompt>
         );

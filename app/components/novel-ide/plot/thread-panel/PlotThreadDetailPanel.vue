@@ -13,6 +13,13 @@ import {
     type PlotThreadPanelChapter,
     type PlotThreadPanelScene,
 } from "nbook/app/components/novel-ide/plot/thread-panel/plot-thread-panel.types";
+import {
+    SCENE_OUTCOME_TYPE_OPTIONS,
+    SCENE_PACING_ROLE_OPTIONS,
+    PLANNING_TONE_CLASSES,
+    PROMISE_BEAT_KIND_META,
+    PROMISE_BEAT_STATE_META,
+} from "nbook/app/components/novel-ide/plot/planning/plot-planning.types";
 import type {
     PlotThreadPanelDetail,
     PlotThreadQuickSceneUpdate,
@@ -25,7 +32,7 @@ type PlotThreadDraftSnapshot = {
     purpose: string;
     writingTip: string;
     status: PlotThreadPanelScene["status"];
-    chapterPath: string;
+    chapterId: string;
 };
 
 const props = defineProps<{
@@ -38,6 +45,7 @@ const emit = defineEmits<{
     (e: "close"): void;
     (e: "edit"): void;
     (e: "updateScene", payload: PlotThreadQuickSceneUpdate): void;
+    (e: "focusPromise", promiseId: string): void;
 }>();
 
 const panelHeight = ref(0);
@@ -59,7 +67,7 @@ const draft = reactive<PlotThreadDraftSnapshot>({
     purpose: "",
     writingTip: "",
     status: "draft",
-    chapterPath: "",
+    chapterId: "",
 });
 
 const hasActivePanel = computed(() => Boolean(props.detail?.scene));
@@ -70,7 +78,7 @@ const toneClass = computed(() => {
     }
 
     return thread.isMainThread
-        ? "border-amber-500/35"
+        ? "border-[var(--border-accent)]"
         : PLOT_THREAD_TONE_STYLES[thread.tone].borderClass;
 });
 const refCount = computed(() => props.detail?.effectiveRefs.length ?? 0);
@@ -82,6 +90,15 @@ const chapterLabel = computed(() => {
     return `${props.detail.chapter.numberLabel} ${props.detail.chapter.title}`;
 });
 const detailHistoryKey = computed(() => props.detail?.scene ? `plot-scene:${props.detail.scene.id}` : "");
+// 节奏字段只读标签(编辑走完整编辑器);为空表示未填写,不显示 chip。
+const outcomeTypeLabel = computed(() => {
+    const value = props.detail?.scene.outcomeType;
+    return value ? (SCENE_OUTCOME_TYPE_OPTIONS.find((option) => option.value === value)?.label ?? value) : null;
+});
+const pacingRoleLabel = computed(() => {
+    const value = props.detail?.scene.pacingRole;
+    return value ? (SCENE_PACING_ROLE_OPTIONS.find((option) => option.value === value)?.label ?? value) : null;
+});
 const {
     isDirty,
     canUndo: canRollback,
@@ -100,13 +117,13 @@ const {
         draft.purpose = previousDraft.purpose;
         draft.writingTip = previousDraft.writingTip;
         draft.status = previousDraft.status;
-        draft.chapterPath = previousDraft.chapterPath;
+        draft.chapterId = previousDraft.chapterId;
     },
 });
 const annotationDraft = computed<JsonObject>(() => ({
     title: draft.title,
     status: draft.status,
-    chapterPath: draft.chapterPath || null,
+    chapterId: draft.chapterId || null,
     summary: draft.summary,
     purpose: draft.purpose || null,
     writingTip: draft.writingTip || null,
@@ -122,7 +139,7 @@ function createDraftSnapshot(): string {
         purpose: draft.purpose,
         writingTip: draft.writingTip,
         status: draft.status,
-        chapterPath: draft.chapterPath,
+        chapterId: draft.chapterId,
     } satisfies PlotThreadDraftSnapshot);
 }
 
@@ -137,7 +154,7 @@ function syncDraft(): void {
         draft.purpose = "";
         draft.writingTip = "";
         draft.status = "draft";
-        draft.chapterPath = "";
+        draft.chapterId = "";
         resetSession();
         return;
     }
@@ -147,7 +164,7 @@ function syncDraft(): void {
     draft.purpose = scene.purpose ?? "";
     draft.writingTip = scene.writingTip ?? "";
     draft.status = scene.status;
-    draft.chapterPath = scene.chapterPath ?? "";
+    draft.chapterId = scene.chapterId ?? "";
     applyServerValue(createDraftSnapshot());
 }
 
@@ -167,7 +184,7 @@ function buildPayload(): PlotThreadQuickSceneUpdate | null {
         purpose: draft.purpose.trim() || null,
         writingTip: draft.writingTip.trim() || null,
         status: draft.status,
-        chapterPath: draft.chapterPath || null,
+        chapterId: draft.chapterId || null,
         worldAnchor: scene.worldAnchor,
     };
 }
@@ -242,8 +259,8 @@ function applyAiDraft(nextDraft: JsonObject): void {
     if (typeof nextDraft.status === "string") {
         draft.status = nextDraft.status as PlotThreadPanelScene["status"];
     }
-    if (typeof nextDraft.chapterPath === "string" || nextDraft.chapterPath === null) {
-        draft.chapterPath = typeof nextDraft.chapterPath === "string" ? nextDraft.chapterPath : "";
+    if (typeof nextDraft.chapterId === "string" || nextDraft.chapterId === null) {
+        draft.chapterId = typeof nextDraft.chapterId === "string" ? nextDraft.chapterId : "";
     }
 }
 
@@ -271,13 +288,13 @@ watch(() => props.detail, () => {
             <template v-if="props.detail?.scene">
                 <span
                     class="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg border text-[11px]"
-                    :class="props.detail?.thread.isMainThread ? 'border-amber-500/35 bg-amber-500/10 text-amber-700 dark:text-amber-300' : 'border-[var(--border-color)] bg-[var(--bg-input)] text-[var(--text-muted)]'"
+                    :class="props.detail?.thread.isMainThread ? 'border-[var(--border-accent)] bg-[var(--accent-bg)] text-[var(--accent-text)]' : 'border-[var(--border-color)] bg-[var(--bg-input)] text-[var(--text-muted)]'"
                 >
                     <span class="i-lucide-clapperboard h-3.5 w-3.5"></span>
                 </span>
                 <span
                     v-if="isDirty"
-                    class="h-2 w-2 shrink-0 rounded-full bg-amber-500"
+                    class="h-2 w-2 shrink-0 rounded-full bg-[var(--status-warning)]"
                     title="有未保存修改"
                 ></span>
                 <span class="truncate font-serif text-sm font-bold tracking-wide text-[var(--text-main)]">
@@ -318,7 +335,7 @@ watch(() => props.detail, () => {
         <template #default>
             <!-- 紧凑详情表单 -->
             <div v-if="props.detail?.scene" class="space-y-3 text-[11px]">
-                <div v-if="props.diagnostics" class="rounded-xl border border-amber-500/20 bg-amber-500/8 px-3 py-2 text-[11px] leading-5 text-amber-800">
+                <div v-if="props.diagnostics" class="rounded-xl border border-[var(--status-warning-border)] bg-[var(--status-warning-bg)] px-3 py-2 text-[11px] leading-5 text-[var(--status-warning)]">
                     {{ props.diagnostics }}
                 </div>
 
@@ -327,6 +344,29 @@ watch(() => props.detail, () => {
                     <span class="rounded-full border border-[var(--border-color)] bg-[var(--bg-input)] px-2 py-1 text-right">#{{ props.detail.scene.threadSortOrder + 1 }}</span>
                     <span class="rounded-full border border-[var(--border-color)] bg-[var(--bg-input)] px-2 py-1">Scene</span>
                     <span class="rounded-full border border-[var(--border-color)] bg-[var(--bg-input)] px-2 py-1 text-right">R {{ refCount }}</span>
+                    <!-- 节奏字段只读 chip:有值才显示 -->
+                    <span v-if="outcomeTypeLabel" class="truncate rounded-full border border-[var(--border-color)] bg-[var(--bg-input)] px-2 py-1" :title="outcomeTypeLabel">{{ outcomeTypeLabel }}</span>
+                    <span v-if="pacingRoleLabel" class="truncate rounded-full border border-[var(--border-color)] bg-[var(--bg-input)] px-2 py-1 text-right" :title="pacingRoleLabel">{{ pacingRoleLabel }}</span>
+                </div>
+
+                <!-- 本场服务的承诺线(promise beats):只读芯片,点击跳承诺账本聚焦该 Promise -->
+                <div v-if="props.detail.promiseBeats.length" class="space-y-1">
+                    <span class="text-[10px] font-medium uppercase tracking-[0.14em] text-[var(--text-muted)]">服务承诺</span>
+                    <div class="flex flex-wrap gap-1.5">
+                        <button
+                            v-for="beat in props.detail.promiseBeats"
+                            :key="beat.id"
+                            type="button"
+                            data-testid="plot-detail-promise-beat-chip"
+                            class="inline-flex items-center gap-1 rounded-full px-2 py-1 text-[10px] transition-opacity hover:opacity-80"
+                            :class="PLANNING_TONE_CLASSES[PROMISE_BEAT_STATE_META[beat.state].tone].chip"
+                            :title="`${PROMISE_BEAT_KIND_META[beat.kind].label} · ${PROMISE_BEAT_STATE_META[beat.state].label}${beat.note ? ` · ${beat.note}` : ''}`"
+                            @click="emit('focusPromise', beat.promiseId)"
+                        >
+                            <span class="h-3 w-3 shrink-0" :class="PROMISE_BEAT_KIND_META[beat.kind].iconClass"></span>
+                            <span class="max-w-[140px] truncate">{{ beat.promiseTitle }}</span>
+                        </button>
+                    </div>
                 </div>
 
                 <label class="block space-y-1">
@@ -357,7 +397,7 @@ watch(() => props.detail, () => {
                     <label class="block space-y-1">
                         <span class="text-[10px] font-medium uppercase tracking-[0.14em] text-[var(--text-muted)]">章节</span>
                         <select
-                            v-model="draft.chapterPath"
+                            v-model="draft.chapterId"
                             class="w-full rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2.5 py-2 text-[12px] text-[var(--text-main)] outline-none transition-colors focus:border-[var(--accent-main)]"
                             @change="commitDraft"
                         >

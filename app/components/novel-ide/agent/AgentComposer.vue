@@ -3,13 +3,15 @@ import type {AgentPendingUserInputSession} from "nbook/app/components/novel-ide/
 import AgentComposerInput from "nbook/app/components/novel-ide/agent/AgentComposerInput.vue";
 import AgentSessionModelControls from "nbook/app/components/novel-ide/agent/AgentSessionModelControls.vue";
 import AgentUserInputPrompt from "nbook/app/components/novel-ide/agent/AgentUserInputPrompt.vue";
+import AgentWorkspaceChanges from "nbook/app/components/novel-ide/agent/AgentWorkspaceChanges.vue";
 import type {AgentSessionModelDraft} from "nbook/app/components/novel-ide/agent/agent-session-model-controls";
 import type {
     AgentTriggerMenuContext,
     AgentTriggerMenuState,
 } from "nbook/app/components/novel-ide/agent/trigger-menu";
-import type {ModelSettingsDto} from "nbook/shared/dto/app-settings.dto";
-import type {AgentQueuedMessageDto} from "nbook/shared/dto/agent-session.dto";
+import type {EnabledModelOptionDto} from "nbook/shared/dto/app-settings.dto";
+import type {AgentQueuedMessageDto, AgentMode} from "nbook/shared/dto/agent-session.dto";
+import {publicValuePreviewJsonValue} from "nbook/app/components/novel-ide/agent/agent-message";
 
 const props = defineProps<{
     inputText: string;
@@ -26,8 +28,8 @@ const props = defineProps<{
     sessionModelSelectionValue: string | null;
     sessionThinkingResolvedLabel: string;
     sessionModelDraft: AgentSessionModelDraft;
-    selectableModels: ModelSettingsDto["enabledModels"];
-    planModeActive: boolean;
+    selectableModels: EnabledModelOptionDto[];
+    agentMode: AgentMode;
     canContinueWithoutInput: boolean;
     contextUsageExactLabel: string;
     contextUsageCompactLabel: string;
@@ -44,6 +46,9 @@ const props = defineProps<{
     connectionNeedsAction: boolean;
     queuedMessages: AgentQueuedMessageDto[];
     menuRefreshKey: string | number;
+    projectPath: string | null;
+    historyInboxRefreshKey: string | number;
+    historyInboxActive: boolean;
     resolveMenu: (context: AgentTriggerMenuContext) => AgentTriggerMenuState;
     onSkillTriggerStart?: () => void;
 }>();
@@ -77,12 +82,14 @@ const emit = defineEmits<{
     (e: "steer"): void;
     (e: "followup"): void;
     (e: "stop"): void;
-    (e: "toggle-plan-mode"): void;
+    (e: "cycle-mode"): void;
     (e: "toggle-session-model-popover"): void;
     (e: "apply-session-model-settings"): void;
     (e: "reset-session-model-settings"): void;
     (e: "reconnect-events"): void;
     (e: "refresh-history"): void;
+    (e: "open-history-inbox"): void;
+    (e: "open-workspace-file", path: string): void;
 }>();
 
 const inputRef = ref<InstanceType<typeof AgentComposerInput> | null>(null);
@@ -102,9 +109,29 @@ const activeComposerValue = computed(() => {
     return props.notes[activeQuestionKey.value] ?? "";
 });
 
-const composerPlaceholder = computed(() => props.pendingSession
-    ? t("agent.composer.pendingPlaceholder")
-    : t("agent.composer.messagePlaceholder"));
+/** 各模式在 Composer 上的图标、样式与文案配置。 */
+const AGENT_MODE_META: Record<AgentMode, {icon: string; buttonClass: string; badgeVisible: boolean}> = {
+    normal: {icon: "i-lucide-pencil-line", buttonClass: "text-[var(--text-muted)] hover:text-[var(--text-main)]", badgeVisible: false},
+    discuss: {icon: "i-lucide-messages-square", buttonClass: "text-[var(--status-info,var(--accent-text))] bg-[var(--accent-bg)]", badgeVisible: true},
+    plan: {icon: "i-lucide-clipboard-list", buttonClass: "text-[var(--accent-text)] bg-[var(--accent-bg)]", badgeVisible: true},
+};
+
+const agentModeMeta = computed(() => AGENT_MODE_META[props.agentMode]);
+const agentModeLabel = computed(() => t(`agent.mode.${props.agentMode}`));
+const modeButtonTitle = computed(() => t("agent.composer.cycleModeTitle", {mode: agentModeLabel.value}));
+
+const composerPlaceholder = computed(() => {
+    if (props.pendingSession) {
+        return t("agent.composer.pendingPlaceholder");
+    }
+    if (props.agentMode === "discuss") {
+        return t("agent.composer.discussPlaceholder");
+    }
+    if (props.agentMode === "plan") {
+        return t("agent.composer.planPlaceholder");
+    }
+    return t("agent.composer.messagePlaceholder");
+});
 
 const runInputText = computed(() => props.inputText);
 const canStopReadonlyRun = computed(() => props.readonly && props.running && !runInputText.value.trim());
@@ -167,11 +194,14 @@ const expandButtonTitle = computed(() => composerExpanded.value ? t("agent.compo
 const expandButtonIcon = computed(() => composerExpanded.value ? "i-lucide-minimize-2" : "i-lucide-maximize-2");
 
 const queuedMessageText = (item: AgentQueuedMessageDto): string => {
-    const text = item.message?.text.trim();
+    const text = item.text?.preview.trim();
     if (text) {
         return text;
     }
-    return item.input === undefined ? "" : JSON.stringify(item.input);
+    if (item.images.length > 0) {
+        return `包含 ${String(item.images.length + item.omittedImages)} 张图片`;
+    }
+    return item.input === undefined ? "" : JSON.stringify(publicValuePreviewJsonValue(item.input));
 };
 
 const queuedMessageIcon = (item: AgentQueuedMessageDto): string => item.kind === "steer" ? "i-lucide-corner-down-left" : "i-lucide-list-plus";
@@ -328,6 +358,8 @@ defineExpose({focus});
             </div>
         </div>
 
+        <AgentWorkspaceChanges :project-path="props.projectPath" :refresh-key="props.historyInboxRefreshKey" :active="props.historyInboxActive" @open-full="emit('open-history-inbox')" @open-file="emit('open-workspace-file', $event)" />
+
         <!-- 消息输入栏 -->
         <div class="flex flex-col rounded-xl border border-[var(--border-color)] bg-[var(--bg-input)] shadow-sm transition-all focus-within:border-[var(--accent-main)] focus-within:ring-1 focus-within:ring-[var(--accent-main)]" style="--composer-radius: 0.75rem;">
             <AgentComposerInput
@@ -342,7 +374,7 @@ defineExpose({focus});
                 :on-skill-trigger-start="props.onSkillTriggerStart"
                 @update:model-value="updateComposerValue"
                 @submit="submitComposer"
-                @toggle-plan-mode="emit('toggle-plan-mode')"
+                @cycle-mode="emit('cycle-mode')"
             />
 
             <div class="flex items-center justify-between border-t border-[var(--border-color)]/50 px-2 py-2">
@@ -377,14 +409,15 @@ defineExpose({focus});
                         <span :class="expandButtonIcon" class="h-3.5 w-3.5"></span>
                     </button>
 
+                    <!-- 三态模式切换按钮：normal → discuss → plan 循环 -->
                     <button
                         class="rounded p-1.5 transition-colors hover:bg-[var(--bg-hover)] disabled:cursor-not-allowed disabled:opacity-50"
-                        :class="props.planModeActive ? 'text-[var(--accent-text)] bg-[var(--accent-bg)]' : 'text-[var(--text-muted)] hover:text-[var(--text-main)]'"
+                        :class="agentModeMeta.buttonClass"
                         :disabled="props.readonly || props.running"
-                        title="Plan Mode (Shift+Tab)"
-                        @click="emit('toggle-plan-mode')"
+                        :title="modeButtonTitle"
+                        @click="emit('cycle-mode')"
                     >
-                        <span :class="props.planModeActive ? 'i-lucide-clipboard-check' : 'i-lucide-clipboard-list'" class="h-3.5 w-3.5"></span>
+                        <span :class="agentModeMeta.icon" class="h-3.5 w-3.5"></span>
                     </button>
                 </div>
                 <button
@@ -443,9 +476,10 @@ defineExpose({focus});
                 <span class="i-lucide-loader-circle h-3 w-3 animate-spin"></span>
                 <span>{{ props.runPhaseLabel || t("agent.composer.running") }}</span>
             </div>
-            <div v-if="props.planModeActive" class="inline-flex items-center gap-1 rounded-full border border-[var(--accent-main)]/30 bg-[var(--accent-bg)] px-1.5 py-0.5 text-[var(--accent-text)]" :title="t('agent.composer.togglePlanTitle')">
-                <span class="i-lucide-clipboard-list h-3 w-3"></span>
-                <span>Plan</span>
+            <!-- 当前模式徽标：非 normal 模式时展示 -->
+            <div v-if="agentModeMeta.badgeVisible" class="inline-flex items-center gap-1 rounded-full border border-[var(--accent-main)]/30 bg-[var(--accent-bg)] px-1.5 py-0.5 text-[var(--accent-text)]" :title="modeButtonTitle">
+                <span :class="agentModeMeta.icon" class="h-3 w-3"></span>
+                <span>{{ agentModeLabel }}</span>
             </div>
         </div>
     </div>

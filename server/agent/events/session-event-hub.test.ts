@@ -2,8 +2,100 @@ import {describe, expect, it} from "vitest";
 import {AgentSessionEventHub} from "nbook/server/agent/events/session-event-hub";
 
 describe("AgentSessionEventHub", () => {
+    it("publish 只序列化一次并与后续原对象修改隔离", () => {
+        const hub = new AgentSessionEventHub();
+        const source = {
+            sessionId: 1,
+            kind: "session" as const,
+            event: {
+                type: "invocation_aborted" as const,
+                reason: "before",
+            },
+        };
+
+        const published = hub.publish(source);
+        source.event.reason = "after";
+
+        expect(published.payload.event).toEqual({type: "invocation_aborted", reason: "before"});
+        expect(published.frame.toString("utf8")).toContain('"reason":"before"');
+        expect(published.frame.toString("utf8")).not.toContain('"reason":"after"');
+        expect(published.frameBytes).toBe(published.frame.byteLength);
+    });
+
+    it("超过单 event 预算时发布有界 snapshot_required fallback", () => {
+        const hub = new AgentSessionEventHub({maxEventBytes: 1024});
+        const published = hub.publish({
+            sessionId: 1,
+            kind: "session",
+            event: {type: "invocation_aborted", reason: "x".repeat(10_000)},
+        });
+
+        expect(published.frameBytes).toBeLessThanOrEqual(1024);
+        expect(published.payload).toEqual(expect.objectContaining({
+            seq: 1,
+            event: {
+                type: "snapshot_required",
+                reason: "public event exceeded maximum frame size",
+            },
+        }));
+        expect(hub.lastSeq(1)).toBe(1);
+    });
+
+    it("replay pin 仍受事件数和字节数硬上限约束", () => {
+        const hub = new AgentSessionEventHub({replayLimit: 3, replayByteLimit: 700});
+        hub.pinReplayFrom(1, 1);
+        for (let index = 0; index < 20; index += 1) {
+            hub.publish({
+                sessionId: 1,
+                kind: "session",
+                event: {type: "invocation_aborted", reason: `${String(index)}-${"x".repeat(180)}`},
+            });
+        }
+
+        const metrics = hub.metrics(1);
+        expect(metrics.replayCount).toBeLessThanOrEqual(3);
+        expect(metrics.replayBytes).toBeLessThanOrEqual(700);
+        expect(hub.canReplayFrom(1, 0)).toBe(false);
+    });
+
+    it("慢订阅者队列溢出时立即 abort 并释放排队引用", async () => {
+        const hub = new AgentSessionEventHub({subscriberQueueLimit: 2, subscriberQueueByteLimit: 1024});
+        const subscription = hub.subscribe(1, {eventEpoch: hub.eventEpoch, after: 0});
+        hub.publish({sessionId: 1, kind: "session", event: {type: "invocation_aborted", reason: "one"}});
+        hub.publish({sessionId: 1, kind: "session", event: {type: "invocation_aborted", reason: "two"}});
+        hub.publish({sessionId: 1, kind: "session", event: {type: "invocation_aborted", reason: "three"}});
+
+        expect(subscription.signal.aborted).toBe(true);
+        expect(subscription.closeReason).toBe("queue_overflow");
+        expect(hub.metrics(1)).toMatchObject({subscriberCount: 0, queuedCount: 0, queuedBytes: 0});
+        await expect(subscription.next()).resolves.toEqual({done: true, value: undefined});
+    });
+
+    it("iterator.return 会注销 subscriber 并清空 replay/live 引用", async () => {
+        const hub = new AgentSessionEventHub();
+        hub.publish({sessionId: 1, kind: "session", event: {type: "invocation_aborted", reason: "replay"}});
+        const subscription = hub.subscribe(1, {eventEpoch: hub.eventEpoch, after: 0});
+        hub.publish({sessionId: 1, kind: "session", event: {type: "invocation_aborted", reason: "live"}});
+
+        await subscription.return();
+
+        expect(subscription.signal.aborted).toBe(true);
+        expect(subscription.closeReason).toBe("consumer_closed");
+        expect(hub.metrics(1)).toMatchObject({subscriberCount: 0, queuedCount: 0, queuedBytes: 0});
+    });
+
+    it("无 subscriber 且无 retention 时立即释放 inactive replay，只保留 seq", () => {
+        const hub = new AgentSessionEventHub();
+        hub.publish({sessionId: 1, kind: "session", event: {type: "invocation_aborted", reason: "inactive"}});
+
+        expect(hub.lastSeq(1)).toBe(1);
+        expect(hub.metrics(1)).toEqual(expect.objectContaining({replayCount: 0, replayBytes: 0, subscriberCount: 0}));
+        expect(hub.canReplayFrom(1, 0)).toBe(false);
+    });
+
     it("支持多订阅者和 after replay", async () => {
         const hub = new AgentSessionEventHub();
+        hub.pinReplayFrom(1, 1);
         hub.publish({
             sessionId: 1,
             kind: "session",
@@ -26,7 +118,7 @@ describe("AgentSessionEventHub", () => {
 
         await expect(first.next()).resolves.toEqual({
             done: false,
-            value: expect.objectContaining({seq: 1}),
+            value: expect.objectContaining({payload: expect.objectContaining({seq: 1})}),
         });
         await expect(first.next()).resolves.toEqual({
             done: false,
@@ -42,7 +134,8 @@ describe("AgentSessionEventHub", () => {
     });
 
     it("after 超出 replay buffer 时推送 snapshot_required", async () => {
-        const hub = new AgentSessionEventHub(1);
+        const hub = new AgentSessionEventHub({replayLimit: 1});
+        hub.pinReplayFrom(1, 1);
         hub.publish({
             sessionId: 1,
             kind: "session",
@@ -65,19 +158,21 @@ describe("AgentSessionEventHub", () => {
         await expect(subscription.next()).resolves.toEqual({
             done: false,
             value: expect.objectContaining({
-                kind: "session",
-                event: {
-                    type: "snapshot_required",
-                    reason: "event replay buffer expired",
-                },
+                payload: expect.objectContaining({
+                    kind: "session",
+                    event: {
+                        type: "snapshot_required",
+                        reason: "event replay buffer expired",
+                    },
+                }),
             }),
         });
 
         await subscription.return?.();
     });
 
-    it("replay pin 激活时保留 pin 起点后的事件，解除后恢复 replayLimit 裁剪", async () => {
-        const hub = new AgentSessionEventHub(1);
+    it("replay pin 不绕过 replayLimit，旧 anchor 会明确失效", async () => {
+        const hub = new AgentSessionEventHub({replayLimit: 1});
         const first = hub.publish({
             sessionId: 1,
             kind: "session",
@@ -86,8 +181,8 @@ describe("AgentSessionEventHub", () => {
                 reason: "first",
             },
         });
-        hub.pinReplayFrom(1, first.seq);
-        const second = hub.publish({
+        hub.pinReplayFrom(1, first.payload.seq);
+        hub.publish({
             sessionId: 1,
             kind: "session",
             event: {
@@ -95,7 +190,7 @@ describe("AgentSessionEventHub", () => {
                 reason: "second",
             },
         });
-        const third = hub.publish({
+        const latest = hub.publish({
             sessionId: 1,
             kind: "session",
             event: {
@@ -104,34 +199,42 @@ describe("AgentSessionEventHub", () => {
             },
         });
 
-        const pinned = hub.subscribe(1, {eventEpoch: hub.eventEpoch, after: 0})[Symbol.asyncIterator]();
-        await expect(pinned.next()).resolves.toEqual({done: false, value: first});
-        await expect(pinned.next()).resolves.toEqual({done: false, value: second});
-        await expect(pinned.next()).resolves.toEqual({done: false, value: third});
-        await pinned.return?.();
-
-        hub.unpinReplay(1);
-        hub.publish({
-            sessionId: 1,
-            kind: "session",
-            event: {
-                type: "invocation_aborted",
-                reason: "fourth",
-            },
-        });
-        const unpinned = hub.subscribe(1, {eventEpoch: hub.eventEpoch, after: 0})[Symbol.asyncIterator]();
-        await expect(unpinned.next()).resolves.toEqual({
+        expect(hub.canReplayFrom(1, first.payload.seq - 1)).toBe(false);
+        const pinned = hub.subscribe(1, {eventEpoch: hub.eventEpoch, after: first.payload.seq - 1})[Symbol.asyncIterator]();
+        await expect(pinned.next()).resolves.toEqual({
             done: false,
             value: expect.objectContaining({
-                kind: "session",
-                event: expect.objectContaining({type: "snapshot_required"}),
+                payload: expect.objectContaining({
+                    seq: latest.payload.seq,
+                    kind: "session",
+                    event: expect.objectContaining({type: "snapshot_required"}),
+                }),
             }),
         });
-        await unpinned.return?.();
+        await pinned.return?.();
+        hub.unpinReplay(1);
+    });
+
+    it("lazy replay 不受较小 live queue 上限误杀快速客户端", async () => {
+        const hub = new AgentSessionEventHub({replayLimit: 10, replayByteLimit: 4096, subscriberQueueLimit: 1, subscriberQueueByteLimit: 64});
+        hub.pinReplayFrom(1, 1);
+        const events = [0, 1, 2].map((index) => hub.publish({
+            sessionId: 1,
+            kind: "session" as const,
+            event: {type: "invocation_aborted" as const, reason: `${String(index)}-${"x".repeat(120)}`},
+        }));
+        const subscription = hub.subscribe(1, {eventEpoch: hub.eventEpoch, after: 0});
+
+        await expect(subscription.next()).resolves.toEqual({done: false, value: events[0]});
+        await expect(subscription.next()).resolves.toEqual({done: false, value: events[1]});
+        await expect(subscription.next()).resolves.toEqual({done: false, value: events[2]});
+        expect(subscription.signal.aborted).toBe(false);
+        await subscription.return();
     });
 
     it("snapshot_required 只发送给落后的订阅者，不广播给正常订阅者", async () => {
-        const hub = new AgentSessionEventHub(1);
+        const hub = new AgentSessionEventHub({replayLimit: 1});
+        hub.pinReplayFrom(1, 1);
         hub.publish({
             sessionId: 1,
             kind: "session",
@@ -150,13 +253,15 @@ describe("AgentSessionEventHub", () => {
         });
 
         const stale = hub.subscribe(1, {eventEpoch: hub.eventEpoch, after: 0})[Symbol.asyncIterator]();
-        const current = hub.subscribe(1, {eventEpoch: hub.eventEpoch, after: latest.seq - 1})[Symbol.asyncIterator]();
+        const current = hub.subscribe(1, {eventEpoch: hub.eventEpoch, after: latest.payload.seq - 1})[Symbol.asyncIterator]();
 
         await expect(stale.next()).resolves.toEqual({
             done: false,
             value: expect.objectContaining({
-                kind: "session",
-                event: expect.objectContaining({type: "snapshot_required"}),
+                payload: expect.objectContaining({
+                    kind: "session",
+                    event: expect.objectContaining({type: "snapshot_required"}),
+                }),
             }),
         });
         await expect(current.next()).resolves.toEqual({
@@ -169,7 +274,7 @@ describe("AgentSessionEventHub", () => {
     });
 
     it("snapshot_required 不推进 session seq，避免给正常订阅者制造缺口", async () => {
-        const hub = new AgentSessionEventHub(1);
+        const hub = new AgentSessionEventHub({replayLimit: 1});
         hub.publish({
             sessionId: 1,
             kind: "session",
@@ -191,8 +296,10 @@ describe("AgentSessionEventHub", () => {
         await expect(stale.next()).resolves.toEqual({
             done: false,
             value: expect.objectContaining({
-                seq: 2,
-                event: expect.objectContaining({type: "snapshot_required"}),
+                payload: expect.objectContaining({
+                    seq: 2,
+                    event: expect.objectContaining({type: "snapshot_required"}),
+                }),
             }),
         });
 
@@ -205,7 +312,7 @@ describe("AgentSessionEventHub", () => {
             },
         });
 
-        expect(next.seq).toBe(3);
+        expect(next.payload.seq).toBe(3);
         await stale.return?.();
     });
 
@@ -244,11 +351,11 @@ describe("AgentSessionEventHub", () => {
             },
         });
 
-        expect(first.seq).toBe(1);
-        expect(second.seq).toBe(2);
+        expect(first.payload.seq).toBe(1);
+        expect(second.payload.seq).toBe(2);
         expect(hub.lastSeq(1)).toBe(2);
         expect(hub.lastSeq(2)).toBe(2);
-        expect(hub.connectedEvent(1).event).toMatchObject({
+        expect(hub.connectedEvent(1).payload.event).toMatchObject({
             type: "connected",
             latestSeq: 2,
         });
@@ -265,7 +372,7 @@ describe("AgentSessionEventHub", () => {
             },
         });
 
-        expect(hub.connectedEvent(1)).toMatchObject({
+        expect(hub.connectedEvent(1).payload).toMatchObject({
             eventEpoch: hub.eventEpoch,
             seq: 1,
             event: {
@@ -276,6 +383,37 @@ describe("AgentSessionEventHub", () => {
         });
     });
 
+    it("close 会释放 replay、订阅和 session seq 元数据", async () => {
+        const hub = new AgentSessionEventHub();
+        hub.publish({
+            sessionId: 1,
+            kind: "session",
+            event: {type: "invocation_aborted", reason: "done"},
+        });
+        const subscription = hub.subscribe(1)[Symbol.asyncIterator]();
+
+        hub.close();
+
+        expect(hub.lastSeq(1)).toBe(0);
+        expect(hub.metrics(1)).toEqual({
+            replayCount: 0,
+            replayBytes: 0,
+            subscriberCount: 0,
+            queuedCount: 0,
+            queuedBytes: 0,
+            pendingReplayCount: 0,
+            pendingReplayBytes: 0,
+            retained: false,
+        });
+        await expect(subscription.next()).resolves.toEqual({done: true, value: undefined});
+        expect(() => hub.publish({sessionId: 1, kind: "session", event: {type: "invocation_aborted"}})).toThrow("event_hub_closed");
+        expect(() => hub.subscribe(1)).toThrow("event_hub_closed");
+        expect(() => hub.connectedEvent(1)).toThrow("event_hub_closed");
+        expect(() => hub.pinReplayFrom(1, 1)).toThrow("event_hub_closed");
+        expect(() => hub.unpinReplay(1)).toThrow("event_hub_closed");
+        expect(() => hub.close()).not.toThrow();
+    });
+
     it("after 来自未来时推送 snapshot_required", async () => {
         const hub = new AgentSessionEventHub();
         const subscription = hub.subscribe(1, {eventEpoch: hub.eventEpoch, after: 426})[Symbol.asyncIterator]();
@@ -283,12 +421,14 @@ describe("AgentSessionEventHub", () => {
         await expect(subscription.next()).resolves.toEqual({
             done: false,
             value: expect.objectContaining({
-                eventEpoch: hub.eventEpoch,
-                kind: "session",
-                event: {
-                    type: "snapshot_required",
-                    reason: "event cursor is ahead of server",
-                },
+                payload: expect.objectContaining({
+                    eventEpoch: hub.eventEpoch,
+                    kind: "session",
+                    event: {
+                        type: "snapshot_required",
+                        reason: "event cursor is ahead of server",
+                    },
+                }),
             }),
         });
 

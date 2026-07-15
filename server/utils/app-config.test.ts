@@ -2,21 +2,6 @@ import {describe, expect, it} from "vitest";
 import {parseAppConfigText} from "nbook/server/utils/app-config";
 
 describe("parseAppConfigText", () => {
-    it("auth.enabled 未配置时默认开启", () => {
-        const config = parseAppConfigText(``);
-
-        expect(config.auth.enabled).toBe(true);
-    });
-
-    it("兼容旧 config.yaml 文本里的 auth.enabled", () => {
-        const config = parseAppConfigText(`
-auth:
-  enabled: false
-`);
-
-        expect(config.auth.enabled).toBe(false);
-    });
-
     it("会在解析旧配置文本前展开环境变量占位符", () => {
         const config = parseAppConfigText(`
 models:
@@ -93,7 +78,7 @@ models:
         expect(config.models.providers.mimo?.options.timeoutMs).toBe(180000);
     });
 
-    it("迁移旧配置时保留 Pi Model 字段", () => {
+    it("解析配置时保留完整、自包含的模型字段", () => {
         const config = parseAppConfigText(`
 models:
   default: custom/mimo-vl
@@ -101,12 +86,14 @@ models:
     custom:
       name: Custom
       api: openai-completions
+      discovery:
+        adapter: none
+      options:
+        baseURL: https://model.example/v1
       models:
         mimo-vl:
           name: Mimo Vision
-          provider: xiaomi-token-plan-cn
           api: openai-completions
-          baseUrl: https://model.example/v1
           reasoning: true
           input:
             - text
@@ -120,15 +107,17 @@ models:
           compat:
             thinkingFormat: deepseek
             supportsStrictMode: false
+          headers:
+            X-Test: value
+          thinkingLevelMap:
+            high: high
           contextWindowTokens: 98765
 `);
 
         expect(config.models.defaultModelKey).toBe("custom/mimo-vl");
         expect(config.models.providers.custom?.api).toBe("openai-completions");
         expect(config.models.providers.custom?.models["mimo-vl"]).toMatchObject({
-            provider: "xiaomi-token-plan-cn",
             api: "openai-completions",
-            baseUrl: "https://model.example/v1",
             reasoning: true,
             input: ["text", "image"],
             maxTokens: 1234,
@@ -142,6 +131,8 @@ models:
                 thinkingFormat: "deepseek",
                 supportsStrictMode: false,
             },
+            headers: {"X-Test": "value"},
+            thinkingLevelMap: {high: "high"},
             contextWindowTokens: 98765,
         });
     });

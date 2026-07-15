@@ -1,0 +1,83 @@
+import {describe, expect, it} from "vitest";
+import {
+    inspectProviderConfigDocument,
+    type ProviderConfigInput,
+    type ProviderConfigModelInput,
+} from "nbook/shared/models/provider-config-contract";
+
+type MutableInput = {
+    defaultModelKey: string | null;
+    providers: Array<Omit<ProviderConfigInput, "models"> & {models: ProviderConfigModelInput[]}>;
+};
+
+/** 构造 shared Provider Config contract 的最小有效文档。 */
+function validInput(): MutableInput {
+    return {
+        defaultModelKey: "provider/model",
+        providers: [{
+            id: "provider",
+            enabled: true,
+            defaultApi: "openai-completions",
+            options: {baseURL: "https://example.com/v1"},
+            models: [{
+                id: "model",
+                enabled: true,
+                api: "openai-completions",
+                reasoning: false,
+                input: ["text"],
+                contextWindowTokens: 128_000,
+                maxTokens: 8_192,
+            }],
+        }],
+    };
+}
+
+describe("Provider Config contract", () => {
+    it("disabled Provider 下的重复 model ID 仍是持久化错误", () => {
+        const input = validInput();
+        input.providers[0]!.enabled = false;
+        input.providers[0]!.models.push({...input.providers[0]!.models[0]!});
+
+        const result = inspectProviderConfigDocument(input);
+
+        expect(result.issues.filter((issue) => issue.code === "duplicate_model_id")).toHaveLength(2);
+        expect(result.runnableModelKeys.size).toBe(0);
+    });
+
+    it("disabled Provider 允许不完整模型草稿，但非法 defaultApi 仍明确失败", () => {
+        const input = validInput();
+        input.providers[0] = {
+            ...input.providers[0]!,
+            enabled: false,
+            defaultApi: "legacy-api",
+            models: [{
+                id: "draft",
+                enabled: false,
+                api: null,
+                reasoning: null,
+                input: null,
+                contextWindowTokens: null,
+                maxTokens: null,
+            }],
+        };
+
+        const result = inspectProviderConfigDocument(input);
+
+        expect(result.issues).toEqual([
+            expect.objectContaining({code: "unsupported_default_api", path: ["providers", 0, "defaultApi"]}),
+        ]);
+    });
+
+    it("重复 Provider 组全部排除 runnable，且每个原始条目都有独立路径", () => {
+        const input = validInput();
+        input.providers.push({...input.providers[0]!, models: [...input.providers[0]!.models]});
+
+        const result = inspectProviderConfigDocument(input);
+
+        expect(result.issues.filter((issue) => issue.code === "duplicate_provider_id").map((issue) => issue.path)).toEqual([
+            ["providers", 0, "id"],
+            ["providers", 1, "id"],
+        ]);
+        expect(result.runnableModelKeys.size).toBe(0);
+    });
+});

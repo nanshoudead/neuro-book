@@ -87,7 +87,8 @@ function normalizeLegacyProviders(input: unknown): StoredProviderConfig[] | unde
         return {
             id: providerId,
             name: typeof provider.name === "string" ? provider.name : providerId,
-            api: typeof provider.api === "string" ? provider.api : null,
+            defaultApi: typeof provider.defaultApi === "string" ? provider.defaultApi : null,
+            discovery: {adapter: "none", endpointPath: null},
             options: isRecord(provider.options) ? provider.options : {},
             models: normalizeLegacyModels(provider.models),
         } as StoredProviderConfig;
@@ -109,9 +110,7 @@ function normalizeLegacyModels(input: unknown): ConfiguredModelConfig[] {
             name: typeof model.name === "string" ? model.name : modelId,
             group: typeof model.group === "string" ? model.group : null,
             enabled: typeof model.enabled === "boolean" ? model.enabled : true,
-            provider: typeof model.provider === "string" ? model.provider : null,
             api: typeof model.api === "string" ? model.api : null,
-            baseUrl: typeof model.baseUrl === "string" ? model.baseUrl : null,
             reasoning: typeof model.reasoning === "boolean" ? model.reasoning : null,
             input: Array.isArray(model.input) ? model.input.filter((item): item is NonNullable<ConfiguredModelConfig["input"]>[number] => item === "text" || item === "image") : null,
             maxTokens: typeof model.maxTokens === "number" ? model.maxTokens : null,
@@ -121,9 +120,20 @@ function normalizeLegacyModels(input: unknown): ConfiguredModelConfig[] {
                     output: typeof model.cost.output === "number" ? model.cost.output : 0,
                     cacheRead: typeof model.cost.cacheRead === "number" ? model.cost.cacheRead : 0,
                     cacheWrite: typeof model.cost.cacheWrite === "number" ? model.cost.cacheWrite : 0,
+                    tiers: Array.isArray(model.cost.tiers)
+                        ? model.cost.tiers.filter(isRecord).map((tier) => ({
+                            inputTokensAbove: typeof tier.inputTokensAbove === "number" ? tier.inputTokensAbove : 0,
+                            input: typeof tier.input === "number" ? tier.input : 0,
+                            output: typeof tier.output === "number" ? tier.output : 0,
+                            cacheRead: typeof tier.cacheRead === "number" ? tier.cacheRead : 0,
+                            cacheWrite: typeof tier.cacheWrite === "number" ? tier.cacheWrite : 0,
+                        }))
+                        : [],
                 }
                 : null,
             compat: isRecord(model.compat) ? model.compat as ConfiguredModelConfig["compat"] : null,
+            headers: isRecord(model.headers) ? model.headers as ConfiguredModelConfig["headers"] : null,
+            thinkingLevelMap: isRecord(model.thinkingLevelMap) ? model.thinkingLevelMap as ConfiguredModelConfig["thinkingLevelMap"] : null,
             contextWindowTokens: typeof model.contextWindowTokens === "number" ? model.contextWindowTokens : null,
         };
     });

@@ -1,5 +1,6 @@
 import {describe, expect, it} from "vitest";
-import {RequestUserInputToolArgsSchema, applyRuntimeEventToMessages, applySessionEntryToMessages, deriveMessagesFromSessionSnapshot, deriveRequestUserInputAnswerViews, hasVisibleInvocationError, messageStatusLabel, toLocalMessage, toPendingUserInputSession} from "nbook/app/components/novel-ide/agent/agent-message";
+import {RequestUserInputToolArgsSchema, applyRuntimeEventToMessages, applySessionEntryToMessages, deriveMessagesFromChatEntries, deriveRequestUserInputAnswerViews, hasVisibleInvocationError, messageStatusLabel, toLocalMessage, toPendingUserInputSession} from "nbook/app/components/novel-ide/agent/agent-message";
+import {projectPublicToolArgs} from "nbook/server/agent/events/public-tool-projection";
 
 describe("agent message projection helpers", () => {
     it("request_user_input schema 拒绝默认值、推荐和多选旧字段", () => {
@@ -41,10 +42,11 @@ describe("agent message projection helpers", () => {
     it("approval pending session 保留批准和拒绝选项", () => {
         const session = toPendingUserInputSession({
             toolCallId: "plan-1",
-            toolName: "enter_plan_mode",
-            args: {
+            toolName: "switch_mode",
+            args: projectPublicToolArgs("switch_mode", {
+                targetMode: "plan",
                 reason: "需要先制定计划",
-            },
+            }),
         }, []);
 
         expect(session?.questions[0]).toEqual(expect.objectContaining({
@@ -55,32 +57,34 @@ describe("agent message projection helpers", () => {
         }));
     });
 
-    it("exit_plan_mode pending session 保留计划文件预览", () => {
+    it("switch_mode 退出计划 pending session 保留计划文件预览", () => {
         const session = toPendingUserInputSession({
             toolCallId: "exit-1",
-            toolName: "exit_plan_mode",
-            args: {
+            toolName: "switch_mode",
+            args: projectPublicToolArgs("switch_mode", {
+                targetMode: "normal",
                 reason: "ready",
                 planFilePath: ".agent/plan/preview.md",
-            },
+            }),
             planFilePath: ".agent/plan/preview.md",
             planContent: "# Preview\n\n- one\n",
         }, []);
         const enterSession = toPendingUserInputSession({
             toolCallId: "enter-1",
-            toolName: "enter_plan_mode",
-            args: {
+            toolName: "switch_mode",
+            args: projectPublicToolArgs("switch_mode", {
+                targetMode: "plan",
                 reason: "需要先制定计划",
-            },
-            planFilePath: ".agent/plan/preview.md",
-            planContent: "# Preview\n",
+            }),
         }, []);
 
         expect(session?.questions[0]).toEqual(expect.objectContaining({
-            approvalAction: "exit_plan_mode",
+            approvalAction: "switch_mode",
+            switchTargetMode: "normal",
             planFilePath: ".agent/plan/preview.md",
             planContent: "# Preview\n\n- one\n",
         }));
+        expect(enterSession?.questions[0]?.switchTargetMode).toBe("plan");
         expect(enterSession?.questions[0]?.planFilePath).toBeUndefined();
         expect(enterSession?.questions[0]?.planContent).toBeUndefined();
     });
@@ -172,6 +176,15 @@ describe("agent message projection helpers", () => {
         ]);
     });
 
+    it("request_user_input 历史答案保留正文省略状态", () => {
+        const args = RequestUserInputToolArgsSchema.parse({questions: [{question: "开放问题", options: []}]});
+        const views = deriveRequestUserInputAnswerViews(args, {
+            answers: [{questionIndex: 0, text: "预览", textOmitted: true, note: "补充", noteOmitted: true}],
+        });
+
+        expect(views).toEqual([expect.objectContaining({text: undefined, note: "补充", omitted: true})]);
+    });
+
     it("session_entry 先插入 system reminder，再替换同内容乐观用户消息", () => {
         const withReminder = applySessionEntryToMessages([{
             id: "system-prompt:1:leader.default",
@@ -185,26 +198,18 @@ describe("agent message projection helpers", () => {
             status: "done",
         }], {
             id: "reminder-1",
-            parentId: null,
             timestamp: Date.now(),
-            type: "custom_message",
-            visibleToModel: true,
-            message: {
-                role: "custom",
-                customType: "system-reminder",
-                content: "<system-reminder>提醒</system-reminder>",
-            } as never,
+            type: "system",
+            source: "reminder",
+            label: "System Reminder",
+            content: {preview: "<system-reminder>提醒</system-reminder>", bytes: 44, omitted: false},
         });
         const withPrompt = applySessionEntryToMessages(withReminder, {
             id: "prompt-1",
-            parentId: "reminder-1",
             timestamp: Date.now(),
-            type: "message",
-            origin: "prompt",
-            message: {
-                role: "user",
-                content: "你好",
-            } as never,
+            type: "user",
+            intent: "normal",
+            content: {preview: "你好", bytes: 6, omitted: false},
         });
 
         expect(withPrompt.map((message) => ({
@@ -252,63 +257,19 @@ describe("agent message projection helpers", () => {
         expect(messageStatusLabel(message)).toBe("生成失败");
     });
 
-    it("snapshot lifecycle error 会展示为 Run Error 系统消息", () => {
-        const messages = deriveMessagesFromSessionSnapshot({
-            summary: {
-                sessionId: 1,
-                profileKey: "leader.default",
-                workspaceKey: "novel-1",
-                workspaceRoot: "workspace",
-                status: "idle",
-                updatedAt: Date.now(),
-                archived: false,
-            },
-            activeLeafId: "error-1",
-            activePathRevision: null,
-            messages: [],
-            tree: [],
-            entries: [{
+    it("durable invocation error 会展示为 Run Error 系统消息", () => {
+        const messages = deriveMessagesFromChatEntries([{
                 id: "start-1",
-                parentId: null,
                 timestamp: Date.now(),
-                type: "invocation_lifecycle",
+                type: "invocation_error",
                 invocationId: "invoke-1",
-                status: "start",
-            }, {
-                id: "error-1",
-                parentId: "start-1",
-                timestamp: Date.now(),
-                type: "invocation_lifecycle",
-                invocationId: "invoke-1",
-                status: "error",
-                error: "Provider rejected image payload",
-            }],
-            eventEpoch: "epoch-1",
-            eventCursor: {
-                eventEpoch: "epoch-1",
-                after: 0,
-            },
-            latestSeq: 0,
-            linkedAgents: [],
-            linkedByAgents: [],
-            pendingUserInputs: [],
-            pendingApprovals: [],
-            steerQueue: [],
-            followUpQueue: {
-                status: "ready",
-                items: [],
-            },
-            activeInvocation: null,
-            model: null,
-            thinkingLevel: null,
-            effectiveThinkingLevel: "off",
-            planModeActive: false,
-            lastSeq: 0,
-        });
+                message: {preview: "Provider rejected image payload", bytes: 31, omitted: false},
+                phase: "model",
+            }]);
 
         expect(messages).toEqual([
             expect.objectContaining({
-                id: "error-1",
+                id: "start-1",
                 type: "system",
                 systemDisplayKind: "error",
                 systemLabel: "Run Error",
@@ -321,15 +282,11 @@ describe("agent message projection helpers", () => {
     it("session_entry lifecycle error 能增量展示", () => {
         const messages = applySessionEntryToMessages([], {
             id: "error-1",
-            parentId: null,
             timestamp: Date.now(),
-            type: "invocation_lifecycle",
+            type: "invocation_error",
             invocationId: "invoke-1",
-            status: "error",
-            errorInfo: {
-                message: "prepare failed",
-                phase: "pre_loop",
-            },
+            message: {preview: "prepare failed", bytes: 14, omitted: false},
+            phase: "pre_loop",
         });
 
         expect(messages).toEqual([
@@ -351,12 +308,11 @@ describe("agent message projection helpers", () => {
             invocationId: "invoke-old",
         }], {
             id: "error-1",
-            parentId: null,
             timestamp: Date.now(),
-            type: "invocation_lifecycle",
+            type: "invocation_error",
             invocationId: "invoke-new",
-            status: "error",
-            error: "new error",
+            message: {preview: "new error", bytes: 9, omitted: false},
+            phase: "unknown",
         });
 
         expect(messages).toEqual([
@@ -370,73 +326,29 @@ describe("agent message projection helpers", () => {
         ]);
     });
 
-    it("已有 assistant error 时不重复展示 lifecycle error", () => {
+    it("已有 assistant error 时不重复展示 invocation error", () => {
         const timestamp = Date.now();
-        const messages = deriveMessagesFromSessionSnapshot({
-            summary: {
-                sessionId: 1,
-                profileKey: "leader.default",
-                workspaceKey: "novel-1",
-                workspaceRoot: "workspace",
-                status: "idle",
-                updatedAt: timestamp,
-                archived: false,
-            },
-            activeLeafId: "error-1",
-            activePathRevision: null,
-            messages: [],
-            tree: [],
-            entries: [{
-                id: "start-1",
-                parentId: null,
-                timestamp,
-                type: "invocation_lifecycle",
-                invocationId: "invoke-1",
-                status: "start",
-            }, {
+        const messages = deriveMessagesFromChatEntries([{
                 id: "assistant-1",
-                parentId: "start-1",
                 timestamp,
-                type: "message",
-                origin: "harness",
-                message: {
-                    role: "assistant",
-                    content: [],
-                    stopReason: "error",
-                    errorMessage: "Provider rejected image payload",
-                    timestamp,
-                } as never,
+                type: "assistant",
+                invocationId: "invoke-1",
+                content: {preview: "Provider rejected image payload", bytes: 31, omitted: false},
+                thinking: {preview: "", bytes: 0, omitted: false},
+                error: {preview: "Provider rejected image payload", bytes: 31, omitted: false},
+                status: "error",
+                model: "test",
+                usage: {input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 2, cost: {input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0}},
+                toolCalls: [],
+                omittedToolCalls: 0,
             }, {
                 id: "error-1",
-                parentId: "assistant-1",
                 timestamp,
-                type: "invocation_lifecycle",
+                type: "invocation_error",
                 invocationId: "invoke-1",
-                status: "error",
-                error: "Provider rejected image payload",
-            }],
-            eventEpoch: "epoch-1",
-            eventCursor: {
-                eventEpoch: "epoch-1",
-                after: 0,
-            },
-            latestSeq: 0,
-            linkedAgents: [],
-            linkedByAgents: [],
-            pendingUserInputs: [],
-            pendingApprovals: [],
-            steerQueue: [],
-            followUpQueue: {
-                status: "ready",
-                items: [],
-            },
-            activeInvocation: null,
-            model: null,
-            thinkingLevel: null,
-            effectiveThinkingLevel: "off",
-            planModeActive: false,
-            lastSeq: 0,
-        });
+                message: {preview: "Provider rejected image payload", bytes: 31, omitted: false},
+                phase: "model",
+            }]);
 
         expect(messages.filter((message) => message.systemDisplayKind === "error")).toHaveLength(0);
         expect(messages.filter((message) => message.type === "ai" && message.error)).toHaveLength(1);
@@ -459,18 +371,15 @@ describe("agent message projection helpers", () => {
             }],
         }], {
             id: "tool-result-1",
-            parentId: "assistant-1",
             timestamp: Date.now(),
-            type: "message",
-            origin: "harness",
-            message: {
-                role: "toolResult",
-                toolCallId: "approval-call",
-                toolName: "request_user_input",
-                content: [{type: "text", text: "用户已选择：继续"}],
-                isError: false,
-                timestamp: Date.now(),
-            } as never,
+            type: "tool_result",
+            toolCallId: "approval-call",
+            toolName: "request_user_input",
+            result: {
+                content: [{type: "text", textPreview: "用户已选择：继续", textBytes: 24, textOmitted: false}],
+                omittedContentBlocks: 0,
+            },
+            isError: false,
         });
 
         expect(messages[0]?.toolCalls?.[0]).toEqual(expect.objectContaining({
@@ -497,7 +406,14 @@ describe("agent message projection helpers", () => {
             type: "tool_execution_start",
             toolCallId: "patch-1",
             toolName: "apply_patch",
-            args: {patch: "*** Begin Patch\n*** Add File: a.txt\n+hello\n*** End Patch"},
+            args: {
+                kind: "apply_patch",
+                patchPreview: "*** Begin Patch\n*** Add File: a.txt\n+hello\n*** End Patch",
+                patchBytes: 57,
+                patchOmitted: false,
+                touchedFiles: ["a.txt"],
+                touchedFilesOmitted: false,
+            },
         });
 
         expect(messages[0]?.toolCalls?.[0]?.argsText).toContain("*** Begin Patch");

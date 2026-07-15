@@ -102,6 +102,7 @@ const nodeIconMap: Record<ProfileTemplateNodeType, string> = {
     HistorySet: "i-lucide-archive",
     ModelContext: "i-lucide-panel-top",
     AppendingSet: "i-lucide-panel-bottom",
+    FileChangeNotice: "i-lucide-file-diff",
     Compaction: "i-lucide-archive-restore",
     CompactionPrompt: "i-lucide-file-text",
     CompactionSummaryPrefix: "i-lucide-text-quote",
@@ -118,14 +119,10 @@ const nodeIconMap: Record<ProfileTemplateNodeType, string> = {
     LinkedAgentsReminder: "i-lucide-network",
     RuntimeLocationReminder: "i-lucide-folder-code",
     WorkspaceFocusReminder: "i-lucide-folder-kanban",
-    PlanModeAvailabilityReminder: "i-lucide-clipboard-plus",
+    ModeAvailabilityReminder: "i-lucide-clipboard-plus",
     TaskReminder: "i-lucide-list-checks",
-    PlanModeReminder: "i-lucide-clipboard-check",
-    PlanModeFull: "i-lucide-file-text",
-    PlanModeSparse: "i-lucide-file-minus",
-    PlanModeExit: "i-lucide-log-out",
-    PlanModeReentry: "i-lucide-rotate-ccw",
-    ActivePlanModeReminder: "i-lucide-clipboard-list",
+    ModeReminder: "i-lucide-clipboard-check",
+    ModeSlot: "i-lucide-file-text",
     MentionedSkillsReminder: "i-lucide-at-sign",
     AgentCatalog: "i-lucide-bot",
     SkillCatalog: "i-lucide-library",
@@ -169,7 +166,7 @@ function nodeMeta(node: ProfileTemplateNodeDto): string {
     if (node.type === "ToolResult") {
         return `tool: ${String(node.props.toolName ?? "tool")}`;
     }
-    if (node.type === "Reminder" || node.type === "RuntimeLocationReminder" || node.type === "WorkspaceFocusReminder" || node.type === "PlanModeAvailabilityReminder" || node.type === "TaskReminder" || node.type === "PlanModeReminder" || node.type === "ActivePlanModeReminder") {
+    if (node.type === "Reminder" || node.type === "RuntimeLocationReminder" || node.type === "WorkspaceFocusReminder" || node.type === "ModeAvailabilityReminder" || node.type === "TaskReminder" || node.type === "ModeReminder") {
         return ["id", "watchPath", "watchValue", "repeatEveryTurns"]
             .filter((key) => node.props[key] !== undefined && node.props[key] !== "")
             .map((key) => `${key}: ${formatPropValue(node.props[key])}`)
@@ -257,20 +254,23 @@ function nodeSummary(node: ProfileTemplateNodeDto): string {
     if (node.type === "WorkspaceFocusReminder") {
         return "Workspace focus reminder.";
     }
-    if (node.type === "PlanModeAvailabilityReminder") {
-        return "Plan mode availability reminder.";
+    if (node.type === "ModeAvailabilityReminder") {
+        return "switch_mode availability reminder in normal mode.";
     }
     if (node.type === "TaskReminder") {
         return "Task list reminder from agent.tasks.";
     }
-    if (node.type === "PlanModeReminder" || node.type === "ActivePlanModeReminder") {
-        return "Plan Mode lifecycle reminder.";
+    if (node.type === "ModeReminder") {
+        return "Agent mode lifecycle reminder.";
     }
-    if (node.type === "PlanModeFull" || node.type === "PlanModeSparse" || node.type === "PlanModeExit" || node.type === "PlanModeReentry") {
-        return "Custom Plan Mode reminder slot.";
+    if (node.type === "ModeSlot") {
+        return `Custom mode reminder slot: ${String(node.props.kind ?? "")}`;
     }
     if (node.type === "MentionedSkillsReminder") {
         return "Reminder for explicit $skill mentions.";
+    }
+    if (node.type === "FileChangeNotice") {
+        return `Workspace file changes · mode: ${String(node.props.mode ?? "minimal")}`;
     }
     return "";
 }
@@ -358,7 +358,7 @@ function prepareDrag(): void {
                     :depth="props.depth + 1"
                     :index="childIndex"
                     :parent-id="props.node.id"
-                    :can-have-children="!['Text', 'ToolCall', 'ToolResult', 'AgentCatalog', 'SkillCatalog', 'ActivatedSkills', 'SqlSchemaSummary', 'Import', 'LinkedAgentsSummary', 'LinkedAgentsReminder', 'RuntimeLocationReminder', 'WorkspaceFocusReminder', 'PlanModeAvailabilityReminder', 'TaskReminder', 'ActivePlanModeReminder', 'MentionedSkillsReminder'].includes(child.type)"
+                    :can-have-children="!['Text', 'ToolCall', 'ToolResult', 'AgentCatalog', 'SkillCatalog', 'ActivatedSkills', 'SqlSchemaSummary', 'Import', 'LinkedAgentsSummary', 'LinkedAgentsReminder', 'RuntimeLocationReminder', 'WorkspaceFocusReminder', 'ModeAvailabilityReminder', 'TaskReminder', 'MentionedSkillsReminder', 'FileChangeNotice'].includes(child.type)"
                     :disabled-drop-node-ids="props.disabledDropNodeIds"
                     @select="emit('select', $event)"
                     @prepare-drag="emit('prepareDrag', $event)"
@@ -544,15 +544,12 @@ function prepareDrag(): void {
 .node-LinkedAgentsReminder::before,
 .node-RuntimeLocationReminder::before,
 .node-WorkspaceFocusReminder::before,
-.node-PlanModeAvailabilityReminder::before,
+.node-ModeAvailabilityReminder::before,
 .node-TaskReminder::before,
-.node-PlanModeReminder::before,
-.node-PlanModeFull::before,
-.node-PlanModeSparse::before,
-.node-PlanModeExit::before,
-.node-PlanModeReentry::before,
-.node-ActivePlanModeReminder::before,
+.node-ModeReminder::before,
+.node-ModeSlot::before,
 .node-MentionedSkillsReminder::before,
+.node-FileChangeNotice::before,
 .node-AgentCatalog::before,
 .node-ActivatedSkills::before,
 .node-SkillCatalog::before,
@@ -625,22 +622,22 @@ function prepareDrag(): void {
 
 .node-RuntimeLocationReminder,
 .node-WorkspaceFocusReminder,
-.node-PlanModeAvailabilityReminder {
+.node-ModeAvailabilityReminder {
     --profile-node-accent: #b65f5b;
 }
 
 .node-TaskReminder,
-.node-PlanModeReminder,
-.node-PlanModeFull,
-.node-PlanModeSparse,
-.node-PlanModeExit,
-.node-PlanModeReentry,
-.node-ActivePlanModeReminder {
+.node-ModeReminder,
+.node-ModeSlot {
     --profile-node-accent: #8a639e;
 }
 
 .node-MentionedSkillsReminder {
     --profile-node-accent: #b1843e;
+}
+
+.node-FileChangeNotice {
+    --profile-node-accent: #4f8c8f;
 }
 
 .node-ActivatedSkills {
@@ -711,7 +708,7 @@ function prepareDrag(): void {
 }
 
 .node-action-btn.danger:hover {
-    color: #dc2626;
+    color: var(--status-danger);
 }
 
 .node-actions {

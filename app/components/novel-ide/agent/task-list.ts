@@ -21,16 +21,16 @@ export type AgentTaskStatus = z.infer<typeof AgentTaskStatusSchema>;
 export type AgentTaskStep = z.infer<typeof AgentTaskStepSchema>;
 export type AgentTaskList = z.infer<typeof AgentTaskListSchema>;
 
-export type TaskToolCallLike = Pick<AgentToolCall, "rawResult" | "result">;
+export type TaskToolCallLike = Pick<AgentToolCall, "resultData" | "result">;
 
 /**
  * 解析 task 工具的结构化返回值。
- * 优先使用 rawResult，fallback 到 result 里的 JSON 文本。
+ * 优先使用有界 resultData，fallback 到 result 里的 JSON 文本。
  */
 export const parseTaskList = (toolCall: TaskToolCallLike): AgentTaskList | null => {
-    const rawResult = AgentTaskListSchema.safeParse(toolCall.rawResult);
-    if (rawResult.success) {
-        return rawResult.data;
+    const resultData = AgentTaskListSchema.safeParse(toolCall.resultData);
+    if (resultData.success) {
+        return resultData.data;
     }
 
     const resultText = toolCall.result?.trim();
@@ -67,9 +67,9 @@ export const taskStatusClass = (status: AgentTaskStatus): string => {
         case "pending":
             return "border-[var(--border-color)] bg-[var(--bg-input)] text-[var(--text-muted)]";
         case "in_progress":
-            return "border-amber-500/30 bg-amber-500/10 text-amber-700";
+            return "border-[var(--status-warning-border)] bg-[var(--status-warning-bg)] text-[var(--status-warning)]";
         case "completed":
-            return "border-emerald-500/30 bg-emerald-500/10 text-emerald-700";
+            return "border-[var(--status-success-border)] bg-[var(--status-success-bg)] text-[var(--status-success)]";
     }
 };
 

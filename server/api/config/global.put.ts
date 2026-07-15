@@ -41,22 +41,6 @@ defineRouteMeta({
                 "schema": {
                     "type": "object",
                     "properties": {
-                        "auth": {
-                            "default": {
-                                "enabled": true
-                            },
-                            "type": "object",
-                            "properties": {
-                                "enabled": {
-                                    "default": true,
-                                    "type": "boolean"
-                                }
-                            },
-                            "required": [
-                                "enabled"
-                            ],
-                            "additionalProperties": false
-                        },
                         "models": {
                             "default": {
                                 "default": null,
@@ -85,7 +69,32 @@ defineRouteMeta({
                                                 "type": "string",
                                                 "minLength": 1
                                             },
-                                            "api": {},
+                                            "enabled": {
+                                                "default": true,
+                                                "type": "boolean"
+                                            },
+                                            "defaultApi": {},
+                                            "discovery": {
+                                                "type": "object",
+                                                "properties": {
+                                                    "adapter": {
+                                                        "default": "none",
+                                                        "type": "string",
+                                                        "enum": [
+                                                            "openai-models",
+                                                            "openrouter-models",
+                                                            "google-models",
+                                                            "none"
+                                                        ]
+                                                    },
+                                                    "endpointPath": {}
+                                                },
+                                                "required": [
+                                                    "adapter",
+                                                    "endpointPath"
+                                                ],
+                                                "additionalProperties": false
+                                            },
                                             "options": {
                                                 "type": "object",
                                                 "properties": {
@@ -121,15 +130,102 @@ defineRouteMeta({
                                                         "default": null,
                                                         "nullable": true,
                                                         "type": "integer",
+                                                        "minimum": 0,
                                                         "exclusiveMinimum": true,
                                                         "maximum": 9007199254740991
                                                     },
                                                     "requestOptions": {
                                                         "default": {},
                                                         "type": "object",
-                                                        "additionalProperties": {
-                                                            "$ref": "#/definitions/__schema0"
-                                                        }
+                                                        "properties": {
+                                                            "temperature": {
+                                                                "type": "number",
+                                                                "minimum": 0
+                                                            },
+                                                            "headers": {
+                                                                "type": "object",
+                                                                "additionalProperties": {
+                                                                    "nullable": true,
+                                                                    "type": "string"
+                                                                }
+                                                            },
+                                                            "websocketConnectTimeoutMs": {
+                                                                "type": "integer",
+                                                                "minimum": 0,
+                                                                "exclusiveMinimum": true,
+                                                                "maximum": 9007199254740991
+                                                            },
+                                                            "maxRetries": {
+                                                                "type": "integer",
+                                                                "minimum": 0,
+                                                                "maximum": 9007199254740991
+                                                            },
+                                                            "maxRetryDelayMs": {
+                                                                "type": "integer",
+                                                                "minimum": 0,
+                                                                "maximum": 9007199254740991
+                                                            },
+                                                            "metadata": {
+                                                                "type": "object",
+                                                                "additionalProperties": {
+                                                                    "$ref": "#/definitions/__schema0"
+                                                                }
+                                                            },
+                                                            "env": {
+                                                                "type": "object",
+                                                                "additionalProperties": {
+                                                                    "type": "string"
+                                                                }
+                                                            },
+                                                            "transport": {
+                                                                "type": "string",
+                                                                "enum": [
+                                                                    "sse",
+                                                                    "websocket",
+                                                                    "websocket-cached",
+                                                                    "auto"
+                                                                ]
+                                                            },
+                                                            "cacheRetention": {
+                                                                "type": "string",
+                                                                "enum": [
+                                                                    "none",
+                                                                    "short",
+                                                                    "long"
+                                                                ]
+                                                            },
+                                                            "thinkingBudgets": {
+                                                                "type": "object",
+                                                                "properties": {
+                                                                    "minimal": {
+                                                                        "type": "integer",
+                                                                        "minimum": 0,
+                                                                        "exclusiveMinimum": true,
+                                                                        "maximum": 9007199254740991
+                                                                    },
+                                                                    "low": {
+                                                                        "type": "integer",
+                                                                        "minimum": 0,
+                                                                        "exclusiveMinimum": true,
+                                                                        "maximum": 9007199254740991
+                                                                    },
+                                                                    "medium": {
+                                                                        "type": "integer",
+                                                                        "minimum": 0,
+                                                                        "exclusiveMinimum": true,
+                                                                        "maximum": 9007199254740991
+                                                                    },
+                                                                    "high": {
+                                                                        "type": "integer",
+                                                                        "minimum": 0,
+                                                                        "exclusiveMinimum": true,
+                                                                        "maximum": 9007199254740991
+                                                                    }
+                                                                },
+                                                                "additionalProperties": false
+                                                            }
+                                                        },
+                                                        "additionalProperties": false
                                                     }
                                                 },
                                                 "required": [
@@ -160,14 +256,12 @@ defineRouteMeta({
                                                             "default": true,
                                                             "type": "boolean"
                                                         },
-                                                        "provider": {},
                                                         "api": {
                                                             "default": null,
                                                             "nullable": true,
                                                             "type": "string",
                                                             "minLength": 1
                                                         },
-                                                        "baseUrl": {},
                                                         "reasoning": {
                                                             "default": null,
                                                             "nullable": true,
@@ -190,6 +284,7 @@ defineRouteMeta({
                                                             "default": null,
                                                             "nullable": true,
                                                             "type": "integer",
+                                                            "minimum": 0,
                                                             "exclusiveMinimum": true,
                                                             "maximum": 9007199254740991
                                                         },
@@ -199,27 +294,66 @@ defineRouteMeta({
                                                             "type": "object",
                                                             "properties": {
                                                                 "input": {
-                                                                    "default": 0,
-                                                                    "type": "number"
+                                                                    "type": "number",
+                                                                    "minimum": 0
                                                                 },
                                                                 "output": {
-                                                                    "default": 0,
-                                                                    "type": "number"
+                                                                    "type": "number",
+                                                                    "minimum": 0
                                                                 },
                                                                 "cacheRead": {
-                                                                    "default": 0,
-                                                                    "type": "number"
+                                                                    "type": "number",
+                                                                    "minimum": 0
                                                                 },
                                                                 "cacheWrite": {
-                                                                    "default": 0,
-                                                                    "type": "number"
+                                                                    "type": "number",
+                                                                    "minimum": 0
+                                                                },
+                                                                "tiers": {
+                                                                    "default": [],
+                                                                    "type": "array",
+                                                                    "items": {
+                                                                        "type": "object",
+                                                                        "properties": {
+                                                                            "inputTokensAbove": {
+                                                                                "type": "integer",
+                                                                                "minimum": 0,
+                                                                                "maximum": 9007199254740991
+                                                                            },
+                                                                            "input": {
+                                                                                "type": "number",
+                                                                                "minimum": 0
+                                                                            },
+                                                                            "output": {
+                                                                                "type": "number",
+                                                                                "minimum": 0
+                                                                            },
+                                                                            "cacheRead": {
+                                                                                "type": "number",
+                                                                                "minimum": 0
+                                                                            },
+                                                                            "cacheWrite": {
+                                                                                "type": "number",
+                                                                                "minimum": 0
+                                                                            }
+                                                                        },
+                                                                        "required": [
+                                                                            "inputTokensAbove",
+                                                                            "input",
+                                                                            "output",
+                                                                            "cacheRead",
+                                                                            "cacheWrite"
+                                                                        ],
+                                                                        "additionalProperties": false
+                                                                    }
                                                                 }
                                                             },
                                                             "required": [
                                                                 "input",
                                                                 "output",
                                                                 "cacheRead",
-                                                                "cacheWrite"
+                                                                "cacheWrite",
+                                                                "tiers"
                                                             ],
                                                             "additionalProperties": false
                                                         },
@@ -231,10 +365,29 @@ defineRouteMeta({
                                                                 "$ref": "#/definitions/__schema1"
                                                             }
                                                         },
+                                                        "headers": {
+                                                            "default": null,
+                                                            "nullable": true,
+                                                            "type": "object",
+                                                            "additionalProperties": {
+                                                                "nullable": true,
+                                                                "type": "string"
+                                                            }
+                                                        },
+                                                        "thinkingLevelMap": {
+                                                            "default": null,
+                                                            "nullable": true,
+                                                            "type": "object",
+                                                            "additionalProperties": {
+                                                                "nullable": true,
+                                                                "type": "string"
+                                                            }
+                                                        },
                                                         "contextWindowTokens": {
                                                             "default": null,
                                                             "nullable": true,
                                                             "type": "integer",
+                                                            "minimum": 0,
                                                             "exclusiveMinimum": true,
                                                             "maximum": 9007199254740991
                                                         }
@@ -244,14 +397,14 @@ defineRouteMeta({
                                                         "id",
                                                         "group",
                                                         "enabled",
-                                                        "provider",
                                                         "api",
-                                                        "baseUrl",
                                                         "reasoning",
                                                         "input",
                                                         "maxTokens",
                                                         "cost",
                                                         "compat",
+                                                        "headers",
+                                                        "thinkingLevelMap",
                                                         "contextWindowTokens"
                                                     ],
                                                     "additionalProperties": false
@@ -261,7 +414,9 @@ defineRouteMeta({
                                         "required": [
                                             "id",
                                             "name",
-                                            "api",
+                                            "enabled",
+                                            "defaultApi",
+                                            "discovery",
                                             "options",
                                             "models"
                                         ],
@@ -295,6 +450,7 @@ defineRouteMeta({
                                     "default": null,
                                     "nullable": true,
                                     "type": "integer",
+                                    "minimum": 0,
                                     "exclusiveMinimum": true,
                                     "maximum": 9007199254740991
                                 },
@@ -326,6 +482,7 @@ defineRouteMeta({
                                     "default": null,
                                     "nullable": true,
                                     "type": "integer",
+                                    "minimum": 0,
                                     "exclusiveMinimum": true,
                                     "maximum": 9007199254740991
                                 },
@@ -333,7 +490,7 @@ defineRouteMeta({
                                     "default": {},
                                     "type": "object",
                                     "additionalProperties": {
-                                        "$ref": "#/definitions/__schema0"
+                                        "$ref": "#/definitions/__schema2"
                                     }
                                 }
                             },
@@ -346,6 +503,7 @@ defineRouteMeta({
                                     "userAssets": null
                                 },
                                 "profileModelDefaults": {},
+                                "profileRuntimeDefaults": {},
                                 "profiles": {}
                             },
                             "type": "object",
@@ -396,6 +554,7 @@ defineRouteMeta({
                                             "default": null,
                                             "nullable": true,
                                             "type": "integer",
+                                            "minimum": 0,
                                             "exclusiveMinimum": true,
                                             "maximum": 9007199254740991
                                         },
@@ -409,12 +568,211 @@ defineRouteMeta({
                                                 "low",
                                                 "medium",
                                                 "high",
-                                                "xhigh"
+                                                "xhigh",
+                                                "max"
                                             ]
                                         },
                                         "stream": {
                                             "default": true,
                                             "type": "boolean"
+                                        }
+                                    },
+                                    "additionalProperties": false
+                                },
+                                "profileRuntimeDefaults": {
+                                    "default": {},
+                                    "type": "object",
+                                    "properties": {
+                                        "summarizer": {
+                                            "type": "object",
+                                            "properties": {
+                                                "enabled": {
+                                                    "type": "boolean"
+                                                },
+                                                "profileKey": {
+                                                    "type": "string",
+                                                    "minLength": 1
+                                                },
+                                                "trigger": {
+                                                    "type": "string",
+                                                    "enum": [
+                                                        "afterInvocation"
+                                                    ]
+                                                },
+                                                "interval": {
+                                                    "type": "object",
+                                                    "properties": {
+                                                        "kind": {
+                                                            "type": "string",
+                                                            "enum": [
+                                                                "sourceInvocation",
+                                                                "dialogueContentTokens"
+                                                            ]
+                                                        },
+                                                        "value": {
+                                                            "type": "number",
+                                                            "minimum": 0,
+                                                            "exclusiveMinimum": true
+                                                        }
+                                                    },
+                                                    "required": [
+                                                        "kind",
+                                                        "value"
+                                                    ],
+                                                    "additionalProperties": false
+                                                },
+                                                "maxDialogueContentTokens": {
+                                                    "type": "number",
+                                                    "minimum": 0,
+                                                    "exclusiveMinimum": true
+                                                }
+                                            },
+                                            "additionalProperties": false
+                                        },
+                                        "compaction": {
+                                            "type": "object",
+                                            "properties": {
+                                                "enabled": {
+                                                    "type": "boolean"
+                                                },
+                                                "trigger": {
+                                                    "oneOf": [
+                                                        {
+                                                            "type": "object",
+                                                            "properties": {
+                                                                "kind": {
+                                                                    "type": "string",
+                                                                    "enum": [
+                                                                        "autoReserve"
+                                                                    ]
+                                                                }
+                                                            },
+                                                            "required": [
+                                                                "kind"
+                                                            ],
+                                                            "additionalProperties": false
+                                                        },
+                                                        {
+                                                            "type": "object",
+                                                            "properties": {
+                                                                "kind": {
+                                                                    "type": "string",
+                                                                    "enum": [
+                                                                        "percent"
+                                                                    ]
+                                                                },
+                                                                "value": {
+                                                                    "type": "number",
+                                                                    "minimum": 0,
+                                                                    "exclusiveMinimum": true,
+                                                                    "maximum": 1
+                                                                }
+                                                            },
+                                                            "required": [
+                                                                "kind",
+                                                                "value"
+                                                            ],
+                                                            "additionalProperties": false
+                                                        },
+                                                        {
+                                                            "type": "object",
+                                                            "properties": {
+                                                                "kind": {
+                                                                    "type": "string",
+                                                                    "enum": [
+                                                                        "tokens"
+                                                                    ]
+                                                                },
+                                                                "value": {
+                                                                    "type": "integer",
+                                                                    "minimum": 0,
+                                                                    "exclusiveMinimum": true,
+                                                                    "maximum": 9007199254740991
+                                                                }
+                                                            },
+                                                            "required": [
+                                                                "kind",
+                                                                "value"
+                                                            ],
+                                                            "additionalProperties": false
+                                                        }
+                                                    ]
+                                                },
+                                                "reserveTokens": {
+                                                    "type": "integer",
+                                                    "minimum": 0,
+                                                    "exclusiveMinimum": true,
+                                                    "maximum": 9007199254740991
+                                                },
+                                                "keepRecent": {
+                                                    "oneOf": [
+                                                        {
+                                                            "type": "object",
+                                                            "properties": {
+                                                                "kind": {
+                                                                    "type": "string",
+                                                                    "enum": [
+                                                                        "percent"
+                                                                    ]
+                                                                },
+                                                                "value": {
+                                                                    "type": "number",
+                                                                    "minimum": 0,
+                                                                    "exclusiveMinimum": true,
+                                                                    "maximum": 1
+                                                                }
+                                                            },
+                                                            "required": [
+                                                                "kind",
+                                                                "value"
+                                                            ],
+                                                            "additionalProperties": false
+                                                        },
+                                                        {
+                                                            "type": "object",
+                                                            "properties": {
+                                                                "kind": {
+                                                                    "type": "string",
+                                                                    "enum": [
+                                                                        "tokens"
+                                                                    ]
+                                                                },
+                                                                "value": {
+                                                                    "type": "integer",
+                                                                    "minimum": 0,
+                                                                    "exclusiveMinimum": true,
+                                                                    "maximum": 9007199254740991
+                                                                }
+                                                            },
+                                                            "required": [
+                                                                "kind",
+                                                                "value"
+                                                            ],
+                                                            "additionalProperties": false
+                                                        }
+                                                    ]
+                                                },
+                                                "prompt": {
+                                                    "type": "string",
+                                                    "minLength": 1
+                                                },
+                                                "summaryPrefix": {
+                                                    "type": "string",
+                                                    "minLength": 1
+                                                }
+                                            },
+                                            "additionalProperties": false
+                                        },
+                                        "fileChangeNotice": {
+                                            "type": "object",
+                                            "properties": {
+                                                "diffMaxChars": {
+                                                    "type": "integer",
+                                                    "minimum": 0,
+                                                    "maximum": 8192
+                                                }
+                                            },
+                                            "additionalProperties": false
                                         }
                                     },
                                     "additionalProperties": false
@@ -445,6 +803,7 @@ defineRouteMeta({
                                                         "default": null,
                                                         "nullable": true,
                                                         "type": "integer",
+                                                        "minimum": 0,
                                                         "exclusiveMinimum": true,
                                                         "maximum": 9007199254740991
                                                     },
@@ -458,7 +817,8 @@ defineRouteMeta({
                                                             "low",
                                                             "medium",
                                                             "high",
-                                                            "xhigh"
+                                                            "xhigh",
+                                                            "max"
                                                         ]
                                                     },
                                                     "stream": {
@@ -471,7 +831,7 @@ defineRouteMeta({
                                             "settings": {
                                                 "type": "object",
                                                 "additionalProperties": {
-                                                    "$ref": "#/definitions/__schema2"
+                                                    "$ref": "#/definitions/__schema3"
                                                 }
                                             },
                                             "resourceMutations": {
@@ -605,6 +965,203 @@ defineRouteMeta({
                                                         }
                                                     ]
                                                 }
+                                            },
+                                            "runtime": {
+                                                "type": "object",
+                                                "properties": {
+                                                    "summarizer": {
+                                                        "type": "object",
+                                                        "properties": {
+                                                            "enabled": {
+                                                                "type": "boolean"
+                                                            },
+                                                            "profileKey": {
+                                                                "type": "string",
+                                                                "minLength": 1
+                                                            },
+                                                            "trigger": {
+                                                                "type": "string",
+                                                                "enum": [
+                                                                    "afterInvocation"
+                                                                ]
+                                                            },
+                                                            "interval": {
+                                                                "type": "object",
+                                                                "properties": {
+                                                                    "kind": {
+                                                                        "type": "string",
+                                                                        "enum": [
+                                                                            "sourceInvocation",
+                                                                            "dialogueContentTokens"
+                                                                        ]
+                                                                    },
+                                                                    "value": {
+                                                                        "type": "number",
+                                                                        "minimum": 0,
+                                                                        "exclusiveMinimum": true
+                                                                    }
+                                                                },
+                                                                "required": [
+                                                                    "kind",
+                                                                    "value"
+                                                                ],
+                                                                "additionalProperties": false
+                                                            },
+                                                            "maxDialogueContentTokens": {
+                                                                "type": "number",
+                                                                "minimum": 0,
+                                                                "exclusiveMinimum": true
+                                                            }
+                                                        },
+                                                        "additionalProperties": false
+                                                    },
+                                                    "compaction": {
+                                                        "type": "object",
+                                                        "properties": {
+                                                            "enabled": {
+                                                                "type": "boolean"
+                                                            },
+                                                            "trigger": {
+                                                                "oneOf": [
+                                                                    {
+                                                                        "type": "object",
+                                                                        "properties": {
+                                                                            "kind": {
+                                                                                "type": "string",
+                                                                                "enum": [
+                                                                                    "autoReserve"
+                                                                                ]
+                                                                            }
+                                                                        },
+                                                                        "required": [
+                                                                            "kind"
+                                                                        ],
+                                                                        "additionalProperties": false
+                                                                    },
+                                                                    {
+                                                                        "type": "object",
+                                                                        "properties": {
+                                                                            "kind": {
+                                                                                "type": "string",
+                                                                                "enum": [
+                                                                                    "percent"
+                                                                                ]
+                                                                            },
+                                                                            "value": {
+                                                                                "type": "number",
+                                                                                "minimum": 0,
+                                                                                "exclusiveMinimum": true,
+                                                                                "maximum": 1
+                                                                            }
+                                                                        },
+                                                                        "required": [
+                                                                            "kind",
+                                                                            "value"
+                                                                        ],
+                                                                        "additionalProperties": false
+                                                                    },
+                                                                    {
+                                                                        "type": "object",
+                                                                        "properties": {
+                                                                            "kind": {
+                                                                                "type": "string",
+                                                                                "enum": [
+                                                                                    "tokens"
+                                                                                ]
+                                                                            },
+                                                                            "value": {
+                                                                                "type": "integer",
+                                                                                "minimum": 0,
+                                                                                "exclusiveMinimum": true,
+                                                                                "maximum": 9007199254740991
+                                                                            }
+                                                                        },
+                                                                        "required": [
+                                                                            "kind",
+                                                                            "value"
+                                                                        ],
+                                                                        "additionalProperties": false
+                                                                    }
+                                                                ]
+                                                            },
+                                                            "reserveTokens": {
+                                                                "type": "integer",
+                                                                "minimum": 0,
+                                                                "exclusiveMinimum": true,
+                                                                "maximum": 9007199254740991
+                                                            },
+                                                            "keepRecent": {
+                                                                "oneOf": [
+                                                                    {
+                                                                        "type": "object",
+                                                                        "properties": {
+                                                                            "kind": {
+                                                                                "type": "string",
+                                                                                "enum": [
+                                                                                    "percent"
+                                                                                ]
+                                                                            },
+                                                                            "value": {
+                                                                                "type": "number",
+                                                                                "minimum": 0,
+                                                                                "exclusiveMinimum": true,
+                                                                                "maximum": 1
+                                                                            }
+                                                                        },
+                                                                        "required": [
+                                                                            "kind",
+                                                                            "value"
+                                                                        ],
+                                                                        "additionalProperties": false
+                                                                    },
+                                                                    {
+                                                                        "type": "object",
+                                                                        "properties": {
+                                                                            "kind": {
+                                                                                "type": "string",
+                                                                                "enum": [
+                                                                                    "tokens"
+                                                                                ]
+                                                                            },
+                                                                            "value": {
+                                                                                "type": "integer",
+                                                                                "minimum": 0,
+                                                                                "exclusiveMinimum": true,
+                                                                                "maximum": 9007199254740991
+                                                                            }
+                                                                        },
+                                                                        "required": [
+                                                                            "kind",
+                                                                            "value"
+                                                                        ],
+                                                                        "additionalProperties": false
+                                                                    }
+                                                                ]
+                                                            },
+                                                            "prompt": {
+                                                                "type": "string",
+                                                                "minLength": 1
+                                                            },
+                                                            "summaryPrefix": {
+                                                                "type": "string",
+                                                                "minLength": 1
+                                                            }
+                                                        },
+                                                        "additionalProperties": false
+                                                    },
+                                                    "fileChangeNotice": {
+                                                        "type": "object",
+                                                        "properties": {
+                                                            "diffMaxChars": {
+                                                                "type": "integer",
+                                                                "minimum": 0,
+                                                                "maximum": 8192
+                                                            }
+                                                        },
+                                                        "additionalProperties": false
+                                                    }
+                                                },
+                                                "additionalProperties": false
                                             }
                                         },
                                         "required": [
@@ -617,6 +1174,7 @@ defineRouteMeta({
                             "required": [
                                 "defaultProfileKey",
                                 "profileModelDefaults",
+                                "profileRuntimeDefaults",
                                 "profiles"
                             ],
                             "additionalProperties": false
@@ -624,6 +1182,7 @@ defineRouteMeta({
                         "ui": {
                             "default": {
                                 "theme": "sepia",
+                                "customThemes": [],
                                 "costCurrency": "USD"
                             },
                             "type": "object",
@@ -631,11 +1190,46 @@ defineRouteMeta({
                                 "theme": {
                                     "default": "sepia",
                                     "type": "string",
-                                    "enum": [
-                                        "sepia",
-                                        "light",
-                                        "dark"
-                                    ]
+                                    "minLength": 1
+                                },
+                                "customThemes": {
+                                    "default": [],
+                                    "maxItems": 50,
+                                    "type": "array",
+                                    "items": {
+                                        "type": "object",
+                                        "properties": {
+                                            "id": {
+                                                "type": "string",
+                                                "pattern": "^custom-[a-z0-9-]+$"
+                                            },
+                                            "name": {
+                                                "type": "string",
+                                                "minLength": 1,
+                                                "maxLength": 50
+                                            },
+                                            "appearance": {
+                                                "type": "string",
+                                                "enum": [
+                                                    "light",
+                                                    "dark"
+                                                ]
+                                            },
+                                            "vars": {
+                                                "type": "object",
+                                                "additionalProperties": {
+                                                    "type": "string"
+                                                }
+                                            }
+                                        },
+                                        "required": [
+                                            "id",
+                                            "name",
+                                            "appearance",
+                                            "vars"
+                                        ],
+                                        "additionalProperties": false
+                                    }
                                 },
                                 "costCurrency": {
                                     "default": "USD",
@@ -648,6 +1242,7 @@ defineRouteMeta({
                             },
                             "required": [
                                 "theme",
+                                "customThemes",
                                 "costCurrency"
                             ],
                             "additionalProperties": false
@@ -760,6 +1355,7 @@ defineRouteMeta({
                                         "tabSize": {
                                             "default": 4,
                                             "type": "integer",
+                                            "minimum": 0,
                                             "exclusiveMinimum": true,
                                             "maximum": 9007199254740991
                                         },
@@ -857,6 +1453,7 @@ defineRouteMeta({
                                                             "default": null,
                                                             "nullable": true,
                                                             "type": "integer",
+                                                            "minimum": 0,
                                                             "exclusiveMinimum": true,
                                                             "maximum": 9007199254740991
                                                         }
@@ -907,6 +1504,7 @@ defineRouteMeta({
                                                             "default": null,
                                                             "nullable": true,
                                                             "type": "integer",
+                                                            "minimum": 0,
                                                             "exclusiveMinimum": true,
                                                             "maximum": 9007199254740991
                                                         }
@@ -934,6 +1532,7 @@ defineRouteMeta({
                                                 "timeoutMs": {
                                                     "default": 15000,
                                                     "type": "integer",
+                                                    "minimum": 0,
                                                     "exclusiveMinimum": true,
                                                     "maximum": 9007199254740991
                                                 },
@@ -946,12 +1545,14 @@ defineRouteMeta({
                                                 "maxBytes": {
                                                     "default": 2000000,
                                                     "type": "integer",
+                                                    "minimum": 0,
                                                     "exclusiveMinimum": true,
                                                     "maximum": 9007199254740991
                                                 },
                                                 "maxCharacters": {
                                                     "default": 20000,
                                                     "type": "integer",
+                                                    "minimum": 0,
                                                     "exclusiveMinimum": true,
                                                     "maximum": 9007199254740991
                                                 },
@@ -976,6 +1577,7 @@ defineRouteMeta({
                                                     "default": null,
                                                     "nullable": true,
                                                     "type": "integer",
+                                                    "minimum": 0,
                                                     "exclusiveMinimum": true,
                                                     "maximum": 9007199254740991
                                                 }
@@ -984,6 +1586,57 @@ defineRouteMeta({
                                         }
                                     },
                                     "additionalProperties": false
+                                }
+                            },
+                            "additionalProperties": false
+                        },
+                        "observability": {
+                            "default": {},
+                            "type": "object",
+                            "properties": {
+                                "piTrace": {
+                                    "default": {},
+                                    "type": "object",
+                                    "properties": {
+                                        "enabled": {
+                                            "type": "boolean"
+                                        },
+                                        "maxRecords": {
+                                            "type": "integer",
+                                            "minimum": 0,
+                                            "maximum": 9007199254740991
+                                        },
+                                        "capturePayload": {
+                                            "type": "boolean"
+                                        }
+                                    },
+                                    "additionalProperties": false
+                                }
+                            },
+                            "additionalProperties": false
+                        },
+                        "history": {
+                            "default": {},
+                            "type": "object",
+                            "properties": {
+                                "enabled": {
+                                    "type": "boolean"
+                                },
+                                "retentionFullDays": {
+                                    "type": "integer",
+                                    "minimum": 1,
+                                    "maximum": 9007199254740991
+                                },
+                                "keepDailyLastAfterWindow": {
+                                    "type": "boolean"
+                                },
+                                "autoAcceptEnabled": {
+                                    "type": "boolean"
+                                },
+                                "autoAcceptDays": {
+                                    "type": "integer",
+                                    "minimum": 1,
+                                    "maximum": 9007199254740991
                                 }
                             },
                             "additionalProperties": false
@@ -1086,6 +1739,38 @@ defineRouteMeta({
                                     }
                                 }
                             ]
+                        },
+                        "__schema3": {
+                            "anyOf": [
+                                {
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "number"
+                                },
+                                {
+                                    "type": "boolean"
+                                },
+                                {
+                                    "type": "string",
+                                    "nullable": true,
+                                    "enum": [
+                                        null
+                                    ]
+                                },
+                                {
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/definitions/__schema3"
+                                    }
+                                },
+                                {
+                                    "type": "object",
+                                    "additionalProperties": {
+                                        "$ref": "#/definitions/__schema3"
+                                    }
+                                }
+                            ]
                         }
                     }
                 }
@@ -1114,22 +1799,6 @@ defineRouteMeta({
                             "global": {
                                 "type": "object",
                                 "properties": {
-                                    "auth": {
-                                        "default": {
-                                            "enabled": true
-                                        },
-                                        "type": "object",
-                                        "properties": {
-                                            "enabled": {
-                                                "default": true,
-                                                "type": "boolean"
-                                            }
-                                        },
-                                        "required": [
-                                            "enabled"
-                                        ],
-                                        "additionalProperties": false
-                                    },
                                     "models": {
                                         "default": {
                                             "default": null,
@@ -1158,7 +1827,32 @@ defineRouteMeta({
                                                             "type": "string",
                                                             "minLength": 1
                                                         },
-                                                        "api": {},
+                                                        "enabled": {
+                                                            "default": true,
+                                                            "type": "boolean"
+                                                        },
+                                                        "defaultApi": {},
+                                                        "discovery": {
+                                                            "type": "object",
+                                                            "properties": {
+                                                                "adapter": {
+                                                                    "default": "none",
+                                                                    "type": "string",
+                                                                    "enum": [
+                                                                        "openai-models",
+                                                                        "openrouter-models",
+                                                                        "google-models",
+                                                                        "none"
+                                                                    ]
+                                                                },
+                                                                "endpointPath": {}
+                                                            },
+                                                            "required": [
+                                                                "adapter",
+                                                                "endpointPath"
+                                                            ],
+                                                            "additionalProperties": false
+                                                        },
                                                         "options": {
                                                             "type": "object",
                                                             "properties": {
@@ -1194,15 +1888,102 @@ defineRouteMeta({
                                                                     "default": null,
                                                                     "nullable": true,
                                                                     "type": "integer",
+                                                                    "minimum": 0,
                                                                     "exclusiveMinimum": true,
                                                                     "maximum": 9007199254740991
                                                                 },
                                                                 "requestOptions": {
                                                                     "default": {},
                                                                     "type": "object",
-                                                                    "additionalProperties": {
-                                                                        "$ref": "#/definitions/__schema0"
-                                                                    }
+                                                                    "properties": {
+                                                                        "temperature": {
+                                                                            "type": "number",
+                                                                            "minimum": 0
+                                                                        },
+                                                                        "headers": {
+                                                                            "type": "object",
+                                                                            "additionalProperties": {
+                                                                                "nullable": true,
+                                                                                "type": "string"
+                                                                            }
+                                                                        },
+                                                                        "websocketConnectTimeoutMs": {
+                                                                            "type": "integer",
+                                                                            "minimum": 0,
+                                                                            "exclusiveMinimum": true,
+                                                                            "maximum": 9007199254740991
+                                                                        },
+                                                                        "maxRetries": {
+                                                                            "type": "integer",
+                                                                            "minimum": 0,
+                                                                            "maximum": 9007199254740991
+                                                                        },
+                                                                        "maxRetryDelayMs": {
+                                                                            "type": "integer",
+                                                                            "minimum": 0,
+                                                                            "maximum": 9007199254740991
+                                                                        },
+                                                                        "metadata": {
+                                                                            "type": "object",
+                                                                            "additionalProperties": {
+                                                                                "$ref": "#/definitions/__schema0"
+                                                                            }
+                                                                        },
+                                                                        "env": {
+                                                                            "type": "object",
+                                                                            "additionalProperties": {
+                                                                                "type": "string"
+                                                                            }
+                                                                        },
+                                                                        "transport": {
+                                                                            "type": "string",
+                                                                            "enum": [
+                                                                                "sse",
+                                                                                "websocket",
+                                                                                "websocket-cached",
+                                                                                "auto"
+                                                                            ]
+                                                                        },
+                                                                        "cacheRetention": {
+                                                                            "type": "string",
+                                                                            "enum": [
+                                                                                "none",
+                                                                                "short",
+                                                                                "long"
+                                                                            ]
+                                                                        },
+                                                                        "thinkingBudgets": {
+                                                                            "type": "object",
+                                                                            "properties": {
+                                                                                "minimal": {
+                                                                                    "type": "integer",
+                                                                                    "minimum": 0,
+                                                                                    "exclusiveMinimum": true,
+                                                                                    "maximum": 9007199254740991
+                                                                                },
+                                                                                "low": {
+                                                                                    "type": "integer",
+                                                                                    "minimum": 0,
+                                                                                    "exclusiveMinimum": true,
+                                                                                    "maximum": 9007199254740991
+                                                                                },
+                                                                                "medium": {
+                                                                                    "type": "integer",
+                                                                                    "minimum": 0,
+                                                                                    "exclusiveMinimum": true,
+                                                                                    "maximum": 9007199254740991
+                                                                                },
+                                                                                "high": {
+                                                                                    "type": "integer",
+                                                                                    "minimum": 0,
+                                                                                    "exclusiveMinimum": true,
+                                                                                    "maximum": 9007199254740991
+                                                                                }
+                                                                            },
+                                                                            "additionalProperties": false
+                                                                        }
+                                                                    },
+                                                                    "additionalProperties": false
                                                                 }
                                                             },
                                                             "required": [
@@ -1233,14 +2014,12 @@ defineRouteMeta({
                                                                         "default": true,
                                                                         "type": "boolean"
                                                                     },
-                                                                    "provider": {},
                                                                     "api": {
                                                                         "default": null,
                                                                         "nullable": true,
                                                                         "type": "string",
                                                                         "minLength": 1
                                                                     },
-                                                                    "baseUrl": {},
                                                                     "reasoning": {
                                                                         "default": null,
                                                                         "nullable": true,
@@ -1263,6 +2042,7 @@ defineRouteMeta({
                                                                         "default": null,
                                                                         "nullable": true,
                                                                         "type": "integer",
+                                                                        "minimum": 0,
                                                                         "exclusiveMinimum": true,
                                                                         "maximum": 9007199254740991
                                                                     },
@@ -1272,27 +2052,66 @@ defineRouteMeta({
                                                                         "type": "object",
                                                                         "properties": {
                                                                             "input": {
-                                                                                "default": 0,
-                                                                                "type": "number"
+                                                                                "type": "number",
+                                                                                "minimum": 0
                                                                             },
                                                                             "output": {
-                                                                                "default": 0,
-                                                                                "type": "number"
+                                                                                "type": "number",
+                                                                                "minimum": 0
                                                                             },
                                                                             "cacheRead": {
-                                                                                "default": 0,
-                                                                                "type": "number"
+                                                                                "type": "number",
+                                                                                "minimum": 0
                                                                             },
                                                                             "cacheWrite": {
-                                                                                "default": 0,
-                                                                                "type": "number"
+                                                                                "type": "number",
+                                                                                "minimum": 0
+                                                                            },
+                                                                            "tiers": {
+                                                                                "default": [],
+                                                                                "type": "array",
+                                                                                "items": {
+                                                                                    "type": "object",
+                                                                                    "properties": {
+                                                                                        "inputTokensAbove": {
+                                                                                            "type": "integer",
+                                                                                            "minimum": 0,
+                                                                                            "maximum": 9007199254740991
+                                                                                        },
+                                                                                        "input": {
+                                                                                            "type": "number",
+                                                                                            "minimum": 0
+                                                                                        },
+                                                                                        "output": {
+                                                                                            "type": "number",
+                                                                                            "minimum": 0
+                                                                                        },
+                                                                                        "cacheRead": {
+                                                                                            "type": "number",
+                                                                                            "minimum": 0
+                                                                                        },
+                                                                                        "cacheWrite": {
+                                                                                            "type": "number",
+                                                                                            "minimum": 0
+                                                                                        }
+                                                                                    },
+                                                                                    "required": [
+                                                                                        "inputTokensAbove",
+                                                                                        "input",
+                                                                                        "output",
+                                                                                        "cacheRead",
+                                                                                        "cacheWrite"
+                                                                                    ],
+                                                                                    "additionalProperties": false
+                                                                                }
                                                                             }
                                                                         },
                                                                         "required": [
                                                                             "input",
                                                                             "output",
                                                                             "cacheRead",
-                                                                            "cacheWrite"
+                                                                            "cacheWrite",
+                                                                            "tiers"
                                                                         ],
                                                                         "additionalProperties": false
                                                                     },
@@ -1304,10 +2123,29 @@ defineRouteMeta({
                                                                             "$ref": "#/definitions/__schema1"
                                                                         }
                                                                     },
+                                                                    "headers": {
+                                                                        "default": null,
+                                                                        "nullable": true,
+                                                                        "type": "object",
+                                                                        "additionalProperties": {
+                                                                            "nullable": true,
+                                                                            "type": "string"
+                                                                        }
+                                                                    },
+                                                                    "thinkingLevelMap": {
+                                                                        "default": null,
+                                                                        "nullable": true,
+                                                                        "type": "object",
+                                                                        "additionalProperties": {
+                                                                            "nullable": true,
+                                                                            "type": "string"
+                                                                        }
+                                                                    },
                                                                     "contextWindowTokens": {
                                                                         "default": null,
                                                                         "nullable": true,
                                                                         "type": "integer",
+                                                                        "minimum": 0,
                                                                         "exclusiveMinimum": true,
                                                                         "maximum": 9007199254740991
                                                                     }
@@ -1317,14 +2155,14 @@ defineRouteMeta({
                                                                     "id",
                                                                     "group",
                                                                     "enabled",
-                                                                    "provider",
                                                                     "api",
-                                                                    "baseUrl",
                                                                     "reasoning",
                                                                     "input",
                                                                     "maxTokens",
                                                                     "cost",
                                                                     "compat",
+                                                                    "headers",
+                                                                    "thinkingLevelMap",
                                                                     "contextWindowTokens"
                                                                 ],
                                                                 "additionalProperties": false
@@ -1334,7 +2172,9 @@ defineRouteMeta({
                                                     "required": [
                                                         "id",
                                                         "name",
-                                                        "api",
+                                                        "enabled",
+                                                        "defaultApi",
+                                                        "discovery",
                                                         "options",
                                                         "models"
                                                     ],
@@ -1368,6 +2208,7 @@ defineRouteMeta({
                                                 "default": null,
                                                 "nullable": true,
                                                 "type": "integer",
+                                                "minimum": 0,
                                                 "exclusiveMinimum": true,
                                                 "maximum": 9007199254740991
                                             },
@@ -1399,6 +2240,7 @@ defineRouteMeta({
                                                 "default": null,
                                                 "nullable": true,
                                                 "type": "integer",
+                                                "minimum": 0,
                                                 "exclusiveMinimum": true,
                                                 "maximum": 9007199254740991
                                             },
@@ -1406,7 +2248,7 @@ defineRouteMeta({
                                                 "default": {},
                                                 "type": "object",
                                                 "additionalProperties": {
-                                                    "$ref": "#/definitions/__schema0"
+                                                    "$ref": "#/definitions/__schema2"
                                                 }
                                             }
                                         },
@@ -1419,6 +2261,7 @@ defineRouteMeta({
                                                 "userAssets": null
                                             },
                                             "profileModelDefaults": {},
+                                            "profileRuntimeDefaults": {},
                                             "profiles": {}
                                         },
                                         "type": "object",
@@ -1469,6 +2312,7 @@ defineRouteMeta({
                                                         "default": null,
                                                         "nullable": true,
                                                         "type": "integer",
+                                                        "minimum": 0,
                                                         "exclusiveMinimum": true,
                                                         "maximum": 9007199254740991
                                                     },
@@ -1482,12 +2326,211 @@ defineRouteMeta({
                                                             "low",
                                                             "medium",
                                                             "high",
-                                                            "xhigh"
+                                                            "xhigh",
+                                                            "max"
                                                         ]
                                                     },
                                                     "stream": {
                                                         "default": true,
                                                         "type": "boolean"
+                                                    }
+                                                },
+                                                "additionalProperties": false
+                                            },
+                                            "profileRuntimeDefaults": {
+                                                "default": {},
+                                                "type": "object",
+                                                "properties": {
+                                                    "summarizer": {
+                                                        "type": "object",
+                                                        "properties": {
+                                                            "enabled": {
+                                                                "type": "boolean"
+                                                            },
+                                                            "profileKey": {
+                                                                "type": "string",
+                                                                "minLength": 1
+                                                            },
+                                                            "trigger": {
+                                                                "type": "string",
+                                                                "enum": [
+                                                                    "afterInvocation"
+                                                                ]
+                                                            },
+                                                            "interval": {
+                                                                "type": "object",
+                                                                "properties": {
+                                                                    "kind": {
+                                                                        "type": "string",
+                                                                        "enum": [
+                                                                            "sourceInvocation",
+                                                                            "dialogueContentTokens"
+                                                                        ]
+                                                                    },
+                                                                    "value": {
+                                                                        "type": "number",
+                                                                        "minimum": 0,
+                                                                        "exclusiveMinimum": true
+                                                                    }
+                                                                },
+                                                                "required": [
+                                                                    "kind",
+                                                                    "value"
+                                                                ],
+                                                                "additionalProperties": false
+                                                            },
+                                                            "maxDialogueContentTokens": {
+                                                                "type": "number",
+                                                                "minimum": 0,
+                                                                "exclusiveMinimum": true
+                                                            }
+                                                        },
+                                                        "additionalProperties": false
+                                                    },
+                                                    "compaction": {
+                                                        "type": "object",
+                                                        "properties": {
+                                                            "enabled": {
+                                                                "type": "boolean"
+                                                            },
+                                                            "trigger": {
+                                                                "oneOf": [
+                                                                    {
+                                                                        "type": "object",
+                                                                        "properties": {
+                                                                            "kind": {
+                                                                                "type": "string",
+                                                                                "enum": [
+                                                                                    "autoReserve"
+                                                                                ]
+                                                                            }
+                                                                        },
+                                                                        "required": [
+                                                                            "kind"
+                                                                        ],
+                                                                        "additionalProperties": false
+                                                                    },
+                                                                    {
+                                                                        "type": "object",
+                                                                        "properties": {
+                                                                            "kind": {
+                                                                                "type": "string",
+                                                                                "enum": [
+                                                                                    "percent"
+                                                                                ]
+                                                                            },
+                                                                            "value": {
+                                                                                "type": "number",
+                                                                                "minimum": 0,
+                                                                                "exclusiveMinimum": true,
+                                                                                "maximum": 1
+                                                                            }
+                                                                        },
+                                                                        "required": [
+                                                                            "kind",
+                                                                            "value"
+                                                                        ],
+                                                                        "additionalProperties": false
+                                                                    },
+                                                                    {
+                                                                        "type": "object",
+                                                                        "properties": {
+                                                                            "kind": {
+                                                                                "type": "string",
+                                                                                "enum": [
+                                                                                    "tokens"
+                                                                                ]
+                                                                            },
+                                                                            "value": {
+                                                                                "type": "integer",
+                                                                                "minimum": 0,
+                                                                                "exclusiveMinimum": true,
+                                                                                "maximum": 9007199254740991
+                                                                            }
+                                                                        },
+                                                                        "required": [
+                                                                            "kind",
+                                                                            "value"
+                                                                        ],
+                                                                        "additionalProperties": false
+                                                                    }
+                                                                ]
+                                                            },
+                                                            "reserveTokens": {
+                                                                "type": "integer",
+                                                                "minimum": 0,
+                                                                "exclusiveMinimum": true,
+                                                                "maximum": 9007199254740991
+                                                            },
+                                                            "keepRecent": {
+                                                                "oneOf": [
+                                                                    {
+                                                                        "type": "object",
+                                                                        "properties": {
+                                                                            "kind": {
+                                                                                "type": "string",
+                                                                                "enum": [
+                                                                                    "percent"
+                                                                                ]
+                                                                            },
+                                                                            "value": {
+                                                                                "type": "number",
+                                                                                "minimum": 0,
+                                                                                "exclusiveMinimum": true,
+                                                                                "maximum": 1
+                                                                            }
+                                                                        },
+                                                                        "required": [
+                                                                            "kind",
+                                                                            "value"
+                                                                        ],
+                                                                        "additionalProperties": false
+                                                                    },
+                                                                    {
+                                                                        "type": "object",
+                                                                        "properties": {
+                                                                            "kind": {
+                                                                                "type": "string",
+                                                                                "enum": [
+                                                                                    "tokens"
+                                                                                ]
+                                                                            },
+                                                                            "value": {
+                                                                                "type": "integer",
+                                                                                "minimum": 0,
+                                                                                "exclusiveMinimum": true,
+                                                                                "maximum": 9007199254740991
+                                                                            }
+                                                                        },
+                                                                        "required": [
+                                                                            "kind",
+                                                                            "value"
+                                                                        ],
+                                                                        "additionalProperties": false
+                                                                    }
+                                                                ]
+                                                            },
+                                                            "prompt": {
+                                                                "type": "string",
+                                                                "minLength": 1
+                                                            },
+                                                            "summaryPrefix": {
+                                                                "type": "string",
+                                                                "minLength": 1
+                                                            }
+                                                        },
+                                                        "additionalProperties": false
+                                                    },
+                                                    "fileChangeNotice": {
+                                                        "type": "object",
+                                                        "properties": {
+                                                            "diffMaxChars": {
+                                                                "type": "integer",
+                                                                "minimum": 0,
+                                                                "maximum": 8192
+                                                            }
+                                                        },
+                                                        "additionalProperties": false
                                                     }
                                                 },
                                                 "additionalProperties": false
@@ -1518,6 +2561,7 @@ defineRouteMeta({
                                                                     "default": null,
                                                                     "nullable": true,
                                                                     "type": "integer",
+                                                                    "minimum": 0,
                                                                     "exclusiveMinimum": true,
                                                                     "maximum": 9007199254740991
                                                                 },
@@ -1531,7 +2575,8 @@ defineRouteMeta({
                                                                         "low",
                                                                         "medium",
                                                                         "high",
-                                                                        "xhigh"
+                                                                        "xhigh",
+                                                                        "max"
                                                                     ]
                                                                 },
                                                                 "stream": {
@@ -1544,7 +2589,7 @@ defineRouteMeta({
                                                         "settings": {
                                                             "type": "object",
                                                             "additionalProperties": {
-                                                                "$ref": "#/definitions/__schema2"
+                                                                "$ref": "#/definitions/__schema3"
                                                             }
                                                         },
                                                         "resourceMutations": {
@@ -1678,6 +2723,203 @@ defineRouteMeta({
                                                                     }
                                                                 ]
                                                             }
+                                                        },
+                                                        "runtime": {
+                                                            "type": "object",
+                                                            "properties": {
+                                                                "summarizer": {
+                                                                    "type": "object",
+                                                                    "properties": {
+                                                                        "enabled": {
+                                                                            "type": "boolean"
+                                                                        },
+                                                                        "profileKey": {
+                                                                            "type": "string",
+                                                                            "minLength": 1
+                                                                        },
+                                                                        "trigger": {
+                                                                            "type": "string",
+                                                                            "enum": [
+                                                                                "afterInvocation"
+                                                                            ]
+                                                                        },
+                                                                        "interval": {
+                                                                            "type": "object",
+                                                                            "properties": {
+                                                                                "kind": {
+                                                                                    "type": "string",
+                                                                                    "enum": [
+                                                                                        "sourceInvocation",
+                                                                                        "dialogueContentTokens"
+                                                                                    ]
+                                                                                },
+                                                                                "value": {
+                                                                                    "type": "number",
+                                                                                    "minimum": 0,
+                                                                                    "exclusiveMinimum": true
+                                                                                }
+                                                                            },
+                                                                            "required": [
+                                                                                "kind",
+                                                                                "value"
+                                                                            ],
+                                                                            "additionalProperties": false
+                                                                        },
+                                                                        "maxDialogueContentTokens": {
+                                                                            "type": "number",
+                                                                            "minimum": 0,
+                                                                            "exclusiveMinimum": true
+                                                                        }
+                                                                    },
+                                                                    "additionalProperties": false
+                                                                },
+                                                                "compaction": {
+                                                                    "type": "object",
+                                                                    "properties": {
+                                                                        "enabled": {
+                                                                            "type": "boolean"
+                                                                        },
+                                                                        "trigger": {
+                                                                            "oneOf": [
+                                                                                {
+                                                                                    "type": "object",
+                                                                                    "properties": {
+                                                                                        "kind": {
+                                                                                            "type": "string",
+                                                                                            "enum": [
+                                                                                                "autoReserve"
+                                                                                            ]
+                                                                                        }
+                                                                                    },
+                                                                                    "required": [
+                                                                                        "kind"
+                                                                                    ],
+                                                                                    "additionalProperties": false
+                                                                                },
+                                                                                {
+                                                                                    "type": "object",
+                                                                                    "properties": {
+                                                                                        "kind": {
+                                                                                            "type": "string",
+                                                                                            "enum": [
+                                                                                                "percent"
+                                                                                            ]
+                                                                                        },
+                                                                                        "value": {
+                                                                                            "type": "number",
+                                                                                            "minimum": 0,
+                                                                                            "exclusiveMinimum": true,
+                                                                                            "maximum": 1
+                                                                                        }
+                                                                                    },
+                                                                                    "required": [
+                                                                                        "kind",
+                                                                                        "value"
+                                                                                    ],
+                                                                                    "additionalProperties": false
+                                                                                },
+                                                                                {
+                                                                                    "type": "object",
+                                                                                    "properties": {
+                                                                                        "kind": {
+                                                                                            "type": "string",
+                                                                                            "enum": [
+                                                                                                "tokens"
+                                                                                            ]
+                                                                                        },
+                                                                                        "value": {
+                                                                                            "type": "integer",
+                                                                                            "minimum": 0,
+                                                                                            "exclusiveMinimum": true,
+                                                                                            "maximum": 9007199254740991
+                                                                                        }
+                                                                                    },
+                                                                                    "required": [
+                                                                                        "kind",
+                                                                                        "value"
+                                                                                    ],
+                                                                                    "additionalProperties": false
+                                                                                }
+                                                                            ]
+                                                                        },
+                                                                        "reserveTokens": {
+                                                                            "type": "integer",
+                                                                            "minimum": 0,
+                                                                            "exclusiveMinimum": true,
+                                                                            "maximum": 9007199254740991
+                                                                        },
+                                                                        "keepRecent": {
+                                                                            "oneOf": [
+                                                                                {
+                                                                                    "type": "object",
+                                                                                    "properties": {
+                                                                                        "kind": {
+                                                                                            "type": "string",
+                                                                                            "enum": [
+                                                                                                "percent"
+                                                                                            ]
+                                                                                        },
+                                                                                        "value": {
+                                                                                            "type": "number",
+                                                                                            "minimum": 0,
+                                                                                            "exclusiveMinimum": true,
+                                                                                            "maximum": 1
+                                                                                        }
+                                                                                    },
+                                                                                    "required": [
+                                                                                        "kind",
+                                                                                        "value"
+                                                                                    ],
+                                                                                    "additionalProperties": false
+                                                                                },
+                                                                                {
+                                                                                    "type": "object",
+                                                                                    "properties": {
+                                                                                        "kind": {
+                                                                                            "type": "string",
+                                                                                            "enum": [
+                                                                                                "tokens"
+                                                                                            ]
+                                                                                        },
+                                                                                        "value": {
+                                                                                            "type": "integer",
+                                                                                            "minimum": 0,
+                                                                                            "exclusiveMinimum": true,
+                                                                                            "maximum": 9007199254740991
+                                                                                        }
+                                                                                    },
+                                                                                    "required": [
+                                                                                        "kind",
+                                                                                        "value"
+                                                                                    ],
+                                                                                    "additionalProperties": false
+                                                                                }
+                                                                            ]
+                                                                        },
+                                                                        "prompt": {
+                                                                            "type": "string",
+                                                                            "minLength": 1
+                                                                        },
+                                                                        "summaryPrefix": {
+                                                                            "type": "string",
+                                                                            "minLength": 1
+                                                                        }
+                                                                    },
+                                                                    "additionalProperties": false
+                                                                },
+                                                                "fileChangeNotice": {
+                                                                    "type": "object",
+                                                                    "properties": {
+                                                                        "diffMaxChars": {
+                                                                            "type": "integer",
+                                                                            "minimum": 0,
+                                                                            "maximum": 8192
+                                                                        }
+                                                                    },
+                                                                    "additionalProperties": false
+                                                                }
+                                                            },
+                                                            "additionalProperties": false
                                                         }
                                                     },
                                                     "required": [
@@ -1690,6 +2932,7 @@ defineRouteMeta({
                                         "required": [
                                             "defaultProfileKey",
                                             "profileModelDefaults",
+                                            "profileRuntimeDefaults",
                                             "profiles"
                                         ],
                                         "additionalProperties": false
@@ -1697,6 +2940,7 @@ defineRouteMeta({
                                     "ui": {
                                         "default": {
                                             "theme": "sepia",
+                                            "customThemes": [],
                                             "costCurrency": "USD"
                                         },
                                         "type": "object",
@@ -1704,11 +2948,46 @@ defineRouteMeta({
                                             "theme": {
                                                 "default": "sepia",
                                                 "type": "string",
-                                                "enum": [
-                                                    "sepia",
-                                                    "light",
-                                                    "dark"
-                                                ]
+                                                "minLength": 1
+                                            },
+                                            "customThemes": {
+                                                "default": [],
+                                                "maxItems": 50,
+                                                "type": "array",
+                                                "items": {
+                                                    "type": "object",
+                                                    "properties": {
+                                                        "id": {
+                                                            "type": "string",
+                                                            "pattern": "^custom-[a-z0-9-]+$"
+                                                        },
+                                                        "name": {
+                                                            "type": "string",
+                                                            "minLength": 1,
+                                                            "maxLength": 50
+                                                        },
+                                                        "appearance": {
+                                                            "type": "string",
+                                                            "enum": [
+                                                                "light",
+                                                                "dark"
+                                                            ]
+                                                        },
+                                                        "vars": {
+                                                            "type": "object",
+                                                            "additionalProperties": {
+                                                                "type": "string"
+                                                            }
+                                                        }
+                                                    },
+                                                    "required": [
+                                                        "id",
+                                                        "name",
+                                                        "appearance",
+                                                        "vars"
+                                                    ],
+                                                    "additionalProperties": false
+                                                }
                                             },
                                             "costCurrency": {
                                                 "default": "USD",
@@ -1721,6 +3000,7 @@ defineRouteMeta({
                                         },
                                         "required": [
                                             "theme",
+                                            "customThemes",
                                             "costCurrency"
                                         ],
                                         "additionalProperties": false
@@ -1833,6 +3113,7 @@ defineRouteMeta({
                                                     "tabSize": {
                                                         "default": 4,
                                                         "type": "integer",
+                                                        "minimum": 0,
                                                         "exclusiveMinimum": true,
                                                         "maximum": 9007199254740991
                                                     },
@@ -1930,6 +3211,7 @@ defineRouteMeta({
                                                                         "default": null,
                                                                         "nullable": true,
                                                                         "type": "integer",
+                                                                        "minimum": 0,
                                                                         "exclusiveMinimum": true,
                                                                         "maximum": 9007199254740991
                                                                     }
@@ -1980,6 +3262,7 @@ defineRouteMeta({
                                                                         "default": null,
                                                                         "nullable": true,
                                                                         "type": "integer",
+                                                                        "minimum": 0,
                                                                         "exclusiveMinimum": true,
                                                                         "maximum": 9007199254740991
                                                                     }
@@ -2007,6 +3290,7 @@ defineRouteMeta({
                                                             "timeoutMs": {
                                                                 "default": 15000,
                                                                 "type": "integer",
+                                                                "minimum": 0,
                                                                 "exclusiveMinimum": true,
                                                                 "maximum": 9007199254740991
                                                             },
@@ -2019,12 +3303,14 @@ defineRouteMeta({
                                                             "maxBytes": {
                                                                 "default": 2000000,
                                                                 "type": "integer",
+                                                                "minimum": 0,
                                                                 "exclusiveMinimum": true,
                                                                 "maximum": 9007199254740991
                                                             },
                                                             "maxCharacters": {
                                                                 "default": 20000,
                                                                 "type": "integer",
+                                                                "minimum": 0,
                                                                 "exclusiveMinimum": true,
                                                                 "maximum": 9007199254740991
                                                             },
@@ -2049,6 +3335,7 @@ defineRouteMeta({
                                                                 "default": null,
                                                                 "nullable": true,
                                                                 "type": "integer",
+                                                                "minimum": 0,
                                                                 "exclusiveMinimum": true,
                                                                 "maximum": 9007199254740991
                                                             }
@@ -2057,6 +3344,57 @@ defineRouteMeta({
                                                     }
                                                 },
                                                 "additionalProperties": false
+                                            }
+                                        },
+                                        "additionalProperties": false
+                                    },
+                                    "observability": {
+                                        "default": {},
+                                        "type": "object",
+                                        "properties": {
+                                            "piTrace": {
+                                                "default": {},
+                                                "type": "object",
+                                                "properties": {
+                                                    "enabled": {
+                                                        "type": "boolean"
+                                                    },
+                                                    "maxRecords": {
+                                                        "type": "integer",
+                                                        "minimum": 0,
+                                                        "maximum": 9007199254740991
+                                                    },
+                                                    "capturePayload": {
+                                                        "type": "boolean"
+                                                    }
+                                                },
+                                                "additionalProperties": false
+                                            }
+                                        },
+                                        "additionalProperties": false
+                                    },
+                                    "history": {
+                                        "default": {},
+                                        "type": "object",
+                                        "properties": {
+                                            "enabled": {
+                                                "type": "boolean"
+                                            },
+                                            "retentionFullDays": {
+                                                "type": "integer",
+                                                "minimum": 1,
+                                                "maximum": 9007199254740991
+                                            },
+                                            "keepDailyLastAfterWindow": {
+                                                "type": "boolean"
+                                            },
+                                            "autoAcceptEnabled": {
+                                                "type": "boolean"
+                                            },
+                                            "autoAcceptDays": {
+                                                "type": "integer",
+                                                "minimum": 1,
+                                                "maximum": 9007199254740991
                                             }
                                         },
                                         "additionalProperties": false
@@ -2089,6 +3427,7 @@ defineRouteMeta({
                                                 "default": null,
                                                 "nullable": true,
                                                 "type": "integer",
+                                                "minimum": 0,
                                                 "exclusiveMinimum": true,
                                                 "maximum": 9007199254740991
                                             }
@@ -2122,6 +3461,7 @@ defineRouteMeta({
                                                         "default": null,
                                                         "nullable": true,
                                                         "type": "integer",
+                                                        "minimum": 0,
                                                         "exclusiveMinimum": true,
                                                         "maximum": 9007199254740991
                                                     },
@@ -2135,12 +3475,210 @@ defineRouteMeta({
                                                             "low",
                                                             "medium",
                                                             "high",
-                                                            "xhigh"
+                                                            "xhigh",
+                                                            "max"
                                                         ]
                                                     },
                                                     "stream": {
                                                         "default": true,
                                                         "type": "boolean"
+                                                    }
+                                                },
+                                                "additionalProperties": false
+                                            },
+                                            "profileRuntimeDefaults": {
+                                                "type": "object",
+                                                "properties": {
+                                                    "summarizer": {
+                                                        "type": "object",
+                                                        "properties": {
+                                                            "enabled": {
+                                                                "type": "boolean"
+                                                            },
+                                                            "profileKey": {
+                                                                "type": "string",
+                                                                "minLength": 1
+                                                            },
+                                                            "trigger": {
+                                                                "type": "string",
+                                                                "enum": [
+                                                                    "afterInvocation"
+                                                                ]
+                                                            },
+                                                            "interval": {
+                                                                "type": "object",
+                                                                "properties": {
+                                                                    "kind": {
+                                                                        "type": "string",
+                                                                        "enum": [
+                                                                            "sourceInvocation",
+                                                                            "dialogueContentTokens"
+                                                                        ]
+                                                                    },
+                                                                    "value": {
+                                                                        "type": "number",
+                                                                        "minimum": 0,
+                                                                        "exclusiveMinimum": true
+                                                                    }
+                                                                },
+                                                                "required": [
+                                                                    "kind",
+                                                                    "value"
+                                                                ],
+                                                                "additionalProperties": false
+                                                            },
+                                                            "maxDialogueContentTokens": {
+                                                                "type": "number",
+                                                                "minimum": 0,
+                                                                "exclusiveMinimum": true
+                                                            }
+                                                        },
+                                                        "additionalProperties": false
+                                                    },
+                                                    "compaction": {
+                                                        "type": "object",
+                                                        "properties": {
+                                                            "enabled": {
+                                                                "type": "boolean"
+                                                            },
+                                                            "trigger": {
+                                                                "oneOf": [
+                                                                    {
+                                                                        "type": "object",
+                                                                        "properties": {
+                                                                            "kind": {
+                                                                                "type": "string",
+                                                                                "enum": [
+                                                                                    "autoReserve"
+                                                                                ]
+                                                                            }
+                                                                        },
+                                                                        "required": [
+                                                                            "kind"
+                                                                        ],
+                                                                        "additionalProperties": false
+                                                                    },
+                                                                    {
+                                                                        "type": "object",
+                                                                        "properties": {
+                                                                            "kind": {
+                                                                                "type": "string",
+                                                                                "enum": [
+                                                                                    "percent"
+                                                                                ]
+                                                                            },
+                                                                            "value": {
+                                                                                "type": "number",
+                                                                                "minimum": 0,
+                                                                                "exclusiveMinimum": true,
+                                                                                "maximum": 1
+                                                                            }
+                                                                        },
+                                                                        "required": [
+                                                                            "kind",
+                                                                            "value"
+                                                                        ],
+                                                                        "additionalProperties": false
+                                                                    },
+                                                                    {
+                                                                        "type": "object",
+                                                                        "properties": {
+                                                                            "kind": {
+                                                                                "type": "string",
+                                                                                "enum": [
+                                                                                    "tokens"
+                                                                                ]
+                                                                            },
+                                                                            "value": {
+                                                                                "type": "integer",
+                                                                                "minimum": 0,
+                                                                                "exclusiveMinimum": true,
+                                                                                "maximum": 9007199254740991
+                                                                            }
+                                                                        },
+                                                                        "required": [
+                                                                            "kind",
+                                                                            "value"
+                                                                        ],
+                                                                        "additionalProperties": false
+                                                                    }
+                                                                ]
+                                                            },
+                                                            "reserveTokens": {
+                                                                "type": "integer",
+                                                                "minimum": 0,
+                                                                "exclusiveMinimum": true,
+                                                                "maximum": 9007199254740991
+                                                            },
+                                                            "keepRecent": {
+                                                                "oneOf": [
+                                                                    {
+                                                                        "type": "object",
+                                                                        "properties": {
+                                                                            "kind": {
+                                                                                "type": "string",
+                                                                                "enum": [
+                                                                                    "percent"
+                                                                                ]
+                                                                            },
+                                                                            "value": {
+                                                                                "type": "number",
+                                                                                "minimum": 0,
+                                                                                "exclusiveMinimum": true,
+                                                                                "maximum": 1
+                                                                            }
+                                                                        },
+                                                                        "required": [
+                                                                            "kind",
+                                                                            "value"
+                                                                        ],
+                                                                        "additionalProperties": false
+                                                                    },
+                                                                    {
+                                                                        "type": "object",
+                                                                        "properties": {
+                                                                            "kind": {
+                                                                                "type": "string",
+                                                                                "enum": [
+                                                                                    "tokens"
+                                                                                ]
+                                                                            },
+                                                                            "value": {
+                                                                                "type": "integer",
+                                                                                "minimum": 0,
+                                                                                "exclusiveMinimum": true,
+                                                                                "maximum": 9007199254740991
+                                                                            }
+                                                                        },
+                                                                        "required": [
+                                                                            "kind",
+                                                                            "value"
+                                                                        ],
+                                                                        "additionalProperties": false
+                                                                    }
+                                                                ]
+                                                            },
+                                                            "prompt": {
+                                                                "type": "string",
+                                                                "minLength": 1
+                                                            },
+                                                            "summaryPrefix": {
+                                                                "type": "string",
+                                                                "minLength": 1
+                                                            }
+                                                        },
+                                                        "additionalProperties": false
+                                                    },
+                                                    "fileChangeNotice": {
+                                                        "type": "object",
+                                                        "properties": {
+                                                            "diffMaxChars": {
+                                                                "type": "integer",
+                                                                "minimum": 0,
+                                                                "maximum": 8192
+                                                            }
+                                                        },
+                                                        "additionalProperties": false
                                                     }
                                                 },
                                                 "additionalProperties": false
@@ -2171,6 +3709,7 @@ defineRouteMeta({
                                                                     "default": null,
                                                                     "nullable": true,
                                                                     "type": "integer",
+                                                                    "minimum": 0,
                                                                     "exclusiveMinimum": true,
                                                                     "maximum": 9007199254740991
                                                                 },
@@ -2184,7 +3723,8 @@ defineRouteMeta({
                                                                         "low",
                                                                         "medium",
                                                                         "high",
-                                                                        "xhigh"
+                                                                        "xhigh",
+                                                                        "max"
                                                                     ]
                                                                 },
                                                                 "stream": {
@@ -2197,7 +3737,7 @@ defineRouteMeta({
                                                         "settings": {
                                                             "type": "object",
                                                             "additionalProperties": {
-                                                                "$ref": "#/definitions/__schema2"
+                                                                "$ref": "#/definitions/__schema3"
                                                             }
                                                         },
                                                         "resourceMutations": {
@@ -2331,6 +3871,203 @@ defineRouteMeta({
                                                                     }
                                                                 ]
                                                             }
+                                                        },
+                                                        "runtime": {
+                                                            "type": "object",
+                                                            "properties": {
+                                                                "summarizer": {
+                                                                    "type": "object",
+                                                                    "properties": {
+                                                                        "enabled": {
+                                                                            "type": "boolean"
+                                                                        },
+                                                                        "profileKey": {
+                                                                            "type": "string",
+                                                                            "minLength": 1
+                                                                        },
+                                                                        "trigger": {
+                                                                            "type": "string",
+                                                                            "enum": [
+                                                                                "afterInvocation"
+                                                                            ]
+                                                                        },
+                                                                        "interval": {
+                                                                            "type": "object",
+                                                                            "properties": {
+                                                                                "kind": {
+                                                                                    "type": "string",
+                                                                                    "enum": [
+                                                                                        "sourceInvocation",
+                                                                                        "dialogueContentTokens"
+                                                                                    ]
+                                                                                },
+                                                                                "value": {
+                                                                                    "type": "number",
+                                                                                    "minimum": 0,
+                                                                                    "exclusiveMinimum": true
+                                                                                }
+                                                                            },
+                                                                            "required": [
+                                                                                "kind",
+                                                                                "value"
+                                                                            ],
+                                                                            "additionalProperties": false
+                                                                        },
+                                                                        "maxDialogueContentTokens": {
+                                                                            "type": "number",
+                                                                            "minimum": 0,
+                                                                            "exclusiveMinimum": true
+                                                                        }
+                                                                    },
+                                                                    "additionalProperties": false
+                                                                },
+                                                                "compaction": {
+                                                                    "type": "object",
+                                                                    "properties": {
+                                                                        "enabled": {
+                                                                            "type": "boolean"
+                                                                        },
+                                                                        "trigger": {
+                                                                            "oneOf": [
+                                                                                {
+                                                                                    "type": "object",
+                                                                                    "properties": {
+                                                                                        "kind": {
+                                                                                            "type": "string",
+                                                                                            "enum": [
+                                                                                                "autoReserve"
+                                                                                            ]
+                                                                                        }
+                                                                                    },
+                                                                                    "required": [
+                                                                                        "kind"
+                                                                                    ],
+                                                                                    "additionalProperties": false
+                                                                                },
+                                                                                {
+                                                                                    "type": "object",
+                                                                                    "properties": {
+                                                                                        "kind": {
+                                                                                            "type": "string",
+                                                                                            "enum": [
+                                                                                                "percent"
+                                                                                            ]
+                                                                                        },
+                                                                                        "value": {
+                                                                                            "type": "number",
+                                                                                            "minimum": 0,
+                                                                                            "exclusiveMinimum": true,
+                                                                                            "maximum": 1
+                                                                                        }
+                                                                                    },
+                                                                                    "required": [
+                                                                                        "kind",
+                                                                                        "value"
+                                                                                    ],
+                                                                                    "additionalProperties": false
+                                                                                },
+                                                                                {
+                                                                                    "type": "object",
+                                                                                    "properties": {
+                                                                                        "kind": {
+                                                                                            "type": "string",
+                                                                                            "enum": [
+                                                                                                "tokens"
+                                                                                            ]
+                                                                                        },
+                                                                                        "value": {
+                                                                                            "type": "integer",
+                                                                                            "minimum": 0,
+                                                                                            "exclusiveMinimum": true,
+                                                                                            "maximum": 9007199254740991
+                                                                                        }
+                                                                                    },
+                                                                                    "required": [
+                                                                                        "kind",
+                                                                                        "value"
+                                                                                    ],
+                                                                                    "additionalProperties": false
+                                                                                }
+                                                                            ]
+                                                                        },
+                                                                        "reserveTokens": {
+                                                                            "type": "integer",
+                                                                            "minimum": 0,
+                                                                            "exclusiveMinimum": true,
+                                                                            "maximum": 9007199254740991
+                                                                        },
+                                                                        "keepRecent": {
+                                                                            "oneOf": [
+                                                                                {
+                                                                                    "type": "object",
+                                                                                    "properties": {
+                                                                                        "kind": {
+                                                                                            "type": "string",
+                                                                                            "enum": [
+                                                                                                "percent"
+                                                                                            ]
+                                                                                        },
+                                                                                        "value": {
+                                                                                            "type": "number",
+                                                                                            "minimum": 0,
+                                                                                            "exclusiveMinimum": true,
+                                                                                            "maximum": 1
+                                                                                        }
+                                                                                    },
+                                                                                    "required": [
+                                                                                        "kind",
+                                                                                        "value"
+                                                                                    ],
+                                                                                    "additionalProperties": false
+                                                                                },
+                                                                                {
+                                                                                    "type": "object",
+                                                                                    "properties": {
+                                                                                        "kind": {
+                                                                                            "type": "string",
+                                                                                            "enum": [
+                                                                                                "tokens"
+                                                                                            ]
+                                                                                        },
+                                                                                        "value": {
+                                                                                            "type": "integer",
+                                                                                            "minimum": 0,
+                                                                                            "exclusiveMinimum": true,
+                                                                                            "maximum": 9007199254740991
+                                                                                        }
+                                                                                    },
+                                                                                    "required": [
+                                                                                        "kind",
+                                                                                        "value"
+                                                                                    ],
+                                                                                    "additionalProperties": false
+                                                                                }
+                                                                            ]
+                                                                        },
+                                                                        "prompt": {
+                                                                            "type": "string",
+                                                                            "minLength": 1
+                                                                        },
+                                                                        "summaryPrefix": {
+                                                                            "type": "string",
+                                                                            "minLength": 1
+                                                                        }
+                                                                    },
+                                                                    "additionalProperties": false
+                                                                },
+                                                                "fileChangeNotice": {
+                                                                    "type": "object",
+                                                                    "properties": {
+                                                                        "diffMaxChars": {
+                                                                            "type": "integer",
+                                                                            "minimum": 0,
+                                                                            "maximum": 8192
+                                                                        }
+                                                                    },
+                                                                    "additionalProperties": false
+                                                                }
+                                                            },
+                                                            "additionalProperties": false
                                                         }
                                                     },
                                                     "required": [
@@ -2430,6 +4167,7 @@ defineRouteMeta({
                                                     "tabSize": {
                                                         "default": 4,
                                                         "type": "integer",
+                                                        "minimum": 0,
                                                         "exclusiveMinimum": true,
                                                         "maximum": 9007199254740991
                                                     },
@@ -2464,6 +4202,28 @@ defineRouteMeta({
                                             }
                                         },
                                         "additionalProperties": false
+                                    },
+                                    "history": {
+                                        "type": "object",
+                                        "properties": {
+                                            "retentionFullDays": {
+                                                "type": "integer",
+                                                "minimum": 1,
+                                                "maximum": 9007199254740991
+                                            },
+                                            "keepDailyLastAfterWindow": {
+                                                "type": "boolean"
+                                            },
+                                            "autoAcceptEnabled": {
+                                                "type": "boolean"
+                                            },
+                                            "autoAcceptDays": {
+                                                "type": "integer",
+                                                "minimum": 1,
+                                                "maximum": 9007199254740991
+                                            }
+                                        },
+                                        "additionalProperties": false
                                     }
                                 },
                                 "additionalProperties": {}
@@ -2471,7 +4231,7 @@ defineRouteMeta({
                             "effective": {
                                 "type": "object",
                                 "additionalProperties": {
-                                    "$ref": "#/definitions/__schema0"
+                                    "$ref": "#/definitions/__schema2"
                                 }
                             },
                             "meta": {
@@ -2567,6 +4327,7 @@ defineRouteMeta({
                                                     "default": null,
                                                     "nullable": true,
                                                     "type": "integer",
+                                                    "minimum": 0,
                                                     "exclusiveMinimum": true,
                                                     "maximum": 9007199254740991
                                                 }
@@ -2596,7 +4357,32 @@ defineRouteMeta({
                                                     "type": "string",
                                                     "minLength": 1
                                                 },
-                                                "api": {},
+                                                "enabled": {
+                                                    "default": true,
+                                                    "type": "boolean"
+                                                },
+                                                "defaultApi": {},
+                                                "discovery": {
+                                                    "type": "object",
+                                                    "properties": {
+                                                        "adapter": {
+                                                            "default": "none",
+                                                            "type": "string",
+                                                            "enum": [
+                                                                "openai-models",
+                                                                "openrouter-models",
+                                                                "google-models",
+                                                                "none"
+                                                            ]
+                                                        },
+                                                        "endpointPath": {}
+                                                    },
+                                                    "required": [
+                                                        "adapter",
+                                                        "endpointPath"
+                                                    ],
+                                                    "additionalProperties": false
+                                                },
                                                 "options": {
                                                     "type": "object",
                                                     "properties": {
@@ -2632,15 +4418,102 @@ defineRouteMeta({
                                                             "default": null,
                                                             "nullable": true,
                                                             "type": "integer",
+                                                            "minimum": 0,
                                                             "exclusiveMinimum": true,
                                                             "maximum": 9007199254740991
                                                         },
                                                         "requestOptions": {
                                                             "default": {},
                                                             "type": "object",
-                                                            "additionalProperties": {
-                                                                "$ref": "#/definitions/__schema0"
-                                                            }
+                                                            "properties": {
+                                                                "temperature": {
+                                                                    "type": "number",
+                                                                    "minimum": 0
+                                                                },
+                                                                "headers": {
+                                                                    "type": "object",
+                                                                    "additionalProperties": {
+                                                                        "nullable": true,
+                                                                        "type": "string"
+                                                                    }
+                                                                },
+                                                                "websocketConnectTimeoutMs": {
+                                                                    "type": "integer",
+                                                                    "minimum": 0,
+                                                                    "exclusiveMinimum": true,
+                                                                    "maximum": 9007199254740991
+                                                                },
+                                                                "maxRetries": {
+                                                                    "type": "integer",
+                                                                    "minimum": 0,
+                                                                    "maximum": 9007199254740991
+                                                                },
+                                                                "maxRetryDelayMs": {
+                                                                    "type": "integer",
+                                                                    "minimum": 0,
+                                                                    "maximum": 9007199254740991
+                                                                },
+                                                                "metadata": {
+                                                                    "type": "object",
+                                                                    "additionalProperties": {
+                                                                        "$ref": "#/definitions/__schema0"
+                                                                    }
+                                                                },
+                                                                "env": {
+                                                                    "type": "object",
+                                                                    "additionalProperties": {
+                                                                        "type": "string"
+                                                                    }
+                                                                },
+                                                                "transport": {
+                                                                    "type": "string",
+                                                                    "enum": [
+                                                                        "sse",
+                                                                        "websocket",
+                                                                        "websocket-cached",
+                                                                        "auto"
+                                                                    ]
+                                                                },
+                                                                "cacheRetention": {
+                                                                    "type": "string",
+                                                                    "enum": [
+                                                                        "none",
+                                                                        "short",
+                                                                        "long"
+                                                                    ]
+                                                                },
+                                                                "thinkingBudgets": {
+                                                                    "type": "object",
+                                                                    "properties": {
+                                                                        "minimal": {
+                                                                            "type": "integer",
+                                                                            "minimum": 0,
+                                                                            "exclusiveMinimum": true,
+                                                                            "maximum": 9007199254740991
+                                                                        },
+                                                                        "low": {
+                                                                            "type": "integer",
+                                                                            "minimum": 0,
+                                                                            "exclusiveMinimum": true,
+                                                                            "maximum": 9007199254740991
+                                                                        },
+                                                                        "medium": {
+                                                                            "type": "integer",
+                                                                            "minimum": 0,
+                                                                            "exclusiveMinimum": true,
+                                                                            "maximum": 9007199254740991
+                                                                        },
+                                                                        "high": {
+                                                                            "type": "integer",
+                                                                            "minimum": 0,
+                                                                            "exclusiveMinimum": true,
+                                                                            "maximum": 9007199254740991
+                                                                        }
+                                                                    },
+                                                                    "additionalProperties": false
+                                                                }
+                                                            },
+                                                            "additionalProperties": false
                                                         }
                                                     },
                                                     "required": [
@@ -2671,14 +4544,12 @@ defineRouteMeta({
                                                                 "default": true,
                                                                 "type": "boolean"
                                                             },
-                                                            "provider": {},
                                                             "api": {
                                                                 "default": null,
                                                                 "nullable": true,
                                                                 "type": "string",
                                                                 "minLength": 1
                                                             },
-                                                            "baseUrl": {},
                                                             "reasoning": {
                                                                 "default": null,
                                                                 "nullable": true,
@@ -2701,6 +4572,7 @@ defineRouteMeta({
                                                                 "default": null,
                                                                 "nullable": true,
                                                                 "type": "integer",
+                                                                "minimum": 0,
                                                                 "exclusiveMinimum": true,
                                                                 "maximum": 9007199254740991
                                                             },
@@ -2710,27 +4582,66 @@ defineRouteMeta({
                                                                 "type": "object",
                                                                 "properties": {
                                                                     "input": {
-                                                                        "default": 0,
-                                                                        "type": "number"
+                                                                        "type": "number",
+                                                                        "minimum": 0
                                                                     },
                                                                     "output": {
-                                                                        "default": 0,
-                                                                        "type": "number"
+                                                                        "type": "number",
+                                                                        "minimum": 0
                                                                     },
                                                                     "cacheRead": {
-                                                                        "default": 0,
-                                                                        "type": "number"
+                                                                        "type": "number",
+                                                                        "minimum": 0
                                                                     },
                                                                     "cacheWrite": {
-                                                                        "default": 0,
-                                                                        "type": "number"
+                                                                        "type": "number",
+                                                                        "minimum": 0
+                                                                    },
+                                                                    "tiers": {
+                                                                        "default": [],
+                                                                        "type": "array",
+                                                                        "items": {
+                                                                            "type": "object",
+                                                                            "properties": {
+                                                                                "inputTokensAbove": {
+                                                                                    "type": "integer",
+                                                                                    "minimum": 0,
+                                                                                    "maximum": 9007199254740991
+                                                                                },
+                                                                                "input": {
+                                                                                    "type": "number",
+                                                                                    "minimum": 0
+                                                                                },
+                                                                                "output": {
+                                                                                    "type": "number",
+                                                                                    "minimum": 0
+                                                                                },
+                                                                                "cacheRead": {
+                                                                                    "type": "number",
+                                                                                    "minimum": 0
+                                                                                },
+                                                                                "cacheWrite": {
+                                                                                    "type": "number",
+                                                                                    "minimum": 0
+                                                                                }
+                                                                            },
+                                                                            "required": [
+                                                                                "inputTokensAbove",
+                                                                                "input",
+                                                                                "output",
+                                                                                "cacheRead",
+                                                                                "cacheWrite"
+                                                                            ],
+                                                                            "additionalProperties": false
+                                                                        }
                                                                     }
                                                                 },
                                                                 "required": [
                                                                     "input",
                                                                     "output",
                                                                     "cacheRead",
-                                                                    "cacheWrite"
+                                                                    "cacheWrite",
+                                                                    "tiers"
                                                                 ],
                                                                 "additionalProperties": false
                                                             },
@@ -2742,10 +4653,29 @@ defineRouteMeta({
                                                                     "$ref": "#/definitions/__schema1"
                                                                 }
                                                             },
+                                                            "headers": {
+                                                                "default": null,
+                                                                "nullable": true,
+                                                                "type": "object",
+                                                                "additionalProperties": {
+                                                                    "nullable": true,
+                                                                    "type": "string"
+                                                                }
+                                                            },
+                                                            "thinkingLevelMap": {
+                                                                "default": null,
+                                                                "nullable": true,
+                                                                "type": "object",
+                                                                "additionalProperties": {
+                                                                    "nullable": true,
+                                                                    "type": "string"
+                                                                }
+                                                            },
                                                             "contextWindowTokens": {
                                                                 "default": null,
                                                                 "nullable": true,
                                                                 "type": "integer",
+                                                                "minimum": 0,
                                                                 "exclusiveMinimum": true,
                                                                 "maximum": 9007199254740991
                                                             }
@@ -2755,14 +4685,14 @@ defineRouteMeta({
                                                             "id",
                                                             "group",
                                                             "enabled",
-                                                            "provider",
                                                             "api",
-                                                            "baseUrl",
                                                             "reasoning",
                                                             "input",
                                                             "maxTokens",
                                                             "cost",
                                                             "compat",
+                                                            "headers",
+                                                            "thinkingLevelMap",
                                                             "contextWindowTokens"
                                                         ],
                                                         "additionalProperties": false
@@ -2772,9 +4702,55 @@ defineRouteMeta({
                                             "required": [
                                                 "id",
                                                 "name",
-                                                "api",
+                                                "enabled",
+                                                "defaultApi",
+                                                "discovery",
                                                 "options",
                                                 "models"
+                                            ],
+                                            "additionalProperties": false
+                                        }
+                                    },
+                                    "validationIssues": {
+                                        "default": [],
+                                        "type": "array",
+                                        "items": {
+                                            "type": "object",
+                                            "properties": {
+                                                "code": {
+                                                    "type": "string",
+                                                    "minLength": 1
+                                                },
+                                                "path": {
+                                                    "type": "array",
+                                                    "items": {
+                                                        "anyOf": [
+                                                            {
+                                                                "type": "string"
+                                                            },
+                                                            {
+                                                                "type": "integer",
+                                                                "minimum": -9007199254740991,
+                                                                "maximum": 9007199254740991
+                                                            }
+                                                        ]
+                                                    }
+                                                },
+                                                "modelKey": {
+                                                    "nullable": true,
+                                                    "type": "string",
+                                                    "minLength": 1
+                                                },
+                                                "message": {
+                                                    "type": "string",
+                                                    "minLength": 1
+                                                }
+                                            },
+                                            "required": [
+                                                "code",
+                                                "path",
+                                                "modelKey",
+                                                "message"
                                             ],
                                             "additionalProperties": false
                                         }
@@ -2784,7 +4760,8 @@ defineRouteMeta({
                                     "defaultModelKey",
                                     "defaultModelLabel",
                                     "enabledModels",
-                                    "providers"
+                                    "providers",
+                                    "validationIssues"
                                 ],
                                 "additionalProperties": false
                             },
@@ -2810,6 +4787,7 @@ defineRouteMeta({
                                                 "default": null,
                                                 "nullable": true,
                                                 "type": "integer",
+                                                "minimum": 0,
                                                 "exclusiveMinimum": true,
                                                 "maximum": 9007199254740991
                                             },
@@ -2841,6 +4819,7 @@ defineRouteMeta({
                                                 "default": null,
                                                 "nullable": true,
                                                 "type": "integer",
+                                                "minimum": 0,
                                                 "exclusiveMinimum": true,
                                                 "maximum": 9007199254740991
                                             },
@@ -2848,7 +4827,7 @@ defineRouteMeta({
                                                 "default": {},
                                                 "type": "object",
                                                 "additionalProperties": {
-                                                    "$ref": "#/definitions/__schema0"
+                                                    "$ref": "#/definitions/__schema2"
                                                 }
                                             }
                                         },
@@ -2874,6 +4853,7 @@ defineRouteMeta({
                                                 "default": null,
                                                 "nullable": true,
                                                 "type": "integer",
+                                                "minimum": 0,
                                                 "exclusiveMinimum": true,
                                                 "maximum": 9007199254740991
                                             }
@@ -2899,6 +4879,7 @@ defineRouteMeta({
                                                 "default": null,
                                                 "nullable": true,
                                                 "type": "integer",
+                                                "minimum": 0,
                                                 "exclusiveMinimum": true,
                                                 "maximum": 9007199254740991
                                             },
@@ -2930,6 +4911,7 @@ defineRouteMeta({
                                                 "default": null,
                                                 "nullable": true,
                                                 "type": "integer",
+                                                "minimum": 0,
                                                 "exclusiveMinimum": true,
                                                 "maximum": 9007199254740991
                                             },
@@ -2937,7 +4919,7 @@ defineRouteMeta({
                                                 "default": {},
                                                 "type": "object",
                                                 "additionalProperties": {
-                                                    "$ref": "#/definitions/__schema0"
+                                                    "$ref": "#/definitions/__schema2"
                                                 }
                                             }
                                         },
@@ -3153,6 +5135,38 @@ defineRouteMeta({
                                         }
                                     }
                                 ]
+                            },
+                            "__schema3": {
+                                "anyOf": [
+                                    {
+                                        "type": "string"
+                                    },
+                                    {
+                                        "type": "number"
+                                    },
+                                    {
+                                        "type": "boolean"
+                                    },
+                                    {
+                                        "type": "string",
+                                        "nullable": true,
+                                        "enum": [
+                                            null
+                                        ]
+                                    },
+                                    {
+                                        "type": "array",
+                                        "items": {
+                                            "$ref": "#/definitions/__schema3"
+                                        }
+                                    },
+                                    {
+                                        "type": "object",
+                                        "additionalProperties": {
+                                            "$ref": "#/definitions/__schema3"
+                                        }
+                                    }
+                                ]
                             }
                         }
                     }
@@ -3165,6 +5179,8 @@ defineRouteMeta({
     }
 } as never,
 });
+
+
 
 /**
  * 保存 Workspace Root `.nbook/config.json`。

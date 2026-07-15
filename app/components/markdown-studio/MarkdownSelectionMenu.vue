@@ -30,6 +30,8 @@ const emit = defineEmits<{
     (e: "insert-reference"): void;
     (e: "insert-image"): void;
     (e: "add-comment"): void;
+    (e: "add-ruby"): void;
+    (e: "add-bilingual"): void;
     (e: "add-ai-reference"): void;
 }>();
 
@@ -476,6 +478,24 @@ onUnmounted(() => {
                     >
                         <span class="i-lucide-subscript h-3.5 w-3.5"></span>
                     </button>
+                    <button
+                        type="button"
+                        class="markdown-selection-menu__button markdown-selection-menu__button--icon"
+                        :class="isActive('markdownRuby') ? 'is-active' : ''"
+                        :title="t('markdownStudio.selection.addRuby')"
+                        @click="closeDropdowns(); emit('add-ruby')"
+                    >
+                        <span class="i-lucide-languages h-3.5 w-3.5"></span>
+                    </button>
+                    <button
+                        type="button"
+                        class="markdown-selection-menu__button markdown-selection-menu__button--icon"
+                        :class="isActive('markdownBilingual') ? 'is-active' : ''"
+                        :title="t('markdownStudio.selection.addBilingual')"
+                        @click="closeDropdowns(); emit('add-bilingual')"
+                    >
+                        <span class="i-lucide-letter-text h-3.5 w-3.5"></span>
+                    </button>
                     <div class="markdown-selection-menu__divider"></div>
                     <button type="button" class="markdown-selection-menu__button markdown-selection-menu__button--icon" :title="t('markdownStudio.selection.alignLeft')" @click="applyAlign('left')">
                         <span class="i-lucide-align-left h-3.5 w-3.5"></span>
@@ -530,10 +550,10 @@ onUnmounted(() => {
     gap: 2px;
     border: 1px solid color-mix(in srgb, var(--border-color) 82%, transparent);
     border-radius: 18px;
-    background: color-mix(in srgb, var(--bg-panel) 96%, var(--editor-preview-bg));
+    background: color-mix(in srgb, var(--bg-panel) 96%, var(--editor-bg));
     padding: 6px;
     color: var(--text-main);
-    box-shadow: 0 18px 44px color-mix(in srgb, #000 16%, transparent), 0 1px 2px color-mix(in srgb, #000 14%, transparent);
+    box-shadow: 0 18px 44px color-mix(in srgb, var(--shadow-color) 16%, transparent), 0 1px 2px color-mix(in srgb, var(--shadow-color) 14%, transparent);
 }
 
 .markdown-selection-menu__button {
@@ -639,7 +659,7 @@ onUnmounted(() => {
     border-radius: 14px;
     background: var(--bg-panel);
     padding: 6px;
-    box-shadow: 0 16px 38px color-mix(in srgb, #000 18%, transparent);
+    box-shadow: 0 16px 38px color-mix(in srgb, var(--shadow-color) 18%, transparent);
 }
 
 .markdown-selection-menu__dropdown--text {

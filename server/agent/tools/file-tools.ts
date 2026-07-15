@@ -11,6 +11,8 @@ import {formatSize, DEFAULT_MAX_BYTES, truncateHead, type TruncationResult} from
 import {OutputAccumulator} from "nbook/server/agent/tools/output-accumulator";
 import type {NeuroAgentTool, ToolExecutionContext} from "nbook/server/agent/tools/types";
 import {applyCodexPatch} from "nbook/server/agent/tools/apply-patch";
+import {recordAgentWorkspaceWrite} from "nbook/server/workspace-history/agent-file-recorder";
+import {resolveSystemNbookRoot, resolveUserNbookRoot} from "nbook/server/workspace-files/workspace-assets-root";
 
 const ReadSchema = Type.Object({
     path: Type.String({description: "Path to the file to read (relative or absolute)."}),
@@ -193,13 +195,23 @@ function createWriteTool(): NeuroAgentTool {
         name: "write",
         label: "write",
         executionMode: "sequential",
+        mutatesWorkspace: true,
         description: "Create or overwrite a file. Automatically creates parent directories. Use write only for new files or complete rewrites, not targeted edits to existing files.",
         parameters: WriteSchema,
         async executeWithContext(context: ToolExecutionContext, _toolCallId: string, params: unknown, _userInput?: unknown, signal?: AbortSignal) {
             const input = params as WriteInput;
             const absolutePath = resolveWorkspacePath(input.path, context.workspaceRoot, context.projectPath);
+            // 记账 before：覆盖写前补读一次旧内容（不存在 = null，file.create 语义）
+            const before = await readFile(absolutePath).catch(() => null);
             await mkdir(dirname(absolutePath), {recursive: true});
             await writeFile(absolutePath, input.content, "utf-8");
+            await recordAgentWorkspaceWrite({
+                sessionId: context.sessionId,
+                workspaceRoot: context.workspaceRoot,
+                absolutePath,
+                before,
+                after: input.content,
+            });
             return {
                 content: [{type: "text", text: `Successfully wrote ${Buffer.byteLength(input.content, "utf-8")} bytes to ${input.path}`}],
                 details: undefined,
@@ -217,6 +229,7 @@ function createEditTool(): NeuroAgentTool {
         name: "edit",
         label: "edit",
         executionMode: "sequential",
+        mutatesWorkspace: true,
         description: "Edit a single file using exact text replacement. Every edits[].oldText must match a unique, non-overlapping region of the original file. When changing multiple separate locations in one file, use one edit call with multiple entries in edits[]. Each oldText is matched against the original file, not incrementally. Merge nearby changes into one edit and keep oldText as small as possible while still unique.",
         parameters: EditSchema,
         prepareArguments(args: unknown) {
@@ -247,6 +260,13 @@ function createEditTool(): NeuroAgentTool {
             const original = await readFile(absolutePath, "utf-8");
             const updated = applyExactEdits(original, input.edits, input.path);
             await writeFile(absolutePath, updated, "utf-8");
+            await recordAgentWorkspaceWrite({
+                sessionId: context.sessionId,
+                workspaceRoot: context.workspaceRoot,
+                absolutePath,
+                before: original,
+                after: updated,
+            });
             const diff = createPatch(input.path, original, updated, undefined, undefined, {context: 4});
             return {
                 content: [{type: "text", text: `Successfully replaced ${input.edits.length} block(s) in ${input.path}.`}],
@@ -268,6 +288,7 @@ function createApplyPatchTool(): NeuroAgentTool {
         name: "apply_patch",
         label: "apply_patch",
         executionMode: "sequential",
+        mutatesWorkspace: true,
         description: "Use the `apply_patch` tool to edit files by passing a Codex apply_patch patch in the `patch` string field. Use it when a change is naturally cohesive in one verified patch. For multiple separate locations in one file, prefer one edit call with multiple entries in edits[].",
         parameters: ApplyPatchSchema,
         async executeWithContext(context: ToolExecutionContext, _toolCallId: string, params: unknown, _userInput?: unknown, signal?: AbortSignal) {
@@ -277,6 +298,17 @@ function createApplyPatchTool(): NeuroAgentTool {
                 projectPath: context.projectPath,
                 patchText: input.patch,
             });
+            // 逐 change 归因记账。moveTo 形态在 planned changes 中已拆成源 delete + 目标 add/update，
+            // 按拆分结果各记一条（改名+改内容不满足 rename 的「内容不变」语义，不聚合，v1 接受时间线在此断链）。
+            for (const change of result.changes) {
+                await recordAgentWorkspaceWrite({
+                    sessionId: context.sessionId,
+                    workspaceRoot: context.workspaceRoot,
+                    absolutePath: change.absolutePath,
+                    before: change.originalExists ? change.original : null,
+                    after: change.updated,
+                });
+            }
             return {
                 content: [{type: "text", text: `Patch applied to ${result.files.map((file) => file.path).join(", ")}.`}],
                 details: {
@@ -482,10 +514,12 @@ function resolveBashPath(): string {
  * 注入 Agent assets 的 bin 目录。用户覆盖优先于系统内置。
  */
 function createBashEnvironment(workspaceRoot: string): NodeJS.ProcessEnv {
-    const userAgentBin = resolve(workspaceRoot, ".nbook", "agent", "bin");
-    const systemAgentBin = resolve(process.cwd(), "assets", "workspace", ".nbook", "agent", "bin");
-    const userRipgrepConfig = resolve(workspaceRoot, ".nbook", "agent", "config", "ripgreprc");
-    const systemRipgrepConfig = resolve(process.cwd(), "assets", "workspace", ".nbook", "agent", "config", "ripgreprc");
+    const userNbookRoot = resolveUserNbookRoot(workspaceRoot);
+    const systemNbookRoot = resolveSystemNbookRoot();
+    const userAgentBin = resolve(userNbookRoot, "agent", "bin");
+    const systemAgentBin = resolve(systemNbookRoot, "agent", "bin");
+    const userRipgrepConfig = resolve(userNbookRoot, "agent", "config", "ripgreprc");
+    const systemRipgrepConfig = resolve(systemNbookRoot, "agent", "config", "ripgreprc");
     const ripgrepConfig = existsSync(userRipgrepConfig) ? userRipgrepConfig : systemRipgrepConfig;
     const currentPath = process.env.PATH ?? process.env.Path ?? "";
     return {

@@ -48,11 +48,11 @@ describe("v3 file tools", () => {
             workspaceRoot,
             workspaceKey: "global",
         };
-    }, 30_000);
+    }, 60_000);
 
     afterEach(async () => {
-        await rm(root, {recursive: true, force: true});
-    });
+        await rm(root, {recursive: true, force: true, maxRetries: 10, retryDelay: 100});
+    }, 60_000);
 
     it("read 支持 offset/limit 和 continuation 提示", async () => {
         await writeFile(join(workspaceRoot, "notes.md"), "a\nb\nc\nd", "utf-8");
@@ -204,6 +204,21 @@ describe("v3 file tools", () => {
             workspaceRoot,
             "workspace/silver-dragon-hime",
         )).toBe(resolve(workspaceRoot));
+    });
+
+    it("Workspace Root cwd 支持显式跨 Project Workspace 与仓库绝对路径", () => {
+        expect(resolveWorkspacePath(
+            "another-project/manuscript/chapter.md",
+            workspaceRoot,
+            "workspace/silver-dragon-hime",
+        )).toBe(resolve(workspaceRoot, "another-project", "manuscript", "chapter.md"));
+
+        const repositoryReference = resolve("reference", "workspace", "TERMS.md");
+        expect(resolveWorkspacePath(
+            repositoryReference,
+            workspaceRoot,
+            "workspace/silver-dragon-hime",
+        )).toBe(repositoryReference);
     });
 
     it("resolveWorkspacePath 兼容旧 Project Workspace cwd 别名", () => {

@@ -1,5 +1,5 @@
 import {describe, expect, it} from "vitest";
-import {AgentInvokeRequestDtoSchema} from "nbook/shared/dto/agent-session.dto";
+import {AgentInvokeRequestDtoSchema, AgentSessionQueryDtoSchema} from "nbook/shared/dto/agent-session.dto";
 
 describe("AgentInvokeRequestDtoSchema", () => {
     it("要求 prompt、steer、followup 携带 message 或 input", () => {
@@ -40,5 +40,22 @@ describe("AgentInvokeRequestDtoSchema", () => {
             message: {text: "hello"},
             caller: {kind: "agent"},
         }).success).toBe(false);
+    });
+});
+
+describe("AgentSessionQueryDtoSchema", () => {
+    it("只接受 recovery、history、systemPrompt 三种严格判别查询", () => {
+        expect(AgentSessionQueryDtoSchema.parse({})).toEqual({});
+        expect(AgentSessionQueryDtoSchema.parse({view: "recovery"})).toEqual({view: "recovery"});
+        expect(AgentSessionQueryDtoSchema.parse({view: "history", cursor: "cursor-1"})).toEqual({
+            view: "history",
+            cursor: "cursor-1",
+        });
+        expect(AgentSessionQueryDtoSchema.parse({view: "systemPrompt"})).toEqual({view: "systemPrompt"});
+
+        expect(AgentSessionQueryDtoSchema.safeParse({view: "history"}).success).toBe(false);
+        expect(AgentSessionQueryDtoSchema.safeParse({cursor: "cursor-1"}).success).toBe(false);
+        expect(AgentSessionQueryDtoSchema.safeParse({view: "systemPrompt", cursor: "cursor-1"}).success).toBe(false);
+        expect(AgentSessionQueryDtoSchema.safeParse({view: "recovery", cursor: "cursor-1"}).success).toBe(false);
     });
 });

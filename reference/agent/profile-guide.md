@@ -51,16 +51,16 @@
 - `ctx.initial`：通过 `initialSchema` 校验后的 profile 创建期初始化数据。
 - `ctx.invocation?.payload`：通过 `payloadSchema` 校验后的本轮结构化载荷。未声明 `payloadSchema` 的 profile 不接受 payload。
 - `ctx.invocation?.message`：本轮自然语言 message；它不属于 `PayloadSchema`。
-- `ctx.settings`：通过 `settingsForm` defaults、Global Config 与 Project Config patch 合并并校验后的 profile 设置。未声明 `settingsForm` 的 profile 默认为 `{}`。
+- `ctx.settings`：Profile 通用运行设置与 `settingsForm` 自定义设置的合并视图。通用项包含 `fileChangeDiffMaxChars`；自定义项由 defaults、Global Config 与 Project Config patch 合并并校验。
 - `ctx.session`：当前 session facade，包含 workspaceRoot、messages、customState、linkedAgents 等。
-- `ctx.vars`：变量访问器。TSX 中优先用 `<Variable>` 和 `<VariableSchema>` 注入。
+- `ctx.vars`：底层变量访问器，仅用于需要显式编程访问的 profile；不提供公开 TSX helper 或 Agent variable tools。
 - `ctx.catalog`：当前可见 agent profiles 和 profile issues。
 - `ctx.skills`：当前可见 skills。
 - `ctx.runtime`：本轮时间、用户 turn 计数等 runtime 信息。
 
 ## Profile Settings
 
-`settingsForm` 用来表达 profile 自己拥有的可视化设置，例如 writer 的文风预设、文风参考预设和默认人称。它适合放“长期默认偏好”，不适合放本轮任务、目标文件、临时上下文或用户自然语言要求。
+`settingsForm` 用来表达 profile 自己拥有的可视化设置，例如 writer 的文风要求、文风参考和默认人称。它适合放“长期默认偏好”，不适合放本轮任务、目标文件、临时上下文或用户自然语言要求。
 
 settings 使用 `defineLowCodeForm()` 定义：
 
@@ -80,8 +80,8 @@ export const WriterSettingsForm = defineLowCodeForm({
     fields: [{
         path: "writingStylePreset",
         component: "combobox",
-        label: "文风预设",
-        placeholder: "选择默认文风",
+        label: "文风要求",
+        placeholder: "选择默认文风要求",
         async options() {
             return [
                 {value: "default", label: "默认文风"},
@@ -97,6 +97,7 @@ export const WriterSettingsForm = defineLowCodeForm({
 - `defaults` 默认值。
 - 字段级动态 `options(ctx)`。
 - async `validate(value, ctx)` 自定义校验，返回字段级 issue。
+- 合并 stored patch 时忽略 `defaults` 未声明的顶层 key：字段下线后，旧存档残留不会导致校验失败或整份 settings 回退默认。
 - 组件：`text`、`textarea`、`number`、`switch`、`select`、`combobox`、`radio`、`checkbox`。
 
 第一版限制：
@@ -128,13 +129,10 @@ context() {
                     <Import path="reference/agent/project-workspace-guide.md" />
                 </Message>
             </HistorySet>
-            <ModelContext>
-                <VariableSchema paths={["client.currentProjectWorkspace"]} includeToolGuide />
-            </ModelContext>
             <AppendingSet>
                 <WorkdirReminder />
                 <ProjectWorkspaceReminder />
-                <PlanModeReminder />
+                <ModeReminder />
             </AppendingSet>
         </ProfilePrompt>
     );
@@ -222,15 +220,12 @@ V1 只允许 `AGENTS.md`、`reference/**` 和 `docs/**`。不要用 `Import` 读
 
 适合放：
 
-- `VariableSchema`
-- `Variable`
 - SQL schema summary
 - 当前运行期只读摘要
 - 不应持久化到历史里的 `Reminder` / `Watch`
 
 规则：
 
-- `Variable` / `VariableSchema` 第一版只能直接放在 `ModelContext`。
 - `Reminder` / `Watch` 在 `ModelContext` 中生成的消息进入本轮 provider prompt，不写入产品历史。
 - 不要把长期共享说明放在这里；稳定说明优先放 `HistorySet`。
 
@@ -242,8 +237,8 @@ V1 只允许 `AGENTS.md`、`reference/**` 和 `docs/**`。不要用 `Import` 读
 
 - `WorkdirReminder`
 - `ProjectWorkspaceReminder`
-- `PlanModeAvailabilityReminder`
-- `PlanModeReminder`
+- `ModeAvailabilityReminder`
+- `ModeReminder`
 - `LinkedAgentsReminder`
 - `TaskReminder`
 - `MentionedSkillsReminder`
@@ -255,25 +250,6 @@ V1 只允许 `AGENTS.md`、`reference/**` 和 `docs/**`。不要用 `Import` 读
 - `Watch` 适合把重要外部状态变化写入历史。
 - `ActivatedSkills` / `MentionedSkillsReminder` 必须包在 `Message` 内。
 - 不接受非空裸文本。
-
-## Variables
-
-变量路径以 `client`、`global`、`project` 或 `session` 开始。
-
-常见写法：
-
-```tsx
-<ModelContext>
-    <VariableSchema paths={["client.currentProjectWorkspace", "client.studio.selectedFilePath"]} includeToolGuide />
-</ModelContext>
-```
-
-Agent 需要读写变量时，按工具流程：
-
-1. `variable_schema` 查询局部 schema。
-2. `variable_read` 读取当前值。
-3. `variable_patch` 提交 RFC 6902 JSON Patch。
-4. 重要修改后再次读取验证。
 
 ## Minimal Skeleton
 
@@ -293,7 +269,6 @@ import {
     ProjectWorkspaceReminder,
     SkillCatalog,
     System,
-    VariableSchema,
     WorkdirReminder,
 } from "nbook/server/agent/profiles/profile-dsl";
 
@@ -334,9 +309,6 @@ export default defineAgentProfile({
                         <Import path="reference/agent/project-workspace-guide.md" />
                     </Message>
                 </HistorySet>
-                <ModelContext>
-                    <VariableSchema paths={["client.currentProjectWorkspace"]} includeToolGuide />
-                </ModelContext>
                 <AppendingSet>
                     <WorkdirReminder />
                     <ProjectWorkspaceReminder />
@@ -389,6 +361,6 @@ const profileTools = toolset(
 - 共享规范是否用 `Import` 引用，而不是复制长 prompt。
 - `ModelContext` 是否只放本轮模型可见、不需要持久化的上下文。
 - `AppendingSet` 是否贴近当前输入，Reminder 顺序是否合理。
-- 变量路径是否通过 `VariableSchema` / `Variable` 暴露。
+- 动态焦点是否通过明确的 runtime reminder 或 `ctx.invocation.clientState` 表达。
 - 新 TSX 节点是否有定向测试覆盖。
 - profile 是否可通过 `bun scripts/build/profile.ts check <file> --system` 或对应用户 assets check。
