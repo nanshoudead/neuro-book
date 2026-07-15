@@ -9,12 +9,13 @@ import {useStructuredReferenceMenu} from "nbook/app/composables/useStructuredRef
 import {useDialog} from "nbook/app/composables/useDialog";
 import {useNotification} from "nbook/app/composables/useNotification";
 import {useAgentSession} from "nbook/app/components/novel-ide/agent/useAgentSession";
-import {useAgentSessionStream, type AgentSessionStreamSnapshotReason} from "nbook/app/components/novel-ide/agent/useAgentSessionStream";
+import {useAgentSessionStream, type AgentSessionStreamRecoveryReason} from "nbook/app/components/novel-ide/agent/useAgentSessionStream";
 import {applyAgentCommandResult} from "nbook/app/components/novel-ide/agent/agent-command-result";
 import {useAgentSessionApi} from "nbook/app/composables/useAgentSessionApi";
 import {useCostDisplay} from "nbook/app/composables/useCostDisplay";
 import Dropdown from "nbook/app/components/common/Dropdown.vue";
 import AgentChatFlow from "nbook/app/components/novel-ide/agent/AgentChatFlow.vue";
+import AgentSystemPromptPanel from "nbook/app/components/novel-ide/agent/AgentSystemPromptPanel.vue";
 import AgentComposer from "nbook/app/components/novel-ide/agent/AgentComposer.vue";
 import type {AgentSessionModelDraft} from "nbook/app/components/novel-ide/agent/agent-session-model-controls";
 import AgentLinkedAgentPanel from "nbook/app/components/novel-ide/agent/AgentLinkedAgentPanel.vue";
@@ -28,11 +29,11 @@ import {useThemeManager} from "nbook/app/composables/useThemeManager";
 import {resolveApiErrorMessage} from "nbook/app/utils/api-error";
 import {formatCost, formatCostExact, usingCnyRate} from "nbook/app/utils/cost-format";
 import type {ConfigModelSettingsDto} from "nbook/shared/dto/config.dto";
-import type {AgentQueuedMessageDto, AgentSessionListPageDto, AgentSessionListQueryDto, AgentSessionSnapshotDto, AgentSessionSummaryDto, AgentPendingApprovalDto, AgentMode} from "nbook/shared/dto/agent-session.dto";
+import type {AgentQueuedMessageDto, AgentSessionListPageDto, AgentSessionListQueryDto, AgentSessionRecoveryDto, AgentSessionSummaryDto, AgentPendingUserInputDto, AgentMode} from "nbook/shared/dto/agent-session.dto";
 import {AgentModeSchema} from "nbook/shared/dto/agent-session.dto";
+import type {AgentCommandResult, InvokeAgentResult} from "nbook/shared/dto/agent-session.dto";
 import type {DropdownItem} from "nbook/app/components/common/dropdown.types";
 import type {ThinkingLevelDto} from "nbook/shared/dto/app-settings.dto";
-import type {AgentCommandResult, InvokeAgentResult} from "nbook/server/agent/harness/types";
 import type {JsonValue} from "nbook/server/agent/messages/types";
 import type {InlineEditPayload} from "nbook/app/utils/inline-editor-selection";
 import {LowCodeJsonObjectSchema} from "nbook/shared/dto/low-code-form.dto";
@@ -84,6 +85,7 @@ const fileChangedSinceLastSend = ref(false);
 const selectionVersion = ref(0);
 const sessionDialogOpen = ref(false);
 const sessionTreeDialogOpen = ref(false);
+const systemPromptPanelOpen = ref(false);
 const sessionActionId = ref<number | null>(null);
 const editingMessageId = ref<string | null>(null);
 const messageActionId = ref<string | null>(null);
@@ -151,8 +153,8 @@ const connectionStatus = session.connectionStatus;
 const runPhase = session.runPhase;
 const pendingUserInputSession = session.pendingUserInputSession;
 const pendingUserInputSessionsComputed = computed(() => {
-    const pendings = session.snapshot.value?.pendingApprovals ?? [];
-    return pendings.map((approval: AgentPendingApprovalDto) => toPendingUserInputSession(approval, messages.value))
+    const pendings = session.recoveryShell.value?.pendingUserInputs ?? [];
+    return pendings.map((pending: AgentPendingUserInputDto) => toPendingUserInputSession(pending, messages.value))
         .filter((s): s is AgentPendingUserInputSession => s !== null);
 });
 const {confirm, prompt} = useDialog();
@@ -189,17 +191,17 @@ const {
 
 provide("sanitizeHtml", sanitizeHtml);
 
-const activeSnapshot = computed(() => session.snapshot.value);
-const activeSummary = computed(() => activeSnapshot.value?.summary ?? null);
-const activeSummarizer = computed(() => activeSnapshot.value?.summarizer ?? null);
-const linkedAgents = computed(() => activeSnapshot.value?.linkedAgents ?? []);
-const linkedByAgents = computed(() => activeSnapshot.value?.linkedByAgents ?? []);
+const activeRecovery = computed(() => session.recoveryShell.value);
+const activeSummary = computed(() => activeRecovery.value?.summary ?? null);
+const activeSummarizer = computed(() => activeRecovery.value?.summarizer ?? null);
+const linkedAgents = computed(() => activeRecovery.value?.linkedAgents ?? []);
+const linkedByAgents = computed(() => activeRecovery.value?.linkedByAgents ?? []);
 const queuedMessages = computed<AgentQueuedMessageDto[]>(() => [
-    ...activeSnapshot.value?.steerQueue ?? [],
-    ...activeSnapshot.value?.followUpQueue.items ?? [],
+    ...activeRecovery.value?.steerQueue.items ?? [],
+    ...activeRecovery.value?.followUpQueue.items ?? [],
 ].sort((left, right) => left.createdAt - right.createdAt));
 const linkedAgentCount = computed(() => linkedAgents.value.length + linkedByAgents.value.length);
-const agentMode = computed<AgentMode>(() => activeSnapshot.value?.agentMode ?? "normal");
+const agentMode = computed<AgentMode>(() => activeRecovery.value?.agentMode ?? "normal");
 const renderNodes = computed(() => messages.value);
 const inlineEditorCurrentTurnMessages = computed<AgentMessage[]>(() => {
     const latestUserIndex = inlineEditorMessages.value.findLastIndex((message) => message.type === "user");
@@ -234,7 +236,7 @@ const inlineEditorLiveView = computed(() => {
 });
 const inlineEditorSessionLabel = computed(() => {
     const selected = inlineEditorSessions.value.find((item) => item.sessionId === inlineEditorSessionId.value)
-        ?? inlineEditorSession.snapshot.value?.summary
+        ?? inlineEditorSession.recoveryShell.value?.summary
         ?? null;
     if (!selected) {
         return t("agent.chatSurface.inlineSessionLabel");
@@ -473,8 +475,8 @@ const summarizerStatus = computed<null | {
 });
 const sessionModelSelectionValue = computed(() => sessionModelDraft.value.modelKey);
 const sessionThinkingResolvedLabel = computed(() => {
-    const requested = activeSnapshot.value?.thinkingLevel ?? null;
-    const effective = activeSnapshot.value?.effectiveThinkingLevel ?? "off";
+    const requested = activeRecovery.value?.thinkingLevel ?? null;
+    const effective = activeRecovery.value?.effectiveThinkingLevel ?? "off";
     if (requested === null) {
         return t("agent.chatSurface.followProfileCurrent", {level: thinkingLevelLabel(effective)});
     }
@@ -485,8 +487,8 @@ const sessionThinkingResolvedLabel = computed(() => {
 });
 const inlineSessionModelSelectionValue = computed(() => inlineSessionModelDraft.value.modelKey);
 const inlineSessionThinkingResolvedLabel = computed(() => {
-    const requested = inlineEditorSession.snapshot.value?.thinkingLevel ?? null;
-    const effective = inlineEditorSession.snapshot.value?.effectiveThinkingLevel ?? "off";
+    const requested = inlineEditorSession.recoveryShell.value?.thinkingLevel ?? null;
+    const effective = inlineEditorSession.recoveryShell.value?.effectiveThinkingLevel ?? "off";
     if (requested === null) {
         return t("agent.chatSurface.followProfileCurrent", {level: thinkingLevelLabel(effective)});
     }
@@ -497,18 +499,18 @@ const inlineSessionThinkingResolvedLabel = computed(() => {
 });
 const drawerIconClass = computed(() => "i-lucide-sparkles text-[var(--accent-text)]");
 
-const sessionTreeState = computed(() => deriveAgentTreeState(activeSnapshot.value?.tree ?? []));
+const sessionTreeState = computed(() => deriveAgentTreeState(activeRecovery.value?.tree ?? []));
 const branchSwitcherStateByMessageId = computed(() => sessionTreeState.value.switcherByMessageId);
 
 const contextUsageCompactLabel = computed(() => {
-    const usage = activeSnapshot.value?.contextUsage;
+    const usage = activeRecovery.value?.contextUsage;
     if (!usage) {
         return "- / -";
     }
     return `${formatCompactTokenCount(usage.usedTokens)} / ${formatCompactTokenCount(usage.limitTokens)}`;
 });
 const contextUsageExactLabel = computed(() => {
-    const usage = activeSnapshot.value?.contextUsage;
+    const usage = activeRecovery.value?.contextUsage;
     if (!usage) {
         return t("agent.chatSurface.contextUnknown");
     }
@@ -518,7 +520,7 @@ const contextUsageExactLabel = computed(() => {
     return t("agent.chatSurface.contextEstimate", {used: formatTokenCount(usage.usedTokens), limit: formatTokenCount(usage.limitTokens), percent});
 });
 const contextPercentCompactLabel = computed(() => {
-    const percent = activeSnapshot.value?.contextUsage?.percent;
+    const percent = activeRecovery.value?.contextUsage?.percent;
     return typeof percent === "number" && Number.isFinite(percent) ? formatPercent(percent) : "";
 });
 const cumulativeInputCompactLabel = computed(() => formatCompactTokenCount(activeSummary.value?.usage?.input));
@@ -794,7 +796,7 @@ const createSession = async (profileKey?: string): Promise<AgentSessionSummaryDt
 };
 
 /**
- * 切换到指定 session，并拉取 snapshot。
+ * 切换到指定 session，并拉取 recovery。
  */
 const loadSession = async (sessionId: number): Promise<void> => {
     sessionStream.stop();
@@ -803,12 +805,13 @@ const loadSession = async (sessionId: number): Promise<void> => {
     editingMessageId.value = null;
     messageActionId.value = null;
     linkedAgentPanelOpen.value = false;
+    systemPromptPanelOpen.value = false;
     saveLastSessionId(sessionId);
 
     try {
-        const snapshot = await agentApi.getSession(sessionId);
-        session.applySnapshot(snapshot);
-        syncSessionModelState(snapshot.summary);
+        const recovery = await agentApi.getSessionRecovery(sessionId);
+        session.applyRecovery(recovery);
+        syncSessionModelState(recovery.summary);
         void sessionStream.start(sessionId);
         fileChangedSinceLastSend.value = false;
         await nextTick();
@@ -820,13 +823,29 @@ const loadSession = async (sessionId: number): Promise<void> => {
 };
 
 /**
- * 从服务端重新同步当前 session snapshot。
+ * 从服务端重新同步当前 session recovery。
  */
-const syncActiveSessionSnapshot = async (reason: AgentSessionStreamSnapshotReason = "manual_refresh"): Promise<boolean> => {
+const syncActiveSessionRecovery = async (reason: AgentSessionStreamRecoveryReason = "manual_refresh"): Promise<boolean> => {
     if (!activeSessionId.value) {
         return false;
     }
-    return sessionStream.syncSnapshot(reason);
+    return sessionStream.syncRecovery(reason);
+};
+
+/** 加载当前 active path 的更早 durable history。 */
+const loadPreviousHistory = async (): Promise<void> => {
+    await session.loadPrevious(agentApi.getSessionHistory);
+    if (session.needsRecovery.value) {
+        const reason = session.recoveryReasons.value.includes("invalid_history_cursor")
+            ? "invalid_history_cursor"
+            : "active_path_changed";
+        await syncActiveSessionRecovery(reason);
+    }
+};
+
+/** 用户显式打开或刷新时才构建 System Prompt。 */
+const loadActiveSystemPrompt = async (refresh = false): Promise<void> => {
+    await session.loadSystemPrompt(agentApi.getSessionSystemPrompt, refresh);
 };
 
 let linkedAgentRelationsRequestId = 0;
@@ -861,62 +880,36 @@ const refreshLinkedAgentRelations = async (): Promise<void> => {
 };
 
 /**
- * HTTP 操作如果已返回 snapshot，直接应用；否则才补一次恢复 snapshot。
+ * durable mutation 后进入与 SSE 共用的 recovery single-flight。
  */
-const applySnapshotOrSync = async (snapshot?: AgentSessionSnapshotDto | null): Promise<void> => {
-    if (snapshot) {
-        if (snapshot.summary.sessionId !== activeSessionId.value) {
-            return;
-        }
-        session.applySnapshot(snapshot);
-        syncSessionModelState(snapshot.summary);
-        return;
-    }
-    await syncActiveSessionSnapshot();
+const syncMutationRecovery = async (): Promise<void> => {
+    await syncActiveSessionRecovery("active_path_changed");
 };
 
 /**
- * 应用 command HTTP 返回。轻控制命令只更新 live shell，不补拉完整 snapshot。
+ * 应用 command HTTP 返回。轻控制命令只更新 live shell，不补拉完整 recovery。
  */
 const applyCommandResult = async (result: AgentCommandResult): Promise<void> => {
     await applyAgentCommandResult(result, {
         activeSessionId: () => activeSessionId.value,
         applyLiveState: session.applyLiveState,
+        needsRecovery: () => session.needsRecovery.value,
+        syncRecovery: () => syncActiveSessionRecovery("active_path_changed"),
         syncSessionModelState,
         refreshSessions,
         loadSession,
-        applySnapshotOrSync,
     });
 };
 
 /**
  * 统一处理阻塞 invoke 的 HTTP 返回。SSE 正常时错误会以 session entry 进入消息流；
- * 这里负责补 snapshot，并在事件流缺失时给一个即时通知兜底。
+ * 这里负责补 recovery，并在事件流缺失时给一个即时通知兜底。
  */
 const handleInvokeResult = async (result: InvokeAgentResult): Promise<void> => {
-    if (result.queuedItem && activeSnapshot.value) {
-        const snapshot = activeSnapshot.value;
-        if (result.queuedItem.kind === "steer") {
-            const steerQueue = mergeQueuedMessages(snapshot.steerQueue, result.queuedItem);
-            session.applySnapshot({
-                ...snapshot,
-                steerQueue,
-            } as AgentSessionSnapshotDto);
-        } else {
-            const followUpQueue = {
-                ...snapshot.followUpQueue,
-                items: mergeQueuedMessages(snapshot.followUpQueue.items, result.queuedItem),
-            };
-            session.applySnapshot({
-                ...snapshot,
-                followUpQueue,
-            } as AgentSessionSnapshotDto);
-        }
-    }
     if (result.status !== "error") {
         return;
     }
-    await syncActiveSessionSnapshot("invoke_error_fallback");
+    await syncActiveSessionRecovery("invoke_error_fallback");
     if (!hasVisibleInvocationError(messages.value, result.invocationId)) {
         notification.error(result.error ?? t("agent.chatSurface.runFailed"), {title: t("agent.chatSurface.runFailed")});
     }
@@ -931,17 +924,10 @@ const handleInlineEditorInvokeResult = async (result: InvokeAgentResult): Promis
         await refreshInlineEditorSessions();
         return;
     }
-    await inlineEditorStream.syncSnapshot("invoke_error_fallback");
+    await inlineEditorStream.syncRecovery("invoke_error_fallback");
     inlineEditorResultText.value = result.error ?? t("agent.chatSurface.runFailed");
     throw new Error(inlineEditorResultText.value);
 };
-
-function mergeQueuedMessages(queue: AgentQueuedMessageDto[], item: AgentQueuedMessageDto): AgentQueuedMessageDto[] {
-    if (queue.some((current) => current.id === item.id)) {
-        return queue;
-    }
-    return [...queue, item];
-}
 
 /**
  * 委托 AgentChatFlow 滚动到底部。
@@ -1047,10 +1033,10 @@ const submitUserInputForm = async (payload: {
             } as any,
         });
         await handleInvokeResult(result);
-        await syncActiveSessionSnapshot();
+        await syncActiveSessionRecovery();
     } catch (error) {
         console.error("提交 Low-Code Form 失败", error);
-        await syncActiveSessionSnapshot();
+        await syncActiveSessionRecovery();
         notifyAgentError(error, t("agent.chatSurface.submitAnswersFailed"));
         throw error;
     } finally {
@@ -1168,7 +1154,7 @@ const submitUserInputAnswers = async (payload: {
                 resolutions: resolutions as any,
             });
             await handleInvokeResult(result);
-            await syncActiveSessionSnapshot();
+            await syncActiveSessionRecovery();
         } else {
             // 单个审批，保持原有逻辑
             const result = await agentApi.invokeSession(activeSessionId.value, {
@@ -1189,12 +1175,12 @@ const submitUserInputAnswers = async (payload: {
                     },
             });
             await handleInvokeResult(result);
-            await syncActiveSessionSnapshot();
+            await syncActiveSessionRecovery();
         }
     } catch (error) {
         // pendingUserInputSession 现在是 computed，会自动从 session 状态恢复
         console.error("提交问题答案失败", error);
-        await syncActiveSessionSnapshot();
+        await syncActiveSessionRecovery();
         notifyAgentError(error, t("agent.chatSurface.submitAnswersFailed"));
         throw error;
     } finally {
@@ -1260,10 +1246,10 @@ const cancelPendingUserInput = async (payload?: {assistantMessageId: string}): P
         session.clearPendingUserInputSession();
         userInputSelectedAnswers.value = {};
         userInputNotes.value = {};
-        await syncActiveSessionSnapshot();
+        await syncActiveSessionRecovery();
     } catch (error) {
         console.error("取消用户输入等待失败", error);
-        await syncActiveSessionSnapshot();
+        await syncActiveSessionRecovery();
         notifyAgentError(error, t("agent.chatSurface.cancelUserInputFailed"));
     } finally {
         if (submittingUserInputKey.value === pendingKey) {
@@ -1281,7 +1267,7 @@ const stopRun = async (): Promise<void> => {
     }
     try {
         await agentApi.abortSession(activeSessionId.value, {reason: "user abort"});
-        await syncActiveSessionSnapshot();
+        await syncActiveSessionRecovery();
     } catch (error) {
         console.error("停止 Agent 运行失败", error);
     }
@@ -1366,7 +1352,7 @@ const sendInlineEditorPrompt = async (payload: InlineEditPayload, visibleMessage
     if (targetSession.status === "running" || targetSession.status === "waiting") {
         throw new Error(t("agent.chatSurface.inlineRunningError"));
     }
-    if (inlineEditorSessionId.value !== targetSession.sessionId || !inlineEditorSession.snapshot.value) {
+    if (inlineEditorSessionId.value !== targetSession.sessionId || !inlineEditorSession.recoveryShell.value) {
         await loadInlineEditorSession(targetSession.sessionId);
     }
 
@@ -1402,7 +1388,7 @@ const stopInlineEditorPrompt = async (): Promise<void> => {
     }
     await agentApi.abortSession(inlineEditorSessionId.value, {});
     inlineEditorResultText.value = t("agent.chatSurface.stopped");
-    await inlineEditorStream.syncSnapshot("manual_refresh");
+    await inlineEditorStream.syncRecovery("manual_refresh");
     await refreshInlineEditorSessions();
 };
 
@@ -1472,7 +1458,8 @@ const handleSlashCommand = async (message: string): Promise<boolean> => {
         const result = await agentApi.moveTree(activeSessionId.value, {
             position: "empty",
         });
-        await applySnapshotOrSync(result.snapshot);
+        session.applyLiveState(result.state);
+        await syncMutationRecovery();
         return true;
     }
     if (command === "/mode") {
@@ -1527,7 +1514,7 @@ const handleSlashCommand = async (message: string): Promise<boolean> => {
 };
 
 /**
- * 手动压缩当前 Session 上下文。压缩过程走 session SSE，同步一次 snapshot 让 UI 立刻进入 running。
+ * 手动压缩当前 Session 上下文。压缩过程走 session SSE，同步一次 recovery 让 UI 立刻进入 running。
  */
 const compactSession = async (instructions?: string): Promise<void> => {
     if (!activeSessionId.value || running.value) {
@@ -1561,7 +1548,7 @@ const copyMessage = async (message: AgentMessage): Promise<void> => {
         return;
     }
     await navigator.clipboard.writeText(message.content);
-    notification.success(t("agent.chatSurface.copied"));
+    notification.success(message.contentOmitted ? t("agent.chatSurface.previewCopied") : t("agent.chatSurface.copied"));
 };
 
 /**
@@ -1579,7 +1566,7 @@ const copyToolCall = async (toolCall: AgentToolCall): Promise<void> => {
 };
 
 const startEditingMessage = (message: AgentMessage): void => {
-    if (messageActionsDisabled.value) {
+    if (messageActionsDisabled.value || message.contentOmitted) {
         return;
     }
     editingMessageId.value = message.id;
@@ -1666,28 +1653,28 @@ async function resetSessionModelSettings(): Promise<void> {
     sessionModelPopoverOpen.value = false;
 }
 
-function modelDraftFromSnapshot(snapshot: AgentSessionSnapshotDto | null): AgentSessionModelDraft {
-    const model = snapshot?.model ?? null;
+function modelDraftFromRecovery(recovery: Pick<AgentSessionRecoveryDto, "model" | "thinkingLevel"> | null): AgentSessionModelDraft {
+    const model = recovery?.model ?? null;
     const providerConfigId = model && "providerConfigId" in model && typeof model.providerConfigId === "string"
         ? model.providerConfigId
         : model?.provider;
     return {
         modelKey: model ? `${providerConfigId}/${model.id}` : null,
-        reasoningEffort: snapshot?.thinkingLevel ?? null,
+        reasoningEffort: recovery?.thinkingLevel ?? null,
     };
 }
 
 function syncSessionModelState(_summary: AgentSessionSummaryDto | null): void {
     sessionModelDraft.value = {
         ...sessionModelDraft.value,
-        ...modelDraftFromSnapshot(session.snapshot.value),
+        ...modelDraftFromRecovery(session.recoveryShell.value),
     };
 }
 
 function syncInlineSessionModelState(): void {
     inlineSessionModelDraft.value = {
         ...inlineSessionModelDraft.value,
-        ...modelDraftFromSnapshot(inlineEditorSession.snapshot.value),
+        ...modelDraftFromRecovery(inlineEditorSession.recoveryShell.value),
     };
 }
 
@@ -1699,7 +1686,7 @@ function inlineSessionModelActionBlocked(): boolean {
 }
 
 /**
- * 丢弃未落库草稿，恢复为当前 snapshot 中的真实模型设置。
+ * 丢弃未落库草稿，恢复为当前 recovery 中的真实模型设置。
  */
 function restoreInlineSessionModelDraft(): void {
     syncInlineSessionModelState();
@@ -1730,7 +1717,7 @@ const updateInlineSessionModelSelection = async (modelKey: string | null): Promi
             command: "model",
             modelKey,
         });
-        await inlineEditorStream.syncSnapshot("manual_refresh");
+        await inlineEditorStream.syncRecovery("manual_refresh");
         syncInlineSessionModelState();
         return true;
     } catch (error) {
@@ -1768,7 +1755,7 @@ const updateInlineSessionThinkingLevel = async (thinkingLevel: ThinkingLevelDto 
             command: "thinking",
             thinkingLevel,
         });
-        await inlineEditorStream.syncSnapshot("manual_refresh");
+        await inlineEditorStream.syncRecovery("manual_refresh");
         syncInlineSessionModelState();
         return true;
     } catch (error) {
@@ -1837,8 +1824,12 @@ const sessionStream = useAgentSessionStream({
     session,
     api: agentApi,
     activeSessionId,
-    applySnapshotSideEffects: (snapshot) => {
-        syncSessionModelState(snapshot.summary);
+    applyRecoverySideEffects: async (recovery, result) => {
+        syncSessionModelState(recovery.summary);
+        if (result.historyWindowReset) {
+            await nextTick();
+            chatFlowRef.value?.scrollToBottom();
+        }
     },
     onEvent: async (event) => {
         if (event.kind === "session" && event.event.type === "client_variable_patch_requested" && activeSessionId.value) {
@@ -1855,7 +1846,7 @@ const inlineEditorStream = useAgentSessionStream({
     session: inlineEditorSession,
     api: agentApi,
     activeSessionId: inlineEditorSessionId,
-    applySnapshotSideEffects: () => {
+    applyRecoverySideEffects: () => {
         syncInlineSessionModelState();
     },
     onEvent: async (event) => {
@@ -1883,7 +1874,8 @@ const cycleMessageBranch = async (messageId: string, direction: -1 | 1): Promise
             targetEntryId: target.id,
             position: "at",
         });
-        await applySnapshotOrSync(result.snapshot);
+        session.applyLiveState(result.state);
+        await syncMutationRecovery();
     } catch (error) {
         console.error("切换消息分支失败", error);
         notifyAgentError(error, t("agent.chatSurface.switchBranchFailed"));
@@ -1902,7 +1894,8 @@ const selectTreeNode = async (entryId: string): Promise<void> => {
             targetEntryId: entryId,
             position: "at",
         });
-        await applySnapshotOrSync(result.snapshot);
+        session.applyLiveState(result.state);
+        await syncMutationRecovery();
     } catch (error) {
         console.error("切换 Session Tree 节点失败", error);
         notifyAgentError(error, t("agent.chatSurface.switchTreeFailed"));
@@ -1912,7 +1905,7 @@ const selectTreeNode = async (entryId: string): Promise<void> => {
 };
 
 const saveEditedMessage = async (payload: {message: AgentMessage; content: string}): Promise<void> => {
-    if (!activeSessionId.value || messageActionId.value || running.value) {
+    if (!activeSessionId.value || messageActionId.value || running.value || payload.message.contentOmitted) {
         return;
     }
     messageActionId.value = payload.message.id;
@@ -1928,11 +1921,12 @@ const saveEditedMessage = async (payload: {message: AgentMessage; content: strin
                 clientState: buildClientState(),
             },
         });
+        session.applyLiveState(result.state);
         if (result.invocation) {
             await handleInvokeResult(result.invocation);
         }
         editingMessageId.value = null;
-        await syncActiveSessionSnapshot();
+        await syncActiveSessionRecovery();
         notification.success(t("agent.chatSurface.messageUpdated"));
     } catch (error) {
         console.error("改写消息失败", error);
@@ -1958,11 +1952,12 @@ const refreshMessage = async (message: AgentMessage): Promise<void> => {
                 clientState: buildClientState(),
             },
         });
+        session.applyLiveState(result.state);
         if (result.invocation) {
             await handleInvokeResult(result.invocation);
         }
         editingMessageId.value = null;
-        await syncActiveSessionSnapshot();
+        await syncActiveSessionRecovery();
     } catch (error) {
         console.error("刷新消息失败", error);
         notifyAgentError(error, t("agent.chatSurface.refreshMessageFailed"));
@@ -1985,7 +1980,8 @@ const rollbackMessage = async (message: AgentMessage): Promise<void> => {
             targetEntryId: message.id,
             position: "at",
         });
-        await applySnapshotOrSync(result.snapshot);
+        session.applyLiveState(result.state);
+        await syncMutationRecovery();
         editingMessageId.value = null;
         notification.success(t("agent.chatSurface.rollbackSuccess"));
     } catch (error) {
@@ -2215,7 +2211,7 @@ watch(() => ideStore.configRevision, async () => {
     }
     await loadSelectableModels();
     await loadResolvedLeaderProfileKey();
-    await syncActiveSessionSnapshot("manual_refresh");
+    await syncActiveSessionRecovery("manual_refresh");
 });
 
 onBeforeUnmount(() => {
@@ -2345,8 +2341,8 @@ async function createInlineEditorSession(): Promise<AgentSessionSummaryDto> {
     });
     await loadInlineEditorSession(created.sessionId);
     await refreshInlineEditorSessions();
-    const snapshot = inlineEditorSession.snapshot.value ?? await agentApi.getSession(created.sessionId);
-    return snapshot.summary;
+    const recovery = inlineEditorSession.recoveryShell.value ?? await agentApi.getSessionRecovery(created.sessionId);
+    return recovery.summary;
 }
 
 /**
@@ -2360,7 +2356,7 @@ async function selectInlineEditorSession(sessionId: number): Promise<void> {
 }
 
 /**
- * 加载后台 Inline AI session snapshot，并启动它自己的 SSE。
+ * 加载后台 Inline AI session recovery，并启动它自己的 SSE。
  */
 async function loadInlineEditorSession(sessionId: number, options: {invalidateRefresh?: boolean} = {}): Promise<AgentSessionSummaryDto> {
     if (options.invalidateRefresh !== false) {
@@ -2371,17 +2367,17 @@ async function loadInlineEditorSession(sessionId: number, options: {invalidateRe
     inlineEditorSession.reset();
     inlineEditorResultText.value = "";
     saveInlineEditorSessionId(sessionId);
-    const snapshot = await agentApi.getSession(sessionId);
-    if (snapshot.summary.profileKey !== INLINE_EDITOR_PROFILE_KEY) {
+    const recovery = await agentApi.getSessionRecovery(sessionId);
+    if (recovery.summary.profileKey !== INLINE_EDITOR_PROFILE_KEY) {
         throw new Error(t("agent.chatSurface.inlineLoadFailed"));
     }
-    inlineEditorSession.applySnapshot(snapshot);
+    inlineEditorSession.applyRecovery(recovery);
     syncInlineSessionModelState();
-    inlineEditorSessions.value = inlineEditorSessions.value.some((item) => item.sessionId === snapshot.summary.sessionId)
-        ? inlineEditorSessions.value.map((item) => item.sessionId === snapshot.summary.sessionId ? snapshot.summary : item)
-        : [snapshot.summary, ...inlineEditorSessions.value];
+    inlineEditorSessions.value = inlineEditorSessions.value.some((item) => item.sessionId === recovery.summary.sessionId)
+        ? inlineEditorSessions.value.map((item) => item.sessionId === recovery.summary.sessionId ? recovery.summary : item)
+        : [recovery.summary, ...inlineEditorSessions.value];
     void inlineEditorStream.start(sessionId);
-    return snapshot.summary;
+    return recovery.summary;
 }
 
 function readInlineEditorSessionId(): number | null {
@@ -2484,6 +2480,9 @@ function isApprovalApproved(answer?: {
                     <button class="rounded p-1.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-40" :title="t('agent.chatSurface.sessionTreeTitle')" :disabled="!activeSessionId" @click="sessionTreeDialogOpen = true">
                         <span class="i-lucide-git-branch h-4 w-4"></span>
                     </button>
+                    <button class="rounded p-1.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-40" :class="{'bg-[var(--bg-hover)] text-[var(--accent-main)]': systemPromptPanelOpen}" :title="t('agent.systemPrompt.open')" :disabled="!activeSessionId" @click="systemPromptPanelOpen = !systemPromptPanelOpen">
+                        <span class="i-lucide-terminal-square h-4 w-4"></span>
+                    </button>
                     <button class="rounded p-1.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" :title="t('agent.chatSurface.sessionListTitle')" @click="void openSessionDialog()">
                         <span class="i-lucide-messages-square h-4 w-4"></span>
                     </button>
@@ -2505,6 +2504,16 @@ function isApprovalApproved(answer?: {
                 @close="linkedAgentPanelOpen = false"
             />
 
+            <AgentSystemPromptPanel
+                v-model="systemPromptPanelOpen"
+                :value="session.systemPrompt.value"
+                :loading="session.systemPromptLoading.value"
+                :error="session.systemPromptError.value"
+                :open-reference="openMessageReference"
+                @load="void loadActiveSystemPrompt()"
+                @refresh="void loadActiveSystemPrompt(true)"
+            />
+
             <!-- 消息序列 -->
             <AgentChatFlow
                 ref="chatFlowRef"
@@ -2522,6 +2531,9 @@ function isApprovalApproved(answer?: {
                 :open-reference="openMessageReference"
                 :cost-display-options="costDisplayOptions"
                 :cost-exchange-rate-suffix="costExchangeRateSuffix"
+                :history-has-previous="session.hasPrevious.value"
+                :history-loading="session.historyLoading.value"
+                :history-error="session.historyError.value"
                 @copy="void copyMessage($event)"
                 @copy-tool="void copyToolCall($event)"
                 @start-edit="startEditingMessage"
@@ -2530,6 +2542,7 @@ function isApprovalApproved(answer?: {
                 @retry="void refreshMessage($event)"
                 @delete="void rollbackMessage($event)"
                 @cycle-branch="void cycleMessageBranch($event.messageId, $event.direction)"
+                @load-previous="void loadPreviousHistory()"
             />
 
             <AgentComposer
@@ -2582,7 +2595,7 @@ function isApprovalApproved(answer?: {
                 @apply-session-model-settings="void applySessionModelSettings()"
                 @reset-session-model-settings="void resetSessionModelSettings()"
                 @reconnect-events="void reconnectActiveSessionEvents()"
-                @refresh-history="void syncActiveSessionSnapshot()"
+                @refresh-history="void syncActiveSessionRecovery()"
                 @open-history-inbox="emit('open-history-inbox')"
                 @open-workspace-file="openMessageReference"
             />
@@ -2610,9 +2623,8 @@ function isApprovalApproved(answer?: {
 
             <AgentSessionTreeDialog
                 v-model="sessionTreeDialogOpen"
-                :tree="activeSnapshot?.tree ?? []"
-                :entries="activeSnapshot?.entries ?? []"
-                :active-leaf-id="activeSnapshot?.activeLeafId ?? null"
+                :tree="activeRecovery?.tree ?? []"
+                :active-leaf-id="activeRecovery?.activeLeafId ?? null"
                 :running="running"
                 @select="void selectTreeNode($event)"
             />

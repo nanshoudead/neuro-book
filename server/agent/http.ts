@@ -1,5 +1,6 @@
 import {createError, getRouterParam} from "h3";
 import {NeuroAgentHarness} from "nbook/server/agent/harness/neuro-agent-harness";
+import {AgentHistoryQueryError} from "nbook/server/agent/session/history-query";
 import type {InvokeAgentInput} from "nbook/server/agent/harness/types";
 import type {ServerTimingSink} from "nbook/server/utils/server-timing";
 import {
@@ -9,10 +10,11 @@ import {
     type AgentCreateSessionRequestDto,
     type ClientVariablePatchAckDto,
     type AgentInvokeRequestDto,
-    type AgentSessionEventDto,
     type AgentSessionEventsQueryDto,
     type AgentSessionListPageDto,
     type AgentSessionListQueryDto,
+    type AgentSessionQueryDto,
+    type AgentSessionQueryResultDto,
     type AgentTreeRequestDto,
 } from "nbook/shared/dto/agent-session.dto";
 
@@ -48,19 +50,6 @@ export function requireAgentSessionId(event: Parameters<typeof getRouterParam>[0
 }
 
 /**
- * 将 session event envelope 推送为 SSE 帧。
- */
-export async function pushAgentSessionEvent(
-    eventStream: {push(input: {event: string; data: string}): Promise<void>},
-    payload: AgentSessionEventDto,
-): Promise<void> {
-    await eventStream.push({
-        event: payload.event.type,
-        data: JSON.stringify(payload),
-    });
-}
-
-/**
  * 创建 Agent session。
  */
 export async function createAgentSession(body: AgentCreateSessionRequestDto, harness = useAgentHarness()) {
@@ -92,12 +81,28 @@ export async function listAgentSessions(query: AgentSessionListQueryDto, harness
 }
 
 /**
- * 返回前端恢复用 session snapshot。
+ * 按 query view 返回 session recovery、history 或 system prompt。
  */
-export async function getAgentSessionSnapshot(sessionId: number, harness = useAgentHarness(), timingSink?: ServerTimingSink) {
-    return timingSink
-        ? harness.getSessionSnapshot(sessionId, timingSink)
-        : harness.getSessionSnapshot(sessionId);
+export async function getAgentSessionQuery(
+    sessionId: number,
+    query: AgentSessionQueryDto,
+    harness = useAgentHarness(),
+    timingSink?: ServerTimingSink,
+): Promise<AgentSessionQueryResultDto> {
+    try {
+        return timingSink
+            ? await harness.getSessionQuery(sessionId, query, timingSink)
+            : await harness.getSessionQuery(sessionId, query);
+    } catch (error) {
+        if (error instanceof AgentHistoryQueryError) {
+            throw createError({
+                statusCode: error.statusCode,
+                message: error.message,
+                data: {code: error.code},
+            });
+        }
+        throw error;
+    }
 }
 
 /**

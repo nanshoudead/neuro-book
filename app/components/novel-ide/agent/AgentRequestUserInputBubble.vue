@@ -56,7 +56,7 @@ const questionOptions = computed(() => {
 });
 
 const answerViews = computed(() => {
-    return deriveRequestUserInputAnswerViews(parsedArgs.value, props.toolCall.rawResult, {
+    return deriveRequestUserInputAnswerViews(parsedArgs.value, props.toolCall.resultData, {
         fallbackQuestion: pendingQuestion.value,
         otherLabel: isPlanExitApproval.value ? t("agent.userInput.addSuggestion") : t("agent.userInput.otherAnswer"),
     });
@@ -123,6 +123,7 @@ const toolArgsText = computed(() => {
                     <div v-else-if="answer.openAnswer && answer.note" class="text-sm leading-6 text-[var(--text-main)]">{{ t("agent.userInput.answerPrefix", {text: answer.note}) }}</div>
                     <div v-else class="text-sm text-[var(--text-main)]">{{ t("agent.userInput.choicePrefix", {text: answer.selectedLabel || t("agent.userInput.openAnswer")}) }}</div>
                     <div v-if="answer.note && !answer.openAnswer" class="text-xs leading-5 text-[var(--text-muted)]">{{ t("agent.userInput.notePrefix", {text: answer.note}) }}</div>
+                    <div v-if="answer.omitted" class="flex items-center gap-1 text-[11px] text-[var(--status-info)]"><span class="i-lucide-info h-3 w-3"></span><span>仅显示预览</span></div>
                 </div>
             </div>
 

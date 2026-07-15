@@ -2,6 +2,7 @@ import {describe, expect, it} from "vitest";
 import {createAssistantTextMessage, createTextToolResult} from "nbook/server/agent/messages/message-utils";
 import type {RunFrame, RuntimeTurn, TurnSnapshot} from "nbook/server/agent/harness/run-kernel-types";
 import {applyFailedTurn, applySuccessfulTurn, consumeNextTurnModelMessages, createRunFrame} from "nbook/server/agent/harness/run-frame-state";
+import {createPublicRuntimeProjectionState} from "nbook/server/agent/events/public-event-projection";
 
 describe("run frame state", () => {
     it("创建 RunFrame 时会固定默认运行态，并浅拷贝初始 messages", () => {
@@ -158,6 +159,7 @@ function fakeFrame(): RunFrame {
         agentMode: "normal",
         thinkingLevel: "off",
         runtimeState: new Map(),
+        publicEventProjection: createPublicRuntimeProjectionState(),
         messages: [],
         nextTurnRuntimeMessages: [],
         turnIndex: 0,

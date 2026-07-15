@@ -2,6 +2,7 @@
 import type {Ref} from "vue";
 import type {
     AgentProfileModelConfigDto,
+    EnabledModelOptionDto,
     ThinkingLevelDto,
 } from "nbook/shared/dto/app-settings.dto";
 import NovelIdeModelSelect from "nbook/app/components/novel-ide/settings/NovelIdeModelSelect.vue";
@@ -28,7 +29,7 @@ import {useDialog} from "nbook/app/composables/useDialog";
 import {useConfigApi} from "nbook/app/composables/useConfigApi";
 import {useNovelIdeStore} from "nbook/app/stores/novel-ide";
 import {resolveApiErrorMessage} from "nbook/app/utils/api-error";
-import type {ConfigAgentProfileSettingsDto, ConfigEditorSnapshotDto, ConfigWorkspaceQueryDto, GlobalConfigDto, ProfileRuntimeSettingsPatchDto, ProjectConfigDto} from "nbook/shared/dto/config.dto";
+import type {ConfigAgentProfileSettingsDto, ConfigEditorSnapshotDto, ConfigWorkspaceQueryDto, GlobalConfigDto, GlobalConfigUpdateDto, ProfileRuntimeSettingsPatchDto, ProjectConfigDto} from "nbook/shared/dto/config.dto";
 import type {LowCodeFormDto, LowCodeFormIssueDto, LowCodeJsonObject, LowCodeResourceMutationDto} from "nbook/shared/dto/low-code-form.dto";
 
 type ConfigSettingsScope = "global" | "project";
@@ -90,6 +91,7 @@ const errorText = ref("");
 const successText = ref("");
 const resettingHomeProfileKey = ref("");
 const enabledModels = ref<ConfigAgentProfileSettingsDto["enabledModels"]>([]);
+const validationIssues = ref<ConfigAgentProfileSettingsDto["validationIssues"]>([]);
 const profileModelDefaults = ref<AgentProfileModelDraft>({
     modelKey: null,
     temperature: "",
@@ -420,10 +422,9 @@ function buildGlobalDefaultProfileKey(): NonNullable<NonNullable<GlobalConfigDto
 /**
  * 构造 Global Config 写回体，统一替换 agent 默认 Profile、模型默认值和 profile 覆盖。
  */
-function buildGlobalConfigPayload(): GlobalConfigDto {
+function buildGlobalConfigPayload(): GlobalConfigUpdateDto {
     const base = editorSnapshot.value?.global ?? {};
     return {
-        ...base,
         agent: {
             ...(base.agent ?? {}),
             defaultProfileKey: buildGlobalDefaultProfileKey(),
@@ -438,11 +439,8 @@ function buildGlobalConfigPayload(): GlobalConfigDto {
  * 构造 Project Config 写回体，统一替换 agent 默认 Profile、模型默认值和 profile 覆盖。
  */
 function buildProjectConfigPayload(): ProjectConfigDto {
-    const base = editorSnapshot.value?.project ?? {};
     return {
-        ...base,
         agent: {
-            ...(base.agent ?? {}),
             defaultProfileKey: selectedDefaultProfileKey.value || null,
             profileModelDefaults: buildModelPatch(profileModelDefaults.value),
             profileRuntimeDefaults: buildProfileRuntimeSettingsPatch(profileRuntimeDefaults.value),
@@ -486,6 +484,7 @@ function buildCompleteModelConfig(model: AgentProfileModelDraft): AgentProfileMo
 function applySettings(settings: ConfigAgentProfileSettingsDto): void {
     selectedDefaultProfileKey.value = editorSnapshot.value?.global.agent?.defaultProfileKey?.[globalDefaultProfileSlot.value] ?? "";
     enabledModels.value = settings.enabledModels;
+    validationIssues.value = settings.validationIssues;
     profileModelDefaults.value = cloneModelDraft(settings.profileModelDefaults);
     if (profileModelDefaults.value.reasoningEffort === null) {
         profileModelDefaults.value.reasoningEffort = "off";
@@ -530,6 +529,7 @@ function applySettings(settings: ConfigAgentProfileSettingsDto): void {
 function applyProjectSettings(settings: ConfigAgentProfileSettingsDto): void {
     selectedDefaultProfileKey.value = editorSnapshot.value?.defaultProfileSettings.projectDefaultProfileKey ?? "";
     enabledModels.value = settings.enabledModels;
+    validationIssues.value = settings.validationIssues;
     profileModelDefaults.value = cloneModelDraft(editorSnapshot.value?.project?.agent?.profileModelDefaults);
     profileRuntimeDefaults.value = createProfileRuntimeSettingsDraft(editorSnapshot.value?.project?.agent?.profileRuntimeDefaults);
     const projectDefaultsInheritance = resolveProfileRuntimeInheritance(settings.harnessRuntimeDefaults, [
@@ -836,6 +836,30 @@ function defaultModelSelectLabel(): string {
     return inherited ? t("settings.panels.profileModels.inheritGlobal", {value: inherited}) : t("settings.panels.profileModels.inheritGlobalDefaultModel");
 }
 
+/** 为历史无效 modelKey 合成只在当前字段显示的不可运行选项。 */
+function modelOptions(modelKey: string | null): EnabledModelOptionDto[] {
+    const normalized = modelKey?.trim() ?? "";
+    if (!normalized || enabledModels.value.some((model) => model.key === normalized)) {
+        return enabledModels.value;
+    }
+    const separatorIndex = normalized.indexOf("/");
+    const providerId = separatorIndex > 0 ? normalized.slice(0, separatorIndex) : "invalid";
+    const modelId = separatorIndex > 0 ? normalized.slice(separatorIndex + 1) : normalized;
+    return [{
+        key: normalized,
+        label: t("settings.panels.profileModels.unrunnableModel", {key: normalized}),
+        providerId,
+        modelId: modelId || "invalid",
+        contextWindowTokens: null,
+    }, ...enabledModels.value];
+}
+
+/** 返回当前历史模型引用对应的字段级问题。 */
+function modelIssues(modelKey: string | null): ConfigAgentProfileSettingsDto["validationIssues"] {
+    const normalized = modelKey?.trim() ?? "";
+    return normalized ? validationIssues.value.filter((issue) => issue.modelKey === normalized) : [];
+}
+
 function defaultReasoningOptions(): SelectOption[] {
     if (!isProjectScope.value) {
         return reasoningEffortBaseOptions.value;
@@ -957,12 +981,13 @@ defineExpose({
                         <label class="text-xs font-medium text-[var(--text-secondary)]">{{ t("settings.panels.profileModels.defaultModel") }}</label>
                         <NovelIdeModelSelect
                             :model-value="profileModelDefaults.modelKey"
-                            :models="enabledModels"
+                            :models="modelOptions(profileModelDefaults.modelKey)"
                             allow-default
                             :default-label="defaultModelSelectLabel()"
                             :placeholder="t('settings.panels.profileModels.selectDefaultModel')"
                             @update:model-value="profileModelDefaults.modelKey = $event"
                         />
+                        <p v-if="modelIssues(profileModelDefaults.modelKey).length > 0" class="text-[11px] text-[var(--status-warning)]">{{ modelIssues(profileModelDefaults.modelKey)[0]?.message }}</p>
                     </div>
                     <div class="space-y-1.5">
                         <label class="text-xs font-medium text-[var(--text-secondary)]">{{ t("settings.panels.profileModels.temperature") }}</label>
@@ -1018,12 +1043,13 @@ defineExpose({
                                 <label class="text-xs font-medium text-[var(--text-secondary)]">{{ t("settings.panels.profileModels.defaultModel") }}</label>
                                 <NovelIdeModelSelect
                                     :model-value="profile.model.modelKey"
-                                    :models="enabledModels"
+                                    :models="modelOptions(profile.model.modelKey)"
                                     allow-default
                                     :default-label="modelDefaultLabel(profile)"
                                     :placeholder="t('settings.panels.profileModels.selectDefaultModel')"
                                     @update:model-value="profile.model.modelKey = $event"
                                 />
+                                <p v-if="modelIssues(profile.model.modelKey).length > 0" class="text-[11px] text-[var(--status-warning)]">{{ modelIssues(profile.model.modelKey)[0]?.message }}</p>
                             </div>
 
                             <!-- 温度 -->

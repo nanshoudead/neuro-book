@@ -1,10 +1,22 @@
-import type {AgentRuntimeStreamEventDto, AgentSessionEventDto, AgentSessionLiveStateDto, AgentSessionRelationsDto, AgentSessionSnapshotDto, AgentPendingApprovalDto} from "nbook/shared/dto/agent-session.dto";
+import type {AgentChatEntryDto, PublicTextPreviewDto} from "nbook/shared/dto/agent-public-event.dto";
+import type {
+    AgentPendingUserInputDto,
+    AgentRuntimeStreamEventDto,
+    AgentSessionEventDto,
+    AgentSessionHistoryPageDto,
+    AgentSessionLiveStateDto,
+    AgentSessionRecoveryDto,
+    AgentSessionRelationsDto,
+    AgentSessionSystemPromptDto,
+} from "nbook/shared/dto/agent-session.dto";
+import {resolveApiErrorMessage, resolveApiErrorStatus} from "nbook/app/utils/api-error";
 import {computed, getCurrentScope, onScopeDispose, ref, shallowRef} from "vue";
 import {
     applyRuntimeEventToMessages,
     applySessionEntryToMessages,
-    deriveMessagesFromSessionSnapshot,
+    deriveMessagesFromChatEntries,
     formatTimestamp,
+    publicToolArgsJsonValue,
     reconcileMessages,
     toPendingUserInputSession,
     type AgentMessage,
@@ -24,14 +36,22 @@ export type AgentRunPhase =
     | "waiting_user"
     | "finishing";
 
+export type AgentRecoveryShell = Omit<AgentSessionRecoveryDto, "history">;
+export type AgentHistoryLoader = (sessionId: number, cursor: string) => Promise<AgentSessionHistoryPageDto>;
+export type AgentSystemPromptLoader = (sessionId: number) => Promise<AgentSessionSystemPromptDto>;
+const UTF8_ENCODER = new TextEncoder();
+
+/** recovery 应用后的本地窗口变化，供既有副作用 seam 消费。 */
+export type AgentRecoveryApplyResult = {
+    historyWindowReset: boolean;
+};
+
 type PendingMessageUpdate = {
     event: Extract<AgentRuntimeStreamEventDto, {type: "message_update"}>;
     invocationId?: string;
 };
 
-/**
- * 将 tool.user-input-required 事件转换为前端 AgentPendingUserInputSession。
- */
+/** 将 tool.user-input-required 事件转换为前端等待输入状态。 */
 function toUserInputSession(
     event: Extract<AgentRuntimeStreamEventDto, {type: "tool.user-input-required"}>,
     assistantMessageId?: string,
@@ -40,7 +60,7 @@ function toUserInputSession(
         assistantMessageId,
         toolCallId: event.toolCallId,
         toolName: event.toolName,
-        args: event.args as AgentPendingApprovalDto["args"],
+        args: event.args,
         ...(event.formSpec?.form
             ? {
                 formSpec: {
@@ -54,24 +74,47 @@ function toUserInputSession(
 }
 
 /**
- * 统一管理 session snapshot + live event，并派生当前 UI message 列表。
+ * 管理 recovery shell、durable history、live overlay 与 optimistic message。
+ * cursor 只由服务端生成和消费，前端只保存最老已加载页的 cursor。
  */
 export function useAgentSession() {
-    const snapshot = shallowRef<AgentSessionSnapshotDto | null>(null);
-    const messages = ref<AgentMessage[]>([]);
+    const recoveryShell = shallowRef<AgentRecoveryShell | null>(null);
+    const durableEntries = shallowRef<AgentChatEntryDto[]>([]);
+    /** durableEntries 当前对应的 active path revision；live shell 可提前进入下一 revision。 */
+    const durableRevision = ref<string | null>(null);
+    const previousCursor = ref<string | null>(null);
+    const liveOverlay = shallowRef<AgentMessage[]>([]);
+    const optimisticMessages = shallowRef<AgentMessage[]>([]);
     const liveRunStatus = ref<"idle" | "running" | "waiting" | "aborting">("idle");
     const runPhase = ref<AgentRunPhase>("idle");
     const connectionStatus = ref<AgentConnectionStatus>("idle");
     const pendingUserInputSessions = ref<AgentPendingUserInputSession[]>([]);
     const eventEpoch = ref<string | null>(null);
     const lastSeq = ref(0);
-    const needsSnapshot = ref(false);
-    const snapshotReasons = ref<string[]>([]);
-    const running = computed(() => Boolean(snapshot.value?.activeInvocation) || liveRunStatus.value === "running" || liveRunStatus.value === "aborting");
-    const pendingUserInputSession = computed(() => pendingUserInputSessions.value[0] ?? null);
+    const needsRecovery = ref(false);
+    const recoveryReasons = ref<string[]>([]);
+    const historyLoading = ref(false);
+    const historyError = ref("");
+    const systemPrompt = ref<string | null>(null);
+    const systemPromptLoading = ref(false);
+    const systemPromptError = ref("");
     const pendingMessageUpdates: PendingMessageUpdate[] = [];
     let runtimeUpdateFrame: number | null = null;
     let runtimeUpdateFallbackTimer: ReturnType<typeof setTimeout> | null = null;
+    let historyRequest: {sessionId: number; cursor: string; promise: Promise<boolean>} | null = null;
+    let systemPromptRequest: {sessionId: number; promise: Promise<boolean>} | null = null;
+    let historyWindowInvalid = false;
+    let optimisticMessageSequence = 0;
+    let requestGeneration = 0;
+
+    const durableMessages = computed(() => deriveMessagesFromChatEntries(durableEntries.value, {
+        activeInvocation: recoveryShell.value?.activeInvocation,
+        pendingUserInputs: recoveryShell.value?.pendingUserInputs,
+    }));
+    const messages = computed(() => mergeMessageLayers(durableMessages.value, liveOverlay.value, optimisticMessages.value));
+    const running = computed(() => Boolean(recoveryShell.value?.activeInvocation) || liveRunStatus.value === "running" || liveRunStatus.value === "aborting");
+    const pendingUserInputSession = computed(() => pendingUserInputSessions.value[0] ?? null);
+    const hasPrevious = computed(() => previousCursor.value !== null);
 
     /** 取消尚未执行的 message_update 批量提交。 */
     const cancelPendingMessageUpdateFlush = (): void => {
@@ -91,16 +134,24 @@ export function useAgentSession() {
         pendingMessageUpdates.splice(0);
     };
 
-    /** 一次性提交帧内累积的 message_update，减少 Vue 列表重建频率。 */
+    /** 将完整投影视图保存为 live overlay；optimistic message 始终由独立层持有。 */
+    const applyProjectedMessages = (nextMessages: AgentMessage[]): void => {
+        const optimisticIds = new Set(optimisticMessages.value.map((message) => message.id));
+        liveOverlay.value = nextMessages.filter((message) => message.projectionSource === "live" && !optimisticIds.has(message.id));
+    };
+
+    /** 一次性提交帧内累积的 message_update。 */
     const flushPendingMessageUpdates = (): void => {
         cancelPendingMessageUpdateFlush();
         if (pendingMessageUpdates.length === 0) {
             return;
         }
         const updates = pendingMessageUpdates.splice(0);
-        messages.value = updates.reduce((currentMessages, item) => {
-            return applyRuntimeEventToMessages(currentMessages, item.event, item.invocationId);
-        }, messages.value);
+        let nextMessages: AgentMessage[] = messages.value;
+        for (const item of updates) {
+            nextMessages = applyRuntimeEventToMessages(nextMessages, item.event, item.invocationId);
+        }
+        applyProjectedMessages(nextMessages);
     };
 
     /** 把流式 token 更新合并到浏览器下一帧再提交。 */
@@ -129,7 +180,7 @@ export function useAgentSession() {
 
     /** 根据 runtime event 更新运行阶段。 */
     const applyRuntimePhase = (event: AgentRuntimeStreamEventDto): void => {
-        if (event.type === "agent_start") {
+        if (event.type === "agent_start" || event.type === "turn_start") {
             liveRunStatus.value = "running";
             runPhase.value = "model_pending";
         }
@@ -142,192 +193,331 @@ export function useAgentSession() {
                 runPhase.value = "idle";
             }
         }
-        if (event.type === "turn_start") {
-            liveRunStatus.value = "running";
-            runPhase.value = "model_pending";
-        }
         if (event.type === "message_start" || event.type === "message_update") {
-            const assistantMessageEvent = "assistantMessageEvent" in event ? event.assistantMessageEvent : null;
-            if (assistantMessageEvent?.type === "thinking_start" || assistantMessageEvent?.type === "thinking_delta") {
+            const update = event.type === "message_update" ? event.update : null;
+            if (update?.type === "thinking_start" || update?.type === "thinking_delta") {
                 runPhase.value = "thinking";
-            } else if (assistantMessageEvent?.type === "toolcall_start" || assistantMessageEvent?.type === "toolcall_delta") {
+            } else if (update?.type === "toolcall_start" || update?.type === "toolcall_args") {
                 runPhase.value = "tool_args_streaming";
-            } else if (event.message.role === "assistant") {
+            } else {
                 runPhase.value = "assistant_streaming";
             }
         }
-        if (event.type === "tool_execution_start") {
-            runPhase.value = "tool_running";
-        }
-        if (event.type === "tool_execution_update") {
-            runPhase.value = "tool_streaming";
-        }
-        if (event.type === "tool_execution_end") {
-            runPhase.value = "finishing";
-        }
-        if (event.type === "turn_end" && liveRunStatus.value === "running") {
-            runPhase.value = "finishing";
-        }
+        if (event.type === "tool_execution_start") runPhase.value = "tool_running";
+        if (event.type === "tool_execution_update") runPhase.value = "tool_streaming";
+        if (event.type === "tool_execution_end") runPhase.value = "finishing";
+        if (event.type === "turn_end" && liveRunStatus.value === "running") runPhase.value = "finishing";
     };
 
     if (getCurrentScope()) {
         onScopeDispose(() => {
             clearPendingMessageUpdates();
+            requestGeneration += 1;
         });
     }
 
-    /**
-     * 重置当前会话状态。
-     */
+    /** 重置当前会话的全部本地真相与请求代次。 */
     const reset = (): void => {
         clearPendingMessageUpdates();
-        snapshot.value = null;
-        messages.value = [];
+        requestGeneration += 1;
+        historyRequest = null;
+        systemPromptRequest = null;
+        historyWindowInvalid = false;
+        recoveryShell.value = null;
+        durableEntries.value = [];
+        durableRevision.value = null;
+        previousCursor.value = null;
+        liveOverlay.value = [];
+        optimisticMessages.value = [];
         liveRunStatus.value = "idle";
         runPhase.value = "idle";
         connectionStatus.value = "idle";
         pendingUserInputSessions.value = [];
         eventEpoch.value = null;
         lastSeq.value = 0;
-        needsSnapshot.value = false;
-        snapshotReasons.value = [];
+        needsRecovery.value = false;
+        recoveryReasons.value = [];
+        historyLoading.value = false;
+        historyError.value = "";
+        systemPrompt.value = null;
+        systemPromptLoading.value = false;
+        systemPromptError.value = "";
     };
 
     const clearPendingUserInputSession = (): void => {
         pendingUserInputSessions.value = [];
     };
 
-    /**
-     * 追加乐观用户消息。
-     */
+    /** 追加与 durable history 分离的乐观用户消息。 */
     const appendOptimisticUserMessage = (content: string): void => {
-        messages.value = reconcileMessages(messages.value, [
-            ...messages.value,
+        optimisticMessageSequence += 1;
+        optimisticMessages.value = [
+            ...optimisticMessages.value,
             {
-                id: `optimistic-user-${String(Date.now())}`,
+                id: `optimistic-user-${String(optimisticMessageSequence)}`,
                 type: "user",
                 content,
                 status: "done",
                 timestamp: formatTimestamp(Date.now()),
             },
-        ]);
-    };
-
-    /**
-     * 应用恢复真相的 snapshot。
-     */
-    const applySnapshot = (payload: AgentSessionSnapshotDto): void => {
-        clearPendingMessageUpdates();
-        const cursor = payload.eventCursor ?? {eventEpoch: payload.eventEpoch, after: payload.lastSeq};
-        const activePathChanged = snapshotReasons.value.includes("active_path_changed");
-        const snapshotMessages = deriveMessagesFromSessionSnapshot(payload);
-        const pendingOptimisticMessages = messages.value.filter((message) => {
-            return message.id.startsWith("optimistic-user-")
-                && !snapshotMessages.some((snapshotMessage) => snapshotMessage.type === "user" && snapshotMessage.content === message.content);
-        });
-        snapshot.value = payload;
-        const nextMessages = [
-            ...snapshotMessages,
-            ...pendingOptimisticMessages,
         ];
-        messages.value = activePathChanged ? nextMessages : reconcileMessages(messages.value, nextMessages);
-        if (payload.activeInvocation) {
-            liveRunStatus.value = payload.activeInvocation.status === "waiting" ? "waiting" : payload.activeInvocation.status;
-            runPhase.value = payload.pendingApprovals.length > 0 ? "waiting_user" : runPhase.value === "idle" ? "model_pending" : runPhase.value;
-        } else {
-            liveRunStatus.value = "idle";
-            runPhase.value = "idle";
-        }
-        pendingUserInputSessions.value = payload.pendingApprovals
-            .map((approval: AgentPendingApprovalDto) => toPendingUserInputSession(approval, messages.value))
-            .filter((session: AgentPendingUserInputSession | null): session is AgentPendingUserInputSession => session !== null);
-        eventEpoch.value = cursor.eventEpoch;
-        lastSeq.value = cursor.after;
-        needsSnapshot.value = false;
-        snapshotReasons.value = [];
     };
 
-    /**
-     * 只更新关联 Agent 面板需要的关系数据，不重建消息流。
-     */
+    /** durable user entry 每次只消费一条最早的匹配 optimistic message。 */
+    const consumeOptimisticUserMessages = (contents: PublicTextPreviewDto[]): void => {
+        const remaining = [...optimisticMessages.value];
+        for (const content of contents) {
+            const index = remaining.findIndex((message) => {
+                if (!content.omitted) {
+                    return message.content === content.preview;
+                }
+                return UTF8_ENCODER.encode(message.content).byteLength === content.bytes
+                    && message.content.startsWith(content.preview);
+            });
+            if (index >= 0) {
+                remaining.splice(index, 1);
+            }
+        }
+        optimisticMessages.value = remaining;
+    };
+
+    /** 记录一次需要通过唯一 recovery GET 恢复的原因。 */
+    const requestRecovery = (reason: string): void => {
+        needsRecovery.value = true;
+        if (!recoveryReasons.value.includes(reason)) {
+            recoveryReasons.value = [...recoveryReasons.value, reason];
+        }
+    };
+
+    const clearRecoveryRequest = (): void => {
+        needsRecovery.value = false;
+        recoveryReasons.value = [];
+    };
+
+    /** 应用 recovery 真相；同 revision 合并旧页，失效窗口或 revision 变化时替换。 */
+    const applyRecovery = (payload: AgentSessionRecoveryDto): AgentRecoveryApplyResult => {
+        clearPendingMessageUpdates();
+        const previousShell = recoveryShell.value;
+        const sameSession = previousShell?.summary.sessionId === payload.summary.sessionId;
+        const sameDurableRevision = sameSession && durableRevision.value === payload.activePathRevision;
+        const historyWindowReset = sameSession && historyWindowInvalid;
+        const mergeHistoryWindow = sameDurableRevision && !historyWindowInvalid;
+        const existingEntryIds = new Set(durableEntries.value.map((entry) => entry.id));
+        if (!sameSession) {
+            requestGeneration += 1;
+            historyRequest = null;
+            systemPromptRequest = null;
+            historyLoading.value = false;
+            systemPromptLoading.value = false;
+            systemPrompt.value = null;
+            systemPromptError.value = "";
+        }
+        const existingMessages = messages.value;
+        const nextEntries = mergeHistoryWindow
+            ? mergeDurableEntries(durableEntries.value, payload.history.entries)
+            : payload.history.entries;
+        durableEntries.value = nextEntries;
+        durableRevision.value = payload.activePathRevision;
+        if (!mergeHistoryWindow) {
+            previousCursor.value = payload.history.previousCursor;
+            liveOverlay.value = [];
+            historyError.value = "";
+        }
+        historyWindowInvalid = false;
+        const {history: _history, ...shell} = payload;
+        recoveryShell.value = shell;
+        if (mergeHistoryWindow) {
+            let reconciled = existingMessages;
+            for (const entry of payload.history.entries) {
+                reconciled = applySessionEntryToMessages(reconciled, entry);
+            }
+            liveOverlay.value = reconciled.filter((message) => message.projectionSource === "live");
+        }
+        if (sameDurableRevision) {
+            consumeOptimisticUserMessages(payload.history.entries.flatMap((entry) => {
+                return entry.type === "user" && !existingEntryIds.has(entry.id) ? [entry.content] : [];
+            }));
+        }
+        applyRunState(payload.activeInvocation, payload.pendingUserInputs);
+        pendingUserInputSessions.value = payload.pendingUserInputs
+            .map((pending) => toPendingUserInputSession(pending, messages.value))
+            .filter((session): session is AgentPendingUserInputSession => session !== null);
+        eventEpoch.value = payload.eventCursor.eventEpoch;
+        lastSeq.value = payload.eventCursor.after;
+        clearRecoveryRequest();
+        return {historyWindowReset};
+    };
+
+    /** 将更早 history 页 prepend 到 durable truth；旧 revision 响应会被拒绝。 */
+    const applyHistoryPage = (payload: AgentSessionHistoryPageDto): boolean => {
+        const shell = recoveryShell.value;
+        if (!shell || payload.sessionId !== shell.summary.sessionId) {
+            return false;
+        }
+        if (payload.activePathRevision !== shell.activePathRevision) {
+            requestRecovery("active_path_changed");
+            return false;
+        }
+        durableEntries.value = prependDurableEntries(durableEntries.value, payload.history.entries);
+        previousCursor.value = payload.history.previousCursor;
+        historyError.value = "";
+        return true;
+    };
+
+    /** 同一 cursor single-flight 地加载更早 history。 */
+    const loadPrevious = async (loader: AgentHistoryLoader): Promise<boolean> => {
+        const shell = recoveryShell.value;
+        const cursor = previousCursor.value;
+        if (!shell || !cursor) {
+            return false;
+        }
+        const sessionId = shell.summary.sessionId;
+        if (historyRequest?.sessionId === sessionId && historyRequest.cursor === cursor) {
+            return historyRequest.promise;
+        }
+        const generation = requestGeneration;
+        historyLoading.value = true;
+        historyError.value = "";
+        const request = {sessionId, cursor, promise: Promise.resolve(false)};
+        request.promise = (async () => {
+            try {
+                const page = await loader(sessionId, cursor);
+                if (generation !== requestGeneration || recoveryShell.value?.summary.sessionId !== sessionId || previousCursor.value !== cursor) {
+                    return false;
+                }
+                return applyHistoryPage(page);
+            } catch (error) {
+                if (generation !== requestGeneration || recoveryShell.value?.summary.sessionId !== sessionId) {
+                    return false;
+                }
+                const status = resolveApiErrorStatus(error);
+                const code = apiErrorCode(error);
+                if (status === 409 && code === "ACTIVE_PATH_CHANGED") {
+                    requestRecovery("active_path_changed");
+                } else if (status === 400 && code === "INVALID_HISTORY_CURSOR") {
+                    historyWindowInvalid = true;
+                    requestRecovery("invalid_history_cursor");
+                }
+                historyError.value = resolveApiErrorMessage(error, "加载更早对话失败");
+                return false;
+            } finally {
+                if (historyRequest === request) {
+                    historyRequest = null;
+                    historyLoading.value = false;
+                }
+            }
+        })();
+        historyRequest = request;
+        return request.promise;
+    };
+
+    /** 按需加载当前 session 的 system prompt；普通 recovery 不会调用 loader。 */
+    const loadSystemPrompt = async (loader: AgentSystemPromptLoader, refresh = false): Promise<boolean> => {
+        const shell = recoveryShell.value;
+        if (!shell) {
+            return false;
+        }
+        const sessionId = shell.summary.sessionId;
+        if (!refresh && systemPrompt.value !== null) {
+            return true;
+        }
+        if (systemPromptRequest?.sessionId === sessionId) {
+            return systemPromptRequest.promise;
+        }
+        const generation = requestGeneration;
+        systemPromptLoading.value = true;
+        systemPromptError.value = "";
+        const request = {sessionId, promise: Promise.resolve(false)};
+        request.promise = (async () => {
+            try {
+                const result = await loader(sessionId);
+                if (generation !== requestGeneration || recoveryShell.value?.summary.sessionId !== sessionId || result.sessionId !== sessionId) {
+                    return false;
+                }
+                systemPrompt.value = result.systemPrompt;
+                return true;
+            } catch (error) {
+                if (generation !== requestGeneration || recoveryShell.value?.summary.sessionId !== sessionId) {
+                    return false;
+                }
+                systemPromptError.value = resolveApiErrorMessage(error, "加载 System Prompt 失败");
+                return false;
+            } finally {
+                if (systemPromptRequest === request) {
+                    systemPromptRequest = null;
+                    systemPromptLoading.value = false;
+                }
+            }
+        })();
+        systemPromptRequest = request;
+        return request.promise;
+    };
+
+    /** 只更新关联 Agent 数据，不触碰 durable history。 */
     const applyRelations = (payload: AgentSessionRelationsDto): void => {
-        if (!snapshot.value || snapshot.value.summary.sessionId !== payload.sessionId) {
+        if (!recoveryShell.value || recoveryShell.value.summary.sessionId !== payload.sessionId) {
             return;
         }
-        snapshot.value = {
-            ...snapshot.value,
+        recoveryShell.value = {
+            ...recoveryShell.value,
             linkedAgents: payload.linkedAgents,
             linkedByAgents: payload.linkedByAgents,
         };
     };
 
-    /**
-     * 应用轻量 live state。它只更新运行态 shell，不重建历史消息。
-     */
+    /** 应用轻量 live state；active path revision 变化只请求统一 recovery。 */
     const applyLiveState = (state: AgentSessionLiveStateDto): void => {
-        if (!snapshot.value) {
-            requestSnapshot("missing_snapshot");
+        if (!recoveryShell.value) {
+            requestRecovery("missing_recovery");
             return;
         }
-        const currentSnapshot = snapshot.value;
-        const activePathChanged = state.activePathRevision !== currentSnapshot.activePathRevision;
-        snapshot.value = {
-            ...currentSnapshot,
+        const current = recoveryShell.value;
+        const activePathChanged = state.activePathRevision !== current.activePathRevision;
+        const pendingUserInputs = state.pendingUserInputs.map((pending) => {
+            const existing = current.pendingUserInputs.find((item) => item.toolCallId === pending.toolCallId);
+            return existing ? {...existing, ...pending, planContent: existing.planContent, planContentBytes: existing.planContentBytes} : pending;
+        });
+        recoveryShell.value = {
+            ...current,
             summary: state.summary,
             summarizer: state.summarizer,
             activeLeafId: state.activeLeafId,
             activePathRevision: state.activePathRevision,
-            pendingApprovals: state.pendingApprovals,
-            steerQueue: state.steerQueue,
-            followUpQueue: state.followUpQueue,
+            pendingUserInputs,
+            steerQueue: trimQueuedMessages(current.steerQueue, state.steerQueue.count),
+            followUpQueue: {
+                ...current.followUpQueue,
+                status: state.followUpQueue.status,
+                ...(state.followUpQueue.pausedBy ? {pausedBy: state.followUpQueue.pausedBy} : {pausedBy: undefined}),
+                ...trimQueuedMessages(current.followUpQueue, state.followUpQueue.count),
+            },
             activeInvocation: state.activeInvocation,
             model: state.model,
             thinkingLevel: state.thinkingLevel,
             effectiveThinkingLevel: state.effectiveThinkingLevel,
             agentMode: state.agentMode,
-            usage: state.usage,
             contextUsage: state.contextUsage,
         };
-        if (state.activeInvocation) {
-            liveRunStatus.value = state.activeInvocation.status === "waiting" ? "waiting" : state.activeInvocation.status;
-            runPhase.value = state.pendingApprovals.length > 0 ? "waiting_user" : runPhase.value === "idle" ? "model_pending" : runPhase.value;
-        } else if (liveRunStatus.value !== "aborting") {
-            liveRunStatus.value = "idle";
-            runPhase.value = "idle";
-        }
-        pendingUserInputSessions.value = state.pendingApprovals
-            .map((approval: AgentPendingApprovalDto) => toPendingUserInputSession(approval, messages.value))
-            .filter((session: AgentPendingUserInputSession | null): session is AgentPendingUserInputSession => session !== null);
+        applyRunState(state.activeInvocation, pendingUserInputs);
+        pendingUserInputSessions.value = pendingUserInputs
+            .map((pending: AgentPendingUserInputDto) => toPendingUserInputSession(pending, messages.value))
+            .filter((session): session is AgentPendingUserInputSession => session !== null);
         if (activePathChanged) {
-            requestSnapshot("active_path_changed");
+            requestRecovery("active_path_changed");
         }
-    };
-
-    const requestSnapshot = (reason: string): void => {
-        needsSnapshot.value = true;
-        if (!snapshotReasons.value.includes(reason)) {
-            snapshotReasons.value = [...snapshotReasons.value, reason];
-        }
-    };
-
-    const clearSnapshotRequest = (): void => {
-        needsSnapshot.value = false;
-        snapshotReasons.value = [];
     };
 
     const applyConnectionStatus = (status: AgentConnectionStatus): void => {
         connectionStatus.value = status;
     };
 
-    /**
-     * 应用一次 session event envelope。
-     */
+    /** 应用一次 session event envelope。 */
     const applyEvent = (payload: AgentSessionEventDto): void => {
         if (payload.kind === "session" && payload.event.type === "connected") {
             const epochChanged = eventEpoch.value !== null && eventEpoch.value !== payload.event.eventEpoch;
             const cursorAheadOfStream = payload.event.latestSeq < lastSeq.value;
             if (epochChanged || cursorAheadOfStream) {
-                requestSnapshot("event_epoch_changed");
+                requestRecovery("event_epoch_changed");
             } else {
                 eventEpoch.value = payload.event.eventEpoch;
             }
@@ -336,23 +526,19 @@ export function useAgentSession() {
         }
         if (eventEpoch.value !== null && eventEpoch.value !== payload.eventEpoch) {
             flushPendingMessageUpdates();
-            requestSnapshot("event_epoch_changed");
+            requestRecovery("event_epoch_changed");
             return;
         }
-        if (eventEpoch.value === null) {
-            eventEpoch.value = payload.eventEpoch;
-        }
+        if (eventEpoch.value === null) eventEpoch.value = payload.eventEpoch;
         if (payload.kind === "session" && payload.event.type === "snapshot_required") {
             flushPendingMessageUpdates();
-            requestSnapshot("snapshot_required");
+            requestRecovery("snapshot_required");
             return;
         }
-        if (payload.seq <= lastSeq.value) {
-            return;
-        }
+        if (payload.seq <= lastSeq.value) return;
         if (payload.seq > lastSeq.value + 1 && lastSeq.value > 0) {
             flushPendingMessageUpdates();
-            requestSnapshot("seq_gap");
+            requestRecovery("seq_gap");
             return;
         }
         lastSeq.value = payload.seq;
@@ -363,111 +549,172 @@ export function useAgentSession() {
                 applyRuntimePhase(payload.event);
                 return;
             }
-
-            // 处理 tool.user-input-required 事件
             if (payload.event.type === "tool.user-input-required") {
                 flushPendingMessageUpdates();
                 const event = payload.event;
-                const assistantMessage = messages.value.find((message) => message.toolCalls?.some((toolCall) => toolCall.id === event.toolCallId));
-                const userInputSession = toUserInputSession(event, assistantMessage?.id);
-                if (userInputSession) {
-                    pendingUserInputSessions.value = [...pendingUserInputSessions.value, userInputSession];
+                const assistant = messages.value.find((message) => message.toolCalls?.some((toolCall) => toolCall.id === event.toolCallId));
+                const pending = toUserInputSession(event, assistant?.id);
+                if (pending) {
+                    pendingUserInputSessions.value = [...pendingUserInputSessions.value, pending];
                     liveRunStatus.value = "waiting";
                     runPhase.value = "waiting_user";
                 }
                 return;
             }
-
             flushPendingMessageUpdates();
-            messages.value = applyRuntimeEventToMessages(messages.value, payload.event, payload.invocationId);
+            applyProjectedMessages(applyRuntimeEventToMessages(messages.value, payload.event, payload.invocationId));
             applyRuntimePhase(payload.event);
             return;
         }
 
         flushPendingMessageUpdates();
-
         if (payload.event.type === "session_entry") {
-            messages.value = applySessionEntryToMessages(messages.value, payload.event.entry);
-            if (payload.event.entry.type === "message" && payload.event.entry.message.role === "toolResult") {
-                const toolCallId = payload.event.entry.message.toolCallId;
-                pendingUserInputSessions.value = pendingUserInputSessions.value.filter((session): boolean => {
-                    // 清理 questions 中的匹配项
-                    if (session.questions.some((question) => (question.toolCallId ?? question.toolNodeId) === toolCallId)) {
-                        return false;
-                    }
-                    // 清理 formToolCallId 匹配项（Task 63 Low-Code Form）
-                    if (session.formToolCallId === toolCallId) {
-                        return false;
-                    }
-                    return true;
-                });
+            const entry = payload.event.entry;
+            const projected = applySessionEntryToMessages(messages.value, entry);
+            durableEntries.value = mergeDurableEntries(durableEntries.value, [entry]);
+            liveOverlay.value = projected.filter((message) => message.projectionSource === "live");
+            if (entry.type === "user") {
+                consumeOptimisticUserMessages([entry.content]);
             }
-            if (payload.event.entry.type === "custom"
-                && (payload.event.entry.key.startsWith("agent.link.") || payload.event.entry.key.startsWith("agent.detach."))) {
-                requestSnapshot("linked_agent_changed");
+            if (entry.type === "tool_result") {
+                pendingUserInputSessions.value = pendingUserInputSessions.value.filter((session) => {
+                    return !session.questions.some((question) => (question.toolCallId ?? question.toolNodeId) === entry.toolCallId)
+                        && session.formToolCallId !== entry.toolCallId;
+                });
             }
             return;
         }
-
+        if (payload.event.type === "session_projection_invalidated") {
+            requestRecovery(payload.event.reason);
+            return;
+        }
         if (payload.event.type === "session_state_changed") {
             applyLiveState(payload.event.state);
             return;
         }
-
-        if (payload.event.type === "follow_up_queued" && snapshot.value) {
-            const currentSnapshot = snapshot.value;
-            snapshot.value = {
-                ...currentSnapshot,
+        if (payload.event.type === "follow_up_queued" && recoveryShell.value) {
+            recoveryShell.value = {
+                ...recoveryShell.value,
                 followUpQueue: {
-                    ...currentSnapshot.followUpQueue,
-                    items: mergeQueuedMessages(currentSnapshot.followUpQueue.items, payload.event.item),
+                    ...recoveryShell.value.followUpQueue,
+                    ...appendQueuedMessage(recoveryShell.value.followUpQueue, payload.event.item),
                 },
-            } as AgentSessionSnapshotDto;
+            };
             return;
         }
-
-        if (payload.event.type === "steer_queued" && snapshot.value) {
-            const currentSnapshot = snapshot.value;
-            snapshot.value = {
-                ...currentSnapshot,
-                steerQueue: mergeQueuedMessages(currentSnapshot.steerQueue, payload.event.item),
-            } as AgentSessionSnapshotDto;
+        if (payload.event.type === "steer_queued" && recoveryShell.value) {
+            recoveryShell.value = {
+                ...recoveryShell.value,
+                steerQueue: appendQueuedMessage(recoveryShell.value.steerQueue, payload.event.item),
+            };
             return;
         }
-
         if (payload.event.type === "invocation_aborted") {
             liveRunStatus.value = "aborting";
             runPhase.value = "finishing";
         }
     };
 
+    /** 根据恢复/live shell 同步运行阶段。 */
+    function applyRunState(activeInvocation: AgentSessionRecoveryDto["activeInvocation"], pendingInputs: AgentPendingUserInputDto[]): void {
+        if (activeInvocation) {
+            liveRunStatus.value = activeInvocation.status === "waiting" ? "waiting" : activeInvocation.status;
+            runPhase.value = pendingInputs.length > 0 ? "waiting_user" : runPhase.value === "idle" ? "model_pending" : runPhase.value;
+        } else if (liveRunStatus.value !== "aborting") {
+            liveRunStatus.value = "idle";
+            runPhase.value = "idle";
+        }
+    }
+
     return {
         appendOptimisticUserMessage,
         applyConnectionStatus,
         applyEvent,
+        applyHistoryPage,
         applyLiveState,
+        applyRecovery,
         applyRelations,
-        applySnapshot,
-        clearSnapshotRequest,
         clearPendingUserInputSession,
+        clearRecoveryRequest,
         connectionStatus,
+        durableEntries,
         eventEpoch,
+        hasPrevious,
+        historyError,
+        historyLoading,
         lastSeq,
+        liveOverlay,
         liveRunStatus,
+        loadPrevious,
+        loadSystemPrompt,
         messages,
-        needsSnapshot,
+        needsRecovery,
+        optimisticMessages,
         pendingUserInputSession,
+        previousCursor,
+        recoveryReasons,
+        recoveryShell,
+        requestRecovery,
         reset,
         runPhase,
         running,
-        snapshotReasons,
-        snapshot,
+        systemPrompt,
+        systemPromptError,
+        systemPromptLoading,
     };
 }
 
-function mergeQueuedMessages<T extends {id: string}>(queue: T[], item: T): T[] {
-    if (queue.some((current) => current.id === item.id)) {
-        return queue;
+/** 将 durable、live overlay、optimistic 三层合并为只读渲染列表。 */
+function mergeMessageLayers(durable: AgentMessage[], live: AgentMessage[], optimistic: AgentMessage[]): AgentMessage[] {
+    const liveMap = new Map(live.map((message) => [message.id, message]));
+    const durableIds = new Set(durable.map((message) => message.id));
+    const merged = durable.map((message) => liveMap.get(message.id) ?? message);
+    for (const message of live) {
+        if (!durableIds.has(message.id)) merged.push(message);
     }
-    return [...queue, item];
+    const optimisticWithoutDurable = optimistic.filter((message) => !merged.some((current) => current.type === "user" && current.content === message.content));
+    return reconcileMessages(merged, [...merged, ...optimisticWithoutDurable]);
+}
+
+/** same-revision recovery：更新重叠 entry，并保留已经加载的旧页顺序。 */
+function mergeDurableEntries(current: AgentChatEntryDto[], incoming: AgentChatEntryDto[]): AgentChatEntryDto[] {
+    const incomingMap = new Map(incoming.map((entry) => [entry.id, entry]));
+    const currentIds = new Set(current.map((entry) => entry.id));
+    return [
+        ...current.map((entry) => incomingMap.get(entry.id) ?? entry),
+        ...incoming.filter((entry) => !currentIds.has(entry.id)),
+    ];
+}
+
+/** history page：先放更旧一页，再接现有窗口，重叠 entry 以现有较新投影为准。 */
+function prependDurableEntries(current: AgentChatEntryDto[], previous: AgentChatEntryDto[]): AgentChatEntryDto[] {
+    const currentMap = new Map(current.map((entry) => [entry.id, entry]));
+    const previousIds = new Set(previous.map((entry) => entry.id));
+    return [
+        ...previous.map((entry) => currentMap.get(entry.id) ?? entry),
+        ...current.filter((entry) => !previousIds.has(entry.id)),
+    ];
+}
+
+function appendQueuedMessage<T extends {id: string}>(queue: {items: T[]; omittedItems: number}, item: T): {items: T[]; omittedItems: number} {
+    if (queue.items.some((current) => current.id === item.id)) return queue;
+    if (queue.items.length >= 64) return {...queue, omittedItems: queue.omittedItems + 1};
+    return {...queue, items: [...queue.items, item]};
+}
+
+function trimQueuedMessages<T>(queue: {items: T[]; omittedItems: number}, count: number): {items: T[]; omittedItems: number} {
+    if (count >= queue.items.length + queue.omittedItems) return queue;
+    const items = queue.items.slice(0, Math.min(count, queue.items.length));
+    return {items, omittedItems: Math.max(0, count - items.length)};
+}
+
+/** 读取 `$fetch` 错误中的稳定业务码；外部错误结构只能在边界使用 unknown。 */
+function apiErrorCode(error: unknown): string | null {
+    if (typeof error !== "object" || error === null) return null;
+    const data = "data" in error && typeof error.data === "object" && error.data !== null
+        ? error.data
+        : "response" in error && typeof error.response === "object" && error.response !== null && "_data" in error.response
+            ? error.response._data
+            : null;
+    return typeof data === "object" && data !== null && "code" in data && typeof data.code === "string" ? data.code : null;
 }

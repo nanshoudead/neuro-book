@@ -29,7 +29,7 @@ defineRouteMeta({
                                     "type": "string",
                                     "minLength": 1
                                 },
-                                "api": {
+                                "defaultApi": {
                                     "default": null,
                                     "nullable": true,
                                     "type": "string",
@@ -75,6 +75,7 @@ defineRouteMeta({
                                             "default": null,
                                             "nullable": true,
                                             "type": "integer",
+                                            "minimum": 0,
                                             "exclusiveMinimum": true,
                                             "maximum": 9007199254740991
                                         },
@@ -95,6 +96,7 @@ defineRouteMeta({
                                                 },
                                                 "websocketConnectTimeoutMs": {
                                                     "type": "integer",
+                                                    "minimum": 0,
                                                     "exclusiveMinimum": true,
                                                     "maximum": 9007199254740991
                                                 },
@@ -142,21 +144,25 @@ defineRouteMeta({
                                                     "properties": {
                                                         "minimal": {
                                                             "type": "integer",
+                                                            "minimum": 0,
                                                             "exclusiveMinimum": true,
                                                             "maximum": 9007199254740991
                                                         },
                                                         "low": {
                                                             "type": "integer",
+                                                            "minimum": 0,
                                                             "exclusiveMinimum": true,
                                                             "maximum": 9007199254740991
                                                         },
                                                         "medium": {
                                                             "type": "integer",
+                                                            "minimum": 0,
                                                             "exclusiveMinimum": true,
                                                             "maximum": 9007199254740991
                                                         },
                                                         "high": {
                                                             "type": "integer",
+                                                            "minimum": 0,
                                                             "exclusiveMinimum": true,
                                                             "maximum": 9007199254740991
                                                         }
@@ -180,7 +186,7 @@ defineRouteMeta({
                             "required": [
                                 "id",
                                 "name",
-                                "api",
+                                "defaultApi",
                                 "discovery",
                                 "options"
                             ],
@@ -280,6 +286,7 @@ defineRouteMeta({
                                             "default": null,
                                             "nullable": true,
                                             "type": "integer",
+                                            "minimum": 0,
                                             "exclusiveMinimum": true,
                                             "maximum": 9007199254740991
                                         },
@@ -287,6 +294,7 @@ defineRouteMeta({
                                             "default": null,
                                             "nullable": true,
                                             "type": "integer",
+                                            "minimum": 0,
                                             "exclusiveMinimum": true,
                                             "maximum": 9007199254740991
                                         },
@@ -457,6 +465,8 @@ defineRouteMeta({
     }
 } as never,
 });
+
+
 
 /**
  * 远程模型发现。草稿未携带明文 API Key 时，回退读取已保存的 Global Config secret。

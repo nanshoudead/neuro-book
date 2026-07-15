@@ -1,23 +1,13 @@
 import type {
-    AgentProfileModelConfigDto,
-    AgentProfileModelSettingsDto,
     CheckModelResponseDto,
     CheckProviderResponseDto,
-    ConfiguredAgentProfileDto,
     ConfiguredModelDto,
     DiscoverProviderModelsResponseDto,
-    EnabledModelOptionDto,
     ModelProviderDraftDto,
-    ModelSettingsDto,
-    UpdateAgentProfileModelSettingsRequestDto,
-    UpdateModelSettingsRequestDto,
 } from "nbook/shared/dto/app-settings.dto";
-import {ThinkingLevelSchema} from "nbook/shared/dto/app-settings.dto";
 import type {Api, Model, Models} from "@earendil-works/pi-ai";
 import {createUserMessage} from "nbook/server/agent/messages/message-utils";
 import type {
-    AgentProfileConfig,
-    AgentProfileModelConfig,
     ConfiguredModelConfig,
     ConfiguredProviderConfig,
     ModelProviderOptionsConfig,
@@ -26,6 +16,7 @@ import type {
 import {resolvePiModelsFromConfig} from "nbook/server/agent/harness/pi-runtime-resolver";
 import {mergePiRequestHeaders, parsePiSimpleRequestOptions, piRequestAuthOptions} from "nbook/server/agent/harness/pi-request-options";
 import {tracedStreamSimple} from "nbook/server/agent/observability/traced-provider";
+import type {PiTraceBinding} from "nbook/server/agent/observability/traced-provider";
 import {providerErrorText, sanitizeProviderErrorMessage} from "nbook/server/agent/observability/provider-error-sanitizer";
 import {resolvePiModelMetadata} from "nbook/server/agent/harness/pi-model-metadata";
 import {discoverProviderModelMetadata} from "nbook/server/models/discovery";
@@ -36,19 +27,12 @@ type ResolvedDefaultModel = {
     model: ConfiguredModelConfig;
 };
 
-type ResolvedContextWindow = {
-    tokens: number | null;
-    source: "manual" | "unknown";
-};
 type ModelHealthCheckOptions = {
     signal?: AbortSignal;
+    /** 健康检查写入 `_system` bucket 时使用的正式 trace 绑定；关闭时仍可传入。 */
+    trace?: PiTraceBinding;
     /** 可注入与生产一致的 Pi runtime resolver；调用方通常使用默认实现。 */
     runtimeResolver?: (providerDraft: ModelProviderDraftDto, modelDraft: Omit<ConfiguredModelDto, "enabled">, model: Model<Api>) => Models;
-};
-
-export type AgentProfileSettingDefinition = {
-    profileKey: string;
-    name: string;
 };
 
 const DEFAULT_MODEL_SMOKE_TIMEOUT_MS = 30_000;
@@ -68,205 +52,10 @@ export function buildModelKey(providerId: string, modelId: string): string {
 }
 
 /**
- * 从模型 ID 推导默认分组。
- */
-export function deriveModelGroup(modelId: string): string {
-    const trimmedModelId = modelId.trim();
-    if (!trimmedModelId) {
-        return "default";
-    }
-
-    const separatorIndex = trimmedModelId.indexOf("-");
-    return separatorIndex <= 0 ? trimmedModelId : trimmedModelId.slice(0, separatorIndex);
-}
-
-/**
  * 构造模型展示名。
  */
 export function buildModelLabel(providerName: string, modelName: string): string {
     return `${providerName} / ${modelName}`;
-}
-
-/**
- * 解析模型上下文窗口。当前只信任 Global Config 中的手动配置。
- */
-export function resolveModelContextWindow(model: Pick<ConfiguredModelConfig, "contextWindowTokens">): ResolvedContextWindow {
-    if (typeof model.contextWindowTokens === "number" && Number.isFinite(model.contextWindowTokens)) {
-        return {
-            tokens: Math.trunc(model.contextWindowTokens),
-            source: "manual",
-        };
-    }
-
-    return {
-        tokens: null,
-        source: "unknown",
-    };
-}
-
-/**
- * 把 DTO 请求体转成运行时配置结构。
- */
-export function convertModelSettingsRequestToConfig(request: UpdateModelSettingsRequestDto): ModelSettingsConfig {
-    const config: ModelSettingsConfig = {
-        defaultModelKey: request.defaultModelKey,
-        providers: Object.fromEntries(
-            request.providers.map((provider) => [provider.id, {
-                name: provider.name,
-                enabled: provider.enabled,
-                api: provider.api,
-                discovery: provider.discovery,
-                options: {
-                    apiKey: provider.options.apiKey.trim(),
-                    baseURL: provider.options.baseURL.trim(),
-                    proxy: provider.options.proxy.trim(),
-                    timeoutMs: provider.options.timeoutMs,
-                    requestOptions: provider.options.requestOptions,
-                },
-                models: Object.fromEntries(
-                    provider.models.map((model) => [model.id, {
-                        name: model.name.trim(),
-                        id: model.id.trim(),
-                        group: model.group?.trim() ? model.group.trim() : null,
-                        enabled: model.enabled,
-                        api: model.api,
-                        reasoning: model.reasoning,
-                        input: model.input,
-                        maxTokens: model.maxTokens,
-                        cost: model.cost
-                            ? {
-                                ...model.cost,
-                                tiers: [...model.cost.tiers].sort((left, right) => left.inputTokensAbove - right.inputTokensAbove),
-                            }
-                            : null,
-                        compat: model.compat,
-                        headers: model.headers,
-                        thinkingLevelMap: model.thinkingLevelMap,
-                        contextWindowTokens: model.contextWindowTokens,
-                    }]),
-                ),
-            }]),
-        ),
-    };
-    for (const [providerId, provider] of Object.entries(config.providers)) {
-        if (!provider.enabled) {
-            continue;
-        }
-        for (const model of Object.values(provider.models)) {
-            if (model.enabled) {
-                resolvePiModelMetadata(providerId, provider, model);
-            }
-        }
-    }
-    return config;
-}
-
-/**
- * 把 Agent Profile DTO 请求体转成运行时配置结构。
- */
-export function convertAgentProfileModelSettingsRequestToConfig(
-    request: UpdateAgentProfileModelSettingsRequestDto,
-): {profileModelDefaults: AgentProfileModelConfig; profiles: Record<string, AgentProfileConfig>} {
-    return {
-        profileModelDefaults: normalizeAgentProfileModelConfig(request.profileModelDefaults),
-        profiles: Object.fromEntries(
-            request.agentProfiles.map((profile) => [profile.profileKey, {
-                model: normalizeAgentProfileModelConfig(profile.model),
-                settings: {},
-                runtime: {},
-            }]),
-        ),
-    };
-}
-
-/**
- * 把运行时配置转成 API DTO。
- */
-export function buildModelSettingsDto(appConfig: {models: ModelSettingsConfig}): ModelSettingsDto {
-    const config = appConfig.models;
-    const providers = Object.entries(config.providers).map(([providerId, provider]) => ({
-        id: providerId,
-        name: provider.name,
-        enabled: provider.enabled,
-        api: provider.api,
-        discovery: provider.discovery,
-        options: {
-            apiKey: provider.options.apiKey,
-            baseURL: provider.options.baseURL,
-            proxy: provider.options.proxy,
-            timeoutMs: provider.options.timeoutMs,
-            requestOptions: provider.options.requestOptions,
-        },
-        models: Object.values(provider.models).map((model) => ({
-            name: model.name,
-            id: model.id,
-            group: model.group,
-            enabled: model.enabled,
-            api: model.api,
-            reasoning: model.reasoning,
-            input: model.input,
-            maxTokens: model.maxTokens,
-            cost: model.cost,
-            compat: model.compat,
-            headers: model.headers,
-            thinkingLevelMap: model.thinkingLevelMap,
-            contextWindowTokens: model.contextWindowTokens,
-        })).sort((left, right) => left.id.localeCompare(right.id)),
-    })).sort((left, right) => left.id.localeCompare(right.id));
-    const defaultModel = resolveDefaultModel(config);
-
-    return {
-        defaultModelKey: config.defaultModelKey,
-        defaultModelLabel: defaultModel ? buildModelLabel(defaultModel.provider.name, defaultModel.model.name) : null,
-        enabledModels: listEnabledModels(config),
-        providers,
-    };
-}
-
-/**
- * 把 Agent Profile 配置转成 API DTO。
- */
-export function buildAgentProfileModelSettingsDto(
-    appConfig: {agent: {profileModelDefaults: AgentProfileModelConfig; profiles: Record<string, AgentProfileConfig>}; models: ModelSettingsConfig},
-    profileDefinitions: AgentProfileSettingDefinition[],
-): AgentProfileModelSettingsDto {
-    return {
-        enabledModels: listEnabledModels(appConfig.models),
-        profileModelDefaults: normalizeAgentProfileModelConfig(appConfig.agent.profileModelDefaults),
-        agentProfiles: profileDefinitions.map((definition): ConfiguredAgentProfileDto => ({
-            profileKey: definition.profileKey,
-            name: definition.name,
-            model: resolveAgentProfileModelConfig(appConfig, definition.profileKey),
-        })),
-    };
-}
-
-/**
- * 列出所有启用模型，供前端默认模型选择器使用。
- */
-export function listEnabledModels(config: ModelSettingsConfig): EnabledModelOptionDto[] {
-    const enabledModels: EnabledModelOptionDto[] = [];
-
-    for (const [providerId, provider] of Object.entries(config.providers)) {
-        if (!provider.enabled) {
-            continue;
-        }
-        for (const model of Object.values(provider.models)) {
-            if (!model.enabled) {
-                continue;
-            }
-
-            enabledModels.push({
-                key: buildModelKey(providerId, model.id),
-                label: buildModelLabel(provider.name, model.name),
-                providerId,
-                modelId: model.id,
-                contextWindowTokens: resolveModelContextWindow(model).tokens,
-            });
-        }
-    }
-
-    return enabledModels.sort((left, right) => left.label.localeCompare(right.label));
 }
 
 /**
@@ -303,16 +92,6 @@ export function resolveConfiguredModel(config: ModelSettingsConfig, modelKey: st
  */
 export function resolveDefaultModel(config: ModelSettingsConfig): ResolvedDefaultModel | null {
     return resolveConfiguredModel(config, config.defaultModelKey);
-}
-
-/**
- * 解析单个 profile 的模型配置。
- */
-export function resolveAgentProfileModelConfig(appConfig: {agent: {profileModelDefaults?: AgentProfileModelConfig; profiles: Record<string, AgentProfileConfig>}}, profileKey: string): AgentProfileModelConfig {
-    return normalizeAgentProfileModelConfig({
-        ...(appConfig.agent.profileModelDefaults ?? {}),
-        ...(appConfig.agent.profiles[profileKey]?.model ?? {}),
-    });
 }
 
 /**
@@ -365,20 +144,6 @@ export async function checkModelHealth(
 export function pickModelSmokeCheckPrompt(random = Math.random): string {
     const index = Math.floor(random() * MODEL_SMOKE_CHECK_PROMPTS.length);
     return MODEL_SMOKE_CHECK_PROMPTS[Math.min(Math.max(index, 0), MODEL_SMOKE_CHECK_PROMPTS.length - 1)] ?? MODEL_SMOKE_CHECK_PROMPTS[0];
-}
-
-/**
- * 归一化 profile 模型配置。
- */
-function normalizeAgentProfileModelConfig(config: Partial<AgentProfileModelConfigDto> | AgentProfileModelConfig | undefined): AgentProfileModelConfig {
-    const reasoningEffort = ThinkingLevelSchema.nullable().safeParse(config?.reasoningEffort ?? null);
-    return {
-        modelKey: config?.modelKey?.trim() ? config.modelKey.trim() : null,
-        temperature: typeof config?.temperature === "number" && Number.isFinite(config.temperature) ? config.temperature : null,
-        topK: typeof config?.topK === "number" && Number.isFinite(config.topK) ? Math.trunc(config.topK) : null,
-        reasoningEffort: reasoningEffort.success ? reasoningEffort.data : null,
-        stream: config?.stream ?? true,
-    };
 }
 
 /**
@@ -437,7 +202,7 @@ async function runPiModelSmokeCheck(
         const model = resolvePiModelMetadata(providerDraft.id, {
             name: providerDraft.name,
             enabled: true,
-            api: providerDraft.api,
+        defaultApi: providerDraft.defaultApi,
             discovery: providerDraft.discovery,
             options: providerDraft.options,
             models: {},
@@ -449,7 +214,7 @@ async function runPiModelSmokeCheck(
                     [providerDraft.id]: {
                         name: providerDraft.name,
                         enabled: true,
-                        api: providerDraft.api,
+                        defaultApi: providerDraft.defaultApi,
                         discovery: providerDraft.discovery,
                         options: providerDraft.options,
                         models: {
@@ -479,7 +244,7 @@ async function runPiModelSmokeCheck(
             reasoning: undefined,
             cacheRetention: "none",
             signal: options.signal,
-        });
+        }, options.trace);
         const response = await stream.result();
         const latencyMs = Date.now() - startedAt;
         if (options.signal?.aborted || response.stopReason === "aborted") {

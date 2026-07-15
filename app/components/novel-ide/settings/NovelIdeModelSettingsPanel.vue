@@ -5,8 +5,29 @@ import FormSelect from "nbook/app/components/common/form/FormSelect.vue";
 import Dialog from "nbook/app/components/common/Dialog.vue";
 import NovelIdeModelSelect from "nbook/app/components/novel-ide/settings/NovelIdeModelSelect.vue";
 import NovelIdeModelEditDialog from "nbook/app/components/novel-ide/settings/NovelIdeModelEditDialog.vue";
-import {clearModelCostDraft, createEmptyModelCostDraft, createModelCostDraft, parseModelCostDraft, type ModelCostDraft} from "nbook/app/components/novel-ide/settings/model-cost-draft";
+import {clearModelCostDraft, createEmptyModelCostDraft, createModelCostDraft, parseModelCostDraft} from "nbook/app/components/novel-ide/settings/model-cost-draft";
 import {configuredModelFromCatalog, requiredModelFields, resolveDiscoveredModelDraft} from "nbook/app/components/novel-ide/settings/model-draft-factory";
+import {
+    disableInvalidDrafts,
+    clearUnsupportedDefaultApis,
+    buildModelsSection,
+    cleanGlobalAgent,
+    cleanModelKey,
+    cleanProjectAgent,
+    ensureRunnableDefault,
+    inspectSettingsDraft,
+    parseDraftInteger,
+    parseModelCompat,
+    parseModelInput,
+    parseModelReasoning,
+    parseRequestOptions,
+    parseStringMap,
+    previewCatalogRepairs,
+    renameAgentProvider,
+    type ModelSettingsDraft,
+    type ModelSettingsModelDraft,
+    type ModelSettingsProviderDraft,
+} from "nbook/app/components/novel-ide/settings/model-settings-draft";
 import {useNovelIdeStore} from "nbook/app/stores/novel-ide";
 import {useConfigApi} from "nbook/app/composables/useConfigApi";
 import {useNotification} from "nbook/app/composables/useNotification";
@@ -21,13 +42,11 @@ import type {
     ModelCatalogEntryDto,
     ModelProviderDraftDto,
     NeuroModelCatalogDto,
-    ProviderDiscoveryAdapterDto,
     ProviderPresetDto,
-    UpdateModelSettingsRequestDto,
 } from "nbook/shared/dto/app-settings.dto";
-import type {ConfigEditorSnapshotDto, ConfigModelSettingsDto, ConfigWorkspaceQueryDto, GlobalConfigDto, ProjectConfigDto, SecretConfigValueDto} from "nbook/shared/dto/config.dto";
+import type {ConfigEditorSnapshotDto, ConfigModelSettingsDto, ConfigWorkspaceQueryDto, GlobalConfigUpdateDto, ProjectConfigDto} from "nbook/shared/dto/config.dto";
+import type {ModelReferenceInput} from "nbook/shared/models/provider-config-contract";
 
-type ProviderRequestOptions = UpdateModelSettingsRequestDto["providers"][number]["options"]["requestOptions"];
 type ConfigSettingsScope = "global" | "project";
 
 const props = withDefaults(defineProps<{
@@ -40,21 +59,7 @@ const props = withDefaults(defineProps<{
     targetLabel: "",
 });
 
-type ModelDraft = {
-    name: string;
-    id: string;
-    group: string;
-    enabled: boolean;
-    api: string;
-    reasoning: "inherit" | "true" | "false";
-    input: string;
-    maxTokens: string;
-    cost: ModelCostDraft;
-    compat: string;
-    headers: string;
-    thinkingLevelMap: string;
-    contextWindowTokens: string;
-};
+type ModelDraft = ModelSettingsModelDraft;
 
 type ManualModelDraft = {
     name: string;
@@ -65,33 +70,7 @@ type ManualModelDraft = {
     maxTokens: string;
 };
 
-type ProviderDraft = {
-    localKey: string;
-    id: string;
-    name: string;
-    enabled: boolean;
-    api: string;
-    discovery: {
-        adapter: ProviderDiscoveryAdapterDto;
-        endpointPath: string;
-    };
-    options: {
-        apiKey: string;
-        apiKeyConfigured: boolean;
-        apiKeyMaskedValue: string | null;
-        apiKeyCleared: boolean;
-        baseURL: string;
-        proxy: string;
-        timeoutMs: string;
-        requestOptions: string;
-    };
-    models: ModelDraft[];
-};
-
-type ModelSettingsDraft = {
-    defaultModelKey: string | null;
-    providers: ProviderDraft[];
-};
+type ProviderDraft = ModelSettingsProviderDraft;
 
 type ModelCheckResult = CheckModelResponseDto & {
     cancelled?: boolean;
@@ -130,6 +109,7 @@ const draft = ref<ModelSettingsDraft>({
     providers: [],
 });
 const snapshotText = ref("");
+const scopeAgentSnapshotText = ref("");
 const discoveredModels = ref<Record<string, DiscoveredProviderModelDto[]>>({});
 const modelCatalog = ref<NeuroModelCatalogDto | null>(null);
 const resolvedContextWindowMap = ref<Record<string, number | null>>({});
@@ -140,14 +120,16 @@ const activeModelCheckBatches = ref<Record<string, ModelCheckBatchState>>({});
 const manualModelDrafts = ref<Record<string, ManualModelDraft>>({});
 const libraryDialogOpen = ref(false);
 const editorSnapshot = ref<ConfigEditorSnapshotDto | null>(null);
-const projectReferencesDirty = ref(false);
 let providerLocalKeySeed = 0;
+let modelLocalKeySeed = 0;
 let modelCheckStateVersion = 0;
 
 const expandedGroups = ref<Record<string, boolean>>({});
 const editingModel = ref<ModelDraft | null>(null);
 const modelEditDialogOpen = ref(false);
 const deleteProviderDialogOpen = ref(false);
+const validationDialogOpen = ref(false);
+const repairingModels = ref(false);
 const isProjectScope = computed(() => props.scope === "project");
 const modelApiOptions: SelectOption[] = [
     {value: "openai-completions", label: "OpenAI Completions", description: "OpenAI-compatible Chat Completions"},
@@ -186,6 +168,12 @@ function createProviderLocalKey(providerId: string): string {
     return `provider-${providerLocalKeySeed}-${providerId.trim() || "draft"}`;
 }
 
+/** 创建只用于前端渲染和检测状态的稳定模型 key。 */
+function createModelLocalKey(modelId: string): string {
+    modelLocalKeySeed += 1;
+    return `model-${modelLocalKeySeed}-${modelId.trim() || "draft"}`;
+}
+
 /**
  * 收集当前 Provider 的本地 key。按队列复用，避免临时重复配置 ID 时生成重复 Vue key。
  */
@@ -204,6 +192,7 @@ function collectProviderLocalKeys(): Map<string, string[]> {
  */
 function cloneModel(model: ConfiguredModelDto): ModelDraft {
     return {
+        localKey: createModelLocalKey(model.id),
         name: model.name,
         id: model.id,
         group: model.group ?? "",
@@ -218,44 +207,6 @@ function cloneModel(model: ConfiguredModelDto): ModelDraft {
         thinkingLevelMap: model.thinkingLevelMap ? JSON.stringify(model.thinkingLevelMap, null, 2) : "",
         contextWindowTokens: typeof model.contextWindowTokens === "number" ? String(model.contextWindowTokens) : "",
     };
-}
-
-/**
- * 将上下文窗口输入框解析为可空整数。
- */
-function parseContextWindowTokens(value: string): number | null {
-    const normalizedValue = value.trim();
-    if (!normalizedValue) {
-        return null;
-    }
-
-    const parsedValue = Number(normalizedValue);
-    if (!Number.isFinite(parsedValue) || parsedValue <= 0) {
-        return null;
-    }
-
-    return Math.trunc(parsedValue);
-}
-
-/**
- * 将 Pi Model maxTokens 输入框解析为可空整数。
- */
-function parseMaxTokens(value: string): number | null {
-    return parseContextWindowTokens(value);
-}
-
-/**
- * 解析模型输入能力；空值表示能力尚未填写。
- */
-function parseModelInput(value: string): ModelInputKind[] | null {
-    const normalized = value.trim();
-    if (!normalized) {
-        return null;
-    }
-    const inputs = [...new Set(normalized.split(",")
-        .map((item) => item.trim())
-        .filter((item): item is ModelInputKind => item === "text" || item === "image"))];
-    return inputs.length > 0 ? inputs : null;
 }
 
 /**
@@ -293,114 +244,17 @@ function enableModelCostOverride(model: ModelDraft): void {
 }
 
 /**
- * 解析模型推理能力；inherit 仅表示历史/未完成草稿尚未明确。
- */
-function parseModelReasoning(value: ModelDraft["reasoning"]): boolean | null {
-    if (value === "true") {
-        return true;
-    }
-    if (value === "false") {
-        return false;
-    }
-    return null;
-}
-
-/**
- * 解析 Pi compat JSON；空值表示未配置。
- */
-function parseModelCompat(value: string): ConfiguredModelDto["compat"] {
-    const normalizedValue = value.trim();
-    if (!normalizedValue) {
-        return null;
-    }
-    try {
-        const parsedValue = JSON.parse(normalizedValue);
-        if (!parsedValue || typeof parsedValue !== "object" || Array.isArray(parsedValue)) {
-            throw new Error("Compat 必须是 JSON 对象");
-        }
-        return parsedValue as ConfiguredModelDto["compat"];
-    } catch (error) {
-        throw new Error(`Compat JSON 无效：${error instanceof Error ? error.message : String(error)}`);
-    }
-}
-
-/** 解析模型 headers JSON；空值表示未配置。 */
-function parseModelHeaders(value: string): ConfiguredModelDto["headers"] {
-    const normalizedValue = value.trim();
-    if (!normalizedValue) {
-        return null;
-    }
-    try {
-        const parsedValue: unknown = JSON.parse(normalizedValue);
-        if (!parsedValue || typeof parsedValue !== "object" || Array.isArray(parsedValue)) {
-            throw new Error("必须是 JSON 对象");
-        }
-        const headers: Record<string, string | null> = {};
-        for (const [key, headerValue] of Object.entries(parsedValue)) {
-            if (typeof headerValue !== "string" && headerValue !== null) {
-                throw new Error(`字段 ${key} 必须是字符串或 null`);
-            }
-            headers[key] = headerValue;
-        }
-        return headers;
-    } catch (error) {
-        throw new Error(`模型 JSON 映射无效：${error instanceof Error ? error.message : String(error)}`);
-    }
-}
-
-/** 解析 thinking level 映射；空值表示未配置。 */
-function parseThinkingLevelMap(value: string): ConfiguredModelDto["thinkingLevelMap"] {
-    return parseModelHeaders(value);
-}
-
-/**
- * 将 Provider 请求超时输入框解析为可空整数。
- */
-function parseProviderTimeoutMs(value: string): number | null {
-    const normalizedValue = value.trim();
-    if (!normalizedValue) {
-        return null;
-    }
-
-    const parsedValue = Number(normalizedValue);
-    if (!Number.isFinite(parsedValue) || parsedValue <= 0) {
-        return null;
-    }
-
-    return Math.trunc(parsedValue);
-}
-
-/**
- * 将 Provider 请求扩展参数解析为 JSON 对象。
- */
-function parseProviderRequestOptions(value: string): ProviderRequestOptions {
-    const normalizedValue = value.trim();
-    if (!normalizedValue) {
-        return {};
-    }
-
-    try {
-        const parsedValue = JSON.parse(normalizedValue);
-        if (!parsedValue || typeof parsedValue !== "object" || Array.isArray(parsedValue)) {
-            throw new Error("必须是 JSON 对象");
-        }
-        return parsedValue as ProviderRequestOptions;
-    } catch (error) {
-        throw new Error(`Provider request options JSON 无效：${error instanceof Error ? error.message : String(error)}`);
-    }
-}
-
-/**
  * 克隆 Provider 草稿。
  */
 function cloneProvider(provider: ConfigModelSettingsDto["providers"][number], localKeyMap: Map<string, string[]> = new Map()): ProviderDraft {
     const localKeyQueue = localKeyMap.get(provider.id);
     return {
         localKey: localKeyQueue?.shift() ?? createProviderLocalKey(provider.id),
+        sourceIndex: provider.sourceIndex,
         id: provider.id,
         name: provider.name,
         enabled: provider.enabled,
-        api: provider.api ?? "",
+        defaultApi: provider.defaultApi ?? "",
         discovery: {
             adapter: provider.discovery.adapter,
             endpointPath: provider.discovery.endpointPath ?? "",
@@ -432,6 +286,7 @@ function applySettings(snapshot: ConfigEditorSnapshotDto, options: {preserveUiSt
         providers: snapshot.modelSettings.providers.map((provider) => cloneProvider(provider, localKeyMap)),
     };
     snapshotText.value = JSON.stringify(draft.value);
+    scopeAgentSnapshotText.value = JSON.stringify(snapshot.global.agent ?? null);
     activeProviderKey.value = draft.value.providers.some((provider) => provider.localKey === preferredProviderKey)
         ? preferredProviderKey
         : draft.value.providers[0]?.localKey ?? "";
@@ -443,7 +298,6 @@ function applySettings(snapshot: ConfigEditorSnapshotDto, options: {preserveUiSt
     resolvedContextWindowMap.value = Object.fromEntries(
         snapshot.modelSettings.enabledModels.map((model) => [model.key, model.contextWindowTokens]),
     );
-    projectReferencesDirty.value = false;
     novelIdeStore.setSelectedModelLabel(snapshot.modelSettings.defaultModelLabel);
 }
 
@@ -469,6 +323,7 @@ function applyProjectSettings(snapshot: ConfigEditorSnapshotDto): void {
     snapshotText.value = JSON.stringify({
         defaultModelKey: draft.value.defaultModelKey,
     });
+    scopeAgentSnapshotText.value = JSON.stringify(snapshot.project?.agent ?? null);
     activeProviderKey.value = draft.value.providers.some((provider) => provider.localKey === activeProviderKey.value)
         ? activeProviderKey.value
         : draft.value.providers[0]?.localKey ?? "";
@@ -478,7 +333,6 @@ function applyProjectSettings(snapshot: ConfigEditorSnapshotDto): void {
     );
     manualModelDrafts.value = {};
     resetModelCheckState();
-    projectReferencesDirty.value = false;
     novelIdeStore.setSelectedModelLabel(snapshot.modelSettings.defaultModelLabel);
 }
 
@@ -496,18 +350,6 @@ function resolveDisplayedContextWindow(providerId: string, model: ModelDraft): s
 }
 
 /**
- * 构造保存请求体。
- */
-function buildSecretPayload(provider: ProviderDraft): SecretConfigValueDto {
-    return {
-        configured: provider.options.apiKeyConfigured,
-        maskedValue: provider.options.apiKeyMaskedValue,
-        ...(provider.options.apiKeyCleared ? {value: ""} : {}),
-        ...(!provider.options.apiKeyCleared && provider.options.apiKey.trim() ? {value: provider.options.apiKey.trim()} : {}),
-    };
-}
-
-/**
  * 标记清空当前 Provider API key。保存后后端会写入空字符串。
  */
 function clearActiveProviderApiKey(): void {
@@ -521,90 +363,16 @@ function clearActiveProviderApiKey(): void {
 }
 
 /**
- * 构造模型设置保存请求体。
- */
-function buildSavePayload(): UpdateModelSettingsRequestDto {
-    return {
-        defaultModelKey: draft.value.defaultModelKey,
-        providers: draft.value.providers.map((provider) => ({
-            id: provider.id.trim(),
-            name: provider.name.trim(),
-            enabled: provider.enabled,
-            api: provider.api.trim() || null,
-            discovery: {
-                adapter: provider.discovery.adapter,
-                endpointPath: provider.discovery.endpointPath.trim() || null,
-            },
-            options: {
-                apiKey: provider.options.apiKey.trim(),
-                baseURL: provider.options.baseURL.trim(),
-                proxy: provider.options.proxy.trim(),
-                timeoutMs: parseProviderTimeoutMs(provider.options.timeoutMs),
-                requestOptions: parseProviderRequestOptions(provider.options.requestOptions),
-            },
-            models: provider.models.map((model) => ({
-                name: model.name.trim(),
-                id: model.id.trim(),
-                group: model.group.trim() || null,
-                enabled: model.enabled,
-                api: model.api.trim() || null,
-                reasoning: parseModelReasoning(model.reasoning),
-                input: parseModelInput(model.input),
-                maxTokens: parseMaxTokens(model.maxTokens),
-                cost: parseModelCostDraft(model.cost),
-                compat: parseModelCompat(model.compat),
-                headers: parseModelHeaders(model.headers),
-                thinkingLevelMap: parseThinkingLevelMap(model.thinkingLevelMap),
-                contextWindowTokens: parseContextWindowTokens(model.contextWindowTokens),
-            })),
-        })),
-    };
-}
-
-/**
  * 构造 Global Config 写回体，secret 字段遵守“空输入保留旧值”语义。
  */
-function buildGlobalConfigPayload(): GlobalConfigDto {
-    const base = editorSnapshot.value?.global ?? {};
+function buildGlobalConfigPayload(): GlobalConfigUpdateDto {
+    const base = editorSnapshot.value?.global;
     const modelKeys = availableModelKeys();
+    const cleanedAgent = cleanGlobalAgent(base?.agent, modelKeys);
+    const agentChanged = JSON.stringify(cleanedAgent ?? null) !== scopeAgentSnapshotText.value;
     return {
-        ...base,
-        agent: cleanConfigAgentProfiles(base.agent, modelKeys),
-        models: {
-            default: cleanModelKey(draft.value.defaultModelKey, modelKeys),
-            providers: draft.value.providers.map((provider) => ({
-                id: provider.id.trim(),
-                name: provider.name.trim(),
-                enabled: provider.enabled,
-                api: provider.api.trim() || null,
-                discovery: {
-                    adapter: provider.discovery.adapter,
-                    endpointPath: provider.discovery.endpointPath.trim() || null,
-                },
-                options: {
-                    apiKey: buildSecretPayload(provider),
-                    baseURL: provider.options.baseURL.trim(),
-                    proxy: provider.options.proxy.trim(),
-                    timeoutMs: parseProviderTimeoutMs(provider.options.timeoutMs),
-                    requestOptions: parseProviderRequestOptions(provider.options.requestOptions),
-                },
-                models: provider.models.map((model) => ({
-                    name: model.name.trim(),
-                    id: model.id.trim(),
-                    group: model.group.trim() || null,
-                    enabled: model.enabled,
-                    api: model.api.trim() || null,
-                    reasoning: parseModelReasoning(model.reasoning),
-                    input: parseModelInput(model.input),
-                    maxTokens: parseMaxTokens(model.maxTokens),
-                    cost: parseModelCostDraft(model.cost),
-                    compat: parseModelCompat(model.compat),
-                    headers: parseModelHeaders(model.headers),
-                    thinkingLevelMap: parseThinkingLevelMap(model.thinkingLevelMap),
-                    contextWindowTokens: parseContextWindowTokens(model.contextWindowTokens),
-                })),
-            })),
-        },
+        ...(agentChanged && cleanedAgent ? {agent: cleanedAgent} : {}),
+        models: buildModelsSection(draft.value),
     };
 }
 
@@ -612,167 +380,19 @@ function buildGlobalConfigPayload(): GlobalConfigDto {
  * 构造 Project Config 写回体，清理已不存在 Provider 的模型引用。
  */
 function buildProjectConfigPayload(): ProjectConfigDto {
-    const base = editorSnapshot.value?.project ?? {};
+    const base = editorSnapshot.value?.project;
     const modelKeys = availableModelKeys();
-    const cleanedAgent = cleanProjectAgentProfiles(base.agent, modelKeys);
-    const modelPatch = {
-        ...(base.models ?? {}),
-        ...(isProjectScope.value || (base.models && Object.hasOwn(base.models, "default"))
-            ? {default: cleanModelKey(isProjectScope.value ? draft.value.defaultModelKey : base.models?.default, modelKeys)}
-            : {}),
-    };
+    const cleanedAgent = cleanProjectAgent(base?.agent, modelKeys);
+    const agentChanged = JSON.stringify(cleanedAgent ?? null) !== scopeAgentSnapshotText.value;
     return {
-        ...base,
-        ...(cleanedAgent ? {agent: cleanedAgent} : {}),
-        ...(Object.keys(modelPatch).length > 0 ? {models: modelPatch} : {}),
+        models: {default: cleanModelKey(draft.value.defaultModelKey, modelKeys)},
+        ...(agentChanged && cleanedAgent ? {agent: cleanedAgent} : {}),
     };
 }
 
-/**
- * 当前草稿中仍启用的完整模型 key 集合。
- */
+/** 当前草稿中真正可运行的完整模型 key 集合。 */
 function availableModelKeys(): Set<string> {
-    return new Set(draft.value.providers.flatMap((provider) => provider.models
-        .filter((model) => provider.enabled && model.enabled && provider.id.trim() && model.id.trim())
-        .map((model) => `${provider.id.trim()}/${model.id.trim()}`)));
-}
-
-/**
- * 如果模型 key 指向已删除或未启用模型，则清空该引用。
- */
-function cleanModelKey(modelKey: string | null | undefined, modelKeys: Set<string>): string | null {
-    const normalizedModelKey = modelKey?.trim() ?? "";
-    if (!normalizedModelKey) {
-        return null;
-    }
-    return modelKeys.has(normalizedModelKey) ? normalizedModelKey : null;
-}
-
-/**
- * 复制并清理完整 Config agent 中失效的模型引用。
- */
-function cleanConfigAgentProfiles<T extends {profileModelDefaults?: {modelKey?: string | null}; profiles?: Record<string, {model?: {modelKey?: string | null}}>}>(
-    agent: T | undefined,
-    modelKeys: Set<string>,
-): T | undefined {
-    if (!agent) {
-        return agent;
-    }
-    return {
-        ...agent,
-        profileModelDefaults: agent.profileModelDefaults
-            ? {
-                ...agent.profileModelDefaults,
-                modelKey: cleanModelKey(agent.profileModelDefaults.modelKey, modelKeys),
-            }
-            : agent.profileModelDefaults,
-        profiles: agent.profiles
-            ? Object.fromEntries(Object.entries(agent.profiles).map(([profileKey, profile]) => [profileKey, {
-                ...profile,
-                model: profile.model
-                    ? {
-                        ...profile.model,
-                        modelKey: cleanModelKey(profile.model.modelKey, modelKeys),
-                    }
-                    : profile.model,
-            }]))
-            : agent.profiles,
-    };
-}
-
-/**
- * 复制并清理 Project partial agent。modelKey 缺失表示继承 Global，不能写成 null。
- */
-function cleanProjectAgentProfiles<T extends {profileModelDefaults?: {modelKey?: string | null}; profiles?: Record<string, {model?: {modelKey?: string | null}}>}>(
-    agent: T | undefined,
-    modelKeys: Set<string>,
-): T | undefined {
-    if (!agent) {
-        return agent;
-    }
-    const profileModelDefaults = agent.profileModelDefaults && Object.hasOwn(agent.profileModelDefaults, "modelKey")
-        ? (() => {
-            const cleanedModelKey = cleanModelKey(agent.profileModelDefaults?.modelKey, modelKeys);
-            const {modelKey: _modelKey, ...defaultsWithoutKey} = agent.profileModelDefaults ?? {};
-            return cleanedModelKey
-                ? {
-                    ...agent.profileModelDefaults,
-                    modelKey: cleanedModelKey,
-                }
-                : defaultsWithoutKey;
-        })()
-        : agent.profileModelDefaults;
-    return {
-        ...agent,
-        profileModelDefaults,
-        profiles: agent.profiles
-            ? Object.fromEntries(Object.entries(agent.profiles).map(([profileKey, profile]) => {
-                if (!profile.model || !Object.hasOwn(profile.model, "modelKey")) {
-                    return [profileKey, profile];
-                }
-                const cleanedModelKey = cleanModelKey(profile.model.modelKey, modelKeys);
-                const {modelKey: _modelKey, ...modelWithoutKey} = profile.model;
-                return [profileKey, {
-                    ...profile,
-                    model: cleanedModelKey
-                        ? {
-                            ...profile.model,
-                            modelKey: cleanedModelKey,
-                        }
-                        : modelWithoutKey,
-                }];
-            }))
-            : agent.profiles,
-    };
-}
-
-/**
- * 迁移 Config agent 中指定 Provider 前缀的模型引用。
- */
-function renameConfigAgentProfileModels<T extends {profileModelDefaults?: {modelKey?: string | null}; profiles?: Record<string, {model?: {modelKey?: string | null}}>}>(
-    agent: T | undefined,
-    previousProviderId: string,
-    nextProviderId: string,
-): {agent: T | undefined; changed: boolean} {
-    if (!agent) {
-        return {agent, changed: false};
-    }
-    let changed = false;
-    const defaultModelKey = agent.profileModelDefaults?.modelKey ?? "";
-    const renamedProfileModelDefaults = defaultModelKey.startsWith(`${previousProviderId}/`)
-        ? (() => {
-            changed = true;
-            return {
-                ...agent.profileModelDefaults,
-                modelKey: defaultModelKey.replace(`${previousProviderId}/`, `${nextProviderId}/`),
-            };
-        })()
-        : agent.profileModelDefaults;
-    return {
-        agent: {
-            ...agent,
-            profileModelDefaults: renamedProfileModelDefaults,
-            profiles: agent.profiles
-                ? Object.fromEntries(Object.entries(agent.profiles).map(([profileKey, profile]) => {
-                    const modelKey = profile.model?.modelKey ?? "";
-                    const shouldRename = modelKey.startsWith(`${previousProviderId}/`);
-                    if (shouldRename) {
-                        changed = true;
-                    }
-                    return [profileKey, {
-                        ...profile,
-                        model: shouldRename
-                            ? {
-                                ...profile.model,
-                                modelKey: modelKey.replace(`${previousProviderId}/`, `${nextProviderId}/`),
-                            }
-                            : profile.model,
-                    }];
-                }))
-                : agent.profiles,
-        },
-        changed,
-    };
+    return inspectSettingsDraft({...draft.value, defaultModelKey: null}).runnableModelKeys;
 }
 
 /**
@@ -817,22 +437,9 @@ function buildUniqueProviderId(baseId: string): string {
     return `${normalizedBaseId}-${String(suffix)}`;
 }
 
-/**
- * 确保默认模型仍然指向一个已启用模型。
- */
+/** 确保默认模型仍然指向一个真正可运行的模型。 */
 function ensureDefaultModelKey(): void {
-    const enabledModelKeys = draft.value.providers.flatMap((provider) => provider.models
-        .filter((model) => provider.enabled && model.enabled && model.id.trim())
-        .map((model) => `${provider.id}/${model.id.trim()}`));
-
-    if (enabledModelKeys.length === 0) {
-        draft.value.defaultModelKey = null;
-        return;
-    }
-
-    if (!draft.value.defaultModelKey || !enabledModelKeys.includes(draft.value.defaultModelKey)) {
-        draft.value.defaultModelKey = enabledModelKeys[0] ?? null;
-    }
+    ensureRunnableDefault(draft.value);
 }
 
 /**
@@ -896,12 +503,16 @@ function toggleActiveProviderEnabled(): void {
  * 当前草稿是否有未保存修改。
  */
 const dirty = computed(() => {
+    const scopeAgent = isProjectScope.value
+        ? editorSnapshot.value?.project?.agent
+        : editorSnapshot.value?.global.agent;
+    const agentChanged = JSON.stringify(scopeAgent ?? null) !== scopeAgentSnapshotText.value;
     if (isProjectScope.value) {
-        return JSON.stringify({
+        return agentChanged || JSON.stringify({
             defaultModelKey: draft.value.defaultModelKey,
         }) !== snapshotText.value;
     }
-    return projectReferencesDirty.value || JSON.stringify(draft.value) !== snapshotText.value;
+    return agentChanged || JSON.stringify(draft.value) !== snapshotText.value;
 });
 
 /**
@@ -909,13 +520,13 @@ const dirty = computed(() => {
  */
 const defaultModelOptions = computed<EnabledModelOptionDto[]>(() => {
     return draft.value.providers.flatMap((provider) => provider.models
-        .filter((model) => provider.enabled && model.enabled && model.id.trim())
+        .filter((model) => model.id.trim() && validationState.value.runnableModelKeys.has(`${provider.id.trim()}/${model.id.trim()}`))
         .map((model) => ({
             key: `${provider.id}/${model.id.trim()}`,
             label: `${provider.name} / ${model.name || model.id}`,
             providerId: provider.id,
             modelId: model.id.trim(),
-            contextWindowTokens: parseContextWindowTokens(model.contextWindowTokens),
+            contextWindowTokens: parseDraftInteger(model.contextWindowTokens),
         })))
         .sort((left, right) => left.label.localeCompare(right.label));
 });
@@ -1022,7 +633,13 @@ function reapplyCatalogModel(model: ModelDraft): void {
         notification.warning(t("settings.panels.models.noCatalogMetadata"));
         return;
     }
-    const catalogDraft = cloneCatalogModel(catalogModel, model.api || activeProvider.value?.api || null);
+    const catalogDraft = cloneCatalogModel(catalogModel, activeProvider.value?.defaultApi || null, model.api || null);
+    applyCatalogCapabilities(model, {...buildModelCheckDraft(catalogDraft), enabled: model.enabled});
+}
+
+/** 用 Catalog 完整能力块覆盖草稿，同时保留用户名称、分组和启用状态。 */
+function applyCatalogCapabilities(model: ModelDraft, replacement: ConfiguredModelDto): void {
+    const catalogDraft = cloneModel(replacement);
     Object.assign(model, {
         api: catalogDraft.api,
         reasoning: catalogDraft.reasoning,
@@ -1036,16 +653,136 @@ function reapplyCatalogModel(model: ModelDraft): void {
     });
 }
 
+/** 只清理当前设置 scope 中已经不能运行的模型引用。 */
+function cleanScopeModelReferences(modelKeys: Set<string>): boolean {
+    const snapshot = editorSnapshot.value;
+    if (!snapshot) {
+        return false;
+    }
+    const currentAgent = isProjectScope.value ? snapshot.project?.agent : snapshot.global.agent;
+    const nextAgent = isProjectScope.value
+        ? cleanProjectAgent(snapshot.project?.agent, modelKeys)
+        : cleanGlobalAgent(snapshot.global.agent, modelKeys);
+    const changed = JSON.stringify(nextAgent) !== JSON.stringify(currentAgent);
+    if (!changed) {
+        return false;
+    }
+    if (isProjectScope.value && snapshot.project) {
+        snapshot.project.agent = nextAgent as typeof snapshot.project.agent;
+    } else if (!isProjectScope.value) {
+        snapshot.global.agent = nextAgent as typeof snapshot.global.agent;
+    }
+    return true;
+}
+
+/**
+ * 一键修复当前模型草稿：应用可命中的 Catalog，禁用剩余无效模型并清理引用。
+ * 只修改前端草稿，不自动保存。
+ */
+async function repairModelSettings(): Promise<void> {
+    if (repairingModels.value) {
+        return;
+    }
+    repairingModels.value = true;
+    try {
+        const repairs = [] as ReturnType<typeof previewCatalogRepairs>;
+        let disabledModelKeys: string[] = [];
+        let clearedDefaultApis = 0;
+        if (!isProjectScope.value) {
+            const catalog = await loadModelCatalog();
+            clearedDefaultApis = clearUnsupportedDefaultApis(draft.value);
+            repairs.push(...previewCatalogRepairs(draft.value, catalog.models));
+            for (const repair of repairs) {
+                const model = draft.value.providers[repair.providerIndex]?.models[repair.modelIndex];
+                if (model) {
+                    applyCatalogCapabilities(model, repair.replacement);
+                }
+            }
+            disabledModelKeys = disableInvalidDrafts(draft.value);
+            ensureRunnableDefault(draft.value);
+        } else {
+            draft.value.defaultModelKey = cleanModelKey(draft.value.defaultModelKey, availableModelKeys());
+        }
+        const modelKeys = availableModelKeys();
+        const referencesChanged = cleanScopeModelReferences(modelKeys);
+        resetModelCheckState();
+        await nextTick();
+        const remaining = validationIssues.value.length;
+        const message = t("settings.panels.models.oneClickRepairResult", {
+            repaired: repairs.length,
+            cleared: clearedDefaultApis,
+            disabled: disabledModelKeys.length,
+            remaining,
+        });
+        if (remaining > 0) {
+            notification.warning(message, {title: t("settings.panels.models.oneClickRepairNeedsReview")});
+        } else if (repairs.length > 0 || clearedDefaultApis > 0 || disabledModelKeys.length > 0 || referencesChanged) {
+            notification.success(message, {title: t("settings.panels.models.oneClickRepairDone")});
+        } else {
+            notification.info(t("settings.panels.models.oneClickRepairNoChange"));
+        }
+    } catch (error) {
+        notification.error(resolveApiErrorMessage(error, t("settings.panels.models.oneClickRepairFailed")));
+    } finally {
+        repairingModels.value = false;
+    }
+}
+
 function providerDefaultApiLabel(provider: ProviderDraft): string {
-    return provider.api.trim()
-        ? t("settings.panels.models.inheritProviderApi", {api: provider.api.trim()})
+    return provider.defaultApi.trim()
+        ? t("settings.panels.models.providerDefaultApi", {api: provider.defaultApi.trim()})
         : t("settings.panels.models.metadataOrRequiredApi");
 }
 
+/** 收集 Config agent 中显式保存的模型引用。 */
+function agentModelReferences(
+    agent: {profileModelDefaults?: {modelKey?: string | null}; profiles?: Record<string, {model?: {modelKey?: string | null}}>} | undefined,
+    pathPrefix: Array<string | number>,
+    labelPrefix: string,
+): ModelReferenceInput[] {
+    if (!agent) {
+        return [];
+    }
+    const references: ModelReferenceInput[] = [];
+    if (agent.profileModelDefaults && Object.hasOwn(agent.profileModelDefaults, "modelKey")) {
+        references.push({
+            modelKey: agent.profileModelDefaults.modelKey ?? null,
+            path: [...pathPrefix, "profileModelDefaults", "modelKey"],
+            label: `${labelPrefix} Profile 默认模型`,
+        });
+    }
+    for (const [profileKey, profile] of Object.entries(agent.profiles ?? {})) {
+        if (!profile.model || !Object.hasOwn(profile.model, "modelKey")) {
+            continue;
+        }
+        references.push({
+            modelKey: profile.model.modelKey ?? null,
+            path: [...pathPrefix, "profiles", profileKey, "model", "modelKey"],
+            label: `${labelPrefix} Profile ${profileKey} 模型`,
+        });
+    }
+    return references;
+}
+
+/** 当前草稿的实时校验结果；Project scope 的 null 默认值表示继承 Global。 */
+const validationState = computed(() => {
+    const globalDefaultModelKey = editorSnapshot.value?.global.models?.default ?? null;
+    const contractDraft = isProjectScope.value
+        ? {...draft.value, defaultModelKey: draft.value.defaultModelKey ?? globalDefaultModelKey}
+        : draft.value;
+    const references = isProjectScope.value
+        ? agentModelReferences(editorSnapshot.value?.project?.agent, ["project", "agent"], "Project")
+        : agentModelReferences(editorSnapshot.value?.global.agent, ["agent"], "Global");
+    return inspectSettingsDraft(contractDraft, references);
+});
+
+const validationIssues = computed(() => validationState.value.issues);
+const validationIssueDetails = computed(() => validationIssues.value.map((issue) => issue.message).join("\n"));
+
 function modelApiInheritLabel(model: ModelDraft): string {
-    const providerApi = activeProvider.value?.api.trim();
+    const providerApi = activeProvider.value?.defaultApi.trim();
     if (providerApi) {
-        return t("settings.panels.models.inheritProviderApi", {api: providerApi});
+        return t("settings.panels.models.providerDefaultApi", {api: providerApi});
     }
     return model.api.trim() || t("settings.panels.modelEdit.requiredForCustomModel");
 }
@@ -1069,14 +806,14 @@ function formatTokenLimit(value: number | null | undefined): string {
 }
 
 function modelContextWindowDefaultLabel(model: ModelDraft): string {
-    return parseContextWindowTokens(model.contextWindowTokens)
-        ? `${formatTokenLimit(parseContextWindowTokens(model.contextWindowTokens))} tokens`
+    return parseDraftInteger(model.contextWindowTokens)
+        ? `${formatTokenLimit(parseDraftInteger(model.contextWindowTokens))} tokens`
         : t("settings.panels.modelEdit.requiredForCustomModel");
 }
 
 function modelMaxTokensDefaultLabel(model: ModelDraft): string {
-    return parseMaxTokens(model.maxTokens)
-        ? `${formatTokenLimit(parseMaxTokens(model.maxTokens))} tokens`
+    return parseDraftInteger(model.maxTokens)
+        ? `${formatTokenLimit(parseDraftInteger(model.maxTokens))} tokens`
         : t("settings.panels.modelEdit.requiredForCustomModel");
 }
 
@@ -1102,11 +839,12 @@ async function loadModelCatalog(): Promise<NeuroModelCatalogDto> {
 }
 
 /** 把标准 Catalog 模型复制为完整、自包含的用户模型草稿。 */
-function cloneCatalogModel(model: ModelCatalogEntryDto, providerApi: string | null): ModelDraft {
+function cloneCatalogModel(model: ModelCatalogEntryDto, providerDefaultApi: string | null, modelApi: string | null = null): ModelDraft {
     return cloneModel(configuredModelFromCatalog(model, {
         group: deriveGroup(model.id),
         enabled: false,
-        providerApi,
+        modelApi,
+        providerDefaultApi,
     }));
 }
 
@@ -1133,7 +871,7 @@ async function addProvider(): Promise<void> {
         id: providerId,
         name: preset.name,
         enabled: true,
-        api: preset.defaultApi ?? "",
+        defaultApi: preset.defaultApi ?? "",
         discovery: {
             adapter: preset.discovery.adapter,
             endpointPath: preset.discovery.endpointPath ?? "",
@@ -1164,12 +902,9 @@ async function saveSettingsResult(successMessage?: string): Promise<boolean> {
     saving.value = true;
 
     try {
-        let snapshot = isProjectScope.value
+        const snapshot = isProjectScope.value
             ? await configApi.saveProject(buildProjectConfigPayload(), props.targetQuery)
             : await configApi.saveGlobal(buildGlobalConfigPayload(), props.targetQuery);
-        if (!isProjectScope.value && (projectReferencesDirty.value || shouldCleanProjectConfig())) {
-            snapshot = await configApi.saveProject(buildProjectConfigPayload(), props.targetQuery);
-        }
         editorSnapshot.value = snapshot;
         if (isProjectScope.value) {
             applyProjectSettings(snapshot);
@@ -1242,60 +977,17 @@ function renameActiveProviderId(nextProviderId: string): void {
 }
 
 /**
- * Provider ID 重命名时迁移 Global / Project Config 中的模型引用。
+ * Provider ID 重命名时只迁移 Global Config 中的模型引用。
  */
 function renameProviderModelReferences(previousProviderId: string, nextProviderId: string): void {
     if (editorSnapshot.value?.global.agent) {
-        const renamedGlobalAgent = renameConfigAgentProfileModels(
+        const renamedGlobalAgent = renameAgentProvider(
             editorSnapshot.value.global.agent,
             previousProviderId,
             nextProviderId,
         );
         editorSnapshot.value.global.agent = renamedGlobalAgent.agent ?? editorSnapshot.value.global.agent;
     }
-    const project = editorSnapshot.value?.project;
-    if (!project) {
-        return;
-    }
-    if (project.models?.default?.startsWith(`${previousProviderId}/`)) {
-        project.models.default = project.models.default.replace(`${previousProviderId}/`, `${nextProviderId}/`);
-        projectReferencesDirty.value = true;
-    }
-    if (project.agent) {
-        const renamedAgent = renameConfigAgentProfileModels(project.agent, previousProviderId, nextProviderId);
-        if (renamedAgent.changed) {
-            project.agent = renamedAgent.agent ?? project.agent;
-            projectReferencesDirty.value = true;
-        }
-    }
-}
-
-/**
- * Global 删除 Provider 后，如果当前 Project Config 还引用了失效模型，需要连同项目配置一起清理。
- */
-function shouldCleanProjectConfig(): boolean {
-    const project = editorSnapshot.value?.project;
-    if (!project) {
-        return false;
-    }
-    const modelKeys = availableModelKeys();
-    if (project.models && Object.hasOwn(project.models, "default") && cleanModelKey(project.models.default, modelKeys) !== (project.models.default ?? null)) {
-        return true;
-    }
-    if (project.agent?.profileModelDefaults && Object.hasOwn(project.agent.profileModelDefaults, "modelKey")) {
-        const modelKey = project.agent.profileModelDefaults.modelKey;
-        if (cleanModelKey(modelKey, modelKeys) !== (modelKey ?? null)) {
-            return true;
-        }
-    }
-    const profiles = project.agent?.profiles ?? {};
-    return Object.values(profiles).some((profile) => {
-        if (!profile.model || !Object.hasOwn(profile.model, "modelKey")) {
-            return false;
-        }
-        const modelKey = profile.model?.modelKey;
-        return cleanModelKey(modelKey, modelKeys) !== (modelKey ?? null);
-    });
 }
 
 /**
@@ -1340,7 +1032,7 @@ function buildProviderRequest(provider: ProviderDraft): {provider: ModelProvider
         provider: {
             id: provider.id.trim(),
             name: provider.name.trim(),
-            api: provider.api.trim() || null,
+            defaultApi: provider.defaultApi.trim() || null,
             discovery: {
                 adapter: provider.discovery.adapter,
                 endpointPath: provider.discovery.endpointPath.trim() || null,
@@ -1349,8 +1041,8 @@ function buildProviderRequest(provider: ProviderDraft): {provider: ModelProvider
                 apiKey: provider.options.apiKey.trim(),
                 baseURL: provider.options.baseURL.trim(),
                 proxy: provider.options.proxy.trim(),
-                timeoutMs: parseProviderTimeoutMs(provider.options.timeoutMs),
-                requestOptions: parseProviderRequestOptions(provider.options.requestOptions),
+                timeoutMs: parseDraftInteger(provider.options.timeoutMs),
+                requestOptions: parseRequestOptions(provider.options.requestOptions),
             },
         },
     };
@@ -1368,12 +1060,12 @@ function buildModelCheckDraft(model: ModelDraft): Omit<ConfiguredModelDto, "enab
         api: model.api.trim() || null,
         reasoning: parseModelReasoning(model.reasoning),
         input: parseModelInput(model.input),
-        maxTokens: parseMaxTokens(model.maxTokens),
+        maxTokens: parseDraftInteger(model.maxTokens),
         cost: parseModelCostDraft(model.cost),
         compat: parseModelCompat(model.compat),
-        headers: parseModelHeaders(model.headers),
-        thinkingLevelMap: parseThinkingLevelMap(model.thinkingLevelMap),
-        contextWindowTokens: parseContextWindowTokens(model.contextWindowTokens),
+        headers: parseStringMap(model.headers),
+        thinkingLevelMap: parseStringMap(model.thinkingLevelMap),
+        contextWindowTokens: parseDraftInteger(model.contextWindowTokens),
     };
 }
 
@@ -1443,6 +1135,18 @@ function disableModel(model: ModelDraft): void {
     ensureDefaultModelKey();
 }
 
+/** 删除指定模型条目；按对象身份处理，重复 ID 条目也能分别删除。 */
+function deleteModel(model: ModelDraft): void {
+    const provider = activeProvider.value;
+    if (!provider) {
+        return;
+    }
+    cancelModelCheck(provider, model);
+    provider.models = provider.models.filter((item) => item !== model);
+    ensureDefaultModelKey();
+    cleanScopeModelReferences(availableModelKeys());
+}
+
 /**
  * 手动新增一个模型。
  */
@@ -1462,18 +1166,18 @@ function addManualModel(): void {
     const discovered: DiscoveredProviderModelDto = {
         name: manualDraft.name,
         id: manualDraft.id,
-        api: manualDraft.api || provider.api || null,
+        api: manualDraft.api || provider.defaultApi || null,
         group: manualDraft.group || null,
         reasoning: null,
         input: null,
-        contextWindowTokens: parseContextWindowTokens(manualDraft.contextWindowTokens),
-        maxTokens: parseMaxTokens(manualDraft.maxTokens),
+        contextWindowTokens: parseDraftInteger(manualDraft.contextWindowTokens),
+        maxTokens: parseDraftInteger(manualDraft.maxTokens),
         cost: null,
         compat: null,
         headers: null,
         thinkingLevelMap: null,
     };
-    const resolved = resolveDiscoveredModelDraft(discovered, catalogModel, provider.api || null);
+    const resolved = resolveDiscoveredModelDraft(discovered, catalogModel, provider.defaultApi || null);
     const added = enableModel(resolved.model);
 
     manualModelDrafts.value = {
@@ -1494,7 +1198,18 @@ function addManualModel(): void {
 }
 
 function modelCheckKey(provider: ProviderDraft, model: ModelDraft): string {
-    return `${provider.id.trim()}/${model.id.trim()}`;
+    return `${provider.localKey}/${model.localKey}`;
+}
+
+/** 返回当前草稿对应模型的问题，编辑后立即更新。 */
+function savedModelIssues(providerId: string, modelId: string) {
+    const modelKey = `${providerId.trim()}/${modelId.trim()}`;
+    return validationIssues.value.filter((issue) => issue.modelKey === modelKey);
+}
+
+/** 判断当前前端草稿是否已经具备健康检查所需的完整能力。 */
+function modelDraftRunnable(provider: ProviderDraft, model: ModelDraft): boolean {
+    return validationState.value.runnableModelKeys.has(`${provider.id.trim()}/${model.id.trim()}`);
 }
 
 function modelCheckResult(provider: ProviderDraft, model: ModelDraft): ModelCheckResult | null {
@@ -1731,7 +1446,7 @@ const unifiedLibraryGroups = computed(() => {
     const allModelsMap = new Map<string, {name: string; id: string; group: string; state: "enabled" | "disabled" | "remote"; draftModel?: ConfiguredModelDto}>();
     
     for (const rm of currentDiscoveredModels.value) {
-        const resolved = resolveDiscoveredModelDraft(rm, findCatalogModel(rm.id), provider.api || null);
+        const resolved = resolveDiscoveredModelDraft(rm, findCatalogModel(rm.id), provider.defaultApi || null);
         const group = rm.group || deriveGroup(rm.id);
         allModelsMap.set(rm.id, {
             name: rm.name,
@@ -1746,7 +1461,7 @@ const unifiedLibraryGroups = computed(() => {
         if (allModelsMap.has(catalogModel.id)) {
             continue;
         }
-        const catalogDraft = cloneCatalogModel(catalogModel, provider.api || null);
+        const catalogDraft = cloneCatalogModel(catalogModel, provider.defaultApi || null);
         allModelsMap.set(catalogModel.id, {
             name: catalogModel.name,
             id: catalogModel.id,
@@ -1815,7 +1530,7 @@ function toggleLibraryModel(model: {name: string; id: string; group: string; sta
             id: model.id,
             group: model.group,
             enabled: false,
-            api: activeProvider.value?.api || null,
+            api: activeProvider.value?.defaultApi || null,
             reasoning: null,
             input: null,
             maxTokens: null,
@@ -1870,6 +1585,19 @@ defineExpose({
                 <h3 class="text-base font-semibold text-[var(--text-main)]">{{ isProjectScope ? t("settings.panels.models.projectTitle") : t("settings.panels.models.globalTitle") }}</h3>
                 <p class="mt-1 text-xs text-[var(--text-secondary)]">{{ isProjectScope ? t("settings.panels.models.projectDescription", {target: props.targetLabel || t("settings.panels.models.currentProject")}) : t("settings.panels.models.globalDescription") }}</p>
             </div>
+        </div>
+
+        <!-- 当前草稿问题：紧凑展示，完整内容放在 title；修复只改草稿，不自动保存。 -->
+        <div v-if="validationIssues.length > 0" class="flex min-h-9 items-center gap-2 rounded-lg border border-[var(--status-warning-border)] bg-[var(--status-warning-bg)] px-3 py-1.5 text-xs text-[var(--text-main)]" :title="validationIssueDetails">
+            <span class="i-lucide-triangle-alert h-4 w-4 shrink-0 text-[var(--status-warning)]"></span>
+            <span class="shrink-0 font-semibold">{{ t("settings.panels.models.validationIssuesTitle") }}</span>
+            <span class="shrink-0 rounded bg-[var(--bg-panel)] px-1.5 py-0.5 text-[10px] text-[var(--text-secondary)]">{{ validationIssues.length }}</span>
+            <span class="min-w-0 flex-1 truncate text-[var(--text-secondary)]">{{ validationIssues[0]?.message }}</span>
+            <button class="inline-flex h-7 shrink-0 items-center justify-center rounded-md px-2 text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" @click="validationDialogOpen = true">{{ t("settings.panels.models.viewAllIssues") }}</button>
+            <button class="inline-flex h-7 shrink-0 items-center justify-center rounded-md border border-[var(--status-warning-border)] bg-[var(--bg-panel)] px-2.5 font-medium text-[var(--text-main)] transition-colors hover:bg-[var(--bg-hover)] disabled:opacity-50" :disabled="repairingModels" @click="void repairModelSettings()">
+                <span class="mr-1 h-3.5 w-3.5" :class="repairingModels ? 'i-lucide-loader-2 animate-spin' : 'i-lucide-wand-sparkles'"></span>
+                {{ t("settings.panels.models.oneClickRepair") }}
+            </button>
         </div>
 
         <!-- 顶部默认模型与新增 Provider -->
@@ -2000,7 +1728,7 @@ defineExpose({
                                 </div>
                                 <div class="group space-y-1.5">
                                     <label class="text-xs font-medium text-[var(--text-secondary)] transition-colors group-focus-within:text-[var(--text-main)]">{{ t("settings.panels.models.apiFormat") }}</label>
-                                    <FormSelect v-model="activeProvider.api" :options="[{value: '', label: providerDefaultApiLabel(activeProvider)}, ...modelApiOptions]" />
+                                    <FormSelect v-model="activeProvider.defaultApi" :options="[{value: '', label: providerDefaultApiLabel(activeProvider)}, ...modelApiOptions]" />
                                 </div>
                                 <div class="group space-y-1.5">
                                     <label class="text-xs font-medium text-[var(--text-secondary)] transition-colors group-focus-within:text-[var(--text-main)]">API Base</label>
@@ -2080,7 +1808,7 @@ defineExpose({
                                         </button>
 
                                         <div v-show="expandedGroups[group.group] !== false" class="border-t border-[var(--border-color)] bg-[var(--bg-input)]/10 divide-y divide-[var(--border-color)]">
-                                            <div v-for="(model, index) in group.models" :key="`${group.group}-${String(index)}`" class="group/model relative flex items-center justify-between px-4 py-2.5 transition-colors hover:bg-[var(--bg-hover)]/40">
+                                            <div v-for="model in group.models" :key="model.localKey" class="group/model relative flex items-center justify-between px-4 py-2.5 transition-colors hover:bg-[var(--bg-hover)]/40">
                                                 <div class="flex items-center gap-3 min-w-0">
                                                     <div class="flex h-6 w-6 items-center justify-center rounded bg-[var(--accent-bg)] text-[var(--accent-text)] shrink-0">
                                                         <span class="i-lucide-sparkles h-3.5 w-3.5"></span>
@@ -2099,6 +1827,11 @@ defineExpose({
                                                             </span>
                                                         </div>
                                                         <div class="truncate text-[11px] text-[var(--text-muted)] mt-0.5">{{ model.id }}</div>
+                                                        <div v-if="savedModelIssues(activeProvider.id, model.id).length > 0" class="mt-1 flex max-w-[520px] items-center gap-1.5 text-[11px] text-[var(--status-warning)]" :title="savedModelIssues(activeProvider.id, model.id).map((issue) => issue.message).join('\n')">
+                                                            <span class="i-lucide-triangle-alert h-3 w-3 shrink-0"></span>
+                                                            <span class="truncate">{{ savedModelIssues(activeProvider.id, model.id)[0]?.message }}</span>
+                                                            <span v-if="savedModelIssues(activeProvider.id, model.id).length > 1" class="shrink-0 opacity-70">+{{ savedModelIssues(activeProvider.id, model.id).length - 1 }}</span>
+                                                        </div>
                                                         <div v-if="modelCheckResult(activeProvider, model)" class="mt-1 flex max-w-[520px] items-center gap-1.5 text-[11px]" :class="modelCheckResult(activeProvider, model)?.cancelled ? 'text-[var(--text-muted)]' : modelCheckResult(activeProvider, model)?.success ? 'text-[var(--status-success)]' : 'text-[var(--status-danger)]'" :title="modelCheckResult(activeProvider, model)?.message">
                                                             <span class="h-3 w-3 shrink-0" :class="modelCheckResult(activeProvider, model)?.cancelled ? 'i-lucide-circle-slash' : modelCheckResult(activeProvider, model)?.success ? 'i-lucide-circle-check' : 'i-lucide-circle-x'"></span>
                                                             <span class="truncate">{{ modelCheckResult(activeProvider, model)?.message }}</span>
@@ -2108,7 +1841,7 @@ defineExpose({
                                                 </div>
 
                                                 <div class="flex shrink-0 items-center gap-1">
-                                                    <button class="flex h-7 w-7 items-center justify-center rounded-md text-[var(--text-secondary)] hover:bg-[var(--bg-input)] hover:text-[var(--text-main)] transition-colors disabled:opacity-50" :disabled="isModelChecking(activeProvider, model)" :title="t('settings.panels.models.checkModel')" @click="void checkModel(model)">
+                                                    <button class="flex h-7 w-7 items-center justify-center rounded-md text-[var(--text-secondary)] hover:bg-[var(--bg-input)] hover:text-[var(--text-main)] transition-colors disabled:opacity-50" :disabled="isModelChecking(activeProvider, model) || !modelDraftRunnable(activeProvider, model)" :title="t('settings.panels.models.checkModel')" @click="void checkModel(model)">
                                                         <span v-if="isModelChecking(activeProvider, model)" class="i-lucide-loader-2 h-3.5 w-3.5 animate-spin"></span>
                                                         <span v-else class="i-lucide-play h-3.5 w-3.5"></span>
                                                     </button>
@@ -2121,8 +1854,26 @@ defineExpose({
                                                     <button class="flex h-7 w-7 items-center justify-center rounded-md text-[var(--text-secondary)] transition-colors hover:bg-[var(--status-danger-bg)] hover:text-[var(--status-danger)]" :title="t('settings.panels.models.disableModel')" @click="disableModel(model)">
                                                         <span class="i-lucide-minus h-3.5 w-3.5"></span>
                                                     </button>
+                                                    <button class="flex h-7 w-7 items-center justify-center rounded-md text-[var(--text-secondary)] transition-colors hover:bg-[var(--status-danger-bg)] hover:text-[var(--status-danger)]" :title="t('settings.panels.models.deleteModel')" @click="deleteModel(model)">
+                                                        <span class="i-lucide-trash-2 h-3.5 w-3.5"></span>
+                                                    </button>
                                                 </div>
                                             </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- 禁用草稿也保留独立条目，重复 ID 可逐项编辑或删除。 -->
+                                <div v-if="disabledModels.length > 0" class="mt-3 space-y-1 rounded-xl border border-[var(--border-color)] bg-[var(--bg-panel)] p-2">
+                                    <div class="px-2 py-1 text-[11px] font-semibold text-[var(--text-muted)]">{{ t("settings.panels.models.disabledDrafts") }}</div>
+                                    <div v-for="model in disabledModels" :key="model.localKey" class="flex items-center justify-between gap-3 rounded-lg px-2 py-2 hover:bg-[var(--bg-hover)]">
+                                        <div class="min-w-0">
+                                            <div class="truncate text-xs text-[var(--text-main)]">{{ model.name || model.id }}</div>
+                                            <div class="truncate text-[10px] text-[var(--text-muted)]">{{ model.id }}</div>
+                                        </div>
+                                        <div class="flex shrink-0 items-center gap-1">
+                                            <button class="flex h-7 w-7 items-center justify-center rounded-md text-[var(--text-secondary)] hover:bg-[var(--bg-input)] hover:text-[var(--text-main)]" :title="t('settings.panels.models.editSettings')" @click="openModelEdit(model)"><span class="i-lucide-settings h-3.5 w-3.5"></span></button>
+                                            <button class="flex h-7 w-7 items-center justify-center rounded-md text-[var(--text-secondary)] hover:bg-[var(--status-danger-bg)] hover:text-[var(--status-danger)]" :title="t('settings.panels.models.deleteModel')" @click="deleteModel(model)"><span class="i-lucide-trash-2 h-3.5 w-3.5"></span></button>
                                         </div>
                                     </div>
                                 </div>
@@ -2155,7 +1906,28 @@ defineExpose({
         </div>
     </div>
 
-        <Dialog
+    <Dialog
+        v-model="validationDialogOpen"
+        :title="t('settings.panels.models.validationIssuesTitle')"
+        width="680px"
+        height="70%"
+        overlay-type="blur"
+        :show-footer="false"
+    >
+        <!-- 完整模型配置问题列表 -->
+        <div class="h-full space-y-2 overflow-y-auto pr-1 custom-scrollbar">
+            <div v-for="(issue, index) in validationIssues" :key="`${issue.code}-${issue.path.join('.')}-${String(index)}`" class="rounded-lg border border-[var(--border-color)] bg-[var(--bg-panel)] px-3 py-2.5">
+                <div class="flex flex-wrap items-center gap-2 text-xs">
+                    <span class="rounded bg-[var(--status-warning-bg)] px-1.5 py-0.5 font-medium text-[var(--status-warning)]">{{ issue.code }}</span>
+                    <span v-if="issue.modelKey" class="font-mono text-[var(--text-main)]">{{ issue.modelKey }}</span>
+                </div>
+                <p class="mt-1.5 text-sm text-[var(--text-main)]">{{ issue.message }}</p>
+                <p class="mt-1 break-all font-mono text-[11px] text-[var(--text-muted)]">{{ issue.path.join(".") }}</p>
+            </div>
+        </div>
+    </Dialog>
+
+    <Dialog
         v-model="libraryDialogOpen"
         :title="activeProvider ? t('settings.panels.models.modelLibraryTitle', {provider: activeProvider.name}) : t('settings.panels.models.modelLibrary')"
         width="800px"
@@ -2218,7 +1990,7 @@ defineExpose({
                     <FormInput v-model="getManualModelDraft(activeProvider.id).name" :placeholder="t('settings.panels.models.manualName')" class="flex-1 bg-[var(--bg-panel)] shadow-sm !h-8 !text-xs" />
                     <FormInput :model-value="getManualModelDraft(activeProvider.id).id" :placeholder="t('settings.panels.models.manualId')" class="flex-1 bg-[var(--bg-panel)] shadow-sm !h-8 !text-xs" @update:model-value="updateManualModelId(activeProvider.id, $event)" />
                     <div class="w-[190px]">
-                        <FormSelect v-model="getManualModelDraft(activeProvider.id).api" :options="[{value: '', label: activeProvider.api ? t('settings.panels.models.inheritProviderApi', {api: activeProvider.api}) : providerDefaultApiLabel(activeProvider)}, ...modelApiOptions]" :placeholder="t('settings.panels.models.apiFormat')" />
+                        <FormSelect v-model="getManualModelDraft(activeProvider.id).api" :options="[{value: '', label: activeProvider.defaultApi ? t('settings.panels.models.providerDefaultApi', {api: activeProvider.defaultApi}) : providerDefaultApiLabel(activeProvider)}, ...modelApiOptions]" :placeholder="t('settings.panels.models.apiFormat')" />
                     </div>
                     <FormInput v-model="getManualModelDraft(activeProvider.id).contextWindowTokens" :placeholder="t('settings.panels.models.contextWindow')" class="w-[120px] bg-[var(--bg-panel)] shadow-sm !h-8 !text-xs" />
                     <FormInput v-model="getManualModelDraft(activeProvider.id).maxTokens" :placeholder="t('settings.panels.models.maxTokens')" class="w-[120px] bg-[var(--bg-panel)] shadow-sm !h-8 !text-xs" />

@@ -2,9 +2,9 @@ import {describe, expect, it} from "vitest";
 import {parseTaskList} from "nbook/app/components/novel-ide/agent/task-list";
 
 describe("parseTaskList", () => {
-    it("优先解析 rawResult 里的结构化任务快照", () => {
+    it("优先解析 resultData 里的结构化任务快照", () => {
         const taskList = parseTaskList({
-            rawResult: {
+            resultData: {
                 title: "实现任务卡片",
                 updatedAt: "2026-05-07T00:00:00.000Z",
                 steps: [
@@ -33,7 +33,7 @@ describe("parseTaskList", () => {
 
     it("会回退解析 result 中的 JSON 文本", () => {
         const taskList = parseTaskList({
-            rawResult: undefined,
+            resultData: undefined,
             result: JSON.stringify({
                 updatedAt: "2026-05-07T00:02:00.000Z",
                 steps: [

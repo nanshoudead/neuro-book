@@ -7,13 +7,15 @@ import type {NeuroSessionContext, InvocationErrorInfo, SessionEntryId, SessionSn
 import type {SessionWritePlan} from "nbook/server/agent/session/write-plan";
 import type {AgentToolRegistry} from "nbook/server/agent/tools/tool-registry";
 import type {NeuroAgentTool} from "nbook/server/agent/tools/types";
-import type {AgentInvokeCaller, InvokeAgentResult} from "nbook/server/agent/harness/types";
+import type {AgentInvokeCaller} from "nbook/server/agent/harness/types";
+import type {InvokeAgentResult} from "nbook/shared/dto/agent-session.dto";
 import type {AgentRuntimeStreamEventDto} from "nbook/shared/dto/agent-session.dto";
 import type {AgentMode} from "nbook/shared/dto/agent-session.dto";
 import type {UserInputFormSpec} from "nbook/server/agent/tools/types";
 import type {PiTraceSettings} from "nbook/server/agent/observability/traced-provider";
 import type {ProfileTurnContextPlan, ProfileTurnContextSettlement} from "nbook/server/agent/profiles/profile-turn-context";
 import type {Models} from "@earendil-works/pi-ai";
+import type {PublicRuntimeProjectionState} from "nbook/server/agent/events/public-event-projection";
 
 export type RunRuntimeState = Map<string, JsonValue>;
 
@@ -212,6 +214,8 @@ export type RunFrame = {
     automaticCompactionDoneForTurn: boolean;
     lastTurnIngest?: TurnIngestResult;
     pendingWritePlans: PendingSessionWritePlan[];
+    /** 当前 run 的 bounded public event 投影状态。 */
+    publicEventProjection: PublicRuntimeProjectionState;
     onEvent?: (event: AgentRuntimeStreamEventDto) => void | Promise<void>;
 };
 

@@ -1,14 +1,14 @@
 import {z} from "zod";
-import type {AssistantMessageEvent} from "@earendil-works/pi-ai";
-import type {AgentMessage as PiAgentMessage, AgentToolCall as PiAgentToolCall, AssistantMessage as PiAssistantMessage, Message as PiMessage, ToolResultMessage, Usage} from "nbook/server/agent/messages/types";
-import type {AgentRuntimeStreamEventDto, AgentSessionSnapshotDto, AgentPendingApprovalDto, AgentMode} from "nbook/shared/dto/agent-session.dto";
+import type {AgentMessage as PiAgentMessage, AgentToolCall as PiAgentToolCall, AssistantMessage as PiAssistantMessage, JsonValue, Message as PiMessage, ToolResultMessage, Usage} from "nbook/server/agent/messages/types";
+import type {AgentActiveInvocationDto, AgentAssistantUpdateDto, AgentRuntimeStreamEventDto, AgentPendingApprovalDto, AgentPendingUserInputDto, AgentMode} from "nbook/shared/dto/agent-session.dto";
 import {AgentModeSchema} from "nbook/shared/dto/agent-session.dto";
-import type {SessionEntry} from "nbook/server/agent/session/types";
+import type {AgentChatEntryDto, PublicToolArgsDto, PublicToolResultDto, PublicValuePreviewDto} from "nbook/shared/dto/agent-public-event.dto";
 import type {LowCodeFormDto} from "nbook/shared/dto/low-code-form.dto";
 import {LowCodeFormDtoSchema} from "nbook/shared/dto/low-code-form.dto";
 import {toStableArgsJson} from "nbook/app/components/novel-ide/agent/tool-args-stream";
 
 type PiAssistantContent = PiAssistantMessage["content"][number];
+type RuntimeAssistantContent = Array<PiAssistantContent | undefined>;
 
 /**
  * 消息类型。
@@ -65,9 +65,12 @@ export type AgentToolCall = {
     status: ToolCallStatus;
     error?: string;
     result?: string;
-    rawResult?: unknown;
-    /** invoke_agent 调度使用的 session ID。 */
-    linkedSessionId?: number;
+    /** 公开工具参数投影；只包含有界预览与展示元数据。 */
+    publicArgs?: PublicToolArgsDto;
+    /** 公开工具结果投影；图片正文和超长文本不会进入前端状态。 */
+    publicResult?: PublicToolResultDto;
+    /** 专用工具卡消费的有界 JSON details；不会保存任意 unknown 工具对象。 */
+    resultData?: JsonValue;
     /** 所属 assistant 消息 ID。 */
     assistantMessageId?: string;
 };
@@ -85,9 +88,15 @@ export type AgentMessage = {
     /** 系统消息可选标题，不存在时使用默认 System/System Reminder。 */
     systemLabel?: string;
     content: string;
+    /** durable history 中原始正文的 UTF-8 字节数；live/optimistic 消息为空。 */
+    contentBytes?: number;
+    /** durable history 只包含正文预览时为 true；此时禁止用预览覆盖原文。 */
+    contentOmitted?: boolean;
     html?: string;
     status?: MessageStatus;
     toolCalls?: AgentToolCall[];
+    /** durable assistant 中因公开预算省略的工具调用数量。 */
+    omittedToolCalls?: number;
     timestamp?: string;
     model?: string;
     /** assistant 本次 provider 调用的完整 token/cost 用量。 */
@@ -98,8 +107,10 @@ export type AgentMessage = {
     error?: string;
     /** 运行期错误所属 invocation，用于 HTTP 结果兜底去重。 */
     invocationId?: string;
+    /** 前端内部投影来源；用于区分尚未 durable 化的 live assistant turn。 */
+    projectionSource?: "live" | "durable";
     /** live assistant 的原始 Pi content blocks，用于按 contentIndex 合并流式事件。 */
-    assistantContent?: PiAssistantContent[];
+    assistantContent?: RuntimeAssistantContent;
 };
 
 /**
@@ -142,8 +153,10 @@ export const RequestUserInputToolArgsSchema = z.object({
 export const RequestUserInputToolAnswerSchema = z.object({
     questionIndex: z.number().int().nonnegative().optional(),
     text: z.string().optional(),
+    textOmitted: z.boolean().optional(),
     selectedOptionIndex: z.number().int().min(-1).optional(),
     note: z.string().trim().optional(),
+    noteOmitted: z.boolean().optional(),
     ignored: z.boolean().optional(),
 });
 
@@ -163,6 +176,7 @@ export type AgentPendingUserInputQuestion = z.infer<typeof AgentUserInputQuestio
     approvalToolArgsText?: string;
     planFilePath?: string;
     planContent?: string;
+    planContentBytes?: number;
 };
 
 export type AgentPendingUserInputSession = {
@@ -182,6 +196,7 @@ export type RequestUserInputAnswerView = {
     selectedLabel: string;
     text?: string;
     note?: string;
+    omitted: boolean;
     ignored: boolean;
     openAnswer: boolean;
 };
@@ -338,8 +353,9 @@ export const mergeToolCalls = (nextToolCalls?: AgentToolCall[], previousToolCall
             status: mergeToolCallStatus(toolCall.status, previous.status),
             error: toolCall.error ?? previous.error,
             result: toolCall.result ?? previous.result,
-            rawResult: toolCall.rawResult ?? previous.rawResult,
-            linkedSessionId: toolCall.linkedSessionId ?? previous.linkedSessionId,
+            publicArgs: toolCall.publicArgs ?? previous.publicArgs,
+            publicResult: toolCall.publicResult ?? previous.publicResult,
+            resultData: toolCall.resultData ?? previous.resultData,
         };
     });
 
@@ -373,112 +389,18 @@ export const reconcileMessages = (previousMessages: AgentMessage[], nextMessages
 };
 
 /**
- * 从 Pi snapshot 消息派生前端卡片消息。
- */
-export const deriveMessagesFromSessionSnapshot = (snapshot: AgentSessionSnapshotDto): AgentMessage[] => {
-    const messages: AgentMessage[] = [];
-    const assistantByToolCallId = new Map<string, AgentMessage>();
-    const hasActiveInvocation = Boolean(snapshot.activeInvocation);
-    const pendingToolCallId = snapshot.pendingApprovals[0]?.toolCallId ?? null;
-    const assistantErrorInvocations = findAssistantErrorInvocations(snapshot.entries);
-    let currentInvocationId: string | null = null;
-
-    if (snapshot.systemPrompt?.trim()) {
-        messages.push({
-            id: `system-prompt:${snapshot.summary.sessionId}:${snapshot.summary.profileKey}`,
-            type: "system",
-            systemDisplayKind: "prompt",
-            systemLabel: "System Prompt",
-            content: snapshot.systemPrompt,
-            status: "done",
-        });
-    }
-
-    for (const entry of snapshot.entries) {
-        if (entry.type === "custom_message") {
-            messages.push(toCustomSessionMessage(entry));
-            continue;
-        }
-        if (entry.type === "compaction") {
-            messages.push({
-                id: entry.id,
-                type: "system",
-                systemDisplayKind: "system",
-                systemLabel: "Compaction",
-                content: entry.summary,
-                status: "done",
-                timestamp: formatTimestamp(entry.timestamp),
-            });
-            continue;
-        }
-        if (entry.type === "branch_summary") {
-            messages.push({
-                id: entry.id,
-                type: "system",
-                systemDisplayKind: "system",
-                systemLabel: "Branch Summary",
-                content: entry.summary,
-                status: "done",
-                timestamp: formatTimestamp(entry.timestamp),
-            });
-            continue;
-        }
-        if (entry.type === "invocation_lifecycle") {
-            currentInvocationId = entry.invocationId;
-            if (entry.status === "error" && !assistantErrorInvocations.has(entry.invocationId)) {
-                const errorMessage = toInvocationErrorMessage(entry);
-                if (errorMessage && !hasVisibleInvocationError(messages, entry.invocationId)) {
-                    messages.push(errorMessage);
-                }
-            }
-            continue;
-        }
-        if (entry.type !== "message") {
-            continue;
-        }
-        const message = entry.message as PiMessage;
-        if (message.role === "toolResult") {
-            const assistant = assistantByToolCallId.get(message.toolCallId) ?? messages.findLast((item) => item.type === "ai");
-            if (!assistant) {
-                continue;
-            }
-            upsertToolResult(assistant, message);
-            continue;
-        }
-        const localMessage = {
-            ...toLocalMessage(entry.id, message),
-            invocationId: currentInvocationId ?? undefined,
-        };
-        messages.push(localMessage);
-        if (message.role === "assistant") {
-            for (const toolCall of message.content.filter((block): block is PiAgentToolCall => block.type === "toolCall")) {
-                assistantByToolCallId.set(toolCall.id, localMessage);
-            }
-        }
-    }
-
-    markInterruptedToolCalls(messages, {
-        hasActiveInvocation,
-        pendingToolCallId,
-    });
-
-    return messages;
-};
-
-/**
  * 将 session_entry 增量事件投影到前端消息，避免等待下一次完整 snapshot。
  */
 export const applySessionEntryToMessages = (
     previousMessages: AgentMessage[],
-    entry: SessionEntry,
+    entry: AgentChatEntryDto,
 ): AgentMessage[] => {
-    if (entry.type === "invocation_lifecycle" && entry.status === "error" && hasAssistantErrorForInvocation(previousMessages, entry.invocationId)) {
+    if (entry.type === "invocation_error" && hasAssistantErrorForInvocation(previousMessages, entry.invocationId)) {
         return previousMessages;
     }
-    if (entry.type === "message" && entry.message.role === "toolResult") {
-        const toolResult = entry.message;
+    if (entry.type === "tool_result") {
         const assistant = previousMessages.findLast((message) => {
-            return message.type === "ai" && message.toolCalls?.some((toolCall) => toolCall.id === toolResult.toolCallId);
+            return message.type === "ai" && message.toolCalls?.some((toolCall) => toolCall.id === entry.toolCallId);
         });
         if (!assistant) {
             return previousMessages;
@@ -486,13 +408,38 @@ export const applySessionEntryToMessages = (
         const nextMessages = previousMessages.map((message) => message.id === assistant.id ? {...message} : message);
         const nextAssistant = nextMessages.find((message) => message.id === assistant.id);
         if (nextAssistant) {
-            upsertToolResult(nextAssistant, toolResult);
+            upsertPublicToolResult(nextAssistant, entry);
         }
         return reconcileMessages(previousMessages, nextMessages);
     }
-    const nextMessage = deriveMessageFromSessionEntry(entry);
-    if (!nextMessage) {
-        return previousMessages;
+    const nextMessage = messageFromChatEntry(entry);
+    if (entry.type === "assistant") {
+        const toolCallIds = new Set(entry.toolCalls.map((toolCall) => toolCall.id));
+        let liveIndex = previousMessages.findIndex((message) => message.id === entry.id);
+        if (liveIndex < 0 && toolCallIds.size > 0) {
+            liveIndex = previousMessages.findIndex((message) => {
+                return message.type === "ai"
+                    && message.projectionSource === "live"
+                    && message.toolCalls?.some((toolCall) => toolCallIds.has(toolCall.id));
+            });
+        }
+        if (liveIndex < 0 && toolCallIds.size === 0 && entry.invocationId) {
+            liveIndex = previousMessages.findLastIndex((message) => {
+                return message.type === "ai"
+                    && message.projectionSource === "live"
+                    && message.invocationId === entry.invocationId;
+            });
+        }
+        if (liveIndex >= 0) {
+            const previous = previousMessages[liveIndex]!;
+            const nextMessages = [...previousMessages];
+            nextMessages[liveIndex] = {
+                ...previous,
+                ...nextMessage,
+                toolCalls: mergeToolCalls(nextMessage.toolCalls, previous.toolCalls),
+            };
+            return nextMessages;
+        }
     }
     const withoutOptimisticDuplicate = nextMessage.type === "user"
         ? previousMessages.filter((message) => !(message.id.startsWith("optimistic-user-") && message.content === nextMessage.content))
@@ -511,63 +458,6 @@ export const applySessionEntryToMessages = (
     return reconcileMessages(previousMessages, nextMessages);
 };
 
-/**
- * 将单个 session entry 转成前端消息。
- */
-const deriveMessageFromSessionEntry = (entry: SessionEntry): AgentMessage | null => {
-    if (entry.type === "custom_message") {
-        return toCustomSessionMessage(entry);
-    }
-    if (entry.type === "compaction") {
-        return {
-            id: entry.id,
-            type: "system",
-            systemDisplayKind: "system",
-            systemLabel: "Compaction",
-            content: entry.summary,
-            status: "done",
-            timestamp: formatTimestamp(entry.timestamp),
-        };
-    }
-    if (entry.type === "branch_summary") {
-        return {
-            id: entry.id,
-            type: "system",
-            systemDisplayKind: "system",
-            systemLabel: "Branch Summary",
-            content: entry.summary,
-            status: "done",
-            timestamp: formatTimestamp(entry.timestamp),
-        };
-    }
-    if (entry.type === "message" && entry.message.role === "user" && (entry.origin === "prompt" || isSteerText(messageContentText(entry.message as PiMessage)))) {
-        return toLocalMessage(entry.id, entry.message);
-    }
-    if (entry.type === "invocation_lifecycle" && entry.status === "error") {
-        return toInvocationErrorMessage(entry);
-    }
-    return null;
-};
-
-const findAssistantErrorInvocations = (entries: SessionEntry[]): Set<string> => {
-    const result = new Set<string>();
-    let currentInvocationId: string | null = null;
-    for (const entry of entries) {
-        if (entry.type === "invocation_lifecycle") {
-            currentInvocationId = entry.invocationId;
-            continue;
-        }
-        if (entry.type !== "message" || entry.message.role !== "assistant" || !currentInvocationId) {
-            continue;
-        }
-        const localMessage = toLocalMessage(entry.id, entry.message);
-        if (localMessage.error) {
-            result.add(currentInvocationId);
-        }
-    }
-    return result;
-};
-
 export const hasVisibleInvocationError = (messages: AgentMessage[], invocationId: string): boolean => {
     return messages.some((message) => {
         return message.invocationId === invocationId
@@ -581,47 +471,6 @@ const hasAssistantErrorForInvocation = (messages: AgentMessage[], invocationId: 
             && message.invocationId === invocationId
             && Boolean(message.error);
     });
-};
-
-const toInvocationErrorMessage = (entry: Extract<SessionEntry, {type: "invocation_lifecycle"}>): AgentMessage | null => {
-    const content = entry.errorInfo?.message?.trim() || entry.error?.trim();
-    if (!content) {
-        return null;
-    }
-    return {
-        id: entry.id,
-        type: "system",
-        systemDisplayKind: "error",
-        systemLabel: "Run Error",
-        content,
-        status: "stopped",
-        timestamp: formatTimestamp(entry.timestamp),
-        error: content,
-        invocationId: entry.invocationId,
-    };
-};
-
-const toCustomSessionMessage = (entry: AgentSessionSnapshotDto["entries"][number] & {type: "custom_message"}): AgentMessage => {
-    const message = entry.message as unknown as Record<string, unknown>;
-    const content = customMessageText(message);
-    const customType = typeof message.customType === "string"
-        ? message.customType
-        : typeof message.role === "string"
-            ? message.role
-            : "custom";
-    const isReminder = customType === "system-reminder"
-        || customType === "reminder"
-        || content.includes("<system-reminder>");
-
-    return {
-        id: entry.id,
-        type: "system",
-        systemDisplayKind: isReminder ? "reminder" : "system",
-        systemLabel: isReminder ? "System Reminder" : `Custom: ${customType}`,
-        content,
-        status: "done",
-        timestamp: formatTimestamp(entry.timestamp),
-    };
 };
 
 /**
@@ -701,8 +550,9 @@ export const toPendingUserInputSession = (
     }
     const assistantMessage = messages.find((message) => message.toolCalls?.some((toolCall) => toolCall.id === pending.toolCallId));
 
-    const args = pending.args && typeof pending.args === "object" && !Array.isArray(pending.args)
-        ? pending.args as Record<string, unknown>
+    const projectedArgs = pending.args ? publicToolArgsJsonValue(pending.args) : {};
+    const args = projectedArgs && typeof projectedArgs === "object" && !Array.isArray(projectedArgs)
+        ? projectedArgs as Record<string, unknown>
         : {};
 
     if (pending.toolName === "request_user_input") {
@@ -776,6 +626,7 @@ export const toPendingUserInputSession = (
             approvalToolArgsText: JSON.stringify(args, null, 2),
             planFilePath: pending.toolName === "switch_mode" ? pending.planFilePath : undefined,
             planContent: pending.toolName === "switch_mode" ? pending.planContent : undefined,
+            planContentBytes: pending.toolName === "switch_mode" ? pending.planContentBytes : undefined,
             header: pending.toolName === "skill" ? "Skill" : translate("agent.approval.header", "审批"),
             question: approvalQuestion(pending.toolName, args),
             options: [
@@ -787,21 +638,21 @@ export const toPendingUserInputSession = (
 };
 
 /**
- * 从 request_user_input 的 args/rawResult 推导历史气泡展示数据。
+ * 从 request_user_input 的 args/resultData 推导历史气泡展示数据。
  */
 export const deriveRequestUserInputAnswerViews = (
     args: z.infer<typeof RequestUserInputToolArgsSchema> | null,
-    rawResult: unknown,
+    resultData: unknown,
     options?: {
         fallbackQuestion?: AgentPendingUserInputQuestion | null;
         otherLabel?: string;
     },
 ): RequestUserInputAnswerView[] => {
-    const parsedRawResult = RequestUserInputToolRawResultSchema.safeParse(rawResult);
+    const parsedRawResult = RequestUserInputToolRawResultSchema.safeParse(resultData);
     const answers = parsedRawResult.success
         ? parsedRawResult.data.answers
         : (() => {
-            const parsedAnswer = RequestUserInputToolAnswerSchema.safeParse(rawResult);
+            const parsedAnswer = RequestUserInputToolAnswerSchema.safeParse(resultData);
             return parsedAnswer.success ? [parsedAnswer.data] : [];
         })();
     if (answers.length === 0) {
@@ -828,6 +679,7 @@ export const deriveRequestUserInputAnswerViews = (
             selectedLabel,
             text: selectedOptionIndex === undefined && !answer.note ? answer.text : undefined,
             note: answer.note,
+            omitted: answer.textOmitted === true || answer.noteOmitted === true,
             ignored: Boolean(answer.ignored),
             openAnswer: !answer.ignored && selectedOptionIndex === undefined,
         };
@@ -838,62 +690,77 @@ export const deriveRequestUserInputAnswerViews = (
  * 从 public runtime event 更新 live message。
  */
 export const applyRuntimeEventToMessages = (previousMessages: AgentMessage[], event: AgentRuntimeStreamEventDto, invocationId?: string): AgentMessage[] => {
-    if (event.type === "message_start" || event.type === "message_update" || event.type === "message_end") {
-        if (event.message.role === "toolResult") {
-            const toolResult = event.message;
-            const assistant = previousMessages.findLast((message) => message.type === "ai" && message.toolCalls?.some((toolCall) => toolCall.id === toolResult.toolCallId));
-            if (!assistant) {
-                return previousMessages;
-            }
-            const nextMessages = previousMessages.map((message) => message.id === assistant.id ? {...message} : message);
-            const nextAssistant = nextMessages.find((message) => message.id === assistant.id);
-            if (nextAssistant) {
-                upsertToolResult(nextAssistant, toolResult);
-            }
-            return reconcileMessages(previousMessages, nextMessages);
-        }
-        if (event.message.role !== "assistant" && event.message.role !== "user") {
-            return previousMessages;
-        }
-        const messageId = resolveLiveMessageId(event.message);
-        const localMessage = {
-            ...toLocalMessage(messageId, event.message, event.type !== "message_end"),
+    if (event.type === "message_start") {
+        const previousMessage = previousMessages.find((message) => message.id === event.messageId);
+        const message: AgentMessage = {
+            ...(previousMessage ?? {
+                id: event.messageId,
+                type: "ai",
+                content: "",
+            }),
+            status: "streaming",
+            timestamp: formatTimestamp(event.timestamp),
+            model: event.model,
             invocationId,
+            projectionSource: "live",
         };
-        const patchedMessage = event.type === "message_update" && "assistantMessageEvent" in event
-            ? applyAssistantMessageEvent(previousMessages.find((message) => message.id === localMessage.id), localMessage, event.assistantMessageEvent)
-            : localMessage;
-        const fallbackToolCallIds = new Set((patchedMessage.toolCalls ?? []).map((toolCall) => `tool-execution:${toolCall.id}`));
-        const fallbackToolCalls = previousMessages
-            .filter((message) => fallbackToolCallIds.has(message.id))
-            .flatMap((message) => message.toolCalls ?? []);
-        const mergedMessage = fallbackToolCalls.length > 0
-            ? {...patchedMessage, toolCalls: mergeToolCalls(patchedMessage.toolCalls, fallbackToolCalls)}
-            : patchedMessage;
-        const messagesWithoutFallback = fallbackToolCallIds.size > 0
-            ? previousMessages.filter((message) => !fallbackToolCallIds.has(message.id))
-            : previousMessages;
-        const nextMessages = messagesWithoutFallback.some((message) => message.id === localMessage.id)
-            ? messagesWithoutFallback.map((message) => message.id === mergedMessage.id ? mergedMessage : message)
-            : [...messagesWithoutFallback, mergedMessage];
-        return reconcileMessages(previousMessages, nextMessages);
+        return upsertLiveAssistantMessage(previousMessages, message);
+    }
+
+    if (event.type === "message_update") {
+        const previousMessage = previousMessages.find((message) => message.id === event.messageId);
+        const message = applyAssistantUpdate(previousMessage ?? {
+            id: event.messageId,
+            type: "ai",
+            content: "",
+            status: "streaming",
+            invocationId,
+            projectionSource: "live",
+        }, event.update);
+        return upsertLiveAssistantMessage(previousMessages, message);
+    }
+
+    if (event.type === "message_end") {
+        const previousMessage = previousMessages.find((message) => message.id === event.messageId);
+        const errorText = event.stopReason === "error" || event.stopReason === "aborted"
+            ? event.errorMessage?.trim() || (event.stopReason === "aborted"
+                ? translate("agent.userInput.assistantAborted", "生成已中断。")
+                : translate("agent.userInput.providerNoDetail", "生成失败，provider 未返回错误详情。"))
+            : "";
+        const message: AgentMessage = {
+            ...(previousMessage ?? {
+                id: event.messageId,
+                type: "ai",
+                content: "",
+            }),
+            content: previousMessage?.content || errorText,
+            status: errorText ? "stopped" : "done",
+            model: event.responseModel ?? previousMessage?.model,
+            usage: event.usage,
+            tokens: event.usage.totalTokens,
+            error: errorText || undefined,
+            invocationId: previousMessage?.invocationId ?? invocationId,
+            projectionSource: "live",
+        };
+        return upsertLiveAssistantMessage(previousMessages, message);
     }
 
     if (event.type === "tool_execution_start") {
-        const argsText = formatToolArgs(event.args);
+        const argsText = formatPublicToolArgs(event.args);
         return upsertLiveToolCall(previousMessages, event.toolCallId, invocationId, {
             name: event.toolName,
             argsText,
             argsJson: toStableArgsJson(argsText),
             status: "running",
-            linkedSessionId: extractLinkedSessionId(event.args),
+            publicArgs: event.args,
         });
     }
 
     if (event.type === "tool_execution_update") {
         return upsertLiveToolCall(previousMessages, event.toolCallId, invocationId, {
-            result: resultText(event.partialResult),
-            rawResult: event.partialResult,
+            result: publicToolResultText(event.partialResult),
+            publicResult: event.partialResult,
+            resultData: publicToolResultDetails(event.partialResult),
             status: "running",
         });
     }
@@ -901,51 +768,118 @@ export const applyRuntimeEventToMessages = (previousMessages: AgentMessage[], ev
     if (event.type === "tool_execution_end") {
         return upsertLiveToolCall(previousMessages, event.toolCallId, invocationId, {
             name: event.toolName,
-            result: resultText(event.result),
-            rawResult: event.result,
+            result: publicToolResultText(event.result),
+            publicResult: event.result,
+            resultData: publicToolResultDetails(event.result),
             status: event.isError ? "error" : "success",
-            error: event.isError ? resultText(event.result) : undefined,
-            linkedSessionId: extractLinkedSessionId(event.result),
+            error: event.isError ? publicToolResultText(event.result) : undefined,
         });
     }
 
     return previousMessages;
 };
 
-const applyAssistantMessageEvent = (
-    previousMessage: AgentMessage | undefined,
-    nextMessage: AgentMessage,
-    event: AssistantMessageEvent,
-): AgentMessage => {
-    const previousContent = previousMessage ? contentFromMessage(previousMessage) : contentFromMessage(nextMessage);
-    const content = applyAssistantContentEvent(previousContent, contentFromPartial(event), event);
+/**
+ * 从公开 durable entry 真相派生 Chat Flow 消息。history 页和 live session_entry
+ * 共用这一条投影路径，避免分页恢复重新解释 raw SessionEntry。
+ */
+export const deriveMessagesFromChatEntries = (
+    entries: AgentChatEntryDto[],
+    options: {
+        activeInvocation?: AgentActiveInvocationDto | null;
+        pendingUserInputs?: AgentPendingUserInputDto[];
+    } = {},
+): AgentMessage[] => {
+    let messages: AgentMessage[] = [];
+    for (const entry of entries) {
+        messages = applySessionEntryToMessages(messages, entry);
+    }
+    markInterruptedToolCalls(messages, {
+        hasActiveInvocation: Boolean(options.activeInvocation),
+        pendingToolCallId: options.pendingUserInputs?.[0]?.toolCallId ?? null,
+    });
+    return messages.map((message) => ({...message, projectionSource: "durable"}));
+};
+
+/** 将公开投影的原始字节数格式化为紧凑 UI 文案。 */
+export const formatByteCount = (bytes: number): string => {
+    if (bytes < 1024) {
+        return `${String(bytes)} B`;
+    }
+    if (bytes < 1024 * 1024) {
+        return `${(bytes / 1024).toFixed(1)} KiB`;
+    }
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MiB`;
+};
+
+/**
+ * 将一条公开 assistant delta 应用到对应 contentIndex，不读取 provider partial/message。
+ */
+const applyAssistantUpdate = (message: AgentMessage, update: AgentAssistantUpdateDto): AgentMessage => {
+    const content = contentFromMessage(message);
+    const previousBlock = content[update.contentIndex];
+    if (update.type === "text_start") {
+        content[update.contentIndex] = previousBlock?.type === "text" ? previousBlock : {type: "text", text: ""};
+    }
+    if (update.type === "text_delta") {
+        content[update.contentIndex] = {
+            type: "text",
+            text: `${previousBlock?.type === "text" ? previousBlock.text : ""}${update.delta}`,
+        };
+    }
+    if (update.type === "text_end" && previousBlock?.type !== "text") {
+        content[update.contentIndex] = {type: "text", text: ""};
+    }
+    if (update.type === "thinking_start") {
+        content[update.contentIndex] = previousBlock?.type === "thinking" ? previousBlock : {type: "thinking", thinking: ""};
+    }
+    if (update.type === "thinking_delta") {
+        content[update.contentIndex] = {
+            type: "thinking",
+            thinking: `${previousBlock?.type === "thinking" ? previousBlock.thinking : ""}${update.delta}`,
+        };
+    }
+    if (update.type === "thinking_end" && previousBlock?.type !== "thinking") {
+        content[update.contentIndex] = {type: "thinking", thinking: ""};
+    }
+    if (update.type === "toolcall_start") {
+        content[update.contentIndex] = {
+            type: "toolCall",
+            id: update.toolCallId ?? (previousBlock?.type === "toolCall" ? previousBlock.id : `content-${String(update.contentIndex)}`),
+            name: update.toolName ?? (previousBlock?.type === "toolCall" ? previousBlock.name : ""),
+            arguments: previousBlock?.type === "toolCall" ? previousBlock.arguments : "",
+        } as PiAssistantContent;
+    }
+    if (update.type === "toolcall_args" || update.type === "toolcall_end") {
+        content[update.contentIndex] = {
+            type: "toolCall",
+            id: update.toolCallId ?? (previousBlock?.type === "toolCall" ? previousBlock.id : `content-${String(update.contentIndex)}`),
+            name: update.toolName ?? (previousBlock?.type === "toolCall" ? previousBlock.name : ""),
+            arguments: formatPublicToolArgs(update.args),
+        } as unknown as PiAssistantContent;
+    }
+    const toolCalls = toolCallsFromContent(content, message.id)?.map((toolCall) => {
+        if ((update.type === "toolcall_args" || update.type === "toolcall_end") && toolCall.index === update.contentIndex) {
+            return {...toolCall, publicArgs: update.args};
+        }
+        const previousToolCall = message.toolCalls?.find((item) => item.id === toolCall.id || item.index === toolCall.index);
+        return previousToolCall?.publicArgs ? {...toolCall, publicArgs: previousToolCall.publicArgs} : toolCall;
+    });
     return {
-        ...nextMessage,
-        content: textFromContent(content) || nextMessage.content,
-        thinking: thinkingFromContent(content) || nextMessage.thinking,
-        toolCalls: mergeToolCalls(toolCallsFromContent(content, nextMessage.id), previousMessage?.toolCalls),
+        ...message,
+        status: "streaming",
+        content: textFromContent(content),
+        thinking: thinkingFromContent(content) || undefined,
+        toolCalls: mergeToolCalls(toolCalls, message.toolCalls),
         assistantContent: content,
     };
 };
 
-const contentFromPartial = (event: AssistantMessageEvent): PiAssistantContent[] => {
-    if ("partial" in event) {
-        return event.partial.content as PiAssistantContent[];
-    }
-    if (event.type === "done") {
-        return event.message.content as PiAssistantContent[];
-    }
-    if (event.type === "error") {
-        return event.error.content as PiAssistantContent[];
-    }
-    return [];
-};
-
-const contentFromMessage = (message: AgentMessage): PiAssistantContent[] => {
+const contentFromMessage = (message: AgentMessage): RuntimeAssistantContent => {
     if (message.assistantContent?.length) {
         return [...message.assistantContent];
     }
-    const content: PiAssistantContent[] = [];
+    const content: RuntimeAssistantContent = [];
     if (message.thinking) {
         content.push({type: "thinking", thinking: message.thinking});
     }
@@ -963,76 +897,121 @@ const contentFromMessage = (message: AgentMessage): PiAssistantContent[] => {
     return content;
 };
 
-const applyAssistantContentEvent = (
-    previousContent: PiAssistantContent[],
-    partialContent: PiAssistantContent[],
-    event: AssistantMessageEvent,
-): PiAssistantContent[] => {
-    const content = partialContent.length ? [...partialContent] : [...previousContent];
-    if (!("contentIndex" in event)) {
-        return content;
-    }
-    const previousBlock = previousContent[event.contentIndex];
-    const partialBlock = partialContent[event.contentIndex];
-
-    if (event.type === "text_start") {
-        content[event.contentIndex] = partialBlock?.type === "text" ? partialBlock : {type: "text", text: ""};
-    }
-    if (event.type === "text_delta") {
-        const text = partialBlock?.type === "text"
-            ? partialBlock.text
-            : `${previousBlock?.type === "text" ? previousBlock.text : ""}${event.delta}`;
-        content[event.contentIndex] = {type: "text", text};
-    }
-    if (event.type === "text_end") {
-        content[event.contentIndex] = {type: "text", text: event.content};
-    }
-    if (event.type === "thinking_start") {
-        content[event.contentIndex] = partialBlock?.type === "thinking" ? partialBlock : {type: "thinking", thinking: ""};
-    }
-    if (event.type === "thinking_delta") {
-        const thinking = partialBlock?.type === "thinking"
-            ? partialBlock.thinking
-            : `${previousBlock?.type === "thinking" ? previousBlock.thinking : ""}${event.delta}`;
-        content[event.contentIndex] = {type: "thinking", thinking};
-    }
-    if (event.type === "thinking_end") {
-        content[event.contentIndex] = {type: "thinking", thinking: event.content};
-    }
-    if (event.type === "toolcall_start") {
-        content[event.contentIndex] = partialBlock?.type === "toolCall"
-            ? partialBlock
-            : ({type: "toolCall", id: `content-${String(event.contentIndex)}`, name: "", arguments: ""} as unknown as PiAssistantContent);
-    }
-    if (event.type === "toolcall_delta") {
-        const toolCall = partialBlock?.type === "toolCall"
-            ? partialBlock
-            : previousBlock?.type === "toolCall"
-                ? {
-                    ...previousBlock,
-                    arguments: `${formatToolArgs(previousBlock.arguments)}${event.delta}`,
-                } as unknown as PiAssistantContent
-                : ({type: "toolCall", id: `content-${String(event.contentIndex)}`, name: "", arguments: event.delta} as unknown as PiAssistantContent);
-        content[event.contentIndex] = toolCall;
-    }
-    if (event.type === "toolcall_end") {
-        content[event.contentIndex] = event.toolCall as unknown as PiAssistantContent;
-    }
-    return content;
+/** 将真实 assistant tool call 接管同 ID 的 tool_execution fallback 气泡。 */
+const upsertLiveAssistantMessage = (previousMessages: AgentMessage[], message: AgentMessage): AgentMessage[] => {
+    const fallbackMessageIds = new Set((message.toolCalls ?? []).map((toolCall) => `tool-execution:${toolCall.id}`));
+    const fallbackToolCalls = previousMessages
+        .filter((item) => fallbackMessageIds.has(item.id))
+        .flatMap((item) => item.toolCalls ?? []);
+    const mergedMessage = fallbackToolCalls.length > 0
+        ? {...message, toolCalls: mergeToolCalls(message.toolCalls, fallbackToolCalls)}
+        : message;
+    const messagesWithoutFallback = fallbackMessageIds.size > 0
+        ? previousMessages.filter((item) => !fallbackMessageIds.has(item.id))
+        : previousMessages;
+    const nextMessages = messagesWithoutFallback.some((item) => item.id === message.id)
+        ? messagesWithoutFallback.map((item) => item.id === message.id ? mergedMessage : item)
+        : [...messagesWithoutFallback, mergedMessage];
+    return reconcileMessages(previousMessages, nextMessages);
 };
 
-const textFromContent = (content: PiAssistantContent[]): string => {
-    return content.filter((block) => block.type === "text").map((block) => block.text).join("");
+/**
+ * 将 live session_entry 的公开 Chat Flow DTO 转成前端消息。
+ */
+const messageFromChatEntry = (entry: Exclude<AgentChatEntryDto, {type: "tool_result"}>): AgentMessage => {
+    if (entry.type === "user") {
+        return {
+            id: entry.id,
+            type: "user",
+            intent: entry.intent,
+            content: entry.content.preview,
+            contentBytes: entry.content.bytes,
+            contentOmitted: entry.content.omitted,
+            status: "done",
+            timestamp: formatTimestamp(entry.timestamp),
+            projectionSource: "durable",
+        };
+    }
+    if (entry.type === "assistant") {
+        return {
+            id: entry.id,
+            type: "ai",
+            content: entry.content.preview || entry.error?.preview || "",
+            contentBytes: entry.content.preview ? entry.content.bytes : entry.error?.bytes ?? 0,
+            contentOmitted: entry.content.preview ? entry.content.omitted : entry.error?.omitted ?? false,
+            thinking: entry.thinking.preview || undefined,
+            error: entry.error?.preview,
+            status: entry.status === "partial" ? "streaming" : entry.status === "done" ? "done" : "stopped",
+            timestamp: formatTimestamp(entry.timestamp),
+            model: entry.model,
+            usage: entry.usage,
+            tokens: entry.usage.totalTokens,
+            invocationId: entry.invocationId,
+            projectionSource: "durable",
+            toolCalls: entry.toolCalls.map((toolCall) => {
+                const argsText = formatPublicToolArgs(toolCall.args);
+                return {
+                    id: toolCall.id,
+                    assistantMessageId: entry.id,
+                    index: toolCall.index,
+                    name: toolCall.name,
+                    argsText,
+                    argsJson: toStableArgsJson(argsText),
+                    status: "streaming" as const,
+                    publicArgs: toolCall.args,
+                };
+            }),
+            omittedToolCalls: entry.omittedToolCalls,
+        };
+    }
+    if (entry.type === "invocation_error") {
+        return {
+            id: entry.id,
+            type: "system",
+            systemDisplayKind: "error",
+            systemLabel: "Run Error",
+            content: entry.message.preview,
+            contentBytes: entry.message.bytes,
+            contentOmitted: entry.message.omitted,
+            status: "stopped",
+            timestamp: formatTimestamp(entry.timestamp),
+            error: entry.message.preview,
+            invocationId: entry.invocationId,
+            projectionSource: "durable",
+        };
+    }
+    return {
+        id: entry.id,
+        type: "system",
+        systemDisplayKind: entry.source === "reminder" ? "reminder" : "system",
+        systemLabel: entry.label,
+        content: entry.content.preview,
+        contentBytes: entry.content.bytes,
+        contentOmitted: entry.content.omitted,
+        status: "done",
+        timestamp: formatTimestamp(entry.timestamp),
+        projectionSource: "durable",
+    };
 };
 
-const thinkingFromContent = (content: PiAssistantContent[]): string => {
-    return content.filter((block) => block.type === "thinking").map((block) => block.thinking).join("");
+const textFromContent = (content: RuntimeAssistantContent): string => {
+    return content
+        .filter((block): block is Extract<PiAssistantContent, {type: "text"}> => block?.type === "text")
+        .map((block) => block.text)
+        .join("");
 };
 
-const toolCallsFromContent = (content: PiAssistantContent[], assistantMessageId: string): AgentToolCall[] | undefined => {
+const thinkingFromContent = (content: RuntimeAssistantContent): string => {
+    return content
+        .filter((block): block is Extract<PiAssistantContent, {type: "thinking"}> => block?.type === "thinking")
+        .map((block) => block.thinking)
+        .join("");
+};
+
+const toolCallsFromContent = (content: RuntimeAssistantContent, assistantMessageId: string): AgentToolCall[] | undefined => {
     const toolCalls = content
         .map((block, contentIndex) => ({block, contentIndex}))
-        .filter((item): item is {block: PiAgentToolCall; contentIndex: number} => item.block.type === "toolCall")
+        .filter((item): item is {block: PiAgentToolCall; contentIndex: number} => item.block?.type === "toolCall")
         .map((item) => toLocalToolCall(item.block, item.contentIndex, assistantMessageId));
     return toolCalls.length ? toolCalls : undefined;
 };
@@ -1087,7 +1066,6 @@ const resolveLiveMessageId = (message: PiAgentMessage): string => {
 
 const toLocalToolCall = (toolCall: PiAgentToolCall, index: number, assistantMessageId: string): AgentToolCall => {
     const argsText = formatToolArgs(toolCall.arguments);
-    const linkedSessionId = extractLinkedSessionId(toolCall.arguments);
     return {
         id: toolCall.id,
         assistantMessageId,
@@ -1096,7 +1074,6 @@ const toLocalToolCall = (toolCall: PiAgentToolCall, index: number, assistantMess
         argsText,
         argsJson: toStableArgsJson(argsText),
         status: "streaming",
-        linkedSessionId,
     };
 };
 
@@ -1105,6 +1082,68 @@ const formatToolArgs = (args: unknown): string => {
         return args;
     }
     return JSON.stringify(args ?? {}, null, 2);
+};
+
+/**
+ * 将公开工具参数恢复成旧工具卡可消费的有界 JSON 形状。
+ * 正文字段仍只使用 preview，并显式附带 bytes / omitted 元数据。
+ */
+export const publicToolArgsJsonValue = (args: PublicToolArgsDto): JsonValue => {
+    if (args.kind === "write") {
+        return {
+            ...(args.path ? {path: args.path} : {}),
+            content: args.contentPreview,
+            contentBytes: args.contentBytes,
+            contentOmitted: args.contentOmitted,
+        };
+    }
+    if (args.kind === "edit") {
+        return {
+            ...(args.path ? {path: args.path} : {}),
+            edits: args.edits.map((edit) => ({
+                oldText: edit.oldTextPreview,
+                oldTextBytes: edit.oldTextBytes,
+                oldTextOmitted: edit.oldTextOmitted,
+                newText: edit.newTextPreview,
+                newTextBytes: edit.newTextBytes,
+                newTextOmitted: edit.newTextOmitted,
+            })),
+            omittedEdits: args.omittedEdits,
+        };
+    }
+    if (args.kind === "apply_patch") {
+        return {
+            patch: args.patchPreview,
+            patchBytes: args.patchBytes,
+            patchOmitted: args.patchOmitted,
+            touchedFiles: args.touchedFiles,
+            touchedFilesOmitted: args.touchedFilesOmitted,
+        };
+    }
+    return publicValuePreviewJsonValue(args.value);
+};
+
+/** 公开参数的稳定 JSON 文本；输入已经有界，因此这里不会重新复制内部完整正文。 */
+const formatPublicToolArgs = (args: PublicToolArgsDto): string => JSON.stringify(publicToolArgsJsonValue(args), null, 2);
+
+/** 将有界 generic preview 转成现有专用工具卡可校验的 JSON 值。 */
+export const publicValuePreviewJsonValue = (value: PublicValuePreviewDto): JsonValue => {
+    if (value.kind === "null") {
+        return null;
+    }
+    if (value.kind === "boolean" || value.kind === "number") {
+        return value.value;
+    }
+    if (value.kind === "string") {
+        return value.preview;
+    }
+    if (value.kind === "array") {
+        return value.items.map(publicValuePreviewJsonValue);
+    }
+    if (value.kind === "object") {
+        return Object.fromEntries(value.entries.map((entry) => [entry.key, publicValuePreviewJsonValue(entry.value)]));
+    }
+    return `[${value.valueType}]`;
 };
 
 const markInterruptedToolCalls = (
@@ -1149,8 +1188,7 @@ const upsertToolResult = (assistant: AgentMessage, toolResult: ToolResultMessage
         status: toolResult.isError ? "error" : "success",
         error: toolResult.isError ? result : undefined,
         result,
-        rawResult: toolResult.details,
-        linkedSessionId: extractLinkedSessionId(toolResult.details),
+        resultData: jsonValue(toolResult.details),
     };
     if (index >= 0) {
         toolCalls[index] = {
@@ -1200,8 +1238,9 @@ const upsertLiveToolCall = (messages: AgentMessage[], toolCallId: string, invoca
         status: patch.status ?? "running",
         error: patch.error,
         result: patch.result,
-        rawResult: patch.rawResult,
-        linkedSessionId: patch.linkedSessionId,
+        publicArgs: patch.publicArgs,
+        publicResult: patch.publicResult,
+        resultData: patch.resultData,
     };
     return reconcileMessages(messages, [
         ...nextMessages,
@@ -1211,43 +1250,145 @@ const upsertLiveToolCall = (messages: AgentMessage[], toolCallId: string, invoca
             content: "",
             status: toolCall.status === "success" || toolCall.status === "error" ? "done" : "streaming",
             invocationId,
+            projectionSource: "live",
             toolCalls: [toolCall],
         },
     ]);
 };
 
-const resultText = (result: unknown): string => {
-    if (!result) {
-        return "";
-    }
-    if (typeof result === "string") {
-        return result;
-    }
-    if (typeof result === "object" && "content" in result && Array.isArray((result as {content?: unknown}).content)) {
-        return ((result as {content: Array<{type?: string; text?: string}>}).content)
-            .filter((block) => block.type === "text")
-            .map((block) => block.text ?? "")
-            .join("\n");
-    }
-    try {
-        return JSON.stringify(result, null, 2);
-    } catch {
-        return String(result);
-    }
+/** 从公开工具结果提取有界文本预览。 */
+const publicToolResultText = (result: PublicToolResultDto): string => {
+    return result.content
+        .filter((block) => block.type === "text")
+        .map((block) => block.textPreview)
+        .join("\n");
 };
 
-const extractLinkedSessionId = (value: unknown): number | undefined => {
-    if (!value || typeof value !== "object") {
+/**
+ * 将有界公开 tool result 合并到所属 assistant，不恢复被省略的原始正文。
+ */
+const upsertPublicToolResult = (
+    assistant: AgentMessage,
+    toolResult: Extract<AgentChatEntryDto, {type: "tool_result"}>,
+): void => {
+    const toolCalls = [...(assistant.toolCalls ?? [])];
+    const index = toolCalls.findIndex((toolCall) => toolCall.id === toolResult.toolCallId);
+    const result = publicToolResultText(toolResult.result);
+    const previous = index >= 0 ? toolCalls[index] : undefined;
+    const nextToolCall: AgentToolCall = {
+        id: toolResult.toolCallId,
+        assistantMessageId: assistant.id,
+        index: previous?.index ?? toolCalls.length,
+        name: toolResult.toolName,
+        argsText: previous?.argsText ?? "",
+        argsJson: previous?.argsJson,
+        status: toolResult.isError ? "error" : "success",
+        error: toolResult.isError ? result : undefined,
+        result,
+        publicArgs: previous?.publicArgs,
+        publicResult: toolResult.result,
+        resultData: publicToolResultDetails(toolResult.result),
+    };
+    if (index >= 0) {
+        toolCalls[index] = nextToolCall;
+    } else {
+        toolCalls.push(nextToolCall);
+    }
+    assistant.toolCalls = toolCalls;
+};
+
+/** 专用工具卡只消费公开 details 的 JSON 预览。 */
+const publicToolResultDetails = (result: PublicToolResultDto): JsonValue | undefined => {
+    const details = result.details;
+    if (!details) {
         return undefined;
     }
-    const record = value as Record<string, unknown>;
-    if (typeof record.sessionId === "number") {
-        return record.sessionId;
+    if (details.kind === "generic") {
+        return publicValuePreviewJsonValue(details.value);
     }
-    if (record.details && typeof record.details === "object" && typeof (record.details as Record<string, unknown>).sessionId === "number") {
-        return (record.details as Record<string, unknown>).sessionId as number;
+    if (details.kind === "file_change") {
+        return {
+            diff: details.diffPreview,
+            diffBytes: details.diffBytes,
+            diffOmitted: details.diffOmitted,
+            files: details.files,
+            filesOmitted: details.filesOmitted,
+            ...(details.firstChangedLine === undefined ? {} : {firstChangedLine: details.firstChangedLine}),
+        };
     }
-    return undefined;
+    if (details.kind === "read") {
+        return {
+            ...(details.path ? {path: details.path} : {}),
+            ...(details.startLine === undefined ? {} : {startLine: details.startLine}),
+            ...(details.endLine === undefined ? {} : {endLine: details.endLine}),
+            ...(details.totalLines === undefined ? {} : {totalLines: details.totalLines}),
+            ...(details.nextOffset === undefined ? {} : {nextOffset: details.nextOffset}),
+        };
+    }
+    if (details.kind === "bash") {
+        return {
+            truncated: details.truncated,
+            ...(details.truncatedBy ? {truncatedBy: details.truncatedBy} : {}),
+            ...(details.totalLines === undefined ? {} : {totalLines: details.totalLines}),
+            ...(details.totalBytes === undefined ? {} : {totalBytes: details.totalBytes}),
+            ...(details.fullOutputPath ? {fullOutputPath: details.fullOutputPath} : {}),
+        };
+    }
+    if (details.kind === "request_user_input") {
+        return {answers: details.answers};
+    }
+    if (details.kind === "switch_mode") {
+        return {
+            ...(details.approved === undefined ? {} : {approved: details.approved}),
+            ...(details.pending === undefined ? {} : {pending: details.pending}),
+            ...(details.targetMode ? {targetMode: details.targetMode} : {}),
+        };
+    }
+    const value = publicValuePreviewJsonValue(details.value);
+    if (details.kind === "task") {
+        return value;
+    }
+    return value && typeof value === "object" && !Array.isArray(value)
+        ? {
+            ...value,
+            ...(details.sessionId === undefined ? {} : {sessionId: details.sessionId}),
+            ...(details.profileKey ? {profileKey: details.profileKey} : {}),
+            ...(details.status ? {status: details.status} : {}),
+        }
+        : {
+            value,
+            ...(details.sessionId === undefined ? {} : {sessionId: details.sessionId}),
+            ...(details.profileKey ? {profileKey: details.profileKey} : {}),
+            ...(details.status ? {status: details.status} : {}),
+        };
+};
+
+/**
+ * 将持久化 tool details 收窄为真正 JSON 值，避免 UI 状态长期持有 unknown。
+ * 非 JSON 字段按 JSON.stringify 的语义忽略，循环引用不会进入公开状态。
+ */
+const jsonValue = (value: unknown, seen = new WeakSet<object>()): JsonValue | undefined => {
+    if (value === null || typeof value === "string" || typeof value === "boolean") {
+        return value;
+    }
+    if (typeof value === "number") {
+        return Number.isFinite(value) ? value : undefined;
+    }
+    if (typeof value !== "object" || seen.has(value)) {
+        return undefined;
+    }
+    seen.add(value);
+    try {
+        if (Array.isArray(value)) {
+            return value.map((item) => jsonValue(item, seen) ?? null);
+        }
+        const entries = Object.entries(value)
+            .map(([key, item]) => [key, jsonValue(item, seen)] as const)
+            .filter((entry): entry is readonly [string, JsonValue] => entry[1] !== undefined);
+        return Object.fromEntries(entries);
+    } finally {
+        seen.delete(value);
+    }
 };
 
 /** 将任意工具参数值解析为 AgentMode；非法/缺失时返回 undefined。复用 shared schema 避免手写枚举漂移。 */

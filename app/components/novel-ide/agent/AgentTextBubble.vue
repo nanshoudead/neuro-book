@@ -9,6 +9,7 @@ import type {
     AgentTriggerMenuContext,
     AgentTriggerMenuState,
 } from "nbook/app/components/novel-ide/agent/trigger-menu";
+import {canEditHistoryMessage} from "nbook/app/components/novel-ide/agent/agent-chat-history-ui";
 
 const THINKING_SUMMARY_LENGTH = 48;
 const SWIPE_MIN_DELTA_X = 48;
@@ -120,11 +121,14 @@ const thinkingSummary = computed(() => {
     return summaries.at(-1) ?? "";
 });
 
-/** 当前消息是否处于编辑态。 */
-const isEditing = computed(() => props.editingMessageId === props.node.message.id);
-
 /** 当前消息是否允许编辑。 */
-const canEdit = computed(() => props.node.message.type === "user" || props.node.message.type === "ai");
+const canEdit = computed(() => canEditHistoryMessage(props.node.message));
+
+/** 当前消息是否处于编辑态。 */
+const isEditing = computed(() => canEdit.value && props.editingMessageId === props.node.message.id);
+
+/** 当前正文是否只是持久化消息的有界公开预览。 */
+const isContentOmitted = computed(() => props.node.message.contentOmitted === true);
 
 /** 当前消息是否允许重试。 */
 const canRetry = computed(() => props.node.message.type === "user" || props.node.message.type === "ai");
@@ -316,7 +320,7 @@ const cancelEdit = (): void => {
  */
 const saveEdit = (): void => {
     const content = decodeEditableContent(editingDraft.value).trim();
-    if (!content || props.savingEdit || props.runActionDisabled) {
+    if (!canEdit.value || !content || props.savingEdit || props.runActionDisabled) {
         return;
     }
     emit("save-edit", {
@@ -442,7 +446,7 @@ const endSwipe = (event: PointerEvent): void => {
                         <span class="i-lucide-chevron-right h-3.5 w-3.5"></span>
                     </button>
                 </div>
-                <button class="rounded p-1 transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-40" :disabled="props.actionDisabled" :title="t('agent.textBubble.copy')" @click="emit('copy', props.node.message)">
+                <button class="rounded p-1 transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-40" :disabled="props.actionDisabled" :title="isContentOmitted ? t('agent.textBubble.copyPreview') : t('agent.textBubble.copy')" @click="emit('copy', props.node.message)">
                     <span class="i-lucide-copy h-3.5 w-3.5"></span>
                 </button>
                 <button v-if="canEdit" class="rounded p-1 transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-40" :disabled="props.actionDisabled || props.runActionDisabled" :title="t('agent.textBubble.edit')" @click="startEdit">
@@ -522,6 +526,11 @@ const endSwipe = (event: PointerEvent): void => {
                 </div>
                 <div v-else class="min-w-0 text-sm leading-relaxed text-[var(--text-main)]">
                     <AgentMarkdownContent :content="props.node.message.content" :html="props.node.message.html" :streaming="props.node.message.status === 'streaming'" :open-reference="props.openReference" />
+                    <div v-if="isContentOmitted" class="mt-3 flex items-center gap-1.5 border-t border-[var(--border-color)] pt-2 text-[11px] text-[var(--status-info)]">
+                        <span class="i-lucide-info h-3.5 w-3.5 shrink-0"></span>
+                        <span>{{ t("agent.textBubble.previewOnly", {bytes: props.node.message.contentBytes ?? 0}) }}</span>
+                    </div>
+                    <div v-if="(props.node.message.omittedToolCalls ?? 0) > 0" class="mt-2 flex items-center gap-1.5 text-[11px] text-[var(--status-info)]"><span class="i-lucide-info h-3.5 w-3.5 shrink-0"></span><span>另有 {{ props.node.message.omittedToolCalls }} 个工具调用未在历史预览中显示</span></div>
                 </div>
             </div>
         </div>

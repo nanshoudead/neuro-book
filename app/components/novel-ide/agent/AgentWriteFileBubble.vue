@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from "vue";
-import type { AgentToolCall } from "nbook/app/components/novel-ide/agent/agent-message";
+import {formatByteCount, type AgentToolCall} from "nbook/app/components/novel-ide/agent/agent-message";
 import AgentMarkdownContent from "nbook/app/components/novel-ide/agent/AgentMarkdownContent.vue";
 import { extractStreamingStringField, parseToolArgsObject } from "nbook/app/components/novel-ide/agent/tool-args-stream";
 
@@ -20,8 +20,12 @@ const parsedArgs = computed<WriteFileArgs>(() => {
     return parsed ?? {};
 });
 
-const filePathText = computed(() => parsedArgs.value.path ?? extractStreamingStringField(props.toolCall.argsText, "path"));
-const contentText = computed(() => parsedArgs.value.content ?? extractStreamingStringField(props.toolCall.argsText, "content"));
+const publicArgs = computed(() => props.toolCall.publicArgs?.kind === "write" ? props.toolCall.publicArgs : null);
+const filePathText = computed(() => publicArgs.value?.path ?? parsedArgs.value.path ?? extractStreamingStringField(props.toolCall.argsText, "path"));
+const contentText = computed(() => publicArgs.value?.contentPreview ?? parsedArgs.value.content ?? extractStreamingStringField(props.toolCall.argsText, "content"));
+const previewNotice = computed(() => publicArgs.value?.contentOmitted
+    ? `仅显示预览 · 原文 ${formatByteCount(publicArgs.value.contentBytes)}`
+    : "");
 
 </script>
 
@@ -41,6 +45,7 @@ const contentText = computed(() => parsedArgs.value.content ?? extractStreamingS
             <div class="text-sm leading-relaxed text-[var(--text-main)]">
                 <AgentMarkdownContent :content="contentText || '...'" />
             </div>
+            <div v-if="previewNotice" class="mt-3 text-[11px] text-[var(--status-info)]">{{ previewNotice }}</div>
         </div>
 
         <div v-if="props.toolCall.error" class="mt-2 break-all whitespace-pre-wrap rounded border border-[var(--status-danger-border)] bg-[var(--status-danger-bg)] p-2 font-mono text-xs text-[var(--status-danger)]">

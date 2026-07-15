@@ -8,11 +8,15 @@ describe("GET /api/agent/sessions/:sessionId", () => {
     });
 
     it("Project 未 open 时返回稳定 PROJECT_NOT_OPEN", async () => {
+        vi.doMock("h3", async (importOriginal) => ({
+            ...(await importOriginal<typeof import("h3")>()),
+            getQuery: vi.fn(() => ({})),
+        }));
         vi.doMock("nbook/server/agent/http", async () => {
             const {ProjectNotOpenError} = await import("nbook/server/workspace-files/project-session");
             return {
                 requireAgentSessionId: vi.fn(() => 12),
-                getAgentSessionSnapshot: vi.fn(async () => {
+                getAgentSessionQuery: vi.fn(async () => {
                     throw new ProjectNotOpenError("workspace/session-route-not-open");
                 }),
             };
@@ -31,6 +35,53 @@ describe("GET /api/agent/sessions/:sessionId", () => {
                 code: "PROJECT_NOT_OPEN",
                 projectPath: "workspace/session-route-not-open",
             },
+        });
+    });
+
+    it("把严格判别 query 交给统一 session query Interface", async () => {
+        const getAgentSessionQuery = vi.fn(async () => ({
+            kind: "history",
+            sessionId: 12,
+            activePathRevision: null,
+            history: {entries: [], previousCursor: null},
+        }));
+        vi.doMock("h3", async (importOriginal) => ({
+            ...(await importOriginal<typeof import("h3")>()),
+            getQuery: vi.fn(() => ({view: "history", cursor: "cursor-1"})),
+        }));
+        vi.doMock("nbook/server/agent/http", () => ({
+            requireAgentSessionId: vi.fn(() => 12),
+            getAgentSessionQuery,
+        }));
+        vi.doMock("nbook/server/utils/server-timing", () => ({
+            createServerTiming: vi.fn(() => ({mark: vi.fn()})),
+        }));
+
+        const handler = (await import("nbook/server/api/agent/sessions/[sessionId]/index.get")).default;
+        await expect(handler({} as never)).resolves.toEqual(expect.objectContaining({kind: "history"}));
+        expect(getAgentSessionQuery).toHaveBeenCalledWith(12, {
+            view: "history",
+            cursor: "cursor-1",
+        }, undefined, expect.anything());
+    });
+
+    it("拒绝跨 view 的非法 query 组合", async () => {
+        vi.doMock("h3", async (importOriginal) => ({
+            ...(await importOriginal<typeof import("h3")>()),
+            getQuery: vi.fn(() => ({view: "systemPrompt", cursor: "cursor-1"})),
+        }));
+        vi.doMock("nbook/server/agent/http", () => ({
+            requireAgentSessionId: vi.fn(() => 12),
+            getAgentSessionQuery: vi.fn(),
+        }));
+        vi.doMock("nbook/server/utils/server-timing", () => ({
+            createServerTiming: vi.fn(() => ({mark: vi.fn()})),
+        }));
+
+        const handler = (await import("nbook/server/api/agent/sessions/[sessionId]/index.get")).default;
+        await expect(handler({} as never)).rejects.toMatchObject({
+            statusCode: 400,
+            data: {code: "INVALID_SESSION_QUERY"},
         });
     });
 });

@@ -9,8 +9,9 @@ import type {
     AgentTriggerMenuContext,
     AgentTriggerMenuState,
 } from "nbook/app/components/novel-ide/agent/trigger-menu";
-import type {ModelSettingsDto} from "nbook/shared/dto/app-settings.dto";
+import type {EnabledModelOptionDto} from "nbook/shared/dto/app-settings.dto";
 import type {AgentQueuedMessageDto, AgentMode} from "nbook/shared/dto/agent-session.dto";
+import {publicValuePreviewJsonValue} from "nbook/app/components/novel-ide/agent/agent-message";
 
 const props = defineProps<{
     inputText: string;
@@ -27,7 +28,7 @@ const props = defineProps<{
     sessionModelSelectionValue: string | null;
     sessionThinkingResolvedLabel: string;
     sessionModelDraft: AgentSessionModelDraft;
-    selectableModels: ModelSettingsDto["enabledModels"];
+    selectableModels: EnabledModelOptionDto[];
     agentMode: AgentMode;
     canContinueWithoutInput: boolean;
     contextUsageExactLabel: string;
@@ -193,11 +194,14 @@ const expandButtonTitle = computed(() => composerExpanded.value ? t("agent.compo
 const expandButtonIcon = computed(() => composerExpanded.value ? "i-lucide-minimize-2" : "i-lucide-maximize-2");
 
 const queuedMessageText = (item: AgentQueuedMessageDto): string => {
-    const text = item.message?.text.trim();
+    const text = item.text?.preview.trim();
     if (text) {
         return text;
     }
-    return item.input === undefined ? "" : JSON.stringify(item.input);
+    if (item.images.length > 0) {
+        return `包含 ${String(item.images.length + item.omittedImages)} 张图片`;
+    }
+    return item.input === undefined ? "" : JSON.stringify(publicValuePreviewJsonValue(item.input));
 };
 
 const queuedMessageIcon = (item: AgentQueuedMessageDto): string => item.kind === "steer" ? "i-lucide-corner-down-left" : "i-lucide-list-plus";

@@ -8,7 +8,7 @@ import {
     type ProviderDiscoveryAdapterDto,
     type ProviderPresetDto,
 } from "nbook/shared/dto/app-settings.dto";
-import {isSupportedCustomPiApi, type SupportedCustomPiApi} from "nbook/server/agent/harness/pi-runtime-resolver";
+import {isSupportedPiApi, type SupportedPiApi} from "nbook/shared/models/provider-config-contract";
 
 const PROVIDER_SOURCE_PRIORITY = [
     "anthropic", "openai", "google", "deepseek", "xai", "xiaomi", "mistral", "minimax", "minimax-cn",
@@ -24,7 +24,7 @@ const OPENAI_DISCOVERY_PROVIDERS = new Set([
     "xiaomi", "xiaomi-token-plan-cn", "xiaomi-token-plan-ams", "xiaomi-token-plan-sgp",
 ]);
 
-const MODEL_API_COMPAT_PATCHES: Readonly<Record<string, Partial<Record<SupportedCustomPiApi, Record<string, unknown>>>>> = {
+const MODEL_API_COMPAT_PATCHES: Readonly<Record<string, Partial<Record<SupportedPiApi, Record<string, unknown>>>>> = {
     "mimo-v2.5-pro": {
         "openai-completions": {
             supportsDeveloperRole: false,
@@ -52,7 +52,7 @@ function buildCatalog(): NeuroModelCatalogDto {
 
     for (const provider of providers) {
         for (const model of provider.getModels()) {
-            if (!isSupportedCustomPiApi(model.api)) {
+            if (!isSupportedPiApi(model.api)) {
                 continue;
             }
             const entries = candidates.get(model.id) ?? [];
@@ -74,13 +74,13 @@ function buildCatalog(): NeuroModelCatalogDto {
 
 function buildModelEntry(modelId: string, entries: Array<{providerId: string; model: Model<Api>}>): ModelCatalogEntryDto {
     const canonical = entries[0];
-    if (!canonical || !isSupportedCustomPiApi(canonical.model.api)) {
+    if (!canonical || !isSupportedPiApi(canonical.model.api)) {
         throw new Error(`Model Catalog 缺少可支持的 canonical model：${modelId}`);
     }
     const compatByApi: ModelCatalogEntryDto["compatByApi"] = {};
     const headersByApi: ModelCatalogEntryDto["headersByApi"] = {};
     for (const entry of entries) {
-        if (!isSupportedCustomPiApi(entry.model.api)) {
+        if (!isSupportedPiApi(entry.model.api)) {
             continue;
         }
         if (!(entry.model.api in compatByApi)) {
@@ -114,13 +114,13 @@ function buildModelEntry(modelId: string, entries: Array<{providerId: string; mo
 }
 
 function providerPreset(provider: ReturnType<typeof builtinProviders>[number]): ProviderPresetDto[] {
-    const apis = [...new Set(provider.getModels().map((model) => model.api).filter(isSupportedCustomPiApi))].sort();
+    const apis = [...new Set(provider.getModels().map((model) => model.api).filter(isSupportedPiApi))].sort();
     if (!apis.length) {
         return [];
     }
-    const counts = new Map<SupportedCustomPiApi, number>();
+    const counts = new Map<SupportedPiApi, number>();
     for (const model of provider.getModels()) {
-        if (isSupportedCustomPiApi(model.api)) {
+        if (isSupportedPiApi(model.api)) {
             counts.set(model.api, (counts.get(model.api) ?? 0) + 1);
         }
     }
@@ -139,7 +139,7 @@ function providerPreset(provider: ReturnType<typeof builtinProviders>[number]): 
 }
 
 function customProviderPresets(): ProviderPresetDto[] {
-    const entries: Array<{api: SupportedCustomPiApi; discovery: ProviderDiscoveryAdapterDto}> = [
+    const entries: Array<{api: SupportedPiApi; discovery: ProviderDiscoveryAdapterDto}> = [
         {api: "openai-completions", discovery: "openai-models"},
         {api: "openai-responses", discovery: "openai-models"},
         {api: "anthropic-messages", discovery: "none"},
@@ -156,7 +156,7 @@ function customProviderPresets(): ProviderPresetDto[] {
     }));
 }
 
-function discoveryAdapter(providerId: string, apis: SupportedCustomPiApi[]): ProviderDiscoveryAdapterDto {
+function discoveryAdapter(providerId: string, apis: SupportedPiApi[]): ProviderDiscoveryAdapterDto {
     if (providerId === "openrouter") {
         return "openrouter-models";
     }

@@ -3,14 +3,14 @@ import {
     abortAgentSession,
     createAgentSession,
     getAgentSessionRelations,
-    getAgentSessionSnapshot,
+    getAgentSessionQuery,
     invokeAgentSession,
     listAgentSessions,
     moveAgentSessionTree,
-    pushAgentSessionEvent,
     runAgentSessionCommand,
     toInvokeInput,
 } from "nbook/server/agent/http";
+import {AgentHistoryQueryError} from "nbook/server/agent/session/history-query";
 
 describe("agent session http helpers", () => {
     it("createAgentSession 调用 harness.createAgent", async () => {
@@ -64,12 +64,26 @@ describe("agent session http helpers", () => {
         expect(listSessionPage).toHaveBeenCalledWith(query);
     });
 
-    it("getAgentSessionSnapshot 调用 harness.getSessionSnapshot", async () => {
-        const getSessionSnapshot = vi.fn(async () => ({sessionId: 12}));
+    it("getAgentSessionQuery 调用 harness.getSessionQuery", async () => {
+        const getSessionQuery = vi.fn(async () => ({kind: "recovery", summary: {sessionId: 12}}));
 
-        await getAgentSessionSnapshot(12, {getSessionSnapshot} as never);
+        await getAgentSessionQuery(12, {}, {getSessionQuery} as never);
 
-        expect(getSessionSnapshot).toHaveBeenCalledWith(12);
+        expect(getSessionQuery).toHaveBeenCalledWith(12, {});
+    });
+
+    it("history cursor 错误映射为稳定 HTTP code", async () => {
+        const getSessionQuery = vi.fn(async () => {
+            throw new AgentHistoryQueryError("ACTIVE_PATH_CHANGED", "active path changed");
+        });
+
+        await expect(getAgentSessionQuery(12, {
+            view: "history",
+            cursor: "cursor-1",
+        }, {getSessionQuery} as never)).rejects.toMatchObject({
+            statusCode: 409,
+            data: {code: "ACTIVE_PATH_CHANGED"},
+        });
     });
 
     it("getAgentSessionRelations 调用 harness.getSessionRelations", async () => {
@@ -125,7 +139,7 @@ describe("agent session http helpers", () => {
 
     it("热路径 helper 会把 Server-Timing sink 传给 harness", async () => {
         const timingSink = {mark: vi.fn()};
-        const getSessionSnapshot = vi.fn(async () => ({sessionId: 12}));
+        const getSessionQuery = vi.fn(async () => ({kind: "recovery", summary: {sessionId: 12}}));
         const getSessionRelations = vi.fn(async () => ({
             sessionId: 12,
             linkedAgents: [],
@@ -136,11 +150,11 @@ describe("agent session http helpers", () => {
             sessionId: 12,
         }));
 
-        await getAgentSessionSnapshot(12, {getSessionSnapshot} as never, timingSink);
+        await getAgentSessionQuery(12, {}, {getSessionQuery} as never, timingSink);
         await getAgentSessionRelations(12, {getSessionRelations} as never, timingSink);
         await runAgentSessionCommand(12, {command: "mode", mode: "plan"}, {runCommand} as never, timingSink);
 
-        expect(getSessionSnapshot).toHaveBeenCalledWith(12, timingSink);
+        expect(getSessionQuery).toHaveBeenCalledWith(12, {}, timingSink);
         expect(getSessionRelations).toHaveBeenCalledWith(12, timingSink);
         expect(runCommand).toHaveBeenCalledWith(12, {command: "mode", mode: "plan"}, timingSink);
     });
@@ -148,7 +162,7 @@ describe("agent session http helpers", () => {
     it("moveAgentSessionTree 调用 harness.moveTree", async () => {
         const moveTree = vi.fn(async () => ({
             status: "completed",
-            snapshot: {},
+            state: {},
         }));
 
         await moveAgentSessionTree(12, {targetEntryId: "entry-1", position: "at"}, {moveTree} as never);
@@ -165,27 +179,6 @@ describe("agent session http helpers", () => {
         await abortAgentSession(12, {reason: "stop"}, {abortInvocation} as never);
 
         expect(abortInvocation).toHaveBeenCalledWith(12, {reason: "stop"});
-    });
-
-    it("pushAgentSessionEvent 使用 event.type 作为 SSE event name", async () => {
-        const push = vi.fn(async () => {});
-        const payload = {
-            eventEpoch: "epoch-1",
-            seq: 1,
-            sessionId: 4,
-            kind: "session",
-            event: {
-                type: "snapshot_required",
-                reason: "gap",
-            },
-        } as const;
-
-        await pushAgentSessionEvent({push}, payload);
-
-        expect(push).toHaveBeenCalledWith({
-            event: "snapshot_required",
-            data: JSON.stringify(payload),
-        });
     });
 
     it("toInvokeInput 保留 streaming onEvent callback", () => {

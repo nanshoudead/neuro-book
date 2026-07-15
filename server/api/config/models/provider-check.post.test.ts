@@ -21,7 +21,7 @@ describe("POST /api/config/models/provider-check", () => {
                     providers: {
                         custom: {
                             enabled: true,
-                            api: "openai-completions",
+                            defaultApi: "openai-completions",
                             discovery: {adapter: "none", endpointPath: null},
                             options: {apiKey: "sk-saved"},
                             models: {
@@ -56,6 +56,11 @@ describe("POST /api/config/models/provider-check", () => {
                 },
             })),
         }));
+        vi.doMock("nbook/server/agent/http", () => ({
+            useAgentHarness: vi.fn(() => ({
+                traceBinding: vi.fn(() => ({kind: "test-trace"})),
+            })),
+        }));
 
         const handler = (await import("nbook/server/api/config/models/provider-check.post")).default;
         await handler({
@@ -63,7 +68,7 @@ describe("POST /api/config/models/provider-check", () => {
                 provider: {
                     id: "custom",
                     name: "Custom",
-                    api: "openai-completions",
+                    defaultApi: "openai-completions",
                     discovery: {adapter: "none", endpointPath: null},
                     options: {
                         apiKey: "",
@@ -79,6 +84,8 @@ describe("POST /api/config/models/provider-check", () => {
             },
         } as never);
 
-        expect(checkProviderConnection).toHaveBeenCalledWith(expect.anything(), []);
+        expect(checkProviderConnection).toHaveBeenCalledWith(expect.anything(), [], {
+            trace: {kind: "test-trace"},
+        });
     });
 });

@@ -4,6 +4,24 @@
 >
 > Target baseline: `@earendil-works/pi-ai@0.80.6` and `@earendil-works/pi-agent-core@0.80.6`
 
+## Final contract correction（2026-07-14）
+
+本轮审查把产品心智模型收敛为三个概念：
+
+- **NeuroBook Catalog**：只读维护数据，包含 Provider 创建预设和按精确 model ID 唯一索引的标准模型能力。只服务设置页，不参与 runtime。
+- **Provider Config**：用户保存的完整运行快照，包含连接信息和 Provider 内每个模型的完整能力。它是 runtime 唯一真相源。
+- **Session Model Selection**：只保存 `providerId/modelId`；每次 invocation 从当前 Provider Config 重新解析，运行中冻结。
+
+Discovery 结果、模型草稿、Pi `Models` 和 invocation binding 都是内部实现，不作为产品层独立概念。
+
+Provider Config 的默认 API 字段正式命名为 `defaultApi`。它只用于创建/发现新模型草稿；启用模型必须把最终 API 保存到 `model.api`。runtime 不从 `defaultApi` 回退、不查询 Catalog、不猜 API。
+
+当前 Global Config 不自动应用 Catalog，也不自动禁用或改写坏模型。设置接口返回字段级 `validationIssues`，用户可以在设置页显式“重新应用 Catalog”、手工补齐或禁用模型。当前配置 audit 已确认旧数据存在未完成能力快照；这不是 Catalog 缺失，而是用户配置尚未显式保存 Catalog 能力。
+
+模型错误现在区分“缺少 Pi API”和“Pi API 不受支持”，并携带 Provider/model 与具体字段，避免把配置缺失误报成 Provider 不可用。
+
+实施验证结果：模型/Config/Catalog/DTO 聚焦测试通过，`bun run typecheck` 与 `bun run nuxt:build` 通过。当前 Global Config 只读 audit 返回 99 条字段问题，来自 21 个仍处于旧能力快照的启用模型；实现按已锁定合同没有自动修改这些数据。完整 `bun run test:agent` 仍有 12 个既有失败，集中在 profile 编译协调、变量 manifest、RP/资产 profile 和 payload 测试的超时链路，本轮未顺手处理。浏览器、Docker 和新的真实 Provider 重放未执行。
+
 ## Relative documents refs
 
 - [Task 02 Pi Agent Harness Migration](../02-pi-agent-harness-migration/README.md)
@@ -619,6 +637,18 @@ Exit criteria:
 - Docker：当前环境无 `docker` 命令，未执行。
 - 真实 Provider smoke：未获凭据授权，未执行。
 - 浏览器验证：按项目约束未自动执行。
+
+## Provider Config 写入合同与一键修复收口（2026-07-14）
+
+本轮修复了“设置读取能够报告问题，但 Global Config 实际保存仍能写入坏模型”的 seam 缺口：
+
+- 新增 shared Provider Config Contract Module，统一支持的 Pi API、模型能力、Provider Base URL、limits、重复 ID、默认模型和 Agent Profile 引用校验。服务端 `ModelConfigError`、设置读取、健康检查、runtime 和前端草稿共用同一 issue code。
+- `/api/config/global` 仍是唯一写入路径。当请求包含 `models` 时，先构建候选配置并完成完整校验，再执行 Profile resource mutation 和文件写入；失败返回 400 字段级 `issues`，不会留下部分 mutation。主题、Web、历史等不包含 `models` 的独立保存不会被现有坏模型阻断。
+- 删除无生产调用者的旧 Model Settings DTO/转换函数和独立保存函数；模型选项调用者直接使用 `EnabledModelOptionDto[]`。`provider.defaultApi` 与 `model.api` 的边界保持硬切，runtime 不从 Provider 默认值回退。
+- 设置页新增纯 `model-settings-draft` Module，实时按当前草稿计算 issue，默认模型、Profile 引用和健康检查候选只接受 runnable 模型。顶部问题提示改为紧凑告警条，并提供“一键修复”：按精确 model ID 预览并应用 Catalog 能力、禁用仍不可运行模型、清理失效引用和默认模型；操作只修改前端草稿，必须由用户检查后手动保存。
+- Catalog 应用的 API 选择严格使用“现有受支持 model.api → provider.defaultApi → Catalog defaultApi”，非法旧 API 不会被保留。MiMo 仍得到 `openai-completions`、`1048576`、`131072` 和 `max_tokens` compat。
+
+本轮实际验证：`bun run typecheck`、`bun run nuxt:build` 通过；model draft、model validation、runtime/auth、DTO 和 Global Config 写入合同聚焦测试通过。未自动执行浏览器、Docker 或真实 Provider 验证。当前 workspace 的坏 Global Config 与 session 521 未被自动修改。
 
 ## TODO / Follow-ups
 

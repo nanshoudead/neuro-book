@@ -107,6 +107,7 @@ defineRouteMeta({
                                         },
                                         "rank": {
                                             "type": "integer",
+                                            "minimum": 0,
                                             "exclusiveMinimum": true,
                                             "maximum": 9007199254740991
                                         },

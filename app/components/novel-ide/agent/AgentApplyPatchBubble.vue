@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from "vue";
-import type { AgentToolCall } from "nbook/app/components/novel-ide/agent/agent-message";
+import {formatByteCount, type AgentToolCall} from "nbook/app/components/novel-ide/agent/agent-message";
 import {parseToolArgsObject} from "nbook/app/components/novel-ide/agent/tool-args-stream";
 
 const props = defineProps<{
@@ -19,8 +19,12 @@ const parsedArgs = computed<ApplyPatchArgs>(() => {
     return parsed ?? {};
 });
 
-const patchText = computed(() => parsedArgs.value.patch ?? props.toolCall.argsText ?? "");
+const publicArgs = computed(() => props.toolCall.publicArgs?.kind === "apply_patch" ? props.toolCall.publicArgs : null);
+const patchText = computed(() => publicArgs.value?.patchPreview ?? parsedArgs.value.patch ?? props.toolCall.argsText ?? "");
 const touchedFiles = computed(() => {
+    if (publicArgs.value?.touchedFiles.length) {
+        return publicArgs.value.touchedFiles;
+    }
     const files: string[] = [];
     for (const line of patchText.value.split(/\r?\n/)) {
         if (line.startsWith("*** Add File: ")) {
@@ -38,6 +42,12 @@ const touchedFiles = computed(() => {
     }
     return files;
 });
+const previewNotice = computed(() => publicArgs.value?.patchOmitted
+    ? `仅显示预览 · 原 patch ${formatByteCount(publicArgs.value.patchBytes)}`
+    : "");
+const diffDetails = computed(() => props.toolCall.publicResult?.details?.kind === "file_change"
+    ? props.toolCall.publicResult.details
+    : null);
 </script>
 
 <template>
@@ -55,6 +65,13 @@ const touchedFiles = computed(() => {
         <div class="rounded border border-[var(--border-color)] bg-[var(--bg-main)]/60">
             <div class="border-b border-[var(--border-color)]/50 px-2 py-1 text-[10px] uppercase tracking-[0.24em] text-[var(--text-muted)]">Patch</div>
             <pre class="max-h-64 overflow-y-auto whitespace-pre-wrap break-all p-3 font-mono text-xs text-[var(--text-secondary)]">{{ patchText || "..." }}</pre>
+            <div v-if="previewNotice" class="px-3 pb-3 text-[11px] text-[var(--status-info)]">{{ previewNotice }}</div>
+        </div>
+
+        <div v-if="diffDetails?.diffPreview" class="rounded border border-[var(--border-color)] bg-[var(--bg-panel)]">
+            <div class="border-b border-[var(--border-color)]/50 px-2 py-1 text-[10px] uppercase text-[var(--text-muted)]">Applied Diff</div>
+            <pre class="max-h-48 overflow-y-auto whitespace-pre-wrap break-all p-2 font-mono text-xs text-[var(--text-secondary)]">{{ diffDetails.diffPreview }}</pre>
+            <div v-if="diffDetails.diffOmitted" class="px-2 pb-2 text-[11px] text-[var(--status-info)]">仅显示预览 · 原 diff {{ formatByteCount(diffDetails.diffBytes) }}</div>
         </div>
 
         <div v-if="props.toolCall.error" class="mt-2 break-all whitespace-pre-wrap rounded border border-[var(--status-danger-border)] bg-[var(--status-danger-bg)] p-2 font-mono text-xs text-[var(--status-danger)]">

@@ -1,4 +1,5 @@
 import type {AgentSessionEventHub} from "nbook/server/agent/events/session-event-hub";
+import {projectAgentChatEntry} from "nbook/server/agent/events/public-chat-entry-projection";
 import type {AgentSessionLiveStateDto} from "nbook/shared/dto/agent-session.dto";
 import type {SessionEntry, SessionEntryDraft, SessionEntryId, SessionId, SessionProjectionScope} from "nbook/server/agent/session/types";
 import type {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
@@ -218,13 +219,17 @@ export class SessionWriteExecutor {
     }
 
     private publishSessionEntry(sessionId: number, invocationId: string | undefined, entry: SessionEntry): void {
+        const projected = projectAgentChatEntry(entry, {invocationId});
+        if (!projected) {
+            return;
+        }
         this.eventHub.publish({
             sessionId,
             invocationId,
             kind: "session",
             event: {
                 type: "session_entry",
-                entry,
+                entry: projected,
             },
         });
     }

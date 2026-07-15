@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type {AgentToolCall} from "nbook/app/components/novel-ide/agent/agent-message";
 import {AGENT_REQUEST_USER_INPUT_CONTEXT_KEY} from "nbook/app/components/novel-ide/agent/request-user-input-context";
-import {RequestUserInputToolAnswerSchema} from "nbook/app/components/novel-ide/agent/agent-message";
+import {RequestUserInputToolAnswerSchema, formatByteCount} from "nbook/app/components/novel-ide/agent/agent-message";
 import AgentMarkdownContent from "nbook/app/components/novel-ide/agent/AgentMarkdownContent.vue";
 import {parseToolArgsObject} from "nbook/app/components/novel-ide/agent/tool-args-stream";
 import {AgentModeSchema, type AgentMode} from "nbook/shared/dto/agent-session.dto";
@@ -34,7 +34,7 @@ const showApprovedPreview = ref(false);
 const {t} = useI18n();
 
 /**
- * switch_mode 参数中的目标模式；参数流式期间用 partial-json 解析，未完成时回退 rawResult。
+ * switch_mode 参数中的目标模式；参数流式期间用 partial-json 解析，未完成时回退 resultData。
  */
 const targetMode = computed<AgentMode>(() => {
     const streamedArgs = parseToolArgsObject<{targetMode?: unknown}>(props.toolCall.argsJson ?? props.toolCall.argsText);
@@ -60,7 +60,7 @@ const isPendingQuestion = computed(() => {
 });
 
 const parsedRawResult = computed(() => {
-    const parsed = SwitchModeRawResultSchema.safeParse(props.toolCall.rawResult);
+    const parsed = SwitchModeRawResultSchema.safeParse(props.toolCall.resultData);
     return parsed.success ? parsed.data : null;
 });
 
@@ -79,6 +79,7 @@ const planContent = computed(() => {
 
 const hasPlanFilePreview = computed(() => Boolean(planFilePath.value && planContent.value));
 const hasPlanFileArgument = computed(() => Boolean(planFilePath.value));
+const planContentBytes = computed(() => pendingQuestion.value?.planContentBytes ?? new TextEncoder().encode(planContent.value).byteLength);
 
 /** 只有退出到 normal 的切换才涉及计划实现语义；进入 discuss/plan 展示切换请求本身。 */
 const isExitToNormal = computed(() => targetMode.value === "normal");
@@ -89,7 +90,7 @@ const parsedAnswer = computed(() => {
         return answer;
     }
     try {
-        return RequestUserInputToolAnswerSchema.parse(props.toolCall.rawResult);
+        return RequestUserInputToolAnswerSchema.parse(props.toolCall.resultData);
     } catch {
         return null;
     }
@@ -211,6 +212,7 @@ const statusLabel = computed(() => {
 
             <div v-if="shouldShowPlanPreview && hasPlanFilePreview" class="max-h-[320px] min-w-0 overflow-y-auto pr-2 text-xs leading-relaxed text-[var(--text-main)]">
                 <AgentMarkdownContent :content="planContent" />
+                <div class="mt-2 text-[11px] text-[var(--text-muted)]">完整计划文件 · {{ formatByteCount(planContentBytes) }}</div>
             </div>
             <div v-else-if="planSummary" class="line-clamp-2 break-words text-xs leading-5 text-[var(--text-secondary)]">
                 {{ planSummary || t("agent.planApproval.collapsed") }}

@@ -11,14 +11,14 @@ import {defineAgentProfile as defineRuntimeAgentProfile} from "nbook/server/agen
 import {profileToolsFromKeys} from "nbook/server/agent/test/profile-tools";
 import {createUserMessage, messageText} from "nbook/server/agent/messages/message-utils";
 import type {AgentMessage, Message as RuntimeMessage} from "nbook/server/agent/messages/types";
-import type {AgentSessionEventDto, AgentSessionSnapshotDto} from "nbook/shared/dto/agent-session.dto";
-import type {InvokeAgentResult} from "nbook/server/agent/harness/types";
+import type {AgentSessionEventDto} from "nbook/shared/dto/agent-session.dto";
+import type {InvokeAgentResult} from "nbook/shared/dto/agent-session.dto";
 import type {NeuroSessionContext, SessionEntry} from "nbook/server/agent/session/types";
 
 type ObservedRun = {
     result: InvokeAgentResult;
     events: AgentSessionEventDto[];
-    snapshot: AgentSessionSnapshotDto;
+    snapshot: Awaited<ReturnType<JsonlSessionRepository["readSession"]>>;
     context: NeuroSessionContext;
 };
 
@@ -27,7 +27,6 @@ type EventTrace = Array<{
     type: string;
     seq: number;
     invocationId?: string;
-    messageRole?: string;
     entryType?: string;
     toolName?: string;
     status?: string;
@@ -103,7 +102,6 @@ function trace(events: AgentSessionEventDto[]): EventTrace {
             type: payload.type,
             seq: event.seq,
             invocationId: event.invocationId,
-            messageRole: "message" in payload ? payload.message.role : undefined,
             entryType: "entry" in payload ? payload.entry.type : undefined,
             toolName: "toolName" in payload ? payload.toolName : undefined,
             status: "status" in payload ? String(payload.status) : undefined,
@@ -119,7 +117,7 @@ function sessionRoles(context: NeuroSessionContext): string[] {
     return context.messages.map((message) => message.role);
 }
 
-function lifecycleStatuses(snapshot: AgentSessionSnapshotDto): string[] {
+function lifecycleStatuses(snapshot: Awaited<ReturnType<JsonlSessionRepository["readSession"]>>): string[] {
     return snapshot.entries
         .filter((entry): entry is SessionEntry & {type: "invocation_lifecycle"} => entry.type === "invocation_lifecycle")
         .map((entry) => entry.status);
@@ -153,7 +151,7 @@ async function observeSession(harness: NeuroAgentHarness, sessionId: number): Pr
             if (next.done) {
                 return;
             }
-            events.push(next.value);
+            events.push(next.value.payload);
         }
     })();
     return {
@@ -174,7 +172,7 @@ async function runAndObserve(
     try {
         const result = await run();
         await new Promise((resolve) => setTimeout(resolve, 0));
-        const snapshot = await harness.getSessionSnapshot(sessionId);
+        const snapshot = await harness.repo.readSession(sessionId);
         const context = harness.repo.reduce(await harness.repo.readSession(sessionId));
         return {
             result,
@@ -326,7 +324,7 @@ describe("NeuroAgentHarness black-box contract", () => {
             initial: {},
             workspaceRoot: root,
         });
-        const before = await harness.getSessionSnapshot(created.sessionId);
+        const before = await harness.repo.readSession(created.sessionId);
 
         await expect(harness.invokeAgent({
             sessionId: created.sessionId,
@@ -339,10 +337,11 @@ describe("NeuroAgentHarness black-box contract", () => {
             message: {text: "follow"},
         })).rejects.toThrow("active_invocation_required");
 
-        const after = await harness.getSessionSnapshot(created.sessionId);
+        const after = await harness.repo.readSession(created.sessionId);
+        const recovery = await harness.getSessionRecovery(created.sessionId);
         expect(after.entries).toEqual(before.entries);
-        expect(after.steerQueue).toEqual([]);
-        expect(after.followUpQueue.items).toEqual([]);
+        expect(recovery.steerQueue).toEqual({items: [], omittedItems: 0});
+        expect(recovery.followUpQueue.items).toEqual([]);
     });
 
     it("Running + steer 入队后只在 safe point drain 成模型可见消息", async () => {
@@ -398,14 +397,14 @@ describe("NeuroAgentHarness black-box contract", () => {
 
             const result = await running;
             await new Promise((resolve) => setTimeout(resolve, 0));
-            const snapshot = await harness.getSessionSnapshot(created.sessionId);
+            const snapshot = await harness.getSessionRecovery(created.sessionId);
             const context = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
 
             expect(queued.queuedItem).toEqual(expect.objectContaining({kind: "steer"}));
             expect(visibleText(beforeDrain.messages)).not.toContain("adjust while running");
             expect(result.status).toBe("completed");
             expect(visibleText(context.messages)).toContain("adjust while running");
-            expect(snapshot.steerQueue).toEqual([]);
+            expect(snapshot.steerQueue).toEqual({items: [], omittedItems: 0});
             expect(eventTypes(observer.events)).toContain("steer_queued");
         } finally {
             await observer.stop();
@@ -468,7 +467,7 @@ describe("NeuroAgentHarness black-box contract", () => {
             const beforeDrain = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
             const result = await running;
             const context = await waitForSessionText(harness, created.sessionId, "queued followup");
-            const snapshot = await harness.getSessionSnapshot(created.sessionId);
+            const snapshot = await harness.getSessionRecovery(created.sessionId);
 
             expect(queued.queuedItem).toEqual(expect.objectContaining({kind: "followup"}));
             expect(visibleText(beforeDrain.messages)).not.toContain("queued followup");
@@ -512,7 +511,7 @@ describe("NeuroAgentHarness black-box contract", () => {
             mode: "prompt",
             message: {text: "start"},
         });
-        const waitingSnapshot = await harness.getSessionSnapshot(created.sessionId);
+        const waitingSnapshot = await harness.getSessionRecovery(created.sessionId);
         const continued = await harness.invokeAgent({
             sessionId: created.sessionId,
             mode: "continue",
@@ -522,11 +521,11 @@ describe("NeuroAgentHarness black-box contract", () => {
                 answers: [{questionIndex: 0, text: "go"}],
             },
         });
-        const snapshot = await harness.getSessionSnapshot(created.sessionId);
+        const snapshot = await harness.repo.readSession(created.sessionId);
         const context = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
 
         expect(waiting.status).toBe("waiting");
-        expect(waitingSnapshot.pendingApprovals[0]).toEqual(expect.objectContaining({
+        expect(waitingSnapshot.pendingUserInputs[0]).toEqual(expect.objectContaining({
             toolCallId: "ask-1",
             toolName: "request_user_input",
         }));
@@ -595,7 +594,7 @@ describe("NeuroAgentHarness black-box contract", () => {
             },
         });
         const context = await waitForSessionText(harness, created.sessionId, "queued followup");
-        const snapshot = await harness.getSessionSnapshot(created.sessionId);
+        const snapshot = await harness.getSessionRecovery(created.sessionId);
 
         expect(waiting.status).toBe("waiting");
         expect(queuedPrompt.queuedItem).toEqual(expect.objectContaining({kind: "followup"}));
@@ -608,7 +607,7 @@ describe("NeuroAgentHarness black-box contract", () => {
         expect(visibleText(context.messages)).toContain("queued steer");
         expect(visibleText(context.messages)).toContain("queued prompt");
         expect(visibleText(context.messages)).toContain("queued followup");
-        expect(snapshot.steerQueue).toEqual([]);
+        expect(snapshot.steerQueue).toEqual({items: [], omittedItems: 0});
         expect(snapshot.followUpQueue.items).toEqual([]);
     });
 
@@ -803,6 +802,7 @@ describe("NeuroAgentHarness black-box contract", () => {
             mode: "prompt",
             message: {text: "start"},
         });
+        await waitUntil(async () => (await harness.getSessionRecovery(created.sessionId)).activeInvocation !== null, "active invocation before queueing steer");
         await harness.invokeAgent({
             sessionId: created.sessionId,
             mode: "steer",
@@ -814,10 +814,10 @@ describe("NeuroAgentHarness black-box contract", () => {
             message: {text: "will be paused"},
         });
         const result = await running;
-        const snapshot = await harness.getSessionSnapshot(created.sessionId);
+        const snapshot = await harness.getSessionRecovery(created.sessionId);
 
         expect(result.status).toBe("error");
-        expect(snapshot.steerQueue).toEqual([]);
+        expect(snapshot.steerQueue).toEqual({items: [], omittedItems: 0});
         expect(snapshot.followUpQueue).toEqual({
             status: "paused",
             pausedBy: {
@@ -826,8 +826,9 @@ describe("NeuroAgentHarness black-box contract", () => {
             },
             items: [expect.objectContaining({
                 kind: "followup",
-                message: {text: "will be paused"},
+                text: expect.objectContaining({preview: "will be paused", omitted: false}),
             })],
+            omittedItems: 0,
         });
         expect(faux.getPendingResponseCount()).toBe(1);
     });
@@ -865,8 +866,9 @@ describe("NeuroAgentHarness black-box contract", () => {
         try {
             const aborted = await harness.abortInvocation(created.sessionId, {reason: "user stop"});
             await new Promise((resolve) => setTimeout(resolve, 0));
-            const snapshot = await harness.getSessionSnapshot(created.sessionId);
-            const context = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
+            const recovery = await harness.getSessionRecovery(created.sessionId);
+            const snapshot = await harness.repo.readSession(created.sessionId);
+            const context = harness.repo.reduce(snapshot);
             const abortToolResult = context.messages.find((message) => message.role === "toolResult");
 
             expect(waiting.status).toBe("waiting");
@@ -874,7 +876,7 @@ describe("NeuroAgentHarness black-box contract", () => {
                 status: "aborted",
                 sessionId: created.sessionId,
             });
-            expect(snapshot.activeInvocation).toBeNull();
+            expect(recovery.activeInvocation).toBeNull();
             expect(lifecycleStatuses(snapshot)).toEqual(["start", "waiting", "aborted"]);
             expect(sessionRoles(context)).toEqual(["user", "assistant", "toolResult"]);
             expect(abortToolResult).toEqual(expect.objectContaining({
@@ -930,8 +932,9 @@ describe("NeuroAgentHarness black-box contract", () => {
             const aborted = await harness.abortInvocation(created.sessionId, {reason: "stop", clearQueue: false});
             const result = await running;
             await new Promise((resolve) => setTimeout(resolve, 0));
-            const snapshot = await harness.getSessionSnapshot(created.sessionId);
-            const context = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
+            const recovery = await harness.getSessionRecovery(created.sessionId);
+            const snapshot = await harness.repo.readSession(created.sessionId);
+            const context = harness.repo.reduce(snapshot);
 
             expect(queuedSteer.queuedItem).toEqual(expect.objectContaining({kind: "steer"}));
             expect(queuedFollowup.queuedItem).toEqual(expect.objectContaining({kind: "followup"}));
@@ -940,9 +943,9 @@ describe("NeuroAgentHarness black-box contract", () => {
                 sessionId: created.sessionId,
             });
             expect(result.status).toBe("error");
-            expect(snapshot.activeInvocation).toBeNull();
-            expect(snapshot.steerQueue).toEqual([]);
-            expect(snapshot.followUpQueue).toEqual({
+            expect(recovery.activeInvocation).toBeNull();
+            expect(recovery.steerQueue).toEqual({items: [], omittedItems: 0});
+            expect(recovery.followUpQueue).toEqual({
                 status: "paused",
                 pausedBy: {
                     invocationId: result.invocationId,
@@ -950,8 +953,9 @@ describe("NeuroAgentHarness black-box contract", () => {
                 },
                 items: [expect.objectContaining({
                     kind: "followup",
-                    message: {text: "will be paused"},
+                    text: expect.objectContaining({preview: "will be paused", omitted: false}),
                 })],
+                omittedItems: 0,
             });
             expect(visibleText(context.messages)).not.toContain("will be cleared");
             expect(visibleText(context.messages)).not.toContain("will be paused");
@@ -979,6 +983,8 @@ describe("NeuroAgentHarness black-box contract", () => {
             workspaceRoot: root,
         });
         const currentEpoch = harness.eventHub.eventEpoch;
+        const replayAfter = harness.eventHub.lastSeq(created.sessionId);
+        harness.eventHub.pinReplayFrom(created.sessionId, replayAfter + 1);
         harness.eventHub.publish({
             sessionId: created.sessionId,
             kind: "session",
@@ -989,7 +995,7 @@ describe("NeuroAgentHarness black-box contract", () => {
         });
         const replay = harness.subscribeSessionEvents(created.sessionId, {
             eventEpoch: currentEpoch,
-            after: 0,
+            after: replayAfter,
         })[Symbol.asyncIterator]();
         const future = harness.subscribeSessionEvents(created.sessionId, {
             eventEpoch: currentEpoch,
@@ -1011,17 +1017,21 @@ describe("NeuroAgentHarness black-box contract", () => {
         await expect(replay.next()).resolves.toEqual({
             done: false,
             value: expect.objectContaining({
-                eventEpoch: currentEpoch,
-                seq: 1,
+                payload: expect.objectContaining({
+                    eventEpoch: currentEpoch,
+                    seq: replayAfter + 1,
+                }),
             }),
         });
         await expect(future.next()).resolves.toEqual({
             done: false,
             value: expect.objectContaining({
-                eventEpoch: currentEpoch,
-                event: expect.objectContaining({
-                    type: "snapshot_required",
-                    reason: "event cursor is ahead of server",
+                payload: expect.objectContaining({
+                    eventEpoch: currentEpoch,
+                    event: expect.objectContaining({
+                        type: "snapshot_required",
+                        reason: "event cursor is ahead of server",
+                    }),
                 }),
             }),
         });
@@ -1033,7 +1043,8 @@ describe("NeuroAgentHarness black-box contract", () => {
         await replay.return?.();
         await future.return?.();
         await oldEpoch.return?.();
-    });
+        harness.eventHub.unpinReplay(created.sessionId);
+    }, 15_000);
 
     it("slow tool 未完成前已经能观察到 tool 参数与 tool_execution_start", async () => {
         let releaseTool = () => {};
@@ -1089,7 +1100,7 @@ describe("NeuroAgentHarness black-box contract", () => {
             await waitUntil(() => eventTypes(observer.events).includes("tool_execution_start"), "slow tool execution start");
             const messageUpdates = observer.events.filter((event) => event.event.type === "message_update");
             const hasToolDelta = messageUpdates.some((event) => {
-                return event.event.type === "message_update" && event.event.assistantMessageEvent.type === "toolcall_delta";
+                return event.event.type === "message_update" && event.event.update.type === "toolcall_args";
             });
             const beforeReleaseTypes = eventTypes(observer.events);
 
@@ -1161,11 +1172,11 @@ describe("NeuroAgentHarness black-box contract", () => {
             });
             await waitUntil(() => eventTypes(observer.events).includes("tool_execution_start"), "slow replay tool execution start");
 
-            const runningSnapshot = await harness.getSessionSnapshot(created.sessionId);
+            const runningSnapshot = await harness.getSessionRecovery(created.sessionId);
+            const runningLedger = await harness.repo.readSession(created.sessionId);
             expect(runningSnapshot.activeInvocation).not.toBeNull();
-            expect(runningSnapshot.eventCursor.after).toBeLessThan(runningSnapshot.latestSeq);
-            expect(runningSnapshot.lastSeq).toBe(runningSnapshot.eventCursor.after);
-            expect(runningSnapshot.entries.some((entry) => entry.type === "message" && entry.message.role === "assistant")).toBe(false);
+            expect(runningSnapshot.eventCursor.after).toBeLessThan(harness.eventHub.lastSeq(created.sessionId));
+            expect(runningLedger.entries.some((entry) => entry.type === "message" && entry.message.role === "assistant")).toBe(false);
 
             const replay = harness.subscribeSessionEvents(created.sessionId, runningSnapshot.eventCursor)[Symbol.asyncIterator]();
             const replayed: AgentSessionEventDto[] = [];
@@ -1175,7 +1186,7 @@ describe("NeuroAgentHarness black-box contract", () => {
                     if (next.done) {
                         return false;
                     }
-                    replayed.push(next.value);
+                    replayed.push(next.value.payload);
                     return eventTypes(replayed).includes("tool_execution_start");
                 }, "running refresh replay reaches tool start");
             } finally {
@@ -1184,19 +1195,40 @@ describe("NeuroAgentHarness black-box contract", () => {
             expect(eventTypes(replayed)).toContain("message_update");
             expect(eventTypes(replayed)).toContain("tool_execution_start");
 
+            // pin 不能绕过 replay 硬上限；anchor 失效后 snapshot 必须返回安全 latest cursor，
+            // 否则前端会在 stale anchor 与 snapshot_required 之间循环。
+            for (let index = 0; index < 520; index += 1) {
+                harness.eventHub.publish({
+                    sessionId: created.sessionId,
+                    kind: "session",
+                    event: {type: "invocation_aborted", reason: `trim-${String(index)}`},
+                });
+            }
+            const trimmedSnapshot = await harness.getSessionRecovery(created.sessionId);
+            expect(trimmedSnapshot.eventCursor.after).toBe(harness.eventHub.lastSeq(created.sessionId));
+            const recovered = harness.subscribeSessionEvents(created.sessionId, trimmedSnapshot.eventCursor);
+            const recoveryIterator = recovered[Symbol.asyncIterator]();
+            const afterTrim = harness.eventHub.publish({
+                sessionId: created.sessionId,
+                kind: "session",
+                event: {type: "invocation_aborted", reason: "after-trim"},
+            });
+            await expect(recoveryIterator.next()).resolves.toEqual({done: false, value: afterTrim});
+            await recoveryIterator.return?.();
+
             releaseTool();
             const result = await running;
             expect(result.status).toBe("completed");
-            const completedSnapshot = await harness.getSessionSnapshot(created.sessionId);
-            expect(completedSnapshot.eventCursor.after).toBe(completedSnapshot.latestSeq);
-            expect(completedSnapshot.lastSeq).toBe(completedSnapshot.eventCursor.after);
-            expect(completedSnapshot.entries.some((entry) => entry.type === "message" && entry.message.role === "assistant")).toBe(true);
-            expect(completedSnapshot.entries.some((entry) => entry.type === "message" && entry.message.role === "toolResult")).toBe(true);
+            const completedSnapshot = await harness.getSessionRecovery(created.sessionId);
+            const completedLedger = await harness.repo.readSession(created.sessionId);
+            expect(completedSnapshot.eventCursor.after).toBe(harness.eventHub.lastSeq(created.sessionId));
+            expect(completedLedger.entries.some((entry) => entry.type === "message" && entry.message.role === "assistant")).toBe(true);
+            expect(completedLedger.entries.some((entry) => entry.type === "message" && entry.message.role === "toolResult")).toBe(true);
         } finally {
             releaseTool();
             await observer.stop();
         }
-    });
+    }, 15_000);
 });
 
 async function waitForSessionText(harness: NeuroAgentHarness, sessionId: number, text: string): Promise<NeuroSessionContext> {

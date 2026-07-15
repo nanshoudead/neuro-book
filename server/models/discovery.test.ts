@@ -58,7 +58,7 @@ function createProvider(adapter: ModelProviderDraftDto["discovery"]["adapter"]):
     return {
         id: "test",
         name: "Test",
-        api: adapter === "google-models" ? "google-generative-ai" : "openai-completions",
+        defaultApi: adapter === "google-models" ? "google-generative-ai" : "openai-completions",
         discovery: {adapter, endpointPath: null},
         options: {apiKey: "", baseURL: "http://127.0.0.1:1234/v1", proxy: "", timeoutMs: null, requestOptions: {}},
     };

@@ -32,6 +32,11 @@ export function sanitizePartialAssistant(assistant: AssistantMessage): Assistant
  * 清理 Provider assistant 终态中的错误文本，正文与 usage 保持不变。
  */
 export function sanitizeProviderAssistant(assistant: AssistantMessage): AssistantMessage {
+    for (const block of assistant.content) {
+        if (block.type === "toolCall" && (!block.id.trim() || Buffer.byteLength(block.id, "utf8") > 512)) {
+            throw new Error("provider_tool_call_id_invalid");
+        }
+    }
     return {
         ...assistant,
         errorMessage: assistant.errorMessage ? sanitizeProviderErrorMessage(assistant.errorMessage) : undefined,

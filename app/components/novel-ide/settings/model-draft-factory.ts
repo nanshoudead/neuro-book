@@ -3,6 +3,10 @@ import type {
     DiscoveredProviderModelDto,
     ModelCatalogEntryDto,
 } from "nbook/shared/dto/app-settings.dto";
+import {
+    inspectModelCapability,
+    selectCatalogApi,
+} from "nbook/shared/models/provider-config-contract";
 
 export type ModelDraftSource = "discovery" | "catalog" | "incomplete";
 
@@ -38,7 +42,8 @@ export function resolveDiscoveredModelDraft(
                 name: catalogModel.name,
                 group: discovered.group,
                 enabled: true,
-                providerApi,
+                modelApi: discovered.api,
+                providerDefaultApi: providerApi,
             }),
             source: "catalog",
             canonicalSource: catalogModel.canonicalSource,
@@ -59,9 +64,16 @@ export function resolveDiscoveredModelDraft(
  */
 export function configuredModelFromCatalog(
     catalogModel: ModelCatalogEntryDto,
-    input: {id?: string; name?: string; group?: string | null; enabled: boolean; providerApi: string | null},
+    input: {
+        id?: string;
+        name?: string;
+        group?: string | null;
+        enabled: boolean;
+        modelApi?: string | null;
+        providerDefaultApi?: string | null;
+    },
 ): ConfiguredModelDto {
-    const api = input.providerApi || catalogModel.defaultApi;
+    const api = selectCatalogApi(input.modelApi ?? null, input.providerDefaultApi ?? null, catalogModel.defaultApi);
     return {
         name: input.name ?? catalogModel.name,
         id: input.id ?? catalogModel.id,
@@ -81,14 +93,21 @@ export function configuredModelFromCatalog(
 
 /** 返回模型启用前必须补齐的字段。 */
 export function requiredModelFields(model: Pick<ConfiguredModelDto, "api" | "reasoning" | "input" | "contextWindowTokens" | "maxTokens">): string[] {
-    const missing: string[] = [];
-    if (!model.api) missing.push("api");
-    if (model.reasoning === null) missing.push("reasoning");
-    if (!model.input?.length) missing.push("input");
-    if (model.contextWindowTokens === null) missing.push("contextWindowTokens");
-    if (model.maxTokens === null) missing.push("maxTokens");
-    if (model.contextWindowTokens !== null && model.maxTokens !== null && model.maxTokens > model.contextWindowTokens) {
-        missing.push("maxTokens<=contextWindowTokens");
-    }
-    return missing;
+    return inspectModelCapability("draft", {
+        id: "model",
+        enabled: true,
+        api: model.api,
+        reasoning: model.reasoning,
+        input: model.input,
+        contextWindowTokens: model.contextWindowTokens,
+        maxTokens: model.maxTokens,
+    }).map((issue) => ({
+        missing_api: "api",
+        unsupported_api: "api",
+        missing_reasoning: "reasoning",
+        missing_input: "input",
+        missing_context_window: "contextWindowTokens",
+        missing_max_tokens: "maxTokens",
+        max_tokens_exceeds_context: "maxTokens<=contextWindowTokens",
+    } as Record<string, string>)[issue.code] ?? issue.code);
 }

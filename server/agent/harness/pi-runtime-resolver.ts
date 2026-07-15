@@ -7,16 +7,7 @@ import {
 } from "@earendil-works/pi-ai";
 import type {Api, Models, Model, ProviderStreams} from "@earendil-works/pi-ai";
 import type {EffectiveConfig} from "nbook/server/config/types";
-
-export const SUPPORTED_CUSTOM_PI_APIS = [
-    "openai-completions",
-    "openai-responses",
-    "anthropic-messages",
-    "google-generative-ai",
-    "bedrock-converse-stream",
-] as const;
-
-export type SupportedCustomPiApi = typeof SUPPORTED_CUSTOM_PI_APIS[number];
+import {isSupportedPiApi, type SupportedPiApi} from "nbook/shared/models/provider-config-contract";
 
 const CUSTOM_API_STREAMS = {
     "openai-completions": lazyApi(() => import("@earendil-works/pi-ai/api/openai-completions")),
@@ -24,14 +15,7 @@ const CUSTOM_API_STREAMS = {
     "anthropic-messages": lazyApi(() => import("@earendil-works/pi-ai/api/anthropic-messages")),
     "google-generative-ai": lazyApi(() => import("@earendil-works/pi-ai/api/google-generative-ai")),
     "bedrock-converse-stream": lazyApi(() => import("@earendil-works/pi-ai/api/bedrock-converse-stream")),
-} satisfies Record<SupportedCustomPiApi, ProviderStreams>;
-
-/**
- * 判断配置值是否属于 NeuroBook 明确支持的自定义 Pi API adapter。
- */
-export function isSupportedCustomPiApi(api: string): api is SupportedCustomPiApi {
-    return SUPPORTED_CUSTOM_PI_APIS.some((supported) => supported === api);
-}
+} satisfies Record<SupportedPiApi, ProviderStreams>;
 
 /**
  * 为当前冻结配置和已解析模型选择 Pi runtime。
@@ -46,7 +30,7 @@ export function resolvePiModelsFromConfig(
     if (!provider?.enabled || !provider.models[model.id]?.enabled) {
         throw new Error(`模型未启用或不存在：${model.provider}/${model.id}`);
     }
-    if (!isSupportedCustomPiApi(model.api)) {
+    if (!isSupportedPiApi(model.api)) {
         throw new Error(`不支持的 Pi API：${model.api}`);
     }
 
@@ -71,7 +55,7 @@ export function resolvePiModelsFromConfig(
 /**
  * 创建只服务当前 invocation 的自定义 Provider runtime。
  */
-function createCustomModels<TApi extends SupportedCustomPiApi>(model: Model<TApi>, streams: ProviderStreams): Models {
+function createCustomModels<TApi extends SupportedPiApi>(model: Model<TApi>, streams: ProviderStreams): Models {
     const models = createModels();
     models.setProvider(createProvider({
         id: model.provider,

@@ -83,6 +83,7 @@ defineRouteMeta({
                                     "properties": {
                                         "line": {
                                             "type": "integer",
+                                            "minimum": 0,
                                             "exclusiveMinimum": true,
                                             "maximum": 9007199254740991
                                         },
@@ -111,6 +112,7 @@ defineRouteMeta({
                                     "properties": {
                                         "line": {
                                             "type": "integer",
+                                            "minimum": 0,
                                             "exclusiveMinimum": true,
                                             "maximum": 9007199254740991
                                         },

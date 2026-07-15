@@ -1,21 +1,23 @@
 import {readSseStream} from "nbook/app/utils/http/read-sse";
 import type {
-    AgentCommandResult,
-    InvokeAgentResult,
-} from "nbook/server/agent/harness/types";
-import type {
     AgentAbortRequestDto,
+    AgentAbortResult,
+    AgentCommandResult,
     AgentCommandRequestDto,
     AgentCreateSessionRequestDto,
     AgentInvokeRequestDto,
     AgentSessionEventDto,
     AgentSessionEventsQueryDto,
+    AgentSessionHistoryPageDto,
     AgentSessionListPageDto,
     AgentSessionListQueryDto,
     AgentSessionRelationsDto,
-    AgentSessionSnapshotDto,
+    AgentSessionRecoveryDto,
+    AgentSessionSystemPromptDto,
+    AgentTreeResult,
     AgentTreeRequestDto,
     ClientVariablePatchAckDto,
+    InvokeAgentResult,
 } from "nbook/shared/dto/agent-session.dto";
 
 /**
@@ -35,8 +37,25 @@ export function useAgentSessionApi() {
         });
     };
 
-    const getSession = (sessionId: number) => {
-        return $fetch<AgentSessionSnapshotDto>(`/api/agent/sessions/${sessionId}`);
+    /** 获取打开/刷新/SSE recovery 所需的 shell 和最近 history 尾页。 */
+    const getSessionRecovery = (sessionId: number) => {
+        return $fetch<AgentSessionRecoveryDto>(`/api/agent/sessions/${sessionId}`, {
+            query: {view: "recovery"},
+        });
+    };
+
+    /** 获取当前 active path 更早的一页 history。cursor 由服务端生成，前端不解析。 */
+    const getSessionHistory = (sessionId: number, cursor: string) => {
+        return $fetch<AgentSessionHistoryPageDto>(`/api/agent/sessions/${sessionId}`, {
+            query: {view: "history", cursor},
+        });
+    };
+
+    /** 按需构建 provider system prompt，不将其伪装成 Chat Flow history。 */
+    const getSessionSystemPrompt = (sessionId: number) => {
+        return $fetch<AgentSessionSystemPromptDto>(`/api/agent/sessions/${sessionId}`, {
+            query: {view: "systemPrompt"},
+        });
     };
 
     const getSessionRelations = (sessionId: number) => {
@@ -58,18 +77,14 @@ export function useAgentSessionApi() {
     };
 
     const moveTree = (sessionId: number, body: AgentTreeRequestDto) => {
-        return $fetch<{
-            status: "completed" | "invoked";
-            snapshot: AgentSessionSnapshotDto;
-            invocation?: InvokeAgentResult;
-        }>(`/api/agent/sessions/${sessionId}/tree`, {
+        return $fetch<AgentTreeResult>(`/api/agent/sessions/${sessionId}/tree`, {
             method: "POST",
             body,
         });
     };
 
     const abortSession = (sessionId: number, body: AgentAbortRequestDto = {}) => {
-        return $fetch(`/api/agent/sessions/${sessionId}/abort`, {
+        return $fetch<AgentAbortResult>(`/api/agent/sessions/${sessionId}/abort`, {
             method: "POST",
             body,
         });
@@ -107,8 +122,10 @@ export function useAgentSessionApi() {
         acknowledgeClientVariablePatch,
         abortSession,
         createSession,
-        getSession,
+        getSessionHistory,
+        getSessionRecovery,
         getSessionRelations,
+        getSessionSystemPrompt,
         invokeSession,
         listSessions,
         moveTree,

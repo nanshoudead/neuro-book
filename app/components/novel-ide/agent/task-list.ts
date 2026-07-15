@@ -21,16 +21,16 @@ export type AgentTaskStatus = z.infer<typeof AgentTaskStatusSchema>;
 export type AgentTaskStep = z.infer<typeof AgentTaskStepSchema>;
 export type AgentTaskList = z.infer<typeof AgentTaskListSchema>;
 
-export type TaskToolCallLike = Pick<AgentToolCall, "rawResult" | "result">;
+export type TaskToolCallLike = Pick<AgentToolCall, "resultData" | "result">;
 
 /**
  * 解析 task 工具的结构化返回值。
- * 优先使用 rawResult，fallback 到 result 里的 JSON 文本。
+ * 优先使用有界 resultData，fallback 到 result 里的 JSON 文本。
  */
 export const parseTaskList = (toolCall: TaskToolCallLike): AgentTaskList | null => {
-    const rawResult = AgentTaskListSchema.safeParse(toolCall.rawResult);
-    if (rawResult.success) {
-        return rawResult.data;
+    const resultData = AgentTaskListSchema.safeParse(toolCall.resultData);
+    if (resultData.success) {
+        return resultData.data;
     }
 
     const resultText = toolCall.result?.trim();

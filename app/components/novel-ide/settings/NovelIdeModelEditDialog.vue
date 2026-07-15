@@ -7,6 +7,7 @@ import {hasModelCostOverride, parseModelCostDraft, type ModelCostDraft} from "nb
 import type {ConfiguredModelDto, ModelCatalogEntryDto, ModelInputKind} from "nbook/shared/dto/app-settings.dto";
 
 type ModelDraft = {
+    localKey: string;
     name: string;
     id: string;
     group: string;
@@ -25,7 +26,7 @@ type ModelDraft = {
 type ProviderDraft = {
     id: string;
     name: string;
-    api: string;
+    defaultApi: string;
 };
 
 const props = defineProps<{

@@ -244,7 +244,7 @@ describe("NeuroAgentHarness invocation payload", () => {
             mode: "followup",
             payload: {plotId: 1},
         })).rejects.toThrow("payload 校验失败");
-        const snapshot = await harness.getSessionSnapshot(created.sessionId);
+        const snapshot = await harness.getSessionRecovery(created.sessionId);
 
         expect(waiting.status).toBe("waiting");
         expect(snapshot.followUpQueue.items).toEqual([]);
@@ -288,10 +288,10 @@ describe("NeuroAgentHarness invocation payload", () => {
             mode: "steer",
             payload: {plotId: 1},
         })).rejects.toThrow("payload 校验失败");
-        const snapshot = await harness.getSessionSnapshot(created.sessionId);
+        const snapshot = await harness.getSessionRecovery(created.sessionId);
 
         expect(waiting.status).toBe("waiting");
-        expect(snapshot.steerQueue).toEqual([]);
+        expect(snapshot.steerQueue).toEqual({items: [], omittedItems: 0});
     }, 20_000);
 });
 

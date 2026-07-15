@@ -14,6 +14,7 @@ import {summarizerProfile} from "nbook/server/agent/profiles/summarizer-profile"
 import type {AgentProfile, ProfileTurnPlan, SidecarContext, SidecarMergePlan, SidecarProfilePass, SidecarProfilePassStage, SidecarResult} from "nbook/server/agent/profiles/types";
 import {compileProfileSystemPrompt, validateProfileTurnPlan} from "nbook/server/agent/profiles/profile-dsl";
 import {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
+import {buildAgentHistoryPage} from "nbook/server/agent/session/history-query";
 import {buildAgentDialogueContent} from "nbook/server/agent/session/dialogue-content";
 import {SessionWriteExecutor} from "nbook/server/agent/session/write-plan";
 import type {AppendManySessionEntryDraft, SessionWriteEntryBatch, SessionWritePlan, SessionWriteResult, SessionWriteTimingSink} from "nbook/server/agent/session/write-plan";
@@ -30,6 +31,10 @@ import {AgentToolRegistry} from "nbook/server/agent/tools/tool-registry";
 import {isAgentToolDefinition} from "nbook/server/agent/tools/types";
 import type {AgentResolution, NeuroAgentTool, ProfileToolBinding, ReportResultToolBinding, ToolExecutionContext, ToolExecutionMode, UserInputFormSpec} from "nbook/server/agent/tools/types";
 import {projectRuntimeEvent} from "nbook/server/agent/events/public-event-projection";
+import {projectAgentChatEntry} from "nbook/server/agent/events/public-chat-entry-projection";
+import {publicAgentUserInputFormSpec} from "nbook/server/agent/events/public-user-input-form";
+import {type AgentQueuedInvocationTruth, projectQueuedMessage, projectQueuedMessages} from "nbook/server/agent/events/public-queue-projection";
+import {projectPublicToolArgs, textPreview} from "nbook/server/agent/events/public-tool-projection";
 import {appendCompaction, compactIfNeeded} from "nbook/server/agent/harness/compaction";
 import type {
     ActiveSidecarRun,
@@ -80,26 +85,23 @@ import {openProject, registerAgentPresenceProbe} from "nbook/server/workspace-fi
 import {normalizeProjectPath} from "nbook/server/workspace-files/project-workspace";
 import {assertManagedProjectDataPlaneOpen} from "nbook/server/workspace-files/project-data-plane-guard";
 import type {
-    AgentAbortResult,
-    AgentCommandResult,
     AgentSummary,
     DetachAgentResult,
-    AgentTreeResult,
     CreateAgentInput,
     CreateAgentResult,
     AgentInvokeCaller,
     InvokeAgentInput,
-    InvokeAgentResult,
     SessionQueryResult,
     SessionQueryInput,
     SessionRecentMessageRole,
 } from "nbook/server/agent/harness/types";
 import type {
     AgentAbortRequestDto,
+    AgentAbortResult,
     AgentActiveInvocationDto,
     AgentCommandRequestDto,
+    AgentCommandResult,
     AgentFollowUpQueueStateDto,
-    AgentFollowUpQueueItemDto,
     AgentLinkedSessionDto,
     AgentPendingApprovalDto,
     AgentRuntimeStreamEventDto,
@@ -110,13 +112,17 @@ import type {
     AgentSessionListQueryDto,
     AgentSessionLiveStateDto,
     AgentSessionProfileAvailability,
+    AgentSessionQueryDto,
+    AgentSessionQueryResultDto,
+    AgentSessionRecoveryDto,
     AgentSessionRelationsDto,
     AgentSessionSummarizerStateDto,
-    AgentSessionSnapshotDto,
     AgentSessionSummaryDto,
     AgentTreeRequestDto,
+    AgentTreeResult,
+    InvokeAgentResult,
 } from "nbook/shared/dto/agent-session.dto";
-import {AgentSessionEventHub} from "nbook/server/agent/events/session-event-hub";
+import {AgentSessionEventHub, type AgentSessionEventSubscription} from "nbook/server/agent/events/session-event-hub";
 import {createProfileVariableAccessor} from "nbook/server/agent/variables/accessor";
 import {normalizeClientState} from "nbook/server/agent/variables/accessor";
 import {createVariableRegistryForProfile, createVariableRegistryForSession} from "nbook/server/agent/variables/profile-registry";
@@ -390,6 +396,12 @@ function roundAgentOperationTiming(timing: AgentOperationTiming): AgentOperation
 /**
  * Neuro Book 自有 Agent Harness。它拥有 session/profile/tool 语义，底层使用 Pi Agent loop。
  */
+type FollowUpQueueTruthState = {
+    status: "ready" | "paused";
+    pausedBy?: {invocationId: string; reason: "error" | "aborted" | "interrupted"};
+    items: AgentQueuedInvocationTruth[];
+};
+
 export class NeuroAgentHarness {
     readonly repo: JsonlSessionRepository;
     /** 全局唯一 recorder 实例；trace 的写入与 clearBucket 都必须走它的串行队列（route 不得另建）。 */
@@ -407,8 +419,8 @@ export class NeuroAgentHarness {
     /** agent 在场探针的内存事实（仅本进程运行期，不落盘）：sessionId → 归一化 projectPath（`workspace/<slug>`）。 */
     private readonly activeInvocationProjects = new Map<number, string>();
     private readonly steerableSessions = new Set<number>();
-    private readonly steerQueues = new Map<number, AgentFollowUpQueueItemDto[]>();
-    private readonly followUpQueues = new Map<number, AgentFollowUpQueueStateDto>();
+    private readonly steerQueues = new Map<number, AgentQueuedInvocationTruth[]>();
+    private readonly followUpQueues = new Map<number, FollowUpQueueTruthState>();
     private readonly abortControllers = new Map<number, AbortController>();
     private readonly invocationClientStates = new Map<string, ClientStateSnapshot | undefined>();
     private readonly invocationVariableStates = new Map<string, VariableInvocationState>();
@@ -595,6 +607,7 @@ export class NeuroAgentHarness {
         }
         if (input.parentSessionId) {
             await this.appendAgentLinkUnlocked(input.parentSessionId, snapshot.metadata.sessionId, input.profileKey);
+            this.publishLinkedAgentSnapshotRequired(input.parentSessionId);
             this.publishLinkedAgentSnapshotRequired(snapshot.metadata.sessionId);
         }
         if (!initialModel) {
@@ -984,7 +997,7 @@ export class NeuroAgentHarness {
                         invocationId,
                         status: "waiting",
                         finalMessage: `steer queued: ${item.id}`,
-                        queuedItem: item,
+                        queuedItem: projectQueuedMessage(item),
                     },
                 };
             }
@@ -996,7 +1009,7 @@ export class NeuroAgentHarness {
                         invocationId,
                         status: "waiting",
                         finalMessage: `follow up queued: ${item.id}`,
-                        queuedItem: item,
+                        queuedItem: projectQueuedMessage(item),
                     },
                 };
             }
@@ -1099,7 +1112,7 @@ export class NeuroAgentHarness {
             if (active) {
                 active.status = "waiting";
             }
-            await this.publishSessionState(invokeInput.sessionId, invocationId);
+            await this.publishSessionState(invokeInput.sessionId, invocationId, true);
             return {
                 sessionId: invokeInput.sessionId,
                 invocationId,
@@ -1470,6 +1483,7 @@ export class NeuroAgentHarness {
                     },
                 }],
             });
+            this.publishLinkedAgentSnapshotRequired(ownerSessionId);
             this.publishLinkedAgentSnapshotRequired(sessionId);
             return {sessionId, status: "detached"};
         }
@@ -1703,7 +1717,15 @@ export class NeuroAgentHarness {
             };
         }
         const result = await this.writeExecutor.execute(plans, undefined, {timing: this.sessionWriteTiming(timing)});
-        for (const targetSessionId of snapshotRequired) {
+        const projectionInvalidated = new Set(snapshotRequired);
+        for (const ownerSessionId of plans
+            .filter((plan) => plan.ops.some((op) => op.kind === "append"
+                && op.entry.type === "custom"
+                && op.entry.key.startsWith("agent.detach.")))
+            .map((plan) => plan.target.sessionId)) {
+            projectionInvalidated.add(ownerSessionId);
+        }
+        for (const targetSessionId of projectionInvalidated) {
             this.publishLinkedAgentSnapshotRequired(targetSessionId);
         }
         return result;
@@ -1753,86 +1775,126 @@ export class NeuroAgentHarness {
             ...(summarizer ? {summarizer} : {}),
             activeLeafId: projection.snapshot.leafId,
             activePathRevision: this.repo.activePathRevision(projection.snapshot),
-            pendingUserInputs: await Promise.all(projection.pendingApprovals.map((pending) => this.pendingApprovalDto(projection.snapshot, pending))),
-            pendingApprovals: await Promise.all(projection.pendingApprovals.map((pending) => this.pendingApprovalDto(projection.snapshot, pending))),
-            steerQueue: this.steerQueues.get(sessionId) ?? [],
-            followUpQueue: this.followUpQueueState(sessionId, projection.context),
+            pendingUserInputs: await Promise.all(projection.pendingApprovals.map((pending) => this.pendingApprovalDto(projection.snapshot, pending, false))),
+            steerQueue: {count: this.steerQueues.get(sessionId)?.length ?? 0},
+            followUpQueue: this.followUpQueueSummary(sessionId, projection.context),
             activeInvocation: projection.activeInvocation,
             model,
             thinkingLevel: projection.context.thinkingLevel,
             effectiveThinkingLevel,
             agentMode: projection.context.agentMode,
-            usage: this.repo.usage(projection.snapshot),
             contextUsage: await this.sessionContextUsage(projection.snapshot, projection.context),
         };
     }
 
     /**
-     * 返回完整前端 snapshot，作为 UI 恢复真相。
+     * 按严格 query view 返回 session recovery、history 或按需 system prompt。
+     * history 分支故意不触发 profile、relations、context usage 等 shell 计算。
      */
-    async getSessionSnapshot(sessionId: number, timingSink?: ServerTimingSink): Promise<AgentSessionSnapshotDto> {
-        return this.withAgentOperationTiming("agent.snapshot.slow", AGENT_SNAPSHOT_SLOW_MS, {sessionId}, (timing) => {
-            return this.buildSessionSnapshot(sessionId, undefined, timing);
+    async getSessionQuery(
+        sessionId: number,
+        query: AgentSessionQueryDto = {},
+        timingSink?: ServerTimingSink,
+    ): Promise<AgentSessionQueryResultDto> {
+        return this.withAgentOperationTiming("agent.snapshot.slow", AGENT_SNAPSHOT_SLOW_MS, {sessionId, view: query.view ?? "recovery"}, async (timing) => {
+            if (query.view === "history") {
+                const snapshot = await measureAgentTimingStep(timing, "readSession", () => this.repo.readSession(sessionId));
+                const activePathRevision = this.repo.activePathRevision(snapshot);
+                const history = buildAgentHistoryPage({
+                    sessionId,
+                    activePathRevision,
+                    activePath: this.repo.activePath(snapshot),
+                    cursor: query.cursor,
+                });
+                return {
+                    kind: "history",
+                    sessionId,
+                    activePathRevision,
+                    history,
+                } satisfies AgentSessionQueryResultDto;
+            }
+            if (query.view === "systemPrompt") {
+                const snapshot = await measureAgentTimingStep(timing, "readSession", () => this.repo.readSession(sessionId));
+                const context = measureAgentTimingStepSync(timing, "reduce", () => this.repo.reduce(snapshot));
+                const profileRuntime = await measureAgentTimingStep(
+                    timing,
+                    "profileRuntime",
+                    () => this.resolveProfileRuntime(snapshot.metadata.profileKey),
+                );
+                const systemPrompt = await measureAgentTimingStep(
+                    timing,
+                    "snapshotSystemPrompt",
+                    () => this.snapshotSystemPrompt(snapshot, context, profileRuntime.profile),
+                );
+                return {
+                    kind: "systemPrompt",
+                    sessionId,
+                    systemPrompt: systemPrompt ?? "",
+                } satisfies AgentSessionQueryResultDto;
+            }
+            const eventCursor = this.snapshotEventCursor(sessionId);
+            const snapshot = await measureAgentTimingStep(timing, "readSession", () => this.repo.readSession(sessionId));
+            return this.buildSessionRecovery(sessionId, snapshot, eventCursor, timing);
         }, timingSink);
     }
 
+    /** 获取当前 session 的 recovery shell 与最新 history 尾页。 */
+    async getSessionRecovery(sessionId: number, timingSink?: ServerTimingSink): Promise<AgentSessionRecoveryDto> {
+        return this.getSessionQuery(sessionId, {}, timingSink) as Promise<AgentSessionRecoveryDto>;
+    }
+
     /**
-     * 构建完整 snapshot DTO。command 内嵌 snapshot 复用同一个 timing，避免另起一次 operation 后丢失分段归因。
+     * 构建 recovery DTO。event cursor 必须由调用者在读取 JSONL 前捕获，允许重复但禁止遗漏。
      */
-    private async buildSessionSnapshot(
+    private async buildSessionRecovery(
         sessionId: number,
-        sourceSnapshot: SessionSnapshot | undefined,
+        sourceSnapshot: SessionSnapshot,
+        eventCursor: AgentSessionRecoveryDto["eventCursor"],
         timing: AgentOperationTiming,
-    ): Promise<AgentSessionSnapshotDto> {
+    ): Promise<AgentSessionRecoveryDto> {
         const projection = await this.resolveSessionRuntimeProjection(sessionId, sourceSnapshot, timing);
         const {snapshot, context} = projection;
         const relations = await measureAgentTimingStep(timing, "relations", () => this.sessionRelations(projection, timing));
-        const systemPrompt = await measureAgentTimingStep(
-            timing,
-            "snapshotSystemPrompt",
-            () => this.snapshotSystemPrompt(snapshot, context, projection.profile),
-        );
         const effectiveThinkingLevel = await this.snapshotThinkingLevel(snapshot, context);
         const model = await this.snapshotModel(snapshot, context);
         const summarizer = this.sessionSummarizerStateDto(context);
         const followUpQueue = this.followUpQueueState(sessionId, context);
-        const latestSeq = this.eventHub.lastSeq(sessionId);
-        const eventCursor = this.snapshotEventCursor(sessionId, latestSeq);
+        const history = buildAgentHistoryPage({
+            sessionId,
+            activePathRevision: this.repo.activePathRevision(snapshot),
+            activePath: this.repo.activePath(snapshot),
+        });
 
         return {
-            eventEpoch: this.eventHub.eventEpoch,
+            kind: "recovery",
             eventCursor,
-            latestSeq,
             summary: projection.summary,
             ...(summarizer ? {summarizer} : {}),
             activeLeafId: snapshot.leafId,
             activePathRevision: this.repo.activePathRevision(snapshot),
-            ...systemPrompt ? {systemPrompt} : {},
-            messages: context.messages,
+            history,
             tree: this.repo.tree(snapshot),
-            entries: this.repo.activePath(snapshot),
             linkedAgents: relations.linkedAgents,
             linkedByAgents: relations.linkedByAgents,
-            pendingUserInputs: await Promise.all(projection.pendingApprovals.map((pending) => this.pendingApprovalDto(snapshot, pending))),
-            pendingApprovals: await Promise.all(projection.pendingApprovals.map((pending) => this.pendingApprovalDto(snapshot, pending))),
-            steerQueue: this.steerQueues.get(sessionId) ?? [],
-            followUpQueue,
+            pendingUserInputs: await Promise.all(projection.pendingApprovals.map((pending) => this.pendingApprovalDto(snapshot, pending, true))),
+            steerQueue: projectQueuedMessages(this.steerQueues.get(sessionId) ?? []),
+            followUpQueue: this.publicFollowUpQueue(followUpQueue),
             activeInvocation: projection.activeInvocation,
             model,
             thinkingLevel: context.thinkingLevel,
             effectiveThinkingLevel,
             agentMode: context.agentMode,
-            lastSeq: eventCursor.after,
-            usage: this.repo.usage(snapshot),
             contextUsage: await this.sessionContextUsage(snapshot, context),
         };
     }
 
-    private snapshotEventCursor(sessionId: number, latestSeq = this.eventHub.lastSeq(sessionId)): AgentSessionSnapshotDto["eventCursor"] {
+    private snapshotEventCursor(sessionId: number, latestSeq = this.eventHub.lastSeq(sessionId)): AgentSessionRecoveryDto["eventCursor"] {
         const anchor = this.transcriptReplayAnchors.get(sessionId);
         return {
             eventEpoch: this.eventHub.eventEpoch,
-            after: anchor?.after ?? latestSeq,
+            after: anchor && this.eventHub.canReplayFrom(sessionId, anchor.after)
+                ? anchor.after
+                : latestSeq,
         };
     }
 
@@ -2076,23 +2138,17 @@ export class NeuroAgentHarness {
     private async pendingApprovalDto(
         snapshot: SessionSnapshot,
         pending: {toolCallId: string; toolName: string; args: Record<string, unknown>},
+        includePlanContent: boolean,
     ): Promise<AgentPendingApprovalDto> {
         const base: AgentPendingApprovalDto = {
             toolCallId: pending.toolCallId,
             toolName: pending.toolName,
-            args: pending.args as JsonValue,
+            args: projectPublicToolArgs(pending.toolName, pending.args),
         };
 
         const pendingState = this.pendingUserResolutionState(snapshot, pending.toolCallId);
         if (pending.toolName !== "request_user_input" && pendingState?.formSpec) {
-            const formValidation = LowCodeFormDtoSchema.safeParse(pendingState.formSpec.form);
-            if (formValidation.success) {
-                base.formSpec = {
-                    form: formValidation.data,
-                    layout: pendingState.formSpec.layout,
-                    prompt: pendingState.formSpec.prompt,
-                };
-            }
+            base.formSpec = publicAgentUserInputFormSpec(pendingState.formSpec);
         }
 
         // switch_mode 退出 plan（targetMode=normal）且带 planFilePath 时，为审批 UI 附带计划文件预览
@@ -2108,10 +2164,16 @@ export class NeuroAgentHarness {
             projectPath: snapshot.metadata.projectPath,
             planFilePath,
         });
+        const projectedPath = textPreview(target.displayPath, 2 * 1024).preview;
+        if (!includePlanContent) {
+            return {...base, planFilePath: projectedPath};
+        }
+        const planContent = await readFile(target.absolutePath, "utf-8");
         return {
             ...base,
-            planFilePath: target.displayPath,
-            planContent: await readFile(target.absolutePath, "utf-8"),
+            planFilePath: projectedPath,
+            planContent,
+            planContentBytes: Buffer.byteLength(planContent, "utf8"),
         };
     }
 
@@ -2375,21 +2437,11 @@ export class NeuroAgentHarness {
             if (targetId) {
                 await this.moveLeafForPosition(sessionId, targetId, "before", timing);
             }
-            return {
-                kind: "snapshot",
-                status: "completed",
-                sessionId,
-                snapshot: await this.buildSessionSnapshot(sessionId, undefined, timing),
-            };
+            return this.commandLiveStateResult(sessionId, "completed", undefined, timing);
         }
         if (body.command === "tree") {
             await this.moveLeafForPosition(sessionId, body.targetEntryId, body.position, timing);
-            return {
-                kind: "snapshot",
-                status: "completed",
-                sessionId,
-                snapshot: await this.buildSessionSnapshot(sessionId, undefined, timing),
-            };
+            return this.commandLiveStateResult(sessionId, "completed", undefined, timing);
         }
         if (body.command === "mode") {
             const targetMode = body.mode;
@@ -2473,12 +2525,7 @@ export class NeuroAgentHarness {
             void this.runCompactCommand(sessionId, body.instructions);
             return this.commandLiveStateResult(sessionId, "started", undefined, timing);
         }
-        return {
-            kind: "snapshot",
-            status: "completed",
-            sessionId,
-            snapshot: await this.buildSessionSnapshot(sessionId, undefined, timing),
-        };
+        throw new Error("不支持的 Agent command");
     }
 
     /**
@@ -2496,10 +2543,9 @@ export class NeuroAgentHarness {
                     leafId: null,
                 }],
             });
-            const updatedSnapshot = await this.getSessionSnapshot(sessionId);
             return {
                 status: "completed",
-                snapshot: updatedSnapshot,
+                state: await this.getSessionLiveState(sessionId),
             };
         }
         // TODO: 当前 next.invoke 失败时不会回滚 leaf；后续需要改成真正的原子 tree + invoke。
@@ -2517,14 +2563,13 @@ export class NeuroAgentHarness {
             });
             return {
                 status: "invoked",
-                snapshot: await this.getSessionSnapshot(sessionId),
+                state: await this.getSessionLiveState(sessionId),
                 invocation,
             };
         }
-        const updatedSnapshot = await this.getSessionSnapshot(sessionId);
         return {
             status: "completed",
-            snapshot: updatedSnapshot,
+            state: await this.getSessionLiveState(sessionId),
         };
     }
 
@@ -2659,10 +2704,8 @@ export class NeuroAgentHarness {
     /**
      * 订阅 session 级事件流。
      */
-    subscribeSessionEvents(sessionId: number, cursor: AgentSessionEventsQueryDto = {}): AsyncIterable<AgentSessionEventDto> & {connected: AgentSessionEventDto} {
-        return Object.assign(this.eventHub.subscribe(sessionId, cursor), {
-            connected: this.eventHub.connectedEvent(sessionId),
-        });
+    subscribeSessionEvents(sessionId: number, cursor: AgentSessionEventsQueryDto = {}): AgentSessionEventSubscription {
+        return this.eventHub.subscribe(sessionId, cursor);
     }
 
     /**
@@ -3664,7 +3707,7 @@ export class NeuroAgentHarness {
      * 投影并发布 provider/tool raw event。
      */
     private async emitFrameEvent(frame: RunFrame, event: AgentEvent): Promise<void> {
-        const projected = projectRuntimeEvent(event);
+        const projected = projectRuntimeEvent(frame.publicEventProjection, event);
         if (!projected) {
             return;
         }
@@ -3679,11 +3722,18 @@ export class NeuroAgentHarness {
             return null;
         }
         await frame.onEvent?.(event);
-        const payload = this.publishRuntimeEvent(frame.sessionId, frame.invocationId, event);
-        if (event.type === "turn_start") {
-            this.createTranscriptReplayAnchor(frame, payload.seq);
+        const shouldCreateAnchor = event.type === "turn_start" && !this.transcriptReplayAnchors.has(frame.sessionId);
+        if (shouldCreateAnchor) {
+            this.createTranscriptReplayAnchor(frame, this.eventHub.lastSeq(frame.sessionId) + 1);
         }
-        return payload;
+        try {
+            return this.publishRuntimeEvent(frame.sessionId, frame.invocationId, event);
+        } catch (error) {
+            if (shouldCreateAnchor) {
+                this.clearTranscriptReplayAnchor(frame.sessionId);
+            }
+            throw error;
+        }
     }
 
     /**
@@ -4063,8 +4113,8 @@ export class NeuroAgentHarness {
         };
     }
 
-    /** 无 RunFrame 时（手动 compact / health-check）从 effective config 组装 trace 绑定。 */
-    private piTraceBindingFromConfig(config: EffectiveConfig, correlation: PiTraceCorrelation): PiTraceBinding {
+    /** 无 RunFrame 时（手动 compact / health-check）从 effective config 组装正式 trace 绑定。 */
+    traceBinding(config: EffectiveConfig, correlation: PiTraceCorrelation): PiTraceBinding {
         return {
             recorder: this.piTraceRecorder,
             settings: this.piTraceSettings(config),
@@ -4243,7 +4293,7 @@ export class NeuroAgentHarness {
                     };
                     const userInputRequest = await tool.userInputRequest.when(userInputContext);
                     if (userInputRequest) {
-                        const formSpec = userInputRequest === true ? undefined : userInputRequest;
+                        const formSpec = userInputRequest === true ? undefined : publicAgentUserInputFormSpec(userInputRequest);
                         // 需要用户输入，暂停执行
                         await input.emit({
                             type: "tool_user_input_required",
@@ -4340,7 +4390,7 @@ export class NeuroAgentHarness {
                     allExecutedTerminate = false;
                     continue;
                 }
-                const formSpec = this.readonlyWriteApprovalFormSpec(input.agentMode, toolCall);
+                const formSpec = publicAgentUserInputFormSpec(this.readonlyWriteApprovalFormSpec(input.agentMode, toolCall));
                 await input.emit({
                     type: "tool_user_input_required",
                     toolCallId: toolCall.id,
@@ -4928,8 +4978,8 @@ export class NeuroAgentHarness {
         }
     }
 
-    private enqueueSteer(sessionId: number, input: {message?: AgentUserMessageInput; payload?: JsonValue}): AgentFollowUpQueueItemDto {
-        const item: AgentFollowUpQueueItemDto = {
+    private enqueueSteer(sessionId: number, input: {message?: AgentUserMessageInput; payload?: JsonValue}): AgentQueuedInvocationTruth {
+        const item: AgentQueuedInvocationTruth = {
             id: randomUUID(),
             kind: "steer",
             message: input.message,
@@ -4944,14 +4994,14 @@ export class NeuroAgentHarness {
             kind: "session",
             event: {
                 type: "steer_queued",
-                item,
+                item: projectQueuedMessage(item),
             },
         });
         return item;
     }
 
-    private async enqueueFollowUp(sessionId: number, input: {message?: AgentUserMessageInput; payload?: JsonValue}): Promise<AgentFollowUpQueueItemDto> {
-        const item: AgentFollowUpQueueItemDto = {
+    private async enqueueFollowUp(sessionId: number, input: {message?: AgentUserMessageInput; payload?: JsonValue}): Promise<AgentQueuedInvocationTruth> {
+        const item: AgentQueuedInvocationTruth = {
             id: randomUUID(),
             kind: "followup",
             message: input.message,
@@ -4968,7 +5018,7 @@ export class NeuroAgentHarness {
             kind: "session",
             event: {
                 type: "follow_up_queued",
-                item,
+                item: projectQueuedMessage(item),
             },
         });
         return item;
@@ -5095,7 +5145,7 @@ export class NeuroAgentHarness {
         });
     }
 
-    private createQueuedUserMessage(item: AgentFollowUpQueueItemDto, mode: "steer" | "followup"): Message {
+    private createQueuedUserMessage(item: AgentQueuedInvocationTruth, mode: "steer" | "followup"): Message {
         const message = this.createInvocationUserMessage({
             message: item.message,
             payload: item.input,
@@ -5315,7 +5365,7 @@ export class NeuroAgentHarness {
         };
     }
 
-    private followUpQueueState(sessionId: number, context?: NeuroSessionContext): AgentFollowUpQueueStateDto {
+    private followUpQueueState(sessionId: number, context?: NeuroSessionContext): FollowUpQueueTruthState {
         const existing = this.followUpQueues.get(sessionId);
         if (existing) {
             return existing;
@@ -5328,14 +5378,29 @@ export class NeuroAgentHarness {
         return this.emptyFollowUpQueueState();
     }
 
-    private emptyFollowUpQueueState(): AgentFollowUpQueueStateDto {
+    private followUpQueueSummary(sessionId: number, context?: NeuroSessionContext): AgentSessionLiveStateDto["followUpQueue"] {
+        const queue = this.followUpQueueState(sessionId, context);
+        return {status: queue.status, count: queue.items.length, ...(queue.pausedBy ? {pausedBy: queue.pausedBy} : {})};
+    }
+
+    private publicFollowUpQueue(queue: FollowUpQueueTruthState): AgentFollowUpQueueStateDto {
+        const projected = projectQueuedMessages(queue.items);
+        return {
+            status: queue.status,
+            ...(queue.pausedBy ? {pausedBy: queue.pausedBy} : {}),
+            items: projected.items,
+            omittedItems: projected.omittedItems,
+        };
+    }
+
+    private emptyFollowUpQueueState(): FollowUpQueueTruthState {
         return {
             status: "ready",
             items: [],
         };
     }
 
-    private async setFollowUpQueueState(sessionId: number, queue: AgentFollowUpQueueStateDto): Promise<void> {
+    private async setFollowUpQueueState(sessionId: number, queue: FollowUpQueueTruthState): Promise<void> {
         if (queue.items.length === 0 && queue.status === "ready") {
             this.followUpQueues.delete(sessionId);
         } else {
@@ -5350,13 +5415,14 @@ export class NeuroAgentHarness {
                 entry: {
                     type: "custom",
                     key: AGENT_FOLLOW_UP_QUEUE_STATE_KEY,
-                    value: queue,
+                    // 内部 queue truth 只含可 JSON 序列化的 message/image/payload；持久化边界显式转换。
+                    value: queue as unknown as JsonValue,
                 },
             }],
         });
     }
 
-    private readFollowUpQueueState(context: NeuroSessionContext): AgentFollowUpQueueStateDto | undefined {
+    private readFollowUpQueueState(context: NeuroSessionContext): FollowUpQueueTruthState | undefined {
         const value = context.customState[AGENT_FOLLOW_UP_QUEUE_STATE_KEY];
         if (!value || typeof value !== "object" || Array.isArray(value)) {
             return undefined;
@@ -5368,7 +5434,7 @@ export class NeuroAgentHarness {
         if (!Array.isArray(record.items)) {
             return undefined;
         }
-        const items = record.items.filter(isFollowUpQueueItem);
+        const items = record.items.filter(isFollowUpQueueItem).map((item) => item as unknown as AgentQueuedInvocationTruth);
         const pausedBy = record.pausedBy && typeof record.pausedBy === "object" && !Array.isArray(record.pausedBy)
             ? record.pausedBy as Record<string, JsonValue>
             : undefined;
@@ -5534,7 +5600,7 @@ export class NeuroAgentHarness {
             invocationId,
             kind: "runtime",
             event,
-        });
+        }).payload;
     }
 
     private createTranscriptReplayAnchor(frame: RunFrame, turnStartSeq: number): void {
@@ -5571,13 +5637,17 @@ export class NeuroAgentHarness {
     }
 
     private publishSessionEntry(sessionId: number, invocationId: string | undefined, entry: SessionEntry): void {
+        const projected = projectAgentChatEntry(entry, {invocationId});
+        if (!projected) {
+            return;
+        }
         this.eventHub.publish({
             sessionId,
             invocationId,
             kind: "session",
             event: {
                 type: "session_entry",
-                entry,
+                entry: projected,
             },
         });
     }
@@ -5590,13 +5660,17 @@ export class NeuroAgentHarness {
             sessionId,
             kind: "session",
             event: {
-                type: "snapshot_required",
-                reason: "linked agent relationship changed",
+                type: "session_projection_invalidated",
+                reason: "linked_agent_changed",
             },
         });
     }
 
-    private async publishSessionState(sessionId: number, invocationId?: string): Promise<AgentSessionLiveStateDto> {
+    private async publishSessionState(
+        sessionId: number,
+        invocationId?: string,
+        invalidatePendingPlan = false,
+    ): Promise<AgentSessionLiveStateDto> {
         const state = await this.getSessionLiveState(sessionId);
         this.eventHub.publish({
             sessionId,
@@ -5607,6 +5681,14 @@ export class NeuroAgentHarness {
                 state,
             },
         });
+        if (invalidatePendingPlan && state.pendingUserInputs.some((pending) => pending.toolName === "switch_mode" && pending.planFilePath)) {
+            this.eventHub.publish({
+                sessionId,
+                invocationId,
+                kind: "session",
+                event: {type: "session_projection_invalidated", reason: "pending_plan_content_changed"},
+            });
+        }
         return state;
     }
 
@@ -5867,7 +5949,7 @@ export class NeuroAgentHarness {
                 thinkingLevel,
                 instructions,
                 compaction,
-                trace: this.piTraceBindingFromConfig(config, {kind: "compaction", sessionId, invocationId, profileKey: context.profileKey}),
+                trace: this.traceBinding(config, {kind: "compaction", sessionId, invocationId, profileKey: context.profileKey}),
                 writeCompactionEntry: async (entry) => {
                     await new ToolSessionWriteSink({
                         executor: this.writeExecutor,
@@ -6381,7 +6463,6 @@ export class NeuroAgentHarness {
                 sidecarType: pass.name,
                 stage: pass.stage,
                 leafId: sidecarLeafId,
-                sidecarResult,
             });
 
             return mergePlan;
@@ -6622,9 +6703,10 @@ export class NeuroAgentHarness {
             return undefined;
         }
         const report = details as {result: string; data?: unknown};
+        const data = "data" in report && isJsonValue(report.data) ? report.data : undefined;
         return {
             result: report.result,
-            ...("data" in report ? {data: report.data} : {}),
+            ...(data === undefined ? {} : {data}),
         };
     }
 
@@ -6815,7 +6897,7 @@ function parseSidecarFinalJson(sidecarName: string, text: string): JsonValue {
     }
 }
 
-function isFollowUpQueueItem(value: unknown): value is AgentFollowUpQueueItemDto {
+function isFollowUpQueueItem(value: unknown): boolean {
     if (!isRecord(value)) {
         return false;
     }
@@ -6870,4 +6952,21 @@ function normalizeAgentWorkspaceRoot(workspaceRoot: string | undefined, projectP
 
 function clientPatchKey(invocationId: string | undefined, toolCallId: string | undefined, path: string): string {
     return `${invocationId ?? ""}\n${toolCallId ?? ""}\n${path}`;
+}
+
+/** 判断未知工具结果是否可以安全进入公开 JSON DTO。 */
+function isJsonValue(value: unknown): value is JsonValue {
+    if (value === null || typeof value === "string" || typeof value === "boolean") {
+        return true;
+    }
+    if (typeof value === "number") {
+        return Number.isFinite(value);
+    }
+    if (Array.isArray(value)) {
+        return value.every(isJsonValue);
+    }
+    if (typeof value === "object") {
+        return Object.values(value).every(isJsonValue);
+    }
+    return false;
 }

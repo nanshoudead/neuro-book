@@ -91,7 +91,8 @@ export type ModelProviderOptionsConfig = {
 export type ConfiguredProviderConfig = {
     name: string;
     enabled: boolean;
-    api: string | null;
+    /** 创建、发现和新模型草稿使用的默认 API；runtime 只读取 model.api。 */
+    defaultApi: string | null;
     discovery: ProviderDiscoveryConfig;
     options: ModelProviderOptionsConfig;
     models: Record<string, ConfiguredModelConfig>;

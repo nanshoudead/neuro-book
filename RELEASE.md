@@ -1,5 +1,36 @@
 # Release Notes
 
+## 0.8.0-canary - 2026-07-15
+
+本次 minor 版本重构 Agent Chat Flow 的公开数据与恢复协议，让长会话的首屏、向上翻页、实时流式响应和工具卡都具备明确的网络与内存边界；同时收紧模型配置写入合同，避免无效 Provider、模型引用或默认值进入运行时。
+
+### Agent 长会话改为有界恢复与历史分页
+
+- Session 查询统一为 recovery、history 和 System Prompt 三种严格视图。普通恢复只返回会话外壳、轻量树和最近一页历史，不再携带完整 raw entries、Provider messages 或预先构建的 System Prompt。
+- Chat Flow 支持 opaque cursor 向上分页，默认按 30 个显示组、约 256 KiB 组织页面；Assistant 与所属工具结果不会在分页边界被拆开，加载旧页时保持当前视口锚点。
+- System Prompt 改为独立按需面板。Session Tree 删除 raw 正文详情，但继续保留结构搜索、折叠、ID 复制和分支切换。
+- retry、编辑、删除和切换分支等操作统一触发同一个 recovery single-flight；旧 session、旧 revision 和迟到响应不会覆盖当前页面。长文本 optimistic 消息也能按公开 preview 与真实字节数准确收敛。
+
+### 实时事件与 SSE 内存边界
+
+- Agent runtime event 改为不可变、delta-first 的公开 DTO，不再反复发送累计完整消息、工具参数、patch、diff 或图片 base64。
+- write、edit、apply_patch、read、bash 等工具卡只公开路径、短预览、原始字节数和 omitted 状态；未知工具也经过统一的有界投影，未来新增工具默认受同一安全边界保护。
+- EventHub replay 同时限制事件数量与序列化字节数，慢订阅者队列也有独立上限。Agent SSE 使用等待 Node `drain` 的专用 writer，客户端停止读取时不再把大量事件转移到无界 HTTP response buffer。
+- pending approval、steer/follow-up queue 和 Agent 表单也改用公开有界合同；完整内部 payload 继续只保留在服务端真相层。图片正文不会进入 SSE 或 Chat Flow，durable JSONL 的图片附件引用仍作为后续 Task 108 单独实施。
+
+### 模型配置合同与设置体验
+
+- Provider Config 成为模型 runtime 的唯一配置真相源。Global Config 保存前会严格校验 Provider、模型、重复 ID、默认模型和 Profile 引用；不涉及 models 的独立配置保存不会被已有坏模型配置阻断。
+- 设置页统一使用完整模型草稿与实时校验，支持紧凑问题提示和只修正草稿、不自动保存的一键修复。健康检查、模型发现、session 选择和实际 runtime 共用同一模型身份合同。
+- Config Service 测试已迁入隔离 State Root，测试失败或中断不再移动真实 `workspace/.nbook/config.json`。
+
+### 验证与已知边界
+
+- Agent 公共投影、EventHub、SSE、队列、Chat Flow、分页与前端状态聚焦组合均已通过；最终 queue/public boundary 组合为 15 files / 297 tests，分页相关组合为 8 files / 71 tests，Harness/black-box 最终回归通过。
+- `bun run typecheck` 与 `bun run nuxt:build` 已通过；模型草稿、模型写入校验、runtime/auth、DTO 与 Global Config 聚焦测试通过。
+- 真实 paused socket、10 MiB write/patch/unknown tool 与图片 base64 fixture 已覆盖公开事件、replay、subscriber queue 和 response buffer 上限。
+- 未自动执行浏览器验收、Docker 构建或本轮真实 Provider 验证。建议发布后重点手动检查长 session 向上翻页、invalid cursor 恢复、短列表滚动锚点、工具预览省略提示，以及模型设置的一键修复和批量检测。
+
 ## 0.7.10-canary - 2026-07-13
 
 本版本继续收口NeuroBook Manager的部署事务与发布门禁，重点避免Docker更新失败后留下新容器、已迁移数据库或不可安装的半成品Release。

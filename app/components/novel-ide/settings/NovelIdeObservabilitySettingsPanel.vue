@@ -6,7 +6,7 @@
 import {useConfigApi} from "nbook/app/composables/useConfigApi";
 import {useNotification} from "nbook/app/composables/useNotification";
 import {resolveApiErrorMessage} from "nbook/app/utils/api-error";
-import type {ConfigEditorSnapshotDto, ConfigWorkspaceQueryDto, GlobalConfigDto} from "nbook/shared/dto/config.dto";
+import type {ConfigEditorSnapshotDto, ConfigWorkspaceQueryDto, GlobalConfigUpdateDto} from "nbook/shared/dto/config.dto";
 
 /** 展示默认值，与后端 normalizer 的 DEFAULT_PI_TRACE 保持一致。 */
 const PI_TRACE_DEFAULTS = {enabled: true, maxRecords: 100};
@@ -47,10 +47,9 @@ function applySettings(snapshot: ConfigEditorSnapshotDto): void {
  * 构造 Global Config 写回体。只覆盖 piTrace 的两个面板字段，
  * 保留手写的其它 observability 配置（如 capturePayload）。
  */
-function buildGlobalConfigPayload(): GlobalConfigDto {
+function buildGlobalConfigPayload(): GlobalConfigUpdateDto {
     const base = editorSnapshot.value?.global ?? {};
     return {
-        ...base,
         observability: {
             ...(base.observability ?? {}),
             piTrace: {

@@ -104,3 +104,14 @@
 ## TODO / Follow-ups
 
 - 完整 snapshot 冷路径的 `snapshotSystemPrompt` 仍可能达到 2s 级；当前它已不在轻 command 热路径，但后续若 snapshot 首屏仍慢，应单独治理 profile prompt/catalog/skills snapshot 组合成本。
+
+## Task 106 后续演进（2026-07-15）
+
+本任务保留 2026-06-28 的性能治理历史，但当前公开合同已继续收口：
+
+- `retry/tree` 不再返回完整 snapshot，和其他 active-path mutation 一样返回 live state；revision 变化后由前端进入统一 recovery。
+- `AgentCommandResult` 当前只保留 `live_state` 与 `created_session` 分支，不再保留 `snapshot` 分支。
+- recovery 已拆除默认 System Prompt 构建，System Prompt 改为显式按需查询；前文 2 秒级 `snapshotSystemPrompt` 是旧全量 snapshot 的诊断数据。
+- 当前 command/tree/invoke/abort 公开 result DTO 由 shared seam 所有，Harness 不再作为前端 wire type 来源。
+
+前文“retry/tree 返回完整 snapshot”及相关测试名、timing 记录应按历史结果理解，不应继续作为新实现依据。

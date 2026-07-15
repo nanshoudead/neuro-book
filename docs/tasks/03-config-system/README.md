@@ -302,6 +302,15 @@ assets/
 
 ## Verification
 
+### 2026-07-14：Global Config 测试隔离事故修复
+
+- 复现现象：真实`workspace/.nbook/config.json`从工作树消失，同时系统临时目录遗留`nbook-config-test-*/config.json`；7月11日与7月13日各存在一份未恢复备份，证明问题可重复发生。
+- 根因：`config-service.test.ts`的`beforeEach`会把真实Global Config和Global Agent资源目录rename到临时目录，`afterEach`再移回。测试进程被中断、超时或强制退出时不会执行恢复，真实用户配置因此留在临时目录。
+- 修复：Config Service测试改用现有`createIsolatedWorkspaceAssets({useAsCwd: true})`，Global Config、Global Agent资源和Project fixture全部位于独立临时State Root。删除真实目录备份、清空和恢复逻辑，测试不再接触用户数据。
+- 数据恢复：按用户决策使用7月11日备份恢复真实Global Config；恢复后文件SHA256与备份完全一致，JSON解析通过，未输出任何secret。
+- 验证：`bun test server/config/config-service.test.ts --path-ignore-patterns=product`通过39项测试；测试前后真实Global Config SHA256保持不变。另一次误包含`product/`源码副本的测试运行虽然出现重复模块`instanceof`失败，真实Global Config仍保持不变，证明失败路径也不会再搬移用户配置。
+- 实际计划差异：仓库已有Workspace assets隔离基础设施，无需新增Config专用fixture。问题不是业务Config读写，而是测试绕开统一路径Context直接操作真实cwd。
+
 已通过：
 
 - `bun test server/config`

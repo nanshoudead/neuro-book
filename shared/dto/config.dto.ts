@@ -3,6 +3,7 @@ import {
     AgentProfileModelConfigDtoSchema,
     ConfiguredModelDtoSchema,
     EnabledModelOptionDtoSchema,
+    ModelValidationIssueDtoSchema,
     ProviderDiscoveryConfigSchema,
 } from "nbook/shared/dto/app-settings.dto";
 import {
@@ -119,10 +120,15 @@ export const ConfigModelProviderOptionsDtoSchema = z.object({
 });
 
 export const ConfiguredProviderConfigDtoSchema = z.object({
+    /**
+     * 编辑快照中的原始数组位置。仅用于坏配置修复时保留对应 secret，
+     * 新建 Provider 可缺省；服务端写盘前必须移除。
+     */
+    sourceIndex: z.number().int().nonnegative().optional(),
     id: ProviderIdSchema,
     name: z.string().trim().min(1),
     enabled: z.boolean().default(true),
-    api: NullableTextSchema,
+    defaultApi: NullableTextSchema,
     discovery: ProviderDiscoveryConfigSchema,
     options: ConfigModelProviderOptionsDtoSchema,
     models: z.array(ConfiguredModelDtoSchema).default([]),
@@ -133,6 +139,7 @@ export const ConfigModelSettingsDtoSchema = z.object({
     defaultModelLabel: z.string().trim().nullable().default(null),
     enabledModels: z.array(EnabledModelOptionDtoSchema).default([]),
     providers: z.array(ConfiguredProviderConfigDtoSchema).default([]),
+    validationIssues: z.array(ModelValidationIssueDtoSchema).default([]),
 });
 
 export const EmbeddingServiceConfigDtoSchema = z.object({
@@ -183,6 +190,7 @@ export const ConfigAgentProfileBuildStateDtoSchema = z.object({
 
 export const ConfigAgentProfileSettingsDtoSchema = z.object({
     enabledModels: z.array(EnabledModelOptionDtoSchema).default([]),
+    validationIssues: z.array(ModelValidationIssueDtoSchema).default([]),
     profileModelDefaults: AgentProfileModelConfigDtoSchema,
     harnessRuntimeDefaults: z.lazy(() => ProfileRuntimeSettingsDtoSchema),
     profileRuntimeDefaults: z.lazy(() => ProfileRuntimeSettingsDtoSchema),

@@ -2,7 +2,8 @@ import {describe, expect, it} from "vitest";
 import {createServer} from "node:http";
 import {once} from "node:events";
 import type {Api, Model} from "@earendil-works/pi-ai";
-import {resolvePiModelsFromConfig, SUPPORTED_CUSTOM_PI_APIS} from "nbook/server/agent/harness/pi-runtime-resolver";
+import {resolvePiModelsFromConfig} from "nbook/server/agent/harness/pi-runtime-resolver";
+import {SUPPORTED_PI_APIS} from "nbook/shared/models/provider-config-contract";
 import {piRequestAuthOptions} from "nbook/server/agent/harness/pi-request-options";
 import type {EffectiveConfig} from "nbook/server/config/types";
 
@@ -13,7 +14,7 @@ describe("Pi runtime resolver", () => {
         expect(resolvePiModelsFromConfig(config, model)).not.toBe(resolvePiModelsFromConfig(config, model));
     });
 
-    it.each(SUPPORTED_CUSTOM_PI_APIS)("自定义 Provider 映射 %s adapter", (api) => {
+    it.each(SUPPORTED_PI_APIS)("自定义 Provider 映射 %s adapter", (api) => {
         const model = createModel("local", api, "http://127.0.0.1:11434/v1");
         const runtime = resolvePiModelsFromConfig(createConfig("local", model, api), model);
         expect(runtime.getProvider("local")).toBeDefined();
@@ -102,7 +103,7 @@ function createConfig(providerConfigId: string, model: Model<Api>, api: string |
                 [providerConfigId]: {
                     name: providerConfigId,
                     enabled: true,
-                    api,
+                    defaultApi: api,
                     discovery: {adapter: "none", endpointPath: null},
                     options: {apiKey: "", baseURL: model.baseUrl, proxy: "", timeoutMs: null, requestOptions: {}},
                     models: {

@@ -28,4 +28,14 @@ describe("NeuroBook Model Catalog", () => {
     it("动态价格哨兵归一化为 null", () => {
         expect(neuroModelCatalog().models.find((model) => model.id === "openrouter/auto")?.cost).toBeNull();
     });
+
+    it("Mimo 按精确 model ID 命中，不依赖本地 Provider ID", () => {
+        const model = neuroModelCatalog().models.find((item) => item.id === "mimo-v2.5-pro");
+        expect(model).toMatchObject({
+            id: "mimo-v2.5-pro",
+            defaultApi: "openai-completions",
+            contextWindowTokens: 1_048_576,
+            maxTokens: 131_072,
+        });
+    });
 });

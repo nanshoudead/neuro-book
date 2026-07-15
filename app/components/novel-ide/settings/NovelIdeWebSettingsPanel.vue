@@ -5,7 +5,7 @@ import type {SelectOption} from "nbook/app/components/common/form/FormSelect.vue
 import {useConfigApi} from "nbook/app/composables/useConfigApi";
 import {useNotification} from "nbook/app/composables/useNotification";
 import {resolveApiErrorMessage} from "nbook/app/utils/api-error";
-import type {ConfigEditorSnapshotDto, ConfigWorkspaceQueryDto, GlobalConfigDto, SecretConfigValueDto, WebConfigDto} from "nbook/shared/dto/config.dto";
+import type {ConfigEditorSnapshotDto, ConfigWorkspaceQueryDto, GlobalConfigUpdateDto, SecretConfigValueDto, WebConfigDto} from "nbook/shared/dto/config.dto";
 
 const props = withDefaults(defineProps<{
     targetQuery?: ConfigWorkspaceQueryDto;
@@ -238,10 +238,8 @@ function buildWebPayload(): WebConfigDto {
 /**
  * 构造 Global Config 写回体，只替换 web 段并保留其它配置。
  */
-function buildGlobalConfigPayload(): GlobalConfigDto {
-    const base = editorSnapshot.value?.global ?? {};
+function buildGlobalConfigPayload(): GlobalConfigUpdateDto {
     return {
-        ...base,
         web: buildWebPayload(),
     };
 }

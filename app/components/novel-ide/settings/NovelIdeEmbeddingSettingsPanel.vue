@@ -6,7 +6,7 @@ import type {SelectOption} from "nbook/app/components/common/form/FormSelect.vue
 import {useConfigApi} from "nbook/app/composables/useConfigApi";
 import {useNotification} from "nbook/app/composables/useNotification";
 import {resolveApiErrorMessage} from "nbook/app/utils/api-error";
-import type {ConfigEditorSnapshotDto, ConfigWorkspaceQueryDto, EmbeddingProjectConfigDto, EmbeddingServiceConfigDto, GlobalConfigDto, ProjectConfigDto, SecretConfigValueDto} from "nbook/shared/dto/config.dto";
+import type {ConfigEditorSnapshotDto, ConfigWorkspaceQueryDto, EmbeddingProjectConfigDto, EmbeddingServiceConfigDto, GlobalConfigUpdateDto, ProjectConfigDto, SecretConfigValueDto} from "nbook/shared/dto/config.dto";
 
 type ConfigSettingsScope = "global" | "project";
 
@@ -164,10 +164,8 @@ function buildProjectEmbeddingPayload(): EmbeddingProjectConfigDto {
 /**
  * 构造 Global Config 写回体，只替换 embedding 段。
  */
-function buildGlobalConfigPayload(): GlobalConfigDto {
-    const base = editorSnapshot.value?.global ?? {};
+function buildGlobalConfigPayload(): GlobalConfigUpdateDto {
     return {
-        ...base,
         embedding: buildGlobalEmbeddingPayload(),
     };
 }
@@ -176,9 +174,7 @@ function buildGlobalConfigPayload(): GlobalConfigDto {
  * 构造 Project Config 写回体，只替换 embedding 覆盖段。
  */
 function buildProjectConfigPayload(): ProjectConfigDto {
-    const base = editorSnapshot.value?.project ?? {};
     return {
-        ...base,
         embedding: buildProjectEmbeddingPayload(),
     };
 }

@@ -205,3 +205,45 @@ describe("config normalizer workspace history", () => {
         expect(effective.history.autoAcceptDays).toBe(14);
     });
 });
+
+describe("config normalizer Provider Config identity", () => {
+    it("runtime Record 化会跳过重复 Provider 组而不是以后项覆盖前项", () => {
+        const provider = {
+            id: "duplicate",
+            name: "First",
+            enabled: true,
+            defaultApi: "openai-completions",
+            discovery: {adapter: "none" as const, endpointPath: null},
+            options: {apiKey: "", baseURL: "https://example.com/v1", proxy: "", timeoutMs: null, requestOptions: {}},
+            models: [{id: "model", name: "Model", enabled: true}],
+        };
+        const effective = resolveEffectiveConfig(normalizeGlobalConfig({
+            models: {default: "duplicate/model", providers: [provider, {...provider, name: "Second"}]},
+        }), null);
+
+        expect(effective.models.providers).toEqual({});
+    });
+
+    it("runtime Record 化会跳过 Provider 内重复模型组并保留其他唯一模型", () => {
+        const effective = resolveEffectiveConfig(normalizeGlobalConfig({
+            models: {
+                default: "provider/unique",
+                providers: [{
+                    id: "provider",
+                    name: "Provider",
+                    enabled: true,
+                    defaultApi: "openai-completions",
+                    discovery: {adapter: "none", endpointPath: null},
+                    options: {apiKey: "", baseURL: "https://example.com/v1", proxy: "", timeoutMs: null, requestOptions: {}},
+                    models: [
+                        {id: "duplicate", name: "First", enabled: true},
+                        {id: "duplicate", name: "Second", enabled: false},
+                        {id: "unique", name: "Unique", enabled: false},
+                    ],
+                }],
+            },
+        }), null);
+
+        expect(Object.keys(effective.models.providers.provider?.models ?? {})).toEqual(["unique"]);
+    });
+});

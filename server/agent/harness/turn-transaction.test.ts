@@ -2,6 +2,7 @@ import {describe, expect, it} from "vitest";
 import {createAssistantTextMessage, createTextToolResult} from "nbook/server/agent/messages/message-utils";
 import type {FailedTurnOutcome, RunFrame, RuntimeTurn, TurnSnapshot} from "nbook/server/agent/harness/run-kernel-types";
 import {applyFailedTurnTransaction, applySuccessfulTurnTransaction} from "nbook/server/agent/harness/turn-transaction";
+import {createPublicRuntimeProjectionState} from "nbook/server/agent/events/public-event-projection";
 
 describe("turn transaction", () => {
     it("completed outcome 会写回 RunFrame 并返回 completed transaction", () => {
@@ -118,6 +119,7 @@ function fakeFrame(): RunFrame {
         agentMode: "normal",
         thinkingLevel: "off",
         runtimeState: new Map(),
+        publicEventProjection: createPublicRuntimeProjectionState(),
         messages: [],
         nextTurnRuntimeMessages: [],
         turnIndex: 1,

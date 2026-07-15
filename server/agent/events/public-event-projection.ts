@@ -1,10 +1,22 @@
+import {randomUUID} from "node:crypto";
 import type {AgentEvent} from "@earendil-works/pi-agent-core";
-import type {AgentRuntimeStreamEventDto} from "nbook/shared/dto/agent-session.dto";
+import type {AssistantMessage, AssistantMessageEvent, ToolCall, Usage} from "@earendil-works/pi-ai";
+import {
+    CHAT_ENTRY_PREVIEW_BYTES,
+    LIVE_TOOL_PREVIEW_BYTES,
+    LIVE_TOOL_PROGRESS_BYTES,
+    PUBLIC_PATH_MAX_BYTES,
+} from "nbook/server/agent/events/public-event-policy";
+import {
+    projectPublicToolArgs,
+    projectPublicToolResult,
+    publicToolArgsOmitted,
+    textPreview,
+} from "nbook/server/agent/events/public-tool-projection";
 import type {UserInputFormSpec} from "nbook/server/agent/tools/types";
+import {publicAgentUserInputFormSpec} from "nbook/server/agent/events/public-user-input-form";
+import type {AgentRuntimeStreamEventDto} from "nbook/shared/dto/agent-session.dto";
 
-/**
- * 扩展 AgentEvent 以支持 user input required 事件
- */
 type ExtendedAgentEvent = AgentEvent | {
     type: "tool_user_input_required";
     toolCallId: string;
@@ -13,65 +25,315 @@ type ExtendedAgentEvent = AgentEvent | {
     formSpec?: UserInputFormSpec;
 };
 
+type PublicToolCallStreamState = {
+    streamBytes: number;
+    lastMilestone: number;
+    nextProjectionBytes: number;
+    lastArgsSignature: string;
+    observedTextCodeUnits: number;
+    observedTextBytes: number;
+    observedTextTail: string;
+};
+
 /**
- * 把 provider/tool 运行期原始事件投影成公开 SSE 事件。
- *
- * `agent_end` / `turn_end` 由 Run Kernel 直接构造 public event，不从 raw Pi 事件透出大字段。
+ * 单次 RunFrame 的公开事件投影状态。只保存有界公开数据和计数，不保存 provider partial。
  */
-export function projectRuntimeEvent(event: ExtendedAgentEvent): AgentRuntimeStreamEventDto | null {
-    if (event.type === "message_start" || event.type === "message_end") {
+export type PublicRuntimeProjectionState = {
+    runStreamId: string;
+    nextMessageSequence: number;
+    activeMessageId?: string;
+    toolCalls: Map<number, PublicToolCallStreamState>;
+};
+
+/**
+ * 创建单次 run 的公开事件投影状态。
+ */
+export function createPublicRuntimeProjectionState(): PublicRuntimeProjectionState {
+    return {
+        runStreamId: randomUUID(),
+        nextMessageSequence: 0,
+        toolCalls: new Map(),
+    };
+}
+
+/**
+ * 把 provider/tool 原始事件投影成 immutable、delta-first 的公开事件。
+ */
+export function projectRuntimeEvent(
+    state: PublicRuntimeProjectionState,
+    event: ExtendedAgentEvent,
+): AgentRuntimeStreamEventDto | null {
+    if (event.type === "message_start") {
+        const message = assistantMessage(event.message);
+        if (!message) {
+            return null;
+        }
+        const messageId = nextMessageId(state);
+        state.activeMessageId = messageId;
+        state.toolCalls.clear();
         return {
-            type: event.type,
-            message: event.message,
+            type: "message_start",
+            messageId,
+            role: "assistant",
+            timestamp: message.timestamp,
+            model: textPreview(message.model, 1024).preview,
         };
     }
     if (event.type === "message_update") {
-        return {
+        const message = assistantMessage(event.message);
+        if (!message) {
+            return null;
+        }
+        const messageId = state.activeMessageId ?? nextMessageId(state);
+        state.activeMessageId = messageId;
+        const update = projectAssistantUpdate(state, event.assistantMessageEvent);
+        return update ? {
             type: "message_update",
-            message: event.message,
-            assistantMessageEvent: event.assistantMessageEvent,
+            messageId,
+            update,
+        } : null;
+    }
+    if (event.type === "message_end") {
+        const message = assistantMessage(event.message);
+        if (!message) {
+            return null;
+        }
+        const messageId = state.activeMessageId ?? nextMessageId(state);
+        state.activeMessageId = undefined;
+        state.toolCalls.clear();
+        return {
+            type: "message_end",
+            messageId,
+            stopReason: message.stopReason,
+            usage: cloneUsage(message.usage),
+            ...(message.responseModel ? {responseModel: textPreview(message.responseModel, 1024).preview} : {}),
+            ...(message.errorMessage ? {errorMessage: textPreview(message.errorMessage, 16 * 1024).preview} : {}),
         };
     }
     if (event.type === "tool_execution_start") {
         return {
             type: "tool_execution_start",
             toolCallId: event.toolCallId,
-            toolName: event.toolName,
-            args: event.args,
+            toolName: textPreview(event.toolName, 512).preview,
+            args: projectPublicToolArgs(event.toolName, event.args),
         };
     }
     if (event.type === "tool_execution_update") {
         return {
             type: "tool_execution_update",
             toolCallId: event.toolCallId,
-            toolName: event.toolName,
-            args: event.args,
-            partialResult: event.partialResult,
+            toolName: textPreview(event.toolName, 512).preview,
+            partialResult: projectPublicToolResult(event.toolName, event.partialResult),
         };
     }
     if (event.type === "tool_execution_end") {
         return {
             type: "tool_execution_end",
             toolCallId: event.toolCallId,
-            toolName: event.toolName,
-            result: event.result,
+            toolName: textPreview(event.toolName, 512).preview,
+            result: projectPublicToolResult(event.toolName, event.result),
             isError: event.isError,
         };
     }
     if (event.type === "tool_user_input_required") {
-        const formSpec = event.toolName !== "request_user_input" && event.formSpec?.form ? {
-            form: event.formSpec.form,
-            resultSchema: event.formSpec.resultSchema,
-            prompt: event.formSpec.prompt,
-            layout: event.formSpec.layout,
-        } : undefined;
+        let formSpec: ReturnType<typeof publicAgentUserInputFormSpec> | undefined;
+        if (event.toolName !== "request_user_input" && event.formSpec?.form) {
+            formSpec = publicAgentUserInputFormSpec(event.formSpec);
+        }
         return {
             type: "tool.user-input-required",
             toolCallId: event.toolCallId,
-            toolName: event.toolName,
-            args: event.args,
+            toolName: textPreview(event.toolName, 512).preview,
+            args: projectPublicToolArgs(event.toolName, event.args),
             ...(formSpec ? {formSpec} : {}),
         };
     }
     return null;
+}
+
+/**
+ * 投影一条 provider assistant update；累计 partial 只用于读取当前有界结构，不进入返回值。
+ */
+function projectAssistantUpdate(
+    state: PublicRuntimeProjectionState,
+    event: AssistantMessageEvent,
+): Extract<AgentRuntimeStreamEventDto, {type: "message_update"}>["update"] | null {
+    if (event.type === "text_start"
+        || event.type === "text_end"
+        || event.type === "thinking_start"
+        || event.type === "thinking_end") {
+        return {
+            type: event.type,
+            contentIndex: event.contentIndex,
+        };
+    }
+    if (event.type === "text_delta" || event.type === "thinking_delta") {
+        const delta = textPreview(event.delta, CHAT_ENTRY_PREVIEW_BYTES);
+        return {
+            type: event.type,
+            contentIndex: event.contentIndex,
+            delta: delta.preview,
+            deltaBytes: delta.bytes,
+            deltaOmitted: delta.omitted,
+        };
+    }
+    if (event.type === "toolcall_start") {
+        const toolCall = partialToolCall(event);
+        state.toolCalls.set(event.contentIndex, {
+            streamBytes: 0,
+            lastMilestone: -1,
+            nextProjectionBytes: LIVE_TOOL_PREVIEW_BYTES,
+            lastArgsSignature: "",
+            observedTextCodeUnits: 0,
+            observedTextBytes: 0,
+            observedTextTail: "",
+        });
+        return {
+            type: "toolcall_start",
+            contentIndex: event.contentIndex,
+            ...(toolCall?.id ? {toolCallId: toolCall.id} : {}),
+            ...(toolCall?.name ? {toolName: textPreview(toolCall.name, 512).preview} : {}),
+        };
+    }
+    if (event.type === "toolcall_delta") {
+        const toolCall = partialToolCall(event);
+        const current = state.toolCalls.get(event.contentIndex) ?? {
+            streamBytes: 0,
+            lastMilestone: -1,
+            nextProjectionBytes: LIVE_TOOL_PREVIEW_BYTES,
+            lastArgsSignature: "",
+            observedTextCodeUnits: 0,
+            observedTextBytes: 0,
+            observedTextTail: "",
+        };
+        current.streamBytes += Buffer.byteLength(event.delta, "utf8");
+        if (current.streamBytes > LIVE_TOOL_PREVIEW_BYTES && current.streamBytes < current.nextProjectionBytes) {
+            state.toolCalls.set(event.contentIndex, current);
+            return null;
+        }
+        const args = projectStreamingToolArgs(toolCall?.name ?? "unknown", toolCall?.arguments ?? {}, current);
+        const argsSignature = publicArgsPreviewSignature(args);
+        const milestone = Math.floor(current.streamBytes / LIVE_TOOL_PROGRESS_BYTES);
+        const omitted = publicToolArgsOmitted(args);
+        if (omitted && argsSignature === current.lastArgsSignature && milestone === current.lastMilestone) {
+            state.toolCalls.set(event.contentIndex, current);
+            return null;
+        }
+        current.lastArgsSignature = argsSignature;
+        current.lastMilestone = milestone;
+        if (omitted && current.streamBytes >= LIVE_TOOL_PREVIEW_BYTES) {
+            current.nextProjectionBytes = Math.max(
+                current.streamBytes + LIVE_TOOL_PROGRESS_BYTES,
+                current.streamBytes * 2,
+            );
+        }
+        state.toolCalls.set(event.contentIndex, current);
+        return {
+            type: "toolcall_args",
+            contentIndex: event.contentIndex,
+            ...(toolCall?.id ? {toolCallId: toolCall.id} : {}),
+            ...(toolCall?.name ? {toolName: textPreview(toolCall.name, 512).preview} : {}),
+            args,
+            streamBytes: current.streamBytes,
+            omitted,
+        };
+    }
+    if (event.type === "toolcall_end") {
+        state.toolCalls.delete(event.contentIndex);
+        return {
+            type: "toolcall_end",
+            contentIndex: event.contentIndex,
+            toolCallId: event.toolCall.id,
+            toolName: textPreview(event.toolCall.name, 512).preview,
+            args: projectPublicToolArgs(event.toolCall.name, event.toolCall.arguments),
+        };
+    }
+    return null;
+}
+
+/**
+ * write 的累计正文按新增 suffix 统计 bytes，只复制固定大小前缀作为预览，避免每个
+ * toolcall delta 都重新扫描完整章节。其他工具继续走中央通用投影。
+ */
+function projectStreamingToolArgs(
+    toolName: string,
+    args: unknown,
+    state: PublicToolCallStreamState,
+): ReturnType<typeof projectPublicToolArgs> {
+    if (toolName !== "write" || args === null || typeof args !== "object" || Array.isArray(args)) {
+        return projectPublicToolArgs(toolName, args);
+    }
+    const record = args as Record<string, unknown>;
+    const content = typeof record.content === "string" ? record.content : "";
+    const previousStart = Math.max(0, state.observedTextCodeUnits - state.observedTextTail.length);
+    const appendOnly = content.length >= state.observedTextCodeUnits
+        && content.slice(previousStart, state.observedTextCodeUnits) === state.observedTextTail;
+    state.observedTextBytes = appendOnly
+        ? state.observedTextBytes + Buffer.byteLength(content.slice(state.observedTextCodeUnits), "utf8")
+        : Buffer.byteLength(content, "utf8");
+    state.observedTextCodeUnits = content.length;
+    state.observedTextTail = content.slice(Math.max(0, content.length - 32));
+    const preview = textPreview(content.slice(0, LIVE_TOOL_PREVIEW_BYTES), LIVE_TOOL_PREVIEW_BYTES);
+    const previewBytes = Buffer.byteLength(preview.preview, "utf8");
+    return {
+        kind: "write",
+        ...(typeof record.path === "string" ? {path: textPreview(record.path, PUBLIC_PATH_MAX_BYTES).preview} : {}),
+        contentPreview: preview.preview,
+        contentBytes: state.observedTextBytes,
+        contentOmitted: state.observedTextBytes > previewBytes,
+    };
+}
+
+/**
+ * 只比较用户可见预览形状；原始 byte counter 单独由 milestone 控制，避免正文
+ * 达到预览上限后每个 token 都因 contentBytes 变化而继续发布。
+ */
+function publicArgsPreviewSignature(args: ReturnType<typeof projectPublicToolArgs>): string {
+    return JSON.stringify(args, (key, value) => {
+        return key === "bytes" || key.endsWith("Bytes") || key === "streamBytes"
+            ? 0
+            : value;
+    });
+}
+
+/**
+ * 返回 partial 当前 contentIndex 的 tool call；不保存其引用。
+ */
+function partialToolCall(event: Extract<AssistantMessageEvent, {contentIndex: number}>): ToolCall | null {
+    if (!("partial" in event)) {
+        return null;
+    }
+    const block = event.partial.content[event.contentIndex];
+    return block?.type === "toolCall" ? block : null;
+}
+
+/**
+ * provider message 只接受 assistant；其他角色不是公开 streaming message。
+ */
+function assistantMessage(message: unknown): AssistantMessage | null {
+    return message !== null
+        && typeof message === "object"
+        && "role" in message
+        && message.role === "assistant"
+        ? message as AssistantMessage
+        : null;
+}
+
+/**
+ * 为当前 run 分配稳定、不会因 timestamp 冲突的 live message ID。
+ */
+function nextMessageId(state: PublicRuntimeProjectionState): string {
+    const sequence = state.nextMessageSequence;
+    state.nextMessageSequence += 1;
+    return `${state.runStreamId}:message:${String(sequence)}`;
+}
+
+/**
+ * Usage 含嵌套 cost，需要完整复制才能脱离 provider message。
+ */
+function cloneUsage(usage: Usage): Usage {
+    return {
+        ...usage,
+        cost: {...usage.cost},
+    };
 }

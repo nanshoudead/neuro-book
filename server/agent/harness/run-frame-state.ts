@@ -1,5 +1,6 @@
 import type {RunFrame, RuntimeTurn, TurnIngestResult} from "nbook/server/agent/harness/run-kernel-types";
 import type {AppliedFailedTurn} from "nbook/server/agent/harness/turn-failure";
+import {createPublicRuntimeProjectionState} from "nbook/server/agent/events/public-event-projection";
 
 export type CreateRunFrameInput = {
     invocationId?: RunFrame["invocationId"];
@@ -90,6 +91,7 @@ export function createRunFrame(input: CreateRunFrameInput): RunFrame {
         activeSidecar: input.activeSidecar,
         automaticCompactionDoneForTurn: false,
         pendingWritePlans: [],
+        publicEventProjection: createPublicRuntimeProjectionState(),
         onEvent: input.onEvent,
     };
 }

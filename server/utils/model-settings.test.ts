@@ -1,14 +1,16 @@
 import {afterEach, describe, expect, it, vi} from "vitest";
 import {fauxAssistantMessage, fauxText} from "@earendil-works/pi-ai";
 import {createFauxModels} from "nbook/server/agent/test-utils/faux-models";
-import {buildModelSettingsDto, checkModelHealth, checkProviderConnection, convertModelSettingsRequestToConfig, discoverProviderModels, MODEL_SMOKE_CHECK_PROMPTS, pickModelSmokeCheckPrompt, resolveConfiguredModel, withSavedProviderApiKey} from "nbook/server/utils/model-settings";
+import {checkModelHealth, checkProviderConnection, discoverProviderModels, MODEL_SMOKE_CHECK_PROMPTS, pickModelSmokeCheckPrompt, resolveConfiguredModel, withSavedProviderApiKey} from "nbook/server/utils/model-settings";
+import type {ModelSettingsConfig} from "nbook/server/config/types";
 import type {ConfiguredModelDto, ModelProviderDraftDto} from "nbook/shared/dto/app-settings.dto";
+import type {PiTraceBinding} from "nbook/server/agent/observability/traced-provider";
 
 function createProviderDraft(overrides: Partial<ModelProviderDraftDto> = {}): ModelProviderDraftDto {
     return {
         id: "qwen",
         name: "Qwen",
-        api: "openai-completions",
+        defaultApi: "openai-completions",
         discovery: {adapter: "openai-models", endpointPath: null},
         options: {
             apiKey: "sk-test",
@@ -49,31 +51,28 @@ function createConfiguredModel(overrides: Partial<ConfiguredModelDto> = {}): Con
 
 describe("model settings provider enabled", () => {
     it("disabled Provider 下的模型不进入 enabledModels，也不能被解析为默认模型", () => {
-        const config = convertModelSettingsRequestToConfig({
+        const config: ModelSettingsConfig = {
             defaultModelKey: "enabled-provider/enabled-model",
-            providers: [{
-                id: "disabled-provider",
+            providers: {
+                "disabled-provider": {
                 name: "Disabled Provider",
                 enabled: false,
-                api: "openai-completions",
+                defaultApi: "openai-completions",
                 discovery: {adapter: "none", endpointPath: null},
                 options: createProviderDraft().options,
-                models: [createConfiguredModel({id: "disabled-model", name: "Disabled Model"})],
-            }, {
-                id: "enabled-provider",
+                models: {"disabled-model": createConfiguredModel({id: "disabled-model", name: "Disabled Model"})},
+            },
+                "enabled-provider": {
                 name: "Enabled Provider",
                 enabled: true,
-                api: "openai-completions",
+                defaultApi: "openai-completions",
                 discovery: {adapter: "none", endpointPath: null},
                 options: createProviderDraft().options,
-                models: [createConfiguredModel({id: "enabled-model", name: "Enabled Model"})],
-            }],
-        });
+                models: {"enabled-model": createConfiguredModel({id: "enabled-model", name: "Enabled Model"})},
+            },
+            },
+        };
 
-        const dto = buildModelSettingsDto({models: config});
-
-        expect(dto.providers.find((provider) => provider.id === "disabled-provider")?.enabled).toBe(false);
-        expect(dto.enabledModels.map((model) => model.key)).toEqual(["enabled-provider/enabled-model"]);
         expect(resolveConfiguredModel(config, "disabled-provider/disabled-model")).toBeNull();
     });
 
@@ -85,6 +84,30 @@ describe("model settings provider enabled", () => {
 });
 
 describe("provider/model Pi checks", () => {
+    it("health-check trace 开启时写入 _system correlation，关闭时零记录", async () => {
+        const faux = createFauxModels({provider: "faux-trace-check", api: "openai-completions", models: [{id: "faux-fast"}]});
+        faux.setResponses([fauxAssistantMessage(fauxText("ok")), fauxAssistantMessage(fauxText("ok"))]);
+        const record = vi.fn(async () => undefined);
+        const binding: PiTraceBinding = {
+            recorder: {record} as PiTraceBinding["recorder"],
+            settings: {enabled: true, capturePayload: true, maxRecords: 100},
+            correlation: {kind: "health-check", mode: "model-check"},
+        };
+
+        await checkModelHealth(createProviderDraft({id: "faux-trace-check"}), createModelDraft(), {
+            runtimeResolver: () => faux.runtime,
+            trace: binding,
+        });
+        await vi.waitFor(() => expect(record).toHaveBeenCalledTimes(1));
+        expect(record.mock.calls[0]?.[0]).toMatchObject({correlation: {kind: "health-check", mode: "model-check"}});
+
+        await checkModelHealth(createProviderDraft({id: "faux-trace-check"}), createModelDraft(), {
+            runtimeResolver: () => faux.runtime,
+            trace: {...binding, settings: {...binding.settings, enabled: false}},
+        });
+        expect(record).toHaveBeenCalledTimes(1);
+    });
+
     it("model check 通过 Pi streamSimple smoke", async () => {
         const faux = createFauxModels({
             provider: "faux-check",
@@ -95,7 +118,7 @@ describe("provider/model Pi checks", () => {
         const result = await checkModelHealth(createProviderDraft({
             id: "faux-check",
             name: "Faux",
-            api: "openai-completions",
+            defaultApi: "openai-completions",
         }), createModelDraft({
             id: "faux-fast",
         }), {runtimeResolver: () => faux.runtime});
@@ -132,7 +155,7 @@ describe("provider/model Pi checks", () => {
         const result = await checkModelHealth(createProviderDraft({
             id: "faux-signal-check",
             name: "Faux Signal",
-            api: "openai-completions",
+            defaultApi: "openai-completions",
         }), createModelDraft({
             id: "faux-fast",
         }), {
@@ -153,7 +176,7 @@ describe("provider/model Pi checks", () => {
         const result = await checkProviderConnection(createProviderDraft({
             id: "faux-provider-check",
             name: "Faux Provider",
-            api: "openai-completions",
+            defaultApi: "openai-completions",
             }), [createModelDraft({id: "faux-fast"})], {runtimeResolver: () => faux.runtime});
 
         expect(result.success).toBe(true);

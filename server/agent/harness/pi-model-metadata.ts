@@ -2,6 +2,7 @@ import type {Api, Model} from "@earendil-works/pi-ai";
 import type {ConfiguredModelConfig, ConfiguredProviderConfig} from "nbook/server/config/types";
 import {resolvePiRuntimeCost} from "nbook/server/utils/pi-model-cost";
 import {SupportedPiApiSchema} from "nbook/shared/dto/app-settings.dto";
+import {assertConfiguredModel} from "nbook/server/models/model-config-validation";
 
 export type ResolvedPiModel = Model<Api> & {
     /** Session selection 使用的本地 Provider Config ID。 */
@@ -17,34 +18,14 @@ export function resolvePiModelMetadata(
     provider: ConfiguredProviderConfig,
     model: ConfiguredModelConfig,
 ): ResolvedPiModel {
-    const apiResult = SupportedPiApiSchema.safeParse(model.api);
-    if (!apiResult.success) {
-        throw new Error(`模型 ${providerConfigId}/${model.id} 必须设置受支持的 Pi API`);
-    }
+    assertConfiguredModel(providerConfigId, provider, model);
+    const api = SupportedPiApiSchema.parse(model.api);
     const baseUrl = provider.options.baseURL.trim();
-    if (!baseUrl && apiResult.data !== "bedrock-converse-stream") {
-        throw new Error(`模型 ${providerConfigId}/${model.id} 缺少 Provider Base URL`);
-    }
-    if (model.reasoning === null) {
-        throw new Error(`模型 ${providerConfigId}/${model.id} 必须明确 reasoning 能力`);
-    }
-    if (!model.input?.length) {
-        throw new Error(`模型 ${providerConfigId}/${model.id} 必须声明输入能力`);
-    }
-    if (model.contextWindowTokens === null) {
-        throw new Error(`模型 ${providerConfigId}/${model.id} 必须设置 contextWindowTokens`);
-    }
-    if (model.maxTokens === null) {
-        throw new Error(`模型 ${providerConfigId}/${model.id} 必须设置 maxTokens`);
-    }
-    if (model.maxTokens > model.contextWindowTokens) {
-        throw new Error(`模型 ${providerConfigId}/${model.id} 的 maxTokens 不能大于 contextWindowTokens`);
-    }
 
     return {
         id: model.id,
         name: model.name || model.id,
-        api: apiResult.data,
+        api,
         provider: providerConfigId,
         providerConfigId,
         baseUrl,

@@ -1,5 +1,6 @@
 import {z} from "zod";
 import {PiSimpleRequestOptionsSchema} from "nbook/shared/dto/pi-request-options.dto";
+import {PROVIDER_CONFIG_ISSUE_CODES, SUPPORTED_PI_APIS} from "nbook/shared/models/provider-config-contract";
 
 const ProviderIdSchema = z.string().trim().min(1, "providerId 不能为空").regex(/^[A-Za-z0-9][A-Za-z0-9._-]*$/, "providerId 格式不合法");
 const ModelIdSchema = z.string().trim().min(1, "modelId 不能为空");
@@ -10,7 +11,6 @@ const NullableTextSchema = z.string().trim().nullable().optional().transform((va
 const ProviderOptionTextSchema = z.string().trim().default("");
 const ProviderTimeoutMsSchema = z.number().int("timeoutMs 必须是整数").positive("timeoutMs 必须大于 0").nullable().default(null);
 const DefaultModelKeySchema = z.string().trim().min(1, "默认模型不能为空").nullable().default(null);
-const AgentProfileKeySchema = z.string().trim().min(1, "profileKey 不能为空");
 const TemperatureSchema = z.number().nonnegative("temperature 不能小于 0").nullable().default(null);
 const TopKSchema = z.number().int("topK 必须是整数").positive("topK 必须大于 0").nullable().default(null);
 const ContextWindowTokensSchema = z.number().int("contextWindowTokens 必须是整数").positive("contextWindowTokens 必须大于 0").nullable().default(null);
@@ -18,13 +18,7 @@ export const ThinkingLevelSchema = z.enum(["off", "minimal", "low", "medium", "h
 const ReasoningEffortSchema = ThinkingLevelSchema.nullable().default(null);
 const ModelInputKindSchema = z.enum(["text", "image"]);
 const PiModelApiSchema = z.string().trim().min(1, "api 不能为空").nullable().default(null);
-export const SupportedPiApiSchema = z.enum([
-    "openai-completions",
-    "openai-responses",
-    "anthropic-messages",
-    "google-generative-ai",
-    "bedrock-converse-stream",
-]);
+export const SupportedPiApiSchema = z.enum(SUPPORTED_PI_APIS);
 const PiModelInputSchema = z.array(ModelInputKindSchema).min(1, "input 至少需要声明一种输入类型").nullable().default(null);
 const PiModelReasoningSchema = z.boolean().nullable().default(null);
 const PiModelMaxTokensSchema = z.number().int("maxTokens 必须是整数").positive("maxTokens 必须大于 0").nullable().default(null);
@@ -95,18 +89,12 @@ export const ConfiguredModelDtoSchema = z.object({
     contextWindowTokens: ContextWindowTokensSchema,
 });
 
-/**
- * 单个已配置 Provider。
- */
-export const ConfiguredProviderDtoSchema = z.object({
-    id: ProviderIdSchema,
-    name: z.string().trim().min(1, "Provider 名称不能为空"),
-    enabled: z.boolean().default(true),
-    /** Provider 创建、发现和新模型草稿使用的默认 Pi API；runtime 仍要求启用模型保存完整 api。 */
-    api: PiModelApiSchema,
-    discovery: ProviderDiscoveryConfigSchema,
-    options: ModelProviderOptionsDtoSchema,
-    models: z.array(ConfiguredModelDtoSchema).default([]),
+/** 已保存模型配置的字段级校验问题。 */
+export const ModelValidationIssueDtoSchema = z.object({
+    code: z.enum(PROVIDER_CONFIG_ISSUE_CODES),
+    path: z.array(z.union([z.string(), z.number().int()])),
+    modelKey: z.string().trim().min(1).nullable(),
+    message: z.string().trim().min(1),
 });
 
 /**
@@ -132,172 +120,12 @@ export const AgentProfileModelConfigDtoSchema = z.object({
 });
 
 /**
- * 单个 Agent Profile 设定。
- */
-export const ConfiguredAgentProfileDtoSchema = z.object({
-    profileKey: AgentProfileKeySchema,
-    name: z.string().trim().min(1, "Profile 名称不能为空"),
-    model: AgentProfileModelConfigDtoSchema,
-});
-
-/**
- * 模型设定响应。
- */
-export const ModelSettingsDtoSchema = z.object({
-    defaultModelKey: DefaultModelKeySchema,
-    /**
-     * 为空表示当前没有可用默认模型。
-     */
-    defaultModelLabel: z.string().trim().nullable().default(null),
-    enabledModels: z.array(EnabledModelOptionDtoSchema).default([]),
-    providers: z.array(ConfiguredProviderDtoSchema).default([]),
-});
-
-/**
- * 更新模型设定请求。
- */
-export const UpdateModelSettingsRequestDtoSchema = z.object({
-    defaultModelKey: DefaultModelKeySchema,
-    providers: z.array(ConfiguredProviderDtoSchema).default([]),
-}).superRefine((value, ctx) => {
-    const providerIdSet = new Set<string>();
-    const enabledModelKeys = new Set<string>();
-
-    for (const provider of value.providers) {
-        if (provider.api && !SupportedPiApiSchema.safeParse(provider.api).success) {
-            ctx.addIssue({
-                code: "custom",
-                path: ["providers", provider.id, "api"],
-                message: `不支持的 Pi API：${provider.api}`,
-            });
-        }
-        if (providerIdSet.has(provider.id)) {
-            ctx.addIssue({
-                code: "custom",
-                path: ["providers"],
-                message: `provider ${provider.id} 重复`,
-            });
-            return;
-        }
-        providerIdSet.add(provider.id);
-
-        const modelIdSet = new Set<string>();
-        for (const model of provider.models) {
-            if (model.api && !SupportedPiApiSchema.safeParse(model.api).success) {
-                ctx.addIssue({
-                    code: "custom",
-                    path: ["providers", provider.id, "models", model.id, "api"],
-                    message: `不支持的 Pi API：${model.api}`,
-                });
-            }
-            if (modelIdSet.has(model.id)) {
-                ctx.addIssue({
-                    code: "custom",
-                    path: ["providers"],
-                    message: `provider ${provider.id} 下存在重复模型 ${model.id}`,
-                });
-                return;
-            }
-            modelIdSet.add(model.id);
-
-            if (provider.enabled && model.enabled) {
-                if (!provider.options.baseURL && model.api !== "bedrock-converse-stream") {
-                    ctx.addIssue({
-                        code: "custom",
-                        path: ["providers", provider.id, "options", "baseURL"],
-                        message: `启用模型 ${provider.id}/${model.id} 前必须设置 Provider Base URL`,
-                    });
-                }
-                if (!model.api) {
-                    ctx.addIssue({code: "custom", path: ["providers", provider.id, "models", model.id, "api"], message: "启用模型必须设置 Pi API"});
-                }
-                if (model.reasoning === null) {
-                    ctx.addIssue({code: "custom", path: ["providers", provider.id, "models", model.id, "reasoning"], message: "启用模型必须明确 reasoning 能力"});
-                }
-                if (!model.input?.length) {
-                    ctx.addIssue({code: "custom", path: ["providers", provider.id, "models", model.id, "input"], message: "启用模型必须声明输入能力"});
-                }
-                if (model.contextWindowTokens === null) {
-                    ctx.addIssue({code: "custom", path: ["providers", provider.id, "models", model.id, "contextWindowTokens"], message: "启用模型必须设置 contextWindowTokens"});
-                }
-                if (model.maxTokens === null) {
-                    ctx.addIssue({code: "custom", path: ["providers", provider.id, "models", model.id, "maxTokens"], message: "启用模型必须设置 maxTokens"});
-                }
-                if (model.contextWindowTokens !== null && model.maxTokens !== null && model.maxTokens > model.contextWindowTokens) {
-                    ctx.addIssue({code: "custom", path: ["providers", provider.id, "models", model.id, "maxTokens"], message: "maxTokens 不能大于 contextWindowTokens"});
-                }
-                enabledModelKeys.add(`${provider.id}/${model.id}`);
-            }
-        }
-    }
-
-    if (enabledModelKeys.size === 0) {
-        if (value.defaultModelKey !== null) {
-            ctx.addIssue({
-                code: "custom",
-                path: ["defaultModelKey"],
-                message: "当前没有启用模型时，默认模型必须为空",
-            });
-        }
-        return;
-    }
-
-    if (value.defaultModelKey === null) {
-        ctx.addIssue({
-            code: "custom",
-            path: ["defaultModelKey"],
-            message: "存在启用模型时，必须指定默认模型",
-        });
-        return;
-    }
-
-    if (!enabledModelKeys.has(value.defaultModelKey)) {
-        ctx.addIssue({
-            code: "custom",
-            path: ["defaultModelKey"],
-            message: "默认模型必须指向一个已启用模型",
-        });
-    }
-});
-
-/**
- * Agent Profile 模型设定响应。
- */
-export const AgentProfileModelSettingsDtoSchema = z.object({
-    enabledModels: z.array(EnabledModelOptionDtoSchema).default([]),
-    profileModelDefaults: AgentProfileModelConfigDtoSchema,
-    agentProfiles: z.array(ConfiguredAgentProfileDtoSchema).default([]),
-});
-
-/**
- * 更新 Agent Profile 模型设定请求。
- */
-export const UpdateAgentProfileModelSettingsRequestDtoSchema = z.object({
-    profileModelDefaults: AgentProfileModelConfigDtoSchema,
-    agentProfiles: z.array(ConfiguredAgentProfileDtoSchema).default([]),
-}).superRefine((value, ctx) => {
-    const profileKeySet = new Set<string>();
-
-    for (const profile of value.agentProfiles) {
-        if (profileKeySet.has(profile.profileKey)) {
-            ctx.addIssue({
-                code: "custom",
-                path: ["agentProfiles"],
-                message: `profile ${profile.profileKey} 重复`,
-            });
-            return;
-        }
-        profileKeySet.add(profile.profileKey);
-    }
-});
-
-/**
  * Provider 草稿，请求连通性测试与远程模型发现时使用。
  */
 export const ModelProviderDraftDtoSchema = z.object({
     id: ProviderIdSchema,
     name: z.string().trim().min(1, "Provider 名称不能为空"),
-    api: PiModelApiSchema,
+    defaultApi: PiModelApiSchema,
     discovery: ProviderDiscoveryConfigSchema,
     options: ModelProviderOptionsDtoSchema,
 });
@@ -412,14 +240,9 @@ export type ModelInputKind = z.infer<typeof ModelInputKindSchema>;
 export type ThinkingLevelDto = z.infer<typeof ThinkingLevelSchema>;
 export type ModelProviderOptionsDto = z.infer<typeof ModelProviderOptionsDtoSchema>;
 export type ConfiguredModelDto = z.infer<typeof ConfiguredModelDtoSchema>;
-export type ConfiguredProviderDto = z.infer<typeof ConfiguredProviderDtoSchema>;
+export type ModelValidationIssueDto = z.infer<typeof ModelValidationIssueDtoSchema>;
 export type EnabledModelOptionDto = z.infer<typeof EnabledModelOptionDtoSchema>;
 export type AgentProfileModelConfigDto = z.infer<typeof AgentProfileModelConfigDtoSchema>;
-export type ConfiguredAgentProfileDto = z.infer<typeof ConfiguredAgentProfileDtoSchema>;
-export type ModelSettingsDto = z.infer<typeof ModelSettingsDtoSchema>;
-export type UpdateModelSettingsRequestDto = z.infer<typeof UpdateModelSettingsRequestDtoSchema>;
-export type AgentProfileModelSettingsDto = z.infer<typeof AgentProfileModelSettingsDtoSchema>;
-export type UpdateAgentProfileModelSettingsRequestDto = z.infer<typeof UpdateAgentProfileModelSettingsRequestDtoSchema>;
 export type ModelProviderDraftDto = z.infer<typeof ModelProviderDraftDtoSchema>;
 export type DiscoveredProviderModelDto = z.infer<typeof DiscoveredProviderModelDtoSchema>;
 export type CheckProviderRequestDto = z.infer<typeof CheckProviderRequestDtoSchema>;

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import Dialog from "nbook/app/components/common/Dialog.vue";
-import type {SessionEntry, SessionTreeNode} from "nbook/server/agent/session/types";
-import {formatTimestamp, toLocalMessage} from "nbook/app/components/novel-ide/agent/agent-message";
+import type {SessionTreeNode} from "nbook/server/agent/session/types";
+import {formatTimestamp} from "nbook/app/components/novel-ide/agent/agent-message";
 import {
     deriveAgentSessionTreeRows,
     deriveAgentTreeState,
@@ -13,7 +13,6 @@ import {
 const props = defineProps<{
     modelValue: boolean;
     tree: SessionTreeNode[];
-    entries?: SessionEntry[];
     activeLeafId: string | null;
     running: boolean;
 }>();
@@ -53,34 +52,6 @@ const selectedNode = computed(() => {
     return props.activeLeafId ? treeState.value.nodeById.get(props.activeLeafId) ?? null : props.tree.find((node) => node.active) ?? null;
 });
 const selectedEntryLabel = computed(() => selectedNode.value ? shortEntryId(selectedNode.value.id) : "-");
-const selectedEntry = computed(() => {
-    if (!selectedNode.value || !props.entries) {
-        return null;
-    }
-    return props.entries.find((e) => e.id === selectedNode.value?.id) ?? null;
-});
-const parsedMessage = computed(() => {
-    if (selectedEntry.value?.type === "message") {
-        return toLocalMessage(selectedEntry.value.id, selectedEntry.value.message as any);
-    }
-    return null;
-});
-const selectedToolResultContent = computed(() => {
-    const entry = selectedEntry.value;
-    if (entry?.type !== "message" || entry.message.role !== "toolResult") {
-        return null;
-    }
-    return typeof entry.message.content === "string"
-        ? entry.message.content
-        : JSON.stringify(entry.message.content, null, 2);
-});
-const selectedCompactionTokensBefore = computed(() => {
-    const entry = selectedEntry.value;
-    if (entry?.type !== "compaction") {
-        return "-";
-    }
-    return entry.details?.visibleTokensBefore ?? entry.tokensBefore ?? "-";
-});
 
 watch(() => props.modelValue, (visible) => {
     if (visible) {
@@ -651,88 +622,10 @@ function handleKeyDown(e: KeyboardEvent): void {
                         <div class="mt-1 text-xs text-[var(--text-muted)]">{{ detailStatusLabel(selectedNode) }}</div>
                     </div>
 
-                    <template v-if="parsedMessage">
-                        <!-- Thinking process -->
-                        <div v-if="parsedMessage.thinking" class="mb-4 rounded-md border border-[var(--status-warning-border)] bg-[var(--status-warning-bg)] p-3">
-                            <div class="mb-2 flex items-center gap-2 text-xs font-medium text-[var(--status-warning)]">
-                                <span class="i-lucide-brain h-4 w-4"></span>
-                                {{ t("agent.sessionTree.thinking") }}
-                            </div>
-                            <div class="max-h-[240px] overflow-y-auto whitespace-pre-wrap text-sm leading-relaxed text-[var(--text-secondary)]">{{ parsedMessage.thinking }}</div>
-                        </div>
-
-                        <!-- Tool Calls -->
-                        <div v-if="parsedMessage.toolCalls && parsedMessage.toolCalls.length > 0" class="mb-4 space-y-3">
-                            <div v-for="toolCall in parsedMessage.toolCalls" :key="toolCall.id" class="rounded-md border border-[var(--border-color)] bg-[var(--bg-main)] p-3">
-                                <div class="mb-2 flex items-center justify-between gap-3">
-                                    <div class="flex items-center gap-2">
-                                        <span class="i-lucide-wrench h-4 w-4 text-[var(--text-muted)]"></span>
-                                        <span class="font-mono text-xs font-semibold text-[var(--text-main)]">{{ toolCall.name }}</span>
-                                    </div>
-                                    <span class="rounded bg-[var(--bg-panel)] px-1.5 py-0.5 text-[10px] text-[var(--text-muted)]" :title="toolCall.status">{{ toolCall.status }}</span>
-                                </div>
-                                <div class="max-h-[200px] overflow-y-auto rounded bg-[var(--bg-input)] p-2">
-                                    <pre class="whitespace-pre-wrap font-mono text-[11px] leading-relaxed text-[var(--text-secondary)]">{{ toolCall.argsText }}</pre>
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- Main Content -->
-                        <div v-if="parsedMessage.content" class="rounded-md border border-[var(--border-color)] bg-[var(--bg-main)] p-3">
-                            <div class="mb-2 flex items-center justify-between gap-3">
-                                <div class="text-xs font-medium text-[var(--text-main)]">{{ t("agent.sessionTree.content") }}</div>
-                                <span class="font-mono text-[10px] text-[var(--text-muted)]">{{ formatTimestamp(selectedNode.timestamp) }}</span>
-                            </div>
-                            <div class="max-h-[360px] overflow-y-auto whitespace-pre-wrap text-sm leading-relaxed text-[var(--text-secondary)]">{{ parsedMessage.content }}</div>
-                        </div>
-                    </template>
-
-                    <!-- JSON Tool Result or Variables -->
-                    <template v-else-if="selectedEntry?.type === 'custom' || selectedEntry?.type === 'variable_patch'">
-                        <div class="rounded-md border border-[var(--border-color)] bg-[var(--bg-main)] p-3">
-                            <div class="mb-2 flex items-center justify-between gap-3">
-                                <div class="text-xs font-medium text-[var(--text-main)]">{{ t("agent.sessionTree.data", {type: selectedEntry.type}) }}</div>
-                            </div>
-                            <div class="max-h-[360px] overflow-y-auto rounded bg-[var(--bg-input)] p-2">
-                                <pre class="whitespace-pre-wrap font-mono text-[11px] leading-relaxed text-[var(--text-secondary)]">{{ JSON.stringify(selectedEntry, null, 2) }}</pre>
-                            </div>
-                        </div>
-                    </template>
-                    
-                    <template v-else-if="selectedEntry?.type === 'compaction'">
-                        <div class="rounded-md border border-[var(--border-color)] bg-[var(--bg-main)] p-3">
-                            <div class="mb-2 text-xs font-medium text-[var(--text-main)]">{{ t("agent.sessionTree.compactionDetails") }}</div>
-                            <div class="mb-3 max-h-[160px] overflow-y-auto whitespace-pre-wrap text-sm leading-relaxed text-[var(--text-secondary)]">{{ selectedEntry.summary }}</div>
-                            <div v-if="selectedEntry.details" class="grid grid-cols-2 gap-2 text-xs">
-                                <div class="rounded bg-[var(--bg-panel)] p-2">
-                                    <div class="text-[10px] text-[var(--text-muted)]">Tokens Before</div>
-                                    <div class="mt-0.5 font-mono text-[var(--text-main)]">{{ selectedCompactionTokensBefore }}</div>
-                                </div>
-                                <div class="rounded bg-[var(--bg-panel)] p-2">
-                                    <div class="text-[10px] text-[var(--text-muted)]">Summarized Tokens</div>
-                                    <div class="mt-0.5 font-mono text-[var(--text-main)]">{{ selectedEntry.details.summarizedTokens ?? '-' }}</div>
-                                </div>
-                            </div>
-                        </div>
-                    </template>
-
-                    <!-- Fallback / Plain text -->
-                    <template v-else>
-                        <div class="rounded-md border border-[var(--border-color)] bg-[var(--bg-main)] p-3">
-                            <div class="mb-2 flex items-center justify-between gap-3">
-                                <div class="text-xs font-medium text-[var(--text-main)]">{{ t("agent.sessionTree.content") }}</div>
-                                <span class="font-mono text-[10px] text-[var(--text-muted)]">{{ formatTimestamp(selectedNode.timestamp) }}</span>
-                            </div>
-                            <div class="max-h-[360px] overflow-y-auto whitespace-pre-wrap text-sm leading-relaxed text-[var(--text-secondary)]">
-                                <template v-if="selectedNode.role === 'toolResult' && selectedToolResultContent">
-                                    {{ selectedToolResultContent }}
-                                </template>
-                                <template v-else>
-                                    {{ nodePreview(selectedNode) }}
-                                </template>
-                            </div>
-                        </div>
-                    </template>
+                    <!-- Tree 只展示 lightweight 结构元数据，不读取 raw SessionEntry 正文。 -->
+                    <div class="rounded-md border border-[var(--status-info-border)] bg-[var(--status-info-bg)] p-3 text-xs leading-relaxed text-[var(--status-info)]">
+                        {{ t("agent.sessionTree.structureOnly") }}
+                    </div>
 
                     <div class="mt-4 space-y-2 rounded-md border border-[var(--border-color)] bg-[var(--bg-main)] p-3 text-xs">
                         <div class="flex items-center justify-between gap-3">

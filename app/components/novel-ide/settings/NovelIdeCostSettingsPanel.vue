@@ -6,7 +6,7 @@ import {useCostDisplay} from "nbook/app/composables/useCostDisplay";
 import {useNotification} from "nbook/app/composables/useNotification";
 import {resolveApiErrorMessage} from "nbook/app/utils/api-error";
 import type {CostDisplayCurrency} from "nbook/app/utils/cost-format";
-import type {ConfigEditorSnapshotDto, ConfigWorkspaceQueryDto, GlobalConfigDto} from "nbook/shared/dto/config.dto";
+import type {ConfigEditorSnapshotDto, ConfigWorkspaceQueryDto, GlobalConfigUpdateDto} from "nbook/shared/dto/config.dto";
 
 const props = withDefaults(defineProps<{
     targetQuery?: ConfigWorkspaceQueryDto;
@@ -65,10 +65,9 @@ function readSnapshotCostCurrency(snapshot: ConfigEditorSnapshotDto): CostDispla
 /**
  * 构造 Global Config 写回体。
  */
-function buildGlobalConfigPayload(): GlobalConfigDto {
+function buildGlobalConfigPayload(): GlobalConfigUpdateDto {
     const base = editorSnapshot.value?.global ?? {};
     return {
-        ...base,
         ui: {
             ...(base.ui ?? {}),
             theme: base.ui?.theme ?? "sepia",

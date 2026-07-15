@@ -43,7 +43,7 @@ function createProvider(overrides: {baseURL?: string} = {}): ConfiguredProviderC
     return {
         name: "Custom",
         enabled: true,
-        api: "openai-completions",
+        defaultApi: "openai-completions",
         discovery: {adapter: "none", endpointPath: null},
         options: {
             apiKey: "",

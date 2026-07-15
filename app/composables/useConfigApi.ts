@@ -6,7 +6,7 @@ import type {
     ConfigEditorSnapshotDto,
     ConfigWorkspaceQueryDto,
     ExchangeRateDto,
-    GlobalConfigDto,
+    GlobalConfigUpdateDto,
     ProjectConfigDto,
 } from "nbook/shared/dto/config.dto";
 import type {NeuroModelCatalogDto} from "nbook/shared/dto/app-settings.dto";
@@ -112,13 +112,13 @@ export function useConfigApi() {
      * 保存 Workspace Root `.nbook/config.json` 并返回后端重新合并后的快照。
      */
     async function saveGlobal(
-        global: GlobalConfigDto,
+        update: GlobalConfigUpdateDto,
         query: ConfigWorkspaceQueryDto = currentQuery(),
     ): Promise<ConfigEditorSnapshotDto> {
         const snapshot = await $fetch<ConfigEditorSnapshotDto>("/api/config/global", {
             method: "PUT",
             query,
-            body: global,
+            body: update,
         });
         novelIdeStore.bumpConfigRevision();
         return snapshot;

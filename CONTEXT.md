@@ -76,6 +76,10 @@ _Avoid_: config mirror, settings
 单用户全局运行配置，位于 Workspace Root `.nbook/config.json`。
 _Avoid_: boot config, project config
 
+**NeuroBook Catalog**:
+NeuroBook 维护的只读模型配置资料总称，包含 Provider Preset 与 Model Catalog 两类数据。它只服务设置页的创建、发现归一化和显式修复，不是 runtime registry，也不会自动覆盖用户配置。
+_Avoid_: Provider Config, Pi runtime registry, discovery cache
+
 **Provider Preset**:
 NeuroBook 维护的只读 Provider 创建模板，提供默认名称、Pi API、Base URL 和 Discovery Adapter；复制到 Global Config 后不再持续引用或跟随预设。
 _Avoid_: Provider Config, runtime provider, credential profile

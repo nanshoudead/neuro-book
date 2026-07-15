@@ -3,10 +3,10 @@ import {useConfigApi} from "nbook/app/composables/useConfigApi";
 import {useNotification} from "nbook/app/composables/useNotification";
 import {resolveApiErrorMessage} from "nbook/app/utils/api-error";
 import {resolveTheme} from "nbook/app/utils/theme/resolve-theme";
-import type {ConfigEditorSnapshotDto, GlobalConfigDto} from "nbook/shared/dto/config.dto";
+import type {ConfigEditorSnapshotDto, GlobalConfigUpdateDto} from "nbook/shared/dto/config.dto";
 import type {CustomThemeDto} from "nbook/shared/theme/theme-vars";
 
-type GlobalUiConfig = NonNullable<GlobalConfigDto["ui"]>;
+type GlobalUiConfig = NonNullable<GlobalConfigUpdateDto["ui"]>;
 
 /**
  * 自定义主题 DTO 转成 Global Config 可写入结构。
@@ -27,10 +27,9 @@ function buildGlobalConfigPayload(
     snapshot: ConfigEditorSnapshotDto,
     themeId: string,
     customThemes: CustomThemeDto[],
-): GlobalConfigDto {
+): GlobalConfigUpdateDto {
     const base = snapshot.global ?? {};
     return {
-        ...base,
         ui: {
             ...(base.ui ?? {}),
             theme: themeId,

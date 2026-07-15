@@ -1,5 +1,7 @@
 import {describe, expect, it} from "vitest";
-import {CheckModelRequestDtoSchema, CheckProviderRequestDtoSchema, ThinkingLevelSchema, UpdateModelSettingsRequestDtoSchema} from "nbook/shared/dto/app-settings.dto";
+import {CheckModelRequestDtoSchema, CheckProviderRequestDtoSchema, ConfiguredModelDtoSchema, ThinkingLevelSchema} from "nbook/shared/dto/app-settings.dto";
+import {PiSimpleRequestOptionsSchema} from "nbook/shared/dto/pi-request-options.dto";
+import {inspectModelSettings} from "nbook/shared/models/provider-config-contract";
 
 describe("Pi settings contracts", () => {
     it("thinking level 接受 max", () => {
@@ -7,28 +9,31 @@ describe("Pi settings contracts", () => {
     });
 
     it("Provider requestOptions 拒绝 runtime-owned 字段", () => {
-        const request = modelSettingsRequest();
-        request.providers[0]!.options.requestOptions = {apiKey: "hidden"} as never;
-        expect(() => UpdateModelSettingsRequestDtoSchema.parse(request)).toThrow("apiKey");
+        expect(() => PiSimpleRequestOptionsSchema.parse({apiKey: "hidden"})).toThrow("apiKey");
     });
 
     it("保存时拒绝未知 Pi API", () => {
         const request = modelSettingsRequest();
-        request.providers[0]!.api = "mystery-api";
-        expect(() => UpdateModelSettingsRequestDtoSchema.parse(request)).toThrow("不支持的 Pi API");
+        request.providers[0]!.models[0]!.api = "mystery-api";
+        const result = inspectModelSettings({
+            defaultModelKey: request.defaultModelKey,
+            providers: request.providers,
+        });
+        expect(result.issues[0]?.code).toBe("unsupported_api");
     });
 
     it("启用模型必须保存完整能力", () => {
         const request = modelSettingsRequest();
         (request.providers[0]!.models[0] as {reasoning: boolean | null}).reasoning = null;
-        expect(() => UpdateModelSettingsRequestDtoSchema.parse(request)).toThrow("reasoning");
+        const result = inspectModelSettings({defaultModelKey: request.defaultModelKey, providers: request.providers});
+        expect(result.issues[0]?.code).toBe("missing_reasoning");
     });
 
     it("cost tiers 拒绝重复 threshold", () => {
         const request = modelSettingsRequest();
         const cost = {input: 1, output: 2, cacheRead: 0, cacheWrite: 0};
         (request.providers[0]!.models[0] as {cost: null | {input: number; output: number; cacheRead: number; cacheWrite: number; tiers: Array<{inputTokensAbove: number; input: number; output: number; cacheRead: number; cacheWrite: number}>}}).cost = {...cost, tiers: [{...cost, inputTokensAbove: 100}, {...cost, inputTokensAbove: 100}]};
-        expect(() => UpdateModelSettingsRequestDtoSchema.parse(request)).toThrow("tier threshold 重复");
+        expect(() => ConfiguredModelDtoSchema.parse(request.providers[0]!.models[0])).toThrow("tier threshold 重复");
     });
 });
 
@@ -66,7 +71,7 @@ function modelSettingsRequest() {
             id: "custom",
             name: "Custom",
             enabled: true,
-            api: "openai-completions" as string,
+            defaultApi: "openai-completions" as string,
             discovery: {adapter: "none" as const, endpointPath: null},
             options: {apiKey: "", baseURL: "https://example.com/v1", proxy: "", timeoutMs: null, requestOptions: {}},
             models: [{...modelDraft(), id: "model", name: "Model", enabled: true}],
@@ -78,7 +83,7 @@ function providerDraft() {
     return {
         id: "custom",
         name: "Custom",
-        api: "openai-completions",
+        defaultApi: "openai-completions",
         discovery: {adapter: "none", endpointPath: null},
         options: {apiKey: "", baseURL: "https://example.com/v1", proxy: "", timeoutMs: null, requestOptions: {}},
     };

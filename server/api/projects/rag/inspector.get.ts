@@ -140,6 +140,7 @@ defineRouteMeta({
                                     "dimensions": {
                                         "nullable": true,
                                         "type": "integer",
+                                        "minimum": 0,
                                         "exclusiveMinimum": true,
                                         "maximum": 9007199254740991
                                     },
@@ -186,6 +187,7 @@ defineRouteMeta({
                                     "embeddingDimensions": {
                                         "nullable": true,
                                         "type": "integer",
+                                        "minimum": 0,
                                         "exclusiveMinimum": true,
                                         "maximum": 9007199254740991
                                     },
@@ -484,6 +486,7 @@ defineRouteMeta({
                                             "properties": {
                                                 "id": {
                                                     "type": "integer",
+                                                    "minimum": 0,
                                                     "exclusiveMinimum": true,
                                                     "maximum": 9007199254740991
                                                 },
@@ -535,6 +538,7 @@ defineRouteMeta({
                                                         "dimensions": {
                                                             "nullable": true,
                                                             "type": "integer",
+                                                            "minimum": 0,
                                                             "exclusiveMinimum": true,
                                                             "maximum": 9007199254740991
                                                         },
@@ -560,6 +564,7 @@ defineRouteMeta({
                                                         "embeddingDimensions": {
                                                             "nullable": true,
                                                             "type": "integer",
+                                                            "minimum": 0,
                                                             "exclusiveMinimum": true,
                                                             "maximum": 9007199254740991
                                                         },

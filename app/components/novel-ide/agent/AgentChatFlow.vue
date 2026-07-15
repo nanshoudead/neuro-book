@@ -8,6 +8,11 @@ import type {
     AgentTriggerMenuContext,
     AgentTriggerMenuState,
 } from "nbook/app/components/novel-ide/agent/trigger-menu";
+import {
+    prependAnchoredScrollTop,
+    shouldAutoScrollChat,
+    shouldLoadPreviousHistory,
+} from "nbook/app/components/novel-ide/agent/agent-chat-history-ui";
 
 const AUTO_SCROLL_RELEASE_THRESHOLD_PX = 12;
 
@@ -42,6 +47,12 @@ const props = defineProps<{
     costDisplayOptions: CostDisplayOptions;
     /** 费用 tooltip 汇率说明。 */
     costExchangeRateSuffix?: string;
+    /** 当前 durable history 是否还有更早一页。 */
+    historyHasPrevious?: boolean;
+    /** 是否正在加载更早历史。 */
+    historyLoading?: boolean;
+    /** 更早历史的局部加载错误。 */
+    historyError?: string;
 }>();
 
 const emit = defineEmits<{
@@ -53,6 +64,7 @@ const emit = defineEmits<{
     (e: "retry", message: AgentMessage): void;
     (e: "delete", message: AgentMessage): void;
     (e: "cycle-branch", payload: {messageId: string; direction: -1 | 1}): void;
+    (e: "load-previous"): void;
 }>();
 
 const scrollRef = ref<HTMLDivElement | null>(null);
@@ -60,6 +72,12 @@ const shouldStickToBottom = ref(true);
 const lastScrollTop = ref(0);
 let pendingImmediateScroll = true;
 let autoScrollFrame: number | null = null;
+let pendingPrependAnchor: {
+    sessionId: number | null;
+    firstMessageId: string;
+    scrollHeight: number;
+    scrollTop: number;
+} | null = null;
 const {t} = useI18n();
 
 const chatNodes = computed(() => {
@@ -171,6 +189,28 @@ const scheduleScrollToBottom = (): void => {
     });
 };
 
+/**
+ * 记录 prepend 前的滚动快照，并请求更早 durable history。
+ * cursor 去重与 revision 校验由 session state 统一负责。
+ */
+const requestPreviousHistory = (): void => {
+    if (!scrollRef.value || !props.historyHasPrevious || props.historyLoading) {
+        return;
+    }
+    const firstMessageId = props.messages[0]?.id;
+    if (!firstMessageId) {
+        return;
+    }
+    pendingPrependAnchor = {
+        sessionId: props.sessionId ?? null,
+        firstMessageId,
+        scrollHeight: scrollRef.value.scrollHeight,
+        scrollTop: scrollRef.value.scrollTop,
+    };
+    cancelScheduledScrollToBottom();
+    emit("load-previous");
+};
+
 /** 滚动事件处理。 */
 const onScroll = (): void => {
     if (!scrollRef.value) return;
@@ -188,12 +228,53 @@ const onScroll = (): void => {
     }
 
     lastScrollTop.value = currentScrollTop;
+
+    if (!pendingImmediateScroll && shouldLoadPreviousHistory({
+        scrollTop: currentScrollTop,
+        hasPrevious: props.historyHasPrevious ?? false,
+        loading: props.historyLoading ?? false,
+    })) {
+        requestPreviousHistory();
+    }
 };
+
+/** prepend 完成后恢复原有可见内容的位置。 */
+watch(() => props.messages[0]?.id, async () => {
+    const anchor = pendingPrependAnchor;
+    if (!anchor || anchor.sessionId !== (props.sessionId ?? null)) {
+        return;
+    }
+    const oldFirstIndex = props.messages.findIndex((message) => message.id === anchor.firstMessageId);
+    if (oldFirstIndex <= 0) {
+        return;
+    }
+    await nextTick();
+    if (!scrollRef.value || pendingPrependAnchor !== anchor) {
+        return;
+    }
+    scrollRef.value.scrollTop = prependAnchoredScrollTop({
+        previousScrollTop: anchor.scrollTop,
+        previousScrollHeight: anchor.scrollHeight,
+        nextScrollHeight: scrollRef.value.scrollHeight,
+    });
+    lastScrollTop.value = scrollRef.value.scrollTop;
+    pendingPrependAnchor = null;
+});
+
+/** 请求结束但没有 prepend（错误或 cursor 失效）时释放旧锚点。 */
+watch(() => props.historyLoading, (loading, previousLoading) => {
+    if (previousLoading && !loading && props.messages[0]?.id === pendingPrependAnchor?.firstMessageId) {
+        pendingPrependAnchor = null;
+    }
+});
 
 /** 消息变化时自动吸底。 */
 watch(messageScrollSignature, async () => {
     await nextTick();
-    if (shouldStickToBottom.value) {
+    if (shouldAutoScrollChat({
+        stickToBottom: shouldStickToBottom.value,
+        prependPending: pendingPrependAnchor !== null,
+    })) {
         if (pendingImmediateScroll && props.messages.length > 0) {
             pendingImmediateScroll = false;
             cancelScheduledScrollToBottom();
@@ -206,6 +287,7 @@ watch(messageScrollSignature, async () => {
 
 /** 切换 session 时，下一次消息渲染后直接定位到底部，避免长历史从顶部滚到底。 */
 watch(() => props.sessionId, () => {
+    pendingPrependAnchor = null;
     pendingImmediateScroll = true;
     shouldStickToBottom.value = true;
     lastScrollTop.value = 0;
@@ -230,6 +312,21 @@ defineExpose({ scrollToBottom: forceScrollToBottom, scrollRef });
 <template>
     <!-- 通用对话流容器 -->
     <div ref="scrollRef" class="flex flex-1 flex-col overflow-y-auto p-4 pb-12 bg-[var(--bg-panel)]" @scroll="onScroll">
+        <!-- 更早历史局部状态；失败不会遮断当前已加载对话。 -->
+        <div v-if="props.historyHasPrevious || props.historyLoading || props.historyError" class="mb-4 flex shrink-0 items-center justify-center">
+            <button
+                type="button"
+                class="inline-flex min-h-8 items-center gap-2 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-3 py-1.5 text-xs text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-wait disabled:opacity-60"
+                :disabled="props.historyLoading"
+                @click="requestPreviousHistory"
+            >
+                <span :class="props.historyLoading ? 'i-lucide-loader-circle animate-spin' : props.historyError ? 'i-lucide-rotate-ccw' : 'i-lucide-chevron-up'" class="h-3.5 w-3.5"></span>
+                <span v-if="props.historyLoading">{{ t("agent.chat.loadingPrevious") }}</span>
+                <span v-else-if="props.historyError">{{ t("agent.chat.retryPrevious") }}</span>
+                <span v-else>{{ t("agent.chat.loadPrevious") }}</span>
+            </button>
+            <span v-if="props.historyError && !props.historyLoading" class="ml-2 max-w-[360px] truncate text-xs text-[var(--status-danger)]" :title="props.historyError">{{ props.historyError }}</span>
+        </div>
         <template v-if="props.messages.length > 0">
             <div
                 v-for="(node, index) in chatNodes"

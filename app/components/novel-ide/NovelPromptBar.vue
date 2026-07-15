@@ -6,7 +6,7 @@ import AgentMarkdownContent from "nbook/app/components/novel-ide/agent/AgentMark
 import AgentSessionModelControls from "nbook/app/components/novel-ide/agent/AgentSessionModelControls.vue";
 import type {AgentSessionModelDraft} from "nbook/app/components/novel-ide/agent/agent-session-model-controls";
 import {parseSelectionRefChip, type InlineEditReference, type InlineEditTask} from "nbook/app/utils/inline-editor-selection";
-import type {ModelSettingsDto} from "nbook/shared/dto/app-settings.dto";
+import type {EnabledModelOptionDto} from "nbook/shared/dto/app-settings.dto";
 import type {AgentSessionSummaryDto} from "nbook/shared/dto/agent-session.dto";
 
 interface InlineTaskOption {
@@ -39,7 +39,7 @@ const props = defineProps<{
     editPreview: string;
     resultText: string;
     liveView: InlineEditorLiveView;
-    selectableModels: ModelSettingsDto["enabledModels"];
+    selectableModels: EnabledModelOptionDto[];
     sessionModelSelectionValue: string | null;
     sessionModelDraft: AgentSessionModelDraft;
     sessionModelSaving: boolean;

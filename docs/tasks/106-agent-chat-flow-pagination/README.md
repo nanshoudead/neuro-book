@@ -1,387 +1,705 @@
-# Agent Chat Flow Snapshot 分页与有界投影
+# Agent Chat Flow Snapshot 分页
 
 ## Relative documents refs
 
+- [Agent Runtime Event OOM 与 SSE 内存边界](../107-agent-event-memory-boundaries/README.md)
+- [Agent 图片附件引用与持久化](../108-agent-image-attachment-references/README.md)
 - [Agent SSE Front-End Contract](../14-agent-sse-front-end-contract/README.md)
 - [Agent Session Management](../15-agent-session-management/README.md)
 - [Agent Session Tree UI](../49-agent-session-tree-ui/README.md)
 - [Harness Contract / SSE Recovery](../62-harness-contract-sse-recovery-fixes/README.md)
-- [Agent Session List Performance Pagination](../73-agent-session-list-performance-pagination/README.md)
 - [Agent Command Performance](../74-agent-command-performance/README.md)
 - [GitHub Issue #6](https://github.com/notnotype/neuro-book/issues/6)
 - [参考 PR #7](https://github.com/notnotype/neuro-book/pull/7)
 
 ## User Request / Topic
 
-- 长对话 session 的 append-only JSONL 可能膨胀到数 MB；当前 `GET /api/agent/sessions/:id` 构建并返回全量 snapshot，在服务端部署和弱网络环境下打开会话很慢。
-- 保留原有 `GET /api/agent/sessions/:id` 作为 Agent Chat Flow 的唯一 session 查询入口，使它同时支持首屏恢复和 active path 向前分页；不为 entries、tree、context usage 拆出零散 GET 端点。
-- 首屏默认只加载最近一段聊天历史；用户在 `AgentChatFlow.vue` 向上滚动接近顶部时，继续查询并前置更早历史。
-- PR #7 只作为实现与测试参考，不直接合并，也不从其分支继续堆提交。
-- 本任务只处理 Agent Chat Flow、session snapshot、历史分页和与之直接相关的返回体边界。
+- 长 session 的 append-only history 会让 `GET /api/agent/sessions/:id` 返回数 MB JSON，服务端部署和弱网络下打开、刷新、recovery 很慢。
+- 保留原有 `GET /api/agent/sessions/:id` 作为唯一 session recovery/history 查询入口；不拆 `/entries`、`/tree`、`/context-usage` 等 GET 端点。
+- 首屏只加载最近历史；用户在 `AgentChatFlow.vue` 向上滚动接近顶部时，继续加载更早历史并保持视口。
+- PR #7 仅作参考，不合并其中 Markdown 编辑器、文件下载、安装脚本、Config、invocation recovery 等无关修改。
+- Task 107 已完成 live runtime/SSE OOM 治理；Task 106 直接复用其公开 `AgentChatEntryDto`。
+- 图片 base64 的 JSONL/Provider 引用改造由 Task 108 负责，本任务不实现附件存储或 hydration。
 
 ## Goal
 
-让长 session 的首屏响应和历史翻页都具有可验证的规模上界，并保持 append-only session tree、active path 分支切换、SSE snapshot recovery 和 Chat Flow 消息投影正确：
+将 Agent Chat Flow 的 recovery snapshot 与历史查询统一成一个小接口、深实现的分页模块：
 
-- 首屏 snapshot 只返回最近一页 Chat Flow history，但仍包含恢复 SSE 和渲染当前 Agent 状态所需的 session shell。
-- 历史页继续使用同一 GET 路由，只返回分页历史和 cursor/revision 元数据，不重复构建或传输昂贵 shell。
-- 分页同时受 entry 数量与 UTF-8 字节预算约束，不能因单个巨大 tool result 失去上界。
-- 分页边界保留 Chat Flow 的 assistant/tool result 关联，不产生孤立工具结果、重复消息或遗漏消息。
-- JSONL、模型上下文和 append-only session tree 仍保存完整真相；有界化只发生在公开 Chat Flow DTO 投影层。
-- 以真实 session 样本、repository/API 测试、前端 reducer 测试和 payload bytes 对比证明改进，同时保持 Task 14/62 的 SSE 恢复合同不回退。
+- recovery snapshot 返回当前 session shell、lightweight tree 和最近一页 `AgentChatEntryDto`。
+- history page 通过服务端 opaque cursor 向前读取，不重建或重复传输 snapshot shell。
+- Task 107 的中央 projector 是 HTTP/SSE 唯一公开 entry 投影；JSONL 和模型上下文仍使用内部 `SessionEntry`。
+- `messages`、raw `entries` 和重复兼容字段退出公开 snapshot。
+- retry/tree/edit 等 active path mutation 不再内嵌 snapshot；所有历史恢复统一走 GET。
+- 前端 revision-aware prepend，无重复、无遗漏、无迟到响应串 session，并保持滚动锚点。
+- System Prompt 默认不在 recovery 中构建；只有显式请求时才生成。
 
-若无法在不改变产品语义的前提下给公开 payload 建立上界，先报告具体 entry 类型、大小分布和用户可见影响，由用户拍板；禁止使用 offset、静默 cursor 回退、前端切字符串或任意丢弃历史等 hack。
+以公共 HTTP API、session store 和 Chat Flow 行为测试验证；若现有 `AgentChatEntryDto` 无法表达历史 UI 所需内容，先修中央 projector，不在 snapshot 路径建立第二套 DTO。
+
+## Current Architecture Map
+
+```text
+Append-only JSONL SessionEntry truth
+    ├─ Provider context: repo.reduce() -> internal AgentMessage[]
+    ├─ Session Tree: repo.tree() -> lightweight SessionTreeNode[]
+    └─ Public Chat Flow: projectAgentChatEntry() -> AgentChatEntryDto
+            ├─ Task 107: live session_entry / runtime SSE
+            └─ Task 106: recovery snapshot / history page
+
+GET /api/agent/sessions/:id
+    -> agent/http
+    -> NeuroAgentHarness session query
+    -> recovery shell or history page
+    -> useAgentSessionApi
+    -> useAgentSession / useAgentSessionStream
+    -> AgentChatSurface
+    -> AgentChatFlow
+```
+
+职责边界：
+
+- `JsonlSessionRepository`：append-only truth、active path、tree、reduce。
+- `projectAgentChatEntry()`：内部 entry 到公开 Chat Flow DTO 的唯一边界。
+- Task 107：live delta、public event、replay、subscriber、SSE backpressure。
+- Task 106：durable history window、cursor、recovery merge、滚动分页。
+- Task 108：图片 attachment ref 与 Provider hydration。
 
 ## Diagnosis / Evidence
 
-### 当前调用链
+### 旧 raw snapshot 样本（2026-07-13）
 
-```text
-AgentChatSurface / useAgentSessionStream
-    -> useAgentSessionApi.getSession()
-        -> GET /api/agent/sessions/:id
-            -> server/agent/http.getAgentSessionSnapshot()
-                -> NeuroAgentHarness.getSessionSnapshot()
-                    -> buildSessionSnapshot()
-                        -> JsonlSessionRepository.readSession()
-                        -> reduce() / activePath() / tree()
-                        -> snapshotSystemPrompt()
-                        -> sessionContextUsage()
-                        -> sessionRelations()
-```
+| Session | Raw active path | Raw provider messages | Tree |
+| --- | ---: | ---: | ---: |
+| 94 | 10.25 MB / 285 entries | 10.18 MB | 107 KB / 285 nodes |
+| 61 | 1.51 MB / 70 entries | 1.49 MB | 25 KB / 72 nodes |
+| 41 | 1.32 MB / 20 entries | 1.32 MB | 6 KB / 20 nodes |
+| 160 | 61 KB / 18 entries | 57 KB | 323 KB / 851 nodes |
+| 324 | 761 KB / 217 entries | 692 KB | 86 KB / 228 nodes |
+| 489 | 648 KB / 126 entries | 620 KB | 54 KB / 133 nodes |
 
-- `JsonlSessionRepository` 是 append-only JSONL 真相源；`activePath()` 从当前 leaf 沿 parentId 回溯。
-- `activePathRevision()` 已有稳定语义：只在显式 move leaf 时变化，普通尾部 append 不变化。分页应复用它，不新增第二套 revision。
-- `useAgentSession.applySnapshot()` 用 `entries` 投影聊天气泡；`tree` 用于 Session Tree Dialog 和消息气泡分支切换。
-- `messages` 是 `repo.reduce()` 得到的 provider context，当前前端没有直接消费者，不应继续作为公开 snapshot 的第二份历史。
-- `retry/tree` command 和 `POST /tree` 也可能返回 `buildSessionSnapshot()` 生成的完整 snapshot；只优化 GET 会留下相同的大响应回归入口。
+### Task 107 projector 落地后的公开 history（2026-07-15）
 
-### 真实 session 只读抽样（2026-07-13）
-
-抽样来源：当前 Workspace Root `workspace/.nbook/agent/sessions/*.jsonl`。字节数为 UTF-8 `JSON.stringify()` 结果，不包含 HTTP 压缩。
-
-| Session | JSONL | Active entries | Active bytes | Tail 120 | Provider messages | Tree |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| 94 | 10.30 MB | 285 | 10.25 MB | 165 KB | 10.18 MB | 285 nodes / 107 KB |
-| 61 | 1.52 MB | 70 | 1.51 MB | 1.51 MB | 1.49 MB | 72 nodes / 25 KB |
-| 41 | 1.33 MB | 20 | 1.32 MB | 1.32 MB | 1.32 MB | 20 nodes / 6 KB |
-| 160 | 1.31 MB | 18 | 61 KB | 61 KB | 57 KB | 851 nodes / 323 KB |
-| 324 | 803 KB | 217 | 761 KB | 387 KB | 692 KB | 228 nodes / 86 KB |
-| 489 | 672 KB | 126 | 648 KB | 619 KB | 620 KB | 133 nodes / 54 KB |
+| Session | Projected entries | Projected bytes | 最近 30 显示组 | 最大单 entry |
+| --- | ---: | ---: | ---: | ---: |
+| 94 | 234 | 537 KB | 61 KB / 45 entries | 17 KB |
+| 61 | 56 | 114 KB | 102 KB / 50 entries | 17 KB |
+| 41 | 17 | 24 KB | 24 KB | 9 KB |
+| 160 | 13 | 55 KB | 55 KB | 12 KB |
+| 324 | 166 | 775 KB | 244 KB / 56 entries | 45 KB |
+| 489 | 95 | 680 KB | 465 KB / 67 entries | 49 KB |
 
 结论：
 
-- 固定“最近 120 条”只能解决 session 94 这类条目多的会话，无法解决 session 41/61 这类条目少但单条巨大的会话。
-- session 94 最大 tool result 约 9.56 MB；session 41/61 均存在约 1.30 MB 的单个 tool result。只做分页不能给响应体建立上界。
-- `entries + messages` 在这些样本中接近重复传输同一历史，公开 DTO 删除无消费者的 `messages` 可直接消除一份主要放大项。
-- session 160 的 active path 很小但 tree 有 851 节点 / 323 KB；tree 是独立增长维度，不能与 active path 分页混为一谈。
+- Task 107 已解决公开图片 base64 和单 entry 无界问题；Task 106 不应再设计 64 KiB tool-result 截断。
+- Task 107 最终收口后，recovery/history 复用的 assistant entry 使用单条 96 KiB 目标预算并公开 `omittedToolCalls`；pending user input 复用轻量 `AgentUserInputFormDto`，不再把设置系统的 resource-preset Markdown 带入 recovery。
+- 完整 projected history 仍可达到 600–800 KB，分页仍必要。
+- 最近 30 显示组通常在 24–244 KB，但 session 489 因一个 assistant 带多个 tool results 达到 465 KB；分页必须同时考虑显示组和服务端字节目标。
+- `messages + entries` 是近似双份历史；provider `messages` 没有前端消费者，必须退出公开 DTO。
+- tree 是独立维度。当前最大样本 851 nodes / 323 KB，但 branch switcher 与 Session Tree Dialog 依赖它；本轮保留 lightweight tree，不顺手设计 tree 分页。
+- Task 74 曾记录 `snapshotSystemPrompt=2264.6ms`；它会加载 config/settings/home/catalog/skills、读取多个 Import 并编译动态 profile prompt，不能留在普通 recovery 热路径。
 
-### 已有服务端耗时证据
+## Final API Design
 
-- Task 74 记录过完整 snapshot 冷路径 `snapshotSystemPrompt=2264.6ms`、`total=2280.19ms`。
-- 因此本任务必须同时观察：
-  - JSONL 读取/解析与 active path/tree 投影耗时。
-  - system prompt、context usage、relations 等 shell 构建耗时。
-  - JSON 序列化后的字段 bytes。
-- 历史页如果重复构建完整 shell，即使 entries 已分页，仍不能解决服务端冷慢问题。
+### 1. Endpoint 与判别查询
 
-## System Design
-
-### 1. 单一路由，两种明确查询模式
-
-继续使用 `GET /api/agent/sessions/:id`，不新增 entries/tree/context-usage GET 路由。
-
-#### Recovery snapshot（无 `beforeEntryId`）
-
-用于 initial load、`snapshot_required`、seq gap、event epoch change、active path change 和 manual refresh：
+唯一入口：
 
 ```http
-GET /api/agent/sessions/123?limit=80&maxBytes=262144
+GET /api/agent/sessions/:sessionId
 ```
 
-返回：
+同一 endpoint 使用严格的 `view` 判别查询，不增加同义子路由：
 
-- SSE recovery cursor 与 session live shell。
-- 当前 active path revision。
-- 最近一页公开 Chat Flow entries。
-- 分页 metadata。
-- 当前 lightweight session tree，保持现有分支切换和 Session Tree UI 能力。
-- 是否返回 system prompt，见“需要用户决策”。
+```typescript
+type AgentSessionQueryDto =
+    | {view?: "recovery"}
+    | {view: "history"; cursor: string}
+    | {view: "systemPrompt"};
+```
 
-#### History page（有 `beforeEntryId`）
+请求形态：
 
 ```http
 GET /api/agent/sessions/123
-    ?beforeEntryId=entry_xxx
-    &activePathRevision=revision_xxx
-    &limit=80
-    &maxBytes=262144
+GET /api/agent/sessions/123?view=history&cursor=...
+GET /api/agent/sessions/123?view=systemPrompt
 ```
 
-返回：
+前端只暴露三个强类型调用，不让通用 `$fetch` 的 query union 扩散到调用者：
 
-- `sessionId`、`activePathRevision`。
-- 本页公开 Chat Flow entries。
-- `beforeEntryId`、`hasMoreBefore`、实际 entry/byte 统计。
-- 不重复返回 tree、system prompt、context usage、relations、model 等 session shell。
+```typescript
+getSessionRecovery(sessionId)
+getSessionHistory(sessionId, cursor)
+getSessionSystemPrompt(sessionId)
+```
 
-同一路由可以返回判别联合 DTO，例如 recovery snapshot 与 history page 各有固定 `kind`；不要通过大量 optional 字段制造无法判断的半快照。
+用户已确认删除 Session Tree 节点详情能力。Tree Dialog 保留 lightweight tree、preview/status、结构审计和分支切换，不再按节点读取 thinking、tool result、compaction/custom details。不得为已删除功能保留 raw `entries` 或 entry detail 查询。
 
-### 2. 公开 DTO 与持久化真相分层
+不提供：
 
-- `SessionEntry` / `AgentMessage` 继续作为服务端持久化和模型运行类型。
-- Chat Flow HTTP 不直接暴露无界原始 entry，而是输出独立、强类型的公开 entry 投影。
-- 公开投影必须保留前端渲染所需字段：稳定 entry ID、parentId、timestamp、角色、assistant content/tool calls、tool result 状态和截断元数据。
-- `AgentSessionSnapshotDto.messages` 退出公开 DTO；provider context 不属于 UI snapshot 合同。
-- 不修改 JSONL，不回写截断内容，不影响 compaction、模型上下文、usage 和 Agent 继续运行。
-- 不使用 `any` / `unknown` 逃避投影类型；异构 tool details 如确实只能为 unknown，必须限制在现有外部数据边界并说明原因。
+- `offset`
+- `beforeEntryId`
+- `activePathRevision`
+- `maxBytes`
+- 客户端可调 page size
+- 宽松 boolean query 或可非法组合的 `cursor/include`
 
-### 3. 双预算分页
+原因：cursor 应隐藏 active path revision、显示组边界和内部 entry ID；分页数量/字节预算是服务端策略，不是客户端协议。`view` 判别让 schema 在入口拒绝 `cursor + systemPrompt` 等非法组合，而不是把组合规则散落到 handler。
 
-- `limit` 限制单页最大公开 entry/group 数量。
-- `maxBytes` 限制公开 entries JSON 投影的 UTF-8 目标预算。
-- 默认值必须由真实样本与渲染体验确认；初始测量候选为 `limit=80`、`maxBytes=256 KiB`，不是最终拍板。
-- 页至少返回一个完整可渲染语义组；若该组经公开投影后仍超过预算，必须走明确的 oversized projection，不得无限突破预算。
-- 响应返回实际 `entryCount`、`payloadBytes` 和 `oversizedEntryCount`，方便测试和后续观测；这些是 DTO 数据，不写逐请求业务日志。
+### 2. Opaque cursor
 
-### 4. 分页边界按 Chat Flow 语义组切分
+cursor 是版本化、base64url 编码的服务端值，内部至少包含：
 
-按裸 entry 数切页可能让新页从 toolResult 开始，而前端找不到拥有该 tool call 的 assistant message。
+```typescript
+type AgentHistoryCursorV1 = {
+    version: 1;
+    sessionId: number;
+    activePathRevision: string | null;
+    beforeEntryId: string;
+};
+```
 
-本任务采用最小语义规则，不构造新的通用 timeline abstraction：
+- 客户端只保存并原样回传。
+- cursor 的 sessionId 必须匹配路由参数。
+- 当前 `activePathRevision` 与 cursor 不一致：`409 ACTIVE_PATH_CHANGED`。
+- entry 不存在、不属于 active path 或不是合法分页边界：`400 INVALID_HISTORY_CURSOR`。
+- 普通尾部 append 不改变 revision，旧 cursor 继续有效。
+- cursor 不包含正文，不需要加密；必须限制长度和严格解析版本。
 
-- assistant message 及其连续 tool results 视为不可从中间切开的显示组。
-- invocation lifecycle error、compaction、branch summary、custom visible message 等独立可见 entry 保持自身边界。
-- 非 UI entry 不单独消耗显示组配额，但 cursor 必须仍以稳定 session entry ID 表达。
-- 页内顺序始终从旧到新；`beforeEntryId` 表示严格查询该 cursor 所在显示组之前的历史。
-- 若当前 entry 投影规则无法确定 tool result 的 owner，测试先暴露该架构缺口，不在前端猜测关联。
+### 3. Response union
 
-### 5. Cursor 与 revision 一致性
+```typescript
+type AgentSessionQueryResultDto =
+    | AgentSessionRecoveryDto
+    | AgentSessionHistoryPageDto
+    | AgentSessionSystemPromptDto;
 
-- cursor 使用稳定 entry/group 起点 ID，不使用 offset。
-- history page 必须携带 recovery snapshot 返回的 `activePathRevision`。
-- 普通尾部 append 不改变 revision，旧历史 cursor 继续有效。
-- 显式 tree/edit/retry/rollback 导致 revision 变化时返回 `409 ACTIVE_PATH_CHANGED`；前端丢弃旧分页窗口并请求新的 recovery snapshot。
-- cursor 不存在、不属于当前 active path 或不位于合法显示组边界时返回明确 `400 INVALID_HISTORY_CURSOR`。
-- 禁止 invalid cursor 静默回退到最新一页，否则前端会重复加载同一批数据。
+type AgentChatHistoryPageDto = {
+    /** 从旧到新排列的逐 entry DTO。 */
+    entries: AgentChatEntryDto[];
+    /** 为空表示已到 active path 起点。 */
+    previousCursor: string | null;
+};
 
-### 6. 完整 tree 的本轮边界
+type AgentSessionRecoveryDto = {
+    kind: "recovery";
+    eventCursor: AgentEventCursorDto;
+    summary: AgentSessionSummaryDto;
+    summarizer?: AgentSessionSummarizerStateDto;
+    activeLeafId: string | null;
+    activePathRevision: string | null;
+    history: AgentChatHistoryPageDto;
+    tree: SessionTreeNode[];
+    linkedAgents: AgentLinkedSessionDto[];
+    linkedByAgents: AgentLinkedSessionDto[];
+    pendingUserInputs: AgentPendingUserInputDto[];
+    steerQueue: AgentQueuedMessageDto[];
+    followUpQueue: AgentFollowUpQueueStateDto;
+    activeInvocation: AgentActiveInvocationDto | null;
+    model: AgentSessionLiveStateDto["model"];
+    thinkingLevel: ThinkingLevel | null;
+    effectiveThinkingLevel: ThinkingLevel;
+    agentMode: AgentMode;
+    contextUsage?: AgentSessionContextUsageDto;
+};
 
-- 首屏暂时保留现有 lightweight tree，因为聊天气泡 branch switcher 和 Session Tree Dialog 都依赖它。
-- 不把完整 raw entries 与 tree 一起返回；tree node 继续只含摘要/preview。
-- 本任务记录 tree bytes 和 node count，但不新增 tree GET 端点，也不改 Session Tree 产品交互。
-- 如果真实验收证明 tree 单独成为主瓶颈，再基于 Task 49 另开设计，不在本任务顺手发明 tree 分页。
+type AgentSessionHistoryPageDto = {
+    kind: "history";
+    sessionId: number;
+    activePathRevision: string | null;
+    history: AgentChatHistoryPageDto;
+};
 
-### 7. System prompt 与 context usage
+type AgentSessionSystemPromptDto = {
+    kind: "systemPrompt";
+    sessionId: number;
+    systemPrompt: string;
+};
+```
 
-- history page 绝不重新构建 system prompt 或 context usage。
-- recovery snapshot 是否默认构建 system prompt，需要用户决策；它既是 Chat Flow 可见内容，也有已知 2 秒级冷成本。
-- context usage 保持 recovery snapshot shell 字段，除非测量证明它成为独立主瓶颈；本任务不预设拆成新端点。
-- relations 已有独立轻量刷新路径，history page 不重复返回 relations。
+### 4. Removed snapshot fields
 
-### 8. Command/tree 返回合同
+硬切删除：
 
-- 轻控制 command 继续返回 `live_state`，遵守 Task 74。
-- `retry`、`tree`、编辑/分支切换等会改变 active path 的操作不得继续内嵌无界完整 snapshot。
-- 它们应返回足够表达“active path 已改变”的轻量结果，由现有 snapshot recovery single-flight 获取新的 recovery snapshot；或者复用同一个有界 recovery snapshot builder。
-- 选择哪一种以避免重复 HTTP 和保持 Task 14 single-flight 为准，但所有入口必须共享同一有界 snapshot builder，不能出现 GET 有界、command 无界的双轨实现。
+- `eventEpoch`：与 `eventCursor.eventEpoch` 重复。
+- `latestSeq`：仅调试用途，不应成为公开恢复合同。
+- `lastSeq`：与 `eventCursor.after` 重复的兼容字段。
+- `messages`：provider context，不属于 UI snapshot。
+- `entries`：raw `SessionEntry[]`，替换为 `history.entries: AgentChatEntryDto[]`。
+- `pendingApprovals`：它是已 deprecated 的重复字段；snapshot、live state 和前端统一使用 `pendingUserInputs`。
+- 顶层 `usage`：与 `summary.usage` 重复，前端已经消费 `summary.usage`。
 
-## Agent Chat Flow Interaction
+不保留 legacy DTO 或兼容 fallback；同步迁移所有调用者和测试。
 
-- `AgentChatFlow.vue` 在距离顶部达到阈值时 emit 加载更早历史。
-- 宿主以 `sessionId + activePathRevision + beforeEntryId` 作为请求身份，维护 single-flight。
-- prepend 前记录 `scrollHeight/scrollTop`，渲染后按高度差恢复视口锚点。
-- 保留显式“加载更早消息/重试”入口，作为失败恢复与无障碍兜底；自动滚动是主路径。
-- 到达历史起点后停止触发。
-- 迟到响应在 session、revision 或 cursor 任一不匹配时丢弃。
-- recovery snapshot：
-  - revision 未变时，保留已加载的更早页，只替换当前尾页与 shell；去重后合并 live invocation/optimistic message。
-  - revision 已变时，清空旧分页窗口并重建当前 active path 尾页。
-- 历史 prepend 不改变 `shouldStickToBottom`；新实时消息继续遵守现有自动吸底规则。
-- 分页错误使用当前 Chat Flow 内可恢复错误/重试状态，不用全局成功通知刷屏；revision conflict 可显示一次说明并自动恢复首屏。
+### 5. Server pagination policy
+
+策略集中在一个模块，不进入 HTTP query：
+
+```typescript
+const AGENT_HISTORY_PAGE_MAX_GROUPS = 30;
+const AGENT_HISTORY_PAGE_TARGET_BYTES = 256 * 1024;
+```
+
+- 从 active path 尾部向前组装显示组。
+- assistant 与其连续 tool results 不从中间切开。
+- compaction、branch summary、visible custom message、invocation error 是独立组。
+- 返回至少一个完整组；字节数是目标上限，单个完整组超过目标时允许单组返回。
+- Task 107 已约束单 entry；Task 106 不重新截断 entry。
+- page builder 返回 flat `AgentChatEntryDto[]`，显示组仅是服务端分页实现，不进入 live transport DTO。
+- 默认 30 groups 是基于真实样本的起点；后续调整不改变 API。
+
+### 6. Recovery vs history construction
+
+Recovery 请求构建：
+
+- readSession / reduce / profile runtime
+- live shell
+- relations
+- lightweight tree
+- 最近 history page
+- context usage
+- 不构建 system prompt
+
+History 请求只构建：
+
+- readSession
+- active path revision 校验
+- public history page
+
+History 请求不得调用：
+
+- `snapshotSystemPrompt()`
+- `sessionContextUsage()`
+- `sessionRelations()`
+- profile home/settings/catalog/skills prompt materialization
+
+System Prompt 请求只构建 prompt 所需材料，不顺带返回 shell/history/tree。
+
+### 7. Command/tree contract
+
+`GET /sessions/:id` 是唯一 snapshot/recovery 生产入口。
+
+- 轻 command：继续返回 `kind:"live_state"`。
+- retry/tree/edit/delete/branch switch：执行 durable mutation 后返回最新 `AgentSessionLiveStateDto`，不内嵌 snapshot。
+- 前端应用 live state；发现 `activePathRevision` 变化后，通过现有 snapshot single-flight 请求 recovery。
+- `POST /tree` 如同时 invoke，返回 `{status, state, invocation?}`，不返回 snapshot。
+- 删除 `AgentCommandResult.kind="snapshot"` 和 `AgentTreeResult.snapshot`。
+
+这样避免 GET 有界而 command/tree 仍回传全量历史的双轨设计。
+
+## Front-End State Design
+
+`useAgentSession` 内部分离但不额外建立大型 store：
+
+- recovery shell：summary/model/queues/pending/tree/revision/cursor。
+- durable history：按 ID 去重的 `AgentChatEntryDto[]`。
+- live overlay：Task 107 runtime delta。
+- optimistic user messages。
+- System Prompt view：独立于 durable history 的按需 UI state。
+
+行为：
+
+- initial recovery：替换 shell 和尾页，定位底部。
+- same-revision recovery：保留已经加载的更早页，替换重叠尾页并合并 live/optimistic overlay。
+- revision changed：清空旧 history，使用新 active path 尾页重建。
+- history response 到达时，校验 sessionId、请求 cursor 和当前 revision；不匹配则丢弃。
+- `AgentChatFlow.vue` 距顶部约 160 px 时触发加载。
+- 同一 cursor single-flight。
+- prepend 前后按 `scrollHeight` 差值恢复视口。
+- 保留显式加载/失败重试按钮；到达起点后隐藏。
+- 历史 prepend 不改变 `shouldStickToBottom`。
+- System Prompt 使用独立折叠卡/查看动作，不再投影成 history 中的虚拟 system message；单次 session 打开期间可保留已加载结果，切换 session 或显式刷新时失效。
+
+## Architecture Impact Review
+
+### Blocking — Preview 消息不能直接编辑保存
+
+`AgentChatEntryDto` 的 user/assistant 正文是 `PublicTextPreviewDto`。当前 `AgentTextBubble` 编辑动作会把前端 `message.content` 直接提交为新正文；若 `omitted=true`，保存会把截断预览永久写回 JSONL。
+
+本轮最小安全合同：
+
+- 前端 `AgentMessage` 保留 `contentBytes/contentOmitted`；
+- omitted 历史消息禁止进入可保存编辑态，并明确提示“当前仅展示预览”；
+- 复制动作说明复制的是预览；
+- 如果未来要求编辑完整超长正文，必须另行设计受控原文查询，不允许从 preview 反推原文，也不在本任务预留半成品 Interface。
+
+### Blocking — Recovery snapshot 与 Event cursor 的原子可恢复语义
+
+若 recovery 先读取 JSONL、再获取 EventHub cursor，二者之间新写入的 durable entry 可能既不在 snapshot 中，又被 cursor 跳过。Recovery builder 必须先捕获 replay-safe cursor/anchor，再读取和投影 JSONL；其后事件允许与 snapshot 重复，由前端按稳定 entry ID 去重。
+
+必须有公开 Harness/route 竞态测试：在 cursor 捕获与 snapshot read 之间 append/publish，最终前端不得丢 entry。
+
+### Resolved — 删除 Session Tree 节点详情
+
+当前 `AgentSessionTreeDialog.vue` 不只消费 `tree`：选中节点后还从 raw `snapshot.entries` 读取 assistant thinking/tool calls、tool result、compaction details、custom/variable data。用户已确认删除这部分 raw entry 内容详情。迁移后：
+
+- tree 行、branch switcher 仍可工作；
+- Tree Dialog 继续展示 `SessionTreeNode` 已有的 preview/status/role/time/branch/parent/childCount 等结构元数据；
+- 删除正文、thinking、tool result、compaction/custom data 等 raw entry 内容详情及其 projection、lookup 和测试；
+- “切换到此节点”、复制 entry ID、搜索、折叠等只依赖 tree 的操作继续保留；
+- Task 49 的结构审计、折叠、搜索、branch switcher 继续保留。
+
+这是明确的产品删减，不建立 `view=entry`，不能把 raw `entries` 继续塞回 recovery，也不能让前端解析 JSONL/parent 链。
+
+### Important — 服务端读取复杂度
+
+当前 `JsonlSessionRepository.readSession()` 每次都会完整读取和解析 JSONL。history page 虽然减少响应体，但仍可能是 O(session file size)：
+
+- session 94 的约 10 MB 文件每一页都可能重新解析；
+- cursor 只减少 projection/serialization，不自动减少 repository read cost；
+- 本任务必须记录冷/热 `readSession`、reduce、project、serialize timing，不能把“分页”描述成服务端 O(page) 查询。
+
+如果真实热路径仍不可接受，再单独设计 append-only repository index/cache；不要在本任务临时加入无失效规则的全局 Map。
+
+### Important — Recovery shell 仍不是小对象
+
+recovery 继续返回 lightweight tree、relations、pending input、context usage 和 model。它比 raw history 小很多，但 tree 可以随分支数增长，context usage 仍要扫描完整 provider context。实现后应分别记录字段 bytes；任何一个字段成为主瓶颈时另开设计，不把所有内容继续塞进 history page。
+
+### Moderate — 其他调用者影响
+
+- `ProfileTemplateVisualEditor.vue` 当前调用 `getSession()` 后丢弃结果；应迁移到真正的 scope/存在性读取 Seam，避免无意义 recovery。
+- Inline Editor 复用同一 session store/stream，但没有历史分页入口；它应只消费 recovery 尾页，不共享主 Chat Flow 的 history window。
+- Harness 中约 73 个 `getSessionSnapshot()` 测试调用直接检查 raw entries；应迁移到 `JsonlSessionRepository.readSession()` 或 public query seam，不能为了测试保留旧公开 DTO。
+- `pendingUserInputs/pendingApprovals`、`eventCursor/lastSeq/eventEpoch` 等重复字段必须同步迁移 live state、snapshot、command result 和前端 fixture，不能只改 GET DTO。
+
+### Important — 前端真相层与 cursor 所有权
+
+分页后 `AgentMessage[]` 不能继续作为 durable history 真相。`useAgentSession` 必须明确维护：
+
+- recovery shell；
+- 按 active path 顺序、稳定 ID 去重的 `durableEntries: AgentChatEntryDto[]`；
+- 当前最老已加载页的 `previousCursor`；
+- live overlay；
+- optimistic messages。
+
+same-revision recovery 只能替换重叠尾页，必须保留已加载旧页及其最老 cursor；不能用新尾页 cursor 覆盖，否则会重复翻页。History prepend 后再统一投影 durable messages，不能复用只支持尾部 append 的 live reducer。
+
+### Important — HTTP active-path mutation 必须显式触发 recovery
+
+当前 `applyLiveState()` 只设置 `needsSnapshot`，真正的 `syncSnapshot()` 由 SSE handler 驱动。tree/retry/edit 改为只返回 live state 后，HTTP result applicator 必须：
+
+```text
+apply live state -> 判断 revision change -> 进入同一个 snapshot single-flight
+```
+
+不能依赖随后“可能到达”的 SSE。HTTP 与 SSE 同时报告 revision change 时仍只能有一次 recovery。
+
+### Important — Query 组合必须由 schema 判别
+
+- `view=history` 的 cursor 与 `view=systemPrompt` 由判别 schema 严格互斥；缺少必填参数或携带额外模式参数时返回明确 400。
+- opaque cursor 的 base64url 只是编码，不是完整性保护；服务端仍必须验证 sessionId、revision、active path membership 和合法推进边界。
+- raw active path 中 projector 可能返回 null；page builder 必须跨过不可见账本 entry 且保证 cursor 每页推进，禁止空页死循环。
+- assistant/tool result 分组优先按 toolCallId 所属关系确认，不只依赖表面连续性。
+
+## Error Contract
+
+```typescript
+type AgentHistoryErrorCode =
+    | "INVALID_HISTORY_CURSOR"
+    | "ACTIVE_PATH_CHANGED";
+```
+
+- `INVALID_HISTORY_CURSOR`：HTTP 400，显示局部重试/刷新入口，不静默回最新页。
+- `ACTIVE_PATH_CHANGED`：HTTP 409，前端自动触发一次 recovery，并用局部说明告知历史分支已变化。
+- Project 未 open 继续使用现有 `PROJECT_NOT_OPEN` 409。
+- history 加载失败是 Chat Flow 局部可恢复状态，不使用全局成功通知。
 
 ## Scope
 
 ### In scope
 
-- snapshot/history query schema、判别联合 DTO、公开 Chat Flow entry 投影。
-- `GET /api/agent/sessions/:id` 的 recovery snapshot 与 history page。
-- repository/harness 中 active path 显示分组、cursor/revision 校验和有界 builder。
-- 删除公开 snapshot 中无消费者的 provider `messages` 字段，并修正相关测试/类型。
-- command/tree 等 active path 变更入口的有界 snapshot 一致性。
-- `useAgentSessionApi.ts`、`useAgentSession.ts`、`useAgentSessionStream.ts` 的分页与 recovery 合并。
-- `AgentChatSurface.vue`、`AgentChatFlow.vue` 的向上加载、错误重试和滚动锚点。
-- 与上述合同直接相关的 payload、API、reducer 和组件测试。
-- Task 106 walkthrough 与 `PROJECT-STATUS.md` 同步。
+- query schema、opaque cursor、recovery/history response union。
+- 复用 Task 107 `AgentChatEntryDto` 的 active path projector/page builder。
+- snapshot DTO 去重与所有调用者迁移。
+- GET、retry/tree/edit 等入口的唯一 recovery 合同。
+- `useAgentSessionApi`、`useAgentSession`、`useAgentSessionStream`。
+- `AgentChatSurface.vue`、`AgentChatFlow.vue` 的向上分页和滚动锚点。
+- payload/timing 基线、API/reducer/组件测试。
 
 ### Out of scope
 
-- Markdown Source/TipTap 编辑器。
-- Workspace 文件下载、目录树下载和右键菜单。
-- 安装脚本、portable root、agent bin 脚本、发布流程。
-- Config API、editor snapshot、依赖升级和 lockfile 重建。
-- SSE replay buffer、subscriber queue、event payload 队列内存治理。
-- invocation socket 断线恢复、writer update 累积和其他运行态修复。
+- 图片 attachment ref、迁移和 hydration：Task 108。
+- SSE/replay/backpressure：Task 107。
 - Session Tree UI 重设计或 tree 分页。
-- Agent session 列表分页；该能力属于 Task 73。
-- 修改 JSONL 历史数据或做兼容迁移；当前快速开发阶段直接硬切公开 DTO。
+- System Prompt 缓存；本轮只改为显式按需构建。
+- Agent session 列表分页：Task 73。
+- Markdown 编辑器、下载、安装、Config、依赖升级。
 - 浏览器验证，除非用户后续明确授权。
 
-## Required User Decisions
+## Systematic TDD Implementation Plan
 
-### D1 — 历史 tool result 的公开展示上限
+实现遵循纵向 tracer bullet：每个 Slice 先增加一条穿过公共 Interface 的失败行为测试，再写最小实现，转绿后才重构。禁止先批量创建 DTO shape 单测，也禁止通过保留旧 snapshot 双轨让测试暂时通过。
 
-事实：当前真实 session 存在 9.56 MB 单个 tool result；不做展示投影就无法保证 payload 上界。
+### Phase 0 — Interface freeze 与基线
 
-建议：公开 Chat Flow DTO 对 tool result 正文使用 64 KiB 预览上限，保留：
+- 决策：冻结 `recovery/history/systemPrompt` 三种判别查询、response union、错误码和删除字段；记录删除 Tree 节点详情的产品决策。
+- 基线：记录 session 94/160/324/489 的 `readSession`、reduce、project、serialize、response bytes、tree node/bytes。
+- 代码地图：列出所有 `getSessionSnapshot()`、`getSession()`、command/tree snapshot 消费者及约 73 个依赖 raw entries 的测试。
+- 退出条件：不存在未归类调用者；文档明确 recovery history 有界，但 whole recovery 因 tree/context usage 暂非严格有界。
+- 不做：业务实现、全局缓存、JSONL index、tree 分页。
 
-- `truncated: true`
-- `originalBytes`
-- 明确用户文案“历史工具输出过大，仅展示预览”
+### Slice 1 — 深化 Session Query Module
 
-JSONL 与模型上下文保留全文。本任务不新增“下载完整工具输出”能力；若产品需要，后续基于持久化 entry 设计显式查看入口。
+- RED：通过真实 route/harness 分别请求三种 view；非法参数组合返回 400；普通 recovery 无 raw `messages/entries`、重复 cursor/usage/pending 字段。
+- GREEN：把 query/response DTO 迁入 `shared/dto`，建立单一 Session Query Module；HTTP handler 只做 schema 解析和错误映射。
+- 迁移：`ProfileTemplateVisualEditor.vue` 改用真正需要的轻量存在性/作用域 Interface，不再无意义构建 recovery。
+- 退出条件：三个 typed client 方法闭合；删除 command/tree 从前端反向导入 harness types 的依赖。
+- 不做：分页算法、滚动 UI、repository 优化。
 
-需要用户确认：是否接受 64 KiB 建议值，以及本轮是否要求提供查看完整历史工具输出的入口。
+### Slice 2 — Recovery shell 与 durable history 真相层
 
-### D2 — System prompt 的首屏策略
+- RED：初始 recovery 只用新 DTO 即可恢复 shell、尾页、运行态；same-revision recovery 保留已经加载的旧页和最老 `previousCursor`；revision changed 才清空旧 history。
+- GREEN：`useAgentSession` 内明确维护 `recoveryShell`、`durableEntries`、`previousCursor`、`liveOverlay`、`optimisticMessages`，统一按稳定 entry ID 合并。
+- 退出条件：Inline Editor 只消费尾页；Agent Chat Surface 可在无 raw entries/provider messages 下打开；live overlay 最终可被 durable entry 收敛。
+- 不做：向上滚动触发。
 
-事实：system prompt 当前作为 Chat Flow 顶部 system bubble 展示；Task 74 曾测得冷构建约 2.26 秒。
+### Slice 3 — Opaque cursor 与基础 history page
 
-建议：recovery snapshot 默认不构建 system prompt；只有用户显式展开“查看当前 System Prompt”时，再通过同一 GET 路由的明确 projection 参数请求。这样不新增端点，也不让每次恢复支付冷成本。
+- RED：使用 recovery cursor 连续请求两页，无重叠、无遗漏、顺序稳定；history response 不包含 shell/tree/relations/context usage。
+- GREEN：实现版本化 cursor codec、长度限制、sessionId/revision/active-path membership/分页边界校验。
+- 退出条件：合并全部页后等于当前 active path 的完整中央公开投影；普通尾部 append 后旧 cursor 仍有效。
+- 不做：加密 cursor、客户端 page size、offset/beforeEntryId 公共参数。
 
-保守方案：首屏继续返回 system prompt，只先解决历史 payload；实现更小，但已知 2 秒级冷慢仍存在。
+### Slice 4 — 显示组、字节目标与不可见 entry 推进
 
-需要用户确认采用建议方案还是保守方案。
+- RED：assistant 与其 tool results 按 toolCallId 归组且不被拆开；projector 返回 null 的 entry 被跨过；每页 cursor 必须推进，不出现空页死循环；超大单组允许独页。
+- GREEN：在 Session Query Module 内实现内部显示组 builder，集中使用 30 groups / 256 KiB target，公开结果仍是 flat entries。
+- 退出条件：页首无孤立 tool result；session 489 的超大组行为明确；预算常量不泄漏到 HTTP Interface。
+- 不做：第二套 projector、对 entry 再截断、把显示组变成 live DTO。
 
-## Verification / Test
+### Slice 5 — Recovery cursor 并发正确性
 
-### Feedback loop / baseline
+- RED：在捕获 cursor 与读取 JSONL 之间 append/publish durable entry，应用 recovery + replay 后该 entry 至少出现一次且最终按 ID 去重，不得丢失。
+- GREEN：recovery builder 先捕获 replay-safe cursor/anchor，再读取 session truth；重复交付交给 durable merge 去重。
+- 退出条件：Task 14/62 的 seq gap、snapshot_required、event epoch、single-flight 契约保持成立。
+- 不做：跨 EventHub/JSONL 的分布式事务或全局锁。
 
-- [ ] 固化至少三类 fixture：长线性 active path、短 path + 单个超大 tool result、大 off-path tree + 短 active path。
-- [ ] 测量并记录旧/新 recovery snapshot：总 bytes、entries bytes、tree bytes、system prompt bytes、构建分段时间。
-- [ ] 测量 history page：entries bytes、实际组数、是否触发 shell 构建。
-- [ ] 响应目标以未压缩 JSON bytes 验证，HTTP 压缩只作补充，不作为正确性保障。
+### Slice 6 — Tree 详情删除与 omitted 编辑保护
 
-### Repository / API
+- RED：Tree Dialog 在没有 raw entries 时仍可展示结构元数据并完成 tree row、搜索、折叠、复制 ID 和 branch switch；`contentOmitted=true` 的消息不能保存编辑，复制明确是预览。
+- GREEN：删除 Tree Dialog 的 raw entry 内容详情及 lookup，保留只依赖 `SessionTreeNode` 的 inspector/action；前端编辑入口依据 DTO 元数据禁用，不从 preview 反推完整正文。
+- 退出条件：Task 49 的结构审计与 branch switcher 不退化；raw entry 内容详情相关状态、projection 和测试被删除；公开响应不出现 raw details/provider metadata。
+- 不做：完整超长正文编辑、图片 hydration、Tree UI 重设计。
 
-- [ ] 无 cursor 时返回最近一页完整显示组。
-- [ ] 连续向前翻页无重复、无遗漏、顺序稳定，最终 `hasMoreBefore=false`。
-- [ ] 页首不会出现没有 owner assistant 的 toolResult。
-- [ ] 普通 append 后旧 cursor 仍有效。
-- [ ] 显式 move leaf 后旧 revision 返回 `409 ACTIVE_PATH_CHANGED`。
-- [ ] invalid/non-active-path cursor 返回 `400 INVALID_HISTORY_CURSOR`。
-- [ ] 数量预算、字节预算和 oversized projection 均有边界测试。
-- [ ] 单个 10 MB tool result 的公开页保持在拍板后的预算内，JSONL 原文不变。
-- [ ] history page 不调用 system prompt/context usage/relations 构建 seam。
-- [ ] recovery snapshot 不再包含 provider `messages`。
-- [ ] retry/tree/编辑等 active path 入口不会返回无界 snapshot。
+### Slice 7 — Active-path mutation 统一 recovery
 
-### Front-end state
+- RED：retry/tree/edit/delete/branch switch 只返回 live state；HTTP 与 SSE 同时报告 revision change 时只触发一次 recovery；迟到的旧 session recovery 不可回写当前 session。
+- GREEN：删除 `AgentCommandResult.kind="snapshot"` 和 `AgentTreeResult.snapshot`，所有入口调用同一个 reason-aware snapshot single-flight。
+- 退出条件：GET 是唯一 recovery/history 生产入口；Task 74 command 轻路径保持轻量。
+- 不做：靠“随后可能到达的 SSE”隐式同步。
 
-- [ ] recovery snapshot 首次只显示尾页。
-- [ ] prepend 分页按稳定 ID 去重，不覆盖 live invocation、pending approval 和 optimistic user message。
-- [ ] 同一 cursor single-flight。
-- [ ] session/revision/cursor 已变化时忽略迟到响应。
-- [ ] same-revision recovery 保留已加载旧页；revision change 清空旧页。
-- [ ] 截断 tool result 显示明确状态，不伪装成完整输出。
+### Slice 8 — Chat Flow prepend transaction
 
-### AgentChatFlow
+- RED：距顶部阈值只对同一 cursor 发起一个请求；prepend 后首个可见锚点位置不变；迟到、旧 revision、旧 session response 被丢弃；失败可局部重试。
+- GREEN：`AgentChatFlow.vue` 只发出 load-previous 意图；宿主执行 cursor single-flight、revision guard 和 `scrollHeight` anchor transaction。
+- 退出条件：自动加载、显式重试、到起点停止、自动吸底互不干扰；历史加载错误留在 Chat Flow 局部。
+- 不做：虚拟列表。只有真实 DOM/内存测量证明必要时另行设计。
 
-- [ ] 接近顶部自动触发一次加载。
-- [ ] prepend 后视口锚点不跳动。
-- [ ] 加载失败可重试且 loading 状态复位。
-- [ ] 到达起点后不再触发。
-- [ ] 历史加载不破坏自动吸底。
+### Slice 9 — System Prompt 独立按需视图
 
-### Regression
+- RED：普通 recovery/history 均不调用 prompt build seam；只有用户展开独立 System Prompt 视图时请求 `view=systemPrompt`；结果不进入 durable entries，也不改变历史滚动锚点。
+- GREEN：将现有 prompt materialization 放到独立判别分支；前端维护 session-local loading/error/value，切换 session 或显式刷新时清除。
+- 退出条件：普通 recovery 的 `snapshotSystemPrompt=0`；System Prompt 功能保持可用且不伪装成历史消息。
+- 不做：服务端 prompt cache、预热或跨 session 持久缓存。
 
-- [ ] Task 14/62 snapshot recovery、seq gap、event epoch 和 SSE reducer 聚焦测试通过。
-- [ ] Task 49 branch switcher、Session Tree projection 和 tree move 聚焦测试通过。
-- [ ] Task 74 command live-state 聚焦测试通过。
-- [ ] TypeScript typecheck 通过。
-- [ ] 不自动运行浏览器验证；用户授权后再覆盖真实长 session 向上滚动、分支切换和 system prompt 入口。
+### Final Phase — 回归、性能与 walkthrough
 
-## Implementation Plan
+- 回归：公共 route/harness、Task 107 projector、Task 14/62 recovery、Task 49 tree、Task 74 command、前端 durable merge/scroll tests、typecheck。
+- 真实只读 smoke：session 94/160/324/489 至少翻两页，记录 response bytes 和阶段 timing；确认 history page 不构建 prompt/context/relations。
+- 复杂度结论：明确报告分页后的网络/前端收益与仍为 O(session file size) 的 repository 读取成本。只有测量不达标才提出独立 index/cache 任务。
+- Walkthrough：逐项记录实际结果、预算调整、删除/迁移的测试，以及与本计划的偏差；浏览器验证仍需用户另行授权。
 
-### Phase 0 — 用户决策与基线冻结
+## Verification
 
-- 拍板 D1 tool result 预览上限与完整输出入口范围。
-- 拍板 D2 system prompt 首屏策略。
-- 把本轮只读抽样转成可重复的测试 fixture/测量 helper；临时产物只放 `.agent/workspace`，完成后清理。
-- 记录旧接口 baseline，不先改业务代码。
+- [x] route/harness 公共 Interface tracer bullets 全部通过。
+- [x] Task 107 public projection tests 保持通过。
+- [x] Task 14/62 recovery、seq gap、event epoch、single-flight 回归通过。
+- [x] Task 49 tree/branch switcher 回归通过。
+- [x] Task 74 command live-state 回归通过。
+- [x] session 94/41/160/324/489 只读 smoke 记录新 response bytes 与 timing。
+- [x] 普通 recovery 不包含 base64、raw entries 或 provider messages。
+- [x] history page 不构建 system prompt/context usage/relations。
+- [x] typecheck 通过。
+- [ ] 用户授权后再做真实浏览器长 session 向上滚动验收。
 
-### Phase 1 — 公开 DTO 与分页纯逻辑
+## Implementation Result（2026-07-15）
 
-- 定义 recovery snapshot/history page 判别联合。
-- 定义强类型公开 Chat Flow entry projection 与 truncation metadata。
-- 从公开 snapshot 删除无消费者的 provider `messages`。
-- 在 repository 邻近层实现显示组投影、双预算窗口和 cursor/revision 校验纯逻辑。
-- 先完成红灯测试，再实现到绿灯。
+### Interface 与后端
 
-### Phase 2 — 统一有界 snapshot builder
+- `GET /api/agent/sessions/:id` 已硬切为 `recovery/history/systemPrompt` 三种严格判别 query；非法组合返回 `400 INVALID_SESSION_QUERY`。
+- recovery 只返回 shell、lightweight tree 和最近 history page；已删除 raw `messages/entries`、System Prompt、重复 cursor、顶层 usage 和 `pendingApprovals`。
+- 新增版本化 opaque cursor 和集中 history page builder：30 显示组 / 256 KiB target，assistant 与所属 tool results 不拆分，不可见账本 entry 可跨过且 cursor 必须推进。
+- cursor 严格校验版本、长度、session、active path revision 和分页边界；session/格式错误为 `400 INVALID_HISTORY_CURSOR`，revision 变化为 `409 ACTIVE_PATH_CHANGED`。
+- recovery 在读取 JSONL 前捕获 EventHub replay-safe cursor，建立“允许重复、禁止遗漏”的恢复顺序；前端按稳定 entry ID 去重。
+- history 分支只读取 session truth 并构建 page，不构建 prompt、relations、context usage 或 recovery shell。
+- System Prompt 只在 `view=systemPrompt` 时构建；普通 recovery 的 `snapshotSystemPrompt` timing 为 0。
+- retry/tree/edit 等 active-path mutation 只返回 live state；删除 command/tree 内嵌 recovery。Harness Interface 统一命名为 `getSessionRecovery/getSessionQuery`，旧 Snapshot DTO/方法无残留。
 
-- 重构 `buildSessionSnapshot()`，明确 shell builder、history projection 和 tree projection边界。
-- recovery 模式只构建一次必要 shell；history 模式跳过昂贵 shell。
-- GET、retry/tree/编辑等所有 snapshot 入口共享同一有界 builder 或统一 recovery 流程。
-- 保留现有 Server-Timing，新增只对诊断有意义的 history projection/serialization 分段，不记录正文或敏感数据。
+### 前端状态与交互
 
-### Phase 3 — 前端状态模型
+- `useAgentSession` 真相层已拆为 `recoveryShell`、`durableEntries/durableRevision`、`previousCursor`、`liveOverlay` 和 `optimisticMessages`。
+- same-revision recovery 保留已加载旧页与最老 cursor；revision changed 重建 durable history；history/systemPrompt 请求均具备 session generation、single-flight 和迟到响应保护。
+- HTTP mutation 与 SSE revision change 进入同一个 reason-aware recovery single-flight；history 409 也会自动 recovery。
+- `AgentChatFlow.vue` 在顶部 160 px 自动加载，支持显式加载/局部失败重试，并用 prepend transaction 保持视口；transaction 期间显式抑制短列表的自动吸底。
+- System Prompt 改为独立按需 panel，不再伪装成历史消息，也不影响历史顺序和滚动锚点。
+- `contentOmitted` user/assistant 消息禁止编辑，复制按钮明确提示复制的是预览；Surface 再做一次保存前保护。
+- Tree Dialog 删除 raw entry 的正文、thinking、tool result、compaction/custom data 内容详情，保留 lightweight tree 的结构元数据、搜索、折叠、复制 ID 和 branch switch。
+- `ProfileTemplateVisualEditor.vue` 删除结果被丢弃的无意义 session recovery 请求；command/tree result DTO 不再从前端反向导入 Harness 内部类型。
 
-- API composable 支持同一路由两种判别响应。
-- session store 分离：当前 shell、已加载 history window、live/optimistic overlay。
-- 实现 same-revision recovery 合并、revision reset、迟到响应保护和截断状态投影。
-- 不把 HTTP 生命周期重新塞回纯 reducer；维持 Task 14 已有职责边界。
+### 真实 session smoke
 
-### Phase 4 — Agent Chat Flow 交互
+| Session | readSession | active path | latest page | previous page | tree |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 94 | 25.32 ms | 285 entries | 45 / 60,858 B | 52 / 88,629 B | 285 / 106,883 B |
+| 41 | 5.98 ms | 20 entries | 17 / 24,459 B | 无 | 20 / 6,276 B |
+| 160 | 8.76 ms | 18 entries | 13 / 55,175 B | 无 | 851 / 323,171 B |
+| 324 | 5.13 ms | 217 entries | 56 / 244,171 B | 58 / 258,833 B | 228 / 86,412 B |
+| 489 | 7.95 ms | 126 entries | 45 / 214,672 B | 25 / 253,993 B | 133 / 53,737 B |
 
-- 增加顶部阈值自动加载与显式重试入口。
-- 复用滚动容器实现高度差锚定，不重复创建全局 pointer/mouse 监听。
-- 覆盖高频 scroll、防重复触发、失败重试和 session 切换场景。
+两页 history 投影耗时约 0.26–4.73 ms，序列化约 0.05–1.23 ms。该结果证明网络与前端常驻 history 已有界，但 repository 读取仍为 O(session file size)，tree 仍是独立增长维度；本轮没有据此添加缓存/index 或 tree 分页。
 
-### Phase 5 — 聚焦回归与审查
+### Verification Result
 
-- 运行本任务聚焦测试、Task 14/49/62/74 相关回归和 typecheck。
-- 用真实 session 94/41/160 做只读 payload smoke，报告旧/新 bytes 与构建时间。
-- 审查文件范围，确认没有混入 PR #7 的编辑器、下载、安装、Config 或 event memory 改动。
-- 更新 Task 106 的实际变更文件、验证结果和计划偏差。
-- 等待用户决定是否进行浏览器验证、Git 提交和新 PR。
+- Task 106/107 公共查询、projection、前端状态/UI 聚焦回归：15 files / 93 tests passed。
+- Agent Chat Surface 目录回归：16 files / 90 tests passed。
+- Harness + black-box：2 files / 186 tests passed。
+- Profile 受影响面单独重跑：5 files / 84 tests passed。
+- `bun run typecheck` passed。
+- 扩大到整个 `server/agent` 的回归为 69 files / 807 tests passed，另有 6 files / 11 tests failed：其中 6 项 SillyTavern card 测试缺少 `.agent/workspace/cards` 私有 fixture；其余 5 个 profile 测试是并行大套件超时/调度失败，单独重跑 84 tests 全绿。未为这些无关失败修改业务代码。
+
+### 计划偏差
+
+- 最终没有建立额外的通用 Session Query class/DI seam；查询逻辑集中在现有 Harness + `history-query.ts`，避免只有一个 adapter 的浅抽象。
+- `ProfileTemplateVisualEditor.vue` 的旧调用结果完全未使用，因此直接删除，而不是为它新增存在性 endpoint。
+- 浏览器验证仍未执行，符合任务 Out of scope；后续需要用户明确授权。
+
+## Review Fix Result（2026-07-15）
+
+本轮在实现后按 HTTP、history pagination、SSE recovery、optimistic UI 四条链重新审查，修复以下遗漏：
+
+- `INVALID_HISTORY_CURSOR` 不再停留在不可重试状态：前端保留当前内容，请求既有 recovery single-flight；成功后以最新尾页和新 cursor 重置失效窗口并滚动到底部，失败时不提前清空。普通网络错误仍保留原 cursor 供局部重试。
+- history 显示组改为按 `toolCallId` 归属形成 span。assistant 到其最后一个 tool result 之间的可见 entry 保持原始顺序并纳入同组；相交 span 合并，orphan tool result 独立，避免 system/lifecycle entry 插入后错误拆组。
+- invocation、command、tree、abort 的公开 HTTP result DTO 已迁入 `shared/dto/agent-session.dto.ts`；Harness 只保留内部输入和运行模型。`reportResult.data` 在内部→公开边界校验为 JSON value，前端不再反向导入 Harness 类型。
+- optimistic user message 改用本地唯一序列；live entry 与 recovery 都按出现顺序逐条消费同正文 optimistic message，不再一次删除全部重复文本。
+- 删除无人使用的 `retryHistory()` 包装；`getSessionRecovery()` 注释与当前职责对齐。
+
+本轮没有新增 endpoint、cursor rebase、cache/index、tree pagination、持久化 `clientMessageId` 或图片引用协议。invalid cursor 采用已确认的“恢复成功后重置到最新尾页”方案，没有引入复杂的视口保留协议。
+
+### Review Fix Verification
+
+- Agent Chat Flow、history query 与 Task 107 public projection：20 files / 127 tests passed。
+- Harness、black-box、HTTP 与 shared result contract：4 files / 199 tests passed。
+- `bun run typecheck` passed。
+- 未执行浏览器验证；建议后续授权验证长 session 向上翻页、invalid cursor 重置后滚动到底部，以及短列表 prepend 锚点。
+
+### Review Fix 计划偏差
+
+- 实际审查额外发现不同 invocation 可能复用相同 `toolCallId`；owner map 若只按 toolCallId 建键会让后一个结果变成 orphan。实现已将 ownership key 收窄为 invocation + toolCallId，并补分页边界回归。
+- recovery 成功后的滚动行为保留在 Surface 编排层，没有为单一调用抽取新的 helper/state machine；确定性状态由 composable 测试覆盖，真实滚动交互留给浏览器验收。
+- 原计划要求的 HTTP wire shape 没有变化；本轮只移动 TypeScript 所有权并在内部→公开边界增加 JSON value 校验。
+
+## Second Review Fix Result（2026-07-15）
+
+第一轮完成审查后又沿 optimistic/recovery side-effect/shared abort client 三条链补齐以下遗漏：
+
+- recovery 不再用尾页中的全部 user entry 消费 optimistic message。实现现在区分 durable revision 与显示窗口合并条件，只允许同 revision 下、本地此前未见过的 durable entry 按正文顺序收敛 optimistic；旧尾页重放和新分支历史不会误删刚发送的同文本消息。
+- `applyRecovery()` 返回内部 `historyWindowReset` 结果。既有 stream side-effect seam 会等待该结果对应的异步副作用；invalid cursor 无论由 history HTTP 还是并发 SSE 首先完成 recovery，都只会在成功应用后滚动到底部一次。失败时不清空内容、不改变视口。
+- stream recovery reason 显式识别 `invalid_history_cursor`；Surface 不再从可能被 recovery 清空的 reasons 数组推断滚动副作用。
+- `abortSession()` 已使用 shared `AgentAbortResult` 作为 `$fetch` 返回类型，补齐四类公开 HTTP result 的前端合同。
+
+### Second Review Verification
+
+- optimistic、pagination、stream single-flight/side-effect、abort API：3 files / 25 tests passed。
+- Task 106 history/command 与未受并行变更影响的 Task 107 projection 聚焦回归：8 files / 66 tests passed。
+- 额外纳入 `public-event-projection.test.ts` 的最终审计为 76/77 passed；唯一失败是并行修改中的超大 Low-Code `formSpec` 当前抛出 `agent_user_input_form_too_large`，不属于本轮 optimistic/recovery/abort 改动。
+- Harness/black-box/HTTP/shared contract 扩大回归共 199 tests，其中 180 passed、19 failed；失败均来自工作区另一组正在演进的 steer/follow-up queue 与 pending input public projection 形状，和本轮三个修复无关。
+- workspace-wide `bun run typecheck` 同样被上述并行 DTO 演进阻断；本轮新增 fixture 唯一暴露的 `intent` 缺失已修复。未越界修改无关 queue/public-tool 代码。
+- 未执行浏览器验证；仍建议验证 invalid cursor reset、长 session 向上翻页和短列表滚动锚点。
+
+### Second Review 计划偏差
+
+- 原计划期望全量 Harness 与 typecheck 全绿，但当前共享工作区存在无关且未收口的 DTO 变更，因此只能完成 scoped verification，不能把 workspace-wide gate 记录为通过。
+- 没有为滚动新增第二套状态机，也没有扩展 `loadPrevious()` 返回协议；窗口重置意图通过既有 recovery apply/side-effect seam 传递。
+
+## Third Review Fix Result（2026-07-15）
+
+本轮继续沿公开投影与 recovery 交叉链审查，补齐两个遗漏：
+
+- optimistic 消费现在使用公开 user content 的 `{preview, bytes, omitted}` 描述。未截断文本使用全文匹配；截断文本使用 UTF-8 总字节数相等且完整 optimistic 正文以公开 preview 开头，live entry 与 recovery 共用规则。长中文/emoji prompt 不再同时保留 optimistic 与 durable 两条消息。
+- `historyWindowReset` 改为同一 session 的失效窗口是否被本次 recovery 替换，不再要求 revision 相同。因此 invalid cursor 后 active path 同时变化时仍会执行一次最新尾页滚动；普通 revision change、首次加载和 session 切换不触发该副作用。
+
+### Third Review Verification
+
+- pagination/optimistic/stream/abort/history/public projection：8 files / 71 tests passed。
+- 最终 `bun run typecheck` 仅剩并行 queue DTO 迁移造成的 3 个 `write-plan.test.ts` fixture 错误（`steerQueue` 仍使用旧数组形状）；没有出现本轮新增的类型错误。
+- 未执行浏览器验证；建议授权验证长 prompt、invalid cursor + branch change 和长 session 滚动。
+
+### Third Review 计划偏差
+
+- 使用浏览器原生 `TextEncoder` 计算 UTF-8 bytes，没有引入 Node `Buffer` 或新共享运行时工具。
+- 没有扩展 JSONL、HTTP DTO 或 optimistic 持久化协议；仍采用当前串行 prompt 假设下的 preview-prefix + bytes 本地匹配。
 
 ## Architecture Guardrails
 
-- 不新增与同一 session 查询语义重复的 GET 端点。
-- 不在前端对原始 JSON 字符串做分页或截断。
-- 不用 offset 分页 append-only tree。
-- 不让 history page 重算完整 snapshot shell。
-- 不保留 full/legacy 两套公开 snapshot DTO；直接迁移所有调用者。
-- 不改变 JSONL 真相、模型上下文和 compaction 语义。
-- 不为尚未出现的 tree 百万节点场景预先设计通用图数据库或持久化索引。
-- 不因为本任务顺手重写 SSE、Session Tree UI 或工具运行协议。
-- 任何新增类型必须表达真实领域含义；函数保持现有组件边界，只有复用或正确测试 seam 明确时才抽取。
+- 不新增同义 GET 端点。
+- “Session Query Module”表示集中查询语义与实现 locality，不要求新增只有一个 adapter 的抽象 Interface、DI 层或 pass-through class。
+- 不在前端解析 cursor、entry parent 链或 raw SessionEntry。
+- 不复制 Task 107 projector/preview 常量。
+- durable entries 与 pending formSpec 的预算继续完全由 Task 107 projector/validator 提供；Task 106 不在 history builder 或前端分页层二次截断。
+- 不暴露客户端可调字节预算。
+- 不为分页建立第二套 active path revision。
+- 不保留新旧 snapshot DTO 双轨。
+- 不改变 JSONL、模型上下文、compaction 或图片持久化语义。
+- 不在本任务顺手分页 tree、缓存 prompt 或设计附件系统。
 
-## Collaboration Workflow
+## Final Task Review（2026-07-15）
 
-1. 调研与任务设计：已完成第一轮，等待 D1/D2 拍板。
-2. 实现前先提交红灯测试和 DTO diff 供审查，不直接大改 Harness。
-3. 按“纯分页/投影 → 后端统一 builder → 前端状态 → Chat Flow 交互”推进，每阶段都可独立审查。
-4. 每轮将实际结果、测量和计划偏差写回本文档；性能与复杂度出现权衡时交由用户决定。
-5. PR #7 只逐段参考，不 cherry-pick 无关提交。
-6. 代码审查通过后，由用户决定浏览器验证、提交和创建新 PR。
+### 审查结论
 
-## TODO / Follow-ups
+Task 106 已达到可实施状态，没有未决的 Interface 或产品阻断。最终设计保持一个深 Session Query Module：调用者只学习三种严格 query、两种 history/recovery 合并规则和两个 cursor 错误；active path 读取、公开投影、分组预算、并发恢复和性能计时留在实现内部。
 
-- [x] 梳理 snapshot/repository/Chat Flow 调用链。
-- [x] 抽样真实 session 的 active path、provider messages 和 tree bytes。
-- [x] 确认只按 entry count 分页无法解决超大 tool result。
-- [x] 确认 command/tree 存在无界 snapshot 回流入口。
-- [ ] 用户拍板 D1。
-- [ ] 用户拍板 D2。
-- [ ] 固化性能 fixture 与 baseline。
-- [ ] 编写 DTO/repository/API 红灯测试。
-- [ ] 实现公开 Chat Flow entry 有界投影。
-- [ ] 实现同一路由 recovery/history 两种模式。
-- [ ] 统一 GET 与 active-path command 的有界 snapshot 行为。
-- [ ] 实现 revision-aware 前端分页合并。
-- [ ] 实现向上滚动自动加载和滚动锚点。
-- [ ] 完成聚焦回归、真实样本 smoke 和代码审查。
-- [ ] 用户决定是否执行浏览器验证。
+用户已确认删除 Session Tree 的 raw entry 内容详情，因此：
 
+- 不建立 `view=entry`、detail DTO、detail cache 或相关错误码；
+- 删除 raw `snapshot.entries` 后不会再有隐藏兼容消费者；
+- lightweight tree 的结构审计、preview/status、搜索、折叠、复制 ID 和 branch switcher 必须保留。
+
+### 实施影响面
+
+- Shared DTO：session query/result、command/tree result、重复 snapshot 字段硬删除。
+- Server：HTTP query schema、Harness recovery builder、history page builder、cursor codec、command/tree mutation result、timing instrumentation。
+- Frontend state：`useAgentSessionApi`、durable entries/recovery shell/live overlay/optimistic message、snapshot single-flight。
+- Frontend UI：Chat Flow prepend transaction、System Prompt 独立视图、omitted 编辑保护、Tree Dialog raw 内容详情删除。
+- Tests：route/Harness public behavior、cursor/group/recovery race、frontend merge/scroll、Task 49/14/62/74/107 回归；直接检查 raw snapshot entries 的测试迁移到 repository truth 或公共 query Interface。
+- Documentation：Task 49 的详情删减合同、Task 106 walkthrough、PROJECT-STATUS。
+
+### 已接受的剩余风险
+
+1. history page 仍需完整解析 JSONL，服务端复杂度暂为 O(session file size)；Task 106 只承诺降低网络响应和前端常驻历史。最终 smoke 必须报告真实 timing，不能宣称 O(page)。
+2. recovery 仍包含完整 lightweight tree 与 context usage，whole recovery 不是严格常量大小；必须分别记录 tree nodes/bytes 和 shell 字段 bytes。
+3. Task 108 完成前，历史 JSONL/Provider context 中仍可能存在图片 base64；Task 107/106 只保证它不进入公开 history/SSE 响应。
+4. 单个完整显示组可超过 256 KiB target；这是保持 assistant/tool result 语义完整性的明确例外，不是预算失效。
+
+### 实施停止条件
+
+实现中出现以下情况时必须停止并重新设计，不能用 fallback/hack 绕过：
+
+- `AgentChatEntryDto` 无法表达现有 Chat Flow 的必要可见内容，需要 raw `SessionEntry` 才能渲染；应修中央 projector。
+- recovery cursor 与 EventHub 无法建立“允许重复、禁止遗漏”的顺序语义；应先修恢复合同。
+- 分页只能通过复制 Task 107 截断逻辑或建立第二套 active path revision 完成；应合并到既有 Module。
+- history 实测解析时间不可接受且需要缓存/index；应基于测量另开 repository 任务，先定义失效与生命周期，不在本任务加入全局 Map。
+- 删除 raw entries 后发现未登记的产品消费者；先确认该能力保留或删除，不能偷偷恢复旧 DTO。
+
+## Walkthrough Status
+
+- [x] 核对 Task 107 实际实现与共享 DTO。
+- [x] 重新测量真实 session 的 projected history。
+- [x] 将图片引用移交 Task 108。
+- [x] 冻结单 GET、opaque cursor、response union 和 snapshot 去重设计。
+- [x] 完成跨 Task 14/49/62/74/107/108 的整体影响审查。
+- [x] 制定带依赖、退出条件和明确非目标的系统性纵向实施计划。
+- [x] 用户确认删除 Session Tree 节点详情，不建立 `view=entry`。
+- [x] 完成最终整体审查，记录影响面、接受风险和实施停止条件。
+- [x] 完成 Phase 0 与 Slice 1–9 实现。
+- [x] 完成 scoped regression、真实 session smoke、typecheck 和计划偏差记录。
+- [x] 完成 review fixes：invalid cursor、ownership span、shared result DTO 与 optimistic 精确收敛。
+- [ ] 用户授权后执行真实浏览器长 session 验收。
