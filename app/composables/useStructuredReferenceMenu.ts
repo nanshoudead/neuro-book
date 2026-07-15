@@ -123,14 +123,31 @@ export function useStructuredReferenceMenu(options: UseStructuredReferenceMenuOp
     });
 
     function matchesReferenceQuery(query: string, fields: Array<string | null | undefined>): boolean {
-        const normalizedQuery = query.trim().toLocaleLowerCase("zh-CN");
-        if (!normalizedQuery) {
+        const normalizedTokens = query
+            .trim()
+            .toLocaleLowerCase("zh-CN")
+            .split(/\s+/u)
+            .map((token) => token.replace(/^[$￥¥]/u, ""))
+            .filter(Boolean);
+        if (normalizedTokens.length === 0) {
             return true;
         }
 
-        return fields
+        const normalizedFields = fields
             .filter((value): value is string => Boolean(value))
-            .some((value) => value.toLocaleLowerCase("zh-CN").includes(normalizedQuery));
+            .map((value) => value.toLocaleLowerCase("zh-CN"));
+        return normalizedTokens.every((token) => normalizedFields.some((value) => value.includes(token)));
+    }
+
+    function skillSearchFields(item: AgentSkillCatalogItemDto): Array<string | null | undefined> {
+        return [
+            item.key,
+            item.name,
+            item.description,
+            item.whenToUse,
+            item.source,
+            item.sourcePath,
+        ];
     }
 
     async function refreshSkillCatalog(): Promise<void> {
@@ -271,7 +288,7 @@ export function useStructuredReferenceMenu(options: UseStructuredReferenceMenuOp
                 void refreshSkillCatalog();
             }
             const items = skillCatalog.value
-                .filter((item) => matchesReferenceQuery(context.query, [item.name, item.description]))
+                .filter((item) => matchesReferenceQuery(context.query, skillSearchFields(item)))
                 .map((item) => ({
                     id: `skill:${item.name}`,
                     label: item.name,

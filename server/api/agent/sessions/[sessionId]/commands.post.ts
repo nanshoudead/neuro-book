@@ -10,5 +10,5 @@ export default defineEventHandler(async (event) => {
     const timing = createServerTiming(event);
     const sessionId = requireAgentSessionId(event);
     const body = await validateBody(event, AgentCommandRequestDtoSchema);
-    return runAgentSessionCommand(sessionId, body, undefined, timing);
+    return runAgentSessionCommand(sessionId, body, undefined, timing, {entriesLimit: 100});
 });

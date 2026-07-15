@@ -4,6 +4,7 @@ const publicApiPaths = new Set([
     "/api/auth/login",
     "/api/auth/logout",
     "/api/auth/me",
+    "/api/auth/remembered-login",
     "/api/_auth/session",
 ]);
 

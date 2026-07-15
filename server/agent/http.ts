@@ -94,10 +94,16 @@ export async function listAgentSessions(query: AgentSessionListQueryDto, harness
 /**
  * 返回前端恢复用 session snapshot。
  */
-export async function getAgentSessionSnapshot(sessionId: number, harness = useAgentHarness(), timingSink?: ServerTimingSink) {
+export async function getAgentSessionSnapshot(sessionId: number, harness = useAgentHarness(), timingSink?: ServerTimingSink, options?: {entriesLimit?: number | null}) {
+    if (!timingSink && !options) {
+        return harness.getSessionSnapshot(sessionId);
+    }
+    if (timingSink && !options) {
+        return harness.getSessionSnapshot(sessionId, timingSink);
+    }
     return timingSink
-        ? harness.getSessionSnapshot(sessionId, timingSink)
-        : harness.getSessionSnapshot(sessionId);
+        ? harness.getSessionSnapshot(sessionId, timingSink, options)
+        : harness.getSessionSnapshot(sessionId, undefined, options);
 }
 
 /**
@@ -119,10 +125,16 @@ export async function invokeAgentSession(sessionId: number, body: AgentInvokeReq
 /**
  * 执行 session command。slash command 在前端识别后进入这里。
  */
-export async function runAgentSessionCommand(sessionId: number, body: AgentCommandRequestDto, harness = useAgentHarness(), timingSink?: ServerTimingSink) {
+export async function runAgentSessionCommand(sessionId: number, body: AgentCommandRequestDto, harness = useAgentHarness(), timingSink?: ServerTimingSink, options?: {entriesLimit?: number | null}) {
+    if (!timingSink && !options) {
+        return harness.runCommand(sessionId, body);
+    }
+    if (timingSink && !options) {
+        return harness.runCommand(sessionId, body, timingSink);
+    }
     return timingSink
-        ? harness.runCommand(sessionId, body, timingSink)
-        : harness.runCommand(sessionId, body);
+        ? harness.runCommand(sessionId, body, timingSink, options)
+        : harness.runCommand(sessionId, body, undefined, options);
 }
 
 /**
@@ -130,8 +142,10 @@ export async function runAgentSessionCommand(sessionId: number, body: AgentComma
  *
  * 当前实现先移动 leaf 再 invoke；若 invoke 失败，leaf 不会自动回滚。
  */
-export async function moveAgentSessionTree(sessionId: number, body: AgentTreeRequestDto, harness = useAgentHarness()) {
-    return harness.moveTree(sessionId, body);
+export async function moveAgentSessionTree(sessionId: number, body: AgentTreeRequestDto, harness = useAgentHarness(), options?: {entriesLimit?: number | null}) {
+    return options
+        ? harness.moveTree(sessionId, body, options)
+        : harness.moveTree(sessionId, body);
 }
 
 /**

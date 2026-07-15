@@ -29,8 +29,8 @@ const VOLUME_TRIGGER_PATTERN = /(?:^|[\s(])(@volume:\/\/[^\s)]*)$/i;
 const LOREBOOK_TRIGGER_PATTERN = /(?:^|[\s(])(@lorebook:\/\/[^\s)]*)$/i;
 const THREAD_TRIGGER_PATTERN = /(?:^|[\s(])(@thread:\/\/[^\s)]*)$/i;
 const SCENE_TRIGGER_PATTERN = /(?:^|[\s(])(@scene:\/\/[^\s)]*)$/i;
-const SKILL_TRIGGER_PATTERN = /(?:^|[\s(])(\$(?:\{(?:[\p{L}_-][\p{L}\p{N}_-]*)?\}?|[\p{L}_-][\p{L}\p{N}_-]*|)?)$/u;
-const SKILL_MENTION_PATTERN = /(?:^|[\s(])(?:\$([\p{L}_-][\p{L}\p{N}_-]*)|\$\{([\p{L}_-][\p{L}\p{N}_-]*)\})/gu;
+const SKILL_TRIGGER_PATTERN = /(?:^|[\s(])((?:\$\{[^\s)}]*\}?|[$￥¥][^\s)]*))$/u;
+const SKILL_MENTION_PATTERN = /(?:^|[\s(])(?:[$￥¥]([^\s{}()，。！？；：、,.!?;:]+)|\$\{([\p{L}_-][\p{L}\p{N}_-]*)\})/gu;
 const COMMAND_TRIGGER_PATTERN = /(?:^|[\s(])(\/[a-z-]*)$/i;
 
 /**

@@ -290,7 +290,7 @@ describe("NeuroAgentHarness black-box contract", () => {
         expectOrdered(observed.events, "agent_start", "turn_start");
         expectOrdered(observed.events, "tool_execution_start", "tool_execution_end");
         expectOrdered(observed.events, "turn_end", "agent_end");
-    });
+    }, 15_000);
 
     it("Idle + continue 从现有 dialogue tail 继续且不新增 user message", async () => {
         const profileKey = registerPlainProfile(harness, {

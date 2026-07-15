@@ -2,7 +2,7 @@
 import {storeToRefs} from "pinia";
 import {useIdeTheme} from "nbook/app/composables/useIdeTheme";
 import {useNovelIdeStore} from "nbook/app/stores/novel-ide";
-import type {AuthSessionDto} from "nbook/shared/dto/auth.dto";
+import type {AuthSessionDto, RememberedLoginDto} from "nbook/shared/dto/auth.dto";
 
 definePageMeta({
     layout: false,
@@ -30,6 +30,77 @@ const resolveRedirect = (): string => {
 };
 
 /**
+ * 从本机服务恢复上次登录凭据。Tauri 使用随机 localhost 端口，不能依赖 localStorage。
+ */
+const restoreRememberedLogin = async (): Promise<void> => {
+    try {
+        const remembered = await $fetch<RememberedLoginDto>("/api/auth/remembered-login");
+        username.value = remembered.username;
+        password.value = remembered.password;
+    } catch {
+        username.value = "";
+        password.value = "";
+    }
+};
+
+/**
+ * 登录成功后记住凭据。当前应用是本机桌面封装，优先换取可用性。
+ */
+const saveRememberedLogin = async (): Promise<void> => {
+    await $fetch<RememberedLoginDto>("/api/auth/remembered-login", {
+        method: "POST",
+        body: {
+            username: username.value,
+            password: password.value,
+        },
+    });
+};
+
+/**
+ * 登录成功后尽力记住凭据，保存失败不阻断登录。
+ */
+const saveRememberedLoginQuietly = async (): Promise<void> => {
+    try {
+        await saveRememberedLogin();
+    } catch (error) {
+        console.warn("保存本机登录凭据失败", error);
+    }
+};
+
+/**
+ * 本地兜底：开发环境同端口时仍兼容旧 localStorage 记录。
+ */
+const restoreLocalStorageLogin = (): void => {
+    if (!import.meta.client || username.value || password.value) {
+        return;
+    }
+    const raw = window.localStorage.getItem("auth:remembered-login");
+    if (!raw) {
+        return;
+    }
+    try {
+        const remembered = JSON.parse(raw) as Partial<RememberedLoginDto>;
+        username.value = typeof remembered.username === "string" ? remembered.username : "";
+        password.value = typeof remembered.password === "string" ? remembered.password : "";
+    } catch {
+        window.localStorage.removeItem("auth:remembered-login");
+    }
+};
+
+/**
+ * 本地兜底：保留一份同端口 localStorage，方便普通浏览器开发模式。
+ */
+const saveLocalStorageLogin = (): void => {
+    if (!import.meta.client) {
+        return;
+    }
+    window.localStorage.setItem("auth:remembered-login", JSON.stringify({
+        username: username.value,
+        password: password.value,
+    } satisfies RememberedLoginDto));
+};
+
+/**
  * 登录提交。
  */
 const submit = async (): Promise<void> => {
@@ -47,6 +118,8 @@ const submit = async (): Promise<void> => {
                 password: password.value,
             },
         });
+        await saveRememberedLoginQuietly();
+        saveLocalStorageLogin();
         await router.push(resolveRedirect());
     } catch (error) {
         errorMessage.value = error instanceof Error ? error.message : t("auth.loginFailed");
@@ -58,6 +131,8 @@ const submit = async (): Promise<void> => {
 onMounted(() => {
     mountThemeHost(themeHostRef.value);
     void (async () => {
+        await restoreRememberedLogin();
+        restoreLocalStorageLogin();
         try {
             const session = await $fetch<AuthSessionDto>("/api/auth/me");
             if (!session.authEnabled || session.user) {

@@ -8,6 +8,7 @@ import FormSelect, {type SelectOption} from "nbook/app/components/common/form/Fo
 import {useNovelIdeStore, type WorkspaceFileIssue, type WorkspaceFileNode} from "nbook/app/stores/novel-ide";
 import {isWorkspaceContentScopePath} from "nbook/app/components/novel-ide/workspace/workspace-file-tree";
 import {normalizeLucideIconName, readLucideIconClass} from "nbook/app/utils/lucide-icons";
+import {computeManuscriptStats, type ManuscriptStatsSnapshot as BaseManuscriptStatsSnapshot} from "nbook/app/utils/manuscript-stats";
 
 const FRONTMATTER_PATTERN = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/;
 
@@ -18,12 +19,7 @@ type ManuscriptFrontmatterDraft = {
     summary: string;
 };
 
-type ManuscriptStatsSnapshot = {
-    currentWords: number;
-    totalWords: number;
-    totalSize: number;
-    chapters: number;
-    files: number;
+type ManuscriptStatsSnapshot = BaseManuscriptStatsSnapshot & {
     updatedAt: string;
 };
 
@@ -42,7 +38,7 @@ const emit = defineEmits<{
 
 const store = useNovelIdeStore();
 const {t, locale} = useI18n();
-const {selectedFileContent, savingFile, workspaceTree} = storeToRefs(store);
+const {selectedFileContent, savingFile, workspaceTree, workspaceTreeRevision} = storeToRefs(store);
 const frontmatterText = ref("");
 const markdownBody = ref("");
 const localFrontmatterError = ref<string | null>(null);
@@ -85,15 +81,6 @@ const canConvertFileToDirectory = computed(() => Boolean(
 ));
 const renderedContent = computed(() => renderMarkdownDocument(frontmatterText.value, markdownBody.value));
 const isFrontmatterDirty = computed(() => isContentIndexFile.value && renderedContent.value !== selectedFileContent.value);
-const manuscriptBasePath = computed(() => {
-    if (!props.node) {
-        return "";
-    }
-    if (props.node.path.toLowerCase().endsWith("/index.md")) {
-        return props.node.path.slice(0, -"/index.md".length);
-    }
-    return props.node.path.replace(/\/$/, "");
-});
 const currentIconName = computed(() => normalizeLucideIconName(parseFrontmatterText(frontmatterText.value).frontmatter.icon));
 const currentIconClass = computed(() => readLucideIconClass(currentIconName.value) ?? "i-lucide-notebook-tabs");
 const readonlyFrontmatterText = computed(() => {
@@ -168,14 +155,9 @@ function refreshManuscriptStats(): void {
         return;
     }
 
-    const prefix = `${manuscriptBasePath.value}/`;
-    const descendants = workspaceTree.value.filter((node) => node.path.startsWith(prefix));
+    const stats = computeManuscriptStats(props.node, workspaceTree.value);
     manuscriptStats.value = {
-        currentWords: props.node.words,
-        totalWords: descendants.reduce((total, node) => total + node.words, props.node?.words ?? 0),
-        totalSize: descendants.reduce((total, node) => total + node.size, props.node?.size ?? 0),
-        chapters: descendants.filter((node) => node.contentNode && !node.isDirectory && node.path.toLowerCase().endsWith("/index.md")).length,
-        files: descendants.filter((node) => !node.isDirectory).length,
+        ...stats,
         updatedAt: new Date().toLocaleTimeString(locale.value, {hour: "2-digit", minute: "2-digit"}),
     };
 }
@@ -197,7 +179,7 @@ function applySelectedIcon(iconName: string): void {
     void saveFrontmatter();
 }
 
-watch(() => [props.node?.path, selectedFileContent.value], () => {
+watch(() => [props.node?.path, selectedFileContent.value, workspaceTreeRevision.value], () => {
     if (!isContentIndexFile.value) {
         frontmatterText.value = "";
         markdownBody.value = "";

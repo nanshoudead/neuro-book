@@ -66,7 +66,7 @@ const profileAvailabilityTitle = (session: AgentLinkedSessionDto): string => {
 </script>
 
 <template>
-    <div class="sticky top-0 z-10 flex flex-col gap-3 border-b border-[var(--border-color)] bg-[var(--bg-main)] p-4 shadow-sm">
+    <div class="absolute right-3 top-14 z-50 flex max-h-[min(70vh,620px)] w-[min(520px,calc(100%-1.5rem))] flex-col gap-3 overflow-hidden rounded-xl border border-[var(--border-color)] bg-[var(--bg-main)] p-4 shadow-2xl" @click.stop>
         <!-- Linked agents 标题栏 -->
         <div class="flex items-center justify-between">
             <span class="flex items-center gap-2 text-xs font-semibold tracking-wider text-[var(--accent-text)]">
@@ -75,10 +75,10 @@ const profileAvailabilityTitle = (session: AgentLinkedSessionDto): string => {
                 <span v-if="totalRelations" class="rounded-sm bg-[var(--accent-main)] px-1.5 py-0.5 text-[9px] font-bold text-white">{{ totalRelations }}</span>
             </span>
             <div class="flex shrink-0 gap-1.5">
-                <button class="flex h-6 w-6 items-center justify-center rounded text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" :disabled="props.loading" :title="t('agent.linkedAgents.refresh')" @click="emit('refresh')">
+                <button class="flex h-6 w-6 items-center justify-center rounded text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" :disabled="props.loading" :title="t('agent.linkedAgents.refresh')" @click.stop="emit('refresh')">
                     <span class="i-lucide-refresh-cw h-4 w-4"></span>
                 </button>
-                <button class="ml-1 flex h-6 w-6 items-center justify-center rounded text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" @click="emit('close')">
+                <button class="ml-1 flex h-6 w-6 items-center justify-center rounded text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" @click.stop="emit('close')">
                     <span class="i-lucide-x h-4 w-4"></span>
                 </button>
             </div>
@@ -92,7 +92,7 @@ const profileAvailabilityTitle = (session: AgentLinkedSessionDto): string => {
                     <span>{{ visibleOwnedAgents.length }}</span>
                 </div>
                 <div v-if="visibleOwnedAgents.length > 0" class="space-y-2">
-                    <button v-for="item in visibleOwnedAgents" :key="`owned-${item.sessionId}`" type="button" class="group flex w-full cursor-pointer items-center gap-3 rounded-lg border px-3 py-2 text-left transition-all hover:border-[var(--accent-main)] hover:bg-[var(--bg-hover)] hover:shadow-sm" :class="item.detached ? 'border-[var(--border-color)] bg-[var(--bg-panel)] opacity-65' : 'border-[var(--border-color)] bg-[var(--bg-panel)]'" @click="emit('select', item.sessionId)">
+                    <button v-for="item in visibleOwnedAgents" :key="`owned-${item.sessionId}`" type="button" class="group flex w-full cursor-pointer items-center gap-3 rounded-lg border px-3 py-2 text-left transition-all hover:border-[var(--accent-main)] hover:bg-[var(--bg-hover)] hover:shadow-sm" :class="item.detached ? 'border-[var(--border-color)] bg-[var(--bg-panel)] opacity-65' : 'border-[var(--border-color)] bg-[var(--bg-panel)]'" @click.stop="emit('select', item.sessionId)">
                         <div class="flex h-7 w-7 shrink-0 items-center justify-center rounded border border-[var(--border-color)] bg-[var(--bg-input)] transition-colors group-hover:border-[var(--accent-main)] group-hover:bg-[var(--accent-bg)]">
                             <span class="i-lucide-arrow-up-right h-4 w-4 text-[var(--text-muted)] transition-colors group-hover:text-[var(--accent-main)]"></span>
                         </div>
@@ -125,7 +125,7 @@ const profileAvailabilityTitle = (session: AgentLinkedSessionDto): string => {
                     <span>{{ visibleLinkedByAgents.length }}</span>
                 </div>
                 <div v-if="visibleLinkedByAgents.length > 0" class="space-y-2">
-                    <button v-for="item in visibleLinkedByAgents" :key="`owner-${item.sessionId}`" type="button" class="group flex w-full cursor-pointer items-center gap-3 rounded-lg border px-3 py-2 text-left transition-all hover:border-[var(--accent-main)] hover:bg-[var(--bg-hover)] hover:shadow-sm" :class="item.detached ? 'border-[var(--border-color)] bg-[var(--bg-panel)] opacity-65' : 'border-[var(--border-color)] bg-[var(--bg-panel)]'" @click="emit('select', item.sessionId)">
+                    <button v-for="item in visibleLinkedByAgents" :key="`owner-${item.sessionId}`" type="button" class="group flex w-full cursor-pointer items-center gap-3 rounded-lg border px-3 py-2 text-left transition-all hover:border-[var(--accent-main)] hover:bg-[var(--bg-hover)] hover:shadow-sm" :class="item.detached ? 'border-[var(--border-color)] bg-[var(--bg-panel)] opacity-65' : 'border-[var(--border-color)] bg-[var(--bg-panel)]'" @click.stop="emit('select', item.sessionId)">
                         <div class="flex h-7 w-7 shrink-0 items-center justify-center rounded border border-[var(--border-color)] bg-[var(--bg-input)] transition-colors group-hover:border-[var(--accent-main)] group-hover:bg-[var(--accent-bg)]">
                             <span class="i-lucide-arrow-down-left h-4 w-4 text-[var(--text-muted)] transition-colors group-hover:text-[var(--accent-main)]"></span>
                         </div>

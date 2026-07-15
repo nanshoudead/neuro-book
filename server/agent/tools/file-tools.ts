@@ -315,7 +315,7 @@ function createBashTool(): NeuroAgentTool {
                 bash,
                 command: input.command,
                 cwd: context.workspaceRoot,
-                env: createBashEnvironment(),
+                env: createBashEnvironment(context.workspaceRoot),
                 timeout: input.timeout,
                 signal,
                 onData(data) {
@@ -481,10 +481,10 @@ function resolveBashPath(): string {
 /**
  * 注入 Agent assets 的 bin 目录。用户覆盖优先于系统内置。
  */
-function createBashEnvironment(): NodeJS.ProcessEnv {
-    const userAgentBin = resolve(process.cwd(), "workspace", ".nbook", "agent", "bin");
+function createBashEnvironment(workspaceRoot: string): NodeJS.ProcessEnv {
+    const userAgentBin = resolve(workspaceRoot, ".nbook", "agent", "bin");
     const systemAgentBin = resolve(process.cwd(), "assets", "workspace", ".nbook", "agent", "bin");
-    const userRipgrepConfig = resolve(process.cwd(), "workspace", ".nbook", "agent", "config", "ripgreprc");
+    const userRipgrepConfig = resolve(workspaceRoot, ".nbook", "agent", "config", "ripgreprc");
     const systemRipgrepConfig = resolve(process.cwd(), "assets", "workspace", ".nbook", "agent", "config", "ripgreprc");
     const ripgrepConfig = existsSync(userRipgrepConfig) ? userRipgrepConfig : systemRipgrepConfig;
     const currentPath = process.env.PATH ?? process.env.Path ?? "";

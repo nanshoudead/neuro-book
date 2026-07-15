@@ -35,8 +35,12 @@ export function useAgentSessionApi() {
         });
     };
 
-    const getSession = (sessionId: number) => {
-        return $fetch<AgentSessionSnapshotDto>(`/api/agent/sessions/${sessionId}`);
+    const getSession = (sessionId: number, options: {entriesLimit?: number | null} = {entriesLimit: 100}) => {
+        return $fetch<AgentSessionSnapshotDto>(`/api/agent/sessions/${sessionId}`, {
+            query: {
+                entriesLimit: options.entriesLimit === null ? "full" : options.entriesLimit,
+            },
+        });
     };
 
     const getSessionRelations = (sessionId: number) => {

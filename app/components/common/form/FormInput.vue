@@ -7,6 +7,7 @@ const props = withDefaults(defineProps<{
     placeholder?: string;
     readonly?: boolean;
     disabled?: boolean;
+    autocomplete?: string;
     step?: string;
     min?: string;
     max?: string;
@@ -15,6 +16,7 @@ const props = withDefaults(defineProps<{
     placeholder: "",
     readonly: false,
     disabled: false,
+    autocomplete: undefined,
     step: undefined,
     min: undefined,
     max: undefined,
@@ -43,6 +45,7 @@ const hasPrefix = computed(() => Boolean(slots.prefix));
             :placeholder="props.placeholder"
             :readonly="props.readonly"
             :disabled="props.disabled"
+            :autocomplete="props.autocomplete"
             :step="props.step"
             :min="props.min"
             :max="props.max"
@@ -58,6 +61,7 @@ const hasPrefix = computed(() => Boolean(slots.prefix));
         :placeholder="props.placeholder"
         :readonly="props.readonly"
         :disabled="props.disabled"
+        :autocomplete="props.autocomplete"
         :step="props.step"
         :min="props.min"
         :max="props.max"

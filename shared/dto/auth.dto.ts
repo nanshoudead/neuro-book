@@ -11,6 +11,11 @@ export const LoginRequestDtoSchema = z.object({
     password: z.string().min(1, "密码不能为空").max(256, "密码不能超过 256 个字符"),
 });
 
+export const RememberedLoginDtoSchema = z.object({
+    username: z.string().trim().max(64).default(""),
+    password: z.string().max(256).default(""),
+});
+
 export const CreateUserRequestDtoSchema = z.object({
     username: z.string().trim().min(2, "用户名至少 2 个字符").max(64, "用户名不能超过 64 个字符"),
     displayName: z.string().trim().max(80, "显示名不能超过 80 个字符").optional(),
@@ -29,6 +34,7 @@ export const ResetUserPasswordRequestDtoSchema = z.object({
 });
 
 export type LoginRequestDto = z.infer<typeof LoginRequestDtoSchema>;
+export type RememberedLoginDto = z.infer<typeof RememberedLoginDtoSchema>;
 export type CreateUserRequestDto = z.infer<typeof CreateUserRequestDtoSchema>;
 export type UpdateUserRequestDto = z.infer<typeof UpdateUserRequestDtoSchema>;
 export type ResetUserPasswordRequestDto = z.infer<typeof ResetUserPasswordRequestDtoSchema>;

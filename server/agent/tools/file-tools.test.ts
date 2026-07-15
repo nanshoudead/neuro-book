@@ -604,22 +604,18 @@ describe("v3 file tools", () => {
     });
 
     it("bash 会实际执行 user-assets bin 中的覆盖命令", async () => {
-        const userBinPath = resolve("workspace", ".nbook", "agent", "bin", "workspace");
-        const original = await readFile(userBinPath, "utf-8");
+        const userBinPath = join(workspaceRoot, ".nbook", "agent", "bin", "workspace");
+        await mkdir(dirname(userBinPath), {recursive: true});
         await writeFile(userBinPath, "#!/usr/bin/env sh\necho user-bin-test\n", "utf-8");
         const tool = mustTool("bash", harness);
 
-        try {
-            const result = await tool.executeWithContext?.(context, "bash-user-workspace-exec", {
-                command: "workspace",
-                timeout: 10,
-            });
+        const result = await tool.executeWithContext?.(context, "bash-user-workspace-exec", {
+            command: "workspace",
+            timeout: 10,
+        });
 
-            const text = result?.content[0]?.type === "text" ? result.content[0].text : "";
-            expect(text).toContain("user-bin-test");
-        } finally {
-            await writeFile(userBinPath, original, "utf-8");
-        }
+        const text = result?.content[0]?.type === "text" ? result.content[0].text : "";
+        expect(text).toContain("user-bin-test");
     });
 
     it("bash 在 Git Bash 内也会把 Agent bin 放到 PATH 最前面", async () => {

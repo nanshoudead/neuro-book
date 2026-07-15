@@ -159,9 +159,13 @@ export type AgentAbortResult = {
 export type AgentSessionService = {
     listSessions(query?: AgentSessionListQueryDto): Promise<AgentSessionSummaryDto[]>;
     listSessionPage(query?: AgentSessionListQueryDto): Promise<AgentSessionListPageDto>;
-    getSessionSnapshot(sessionId: number, timingSink?: ServerTimingSink): Promise<AgentSessionSnapshotDto>;
+    getSessionSnapshot(sessionId: number, timingSink?: ServerTimingSink, options?: AgentSessionSnapshotOptions): Promise<AgentSessionSnapshotDto>;
     getSessionRelations(sessionId: number, timingSink?: ServerTimingSink): Promise<AgentSessionRelationsDto>;
-    runCommand(sessionId: number, body: AgentCommandRequestDto, timingSink?: ServerTimingSink): Promise<AgentCommandResult>;
-    moveTree(sessionId: number, body: AgentTreeRequestDto): Promise<AgentTreeResult>;
+    runCommand(sessionId: number, body: AgentCommandRequestDto, timingSink?: ServerTimingSink, options?: AgentSessionSnapshotOptions): Promise<AgentCommandResult>;
+    moveTree(sessionId: number, body: AgentTreeRequestDto, options?: AgentSessionSnapshotOptions): Promise<AgentTreeResult>;
     abortInvocation(sessionId: number, body?: AgentAbortRequestDto): Promise<AgentAbortResult>;
+};
+
+export type AgentSessionSnapshotOptions = {
+    entriesLimit?: number | null;
 };

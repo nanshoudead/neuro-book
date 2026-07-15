@@ -68,7 +68,7 @@ describe("ProfileBuildCoordinator", () => {
             },
         });
         const catalog = new AgentProfileCatalog("__missing_system__", userRoot);
-        const coordinator = new ProfileBuildCoordinator({catalog, userProfileRoot: userRoot, debounceMs: 1, worker});
+        const coordinator = new ProfileBuildCoordinator({catalog, userProfileRoot: userRoot, debounceMs: 50, worker});
         catalog.attachBuildCoordinator(coordinator);
 
         await catalog.enqueueBuild({fileName: "custom.one.profile.tsx", reason: "watch:change"});

@@ -490,6 +490,33 @@ async function refreshMarkdownSkillCatalog(): Promise<void> {
 }
 
 /**
+ * Markdown Studio 的 skill 搜索按任意可见/可追踪字段做分词包含匹配。
+ */
+function matchesMarkdownSkillQuery(query: string, item: AgentSkillCatalogItemDto): boolean {
+    const tokens = query
+        .trim()
+        .toLocaleLowerCase("zh-CN")
+        .split(/\s+/u)
+        .map((token) => token.replace(/^\$/u, ""))
+        .filter(Boolean);
+    if (tokens.length === 0) {
+        return true;
+    }
+
+    const fields = [
+        item.key,
+        item.name,
+        item.description,
+        item.whenToUse,
+        item.source,
+        item.sourcePath,
+    ]
+        .filter((value): value is string => Boolean(value))
+        .map((value) => value.toLocaleLowerCase("zh-CN"));
+    return tokens.every((token) => fields.some((field) => field.includes(token)));
+}
+
+/**
  * 解析 Markdown Studio 的 $ skill 菜单。
  */
 function resolveMarkdownSkillMenu(context: AgentTriggerMenuContext): AgentTriggerMenuState {
@@ -497,9 +524,8 @@ function resolveMarkdownSkillMenu(context: AgentTriggerMenuContext): AgentTrigge
         void refreshMarkdownSkillCatalog();
     }
 
-    const query = context.query.trim().toLocaleLowerCase("zh-CN");
     const items = markdownSkillCatalog.value
-        .filter((item) => !query || `${item.name} ${item.description}`.toLocaleLowerCase("zh-CN").includes(query))
+        .filter((item) => matchesMarkdownSkillQuery(context.query, item))
         .map((item) => ({
             id: `skill:${item.name}`,
             label: item.name,
@@ -1411,6 +1437,17 @@ const toggleAgentModeStudio = (): void => {
 };
 
 /**
+ * 顶部 Agent 入口只负责打开或聚焦 Agent 面板，避免用户想回到聊天时反而关闭右侧 AI Chat。
+ */
+const openAgentFromHeader = (): void => {
+    if (isAgentMode.value) {
+        toggleAgentModeStudio();
+        return;
+    }
+    rightPanelOpen.value = true;
+};
+
+/**
  * 处理左侧窄 sidebar 的模式入口。
  */
 const handleSidebarToggle = (tab: NovelIdeTab | "sessions"): void => {
@@ -2089,7 +2126,7 @@ onBeforeUnmount(() => {
             :current-user="currentUser"
             :workspace-mode="isUserAssetsWorkspace ? 'user-assets' : 'novel'"
             @toggle-layout-mode="void toggleAgentLayoutMode()"
-            @toggle-agent="isAgentMode ? toggleAgentModeStudio() : rightPanelOpen = !rightPanelOpen"
+            @toggle-agent="openAgentFromHeader"
             @open-bookshelf="bookshelfOpen = true"
             @open-plot-workbench="openPlotWorkbench"
             @open-world-engine="openWorldEngineWorkbench"

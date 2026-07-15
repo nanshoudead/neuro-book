@@ -182,6 +182,10 @@ export type ClientVariablePatchAckDto = z.infer<typeof ClientVariablePatchAckDto
 export const AgentSkillCatalogItemDtoSchema = z.object({
     name: z.string().trim().min(1, "skill.name 不能为空"),
     description: z.string().trim().min(1, "skill.description 不能为空"),
+    key: z.string().trim().min(1, "skill.key 不能为空").optional(),
+    source: z.enum(["system", "user"]).optional(),
+    sourcePath: z.string().trim().min(1, "skill.sourcePath 不能为空").optional(),
+    whenToUse: z.string().trim().min(1, "skill.whenToUse 不能为空").optional(),
 });
 
 export const ClientVariablesDtoSchema = z.object({
@@ -535,6 +539,12 @@ export type AgentSessionSnapshotDto = {
     messages: AgentMessage[];
     tree: SessionTreeNode[];
     entries: SessionEntry[];
+    historyWindow?: {
+        entryTotal: number;
+        visibleEntryCount: number;
+        hiddenEntryCount: number;
+        limited: boolean;
+    };
     linkedAgents: AgentLinkedSessionDto[];
     linkedByAgents: AgentLinkedSessionDto[];
     pendingUserInputs: AgentPendingUserInputDto[];

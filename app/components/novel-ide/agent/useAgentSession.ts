@@ -29,6 +29,8 @@ type PendingMessageUpdate = {
     invocationId?: string;
 };
 
+const SNAPSHOT_VISIBLE_ENTRY_LIMIT = 100;
+
 /**
  * 将 tool.user-input-required 事件转换为前端 AgentPendingUserInputSession。
  */
@@ -63,6 +65,7 @@ export function useAgentSession() {
     const runPhase = ref<AgentRunPhase>("idle");
     const connectionStatus = ref<AgentConnectionStatus>("idle");
     const pendingUserInputSessions = ref<AgentPendingUserInputSession[]>([]);
+    const hiddenHistoryEntryCount = ref(0);
     const eventEpoch = ref<string | null>(null);
     const lastSeq = ref(0);
     const needsSnapshot = ref(false);
@@ -187,6 +190,7 @@ export function useAgentSession() {
         runPhase.value = "idle";
         connectionStatus.value = "idle";
         pendingUserInputSessions.value = [];
+        hiddenHistoryEntryCount.value = 0;
         eventEpoch.value = null;
         lastSeq.value = 0;
         needsSnapshot.value = false;
@@ -220,7 +224,14 @@ export function useAgentSession() {
         clearPendingMessageUpdates();
         const cursor = payload.eventCursor ?? {eventEpoch: payload.eventEpoch, after: payload.lastSeq};
         const activePathChanged = snapshotReasons.value.includes("active_path_changed");
-        const snapshotMessages = deriveMessagesFromSessionSnapshot(payload);
+        const visibleEntries = payload.entries.length > SNAPSHOT_VISIBLE_ENTRY_LIMIT
+            ? payload.entries.slice(-SNAPSHOT_VISIBLE_ENTRY_LIMIT)
+            : payload.entries;
+        hiddenHistoryEntryCount.value = payload.historyWindow?.hiddenEntryCount ?? Math.max(0, payload.entries.length - visibleEntries.length);
+        const snapshotMessages = deriveMessagesFromSessionSnapshot({
+            ...payload,
+            entries: visibleEntries,
+        });
         const pendingOptimisticMessages = messages.value.filter((message) => {
             return message.id.startsWith("optimistic-user-")
                 && !snapshotMessages.some((snapshotMessage) => snapshotMessage.type === "user" && snapshotMessage.content === message.content);
@@ -453,6 +464,7 @@ export function useAgentSession() {
         connectionStatus,
         eventEpoch,
         lastSeq,
+        hiddenHistoryEntryCount,
         liveRunStatus,
         messages,
         needsSnapshot,

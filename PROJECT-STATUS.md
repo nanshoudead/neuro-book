@@ -54,6 +54,7 @@ neuro-book 当前处于快速开发阶段。本轮产品主路径收敛到 **nov
 
 | Task | Status | Notes |
 | --- | --- | --- |
+| [86 Tauri Chat Skill Fixes](docs/tasks/86-tauri-chat-skill-fixes/README.md) | Implemented | IDE Agent Chat 只加载并渲染最近 100 条消息以降低长会话 DOM 压力；`$` / `￥` / `¥` skill/reference 菜单支持 active item 自动滚动和空格分隔多关键字匹配，`￥1` / `$novel` 会按任意字段子串搜索 skill，能命中 `10-novel` 这类非查询词开头的 skill；Tauri 桌面版已接入内置 Bun/Nitro 本地服务、同目录 `data/product` 运行目录、隐藏 Bun 控制台、启动加载页、管理员创建脚本和 remembered-login；修复同版本重复打包后 exe 继续运行旧 `.output` 的 marker 判断问题、窗口关闭等待 `taskkill` 的阻塞问题、关联 Agent 浮层导致右侧聊天区延迟重绘的问题，并撤销聊天流动态 `key` 强制重挂载，避免 assistant 消息更新时整块闪烁；同时修复 IDE 文件详情 Manuscript 统计重复计算目录节点的问题。 |
 | [03 Config System](docs/tasks/03-config-system/README.md) | Updated | 模型设置 UX 已补齐：保存型面板顶部新增“恢复”按钮；删除 Provider 确认后立即保存当前模型草稿；配置保存会 bump 前端 revision 并刷新 Agent Composer 模型列表/session snapshot。Agent session 模型 contract 改为创建时绑定具体模型，`modelKey:null` 解析并绑定当前默认；旧 session 模型被删除或 Provider 被禁用后 snapshot/run 会回落当前有效默认，无默认模型时显示未选择、不会追加空模型，并明确报配置错误。Provider 现支持持久化禁用，模型检测结果临时显示在模型行；单模型检查支持并发发起和行级取消，取消会透传后端 Pi stream，“检测全部”按 Provider 维护批次锁并发检测启用模型，避免跨 Provider 覆盖或部分完成后重复发起。Provider 顶部操作区已收紧为 toolbar。 |
 | [56 World Engine](docs/tasks/56-world-engine/README.md) | Stage Complete | 核心模型、API、Workbench、subject system discovery 与作者主路径已完成阶段收尾审计。 |
 | [64 World Engine Prompt Engineering](docs/tasks/64-world-engine-prompt-engineering/README.md) | Updated | 写作模式提示词主链与模板已收口：`08` 负责 World Engine 剧情推进，`09` 负责状态已推进后的 writer 写作，legacy RP/simulation 从普通入口降级。 |

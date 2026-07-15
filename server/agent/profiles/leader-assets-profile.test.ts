@@ -16,6 +16,7 @@ import {DEFAULT_WRITING_STYLE_PRESET, homeStyleKeyToLegacyKey, loadWritingStyleP
 import {createTestVariableAccessor} from "nbook/server/agent/variables/test-utils";
 import {ensureProfileHome} from "nbook/server/agent/profiles/profile-home";
 import {validateLowCodeFormValue} from "nbook/server/low-code-form";
+import {resolveWorkspaceContainerRoot} from "nbook/server/workspace-files/workspace-assets-root";
 
 vi.mock("nbook/server/utils/prisma", () => ({
     prisma: {
@@ -221,7 +222,7 @@ describe("assets builtin v3 profiles", () => {
         expect(historyText).toContain("Available Agents");
         expect(historyText).toContain("writer");
         expect(historyText).toContain("长期可复用正式正文写作 agent");
-        expect(historyText).toContain("invoke.input 指定目标 Markdown path");
+        expect(historyText).toContain("invoke.input 传 {path, chapterId?, context?}");
         expect(historyText).toContain("内容节点召回和候选判断 agent");
         expect(historyText).toContain("get_agent_profile");
         expect(historyText).not.toContain("本次写作任务");
@@ -744,7 +745,7 @@ describe("assets builtin v3 profiles", () => {
     it("writer payload prepare 只注入目标 path 和建议读取清单", async () => {
         const workspaceRoot = resolve(".agent", "workspace", "writer-lorebook-test", randomUUID());
         const projectSlug = `writer-project-${randomUUID()}`;
-        const projectRoot = resolve("workspace", projectSlug);
+        const projectRoot = join(resolveWorkspaceContainerRoot(), projectSlug);
         await mkdir(projectRoot, {recursive: true});
         await writeFile(join(projectRoot, "project.yaml"), "kind: novel\ntitle: Writer Test\nsummary: \"\"\n", "utf8");
         try {
@@ -812,10 +813,15 @@ describe("assets builtin v3 profiles", () => {
 
     it("writer settings 会切换文风参考、文风预设和默认人称", async () => {
         const referenceKey = `test-reference-${randomUUID()}`;
-        const referenceDir = join("workspace", ".nbook", "agent", "profiles", "builtin", "writer.home", "references");
-        const referenceFile = join(referenceDir, `${referenceKey}.md`);
-        await mkdir(referenceDir, {recursive: true});
-        await writeFile(referenceFile, [
+        const projectRoot = resolve(".agent", "workspace", "writer-home-test", randomUUID());
+        await mkdir(projectRoot, {recursive: true});
+        const home = await ensureProfileHome({
+            projectRoot,
+            profileKey: "writer",
+            profileVersion: writerProfile.manifest.version ?? 1,
+            definition: writerProfile.home,
+        });
+        await home.writeText(`references/${referenceKey}.md`, [
             "---",
             `key: ${referenceKey}`,
             "label: 测试文风参考",
@@ -825,7 +831,7 @@ describe("assets builtin v3 profiles", () => {
             "---",
             "测试参考正文：句子短促，节奏明快。",
             "",
-        ].join("\n"), "utf8");
+        ].join("\n"), {mode: "overwrite"});
 
         try {
             const prepared = await writerProfile.prepare!({
@@ -846,6 +852,7 @@ describe("assets builtin v3 profiles", () => {
                 vars: createTestVariableAccessor(),
                 catalog: {profiles: [], issues: []},
                 skills: [],
+                home,
             });
 
             expect(prepared.systemPrompt).toContain('key="darkside-kitten.light-lively"');
@@ -858,7 +865,7 @@ describe("assets builtin v3 profiles", () => {
             expect(prepared.systemPrompt).toContain("<adult_style>");
             expect(prepared.systemPrompt).toContain("自定义成人风格：强调温柔互动和关系变化。");
         } finally {
-            await rm(referenceFile, {force: true});
+            await rm(projectRoot, {recursive: true, force: true});
         }
     });
 
@@ -997,7 +1004,7 @@ describe("assets builtin v3 profiles", () => {
 
     it("writer 无 payload 时不崩溃，非法 payload path 会明确拒绝", async () => {
         const projectSlug = `writer-project-${randomUUID()}`;
-        const projectRoot = resolve("workspace", projectSlug);
+        const projectRoot = join(resolveWorkspaceContainerRoot(), projectSlug);
         await mkdir(projectRoot, {recursive: true});
         await writeFile(join(projectRoot, "project.yaml"), "kind: novel\ntitle: Writer Test\nsummary: \"\"\n", "utf8");
         const baseSession = {

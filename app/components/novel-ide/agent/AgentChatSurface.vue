@@ -8,6 +8,7 @@ import {applyClientVariablePatch, buildAgentClientState} from "nbook/app/compone
 import {useStructuredReferenceMenu} from "nbook/app/composables/useStructuredReferenceMenu";
 import {useDialog} from "nbook/app/composables/useDialog";
 import {useNotification} from "nbook/app/composables/useNotification";
+import {useDesktopNotification} from "nbook/app/composables/useDesktopNotification";
 import {useAgentSession} from "nbook/app/components/novel-ide/agent/useAgentSession";
 import {useAgentSessionStream, type AgentSessionStreamSnapshotReason} from "nbook/app/components/novel-ide/agent/useAgentSessionStream";
 import {applyAgentCommandResult} from "nbook/app/components/novel-ide/agent/agent-command-result";
@@ -42,6 +43,7 @@ type LeaderCreateProfileOption = {
 };
 
 const INLINE_EDITOR_PROFILE_KEY = "inline.editor";
+const MAX_RENDERED_CHAT_MESSAGES = 100;
 
 const props = defineProps<{
     active: boolean;
@@ -104,6 +106,8 @@ let defaultProfileResolveRequest = 0;
 let ensureSessionRequest: Promise<AgentSessionSummaryDto[]> | null = null;
 let suppressLeaderProfileReset = false;
 let inlineEditorSessionRequestId = 0;
+let chatLayoutFlushVersion = 0;
+let deferredChatLayoutFlushTimer: ReturnType<typeof setTimeout> | null = null;
 const sessionListRequestGuard = new AgentSessionListRequestGuard();
 const hiddenWritingModeProfileKeys = new Set(["rp.leader", "simulator.leader"]);
 
@@ -140,6 +144,8 @@ const configApi = useConfigApi();
 const costDisplay = useCostDisplay();
 const messages = session.messages;
 const running = session.running;
+const liveRunStatus = session.liveRunStatus;
+const hiddenHistoryEntryCount = session.hiddenHistoryEntryCount;
 const inlineEditorMessages = inlineEditorSession.messages;
 const inlineEditorRunning = inlineEditorSession.running;
 const connectionStatus = session.connectionStatus;
@@ -152,6 +158,7 @@ const pendingUserInputSessionsComputed = computed(() => {
 });
 const {confirm} = useDialog();
 const notification = useNotification();
+const desktopNotification = useDesktopNotification();
 const {t} = useI18n();
 
 const ideStore = useNovelIdeStore();
@@ -195,7 +202,13 @@ const queuedMessages = computed<AgentQueuedMessageDto[]>(() => [
 ].sort((left, right) => left.createdAt - right.createdAt));
 const linkedAgentCount = computed(() => linkedAgents.value.length + linkedByAgents.value.length);
 const planModeActive = computed(() => activeSnapshot.value?.planModeActive ?? false);
-const renderNodes = computed(() => messages.value);
+const hiddenRenderNodeCount = computed(() => hiddenHistoryEntryCount.value + Math.max(0, messages.value.length - MAX_RENDERED_CHAT_MESSAGES));
+const renderNodes = computed(() => {
+    if (hiddenRenderNodeCount.value === 0) {
+        return messages.value;
+    }
+    return messages.value.slice(-MAX_RENDERED_CHAT_MESSAGES);
+});
 const inlineEditorCurrentTurnMessages = computed<AgentMessage[]>(() => {
     const latestUserIndex = inlineEditorMessages.value.findLastIndex((message) => message.type === "user");
     return latestUserIndex >= 0
@@ -426,6 +439,23 @@ watch(() => pendingUserInputSession.value?.assistantMessageId ?? null, () => {
 const activeDrawerTitle = computed(() => profileDisplayName(activeSummary.value?.profileKey ?? leaderProfileKey.value));
 const activeSessionTitle = computed(() => activeSummary.value?.title || (activeSessionId.value ? `Session #${String(activeSessionId.value)}` : t("agent.session.unnamed")));
 const activeSessionSummaryText = computed(() => activeSummary.value?.summary?.trim() || activeSummary.value?.lastMessagePreview?.trim() || t("agent.session.noRecentMessages"));
+let observedAgentRunning = false;
+
+watch(liveRunStatus, (nextStatus, previousStatus) => {
+    if (nextStatus === "running" || nextStatus === "aborting") {
+        observedAgentRunning = true;
+        return;
+    }
+    const previousWasRunning = previousStatus === "running" || previousStatus === "aborting";
+    if (!observedAgentRunning || !previousWasRunning || (nextStatus !== "idle" && nextStatus !== "waiting")) {
+        return;
+    }
+    observedAgentRunning = false;
+    void desktopNotification.notify({
+        title: nextStatus === "waiting" ? "Agent 等待你确认" : "AI 回复完成",
+        body: `${activeSessionTitle.value}：${nextStatus === "waiting" ? "需要你处理确认或输入。" : "本轮回复已经完成。"}`,
+    });
+});
 const summarizerStatus = computed<null | {
     label: string;
     icon: string;
@@ -805,8 +835,8 @@ const loadSession = async (sessionId: number): Promise<void> => {
         syncSessionModelState(snapshot.summary);
         void sessionStream.start(sessionId);
         fileChangedSinceLastSend.value = false;
-        await nextTick();
-        scrollToBottom();
+        await flushChatFlowLayout();
+        scheduleDeferredChatFlowLayoutFlush();
     } catch (error) {
         console.error(`加载 session ${String(sessionId)} 失败`, error);
         notifyAgentError(error, t("agent.chatSurface.loadSessionFailed"));
@@ -864,6 +894,8 @@ const applySnapshotOrSync = async (snapshot?: AgentSessionSnapshotDto | null): P
         }
         session.applySnapshot(snapshot);
         syncSessionModelState(snapshot.summary);
+        await flushChatFlowLayout();
+        scheduleDeferredChatFlowLayoutFlush();
         return;
     }
     await syncActiveSessionSnapshot();
@@ -942,6 +974,68 @@ function mergeQueuedMessages(queue: AgentQueuedMessageDto[], item: AgentQueuedMe
  */
 const scrollToBottom = (): void => {
     chatFlowRef.value?.scrollToBottom();
+};
+
+/**
+ * 等待浏览器完成一次真实绘制帧。右侧抽屉打开时 Vue 已经提交 DOM，但容器宽度仍在过渡中，
+ * 如果立刻滚动或渲染长消息流，Tauri WebView 偶尔会等到下一次交互才刷新画面。
+ */
+const waitForPaintFrame = (): Promise<void> => {
+    return new Promise((resolve) => {
+        if (!import.meta.client || typeof requestAnimationFrame !== "function") {
+            setTimeout(resolve, 0);
+            return;
+        }
+        requestAnimationFrame(() => resolve());
+    });
+};
+
+/**
+ * 在面板可见布局帧中刷新消息流。这里只做滚动和焦点同步，禁止重挂载聊天流，
+ * 避免 snapshot 或流式事件把长会话卡顿放大成整块闪烁。
+ */
+const flushChatFlowLayout = async (options: {focusInput?: boolean} = {}): Promise<void> => {
+    const version = ++chatLayoutFlushVersion;
+    await nextTick();
+    await waitForPaintFrame();
+    if (version !== chatLayoutFlushVersion) {
+        return;
+    }
+    if (options.focusInput) {
+        inputRef.value?.focus();
+    }
+    scrollToBottom();
+};
+
+/**
+ * 右侧 drawer 有 300ms 宽度/透明度过渡，首帧刷新仍可能太早；延迟补一次轻量刷新。
+ */
+const scheduleDeferredChatFlowLayoutFlush = (): void => {
+    if (!import.meta.client) {
+        return;
+    }
+    if (deferredChatLayoutFlushTimer) {
+        clearTimeout(deferredChatLayoutFlushTimer);
+    }
+    const delayMs = props.layout === "drawer" ? 340 : 80;
+    deferredChatLayoutFlushTimer = setTimeout(() => {
+        deferredChatLayoutFlushTimer = null;
+        void flushChatFlowLayout();
+    }, delayMs);
+};
+
+/**
+ * 打开关联 Agent 面板时刷新关系并推进一轮布局，避免 Tauri WebView 等下一次交互才重绘。
+ */
+const toggleLinkedAgentPanel = async (): Promise<void> => {
+    const nextOpen = !linkedAgentPanelOpen.value;
+    linkedAgentPanelOpen.value = nextOpen;
+    if (!nextOpen) {
+        return;
+    }
+    void refreshLinkedAgentRelations();
+    await flushChatFlowLayout();
+    scheduleDeferredChatFlowLayoutFlush();
 };
 
 const acknowledgeClientPatch = async (sessionId: number, request: Parameters<typeof applyClientVariablePatch>[0]): Promise<void> => {
@@ -1793,6 +1887,7 @@ const sessionStream = useAgentSessionStream({
     activeSessionId,
     applySnapshotSideEffects: (snapshot) => {
         syncSessionModelState(snapshot.summary);
+        scheduleDeferredChatFlowLayoutFlush();
     },
     onEvent: async (event) => {
         if (event.kind === "session" && event.event.type === "client_variable_patch_requested" && activeSessionId.value) {
@@ -2078,17 +2173,8 @@ watch(() => props.active, async (active) => {
     await loadSelectableModels();
     await loadResolvedLeaderProfileKey();
     await ensureSessionReady();
-    await nextTick();
-    requestAnimationFrame(() => {
-        inputRef.value?.focus();
-        scrollToBottom();
-    });
-});
-
-watch(linkedAgentPanelOpen, (open) => {
-    if (open) {
-        void refreshLinkedAgentRelations();
-    }
+    await flushChatFlowLayout({focusInput: true});
+    scheduleDeferredChatFlowLayoutFlush();
 });
 
 watch(activeSessionId, () => {
@@ -2133,6 +2219,10 @@ watch(() => ideStore.configRevision, async () => {
 });
 
 onBeforeUnmount(() => {
+    if (deferredChatLayoutFlushTimer) {
+        clearTimeout(deferredChatLayoutFlushTimer);
+        deferredChatLayoutFlushTimer = null;
+    }
     sessionStream.stop();
     inlineEditorStream.stop();
 });
@@ -2357,8 +2447,8 @@ function isApprovalApproved(answer?: {
 <template>
     <!-- Agent Chat Surface -->
     <section
-        class="flex h-full min-h-0 min-w-0 flex-col bg-[var(--bg-panel)]"
-        :class="[props.layout === 'workbench' ? 'border-x border-[var(--border-color)]' : '', props.active ? '' : 'pointer-events-none opacity-0']"
+        class="relative flex h-full min-h-0 min-w-0 flex-col bg-[var(--bg-panel)]"
+        :class="[props.layout === 'workbench' ? 'border-x border-[var(--border-color)]' : '']"
         :aria-hidden="!props.active"
     >
         <!-- 抽屉头部 -->
@@ -2390,7 +2480,7 @@ function isApprovalApproved(answer?: {
                     <button v-else class="rounded p-1.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-40" :title="t('agent.session.newChat')" :disabled="loadingSession" @click="void createSessionFromHeader()">
                         <span class="i-lucide-plus h-4 w-4"></span>
                     </button>
-                    <button class="flex items-center gap-1.5 rounded p-1.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" :class="{'bg-[var(--bg-hover)] text-[var(--accent-main)]': linkedAgentPanelOpen}" :title="t('agent.chatSurface.linkedAgentsTitle')" @click="linkedAgentPanelOpen = !linkedAgentPanelOpen">
+                    <button class="flex items-center gap-1.5 rounded p-1.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" :class="{'bg-[var(--bg-hover)] text-[var(--accent-main)]': linkedAgentPanelOpen}" :title="t('agent.chatSurface.linkedAgentsTitle')" @click.stop="void toggleLinkedAgentPanel()">
                         <span class="i-lucide-users h-4 w-4"></span>
                         <span v-if="linkedAgentCount" class="rounded-sm bg-[var(--accent-main)] px-1 text-[9px] font-bold text-white">{{ linkedAgentCount }}</span>
                     </button>
@@ -2422,6 +2512,7 @@ function isApprovalApproved(answer?: {
             <AgentChatFlow
                 ref="chatFlowRef"
                 :messages="renderNodes"
+                :hidden-message-count="hiddenRenderNodeCount"
                 :session-id="activeSessionId"
                 :running="running"
                 mode="main"

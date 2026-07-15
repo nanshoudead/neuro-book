@@ -27,8 +27,8 @@ interface AgentSkillOptions extends AgentSuggestionController {
     resolveMenu: (context: AgentTriggerMenuContext) => AgentTriggerMenuState;
 }
 
-const SKILL_PATTERN = /^(\$(?:([\p{L}_-][\p{L}\p{N}_-]*)|\{([\p{L}_-][\p{L}\p{N}_-]*)\}))/u;
-const SKILL_START_PATTERN = /(?:^|[\s(])\$(?:[\p{L}_-]|\{[\p{L}_-])/u;
+const SKILL_PATTERN = /^(\$(?:\{([^\s{}()]+)\}|([^\s{}()]+))|[￥¥]([^\s{}()]+))/u;
+const SKILL_START_PATTERN = /(?:^|[\s(])(?:\$[^\s)]|\$\{[^\s)}]|[￥¥][^\s)])/u;
 
 /**
  * Agent 输入器里的技能节点与技能 trigger。
@@ -94,7 +94,8 @@ export const AgentSkill = Node.create<AgentSkillOptions>({
             if (!matched) {
                 return -1;
             }
-            return (matched.index ?? 0) + matched[0].lastIndexOf("$");
+            const triggerIndex = Math.max(matched[0].lastIndexOf("$"), matched[0].lastIndexOf("￥"), matched[0].lastIndexOf("¥"));
+            return (matched.index ?? 0) + triggerIndex;
         },
         tokenize(src: string) {
             const matched = SKILL_PATTERN.exec(src);
@@ -105,7 +106,7 @@ export const AgentSkill = Node.create<AgentSkillOptions>({
             return {
                 type: "agentSkill",
                 raw: matched[1],
-                name: matched[2] ?? matched[3],
+                name: matched[2] ?? matched[3] ?? matched[4],
             };
         },
     },
@@ -132,76 +133,83 @@ export const AgentSkill = Node.create<AgentSkillOptions>({
     },
 
     addProseMirrorPlugins() {
-        const pluginKey = new PluginKey("agent-skill-trigger");
-        let currentMenuState: AgentTriggerMenuState | null = null;
-        return [Suggestion({
-            editor: this.editor,
-            pluginKey,
-            char: "$",
-            allow: ({state, range}) => {
-                if (!state.selection.empty) {
-                    return false;
-                }
-
-                const skillNodeType = state.schema.nodes[this.name];
-                if (!skillNodeType) {
-                    return false;
-                }
-
-                const $from = state.doc.resolve(range.from);
-                return !!$from.parent.type.contentMatch.matchType(skillNodeType);
-            },
-            findSuggestionMatch: ({$position}): SuggestionMatch => {
-                const text = $position.nodeBefore?.isText ? $position.nodeBefore.text ?? "" : "";
-                if (!text) {
-                    return null;
-                }
-
-                const matched = findAgentTriggerMatch(text, "skill");
-                if (!matched) {
-                    return null;
-                }
-
-                const textStart = $position.pos - text.length;
-                return {
-                    range: {
-                        from: textStart + matched.from,
-                        to: textStart + matched.to,
-                    },
-                    query: matched.query,
-                    text: matched.text,
-                };
-            },
-            items: ({query}) => {
-                currentMenuState = this.options.resolveMenu({
-                    kind: "skill",
-                    query,
-                });
-                return flattenAgentSuggestionItems(currentMenuState.sections);
-            },
-            render: createAgentSuggestionRenderer({
+        const createSkillSuggestion = (trigger: "$" | "￥" | "¥") => {
+            const pluginKey = new PluginKey(`agent-skill-trigger-${trigger}`);
+            let currentMenuState: AgentTriggerMenuState | null = null;
+            return Suggestion({
+                editor: this.editor,
                 pluginKey,
-                controller: this.options,
-                contextKind: "skill",
-                resolveMenuState: (query) => {
-                    if (!currentMenuState) {
-                        currentMenuState = this.options.resolveMenu({
-                            kind: "skill",
-                            query,
-                        });
+                char: trigger,
+                allow: ({state, range}) => {
+                    if (!state.selection.empty) {
+                        return false;
                     }
-                    return currentMenuState;
+
+                    const skillNodeType = state.schema.nodes[this.name];
+                    if (!skillNodeType) {
+                        return false;
+                    }
+
+                    const $from = state.doc.resolve(range.from);
+                    return !!$from.parent.type.contentMatch.matchType(skillNodeType);
                 },
-            }),
-            command: ({editor, range, props}) => {
-                insertAgentSuggestionItem({
-                    editor,
-                    range,
-                    item: props,
-                    skillNodeName: this.name,
-                });
-            },
-        })];
+                findSuggestionMatch: ({$position}): SuggestionMatch => {
+                    const text = $position.nodeBefore?.isText ? $position.nodeBefore.text ?? "" : "";
+                    if (!text) {
+                        return null;
+                    }
+
+                    const matched = findAgentTriggerMatch(text, "skill");
+                    if (!matched) {
+                        return null;
+                    }
+
+                    const textStart = $position.pos - text.length;
+                    return {
+                        range: {
+                            from: textStart + matched.from,
+                            to: textStart + matched.to,
+                        },
+                        query: matched.query,
+                        text: matched.text,
+                    };
+                },
+                items: ({query}) => {
+                    currentMenuState = this.options.resolveMenu({
+                        kind: "skill",
+                        query,
+                    });
+                    return flattenAgentSuggestionItems(currentMenuState.sections);
+                },
+                render: createAgentSuggestionRenderer({
+                    pluginKey,
+                    controller: this.options,
+                    contextKind: "skill",
+                    resolveMenuState: (query) => {
+                        if (!currentMenuState) {
+                            currentMenuState = this.options.resolveMenu({
+                                kind: "skill",
+                                query,
+                            });
+                        }
+                        return currentMenuState;
+                    },
+                }),
+                command: ({editor, range, props}) => {
+                    insertAgentSuggestionItem({
+                        editor,
+                        range,
+                        item: props,
+                        skillNodeName: this.name,
+                    });
+                },
+            });
+        };
+        return [
+            createSkillSuggestion("$"),
+            createSkillSuggestion("￥"),
+            createSkillSuggestion("¥"),
+        ];
     },
 });
 

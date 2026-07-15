@@ -8,7 +8,11 @@ export default defineEventHandler(async (): Promise<AgentSkillCatalogItemDto[]> 
     const harness = useAgentHarness();
     const skills = await harness.skills.list();
     return skills.map((skill) => ({
+        key: skill.key,
         name: skill.name,
         description: skill.description ?? skill.key,
+        whenToUse: skill.whenToUse,
+        source: skill.source,
+        sourcePath: skill.skillPath,
     }));
 });

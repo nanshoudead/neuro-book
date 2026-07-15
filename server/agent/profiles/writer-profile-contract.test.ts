@@ -7,6 +7,7 @@ import {DEFAULT_WRITING_REFERENCE_PRESET} from "nbook/server/agent/profiles/writ
 import {DEFAULT_WRITING_STYLE_PRESET} from "nbook/server/agent/profiles/writer-writing-style";
 import {messageText} from "nbook/server/agent/messages/message-utils";
 import {createTestVariableAccessor} from "nbook/server/agent/variables/test-utils";
+import {resolveWorkspaceContainerRoot} from "nbook/server/workspace-files/workspace-assets-root";
 import type {RuntimeSessionFacade} from "nbook/server/agent/profiles/define-agent-runtime";
 import type {NeuroSessionContext} from "nbook/server/agent/session/types";
 import type {AgentDialogueContent} from "nbook/server/agent/session/dialogue-content";
@@ -48,7 +49,7 @@ describe("writer profile contract", () => {
 
     it("提示词声明 autonomous 自主模式，并渲染 input.chapterId 自取 brief 提示", async () => {
         const projectSlug = `writer-project-${randomUUID()}`;
-        const projectRoot = resolve("workspace", projectSlug);
+        const projectRoot = join(resolveWorkspaceContainerRoot(), projectSlug);
         await mkdir(projectRoot, {recursive: true});
         await writeFile(join(projectRoot, "project.yaml"), "kind: novel\ntitle: Writer Contract\nsummary: \"\"\n", "utf8");
         try {

@@ -14,6 +14,12 @@ config.yaml
 !assets/workspace/.nbook/templates/project-directory-templates/simulation/config.yaml
 dist/
 product/
+src-tauri/target/
+src-tauri/resources/create-admin.cmd
+src-tauri/resources/product.zip
+src-tauri/resources/product.zip.manifest
+src-tauri/resources/product-build-id
+src-tauri/resources/runtime/
 /server/generated/prisma
 .DS_Store
 .runtime

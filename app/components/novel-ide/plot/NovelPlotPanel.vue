@@ -247,7 +247,7 @@ const workbenchScenes = computed<PlotThreadPanelScene[]>(() => {
     return nodes.flatMap((item) => item.thread.scenes.map((scene) => ({
         id: scene.id,
         threadId: scene.threadId,
-        chapterPath: scene.chapterPath,
+        chapterPath: scene.chapterId,
         title: scene.title,
         summary: scene.summary,
         purpose: scene.purpose,
@@ -490,7 +490,7 @@ function applyPlotTree(tree: PlotTreeDto): void {
     scenes.value = threadNodes.flatMap((item) => item.thread.scenes.map((scene) => ({
         id: scene.id,
         threadId: scene.threadId,
-        chapterPath: scene.chapterPath,
+        chapterPath: scene.chapterId,
         title: scene.title,
         summary: scene.summary,
         purpose: scene.purpose,
@@ -576,7 +576,7 @@ function applySceneDetail(detail: StorySceneDetailDto): void {
         ? {
             ...scene,
             threadId: detail.threadId,
-            chapterPath: detail.chapterPath,
+            chapterPath: detail.chapterId,
             title: detail.title,
             summary: detail.summary,
             purpose: detail.purpose,
@@ -1073,7 +1073,7 @@ async function updateWorkbenchScene(sceneId: string, patch: Partial<PlotThreadPa
             method: "PATCH",
             body: {
                 threadId: patch.threadId,
-                chapterPath: patch.chapterPath,
+                chapterId: patch.chapterPath,
                 title: patch.title,
                 status: patch.status,
                 summary: patch.summary,
@@ -1111,7 +1111,7 @@ async function quickUpdateScene(payload: PlotThreadQuickSceneUpdate): Promise<vo
                 purpose: payload.purpose,
                 writingTip: payload.writingTip,
                 status: payload.status,
-                chapterPath: payload.chapterPath,
+                chapterId: payload.chapterPath,
                 worldAnchor: payload.worldAnchor,
             } satisfies UpdateStorySceneRequestDto,
         }));
@@ -1212,7 +1212,7 @@ async function saveScene(payload: PlotThreadEditorSave): Promise<void> {
                 method: "POST",
                 body: {
                     threadId: selectedThreadId.value,
-                    chapterPath: payload.chapterPath,
+                    chapterId: payload.chapterPath,
                     title: payload.title,
                     status: payload.status,
                     summary: payload.summary,
@@ -1231,7 +1231,7 @@ async function saveScene(payload: PlotThreadEditorSave): Promise<void> {
                 method: "PATCH",
                 body: {
                     threadId: selectedThreadId.value,
-                    chapterPath: payload.chapterPath,
+                    chapterId: payload.chapterPath,
                     title: payload.title,
                     status: payload.status,
                     summary: payload.summary,
@@ -1328,7 +1328,7 @@ async function createWorkbenchScene(threadId: string): Promise<void> {
             method: "POST",
             body: {
                 threadId,
-                chapterPath: null,
+                chapterId: null,
                 title: "新建 Scene",
                 status: "draft",
                 summary: "",
@@ -1410,7 +1410,7 @@ async function reorderScenes(sceneIds: string[]): Promise<void> {
             return {
                 sceneId,
                 threadId: scene.threadId,
-                chapterPath: scene.chapterPath,
+                chapterId: scene.chapterPath,
                 threadSortOrder: index,
                 chapterSortOrder: scene.chapterSortOrder,
             };

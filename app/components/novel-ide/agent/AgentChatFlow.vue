@@ -14,6 +14,7 @@ const AUTO_SCROLL_RELEASE_THRESHOLD_PX = 12;
 const props = defineProps<{
     /** 消息列表。 */
     messages: AgentMessage[];
+    hiddenMessageCount?: number;
     /** 当前 session ID；变化时认为是整段历史切换，需要立即定位到底部。 */
     sessionId?: number | null;
     /** 是否正在执行中。 */
@@ -56,10 +57,13 @@ const emit = defineEmits<{
 }>();
 
 const scrollRef = ref<HTMLDivElement | null>(null);
+const contentRef = ref<HTMLDivElement | null>(null);
 const shouldStickToBottom = ref(true);
 const lastScrollTop = ref(0);
 let pendingImmediateScroll = true;
 let autoScrollFrame: number | null = null;
+let forcedScrollTimer: ReturnType<typeof setTimeout> | null = null;
+let contentResizeObserver: ResizeObserver | null = null;
 const {t} = useI18n();
 
 const chatNodes = computed(() => {
@@ -171,6 +175,45 @@ const scheduleScrollToBottom = (): void => {
     });
 };
 
+/** 强制吸底时跨多个绘制帧重试，等待 Markdown 和 tool bubble 把真实高度撑开。 */
+const scheduleForcedScrollToBottom = (): void => {
+    shouldStickToBottom.value = true;
+    pendingImmediateScroll = false;
+    cancelScheduledScrollToBottom();
+    if (forcedScrollTimer) {
+        clearTimeout(forcedScrollTimer);
+        forcedScrollTimer = null;
+    }
+    scrollToBottom();
+    if (typeof requestAnimationFrame === "function") {
+        requestAnimationFrame(() => {
+            scrollToBottom();
+            requestAnimationFrame(() => {
+                scrollToBottom();
+            });
+        });
+    }
+    forcedScrollTimer = setTimeout(() => {
+        forcedScrollTimer = null;
+        scrollToBottom();
+    }, 140);
+};
+
+/** 监听消息内容高度变化，避免初次加载长会话时 Markdown / tool bubble 后撑高导致停在顶部。 */
+const attachContentResizeObserver = (): void => {
+    contentResizeObserver?.disconnect();
+    contentResizeObserver = null;
+    if (!import.meta.client || typeof ResizeObserver !== "function" || !contentRef.value) {
+        return;
+    }
+    contentResizeObserver = new ResizeObserver(() => {
+        if (shouldStickToBottom.value) {
+            scheduleScrollToBottom();
+        }
+    });
+    contentResizeObserver.observe(contentRef.value);
+};
+
 /** 滚动事件处理。 */
 const onScroll = (): void => {
     if (!scrollRef.value) return;
@@ -212,16 +255,23 @@ watch(() => props.sessionId, () => {
     cancelScheduledScrollToBottom();
 });
 
+watch(contentRef, () => {
+    attachContentResizeObserver();
+}, {flush: "post"});
+
 /** 外部可调用：强制滚动到底部。 */
 const forceScrollToBottom = (): void => {
-    shouldStickToBottom.value = true;
-    pendingImmediateScroll = false;
-    cancelScheduledScrollToBottom();
-    scrollToBottom();
+    scheduleForcedScrollToBottom();
 };
 
 onUnmounted(() => {
     cancelScheduledScrollToBottom();
+    contentResizeObserver?.disconnect();
+    contentResizeObserver = null;
+    if (forcedScrollTimer) {
+        clearTimeout(forcedScrollTimer);
+        forcedScrollTimer = null;
+    }
 });
 
 defineExpose({ scrollToBottom: forceScrollToBottom, scrollRef });
@@ -230,41 +280,45 @@ defineExpose({ scrollToBottom: forceScrollToBottom, scrollRef });
 <template>
     <!-- 通用对话流容器 -->
     <div ref="scrollRef" class="flex flex-1 flex-col overflow-y-auto p-4 pb-12 bg-[var(--bg-panel)]" @scroll="onScroll">
-        <template v-if="props.messages.length > 0">
-            <div
-                v-for="(node, index) in chatNodes"
-                :key="getNodeKey(node)"
-                :class="nodeSpacingClass(index)"
-            >
-                <AgentTextBubble
-                    v-if="node.kind === 'text'"
-                    :node="node"
-                    :editing-message-id="props.editingMessageId"
-                    :action-disabled="props.messageActionDisabled"
-                    :run-action-disabled="props.runActionDisabled"
-                    :saving-edit="props.savingEdit"
-                    :branch-switcher="props.branchSwitcherStateByMessageId?.[node.message.id]"
-                    :menu-refresh-key="props.menuRefreshKey"
-                    :resolve-menu="props.resolveEditorMenu"
-                    :on-skill-trigger-start="props.onEditorSkillTriggerStart"
-                    :open-reference="props.openReference"
-                    :cost-display-options="props.costDisplayOptions"
-                    :cost-exchange-rate-suffix="props.costExchangeRateSuffix"
-                    @copy="emit('copy', $event)"
-                    @start-edit="emit('start-edit', $event)"
-                    @cancel-edit="emit('cancel-edit', $event)"
-                    @save-edit="emit('save-edit', $event)"
-                    @retry="emit('retry', $event)"
-                    @delete="emit('delete', $event)"
-                    @cycle-branch="emit('cycle-branch', $event)"
-                />
-                <AgentToolBubble
-                    v-else-if="node.kind === 'tool'"
-                    :tool-call="node.toolCall"
-                    @copy="emit('copy-tool', $event)"
-                />
-            </div>
-        </template>
+        <div ref="contentRef" class="flex min-h-full flex-col">
+            <template v-if="props.messages.length > 0">
+                <div v-if="props.hiddenMessageCount" class="mb-4 rounded-lg border border-dashed border-[var(--border-color)] bg-[var(--bg-input)] px-3 py-2 text-center text-[11px] text-[var(--text-muted)]">
+                    已隐藏 {{ props.hiddenMessageCount }} 条较早消息，仅显示最近消息以保持界面流畅。
+                </div>
+                <div
+                    v-for="(node, index) in chatNodes"
+                    :key="getNodeKey(node)"
+                    :class="nodeSpacingClass(index)"
+                >
+                    <AgentTextBubble
+                        v-if="node.kind === 'text'"
+                        :node="node"
+                        :editing-message-id="props.editingMessageId"
+                        :action-disabled="props.messageActionDisabled"
+                        :run-action-disabled="props.runActionDisabled"
+                        :saving-edit="props.savingEdit"
+                        :branch-switcher="props.branchSwitcherStateByMessageId?.[node.message.id]"
+                        :menu-refresh-key="props.menuRefreshKey"
+                        :resolve-menu="props.resolveEditorMenu"
+                        :on-skill-trigger-start="props.onEditorSkillTriggerStart"
+                        :open-reference="props.openReference"
+                        :cost-display-options="props.costDisplayOptions"
+                        :cost-exchange-rate-suffix="props.costExchangeRateSuffix"
+                        @copy="emit('copy', $event)"
+                        @start-edit="emit('start-edit', $event)"
+                        @cancel-edit="emit('cancel-edit', $event)"
+                        @save-edit="emit('save-edit', $event)"
+                        @retry="emit('retry', $event)"
+                        @delete="emit('delete', $event)"
+                        @cycle-branch="emit('cycle-branch', $event)"
+                    />
+                    <AgentToolBubble
+                        v-else-if="node.kind === 'tool'"
+                        :tool-call="node.toolCall"
+                        @copy="emit('copy-tool', $event)"
+                    />
+                </div>
+            </template>
 
         <!-- 空状态 -->
         <div v-else class="flex h-full flex-col items-center justify-center space-y-6 px-4 text-center">
@@ -285,6 +339,7 @@ defineExpose({ scrollToBottom: forceScrollToBottom, scrollRef });
                 </div>
                 <p class="text-xs text-[var(--text-muted)]">{{ t("agent.chat.waiting") }}</p>
             </template>
+        </div>
         </div>
     </div>
 </template>

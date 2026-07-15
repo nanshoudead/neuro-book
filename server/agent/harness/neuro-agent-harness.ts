@@ -29,6 +29,7 @@ import {isAgentToolDefinition} from "nbook/server/agent/tools/types";
 import type {AgentResolution, NeuroAgentTool, ProfileToolBinding, ReportResultToolBinding, ToolExecutionContext, ToolExecutionMode, UserInputFormSpec} from "nbook/server/agent/tools/types";
 import {projectRuntimeEvent} from "nbook/server/agent/events/public-event-projection";
 import {appendCompaction, compactIfNeeded} from "nbook/server/agent/harness/compaction";
+import {sanitizeProviderVisibleToolsForModel} from "nbook/server/agent/harness/provider-tool-schema";
 import type {
     ActiveSidecarRun,
     PendingSessionWritePlan,
@@ -71,6 +72,7 @@ import type {
     InvokeAgentResult,
     SessionQueryResult,
     SessionQueryInput,
+    AgentSessionSnapshotOptions,
     SessionRecentMessageRole,
 } from "nbook/server/agent/harness/types";
 import type {
@@ -1559,9 +1561,9 @@ export class NeuroAgentHarness {
     /**
      * 返回完整前端 snapshot，作为 UI 恢复真相。
      */
-    async getSessionSnapshot(sessionId: number, timingSink?: ServerTimingSink): Promise<AgentSessionSnapshotDto> {
+    async getSessionSnapshot(sessionId: number, timingSink?: ServerTimingSink, options: AgentSessionSnapshotOptions = {}): Promise<AgentSessionSnapshotDto> {
         return this.withAgentOperationTiming("agent.snapshot.slow", AGENT_SNAPSHOT_SLOW_MS, {sessionId}, (timing) => {
-            return this.buildSessionSnapshot(sessionId, undefined, timing);
+            return this.buildSessionSnapshot(sessionId, undefined, timing, options);
         }, timingSink);
     }
 
@@ -1572,6 +1574,7 @@ export class NeuroAgentHarness {
         sessionId: number,
         sourceSnapshot: SessionSnapshot | undefined,
         timing: AgentOperationTiming,
+        options: AgentSessionSnapshotOptions = {},
     ): Promise<AgentSessionSnapshotDto> {
         const projection = await this.resolveSessionRuntimeProjection(sessionId, sourceSnapshot, timing);
         const {snapshot, context} = projection;
@@ -1587,6 +1590,17 @@ export class NeuroAgentHarness {
         const followUpQueue = this.followUpQueueState(sessionId, context);
         const latestSeq = this.eventHub.lastSeq(sessionId);
         const eventCursor = this.snapshotEventCursor(sessionId, latestSeq);
+        const fullEntries = this.repo.activePath(snapshot);
+        const entriesLimit = typeof options.entriesLimit === "number" && options.entriesLimit > 0
+            ? Math.floor(options.entriesLimit)
+            : null;
+        const visibleEntries = entriesLimit && fullEntries.length > entriesLimit
+            ? fullEntries.slice(-entriesLimit)
+            : fullEntries;
+        const visibleMessages = entriesLimit
+            ? context.messages.slice(-entriesLimit)
+            : context.messages;
+        const hiddenEntryCount = fullEntries.length - visibleEntries.length;
 
         return {
             eventEpoch: this.eventHub.eventEpoch,
@@ -1597,9 +1611,15 @@ export class NeuroAgentHarness {
             activeLeafId: snapshot.leafId,
             activePathRevision: this.repo.activePathRevision(snapshot),
             ...systemPrompt ? {systemPrompt} : {},
-            messages: context.messages,
+            messages: visibleMessages,
             tree: this.repo.tree(snapshot),
-            entries: this.repo.activePath(snapshot),
+            entries: visibleEntries,
+            historyWindow: {
+                entryTotal: fullEntries.length,
+                visibleEntryCount: visibleEntries.length,
+                hiddenEntryCount,
+                limited: hiddenEntryCount > 0,
+            },
             linkedAgents: relations.linkedAgents,
             linkedByAgents: relations.linkedByAgents,
             pendingUserInputs: await Promise.all(projection.pendingApprovals.map((pending) => this.pendingApprovalDto(snapshot, pending))),
@@ -2013,17 +2033,18 @@ export class NeuroAgentHarness {
     /**
      * 执行 session 控制命令。命令不作为普通用户消息进入模型。
      */
-    async runCommand(sessionId: number, body: AgentCommandRequestDto, timingSink?: ServerTimingSink): Promise<AgentCommandResult> {
+    async runCommand(sessionId: number, body: AgentCommandRequestDto, timingSink?: ServerTimingSink, options: AgentSessionSnapshotOptions = {}): Promise<AgentCommandResult> {
         return this.withAgentOperationTiming("agent.command.slow", AGENT_COMMAND_SLOW_MS, {
             sessionId,
             command: body.command,
-        }, (timing) => this.runCommandMeasured(sessionId, body, timing), timingSink);
+        }, (timing) => this.runCommandMeasured(sessionId, body, timing, options), timingSink);
     }
 
     private async runCommandMeasured(
         sessionId: number,
         body: AgentCommandRequestDto,
         timing: AgentOperationTiming,
+        options: AgentSessionSnapshotOptions = {},
     ): Promise<AgentCommandResult> {
         if (body.command !== "compact") {
             this.assertSessionIdle(sessionId);
@@ -2066,7 +2087,7 @@ export class NeuroAgentHarness {
                 kind: "snapshot",
                 status: "completed",
                 sessionId,
-                snapshot: await this.buildSessionSnapshot(sessionId, undefined, timing),
+                snapshot: await this.buildSessionSnapshot(sessionId, undefined, timing, options),
             };
         }
         if (body.command === "tree") {
@@ -2075,7 +2096,7 @@ export class NeuroAgentHarness {
                 kind: "snapshot",
                 status: "completed",
                 sessionId,
-                snapshot: await this.buildSessionSnapshot(sessionId, undefined, timing),
+                snapshot: await this.buildSessionSnapshot(sessionId, undefined, timing, options),
             };
         }
         if (body.command === "plan") {
@@ -2178,14 +2199,14 @@ export class NeuroAgentHarness {
             kind: "snapshot",
             status: "completed",
             sessionId,
-            snapshot: await this.buildSessionSnapshot(sessionId, undefined, timing),
+            snapshot: await this.buildSessionSnapshot(sessionId, undefined, timing, options),
         };
     }
 
     /**
      * 移动树分支，并可在移动后立即发起下一次 invoke。
      */
-    async moveTree(sessionId: number, body: AgentTreeRequestDto): Promise<AgentTreeResult> {
+    async moveTree(sessionId: number, body: AgentTreeRequestDto, options: AgentSessionSnapshotOptions = {}): Promise<AgentTreeResult> {
         this.assertSessionIdle(sessionId);
         const snapshot = await this.repo.readSession(sessionId);
         if (body.position === "empty") {
@@ -2197,7 +2218,7 @@ export class NeuroAgentHarness {
                     leafId: null,
                 }],
             });
-            const updatedSnapshot = await this.getSessionSnapshot(sessionId);
+            const updatedSnapshot = await this.getSessionSnapshot(sessionId, undefined, options);
             return {
                 status: "completed",
                 snapshot: updatedSnapshot,
@@ -2218,11 +2239,11 @@ export class NeuroAgentHarness {
             });
             return {
                 status: "invoked",
-                snapshot: await this.getSessionSnapshot(sessionId),
+                snapshot: await this.getSessionSnapshot(sessionId, undefined, options),
                 invocation,
             };
         }
-        const updatedSnapshot = await this.getSessionSnapshot(sessionId);
+        const updatedSnapshot = await this.getSessionSnapshot(sessionId, undefined, options);
         return {
             status: "completed",
             snapshot: updatedSnapshot,
@@ -3229,7 +3250,10 @@ export class NeuroAgentHarness {
             return executionPatchToolKeySet ? executionPatchToolKeySet.has(toolKey) : true;
         });
         const toolOverrides = await this.toolOverrides(toolKeys, frame.profileKey, frame.activeSidecar);
-        const tools = this.tools.allowedWithOverrides(toolKeys, toolOverrides);
+        const tools = sanitizeProviderVisibleToolsForModel(
+            frame.model,
+            this.tools.allowedWithOverrides(toolKeys, toolOverrides),
+        );
         const providerMessages = modelMessages.filter((message): message is Message => {
             return message.role === "user" || message.role === "assistant" || message.role === "toolResult";
         });
