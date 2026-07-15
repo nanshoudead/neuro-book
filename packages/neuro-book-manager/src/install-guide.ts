@@ -6,7 +6,7 @@ import * as p from "@clack/prompts";
 import {pathExists} from "#manager/files";
 import {install, installPlan, type InstallOptions} from "#manager/installer";
 import {readManagerConfig, registerManagerInstance} from "#manager/manager-config";
-import {assertManagerPlatform} from "#manager/platform";
+import {assertManagerPlatform, unsupportedProfiles} from "#manager/platform";
 import type {InstallProfile, ReleaseChannel} from "#manager/types";
 
 export type InstallGuideDefaults = {
@@ -33,6 +33,9 @@ export async function runInstallGuide(defaults: InstallGuideDefaults = {}): Prom
         managerConfig.instances.map((instance) => instance.root),
     );
     p.intro("NeuroBook 安装向导");
+    if (process.platform === "darwin") {
+        p.note("macOS 为实验性支持，当前仅推荐 Docker（GHCR / Source Docker）与 Source Dev 部署。", "macOS 注意");
+    }
     p.note([
         "NeuroBook Manager 会安装、更新并管理一个独立的 NeuroBook 实例。",
         "用户数据保存在实例的 State Root；更新不会覆盖 workspace、配置或日志。",
@@ -134,19 +137,21 @@ export function recommendedProfile(): InstallProfile {
     return process.platform === "win32" ? "windows-portable" : "ghcr";
 }
 
-/** 构造带场景说明的安装 Profile 选项。 */
+/** 构造带场景说明的安装 Profile 选项；不支持的在当前平台禁用。 */
 function profileOptions(): Array<{value: InstallProfile; label: string; hint: string; disabled?: boolean}> {
+    const unsupported = new Set(unsupportedProfiles());
+    const isDarwin = process.platform === "darwin";
     return [
         {
             value: "windows-portable",
             label: "Windows Portable",
             hint: process.platform === "win32" ? "Windows 推荐；解压即用，Runtime 与工具全部托管" : "仅支持 Windows x64",
-            disabled: process.platform !== "win32",
+            disabled: unsupported.has("windows-portable"),
         },
-        {value: "ghcr", label: "Docker / GHCR", hint: "Linux 服务器推荐；直接运行官方预构建镜像"},
-        {value: "product-bun", label: "Product Bun", hint: "不使用 Docker；下载源码与预构建 Product"},
+        {value: "ghcr", label: "Docker / GHCR", hint: isDarwin ? "macOS 推荐；直接运行官方预构建镜像" : "Linux 服务器推荐；直接运行官方预构建镜像"},
+        {value: "product-bun", label: "Product Bun", hint: unsupported.has("product-bun") ? "macOS 暂不支持" : "不使用 Docker；下载源码与预构建 Product", disabled: unsupported.has("product-bun")},
         {value: "source-dev", label: "Source Dev", hint: "开发 NeuroBook；Git 源码、依赖与 dev server"},
-        {value: "source-product", label: "Source Product", hint: "从 Git 源码在本机完成生产构建"},
+        {value: "source-product", label: "Source Product", hint: unsupported.has("source-product") ? "macOS 暂不支持" : "从 Git 源码在本机完成生产构建", disabled: unsupported.has("source-product")},
         {value: "source-docker", label: "Source Docker", hint: "以 Git 源码为 context，在容器内安装和构建"},
     ];
 }

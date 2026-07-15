@@ -3,6 +3,7 @@ import {readFile, readdir} from "node:fs/promises";
 import {dirname, join, resolve} from "node:path";
 
 import {commandStatus} from "#manager/app-commands";
+import {resolveContainerEngine} from "#manager/docker";
 import {pathExists, sha256File} from "#manager/files";
 import {statePort} from "#manager/health";
 import {withInstallLock} from "#manager/lock";
@@ -135,17 +136,19 @@ export async function doctor(root: string, manifest: InstallationManifest): Prom
     await addPath("manager.wrapper", "manager", wrapper);
     const operations = await unfinishedOperations(join(root, ".deploy", "operations"));
     checks.push({id: "operation.unfinished", category: "operation", status: operations.length === 0 ? "pass" : "fail", message: operations.length === 0 ? "没有未完成操作" : `存在未完成操作：${operations.join(", ")}`, remediation: operations.length === 0 ? undefined : "再次运行 mutating command 触发恢复，或检查对应 journal。"});
+    const engine = await resolveContainerEngine().catch(() => null);
     const commands = {
         bun: await commandStatus("bun"),
         git: await commandStatus("git"),
         rg: await commandStatus("rg"),
-        docker: await commandStatus("docker"),
+        container: engine ? await commandStatus(engine) : {available: false, version: null},
     };
     return {
         healthy: checks.every((check) => check.status !== "fail"),
         checks,
         paths: {root, stateRoot, workspace: join(stateRoot, "workspace"), bootConfig: join(stateRoot, "config.yaml")},
         service: {port: await statePort(stateRoot), commands},
+        containerEngine: engine,
         components: manifest.components,
         operations,
         python: {

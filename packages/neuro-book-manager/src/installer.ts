@@ -20,7 +20,7 @@ import {assertNativeProductStopped, backupApplicationDatabase, statePort, verify
 import {withInstallLock} from "#manager/lock";
 import {readInstallationManifest, resolveReleaseManifest, writeInstallationManifest} from "#manager/manifest-store";
 import {backupRuntimeWrappers, commitOperation, createOperation, recoverInterruptedOperations, updateOperation} from "#manager/operation";
-import {assertManagerPlatform, currentProductPlatform} from "#manager/platform";
+import {assertManagerPlatform, currentProductPlatform, unsupportedProfiles} from "#manager/platform";
 import {installationPaths} from "#manager/paths";
 import {writePortableLaunchers} from "#manager/portable-launchers";
 import {buildSourceProduct, installSourceDependencies} from "#manager/product";
@@ -86,6 +86,9 @@ export async function installSourceAdoption(options: AdoptSourceOptions): Promis
 async function installInternal(options: InstallOptions, mode: "fresh" | "adopt"): Promise<InstallationManifest> {
     if (options.dryRun) throw new Error("dry-run 应通过 installPlan 输出，不应调用 install。" );
     assertManagerPlatform();
+    if (unsupportedProfiles().includes(options.profile)) {
+        throw new Error(`当前平台不支持 ${options.profile} Profile；macOS 仅支持 Docker 与 Source Dev。`);
+    }
     const portable = options.profile === "windows-portable";
     const paths = installationPaths(options.root, portable);
     await ensureDirectory(paths.root);

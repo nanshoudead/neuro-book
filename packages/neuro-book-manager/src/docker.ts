@@ -2,8 +2,26 @@ import {dirname, join, relative} from "node:path";
 import {stringify} from "yaml";
 
 import {writeTextAtomic} from "#manager/files";
-import {run} from "#manager/process";
+import {commandAvailable, run} from "#manager/process";
 import type {InstallProfile} from "#manager/types";
+
+let cachedContainerEngine: string | null = null;
+
+/** 解析容器引擎；NEURO_BOOK_CONTAINER_ENGINE 优先，然后自动检测 docker/podman。进程内缓存。 */
+export async function resolveContainerEngine(): Promise<string> {
+    if (cachedContainerEngine) return cachedContainerEngine;
+    const fromEnv = process.env.NEURO_BOOK_CONTAINER_ENGINE?.trim();
+    if (fromEnv) {
+        if (!await commandAvailable(fromEnv)) {
+            throw new Error(`NEURO_BOOK_CONTAINER_ENGINE=${fromEnv} 但系统中未找到该命令。`);
+        }
+        cachedContainerEngine = fromEnv;
+        return fromEnv;
+    }
+    if (await commandAvailable("docker")) { cachedContainerEngine = "docker"; return "docker"; }
+    if (await commandAvailable("podman")) { cachedContainerEngine = "podman"; return "podman"; }
+    throw new Error("未检测到 Docker 或 Podman；请安装其一或设置 NEURO_BOOK_CONTAINER_ENGINE。");
+}
 
 /** 生成完整 Docker Compose，不依赖仓库根旧模板。 */
 export async function writeDockerCompose(input: {
@@ -72,34 +90,39 @@ export async function verifyDockerApplication(port: number, expectedVersion: str
 
 /** 启动 Docker Profile。 */
 export async function startDocker(root: string, stateRoot: string, profile: InstallProfile): Promise<void> {
+    const engine = await resolveContainerEngine();
     const compose = join(root, ".deploy", "docker-compose.generated.yml");
     const args = ["compose", "--env-file", join(stateRoot, ".env"), "-f", compose];
     if (profile === "ghcr") {
-        await run("docker", [...args, "pull", "app"], {cwd: root});
-        await run("docker", [...args, "up", "-d"], {cwd: root});
+        await run(engine, [...args, "pull", "app"], {cwd: root});
+        await run(engine, [...args, "up", "-d"], {cwd: root});
         return;
     }
-    await run("docker", [...args, "up", "-d"], {cwd: root});
+    await run(engine, [...args, "up", "-d"], {cwd: root});
 }
 
 /** 在切换Compose或备份SQLite前停止受管app容器。 */
 export async function stopDocker(root: string, stateRoot: string): Promise<void> {
-    await run("docker", [...composeArgs(root, stateRoot), "stop", "app"], {cwd: root});
+    const engine = await resolveContainerEngine();
+    await run(engine, [...composeArgs(root, stateRoot), "stop", "app"], {cwd: root});
 }
 
 /** 回滚或Fresh Install失败时移除当前Compose创建的容器与网络。 */
 export async function removeDockerDeployment(root: string, stateRoot: string): Promise<void> {
-    await run("docker", [...composeArgs(root, stateRoot), "down", "--remove-orphans"], {cwd: root});
+    const engine = await resolveContainerEngine();
+    await run(engine, [...composeArgs(root, stateRoot), "down", "--remove-orphans"], {cwd: root});
 }
 
 /** 删除Source Docker事务创建但未提交的本地镜像。 */
 export async function removeDockerImage(root: string, image: string): Promise<void> {
-    await run("docker", ["image", "rm", image], {cwd: root, stdio: "ignore"});
+    const engine = await resolveContainerEngine();
+    await run(engine, ["image", "rm", image], {cwd: root, stdio: "ignore"});
 }
 
 /** 从 staged Git worktree 构建带 revision tag 的 Source Docker image。 */
 export async function buildSourceDockerImage(sourceRoot: string, image: string): Promise<void> {
-    await run("docker", ["build", "--file", join(sourceRoot, "Dockerfile"), "--tag", image, sourceRoot], {cwd: sourceRoot});
+    const engine = await resolveContainerEngine();
+    await run(engine, ["build", "--file", join(sourceRoot, "Dockerfile"), "--tag", image, sourceRoot], {cwd: sourceRoot});
 }
 
 /** 生成所有Docker生命周期命令共用的Compose参数。 */

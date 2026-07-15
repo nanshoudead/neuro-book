@@ -4,6 +4,7 @@ import {dirname, join, resolve} from "node:path";
 
 import {pathExists} from "#manager/files";
 import {DEFAULT_REPOSITORY} from "#manager/git";
+import {resolveContainerEngine} from "#manager/docker";
 import {readInstallationManifest} from "#manager/manifest-store";
 import {installationPaths} from "#manager/paths";
 import {commandAvailable, runCapture} from "#manager/process";
@@ -99,7 +100,8 @@ export async function discoverInstances(roots: string[], registeredRoots: string
 
 /** 一次用户操作共享的宿主环境检查。 */
 export async function inspectEnvironment(): Promise<EnvironmentInspection> {
-    return {bun: await inspectCommand("bun"), git: await inspectCommand("git"), docker: await inspectCommand("docker"), compose: await inspectCommand("docker", ["compose", "version"])};
+    const engine = await resolveContainerEngine().catch(() => "docker");
+    return {bun: await inspectCommand("bun"), git: await inspectCommand("git"), docker: await inspectCommand(engine), compose: await inspectCommand(engine, ["compose", "version"])};
 }
 
 export function configuredDiscoveryRoots(config: ManagerConfig): string[] {

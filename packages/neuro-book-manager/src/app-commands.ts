@@ -2,7 +2,7 @@ import {spawn} from "node:child_process";
 import {join, resolve} from "node:path";
 
 import {enableAuthentication, ensureStateFiles, loadStateEnv} from "#manager/config";
-import {startDocker} from "#manager/docker";
+import {resolveContainerEngine, startDocker} from "#manager/docker";
 import {pathExists} from "#manager/files";
 import {commandAvailable, run, runCapture} from "#manager/process";
 import {activateManagedTools} from "#manager/tools";
@@ -56,11 +56,12 @@ export async function createAdmin(root: string, manifest: InstallationManifest, 
     activateManagedTools(root, manifest.components.tools);
     const stateRoot = resolve(root, manifest.stateRoot);
     if (manifest.profile === "ghcr" || manifest.profile === "source-docker") {
+        const engine = await resolveContainerEngine();
         const compose = join(root, ".deploy", "docker-compose.generated.yml");
         const composeArgs = ["compose", "--env-file", join(stateRoot, ".env"), "-f", compose];
-        const running = (await runCapture("docker", [...composeArgs, "ps", "--status", "running", "--services", "app"], {cwd: root})).trim();
+        const running = (await runCapture(engine, [...composeArgs, "ps", "--status", "running", "--services", "app"], {cwd: root})).trim();
         if (running !== "app") throw new Error("容器 app 尚未运行，请先执行 neuro-book start。" );
-        await run("docker", [...composeArgs, "exec", "app", "bun", ".output/server/scripts/cli/create-admin.ts", ...(username ? [username] : [])], {cwd: root});
+        await run(engine, [...composeArgs, "exec", "app", "bun", ".output/server/scripts/cli/create-admin.ts", ...(username ? [username] : [])], {cwd: root});
         return;
     }
     const productScript = join(root, ".output", "server", "scripts", "cli", "create-admin.ts");
