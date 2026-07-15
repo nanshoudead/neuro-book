@@ -1,11 +1,12 @@
-import {dirname, join, relative} from "node:path";
+import {basename, dirname, join, relative} from "node:path";
 import {stringify} from "yaml";
 
 import {writeTextAtomic} from "#manager/files";
-import {commandAvailable, run} from "#manager/process";
+import {commandAvailable, run, runCapture} from "#manager/process";
 import type {InstallProfile} from "#manager/types";
 
 let cachedContainerEngine: string | null = null;
+let cachedPodmanRootless: boolean | null = null;
 
 /** 解析容器引擎；NEURO_BOOK_CONTAINER_ENGINE 优先，然后自动检测 docker/podman。进程内缓存。 */
 export async function resolveContainerEngine(): Promise<string> {
@@ -59,11 +60,21 @@ export async function writeDockerCompose(input: {
             ],
             restart: "unless-stopped",
         };
-    if (process.platform !== "win32" && typeof process.getuid === "function" && typeof process.getgid === "function") {
+    const engine = await resolveContainerEngine();
+    if (process.platform !== "win32" && typeof process.getuid === "function" && typeof process.getgid === "function" && !await isRootlessPodman(engine)) {
         Object.assign(service, {user: `${process.getuid()}:${process.getgid()}`});
     }
     await writeTextAtomic(composePath, stringify({services: {app: service}}));
     return composePath;
+}
+
+/** rootless Podman 已把容器 root 映射为宿主用户，不能再次注入宿主 UID。 */
+async function isRootlessPodman(engine: string): Promise<boolean> {
+    if (!basename(engine).toLowerCase().startsWith("podman")) return false;
+    if (cachedPodmanRootless === null) {
+        cachedPodmanRootless = (await runCapture(engine, ["info", "--format", "{{.Host.Security.Rootless}}"])).trim() === "true";
+    }
+    return cachedPodmanRootless;
 }
 
 /** 验证 Docker Profile 的基础 HTTP 与版本接口。 */
