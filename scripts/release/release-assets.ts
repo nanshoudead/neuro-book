@@ -30,6 +30,7 @@ program.command("manifest")
     .requiredOption("--source <path>")
     .requiredOption("--windows-product <path>")
     .requiredOption("--linux-product <path>")
+    .requiredOption("--linux-aarch64-product <path>")
     .requiredOption("--portable <path>")
     .requiredOption("--stage0-windows <path>")
     .requiredOption("--stage0-windows-cmd <path>")
@@ -54,6 +55,7 @@ type ManifestOptions = {
     source: string;
     windowsProduct: string;
     linuxProduct: string;
+    linuxAarch64Product: string;
     portable: string;
     stage0Windows: string;
     stage0WindowsCmd: string;
@@ -85,7 +87,7 @@ async function buildProductArchive(platform: string, output: string): Promise<vo
         })));
         return;
     }
-    if (platform === "linux-x64-glibc") {
+    if (platform === "linux-x64-glibc" || platform === "linux-aarch64-glibc") {
         await run("tar", ["-czf", output, ".output"], {cwd: ROOT});
         return;
     }
@@ -104,6 +106,7 @@ async function buildReleaseManifest(options: ManifestOptions): Promise<void> {
     const source = await asset(resolve(ROOT, options.source), baseUrl);
     const windowsProduct = await asset(resolve(ROOT, options.windowsProduct), baseUrl);
     const linuxProduct = await asset(resolve(ROOT, options.linuxProduct), baseUrl);
+    const linuxAarch64Product = await asset(resolve(ROOT, options.linuxAarch64Product), baseUrl);
     const portable = await asset(resolve(ROOT, options.portable), baseUrl);
     const manifest = {
         schemaVersion: 2,
@@ -115,6 +118,7 @@ async function buildReleaseManifest(options: ManifestOptions): Promise<void> {
         products: [
             {...windowsProduct, platform: "windows-x64", sourceRevision: options.revision},
             {...linuxProduct, platform: "linux-x64-glibc", sourceRevision: options.revision},
+            {...linuxAarch64Product, platform: "linux-aarch64-glibc", sourceRevision: options.revision},
         ],
         windowsPortable: portable,
         ghcr: {
@@ -131,6 +135,7 @@ async function buildReleaseManifest(options: ManifestOptions): Promise<void> {
         resolve(ROOT, options.source),
         resolve(ROOT, options.windowsProduct),
         resolve(ROOT, options.linuxProduct),
+        resolve(ROOT, options.linuxAarch64Product),
         resolve(ROOT, options.portable),
         output,
         resolve(ROOT, options.stage0Windows),
@@ -151,6 +156,7 @@ async function verifyReleaseAssets(directory: string, tagInput: string, revision
         "neuro-book-source.zip",
         "neuro-book-product-windows-x64.zip",
         "neuro-book-product-linux-x64-glibc.tar.gz",
+        "neuro-book-product-linux-aarch64-glibc.tar.gz",
         "neuro-book-windows-x64.zip",
         "release-manifest.json",
         "install.ps1",
@@ -180,6 +186,12 @@ async function verifyReleaseAssets(directory: string, tagInput: string, revision
         ".output/server/node_modules/@libsql/linux-x64-gnu/",
         ".output/server/node_modules/sqlite-vec-linux-x64/",
     ], "Linux Product");
+    const linuxAarch64Entries = (await runCapture("tar", ["-tzf", resolve(directory, "neuro-book-product-linux-aarch64-glibc.tar.gz")], {cwd: directory})).split(/\r?\n/u);
+    assertEntries(linuxAarch64Entries, [
+        ".output/server/index.mjs",
+        ".output/server/node_modules/@libsql/linux-arm64-gnu/",
+        ".output/server/node_modules/sqlite-vec-linux-arm64/",
+    ], "Linux aarch64 Product");
     const portableEntries = Object.keys(unzipSync(await readFile(resolve(directory, "neuro-book-windows-x64.zip"))));
     assertEntries(portableEntries, [
         ".deploy/installation.json",

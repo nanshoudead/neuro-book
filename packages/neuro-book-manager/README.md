@@ -12,7 +12,7 @@ irm https://raw.githubusercontent.com/notnotype/neuro-book/master/scripts/instal
 curl -fsSL https://raw.githubusercontent.com/notnotype/neuro-book/master/scripts/install/install.sh | sh
 ```
 
-Linux Stage 0支持x64 glibc，并依赖`curl`、`unzip`和`sha256sum`。Windows普通用户也可以直接从GitHub Release下载`neuro-book-windows-x64.zip`解压使用。
+Linux Stage 0支持x64 glibc 与 aarch64 glibc，并依赖`curl`、`unzip`和`sha256sum`。Windows普通用户也可以直接从GitHub Release下载`neuro-book-windows-x64.zip`解压使用。
 
 直接运行且不传参数，会先检测当前目录：受管实例进入管理菜单，未接管的NeuroBook Git checkout进入接管菜单，普通目录进入部署菜单：
 

@@ -58,7 +58,7 @@ export type ManagerConfig = {
 };
 
 /** 当前支持的 Product 平台。 */
-export type ProductPlatform = "windows-x64" | "linux-x64-glibc";
+export type ProductPlatform = "windows-x64" | "linux-x64-glibc" | "linux-aarch64-glibc";
 
 /** update 命令可独立选择的应用组件。 */
 export type ComponentId = "source" | "product" | "runtime" | "tools";

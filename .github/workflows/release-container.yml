@@ -40,7 +40,7 @@ jobs:
         with:
           context: .
           target: runtime-base
-          platforms: linux/amd64
+          platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.runtime-meta.outputs.tags }}
           cache-from: type=gha,scope=runtime
@@ -59,7 +59,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          platforms: linux/amd64
+          platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.app-meta.outputs.tags }}
           labels: ${{ steps.app-meta.outputs.labels }}
@@ -93,6 +93,19 @@ jobs:
           name: product-linux
           path: dist/neuro-book-product-linux-x64-glibc.tar.gz
 
+  product-linux-aarch64:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile --linker hoisted
+      - run: bun run nuxt:build
+      - run: bun run release:product:linux-aarch64
+      - uses: actions/upload-artifact@v4
+        with:
+          name: product-linux-aarch64
+          path: dist/neuro-book-product-linux-aarch64-glibc.tar.gz
+
   product-windows:
     needs: source
     runs-on: windows-latest
@@ -116,7 +129,7 @@ jobs:
             dist/neuro-book-windows-x64.zip
 
   assemble:
-    needs: [build-and-push, source, product-linux, product-windows]
+    needs: [build-and-push, source, product-linux, product-linux-aarch64, product-windows]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -129,6 +142,10 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: product-linux
+          path: dist
+      - uses: actions/download-artifact@v4
+        with:
+          name: product-linux-aarch64
           path: dist
       - uses: actions/download-artifact@v4
         with:
@@ -153,6 +170,7 @@ jobs:
             --source dist/neuro-book-source.zip \
             --windows-product dist/neuro-book-product-windows-x64.zip \
             --linux-product dist/neuro-book-product-linux-x64-glibc.tar.gz \
+            --linux-aarch64-product dist/neuro-book-product-linux-aarch64-glibc.tar.gz \
             --portable dist/neuro-book-windows-x64.zip \
             --stage0-windows dist/install.ps1 \
             --stage0-windows-cmd dist/install.cmd \
@@ -168,6 +186,7 @@ jobs:
             dist/neuro-book-source.zip
             dist/neuro-book-product-windows-x64.zip
             dist/neuro-book-product-linux-x64-glibc.tar.gz
+            dist/neuro-book-product-linux-aarch64-glibc.tar.gz
             dist/neuro-book-windows-x64.zip
             dist/release-manifest.json
             dist/SHA256SUMS
@@ -199,6 +218,16 @@ jobs:
         run: |
           docker pull "${IMAGE}"
           test "$(docker image inspect "${IMAGE}" --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}')" = "${{ github.sha }}"
+      - name: Verify Linux aarch64 Product native packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          tar -tzf candidate-assets/neuro-book-product-linux-aarch64-glibc.tar.gz \
+            | grep -E '^\.output/server/node_modules/@libsql/linux-arm64-gnu/' \
+            | head -1
+          tar -tzf candidate-assets/neuro-book-product-linux-aarch64-glibc.tar.gz \
+            | grep -E '^\.output/server/node_modules/sqlite-vec-linux-arm64/' \
+            | head -1
       - name: Verify Linux Product in a real browser
         shell: bash
         run: |
@@ -455,6 +484,7 @@ jobs:
             dist/neuro-book-source.zip
             dist/neuro-book-product-windows-x64.zip
             dist/neuro-book-product-linux-x64-glibc.tar.gz
+            dist/neuro-book-product-linux-aarch64-glibc.tar.gz
             dist/neuro-book-windows-x64.zip
             dist/install.ps1
             dist/install.cmd
@@ -487,6 +517,7 @@ jobs:
             neuro-book-source.zip \
             neuro-book-product-windows-x64.zip \
             neuro-book-product-linux-x64-glibc.tar.gz \
+            neuro-book-product-linux-aarch64-glibc.tar.gz \
             neuro-book-windows-x64.zip \
             install.ps1 \
             install.cmd \

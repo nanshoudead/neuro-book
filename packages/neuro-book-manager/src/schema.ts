@@ -18,7 +18,7 @@ const InstallProfileSchema = Type.Union([
     Type.Literal("ghcr"),
 ]);
 const ReleaseChannelSchema = Type.Union([Type.Literal("stable"), Type.Literal("canary")]);
-const ProductPlatformSchema = Type.Union([Type.Literal("windows-x64"), Type.Literal("linux-x64-glibc")]);
+const ProductPlatformSchema = Type.Union([Type.Literal("windows-x64"), Type.Literal("linux-x64-glibc"), Type.Literal("linux-aarch64-glibc")]);
 const StateRootSchema = Type.Union([Type.Literal("."), Type.Literal("data")]);
 const RevisionSchema = Type.String({pattern: REVISION_PATTERN});
 const ChecksumSchema = Type.String({pattern: SHA256_PATTERN});
