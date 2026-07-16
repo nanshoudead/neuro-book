@@ -8,12 +8,12 @@
 - Manager会把安装时验证通过的Docker或Podman写入Installation Manifest与Operation Journal；启动、更新、回滚、doctor和管理员命令不会在两个引擎之间静默切换。
 - POSIX Stage 0、Managed Bun与ripgrep按Linux/macOS和x64/ARM64选择受校验资产；Linux仍明确要求glibc。
 - Release Manifest升级到v3，Installation Manifest升级到v4，Operation Journal升级到v2；旧Installation不自动迁移，需要重新安装并只复用用户状态。
-- 应用Release会逐文件校验本地Manager bundle与npm同版本公开bundle；Manager源码漂移时必须先独立发布新版Manager。
+- 应用Release会在创建GitHub Release、构建资产或推送GHCR前逐文件校验本地Manager bundle与npm同版本公开bundle；Manager源码漂移时必须先独立发布新版Manager。
 - Managed Bun会在提交版本目录前恢复POSIX执行位并执行真实版本校验；Stage 0下载后也会再次校验可执行文件并清理临时目录。
 - Podman管理员命令只使用Docker Compose与`podman-compose`共同支持的`compose exec`；原生Profile不会在doctor中显示未持久化的容器engine。
 - Release Manifest v3必须完整列出五个平台，Product命令拒绝把当前宿主的`.output`包装成其他平台资产。
 
-本地验证已完成Manager typecheck、18 files / 68 passed + 2 POSIX-only skipped、应用typecheck、Stage 0/Release聚焦2 files / 6 passed + 8 POSIX-only skipped、Shell/YAML检查和36,900条目Windows Product归档。跨平台run `29492270256`已完成Linux AArch64、macOS x64/ARM64的Stage 0行为、Manager合同、原生Product、migration、State Root、HTTP与浏览器smoke。Apple Silicon Source Docker双engine和发布后的GHCR双engine仍待设备验证。
+本地验证已完成Manager typecheck、18 files / 68 passed + 2 POSIX-only skipped、应用typecheck、Stage 0/Release聚焦2 files / 8 passed + 8 POSIX-only skipped、Shell/YAML检查和36,900条目Windows Product归档。跨平台run `29496159926`已完成Linux AArch64、macOS x64/ARM64的Stage 0执行位恢复、Manager合同、原生Product、migration、State Root、HTTP与真实浏览器smoke。Apple Silicon Source Docker双engine和发布后的GHCR双engine仍待设备验证。
 
 ## 0.8.0-canary - 2026-07-15
 

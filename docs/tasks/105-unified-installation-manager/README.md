@@ -606,6 +606,16 @@ uninstall
 - 项目正式测试入口现在统一先执行`nuxt:prepare`，并增加`test:install`供PR与Release workflow复用。移走本机`.nuxt`后的最小复现已由失败转为通过；修复run [`29492270256`](https://github.com/notnotype/neuro-book/actions/runs/29492270256)三平台全绿，Linux AArch64、macOS x64与macOS ARM64均通过Stage 0行为、Manager合同、原生产物、migration、无根`node_modules`、State Root、HTTP和浏览器smoke。
 - 设备门禁按发布事实拆分：合并前在Apple Silicon用本地Manager验证Docker Desktop与rootless Podman的Source Docker；合并后先发布Manager`.15`与首个Manifest v3应用canary，再验证两种engine的GHCR。当前公开应用Release仍是Manifest v2，不增加本地Manifest覆盖后门，也不提前发布未合并代码。
 
+### 2026-07-16：PR #11二次审查与发布门禁修复
+
+- 二次审查确认三个缺口：应用Release在GHCR推送后才验证公开Manager、Linux AArch64把浏览器设为`none`、Stage 0的unzip stub提前赋予执行位。进一步最小复现发现第三项同时是业务缺陷：`install.sh`没有主动恢复Bun执行位，只是依赖ZIP元数据。
+- POSIX Stage 0现在把缓存和新下载都收口为同一提交合同：先验证executable checksum，恢复`0755`，再执行`bun --version`；下载、解压、chmod或最终校验任一步失败/中断都会删除该版本Runtime目录。shell harness明确产出`0644`文件，并验证缓存可原地恢复执行位而不重新下载。
+- 官方release CLI在修改应用版本、创建commit/tag或GitHub Release前执行`manager:verify-public`；Release workflow另设首个`verify-manager` job，Source/Product/GHCR均依赖它。即使有人绕过官方CLI从GitHub手工发布Release，也不能在Manager bundle漂移时推送GHCR或构建候选资产。
+- Linux AArch64 PR与正式Release job使用现有`playwright-core`下载官方ARM64 Chromium，并执行与macOS相同的Product浏览器smoke；`verify-posix-product.sh`不再接受`none`跳过。结构化YAML回归锁定Manager preflight依赖图和ARM64浏览器合同。
+- 本地验证完成应用/Manager typecheck、Manager 18 files / 68 passed + 2 POSIX-only skipped、Stage 0/Release 2 files / 8 passed + 8 Windows skipped、Shell/YAML解析和release dry-run。当前`.14`的`manager:verify-public`按预期在发布前拒绝bundle漂移。
+- PR run [`29496159926`](https://github.com/notnotype/neuro-book/actions/runs/29496159926)三平台全绿：Linux AArch64、macOS x64与macOS ARM64均通过新执行位harness、Manager合同、原生Product、migration、State Root、HTTP和真实浏览器smoke。
+- 实际结果与二次审查建议一致，三个仓库内问题均已修复。仍无法由代码替代的是Apple Silicon上的Docker Desktop/rootless Podman实机证据，以及合并后`.15`和Manifest v3应用canary真实发布后的GHCR验证。
+
 ## TODO / Follow-ups
 
 - [x] Windows Portable 使用 `data/` State Root，不使用 junction。

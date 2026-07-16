@@ -222,7 +222,7 @@ neuro-book-windows-x64.zip
 ghcr.io/notnotype/neuro-book:<tag>
 ```
 
-Release Manifest v3记录应用版本、Git revision、channel、最低Manager版本、五平台资产URL/SHA256、Windows Portable资产以及GHCR digest。五个平台必须完整且唯一，资产名必须匹配平台；Product打包命令还会拒绝把当前宿主`.output`交叉标记为其他平台。Resolver先读取稳定envelope并提示升级Manager，再严格解析平台payload。Installation Manifest v4与Operation Journal v2是硬切协议，旧Installation不自动迁移。
+Release Manifest v3记录应用版本、Git revision、channel、最低Manager版本、五平台资产URL/SHA256、Windows Portable资产以及GHCR digest。五个平台必须完整且唯一，资产名必须匹配平台；Product打包命令还会拒绝把当前宿主`.output`交叉标记为其他平台。Resolver先读取稳定envelope并提示升级Manager，再严格解析平台payload。Installation Manifest v4与Operation Journal v2是硬切协议，旧Installation不自动迁移。官方release CLI会在创建GitHub Release前验证本地Manager与npm同版本公开bundle；Release workflow也在任何Source/Product/GHCR构建或推送前执行同一门禁。
 
 ## 验收建议
 
