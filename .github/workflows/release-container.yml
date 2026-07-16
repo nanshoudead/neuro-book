@@ -113,6 +113,66 @@ jobs:
           name: product-linux-aarch64
           path: dist/neuro-book-product-linux-aarch64-glibc.tar.gz
 
+  product-darwin-x64:
+    needs: source
+    runs-on: macos-15-intel
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile --linker hoisted
+      - run: bun run nuxt:build
+      - run: bun run release:product:darwin
+      - uses: actions/download-artifact@v4
+        with:
+          name: source
+          path: dist
+      - name: Verify macOS x64 Product
+        shell: bash
+        run: |
+          version="${{ github.event.release.tag_name }}"
+          bash scripts/release/verify-posix-product.sh \
+            darwin-x64 \
+            dist/neuro-book-source.zip \
+            dist/neuro-book-product-darwin-x64.tar.gz \
+            "${version#v}" \
+            39125 \
+            "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: product-darwin-x64
+          path: dist/neuro-book-product-darwin-x64.tar.gz
+
+  product-darwin-aarch64:
+    needs: source
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile --linker hoisted
+      - run: bun run nuxt:build
+      - run: bun run release:product:darwin-aarch64
+      - uses: actions/download-artifact@v4
+        with:
+          name: source
+          path: dist
+      - name: Verify macOS ARM64 Product
+        shell: bash
+        run: |
+          version="${{ github.event.release.tag_name }}"
+          bash scripts/release/verify-posix-product.sh \
+            darwin-aarch64 \
+            dist/neuro-book-source.zip \
+            dist/neuro-book-product-darwin-aarch64.tar.gz \
+            "${version#v}" \
+            39126 \
+            "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: product-darwin-aarch64
+          path: dist/neuro-book-product-darwin-aarch64.tar.gz
+
   product-windows:
     needs: source
     runs-on: windows-latest
@@ -136,7 +196,7 @@ jobs:
             dist/neuro-book-windows-x64.zip
 
   assemble:
-    needs: [build-and-push, source, product-linux, product-linux-aarch64, product-windows]
+    needs: [build-and-push, source, product-linux, product-linux-aarch64, product-darwin-x64, product-darwin-aarch64, product-windows]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -156,6 +216,14 @@ jobs:
           path: dist
       - uses: actions/download-artifact@v4
         with:
+          name: product-darwin-x64
+          path: dist
+      - uses: actions/download-artifact@v4
+        with:
+          name: product-darwin-aarch64
+          path: dist
+      - uses: actions/download-artifact@v4
+        with:
           name: product-windows
           path: dist
       - name: Build release manifest
@@ -167,9 +235,7 @@ jobs:
           cp scripts/install/install.cmd dist/install.cmd
           cp scripts/install/install.sh dist/install.sh
           manager_version="$(bun -e 'console.log(require("./packages/neuro-book-manager/package.json").version)')"
-          if [[ "${manager_version}" == *-* ]]; then manager_tag=canary; else manager_tag=latest; fi
-          published_manager="$(npm view "@notnotype/neuro-book-manager@${manager_tag}" version)"
-          test "${published_manager}" = "${manager_version}"
+          bun run manager:verify-public
           bun scripts/release/release-assets.ts manifest \
             --tag "${{ github.event.release.tag_name }}" \
             --revision "${{ github.sha }}" \
@@ -178,6 +244,8 @@ jobs:
             --windows-product dist/neuro-book-product-windows-x64.zip \
             --linux-product dist/neuro-book-product-linux-x64-glibc.tar.gz \
             --linux-aarch64-product dist/neuro-book-product-linux-aarch64-glibc.tar.gz \
+            --darwin-product dist/neuro-book-product-darwin-x64.tar.gz \
+            --darwin-aarch64-product dist/neuro-book-product-darwin-aarch64.tar.gz \
             --portable dist/neuro-book-windows-x64.zip \
             --stage0-windows dist/install.ps1 \
             --stage0-windows-cmd dist/install.cmd \
@@ -194,6 +262,8 @@ jobs:
             dist/neuro-book-product-windows-x64.zip
             dist/neuro-book-product-linux-x64-glibc.tar.gz
             dist/neuro-book-product-linux-aarch64-glibc.tar.gz
+            dist/neuro-book-product-darwin-x64.tar.gz
+            dist/neuro-book-product-darwin-aarch64.tar.gz
             dist/neuro-book-windows-x64.zip
             dist/release-manifest.json
             dist/SHA256SUMS
@@ -492,6 +562,8 @@ jobs:
             dist/neuro-book-product-windows-x64.zip
             dist/neuro-book-product-linux-x64-glibc.tar.gz
             dist/neuro-book-product-linux-aarch64-glibc.tar.gz
+            dist/neuro-book-product-darwin-x64.tar.gz
+            dist/neuro-book-product-darwin-aarch64.tar.gz
             dist/neuro-book-windows-x64.zip
             dist/install.ps1
             dist/install.cmd
@@ -525,6 +597,8 @@ jobs:
             neuro-book-product-windows-x64.zip \
             neuro-book-product-linux-x64-glibc.tar.gz \
             neuro-book-product-linux-aarch64-glibc.tar.gz \
+            neuro-book-product-darwin-x64.tar.gz \
+            neuro-book-product-darwin-aarch64.tar.gz \
             neuro-book-windows-x64.zip \
             install.ps1 \
             install.cmd \
