@@ -1,14 +1,16 @@
 # Release Notes
 
-## 0.8.2-canary - 2026-07-16
+## Unreleased
 
-本次版本补齐 ARM64 与 Podman 部署支持，并修复 fork 仓库发布 GHCR 镜像时的命名兼容问题。
+下一版将补齐Linux ARM64、macOS原生Product与持久化Container Engine合同。
 
-- GHCR 与 Linux Product Bun 新增 `linux/arm64` / `linux-aarch64-glibc` 产物，macOS ARM64 可以使用 Docker 或源码部署。
-- Manager 自动检测 Docker 或 Podman；rootless Podman 不再重复注入宿主 UID，容器内 `/app` 允许运行用户写入构建与工作文件。
-- Release workflow 会把 fork owner 规范化为小写 OCI 镜像命名，同时继续发布到 fork 自己的 GHCR namespace；构建、manifest 与公开镜像验证共用同一引用。
+- GHCR与Linux Product Bun新增`linux/arm64` / `linux-aarch64-glibc`产物；macOS x64/ARM64新增原生Product Bun，并继续支持Docker与Source Profile。
+- Manager会把安装时验证通过的Docker或Podman写入Installation Manifest与Operation Journal；启动、更新、回滚、doctor和管理员命令不会在两个引擎之间静默切换。
+- POSIX Stage 0、Managed Bun与ripgrep按Linux/macOS和x64/ARM64选择受校验资产；Linux仍明确要求glibc。
+- Release Manifest升级到v3，Installation Manifest升级到v4，Operation Journal升级到v2；旧Installation不自动迁移，需要重新安装并只复用用户状态。
+- 应用Release会逐文件校验本地Manager bundle与npm同版本公开bundle；Manager源码漂移时必须先独立发布新版Manager。
 
-验证结果：Manager Docker Compose 聚焦测试与类型检查通过，release workflow YAML 和大小写转换静态检查通过；本次发布将由 GitHub Actions 完成多架构构建及发布门禁。
+本地验证已完成Manager typecheck、15 files / 64 tests、pack审计、应用typecheck、全新Nuxt Product build、Stage 0/Release聚焦2 files / 8 tests、Shell/YAML检查和Windows Product归档；跨平台Actions与Apple Silicon Docker/Podman实机仍待完成。
 
 ## 0.8.0-canary - 2026-07-15
 

@@ -12,7 +12,7 @@ irm https://raw.githubusercontent.com/notnotype/neuro-book/master/scripts/instal
 curl -fsSL https://raw.githubusercontent.com/notnotype/neuro-book/master/scripts/install/install.sh | sh
 ```
 
-Linux Stage 0支持x64 glibc 与 aarch64 glibc，并依赖`curl`、`unzip`和`sha256sum`。Windows普通用户也可以直接从GitHub Release下载`neuro-book-windows-x64.zip`解压使用。
+POSIX Stage 0支持Linux glibc与macOS的x64/ARM64：Linux依赖`sha256sum`并验证glibc，macOS使用系统`shasum -a 256`；两者都依赖`curl`和`unzip`。Windows普通用户也可以直接从GitHub Release下载`neuro-book-windows-x64.zip`解压使用。
 
 直接运行且不传参数，会先检测当前目录：受管实例进入管理菜单，未接管的NeuroBook Git checkout进入接管菜单，普通目录进入部署菜单：
 
@@ -26,7 +26,9 @@ bunx --bun @notnotype/neuro-book-manager@canary
 bunx --bun @notnotype/neuro-book-manager@canary install --profile ghcr --yes
 ```
 
-六种Profile分别是：Windows解压/托管运行时使用`windows-portable`；Linux服务器预构建镜像使用`ghcr`；无Docker的预构建Product使用`product-bun`；开发使用`source-dev`；本机源码生产构建使用`source-product`；容器内源码构建使用`source-docker`。
+六种Profile分别是：Windows解压/托管运行时使用`windows-portable`；Linux/macOS容器部署使用`ghcr`；无容器的预构建Product使用`product-bun`；开发使用`source-dev`；本机源码生产构建使用`source-product`；容器内源码构建使用`source-docker`。Windows x64、Linux x64/AArch64 glibc和macOS x64/ARM64支持各自原生Product；Windows ARM64和Linux musl明确不支持。
+
+容器Profile首次安装时会验证Docker/Podman CLI、Compose和engine状态，并把选定engine写入Installation Manifest与Operation Journal。后续start/update/rollback/doctor/create-admin始终使用该engine，不会在Docker与Podman之间静默切换。
 
 安装成功后，实例会注册到 `~/.neuro-book-manager/config.json`。该文件只保存用户偏好、默认实例和实例目录索引；每个实例的真实部署状态仍由其 `.deploy/installation.json` 管理。
 
@@ -42,7 +44,7 @@ neuro-book --root <path> doctor
 
 `neuro-book manage` 使用 blessed 提供多实例 TUI，可查看状态、执行诊断、启动、更新、注册、设置默认实例或忘记索引。忘记实例不会删除 Installation Root 或用户数据。
 
-已有Manifest v3实例使用`instances import <path> --yes`执行离线完整性门禁后登记；`--yes`只接受“服务未启动”等warning，不能绕过checksum、wrapper或Operation blocker。无Manifest源码checkout使用`adopt`显式接管；三个Source Profile均在detached worktree准备，dirty、未知remote或非法branch会停止。无法证明revision/checksum的历史`.output`不会直接纳入管理。
+已有Manifest v4实例使用`instances import <path> --yes`执行离线完整性门禁后登记；v3不自动迁移，需要重新安装并只复用用户状态。`--yes`只接受“服务未启动”等warning，不能绕过checksum、wrapper或Operation blocker。无Manifest源码checkout使用`adopt`显式接管；三个Source Profile均在detached worktree准备，dirty、未知remote或非法branch会停止。无法证明revision/checksum的历史`.output`不会直接纳入管理。
 
 不要使用 `bunx run @notnotype/neuro-book-manager`；`bunx run` 会把包名按本地脚本或路径解析，Manager 不会被启动。
 

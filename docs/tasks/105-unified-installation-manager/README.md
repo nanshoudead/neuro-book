@@ -1,6 +1,6 @@
 # 105 - 统一安装目录与 NeuroBook Manager
 
-> 当前状态：实现中。Manager [`0.1.0-canary.14`](https://github.com/notnotype/neuro-book/actions/runs/29258344967)已通过Trusted Publisher公开，npm `canary`与真实bunx均已验证。[`v0.7.9-canary.20260713.131204Z.3b064b83`](https://github.com/notnotype/neuro-book/releases/tag/v0.7.9-canary.20260713.131204Z.3b064b83)的Release workflow `29252852294`全绿，九个资产已公开，Windows Portable与Linux Product真实浏览器门禁通过。公开Portable/Product Bun与GHCR A→B终验仍未完成，因此Task 105不归档。
+> 当前状态：实现中。Manager [`0.1.0-canary.14`](https://github.com/notnotype/neuro-book/actions/runs/29258344967)已公开，但本轮Manager协议已发生变化，必须在PR合并后先发布`.15`，应用Release才能引用新的`minManagerVersion`。代码目标已扩展到Linux AArch64、macOS x64/ARM64和`linux/arm64` OCI；跨平台Actions与Apple Silicon Docker/Podman实机证据完成前，Task 105不归档。
 
 ## Relative documents refs
 
@@ -27,6 +27,8 @@
 - GHCR 是 OCI 交付外壳与分发渠道，镜像内部仍由 Source、Product、Runtime 和 Toolchain 组件组成。
 - 不同平台提供各自 Stage 0，Stage 0 只负责确保 Bun 可用，之后统一调用 NeuroBook Manager。
 - Manager 后续负责 Bun、ripgrep、Git 等组件的检测、下载、版本记录和更新。
+- Linux AArch64与macOS x64/ARM64进入正式Stage 0、Source、Product与更新/回滚合同；Windows ARM64和Linux musl明确不支持。
+- Docker/Podman在首次安装时选择并持久化，后续命令和中断恢复不得静默切换engine。
 
 ## Goal
 
@@ -121,6 +123,9 @@ Product 可以携带完整源码，但必须通过隔离测试证明服务和产
 - NeuroBook Release manifest 声明 `minManagerVersion`，必要时声明 `maxManagerVersion` 或 manifest schema version。
 - 应用版本、Manager 版本、GHCR tag 和 Bun 版本不得假定相同。
 - 安装记录必须分别保存这些版本。
+- Release Manifest先解析`schemaVersion/minManagerVersion` envelope，再严格解析平台payload；旧Manager必须优先得到升级提示。
+- 应用Release必须逐文件比较本地Manager bundle与npm同版本公开bundle，不能只比较版本字符串。
+- 本轮保持源码版本为`.14`并让应用Release门禁失败；PR合并后通过正式`manager:release`发布`.15`，随后才允许应用Release生成`minManagerVersion=.15`。
 
 ### D5：Stage 0
 
@@ -137,6 +142,16 @@ Stage 0 只负责：
 - Linux/macOS POSIX shell。
 - 已有 Bun：直接使用 `bunx`。
 - Windows Portable：包内 Launcher 调用同一个 Manager core，不复制第二套安装逻辑。
+
+| 宿主 | Bun资产 | 额外门禁 |
+| --- | --- | --- |
+| Windows x64 | `bun-windows-x64.zip` | PowerShell/CMD参数与普通用户权限 |
+| Linux x64 glibc | `bun-linux-x64.zip` | `glibc`、`curl`、`unzip`、`sha256sum` |
+| Linux AArch64 glibc | `bun-linux-aarch64.zip` | 同Linux x64，并验证原生executable |
+| macOS x64 | `bun-darwin-x64.zip` | `shasum -a 256`与缓存权限 |
+| macOS ARM64 | `bun-darwin-aarch64.zip` | 同macOS x64，并验证Apple Silicon原生executable |
+
+每个平台同时固定archive与Bun executable SHA256；`glibc`检查只属于Linux。
 
 ### D6：Stage 0 与 Git clone 的非空目录冲突
 
@@ -163,15 +178,32 @@ Stage 0 只负责：
 
 Profile 只声明需求与来源，下载、校验、安装和状态记录复用统一 component installer。
 
+| 宿主平台 | source-dev | source-product | product-bun | source-docker | ghcr | windows-portable |
+| --- | --- | --- | --- | --- | --- | --- |
+| Windows x64 | 支持 | 支持 | 支持 | 支持 | 支持 | 支持 |
+| Linux x64 glibc | 支持 | 支持 | 支持 | 支持 | 支持 | 不支持 |
+| Linux AArch64 glibc | 支持 | 支持 | 支持 | 支持 | 支持 | 不支持 |
+| macOS x64/ARM64 | 支持 | 支持 | 支持 | 支持 | 支持 | 不支持 |
+
+平台门禁使用正向穷举矩阵；Windows ARM64、Linux musl和未知架构直接拒绝，不回退到x64资产。
+
 ### D8：Product 是平台/架构相关组件
 
 `.output/server/node_modules` 可能包含 `@libsql`、esbuild、sqlite 扩展等 native optional package。Product artifact 不能默认宣称完全跨平台，应至少按以下维度发布和解析：
 
-- OS：Windows、Linux，后续 macOS。
-- architecture：x64，后续 arm64。
+- OS：Windows、Linux、macOS。
+- architecture：x64、ARM64。
 - libc：Linux glibc；如支持 Alpine/musl，需要独立 artifact 或明确不支持。
 
-Windows Product 必须继续在 Windows runner 构建；Linux Product/GHCR 在 Linux runner 构建。
+| ProductPlatform | Release资产 |
+| --- | --- |
+| `windows-x64` | `neuro-book-product-windows-x64.zip` |
+| `linux-x64-glibc` | `neuro-book-product-linux-x64-glibc.tar.gz` |
+| `linux-aarch64-glibc` | `neuro-book-product-linux-aarch64-glibc.tar.gz` |
+| `darwin-x64` | `neuro-book-product-darwin-x64.tar.gz` |
+| `darwin-aarch64` | `neuro-book-product-darwin-aarch64.tar.gz` |
+
+Windows、Linux和macOS Product必须在对应原生runner构建。OCI只发布`linux/amd64`与`linux/arm64`；Darwin Product是独立原生资产。Release生产、schema、resolver、URL校验和本机选择共用穷举资产映射。
 
 ### D9：Runtime 与 Toolchain Provider
 
@@ -191,17 +223,25 @@ Windows Product 必须继续在 Windows runner 构建；Linux Product/GHCR 在 L
 
 所有第三方 Runtime/Tool 下载必须记录上游 URL、版本、SHA256、许可证和再分发边界。
 
+Container Engine合同：
+
+- 类型只允许`docker | podman`。Fresh Install/Adoption依次验证CLI、`compose version`和engine `info`后写入Installation Manifest v4与Operation Journal v2。
+- 已安装实例的start/update/rollback/recovery/doctor/create-admin只使用持久化engine；双引擎共存时不得重新探测。
+- `NEURO_BOOK_CONTAINER_ENGINE`只接受`docker|podman`，用于首次选择；不能成为任意命令注入入口。
+- rootless Podman不重复注入宿主UID/GID；Docker和非rootless Podman保持显式用户映射。
+
 ### D10：统一安装记录
 
 `.deploy/installation.json` 至少记录：
 
 ```json
 {
-    "schemaVersion": 1,
+    "schemaVersion": 4,
     "profile": "product-bun",
+    "containerEngine": null,
     "managerVersion": "1.0.0",
     "appVersion": "0.8.0",
-    "releaseChannel": "stable",
+    "channel": "stable",
     "components": {
         "source": {"provider": "release", "version": "0.8.0"},
         "product": {"provider": "release", "version": "0.8.0", "platform": "windows-x64"},
@@ -534,6 +574,24 @@ uninstall
 - 实际计划差异：Docker镜像必须在build成功后立即写入Journal，不能等`prepareUpdate()`整体返回，否则后续Manager/Compose准备失败会留下孤儿镜像；实现因此把Journal更新推进到build完成点，并让catch统一重新读取持久化Journal恢复。
 - Manager `0.1.0-canary.14` release workflow `29258344967`全绿，npm `canary`与真实`bunx --bun ...@canary --version`均返回`.14`。
 
+### 2026-07-16：PR #11跨平台协议补全
+
+- 在贡献者`feat/aarch64-support`分支上继续实现，不重写其release commit历史。应用版本恢复到PR基线，新增说明归入`Unreleased`；本轮不发布Manager、npm或应用Release。
+- `ProductPlatform`硬切为Windows x64、Linux x64/AArch64 glibc、macOS x64/ARM64五个平台，Profile改用正向矩阵。Installation Manifest硬切v4、Operation Journal硬切v2、Release Manifest硬切v3，不提供旧schema迁移。
+- Docker/Podman只在Fresh Install/Adoption阶段选择并完整验证，随后由Manifest/Journal固定。Compose生成、build、start、stop、down、image cleanup、rollback、doctor和create-admin均显式消费同一engine。
+- POSIX Stage 0、Managed Bun和ripgrep扩展到Linux AArch64与Darwin双架构；macOS固定Bun 1.3.14 archive/executable checksum并使用`shasum -a 256`，Linux继续要求glibc。
+- Release新增两个Darwin Product资产和原生runner，使用Source+Product组装物验证native包、无根`node_modules`、独立State Root、migration、HTTP与浏览器。PR级workflow覆盖Linux AArch64及两种macOS Product。
+- 应用Release门禁改为本地构建Manager并与npm同版本公开tarball的`dist/`逐文件hash比较；源码漂移时必须先按正式流程发布新Manager。
+- Dockerfile删除`/app`全目录world-writable权限。若跨平台容器smoke证明具体运行目录需要写权限，只对该目录建立明确所有权，不恢复整树`chmod`。
+
+### 实际结果与计划差异
+
+- 本机完成Manager typecheck、15 files / 64 tests与npm pack安装审计；应用typecheck、全新Nuxt Product build、Stage 0/Release聚焦2 files / 8 tests、POSIX Shell语法和workflow YAML解析均通过。
+- 新Release脚本在Windows实际生成36,900条目的Product archive，并确认入口、`@libsql/win32-x64-msvc`与`sqlite-vec-windows-x64`存在。
+- `manager:verify-public`按预期拒绝当前`.14`源码，明确报告`neuro-book.mjs`与npm公开bundle不一致；这不是待修测试失败，而是应用Release必须等待`.15`的门禁证据。
+- 本机是Windows x64，无法替代macOS原生Product和Linux ARM64最终运行证据；这些证据由推送后的新增Actions提供。
+- Apple Silicon上的Docker Desktop/Podman machine实际启动不由CI中的原生Product测试替代。取得贡献者设备证据前，PR保持未合并。
+
 ## TODO / Follow-ups
 
 - [x] Windows Portable 使用 `data/` State Root，不使用 junction。
@@ -542,6 +600,9 @@ uninstall
 - [x] Stage 0 用户 cache Bun、Manager Host Runtime 接管与空目录 Git materialize实现及聚焦测试通过。
 - [x] Windows PortableGit/rg/Bun 托管、bash、checksum、wrapper、许可证与再分发记录完成本地组装验证。
 - [x] Windows/Linux Product artifact 与 Windows Portable 结构。
+- [x] Linux AArch64与macOS x64/ARM64平台、Stage 0、Managed Bun/ripgrep和Product发布合同进入实现。
+- [ ] 等待PR跨平台Actions，并由贡献者在Apple Silicon上确认Docker与rootless Podman持久化State Root启动。
+- [ ] PR合并后按正式`manager:release`流程发布`.15`，再允许应用canary引用新的Manifest schema与平台矩阵。
 - [x] 删除旧部署入口并同步当前部署文档。
 - [x] 停止现有服务后重建根 `node_modules`，完成全新 Product build和无根 `node_modules` Product 隔离运行。
 - [ ] 使用本轮新 `.output` 完成 Windows Portable start/create-admin/update/data 保留 smoke。
