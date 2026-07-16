@@ -57,7 +57,7 @@ jobs:
       - uses: oven-sh/setup-bun@v2
       - run: bun install --frozen-lockfile --linker hoisted
       - name: Verify POSIX Stage 0 behavior
-        run: bun vitest run scripts/install/install.test.ts
+        run: bun run test:install
       - name: Verify Manager platform contracts
         run: bun run manager:test
       - run: bun run nuxt:build
