@@ -34,7 +34,7 @@ export async function runInstallGuide(defaults: InstallGuideDefaults = {}): Prom
     );
     p.intro("NeuroBook 安装向导");
     if (process.platform === "darwin") {
-        p.note("macOS 为实验性支持，当前仅推荐 Docker（GHCR / Source Docker）与 Source Dev 部署。", "macOS 注意");
+        p.note("macOS x64/ARM64支持原生Product与全部Source Profile；有Docker或Podman时仍默认推荐GHCR。", "macOS 平台");
     }
     p.note([
         "NeuroBook Manager 会安装、更新并管理一个独立的 NeuroBook 实例。",

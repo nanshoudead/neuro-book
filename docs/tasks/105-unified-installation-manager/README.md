@@ -594,6 +594,16 @@ uninstall
 - 原计划为三个提交；首次push后根据真实Actions追加一个普通CI资源修复提交，并在验证完成后追加本walkthrough结果提交。没有amend、rebase或force push已公开历史。
 - Apple Silicon上的Docker Desktop/Podman machine实际启动不由CI中的原生Product测试替代。取得贡献者设备证据前，PR保持未合并。
 
+### 2026-07-16：PR #11跨平台合同审查收口
+
+- 审查沿Managed Runtime、Stage 0、Container Admin、Release Manifest和Product打包链路复现了五个缺口：POSIX ZIP解压后的Managed Bun缺少执行位、`podman-compose ps`不支持Docker Compose专有参数、Release v3接受不完整平台集合、Product命令可错误标记其他宿主平台，以及Stage 0测试只检查脚本文本。
+- Managed Bun现在对缓存和新下载都恢复POSIX执行位并执行真实版本校验；损坏的不可变版本目录会删除后重建，错误下载不会进入Manifest。通用ZIP解压仍只负责安全解包，没有引入文件全可执行、ZIP mode解析或新依赖。
+- create-admin删除`ps --status --services`预检，直接使用Docker与`podman-compose`共同支持的`compose exec`；原生Profile的doctor保持Manifest中的`containerEngine: null`，不把环境探测结果伪装成实例状态。没有建立只有两个实现的Engine adapter层。
+- `PRODUCT_PLATFORMS`成为类型、schema、Release生产与测试的唯一枚举。Release v3必须完整包含五个平台；Product打包同时验证真实宿主平台和后置native内容，不能把已有`.output`交叉包装成其他平台。
+- POSIX Stage 0在解压后重新校验executable checksum、版本和执行位，并在`exec`前清理临时目录。测试改为真实shell harness，覆盖四平台选择、glibc、checksum、缓存、缺少工具、元数据传递和临时目录清理；PR与正式Release的POSIX jobs同时执行Manager平台回归。
+- 本机验证更新为Manager typecheck、18 files / 68 passed + 2 POSIX-only skipped、应用typecheck、Stage 0/Release聚焦2 files / 6 passed + 8 POSIX-only skipped、Shell/YAML解析和36,900条目Windows Product实际归档。Windows Product入口、libsql与sqlite-vec native包均正确。
+- 设备门禁按发布事实拆分：合并前在Apple Silicon用本地Manager验证Docker Desktop与rootless Podman的Source Docker；合并后先发布Manager`.15`与首个Manifest v3应用canary，再验证两种engine的GHCR。当前公开应用Release仍是Manifest v2，不增加本地Manifest覆盖后门，也不提前发布未合并代码。
+
 ## TODO / Follow-ups
 
 - [x] Windows Portable 使用 `data/` State Root，不使用 junction。
@@ -603,8 +613,10 @@ uninstall
 - [x] Windows PortableGit/rg/Bun 托管、bash、checksum、wrapper、许可证与再分发记录完成本地组装验证。
 - [x] Windows/Linux Product artifact 与 Windows Portable 结构。
 - [x] Linux AArch64与macOS x64/ARM64平台、Stage 0、Managed Bun/ripgrep和Product发布合同进入实现。
-- [ ] 等待PR跨平台Actions，并由贡献者在Apple Silicon上确认Docker与rootless Podman持久化State Root启动。
+- [x] PR首轮跨平台Actions完成Linux AArch64与macOS x64/ARM64原生Product验证。
+- [ ] 合并前由贡献者在Apple Silicon分别确认Docker Desktop与rootless Podman的Source Docker、create-admin和持久化State Root启动。
 - [ ] PR合并后按正式`manager:release`流程发布`.15`，再允许应用canary引用新的Manifest schema与平台矩阵。
+- [ ] 首个Manifest v3应用canary公开后，在Apple Silicon分别完成Docker与Podman的GHCR digest安装和持久化State Root验证。
 - [x] 删除旧部署入口并同步当前部署文档。
 - [x] 停止现有服务后重建根 `node_modules`，完成全新 Product build和无根 `node_modules` Product 隔离运行。
 - [ ] 使用本轮新 `.output` 完成 Windows Portable start/create-admin/update/data 保留 smoke。

@@ -28,7 +28,9 @@ bunx --bun @notnotype/neuro-book-manager@canary install --profile ghcr --yes
 
 六种Profile分别是：Windows解压/托管运行时使用`windows-portable`；Linux/macOS容器部署使用`ghcr`；无容器的预构建Product使用`product-bun`；开发使用`source-dev`；本机源码生产构建使用`source-product`；容器内源码构建使用`source-docker`。Windows x64、Linux x64/AArch64 glibc和macOS x64/ARM64支持各自原生Product；Windows ARM64和Linux musl明确不支持。
 
-容器Profile首次安装时会验证Docker/Podman CLI、Compose和engine状态，并把选定engine写入Installation Manifest与Operation Journal。后续start/update/rollback/doctor/create-admin始终使用该engine，不会在Docker与Podman之间静默切换。
+容器Profile首次安装时会验证Docker/Podman CLI、Compose和engine状态，并把选定engine写入Installation Manifest与Operation Journal。后续start/update/rollback/doctor/create-admin始终使用该engine，不会在Docker与Podman之间静默切换；管理员命令只使用Docker Compose与`podman-compose`共同支持的`compose exec`。
+
+Managed Bun在复用或提交版本目录前会恢复POSIX执行位并执行真实版本检查；损坏缓存会删除后重新下载，不会进入Installation Manifest。
 
 安装成功后，实例会注册到 `~/.neuro-book-manager/config.json`。该文件只保存用户偏好、默认实例和实例目录索引；每个实例的真实部署状态仍由其 `.deploy/installation.json` 管理。
 

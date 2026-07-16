@@ -47,7 +47,7 @@ irm https://raw.githubusercontent.com/notnotype/neuro-book/master/scripts/instal
 curl -fsSL https://raw.githubusercontent.com/notnotype/neuro-book/master/scripts/install/install.sh | sh
 ```
 
-POSIX Stage 0支持Linux x64/AArch64 glibc和macOS x64/ARM64，并依赖`curl`与`unzip`。Linux使用`sha256sum`并验证glibc，macOS使用系统`shasum -a 256`。Stage 0只把固定版本Bun下载到用户cache，同时校验archive与executable SHA256，然后调用Manager `@canary`；它不会先向Installation Root写`.runtime`。
+POSIX Stage 0支持Linux x64/AArch64 glibc和macOS x64/ARM64，并依赖`curl`与`unzip`。Linux使用`sha256sum`并验证glibc，macOS使用系统`shasum -a 256`。Stage 0把固定版本Bun下载到用户cache，解压后再次校验executable SHA256、版本和执行位，清理临时目录后才调用Manager `@canary`；它不会先向Installation Root写`.runtime`。
 
 每个完成装配的应用Release也独立发布`install.ps1`、`install.cmd`和`install.sh`，三者进入同一`SHA256SUMS`。raw GitHub命令适合快速安装；Release资产适合先审计脚本内容与校验值，再进行联网引导。它们不是离线应用安装包。
 
@@ -132,6 +132,8 @@ Manager 配置默认位于 `~/.neuro-book-manager/config.json`。它只保存：
 
 安装完成后优先使用 Installation Root 下的稳定 wrapper：Windows 为 `.runtime\bin\neuro-book.cmd`，POSIX 为 `.runtime/bin/neuro-book`。Manager 只修改自己启动的子进程 PATH，不修改系统 PATH。
 
+Managed Bun的版本目录是不可变组件。Manager在复用缓存或提交新下载前都会恢复POSIX执行位并运行`bun --version`；损坏或版本不符的目录会删除后重建，不会写入Installation Manifest。
+
 ## Windows Portable
 
 从 GitHub Release 下载 `neuro-book-windows-x64.zip`，解压到新目录后运行：
@@ -153,7 +155,7 @@ cd /opt/neuro-book
 .runtime/bin/neuro-book start
 ```
 
-Manager不clone宿主源码；它根据Release Manifest生成Compose，镜像使用`ref@sha256:digest`，并挂载State Root的Workspace Root、Boot Config和日志。首次安装验证Docker/Podman CLI、Compose和engine info后持久化选择；后续启动、更新、回滚、中断恢复、doctor和create-admin只使用该engine。镜像`/app`内含完整源码和`.output`。
+Manager不clone宿主源码；它根据Release Manifest生成Compose，镜像使用`ref@sha256:digest`，并挂载State Root的Workspace Root、Boot Config和日志。首次安装验证Docker/Podman CLI、Compose和engine info后持久化选择；后续启动、更新、回滚、中断恢复、doctor和create-admin只使用该engine。create-admin直接使用Docker Compose与`podman-compose`共同支持的`compose exec`，不依赖provider特有的`ps --status`。镜像`/app`内含完整源码和`.output`。
 
 ## Product Bun
 
@@ -220,8 +222,8 @@ neuro-book-windows-x64.zip
 ghcr.io/notnotype/neuro-book:<tag>
 ```
 
-Release Manifest v3记录应用版本、Git revision、channel、最低Manager版本、五平台资产URL/SHA256、Windows Portable资产以及GHCR digest。Resolver先读取稳定envelope并提示升级Manager，再严格解析平台payload。Installation Manifest v4与Operation Journal v2是硬切协议，旧Installation不自动迁移。
+Release Manifest v3记录应用版本、Git revision、channel、最低Manager版本、五平台资产URL/SHA256、Windows Portable资产以及GHCR digest。五个平台必须完整且唯一，资产名必须匹配平台；Product打包命令还会拒绝把当前宿主`.output`交叉标记为其他平台。Resolver先读取稳定envelope并提示升级Manager，再严格解析平台payload。Installation Manifest v4与Operation Journal v2是硬切协议，旧Installation不自动迁移。
 
 ## 验收建议
 
-Release/PR workflow会对原生Product执行HTTP与浏览器smoke；仍建议人工验证首次启动、登录、创建项目、更新提示和更新后数据保留。Apple Silicon上的Docker Desktop与Podman machine需要设备实机证据，不能由原生Product CI替代。
+Release/PR workflow会对原生Product执行Manager、Stage 0、native package、HTTP与浏览器smoke；仍建议人工验证首次启动、登录、创建项目、更新提示和更新后数据保留。合并前在Apple Silicon分别验证Docker Desktop与rootless Podman的Source Docker；Manager`.15`和首个Manifest v3应用canary发布后，再分别验证两种engine的GHCR digest安装。原生Product CI不能替代这些设备证据。
