@@ -589,7 +589,9 @@ uninstall
 - 本机完成Manager typecheck、15 files / 64 tests与npm pack安装审计；应用typecheck、全新Nuxt Product build、Stage 0/Release聚焦2 files / 8 tests、POSIX Shell语法和workflow YAML解析均通过。
 - 新Release脚本在Windows实际生成36,900条目的Product archive，并确认入口、`@libsql/win32-x64-msvc`与`sqlite-vec-windows-x64`存在。
 - `manager:verify-public`按预期拒绝当前`.14`源码，明确报告`neuro-book.mjs`与npm公开bundle不一致；这不是待修测试失败，而是应用Release必须等待`.15`的门禁证据。
-- 本机是Windows x64，无法替代macOS原生Product和Linux ARM64最终运行证据；这些证据由推送后的新增Actions提供。
+- PR跨平台workflow [run 29483402508](https://github.com/notnotype/neuro-book/actions/runs/29483402508)全绿：Linux AArch64、macOS x64和macOS ARM64均完成原生Nuxt build、Source/Product资产生成、native包检查、无根`node_modules`、独立State Root、migration与HTTP；两种macOS同时通过真实Chrome smoke。
+- 首轮run `29482494199`中Linux AArch64全绿，两种macOS在Nitro build触发Node默认约2 GiB heap OOM。最终两份跨平台workflow统一设置4 GiB heap后重跑通过，没有给单一架构增加特殊构建分支。
+- 原计划为三个提交；首次push后根据真实Actions追加一个普通CI资源修复提交，并在验证完成后追加本walkthrough结果提交。没有amend、rebase或force push已公开历史。
 - Apple Silicon上的Docker Desktop/Podman machine实际启动不由CI中的原生Product测试替代。取得贡献者设备证据前，PR保持未合并。
 
 ## TODO / Follow-ups

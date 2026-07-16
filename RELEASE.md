@@ -10,7 +10,7 @@
 - Release Manifest升级到v3，Installation Manifest升级到v4，Operation Journal升级到v2；旧Installation不自动迁移，需要重新安装并只复用用户状态。
 - 应用Release会逐文件校验本地Manager bundle与npm同版本公开bundle；Manager源码漂移时必须先独立发布新版Manager。
 
-本地验证已完成Manager typecheck、15 files / 64 tests、pack审计、应用typecheck、全新Nuxt Product build、Stage 0/Release聚焦2 files / 8 tests、Shell/YAML检查和Windows Product归档；跨平台Actions与Apple Silicon Docker/Podman实机仍待完成。
+本地验证已完成Manager typecheck、15 files / 64 tests、pack审计、应用typecheck、全新Nuxt Product build、Stage 0/Release聚焦2 files / 8 tests、Shell/YAML检查和Windows Product归档。跨平台run `29483402508`已在Linux AArch64、macOS x64/ARM64完成原生Product与运行smoke；Apple Silicon Docker/Podman实机仍待完成。
 
 ## 0.8.0-canary - 2026-07-15
 
