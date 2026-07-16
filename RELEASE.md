@@ -13,7 +13,7 @@
 - Podman管理员命令只使用Docker Compose与`podman-compose`共同支持的`compose exec`；原生Profile不会在doctor中显示未持久化的容器engine。
 - Release Manifest v3必须完整列出五个平台，Product命令拒绝把当前宿主的`.output`包装成其他平台资产。
 
-本地验证已完成Manager typecheck、18 files / 68 passed + 2 POSIX-only skipped、应用typecheck、Stage 0/Release聚焦2 files / 6 passed + 8 POSIX-only skipped、Shell/YAML检查和36,900条目Windows Product归档。此前跨平台run `29483402508`已完成Linux AArch64、macOS x64/ARM64原生Product与运行smoke；本轮新增POSIX回归由PR Actions继续验证。Apple Silicon Source Docker双engine和发布后的GHCR双engine仍待设备验证。
+本地验证已完成Manager typecheck、18 files / 68 passed + 2 POSIX-only skipped、应用typecheck、Stage 0/Release聚焦2 files / 6 passed + 8 POSIX-only skipped、Shell/YAML检查和36,900条目Windows Product归档。跨平台run `29492270256`已完成Linux AArch64、macOS x64/ARM64的Stage 0行为、Manager合同、原生Product、migration、State Root、HTTP与浏览器smoke。Apple Silicon Source Docker双engine和发布后的GHCR双engine仍待设备验证。
 
 ## 0.8.0-canary - 2026-07-15
 

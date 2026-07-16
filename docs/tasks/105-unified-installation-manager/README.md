@@ -1,6 +1,6 @@
 # 105 - 统一安装目录与 NeuroBook Manager
 
-> 当前状态：实现中。Manager [`0.1.0-canary.14`](https://github.com/notnotype/neuro-book/actions/runs/29258344967)已公开，但本轮Manager协议已发生变化，必须在PR合并后先发布`.15`，应用Release才能引用新的`minManagerVersion`。代码目标已扩展到Linux AArch64、macOS x64/ARM64和`linux/arm64` OCI；跨平台Actions与Apple Silicon Docker/Podman实机证据完成前，Task 105不归档。
+> 当前状态：实现中。Manager [`0.1.0-canary.14`](https://github.com/notnotype/neuro-book/actions/runs/29258344967)已公开，但本轮Manager协议已发生变化，必须在PR合并后先发布`.15`，应用Release才能引用新的`minManagerVersion`。代码目标已扩展到Linux AArch64、macOS x64/ARM64和`linux/arm64` OCI；跨平台Actions已完成，Apple Silicon Docker/Podman实机证据完成前，Task 105不归档。
 
 ## Relative documents refs
 
@@ -602,6 +602,8 @@ uninstall
 - `PRODUCT_PLATFORMS`成为类型、schema、Release生产与测试的唯一枚举。Release v3必须完整包含五个平台；Product打包同时验证真实宿主平台和后置native内容，不能把已有`.output`交叉包装成其他平台。
 - POSIX Stage 0在解压后重新校验executable checksum、版本和执行位，并在`exec`前清理临时目录。测试改为真实shell harness，覆盖四平台选择、glibc、checksum、缓存、缺少工具、元数据传递和临时目录清理；PR与正式Release的POSIX jobs同时执行Manager平台回归。
 - 本机验证更新为Manager typecheck、18 files / 68 passed + 2 POSIX-only skipped、应用typecheck、Stage 0/Release聚焦2 files / 6 passed + 8 POSIX-only skipped、Shell/YAML解析和36,900条目Windows Product实际归档。Windows Product入口、libsql与sqlite-vec native包均正确。
+- 审查后的首次跨平台run [`29491507930`](https://github.com/notnotype/neuro-book/actions/runs/29491507930)在三台POSIX runner一致停在Vitest转换阶段，尚未进入shell harness。真实根因是根`tsconfig.json`继承生成文件`.nuxt/tsconfig.json`，而干净checkout在执行聚焦测试前尚未运行`nuxt prepare`；本机残留`.nuxt`掩盖了该前置条件。
+- 项目正式测试入口现在统一先执行`nuxt:prepare`，并增加`test:install`供PR与Release workflow复用。移走本机`.nuxt`后的最小复现已由失败转为通过；修复run [`29492270256`](https://github.com/notnotype/neuro-book/actions/runs/29492270256)三平台全绿，Linux AArch64、macOS x64与macOS ARM64均通过Stage 0行为、Manager合同、原生产物、migration、无根`node_modules`、State Root、HTTP和浏览器smoke。
 - 设备门禁按发布事实拆分：合并前在Apple Silicon用本地Manager验证Docker Desktop与rootless Podman的Source Docker；合并后先发布Manager`.15`与首个Manifest v3应用canary，再验证两种engine的GHCR。当前公开应用Release仍是Manifest v2，不增加本地Manifest覆盖后门，也不提前发布未合并代码。
 
 ## TODO / Follow-ups
@@ -613,7 +615,7 @@ uninstall
 - [x] Windows PortableGit/rg/Bun 托管、bash、checksum、wrapper、许可证与再分发记录完成本地组装验证。
 - [x] Windows/Linux Product artifact 与 Windows Portable 结构。
 - [x] Linux AArch64与macOS x64/ARM64平台、Stage 0、Managed Bun/ripgrep和Product发布合同进入实现。
-- [x] PR首轮跨平台Actions完成Linux AArch64与macOS x64/ARM64原生Product验证。
+- [x] PR审查收口跨平台Actions完成Linux AArch64与macOS x64/ARM64的Stage 0与原生Product验证。
 - [ ] 合并前由贡献者在Apple Silicon分别确认Docker Desktop与rootless Podman的Source Docker、create-admin和持久化State Root启动。
 - [ ] PR合并后按正式`manager:release`流程发布`.15`，再允许应用canary引用新的Manifest schema与平台矩阵。
 - [ ] 首个Manifest v3应用canary公开后，在Apple Silicon分别完成Docker与Podman的GHCR digest安装和持久化State Root验证。
