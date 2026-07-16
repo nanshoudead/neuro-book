@@ -75,6 +75,7 @@ describePosix("POSIX Stage 0行为", () => {
     it("有效缓存不下载，损坏缓存会重建并再次校验", async () => {
         const first = await runStage0(PLATFORM_CASES[0]);
         expect(first.code).toBe(0);
+        await chmod(join(first.cacheRoot, "neuro-book-manager", "runtime", "bun", "1.3.14", PLATFORM_CASES[0].asset, "bun"), 0o644);
         await rm(first.urlCapture, {force: true});
 
         const cached = await runStage0(PLATFORM_CASES[0], {root: first.root, curlFail: true});
@@ -182,7 +183,7 @@ async function runStage0(platformCase: PlatformCase, options: RunOptions = {}) {
         '    printf \'path=%s\\n\' "$NEURO_BOOK_STAGE0_BUN_PATH"',
         '} > "$STUB_CAPTURE"',
         "STUB_BUN",
-        'chmod 755 "$destination/$STUB_ASSET/bun"',
+        'chmod 644 "$destination/$STUB_ASSET/bun"',
         "",
     ].join("\n"));
     const checksumScript = [

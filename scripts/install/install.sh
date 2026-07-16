@@ -42,7 +42,7 @@ if [ "$HOST_OS" = "Linux" ] && ! getconf GNU_LIBC_VERSION >/dev/null 2>&1; then
     exit 1
 fi
 
-for required_command in curl unzip awk mktemp; do
+for required_command in curl unzip awk chmod mktemp; do
     if ! command -v "$required_command" >/dev/null 2>&1; then
         echo "NeuroBook Stage 0 缺少命令：$required_command" >&2
         exit 1
@@ -63,16 +63,21 @@ checksum() {
 }
 
 cached_valid=false
-if [ -x "$BUN_BIN" ]; then
+downloaded=false
+if [ -f "$BUN_BIN" ]; then
     actual_bun="$(checksum "$BUN_BIN")"
-    actual_version="$($BUN_BIN --version 2>/dev/null || true)"
-    if [ "$actual_bun" = "$BUN_SHA256" ] && [ "$actual_version" = "$BUN_VERSION" ]; then cached_valid=true; fi
+    if [ "$actual_bun" = "$BUN_SHA256" ]; then
+        chmod 755 "$BUN_BIN"
+        actual_version="$($BUN_BIN --version 2>/dev/null || true)"
+        if [ -x "$BUN_BIN" ] && [ "$actual_version" = "$BUN_VERSION" ]; then cached_valid=true; fi
+    fi
 fi
 
 if [ "$cached_valid" != true ]; then
     rm -rf "$RUNTIME_ROOT"
     stage="$(mktemp -d)"
-    trap 'rm -rf "$stage"' EXIT INT TERM
+    downloaded=true
+    trap 'rm -rf "$stage" "$RUNTIME_ROOT"' EXIT INT TERM
     curl -fsSL "$ASSET_URL" -o "$stage/$BUN_ASSET.zip"
     actual="$(checksum "$stage/$BUN_ASSET.zip")"
     if [ "$actual" != "$ARCHIVE_SHA256" ]; then
@@ -81,8 +86,7 @@ if [ "$cached_valid" != true ]; then
     fi
     mkdir -p "$RUNTIME_ROOT"
     unzip -q "$stage/$BUN_ASSET.zip" -d "$RUNTIME_ROOT"
-    rm -rf "$stage"
-    trap - EXIT INT TERM
+    chmod 755 "$BUN_BIN"
 fi
 
 if [ ! -x "$BUN_BIN" ]; then
@@ -96,6 +100,10 @@ if [ "$actual_bun" != "$BUN_SHA256" ] || [ "$actual_version" != "$BUN_VERSION" ]
     rm -rf "$RUNTIME_ROOT"
     echo "NeuroBook Stage 0 Bun executable校验失败。" >&2
     exit 1
+fi
+if [ "$downloaded" = true ]; then
+    rm -rf "$stage"
+    trap - EXIT INT TERM
 fi
 
 export NEURO_BOOK_STAGE0_BUN_PATH="$BUN_BIN"
