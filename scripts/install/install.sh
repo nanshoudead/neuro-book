@@ -75,9 +75,27 @@ if [ "$cached_valid" != true ]; then
     trap 'rm -rf "$stage"' EXIT INT TERM
     curl -fsSL "$ASSET_URL" -o "$stage/$BUN_ASSET.zip"
     actual="$(checksum "$stage/$BUN_ASSET.zip")"
-    test "$actual" = "$ARCHIVE_SHA256"
+    if [ "$actual" != "$ARCHIVE_SHA256" ]; then
+        echo "NeuroBook Stage 0 Bun archive checksum不匹配。" >&2
+        exit 1
+    fi
     mkdir -p "$RUNTIME_ROOT"
     unzip -q "$stage/$BUN_ASSET.zip" -d "$RUNTIME_ROOT"
+    rm -rf "$stage"
+    trap - EXIT INT TERM
+fi
+
+if [ ! -x "$BUN_BIN" ]; then
+    rm -rf "$RUNTIME_ROOT"
+    echo "NeuroBook Stage 0 Bun不可执行：$BUN_BIN" >&2
+    exit 1
+fi
+actual_bun="$(checksum "$BUN_BIN")"
+actual_version="$($BUN_BIN --version 2>/dev/null || true)"
+if [ "$actual_bun" != "$BUN_SHA256" ] || [ "$actual_version" != "$BUN_VERSION" ]; then
+    rm -rf "$RUNTIME_ROOT"
+    echo "NeuroBook Stage 0 Bun executable校验失败。" >&2
+    exit 1
 fi
 
 export NEURO_BOOK_STAGE0_BUN_PATH="$BUN_BIN"

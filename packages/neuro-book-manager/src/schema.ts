@@ -4,7 +4,7 @@ import {Value} from "typebox/value";
 import {valid} from "semver";
 
 import {PRODUCT_ASSET_NAMES} from "#manager/platform";
-import type {InstallationManifest, OperationJournal, ReleaseManifest} from "#manager/types";
+import {PRODUCT_PLATFORMS, type InstallationManifest, type OperationJournal, type ReleaseManifest} from "#manager/types";
 
 const SHA256_PATTERN = "^[a-fA-F0-9]{64}$";
 const REVISION_PATTERN = "^[a-f0-9]{40}$";
@@ -20,13 +20,7 @@ const InstallProfileSchema = Type.Union([
 ]);
 const ReleaseChannelSchema = Type.Union([Type.Literal("stable"), Type.Literal("canary")]);
 const ContainerEngineSchema = Type.Union([Type.Literal("docker"), Type.Literal("podman")]);
-const ProductPlatformSchema = Type.Union([
-    Type.Literal("windows-x64"),
-    Type.Literal("linux-x64-glibc"),
-    Type.Literal("linux-aarch64-glibc"),
-    Type.Literal("darwin-x64"),
-    Type.Literal("darwin-aarch64"),
-]);
+const ProductPlatformSchema = Type.Union(PRODUCT_PLATFORMS.map((platform) => Type.Literal(platform)));
 const StateRootSchema = Type.Union([Type.Literal("."), Type.Literal("data")]);
 const RevisionSchema = Type.String({pattern: REVISION_PATTERN});
 const ChecksumSchema = Type.String({pattern: SHA256_PATTERN});
@@ -309,6 +303,10 @@ export function parseReleaseManifest(value: unknown): ReleaseManifest {
             throw new Error(`Product ${product.platform}资产名非法：${filename}`);
         }
         platforms.add(product.platform);
+    }
+    const missingPlatforms = PRODUCT_PLATFORMS.filter((platform) => !platforms.has(platform));
+    if (missingPlatforms.length > 0 || platforms.size !== PRODUCT_PLATFORMS.length) {
+        throw new Error(`Release Manifest必须完整包含五个平台，缺少：${missingPlatforms.join(", ") || "<unknown>"}`);
     }
     if (manifest.ghcr.sourceRevision !== manifest.sourceRevision) {
         throw new Error("GHCR sourceRevision 与 Release Source 不一致。");

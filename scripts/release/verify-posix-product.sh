@@ -49,6 +49,10 @@ if [ -e "$APPLICATION_ROOT/node_modules" ]; then
     echo "Product smoke root unexpectedly contains node_modules." >&2
     exit 1
 fi
+if [ ! -x "$APPLICATION_ROOT/.output/server/assets/workspace/.nbook/agent/bin/workspace" ]; then
+    echo "Product缺少可执行的稳定Workspace CLI。" >&2
+    exit 1
+fi
 
 cat > "$STATE_ROOT/config.yaml" <<EOF
 server:

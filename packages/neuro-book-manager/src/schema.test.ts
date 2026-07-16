@@ -1,6 +1,8 @@
 import {describe, expect, it} from "vitest";
 
+import {PRODUCT_ASSET_NAMES} from "#manager/platform";
 import {parseInstallationManifest, parseOperationJournal, parseReleaseManifest, parseReleaseManifestEnvelope} from "#manager/schema";
+import {PRODUCT_PLATFORMS} from "#manager/types";
 
 const SHA = "a".repeat(64);
 const REVISION = "b".repeat(40);
@@ -24,11 +26,21 @@ describe("Manager manifest schemas", () => {
         expect(() => parseInstallationManifest(mismatch)).toThrow("revision");
     });
 
-    it("验证 Release 平台唯一性和 GHCR revision", () => {
+    it("验证Release五平台完整且唯一", () => {
         const manifest = releaseManifest();
         expect(parseReleaseManifest(manifest).products[0]?.platform).toBe("windows-x64");
-        manifest.products.push({...manifest.products[0]!});
+        manifest.products[manifest.products.length - 1] = {...manifest.products[0]!};
         expect(() => parseReleaseManifest(manifest)).toThrow("重复 Product 平台");
+    });
+
+    it("拒绝缺少任一平台或资产名错误的Release", () => {
+        const missing = releaseManifest();
+        missing.products = missing.products.filter((product) => product.platform !== "darwin-aarch64");
+        expect(() => parseReleaseManifest(missing)).toThrow("缺少：darwin-aarch64");
+
+        const wrongAsset = releaseManifest();
+        wrongAsset.products[0] = {...wrongAsset.products[0]!, url: "https://example.com/product.zip"};
+        expect(() => parseReleaseManifest(wrongAsset)).toThrow("资产名非法");
     });
 
     it("要求容器Profile持久化engine，非容器Profile必须为null", () => {
@@ -102,7 +114,13 @@ function releaseManifest() {
         sourceRevision: REVISION,
         minManagerVersion: "0.1.0",
         source: {url: "https://example.com/source.zip", sha256: SHA, bytes: 1},
-        products: [{url: "https://example.com/neuro-book-product-windows-x64.zip", sha256: SHA, bytes: 1, platform: "windows-x64" as const, sourceRevision: REVISION}],
+        products: PRODUCT_PLATFORMS.map((platform) => ({
+            url: `https://example.com/${PRODUCT_ASSET_NAMES[platform]}`,
+            sha256: SHA,
+            bytes: 1,
+            platform,
+            sourceRevision: REVISION,
+        })),
         windowsPortable: {url: "https://example.com/portable.zip", sha256: SHA, bytes: 1},
         ghcr: {ref: "ghcr.io/notnotype/neuro-book:v0.8.0", digest: `sha256:${SHA}`, sourceRevision: REVISION},
     };

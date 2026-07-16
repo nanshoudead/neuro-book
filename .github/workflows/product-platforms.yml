@@ -56,6 +56,10 @@ jobs:
       - uses: actions/checkout@v5
       - uses: oven-sh/setup-bun@v2
       - run: bun install --frozen-lockfile --linker hoisted
+      - name: Verify POSIX Stage 0 behavior
+        run: bun vitest run scripts/install/install.test.ts
+      - name: Verify Manager platform contracts
+        run: bun run manager:test
       - run: bun run nuxt:build
       - run: bun run release:source
       - run: bun run ${{ matrix.command }}

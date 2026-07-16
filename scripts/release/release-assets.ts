@@ -5,9 +5,9 @@ import {basename, dirname, relative, resolve} from "node:path";
 import {Command} from "commander";
 import {unzipSync} from "fflate";
 
-import {PRODUCT_ASSET_NAMES} from "nbook/packages/neuro-book-manager/src/platform";
+import {currentProductPlatform, PRODUCT_ASSET_NAMES} from "nbook/packages/neuro-book-manager/src/platform";
 import {parseReleaseManifest} from "nbook/packages/neuro-book-manager/src/schema";
-import type {ProductPlatform} from "nbook/packages/neuro-book-manager/src/types";
+import {PRODUCT_PLATFORMS, type ProductPlatform} from "nbook/packages/neuro-book-manager/src/types";
 import {verifyReleaseChecksums, writeReleaseChecksums} from "nbook/scripts/release/release-checksums";
 import {run, runCapture} from "nbook/scripts/utils/process.mjs";
 import {writeZipArchive} from "nbook/scripts/utils/zip";
@@ -85,6 +85,10 @@ async function buildProductArchive(platformInput: string, output: string): Promi
     if (basename(output) !== PRODUCT_ASSET_NAMES[platform]) {
         throw new Error(`${platform} Product输出资产名必须为${PRODUCT_ASSET_NAMES[platform]}。`);
     }
+    const hostPlatform = currentProductPlatform();
+    if (platform !== hostPlatform) {
+        throw new Error(`当前宿主${hostPlatform}不能包装${platform} Product；不支持交叉包装现有.output。`);
+    }
     if (!existsSync(resolve(ROOT, ".output", "server", "index.mjs"))) {
         throw new Error("缺少 .output/server/index.mjs，请先执行 bun run nuxt:build。");
     }
@@ -121,7 +125,7 @@ async function buildReleaseManifest(options: ManifestOptions): Promise<void> {
         "darwin-x64": resolve(ROOT, options.darwinProduct),
         "darwin-aarch64": resolve(ROOT, options.darwinAarch64Product),
     } satisfies Record<ProductPlatform, string>;
-    const products = await Promise.all((Object.keys(PRODUCT_ASSET_NAMES) as ProductPlatform[]).map(async (platform) => ({
+    const products = await Promise.all(PRODUCT_PLATFORMS.map(async (platform) => ({
         ...await asset(productPaths[platform], baseUrl),
         platform,
         sourceRevision: options.revision,

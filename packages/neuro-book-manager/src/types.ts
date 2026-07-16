@@ -66,13 +66,17 @@ export type ManagerConfig = {
     instances: ManagerInstance[];
 };
 
+/** 当前支持的Product平台唯一枚举。 */
+export const PRODUCT_PLATFORMS = [
+    "windows-x64",
+    "linux-x64-glibc",
+    "linux-aarch64-glibc",
+    "darwin-x64",
+    "darwin-aarch64",
+] as const;
+
 /** 当前支持的 Product 平台。 */
-export type ProductPlatform =
-    | "windows-x64"
-    | "linux-x64-glibc"
-    | "linux-aarch64-glibc"
-    | "darwin-x64"
-    | "darwin-aarch64";
+export type ProductPlatform = typeof PRODUCT_PLATFORMS[number];
 
 /** update 命令可独立选择的应用组件。 */
 export type ComponentId = "source" | "product" | "runtime" | "tools";

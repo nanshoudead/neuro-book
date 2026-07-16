@@ -1,6 +1,8 @@
 import {afterEach, describe, expect, it, vi} from "vitest";
 
 import {resolveReleaseManifest} from "#manager/manifest-store";
+import {PRODUCT_ASSET_NAMES} from "#manager/platform";
+import {PRODUCT_PLATFORMS} from "#manager/types";
 
 const SHA = "a".repeat(64);
 const REVISION = "b".repeat(40);
@@ -50,14 +52,7 @@ describe("Release resolver", () => {
 function release(tag: string, prerelease: boolean) {
     const version = tag.slice(1);
     const root = `https://github.com/notnotype/neuro-book/releases/download/${tag}`;
-    const productNames = [
-        "neuro-book-product-windows-x64.zip",
-        "neuro-book-product-linux-x64-glibc.tar.gz",
-        "neuro-book-product-linux-aarch64-glibc.tar.gz",
-        "neuro-book-product-darwin-x64.tar.gz",
-        "neuro-book-product-darwin-aarch64.tar.gz",
-    ] as const;
-    const platforms = ["windows-x64", "linux-x64-glibc", "linux-aarch64-glibc", "darwin-x64", "darwin-aarch64"] as const;
+    const productNames = PRODUCT_PLATFORMS.map((platform) => PRODUCT_ASSET_NAMES[platform]);
     const urls = {
         manifest: `${root}/release-manifest.json`,
         source: `${root}/neuro-book-source.zip`,
@@ -82,7 +77,7 @@ function release(tag: string, prerelease: boolean) {
             sourceRevision: REVISION,
             minManagerVersion: "0.1.0-canary.1",
             source: {url: urls.source, sha256: SHA, bytes: 1},
-            products: platforms.map((platform, index) => ({url: `${root}/${productNames[index]}`, sha256: SHA, bytes: 1, platform, sourceRevision: REVISION})),
+            products: PRODUCT_PLATFORMS.map((platform) => ({url: `${root}/${PRODUCT_ASSET_NAMES[platform]}`, sha256: SHA, bytes: 1, platform, sourceRevision: REVISION})),
             windowsPortable: {url: urls.portable, sha256: SHA, bytes: 1},
             ghcr: {ref: `ghcr.io/notnotype/neuro-book:${tag}`, digest: `sha256:${SHA}`, sourceRevision: REVISION},
         },
