@@ -21,7 +21,7 @@ export async function maintainRuntime(root: string, manifest: InstallationManife
     return withInstallLock(join(paths.deploy, "install.lock"), async () => {
         await recoverInterruptedOperations(root);
         const createdPaths: string[] = [];
-        let journal = await createOperation({id: randomUUID(), action: "update", root, createdPaths, backupRoot: join(paths.backups, randomUUID()), previousManifest: manifest, nextManifest: null});
+        let journal = await createOperation({id: randomUUID(), action: "update", root, containerEngine: manifest.containerEngine, createdPaths, backupRoot: join(paths.backups, randomUUID()), previousManifest: manifest, nextManifest: null});
         try {
             const runtime = await installManagedBun(root, version, createdPaths);
             const manager = await installManagerExecutable(root, MANAGER_VERSION, managerExecutable, createdPaths);
@@ -51,7 +51,7 @@ export async function maintainTool(root: string, manifest: InstallationManifest,
         }
         await recoverInterruptedOperations(root);
         const createdPaths: string[] = [];
-        let journal = await createOperation({id: randomUUID(), action: "update", root, createdPaths, backupRoot: join(paths.backups, randomUUID()), previousManifest: manifest, nextManifest: null});
+        let journal = await createOperation({id: randomUUID(), action: "update", root, containerEngine: manifest.containerEngine, createdPaths, backupRoot: join(paths.backups, randomUUID()), previousManifest: manifest, nextManifest: null});
         try {
             let installed: ManagedToolComponent | ManagedGitToolComponent;
             if (tool === "git") installed = await installManagedTool(root, "git", createdPaths);
@@ -86,6 +86,7 @@ export async function installationStatus(root: string, manifest: InstallationMan
         appVersion: manifest.appVersion,
         channel: manifest.channel,
         sourceRevision: manifest.sourceRevision,
+        containerEngine: manifest.containerEngine,
         stateRoot: resolve(root, manifest.stateRoot),
         port: await statePort(resolve(root, manifest.stateRoot)),
         productReady: !manifest.components.product || manifest.components.product.provider === "container"
@@ -97,7 +98,7 @@ export async function installationStatus(root: string, manifest: InstallationMan
     };
 }
 
-/** 逐项诊断 Manifest v3、组件完整性、稳定 wrapper、状态目录和外部命令。 */
+/** 逐项诊断 Manifest v4、组件完整性、稳定 wrapper、状态目录和外部命令。 */
 export async function doctor(root: string, manifest: InstallationManifest): Promise<object> {
     const stateRoot = resolve(root, manifest.stateRoot);
     type Check = {id: string; category: "manifest" | "manager" | "runtime" | "tool" | "source" | "product" | "state" | "service" | "operation"; status: "pass" | "warn" | "fail"; message: string; remediation?: string};
@@ -106,7 +107,7 @@ export async function doctor(root: string, manifest: InstallationManifest): Prom
         const exists = await pathExists(path);
         checks.push({id, category, status: exists ? "pass" : "fail", message: exists ? `路径存在：${path}` : `路径缺失：${path}`, remediation: exists ? undefined : "重新安装或更新对应组件。"});
     };
-    checks.push({id: "manifest.schema", category: "manifest", status: manifest.schemaVersion === 3 ? "pass" : "fail", message: `Installation Manifest schema v${manifest.schemaVersion}`});
+    checks.push({id: "manifest.schema", category: "manifest", status: manifest.schemaVersion === 4 ? "pass" : "fail", message: `Installation Manifest schema v${manifest.schemaVersion}`});
     const managerPath = resolve(root, manifest.components.manager.path);
     await addChecksum("manager.bundle", "manager", managerPath, manifest.components.manager.bundleSha256, checks);
     if (manifest.components.managerRuntime.provider === "managed") {
@@ -136,7 +137,17 @@ export async function doctor(root: string, manifest: InstallationManifest): Prom
     await addPath("manager.wrapper", "manager", wrapper);
     const operations = await unfinishedOperations(join(root, ".deploy", "operations"));
     checks.push({id: "operation.unfinished", category: "operation", status: operations.length === 0 ? "pass" : "fail", message: operations.length === 0 ? "没有未完成操作" : `存在未完成操作：${operations.join(", ")}`, remediation: operations.length === 0 ? undefined : "再次运行 mutating command 触发恢复，或检查对应 journal。"});
-    const engine = await resolveContainerEngine().catch(() => null);
+    let engine = manifest.containerEngine;
+    if (engine) {
+        try {
+            await resolveContainerEngine(engine);
+            checks.push({id: "service.container-engine", category: "service", status: "pass", message: `持久化Container Engine可用：${engine}`});
+        } catch (error) {
+            checks.push({id: "service.container-engine", category: "service", status: "fail", message: `持久化Container Engine不可用：${engine}`, remediation: error instanceof Error ? error.message : String(error)});
+        }
+    } else {
+        engine = await resolveContainerEngine().catch(() => null);
+    }
     const commands = {
         bun: await commandStatus("bun"),
         git: await commandStatus("git"),

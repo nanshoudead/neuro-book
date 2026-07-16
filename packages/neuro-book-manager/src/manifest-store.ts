@@ -1,6 +1,10 @@
-import {parseInstallationManifest, parseReleaseManifest} from "#manager/schema";
+import {lt} from "semver";
+
+import {PRODUCT_ASSET_NAMES} from "#manager/platform";
+import {parseInstallationManifest, parseReleaseManifest, parseReleaseManifestEnvelope} from "#manager/schema";
 import type {InstallationManifest, ReleaseChannel, ReleaseManifest} from "#manager/types";
 import {readJson, writeJsonAtomic} from "#manager/files";
+import {MANAGER_VERSION} from "#manager/version-info";
 
 const RELEASE_API = "https://api.github.com/repos/notnotype/neuro-book/releases";
 
@@ -44,7 +48,13 @@ export async function resolveReleaseManifest(channel: ReleaseChannel, version?: 
     if (!response.ok) {
         throw new Error(`下载 Release Manifest 失败 ${response.status}：${release.tag_name}`);
     }
-    const manifest = parseReleaseManifest(await response.json());
+    const value: unknown = await response.json();
+    const envelope = parseReleaseManifestEnvelope(value);
+    if (lt(MANAGER_VERSION, envelope.minManagerVersion)) {
+        const tag = channel === "stable" ? "latest" : "canary";
+        throw new Error(`当前Manager ${MANAGER_VERSION}低于Release要求${envelope.minManagerVersion}。请先执行：bunx --bun @notnotype/neuro-book-manager@${tag} update`);
+    }
+    const manifest = parseReleaseManifest(value);
     assertReleaseIdentity(release, manifest, channel);
     assertReleaseAssets(release, manifest);
     return manifest;
@@ -68,12 +78,7 @@ function assertReleaseAssets(release: GitHubRelease, manifest: ReleaseManifest):
     const assets = [
         ["neuro-book-source.zip", manifest.source.url],
         ["neuro-book-windows-x64.zip", manifest.windowsPortable.url],
-        ...manifest.products.map((product) => [
-            product.platform === "windows-x64"
-                ? "neuro-book-product-windows-x64.zip"
-                : "neuro-book-product-linux-x64-glibc.tar.gz",
-            product.url,
-        ]),
+        ...manifest.products.map((product) => [PRODUCT_ASSET_NAMES[product.platform], product.url]),
     ];
     for (const [name, url] of assets) {
         if (expected.get(name) !== url) throw new Error(`Release Manifest 资产 URL 与 GitHub Release 不一致：${name}`);

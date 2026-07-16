@@ -4,13 +4,22 @@ import {basename, dirname, join, relative, resolve} from "node:path";
 
 import {downloadVerified, extractArchive, githubReleaseAsset} from "#manager/download";
 import {ensureDirectory, pathExists, removePath, sha256File, writeTextAtomic} from "#manager/files";
-import {assertManagerPlatform, executableName} from "#manager/platform";
-import type {ManagedRuntimeComponent, ManagerComponent, ManagerRuntimeComponent} from "#manager/types";
+import {currentProductPlatform, executableName} from "#manager/platform";
+import type {ManagedRuntimeComponent, ManagerComponent, ManagerRuntimeComponent, ProductPlatform} from "#manager/types";
 
 const STAGE0_PATH = "NEURO_BOOK_STAGE0_BUN_PATH";
 const STAGE0_VERSION = "NEURO_BOOK_STAGE0_BUN_VERSION";
 const STAGE0_SOURCE_URL = "NEURO_BOOK_STAGE0_BUN_SOURCE_URL";
 const STAGE0_SHA256 = "NEURO_BOOK_STAGE0_BUN_SHA256";
+
+/** 当前Manager支持的平台到Bun官方Release资产名。 */
+export const BUN_ASSET_NAMES = {
+    "windows-x64": "bun-windows-x64.zip",
+    "linux-x64-glibc": "bun-linux-x64.zip",
+    "linux-aarch64-glibc": "bun-linux-aarch64.zip",
+    "darwin-x64": "bun-darwin-x64.zip",
+    "darwin-aarch64": "bun-darwin-aarch64.zip",
+} as const satisfies Record<ProductPlatform, string>;
 
 /** 解析 Manager Host Runtime；Stage 0 优先复制为 managed，否则使用当前 Bun。 */
 export async function resolveManagerRuntime(root: string, forceManaged = false, createdPaths: string[] = []): Promise<ManagerRuntimeComponent> {
@@ -26,11 +35,10 @@ export async function resolveManagerRuntime(root: string, forceManaged = false, 
 
 /** 安装托管 Bun Runtime，使用 staging 后原子提交不可变版本目录。 */
 export async function installManagedBun(root: string, requestedVersion?: string, createdPaths: string[] = []): Promise<ManagedRuntimeComponent> {
-    assertManagerPlatform();
     const tag = requestedVersion
         ? requestedVersion.startsWith("bun-v") ? requestedVersion : `bun-v${requestedVersion.replace(/^v/u, "")}`
         : undefined;
-    const archiveName = process.platform === "win32" ? "bun-windows-x64.zip" : "bun-linux-x64.zip";
+    const archiveName = BUN_ASSET_NAMES[currentProductPlatform()];
     const release = await githubReleaseAsset("oven-sh/bun", tag, (name) => name === archiveName);
     const version = release.tag.replace(/^bun-v/u, "");
     const runtimeRoot = join(root, ".runtime", "bun", version);

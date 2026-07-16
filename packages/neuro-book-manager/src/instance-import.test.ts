@@ -52,7 +52,7 @@ async function fixture(): Promise<string> {
     const revision = "b".repeat(40);
     const now = new Date().toISOString();
     const manifest: InstallationManifest = {
-        schemaVersion: 3, profile: "source-dev", managerVersion: "0.1.0", appVersion: "1.0.0", channel: "canary", sourceRevision: revision, stateRoot: ".",
+        schemaVersion: 4, profile: "source-dev", containerEngine: null, managerVersion: "0.1.0", appVersion: "1.0.0", channel: "canary", sourceRevision: revision, stateRoot: ".",
         components: {
             source: {provider: "git", version: "1.0.0", revision, path: ".", repository: "https://github.com/notnotype/neuro-book.git", branch: "master"},
             manager: {provider: "managed", version: "0.1.0", path: ".runtime/manager/0.1.0/neuro-book.mjs", bundleSha256: createHash("sha256").update(bundle).digest("hex")},

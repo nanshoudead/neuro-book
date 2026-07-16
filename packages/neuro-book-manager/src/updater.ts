@@ -37,7 +37,6 @@ import type {
     SourceComponent,
     ToolComponents,
 } from "#manager/types";
-import {lt} from "semver";
 
 import {MANAGER_VERSION} from "#manager/version-info";
 
@@ -64,6 +63,7 @@ export async function updateInstallation(options: UpdateOptions): Promise<Instal
             id,
             action: "update",
             root: paths.root,
+            containerEngine: options.manifest.containerEngine,
             createdPaths: [],
             backupRoot: backup,
             previousManifest: options.manifest,
@@ -104,7 +104,7 @@ export async function updateInstallation(options: UpdateOptions): Promise<Instal
                 await copyFile(compose, previousCompose);
                 journal = await updateOperation(journal, "validated", {previousCompose, composeChanged: true, composeCreated: false});
                 const stateRoot = resolve(paths.root, options.manifest.stateRoot);
-                await stopDocker(paths.root, stateRoot);
+                await stopDocker(options.manifest.containerEngine!, paths.root, stateRoot);
                 const database = await backupApplicationDatabase(stateRoot, backup);
                 if (database) {
                     journal = await updateOperation(journal, "validated", {
@@ -141,7 +141,7 @@ export async function updateInstallation(options: UpdateOptions): Promise<Instal
                 );
             } else if (result.manifest.profile === "ghcr" || result.manifest.profile === "source-docker") {
                 const stateRoot = resolve(paths.root, result.manifest.stateRoot);
-                await startDocker(paths.root, stateRoot, result.manifest.profile);
+                await startDocker(result.manifest.containerEngine!, paths.root, stateRoot, result.manifest.profile);
                 await verifyDockerApplication(await statePort(stateRoot), result.manifest.appVersion);
             }
             journal = await updateOperation(journal, "healthy");
@@ -206,10 +206,6 @@ async function prepareUpdate(
     const releaseProfile = profile === "product-bun" || profile === "windows-portable" || profile === "ghcr";
     const channel = options.channel ?? options.manifest.channel;
     const release = releaseProfile ? await resolveReleaseManifest(channel, options.version) : null;
-    if (release && lt(MANAGER_VERSION, release.minManagerVersion)) {
-        const tag = channel === "stable" ? "latest" : "canary";
-        throw new Error(`Manager ${MANAGER_VERSION} 低于 Release 要求 ${release.minManagerVersion}。请执行：\nbunx --bun @notnotype/neuro-book-manager@${tag} update`);
-    }
     if (release && release.sourceRevision !== options.manifest.sourceRevision && profile !== "ghcr"
         && (!selected.has("source") || !selected.has("product"))) {
         throw new Error("Release Source 与 Product 必须同版本更新；请同时选择 source 和 product。" );
@@ -248,8 +244,9 @@ async function prepareUpdate(
             });
             product = stagedProduct.component;
         } else if (profile === "source-docker") {
+            if (!options.manifest.containerEngine) throw new Error("Source Docker安装缺少Container Engine。" );
             product = {provider: "container", version: appVersion, revision: sourceRevision, image: `neuro-book-source:${sourceRevision.slice(0, 12)}`};
-            await buildSourceDockerImage(stagedWorktree, product.image);
+            await buildSourceDockerImage(options.manifest.containerEngine, stagedWorktree, product.image);
             journal = await updateOperation(journal, journal.phase, {dockerImageCreated: product.image});
         }
     } else if (profile === "source-dev" && selected.has("source")) {
@@ -319,6 +316,7 @@ async function prepareUpdate(
     if (profile === "ghcr" && product?.provider === "container" && product.digest) {
         const finalCompose = join(paths.deploy, "docker-compose.generated.yml");
         stagedCompose = await writeDockerCompose({
+            engine: options.manifest.containerEngine!,
             root: paths.root,
             stateRoot: resolve(paths.root, options.manifest.stateRoot),
             profile: "ghcr",
@@ -330,6 +328,7 @@ async function prepareUpdate(
     } else if (profile === "source-docker" && product?.provider === "container") {
         const finalCompose = join(paths.deploy, "docker-compose.generated.yml");
         stagedCompose = await writeDockerCompose({
+            engine: options.manifest.containerEngine!,
             root: paths.root,
             stateRoot: resolve(paths.root, options.manifest.stateRoot),
             profile: "source-docker",

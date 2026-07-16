@@ -1,39 +1,88 @@
 import type {InstallProfile, ProductPlatform} from "#manager/types";
 
-/** 解析当前 Product 平台；支持 Windows x64 和 Linux x64/arm64 glibc。macOS 不提供 Product 资产。 */
-export function currentProductPlatform(): ProductPlatform {
-    assertManagerPlatform();
-    if (process.platform === "win32") {
+/** Product平台到公开Release资产名的穷举映射。 */
+export const PRODUCT_ASSET_NAMES = {
+    "windows-x64": "neuro-book-product-windows-x64.zip",
+    "linux-x64-glibc": "neuro-book-product-linux-x64-glibc.tar.gz",
+    "linux-aarch64-glibc": "neuro-book-product-linux-aarch64-glibc.tar.gz",
+    "darwin-x64": "neuro-book-product-darwin-x64.tar.gz",
+    "darwin-aarch64": "neuro-book-product-darwin-aarch64.tar.gz",
+} as const satisfies Record<ProductPlatform, string>;
+
+const ALL_PROFILES = [
+    "source-dev",
+    "source-product",
+    "product-bun",
+    "windows-portable",
+    "source-docker",
+    "ghcr",
+] as const satisfies readonly InstallProfile[];
+
+const POSIX_PROFILES = ALL_PROFILES.filter((profile) => profile !== "windows-portable");
+
+const PLATFORM_PROFILES = {
+    "windows-x64": ALL_PROFILES,
+    "linux-x64-glibc": POSIX_PROFILES,
+    "linux-aarch64-glibc": POSIX_PROFILES,
+    "darwin-x64": POSIX_PROFILES,
+    "darwin-aarch64": POSIX_PROFILES,
+} as const satisfies Record<ProductPlatform, readonly InstallProfile[]>;
+
+export type PlatformRuntime = {
+    platform: NodeJS.Platform;
+    arch: NodeJS.Architecture;
+    /** Linux检测到glibc时非空；其他宿主不使用。 */
+    glibcVersion?: string;
+};
+
+/** 解析宿主Product平台；不支持的平台和libc直接拒绝。 */
+export function productPlatform(runtime: PlatformRuntime): ProductPlatform {
+    if (runtime.platform === "win32") {
+        if (runtime.arch !== "x64") throw new Error(`Windows只支持x64，检测到：${runtime.arch}`);
         return "windows-x64";
     }
-    if (process.platform === "linux") {
-        const report = process.report?.getReport() as {header?: {glibcVersionRuntime?: string}} | undefined;
-        if (!report?.header?.glibcVersionRuntime) {
-            throw new Error("Manager 只支持 Linux glibc，当前环境未检测到 glibc。");
-        }
-        return process.arch === "arm64" ? "linux-aarch64-glibc" : "linux-x64-glibc";
+    if (runtime.platform === "linux") {
+        if (!runtime.glibcVersion) throw new Error("Manager只支持Linux glibc。");
+        if (runtime.arch === "x64") return "linux-x64-glibc";
+        if (runtime.arch === "arm64") return "linux-aarch64-glibc";
+        throw new Error(`Linux只支持x64/ARM64，检测到：${runtime.arch}`);
     }
-    throw new Error(`Product 资产只支持 Windows/Linux，检测到：${process.platform}；macOS 请使用 Docker 或 Source Dev。`);
+    if (runtime.platform === "darwin") {
+        if (runtime.arch === "x64") return "darwin-x64";
+        if (runtime.arch === "arm64") return "darwin-aarch64";
+        throw new Error(`macOS只支持x64/ARM64，检测到：${runtime.arch}`);
+    }
+    throw new Error(`Manager只支持Windows/Linux/macOS，检测到：${runtime.platform}`);
 }
 
-/** Manager 的统一宿主平台门禁；macOS 放行 Docker 与 Source Dev。 */
+/** 返回当前宿主的Product平台。 */
+export function currentProductPlatform(): ProductPlatform {
+    const report = process.platform === "linux"
+        ? process.report?.getReport() as {header?: {glibcVersionRuntime?: string}} | undefined
+        : undefined;
+    return productPlatform({
+        platform: process.platform,
+        arch: process.arch,
+        glibcVersion: report?.header?.glibcVersionRuntime,
+    });
+}
+
+/** 校验Manager宿主平台。 */
 export function assertManagerPlatform(): void {
-    if (process.arch !== "x64" && process.arch !== "arm64") {
-        throw new Error(`Manager 只支持 x64/arm64，检测到：${process.arch}`);
-    }
-    if (process.platform === "win32" || process.platform === "darwin") return;
-    if (process.platform === "linux") {
-        const report = process.report?.getReport() as {header?: {glibcVersionRuntime?: string}} | undefined;
-        if (!report?.header?.glibcVersionRuntime) throw new Error("Manager 只支持 Linux glibc。");
-        return;
-    }
-    throw new Error(`Manager 只支持 Windows/Linux/macOS，检测到：${process.platform}`);
+    currentProductPlatform();
 }
 
-/** 当前平台暂不支持的 Profile；macOS 仅放行 Docker 与 Source Dev。 */
-export function unsupportedProfiles(): InstallProfile[] {
-    if (process.platform === "darwin") return ["source-product", "product-bun", "windows-portable"];
-    return [];
+/** 返回指定平台正式支持的Profile。 */
+export function supportedProfiles(platform = currentProductPlatform()): readonly InstallProfile[] {
+    return PLATFORM_PROFILES[platform];
+}
+
+/** 校验当前平台是否支持指定Profile。 */
+export function assertProfileSupported(profile: InstallProfile): void {
+    const platform = currentProductPlatform();
+    if (!supportedProfiles(platform).includes(profile)) {
+        throw new Error(`${platform}不支持${profile} Profile。`);
+    }
 }
 
 /** 返回平台可执行文件后缀。 */

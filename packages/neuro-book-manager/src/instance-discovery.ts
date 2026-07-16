@@ -100,8 +100,14 @@ export async function discoverInstances(roots: string[], registeredRoots: string
 
 /** 一次用户操作共享的宿主环境检查。 */
 export async function inspectEnvironment(): Promise<EnvironmentInspection> {
-    const engine = await resolveContainerEngine().catch(() => "docker");
-    return {bun: await inspectCommand("bun"), git: await inspectCommand("git"), docker: await inspectCommand(engine), compose: await inspectCommand(engine, ["compose", "version"])};
+    const engine = await resolveContainerEngine().catch(() => null);
+    return {
+        bun: await inspectCommand("bun"),
+        git: await inspectCommand("git"),
+        containerEngine: engine,
+        container: engine ? await inspectCommand(engine) : {available: false},
+        compose: engine ? await inspectCommand(engine, ["compose", "version"]) : {available: false},
+    };
 }
 
 export function configuredDiscoveryRoots(config: ManagerConfig): string[] {

@@ -4,23 +4,31 @@ import {chmod as chmodFile, rename} from "node:fs/promises";
 import {downloadVerified, extractArchive, githubReleaseAsset} from "#manager/download";
 import {ensureDirectory, removePath, sha256File, writeTextAtomic} from "#manager/files";
 import {run} from "#manager/process";
-import {assertManagerPlatform} from "#manager/platform";
+import {currentProductPlatform} from "#manager/platform";
 import {findNamedFile, prependExecutablePath} from "#manager/runtime";
-import type {ManagedGitToolComponent, ManagedToolComponent, ToolComponents} from "#manager/types";
+import type {ManagedGitToolComponent, ManagedToolComponent, ProductPlatform, ToolComponents} from "#manager/types";
 
 export type ManagedToolName = "rg" | "git";
+
+/** 当前Manager支持的平台到ripgrep官方Release资产后缀。 */
+export const RIPGREP_ASSET_SUFFIXES = {
+    "windows-x64": "x86_64-pc-windows-msvc.zip",
+    "linux-x64-glibc": "x86_64-unknown-linux-gnu.tar.gz",
+    "linux-aarch64-glibc": "aarch64-unknown-linux-gnu.tar.gz",
+    "darwin-x64": "x86_64-apple-darwin.tar.gz",
+    "darwin-aarch64": "aarch64-apple-darwin.tar.gz",
+} as const satisfies Record<ProductPlatform, string>;
 
 /** 安装 Manager 支持的托管工具。 */
 export async function installManagedTool(root: string, tool: "rg", createdPaths?: string[]): Promise<ManagedToolComponent>;
 export async function installManagedTool(root: string, tool: "git", createdPaths?: string[]): Promise<ManagedGitToolComponent>;
 export async function installManagedTool(root: string, tool: ManagedToolName, createdPaths: string[] = []): Promise<ManagedToolComponent | ManagedGitToolComponent> {
-    assertManagerPlatform();
     return tool === "git" ? installPortableGit(root, createdPaths) : installRipgrep(root, createdPaths);
 }
 
 /** 安装最新 ripgrep，部分版本目录会自动重建。 */
 async function installRipgrep(root: string, createdPaths: string[]): Promise<ManagedToolComponent> {
-    const suffix = process.platform === "win32" ? "x86_64-pc-windows-msvc.zip" : "x86_64-unknown-linux-gnu.tar.gz";
+    const suffix = RIPGREP_ASSET_SUFFIXES[currentProductPlatform()];
     const release = await githubReleaseAsset("BurntSushi/ripgrep", undefined, (name) => name.endsWith(suffix));
     const version = release.tag.replace(/^v/u, "");
     const targetRoot = join(root, ".runtime", "tools", "rg", version);

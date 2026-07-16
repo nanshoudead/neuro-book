@@ -62,8 +62,6 @@ COPY --from=build /app/tsconfig.json ./tsconfig.json
 COPY --from=build /app/prisma ./prisma
 COPY --from=build /app/prisma.config.ts ./prisma.config.ts
 RUN bun -e 'const fs = require("node:fs"); const config = JSON.parse(fs.readFileSync("tsconfig.json", "utf8")); config.compilerOptions = {...config.compilerOptions, baseUrl: ".", paths: {...(config.compilerOptions && config.compilerOptions.paths ? config.compilerOptions.paths : {}), "nbook/*": [".output/server/node_modules/nbook/*"], "neuro_book/*": [".output/server/node_modules/nbook/*"]}}; fs.writeFileSync("tsconfig.json", `${JSON.stringify(config, null, 4)}\n`, "utf8");'
-RUN chmod -R a+rwX /app
-
 EXPOSE 3000
 
 ENTRYPOINT ["sh", "./scripts/deploy/docker-product-entrypoint.sh"]

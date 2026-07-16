@@ -53,6 +53,7 @@ describe("Operation recovery", () => {
             id: "interrupted",
             action: "install",
             root,
+            containerEngine: null,
             createdPaths: [".runtime/temporary"],
             backupRoot: join(root, ".deploy", "backups", "interrupted"),
             previousManifest: null,
@@ -74,6 +75,7 @@ describe("Operation recovery", () => {
             id: "fresh-docker",
             action: "install",
             root,
+            containerEngine: "docker",
             createdPaths: [],
             backupRoot: join(root, ".deploy", "backups", "fresh-docker"),
             previousManifest: null,
@@ -87,7 +89,8 @@ describe("Operation recovery", () => {
         await recoverInterruptedOperations(root);
 
         expect(docker.removeDeployment).toHaveBeenCalledOnce();
-        expect(docker.removeImage).toHaveBeenCalledWith(root, "neuro-book-source:test");
+        expect(docker.removeDeployment).toHaveBeenCalledWith("docker", root, root);
+        expect(docker.removeImage).toHaveBeenCalledWith("docker", root, "neuro-book-source:test");
         await expect(stat(compose)).rejects.toMatchObject({code: "ENOENT"});
     });
 
@@ -110,6 +113,7 @@ describe("Operation recovery", () => {
             id: "docker-update",
             action: "update",
             root,
+            containerEngine: "docker",
             createdPaths: [],
             backupRoot: backup,
             previousManifest,
@@ -128,7 +132,7 @@ describe("Operation recovery", () => {
         expect(await readFile(database, "utf8")).toBe("old");
         await expect(stat(`${database}-wal`)).rejects.toMatchObject({code: "ENOENT"});
         expect(await readFile(compose, "utf8")).toBe("image: old");
-        expect(docker.start).toHaveBeenCalledWith(root, root, "source-docker");
+        expect(docker.start).toHaveBeenCalledWith("docker", root, root, "source-docker");
     });
 
     it("镜像清理失败时仍完成其他回滚并记录人工清理信息", async () => {
@@ -138,6 +142,7 @@ describe("Operation recovery", () => {
             id: "image-cleanup",
             action: "install",
             root,
+            containerEngine: "docker",
             createdPaths: [],
             backupRoot: join(root, ".deploy", "backups", "image-cleanup"),
             previousManifest: null,
@@ -165,6 +170,7 @@ describe("Operation recovery", () => {
             id: "restart-failure",
             action: "update",
             root,
+            containerEngine: "docker",
             createdPaths: [],
             backupRoot: backup,
             previousManifest,
@@ -192,8 +198,9 @@ async function operationRoot(): Promise<string> {
 function dockerManifest(root: string): InstallationManifest {
     const revision = "a".repeat(40);
     return {
-        schemaVersion: 3,
+        schemaVersion: 4,
         profile: "source-docker",
+        containerEngine: "docker",
         managerVersion: "0.1.0",
         appVersion: "1.0.0",
         channel: "canary",
@@ -215,11 +222,12 @@ function dockerManifest(root: string): InstallationManifest {
 function operationJournal() {
     const now = "2026-07-12T00:00:00.000Z";
     return {
-        schemaVersion: 1 as const,
+        schemaVersion: 2 as const,
         id: "operation",
         action: "update" as const,
         phase: "planned" as const,
         root: "C:/neuro-book",
+        containerEngine: null,
         createdPaths: [],
         backupRoot: "C:/neuro-book/.deploy/backups/operation",
         previousManifest: null,

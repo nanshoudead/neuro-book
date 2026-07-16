@@ -2,7 +2,7 @@ import {spawn} from "node:child_process";
 import {join, resolve} from "node:path";
 
 import {enableAuthentication, ensureStateFiles, loadStateEnv} from "#manager/config";
-import {resolveContainerEngine, startDocker} from "#manager/docker";
+import {startDocker} from "#manager/docker";
 import {pathExists} from "#manager/files";
 import {commandAvailable, run, runCapture} from "#manager/process";
 import {activateManagedTools} from "#manager/tools";
@@ -14,7 +14,8 @@ export async function startApplication(root: string, manifest: InstallationManif
     await ensureStateFiles(stateRoot, 3000, manifest.profile !== "windows-portable");
     activateManagedTools(root, manifest.components.tools);
     if (manifest.profile === "ghcr" || manifest.profile === "source-docker") {
-        await startDocker(root, stateRoot, manifest.profile);
+        if (!manifest.containerEngine) throw new Error("容器安装缺少持久化Container Engine。" );
+        await startDocker(manifest.containerEngine, root, stateRoot, manifest.profile);
         return;
     }
     const env = await applicationEnvironment(root, stateRoot, manifest.profile === "source-dev");
@@ -56,7 +57,8 @@ export async function createAdmin(root: string, manifest: InstallationManifest, 
     activateManagedTools(root, manifest.components.tools);
     const stateRoot = resolve(root, manifest.stateRoot);
     if (manifest.profile === "ghcr" || manifest.profile === "source-docker") {
-        const engine = await resolveContainerEngine();
+        if (!manifest.containerEngine) throw new Error("容器安装缺少持久化Container Engine。" );
+        const engine = manifest.containerEngine;
         const compose = join(root, ".deploy", "docker-compose.generated.yml");
         const composeArgs = ["compose", "--env-file", join(stateRoot, ".env"), "-f", compose];
         const running = (await runCapture(engine, [...composeArgs, "ps", "--status", "running", "--services", "app"], {cwd: root})).trim();

@@ -82,8 +82,9 @@ function manifest(): InstallationManifest {
     const revision = "b".repeat(40);
     const now = new Date().toISOString();
     return {
-        schemaVersion: 3,
+        schemaVersion: 4,
         profile: "product-bun",
+        containerEngine: null,
         managerVersion: "0.1.0",
         appVersion: "0.8.0",
         channel: "stable",

@@ -15,7 +15,7 @@ import type {InstallationManifest, OperationJournal, OperationPhase} from "#mana
 /** 创建持久化 operation journal。 */
 export async function createOperation(input: Omit<OperationJournal, "schemaVersion" | "phase" | "createdAt" | "updatedAt">): Promise<OperationJournal> {
     const now = new Date().toISOString();
-    const journal: OperationJournal = {...input, schemaVersion: 1, phase: "planned", createdAt: now, updatedAt: now};
+    const journal: OperationJournal = {...input, schemaVersion: 2, phase: "planned", createdAt: now, updatedAt: now};
     await writeOperation(journal);
     return journal;
 }
@@ -70,7 +70,7 @@ export async function rollbackOperation(journal: OperationJournal): Promise<void
     const currentCompose = join(root, ".deploy", "docker-compose.generated.yml");
     const stateRoot = resolve(root, journal.previousManifest?.stateRoot ?? journal.nextManifest?.stateRoot ?? ".");
     if (journal.composeChanged && await pathExists(currentCompose)) {
-        await removeDockerDeployment(root, stateRoot);
+        await removeDockerDeployment(requiredContainerEngine(journal), root, stateRoot);
     }
     const previousProduct = journal.previousManifest?.components.product;
     const nextProduct = journal.nextManifest?.components.product;
@@ -99,7 +99,7 @@ export async function rollbackOperation(journal: OperationJournal): Promise<void
         await removePath(currentCompose);
     }
     if (journal.previousManifest && isDockerProfile(journal.previousManifest.profile)) {
-        await startDocker(root, resolve(root, journal.previousManifest.stateRoot), journal.previousManifest.profile);
+        await startDocker(requiredContainerEngine(journal), root, resolve(root, journal.previousManifest.stateRoot), journal.previousManifest.profile);
     }
     if (journal.wrappersChanged) {
         const runtimeBin = join(root, ".runtime", "bin");
@@ -113,7 +113,7 @@ export async function rollbackOperation(journal: OperationJournal): Promise<void
     let dockerImageCleanupError: string | undefined;
     if (journal.dockerImageCreated) {
         try {
-            await removeDockerImage(root, journal.dockerImageCreated);
+            await removeDockerImage(requiredContainerEngine(journal), root, journal.dockerImageCreated);
         } catch (error) {
             dockerImageCleanupError = error instanceof Error ? error.message : String(error);
         }
@@ -141,4 +141,10 @@ async function writeOperation(journal: OperationJournal): Promise<void> {
 /** Docker Profile回滚后必须恢复旧Compose对应的实例。 */
 function isDockerProfile(profile: InstallationManifest["profile"]): profile is "ghcr" | "source-docker" {
     return profile === "ghcr" || profile === "source-docker";
+}
+
+/** 返回事务固定的Container Engine。 */
+function requiredContainerEngine(journal: OperationJournal): NonNullable<OperationJournal["containerEngine"]> {
+    if (!journal.containerEngine) throw new Error(`Operation ${journal.id}缺少Container Engine。`);
+    return journal.containerEngine;
 }

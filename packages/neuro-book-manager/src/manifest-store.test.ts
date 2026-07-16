@@ -37,16 +37,30 @@ describe("Release resolver", () => {
             : Response.json(complete.manifest)));
         expect((await resolveReleaseManifest("canary")).version).toBe("1.1.0-beta.2");
     });
+
+    it("未来schema先根据envelope提示升级Manager", async () => {
+        const complete = release("v2.0.0", false);
+        vi.stubGlobal("fetch", vi.fn(async (input: string | URL | Request) => String(input).includes("api.github.com")
+            ? Response.json([complete.github])
+            : Response.json({schemaVersion: 99, minManagerVersion: "99.0.0"})));
+        await expect(resolveReleaseManifest("stable")).rejects.toThrow("请先执行");
+    });
 });
 
 function release(tag: string, prerelease: boolean) {
     const version = tag.slice(1);
     const root = `https://github.com/notnotype/neuro-book/releases/download/${tag}`;
+    const productNames = [
+        "neuro-book-product-windows-x64.zip",
+        "neuro-book-product-linux-x64-glibc.tar.gz",
+        "neuro-book-product-linux-aarch64-glibc.tar.gz",
+        "neuro-book-product-darwin-x64.tar.gz",
+        "neuro-book-product-darwin-aarch64.tar.gz",
+    ] as const;
+    const platforms = ["windows-x64", "linux-x64-glibc", "linux-aarch64-glibc", "darwin-x64", "darwin-aarch64"] as const;
     const urls = {
         manifest: `${root}/release-manifest.json`,
         source: `${root}/neuro-book-source.zip`,
-        windows: `${root}/neuro-book-product-windows-x64.zip`,
-        linux: `${root}/neuro-book-product-linux-x64-glibc.tar.gz`,
         portable: `${root}/neuro-book-windows-x64.zip`,
     };
     return {
@@ -57,22 +71,18 @@ function release(tag: string, prerelease: boolean) {
             assets: [
                 {name: "release-manifest.json", browser_download_url: urls.manifest},
                 {name: "neuro-book-source.zip", browser_download_url: urls.source},
-                {name: "neuro-book-product-windows-x64.zip", browser_download_url: urls.windows},
-                {name: "neuro-book-product-linux-x64-glibc.tar.gz", browser_download_url: urls.linux},
+                ...productNames.map((name) => ({name, browser_download_url: `${root}/${name}`})),
                 {name: "neuro-book-windows-x64.zip", browser_download_url: urls.portable},
             ],
         },
         manifest: {
-            schemaVersion: 2,
+            schemaVersion: 3,
             version,
             channel: prerelease ? "canary" : "stable",
             sourceRevision: REVISION,
-            minManagerVersion: "0.1.0",
+            minManagerVersion: "0.1.0-canary.1",
             source: {url: urls.source, sha256: SHA, bytes: 1},
-            products: [
-                {url: urls.windows, sha256: SHA, bytes: 1, platform: "windows-x64", sourceRevision: REVISION},
-                {url: urls.linux, sha256: SHA, bytes: 1, platform: "linux-x64-glibc", sourceRevision: REVISION},
-            ],
+            products: platforms.map((platform, index) => ({url: `${root}/${productNames[index]}`, sha256: SHA, bytes: 1, platform, sourceRevision: REVISION})),
             windowsPortable: {url: urls.portable, sha256: SHA, bytes: 1},
             ghcr: {ref: `ghcr.io/notnotype/neuro-book:${tag}`, digest: `sha256:${SHA}`, sourceRevision: REVISION},
         },
