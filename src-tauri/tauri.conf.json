@@ -1,7 +1,7 @@
 {
     "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
     "productName": "NeuroBook",
-    "version": "0.5.6",
+    "version": "0.80.0",
     "identifier": "com.notnotype.neurobook",
     "build": {
         "beforeDevCommand": "bun run dev",

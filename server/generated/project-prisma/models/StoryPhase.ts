@@ -228,7 +228,7 @@ export type StoryPhaseGroupByOutputType = {
   _max: StoryPhaseMaxAggregateOutputType | null
 }
 
-type GetStoryPhaseGroupByPayload<T extends StoryPhaseGroupByArgs> = Prisma.PrismaPromise<
+export type GetStoryPhaseGroupByPayload<T extends StoryPhaseGroupByArgs> = Prisma.PrismaPromise<
   Array<
     Prisma.PickEnumerable<StoryPhaseGroupByOutputType, T['by']> &
       {
@@ -1447,6 +1447,11 @@ export type StoryPhaseFindManyArgs<ExtArgs extends runtime.Types.Extensions.Inte
    * Skip the first `n` StoryPhases.
    */
   skip?: number
+  /**
+   * {@link https://www.prisma.io/docs/concepts/components/prisma-client/distinct Distinct Docs}
+   * 
+   * Filter by unique combinations of StoryPhases.
+   */
   distinct?: Prisma.StoryPhaseScalarFieldEnum | Prisma.StoryPhaseScalarFieldEnum[]
 }
 

@@ -214,6 +214,7 @@ export const AgentSkillCatalogItemDtoSchema = z.object({
     description: z.string().trim().min(1, "skill.description 不能为空"),
     key: z.string().trim().min(1, "skill.key 不能为空").optional(),
     source: z.enum(["system", "user"]).optional(),
+    searchText: z.string().optional(),
     sourcePath: z.string().trim().min(1, "skill.sourcePath 不能为空").optional(),
     whenToUse: z.string().trim().min(1, "skill.whenToUse 不能为空").optional(),
 });

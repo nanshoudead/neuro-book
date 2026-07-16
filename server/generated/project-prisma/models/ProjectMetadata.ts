@@ -151,7 +151,7 @@ export type ProjectMetadataGroupByOutputType = {
   _max: ProjectMetadataMaxAggregateOutputType | null
 }
 
-type GetProjectMetadataGroupByPayload<T extends ProjectMetadataGroupByArgs> = Prisma.PrismaPromise<
+export type GetProjectMetadataGroupByPayload<T extends ProjectMetadataGroupByArgs> = Prisma.PrismaPromise<
   Array<
     Prisma.PickEnumerable<ProjectMetadataGroupByOutputType, T['by']> &
       {
@@ -934,6 +934,11 @@ export type ProjectMetadataFindManyArgs<ExtArgs extends runtime.Types.Extensions
    * Skip the first `n` ProjectMetadata.
    */
   skip?: number
+  /**
+   * {@link https://www.prisma.io/docs/concepts/components/prisma-client/distinct Distinct Docs}
+   * 
+   * Filter by unique combinations of ProjectMetadata.
+   */
   distinct?: Prisma.ProjectMetadataScalarFieldEnum | Prisma.ProjectMetadataScalarFieldEnum[]
 }
 

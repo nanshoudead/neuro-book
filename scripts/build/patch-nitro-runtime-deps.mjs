@@ -82,16 +82,26 @@ const packageCopyStats = {
     copied: 0,
     skipped: 0,
 };
+const runtimePackageSourceCache = new Map();
 
 const patchedExternalFileUrls = await measure("patch external file URLs", async () => {
     return await patchExternalFileUrls(serverRoot);
+});
+
+const directBunRuntimePackageRefs = await measure("collect direct Bun runtime package refs", async () => {
+    return await collectDirectBunRuntimePackageRefs(serverRoot);
 });
 
 await measure("copy runtime package closure", async () => {
     await copyRuntimePackageClosure([
         ...effectiveRuntimePackageSeeds,
         ...await collectNitroExternalPackageSeeds(serverRoot),
+        ...directBunRuntimePackageRefs.map((item) => item.packageName),
     ]);
+});
+
+const copiedDirectBunPackages = await measure("copy direct Bun runtime packages", async () => {
+    return await copyDirectBunRuntimePackages(directBunRuntimePackageRefs);
 });
 
 await measure("copy profile import context", async () => {
@@ -122,6 +132,9 @@ await measure("copy nbook runtime package", async () => {
 await measure("assert nbook runtime package", async () => {
     assertNbookRuntimePackage(resolve(serverRoot, "node_modules", "nbook"));
 });
+await measure("assert Prisma generated client versions", async () => {
+    await assertPrismaGeneratedClientVersions();
+});
 await measure("compile Product system profiles", async () => {
     const previous = process.env.NEURO_BOOK_PRODUCT_BUILD;
     process.env.NEURO_BOOK_PRODUCT_BUILD = "1";
@@ -149,6 +162,7 @@ console.log(`patched Nitro runtime dependencies: ${effectiveRuntimePackageSeeds.
 console.log(`copied profile import context: ${runtimeContextPaths.join(", ")}`);
 console.log(`patched Nitro import.meta fallbacks: ${patchedImportMetaFiles}`);
 console.log(`patched external node_modules file URLs: ${patchedExternalFileUrls}`);
+console.log(`copied direct Bun runtime packages: ${copiedDirectBunPackages}`);
 console.log(`Nitro runtime package copy: copied=${packageCopyStats.copied}, skipped=${packageCopyStats.skipped}`);
 console.log(`patch Nitro runtime deps timings: ${timings.map((item) => `${item.label}=${item.seconds.toFixed(2)}s`).join(", ")}`);
 
@@ -337,6 +351,7 @@ function assertNbookRuntimePackage(packageRoot) {
     const requiredPaths = [
         resolve(packageRoot, "world-engine", "schema", "index.ts"),
         resolve(packageRoot, "server", "generated", "prisma", "client.ts"),
+        resolve(packageRoot, "server", "generated", "project-prisma", "client.ts"),
     ];
     const missing = requiredPaths.filter((path) => !existsSync(path));
     if (missing.length > 0) {
@@ -351,6 +366,54 @@ function assertNbookRuntimePackage(packageRoot) {
  * 把 Agent-facing workspace CLI 复制到 `.output/server` 内，方便产品包
  * 从 `.output/server/node_modules` 解析 runtime vendor。
  */
+async function assertPrismaGeneratedClientVersions() {
+    const expectedVersion = (await readJson(resolve("node_modules", "@prisma", "client", "package.json"))).version;
+    const requiredGeneratedFiles = [
+        resolve("server", "generated", "prisma", "internal", "class.ts"),
+        resolve("server", "generated", "project-prisma", "internal", "class.ts"),
+        resolve(serverRoot, "server", "generated", "prisma", "internal", "class.ts"),
+        resolve(serverRoot, "server", "generated", "project-prisma", "internal", "class.ts"),
+        resolve(serverRoot, "node_modules", "nbook", "server", "generated", "prisma", "internal", "class.ts"),
+        resolve(serverRoot, "node_modules", "nbook", "server", "generated", "project-prisma", "internal", "class.ts"),
+    ];
+    const mismatches = [];
+
+    for (const filePath of requiredGeneratedFiles) {
+        if (!existsSync(filePath)) {
+            mismatches.push(`${relative(process.cwd(), filePath).replaceAll("\\", "/")}: missing`);
+            continue;
+        }
+        await collectPrismaClientVersionMismatches(filePath, expectedVersion, mismatches);
+    }
+
+    for (const filePath of await listMjsFiles(resolve(serverRoot, "chunks"))) {
+        await collectPrismaClientVersionMismatches(filePath, expectedVersion, mismatches);
+    }
+
+    if (mismatches.length > 0) {
+        throw new Error([
+            "Prisma generated client version mismatch in product output.",
+            `Expected @prisma/client version: ${expectedVersion}`,
+            "Run `bun run generate` before building.",
+            ...mismatches.map((item) => `- ${item}`),
+        ].join("\n"));
+    }
+}
+
+async function collectPrismaClientVersionMismatches(filePath, expectedVersion, mismatches) {
+    const text = await readFile(filePath, "utf8");
+    for (const match of text.matchAll(/"clientVersion":\s*"([^"]+)"/g)) {
+        const actualVersion = match[1];
+        if (actualVersion !== expectedVersion) {
+            mismatches.push(`${relative(process.cwd(), filePath).replaceAll("\\", "/")}: ${actualVersion}`);
+        }
+    }
+}
+
+async function readJson(filePath) {
+    return JSON.parse(await readFile(filePath, "utf8"));
+}
+
 async function copyWorkspaceCliRuntimeScript() {
     const source = resolve("assets", "workspace", ".nbook", "agent", "scripts", "workspace.ts");
     const target = resolve(serverRoot, "scripts", "agent", "workspace.ts");
@@ -368,6 +431,7 @@ async function copyWorkspaceCliRuntimeScript() {
 async function copyRuntimePackageClosure(seedPackages) {
     const queue = [...seedPackages];
     const requiredPackages = new Set(seedPackages);
+    const expectedPackageVersions = new Map();
     const seen = new Set();
     while (queue.length > 0) {
         const packageName = queue.shift();
@@ -375,9 +439,9 @@ async function copyRuntimePackageClosure(seedPackages) {
             continue;
         }
         seen.add(packageName);
-        const source = resolve("node_modules", ...packageName.split("/"));
+        const source = await resolveRuntimePackageSource(packageName, expectedPackageVersions.get(packageName));
         const target = resolve(outputRoot, "server", "node_modules", ...packageName.split("/"));
-        if (!existsSync(source)) {
+        if (!source) {
             if (requiredPackages.has(packageName)) {
                 throw new Error(`缺少 Nitro runtime package: ${packageName}`);
             }
@@ -398,15 +462,16 @@ async function copyRuntimePackageClosure(seedPackages) {
         }
         const packageJson = JSON.parse(await readFile(packageJsonPath, "utf8"));
         const dependencies = packageJson.dependencies ?? {};
-        for (const dependencyName of Object.keys(dependencies)) {
+        for (const [dependencyName, dependencyVersion] of Object.entries(dependencies)) {
+            rememberExpectedPackageVersion(expectedPackageVersions, dependencyName, dependencyVersion);
             if (!seen.has(dependencyName)) {
                 queue.push(dependencyName);
             }
         }
         const optionalDependencies = packageJson.optionalDependencies ?? {};
-        for (const dependencyName of Object.keys(optionalDependencies)) {
-            const dependencyPath = resolve("node_modules", ...dependencyName.split("/"));
-            if (!seen.has(dependencyName) && existsSync(dependencyPath)) {
+        for (const [dependencyName, dependencyVersion] of Object.entries(optionalDependencies)) {
+            rememberExpectedPackageVersion(expectedPackageVersions, dependencyName, dependencyVersion);
+            if (!seen.has(dependencyName) && await resolveRuntimePackageSource(dependencyName, expectedPackageVersions.get(dependencyName))) {
                 queue.push(dependencyName);
             }
         }
@@ -418,6 +483,103 @@ async function copyRuntimePackageClosure(seedPackages) {
  * `externals.trace=false` 不再自动写 `.output/server/package.json`，
  * 因此 Product Runtime vendor 需要以产物 import 为准补齐。
  */
+function rememberExpectedPackageVersion(expectedPackageVersions, packageName, versionSpec) {
+    if (typeof versionSpec === "string" && /^[~^]?\d+\.\d+\.\d+(?:[-+][\w.-]+)?$/u.test(versionSpec)) {
+        expectedPackageVersions.set(packageName, versionSpec);
+    }
+}
+
+async function resolveRuntimePackageSource(packageName, expectedVersion = undefined) {
+    const cacheKey = `${packageName}@${expectedVersion ?? ""}`;
+    if (runtimePackageSourceCache.has(cacheKey)) {
+        return runtimePackageSourceCache.get(cacheKey);
+    }
+
+    const rootSource = resolve("node_modules", ...packageName.split("/"));
+    if (existsSync(rootSource) && await packageVersionMatches(rootSource, expectedVersion)) {
+        runtimePackageSourceCache.set(cacheKey, rootSource);
+        return rootSource;
+    }
+
+    const bunSource = await resolveBunRuntimePackageSource(packageName, expectedVersion);
+    runtimePackageSourceCache.set(cacheKey, bunSource);
+    return bunSource;
+}
+
+async function resolveBunRuntimePackageSource(packageName, expectedVersion = undefined) {
+    const bunRoot = resolve("node_modules", ".bun");
+    if (!existsSync(bunRoot)) {
+        return null;
+    }
+
+    const packageParts = packageName.split("/");
+    const bunPackagePrefix = `${packageName.replace("/", "+")}@`;
+    const entries = await readdir(bunRoot, {withFileTypes: true}).catch(() => []);
+    const candidateRoots = entries
+        .filter((entry) => entry.isDirectory() && entry.name.startsWith(bunPackagePrefix))
+        .map((entry) => resolve(bunRoot, entry.name, "node_modules", ...packageParts))
+        .sort();
+    const candidates = [];
+    for (const candidate of candidateRoots) {
+        const packageJsonPath = resolve(candidate, "package.json");
+        if (!existsSync(packageJsonPath)) {
+            continue;
+        }
+        const packageJson = JSON.parse(await readFile(packageJsonPath, "utf8"));
+        if (expectedVersion && !satisfiesPackageVersion(packageJson.version, expectedVersion)) {
+            continue;
+        }
+        candidates.push({path: candidate, version: packageJson.version ?? "0.0.0"});
+    }
+    return candidates.sort((left, right) => comparePackageVersions(right.version, left.version))[0]?.path ?? null;
+}
+
+async function packageVersionMatches(packageRoot, expectedVersion) {
+    if (!expectedVersion) {
+        return true;
+    }
+    const packageJsonPath = resolve(packageRoot, "package.json");
+    if (!existsSync(packageJsonPath)) {
+        return false;
+    }
+    const packageJson = JSON.parse(await readFile(packageJsonPath, "utf8"));
+    return satisfiesPackageVersion(packageJson.version, expectedVersion);
+}
+
+function satisfiesPackageVersion(version, versionSpec) {
+    if (!versionSpec) {
+        return true;
+    }
+    if (versionSpec.startsWith("^")) {
+        const versionParts = parsePackageVersion(version);
+        const specParts = parsePackageVersion(versionSpec.slice(1));
+        return versionParts[0] === specParts[0] && comparePackageVersions(version, versionSpec.slice(1)) >= 0;
+    }
+    if (versionSpec.startsWith("~")) {
+        const versionParts = parsePackageVersion(version);
+        const specParts = parsePackageVersion(versionSpec.slice(1));
+        return versionParts[0] === specParts[0] && versionParts[1] === specParts[1] && comparePackageVersions(version, versionSpec.slice(1)) >= 0;
+    }
+    return version === versionSpec;
+}
+
+function comparePackageVersions(leftVersion, rightVersion) {
+    const leftParts = parsePackageVersion(leftVersion);
+    const rightParts = parsePackageVersion(rightVersion);
+    for (let index = 0; index < Math.max(leftParts.length, rightParts.length); index += 1) {
+        const left = Number.isFinite(leftParts[index]) ? leftParts[index] : 0;
+        const right = Number.isFinite(rightParts[index]) ? rightParts[index] : 0;
+        if (left !== right) {
+            return left - right;
+        }
+    }
+    return leftVersion.localeCompare(rightVersion);
+}
+
+function parsePackageVersion(version) {
+    return version.replace(/^[~^]/u, "").split(/[.-]/u).map((part) => Number.parseInt(part, 10));
+}
+
 async function collectNitroExternalPackageSeeds(root) {
     if (!existsSync(root)) {
         return [];
@@ -439,6 +601,56 @@ async function collectNitroExternalPackageSeeds(root) {
 /**
  * 过滤 source map / helper path 中类似 `.pnpm`、`.virtual`、`package.json` 的非包路径。
  */
+/**
+ * Bun/Nitro 会把部分 external 依赖直接写成 `node_modules/.bun/<locator>/node_modules/<pkg>`。
+ * 这些路径不是普通包名解析，Product vendor 必须保留相同 `.bun` 目录形状。
+ */
+async function collectDirectBunRuntimePackageRefs(root) {
+    if (!existsSync(root)) {
+        return [];
+    }
+    const refs = new Map();
+    const specifierPattern = /(?:import|export)\s+(?:[^"'`]*?\s+from\s+)?["']((?:\.\.\/|\.\/)*node_modules\/\.bun\/([^\/"'`]+)\/node_modules\/((?:@[^\/"'`]+\/[^\/"'`]+)|[^\/"'`]+))/g;
+    for (const filePath of await listMjsFiles(root)) {
+        const text = await readFile(filePath, "utf8");
+        for (const match of text.matchAll(specifierPattern)) {
+            const locator = match[2];
+            const packageName = match[3];
+            if (!locator || !isPackageSeed(packageName)) {
+                continue;
+            }
+            refs.set(`${locator}\n${packageName}`, {locator, packageName});
+        }
+    }
+    return [...refs.values()].sort((left, right) => {
+        const packageOrder = left.packageName.localeCompare(right.packageName);
+        return packageOrder === 0 ? left.locator.localeCompare(right.locator) : packageOrder;
+    });
+}
+
+/**
+ * 复制直接 import 指向的 `.bun` 包目录，避免 Product 运行时只能解析平铺 `node_modules/<pkg>`。
+ */
+async function copyDirectBunRuntimePackages(refs) {
+    let copied = 0;
+    for (const {locator, packageName} of refs) {
+        const packageParts = packageName.split("/");
+        const source = resolve("node_modules", ".bun", locator, "node_modules", ...packageParts);
+        if (!existsSync(source)) {
+            throw new Error(`缺少直接引用的 Bun runtime package: node_modules/.bun/${locator}/node_modules/${packageName}`);
+        }
+        const target = resolve(serverRoot, "node_modules", ".bun", locator, "node_modules", ...packageParts);
+        if (await isRuntimePackageCurrent(source, target)) {
+            continue;
+        }
+        await rm(target, {recursive: true, force: true});
+        await mkdir(dirname(target), {recursive: true});
+        await copyDirectory(source, target);
+        copied += 1;
+    }
+    return copied;
+}
+
 function isPackageSeed(packageName) {
     return Boolean(
         packageName

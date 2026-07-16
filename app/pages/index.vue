@@ -519,6 +519,7 @@ function matchesMarkdownSkillQuery(query: string, item: AgentSkillCatalogItemDto
         item.name,
         item.description,
         item.whenToUse,
+        item.searchText,
         item.source,
         item.sourcePath,
     ]

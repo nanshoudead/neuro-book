@@ -28,6 +28,7 @@ when_to_use:
   - 用户显式提到写作 skill 时
 ---
 # Body
+unique body phrase
 `);
         const catalog = new SkillCatalog(systemRoot, userRoot);
 
@@ -35,6 +36,7 @@ when_to_use:
             key: "writer",
             name: "Writer Skill",
             description: "Write prose.",
+            searchText: expect.stringContaining("unique body phrase"),
             whenToUse: "用户需要写正文时；用户显式提到写作 skill 时",
             source: "system",
         }));

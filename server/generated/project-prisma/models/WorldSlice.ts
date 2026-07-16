@@ -199,7 +199,7 @@ export type WorldSliceGroupByOutputType = {
   _max: WorldSliceMaxAggregateOutputType | null
 }
 
-type GetWorldSliceGroupByPayload<T extends WorldSliceGroupByArgs> = Prisma.PrismaPromise<
+export type GetWorldSliceGroupByPayload<T extends WorldSliceGroupByArgs> = Prisma.PrismaPromise<
   Array<
     Prisma.PickEnumerable<WorldSliceGroupByOutputType, T['by']> &
       {
@@ -1172,6 +1172,11 @@ export type WorldSliceFindManyArgs<ExtArgs extends runtime.Types.Extensions.Inte
    * Skip the first `n` WorldSlices.
    */
   skip?: number
+  /**
+   * {@link https://www.prisma.io/docs/concepts/components/prisma-client/distinct Distinct Docs}
+   * 
+   * Filter by unique combinations of WorldSlices.
+   */
   distinct?: Prisma.WorldSliceScalarFieldEnum | Prisma.WorldSliceScalarFieldEnum[]
 }
 

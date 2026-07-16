@@ -10,6 +10,7 @@ export type SkillCatalogItem = {
     name: string;
     description?: string;
     whenToUse?: string;
+    searchText?: string;
     source: SkillCatalogSource;
     rootPath: string;
     skillPath: string;
@@ -65,12 +66,14 @@ export class SkillCatalog {
             if (!skillPath) {
                 continue;
             }
-            const metadata = this.readMetadata(await readFile(skillPath, "utf8"));
+            const sourceText = await readFile(skillPath, "utf8");
+            const metadata = this.readMetadata(sourceText);
             skills.push({
                 key: entry.name,
                 name: metadata.name ?? entry.name,
                 description: metadata.description,
                 whenToUse: metadata.whenToUse,
+                searchText: sourceText,
                 source,
                 rootPath,
                 skillPath,

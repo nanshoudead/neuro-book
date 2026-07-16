@@ -438,23 +438,18 @@ watch(() => pendingUserInputSession.value?.assistantMessageId ?? null, () => {
 const activeDrawerTitle = computed(() => profileDisplayName(activeSummary.value?.profileKey ?? leaderProfileKey.value));
 const activeSessionTitle = computed(() => activeSummary.value?.title || (activeSessionId.value ? `Session #${String(activeSessionId.value)}` : t("agent.session.unnamed")));
 const activeSessionSummaryText = computed(() => activeSummary.value?.summary?.trim() || activeSummary.value?.lastMessagePreview?.trim() || t("agent.session.noRecentMessages"));
-let observedAgentRunning = false;
+let desktopNotificationFailureNotified = false;
 
-watch(liveRunStatus, (nextStatus, previousStatus) => {
-    if (nextStatus === "running" || nextStatus === "aborting") {
-        observedAgentRunning = true;
-        return;
-    }
-    const previousWasRunning = previousStatus === "running" || previousStatus === "aborting";
-    if (!observedAgentRunning || !previousWasRunning || (nextStatus !== "idle" && nextStatus !== "waiting")) {
-        return;
-    }
-    observedAgentRunning = false;
-    void desktopNotification.notify({
-        title: nextStatus === "waiting" ? "Agent 等待你确认" : "AI 回复完成",
-        body: `${activeSessionTitle.value}：${nextStatus === "waiting" ? "需要你处理确认或输入。" : "本轮回复已经完成。"}`,
+async function notifyAgentCompleted(): Promise<void> {
+    const sent = await desktopNotification.notify({
+        title: "AI 回复完成",
+        body: `${activeSessionTitle.value}：本轮回复已经完成。`,
     });
-});
+    if (!sent && !desktopNotificationFailureNotified) {
+        desktopNotificationFailureNotified = true;
+        notification.warning("Windows 系统通知没有发出，请检查系统通知权限。", {title: "系统通知发送失败"});
+    }
+}
 const summarizerStatus = computed<null | {
     label: string;
     icon: string;
@@ -1919,6 +1914,9 @@ const sessionStream = useAgentSessionStream({
         if (event.kind === "session" && event.event.type === "client_variable_patch_requested" && activeSessionId.value) {
             await acknowledgeClientPatch(activeSessionId.value, event.event.request);
         }
+    },
+    onAgentCompleted: async () => {
+        await notifyAgentCompleted();
     },
     onError: (error, fallback) => {
         console.error(fallback, error);

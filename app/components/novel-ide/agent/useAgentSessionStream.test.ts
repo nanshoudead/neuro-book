@@ -213,6 +213,37 @@ describe("useAgentSessionStream", () => {
         stream.stop();
     });
 
+    it("agent_end completed 后只触发一次完成回调", async () => {
+        const session = useAgentSession();
+        session.applyRecovery(recovery(1, 1));
+        const onAgentCompleted = vi.fn();
+        const stream = useAgentSessionStream({
+            session,
+            activeSessionId: ref(1),
+            api: {
+                getSessionRecovery: vi.fn(async () => recovery(1, 4)),
+                subscribeSessionEvents: vi.fn(async (_sessionId, _cursor, onEvent, _signal, options) => {
+                    options?.onOpen?.();
+                    await onEvent(runtime(2, {type: "agent_start"}));
+                    await onEvent(runtime(3, {type: "agent_end", status: "completed"}));
+                    await onEvent(runtime(3, {type: "agent_end", status: "completed"}));
+                    await onEvent(runtime(4, {type: "agent_end", status: "waiting"}));
+                    await never();
+                }),
+            },
+            onAgentCompleted,
+        });
+
+        await stream.start(1);
+        await vi.waitFor(() => expect(onAgentCompleted).toHaveBeenCalledTimes(1));
+        expect(onAgentCompleted).toHaveBeenCalledWith({
+            sessionId: 1,
+            invocationId: "run-1",
+            event: {type: "agent_end", status: "completed"},
+        });
+        stream.stop();
+    });
+
     it("连续重连失败后进入 disconnected，并允许手动重连", async () => {
         const session = useAgentSession();
         session.applyRecovery(recovery(1, 5));
@@ -297,6 +328,10 @@ function connected(latestSeq: number): AgentSessionEventDto {
 
 function control(seq: number, event: Extract<AgentSessionEventDto, {kind: "session"}>["event"]): AgentSessionEventDto {
     return {eventEpoch: "epoch-1", seq, sessionId: 1, kind: "session", event};
+}
+
+function runtime(seq: number, event: Extract<AgentSessionEventDto, {kind: "runtime"}>["event"]): AgentSessionEventDto {
+    return {eventEpoch: "epoch-1", seq, sessionId: 1, invocationId: "run-1", kind: "runtime", event};
 }
 
 function never(): Promise<void> {

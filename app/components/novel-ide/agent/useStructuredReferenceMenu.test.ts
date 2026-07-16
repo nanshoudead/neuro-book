@@ -20,6 +20,7 @@ const skillItems = [
         name: "chapter-planner",
         description: "Split a chapter into actionable steps.",
         whenToUse: "Use for the tenth novel planning workflow.",
+        searchText: "Deep body contains orbital palace and serialized outline contract.",
         source: "system",
         sourcePath: "assets/agent/skills/10-novel/SKILL.md",
         metadata: {},
@@ -112,6 +113,28 @@ describe("useStructuredReferenceMenu", () => {
             expect(yuanState.sections[0]?.items.map((item) => item.id)).toEqual(["skill:chapter-planner"]);
             expect(yenState.sections[0]?.items.map((item) => item.id)).toEqual(["skill:chapter-planner"]);
             expect(middleState.sections[0]?.items.map((item) => item.id)).toEqual(["skill:chapter-planner"]);
+        } finally {
+            globalThis.$fetch = previousFetch;
+        }
+    });
+
+    it("skill 菜单支持匹配 SKILL.md 正文里的任意字符串", async () => {
+        const previousFetch = globalThis.$fetch;
+        globalThis.$fetch = vi.fn(async () => skillItems) as unknown as typeof globalThis.$fetch;
+
+        try {
+            const menu = useStructuredReferenceMenu({
+                novelId: ref("workspace/test"),
+                selectedStoryThreadId: ref(null),
+                selectedStorySceneId: ref(null),
+                workspaceTree: ref([]),
+            });
+
+            await menu.refreshSkillCatalog();
+
+            const state = menu.resolveMenu({kind: "skill", query: "orbital palace"});
+
+            expect(state.sections[0]?.items.map((item) => item.id)).toEqual(["skill:chapter-planner"]);
         } finally {
             globalThis.$fetch = previousFetch;
         }

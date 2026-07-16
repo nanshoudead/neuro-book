@@ -12,6 +12,7 @@ export default defineEventHandler(async (): Promise<AgentSkillCatalogItemDto[]> 
         name: skill.name,
         description: skill.description ?? skill.key,
         whenToUse: skill.whenToUse,
+        searchText: skill.searchText,
         source: skill.source,
         sourcePath: skill.skillPath,
     }));

@@ -5,6 +5,7 @@
     "": {
       "name": "neuro-book",
       "dependencies": {
+        "@clack/core": "^1.4.3",
         "@clack/prompts": "^1.0.0",
         "@dnd-kit/abstract": "0.3.2",
         "@dnd-kit/dom": "0.3.2",
@@ -33,6 +34,7 @@
         "@prisma/adapter-libsql": "^7.8.0",
         "@prisma/client": "^7.8.0",
         "@prosemirror-adapter/vue": "^0.4.6",
+        "@tauri-apps/api": "^2.11.1",
         "@tauri-apps/plugin-notification": "^2.3.3",
         "@tiptap/core": "^3.27.4",
         "@tiptap/extension-code": "^3.27.4",

@@ -356,7 +356,7 @@ function basename(filePath: string): string {
                         <button type="button" class="rounded-md border border-[var(--border-color)] px-1.5 py-0.5 text-[10px] text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" @click="refreshManuscriptStats">{{ t("ide.workspace.fileDetail.updateStats") }}</button>
                     </div>
                 </div>
-                <div class="grid grid-cols-5 gap-1.5">
+                <div class="grid grid-cols-4 gap-1.5">
                     <div class="rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] px-2 py-1.5">
                         <div class="text-[8px] uppercase tracking-[0.12em] text-[var(--text-muted)]">{{ t("ide.workspace.fileDetail.current") }}</div>
                         <div class="mt-0.5 text-[var(--text-main)]">{{ manuscriptStats.currentWords }}</div>
@@ -370,12 +370,8 @@ function basename(filePath: string): string {
                         <div class="mt-0.5 text-[var(--text-main)]">{{ manuscriptStats.totalSize }}</div>
                     </div>
                     <div class="rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] px-2 py-1.5">
-                        <div class="text-[8px] uppercase tracking-[0.12em] text-[var(--text-muted)]">{{ t("ide.workspace.fileDetail.chapters") }}</div>
-                        <div class="mt-0.5 text-[var(--text-main)]">{{ manuscriptStats.chapters }}</div>
-                    </div>
-                    <div class="rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] px-2 py-1.5">
-                        <div class="text-[8px] uppercase tracking-[0.12em] text-[var(--text-muted)]">{{ t("ide.workspace.fileDetail.files") }}</div>
-                        <div class="mt-0.5 text-[var(--text-main)]">{{ manuscriptStats.files }}</div>
+                        <div class="text-[8px] uppercase tracking-[0.12em] text-[var(--text-muted)]">{{ t("ide.workspace.fileDetail.chaptersFiles") }}</div>
+                        <div class="mt-0.5 text-[var(--text-main)]">{{ manuscriptStats.chapters }} / {{ manuscriptStats.files }}</div>
                     </div>
                 </div>
                 <div class="grid grid-cols-[minmax(0,1fr)_132px] gap-2">

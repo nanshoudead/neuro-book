@@ -1019,6 +1019,7 @@ const enUS = {
                 size: "Size",
                 chapters: "Chapters",
                 files: "Files",
+                chaptersFiles: "Chapters/Files",
                 chooseIcon: "Choose Icon",
                 noIcon: "No icon configured",
                 frontmatterPlaceholder: "title: New Node",

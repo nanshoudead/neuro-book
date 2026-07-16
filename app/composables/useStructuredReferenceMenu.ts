@@ -149,6 +149,7 @@ export function useStructuredReferenceMenu(options: UseStructuredReferenceMenuOp
             item.name,
             item.description,
             item.whenToUse,
+            item.searchText,
             item.source,
             item.sourcePath,
         ];

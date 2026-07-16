@@ -16,8 +16,9 @@ const PRODUCT_ARCHIVE_MANIFEST = join(TAURI_RESOURCE_ROOT, "product.zip.manifest
 await assertProductPayload();
 await stageBunRuntime();
 await stageCreateAdminCommand();
-await writeBuildMarker();
-await stageProductArchive();
+const productPayloadHash = await productArchivePayloadHash();
+const buildMarker = await writeBuildMarker(productPayloadHash);
+await stageProductArchive(productPayloadHash, buildMarker);
 
 async function assertProductPayload() {
     const entry = join(PRODUCT_ROOT, ".output", "server", "scripts", "deploy", "product-start.mjs");
@@ -91,20 +92,22 @@ async function resolveBunExecutable() {
     return await realpath(first);
 }
 
-async function writeBuildMarker() {
+async function writeBuildMarker(productPayloadHash) {
     const packageJson = await Bun.file(join(REPO_ROOT, "package.json")).json();
     const marker = [
         `version=${packageJson.version ?? "0.0.0"}`,
+        `productPayloadSha256=${productPayloadHash.trim()}`,
         "",
     ].join("\n");
     await writeFile(join(PRODUCT_ROOT, ".tauri-build-id"), marker, "utf8");
     await writeFile(join(TAURI_RESOURCE_ROOT, "product-build-id"), marker, "utf8");
+    return marker;
 }
 
-async function stageProductArchive() {
+async function stageProductArchive(productPayloadHash, buildMarker) {
     await mkdir(TAURI_RESOURCE_ROOT, {recursive: true});
     const outputPath = join(TAURI_RESOURCE_ROOT, "product.zip");
-    const nextManifest = await productArchiveManifest();
+    const nextManifest = productArchiveManifest(productPayloadHash, buildMarker);
     const currentManifest = existsSync(PRODUCT_ARCHIVE_MANIFEST)
         ? await readFile(PRODUCT_ARCHIVE_MANIFEST, "utf8")
         : "";
@@ -137,10 +140,22 @@ async function addDirectoryToZip(zipFile, directory, baseDirectory) {
     }
 }
 
-async function productArchiveManifest() {
+function productArchiveManifest(productPayloadHash, buildMarker) {
+    const hash = createHash("sha256");
+    hash.update("payload\0");
+    hash.update(productPayloadHash);
+    hash.update("marker\0");
+    hash.update(buildMarker);
+    return `${hash.digest("hex")}\n`;
+}
+
+async function productArchivePayloadHash() {
     const hash = createHash("sha256");
     const entries = [];
     for await (const entry of new Bun.Glob("**/*").scan({cwd: PRODUCT_ROOT, dot: true, onlyFiles: true})) {
+        if (entry.replaceAll("\\", "/") === ".tauri-build-id") {
+            continue;
+        }
         entries.push(entry);
     }
     entries.sort();

@@ -147,6 +147,8 @@ fn boot_product_server(
     let log_root = product_root.join("logs");
     fs::create_dir_all(&log_root)?;
     append_startup_log(&format!("log_root={}", log_root.display()));
+    run_database_migration(&bun, &product_root, &envs, &log_root)?;
+    append_startup_log("database migration applied");
     run_prepare_system_assets(&bun, &product_root, &envs, &log_root)?;
     append_startup_log("system assets prepared");
 
@@ -257,18 +259,66 @@ fn product_markers_match(source_marker: &str, target_marker: &str) -> bool {
 }
 
 fn product_runtime_ready(target: &Path) -> bool {
-    target
-        .join(".output")
-        .join("server")
-        .join("index.mjs")
-        .exists()
-        && target
-            .join(".output")
-            .join("server")
+    let server_root = target.join(".output").join("server");
+    server_root.join("index.mjs").exists()
+        && server_root
             .join("chunks")
             .join("_")
             .join("nitro.mjs")
             .exists()
+        && direct_bun_runtime_imports_ready(&server_root)
+}
+
+fn direct_bun_runtime_imports_ready(server_root: &Path) -> bool {
+    let mut pending = vec![server_root.to_path_buf()];
+    while let Some(path) = pending.pop() {
+        let Ok(entries) = fs::read_dir(path) else {
+            return false;
+        };
+        for entry in entries.flatten() {
+            let entry_path = entry.path();
+            if entry_path.is_dir() {
+                if entry_path.file_name().and_then(|value| value.to_str()) == Some("node_modules") {
+                    continue;
+                }
+                pending.push(entry_path);
+                continue;
+            }
+            if entry_path.extension().and_then(|value| value.to_str()) != Some("mjs") {
+                continue;
+            }
+            let Ok(text) = fs::read_to_string(&entry_path) else {
+                return false;
+            };
+            if !direct_bun_imports_ready_for_text(server_root, &text) {
+                return false;
+            }
+        }
+    }
+    true
+}
+
+fn direct_bun_imports_ready_for_text(server_root: &Path, text: &str) -> bool {
+    const MARKER: &str = "node_modules/.bun/";
+    for line in text.lines() {
+        let trimmed = line.trim_start();
+        if !trimmed.starts_with("import ") && !trimmed.starts_with("export ") {
+            continue;
+        }
+        let mut remaining = trimmed;
+        while let Some(index) = remaining.find(MARKER) {
+            let import_path = &remaining[index..];
+            let end = import_path
+                .find(|ch: char| matches!(ch, '\'' | '"' | '`') || ch.is_whitespace())
+                .unwrap_or(import_path.len());
+            let runtime_path = import_path[..end].replace('/', std::path::MAIN_SEPARATOR_STR);
+            if !server_root.join(runtime_path).exists() {
+                return false;
+            }
+            remaining = &import_path[end..];
+        }
+    }
+    true
 }
 
 fn restore_user_runtime_paths(target: &Path, preserved_root: &Path) -> Result<(), Box<dyn Error>> {
@@ -399,6 +449,36 @@ fn run_prepare_system_assets(
         .status()?;
     if !status.success() {
         return Err(format!("prepare-system-assets failed with status: {status}").into());
+    }
+    Ok(())
+}
+
+fn run_database_migration(
+    bun: &Path,
+    product_root: &Path,
+    envs: &[(String, String)],
+    log_root: &Path,
+) -> Result<(), Box<dyn Error>> {
+    let script = product_root
+        .join(".output")
+        .join("server")
+        .join("scripts")
+        .join("db")
+        .join("prisma-migrate.mjs");
+    let migrate_stdout = File::create(log_root.join("tauri-migrate.stdout.log"))?;
+    let migrate_stderr = File::create(log_root.join("tauri-migrate.stderr.log"))?;
+    let mut command = hidden_command(bun);
+    let status = command
+        .arg(script)
+        .arg("--deploy")
+        .current_dir(product_root)
+        .envs(envs.iter().cloned())
+        .stdin(Stdio::null())
+        .stdout(Stdio::from(migrate_stdout))
+        .stderr(Stdio::from(migrate_stderr))
+        .status()?;
+    if !status.success() {
+        return Err(format!("database migration failed with status: {status}").into());
     }
     Ok(())
 }

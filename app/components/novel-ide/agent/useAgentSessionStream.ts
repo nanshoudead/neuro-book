@@ -1,4 +1,4 @@
-import type {AgentSessionEventDto, AgentSessionEventsQueryDto, AgentSessionRecoveryDto} from "nbook/shared/dto/agent-session.dto";
+import type {AgentRuntimeStreamEventDto, AgentSessionEventDto, AgentSessionEventsQueryDto, AgentSessionRecoveryDto} from "nbook/shared/dto/agent-session.dto";
 import type {AgentRecoveryApplyResult} from "nbook/app/components/novel-ide/agent/useAgentSession";
 import type {Ref} from "vue";
 import {ref} from "vue";
@@ -42,6 +42,11 @@ type AgentSessionStreamOptions = {
     activeSessionId: Ref<number | null>;
     applyRecoverySideEffects?: (recovery: AgentSessionRecoveryDto, result: AgentRecoveryApplyResult) => void | Promise<void>;
     onEvent?: (event: AgentSessionEventDto) => void | Promise<void>;
+    onAgentCompleted?: (event: {
+        sessionId: number;
+        invocationId?: string;
+        event: Extract<AgentRuntimeStreamEventDto, {type: "agent_end"}>;
+    }) => void | Promise<void>;
     onError?: (error: unknown, fallback: string) => void;
 };
 
@@ -56,6 +61,12 @@ const reconnectDelay = (attempt: number): number => {
 const DISCONNECTED_AFTER_ATTEMPTS = 3;
 
 const isAbortError = (error: unknown): boolean => error instanceof DOMException && error.name === "AbortError";
+
+function isCompletedAgentEndEvent(event: AgentSessionEventDto): event is Extract<AgentSessionEventDto, {kind: "runtime"}> & {
+    event: Extract<AgentRuntimeStreamEventDto, {type: "agent_end"}>;
+} {
+    return event.kind === "runtime" && event.event.type === "agent_end" && event.event.status === "completed";
+}
 
 /**
  * SSE stream helper 会被普通 Vitest 直接实例化；这里不能依赖 setup-only 的 useI18n。
@@ -155,8 +166,11 @@ export function useAgentSessionStream(options: AgentSessionStreamOptions) {
         if (targetSessionId !== options.activeSessionId.value) {
             return;
         }
+        const previousSeq = options.session.lastSeq.value;
         await options.onEvent?.(event);
         options.session.applyEvent(event);
+        const eventApplied = event.seq > previousSeq && options.session.lastSeq.value >= event.seq;
+        let recoveryReady = true;
         if (options.session.needsRecovery.value) {
             const reasons = options.session.recoveryReasons.value;
             let reason: AgentSessionStreamRecoveryReason = "seq_gap";
@@ -171,7 +185,14 @@ export function useAgentSessionStream(options: AgentSessionStreamOptions) {
             } else if (reasons.includes("linked_agent_changed")) {
                 reason = "linked_agent_changed";
             }
-            await syncRecovery(reason);
+            recoveryReady = await syncRecovery(reason);
+        }
+        if (eventApplied && recoveryReady && isCompletedAgentEndEvent(event)) {
+            await options.onAgentCompleted?.({
+                sessionId: targetSessionId,
+                invocationId: event.invocationId,
+                event: event.event,
+            });
         }
     };
 

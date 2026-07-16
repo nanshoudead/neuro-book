@@ -1017,6 +1017,7 @@ const zhCN = {
                 size: "Size",
                 chapters: "Chapters",
                 files: "Files",
+                chaptersFiles: "Chapters/Files",
                 chooseIcon: "选择图标",
                 noIcon: "未配置图标",
                 frontmatterPlaceholder: "title: 新节点",
