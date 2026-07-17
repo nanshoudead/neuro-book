@@ -77,6 +77,12 @@ export const MONACO_LANGUAGE_RULES: MonacoLanguageRule[] = [
     {extensions: [".txt", ""], language: "plaintext"},
 ];
 
+/** Markdown 超过该字符数时默认用源码模式打开，避免 TipTap 同步初始化长时间阻塞 UI 线程。 */
+export const LARGE_MARKDOWN_SOURCE_MODE_CHAR_THRESHOLD = 180_000;
+
+/** Markdown 超过该行数时默认用源码模式打开；长章节通常比等量短文本更容易触发 ProseMirror 建模成本。 */
+export const LARGE_MARKDOWN_SOURCE_MODE_LINE_THRESHOLD = 2_500;
+
 /**
  * 返回工作区路径的小写扩展名；无扩展名返回空字符串。
  */
@@ -108,10 +114,35 @@ export function resolveMonacoLanguage(filePath: string): string {
 }
 
 /**
- * Markdown 默认视图模式：Markdown 进入富文本模式，其它可编辑文本进入源码。
+ * 判断 Markdown 正文是否应直接进入源码模式。
  */
-export function resolveDefaultWorkspaceViewMode(filePath: string): WorkspaceEditorViewMode {
-    return resolveWorkspaceFileExtension(filePath) === ".md" ? "rich" : "source";
+export function shouldOpenMarkdownAsSource(filePath: string, content: string): boolean {
+    if (resolveWorkspaceFileExtension(filePath) !== ".md") {
+        return false;
+    }
+    if (content.length >= LARGE_MARKDOWN_SOURCE_MODE_CHAR_THRESHOLD) {
+        return true;
+    }
+    let lineCount = 1;
+    for (let index = 0; index < content.length; index += 1) {
+        if (content.charCodeAt(index) === 10) {
+            lineCount += 1;
+            if (lineCount >= LARGE_MARKDOWN_SOURCE_MODE_LINE_THRESHOLD) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+/**
+ * Markdown 默认视图模式：普通 Markdown 进入富文本模式，大 Markdown / 其它可编辑文本进入源码。
+ */
+export function resolveDefaultWorkspaceViewMode(filePath: string, content = ""): WorkspaceEditorViewMode {
+    if (resolveWorkspaceFileExtension(filePath) !== ".md") {
+        return "source";
+    }
+    return shouldOpenMarkdownAsSource(filePath, content) ? "source" : "rich";
 }
 
 /**

@@ -43,9 +43,9 @@ const props = withDefaults(defineProps<{
 
 const sourceEditorRef = ref<MarkdownStudioEditorHandle | null>(null);
 const previewEditorRef = ref<MarkdownStudioEditorHandle | null>(null);
-// 编辑器初值只取挂载时快照；后续外部内容更新一律走 sync 层显式 update()。
-// 若这里保持响应式绑定，每次输入都会触发隐藏编辑器 watch(initialValue) 的全文对比。
-const initialMarkdown = props.controller.markdown.value;
+// 只挂载当前可见编辑器；新挂载的另一视图必须拿 controller 里的最新 Markdown。
+// 隐藏编辑器不再常驻，因此响应式初值不会触发隐藏侧全文同步。
+const currentMarkdown = computed(() => props.controller.markdown.value);
 const {t} = useI18n();
 const { onPreviewChange, onSourceChange } = useMarkdownStudioSync({
     controller: props.controller,
@@ -81,13 +81,13 @@ function handleSourceBlur(): void {
     <!-- Markdown 工作区正文 -->
     <section class="ide-editor-shell flex min-h-0 flex-1 flex-col">
         <div
-            v-show="controller.isPreviewVisible.value"
+            v-if="controller.isPreviewVisible.value"
             class="min-h-0 flex-1 overflow-hidden bg-[var(--editor-bg)]"
         >
             <ClientOnly>
                 <TipTapMarkdownEditor
                     ref="previewEditorRef"
-                    :initial-value="initialMarkdown"
+                    :initial-value="currentMarkdown"
                     :editor-preferences="props.editorPreferences"
                     :visible="controller.isPreviewVisible.value"
                     :readonly="readonly || controller.editorsLocked.value"
@@ -118,12 +118,12 @@ function handleSourceBlur(): void {
         </div>
 
         <div
-            v-show="controller.isSourceVisible.value"
+            v-if="controller.isSourceVisible.value"
             class="min-h-0 flex-1 overflow-hidden bg-[var(--source-bg)]"
         >
             <MarkdownSourceEditor
                 ref="sourceEditorRef"
-                :initial-value="initialMarkdown"
+                :initial-value="currentMarkdown"
                 :readonly="readonly || controller.editorsLocked.value"
                 :theme="props.theme"
                 :visible="controller.isSourceVisible.value"

@@ -1,4 +1,4 @@
-export const NOVEL_IDE_TABS = ["files", "characters", "plot"] as const;
+export const NOVEL_IDE_TABS = ["files", "characters", "plot", "workflow"] as const;
 
 export type NovelIdeTab = typeof NOVEL_IDE_TABS[number];
 

@@ -2,10 +2,13 @@ import {describe, expect, it} from "vitest";
 import {
     canEditContentFrontmatter,
     composeMarkdownFrontmatter,
+    LARGE_MARKDOWN_SOURCE_MODE_CHAR_THRESHOLD,
+    LARGE_MARKDOWN_SOURCE_MODE_LINE_THRESHOLD,
     resolveDefaultWorkspaceViewMode,
     resolveMonacoLanguage,
     resolveWorkspaceEditorKind,
     resolveWorkspaceFileExtension,
+    shouldOpenMarkdownAsSource,
     splitMarkdownFrontmatter,
 } from "nbook/shared/editor-workbench";
 
@@ -16,6 +19,16 @@ describe("editor-workbench", () => {
         expect(resolveWorkspaceEditorKind("assets/cover.png", false)).toBe("readonly");
         expect(resolveDefaultWorkspaceViewMode("manuscript/chapter.md")).toBe("rich");
         expect(resolveDefaultWorkspaceViewMode("notes/data.json")).toBe("source");
+    });
+
+    it("大型 Markdown 默认进入源码模式", () => {
+        const largeByChars = "x".repeat(LARGE_MARKDOWN_SOURCE_MODE_CHAR_THRESHOLD);
+        const largeByLines = Array.from({length: LARGE_MARKDOWN_SOURCE_MODE_LINE_THRESHOLD}, () => "line").join("\n");
+        expect(shouldOpenMarkdownAsSource("manuscript/large.md", largeByChars)).toBe(true);
+        expect(shouldOpenMarkdownAsSource("manuscript/large.md", largeByLines)).toBe(true);
+        expect(resolveDefaultWorkspaceViewMode("manuscript/large.md", largeByChars)).toBe("source");
+        expect(resolveDefaultWorkspaceViewMode("notes/large.txt", largeByChars)).toBe("source");
+        expect(shouldOpenMarkdownAsSource("manuscript/small.md", "短正文")).toBe(false);
     });
 
     it("映射 Monaco language，未知扩展回退 plaintext", () => {

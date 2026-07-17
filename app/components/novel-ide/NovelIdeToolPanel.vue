@@ -44,6 +44,7 @@ const titleMap = computed<Record<NovelIdeTab, string>>(() => ({
     files: t("ide.toolPanel.files"),
     characters: t("ide.toolPanel.characters"),
     plot: t("ide.toolPanel.plot"),
+    workflow: t("ide.toolPanel.workflow"),
 }));
 const displayTitle = computed(() => props.userAssetsMode ? t("ide.toolPanel.userAssets") : titleMap.value[props.activeTab ?? "files"]);
 
@@ -394,6 +395,10 @@ function handleSyncDiffAction(payload: DiffWorkbenchActionPayload): void {
                 <WorkspaceCharacterPanel v-else-if="activeTab === 'characters' && !props.userAssetsMode" />
 
                 <NovelPlotPanel v-else-if="activeTab === 'plot' && !props.userAssetsMode" @open-world-engine="emit('openWorldEngine')" />
+
+                <div v-else-if="activeTab === 'workflow' && !props.userAssetsMode" class="flex h-full items-center justify-center px-4 text-center text-xs leading-5 text-[var(--text-muted)]">
+                    {{ t("ide.workflow.runner.movedToBottom") }}
+                </div>
             </div>
         </aside>
 

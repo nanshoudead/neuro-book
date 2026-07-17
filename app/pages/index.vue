@@ -10,6 +10,7 @@ import NovelIdeHeader from "nbook/app/components/novel-ide/NovelIdeHeader.vue";
 import NovelIdeSidebar from "nbook/app/components/novel-ide/NovelIdeSidebar.vue";
 import NovelIdeSettingsDialog from "nbook/app/components/novel-ide/NovelIdeSettingsDialog.vue";
 import NovelIdeToolPanel from "nbook/app/components/novel-ide/NovelIdeToolPanel.vue";
+import WorkflowPanel from "nbook/app/components/novel-ide/workflow/WorkflowPanel.vue";
 import WorldEngineWorkbenchDialog from "nbook/app/components/novel-ide/world-engine/WorldEngineWorkbenchDialog.vue";
 import NovelPromptBar from "nbook/app/components/novel-ide/NovelPromptBar.vue";
 import type {AgentSessionModelDraft} from "nbook/app/components/novel-ide/agent/agent-session-model-controls";
@@ -74,6 +75,8 @@ const workspaceEventAbortController = ref<AbortController | null>(null);
 const agentResizeHandleRef = ref<HTMLElement | null>(null);
 const agentStudioResizeHandleRef = ref<HTMLElement | null>(null);
 const agentStudioFileTreeResizeHandleRef = ref<HTMLElement | null>(null);
+const workflowResizeHandleRef = ref<HTMLElement | null>(null);
+const workflowPanelHeight = ref(240);
 const layoutTransitionDirection = ref<LayoutModeTransitionDirection | null>(null);
 const markdownSkillCatalog = ref<AgentSkillCatalogItemDto[]>([]);
 const markdownSkillCatalogLoaded = ref(false);
@@ -133,6 +136,10 @@ const {
     plotWorkbenchOpen,
     rightPanelWidth,
 } = storeToRefs(novelIdeStore);
+const workflowPanelOpen = ref(activeLeftTab.value === "workflow");
+if (activeLeftTab.value === "workflow") {
+    activeLeftTab.value = null;
+}
 const {
     applyAgentWorkspaceSync,
     initializeWorkspace,
@@ -161,6 +168,7 @@ const projectSessionTarget = computed<string | null>(() => workspaceKind.value =
 useProjectSession(projectSessionTarget);
 const authSessionState = useAuthSessionState();
 const agentSurfaceRef = ref<InstanceType<typeof AgentChatSurface> | null>(null);
+const workflowAgentSnapshot = computed(() => agentSurfaceRef.value?.workflowAgentSnapshot ?? null);
 
 const studio = useMarkdownStudioController({
     markdown: selectedFileContent,
@@ -288,11 +296,36 @@ const displayActiveLeftTab = computed<NovelIdeTab | null>(() => {
     if (activeLeftTab.value === null) {
         return null;
     }
+    if (activeLeftTab.value === "workflow") {
+        return null;
+    }
     return isNovelIdeTab(activeLeftTab.value) ? activeLeftTab.value : "files";
 });
+const workflowPanelAvailable = computed(() => workspaceBootstrapped.value && !isAgentMode.value && !isUserAssetsWorkspace.value);
+const displayWorkflowPanelOpen = computed(() => workflowPanelAvailable.value && workflowPanelOpen.value);
 const ideToolPanelOpen = computed(() => !isAgentMode.value && displayActiveLeftTab.value !== null);
 const ideToolPanelStyle = computed(() => ideToolPanelOpen.value ? {width: `${leftPanelWidth.value}px`} : {width: "0px"});
 const displaySidebarActiveTab = computed<NovelIdeTab | "sessions" | null>(() => isAgentMode.value ? "sessions" : displayActiveLeftTab.value);
+const workflowPanelMaxHeight = computed(() => {
+    if (!import.meta.client) {
+        return 560;
+    }
+    return Math.max(260, Math.min(620, window.innerHeight - 220));
+});
+const {isResizing: resizingWorkflowPanel, panelStyle: workflowPanelStyle} = useResizablePanel(workflowResizeHandleRef, {
+    size: computed(() => workflowPanelHeight.value),
+    minSize: 180,
+    maxSize: workflowPanelMaxHeight,
+    edge: "top",
+    enabled: displayWorkflowPanelOpen,
+    syncDuringResize: true,
+    onResize: (height) => {
+        workflowPanelHeight.value = height;
+    },
+    onResizeEnd: (height) => {
+        workflowPanelHeight.value = height;
+    },
+});
 const displayNovelTitle = computed(() => isUserAssetsWorkspace.value ? t("ide.header.userAssets") : currentNovel.value?.title ?? "");
 const displayNovelItems = computed(() => isUserAssetsWorkspace.value ? [] : novelItems.value);
 const displayNovelIdForAgent = computed(() => isUserAssetsWorkspace.value ? "" : currentNovelId.value);
@@ -1457,8 +1490,6 @@ const renameAgentModeSession = async (session: AgentSessionSummaryDto): Promise<
 const closeAgentSurface = (): void => {
     if (layoutMode.value === "agent") {
         layoutMode.value = "ide";
-        rightPanelOpen.value = true;
-        return;
     }
     rightPanelOpen.value = false;
 };
@@ -1478,7 +1509,7 @@ const openAgentFromHeader = (): void => {
         toggleAgentModeStudio();
         return;
     }
-    rightPanelOpen.value = true;
+    rightPanelOpen.value = !rightPanelOpen.value;
 };
 
 /**
@@ -1487,6 +1518,13 @@ const openAgentFromHeader = (): void => {
 const handleSidebarToggle = (tab: NovelIdeTab | "sessions"): void => {
     if (tab === "sessions") {
         agentSessionPanelOpen.value = !agentSessionPanelOpen.value;
+        return;
+    }
+    if (tab === "workflow") {
+        workflowPanelOpen.value = !workflowPanelOpen.value;
+        if (activeLeftTab.value === "workflow") {
+            activeLeftTab.value = null;
+        }
         return;
     }
     if (isAgentMode.value) {
@@ -1672,9 +1710,26 @@ const openPlotWorkbench = async (): Promise<void> => {
 /**
  * 打开全局用户 assets 工作区。
  */
-const openUserAssets = (): void => {
-    const resolved = router.resolve(buildProjectRoute(USER_ASSETS_PROJECT_TARGET));
-    window.open(resolved.href, "_blank", "noopener,noreferrer");
+/**
+ * 从 Workflow 面板把步骤执行提示词发送到右侧 Agent。
+ */
+const runWorkflowAgentPrompt = async (prompt: string): Promise<void> => {
+    if (!isAgentMode.value) {
+        rightPanelOpen.value = true;
+    }
+    await nextTick();
+    try {
+        await agentSurfaceRef.value?.sendExternalPrompt?.({
+            content: prompt,
+            title: "Workflow Step",
+        });
+    } catch (error) {
+        notification.error(resolveApiErrorMessage(error, t("ide.workflow.agentPromptFailed")));
+    }
+};
+
+const openUserAssets = async (): Promise<void> => {
+    await router.push(buildProjectRoute(USER_ASSETS_PROJECT_TARGET));
 };
 
 /**
@@ -1785,6 +1840,7 @@ const syncWorkspaceRoute = async (): Promise<void> => {
         return;
     }
     await initializeWorkspaceFromRoute();
+    void syncDefaultModelLabel();
     await consumeWorkspaceOpenPathFromRoute();
     if (!isUserAssetsWorkspace.value) {
         await normalizeNovelRouteQuery();
@@ -1938,7 +1994,7 @@ function toggleWelcomeAgentSurface(): void {
         toggleAgentModeStudio();
         return;
     }
-    rightPanelOpen.value = true;
+    rightPanelOpen.value = !rightPanelOpen.value;
 }
 
 /**
@@ -2120,7 +2176,7 @@ onMounted(() => {
             window.addEventListener("beforeunload", flushWorkspaceSession);
             void syncAuthSession();
             await initializeWorkspaceFromRoute();
-            await syncDefaultModelLabel();
+            void syncDefaultModelLabel();
             await consumeWorkspaceOpenPathFromRoute();
             if (!isUserAssetsWorkspace.value) {
                 await normalizeNovelRouteQuery();
@@ -2296,6 +2352,33 @@ onBeforeUnmount(() => {
                         </div>
                     </div>
                 </div>
+
+                <!-- 编辑器底部面板入口，避免 Workflow 占用左侧侧栏。 -->
+                <div v-if="workflowPanelAvailable" class="flex h-9 shrink-0 items-center gap-1 border-t border-[var(--border-color)] bg-[var(--bg-panel)] px-2">
+                    <button
+                        type="button"
+                        class="inline-flex h-7 items-center gap-1.5 rounded-2 px-2 text-xs transition-colors"
+                        :class="workflowPanelOpen ? 'bg-[var(--accent-bg)] text-[var(--accent-text)]' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]'"
+                        title="Workflow"
+                        @click="workflowPanelOpen = !workflowPanelOpen"
+                    >
+                        <span class="i-lucide-workflow h-3.5 w-3.5"></span>
+                        <span>Workflow</span>
+                    </button>
+                </div>
+
+                <!-- Workflow 底部运行器，位置对齐 VS Code 底部面板。 -->
+                <section
+                    v-if="displayWorkflowPanelOpen"
+                    class="contain-layout-paint relative shrink-0 border-t border-[var(--border-color)] bg-[var(--bg-panel)]"
+                    :class="resizingWorkflowPanel ? 'select-none' : ''"
+                    :style="workflowPanelStyle"
+                >
+                    <div ref="workflowResizeHandleRef" class="group absolute -top-1 left-0 z-20 h-2 w-full cursor-row-resize">
+                        <div class="mt-1 h-[2px] bg-[var(--accent-main)] opacity-0 transition-opacity group-hover:opacity-100" :class="resizingWorkflowPanel ? 'opacity-100 shadow-[0_0_0_1px_color-mix(in_srgb,var(--accent-main)_28%,transparent)]' : ''"></div>
+                    </div>
+                    <WorkflowPanel class="h-full" :class="resizingWorkflowPanel ? 'pointer-events-none' : ''" :agent-snapshot="workflowAgentSnapshot" @open-agent="rightPanelOpen = true" @run-agent="void runWorkflowAgentPrompt($event)" />
+                </section>
 
                 <NovelPromptBar
                     v-if="!isAgentMode && inlinePromptAvailable"

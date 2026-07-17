@@ -22,7 +22,8 @@ neuro-book 当前处于快速开发阶段。本轮产品主路径收敛到 **nov
 
 - 普通写作入口以 Novel IDE / Markdown Studio 为主，顶栏保留 Bookshelf / World / Plot / User Assets / Agent。
 - 顶栏重新暴露 Plot Workbench，且小屏下保持在视口内；RAG Inspector 仍不暴露，欢迎页仍不暴露 Plot / RAG / simulation 快捷入口。
-- 左侧侧栏保留 Files / Characters / Plot；Agent 模式侧栏保留 Sessions，并提供 Plot 快捷入口用于切回 IDE Plot 面板；Outline 和 RAG 面板入口隐藏，`NovelPlotPanel` / `NovelRagPanel` 底层组件保留。
+- 左侧侧栏保留 Files / Characters / Plot；Workflow 不再占用左侧 Activity Bar，入口改为编辑器底部自己的 VS Code 式底部面板 tab，主体已收口为章节写作运行器：目标章节以标题为主、路径为辅并默认跟随编辑器当前章节，本轮写作任务随面板高度伸展，执行选项和发送操作集中在任务区底部；工具栏展示当前 Agent session、Profile、模型与真实运行状态，并提供紧凑运行历史。布局按编辑器容器宽度响应，不依赖整窗断点。旧 `Chapter Draft` 四步 checklist、正文 Diff、工具调用及对应前端隐藏代码已移除。仍不新增后台无人值守调度器、不绕过 Agent 工具权限直接写入 Manuscript / Plot / World Engine；Agent 模式侧栏保留 Sessions，并提供 Plot 快捷入口用于切回 IDE 对应面板；Outline 和 RAG 面板入口隐藏，`NovelPlotPanel` / `NovelRagPanel` 底层组件保留。
+- Workflow run 继续复用当前右侧 Agent session，保存目标正文、用户目标和运行状态；前端不再生成/展示正文 Diff 提案或工具调用审阅区，Agent 完成后只回写完成时间。
 - Agent 新建菜单隐藏 `rp.leader` 和 `simulator.leader`；历史 session 的 profile 名称、图标和旧 profile 文件保留。
 - Agent 关联生命周期已收口：link/detach 继续作为 append-only 历史账本保存，关系索引维护 archived 集合并为 Runtime、Profile、工具、snapshot、relations API 和关联面板提供同一当前关系语义。单进程关系变更队列串行 create/link、detach、archive，禁止归档后并发写入新 link；归档统一解除全部入站/出站关系，手动与 Project Workspace 批量归档语义一致。跨 JSONL 文件写入按 detach→archive 顺序可重试，不宣称原子事务。
 - 默认写作 workflow 中，`08` 是 World Engine 剧情事实确认与状态推进手册，`09` 只在状态已推进后调用 writer 写正文；修订产生新事实时回到 `08` 做 World Engine 回补。
@@ -59,6 +60,7 @@ neuro-book 当前处于快速开发阶段。本轮产品主路径收敛到 **nov
 
 | Task | Status | Notes |
 | --- | --- | --- |
+| [109 Workflow Checklist](docs/tasks/109-workflow-checklist/README.md) | Implemented / Typechecked | 新增 Project Workspace 级 Workflow 功能：定义保存在 `.nbook/workflows/*.yaml`，运行记录保存在 `.nbook/workflow-runs/<workflowId>/*.json`；章节写作运行器主体已迁移到编辑器下方底部面板，并从左侧 Activity Bar 移除，可拖拽调整高度，表单改为适配宽而矮底栏的横向布局；可选择 `manuscript/*.md` 目标正文、填写本轮目标，并一键生成完整写作链提示词，要求 Agent 读取正文、Plot、World Engine、Lorebook 与前后章节后直接推进文件。Workflow Agent 入口复用当前右侧 Agent session，不再强制切换/创建 writer session；旧 `Chapter Draft` 四步 checklist、正文 Diff 和工具调用列表已从用户界面移除；普通 IDE 模式顶部 Agent 按钮恢复为可关闭的 toggle。第一版仍不新增后台无人值守调度器，不绕过 Agent 工具权限直接写 Manuscript / Plot / World Engine。验证：`bun test server/workflow/workflow-service.test.ts` 与 `bunx vue-tsc --noEmit --pretty false` 通过。 |
 | [86 Tauri Chat Skill Fixes](docs/tasks/86-tauri-chat-skill-fixes/README.md) | Merged with current mainline | Tauri v2 desktop shell、内置 Bun/Nitro runtime、remembered-login、Tauri notification 和关联 Agent 浮层重绘修复已合入当前分支；旧分支的“最近 100 条渲染”目标在合并时改由 Task 106 的 recovery/history 分页架构承接，避免回退到旧 snapshot limit 方案。 |
 | [108 Agent 图片附件引用与持久化](docs/tasks/108-agent-image-attachment-references/README.md) | Planning | 独立治理图片 base64 仍内联于 append-only JSONL 与 Provider context 的问题。真实 session 94 单个 `read` PNG tool result 约 9.56 MB；Task 107 已保证图片 data 不跨公开 SSE/Chat Flow 边界，但 durable truth 仍膨胀。任务建议采用 Workspace Root 级 content-addressed attachment ref，在 turn commit 前原子落盘、Provider 请求前按需 hydration；Task 106 本轮只做 snapshot/history 分页，不实现图片引用。实施前需拍板附件存储根、Project 删除/导出/backup 语义和旧 session 迁移。 |
 | [107 Agent Runtime Event OOM 与 SSE 内存边界](docs/tasks/107-agent-event-memory-boundaries/README.md) | Implemented / Verified | live/replay/SSE 主链已完成有界治理，最终边界继续覆盖 session shell 与 queue：pending args 使用 PublicToolArgsDto，recovery queue 最早 64 项/64 KiB，live state 仅 count/status，队列图片只公开 metadata；planContent 是用户明确选择的唯一 recovery 全文例外，不进入 SSE/replay；合法 toolCall ID 保持原值并限制 512 UTF-8 bytes，非法 ID 执行前拒绝；非法 Agent form fail closed。前端 live overlay 只保存 live turn，不复制 durable history；EventHub close 成为 terminal。Harness、black-box、queue、projection、stable ID 聚焦回归与 typecheck 已通过。Task 108 继续负责 durable JSONL 图片附件化，nb-history 大文件快照峰值仍为独立后续。 |
@@ -104,6 +106,10 @@ neuro-book 当前处于快速开发阶段。本轮产品主路径收敛到 **nov
 | [51 llmlint Text Lint Skill](docs/tasks/51-anti-ai-slop-skill/README.md) | Updated | `llmlint` 已升级为 flat Rule Registry 和稿件级 CLI：默认 `builtin/default`，340 rules / 311 active，支持 namespace/rule override、`review`（agent/human/none）、`fixability`（auto/candidate/manual）、`check` 多文件/glob/Markdown 遮罩/JSON/stylish 紧凑输出，以及 `fix` 的机械 auto 修复。当前真相源已随 Task 84 切到 sibling `../llmlint/skill`；NeuroBook `assets/.../llmlint` 只是 vendored runtime snapshot，不再包含嵌套仓、node_modules 或 evals。 |
 | [58 Agent Profile Settings Low-Code](docs/tasks/58-agent-profile-settings-low-code/README.md) | Updated | `leader.default` 接入低代码 settings 与 profile home persona 资源，支持协作模式、熟练度、提问策略、Leader 人设和最高优先级置顶提示词；`writer` 同步接入最高优先级置顶提示词并清理 `enableKittenAdultStyle` 隐藏字段；低代码合并层忽略已下线字段的存档残留。 |
 | Writer Profile 重构 | Done | 去除小猫之神角色定义，理清 profile / reference / skill 职责边界，从 650 行压缩到 535 行。 |
+
+## Current Performance Notes
+
+- 2026-07-17：Markdown Studio 打开大型 Markdown 已加首层止血：超过 180,000 字符或 2,500 行默认源码模式，rich/source 只挂载当前视图，避免打开文件时 TipTap 与 Monaco 同时初始化全文；首页默认模型标签 bootstrap 改为后台补齐，Agent 面板模型列表与默认 profile 共用一次轻量 config bootstrap。验证：`bun test shared/editor-workbench.test.ts` 与 `bun --silent x vue-tsc --noEmit --pretty false` 通过；浏览器/HAR 验收未自动执行。
 
 ## Known Follow-ups
 

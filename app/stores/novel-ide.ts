@@ -615,7 +615,7 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
     /**
      * 打开或更新一个工作区标签页。
      */
-    const upsertWorkspaceTab = (node: WorkspaceFileNode, openMode: WorkspaceOpenMode): void => {
+    const upsertWorkspaceTab = (node: WorkspaceFileNode, openMode: WorkspaceOpenMode, content = ""): void => {
         const path = node.path;
         const existingTab = workspaceTabs.value.find((tab) => tab.path === path);
         const activeDirty = activeWorkspaceFile.value?.node.path === path
@@ -624,11 +624,15 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
         const preview = openMode === "preview"
             ? existingTab?.preview ?? true
             : false;
+        const defaultViewMode = resolveDefaultWorkspaceViewMode(path, content);
+        const viewMode = defaultViewMode === "source"
+            ? "source"
+            : normalizeWorkspaceViewMode(existingTab?.viewMode ?? defaultViewMode);
         const nextTab: WorkspaceEditorTab = {
             path,
             title: node.title?.trim() || path,
             editorKind: inferWorkspaceEditorKind(node),
-            viewMode: normalizeWorkspaceViewMode(existingTab?.viewMode ?? resolveDefaultWorkspaceViewMode(path)),
+            viewMode,
             pinned: existingTab?.pinned ?? false,
             preview: existingTab?.pinned ? false : preview,
             dirty: activeDirty,
@@ -896,7 +900,7 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
             lastSyncedContent,
             lastSyncedMtimeMs: existingBuffer?.lastSyncedMtimeMs ?? file.mtimeMs,
         };
-        upsertWorkspaceTab(detail, openMode);
+        upsertWorkspaceTab(detail, openMode, content);
         return detail;
     };
 

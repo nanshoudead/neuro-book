@@ -392,6 +392,7 @@ export const useMarkdownStudioController = (options: UseMarkdownStudioController
             return;
         }
 
+        flushActiveEditor();
         if (mode === "rich" && activeEditor.value === "source") {
             activeEditor.value = null;
         }

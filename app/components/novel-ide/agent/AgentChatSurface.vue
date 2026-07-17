@@ -29,7 +29,7 @@ import {useConfigApi} from "nbook/app/composables/useConfigApi";
 import {useThemeManager} from "nbook/app/composables/useThemeManager";
 import {resolveApiErrorMessage} from "nbook/app/utils/api-error";
 import {formatCost, formatCostExact, usingCnyRate} from "nbook/app/utils/cost-format";
-import type {ConfigModelSettingsDto} from "nbook/shared/dto/config.dto";
+import type {ConfigBootstrapDto, ConfigModelSettingsDto} from "nbook/shared/dto/config.dto";
 import type {AgentQueuedMessageDto, AgentSessionListPageDto, AgentSessionListQueryDto, AgentSessionRecoveryDto, AgentSessionSummaryDto, AgentPendingUserInputDto, AgentMode} from "nbook/shared/dto/agent-session.dto";
 import {AgentModeSchema} from "nbook/shared/dto/agent-session.dto";
 import type {AgentCommandResult, InvokeAgentResult} from "nbook/shared/dto/agent-session.dto";
@@ -43,6 +43,14 @@ type LeaderCreateProfileOption = {
     profileKey: string;
     label: string;
     iconClass: string;
+};
+
+export type WorkflowAgentSnapshot = {
+    sessionId: number | null;
+    sessionTitle: string;
+    profileLabel: string;
+    modelLabel: string | null;
+    running: boolean;
 };
 
 const INLINE_EDITOR_PROFILE_KEY = "inline.editor";
@@ -113,6 +121,8 @@ let suppressLeaderProfileReset = false;
 let inlineEditorSessionRequestId = 0;
 let chatLayoutFlushVersion = 0;
 let deferredChatLayoutFlushTimer: ReturnType<typeof setTimeout> | null = null;
+let agentBootstrapCache: {key: string; value: ConfigBootstrapDto} | null = null;
+let agentBootstrapRequest: {key: string; promise: Promise<ConfigBootstrapDto>} | null = null;
 const sessionListRequestGuard = new AgentSessionListRequestGuard();
 const hiddenWritingModeProfileKeys = new Set(["rp.leader", "simulator.leader"]);
 
@@ -239,6 +249,16 @@ const inlineEditorLiveView = computed(() => {
         resultText: inlineEditorResultText.value,
     };
 });
+const workflowAgentSnapshot = computed<WorkflowAgentSnapshot>(() => ({
+    sessionId: activeSessionId.value,
+    sessionTitle: activeSummary.value?.title || (activeSessionId.value ? `Session #${String(activeSessionId.value)}` : t("agent.session.unnamed")),
+    profileLabel: profileDisplayName(activeSummary.value?.profileKey ?? leaderProfileKey.value),
+    modelLabel: (() => {
+        const modelKey = modelDraftFromRecovery(activeRecovery.value).modelKey;
+        return selectableModels.value.find((model) => model.key === modelKey)?.label ?? modelKey;
+    })(),
+    running: running.value,
+}));
 const inlineEditorSessionLabel = computed(() => {
     const selected = inlineEditorSessions.value.find((item) => item.sessionId === inlineEditorSessionId.value)
         ?? inlineEditorSession.recoveryShell.value?.summary
@@ -664,11 +684,47 @@ const buildClientState = () => {
 };
 
 /**
+ * 当前 Agent 面板对应的 bootstrap cache key。
+ */
+function agentBootstrapKey(): string {
+    return ideStore.workspaceKind === "user-assets" || !ideStore.currentNovelId
+        ? "user-assets"
+        : `novel:${ideStore.currentNovelId}`;
+}
+
+/**
+ * 读取并缓存轻量配置，避免模型列表和默认 profile 初始化连续请求同一个 bootstrap。
+ */
+async function loadAgentBootstrap(force = false): Promise<ConfigBootstrapDto> {
+    const key = agentBootstrapKey();
+    if (!force && agentBootstrapCache?.key === key) {
+        return agentBootstrapCache.value;
+    }
+    if (!force && agentBootstrapRequest?.key === key) {
+        return await agentBootstrapRequest.promise;
+    }
+
+    const promise = configApi.bootstrap();
+    agentBootstrapRequest = {key, promise};
+    try {
+        const settings = await promise;
+        if (agentBootstrapKey() === key) {
+            agentBootstrapCache = {key, value: settings};
+        }
+        return settings;
+    } finally {
+        if (agentBootstrapRequest?.promise === promise) {
+            agentBootstrapRequest = null;
+        }
+    }
+}
+
+/**
  * 读取可选模型列表。
  */
-const loadSelectableModels = async (): Promise<void> => {
+const loadSelectableModels = async (force = false): Promise<void> => {
     try {
-        const settings = await configApi.bootstrap();
+        const settings = await loadAgentBootstrap(force);
         selectableModels.value = settings.modelSettings.enabledModels;
         costDisplay.setCostCurrency(settings.ui.costCurrency);
         void costDisplay.ensureExchangeRate(configApi.exchangeRate);
@@ -681,7 +737,7 @@ const loadSelectableModels = async (): Promise<void> => {
 /**
  * 按当前 workspace 解析默认 Agent Profile。
  */
-const loadResolvedLeaderProfileKey = async (): Promise<void> => {
+const loadResolvedLeaderProfileKey = async (force = false): Promise<void> => {
     const requestId = ++defaultProfileResolveRequest;
     if (ideStore.workspaceKind !== "user-assets" && !ideStore.currentNovelId) {
         if (requestId === defaultProfileResolveRequest) {
@@ -690,7 +746,7 @@ const loadResolvedLeaderProfileKey = async (): Promise<void> => {
         return;
     }
     try {
-        const settings = await configApi.bootstrap();
+        const settings = await loadAgentBootstrap(force);
         if (requestId !== defaultProfileResolveRequest) {
             return;
         }
@@ -1421,6 +1477,51 @@ const send = async (): Promise<void> => {
         clientState: buildClientState(),
     });
     await handleInvokeResult(result);
+};
+
+/**
+ * 外部工作台入口发送 Agent prompt。Workflow 等面板通过它复用当前 Agent session、SSE 和客户端上下文。
+ */
+const sendExternalPrompt = async (payload: {content: string; title?: string; profileKey?: string}): Promise<number> => {
+    const prompt = payload.content.trim();
+    if (!prompt) {
+        throw new Error("Agent prompt 不能为空");
+    }
+    await ensureSessionReady();
+    const targetProfileKey = payload.profileKey?.trim();
+    if (targetProfileKey && activeSummary.value?.profileKey !== targetProfileKey) {
+        const list = await refreshSessions();
+        const existing = list.find((item) => item.profileKey === targetProfileKey && !item.archived);
+        if (existing) {
+            await loadSession(existing.sessionId);
+        } else {
+            await createSession(targetProfileKey);
+        }
+    } else if (!activeSessionId.value) {
+        await createSession(targetProfileKey);
+    }
+    if (!activeSessionId.value) {
+        throw new Error(t("agent.chatSurface.noSessionMessage"));
+    }
+    if (pendingUserInputSession.value) {
+        throw new Error(t("agent.chatSurface.inlineRunningError"));
+    }
+
+    const mode = running.value ? "followup" : "prompt";
+    session.appendOptimisticUserMessage(prompt);
+    await ensureActiveSessionEvents();
+    const result = await agentApi.invokeSession(activeSessionId.value, {
+        mode,
+        message: {text: prompt},
+        title: payload.title,
+        clientState: buildClientState(),
+    });
+    await handleInvokeResult(result);
+    await flushChatFlowLayout();
+    if (mode === "followup") {
+        notification.success(t("agent.chatSurface.queued"));
+    }
+    return activeSessionId.value;
 };
 
 /**
@@ -2288,7 +2389,7 @@ watch(() => ideStore.configRevision, async () => {
     if (!props.active) {
         return;
     }
-    await loadSelectableModels();
+    await loadSelectableModels(true);
     await loadResolvedLeaderProfileKey();
     await syncActiveSessionRecovery("manual_refresh");
 });
@@ -2325,6 +2426,7 @@ defineExpose({
     inlineEditorRunning,
     inlineEditorResultText,
     inlineEditorLiveView,
+    workflowAgentSnapshot,
     inlineEditorSessionId,
     inlineEditorSessions,
     inlineEditorSessionLoading,
@@ -2340,6 +2442,7 @@ defineExpose({
     refreshSessionsWithQuery,
     selectSession,
     createSession: createSessionFromHeader,
+    sendExternalPrompt,
     archiveSessionFromDialog,
     renameSessionFromDialog,
     openInlineEditorSession,

@@ -27,7 +27,7 @@
 
 ## Current State
 
-已实施完成（2026-07-11，含三轮用户反馈修复 + 审查修复轮）。反馈轮 2（源码模式 CPU、空文件卡片、卡片样式、整体审查、文本回退/冲突审查）、反馈轮 3（comment 混合形态 A 规范化 + B 兜底保数据、冲突提示文案）与审查修复轮（/code-review 7 findings：StructuredTextEditor 模式切换丢防抖尾巴等）全部处理：shared+app 全量 301/301、本轮文件 typecheck 干净。浏览器实测由用户自行验收。
+已实施完成（2026-07-11，含三轮用户反馈修复 + 审查修复轮）。反馈轮 2（源码模式 CPU、空文件卡片、卡片样式、整体审查、文本回退/冲突审查）、反馈轮 3（comment 混合形态 A 规范化 + B 兜底保数据、冲突提示文案）与审查修复轮（/code-review 7 findings：StructuredTextEditor 模式切换丢防抖尾巴等）全部处理：shared+app 全量 301/301、本轮文件 typecheck 干净。2026-07-17 追加大 Markdown 打开性能补丁：超过阈值的 Markdown 默认源码模式，Markdown Studio 只挂载当前视图，避免打开文件时 TipTap 与 Monaco 同时吃全文。浏览器实测由用户自行验收。
 
 ## Decisions / Discussion
 
@@ -54,12 +54,14 @@
 - **D14 混合形态读时规范化（2026-07-10 反馈轮 3，用户拍板 A+B 的 A）**：`abc<comment>␊content␊</comment>`（开标签黏正文 + 内容跨行）实测单段内容会被行内规则吃下并产生含 `\n` 的非法 text node，多段内容则标签被 DOM 剥掉静默丢失。块级 tokenizer 因 D4 陷阱不能从段中接管、ProseMirror 块节点不能从段落中间开始——读时规范化（`normalizeMarkdownDialectBlocks`，shared 层）是支持该形态的唯一位置：开标签紧跟行尾且前有真实正文 → 开标签前插空行拆段。**三重守卫（Plan 代理对抗审查修正，实测 marked 行为得出）**：① 前缀仅空白/容器标记（`> <comment>`、`- <comment>`）视为逻辑行首不拆——嵌套块级形态今天由 marked 容器内层解析正常工作，拆了是纯回归；② 行首 ≥4 空格 / tab 的缩进代码块不拆；③ 向下（fence 感知）找到独立成行的配对闭标签才拆——无闭合悬尾拆开后会被 marked type 7 吞成连正文一起冻结的源码块，比不拆更差。另有 EOS 不算行尾（流式 chunk 悬尾不被抢拆）、fenced code 内不规范化、CRLF 剥 `\r` 判据。调用入口只有 TipTap 三处（初始 content / `update()` / `insertMarkdown`）；`replaceSelection` / `appendMarkdown`（流式 chunk 语义）与 Monaco 故意不调。规范化改写在用户下次编辑时才随防抖上报实化为 dirty。带真实正文前缀的容器行（`> abc<comment>`）拆出容器为已决策行为（合法文档优于非法 text node），测试钉住。
 - **D15 兜底名单拆分 + 残片捕获 + Bridge 完整性自愈（A+B 的 B）**：多段混合形态丢标签的根因是 `KNOWN_INLINE_TAGS` 排除名单只考虑了「合法形态由自家 tokenizer 处理」，失配残片没有第二道兜底。拆为两组：`DOM_HANDLED_INLINE_TAGS`（b/br/mark 等真 HTML，合法与残片都走浏览器语义）与 `DIALECT_INLINE_TAGS`（comment/bilingual/align/ruby/rt，残片必须保 chip）；**不变量：`KNOWN_BLOCK_EXCLUDED_TAGS` 必须保持三组全量并集**，否则 `<ruby>` 单独成段会被块级兜底整段吃掉（ruby 是 inline tokenizer 轮不到）。行内兜底新增残片捕获（`captureHtmlTagFragment`，仅行内路径）：无闭合开标签、孤立闭标签退化为单标签 chip——顺带修复 `Vec<String>` 类伪标签此前也被静默剥掉的暗坑；tokenizer `start` 扩为认 `</`。HtmlBlockBridge 新增完整性自愈判据：块级 html token 首标签有 DOM parse 规则（comment/inline-comment/ruby/align，bilingual 无）且 raw 以配对闭标签结尾 → 交回 DOM 自愈（保住 `<comment>␊content</comment>` 单段闭黏形态此前「自愈为行内评论」的行为）；截断形态保源码块（此前是静默改写评论范围，改后更诚实）。顺带 `parseMarkdownRuby` 无注音改返回空 text token（此前返回 null 会让 `<ruby>汉</ruby>` 从可编辑纯文本退化为冻结 chip）。**注意 node 环境测不到 DOM 自愈路径**（parseHTMLToken 需要 window，node 下退化为转义纯文本），DOM 行为回归测试放 jsdom 文件 `dialect-fallback-dom.test.ts`。
 - **D16 冲突提示文案（反馈轮 3 问题 2，用户拍板最低成本档)**：外部改文件 + 本地 dirty 只弹通知不弹 diff 是有意设计（冲突未实化、避免打断输入；保存时乐观锁 409 才弹冲突对比界面），但通知没有下一步指引是体验缺口。`fileSyncConflictMessage` 文案追加「保存（Ctrl+S）即可打开冲突对比界面进行合并」。更重的方案（通知加动作按钮）暂不做。
+- **D17 大 Markdown 打开策略（2026-07-17）**：诊断用 jsdom + 真实 TipTap Editor 复现打开成本：约 104KB 初始化 1.7s、314KB 初始化 14.7s、629KB 初始化 59.9s，证明卡死根因是 `useEditor({content, contentType:"markdown"})` 同步 parse + ProseMirror 文档建模阻塞 UI 线程。修复不尝试在富文本内虚拟化 ProseMirror 文档（工程量大且风险高），第一层止血改为 `shared/editor-workbench.ts` 中的 `shouldOpenMarkdownAsSource()`：Markdown 超过 180,000 字符或 2,500 行时默认源码模式；第二层把 `MarkdownStudio.vue` 的 rich/source 从 `v-show` 改成只挂载当前视图，避免默认 rich 时同时初始化 Monaco、默认 source 时同时初始化 TipTap。切换视图时先 `flushActiveEditor()` 再卸载旧编辑器，新挂载编辑器从 controller 读取最新 Markdown，隐藏编辑器不常驻。
 
 ## Verification / Test
 
 - `bun x vitest run shared/ app/` → 270/270 全绿（含方言 round-trip 用例：行内评论不拆段、旧标签兼容改写、块级评论跨空行、ruby 双形式、bilingual、htmlBlock 跨空行兜底、rawInlineHtml、已知标签不被兜底抢走、`<html>` embed round-trip、`<br>` 不再误变卡片的回归钉子）。
 - 反馈轮 2：`empty-document-default.test.ts` 16/16（D10 回归钉子）、`app/stores/novel-ide.test.ts` 4/4、`bun run typecheck` 全绿。
 - 反馈轮 3：normalize 12 用例 + round-trip 追加 6 用例 + `dialect-fallback-dom.test.ts`（jsdom DOM 自愈）2 用例；shared+app 全量 299/299、typecheck 全绿。
+- 2026-07-17 大 Markdown 打开补丁：`bun test shared/editor-workbench.test.ts` 通过（31 pass，命令会额外匹配 product/tauri 产物副本）；`bun --silent x vue-tsc --noEmit --pretty false` 通过。
 - 待用户浏览器验收：大文档打字 CPU 占用（rich + source 两模式）、空文件不再出卡片、rich/source 切换同步正确性、评论面板（行内 + 块级）增删改跳转、`<html>` 卡片点击渲染（含脚本执行与高度自适应）、外部工具改文件时 dirty 冲突提示（新文案含 Ctrl+S 指引）/ 非 dirty 重载、保存后无假冲突警告、注音与对照译文的选区菜单及右键入口、`abc<comment>␊…␊</comment>` 混合形态打开后变块级评论卡片。
 
 ## Implementation Walkthrough
@@ -136,6 +138,20 @@
 - **F7 `markdown-workbench.ts`**：normalize 早退从 `includes("<")` 强化为方言开标签宽松预检 `DIALECT_OPEN_TAG_HINT_PATTERN`，含 `<mark>` 等行内标签的常见文档零成本跳过全行扫描。
 
 验证：shared+app 全量 301/301（含新增 F2 两用例 + F4 一用例）；本轮全部文件 typecheck 干净（仓库当前唯一类型错误在 `server/agent/variables/variables.test.ts`，来自并行会话未完成的变量系统重构，与本轮无关）。待用户浏览器抽验 F1：任一 StructuredTextEditor 宿主打字后 300ms 内切 rich/source，内容不丢。
+
+### 2026-07-17 大 Markdown 打开性能补丁
+
+变更文件：
+
+- `shared/editor-workbench.ts`：新增 `LARGE_MARKDOWN_SOURCE_MODE_CHAR_THRESHOLD` / `LARGE_MARKDOWN_SOURCE_MODE_LINE_THRESHOLD` 与 `shouldOpenMarkdownAsSource()`；`resolveDefaultWorkspaceViewMode(filePath, content)` 支持按正文大小选择源码模式。
+- `app/stores/novel-ide.ts`：打开可编辑文件时在读取正文后创建/更新 tab；超过阈值的 Markdown 即使已有 rich 视图记录，也先强制源码模式打开，避免恢复旧 tab 时再次卡死。
+- `app/components/markdown-studio/MarkdownStudio.vue`：rich/source 从 `v-show` 改为 `v-if` 懒挂载；新挂载编辑器使用当前 controller Markdown，切换视图不读旧初始快照。
+- `app/composables/useMarkdownStudioController.ts`：`setViewMode()` 切换前先结算当前编辑器防抖输入，避免懒挂载卸载旧编辑器时丢 300ms 内的输入。
+- `shared/editor-workbench.test.ts`：补字符阈值与行数阈值测试。
+
+与计划的出入：
+
+- 没有尝试在 TipTap 富文本内部做分块虚拟化。复现实验显示 300KB 量级已经是十秒级同步初始化，虚拟化需要重新定义编辑/选择/Markdown round-trip 边界，不适合作为本轮止血。
 
 ## TODO / Follow-ups
 

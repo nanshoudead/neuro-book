@@ -27,6 +27,7 @@
 - 本地 `/api/auth/me` 的 286ms 主要来自浏览器连接阶段，服务端生成时间约 1ms；生产环境的 182ms 主要在 Waiting for server response，需要服务端分段计时确认 auth/session/db/config 的具体占比。
 - 当前 `validateWorkspace()` 固定调用 `target=.&recursive=true`，结果写入 `workspaceIssues`，再由各 detail panel 按当前节点路径过滤展示。
 - 当前 `workspace-files/validate` 的实现会扫描工作区并执行 schema、state、类型、兄弟冲突、重复 order、引用存在性等检查；它不是轻量接口，不适合默认位于首页首屏关键路径。
+- 2026-07-17 追加首屏微优化：`index.vue` 不再等待 `syncDefaultModelLabel()` 完成才放开 `workspaceBootstrapped`，配置 bootstrap 后台补齐模型标签与主题；Agent 面板内模型列表与默认 profile 解析共用同一个 `/api/config/bootstrap` 结果，配置变更时强制刷新一次后复用缓存。
 
 ## Walkthrough
 
@@ -36,6 +37,7 @@
 - 2026-05-26：实现 `WorkspaceTreeSnapshot` 合同、Project Workspace File Index / Issue Index、轻量 config bootstrap、auth session 复用和前端运行校验入口删除。
 - 2026-05-26：修复 `project.yaml` 格式错误会拖垮 `workspace-files/tree` 和保存链路的隐患：Project Path 定位不再读取 Project Manifest，manifest 解析错误作为 `project.yaml` issue 进入 Project Workspace Issue Index。
 - 2026-05-26：继续收口坏 `project.yaml` 的修复路径：Project Config 读写、Project 删除和 Project Manifest 元数据更新不再依赖 manifest 当前可解析；Plot / SQL 等真实语义模块仍保持严格依赖。
+- 2026-07-17：把首页 `syncDefaultModelLabel()` 从首屏串行链路中移出；Project 路由切换后异步刷新模型标签。AgentChatSurface 新增 workspace 级 bootstrap cache，把 `loadSelectableModels()` 与 `loadResolvedLeaderProfileKey()` 的连续请求合并为一次。
 
 ## Decisions
 
@@ -74,6 +76,8 @@
 - `workspaceKind=user-assets` 继续可以读取文件树，但不运行 Project Workspace 内容节点 Issue Index；返回 snapshot 外壳时 `issues` 为空，或只包含 user-assets 自己未来定义的资源问题。
 - `editor-snapshot` 优先拆轻量 bootstrap；请求 coalescing 作为低风险兜底，避免同一启动窗口内重复打完整快照。
 - auth 慢接口不能直接归因 SQLite；必须先加服务端 timing，把 config、session decode、user query、middleware 固定成本拆开测。
+- 首屏完成不等待默认模型展示名。模型标签与主题配置通过轻量 bootstrap 后台刷新；失败只降级模型标签，不阻塞文件树和编辑器出现。
+- Agent 抽屉里的模型列表与默认 profile 使用同一份轻量 bootstrap cache。配置变更事件触发时只强制刷新一次，第二个消费者复用刷新后的缓存。
 
 ## Architecture Review Findings
 
@@ -329,6 +333,7 @@
 - `server/api/workspace-files/tree.get.ts`
 - `app/stores/novel-ide.ts`
 - `app/pages/index.vue`
+- `app/components/novel-ide/agent/AgentChatSurface.vue`
 
 ## Verification
 
@@ -350,6 +355,9 @@
   - 新增 Project Workspace File Index 失效后重新读取文件与 issues 的回归测试。
   - 新增坏 `project.yaml` 回归测试：Project Workspace 根目录仍可解析、tree snapshot 返回 `invalid-project-manifest` issue、Project 列表遇到单个坏 manifest 不整批失败。
   - 新增坏 `project.yaml` 收口测试：Project Config 仍可读写，Project Manifest 元数据更新可覆盖修复坏 YAML。
+- 2026-07-17 启动微优化验证：
+  - `bun --silent x vue-tsc --noEmit --pretty false` 通过。
+  - 未自动浏览器验证；需要用户重新导出 HAR 或允许浏览器验证后确认首屏 timing 与 bootstrap 请求数。
 
 ## TODO / Follow-ups
 

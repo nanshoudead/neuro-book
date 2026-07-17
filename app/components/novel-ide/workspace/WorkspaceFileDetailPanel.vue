@@ -8,7 +8,6 @@ import FormSelect, {type SelectOption} from "nbook/app/components/common/form/Fo
 import {useNovelIdeStore, type WorkspaceFileIssue, type WorkspaceFileNode} from "nbook/app/stores/novel-ide";
 import {isWorkspaceContentScopePath} from "nbook/app/components/novel-ide/workspace/workspace-file-tree";
 import {normalizeLucideIconName, readLucideIconClass} from "nbook/app/utils/lucide-icons";
-import {computeManuscriptStats, type ManuscriptStatsSnapshot as BaseManuscriptStatsSnapshot} from "nbook/app/utils/manuscript-stats";
 
 const FRONTMATTER_PATTERN = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/;
 
@@ -19,7 +18,12 @@ type ManuscriptFrontmatterDraft = {
     summary: string;
 };
 
-type ManuscriptStatsSnapshot = BaseManuscriptStatsSnapshot & {
+type ManuscriptStatsSnapshot = {
+    currentWords: number;
+    totalWords: number;
+    totalSize: number;
+    chapters: number;
+    files: number;
     updatedAt: string;
 };
 
@@ -38,7 +42,7 @@ const emit = defineEmits<{
 
 const store = useNovelIdeStore();
 const {t, locale} = useI18n();
-const {selectedFileContent, savingFile, workspaceTree, workspaceTreeRevision} = storeToRefs(store);
+const {selectedFileContent, savingFile, workspaceTree} = storeToRefs(store);
 const frontmatterText = ref("");
 const markdownBody = ref("");
 const localFrontmatterError = ref<string | null>(null);
@@ -81,6 +85,15 @@ const canConvertFileToDirectory = computed(() => Boolean(
 ));
 const renderedContent = computed(() => renderMarkdownDocument(frontmatterText.value, markdownBody.value));
 const isFrontmatterDirty = computed(() => isContentIndexFile.value && renderedContent.value !== selectedFileContent.value);
+const manuscriptBasePath = computed(() => {
+    if (!props.node) {
+        return "";
+    }
+    if (props.node.path.toLowerCase().endsWith("/index.md")) {
+        return props.node.path.slice(0, -"/index.md".length);
+    }
+    return props.node.path.replace(/\/$/, "");
+});
 const currentIconName = computed(() => normalizeLucideIconName(parseFrontmatterText(frontmatterText.value).frontmatter.icon));
 const currentIconClass = computed(() => readLucideIconClass(currentIconName.value) ?? "i-lucide-notebook-tabs");
 const readonlyFrontmatterText = computed(() => {
@@ -155,9 +168,14 @@ function refreshManuscriptStats(): void {
         return;
     }
 
-    const stats = computeManuscriptStats(props.node, workspaceTree.value);
+    const prefix = `${manuscriptBasePath.value}/`;
+    const descendants = workspaceTree.value.filter((node) => node.path.startsWith(prefix));
     manuscriptStats.value = {
-        ...stats,
+        currentWords: props.node.words,
+        totalWords: descendants.reduce((total, node) => total + node.words, props.node?.words ?? 0),
+        totalSize: descendants.reduce((total, node) => total + node.size, props.node?.size ?? 0),
+        chapters: descendants.filter((node) => node.contentNode && !node.isDirectory && node.path.toLowerCase().endsWith("/index.md")).length,
+        files: descendants.filter((node) => !node.isDirectory).length,
         updatedAt: new Date().toLocaleTimeString(locale.value, {hour: "2-digit", minute: "2-digit"}),
     };
 }
@@ -179,7 +197,7 @@ function applySelectedIcon(iconName: string): void {
     void saveFrontmatter();
 }
 
-watch(() => [props.node?.path, selectedFileContent.value, workspaceTreeRevision.value], () => {
+watch(() => [props.node?.path, selectedFileContent.value], () => {
     if (!isContentIndexFile.value) {
         frontmatterText.value = "";
         markdownBody.value = "";
@@ -356,7 +374,7 @@ function basename(filePath: string): string {
                         <button type="button" class="rounded-md border border-[var(--border-color)] px-1.5 py-0.5 text-[10px] text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" @click="refreshManuscriptStats">{{ t("ide.workspace.fileDetail.updateStats") }}</button>
                     </div>
                 </div>
-                <div class="grid grid-cols-4 gap-1.5">
+                <div class="grid grid-cols-5 gap-1.5">
                     <div class="rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] px-2 py-1.5">
                         <div class="text-[8px] uppercase tracking-[0.12em] text-[var(--text-muted)]">{{ t("ide.workspace.fileDetail.current") }}</div>
                         <div class="mt-0.5 text-[var(--text-main)]">{{ manuscriptStats.currentWords }}</div>
@@ -370,8 +388,12 @@ function basename(filePath: string): string {
                         <div class="mt-0.5 text-[var(--text-main)]">{{ manuscriptStats.totalSize }}</div>
                     </div>
                     <div class="rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] px-2 py-1.5">
-                        <div class="text-[8px] uppercase tracking-[0.12em] text-[var(--text-muted)]">{{ t("ide.workspace.fileDetail.chaptersFiles") }}</div>
-                        <div class="mt-0.5 text-[var(--text-main)]">{{ manuscriptStats.chapters }} / {{ manuscriptStats.files }}</div>
+                        <div class="text-[8px] uppercase tracking-[0.12em] text-[var(--text-muted)]">{{ t("ide.workspace.fileDetail.chapters") }}</div>
+                        <div class="mt-0.5 text-[var(--text-main)]">{{ manuscriptStats.chapters }}</div>
+                    </div>
+                    <div class="rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] px-2 py-1.5">
+                        <div class="text-[8px] uppercase tracking-[0.12em] text-[var(--text-muted)]">{{ t("ide.workspace.fileDetail.files") }}</div>
+                        <div class="mt-0.5 text-[var(--text-main)]">{{ manuscriptStats.files }}</div>
                     </div>
                 </div>
                 <div class="grid grid-cols-[minmax(0,1fr)_132px] gap-2">
