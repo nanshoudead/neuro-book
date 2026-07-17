@@ -673,3 +673,19 @@ Profile/Harness             -> 上述稳定 Interface
 - 新增只读system-assets、Variable/Profile零写入、runtime import cache与Dockerfile顺序回归。本机根typecheck、Manager typecheck/pack、Variable20项和聚焦Profile测试通过。
 - SSH Arch真实镜像以普通UID/GID启动，system assets报告`compiled 0 stale profile(s)`，Profile catalog加载14项，Agent五工具与Config/Profile/Variable/外部Project Attachment通过；Application Root没有`.agent`。外部Project smoke改用OS临时目录，删除了对`/`父目录可写的错误测试假设。
 - Task 109继续保持实现中：本地与Arch源码权限合同已闭合，但必须等待`0.8.3`公开GHCR、Product Bun与Windows Portable重新执行Release门禁。
+
+### 2026-07-17 0.8.3 Product artifact freshness阻断与自包含编译上下文
+
+- `0.8.3` Release workflow `29569283513`的Source、GHCR build、Windows/Linux Product、assemble以及两端Agent State Root步骤均通过；Linux与Windows最后都在正式`product-start`预检失败，Release保持零资产。Linux首个错误为`builtin/inline.editor.profile.tsx`，Windows首个错误为`builtin/director.profile.tsx`，实际属于同一份广泛失效依赖集合。
+- 下载CI的Linux Product候选后直接审计manifest：单个Profile记录2496个依赖，其中158个指向根`node_modules/@earendil-works/pi-*`。这些路径既不属于Product overlay，也不在只包含Git tracked文件的Source archive中，因此最终安装根无论Linux还是Windows都必然得到`dependency_changed`。
+- 原Profile编译器虽然把artifact写入`.output/server/assets`，但`nbook/*`别名、第三方包和`tsconfig.json`仍可从构建checkout根解析。Product已经携带`.output/server/node_modules/nbook`、Nitro vendor与Product tsconfig，却没有作为唯一编译真相源使用。
+- 新增共享`RuntimeArtifactCompilerContext`，Profile与Variable编译器统一消费。Source开发继续使用checkout；Product build/runtime硬切为`.output/server/node_modules/nbook`、`.output/server/node_modules`、`.output/server/index.mjs`与`.output/server/tsconfig.json`，缺少Product tsconfig时拒绝回退Source根。
+- Nitro后处理现在同时重编Product Profile与Variable artifacts。Profile manifest root从物理`.output/server/assets/...`修正为运行时稳定逻辑标签`assets/workspace/.nbook/agent/profiles`；此前dependency错误会提前抛出，掩盖了这个第二层manifest不一致。
+- freshness验证现在返回第一个失配dependency的path、expected hash/bytes与actual值；Product只读错误会直接显示依赖路径，不再要求从数千项manifest人工比对。
+- 新增Product system artifact只读合同，并在Nitro后处理结束和Release Product归档开始前执行：Profile/Variable manifest不能为空，逻辑root必须稳定，所有依赖必须位于`.output/server`，源码、artifact、类型文件与依赖checksum必须新鲜。该门禁不重编、不修复、不放宽dependency检查。
+- 本机全新`nuxt:build`通过；14个Profile共34,961条依赖、Variable依赖的越界数量均为0。聚焦Context/Variable为2 files / 23 tests，三个Product Profile场景通过，根与Runtime typecheck通过。
+- 使用真实Source ZIP与Windows Product ZIP组装无根`node_modules`的隔离Product，运行`prepare-system-assets --sync-user-assets`得到14个Profile、`compiled 0 stale`，随后Agent State Root移动smoke通过。未自动执行浏览器操作。
+- SSH Arch隔离clone先完成2 files / 23 tests、三个Product Profile场景、Runtime typecheck、Linux`nuxt:build`和`release:product:linux`。远端配额不足以同时保留hoisted依赖、build output与第二份解压树，因此清理根`node_modules`后直接把同一build root作为Product重放；清除聚焦Vitest此前生成的ignored`workspace/.nbook/logs`后，预检保持0 stale，Agent State Root移动smoke通过且Application Root不再生成影子`workspace/`。
+- Arch首次直接运行Vitest因clean checkout缺`.nuxt`失败，补正式`nuxt prepare`前置后通过；首次使用POSIX locale解Source ZIP出现Unicode文件名警告，设置`LC_ALL=C.utf8`后解决。两项都属于测试命令/环境前置，不通过修改Product代码掩盖。
+- 实际计划差异：最初只预期定位一个被后处理修改的依赖；候选产物证明根因是编译上下文跨越Product边界，并进一步暴露manifest逻辑root漂移。修复因此收口到共享上下文和归档合同，而不是在runtime关闭dependency检查或重编只读assets。
+- Task 109继续保持实现中。下一公开版本使用`0.8.4`；只有Linux Product Bun、Windows Portable、GHCR与最终公开payload全部通过后，才能把本地候选证据升级为公开Release证据。

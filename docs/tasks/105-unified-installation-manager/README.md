@@ -709,3 +709,11 @@ uninstall
 - SSH Arch以宿主普通UID/GID构建当前源码镜像并挂载独立State Root。SQLite、HTTP版本、14个Profile catalog、Agent read/write/edit/apply_patch/bash、Config/Profile/Variable、外部Project图片与Attachment均通过；`/app/.agent`不存在，runtime cache只出现在`workspace/.nbook/agent/.staging`。
 - Product Agent smoke原先把外部Project建在`${stateRoot}-external-project-*`，同根容器会得到`/app-external-project-*`并错误假设根目录可写。runner现使用系统临时目录表达真正的外部绝对Project，不改变生产路径能力。
 - 实际计划差异：原先只预期修复Compose `.env`挂载；真实链路继续暴露了Product artifact freshness和动态import cache两层问题。本轮选择完成系统性只读合同，而不是逐个EACCES打补丁。下一步发布Manager `.18`与应用`0.8.3`，再用公开npm/GHCR执行空目录安装、doctor与HTTP复验。
+
+### 2026-07-17 0.8.3 Release Product freshness失败
+
+- Manager `0.1.0-canary.18`已由workflow `29569085799`成功发布，npm `canary`与全新Bun cache精确bunx均返回`.18`。Manager本轮不需要再次发布。
+- 应用`0.8.3` workflow `29569283513`完成Source、GHCR image build、Windows/Linux Product与assemble，但Windows/Linux正式启动预检都因内置Profile `dependency_changed`失败，最终publish步骤跳过，Release保持零资产。
+- 候选manifest把158个`@earendil-works/pi-*`文件记录为根`node_modules`依赖；Installation Root合同明确没有根`node_modules`，因此Product overlay与Source archive组合后必然失效。第二层问题是构建manifest使用`.output/server/assets/...`物理root label，与运行时逻辑label不同。
+- Product Profile/Variable现共享`.output/server`自包含编译上下文；Nitro后处理和Release归档前使用同一个只读合同验证依赖边界、manifest root与freshness。没有修改Release Manifest或Installation Manifest schema，也没有让Manager在运行时修复Product。
+- 本机Source ZIP + Windows Product ZIP隔离组装、0 stale system assets预检与Agent State Root smoke通过。下一应用patch为`0.8.4`；仍需公开workflow重新验证Product Bun、Windows Portable、GHCR、Stage 0与最终payload。

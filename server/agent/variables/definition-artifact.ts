@@ -8,6 +8,11 @@ import type {VariableDefinition, VariableNamespace, VariableAccessorIssue} from 
 import {hashFile, resolveArtifactPath} from "nbook/server/agent/profiles/profile-artifact-compiler";
 import {generateVariableTypes, VARIABLE_TYPES_FILE_NAME, type VariableTypeGenerationDiagnostic} from "nbook/server/agent/variables/generated-types";
 import {importRuntimeArtifact} from "nbook/server/utils/runtime-artifact-import";
+import {
+    resolveRuntimeArtifactCompilerContext,
+    resolveRuntimeArtifactNbookPath,
+    type RuntimeArtifactCompilerContext,
+} from "nbook/server/utils/runtime-artifact-compiler-context";
 
 export const VARIABLE_DEFINITION_COMPILER_VERSION = 1;
 export const VARIABLE_DEFINITION_COMPILED_DIR = ".compiled";
@@ -17,6 +22,20 @@ export type VariableDefinitionDependency = {
     path: string;
     sha256: string;
     bytes: number;
+};
+
+export type VariableDefinitionDependencyMismatch = {
+    path: string;
+    expected: {sha256: string; bytes: number};
+    /** null 表示依赖文件不存在或无法读取。 */
+    actual: {sha256: string; bytes: number} | null;
+};
+
+export type VariableDefinitionValidation = {
+    fresh: boolean;
+    reason?: string;
+    /** 仅 dependency_changed 时存在，指出第一个失配依赖。 */
+    dependency?: VariableDefinitionDependencyMismatch;
 };
 
 export type VariableDefinitionManifestItem = {
@@ -73,14 +92,19 @@ export async function compileVariableDefinitions(options: {
     try {
         for (const file of files) {
             const existingItem = existingManifest.definitions.find((item) => item.fileName === file.fileName);
-            if ((options.skipFresh || options.writePolicy === "forbid")
-                && existingItem
-                && (await validateVariableDefinitionArtifact(definitionRoot, existingItem, {requireTypeArtifact: true})).fresh) {
-                definitions.push(existingItem);
-                continue;
+            let validation: VariableDefinitionValidation | undefined;
+            if ((options.skipFresh || options.writePolicy === "forbid") && existingItem) {
+                validation = await validateVariableDefinitionArtifact(definitionRoot, existingItem, {requireTypeArtifact: true});
+                if (validation.fresh) {
+                    definitions.push(existingItem);
+                    continue;
+                }
             }
             if (options.writePolicy === "forbid") {
-                throw new Error(`Product 内置 variable definition 已过期或缺失：${file.fileName}。请重新构建或安装与源码匹配的 Product。`);
+                const detail = validation?.dependency
+                    ? `${validation.reason}: ${validation.dependency.path}`
+                    : validation?.reason ?? "manifest_missing";
+                throw new Error(`Product 内置 variable definition 已过期或缺失：${file.fileName}（${detail}）。请重新构建或安装与源码匹配的 Product。`);
             }
             await mkdir(buildCompiledDir, {recursive: true});
             definitions.push(await compileDefinitionFile(definitionRoot, buildCompiledDir, file));
@@ -173,7 +197,7 @@ export async function readVariableDefinitionManifest(definitionRoot: string): Pr
 
 export async function validateVariableDefinitionArtifact(root: string, item: VariableDefinitionManifestItem, options: {
     requireTypeArtifact?: boolean;
-} = {}): Promise<{fresh: boolean; reason?: string}> {
+} = {}): Promise<VariableDefinitionValidation> {
     const sourceHash = await hashFile(join(root, ...item.fileName.split("/"))).catch(() => null);
     if (!sourceHash || sourceHash.sha256 !== item.sourceSha256 || sourceHash.bytes !== item.sourceBytes) {
         return {fresh: false, reason: "source_changed"};
@@ -201,11 +225,19 @@ export async function validateVariableDefinitionArtifact(root: string, item: Var
     return validateVariableDefinitionDependencies(item);
 }
 
-async function validateVariableDefinitionDependencies(item: VariableDefinitionManifestItem): Promise<{fresh: boolean; reason?: string}> {
+async function validateVariableDefinitionDependencies(item: VariableDefinitionManifestItem): Promise<VariableDefinitionValidation> {
     for (const dependency of item.dependencies) {
         const current = await hashFile(resolveArtifactPath(dependency.path)).catch(() => null);
         if (!current || current.sha256 !== dependency.sha256 || current.bytes !== dependency.bytes) {
-            return {fresh: false, reason: "dependency_changed"};
+            return {
+                fresh: false,
+                reason: "dependency_changed",
+                dependency: {
+                    path: dependency.path,
+                    expected: {sha256: dependency.sha256, bytes: dependency.bytes},
+                    actual: current,
+                },
+            };
         }
     }
     return {fresh: true};
@@ -216,7 +248,8 @@ async function compileDefinitionFile(root: string, compiledDir: string, file: De
     const artifactStem = stableArtifactStem(file.fileName, /\.(tsx|ts|mjs|js)$/);
     const temporaryOutputPath = join(compiledDir, `${artifactStem}.${randomUUID()}.building.mjs`);
     const temporaryTypePath = join(compiledDir, `${artifactStem}.${randomUUID()}.building.${VARIABLE_TYPES_FILE_NAME}`);
-    const tsconfigPath = resolve(process.cwd(), "tsconfig.json");
+    const compilerContext = resolveRuntimeArtifactCompilerContext();
+    const tsconfigPath = compilerContext.tsconfigPath;
     try {
         const result = await build({
             absWorkingDir: process.cwd(),
@@ -228,7 +261,7 @@ async function compileDefinitionFile(root: string, compiledDir: string, file: De
             outfile: temporaryOutputPath,
             packages: "external",
             platform: "node",
-            plugins: [repoAliasBundlePlugin()],
+            plugins: [repoAliasBundlePlugin(compilerContext)],
             target: "esnext",
             tsconfig: tsconfigPath,
         });
@@ -386,13 +419,13 @@ async function pruneArtifacts(compiledDir: string, manifest: VariableDefinitionM
         .map((entry) => rm(join(compiledDir, entry.name), {force: true})));
 }
 
-function repoAliasBundlePlugin(): Plugin {
+function repoAliasBundlePlugin(context: RuntimeArtifactCompilerContext): Plugin {
     const nodeModuleNames = new Set([...builtinModules, ...builtinModules.map((name) => `node:${name}`)]);
     return {
         name: "nbook-variable-definition-bundle",
         setup(buildApi) {
             buildApi.onResolve({filter: /^(nbook|neuro_book)\//}, (args) => ({
-                path: resolveRepoAliasPath(args.path.replace(/^(nbook|neuro_book)\//, "")),
+                path: resolveRuntimeArtifactNbookPath(context, args.path.replace(/^(nbook|neuro_book)\//, "")),
             }));
             buildApi.onResolve({filter: /^[^./].*/}, (args) => {
                 if (resolve(args.path) === args.path || /^[A-Za-z]:[\\/]/.test(args.path)) {
@@ -405,12 +438,6 @@ function repoAliasBundlePlugin(): Plugin {
             });
         },
     };
-}
-
-function resolveRepoAliasPath(relativePath: string): string {
-    const basePath = resolve(process.cwd(), relativePath);
-    const candidates = [join(basePath, "index.ts"), join(basePath, "index.tsx"), join(basePath, "index.js"), join(basePath, "index.mjs"), `${basePath}.ts`, `${basePath}.tsx`, `${basePath}.js`, `${basePath}.mjs`, basePath];
-    return candidates.find((candidate) => existsSync(candidate)) ?? basePath;
 }
 
 function normalizeArtifactPath(filePath: string): string {

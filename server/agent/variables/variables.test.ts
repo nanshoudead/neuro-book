@@ -1,5 +1,5 @@
 import {mkdir, readFile, rm, unlink, writeFile} from "node:fs/promises";
-import {resolve} from "node:path";
+import {join, resolve} from "node:path";
 import {randomUUID} from "node:crypto";
 import {describe, expect, it} from "vitest";
 import {Type} from "typebox";
@@ -774,6 +774,40 @@ describe("Agent variable system", () => {
             expect(await readFile(manifestPath, "utf8")).toBe(manifestBefore);
         } finally {
             await rm(root, {recursive: true, force: true});
+        }
+    });
+
+    it("Product variable definition只记录.output/server自包含依赖", async () => {
+        const productRoot = resolve(".agent", "workspace", "variable-product-context-test", randomUUID());
+        const outputRoot = join(productRoot, ".output", "server");
+        const definitionRoot = join(outputRoot, "assets", "workspace", ".nbook", "agent", "variables");
+        await mkdir(definitionRoot, {recursive: true});
+        await writeFile(join(productRoot, "package.json"), '{"name":"neuro-book-product","type":"module"}\n', "utf8");
+        await writeFile(join(outputRoot, "index.mjs"), "", "utf8");
+        await writeFile(join(outputRoot, "tsconfig.json"), "{}\n", "utf8");
+        await writeFile(join(definitionRoot, "definitions.ts"), [
+            "export const definitions = [{",
+            '    namespace: "project",',
+            '    key: "styleGuide",',
+            '    schema: {type: "string"},',
+            "}];",
+            "export default definitions;",
+            "",
+        ].join("\n"), "utf8");
+        const previousCwd = process.cwd();
+        try {
+            process.chdir(productRoot);
+            const manifest = await compileVariableDefinitions({
+                definitionRoot,
+                rootLabel: "assets/workspace/.nbook/agent/variables",
+            });
+            const item = manifest.definitions[0]!;
+
+            expect(item.dependencies.every((dependency) => dependency.path.startsWith(".output/server/"))).toBe(true);
+            await expect(validateVariableDefinitionArtifact(definitionRoot, item, {requireTypeArtifact: true})).resolves.toEqual({fresh: true});
+        } finally {
+            process.chdir(previousCwd);
+            await rm(productRoot, {recursive: true, force: true});
         }
     });
 });

@@ -813,3 +813,10 @@ Task 108 与 Task 109 合并后完成最终串行复核：
 
 - `0.8.1`的Windows/Linux Product尚未进入build，Task 108迁移与Attachment smoke也未执行；两个job都因根Vitest在clean checkout缺少预先生成的`.nuxt/tsconfig.json`而在setup转换阶段失败。Release保持零资产，不能把GHCR镜像build成功视为公开GHCR验收完成。
 - Product路径门禁现统一走`test:agent-state-root = nuxt prepare + targeted vitest`，并把已不存在、会被Vitest静默忽略的旧Location测试路径替换为真实`workspace-root-ref.test.ts`。无`.nuxt`隔离clone已通过2 files / 7 tests；下一公开应用版本使用`0.8.2`，Task 108继续保持Public Release Pending。
+
+### 2026-07-17 0.8.3候选验证范围与0.8.4后续门禁
+
+- `0.8.3`候选在Linux已完成Attachment migration smoke和Agent State Root smoke，在Windows已完成Portable executables/doctor、Agent State Root与shadow workspace诊断。这些步骤证明候选内部的Task 108 migration与State Root链没有先行失败。
+- Linux与Windows最终都在Product system Profile freshness预检退出，公开payload job因此未运行，GitHub Release保持零资产。该失败属于Task 109 Product编译上下文：manifest引用最终Product不存在的根`node_modules`，并非Attachment codec、Store、migration WAL或图片route回归。
+- 修复后的本机Source ZIP + Windows Product ZIP隔离组装再次通过Agent State Root移动smoke；本轮没有重复执行真实用户Workspace的Attachment migration，也没有自动执行浏览器图片展示。
+- Task 108继续保持Public Release Pending。`0.8.3`中已经通过的候选步骤可作为故障隔离证据，但不能替代`0.8.4`完整公开Product Bun、Portable、GHCR与payload验证。

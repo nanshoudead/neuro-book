@@ -1,5 +1,5 @@
 import {createHash, randomUUID} from "node:crypto";
-import {existsSync, readFileSync} from "node:fs";
+import {existsSync} from "node:fs";
 import {copyFile, mkdir, readFile, readdir, rename, rm, stat, writeFile} from "node:fs/promises";
 import {basename, dirname, isAbsolute, join, relative, resolve} from "node:path";
 import {pathToFileURL} from "node:url";
@@ -12,6 +12,11 @@ import type {AgentProfile} from "nbook/server/agent/profiles/types";
 import {generateVariableTypes, VARIABLE_TYPES_FILE_NAME, type VariableTypeGenerationDiagnostic} from "nbook/server/agent/variables/generated-types";
 import {appLogger} from "nbook/server/app-logs/logger";
 import {importRuntimeArtifact} from "nbook/server/utils/runtime-artifact-import";
+import {
+    resolveRuntimeArtifactCompilerContext,
+    resolveRuntimeArtifactNbookPath,
+    type RuntimeArtifactCompilerContext,
+} from "nbook/server/utils/runtime-artifact-compiler-context";
 
 // Profile 核心 DSL / prepare wrapper 会被 bundle 进 artifact；共享依赖语义变化时必须提升版本，强制旧 bundle 重编。
 export const PROFILE_ARTIFACT_COMPILER_VERSION = 7;
@@ -27,6 +32,20 @@ export type ProfileArtifactDependency = {
     path: string;
     sha256: string;
     bytes: number;
+};
+
+export type ProfileArtifactDependencyMismatch = {
+    path: string;
+    expected: {sha256: string; bytes: number};
+    /** null 表示依赖文件不存在或无法读取。 */
+    actual: {sha256: string; bytes: number} | null;
+};
+
+export type ProfileArtifactValidation = {
+    fresh: boolean;
+    reason?: "source_changed" | "dependency_changed" | "artifact_missing" | "artifact_changed" | "type_artifact_missing" | "type_artifact_changed";
+    /** 仅 dependency_changed 时存在，指出第一个失配依赖。 */
+    dependency?: ProfileArtifactDependencyMismatch;
 };
 
 export type ProfileArtifactManifestItem = {
@@ -371,13 +390,18 @@ export async function stageProfileArtifacts(options: CompileProfileArtifactsOpti
     try {
         const compileResults = await mapConcurrent(targetFiles, profileCompileConcurrency(targetFiles.length), async (file): Promise<ProfileCompileFileResult> => {
             const existingItem = existingManifest.profiles.find((item) => item.fileName === file.fileName);
-            if ((options.skipFresh || options.writePolicy === "forbid")
-                && existingItem
-                && (await validateProfileArtifact(profileRoot, existingItem, {requireTypeArtifact: true})).fresh) {
-                return {entry: existingItem};
+            let validation: ProfileArtifactValidation | undefined;
+            if ((options.skipFresh || options.writePolicy === "forbid") && existingItem) {
+                validation = await validateProfileArtifact(profileRoot, existingItem, {requireTypeArtifact: true});
+                if (validation.fresh) {
+                    return {entry: existingItem};
+                }
             }
             if (options.writePolicy === "forbid") {
-                throw new Error(`Product 内置 profile artifact 已过期或缺失：${file.fileName}。请重新构建或安装与源码匹配的 Product。`);
+                const detail = validation?.dependency
+                    ? `${validation.reason}: ${validation.dependency.path}`
+                    : validation?.reason ?? "manifest_missing";
+                throw new Error(`Product 内置 profile artifact 已过期或缺失：${file.fileName}（${detail}）。请重新构建或安装与源码匹配的 Product。`);
             }
             try {
                 await mkdir(buildCompiledDir, {recursive: true});
@@ -715,10 +739,7 @@ export function profileArtifactManifestPath(profileRoot: string): string {
 export async function validateProfileArtifact(profileRoot: string, item: ProfileArtifactManifestItem, options: {
     requireTypeArtifact?: boolean;
     checkDependencies?: boolean;
-} = {}): Promise<{
-    fresh: boolean;
-    reason?: "source_changed" | "dependency_changed" | "artifact_missing" | "artifact_changed" | "type_artifact_missing" | "type_artifact_changed";
-}> {
+} = {}): Promise<ProfileArtifactValidation> {
     const root = resolve(profileRoot);
     const sourcePath = join(root, ...item.fileName.split("/"));
     const sourceHash = await hashFile(sourcePath).catch(() => null);
@@ -736,7 +757,7 @@ export async function validateProfileArtifact(profileRoot: string, item: Profile
     if (await artifactHasNitroImportMetaShim(artifactPath)) {
         return {fresh: false, reason: "artifact_changed"};
     }
-    if (isProductRuntimeRoot() && !await artifactHasProductRequireShim(artifactPath)) {
+    if (resolveRuntimeArtifactCompilerContext().productRuntime && !await artifactHasProductRequireShim(artifactPath)) {
         return {fresh: false, reason: "artifact_changed"};
     }
     if (!options.requireTypeArtifact) {
@@ -764,11 +785,20 @@ export async function validateProfileArtifact(profileRoot: string, item: Profile
 async function validateProfileArtifactDependencies(item: ProfileArtifactManifestItem): Promise<{
     fresh: boolean;
     reason?: "dependency_changed";
+    dependency?: ProfileArtifactDependencyMismatch;
 }> {
     for (const dependency of item.dependencies) {
         const current = await hashFile(resolveArtifactPath(dependency.path)).catch(() => null);
         if (!current || current.sha256 !== dependency.sha256 || current.bytes !== dependency.bytes) {
-            return {fresh: false, reason: "dependency_changed"};
+            return {
+                fresh: false,
+                reason: "dependency_changed",
+                dependency: {
+                    path: dependency.path,
+                    expected: {sha256: dependency.sha256, bytes: dependency.bytes},
+                    actual: current,
+                },
+            };
         }
     }
     return {fresh: true};
@@ -877,14 +907,15 @@ async function compileProfileFile(profileRoot: string, compiledDir: string, file
     const temporaryStem = stableArtifactStem(file.fileName, /\.profile\.(tsx|ts|mjs|js)$/);
     const temporaryOutputPath = join(compiledDir, `${temporaryStem}.${randomUUID()}.building.mjs`);
     const temporaryTypePath = join(compiledDir, `${temporaryStem}.${randomUUID()}.building.${VARIABLE_TYPES_FILE_NAME}`);
-    const tsconfigPath = resolve(process.cwd(), "tsconfig.json");
+    const compilerContext = resolveRuntimeArtifactCompilerContext();
+    const tsconfigPath = compilerContext.tsconfigPath;
     let dependencies: ProfileArtifactDependency[];
 
     try {
         const result = await build({
             absWorkingDir: process.cwd(),
             banner: {
-                js: runtimeRequireBanner(),
+                js: runtimeRequireBanner(compilerContext.productRuntime),
             },
             bundle: true,
             entryPoints: [file.absolutePath],
@@ -893,10 +924,10 @@ async function compileProfileFile(profileRoot: string, compiledDir: string, file
             jsxImportSource: "nbook/server/agent/profiles/profile-dsl",
             logLevel: "silent",
             metafile: true,
-            nodePaths: runtimeNodePaths(),
+            nodePaths: compilerContext.productRuntime ? [compilerContext.nodeModulesRoot] : [],
             outfile: temporaryOutputPath,
             platform: "node",
-            plugins: [repoAliasBundlePlugin()],
+            plugins: [repoAliasBundlePlugin(compilerContext)],
             target: "esnext",
             tsconfig: tsconfigPath,
         });
@@ -1324,24 +1355,13 @@ async function pruneContentAddressedArtifacts(compiledDir: string, keep: Set<str
 }
 
 /**
- * Product Root 没有根 node_modules，profile 编译需要从 Nitro vendor 解析包。
- */
-function runtimeNodePaths(): string[] {
-    if (!isProductRuntimeRoot()) {
-        return [];
-    }
-    const runtimeNodeModules = resolve(process.cwd(), ".output", "server", "node_modules");
-    return existsSync(runtimeNodeModules) ? [runtimeNodeModules] : [];
-}
-
-/**
  * Product Runtime 的动态 artifact 不在 `.output/server` 下，不能用 artifact
  * 自身位置解析 native/dynamic require；否则会越过 Nitro vendor。
  */
-function runtimeRequireBanner(): string {
+function runtimeRequireBanner(productRuntime: boolean): string {
     const artifactUrl = runtimeImportMetaUrlExpression();
     const compilerVersionBanner = `/* nbook-profile-artifact-compiler-version:${PROFILE_ARTIFACT_COMPILER_VERSION} */`;
-    if (!isProductRuntimeRoot()) {
+    if (!productRuntime) {
         return `${compilerVersionBanner}import {createRequire as __nbookCreateRequire} from "node:module";const require=__nbookCreateRequire(${artifactUrl});`;
     }
     return [
@@ -1359,19 +1379,19 @@ function runtimeImportMetaUrlExpression(): string {
     return ["import", ".", "meta", ".", "url"].join("");
 }
 
-function repoAliasBundlePlugin(): Plugin {
+function repoAliasBundlePlugin(context: RuntimeArtifactCompilerContext): Plugin {
     const nodeModuleNames = new Set([
         ...builtinModules,
         ...builtinModules.map((name) => `node:${name}`),
     ]);
-    const requireFromRuntime = createRequire(pathToFileURL(resolvePackageRequireRoot()));
+    const requireFromRuntime = createRequire(pathToFileURL(context.packageRequireRoot));
     return {
         name: "nbook-repo-alias-bundle",
         setup(buildApi) {
             buildApi.onResolve({filter: /^(nbook|neuro_book)\//}, (args) => {
                 const relativePath = args.path.replace(/^(nbook|neuro_book)\//, "");
                 return {
-                    path: resolveRepoAliasPath(relativePath),
+                    path: resolveRuntimeArtifactNbookPath(context, relativePath),
                 };
             });
             buildApi.onResolve({filter: /^[^./].*/}, (args) => nodeModuleNames.has(args.path)
@@ -1379,45 +1399,6 @@ function repoAliasBundlePlugin(): Plugin {
                 : resolveBarePackage(args.path, requireFromRuntime));
         },
     };
-}
-
-function resolvePackageRequireRoot(): string {
-    const outputEntry = resolve(process.cwd(), ".output", "server", "index.mjs");
-    if (isProductRuntimeRoot() && existsSync(outputEntry)) {
-        return outputEntry;
-    }
-    return resolve(process.cwd(), "package.json");
-}
-
-function isProductRuntimeRoot(): boolean {
-    return existsSync(resolve(process.cwd(), ".output", "server", "index.mjs"))
-        && Boolean(productPackageManifestPath());
-}
-
-/**
- * Product Root 可能来自 `product:stage`，也可能是 GHCR / 通用 `.output`
- * runner。后者只有 `.output/server/package.json`，且不带根 node_modules。
- */
-function productPackageManifestPath(): string | null {
-    const rootPackage = resolve(process.cwd(), "package.json");
-    if (packageManifestName(rootPackage) === "neuro-book-product") {
-        return rootPackage;
-    }
-    const outputPackage = resolve(process.cwd(), ".output", "server", "package.json");
-    if (packageManifestName(outputPackage) === "neuro-book-output"
-        && (process.env.NEURO_BOOK_PRODUCT_BUILD === "1" || !existsSync(resolve(process.cwd(), "node_modules")))) {
-        return outputPackage;
-    }
-    return null;
-}
-
-function packageManifestName(path: string): string | null {
-    try {
-        const manifest = JSON.parse(readFileSync(path, "utf8")) as {name?: unknown};
-        return typeof manifest.name === "string" ? manifest.name : null;
-    } catch {
-        return null;
-    }
 }
 
 function resolveBarePackage(specifier: string, requireFromRuntime: NodeJS.Require): {path: string; external?: boolean} | undefined {
@@ -1429,22 +1410,6 @@ function resolveBarePackage(specifier: string, requireFromRuntime: NodeJS.Requir
     }
 }
 
-function resolveRepoAliasPath(relativePath: string): string {
-    const basePath = resolve(process.cwd(), relativePath);
-    const candidates = [
-        join(basePath, "index.ts"),
-        join(basePath, "index.tsx"),
-        join(basePath, "index.js"),
-        join(basePath, "index.mjs"),
-        `${basePath}.ts`,
-        `${basePath}.tsx`,
-        `${basePath}.js`,
-        `${basePath}.mjs`,
-        basePath,
-    ];
-    const resolved = candidates.find((candidate) => existsSync(candidate));
-    return resolved ?? basePath;
-}
 
 function emptyArtifactManifest(profileRoot: string): ProfileArtifactManifest {
     return {

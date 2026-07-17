@@ -1,5 +1,29 @@
 # Release Notes
 
+## 0.8.4-canary - 2026-07-17
+
+本次patch修复`0.8.3`候选Product在正式启动预检中错误报告内置Profile过期的问题。该问题会同时阻断Linux Product Bun和Windows Portable，`0.8.3`因此没有公开应用资产。
+
+### 更新说明
+
+- Product内置Profile与Variable现在统一从`.output/server`自包含运行时编译。`nbook/*`源码、第三方包和tsconfig不再绑定构建checkout的根`node_modules`或Source archive。
+- Product freshness诊断会指出第一个失配依赖路径，不再只显示Profile文件名。
+- Nitro后处理同时重编Profile与Variable artifact，并使用与运行时一致的逻辑manifest root。
+- `nuxt:build`结束和Product归档开始前都会执行同一个只读合同：所有依赖必须位于`.output/server`，manifest root、源码、artifact、类型文件与依赖checksum必须全部新鲜。
+
+### 迁移指南
+
+- 不需要迁移用户数据或Installation Manifest。使用NeuroBook Manager更新到本版本对应的完整Release即可。
+- 不要手工删除`.compiled/manifest.json`、关闭dependency freshness或在运行时重编内置Profile；这些操作会破坏Product与源码revision的一致性。
+- `0.8.3` Release保持失败审计记录且没有完整资产，Manager会继续跳过。请使用`0.8.4`或更高版本。
+
+### 验证与已知边界
+
+- 本机完成全新`nuxt:build`；14个Profile共34,961条依赖、Variable依赖均为`.output/server`内路径，构建期与归档前只读合同通过。
+- 从Source ZIP与Windows Product ZIP组装无根`node_modules`的隔离Product后，system assets预检报告14个Profile、0个stale，并完成Agent State Root移动smoke。
+- SSH Arch完成同源Linux`nuxt:build`与Product tar归档；移除根`node_modules`和聚焦测试生成的ignored日志目录后，system assets预检为0 stale，Agent State Root移动smoke通过且Application Root未生成影子`workspace/`。
+- `0.8.3`候选中的Attachment migration、Linux Agent State Root、Windows Portable Agent State Root与shadow workspace步骤曾通过，但最终Release因两端正式启动预检失败而保持零资产。公开Linux、Portable与GHCR仍以新canary workflow结果为准；未自动执行人工浏览器操作。
+
 ## 0.8.3-canary - 2026-07-17
 
 本次patch修复GHCR与Source Docker在普通宿主UID/GID下启动失败的问题，并把Product内置Agent编译资产收口为真正的只读运行合同。

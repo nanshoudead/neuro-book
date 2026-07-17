@@ -10,6 +10,7 @@ import {verifyReleaseChecksums, writeReleaseChecksums} from "nbook/scripts/relea
 import {run, runCapture} from "nbook/scripts/utils/process.mjs";
 import {isRuntimeTestSourcePath} from "nbook/scripts/utils/runtime-source-prune.mjs";
 import {writeZipArchive} from "nbook/scripts/utils/zip";
+import {assertProductSystemArtifactContract} from "nbook/scripts/build/product-system-artifact-contract";
 
 const ROOT = resolve(import.meta.dir, "..", "..");
 
@@ -76,6 +77,7 @@ async function buildProductArchive(platform: string, output: string): Promise<vo
     if (!existsSync(resolve(ROOT, ".output", "server", "index.mjs"))) {
         throw new Error("缺少 .output/server/index.mjs，请先执行 bun run nuxt:build。");
     }
+    await assertProductSystemArtifactContract(ROOT);
     await mkdir(dirname(output), {recursive: true});
     if (platform === "windows-x64") {
         const files = await directoryFiles(resolve(ROOT, ".output"));

@@ -4,11 +4,13 @@ import {existsSync} from "node:fs";
 import {cp, mkdir, readFile, readdir, rm, stat, writeFile} from "node:fs/promises";
 import {dirname, relative, resolve} from "node:path";
 import {compileProfileArtifacts} from "nbook/server/agent/profiles/profile-artifact-compiler";
+import {compileVariableDefinitions} from "nbook/server/agent/variables/definition-artifact";
 import {
     containsAbsoluteNodeModuleFileUrl,
     patchAbsoluteNodeModuleFileUrls,
 } from "nbook/scripts/build/nitro-runtime-file-url.mjs";
 import {pruneRuntimeTestSources} from "nbook/scripts/utils/runtime-source-prune.mjs";
+import {assertProductSystemArtifactContract} from "nbook/scripts/build/product-system-artifact-contract";
 
 const runtimePackageSeeds = [
     "@clack/core",
@@ -135,18 +137,25 @@ await measure("prune runtime test sources", async () => {
 await measure("assert nbook runtime package", async () => {
     assertNbookRuntimePackage(resolve(serverRoot, "node_modules", "nbook"));
 });
-await measure("compile Product system profiles", async () => {
+await measure("compile Product system artifacts", async () => {
     const previous = process.env.NEURO_BOOK_PRODUCT_BUILD;
     process.env.NEURO_BOOK_PRODUCT_BUILD = "1";
     try {
+        await compileVariableDefinitions({
+            definitionRoot: resolve(serverRoot, "assets", "workspace", ".nbook", "agent", "variables"),
+            rootLabel: "assets/workspace/.nbook/agent/variables",
+        });
         await compileProfileArtifacts({
             profileRoot: resolve(serverRoot, "assets", "workspace", ".nbook", "agent", "profiles"),
-            rootLabel: relative(process.cwd(), resolve(serverRoot, "assets", "workspace", ".nbook", "agent", "profiles")).replaceAll("\\", "/"),
+            rootLabel: "assets/workspace/.nbook/agent/profiles",
         });
     } finally {
         if (previous === undefined) delete process.env.NEURO_BOOK_PRODUCT_BUILD;
         else process.env.NEURO_BOOK_PRODUCT_BUILD = previous;
     }
+});
+await measure("verify Product system artifacts", async () => {
+    await assertProductSystemArtifactContract(process.cwd());
 });
 const patchedImportMetaFiles = await measure("patch import.meta fallbacks", async () => {
     return await patchImportMetaFallbacks(resolve(serverRoot, "chunks"));

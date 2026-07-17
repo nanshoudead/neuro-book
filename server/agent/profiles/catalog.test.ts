@@ -1154,20 +1154,24 @@ describe("AgentProfileCatalog", () => {
 
     it("Product profile artifact 不写入构建机绝对 require 路径", async () => {
         const productRoot = join(root, "product");
-        systemRoot = join(productRoot, "assets", "workspace", ".nbook", "agent", "profiles");
+        const outputServerRoot = join(productRoot, ".output", "server");
+        systemRoot = join(outputServerRoot, "assets", "workspace", ".nbook", "agent", "profiles");
         userRoot = join(productRoot, "workspace", ".nbook", "agent", "profiles");
-        await mkdir(join(productRoot, ".output", "server"), {recursive: true});
+        await mkdir(join(outputServerRoot, "node_modules", "nbook", "server", "test"), {recursive: true});
         await writeFile(join(productRoot, "package.json"), "{\"name\":\"neuro-book-product\",\"version\":\"0.0.0\",\"type\":\"module\"}\n", "utf8");
         await writeFile(join(productRoot, "tsconfig.json"), "{}\n", "utf8");
-        await writeFile(join(productRoot, ".output", "server", "index.mjs"), "", "utf8");
+        await writeFile(join(outputServerRoot, "tsconfig.json"), "{}\n", "utf8");
+        await writeFile(join(outputServerRoot, "index.mjs"), "", "utf8");
+        await writeFile(join(outputServerRoot, "node_modules", "nbook", "server", "test", "product-marker.ts"), 'export const marker = "output";\n', "utf8");
         await writeProfile(systemRoot, "custom.product.profile.mjs", `
+            import {marker} from "nbook/server/test/product-marker";
             export default {
                 manifest: { key: "custom.product", name: "Product" },
                 initialSchema: { type: "object", properties: {} },
                 outputSchema: { type: "object", properties: {} },
                 tools: {},
                 rootToolKeys: [],
-                prepare() { return { systemPrompt: "ok" }; },
+                prepare() { return { systemPrompt: marker }; },
             };
         `);
 
@@ -1189,14 +1193,23 @@ describe("AgentProfileCatalog", () => {
         expect(artifact.slice(0, 2048)).not.toContain("globalThis._importMeta_");
         expect(artifact.slice(0, 2048)).not.toMatch(/file:\/\/\/[A-Za-z]:/u);
         expect(artifact).not.toContain("D:/a/neuro-book/");
+        expect(manifestItem.dependencies.every((dependency) => dependency.path.startsWith(".output/server/"))).toBe(true);
+        expect(manifestItem.dependencies.some((dependency) => dependency.path.endsWith("node_modules/nbook/server/test/product-marker.ts"))).toBe(true);
+        process.chdir(productRoot);
+        try {
+            await expect(validateProfileArtifact(systemRoot, manifestItem, {requireTypeArtifact: true})).resolves.toEqual({fresh: true});
+        } finally {
+            process.chdir(previousCwd);
+        }
     });
 
     it("通用 .output Product runner 无根 Product package 时仍从 output vendor 解析 require", async () => {
         const productRoot = join(root, "product-output-runner");
-        systemRoot = join(productRoot, "assets", "workspace", ".nbook", "agent", "profiles");
+        systemRoot = join(productRoot, ".output", "server", "assets", "workspace", ".nbook", "agent", "profiles");
         userRoot = join(productRoot, "workspace", ".nbook", "agent", "profiles");
         await mkdir(join(productRoot, ".output", "server", "node_modules", "@nbook", "output-marker"), {recursive: true});
         await writeFile(join(productRoot, "tsconfig.json"), "{}\n", "utf8");
+        await writeFile(join(productRoot, ".output", "server", "tsconfig.json"), "{}\n", "utf8");
         await writeFile(join(productRoot, ".output", "server", "index.mjs"), "", "utf8");
         await writeFile(join(productRoot, ".output", "server", "package.json"), "{\"name\":\"neuro-book-output\",\"version\":\"0.0.0\",\"type\":\"module\"}\n", "utf8");
         await writeFile(join(productRoot, ".output", "server", "node_modules", "@nbook", "output-marker", "index.js"), `module.exports = {marker: "output-vendor"};\n`, "utf8");
@@ -1240,9 +1253,10 @@ describe("AgentProfileCatalog", () => {
     it("通用 .output Product runner 会重编源码模式遗留 artifact", async () => {
         const productRoot = join(root, "product-output-stale-artifact");
         const sourceRoot = join(root, "source-artifact-root");
-        systemRoot = join(productRoot, "assets", "workspace", ".nbook", "agent", "profiles");
+        systemRoot = join(productRoot, ".output", "server", "assets", "workspace", ".nbook", "agent", "profiles");
         await mkdir(join(productRoot, ".output", "server"), {recursive: true});
         await writeFile(join(productRoot, "tsconfig.json"), "{}\n", "utf8");
+        await writeFile(join(productRoot, ".output", "server", "tsconfig.json"), "{}\n", "utf8");
         await writeFile(join(productRoot, ".output", "server", "index.mjs"), "", "utf8");
         await writeFile(join(productRoot, ".output", "server", "package.json"), "{\"name\":\"neuro-book-output\",\"version\":\"0.0.0\",\"type\":\"module\"}\n", "utf8");
         await writeProfile(systemRoot, "custom.output.profile.mjs", `
@@ -1307,6 +1321,7 @@ describe("AgentProfileCatalog", () => {
         await symlink(dataWorkspaceRoot, join(productRoot, "workspace"), process.platform === "win32" ? "junction" : "dir");
         await writeFile(join(productRoot, "package.json"), "{\"name\":\"neuro-book-product\",\"version\":\"0.0.0\",\"type\":\"module\"}\n", "utf8");
         await writeFile(join(productRoot, "tsconfig.json"), "{}\n", "utf8");
+        await writeFile(join(productRoot, ".output", "server", "tsconfig.json"), "{}\n", "utf8");
         await writeFile(join(productRoot, ".output", "server", "index.mjs"), "", "utf8");
         await writeFile(join(productRoot, ".output", "server", "node_modules", "@nbook", "portable-marker", "index.js"), `module.exports = {marker: "portable-vendor"};\n`, "utf8");
         await writeProfile(userRoot, "custom.portable.profile.mjs", `
