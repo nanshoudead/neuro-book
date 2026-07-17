@@ -10,7 +10,7 @@
 
 ## Status
 
-Implemented / Public 0.8.4 Platform Verified / 0.8.5 Fresh Install Pending（浏览器验收未执行）
+Implemented / Public Product Bun Verified / GHCR Pending Manager 0.1.0-canary.19（人工浏览器验收未执行）
 
 ## User Request / Topic
 
@@ -829,3 +829,12 @@ Task 108 与 Task 109 合并后完成最终串行复核：
 - migration preflight现在明确区分空计划与非空计划。0个session时直接返回空报告，保持dry-run零写入；存在session时仍检查Agent Root写权限、既有blob一致性、外部引用可读性和全部checksum。
 - 新回归先确认修复前失败，再验证空Workspace Root不会创建`.nbook/agent`；完整migration suite为22/22，Manager migration/operation聚焦19项与根typecheck通过。
 - Task 108仍保持Public Release Pending。修复将进入`0.8.5`，随后重新执行公开Product Bun与GHCR首次安装；不会重复迁移真实开发Workspace，也不把CI浏览器启动smoke写成人工图片展示验收。
+
+### 2026-07-17 0.8.5公开Product通过与GHCR迁移命令阻断
+
+- `0.8.5`公开Product Bun空目录安装已证明0-session dry-run返回null plan，安装operation直接成功提交；doctor healthy且Source/Product revision一致。
+- 公开Product内置Attachment migration smoke完成`planned → complete → rolled_back`并逐字节恢复旧Pi图片Session；分离State Root的五工具、外部Project Attachment、Config/Profile/Variable和完整移动恢复通过。
+- GHCR安装并未执行Attachment dry-run。Manager使用`compose run app bun ...`，但Product ENTRYPOINT忽略CMD并启动长期服务；容器inspect直接证明预期migration argv存在于Config.Cmd却未被执行。
+- Manager Docker Adapter现用`--entrypoint bun`执行一次性命令，保持migration CLI、Operation Journal和Product ENTRYPOINT各自单一职责。测试固定完整Compose argv和空命令拒绝。
+- 中止失败容器后journal完整回滚，无migration plan、Manifest、wrapper或容器残留。Manager18 files / 65 tests、typecheck和pack通过。
+- Task 108继续保持Public Release Pending，等待Manager`.19`与应用`0.8.6`的公开GHCR migration/install复验；Product Bun公开证据已完成，不重复执行真实开发Workspace迁移。

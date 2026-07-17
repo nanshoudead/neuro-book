@@ -1,8 +1,8 @@
 # 105 - 统一安装目录与 NeuroBook Manager
 
-> 当前状态：实现中。Manager `0.1.0-canary.18`已通过Trusted Publisher公开；应用[`v0.8.4-canary.20260717.112909Z.7ac788db`](https://github.com/notnotype/neuro-book/releases/tag/v0.8.4-canary.20260717.112909Z.7ac788db)九个资产、Windows/Linux Product、Portable、GHCR、Stage 0与公开payload门禁全绿。SSH Arch公开Product Bun首次安装随后发现空State Root的Attachment dry-run错误要求Agent目录预先存在；修复已完成并将进入`0.8.5`。公开Product Bun/GHCR最终用户链复验完成前，Task 105不归档。
+> 当前状态：实现中。应用[`v0.8.5-canary.20260717.121043Z.fc43a3e`](https://github.com/notnotype/neuro-book/releases/tag/v0.8.5-canary.20260717.121043Z.fc43a3e)九资产与平台门禁全绿，SSH Arch公开Product Bun首次安装、doctor、Attachment/State Root和HTTP已通过。公开GHCR安装暴露Manager `.18`的一次性Compose命令未覆盖Product ENTRYPOINT；修复已完成，待Manager `.19`与应用`0.8.6`公开终验。完成前Task 105不归档。
 
-> 2026-07-17发布状态：`manager-v0.1.0-canary.15`、应用`0.8.1`与`0.8.3`保留为失败审计记录；Manager `.18`和应用`0.8.4`已公开。下一patch只修复空Workspace Root的Attachment migration preflight，不复用既有tag，也不发布未变化的Manager。
+> 2026-07-17发布状态：`manager-v0.1.0-canary.15`、应用`0.8.1`与`0.8.3`保留为失败审计记录；Manager `.18`和应用`0.8.5`已公开。下一顺序固定为Manager `.19`先公开，再发布minManagerVersion引用`.19`的应用`0.8.6`；不复用既有tag。
 
 ## Relative documents refs
 
@@ -726,3 +726,12 @@ uninstall
 - 失败操作已按合同恢复：operation journal为`committed / rolled-back`，安装根不残留Product、Source文件、Manifest、State Root文件、Manager wrapper或Runtime版本目录；仅保留审计journal和空目录骨架。
 - 根因是Attachment migration preflight已得到0个session计划后仍无条件检查Agent Root写权限。修复位于migration领域Module：空计划直接返回且dry-run零写入；不让Fresh Install伪造Agent数据目录，也不放宽任何非空session的权限/checksum门禁。
 - 新增空Workspace Root回归并先红后绿；Attachment migration完整22项、Manager迁移/Operation 3 files / 19 tests和根typecheck通过。Manager bundle未变化，下一应用patch使用`0.8.5`；公开Product Bun与GHCR需在新资产发布后重新验收。
+
+### 2026-07-17 0.8.5 Product Bun通过与GHCR one-off ENTRYPOINT阻断
+
+- `0.8.5` workflow `29579336942`九资产与Windows/Linux verify全绿，公开payload checksum、GHCR digest和最终索引均通过。
+- SSH Arch公开Product Bun首次安装成功：Manifest v3与revision正确，doctor healthy，安装operation为`committed/success`且0-session时不创建Attachment plan；公开Product完成Attachment rollback、分离State Root五工具/Config/Profile/Variable、完整移动恢复、无根`node_modules`启动与HTTP精确版本验证。
+- GHCR空目录安装在`planAttachmentMigration()`挂起。容器inspect确认Config.Cmd是预期`bun migrate-agent-attachments --dry-run`，但Product ENTRYPOINT忽略参数，执行Prisma migration后启动长期Web服务；one-off容器无宿主端口映射，Manager永远等不到命令输出。
+- 修复所有权位于Manager Docker Adapter：`runDockerApplicationCommand()`显式把命令首项传给Compose `--entrypoint`，其余argv放在service之后；空命令立即拒绝。没有修改Product ENTRYPOINT、没有增加超时掩盖、没有把maintenance命令改成宿主执行。
+- 中断公开失败安装后，Operation为`committed/rolled-back`，Compose、网络、容器、Manifest和wrapper均无残留。Manager完整18 files / 65 tests、typecheck和pack审计通过。
+- 该修复需要先发布Manager`.19`，再发布minManagerVersion引用`.19`的应用`0.8.6`；公开GHCR最终用户链通过前Task 105继续实现中。

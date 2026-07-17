@@ -1,5 +1,29 @@
 # Release Notes
 
+## 0.8.6-canary - 2026-07-17
+
+本次patch修复GHCR与Source Docker安装、更新时的一次性维护命令被Product镜像ENTRYPOINT截获的问题。`0.8.5`公开Product Bun首次安装、Attachment迁移、State Root和HTTP均已通过，但GHCR安装在容器内规划Attachment迁移时错误启动了长期Web服务，导致Manager一直等待命令结束。
+
+### 更新说明
+
+- Manager执行容器内migration等一次性命令时，显式使用`docker compose run --entrypoint <command>`覆盖Product正式ENTRYPOINT。
+- 命令首项作为容器ENTRYPOINT，其余参数保持独立argv边界；不再依赖镜像脚本猜测调用意图。
+- Product正式ENTRYPOINT继续只负责Prisma migration、system assets预检和长期服务启动，不加入维护命令兼容分支。
+- 空的一次性命令现在立即拒绝，不会创建无意义容器。
+
+### 迁移指南
+
+- GHCR与Source Docker用户必须使用Manager `0.1.0-canary.19`或更高版本安装/更新`0.8.6`。
+- 不要手工修改镜像ENTRYPOINT、绕过Operation Journal运行migration，或把长期服务容器当作一次性维护容器。
+- Product Bun和Windows Portable不受该入口问题影响；继续保留完整State Root即可。
+
+### 验证与已知边界
+
+- SSH Arch使用公开`0.8.5`完成Product Bun空目录安装、healthy doctor、Attachment`dry-run → apply → rollback`、分离State Root五工具/移动恢复、无根`node_modules`启动和HTTP精确版本验证。
+- 同一Arch环境公开GHCR空目录安装稳定复现：one-off容器实际Config.Cmd为migration命令，但镜像ENTRYPOINT启动Product并持续监听；停止容器后Operation完整回滚，未残留Manifest、wrapper、容器或Compose网络。
+- 新增Docker命令边界回归并先红后绿；Manager完整18 files / 65 tests、typecheck与5文件约0.35 MiB pack审计通过。
+- `0.8.6`公开GHCR安装、doctor、启动、HTTP和`/app/.agent`只读合同仍需新Manager和应用资产发布后复验；未执行人工浏览器操作。
+
 ## 0.8.5-canary - 2026-07-17
 
 本次patch修复全新Product Bun安装在首次数据迁移阶段失败的问题。`0.8.4`的Windows/Linux Product、Portable、GHCR和公开资产校验均已通过，但公开Manager从空State Root安装Product Bun时，会因为尚未存在Agent数据目录而中止并回滚。

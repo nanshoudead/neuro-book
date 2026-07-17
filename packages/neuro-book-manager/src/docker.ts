@@ -105,13 +105,18 @@ export async function runDockerApplicationCommand(
     stateRoot: string,
     command: string[],
 ): Promise<string> {
+    const [entrypoint, ...args] = command;
+    if (!entrypoint) throw new Error("Docker一次性应用命令不能为空。");
     return runCapture("docker", [
         ...composeArgs(root, stateRoot),
         "run",
         "--rm",
         "--no-deps",
+        // Product镜像的正式ENTRYPOINT负责迁移并启动长期服务；维护命令必须显式绕过它。
+        "--entrypoint",
+        entrypoint,
         "app",
-        ...command,
+        ...args,
     ], {cwd: root});
 }
 
