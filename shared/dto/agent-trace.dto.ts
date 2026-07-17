@@ -33,6 +33,8 @@ export type AgentTraceRequestDto = {
     context?: unknown;
     /** provider 原生请求体；capturePayload 关闭或 faux provider 时缺省。任意 JSON，透传 JsonViewer。 */
     payload?: unknown;
+    /** 原生 payload 因附件安全边界被省略时为 attachment。 */
+    payloadOmittedReason?: "attachment";
 };
 
 /** 响应侧健康度。失败请求 httpStatus/headers 可能缺（provider 错误路径跳过 onResponse）。 */

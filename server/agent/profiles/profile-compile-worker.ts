@@ -22,7 +22,7 @@ import {
 export {profileSourceFileSetChangedSinceCompile} from "nbook/server/agent/profiles/profile-artifact-compiler";
 import type {ProfileCompilePublishOptions, ProfileCompileWorkerResult} from "nbook/server/agent/profiles/profile-compile-worker-types";
 import {appLogger} from "nbook/server/app-logs/logger";
-import {resolveUserNbookRoot} from "nbook/server/workspace-files/workspace-assets-root";
+import {resolveUserNbookRoot} from "nbook/server/workspace-files/workspace-runtime-root";
 import {ProjectNotOpenError} from "nbook/server/workspace-files/project-session";
 import type {
     AgentProfileCompileAllRequestDto,

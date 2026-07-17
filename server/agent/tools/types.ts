@@ -1,23 +1,52 @@
-import type {AgentTool, JsonValue} from "nbook/server/agent/messages/types";
+import type {JsonValue} from "nbook/server/agent/messages/types";
+import type {StoredContent} from "nbook/server/agent/messages/stored-types";
 import type {TSchema} from "typebox";
 import type {NeuroAgentHarness} from "nbook/server/agent/harness/neuro-agent-harness";
 import type {ToolSessionWriteSink} from "nbook/server/agent/session/tool-session-write-sink";
 import type {ProfileVariableAccessor} from "nbook/server/agent/variables/types";
 import type {LowCodeFormDto} from "nbook/shared/dto/low-code-form.dto";
+import type {AttachmentStore} from "nbook/server/agent/attachments/attachment-store";
+import type {AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
+import type {WorkspaceRootRef} from "nbook/server/workspace-files/workspace-root-ref";
 
 export type ToolExecutionMode = "sequential" | "parallel";
+
+/**
+ * 工具执行的 NeuroBook 领域结果。
+ *
+ * 内建工具只能返回可直接进入 session truth 的 text/attachment block；Pi image
+ * 不属于该边界。未来接入外部 Pi 工具时，Adapter 必须先把图片保存为 attachment，
+ * 再构造 NeuroToolResult。
+ */
+export type NeuroToolResult = {
+    content: StoredContent[];
+    /**
+     * 执行期结构化结果。工具实现必须在返回前收口为 JSON value；外部 unknown
+     * 数据在工具 seam 解析，Harness 不再承担兜底类型转换。
+     */
+    details?: JsonValue;
+    terminate?: boolean;
+};
+
+export type NeuroToolUpdateCallback = (partial: NeuroToolResult) => void;
 
 export type ToolExecutionContext = {
     harness: NeuroAgentHarness;
     sessionId: number;
     parentSessionId?: number;
     profileKey: string;
-    workspaceRoot: string;
+    /** 持久化逻辑引用；配置、子Agent继承和DTO使用。 */
+    workspaceRootRef: WorkspaceRootRef;
+    /** Workspace Root Reference解析出的物理根；File Scope会结合projectPath选择实际cwd。 */
+    workspaceFsRoot: AbsoluteFsPath;
     workspaceKey: string;
     projectPath?: string;
     invocationId?: string;
     vars?: ProfileVariableAccessor;
     sessionWrites?: ToolSessionWriteSink;
+    /** Agent Attachment 领域 Store；工具不得访问具体 Local/OSS/DB Adapter。 */
+    /** 生产 Harness 必填；旧测试/纯文本工具上下文可省略。图片工具缺失时必须 fail closed。 */
+    attachments?: AttachmentStore;
 };
 
 /**
@@ -31,7 +60,7 @@ export type UserInputRequestContext = {
     session: {
         sessionId: number;
         profileKey: string;
-        workspaceRoot: string;
+        workspaceRoot: WorkspaceRootRef;
         workspaceKey: string;
         projectPath?: string;
     };
@@ -52,8 +81,13 @@ export type UserInputFormSpec = {
     layout?: "dialog" | "inline" | "fullscreen";
 };
 
-export type NeuroAgentTool = AgentTool<any, any> & {
+export type NeuroAgentTool = {
     key: string;
+    name: string;
+    label: string;
+    description: string;
+    parameters: TSchema;
+    prepareArguments?: (args: unknown) => unknown;
     approvalRequired?: boolean;
     /**
      * 工具会变更 Project Workspace 状态：写 workspace 文件（write/edit/apply_patch 等）
@@ -81,6 +115,13 @@ export type NeuroAgentTool = AgentTool<any, any> & {
          */
         when: (context: UserInputRequestContext) => Promise<UserInputFormSpec | true | null> | UserInputFormSpec | true | null;
     };
+    /** 无 session context 的工具执行入口。 */
+    execute?: (
+        toolCallId: string,
+        params: unknown,
+        signal?: AbortSignal,
+        onUpdate?: NeuroToolUpdateCallback,
+    ) => Promise<NeuroToolResult>;
     /**
      * v3 harness 自己执行工具时使用的上下文入口。Pi 的 AgentTool.execute 没有当前 session 信息，
      * 所以需要把 Neuro Book 的 session/link 语义保留在这一层。
@@ -93,8 +134,8 @@ export type NeuroAgentTool = AgentTool<any, any> & {
         params: unknown,
         userInput?: unknown,
         signal?: AbortSignal,
-        onUpdate?: Parameters<AgentTool<any, any>["execute"]>[3],
-    ) => ReturnType<AgentTool<any, any>["execute"]>;
+        onUpdate?: NeuroToolUpdateCallback,
+    ) => Promise<NeuroToolResult>;
 };
 
 export type ToolBinding<TKey extends string = string> = {

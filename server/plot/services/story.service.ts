@@ -13,6 +13,7 @@ import type {ParsedReorderStoryPhaseItem} from "nbook/server/plot/core/types";
 import {OrderService} from "nbook/server/plot/services/order.service";
 import {PlotScopeGuard} from "nbook/server/plot/services/plot-scope.guard";
 import {readProjectManifest} from "nbook/server/workspace-files/project-workspace";
+import type {AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
 import type {
     CreateStoryPhaseRequestDto,
     PlotWorkbenchDto,
@@ -28,6 +29,7 @@ import type {
  */
 export class StoryService {
     constructor(
+        private readonly workspaceRoot: AbsoluteFsPath,
         private readonly storyRepository: StoryRepository,
         private readonly threadRepository: ThreadRepository,
         private readonly chapterRepository: ChapterRepository,
@@ -46,7 +48,7 @@ export class StoryService {
         if (existing) {
             return existing;
         }
-        const manifest = await readProjectManifest(projectPath);
+        const manifest = await readProjectManifest(this.workspaceRoot, projectPath);
         return this.storyRepository.createStory({
             title: manifest.title,
             summary: manifest.summary,

@@ -8,9 +8,12 @@ import {Type} from "typebox";
 import {NeuroAgentHarness} from "nbook/server/agent/harness/neuro-agent-harness";
 import {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
 import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
+import {AgentProfileCatalog} from "nbook/server/agent/profiles/catalog";
 import {profileToolsFromKeys} from "nbook/server/agent/test/profile-tools";
-import {createUserMessage, messageText} from "nbook/server/agent/messages/message-utils";
-import type {AgentMessage, JsonValue, Message as RuntimeMessage} from "nbook/server/agent/messages/types";
+import {createStoredUserMessage} from "nbook/server/agent/messages/message-utils";
+import type {JsonValue, Message as RuntimeMessage} from "nbook/server/agent/messages/types";
+import type {StoredAgentMessage} from "nbook/server/agent/messages/stored-types";
+import {storedMessageText} from "nbook/server/agent/messages/stored-message-presentation";
 
 describe("NeuroAgentHarness invocation payload", () => {
     let root: string;
@@ -22,6 +25,7 @@ describe("NeuroAgentHarness invocation payload", () => {
         faux = createFauxModels();
         harness = new NeuroAgentHarness({
             repo: new JsonlSessionRepository(root),
+            profiles: new AgentProfileCatalog(resolve(root, "profiles-system"), resolve(root, "profiles-user")),
             modelResolver: () => faux.getModel(),
             runtimeResolver: () => faux.runtime,
         });
@@ -71,9 +75,7 @@ describe("NeuroAgentHarness invocation payload", () => {
                 observedPayload = ctx.invocation?.payload;
                 return {
                     systemPrompt: `payload=${ctx.invocation?.payload?.plotId}; message=${ctx.invocation?.message}`,
-                    appendingMessages: [createUserMessage({
-                        text: `prepared payload=${ctx.invocation?.payload?.plotId}; message=${ctx.invocation?.message}`,
-                    })],
+                    appendingMessages: [createStoredUserMessage(`prepared payload=${ctx.invocation?.payload?.plotId}; message=${ctx.invocation?.message}`)],
                 };
             },
         }), false);
@@ -295,9 +297,6 @@ describe("NeuroAgentHarness invocation payload", () => {
     }, 20_000);
 });
 
-function visibleText(messages: AgentMessage[]): string {
-    return messages
-        .filter((message): message is RuntimeMessage => message.role !== "custom")
-        .map(messageText)
-        .join("\n");
+function visibleText(messages: StoredAgentMessage[]): string {
+    return messages.map((message) => storedMessageText(message)).join("\n");
 }

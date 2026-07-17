@@ -274,6 +274,20 @@ export type OperationJournal = {
     sourceDependenciesInstalled?: boolean;
     databaseBackup?: string;
     databasePath?: string;
+    /** Product数据格式迁移必须先于Product/Compose回滚恢复。 */
+    attachmentMigration?: {
+        runId: string;
+        state: "planned" | "applied" | "rolled_back";
+        migratedSessions: number;
+        sessions: Array<{
+            sessionId: number | null;
+            sourcePath: string;
+            sourceHash: string;
+            targetHash: string;
+            /** apply完成后由migration报告提供；planned阶段为空。 */
+            backupPath?: string;
+        }>;
+    };
     previousCompose?: string;
     /** Compose 已切换；回滚前必须先停止当前容器。 */
     composeChanged?: boolean;

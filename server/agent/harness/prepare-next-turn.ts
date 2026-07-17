@@ -1,5 +1,5 @@
-import {createUserMessage} from "nbook/server/agent/messages/message-utils";
-import type {Message} from "nbook/server/agent/messages/types";
+import {createStoredUserMessage} from "nbook/server/agent/messages/message-utils";
+import type {StoredUserMessage} from "nbook/server/agent/messages/stored-types";
 import type {RunFrame, TurnContinuationDecision} from "nbook/server/agent/harness/run-kernel-types";
 import type {SessionWritePlan} from "nbook/server/agent/session/write-plan";
 
@@ -61,11 +61,9 @@ function appendReportResultReminder(frame: RunFrame): SessionWritePlan | undefin
 /**
  * 构造 harness 注入的 report_result 提醒消息。
  */
-function createReportResultReminder(frame: RunFrame): Message {
+function createReportResultReminder(frame: RunFrame): StoredUserMessage {
     const toolName = requiredResultToolName(frame);
-    return createUserMessage({
-        text: `你必须使用 ${toolName} 工具返回最终结果。请不要只回复普通文本。`,
-    });
+    return createStoredUserMessage(`你必须使用 ${toolName} 工具返回最终结果。请不要只回复普通文本。`);
 }
 
 function requiredResultToolName(frame: RunFrame): "report_result" | "report_sidecar_result" {

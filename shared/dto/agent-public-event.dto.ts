@@ -64,18 +64,61 @@ export type PublicToolArgsDto =
     | PublicApplyPatchToolArgsDto
     | PublicGenericToolArgsDto;
 
+/** Attachment 的公开描述；公开边界不携带 blob data。 */
+export type PublicAttachmentDto = {
+    attachmentId: AttachmentId;
+    mimeType: string;
+    bytes: number;
+    /** 同一 blob 在当前消息中的展示文件名；不存在表示来源没有提供名称。 */
+    name?: string;
+    dataOmitted: true;
+};
+
+/** durable Chat Flow attachment 的稳定定位信息。 */
+export type AgentChatAttachmentDto = {
+    /** attachment block 在所属 stored message content 中的原始索引。 */
+    contentIndex: number;
+    attachment: PublicAttachmentDto;
+};
+
+/** user Chat Flow 按 stored contentIndex 保序的公开内容块。 */
+export type AgentChatContentBlockDto =
+    | {
+        type: "text";
+        contentIndex: number;
+        content: PublicTextPreviewDto;
+    }
+    | ({type: "attachment"} & AgentChatAttachmentDto);
+
+/**
+ * user entry 全部文本的聚合描述。
+ *
+ * preview 只存在于 ordered blocks，避免同一段正文跨字段重复占用公开事件预算。
+ */
+export type AgentChatTextSummaryDto = {
+    bytes: number;
+    omitted: boolean;
+};
+
 export type PublicToolContentDto =
     | {
         type: "text";
+        contentIndex: number;
         textPreview: string;
         textBytes: number;
         textOmitted: boolean;
     }
     | {
         type: "image";
+        contentIndex: number;
         mimeType: string;
         dataBytes: number;
         dataOmitted: true;
+    }
+    | {
+        type: "attachment";
+        contentIndex: number;
+        attachment: PublicAttachmentDto;
     };
 
 export type PublicToolResultDetailsDto =
@@ -154,7 +197,12 @@ export type AgentChatUserEntryDto = {
     id: string;
     timestamp: number;
     type: "user";
-    content: PublicTextPreviewDto;
+    /** 唯一正文来源；按 stored contentIndex 保序。 */
+    blocks: AgentChatContentBlockDto[];
+    /** 因 block 数量上限或非法公开结构而未投影的 block 数量。 */
+    omittedBlocks: number;
+    /** 全部文本的 UTF-8 大小和省略状态；正文 preview 由 text blocks 提供。 */
+    textSummary: AgentChatTextSummaryDto;
     intent: "normal" | "steer";
 };
 
@@ -218,6 +266,7 @@ export type AgentChatEntryDto =
     | AgentChatSystemEntryDto
     | AgentChatInvocationErrorEntryDto;
 import type {Usage} from "@earendil-works/pi-ai";
+import type {AttachmentId} from "nbook/shared/dto/agent-attachment.dto";
 import type {LowCodeFieldDto, LowCodeJsonObject} from "nbook/shared/dto/low-code-form.dto";
 
 export type AgentUserInputFieldDto = Omit<LowCodeFieldDto, "component" | "resource"> & {

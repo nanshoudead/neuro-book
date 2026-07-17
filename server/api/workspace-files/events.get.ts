@@ -1,16 +1,18 @@
 import {createEventStream} from "h3";
 import type {H3Event} from "h3";
 import type {WorkspaceFileStreamEventDto} from "nbook/shared/dto/workspace-file-events.dto";
-import {resolveWorkspaceRootInput} from "nbook/server/workspace-files/novel-workspace";
+import {resolveWorkspaceFileTarget} from "nbook/server/workspace-files/novel-workspace";
 import {subscribeWorkspaceTreeIndex} from "nbook/server/workspace-files/project-workspace-index";
-import {assertProjectOpenForRoot} from "nbook/server/workspace-files/project-open-guard";
+import {assertProjectOpenForTarget} from "nbook/server/workspace-files/project-open-guard";
 import {isClosingEventStreamError} from "nbook/server/utils/event-stream";
+import {runtimePathsFromEnv, type RuntimePaths} from "nbook/server/runtime/paths/runtime-paths";
 
 type WorkspaceFileEventsDependencies = {
     createEventStream: typeof createEventStream;
-    resolveWorkspaceRootInput: typeof resolveWorkspaceRootInput;
+    runtimePaths: () => RuntimePaths;
+    resolveWorkspaceFileTarget: typeof resolveWorkspaceFileTarget;
     subscribeWorkspaceTreeIndex: typeof subscribeWorkspaceTreeIndex;
-    assertProjectOpenForRoot?: typeof assertProjectOpenForRoot;
+    assertProjectOpenForTarget?: typeof assertProjectOpenForTarget;
 };
 
 /**
@@ -18,16 +20,20 @@ type WorkspaceFileEventsDependencies = {
  */
 export function createWorkspaceFileEventsHandler(dependencies: WorkspaceFileEventsDependencies = {
     createEventStream,
-    resolveWorkspaceRootInput,
+    runtimePaths: runtimePathsFromEnv,
+    resolveWorkspaceFileTarget,
     subscribeWorkspaceTreeIndex,
-    assertProjectOpenForRoot,
+    assertProjectOpenForTarget,
 }) {
     return async (event: H3Event) => {
         const query = getQuery(event);
         const projectPath = typeof query.projectPath === "string" ? query.projectPath : undefined;
         const workspaceKind = query.workspaceKind === "user-assets" ? query.workspaceKind : undefined;
-        const workspaceRoot = await dependencies.resolveWorkspaceRootInput({projectPath, workspaceKind});
-        dependencies.assertProjectOpenForRoot?.(workspaceRoot);
+        const target = await dependencies.resolveWorkspaceFileTarget(
+            dependencies.runtimePaths(),
+            {projectPath, workspaceKind},
+        );
+        dependencies.assertProjectOpenForTarget?.(target);
         const eventStream = dependencies.createEventStream(event);
         let streamClosed = false;
         let unsubscribe: (() => void) | null = null;
@@ -58,8 +64,7 @@ export function createWorkspaceFileEventsHandler(dependencies: WorkspaceFileEven
         });
 
         unsubscribe = await dependencies.subscribeWorkspaceTreeIndex({
-            root: workspaceRoot,
-            workspaceKind,
+            target,
         }, async (payload) => {
             await pushWorkspaceEvent(payload);
         });

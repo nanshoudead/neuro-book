@@ -25,10 +25,12 @@ import {SceneWorldAnchorResolutionService} from "nbook/server/plot/services/scen
 import {SceneWorldContextService} from "nbook/server/plot/services/scene-world-context.service";
 import {StoryService} from "nbook/server/plot/services/story.service";
 import {ThreadService} from "nbook/server/plot/services/thread.service";
-import {normalizeProjectPath, resolveProjectDatabasePath, toSqliteFileUrl} from "nbook/server/workspace-files/project-workspace";
+import {normalizeProjectPath, resolveProjectWorkspaceRoot} from "nbook/server/workspace-files/project-path";
+import {resolveProjectDatabasePath, toSqliteFileUrl} from "nbook/server/workspace-files/project-workspace";
 import {assertProjectOpen, markProjectActivity} from "nbook/server/workspace-files/project-session";
 import {readProjectWorkspaceTreeSnapshot} from "nbook/server/workspace-files/project-workspace-index";
-import {worldEngineFacade} from "nbook/server/world-engine";
+import type {WorldEngineFacade} from "nbook/server/world-engine";
+import type {AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
 import {
     mergeContentDiagnostics,
     processTextFieldsWithResults,
@@ -103,11 +105,17 @@ type PlotClientEntry = {
  */
 export class PlotFacade {
     private readonly clients = new Map<string, PlotClientEntry>();
-    private readonly sceneWorldAnchorResolutionService = new SceneWorldAnchorResolutionService(worldEngineFacade);
+    private readonly sceneWorldAnchorResolutionService: SceneWorldAnchorResolutionService;
     // Prose 反指解析不依赖 Project SQLite,直接复用 workspace 内存索引,做 facade 级单例。
-    private readonly chapterProseService = new ChapterProseService();
+    private readonly chapterProseService: ChapterProseService;
 
-    constructor() {}
+    constructor(
+        private readonly workspaceRoot: AbsoluteFsPath,
+        private readonly worldEngine: WorldEngineFacade,
+    ) {
+        this.sceneWorldAnchorResolutionService = new SceneWorldAnchorResolutionService(worldEngine);
+        this.chapterProseService = new ChapterProseService(workspaceRoot);
+    }
 
     /**
      * 解析指定章的 Prose 文件(frontmatter `chapter: <name>` 反指)。
@@ -137,9 +145,12 @@ export class PlotFacade {
      */
     async bootstrapCarrierTree(projectPath: string): Promise<CarrierTreeBootstrapResult> {
         const normalized = normalizeProjectPath(projectPath);
-        const snapshot = await readProjectWorkspaceTreeSnapshot({root: normalized});
+        const projectRoot = resolveProjectWorkspaceRoot(this.workspaceRoot, normalized);
+        const snapshot = await readProjectWorkspaceTreeSnapshot({
+            target: {kind: "project-workspace", root: projectRoot, projectPath: normalized},
+        });
         const dbResult = await this.runInTransaction(normalized, (module) => module.chapterBootstrapService.applyCarrierTree(normalized, snapshot.nodes));
-        const fsResult = await writeProsePointers(normalized, dbResult.pendingPointers);
+        const fsResult = await writeProsePointers(projectRoot, normalized, dbResult.pendingPointers);
         return {
             actsCreated: dbResult.actsCreated,
             chaptersCreated: dbResult.chaptersCreated,
@@ -154,7 +165,7 @@ export class PlotFacade {
      */
     async closeProject(projectPath: string): Promise<void> {
         const normalizedProjectPath = normalizeProjectPath(projectPath);
-        const databasePath = resolveProjectDatabasePath(normalizedProjectPath);
+        const databasePath = resolveProjectDatabasePath(this.workspaceRoot, normalizedProjectPath);
         const cacheKey = databasePath.replace(/\\/g, "/");
         const entry = this.clients.get(cacheKey);
         if (!entry) {
@@ -628,8 +639,8 @@ export class PlotFacade {
         }
 
         return {
-            startInstant: dto.startTime === null ? null : await worldEngineFacade.parseTime(projectPath, dto.startTime),
-            endInstant: dto.endTime === null ? null : await worldEngineFacade.parseTime(projectPath, dto.endTime),
+            startInstant: dto.startTime === null ? null : await this.worldEngine.parseTime(projectPath, dto.startTime),
+            endInstant: dto.endTime === null ? null : await this.worldEngine.parseTime(projectPath, dto.endTime),
             subjectIds: dto.subjectIds.map((subjectId) => subjectId.trim()),
             locationSubjectId: dto.locationSubjectId === null ? null : dto.locationSubjectId.trim(),
         };
@@ -769,7 +780,7 @@ export class PlotFacade {
         const normalizedProjectPath = normalizeProjectPath(projectPath);
         assertProjectOpen(normalizedProjectPath);
         markProjectActivity(normalizedProjectPath);
-        const databasePath = resolveProjectDatabasePath(normalizedProjectPath);
+        const databasePath = resolveProjectDatabasePath(this.workspaceRoot, normalizedProjectPath);
         const cacheKey = databasePath.replace(/\\/g, "/");
         const existing = this.clients.get(cacheKey);
         if (existing) {
@@ -805,6 +816,7 @@ export class PlotFacade {
             decisionRepository,
         );
         const storyService = new StoryService(
+            this.workspaceRoot,
             storyRepository,
             threadRepository,
             chapterRepository,
@@ -851,7 +863,7 @@ export class PlotFacade {
             sceneRepository,
             storyService,
             scopeGuard,
-            worldEngineFacade,
+            this.worldEngine,
         );
         const chapterService = new ChapterService(
             chapterRepository,

@@ -6,20 +6,23 @@
 
 import {createWorldEngineTools} from "nbook/server/agent/tools/world-engine-tools";
 import type {ToolExecutionContext} from "nbook/server/agent/tools/types";
-import {resolveWorkspaceContainerRoot} from "nbook/server/workspace-files/workspace-assets-root";
+import {resolveRuntimeWorkspaceRoot} from "nbook/server/workspace-files/workspace-runtime-root";
+import {WORKSPACE_CONTAINER_ROOT} from "nbook/server/workspace-files/workspace-root-ref";
 
 const tools = createWorldEngineTools();
 const executeWorldTool = tools.find((t) => t.key === "execute_world");
+const projectPath = "workspace/ming-ding-zhi-shi-2";
+const workspaceRoot = resolveRuntimeWorkspaceRoot();
 
 const context: ToolExecutionContext = {
     harness: {} as ToolExecutionContext["harness"],
     sessionId: 1,
     profileKey: "scripts.chapter-01-slices",
-    workspaceRoot: resolveWorkspaceContainerRoot(),
+    workspaceRootRef: WORKSPACE_CONTAINER_ROOT,
+    workspaceFsRoot: workspaceRoot,
     workspaceKey: "global",
+    projectPath,
 };
-
-const projectPath = "workspace/ming-ding-zhi-shi-2";
 
 async function writeSlice(slice: {time: string; title: string; kind?: string; patches: any[]}) {
     if (!executeWorldTool?.executeWithContext) {

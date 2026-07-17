@@ -2,7 +2,7 @@ import path from "node:path";
 import {compileProfileArtifacts, type CompileProfileArtifactsResult, type ProfileReleasePublishOptions} from "nbook/server/agent/profiles/profile-artifact-compiler";
 import {compileVariableDefinitions, type VariableDefinitionManifest} from "nbook/server/agent/variables/definition-artifact";
 import {syncSystemAssetsToUserAssets, type UserAssetsSyncResult} from "nbook/server/workspace-files/novel-workspace";
-import {resolveSystemNbookRoot} from "nbook/server/workspace-files/workspace-assets-root";
+import {resolveSystemNbookRoot} from "nbook/server/workspace-files/system-workspace-assets";
 
 export type SystemAssetsPreflightResult = {
     variableManifest: VariableDefinitionManifest;

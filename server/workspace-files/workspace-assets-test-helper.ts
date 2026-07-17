@@ -2,12 +2,17 @@ import {cp, mkdir, mkdtemp, rm, symlink} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import path from "node:path";
 import {
-    getWorkspaceAssetRootContextForTest,
+    getSystemWorkspaceAssetContextForTest,
     resolveApplicationRoot,
     resolveSystemNbookRoot,
-    setWorkspaceAssetRootContextForTest,
-    type WorkspaceAssetRootContext,
-} from "nbook/server/workspace-files/workspace-assets-root";
+    setSystemWorkspaceAssetContextForTest,
+    type SystemWorkspaceAssetContext,
+} from "nbook/server/workspace-files/system-workspace-assets";
+import {
+    getWorkspaceRuntimeRootContextForTest,
+    setWorkspaceRuntimeRootContextForTest,
+    type WorkspaceRuntimeRootContext,
+} from "nbook/server/workspace-files/workspace-runtime-root";
 
 export type IsolatedWorkspaceAssets = {
     root: string;
@@ -55,16 +60,19 @@ export async function withIsolatedWorkspaceAssets<T>(
  */
 export async function createIsolatedWorkspaceAssets(options: IsolatedWorkspaceAssetsOptions = {}): Promise<IsolatedWorkspaceAssets> {
     const root = await mkdtemp(path.join(tmpdir(), "nbook-workspace-assets-"));
-    const previousContext = getWorkspaceAssetRootContextForTest();
+    const previousSystemContext = getSystemWorkspaceAssetContextForTest();
+    const previousRuntimeContext = getWorkspaceRuntimeRootContextForTest();
     const applicationRoot = resolveApplicationRoot();
     const sourceSystemNbookRoot = options.sourceSystemNbookRoot ?? resolveSystemNbookRoot();
     const systemNbookRoot = path.join(root, "assets", "workspace", ".nbook");
     const workspaceContainerRoot = path.join(root, "workspace");
     const userNbookRoot = path.join(workspaceContainerRoot, ".nbook");
-    const context: WorkspaceAssetRootContext = {
+    const systemContext: SystemWorkspaceAssetContext = {
         applicationRoot,
         systemNbookRoot,
-        workspaceContainerRoot,
+    };
+    const runtimeContext: WorkspaceRuntimeRootContext = {
+        workspaceRoot: workspaceContainerRoot,
         userNbookRoot,
     };
     await mkdir(path.dirname(systemNbookRoot), {recursive: true});
@@ -80,7 +88,8 @@ export async function createIsolatedWorkspaceAssets(options: IsolatedWorkspaceAs
         await linkApplicationFiles(applicationRoot, root);
         process.chdir(root);
     }
-    setWorkspaceAssetRootContextForTest(context);
+    setSystemWorkspaceAssetContextForTest(systemContext);
+    setWorkspaceRuntimeRootContextForTest(runtimeContext);
     return {
         root,
         applicationRoot,
@@ -90,7 +99,8 @@ export async function createIsolatedWorkspaceAssets(options: IsolatedWorkspaceAs
         userProfileRoot: path.join(userNbookRoot, "agent", "profiles"),
         systemProfileRoot: path.join(systemNbookRoot, "agent", "profiles"),
         dispose: async () => {
-            setWorkspaceAssetRootContextForTest(previousContext);
+            setSystemWorkspaceAssetContextForTest(previousSystemContext);
+            setWorkspaceRuntimeRootContextForTest(previousRuntimeContext);
             if (options.useAsCwd) {
                 process.chdir(previousCwd);
                 await unlinkApplicationFiles(root);

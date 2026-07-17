@@ -1,5 +1,6 @@
 import type {JsonValue, Message} from "nbook/server/agent/messages/types";
-import {createTextToolResult} from "nbook/server/agent/messages/message-utils";
+import {createStoredTextToolResult} from "nbook/server/agent/messages/message-utils";
+import type {StoredToolResultMessage} from "nbook/server/agent/messages/stored-types";
 import type {AgentResolution} from "nbook/server/agent/tools/types";
 import {buildRequestUserInputResult, formatRequestUserInputAnswers, parseRequestUserInputParams} from "nbook/server/agent/tools/request-user-input-result";
 
@@ -51,7 +52,7 @@ export function findPendingApprovalCall(messages: Message[], approvalToolKeys: r
 /**
  * 把 continue resolution 转成标准 tool result message。
  */
-export function resolutionToToolResult(resolution: AgentResolution, pending: {toolCallId: string; toolName: string; args?: Record<string, unknown>}): Message {
+export function resolutionToToolResult(resolution: AgentResolution, pending: {toolCallId: string; toolName: string; args?: Record<string, unknown>}): StoredToolResultMessage {
     if (resolution.toolCallId !== pending.toolCallId) {
         throw new Error(`resolution toolCallId ${resolution.toolCallId} 与 pending toolCallId ${pending.toolCallId} 不匹配`);
     }
@@ -61,7 +62,7 @@ export function resolutionToToolResult(resolution: AgentResolution, pending: {to
             ? parseRequestUserInputParams(pending.args)
             : undefined;
         if (resolution.answers) {
-            return createTextToolResult({
+            return createStoredTextToolResult({
                 toolCallId: pending.toolCallId,
                 toolName: pending.toolName,
                 text: requestUserInputParams
@@ -76,7 +77,7 @@ export function resolutionToToolResult(resolution: AgentResolution, pending: {to
         const dataDetails = userInputDataDetails(resolution.data);
         if (requestUserInputParams) {
             const result = buildRequestUserInputResult(requestUserInputParams, dataDetails.data.userInput);
-            return createTextToolResult({
+            return createStoredTextToolResult({
                 toolCallId: pending.toolCallId,
                 toolName: pending.toolName,
                 text: result.text,
@@ -87,7 +88,7 @@ export function resolutionToToolResult(resolution: AgentResolution, pending: {to
                 },
             });
         }
-        return createTextToolResult({
+        return createStoredTextToolResult({
             toolCallId: pending.toolCallId,
             toolName: pending.toolName,
             text: userInputDataText(dataDetails.data.userInput),
@@ -110,7 +111,7 @@ export function resolutionToToolResult(resolution: AgentResolution, pending: {to
             ? {...resolution, data: {userInput: resolution.answers}}
             : resolution;
 
-    return createTextToolResult({
+    return createStoredTextToolResult({
         toolCallId: pending.toolCallId,
         toolName: pending.toolName,
         text: resolution.approved

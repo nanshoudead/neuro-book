@@ -5,6 +5,7 @@ import {defineAgentTool} from "nbook/server/agent/tools/types";
 import type {NeuroAgentTool, UserInputRequestContext, UserInputFormSpec} from "nbook/server/agent/tools/types";
 import type {LowCodeFieldDto} from "nbook/shared/dto/low-code-form.dto";
 import {buildRequestUserInputResult} from "nbook/server/agent/tools/request-user-input-result";
+import {normalizeToolResultDetails} from "nbook/server/agent/messages/message-utils";
 
 export const ReportResultSchema = Type.Object({
     result: Type.String(),
@@ -78,7 +79,7 @@ export const controlTools = {
             const report = params as Static<typeof ReportResultSchema>;
             return {
                 content: [{type: "text", text: report.result}],
-                details: report,
+                details: normalizeToolResultDetails(report),
                 terminate: true,
             };
         },
@@ -95,7 +96,7 @@ export const controlTools = {
             const report = params as Static<typeof ReportSidecarResultValidationSchema>;
             return {
                 content: [{type: "text", text: report.result}],
-                details: report,
+                details: normalizeToolResultDetails(report),
                 terminate: true,
             };
         },
@@ -122,7 +123,7 @@ export const controlTools = {
 
             return {
                 content: [{type: "text", text: result.text}],
-                details: {answers: result.answers},
+                details: normalizeToolResultDetails({answers: result.answers}),
                 terminate: true,
             };
         },
@@ -187,14 +188,14 @@ export const controlTools = {
             if (!formData?.approved) {
                 return {
                     content: [{type: "text", text: `用户拒绝切换到${copy.modeLabel}模式。`}],
-                    details: {approved: false, targetMode: request.targetMode},
+                    details: normalizeToolResultDetails({approved: false, targetMode: request.targetMode}),
                     terminate: true,
                 };
             }
 
             return {
                 content: [{type: "text", text: request.reason ? `请求切换到${copy.modeLabel}模式：${request.reason}` : `请求切换到${copy.modeLabel}模式。`}],
-                details: {approved: true, pending: true, targetMode: request.targetMode},
+                details: normalizeToolResultDetails({approved: true, pending: true, targetMode: request.targetMode}),
                 terminate: true,
             };
         },
@@ -233,7 +234,7 @@ export function createReportResultTool(parameters: TSchema, options: {
             }
             return {
                 content: [{type: "text", text: report.result}],
-                details: report,
+                details: normalizeToolResultDetails(report),
                 terminate: true,
             };
         },
@@ -290,10 +291,10 @@ export function createReportSidecarResultTool(parameters: TSchema, options: {
             }
             return {
                 content: [{type: "text", text: report.result}],
-                details: {
+                details: normalizeToolResultDetails({
                     result: report.result,
                     data: report.data,
-                },
+                }),
                 terminate: true,
             };
         },

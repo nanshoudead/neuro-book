@@ -1,5 +1,6 @@
-import {mkdir, mkdtemp, readFile, rm, writeFile} from "node:fs/promises";
-import {dirname, join, resolve} from "node:path";
+import {access, mkdir, mkdtemp, readFile, rm, symlink, writeFile} from "node:fs/promises";
+import {basename, dirname, join, resolve} from "node:path";
+import {createHash} from "node:crypto";
 import {tmpdir} from "node:os";
 import {Type} from "typebox";
 import {Value} from "typebox/value";
@@ -8,9 +9,13 @@ import {NeuroAgentHarness} from "nbook/server/agent/harness/neuro-agent-harness"
 import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
 import {profileToolsFromKeys} from "nbook/server/agent/test/profile-tools";
 import {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
+import {AgentProfileCatalog} from "nbook/server/agent/profiles/catalog";
 import type {ToolExecutionContext} from "nbook/server/agent/tools/types";
-import {resolveWorkspacePath} from "nbook/server/agent/tools/file-tool-utils";
 import {resolveBashPathForPlatform} from "nbook/server/agent/tools/file-tools";
+import {resolveSessionFileScope} from "nbook/server/agent/workspace/session-file-scope";
+import {resolveFileAddress} from "nbook/server/workspace-files/file-scope";
+import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
+import {createRuntimePaths} from "nbook/server/runtime/paths/runtime-paths";
 
 describe("v3 file tools", () => {
     let root: string;
@@ -22,8 +27,14 @@ describe("v3 file tools", () => {
         root = await mkdtemp(join(tmpdir(), "nbook-agent-file-tools-test-"));
         workspaceRoot = join(root, "workspace");
         await mkdir(workspaceRoot, {recursive: true});
+        const runtimePaths = createRuntimePaths({
+            applicationRoot: absoluteFsPath(resolve(".")),
+            stateRoot: absoluteFsPath(root),
+        });
         harness = new NeuroAgentHarness({
-            repo: new JsonlSessionRepository(root),
+            repo: new JsonlSessionRepository(runtimePaths.workspaceRoot),
+            runtimePaths,
+            profiles: new AgentProfileCatalog(join(root, "profiles-system"), join(root, "profiles-user")),
         });
         harness.profiles.register(defineAgentProfile({
             manifest: {
@@ -45,12 +56,15 @@ describe("v3 file tools", () => {
             harness,
             sessionId: session.sessionId,
             profileKey: "test.file-tools",
-            workspaceRoot,
+            workspaceRootRef: "workspace",
+            workspaceFsRoot: absoluteFsPath(workspaceRoot),
             workspaceKey: "global",
+            attachments: harness.attachmentStore,
         };
     }, 60_000);
 
     afterEach(async () => {
+        await harness.dispose();
         await rm(root, {recursive: true, force: true, maxRetries: 10, retryDelay: 100});
     }, 60_000);
 
@@ -125,8 +139,9 @@ describe("v3 file tools", () => {
         }));
     });
 
-    it("read 图片时保留模型可见 image block", async () => {
-        await writeFile(join(workspaceRoot, "cover.jpg"), Buffer.from([0xff, 0xd8, 0xff, 0xd9]));
+    it("read 图片时直接返回 attachment ref，不生成 base64", async () => {
+        const bytes = Buffer.from([0xff, 0xd8, 0xff, 0xd9]);
+        await writeFile(join(workspaceRoot, "cover.jpg"), bytes);
         const tool = mustTool("read", harness);
 
         const result = await tool.executeWithContext?.(context, "read-image-1", {
@@ -135,11 +150,47 @@ describe("v3 file tools", () => {
 
         expect(result?.content).toEqual([
             {type: "text", text: "Read image file [image/jpeg]"},
-            {type: "image", mimeType: "image/jpeg", data: Buffer.from([0xff, 0xd8, 0xff, 0xd9]).toString("base64")},
+            {
+                type: "attachment",
+                attachment: {
+                    id: `sha256:${createHash("sha256").update(bytes).digest("hex")}`,
+                    mimeType: "image/jpeg",
+                    bytes: 4,
+                },
+                name: "cover.jpg",
+            },
         ]);
+        expect(JSON.stringify(result)).not.toContain(bytes.toString("base64"));
     });
 
-    it("read 在 Workspace Root cwd 中接受完整 Project Path", async () => {
+    it("read 图片候选使用魔数而不是扩展名作为 MIME 真相", async () => {
+        const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xd9]);
+        await writeFile(join(workspaceRoot, "wrong.png"), jpeg);
+        await writeFile(join(workspaceRoot, "fake.png"), "not an image", "utf8");
+        const tool = mustTool("read", harness);
+
+        const result = await tool.executeWithContext?.(context, "read-wrong-extension", {path: "wrong.png"});
+        expect(result?.content).toEqual([
+            {type: "text", text: "Read image file [image/jpeg]"},
+            expect.objectContaining({
+                type: "attachment",
+                attachment: expect.objectContaining({mimeType: "image/jpeg", bytes: jpeg.byteLength}),
+                name: "wrong.png",
+            }),
+        ]);
+        await expect(tool.executeWithContext?.(context, "read-fake-image", {path: "fake.png"}))
+            .rejects.toMatchObject({code: "invalid_input"});
+    });
+
+    it("read 在读取图片正文前拒绝超过 16 MiB 的候选文件", async () => {
+        await writeFile(join(workspaceRoot, "oversized.png"), Buffer.alloc(16 * 1024 * 1024 + 1));
+        const tool = mustTool("read", harness);
+
+        await expect(tool.executeWithContext?.(context, "read-oversized-image", {path: "oversized.png"}))
+            .rejects.toMatchObject({code: "limit_exceeded"});
+    });
+
+    it("read 在Project-bound File Scope中直接接受Project相对路径", async () => {
         const projectWorkspaceRoot = join(root, "workspace", "silver-dragon-hime");
         await mkdir(join(projectWorkspaceRoot, "lorebook", "character", "银龙姬"), {recursive: true});
         await writeFile(join(projectWorkspaceRoot, "lorebook", "character", "银龙姬", "state.md"), "银龙姬状态", "utf-8");
@@ -147,10 +198,11 @@ describe("v3 file tools", () => {
 
         const result = await tool.executeWithContext?.({
             ...context,
-            workspaceRoot,
+            workspaceRootRef: "workspace",
+            workspaceFsRoot: absoluteFsPath(workspaceRoot),
             projectPath: "workspace/silver-dragon-hime",
         }, "read-project-workspace-path", {
-            path: "workspace/silver-dragon-hime/lorebook/character/银龙姬/state.md",
+            path: "lorebook/character/银龙姬/state.md",
         });
 
         expect(result?.content).toEqual([
@@ -166,10 +218,11 @@ describe("v3 file tools", () => {
 
         await tool.executeWithContext?.({
             ...context,
-            workspaceRoot,
+            workspaceRootRef: "workspace",
+            workspaceFsRoot: absoluteFsPath(workspaceRoot),
             projectPath: "workspace/silver-dragon-hime",
         }, "read-context-access", {
-            path: "workspace/silver-dragon-hime/lorebook/character/银龙姬/index.md",
+            path: "lorebook/character/银龙姬/index.md",
         });
 
         const state = JSON.parse(await readFile(join(projectWorkspaceRoot, ".nbook", "context-access", "test.file-tools.json"), "utf-8")) as {
@@ -186,54 +239,79 @@ describe("v3 file tools", () => {
         await expect(readFile(join(projectWorkspaceRoot, "agents", "test.file-tools", "generated.md"), "utf-8")).resolves.toContain("lorebook/character/银龙姬/");
     });
 
-    it("resolveWorkspacePath 在 Workspace Root cwd 中归一化完整 Project Path", () => {
-        const projectWorkspaceRoot = join(root, "workspace", "silver-dragon-hime");
+    it("read 使用完整 Project File Address 时按目标 Project 记录 context access", async () => {
+        const betaRoot = join(root, "workspace", "beta");
+        await mkdir(join(betaRoot, "lorebook", "character", "beta"), {recursive: true});
+        await writeFile(join(betaRoot, "lorebook", "character", "beta", "index.md"), "Beta", "utf8");
+        const tool = mustTool("read", harness);
 
-        expect(resolveWorkspacePath(
-            "workspace/silver-dragon-hime/lorebook/character/银龙姬/state.md",
-            workspaceRoot,
-            "workspace/silver-dragon-hime",
-        )).toBe(resolve(projectWorkspaceRoot, "lorebook", "character", "银龙姬", "state.md"));
-        expect(resolveWorkspacePath(
-            "silver-dragon-hime/lorebook/character/银龙姬/state.md",
-            workspaceRoot,
-            "workspace/silver-dragon-hime",
-        )).toBe(resolve(projectWorkspaceRoot, "lorebook", "character", "银龙姬", "state.md"));
-        expect(resolveWorkspacePath(
-            "workspace",
-            workspaceRoot,
-            "workspace/silver-dragon-hime",
-        )).toBe(resolve(workspaceRoot));
+        await tool.executeWithContext?.({
+            ...context,
+            workspaceRootRef: "workspace",
+            workspaceFsRoot: absoluteFsPath(workspaceRoot),
+            projectPath: "workspace/silver-dragon-hime",
+        }, "read-cross-project", {path: "workspace/beta/lorebook/character/beta/index.md"});
+
+        const state = JSON.parse(await readFile(join(betaRoot, ".nbook", "context-access", "test.file-tools.json"), "utf8")) as {
+            entries: Array<{path: string}>;
+        };
+        expect(state.entries).toEqual([expect.objectContaining({path: "lorebook/character/beta/"})]);
     });
 
-    it("Workspace Root cwd 支持显式跨 Project Workspace 与仓库绝对路径", () => {
-        expect(resolveWorkspacePath(
-            "another-project/manuscript/chapter.md",
-            workspaceRoot,
-            "workspace/silver-dragon-hime",
-        )).toBe(resolve(workspaceRoot, "another-project", "manuscript", "chapter.md"));
+    it("跨 Project 读取图片时来源归目标 Project，blob 仍写入 Workspace Root 全局 Attachment Store", async () => {
+        const betaRoot = join(root, "workspace", "beta");
+        const bytes = Buffer.from([0xff, 0xd8, 0xff, 0xd9]);
+        await mkdir(join(betaRoot, "lorebook"), {recursive: true});
+        await writeFile(join(betaRoot, "lorebook", "cover.jpg"), bytes);
+        const tool = mustTool("read", harness);
+
+        const result = await tool.executeWithContext?.({
+            ...context,
+            projectPath: "workspace/alpha",
+        }, "read-cross-project-image", {path: "workspace/beta/lorebook/cover.jpg"});
+        const attachment = result?.content.find((block) => block.type === "attachment");
+        if (!attachment || attachment.type !== "attachment") {
+            throw new Error("read 未返回 attachment");
+        }
+        const hash = attachment.attachment.id.slice("sha256:".length);
+
+        await expect(access(join(workspaceRoot, ".nbook", "agent", "attachments", "sha256", hash.slice(0, 2), hash.slice(2)))).resolves.toBeUndefined();
+        await expect(access(join(betaRoot, ".nbook", "agent", "attachments"))).rejects.toThrow();
+    });
+
+    it("Session File Scope将Project相对路径解析到当前Project Workspace", () => {
+        const projectWorkspaceRoot = join(root, "workspace", "silver-dragon-hime");
+        const scope = resolveSessionFileScope({
+            workspaceRootRef: "workspace",
+            workspaceFsRoot: absoluteFsPath(workspaceRoot),
+            projectPath: "workspace/silver-dragon-hime",
+        });
+
+        expect(resolveFileAddress(scope, "lorebook/character/银龙姬/state.md").absolutePath)
+            .toBe(resolve(projectWorkspaceRoot, "lorebook", "character", "银龙姬", "state.md"));
+    });
+
+    it("Project File Scope支持完整Project地址跨项目和仓库绝对路径", () => {
+        const scope = resolveSessionFileScope({
+            workspaceRootRef: "workspace",
+            workspaceFsRoot: absoluteFsPath(workspaceRoot),
+            projectPath: "workspace/silver-dragon-hime",
+        });
+        expect(resolveFileAddress(scope, "workspace/another-project/manuscript/chapter.md").absolutePath)
+            .toBe(resolve(workspaceRoot, "another-project", "manuscript", "chapter.md"));
 
         const repositoryReference = resolve("reference", "workspace", "TERMS.md");
-        expect(resolveWorkspacePath(
-            repositoryReference,
-            workspaceRoot,
-            "workspace/silver-dragon-hime",
-        )).toBe(repositoryReference);
+        expect(resolveFileAddress(scope, repositoryReference).absolutePath).toBe(repositoryReference);
     });
 
-    it("resolveWorkspacePath 兼容旧 Project Workspace cwd 别名", () => {
-        const projectWorkspaceRoot = join(root, "workspace", "silver-dragon-hime");
-
-        expect(resolveWorkspacePath(
-            "workspace/silver-dragon-hime/lorebook/character/银龙姬/state.md",
-            projectWorkspaceRoot,
-            "workspace/silver-dragon-hime",
-        )).toBe(resolve(projectWorkspaceRoot, "lorebook", "character", "银龙姬", "state.md"));
-        expect(resolveWorkspacePath(
-            "workspace/lorebook/character/银龙姬/state.md",
-            projectWorkspaceRoot,
-            "workspace/silver-dragon-hime",
-        )).toBe(resolve(projectWorkspaceRoot, "lorebook", "character", "银龙姬", "state.md"));
+    it("Project File Scope拒绝旧slug-relative路径", () => {
+        const scope = resolveSessionFileScope({
+            workspaceRootRef: "workspace",
+            workspaceFsRoot: absoluteFsPath(workspaceRoot),
+            projectPath: "workspace/silver-dragon-hime",
+        });
+        expect(() => resolveFileAddress(scope, "silver-dragon-hime/lorebook/state.md"))
+            .toThrow("不要重复添加silver-dragon-hime/前缀");
     });
 
     it("write 创建父目录并写入内容", async () => {
@@ -314,7 +392,7 @@ describe("v3 file tools", () => {
         await expect(readFile(join(workspaceRoot, "patch.txt"), "utf-8")).resolves.toBe("new\nline\n");
     });
 
-    it("apply_patch 在 Workspace Root cwd 中接受完整 Project Path", async () => {
+    it("apply_patch 在Project-bound File Scope中接受Project相对路径", async () => {
         const projectWorkspaceRoot = join(root, "workspace", "silver-dragon-hime");
         await mkdir(join(projectWorkspaceRoot, "lorebook", "character", "银龙姬"), {recursive: true});
         await writeFile(join(projectWorkspaceRoot, "lorebook", "character", "银龙姬", "state.md"), "旧状态\n", "utf-8");
@@ -322,11 +400,12 @@ describe("v3 file tools", () => {
 
         await tool.executeWithContext?.({
             ...context,
-            workspaceRoot,
+            workspaceRootRef: "workspace",
+            workspaceFsRoot: absoluteFsPath(workspaceRoot),
             projectPath: "workspace/silver-dragon-hime",
         }, "patch-project-workspace-path", patchInput([
             "*** Begin Patch",
-            "*** Update File: workspace/silver-dragon-hime/lorebook/character/银龙姬/state.md",
+            "*** Update File: lorebook/character/银龙姬/state.md",
             "@@",
             "-旧状态",
             "+新状态",
@@ -530,7 +609,22 @@ describe("v3 file tools", () => {
             "*** Add File: ../outside.txt",
             "+nope",
             "*** End Patch",
-        ]))).rejects.toThrow("越过 workspaceRoot");
+        ]))).rejects.toThrow("路径越过文件系统根");
+    });
+
+    it("apply_patch 拒绝通过symlink或junction越过Workspace Root", async () => {
+        const outsideRoot = join(root, "outside");
+        await mkdir(outsideRoot, {recursive: true});
+        await symlink(outsideRoot, join(workspaceRoot, "escape"), process.platform === "win32" ? "junction" : "dir");
+        const tool = mustTool("apply_patch", harness);
+
+        await expect(tool.executeWithContext?.(context, "patch-symlink-outside", patchInput([
+            "*** Begin Patch",
+            "*** Add File: escape/outside.txt",
+            "+nope",
+            "*** End Patch",
+        ]))).rejects.toThrow("真实路径越过文件系统根");
+        await expect(access(join(outsideRoot, "outside.txt"))).rejects.toThrow();
     });
 
     it("apply_patch 拒绝删除目录", async () => {
@@ -587,7 +681,7 @@ describe("v3 file tools", () => {
         expect(text).toContain("Usage: workspace [options] [command]");
     });
 
-    it("bash 能通过 workspace CLI 解析和校验内容节点", async () => {
+    it("Project-bound bash从Project Workspace运行workspace CLI", async () => {
         const projectRoot = join(workspaceRoot, "test-project");
         await mkdir(projectRoot, {recursive: true});
         await writeFile(join(projectRoot, "project.yaml"), "kind: novel\ntitle: Test Project\nsummary: \"\"\n", "utf-8");
@@ -595,32 +689,43 @@ describe("v3 file tools", () => {
         await writeFile(join(projectRoot, "lorebook", "character", "hero", "index.md"), "---\ntitle: Hero\ntype: character\nstatus: active\nsummary: 主角。\nrefs: []\n---\n\n正文。", "utf-8");
         const tool = mustTool("bash", harness);
 
-        const result = await tool.executeWithContext?.(context, "bash-workspace-node", {
-            command: "workspace node parse test-project/lorebook/character/hero --json && workspace node validate test-project/lorebook/character/hero --fix-missing",
+        const result = await tool.executeWithContext?.({
+            ...context,
+            projectPath: "workspace/test-project",
+        }, "bash-workspace-node", {
+            command: "pwd && workspace node parse lorebook/character/hero --json && workspace node validate lorebook/character/hero --fix-missing",
             timeout: 10,
         });
 
         const text = result?.content[0]?.type === "text" ? result.content[0].text : "";
+        expect(text.replaceAll("\\", "/")).toContain("/workspace/test-project");
         expect(text).toContain("\"path\": \"lorebook/character/hero/\"");
         expect(text).toContain("\"type\": \"character\"");
         expect(text).toContain("OK");
     });
 
     it("bash 优先从 user-assets bin 解析 workspace CLI", async () => {
+        const userBinPath = join(workspaceRoot, ".nbook", "agent", "bin", "workspace");
+        await mkdir(dirname(userBinPath), {recursive: true});
+        await writeFile(userBinPath, "#!/usr/bin/env sh\necho user-bin-path-test\n", "utf-8");
         const tool = mustTool("bash", harness);
 
-        const result = await tool.executeWithContext?.(context, "bash-user-workspace-cli", {
-            command: "command -v workspace",
-            timeout: 10,
-        });
+        try {
+            const result = await tool.executeWithContext?.(context, "bash-user-workspace-cli", {
+                command: "command -v workspace",
+                timeout: 10,
+            });
 
-        const text = result?.content[0]?.type === "text" ? result.content[0].text : "";
-        expect(text.replaceAll("\\", "/")).toContain("workspace/.nbook/agent/bin/workspace");
+            const text = result?.content[0]?.type === "text" ? result.content[0].text : "";
+            expect(text.replaceAll("\\", "/")).toContain(`${basename(root)}/workspace/.nbook/agent/bin/workspace`);
+        } finally {
+            await rm(userBinPath, {force: true});
+        }
     });
 
     it("bash 会实际执行 user-assets bin 中的覆盖命令", async () => {
-        const userBinPath = resolve("workspace", ".nbook", "agent", "bin", "workspace");
-        const original = await readFile(userBinPath, "utf-8");
+        const userBinPath = join(workspaceRoot, ".nbook", "agent", "bin", "workspace");
+        await mkdir(dirname(userBinPath), {recursive: true});
         await writeFile(userBinPath, "#!/usr/bin/env sh\necho user-bin-test\n", "utf-8");
         const tool = mustTool("bash", harness);
 
@@ -633,7 +738,7 @@ describe("v3 file tools", () => {
             const text = result?.content[0]?.type === "text" ? result.content[0].text : "";
             expect(text).toContain("user-bin-test");
         } finally {
-            await writeFile(userBinPath, original, "utf-8");
+            await rm(userBinPath, {force: true});
         }
     });
 
@@ -647,7 +752,7 @@ describe("v3 file tools", () => {
 
         const text = result?.content[0]?.type === "text" ? result.content[0].text : "";
         const firstPath = text.split(":")[0]?.replaceAll("\\", "/") ?? "";
-        expect(firstPath).toContain("workspace/.nbook/agent/bin");
+        expect(firstPath).toContain(".nbook/agent/bin");
     });
 
     it("bash 为 rg 注入 Agent 专用配置并统一输出 / 路径", async () => {
@@ -669,7 +774,7 @@ describe("v3 file tools", () => {
     });
 
     it("bash 优先使用 user-assets rg 配置", async () => {
-        const userConfigPath = resolve("workspace", ".nbook", "agent", "config", "ripgreprc");
+        const userConfigPath = resolve(workspaceRoot, ".nbook", "agent", "config", "ripgreprc");
         let original: string | null = null;
         try {
             original = await readFile(userConfigPath, "utf-8");
@@ -687,7 +792,7 @@ describe("v3 file tools", () => {
             });
 
             const text = result?.content[0]?.type === "text" ? result.content[0].text : "";
-            expect(text.replaceAll("\\", "/")).toContain("workspace/.nbook/agent/config/ripgreprc");
+            expect(text.replaceAll("\\", "/")).toContain(".nbook/agent/config/ripgreprc");
         } finally {
             if (original === null) {
                 await rm(userConfigPath, {force: true});
@@ -757,7 +862,7 @@ describe("v3 file tools", () => {
         expect(edit.description).toContain("small as possible while still unique");
         expect(applyPatch.description).toContain("verified patch");
         expect(applyPatch.description).toContain("prefer one edit call");
-        expect(bash.description).toContain("agent workspace root");
+        expect(bash.description).toContain("current File Scope");
         expect(bash.description).toContain("agent bin directories are prepended to PATH");
         expect(bash.description).toContain("workspace node");
         expect(bash.description).toContain("Prefer / path separators");

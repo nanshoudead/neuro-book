@@ -3,7 +3,7 @@ import {copyFile, readFile, readdir, rename} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {join, relative, resolve} from "node:path";
 
-import {migrateApplication} from "#manager/app-commands";
+import {applyJournaledApplicationMigrations} from "#manager/migration-operation";
 import {
     stageReleaseProduct,
     stageReleaseSource,
@@ -307,7 +307,7 @@ async function prepareInstallation(
     journal = await updateOperation(journal, "switched", {
         createdPaths: [...journal.createdPaths, ...createdState.map((path) => relative(paths.root, path))],
     });
-    await migrateApplication(paths.root, manifest);
+    journal = await applyJournaledApplicationMigrations(paths.root, manifest, journal);
     journal = await updateOperation(journal, "migrated");
     if (options.profile === "source-product" || options.profile === "product-bun" || options.profile === "windows-portable") {
         await assertNativeProductStopped(paths.state);

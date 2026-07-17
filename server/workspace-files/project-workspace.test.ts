@@ -10,15 +10,20 @@ import {
     toSqliteFileUrl,
 } from "nbook/server/workspace-files/project-workspace";
 import {collectReleasedSqliteHandles} from "nbook/server/workspace-files/sqlite-handle-release";
+import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
 
 describe("assertProjectWorkspaceDirectory", () => {
     it("旧链接指向已不存在 Project 时返回稳定 404", async () => {
+        const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), "nbook-project-workspace-root-"));
         const projectPath = `workspace/missing-${randomUUID()}`;
-
-        await expect(assertProjectWorkspaceDirectory(projectPath)).rejects.toMatchObject({
-            statusCode: 404,
-            message: "Project Workspace 不存在",
-        });
+        try {
+            await expect(assertProjectWorkspaceDirectory(absoluteFsPath(workspaceRoot), projectPath)).rejects.toMatchObject({
+                statusCode: 404,
+                message: "Project Workspace 不存在",
+            });
+        } finally {
+            await fs.rm(workspaceRoot, {recursive: true, force: true});
+        }
     });
 });
 

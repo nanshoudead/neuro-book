@@ -4,6 +4,7 @@ import type {SessionTreeNode} from "nbook/server/agent/session/types";
 import type {VariablePatchAck, VariablePatchRequest} from "nbook/server/agent/variables/types";
 import {ThinkingLevelSchema} from "nbook/shared/dto/app-settings.dto";
 import type {AgentChatEntryDto, AgentUserInputFormDto, PublicToolArgsDto, PublicToolResultDto} from "nbook/shared/dto/agent-public-event.dto";
+import {AGENT_IMAGE_POLICY} from "nbook/shared/agent/agent-image-policy";
 
 const JsonValueSchema: z.ZodType<JsonValue> = z.lazy(() => z.union([
     z.string(),
@@ -38,9 +39,9 @@ export const AgentUserMessageInputDtoSchema = z.object({
     images: z.array(z.object({
         type: z.literal("image"),
         mimeType: z.string().trim().min(1),
-        data: z.string().trim().min(1),
-    })).optional(),
-});
+        data: z.string().trim().min(1).max(AGENT_IMAGE_POLICY.maxImageEncodedChars),
+    }).strict()).max(AGENT_IMAGE_POLICY.maxInputImages).optional(),
+}).strict();
 
 export const AgentResolutionDtoSchema = z.discriminatedUnion("kind", [
     z.object({

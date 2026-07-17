@@ -5,7 +5,7 @@ import {fileURLToPath} from "node:url";
 import * as p from "@clack/prompts";
 import {Command} from "commander";
 
-import {createAdmin, startApplication} from "#manager/app-commands";
+import {createAdmin} from "#manager/app-commands";
 import {runInstallGuide, recommendedProfile} from "#manager/install-guide";
 import {install, installPlan} from "#manager/installer";
 import {configuredDiscoveryRoots, discoverInstances, inspectInstance} from "#manager/instance-discovery";
@@ -21,6 +21,7 @@ import {
     setDefaultManagerInstance,
 } from "#manager/manager-config";
 import {doctor, installationStatus, maintainRuntime, maintainTool} from "#manager/maintenance";
+import {startInstallationApplication} from "#manager/migration-operation";
 import {readInstallationManifest} from "#manager/manifest-store";
 import {discoverInstallationRoot, installationPaths} from "#manager/paths";
 import {parseProfile, profileNames} from "#manager/profiles";
@@ -254,7 +255,7 @@ program.command("start")
     .description("启动当前或指定安装。")
     .action(async () => {
         const {root, manifest} = await currentInstallation();
-        await startApplication(root, manifest);
+        await startInstallationApplication(root, manifest);
     });
 
 program.command("status")
@@ -374,7 +375,7 @@ async function runContextEntry(): Promise<void> {
             {value: "runtime", label: "查看Runtime"}, {value: "tools", label: "查看Tool"}, {value: "instances", label: "查看实例索引"},
         ]}));
         if (action === "manage") return runManagerTui(managerExecutable);
-        if (action === "start") return startApplication(inspection.root, inspection.manifest);
+        if (action === "start") return startInstallationApplication(inspection.root, inspection.manifest);
         if (action === "status") return printObject(await installationStatus(inspection.root, inspection.manifest));
         if (action === "doctor") return printObject(await doctor(inspection.root, inspection.manifest));
         if (action === "update") { await updateInstallation({root: inspection.root, manifest: inspection.manifest, managerExecutable}); return; }

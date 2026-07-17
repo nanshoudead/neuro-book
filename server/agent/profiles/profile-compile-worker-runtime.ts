@@ -1,7 +1,7 @@
 import {performance} from "node:perf_hooks";
 import {randomUUID} from "node:crypto";
 import {cp, rm} from "node:fs/promises";
-import {resolve} from "node:path";
+import {join, resolve} from "node:path";
 import {
     compileProfileArtifacts,
     cleanupProfileArtifactStaging,
@@ -15,7 +15,9 @@ import {
 import {AgentProfileCatalog} from "nbook/server/agent/profiles/catalog";
 import {listProfileFiles, readProfileSource, saveProfileSourceDraft} from "nbook/server/agent/profiles/workbench-service";
 import type {ProfileCompileWorkerResult} from "nbook/server/agent/profiles/profile-compile-worker-types";
-import {resolveUserNbookRoot} from "nbook/server/workspace-files/workspace-assets-root";
+import {resolveUserNbookRoot} from "nbook/server/workspace-files/workspace-runtime-root";
+import {resolveSystemNbookRoot} from "nbook/server/workspace-files/system-workspace-assets";
+import {runtimePathsFromEnv} from "nbook/server/runtime/paths/runtime-paths";
 import type {
     AgentProfileCompileAllRequestDto,
     AgentProfileCompileRequestDto,
@@ -170,7 +172,10 @@ export async function runProfileCompileAll(input: InternalProfileCompileAllReque
     try {
         const userProfileRoot = resolveUserProfileRoot(input);
         const sourceFilesAtStart = await listProfileArtifactSourceFiles(userProfileRoot);
-        const files = await listProfileFiles({userProfileRoot});
+        const files = await listProfileFiles({
+            systemProfileRoot: join(resolveSystemNbookRoot(), "agent", "profiles"),
+            userProfileRoot,
+        });
         const staged = await stageProfileArtifacts({
             profileRoot: userProfileRoot,
             rootLabel: "workspace/.nbook/agent/profiles",
@@ -250,7 +255,10 @@ async function runDryRunProfilePreview(input: AgentProfileCompileRequestDto, use
             fileName: input.fileName,
             rootLabel: "temporary-profile-source-check",
         });
-        const profiles = new AgentProfileCatalog(undefined, temporaryRoot);
+        const profiles = new AgentProfileCatalog(
+            join(resolveSystemNbookRoot(), "agent", "profiles"),
+            temporaryRoot,
+        );
         const detail = await readProfileSource(profiles, {fileName: input.fileName}, {
             userProfileRoot: temporaryRoot,
         });
@@ -278,6 +286,7 @@ async function runDryRunProfilePreview(input: AgentProfileCompileRequestDto, use
             import("nbook/server/agent/profiles/profile-http-service"),
         ]);
         const preview = await previewAgentProfilePrepare(new NeuroAgentHarness({
+            runtimePaths: runtimePathsFromEnv(),
             profiles,
         }), {
             profileKey: detail.manifest.key,

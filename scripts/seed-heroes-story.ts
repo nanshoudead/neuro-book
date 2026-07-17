@@ -8,11 +8,13 @@
 import {Database} from "bun:sqlite";
 import {createWorldEngineTools} from "nbook/server/agent/tools/world-engine-tools";
 import type {NeuroAgentTool, ToolExecutionContext} from "nbook/server/agent/tools/types";
-import {resolveWorkspaceContainerRoot} from "nbook/server/workspace-files/workspace-assets-root";
+import {resolveRuntimeWorkspaceRoot} from "nbook/server/workspace-files/workspace-runtime-root";
 import {resolveProjectDatabasePath} from "nbook/server/workspace-files/project-workspace";
+import {WORKSPACE_CONTAINER_ROOT} from "nbook/server/workspace-files/workspace-root-ref";
 
 const argv = process.argv.slice(2);
 const projectPath = argv.find((a) => !a.startsWith("--")) ?? "workspace/ming-ding-zhi-shi-2";
+const workspaceRoot = resolveRuntimeWorkspaceRoot();
 
 const tools = createWorldEngineTools();
 const executeWorldTool = mustTool("execute_world");
@@ -21,8 +23,10 @@ const context: ToolExecutionContext = {
     harness: {} as ToolExecutionContext["harness"],
     sessionId: 1,
     profileKey: "scripts.seed-heroes-story",
-    workspaceRoot: resolveWorkspaceContainerRoot(),
+    workspaceRootRef: WORKSPACE_CONTAINER_ROOT,
+    workspaceFsRoot: workspaceRoot,
     workspaceKey: "global",
+    projectPath,
 };
 
 function mustTool(key: string): NeuroAgentTool {
@@ -45,7 +49,7 @@ async function executeWorld<TData>(code: string): Promise<ExecuteWorldResult<TDa
 }
 
 function reset() {
-    const dbPath = resolveProjectDatabasePath(projectPath);
+    const dbPath = resolveProjectDatabasePath(workspaceRoot, projectPath);
     const db = new Database(dbPath);
     db.exec("DELETE FROM WorldPatch");
     db.exec("DELETE FROM WorldSlice");

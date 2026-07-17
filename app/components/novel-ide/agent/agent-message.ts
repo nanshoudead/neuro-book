@@ -2,7 +2,8 @@ import {z} from "zod";
 import type {AgentMessage as PiAgentMessage, AgentToolCall as PiAgentToolCall, AssistantMessage as PiAssistantMessage, JsonValue, Message as PiMessage, ToolResultMessage, Usage} from "nbook/server/agent/messages/types";
 import type {AgentActiveInvocationDto, AgentAssistantUpdateDto, AgentRuntimeStreamEventDto, AgentPendingApprovalDto, AgentPendingUserInputDto, AgentMode} from "nbook/shared/dto/agent-session.dto";
 import {AgentModeSchema} from "nbook/shared/dto/agent-session.dto";
-import type {AgentChatEntryDto, PublicToolArgsDto, PublicToolResultDto, PublicValuePreviewDto} from "nbook/shared/dto/agent-public-event.dto";
+import type {AgentChatEntryDto, PublicTextPreviewDto, PublicToolArgsDto, PublicToolResultDto, PublicValuePreviewDto} from "nbook/shared/dto/agent-public-event.dto";
+import type {AgentAttachmentDisplay} from "nbook/app/components/novel-ide/agent/agent-attachment";
 import type {LowCodeFormDto} from "nbook/shared/dto/low-code-form.dto";
 import {LowCodeFormDtoSchema} from "nbook/shared/dto/low-code-form.dto";
 import {toStableArgsJson} from "nbook/app/components/novel-ide/agent/tool-args-stream";
@@ -73,7 +74,18 @@ export type AgentToolCall = {
     resultData?: JsonValue;
     /** 所属 assistant 消息 ID。 */
     assistantMessageId?: string;
+    /** durable tool result entry ID；只有公开历史附件可用它构造读取 locator。 */
+    resultEntryId?: string;
 };
+
+/** durable user message 在 Chat Flow 中的保序内容块。 */
+export type AgentMessageContentBlock =
+    | {
+        type: "text";
+        contentIndex: number;
+        content: PublicTextPreviewDto;
+    }
+    | ({type: "attachment"} & AgentAttachmentDisplay);
 
 /**
  * 单条消息实体。
@@ -92,6 +104,12 @@ export type AgentMessage = {
     contentBytes?: number;
     /** durable history 只包含正文预览时为 true；此时禁止用预览覆盖原文。 */
     contentOmitted?: boolean;
+    /** durable user entry 中公开的 attachment locator；不包含 blob data。 */
+    attachments?: AgentAttachmentDisplay[];
+    /** durable user entry 按 stored contentIndex 排序的公开内容块。 */
+    contentBlocks?: AgentMessageContentBlock[];
+    /** durable user entry 中未公开的内容块数量。 */
+    omittedContentBlocks?: number;
     html?: string;
     status?: MessageStatus;
     toolCalls?: AgentToolCall[];
@@ -356,6 +374,7 @@ export const mergeToolCalls = (nextToolCalls?: AgentToolCall[], previousToolCall
             publicArgs: toolCall.publicArgs ?? previous.publicArgs,
             publicResult: toolCall.publicResult ?? previous.publicResult,
             resultData: toolCall.resultData ?? previous.resultData,
+            resultEntryId: toolCall.resultEntryId ?? previous.resultEntryId,
         };
     });
 
@@ -920,13 +939,25 @@ const upsertLiveAssistantMessage = (previousMessages: AgentMessage[], message: A
  */
 const messageFromChatEntry = (entry: Exclude<AgentChatEntryDto, {type: "tool_result"}>): AgentMessage => {
     if (entry.type === "user") {
+        const contentBlocks = entry.blocks
+            .map((block): AgentMessageContentBlock => block.type === "text"
+                ? {type: "text", contentIndex: block.contentIndex, content: {...block.content}}
+                : {type: "attachment", contentIndex: block.contentIndex, attachment: {...block.attachment}})
+            .sort((left, right) => left.contentIndex - right.contentIndex);
+        const attachments = contentBlocks.flatMap((block) => block.type === "attachment"
+            ? [{contentIndex: block.contentIndex, attachment: {...block.attachment}}]
+            : []);
+        const content = userEntryTextPreview(entry);
         return {
             id: entry.id,
             type: "user",
             intent: entry.intent,
-            content: entry.content.preview,
-            contentBytes: entry.content.bytes,
-            contentOmitted: entry.content.omitted,
+            content: content.preview,
+            contentBytes: content.bytes,
+            contentOmitted: content.omitted,
+            attachments,
+            contentBlocks,
+            omittedContentBlocks: entry.omittedBlocks,
             status: "done",
             timestamp: formatTimestamp(entry.timestamp),
             projectionSource: "durable",
@@ -993,6 +1024,18 @@ const messageFromChatEntry = (entry: Exclude<AgentChatEntryDto, {type: "tool_res
         projectionSource: "durable",
     };
 };
+
+/** 从唯一 ordered blocks 派生 optimistic 匹配与现有文本 UI 使用的聚合 preview。 */
+export const userEntryTextPreview = (
+    entry: Extract<AgentChatEntryDto, {type: "user"}>,
+): PublicTextPreviewDto => ({
+    preview: entry.blocks
+        .filter((block) => block.type === "text")
+        .map((block) => block.content.preview)
+        .join("\n"),
+    bytes: entry.textSummary.bytes,
+    omitted: entry.textSummary.omitted,
+});
 
 const textFromContent = (content: RuntimeAssistantContent): string => {
     return content
@@ -1288,6 +1331,7 @@ const upsertPublicToolResult = (
         publicArgs: previous?.publicArgs,
         publicResult: toolResult.result,
         resultData: publicToolResultDetails(toolResult.result),
+        resultEntryId: toolResult.id,
     };
     if (index >= 0) {
         toolCalls[index] = nextToolCall;

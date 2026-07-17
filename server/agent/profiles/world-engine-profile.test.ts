@@ -4,9 +4,7 @@ import worldEngineProfile from "../../../assets/workspace/.nbook/agent/profiles/
 import {AgentProfileCatalog} from "nbook/server/agent/profiles/catalog";
 import {defaultAgentProfile} from "nbook/server/agent/profiles/default-profile";
 import {messageText} from "nbook/server/agent/messages/message-utils";
-import type {RuntimeSessionFacade} from "nbook/server/agent/profiles/define-agent-runtime";
-import type {NeuroSessionContext} from "nbook/server/agent/session/types";
-import type {AgentDialogueContent} from "nbook/server/agent/session/dialogue-content";
+import {createTestRuntimeSession as testSession} from "nbook/server/agent/profiles/test/runtime-session";
 import {createTestVariableAccessor} from "nbook/server/agent/variables/test-utils";
 
 describe("world.engine profile", () => {
@@ -31,7 +29,7 @@ describe("world.engine profile", () => {
         const prepared = await worldEngineProfile.prepare!({
             session: testSession({
                 profileKey: "world.engine",
-                workspaceRoot: resolve("workspace"),
+                workspaceRoot: "workspace",
                 projectPath: "workspace/world-engine-demo",
                 customState: {},
                 linkedAgents: [],
@@ -86,45 +84,3 @@ describe("world.engine profile", () => {
         expect(modelContextText).toContain("rawInstant: forbidden for Agent tools");
     });
 });
-
-function testSession(input: Partial<NeuroSessionContext>): RuntimeSessionFacade {
-    const session: RuntimeSessionFacade = {
-        systemPrompt: "",
-        messages: [],
-        model: null,
-        thinkingLevel: "off",
-        profileKey: "test",
-        workspaceRoot: "workspace",
-        customState: {},
-        linkedAgents: [],
-        archived: false,
-        agentMode: "normal",
-        ...input,
-        async read() {
-            return {
-                snapshot: {
-                    metadata: {
-                        sessionId: -1,
-                        profileKey: session.profileKey,
-                        initial: {},
-                        workspaceRoot: session.workspaceRoot,
-                        workspaceKey: "test",
-                        createdAt: 0,
-                    },
-                    entries: [],
-                    leafId: null,
-                },
-                context: session,
-            };
-        },
-        async agentDialogueContent(): Promise<AgentDialogueContent> {
-            return {
-                text: "",
-                tokens: 0,
-                fingerprint: "test",
-                entryIds: [],
-            };
-        },
-    };
-    return session;
-}

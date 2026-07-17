@@ -1,7 +1,6 @@
 import {existsSync} from "node:fs";
 import {readFile, readdir} from "node:fs/promises";
 import {join, resolve} from "node:path";
-import {resolveSystemNbookRoot, resolveUserNbookRoot} from "nbook/server/workspace-files/workspace-assets-root";
 
 export type SkillCatalogSource = "system" | "user";
 
@@ -21,10 +20,17 @@ const DISABLED_LEGACY_SKILL_KEYS = new Set(["anti-ai-slop"]);
  * v3 skill catalog。用户同名目录整体覆盖系统目录。
  */
 export class SkillCatalog {
-    constructor(
-        private readonly systemRoot = resolve(resolveSystemNbookRoot(), "agent", "skills"),
-        private readonly userRoot = resolve(resolveUserNbookRoot(), "agent", "skills"),
-    ) {}
+    private readonly systemRoot: string;
+    private readonly userRoot: string;
+
+    /**
+     * 创建只绑定指定物理 roots 的 Skill Catalog。
+     * system/user root 必须由进程、CLI、构建或测试 Adapter 显式决定；本 Module 不发现 cwd 或环境。
+     */
+    constructor(systemRoot: string, userRoot: string) {
+        this.systemRoot = resolve(systemRoot);
+        this.userRoot = resolve(userRoot);
+    }
 
     /**
      * 列出当前可见 skill。目录名是第一版稳定 key。

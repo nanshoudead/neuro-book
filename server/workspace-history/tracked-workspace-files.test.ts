@@ -5,11 +5,12 @@ import os from "node:os";
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
 import {registerProjectResourceOwner, resetProjectSessionsForTest} from "nbook/server/workspace-files/project-session";
 import {openProjectForTest} from "nbook/server/workspace-files/project-session-test-utils";
-import {writeProjectManifest, resolveProjectAbsolutePath} from "nbook/server/workspace-files/project-workspace";
-import {setWorkspaceAssetRootContextForTest} from "nbook/server/workspace-files/workspace-assets-root";
+import {writeProjectManifest as writeProjectManifestAtRoot} from "nbook/server/workspace-files/project-workspace";
+import {resolveRuntimeWorkspaceRoot, setWorkspaceRuntimeRootContextForTest} from "nbook/server/workspace-files/workspace-runtime-root";
+import {normalizeProjectPath, resolveProjectWorkspaceRoot} from "nbook/server/workspace-files/project-path";
 import {collectReleasedSqliteHandles} from "nbook/server/workspace-files/sqlite-handle-release";
 import {
-    ensureProjectHistory,
+    ensureProjectHistory as ensureProjectHistoryAtRoot,
     resetWorkspaceHistoryForTest,
     setHistoryEnabledOverrideForTest,
     workspaceHistoryResourceOwner,
@@ -25,6 +26,19 @@ import {
     writeWorkspaceTextFileTracked,
 } from "nbook/server/workspace-history/tracked-workspace-files";
 
+/** 测试Adapter：复用当前隔离Runtime Workspace Root，不恢复生产旧resolver。 */
+function resolveProjectAbsolutePath(projectPath: string) {
+    return resolveProjectWorkspaceRoot(resolveRuntimeWorkspaceRoot(), normalizeProjectPath(projectPath));
+}
+
+async function writeProjectManifest(projectPath: string, manifest: Parameters<typeof writeProjectManifestAtRoot>[2]) {
+    return writeProjectManifestAtRoot(resolveRuntimeWorkspaceRoot(), projectPath, manifest);
+}
+
+async function ensureProjectHistory(projectPath: string) {
+    return ensureProjectHistoryAtRoot(resolveProjectAbsolutePath(projectPath), projectPath);
+}
+
 describe("tracked-workspace-files 写面记账", () => {
     let tempRoot: string;
 
@@ -35,7 +49,7 @@ describe("tracked-workspace-files 写面记账", () => {
         setHistoryEnabledOverrideForTest(true);
         tempRoot = join(os.tmpdir(), `neuro-book-tracked-files-test-${randomUUID()}`);
         await mkdir(join(tempRoot, "workspace"), {recursive: true});
-        setWorkspaceAssetRootContextForTest({workspaceContainerRoot: join(tempRoot, "workspace")});
+        setWorkspaceRuntimeRootContextForTest({workspaceRoot: join(tempRoot, "workspace")});
         // 核心写函数按 cwd 解析 `workspace/<slug>`：把 cwd 指到临时根，与 history 侧解析在 tempRoot 汇合。
         vi.spyOn(process, "cwd").mockReturnValue(tempRoot);
     });
@@ -44,7 +58,7 @@ describe("tracked-workspace-files 写面记账", () => {
         vi.restoreAllMocks();
         await resetWorkspaceHistoryForTest();
         resetProjectSessionsForTest();
-        setWorkspaceAssetRootContextForTest(null);
+        setWorkspaceRuntimeRootContextForTest(null);
         setHistoryEnabledOverrideForTest(null);
         collectReleasedSqliteHandles({force: true});
         await rm(tempRoot, {recursive: true, force: true}).catch(() => undefined);

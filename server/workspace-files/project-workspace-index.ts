@@ -4,13 +4,14 @@ import {watch, type FSWatcher} from "chokidar";
 import {
     createWorkspaceContentIssues,
     pathExists,
-    resolveWorkspaceRoot,
     scanWorkspaceTree,
     toWorkspaceDisplayPath,
     type WorkspaceFileIssue,
     type WorkspaceFileNode,
     type WorkspaceScanOptions,
 } from "nbook/server/workspace-files/workspace-files";
+import type {AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
+import {workspaceFileTargetRef, type WorkspaceFileTarget} from "nbook/server/workspace-files/workspace-file-target";
 import {readProjectManifestIssueFromRoot} from "nbook/server/workspace-files/project-workspace";
 import {assertProjectOpen, markProjectActivity, registerProjectResourceOwner} from "nbook/server/workspace-files/project-session";
 import type {
@@ -23,16 +24,16 @@ import type {
     WorkspaceTreeSnapshotDto,
 } from "nbook/shared/dto/workspace-tree.dto";
 
-type WorkspaceTreeIndexKind = "project-workspace" | "user-assets";
+type WorkspaceTreeIndexKind = "project-workspace" | "plain-workspace";
 
-type WorkspaceTreeIndexOptions = WorkspaceScanOptions & {
-    workspaceKind?: "user-assets";
+type WorkspaceTreeIndexOptions = Omit<WorkspaceScanOptions, "root"> & {
+    target: WorkspaceFileTarget;
 };
 
 type WorkspaceTreeIndexSubscriber = (event: WorkspaceFileStreamEventDto) => void | Promise<void>;
 
 type ProjectWorkspaceIndex = {
-    root: string;
+    root: AbsoluteFsPath;
     workspaceKind: WorkspaceTreeIndexKind;
     nodes: WorkspaceFileNode[];
     issues: WorkspaceFileIssue[];
@@ -41,8 +42,8 @@ type ProjectWorkspaceIndex = {
 };
 
 type ProjectWorkspaceIndexEntry = {
-    root: string;
-    rootInput: string;
+    target: WorkspaceFileTarget;
+    root: AbsoluteFsPath;
     workspaceKind: WorkspaceTreeIndexKind;
     scanOptions: WorkspaceScanOptions;
     index: ProjectWorkspaceIndex | null;
@@ -60,13 +61,13 @@ type ProjectWorkspaceIndexEntry = {
 };
 
 const WORKSPACE_INDEX_REBUILD_DEBOUNCE_MS = 120;
-const indexEntries = new Map<string, ProjectWorkspaceIndexEntry>();
+const indexEntries = new Map<AbsoluteFsPath, ProjectWorkspaceIndexEntry>();
 let beforeProjectWorkspaceIndexCommitForTest: (() => void | Promise<void>) | null = null;
 
 /** Project Workspace 文件变更批（watcher 防抖合并后）。path 相对项目根、正斜杠、无前导斜杠。 */
 export type ProjectWorkspaceFileChangeBatch = {
     /** watcher root 的绝对路径（= Project Workspace 根） */
-    root: string;
+    root: AbsoluteFsPath;
     /** 归一化项目路径，如 `workspace/my-book` */
     projectPath: string;
     events: WorkspaceFileChangeEventDto[];
@@ -92,7 +93,12 @@ export function onProjectWorkspaceFileChange(listener: ProjectWorkspaceFileChang
 registerProjectResourceOwner({
     name: "workspace-tree-index",
     async close(projectPath) {
-        await closeWorkspaceTreeIndex(projectPath);
+        const roots = [...indexEntries.values()]
+            .filter((entry) => entry.target.kind === "project-workspace" && entry.target.projectPath === projectPath)
+            .map((entry) => entry.root);
+        for (const root of roots) {
+            await closeWorkspaceTreeIndex(root);
+        }
     },
     async closeAll() {
         for (const root of [...indexEntries.keys()]) {
@@ -100,12 +106,11 @@ registerProjectResourceOwner({
         }
     },
     busy(projectPath) {
-        try {
-            const entry = indexEntries.get(resolveWorkspaceRoot(projectPath));
-            return entry !== undefined && entry.subscribers.size > 0;
-        } catch {
-            return false;
-        }
+        const entry = [...indexEntries.values()].find((candidate) => (
+            candidate.target.kind === "project-workspace"
+            && candidate.target.projectPath === projectPath
+        ));
+        return entry !== undefined && entry.subscribers.size > 0;
     },
 });
 
@@ -119,24 +124,21 @@ const emptySummary = (): WorkspaceIssueSummaryDto => ({
 /**
  * 读取 Project Workspace 的 tree snapshot。首次读取会启动 root watcher，并让 index 常驻内存。
  */
-export async function readProjectWorkspaceTreeSnapshot(options: WorkspaceScanOptions = {}): Promise<WorkspaceTreeSnapshotDto<WorkspaceFileNode>> {
+export async function readProjectWorkspaceTreeSnapshot(options: WorkspaceTreeIndexOptions): Promise<WorkspaceTreeSnapshotDto<WorkspaceFileNode>> {
     return readWorkspaceTreeSnapshot(options);
 }
 
 /**
  * 读取 user-assets 的 tree snapshot。user-assets 使用同一套 index watcher，但不运行 Project Workspace 校验规则。
  */
-export async function readPlainWorkspaceTreeSnapshot(options: WorkspaceScanOptions = {}): Promise<WorkspaceTreeSnapshotDto<WorkspaceFileNode>> {
-    return readWorkspaceTreeSnapshot({
-        ...options,
-        workspaceKind: "user-assets",
-    });
+export async function readPlainWorkspaceTreeSnapshot(options: WorkspaceTreeIndexOptions): Promise<WorkspaceTreeSnapshotDto<WorkspaceFileNode>> {
+    return readWorkspaceTreeSnapshot(options);
 }
 
 /**
  * 读取统一的 workspace tree index snapshot。dirty 或 watcher error 会在读取时重建。
  */
-export async function readWorkspaceTreeSnapshot(options: WorkspaceTreeIndexOptions = {}): Promise<WorkspaceTreeSnapshotDto<WorkspaceFileNode>> {
+export async function readWorkspaceTreeSnapshot(options: WorkspaceTreeIndexOptions): Promise<WorkspaceTreeSnapshotDto<WorkspaceFileNode>> {
     const entry = await ensureIndexEntry(options);
     if (entry.index && !entry.dirty && !entry.lastWatchError) {
         return projectIndexToSnapshot(entry.index);
@@ -164,8 +166,8 @@ export async function subscribeWorkspaceTreeIndex(
 /**
  * 同进程 mutation 成功后标记 index 为 dirty，并交给同一套 debounce rebuild 更新缓存。
  */
-export function invalidateProjectWorkspaceIndexAfterMutation(input: {root: string | undefined; workspaceKind?: "user-assets"}): void {
-    const entry = indexEntries.get(resolveWorkspaceRoot(input.root));
+export function invalidateProjectWorkspaceIndexAfterMutation(target: WorkspaceFileTarget): void {
+    const entry = indexEntries.get(target.root);
     if (!entry) {
         return;
     }
@@ -182,8 +184,7 @@ export function setProjectWorkspaceIndexCommitHookForTest(hook: (() => void | Pr
 /**
  * 关闭指定 root 的 watcher 并移除内存 index。用于测试、root 删除和显式生命周期清理。
  */
-export async function closeWorkspaceTreeIndex(rootInput: string | undefined): Promise<void> {
-    const root = resolveWorkspaceRoot(rootInput);
+export async function closeWorkspaceTreeIndex(root: AbsoluteFsPath): Promise<void> {
     const entry = indexEntries.get(root);
     if (!entry) {
         return;
@@ -212,16 +213,15 @@ export function assertFullTreeSnapshotQuery(input: {targets: string[]; type: str
 }
 
 async function ensureIndexEntry(options: WorkspaceTreeIndexOptions): Promise<ProjectWorkspaceIndexEntry> {
-    const root = resolveWorkspaceRoot(options.root);
-    const rootInput = normalizeRootInput(options.root);
-    const workspaceKind = resolveWorkspaceTreeIndexKind(options);
-    if (workspaceKind === "project-workspace" && /^workspace\/[^/]+$/u.test(rootInput)) {
-        assertProjectOpen(rootInput);
-        markProjectActivity(rootInput);
+    const root = options.target.root;
+    const workspaceKind = resolveWorkspaceTreeIndexKind(options.target);
+    if (options.target.kind === "project-workspace") {
+        assertProjectOpen(options.target.projectPath);
+        markProjectActivity(options.target.projectPath);
     }
     const existing = indexEntries.get(root);
     if (existing) {
-        existing.rootInput = rootInput;
+        existing.target = options.target;
         existing.scanOptions = normalizeScanOptions(options, root);
         existing.workspaceKind = workspaceKind;
         await ensureWorkspaceTreeIndexWatcher(existing);
@@ -229,8 +229,8 @@ async function ensureIndexEntry(options: WorkspaceTreeIndexOptions): Promise<Pro
     }
 
     const entry: ProjectWorkspaceIndexEntry = {
+        target: options.target,
         root,
-        rootInput,
         workspaceKind,
         scanOptions: normalizeScanOptions(options, root),
         index: null,
@@ -262,12 +262,12 @@ async function rebuildWorkspaceTreeIndex(entry: ProjectWorkspaceIndexEntry): Pro
             ...entry.scanOptions,
             root: entry.root,
         });
-        const issues = entry.workspaceKind === "user-assets"
-            ? []
-            : await createProjectWorkspaceIssues(entry, nodes);
-        const summaryByPath = entry.workspaceKind === "user-assets"
-            ? new Map<string, WorkspaceIssueSummaryDto>()
-            : buildIssueSummaryByPath(issues, nodes);
+        const issues = entry.workspaceKind === "project-workspace"
+            ? await createProjectWorkspaceIssues(entry, nodes)
+            : [];
+        const summaryByPath = entry.workspaceKind === "project-workspace"
+            ? buildIssueSummaryByPath(issues, nodes)
+            : new Map<string, WorkspaceIssueSummaryDto>();
         await beforeProjectWorkspaceIndexCommitForTest?.();
         const nextIndex: ProjectWorkspaceIndex = {
             root: entry.root,
@@ -337,7 +337,7 @@ async function ensureWorkspaceTreeIndexWatcher(entry: ProjectWorkspaceIndexEntry
     }
     const stat = await fs.stat(entry.root);
     if (!stat.isDirectory()) {
-        throw new Error(`workspace root 不是目录: ${entry.rootInput}`);
+        throw new Error(`workspace root 不是目录: ${workspaceFileTargetRef(entry.target)}`);
     }
 
     let resolveReady: () => void = () => {};
@@ -367,7 +367,7 @@ async function ensureWorkspaceTreeIndexWatcher(entry: ProjectWorkspaceIndexEntry
         entry.dirty = true;
         resolveReady();
         console.error("[workspace-tree-index] watcher failed", {
-            root: entry.rootInput,
+            root: workspaceFileTargetRef(entry.target),
         }, error);
     });
 }
@@ -383,7 +383,7 @@ function notifyWorkspaceTreeIndexReady(entry: ProjectWorkspaceIndexEntry, handle
         }
         await handler({
             type: "workspace_watch_ready",
-            root: entry.rootInput,
+            root: workspaceFileTargetRef(entry.target),
             sequence: entry.sequence,
             changedAt: new Date().toISOString(),
         });
@@ -457,7 +457,7 @@ async function flushWorkspaceTreeIndexChanges(entry: ProjectWorkspaceIndexEntry)
         entry.sequence += 1;
         const payload: WorkspaceFileStreamEventDto = {
             type: "workspace_files_changed",
-            root: entry.rootInput,
+            root: workspaceFileTargetRef(entry.target),
             sequence: entry.sequence,
             revision: index.revision,
             validatedAt: index.validatedAt,
@@ -471,7 +471,7 @@ async function flushWorkspaceTreeIndexChanges(entry: ProjectWorkspaceIndexEntry)
         entry.lastWatchError = error instanceof Error ? error.message : String(error);
         entry.dirty = true;
         console.error("[workspace-tree-index] rebuild failed", {
-            root: entry.rootInput,
+            root: workspaceFileTargetRef(entry.target),
         }, error);
     }
 }
@@ -481,12 +481,12 @@ async function flushWorkspaceTreeIndexChanges(entry: ProjectWorkspaceIndexEntry)
  * listener 异常只记日志，不影响 index 主流程。
  */
 function notifyProjectWorkspaceFileChange(entry: ProjectWorkspaceIndexEntry, events: WorkspaceFileChangeEventDto[]): void {
-    if (entry.workspaceKind !== "project-workspace" || !/^workspace\/[^/]+$/u.test(entry.rootInput)) {
+    if (entry.target.kind !== "project-workspace") {
         return;
     }
     const batch: ProjectWorkspaceFileChangeBatch = {
         root: entry.root,
-        projectPath: entry.rootInput,
+        projectPath: entry.target.projectPath,
         events,
     };
     for (const listener of projectFileChangeListeners) {
@@ -494,17 +494,17 @@ function notifyProjectWorkspaceFileChange(entry: ProjectWorkspaceIndexEntry, eve
             .then(() => listener(batch))
             .catch((error) => {
                 console.error("[workspace-tree-index] file change listener failed", {
-                    root: entry.rootInput,
+                    root: workspaceFileTargetRef(entry.target),
                 }, error);
             });
     }
 }
 
-function resolveWorkspaceTreeIndexKind(options: WorkspaceTreeIndexOptions): WorkspaceTreeIndexKind {
-    return options.workspaceKind === "user-assets" ? "user-assets" : "project-workspace";
+function resolveWorkspaceTreeIndexKind(target: WorkspaceFileTarget): WorkspaceTreeIndexKind {
+    return target.kind === "project-workspace" ? "project-workspace" : "plain-workspace";
 }
 
-function normalizeScanOptions(options: WorkspaceTreeIndexOptions, root: string): WorkspaceScanOptions {
+function normalizeScanOptions(options: WorkspaceTreeIndexOptions, root: AbsoluteFsPath): WorkspaceScanOptions {
     return {
         ...options,
         root,
@@ -539,10 +539,6 @@ const IGNORED_WORKSPACE_WATCH_SEGMENTS = new Set([".git", ".nbook", ".agent"]);
 
 export function isIgnoredWorkspaceWatchPath(value: string): boolean {
     return value.replace(/\\/g, "/").split("/").some((segment) => IGNORED_WORKSPACE_WATCH_SEGMENTS.has(segment));
-}
-
-function normalizeRootInput(rootInput: string | undefined): string {
-    return (rootInput?.trim() || "workspace").replace(/\\/g, "/").replace(/\/+$/u, "");
 }
 
 function projectIndexToSnapshot(index: ProjectWorkspaceIndex): WorkspaceTreeSnapshotDto<WorkspaceFileNode> {

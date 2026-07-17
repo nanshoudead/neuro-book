@@ -1,6 +1,6 @@
 import {randomUUID} from "node:crypto";
 import {appendFile, rm} from "node:fs/promises";
-import {join} from "node:path";
+import {join, resolve} from "node:path";
 import {afterEach, beforeEach, describe, expect, it} from "vitest";
 import {PiRequestRecorder} from "nbook/server/agent/observability/pi-request-recorder";
 import type {PiTraceDraft} from "nbook/server/agent/observability/pi-request-recorder";
@@ -23,7 +23,7 @@ describe("PiTraceReader", () => {
     let reader: PiTraceReader;
 
     beforeEach(() => {
-        root = join(".agent", "pi-trace-reader-test", randomUUID());
+        root = resolve(".agent", "pi-trace-reader-test", randomUUID());
         const tracesRoot = join(root, ".nbook", "agent", "traces");
         recorder = new PiRequestRecorder({tracesRoot});
         reader = new PiTraceReader({tracesRoot});

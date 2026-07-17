@@ -8,9 +8,7 @@ import {DEFAULT_WRITING_REFERENCE_PRESET} from "nbook/server/agent/profiles/writ
 import {DEFAULT_WRITING_STYLE_PRESET} from "nbook/server/agent/profiles/writer-writing-style";
 import {messageText} from "nbook/server/agent/messages/message-utils";
 import {createTestVariableAccessor} from "nbook/server/agent/variables/test-utils";
-import type {RuntimeSessionFacade} from "nbook/server/agent/profiles/define-agent-runtime";
-import type {NeuroSessionContext} from "nbook/server/agent/session/types";
-import type {AgentDialogueContent} from "nbook/server/agent/session/dialogue-content";
+import {createTestRuntimeSession as testSession} from "nbook/server/agent/profiles/test/runtime-session";
 
 describe("writer profile contract", () => {
     it("暴露正文写作 profile 基础合同", () => {
@@ -54,7 +52,7 @@ describe("writer profile contract", () => {
         const prepared = await inlineEditorProfile.prepare!({
             session: testSession({
                 profileKey: "inline.editor",
-                workspaceRoot: resolve("workspace"),
+                workspaceRoot: "workspace",
                 projectPath: "workspace/current-user-input-test",
             }),
             initial: {},
@@ -81,18 +79,19 @@ describe("writer profile contract", () => {
             const prepared = await writerProfile.prepare!({
                 session: testSession({
                     profileKey: "writer",
-                    workspaceRoot: resolve("workspace"),
+                    workspaceRoot: "workspace",
+                    projectPath: `workspace/${projectSlug}`,
                 }),
                 initial: {},
                 settings: defaultWriterSettings(),
                 invocation: {
                     message: "请根据本章 brief 写正文。",
                     payload: {
-                        path: `${projectSlug}/manuscript/001-chapter/index.md`,
+                        path: "manuscript/001-chapter/index.md",
                         chapterId: "42",
                         context: {
-                            lorebookEntries: [`${projectSlug}/lorebook/character/hero/`],
-                            readablePaths: [`${projectSlug}/manuscript/000-prologue/index.md`],
+                            lorebookEntries: ["lorebook/character/hero/"],
+                            readablePaths: ["manuscript/000-prologue/index.md"],
                         },
                     },
                     caller: {kind: "user"},
@@ -110,13 +109,13 @@ describe("writer profile contract", () => {
             expect(systemPrompt).toContain("get_chapter_writer_brief");
             expect(systemPrompt).not.toContain("你不持有 Plot tools");
             expect(historyContext).toContain("<writer_input_context>");
-            expect(historyContext).toContain(`path: ${projectSlug}/manuscript/001-chapter/index.md`);
+            expect(historyContext).toContain("path: manuscript/001-chapter/index.md");
             expect(historyContext).toContain("chapterPath: manuscript/001-chapter/");
             // input.chapterId 渲染为自取 brief 提示。
             expect(writerInputContext).toContain("42");
             expect(writerInputContext).toContain("get_chapter_writer_brief");
-            expect(writerInputContext).toContain(`${projectSlug}/lorebook/character/hero/`);
-            expect(writerInputContext).toContain(`${projectSlug}/manuscript/000-prologue/index.md`);
+            expect(writerInputContext).toContain("lorebook/character/hero/");
+            expect(writerInputContext).toContain("manuscript/000-prologue/index.md");
             // CurrentUserInput 由 Harness 独立追加；Profile 不得再把 invocation.message 复制进 AppendingSet。
             expect((prepared.appendingMessages ?? []).map(messageText)).not.toContain("请根据本章 brief 写正文。");
             expect(prepared.turnContexts).toEqual([{
@@ -145,46 +144,4 @@ function defaultWriterSettings() {
         adultStylePrompt: "",
         fileChangeAwareness: "minimal" as const,
     };
-}
-
-function testSession(input: Partial<NeuroSessionContext>): RuntimeSessionFacade {
-    const session: RuntimeSessionFacade = {
-        systemPrompt: "",
-        messages: [],
-        model: null,
-        thinkingLevel: "off",
-        profileKey: "test",
-        workspaceRoot: "workspace",
-        customState: {},
-        linkedAgents: [],
-        archived: false,
-        agentMode: "normal",
-        ...input,
-        async read() {
-            return {
-                snapshot: {
-                    metadata: {
-                        sessionId: -1,
-                        profileKey: session.profileKey,
-                        initial: {},
-                        workspaceRoot: session.workspaceRoot,
-                        workspaceKey: "test",
-                        createdAt: 0,
-                    },
-                    entries: [],
-                    leafId: null,
-                },
-                context: session,
-            };
-        },
-        async agentDialogueContent(): Promise<AgentDialogueContent> {
-            return {
-                text: "",
-                tokens: 0,
-                fingerprint: "test",
-                entryIds: [],
-            };
-        },
-    };
-    return session;
 }

@@ -1,4 +1,5 @@
 import {readProjectRagOverview} from "nbook/server/rag/project-rag-visualization";
+import {runtimePathsFromEnv} from "nbook/server/runtime/paths/runtime-paths";
 import {ProjectRagOverviewDtoSchema} from "nbook/shared/dto/project-rag.dto";
 import {requireProjectPathQuery} from "nbook/server/utils/novel-chapter";
 import {withProjectNotOpenHttpError} from "nbook/server/workspace-files/project-open-guard";
@@ -226,6 +227,6 @@ defineRouteMeta({
  * 读取当前 Project 的 RAG 可视化概览。
  */
 export default defineEventHandler((event) => withProjectNotOpenHttpError(async () => {
-    const result = await readProjectRagOverview(requireProjectPathQuery(event));
+    const result = await readProjectRagOverview(runtimePathsFromEnv().workspaceRoot, requireProjectPathQuery(event));
     return ProjectRagOverviewDtoSchema.parse(result);
 }));

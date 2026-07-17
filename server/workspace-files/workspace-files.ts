@@ -1,6 +1,13 @@
 import {existsSync, type Stats} from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
+import {
+    absoluteFsPath,
+    assertRealParentContained,
+    assertRealPathContained,
+    resolveContainedFilePath,
+    type AbsoluteFsPath,
+} from "nbook/server/runtime/paths/file-path";
 import YAML from "yaml";
 import {
     applyWorkspaceContentFrontmatterDefaults,
@@ -9,7 +16,6 @@ import {
     WORKSPACE_CONTENT_STATUSES,
 } from "nbook/server/workspace-files/content-node-schema";
 import type {WorkspaceIssueSummaryDto} from "nbook/shared/dto/workspace-tree.dto";
-import {resolveStateRoot} from "nbook/server/runtime/installation-paths";
 
 export {WORKSPACE_CONTENT_STATUSES, WORKSPACE_STATUS_DESCRIPTIONS} from "nbook/server/workspace-files/content-node-schema";
 
@@ -57,7 +63,7 @@ export type WorkspaceFileIssue = {
 };
 
 export type WorkspaceScanOptions = {
-    root?: string;
+    root: AbsoluteFsPath;
     targets?: string[];
     depth?: number | null;
     type?: string | null;
@@ -76,7 +82,7 @@ export type WorkspaceContentValidateOptions = WorkspaceScanOptions & {
 };
 
 export type WorkspaceContentIssueOptions = {
-    root: string;
+    root: AbsoluteFsPath;
     nodes: WorkspaceFileNode[];
     lorebookRoot?: string;
     chapterRoot?: string;
@@ -87,26 +93,26 @@ export type WorkspaceContentIssueOptions = {
 };
 
 export type WorkspaceNewFileInput = {
-    root?: string;
+    root: AbsoluteFsPath;
     filePath: string;
     content?: string;
 };
 
 export type WorkspaceNewDirectoryInput = {
-    root?: string;
+    root: AbsoluteFsPath;
     dirPath: string;
     indexContent?: string | null;
     stateContent?: string | null;
 };
 
 export type WorkspaceContentStateCreateInput = {
-    root?: string;
+    root: AbsoluteFsPath;
     dirPath: string;
     stateContent: string;
 };
 
 export type WorkspaceFileToDirectoryInput = {
-    root?: string;
+    root: AbsoluteFsPath;
     filePath: string;
 };
 
@@ -174,7 +180,6 @@ const BINARY_EXTENSIONS = new Set([
 ]);
 const DEFAULT_LOREBOOK_ROOT = "lorebook";
 const DEFAULT_CHAPTER_ROOT = "manuscript";
-const DEFAULT_WORKSPACE_ROOT = "workspace";
 const CONTENT_NODE_ROOTS = new Set([DEFAULT_CHAPTER_ROOT, DEFAULT_LOREBOOK_ROOT]);
 const HARD_EXCLUDED_DIRS = new Set([".git"]);
 const LOREBOOK_ENTRY_TYPES = new Set(["world", "character", "location", "faction", "item", "event", "system", "instruction", "note", "species", "creature", "organization", "rule"]);
@@ -207,26 +212,41 @@ function hasLegacyCharacterExt(frontmatter: WorkspaceFrontmatter): boolean {
 }
 
 /**
- * 将工作区根目录解析为项目根内的绝对路径。
+ * 将用户路径解析为指定根目录内的绝对路径。
  */
-export function resolveWorkspaceRoot(rootInput = DEFAULT_WORKSPACE_ROOT): string {
-    return resolveWorkspacePath(resolveStateRoot(), rootInput);
+export function resolveWorkspacePath(root: AbsoluteFsPath, inputPath: string): AbsoluteFsPath {
+    try {
+        return resolveContainedFilePath(absoluteFsPath(path.resolve(root)), inputPath);
+    } catch {
+        throw new Error(`Path is outside the workspace root: ${inputPath}`);
+    }
 }
 
 /**
- * 将用户路径解析为指定根目录内的绝对路径。
+ * 建立Workspace文件操作使用的真实root。
+ *
+ * root本身先受State Root约束；写操作可按旧合同安全创建缺失root，但不会穿过
+ * symlink/junction在State Root外创建目录。
  */
-export function resolveWorkspacePath(root: string, inputPath: string): string {
-    const baseRoot = path.resolve(root);
-    const resolved = path.isAbsolute(inputPath)
-        ? path.resolve(inputPath)
-        : path.resolve(baseRoot, inputPath);
-
-    if (resolved !== baseRoot && !resolved.startsWith(`${baseRoot}${path.sep}`)) {
-        throw new Error(`Path is outside the workspace root: ${inputPath}`);
+async function resolveWorkspaceOperationRoot(root: AbsoluteFsPath, create: boolean): Promise<AbsoluteFsPath> {
+    if (create) {
+        await fs.mkdir(root, {recursive: true});
     }
+    return root;
+}
 
-    return resolved;
+/** 解析并验证会跟随目标内容的Workspace文件操作路径。 */
+async function resolveWorkspaceContentPath(root: AbsoluteFsPath, inputPath: string): Promise<AbsoluteFsPath> {
+    const target = absoluteFsPath(resolveWorkspacePath(root, inputPath));
+    await assertRealPathContained(root, target);
+    return target;
+}
+
+/** 解析并验证只操作目录项本身的Workspace文件操作路径。 */
+async function resolveWorkspaceEntryPath(root: AbsoluteFsPath, inputPath: string): Promise<AbsoluteFsPath> {
+    const target = absoluteFsPath(resolveWorkspacePath(root, inputPath));
+    await assertRealParentContained(root, target);
+    return target;
 }
 
 /**
@@ -266,9 +286,9 @@ export function isWorkspaceContentIndexPath(relativePath: string): boolean {
 /**
  * 读取工作区内文本文件。
  */
-export async function readWorkspaceTextFile(rootInput: string | undefined, filePath: string): Promise<string> {
-    const root = resolveWorkspaceRoot(rootInput);
-    const absolutePath = resolveWorkspacePath(root, filePath);
+export async function readWorkspaceTextFile(rootInput: AbsoluteFsPath, filePath: string): Promise<string> {
+    const root = await resolveWorkspaceOperationRoot(rootInput, false);
+    const absolutePath = await resolveWorkspaceContentPath(root, filePath);
     const stat = await fs.stat(absolutePath);
     if (!stat.isFile()) {
         throw new Error("Only files can be read");
@@ -283,9 +303,9 @@ export async function readWorkspaceTextFile(rootInput: string | undefined, fileP
 /**
  * 覆盖写入工作区内文本文件。
  */
-export async function writeWorkspaceTextFile(rootInput: string | undefined, filePath: string, content: string): Promise<void> {
-    const root = resolveWorkspaceRoot(rootInput);
-    const absolutePath = resolveWorkspacePath(root, filePath);
+export async function writeWorkspaceTextFile(rootInput: AbsoluteFsPath, filePath: string, content: string): Promise<void> {
+    const root = await resolveWorkspaceOperationRoot(rootInput, true);
+    const absolutePath = await resolveWorkspaceContentPath(root, filePath);
     if (!isEditableTextPath(absolutePath)) {
         throw new Error("This file type cannot be written as text");
     }
@@ -297,17 +317,20 @@ export async function writeWorkspaceTextFile(rootInput: string | undefined, file
 /**
  * 判断工作区路径是否存在。
  */
-export async function workspacePathExists(rootInput: string | undefined, filePath: string): Promise<boolean> {
-    const root = resolveWorkspaceRoot(rootInput);
-    return pathExists(resolveWorkspacePath(root, filePath));
+export async function workspacePathExists(rootInput: AbsoluteFsPath, filePath: string): Promise<boolean> {
+    const root = await resolveWorkspaceOperationRoot(rootInput, false);
+    if (!await pathExists(root)) {
+        return false;
+    }
+    return pathExists(await resolveWorkspaceContentPath(root, filePath));
 }
 
 /**
  * 创建新文本文件，已存在时拒绝覆盖。
  */
 export async function createWorkspaceFile(input: WorkspaceNewFileInput): Promise<WorkspaceFileNode> {
-    const root = resolveWorkspaceRoot(input.root);
-    const absolutePath = resolveWorkspacePath(root, input.filePath);
+    const root = await resolveWorkspaceOperationRoot(input.root, true);
+    const absolutePath = await resolveWorkspaceContentPath(root, input.filePath);
     if (!isEditableTextPath(absolutePath)) {
         throw new Error("该文件类型不支持创建为文本文件");
     }
@@ -328,8 +351,8 @@ export async function createWorkspaceFile(input: WorkspaceNewFileInput): Promise
  * 创建目录，可选同时创建 index.md 与 state.md。
  */
 export async function createWorkspaceDirectory(input: WorkspaceNewDirectoryInput): Promise<WorkspaceFileNode> {
-    const root = resolveWorkspaceRoot(input.root);
-    const absolutePath = resolveWorkspacePath(root, input.dirPath);
+    const root = await resolveWorkspaceOperationRoot(input.root, true);
+    const absolutePath = await resolveWorkspaceContentPath(root, input.dirPath);
     if (await pathExists(absolutePath)) {
         throw new Error(`目标目录已存在: ${input.dirPath}`);
     }
@@ -353,8 +376,8 @@ export async function createWorkspaceDirectory(input: WorkspaceNewDirectoryInput
  * 给已有内容节点目录创建 state.md，已存在时拒绝覆盖。
  */
 export async function createWorkspaceContentState(input: WorkspaceContentStateCreateInput): Promise<WorkspaceFileNode> {
-    const root = resolveWorkspaceRoot(input.root);
-    const absolutePath = resolveWorkspacePath(root, input.dirPath);
+    const root = await resolveWorkspaceOperationRoot(input.root, false);
+    const absolutePath = await resolveWorkspaceContentPath(root, input.dirPath);
     const stat = await fs.stat(absolutePath);
     if (!stat.isDirectory()) {
         throw new Error("state.md 只能创建在标准内容节点目录下");
@@ -371,6 +394,7 @@ export async function createWorkspaceContentState(input: WorkspaceContentStateCr
     }
 
     const statePath = path.join(absolutePath, "state.md");
+    await assertRealPathContained(root, absoluteFsPath(statePath));
     if (await pathExists(statePath)) {
         throw new Error(`目标 state.md 已存在: ${toWorkspaceDisplayPath(root, statePath)}`);
     }
@@ -387,8 +411,8 @@ export async function createWorkspaceContentState(input: WorkspaceContentStateCr
  * 将文本文件转换成同名目录节点，并把原内容移动到 index.md。
  */
 export async function convertWorkspaceFileToDirectory(input: WorkspaceFileToDirectoryInput): Promise<WorkspaceFileNode> {
-    const root = resolveWorkspaceRoot(input.root);
-    const sourcePath = resolveWorkspacePath(root, input.filePath);
+    const root = await resolveWorkspaceOperationRoot(input.root, false);
+    const sourcePath = await resolveWorkspaceContentPath(root, input.filePath);
     const sourceRelativePath = toWorkspaceDisplayPath(root, sourcePath);
     if (!isWorkspaceContentScopePath(sourceRelativePath)) {
         throw new Error("只有 manuscript/ 与 lorebook/ 下的文件支持转换为目录节点");
@@ -407,6 +431,7 @@ export async function convertWorkspaceFileToDirectory(input: WorkspaceFileToDire
     const parsedPath = path.parse(sourcePath);
     const targetDir = path.join(parsedPath.dir, parsedPath.name);
     const targetIndexPath = path.join(targetDir, "index.md");
+    await assertRealPathContained(root, absoluteFsPath(targetDir));
     if (await pathExists(targetDir)) {
         throw new Error(`目标目录已存在: ${toWorkspaceDisplayPath(root, targetDir, true)}`);
     }
@@ -437,10 +462,10 @@ export async function convertWorkspaceFileToDirectory(input: WorkspaceFileToDire
 /**
  * 移动或重命名文件/目录，目标存在时拒绝覆盖。
  */
-export async function renameWorkspacePath(rootInput: string | undefined, fromPath: string, toPath: string): Promise<WorkspaceFileNode> {
-    const root = resolveWorkspaceRoot(rootInput);
-    const fromAbsolutePath = resolveWorkspacePath(root, fromPath);
-    const toAbsolutePath = resolveWorkspacePath(root, toPath);
+export async function renameWorkspacePath(rootInput: AbsoluteFsPath, fromPath: string, toPath: string): Promise<WorkspaceFileNode> {
+    const root = await resolveWorkspaceOperationRoot(rootInput, false);
+    const fromAbsolutePath = await resolveWorkspaceContentPath(root, fromPath);
+    const toAbsolutePath = await resolveWorkspaceEntryPath(root, toPath);
     if (!await pathExists(fromAbsolutePath)) {
         throw new Error(`源路径不存在: ${fromPath}`);
     }
@@ -460,13 +485,13 @@ export async function renameWorkspacePath(rootInput: string | undefined, fromPat
 /**
  * 删除工作区路径。
  */
-export async function deleteWorkspacePath(rootInput: string | undefined, filePath: string, recursive: boolean): Promise<void> {
-    const root = resolveWorkspaceRoot(rootInput);
-    const absolutePath = resolveWorkspacePath(root, filePath);
+export async function deleteWorkspacePath(rootInput: AbsoluteFsPath, filePath: string, recursive: boolean): Promise<void> {
+    const root = await resolveWorkspaceOperationRoot(rootInput, false);
+    const absolutePath = await resolveWorkspaceEntryPath(root, filePath);
     if (!await pathExists(absolutePath)) {
         throw new Error(`路径不存在: ${filePath}`);
     }
-    const stat = await fs.stat(absolutePath);
+    const stat = await fs.lstat(absolutePath);
     if (stat.isDirectory()) {
         await fs.rm(absolutePath, {recursive});
         return;
@@ -477,9 +502,9 @@ export async function deleteWorkspacePath(rootInput: string | undefined, filePat
 /**
  * 读取单个文件或目录的元信息。
  */
-export async function statWorkspacePath(rootInput: string | undefined, filePath: string): Promise<WorkspaceFileNode> {
-    const root = resolveWorkspaceRoot(rootInput);
-    const absolutePath = resolveWorkspacePath(root, filePath);
+export async function statWorkspacePath(rootInput: AbsoluteFsPath, filePath: string): Promise<WorkspaceFileNode> {
+    const root = await resolveWorkspaceOperationRoot(rootInput, false);
+    const absolutePath = await resolveWorkspaceContentPath(root, filePath);
     return buildWorkspaceNode(root, absolutePath, {
         lorebookRoot: DEFAULT_LOREBOOK_ROOT,
         chapterRoot: DEFAULT_CHAPTER_ROOT,
@@ -490,8 +515,8 @@ export async function statWorkspacePath(rootInput: string | undefined, filePath:
 /**
  * 扫描工作区文件树。
  */
-export async function scanWorkspaceTree(options: WorkspaceScanOptions = {}): Promise<WorkspaceFileNode[]> {
-    const root = resolveWorkspaceRoot(options.root);
+export async function scanWorkspaceTree(options: WorkspaceScanOptions): Promise<WorkspaceFileNode[]> {
+    const root = await resolveWorkspaceOperationRoot(options.root, false);
     if (!await pathExists(root)) {
         return [];
     }
@@ -501,7 +526,7 @@ export async function scanWorkspaceTree(options: WorkspaceScanOptions = {}): Pro
     const nodes: WorkspaceFileNode[] = [];
 
     for (const targetInput of targetInputs) {
-        const targetPath = resolveWorkspacePath(root, targetInput);
+        const targetPath = await resolveWorkspaceContentPath(root, targetInput);
         if (!await pathExists(targetPath)) {
             continue;
         }
@@ -522,7 +547,7 @@ export async function scanWorkspaceTree(options: WorkspaceScanOptions = {}): Pro
 /**
  * 校验工作区文件树。
  */
-export async function validateWorkspaceTree(options: WorkspaceScanOptions = {}): Promise<WorkspaceFileIssue[]> {
+export async function validateWorkspaceTree(options: WorkspaceScanOptions): Promise<WorkspaceFileIssue[]> {
     const result = await validateWorkspaceContentNodes({
         ...options,
         recursive: options.recursive ?? true,
@@ -533,8 +558,8 @@ export async function validateWorkspaceTree(options: WorkspaceScanOptions = {}):
 /**
  * 校验标准内容节点。标准内容节点必须是包含 index.md 的目录；内容根外节点会报告 WARN。
  */
-export async function validateWorkspaceContentNodes(options: WorkspaceContentValidateOptions = {}): Promise<WorkspaceContentValidateResult> {
-    const root = resolveWorkspaceRoot(options.root);
+export async function validateWorkspaceContentNodes(options: WorkspaceContentValidateOptions): Promise<WorkspaceContentValidateResult> {
+    const root = await resolveWorkspaceOperationRoot(options.root, false);
     const collected = await collectWorkspaceContentValidationNodes(root, options);
     const fixedPaths: string[] = [];
     const scannedNodes = options.fixMissing
@@ -553,7 +578,7 @@ export async function validateWorkspaceContentNodes(options: WorkspaceContentVal
  * 从已扫描的工作区节点生成内容节点问题。用于 tree snapshot 和 CLI 复用校验规则。
  */
 export function createWorkspaceContentIssues(options: WorkspaceContentIssueOptions): WorkspaceFileIssue[] {
-    const root = resolveWorkspaceRoot(options.root);
+    const root = options.root;
     const issues: WorkspaceFileIssue[] = [];
     const contentNodes = uniqueWorkspaceNodes(options.nodes.filter((node) => node.isDirectory && node.contentNode));
 
@@ -686,7 +711,7 @@ async function collectWorkspaceContentValidationNodes(
     const issues: WorkspaceFileIssue[] = [];
 
     for (const targetInput of targetInputs) {
-        const absoluteTarget = resolveWorkspacePath(root, targetInput);
+        const absoluteTarget = await resolveWorkspaceContentPath(absoluteFsPath(root), targetInput);
         if (!await pathExists(absoluteTarget)) {
             issues.push({
                 level: "P1",
@@ -810,6 +835,7 @@ function validateWorkspaceContentStateSchema(node: WorkspaceFileNode): Workspace
  */
 async function fixMissingWorkspaceContentFrontmatter(root: string, node: WorkspaceFileNode, fixedPaths: string[]): Promise<WorkspaceFileNode> {
     const indexPath = path.join(node.absolutePath, "index.md");
+    await assertRealPathContained(absoluteFsPath(root), absoluteFsPath(indexPath));
     const content = await fs.readFile(indexPath, "utf-8");
     const parsed = parseMarkdownDocument(content);
     if (parsed.error) {
@@ -995,6 +1021,7 @@ async function visitPath(
     },
     nodes: WorkspaceFileNode[],
 ): Promise<void> {
+    await assertRealPathContained(absoluteFsPath(root), absoluteFsPath(absolutePath));
     const stat = await fs.stat(absolutePath);
     const isDirectory = stat.isDirectory();
     const displayPath = toWorkspaceDisplayPath(root, absolutePath, isDirectory);
@@ -1027,6 +1054,7 @@ async function buildWorkspaceNode(
         iconConfig: WorkspaceIconConfig;
     },
 ): Promise<WorkspaceFileNode> {
+    await assertRealPathContained(absoluteFsPath(root), absoluteFsPath(absolutePath));
     const stat = await fs.stat(absolutePath);
     const isDirectory = stat.isDirectory();
     const relativePath = toWorkspaceDisplayPath(root, absolutePath, isDirectory);
@@ -1045,6 +1073,7 @@ async function buildWorkspaceNode(
     let state: WorkspaceContentState | null = null;
     if ((contentDirectoryNode || editable) && await pathExists(metadataPath)) {
         try {
+            await assertRealPathContained(absoluteFsPath(root), absoluteFsPath(metadataPath));
             if (isEditableTextPath(metadataPath)) {
                 const content = await fs.readFile(metadataPath, "utf-8");
                 const parsed = parseMarkdownDocument(content);
@@ -1111,6 +1140,7 @@ async function readWorkspaceContentState(root: string, contentDirectoryPath: str
     }
 
     try {
+        await assertRealPathContained(absoluteFsPath(root), absoluteFsPath(statePath));
         const content = await fs.readFile(statePath, "utf-8");
         const parsed = parseMarkdownDocument(content);
         return {
@@ -1280,6 +1310,7 @@ async function readWorkspaceIconConfig(root: string): Promise<WorkspaceIconConfi
     }
 
     try {
+        await assertRealPathContained(absoluteFsPath(root), absoluteFsPath(configPath));
         const content = await fs.readFile(configPath, "utf-8");
         const parsed = JSON.parse(content) as unknown;
         if (!isPlainObject(parsed)) {
@@ -1453,6 +1484,7 @@ export async function readWorkspaceIgnoreRules(root: string): Promise<WorkspaceI
         return [];
     }
 
+    await assertRealPathContained(absoluteFsPath(path.resolve(root)), absoluteFsPath(path.resolve(ignorePath)));
     const content = await fs.readFile(ignorePath, "utf-8");
     return content
         .split(/\r?\n/)
@@ -1595,7 +1627,7 @@ function validateDuplicateOrder(nodes: WorkspaceFileNode[]): WorkspaceFileIssue[
     return issues;
 }
 
-function validateReferences(root: string, nodes: WorkspaceFileNode[], existingPathSet?: Set<string>): WorkspaceFileIssue[] {
+function validateReferences(root: AbsoluteFsPath, nodes: WorkspaceFileNode[], existingPathSet?: Set<string>): WorkspaceFileIssue[] {
     const issues: WorkspaceFileIssue[] = [];
     for (const node of nodes) {
         for (const ref of node.refs) {
@@ -1608,7 +1640,7 @@ function validateReferences(root: string, nodes: WorkspaceFileNode[], existingPa
 /**
  * 校验 state.md 中的当前状态引用。
  */
-function validateStateReferences(root: string, nodes: WorkspaceFileNode[], existingPathSet?: Set<string>): WorkspaceFileIssue[] {
+function validateStateReferences(root: AbsoluteFsPath, nodes: WorkspaceFileNode[], existingPathSet?: Set<string>): WorkspaceFileIssue[] {
     const issues: WorkspaceFileIssue[] = [];
     for (const node of nodes) {
         if (!node.state || node.state.frontmatterError) {
@@ -1625,7 +1657,7 @@ function validateStateReferences(root: string, nodes: WorkspaceFileNode[], exist
  * 校验单个工作区引用 target。
  */
 function validateReferenceTarget(
-    root: string,
+    root: AbsoluteFsPath,
     node: WorkspaceFileNode,
     ref: string,
     issuePath: string,
@@ -1698,7 +1730,7 @@ function readStateReferenceTargets(frontmatter: WorkspaceFrontmatter): string[] 
     return [...targets];
 }
 
-function resolveReferenceTarget(root: string, sourceNode: WorkspaceFileNode, ref: string): {filePath: string; indexPath: string} | null {
+function resolveReferenceTarget(root: AbsoluteFsPath, sourceNode: WorkspaceFileNode, ref: string): {filePath: string; indexPath: string} | null {
     const cleanedRef = stripReferenceFragment(ref);
     if (!cleanedRef) {
         return null;

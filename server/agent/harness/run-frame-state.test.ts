@@ -1,8 +1,9 @@
 import {describe, expect, it} from "vitest";
-import {createAssistantTextMessage, createTextToolResult} from "nbook/server/agent/messages/message-utils";
+import {createAssistantTextMessage, createStoredTextToolResult, createTextToolResult} from "nbook/server/agent/messages/message-utils";
 import type {RunFrame, RuntimeTurn, TurnSnapshot} from "nbook/server/agent/harness/run-kernel-types";
 import {applyFailedTurn, applySuccessfulTurn, consumeNextTurnModelMessages, createRunFrame} from "nbook/server/agent/harness/run-frame-state";
 import {createPublicRuntimeProjectionState} from "nbook/server/agent/events/public-event-projection";
+import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
 
 describe("run frame state", () => {
     it("创建 RunFrame 时会固定默认运行态，并浅拷贝初始 messages", () => {
@@ -15,7 +16,8 @@ describe("run frame state", () => {
             invocationId: "invoke-1",
             sessionId: 1,
             workspaceKey: "global",
-            workspaceRoot: "workspace",
+            workspaceRootRef: "workspace",
+            workspaceFsRoot: absoluteFsPath(process.cwd()),
             projectPath: "project",
             systemPrompt: "system",
             messages,
@@ -40,7 +42,8 @@ describe("run frame state", () => {
             invocationId: "invoke-1",
             sessionId: 1,
             workspaceKey: "global",
-            workspaceRoot: "workspace",
+            workspaceRootRef: "workspace",
+            workspaceFsRoot: absoluteFsPath(process.cwd()),
             projectPath: "project",
             systemPrompt: "system",
             apiKey: "key",
@@ -89,7 +92,14 @@ describe("run frame state", () => {
             snapshot: {} as TurnSnapshot,
             assistant,
             toolCalls: [],
-            toolResults: [toolResult],
+            toolResults: [{
+                stored: createStoredTextToolResult({
+                    toolCallId: "tool-1",
+                    toolName: "report_result",
+                    text: "ok",
+                }),
+                event: toolResult,
+            }],
             reportResult: {
                 result: "walkthrough",
             },
@@ -99,7 +109,7 @@ describe("run frame state", () => {
         applySuccessfulTurn(frame, turn, {transcript: "persist"});
 
         expect(frame.finalAssistant).toBe(assistant);
-        expect(frame.messages).toEqual([assistant, toolResult]);
+        expect(frame.messages).toEqual([assistant, turn.toolResults[0]!.stored]);
         expect(frame.reportResult).toEqual({result: "walkthrough"});
         expect(frame.lastTurnIngest).toEqual({transcript: "persist"});
         expect(frame.automaticCompactionDoneForTurn).toBe(false);
@@ -148,7 +158,8 @@ function fakeFrame(): RunFrame {
     return {
         sessionId: 1,
         workspaceKey: "global",
-        workspaceRoot: "workspace",
+        workspaceRootRef: "workspace",
+        workspaceFsRoot: absoluteFsPath(process.cwd()),
         systemPrompt: "",
         models: {} as RunFrame["models"],
         model: {} as RunFrame["model"],

@@ -29,8 +29,8 @@ import {defineAgentProfile as defineRuntimeAgentProfile} from "nbook/server/agen
 import {profileToolsFromKeys} from "nbook/server/agent/test/profile-tools";
 import {defaultAgentProfile} from "nbook/server/agent/profiles/default-profile";
 import {messageText} from "nbook/server/agent/messages/message-utils";
-import type {AgentDialogueContent} from "nbook/server/agent/session/dialogue-content";
 import {createTestVariableAccessor} from "nbook/server/agent/variables/test-utils";
+import {createTestRuntimeSession} from "nbook/server/agent/profiles/test/runtime-session";
 
 function defineAgentProfile(profile: any): ReturnType<typeof defineRuntimeAgentProfile> {
     const {
@@ -1346,43 +1346,9 @@ function profileSource(key: string, name: string): string {
 }
 
 function context() {
-    const session = {
-        systemPrompt: "",
-        messages: [],
-        model: null,
-        thinkingLevel: "off" as const,
+    const session = createTestRuntimeSession({
         profileKey: "custom.jsx",
-        workspaceRoot: "workspace",
-        customState: {},
-        linkedAgents: [],
-        archived: false,
-        agentMode: "normal" as const,
-        async read() {
-            return {
-                snapshot: {
-                    metadata: {
-                        sessionId: -1,
-                        profileKey: "custom.jsx",
-                        initial: {},
-                        workspaceRoot: "workspace",
-                        workspaceKey: "test",
-                        createdAt: 0,
-                    },
-                    entries: [],
-                    leafId: null,
-                },
-                context: session,
-            };
-        },
-        async agentDialogueContent(): Promise<AgentDialogueContent> {
-            return {
-                text: "",
-                tokens: 0,
-                fingerprint: "test",
-                entryIds: [],
-            };
-        },
-    };
+    });
     return {
         session,
         initial: {},

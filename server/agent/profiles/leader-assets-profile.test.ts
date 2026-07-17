@@ -8,9 +8,7 @@ import {AgentProfileCatalog} from "nbook/server/agent/profiles/catalog";
 import {ResearcherInitialSchema, RetrievalInitialSchema, RetrievalOutputSchema, WriterInitialSchema, WriterPayloadSchema} from "nbook/server/agent/profiles/builtin-contracts";
 import {defaultAgentProfile} from "nbook/server/agent/profiles/default-profile";
 import {messageText} from "nbook/server/agent/messages/message-utils";
-import type {RuntimeSessionFacade} from "nbook/server/agent/profiles/define-agent-runtime";
-import type {NeuroSessionContext} from "nbook/server/agent/session/types";
-import type {AgentDialogueContent} from "nbook/server/agent/session/dialogue-content";
+import {createTestRuntimeSession as testSession} from "nbook/server/agent/profiles/test/runtime-session";
 import {DEFAULT_WRITING_REFERENCE_PRESET, homeReferenceKeyToLegacyKey, loadWritingReferencePresets} from "nbook/server/agent/profiles/writer-writing-reference";
 import {DEFAULT_WRITING_STYLE_PRESET, homeStyleKeyToLegacyKey, loadWritingStylePresets} from "nbook/server/agent/profiles/writer-writing-style";
 import {createTestVariableAccessor} from "nbook/server/agent/variables/test-utils";
@@ -76,7 +74,7 @@ describe("assets builtin v3 profiles", () => {
                 model: null,
                 thinkingLevel: "off",
                 profileKey: "leader.default",
-                workspaceRoot: resolve("workspace"),
+                workspaceRoot: "workspace",
                 customState: {},
                 linkedAgents: [],
                 archived: false,
@@ -187,7 +185,7 @@ describe("assets builtin v3 profiles", () => {
         expect(visiblePrompt).toContain("workspace node parse --stdin --ndjson");
         expect(visiblePrompt).toContain("rg --files | rg '(^|/)index\\.md$'");
         expect(visiblePrompt).toContain("Agent runtime config makes `rg --files` output use `/` paths");
-        expect(visiblePrompt).toContain("workspace-relative paths");
+        expect(visiblePrompt).toContain("File Scope-relative paths");
         expect(visiblePrompt).toContain("projectPath");
         expect(visiblePrompt).not.toContain("\"novelId\"");
         expect(visiblePrompt).toContain("\"StoryScene\"");
@@ -256,7 +254,7 @@ describe("assets builtin v3 profiles", () => {
                 model: null,
                 thinkingLevel: "off",
                 profileKey: "leader.default",
-                workspaceRoot: resolve("workspace"),
+                workspaceRoot: "workspace",
                 customState: {
                     "plot.selection": {
                         projectPath: "workspace/novel-7",
@@ -314,7 +312,7 @@ describe("assets builtin v3 profiles", () => {
                 model: null,
                 thinkingLevel: "off",
                 profileKey: "leader.default",
-                workspaceRoot: resolve("workspace"),
+                workspaceRoot: "workspace",
                 customState: {
                     "agent.mode": {
                         mode: "plan",
@@ -346,7 +344,7 @@ describe("assets builtin v3 profiles", () => {
                 model: null,
                 thinkingLevel: "off",
                 profileKey: "leader.default",
-                workspaceRoot: resolve("workspace"),
+                workspaceRoot: "workspace",
                 customState: {
                     "agent.mode": {
                         mode: "normal",
@@ -384,7 +382,7 @@ describe("assets builtin v3 profiles", () => {
                 model: null,
                 thinkingLevel: "off",
                 profileKey: "retrieval",
-                workspaceRoot: resolve("workspace"),
+                workspaceRoot: "workspace",
                 customState: {},
                 linkedAgents: [],
                 archived: false,
@@ -434,7 +432,7 @@ describe("assets builtin v3 profiles", () => {
                 model: null,
                 thinkingLevel: "off",
                 profileKey: "leader.assets",
-                workspaceRoot: resolve("workspace", ".nbook"),
+                workspaceRoot: "workspace/.nbook",
                 customState: {},
                 linkedAgents: [],
                 archived: false,
@@ -582,7 +580,7 @@ describe("assets builtin v3 profiles", () => {
         const prepared = await profile.prepare!({
             session: testSession({
                 profileKey: "leader.assets",
-                workspaceRoot: resolve("workspace", ".nbook"),
+                workspaceRoot: "workspace/.nbook",
             }),
             initial: {},
             vars: createTestVariableAccessor(),
@@ -696,7 +694,7 @@ describe("assets builtin v3 profiles", () => {
                 model: null,
                 thinkingLevel: "off",
                 profileKey: "researcher",
-                workspaceRoot: resolve("workspace"),
+                workspaceRoot: "workspace",
                 customState: {},
                 linkedAgents: [],
                 archived: false,
@@ -821,7 +819,6 @@ describe("assets builtin v3 profiles", () => {
     });
 
     it("writer payload prepare 只注入目标 path 和建议读取清单", async () => {
-        const workspaceRoot = resolve(".agent", "workspace", "writer-lorebook-test", randomUUID());
         const projectSlug = `writer-project-${randomUUID()}`;
         const projectRoot = resolve("workspace", projectSlug);
         await mkdir(projectRoot, {recursive: true});
@@ -834,7 +831,8 @@ describe("assets builtin v3 profiles", () => {
                     model: null,
                     thinkingLevel: "off",
                     profileKey: "writer",
-                    workspaceRoot,
+                    workspaceRoot: "workspace",
+                    projectPath: `workspace/${projectSlug}`,
                     customState: {},
                     linkedAgents: [],
                     archived: false,
@@ -845,10 +843,10 @@ describe("assets builtin v3 profiles", () => {
                 invocation: {
                     message: "请续写这一章，写到账册缺页被发现为止。",
                     payload: {
-                        path: `${projectSlug}/manuscript/001-chapter/index.md`,
+                        path: "manuscript/001-chapter/index.md",
                         context: {
-                            lorebookEntries: [`${projectSlug}/lorebook/character/hero/`],
-                            readablePaths: [`${projectSlug}/manuscript/000-prologue/index.md`],
+                            lorebookEntries: ["lorebook/character/hero/"],
+                            readablePaths: ["manuscript/000-prologue/index.md"],
                         },
                     },
                     caller: {kind: "user"},
@@ -869,13 +867,13 @@ describe("assets builtin v3 profiles", () => {
             expect(prepared.systemPrompt).toContain("autonomous");
             expect(prepared.systemPrompt).not.toContain("你不持有 Plot tools");
             expect(historyContext).toContain("<target_file>");
-            expect(historyContext).toContain(`path: ${projectSlug}/manuscript/001-chapter/index.md`);
+            expect(historyContext).toContain("path: manuscript/001-chapter/index.md");
             expect(historyContext).toContain(`projectSlug: ${projectSlug}`);
             expect(historyContext).toContain(`projectPath: workspace/${projectSlug}`);
             expect(historyContext).toContain("chapterPath: manuscript/001-chapter/");
             expect(historyContext).toContain("<suggested_context>");
-            expect(historyContext).toContain(`${projectSlug}/lorebook/character/hero/`);
-            expect(historyContext).toContain(`${projectSlug}/manuscript/000-prologue/index.md`);
+            expect(historyContext).toContain("lorebook/character/hero/");
+            expect(historyContext).toContain("manuscript/000-prologue/index.md");
             expect(appendingContext).not.toContain("请续写这一章，写到账册缺页被发现为止。");
             expect(writerInputContext).not.toContain("<chapter_plots>");
             expect(writerInputContext).not.toContain("<lorebook_entries>");
@@ -884,7 +882,6 @@ describe("assets builtin v3 profiles", () => {
             expect(writerInputContext).not.toContain("statusNote");
             expect(prepared.modelContextMessages ?? []).toHaveLength(0);
         } finally {
-            await rm(workspaceRoot, {recursive: true, force: true});
             await rm(projectRoot, {recursive: true, force: true});
         }
     });
@@ -955,7 +952,7 @@ describe("assets builtin v3 profiles", () => {
             wordCountControl: "2000-2600 字",
             polishingWorkflow: "使用 stop-slop。",
             adultStylePrompt: "",
-        }, {profileKey: "writer", scope: "global"});
+        }, {profileKey: "writer", scope: "global", workspaceRoot: "workspace"});
         const homeKeyResult = await validateLowCodeFormValue(WriterSettingsForm, {
             writingStylePreset: DEFAULT_WRITING_STYLE_PRESET,
             writingReferencePreset: DEFAULT_WRITING_REFERENCE_PRESET,
@@ -964,7 +961,7 @@ describe("assets builtin v3 profiles", () => {
             wordCountControl: "2000-2600 字",
             polishingWorkflow: "使用 stop-slop。",
             adultStylePrompt: "",
-        }, {profileKey: "writer", scope: "global"});
+        }, {profileKey: "writer", scope: "global", workspaceRoot: "workspace"});
         // enableKittenAdultStyle 已从 schema 下线；旧存档残留的 key 应被合并层忽略，而不是校验失败
         const retiredKeyResult = await validateLowCodeFormValue(WriterSettingsForm, {
             writingStylePreset: DEFAULT_WRITING_STYLE_PRESET,
@@ -975,7 +972,7 @@ describe("assets builtin v3 profiles", () => {
             polishingWorkflow: "使用 stop-slop。",
             adultStylePrompt: "",
             enableKittenAdultStyle: true,
-        }, {profileKey: "writer", scope: "global"});
+        }, {profileKey: "writer", scope: "global", workspaceRoot: "workspace"});
 
         expect(legacyResult.issues).toEqual([]);
         expect(homeKeyResult.issues).toEqual([]);
@@ -994,6 +991,7 @@ describe("assets builtin v3 profiles", () => {
         const validation = await validateLowCodeFormValue(LeaderDefaultSettingsForm, undefined, {
             profileKey: "leader.default",
             scope: "global",
+            workspaceRoot: "workspace" as const,
         });
         const prepared = await leaderDefaultProfile.prepare!({
             session: testSession({
@@ -1050,6 +1048,7 @@ describe("assets builtin v3 profiles", () => {
             }, {
                 profileKey: "leader.default",
                 scope: "project",
+                workspaceRoot: "workspace",
                 home,
             });
             const prepared = await leaderDefaultProfile.prepare!({
@@ -1094,7 +1093,8 @@ describe("assets builtin v3 profiles", () => {
             model: null,
             thinkingLevel: "off" as const,
             profileKey: "writer",
-            workspaceRoot: resolve(".agent", "workspace", "writer-path-test", randomUUID()),
+            workspaceRoot: "workspace" as const,
+            projectPath: `workspace/${projectSlug}`,
             customState: {},
             linkedAgents: [],
             archived: false,
@@ -1120,10 +1120,10 @@ describe("assets builtin v3 profiles", () => {
                 initial: {},
                 invocation: {
                     message: "写一段正文",
-                    payload: {path: "manuscript/001-chapter/index.md"},
+                    payload: {path: `${projectSlug}/manuscript/001-chapter/index.md`},
                     caller: {kind: "user"},
                 },
-            })).rejects.toThrow("project-slug");
+            })).rejects.toThrow("不要添加Project slug");
             await expect(writerProfile.prepare!({
                 ...contextBase,
                 initial: {},
@@ -1132,13 +1132,13 @@ describe("assets builtin v3 profiles", () => {
                     payload: {path: `workspace/${projectSlug}/manuscript/001-chapter/index.md`},
                     caller: {kind: "user"},
                 },
-            })).rejects.toThrow("workspace/project-slug");
+            })).rejects.toThrow("不要添加Project slug或workspace");
             await expect(writerProfile.prepare!({
                 ...contextBase,
                 initial: {},
                 invocation: {
                     message: "写一段正文",
-                    payload: {path: `${projectSlug}/manuscript/001-chapter/`},
+                    payload: {path: "manuscript/001-chapter/"},
                     caller: {kind: "user"},
                 },
             })).rejects.toThrow("Markdown 文件");
@@ -1148,12 +1148,12 @@ describe("assets builtin v3 profiles", () => {
                 invocation: {
                     message: "写一段正文",
                     payload: {
-                        path: `${projectSlug}/manuscript/001-chapter/index.md`,
-                        context: {readablePaths: [`other-project/notes.md`]},
+                        path: "manuscript/001-chapter/index.md",
+                        context: {readablePaths: ["workspace/other-project/notes.md"]},
                     },
                     caller: {kind: "user"},
                 },
-            })).rejects.toThrow("相同的 Project slug");
+            })).rejects.toThrow("相对当前Project Workspace");
         } finally {
             await rm(projectRoot, {recursive: true, force: true});
         }
@@ -1175,46 +1175,4 @@ function defaultWriterSettings() {
         adultStylePrompt: "",
         fileChangeAwareness: "minimal" as const,
     };
-}
-
-function testSession(input: Partial<NeuroSessionContext>): RuntimeSessionFacade {
-    const session: RuntimeSessionFacade = {
-        systemPrompt: "",
-        messages: [],
-        model: null,
-        thinkingLevel: "off",
-        profileKey: "test",
-        workspaceRoot: "workspace",
-        customState: {},
-        linkedAgents: [],
-        archived: false,
-        agentMode: "normal",
-        ...input,
-        async read() {
-            return {
-                snapshot: {
-                    metadata: {
-                        sessionId: -1,
-                        profileKey: session.profileKey,
-                        initial: {},
-                        workspaceRoot: session.workspaceRoot,
-                        workspaceKey: "test",
-                        createdAt: 0,
-                    },
-                    entries: [],
-                    leafId: null,
-                },
-                context: session,
-            };
-        },
-        async agentDialogueContent(): Promise<AgentDialogueContent> {
-            return {
-                text: "",
-                tokens: 0,
-                fingerprint: "test",
-                entryIds: [],
-            };
-        },
-    };
-    return session;
 }

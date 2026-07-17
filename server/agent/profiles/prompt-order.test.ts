@@ -1,6 +1,7 @@
 import {describe, expect, it} from "vitest";
-import {createUserMessage, messageText} from "nbook/server/agent/messages/message-utils";
-import type {AgentMessage} from "nbook/server/agent/messages/types";
+import {createUserMessage} from "nbook/server/agent/messages/message-utils";
+import type {StoredAgentMessage} from "nbook/server/agent/messages/stored-types";
+import {storedMessageText} from "nbook/server/agent/messages/stored-message-presentation";
 import {
     assemblePersistedProfilePromptMessages,
     assembleProfilePromptMessages,
@@ -55,9 +56,9 @@ function message(text: string) {
     return createUserMessage({text});
 }
 
-function testMessageText(message: AgentMessage): string {
+function testMessageText(message: StoredAgentMessage): string {
     if (message.role !== "user") {
         return message.role;
     }
-    return messageText(message);
+    return storedMessageText(message);
 }

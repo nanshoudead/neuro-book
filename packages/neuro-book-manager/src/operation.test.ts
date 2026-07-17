@@ -13,11 +13,15 @@ const docker = vi.hoisted(() => ({
     removeImage: vi.fn(),
     start: vi.fn(),
 }));
+const attachmentMigration = vi.hoisted(() => ({rollback: vi.fn()}));
 
 vi.mock("#manager/docker", () => ({
     removeDockerDeployment: docker.removeDeployment,
     removeDockerImage: docker.removeImage,
     startDocker: docker.start,
+}));
+vi.mock("#manager/app-commands", () => ({
+    rollbackAttachmentMigration: attachmentMigration.rollback,
 }));
 
 const roots: string[] = [];
@@ -37,6 +41,15 @@ describe("Operation recovery", () => {
                 committed: true,
             },
         }, "memory.json")).toThrow("缺少 nextManifest");
+        expect(() => parseOperationJournal({
+            ...journal,
+            attachmentMigration: {
+                runId: "operation-attachment",
+                state: "planned",
+                migratedSessions: 1,
+                sessions: attachmentSessions(1),
+            },
+        }, "memory.json")).toThrow("缺少nextManifest");
     });
 
     it("拒绝嵌套 Manifest 损坏的 journal", () => {
@@ -129,6 +142,82 @@ describe("Operation recovery", () => {
         await expect(stat(`${database}-wal`)).rejects.toMatchObject({code: "ENOENT"});
         expect(await readFile(compose, "utf8")).toBe("image: old");
         expect(docker.start).toHaveBeenCalledWith(root, root, "source-docker");
+    });
+
+    it("先停止新Docker部署释放runtime lease，再回滚Attachment并恢复旧Compose", async () => {
+        const root = await operationRoot();
+        const backup = join(root, ".deploy", "backups", "attachment-rollback");
+        const compose = join(root, ".deploy", "docker-compose.generated.yml");
+        const previousCompose = join(backup, "docker-compose.generated.yml");
+        await mkdir(backup, {recursive: true});
+        await writeFile(compose, "image: new", "utf8");
+        await writeFile(previousCompose, "image: old", "utf8");
+        const previousManifest = dockerManifest(root);
+        const nextManifest = {...previousManifest, appVersion: "1.0.1", updatedAt: "2026-07-16T00:00:00.000Z"};
+        const journal = await createOperation({
+            id: "attachment-rollback",
+            action: "update",
+            root,
+            createdPaths: [],
+            backupRoot: backup,
+            previousManifest,
+            nextManifest,
+            previousCompose,
+            composeChanged: true,
+            attachmentMigration: {
+                runId: "attachment-rollback-run",
+                state: "applied",
+                migratedSessions: 2,
+                sessions: attachmentSessions(2),
+            },
+        });
+        await updateOperation(journal, "migrated");
+
+        await recoverInterruptedOperations(root);
+
+        expect(attachmentMigration.rollback).toHaveBeenCalledWith(root, nextManifest, "attachment-rollback-run", false);
+        expect(docker.removeDeployment.mock.invocationCallOrder[0]).toBeLessThan(attachmentMigration.rollback.mock.invocationCallOrder[0]!);
+        const saved = JSON.parse(await readFile(join(root, ".deploy", "operations", "attachment-rollback.json"), "utf8")) as {
+            attachmentMigration: {state: string};
+            outcome: string;
+        };
+        expect(saved.attachmentMigration.state).toBe("rolled_back");
+        expect(saved.outcome).toBe("rolled-back");
+    });
+
+    it("Attachment rollback失败时保持新部署停止并保留journal重试", async () => {
+        const root = await operationRoot();
+        const manifest = dockerManifest(root);
+        await writeFile(join(root, ".deploy", "docker-compose.generated.yml"), "image: new", "utf8");
+        attachmentMigration.rollback.mockRejectedValueOnce(new Error("rollback interrupted"));
+        const journal = await createOperation({
+            id: "attachment-rollback-failure",
+            action: "update",
+            root,
+            createdPaths: [],
+            backupRoot: join(root, ".deploy", "backups", "attachment-rollback-failure"),
+            previousManifest: manifest,
+            nextManifest: manifest,
+            composeChanged: true,
+            attachmentMigration: {
+                runId: "attachment-rollback-failure-run",
+                state: "planned",
+                migratedSessions: 1,
+                sessions: attachmentSessions(1),
+            },
+        });
+        await updateOperation(journal, "switched");
+
+        await expect(recoverInterruptedOperations(root)).rejects.toThrow("rollback interrupted");
+
+        expect(docker.removeDeployment).toHaveBeenCalledOnce();
+        expect(attachmentMigration.rollback).toHaveBeenCalledWith(root, manifest, "attachment-rollback-failure-run", true);
+        const saved = JSON.parse(await readFile(join(root, ".deploy", "operations", "attachment-rollback-failure.json"), "utf8")) as {
+            attachmentMigration: {state: string};
+            outcome?: string;
+        };
+        expect(saved.attachmentMigration.state).toBe("planned");
+        expect(saved.outcome).toBeUndefined();
     });
 
     it("镜像清理失败时仍完成其他回滚并记录人工清理信息", async () => {
@@ -227,4 +316,13 @@ function operationJournal() {
         createdAt: now,
         updatedAt: now,
     };
+}
+
+function attachmentSessions(count: number) {
+    return Array.from({length: count}, (_, index) => ({
+        sessionId: index + 1,
+        sourcePath: `.nbook/agent/sessions/${index + 1}.jsonl`,
+        sourceHash: "a".repeat(64),
+        targetHash: "b".repeat(64),
+    }));
 }

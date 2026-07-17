@@ -8,6 +8,9 @@ import {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
 import {initProjectDatabase, readProjectManifest, resolveProjectDatabasePath, writeProjectManifest} from "nbook/server/workspace-files/project-workspace";
 import {closeWorkspaceTreeIndex} from "nbook/server/workspace-files/project-workspace-index";
 import {writeWorkspaceTextFile} from "nbook/server/workspace-files/workspace-files";
+import {absoluteFsPath, type AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
+import {normalizeProjectPath, resolveProjectWorkspaceRoot} from "nbook/server/workspace-files/project-path";
+import {isProjectOpen} from "nbook/server/workspace-files/project-session";
 import {invalidateNovelListCache, listNovels} from "nbook/server/utils/novel-chapter";
 
 class FilteringSessionProvider {
@@ -41,51 +44,53 @@ class FilteringSessionProvider {
 describe("novel-chapter project list statistics", () => {
     const originalCwd = process.cwd();
     let root: string;
+    let workspaceRoot: AbsoluteFsPath;
 
     beforeEach(async () => {
         root = path.join(os.tmpdir(), "neuro-book-novel-list-test", randomUUID());
         await fs.mkdir(path.join(root, "assets", "workspace", ".nbook"), {recursive: true});
         process.chdir(root);
+        workspaceRoot = absoluteFsPath(path.join(root, "workspace"));
     });
 
     afterEach(async () => {
         invalidateNovelListCache();
-        await closeWorkspaceTreeIndex(path.join(root, "workspace", "novel-a"));
-        await closeWorkspaceTreeIndex(path.join(root, "workspace", "novel-b"));
-        await closeWorkspaceTreeIndex(path.join(root, "workspace", "empty-plot"));
-        await closeWorkspaceTreeIndex(path.join(root, "workspace", "world-engine-test-hidden"));
-        await closeWorkspaceTreeIndex(path.join(root, "workspace", "world-engine-api-test-selected"));
+        await closeWorkspaceTreeIndex(absoluteFsPath(path.join(root, "workspace", "novel-a")));
+        await closeWorkspaceTreeIndex(absoluteFsPath(path.join(root, "workspace", "novel-b")));
+        await closeWorkspaceTreeIndex(absoluteFsPath(path.join(root, "workspace", "empty-plot")));
+        await closeWorkspaceTreeIndex(absoluteFsPath(path.join(root, "workspace", "world-engine-test-hidden")));
+        await closeWorkspaceTreeIndex(absoluteFsPath(path.join(root, "workspace", "world-engine-api-test-selected")));
         process.chdir(originalCwd);
         await removeDirectoryWithRetry(root);
     });
 
     it("从 Project Workspace 与 Agent session 汇总书架统计", async () => {
         const projectPath = "workspace/novel-a";
-        await writeProjectManifest(projectPath, {
+        await writeProjectManifest(workspaceRoot, projectPath, {
             kind: "novel",
             title: "统计测试",
             summary: "项目简介",
         });
-        await writeMarkdown(projectPath, "manuscript/001-volume/index.md", {
+        await writeMarkdown(workspaceRoot, projectPath, "manuscript/001-volume/index.md", {
             title: "第一卷",
             type: "volume",
         }, "卷简介");
-        await writeMarkdown(projectPath, "manuscript/001-volume/001-chapter/index.md", {
+        await writeMarkdown(workspaceRoot, projectPath, "manuscript/001-volume/001-chapter/index.md", {
             title: "第一章",
             type: "chapter",
         }, "正文一二三");
-        await writeMarkdown(projectPath, "manuscript/001-volume/002-chapter/index.md", {
+        await writeMarkdown(workspaceRoot, projectPath, "manuscript/001-volume/002-chapter/index.md", {
             title: "第二章",
             type: "chapter",
         }, "第二章正文");
-        await writeMarkdown(projectPath, "lorebook/index.md", {
+        await writeMarkdown(workspaceRoot, projectPath, "lorebook/index.md", {
             title: "设定根",
         }, "根目录说明不算 lorebook 条目");
-        await writeMarkdown(projectPath, "lorebook/character/hero/index.md", {
+        await writeMarkdown(workspaceRoot, projectPath, "lorebook/character/hero/index.md", {
             title: "主角",
             type: "character",
         }, "角色设定");
-        await writeMarkdown(projectPath, "lorebook/location/city/index.md", {
+        await writeMarkdown(workspaceRoot, projectPath, "lorebook/location/city/index.md", {
             title: "城市",
             type: "location",
         }, "地点设定");
@@ -97,7 +102,9 @@ describe("novel-chapter project list statistics", () => {
             createSessionSummary({sessionId: 4, projectPath: "workspace/other"}),
         ]);
 
+        expect(isProjectOpen(projectPath)).toBe(false);
         const [novel] = await listNovels({sessionProvider: provider});
+        expect(isProjectOpen(projectPath)).toBe(false);
 
         expect(novel).toMatchObject({
             id: projectPath,
@@ -115,7 +122,7 @@ describe("novel-chapter project list statistics", () => {
 
     it("Project SQLite 不存在或没有 Story 时 Plot 统计为 0 且不创建 Story", async () => {
         const projectPath = "workspace/empty-plot";
-        await writeProjectManifest(projectPath, {
+        await writeProjectManifest(workspaceRoot, projectPath, {
             kind: "novel",
             title: "空剧情",
             summary: "",
@@ -129,7 +136,7 @@ describe("novel-chapter project list statistics", () => {
         expect(beforeInit?.sceneCount).toBe(0);
         expect(beforeInit?.plotCount).toBe(0);
 
-        await initProjectDatabase(projectPath);
+        await initProjectDatabase(workspaceRoot, projectPath);
         const [afterInit] = await listNovels({
             sessionProvider: new FilteringSessionProvider([]),
         });
@@ -137,17 +144,17 @@ describe("novel-chapter project list statistics", () => {
         expect(afterInit?.threadCount).toBe(0);
         expect(afterInit?.sceneCount).toBe(0);
         expect(afterInit?.plotCount).toBe(0);
-        await expect(readProjectManifest(projectPath)).resolves.toEqual({
+        await expect(readProjectManifest(workspaceRoot, projectPath)).resolves.toEqual({
             kind: "novel",
             title: "空剧情",
             summary: "",
         });
-        await expect(fs.stat(resolveProjectDatabasePath(projectPath))).resolves.toBeTruthy();
+        await expect(fs.stat(resolveProjectDatabasePath(workspaceRoot, projectPath))).resolves.toBeTruthy();
     });
 
     it("默认列表读取使用短 TTL 缓存，失效后重新汇总", async () => {
         const projectPath = "workspace/novel-a";
-        await writeProjectManifest(projectPath, {
+        await writeProjectManifest(workspaceRoot, projectPath, {
             kind: "novel",
             title: "缓存测试",
             summary: "",
@@ -182,7 +189,7 @@ describe("novel-chapter project list statistics", () => {
 
     it("includeProjectPath-only 与默认完整列表共享短缓存", async () => {
         const projectPath = "workspace/novel-a";
-        await writeProjectManifest(projectPath, {
+        await writeProjectManifest(workspaceRoot, projectPath, {
             kind: "novel",
             title: "include 缓存测试",
             summary: "",
@@ -246,7 +253,7 @@ describe("novel-chapter project list statistics", () => {
     });
 
     it("并发默认列表等待 pending 时记录等待分段", async () => {
-        await writeProjectManifest("workspace/novel-a", {
+        await writeProjectManifest(workspaceRoot, "workspace/novel-a", {
             kind: "novel",
             title: "并发默认列表",
             summary: "",
@@ -277,7 +284,7 @@ describe("novel-chapter project list statistics", () => {
     });
 
     it("并发过滤列表等待 manifest/session pending 时记录对应分段", async () => {
-        await writeProjectManifest("workspace/novel-a", {
+        await writeProjectManifest(workspaceRoot, "workspace/novel-a", {
             kind: "novel",
             title: "并发过滤 A",
             summary: "",
@@ -307,7 +314,7 @@ describe("novel-chapter project list statistics", () => {
     });
 
     it("并发统计等待 project stats pending 时记录等待分段", async () => {
-        await writeProjectManifest("workspace/novel-a", {
+        await writeProjectManifest(workspaceRoot, "workspace/novel-a", {
             kind: "novel",
             title: "并发统计",
             summary: "",
@@ -333,22 +340,22 @@ describe("novel-chapter project list statistics", () => {
     });
 
     it("支持按 Preview 入口裁剪 Project 列表并补回当前选择", async () => {
-        await writeProjectManifest("workspace/novel-a", {
+        await writeProjectManifest(workspaceRoot, "workspace/novel-a", {
             kind: "novel",
             title: "普通项目 A",
             summary: "",
         });
-        await writeProjectManifest("workspace/novel-b", {
+        await writeProjectManifest(workspaceRoot, "workspace/novel-b", {
             kind: "novel",
             title: "普通项目 B",
             summary: "",
         });
-        await writeProjectManifest("workspace/world-engine-test-hidden", {
+        await writeProjectManifest(workspaceRoot, "workspace/world-engine-test-hidden", {
             kind: "novel",
             title: "应被排除的测试项目",
             summary: "",
         });
-        await writeProjectManifest("workspace/world-engine-api-test-selected", {
+        await writeProjectManifest(workspaceRoot, "workspace/world-engine-api-test-selected", {
             kind: "novel",
             title: "当前选中的测试项目",
             summary: "",
@@ -436,15 +443,18 @@ function createSessionSummary(input: {
     };
 }
 
-async function writeMarkdown(projectPath: string, filePath: string, frontmatter: Record<string, string>, body: string): Promise<void> {
+async function writeMarkdown(
+    workspaceRoot: AbsoluteFsPath,
+    projectPath: string,
+    filePath: string,
+    frontmatter: Record<string, string>,
+    body: string,
+): Promise<void> {
     const yaml = Object.entries(frontmatter)
         .map(([key, value]) => `${key}: ${JSON.stringify(value)}`)
         .join("\n");
-    await writeWorkspaceTextFile(resolveProjectRoot(projectPath), filePath, `---\n${yaml}\n---\n\n${body}`);
-}
-
-function resolveProjectRoot(projectPath: string): string {
-    return path.join(process.cwd(), projectPath);
+    const projectRoot = resolveProjectWorkspaceRoot(workspaceRoot, normalizeProjectPath(projectPath));
+    await writeWorkspaceTextFile(projectRoot, filePath, `---\n${yaml}\n---\n\n${body}`);
 }
 
 type TimingMark = {

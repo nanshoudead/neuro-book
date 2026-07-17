@@ -9,11 +9,8 @@ import simulatorLeaderProfile from "../../../assets/workspace/.nbook/agent/profi
 import {AgentProfileCatalog} from "nbook/server/agent/profiles/catalog";
 import {defaultAgentProfile} from "nbook/server/agent/profiles/default-profile";
 import {RpLeaderInitialSchema, RpLeaderOutputSchema, RpWriterInitialSchema, RpWriterOutputSchema, SimulatorLeaderInitialSchema, SubjectSimulatorInitialSchema, SubjectSimulatorOutputSchema} from "nbook/server/agent/profiles/builtin-contracts";
-import {messageText} from "nbook/server/agent/messages/message-utils";
-import type {AgentMessage, Message} from "nbook/server/agent/messages/types";
-import type {RuntimeSessionFacade} from "nbook/server/agent/profiles/define-agent-runtime";
-import type {NeuroSessionContext} from "nbook/server/agent/session/types";
-import type {AgentDialogueContent} from "nbook/server/agent/session/dialogue-content";
+import {storedMessageText, type StoredMessageLike} from "nbook/server/agent/messages/stored-message-presentation";
+import {createTestRuntimeSession as testSession} from "nbook/server/agent/profiles/test/runtime-session";
 import type {SidecarContext} from "nbook/server/agent/profiles/types";
 import {createTestVariableAccessor} from "nbook/server/agent/variables/test-utils";
 
@@ -25,15 +22,9 @@ type SchemaWithType = {
     type?: string;
 };
 
-function messagesText(messages: Array<Message | AgentMessage> | undefined): string {
-    return (messages ?? []).map((message) => {
-        if (message.role === "user" || message.role === "assistant" || message.role === "toolResult") {
-            return messageText(message as Message);
-        }
-        return "";
-    }).join("\n");
+function messagesText(messages: StoredMessageLike[] | undefined): string {
+    return (messages ?? []).map((message) => storedMessageText(message)).join("\n");
 }
-
 describe("RP builtin profiles", () => {
     it("catalog 加载 rp.leader、simulator.leader、simulator.actor、rp.writer，不再加载 leader.rp", async () => {
         const catalog = new AgentProfileCatalog(
@@ -89,7 +80,7 @@ describe("RP builtin profiles", () => {
         const prepared = await rpLeaderProfile.prepare!({
             session: testSession({
                 profileKey: "rp.leader",
-                workspaceRoot: resolve("workspace"),
+                workspaceRoot: "workspace",
                 projectPath: "workspace/rp-project",
                 customState: {},
                 linkedAgents: [],
@@ -173,8 +164,8 @@ describe("RP builtin profiles", () => {
         expect(historyText).toContain("```reference/agent/workspace-tool-use.md");
         expect(historyText).toContain("```reference/agent/project-workspace-guide.md");
         expect(modelContextText).toContain("projectPath: workspace/rp-project");
-        expect(modelContextText).toContain("manualRoot: rp-project/manual/");
-        expect(modelContextText).toContain("simulationRoot: rp-project/simulation/");
+        expect(modelContextText).toContain("manualRoot: manual/");
+        expect(modelContextText).toContain("simulationRoot: simulation/");
         expect(modelContextText).toContain("mode: 每轮任务 prompt 指定");
         expect(appendingText).toContain("Runtime Location");
     });
@@ -183,7 +174,7 @@ describe("RP builtin profiles", () => {
         const prepared = await simulatorLeaderProfile.prepare!({
             session: testSession({
                 profileKey: "simulator.leader",
-                workspaceRoot: resolve("workspace"),
+                workspaceRoot: "workspace",
                 projectPath: "workspace/rp-project",
                 customState: {},
                 linkedAgents: [],
@@ -228,14 +219,15 @@ describe("RP builtin profiles", () => {
             const prepared = await simulatorActorProfile.prepare!({
                 session: testSession({
                     profileKey: "simulator.actor",
-                    workspaceRoot: fixture.workspaceRoot,
+                    workspaceRoot: "workspace",
+                    projectPath: `workspace/${fixture.projectSlug}`,
                     customState: {},
                     linkedAgents: [],
                     archived: false,
                     agentMode: "normal",
                 }),
                 initial: {
-                    subjectPath: `${fixture.projectSlug}/simulation/subjects/heroine`,
+                    subjectPath: "simulation/subjects/heroine",
                     kind: "npc",
                 },
                 vars: createTestVariableAccessor(),
@@ -270,10 +262,11 @@ describe("RP builtin profiles", () => {
                     sessionId: -1,
                     session: testSession({
                         profileKey: "simulator.actor",
-                        workspaceRoot: fixture.workspaceRoot,
+                        workspaceRoot: "workspace",
+                        projectPath: `workspace/${fixture.projectSlug}`,
                     }),
                     initial: {
-                        subjectPath: `${fixture.projectSlug}/simulation/subjects/heroine`,
+                        subjectPath: "simulation/subjects/heroine",
                         kind: "npc",
                     },
                     runResult: {
@@ -299,10 +292,11 @@ describe("RP builtin profiles", () => {
                     sessionId: -1,
                     session: testSession({
                         profileKey: "simulator.actor",
-                        workspaceRoot: fixture.workspaceRoot,
+                        workspaceRoot: "workspace",
+                        projectPath: `workspace/${fixture.projectSlug}`,
                     }),
                     initial: {
-                        subjectPath: `${fixture.projectSlug}/simulation/subjects/heroine`,
+                        subjectPath: "simulation/subjects/heroine",
                         kind: "npc",
                     },
                     invocationId: "test-invocation",
@@ -310,11 +304,11 @@ describe("RP builtin profiles", () => {
                     caller: {kind: "sidecar"},
                 } satisfies SidecarContext<Parameters<typeof contextLoad.merge>[0]["initial"]>)
                 : contextLoad?.enterPrompt ?? "";
-            expect(contextLoadPrompt).toContain(`subjectPath: ${fixture.projectSlug}/simulation/subjects/heroine`);
+            expect(contextLoadPrompt).toContain("subjectPath: simulation/subjects/heroine");
             expect(contextLoadPrompt).toContain("subjectPath 必须使用上面的 subjectPath");
             expect(contextLoadPrompt).toContain("不要关键词 fallback");
             expect(memorySavePrompt).toContain("eventsPath");
-            expect(memorySavePrompt).toContain(`subjectPath: ${fixture.projectSlug}/simulation/subjects/heroine`);
+            expect(memorySavePrompt).toContain("subjectPath: simulation/subjects/heroine");
             expect(memorySavePrompt).toContain("subjectPath 必须使用上面的 subjectPath");
             expect(memorySavePrompt).toContain("从上面的 report_result.data 提取 visible_response、spoken_dialogue、inner_response");
             expect(memorySavePrompt).toContain("不读取也不写 subject.md、soul.md、state.md");
@@ -360,7 +354,7 @@ describe("RP builtin profiles", () => {
             expect(modelContextText).toContain("actorId: heroine");
             expect(modelContextText).toContain("kind: npc");
             expect(modelContextText).not.toContain("actorName: heroine");
-            expect(modelContextText).toContain(`subjectPath: ${fixture.projectSlug}/simulation/subjects/heroine`);
+            expect(modelContextText).toContain("subjectPath: simulation/subjects/heroine");
             expect(modelContextText).toContain("这些路径只供 actor.context-load / actor.memory-save 旁路使用");
             expect(modelContextText).not.toContain("<subject_instruction>");
             expect(modelContextText).not.toContain("保持礼貌但警惕");
@@ -397,7 +391,7 @@ describe("RP builtin profiles", () => {
             stage: "prepareRun",
             sessionId: -1,
             session: testSession({profileKey: "simulator.actor"}),
-            initial: {subjectPath: "rp-project/simulation/subjects/heroine", kind: "npc"},
+            initial: {subjectPath: "simulation/subjects/heroine", kind: "npc"},
             invocationId: "test-invocation",
             profileKey: "simulator.actor",
             caller: {kind: "sidecar"},
@@ -405,7 +399,7 @@ describe("RP builtin profiles", () => {
             result: "她知道自己正在学院区广场。",
             sidecarData: {},
         });
-        const text = pureTextPlan.persistedMessages?.map(messageText).join("\n") ?? "";
+        const text = pureTextPlan.persistedMessages?.map((message) => storedMessageText(message)).join("\n") ?? "";
         expect(text).toContain("<actor-sidecar-context source=\"actor.context-load\">");
         expect(text).toContain("她知道自己正在学院区广场。");
     });
@@ -416,14 +410,15 @@ describe("RP builtin profiles", () => {
             const prepared = await simulatorActorProfile.prepare!({
                 session: testSession({
                     profileKey: "simulator.actor",
-                    workspaceRoot: fixture.workspaceRoot,
+                    workspaceRoot: "workspace",
+                    projectPath: `workspace/${fixture.projectSlug}`,
                     customState: {},
                     linkedAgents: [],
                     archived: false,
                     agentMode: "normal",
                 }),
                 initial: {
-                    subjectPath: `${fixture.projectSlug}/simulation/subjects/heroine`,
+                    subjectPath: "simulation/subjects/heroine",
                     kind: "npc",
                 },
                 vars: createTestVariableAccessor(),
@@ -453,14 +448,15 @@ describe("RP builtin profiles", () => {
             const prepared = await simulatorActorProfile.prepare!({
                 session: testSession({
                     profileKey: "simulator.actor",
-                    workspaceRoot: fixture.workspaceRoot,
+                    workspaceRoot: "workspace",
+                    projectPath: `workspace/${fixture.projectSlug}`,
                     customState: {},
                     linkedAgents: [],
                     archived: false,
                     agentMode: "normal",
                 }),
                 initial: {
-                    subjectPath: `${fixture.projectSlug}/simulation/subjects/heroine`,
+                    subjectPath: "simulation/subjects/heroine",
                     kind: "player",
                 },
                 vars: createTestVariableAccessor(),
@@ -486,7 +482,7 @@ describe("RP builtin profiles", () => {
             const prepared = await rpWriterProfile.prepare!({
                 session: testSession({
                     profileKey: "rp.writer",
-                    workspaceRoot: fixture.workspaceRoot,
+                    workspaceRoot: "workspace",
                     customState: {},
                     linkedAgents: [],
                     archived: false,
@@ -639,46 +635,4 @@ async function createRoleplayFixture(): Promise<{workspaceRoot: string; projectS
             await rm(projectRoot, {recursive: true, force: true});
         },
     };
-}
-
-function testSession(input: Partial<NeuroSessionContext>): RuntimeSessionFacade {
-    const session: RuntimeSessionFacade = {
-        systemPrompt: "",
-        messages: [],
-        model: null,
-        thinkingLevel: "off",
-        profileKey: "test",
-        workspaceRoot: "workspace",
-        customState: {},
-        linkedAgents: [],
-        archived: false,
-        agentMode: "normal",
-        ...input,
-        async read() {
-            return {
-                snapshot: {
-                    metadata: {
-                        sessionId: -1,
-                        profileKey: session.profileKey,
-                        initial: {},
-                        workspaceRoot: session.workspaceRoot,
-                        workspaceKey: "test",
-                        createdAt: 0,
-                    },
-                    entries: [],
-                    leafId: null,
-                },
-                context: session,
-            };
-        },
-        async agentDialogueContent(): Promise<AgentDialogueContent> {
-            return {
-                text: "",
-                tokens: 0,
-                fingerprint: "test",
-                entryIds: [],
-            };
-        },
-    };
-    return session;
 }

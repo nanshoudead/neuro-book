@@ -1,23 +1,14 @@
-import {resolve} from "node:path";
 import {describe, expect, it} from "vitest";
 import {Value} from "typebox/value";
 import directorProfile from "../../../assets/workspace/.nbook/agent/profiles/builtin/director.profile";
 import simulatorLeaderProfile from "../../../assets/workspace/.nbook/agent/profiles/builtin/simulator.leader.profile";
 import {DirectorInitialSchema, DirectorOutputSchema, SimulatorLeaderInitialSchema, SimulatorLeaderOutputSchema} from "nbook/server/agent/profiles/builtin-contracts";
-import {messageText} from "nbook/server/agent/messages/message-utils";
-import type {AgentMessage, Message} from "nbook/server/agent/messages/types";
-import type {RuntimeSessionFacade} from "nbook/server/agent/profiles/define-agent-runtime";
-import type {NeuroSessionContext} from "nbook/server/agent/session/types";
-import type {AgentDialogueContent} from "nbook/server/agent/session/dialogue-content";
+import {storedMessageText, type StoredMessageLike} from "nbook/server/agent/messages/stored-message-presentation";
+import {createTestRuntimeSession as testSession} from "nbook/server/agent/profiles/test/runtime-session";
 import {createTestVariableAccessor} from "nbook/server/agent/variables/test-utils";
 
-function messagesText(messages: Array<Message | AgentMessage> | undefined): string {
-    return (messages ?? []).map((message) => {
-        if (message.role === "user" || message.role === "assistant" || message.role === "toolResult") {
-            return messageText(message as Message);
-        }
-        return "";
-    }).join("\n");
+function messagesText(messages: StoredMessageLike[] | undefined): string {
+    return (messages ?? []).map((message) => storedMessageText(message)).join("\n");
 }
 
 const validDirectorOutput = {
@@ -41,7 +32,7 @@ describe("simulation and director builtin profiles", () => {
         const prepared = await simulatorLeaderProfile.prepare!({
             session: testSession({
                 profileKey: "simulator.leader",
-                workspaceRoot: resolve("workspace"),
+                workspaceRoot: "workspace",
                 projectPath: "workspace/rp-project",
                 customState: {},
                 linkedAgents: [],
@@ -98,7 +89,7 @@ describe("simulation and director builtin profiles", () => {
         const prepared = await directorProfile.prepare!({
             session: testSession({
                 profileKey: "director",
-                workspaceRoot: resolve("workspace"),
+                workspaceRoot: "workspace",
                 customState: {},
                 linkedAgents: [],
                 archived: false,
@@ -168,45 +159,3 @@ describe("simulation and director builtin profiles", () => {
         expect(Value.Check(DirectorOutputSchema, withoutWorldEngineRequests)).toBe(false);
     });
 });
-
-function testSession(input: Partial<NeuroSessionContext>): RuntimeSessionFacade {
-    const session: RuntimeSessionFacade = {
-        systemPrompt: "",
-        messages: [],
-        model: null,
-        thinkingLevel: "off",
-        profileKey: "test",
-        workspaceRoot: "workspace",
-        customState: {},
-        linkedAgents: [],
-        archived: false,
-        agentMode: "normal",
-        ...input,
-        async read() {
-            return {
-                snapshot: {
-                    metadata: {
-                        sessionId: -1,
-                        profileKey: session.profileKey,
-                        initial: {},
-                        workspaceRoot: session.workspaceRoot,
-                        workspaceKey: "test",
-                        createdAt: 0,
-                    },
-                    entries: [],
-                    leafId: null,
-                },
-                context: session,
-            };
-        },
-        async agentDialogueContent(): Promise<AgentDialogueContent> {
-            return {
-                text: "",
-                tokens: 0,
-                fingerprint: "test",
-                entryIds: [],
-            };
-        },
-    };
-    return session;
-}

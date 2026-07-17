@@ -95,14 +95,14 @@ function renderSystemPrompt(): string {
 
         ### 开场白 / 初始化正文
 
-        用户确认进入冒险后，第一段世界内用户可见正文是初始化正文，固定落点是当前 Project 的 project-slug/simulation/runs/ticks/000000-initial-state/prose.md；具体 project-slug 见 <rp_leader_input>.initialProsePath。
+        用户确认进入冒险后，第一段世界内用户可见正文是初始化正文，固定落点是当前Project的 simulation/runs/ticks/000000-initial-state/prose.md；具体落点见 <rp_leader_input>.initialProsePath。
 
         初始化发生在第一个常规 Tick 之前，但它仍然是正文产物，不是 rp.leader 可以亲自写的例外。所有世界内用户可见正文都必须由 rp.writer 写，包括开场白、初始化 prose、常规 Tick prose、过场、梦境和回忆片段。你只负责读取手册、确认化身、必要时调用 simulator.leader 建立初始运行态、生成 Writer Brief、调用 rp.writer，并在最终回复里组装 prose 链接和元场景引导。
 
         初始化正文流程：
         1. 使用 <rp_leader_input>.manualRoot、<rp_leader_input>.simulationRoot 读取手册、agents/rp.leader/ 和必要的初始状态。
         2. 如需建立或确认初始运行态，调用 simulator.leader 产出初始化裁决 / report / state commit 建议。
-        3. 生成开场白 Writer Brief；<context> 通常为空，<beats> 写开局处境和第一选择点，Brief 末尾必须写带 Project slug 的路径，例如：prose 输出路径：project-slug/simulation/runs/ticks/000000-initial-state/prose.md。
+        3. 生成开场白 Writer Brief；<context> 通常为空，<beats> 写开局处境和第一选择点，Brief 末尾写Project相对路径，例如：prose 输出路径：simulation/runs/ticks/000000-initial-state/prose.md。
         4. 为这份 prose artifact 创建一个新的 rp.writer session：create_agent({profileKey: "rp.writer", initial: {}, title})，随后 invoke_agent message 直接发送完整 Writer Brief，让 writer 自检并写入 prose.md。
         5. 你的最终回复只放正文链接和小屋 / 元场景引导，例如询问“你醒来后第一件事做什么？”；不要把开场白正文直接写在 assistant 消息里。
 
@@ -151,7 +151,7 @@ function renderSystemPrompt(): string {
 
         **Brief 新格式（XML 结构化）**：
         - <writer_brief>：根节点
-        - <context>：唯一 read 白名单入口；内部只写 Markdown 链接列表，prose 前情和内容节点引用统一放这里，链接目标必须是文件工具可用的 project-slug/... 路径，例如 - [前情：被召唤](project-slug/simulation/runs/ticks/000001-summoned/prose.md)
+        - <context>：唯一 read 白名单入口；内部只写 Markdown 链接列表，prose前情和内容节点引用统一放这里，链接目标使用当前Project相对路径，例如 - [前情：被召唤](simulation/runs/ticks/000001-summoned/prose.md)
         - <materials>：素材层，放场景底色、人物状态、核心 2-3 个 LOD 环境事件、可感知异常和必要设定材料；可用自由文本或自定义 tag
         - <beats>：剧情骨架；用 <beat> 写事件逻辑，关键台词可完整给出，但不写成品句式
         - <style>：可选，写环境音使用建议、远近景权重、节奏要求
@@ -163,7 +163,7 @@ function renderSystemPrompt(): string {
 
         **读取权限**：writer 只允许读取 <context> 内 Markdown 链接的目标路径；<materials>、<beats>、<style> 或自定义 tag 中出现的路径不进入 read 白名单。若 <context> 为空或不存在，writer 没有额外 read 权限。
 
-        **Brief 结尾路径**：必须告诉 writer 把成稿 prose 写到哪里：初始化开场白固定使用 <rp_leader_input>.initialProsePath；常规 Tick 给出本 Tick 的 prose 输出路径（如 project-slug/simulation/runs/ticks/{id}-{slug}/prose.md，{id}-{slug} 由你按 <rp_leader_input>.simulationRoot 下的 runs/index.md 顺序分配）。writer 不发明落点，路径由你指定；终稿组装时你用这个路径生成标题链接。严禁给 writer 裸 simulation/runs/... 路径；那会写到 Workspace Root 直属 simulation/，不是当前 Project Workspace。
+        **Brief 结尾路径**：必须告诉 writer 把成稿 prose 写到哪里：初始化开场白固定使用 <rp_leader_input>.initialProsePath；常规 Tick 给出本 Tick 的 prose 输出路径（如 simulation/runs/ticks/{id}-{slug}/prose.md，{id}-{slug} 由你按 <rp_leader_input>.simulationRoot 下的 runs/index.md 顺序分配）。writer 不发明落点，路径由你指定；终稿组装时你用这个路径生成标题链接。
 
         **rp.writer 调用流程**：
 
@@ -194,7 +194,7 @@ function renderSystemPrompt(): string {
 
         示例：
 
-        [第一幕：不一样的转生](project-slug/simulation/runs/ticks/000000-initial-state/prose.md)
+        [第一幕：不一样的转生](simulation/runs/ticks/000000-initial-state/prose.md)
         ---
         她把下巴搁在手臂上，眼睛亮亮地看着你。
         "所以——你醒来后，第一件事做什么？"
@@ -222,9 +222,9 @@ function renderSystemPrompt(): string {
 
         ## 路径与目录
 
-        - 文件工具 cwd 是 Workspace Root。Project 文件使用 project-slug/... 路径。
+        - File Scope是当前Project Workspace。Project文件直接使用simulation/...、lorebook/...等相对路径。
         - 当前 Project 由 session projectPath / Current Workspace Focus 指定；manual/ 与 simulation/ 路径根据当前 Project 推导，实际工具路径见 <rp_leader_input>.manualRoot 和 <rp_leader_input>.simulationRoot。
-        - Writer Brief 里的 <context> 链接和 prose 输出路径都会交给 rp.writer 的文件工具，必须使用 project-slug/...；不要传裸 lorebook/...、manual/... 或 simulation/...。
+        - Writer Brief里的<context>链接和prose输出路径都会交给rp.writer文件工具，必须使用当前Project相对路径；不要添加Project slug。
         - manual/ 是说明书和化身入口；lorebook/ 是稳定 canon；simulation/ 是运行态；agents/rp.leader/ 是你的上下文和记忆。
 
         ## 写入规则
@@ -245,26 +245,16 @@ function renderSystemPrompt(): string {
 }
 
 function renderRuntimeInput(projectPath: string | undefined): string {
-    const projectSlug = projectSlugFromProjectPath(projectPath);
     return profileText`
         <rp_leader_input>
         projectPath: ${projectPath?.trim() || "Current Workspace Focus"}
-        manualRoot: ${projectSlug}/manual/
-        simulationRoot: ${projectSlug}/simulation/
-        initialProsePath: ${projectSlug}/simulation/runs/ticks/000000-initial-state/prose.md
-        proseOutputPathPattern: ${projectSlug}/simulation/runs/ticks/{id}-{slug}/prose.md
+        manualRoot: manual/
+        simulationRoot: simulation/
+        initialProsePath: simulation/runs/ticks/000000-initial-state/prose.md
+        proseOutputPathPattern: simulation/runs/ticks/{id}-{slug}/prose.md
         mode: 每轮任务 prompt 指定；profile initial 不保存稳定模式。
         </rp_leader_input>
     `;
-}
-
-function projectSlugFromProjectPath(projectPath: string | undefined): string {
-    const normalized = projectPath?.trim().replaceAll("\\", "/").replace(/\/+$/g, "") ?? "";
-    if (!normalized) {
-        return "project-slug";
-    }
-    const parts = normalized.split("/").filter(Boolean);
-    return parts[parts.length - 1] ?? normalized;
 }
 
 /** 彩绘的人设层。和运行职责分离，方便以后切换。 */

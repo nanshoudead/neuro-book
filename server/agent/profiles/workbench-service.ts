@@ -4,7 +4,6 @@ import {basename, dirname, join, relative, resolve, sep} from "node:path";
 import {createError} from "h3";
 import {AgentProfileCatalog} from "nbook/server/agent/profiles/catalog";
 import {buildSystemPromptRoot, readAgentProfileDetail} from "nbook/server/agent/profiles/profile-http-service";
-import {resolveSystemNbookRoot, resolveUserNbookRoot} from "nbook/server/workspace-files/workspace-assets-root";
 import type {
     AgentProfileCreateRequestDto,
     AgentProfileDetailDto,
@@ -17,28 +16,17 @@ import type {
 } from "nbook/shared/dto/agent-profile.dto";
 import type {ProfileTemplateDetailDto} from "nbook/shared/dto/profile-template.dto";
 
-type WorkbenchRoots = {
-    userProfileRoot?: string;
-    templateRoot?: string;
+export type WorkbenchRoots = {
+    userProfileRoot: string;
+    systemProfileRoot: string;
+    templateRoot: string;
 };
-
-function defaultUserProfileRoot(): string {
-    return join(resolveUserNbookRoot(), "agent", "profiles");
-}
-
-function defaultSystemProfileRoot(): string {
-    return join(resolveSystemNbookRoot(), "agent", "profiles");
-}
-
-function defaultProfileTemplateRoot(): string {
-    return join(resolveSystemNbookRoot(), "agent", "profile-templates");
-}
 
 /**
  * 列出可用于新建用户 profile 的 TSX 模板。
  */
-export async function listProfileTemplates(roots: WorkbenchRoots = {}): Promise<AgentProfileTemplateItemDto[]> {
-    const templateRoot = roots.templateRoot ?? defaultProfileTemplateRoot();
+export async function listProfileTemplates(roots: Pick<WorkbenchRoots, "templateRoot">): Promise<AgentProfileTemplateItemDto[]> {
+    const templateRoot = roots.templateRoot;
     const entries = await readdir(templateRoot, {withFileTypes: true}).catch(() => []);
     return entries
         .filter((entry) => entry.isFile() && entry.name.endsWith(".profile-template.tsx"))
@@ -55,10 +43,10 @@ export async function listProfileTemplates(roots: WorkbenchRoots = {}): Promise<
  * 列出用户 profile root 下的源码文件，包含坏文件。这里只读取 compiled-only catalog 状态，
  * 不触发 TSX profile 编译。
  */
-export async function listProfileFiles(roots: WorkbenchRoots = {}): Promise<AgentProfileFileItemDto[]> {
-    const userProfileRoot = roots.userProfileRoot ?? defaultUserProfileRoot();
+export async function listProfileFiles(roots: Pick<WorkbenchRoots, "userProfileRoot" | "systemProfileRoot">): Promise<AgentProfileFileItemDto[]> {
+    const userProfileRoot = roots.userProfileRoot;
     const files = await findProfileFiles(userProfileRoot);
-    const catalog = await new AgentProfileCatalog(defaultSystemProfileRoot(), userProfileRoot).snapshot().catch(() => null);
+    const catalog = await new AgentProfileCatalog(roots.systemProfileRoot, userProfileRoot).snapshot().catch(() => null);
     const items: AgentProfileFileItemDto[] = [];
     for (const fileName of files) {
         const filePath = join(userProfileRoot, ...fileName.split("/"));
@@ -86,8 +74,8 @@ export async function listProfileFiles(roots: WorkbenchRoots = {}): Promise<Agen
 /**
  * 轻量读取 profile 源码草稿。只解析 TSX DSL tree，不加载 runtime catalog。
  */
-export async function readProfileSourceDraft(request: AgentProfileSourceDraftRequestDto, roots: WorkbenchRoots = {}): Promise<ProfileTemplateDetailDto> {
-    const userProfileRoot = roots.userProfileRoot ?? defaultUserProfileRoot();
+export async function readProfileSourceDraft(request: AgentProfileSourceDraftRequestDto, roots: Pick<WorkbenchRoots, "userProfileRoot">): Promise<ProfileTemplateDetailDto> {
+    const userProfileRoot = roots.userProfileRoot;
     const filePath = resolveUserProfilePath(request.fileName, userProfileRoot);
     if (!existsSync(filePath)) {
         throw createError({
@@ -103,8 +91,8 @@ export async function readProfileSourceDraft(request: AgentProfileSourceDraftReq
 /**
  * 按 fileName 读取用户 profile 源码详情。
  */
-export async function readProfileSource(profiles: AgentProfileCatalog, request: AgentProfileSourceRequestDto, roots: WorkbenchRoots = {}): Promise<AgentProfileDetailDto> {
-    const userProfileRoot = roots.userProfileRoot ?? defaultUserProfileRoot();
+export async function readProfileSource(profiles: AgentProfileCatalog, request: AgentProfileSourceRequestDto, roots: Pick<WorkbenchRoots, "userProfileRoot">): Promise<AgentProfileDetailDto> {
+    const userProfileRoot = roots.userProfileRoot;
     const filePath = resolveUserProfilePath(request.fileName, userProfileRoot);
     if (!existsSync(filePath)) {
         throw createError({
@@ -186,8 +174,8 @@ export async function readProfileSource(profiles: AgentProfileCatalog, request: 
 /**
  * 保存用户 profile 源码并返回最新源码详情。
  */
-export async function saveProfileSource(profiles: AgentProfileCatalog, request: AgentProfileSaveRequestDto, roots: WorkbenchRoots = {}): Promise<AgentProfileDetailDto> {
-    const userProfileRoot = roots.userProfileRoot ?? defaultUserProfileRoot();
+export async function saveProfileSource(profiles: AgentProfileCatalog, request: AgentProfileSaveRequestDto, roots: Pick<WorkbenchRoots, "userProfileRoot">): Promise<AgentProfileDetailDto> {
+    const userProfileRoot = roots.userProfileRoot;
     const filePath = resolveUserProfilePath(request.fileName, userProfileRoot);
     await mkdir(dirname(filePath), {recursive: true});
     await writeFile(filePath, request.source, "utf8");
@@ -198,8 +186,8 @@ export async function saveProfileSource(profiles: AgentProfileCatalog, request: 
 /**
  * 保存用户 profile 源码并返回轻量草稿解析结果。
  */
-export async function saveProfileSourceDraft(request: AgentProfileSaveRequestDto, roots: WorkbenchRoots = {}): Promise<ProfileTemplateDetailDto> {
-    const userProfileRoot = roots.userProfileRoot ?? defaultUserProfileRoot();
+export async function saveProfileSourceDraft(request: AgentProfileSaveRequestDto, roots: Pick<WorkbenchRoots, "userProfileRoot">): Promise<ProfileTemplateDetailDto> {
+    const userProfileRoot = roots.userProfileRoot;
     const filePath = resolveUserProfilePath(request.fileName, userProfileRoot);
     await mkdir(dirname(filePath), {recursive: true});
     await writeFile(filePath, request.source, "utf8");
@@ -209,9 +197,9 @@ export async function saveProfileSourceDraft(request: AgentProfileSaveRequestDto
 /**
  * 从模板创建用户 profile。
  */
-export async function createProfileSource(profiles: AgentProfileCatalog, request: AgentProfileCreateRequestDto, roots: WorkbenchRoots = {}): Promise<AgentProfileDetailDto> {
-    const userProfileRoot = roots.userProfileRoot ?? defaultUserProfileRoot();
-    const templateRoot = roots.templateRoot ?? defaultProfileTemplateRoot();
+export async function createProfileSource(profiles: AgentProfileCatalog, request: AgentProfileCreateRequestDto, roots: Pick<WorkbenchRoots, "userProfileRoot" | "templateRoot">): Promise<AgentProfileDetailDto> {
+    const userProfileRoot = roots.userProfileRoot;
+    const templateRoot = roots.templateRoot;
     const fileName = request.fileName ?? `${request.profileKey}.profile.tsx`;
     const filePath = resolveUserProfilePath(fileName, userProfileRoot);
     if (existsSync(filePath)) {
@@ -240,9 +228,9 @@ export async function createProfileSource(profiles: AgentProfileCatalog, request
 /**
  * 从模板创建用户 profile，并返回轻量草稿解析结果。
  */
-export async function createProfileSourceDraft(request: AgentProfileCreateRequestDto, roots: WorkbenchRoots = {}): Promise<ProfileTemplateDetailDto> {
-    const userProfileRoot = roots.userProfileRoot ?? defaultUserProfileRoot();
-    const templateRoot = roots.templateRoot ?? defaultProfileTemplateRoot();
+export async function createProfileSourceDraft(request: AgentProfileCreateRequestDto, roots: Pick<WorkbenchRoots, "userProfileRoot" | "templateRoot">): Promise<ProfileTemplateDetailDto> {
+    const userProfileRoot = roots.userProfileRoot;
+    const templateRoot = roots.templateRoot;
     const fileName = request.fileName ?? `${request.profileKey}.profile.tsx`;
     const filePath = resolveUserProfilePath(fileName, userProfileRoot);
     if (existsSync(filePath)) {
@@ -262,8 +250,8 @@ export async function createProfileSourceDraft(request: AgentProfileCreateReques
 /**
  * 删除用户 profile 文件，用于恢复系统同 key/profile，并触发全量发布移除旧 manifest entry。
  */
-export async function deleteProfileSource(profiles: AgentProfileCatalog, request: AgentProfileSourceRequestDto, roots: WorkbenchRoots = {}): Promise<{fileName: string; deleted: boolean}> {
-    const filePath = resolveUserProfilePath(request.fileName, roots.userProfileRoot ?? defaultUserProfileRoot());
+export async function deleteProfileSource(profiles: AgentProfileCatalog, request: AgentProfileSourceRequestDto, roots: Pick<WorkbenchRoots, "userProfileRoot">): Promise<{fileName: string; deleted: boolean}> {
+    const filePath = resolveUserProfilePath(request.fileName, roots.userProfileRoot);
     if (!existsSync(filePath)) {
         return {
             fileName: request.fileName,

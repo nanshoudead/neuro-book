@@ -103,4 +103,4 @@ When creating or editing content:
 4. Use structured refs only for stable semantic relations.
 5. Run `workspace node validate TARGET` after moving or editing references.
 
-Tool paths are not Markdown links. Agent file tools should use cwd-relative project paths such as `{project}/lorebook/character/hero/`.
+Tool paths are not Markdown links, but Project-bound Agent file tools share the same Project-relative root. Use paths such as `lorebook/character/hero/`; use `workspace/<project>/...` only for explicit cross-project file access.

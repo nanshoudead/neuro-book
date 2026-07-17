@@ -1,4 +1,5 @@
-import type {AgentUserMessageInput, JsonValue} from "nbook/server/agent/messages/types";
+import type {JsonValue} from "nbook/server/agent/messages/types";
+import type {StoredAgentUserMessageInput} from "nbook/server/agent/messages/stored-types";
 import type {AgentQueuedMessageDto, AgentQueuedMessageListDto} from "nbook/shared/dto/agent-session.dto";
 import {
     budgetText,
@@ -16,7 +17,7 @@ const PUBLIC_QUEUE_IMAGES = 8;
 export type AgentQueuedInvocationTruth = {
     id: string;
     kind: "steer" | "followup";
-    message?: AgentUserMessageInput;
+    message?: StoredAgentUserMessageInput;
     input?: JsonValue;
     createdAt: number;
 };
@@ -26,14 +27,14 @@ export function projectQueuedMessage(
     item: AgentQueuedInvocationTruth,
     budget: PublicProjectionBudget = createPublicProjectionBudget(PUBLIC_QUEUE_ITEM_BYTES),
 ): AgentQueuedMessageDto {
-    const images = item.message?.images ?? [];
+    const images = item.message?.attachments ?? [];
     return {
         id: item.id,
         kind: item.kind,
         ...(item.message?.text ? {text: budgetText(item.message.text, budget, 2 * 1024)} : {}),
         images: images.slice(0, PUBLIC_QUEUE_IMAGES).map((image) => ({
-            mimeType: budgetText(image.mimeType, budget, 256).preview || "application/octet-stream",
-            dataBytes: base64DecodedBytes(image.data),
+            mimeType: budgetText(image.attachment.mimeType, budget, 256).preview || "application/octet-stream",
+            dataBytes: image.attachment.bytes,
             dataOmitted: true as const,
         })),
         omittedImages: Math.max(0, images.length - PUBLIC_QUEUE_IMAGES),
@@ -50,9 +51,4 @@ export function projectQueuedMessages(items: AgentQueuedInvocationTruth[]): Agen
         items: visible.map((item) => projectQueuedMessage(item, budget)),
         omittedItems: Math.max(0, items.length - visible.length),
     };
-}
-
-function base64DecodedBytes(value: string): number {
-    const padding = value.endsWith("==") ? 2 : value.endsWith("=") ? 1 : 0;
-    return Math.max(0, Math.floor(value.length * 3 / 4) - padding);
 }

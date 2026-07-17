@@ -1,9 +1,9 @@
-import type {Message} from "nbook/server/agent/messages/types";
+import type {StoredUserMessage} from "nbook/server/agent/messages/stored-types";
 import type {RuntimeTurn, TurnContinuationDecision, TurnContinuationReason} from "nbook/server/agent/harness/run-kernel-types";
 
 export type ResolveTurnContinuationInput = {
     turn: RuntimeTurn;
-    steeredMessages: Message[];
+    steeredMessages: StoredUserMessage[];
     hasReportResult: boolean;
     reportResultReminderSent: boolean;
     reportResultAllowed: boolean;

@@ -2,6 +2,7 @@ import {createError} from "h3";
 import {requireProjectPathQuery} from "nbook/server/utils/novel-chapter";
 import {projectOccupancy} from "nbook/server/workspace-files/project-session";
 import {deleteProjectWorkspace} from "nbook/server/workspace-files/project-workspace-delete";
+import {runtimePathsFromEnv} from "nbook/server/runtime/paths/runtime-paths";
 
 /**
  * 删除 Project Workspace 目录。
@@ -20,7 +21,7 @@ export default defineEventHandler(async (event) => {
             data: {code: "PROJECT_IN_USE", ...occupancy},
         });
     }
-    await deleteProjectWorkspace(projectPath);
+    await deleteProjectWorkspace(runtimePathsFromEnv().workspaceRoot, projectPath);
 
     return {success: true};
 });

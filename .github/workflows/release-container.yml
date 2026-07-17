@@ -86,6 +86,8 @@ jobs:
       - uses: actions/checkout@v5
       - uses: oven-sh/setup-bun@v2
       - run: bun install --frozen-lockfile --linker hoisted
+      - name: Verify Agent State Root paths
+        run: bun vitest run server/agent/workspace/agent-workspace-location.test.ts server/agent/harness/agent-workspace-state-root.test.ts
       - run: bun run nuxt:build
       - run: bun run release:product:linux
       - uses: actions/upload-artifact@v4
@@ -101,6 +103,8 @@ jobs:
       - uses: actions/checkout@v5
       - uses: oven-sh/setup-bun@v2
       - run: bun install --frozen-lockfile --linker hoisted
+      - name: Verify Agent State Root paths
+        run: bun vitest run server/agent/workspace/agent-workspace-location.test.ts server/agent/harness/agent-workspace-state-root.test.ts
       - run: bun run nuxt:build
       - uses: actions/download-artifact@v4
         with:
@@ -199,14 +203,33 @@ jobs:
         run: |
           docker pull "${IMAGE}"
           test "$(docker image inspect "${IMAGE}" --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}')" = "${{ github.sha }}"
+      - name: Verify Linux Product Agent State Root
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf product-browser-smoke product-agent-state-root product-agent-state-root-moved
+          mkdir -p product-browser-smoke
+          unzip -q candidate-assets/neuro-book-source.zip -d product-browser-smoke
+          tar -xzf candidate-assets/neuro-book-product-linux-x64-glibc.tar.gz -C product-browser-smoke
+          product_root="$PWD/product-browser-smoke"
+          state_root="$PWD/product-agent-state-root"
+          test ! -e "${product_root}/node_modules"
+          (
+            cd "${product_root}"
+            NEURO_BOOK_APPLICATION_ROOT="${product_root}" \
+            NEURO_BOOK_STATE_ROOT="${state_root}" \
+            bun .output/server/scripts/deploy/product-agent-attachment-migration-smoke.ts
+            NEURO_BOOK_APPLICATION_ROOT="${product_root}" \
+            NEURO_BOOK_STATE_ROOT="${state_root}" \
+            bun .output/server/scripts/deploy/product-agent-state-root-smoke.ts
+          )
+          test ! -e "${product_root}/workspace"
+          test ! -e "${state_root}"
+          test -d "${state_root}-moved/workspace"
       - name: Verify Linux Product in a real browser
         shell: bash
         run: |
           set -euo pipefail
-          rm -rf product-browser-smoke
-          mkdir -p product-browser-smoke
-          unzip -q candidate-assets/neuro-book-source.zip -d product-browser-smoke
-          tar -xzf candidate-assets/neuro-book-product-linux-x64-glibc.tar.gz -C product-browser-smoke
           cat > product-browser-smoke/config.yaml <<'EOF'
           server:
             host: 0.0.0.0
@@ -271,6 +294,8 @@ jobs:
           path: |
             product-browser-smoke.log
             product-browser-smoke-failure.png
+            product-agent-state-root-moved/logs/**
+            product-agent-state-root-moved/workspace/.nbook/logs/**
 
   verify-windows:
     needs: [assemble]
@@ -357,6 +382,107 @@ jobs:
             Remove-Item Env:NEURO_BOOK_LAUNCHER_CAPTURE -ErrorAction SilentlyContinue
             Move-Item -LiteralPath $managerBackup -Destination $manager -Force
           }
+      - name: Verify Windows Portable Agent State Root
+        shell: pwsh
+        run: |
+          $portableRoot = (Resolve-Path portable).Path
+          $manifest = Get-Content -Raw (Join-Path $portableRoot ".deploy/installation.json") | ConvertFrom-Json
+          $bun = Join-Path $portableRoot $manifest.components.applicationRuntime.path
+          $git = Join-Path $portableRoot $manifest.components.tools.git.path
+          $bash = Join-Path $portableRoot $manifest.components.tools.git.bashPath
+          $rg = Join-Path $portableRoot $manifest.components.tools.rg.path
+          $stateRoot = Join-Path $portableRoot "data"
+          $movedStateRoot = "$stateRoot-moved"
+          if (Test-Path -LiteralPath $movedStateRoot) {
+            Remove-Item -LiteralPath $movedStateRoot -Recurse -Force
+          }
+          $previousPath = $env:PATH
+          try {
+            $env:PATH = (@(
+              (Join-Path $portableRoot ".runtime/bin"),
+              (Split-Path -Parent $bun),
+              (Split-Path -Parent $rg),
+              (Split-Path -Parent $git),
+              (Split-Path -Parent $bash),
+              $previousPath
+            ) -join [System.IO.Path]::PathSeparator)
+            $env:NEURO_BOOK_BASH = $bash
+            $env:GIT_BASH = $bash
+            $env:NEURO_BOOK_APPLICATION_ROOT = $portableRoot
+            $env:NEURO_BOOK_STATE_ROOT = $stateRoot
+            Push-Location $portableRoot
+            try {
+              & $bun ".output/server/scripts/deploy/product-agent-attachment-migration-smoke.ts"
+              if ($LASTEXITCODE -ne 0) {
+                throw "Portable Agent Attachment migration smoke失败：$LASTEXITCODE"
+              }
+              & $bun ".output/server/scripts/deploy/product-agent-state-root-smoke.ts"
+              if ($LASTEXITCODE -ne 0) {
+                throw "Portable Agent State Root smoke失败：$LASTEXITCODE"
+              }
+            } finally {
+              Pop-Location
+            }
+            if (Test-Path -LiteralPath (Join-Path $portableRoot "workspace")) {
+              throw "Portable Agent smoke在Installation Root创建了错误workspace目录"
+            }
+            if (Test-Path -LiteralPath $stateRoot) {
+              throw "Portable Agent smoke没有移动原State Root"
+            }
+            if (-not (Test-Path -LiteralPath (Join-Path $movedStateRoot "workspace"))) {
+              throw "Portable Agent smoke移动后的State Root缺少workspace"
+            }
+            Move-Item -LiteralPath $movedStateRoot -Destination $stateRoot
+          } finally {
+            $env:PATH = $previousPath
+            Remove-Item Env:NEURO_BOOK_BASH -ErrorAction SilentlyContinue
+            Remove-Item Env:GIT_BASH -ErrorAction SilentlyContinue
+            Remove-Item Env:NEURO_BOOK_APPLICATION_ROOT -ErrorAction SilentlyContinue
+            Remove-Item Env:NEURO_BOOK_STATE_ROOT -ErrorAction SilentlyContinue
+          }
+      - name: Verify Windows Portable shadow workspace diagnosis
+        shell: pwsh
+        run: |
+          $portableRoot = (Resolve-Path portable).Path
+          $manager = Join-Path $portableRoot ".runtime/bin/neuro-book.cmd"
+          $stateWorkspace = Join-Path $portableRoot "data/workspace"
+          $shadowWorkspace = Join-Path $portableRoot "workspace"
+          $stateMarker = Join-Path $stateWorkspace ".task109-state-marker"
+          $shadowMarker = Join-Path $shadowWorkspace ".task109-shadow-marker"
+          if (Test-Path -LiteralPath $shadowWorkspace) {
+            throw "Portable安装根已有workspace，无法建立隔离shadow诊断夹具"
+          }
+          New-Item -ItemType Directory -Path $stateWorkspace -Force | Out-Null
+          Set-Content -LiteralPath $stateMarker -Value "state-root" -Encoding ascii
+          New-Item -ItemType Directory -Path $shadowWorkspace -Force | Out-Null
+          Set-Content -LiteralPath $shadowMarker -Value "shadow-root" -Encoding ascii
+          $env:NO_COLOR = "1"
+          try {
+            $doctorOutput = @(& $manager --root $portableRoot doctor --json)
+            $doctorExitCode = $LASTEXITCODE
+            $doctor = ($doctorOutput -join "`n") | ConvertFrom-Json
+            $shadowCheck = @($doctor.checks | Where-Object { $_.id -eq "state.shadow-workspace" })
+            if ($shadowCheck.Count -ne 1 -or $shadowCheck[0].status -ne "fail") {
+              $doctorOutput | Write-Host
+              throw "Portable shadow workspace未被doctor诊断为fail（exit=$doctorExitCode）"
+            }
+            if (-not $shadowCheck[0].remediation -or $shadowCheck[0].remediation -notmatch "workspace") {
+              throw "Portable shadow workspace诊断缺少可执行remediation"
+            }
+            if ((Get-Content -Raw -LiteralPath $stateMarker).Trim() -ne "state-root") {
+              throw "Portable shadow诊断修改了真实State Root数据"
+            }
+            if ((Get-Content -Raw -LiteralPath $shadowMarker) -notmatch "shadow-root") {
+              throw "Portable shadow诊断修改了影子目录数据"
+            }
+          } finally {
+            Remove-Item -LiteralPath $shadowWorkspace -Recurse -Force -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath $stateMarker -Force -ErrorAction SilentlyContinue
+            Remove-Item Env:NO_COLOR -ErrorAction SilentlyContinue
+          }
+          if (Test-Path -LiteralPath $shadowWorkspace) {
+            throw "Portable shadow workspace测试目录未清理"
+          }
       - name: Verify Windows Portable in a real browser
         shell: pwsh
         run: |
@@ -430,7 +556,10 @@ jobs:
         with:
           name: windows-portable-browser-smoke-diagnostics
           if-no-files-found: ignore
-          path: portable/data/logs/release-browser-smoke*
+          path: |
+            portable/data/logs/release-browser-smoke*
+            portable/data-moved/logs/**
+            portable/data-moved/workspace/.nbook/logs/**
 
   verify:
     needs: [verify-linux, verify-windows]

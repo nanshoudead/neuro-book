@@ -3,6 +3,92 @@ import {projectAgentChatEntry} from "nbook/server/agent/events/public-chat-entry
 import type {SessionEntry} from "nbook/server/agent/session/types";
 
 describe("projectAgentChatEntry", () => {
+    it("纯 attachment prompt 仍形成可见 user entry，并保留原 contentIndex", () => {
+        const entry = {
+            id: "entry-image",
+            parentId: null,
+            timestamp: 101,
+            type: "message",
+            origin: "prompt",
+            message: {
+                role: "user",
+                content: [{
+                    type: "attachment",
+                    attachment: {
+                        id: `sha256:${"b".repeat(64)}`,
+                        mimeType: "image/webp",
+                        bytes: 42_000,
+                    },
+                    name: "参考图.webp",
+                }],
+                timestamp: 101,
+            },
+        } as unknown as SessionEntry;
+
+        expect(projectAgentChatEntry(entry)).toEqual({
+            id: "entry-image",
+            timestamp: 101,
+            type: "user",
+            blocks: [{
+                type: "attachment",
+                contentIndex: 0,
+                attachment: {
+                    attachmentId: `sha256:${"b".repeat(64)}`,
+                    mimeType: "image/webp",
+                    bytes: 42_000,
+                    name: "参考图.webp",
+                    dataOmitted: true,
+                },
+            }],
+            omittedBlocks: 0,
+            textSummary: {bytes: 0, omitted: false},
+            intent: "normal",
+        });
+    });
+
+    it("user text blocks 共用 64 KiB 预算，控制字符转义后完整 event 仍低于硬上限", () => {
+        const content = Array.from({length: 40}, (_, index) => index % 2 === 0
+            ? {type: "text" as const, text: "\n".repeat(100_000)}
+            : {
+                type: "attachment" as const,
+                attachment: {
+                    id: `sha256:${String(index).padStart(64, "a")}`,
+                    mimeType: "image/png",
+                    bytes: 1024,
+                },
+                name: `${"图".repeat(2_000)}.png`,
+            });
+        const entry = {
+            id: "entry-large-user",
+            parentId: null,
+            timestamp: 102,
+            type: "message",
+            origin: "prompt",
+            message: {role: "user", content, timestamp: 102},
+        } as unknown as SessionEntry;
+
+        const projected = projectAgentChatEntry(entry);
+        expect(projected?.type).toBe("user");
+        if (projected?.type !== "user") return;
+        expect(projected.blocks).toHaveLength(32);
+        expect(projected.omittedBlocks).toBe(8);
+        expect(projected.textSummary).toEqual({
+            bytes: 2_000_019,
+            omitted: true,
+        });
+        expect(projected.blocks
+            .filter((block) => block.type === "text")
+            .reduce((bytes, block) => bytes + Buffer.byteLength(block.content.preview, "utf8"), 0))
+            .toBeLessThanOrEqual(64 * 1024);
+        expect(Buffer.byteLength(JSON.stringify({
+            sessionId: 1,
+            kind: "session",
+            event: {type: "session_entry", entry: projected},
+        }), "utf8")).toBeLessThan(128 * 1024);
+        expect(projected).not.toHaveProperty("content");
+        expect(projected).not.toHaveProperty("attachments");
+    });
+
     it("assistant entry 的 write tool call 不公开完整正文", () => {
         const content = "正文".repeat(600_000);
         const entry: SessionEntry = {

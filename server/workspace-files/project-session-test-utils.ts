@@ -1,10 +1,11 @@
 import {closeProject, openProject} from "nbook/server/workspace-files/project-session";
+import {resolveRuntimeWorkspaceRoot} from "nbook/server/workspace-files/workspace-runtime-root";
 
 /**
  * 测试专用：按后台 job opener 打开 Project，会触发 openProject 的目录校验与一次性数据库初始化。
  */
 export async function openProjectForTest(projectPath: string): Promise<void> {
-    await openProject(projectPath, {kind: "job", source: "test"});
+    await openProject(resolveRuntimeWorkspaceRoot(), projectPath, {kind: "job", source: "test"});
 }
 
 /**

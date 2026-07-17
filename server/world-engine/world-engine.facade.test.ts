@@ -5,7 +5,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import {WorldEngineFacade} from "nbook/server/world-engine/world-engine.facade";
 import type {JsonValue} from "nbook/server/world-engine/types";
-import {resolveWorkspaceContainerRoot} from "nbook/server/workspace-files/workspace-assets-root";
+import {resolveRuntimeWorkspaceRoot} from "nbook/server/workspace-files/workspace-runtime-root";
 import {resolveProjectDatabasePath, toSqliteFileUrl} from "nbook/server/workspace-files/project-workspace";
 import {collectReleasedSqliteHandles} from "nbook/server/workspace-files/sqlite-handle-release";
 import {TrackedPrismaLibSql} from "nbook/server/workspace-files/tracked-prisma-libsql";
@@ -624,7 +624,7 @@ describe("WorldEngineFacade", {timeout: 30_000}, () => {
 });
 
 function createFacade(): WorldEngineFacade {
-    const facade = new WorldEngineFacade();
+    const facade = new WorldEngineFacade(resolveRuntimeWorkspaceRoot());
     createdFacades.push(facade);
     return facade;
 }
@@ -657,7 +657,7 @@ async function createProject(schema = schemaSource(), options: {open?: boolean} 
 }
 
 function projectRoot(projectPath: string): string {
-    return path.join(resolveWorkspaceContainerRoot(), projectPath.slice("workspace/".length));
+    return path.join(resolveRuntimeWorkspaceRoot(), projectPath.slice("workspace/".length));
 }
 
 async function tableExists(projectPath: string, table: string): Promise<boolean> {

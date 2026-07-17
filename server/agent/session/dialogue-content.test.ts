@@ -1,18 +1,19 @@
 import {randomUUID} from "node:crypto";
 import {rm} from "node:fs/promises";
-import {join} from "node:path";
+import {resolve} from "node:path";
 import {afterEach, beforeEach, describe, expect, it} from "vitest";
 import {fauxAssistantMessage, fauxText, fauxThinking, fauxToolCall} from "@earendil-works/pi-ai";
 import {createTextToolResult, createUserMessage} from "nbook/server/agent/messages/message-utils";
 import {buildAgentDialogueContent} from "nbook/server/agent/session/dialogue-content";
 import {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
+import {absoluteFsPath, type AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
 
 describe("Agent Dialogue Content", () => {
-    let root: string;
+    let root: AbsoluteFsPath;
     let repo: JsonlSessionRepository;
 
     beforeEach(() => {
-        root = join(".agent", "dialogue-content-test", randomUUID());
+        root = absoluteFsPath(resolve(".agent", "dialogue-content-test", randomUUID()));
         repo = new JsonlSessionRepository(root);
     });
 

@@ -176,6 +176,22 @@ export const OperationJournalSchema = Type.Object({
     sourceDependenciesInstalled: Type.Optional(Type.Boolean()),
     databaseBackup: Type.Optional(Type.String({minLength: 1})),
     databasePath: Type.Optional(Type.String({minLength: 1})),
+    attachmentMigration: Type.Optional(Type.Object({
+        runId: Type.String({pattern: "^[A-Za-z0-9_-]+$"}),
+        state: Type.Union([
+            Type.Literal("planned"),
+            Type.Literal("applied"),
+            Type.Literal("rolled_back"),
+        ]),
+        migratedSessions: Type.Integer({minimum: 1}),
+        sessions: Type.Array(Type.Object({
+            sessionId: Type.Union([Type.Integer(), Type.Null()]),
+            sourcePath: Type.String({minLength: 1}),
+            sourceHash: Type.String({pattern: "^[a-f0-9]{64}$"}),
+            targetHash: Type.String({pattern: "^[a-f0-9]{64}$"}),
+            backupPath: Type.Optional(Type.String({minLength: 1})),
+        }, {additionalProperties: false}), {minItems: 1}),
+    }, {additionalProperties: false})),
     previousCompose: Type.Optional(Type.String({minLength: 1})),
     composeChanged: Type.Optional(Type.Boolean()),
     composeCreated: Type.Optional(Type.Boolean()),
@@ -246,6 +262,9 @@ export function parseOperationJournal(value: unknown, path: string): OperationJo
     if (journal.nextManifest) parseInstallationManifest(journal.nextManifest);
     if (journal.git?.committed && !journal.nextManifest) {
         throw new Error(`Git 已提交的 Operation journal 缺少 nextManifest：${path}`);
+    }
+    if (journal.attachmentMigration && !journal.nextManifest) {
+        throw new Error(`Attachment migration Operation journal缺少nextManifest：${path}`);
     }
     return journal;
 }

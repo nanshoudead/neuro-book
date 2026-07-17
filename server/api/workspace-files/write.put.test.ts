@@ -4,6 +4,8 @@ import {randomUUID} from "node:crypto";
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
 import {statWorkspacePath} from "nbook/server/workspace-files/workspace-files";
 import {WorkspaceWriteConflictDtoSchema} from "nbook/shared/dto/workspace-file-conflict.dto";
+import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
+import {normalizeProjectPath} from "nbook/server/workspace-files/project-path";
 
 const createdRoots: string[] = [];
 const originalReadBody = (globalThis as typeof globalThis & {readBody?: unknown}).readBody;
@@ -26,6 +28,10 @@ describe("PUT /api/workspace-files/write", () => {
         vi.doMock("nbook/server/utils/prisma", () => ({
             prisma: {},
         }));
+        vi.doMock("nbook/server/workspace-history/tracked-workspace-files", () => ({
+            USER_LOCAL_ACTOR: {kind: "user", userId: "local"},
+            writeWorkspaceTextFileTracked: vi.fn(),
+        }));
     });
 
     afterEach(async () => {
@@ -42,19 +48,15 @@ describe("PUT /api/workspace-files/write", () => {
     });
 
     it("真实文件版本变化时会返回写入冲突", async () => {
-        const root = path.join(".agent", "workspace-write-conflict-test", randomUUID());
+        const root = absoluteFsPath(path.resolve(".agent", "workspace-write-conflict-test", randomUUID()));
         const filePath = "note.md";
         createdRoots.push(root);
         await fs.mkdir(root, {recursive: true});
         await fs.writeFile(path.join(root, filePath), "共同基线\n", "utf-8");
         const baseNode = await statWorkspacePath(root, filePath);
-        vi.doMock("nbook/server/workspace-files/novel-workspace", async (importOriginal) => {
-            const actual = await importOriginal<typeof import("nbook/server/workspace-files/novel-workspace")>();
-            return {
-                ...actual,
-                resolveWorkspaceRootInput: vi.fn(async () => root),
-            };
-        });
+        vi.doMock("nbook/server/workspace-files/novel-workspace", () => ({
+            resolveWorkspaceFileTarget: vi.fn(async () => ({kind: "workspace-root", root})),
+        }));
 
         await fs.writeFile(path.join(root, filePath), "真实文件\n", "utf-8");
         await fs.utimes(path.join(root, filePath), new Date(), new Date(baseNode.mtimeMs + 5000));
@@ -86,13 +88,13 @@ describe("PUT /api/workspace-files/write", () => {
     });
 
     it("Project root 未 open 时返回 PROJECT_NOT_OPEN", async () => {
-        vi.doMock("nbook/server/workspace-files/novel-workspace", async (importOriginal) => {
-            const actual = await importOriginal<typeof import("nbook/server/workspace-files/novel-workspace")>();
-            return {
-                ...actual,
-                resolveWorkspaceRootInput: vi.fn(async () => "workspace/not-open"),
-            };
-        });
+        vi.doMock("nbook/server/workspace-files/novel-workspace", () => ({
+            resolveWorkspaceFileTarget: vi.fn(async () => ({
+                kind: "project-workspace",
+                root: absoluteFsPath("C:/test/workspace/not-open"),
+                projectPath: normalizeProjectPath("workspace/not-open"),
+            })),
+        }));
         readBodyMock.mockResolvedValue({
             projectPath: "workspace/not-open",
             path: "note.md",

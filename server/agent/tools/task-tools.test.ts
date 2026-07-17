@@ -1,24 +1,48 @@
-import {describe, expect, it} from "vitest";
+import {mkdtemp, mkdir, rm} from "node:fs/promises";
+import {tmpdir} from "node:os";
+import {join} from "node:path";
+import {afterEach, beforeEach, describe, expect, it} from "vitest";
 import {NeuroAgentHarness} from "nbook/server/agent/harness/neuro-agent-harness";
 import {createAssistantTextMessage} from "nbook/server/agent/messages/message-utils";
 import {AGENT_TASKS_STATE_KEY} from "nbook/server/agent/session/custom-state-keys";
 import {ToolSessionWriteSink} from "nbook/server/agent/session/tool-session-write-sink";
 import type {SessionWriteExecutor, SessionWritePlan} from "nbook/server/agent/session/write-plan";
+import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
+import {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
 
 describe("task tools", () => {
+    let root: string;
+    let workspaceRoot: string;
+    let harness: NeuroAgentHarness;
+
+    beforeEach(async () => {
+        root = await mkdtemp(join(tmpdir(), "nbook-task-tools-test-"));
+        workspaceRoot = join(root, "workspace");
+        await mkdir(workspaceRoot, {recursive: true});
+        harness = new NeuroAgentHarness({
+            repo: new JsonlSessionRepository(workspaceRoot),
+            enableSessionSummarizer: false,
+        });
+    });
+
+    afterEach(async () => {
+        await harness.dispose();
+        await rm(root, {recursive: true, force: true});
+    });
+
     it("task_create / task_set_status 写入 session custom state 并返回任务卡结构", async () => {
-        const harness = new NeuroAgentHarness({enableSessionSummarizer: false});
         const created = await harness.createAgent({
             profileKey: "leader.default",
             initial: {},
-            workspaceRoot: ".agent/task-tools-test",
+            workspaceRoot,
             workspaceKey: "task-tools-test",
         });
         const context = {
             harness,
             sessionId: created.sessionId,
             profileKey: "leader.default",
-            workspaceRoot: ".agent/task-tools-test",
+            workspaceRootRef: absoluteFsPath(workspaceRoot),
+            workspaceFsRoot: absoluteFsPath(workspaceRoot),
             workspaceKey: "task-tools-test",
         };
         const taskCreate = harness.tools.get("task_create");
@@ -56,11 +80,10 @@ describe("task tools", () => {
     }, 60_000);
 
     it("真实 turn 的 savePoint 提交后任务清单仍保持在当前分支", async () => {
-        const harness = new NeuroAgentHarness({enableSessionSummarizer: false});
         const created = await harness.createAgent({
             profileKey: "leader.default",
             initial: {},
-            workspaceRoot: ".agent/task-tools-savepoint-test",
+            workspaceRoot,
             workspaceKey: "task-tools-savepoint-test",
         });
         const writeExecutor = (harness as unknown as {writeExecutor: SessionWriteExecutor}).writeExecutor;
@@ -71,7 +94,8 @@ describe("task tools", () => {
             harness,
             sessionId: created.sessionId,
             profileKey: "leader.default",
-            workspaceRoot: ".agent/task-tools-savepoint-test",
+            workspaceRootRef: absoluteFsPath(workspaceRoot),
+            workspaceFsRoot: absoluteFsPath(workspaceRoot),
             workspaceKey: "task-tools-savepoint-test",
             invocationId: "task-invocation",
             sessionWrites: new ToolSessionWriteSink({

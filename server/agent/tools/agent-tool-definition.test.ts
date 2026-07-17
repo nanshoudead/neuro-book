@@ -30,7 +30,7 @@ describe("defineAgentTool", () => {
         expect(runtime.description).toBe("Echo from definition.");
         expect(runtime.parameters).toBe(parameters);
         expect(runtime.executionMode).toBe("sequential");
-        await expect(runtime.execute("call", {text: "hello"})).resolves.toEqual({
+        await expect(runtime.execute!("call", {text: "hello"})).resolves.toEqual({
             content: [{type: "text", text: "ok"}],
             details: {},
         });

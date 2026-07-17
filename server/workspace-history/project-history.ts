@@ -8,10 +8,11 @@ import {
     type UnseenGroup,
 } from "nbook/server/vendor/nb-history/index";
 import {isProjectOpen, registerProjectResourceOwner, type ProjectResourceOwner} from "nbook/server/workspace-files/project-session";
-import {normalizeProjectPath, resolveProjectAbsolutePath} from "nbook/server/workspace-files/project-workspace";
+import {normalizeProjectPath} from "nbook/server/workspace-files/project-path";
+import {absoluteFsPath, type AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
 import {onProjectWorkspaceFileChange} from "nbook/server/workspace-files/project-workspace-index";
 import {collectReleasedSqliteHandles} from "nbook/server/workspace-files/sqlite-handle-release";
-import {loadEffectiveConfig, loadGlobalEffectiveConfigSync} from "nbook/server/config/config-service";
+import {loadEffectiveConfigAtWorkspaceRoot, loadGlobalEffectiveConfigSync} from "nbook/server/config/config-service";
 import {isHistoryTrackedRelativePath} from "nbook/server/workspace-history/history-paths";
 import type {WorkspaceFileChangeEventDto} from "nbook/shared/dto/workspace-file-events.dto";
 
@@ -61,7 +62,10 @@ export function setHistoryEnabledOverrideForTest(value: boolean | null): void {
  * 取得（必要时打开）项目的 history 实例。
  * 返回 null 的两种情况：功能未启用；项目未 open（close 竞态窗口，静默跳过是 fail-open 总方针的一部分）。
  */
-export async function ensureProjectHistory(projectPath: string): Promise<WorkspaceHistory | null> {
+export async function ensureProjectHistory(
+    projectRoot: AbsoluteFsPath,
+    projectPath: string,
+): Promise<WorkspaceHistory | null> {
     const key = normalizeProjectPath(projectPath);
     if (!historyEnabled() || !isProjectOpen(key)) {
         return null;
@@ -70,7 +74,7 @@ export async function ensureProjectHistory(projectPath: string): Promise<Workspa
     if (existing) {
         return existing;
     }
-    const opening = openHistoryInstance(key);
+    const opening = openHistoryInstance(projectRoot, key);
     openHistories.set(key, opening);
     try {
         return await opening;
@@ -81,14 +85,16 @@ export async function ensureProjectHistory(projectPath: string): Promise<Workspa
 }
 
 /** 真正打开库实例：retention 参数取项目覆盖后的 effective config（D9/N6）。 */
-async function openHistoryInstance(key: string): Promise<WorkspaceHistory> {
-    const workspaceRoot = resolveProjectAbsolutePath(key);
-    const databasePath = path.join(workspaceRoot, ...HISTORY_DATABASE_RELATIVE_PATH.split("/"));
+async function openHistoryInstance(projectRoot: AbsoluteFsPath, key: string): Promise<WorkspaceHistory> {
+    const databasePath = path.join(projectRoot, ...HISTORY_DATABASE_RELATIVE_PATH.split("/"));
     await fs.mkdir(path.dirname(databasePath), {recursive: true});
-    const config = (await loadEffectiveConfig({workspaceKind: "novel", projectPath: key})).history;
+    const config = (await loadEffectiveConfigAtWorkspaceRoot({
+        workspaceRoot: absoluteFsPath(path.dirname(projectRoot)),
+        projectPath: key,
+    })).history;
     const history = await WorkspaceHistory.open({
         databasePath,
-        workspaceRoot,
+        workspaceRoot: projectRoot,
         config: {
             retentionFullDays: config.retentionFullDays,
             keepDailyLastAfterWindow: config.keepDailyLastAfterWindow,
@@ -159,7 +165,7 @@ export async function reconcileWatcherBatch(projectPath: string, root: string, e
     if (!historyEnabled()) {
         return;
     }
-    const history = await ensureProjectHistory(projectPath).catch(() => null);
+    const history = await ensureProjectHistory(absoluteFsPath(root), projectPath).catch(() => null);
     if (!history) {
         return;
     }
@@ -194,6 +200,7 @@ async function readFileForReconcile(root: string, relativePath: string): Promise
 
 /** 记一次写入（create/edit 由模块按账面自动判定）。before 为 null 表示此前文件不存在。 */
 export async function recordProjectWrite(input: {
+    projectRoot: AbsoluteFsPath;
     projectPath: string;
     relativePath: string;
     actor: OperationActor;
@@ -201,26 +208,28 @@ export async function recordProjectWrite(input: {
     after: Uint8Array;
 }): Promise<void> {
     const relativePath = normalizeRecordPath(input.relativePath);
-    await recordSafely(input.projectPath, relativePath, async (history) => {
+    await recordSafely(input.projectRoot, input.projectPath, relativePath, async (history) => {
         await history.registerWrite(input.actor, relativePath, input.before, input.after);
     });
 }
 
 /** 记一次删除。before 是删除前内容（删除找回的快照来源）。 */
 export async function recordProjectDelete(input: {
+    projectRoot: AbsoluteFsPath;
     projectPath: string;
     relativePath: string;
     actor: OperationActor;
     before: Uint8Array;
 }): Promise<void> {
     const relativePath = normalizeRecordPath(input.relativePath);
-    await recordSafely(input.projectPath, relativePath, async (history) => {
+    await recordSafely(input.projectRoot, input.projectPath, relativePath, async (history) => {
         await history.registerDelete(input.actor, relativePath, input.before);
     });
 }
 
 /** 记一次改名（内容不变）。from/to 任一不在记账范围则整条跳过（罕见的跨界移动，注释于谓词）。 */
 export async function recordProjectRename(input: {
+    projectRoot: AbsoluteFsPath;
     projectPath: string;
     fromPath: string;
     toPath: string;
@@ -231,18 +240,23 @@ export async function recordProjectRename(input: {
     if (!isHistoryTrackedRelativePath(fromPath)) {
         return;
     }
-    await recordSafely(input.projectPath, toPath, async (history) => {
+    await recordSafely(input.projectRoot, input.projectPath, toPath, async (history) => {
         await history.registerRename(input.actor, fromPath, toPath);
     });
 }
 
 /** 记账公共外壳：路径归一化 + 谓词过滤 + 实例获取 + fail-open（记账失败告警降级，绝不向调用方抛出，N3）。 */
-async function recordSafely(projectPath: string, relativePath: string, fn: (history: WorkspaceHistory) => Promise<void>): Promise<void> {
+async function recordSafely(
+    projectRoot: AbsoluteFsPath,
+    projectPath: string,
+    relativePath: string,
+    fn: (history: WorkspaceHistory) => Promise<void>,
+): Promise<void> {
     if (!isHistoryTrackedRelativePath(relativePath)) {
         return;
     }
     try {
-        const history = await ensureProjectHistory(projectPath);
+        const history = await ensureProjectHistory(projectRoot, projectPath);
         if (!history) {
             return;
         }
@@ -264,12 +278,16 @@ function normalizeRecordPath(value: string): string {
  * 游标懒初始化（N8）：会话首次查询时以「当下」为基线建游标并返回空——新会话不被历史淹没，
  * 也避免在 createAgent（无 ensure-open 保证）挂 initCursor。
  */
-export async function readUnseenForAgent(projectPath: string, sessionId: number): Promise<UnseenGroup[]> {
+export async function readUnseenForAgent(
+    projectRoot: AbsoluteFsPath,
+    projectPath: string,
+    sessionId: number,
+): Promise<UnseenGroup[]> {
     if (!historyEnabled()) {
         return [];
     }
     try {
-        const history = await ensureProjectHistory(projectPath);
+        const history = await ensureProjectHistory(projectRoot, projectPath);
         if (!history) {
             return [];
         }
@@ -290,9 +308,14 @@ export async function readUnseenForAgent(projectPath: string, sessionId: number)
 }
 
 /** 推进会话游标（提醒成功送达后调用；fail-open）。 */
-export async function advanceAgentCursor(projectPath: string, sessionId: number, entryId: number): Promise<void> {
+export async function advanceAgentCursor(
+    projectRoot: AbsoluteFsPath,
+    projectPath: string,
+    sessionId: number,
+    entryId: number,
+): Promise<void> {
     try {
-        const history = await ensureProjectHistory(projectPath);
+        const history = await ensureProjectHistory(projectRoot, projectPath);
         await history?.advanceCursor(String(sessionId), entryId);
     } catch (error) {
         consola.warn({projectPath, sessionId, error}, "workspace-history 游标推进失败（下轮提醒将重复出现）");
@@ -305,19 +328,22 @@ export async function advanceAgentCursor(projectPath: string, sessionId: number,
  * 项目 open 后的 history 预热：开库 → D15 全量对账扫描 → 24h 维护（auto-accept → prune）。
  * 整体 fire-and-forget，任何失败只告警；agent 懒开路径不跑扫描（写路径内建对账兜底）。
  */
-export async function openProjectHistoryAndMaintain(projectPath: string): Promise<void> {
+export async function openProjectHistoryAndMaintain(
+    projectRoot: AbsoluteFsPath,
+    projectPath: string,
+): Promise<void> {
     if (!historyEnabled()) {
         return;
     }
     const key = normalizeProjectPath(projectPath);
-    const history = await ensureProjectHistory(key);
+    const history = await ensureProjectHistory(projectRoot, key);
     if (!history) {
         return;
     }
-    await reconcileFullScan(key, history).catch((error) => {
+    await reconcileFullScan(projectRoot, key, history).catch((error) => {
         consola.warn({projectPath: key, error}, "workspace-history open 对账扫描失败");
     });
-    await runMaintenanceIfDue(key, history).catch((error) => {
+    await runMaintenanceIfDue(key, history, absoluteFsPath(path.dirname(projectRoot))).catch((error) => {
         consola.warn({projectPath: key, error}, "workspace-history 维护失败");
     });
 }
@@ -328,12 +354,11 @@ export async function openProjectHistoryAndMaintain(projectPath: string): Promis
  * 用户收件箱（模块 R5 只由 agent/system 触发），而会话 unseen 恰好需要让 agent 看到这些变更。
  * 未变文件被模块 hash 比对吸收为 no-op；账面存活但磁盘缺失的文件补删除条目。
  */
-async function reconcileFullScan(key: string, history: WorkspaceHistory): Promise<void> {
-    const root = resolveProjectAbsolutePath(key);
-    const diskFiles = await collectTrackedDiskFiles(root, "");
+async function reconcileFullScan(projectRoot: AbsoluteFsPath, key: string, history: WorkspaceHistory): Promise<void> {
+    const diskFiles = await collectTrackedDiskFiles(projectRoot, "");
     for (const relativePath of diskFiles) {
         try {
-            await history.reconcile(relativePath, await readFileForReconcile(root, relativePath));
+            await history.reconcile(relativePath, await readFileForReconcile(projectRoot, relativePath));
         } catch (error) {
             consola.warn({projectPath: key, path: relativePath, error}, "workspace-history open 对账单文件失败");
         }
@@ -371,13 +396,13 @@ export async function collectTrackedDiskFiles(root: string, prefix: string): Pro
 }
 
 /** 24h 一轮维护：auto-accept（D8）→ prune。进程内水位，重启后首次 open 会再跑一轮（幂等无害）。 */
-async function runMaintenanceIfDue(key: string, history: WorkspaceHistory): Promise<void> {
+async function runMaintenanceIfDue(key: string, history: WorkspaceHistory, workspaceRoot: AbsoluteFsPath): Promise<void> {
     const last = maintenanceRanAt.get(key) ?? 0;
     if (Date.now() - last < MAINTENANCE_MIN_INTERVAL_MS) {
         return;
     }
     maintenanceRanAt.set(key, Date.now());
-    const accepted = await runAutoAccept(key, history);
+    const accepted = await runAutoAccept(key, history, workspaceRoot);
     const report = await history.prune();
     consola.info({projectPath: key, autoAccepted: accepted, ...report}, "workspace-history 维护完成");
 }
@@ -386,8 +411,8 @@ async function runMaintenanceIfDue(key: string, history: WorkspaceHistory): Prom
  * auto-accept（D8）：收件箱组内**最后一条**条目也超过 autoAcceptDays 未审查时整组接受——
  * 活跃变更（组内还有新条目）整组保留不被吞；兼解「未接受段永不 prune」导致库只增不减。
  */
-async function runAutoAccept(key: string, history: WorkspaceHistory): Promise<number> {
-    const config = (await loadEffectiveConfig({workspaceKind: "novel", projectPath: key})).history;
+async function runAutoAccept(key: string, history: WorkspaceHistory, workspaceRoot: AbsoluteFsPath): Promise<number> {
+    const config = (await loadEffectiveConfigAtWorkspaceRoot({workspaceRoot, projectPath: key})).history;
     if (!config.autoAcceptEnabled) {
         return 0;
     }

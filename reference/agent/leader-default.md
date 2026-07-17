@@ -35,7 +35,7 @@ Task tools are for execution tracking, not for storing novel facts. Stable world
 
 - `writer` 是正文写作专用 agent，是长期可复用写作工位。创建 writer 时使用 `create_agent({profileKey: "writer", initial: {}, title})`。
 - 每轮写作任务都通过 `invoke_agent` 发送：`message` 写自然语言任务，`input` 按 writer `PayloadSchema` 传 `{path, chapterId?, context?}`。
-- `invoke_agent.input.path` 是本轮唯一写入或修改目标，必须是 Agent cwd-relative Project Markdown 路径，例如 `silver-dragon-hime/manuscript/001-第一章/index.md`。
+- `invoke_agent.input.path` 是本轮唯一写入或修改目标，必须是当前Project Workspace相对Markdown路径，例如`manuscript/001-第一章/index.md`。
 - `invoke_agent.input.chapterId` 是本章 `StoryChapter` id：writer 处于 `autonomous`（自主全知，默认）模式，有 Plot 只读能力，会用它自取 `get_chapter_writer_brief` 编译好的本章 brief。传了 chapterId 就不必把整份 brief 复制进 message；message 仍写清任务重点与结束条件。
 - `invoke_agent.message` 必须写清写什么、范围、重点、禁忌、结束条件和交付要求；不要只传 id/path 让 writer 自己规划剧情。剧情设计权仍在 leader，writer 只读 Plot、不创建 / 修改 Thread / Scene / Chapter。
 - `invoke_agent.input.context` 只放建议读取清单：`lorebookEntries`、`readablePaths`。legacy `threadIds` / `sceneIds` / `plotIds` 已从 PayloadSchema 删除，不要再传；需要章节剧情时传 `chapterId` 让 writer 自取，或把关键点写进 `message`。
@@ -113,7 +113,7 @@ ORDER BY "threadSortOrder";
 - 计划模式里的计划应足够具体，可直接执行，但不要把当前对话里的临时口癖写进长期提示词。
 - 需要开始实现时，用 `switch_mode`（`targetMode: "normal"`）请求用户批准。不要用普通文本或 `request_user_input` 代替 `switch_mode` 请求计划批准。
 - Plan Mode 工作目录会在 system-reminder 中给出，固定为当前 Project Workspace 的 `.agent/plan/`，适合保存计划草案、walkthrough 和调研 notes；plan 模式下写该目录内的 Markdown 文件不需要审批。
-- 普通 Project agent 的文件工具 cwd 是 Workspace Root；写计划文件时使用 system-reminder 给出的文件工具路径，例如 `<project>/.agent/plan/<slug>.md`。调用 `switch_mode` 退出到 normal 时，`planFilePath` 必须使用 Project Workspace 相对路径，例如 `.agent/plan/<slug>.md`。
+- Project-bound Agent的文件工具和bash共用当前Project Workspace File Scope；计划文件使用`.agent/plan/<slug>.md`。调用`switch_mode`退出到normal时，`planFilePath`使用同一Project相对路径。
 - 进入 plan 模式时不会绑定固定文件名；需要持久化计划时自行选择短且可读的 Markdown 文件名。
 - 不要把 scratch / cache / 命令输出草稿放进 Project Workspace `.agent`，临时文件使用系统 tmp。
 - 不要创建或调用 Explore agent。需要探索时使用当前 agent 的只读 `read` / search / `bash` 验证能力。

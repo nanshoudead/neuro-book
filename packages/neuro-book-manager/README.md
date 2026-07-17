@@ -42,7 +42,11 @@ neuro-book --root <path> doctor
 
 `neuro-book manage` 使用 blessed 提供多实例 TUI，可查看状态、执行诊断、启动、更新、注册、设置默认实例或忘记索引。忘记实例不会删除 Installation Root 或用户数据。
 
+Windows Portable的State Root固定为`data/`。如果Installation Root下另外出现了真实`workspace/`目录，Manager会把它视为可能的数据分叉：`doctor`报告`state.shadow-workspace`失败，`status`给出人工处理步骤，`start`只警告并继续。Manager不会自动复制、合并、删除或重命名两个目录；junction或symlink若与`data/workspace/`指向同一真实目录则不会误报。
+
 已有Manifest v3实例使用`instances import <path> --yes`执行离线完整性门禁后登记；`--yes`只接受“服务未启动”等warning，不能绕过checksum、wrapper或Operation blocker。无Manifest源码checkout使用`adopt`显式接管；三个Source Profile均在detached worktree准备，dirty、未知remote或非法branch会停止。无法证明revision/checksum的历史`.output`不会直接纳入管理。
+
+Install、Update与Start在修改应用数据前都会先恢复未完成Operation，并在install lock内持久化Operation Journal。Agent Attachment格式迁移先dry-run记录受影响session的source/target hash，再apply并补充backup路径；健康检查或进程中断时，Manager先停止新Product/容器释放runtime lease并撤销session格式，之后才恢复Product、SQLite和Compose。缺少迁移脚本、runId不一致或`applied`操作返回`not_started`都会停止，不能静默启动不完整Product。
 
 不要使用 `bunx run @notnotype/neuro-book-manager`；`bunx run` 会把包名按本地脚本或路径解析，Manager 不会被启动。
 

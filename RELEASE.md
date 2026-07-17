@@ -16,7 +16,16 @@
 - Agent runtime event 改为不可变、delta-first 的公开 DTO，不再反复发送累计完整消息、工具参数、patch、diff 或图片 base64。
 - write、edit、apply_patch、read、bash 等工具卡只公开路径、短预览、原始字节数和 omitted 状态；未知工具也经过统一的有界投影，未来新增工具默认受同一安全边界保护。
 - EventHub replay 同时限制事件数量与序列化字节数，慢订阅者队列也有独立上限。Agent SSE 使用等待 Node `drain` 的专用 writer，客户端停止读取时不再把大量事件转移到无界 HTTP response buffer。
-- pending approval、steer/follow-up queue 和 Agent 表单也改用公开有界合同；完整内部 payload 继续只保留在服务端真相层。图片正文不会进入 SSE 或 Chat Flow，durable JSONL 的图片附件引用仍作为后续 Task 108 单独实施。
+- pending approval、steer/follow-up queue 和 Agent 表单也改用公开有界合同；完整内部 payload 继续只保留在服务端真相层。图片正文不会进入 SSE、recovery/history DTO 或 JSONL，持久层只保存轻量 Attachment 引用。
+- 修复运行结束与图片follow-up并发入队的竞态。Attachment仍在保存时，terminal状态会等待同一session admission临界区，确保follow-up要么完整落盘并自动开启下一轮，要么在运行结束后明确拒绝，不会留下无人消费的队列。
+- Manual compact现在纳入Harness统一后台任务生命周期；服务关闭会等待compaction、follow-up drain与summarizer结束后再释放Session、Profile和Attachment资源，避免关闭过程中仍访问已删除的State Root。
+
+### Agent 图片改为持久化 Attachment 引用
+
+- 用户图片和`read(image)`结果会先写入Workspace Root `.nbook/agent/attachments/`的content-addressed Store；JSONL、RunFrame、queue、公开事件和trace只保存轻量引用，不再长期持有base64。
+- Provider调用前才按当前可见上下文临时加载图片；非视觉模型使用统一marker且不读取blob。缺失、损坏或MIME不一致会在Provider请求前明确失败。
+- Chat Flow通过session、entry和content index约束的授权接口加载图片，支持ETag/304、失败单图重试和纯图片消息；错误响应不缓存。
+- 当前开发Workspace中的既有图片session已完成一次性硬切迁移，runtime不保留旧双格式分支。Manager的Install、Update与Start现在都通过Operation Journal执行迁移：健康失败或崩溃恢复会先停止新容器/进程并撤销session格式，再恢复Product、SQLite和Compose；缺脚本、错误runId或`applied -> not_started`均fail closed。
 
 ### 模型配置合同与设置体验
 
@@ -30,6 +39,17 @@
 - `bun run typecheck` 与 `bun run nuxt:build` 已通过；模型草稿、模型写入校验、runtime/auth、DTO 与 Global Config 聚焦测试通过。
 - 真实 paused socket、10 MiB write/patch/unknown tool 与图片 base64 fixture 已覆盖公开事件、replay、subscriber queue 和 response buffer 上限。
 - 未自动执行浏览器验收、Docker 构建或本轮真实 Provider 验证。建议发布后重点手动检查长 session 向上翻页、invalid cursor 恢复、短列表滚动锚点、工具预览省略提示，以及模型设置的一键修复和批量检测。
+
+### Agent Workspace Root与Portable数据路径
+
+- Agent session继续保存`workspace`或`workspace/.nbook`逻辑引用，但每次运行会按当前State Root解析真实文件系统根。Windows Portable中的read/write/edit/apply_patch/bash、Plan Mode、World Engine临时文件、Subject Memory/RAG与文件历史现在统一落到`data/workspace/`，不会再因进程cwd错误创建根`workspace/`。
+- 未定义的任意相对workspace override会被拒绝；用户明确指定的外部绝对Project Workspace仍受支持。完整移动`data/`后，旧session会在新Installation Root自动解析到新的物理位置，不写入旧盘符或旧安装绝对路径。
+- Manager新增`state.shadow-workspace`诊断。若Portable根`workspace/`与`data/workspace/`是两个真实目录，doctor失败、status提示人工比较、start醒目警告但继续运行；Manager不会自动处理用户数据，同目标junction/symlink不误报。
+- Agent Session列表会隔离路径或metadata损坏的单文件；相同问题集合只告警一次，避免每次列表刷新重复淹没日志。历史测试产生的235个无用户消息Session已带SHA256清单可逆归档，真实Repository issue归零。Harness在运行时要求显式Repository或RuntimePaths，Bun也默认忽略Product/Output/staging目录，测试和临时runtime不能再静默写入真实State Root。
+- 文件路径现在统一遵循`RuntimePaths -> WorkspaceRootRef/ProjectPath -> File Scope -> Resolved File Address`。Agent不再拥有独立路径语法，Workspace API、History、World Engine/Plot、Profile/Skill、Session与bash核心均由入口显式传入root，不从cwd反推领域身份。
+- 本地Windows隔离Product与SSH Arch原生Product已在无根`node_modules`、分离State Root和外部Project条件下通过Agent五工具、Attachment migration/rollback、Config/Profile/Variable、SQLite migration与HTTP；Arch Source Docker在容器内构建，并在正式`/app`同根布局通过同一Agent/Attachment与HTTP版本门禁。最终源码重新构建的Windows隔离Product再次通过迁移逐字节回滚、State Root移动和HTTP 200，并确认Product runtime不再包含测试源码或依赖测试helper；完整Harness/black-box为187/187。公开Release、Windows Portable、Product Bun和GHCR仍需新canary发布后验证。
+
+迁移时请保留完整State Root。Windows Portable用户只复制完整`data/`到新解压目录，不要复制旧根`workspace/`；如果doctor报告`state.shadow-workspace`，先分别备份并人工比较两个目录，再决定保留内容。
 
 ## 0.7.10-canary - 2026-07-13
 

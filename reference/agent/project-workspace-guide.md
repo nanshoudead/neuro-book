@@ -8,23 +8,23 @@ For Plot System, read `reference/plot/system.md` and `reference/plot/agent-spec.
 
 ## Workspace Paths
 
-Agent cwd is the Workspace Root, usually `workspace/`. The Workspace Root is a data container, not a single novel.
+Project-bound Agent sessions use the Current Project Workspace as the shared File Scope for file tools and bash. Use Project-relative paths directly:
 
-The Project Slug is a single directory name such as `my-novel`. The Project Path used by project-level APIs is `workspace/{project-slug}`. The Current Project Workspace is only the default focus for ambiguous project work, not an access boundary. All managed Project Workspaces remain accessible from the Workspace Root; cross-project work must name the target Project Slug explicitly. When file tools or bash operate from the Workspace Root, prefer cwd-relative project paths:
+- Use `lorebook/...`.
+- Use `manual/...`.
+- Use `manuscript/...`.
+- Use `simulation/...`.
+- Use `reference/...`.
 
-- Use `{project-slug}/lorebook/...`.
-- Use `{project-slug}/manual/...`.
-- Use `{project-slug}/manuscript/...`.
-- Use `{project-slug}/simulation/...`.
-- Use `{project-slug}/reference/...`.
-- Do not default to `workspace/{project-slug}/...` unless a tool explicitly asks for `projectPath`.
+The Project Slug is a single directory name such as `my-novel`. Project-level APIs use the Project Path `workspace/{project-slug}`. Explicit cross-project file access uses a Project File Address such as `workspace/other-novel/lorebook/...`; this is a formal address resolved through the Project Path Module, not a cwd compatibility alias.
 
 Tool inputs and profile initial values often need different path shapes:
 
 | Situation | Preferred path |
 | --- | --- |
-| File tools from Agent cwd | `{project}/manuscript/001-volume/001-chapter/index.md` |
-| Content node tool target | `{project}/lorebook/character/hero/` |
+| File tools from current Project File Scope | `manuscript/001-volume/001-chapter/index.md` |
+| Content node tool target | `lorebook/character/hero/` |
+| Explicit cross-project file | `workspace/{project}/lorebook/character/hero/index.md` |
 | Plot `projectPath` | `workspace/{project}` |
 | Plot stored chapter path | `manuscript/001-volume/001-chapter/` |
 | Human-facing explanation | readable project or chapter name first, path only when useful |
@@ -92,9 +92,9 @@ Rules:
 Creation and validation:
 
 ```bash
-workspace node new my-novel/lorebook/character/hero --type character --title "Hero"
-workspace node state my-novel/lorebook/character/hero/
-workspace node validate my-novel/lorebook/character/hero/
+workspace node new lorebook/character/hero --type character --title "Hero"
+workspace node state lorebook/character/hero/
+workspace node validate lorebook/character/hero/
 ```
 
 After moving or renaming content nodes, enumerate affected `index.md` files and run `workspace node validate --stdin`.
@@ -103,7 +103,7 @@ After moving or renaming content nodes, enumerate affected `index.md` files and 
 
 Content-node references split into inline refs and structured refs.
 
-Inline refs are ordinary Markdown links in body text. Use them for appearance, mention, scene location and ordinary relatedness. Inside body text, prefer Project-relative links such as `lorebook/location/capital/`; Markdown-relative links and absolute paths are supported. Tool calls still use cwd-relative project paths.
+Inline refs are ordinary Markdown links in body text. Use them for appearance, mention, scene location and ordinary relatedness. Inside body text and Project-bound tool calls, prefer Project-relative paths such as `lorebook/location/capital/`; Markdown-relative links and authorized absolute paths are supported where their caller contract allows them.
 
 Structured refs are `frontmatter.refs` relations that the system should understand as stable relationships. Use them for definitions, constraints, dependencies, parent-child ownership, foreshadowing, payoff, direct causality, conflict or derivation.
 
@@ -216,12 +216,12 @@ Useful commands:
 
 ```bash
 workspace project create my-novel --title "Title" --summary "One sentence"
-workspace project validate my-novel
-workspace project init-db my-novel
-workspace node parse my-novel/lorebook/character/hero/
-workspace node validate my-novel/lorebook/character/hero/
-workspace node new my-novel/lorebook/character/hero --type character --title "Hero" --state
-workspace node state my-novel/lorebook/character/hero/
+workspace project validate .
+workspace project init-db .
+workspace node parse lorebook/character/hero/
+workspace node validate lorebook/character/hero/
+workspace node new lorebook/character/hero --type character --title "Hero" --state
+workspace node state lorebook/character/hero/
 ```
 
 Batch examples:
@@ -233,7 +233,7 @@ rg --files | rg '(^|/)index\.md$' | workspace node validate --stdin
 
 Prefer `rg --files` and precise path filters. Do not recursively scan an entire Project Workspace without a reason.
 
-Agent runtime config makes `rg --files` output use `/` paths. Shell examples should use bash syntax and `/` separators for workspace-relative paths. Do not write unquoted Windows backslash paths like `lorebook\character\hero`, because bash can parse them as `lorebookcharacterhero`.
+Agent runtime config makes `rg --files` output use `/` paths. Shell examples should use bash syntax and `/` separators for File Scope-relative paths. Do not write unquoted Windows backslash paths like `lorebook\character\hero`, because bash can parse them as `lorebookcharacterhero`.
 
 ## Cross References
 

@@ -95,9 +95,9 @@ function renderSystemPrompt(): string {
 
         # 路径与目录
 
-        - 文件工具 cwd 是 Workspace Root。Project 文件使用 project-slug/... 路径。
+        - File Scope是当前Project Workspace。Project文件直接使用simulation/...、lorebook/...等相对路径。
         - 当前 Project 由 session projectPath / Current Workspace Focus 指定。
-        - simulation/ 路径根据当前 Project 推导为 project-slug/simulation/。
+        - simulation/直接表示当前Project Workspace内的simulation目录。
         - 不创建 emulation/ 目录。RP/simulation 模式下的世界运行态落在 simulation/；普通写作模式的动态世界状态由 leader.default 通过 World Engine 推进。
         - lorebook/ 是 god-view canon。引用 lorebook prototype 不是 visibility authorization。
         - 每轮开始先确认并遵守 Project AGENTS.md 和 agents/simulator.leader/context.md。二者冲突时，以 AGENTS.md 为准；agents/simulator.leader/context.md 只约束本 Project 的世界模拟协议。
@@ -128,7 +128,7 @@ function renderSystemPrompt(): string {
         4. LOD：执行 LOD 分层世界模拟（lod-simulation.md）。必须在 subject 模拟之前；数量按剧情密度动态调整；到期的 pending events 纳入本轮。
         5. 世界层裁决：基于 LOD 结果和本轮行动，裁决世界与社会层面的因果。
         6. Prepare：确定本轮在场角色和需要模拟的 subject，按需创建最小 subject scaffold。新建 subject 按 subject-creation-guide.md 初始化流程：先写 soul.md（第一人称扮演手册、无秘密）与 subject.md（全知秘密档），再把初始记忆直接落进 events.jsonl / memory.jsonl。创建规则优先级是：本轮 invocation 明确指令 > agents/simulator.leader/context.md > 你的默认规则；AGENTS.md 仍是项目级最高约束。
-        7. Emulator sync：为需要模拟的 subject 创建或复用 simulator.actor；调用 simulator.actor 时传 subjectPath 和 kind（取 subject.md frontmatter 的 kind），例如 subjectPath=project-slug/simulation/subjects/erina, kind=npc。
+        7. Emulator sync：为需要模拟的 subject 创建或复用 simulator.actor；调用时传 subjectPath 和 kind，例如 subjectPath=simulation/subjects/erina, kind=npc。
         8. 信息控制检查：LOD 事件按角色感知范围过滤；lorebook 术语转换为角色认知水平描述；<knowledge> 与角色记忆文件去重；隐藏真相不进 packet。
         9. Actor dispatch：按 actor-facing-packet.md 组装 packet（<gm> / <character> / <knowledge> / <directive>），调用 simulator.actor，发送过滤后的 subject-facing message。
         10. 终裁与写回：综合 subject 第一人称 report、规则和当前状态，裁决真实世界结果。写回已裁决的 state/entity/run 事实，未到期 pending events 写入 current.md。RP Tick 模式按 adjudication-report.md 返回报告；写作模式输出 writer-safe brief / director handoff / open questions。
@@ -158,21 +158,11 @@ function renderSystemPrompt(): string {
 }
 
 function renderRuntimeInput(projectPath: string | undefined): string {
-    const projectSlug = projectSlugFromProjectPath(projectPath);
     return profileText`
         <simulator_leader_input>
         projectPath: ${projectPath?.trim() || "Current Workspace Focus"}
-        simulationRoot: ${projectSlug}/simulation/
+        simulationRoot: simulation/
         mode: 每轮任务 prompt 指定；profile initial 不保存稳定模式。
         </simulator_leader_input>
     `;
-}
-
-function projectSlugFromProjectPath(projectPath: string | undefined): string {
-    const normalized = projectPath?.trim().replaceAll("\\", "/").replace(/\/+$/g, "") ?? "";
-    if (!normalized) {
-        return "project-slug";
-    }
-    const parts = normalized.split("/").filter(Boolean);
-    return parts[parts.length - 1] ?? normalized;
 }

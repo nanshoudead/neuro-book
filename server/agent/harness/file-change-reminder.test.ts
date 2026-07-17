@@ -12,14 +12,17 @@ import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profi
 import {AppendingSet, FileChangeNotice, ProfilePrompt} from "nbook/server/agent/profiles/profile-dsl";
 import {profileToolsFromKeys} from "nbook/server/agent/test/profile-tools";
 import {createUserMessage, messageText} from "nbook/server/agent/messages/message-utils";
-import type {Message} from "nbook/server/agent/messages/types";
+import {storedMessageText} from "nbook/server/agent/messages/stored-message-presentation";
 import {buildFileChangeReminder, mergeProfileTurnContextMessages} from "nbook/server/agent/profiles/profile-turn-context";
 import type {AgentChangeDiffDetail} from "nbook/server/workspace-history/agent-change-diff";
 import type {UnseenGroup} from "nbook/server/vendor/nb-history/index";
 import {registerProjectResourceOwner, resetProjectSessionsForTest} from "nbook/server/workspace-files/project-session";
 import {openProjectForTest} from "nbook/server/workspace-files/project-session-test-utils";
 import {writeProjectManifest} from "nbook/server/workspace-files/project-workspace";
-import {setWorkspaceAssetRootContextForTest} from "nbook/server/workspace-files/workspace-assets-root";
+import {setWorkspaceRuntimeRootContextForTest} from "nbook/server/workspace-files/workspace-runtime-root";
+import {absoluteFsPath, type AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
+import {normalizeProjectPath, resolveProjectWorkspaceRoot} from "nbook/server/workspace-files/project-path";
+import {WORKSPACE_CONTAINER_ROOT} from "nbook/server/workspace-files/workspace-root-ref";
 import {collectReleasedSqliteHandles} from "nbook/server/workspace-files/sqlite-handle-release";
 import {
     LOCAL_USER_ID,
@@ -243,7 +246,7 @@ describe("file-change-reminder 纯函数", () => {
             [{appendingIndex: 1, message: createUserMessage({text: "NOTICE"})}],
         );
 
-        expect(merged.map(messageText)).toEqual(["BEFORE", "NOTICE", "AFTER"]);
+        expect(merged.map((message) => storedMessageText(message))).toEqual(["BEFORE", "NOTICE", "AFTER"]);
     });
 });
 
@@ -267,6 +270,7 @@ function unseenGroup(path: string, id: number, endHash: string | null = `after-$
 
 describe("file-change notice 端到端（FauxProvider 黑盒）", () => {
     let agentRoot: string;
+    let workspaceRoot: AbsoluteFsPath;
     let tempRoot: string;
     let faux: FauxModelsFixture;
     let harness: NeuroAgentHarness;
@@ -277,8 +281,9 @@ describe("file-change notice 端到端（FauxProvider 黑盒）", () => {
         setHistoryEnabledOverrideForTest(true);
         tempRoot = join(os.tmpdir(), `nb-file-change-notice-${randomUUID()}`);
         await mkdir(join(tempRoot, "workspace"), {recursive: true});
-        setWorkspaceAssetRootContextForTest({workspaceContainerRoot: join(tempRoot, "workspace")});
-        agentRoot = join(".agent", "file-change-notice-test", randomUUID());
+        workspaceRoot = absoluteFsPath(join(tempRoot, "workspace"));
+        setWorkspaceRuntimeRootContextForTest({workspaceRoot});
+        agentRoot = workspaceRoot;
         faux = createFauxModels({
             models: [{id: `faux-${randomUUID()}`, contextWindow: 128_000, maxTokens: 8_000}],
         });
@@ -294,7 +299,7 @@ describe("file-change notice 端到端（FauxProvider 黑盒）", () => {
         await harness.drainBackgroundTasks();
         await resetWorkspaceHistoryForTest();
         resetProjectSessionsForTest();
-        setWorkspaceAssetRootContextForTest(null);
+        setWorkspaceRuntimeRootContextForTest(null);
         setHistoryEnabledOverrideForTest(null);
         collectReleasedSqliteHandles({force: true});
         await rm(agentRoot, {recursive: true, force: true}).catch(() => undefined);
@@ -305,14 +310,13 @@ describe("file-change notice 端到端（FauxProvider 黑盒）", () => {
     async function countNotices(sessionId: number): Promise<number> {
         const context = harness.repo.reduce(await harness.repo.readSession(sessionId));
         return context.messages
-            .filter((message): message is Message => message.role !== "custom")
-            .filter((message) => messageText(message).includes("<file-change-notice>"))
+            .filter((message) => storedMessageText(message).includes("<file-change-notice>"))
             .length;
     }
 
     it("他人变更注入 notice，成功轮推进游标，下轮不重复；首轮懒基线不淹没", async () => {
         const projectPath = "workspace/notice-e2e";
-        await writeProjectManifest(projectPath, {kind: "novel", title: "notice", summary: ""});
+        await writeProjectManifest(workspaceRoot, projectPath, {kind: "novel", title: "notice", summary: ""});
         await openProjectForTest(projectPath);
 
         harness.profiles.register(defineAgentProfile({
@@ -328,7 +332,7 @@ describe("file-change notice 端到端（FauxProvider 黑盒）", () => {
         const created = await harness.createAgent({
             profileKey: "test.notice",
             initial: {},
-            workspaceRoot: agentRoot,
+            workspaceRoot: WORKSPACE_CONTAINER_ROOT,
             projectPath,
         });
 
@@ -340,6 +344,7 @@ describe("file-change notice 端到端（FauxProvider 黑盒）", () => {
 
         // 他人（用户）改文件
         await recordProjectWrite({
+            projectRoot: resolveProjectWorkspaceRoot(workspaceRoot, normalizeProjectPath(projectPath)),
             projectPath,
             relativePath: "manuscript/ch1.md",
             actor: {kind: "user", userId: LOCAL_USER_ID},
@@ -354,8 +359,7 @@ describe("file-change notice 端到端（FauxProvider 黑盒）", () => {
         expect(await countNotices(created.sessionId)).toBe(1);
         const context = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
         const notice = context.messages
-            .filter((message): message is Message => message.role !== "custom")
-            .map((message) => messageText(message))
+            .map((message) => storedMessageText(message))
             .find((text) => text.includes("<file-change-notice>"));
         expect(notice).toContain("manuscript/ch1.md");
         expect(notice).toContain("Diff:");
@@ -370,7 +374,7 @@ describe("file-change notice 端到端（FauxProvider 黑盒）", () => {
 
     it("模型失败不推进游标，notice 位于 CurrentUserInput 前并在成功重试后结算", async () => {
         const projectPath = "workspace/notice-at-least-once";
-        await writeProjectManifest(projectPath, {kind: "novel", title: "notice-at-least-once", summary: ""});
+        await writeProjectManifest(workspaceRoot, projectPath, {kind: "novel", title: "notice-at-least-once", summary: ""});
         await openProjectForTest(projectPath);
         harness.profiles.register(defineAgentProfile({
             manifest: {key: "test.notice.retry", name: "NoticeRetry"},
@@ -385,13 +389,14 @@ describe("file-change notice 端到端（FauxProvider 黑盒）", () => {
         const created = await harness.createAgent({
             profileKey: "test.notice.retry",
             initial: {},
-            workspaceRoot: agentRoot,
+            workspaceRoot: WORKSPACE_CONTAINER_ROOT,
             projectPath,
         });
 
         faux.setResponses([fauxAssistantMessage("建立基线")]);
         await harness.invokeAgent({sessionId: created.sessionId, mode: "prompt", message: {text: "基线轮"}});
         await recordProjectWrite({
+            projectRoot: resolveProjectWorkspaceRoot(workspaceRoot, normalizeProjectPath(projectPath)),
             projectPath,
             relativePath: "manuscript/retry.md",
             actor: {kind: "user", userId: LOCAL_USER_ID},
@@ -442,7 +447,7 @@ describe("file-change notice 端到端（FauxProvider 黑盒）", () => {
         const created = await harness.createAgent({
             profileKey: "test.notice.global",
             initial: {},
-            workspaceRoot: agentRoot,
+            workspaceRoot: WORKSPACE_CONTAINER_ROOT,
         });
         faux.setResponses([fauxAssistantMessage("完成")]);
         const result = await harness.invokeAgent({sessionId: created.sessionId, mode: "prompt", message: {text: "跑一轮"}});
@@ -452,7 +457,7 @@ describe("file-change notice 端到端（FauxProvider 黑盒）", () => {
 
     it("敏感文件只注入引用和阻断说明，绝不把正文或 diff 送给 Agent", async () => {
         const projectPath = "workspace/notice-sensitive";
-        await writeProjectManifest(projectPath, {kind: "novel", title: "notice-sensitive", summary: ""});
+        await writeProjectManifest(workspaceRoot, projectPath, {kind: "novel", title: "notice-sensitive", summary: ""});
         await openProjectForTest(projectPath);
         harness.profiles.register(defineAgentProfile({
             manifest: {key: "test.notice.sensitive", name: "NoticeSensitive"},
@@ -467,13 +472,14 @@ describe("file-change notice 端到端（FauxProvider 黑盒）", () => {
         const created = await harness.createAgent({
             profileKey: "test.notice.sensitive",
             initial: {},
-            workspaceRoot: agentRoot,
+            workspaceRoot: WORKSPACE_CONTAINER_ROOT,
             projectPath,
         });
 
         faux.setResponses([fauxAssistantMessage("第一轮完成")]);
         await harness.invokeAgent({sessionId: created.sessionId, mode: "prompt", message: {text: "第一轮"}});
         await recordProjectWrite({
+            projectRoot: resolveProjectWorkspaceRoot(workspaceRoot, normalizeProjectPath(projectPath)),
             projectPath,
             relativePath: ".env.local",
             actor: {kind: "user", userId: LOCAL_USER_ID},
@@ -485,8 +491,7 @@ describe("file-change notice 端到端（FauxProvider 黑盒）", () => {
         await harness.invokeAgent({sessionId: created.sessionId, mode: "prompt", message: {text: "第二轮"}});
         const context = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
         const notice = context.messages
-            .filter((message): message is Message => message.role !== "custom")
-            .map((message) => messageText(message))
+            .map((message) => storedMessageText(message))
             .find((text) => text.includes("<file-change-notice>"));
 
         expect(notice).toContain(".env.local");
@@ -497,7 +502,7 @@ describe("file-change notice 端到端（FauxProvider 黑盒）", () => {
 
     it("有 Project 和未见变更，但 Profile 未声明节点时绝不注入 notice", async () => {
         const projectPath = "workspace/notice-disabled";
-        await writeProjectManifest(projectPath, {kind: "novel", title: "notice-disabled", summary: ""});
+        await writeProjectManifest(workspaceRoot, projectPath, {kind: "novel", title: "notice-disabled", summary: ""});
         await openProjectForTest(projectPath);
         harness.profiles.register(defineAgentProfile({
             manifest: {key: "test.notice.disabled", name: "NoticeDisabled"},
@@ -510,13 +515,14 @@ describe("file-change notice 端到端（FauxProvider 黑盒）", () => {
         const created = await harness.createAgent({
             profileKey: "test.notice.disabled",
             initial: {},
-            workspaceRoot: agentRoot,
+            workspaceRoot: WORKSPACE_CONTAINER_ROOT,
             projectPath,
         });
 
         faux.setResponses([fauxAssistantMessage("第一轮完成")]);
         await harness.invokeAgent({sessionId: created.sessionId, mode: "prompt", message: {text: "第一轮"}});
         await recordProjectWrite({
+            projectRoot: resolveProjectWorkspaceRoot(workspaceRoot, normalizeProjectPath(projectPath)),
             projectPath,
             relativePath: "manuscript/ch1.md",
             actor: {kind: "user", userId: LOCAL_USER_ID},

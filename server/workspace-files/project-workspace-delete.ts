@@ -11,8 +11,9 @@ import {
     assertProjectWorkspaceDirectory,
     PROJECT_DELETED_MARKER_RELATIVE_PATH,
     PROJECT_MANIFEST_FILE,
-    resolveProjectAbsolutePath,
 } from "nbook/server/workspace-files/project-workspace";
+import {resolveProjectWorkspaceRoot} from "nbook/server/workspace-files/project-path";
+import type {AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
 
 type ProjectWorkspaceDeleteOptions = {
     /**
@@ -28,9 +29,13 @@ const projectRootMoveTimeoutMs = 10_000;
 /**
  * 删除 Project Workspace。删除前统一释放当前进程里会占用 Project 目录的资源。
  */
-export async function deleteProjectWorkspace(projectPath: string, options: ProjectWorkspaceDeleteOptions = {}): Promise<void> {
-    const normalizedProjectPath = await assertProjectWorkspaceDirectory(projectPath);
-    const projectRoot = resolveProjectAbsolutePath(normalizedProjectPath);
+export async function deleteProjectWorkspace(
+    workspaceRoot: AbsoluteFsPath,
+    projectPath: string,
+    options: ProjectWorkspaceDeleteOptions = {},
+): Promise<void> {
+    const normalizedProjectPath = await assertProjectWorkspaceDirectory(workspaceRoot, projectPath);
+    const projectRoot = resolveProjectWorkspaceRoot(workspaceRoot, normalizedProjectPath);
     const archiveProjectSessions = options.archiveProjectSessions
         ?? ((targetProjectPath, reason) => useAgentHarness().archiveSessionsByProjectPath(targetProjectPath, reason));
 

@@ -1,11 +1,15 @@
 import {describe, expect, it, vi} from "vitest";
+import path from "node:path";
 import {Value} from "typebox/value";
 import {PLOT_SELECTION_STATE_KEY} from "nbook/server/agent/session/custom-state-keys";
 import {createPlotTools} from "nbook/server/agent/tools/plot-tools";
 import type {NeuroAgentHarness} from "nbook/server/agent/harness/neuro-agent-harness";
+import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
+import {WORKSPACE_CONTAINER_ROOT} from "nbook/server/workspace-files/workspace-root-ref";
+import type {ToolExecutionContext} from "nbook/server/agent/tools/types";
 
-vi.mock("nbook/server/plot", () => ({
-    plotFacade: {
+vi.mock("nbook/server/plot", () => {
+    const plotFacade = {
         getChapterWriterBrief: vi.fn(),
         getSceneWorldContext: vi.fn(),
         getStorySceneDetailDto: vi.fn(),
@@ -22,8 +26,11 @@ vi.mock("nbook/server/plot", () => ({
         getStoryDecisionDto: vi.fn(),
         createStoryDecision: vi.fn(),
         updateStoryDecision: vi.fn(),
-    },
-}));
+    };
+    return {
+        plotFacadeForWorkspaceRoot: vi.fn(() => plotFacade),
+    };
+});
 
 describe("plot tools", () => {
     it("save_story_scene 的 refs.note 可以省略", () => {
@@ -121,7 +128,7 @@ describe("plot tools", () => {
     });
 
     it("save_story_chapter action=update 透传 ChapterBrief 信息控制字段（F1 修复链路）", async () => {
-        const plotFacadeMock = (await import("nbook/server/plot")).plotFacade as unknown as {
+        const plotFacadeMock = (await import("nbook/server/plot")).plotFacadeForWorkspaceRoot(absoluteFsPath(path.resolve(".agent", "plot-tools-test"))) as unknown as {
             updateStoryChapter: ReturnType<typeof vi.fn>;
         };
         plotFacadeMock.updateStoryChapter.mockResolvedValueOnce({
@@ -152,7 +159,7 @@ describe("plot tools", () => {
     });
 
     it("save_story_scene action=archive 把 status 置为 archived", async () => {
-        const plotFacadeMock = (await import("nbook/server/plot")).plotFacade as unknown as {
+        const plotFacadeMock = (await import("nbook/server/plot")).plotFacadeForWorkspaceRoot(absoluteFsPath(path.resolve(".agent", "plot-tools-test"))) as unknown as {
             updateStoryScene: ReturnType<typeof vi.fn>;
         };
         plotFacadeMock.updateStoryScene.mockResolvedValueOnce({id: "20", threadId: "2", status: "archived"});
@@ -189,7 +196,7 @@ describe("plot tools", () => {
     });
 
     it("save_story_promise action=abandon 置 status=abandoned;与显式 status 冲突时报诊断", async () => {
-        const plotFacadeMock = (await import("nbook/server/plot")).plotFacade as unknown as {
+        const plotFacadeMock = (await import("nbook/server/plot")).plotFacadeForWorkspaceRoot(absoluteFsPath(path.resolve(".agent", "plot-tools-test"))) as unknown as {
             updateStoryPromise: ReturnType<typeof vi.fn>;
         };
         plotFacadeMock.updateStoryPromise.mockResolvedValueOnce({id: "5", status: "abandoned"});
@@ -230,7 +237,7 @@ describe("plot tools", () => {
     });
 
     it("get_story_promise 无 promiseId 走列表模式,有 promiseId 走详情", async () => {
-        const plotFacadeMock = (await import("nbook/server/plot")).plotFacade as unknown as {
+        const plotFacadeMock = (await import("nbook/server/plot")).plotFacadeForWorkspaceRoot(absoluteFsPath(path.resolve(".agent", "plot-tools-test"))) as unknown as {
             listStoryPromises: ReturnType<typeof vi.fn>;
             getStoryPromiseDetailDto: ReturnType<typeof vi.fn>;
         };
@@ -252,7 +259,7 @@ describe("plot tools", () => {
     });
 
     it("get_story_decision 无 decisionId 走列表模式,有 decisionId 走详情", async () => {
-        const plotFacadeMock = (await import("nbook/server/plot")).plotFacade as unknown as {
+        const plotFacadeMock = (await import("nbook/server/plot")).plotFacadeForWorkspaceRoot(absoluteFsPath(path.resolve(".agent", "plot-tools-test"))) as unknown as {
             listStoryDecisions: ReturnType<typeof vi.fn>;
             getStoryDecisionDto: ReturnType<typeof vi.fn>;
         };
@@ -294,7 +301,7 @@ describe("plot tools", () => {
     });
 
     it("save_story_decision action=decide 置 status=decided;与显式 status 冲突时报诊断;action=drop 置 dropped", async () => {
-        const plotFacadeMock = (await import("nbook/server/plot")).plotFacade as unknown as {
+        const plotFacadeMock = (await import("nbook/server/plot")).plotFacadeForWorkspaceRoot(absoluteFsPath(path.resolve(".agent", "plot-tools-test"))) as unknown as {
             updateStoryDecision: ReturnType<typeof vi.fn>;
         };
         plotFacadeMock.updateStoryDecision.mockResolvedValue({id: "8", status: "decided"});
@@ -360,7 +367,7 @@ describe("plot tools", () => {
 
     it("get_scene_world_context 返回 Scene 的 World Engine 上下文并更新 selection", async () => {
         const appended: unknown[] = [];
-        const plotFacadeMock = (await import("nbook/server/plot")).plotFacade as unknown as {
+        const plotFacadeMock = (await import("nbook/server/plot")).plotFacadeForWorkspaceRoot(absoluteFsPath(path.resolve(".agent", "plot-tools-test"))) as unknown as {
             getSceneWorldContext: ReturnType<typeof vi.fn>;
             getStorySceneDetailDto: ReturnType<typeof vi.fn>;
             getStoryThreadDetailDto: ReturnType<typeof vi.fn>;
@@ -407,7 +414,7 @@ describe("plot tools", () => {
     });
 
     it("get_chapter_writer_brief 返回 markdown text 和完整 details，且不读写 plot.selection", async () => {
-        const plotFacadeMock = (await import("nbook/server/plot")).plotFacade as unknown as {
+        const plotFacadeMock = (await import("nbook/server/plot")).plotFacadeForWorkspaceRoot(absoluteFsPath(path.resolve(".agent", "plot-tools-test"))) as unknown as {
             getChapterWriterBrief: ReturnType<typeof vi.fn>;
         };
         plotFacadeMock.getChapterWriterBrief.mockResolvedValueOnce({
@@ -454,12 +461,13 @@ describe("plot tools", () => {
 /**
  * 构造工具执行上下文。
  */
-function testContext(harness: NeuroAgentHarness, profileKey = "leader.default") {
+function testContext(harness: NeuroAgentHarness, profileKey = "leader.default"): ToolExecutionContext {
     return {
         harness,
         sessionId: 1,
         profileKey,
-        workspaceRoot: ".agent/plot-tools-test",
+        workspaceRootRef: WORKSPACE_CONTAINER_ROOT,
+        workspaceFsRoot: absoluteFsPath(path.resolve(".agent", "plot-tools-test")),
         workspaceKey: "plot-tools-test",
     };
 }

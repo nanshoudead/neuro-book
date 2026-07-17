@@ -229,7 +229,7 @@ async function runPiModelSmokeCheck(
         const apiKey = providerDraft.options.apiKey.trim() || undefined;
         const stream = tracedStreamSimple(models, model, {
             systemPrompt: "You are a concise connectivity smoke test assistant.",
-            messages: [createUserMessage({text: pickModelSmokeCheckPrompt()})],
+            messages: [createUserMessage({text: pickModelSmokeCheckPrompt(), images: []})],
             tools: [],
         }, {
             ...requestOptions,

@@ -860,15 +860,15 @@ function buildInlineVisibleMessage(payload: InlineEditPayload): string {
 }
 
 /**
- * 将 IDE store 的 Project Workspace 相对路径转换为 Workspace Root cwd-relative 完整路径。
+ * 将 IDE store 路径规范化为当前 Project File Scope 相对路径。
  *
  * @example
  * // 当 currentNovelId = "ming-ding-zhi-shi-2"
  * resolveInlineEditorTargetPath("manuscript/001/index.md")
- * // => "ming-ding-zhi-shi-2/manuscript/001/index.md"
+ * // => "manuscript/001/index.md"
  *
  * resolveInlineEditorTargetPath("ming-ding-zhi-shi-2/manuscript/001/index.md")
- * // => "ming-ding-zhi-shi-2/manuscript/001/index.md" (避免重复前缀)
+ * // => "manuscript/001/index.md"（清理旧slug前缀）
  */
 function resolveInlineEditorTargetPath(projectRelativePath: string): string {
     if (!projectRelativePath) {
@@ -876,14 +876,17 @@ function resolveInlineEditorTargetPath(projectRelativePath: string): string {
     }
     const projectSlug = currentNovelId.value;
     if (!projectSlug) {
-        // user-assets 或 welcome 模式，直接返回原路径
+        // user-assets 或 welcome 模式没有Project File Scope，保留入口原值。
         return projectRelativePath;
     }
-    // 避免重复前缀
-    if (projectRelativePath.startsWith(`${projectSlug}/`)) {
-        return projectRelativePath;
+    const normalized = projectRelativePath.replaceAll("\\", "/").replace(/^\/+/, "");
+    const workspacePrefix = `workspace/${projectSlug}/`;
+    if (normalized.startsWith(workspacePrefix)) {
+        return normalized.slice(workspacePrefix.length);
     }
-    return `${projectSlug}/${projectRelativePath}`;
+    return normalized.startsWith(`${projectSlug}/`)
+        ? normalized.slice(projectSlug.length + 1)
+        : normalized;
 }
 
 /**

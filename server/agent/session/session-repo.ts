@@ -1,9 +1,14 @@
 import {appendFile, mkdir, readFile, readdir, writeFile} from "node:fs/promises";
 import {existsSync} from "node:fs";
+import {createReadStream} from "node:fs";
+import {createInterface} from "node:readline";
 import {dirname, join, resolve} from "node:path";
 import {randomUUID} from "node:crypto";
-import type {AgentMessage, JsonValue, Message} from "nbook/server/agent/messages/types";
-import {createUserMessage, messageText, sumAssistantUsage} from "nbook/server/agent/messages/message-utils";
+import {consola} from "consola";
+import type {JsonValue} from "nbook/server/agent/messages/types";
+import type {StoredAgentMessage} from "nbook/server/agent/messages/stored-types";
+import {parseStoredMessage, StoredMessageInvariantError} from "nbook/server/agent/messages/stored-message-codec";
+import {createStoredUserMessage, sumAssistantUsage} from "nbook/server/agent/messages/message-utils";
 import type {
     CompactionSessionEntry,
     NeuroSessionContext,
@@ -19,12 +24,14 @@ import type {
 } from "nbook/server/agent/session/types";
 import type {AgentSessionListQueryDto, AgentSessionSummaryDto} from "nbook/shared/dto/agent-session.dto";
 import {reduceRelationLedger} from "nbook/server/agent/session/relation-ledger";
-import {resolveWorkspaceContainerRoot} from "nbook/server/workspace-files/workspace-assets-root";
+import {AttachmentMigrationGate} from "nbook/server/agent/session/attachment-migration-gate";
+import {storedMessageText} from "nbook/server/agent/messages/stored-message-presentation";
+import {normalizeWorkspaceRootRef, type WorkspaceRootRef} from "nbook/server/workspace-files/workspace-root-ref";
 
 type CreateSessionInput = {
     profileKey: string;
     initial: JsonValue;
-    workspaceRoot: string;
+    workspaceRoot: WorkspaceRootRef;
     workspaceKey?: string;
     projectPath?: string;
     parentSessionId?: SessionId;
@@ -39,14 +46,29 @@ type AppendEntryInput = SessionEntryDraft & {
 };
 type AppendBatchEntryInput = Exclude<AppendEntryInput, {type: "leaf"}>;
 
+export type SessionListIssue = {
+    sessionId: SessionId;
+    fileName: string;
+    message: string;
+};
+
+export type SessionListResult = {
+    sessions: AgentSessionSummaryDto[];
+    issues: SessionListIssue[];
+};
+
 /**
  * JSONL session 仓库。所有状态变化都通过 append entry 表达。
  */
 export class JsonlSessionRepository {
     readonly rootWorkspace: string;
+    private readonly attachmentMigrationGate: AttachmentMigrationGate;
+    /** 避免同一批损坏Session在每次列表刷新时重复淹没运行日志。 */
+    private issueFingerprint = "";
 
-    constructor(rootWorkspace = resolveWorkspaceContainerRoot()) {
+    constructor(rootWorkspace: string) {
         this.rootWorkspace = rootWorkspace;
+        this.attachmentMigrationGate = new AttachmentMigrationGate(rootWorkspace);
     }
 
     /** Pi 请求 trace 的存储根目录。`.nbook/agent/*` 的布局知识统一收敛在本仓库类。 */
@@ -54,10 +76,16 @@ export class JsonlSessionRepository {
         return join(this.rootWorkspace, ".nbook", "agent", "traces");
     }
 
+    /** Workspace Root 级 Attachment 存储根；session/project 不改变其生命周期。 */
+    get attachmentsRoot(): string {
+        return join(this.rootWorkspace, ".nbook", "agent", "attachments");
+    }
+
     /**
      * 创建一个空 session，只写 header 和初始 leaf。
      */
     async createSession(input: CreateSessionInput): Promise<SessionSnapshot> {
+        await this.attachmentMigrationGate.assertWritable();
         const sessionId = await this.nextSessionId();
         const now = Date.now();
         const metadata: SessionMetadata = {
@@ -74,6 +102,7 @@ export class JsonlSessionRepository {
         };
         const sessionPath = this.sessionPath(sessionId);
         await mkdir(dirname(sessionPath), {recursive: true});
+        await this.attachmentMigrationGate.assertWritable();
         await writeFile(sessionPath, `${JSON.stringify({kind: "header", metadata} satisfies SessionFileRecord)}\n`, "utf8");
         await this.appendEntry(sessionId, {
             type: "leaf",
@@ -103,20 +132,83 @@ export class JsonlSessionRepository {
             }
             return [];
         });
+        for (const entry of entries) {
+            this.assertStoredEntry(entry);
+        }
         return {
-            metadata: header.metadata,
+            metadata: {
+                ...header.metadata,
+                workspaceRoot: normalizeWorkspaceRootRef(header.metadata.workspaceRoot, header.metadata.projectPath),
+            },
             entries,
             leafId: this.resolveLeaf(entries),
         };
     }
 
     /**
+     * 按 durable entry ID 定点读取。
+     *
+     * Attachment route 不需要构造完整 SessionSnapshot；逐行解析在命中后立即停止，
+     * 避免每张图片都 reduce 整个长 session。该 seam 不建立额外索引，JSONL 仍是真相源。
+     */
+    async readEntry(sessionId: SessionId, entryId: SessionEntryId): Promise<SessionEntry | null> {
+        const stream = createReadStream(this.sessionPath(sessionId), {encoding: "utf8"});
+        const lines = createInterface({input: stream, crlfDelay: Infinity});
+        try {
+            for await (const line of lines) {
+                if (!line) {
+                    continue;
+                }
+                const record = JSON.parse(line) as SessionFileRecord;
+                const entry = record.kind === "entry"
+                    ? record.entry
+                    : record.kind === "batch"
+                        ? record.entries.find((candidate) => candidate.id === entryId)
+                        : undefined;
+                if (entry?.id !== entryId) {
+                    continue;
+                }
+                this.assertStoredEntry(entry);
+                return entry;
+            }
+            return null;
+        } finally {
+            lines.close();
+            stream.destroy();
+        }
+    }
+
+    /**
      * 列出指定 workspace 下的 session 摘要。默认隐藏 archived session。
      */
     async listSessions(input: AgentSessionListQueryDto = {}): Promise<AgentSessionSummaryDto[]> {
+        const result = await this.listSessionsWithIssues(input);
+        const fingerprint = result.issues
+            .map((issue) => `${String(issue.sessionId)}\u0000${issue.fileName}\u0000${issue.message}`)
+            .sort()
+            .join("\u0001");
+        if (fingerprint && fingerprint !== this.issueFingerprint) {
+            consola.warn({
+                count: result.issues.length,
+                issues: result.issues.slice(0, 10),
+                omitted: Math.max(0, result.issues.length - 10),
+            }, "跳过无法读取的Agent session");
+        }
+        this.issueFingerprint = fingerprint;
+        return result.sessions;
+    }
+
+    /**
+     * 扫描session摘要并隔离单文件损坏。
+     *
+     * raw image属于未完成hard cut，不允许作为普通坏文件跳过；其他JSON、metadata或路径错误
+     * 形成结构化issue，调用方仍可展示健康session且不会自动修改原文件。
+     */
+    async listSessionsWithIssues(input: AgentSessionListQueryDto = {}): Promise<SessionListResult> {
         const sessionsRoot = join(this.rootWorkspace, ".nbook", "agent", "sessions");
         const files = await readdir(sessionsRoot, {withFileTypes: true}).catch(() => []);
         const summaries: AgentSessionSummaryDto[] = [];
+        const issues: SessionListIssue[] = [];
 
         for (const file of files) {
             if (!file.isFile() || !file.name.endsWith(".jsonl")) {
@@ -126,7 +218,20 @@ export class JsonlSessionRepository {
             if (!Number.isInteger(sessionId) || sessionId <= 0) {
                 continue;
             }
-            const snapshot = await this.readSession(sessionId);
+            let snapshot: SessionSnapshot;
+            try {
+                snapshot = await this.readSession(sessionId);
+            } catch (error) {
+                if (error instanceof StoredMessageInvariantError && error.code === "migration_required") {
+                    throw error;
+                }
+                issues.push({
+                    sessionId,
+                    fileName: file.name,
+                    message: error instanceof Error ? error.message : String(error),
+                });
+                continue;
+            }
             const summary = this.summary(snapshot);
             if (!this.matchesSessionListFilter(summary, input)) {
                 continue;
@@ -137,7 +242,7 @@ export class JsonlSessionRepository {
         const sorted = summaries.sort((left, right) => right.updatedAt - left.updatedAt);
         const offset = input.offset ?? 0;
         const limited = input.limit ? sorted.slice(offset, offset + input.limit) : sorted.slice(offset);
-        return limited;
+        return {sessions: limited, issues};
     }
 
     /**
@@ -224,6 +329,7 @@ export class JsonlSessionRepository {
         } as SessionEntry;
         const sessionPath = this.sessionPath(sessionId);
 
+        this.assertStoredEntry(entry);
         await mkdir(dirname(sessionPath), {recursive: true});
         await this.appendLine(sessionPath, {kind: "entry", entry});
         if (entry.type !== "leaf") {
@@ -258,6 +364,7 @@ export class JsonlSessionRepository {
         } as SessionEntry;
         const sessionPath = this.sessionPath(sessionId);
 
+        this.assertStoredEntry(entry);
         await mkdir(dirname(sessionPath), {recursive: true});
         await this.appendLine(sessionPath, {kind: "entry", entry});
         return entry;
@@ -302,6 +409,9 @@ export class JsonlSessionRepository {
         }
 
         const sessionPath = this.sessionPath(sessionId);
+        for (const entry of entries) {
+            this.assertStoredEntry(entry);
+        }
         await mkdir(dirname(sessionPath), {recursive: true});
         await this.appendLine(sessionPath, {kind: "batch", entries});
         return entries.filter((entry) => entry.type !== "leaf");
@@ -310,7 +420,7 @@ export class JsonlSessionRepository {
     /**
      * 追加普通 message entry。
      */
-    async appendMessage(sessionId: SessionId, message: Message, workspaceKey?: string, origin?: "prompt" | "harness" | "manual" | "ingest"): Promise<SessionEntry> {
+    async appendMessage(sessionId: SessionId, message: StoredAgentMessage, workspaceKey?: string, origin?: "prompt" | "harness" | "manual" | "ingest"): Promise<SessionEntry> {
         return this.appendEntry(sessionId, {
             type: "message",
             message,
@@ -322,7 +432,7 @@ export class JsonlSessionRepository {
      * 追加用户输入 message。
      */
     async appendUserMessage(sessionId: SessionId, text: string, workspaceKey?: string): Promise<SessionEntry> {
-        return this.appendMessage(sessionId, createUserMessage({text}), workspaceKey, "manual");
+        return this.appendMessage(sessionId, createStoredUserMessage(text), workspaceKey, "manual");
     }
 
     /**
@@ -378,7 +488,7 @@ export class JsonlSessionRepository {
     reduce(snapshot: SessionSnapshot): NeuroSessionContext {
         const path = this.activePath(snapshot);
         const pathIds = new Set(path.map((entry) => entry.id));
-        const messages: AgentMessage[] = [];
+        const messages: StoredAgentMessage[] = [];
         const customState: Record<string, JsonValue> = {};
         let profileKey = snapshot.metadata.profileKey;
         let model: NeuroSessionContext["model"] = null;
@@ -476,7 +586,7 @@ export class JsonlSessionRepository {
         const path = this.activePath(snapshot);
         const lastMessage = [...path].reverse().find((entry) => {
             if (entry.type !== "message") return false;
-            return messageText(entry.message, { stripThinking: true }).trim().length > 0;
+            return storedMessageText(entry.message, {stripThinking: true}).trim().length > 0;
         });
         const updatedAt = path.at(-1)?.timestamp ?? snapshot.metadata.createdAt;
         const interrupted = [...path].reverse().find((entry) => entry.type === "invocation_lifecycle");
@@ -496,7 +606,7 @@ export class JsonlSessionRepository {
                 : interrupted?.type === "invocation_lifecycle" && interrupted.status === "start" ? "interrupted" : "idle",
             updatedAt,
             archived: context.archived,
-            lastMessagePreview: lastMessage?.type === "message" ? messageText(lastMessage.message, { stripThinking: true }).trim().slice(0, 160) : undefined,
+            lastMessagePreview: lastMessage?.type === "message" ? storedMessageText(lastMessage.message, {stripThinking: true}).trim().slice(0, 160) : undefined,
             usage: this.usage(snapshot),
         };
     }
@@ -509,8 +619,9 @@ export class JsonlSessionRepository {
      */
     usage(snapshot: SessionSnapshot): AgentSessionSummaryDto["usage"] {
         const assistantMessages = this.activePath(snapshot)
-            .filter((entry): entry is Extract<SessionEntry, {type: "message"}> => entry.type === "message" && entry.message.role === "assistant")
-            .map((entry) => entry.message);
+            .flatMap((entry) => entry.type === "message" && entry.message.role === "assistant"
+                ? [entry.message]
+                : []);
         return sumAssistantUsage(assistantMessages);
     }
 
@@ -555,7 +666,7 @@ export class JsonlSessionRepository {
      */
     private treeNodePreview(entry: SessionEntry): string | undefined {
         if (entry.type === "message") {
-            return messageText(entry.message, { stripThinking: true }).replace(/\s+/g, " ").trim().slice(0, 180) || undefined;
+            return storedMessageText(entry.message, {stripThinking: true}).replace(/\s+/g, " ").trim().slice(0, 180) || undefined;
         }
         if (entry.type === "custom_message") {
             return entry.message.role;
@@ -605,8 +716,8 @@ export class JsonlSessionRepository {
         return this.readSession(fork.metadata.sessionId, fork.metadata.workspaceKey);
     }
 
-    private applyCompaction(path: SessionEntry[], compaction: CompactionSessionEntry, messages: AgentMessage[]): AgentMessage[] {
-        const summaryMessage: AgentMessage = {
+    private applyCompaction(path: SessionEntry[], compaction: CompactionSessionEntry, messages: StoredAgentMessage[]): StoredAgentMessage[] {
+        const summaryMessage: StoredAgentMessage = {
             role: "user",
             content: [{
                 type: "text",
@@ -619,7 +730,7 @@ export class JsonlSessionRepository {
         }
 
         const keptEntryIds = new Set(path.slice(path.findIndex((entry) => entry.id === compaction.firstKeptEntryId)).map((entry) => entry.id));
-        const keptMessages: AgentMessage[] = [];
+        const keptMessages: StoredAgentMessage[] = [];
         for (const entry of path) {
             if (!keptEntryIds.has(entry.id)) {
                 continue;
@@ -642,6 +753,7 @@ export class JsonlSessionRepository {
     }
 
     private async nextSessionId(): Promise<SessionId> {
+        await this.attachmentMigrationGate.assertWritable();
         const seqPath = join(this.rootWorkspace, ".nbook", "agent", "session-seq.json");
         await mkdir(dirname(seqPath), {recursive: true});
         let next = 1;
@@ -653,6 +765,7 @@ export class JsonlSessionRepository {
         } catch {
             next = 1;
         }
+        await this.attachmentMigrationGate.assertWritable();
         await writeFile(seqPath, JSON.stringify({next: next + 1}, null, 2), "utf8");
         return next;
     }
@@ -675,7 +788,15 @@ export class JsonlSessionRepository {
         return randomUUID();
     }
 
+    /** Repository 读写双侧拒绝尚未迁移的 Pi raw image。 */
+    private assertStoredEntry(entry: SessionEntry): void {
+        if (entry.type === "message" || entry.type === "custom_message") {
+            parseStoredMessage(entry.message);
+        }
+    }
+
     private async appendLine(path: string, record: SessionFileRecord): Promise<void> {
+        await this.attachmentMigrationGate.assertWritable();
         await appendFile(path, `${JSON.stringify(record)}\n`, "utf8");
     }
 }

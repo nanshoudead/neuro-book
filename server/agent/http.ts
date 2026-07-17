@@ -1,6 +1,9 @@
 import {createError, getRouterParam} from "h3";
 import {NeuroAgentHarness} from "nbook/server/agent/harness/neuro-agent-harness";
+import {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
+import {runtimePathsFromEnv} from "nbook/server/runtime/paths/runtime-paths";
 import {AgentHistoryQueryError} from "nbook/server/agent/session/history-query";
+import {isAttachmentError} from "nbook/server/agent/attachments/types";
 import type {InvokeAgentInput} from "nbook/server/agent/harness/types";
 import type {ServerTimingSink} from "nbook/server/utils/server-timing";
 import {
@@ -29,9 +32,22 @@ const globalForAgentHttp = globalThis as typeof globalThis & GlobalAgentHttp;
  */
 export function useAgentHarness(): NeuroAgentHarness {
     if (!globalForAgentHttp.agentHarness) {
-        globalForAgentHttp.agentHarness = new NeuroAgentHarness({watchProfiles: true});
+        const runtimePaths = runtimePathsFromEnv();
+        globalForAgentHttp.agentHarness = new NeuroAgentHarness({
+            runtimePaths,
+            repo: new JsonlSessionRepository(runtimePaths.workspaceRoot),
+            watchProfiles: true,
+            holdAttachmentRuntimeLease: true,
+        });
     }
     return globalForAgentHttp.agentHarness;
+}
+
+/** 释放 HTTP 单例持有的 Workspace Root runtime lease。 */
+export async function disposeAgentHarness(): Promise<void> {
+    const harness = globalForAgentHttp.agentHarness;
+    globalForAgentHttp.agentHarness = undefined;
+    await harness?.dispose();
 }
 
 /**
@@ -118,7 +134,32 @@ export async function getAgentSessionRelations(sessionId: number, harness = useA
  * 阻塞调用 Agent session。
  */
 export async function invokeAgentSession(sessionId: number, body: AgentInvokeRequestDto, harness = useAgentHarness()) {
-    return harness.invokeAgent(toInvokeInput(sessionId, body));
+    try {
+        return await harness.invokeAgent(toInvokeInput(sessionId, body));
+    } catch (error) {
+        if (!isAttachmentError(error)) {
+            throw error;
+        }
+        if (error.code === "limit_exceeded") {
+            throw createError({
+                statusCode: 413,
+                message: "图片超过允许预算",
+                data: {code: "AGENT_IMAGE_LIMIT_EXCEEDED", retryable: false},
+            });
+        }
+        if (error.code === "storage_failed") {
+            throw createError({
+                statusCode: 503,
+                message: "Attachment 存储暂不可用",
+                data: {code: "ATTACHMENT_STORAGE_UNAVAILABLE", retryable: true},
+            });
+        }
+        throw createError({
+            statusCode: 400,
+            message: "图片输入无效",
+            data: {code: "INVALID_IMAGE_INPUT", retryable: false},
+        });
+    }
 }
 
 /**
@@ -159,6 +200,15 @@ export async function acknowledgeClientVariablePatch(sessionId: number, body: Cl
  */
 export function subscribeAgentSessionEvents(sessionId: number, cursor: AgentSessionEventsQueryDto = {}, harness = useAgentHarness()) {
     return harness.subscribeSessionEvents(sessionId, cursor);
+}
+
+/** 解析并读取 Chat Flow durable attachment。 */
+export async function readAgentSessionAttachment(sessionId: number, entryId: string, contentIndex: number, harness = useAgentHarness()) {
+    const locator = await harness.resolveSessionAttachment(sessionId, entryId, contentIndex);
+    return {
+        ...locator,
+        bytes: await harness.attachmentStore.load(locator.ref),
+    };
 }
 
 /**

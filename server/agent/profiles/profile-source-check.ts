@@ -5,7 +5,8 @@ import {dirname, relative, resolve, sep} from "node:path";
 import {createError} from "h3";
 import {AgentProfileCatalog} from "nbook/server/agent/profiles/catalog";
 import {compileProfileArtifacts} from "nbook/server/agent/profiles/profile-artifact-compiler";
-import {resolveSystemNbookRoot, resolveUserNbookRoot} from "nbook/server/workspace-files/workspace-assets-root";
+import {resolveSystemNbookRoot} from "nbook/server/workspace-files/system-workspace-assets";
+import {resolveUserNbookRoot} from "nbook/server/workspace-files/workspace-runtime-root";
 
 const PROFILE_SOURCE_CHECK_ROOT = resolve(process.cwd(), ".agent", "workspace", "profile-source-check");
 

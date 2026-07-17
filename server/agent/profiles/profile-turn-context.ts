@@ -1,5 +1,5 @@
-import type {Message} from "nbook/server/agent/messages/types";
-import {createUserMessage} from "nbook/server/agent/messages/message-utils";
+import type {StoredAgentMessage} from "nbook/server/agent/messages/stored-types";
+import {createStoredUserMessage} from "nbook/server/agent/messages/message-utils";
 import {advanceAgentCursor, readUnseenForAgent} from "nbook/server/workspace-history/project-history";
 import {
     readAgentChangeDiffDetails,
@@ -12,6 +12,7 @@ import {
     MAX_AGENT_CHANGE_NOTICE_CHARS,
 } from "nbook/shared/agent/file-change-policy";
 import type {OperationActor, UnseenGroup} from "nbook/server/vendor/nb-history/index";
+import type {AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
 
 export type FileChangeAwareness = "off" | "minimal" | "full";
 
@@ -24,6 +25,7 @@ export type ProfileTurnContextPlan = {
 
 export type ProfileTurnContextSettlement = {
     kind: "file-change-notice";
+    projectRoot: AbsoluteFsPath;
     projectPath: string;
     sessionId: number;
     /** nb-history last_seen_entry_id，成功 ingest 后原样推进。 */
@@ -33,7 +35,7 @@ export type ProfileTurnContextSettlement = {
 export type MaterializedProfileTurnContext = {
     insertions: Array<{
         appendingIndex: number;
-        message: Message;
+        message: StoredAgentMessage;
     }>;
     settlements: ProfileTurnContextSettlement[];
 };
@@ -44,9 +46,7 @@ export type MaterializedProfileTurnContext = {
 export function previewProfileTurnContexts(plans: ProfileTurnContextPlan[], diffMaxChars = DEFAULT_AGENT_DIFF_MAX_CHARS): MaterializedProfileTurnContext["insertions"] {
     return plans.map((plan) => ({
         appendingIndex: plan.appendingIndex,
-        message: createUserMessage({
-            text: `<file-change-notice runtime-data="preview" mode="${plan.mode}" diff-max-chars="${diffMaxChars}">\nGenerated at runtime from project file changes not yet seen by this session.\n</file-change-notice>`,
-        }),
+        message: createStoredUserMessage(`<file-change-notice runtime-data="preview" mode="${plan.mode}" diff-max-chars="${diffMaxChars}">\nGenerated at runtime from project file changes not yet seen by this session.\n</file-change-notice>`),
     }));
 }
 
@@ -57,31 +57,34 @@ export function previewProfileTurnContexts(plans: ProfileTurnContextPlan[], diff
  */
 export async function materializeProfileTurnContexts(input: {
     plans: ProfileTurnContextPlan[];
+    projectRoot?: AbsoluteFsPath;
     projectPath?: string;
     sessionId: number;
     diffMaxChars: number;
 }): Promise<MaterializedProfileTurnContext> {
-    if (!input.projectPath || input.plans.length === 0) {
+    if (!input.projectRoot || !input.projectPath || input.plans.length === 0) {
         return {insertions: [], settlements: []};
     }
     const insertions: MaterializedProfileTurnContext["insertions"] = [];
     const settlements: ProfileTurnContextSettlement[] = [];
     for (const plan of input.plans) {
-        const groups = await readUnseenForAgent(input.projectPath, input.sessionId);
+        const groups = await readUnseenForAgent(input.projectRoot, input.projectPath, input.sessionId);
         if (groups.length === 0) {
             continue;
         }
         const diffDetails = await readAgentChangeDiffDetails({
+            projectRoot: input.projectRoot,
             projectPath: input.projectPath,
             groups,
             maxChars: input.diffMaxChars,
         });
         insertions.push({
             appendingIndex: plan.appendingIndex,
-            message: createUserMessage({text: buildFileChangeReminder(groups, plan.mode, diffDetails, input.diffMaxChars)}),
+            message: createStoredUserMessage(buildFileChangeReminder(groups, plan.mode, diffDetails, input.diffMaxChars)),
         });
         settlements.push({
             kind: "file-change-notice",
+            projectRoot: input.projectRoot,
             projectPath: input.projectPath,
             sessionId: input.sessionId,
             entryId: Math.max(...groups.map((group) => group.maxEntryId)),
@@ -94,11 +97,11 @@ export async function materializeProfileTurnContexts(input: {
  * 把动态 AppendingSet 消息插回 profile 声明的位置。
  */
 export function mergeProfileTurnContextMessages(
-    messages: Message[],
+    messages: StoredAgentMessage[],
     insertions: MaterializedProfileTurnContext["insertions"],
-): Message[] {
+): StoredAgentMessage[] {
     const sorted = [...insertions].sort((left, right) => left.appendingIndex - right.appendingIndex);
-    const result: Message[] = [];
+    const result: StoredAgentMessage[] = [];
     let insertionIndex = 0;
     for (let messageIndex = 0; messageIndex <= messages.length; messageIndex += 1) {
         while (sorted[insertionIndex]?.appendingIndex === messageIndex) {
@@ -120,7 +123,12 @@ export function mergeProfileTurnContextMessages(
  */
 export async function settleProfileTurnContexts(settlements: ProfileTurnContextSettlement[]): Promise<void> {
     for (const settlement of settlements) {
-        await advanceAgentCursor(settlement.projectPath, settlement.sessionId, settlement.entryId);
+        await advanceAgentCursor(
+            settlement.projectRoot,
+            settlement.projectPath,
+            settlement.sessionId,
+            settlement.entryId,
+        );
     }
 }
 

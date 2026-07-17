@@ -79,7 +79,7 @@ type SubjectSimulatorInput = {
 };
 ```
 
-`subjectPath` points to the subject directory in Agent cwd-relative project form, such as `{project}/simulation/subjects/erina`. `kind` comes from the subject's `subject.md` frontmatter and selects the actor behavior rules (player avatar vs free-acting npc). The profile derives `subject.md`, `soul.md`, `events.jsonl`, `memory.jsonl`, `mind.md` and `state.md` from that directory; `soul.md` is Imported into the actor main run, while the rest are used for sidecar prompts. Callers should not pass separate file paths.
+`subjectPath` points to the subject directory relative to the current Project Workspace File Scope, such as `simulation/subjects/erina`. `kind` comes from the subject's `subject.md` frontmatter and selects the actor behavior rules (player avatar vs free-acting npc). The profile derives `subject.md`, `soul.md`, `events.jsonl`, `memory.jsonl`, `mind.md` and `state.md` from that directory; `soul.md` is Imported into the actor main run through an explicit Project File Address, while the rest are used for sidecar prompts. Callers should not pass separate file paths.
 
 ## Subjects
 

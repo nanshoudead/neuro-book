@@ -4,7 +4,9 @@ import {Type} from "typebox";
 import type {Static} from "typebox";
 import type {NeuroAgentTool, ToolExecutionContext} from "nbook/server/agent/tools/types";
 import type {JsonValue} from "nbook/server/agent/messages/types";
-import {normalizeProjectPath, readProjectManifest, resolveProjectDatabasePath, toSqliteFileUrl} from "nbook/server/workspace-files/project-workspace";
+import {normalizeProjectPath} from "nbook/server/workspace-files/project-path";
+import {readProjectManifest, resolveProjectDatabasePath, toSqliteFileUrl} from "nbook/server/workspace-files/project-workspace";
+import type {AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
 import {collectReleasedSqliteHandles} from "nbook/server/workspace-files/sqlite-handle-release";
 import {assertProjectOpen, markProjectActivity, registerProjectResourceOwner} from "nbook/server/workspace-files/project-session";
 
@@ -59,6 +61,7 @@ let agentSqlSchemaSummaryCacheAt = 0;
 let agentSqlSchemaSummaryPromise: Promise<string> | undefined;
 let sqliteClient: LibsqlClient | null = null;
 let sqliteClientUrl = "";
+let sqliteClientProjectPath = "";
 
 /**
  * 根据 schema 查询结果生成 Agent SQL 摘要。
@@ -112,7 +115,7 @@ export function buildAgentSqlSchemaSummary(rows: AgentSqlSchemaRow[], foreignKey
 /**
  * 读取并缓存当前 Project SQLite schema 摘要。
  */
-export async function getAgentSqlSchemaSummary(projectPath?: string): Promise<string> {
+export async function getAgentSqlSchemaSummary(workspaceRoot: AbsoluteFsPath, projectPath?: string): Promise<string> {
     const resolvedProjectPath = requireProjectPath(projectPath);
     if (
         agentSqlSchemaSummaryCache
@@ -122,7 +125,7 @@ export async function getAgentSqlSchemaSummary(projectPath?: string): Promise<st
         return agentSqlSchemaSummaryCache;
     }
     if (!agentSqlSchemaSummaryPromise) {
-        agentSqlSchemaSummaryPromise = readSchemaSummary(resolvedProjectPath).then((summary) => {
+        agentSqlSchemaSummaryPromise = readSchemaSummary(workspaceRoot, resolvedProjectPath).then((summary) => {
             agentSqlSchemaSummaryCache = summary;
             agentSqlSchemaSummaryCacheProjectPath = resolvedProjectPath;
             agentSqlSchemaSummaryCacheAt = Date.now();
@@ -150,15 +153,15 @@ export function clearAgentSqlSchemaSummaryCache(): void {
  * 关闭 execute_sql 当前持有的 Project SQLite 连接。Project 删除前必须释放文件句柄。
  */
 export async function closeAgentSqliteClient(projectPath?: string): Promise<void> {
-    const targetUrl = projectPath ? toSqliteFileUrl(resolveProjectDatabasePath(projectPath)) : "";
-    if (sqliteClient && (!targetUrl || sqliteClientUrl === targetUrl)) {
+    if (sqliteClient && (!projectPath || sqliteClientProjectPath === projectPath)) {
         const client = sqliteClient;
         sqliteClient = null;
         sqliteClientUrl = "";
+        sqliteClientProjectPath = "";
         await client.close();
         collectReleasedSqliteHandles();
     }
-    if (!projectPath || agentSqlSchemaSummaryCacheProjectPath === projectPath || agentSqlSchemaSummaryCacheMatches(targetUrl)) {
+    if (!projectPath || agentSqlSchemaSummaryCacheProjectPath === projectPath) {
         clearAgentSqlSchemaSummaryCache();
     }
 }
@@ -169,17 +172,6 @@ registerProjectResourceOwner({
     close: (projectPath) => closeAgentSqliteClient(projectPath),
     closeAll: () => closeAgentSqliteClient(),
 });
-
-function agentSqlSchemaSummaryCacheMatches(targetUrl: string): boolean {
-    if (!targetUrl || !agentSqlSchemaSummaryCacheProjectPath) {
-        return false;
-    }
-    try {
-        return toSqliteFileUrl(resolveProjectDatabasePath(agentSqlSchemaSummaryCacheProjectPath)) === targetUrl;
-    } catch {
-        return false;
-    }
-}
 
 /**
  * 创建 execute_sql 工具。
@@ -221,8 +213,8 @@ function buildSqlToolDescription(): string {
     ].join("\n");
 }
 
-async function readSchemaSummary(projectPath: string): Promise<string> {
-    const client = await useSqliteClient(projectPath);
+async function readSchemaSummary(workspaceRoot: AbsoluteFsPath, projectPath: string): Promise<string> {
+    const client = await useSqliteClient(workspaceRoot, projectPath);
     const tablesResult = await client.execute(SQLITE_TABLE_QUERY);
     const tableNames = tablesResult.rows.map((row) => String(row.tableName));
     const rows: AgentSqlSchemaRow[] = [];
@@ -506,11 +498,11 @@ export function buildAgentSqlErrorMessage(error: unknown): string {
 async function executeSql(context: ToolExecutionContext, sql: string): Promise<ExecuteSqlResult> {
     const normalized = normalizeSql(sql);
     validateExecuteSql(normalized);
-    return executeSqliteSql(requireProjectPath(context.projectPath), normalized);
+    return executeSqliteSql(context.workspaceFsRoot, requireProjectPath(context.projectPath), normalized);
 }
 
-async function executeSqliteSql(projectPath: string, normalized: string): Promise<ExecuteSqlResult> {
-    const client = await useSqliteClient(projectPath);
+async function executeSqliteSql(workspaceRoot: AbsoluteFsPath, projectPath: string, normalized: string): Promise<ExecuteSqlResult> {
+    const client = await useSqliteClient(workspaceRoot, projectPath);
     const statement = isReadSql(normalized)
         ? `SELECT * FROM (${normalized}) AS agent_query LIMIT ${String(AGENT_SQL_ROW_LIMIT)}`
         : normalized;
@@ -535,12 +527,12 @@ function toExecuteSqlResult(normalized: string, rows: Record<string, unknown>[],
     };
 }
 
-async function useSqliteClient(projectPath: string): Promise<LibsqlClient> {
+async function useSqliteClient(workspaceRoot: AbsoluteFsPath, projectPath: string): Promise<LibsqlClient> {
     const normalizedProjectPath = normalizeProjectPath(projectPath);
     assertProjectOpen(normalizedProjectPath);
-    await readProjectManifest(normalizedProjectPath);
+    await readProjectManifest(workspaceRoot, normalizedProjectPath);
     markProjectActivity(normalizedProjectPath);
-    const url = toSqliteFileUrl(resolveProjectDatabasePath(normalizedProjectPath));
+    const url = toSqliteFileUrl(resolveProjectDatabasePath(workspaceRoot, normalizedProjectPath));
     if (!sqliteClient || sqliteClientUrl !== url) {
         if (sqliteClient) {
             await sqliteClient.close();
@@ -548,6 +540,7 @@ async function useSqliteClient(projectPath: string): Promise<LibsqlClient> {
         }
         sqliteClient = createClient({url});
         sqliteClientUrl = url;
+        sqliteClientProjectPath = normalizedProjectPath;
     }
     return sqliteClient;
 }

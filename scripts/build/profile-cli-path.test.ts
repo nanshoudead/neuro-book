@@ -4,7 +4,8 @@ import {tmpdir} from "node:os";
 import {dirname, join, resolve} from "node:path";
 import {promisify} from "node:util";
 import {fileURLToPath} from "node:url";
-import {resolveApplicationRoot, resolveSystemNbookRoot, resolveUserNbookRoot} from "nbook/server/workspace-files/workspace-assets-root";
+import {resolveApplicationRoot, resolveSystemNbookRoot} from "nbook/server/workspace-files/system-workspace-assets";
+import {resolveUserNbookRoot} from "nbook/server/workspace-files/workspace-runtime-root";
 import {describe, expect, it} from "vitest";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");

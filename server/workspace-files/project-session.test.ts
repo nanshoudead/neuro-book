@@ -22,8 +22,9 @@ import {
     sweepProjectSessions,
 } from "nbook/server/workspace-files/project-session";
 import {writeProjectManifest} from "nbook/server/workspace-files/project-workspace";
-import {setWorkspaceAssetRootContextForTest} from "nbook/server/workspace-files/workspace-assets-root";
+import {setWorkspaceRuntimeRootContextForTest} from "nbook/server/workspace-files/workspace-runtime-root";
 import {collectReleasedSqliteHandles} from "nbook/server/workspace-files/sqlite-handle-release";
+import {absoluteFsPath, type AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
 
 type OwnerCalls = {
     closed: string[];
@@ -53,18 +54,20 @@ function registerRecordingOwner(name: string, failRef: {value: boolean} = {value
 
 describe("project-session 生命周期", () => {
     let tempRoot: string;
+    let workspaceRoot: AbsoluteFsPath;
 
     beforeEach(async () => {
         resetProjectSessionsForTest();
         // 把 Workspace Root 指到临时目录，openProject 的目录校验与 sqlite 初始化都发生在这里。
         tempRoot = join(os.tmpdir(), `neuro-book-project-session-test-${randomUUID()}`);
-        await mkdir(join(tempRoot, "workspace"), {recursive: true});
-        setWorkspaceAssetRootContextForTest({workspaceContainerRoot: join(tempRoot, "workspace")});
+        workspaceRoot = absoluteFsPath(join(tempRoot, "workspace"));
+        await mkdir(workspaceRoot, {recursive: true});
+        setWorkspaceRuntimeRootContextForTest({workspaceRoot});
     });
 
     afterEach(async () => {
         resetProjectSessionsForTest();
-        setWorkspaceAssetRootContextForTest(null);
+        setWorkspaceRuntimeRootContextForTest(null);
         collectReleasedSqliteHandles({force: true});
         await removeTempRootBestEffort(tempRoot);
     }, 60_000);
@@ -72,20 +75,20 @@ describe("project-session 生命周期", () => {
     /** 在临时 Workspace Root 下建一个可 open 的真实 Project（含 manifest，open 时能建 sqlite）。 */
     async function createTempProject(slug: string): Promise<string> {
         const projectPath = `workspace/${slug}`;
-        await writeProjectManifest(projectPath, {kind: "novel", title: slug, summary: ""});
+        await writeProjectManifest(workspaceRoot, projectPath, {kind: "novel", title: slug, summary: ""});
         return projectPath;
     }
 
     it("openProject 幂等且并发去重；目录不存在抛 404", async () => {
-        await expect(openProject("workspace/does-not-exist", {kind: "user"})).rejects.toMatchObject({statusCode: 404});
+        await expect(openProject(workspaceRoot, "workspace/does-not-exist", {kind: "user"})).rejects.toMatchObject({statusCode: 404});
         expect(isProjectOpen("workspace/does-not-exist")).toBe(false);
 
         const projectPath = await createTempProject("open-book");
         await Promise.all([
-            openProject(projectPath, {kind: "user"}),
-            openProject(projectPath, {kind: "agent", sessionId: 1}),
+            openProject(workspaceRoot, projectPath, {kind: "user"}),
+            openProject(workspaceRoot, projectPath, {kind: "agent", sessionId: 1}),
         ]);
-        await openProject(projectPath, {kind: "job", source: "test"});
+        await openProject(workspaceRoot, projectPath, {kind: "job", source: "test"});
 
         expect(isProjectOpen(projectPath)).toBe(true);
         const sessionList = listOpenProjects();
@@ -100,7 +103,7 @@ describe("project-session 生命周期", () => {
         expect(() => acquireUserPresence("workspace/never-open")).toThrow(ProjectNotOpenError);
 
         const projectPath = await createTempProject("presence-book");
-        await openProject(projectPath, {kind: "user"});
+        await openProject(workspaceRoot, projectPath, {kind: "user"});
         const releaseFirst = acquireUserPresence(projectPath);
         const releaseSecond = acquireUserPresence(projectPath);
         expect(projectOccupancy(projectPath)).toEqual({state: "open", userConnections: 2, agentActive: false});
@@ -115,7 +118,7 @@ describe("project-session 生命周期", () => {
         expect(projectOccupancy(projectPath)).toEqual({state: "grace", userConnections: 0, agentActive: false});
 
         // openProject 幂等分支取消 grace。
-        await openProject(projectPath, {kind: "user"});
+        await openProject(workspaceRoot, projectPath, {kind: "user"});
         expect(projectOccupancy(projectPath)).toEqual({state: "open", userConnections: 0, agentActive: false});
 
         // 再次归零后，acquire 直接取消 grace。
@@ -128,7 +131,7 @@ describe("project-session 生命周期", () => {
     it("agent 探针在场时不进 grace；探针转 false 后经 sweep 进 grace 并到期关闭", async () => {
         const owner = registerRecordingOwner("agent-owner");
         const projectPath = await createTempProject("agent-book");
-        await openProject(projectPath, {kind: "agent", sessionId: 7});
+        await openProject(workspaceRoot, projectPath, {kind: "agent", sessionId: 7});
         const agentRunning = {value: true};
         registerAgentPresenceProbe((probedPath) => probedPath === projectPath && agentRunning.value);
 
@@ -178,7 +181,7 @@ describe("project-session 生命周期", () => {
         expect(() => assertProjectOpen("workspace/never-open")).toThrow(ProjectNotOpenError);
 
         const projectPath = await createTempProject("assert-book");
-        await openProject(projectPath, {kind: "user"});
+        await openProject(workspaceRoot, projectPath, {kind: "user"});
         expect(() => assertProjectOpen(projectPath)).not.toThrow();
 
         // grace 态仍视为打开。
@@ -201,7 +204,7 @@ describe("project-session 生命周期", () => {
         expect(listOpenProjects()).toEqual([]);
 
         const projectPath = await createTempProject("activity-book");
-        await openProject(projectPath, {kind: "user"});
+        await openProject(workspaceRoot, projectPath, {kind: "user"});
         const before = listOpenProjects()[0];
         await new Promise((resolve) => setTimeout(resolve, 15));
         markProjectActivity(projectPath);
@@ -215,7 +218,7 @@ describe("project-session 生命周期", () => {
         const first = registerRecordingOwner("bulk-owner-a");
         const second = registerRecordingOwner("bulk-owner-b");
         const projectPath = await createTempProject("close-all-book");
-        await openProject(projectPath, {kind: "user"});
+        await openProject(workspaceRoot, projectPath, {kind: "user"});
 
         await closeAllProjects();
 
@@ -240,12 +243,12 @@ describe("project-session 生命周期", () => {
 
     it("跨世代 release 不误扣新会话：close+重开后旧连接的迟到 release 是 no-op", async () => {
         const projectPath = await createTempProject("generation-book");
-        await openProject(projectPath, {kind: "user"});
+        await openProject(workspaceRoot, projectPath, {kind: "user"});
         const staleRelease = acquireUserPresence(projectPath);
 
         // 关闭并重开：sessions 记录被替换为新世代对象。
         await closeProject(projectPath, "shutdown");
-        await openProject(projectPath, {kind: "user"});
+        await openProject(workspaceRoot, projectPath, {kind: "user"});
         acquireUserPresence(projectPath); // 新世代的一路连接，userConnections=1
 
         // 旧世代连接的迟到 release：按对象身份比对应为 no-op，不得扣减新会话计数、不得使其进 grace。
@@ -259,13 +262,13 @@ describe("project-session 生命周期", () => {
         const projectPath = await createTempProject("reopen-leak-book");
 
         // 关闭失败 → 进泄漏集合。
-        await openProject(projectPath, {kind: "user"});
+        await openProject(workspaceRoot, projectPath, {kind: "user"});
         await closeProject(projectPath, "delete");
         expect(isProjectOpen(projectPath)).toBe(false);
 
         // 重新 open：establish 清除泄漏标记（新会话资源不该被泄漏重试误关）。
         flakyFail.value = false;
-        await openProject(projectPath, {kind: "user"});
+        await openProject(workspaceRoot, projectPath, {kind: "user"});
         const closedBefore = flaky.closed.length;
         await expect(sweepProjectSessions()).resolves.toEqual([]);
         expect(flaky.closed.length).toBe(closedBefore); // 未再对该 key 重试 close
@@ -275,7 +278,7 @@ describe("project-session 生命周期", () => {
     it("grace-expired close 在锁内复检：会话已回 open 时跳过关闭", async () => {
         const owner = registerRecordingOwner("recheck-owner");
         const projectPath = await createTempProject("recheck-book");
-        await openProject(projectPath, {kind: "user"});
+        await openProject(workspaceRoot, projectPath, {kind: "user"});
 
         // 会话处于 open（非 grace）：直接对其发 grace-expired close 应被复检拦截为 no-op。
         await closeProject(projectPath, "grace-expired");
@@ -299,11 +302,11 @@ describe("project-session 生命周期", () => {
             async closeAll() {},
         });
         const projectPath = await createTempProject("serialize-book");
-        await openProject(projectPath, {kind: "user"});
+        await openProject(workspaceRoot, projectPath, {kind: "user"});
 
         // 启动 close（阻塞在 gate），随后并发发起重开——重开必须排队到 close 之后。
         const closing = closeProject(projectPath, "delete");
-        const reopening = openProject(projectPath, {kind: "user"});
+        const reopening = openProject(workspaceRoot, projectPath, {kind: "user"});
         releaseGate();
         await Promise.all([closing, reopening]);
 

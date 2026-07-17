@@ -16,7 +16,6 @@ import {ProfileFreshnessChecker} from "nbook/server/agent/profiles/profile-fresh
 import {ProfileRegistry} from "nbook/server/agent/profiles/profile-registry";
 import {ProfileSourceWatcher, type ProfileSourceWatchEvent} from "nbook/server/agent/profiles/profile-source-watcher";
 import {readSystemProfileMetadata, sha256File} from "nbook/server/workspace-files/novel-workspace";
-import {resolveSystemNbookRoot, resolveUserNbookRoot} from "nbook/server/workspace-files/workspace-assets-root";
 import type {
     AgentCatalogSnapshot,
     AgentCatalogItem,
@@ -160,19 +159,13 @@ function idleProfileBuildState(): AgentProfileBuildState {
     };
 }
 
-function defaultSystemProfileRoot(): string {
-    return join(resolveSystemNbookRoot(), "agent", "profiles");
-}
-
-function defaultUserProfileRoot(): string {
-    return join(resolveUserNbookRoot(), "agent", "profiles");
-}
-
 /**
  * 动态 profile catalog。用户 profile 按 key 覆盖系统 profile。
  * Runtime 只加载 `.compiled` artifact，不在普通请求中编译 TSX 源码。
  */
 export class AgentProfileCatalog implements ProfileReleaseRegistrySink {
+    private readonly systemRoot: string;
+    private readonly userRoot: string;
     private readonly memoryProfiles = new Map<string, ProfileSource>();
     private memoryRevision = 0;
     private catalogGeneration = 0;
@@ -188,11 +181,29 @@ export class AgentProfileCatalog implements ProfileReleaseRegistrySink {
     private readonly freshness = new ProfileFreshnessChecker();
     private readonly runtimeRegistry = new ProfileRegistry<LoadedProfileCatalog>();
 
-    constructor(
-        private readonly systemRoot = defaultSystemProfileRoot(),
-        private readonly userRoot = defaultUserProfileRoot(),
-        private readonly _legacyModuleCacheRoot?: string,
-    ) {}
+    /**
+     * 创建只绑定指定物理 roots 的 Profile Catalog。
+     * system/user root 必须由进程、CLI、构建或测试 Adapter 显式决定；本 Module 不发现 cwd 或环境。
+     */
+    constructor(systemRoot: string, userRoot: string) {
+        this.systemRoot = resolve(systemRoot);
+        this.userRoot = resolve(userRoot);
+    }
+
+    /**
+     * 将 Catalog 已知来源的物理源码路径投影为工作台稳定 fileName。
+     * 来源归属由 Catalog roots 决定，调用方不得从 cwd 或环境重新推断。
+     */
+    sourceFileName(sourcePath: string, source: AgentProfileSourceKind): string {
+        const root = source === "system"
+            ? this.systemRoot
+            : source === "user"
+                ? this.userRoot
+                : null;
+        return root
+            ? relative(root, sourcePath).split(/[\\/]+/).join("/")
+            : basename(sourcePath);
+    }
 
     /**
      * 注册内存 profile，主要给测试和最小内置 profile 使用。

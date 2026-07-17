@@ -10,9 +10,10 @@ import {
     validateExecuteSql,
 } from "nbook/server/agent/tools/sql-tool";
 import {
-    resolveProjectAbsolutePath,
     writeProjectManifest,
 } from "nbook/server/workspace-files/project-workspace";
+import {resolveRuntimeWorkspaceRoot} from "nbook/server/workspace-files/workspace-runtime-root";
+import {normalizeProjectPath, resolveProjectWorkspaceRoot} from "nbook/server/workspace-files/project-path";
 import {ProjectNotOpenError} from "nbook/server/workspace-files/project-session";
 import {closeProjectForTest, openProjectForTest} from "nbook/server/workspace-files/project-session-test-utils";
 import {collectReleasedSqliteHandles} from "nbook/server/workspace-files/sqlite-handle-release";
@@ -62,7 +63,7 @@ describe("v3 execute_sql tool", () => {
     });
 
     it("未 open 的 Project 拒绝打开 execute_sql SQLite client", async () => {
-        await expect(getAgentSqlSchemaSummary("workspace/not-open")).rejects.toBeInstanceOf(ProjectNotOpenError);
+        await expect(getAgentSqlSchemaSummary(resolveRuntimeWorkspaceRoot(), "workspace/not-open")).rejects.toBeInstanceOf(ProjectNotOpenError);
     });
 
     it("关闭指定 Project SQLite client 后可以为另一个 Project 重建连接", async () => {
@@ -72,10 +73,10 @@ describe("v3 execute_sql tool", () => {
             await createProject(firstProjectPath);
             await createProject(secondProjectPath);
 
-            await expect(getAgentSqlSchemaSummary(firstProjectPath)).resolves.toContain('"ProjectMetadata"');
+            await expect(getAgentSqlSchemaSummary(resolveRuntimeWorkspaceRoot(), firstProjectPath)).resolves.toContain('"ProjectMetadata"');
             await closeAgentSqliteClient(firstProjectPath);
 
-            await expect(getAgentSqlSchemaSummary(secondProjectPath)).resolves.toContain('"ProjectMetadata"');
+            await expect(getAgentSqlSchemaSummary(resolveRuntimeWorkspaceRoot(), secondProjectPath)).resolves.toContain('"ProjectMetadata"');
         } finally {
             await Promise.all([
                 closeProjectForTest(firstProjectPath).catch(() => undefined),
@@ -103,7 +104,7 @@ function row(tableName: string, columnName: string, ordinalPosition: number) {
 }
 
 async function createProject(projectPath: string): Promise<void> {
-    await writeProjectManifest(projectPath, {
+    await writeProjectManifest(resolveRuntimeWorkspaceRoot(), projectPath, {
         kind: "novel",
         title: projectPath,
         summary: "",
@@ -112,7 +113,7 @@ async function createProject(projectPath: string): Promise<void> {
 }
 
 async function removeProjectRoot(projectPath: string): Promise<void> {
-    const projectRoot = resolveProjectAbsolutePath(projectPath);
+    const projectRoot = resolveProjectWorkspaceRoot(resolveRuntimeWorkspaceRoot(), normalizeProjectPath(projectPath));
     let lastError: unknown;
     for (let attempt = 0; attempt < 100; attempt += 1) {
         collectReleasedSqliteHandles();

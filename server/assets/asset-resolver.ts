@@ -2,7 +2,8 @@ import fs from "node:fs/promises";
 import fsSync from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import {resolveSystemNbookRoot, resolveUserNbookRoot} from "nbook/server/workspace-files/workspace-assets-root";
+import {resolveSystemNbookRoot} from "nbook/server/workspace-files/system-workspace-assets";
+import {resolveUserNbookRoot} from "nbook/server/workspace-files/workspace-runtime-root";
 
 /**
  * 可解析的 assets 来源。

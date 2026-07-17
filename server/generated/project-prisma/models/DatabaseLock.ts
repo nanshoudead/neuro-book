@@ -171,7 +171,7 @@ export type DatabaseLockGroupByOutputType = {
   _max: DatabaseLockMaxAggregateOutputType | null
 }
 
-type GetDatabaseLockGroupByPayload<T extends DatabaseLockGroupByArgs> = Prisma.PrismaPromise<
+export type GetDatabaseLockGroupByPayload<T extends DatabaseLockGroupByArgs> = Prisma.PrismaPromise<
   Array<
     Prisma.PickEnumerable<DatabaseLockGroupByOutputType, T['by']> &
       {
@@ -922,6 +922,11 @@ export type DatabaseLockFindManyArgs<ExtArgs extends runtime.Types.Extensions.In
    * Skip the first `n` DatabaseLocks.
    */
   skip?: number
+  /**
+   * {@link https://www.prisma.io/docs/concepts/components/prisma-client/distinct Distinct Docs}
+   * 
+   * Filter by unique combinations of DatabaseLocks.
+   */
   distinct?: Prisma.DatabaseLockScalarFieldEnum | Prisma.DatabaseLockScalarFieldEnum[]
 }
 

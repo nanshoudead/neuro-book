@@ -1,14 +1,22 @@
 import {describe, expect, it, vi, beforeEach} from "vitest";
+import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
 
 describe("POST /api/workspace-files/upload-file", () => {
     beforeEach(() => {
         vi.resetModules();
         vi.clearAllMocks();
         vi.stubGlobal("defineEventHandler", (handler: unknown) => handler);
+        vi.doMock("nbook/server/workspace-files/project-open-guard", () => ({assertProjectOpenForTarget: vi.fn()}));
+        vi.doMock("nbook/server/workspace-files/project-workspace-index", () => ({invalidateProjectWorkspaceIndexAfterMutation: vi.fn()}));
+        vi.doMock("nbook/server/workspace-history/tracked-workspace-files", () => ({
+            USER_LOCAL_ACTOR: {kind: "user", userId: "local"},
+            recordUploadedFiles: vi.fn(),
+        }));
     });
 
     it("resolves user-assets uploads to Workspace Root .nbook", async () => {
-        const resolveWorkspaceRootInput = vi.fn(async () => "workspace/.nbook");
+        const root = absoluteFsPath("C:/test/workspace/.nbook");
+        const resolveWorkspaceFileTarget = vi.fn(async () => ({kind: "user-assets" as const, root}));
         const uploadWorkspaceFile = vi.fn(async () => ({written: 1, skipped: 0, totalBytes: 3, files: []}));
 
         vi.doMock("h3", () => ({
@@ -20,8 +28,9 @@ describe("POST /api/workspace-files/upload-file", () => {
             ]),
         }));
         vi.doMock("nbook/server/workspace-files/novel-workspace", () => ({
-            resolveWorkspaceRootInput,
+            resolveWorkspaceFileTarget,
         }));
+        vi.doMock("nbook/server/runtime/paths/runtime-paths", () => ({runtimePathsFromEnv: vi.fn(() => ({}))}));
         vi.doMock("nbook/server/workspace-files/workspace-upload", () => ({
             uploadWorkspaceFile,
             WorkspaceUploadError: class WorkspaceUploadError extends Error {
@@ -33,8 +42,11 @@ describe("POST /api/workspace-files/upload-file", () => {
         const handler = (await import("nbook/server/api/workspace-files/upload-file.post")).default;
         await handler({} as never);
 
-        expect(resolveWorkspaceRootInput).toHaveBeenCalledWith({projectPath: undefined, workspaceKind: "user-assets"});
-        expect(uploadWorkspaceFile).toHaveBeenCalledWith("workspace/.nbook", {
+        expect(resolveWorkspaceFileTarget).toHaveBeenCalledWith(expect.anything(), {
+            projectPath: undefined,
+            workspaceKind: "user-assets",
+        });
+        expect(uploadWorkspaceFile).toHaveBeenCalledWith(root, {
             fileName: "cover.jpg",
             data: Buffer.from([1, 2, 3]),
         });
@@ -47,8 +59,9 @@ describe("POST /api/workspace-files/upload-file", () => {
             readMultipartFormData: vi.fn(),
         }));
         vi.doMock("nbook/server/workspace-files/novel-workspace", () => ({
-            resolveWorkspaceRootInput: vi.fn(),
+            resolveWorkspaceFileTarget: vi.fn(),
         }));
+        vi.doMock("nbook/server/runtime/paths/runtime-paths", () => ({runtimePathsFromEnv: vi.fn(() => ({}))}));
         vi.doMock("nbook/server/workspace-files/workspace-upload", () => ({
             uploadWorkspaceFile: vi.fn(),
             WorkspaceUploadError: class WorkspaceUploadError extends Error {

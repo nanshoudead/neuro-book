@@ -1,5 +1,6 @@
 import {ProjectRagEventReorderRequestDtoSchema, ProjectRagSubjectDtoSchema} from "nbook/shared/dto/project-rag.dto";
 import {reorderProjectRagEvent} from "nbook/server/rag/project-rag-visualization";
+import {runtimePathsFromEnv} from "nbook/server/runtime/paths/runtime-paths";
 import {requireProjectPathQuery, validateBody} from "nbook/server/utils/novel-chapter";
 import {withProjectNotOpenHttpError} from "nbook/server/workspace-files/project-open-guard";
 
@@ -238,6 +239,6 @@ defineRouteMeta({
  */
 export default defineEventHandler((event) => withProjectNotOpenHttpError(async () => {
     const body = await validateBody(event, ProjectRagEventReorderRequestDtoSchema);
-    const result = await reorderProjectRagEvent(requireProjectPathQuery(event), body);
+    const result = await reorderProjectRagEvent(runtimePathsFromEnv().workspaceRoot, requireProjectPathQuery(event), body);
     return ProjectRagSubjectDtoSchema.parse(result);
 }));

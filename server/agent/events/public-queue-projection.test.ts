@@ -3,18 +3,18 @@ import {projectQueuedMessage, projectQueuedMessages} from "nbook/server/agent/ev
 
 describe("public queue projection", () => {
     it("图片 base64 和大 payload 不进入公开 queue item", () => {
-        const data = Buffer.alloc(10 * 1024 * 1024, 7).toString("base64");
+        const attachmentId = `sha256:${"a".repeat(64)}` as const;
         const projected = projectQueuedMessage({
             id: "queue-1",
             kind: "steer",
-            message: {text: "x".repeat(100_000), images: [{type: "image", mimeType: "image/png", data}]},
+            message: {text: "x".repeat(100_000), attachments: [{type: "attachment", attachment: {id: attachmentId, mimeType: "image/png", bytes: 10 * 1024 * 1024}}]},
             input: {nested: "y".repeat(100_000)},
             createdAt: 1,
         });
 
         expect(projected.images).toEqual([{mimeType: "image/png", dataBytes: 10 * 1024 * 1024, dataOmitted: true}]);
         expect(projected.text?.omitted).toBe(true);
-        expect(JSON.stringify(projected)).not.toContain(data);
+        expect(JSON.stringify(projected)).not.toContain('"data":');
         expect(Buffer.byteLength(JSON.stringify(projected), "utf8")).toBeLessThan(32 * 1024);
     });
 

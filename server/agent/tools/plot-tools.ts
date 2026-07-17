@@ -3,8 +3,9 @@ import type {Static, TSchema} from "typebox";
 import {parseEntityId} from "nbook/server/utils/novel-chapter";
 import type {JsonValue} from "nbook/server/agent/messages/types";
 import {PLOT_SELECTION_STATE_KEY} from "nbook/server/agent/session/custom-state-keys";
-import type {NeuroAgentTool, ToolExecutionContext} from "nbook/server/agent/tools/types";
-import type {AgentToolResult} from "@earendil-works/pi-agent-core";
+import type {NeuroAgentTool, NeuroToolResult, ToolExecutionContext} from "nbook/server/agent/tools/types";
+import {normalizeToolResultDetails} from "nbook/server/agent/messages/message-utils";
+import {plotFacadeForWorkspaceRoot} from "nbook/server/plot";
 
 const NonEmptyString = (description: string) => Type.String({minLength: 1, description});
 const NullableString = (description: string) => Type.Union([Type.String({minLength: 1, description}), Type.Null({description: "显式清空。"})]);
@@ -298,19 +299,19 @@ type SceneRefPayloadWithNote = Omit<SceneRefPayload, "note"> & {
 export function createPlotTools(): NeuroAgentTool[] {
     return [
         tool("get_story_tree", "Return the story tree (carrier acts/chapters + causal phases/threads) for the given Project Workspace.", GetStoryTreeSchema, {mutates: false}, async (_context, input) => {
-            const facade = await loadPlotFacade();
+            const facade = loadPlotFacade(_context);
             return plotResult(await facade.getPlotTree(input.projectPath));
         }),
         tool("get_story_thread", "Read the full detail of a story thread. threadId defaults to plot.selection.", GetStoryThreadSchema, {mutates: false}, async (context, input) => {
             const threadId = await resolveThreadId(context, input.projectPath, input.threadId);
-            const facade = await loadPlotFacade();
+            const facade = loadPlotFacade(context);
             const result = await facade.getStoryThreadDetailDto(input.projectPath, threadId);
             await writeSelection(context, {projectPath: input.projectPath, threadId: String(threadId), sceneId: undefined});
             return plotResult(result);
         }),
         tool("get_story_scene_context", "Read a story scene with its parent thread and chapter plot view. sceneId defaults to plot.selection.", GetStorySceneContextSchema, {mutates: false}, async (context, input) => {
             const sceneId = await resolveSceneId(context, input.projectPath, input.sceneId);
-            const facade = await loadPlotFacade();
+            const facade = loadPlotFacade(context);
             const scene = await facade.getStorySceneDetailDto(input.projectPath, sceneId);
             const thread = await facade.getStoryThreadDetailDto(input.projectPath, parseEntityId("threadId", scene.threadId));
             const chapterPlot = scene.chapterId ? await facade.getChapterPlotDetailDto(input.projectPath, parseEntityId("chapterId", scene.chapterId)) : null;
@@ -319,17 +320,17 @@ export function createPlotTools(): NeuroAgentTool[] {
         }),
         tool("get_scene_world_context", "Read filtered World Engine slices and subject states for a story scene. sceneId defaults to plot.selection.", GetStorySceneContextSchema, {mutates: false}, async (context, input) => {
             const sceneId = await resolveSceneId(context, input.projectPath, input.sceneId);
-            const facade = await loadPlotFacade();
+            const facade = loadPlotFacade(context);
             const result = await facade.getSceneWorldContext(input.projectPath, sceneId);
             await writeSelection(context, {projectPath: input.projectPath, sceneId: String(sceneId)});
             return plotResult(result);
         }),
         tool("get_story_chapter", "Read a StoryChapter detail (including its ChapterBrief fields) and the scenes attached to it.", GetStoryChapterSchema, {mutates: false}, async (_context, input) => {
-            const facade = await loadPlotFacade();
+            const facade = loadPlotFacade(_context);
             return plotResult(await facade.getChapterPlotDetailDto(input.projectPath, parseEntityId("chapterId", input.chapterId)));
         }),
         tool("get_chapter_writer_brief", "Compile a chapter writer brief from ChapterBrief, Plot Scenes and filtered World Engine context. mode=autonomous (default) gives query hints; mode=curated expands state summaries. Returns markdown text for writer handoff and full DTO in details.", GetChapterWriterBriefSchema, {mutates: false}, async (_context, input) => {
-            const facade = await loadPlotFacade();
+            const facade = loadPlotFacade(_context);
             const result = await facade.getChapterWriterBrief(input.projectPath, parseEntityId("chapterId", input.chapterId), input.mode ?? "autonomous");
             return {
                 content: [{type: "text" as const, text: result.suggestedBriefMarkdown}],
@@ -337,21 +338,21 @@ export function createPlotTools(): NeuroAgentTool[] {
             };
         }),
         tool("get_story_promise", "Read the reader-promise ledger. Without promiseId: list all promises (open first) with derived stage (unplanted/planted/echoed/paid_off) and beat stats. With promiseId: full detail including beats and the scene/chapter each beat lands on.", GetStoryPromiseSchema, {mutates: false}, async (_context, input) => {
-            const facade = await loadPlotFacade();
+            const facade = loadPlotFacade(_context);
             if (input.promiseId === undefined) {
                 return plotResult(await facade.listStoryPromises(input.projectPath));
             }
             return plotResult(await facade.getStoryPromiseDetailDto(input.projectPath, parseEntityId("promiseId", input.promiseId)));
         }),
         tool("get_story_decision", "Read story decisions (ADR ledger). Without decisionId: list all decisions (open first — check before planning so you neither re-litigate settled questions nor write dead open ones). With decisionId: full detail including options, rejected alternatives, risk and references (dangling references are marked valid=false).", GetStoryDecisionSchema, {mutates: false}, async (_context, input) => {
-            const facade = await loadPlotFacade();
+            const facade = loadPlotFacade(_context);
             if (input.decisionId === undefined) {
                 return plotResult(await facade.listStoryDecisions(input.projectPath));
             }
             return plotResult(await facade.getStoryDecisionDto(input.projectPath, parseEntityId("decisionId", input.decisionId)));
         }),
         tool("save_story_act", "Create or update a story act (volume) in the carrier tree. action=create requires name + title; action=update requires actId.", SaveStoryActSchema, {mutates: true}, async (_context, input) => {
-            const facade = await loadPlotFacade();
+            const facade = loadPlotFacade(_context);
             const {projectPath, action, actId, ...payload} = input;
             if (action === "create") {
                 if (actId !== undefined) {
@@ -369,7 +370,7 @@ export function createPlotTools(): NeuroAgentTool[] {
             return plotResult(await facade.updateStoryAct(projectPath, parseEntityId("actId", actId), payload));
         }),
         tool("save_story_chapter", "Create or update a StoryChapter (carrier tree), including its ChapterBrief fields via `brief` (undefined keeps, null clears). action=create requires name + title; action=update requires chapterId. Prose files link back via frontmatter `chapter: <name>`.", SaveStoryChapterSchema, {mutates: true}, async (_context, input) => {
-            const facade = await loadPlotFacade();
+            const facade = loadPlotFacade(_context);
             const {projectPath, action, chapterId, ...payload} = input;
             if (action === "create") {
                 if (chapterId !== undefined) {
@@ -387,7 +388,7 @@ export function createPlotTools(): NeuroAgentTool[] {
             return plotResult(await facade.updateStoryChapter(projectPath, parseEntityId("chapterId", chapterId), payload));
         }),
         tool("save_story_thread", "Create, update or archive a story thread. action=create requires name + title; action=update/archive targets threadId (defaults to plot.selection); archive sets status to archived (soft delete).", SaveStoryThreadSchema, {mutates: true}, async (context, input) => {
-            const facade = await loadPlotFacade();
+            const facade = loadPlotFacade(context);
             const {projectPath, action, threadId, ...payload} = input;
             if (action === "create") {
                 if (threadId !== undefined) {
@@ -411,7 +412,7 @@ export function createPlotTools(): NeuroAgentTool[] {
             return plotResult(result);
         }),
         tool("save_story_scene", "Create, update or archive a story scene. action=create requires title (threadId defaults to plot.selection); action=update/archive targets sceneId (defaults to plot.selection); archive sets status to archived (soft delete).", SaveStorySceneSchema, {mutates: true}, async (context, input) => {
-            const facade = await loadPlotFacade();
+            const facade = loadPlotFacade(context);
             const {projectPath, action, sceneId, ...payload} = input;
             if (action === "create") {
                 if (sceneId !== undefined) {
@@ -436,7 +437,7 @@ export function createPlotTools(): NeuroAgentTool[] {
             return plotResult(result);
         }),
         tool("save_story_promise", "Create or update a reader promise (ledger entry), or mark it abandoned/fulfilled. action=create requires name + title; other actions require promiseId. Reopen with action=update + status=open. Payoff usually fulfills automatically via save_promise_beat.", SaveStoryPromiseSchema, {mutates: true}, async (_context, input) => {
-            const facade = await loadPlotFacade();
+            const facade = loadPlotFacade(_context);
             const {projectPath, action, promiseId, ...payload} = input;
             if (action === "create") {
                 if (promiseId !== undefined) {
@@ -465,7 +466,7 @@ export function createPlotTools(): NeuroAgentTool[] {
             return plotResult(await facade.updateStoryPromise(projectPath, resolvedPromiseId, payload));
         }),
         tool("save_promise_beat", "Set (upsert) or remove a promise beat on a story scene — the planned/factual touchpoint of a promise. One beat per promise x scene; setting again overwrites kind/note. kind=payoff auto-fulfills the promise unless autoFulfill=false. sceneId defaults to plot.selection.", SavePromiseBeatSchema, {mutates: true}, async (context, input) => {
-            const facade = await loadPlotFacade();
+            const facade = loadPlotFacade(context);
             const promiseId = parseEntityId("promiseId", input.promiseId);
             const sceneId = await resolveSceneId(context, input.projectPath, input.sceneId);
             if (input.action === "set") {
@@ -485,7 +486,7 @@ export function createPlotTools(): NeuroAgentTool[] {
             return plotResult(await facade.removePromiseBeat(input.projectPath, promiseId, sceneId));
         }),
         tool("save_story_decision", "Create or update a story decision (ADR entry), settle it (decide) or drop it as moot. Record a decision whenever the reasoning, if unwritten, would let the next agent make a different or worse choice. action=create requires name + title + question; action=decide requires decision + motivation + risk (the brake point — enforced) and turns unchosen options into rejectedAlternatives skeletons (fill whyRejected afterwards); action=drop requires note explaining why the question became moot. Reopen with action=update + status=open; supersede with action=update + status=superseded + supersededById.", SaveStoryDecisionSchema, {mutates: true}, async (_context, input) => {
-            const facade = await loadPlotFacade();
+            const facade = loadPlotFacade(_context);
             const {projectPath, action, decisionId, ...rawPayload} = input;
             // options/rejectedAlternatives 的可省备注统一补 null,对齐 DTO 的显式清空语义。
             const payload = {
@@ -550,7 +551,7 @@ function tool<TSchemaValue extends TSchema>(
     description: string,
     parameters: TSchemaValue,
     options: {mutates: boolean},
-    execute: (context: ToolExecutionContext, input: Static<TSchemaValue>) => Promise<AgentToolResult<unknown>>,
+    execute: (context: ToolExecutionContext, input: Static<TSchemaValue>) => Promise<NeuroToolResult>,
 ): NeuroAgentTool {
     return {
         key,
@@ -633,13 +634,13 @@ async function writeSelection(context: ToolExecutionContext, patch: PlotSelectio
     } as JsonValue, context.workspaceKey);
 }
 
-function plotResult(details: unknown): AgentToolResult<unknown> {
+function plotResult(details: unknown): NeuroToolResult {
     return {
         content: [{type: "text" as const, text: JSON.stringify(details, null, 2)}],
-        details: details as JsonValue,
+        details: normalizeToolResultDetails(details),
     };
 }
 
-async function loadPlotFacade(): Promise<typeof import("nbook/server/plot").plotFacade> {
-    return (await import("nbook/server/plot")).plotFacade;
+function loadPlotFacade(context: ToolExecutionContext) {
+    return plotFacadeForWorkspaceRoot(context.workspaceFsRoot);
 }

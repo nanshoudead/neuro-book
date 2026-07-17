@@ -14,6 +14,7 @@ import {
     loadEffectiveConfigForAgentRuntime,
     readConfigBootstrap,
     readConfigEditorSnapshot,
+    resolveConfigTarget,
     resetProjectProfileHome,
     saveGlobalConfig,
     saveProjectConfig,
@@ -22,6 +23,7 @@ import {ProjectNotOpenError} from "nbook/server/workspace-files/project-session"
 import {closeProjectForTest, openProjectForTest} from "nbook/server/workspace-files/project-session-test-utils";
 import {createIsolatedWorkspaceAssets, type IsolatedWorkspaceAssets} from "nbook/server/workspace-files/workspace-assets-test-helper";
 import type {GlobalConfigUpdateDto} from "nbook/shared/dto/config.dto";
+import {disposeAgentHarness} from "nbook/server/agent/http";
 
 const createdRoots: string[] = [];
 const catalog = createCatalog(["leader.default", "leader.assets", "custom.agent", "writer"]);
@@ -37,6 +39,7 @@ describe("config service", {timeout: 30_000}, () => {
 
     afterEach(async () => {
         await closeProjectForTest(CONFIG_TEST_PROJECT_PATH).catch(() => undefined);
+        await disposeAgentHarness();
         await Promise.all(createdRoots.splice(0).map((root) => fs.rm(root, {recursive: true, force: true})));
         await isolatedAssets?.dispose();
         isolatedAssets = null;
@@ -49,6 +52,28 @@ describe("config service", {timeout: 30_000}, () => {
         expect(snapshot.effective.ui).toMatchObject({costCurrency: "USD"});
         await expect(fs.access(path.join("workspace", ".nbook", "config.json"))).rejects.toMatchObject({code: "ENOENT"});
         await expect(fs.access(path.join("workspace", "config-test-project", ".nbook", "config.json"))).rejects.toMatchObject({code: "ENOENT"});
+    });
+
+    it("分离 State Root 时 Project Config 路径不回退到 cwd", async () => {
+        const previousStateRoot = process.env.NEURO_BOOK_STATE_ROOT;
+        const stateRoot = path.join(isolatedAssets!.root, "separate-state");
+        const projectRoot = path.join(stateRoot, "workspace", "separate-project");
+        await fs.mkdir(projectRoot, {recursive: true});
+        process.env.NEURO_BOOK_STATE_ROOT = stateRoot;
+        try {
+            const target = await resolveConfigTarget({
+                workspaceKind: "novel",
+                projectPath: "workspace/separate-project",
+            });
+            expect(target.projectConfigPath).toBe(path.join(projectRoot, ".nbook", "config.json"));
+            expect(target.projectConfigPath).not.toBe(path.resolve(process.cwd(), "workspace", "separate-project", ".nbook", "config.json"));
+        } finally {
+            if (previousStateRoot === undefined) {
+                delete process.env.NEURO_BOOK_STATE_ROOT;
+            } else {
+                process.env.NEURO_BOOK_STATE_ROOT = previousStateRoot;
+            }
+        }
     });
 
     it("Global Config 写入在文件 mutation 前拒绝不可运行模型", async () => {
@@ -913,7 +938,6 @@ describe("config service", {timeout: 30_000}, () => {
         }, {workspaceKind: "novel", projectPath: "workspace/config-test-project"});
 
         const effective = await loadEffectiveConfigForAgentRuntime({
-            workspaceRoot: "workspace",
             projectPath: "workspace/config-test-project",
         });
 
@@ -957,7 +981,6 @@ describe("config service", {timeout: 30_000}, () => {
         }, null, 4), "utf-8");
 
         const effective = await loadEffectiveConfigForAgentRuntime({
-            workspaceRoot: "workspace",
             projectPath: externalProjectRoot,
         });
 

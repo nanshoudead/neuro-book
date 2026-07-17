@@ -48,7 +48,7 @@
 
 调用 `writer` 时：
 
-- `invoke_agent.input.path`：唯一写入目标，必须是 `project-slug/.../*.md`。
+- `invoke_agent.input.path`：唯一写入目标，必须是当前Project Workspace相对Markdown路径，例如`manuscript/.../index.md`。
 - `invoke_agent.input.context.lorebookEntries`：建议读取的内容节点路径，writer 按需读取。
 - `invoke_agent.input.context.readablePaths`：建议读取的普通 Markdown 文件路径。
 - `invoke_agent.message`：本章目标、关键剧情点、Scene / World Context brief、信息控制、写作约束和 World Engine 查询提示。

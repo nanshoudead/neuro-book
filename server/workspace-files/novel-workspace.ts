@@ -16,15 +16,18 @@ import {
     type ProfileReleasePublishOptions,
 } from "nbook/server/agent/profiles/profile-artifact-compiler";
 import {readVariableDefinitionManifest, validateVariableDefinitionArtifact, type VariableDefinitionManifestItem} from "nbook/server/agent/variables/definition-artifact";
-import {assertProjectWorkspaceDirectory, normalizeProjectPath} from "nbook/server/workspace-files/project-workspace";
+import {normalizeProjectPath, resolveProjectWorkspaceRoot} from "nbook/server/workspace-files/project-path";
+import {assertRealPathContained, type AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
+import {assertProjectWorkspaceDirectory} from "nbook/server/workspace-files/project-workspace";
+import type {WorkspaceFileTarget} from "nbook/server/workspace-files/workspace-file-target";
 import {
     WORKSPACE_CONTAINER_ROOT as WORKSPACE_CONTAINER_ROOT_VALUE,
     WORKSPACE_NBOOK_ROOT,
-    resolveSystemNbookRoot,
-    resolveUserNbookRoot,
-} from "nbook/server/workspace-files/workspace-assets-root";
+} from "nbook/server/workspace-files/workspace-root-ref";
+import {resolveSystemNbookRoot} from "nbook/server/workspace-files/system-workspace-assets";
+import {resolveUserNbookRoot} from "nbook/server/workspace-files/workspace-runtime-root";
 import {appLogger} from "nbook/server/app-logs/logger";
-import {resolveStateRoot} from "nbook/server/runtime/installation-paths";
+import {runtimePathsFromEnv, type RuntimePaths} from "nbook/server/runtime/paths/runtime-paths";
 import type {
     UserAssetsAssetSyncWarningDto,
     UserAssetsProfileSyncWarningDto,
@@ -33,9 +36,9 @@ import type {
 } from "nbook/shared/dto/user-assets-sync.dto";
 
 export const USER_ASSETS_WORKSPACE_KIND = "user-assets";
-export const WORKSPACE_CONTAINER_ROOT = WORKSPACE_CONTAINER_ROOT_VALUE;
-export const USER_ASSETS_WORKSPACE_ROOT = WORKSPACE_NBOOK_ROOT;
-export const USER_NBOOK_ROOT = WORKSPACE_NBOOK_ROOT;
+export const WORKSPACE_CONTAINER_ROOT: typeof WORKSPACE_CONTAINER_ROOT_VALUE = WORKSPACE_CONTAINER_ROOT_VALUE;
+export const USER_ASSETS_WORKSPACE_ROOT: typeof WORKSPACE_NBOOK_ROOT = WORKSPACE_NBOOK_ROOT;
+export const USER_NBOOK_ROOT: typeof WORKSPACE_NBOOK_ROOT = WORKSPACE_NBOOK_ROOT;
 export const DEFAULT_NOVEL_WORKSPACE_SLUG = "silver-dragon-hime";
 
 const PROJECT_DIRECTORY_TEMPLATE_ASSET_PREFIX = "templates/project-directory-templates/";
@@ -279,34 +282,64 @@ export function buildWorkspaceSlugBase(title: string): string {
 }
 
 /**
- * 返回指定 Project Path 的 Project Workspace 根目录。
+ * 从显式Runtime Paths解析指定Project Path的文件操作目标。
  */
-export async function resolveNovelWorkspaceRoot(projectPathInput: string): Promise<string> {
-    return assertProjectWorkspaceDirectory(normalizeProjectPath(projectPathInput));
+export async function resolveNovelWorkspaceTarget(
+    runtimePaths: RuntimePaths,
+    projectPathInput: string,
+): Promise<Extract<WorkspaceFileTarget, {kind: "project-workspace"}>> {
+    const projectPath = await assertProjectWorkspaceDirectory(
+        runtimePaths.workspaceRoot,
+        normalizeProjectPath(projectPathInput),
+    );
+    const root = resolveProjectWorkspaceRoot(runtimePaths.workspaceRoot, projectPath);
+    await assertRealPathContained(runtimePaths.stateRoot, root);
+    return {
+        kind: "project-workspace",
+        root,
+        projectPath,
+    };
 }
 
 /**
- * 按 projectPath 解析 Project Workspace；user-assets 只允许通过 workspaceKind 显式选择。
+ * 从DTO输入与显式Runtime Paths建立Workspace文件操作目标。
+ *
+ * 这是逻辑Project Path / workspaceKind到物理Workspace Root的Adapter；返回后核心Module
+ * 不得再次读取cwd、State Root或进程环境。
  */
-export async function resolveWorkspaceRootInput(
+export async function resolveWorkspaceFileTarget(
+    runtimePaths: RuntimePaths,
     input: {projectPath?: string; workspaceKind?: WorkspaceRootKind},
-): Promise<string | undefined> {
+): Promise<WorkspaceFileTarget> {
     if (input.workspaceKind === USER_ASSETS_WORKSPACE_KIND) {
-        await ensureUserAssetsWorkspaceRoot();
-        return USER_ASSETS_WORKSPACE_ROOT;
+        await ensureUserAssetsWorkspaceRootAt(runtimePaths);
+        await assertRealPathContained(runtimePaths.stateRoot, runtimePaths.userNbookRoot);
+        return {
+            kind: "user-assets",
+            root: runtimePaths.userNbookRoot,
+        };
     }
     if (input.projectPath?.trim()) {
-        return resolveNovelWorkspaceRoot(input.projectPath);
+        return resolveNovelWorkspaceTarget(runtimePaths, input.projectPath);
     }
-    return undefined;
+    await assertRealPathContained(runtimePaths.stateRoot, runtimePaths.workspaceRoot);
+    return {
+        kind: "workspace-root",
+        root: runtimePaths.workspaceRoot,
+    };
 }
 
 /**
- * 确保全局用户 assets 工作区存在。
+ * 在显式Runtime Paths下确保全局用户assets工作区存在。
  */
-export async function ensureUserAssetsWorkspaceRoot(): Promise<string> {
-    await fs.mkdir(userNbookAbsoluteRoot(), {recursive: true});
-    return USER_ASSETS_WORKSPACE_ROOT;
+export async function ensureUserAssetsWorkspaceRootAt(runtimePaths: RuntimePaths): Promise<AbsoluteFsPath> {
+    await fs.mkdir(runtimePaths.userNbookRoot, {recursive: true});
+    return runtimePaths.userNbookRoot;
+}
+
+/** 进程Adapter：为启动期assets同步解析当前用户assets根。 */
+export async function ensureUserAssetsWorkspaceRoot(): Promise<AbsoluteFsPath> {
+    return ensureUserAssetsWorkspaceRootAt(runtimePathsFromEnv());
 }
 
 /**
@@ -426,10 +459,7 @@ export async function sha256File(filePath: string): Promise<{sha256: string; byt
 /**
  * 把小说目录脚手架复制到 workspace，只补缺失文件，不覆盖用户已编辑内容。
  */
-export async function copyNovelDirectoryTemplate(workspaceRoot: string): Promise<void> {
-    const absoluteWorkspaceRoot = path.isAbsolute(workspaceRoot)
-        ? path.resolve(workspaceRoot)
-        : path.resolve(resolveStateRoot(), workspaceRoot);
+export async function copyNovelDirectoryTemplate(projectRoot: AbsoluteFsPath): Promise<void> {
     const mergedRoot = await fs.mkdtemp(path.join(os.tmpdir(), "nbook-novel-template-"));
     try {
         await fs.cp(projectDirectoryTemplateRoot(), mergedRoot, {
@@ -445,7 +475,7 @@ export async function copyNovelDirectoryTemplate(workspaceRoot: string): Promise
             });
         }
         await normalizeNovelDirectoryTemplateArtifacts(mergedRoot);
-        await fs.cp(mergedRoot, absoluteWorkspaceRoot, {
+        await fs.cp(mergedRoot, projectRoot, {
             recursive: true,
             force: false,
             errorOnExist: false,

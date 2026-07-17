@@ -3,7 +3,12 @@ import path from "node:path";
 import {createClient, type Client} from "@libsql/client";
 import {createError} from "h3";
 import * as yaml from "yaml";
-import {resolveWorkspaceContainerRoot} from "nbook/server/workspace-files/workspace-assets-root";
+import {absoluteFsPath, type AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
+import {
+    normalizeProjectPath,
+    resolveProjectWorkspaceRoot,
+    type ProjectPath,
+} from "nbook/server/workspace-files/project-path";
 import {collectReleasedSqliteHandles} from "nbook/server/workspace-files/sqlite-handle-release";
 
 export const PROJECT_MANIFEST_FILE = "project.yaml";
@@ -278,35 +283,14 @@ ON CONFLICT("key") DO UPDATE SET "value" = excluded."value", "updatedAt" = CURRE
 `;
 
 /**
- * 校验并规范化 Project Path。它必须指向 workspace 下的一级目录。
- */
-export function normalizeProjectPath(input: string): string {
-    const normalized = input.trim().replaceAll("\\", "/").replace(/\/+$/g, "");
-    if (!normalized || normalized === "workspace" || normalized.includes("..") || path.posix.isAbsolute(normalized)) {
-        throw createError({statusCode: 400, message: "projectPath 必须是 workspace 下的项目目录"});
-    }
-    const parts = normalized.split("/").filter(Boolean);
-    if (parts.length !== 2 || parts[0] !== "workspace") {
-        throw createError({statusCode: 400, message: "projectPath 必须形如 workspace/<project>"});
-    }
-    return normalized;
-}
-
-/**
- * 将 Project Path 解析为绝对路径。
- */
-export function resolveProjectAbsolutePath(projectPath: string): string {
-    const normalizedProjectPath = normalizeProjectPath(projectPath);
-    const projectSlug = normalizedProjectPath.slice("workspace/".length);
-    return path.join(resolveWorkspaceContainerRoot(), projectSlug);
-}
-
-/**
  * 判断 Project Path 是否指向现有 Project Workspace 目录。不读取 project.yaml，用于文件修复链路。
  */
-export async function assertProjectWorkspaceDirectory(projectPath: string): Promise<string> {
+export async function assertProjectWorkspaceDirectory(
+    workspaceRoot: AbsoluteFsPath,
+    projectPath: string,
+): Promise<ProjectPath> {
     const normalizedProjectPath = normalizeProjectPath(projectPath);
-    const projectRoot = resolveProjectAbsolutePath(normalizedProjectPath);
+    const projectRoot = resolveProjectWorkspaceRoot(workspaceRoot, normalizedProjectPath);
     let stat: Awaited<ReturnType<typeof fs.stat>>;
     try {
         stat = await fs.stat(projectRoot);
@@ -328,9 +312,12 @@ export async function assertProjectWorkspaceDirectory(projectPath: string): Prom
 /**
  * 判断 Project Workspace 目录是否存在。包含已标记删除但尚未物理清理的目录。
  */
-export async function projectWorkspaceDirectoryExists(projectPath: string): Promise<boolean> {
+export async function projectWorkspaceDirectoryExists(
+    workspaceRoot: AbsoluteFsPath,
+    projectPath: string,
+): Promise<boolean> {
     try {
-        const stat = await fs.stat(resolveProjectAbsolutePath(projectPath));
+        const stat = await fs.stat(resolveProjectWorkspaceRoot(workspaceRoot, normalizeProjectPath(projectPath)));
         return stat.isDirectory();
     } catch (error) {
         if (typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT") {
@@ -343,15 +330,23 @@ export async function projectWorkspaceDirectoryExists(projectPath: string): Prom
 /**
  * 返回 Project SQLite 的绝对路径。
  */
-export function resolveProjectDatabasePath(projectPath: string): string {
-    return path.join(resolveProjectAbsolutePath(projectPath), PROJECT_DATABASE_RELATIVE_PATH);
+export function resolveProjectDatabasePath(
+    workspaceRoot: AbsoluteFsPath,
+    projectPath: string,
+): AbsoluteFsPath {
+    const projectRoot = resolveProjectWorkspaceRoot(workspaceRoot, normalizeProjectPath(projectPath));
+    return absoluteFsPath(path.join(projectRoot, PROJECT_DATABASE_RELATIVE_PATH));
 }
 
 /**
  * 读取 Project manifest。
  */
-export async function readProjectManifest(projectPath: string): Promise<ProjectManifest> {
-    const manifestPath = path.join(resolveProjectAbsolutePath(projectPath), PROJECT_MANIFEST_FILE);
+export async function readProjectManifest(
+    workspaceRoot: AbsoluteFsPath,
+    projectPath: string,
+): Promise<ProjectManifest> {
+    const projectRoot = resolveProjectWorkspaceRoot(workspaceRoot, normalizeProjectPath(projectPath));
+    const manifestPath = path.join(projectRoot, PROJECT_MANIFEST_FILE);
     const parsed = yaml.parse(await fs.readFile(manifestPath, "utf-8")) as Partial<ProjectManifest> | null;
     if (!parsed || parsed.kind !== "novel" || typeof parsed.title !== "string") {
         throw createError({statusCode: 400, message: `${projectPath}/${PROJECT_MANIFEST_FILE} 不是有效 Project manifest`});
@@ -366,8 +361,12 @@ export async function readProjectManifest(projectPath: string): Promise<ProjectM
 /**
  * 安全读取 Project manifest。解析失败时返回错误文本，避免拖垮文件树和保存链路。
  */
-export async function readProjectManifestIssue(projectPath: string): Promise<string | null> {
-    return readProjectManifestIssueFromRoot(resolveProjectAbsolutePath(projectPath));
+export async function readProjectManifestIssue(
+    workspaceRoot: AbsoluteFsPath,
+    projectPath: string,
+): Promise<string | null> {
+    const projectRoot = resolveProjectWorkspaceRoot(workspaceRoot, normalizeProjectPath(projectPath));
+    return readProjectManifestIssueFromRoot(projectRoot);
 }
 
 /**
@@ -392,8 +391,12 @@ export async function readProjectManifestIssueFromRoot(projectRoot: string): Pro
 /**
  * 写入 Project manifest。
  */
-export async function writeProjectManifest(projectPath: string, manifest: ProjectManifest): Promise<void> {
-    const projectRoot = resolveProjectAbsolutePath(projectPath);
+export async function writeProjectManifest(
+    workspaceRoot: AbsoluteFsPath,
+    projectPath: string,
+    manifest: ProjectManifest,
+): Promise<void> {
+    const projectRoot = resolveProjectWorkspaceRoot(workspaceRoot, normalizeProjectPath(projectPath));
     await fs.mkdir(projectRoot, {recursive: true});
     await fs.writeFile(path.join(projectRoot, PROJECT_MANIFEST_FILE), yaml.stringify(manifest), "utf-8");
 }
@@ -401,8 +404,7 @@ export async function writeProjectManifest(projectPath: string, manifest: Projec
 /**
  * 扫描 workspace 下一级 Project manifest。
  */
-export async function listProjectWorkspaces(): Promise<ProjectListItem[]> {
-    const workspaceRoot = resolveWorkspaceContainerRoot();
+export async function listProjectWorkspaces(workspaceRoot: AbsoluteFsPath): Promise<ProjectListItem[]> {
     let entries: Array<import("node:fs").Dirent>;
     try {
         entries = await fs.readdir(workspaceRoot, {withFileTypes: true});
@@ -423,7 +425,7 @@ export async function listProjectWorkspaces(): Promise<ProjectListItem[]> {
         }
         const projectPath = path.posix.join("workspace", entry.name);
         try {
-            const manifest = await readProjectManifest(projectPath);
+            const manifest = await readProjectManifest(workspaceRoot, projectPath);
             const stat = await fs.stat(path.join(workspaceRoot, entry.name, PROJECT_MANIFEST_FILE));
             projects.push({...manifest, projectPath, updatedAt: stat.mtime.toISOString()});
         } catch (error) {
@@ -462,8 +464,12 @@ export async function isProjectRootDeleted(projectRoot: string): Promise<boolean
 /**
  * 初始化或迁移 Project SQLite。
  */
-export async function initProjectDatabase(projectPath: string): Promise<string> {
-    return initProjectDatabaseAtRoot(resolveProjectAbsolutePath(projectPath));
+export async function initProjectDatabase(
+    workspaceRoot: AbsoluteFsPath,
+    projectPath: string,
+): Promise<string> {
+    const projectRoot = resolveProjectWorkspaceRoot(workspaceRoot, normalizeProjectPath(projectPath));
+    return initProjectDatabaseAtRoot(projectRoot);
 }
 
 /**

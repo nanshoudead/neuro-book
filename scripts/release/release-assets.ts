@@ -8,6 +8,7 @@ import {unzipSync} from "fflate";
 import {parseReleaseManifest} from "nbook/packages/neuro-book-manager/src/schema";
 import {verifyReleaseChecksums, writeReleaseChecksums} from "nbook/scripts/release/release-checksums";
 import {run, runCapture} from "nbook/scripts/utils/process.mjs";
+import {isRuntimeTestSourcePath} from "nbook/scripts/utils/runtime-source-prune.mjs";
 import {writeZipArchive} from "nbook/scripts/utils/zip";
 
 const ROOT = resolve(import.meta.dir, "..", "..");
@@ -174,12 +175,14 @@ async function verifyReleaseAssets(directory: string, tagInput: string, revision
         ".output/server/node_modules/@libsql/win32-x64-msvc/",
         ".output/server/node_modules/sqlite-vec-windows-x64/",
     ], "Windows Product");
+    assertNoRuntimeTestEntries(windowsEntries, "Windows Product");
     const linuxEntries = (await runCapture("tar", ["-tzf", resolve(directory, "neuro-book-product-linux-x64-glibc.tar.gz")], {cwd: directory})).split(/\r?\n/u);
     assertEntries(linuxEntries, [
         ".output/server/index.mjs",
         ".output/server/node_modules/@libsql/linux-x64-gnu/",
         ".output/server/node_modules/sqlite-vec-linux-x64/",
     ], "Linux Product");
+    assertNoRuntimeTestEntries(linuxEntries, "Linux Product");
     const portableEntries = Object.keys(unzipSync(await readFile(resolve(directory, "neuro-book-windows-x64.zip"))));
     assertEntries(portableEntries, [
         ".deploy/installation.json",
@@ -189,6 +192,23 @@ async function verifyReleaseAssets(directory: string, tagInput: string, revision
         "Start Neuro Book.cmd",
         "Create Admin.cmd",
     ], "Windows Portable");
+}
+
+/** 禁止Product overlay中的NeuroBook runtime源码重新携带测试。 */
+function assertNoRuntimeTestEntries(entries: string[], label: string): void {
+    const runtimePrefixes = [
+        ".output/server/server/",
+        ".output/server/shared/",
+        ".output/server/scripts/",
+        ".output/server/node_modules/nbook/",
+    ];
+    const offender = entries
+        .map((entry) => entry.replace(/^\.\//u, ""))
+        .find((entry) => runtimePrefixes.some((prefix) => entry.startsWith(prefix)
+            && isRuntimeTestSourcePath(entry.slice(prefix.length))));
+    if (offender) {
+        throw new Error(`${label} 包含测试源码：${offender}`);
+    }
 }
 
 function assertEntries(entries: string[], required: string[], label: string): void {

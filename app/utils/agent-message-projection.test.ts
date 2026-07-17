@@ -209,7 +209,9 @@ describe("agent message projection helpers", () => {
             timestamp: Date.now(),
             type: "user",
             intent: "normal",
-            content: {preview: "你好", bytes: 6, omitted: false},
+            blocks: [{type: "text", contentIndex: 0, content: {preview: "你好", bytes: 6, omitted: false}}],
+            omittedBlocks: 0,
+            textSummary: {bytes: 6, omitted: false},
         });
 
         expect(withPrompt.map((message) => ({
@@ -376,7 +378,7 @@ describe("agent message projection helpers", () => {
             toolCallId: "approval-call",
             toolName: "request_user_input",
             result: {
-                content: [{type: "text", textPreview: "用户已选择：继续", textBytes: 24, textOmitted: false}],
+                content: [{type: "text", contentIndex: 0, textPreview: "用户已选择：继续", textBytes: 24, textOmitted: false}],
                 omittedContentBlocks: 0,
             },
             isError: false,

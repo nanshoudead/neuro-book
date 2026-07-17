@@ -12,7 +12,8 @@ import type {JsonValue} from "nbook/server/agent/messages/types";
 import {generateBuiltinVariableTypes} from "nbook/server/agent/variables/generated-types";
 import {builtinVariableDefinitions} from "nbook/server/agent/variables/registry";
 import {readVariableDefinitionManifest, VARIABLE_DEFINITION_COMPILED_DIR} from "nbook/server/agent/variables/definition-artifact";
-import {resolveApplicationRoot, resolveSystemNbookRoot, resolveUserNbookRoot} from "nbook/server/workspace-files/workspace-assets-root";
+import {resolveApplicationRoot, resolveSystemNbookRoot} from "nbook/server/workspace-files/system-workspace-assets";
+import {resolveUserNbookRoot} from "nbook/server/workspace-files/workspace-runtime-root";
 import {resolveStateRoot} from "nbook/server/runtime/installation-paths";
 
 type ProfileCommand = "status" | "check" | "compile" | "preview";

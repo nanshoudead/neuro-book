@@ -265,12 +265,15 @@ function recovery(sessionId: number, after: number, revision: string | null = nu
 }
 
 function userEntry(id: string, content: string): AgentChatEntryDto {
+    const bytes = Buffer.byteLength(content, "utf8");
     return {
         id,
         timestamp: 1,
         type: "user",
         intent: "normal",
-        content: {preview: content, bytes: Buffer.byteLength(content, "utf8"), omitted: false},
+        blocks: [{type: "text", contentIndex: 0, content: {preview: content, bytes, omitted: false}}],
+        omittedBlocks: 0,
+        textSummary: {bytes, omitted: false},
     };
 }
 

@@ -15,4 +15,5 @@ declare module "proper-lockfile" {
     };
 
     export function lock(file: string, options?: LockOptions): Promise<() => Promise<void>>;
+    export function lockSync(file: string, options?: LockOptions): () => void;
 }

@@ -1,8 +1,9 @@
 import {describe, expect, it} from "vitest";
 import {Value} from "typebox/value";
-import type {AgentToolResult} from "@earendil-works/pi-agent-core";
+import type {NeuroToolResult} from "nbook/server/agent/tools/types";
 import {controlTools} from "nbook/server/agent/tools/control-tools";
 import type {UserInputRequestContext, ToolExecutionContext, UserInputFormSpec} from "nbook/server/agent/tools/types";
+import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
 
 describe("request_user_input userInputRequest", () => {
     const requestUserInputTool = controlTools.requestUserInput.runtime();
@@ -419,7 +420,7 @@ describe("协议边界", () => {
     });
 });
 
-function readText(result: AgentToolResult<unknown>): string {
+function readText(result: NeuroToolResult): string {
     const item = result.content[0];
     if (!item || item.type !== "text") {
         throw new Error("测试期望工具返回 text content");
@@ -433,7 +434,7 @@ function requestContext(args: unknown): UserInputRequestContext {
         session: {
             sessionId: 1,
             profileKey: "test-profile",
-            workspaceRoot: "/test/workspace",
+            workspaceRoot: absoluteFsPath("/test/workspace"),
             workspaceKey: "test-workspace",
         },
     };
@@ -455,7 +456,8 @@ function createToolContext(): ToolExecutionContext {
         harness: {} as any,
         sessionId: 1,
         profileKey: "test-profile",
-        workspaceRoot: "/test/workspace",
+        workspaceRootRef: absoluteFsPath(process.cwd()),
+        workspaceFsRoot: absoluteFsPath(process.cwd()),
         workspaceKey: "test-workspace",
     };
 }

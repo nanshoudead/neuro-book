@@ -111,7 +111,7 @@ const hasTextBubbleContent = (node: ChatNode): boolean => {
     if (node.kind !== "text") {
         return false;
     }
-    return Boolean(node.message.content.trim());
+    return Boolean(node.message.content.trim() || node.message.contentBlocks?.length || node.message.attachments?.length);
 };
 
 /** 计算节点间距，避免“仅思维链 + tool”之间出现过大空白。 */
@@ -336,6 +336,7 @@ defineExpose({ scrollToBottom: forceScrollToBottom, scrollRef });
                 <AgentTextBubble
                     v-if="node.kind === 'text'"
                     :node="node"
+                    :session-id="props.sessionId"
                     :editing-message-id="props.editingMessageId"
                     :action-disabled="props.messageActionDisabled"
                     :run-action-disabled="props.runActionDisabled"
@@ -358,6 +359,7 @@ defineExpose({ scrollToBottom: forceScrollToBottom, scrollRef });
                 <AgentToolBubble
                     v-else-if="node.kind === 'tool'"
                     :tool-call="node.toolCall"
+                    :session-id="props.sessionId"
                     @copy="emit('copy-tool', $event)"
                 />
             </div>

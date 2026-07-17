@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import {createError} from "h3";
-import {resolveProjectAbsolutePath} from "nbook/server/workspace-files/project-workspace";
+import type {AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
 import {importSingleFileTypeScriptConfig} from "nbook/server/world-engine/single-file-typescript-config-import";
 import {
     collectZodDefaults,
@@ -30,16 +30,15 @@ const SCHEMA_TS_PATH = "world-engine/schema/index.ts";
  * 但由 Zod 无损派生：EmbeddingText 容器被标记为一等的 `embedding` 字段。
  */
 export class WorldSchemaLoader {
-    async load(projectPath: string): Promise<WorldSchema> {
-        const projectAbsPath = resolveProjectAbsolutePath(projectPath);
-        const tsSchemaPath = path.join(projectAbsPath, SCHEMA_TS_PATH);
+    async load(projectRoot: AbsoluteFsPath): Promise<WorldSchema> {
+        const tsSchemaPath = path.join(projectRoot, SCHEMA_TS_PATH);
 
         try {
             await fs.access(tsSchemaPath);
         } catch (error) {
             if (typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT") {
                 // schema/index.ts 不存在，检查是否存在旧的 schema.yaml
-                const yamlSchemaPath = path.join(projectAbsPath, "world-engine/schema.yaml");
+                const yamlSchemaPath = path.join(projectRoot, "world-engine/schema.yaml");
                 try {
                     await fs.access(yamlSchemaPath);
                     // 旧 schema.yaml 存在，提示迁移

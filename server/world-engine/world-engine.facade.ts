@@ -22,7 +22,10 @@ import type {
 } from "nbook/server/world-engine/types";
 import {collectReleasedSqliteHandles} from "nbook/server/workspace-files/sqlite-handle-release";
 import {assertProjectOpen, markProjectActivity} from "nbook/server/workspace-files/project-session";
-import {normalizeProjectPath, resolveProjectDatabasePath, toSqliteFileUrl} from "nbook/server/workspace-files/project-workspace";
+import {normalizeProjectPath} from "nbook/server/workspace-files/project-path";
+import {resolveProjectWorkspaceRoot} from "nbook/server/workspace-files/project-path";
+import type {AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
+import {resolveProjectDatabasePath, toSqliteFileUrl} from "nbook/server/workspace-files/project-workspace";
 
 type WorldEngineModule = {
     service: WorldEngineService;
@@ -51,6 +54,8 @@ export type ExecuteWorldOptions = {
 export class WorldEngineFacade {
     private readonly schemaLoader = new WorldSchemaLoader();
     private readonly calendarLoader = new WorldCalendarLoader();
+
+    constructor(private readonly workspaceRoot: AbsoluteFsPath) {}
 
     /**
      * 释放 World Engine 对该 Project 的句柄占用。World Engine 不缓存 client（每次调用即开即关），
@@ -126,8 +131,9 @@ export class WorldEngineFacade {
     /** 返回 Agent 友好的 world schema 投影。 */
     async getWorldSchema(projectPath: string): Promise<WorldSchemaProjection> {
         const normalizedProjectPath = normalizeProjectPath(projectPath);
-        const schema = await this.schemaLoader.load(normalizedProjectPath);
-        const calendar = await this.calendarLoader.load(normalizedProjectPath);
+        const projectRoot = resolveProjectWorkspaceRoot(this.workspaceRoot, normalizedProjectPath);
+        const schema = await this.schemaLoader.load(projectRoot);
+        const calendar = await this.calendarLoader.load(projectRoot);
         return {
             subjectTypes: Object.entries(schema.subjectTypes).map(([type, subjectType]) => ({
                 type,
@@ -140,13 +146,15 @@ export class WorldEngineFacade {
 
     /** 解析项目日历字符串。 */
     async parseTime(projectPath: string, input: string): Promise<bigint> {
-        const calendar = await this.calendarLoader.load(normalizeProjectPath(projectPath));
+        const normalizedProjectPath = normalizeProjectPath(projectPath);
+        const calendar = await this.calendarLoader.load(resolveProjectWorkspaceRoot(this.workspaceRoot, normalizedProjectPath));
         return calendar.parse(input);
     }
 
     /** 格式化项目时间。 */
     async formatTime(projectPath: string, instant: bigint): Promise<string> {
-        const calendar = await this.calendarLoader.load(normalizeProjectPath(projectPath));
+        const normalizedProjectPath = normalizeProjectPath(projectPath);
+        const calendar = await this.calendarLoader.load(resolveProjectWorkspaceRoot(this.workspaceRoot, normalizedProjectPath));
         return calendar.format(instant);
     }
 
@@ -217,7 +225,7 @@ export class WorldEngineFacade {
         const normalizedProjectPath = normalizeProjectPath(projectPath);
         assertProjectOpen(normalizedProjectPath);
         markProjectActivity(normalizedProjectPath);
-        const databasePath = resolveProjectDatabasePath(normalizedProjectPath);
+        const databasePath = resolveProjectDatabasePath(this.workspaceRoot, normalizedProjectPath);
         return {client: createClient({url: toSqliteFileUrl(databasePath)})};
     }
 
@@ -237,8 +245,10 @@ export class WorldEngineFacade {
     }
 
     private async createModuleFromExecutor(executor: Client, projectPath: string): Promise<WorldEngineModule> {
-        const schema = await this.schemaLoader.load(projectPath);
-        const calendar = await this.calendarLoader.load(projectPath);
+        const normalizedProjectPath = normalizeProjectPath(projectPath);
+        const projectRoot = resolveProjectWorkspaceRoot(this.workspaceRoot, normalizedProjectPath);
+        const schema = await this.schemaLoader.load(projectRoot);
+        const calendar = await this.calendarLoader.load(projectRoot);
         const repository = new WorldEngineRepository(executor);
         return {
             service: new WorldEngineService(repository, schema, calendar, projectPath),

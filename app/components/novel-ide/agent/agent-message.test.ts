@@ -40,11 +40,113 @@ describe("agent-message public projection", () => {
             type: "tool_result",
             toolCallId: "call-1",
             toolName: "write",
-            result: {content: [{type: "text", textPreview: "完成", textBytes: 6, textOmitted: false}], omittedContentBlocks: 0},
+            result: {content: [{type: "text", contentIndex: 0, textPreview: "完成", textBytes: 6, textOmitted: false}], omittedContentBlocks: 0},
             isError: false,
         });
 
-        expect(messages[0]?.toolCalls?.[0]).toEqual(expect.objectContaining({id: "call-1", status: "success", result: "完成"}));
+        expect(messages[0]?.toolCalls?.[0]).toEqual(expect.objectContaining({id: "call-1", status: "success", result: "完成", resultEntryId: "result-1"}));
+    });
+
+    it("durable user entry 保留纯图片附件 locator", () => {
+        const messages = deriveMessagesFromChatEntries([{
+            id: "user-image",
+            timestamp: 1,
+            type: "user",
+            intent: "normal",
+            blocks: [{
+                type: "attachment",
+                contentIndex: 1,
+                attachment: {
+                    attachmentId: `sha256:${"a".repeat(64)}`,
+                    mimeType: "image/png",
+                    bytes: 128,
+                    name: "cover.png",
+                    dataOmitted: true,
+                },
+            }],
+            omittedBlocks: 0,
+            textSummary: {bytes: 0, omitted: false},
+        }]);
+
+        expect(messages).toEqual([expect.objectContaining({
+            id: "user-image",
+            content: "",
+            attachments: [expect.objectContaining({contentIndex: 1, attachment: expect.objectContaining({name: "cover.png"})})],
+            contentBlocks: [expect.objectContaining({type: "attachment", contentIndex: 1})],
+        })]);
+    });
+
+    it("durable user blocks 按原始 contentIndex 保留文本与图片混合顺序", () => {
+        const firstAttachment = {
+            attachmentId: `sha256:${"c".repeat(64)}` as const,
+            mimeType: "image/png",
+            bytes: 100,
+            dataOmitted: true as const,
+        };
+        const secondAttachment = {
+            attachmentId: `sha256:${"d".repeat(64)}` as const,
+            mimeType: "image/webp",
+            bytes: 200,
+            dataOmitted: true as const,
+        };
+        const messages = deriveMessagesFromChatEntries([{
+            id: "mixed-user",
+            timestamp: 1,
+            type: "user",
+            intent: "normal",
+            blocks: [
+                {type: "attachment", contentIndex: 3, attachment: secondAttachment},
+                {type: "text", contentIndex: 0, content: {preview: "第一段", bytes: 9, omitted: false}},
+                {type: "attachment", contentIndex: 1, attachment: firstAttachment},
+                {type: "text", contentIndex: 2, content: {preview: "第二段", bytes: 9, omitted: false}},
+            ],
+            omittedBlocks: 0,
+            textSummary: {bytes: 19, omitted: false},
+        }]);
+
+        expect(messages[0]?.contentBlocks).toEqual([
+            expect.objectContaining({type: "text", contentIndex: 0, content: expect.objectContaining({preview: "第一段"})}),
+            expect.objectContaining({type: "attachment", contentIndex: 1, attachment: firstAttachment}),
+            expect.objectContaining({type: "text", contentIndex: 2, content: expect.objectContaining({preview: "第二段"})}),
+            expect.objectContaining({type: "attachment", contentIndex: 3, attachment: secondAttachment}),
+        ]);
+    });
+
+    it("durable tool result 保留 attachment content index 与所属 entry", () => {
+        const messages = deriveMessagesFromChatEntries([
+            {
+                ...assistant("assistant-image", "", 0, false),
+                toolCalls: [{id: "call-image", index: 0, name: "read", args: {kind: "generic", value: {kind: "object", entries: [], omittedEntries: 0}}}],
+            },
+            {
+                id: "result-image",
+                timestamp: 2,
+                type: "tool_result",
+                toolCallId: "call-image",
+                toolName: "read",
+                isError: false,
+                result: {
+                    content: [{
+                        type: "attachment",
+                        contentIndex: 2,
+                        attachment: {
+                            attachmentId: `sha256:${"b".repeat(64)}`,
+                            mimeType: "image/webp",
+                            bytes: 256,
+                            dataOmitted: true,
+                        },
+                    }],
+                    omittedContentBlocks: 0,
+                },
+            },
+        ]);
+
+        expect(messages[0]?.toolCalls?.[0]).toEqual(expect.objectContaining({
+            resultEntryId: "result-image",
+            publicResult: expect.objectContaining({
+                content: [expect.objectContaining({type: "attachment", contentIndex: 2})],
+            }),
+        }));
     });
 
     it("delta-first runtime event 按 messageId/contentIndex 合并", () => {
@@ -63,7 +165,15 @@ describe("agent-message public projection", () => {
 });
 
 function user(id: string, preview: string, bytes: number, omitted: boolean): AgentChatEntryDto {
-    return {id, timestamp: 1, type: "user", intent: "normal", content: {preview, bytes, omitted}};
+    return {
+        id,
+        timestamp: 1,
+        type: "user",
+        intent: "normal",
+        blocks: [{type: "text", contentIndex: 0, content: {preview, bytes, omitted}}],
+        omittedBlocks: 0,
+        textSummary: {bytes, omitted},
+    };
 }
 
 function assistant(id: string, preview: string, bytes: number, omitted: boolean): Extract<AgentChatEntryDto, {type: "assistant"}> {

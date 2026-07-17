@@ -1,3 +1,4 @@
+import {resolve} from "node:path";
 import {describe, expect, it} from "vitest";
 import {createAssistantTextMessage, createTextToolResult} from "nbook/server/agent/messages/message-utils";
 import {Value} from "typebox/value";
@@ -5,6 +6,7 @@ import {NeuroAgentHarness} from "nbook/server/agent/harness/neuro-agent-harness"
 import {findPendingApprovalCall, resolutionToToolResult} from "nbook/server/agent/tools/approval";
 import {AgentResolutionDtoSchema} from "nbook/shared/dto/agent-session.dto";
 import type {Message} from "nbook/server/agent/messages/types";
+import {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
 
 describe("approval helpers", () => {
     it("从最后一条未完成 approval tool call 推导等待态", () => {
@@ -233,7 +235,9 @@ describe("approval helpers", () => {
     });
 
     it("用户 resolution 工具集合包含动态用户输入工具", () => {
-        const harness = new NeuroAgentHarness();
+        const harness = new NeuroAgentHarness({
+            repo: new JsonlSessionRepository(resolve(".agent", "workspace", "approval-test")),
+        });
 
         expect(harness.tools.approvalToolKeys()).not.toContain("request_user_input");
         expect(harness.tools.userResolutionToolKeys()).toContain("request_user_input");
@@ -248,7 +252,9 @@ function messageText(message: Message): string {
 }
 
 function requestUserInputSchema() {
-    const harness = new NeuroAgentHarness();
+    const harness = new NeuroAgentHarness({
+        repo: new JsonlSessionRepository(resolve(".agent", "workspace", "approval-test")),
+    });
     const tool = harness.tools.get("request_user_input");
     if (!tool) {
         throw new Error("missing request_user_input tool");

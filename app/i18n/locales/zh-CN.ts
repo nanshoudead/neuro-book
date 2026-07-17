@@ -1502,6 +1502,9 @@ const zhCN = {
             loadPrevious: "加载更早对话",
             loadingPrevious: "正在加载更早对话",
             retryPrevious: "重试加载更早对话",
+            attachmentAlt: "附件图片（{mimeType}）",
+            attachmentLoadFailed: "图片加载失败",
+            attachmentUnavailable: "图片暂不可用",
         },
         systemPrompt: {
             title: "System Prompt",

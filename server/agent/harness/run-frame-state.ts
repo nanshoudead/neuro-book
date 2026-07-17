@@ -6,7 +6,8 @@ export type CreateRunFrameInput = {
     invocationId?: RunFrame["invocationId"];
     sessionId: RunFrame["sessionId"];
     workspaceKey: RunFrame["workspaceKey"];
-    workspaceRoot: RunFrame["workspaceRoot"];
+    workspaceRootRef: RunFrame["workspaceRootRef"];
+    workspaceFsRoot: RunFrame["workspaceFsRoot"];
     projectPath?: RunFrame["projectPath"];
     systemPrompt: RunFrame["systemPrompt"];
     messages: RunFrame["messages"];
@@ -51,7 +52,8 @@ export function createRunFrame(input: CreateRunFrameInput): RunFrame {
         invocationId: input.invocationId,
         sessionId: input.sessionId,
         workspaceKey: input.workspaceKey,
-        workspaceRoot: input.workspaceRoot,
+        workspaceRootRef: input.workspaceRootRef,
+        workspaceFsRoot: input.workspaceFsRoot,
         projectPath: input.projectPath,
         systemPrompt: input.systemPrompt,
         messages: input.messages.slice(),
@@ -111,7 +113,7 @@ export function consumeNextTurnModelMessages(frame: RunFrame): RunFrame["message
 export function applySuccessfulTurn(frame: RunFrame, turn: RuntimeTurn, ingest: TurnIngestResult): void {
     frame.finalAssistant = turn.assistant;
     frame.messages.push(turn.assistant);
-    frame.messages.push(...turn.toolResults);
+    frame.messages.push(...turn.toolResults.map((toolResult) => toolResult.stored));
     frame.reportResult = turn.reportResult ?? frame.reportResult;
     frame.sidecarResult = turn.sidecarResult ?? frame.sidecarResult;
     if (turn.reportResult || turn.sidecarResult) {

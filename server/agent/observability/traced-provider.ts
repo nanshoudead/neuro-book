@@ -31,6 +31,13 @@ export type PiTraceBinding = {
     correlation: PiTraceCorrelation;
 };
 
+/** 调用方提供的 bounded trace 投影；与真实 Provider Context 分离。 */
+export type PiTraceProjection = {
+    context: Context;
+    /** attachment 请求不捕获 provider 原生 payload。 */
+    payloadOmittedReason?: "attachment";
+};
+
 /**
  * 调用方实际用到的流能力子集：`for await` + `result()`。
  * 用结构化接口而非 AssistantMessageEventStream，这样代理可返回普通对象，
@@ -87,6 +94,7 @@ class TraceCollector {
         private readonly model: Model<Api>,
         private readonly context: Context,
         private readonly binding: PiTraceBinding,
+        private readonly payloadOmittedReason?: "attachment",
     ) {}
 
     /** 合并 onPayload/onResponse，链式保留调用方原有回调，不覆盖。 */
@@ -97,7 +105,7 @@ class TraceCollector {
         return {
             ...options,
             onPayload: async (payload: unknown, model: Model<Api>) => {
-                if (this.binding.settings.capturePayload) {
+                if (this.binding.settings.capturePayload && !this.payloadOmittedReason) {
                     this.capturedPayload = payload;
                 }
                 return prevPayload ? prevPayload(payload, model) : undefined;
@@ -139,6 +147,7 @@ class TraceCollector {
                 reasoning: this.reasoning,
                 context: this.context,
                 payload: this.capturedPayload,
+                payloadOmittedReason: this.payloadOmittedReason,
             },
             response: {
                 httpStatus: this.httpStatus,
@@ -176,11 +185,12 @@ export function tracedStreamSimple(
     context: Context,
     options: SimpleStreamOptions | undefined,
     binding?: PiTraceBinding,
+    projection?: PiTraceProjection,
 ): ObservableAssistantStream {
     if (!binding?.settings.enabled) {
         return models.streamSimple(model, context, options);
     }
-    const collector = new TraceCollector(model, context, binding);
+    const collector = new TraceCollector(model, structuredClone(projection?.context ?? context), binding, projection?.payloadOmittedReason);
     const original = models.streamSimple(model, context, collector.mergeOptions(options));
     // finalize 挂 result()：无论 caller 是否消费/abort 都能落记录；error/abort 也 resolve 成最终 message。
     void original.result().then((message) => collector.finalize(message)).catch((error: unknown) => collector.finalize(undefined, providerErrorText(error)));
@@ -209,11 +219,12 @@ export async function tracedCompleteSimple(
     context: Context,
     options: SimpleStreamOptions | undefined,
     binding?: PiTraceBinding,
+    projection?: PiTraceProjection,
 ): Promise<AssistantMessage> {
     if (!binding?.settings.enabled) {
         return models.completeSimple(model, context, options);
     }
-    const collector = new TraceCollector(model, context, binding);
+    const collector = new TraceCollector(model, structuredClone(projection?.context ?? context), binding, projection?.payloadOmittedReason);
     try {
         const message = await models.completeSimple(model, context, collector.mergeOptions(options));
         collector.finalize(message);

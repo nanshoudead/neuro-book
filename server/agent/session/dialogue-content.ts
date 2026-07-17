@@ -1,7 +1,8 @@
 import {createHash} from "node:crypto";
-import type {JsonValue, Message} from "nbook/server/agent/messages/types";
+import type {JsonValue} from "nbook/server/agent/messages/types";
 import type {SessionEntry, SessionSnapshot} from "nbook/server/agent/session/types";
 import type {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
+import {messageText} from "nbook/server/agent/messages/message-utils";
 
 export const AGENT_DIALOGUE_CONTENT_RENDERER_VERSION = 1;
 
@@ -67,24 +68,14 @@ function renderDialogueEntry(entry: SessionEntry): string | null {
     if (entry.message.role !== "user" && entry.message.role !== "assistant") {
         return null;
     }
-    const text = visibleDialogueText(entry.message).trim();
+    const text = (entry.message.role === "user"
+        ? messageText(entry.message, {stripThinking: true})
+        : entry.message.content.filter((block) => block.type === "text").map((block) => block.text).join("\n"))
+        .trim();
     if (!text) {
         return null;
     }
     return `[${entry.message.role} ${entry.id}]\n${text}`;
-}
-
-function visibleDialogueText(message: Message): string {
-    if (message.role === "user") {
-        if (typeof message.content === "string") {
-            return message.content;
-        }
-        return message.content.filter((block) => block.type === "text").map((block) => block.text).join("\n");
-    }
-    if (message.role === "assistant") {
-        return message.content.filter((block) => block.type === "text").map((block) => block.text).join("\n");
-    }
-    return "";
 }
 
 function hashText(text: string): string {

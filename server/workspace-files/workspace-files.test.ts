@@ -7,25 +7,31 @@ import YAML from "yaml";
 import {afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi} from "vitest";
 import {compileProfileArtifacts, ProfileReleaseCommittedButRegistryFailedError, readProfileArtifactManifest, type ProfileArtifactManifest, type ProfileArtifactManifestItem} from "nbook/server/agent/profiles/profile-artifact-compiler";
 import {compileVariableDefinitions} from "nbook/server/agent/variables/definition-artifact";
-import {worldEngineFacade} from "nbook/server/world-engine";
+import {worldEngineFacadeForWorkspaceRoot} from "nbook/server/world-engine";
 import {createWorkspaceContentFrontmatterDefaults, workspaceContentJsonSchema} from "nbook/server/workspace-files/content-node-schema";
 import {renderWorkspaceContentTemplate, renderWorkspaceContentTemplateBundle, renderWorkspaceStateTemplate} from "nbook/server/workspace-files/content-node-templates";
 import {
     copyNovelDirectoryTemplate,
     readUserAssetsSyncConflictDetail,
-    resolveWorkspaceRootInput,
+    resolveWorkspaceFileTarget,
     setUserAssetsProfileArtifactStagedHookForTest,
     setUserAssetsSyncStateWriteHookForTest,
     syncSystemAssetsToUserAssets,
     USER_ASSETS_WORKSPACE_ROOT,
 } from "nbook/server/workspace-files/novel-workspace";
+import {runtimePathsFromEnv} from "nbook/server/runtime/paths/runtime-paths";
+import {absoluteFsPath, type AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
+import {normalizeProjectPath, type ProjectPath} from "nbook/server/workspace-files/project-path";
+import type {WorkspaceFileTarget} from "nbook/server/workspace-files/workspace-file-target";
 import {listProjectWorkspaces, readProjectManifest, writeProjectManifest} from "nbook/server/workspace-files/project-workspace";
 import {closeWorkspaceTreeIndex, invalidateProjectWorkspaceIndexAfterMutation, readPlainWorkspaceTreeSnapshot, readProjectWorkspaceTreeSnapshot, setProjectWorkspaceIndexCommitHookForTest} from "nbook/server/workspace-files/project-workspace-index";
 import {prepareSystemAssets} from "nbook/server/workspace-files/system-assets-preflight";
-import {resolveSystemNbookRoot, resolveUserNbookRoot} from "nbook/server/workspace-files/workspace-assets-root";
+import {resolveSystemNbookRoot} from "nbook/server/workspace-files/system-workspace-assets";
+import {resolveRuntimeWorkspaceRoot, resolveUserNbookRoot} from "nbook/server/workspace-files/workspace-runtime-root";
 import {createIsolatedWorkspaceAssets, type IsolatedWorkspaceAssets} from "nbook/server/workspace-files/workspace-assets-test-helper";
 import {createWorkspaceContentState, createWorkspaceDirectory, readWorkspaceTextFile, scanWorkspaceTree, validateWorkspaceContentNodes, validateWorkspaceTree, writeWorkspaceTextFile} from "nbook/server/workspace-files/workspace-files";
 import {closeProjectForTest, openProjectForTest} from "nbook/server/workspace-files/project-session-test-utils";
+import {openProject} from "nbook/server/workspace-files/project-session";
 import {updateNovelByTool} from "nbook/server/utils/novel-chapter";
 
 const AGENT_WORKSPACE_SCRIPT_PATH = path.join("assets", "workspace", ".nbook", "agent", "scripts", "workspace.ts");
@@ -33,7 +39,8 @@ const AGENT_WORKSPACE_SCRIPT_FROM_WORKSPACE_PATH = path.join("..", AGENT_WORKSPA
 const execFileAsync = promisify(execFile);
 
 describe("workspace-files", {timeout: 60_000}, () => {
-    let root: string;
+    let root: AbsoluteFsPath;
+    let indexProjectPath: ProjectPath | null;
     let assets: IsolatedWorkspaceAssets;
     let baseAssets: IsolatedWorkspaceAssets;
 
@@ -56,7 +63,8 @@ describe("workspace-files", {timeout: 60_000}, () => {
             sourceSystemNbookRoot: baseAssets.systemNbookRoot,
             useAsCwd: true,
         });
-        root = path.join(".agent", "workspace-files-test", randomUUID());
+        root = absoluteFsPath(path.resolve(".agent", "workspace-files-test", randomUUID()));
+        indexProjectPath = null;
         await fs.mkdir(root, {recursive: true});
     }, 60_000);
 
@@ -68,6 +76,9 @@ describe("workspace-files", {timeout: 60_000}, () => {
         setUserAssetsSyncStateWriteHookForTest(null);
         setUserAssetsProfileArtifactStagedHookForTest(null);
         setProjectWorkspaceIndexCommitHookForTest(null);
+        if (indexProjectPath) {
+            await closeProjectForTest(indexProjectPath).catch(() => undefined);
+        }
         await closeWorkspaceTreeIndex(root);
         await fs.rm(root, {recursive: true, force: true});
         await assets.dispose();
@@ -198,7 +209,7 @@ describe("workspace-files", {timeout: 60_000}, () => {
             status: "draft",
         });
 
-        const snapshot = await readProjectWorkspaceTreeSnapshot({root});
+        const snapshot = await readProjectWorkspaceTreeSnapshot({target: await projectIndexTarget()});
         const node = snapshot.nodes.find((item) => item.path === "lorebook/note/project-profile/");
 
         expect(snapshot.revision).toBeGreaterThan(0);
@@ -218,21 +229,22 @@ describe("workspace-files", {timeout: 60_000}, () => {
             status: "draft",
         });
 
-        const snapshot = await readPlainWorkspaceTreeSnapshot({root});
+        const snapshot = await readPlainWorkspaceTreeSnapshot({target: plainIndexTarget()});
 
         expect(snapshot.nodes.length).toBeGreaterThan(0);
         expect(snapshot.issues).toEqual([]);
     });
 
     it("Project Workspace tree snapshot 失效后会重新读取文件与 issues", async () => {
-        const before = await readProjectWorkspaceTreeSnapshot({root});
+        const target = await projectIndexTarget();
+        const before = await readProjectWorkspaceTreeSnapshot({target});
         await writeMarkdown("lorebook/note/cache-refresh/index.md", {
             type: "note",
             status: "draft",
         });
 
-        invalidateProjectWorkspaceIndexAfterMutation({root});
-        const after = await readProjectWorkspaceTreeSnapshot({root});
+        invalidateProjectWorkspaceIndexAfterMutation(target);
+        const after = await readProjectWorkspaceTreeSnapshot({target});
 
         expect(before.nodes.some((node) => node.path === "lorebook/note/cache-refresh/")).toBe(false);
         expect(after.nodes.some((node) => node.path === "lorebook/note/cache-refresh/")).toBe(true);
@@ -241,7 +253,7 @@ describe("workspace-files", {timeout: 60_000}, () => {
     });
 
     it("Project Workspace tree index 会 watch 外部新增文件并自动更新缓存", async () => {
-        const before = await readProjectWorkspaceTreeSnapshot({root});
+        const before = await readProjectWorkspaceTreeSnapshot({target: await projectIndexTarget()});
         await fs.mkdir(path.join(root, "reference", "silly-tavern"), {recursive: true});
         await fs.writeFile(path.join(root, "reference", "silly-tavern", "cache-refresh.md"), "外部导入素材\n", "utf-8");
 
@@ -253,13 +265,14 @@ describe("workspace-files", {timeout: 60_000}, () => {
     });
 
     it("Project Workspace mutation 失效后会通过同一套 index 重建缓存", async () => {
-        const before = await readProjectWorkspaceTreeSnapshot({root});
+        const target = await projectIndexTarget();
+        const before = await readProjectWorkspaceTreeSnapshot({target});
         await writeMarkdown("lorebook/note/mutation-rebuild/index.md", {
             type: "note",
             status: "draft",
         });
 
-        invalidateProjectWorkspaceIndexAfterMutation({root});
+        invalidateProjectWorkspaceIndexAfterMutation(target);
         const refreshed = await waitForProjectWorkspaceTreePath("lorebook/note/mutation-rebuild/");
 
         expect(before.nodes.some((node) => node.path === "lorebook/note/mutation-rebuild/")).toBe(false);
@@ -268,7 +281,8 @@ describe("workspace-files", {timeout: 60_000}, () => {
     });
 
     it("Project Workspace rebuild 期间发生 mutation 不会被旧 build 清掉 dirty", async () => {
-        await readProjectWorkspaceTreeSnapshot({root});
+        const target = await projectIndexTarget();
+        await readProjectWorkspaceTreeSnapshot({target});
         await writeMarkdown("lorebook/note/first-mutation/index.md", {
             type: "note",
             status: "draft",
@@ -284,13 +298,13 @@ describe("workspace-files", {timeout: 60_000}, () => {
                 type: "note",
                 status: "draft",
             });
-            invalidateProjectWorkspaceIndexAfterMutation({root});
+            invalidateProjectWorkspaceIndexAfterMutation(target);
         });
 
-        invalidateProjectWorkspaceIndexAfterMutation({root});
-        const first = await readProjectWorkspaceTreeSnapshot({root});
+        invalidateProjectWorkspaceIndexAfterMutation(target);
+        const first = await readProjectWorkspaceTreeSnapshot({target});
         setProjectWorkspaceIndexCommitHookForTest(null);
-        const second = await readProjectWorkspaceTreeSnapshot({root});
+        const second = await readProjectWorkspaceTreeSnapshot({target});
 
         expect(first.nodes.some((node) => node.path === "lorebook/note/first-mutation/")).toBe(true);
         expect(first.nodes.some((node) => node.path === "lorebook/note/second-mutation/")).toBe(false);
@@ -299,7 +313,7 @@ describe("workspace-files", {timeout: 60_000}, () => {
     });
 
     it("user-assets tree index 会 watch 外部新增文件且保持 issues 为空", async () => {
-        const before = await readPlainWorkspaceTreeSnapshot({root});
+        const before = await readPlainWorkspaceTreeSnapshot({target: plainIndexTarget()});
         await fs.mkdir(path.join(root, "templates"), {recursive: true});
         await fs.writeFile(path.join(root, "templates", "user-template.md"), "# 用户模板\n", "utf-8");
 
@@ -319,7 +333,11 @@ describe("workspace-files", {timeout: 60_000}, () => {
             await fs.mkdir(projectRoot, {recursive: true});
             await fs.writeFile(path.join(projectRoot, "project.yaml"), "kind: novel\ntitle: 测试\nsummary: \"\"\na'a\n", "utf-8");
 
-            await expect(resolveWorkspaceRootInput({projectPath})).resolves.toBe(projectPath);
+            await expect(resolveWorkspaceFileTarget(runtimePathsFromEnv(), {projectPath})).resolves.toEqual({
+                kind: "project-workspace",
+                root: path.resolve(projectRoot),
+                projectPath,
+            });
         } finally {
             await removeDirectoryWithRetry(projectRoot);
         }
@@ -328,7 +346,7 @@ describe("workspace-files", {timeout: 60_000}, () => {
     it("Project Workspace tree snapshot 会把 project.yaml 格式错误报告为 issue", async () => {
         await fs.writeFile(path.join(root, "project.yaml"), "kind: novel\ntitle: 测试\nsummary: \"\"\na'a\n", "utf-8");
 
-        const snapshot = await readProjectWorkspaceTreeSnapshot({root});
+        const snapshot = await readProjectWorkspaceTreeSnapshot({target: await projectIndexTarget()});
 
         expect(snapshot.nodes.some((node) => node.path === "project.yaml")).toBe(true);
         expect(snapshot.issues).toEqual(expect.arrayContaining([
@@ -2567,6 +2585,7 @@ describe("workspace-files", {timeout: 60_000}, () => {
             await expect(fs.access(path.join(createdRoot, "simulation"))).rejects.toMatchObject({code: "ENOENT"});
             await openProjectForTest(projectPath);
             projectOpened = true;
+            const worldEngineFacade = worldEngineFacadeForWorkspaceRoot(resolveRuntimeWorkspaceRoot());
             await expect(worldEngineFacade.formatTime(projectPath, 0n)).resolves.toBe("公元1年1月1日 00:00");
             await expect(worldEngineFacade.getWorldSchema(projectPath)).resolves.toEqual(expect.objectContaining({
                 subjectTypes: expect.arrayContaining([
@@ -2725,7 +2744,7 @@ describe("workspace-files", {timeout: 60_000}, () => {
     async function waitForProjectWorkspaceTreePath(filePath: string): Promise<Awaited<ReturnType<typeof readProjectWorkspaceTreeSnapshot>>> {
         const startedAt = Date.now();
         while (Date.now() - startedAt < 4000) {
-            const snapshot = await readProjectWorkspaceTreeSnapshot({root});
+            const snapshot = await readProjectWorkspaceTreeSnapshot({target: await projectIndexTarget()});
             if (snapshot.nodes.some((node) => node.path === filePath)) {
                 return snapshot;
             }
@@ -2740,13 +2759,30 @@ describe("workspace-files", {timeout: 60_000}, () => {
     async function waitForPlainWorkspaceTreePath(filePath: string): Promise<Awaited<ReturnType<typeof readPlainWorkspaceTreeSnapshot>>> {
         const startedAt = Date.now();
         while (Date.now() - startedAt < 4000) {
-            const snapshot = await readPlainWorkspaceTreeSnapshot({root});
+            const snapshot = await readPlainWorkspaceTreeSnapshot({target: plainIndexTarget()});
             if (snapshot.nodes.some((node) => node.path === filePath)) {
                 return snapshot;
             }
             await new Promise((resolve) => setTimeout(resolve, 50));
         }
         throw new Error(`等待 user-assets tree index 更新超时: ${filePath}`);
+    }
+
+    /**
+     * 为索引测试建立真实ProjectSession，并返回显式Project Workspace目标。
+     */
+    async function projectIndexTarget(): Promise<Extract<WorkspaceFileTarget, {kind: "project-workspace"}>> {
+        const projectPath = normalizeProjectPath(`workspace/${path.basename(root)}`);
+        if (!indexProjectPath) {
+            await openProject(absoluteFsPath(path.dirname(root)), projectPath, {kind: "job", source: "workspace-files-test"});
+            indexProjectPath = projectPath;
+        }
+        return {kind: "project-workspace", root, projectPath};
+    }
+
+    /** 返回当前隔离目录的显式plain Workspace目标。 */
+    function plainIndexTarget(): Extract<WorkspaceFileTarget, {kind: "workspace-root"}> {
+        return {kind: "workspace-root", root};
     }
 
     /**

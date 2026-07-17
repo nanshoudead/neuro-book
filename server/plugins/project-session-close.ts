@@ -1,4 +1,5 @@
 import {closeAllProjects} from "nbook/server/workspace-files/project-session";
+import {disposeAgentHarness} from "nbook/server/agent/http";
 
 /**
  * 服务关停时统一关闭全部 ProjectSession 并级联释放 Project 级常驻资源
@@ -7,6 +8,7 @@ import {closeAllProjects} from "nbook/server/workspace-files/project-session";
  */
 export default defineNitroPlugin((nitroApp) => {
     nitroApp.hooks.hook("close", async () => {
+        await disposeAgentHarness();
         await closeAllProjects();
     });
 });

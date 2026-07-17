@@ -57,3 +57,9 @@ export const PUBLIC_TOOL_RESULT_MAX_BLOCKS = 32;
 
 /** durable Chat Flow 文本的最大公开预览字节数。 */
 export const CHAT_ENTRY_PREVIEW_BYTES = 64 * 1024;
+
+/** user text blocks 在 JSON 字符串转义后的共享预算。 */
+export const CHAT_ENTRY_SERIALIZED_TEXT_BYTES = 64 * 1024;
+
+/** 单条 durable user Chat Flow entry 最多公开的有序内容块数量。 */
+export const CHAT_ENTRY_MAX_BLOCKS = 32;

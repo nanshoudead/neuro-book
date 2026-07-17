@@ -1,7 +1,16 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import type {JsonValue} from "nbook/server/agent/messages/types";
-import {resolveStateRoot, resolveStateWorkspaceRoot} from "nbook/server/runtime/installation-paths";
+import {
+    absoluteFsPath,
+    assertRealParentContained,
+    assertRealPathContained,
+    resolveContainedFilePath,
+    type AbsoluteFsPath,
+} from "nbook/server/runtime/paths/file-path";
+import {
+    resolveProjectWorkspaceInput,
+} from "nbook/server/workspace-files/project-path";
 
 export type ProfileHomeWriteMode = "create" | "overwrite";
 
@@ -35,7 +44,8 @@ export type ProfileHomeContext = {
     profileVersion: number;
     scope: ProfileHomeScope;
     root: string;
-    workspaceRoot?: string;
+    /** global profile home所属的Workspace Root `.nbook`物理目录。 */
+    workspaceNbookRoot?: string;
     projectRoot: string;
     home: ProfileHomeFacade;
 };
@@ -76,37 +86,36 @@ export function globalProfileHomeRoot(workspaceNbookRoot: string, profileKey: st
 
 /**
  * 将 session/config 中的 projectPath 解析为 Project Workspace 绝对路径。
+ *
+ * managed Workspace Root由调用方所在的Runtime Adapter决定；本Module不读取
+ * cwd、State Root或进程环境。
  */
-export function resolveProjectRootForProfileHome(projectPath: string | undefined): string | null {
+export function resolveProjectRootForProfileHome(
+    workspaceRoot: AbsoluteFsPath,
+    projectPath: string | undefined,
+): string | null {
     if (!projectPath) {
         return null;
     }
-    return path.isAbsolute(projectPath) ? path.resolve(projectPath) : path.resolve(resolveStateRoot(), projectPath);
-}
-
-/**
- * 将 workspaceRoot 解析为 Workspace Root `.nbook` 绝对路径。
- */
-export function resolveGlobalRootForProfileHome(workspaceRoot: string | undefined): string {
-    if (!workspaceRoot?.trim()) {
-        return path.resolve(resolveStateWorkspaceRoot(), ".nbook");
-    }
-    const resolved = path.isAbsolute(workspaceRoot) ? path.resolve(workspaceRoot) : path.resolve(resolveStateRoot(), workspaceRoot);
-    return path.basename(resolved) === ".nbook" ? resolved : path.join(resolved, ".nbook");
+    return resolveProjectWorkspaceInput(workspaceRoot, projectPath);
 }
 
 /**
  * 创建受限 profile home 文件 facade。
  */
 export function createProfileHomeFacade(projectRoot: string, profileKey: string): ProfileHomeFacade {
-    return createProfileHomeFacadeAtRoot(profileHomeRoot(projectRoot, profileKey));
+    const containmentRoot = absoluteFsPath(path.resolve(projectRoot));
+    const root = resolveContainedFilePath(containmentRoot, path.posix.join("agents", safeProfileId(profileKey)));
+    return createProfileHomeFacadeAtRoot(containmentRoot, root);
 }
 
 /**
  * 创建全局 profile home 文件 facade。
  */
 export function createGlobalProfileHomeFacade(workspaceNbookRoot: string, profileKey: string): ProfileHomeFacade {
-    return createProfileHomeFacadeAtRoot(globalProfileHomeRoot(workspaceNbookRoot, profileKey));
+    const containmentRoot = absoluteFsPath(path.resolve(workspaceNbookRoot));
+    const root = resolveContainedFilePath(containmentRoot, path.posix.join("agents", safeProfileId(profileKey)));
+    return createProfileHomeFacadeAtRoot(containmentRoot, root);
 }
 
 /**
@@ -157,16 +166,26 @@ export function createLayeredProfileHomeFacade(primary: ProfileHomeFacade, fallb
     };
 }
 
-function createProfileHomeFacadeAtRoot(root: string): ProfileHomeFacade {
+function createProfileHomeFacadeAtRoot(containmentRoot: AbsoluteFsPath, root: AbsoluteFsPath): ProfileHomeFacade {
     return {
         root,
-        readText: async (filePath) => fs.readFile(resolveHomePath(root, filePath), "utf-8"),
-        writeText: async (filePath, content, options) => writeText(root, filePath, content, options),
-        readJson: async (filePath) => JSON.parse(await fs.readFile(resolveHomePath(root, filePath), "utf-8")) as JsonValue,
-        writeJson: async (filePath, value, options) => writeText(root, filePath, `${JSON.stringify(value, null, 4)}\n`, options),
+        readText: async (filePath) => {
+            const target = resolveHomePath(root, filePath);
+            await assertRealPathContained(root, target);
+            return fs.readFile(target, "utf-8");
+        },
+        writeText: async (filePath, content, options) => writeText(containmentRoot, root, filePath, content, options),
+        readJson: async (filePath) => {
+            const target = resolveHomePath(root, filePath);
+            await assertRealPathContained(root, target);
+            return JSON.parse(await fs.readFile(target, "utf-8")) as JsonValue;
+        },
+        writeJson: async (filePath, value, options) => writeText(containmentRoot, root, filePath, `${JSON.stringify(value, null, 4)}\n`, options),
         exists: async (filePath) => {
+            const target = resolveHomePath(root, filePath);
             try {
-                await fs.access(resolveHomePath(root, filePath));
+                await assertRealPathContained(root, target);
+                await fs.access(target);
                 return true;
             } catch (error) {
                 if (isNotFoundError(error)) {
@@ -177,6 +196,7 @@ function createProfileHomeFacadeAtRoot(root: string): ProfileHomeFacade {
         },
         list: async (directoryPath = "") => {
             const dir = directoryPath.trim() ? resolveHomePath(root, directoryPath) : root;
+            await assertRealPathContained(root, absoluteFsPath(dir));
             const entries = await fs.readdir(dir, {withFileTypes: true}).catch((error) => {
                 if (isNotFoundError(error)) return [];
                 throw error;
@@ -189,13 +209,16 @@ function createProfileHomeFacadeAtRoot(root: string): ProfileHomeFacade {
                     kind: entry.isDirectory() ? "directory" as const : "file" as const,
                 }));
         },
-        move: async (fromPath, toPath, options) => movePath(root, fromPath, toPath, options),
+        move: async (fromPath, toPath, options) => movePath(containmentRoot, root, fromPath, toPath, options),
         remove: async (filePath) => {
-            await fs.rm(resolveHomePath(root, filePath), {force: true, recursive: true});
+            const target = resolveHomePath(root, filePath);
+            await assertRealParentContained(root, target);
+            await fs.rm(target, {force: true, recursive: true});
         },
         clear: async () => {
+            await assertRealParentContained(containmentRoot, root);
             await fs.rm(root, {force: true, recursive: true});
-            await fs.mkdir(root, {recursive: true});
+            await prepareProfileHomeRoot(containmentRoot, root);
         },
     };
 }
@@ -212,6 +235,7 @@ export async function ensureProfileHome(input: {
     const home = createProfileHomeFacade(input.projectRoot, input.profileKey);
     return ensureProfileHomeFacade({
         scope: "project",
+        containmentRoot: absoluteFsPath(path.resolve(input.projectRoot)),
         root: home.root,
         projectRoot: input.projectRoot,
         profileKey: input.profileKey,
@@ -225,17 +249,20 @@ export async function ensureProfileHome(input: {
  * 确保全局 profile home 已按 profile version 初始化或升级。
  */
 export async function ensureGlobalProfileHome(input: {
-    workspaceRoot?: string;
+    /** 当前Runtime Workspace Root；调用方必须在进入本Module前完成环境投影。 */
+    workspaceRoot: AbsoluteFsPath;
     profileKey: string;
     profileVersion: number;
     definition?: ProfileHomeDefinition;
 }): Promise<ProfileHomeFacade> {
-    const workspaceNbookRoot = resolveGlobalRootForProfileHome(input.workspaceRoot);
+    const workspaceNbookRoot = resolveContainedFilePath(input.workspaceRoot, ".nbook");
+    await prepareProfileHomeRoot(input.workspaceRoot, workspaceNbookRoot);
     const home = createGlobalProfileHomeFacade(workspaceNbookRoot, input.profileKey);
     return ensureProfileHomeFacade({
         scope: "global",
+        containmentRoot: workspaceNbookRoot,
         root: home.root,
-        workspaceRoot: workspaceNbookRoot,
+        workspaceNbookRoot,
         projectRoot: workspaceNbookRoot,
         profileKey: input.profileKey,
         profileVersion: input.profileVersion,
@@ -246,8 +273,9 @@ export async function ensureGlobalProfileHome(input: {
 
 async function ensureProfileHomeFacade(input: {
     scope: ProfileHomeScope;
+    containmentRoot: AbsoluteFsPath;
     root: string;
-    workspaceRoot?: string;
+    workspaceNbookRoot?: string;
     projectRoot: string;
     profileKey: string;
     profileVersion: number;
@@ -255,22 +283,21 @@ async function ensureProfileHomeFacade(input: {
     home: ProfileHomeFacade;
 }): Promise<ProfileHomeFacade> {
     const home = input.home;
-    await fs.mkdir(home.root, {recursive: true});
-    const metadataPath = path.join(home.root, "home.json");
+    await prepareProfileHomeRoot(input.containmentRoot, absoluteFsPath(home.root));
     const now = new Date().toISOString();
-    const metadata = await readMetadata(metadataPath);
+    const metadata = await readMetadata(home);
     const ctx: ProfileHomeContext = {
         profileKey: input.profileKey,
         profileVersion: input.profileVersion,
         scope: input.scope,
         root: input.root,
-        ...(input.workspaceRoot ? {workspaceRoot: input.workspaceRoot} : {}),
+        ...(input.workspaceNbookRoot ? {workspaceNbookRoot: input.workspaceNbookRoot} : {}),
         projectRoot: input.projectRoot,
         home,
     };
     if (!metadata) {
         await input.definition?.init?.(ctx);
-        await writeMetadata(metadataPath, {
+        await writeMetadata(home, {
             profileKey: input.profileKey,
             version: input.profileVersion,
             initializedAt: now,
@@ -280,7 +307,7 @@ async function ensureProfileHomeFacade(input: {
     }
     if (metadata.version < input.profileVersion) {
         await input.definition?.upgrade?.(ctx, metadata.version, input.profileVersion);
-        await writeMetadata(metadataPath, {
+        await writeMetadata(home, {
             ...metadata,
             profileKey: input.profileKey,
             version: input.profileVersion,
@@ -302,6 +329,7 @@ export async function resetProfileHome(input: {
     const home = createProfileHomeFacade(input.projectRoot, input.profileKey);
     return resetProfileHomeFacade({
         scope: "project",
+        containmentRoot: absoluteFsPath(path.resolve(input.projectRoot)),
         root: home.root,
         projectRoot: input.projectRoot,
         profileKey: input.profileKey,
@@ -315,17 +343,20 @@ export async function resetProfileHome(input: {
  * 重置全局 profile home，并刷新 home metadata。
  */
 export async function resetGlobalProfileHome(input: {
-    workspaceRoot?: string;
+    /** 当前Runtime Workspace Root；调用方必须在进入本Module前完成环境投影。 */
+    workspaceRoot: AbsoluteFsPath;
     profileKey: string;
     profileVersion: number;
     definition?: ProfileHomeDefinition;
 }): Promise<ProfileHomeFacade> {
-    const workspaceNbookRoot = resolveGlobalRootForProfileHome(input.workspaceRoot);
+    const workspaceNbookRoot = resolveContainedFilePath(input.workspaceRoot, ".nbook");
+    await prepareProfileHomeRoot(input.workspaceRoot, workspaceNbookRoot);
     const home = createGlobalProfileHomeFacade(workspaceNbookRoot, input.profileKey);
     return resetProfileHomeFacade({
         scope: "global",
+        containmentRoot: workspaceNbookRoot,
         root: home.root,
-        workspaceRoot: workspaceNbookRoot,
+        workspaceNbookRoot,
         projectRoot: workspaceNbookRoot,
         profileKey: input.profileKey,
         profileVersion: input.profileVersion,
@@ -336,8 +367,9 @@ export async function resetGlobalProfileHome(input: {
 
 async function resetProfileHomeFacade(input: {
     scope: ProfileHomeScope;
+    containmentRoot: AbsoluteFsPath;
     root: string;
-    workspaceRoot?: string;
+    workspaceNbookRoot?: string;
     projectRoot: string;
     profileKey: string;
     profileVersion: number;
@@ -345,19 +377,19 @@ async function resetProfileHomeFacade(input: {
     home: ProfileHomeFacade;
 }): Promise<ProfileHomeFacade> {
     const home = input.home;
-    await fs.mkdir(home.root, {recursive: true});
+    await prepareProfileHomeRoot(input.containmentRoot, absoluteFsPath(home.root));
     const ctx: ProfileHomeContext = {
         profileKey: input.profileKey,
         profileVersion: input.profileVersion,
         scope: input.scope,
         root: input.root,
-        ...(input.workspaceRoot ? {workspaceRoot: input.workspaceRoot} : {}),
+        ...(input.workspaceNbookRoot ? {workspaceNbookRoot: input.workspaceNbookRoot} : {}),
         projectRoot: input.projectRoot,
         home,
     };
     await input.definition?.reset?.(ctx);
     const now = new Date().toISOString();
-    await writeMetadata(path.join(home.root, "home.json"), {
+    await writeMetadata(home, {
         profileKey: input.profileKey,
         version: input.profileVersion,
         initializedAt: now,
@@ -373,9 +405,17 @@ function safeProfileId(profileKey: string): string {
     return profileKey;
 }
 
-async function writeText(root: string, filePath: string, content: string, options: {mode?: ProfileHomeWriteMode} = {}): Promise<ProfileHomeWriteResult> {
+async function writeText(
+    containmentRoot: AbsoluteFsPath,
+    root: AbsoluteFsPath,
+    filePath: string,
+    content: string,
+    options: {mode?: ProfileHomeWriteMode} = {},
+): Promise<ProfileHomeWriteResult> {
     const mode = options.mode ?? "create";
+    await prepareProfileHomeRoot(containmentRoot, root);
     const target = resolveHomePath(root, filePath);
+    await assertRealPathContained(root, target);
     await fs.mkdir(path.dirname(target), {recursive: true});
     if (mode === "create" && await existsAbsolute(target)) {
         return {written: false};
@@ -384,10 +424,19 @@ async function writeText(root: string, filePath: string, content: string, option
     return {written: true};
 }
 
-async function movePath(root: string, fromPath: string, toPath: string, options: {mode?: ProfileHomeWriteMode} = {}): Promise<ProfileHomeWriteResult> {
+async function movePath(
+    containmentRoot: AbsoluteFsPath,
+    root: AbsoluteFsPath,
+    fromPath: string,
+    toPath: string,
+    options: {mode?: ProfileHomeWriteMode} = {},
+): Promise<ProfileHomeWriteResult> {
     const mode = options.mode ?? "create";
+    await prepareProfileHomeRoot(containmentRoot, root);
     const from = resolveHomePath(root, fromPath);
     const to = resolveHomePath(root, toPath);
+    await assertRealParentContained(root, from);
+    await assertRealParentContained(root, to);
     if (mode === "create" && await existsAbsolute(to)) {
         return {written: false};
     }
@@ -399,14 +448,13 @@ async function movePath(root: string, fromPath: string, toPath: string, options:
     return {written: true};
 }
 
-function resolveHomePath(root: string, filePath: string): string {
+function resolveHomePath(root: AbsoluteFsPath, filePath: string): AbsoluteFsPath {
     const normalized = normalizeRelativePath(filePath);
-    const resolved = path.resolve(root, normalized);
-    const relativePath = path.relative(root, resolved);
-    if (relativePath === "" || (!relativePath.startsWith("..") && !path.isAbsolute(relativePath))) {
-        return resolved;
+    try {
+        return resolveContainedFilePath(root, normalized);
+    } catch {
+        throw new Error(`profile home 路径越界：${filePath}`);
     }
-    throw new Error(`profile home 路径越界：${filePath}`);
 }
 
 function normalizeRelativePath(filePath: string): string {
@@ -421,9 +469,9 @@ function toPosixPath(filePath: string): string {
     return filePath.trim().replaceAll("\\", "/");
 }
 
-async function readMetadata(metadataPath: string): Promise<ProfileHomeMetadata | null> {
+async function readMetadata(home: ProfileHomeFacade): Promise<ProfileHomeMetadata | null> {
     try {
-        const parsed = JSON.parse(await fs.readFile(metadataPath, "utf-8")) as Partial<ProfileHomeMetadata>;
+        const parsed = JSON.parse(await home.readText("home.json")) as Partial<ProfileHomeMetadata>;
         if (typeof parsed.profileKey === "string" && typeof parsed.version === "number") {
             return {
                 profileKey: parsed.profileKey,
@@ -440,9 +488,15 @@ async function readMetadata(metadataPath: string): Promise<ProfileHomeMetadata |
     return null;
 }
 
-async function writeMetadata(metadataPath: string, metadata: ProfileHomeMetadata): Promise<void> {
-    await fs.mkdir(path.dirname(metadataPath), {recursive: true});
-    await fs.writeFile(metadataPath, `${JSON.stringify(metadata, null, 4)}\n`, "utf-8");
+async function writeMetadata(home: ProfileHomeFacade, metadata: ProfileHomeMetadata): Promise<void> {
+    await home.writeText("home.json", `${JSON.stringify(metadata, null, 4)}\n`, {mode: "overwrite"});
+}
+
+/** 安全创建Profile Home根，并确认父级链接没有逃出所属Project/Global根。 */
+async function prepareProfileHomeRoot(containmentRoot: AbsoluteFsPath, root: AbsoluteFsPath): Promise<void> {
+    await assertRealPathContained(containmentRoot, root);
+    await fs.mkdir(root, {recursive: true});
+    await assertRealPathContained(containmentRoot, root);
 }
 
 async function existsAbsolute(target: string): Promise<boolean> {

@@ -5,9 +5,11 @@ import {PlotScopeGuard} from "nbook/server/plot/services/plot-scope.guard";
 import {StoryService} from "nbook/server/plot/services/story.service";
 import {chapterIdentityFromPath} from "nbook/server/workspace-files/project-workspace";
 import {invalidateProjectWorkspaceIndexAfterMutation} from "nbook/server/workspace-files/project-workspace-index";
-import {parseMarkdownDocument, renderMarkdownDocument, resolveWorkspaceRoot} from "nbook/server/workspace-files/workspace-files";
+import {parseMarkdownDocument, renderMarkdownDocument} from "nbook/server/workspace-files/workspace-files";
 import type {WorkspaceFileNode} from "nbook/server/workspace-files/workspace-files";
 import {recordProjectWrite} from "nbook/server/workspace-history/project-history";
+import type {AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
+import {normalizeProjectPath} from "nbook/server/workspace-files/project-path";
 
 /** Bootstrap 执行结果统计。 */
 export type CarrierTreeBootstrapResult = {
@@ -130,20 +132,25 @@ export class ChapterBootstrapService {
  * 已有 chapter 指针的文件跳过;有写入则失效 workspace 索引让反指立即可查。
  */
 export async function writeProsePointers(
+    projectRoot: AbsoluteFsPath,
     projectPath: string,
     pointers: PendingProsePointer[],
 ): Promise<{proseFrontmatterWritten: string[]; warnings: string[]}> {
     const proseFrontmatterWritten: string[] = [];
     const warnings: string[] = [];
     for (const {node, chapterName} of pointers) {
-        const written = await writeChapterPointer(projectPath, node, chapterName, warnings);
+        const written = await writeChapterPointer(projectRoot, projectPath, node, chapterName, warnings);
         if (written) {
             proseFrontmatterWritten.push(written);
         }
     }
     if (proseFrontmatterWritten.length > 0) {
         // frontmatter 写回绕过了常规写入口,手动失效 workspace 索引让反指立即可查。
-        invalidateProjectWorkspaceIndexAfterMutation({root: resolveWorkspaceRoot(projectPath)});
+        invalidateProjectWorkspaceIndexAfterMutation({
+            kind: "project-workspace",
+            root: projectRoot,
+            projectPath: normalizeProjectPath(projectPath),
+        });
     }
     return {proseFrontmatterWritten, warnings};
 }
@@ -184,6 +191,7 @@ function findParentVolumePath(chapterPath: string, actIdByVolumePath: Map<string
  * 返回写入的文件相对路径,未写入返回 null。
  */
 async function writeChapterPointer(
+    projectRoot: AbsoluteFsPath,
     projectPath: string,
     node: WorkspaceFileNode,
     chapterName: string,
@@ -210,6 +218,7 @@ async function writeChapterPointer(
     const relativePath = `${normalizeNodePath(node.path)}/index.md`;
     // frontmatter 反指绕过常规写入口，这里直接记 system 归因账（fail-open，不阻断 bootstrap）。
     await recordProjectWrite({
+        projectRoot,
         projectPath,
         relativePath,
         actor: {kind: "system", source: "chapter-bootstrap"},

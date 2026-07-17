@@ -1,12 +1,22 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import {afterAll, beforeEach, describe, expect, it} from "vitest";
-import {worldEngineFacade} from "nbook/server/world-engine";
-import {resolveWorkspaceContainerRoot} from "nbook/server/workspace-files/workspace-assets-root";
+import {afterAll, beforeEach, describe, expect, it, vi} from "vitest";
+import {worldEngineFacadeForWorkspaceRoot} from "nbook/server/world-engine";
+import {resolveRuntimeWorkspaceRoot} from "nbook/server/workspace-files/workspace-runtime-root";
 import {collectReleasedSqliteHandles} from "nbook/server/workspace-files/sqlite-handle-release";
 import {closeProjectForTest, openProjectForTest} from "nbook/server/workspace-files/project-session-test-utils";
 
 const createdProjects: string[] = [];
+const worldEngineFacade = worldEngineFacadeForWorkspaceRoot(resolveRuntimeWorkspaceRoot());
+
+vi.mock("h3", async () => {
+    const actual = await vi.importActual<typeof import("h3")>("h3");
+    return {
+        ...actual,
+        readBody: async (event: {body?: unknown}) => event.body,
+        getQuery: (event: {query?: Record<string, unknown>}) => event.query ?? {},
+    };
+});
 
 describe("/api/projects/world-engine", {timeout: 30_000}, () => {
     beforeEach(() => {
@@ -244,7 +254,7 @@ async function removeProjectRoot(projectPath: string): Promise<void> {
 }
 
 function projectRoot(projectPath: string): string {
-    return path.join(resolveWorkspaceContainerRoot(), projectPath.slice("workspace/".length));
+    return path.join(resolveRuntimeWorkspaceRoot(), projectPath.slice("workspace/".length));
 }
 
 function schemaSource(): string {

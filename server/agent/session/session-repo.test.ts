@@ -1,10 +1,12 @@
 import {randomUUID} from "node:crypto";
-import {readFile, rm} from "node:fs/promises";
-import {join} from "node:path";
-import {afterEach, beforeEach, describe, expect, it} from "vitest";
+import {appendFile, readFile, rm, writeFile} from "node:fs/promises";
+import {join, resolve} from "node:path";
+import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
+import {consola} from "consola";
 import {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
 import {createAssistantTextMessage, createTextToolResult} from "nbook/server/agent/messages/message-utils";
 import type {Usage} from "nbook/server/agent/messages/types";
+import {absoluteFsPath, type AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
 
 function usage(input: number, output: number, cacheRead = 0, cacheWrite = 0): Usage {
     return {
@@ -24,11 +26,11 @@ function usage(input: number, output: number, cacheRead = 0, cacheWrite = 0): Us
 }
 
 describe("JsonlSessionRepository", () => {
-    let root: string;
+    let root: AbsoluteFsPath;
     let repo: JsonlSessionRepository;
 
     beforeEach(() => {
-        root = join(".agent", "agent-session-test", randomUUID());
+        root = absoluteFsPath(resolve(".agent", "agent-session-test", randomUUID()));
         repo = new JsonlSessionRepository(root);
     });
 
@@ -83,7 +85,7 @@ describe("JsonlSessionRepository", () => {
         const projectSession = await repo.createSession({
             profileKey: "leader.default",
             initial: {},
-            workspaceRoot: "workspace/novel-7",
+            workspaceRoot: "workspace",
             workspaceKey: "workspace/novel-7",
             projectPath: "workspace/novel-7",
             title: "project session",
@@ -103,6 +105,59 @@ describe("JsonlSessionRepository", () => {
         ]);
         expect(sessions.some((session) => session.sessionId === userAssetsSession.metadata.sessionId)).toBe(false);
         expect(sessions.some((session) => session.sessionId === projectSession.metadata.sessionId)).toBe(false);
+    });
+
+    it("列表隔离单个损坏metadata并返回结构化issue", async () => {
+        const healthy = await repo.createSession({
+            profileKey: "leader.default",
+            initial: {},
+            workspaceRoot: "workspace",
+            workspaceKey: "global",
+        });
+        const corrupt = await repo.createSession({
+            profileKey: "leader.default",
+            initial: {},
+            workspaceRoot: "workspace",
+            workspaceKey: "global",
+        });
+        const corruptPath = join(root, ".nbook", "agent", "sessions", `${String(corrupt.metadata.sessionId)}.jsonl`);
+        const source = await readFile(corruptPath, "utf8");
+        await writeFile(corruptPath, source.replace('"workspaceRoot":"workspace"', '"workspaceRoot":".agent/task-tools-test"'), "utf8");
+
+        const result = await repo.listSessionsWithIssues();
+
+        expect(result.sessions).toEqual([
+            expect.objectContaining({sessionId: healthy.metadata.sessionId}),
+        ]);
+        expect(result.issues).toEqual([{
+            sessionId: corrupt.metadata.sessionId,
+            fileName: `${String(corrupt.metadata.sessionId)}.jsonl`,
+            message: expect.stringContaining("workspaceRoot只支持"),
+        }]);
+    });
+
+    it("相同Session问题集合只告警一次，修复后复发会重新告警", async () => {
+        const corrupt = await repo.createSession({
+            profileKey: "leader.default",
+            initial: {},
+            workspaceRoot: "workspace",
+            workspaceKey: "global",
+        });
+        const corruptPath = join(root, ".nbook", "agent", "sessions", `${String(corrupt.metadata.sessionId)}.jsonl`);
+        const source = await readFile(corruptPath, "utf8");
+        const invalid = source.replace('"workspaceRoot":"workspace"', '"workspaceRoot":".agent/task-tools-test"');
+        await writeFile(corruptPath, invalid, "utf8");
+        const warn = vi.spyOn(consola, "warn").mockImplementation(() => undefined);
+
+        await repo.listSessions();
+        await repo.listSessions();
+        expect(warn).toHaveBeenCalledTimes(1);
+
+        await writeFile(corruptPath, source, "utf8");
+        await repo.listSessions();
+        await writeFile(corruptPath, invalid, "utf8");
+        await repo.listSessions();
+        expect(warn).toHaveBeenCalledTimes(2);
     });
 
     it("session 列表支持摘要搜索和 offset 分页", async () => {
@@ -583,5 +638,57 @@ describe("JsonlSessionRepository", () => {
                 detached: false,
             },
         ]);
+    });
+
+    it("读写两侧都拒绝尚未迁移的 raw image", async () => {
+        const session = await repo.createSession({
+            profileKey: "leader.default",
+            initial: {},
+            workspaceRoot: root,
+            workspaceKey: "global",
+        });
+        const rawMessage = {
+            role: "toolResult" as const,
+            toolCallId: "call-image",
+            toolName: "read",
+            content: [{type: "image" as const, mimeType: "image/png", data: "AAAA"}],
+            isError: false,
+            timestamp: Date.now(),
+        };
+
+        await expect(repo.appendEntry(session.metadata.sessionId, {
+            type: "message",
+            message: rawMessage as never,
+        })).rejects.toMatchObject({code: "migration_required"});
+
+        const sessionPath = join(root, ".nbook", "agent", "sessions", `${String(session.metadata.sessionId)}.jsonl`);
+        await appendFile(sessionPath, `${JSON.stringify({
+            kind: "entry",
+            entry: {
+                id: randomUUID(),
+                parentId: null,
+                timestamp: Date.now(),
+                type: "message",
+                message: rawMessage,
+            },
+        })}\n`, "utf8");
+
+        await expect(repo.readSession(session.metadata.sessionId)).rejects.toMatchObject({code: "migration_required"});
+        await expect(repo.listSessionsWithIssues()).rejects.toMatchObject({code: "migration_required"});
+    });
+
+    it("readEntry 命中后停止逐行读取，不解析目标后的长 session 内容", async () => {
+        const session = await repo.createSession({
+            profileKey: "leader.default",
+            initial: {},
+            workspaceRoot: root,
+            workspaceKey: "global",
+        });
+        const target = await repo.appendUserMessage(session.metadata.sessionId, "target");
+        const sessionPath = join(root, ".nbook", "agent", "sessions", `${String(session.metadata.sessionId)}.jsonl`);
+        await appendFile(sessionPath, "{not-json-after-target}\n", "utf8");
+
+        await expect(repo.readEntry(session.metadata.sessionId, target.id)).resolves.toMatchObject({id: target.id});
+        await expect(repo.readSession(session.metadata.sessionId)).rejects.toThrow();
     });
 });

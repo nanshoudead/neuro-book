@@ -11,6 +11,10 @@
 - **Project Workspace**：一个具体内容项目的工作区，当前主要是单本小说，默认是 `workspace/{project}/`。它保存 manuscript、lorebook 等项目内容。
 - **Project Slug**：Project Workspace 在 Workspace Root 下的单段目录名，例如 `ming-ding-zhi-shi-2`。
 - **Project Path**：项目级 API 使用的稳定标识，形态固定为 `workspace/{project-slug}`；它不是文件工具的 cwd-relative 路径。
+- **Agent Workspace Root Reference**：Agent session中持久化的逻辑工作区引用。managed值只使用`workspace`或`workspace/.nbook`；外部Project Workspace可以使用用户明确给出的绝对路径。
+- **Agent Workspace Filesystem Root**：每次Agent invocation按当前State Root解析出的绝对文件系统根。它只用于运行时文件访问，不写入managed session元数据。
+- **File Scope**：文件工具与 bash 在一次 Agent invocation 中共用的物理 cwd。绑定 Project Path 时是当前 Project Workspace；未绑定项目时是 Workspace Root；user-assets 时是 Workspace Root `.nbook`；外部 Project Workspace 时是其绝对目录。
+- **Project File Address**：显式跨项目文件地址，形态为 `workspace/{project-slug}/{relative-path}`。它由 Project Path Resolver 解析，不是通过 cwd 字符串剥离得到的 alias。
 - **Project Workspace `.nbook`**：Project Workspace 的项目级控制区，默认是 `workspace/{project}/.nbook/`。它保存 Project Config、项目状态和项目私有元数据。
 - **user-assets**：前端用于编辑 Workspace Root `.nbook` 的入口。它不是独立配置层，而是把当前 Studio 挂载在 `workspace/.nbook/`。
 - **Bundled Workspace Template**：随项目发布的默认 workspace 模板与系统资源，位于 `assets/workspace/`。
@@ -24,9 +28,10 @@
 - `assets/workspace/global.config.example.json` 对应运行时 `workspace/.nbook/config.json` 的示例。
 - `assets/workspace/workspace.config.example.json` 对应运行时 `workspace/{project}/.nbook/config.json` 的示例。
 - user-assets 入口直接编辑 `workspace/.nbook`，不再使用 `workspace/.nbook/assets` 作为嵌套资产根。
-- 普通 Agent 的文件工具 cwd 是 Workspace Root。项目文件使用 `{project-slug}/manuscript/...`、`{project-slug}/lorebook/...`、`{project-slug}/reference/...`。
-- Current Project Workspace 只表示模糊项目操作的默认焦点，不是权限或访问边界；所有 Project Workspace 都可通过显式 Project Slug 跨项目访问。
-- 仓库源码根与仓库级 `reference/` 位于 Workspace Root cwd 外，使用 runtime reminder 提供的绝对路径访问。
+- Project-bound Agent 的 File Scope 是当前 Project Workspace。当前项目使用 `manuscript/...`、`lorebook/...`、`reference/...`；跨项目使用完整 Project File Address `workspace/{project-slug}/...`。
+- Agent session保存Agent Workspace Root Reference和Project Path；每次invocation据此投影File Scope，不持久化managed绝对cwd。Windows Portable中当前Project因此解析到`data/workspace/{project-slug}/`。
+- Current Project Workspace决定Project-bound invocation的File Scope；它不是权限边界，跨项目访问必须使用显式Project File Address。
+- 仓库源码根与仓库级 `reference/` 位于Project File Scope外，使用runtime reminder提供的绝对路径访问。
 
 ## Naming Rules
 

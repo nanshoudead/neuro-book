@@ -1,7 +1,7 @@
 import {Type} from "typebox";
 import type {Static} from "typebox";
 import type {EffectiveConfig, WebSearchProviderKey} from "nbook/server/config/types";
-import {loadEffectiveConfigForWorkspaceRoot} from "nbook/server/config/config-service";
+import {loadEffectiveConfigForAgentRuntime} from "nbook/server/config/config-service";
 import type {JsonValue} from "nbook/server/agent/messages/types";
 import type {NeuroAgentTool, ToolExecutionContext} from "nbook/server/agent/tools/types";
 
@@ -141,7 +141,9 @@ export function createWebTools(configLoader: (context: ToolExecutionContext) => 
 }
 
 async function defaultConfigLoader(context: ToolExecutionContext): Promise<EffectiveConfig> {
-    return loadEffectiveConfigForWorkspaceRoot(context.workspaceRoot);
+    return loadEffectiveConfigForAgentRuntime({
+        projectPath: context.projectPath,
+    });
 }
 
 /**

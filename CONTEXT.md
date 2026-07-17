@@ -36,6 +36,22 @@ _Avoid_: workspace
 公开 API 和运行时定位 Project Workspace 的稳定标识，固定为 `workspace/{project-slug}`。
 _Avoid_: projectId, novelId, database id
 
+**Agent Workspace Root Reference**:
+Agent session持久化的可迁移逻辑引用。managed Workspace Root使用`workspace`，user-assets使用`workspace/.nbook`；用户明确选择的外部Project Workspace可使用绝对路径。它不是文件系统cwd。
+_Avoid_: workspace cwd, State Root path, Installation Root path
+
+**Agent Workspace Filesystem Root**:
+每次Agent invocation根据当前State Root从Agent Workspace Root Reference解析出的绝对文件系统根。文件工具、bash、Plan Mode、World Engine临时文件和Agent文件历史只能使用该物理根。
+_Avoid_: session workspaceRoot, Project Path, persisted workspace path
+
+**File Scope**:
+文件工具与bash在一次Agent invocation中共用的物理cwd。绑定Project Path时是当前Project Workspace；未绑定项目时是Workspace Root；user-assets时是Workspace Root `.nbook`；外部Project Workspace时是其绝对目录。
+_Avoid_: Agent cwd alias, persisted workspace path, Project Path
+
+**Project File Address**:
+显式跨Project Workspace的文件地址，固定为`workspace/{project-slug}/{relative-path}`。它由Project Path Resolver解析，不是根据物理cwd或目录名猜测的兼容路径。
+_Avoid_: project-slug relative alias, inferred project path
+
 **Project Manifest**:
 Project Workspace 根目录中描述项目类型、标题、摘要等展示元数据的 `project.yaml` 文件。
 _Avoid_: Novel row, workspace.yaml, project metadata
@@ -192,6 +208,10 @@ _Avoid_: files-only panel, workspace switcher
 - **App SQLite** lives in **Workspace Root `.nbook`**.
 - **Project SQLite** lives in exactly one **Project Workspace `.nbook`**.
 - **Project Path** locates exactly one **Project Workspace** under a **Workspace Root**.
+- **Agent Workspace Root Reference** is persisted in an Agent session and resolves to one current **Agent Workspace Filesystem Root** for each invocation.
+- Managed **Agent Workspace Root Reference** values are portable across Installation Root and State Root moves; their resolved **Agent Workspace Filesystem Root** is not persisted.
+- **File Scope** is projected for each invocation from the session's Agent Workspace Root Reference and optional Project Path; it is not persisted as an absolute path.
+- Project-bound file tools use Project-relative paths inside the current File Scope; cross-project file access uses a **Project File Address**.
 - **Project Manifest** lives at the root of exactly one **Project Workspace** and stores display metadata.
 - **Project Workspace File Index** belongs to one **Project Workspace** and is refreshed from file scans or file watcher events.
 - **Project Workspace Issue Index** belongs to one **Project Workspace** and can be rebuilt from its files.

@@ -18,9 +18,10 @@ describe("web tools", () => {
             query: "NeuroBook web research",
             provider: "brave",
         })).toBe(false);
-        const querySchema = tool!.parameters.properties.query;
-        expect(querySchema.description).toContain("preserve the user's wording");
-        expect(querySchema.description).toContain("instead of adding unverified domain guesses");
+        const querySchema = (tool!.parameters as {properties: {query?: {description?: string}}}).properties.query;
+        expect(querySchema).toBeDefined();
+        expect(querySchema?.description).toContain("preserve the user's wording");
+        expect(querySchema?.description).toContain("instead of adding unverified domain guesses");
     });
 
     it("按配置顺序 fallback 到 Brave 并过滤 blocked domain", async () => {

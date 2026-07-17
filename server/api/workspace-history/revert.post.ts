@@ -1,7 +1,9 @@
 import {z} from "zod";
 import {createError} from "h3";
-import {assertProjectOpenForRoot} from "nbook/server/workspace-files/project-open-guard";
-import {normalizeProjectPath} from "nbook/server/workspace-files/project-workspace";
+import {assertProjectOpenForTarget} from "nbook/server/workspace-files/project-open-guard";
+import {normalizeProjectPath} from "nbook/server/workspace-files/project-path";
+import {runtimePathsFromEnv} from "nbook/server/runtime/paths/runtime-paths";
+import {resolveNovelWorkspaceTarget} from "nbook/server/workspace-files/novel-workspace";
 import {invalidateProjectWorkspaceIndexAfterMutation} from "nbook/server/workspace-files/project-workspace-index";
 import {ensureProjectHistory, LOCAL_USER_ID} from "nbook/server/workspace-history/project-history";
 import {matchWorkspaceHistoryInboxGroup} from "nbook/server/workspace-history/history-inbox";
@@ -19,8 +21,9 @@ const RevertBodySchema = z.object({
 export default defineEventHandler(async (event) => {
     const body = RevertBodySchema.parse(await readBody(event));
     const projectPath = normalizeProjectPath(body.projectPath);
-    assertProjectOpenForRoot(projectPath);
-    const history = await ensureProjectHistory(projectPath);
+    const target = await resolveNovelWorkspaceTarget(runtimePathsFromEnv(), projectPath);
+    assertProjectOpenForTarget(target);
+    const history = await ensureProjectHistory(target.root, target.projectPath);
     if (!history) {
         throw createError({statusCode: 400, message: "文件历史未启用"});
     }
@@ -32,6 +35,6 @@ export default defineEventHandler(async (event) => {
         throw createError({statusCode: 412, message: "文件已发生新变化，请刷新后重新审查"});
     }
     await history.revert(LOCAL_USER_ID, match.group.path);
-    invalidateProjectWorkspaceIndexAfterMutation({root: projectPath});
+    invalidateProjectWorkspaceIndexAfterMutation(target);
     return {success: true};
 });

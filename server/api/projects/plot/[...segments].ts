@@ -39,7 +39,9 @@ import {
     type UpdateStoryThreadRequestDto,
 } from "nbook/shared/dto/plot.dto";
 import type {H3Event} from "h3";
-import {plotFacade} from "nbook/server/plot";
+import {plotFacadeForWorkspaceRoot} from "nbook/server/plot";
+import type {PlotFacade} from "nbook/server/plot/facade/plot.facade";
+import {runtimePathsFromEnv} from "nbook/server/runtime/paths/runtime-paths";
 import {parseEntityId, requireProjectPathQuery, validateBody} from "nbook/server/utils/novel-chapter";
 import {ProjectNotOpenError} from "nbook/server/workspace-files/project-session";
 import {createProjectNotOpenHttpError} from "nbook/server/workspace-files/project-open-guard";
@@ -222,6 +224,7 @@ export default defineEventHandler(async (event) => {
  * 处理 Project Plot API。外层 handler 只负责把 ProjectSession typed error 转成 HTTP 409。
  */
 async function handleProjectPlotApi(event: H3Event): Promise<unknown> {
+    const plotFacade = plotFacadeForWorkspaceRoot(runtimePathsFromEnv().workspaceRoot);
     const projectPath = requireProjectPathQuery(event);
     const segments = readSegments(event);
     const method = event.method.toUpperCase();
@@ -247,32 +250,32 @@ async function handleProjectPlotApi(event: H3Event): Promise<unknown> {
     }
 
     if (segments[0] === "phases") {
-        return handlePhases(event, projectPath, method, segments);
+        return handlePhases(plotFacade, event, projectPath, method, segments);
     }
     if (segments[0] === "acts") {
-        return handleActs(event, projectPath, method, segments);
+        return handleActs(plotFacade, event, projectPath, method, segments);
     }
     if (segments[0] === "chapters") {
-        return handleChapters(event, projectPath, method, segments);
+        return handleChapters(plotFacade, event, projectPath, method, segments);
     }
     if (segments[0] === "threads") {
-        return handleThreads(event, projectPath, method, segments);
+        return handleThreads(plotFacade, event, projectPath, method, segments);
     }
     if (segments[0] === "scenes") {
-        return handleScenes(event, projectPath, method, segments);
+        return handleScenes(plotFacade, event, projectPath, method, segments);
     }
     if (segments[0] === "promises") {
-        return handlePromises(event, projectPath, method, segments);
+        return handlePromises(plotFacade, event, projectPath, method, segments);
     }
     if (segments[0] === "decisions") {
-        return handleDecisions(event, projectPath, method, segments);
+        return handleDecisions(plotFacade, event, projectPath, method, segments);
     }
 
     throw createError({statusCode: 404, message: "未知 Project Plot API"});
 }
 
 /** 承载树 Act(卷)CRUD。 */
-async function handleActs(event: H3Event, projectPath: string, method: string, segments: string[]): Promise<unknown> {
+async function handleActs(plotFacade: PlotFacade, event: H3Event, projectPath: string, method: string, segments: string[]): Promise<unknown> {
     if (method === "POST" && matchSegments(segments, ["acts"])) {
         const body = await validateBody<CreateStoryActRequestDto>(event, CreateStoryActRequestDtoSchema);
         return plotFacade.createStoryAct(projectPath, body);
@@ -290,7 +293,7 @@ async function handleActs(event: H3Event, projectPath: string, method: string, s
 }
 
 /** 承载树 Chapter(章)CRUD,含 ChapterBrief 字段更新。 */
-async function handleChapters(event: H3Event, projectPath: string, method: string, segments: string[]): Promise<unknown> {
+async function handleChapters(plotFacade: PlotFacade, event: H3Event, projectPath: string, method: string, segments: string[]): Promise<unknown> {
     if (method === "POST" && matchSegments(segments, ["chapters"])) {
         const body = await validateBody<CreateStoryChapterRequestDto>(event, CreateStoryChapterRequestDtoSchema);
         return plotFacade.createStoryChapter(projectPath, body);
@@ -313,7 +316,7 @@ async function handleChapters(event: H3Event, projectPath: string, method: strin
     throw createError({statusCode: 404, message: "未知 Project Chapter API"});
 }
 
-async function handlePhases(event: H3Event, projectPath: string, method: string, segments: string[]): Promise<unknown> {
+async function handlePhases(plotFacade: PlotFacade, event: H3Event, projectPath: string, method: string, segments: string[]): Promise<unknown> {
     if (method === "POST" && matchSegments(segments, ["phases"])) {
         const body = await validateBody<CreateStoryPhaseRequestDto>(event, CreateStoryPhaseRequestDtoSchema);
         return plotFacade.createStoryPhase(projectPath, body);
@@ -334,7 +337,7 @@ async function handlePhases(event: H3Event, projectPath: string, method: string,
     throw createError({statusCode: 404, message: "未知 Project Phase API"});
 }
 
-async function handleThreads(event: H3Event, projectPath: string, method: string, segments: string[]): Promise<unknown> {
+async function handleThreads(plotFacade: PlotFacade, event: H3Event, projectPath: string, method: string, segments: string[]): Promise<unknown> {
     if (method === "POST" && matchSegments(segments, ["threads"])) {
         const body = await validateBody<CreateStoryThreadRequestDto>(event, CreateStoryThreadRequestDtoSchema);
         return plotFacade.createStoryThread(projectPath, body);
@@ -355,7 +358,7 @@ async function handleThreads(event: H3Event, projectPath: string, method: string
     throw createError({statusCode: 404, message: "未知 Project Thread API"});
 }
 
-async function handleScenes(event: H3Event, projectPath: string, method: string, segments: string[]): Promise<unknown> {
+async function handleScenes(plotFacade: PlotFacade, event: H3Event, projectPath: string, method: string, segments: string[]): Promise<unknown> {
     if (method === "POST" && matchSegments(segments, ["scenes"])) {
         const body = await validateBody<CreateStorySceneRequestDto>(event, CreateStorySceneRequestDtoSchema);
         return plotFacade.createStoryScene(projectPath, body);
@@ -381,7 +384,7 @@ async function handleScenes(event: H3Event, projectPath: string, method: string,
 }
 
 /** 规划层 Promise(读者债务账本)CRUD 与 beat 维护。物理删除只给 UI/人工,Agent 走 abandon。 */
-async function handlePromises(event: H3Event, projectPath: string, method: string, segments: string[]): Promise<unknown> {
+async function handlePromises(plotFacade: PlotFacade, event: H3Event, projectPath: string, method: string, segments: string[]): Promise<unknown> {
     if (method === "GET" && matchSegments(segments, ["promises"])) {
         return plotFacade.listStoryPromises(projectPath);
     }
@@ -413,7 +416,7 @@ async function handlePromises(event: H3Event, projectPath: string, method: strin
 }
 
 /** 规划层 Decision(ADR 式决策记录)CRUD。decide/drop/supersede/reopen 都走 PATCH 的 status 直改,转换与不变式在服务层。 */
-async function handleDecisions(event: H3Event, projectPath: string, method: string, segments: string[]): Promise<unknown> {
+async function handleDecisions(plotFacade: PlotFacade, event: H3Event, projectPath: string, method: string, segments: string[]): Promise<unknown> {
     if (method === "GET" && matchSegments(segments, ["decisions"])) {
         return plotFacade.listStoryDecisions(projectPath);
     }

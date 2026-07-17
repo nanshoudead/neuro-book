@@ -274,7 +274,7 @@ export type StoryThreadGroupByOutputType = {
   _max: StoryThreadMaxAggregateOutputType | null
 }
 
-type GetStoryThreadGroupByPayload<T extends StoryThreadGroupByArgs> = Prisma.PrismaPromise<
+export type GetStoryThreadGroupByPayload<T extends StoryThreadGroupByArgs> = Prisma.PrismaPromise<
   Array<
     Prisma.PickEnumerable<StoryThreadGroupByOutputType, T['by']> &
       {
@@ -2167,6 +2167,11 @@ export type StoryThreadFindManyArgs<ExtArgs extends runtime.Types.Extensions.Int
    * Skip the first `n` StoryThreads.
    */
   skip?: number
+  /**
+   * {@link https://www.prisma.io/docs/concepts/components/prisma-client/distinct Distinct Docs}
+   * 
+   * Filter by unique combinations of StoryThreads.
+   */
   distinct?: Prisma.StoryThreadScalarFieldEnum | Prisma.StoryThreadScalarFieldEnum[]
 }
 

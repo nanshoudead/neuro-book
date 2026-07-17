@@ -2,7 +2,7 @@ import {dirname, join, relative} from "node:path";
 import {stringify} from "yaml";
 
 import {writeTextAtomic} from "#manager/files";
-import {run} from "#manager/process";
+import {run, runCapture} from "#manager/process";
 import type {InstallProfile} from "#manager/types";
 
 /** 生成完整 Docker Compose，不依赖仓库根旧模板。 */
@@ -95,6 +95,22 @@ export async function removeDockerDeployment(root: string, stateRoot: string): P
 /** 删除Source Docker事务创建但未提交的本地镜像。 */
 export async function removeDockerImage(root: string, image: string): Promise<void> {
     await run("docker", ["image", "rm", image], {cwd: root, stdio: "ignore"});
+}
+
+/** 在当前Compose的app镜像中执行一次性命令，不启动依赖或长期服务。 */
+export async function runDockerApplicationCommand(
+    root: string,
+    stateRoot: string,
+    command: string[],
+): Promise<string> {
+    return runCapture("docker", [
+        ...composeArgs(root, stateRoot),
+        "run",
+        "--rm",
+        "--no-deps",
+        "app",
+        ...command,
+    ], {cwd: root});
 }
 
 /** 从 staged Git worktree 构建带 revision tag 的 Source Docker image。 */

@@ -1,8 +1,14 @@
 import type {Message, ToolCall, ToolResultMessage} from "@earendil-works/pi-ai";
-import {CHAT_ENTRY_PREVIEW_BYTES} from "nbook/server/agent/events/public-event-policy";
+import type {StoredAgentMessage} from "nbook/server/agent/messages/stored-types";
+import {
+    CHAT_ENTRY_MAX_BLOCKS,
+    CHAT_ENTRY_PREVIEW_BYTES,
+    CHAT_ENTRY_SERIALIZED_TEXT_BYTES,
+} from "nbook/server/agent/events/public-event-policy";
 import {
     budgetText,
     createPublicProjectionBudget,
+    projectPublicAttachment,
     projectPublicToolArgs,
     projectPublicToolResult,
     textPreview,
@@ -13,7 +19,7 @@ import {
     PUBLIC_TOOL_ARGS_TEXT_BYTES,
 } from "nbook/server/agent/events/public-event-policy";
 import type {SessionEntry} from "nbook/server/agent/session/types";
-import type {AgentChatEntryDto, PublicTextPreviewDto} from "nbook/shared/dto/agent-public-event.dto";
+import type {AgentChatEntryDto, AgentChatUserEntryDto, PublicTextPreviewDto} from "nbook/shared/dto/agent-public-event.dto";
 
 export type AgentChatEntryProjectionContext = {
     /** assistant entry 所属 invocation；非 assistant 时忽略。 */
@@ -97,11 +103,12 @@ function projectMessageEntry(
         if (entry.origin !== "prompt" && steer === null) {
             return null;
         }
+        const publicContent = projectUserContent(message, steer);
         return {
             id: entry.id,
             timestamp: entry.timestamp,
             type: "user",
-            content: textPreview(steer ?? content, CHAT_ENTRY_PREVIEW_BYTES),
+            ...publicContent,
             intent: steer === null ? "normal" : "steer",
         };
     }
@@ -142,7 +149,146 @@ function projectMessageEntry(
             omittedToolCalls: Math.max(0, rawToolCalls.length - toolCalls.length),
         };
     }
+    if (message.role !== "toolResult") {
+        return null;
+    }
     return projectToolResultEntry(entry.id, entry.timestamp, message);
+}
+
+/** 投影 user message 的唯一保序公开内容；steer envelope 的文本使用解包后正文。 */
+function projectUserContent(
+    message: Message | StoredAgentMessage,
+    steer: string | null,
+): Pick<AgentChatUserEntryDto, "blocks" | "omittedBlocks" | "textSummary"> {
+    const textBudget = {
+        remainingRawBytes: CHAT_ENTRY_PREVIEW_BYTES,
+        remainingSerializedBytes: CHAT_ENTRY_SERIALIZED_TEXT_BYTES,
+    };
+    if (steer !== null) {
+        const text = budgetUserText(steer, textBudget);
+        const blocks: AgentChatUserEntryDto["blocks"] = [
+            {type: "text" as const, contentIndex: 0, content: text},
+            ...messageAttachmentBlocks(message),
+        ].slice(0, CHAT_ENTRY_MAX_BLOCKS);
+        const rawBlocks = Array.isArray(message.content) ? message.content.length : 1;
+        return {
+            blocks,
+            omittedBlocks: Math.max(0, rawBlocks - blocks.length),
+            textSummary: {bytes: text.bytes, omitted: text.omitted},
+        };
+    }
+    if (typeof message.content === "string") {
+        const content = budgetUserText(message.content, textBudget);
+        return {
+            blocks: [{type: "text", contentIndex: 0, content}],
+            omittedBlocks: 0,
+            textSummary: {bytes: content.bytes, omitted: content.omitted},
+        };
+    }
+    const blocks: AgentChatUserEntryDto["blocks"] = [];
+    let textBytes = 0;
+    let textBlocks = 0;
+    let textOmitted = false;
+    message.content.forEach((block, contentIndex) => {
+        if (block.type === "text") {
+            if (textBlocks > 0) {
+                textBytes += 1;
+            }
+            textBlocks += 1;
+            textBytes += Buffer.byteLength(block.text, "utf8");
+            if (contentIndex >= CHAT_ENTRY_MAX_BLOCKS) {
+                textOmitted = textOmitted || block.text.length > 0;
+                return;
+            }
+            const content = budgetUserText(block.text, textBudget);
+            textOmitted = textOmitted || content.omitted;
+            blocks.push({type: "text", contentIndex, content});
+            return;
+        }
+        if (contentIndex >= CHAT_ENTRY_MAX_BLOCKS) {
+            return;
+        }
+        if (block && typeof block === "object" && "type" in block && block.type === "attachment") {
+            const record = block as unknown as {attachment?: unknown; name?: unknown};
+            const attachment = projectPublicAttachment(record.attachment, record.name);
+            if (attachment) {
+                blocks.push({type: "attachment", contentIndex, attachment});
+            }
+        }
+    });
+    return {
+        blocks,
+        omittedBlocks: Math.max(0, message.content.length - blocks.length),
+        textSummary: {bytes: textBytes, omitted: textOmitted},
+    };
+}
+
+type UserTextBudget = {
+    remainingRawBytes: number;
+    remainingSerializedBytes: number;
+};
+
+/**
+ * 同时约束正文 UTF-8 大小与 JSON string 转义后的大小。
+ * 控制字符会在 stringify 时扩张，不能只按原始 UTF-8 预算判断 event 大小。
+ */
+function budgetUserText(value: string, budget: UserTextBudget): PublicTextPreviewDto {
+    const raw = textPreview(value, budget.remainingRawBytes);
+    let preview = raw.preview;
+    if (jsonStringBytes(preview) > budget.remainingSerializedBytes) {
+        let low = 0;
+        let high = preview.length;
+        while (low < high) {
+            let middle = Math.ceil((low + high) / 2);
+            const lastCodeUnit = preview.charCodeAt(middle - 1);
+            if (lastCodeUnit >= 0xd800 && lastCodeUnit <= 0xdbff) {
+                middle -= 1;
+            }
+            if (jsonStringBytes(preview.slice(0, middle)) <= budget.remainingSerializedBytes) {
+                low = Math.max(low + 1, middle);
+            } else {
+                high = Math.max(0, middle - 1);
+            }
+        }
+        let safeLength = Math.min(low, preview.length);
+        while (safeLength > 0 && jsonStringBytes(preview.slice(0, safeLength)) > budget.remainingSerializedBytes) {
+            safeLength -= 1;
+        }
+        const lastCodeUnit = preview.charCodeAt(safeLength - 1);
+        if (lastCodeUnit >= 0xd800 && lastCodeUnit <= 0xdbff) {
+            safeLength -= 1;
+        }
+        preview = preview.slice(0, Math.max(0, safeLength));
+    }
+    const rawPreviewBytes = Buffer.byteLength(preview, "utf8");
+    const serializedPreviewBytes = jsonStringBytes(preview);
+    budget.remainingRawBytes = Math.max(0, budget.remainingRawBytes - rawPreviewBytes);
+    budget.remainingSerializedBytes = Math.max(0, budget.remainingSerializedBytes - serializedPreviewBytes);
+    return {
+        preview,
+        bytes: raw.bytes,
+        omitted: raw.omitted || preview.length < raw.preview.length,
+    };
+}
+
+/** 返回 JSON string 内容本身的 UTF-8 bytes，不计外围引号。 */
+function jsonStringBytes(value: string): number {
+    return Math.max(0, Buffer.byteLength(JSON.stringify(value), "utf8") - 2);
+}
+
+/** 投影 steer message 的 attachment blocks，并保留原 stored content index。 */
+function messageAttachmentBlocks(message: Message | StoredAgentMessage): AgentChatUserEntryDto["blocks"] {
+    if (!Array.isArray(message.content)) {
+        return [];
+    }
+    return message.content.flatMap((block, contentIndex) => {
+        if (block === null || typeof block !== "object" || !("type" in block) || block.type !== "attachment") {
+            return [];
+        }
+        const record = block as unknown as {attachment?: unknown; name?: unknown};
+        const attachment = projectPublicAttachment(record.attachment, record.name);
+        return attachment ? [{type: "attachment" as const, contentIndex, attachment}] : [];
+    });
 }
 
 /**
@@ -151,7 +297,7 @@ function projectMessageEntry(
 function projectToolResultEntry(
     id: string,
     timestamp: number,
-    message: ToolResultMessage,
+    message: ToolResultMessage | Extract<StoredAgentMessage, {role: "toolResult"}>,
 ): AgentChatEntryDto {
     return {
         id,
@@ -170,7 +316,7 @@ function projectToolResultEntry(
 /**
  * 标准 user/toolResult 文本提取，不读取图片 data。
  */
-function messageText(message: Message): string {
+function messageText(message: StoredAgentMessage): string {
     if (typeof message.content === "string") {
         return message.content;
     }

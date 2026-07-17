@@ -1,8 +1,9 @@
 import {describe, expect, it} from "vitest";
-import {createAssistantTextMessage, createTextToolResult} from "nbook/server/agent/messages/message-utils";
+import {createAssistantTextMessage, createStoredTextToolResult, createTextToolResult} from "nbook/server/agent/messages/message-utils";
 import type {FailedTurnOutcome, RunFrame, RuntimeTurn, TurnSnapshot} from "nbook/server/agent/harness/run-kernel-types";
 import {applyFailedTurnTransaction, applySuccessfulTurnTransaction} from "nbook/server/agent/harness/turn-transaction";
 import {createPublicRuntimeProjectionState} from "nbook/server/agent/events/public-event-projection";
+import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
 
 describe("turn transaction", () => {
     it("completed outcome 会写回 RunFrame 并返回 completed transaction", () => {
@@ -18,7 +19,14 @@ describe("turn transaction", () => {
             snapshot: {} as TurnSnapshot,
             assistant,
             toolCalls: [],
-            toolResults: [toolResult],
+            toolResults: [{
+                stored: createStoredTextToolResult({
+                    toolCallId: "tool-1",
+                    toolName: "report_result",
+                    text: "ok",
+                }),
+                event: toolResult,
+            }],
             reportResult: {result: "walkthrough"},
             shouldContinue: false,
         };
@@ -108,7 +116,8 @@ function fakeFrame(): RunFrame {
     return {
         sessionId: 1,
         workspaceKey: "global",
-        workspaceRoot: "workspace",
+        workspaceRootRef: "workspace",
+        workspaceFsRoot: absoluteFsPath(process.cwd()),
         systemPrompt: "",
         models: {} as RunFrame["models"],
         model: {} as RunFrame["model"],

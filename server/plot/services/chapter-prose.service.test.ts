@@ -1,6 +1,8 @@
 import {ChapterProseService} from "nbook/server/plot/services/chapter-prose.service";
 import type {WorkspaceFileNode} from "nbook/server/workspace-files/workspace-files";
 import {beforeEach, describe, expect, it, vi} from "vitest";
+import path from "node:path";
+import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
 
 const snapshotMock = vi.fn();
 vi.mock("nbook/server/workspace-files/project-workspace-index", () => ({
@@ -19,7 +21,8 @@ function node(patch: Partial<WorkspaceFileNode>): WorkspaceFileNode {
 }
 
 describe("ChapterProseService", () => {
-    const service = new ChapterProseService();
+    const workspaceRoot = absoluteFsPath(path.resolve(".agent", "chapter-prose-service-test", "workspace"));
+    const service = new ChapterProseService(workspaceRoot);
 
     beforeEach(() => {
         snapshotMock.mockReset();
@@ -51,7 +54,13 @@ describe("ChapterProseService", () => {
             title: "第一章",
             words: 20,
         });
-        expect(snapshotMock).toHaveBeenCalledWith({root: "workspace/novel"});
+        expect(snapshotMock).toHaveBeenCalledWith({
+            target: {
+                kind: "project-workspace",
+                root: absoluteFsPath(path.join(workspaceRoot, "novel")),
+                projectPath: "workspace/novel",
+            },
+        });
     });
 
     it("findProseForChapter 只返回指向该章 name 的 Prose", async () => {

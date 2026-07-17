@@ -3,6 +3,7 @@ import {Type} from "typebox";
 import {Value} from "typebox/value";
 import {agentCollaborationTools, createBuiltinTools} from "nbook/server/agent/tools/index";
 import type {ToolExecutionContext} from "nbook/server/agent/tools/types";
+import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
 
 const collaborationEntries = Object.entries(agentCollaborationTools).map(([name, definition]) => ({
     name,
@@ -14,7 +15,7 @@ describe("agent collaboration tool definitions", () => {
         const runtime = definition.runtime();
 
         expect(runtime.executeWithContext).toBeTypeOf("function");
-        await expect(runtime.execute("direct-call", {})).rejects.toThrow("必须在 agent session context 内执行");
+        await expect(runtime.execute!("direct-call", {})).rejects.toThrow("必须在 agent session context 内执行");
     });
 
     it("createBuiltinTools 无需 harness 参数并聚合协作、控制与领域工具", () => {
@@ -168,7 +169,8 @@ function toolContext(harness: Record<string, unknown>): ToolExecutionContext {
         harness: harness as never,
         sessionId: 1,
         profileKey: "leader.default",
-        workspaceRoot: "workspace",
+        workspaceRootRef: "workspace",
+        workspaceFsRoot: absoluteFsPath(process.cwd()),
         workspaceKey: "global",
         projectPath: "workspace/project",
     };

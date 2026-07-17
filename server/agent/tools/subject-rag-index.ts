@@ -30,7 +30,7 @@ export type SubjectRagCandidate = {
     sourcePath: string;
 };
 
-export type SubjectRagRuntimeContext = Pick<ToolExecutionContext, "workspaceRoot" | "projectPath">;
+export type SubjectRagRuntimeContext = Pick<ToolExecutionContext, "workspaceRootRef" | "workspaceFsRoot" | "projectPath">;
 
 type SubjectRagDatabase = {
     run(sql: string, ...params: unknown[]): unknown;
@@ -556,7 +556,6 @@ function splitLongText(text: string): string[] {
 
 async function resolveSubjectRagEmbedding(context: SubjectRagRuntimeContext): Promise<RagEmbeddingModel> {
     const config = await loadEffectiveConfigForAgentRuntime({
-        workspaceRoot: context.workspaceRoot,
         projectPath: context.projectPath,
     });
     const embedding = config.embedding;

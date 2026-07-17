@@ -20,6 +20,7 @@ import type {
     VariableSchemaResult,
     VariableInvocationState,
 } from "nbook/server/agent/variables/types";
+import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
 
 export type CreateVariableAccessorInput = {
     repo: JsonlSessionRepository;
@@ -51,7 +52,7 @@ class RuntimeVariableAccessor implements ProfileVariableAccessor {
     constructor(private readonly input: CreateVariableAccessorInput) {
         this.dryRun = input.dryRun ?? false;
         this.registry = input.registry ?? new VariableRegistry();
-        this.storage = new VariableFileStorage(input.snapshot.metadata.workspaceRoot);
+        this.storage = new VariableFileStorage(absoluteFsPath(input.repo.rootWorkspace));
         this.sessionOverlay = reduceSessionVariables(input.repo, input.snapshot);
         this.clientOverlay = input.variableState?.clientOverlay ?? normalizeClientState(input.clientState);
     }

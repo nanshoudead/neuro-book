@@ -1,4 +1,4 @@
-import type {AgentTool} from "@earendil-works/pi-agent-core";
+import type {Tool} from "nbook/server/agent/messages/types";
 import type {NeuroAgentTool} from "nbook/server/agent/tools/types";
 
 /**
@@ -24,20 +24,20 @@ export class AgentToolRegistry {
     /**
      * 返回 profile 允许的工具，过滤掉不存在的 key。
      */
-    allowed(toolKeys: readonly string[]): AgentTool<any, any>[] {
+    allowed(toolKeys: readonly string[]): Tool[] {
         return toolKeys.flatMap((toolKey) => {
             const tool = this.tools.get(toolKey);
-            return tool ? [tool] : [];
+            return tool ? [providerTool(tool)] : [];
         });
     }
 
     /**
      * 返回 profile 允许的工具定义，允许调用方按当前 profile 覆盖某些工具 schema。
      */
-    allowedWithOverrides(toolKeys: readonly string[], overrides: Record<string, AgentTool<any, any>>): AgentTool<any, any>[] {
+    allowedWithOverrides(toolKeys: readonly string[], overrides: Record<string, NeuroAgentTool>): Tool[] {
         return toolKeys.flatMap((toolKey) => {
             const tool = overrides[toolKey] ?? this.tools.get(toolKey);
-            return tool ? [tool] : [];
+            return tool ? [providerTool(tool)] : [];
         });
     }
 
@@ -77,4 +77,13 @@ export class AgentToolRegistry {
     keys(): string[] {
         return [...this.tools.keys()].sort((left, right) => left.localeCompare(right));
     }
+}
+
+/** Provider 只获得工具 schema，不获得 Harness 执行函数与领域能力。 */
+function providerTool(tool: NeuroAgentTool): Tool {
+    return {
+        name: tool.name,
+        description: tool.description,
+        parameters: tool.parameters,
+    };
 }

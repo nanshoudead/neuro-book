@@ -1,5 +1,5 @@
 import type {AgentMessage, AgentTool, AgentToolCall, ThinkingLevel} from "@earendil-works/pi-agent-core";
-import type {AssistantMessage, ImageContent, Message, Model, TextContent, ToolResultMessage, Usage} from "@earendil-works/pi-ai";
+import type {AssistantMessage, ImageContent, Message, Model, TextContent, Tool, ToolResultMessage, Usage, UserMessage} from "@earendil-works/pi-ai";
 
 export type {
     AgentMessage,
@@ -10,9 +10,11 @@ export type {
     Message,
     Model,
     TextContent,
+    Tool,
     ThinkingLevel,
     ToolResultMessage,
     Usage,
+    UserMessage,
 };
 
 /**

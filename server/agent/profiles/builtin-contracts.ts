@@ -80,7 +80,7 @@ export const DirectorOutputSchema = Type.Object({
  * simulator.actor 的实例初始化参数。每轮 actor-facing message 通过 invoke_agent.message 传入。
  */
 export const SubjectSimulatorInitialSchema = Type.Object({
-    subjectPath: Type.String({description: "subject simulator directory path，必须相对于 Agent cwd，例如 project-slug/simulation/subjects/erina。"}),
+    subjectPath: Type.String({description: "subject simulator目录路径，相对当前Project Workspace，例如 simulation/subjects/erina。"}),
     kind: Type.Union([Type.Literal("player"), Type.Literal("npc")], {
         description: "subject 类型。player：用户化身，actor 不主动行动/抢话，只把 leader 的 directive 第一人称自然化复述；npc：模拟器自由扮演。调用 actor 前按 subject.md frontmatter 的 kind 显式传入。第一版仅支持 player/npc。",
     }),
@@ -186,11 +186,11 @@ export const InlineEditorPayloadSchema = Type.Object({
         Type.Literal("continue_after"),
         Type.Literal("bridge"),
     ], {description: "Inline AI 编辑任务类型。chat 在 UI 中显示为对话，但仍允许根据上下文编辑文件。continue_after 在 UI 中显示为续写。"}),
-    targetPath: Type.String({minLength: 1, description: "本轮主要修改目标文件路径，必须使用 Workspace Root cwd-relative Project 路径，如 project-slug/manuscript/001/index.md。Agent cwd 是 workspace/，必须包含 project slug 前缀。"}),
+    targetPath: Type.String({minLength: 1, description: "本轮主要修改目标文件路径，使用当前Project Workspace相对路径，如 manuscript/001/index.md。"}),
     instruction: Type.String({description: "用户输入的自然语言编辑要求。可以为空，表示按 task 默认语义处理。"}),
     references: Type.Array(Type.Object({
         ref: Type.String({minLength: 1, description: "可见 selection chip，如 [[manuscript/001/index.md#L12-L18]]。"}),
-        path: Type.String({minLength: 1, description: "引用来源文件路径，必须使用 Workspace Root cwd-relative Project 路径，如 project-slug/manuscript/001/index.md。"}),
+        path: Type.String({minLength: 1, description: "引用来源文件路径，使用当前Project Workspace相对路径，如 manuscript/001/index.md。"}),
         range: Type.Optional(Type.Object({
             startLine: Type.Number({minimum: 1}),
             endLine: Type.Number({minimum: 1}),
@@ -217,7 +217,7 @@ export const InlineEditorOutputSchema = Type.Object({}, {
 export const WriterPayloadSchema = Type.Object({
     path: Type.String({
         minLength: 1,
-        description: "本轮写入或修改的目标 Markdown 文件路径，必须是 Workspace Root cwd-relative Project 路径，例如 project-slug/manuscript/001-volume/001-chapter/index.md。writer 只能写这个路径。",
+        description: "本轮写入或修改的目标Markdown文件路径，必须相对当前Project Workspace，例如 manuscript/001-volume/001-chapter/index.md。writer只能写这个路径。",
     }),
     // 自主模式:leader 传本章 StoryChapter id,writer 自行 get_chapter_writer_brief 取 brief。
     chapterId: Type.Optional(Type.String({

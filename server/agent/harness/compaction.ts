@@ -1,7 +1,11 @@
 import {tracedCompleteSimple} from "nbook/server/agent/observability/traced-provider";
 import type {PiTraceBinding} from "nbook/server/agent/observability/traced-provider";
 import type {Models} from "@earendil-works/pi-ai";
-import {estimateContextTokens, estimateTokens} from "@earendil-works/pi-agent-core";
+import {
+    estimateStoredContextTokens,
+    estimateStoredMessageTokens,
+    type StoredMessageLike,
+} from "nbook/server/agent/messages/stored-message-presentation";
 import type {AgentMessage, AssistantMessage, JsonValue, Message, Model, ThinkingLevel, ToolResultMessage} from "nbook/server/agent/messages/types";
 import {
     COMPACTION_PROMPT,
@@ -15,6 +19,7 @@ import type {CompactionSessionEntry, CustomMessageSessionEntry, MessageSessionEn
 import {createUserMessage, messageText} from "nbook/server/agent/messages/message-utils";
 import {sanitizeProviderErrorMessage} from "nbook/server/agent/observability/provider-error-sanitizer";
 import {mergePiRequestHeaders, parsePiSimpleRequestOptions, piRequestAuthOptions} from "nbook/server/agent/harness/pi-request-options";
+import type {StoredAgentMessage, StoredToolResultMessage} from "nbook/server/agent/messages/stored-types";
 
 export {COMPACTION_PROMPT, COMPACTION_SUMMARY_PREFIX};
 
@@ -41,7 +46,7 @@ export const DEFAULT_NEURO_COMPACTION_OPTIONS: Omit<CompactionOptions, "enabled"
 
 type CompactionPlan = {
     firstKeptEntry: ModelVisibleSessionEntry | null;
-    messagesToSummarize: Message[];
+    messagesToSummarize: StoredMessageLike[];
     previousSummary?: string;
     metrics: {
         recentTokens: number;
@@ -61,7 +66,7 @@ type ModelVisibleSessionEntry = MessageSessionEntry | CustomMessageSessionEntry;
 export async function compactIfNeeded(input: {
     repo: JsonlSessionRepository;
     snapshot: SessionSnapshot;
-    messages: AgentMessage[];
+    messages: StoredMessageLike[];
     models: Models;
     model: Model<any>;
     apiKey?: string;
@@ -80,7 +85,7 @@ export async function compactIfNeeded(input: {
         return false;
     }
 
-    const usage = estimateContextTokens(input.messages);
+    const usage = estimateStoredContextTokens(input.messages);
     if (!shouldCompactWithOptions(usage.tokens, input.model.contextWindow, options)) {
         return false;
     }
@@ -108,7 +113,7 @@ export async function compactIfNeeded(input: {
 export async function appendCompaction(input: {
     repo: JsonlSessionRepository;
     snapshot: SessionSnapshot;
-    messages: AgentMessage[];
+    messages: StoredMessageLike[];
     models: Models;
     model: Model<any>;
     apiKey?: string;
@@ -145,7 +150,7 @@ export async function appendCompaction(input: {
         trace: input.trace,
     });
     const summary = `${options.summaryPrefix}\n\n${generatedSummary}`;
-    const tokensBefore = input.tokensBefore ?? estimateContextTokens(input.messages).tokens;
+    const tokensBefore = input.tokensBefore ?? estimateStoredContextTokens(input.messages).tokens;
 
     const entry = {
         type: "compaction",
@@ -214,7 +219,7 @@ export function shouldCompactWithOptions(contextTokens: number, contextWindow: n
  * 构造真实 LLM 摘要。这里不做 fallback，避免失败时写入误导性摘要。
  */
 async function generateCompactionSummary(input: {
-    messages: Message[];
+    messages: StoredMessageLike[];
     models: Models;
     model: Model<any>;
     apiKey?: string;
@@ -239,7 +244,7 @@ async function generateCompactionSummary(input: {
     const requestOptions = parsePiSimpleRequestOptions(input.requestOptions);
     const completeContext = {
         systemPrompt: input.prompt,
-        messages: [createUserMessage({text: prompt})],
+        messages: [createUserMessage({text: prompt, images: []})],
     };
     const completeOptions = {
         ...requestOptions,
@@ -308,7 +313,7 @@ function selectCompactionPlan(path: SessionEntry[], options: CompactionOptions):
         if (!entry || !isModelVisibleEntry(entry)) {
             continue;
         }
-        tokens += estimateTokens(entryMessage(entry));
+        tokens += estimateStoredMessageTokens(entryMessage(entry));
         selectedPathIndex = index;
         if (tokens >= options.keepRecentTokens) {
             break;
@@ -393,7 +398,7 @@ function moveCutBeforeToolResult(path: SessionEntry[], selectedPathIndex: number
 /**
  * 未完成 tool call 会破坏 continue/approval 恢复语义，压缩前必须拒绝。
  */
-function assertNoPendingToolCall(messages: AgentMessage[]): void {
+function assertNoPendingToolCall(messages: StoredMessageLike[]): void {
     const completedToolCallIds = new Set(messages
         .filter(isToolResultMessage)
         .map((message) => message.toolCallId));
@@ -410,15 +415,15 @@ function isModelVisibleEntry(entry: SessionEntry): entry is ModelVisibleSessionE
     return entry.type === "message" || (entry.type === "custom_message" && entry.visibleToModel);
 }
 
-function entryMessage(entry: ModelVisibleSessionEntry): AgentMessage {
-    return entry.message;
+function entryMessage(entry: ModelVisibleSessionEntry): StoredMessageLike {
+    return entry.message as AgentMessage | StoredAgentMessage;
 }
 
-function isAssistantMessage(message: AgentMessage): message is AssistantMessage {
+function isAssistantMessage(message: StoredMessageLike): message is AssistantMessage {
     return message.role === "assistant";
 }
 
-function isToolResultMessage(message: AgentMessage): message is ToolResultMessage {
+function isToolResultMessage(message: StoredMessageLike): message is ToolResultMessage | StoredToolResultMessage {
     return message.role === "toolResult";
 }
 
@@ -428,10 +433,10 @@ function countVisibleEntries(entries: SessionEntry[]): number {
 
 function sumVisibleEntryTokens(entries: SessionEntry[]): number {
     return entries.reduce((total, entry) => {
-        return isModelVisibleEntry(entry) ? total + estimateTokens(entryMessage(entry)) : total;
+        return isModelVisibleEntry(entry) ? total + estimateStoredMessageTokens(entryMessage(entry)) : total;
     }, 0);
 }
 
-function sumMessageTokens(messages: Message[]): number {
-    return messages.reduce((total, message) => total + estimateTokens(message), 0);
+function sumMessageTokens(messages: StoredMessageLike[]): number {
+    return messages.reduce((total, message) => total + estimateStoredMessageTokens(message), 0);
 }

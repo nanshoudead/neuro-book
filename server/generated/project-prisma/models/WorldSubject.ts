@@ -151,7 +151,7 @@ export type WorldSubjectGroupByOutputType = {
   _max: WorldSubjectMaxAggregateOutputType | null
 }
 
-type GetWorldSubjectGroupByPayload<T extends WorldSubjectGroupByArgs> = Prisma.PrismaPromise<
+export type GetWorldSubjectGroupByPayload<T extends WorldSubjectGroupByArgs> = Prisma.PrismaPromise<
   Array<
     Prisma.PickEnumerable<WorldSubjectGroupByOutputType, T['by']> &
       {
@@ -1056,6 +1056,11 @@ export type WorldSubjectFindManyArgs<ExtArgs extends runtime.Types.Extensions.In
    * Skip the first `n` WorldSubjects.
    */
   skip?: number
+  /**
+   * {@link https://www.prisma.io/docs/concepts/components/prisma-client/distinct Distinct Docs}
+   * 
+   * Filter by unique combinations of WorldSubjects.
+   */
   distinct?: Prisma.WorldSubjectScalarFieldEnum | Prisma.WorldSubjectScalarFieldEnum[]
 }
 

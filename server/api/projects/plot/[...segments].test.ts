@@ -2,15 +2,28 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import {createClient} from "@libsql/client";
 import {afterAll, beforeEach, describe, expect, it, vi} from "vitest";
-import {worldEngineFacade} from "nbook/server/world-engine";
+import {worldEngineFacadeForWorkspaceRoot} from "nbook/server/world-engine";
+import {plotFacadeForWorkspaceRoot} from "nbook/server/plot";
 import {resolveProjectDatabasePath, toSqliteFileUrl} from "nbook/server/workspace-files/project-workspace";
-import {resolveWorkspaceContainerRoot} from "nbook/server/workspace-files/workspace-assets-root";
+import {resolveRuntimeWorkspaceRoot} from "nbook/server/workspace-files/workspace-runtime-root";
 import {collectReleasedSqliteHandles} from "nbook/server/workspace-files/sqlite-handle-release";
 import {closeProjectForTest, openProjectForTest} from "nbook/server/workspace-files/project-session-test-utils";
 
 vi.unmock("nbook/server/plot");
 
+vi.mock("h3", async () => {
+    const actual = await vi.importActual<typeof import("h3")>("h3");
+    return {
+        ...actual,
+        readBody: async (event: {body?: unknown}) => event.body,
+        getQuery: (event: {query?: Record<string, unknown>}) => event.query ?? {},
+    };
+});
+
 const createdProjects: string[] = [];
+const workspaceRoot = resolveRuntimeWorkspaceRoot();
+const worldEngineFacade = worldEngineFacadeForWorkspaceRoot(workspaceRoot);
+const plotFacade = plotFacadeForWorkspaceRoot(workspaceRoot);
 
 describe("/api/projects/plot", {timeout: 30_000}, () => {
     beforeEach(() => {
@@ -28,7 +41,6 @@ describe("/api/projects/plot", {timeout: 30_000}, () => {
     }, 30_000);
 
     afterAll(async () => {
-        const {plotFacade} = await import("nbook/server/plot");
         for (const projectPath of createdProjects) {
             await closeProjectForTest(projectPath).catch(() => undefined);
             await plotFacade.closeProject(projectPath);
@@ -428,7 +440,9 @@ async function removeProjectRoot(projectPath: string): Promise<void> {
 }
 
 async function updateSceneRawInstants(projectPath: string, sceneId: string, startInstant: bigint, endInstant: bigint): Promise<void> {
-    const client = createClient({url: toSqliteFileUrl(resolveProjectDatabasePath(projectPath))});
+    const client = createClient({
+        url: toSqliteFileUrl(resolveProjectDatabasePath(resolveRuntimeWorkspaceRoot(), projectPath)),
+    });
     try {
         await client.execute({
             sql: `UPDATE "StoryScene" SET "startInstant" = ?, "endInstant" = ? WHERE "id" = ?`,
@@ -441,7 +455,7 @@ async function updateSceneRawInstants(projectPath: string, sceneId: string, star
 }
 
 function projectRoot(projectPath: string): string {
-    return path.join(resolveWorkspaceContainerRoot(), projectPath.slice("workspace/".length));
+    return path.join(resolveRuntimeWorkspaceRoot(), projectPath.slice("workspace/".length));
 }
 
 function schemaSource(): string {

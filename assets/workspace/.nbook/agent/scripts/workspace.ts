@@ -24,7 +24,7 @@ import {
     validateWorkspaceContentNodes,
 } from "nbook/server/workspace-files/workspace-files";
 import {initProjectDatabaseAtRoot, PROJECT_DATABASE_RELATIVE_PATH, toSqliteFileUrl} from "nbook/server/workspace-files/project-workspace";
-import {resolveWorkspaceContainerRoot as resolveRuntimeWorkspaceRoot} from "nbook/server/workspace-files/workspace-assets-root";
+import {resolveRuntimeWorkspaceRoot} from "nbook/server/workspace-files/workspace-runtime-root";
 
 type WorkspaceNodeNewOptions = {
     title?: string;

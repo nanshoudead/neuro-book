@@ -4,8 +4,8 @@ import {unzipSync} from "fflate";
 import {
     pathExists,
     resolveWorkspacePath,
-    resolveWorkspaceRoot,
 } from "nbook/server/workspace-files/workspace-files";
+import {assertRealParentContained, type AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
 
 export const SINGLE_FILE_UPLOAD_LIMIT_BYTES = 50 * 1024 * 1024;
 export const PROJECT_UPLOAD_LIMIT_BYTES = 500 * 1024 * 1024;
@@ -39,10 +39,10 @@ export class WorkspaceUploadError extends Error {
 /**
  * 上传单个文件到当前挂载根的 upload/ 目录。已有文件跳过。
  */
-export async function uploadWorkspaceFile(rootInput: string | undefined, file: WorkspaceUploadFile): Promise<WorkspaceUploadResult> {
+export async function uploadWorkspaceFile(root: AbsoluteFsPath, file: WorkspaceUploadFile): Promise<WorkspaceUploadResult> {
     const size = byteLength(file.data);
     assertByteLimit(size, SINGLE_FILE_UPLOAD_LIMIT_BYTES, "单文件上传");
-    return writeWorkspaceUploads(rootInput, [{
+    return writeWorkspaceUploads(root, [{
         relativePath: path.posix.join("upload", sanitizeFileName(file.fileName)),
         data: file.data,
     }], PROJECT_UPLOAD_LIMIT_BYTES);
@@ -51,18 +51,18 @@ export async function uploadWorkspaceFile(rootInput: string | undefined, file: W
 /**
  * 上传 Project 文件集合，路径由浏览器目录上传的相对路径提供。
  */
-export async function uploadWorkspaceProjectFiles(rootInput: string | undefined, files: WorkspaceUploadFile[]): Promise<WorkspaceUploadResult> {
+export async function uploadWorkspaceProjectFiles(root: AbsoluteFsPath, files: WorkspaceUploadFile[]): Promise<WorkspaceUploadResult> {
     const entries = files.map((file) => ({
         relativePath: file.relativePath?.trim() || file.fileName,
         data: file.data,
     }));
-    return writeWorkspaceUploads(rootInput, entries, PROJECT_UPLOAD_LIMIT_BYTES);
+    return writeWorkspaceUploads(root, entries, PROJECT_UPLOAD_LIMIT_BYTES);
 }
 
 /**
  * 解包 zip 并上传到当前挂载根。zip 内路径原样保留，已有文件跳过。
  */
-export async function uploadWorkspaceProjectZip(rootInput: string | undefined, zipFile: WorkspaceUploadFile): Promise<WorkspaceUploadResult> {
+export async function uploadWorkspaceProjectZip(root: AbsoluteFsPath, zipFile: WorkspaceUploadFile): Promise<WorkspaceUploadResult> {
     const zipSize = byteLength(zipFile.data);
     assertByteLimit(zipSize, PROJECT_UPLOAD_LIMIT_BYTES, "Project 压缩包上传");
 
@@ -76,15 +76,14 @@ export async function uploadWorkspaceProjectZip(rootInput: string | undefined, z
     const entries = Object.entries(unzipped)
         .filter(([entryPath]) => !isDirectoryEntry(entryPath))
         .map(([relativePath, data]) => ({relativePath, data}));
-    return writeWorkspaceUploads(rootInput, entries, PROJECT_UPLOAD_LIMIT_BYTES);
+    return writeWorkspaceUploads(root, entries, PROJECT_UPLOAD_LIMIT_BYTES);
 }
 
 async function writeWorkspaceUploads(
-    rootInput: string | undefined,
+    root: AbsoluteFsPath,
     entries: Array<{relativePath: string; data: Buffer | Uint8Array}>,
     limitBytes: number,
 ): Promise<WorkspaceUploadResult> {
-    const root = resolveWorkspaceRoot(rootInput);
     let totalBytes = 0;
     const normalizedEntries = entries.map((entry) => {
         const size = byteLength(entry.data);
@@ -103,6 +102,7 @@ async function writeWorkspaceUploads(
 
     for (const entry of normalizedEntries) {
         const absolutePath = resolveWorkspacePath(root, entry.relativePath);
+        await assertRealParentContained(root, absolutePath);
         if (await pathExists(absolutePath)) {
             skipped += 1;
             files.push({path: entry.relativePath, size: entry.size, action: "skipped"});

@@ -1,6 +1,6 @@
 import {randomUUID} from "node:crypto";
 import {rm} from "node:fs/promises";
-import {join} from "node:path";
+import {join, resolve} from "node:path";
 import {afterEach, beforeEach, describe, expect, it} from "vitest";
 import {fauxAssistantMessage, fauxText, fauxToolCall} from "@earendil-works/pi-ai";
 import type {Context} from "@earendil-works/pi-ai";
@@ -8,14 +8,17 @@ import {createFauxModels, type FauxModelsFixture} from "nbook/server/agent/test-
 import {appendCompaction, COMPACTION_PROMPT, COMPACTION_SUMMARY_PREFIX, compactIfNeeded, resolveCompactionOptions, shouldCompactWithOptions} from "nbook/server/agent/harness/compaction";
 import {createAssistantTextMessage, createTextToolResult, createUserMessage, messageText} from "nbook/server/agent/messages/message-utils";
 import {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
+import type {StoredAgentMessage, StoredAttachmentContent} from "nbook/server/agent/messages/stored-types";
+import {attachmentMarker} from "nbook/server/agent/messages/stored-message-presentation";
+import {absoluteFsPath, type AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
 
 describe("compaction", () => {
-    let root: string;
+    let root: AbsoluteFsPath;
     let repo: JsonlSessionRepository;
     let faux: FauxModelsFixture;
 
     beforeEach(() => {
-        root = join(".agent", "agent-compaction-test", randomUUID());
+        root = absoluteFsPath(resolve(".agent", "agent-compaction-test", randomUUID()));
         repo = new JsonlSessionRepository(root);
         faux = createFauxModels({
             models: [{
@@ -346,6 +349,52 @@ describe("compaction", () => {
 
         expect(summaryPromptText(summaryPrompt)).toContain("PERSISTED SIDECAR CONTEXT");
         expect(summaryPromptText(summaryPrompt)).not.toContain("RUNTIME ONLY SHADOW SHOULD NOT EXIST IN SUMMARY");
+    });
+
+    it("attachment 使用 marker 参与 compaction 与固定 token 预算，不读取 blob", async () => {
+        let summaryPrompt: Context | null = null;
+        faux.setResponses([(context) => {
+            summaryPrompt = context;
+            return fauxAssistantMessage(fauxText("ATTACHMENT SUMMARY"));
+        }]);
+        const session = await repo.createSession({
+            profileKey: "leader.default",
+            initial: {},
+            workspaceRoot: root,
+        });
+        const block: StoredAttachmentContent = {
+            type: "attachment",
+            attachment: {
+                id: `sha256:${"b".repeat(64)}`,
+                mimeType: "image/png",
+                bytes: 7_170_689,
+            },
+            name: "world-map.png",
+        };
+        const imageMessage: StoredAgentMessage = {role: "user", content: [block], timestamp: 1};
+        await repo.appendMessage(session.metadata.sessionId, imageMessage as never, session.metadata.workspaceKey);
+        await repo.appendMessage(session.metadata.sessionId, createUserMessage({text: "recent"}), session.metadata.workspaceKey);
+        const snapshot = await repo.readSession(session.metadata.sessionId);
+
+        await appendCompaction({
+            repo,
+            snapshot,
+            messages: repo.reduce(snapshot).messages,
+            models: faux.runtime,
+            model: faux.getModel(),
+            writeCompactionEntry: createCompactionEntryWriter(repo, session.metadata.sessionId),
+            compaction: {
+                reserveTokens: 2_000,
+                keepRecent: {kind: "tokens", value: 1},
+            },
+        });
+
+        const latest = (await repo.readSession(session.metadata.sessionId)).entries
+            .filter((entry) => entry.type === "compaction")
+            .at(-1);
+        expect(summaryPromptText(summaryPrompt)).toContain(attachmentMarker(block));
+        expect(latest?.type === "compaction" ? latest.details?.summarizedTokens : undefined).toBe(1_200);
+        expect(latest?.type === "compaction" ? latest.tokensBefore : undefined).toBeGreaterThanOrEqual(1_200);
     });
 });
 

@@ -1,15 +1,18 @@
 import {readFile} from "node:fs/promises";
 import {isAbsolute, resolve, join, relative} from "node:path";
 import type {AgentToolCall} from "@earendil-works/pi-agent-core";
-import type {AgentMessage, AssistantMessage, JsonValue, Message, ToolResultMessage} from "nbook/server/agent/messages/types";
-import {createAssistantTextMessage, createTextToolResult, createUserMessage, messageText} from "nbook/server/agent/messages/message-utils";
+import type {AssistantMessage, JsonValue} from "nbook/server/agent/messages/types";
+import type {StoredAgentMessage} from "nbook/server/agent/messages/stored-types";
+import {createAssistantTextMessage, createStoredTextToolResult, createStoredUserMessage} from "nbook/server/agent/messages/message-utils";
+import {storedMessageText} from "nbook/server/agent/messages/stored-message-presentation";
 import type {AgentCatalogItem, AgentProfile, ProfilePrepareContext, ProfileTurnPlan} from "nbook/server/agent/profiles/types";
-import {planModeDirectory, planModeToolDirectory} from "nbook/server/agent/plan-mode-path";
+import {planModeToolDirectory} from "nbook/server/agent/plan-mode-path";
 import {AGENT_MODE_STATE_KEY, AGENT_TASKS_STATE_KEY} from "nbook/server/agent/session/custom-state-keys";
 import type {NeuroSessionContext, SessionEntryDraft} from "nbook/server/agent/session/types";
 import type {ProfileVariablePathInput} from "nbook/server/agent/variables/types";
 import type {AgentMode} from "nbook/shared/dto/agent-session.dto";
 import type {FileChangeAwareness} from "nbook/server/agent/profiles/profile-turn-context";
+import {absoluteFsPath, resolveContainedFilePath} from "nbook/server/runtime/paths/file-path";
 
 export type ProfileDslChild = ProfileDslNode | string | number | boolean | null | undefined | ProfileDslChild[];
 
@@ -494,7 +497,7 @@ export function SqlSchemaSummary(props: {text?: string | ((ctx: ProfilePrepareCo
 export function Import(props: ProfileImportProps): ProfileStringFragmentNode {
     return {
         kind: "StringFragment",
-        text: () => renderImportedContext(props),
+        text: (ctx) => renderImportedContext(props, ctx),
     };
 }
 
@@ -536,16 +539,17 @@ export function LinkedAgentsReminder(props: {id?: string; repeatEveryTurns?: num
 }
 
 /**
- * 首轮注入 agent 运行位置。这里的 Tool cwd 是 agent 文件工具和 bash 的工作目录，不是 Project Workspace。
+ * 首轮注入 agent 文件工具与 bash 共用的 File Scope。
  */
 export function RuntimeLocationReminder(props: {id?: string; repeatEveryTurns?: number; mode?: "workspace" | "userAssets"} = {}): ProfileReminderNode {
     return Reminder({
         id: props.id ?? "runtime-location",
         watch: (ctx) => ({
-            toolCwd: normalizeDisplayPath(ctx.session.workspaceRoot),
+            toolCwd: normalizeDisplayPath(ctx.session.projectPath ?? ctx.session.workspaceRoot),
             sourceRoot: normalizeAbsoluteDisplayPath(process.cwd()),
             referenceRoot: normalizeAbsoluteDisplayPath(resolve(process.cwd(), "reference")),
             mode: props.mode ?? "workspace",
+            projectBound: Boolean(ctx.session.projectPath) && (props.mode ?? "workspace") === "workspace",
         }),
         repeatEveryTurns: props.repeatEveryTurns,
         render: (change) => {
@@ -560,6 +564,18 @@ export function RuntimeLocationReminder(props: {id?: string; repeatEveryTurns?: 
                     "- user-assets is Workspace Root .nbook, not a Project Workspace.",
                     "- Agent profiles, skills, variables, and profile default home resources live under agent/ in the current user-assets cwd.",
                     "- Do not write novel lorebook, manuscript, plot data, chapter prose, world facts, or Project SQLite into user-assets.",
+                ].join("\n"))});
+            }
+            if (location.projectBound) {
+                return Message({children: systemReminder([
+                    "Runtime Location:",
+                    `- Tool cwd / Current Project Workspace: ${ensureTrailingSlash(location.toolCwd)}`,
+                    "- File tools and bash share this cwd. Use lorebook/..., manuscript/..., .agent/... and other Project-relative paths directly.",
+                    "- For explicit cross-project file access, use workspace/<project-slug>/<relative-path>.",
+                    `- Repository Source Root: ${location.sourceRoot}`,
+                    `- Repository Reference Root: ${location.referenceRoot}`,
+                    "- Repository paths are outside the tool cwd. Use the absolute paths above when reading source code or repository reference documents.",
+                    "- Tools that explicitly ask for projectPath still use workspace/<project-slug>.",
                 ].join("\n"))});
             }
             return Message({children: systemReminder([
@@ -603,10 +619,10 @@ export function WorkspaceFocusReminder(props: {id?: string; repeatEveryTurns?: n
                 if (projectChanged) {
                     return Message({children: systemReminder([
                         `User switched Current Project Workspace to ${focus.currentProjectWorkspace}.`,
-                        "Tool cwd and accessible Project Workspaces are unchanged; this only changes the default focus.",
-                        `Use ${projectSlug}/lorebook/..., ${projectSlug}/manuscript/..., and ${projectSlug}/reference/... for project files.`,
-                        `Use workspace/${projectSlug} only when a tool explicitly asks for projectPath.`,
-                        "For another Project Workspace, name its project slug explicitly.",
+                        "The next invocation uses this Project Workspace as the File Scope for file tools and bash.",
+                        "Use lorebook/..., manuscript/..., and reference/... directly for current project files.",
+                        `Use workspace/${projectSlug} when a tool explicitly asks for projectPath.`,
+                        "For another Project Workspace file, use workspace/<project-slug>/<relative-path>.",
                         `Current selected file: ${selectedFile}`,
                     ].join("\n"))});
                 }
@@ -620,12 +636,12 @@ export function WorkspaceFocusReminder(props: {id?: string; repeatEveryTurns?: n
             return Message({children: systemReminder([
                 "Current Workspace Focus:",
                 `- Current Project Workspace: ${focus.currentProjectWorkspace}`,
-                "- This is the default focus for ambiguous project work, not an access boundary.",
-                `- For focused project files, use ${projectSlug}/lorebook/..., ${projectSlug}/manuscript/..., or ${projectSlug}/reference/... .`,
-                "- Other Project Workspaces remain accessible; use their project slug explicitly for cross-project work.",
+                "- File tools and bash use this Project Workspace as their current File Scope.",
+                "- For focused project files, use lorebook/..., manuscript/..., or reference/... directly.",
+                "- For another Project Workspace file, use workspace/<project-slug>/<relative-path>.",
                 `- Current selected file: ${selectedFile}`,
-                `- project.yaml is at ${projectSlug}/project.yaml.`,
-                `- Use workspace/${projectSlug} only when a tool explicitly asks for projectPath.`,
+                "- project.yaml is at project.yaml.",
+                `- Use workspace/${projectSlug} when a tool explicitly asks for projectPath.`,
             ].join("\n"))});
         },
     });
@@ -792,15 +808,15 @@ async function renderSystemOnlyChildren(state: CompileState, children: ProfileDs
     return prompts.join("\n\n");
 }
 
-async function renderChildren(state: CompileState, zone: RenderZone, children: ProfileDslChild[]): Promise<AgentMessage[]> {
-    const messages: AgentMessage[] = [];
+async function renderChildren(state: CompileState, zone: RenderZone, children: ProfileDslChild[]): Promise<StoredAgentMessage[]> {
+    const messages: StoredAgentMessage[] = [];
     for (const child of children) {
         messages.push(...await renderChild(state, zone, child));
     }
     return messages;
 }
 
-async function renderChild(state: CompileState, zone: RenderZone, child: ProfileDslChild): Promise<AgentMessage[]> {
+async function renderChild(state: CompileState, zone: RenderZone, child: ProfileDslChild): Promise<StoredAgentMessage[]> {
     if (child === null || child === undefined || child === false || child === true) {
         return [];
     }
@@ -845,7 +861,7 @@ async function renderChild(state: CompileState, zone: RenderZone, child: Profile
     }
     if (child.kind === "AppendingSet") {
         assertZone(zone, "root", "AppendingSet 只能放在 ProfilePrompt 顶层。");
-        const messages: AgentMessage[] = [];
+        const messages: StoredAgentMessage[] = [];
         const baseIndex = state.plan.appendingMessages?.length ?? 0;
         for (const appendingChild of child.children) {
             if (appendingChild && !Array.isArray(appendingChild) && typeof appendingChild === "object" && appendingChild.kind === "FileChangeNotice") {
@@ -929,14 +945,12 @@ function validateSystemChildren(children: ProfileDslChild[]): void {
     }
 }
 
-async function renderMessageNode(state: CompileState, node: ProfileMessageNode): Promise<Message> {
+async function renderMessageNode(state: CompileState, node: ProfileMessageNode): Promise<StoredAgentMessage> {
     if (node.kind === "Message") {
         if (node.role === "system") {
             throw new Error("<Message role=\"system\"> 不被支持，请使用 <System> 或 <AppendingSet><Message>。");
         }
-        return createUserMessage({
-            text: await renderStringChildren(state, "message", node.children),
-        });
+        return createStoredUserMessage(await renderStringChildren(state, "message", node.children));
     }
     if (node.kind === "AIMessage") {
         validateAssistantChildren(node.children);
@@ -967,12 +981,12 @@ async function renderMessageNode(state: CompileState, node: ProfileMessageNode):
         throw new Error(`ToolResult.toolCallId 未匹配前序 ToolCall：${node.toolCallId}`);
     }
     state.pendingToolCallIds = state.pendingToolCallIds.filter((toolCallId) => toolCallId !== node.toolCallId);
-    return createTextToolResult({
+    return createStoredTextToolResult({
         toolCallId: node.toolCallId,
         toolName: node.toolName,
         text: await renderStringChildren(state, "message", node.children),
         isError: node.isError,
-    }) satisfies ToolResultMessage;
+    });
 }
 
 function validateAssistantChildren(children: ProfileDslChild[]): void {
@@ -1069,7 +1083,7 @@ function validateAssistantChildSequence(children: ProfileDslChild[], seenToolCal
     return localSeenToolCall;
 }
 
-async function renderReminder(state: CompileState, node: ProfileReminderNode): Promise<AgentMessage[]> {
+async function renderReminder(state: CompileState, node: ProfileReminderNode): Promise<StoredAgentMessage[]> {
     if (!node.when) {
         return [];
     }
@@ -1143,7 +1157,7 @@ async function renderReminder(state: CompileState, node: ProfileReminderNode): P
     return messages;
 }
 
-async function renderWatch(state: CompileState, zone: RenderZone, node: ProfileWatchNode): Promise<AgentMessage[]> {
+async function renderWatch(state: CompileState, zone: RenderZone, node: ProfileWatchNode): Promise<StoredAgentMessage[]> {
     if (node.path !== undefined && node.value !== undefined) {
         throw new Error("Watch.path 与 Watch.value 不能同时提供。");
     }
@@ -1188,12 +1202,12 @@ async function renderWatch(state: CompileState, zone: RenderZone, node: ProfileW
     return renderChildren(state, zone === "model" ? "watch" : "watch", normalizeChildren(rendered));
 }
 
-async function renderImportedContext(props: ProfileImportProps): Promise<string> {
+async function renderImportedContext(props: ProfileImportProps, context: ProfilePrepareContext<any>): Promise<string> {
     if (props.as && props.as !== "text") {
         throw new Error(`Import.as 第一版只支持 text：${props.as}`);
     }
     const path = normalizeImportPath(props.path);
-    const readResult = await readImportFile(path, props.required === true);
+    const readResult = await readImportFile(path, props.required === true, context);
     if (!readResult.exists) {
         return "";
     }
@@ -1243,12 +1257,10 @@ function isAllowedImportPath(path: string): boolean {
         || path.startsWith("workspace/"); // 放开 Project 运行态文件（如 subject soul.md）Import；细粒度权限以后再收
 }
 
-async function readImportFile(path: string, required: boolean): Promise<{exists: true; text: string} | {exists: false}> {
-    const target = resolve(process.cwd(), path);
-    const cwd = resolve(process.cwd());
-    if (relative(cwd, target).split(/[\\/]/).includes("..")) {
-        throw new Error(`Import.path 解析后越界：${path}`);
-    }
+async function readImportFile(path: string, required: boolean, context: ProfilePrepareContext<any>): Promise<{exists: true; text: string} | {exists: false}> {
+    const target = path.startsWith("workspace/")
+        ? resolveContainedFilePath(absoluteFsPath(context.session.workspaceFsRoot), path.slice("workspace/".length))
+        : resolveApplicationImportPath(path);
     try {
         return {
             exists: true,
@@ -1419,8 +1431,8 @@ function flattenChildren(child: ProfileDslChild): ProfileDslChild[] {
     return [child];
 }
 
-function onlyMessages(messages: AgentMessage[], label: string): Message[] {
-    return messages.filter((message): message is Message => {
+function onlyMessages(messages: StoredAgentMessage[], label: string): StoredAgentMessage[] {
+    return messages.filter((message): message is StoredAgentMessage => {
         if (message.role === "user" || message.role === "assistant" || message.role === "toolResult") {
             return true;
         }
@@ -1428,7 +1440,7 @@ function onlyMessages(messages: AgentMessage[], label: string): Message[] {
     });
 }
 
-function onlyNonEmptyMessage(message: Message): Message[] {
+function onlyNonEmptyMessage(message: StoredAgentMessage): StoredAgentMessage[] {
     if (message.role === "toolResult") {
         return [message];
     }
@@ -1438,7 +1450,7 @@ function onlyNonEmptyMessage(message: Message): Message[] {
         });
         return hasContent ? [message] : [];
     }
-    return messageText(message).trim() ? [message] : [];
+    return storedMessageText(message).trim() ? [message] : [];
 }
 
 function assertZone(current: RenderZone, expected: RenderZone, message: string): void {
@@ -1447,7 +1459,7 @@ function assertZone(current: RenderZone, expected: RenderZone, message: string):
     }
 }
 
-function countUserTurns(messages: AgentMessage[]): number {
+function countUserTurns(messages: StoredAgentMessage[]): number {
     // runtime.promptUserTurnCount 由 harness 在挂起用户消息前计算；这里保留 session 回退，方便脚本直接调用 profile.prepare。
     return messages.filter((message) => {
         return message.role === "user";
@@ -1676,13 +1688,14 @@ async function readWorkspaceFocus(ctx: ProfilePrepareContext<any>): Promise<Json
     };
 }
 
-function readRuntimeLocationState(value: JsonValue | undefined): {toolCwd: string; sourceRoot: string; referenceRoot: string; mode: string} {
+function readRuntimeLocationState(value: JsonValue | undefined): {toolCwd: string; sourceRoot: string; referenceRoot: string; mode: string; projectBound: boolean} {
     const record = readRecord(value);
     return {
         toolCwd: typeof record.toolCwd === "string" && record.toolCwd.trim() ? record.toolCwd : "workspace",
         sourceRoot: typeof record.sourceRoot === "string" && record.sourceRoot.trim() ? record.sourceRoot : normalizeAbsoluteDisplayPath(process.cwd()),
         referenceRoot: typeof record.referenceRoot === "string" && record.referenceRoot.trim() ? record.referenceRoot : normalizeAbsoluteDisplayPath(resolve(process.cwd(), "reference")),
         mode: typeof record.mode === "string" && record.mode.trim() ? record.mode : "workspace",
+        projectBound: record.projectBound === true,
     };
 }
 
@@ -1725,17 +1738,23 @@ function renderSelectedWorkspaceFile(projectSlug: string, selectedFilePath: stri
     if (!projectSlug) {
         return normalized;
     }
-    if (normalized === projectSlug || normalized.startsWith(`${projectSlug}/`)) {
-        return normalized;
+    if (normalized === projectSlug) {
+        return ".";
+    }
+    if (normalized.startsWith(`${projectSlug}/`)) {
+        return normalized.slice(projectSlug.length + 1);
     }
     if (normalized.startsWith("workspace/")) {
         const withoutWorkspace = normalized.slice("workspace/".length);
-        return withoutWorkspace === projectSlug || withoutWorkspace.startsWith(`${projectSlug}/`)
-            ? withoutWorkspace
+        if (withoutWorkspace === projectSlug) {
+            return ".";
+        }
+        return withoutWorkspace.startsWith(`${projectSlug}/`)
+            ? withoutWorkspace.slice(projectSlug.length + 1)
             : normalized;
     }
     if (/^(manuscript|lorebook|reference|upload|simulation|\.nbook)(\/|$)/.test(normalized)) {
-        return `${projectSlug}/${normalized}`;
+        return normalized;
     }
     return normalized;
 }
@@ -1745,6 +1764,16 @@ function linkedAgentsSummaryText(session: NeuroSessionContext): string {
         return "";
     }
     return `Linked agents:\n${linkedAgentItemsText(session)}`;
+}
+
+/** Repo/Application Root import只服务静态AGENTS/reference/docs/system skill资源。 */
+function resolveApplicationImportPath(path: string): string {
+    const applicationRoot = resolve(process.cwd());
+    const target = resolve(applicationRoot, path);
+    if (relative(applicationRoot, target).split(/[\\/]/).includes("..")) {
+        throw new Error(`Import.path 解析后越界：${path}`);
+    }
+    return target;
 }
 
 /** 已关联 agent 列表正文；标题由具体消费方决定。 */
@@ -1831,16 +1860,14 @@ function ModeReminderText(props: {stateKey: string; slots: Partial<Record<ModeSl
             const fromMode = modeState.fromMode === "discuss" || modeState.fromMode === "plan" || modeState.fromMode === "normal"
                 ? modeState.fromMode
                 : "normal";
-            const workDirectory = typeof modeState.workDirectory === "string"
-                ? modeState.workDirectory
-                : planModeDirectory({
-                    workspaceRoot: ctx.session.workspaceRoot,
-                    projectPath: ctx.session.projectPath,
-                }).replace(/\\/g, "/");
             const toolDirectory = planModeToolDirectory({
-                workspaceRoot: ctx.session.workspaceRoot,
+                workspaceRootRef: ctx.session.workspaceRoot,
+                workspaceFsRoot: ctx.session.workspaceFsRoot,
                 projectPath: ctx.session.projectPath,
             });
+            // workDirectory是运行时投影，不信任旧session可能持久化的安装机绝对路径。
+            // File Scope移动后始终展示当前工具可直接使用的逻辑目录。
+            const workDirectory = toolDirectory;
             // 周期重放只出 steady 档；状态变化按 phase 出全文
             const slotKind = resolveModeSlotKind(mode, props.steadyOnly ? "steady" : phase, fromMode);
             if (!slotKind) {
@@ -1960,7 +1987,7 @@ function renderModeReminderText(kind: ModeSlotKind, workDirectory: string, toolD
         "## Plan Work Directory",
         "",
         `- The Project Workspace plan directory is ${workDirectory}. It can contain plan files, walkthrough files, or research notes for this project.`,
-        `- When using file tools from the Workspace Root cwd, write plan files via ${toolDirectory}/<slug>.md. The switch_mode planFilePath argument must be Project Workspace relative, for example .agent/plan/<slug>.md, so the approval UI can preview the file.`,
+        `- File tools and bash use the current Project Workspace as their File Scope. Write plan files via ${toolDirectory}/<slug>.md. The switch_mode planFilePath argument uses the same Project-relative path, so the approval UI can preview the file.`,
         "- No file is bound when entering plan mode. Choose a short readable Markdown file name when the task needs persisted planning or walkthrough notes. Do not create files just for formality for small non-editing tasks.",
         "- If a relevant Markdown file already exists in this exact plan directory, you can read it and make incremental edits using read and edit.",
         "- Do not put scratch/cache/command-output drafts under Project Workspace .agent; use the system temp directory for temporary files.",
@@ -1995,7 +2022,7 @@ function mentionedSkillsReminderText(ctx: ProfilePrepareContext<any>): string {
     if (!latestUser || latestUser.role !== "user") {
         return "";
     }
-    const text = messageText(latestUser);
+    const text = storedMessageText(latestUser);
     const names = [...text.matchAll(/\$([^\s$]+)/gu)].map((match) => match[1]).filter(Boolean);
     if (names.length === 0) {
         return "";
@@ -2082,7 +2109,7 @@ async function defaultAgentCatalogText(ctx: ProfilePrepareContext<any>): Promise
 async function defaultActivatedSkillsText(ctx: ProfilePrepareContext<any>): Promise<string> {
     const latestUser = ctx.runtime?.pendingUserMessage
         ?? [...ctx.session.messages].reverse().find((message) => message.role === "user");
-    const text = latestUser && latestUser.role === "user" ? messageText(latestUser) : "";
+    const text = latestUser && latestUser.role === "user" ? storedMessageText(latestUser) : "";
     const skillNames = [...text.matchAll(/\$([^\s$]+)/gu)].map((match) => match[1]).filter(Boolean);
     if (skillNames.length === 0) {
         return "";
@@ -2101,7 +2128,7 @@ async function defaultSqlSchemaSummaryText(ctx: ProfilePrepareContext<any>): Pro
             "<sql-schema-summary>",
             "Target database is current Project Workspace .nbook/project.sqlite. App SQLite is not accessible from execute_sql.",
             "Double-quote business tables with uppercase letters and camelCase columns, e.g. \"createdAt\", \"sortOrder\".",
-            await getAgentSqlSchemaSummary(ctx.session.projectPath),
+            await getAgentSqlSchemaSummary(ctx.session.workspaceFsRoot, ctx.session.projectPath),
             "</sql-schema-summary>",
         ].join("\n");
     } catch (error) {

@@ -79,7 +79,7 @@ Writer 按需主动调用工具：
 
 调用 writer 前，leader 应尽量准备好：
 
-- `input.path`：唯一目标 Markdown 文件，必须是 `project-slug/.../*.md`。
+- `input.path`：唯一目标Markdown文件，必须是当前Project Workspace相对路径，例如`manuscript/.../index.md`。
 - `message`：本轮正文任务、范围、重点、禁忌和结束条件。
 - **Scene / World Context**：leader 用 `get_chapter_writer_brief` 编译后的章节 brief，包含：
   - 关键剧情点和 Scene 摘要

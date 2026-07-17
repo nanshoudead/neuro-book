@@ -2,11 +2,10 @@ import {createError, sendStream, setResponseHeader} from "h3";
 import {createWorkspaceZipStream} from "nbook/server/workspace-files/workspace-archive";
 import {
     USER_ASSETS_WORKSPACE_KIND,
-    USER_ASSETS_WORKSPACE_ROOT,
-    ensureUserAssetsWorkspaceRoot,
-    resolveNovelWorkspaceRoot,
+    resolveWorkspaceFileTarget,
 } from "nbook/server/workspace-files/novel-workspace";
-import {assertProjectOpenForRoot} from "nbook/server/workspace-files/project-open-guard";
+import {assertProjectOpenForTarget} from "nbook/server/workspace-files/project-open-guard";
+import {runtimePathsFromEnv} from "nbook/server/runtime/paths/runtime-paths";
 
 /**
  * 打包下载当前 Project Workspace；user-assets 入口打包 Workspace Root .nbook。
@@ -15,18 +14,13 @@ export default defineEventHandler(async (event) => {
     const query = getQuery(event);
     const projectPath = typeof query.projectPath === "string" ? query.projectPath : undefined;
     const workspaceKind = query.workspaceKind === USER_ASSETS_WORKSPACE_KIND ? query.workspaceKind : undefined;
-    if (workspaceKind === USER_ASSETS_WORKSPACE_KIND) {
-        await ensureUserAssetsWorkspaceRoot();
-        const archive = await createWorkspaceZipStream(USER_ASSETS_WORKSPACE_ROOT);
-        return sendArchive(event, archive);
-    }
-    if (!projectPath?.trim()) {
+    if (workspaceKind !== USER_ASSETS_WORKSPACE_KIND && !projectPath?.trim()) {
         throw createError({statusCode: 400, message: "projectPath 不能为空"});
     }
 
-    const workspaceRoot = await resolveNovelWorkspaceRoot(projectPath);
-    assertProjectOpenForRoot(workspaceRoot);
-    const archive = await createWorkspaceZipStream(workspaceRoot);
+    const target = await resolveWorkspaceFileTarget(runtimePathsFromEnv(), {projectPath, workspaceKind});
+    assertProjectOpenForTarget(target);
+    const archive = await createWorkspaceZipStream(target.root);
     return sendArchive(event, archive);
 });
 

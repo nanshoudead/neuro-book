@@ -1,4 +1,5 @@
-import type {AgentMessage, AgentToolCall, AssistantMessage, JsonValue, Message, Model, ThinkingLevel, ToolResultMessage} from "nbook/server/agent/messages/types";
+import type {AgentToolCall, AssistantMessage, JsonValue, Model, ThinkingLevel, ToolResultMessage} from "nbook/server/agent/messages/types";
+import type {StoredAgentMessage, StoredToolResultMessage, StoredUserMessage} from "nbook/server/agent/messages/stored-types";
 import type {AgentProfile} from "nbook/server/agent/profiles/types";
 import type {ProfileRuntimeSettings} from "nbook/shared/agent/profile-runtime-settings";
 import type {TSchema} from "typebox";
@@ -16,6 +17,8 @@ import type {PiTraceSettings} from "nbook/server/agent/observability/traced-prov
 import type {ProfileTurnContextPlan, ProfileTurnContextSettlement} from "nbook/server/agent/profiles/profile-turn-context";
 import type {Models} from "@earendil-works/pi-ai";
 import type {PublicRuntimeProjectionState} from "nbook/server/agent/events/public-event-projection";
+import type {AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
+import type {WorkspaceRootRef} from "nbook/server/workspace-files/workspace-root-ref";
 
 export type RunRuntimeState = Map<string, JsonValue>;
 
@@ -26,8 +29,19 @@ export type PendingSessionWritePlan = {
     plan: SessionWritePlan;
 };
 
+/**
+ * 一次工具执行的双边界结果。
+ *
+ * `stored` 是 Run Kernel/JSONL/下一轮 Provider hydration 的真相；`event` 仅用于
+ * Pi AgentEvent 的文本投影，禁止写回 session 或 RunFrame。
+ */
+export type RuntimeToolResult = {
+    stored: StoredToolResultMessage;
+    event: ToolResultMessage;
+};
+
 export type RunToolBatchResult = {
-    toolResults: ToolResultMessage[];
+    toolResults: RuntimeToolResult[];
     reportResult?: InvokeAgentResult["reportResult"];
     sidecarResult?: RunSidecarToolResult;
     reportResultError?: string;
@@ -62,13 +76,13 @@ export type RuntimeHookExecutionInput = {
     snapshot?: SessionSnapshot;
     context?: NeuroSessionContext;
     turnIndex?: number;
-    pendingUserMessage?: Message;
+    pendingUserMessage?: StoredUserMessage;
     payload?: JsonValue;
     invocationMessage?: string;
     caller: AgentInvokeCaller;
     turn?: {
         assistant: AssistantMessage;
-        toolResults: ToolResultMessage[];
+        toolResults: StoredToolResultMessage[];
         waiting?: RunToolBatchResult["waiting"];
         messageStatus?: "partial" | "interrupted" | "error";
     };
@@ -78,7 +92,7 @@ export type RuntimeHookExecutionInput = {
         reportResult?: InvokeAgentResult["reportResult"];
         waiting?: RunToolBatchResult["waiting"];
     };
-    modelMessages?: AgentMessage[];
+    modelMessages?: StoredAgentMessage[];
     activeHookBuiltin?: boolean;
 };
 
@@ -89,7 +103,7 @@ export type RuntimeHookExecutionResult = {
     profilePrompt?: boolean;
     sessionContext?: boolean;
     reportResultReminder?: boolean;
-    runtimeMessages: AgentMessage[];
+    runtimeMessages: StoredAgentMessage[];
 };
 
 export type TurnIngestResult = {
@@ -147,7 +161,8 @@ export type RunFrame = {
     invocationId?: string;
     sessionId: number;
     workspaceKey: string;
-    workspaceRoot: string;
+    workspaceRootRef: WorkspaceRootRef;
+    workspaceFsRoot: AbsoluteFsPath;
     projectPath?: string;
     systemPrompt: string;
     models: Models;
@@ -175,9 +190,10 @@ export type RunFrame = {
     thinkingLevel: ThinkingLevel;
     runtimeState: RunRuntimeState;
     abortSignal?: AbortSignal;
-    messages: AgentMessage[];
+    /** RunFrame 持有 durable 引用态消息；attachment 仅在 Provider 调用前 hydrate。 */
+    messages: StoredAgentMessage[];
     /** prepareNextTurn 注入的下一轮临时上下文；进入一次 provider snapshot 后清空。 */
-    nextTurnRuntimeMessages: AgentMessage[];
+    nextTurnRuntimeMessages: StoredAgentMessage[];
     reportResult?: InvokeAgentResult["reportResult"];
     /** 当前 sidecar run 通过 report_sidecar_result 返回的结构化结果。 */
     sidecarResult?: RunSidecarToolResult;
@@ -224,8 +240,8 @@ export type TurnSnapshot = {
     sessionSnapshot: SessionSnapshot;
     sessionContext: NeuroSessionContext;
     systemPrompt: string;
-    modelMessages: AgentMessage[];
-    providerMessages: Message[];
+    /** Provider 请求前的冻结 stored truth；禁止提前投影 marker 或 hydrate base64。 */
+    modelMessages: StoredAgentMessage[];
     models: Models;
     model: Model<any>;
     apiKey?: string;
@@ -243,7 +259,7 @@ export type RuntimeTurn = {
     snapshot: TurnSnapshot;
     assistant: AssistantMessage;
     toolCalls: AgentToolCall[];
-    toolResults: ToolResultMessage[];
+    toolResults: RuntimeToolResult[];
     reportResult?: InvokeAgentResult["reportResult"];
     sidecarResult?: RunSidecarToolResult;
     reportResultError?: string;
@@ -257,7 +273,7 @@ export type TurnContinuationReason = "tool" | "steer" | "report_result";
 export type TurnContinuationDecision = {
     continue: boolean;
     reasons: TurnContinuationReason[];
-    steeredMessages: Message[];
+    steeredMessages: StoredUserMessage[];
     needsReportResultReminder: boolean;
 };
 

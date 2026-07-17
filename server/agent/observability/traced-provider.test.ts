@@ -105,6 +105,33 @@ describe("tracedStreamSimple", () => {
         const exists = await readdir(dir).then(() => true).catch(() => false);
         expect(exists).toBe(false);
     });
+
+    it("attachment 请求只记录独立 safe context，并省略 provider payload", async () => {
+        const data = "A".repeat(200_000);
+        const providerContext: Context = {
+            systemPrompt: "sp",
+            messages: [{role: "user", content: [{type: "image", mimeType: "image/png", data}], timestamp: 1}],
+            tools: [],
+        };
+        const safeContext: Context = {
+            systemPrompt: "sp",
+            messages: [{role: "user", content: "[attachment omitted: image/png, 150000 bytes]", timestamp: 1}],
+            tools: [],
+        };
+        faux.setResponses([() => fauxAssistantMessage(fauxText("SAFE"))]);
+        const stream = tracedStreamSimple(faux.runtime, faux.getModel(), providerContext, {}, binding(), {
+            context: safeContext,
+            payloadOmittedReason: "attachment",
+        });
+        await stream.result();
+        await recorder.flush();
+
+        const [record] = await readBucket(root, 42);
+        expect(record?.request.context).toEqual(safeContext);
+        expect(record?.request.payload).toBeUndefined();
+        expect(record?.request.payloadOmittedReason).toBe("attachment");
+        expect(JSON.stringify(record)).not.toContain(data);
+    });
 });
 
 describe("sanitizeResponseHeaders", () => {

@@ -3,8 +3,9 @@ import {collectReleasedSqliteHandles} from "nbook/server/workspace-files/sqlite-
 import {
     assertProjectWorkspaceDirectory,
     initProjectDatabase,
-    normalizeProjectPath,
 } from "nbook/server/workspace-files/project-workspace";
+import {normalizeProjectPath} from "nbook/server/workspace-files/project-path";
+import type {AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
 
 /**
  * ProjectSession：Project 级显式生命周期模块（Task 94，演进自 Task 92 的隐式资源注册表）。
@@ -24,7 +25,7 @@ import {
  *   不再承载任何生命周期语义（绝不隐式建 session）。
  *
  * 键形态：projectPath 一律为 `workspace/<slug>` 归一形（normalizeProjectPath 输出）；
- * 各入口先归一化，非法形态由 normalizeProjectPath 抛 400 createError。
+ * 各入口先归一化，非法形态由 normalizeProjectPath 抛 InvalidProjectPathError。
  * 本模块刻意不预热 tree watcher（HTTP open 路由负责），避免与 project-workspace-index 循环 import。
  */
 
@@ -132,7 +133,11 @@ export function registerProjectResourceOwner(owner: ProjectResourceOwner): void 
  * - 无会话：校验目录存在且未标记删除（404 语义）→ 跑一次 initProjectDatabase（迁移收敛到 open）→ 建会话。
  * 并发调用经 openInFlight 去重，只有首个调用真正执行建会话流程。
  */
-export async function openProject(projectPath: string, opener: ProjectOpener): Promise<void> {
+export async function openProject(
+    workspaceRoot: AbsoluteFsPath,
+    projectPath: string,
+    opener: ProjectOpener,
+): Promise<void> {
     const key = normalizeProjectPath(projectPath);
     // 全程进锁：与 close 串行。存在性判定必须在锁内做——锁外读到的「已 open」可能是一个正在被
     // close 拆除的旧会话，据此短路会让重开丢失（审查确认的 close-vs-reopen 竞态）。
@@ -146,16 +151,20 @@ export async function openProject(projectPath: string, opener: ProjectOpener): P
             }
             return;
         }
-        await establishProjectSession(key, opener);
+        await establishProjectSession(workspaceRoot, key, opener);
     });
 }
 
 /**
  * 真正执行首次 open 的建会话流程：目录校验 → 数据库迁移 → 落会话记录。调用方持有 key 锁。
  */
-async function establishProjectSession(key: string, opener: ProjectOpener): Promise<void> {
-    await assertProjectWorkspaceDirectory(key);
-    await initProjectDatabase(key);
+async function establishProjectSession(
+    workspaceRoot: AbsoluteFsPath,
+    key: string,
+    opener: ProjectOpener,
+): Promise<void> {
+    await assertProjectWorkspaceDirectory(workspaceRoot, key);
+    await initProjectDatabase(workspaceRoot, key);
     // 重开取消对该 key 的泄漏重试：旧 orphan 资源让位给新会话，避免下轮 sweep 把新会话资源误关。
     leakedProjects.delete(key);
     const nowIso = new Date().toISOString();

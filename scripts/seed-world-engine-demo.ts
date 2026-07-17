@@ -20,9 +20,10 @@
 import {Database} from "bun:sqlite";
 import {createWorldEngineTools} from "nbook/server/agent/tools/world-engine-tools";
 import type {NeuroAgentTool, ToolExecutionContext} from "nbook/server/agent/tools/types";
-import {resolveWorkspaceContainerRoot} from "nbook/server/workspace-files/workspace-assets-root";
+import {resolveRuntimeWorkspaceRoot} from "nbook/server/workspace-files/workspace-runtime-root";
 import {initProjectDatabase, resolveProjectDatabasePath} from "nbook/server/workspace-files/project-workspace";
 import {worldEngineFacade} from "nbook/server/world-engine";
+import {WORKSPACE_CONTAINER_ROOT} from "nbook/server/workspace-files/workspace-root-ref";
 
 // ========== 参数解析 ==========
 
@@ -31,6 +32,7 @@ const flags = new Set(argv.filter((a) => a.startsWith("--")));
 const projectPath = argv.find((a) => !a.startsWith("--")) ?? "workspace/ming-ding-zhi-shi-2";
 const verifyOnly = flags.has("--verify-only");
 const keepExisting = flags.has("--keep");
+const workspaceRoot = resolveRuntimeWorkspaceRoot();
 
 // ========== Agent 工具装配（忠实复现 world-engine-tools.test.ts 的最小上下文）==========
 
@@ -42,8 +44,10 @@ const context: ToolExecutionContext = {
     harness: {} as ToolExecutionContext["harness"],
     sessionId: 1,
     profileKey: "scripts.seed-world-engine-demo",
-    workspaceRoot: resolveWorkspaceContainerRoot(),
+    workspaceRootRef: WORKSPACE_CONTAINER_ROOT,
+    workspaceFsRoot: workspaceRoot,
     workspaceKey: "global",
+    projectPath,
 };
 
 function mustTool(key: string): NeuroAgentTool {
@@ -282,8 +286,8 @@ const SLICES: Slice[] = [
 
 /** 清空该项目 db 的三张 World 表（不碰 Story* 等其它表）。 */
 async function reset(): Promise<void> {
-    await initProjectDatabase(projectPath);
-    const dbPath = resolveProjectDatabasePath(projectPath);
+    await initProjectDatabase(workspaceRoot, projectPath);
+    const dbPath = resolveProjectDatabasePath(workspaceRoot, projectPath);
     const db = new Database(dbPath);
     try {
         // 删除顺序无外键约束依赖，直接逐表清空。

@@ -1,4 +1,6 @@
 import {beforeAll, beforeEach, describe, expect, it, vi} from "vitest";
+import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
+import {normalizeProjectPath} from "nbook/server/workspace-files/project-path";
 
 type WorkspaceFileEventsHandlerFactory = typeof import("nbook/server/api/workspace-files/events.get")["createWorkspaceFileEventsHandler"];
 
@@ -10,6 +12,11 @@ type TestEventStream = {
 };
 
 let createWorkspaceFileEventsHandler: WorkspaceFileEventsHandlerFactory;
+const target = {
+    kind: "project-workspace" as const,
+    root: absoluteFsPath("C:/test/workspace/novel-1"),
+    projectPath: normalizeProjectPath("workspace/novel-1"),
+};
 
 /**
  * 等待 handler 跑过已经 resolve 的异步准备阶段。
@@ -45,7 +52,8 @@ describe("GET /api/workspace-files/events", () => {
         });
         const handler = createWorkspaceFileEventsHandler({
             createEventStream: vi.fn(() => eventStream) as never,
-            resolveWorkspaceRootInput: vi.fn(async () => "workspace/novel-1") as never,
+            runtimePaths: vi.fn(() => ({} as never)),
+            resolveWorkspaceFileTarget: vi.fn(async () => target),
             subscribeWorkspaceTreeIndex: vi.fn(() => subscribePromise) as never,
         });
 
@@ -67,7 +75,8 @@ describe("GET /api/workspace-files/events", () => {
         const eventStream = createEventStreamMock();
         const handler = createWorkspaceFileEventsHandler({
             createEventStream: vi.fn(() => eventStream) as never,
-            resolveWorkspaceRootInput: vi.fn(async () => "workspace/novel-1") as never,
+            runtimePaths: vi.fn(() => ({} as never)),
+            resolveWorkspaceFileTarget: vi.fn(async () => target),
             subscribeWorkspaceTreeIndex: vi.fn(async () => vi.fn()) as never,
         });
 
@@ -86,7 +95,8 @@ describe("GET /api/workspace-files/events", () => {
         });
         const handler = createWorkspaceFileEventsHandler({
             createEventStream: vi.fn(() => eventStream) as never,
-            resolveWorkspaceRootInput: vi.fn(async () => "workspace/novel-1") as never,
+            runtimePaths: vi.fn(() => ({} as never)),
+            resolveWorkspaceFileTarget: vi.fn(async () => target),
             subscribeWorkspaceTreeIndex: vi.fn(async (_options: unknown, indexHandler: (payload: unknown) => Promise<void>) => {
                 subscribedHandler = indexHandler;
                 return unsubscribe;
@@ -113,7 +123,8 @@ describe("GET /api/workspace-files/events", () => {
         const eventStream = createEventStreamMock();
         const handler = createWorkspaceFileEventsHandler({
             createEventStream: vi.fn(() => eventStream) as never,
-            resolveWorkspaceRootInput: vi.fn(async () => "workspace/novel-1") as never,
+            runtimePaths: vi.fn(() => ({} as never)),
+            resolveWorkspaceFileTarget: vi.fn(async () => target),
             subscribeWorkspaceTreeIndex: vi.fn(async (_options: unknown, indexHandler: (payload: unknown) => Promise<void>) => {
                 subscribedHandler = indexHandler;
                 return vi.fn();

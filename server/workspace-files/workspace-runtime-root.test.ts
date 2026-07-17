@@ -2,25 +2,21 @@ import {mkdir, mkdtemp, rm} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {join, resolve} from "node:path";
 import {afterEach, describe, expect, it} from "vitest";
-
-import {resolveSystemNbookRoot, resolveWorkspaceContainerRoot} from "nbook/server/workspace-files/workspace-assets-root";
+import {
+    resolveRuntimeWorkspaceRoot,
+    resolveUserNbookRoot,
+    setWorkspaceRuntimeRootContextForTest,
+} from "nbook/server/workspace-files/workspace-runtime-root";
 
 const roots: string[] = [];
 
-afterEach(async () => Promise.all(roots.splice(0).map((root) => rm(root, {recursive: true, force: true}))));
+afterEach(async () => {
+    setWorkspaceRuntimeRootContextForTest(null);
+    await Promise.all(roots.splice(0).map((root) => rm(root, {recursive: true, force: true})));
+});
 
-describe("Product system assets root", () => {
-    it("无根 node_modules 时使用 Product 内已修补的系统资产", async () => {
-        const root = await mkdtemp(join(tmpdir(), "nbook-product-assets-"));
-        roots.push(root);
-        await mkdir(join(root, "assets", "workspace", ".nbook"), {recursive: true});
-        const productRoot = join(root, ".output", "server", "assets", "workspace", ".nbook");
-        await mkdir(productRoot, {recursive: true});
-
-        expect(resolveSystemNbookRoot(root)).toBe(productRoot);
-    });
-
-    it("显式 State Root 不被祖先 workspace 目录覆盖", async () => {
+describe("Workspace runtime root", () => {
+    it("显式State Root不被祖先workspace目录覆盖", async () => {
         const root = await mkdtemp(join(tmpdir(), "nbook-workspace-parent-"));
         roots.push(root);
         const applicationRoot = join(root, "workspace", "portable");
@@ -31,11 +27,22 @@ describe("Product system assets root", () => {
         process.env.NEURO_BOOK_APPLICATION_ROOT = applicationRoot;
         process.env.NEURO_BOOK_STATE_ROOT = stateRoot;
         try {
-            expect(resolveWorkspaceContainerRoot(applicationRoot)).toBe(resolve(stateRoot, "workspace"));
+            expect(resolveRuntimeWorkspaceRoot(applicationRoot)).toBe(resolve(stateRoot, "workspace"));
+            expect(resolveUserNbookRoot(applicationRoot)).toBe(resolve(stateRoot, "workspace", ".nbook"));
         } finally {
             restoreEnv("NEURO_BOOK_APPLICATION_ROOT", previousApplicationRoot);
             restoreEnv("NEURO_BOOK_STATE_ROOT", previousStateRoot);
         }
+    });
+
+    it("测试Adapter只覆盖用户Runtime Root", async () => {
+        const root = await mkdtemp(join(tmpdir(), "nbook-runtime-root-context-"));
+        roots.push(root);
+        const workspaceRoot = join(root, "workspace");
+        setWorkspaceRuntimeRootContextForTest({workspaceRoot});
+
+        expect(resolveRuntimeWorkspaceRoot(root)).toBe(workspaceRoot);
+        expect(resolveUserNbookRoot(root)).toBe(join(workspaceRoot, ".nbook"));
     });
 });
 

@@ -5,22 +5,55 @@ import os from "node:os";
 import {afterEach, beforeEach, describe, expect, it} from "vitest";
 import {registerProjectResourceOwner, resetProjectSessionsForTest} from "nbook/server/workspace-files/project-session";
 import {openProjectForTest, closeProjectForTest} from "nbook/server/workspace-files/project-session-test-utils";
-import {writeProjectManifest, resolveProjectAbsolutePath} from "nbook/server/workspace-files/project-workspace";
-import {setWorkspaceAssetRootContextForTest} from "nbook/server/workspace-files/workspace-assets-root";
+import {writeProjectManifest as writeProjectManifestAtRoot} from "nbook/server/workspace-files/project-workspace";
+import {resolveRuntimeWorkspaceRoot, setWorkspaceRuntimeRootContextForTest} from "nbook/server/workspace-files/workspace-runtime-root";
+import {normalizeProjectPath, resolveProjectWorkspaceRoot} from "nbook/server/workspace-files/project-path";
 import {collectReleasedSqliteHandles} from "nbook/server/workspace-files/sqlite-handle-release";
 import {historyProjectPathFromRoot, isHistoryTrackedRelativePath} from "nbook/server/workspace-history/history-paths";
 import {
     LOCAL_USER_ID,
-    advanceAgentCursor,
-    ensureProjectHistory,
-    openProjectHistoryAndMaintain,
-    readUnseenForAgent,
+    advanceAgentCursor as advanceAgentCursorAtRoot,
+    ensureProjectHistory as ensureProjectHistoryAtRoot,
+    openProjectHistoryAndMaintain as openProjectHistoryAndMaintainAtRoot,
+    readUnseenForAgent as readUnseenForAgentAtRoot,
     reconcileWatcherBatch,
-    recordProjectWrite,
+    recordProjectWrite as recordProjectWriteAtRoot,
     resetWorkspaceHistoryForTest,
     setHistoryEnabledOverrideForTest,
     workspaceHistoryResourceOwner,
 } from "nbook/server/workspace-history/project-history";
+
+/** 测试Adapter：把当前隔离Runtime Workspace Root显式投影到Project历史Interface。 */
+function resolveProjectAbsolutePath(projectPath: string) {
+    return resolveProjectWorkspaceRoot(resolveRuntimeWorkspaceRoot(), normalizeProjectPath(projectPath));
+}
+
+async function writeProjectManifest(projectPath: string, manifest: Parameters<typeof writeProjectManifestAtRoot>[2]) {
+    return writeProjectManifestAtRoot(resolveRuntimeWorkspaceRoot(), projectPath, manifest);
+}
+
+async function ensureProjectHistory(projectPath: string) {
+    return ensureProjectHistoryAtRoot(resolveProjectAbsolutePath(projectPath), projectPath);
+}
+
+async function openProjectHistoryAndMaintain(projectPath: string) {
+    return openProjectHistoryAndMaintainAtRoot(resolveProjectAbsolutePath(projectPath), projectPath);
+}
+
+async function readUnseenForAgent(projectPath: string, sessionId: number) {
+    return readUnseenForAgentAtRoot(resolveProjectAbsolutePath(projectPath), projectPath, sessionId);
+}
+
+async function advanceAgentCursor(projectPath: string, sessionId: number, entryId: number) {
+    return advanceAgentCursorAtRoot(resolveProjectAbsolutePath(projectPath), projectPath, sessionId, entryId);
+}
+
+async function recordProjectWrite(input: Omit<Parameters<typeof recordProjectWriteAtRoot>[0], "projectRoot">) {
+    return recordProjectWriteAtRoot({
+        ...input,
+        projectRoot: resolveProjectAbsolutePath(input.projectPath),
+    });
+}
 
 describe("history-paths 谓词", () => {
     it("排除 .git/.nbook/.agent 任意段与项目根第一层 agents/", () => {
@@ -52,13 +85,13 @@ describe("workspace-history 门面", () => {
         setHistoryEnabledOverrideForTest(true);
         tempRoot = join(os.tmpdir(), `neuro-book-workspace-history-test-${randomUUID()}`);
         await mkdir(join(tempRoot, "workspace"), {recursive: true});
-        setWorkspaceAssetRootContextForTest({workspaceContainerRoot: join(tempRoot, "workspace")});
+        setWorkspaceRuntimeRootContextForTest({workspaceRoot: join(tempRoot, "workspace")});
     });
 
     afterEach(async () => {
         await resetWorkspaceHistoryForTest();
         resetProjectSessionsForTest();
-        setWorkspaceAssetRootContextForTest(null);
+        setWorkspaceRuntimeRootContextForTest(null);
         setHistoryEnabledOverrideForTest(null);
         collectReleasedSqliteHandles({force: true});
         await rm(tempRoot, {recursive: true, force: true}).catch(() => undefined);

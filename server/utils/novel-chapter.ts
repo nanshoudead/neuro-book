@@ -1,7 +1,8 @@
 import {existsSync} from "node:fs";
 import {createClient} from "@libsql/client";
 import {consola} from "consola";
-import type {H3Event} from "h3";
+import {createError, getHeader, isError, readBody, type H3Event} from "h3";
+import getRawBody from "raw-body";
 import type {
     NovelListItemDto,
     UpdateNovelRequestDto,
@@ -9,23 +10,21 @@ import type {
 import type {AgentSessionListQueryDto, AgentSessionSummaryDto} from "nbook/shared/dto/agent-session.dto";
 import {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
 import type {ServerTimingSink} from "nbook/server/utils/server-timing";
-import {isError} from "h3";
 import {YAMLParseError} from "yaml";
 import {z} from "zod";
-import {
-    readProjectWorkspaceTreeSnapshot,
-} from "nbook/server/workspace-files/project-workspace-index";
-import type {WorkspaceFileNode} from "nbook/server/workspace-files/workspace-files";
+import {scanWorkspaceTree, type WorkspaceFileNode} from "nbook/server/workspace-files/workspace-files";
 import {
     assertProjectWorkspaceDirectory,
     listProjectWorkspaces,
     readProjectManifest,
-    resolveProjectAbsolutePath,
     resolveProjectDatabasePath,
     toSqliteFileUrl,
     writeProjectManifest,
     type ProjectManifest,
 } from "nbook/server/workspace-files/project-workspace";
+import {normalizeProjectPath, resolveProjectWorkspaceRoot} from "nbook/server/workspace-files/project-path";
+import {resolveRuntimeWorkspaceRoot} from "nbook/server/workspace-files/workspace-runtime-root";
+import type {AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
 import {collectReleasedSqliteHandles} from "nbook/server/workspace-files/sqlite-handle-release";
 
 type NovelStatisticCounts = Pick<
@@ -96,6 +95,7 @@ type ProjectStatisticsWithoutSessions =
     Pick<NovelStatisticCounts, "volumeCount" | "chapterCount" | "totalWords" | "lorebookCount" | "threadCount" | "sceneCount" | "plotCount">;
 
 type NovelListReadContext = {
+    workspaceRoot: AbsoluteFsPath;
     useRuntimeCaches: boolean;
     timingSink?: ServerTimingSink;
     diagnostics?: NovelListDiagnostics;
@@ -210,7 +210,9 @@ export async function listNovels(options: NovelListOptions = {}): Promise<NovelL
             return await readDefaultNovelList(options);
         }
 
-        return await readNovelList(options.sessionProvider ?? new JsonlSessionRepository(), options, {
+        const workspaceRoot = resolveRuntimeWorkspaceRoot();
+        return await readNovelList(options.sessionProvider ?? new JsonlSessionRepository(workspaceRoot), options, {
+            workspaceRoot,
             useRuntimeCaches: !options.sessionProvider,
             timingSink: options.timingSink,
             diagnostics: options.diagnostics,
@@ -242,12 +244,13 @@ export async function prewarmNovelListCache(): Promise<void> {
     const cacheVersion = defaultNovelListCacheVersion;
     const diagnostics: NovelListDiagnostics = {};
     const context: NovelListReadContext = {
+        workspaceRoot: resolveRuntimeWorkspaceRoot(),
         useRuntimeCaches: true,
         diagnostics,
     };
     const [projects, sessionCountByProject] = await Promise.all([
         readCachedProjectList(context),
-        readCachedSessionCount(new JsonlSessionRepository(), context),
+        readCachedSessionCount(new JsonlSessionRepository(context.workspaceRoot), context),
     ]);
     const warmedStatistics = new Map<string, ProjectStatisticsWithoutSessions>();
     for (const project of projects) {
@@ -297,7 +300,9 @@ async function readDefaultNovelList(options: NovelListOptions): Promise<NovelLis
 
     options.diagnostics!.fullListCache = "miss";
     const cacheVersion = defaultNovelListCacheVersion;
-    defaultNovelListPromise = readNovelList(new JsonlSessionRepository(), options, {
+    const workspaceRoot = resolveRuntimeWorkspaceRoot();
+    defaultNovelListPromise = readNovelList(new JsonlSessionRepository(workspaceRoot), options, {
+        workspaceRoot,
         useRuntimeCaches: true,
         timingSink: options.timingSink,
         diagnostics: options.diagnostics,
@@ -363,7 +368,7 @@ function refreshRuntimeCachesFromNovelList(list: readonly NovelListItemDto[]): v
  */
 async function readNovelList(sessionProvider: SessionListProvider, options: NovelListOptions, context: NovelListReadContext): Promise<NovelListItemDto[]> {
     const [projects, sessionCountByProject] = await Promise.all([
-        context.useRuntimeCaches ? readCachedProjectList(context) : measureProjectList(context, () => listProjectWorkspaces()),
+        context.useRuntimeCaches ? readCachedProjectList(context) : measureProjectList(context, () => listProjectWorkspaces(context.workspaceRoot)),
         context.useRuntimeCaches ? readCachedSessionCount(sessionProvider, context) : measureSessionCount(context, () => readSessionCountByProject(sessionProvider)),
     ]);
     context.diagnostics!.projectCount = projects.length;
@@ -396,7 +401,7 @@ async function readCachedProjectList(context: NovelListReadContext): Promise<Awa
 
     context.diagnostics!.projectListCache = "miss";
     const cacheVersion = defaultNovelListCacheVersion;
-    defaultProjectListPromise = measureProjectList(context, () => listProjectWorkspaces())
+    defaultProjectListPromise = measureProjectList(context, () => listProjectWorkspaces(context.workspaceRoot))
         .then((projects) => {
             if (cacheVersion === defaultNovelListCacheVersion) {
                 defaultProjectListCache = {
@@ -480,7 +485,7 @@ function filterNovelListProjects<T extends {projectPath: string}>(projects: T[],
  * 校验 Project Workspace 存在。
  */
 export async function assertNovel(projectPath: string): Promise<NovelListItemDto> {
-    const manifest = await readProjectManifest(projectPath);
+    const manifest = await readProjectManifest(resolveRuntimeWorkspaceRoot(), projectPath);
     return toNovelResponse({
         projectPath,
         title: manifest.title,
@@ -545,8 +550,8 @@ async function readMissingProjectStatistics(projectPaths: readonly string[], con
         return [];
     }
     const cacheVersion = defaultNovelListCacheVersion;
-    const workspaceCountsPromise = measureAsync(context.timingSink, "projects.stats.workspace", async () => Promise.all(projectPaths.map((projectPath) => readWorkspaceStatistics(projectPath))));
-    const plotCountsPromise = measureAsync(context.timingSink, "projects.stats.plot", async () => Promise.all(projectPaths.map((projectPath) => readPlotCounts(projectPath))));
+    const workspaceCountsPromise = measureAsync(context.timingSink, "projects.stats.workspace", async () => Promise.all(projectPaths.map((projectPath) => readWorkspaceStatistics(context.workspaceRoot, projectPath))));
+    const plotCountsPromise = measureAsync(context.timingSink, "projects.stats.plot", async () => Promise.all(projectPaths.map((projectPath) => readPlotCounts(context.workspaceRoot, projectPath))));
     const batchPromise = Promise.all([workspaceCountsPromise, plotCountsPromise]);
     const promises = projectPaths.map((projectPath, index) => {
         const promise = batchPromise
@@ -581,19 +586,20 @@ async function readMissingProjectStatistics(projectPaths: readonly string[], con
 /**
  * 从 Project Workspace tree index 统计正文与 lorebook 内容节点。
  */
-async function readWorkspaceStatistics(projectPath: string): Promise<Pick<NovelStatisticCounts, "volumeCount" | "chapterCount" | "totalWords" | "lorebookCount">> {
+async function readWorkspaceStatistics(workspaceRoot: AbsoluteFsPath, projectPath: string): Promise<Pick<NovelStatisticCounts, "volumeCount" | "chapterCount" | "totalWords" | "lorebookCount">> {
     try {
-        const snapshot = await readProjectWorkspaceTreeSnapshot({
-            root: resolveProjectAbsolutePath(projectPath),
+        const normalizedProjectPath = normalizeProjectPath(projectPath);
+        const nodes = await scanWorkspaceTree({
+            root: resolveProjectWorkspaceRoot(workspaceRoot, normalizedProjectPath),
         });
-        const manuscriptNodes = snapshot.nodes.filter((node) => isUnderRoot(node, "manuscript"));
+        const manuscriptNodes = nodes.filter((node) => isUnderRoot(node, "manuscript"));
         const chapterNodes = manuscriptNodes.filter((node) => isCountableContentNode(node) && node.entryType === "chapter");
 
         return {
             volumeCount: manuscriptNodes.filter((node) => isCountableContentNode(node) && node.entryType === "volume").length,
             chapterCount: chapterNodes.length,
             totalWords: chapterNodes.reduce((total, node) => total + node.words, 0),
-            lorebookCount: snapshot.nodes.filter(isLorebookEntryNode).length,
+            lorebookCount: nodes.filter(isLorebookEntryNode).length,
         };
     } catch (error) {
         consola.warn({projectPath, error}, "读取 Project Workspace 统计失败");
@@ -633,8 +639,8 @@ async function readSessionCountByProject(sessionProvider: SessionListProvider): 
 /**
  * 只读统计 Project SQLite 剧情对象数量；不得初始化数据库或 Story。
  */
-async function readPlotCounts(projectPath: string): Promise<Pick<NovelStatisticCounts, "threadCount" | "sceneCount" | "plotCount">> {
-    const databasePath = resolveProjectDatabasePath(projectPath);
+async function readPlotCounts(workspaceRoot: AbsoluteFsPath, projectPath: string): Promise<Pick<NovelStatisticCounts, "threadCount" | "sceneCount" | "plotCount">> {
+    const databasePath = resolveProjectDatabasePath(workspaceRoot, projectPath);
     if (!existsSync(databasePath)) {
         return {
             threadCount: 0,
@@ -769,16 +775,58 @@ export function requireProjectPathQuery(event: H3Event): string {
 /**
  * 统一校验请求体。
  */
-export async function validateBody<T>(event: H3Event, schema: z.ZodSchema<T>): Promise<T> {
-    const body = await readBody(event);
+export async function validateBody<T>(
+    event: H3Event,
+    schema: z.ZodSchema<T>,
+    options: {maxBytes?: number} = {},
+): Promise<T> {
+    let body: unknown;
+    if (options.maxBytes === undefined) {
+        body = await readBody(event);
+    } else {
+        const contentLength = getHeader(event, "content-length");
+        if (contentLength && Number(contentLength) > options.maxBytes) {
+            throw createError({
+                statusCode: 413,
+                message: "请求体超过允许大小",
+                data: {code: "REQUEST_BODY_TOO_LARGE"},
+            });
+        }
+        let raw: string;
+        try {
+            raw = await getRawBody(event.node.req, {
+                length: contentLength,
+                limit: options.maxBytes,
+                encoding: "utf8",
+            });
+        } catch (error) {
+            const rawError = error as {statusCode?: number; type?: string};
+            if (rawError.statusCode === 413 || rawError.type === "entity.too.large") {
+                throw createError({
+                    statusCode: 413,
+                    message: "请求体超过允许大小",
+                    data: {code: "REQUEST_BODY_TOO_LARGE"},
+                });
+            }
+            throw error;
+        }
+        try {
+            body = JSON.parse(raw) as unknown;
+        } catch {
+            throw createError({statusCode: 400, message: "请求体必须是有效 JSON"});
+        }
+    }
     const parseResult = schema.safeParse(body);
     if (!parseResult.success) {
         const firstIssue = parseResult.error.issues[0];
         consola.warn({
             method: event.method,
             path: event.path,
-            body,
-            issues: parseResult.error.issues,
+            issues: parseResult.error.issues.map((issue) => ({
+                code: issue.code,
+                path: issue.path,
+                message: issue.message,
+            })),
         }, "请求体验证失败");
         throw createError({
             statusCode: 400,
@@ -795,14 +843,15 @@ export async function updateNovelByTool(
     projectPath: string,
     input: UpdateNovelRequestDto,
 ): Promise<NovelListItemDto> {
-    const normalizedProjectPath = await assertProjectWorkspaceDirectory(projectPath);
-    const current = await readProjectManifestOrFallback(normalizedProjectPath);
+    const workspaceRoot = resolveRuntimeWorkspaceRoot();
+    const normalizedProjectPath = await assertProjectWorkspaceDirectory(workspaceRoot, projectPath);
+    const current = await readProjectManifestOrFallback(workspaceRoot, normalizedProjectPath);
     const next = {
         ...current,
         title: input.title ?? current.title,
         summary: input.summary ?? current.summary,
     };
-    await writeProjectManifest(normalizedProjectPath, next);
+    await writeProjectManifest(workspaceRoot, normalizedProjectPath, next);
     return toNovelResponse({
         projectPath: normalizedProjectPath,
         title: next.title,
@@ -814,9 +863,9 @@ export async function updateNovelByTool(
 /**
  * 读取 Project Manifest；若文件已损坏，使用目录名兜底，让元数据更新可以覆盖写回合法 manifest。
  */
-async function readProjectManifestOrFallback(projectPath: string): Promise<ProjectManifest> {
+async function readProjectManifestOrFallback(workspaceRoot: AbsoluteFsPath, projectPath: string): Promise<ProjectManifest> {
     try {
-        return await readProjectManifest(projectPath);
+        return await readProjectManifest(workspaceRoot, projectPath);
     } catch (error) {
         if (!isRecoverableProjectManifestError(error)) {
             throw error;

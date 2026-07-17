@@ -1,3 +1,4 @@
+import {createHash} from "node:crypto";
 import {readFile, writeFile} from "node:fs/promises";
 import {basename, resolve} from "node:path";
 
@@ -33,5 +34,5 @@ export async function verifyReleaseChecksums(directory: string, expectedNames: s
 /** 计算单个Release资产的SHA256。 */
 async function sha256(path: string): Promise<string> {
     const bytes = await readFile(path);
-    return new Bun.CryptoHasher("sha256").update(bytes).digest("hex");
+    return createHash("sha256").update(bytes).digest("hex");
 }

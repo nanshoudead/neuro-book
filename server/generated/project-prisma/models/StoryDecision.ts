@@ -364,7 +364,7 @@ export type StoryDecisionGroupByOutputType = {
   _max: StoryDecisionMaxAggregateOutputType | null
 }
 
-type GetStoryDecisionGroupByPayload<T extends StoryDecisionGroupByArgs> = Prisma.PrismaPromise<
+export type GetStoryDecisionGroupByPayload<T extends StoryDecisionGroupByArgs> = Prisma.PrismaPromise<
   Array<
     Prisma.PickEnumerable<StoryDecisionGroupByOutputType, T['by']> &
       {
@@ -3561,6 +3561,11 @@ export type StoryDecisionFindManyArgs<ExtArgs extends runtime.Types.Extensions.I
    * Skip the first `n` StoryDecisions.
    */
   skip?: number
+  /**
+   * {@link https://www.prisma.io/docs/concepts/components/prisma-client/distinct Distinct Docs}
+   * 
+   * Filter by unique combinations of StoryDecisions.
+   */
   distinct?: Prisma.StoryDecisionScalarFieldEnum | Prisma.StoryDecisionScalarFieldEnum[]
 }
 

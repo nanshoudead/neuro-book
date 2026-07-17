@@ -3,8 +3,8 @@ import type {AgentProfile} from "nbook/server/agent/profiles/types";
 import {VariableRegistry, builtinVariableDefinitions} from "nbook/server/agent/variables/registry";
 import {loadCompiledVariableDefinitions} from "nbook/server/agent/variables/definition-artifact";
 import type {VariableAccessorIssue} from "nbook/server/agent/variables/types";
-import {resolveAgentNbookRoot} from "nbook/server/agent/variables/workspace-paths";
-import {resolveStateRoot} from "nbook/server/runtime/installation-paths";
+import type {AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
+import {resolveProjectWorkspaceInput} from "nbook/server/workspace-files/project-path";
 
 /**
  * 创建 profile 运行时变量 registry。内建变量由 VariableRegistry 自带，
@@ -26,20 +26,24 @@ export function createVariableRegistryForProfile(profile: AgentProfile): Variabl
  */
 export async function createVariableRegistryForSession(input: {
     profile: AgentProfile;
-    workspaceRoot: string;
+    globalWorkspaceRoot: AbsoluteFsPath;
     currentProjectWorkspace?: string | null;
 }): Promise<VariableRegistry> {
     const definitions = [...builtinVariableDefinitions()];
     const issues: VariableAccessorIssue[] = [];
     const globalLoaded = await loadCompiledVariableDefinitions({
-        definitionRoot: resolve(resolveAgentNbookRoot(input.workspaceRoot), "agent", "variables"),
+        definitionRoot: resolve(input.globalWorkspaceRoot, ".nbook", "agent", "variables"),
         namespace: "global",
     });
     definitions.push(...globalLoaded.definitions);
     issues.push(...globalLoaded.issues);
     if (input.currentProjectWorkspace) {
+        const projectRoot = resolveProjectWorkspaceInput(
+            input.globalWorkspaceRoot,
+            input.currentProjectWorkspace,
+        );
         const projectLoaded = await loadCompiledVariableDefinitions({
-            definitionRoot: resolve(resolveStateRoot(), input.currentProjectWorkspace, ".nbook", "agent", "variables"),
+            definitionRoot: resolve(projectRoot, ".nbook", "agent", "variables"),
             namespace: "project",
         });
         definitions.push(...projectLoaded.definitions);

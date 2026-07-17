@@ -12,7 +12,9 @@ import {DEFAULT_WRITING_REFERENCE_PRESET, buildWritingReference, legacyReference
 import {DEFAULT_WRITING_STYLE_PRESET, buildWritingStyle, legacyStyleKeyToHomeKey, loadWritingStylePresets, normalizeStyleHomeKey} from "nbook/server/agent/profiles/writer-writing-style";
 import {defineLowCodeForm, profileHomeResource} from "nbook/server/low-code-form";
 import {defineProfileHome} from "nbook/server/agent/profiles/profile-home";
-import {normalizeProjectPath, readProjectManifest} from "nbook/server/workspace-files/project-workspace";
+import {normalizeProjectPath} from "nbook/server/workspace-files/project-path";
+import {readProjectManifest} from "nbook/server/workspace-files/project-workspace";
+import type {AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
 
 const DEFAULT_PARAGRAPH_RHYTHM = "段落节奏偏短段分行，接近网络小说排版：一句话、一个动作节拍或一个情绪转折可以单独成段；不要为了凑短段打碎完整语义，场景描写、复杂动作和连续心理变化可以保留为较短自然段。";
 const DEFAULT_WORD_COUNT_CONTROL = "2000-2600 字";
@@ -293,7 +295,7 @@ export async function buildWriterPrompt(ctx: ProfilePrepareContext<Initial, Payl
                         你的输入来自结构化的 invoke_agent 调用，包含稳定上下文和明确的写作目标。
 
                         输入结构：
-                        - input.path：本轮唯一写入目标（project-slug/.../*.md 格式）
+                        - input.path：本轮唯一写入目标（当前Project Workspace相对Markdown路径）
                         - input.chapterId：本章 StoryChapter id（可选）；有它时用 get_chapter_writer_brief 自取章节 brief
                         - input.context：建议读取的 lorebookEntries 和 readablePaths
                         - message：写作任务正文（brief）
@@ -347,7 +349,7 @@ export async function buildWriterPrompt(ctx: ProfilePrepareContext<Initial, Payl
                         内容节点（lorebook / manuscript）的结构、frontmatter 字段、读取规则见 reference/content/information-control.md。
 
                         核心原则：
-                        - 工具路径使用 project-slug/lorebook/... 格式（Agent cwd 是 workspace/）
+                        - File Scope 是当前Project Workspace；工具路径直接使用 lorebook/...、manuscript/...
                         - index.md 是节点正文，state.md 是当前状态补充
                         - frontmatter 的 status / knowledge[] 控制可见性
                         - 不要把系统内部字段当作世界观事实
@@ -474,7 +476,7 @@ async function renderInputContext(ctx: ProfilePrepareContext<Initial, Payload>):
     if (!payload) {
         return [
             "<writer_input_context>",
-            `Agent cwd: ${ctx.session.workspaceRoot}`,
+            `File Scope: ${ctx.session.projectPath ?? ctx.session.workspaceRoot}`,
             "<missing_payload>",
             "当前没有收到 invoke_agent.input。writer 不能写文件，必须通过 report_result.result 要求调用方补充 input.path 和可选 input.context。",
             "</missing_payload>",
@@ -482,11 +484,11 @@ async function renderInputContext(ctx: ProfilePrepareContext<Initial, Payload>):
         ].join("\n");
     }
 
-    const target = await resolvePayloadTarget(payload.path);
+    const target = await resolvePayloadTarget(payload.path, ctx.session.workspaceFsRoot, ctx.session.projectPath);
     const context = normalizePayloadContext(target, payload.context);
     return [
         "<writer_input_context>",
-        `Agent cwd: ${ctx.session.workspaceRoot}`,
+        `File Scope: ${ctx.session.projectPath ?? ctx.session.workspaceRoot}`,
         renderTargetFile(target),
         payload.chapterId ? `<chapter_id>${payload.chapterId}</chapter_id>\n用 get_chapter_writer_brief({projectPath: "${target.projectPath}", chapterId: "${payload.chapterId}"}) 自取本章 brief。` : "",
         renderSuggestedContext(target, context),
@@ -497,24 +499,27 @@ async function renderInputContext(ctx: ProfilePrepareContext<Initial, Payload>):
 /**
  * 解析本轮 writer payload 的唯一写入目标。
  */
-async function resolvePayloadTarget(rawPath: string): Promise<WriterPayloadTarget> {
+async function resolvePayloadTarget(
+    rawPath: string,
+    workspaceFsRoot: AbsoluteFsPath,
+    sessionProjectPath: string | undefined,
+): Promise<WriterPayloadTarget> {
     const path = normalizePayloadPath(rawPath, "writer.input.path");
     if (!path.endsWith(".md")) {
-        throw new Error("writer.input.path 必须指向 Project Workspace 内的 Markdown 文件，例如 project-slug/manuscript/001-chapter/index.md。");
+        throw new Error("writer.input.path 必须指向当前 Project Workspace 内的 Markdown 文件，例如 manuscript/001-chapter/index.md。");
     }
-    const parts = path.split("/");
-    if (parts.length < 2 || parts[0] === "workspace" || parts[0] === "manuscript") {
-        throw new Error("writer.input.path 必须是 Workspace Root cwd-relative Project 路径，例如 project-slug/manuscript/001-chapter/index.md；不要传 workspace/project-slug/... 或裸 manuscript/...。");
+    if (!sessionProjectPath || isAbsolute(sessionProjectPath)) {
+        throw new Error("writer需要绑定managed Project Path，才能解析Project相对input.path。");
     }
-    const projectSlug = parts[0];
-    if (!projectSlug) {
-        throw new Error("writer.input.path 必须包含 Project slug。");
+    const projectPath = normalizeProjectPath(sessionProjectPath);
+    const projectSlug = projectPath.slice("workspace/".length);
+    if (path === projectSlug || path.startsWith(`${projectSlug}/`) || path.startsWith("workspace/")) {
+        throw new Error("writer.input.path必须相对当前Project Workspace；不要添加Project slug或workspace/<project>/前缀。");
     }
-    const projectPath = normalizeProjectPath(posix.join("workspace", projectSlug));
-    await readProjectManifest(projectPath).catch((error: unknown) => {
+    await readProjectManifest(workspaceFsRoot, projectPath).catch((error: unknown) => {
         throw new Error(`writer.input.path 指向的 Project 不存在或无法读取：${projectPath}。${error instanceof Error ? error.message : String(error)}`);
     });
-    const projectRelativePath = parts.slice(1).join("/");
+    const projectRelativePath = path;
     const chapterPath = projectRelativePath.startsWith("manuscript/") && projectRelativePath.endsWith("/index.md")
         ? `${posix.dirname(projectRelativePath)}/`
         : null;
@@ -575,9 +580,8 @@ function normalizeProjectPathRef(rawPath: string, projectSlug: string, label: st
     if (options.mustBeMarkdown && !path.endsWith(".md")) {
         throw new Error(`${label} 必须指向 Project Workspace 内的 Markdown 文件：${rawPath}`);
     }
-    const parts = path.split("/");
-    if (parts.length < 2 || parts[0] !== projectSlug) {
-        throw new Error(`${label} 必须使用与目标文件相同的 Project slug：${projectSlug}/...，当前为 ${rawPath}`);
+    if (path === projectSlug || path.startsWith(`${projectSlug}/`) || path.startsWith("workspace/")) {
+        throw new Error(`${label}必须相对当前Project Workspace；不要添加${projectSlug}/或workspace/<project>/前缀。`);
     }
     return path;
 }
@@ -588,7 +592,7 @@ function normalizePayloadPath(rawPath: string, label: string, options: {preserve
         throw new Error(`${label} 不能为空。`);
     }
     if (isAbsolute(trimmed) || /^[A-Za-z]:[\\/]/u.test(trimmed) || trimmed.startsWith("/") || trimmed.startsWith("\\")) {
-        throw new Error(`${label} 必须是 Workspace Root cwd-relative Project 路径，不能是绝对路径：${rawPath}`);
+        throw new Error(`${label}必须是当前Project Workspace相对路径，不能是绝对路径：${rawPath}`);
     }
     const hadTrailingSlash = /[\\/]$/u.test(trimmed);
     const normalized = trimmed.replace(/\\/g, "/").replace(/\/+/g, "/").replace(/\/+$/u, "");

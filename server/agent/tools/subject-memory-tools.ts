@@ -2,8 +2,10 @@ import {mkdir, readFile, writeFile} from "node:fs/promises";
 import {join, sep} from "node:path";
 import {Type} from "typebox";
 import type {Static} from "typebox";
-import {resolveWorkspacePath} from "nbook/server/agent/tools/file-tool-utils";
+import {resolveSessionFileScope} from "nbook/server/agent/workspace/session-file-scope";
+import {resolveFileAddress} from "nbook/server/workspace-files/file-scope";
 import type {NeuroAgentTool, ToolExecutionContext} from "nbook/server/agent/tools/types";
+import {normalizeToolResultDetails} from "nbook/server/agent/messages/message-utils";
 import {
     applySubjectMemoryPatch,
     parseSubjectMemory,
@@ -23,7 +25,7 @@ import {
 } from "nbook/server/agent/tools/subject-rag-index";
 
 const SubjectEventAppendSchema = Type.Object({
-    subjectPath: Type.String({description: "Subject directory path, relative to Agent cwd, e.g. project/simulation/subjects/erina."}),
+    subjectPath: Type.String({description: "Subject directory path, relative to the current Project Workspace, e.g. simulation/subjects/erina."}),
     events: Type.Array(Type.Object({
         tick: Type.Optional(Type.String({description: "Optional system tick."})),
         time: Type.Optional(Type.String({description: "Optional story time the subject can understand."})),
@@ -32,14 +34,14 @@ const SubjectEventAppendSchema = Type.Object({
 }, {additionalProperties: false});
 
 const SubjectRagSearchSchema = Type.Object({
-    subjectPath: Type.String({description: "Subject directory path, relative to Agent cwd, e.g. project/simulation/subjects/erina."}),
+    subjectPath: Type.String({description: "Subject directory path, relative to the current Project Workspace, e.g. simulation/subjects/erina."}),
     query: Type.String({description: "Current actor-facing query or packet summary."}),
     sources: Type.Array(Type.Union([Type.Literal("events"), Type.Literal("memory")]), {minItems: 1, maxItems: 1, description: "Explicit single source filter. Callers must choose exactly one of events or memory; there is no implicit both-source default."}),
     limit: Type.Optional(Type.Integer({minimum: 1, maximum: 20, description: "Maximum text results to return. Defaults to 6 for events and 4 for memory."})),
 }, {additionalProperties: false});
 
 const SubjectMemoryUpdateSchema = Type.Object({
-    subjectPath: Type.String({description: "Subject directory path, relative to Agent cwd, e.g. project/simulation/subjects/erina."}),
+    subjectPath: Type.String({description: "Subject directory path, relative to the current Project Workspace, e.g. simulation/subjects/erina."}),
     facts: Type.Array(Type.String({description: "Subject-facing fact from this turn. Do not describe concrete file operations."}), {minItems: 1, description: "Subject-facing facts from this turn. Do not describe concrete file operations."}),
 }, {additionalProperties: false});
 
@@ -79,12 +81,12 @@ function createSubjectEventAppendTool(): NeuroAgentTool {
             await markSubjectRagDirty(subject, "events", appended);
             return {
                 content: [{type: "text", text: `已追加 ${events.length} 条 subject event。`}],
-                details: {
+                details: normalizeToolResultDetails({
                     subjectPath: input.subjectPath,
                     sourcePath: join(input.subjectPath, "events.jsonl").replaceAll("\\", "/"),
                     appended: events.length,
                     dirty: true,
-                },
+                }),
             };
         },
         async execute() {
@@ -115,11 +117,11 @@ function createSubjectRagSearchTool(): NeuroAgentTool {
             });
             return {
                 content: [{type: "text", text: renderSubjectRagCandidates(candidates)}],
-                details: {
+                details: normalizeToolResultDetails({
                     subjectPath: input.subjectPath,
                     source: sources[0],
                     count: candidates.length,
-                },
+                }),
             };
         },
         async execute() {
@@ -160,23 +162,23 @@ function createSubjectMemoryUpdateTool(): NeuroAgentTool {
             if (result.status === "needs_review") {
                 return {
                     content: [{type: "text", text: `subject_memory_update 未写入 memory.jsonl：${result.reason}`}],
-                    details: {
+                    details: normalizeToolResultDetails({
                         status: "needs_review",
                         reason: result.reason,
                         attempts: result.attempts,
                         summary: result.summary,
-                    },
+                    }),
                 };
             }
 
             if (result.updated.length === 0 && currentMemories.length === 0 || JSON.stringify(result.updated) === JSON.stringify(currentMemories)) {
                 return {
                     content: [{type: "text", text: "subject_memory_update 完成：memory.jsonl 无需更新。"}],
-                    details: {
+                    details: normalizeToolResultDetails({
                         status: "unchanged",
                         attempts: result.attempts,
                         summary: result.summary,
-                    },
+                    }),
                 };
             }
 
@@ -187,13 +189,13 @@ function createSubjectMemoryUpdateTool(): NeuroAgentTool {
             await markSubjectRagDirty(subject, "memory", nextText);
             return {
                 content: [{type: "text", text: `subject_memory_update 已更新 memory.jsonl：${result.summary}`}],
-                details: {
+                details: normalizeToolResultDetails({
                     status: "updated",
                     attempts: result.attempts,
                     summary: result.summary,
                     memoryCount: result.updated.length,
                     dirty: true,
-                },
+                }),
             };
         },
         async execute() {
@@ -226,7 +228,7 @@ async function runMemoryCurator(context: ToolExecutionContext, input: SubjectMem
                         facts: input.facts,
                         currentMemories,
                     },
-                    workspaceRoot: context.workspaceRoot,
+                    workspaceRoot: context.workspaceRootRef,
                     workspaceKey: context.workspaceKey,
                     projectPath: context.projectPath,
                 });
@@ -345,7 +347,7 @@ function resolveSubjectPaths(context: ToolExecutionContext, subjectPath: string)
     memoryPath: string;
     ragStatePath: string;
 } {
-    const absolutePath = resolveWorkspacePath(subjectPath, context.workspaceRoot, context.projectPath);
+    const absolutePath = resolveFileAddress(resolveSessionFileScope(context), subjectPath).absolutePath;
     return {
         absolutePath,
         eventsPath: join(absolutePath, "events.jsonl"),

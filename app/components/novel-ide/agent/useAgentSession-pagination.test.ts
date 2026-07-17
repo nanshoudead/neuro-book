@@ -333,7 +333,13 @@ function user(id: string, content: string): AgentChatEntryDto {
         timestamp: Number(id.replace(/\D/g, "")) || 1,
         type: "user",
         intent: "normal",
-        content: {preview: content, bytes: Buffer.byteLength(content, "utf8"), omitted: false},
+        blocks: [{
+            type: "text",
+            contentIndex: 0,
+            content: {preview: content, bytes: Buffer.byteLength(content, "utf8"), omitted: false},
+        }],
+        omittedBlocks: 0,
+        textSummary: {bytes: Buffer.byteLength(content, "utf8"), omitted: false},
     };
 }
 
@@ -343,7 +349,9 @@ function userPreview(id: string, preview: string, bytes: number, omitted: boolea
         timestamp: Number(id.replace(/\D/g, "")) || 1,
         type: "user",
         intent: "normal",
-        content: {preview, bytes, omitted},
+        blocks: [{type: "text", contentIndex: 0, content: {preview, bytes, omitted}}],
+        omittedBlocks: 0,
+        textSummary: {bytes, omitted},
     };
 }
 

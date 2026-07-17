@@ -73,7 +73,13 @@ export async function verifyNativeProduct(root: string, stateRoot: string, bun: 
         }
         throw new Error(`Product HTTP 健康检查超时：${lastError}`);
     } finally {
-        if (child.exitCode === null) child.kill();
+        if (child.exitCode === null && child.signalCode === null) child.kill();
+        if (!await waitForProcessExit(child, 5_000)) {
+            child.kill("SIGKILL");
+            if (!await waitForProcessExit(child, 5_000)) {
+                throw new Error("Product 健康检查进程无法停止；请先结束该进程再重试更新。" );
+            }
+        }
     }
 }
 
@@ -96,5 +102,20 @@ async function portOpen(port: number): Promise<boolean> {
         socket.once("connect", () => finish(true));
         socket.once("timeout", () => finish(false));
         socket.once("error", () => finish(false));
+    });
+}
+
+/** 等待临时健康检查进程完全退出，确保其已释放Attachment runtime lease。 */
+async function waitForProcessExit(child: ReturnType<typeof spawn>, timeoutMs: number): Promise<boolean> {
+    if (child.exitCode !== null || child.signalCode !== null) return true;
+    return new Promise<boolean>((resolvePromise) => {
+        const finish = (exited: boolean): void => {
+            clearTimeout(timer);
+            child.off("exit", onExit);
+            resolvePromise(exited);
+        };
+        const onExit = (): void => finish(true);
+        const timer = setTimeout(() => finish(false), timeoutMs);
+        child.once("exit", onExit);
     });
 }

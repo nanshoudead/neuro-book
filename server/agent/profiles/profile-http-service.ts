@@ -1,5 +1,4 @@
 import {readFile} from "node:fs/promises";
-import {basename, relative, resolve, sep} from "node:path";
 import {createError} from "h3";
 import type {TSchema} from "typebox";
 import type {AgentProfileCatalog} from "nbook/server/agent/profiles/catalog";
@@ -7,8 +6,10 @@ import type {AgentCatalogItem, AgentCatalogSnapshot, AgentProfile, AgentProfileI
 import {createProfileVariableAccessor} from "nbook/server/agent/variables/accessor";
 import {createVariableRegistryForProfile, createVariableRegistryForSession} from "nbook/server/agent/variables/profile-registry";
 import {resolveCompactionOptions} from "nbook/server/agent/harness/compaction";
-import {createAssistantTextMessage, createUserMessage, messageText} from "nbook/server/agent/messages/message-utils";
-import type {AgentMessage, JsonValue, Message, Model} from "nbook/server/agent/messages/types";
+import {createAssistantTextMessage, createStoredUserMessage} from "nbook/server/agent/messages/message-utils";
+import type {StoredAgentMessage} from "nbook/server/agent/messages/stored-types";
+import {storedMessageText} from "nbook/server/agent/messages/stored-message-presentation";
+import type {JsonValue, Model} from "nbook/server/agent/messages/types";
 import type {NeuroAgentHarness} from "nbook/server/agent/harness/neuro-agent-harness";
 import type {NeuroSessionContext, SessionSnapshot} from "nbook/server/agent/session/types";
 import {buildAgentDialogueContent, type AgentDialogueContent} from "nbook/server/agent/session/dialogue-content";
@@ -28,20 +29,20 @@ import {resolveRuntimeProfileSettings} from "nbook/server/agent/profiles/profile
 import {createLayeredProfileHomeFacade, ensureGlobalProfileHome, ensureProfileHome, resolveProjectRootForProfileHome} from "nbook/server/agent/profiles/profile-home";
 import type {ProfileTemplateNodeDto} from "nbook/shared/dto/profile-template.dto";
 import {buildProfilePromptRoot} from "nbook/server/agent/profiles/profile-dsl-source-parser";
-import {resolveSystemNbookRoot, resolveUserNbookRoot} from "nbook/server/workspace-files/workspace-assets-root";
 import {assertManagedProjectDataPlaneOpen} from "nbook/server/workspace-files/project-data-plane-guard";
 import {assembleProfilePromptMessages} from "nbook/server/agent/profiles/prompt-order";
 import {mergeProfileTurnContextMessages, previewProfileTurnContexts} from "nbook/server/agent/profiles/profile-turn-context";
 import {resolveProfileRuntimeSettings} from "nbook/server/agent/profiles/profile-runtime-settings";
-import {resolveStateWorkspaceRoot} from "nbook/server/runtime/installation-paths";
 import type {ProfileRuntimeSettings} from "nbook/shared/agent/profile-runtime-settings";
+import {absoluteFsPath, type AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
+import {resolveWorkspaceRootRef, WORKSPACE_CONTAINER_ROOT} from "nbook/server/workspace-files/workspace-root-ref";
 
 /**
  * 列出 v3 Agent Profile catalog，并适配旧 profile 工作台 DTO。
  */
 export async function listAgentProfileCatalog(profiles: AgentProfileCatalog): Promise<AgentProfileCatalogItemDto[]> {
     const snapshot = await profiles.snapshot({includeFileIssues: false});
-    const loadedItems = snapshot.profiles.map((profile) => toCatalogItem(snapshot, profile));
+    const loadedItems = snapshot.profiles.map((profile) => toCatalogItem(profiles, snapshot, profile));
     return loadedItems.sort((left, right) => {
         const sourceCompare = left.source.localeCompare(right.source);
         return sourceCompare || left.profileKey.localeCompare(right.profileKey);
@@ -121,13 +122,14 @@ export async function previewAgentProfilePrepare(
     const skills = await harness.skills.list();
     const effectiveConfig = await loadPreviewEffectiveConfig(sessionContext);
     const needsHome = profileNeedsHome(profile);
-    const projectRoot = resolveProjectRootForProfileHome(sessionContext.projectPath);
+    const workspaceRoot = absoluteFsPath(harness.repo.rootWorkspace);
+    const projectRoot = resolveProjectRootForProfileHome(workspaceRoot, sessionContext.projectPath);
     if (projectRoot && needsHome) {
         assertManagedProjectDataPlaneOpen(sessionContext.projectPath);
     }
     const globalHome = needsHome
         ? await ensureGlobalProfileHome({
-            workspaceRoot: sessionContext.workspaceRoot,
+            workspaceRoot,
             profileKey: profile.manifest.key,
             profileVersion: profile.manifest.version ?? 1,
             definition: profile.home,
@@ -163,7 +165,7 @@ export async function previewAgentProfilePrepare(
             vars: createProfileVariableAccessor({
                 repo: harness.repo,
                 snapshot: previewSnapshot ?? previewSessionSnapshot(request.profileKey, sessionContext),
-                registry: await createPreviewVariableRegistry(profile, sessionContext.workspaceRoot),
+                registry: await createPreviewVariableRegistry(profile, absoluteFsPath(harness.repo.rootWorkspace)),
                 dryRun: true,
             }),
             catalog,
@@ -250,8 +252,8 @@ function profileNeedsHome(profile: AgentProfile): boolean {
 /**
  * 将 v3 catalog item 映射为前端工作台 catalog DTO。
  */
-function toCatalogItem(snapshot: AgentCatalogSnapshot, profile: AgentCatalogItem): AgentProfileCatalogItemDto {
-    const fileName = profile.sourcePath ? relativeProfilePath(profile.sourcePath, profile.source) : null;
+function toCatalogItem(profiles: AgentProfileCatalog, snapshot: AgentCatalogSnapshot, profile: AgentCatalogItem): AgentProfileCatalogItemDto {
+    const fileName = profile.sourcePath ? profiles.sourceFileName(profile.sourcePath, profile.source) : null;
     const issues = snapshot.issues
         .filter((issue) => issue.profileKey === profile.key || issue.sourcePath === profile.sourcePath)
         .map((issue) => toProfileIssueDto(issue, profile.key, fileName));
@@ -330,7 +332,7 @@ async function buildPreviewSession(harness: NeuroAgentHarness, request: AgentPro
         model: null,
         thinkingLevel: "off",
         profileKey: request.profileKey,
-        workspaceRoot: resolveStateWorkspaceRoot(),
+        workspaceRoot: WORKSPACE_CONTAINER_ROOT,
         customState: {},
         linkedAgents: [],
         archived: false,
@@ -347,6 +349,10 @@ function createProfilePreviewSessionFacade(
 ): ProfilePrepareContext["session"] {
     const facade: ProfilePrepareContext["session"] = {
         ...context,
+        workspaceFsRoot: resolveWorkspaceRootRef(
+            context.workspaceRoot,
+            absoluteFsPath(harness.repo.rootWorkspace),
+        ),
         read: async (sessionId) => {
             if (typeof sessionId === "number" && sessionId > 0) {
                 const realSnapshot = await harness.repo.readSession(sessionId);
@@ -389,23 +395,21 @@ function buildPreviewInitial(request: AgentProfilePreparePreviewRequestDto): Jso
 /**
  * 将工作台临时历史转换为 v3 message。v3 不允许 SystemMessage，因此 system 作为 user 文本预览。
  */
-function toPreviewHistoryMessage(input: {role: "system" | "human" | "assistant"; text: string}): Message {
+function toPreviewHistoryMessage(input: {role: "system" | "human" | "assistant"; text: string}): StoredAgentMessage {
     if (input.role === "assistant") {
         return createAssistantTextMessage({text: input.text});
     }
-    return createUserMessage({
-        text: input.role === "system" ? `[system preview]\n${input.text}` : input.text,
-    });
+    return createStoredUserMessage(input.role === "system" ? `[system preview]\n${input.text}` : input.text);
 }
 
 /**
  * 将 v3 Message 映射到 profile 工作台预览消息。
  */
-function toPreviewMessage(message: AgentMessage, source: string): AgentProfilePreparePreviewDto["messages"][number] {
+function toPreviewMessage(message: StoredAgentMessage, source: string): AgentProfilePreparePreviewDto["messages"][number] {
     if (message.role === "assistant") {
         return {
             role: message.role,
-            text: messageText(message as Message),
+            text: storedMessageText(message),
             source,
             toolCalls: message.content
                 .filter((block) => block.type === "toolCall")
@@ -416,16 +420,9 @@ function toPreviewMessage(message: AgentMessage, source: string): AgentProfilePr
                 })),
         };
     }
-    if (message.role === "custom") {
-        return {
-            role: "custom",
-            text: JSON.stringify(message, null, 2),
-            source,
-        };
-    }
     return {
         role: message.role,
-        text: messageText(message as Message),
+        text: storedMessageText(message),
         source,
     };
 }
@@ -545,8 +542,8 @@ function buildProfileVariableGroups(profile: AgentCatalogItem | undefined, runti
     return groups;
 }
 
-async function createPreviewVariableRegistry(profile: AgentProfile, workspaceRoot: string): Promise<VariableRegistry> {
-    return createVariableRegistryForSession({profile, workspaceRoot, currentProjectWorkspace: null});
+async function createPreviewVariableRegistry(profile: AgentProfile, globalWorkspaceRoot: AbsoluteFsPath): Promise<VariableRegistry> {
+    return createVariableRegistryForSession({profile, globalWorkspaceRoot, currentProjectWorkspace: null});
 }
 
 function previewSessionSnapshot(profileKey: string, session: NeuroSessionContext): SessionSnapshot {
@@ -570,7 +567,6 @@ function previewSessionSnapshot(profileKey: string, session: NeuroSessionContext
 async function loadPreviewEffectiveConfig(session: Pick<NeuroSessionContext, "workspaceRoot" | "projectPath">) {
     const {loadEffectiveConfigForAgentRuntime} = await import("nbook/server/config/config-service");
     return loadEffectiveConfigForAgentRuntime({
-        workspaceRoot: session.workspaceRoot,
         ...(session.projectPath ? {projectPath: session.projectPath} : {}),
     });
 }
@@ -606,25 +602,6 @@ function toProfileIssueDto(issue: AgentProfileIssue, profileKey: string, fileNam
         profileKey: issue.profileKey ?? profileKey,
         fileName: fileName ?? undefined,
     };
-}
-
-/**
- * 计算 profile root 相对路径，保持前端文件选择器的 fileName 语义。
- */
-function relativeProfilePath(sourcePath: string, source: AgentCatalogItem["source"] | AgentProfileIssue["source"]): string {
-    const root = source === "user" ? defaultUserProfileRoot() : source === "system" ? defaultSystemProfileRoot() : null;
-    if (!root) {
-        return basename(sourcePath);
-    }
-    return relative(root, sourcePath).split(sep).join("/");
-}
-
-function defaultSystemProfileRoot(): string {
-    return resolve(resolveSystemNbookRoot(), "agent", "profiles");
-}
-
-function defaultUserProfileRoot(): string {
-    return resolve(resolveUserNbookRoot(), "agent", "profiles");
 }
 
 /**

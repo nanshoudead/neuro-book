@@ -1,6 +1,6 @@
 import {randomUUID} from "node:crypto";
 import {readFile, rm} from "node:fs/promises";
-import {join} from "node:path";
+import {join, resolve} from "node:path";
 import {afterEach, beforeEach, describe, expect, it} from "vitest";
 import {AgentSessionEventHub} from "nbook/server/agent/events/session-event-hub";
 import {createAssistantTextMessage, createTextToolResult} from "nbook/server/agent/messages/message-utils";
@@ -8,16 +8,17 @@ import {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
 import {SessionWriteExecutor} from "nbook/server/agent/session/write-plan";
 import type {SessionWriteTimingSink} from "nbook/server/agent/session/write-plan";
 import type {AgentSessionEventDto} from "nbook/shared/dto/agent-session.dto";
+import {absoluteFsPath, type AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
 
 describe("SessionWriteExecutor", () => {
-    let root: string;
+    let root: AbsoluteFsPath;
     let repo: JsonlSessionRepository;
     let eventHub: AgentSessionEventHub;
     let executor: SessionWriteExecutor;
     let liveStateCalls: number;
 
     beforeEach(() => {
-        root = join(".agent", "agent-write-plan-test", randomUUID());
+        root = absoluteFsPath(resolve(".agent", "agent-write-plan-test", randomUUID()));
         repo = new JsonlSessionRepository(root);
         eventHub = new AgentSessionEventHub();
         liveStateCalls = 0;

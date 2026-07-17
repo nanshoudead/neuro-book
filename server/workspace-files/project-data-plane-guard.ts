@@ -1,6 +1,6 @@
 import {isAbsolute} from "node:path";
 import {assertProjectOpen, markProjectActivity} from "nbook/server/workspace-files/project-session";
-import {WORKSPACE_NBOOK_ROOT} from "nbook/server/workspace-files/workspace-assets-root";
+import {WORKSPACE_NBOOK_ROOT} from "nbook/server/workspace-files/workspace-root-ref";
 
 const MANAGED_PROJECT_PATH_PATTERN = /^workspace\/[^/]+$/u;
 

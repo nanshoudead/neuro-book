@@ -1,13 +1,14 @@
 import {Type} from "typebox";
 import type {Static, TSchema} from "typebox";
-import type {AgentToolResult} from "@earendil-works/pi-agent-core";
 import type {JsonValue as AgentJsonValue} from "nbook/server/agent/messages/types";
-import type {NeuroAgentTool, ToolExecutionContext} from "nbook/server/agent/tools/types";
+import type {NeuroAgentTool, NeuroToolResult, ToolExecutionContext} from "nbook/server/agent/tools/types";
 import {buildExecuteWorldDescription} from "nbook/server/agent/world-engine-tool-description";
 import type {ExecuteWorldMode} from "nbook/server/world-engine/world-engine.facade";
 import {randomBytes} from "node:crypto";
 import {mkdir, writeFile} from "node:fs/promises";
 import {join} from "node:path";
+import {resolveSessionFileScope} from "nbook/server/agent/workspace/session-file-scope";
+import {worldEngineFacadeForWorkspaceRoot} from "nbook/server/world-engine";
 
 const NonEmptyString = (description: string) => Type.String({minLength: 1, description});
 
@@ -28,7 +29,7 @@ export function createWorldEngineTools(): NeuroAgentTool[] {
             async (context, input) => {
                 const mode = modeForContext(context);
                 try {
-                    const facade = await loadWorldEngineFacade();
+                    const facade = worldEngineFacadeForWorkspaceRoot(context.workspaceFsRoot);
                     const result = await facade.executeCodeActWorld(input.projectPath, input.code, mode);
                     return worldResult(result);
                 } catch (error) {
@@ -45,7 +46,7 @@ function tool<TSchemaValue extends TSchema>(
     key: string,
     description: string,
     parameters: TSchemaValue,
-    execute: (context: ToolExecutionContext, input: Static<TSchemaValue>) => Promise<AgentToolResult<unknown>>,
+    execute: (context: ToolExecutionContext, input: Static<TSchemaValue>) => Promise<NeuroToolResult>,
 ): NeuroAgentTool {
     return {
         key,
@@ -67,7 +68,7 @@ function modeForContext(context: ToolExecutionContext): ExecuteWorldMode {
     return context.profileKey === "writer" ? "readonly" : "readwrite";
 }
 
-function worldResult(details: unknown): AgentToolResult<unknown> {
+function worldResult(details: unknown): NeuroToolResult {
     const normalized = normalizeToolDetails(details);
     return {
         content: [{type: "text" as const, text: renderWorldResultText(normalized)}],
@@ -108,13 +109,9 @@ function normalizeToolDetails(value: unknown): AgentJsonValue {
     return String(value);
 }
 
-async function loadWorldEngineFacade(): Promise<typeof import("nbook/server/world-engine").worldEngineFacade> {
-    return (await import("nbook/server/world-engine")).worldEngineFacade;
-}
-
 /** 保存失败的 CodeAct 脚本，方便用户或后续 agent 复查。 */
 async function saveTempCode(context: ToolExecutionContext, code: string): Promise<string> {
-    const tempDir = join(context.workspaceRoot, ".temp");
+    const tempDir = join(resolveSessionFileScope(context).root, ".temp");
     await mkdir(tempDir, {recursive: true});
 
     const hash = randomBytes(6).toString("hex");

@@ -8,6 +8,7 @@ import {
     containsAbsoluteNodeModuleFileUrl,
     patchAbsoluteNodeModuleFileUrls,
 } from "nbook/scripts/build/nitro-runtime-file-url.mjs";
+import {pruneRuntimeTestSources} from "nbook/scripts/utils/runtime-source-prune.mjs";
 
 const runtimePackageSeeds = [
     "@clack/core",
@@ -63,6 +64,8 @@ const runtimeContextPaths = [
     "scripts/cli/prisma-runtime-preflight.ts",
     "scripts/cli/sync-user-assets.ts",
     "scripts/deploy/product-start.mjs",
+    "scripts/deploy/product-agent-state-root-smoke.ts",
+    "scripts/deploy/product-agent-attachment-migration-smoke.ts",
     "scripts/db",
     "scripts/build/prepare-system-assets.ts",
     "scripts/build/profile.ts",
@@ -118,6 +121,16 @@ await measure("write product package manifest", async () => {
 });
 await measure("copy nbook runtime package", async () => {
     await copyNbookRuntimePackage();
+});
+await measure("prune runtime test sources", async () => {
+    for (const runtimeRoot of [
+        resolve(serverRoot, "server"),
+        resolve(serverRoot, "shared"),
+        resolve(serverRoot, "scripts"),
+        resolve(serverRoot, "node_modules", "nbook"),
+    ]) {
+        await pruneRuntimeTestSources(runtimeRoot);
+    }
 });
 await measure("assert nbook runtime package", async () => {
     assertNbookRuntimePackage(resolve(serverRoot, "node_modules", "nbook"));
@@ -178,7 +191,10 @@ async function assertProductOutputRuntimeFiles() {
         "prisma.config.ts",
         "scripts/build/prepare-system-assets.ts",
         "scripts/deploy/product-start.mjs",
+        "scripts/deploy/product-agent-state-root-smoke.ts",
+        "scripts/deploy/product-agent-attachment-migration-smoke.ts",
         "scripts/db/prisma-migrate.mjs",
+        "scripts/db/migrate-agent-attachments.ts",
         "scripts/cli/create-admin.ts",
         "scripts/cli/has-users.ts",
         "scripts/cli/prisma-runtime-preflight.ts",

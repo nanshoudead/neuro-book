@@ -1,18 +1,25 @@
 import {spawn} from "node:child_process";
 import {existsSync} from "node:fs";
-import {mkdir, readFile, writeFile} from "node:fs/promises";
-import {dirname, join, relative, resolve, win32} from "node:path";
+import {mkdir, readFile, stat, writeFile} from "node:fs/promises";
+import {basename, dirname, isAbsolute, join, resolve, win32} from "node:path";
 import {createPatch} from "diff";
 import {Type} from "typebox";
 import type {Static} from "typebox";
 import {recordContextAccess} from "nbook/server/agent/context-access/profile-context-access";
-import {detectImageMimeType, assertReadable, assertWritable, firstChangedLine, resolveWorkspacePath} from "nbook/server/agent/tools/file-tool-utils";
+import {detectImageMimeType, assertReadable, assertWritable, firstChangedLine} from "nbook/server/agent/tools/file-tool-utils";
 import {formatSize, DEFAULT_MAX_BYTES, truncateHead, type TruncationResult} from "nbook/server/agent/tools/truncate";
 import {OutputAccumulator} from "nbook/server/agent/tools/output-accumulator";
-import type {NeuroAgentTool, ToolExecutionContext} from "nbook/server/agent/tools/types";
+import type {NeuroAgentTool, NeuroToolUpdateCallback, ToolExecutionContext} from "nbook/server/agent/tools/types";
 import {applyCodexPatch} from "nbook/server/agent/tools/apply-patch";
 import {recordAgentWorkspaceWrite} from "nbook/server/workspace-history/agent-file-recorder";
-import {resolveSystemNbookRoot, resolveUserNbookRoot} from "nbook/server/workspace-files/workspace-assets-root";
+import {resolveSystemNbookRoot} from "nbook/server/workspace-files/system-workspace-assets";
+import {normalizeToolResultDetails} from "nbook/server/agent/messages/message-utils";
+import {resolveSessionFileScope} from "nbook/server/agent/workspace/session-file-scope";
+import {resolveFileAddress, type ResolvedFileAddress} from "nbook/server/workspace-files/file-scope";
+import {imageMimeType} from "nbook/server/agent/attachments/agent-attachment-codec";
+import {AttachmentError} from "nbook/server/agent/attachments/types";
+import {AGENT_IMAGE_POLICY} from "nbook/server/agent/attachments/agent-attachment-policy";
+import {normalizeProjectPath, projectSlug, resolveProjectWorkspaceRoot} from "nbook/server/workspace-files/project-path";
 
 const ReadSchema = Type.Object({
     path: Type.String({description: "Path to the file to read (relative or absolute)."}),
@@ -80,31 +87,55 @@ export function createFileTools(): NeuroAgentTool[] {
     ];
 }
 
+/** 使用统一 File Scope / File Address Module解析工具路径，并保留领域归属。 */
+function resolveToolFile(context: ToolExecutionContext, inputPath: string): ResolvedFileAddress {
+    return resolveFileAddress(resolveSessionFileScope(context), inputPath);
+}
+
 function createReadTool(): NeuroAgentTool {
     return {
         key: "read",
         name: "read",
         label: "read",
         executionMode: "parallel",
-        description: `Read the contents of a file. Supports text files and images (jpg, png, gif, webp). Images are sent as attachments. For text files, output is truncated to 2000 lines or ${DEFAULT_MAX_BYTES / 1024}KB (whichever is hit first). Use offset/limit for large files. When you need the full file, continue with offset until complete. Text output includes line numbers automatically when offset/limit is used or output is truncated; pass lineNumbers=true to force them for short full-file reads. Agent cwd is the Workspace Root, so Project files should use project-slug/lorebook/... or project-slug/manuscript/.... Fully-qualified Project Paths like workspace/silver-dragon-hime/lorebook/... are accepted as compatibility aliases. Use read to examine files instead of cat/head/tail/sed.`,
+        description: `Read the contents of a file. Supports text files and images (jpg, png, gif, webp). Images are sent as attachments. For text files, output is truncated to 2000 lines or ${DEFAULT_MAX_BYTES / 1024}KB (whichever is hit first). Use offset/limit for large files. When you need the full file, continue with offset until complete. Text output includes line numbers automatically when offset/limit is used or output is truncated; pass lineNumbers=true to force them for short full-file reads. In a Project-bound session, cwd is the current Project Workspace, so use lorebook/..., manuscript/... or other Project-relative paths. Use workspace/<project>/... only as an explicit cross-project address. Use read to examine files instead of cat/head/tail/sed.`,
         parameters: ReadSchema,
         async executeWithContext(context: ToolExecutionContext, _toolCallId: string, params: unknown, _userInput?: unknown, signal?: AbortSignal) {
             const input = params as ReadInput;
-            const absolutePath = resolveWorkspacePath(input.path, context.workspaceRoot, context.projectPath);
+            const address = resolveToolFile(context, input.path);
+            const absolutePath = address.absolutePath;
             await assertReadable(absolutePath);
-            const mimeType = detectImageMimeType(absolutePath);
+            const imageCandidate = detectImageMimeType(absolutePath) !== null;
+            if (imageCandidate && (await stat(absolutePath)).size > AGENT_IMAGE_POLICY.maxImageBytes) {
+                throw new AttachmentError("limit_exceeded", "图片超过 read 工具允许大小。");
+            }
             const buffer = await readFile(absolutePath);
-            await recordReadContextAccess(context, absolutePath);
-            if (mimeType) {
+            if (imageCandidate) {
+                if (buffer.byteLength > AGENT_IMAGE_POLICY.maxImageBytes) {
+                    throw new AttachmentError("limit_exceeded", "图片超过 read 工具允许大小。");
+                }
+                const mimeType = imageMimeType(buffer);
+                if (!mimeType) {
+                    throw new AttachmentError("invalid_input", "图片扩展名对应的文件内容不是受支持图片。");
+                }
+                if (!context.attachments) {
+                    throw new Error("图片工具缺少 AttachmentStore。");
+                }
+                const attachment = await context.attachments.save({
+                    bytes: buffer,
+                    mimeType,
+                });
+                await recordReadContextAccess(context, address);
                 return {
                     content: [
                         {type: "text", text: `Read image file [${mimeType}]`},
-                        {type: "image", data: buffer.toString("base64"), mimeType},
+                        {type: "attachment", attachment, name: absolutePath.split(/[\\/]/).pop()},
                     ],
-                    details: {path: absolutePath},
+                    details: normalizeToolResultDetails({path: absolutePath}),
                 };
             }
 
+            await recordReadContextAccess(context, address);
             const text = buffer.toString("utf-8");
             const lines = text.split("\n");
             const startLine = input.offset ? Math.max(0, input.offset - 1) : 0;
@@ -131,14 +162,14 @@ function createReadTool(): NeuroAgentTool {
             }
             return {
                 content: [{type: "text", text: outputText}],
-                details: {
+                details: normalizeToolResultDetails({
                     path: absolutePath,
                     startLine: startLine + 1,
                     endLine,
                     totalLines: lines.length,
                     nextOffset,
                     truncation: truncation.truncated ? truncation : undefined,
-                },
+                }),
             };
         },
         async execute() {
@@ -147,8 +178,8 @@ function createReadTool(): NeuroAgentTool {
     };
 }
 
-async function recordReadContextAccess(context: ToolExecutionContext, absolutePath: string): Promise<void> {
-    const project = resolveContextAccessProject(context, absolutePath);
+async function recordReadContextAccess(context: ToolExecutionContext, address: ResolvedFileAddress): Promise<void> {
+    const project = resolveContextAccessProject(context, address);
     if (!project) {
         return;
     }
@@ -170,23 +201,23 @@ function addLineNumbers(content: string, firstLine: number): string {
     return lines.map((line, index) => `${firstLine + index} | ${line}`).join("\n");
 }
 
-function resolveContextAccessProject(context: ToolExecutionContext, absolutePath: string): {root: string; slug: string; filePath: string} | null {
-    if (!context.projectPath) {
+function resolveContextAccessProject(context: ToolExecutionContext, address: ResolvedFileAddress): {root: string; slug: string; filePath: string} | null {
+    if (address.kind === "absolute" || !address.projectPath) {
         return null;
     }
-    const projectRoot = resolve(context.workspaceRoot, context.projectPath.replace(/\\/g, "/").replace(/^workspace\//, ""));
-    const filePath = relative(projectRoot, absolutePath).replace(/\\/g, "/");
-    if (filePath.startsWith("../") || filePath === ".." || filePath.startsWith("/")) {
-        return null;
-    }
+    const filePath = address.relativePath;
     if (!filePath.startsWith("lorebook/") && !filePath.startsWith("manuscript/")) {
         return null;
     }
-    const slug = context.projectPath.replace(/\\/g, "/").replace(/\/+$/g, "").split("/").filter(Boolean).at(-1);
-    if (!slug) {
-        return null;
+    if (isAbsolute(address.projectPath)) {
+        return {root: address.projectPath, slug: basename(address.projectPath), filePath};
     }
-    return {root: projectRoot, slug, filePath};
+    const targetProjectPath = normalizeProjectPath(address.projectPath);
+    return {
+        root: resolveProjectWorkspaceRoot(context.workspaceFsRoot, targetProjectPath),
+        slug: projectSlug(targetProjectPath),
+        filePath,
+    };
 }
 
 function createWriteTool(): NeuroAgentTool {
@@ -200,15 +231,16 @@ function createWriteTool(): NeuroAgentTool {
         parameters: WriteSchema,
         async executeWithContext(context: ToolExecutionContext, _toolCallId: string, params: unknown, _userInput?: unknown, signal?: AbortSignal) {
             const input = params as WriteInput;
-            const absolutePath = resolveWorkspacePath(input.path, context.workspaceRoot, context.projectPath);
+            const address = resolveToolFile(context, input.path);
+            const absolutePath = address.absolutePath;
             // 记账 before：覆盖写前补读一次旧内容（不存在 = null，file.create 语义）
             const before = await readFile(absolutePath).catch(() => null);
             await mkdir(dirname(absolutePath), {recursive: true});
             await writeFile(absolutePath, input.content, "utf-8");
             await recordAgentWorkspaceWrite({
                 sessionId: context.sessionId,
-                workspaceRoot: context.workspaceRoot,
-                absolutePath,
+                workspaceRoot: context.workspaceFsRoot,
+                address,
                 before,
                 after: input.content,
             });
@@ -255,25 +287,26 @@ function createEditTool(): NeuroAgentTool {
             if (!Array.isArray(input.edits) || input.edits.length === 0) {
                 throw new Error("edits must contain at least one replacement.");
             }
-            const absolutePath = resolveWorkspacePath(input.path, context.workspaceRoot, context.projectPath);
+            const address = resolveToolFile(context, input.path);
+            const absolutePath = address.absolutePath;
             await assertWritable(absolutePath);
             const original = await readFile(absolutePath, "utf-8");
             const updated = applyExactEdits(original, input.edits, input.path);
             await writeFile(absolutePath, updated, "utf-8");
             await recordAgentWorkspaceWrite({
                 sessionId: context.sessionId,
-                workspaceRoot: context.workspaceRoot,
-                absolutePath,
+                workspaceRoot: context.workspaceFsRoot,
+                address,
                 before: original,
                 after: updated,
             });
             const diff = createPatch(input.path, original, updated, undefined, undefined, {context: 4});
             return {
                 content: [{type: "text", text: `Successfully replaced ${input.edits.length} block(s) in ${input.path}.`}],
-                details: {
+                details: normalizeToolResultDetails({
                     diff,
                     firstChangedLine: firstChangedLine(diff),
-                },
+                }),
             };
         },
         async execute() {
@@ -294,8 +327,7 @@ function createApplyPatchTool(): NeuroAgentTool {
         async executeWithContext(context: ToolExecutionContext, _toolCallId: string, params: unknown, _userInput?: unknown, signal?: AbortSignal) {
             const input = params as {patch: string};
             const result = await applyCodexPatch({
-                workspaceRoot: context.workspaceRoot,
-                projectPath: context.projectPath,
+                fileScope: resolveSessionFileScope(context),
                 patchText: input.patch,
             });
             // 逐 change 归因记账。moveTo 形态在 planned changes 中已拆成源 delete + 目标 add/update，
@@ -303,19 +335,19 @@ function createApplyPatchTool(): NeuroAgentTool {
             for (const change of result.changes) {
                 await recordAgentWorkspaceWrite({
                     sessionId: context.sessionId,
-                    workspaceRoot: context.workspaceRoot,
-                    absolutePath: change.absolutePath,
+                    workspaceRoot: context.workspaceFsRoot,
+                    address: change.address,
                     before: change.originalExists ? change.original : null,
                     after: change.updated,
                 });
             }
             return {
                 content: [{type: "text", text: `Patch applied to ${result.files.map((file) => file.path).join(", ")}.`}],
-                details: {
+                details: normalizeToolResultDetails({
                     files: result.files,
                     diff: result.diff,
                     firstChangedLine: result.firstChangedLine,
-                },
+                }),
             };
         },
         async execute() {
@@ -330,7 +362,7 @@ function createBashTool(): NeuroAgentTool {
         name: "bash",
         label: "bash",
         executionMode: "sequential",
-        description: "Execute a bash command in the agent workspace root. The agent bin directories are prepended to PATH, with user assets before system assets, so use workspace node ... for content-node CLI tasks. Prefer / path separators in bash commands; quote Windows backslash paths if you must use them. Returns stdout and stderr merged. Output is truncated to the last 2000 lines or 50KB (whichever is hit first). If truncated, the full output is saved to a temp file and the result includes its path. Use bash for rg/find/ls/git/tests/build/workspace CLI, not for file reading or editing when a dedicated tool exists.",
+        description: "Execute a bash command in the current File Scope. Project-bound sessions use the current Project Workspace; Workspace and user-assets sessions use their own roots. The agent bin directories are prepended to PATH, with user assets before system assets, so use workspace node ... for content-node CLI tasks. Prefer / path separators in bash commands; quote Windows backslash paths if you must use them. Returns stdout and stderr merged. Output is truncated to the last 2000 lines or 50KB (whichever is hit first). If truncated, the full output is saved to a temp file and the result includes its path. Use bash for rg/find/ls/git/tests/build/workspace CLI, not for file reading or editing when a dedicated tool exists.",
         parameters: BashSchema,
         async executeWithContext(
             context: ToolExecutionContext,
@@ -338,7 +370,7 @@ function createBashTool(): NeuroAgentTool {
             params: unknown,
             _userInput?: unknown,
             signal?: AbortSignal,
-            onUpdate?: Parameters<NeuroAgentTool["execute"]>[3],
+            onUpdate?: NeuroToolUpdateCallback,
         ) {
             const input = params as BashInput;
             const bash = resolveBashPath();
@@ -346,8 +378,8 @@ function createBashTool(): NeuroAgentTool {
             const result = await runBash({
                 bash,
                 command: input.command,
-                cwd: context.workspaceRoot,
-                env: createBashEnvironment(),
+                cwd: resolveSessionFileScope(context).root,
+                env: createBashEnvironment(context),
                 timeout: input.timeout,
                 signal,
                 onData(data) {
@@ -355,10 +387,10 @@ function createBashTool(): NeuroAgentTool {
                     const snapshot = output.snapshot(true);
                     onUpdate?.({
                         content: [{type: "text", text: snapshot.content}],
-                        details: snapshot.truncation.truncated ? {
+                        details: snapshot.truncation.truncated ? normalizeToolResultDetails({
                             truncation: snapshot.truncation,
                             fullOutputPath: snapshot.fullOutputPath,
-                        } : undefined,
+                        }) : undefined,
                     });
                 },
             }).finally(async () => {
@@ -372,10 +404,10 @@ function createBashTool(): NeuroAgentTool {
             }
             return {
                 content: [{type: "text", text: formatted}],
-                details: snapshot.truncation.truncated ? {
+                details: snapshot.truncation.truncated ? normalizeToolResultDetails({
                     truncation: snapshot.truncation,
                     fullOutputPath: snapshot.fullOutputPath,
-                } : undefined,
+                }) : undefined,
             };
         },
         async execute() {
@@ -513,9 +545,12 @@ function resolveBashPath(): string {
 /**
  * 注入 Agent assets 的 bin 目录。用户覆盖优先于系统内置。
  */
-function createBashEnvironment(): NodeJS.ProcessEnv {
-    const userNbookRoot = resolveUserNbookRoot();
-    const systemNbookRoot = resolveSystemNbookRoot();
+function createBashEnvironment(context: ToolExecutionContext): NodeJS.ProcessEnv {
+    const userNbookRoot = context.harness.runtimePaths?.userNbookRoot
+        ?? resolve(context.harness.workspaceRoot, ".nbook");
+    const systemNbookRoot = context.harness.runtimePaths
+        ? resolveSystemNbookRoot(context.harness.runtimePaths.applicationRoot)
+        : resolve(context.harness.workspaceRoot, ".nbook", "agent", "system");
     const userAgentBin = resolve(userNbookRoot, "agent", "bin");
     const systemAgentBin = resolve(systemNbookRoot, "agent", "bin");
     const userRipgrepConfig = resolve(userNbookRoot, "agent", "config", "ripgreprc");

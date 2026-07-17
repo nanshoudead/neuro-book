@@ -20,7 +20,7 @@ when_to_use:
 开始前确认：
 
 - 当前 Project Workspace 明确。
-- 目标章节内容节点存在，例如 `project-slug/manuscript/001-volume/001-chapter/`，其中 `index.md` 是写入目标。**若目标章节节点还不存在（新用户写第一章时常如此），先用 `workspace node new <project-slug>/manuscript/NNN-volume --type volume` 建卷，再用 `workspace node new <project-slug>/manuscript/NNN-volume/NNN-chapter --type chapter` 建章节，再继续。**
+- 目标章节内容节点存在，例如 `manuscript/001-volume/001-chapter/`，其中 `index.md` 是写入目标。**若目标章节节点还不存在（新用户写第一章时常如此），先用 `workspace node new manuscript/NNN-volume --type volume` 建卷，再用 `workspace node new manuscript/NNN-volume/NNN-chapter --type chapter` 建章节，再继续。**
 - World Engine 已初始化（有 calendar、纪元锚点、需追踪的角色 subject）。**若未初始化，先用 `novel-workflow-world-engine-init` 把 World Engine 建好，再回来写章节。**
 - 本章剧情事实已经确认，且通常已由 `novel-workflow-08-plot-planning` 写入 World Engine。若还没有确认，不要在本流程里替用户临时定稿。
 - 需要设定上下文时，已确定要建议 writer 读取的 lorebook 内容节点 path。
@@ -47,8 +47,8 @@ when_to_use:
 
 通过 `invoke_agent` 调用 `writer`。两个入口各有分工：
 
-- `input`：传 `{path: "project-slug/manuscript/001-volume/001-chapter/index.md", context: {lorebookEntries: ["project-slug/lorebook/character/foo/", ...]}}`。
-  - `path` 是本轮唯一写入目标，必须是带 project-slug 前缀的 cwd-relative 路径，指向章节 `index.md`。
+- `input`：传 `{path: "manuscript/001-volume/001-chapter/index.md", context: {lorebookEntries: ["lorebook/character/foo/", ...]}}`。
+  - `path` 是本轮唯一写入目标，必须是当前 Project Workspace 相对路径，指向章节 `index.md`。
   - `context.lorebookEntries` 只传内容节点 path 字符串数组（目录路径，结尾带 `/`）。
 - `message`（brief）：本章的写作任务正文。
 
@@ -74,7 +74,7 @@ brief 示例（节选）：
 信息控制：薇洛丝不知道莉雅真实身份与被封印原因；莉雅失忆，不知外面世界过了多久。
 写作约束：薇洛丝单视角第三人称；节奏由探索转紧张；章末收在对峙未发生战斗的悬念上。
 World Engine 查询提示：用 execute_world 查 weiluosi、liya、cultist-patrol-01 在「公元2020年4月12日 18:00」附近的状态。
-建议读取：project-slug/lorebook/location/ruins-meteor/。
+建议读取：lorebook/location/ruins-meteor/。
 ```
 
 ## 第三步：writer 侧（自查状态后写正文）

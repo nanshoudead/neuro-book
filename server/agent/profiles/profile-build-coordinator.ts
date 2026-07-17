@@ -4,7 +4,7 @@ import {AgentProfileCatalog, type AgentProfileBuildCoordinatorPort, type AgentPr
 import {hashFile, readProfileArtifactManifest, validateProfileArtifact} from "nbook/server/agent/profiles/profile-artifact-compiler";
 import type {ProfileCompilePublishOptions} from "nbook/server/agent/profiles/profile-compile-worker-types";
 import {useProfileCompileWorker} from "nbook/server/agent/profiles/profile-compile-worker";
-import {resolveUserNbookRoot} from "nbook/server/workspace-files/workspace-assets-root";
+import {resolveUserNbookRoot} from "nbook/server/workspace-files/workspace-runtime-root";
 import {appLogger} from "nbook/server/app-logs/logger";
 import type {
     AgentProfileCompileAllRequestDto,

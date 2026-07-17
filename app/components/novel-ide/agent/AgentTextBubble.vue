@@ -3,6 +3,8 @@ import type { ChatNode, AgentMessage } from "nbook/app/components/novel-ide/agen
 import { messageStatusLabel } from "nbook/app/components/novel-ide/agent/agent-message";
 import { useCollapsible } from "nbook/app/composables/useCollapsible";
 import AgentMarkdownContent from "nbook/app/components/novel-ide/agent/AgentMarkdownContent.vue";
+import AgentAttachmentGallery from "nbook/app/components/novel-ide/agent/AgentAttachmentGallery.vue";
+import AgentAttachmentImage from "nbook/app/components/novel-ide/agent/AgentAttachmentImage.vue";
 import StructuredTextEditor from "nbook/app/components/common/form/StructuredTextEditor.vue";
 import {formatCost, formatCostExact, type CostDisplayOptions} from "nbook/app/utils/cost-format";
 import type {
@@ -17,6 +19,8 @@ const SWIPE_MAX_DELTA_Y = 24;
 
 const props = defineProps<{
     node: Extract<ChatNode, { kind: "text" }>;
+    /** 当前 durable session；附件读取 locator 不能脱离 session 构造。 */
+    sessionId?: number | null;
     editingMessageId?: string | null;
     actionDisabled?: boolean;
     runActionDisabled?: boolean;
@@ -96,7 +100,7 @@ const hasThinking = computed(() => {
 
 /** 是否显示正文气泡。 */
 const hasMessageContent = computed(() => {
-    return Boolean(props.node.message.content.trim());
+    return Boolean(props.node.message.content.trim() || props.node.message.contentBlocks?.length || props.node.message.attachments?.length);
 });
 
 /** 按自然段抽取折叠摘要。 */
@@ -525,7 +529,28 @@ const endSwipe = (event: PointerEvent): void => {
                     </div>
                 </div>
                 <div v-else class="min-w-0 text-sm leading-relaxed text-[var(--text-main)]">
-                    <AgentMarkdownContent :content="props.node.message.content" :html="props.node.message.html" :streaming="props.node.message.status === 'streaming'" :open-reference="props.openReference" />
+                    <!-- 新 durable user DTO 按原始 contentIndex 保序；其他消息继续走原正文路径。 -->
+                    <template v-if="props.node.message.contentBlocks?.length">
+                        <div v-for="(block, blockIndex) in props.node.message.contentBlocks" :key="`${block.type}:${block.contentIndex}`" :class="blockIndex > 0 ? 'mt-3' : ''">
+                            <AgentMarkdownContent v-if="block.type === 'text'" :content="block.content.preview" :open-reference="props.openReference" />
+                            <AgentAttachmentImage
+                                v-else
+                                :session-id="props.sessionId"
+                                :entry-id="props.node.message.id"
+                                :content-index="block.contentIndex"
+                                :attachment="block.attachment"
+                            />
+                        </div>
+                    </template>
+                    <template v-else>
+                        <AgentMarkdownContent v-if="props.node.message.content" :content="props.node.message.content" :html="props.node.message.html" :streaming="props.node.message.status === 'streaming'" :open-reference="props.openReference" />
+                        <AgentAttachmentGallery
+                            v-if="props.node.message.attachments?.length"
+                            :attachments="props.node.message.attachments"
+                            :session-id="props.sessionId"
+                            :entry-id="props.node.message.id"
+                        />
+                    </template>
                     <div v-if="isContentOmitted" class="mt-3 flex items-center gap-1.5 border-t border-[var(--border-color)] pt-2 text-[11px] text-[var(--status-info)]">
                         <span class="i-lucide-info h-3.5 w-3.5 shrink-0"></span>
                         <span>{{ t("agent.textBubble.previewOnly", {bytes: props.node.message.contentBytes ?? 0}) }}</span>

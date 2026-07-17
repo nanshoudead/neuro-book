@@ -5,6 +5,7 @@ export default defineConfig({
     resolve: {
         alias: {
             "#manager": fileURLToPath(new URL("./src", import.meta.url)),
+            "nbook": fileURLToPath(new URL("../../", import.meta.url)),
         },
     },
     test: {

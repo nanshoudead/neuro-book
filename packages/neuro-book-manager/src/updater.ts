@@ -2,7 +2,7 @@ import {randomUUID} from "node:crypto";
 import {copyFile, readFile, rename} from "node:fs/promises";
 import {join, resolve} from "node:path";
 
-import {migrateApplication} from "#manager/app-commands";
+import {applyJournaledApplicationMigrations} from "#manager/migration-operation";
 import {
     stageReleaseProduct,
     stageReleaseSource,
@@ -128,7 +128,7 @@ export async function updateInstallation(options: UpdateOptions): Promise<Instal
                 await switchProduct(paths.root, result.stagedProduct.outputRoot, join(backup, "product"));
             }
             journal = await updateOperation(journal, "switched");
-            await migrateApplication(paths.root, result.manifest);
+            journal = await applyJournaledApplicationMigrations(paths.root, result.manifest, journal);
             journal = await updateOperation(journal, "migrated");
             if (nativeProduct) {
                 const runtime = result.manifest.components.applicationRuntime;

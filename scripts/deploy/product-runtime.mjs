@@ -8,9 +8,11 @@ import {createRequire} from "node:module";
 import {fileURLToPath, pathToFileURL} from "node:url";
 
 import {normalizeProfileManifestProfiles} from "./profile-artifact-manifest.mjs";
+import {pruneRuntimeTestSources} from "../utils/runtime-source-prune.mjs";
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
-const PRODUCT_ROOT = resolve(REPO_ROOT, "product");
+const PRODUCT_ROOT = resolve(REPO_ROOT, process.env.NEURO_BOOK_PRODUCT_STAGE_DIR?.trim() || "product");
+const BUILD_OUTPUT_ROOT = resolve(REPO_ROOT, process.env.NEURO_BOOK_OUTPUT_DIR?.trim() || ".output");
 
 const command = process.argv[2] ?? "stage";
 
@@ -33,7 +35,7 @@ async function stageProduct() {
     await rm(PRODUCT_ROOT, {recursive: true, force: true});
     await mkdir(PRODUCT_ROOT, {recursive: true});
 
-    await copyPath(".output", ".output");
+    await copyResolvedPath(BUILD_OUTPUT_ROOT, resolve(PRODUCT_ROOT, ".output"), "Product build output");
     await copyPath("assets/workspace", "assets/workspace");
     await cleanupProductGeneratedSourceArtifacts();
     await copyPath("AGENTS.md", "AGENTS.md");
@@ -50,6 +52,7 @@ async function stageProduct() {
     await writeProductPackageJson();
     await writeProductEnv();
     await copyNbookRuntimePackage();
+    await pruneProductRuntimeTestSources();
     await prepareProductSystemAssets();
     await pruneProductProfileArtifacts();
     await assertProductTsxVendor();
@@ -116,7 +119,7 @@ async function runProductScript(args, options = {}) {
  * 确认 Nuxt build 产物存在。
  */
 async function assertBuildOutput() {
-    const entry = resolve(REPO_ROOT, ".output", "server", "index.mjs");
+    const entry = resolve(BUILD_OUTPUT_ROOT, "server", "index.mjs");
     if (!existsSync(entry)) {
         throw new Error("缺少 .output/server/index.mjs，请先运行 bun run nuxt:build。");
     }
@@ -132,6 +135,8 @@ async function copyRuntimeScripts() {
         "scripts/cli/prisma-runtime-preflight.ts",
         "scripts/cli/sync-user-assets.ts",
         "scripts/deploy/product-start.mjs",
+        "scripts/deploy/product-agent-state-root-smoke.ts",
+        "scripts/deploy/product-agent-attachment-migration-smoke.ts",
         "scripts/db",
         "scripts/build/prepare-system-assets.ts",
         "scripts/build/profile.ts",
@@ -146,6 +151,8 @@ async function copyRuntimeScripts() {
     await copyPath("scripts/cli/prisma-runtime-preflight.ts", ".output/server/scripts/cli/prisma-runtime-preflight.ts");
     await copyPath("scripts/cli/sync-user-assets.ts", ".output/server/scripts/cli/sync-user-assets.ts");
     await copyPath("scripts/deploy/product-start.mjs", ".output/server/scripts/deploy/product-start.mjs");
+    await copyPath("scripts/deploy/product-agent-state-root-smoke.ts", ".output/server/scripts/deploy/product-agent-state-root-smoke.ts");
+    await copyPath("scripts/deploy/product-agent-attachment-migration-smoke.ts", ".output/server/scripts/deploy/product-agent-attachment-migration-smoke.ts");
     await copyPath("scripts/db", ".output/server/scripts/db");
     await copyPath("scripts/build/prepare-system-assets.ts", ".output/server/scripts/build/prepare-system-assets.ts");
     await copyPath("scripts/build/profile.ts", ".output/server/scripts/build/profile.ts");
@@ -288,6 +295,7 @@ async function writeProductPackageJson() {
             "create-admin": "bun .output/server/scripts/cli/create-admin.ts",
             "auth:create-admin": "bun .output/server/scripts/cli/create-admin.ts",
             "migrate:deploy": "bun .output/server/scripts/db/prisma-migrate.mjs --deploy",
+            "migrate:agent-attachments": "bun .output/server/scripts/db/migrate-agent-attachments.ts",
             "migrate:agent-session-initial": "bun .output/server/scripts/db/migrate-agent-session-initial.ts",
             "migrate:writer-session-initial": "bun .output/server/scripts/db/migrate-writer-session-initial.ts",
             "system-assets:prepare": "bun .output/server/scripts/build/prepare-system-assets.ts",
@@ -332,6 +340,26 @@ async function copyNbookRuntimePackage() {
     const profileDslRoot = resolve(packageRoot, "server", "agent", "profiles", "profile-dsl");
     await writeFile(resolve(profileDslRoot, "index.jsx"), 'export * from "../profile-dsl.ts";\n', "utf8");
     await writeFile(resolve(profileDslRoot, "index.js"), 'export * from "../profile-dsl.ts";\n', "utf8");
+}
+
+/**
+ * 清理本地Product staging和`.output` vendor中的测试源码。
+ *
+ * Product运行脚本需要部分TypeScript源码，但不需要测试；生成目录若保留测试文件，
+ * 外层Bun测试发现器可能重复运行陈旧副本并污染真实State Root。
+ */
+async function pruneProductRuntimeTestSources() {
+    for (const runtimeRoot of [
+        resolve(PRODUCT_ROOT, "server"),
+        resolve(PRODUCT_ROOT, "shared"),
+        resolve(PRODUCT_ROOT, "scripts"),
+        resolve(PRODUCT_ROOT, ".output", "server", "server"),
+        resolve(PRODUCT_ROOT, ".output", "server", "shared"),
+        resolve(PRODUCT_ROOT, ".output", "server", "scripts"),
+        resolve(PRODUCT_ROOT, ".output", "server", "node_modules", "nbook"),
+    ]) {
+        await pruneRuntimeTestSources(runtimeRoot);
+    }
 }
 
 function assertNbookRuntimePackage(packageRoot) {
@@ -436,8 +464,13 @@ async function assertProductSqliteVecVendor() {
 async function copyPath(sourceRelative, targetRelative) {
     const source = resolve(REPO_ROOT, sourceRelative);
     const target = resolve(PRODUCT_ROOT, targetRelative);
+    await copyResolvedPath(source, target, sourceRelative);
+}
+
+/** 复制已解析来源，供隔离Build Output与普通仓库文件共用。 */
+async function copyResolvedPath(source, target, label) {
     if (!existsSync(source)) {
-        throw new Error(`缺少 product runtime 文件：${sourceRelative}`);
+        throw new Error(`缺少 product runtime 文件：${label}`);
     }
     await mkdir(dirname(target), {recursive: true});
     await rm(target, {recursive: true, force: true});

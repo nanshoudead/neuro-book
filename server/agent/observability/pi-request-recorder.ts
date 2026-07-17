@@ -43,6 +43,8 @@ export type PiTraceRequest = {
     context?: unknown;
     /** onPayload 拿到的 provider 原生请求体；capturePayload 关时为 undefined。 */
     payload?: unknown;
+    /** 原生 payload 因安全边界被主动省略时说明原因。 */
+    payloadOmittedReason?: "attachment";
 };
 
 /** 响应侧健康度。失败时 httpStatus/headers 可能缺，errorMessage 从 stream 最终消息补。 */

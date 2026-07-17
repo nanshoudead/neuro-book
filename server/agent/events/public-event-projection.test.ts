@@ -43,6 +43,7 @@ describe("projectRuntimeEvent", () => {
             result: {
                 content: [{
                     type: "text",
+                    contentIndex: 0,
                     textPreview: "ok",
                     textBytes: 2,
                     textOmitted: false,

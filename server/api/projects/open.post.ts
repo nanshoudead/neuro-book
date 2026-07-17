@@ -3,6 +3,9 @@ import {validateBody} from "nbook/server/utils/novel-chapter";
 import {openProject} from "nbook/server/workspace-files/project-session";
 import {readProjectWorkspaceTreeSnapshot} from "nbook/server/workspace-files/project-workspace-index";
 import {openProjectHistoryAndMaintain} from "nbook/server/workspace-history/project-history";
+import {runtimePathsFromEnv} from "nbook/server/runtime/paths/runtime-paths";
+import {normalizeProjectPath} from "nbook/server/workspace-files/project-path";
+import {resolveNovelWorkspaceTarget} from "nbook/server/workspace-files/novel-workspace";
 
 const OpenProjectBodySchema = z.object({
     projectPath: z.string().trim().min(1, "projectPath 不能为空"),
@@ -14,11 +17,14 @@ const OpenProjectBodySchema = z.object({
  */
 export default defineEventHandler(async (event) => {
     const body = await validateBody(event, OpenProjectBodySchema);
-    await openProject(body.projectPath, {kind: "user"});
+    const runtimePaths = runtimePathsFromEnv();
+    const projectPath = normalizeProjectPath(body.projectPath);
+    const target = await resolveNovelWorkspaceTarget(runtimePaths, projectPath);
+    await openProject(runtimePaths.workspaceRoot, target.projectPath, {kind: "user"});
     // D11：open 即预热 tree watcher（fire-and-forget，不阻塞响应，失败静默——首个 tree 请求会自然重建）。
     // 预热放在路由层而非 project-session 内部，避免 project-session 与 project-workspace-index 循环 import。
-    void readProjectWorkspaceTreeSnapshot({root: body.projectPath}).catch(() => undefined);
+    void readProjectWorkspaceTreeSnapshot({target}).catch(() => undefined);
     // Task 95 D13/D14/D15：预热 history 库 + closed 期间外部变更对账扫描 + 24h 维护（同样 fire-and-forget）。
-    void openProjectHistoryAndMaintain(body.projectPath).catch(() => undefined);
+    void openProjectHistoryAndMaintain(target.root, target.projectPath).catch(() => undefined);
     return {success: true};
 });

@@ -1,15 +1,16 @@
 import {createError} from "h3";
 import {ProjectNotOpenError} from "nbook/server/workspace-files/project-session";
 import {assertManagedProjectDataPlaneOpen} from "nbook/server/workspace-files/project-data-plane-guard";
+import type {WorkspaceFileTarget} from "nbook/server/workspace-files/workspace-file-target";
 
 /**
- * 路由层 Project open 守卫：只有 `workspace/<slug>` 形式的 Project Workspace root 需要显式 open。
- * Workspace Root、user-assets 与绝对路径 root 都是控制面或非 Project 资源，按生命周期模型放行。
+ * 路由层Project open守卫：只有明确的Project Workspace目标需要显式open。
  */
-export function assertProjectOpenForRoot(rootInput: string | undefined): void {
-    const root = normalizeRootInput(rootInput);
+export function assertProjectOpenForTarget(target: WorkspaceFileTarget): void {
     try {
-        assertManagedProjectDataPlaneOpen(root);
+        if (target.kind === "project-workspace") {
+            assertManagedProjectDataPlaneOpen(target.projectPath);
+        }
     } catch (error) {
         if (error instanceof ProjectNotOpenError) {
             throw createProjectNotOpenHttpError(error);
@@ -17,7 +18,6 @@ export function assertProjectOpenForRoot(rootInput: string | undefined): void {
         throw error;
     }
 }
-
 /**
  * 将 ProjectSession typed error 映射为稳定 HTTP 409，供 Nitro route handler 返回给前端。
  */
@@ -45,11 +45,4 @@ export async function withProjectNotOpenHttpError<T>(handler: () => Promise<T> |
         }
         throw error;
     }
-}
-
-/**
- * 归一化 root 输入，保持与 workspace tree index 的 `workspace/<slug>` 判定一致。
- */
-function normalizeRootInput(rootInput: string | undefined): string {
-    return (rootInput?.trim() || "workspace").replace(/\\/g, "/").replace(/\/+$/u, "");
 }

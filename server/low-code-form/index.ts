@@ -14,13 +14,14 @@ import type {
 } from "nbook/shared/dto/low-code-form.dto";
 import type {ProfileHomeFacade} from "nbook/server/agent/profiles/profile-home";
 import {defineResourcePreset, profileHomeResource, type ResourcePresetDefinition} from "nbook/server/low-code-form/resource-preset";
+import type {WorkspaceRootRef} from "nbook/server/workspace-files/workspace-root-ref";
 
 export {defineResourcePreset, profileHomeResource};
 
 export type LowCodeFormResolveContext = {
     profileKey: string;
     scope: "global" | "project";
-    workspaceRoot?: string;
+    workspaceRoot: WorkspaceRootRef;
     projectPath?: string;
     values?: LowCodeJsonObject;
     home?: ProfileHomeFacade;

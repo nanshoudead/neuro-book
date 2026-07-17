@@ -1,13 +1,14 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import type {AgentToolResult} from "@earendil-works/pi-agent-core";
+import type {NeuroToolResult} from "nbook/server/agent/tools/types";
 import {afterEach, beforeEach, describe, expect, it} from "vitest";
 import {createBuiltinTools} from "nbook/server/agent/tools";
 import {createWorldEngineTools} from "nbook/server/agent/tools/world-engine-tools";
 import type {ToolExecutionContext} from "nbook/server/agent/tools/types";
-import {worldEngineFacade} from "nbook/server/world-engine";
-import {resolveWorkspaceContainerRoot} from "nbook/server/workspace-files/workspace-assets-root";
+import {worldEngineFacadeForWorkspaceRoot} from "nbook/server/world-engine";
+import {resolveRuntimeWorkspaceRoot} from "nbook/server/workspace-files/workspace-runtime-root";
 import {closeProjectForTest, openProjectForTest} from "nbook/server/workspace-files/project-session-test-utils";
+import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
 
 describe("world engine agent tools", {timeout: 30_000}, () => {
     let projectPath: string;
@@ -16,19 +17,20 @@ describe("world engine agent tools", {timeout: 30_000}, () => {
 
     beforeEach(async () => {
         projectPath = await createProject();
-        projectRoot = path.join(resolveWorkspaceContainerRoot(), projectPath.slice("workspace/".length));
+        projectRoot = path.join(resolveRuntimeWorkspaceRoot(), projectPath.slice("workspace/".length));
         context = {
             harness: {} as ToolExecutionContext["harness"],
             sessionId: 1,
             profileKey: "leader.default",
-            workspaceRoot: resolveWorkspaceContainerRoot(),
+            workspaceRootRef: "workspace",
+            workspaceFsRoot: resolveRuntimeWorkspaceRoot(),
             workspaceKey: "global",
         };
     }, 30_000);
 
     afterEach(async () => {
         await closeProjectForTest(projectPath).catch(() => undefined);
-        await worldEngineFacade.closeProject(projectPath);
+        await worldEngineFacadeForWorkspaceRoot(context.workspaceFsRoot).closeProject(projectPath);
         await removeProjectRoot(projectRoot);
     }, 30_000);
 
@@ -251,18 +253,18 @@ describe("world engine agent tools", {timeout: 30_000}, () => {
             expect(match?.[1]).toBeDefined();
             savedPath = match?.[1];
             if (savedPath) {
-                const savedCode = await fs.readFile(path.join(context.workspaceRoot, savedPath), "utf-8");
+                const savedCode = await fs.readFile(path.join(context.workspaceFsRoot, savedPath), "utf-8");
                 expect(savedCode).toContain("return hero.name + (;");
             }
         } finally {
             if (savedPath) {
-                await fs.rm(path.join(context.workspaceRoot, savedPath), {force: true});
+                await fs.rm(path.join(context.workspaceFsRoot, savedPath), {force: true});
             }
         }
     });
 });
 
-async function executeWorld(context: ToolExecutionContext, projectPath: string, code: string): Promise<AgentToolResult<unknown>> {
+async function executeWorld(context: ToolExecutionContext, projectPath: string, code: string): Promise<NeuroToolResult> {
     const tool = createWorldEngineTools().find((item) => item.key === "execute_world");
     if (!tool?.executeWithContext) {
         throw new Error("missing world engine tool: execute_world");
@@ -270,7 +272,7 @@ async function executeWorld(context: ToolExecutionContext, projectPath: string, 
     return tool.executeWithContext(context, "execute_world-call", {projectPath, code});
 }
 
-function readText(result: AgentToolResult<unknown>): string {
+function readText(result: NeuroToolResult): string {
     const item = result.content[0];
     if (!item || item.type !== "text") {
         throw new Error("测试期望工具返回 text content");
@@ -281,7 +283,7 @@ function readText(result: AgentToolResult<unknown>): string {
 async function createProject(): Promise<string> {
     const slug = `world-tools-test-${Date.now()}-${Math.random().toString(16).slice(2)}`;
     const projectPath = `workspace/${slug}`;
-    const root = path.join(resolveWorkspaceContainerRoot(), slug);
+    const root = path.join(resolveRuntimeWorkspaceRoot(), slug);
     await fs.mkdir(path.join(root, "world-engine/schema"), {recursive: true});
     await fs.writeFile(path.join(root, "project.yaml"), "kind: novel\ntitle: World Tools Test\nsummary: ''\n", "utf-8");
     await fs.writeFile(path.join(root, "world-engine/schema/index.ts"), schemaFixture(), "utf-8");

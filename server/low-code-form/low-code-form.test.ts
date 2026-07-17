@@ -14,6 +14,7 @@ import {
     type LowCodeFormResolveContext,
 } from "nbook/server/low-code-form";
 import {ensureGlobalProfileHome, ensureProfileHome} from "nbook/server/agent/profiles/profile-home";
+import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
 
 describe("low-code form", () => {
     it("合并 defaults 并用 TypeBox 校验值", () => {
@@ -235,7 +236,7 @@ describe("low-code form", () => {
     it("Global scope 下 resource-preset 使用 Global profile home", async () => {
         const workspaceRoot = await mkdtemp(path.join(tmpdir(), "nbook-low-code-global-resource-"));
         try {
-            const home = await ensureGlobalProfileHome({workspaceRoot, profileKey: "writer", profileVersion: 1});
+            const home = await ensureGlobalProfileHome({workspaceRoot: absoluteFsPath(workspaceRoot), profileKey: "writer", profileVersion: 1});
             await home.writeText("styles/global.md", "---\ntitle: \"全局文风\"\n---\n\n正文", {mode: "overwrite"});
             const form = resourceForm();
             const ctx = context({home, values: {preset: "styles/global.md"}});
@@ -278,7 +279,7 @@ describe("low-code form", () => {
         const workspaceRoot = await mkdtemp(path.join(tmpdir(), "nbook-low-code-global-resource-"));
         try {
             const home = await ensureProfileHome({projectRoot, profileKey: "writer", profileVersion: 1});
-            const globalHome = await ensureGlobalProfileHome({workspaceRoot, profileKey: "writer", profileVersion: 1});
+            const globalHome = await ensureGlobalProfileHome({workspaceRoot: absoluteFsPath(workspaceRoot), profileKey: "writer", profileVersion: 1});
             await home.writeText("styles/project.md", "---\ntitle: \"项目文风\"\n---\n\n项目正文", {mode: "overwrite"});
             await globalHome.writeText("styles/global.md", "---\ntitle: \"全局文风\"\n---\n\n全局正文", {mode: "overwrite"});
             const form = resourceForm();

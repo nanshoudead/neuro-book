@@ -3,6 +3,8 @@ import {mkdir, rm, writeFile} from "node:fs/promises";
 import {join, resolve} from "node:path";
 import {afterEach, beforeEach, describe, expect, it} from "vitest";
 import {SkillCatalog} from "nbook/server/agent/skills/skill-catalog";
+import {runtimePathsFromEnv} from "nbook/server/runtime/paths/runtime-paths";
+import {resolveSystemNbookRoot} from "nbook/server/workspace-files/system-workspace-assets";
 
 describe("SkillCatalog", () => {
     let root: string;
@@ -82,7 +84,11 @@ name: user anti-ai-slop
     });
 
     it("默认系统 catalog 包含 profile-system-guide 和已迁移 v2 skills", async () => {
-        const catalog = new SkillCatalog();
+        const runtimePaths = runtimePathsFromEnv();
+        const catalog = new SkillCatalog(
+            join(resolveSystemNbookRoot(runtimePaths.applicationRoot), "agent", "skills"),
+            join(runtimePaths.userNbookRoot, "agent", "skills"),
+        );
 
         const skills = await catalog.list();
         const keys = skills.map((skill) => skill.key);

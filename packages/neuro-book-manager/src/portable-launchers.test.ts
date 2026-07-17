@@ -107,7 +107,8 @@ describe("Windows Portable Launcher", () => {
         child.stdin.end("\r\n");
         const exitCode = await new Promise<number | null>((resolvePromise, rejectPromise) => {
             child.once("error", rejectPromise);
-            child.once("exit", resolvePromise);
+            // `exit`早于stdio关闭；全套并行测试下可能在最后一段stdout到达前断言。
+            child.once("close", resolvePromise);
         });
 
         expect(exitCode).toBe(23);

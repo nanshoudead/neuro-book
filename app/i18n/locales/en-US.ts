@@ -1504,6 +1504,9 @@ const enUS = {
             loadPrevious: "Load earlier messages",
             loadingPrevious: "Loading earlier messages",
             retryPrevious: "Retry earlier messages",
+            attachmentAlt: "Attachment image ({mimeType})",
+            attachmentLoadFailed: "Image failed to load",
+            attachmentUnavailable: "Image unavailable",
         },
         systemPrompt: {
             title: "System Prompt",

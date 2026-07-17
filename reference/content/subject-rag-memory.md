@@ -49,7 +49,7 @@ type SubjectMemory = {
 
 ## Tools
 
-Subject memory 工具只给 sidecar 使用。`simulator.actor` 主 run 不直接读取完整 subject 文件，也不直接维护文件；它的主 run 实际执行权限只允许 `report_result`。工具入参中的 `subjectPath` 是当前 Agent cwd 内的 subject 目录路径；普通 Project session 通常形如 `{project}/simulation/subjects/{subject-id}`。
+Subject memory工具只给sidecar使用。`simulator.actor`主run不直接读取完整subject文件，也不直接维护文件；它的主run实际执行权限只允许`report_result`。工具入参中的`subjectPath`相对当前Project Workspace File Scope，通常形如`simulation/subjects/{subject-id}`。
 
 `subject_event_append`：
 

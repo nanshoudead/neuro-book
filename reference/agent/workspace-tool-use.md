@@ -17,17 +17,16 @@
 - `bash` 只用于真实终端操作：`rg`、`find`、`ls`、`git`、测试、构建、workspace CLI、脚本验证等。
 - 搜索文件列表优先用 `rg --files`；搜索文本优先用 `rg`。
 - `bash` 命令必须按 bash 语法编写；不要写 PowerShell、cmd 或其他 shell 语法。
-- Agent 文件工具已经绑定 workspace 容器根，不要传 `workdir`。
+- Agent 文件工具与 bash 已绑定同一 File Scope，不要传 `workdir`。
 - 不要用 `bash` 拼接高风险写入命令替代 `edit`、`apply_patch` 或 `write`。
 - 脚本失败时读取错误并说明阻塞原因，不要假装验证成功。
 
 ## Workspace CLI
 
 - 内容节点 CLI 的稳定入口是 `workspace node ...`。
-- 常规任务把 AppendingSet runtime reminder 的 Current Project Workspace 作为默认焦点，但它不是访问边界；Agent cwd / Workspace Root 始终是 `workspace/`。
-- 访问当前小说时使用 `project-slug/lorebook/...`、`project-slug/manuscript/...`、`project-slug/simulation/...` 这类显式路径。
-- 允许跨 Project Workspace 写作和检查；跨项目时必须显式写出目标 Project Workspace 路径，避免把内容写到错误小说。
-- 仓库源码与仓库级 `reference/` 位于 Workspace Root 之外；runtime reminder 会给出它们的绝对路径，读取时使用该绝对路径。
+- Project-bound session 的 File Scope 是 Current Project Workspace；访问当前小说直接使用 `lorebook/...`、`manuscript/...`、`simulation/...`。
+- 允许跨 Project Workspace 写作和检查；跨项目时必须使用 `workspace/<project-slug>/<relative-path>` 完整Project文件地址。
+- 仓库源码与仓库级 `reference/` 位于当前 File Scope之外；runtime reminder会给出它们的绝对路径，读取时使用该绝对路径。
 - 路径分隔优先使用 `/`。
 
 ## Parallel Calls

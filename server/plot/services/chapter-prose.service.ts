@@ -1,5 +1,7 @@
 import {readProjectWorkspaceTreeSnapshot} from "nbook/server/workspace-files/project-workspace-index";
 import type {WorkspaceFileNode} from "nbook/server/workspace-files/workspace-files";
+import type {AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
+import {normalizeProjectPath, resolveProjectWorkspaceRoot} from "nbook/server/workspace-files/project-path";
 
 /** Prose 节点解析结果:manuscript 下通过 frontmatter `chapter: <name>` 反指某章的内容节点。 */
 export type ChapterProseNode = {
@@ -21,6 +23,7 @@ export type ChapterProseNode = {
  * 查询复用 ProjectWorkspaceIndex 内存快照(watcher 自动失效重建),不做额外磁盘扫描。
  */
 export class ChapterProseService {
+    constructor(private readonly workspaceRoot: AbsoluteFsPath) {}
 
     /**
      * 解析指定章的全部 Prose(按 path 升序;通常一章一份,多份表示草稿/重写版共存)。
@@ -34,7 +37,14 @@ export class ChapterProseService {
      * 全量列出 manuscript 下带 chapter 指针的 Prose 节点,供 brief 编译、审计与孤儿检测。
      */
     async listChapterPointers(projectPath: string): Promise<ChapterProseNode[]> {
-        const snapshot = await readProjectWorkspaceTreeSnapshot({root: projectPath});
+        const normalizedProjectPath = normalizeProjectPath(projectPath);
+        const snapshot = await readProjectWorkspaceTreeSnapshot({
+            target: {
+                kind: "project-workspace",
+                root: resolveProjectWorkspaceRoot(this.workspaceRoot, normalizedProjectPath),
+                projectPath: normalizedProjectPath,
+            },
+        });
         return snapshot.nodes
             .filter((node) => isProsePointerNode(node))
             .map((node) => toChapterProseNode(node))

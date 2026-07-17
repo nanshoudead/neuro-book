@@ -174,8 +174,12 @@ export default defineAgentProfile({
     ],
     context(ctx) {
         // soul.md = 角色第一人称扮演手册（无 frontmatter），Import 进 actor 主路取代旧 actor_definition。
-        // B 方案：Import 从 repo root 解析，Agent 文件工具 cwd 是 workspace 容器根，故 soul.md 的 repo-root 相对路径 = workspace/${subjectPath}/soul.md。
-        const soulPath = `workspace/${subjectDirectoryPath(ctx.initial)}/soul.md`;
+        // Import使用显式Project文件地址；文件工具仍使用当前Project-relative subjectPath。
+        const projectPath = ctx.session.projectPath?.trim();
+        if (!projectPath) {
+            throw new Error("simulator.actor需要绑定Project Path才能导入soul.md。");
+        }
+        const soulPath = `${projectPath}/${subjectDirectoryPath(ctx.initial)}/soul.md`;
         return (
             <ProfilePrompt>
                 <System>{renderSystemPrompt(ctx.initial, profileManifest.key)}</System>

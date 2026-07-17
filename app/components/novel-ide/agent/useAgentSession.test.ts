@@ -1,6 +1,7 @@
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
 import {useAgentSession} from "nbook/app/components/novel-ide/agent/useAgentSession";
 import type {AgentSessionEventDto, AgentSessionLiveStateDto, AgentSessionRecoveryDto} from "nbook/shared/dto/agent-session.dto";
+import type {AgentChatEntryDto} from "nbook/shared/dto/agent-public-event.dto";
 
 describe("useAgentSession event reducer", () => {
     beforeEach(() => {
@@ -36,7 +37,7 @@ describe("useAgentSession event reducer", () => {
 
     it("relations 和 queue 事件只更新 recovery shell，不重建 durable history", () => {
         const session = useAgentSession();
-        session.applyRecovery({...recovery(0), history: {entries: [{id: "user-1", timestamp: 1, type: "user", intent: "normal", content: {preview: "你好", bytes: 6, omitted: false}}], previousCursor: null}});
+        session.applyRecovery({...recovery(0), history: {entries: [userEntry("user-1", "你好")], previousCursor: null}});
 
         session.applyRelations({sessionId: 1, linkedAgents: [{...summary(), sessionId: 2}], linkedByAgents: []});
         session.applyEvent(control(1, {type: "steer_queued", item: {id: "steer-1", kind: "steer", text: {preview: "调整", bytes: 6, omitted: false}, images: [], omittedImages: 0, createdAt: 1}}));
@@ -81,13 +82,7 @@ describe("useAgentSession event reducer", () => {
 
     it("长 durable history 运行期间不会复制进 live overlay", () => {
         const session = useAgentSession();
-        const entries = Array.from({length: 300}, (_, index) => ({
-            id: `user-${String(index)}`,
-            timestamp: index,
-            type: "user" as const,
-            intent: "normal" as const,
-            content: {preview: `message-${String(index)}`, bytes: 10, omitted: false},
-        }));
+        const entries = Array.from({length: 300}, (_, index) => userEntry(`user-${String(index)}`, `message-${String(index)}`, index));
         session.applyRecovery({...recovery(0), history: {entries, previousCursor: null}});
 
         session.applyEvent(runtime(1, {type: "message_start", messageId: "live-1", role: "assistant", timestamp: 1, model: "test"}));
@@ -100,7 +95,7 @@ describe("useAgentSession event reducer", () => {
     it("duplicate/replayed event 不会重复应用", () => {
         const session = useAgentSession();
         session.applyRecovery(recovery(0));
-        const entryEvent = control(1, {type: "session_entry", entry: {id: "user-1", timestamp: 1, type: "user", intent: "normal", content: {preview: "你好", bytes: 6, omitted: false}}});
+        const entryEvent = control(1, {type: "session_entry", entry: userEntry("user-1", "你好")});
 
         session.applyEvent(entryEvent);
         session.applyEvent(entryEvent);
@@ -109,6 +104,19 @@ describe("useAgentSession event reducer", () => {
         expect(session.lastSeq.value).toBe(1);
     });
 });
+
+function userEntry(id: string, content: string, timestamp = 1): AgentChatEntryDto {
+    const bytes = Buffer.byteLength(content, "utf8");
+    return {
+        id,
+        timestamp,
+        type: "user",
+        intent: "normal",
+        blocks: [{type: "text", contentIndex: 0, content: {preview: content, bytes, omitted: false}}],
+        omittedBlocks: 0,
+        textSummary: {bytes, omitted: false},
+    };
+}
 
 function recovery(after: number): AgentSessionRecoveryDto {
     return {

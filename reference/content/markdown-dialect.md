@@ -44,11 +44,11 @@
 | Context | Path Form |
 | --- | --- |
 | 正文内部 Markdown link | 推荐 Project-relative，例如 `lorebook/character/foo/`；也支持相对当前 Markdown 文件或绝对路径 |
-| Agent 文件工具 / bash | Workspace Root cwd-relative，例如 `project-slug/lorebook/character/foo/` |
-| `writer` payload `context.lorebookEntries` | Workspace Root cwd-relative 内容节点路径，例如 `project-slug/lorebook/character/foo/` |
+| Project-bound Agent 文件工具 / bash | 当前Project Workspace相对，例如 `lorebook/character/foo/` |
+| `writer` payload `context.lorebookEntries` | 当前Project Workspace相对内容节点路径，例如 `lorebook/character/foo/` |
 | Plot tool `projectPath` | Project Path，例如 `workspace/project-slug` |
 
-不要把正文内部链接不加判断地复制到工具调用参数中。正文里推荐的 Project-relative 链接通常可以转为 Agent 文件工具路径的 suffix，但工具调用仍需要遵守具体工具的 cwd / Project Path 要求。
+正文内部推荐的Project-relative链接与Project-bound Agent File Scope使用同一相对路径。跨Project文件访问仍必须使用完整`workspace/<project-slug>/<relative-path>`地址。
 
 ## Comment
 

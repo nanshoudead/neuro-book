@@ -28,11 +28,9 @@ const MAX_EMBED_BATCH = 64;
  * 解析当前项目生效的 embedding 模型；未启用 / 配置缺失时抛出可读错误。
  *
  * @param input.projectPath - 项目路径（相对或绝对）；用于读取项目级 embedding 配置
- * @param input.workspaceRoot - 可选 workspace 根
  */
-export async function resolveWorldEmbedding(input: {projectPath: string; workspaceRoot?: string}): Promise<WorldEmbeddingModel> {
+export async function resolveWorldEmbedding(input: {projectPath: string}): Promise<WorldEmbeddingModel> {
     const config = await loadEffectiveConfigForAgentRuntime({
-        workspaceRoot: input.workspaceRoot,
         projectPath: input.projectPath,
     });
     const embedding = config.embedding;

@@ -1,4 +1,5 @@
 import {readProjectRagInspector} from "nbook/server/rag/project-rag-visualization";
+import {runtimePathsFromEnv} from "nbook/server/runtime/paths/runtime-paths";
 import {ProjectRagInspectorDtoSchema, ProjectRagInspectorRequestDtoSchema} from "nbook/shared/dto/project-rag.dto";
 import {requireProjectPathQuery} from "nbook/server/utils/novel-chapter";
 import {withProjectNotOpenHttpError} from "nbook/server/workspace-files/project-open-guard";
@@ -655,6 +656,6 @@ export default defineEventHandler((event) => withProjectNotOpenHttpError(async (
         sources,
         limit,
     });
-    const result = await readProjectRagInspector(requireProjectPathQuery(event), input);
+    const result = await readProjectRagInspector(runtimePathsFromEnv().workspaceRoot, requireProjectPathQuery(event), input);
     return ProjectRagInspectorDtoSchema.parse(result);
 }));

@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import {createError} from "h3";
-import {resolveProjectAbsolutePath} from "nbook/server/workspace-files/project-workspace";
+import type {AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
 import type {Instant} from "nbook/server/world-engine/types";
 import type {CalendarStrategy} from "nbook/server/world-engine/calendar-strategy";
 import {SimpleCalendar, normalizeSimpleCalendarConfig} from "nbook/server/world-engine/calendars/simple";
@@ -41,11 +41,9 @@ export class WorldCalendar {
  * calendar.yaml 已废弃，不再支持。
  */
 export class WorldCalendarLoader {
-    async load(projectPath: string): Promise<WorldCalendar> {
-        const projectAbsPath = resolveProjectAbsolutePath(projectPath);
-
+    async load(projectRoot: AbsoluteFsPath): Promise<WorldCalendar> {
         // 只支持 calendar.ts
-        const tsPath = path.join(projectAbsPath, "world-engine", "calendar.ts");
+        const tsPath = path.join(projectRoot, "world-engine", "calendar.ts");
         if (await fileExists(tsPath)) {
             return await this.loadFromTypeScript(tsPath);
         }

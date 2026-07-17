@@ -1,12 +1,13 @@
 import {randomUUID} from "node:crypto";
 import {rm} from "node:fs/promises";
-import {join} from "node:path";
+import {join, resolve} from "node:path";
 import {afterEach, describe, expect, it} from "vitest";
 import {NeuroAgentHarness} from "nbook/server/agent/harness/neuro-agent-harness";
 import {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
 import {AgentProfileCatalog} from "nbook/server/agent/profiles/catalog";
 import {projectAgentChatEntry} from "nbook/server/agent/events/public-chat-entry-projection";
 import type {AgentSessionRecoveryDto} from "nbook/shared/dto/agent-session.dto";
+import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
 
 describe("NeuroAgentHarness session query", () => {
     const roots: string[] = [];
@@ -16,7 +17,7 @@ describe("NeuroAgentHarness session query", () => {
     });
 
     it("recovery 在读取 JSONL 前捕获 event cursor，期间 append/publish 不会被跳过", async () => {
-        const root = join(".agent", "session-query-test", randomUUID());
+        const root = absoluteFsPath(resolve(".agent", "session-query-test", randomUUID()));
         roots.push(root);
         const repo = new JsonlSessionRepository(root);
         const harness = new NeuroAgentHarness({
@@ -80,7 +81,7 @@ describe("NeuroAgentHarness session query", () => {
     });
 
     it("active-path mutation 只返回 live state，不内嵌 recovery", async () => {
-        const root = join(".agent", "session-query-test", randomUUID());
+        const root = absoluteFsPath(resolve(".agent", "session-query-test", randomUUID()));
         roots.push(root);
         const repo = new JsonlSessionRepository(root);
         const harness = new NeuroAgentHarness({

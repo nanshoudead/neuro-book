@@ -1,8 +1,9 @@
-import {mkdtemp, readFile, rm} from "node:fs/promises";
+import {access, mkdir, mkdtemp, readFile, rm, symlink, writeFile} from "node:fs/promises";
 import path from "node:path";
 import {tmpdir} from "node:os";
 import {afterEach, beforeEach, describe, expect, it} from "vitest";
 import {createLayeredProfileHomeFacade, defineProfileHome, ensureGlobalProfileHome, ensureProfileHome, resetProfileHome} from "nbook/server/agent/profiles/profile-home";
+import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
 
 describe("profile home", () => {
     let projectRoot: string;
@@ -82,12 +83,28 @@ describe("profile home", () => {
         await expect(home.readText("reset.md")).resolves.toBe("ok");
     });
 
+    it("读写拒绝链接逃逸，但remove可以安全删除链接目录项", async () => {
+        const home = await ensureProfileHome({projectRoot, profileKey: "writer", profileVersion: 1});
+        const outsideRoot = path.join(projectRoot, "outside-home");
+        const marker = path.join(outsideRoot, "marker.md");
+        await mkdir(outsideRoot, {recursive: true});
+        await writeFile(marker, "outside", "utf8");
+        await symlink(outsideRoot, path.join(home.root, "escape"), process.platform === "win32" ? "junction" : "dir");
+
+        await expect(home.readText("escape/marker.md")).rejects.toThrow("真实路径越过文件系统根");
+        await expect(home.writeText("escape/new.md", "bad")).rejects.toThrow("真实路径越过文件系统根");
+        await home.remove("escape");
+
+        await expect(access(marker)).resolves.toBeUndefined();
+        await expect(home.exists("escape")).resolves.toBe(false);
+    });
+
     it("初始化 Global profile home 到 Workspace Root .nbook/agents", async () => {
         const workspaceRoot = await mkdtemp(path.join(tmpdir(), "nbook-global-profile-home-"));
         try {
             const calls: string[] = [];
             const home = await ensureGlobalProfileHome({
-                workspaceRoot,
+                workspaceRoot: absoluteFsPath(workspaceRoot),
                 profileKey: "writer",
                 profileVersion: 1,
                 definition: defineProfileHome({
@@ -109,7 +126,7 @@ describe("profile home", () => {
     it("层叠 home 读取 Project 优先并用 Global 兜底", async () => {
         const workspaceRoot = await mkdtemp(path.join(tmpdir(), "nbook-layered-profile-home-"));
         try {
-            const globalHome = await ensureGlobalProfileHome({workspaceRoot, profileKey: "writer", profileVersion: 1});
+            const globalHome = await ensureGlobalProfileHome({workspaceRoot: absoluteFsPath(workspaceRoot), profileKey: "writer", profileVersion: 1});
             const projectHome = await ensureProfileHome({projectRoot, profileKey: "writer", profileVersion: 1});
             await globalHome.writeText("styles/shared.md", "global shared", {mode: "overwrite"});
             await globalHome.writeText("styles/global.md", "global only", {mode: "overwrite"});

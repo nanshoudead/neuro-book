@@ -1,5 +1,7 @@
 import {beforeEach, describe, expect, it, vi} from "vitest";
 import type {InboxGroup, OperationLogEntry} from "nbook/server/vendor/nb-history/index";
+import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
+import {normalizeProjectPath} from "nbook/server/workspace-files/project-path";
 
 describe("workspace history revision routes", () => {
     beforeEach(() => {
@@ -116,8 +118,14 @@ function mockGetQuery(query: Record<string, string>): void {
 
 /** 注入 Project Workspace 已打开且 history 可用的最小依赖。 */
 function mockHistory(history: object): void {
-    vi.doMock("nbook/server/workspace-files/project-open-guard", () => ({assertProjectOpenForRoot: vi.fn()}));
-    vi.doMock("nbook/server/workspace-files/project-workspace", () => ({normalizeProjectPath: (value: string) => value}));
+    vi.doMock("nbook/server/workspace-files/novel-workspace", () => ({
+        resolveNovelWorkspaceTarget: vi.fn(async (_runtimePaths: unknown, projectPath: string) => ({
+            kind: "project-workspace",
+            root: absoluteFsPath("C:/test/workspace/book"),
+            projectPath: normalizeProjectPath(projectPath),
+        })),
+    }));
+    vi.doMock("nbook/server/workspace-files/project-open-guard", () => ({assertProjectOpenForTarget: vi.fn()}));
     vi.doMock("nbook/server/workspace-files/project-workspace-index", () => ({invalidateProjectWorkspaceIndexAfterMutation: vi.fn()}));
     vi.doMock("nbook/server/workspace-history/project-history", () => ({
         LOCAL_USER_ID: "local",

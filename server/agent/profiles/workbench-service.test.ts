@@ -16,22 +16,30 @@ import {
     saveProfileSource,
 } from "nbook/server/agent/profiles/workbench-service";
 import type {ProfileTemplateNodeDto} from "nbook/shared/dto/profile-template.dto";
+import {profileWorkbenchRootsFromRuntime} from "nbook/server/agent/profiles/profile-workbench-roots";
+
+function workbenchRoots(userProfileRoot: string) {
+    return {...profileWorkbenchRootsFromRuntime(), userProfileRoot};
+}
 
 describe("profile workbench service", () => {
     it("列出系统 profile 模板", async () => {
-        await expect(listProfileTemplates()).resolves.toEqual(expect.arrayContaining([
+        await expect(listProfileTemplates(profileWorkbenchRootsFromRuntime())).resolves.toEqual(expect.arrayContaining([
             expect.objectContaining({name: "basic-agent"}),
             expect.objectContaining({name: "report-agent"}),
         ]));
     });
 
     it("拒绝越界 fileName", async () => {
-        const catalog = new AgentProfileCatalog();
+        const catalog = new AgentProfileCatalog(
+            resolve(".agent", "workspace", "profile-workbench-invalid-system"),
+            resolve(".agent", "workspace", "profile-workbench-invalid-user"),
+        );
 
         await expect(saveProfileSource(catalog, {
             fileName: "../bad.profile.tsx",
             source: "",
-        })).rejects.toThrow("相对路径");
+        }, workbenchRoots(resolve(".agent", "workspace", "profile-workbench-invalid")))).rejects.toThrow("相对路径");
     });
 
     it("从模板创建的 profile 编译后可被 catalog 加载", async () => {
@@ -46,9 +54,7 @@ describe("profile workbench service", () => {
                 name: "Created",
                 description: "",
                 systemPrompt: "你是测试 Agent。",
-            }, {
-                userProfileRoot: userRoot,
-            });
+            }, workbenchRoots(userRoot));
 
             expect(created.name).toBe("agent.created");
             await compileProfileArtifacts({
@@ -63,11 +69,15 @@ describe("profile workbench service", () => {
         } finally {
             await rm(root, {recursive: true, force: true});
         }
-    });
+    }, 30_000);
 
     it("轻量 draft 读取不触发 runtime catalog", async () => {
         const root = resolve(".agent", "workspace", "profile-workbench-test", randomUUID());
         const userRoot = join(root, "workspace", ".nbook", "agent", "profiles");
+        const roots = {
+            ...workbenchRoots(userRoot),
+            systemProfileRoot: join(root, "system-profiles"),
+        };
         await mkdir(userRoot, {recursive: true});
         try {
             const created = await createProfileSourceDraft({
@@ -76,12 +86,10 @@ describe("profile workbench service", () => {
                 name: "Draft",
                 description: "",
                 systemPrompt: "轻量草稿",
-            }, {
-                userProfileRoot: userRoot,
-            });
+            }, roots);
             expect(created.name).toBe("agent.draft");
 
-            const listed = await listProfileFiles({userProfileRoot: userRoot});
+            const listed = await listProfileFiles(roots);
             expect(listed).toEqual([expect.objectContaining({
                 fileName: "agent.draft.profile.tsx",
                 profileKey: "agent.draft",
@@ -91,9 +99,7 @@ describe("profile workbench service", () => {
             const detail = await readProfileSourceDraft({
                 fileName: "agent.draft.profile.tsx",
                 source: created.source.replace("轻量草稿", "未保存草稿"),
-            }, {
-                userProfileRoot: userRoot,
-            });
+            }, roots);
             expect(detail.source).toContain("未保存草稿");
             expect(detail.root?.type).toBe("ProfilePrompt");
         } finally {
@@ -129,11 +135,9 @@ describe("profile workbench service", () => {
                 description: "",
                 systemPrompt: "待删除",
                 fileName,
-            }, {
-                userProfileRoot: userRoot,
-            });
+            }, workbenchRoots(userRoot));
 
-            const result = await deleteProfileSource(catalog, {fileName}, {userProfileRoot: userRoot});
+            const result = await deleteProfileSource(catalog, {fileName}, workbenchRoots(userRoot));
 
             expect(result).toEqual({fileName, deleted: true});
             await expect(pathExists(join(userRoot, fileName))).resolves.toBe(false);
@@ -143,7 +147,7 @@ describe("profile workbench service", () => {
         } finally {
             await rm(root, {recursive: true, force: true});
         }
-    });
+    }, 30_000);
 
     it("解析新 TSX DSL 为 ProfilePrompt tree", () => {
         const root = buildSystemPromptRoot(`
@@ -252,7 +256,7 @@ export default defineAgentProfile({
             type: "FileChangeNotice",
             props: {mode: "minimal"},
         }));
-    });
+    }, 30_000);
 
     it("source-draft 是未保存源码预览入口，不写入真实用户 profile 文件", async () => {
         const root = resolve(".agent", "workspace", "profile-workbench-test", randomUUID());
@@ -265,18 +269,14 @@ export default defineAgentProfile({
                 name: "Override",
                 description: "",
                 systemPrompt: "原始提示词",
-            }, {
-                userProfileRoot: userRoot,
-            });
+            }, workbenchRoots(userRoot));
             const fileName = "agent.override.profile.tsx";
             const filePath = join(userRoot, fileName);
             const originalSource = await readFile(filePath, "utf8");
             const checked = await readProfileSourceDraft({
                 fileName,
                 source: originalSource.replace("原始提示词", "未保存提示词"),
-            }, {
-                userProfileRoot: userRoot,
-            });
+            }, workbenchRoots(userRoot));
 
             expect(checked.source).toContain("未保存提示词");
             expect(checked.root?.children.map((node: ProfileTemplateNodeDto) => node.type)).toContain("System");

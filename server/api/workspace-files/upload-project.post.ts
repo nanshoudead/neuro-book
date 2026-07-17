@@ -1,6 +1,7 @@
 import {createError, getRequestHeader, readMultipartFormData, type MultiPartData} from "h3";
-import {resolveWorkspaceRootInput} from "nbook/server/workspace-files/novel-workspace";
+import {resolveWorkspaceFileTarget} from "nbook/server/workspace-files/novel-workspace";
 import {invalidateProjectWorkspaceIndexAfterMutation} from "nbook/server/workspace-files/project-workspace-index";
+import {assertProjectOpenForTarget} from "nbook/server/workspace-files/project-open-guard";
 import {
     uploadWorkspaceProjectFiles,
     uploadWorkspaceProjectZip,
@@ -8,6 +9,7 @@ import {
     type WorkspaceUploadFile,
 } from "nbook/server/workspace-files/workspace-upload";
 import {recordUploadedFiles, USER_LOCAL_ACTOR} from "nbook/server/workspace-history/tracked-workspace-files";
+import {runtimePathsFromEnv} from "nbook/server/runtime/paths/runtime-paths";
 
 /**
  * 上传 Project 文件夹或 zip 到当前挂载根。已有文件跳过。
@@ -16,22 +18,23 @@ export default defineEventHandler(async (event) => {
     assertContentLengthLimit(event, 500 * 1024 * 1024, 8 * 1024 * 1024);
     const parts = await readRequiredMultipart(event);
     const workspaceKind = readTextPart(parts, "workspaceKind") === "user-assets" ? "user-assets" : undefined;
-    const root = await resolveWorkspaceRootInput({
+    const target = await resolveWorkspaceFileTarget(runtimePathsFromEnv(), {
         projectPath: readTextPart(parts, "projectPath"),
         workspaceKind,
     });
+    assertProjectOpenForTarget(target);
     const mode = readTextPart(parts, "mode");
 
     if (mode === "zip") {
         const zipFile = firstFilePart(parts, "zip");
         assertZipFile(zipFile.filename ?? "");
         try {
-            const result = await uploadWorkspaceProjectZip(root, {
+            const result = await uploadWorkspaceProjectZip(target.root, {
                 fileName: zipFile.filename ?? "project.zip",
                 data: zipFile.data,
             });
-            await recordUploadedFiles({root, files: result.files, actor: USER_LOCAL_ACTOR});
-            invalidateProjectWorkspaceIndexAfterMutation({root, workspaceKind});
+            await recordUploadedFiles({target, files: result.files, actor: USER_LOCAL_ACTOR});
+            invalidateProjectWorkspaceIndexAfterMutation(target);
             return result;
         } catch (error) {
             throw toUploadError(error);
@@ -53,9 +56,9 @@ export default defineEventHandler(async (event) => {
         throw createError({statusCode: 400, message: "缺少 Project 上传文件"});
     }
     try {
-        const result = await uploadWorkspaceProjectFiles(root, files);
-        await recordUploadedFiles({root, files: result.files, actor: USER_LOCAL_ACTOR});
-        invalidateProjectWorkspaceIndexAfterMutation({root, workspaceKind});
+        const result = await uploadWorkspaceProjectFiles(target.root, files);
+        await recordUploadedFiles({target, files: result.files, actor: USER_LOCAL_ACTOR});
+        invalidateProjectWorkspaceIndexAfterMutation(target);
         return result;
     } catch (error) {
         throw toUploadError(error);

@@ -11,6 +11,7 @@ import {
     toInvokeInput,
 } from "nbook/server/agent/http";
 import {AgentHistoryQueryError} from "nbook/server/agent/session/history-query";
+import {AttachmentError} from "nbook/server/agent/attachments/types";
 
 describe("agent session http helpers", () => {
     it("createAgentSession 调用 harness.createAgent", async () => {
@@ -124,6 +125,22 @@ describe("agent session http helpers", () => {
             block: undefined,
             onEvent: undefined,
         });
+    });
+
+    it("invokeAgentSession 将图片输入和存储错误映射为稳定 HTTP 合同", async () => {
+        const body = {mode: "prompt" as const, message: {text: "hello"}};
+
+        await expect(invokeAgentSession(12, body, {
+            invokeAgent: vi.fn(async () => { throw new AttachmentError("invalid_input", "bad image"); }),
+        } as never)).rejects.toMatchObject({statusCode: 400, data: {code: "INVALID_IMAGE_INPUT", retryable: false}});
+
+        await expect(invokeAgentSession(12, body, {
+            invokeAgent: vi.fn(async () => { throw new AttachmentError("limit_exceeded", "too large"); }),
+        } as never)).rejects.toMatchObject({statusCode: 413, data: {code: "AGENT_IMAGE_LIMIT_EXCEEDED", retryable: false}});
+
+        await expect(invokeAgentSession(12, body, {
+            invokeAgent: vi.fn(async () => { throw new AttachmentError("storage_failed", "offline"); }),
+        } as never)).rejects.toMatchObject({statusCode: 503, data: {code: "ATTACHMENT_STORAGE_UNAVAILABLE", retryable: true}});
     });
 
     it("runAgentSessionCommand 调用 harness.runCommand", async () => {

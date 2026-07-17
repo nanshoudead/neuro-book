@@ -103,6 +103,46 @@ describe("projectPublicToolArgs", () => {
 });
 
 describe("projectPublicToolResult", () => {
+    it("stored attachment 只公开 metadata，并保留过滤前的原 contentIndex", () => {
+        const projected = projectPublicToolResult("read", {
+            content: [
+                {type: "unsupported", secret: "不能公开"},
+                {type: "text", text: "图片如下"},
+                {
+                    type: "attachment",
+                    attachment: {
+                        id: `sha256:${"a".repeat(64)}`,
+                        mimeType: "image/png",
+                        bytes: 7_170_689,
+                    },
+                    name: "世界地图.png",
+                },
+            ],
+        });
+
+        expect(projected.content).toEqual([
+            {
+                type: "text",
+                contentIndex: 1,
+                textPreview: "图片如下",
+                textBytes: Buffer.byteLength("图片如下", "utf8"),
+                textOmitted: false,
+            },
+            {
+                type: "attachment",
+                contentIndex: 2,
+                attachment: {
+                    attachmentId: `sha256:${"a".repeat(64)}`,
+                    mimeType: "image/png",
+                    bytes: 7_170_689,
+                    name: "世界地图.png",
+                    dataOmitted: true,
+                },
+            },
+        ]);
+        expect(JSON.stringify(projected)).not.toContain("不能公开");
+    });
+
     it("图片结果不公开 base64，只保留 MIME、原始字节数和 omitted", () => {
         const data = Buffer.alloc(7 * 1024 * 1024, 7).toString("base64");
 
@@ -119,6 +159,7 @@ describe("projectPublicToolResult", () => {
 
         expect(projected.content).toEqual([{
             type: "image",
+            contentIndex: 0,
             mimeType: "image/png",
             dataBytes: 7 * 1024 * 1024,
             dataOmitted: true,

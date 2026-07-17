@@ -13,6 +13,7 @@ import {installManagerExecutable, installManagedBun, writeManagerWrapper, writeR
 import {installManagedTool, type ManagedToolName, writeManagedToolWrappers} from "#manager/tools";
 import type {InstallationManifest, ManagedGitToolComponent, ManagedToolComponent} from "#manager/types";
 import {MANAGER_VERSION} from "#manager/version-info";
+import {formatStateRootIntegrityWarning, inspectInstallationStateIntegrity, stateRootIntegrityFailed} from "#manager/state-integrity";
 
 /** 安装或更新托管 Bun，同时刷新 Manager/Application Runtime 与稳定 wrapper。 */
 export async function maintainRuntime(root: string, manifest: InstallationManifest, managerExecutable: string, version?: string): Promise<InstallationManifest> {
@@ -77,6 +78,15 @@ export async function maintainTool(root: string, manifest: InstallationManifest,
 export async function installationStatus(root: string, manifest: InstallationManifest): Promise<object> {
     const paths = installationPaths(root, manifest.profile === "windows-portable");
     const operations = await unfinishedOperations(paths.operations);
+    const stateRoot = resolve(root, manifest.stateRoot);
+    const stateIntegrity = await inspectInstallationStateIntegrity(root, stateRoot);
+    const nextActions = operations.length > 0
+        ? ["运行 neuro-book doctor 查看恢复状态"]
+        : [
+            ...(stateRootIntegrityFailed(stateIntegrity) ? ["检查Workspace Root数据分叉、链接目标或目录权限"] : []),
+            "运行 neuro-book start",
+            "运行 neuro-book doctor",
+        ];
     return {
         root,
         profile: manifest.profile,
@@ -85,13 +95,14 @@ export async function installationStatus(root: string, manifest: InstallationMan
         appVersion: manifest.appVersion,
         channel: manifest.channel,
         sourceRevision: manifest.sourceRevision,
-        stateRoot: resolve(root, manifest.stateRoot),
-        port: await statePort(resolve(root, manifest.stateRoot)),
+        stateRoot,
+        port: await statePort(stateRoot),
         productReady: !manifest.components.product || manifest.components.product.provider === "container"
             ? true
             : await pathExists(join(root, ".output", "server", "index.mjs")),
         unfinishedOperations: operations,
-        nextActions: operations.length > 0 ? ["运行 neuro-book doctor 查看恢复状态"] : ["运行 neuro-book start", "运行 neuro-book doctor"],
+        stateIntegrity,
+        nextActions,
         components: manifest.components,
     };
 }
@@ -122,6 +133,27 @@ export async function doctor(root: string, manifest: InstallationManifest): Prom
     await addPath("state.workspace", "state", join(stateRoot, "workspace"));
     await addPath("state.config", "state", join(stateRoot, "config.yaml"));
     await addPath("state.logs", "state", join(stateRoot, "logs"));
+    const stateIntegrity = await inspectInstallationStateIntegrity(root, stateRoot);
+    if (manifest.stateRoot !== ".") {
+        checks.push(stateRootIntegrityFailed(stateIntegrity)
+            ? {
+                id: stateIntegrity.kind === "shadow-workspace" ? "state.shadow-workspace" : "state.workspace-integrity",
+                category: "state",
+                status: "fail",
+                message: stateIntegrity.kind === "shadow-workspace"
+                    ? `检测到错误Workspace Root：${stateIntegrity.checkedWorkspaceRoot}`
+                    : `无法验证Workspace Root完整性：${stateIntegrity.errorPath}`,
+                remediation: formatStateRootIntegrityWarning(stateIntegrity),
+            }
+            : {
+                id: "state.shadow-workspace",
+                category: "state",
+                status: "pass",
+                message: stateIntegrity.kind === "same-target-link"
+                    ? "Installation Root Workspace链接与真实Workspace Root指向同一目录"
+                    : "未检测到Workspace Root数据分叉",
+            });
+    }
     for (const [name, tool] of Object.entries(manifest.components.tools)) {
         if (tool?.provider === "managed") {
             const checksum = name === "git" && "gitSha256" in tool ? tool.gitSha256 : "executableSha256" in tool ? tool.executableSha256 : "";
@@ -144,7 +176,7 @@ export async function doctor(root: string, manifest: InstallationManifest): Prom
     return {
         healthy: checks.every((check) => check.status !== "fail"),
         checks,
-        paths: {root, stateRoot, workspace: join(stateRoot, "workspace"), bootConfig: join(stateRoot, "config.yaml")},
+        paths: {root, stateRoot, workspace: join(stateRoot, "workspace"), bootConfig: join(stateRoot, "config.yaml"), stateIntegrity},
         service: {port: await statePort(stateRoot), commands},
         components: manifest.components,
         operations,

@@ -1,7 +1,9 @@
 import {createError, getQuery} from "h3";
 import {z} from "zod";
-import {assertProjectOpenForRoot} from "nbook/server/workspace-files/project-open-guard";
-import {normalizeProjectPath} from "nbook/server/workspace-files/project-workspace";
+import {assertProjectOpenForTarget} from "nbook/server/workspace-files/project-open-guard";
+import {normalizeProjectPath} from "nbook/server/workspace-files/project-path";
+import {runtimePathsFromEnv} from "nbook/server/runtime/paths/runtime-paths";
+import {resolveNovelWorkspaceTarget} from "nbook/server/workspace-files/novel-workspace";
 import {ensureProjectHistory, LOCAL_USER_ID} from "nbook/server/workspace-history/project-history";
 import {toWorkspaceHistoryInboxGroupDto} from "nbook/server/workspace-history/history-dto";
 import {matchWorkspaceHistoryInboxGroup} from "nbook/server/workspace-history/history-inbox";
@@ -22,8 +24,9 @@ export default defineEventHandler(async (event): Promise<WorkspaceHistoryDiffDto
     const relativePath = query.path;
     const mode: WorkspaceHistoryDiffMode = query.mode;
     const projectPath = normalizeProjectPath(query.projectPath);
-    assertProjectOpenForRoot(projectPath);
-    const history = await ensureProjectHistory(projectPath);
+    const target = await resolveNovelWorkspaceTarget(runtimePathsFromEnv(), projectPath);
+    assertProjectOpenForTarget(target);
+    const history = await ensureProjectHistory(target.root, target.projectPath);
     if (!history) {
         return {status: "unavailable", reason: "history_disabled"};
     }

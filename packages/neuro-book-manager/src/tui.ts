@@ -1,6 +1,5 @@
 import {resolve} from "node:path";
 
-import {startApplication} from "#manager/app-commands";
 import {blessedStatic as blessed} from "#manager/blessed-static";
 import {runInstallGuide} from "#manager/install-guide";
 import {configuredDiscoveryRoots, discoverInstances} from "#manager/instance-discovery";
@@ -14,6 +13,7 @@ import {
 import {doctor, installationStatus} from "#manager/maintenance";
 import {readInstallationManifest} from "#manager/manifest-store";
 import {installationPaths} from "#manager/paths";
+import {startInstallationApplication} from "#manager/migration-operation";
 import type {InstallationManifest, ManagerConfig, ManagerInstance, OfflineInspection} from "#manager/types";
 import {updateInstallation} from "#manager/updater";
 import {adoptSourceInstallation} from "#manager/source-adoption";
@@ -185,7 +185,7 @@ export async function runManagerTui(managerExecutable: string): Promise<void> {
     screen.key("s", () => void runAction(async () => {
         const target = selected();
         screen.destroy();
-        await startApplication(target.instance.root, target.manifest);
+        await startInstallationApplication(target.instance.root, target.manifest);
     }));
     screen.key("u", () => void runAction(async () => {
         const target = selected();

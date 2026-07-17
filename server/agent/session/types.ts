@@ -1,6 +1,8 @@
-import type {AgentMessage, JsonValue, Message, Model, ThinkingLevel} from "nbook/server/agent/messages/types";
+import type {JsonValue, Model, ThinkingLevel} from "nbook/server/agent/messages/types";
+import type {StoredAgentMessage} from "nbook/server/agent/messages/stored-types";
 import type {VariableJsonPatchOperation, VariableNamespace} from "nbook/server/agent/variables/types";
 import type {AgentMode} from "nbook/shared/dto/agent-session.dto";
+import type {WorkspaceRootRef} from "nbook/server/workspace-files/workspace-root-ref";
 
 export type SessionId = number;
 export type SessionEntryId = string;
@@ -9,7 +11,7 @@ export type SessionMetadata = {
     sessionId: SessionId;
     profileKey: string;
     initial: JsonValue;
-    workspaceRoot: string;
+    workspaceRoot: WorkspaceRootRef;
     workspaceKey: string;
     projectPath?: string;
     parentSessionId?: SessionId;
@@ -30,7 +32,7 @@ export type MessageSessionEntry = {
     parentId: SessionEntryId | null;
     timestamp: number;
     type: "message";
-    message: Message;
+    message: StoredAgentMessage;
     /** 为空表示旧 entry 或手工追加；prompt 表示真实用户 prompt。 */
     origin?: "prompt" | "harness" | "manual" | "ingest";
     /** partial 表示 provider stream 中途失败后保存的半截 assistant。 */
@@ -70,7 +72,7 @@ export type CustomMessageSessionEntry = {
     parentId: SessionEntryId | null;
     timestamp: number;
     type: "custom_message";
-    message: AgentMessage;
+    message: StoredAgentMessage;
     visibleToModel: boolean;
 };
 
@@ -249,12 +251,12 @@ export type SessionSnapshot = {
 
 export type NeuroSessionContext = {
     systemPrompt: string;
-    messages: AgentMessage[];
+    messages: StoredAgentMessage[];
     model: Model<any> | null;
     /** Session 级显式 thinking 覆盖；null 表示跟随 Agent Profile 默认。 */
     thinkingLevel: ThinkingLevel | null;
     profileKey: string;
-    workspaceRoot: string;
+    workspaceRoot: WorkspaceRootRef;
     projectPath?: string;
     customState: Record<string, JsonValue>;
     linkedAgents: LinkedAgentSummary[];

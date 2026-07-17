@@ -14,6 +14,7 @@ import {
     type WorkspaceRootKind,
 } from "nbook/server/workspace-files/novel-workspace";
 import {assertProjectWorkspaceDirectory} from "nbook/server/workspace-files/project-workspace";
+import {normalizeProjectPath, resolveProjectWorkspaceRoot} from "nbook/server/workspace-files/project-path";
 import {GlobalConfigDtoSchema} from "nbook/shared/dto/config.dto";
 import type {
     ConfigAgentProfileSettingsDto,
@@ -30,6 +31,7 @@ import type {
     ProjectConfigDto,
 } from "nbook/shared/dto/config.dto";
 import {resolveStateWorkspaceRoot} from "nbook/server/runtime/installation-paths";
+import {absoluteFsPath, type AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
 import {CONFIG_REGISTRY, CONFIG_VERSION} from "nbook/server/config/registry";
 import {
     normalizeAgentProfileModelConfig,
@@ -72,7 +74,7 @@ import {
     type ModelSettingsContractInput,
 } from "nbook/shared/models/provider-config-contract";
 import {assertProjectOpen, markProjectActivity} from "nbook/server/workspace-files/project-session";
-import {resolveUserNbookRoot} from "nbook/server/workspace-files/workspace-assets-root";
+import {resolveUserNbookRoot} from "nbook/server/workspace-files/workspace-runtime-root";
 
 /** Global Config 路径跟随当前 State Root。 */
 function globalConfigPath(): string {
@@ -273,7 +275,10 @@ export async function resetProjectProfileHome(
         throw createError({statusCode: 400, message: "只有 Project Config 支持重置 profile home。"});
     }
     assertProjectConfigDataPlaneOpen(target, query);
-    const projectRoot = resolveProjectRootForProfileHome(query.projectPath);
+    const projectRoot = resolveProjectRootForProfileHome(
+        absoluteFsPath(resolveStateWorkspaceRoot()),
+        query.projectPath,
+    );
     if (!projectRoot) {
         throw createError({statusCode: 400, message: "重置 profile home 需要 Project Workspace。"});
     }
@@ -302,56 +307,43 @@ export async function loadEffectiveConfig(query: ConfigWorkspaceQueryDto = {work
 }
 
 /**
- * 只按 workspaceRoot 读取 effective config。
+ * 按Agent runtime的Project Path读取effective config。
  *
- * 普通 Project agent session 的 workspaceRoot 通常是容器 `workspace`，
- * Project 覆盖必须走 loadEffectiveConfigForAgentRuntime()。
+ * Global Config始终属于当前Runtime Paths的Workspace Root `.nbook`；外部绝对
+ * Project Workspace只改变Project Config来源，不能冒充Global Config根。
  */
-export async function loadEffectiveConfigForWorkspaceRoot(workspaceRoot: string | undefined): Promise<EffectiveConfig> {
-    const externalWorkspaceRoot = resolveExternalWorkspaceRoot(workspaceRoot);
-    if (externalWorkspaceRoot) {
-        const global = normalizeGlobalConfig(await readJsonFile<StoredGlobalConfig>(path.join(externalWorkspaceRoot, ".nbook", "config.json")));
-        return resolveEffectiveConfig(global, null);
-    }
-
-    const global = await readGlobalConfigFile();
-    const normalizedRoot = normalizeWorkspaceRoot(workspaceRoot);
-    if (!normalizedRoot || normalizedRoot === USER_ASSETS_WORKSPACE_ROOT || normalizedRoot === WORKSPACE_CONTAINER_ROOT) {
-        return resolveEffectiveConfig(global, null);
-    }
-    const configPath = normalizedRoot.endsWith("/.nbook")
-        ? path.resolve(process.cwd(), normalizedRoot, "config.json")
-        : path.resolve(process.cwd(), normalizedRoot, ".nbook", "config.json");
-    return resolveEffectiveConfig(global, await readProjectConfigFile(configPath));
+export async function loadEffectiveConfigForAgentRuntime(input: {projectPath?: string}): Promise<EffectiveConfig> {
+    return loadEffectiveConfigAtWorkspaceRoot({
+        workspaceRoot: absoluteFsPath(resolveStateWorkspaceRoot()),
+        projectPath: input.projectPath,
+    });
 }
 
 /**
- * 按 Agent runtime metadata 的 workspaceRoot + projectPath 读取 effective config。
+ * 在调用方已经确定的 Workspace Root 下读取 Agent runtime Config。
+ * 核心运行时使用此 Interface，避免再次从 cwd 或环境猜测 State Root。
  */
-export async function loadEffectiveConfigForAgentRuntime(input: {workspaceRoot?: string; projectPath?: string}): Promise<EffectiveConfig> {
+export async function loadEffectiveConfigAtWorkspaceRoot(input: {
+    workspaceRoot: AbsoluteFsPath;
+    projectPath?: string;
+}): Promise<EffectiveConfig> {
     if (!input.projectPath) {
-        return loadEffectiveConfigForWorkspaceRoot(input.workspaceRoot);
+        return resolveEffectiveConfig(await readGlobalConfigFileAtWorkspaceRoot(input.workspaceRoot), null);
     }
 
     if (path.isAbsolute(input.projectPath)) {
         const [global, project] = await Promise.all([
-            readGlobalConfigFile(),
+            readGlobalConfigFileAtWorkspaceRoot(input.workspaceRoot),
             readProjectConfigFile(path.join(path.resolve(input.projectPath), ".nbook", "config.json")),
         ]);
         return resolveEffectiveConfig(global, project);
     }
 
-    const externalWorkspaceRoot = resolveExternalWorkspaceRoot(input.workspaceRoot);
-    if (externalWorkspaceRoot) {
-        const projectSlug = extractProjectSlug(input.projectPath);
-        const [global, project] = await Promise.all([
-            normalizeGlobalConfig(await readJsonFile<StoredGlobalConfig>(path.join(externalWorkspaceRoot, ".nbook", "config.json"))),
-            readProjectConfigFile(path.join(externalWorkspaceRoot, projectSlug, ".nbook", "config.json")),
-        ]);
-        return resolveEffectiveConfig(global, project);
-    }
-
-    return loadEffectiveConfig({workspaceKind: "novel", projectPath: input.projectPath});
+    const projectRoot = resolveProjectWorkspaceRoot(input.workspaceRoot, normalizeProjectPath(input.projectPath));
+    return resolveEffectiveConfig(
+        await readGlobalConfigFileAtWorkspaceRoot(input.workspaceRoot),
+        await readProjectConfigFile(path.join(projectRoot, ".nbook", "config.json")),
+    );
 }
 
 /**
@@ -389,10 +381,12 @@ export async function resolveConfigTarget(query: ConfigWorkspaceQueryDto): Promi
             message: "Project Workspace 配置必须提供有效 projectPath",
         });
     }
-    const projectPath = await assertProjectWorkspaceDirectory(query.projectPath);
+    const workspaceRoot = absoluteFsPath(resolveStateWorkspaceRoot());
+    const projectPath = await assertProjectWorkspaceDirectory(workspaceRoot, query.projectPath);
+    const projectRoot = resolveProjectWorkspaceRoot(workspaceRoot, projectPath);
     return {
         workspaceKind,
-        projectConfigPath: path.resolve(process.cwd(), projectPath, ".nbook", "config.json"),
+        projectConfigPath: path.join(projectRoot, ".nbook", "config.json"),
     };
 }
 
@@ -431,6 +425,10 @@ async function readConfigFiles(query: ConfigWorkspaceQueryDto, knownTarget?: Con
 
 async function readGlobalConfigFile(): Promise<StoredGlobalConfig> {
     return normalizeGlobalConfig(await readJsonFile<StoredGlobalConfig>(globalConfigPath()));
+}
+
+async function readGlobalConfigFileAtWorkspaceRoot(workspaceRoot: AbsoluteFsPath): Promise<StoredGlobalConfig> {
+    return normalizeGlobalConfig(await readJsonFile<StoredGlobalConfig>(path.join(workspaceRoot, ".nbook", "config.json")));
 }
 
 async function readProjectConfigFile(configPath: string): Promise<StoredProjectConfig> {
@@ -517,7 +515,6 @@ function buildConfigModelSettingsDto(
         validationIssues,
     };
 }
-
 /**
  * 在任何资源 mutation 或文件写入前校验完整 Provider Config。
  * DTO 数组直接进入 shared contract，确保重复 Provider/model ID 不会在 normalize 后被覆盖。
@@ -1038,7 +1035,10 @@ async function lowCodeFormContext(
 ): Promise<LowCodeFormResolveContext> {
     const workspaceRoot = query.workspaceKind === "novel" ? WORKSPACE_CONTAINER_ROOT : USER_ASSETS_WORKSPACE_ROOT;
     const needsHome = profileNeedsHome(profile);
-    const projectRoot = scope === "project" && query.workspaceKind === "novel" ? resolveProjectRootForProfileHome(query.projectPath) : null;
+    const runtimeWorkspaceRoot = absoluteFsPath(resolveStateWorkspaceRoot());
+    const projectRoot = scope === "project" && query.workspaceKind === "novel"
+        ? resolveProjectRootForProfileHome(runtimeWorkspaceRoot, query.projectPath)
+        : null;
     if (projectRoot && profile && needsHome) {
         assertProjectPathOpen(query.projectPath);
     }
@@ -1052,7 +1052,7 @@ async function lowCodeFormContext(
         : undefined;
     const globalHome = profile && needsHome
         ? await ensureGlobalProfileHome({
-            workspaceRoot,
+            workspaceRoot: runtimeWorkspaceRoot,
             profileKey,
             profileVersion: profile.manifest.version ?? 1,
             definition: profile.home,
@@ -1428,38 +1428,11 @@ async function writeJsonFile(filePath: string, value: unknown): Promise<void> {
     await fs.writeFile(filePath, `${JSON.stringify(value, null, 4)}\n`, "utf-8");
 }
 
-function normalizeWorkspaceRoot(workspaceRoot: string | undefined): string | null {
-    const normalized = workspaceRoot?.trim().replaceAll("\\", "/").replace(/^\/+/, "").replace(/\/+$/g, "") ?? "";
-    if (!normalized || normalized === "." || normalized === ".." || normalized.startsWith("../")) {
-        return null;
+async function pathExists(filePath: string): Promise<boolean> {
+    try {
+        await fs.access(filePath);
+        return true;
+    } catch {
+        return false;
     }
-    return normalized;
-}
-
-function resolveExternalWorkspaceRoot(workspaceRoot: string | undefined): string | null {
-    if (!workspaceRoot || !path.isAbsolute(workspaceRoot)) {
-        return null;
-    }
-    const absoluteRoot = path.resolve(workspaceRoot);
-    const repoWorkspaceRoot = resolveStateWorkspaceRoot();
-    const relativeToRepoWorkspace = path.relative(repoWorkspaceRoot, absoluteRoot);
-    if (!relativeToRepoWorkspace || !relativeToRepoWorkspace.startsWith("..") && !path.isAbsolute(relativeToRepoWorkspace)) {
-        return null;
-    }
-    return absoluteRoot;
-}
-
-function extractProjectSlug(projectPath: string): string {
-    const normalized = projectPath.trim().replaceAll("\\", "/").replace(/^\/+|\/+$/g, "");
-    if (path.posix.isAbsolute(normalized) || normalized.includes("..")) {
-        throw createError({statusCode: 400, message: "projectPath 必须形如 workspace/<project>"});
-    }
-    const parts = normalized.split("/").filter(Boolean);
-    if (parts.length === 2 && parts[0] === "workspace") {
-        return parts[1] ?? "";
-    }
-    if (parts.length === 1 && parts[0]) {
-        return parts[0];
-    }
-    throw createError({statusCode: 400, message: "projectPath 必须形如 workspace/<project>"});
 }

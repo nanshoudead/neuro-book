@@ -1,9 +1,10 @@
 import {createError, getRequestHeader, readMultipartFormData, type MultiPartData} from "h3";
-import {resolveWorkspaceRootInput} from "nbook/server/workspace-files/novel-workspace";
+import {resolveWorkspaceFileTarget} from "nbook/server/workspace-files/novel-workspace";
 import {invalidateProjectWorkspaceIndexAfterMutation} from "nbook/server/workspace-files/project-workspace-index";
-import {assertProjectOpenForRoot} from "nbook/server/workspace-files/project-open-guard";
+import {assertProjectOpenForTarget} from "nbook/server/workspace-files/project-open-guard";
 import {uploadWorkspaceFile, WorkspaceUploadError} from "nbook/server/workspace-files/workspace-upload";
 import {recordUploadedFiles, USER_LOCAL_ACTOR} from "nbook/server/workspace-history/tracked-workspace-files";
+import {runtimePathsFromEnv} from "nbook/server/runtime/paths/runtime-paths";
 
 /**
  * 上传单个文件到当前挂载根的 upload/ 目录。已有文件跳过。
@@ -13,19 +14,19 @@ export default defineEventHandler(async (event) => {
     const parts = await readRequiredMultipart(event);
     const file = firstFilePart(parts);
     const workspaceKind = readTextPart(parts, "workspaceKind") === "user-assets" ? "user-assets" : undefined;
-    const root = await resolveWorkspaceRootInput({
+    const target = await resolveWorkspaceFileTarget(runtimePathsFromEnv(), {
         projectPath: readTextPart(parts, "projectPath"),
         workspaceKind,
     });
-    assertProjectOpenForRoot(root);
+    assertProjectOpenForTarget(target);
 
     try {
-        const result = await uploadWorkspaceFile(root, {
+        const result = await uploadWorkspaceFile(target.root, {
             fileName: file.filename ?? "upload.bin",
             data: file.data,
         });
-        await recordUploadedFiles({root, files: result.files, actor: USER_LOCAL_ACTOR});
-        invalidateProjectWorkspaceIndexAfterMutation({root, workspaceKind});
+        await recordUploadedFiles({target, files: result.files, actor: USER_LOCAL_ACTOR});
+        invalidateProjectWorkspaceIndexAfterMutation(target);
         return result;
     } catch (error) {
         throw toUploadError(error);

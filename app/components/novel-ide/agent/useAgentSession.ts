@@ -19,6 +19,7 @@ import {
     publicToolArgsJsonValue,
     reconcileMessages,
     toPendingUserInputSession,
+    userEntryTextPreview,
     type AgentMessage,
     type AgentPendingUserInputSession,
 } from "nbook/app/components/novel-ide/agent/agent-message";
@@ -335,7 +336,7 @@ export function useAgentSession() {
         }
         if (sameDurableRevision) {
             consumeOptimisticUserMessages(payload.history.entries.flatMap((entry) => {
-                return entry.type === "user" && !existingEntryIds.has(entry.id) ? [entry.content] : [];
+                return entry.type === "user" && !existingEntryIds.has(entry.id) ? [userEntryTextPreview(entry)] : [];
             }));
         }
         applyRunState(payload.activeInvocation, payload.pendingUserInputs);
@@ -574,7 +575,7 @@ export function useAgentSession() {
             durableEntries.value = mergeDurableEntries(durableEntries.value, [entry]);
             liveOverlay.value = projected.filter((message) => message.projectionSource === "live");
             if (entry.type === "user") {
-                consumeOptimisticUserMessages([entry.content]);
+                consumeOptimisticUserMessages([userEntryTextPreview(entry)]);
             }
             if (entry.type === "tool_result") {
                 pendingUserInputSessions.value = pendingUserInputSessions.value.filter((session) => {

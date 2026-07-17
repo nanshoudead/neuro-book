@@ -39,7 +39,7 @@ bun assets/workspace/.nbook/agent/skills/novel-import-tomato-reference/scripts/t
 
 ## 工作流
 
-1. 确认当前小说 Project Workspace。Agent cwd 是 Workspace Root `workspace/`，执行脚本时 `--workspace` 优先传当前项目目录名，例如 `current-novel`；手工从仓库根执行时可以传 `workspace/current-novel`。
+1. 确认当前小说Project Workspace。Project-bound File Scope就是当前项目目录，执行脚本时`--workspace`传`.`；手工从仓库根执行时可传`workspace/current-novel`。
 2. 如果用户给的是 `.epub`，运行 `import-epub`。
 3. 如果用户给的是下载器目录，且目录内有 `status.json` 或 `downloaded_chapters.jsonl`，运行 `import-download`。
 4. 导入后检查 `metadata.json`、`chapters/`、`full.md` 和 `images/` 是否生成。

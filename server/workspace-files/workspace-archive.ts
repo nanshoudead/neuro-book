@@ -4,13 +4,13 @@ import type {Readable} from "node:stream";
 import {ZipFile} from "yazl";
 import {
     readWorkspaceIgnoreRules,
-    resolveWorkspaceRoot,
     shouldSkipWorkspacePath,
     type WorkspaceIgnoreRule,
 } from "nbook/server/workspace-files/workspace-files";
+import type {AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
 
 export type WorkspaceArchive = {
-    root: string;
+    root: AbsoluteFsPath;
     filename: string;
     stream: Readable;
 };
@@ -18,8 +18,7 @@ export type WorkspaceArchive = {
 /**
  * 创建当前 workspace 的 zip 输出流。
  */
-export async function createWorkspaceZipStream(rootInput: string | undefined): Promise<WorkspaceArchive> {
-    const root = resolveWorkspaceRoot(rootInput);
+export async function createWorkspaceZipStream(root: AbsoluteFsPath): Promise<WorkspaceArchive> {
     const stat = await fs.stat(root);
     if (!stat.isDirectory()) {
         throw new Error("Workspace root is not a directory");

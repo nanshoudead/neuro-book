@@ -5,8 +5,8 @@ import process from "node:process";
 import ts from "typescript";
 import {compileVariableDefinitions, readVariableDefinitionManifest, validateVariableDefinitionArtifact} from "nbook/server/agent/variables/definition-artifact";
 import {loadCompiledVariableDefinitions} from "nbook/server/agent/variables/definition-artifact";
-import {resolveAgentNbookRoot} from "nbook/server/agent/variables/workspace-paths";
 import {resolveStateRoot, resolveStateWorkspaceRoot} from "nbook/server/runtime/installation-paths";
+import {absoluteFsPath, type AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
 import type {VariableNamespace} from "nbook/server/agent/variables/types";
 
 type DefinitionCommand = "status" | "check" | "compile";
@@ -178,22 +178,24 @@ function definitionTarget(options: CliOptions): {root: string; label: string; na
             namespace: "project",
         };
     }
+    const workspaceNbookRoot = resolveDefinitionNbookRoot(options.workspaceRoot);
     return {
-        root: path.join(resolveAgentNbookRoot(resolveWorkspaceRoot(options.workspaceRoot)), "agent", "variables"),
-        label: `${path.relative(process.cwd(), resolveWorkspaceRoot(options.workspaceRoot)).replaceAll("\\", "/") || "."}/.nbook/agent/variables`,
+        root: path.join(workspaceNbookRoot, "agent", "variables"),
+        label: `${path.relative(process.cwd(), workspaceNbookRoot).replaceAll("\\", "/") || "."}/agent/variables`,
         namespace: "global",
     };
 }
 
-function resolveWorkspaceRoot(workspaceRoot?: string): string {
-    if (workspaceRoot) {
-        return path.resolve(resolveStateRoot(), workspaceRoot);
-    }
+/** CLI Adapter：把显式参数或开发cwd解析为Workspace Root `.nbook`物理目录。 */
+function resolveDefinitionNbookRoot(workspaceRoot?: string): AbsoluteFsPath {
+    const explicitRoot = workspaceRoot ? path.resolve(resolveStateRoot(), workspaceRoot) : null;
     const cwd = path.resolve(process.cwd());
-    if (fs.existsSync(path.join(cwd, ".nbook"))) {
-        return cwd;
-    }
-    return resolveStateWorkspaceRoot(cwd);
+    const resolvedRoot = explicitRoot ?? (fs.existsSync(path.join(cwd, ".nbook"))
+        ? cwd
+        : resolveStateWorkspaceRoot(cwd));
+    return absoluteFsPath(path.basename(resolvedRoot) === ".nbook"
+        ? resolvedRoot
+        : path.join(resolvedRoot, ".nbook"));
 }
 
 async function findDefinitionFiles(root: string): Promise<string[]> {

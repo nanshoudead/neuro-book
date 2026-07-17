@@ -5,6 +5,7 @@ import {useAgentHarness} from "nbook/server/agent/http";
 import {previewAgentProfilePrepare} from "nbook/server/agent/profiles/profile-http-service";
 import {readProfileSource} from "nbook/server/agent/profiles/workbench-service";
 import {withProjectNotOpenHttpError} from "nbook/server/workspace-files/project-open-guard";
+import {profileWorkbenchRootsFromRuntime} from "nbook/server/agent/profiles/profile-workbench-roots";
 
 /**
  * 手动编译用户 profile 源码。真实 TSX loader 在后台 worker 中执行。
@@ -16,7 +17,7 @@ export default defineEventHandler((event) => withProjectNotOpenHttpError(async (
         mode: "in_process",
         registry: harness.profiles,
     });
-    const detail = await readProfileSource(harness.profiles, {fileName: body.fileName}).catch(() => result.detail);
+    const detail = await readProfileSource(harness.profiles, {fileName: body.fileName}, profileWorkbenchRootsFromRuntime(harness.runtimePaths)).catch(() => result.detail);
     const preview = body.preview && detail?.manifest?.key
         ? await previewAgentProfilePrepare(harness, {
             profileKey: detail.manifest.key,

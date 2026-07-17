@@ -2,6 +2,7 @@ import {copyFile, cp, readdir, rm} from "node:fs/promises";
 import {join, resolve} from "node:path";
 
 import {rollbackProduct, rollbackReleaseSource} from "#manager/component";
+import {rollbackAttachmentMigration} from "#manager/app-commands";
 import {removeDockerDeployment, removeDockerImage, startDocker} from "#manager/docker";
 import {ensureDirectory, pathExists, readJson, removePath, safeTarget, writeJsonAtomic} from "#manager/files";
 import {writeInstallationManifest} from "#manager/manifest-store";
@@ -69,8 +70,21 @@ export async function rollbackOperation(journal: OperationJournal): Promise<void
     const root = journal.root;
     const currentCompose = join(root, ".deploy", "docker-compose.generated.yml");
     const stateRoot = resolve(root, journal.previousManifest?.stateRoot ?? journal.nextManifest?.stateRoot ?? ".");
+    // 新容器可能持有Attachment runtime lease；必须先停容器，rollback one-shot才能取得独占锁。
     if (journal.composeChanged && await pathExists(currentCompose)) {
         await removeDockerDeployment(root, stateRoot);
+    }
+    if (journal.attachmentMigration && journal.attachmentMigration.state !== "rolled_back") {
+        if (!journal.nextManifest) throw new Error("Attachment migration回滚缺少nextManifest。");
+        await rollbackAttachmentMigration(
+            root,
+            journal.nextManifest,
+            journal.attachmentMigration.runId,
+            journal.attachmentMigration.state === "planned",
+        );
+        journal = await updateOperation(journal, journal.phase, {
+            attachmentMigration: {...journal.attachmentMigration, state: "rolled_back"},
+        });
     }
     const previousProduct = journal.previousManifest?.components.product;
     const nextProduct = journal.nextManifest?.components.product;

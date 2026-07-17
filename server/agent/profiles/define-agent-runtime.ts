@@ -1,8 +1,10 @@
-import type {AgentMessage, AssistantMessage, JsonValue, Message, ToolResultMessage} from "nbook/server/agent/messages/types";
+import type {AssistantMessage, JsonValue} from "nbook/server/agent/messages/types";
+import type {StoredAgentMessage, StoredToolResultMessage, StoredUserMessage} from "nbook/server/agent/messages/stored-types";
 import type {SessionWritePlan} from "nbook/server/agent/session/write-plan";
 import type {NeuroSessionContext, SessionId, SessionSnapshot} from "nbook/server/agent/session/types";
 import type {AgentDialogueContent} from "nbook/server/agent/session/dialogue-content";
 import type {AgentInvokeCaller} from "nbook/server/agent/harness/types";
+import type {AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
 
 export type AgentRuntimeHookStage =
     | "prepareRun"
@@ -28,6 +30,8 @@ export type RuntimeAgentDialogueContentInput = {
 };
 
 export type RuntimeSessionFacade = NeuroSessionContext & {
+    /** 本次runtime按当前State Root解析出的Agent Workspace Filesystem Root。 */
+    workspaceFsRoot: AbsoluteFsPath;
     /**
      * 只读读取 session，并返回 snapshot 与 reduce 后的 context。
      *
@@ -50,7 +54,7 @@ export type AgentRuntimeHookResult = {
      *
      * 第一版用于 `prepareRun` / `prepareNextTurn`，让 runtime hook 能为下一轮构造临时上下文。
      */
-    runtimeMessages?: AgentMessage[];
+    runtimeMessages?: StoredAgentMessage[];
     /**
      * 仅 `ingestTurn` stage 生效。
      *
@@ -100,7 +104,7 @@ export type AgentRuntimeHookContext<TInitial = JsonValue> = {
     session: RuntimeSessionFacade;
     runtimeState: JsonValue | undefined;
     turnIndex?: number;
-    pendingUserMessage?: Message;
+    pendingUserMessage?: StoredUserMessage;
     invocation: {
         caller: AgentInvokeCaller;
         payload?: JsonValue;
@@ -108,7 +112,7 @@ export type AgentRuntimeHookContext<TInitial = JsonValue> = {
     };
     turn?: {
         assistant: AssistantMessage;
-        toolResults: ToolResultMessage[];
+        toolResults: StoredToolResultMessage[];
         waiting?: {
             toolCallId: string;
             toolName: string;
@@ -129,7 +133,7 @@ export type AgentRuntimeHookContext<TInitial = JsonValue> = {
             toolName: string;
         };
     };
-    modelMessages?: AgentMessage[];
+    modelMessages?: StoredAgentMessage[];
 };
 
 export type AgentRuntimeDefinition<TInitial = JsonValue> = {

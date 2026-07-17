@@ -1,10 +1,8 @@
-import type {AgentMessage} from "nbook/server/agent/messages/types";
-
-export type ProfilePromptMessageSections = {
-    history: AgentMessage[];
-    modelContext: AgentMessage[];
-    appending: AgentMessage[];
-    currentUserInput: AgentMessage[];
+export type ProfilePromptMessageSections<TMessage> = {
+    history: TMessage[];
+    modelContext: TMessage[];
+    appending: TMessage[];
+    currentUserInput: TMessage[];
 };
 
 /**
@@ -13,7 +11,7 @@ export type ProfilePromptMessageSections = {
  * 固定顺序：History → ModelContext → AppendingSet → CurrentUserInput。
  * 统一供真实 Harness 与 Profile Preview 使用，避免两条路径各自拼装后再次漂移。
  */
-export function assembleProfilePromptMessages(sections: ProfilePromptMessageSections): AgentMessage[] {
+export function assembleProfilePromptMessages<TMessage>(sections: ProfilePromptMessageSections<TMessage>): TMessage[] {
     return [
         ...sections.history,
         ...sections.modelContext,
@@ -28,12 +26,12 @@ export function assembleProfilePromptMessages(sections: ProfilePromptMessageSect
  * prepare 写入顺序恒为 HistorySet（仅空历史）→ AppendingSet → CurrentUserInput；
  * ModelContext 不落盘，因此需要在调用 provider 前插回 AppendingSet 之前。
  */
-export function assemblePersistedProfilePromptMessages(input: {
-    persistedMessages: AgentMessage[];
-    modelContext: AgentMessage[];
+export function assemblePersistedProfilePromptMessages<TMessage>(input: {
+    persistedMessages: TMessage[];
+    modelContext: TMessage[];
     appendingCount: number;
     currentUserInputCount: number;
-}): AgentMessage[] {
+}): TMessage[] {
     const tailCount = input.appendingCount + input.currentUserInputCount;
     if (tailCount > input.persistedMessages.length) {
         throw new Error(`Profile prompt 尾部分区越界：tail=${tailCount}, messages=${input.persistedMessages.length}`);

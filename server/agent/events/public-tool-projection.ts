@@ -14,6 +14,7 @@ import {
     PUBLIC_VALUE_MAX_NODES,
 } from "nbook/server/agent/events/public-event-policy";
 import type {
+    PublicAttachmentDto,
     PublicTextPreviewDto,
     PublicToolArgsDto,
     PublicToolContentDto,
@@ -104,8 +105,8 @@ export function projectPublicToolResult(_toolName: string, result: unknown): Pub
     };
     const content = rawContent
         .slice(0, PUBLIC_TOOL_RESULT_MAX_BLOCKS)
-        .map((block) => {
-            const projected = projectToolContent(block, remainingPreviewBytes);
+        .map((block, contentIndex) => {
+            const projected = projectToolContent(block, contentIndex, remainingPreviewBytes);
             if (projected?.type === "text") {
                 remainingPreviewBytes = Math.max(0, remainingPreviewBytes - Buffer.byteLength(projected.textPreview, "utf8"));
             }
@@ -283,12 +284,13 @@ function objectValue(value: unknown): Record<string, unknown> | null {
 /**
  * 投影单个工具 content block。
  */
-function projectToolContent(value: unknown, previewBytes: number): PublicToolContentDto | null {
+function projectToolContent(value: unknown, contentIndex: number, previewBytes: number): PublicToolContentDto | null {
     const block = objectValue(value);
     if (block?.type === "text" && typeof block.text === "string") {
         const preview = textPreview(block.text, Math.max(0, previewBytes));
         return {
             type: "text",
+            contentIndex,
             textPreview: preview.preview,
             textBytes: preview.bytes,
             textOmitted: preview.omitted,
@@ -297,12 +299,44 @@ function projectToolContent(value: unknown, previewBytes: number): PublicToolCon
     if (block?.type === "image" && typeof block.data === "string") {
         return {
             type: "image",
+            contentIndex,
             mimeType: typeof block.mimeType === "string" ? block.mimeType : "application/octet-stream",
             dataBytes: base64DecodedBytes(block.data),
             dataOmitted: true,
         };
     }
+    if (block?.type === "attachment") {
+        const attachment = projectPublicAttachment(block.attachment, block.name);
+        return attachment ? {type: "attachment", contentIndex, attachment} : null;
+    }
     return null;
+}
+
+/**
+ * 将 stored AttachmentRef 投影为公开 metadata；无效引用不会跨公开边界。
+ */
+export function projectPublicAttachment(value: unknown, name?: unknown): PublicAttachmentDto | null {
+    const attachment = objectValue(value);
+    if (
+        typeof attachment?.id !== "string"
+        || !/^sha256:[0-9a-f]{64}$/.test(attachment.id)
+        || typeof attachment.mimeType !== "string"
+        || attachment.mimeType.length === 0
+        || !Number.isSafeInteger(attachment.bytes)
+        || Number(attachment.bytes) < 0
+    ) {
+        return null;
+    }
+    const publicName = typeof name === "string" && name.length > 0
+        ? textPreview(name, 1024).preview
+        : undefined;
+    return {
+        attachmentId: attachment.id as PublicAttachmentDto["attachmentId"],
+        mimeType: textPreview(attachment.mimeType, 256).preview,
+        bytes: Number(attachment.bytes),
+        ...(publicName ? {name: publicName} : {}),
+        dataOmitted: true,
+    };
 }
 
 /** 工具卡已知 details 走强类型投影；其他工具只能进入有界 generic preview。 */

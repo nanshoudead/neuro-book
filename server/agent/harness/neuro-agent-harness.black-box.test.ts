@@ -1,19 +1,25 @@
 import {randomUUID} from "node:crypto";
 import {rm} from "node:fs/promises";
-import {join} from "node:path";
+import {join, resolve} from "node:path";
 import {afterEach, beforeEach, describe, expect, it} from "vitest";
 import {fauxAssistantMessage, fauxText, fauxToolCall} from "@earendil-works/pi-ai";
 import {createFauxModels, type FauxModelsFixture} from "nbook/server/agent/test-utils/faux-models";
 import {Type} from "typebox";
 import {NeuroAgentHarness} from "nbook/server/agent/harness/neuro-agent-harness";
 import {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
+import {AgentProfileCatalog} from "nbook/server/agent/profiles/catalog";
 import {defineAgentProfile as defineRuntimeAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
 import {profileToolsFromKeys} from "nbook/server/agent/test/profile-tools";
-import {createUserMessage, messageText} from "nbook/server/agent/messages/message-utils";
-import type {AgentMessage, Message as RuntimeMessage} from "nbook/server/agent/messages/types";
+import {createStoredUserMessage, messageText} from "nbook/server/agent/messages/message-utils";
+import type {Message as RuntimeMessage} from "nbook/server/agent/messages/types";
+import type {StoredAgentMessage, StoredUserMessage} from "nbook/server/agent/messages/stored-types";
+import {storedMessageText} from "nbook/server/agent/messages/stored-message-presentation";
 import type {AgentSessionEventDto} from "nbook/shared/dto/agent-session.dto";
 import type {InvokeAgentResult} from "nbook/shared/dto/agent-session.dto";
 import type {NeuroSessionContext, SessionEntry} from "nbook/server/agent/session/types";
+import {normalizeWorkspaceRootRef} from "nbook/server/workspace-files/workspace-root-ref";
+
+const pngBytes = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3]);
 
 type ObservedRun = {
     result: InvokeAgentResult;
@@ -83,11 +89,8 @@ function registerPlainProfile(
     return input.key;
 }
 
-function visibleText(messages: AgentMessage[]): string {
-    return messages
-        .filter((message): message is RuntimeMessage => message.role !== "custom")
-        .map(messageText)
-        .join("\n");
+function visibleText(messages: StoredAgentMessage[]): string {
+    return messages.map((message) => storedMessageText(message)).join("\n");
 }
 
 function eventType(event: AgentSessionEventDto): string {
@@ -201,7 +204,7 @@ describe("NeuroAgentHarness black-box contract", () => {
     let harness: NeuroAgentHarness;
 
     beforeEach(() => {
-        root = join(".agent", "agent-harness-black-box-test", randomUUID());
+        root = resolve(".agent", "agent-harness-black-box-test", randomUUID());
         faux = createFauxModels({
             models: [{
                 id: `faux-${randomUUID()}`,
@@ -211,6 +214,7 @@ describe("NeuroAgentHarness black-box contract", () => {
         });
         harness = new NeuroAgentHarness({
             repo: new JsonlSessionRepository(root),
+            profiles: new AgentProfileCatalog(join(root, "profiles-system"), join(root, "profiles-user")),
             modelResolver: () => faux.getModel(),
             runtimeResolver: () => faux.runtime,
             enableSessionSummarizer: false,
@@ -302,7 +306,7 @@ describe("NeuroAgentHarness black-box contract", () => {
             initial: {},
             workspaceRoot: root,
         });
-        await harness.repo.appendMessage(created.sessionId, createUserMessage({text: "existing prompt"}));
+        await harness.repo.appendMessage(created.sessionId, createStoredUserMessage("existing prompt"));
 
         const observed = await runAndObserve(harness, created.sessionId, () => harness.invokeAgent({
             sessionId: created.sessionId,
@@ -314,6 +318,56 @@ describe("NeuroAgentHarness black-box contract", () => {
         expect(visibleText(observed.context.messages)).toContain("existing prompt");
         expect(visibleText(observed.context.messages)).toContain("continued");
     });
+
+    it("durable user attachment 经 session reduce 后仍为 Provider 恢复真实图片", async () => {
+        const profileKey = registerPlainProfile(harness, {
+            key: "test.blackbox.attachment-recovery",
+        });
+        faux.getModel().input = ["text", "image"];
+        let recoveredProviderMessages: RuntimeMessage[] = [];
+        faux.setResponses([(context) => {
+            recoveredProviderMessages = context.messages;
+            return fauxAssistantMessage("attachment recovered");
+        }]);
+        const created = await harness.repo.createSession({
+            profileKey,
+            initial: {},
+            workspaceRoot: normalizeWorkspaceRootRef(root),
+        });
+        const imageData = Buffer.from(pngBytes).toString("base64");
+        const attachment = await harness.attachmentCodec.saveImage({bytes: pngBytes, mimeType: "image/png", name: "memory.png"});
+        const storedUser: StoredUserMessage = {
+            role: "user",
+            content: [{type: "text", text: "remember this image"}, attachment],
+            timestamp: Date.now(),
+        };
+        // SessionEntry 的公开类型尚沿用 Pi Message；Repository invariant 会校验这里实际写入的是 stored message。
+        await harness.repo.appendMessage(created.metadata.sessionId, storedUser, undefined, "prompt");
+
+        const durable = await harness.repo.readSession(created.metadata.sessionId);
+        const durableUser = harness.repo.activePath(durable).find((entry) => entry.type === "message" && entry.message.role === "user");
+        expect(durableUser?.type === "message" && "content" in durableUser.message ? durableUser.message.content : undefined).toEqual([
+            {type: "text", text: "remember this image"},
+            expect.objectContaining({
+                type: "attachment",
+                attachment: expect.objectContaining({mimeType: "image/png", bytes: pngBytes.byteLength}),
+            }),
+        ]);
+        expect(messageText(harness.repo.reduce(durable).messages[0]!)).toContain("[attachment omitted: image/png");
+
+        const second = await harness.invokeAgent({
+            sessionId: created.metadata.sessionId,
+            mode: "continue",
+        });
+
+        expect(second.status).toBe("completed");
+        const recoveredUser = recoveredProviderMessages.find((message) => message.role === "user");
+        expect(recoveredUser && "content" in recoveredUser ? recoveredUser.content : undefined).toEqual([
+            {type: "text", text: "remember this image"},
+            {type: "image", mimeType: "image/png", data: imageData},
+        ]);
+        expect(JSON.stringify(recoveredProviderMessages)).not.toContain("[attachment omitted:");
+    }, 30000);
 
     it("Idle + steer/followup 会被 admission 拒绝且不写 session", async () => {
         const profileKey = registerPlainProfile(harness, {
@@ -345,6 +399,10 @@ describe("NeuroAgentHarness black-box contract", () => {
     });
 
     it("Running + steer 入队后只在 safe point drain 成模型可见消息", async () => {
+        let releaseTool = (): void => undefined;
+        const toolGate = new Promise<void>((resolve) => {
+            releaseTool = resolve;
+        });
         harness.tools.register({
             key: "bb_continue",
             name: "bb_continue",
@@ -352,6 +410,7 @@ describe("NeuroAgentHarness black-box contract", () => {
             description: "Continues the current run.",
             parameters: Type.Object({}),
             async execute() {
+                await toolGate;
                 return {
                     content: [{type: "text", text: "continue"}],
                     details: {},
@@ -394,6 +453,7 @@ describe("NeuroAgentHarness black-box contract", () => {
                 message: {text: "adjust while running"},
             });
             const beforeDrain = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
+            releaseTool();
 
             const result = await running;
             await new Promise((resolve) => setTimeout(resolve, 0));
@@ -407,11 +467,16 @@ describe("NeuroAgentHarness black-box contract", () => {
             expect(snapshot.steerQueue).toEqual({items: [], omittedItems: 0});
             expect(eventTypes(observer.events)).toContain("steer_queued");
         } finally {
+            releaseTool();
             await observer.stop();
         }
     });
 
-    it("Running + followup 入队时不写历史，当前 run completed 后自动消费一条", async () => {
+    it("Running + 图片 followup 入队后按 stored attachment 自动消费", async () => {
+        let releaseTool = (): void => undefined;
+        const toolGate = new Promise<void>((resolve) => {
+            releaseTool = resolve;
+        });
         harness.tools.register({
             key: "bb_continue_followup",
             name: "bb_continue_followup",
@@ -419,6 +484,7 @@ describe("NeuroAgentHarness black-box contract", () => {
             description: "Continues the current run.",
             parameters: Type.Object({}),
             async execute() {
+                await toolGate;
                 return {
                     content: [{type: "text", text: "continue"}],
                     details: {},
@@ -436,12 +502,17 @@ describe("NeuroAgentHarness black-box contract", () => {
                 return {};
             },
         }), false);
+        faux.getModel().input = ["text", "image"];
+        let followUpProviderMessages: RuntimeMessage[] = [];
         faux.setResponses([
             fauxAssistantMessage([
                 fauxToolCall("bb_continue_followup", {}, {id: "continue-followup"}),
             ], {stopReason: "toolUse"}),
             fauxAssistantMessage("first run done"),
-            fauxAssistantMessage("followup answered"),
+            (context) => {
+                followUpProviderMessages = context.messages;
+                return fauxAssistantMessage("followup answered");
+            },
         ]);
         const created = await harness.createAgent({
             profileKey: "test.blackbox.followup",
@@ -462,9 +533,17 @@ describe("NeuroAgentHarness black-box contract", () => {
             const queued = await harness.invokeAgent({
                 sessionId: created.sessionId,
                 mode: "followup",
-                message: {text: "queued followup"},
+                message: {
+                    text: "queued followup",
+                    images: [{
+                        type: "image",
+                        mimeType: "image/png",
+                        data: Buffer.from(pngBytes).toString("base64"),
+                    }],
+                },
             });
             const beforeDrain = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
+            releaseTool();
             const result = await running;
             const context = await waitForSessionText(harness, created.sessionId, "queued followup");
             const snapshot = await harness.getSessionRecovery(created.sessionId);
@@ -474,8 +553,26 @@ describe("NeuroAgentHarness black-box contract", () => {
             expect(result.status).toBe("completed");
             expect(visibleText(context.messages)).toContain("queued followup");
             expect(visibleText(context.messages)).toContain("followup answered");
+            const durableFollowUp = context.messages.find((message) => message.role === "user"
+                && Array.isArray(message.content)
+                && message.content.some((block) => block.type === "text" && block.text === "queued followup"));
+            expect(durableFollowUp && "content" in durableFollowUp ? durableFollowUp.content : undefined).toEqual([
+                {type: "text", text: "queued followup"},
+                expect.objectContaining({
+                    type: "attachment",
+                    attachment: expect.objectContaining({mimeType: "image/png", bytes: pngBytes.byteLength}),
+                }),
+            ]);
+            const providerFollowUp = followUpProviderMessages.find((message) => message.role === "user"
+                && Array.isArray(message.content)
+                && message.content.some((block) => block.type === "text" && block.text === "queued followup"));
+            expect(providerFollowUp && "content" in providerFollowUp ? providerFollowUp.content : undefined).toEqual([
+                {type: "text", text: "queued followup"},
+                {type: "image", mimeType: "image/png", data: Buffer.from(pngBytes).toString("base64")},
+            ]);
             expect(snapshot.followUpQueue.items).toEqual([]);
         } finally {
+            releaseTool();
             await observer.stop();
         }
     });
@@ -1239,5 +1336,5 @@ async function waitForSessionText(harness: NeuroAgentHarness, sessionId: number,
         }
         await new Promise((resolve) => setTimeout(resolve, 5));
     }
-    return harness.repo.reduce(await harness.repo.readSession(sessionId));
+    throw new Error(`等待Session文本超时：${text}`);
 }
