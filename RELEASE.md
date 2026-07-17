@@ -1,5 +1,28 @@
 # Release Notes
 
+## 0.8.1-canary - 2026-07-17
+
+本次patch集中修复Agent图片持久化、Portable/自定义State Root文件定位和发布迁移事务。用户图片不再以内联base64长期留在Session中，Agent文件工具也不再把逻辑`workspace`误当成Installation Root下的物理目录。
+
+### 更新说明
+
+- 用户图片和`read(image)`结果写入Workspace Root `.nbook/agent/attachments/`的content-addressed Store；Session、队列、trace和公开事件只保存轻量引用，Provider调用时才按可见上下文加载图片。
+- 文件路径统一经过`RuntimePaths -> WorkspaceRootRef/ProjectPath -> File Scope -> Resolved File Address`。Windows Portable与自定义State Root的read/write/edit/apply_patch/bash、Plan Mode和子Agent均命中真实State Root，跨Project读取保留正确的Project归属。
+- Manager Install、Update和Start把Attachment硬切纳入Operation Journal。迁移、Product、SQLite或容器健康失败时，会先恢复Session格式，再恢复Product、数据库与Compose。
+- Manager `0.1.0-canary.16`已公开。共享Runtime拥有独立clean-checkout typecheck边界，不再因本机`.nuxt`缓存存在而掩盖发布故障。
+
+### 迁移指南
+
+- Windows Portable请安装新的完整zip，并把旧实例的完整`data/`复制到新目录；不要复制根`workspace/`、旧`.output`、`.runtime`或`.deploy`。首次启动由Manager事务迁移历史图片Session。
+- Product Bun、Source Product、Source Docker和GHCR实例先停止服务，再使用Manager `.16`执行更新。不要单独手工运行Attachment migration脚本。
+- 如果`doctor`报告`state.shadow-workspace`，分别备份根`workspace/`与真实State Root下的`workspace/`并人工比较；Manager不会自动合并、移动或删除用户数据。
+- 更新失败后保留`.deploy/operations/`与日志用于恢复和诊断，不要手工覆盖Product或Session文件。
+
+### 验证与已知边界
+
+- 本地Windows隔离Product与SSH Arch原生Product/Source Docker已通过Attachment迁移逐字节回滚、Agent五工具、外部Project图片、State Root移动、Config/Profile/Variable、SQLite与HTTP；完整Harness/black-box为187/187，Manager为18 files / 63 tests。
+- Manager `.16` workflow `29556688067`全绿，npm `canary`和公开精确bunx均已验证。应用公开Product Bun、GHCR、Windows Portable与浏览器图片展示仍需本次Release workflow及人工验收确认。
+
 ## 0.8.0-canary - 2026-07-15
 
 本次 minor 版本重构 Agent Chat Flow 的公开数据与恢复协议，让长会话的首屏、向上翻页、实时流式响应和工具卡都具备明确的网络与内存边界；同时收紧模型配置写入合同，避免无效 Provider、模型引用或默认值进入运行时。
@@ -48,7 +71,6 @@
 - Agent Session列表会隔离路径或metadata损坏的单文件；相同问题集合只告警一次，避免每次列表刷新重复淹没日志。历史测试产生的235个无用户消息Session已带SHA256清单可逆归档，真实Repository issue归零。Harness在运行时要求显式Repository或RuntimePaths，Bun也默认忽略Product/Output/staging目录，测试和临时runtime不能再静默写入真实State Root。
 - 文件路径现在统一遵循`RuntimePaths -> WorkspaceRootRef/ProjectPath -> File Scope -> Resolved File Address`。Agent不再拥有独立路径语法，Workspace API、History、World Engine/Plot、Profile/Skill、Session与bash核心均由入口显式传入root，不从cwd反推领域身份。
 - 本地Windows隔离Product与SSH Arch原生Product已在无根`node_modules`、分离State Root和外部Project条件下通过Agent五工具、Attachment migration/rollback、Config/Profile/Variable、SQLite migration与HTTP；Arch Source Docker在容器内构建，并在正式`/app`同根布局通过同一Agent/Attachment与HTTP版本门禁。最终源码重新构建的Windows隔离Product再次通过迁移逐字节回滚、State Root移动和HTTP 200，并确认Product runtime不再包含测试源码或依赖测试helper；完整Harness/black-box为187/187。公开Release、Windows Portable、Product Bun和GHCR仍需新canary发布后验证。
-- Manager `.15`发布在GitHub clean checkout暴露共享Runtime隐式依赖`.nuxt/tsconfig.json`，npm未发布且公开`canary`仍为`.14`。共享`server/runtime`现有独立tsconfig与release typecheck门禁；无`.nuxt`隔离clone的Manager 18 files / 63 tests已通过。下一次Manager发布使用`.16`，不复用失败的`.15` tag。
 
 迁移时请保留完整State Root。Windows Portable用户只复制完整`data/`到新解压目录，不要复制旧根`workspace/`；如果doctor报告`state.shadow-workspace`，先分别备份并人工比较两个目录，再决定保留内容。
 

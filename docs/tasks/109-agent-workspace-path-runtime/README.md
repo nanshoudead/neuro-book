@@ -648,3 +648,4 @@ Profile/Harness             -> 上述稳定 Interface
 - 未使用Vitest私有转换选项或类型断言关闭OXC tsconfig解析。Vite 8公开`OxcOptions`不提供该能力，强行注入会把Task 109核心边界绑定到构建器内部实现。也没有运行Nuxt prepare，因为Manager和共享Runtime不应依赖应用生成目录。
 - `server/runtime/tsconfig.json`现在独立声明ESNext/Bundler、严格类型和`nbook/*`根alias；`runtime:typecheck`进入本地Manager release helper与GitHub workflow。该边界继续只包含Generic File Path、RuntimePaths、Installation Paths与State Root Integrity，不拆出过早的独立workspace package。
 - 无`.nuxt`隔离clone中，修复前为4个suite transform失败、其余14个通过；修复后Manager完整18 files / 63 tests通过，独立Runtime与Manager typecheck均通过。`.15`失败tag保留，下一公开Manager必须使用`.16`。
+- `.16` workflow `29556688067`已全绿并通过Trusted Publisher写入npm；registry `canary`和全新Bun cache中的公开精确版本均返回`.16`。Task 109仍等待同一源码进入应用canary后的公开Source/Product、Windows Portable与GHCR门禁。

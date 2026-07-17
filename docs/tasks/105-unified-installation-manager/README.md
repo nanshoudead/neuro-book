@@ -1,8 +1,8 @@
 # 105 - 统一安装目录与 NeuroBook Manager
 
-> 当前状态：实现中。Manager [`0.1.0-canary.14`](https://github.com/notnotype/neuro-book/actions/runs/29258344967)已通过Trusted Publisher公开，npm `canary`与真实bunx均已验证。[`v0.7.9-canary.20260713.131204Z.3b064b83`](https://github.com/notnotype/neuro-book/releases/tag/v0.7.9-canary.20260713.131204Z.3b064b83)的Release workflow `29252852294`全绿，九个资产已公开，Windows Portable与Linux x64 Product真实浏览器门禁通过。任务目标现已扩展到Linux AArch64、macOS x64/ARM64与`linux/arm64` OCI交付；[PR #11](https://github.com/notnotype/neuro-book/pull/11)已证明相关资产能够构建，但Release Manifest消费端、Manager发布顺序、Container Engine持久化与跨平台验收尚未闭合。公开Portable/Product Bun、GHCR A→B、Linux AArch64和macOS终验完成前，Task 105不归档。
+> 当前状态：实现中。Manager [`0.1.0-canary.16`](https://github.com/notnotype/neuro-book/actions/runs/29556688067)已通过Trusted Publisher公开，npm `canary`与全新Bun cache中的真实bunx均已验证。[`v0.7.9-canary.20260713.131204Z.3b064b83`](https://github.com/notnotype/neuro-book/releases/tag/v0.7.9-canary.20260713.131204Z.3b064b83)的Release workflow `29252852294`全绿，九个资产已公开，Windows Portable与Linux x64 Product真实浏览器门禁通过。任务目标现已扩展到Linux AArch64、macOS x64/ARM64与`linux/arm64` OCI交付；[PR #11](https://github.com/notnotype/neuro-book/pull/11)已证明相关资产能够构建，但Release Manifest消费端、Container Engine持久化与跨平台验收尚未闭合。下一应用canary及其Portable/Product Bun、GHCR A→B、Linux AArch64和macOS终验完成前，Task 105不归档。
 
-> 2026-07-17发布状态：`manager-v0.1.0-canary.15`已保留为失败审计tag，workflow `29552343676`在package验证阶段失败，npm `canary`仍为`.14`。修复后使用新的`.16`版本发布，不移动或复用`.15`。
+> 2026-07-17发布状态：`manager-v0.1.0-canary.15`保留为失败审计tag；修复后的`.16` workflow `29556688067`全绿并已公开，不移动或复用`.15`。
 
 ## Relative documents refs
 
@@ -685,3 +685,4 @@ uninstall
 - `server/runtime`现在有独立、无Nuxt依赖的tsconfig，明确它是Task 109路径核心与State Root完整性检测的共享编译边界。新增`runtime:typecheck`，本地Manager release helper和`release-manager.yml`都会在Manager package验证前执行，避免开发机残留`.nuxt`再次掩盖clean-checkout故障。
 - 隔离clone没有`.nuxt`，只共享已安装依赖；修复前稳定得到`4 failed / 14 passed`，修复后为`18 files / 63 tests passed`。共享Runtime typecheck、Manager typecheck和5文件、约0.35 MiB的pack空目录审计均通过。
 - 实际结果与原发布计划不同：`.15` tag与release commit不会移动、删除或复用；下一个可发布版本改为`0.1.0-canary.16`。在npm `canary`真实返回`.16`前，不创建引用新Manager能力的应用canary。
+- `0.1.0-canary.16`最终由workflow `29556688067`在38秒内完成clean-checkout验证与Trusted Publisher发布。npm `canary`返回`.16`，全新`BUN_INSTALL_CACHE_DIR`中的`bunx --bun @notnotype/neuro-book-manager@0.1.0-canary.16 --version`同样返回`.16`；应用canary发布门禁已解除。
