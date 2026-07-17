@@ -22,7 +22,9 @@
 - SSH Arch使用公开`0.8.5`完成Product Bun空目录安装、healthy doctor、Attachment`dry-run → apply → rollback`、分离State Root五工具/移动恢复、无根`node_modules`启动和HTTP精确版本验证。
 - 同一Arch环境公开GHCR空目录安装稳定复现：one-off容器实际Config.Cmd为migration命令，但镜像ENTRYPOINT启动Product并持续监听；停止容器后Operation完整回滚，未残留Manifest、wrapper、容器或Compose网络。
 - 新增Docker命令边界回归并先红后绿；Manager完整18 files / 65 tests、typecheck与5文件约0.35 MiB pack审计通过。
-- `0.8.6`公开GHCR安装、doctor、启动、HTTP和`/app/.agent`只读合同仍需新Manager和应用资产发布后复验；未执行人工浏览器操作。
+- Manager `0.1.0-canary.19` workflow `29582201585`已全绿并公开到npm；应用`0.8.6` workflow `29582562773`完成Windows/Linux Product、Portable、GHCR、公开payload复验和最终索引，Release共9个资产。
+- SSH Arch从空目录使用公开Manager `.19`安装公开GHCR成功：Operation为`committed / success`，doctor healthy，Attachment迁移与同根State Root Agent smoke通过，停止后由Manager重新启动并返回精确HTTP版本；固定digest与Manifest一致，`/app/.agent`不存在，State Root数据保留。
+- 本轮隔离HOME、Installation Root、容器、网络和镜像引用已清理。未执行人工浏览器操作；自动Release browser smoke已通过。
 
 ## 0.8.5-canary - 2026-07-17
 

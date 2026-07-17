@@ -1,8 +1,8 @@
 # 105 - 统一安装目录与 NeuroBook Manager
 
-> 当前状态：实现中。应用[`v0.8.5-canary.20260717.121043Z.fc43a3e`](https://github.com/notnotype/neuro-book/releases/tag/v0.8.5-canary.20260717.121043Z.fc43a3e)九资产与平台门禁全绿，SSH Arch公开Product Bun首次安装、doctor、Attachment/State Root和HTTP已通过。公开GHCR安装暴露Manager `.18`的一次性Compose命令未覆盖Product ENTRYPOINT；修复已完成，待Manager `.19`与应用`0.8.6`公开终验。完成前Task 105不归档。
+> 当前状态：实现中。Manager `0.1.0-canary.19`与应用[`v0.8.6-canary.20260717.130406Z.a91a96f`](https://github.com/notnotype/neuro-book/releases/tag/v0.8.6-canary.20260717.130406Z.a91a96f)已公开；九资产与Windows/Linux平台门禁全绿，SSH Arch公开Product Bun与GHCR空目录安装、doctor、Attachment/State Root、start和HTTP均已通过。Task 108/109不再阻塞；Task 105仍保留AArch64、macOS、Portable完整用户链与更宽故障注入等独立后续范围，因此暂不归档。
 
-> 2026-07-17发布状态：`manager-v0.1.0-canary.15`、应用`0.8.1`与`0.8.3`保留为失败审计记录；Manager `.18`和应用`0.8.5`已公开。下一顺序固定为Manager `.19`先公开，再发布minManagerVersion引用`.19`的应用`0.8.6`；不复用既有tag。
+> 2026-07-17发布状态：`manager-v0.1.0-canary.15`、应用`0.8.1`与`0.8.3`保留为失败审计记录；Manager `.19`和应用`0.8.6`已按顺序公开，Manifest最低Manager版本、source revision与GHCR digest均已交叉验证。
 
 ## Relative documents refs
 
@@ -735,3 +735,11 @@ uninstall
 - 修复所有权位于Manager Docker Adapter：`runDockerApplicationCommand()`显式把命令首项传给Compose `--entrypoint`，其余argv放在service之后；空命令立即拒绝。没有修改Product ENTRYPOINT、没有增加超时掩盖、没有把maintenance命令改成宿主执行。
 - 中断公开失败安装后，Operation为`committed/rolled-back`，Compose、网络、容器、Manifest和wrapper均无残留。Manager完整18 files / 65 tests、typecheck和pack审计通过。
 - 该修复需要先发布Manager`.19`，再发布minManagerVersion引用`.19`的应用`0.8.6`；公开GHCR最终用户链通过前Task 105继续实现中。
+
+### 2026-07-17 0.8.6 GHCR公开终验
+
+- Manager `0.1.0-canary.19` workflow `29582201585`全绿并通过npm Trusted Publisher；本机与SSH Arch精确`bunx`均返回`.19`。应用`0.8.6` workflow `29582562773`完成Windows/Linux Product、Portable、GHCR、真实启动、公开payload复验与最终索引，Release公开9个资产。
+- Manifest记录source revision `00fd4fceebb18b08abd3324d19d0ea0f91e31261`、最低Manager `.19`与GHCR digest `sha256:c3e4dc5ae531e3316a61525e936b5dfaacffc10b2c76a514d2bc27a4a48bff64`；容器ref、digest和revision一致。
+- SSH Arch从空目录使用公开Manager安装GHCR成功。Attachment one-off migration真实退出，Operation为`committed / success`，Manifest和wrapper提交完成且没有残留one-off容器；这与`.18`阻断时的`rolled-back`证据形成完整修复对照。
+- doctor healthy；容器内Attachment rollback和同根State Root Agent smoke通过；`/app/.agent`不存在。停止Compose后，Manager `start`按固定digest重新启动，HTTP返回精确版本，State Root标记保持不变。
+- 测试实例、隔离HOME、容器、网络和本轮镜像引用均已清理。Task 108/109因此完成；Task 105继续跟踪其尚未完成的平台扩展、Portable用户链与故障注入，不把本次GHCR终验扩大解释为整个Task 105归档。

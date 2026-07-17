@@ -1,6 +1,6 @@
 # Task 109：统一 File Scope、File Address 与 Product Runtime 路径合同
 
-> 当前状态：实现中（`0.8.5`公开Product Bun、Windows Portable和Release门禁已闭合，GHCR待Manager`.19`与应用`0.8.6`完成）。Generic File Path、Project Path、File Scope、Resolved File Address 与不可变 RuntimePaths 已完成硬切；Workspace Files/History、World Engine/Plot、Profile/Skill Catalog、Harness、Session Repository 和 bash 均由进程/HTTP Adapter 显式传入物理根，核心 Module 不再重新发现 cwd 或环境。共享 State Root integrity 由 Manager doctor/status/start 与应用 bootstrap 共用。Arch公开Product Bun已完成Attachment/五工具/Config/Profile/Variable/State Root移动与HTTP；GHCR在这些路径检查前被Manager one-off ENTRYPOINT argv错误阻断，修复不改变路径合同。
+> 当前状态：已完成 / Implemented & Verified。Generic File Path、Project Path、File Scope、Resolved File Address 与不可变 RuntimePaths 已完成硬切；Workspace Files/History、World Engine/Plot、Profile/Skill Catalog、Harness、Session Repository 和 bash 均由进程/HTTP Adapter 显式传入物理根，核心 Module 不再重新发现 cwd 或环境。`0.8.5`公开Product Bun与`0.8.6`公开GHCR已在SSH Arch完成Attachment、五工具、Config/Profile/Variable、State Root、启动和HTTP链路；Windows Portable与Release平台门禁已由GitHub Actions实跑闭合。
 
 ## Relative documents refs
 
@@ -438,7 +438,7 @@ Profile/Harness             -> 上述稳定 Interface
 - [x] 证明 Installation Root 未创建错误 `workspace/`。
 - [x] Windows Portable 验证 `data/workspace`、影子 Workspace 诊断和移动目录后的 session；`0.8.4` Windows verify使用真实managed Runtime/Tool通过。
 - [x] SSH Arch验证当前源码Source Product与Source Docker。
-- [ ] SSH Arch使用公开资产验证Product Bun与GHCR。
+- [x] SSH Arch使用公开资产验证Product Bun与GHCR；`0.8.5`完成Product Bun，`0.8.6`完成GHCR空目录安装、doctor、同根State Root、启动和HTTP。
 - [x] 未执行人工浏览器验收；Release CI的自动启动smoke只作为发布门禁，HTTP与文件系统证据通过后仍建议用户人工检查图片展示。
 
 ### 2026-07-16 本地Product runtime验收
@@ -569,7 +569,7 @@ Profile/Harness             -> 上述稳定 Interface
 - [x] 无根 `node_modules` 的本地真实 Product Agent 工具 smoke。
 - [x] 公开Source archive + Product overlay的Product Bun smoke；`0.8.5` Arch首次安装、doctor、Attachment/State Root与HTTP通过。
 - [x] 新Release workflow在GitHub Actions真实跑通Linux Product与Windows Portable Agent State Root步骤；`0.8.4` workflow `29576999784`全绿。
-- [x] SSH Arch 当前源码原生 Product 与 Source Docker 链路；公开 Product Bun、GHCR 与 Windows Portable 仍分别由发布后门禁跟踪。
+- [x] SSH Arch 当前源码原生 Product 与 Source Docker 链路；公开 Product Bun、GHCR 与 Windows Portable 已分别由`0.8.5`、`0.8.6`和Release Windows verify完成。
 - [x] 真实 Windows Portable `data/` Product runtime 的 Config/Profile/Variable回归；`0.8.4`候选Portable使用managed Runtime/Tool和真实`data/`布局通过生产runner。
 - [x] Windows Portable 影子 `workspace/` 诊断：`0.8.4` Windows verify在真实Portable根制造分叉，确认`state.shadow-workspace` fail/remediation且两侧marker数据不变。
 
@@ -595,7 +595,7 @@ Profile/Harness             -> 上述稳定 Interface
    - [x] 本地隔离Product staging不含根`node_modules`并使用独立State Root。
    - [x] 执行Agent read/write/edit/apply_patch/bash与session移动测试。
    - [x] 使用`0.8.5`公开Source archive与对应Product overlay重复同一smoke。
-   - 当前源码 SSH Arch Product/Docker 已完成；最后执行公开 Product Bun、GHCR 与 Windows Portable 链路，并把公开资产证据记录回 Task 105。
+   - [x] 公开 Product Bun、GHCR 与 Windows Portable 链路均已完成，并把公开资产证据记录回 Task 105。
 
 ### Review checklist
 
@@ -621,12 +621,12 @@ Profile/Harness             -> 上述稳定 Interface
 - 不为旧 slug-relative 输入、旧 managed 绝对 Plan Mode 路径或失效 external Project 增加 fallback。
 - 不自动执行浏览器验收。
 
-## TODO / Follow-ups
+## Completion / Follow-ups
 
-- Task 109保持“实现中”，直到SSH Arch使用`0.8.5`公开Product Bun与GHCR完成首次安装、doctor、State Root/Attachment与HTTP链路；公开Source/Product、Windows Portable和GitHub Actions门禁已由`0.8.4`闭合。
-- Task 105 在公开 Manager canary、Windows Portable、Product Bun和GHCR链路通过前保持“实现中”。
-- 每个阶段继续记录复现、根因、实际改动、验证命令、结果与计划差异。
-- 完成后同步 `CONTEXT.md`、`reference/workspace/TERMS.md`、Manager README、`RELEASE.md`、`PROJECT-STATUS.md` 和 Task 105 walkthrough。
+- Task 109已完成：SSH Arch分别使用`0.8.5`公开Product Bun和`0.8.6`公开GHCR完成首次安装、doctor、State Root/Attachment与HTTP链路；公开Source/Product、Windows Portable和GitHub Actions门禁已闭合。
+- Task 105仍保留其独立的AArch64、macOS与更宽故障注入等后续范围；Task 109的路径合同不再阻塞该任务。
+- 各阶段已记录复现、根因、实际改动、验证命令、结果与计划差异；历史失败记录继续保留。
+- `CONTEXT.md`、`reference/workspace/TERMS.md`和Manager README的稳定路径合同已在实现阶段同步；最终公开证据已同步到`RELEASE.md`、`PROJECT-STATUS.md`和Task 105 walkthrough。
 - Task 108/109共享路径与图片工具回归已经合并转绿；后续重叠修改仍由单一owner整合，避免`file-tools.ts`等共享热点重新出现双重路径解释。
 
 ### 2026-07-17 Session污染与显式Root最终补漏
@@ -706,3 +706,11 @@ Profile/Harness             -> 上述稳定 Interface
 - GHCR公开安装在进入路径/Attachment CLI前被Manager一次性容器命令截获：Product ENTRYPOINT忽略Compose run的CMD并启动长期服务。容器仍正确使用`/app`State Root且没有证明新的路径错误，但用户链无法提交Manifest。
 - 修复只改变Manager Docker进程Adapter的argv：显式覆盖one-off ENTRYPOINT，不修改RuntimePaths、Compose volume、State Root或镜像长期启动合同。失败安装的container/network/Manifest/wrapper均完成回滚。
 - 公开Product Bun硬门禁现已完成；Task 109只剩Manager`.19` + 应用`0.8.6`公开GHCR安装、doctor、启动、HTTP以及`/app/.agent`不存在的最终证据。
+
+### 2026-07-17 0.8.6公开GHCR最终闭环
+
+- Manager `0.1.0-canary.19`与应用[`v0.8.6-canary.20260717.130406Z.a91a96f`](https://github.com/notnotype/neuro-book/releases/tag/v0.8.6-canary.20260717.130406Z.a91a96f)均已公开；应用workflow `29582562773`完成9资产、Windows/Linux Product、Portable、GHCR、公开payload与最终索引验证。
+- SSH Arch从空目录安装GHCR后，Operation Journal为`committed / success`，Manifest v3记录container Source/Product、同一source revision与固定digest。一次性Attachment migration正常退出，正式服务容器随后启动，没有残留one-off容器。
+- `doctor --json`为`healthy=true`；容器内同根runner在`Application Root = State Root = /app`条件下完成read/write/edit/apply_patch/bash、Config/Profile/Variable、外部Project图片和全局Attachment Store。容器根`/app/.agent`不存在，所有用户状态均通过挂载的State Root路径落盘。
+- 停止Compose后，Manager `start`按Manifest固定digest重新创建服务；HTTP返回精确`v0.8.6-canary.20260717.130406Z.a91a96f`，宿主State Root标记保持不变。测试实例、HOME、容器、网络与镜像引用已清理。
+- 阶段五最后一个公开资产checkbox已完成。人工浏览器验收仍按Explicit non-goals不自动执行；它不是路径合同完成条件。Task 109现标记Implemented & Verified。

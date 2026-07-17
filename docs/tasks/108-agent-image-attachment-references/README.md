@@ -10,7 +10,7 @@
 
 ## Status
 
-Implemented / Public Product Bun Verified / GHCR Pending Manager 0.1.0-canary.19（人工浏览器验收未执行）
+Implemented & Verified（公开 Product Bun、Windows Portable 与 GHCR 已通过；人工浏览器验收属于本任务 Out of Scope）
 
 ## User Request / Topic
 
@@ -838,3 +838,12 @@ Task 108 与 Task 109 合并后完成最终串行复核：
 - Manager Docker Adapter现用`--entrypoint bun`执行一次性命令，保持migration CLI、Operation Journal和Product ENTRYPOINT各自单一职责。测试固定完整Compose argv和空命令拒绝。
 - 中止失败容器后journal完整回滚，无migration plan、Manifest、wrapper或容器残留。Manager18 files / 65 tests、typecheck和pack通过。
 - Task 108继续保持Public Release Pending，等待Manager`.19`与应用`0.8.6`的公开GHCR migration/install复验；Product Bun公开证据已完成，不重复执行真实开发Workspace迁移。
+
+### 2026-07-17 0.8.6公开GHCR最终闭环
+
+- Manager `0.1.0-canary.19` workflow `29582201585`全绿，npm `canary`与SSH Arch精确`bunx`均返回`.19`。应用[`v0.8.6-canary.20260717.130406Z.a91a96f`](https://github.com/notnotype/neuro-book/releases/tag/v0.8.6-canary.20260717.130406Z.a91a96f) workflow `29582562773`完成Windows/Linux Product、Portable、GHCR、两端State Root、真实HTTP、公开payload和最终索引验证，9个资产全部公开。
+- 公开Manifest的source revision为`00fd4fceebb18b08abd3324d19d0ea0f91e31261`，最低Manager为`.19`，GHCR固定digest为`sha256:c3e4dc5ae531e3316a61525e936b5dfaacffc10b2c76a514d2bc27a4a48bff64`；Source、Product与容器revision一致。
+- SSH Arch从空目录使用公开Manager `.19`安装公开GHCR成功。Attachment dry-run one-off命令正常退出，Operation Journal最终为`committed / success`，Manifest v3与稳定wrapper均已提交；没有残留一次性容器，证明`--entrypoint`修复覆盖了真实用户链。
+- 容器内正式Product脚本再次完成Attachment `dry-run -> apply -> rollback`并逐字节恢复旧图片Session；同根State Root runner完成Agent五工具、Config/Profile/Variable、外部Project图片与全局Attachment Store验证。`/app/.agent`始终不存在。
+- Manager `doctor --json`为`healthy=true`且无fail check；停止Compose后通过`neuro-book start`重新拉起固定digest，HTTP返回精确`versionLabel`，State Root标记保持不变。测试容器、网络、镜像引用、隔离HOME与Installation Root均已清理。
+- Task 108的Storage、Stored/runtime、Provider/trace、Public/Chat Flow与Migration验收项均已由自动化、Product和公开交付链证明完成。人工浏览器图片展示未执行，按本任务Out of Scope保留为用户可选验收，不再阻塞任务完成。
