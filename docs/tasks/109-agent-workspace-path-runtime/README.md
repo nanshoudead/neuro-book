@@ -687,5 +687,6 @@ Profile/Harness             -> 上述稳定 Interface
 - 使用真实Source ZIP与Windows Product ZIP组装无根`node_modules`的隔离Product，运行`prepare-system-assets --sync-user-assets`得到14个Profile、`compiled 0 stale`，随后Agent State Root移动smoke通过。未自动执行浏览器操作。
 - SSH Arch隔离clone先完成2 files / 23 tests、三个Product Profile场景、Runtime typecheck、Linux`nuxt:build`和`release:product:linux`。远端配额不足以同时保留hoisted依赖、build output与第二份解压树，因此清理根`node_modules`后直接把同一build root作为Product重放；清除聚焦Vitest此前生成的ignored`workspace/.nbook/logs`后，预检保持0 stale，Agent State Root移动smoke通过且Application Root不再生成影子`workspace/`。
 - Arch首次直接运行Vitest因clean checkout缺`.nuxt`失败，补正式`nuxt prepare`前置后通过；首次使用POSIX locale解Source ZIP出现Unicode文件名警告，设置`LC_ALL=C.utf8`后解决。两项都属于测试命令/环境前置，不通过修改Product代码掩盖。
+- Arch复用build checkout做Product smoke时还发现聚焦Vitest会通过全局`appLogger`默认cwd创建`workspace/.nbook/logs/server-current.jsonl`。`server/agent/test/setup.ts`现在在任何业务Module导入前把`NEURO_BOOK_LOG_DIR`绑定到唯一OS临时目录，suite结束时等待日志队列并清理；三个聚焦suite通过且临时日志目录为零。生产日志根合同未修改。
 - 实际计划差异：最初只预期定位一个被后处理修改的依赖；候选产物证明根因是编译上下文跨越Product边界，并进一步暴露manifest逻辑root漂移。修复因此收口到共享上下文和归档合同，而不是在runtime关闭dependency检查或重编只读assets。
 - Task 109继续保持实现中。下一公开版本使用`0.8.4`；只有Linux Product Bun、Windows Portable、GHCR与最终公开payload全部通过后，才能把本地候选证据升级为公开Release证据。
