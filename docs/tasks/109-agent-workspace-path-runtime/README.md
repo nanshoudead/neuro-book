@@ -655,3 +655,9 @@ Profile/Harness             -> 上述稳定 Interface
 - `0.8.1` Windows/Linux Product job都在Task 109聚焦测试收集前失败：根Vitest配置加载`server/agent/test/setup.ts`时，clean checkout尚未执行Nuxt prepare，根tsconfig继承的`.nuxt/tsconfig.json`不存在。该失败证明发布前置顺序不完整，不证明路径断言失败。
 - `server/agent`继续属于Nuxt应用边界，不新增第二套独立tsconfig。新增`test:agent-state-root`把`nuxt prepare`与真实`workspace-root-ref.test.ts`、Harness State Root测试固化为单一命令；旧workflow引用的`agent-workspace-location.test.ts`已经不存在且会被Vitest静默忽略。两个Product job共用新入口，无`.nuxt`隔离clone从原错误恢复为2 files / 7 tests通过。
 - `0.8.1` assemble、Windows Portable、Linux Product Bun和公开payload验证均未运行，Release保持零资产。下一版本使用`0.8.2`重新取得真实平台证据，Task状态不提前提升。
+
+### 2026-07-17 Manager全局Root与组件Version参数边界
+
+- 公开`.16`确认顶层Manager`--version`会截获install/update/runtime install的同名子命令参数。路径命令本身没有错误，但显式版本安装无法进入目标Profile，属于Task 105/109发布验收中发现的CLI边界漏洞。
+- Manager现启用Commander positional options：物理实例选择`--root/--instance`固定在子命令前，应用/Runtime版本固定在子命令后。Portable Launcher既有`neuro-book --root <portable-root> <command>`保持不变，避免为了兼容含义模糊的任意参数位置重新引入解析分支。
+- packed bundle回归同时验证顶层Manager版本与子命令应用版本路由；下一Manager版本为`.17`。该修复不改变RuntimePaths、WorkspaceRootRef、ProjectPath或Installation Manifest。

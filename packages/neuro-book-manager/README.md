@@ -40,6 +40,8 @@ neuro-book --instance <name> status
 neuro-book --root <path> doctor
 ```
 
+`--root`、`--instance`和Manager自身`--version`是全局参数，必须写在子命令前；`install/update/runtime install`自己的`--version`写在子命令后，表示目标组件版本。
+
 `neuro-book manage` 使用 blessed 提供多实例 TUI，可查看状态、执行诊断、启动、更新、注册、设置默认实例或忘记索引。忘记实例不会删除 Installation Root 或用户数据。
 
 Windows Portable的State Root固定为`data/`。如果Installation Root下另外出现了真实`workspace/`目录，Manager会把它视为可能的数据分叉：`doctor`报告`state.shadow-workspace`失败，`status`给出人工处理步骤，`start`只警告并继续。Manager不会自动复制、合并、删除或重命名两个目录；junction或symlink若与`data/workspace/`指向同一真实目录则不会误报。

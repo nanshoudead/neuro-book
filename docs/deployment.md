@@ -117,6 +117,8 @@ neuro-book admin create [username]
 
 `update/start/status/doctor/runtime/tools/admin` 支持全局 `--root <path>` 或 `--instance <name-or-id>`。未显式指定时，Manager 优先使用当前目录所属实例；目录外执行时使用用户配置中的默认实例。
 
+全局参数必须位于子命令前，例如`neuro-book --root <path> update`。应用或Runtime目标版本位于子命令后，例如`neuro-book install --version <app-version>`或`neuro-book runtime install bun --version <bun-version>`；裸`neuro-book --version`只输出Manager自身版本。
+
 ## 用户级 Manager 配置
 
 Manager 配置默认位于 `~/.neuro-book-manager/config.json`。它只保存：

@@ -36,6 +36,7 @@ const program = new Command()
     .name("neuro-book")
     .version(MANAGER_VERSION)
     .description("NeuroBook installation, runtime, toolchain and instance manager.")
+    .enablePositionalOptions()
     .option("--root <path>", "指定命令操作的 NeuroBook Installation Root。")
     .option("--instance <name-or-id>", "指定用户级配置中注册的实例。")
     .showHelpAfterError();

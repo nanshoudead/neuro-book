@@ -693,3 +693,9 @@ uninstall
 - 根因不是Task 109路径行为失败，而是Product job在clean checkout中先运行根Vitest、后运行`nuxt:build`。根`tsconfig.json`合法继承`.nuxt/tsconfig.json`，但测试执行前尚未运行`nuxt prepare`，Vite/OXC因此在转换`server/agent/test/setup.ts`时报告`Tsconfig not found`。本机残留`.nuxt`曾掩盖该顺序漏洞。
 - 新增统一`test:agent-state-root`脚本，固定执行`nuxt prepare`后再运行两组State Root测试；Windows/Linux Product job只调用该入口，不为整个`server/agent`复制第二套tsconfig，也不改变应用根tsconfig合同。
 - 审计同时发现旧workflow列出的`agent-workspace-location.test.ts`已经不存在，Vitest会静默忽略该路径。新脚本改为真实的`workspace-root-ref.test.ts`与Harness State Root测试；无`.nuxt`隔离clone中原命令稳定复现transform错误，新脚本自行生成`.nuxt`后完成`2 files / 7 tests passed`。失败的`0.8.1` tag保留审计记录，修复后发布新的`0.8.2`。
+
+### 2026-07-17：Manager子命令版本参数路由修复
+
+- 公开Manager `.16`实测`neuro-book install --version <app-version>`时只打印Manager版本并以0退出。根因是Commander顶层`.version()`与install、update、runtime install的子命令`--version`重名，父命令选项会跨过子命令截获参数；因此原CLI文档中的显式应用版本选择实际上不可用。
+- 使用Commander官方`enablePositionalOptions()`硬切参数位置：`neuro-book --version`继续输出Manager版本，全局`--root/--instance`必须位于子命令前，子命令后的`--version`归install/update/runtime自身。现有Portable Launcher和文档本来就使用`--root <path> <command>`顺序，无需兼容两套协议。
+- npm pack审计现在从真实tgz安装bundle，分别断言顶层Manager版本输出与`install --version ... --dry-run`确实进入install JSON计划。Manager typecheck、18 files / 63 tests和5文件约0.35 MiB pack均通过；修复将使用新的`.17`发布，不复用`.16`。
