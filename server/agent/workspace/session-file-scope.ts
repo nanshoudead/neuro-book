@@ -1,8 +1,10 @@
 import path from "node:path";
+import {stat} from "node:fs/promises";
 import type {AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
 import type {WorkspaceRootRef} from "nbook/server/workspace-files/workspace-root-ref";
 import {createFileScope, type FileScope} from "nbook/server/workspace-files/file-scope";
 import {normalizeProjectPath} from "nbook/server/workspace-files/project-path";
+import {assertProjectWorkspaceDirectory} from "nbook/server/workspace-files/project-workspace";
 import {
     WORKSPACE_CONTAINER_ROOT,
     WORKSPACE_NBOOK_ROOT,
@@ -46,4 +48,29 @@ export function resolveSessionFileScope(input: {
         }
     }
     return createFileScope({kind: "external-project", root: input.workspaceFsRoot});
+}
+
+/**
+ * 在持久化Session前验证其File Scope真实存在且领域组合合法。
+ *
+ * managed Project复用Project Workspace的链接与真实路径门禁；外部Project允许用户
+ * 明确选择链接目录，但目标必须真实存在并且是目录。
+ */
+export async function assertSessionFileScope(input: {
+    workspaceRootRef: WorkspaceRootRef;
+    workspaceFsRoot: AbsoluteFsPath;
+    projectPath?: string;
+}): Promise<FileScope> {
+    const scope = resolveSessionFileScope(input);
+    if (scope.kind === "managed-project") {
+        await assertProjectWorkspaceDirectory(scope.workspaceRoot, scope.currentProjectPath);
+        return scope;
+    }
+    if (scope.kind === "external-project") {
+        const externalStat = await stat(scope.root).catch(() => null);
+        if (!externalStat?.isDirectory()) {
+            throw new Error(`外部Project Workspace不存在或不是目录：${scope.root}`);
+        }
+    }
+    return scope;
 }

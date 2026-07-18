@@ -41,6 +41,8 @@
 - 2026-05-30：完成实现审计时修复一个 rebuild race：若 watcher debounce flush 时已有 rebuild 在跑，flush 会等待旧 build，发现 entry 仍 dirty 时再执行一次 rebuild，避免把旧 snapshot 的 revision 当成文件事件后的 index 事件推给 SSE。
 - 2026-05-30：针对“直接在系统文件系统删除 `reference/silly-tavern` 后前端不实时更新”复查真实链路：后端 index watcher 能收到 `unlinkDir reference/silly-tavern` 并重建缓存，但 SSE route 会等待 watcher `ready` 后才返回响应；大型 Project Workspace 下初始 watch 扫描会拖住 SSE 建连，页面实际还没订阅上事件。修复为订阅先注册并立即返回 SSE 响应，`workspace_watch_ready` 改为 watcher ready 后异步推送。
 - 2026-05-30：文件事件触发的前端 `syncWorkspaceFromDisk()` 改为绕过已有同 workspace 的 pending tree 请求，确保“事件之后”一定发起新 tree 读取，避免复用事件之前发出的旧快照。
+- 2026-07-18：文件树扫描契约收口为弱一致 snapshot。`readdir` 后消失的 SQLite WAL/SHM 等节点、以及显式 target 在存在性检查后消失的情况，只在错误码为 `ENOENT` 时跳过；`EACCES`、真实路径越界和磁盘错误继续抛出。该修复由扫描 Module 自身吸收实时文件系统竞态，不串行化 Tree 与 History 预热。
+- 2026-07-18：显式 validation target 在判断存在性前先应用 Project Runtime Artifact 硬排除，因此已存在或已消失的 artifact 都不会生成文件树节点、`missing-target` 或 Project Workspace Issue；`.gitignore` 否定规则不能恢复它们。
 
 ## Decisions
 
@@ -53,6 +55,7 @@
 - 不保留 `tree?refresh=1` 这种显式刷新查询语义；手动刷新也应通过 index manager 的 read/rebuild 合同拿到当前真相。
 - user-assets 纳入同一套 index watcher 机制，但 user-assets snapshot 仍不运行 Project Workspace 内容节点 Issue Index。
 - watcher 不能承诺“永远最新”，只能承诺正常情况下主动刷新；仍需 dirty 标记、手动 refresh、watcher error 后 read-time rebuild 兜底。
+- 单次 Project Workspace File Index build 也不承诺强一致；扫描期间消失的节点可从该 snapshot 缺席，但只有 `ENOENT` 可被忽略，其他 I/O 与 containment 错误必须失败。
 - 第一版遇到任何文件结构变化都可以 debounce 后全量 rebuild，不做局部增量，优先保证正确性。
 
 ## Proposed Architecture
@@ -197,6 +200,7 @@ SSE payload 仍应包含原始 changed paths；index watcher 记录 debounce 窗
 
 实现阶段已运行：
 
+- 2026-07-18：`workspace-tree-scan-race.test.ts` 与 `runtime-generated-path.test.ts` 8/8 通过，覆盖子节点和显式 target 的 `ENOENT` 弱一致跳过、显式/递归 runtime artifact target 硬排除、`.gitignore` 否定规则无权恢复 artifact，以及显式 target `EACCES` 原样失败。
 - `bun test server/workspace-files/workspace-files.test.ts -t "Project Workspace tree|plain workspace tree|user-assets tree index"`：通过，覆盖 Project Workspace snapshot、外部写入 `reference/silly-tavern/...` 后 watcher 更新缓存、user-assets watcher 更新缓存且 issues 为空。
 - `bun test server/workspace-files/workspace-file-events.test.ts server/api/workspace-files/events.get.test.ts`：通过，覆盖 index subscription 事件推送和 SSE 断开清理。
 - `bun test server/workspace-files/workspace-files.test.ts`：通过，58 个底层 workspace-files 测试全部通过，覆盖扫描、读写、模板、Project manifest、user-assets 同步等底层路径。

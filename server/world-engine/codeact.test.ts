@@ -6,7 +6,7 @@
 
 import {afterAll, afterEach, beforeEach, describe, expect, test} from "vitest";
 import {createHash} from "node:crypto";
-import {mkdirSync, readdirSync, writeFileSync} from "node:fs";
+import {existsSync, mkdirSync, readdirSync, writeFileSync} from "node:fs";
 import {rm} from "node:fs/promises";
 import {join, resolve} from "node:path";
 import {pathToFileURL} from "node:url";
@@ -323,6 +323,12 @@ describe("CodeAct Integration", {timeout: 30_000}, () => {
 
     test("schema/index.ts 支持 TS-only 语法和 nbook helper，并走 runtime artifact cache", async () => {
         const projectRoot = join(resolveRuntimeWorkspaceRoot(), testProjectPath.slice("workspace/".length));
+        const oldCalendarCache = join(projectRoot, "world-engine", ".runtime-artifact-import-cache");
+        const oldSchemaCache = join(projectRoot, "world-engine", "schema", ".runtime-artifact-import-cache");
+        mkdirSync(join(oldCalendarCache, "world-engine-calendar"), {recursive: true});
+        mkdirSync(join(oldSchemaCache, "world-engine-schema"), {recursive: true});
+        writeFileSync(join(oldCalendarCache, "world-engine-calendar", "old.mjs"), "export {};\n", "utf-8");
+        writeFileSync(join(oldSchemaCache, "world-engine-schema", "old.mjs"), "export {};\n", "utf-8");
         const schemaSource = [
             'import {z} from "zod";',
             'import {Ref, EmbeddingText} from "nbook/world-engine/schema";',
@@ -355,8 +361,11 @@ describe("CodeAct Integration", {timeout: 30_000}, () => {
         await facade.parseTime(testProjectPath, "测试纪元1日 00:00:00");
         expect(listWorldEngineTempFiles(join(projectRoot, "world-engine"))).toEqual([]);
         expect(listWorldEngineTempFiles(join(projectRoot, "world-engine/schema"))).toEqual([]);
-        expect(listRuntimeArtifactCacheFiles("world-engine-calendar")).toContain(`${sourceHash(calendarFixture())}.mjs`);
-        expect(listRuntimeArtifactCacheFiles("world-engine-schema")).toContain(`${sourceHash(schemaSource)}.mjs`);
+        expect(listWorldEngineTempFiles(join(projectRoot, ".nbook", "runtime-artifact-import-cache", ".staging"))).toEqual([]);
+        expect(listRuntimeArtifactCacheFiles(projectRoot, "world-engine-calendar")).toContain(`${sourceHash(calendarFixture())}.mjs`);
+        expect(listRuntimeArtifactCacheFiles(projectRoot, "world-engine-schema")).toContain(`${sourceHash(schemaSource)}.mjs`);
+        expect(existsSync(oldCalendarCache)).toBe(false);
+        expect(existsSync(oldSchemaCache)).toBe(false);
     });
 
     test("calendar.ts 使用 Project 本地相对 import 时加载失败", async () => {
@@ -960,9 +969,13 @@ async function removeProjectRoot(projectRoot: string): Promise<void> {
 }
 
 function listWorldEngineTempFiles(directory: string): string[] {
-    return readdirSync(directory)
-        .filter((name) => /^\.world-engine-.+\.(?:ts|mjs)$/.test(name))
-        .sort();
+    try {
+        return readdirSync(directory)
+            .filter((name) => /^\.world-engine-.+\.(?:ts|mjs)$/.test(name))
+            .sort();
+    } catch {
+        return [];
+    }
 }
 
 /** 计算 loader 入口内容 hash，必须与生产 loader 的 cache key 保持一致。 */
@@ -971,9 +984,9 @@ function sourceHash(source: string): string {
 }
 
 /** 读取统一 runtime artifact cache 中某个 namespace 的文件列表。 */
-function listRuntimeArtifactCacheFiles(namespace: string): string[] {
+function listRuntimeArtifactCacheFiles(projectRoot: string, namespace: string): string[] {
     try {
-        return readdirSync(resolve(".agent", "workspace", "runtime-artifact-import-cache", namespace)).sort();
+        return readdirSync(join(projectRoot, ".nbook", "runtime-artifact-import-cache", namespace)).sort();
     } catch {
         return [];
     }

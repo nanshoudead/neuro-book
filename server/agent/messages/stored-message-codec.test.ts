@@ -100,4 +100,61 @@ describe("stored message codec", () => {
             items: [{id: "item-1", kind: "followup", input: circular, createdAt: 1}],
         })).toThrowError(expect.objectContaining<Partial<StoredMessageInvariantError>>({code: "corrupt"}));
     });
+
+    it("拒绝message、content、usage和cost中的未声明字段", () => {
+        const invalidMessages = [
+            {role: "user", content: [{type: "text", text: "ok", hidden: "data:image/png;base64,AAAA"}], timestamp: 1},
+            {role: "toolResult", toolCallId: "call-1", toolName: "read", content: [{type: "text", text: "ok"}], isError: false, timestamp: 1, hidden: true},
+            assistantMessage({hidden: true}),
+            assistantMessage({content: [{type: "text", text: "ok", hidden: true}]}),
+            assistantMessage({usage: {...assistantUsage(), hidden: true}}),
+            assistantMessage({usage: {...assistantUsage(), cost: {...assistantUsage().cost, hidden: true}}}),
+        ];
+
+        for (const message of invalidMessages) {
+            expect(() => parseStoredMessage(message))
+                .toThrowError(expect.objectContaining<Partial<StoredMessageInvariantError>>({code: "corrupt"}));
+        }
+    });
+
+    it("details、diagnostics和tool arguments继续接受合法JsonValue", () => {
+        expect(() => parseStoredMessage({
+            role: "toolResult",
+            toolCallId: "call-1",
+            toolName: "read",
+            content: [{type: "text", text: "ok"}],
+            details: {nested: ["data:image/png;base64,AAAA", 1, true, null]},
+            isError: false,
+            timestamp: 1,
+        })).not.toThrow();
+        expect(() => parseStoredMessage(assistantMessage({
+            content: [{type: "toolCall", id: "call-1", name: "tool", arguments: {custom: {enabled: true}}}],
+            diagnostics: [{type: "provider", timestamp: 1, details: {custom: "value"}}],
+        }))).not.toThrow();
+    });
 });
+
+function assistantUsage() {
+    return {
+        input: 0,
+        output: 0,
+        cacheRead: 0,
+        cacheWrite: 0,
+        totalTokens: 0,
+        cost: {input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0},
+    };
+}
+
+function assistantMessage(patch: Record<string, unknown> = {}) {
+    return {
+        role: "assistant",
+        content: [{type: "text", text: "ok"}],
+        api: "openai-completions",
+        provider: "test",
+        model: "test",
+        usage: assistantUsage(),
+        stopReason: "stop",
+        timestamp: 1,
+        ...patch,
+    };
+}

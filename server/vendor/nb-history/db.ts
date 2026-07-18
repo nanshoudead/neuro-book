@@ -4,7 +4,7 @@ import {createClient, type Client} from "@libsql/client";
  * 建库建表(schema 由模块全权管理,宿主不直接碰表)。
  *
  * 表结构与语义见 GOAL 契约:
- * - operation_log:append-only 日志(prune 是唯一删除方)
+ * - operation_log:正常操作 append-only；只允许 retention prune 与显式 path purge 删除
  * - file_snapshot:内容寻址快照,body NULL = 超限/二进制只记账
  * - session_cursor:每会话「已见位点」,updated_at 供保留策略判断活跃
  * - file_acceptance:每(用户,路径)「已接受位点」
@@ -28,6 +28,7 @@ CREATE TABLE IF NOT EXISTS operation_log (
 CREATE INDEX IF NOT EXISTS idx_oplog_path    ON operation_log(path, id);
 CREATE INDEX IF NOT EXISTS idx_oplog_session ON operation_log(actor_session_id, id);
 CREATE INDEX IF NOT EXISTS idx_oplog_renames ON operation_log(id) WHERE op_type = 'file.rename';
+CREATE INDEX IF NOT EXISTS idx_oplog_from_path ON operation_log(from_path, id) WHERE from_path IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS file_snapshot (
     hash       TEXT    PRIMARY KEY,

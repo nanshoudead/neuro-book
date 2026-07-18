@@ -61,8 +61,16 @@ _Avoid_: Novel row, workspace.yaml, project metadata
 _Avoid_: validation truth, workspace issues
 
 **Project Workspace File Index**:
-从 Project Workspace 文件系统构建的内存索引，保存文件节点、frontmatter、state、refs 和路径存在信息。
+从 Project Workspace 文件系统构建的内存索引，保存文件节点、frontmatter、state、refs 和路径存在信息。它是弱一致 snapshot：目录枚举后消失的路径可以被本轮扫描忽略，只有 `ENOENT` 可被吸收，权限、越界和磁盘错误仍必须失败。
 _Avoid_: tree cache, validation table
+
+**Project Runtime Artifact**:
+NeuroBook 从 Project Workspace 源文件派生、可随时重建、只供运行时执行或缓存使用的文件。它属于 Project Workspace `.nbook` 控制区，不是项目内容，不进入文件历史、Agent 文件变更提醒、Project Workspace File Index 或 Project 下载包。
+_Avoid_: project content, source file, Project SQLite
+
+**Project Workspace Download Archive**:
+Project Workspace 的可携带完整备份。它包含普通项目文件、独立一致的 Project SQLite snapshot，以及项目已存在时的完整 History SQLite snapshot；不复制 live WAL/SHM。History SQLite 可能包含全文快照、已删除内容、acceptance 和 session cursor，分享前必须评估隐私风险。
+_Avoid_: live database copy, log archive, content-only export
 
 **Imported Reference**:
 导入到 Project Workspace `reference/` 下的外部原始素材、解包结果、低置信迁移材料和报告。
@@ -92,25 +100,29 @@ _Avoid_: config mirror, settings
 单用户全局运行配置，位于 Workspace Root `.nbook/config.json`。
 _Avoid_: boot config, project config
 
-**NeuroBook Catalog**:
-NeuroBook 维护的只读模型配置资料总称，包含 Provider Preset 与 Model Catalog 两类数据。它只服务设置页的创建、发现归一化和显式修复，不是 runtime registry，也不会自动覆盖用户配置。
-_Avoid_: Provider Config, Pi runtime registry, discovery cache
+**Model Library**:
+NeuroBook 维护的只读标准模型资料目录，按精确 model ID 保持唯一条目；保存模型身份与通用能力，只服务设置页候选补全和显式添加，不代表任意 Provider 实际提供该模型，也不参与 Agent runtime 解析。
+_Avoid_: Provider model list, live registry, discovery result
 
-**Provider Preset**:
-NeuroBook 维护的只读 Provider 创建模板，提供默认名称、Pi API、Base URL 和 Discovery Adapter；复制到 Global Config 后不再持续引用或跟随预设。
+**Provider Template Library**:
+NeuroBook 维护的只读精选连接模板目录，包含 MiMo Token Plan 等尽量只需 Secret 即可创建的模板，以及 Custom Provider 创建入口。
+_Avoid_: Model Library, Provider Config, runtime provider
+
+**Provider Template**:
+Provider Template Library 中的一条只读创建资料，提供名称、Pi API、Base URL、鉴权、request options、内部发现 hint 和可选推荐 model ID；实例化后得到普通 Provider Config 草稿，保存结果不保留模板引用。
 _Avoid_: Provider Config, runtime provider, credential profile
 
-**Model Catalog**:
-NeuroBook 维护的只读标准模型能力目录，按精确 model ID 保持唯一 canonical 条目；只参与设置页创建和编辑，不参与 Agent runtime 解析。
-_Avoid_: user model list, live registry, discovery cache
-
 **Provider Config**:
-Global Config 中用户保存的完整 Provider 连接与模型能力配置；包含本地 ID、连接参数、Discovery Adapter 和自包含模型列表，是模型 runtime 的唯一配置真值源。
-_Avoid_: Provider Preset, Pi Provider ID, metadata source
+Global Config 中用户保存的完整 Provider 连接与模型能力配置；包含本地 ID、连接参数和自包含模型列表，是模型 runtime 的唯一配置真值源。所有已保存模型无论是否启用都必须能力完整；`enabled` 只表达是否允许选择和运行。
+_Avoid_: Provider Template, Pi Provider ID, discovery result
 
-**Provider Discovery Adapter**:
-设置页按 Provider Config 选择的模型发现适配器，负责把不同远程目录响应归一化为前端临时模型能力；发现结果不持久化，只有用户保存后的完整 Provider Config 进入 Global Config。
-_Avoid_: JSONPath mapping, runtime refresh, discovery cache
+**Automatic Model Discovery**:
+用户在设置页显式触发的一次性模型发现操作。它通过内部有限、有序且受安全约束的 Adapter 自动试探当前 Provider 连接，结果只存在于当前前端发现会话；Provider Config 不保存 Adapter 或 endpoint path。
+_Avoid_: Provider Config field, runtime refresh, user-configured discovery adapter
+
+**Discovered Model Candidate**:
+Automatic Model Discovery 返回的前端临时模型候选，允许字段不完整；远端字段优先，Model Library 只按精确 model ID 补缺，只有补全并通过 Provider Config 合同后才能保存。
+_Avoid_: Provider Config model, Model Library entry, disabled model draft
 
 **App SQLite**:
 应用级 SQLite 数据库，位于 Workspace Root `.nbook`，保存用户、鉴权和 Global Config，不记录 Project Workspace。
@@ -201,10 +213,12 @@ _Avoid_: files-only panel, workspace switcher
 - Windows Portable uses `data/` as State Root, so its physical Workspace Root is `data/workspace/` while Project Path remains `workspace/{project-slug}`.
 - **NeuroBook Manager** updates component-owned paths and must not overwrite State Root user data.
 - **Global Config** lives in **Workspace Root `.nbook`**.
-- A **Provider Preset** may create one **Provider Config**, but the saved Provider Config does not retain a reference to the preset.
-- A **Provider Config** owns its Base URL, credentials, request options, Discovery Adapter selection, and complete user model list.
-- A **Model Catalog** entry may be copied into a Provider Config model, but Agent runtime never queries the Model Catalog.
-- A **Provider Discovery Adapter** returns frontend-temporary model data; incomplete data may be replaced by one exact-ID Model Catalog capability block before the user saves it.
+- A **Provider Template** may create one **Provider Config**, but the saved Provider Config does not retain a reference to the template.
+- A **Provider Config** owns its Base URL, credentials, request options and complete user model list; it does not persist Automatic Model Discovery strategy.
+- A **Model Library** entry may supplement a Discovered Model Candidate by exact model ID, but it does not assert that the current Provider offers that model.
+- **Automatic Model Discovery** returns frontend-temporary Discovered Model Candidates through internal Adapters; users do not configure or persist Adapter selection.
+- A **Discovered Model Candidate** must become complete before it can enter a Provider Config; incomplete candidates cannot be persisted by setting `enabled=false`.
+- Agent runtime never queries the Model Library, Provider Template Library or Automatic Model Discovery.
 - **App SQLite** lives in **Workspace Root `.nbook`**.
 - **Project SQLite** lives in exactly one **Project Workspace `.nbook`**.
 - **Project Path** locates exactly one **Project Workspace** under a **Workspace Root**.
@@ -214,8 +228,14 @@ _Avoid_: files-only panel, workspace switcher
 - Project-bound file tools use Project-relative paths inside the current File Scope; cross-project file access uses a **Project File Address**.
 - **Project Manifest** lives at the root of exactly one **Project Workspace** and stores display metadata.
 - **Project Workspace File Index** belongs to one **Project Workspace** and is refreshed from file scans or file watcher events.
+- A **Project Workspace File Index** is a weakly consistent filesystem snapshot: paths that disappear during enumeration may be omitted, while non-`ENOENT` I/O failures remain errors.
 - **Project Workspace Issue Index** belongs to one **Project Workspace** and can be rebuilt from its files.
 - **Project Workspace Issue Index** is derived from **Project Workspace File Index** plus validation rules.
+- A **Project Runtime Artifact** is derived from Project Workspace source files and may be deleted and rebuilt without losing project content.
+- A **Project Runtime Artifact** must not enter Project Workspace file history, Agent file-change notices, Project Workspace File Index or Project downloads.
+- A **Project Workspace Download Archive** contains standalone snapshots of Project SQLite and, when present, History SQLite; it never copies their live WAL/SHM sidecars.
+- History SQLite in a **Project Workspace Download Archive** is complete backup data and may retain full text, deleted content, acceptance state and session cursors.
+- Every History consumer must obtain its `WorkspaceHistory` through the host opening seam, which purges no-longer-managed paths before returning the instance; a ProjectSession that never uses History does not open the database solely for this maintenance.
 - **Imported Reference** may be transformed into **Canonical Lorebook Entry** only after classification and confidence checks.
 - **Dynamic Migration Note** belongs in **Imported Reference** until a later migration step turns it into simulator, writer, subject, entity, Plot, or lorebook material.
 - **Subject-facing Knowledge** must not be generated by directly copying a full **Canonical Lorebook Entry** or **Imported Reference**.

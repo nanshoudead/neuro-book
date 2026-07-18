@@ -10,7 +10,7 @@
 
 ## Status
 
-Implemented & Verified（公开 Product Bun、Windows Portable 与 GHCR 已通过；人工浏览器验收属于本任务 Out of Scope）
+Implementing（2026-07-18 补漏审查重新打开：Local Attachment Adapter链接逃逸与Stored Message exact-key门禁待收口；既有公开发布证据保留为历史记录。）
 
 ## User Request / Topic
 
@@ -847,3 +847,17 @@ Task 108 与 Task 109 合并后完成最终串行复核：
 - 容器内正式Product脚本再次完成Attachment `dry-run -> apply -> rollback`并逐字节恢复旧图片Session；同根State Root runner完成Agent五工具、Config/Profile/Variable、外部Project图片与全局Attachment Store验证。`/app/.agent`始终不存在。
 - Manager `doctor --json`为`healthy=true`且无fail check；停止Compose后通过`neuro-book start`重新拉起固定digest，HTTP返回精确`versionLabel`，State Root标记保持不变。测试容器、网络、镜像引用、隔离HOME与Installation Root均已清理。
 - Task 108的Storage、Stored/runtime、Provider/trace、Public/Chat Flow与Migration验收项均已由自动化、Product和公开交付链证明完成。人工浏览器图片展示未执行，按本任务Out of Scope保留为用户可选验收，不再阻塞任务完成。
+
+### 2026-07-18 补漏审查重新打开
+
+- Local Attachment Adapter当前只校验opaque key segment，内部已有junction/symlink时仍可能把blob写到Attachment Store外；最小Windows junction复现已确认外部文件被创建。
+- canonical Stored Message Codec只对Attachment block执行exact-key检查，user/toolResult/assistant顶层及普通content block仍接受未声明字段；严格stored schema合同尚未闭合。
+- 本轮不迁移Session或Attachment数据，不增加base64字符串扫描；修复将收口到Local Adapter真实路径隔离和各判别结构的exact-key解析。
+- Task状态恢复为Implementing。只有聚焦回归、完整Harness/Product和下一公开canary链路重新通过后，才恢复Verified。
+
+### 2026-07-18 路径与健康合同并行实现结果
+
+- Local Adapter链接隔离、Stored Codec exact-key、File Address canonicalization和managed Project根链接门禁已完成并通过本地聚焦回归；Attachment/Codec 37项、路径/文件工具62项、State Root 7项全绿。
+- Manager `installation-health`已把离线完整性、容器/原生服务状态和结构化 doctor/status/import 合同统一起来；服务停止只产生warning，运行中镜像/HTTP/version错误才失败。Manager 22 files / 78 tests、typecheck、build、pack审计通过。
+- 完整Harness/black-box现为Harness 169/169、black-box+payload 25/25；prompt payload错误返回、队列拒绝不污染和默认Workspace Root初始化均有回归。公开Product/canary与浏览器图片展示仍待重验。
+- 本轮没有迁移真实Session/Attachment，也没有执行浏览器图片展示或公开canary；Task 108继续保持Implementing，不能把本地聚焦回归写成公开资产验收完成。

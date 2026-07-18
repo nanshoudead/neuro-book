@@ -45,10 +45,24 @@ export function resolveFilePath(root: AbsoluteFsPath, input: string): AbsoluteFs
 export function resolveContainedFilePath(root: AbsoluteFsPath, input: string): AbsoluteFsPath {
     const resolved = resolveFilePath(root, input);
     const relativePath = path.relative(root, resolved);
-    if (relativePath === "" || (!relativePath.startsWith("..") && !path.isAbsolute(relativePath))) {
+    if (!isOutsideRootRelativePath(relativePath)) {
         return resolved;
     }
     throw new Error(`路径越过文件系统根：${input}`);
+}
+
+/**
+ * 将绝对目标转换为指定root内唯一的正斜杠相对路径。
+ *
+ * 返回null表示目标不属于root；root自身返回`.`。调用方应保存该canonical结果，
+ * 不能继续传播用户输入中的`.`或`..`拼写。
+ */
+export function relativeFilePathInside(root: AbsoluteFsPath, target: AbsoluteFsPath): string | null {
+    const relativePath = path.relative(root, target);
+    if (isOutsideRootRelativePath(relativePath)) {
+        return null;
+    }
+    return relativePath === "" ? "." : relativePath.replaceAll(path.sep, "/");
 }
 
 /**
@@ -77,7 +91,7 @@ export async function assertRealPathContained(root: AbsoluteFsPath, target: Abso
     }
     const realExistingPath = await realpath(existingPath);
     const relativePath = path.relative(realRoot, realExistingPath);
-    if (relativePath === "" || (!relativePath.startsWith("..") && !path.isAbsolute(relativePath))) {
+    if (!isOutsideRootRelativePath(relativePath)) {
         return;
     }
     throw new Error(`真实路径越过文件系统根：${target}`);
@@ -107,4 +121,11 @@ function expandHome(input: string): string {
 /** 判断Node文件系统错误是否表示路径不存在。 */
 function isMissingPathError(error: unknown): boolean {
     return typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT";
+}
+
+/** 判断path.relative结果是否真正越过root，而不是仅以两个点开头的合法名称。 */
+function isOutsideRootRelativePath(relativePath: string): boolean {
+    return path.isAbsolute(relativePath)
+        || relativePath === ".."
+        || relativePath.startsWith(`..${path.sep}`);
 }

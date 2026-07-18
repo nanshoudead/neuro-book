@@ -1,4 +1,4 @@
-import type {Client} from "@libsql/client";
+import type {Client, Transaction} from "@libsql/client";
 import type {HistoryConfig, PruneReport} from "./types";
 import {acceptancePositionFor, groupByCurrentName, loadEntriesAfter, loadRenames} from "./views";
 
@@ -110,40 +110,51 @@ export async function runPrune(client: Client, config: HistoryConfig, now: Date)
 
     // 删条目(分块) + 快照 GC,同一事务
     const tx = await client.transaction("write");
-    let snapshotsDeleted = 0;
-    let bytesFreed = 0;
     try {
-        for (let i = 0; i < toDelete.length; i += 200) {
-            const chunk = toDelete.slice(i, i + 200);
-            const placeholders = chunk.map(() => "?").join(",");
-            await tx.execute({sql: `DELETE FROM operation_log WHERE id IN (${placeholders})`, args: chunk});
-        }
-        const orphanSql = `
-            SELECT hash, byte_size, (body IS NOT NULL) AS has_body FROM file_snapshot
-            WHERE hash NOT IN (
-                SELECT before_hash FROM operation_log WHERE before_hash IS NOT NULL
-                UNION
-                SELECT after_hash FROM operation_log WHERE after_hash IS NOT NULL
-            )
-        `;
-        const orphans = await tx.execute(orphanSql);
-        const orphanHashes: string[] = [];
-        for (const row of orphans.rows) {
-            orphanHashes.push(String(row["hash"]));
-            if (Number(row["has_body"]) === 1) {
-                bytesFreed += Number(row["byte_size"]);
-            }
-        }
-        for (let i = 0; i < orphanHashes.length; i += 200) {
-            const chunk = orphanHashes.slice(i, i + 200);
-            const placeholders = chunk.map(() => "?").join(",");
-            await tx.execute({sql: `DELETE FROM file_snapshot WHERE hash IN (${placeholders})`, args: chunk});
-        }
-        snapshotsDeleted = orphanHashes.length;
+        await deleteOperationEntries(tx, toDelete);
+        const snapshotReport = await garbageCollectSnapshots(tx);
         await tx.commit();
+        return {
+            entriesDeleted: toDelete.length,
+            snapshotsDeleted: snapshotReport.snapshotsDeleted,
+            bytesFreed: snapshotReport.bytesFreed,
+        };
     } finally {
         tx.close();
     }
+}
 
-    return {entriesDeleted: toDelete.length, snapshotsDeleted, bytesFreed};
+/** 在调用方事务内分块删除 operation_log 条目。 */
+export async function deleteOperationEntries(tx: Transaction, entryIds: number[]): Promise<void> {
+    for (let i = 0; i < entryIds.length; i += 200) {
+        const chunk = entryIds.slice(i, i + 200);
+        const placeholders = chunk.map(() => "?").join(",");
+        await tx.execute({sql: `DELETE FROM operation_log WHERE id IN (${placeholders})`, args: chunk});
+    }
+}
+
+/** 在调用方事务内删除不再被存活日志引用的内容寻址快照。 */
+export async function garbageCollectSnapshots(tx: Transaction): Promise<{snapshotsDeleted: number; bytesFreed: number}> {
+    const orphans = await tx.execute(`
+        SELECT hash, byte_size, (body IS NOT NULL) AS has_body FROM file_snapshot
+        WHERE hash NOT IN (
+            SELECT before_hash FROM operation_log WHERE before_hash IS NOT NULL
+            UNION
+            SELECT after_hash FROM operation_log WHERE after_hash IS NOT NULL
+        )
+    `);
+    const orphanHashes: string[] = [];
+    let bytesFreed = 0;
+    for (const row of orphans.rows) {
+        orphanHashes.push(String(row["hash"]));
+        if (Number(row["has_body"]) === 1) {
+            bytesFreed += Number(row["byte_size"]);
+        }
+    }
+    for (let i = 0; i < orphanHashes.length; i += 200) {
+        const chunk = orphanHashes.slice(i, i + 200);
+        const placeholders = chunk.map(() => "?").join(",");
+        await tx.execute({sql: `DELETE FROM file_snapshot WHERE hash IN (${placeholders})`, args: chunk});
+    }
+    return {snapshotsDeleted: orphanHashes.length, bytesFreed};
 }

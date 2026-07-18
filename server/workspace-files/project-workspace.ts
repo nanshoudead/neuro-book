@@ -3,7 +3,7 @@ import path from "node:path";
 import {createClient, type Client} from "@libsql/client";
 import {createError} from "h3";
 import * as yaml from "yaml";
-import {absoluteFsPath, type AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
+import {absoluteFsPath, assertRealPathContained, type AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
 import {
     normalizeProjectPath,
     resolveProjectWorkspaceRoot,
@@ -291,18 +291,22 @@ export async function assertProjectWorkspaceDirectory(
 ): Promise<ProjectPath> {
     const normalizedProjectPath = normalizeProjectPath(projectPath);
     const projectRoot = resolveProjectWorkspaceRoot(workspaceRoot, normalizedProjectPath);
-    let stat: Awaited<ReturnType<typeof fs.stat>>;
+    let stat: Awaited<ReturnType<typeof fs.lstat>>;
     try {
-        stat = await fs.stat(projectRoot);
+        stat = await fs.lstat(projectRoot);
     } catch (error) {
         if (typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT") {
             throw createError({statusCode: 404, message: "Project Workspace 不存在"});
         }
         throw error;
     }
+    if (stat.isSymbolicLink()) {
+        throw createError({statusCode: 400, message: "managed Project Workspace根不能是symlink或junction；请改用外部绝对Project Workspace"});
+    }
     if (!stat.isDirectory()) {
         throw createError({statusCode: 400, message: "projectPath 必须指向 Project Workspace 目录"});
     }
+    await assertRealPathContained(workspaceRoot, projectRoot);
     if (await isProjectRootDeleted(projectRoot)) {
         throw createError({statusCode: 404, message: "Project Workspace 已删除"});
     }

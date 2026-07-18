@@ -5,6 +5,7 @@ import {builtinModules, createRequire} from "node:module";
 import path from "node:path";
 import {fileURLToPath, pathToFileURL} from "node:url";
 import {build, type Plugin} from "esbuild";
+import {consola} from "consola";
 import type * as TypeScript from "typescript";
 import {importRuntimeArtifact} from "nbook/server/utils/runtime-artifact-import";
 
@@ -17,6 +18,15 @@ const STALE_TEMP_FILE_AGE_MS = 10 * 60 * 1000;
 const BARE_PACKAGE_SPECIFIER_RE = /^(?:@[A-Za-z0-9][A-Za-z0-9._-]*\/)?[A-Za-z0-9][A-Za-z0-9._-]*(?:\/[^\\/:*?"<>|\s]+)*$/;
 const NODE_BUILTIN_MODULES = new Set(builtinModules.map((moduleName) => moduleName.replace(/^node:/, "")));
 
+type WorldEngineConfigLabel = "calendar" | "schema";
+
+type SingleFileTypeScriptConfigImport = {
+    filePath: string;
+    label: WorldEngineConfigLabel;
+    /** Project Workspace `.nbook` 内由调用方显式决定的可写 runtime cache 根。 */
+    runtimeCacheRoot: string;
+};
+
 /**
  * 以内容 hash 加载 Project Workspace 里的单文件 TypeScript 配置。
  *
@@ -25,18 +35,19 @@ const NODE_BUILTIN_MODULES = new Set(builtinModules.map((moduleName) => moduleNa
  * 入口文件会先转译为 hash `.mjs` 再导入，避免依赖宿主环境直接 import TypeScript。
  */
 export async function importSingleFileTypeScriptConfig<TModule extends object>(
-    filePath: string,
-    label: string,
+    input: SingleFileTypeScriptConfigImport,
 ): Promise<TModule> {
-    const content = await fs.readFile(filePath);
+    const content = await fs.readFile(input.filePath);
     const hash = createHash("sha256").update(content).digest("hex").slice(0, 16);
-    const cachePath = path.join(path.dirname(filePath), `.world-engine-${label}-${hash}.mjs`);
+    const cachePath = path.join(input.runtimeCacheRoot, ".staging", `.world-engine-${input.label}-${hash}.mjs`);
     const cached = importCache.get(cachePath);
     if (cached) {
-        return await cached as TModule;
+        const imported = await cached as TModule;
+        await removeOldRuntimeCache(input.filePath);
+        return imported;
     }
 
-    const pending = importValidatedHashedTypeScript<TModule>(filePath, cachePath, content, label, hash);
+    const pending = importValidatedHashedTypeScript<TModule>(input, cachePath, content, hash);
     importCache.set(cachePath, pending);
     try {
         return await pending;
@@ -196,44 +207,59 @@ function configDisplayPath(label: string): string {
 
 /** 校验后写入稳定临时文件并导入，确保并发加载共享同一条 pending promise。 */
 async function importValidatedHashedTypeScript<TModule extends object>(
-    filePath: string,
+    input: SingleFileTypeScriptConfigImport,
     cachePath: string,
     content: Buffer,
-    label: string,
     hash: string,
 ): Promise<TModule> {
-    await assertSingleFileConfig(filePath, content.toString("utf-8"), label);
-    return await importHashedTypeScript<TModule>(filePath, cachePath, content, label, hash);
+    await assertSingleFileConfig(input.filePath, content.toString("utf-8"), input.label);
+    return await importHashedTypeScript<TModule>(input, cachePath, content, hash);
 }
 
 /** 转译成稳定临时 mjs 并导入，导入完成后清理磁盘文件。 */
 async function importHashedTypeScript<TModule extends object>(
-    filePath: string,
+    input: SingleFileTypeScriptConfigImport,
     cachePath: string,
     content: Buffer,
-    label: string,
     hash: string,
 ): Promise<TModule> {
-    await cleanupStaleTempFiles(path.dirname(cachePath), label);
-    const compiled = await compileSingleFileTypeScript(filePath, content.toString("utf-8"));
-    await fs.writeFile(cachePath, compiled, "utf-8");
+    await fs.mkdir(path.dirname(cachePath), {recursive: true});
+    await cleanupStaleTempFiles(path.dirname(cachePath), input.label);
+    await cleanupStaleTempFiles(path.dirname(input.filePath), input.label);
+    const compiled = await compileSingleFileTypeScript(input.filePath, content.toString("utf-8"));
     try {
-        return await importRuntimeArtifact<TModule>(cachePath, {
-            cacheKey: hash,
-            cacheNamespace: `world-engine-${label}`,
-            cacheRoot: path.join(path.dirname(filePath), ".runtime-artifact-import-cache"),
-            expectedBytes: Buffer.byteLength(compiled, "utf-8"),
-        });
-    } catch (error) {
-        throw worldEngineArtifactImportError(error, {
-            label,
-            filePath,
-            cachePath,
-            hash,
-        });
+        await fs.writeFile(cachePath, compiled, "utf-8");
+        try {
+            const imported = await importRuntimeArtifact<TModule>(cachePath, {
+                cacheKey: hash,
+                cacheNamespace: `world-engine-${input.label}`,
+                cacheRoot: input.runtimeCacheRoot,
+                expectedBytes: Buffer.byteLength(compiled, "utf-8"),
+            });
+            await removeOldRuntimeCache(input.filePath);
+            return imported;
+        } catch (error) {
+            throw worldEngineArtifactImportError(error, {
+                label: input.label,
+                filePath: input.filePath,
+                cachePath,
+                hash,
+            });
+        }
     } finally {
         await fs.rm(cachePath, {force: true}).catch(() => undefined);
     }
+}
+
+/** 新 `.nbook` cache 已成功导入后，清理源码旁的旧物理 cache。 */
+async function removeOldRuntimeCache(filePath: string): Promise<void> {
+    const oldCachePath = path.join(path.dirname(filePath), ".runtime-artifact-import-cache");
+    await fs.rm(oldCachePath, {
+        recursive: true,
+        force: true,
+    }).catch((error) => {
+        consola.warn({path: oldCachePath, error}, "World Engine 旧 runtime artifact cache 清理失败，将在后续加载重试");
+    });
 }
 
 function worldEngineArtifactImportError(

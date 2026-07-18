@@ -1,8 +1,40 @@
 # Release Notes
 
+## 下一版 canary（尚未发布）
+
+下一版将修复公开`0.8.6` Windows Portable的SQLite登录与Update事务回归，并重做候选Release的最终提交顺序。
+
+### 更新说明
+
+- App SQLite现在由单一Location Module解析：配置继续保存逻辑相对`file:` URL，Product Runtime、Prisma CLI、Manager备份和Docker使用同一State Root语义。相对路径不能越过State Root；原生Profile允许明确外部绝对数据库，Docker拒绝无法映射的外部位置。
+- Manager备份真实配置指向的SQLite，使用read-write/create:false打开已有文件，并验证`wal_checkpoint(TRUNCATE)`返回`busy=0`且`checkpointed=log`后才复制。
+- `neuro-book update`不再接受`--component`。六种Profile按固定原子范围更新；Runtime和Tool继续使用独立维护命令。同版本应用与Manager直接返回“已是最新版本”，不创建Operation、backup或staging。
+- Operation Journal硬切v2，记录真实数据库位置/checkpoint、Git前后revision、Docker原运行状态与Manager wrapper。未完成v1 Journal拒绝自动恢复；已提交v1只作为审计记录跳过。
+- `install/update --release-manifest <local-path|https-url>`可验证候选资产；Release CI使用Manifest记录的精确npm Manager版本，并逐字节比较npm、本地构建和Portable内嵌bundle。公开Payload与GHCR/Windows A→B验证通过后才发布最终Manifest与SHA256SUMS。
+
+### 迁移指南
+
+- `0.8.6` Portable用户升级前先停止NeuroBook并备份完整`data/`。
+- 如果曾按临时指南把`data/.env`改成绝对数据库URL，升级成功后必须恢复：
+  ```text
+  DATABASE_URL=file:./workspace/.nbook/neuro-book.sqlite
+  ```
+- 不要创建Installation Root根`workspace/`、junction或数据库副本；Manager会按真实数据库路径备份，Product会按当前`data/`重新解析逻辑URL。
+- 本节描述的版本尚未发布。当前源码验证通过不等于公开npm、Portable或GHCR已经包含修复。
+
+### 当前验证
+
+- Manager完整22文件87项测试、Manager/Runtime/根typecheck与Manager bundle build通过。
+- SQLite/Prisma/Login聚焦4文件20项通过；包含真实PrismaLibSql连接、Windows绝对URL、相对越界、外部数据库和鉴权登录查询。
+- Release workflow YAML解析通过；公开`0.8.6`基线Portable资产仍可下载，已作为未来`0.8.6 → 候选版本`门禁输入。
+- SSH Arch clean checkout完成Manager/SQLite回归与真实47阶段Docker build；分离State Root容器完成管理员创建、登录、session查询和SQLite位置断言，测试容器、镜像和目录已清理。
+- 尚未发布Manager或应用版本，也未执行人工浏览器验收。
+
 ## 0.8.6-canary - 2026-07-17
 
 本次patch修复GHCR与Source Docker安装、更新时的一次性维护命令被Product镜像ENTRYPOINT截获的问题。`0.8.5`公开Product Bun首次安装、Attachment迁移、State Root和HTTP均已通过，但GHCR安装在容器内规划Attachment迁移时错误启动了长期Web服务，导致Manager一直等待命令结束。
+
+> 已知问题（Windows Portable）：鉴权启用后，Product会把逻辑相对`DATABASE_URL`直接交给Prisma，登录接口可能从进程cwd解析到错误数据库并返回500。`0.8.6`的Update还可能因Manager使用不完整SQLite flags而报告`bad parameter or other API misuse`。源码已修复，后续版本发布前会加入真实鉴权登录门禁；当前版本请按下方临时指南处理，不要创建根`workspace/`或junction。
 
 ### 更新说明
 
@@ -16,6 +48,15 @@
 - GHCR与Source Docker用户必须使用Manager `0.1.0-canary.19`或更高版本安装/更新`0.8.6`。
 - 不要手工修改镜像ENTRYPOINT、绕过Operation Journal运行migration，或把长期服务容器当作一次性维护容器。
 - Product Bun和Windows Portable不受该入口问题影响；继续保留完整State Root即可。
+
+#### Windows Portable 0.8.6临时登录恢复
+
+1. 停止NeuroBook，并备份完整`data/`。
+2. 打开`data/.env`，把`DATABASE_URL`临时改为现有数据库的绝对URL，例如`file:C:/NeuroBook/data/workspace/.nbook/neuro-book.sqlite`。
+3. 重启后验证登录。不要移动SQLite，不要创建Portable根`workspace/`，也不要建立junction。
+4. 当前`0.8.6`已是最新应用版本时无需运行Update；等待后续同时包含Manager更新修复和Product数据库路径修复的版本。
+
+后续版本会继续在配置中保存可迁移的逻辑相对URL，并只在运行时按当前State Root生成绝对连接URL；Portable移动目录后无需永久保存旧盘符路径。
 
 ### 验证与已知边界
 

@@ -1,5 +1,5 @@
 import {createHash, randomUUID} from "node:crypto";
-import {readFile} from "node:fs/promises";
+import {mkdir, readFile} from "node:fs/promises";
 import {isAbsolute, join, normalize, relative, resolve} from "node:path";
 import type {AgentEvent} from "@earendil-works/pi-agent-core";
 import {clampThinkingLevel, validateToolArguments} from "@earendil-works/pi-ai";
@@ -28,7 +28,7 @@ import {
     parseStoredMessage,
     parseStoredMessages,
 } from "nbook/server/agent/messages/stored-message-codec";
-import {AgentProfileCatalog, type AgentProfileRuntimeResolution} from "nbook/server/agent/profiles/catalog";
+import {AgentInvocationPayloadError, AgentProfileCatalog, type AgentProfileRuntimeResolution} from "nbook/server/agent/profiles/catalog";
 import {defaultAgentProfile} from "nbook/server/agent/profiles/default-profile";
 import {summarizerProfile} from "nbook/server/agent/profiles/summarizer-profile";
 import type {AgentProfile, ProfileTurnPlan, SidecarContext, SidecarMergePlan, SidecarProfilePass, SidecarProfilePassStage, SidecarResult} from "nbook/server/agent/profiles/types";
@@ -100,10 +100,10 @@ import {
     resolveWorkspaceRootRef,
     type WorkspaceRootRef,
 } from "nbook/server/workspace-files/workspace-root-ref";
-import {absoluteFsPath, type AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
+import {absoluteFsPath, relativeFilePathInside, type AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
 import type {RuntimePaths} from "nbook/server/runtime/paths/runtime-paths";
 import {resolveSystemNbookRoot} from "nbook/server/workspace-files/system-workspace-assets";
-import {resolveSessionFileScope} from "nbook/server/agent/workspace/session-file-scope";
+import {assertSessionFileScope, resolveSessionFileScope} from "nbook/server/agent/workspace/session-file-scope";
 import {resolveFileAddress} from "nbook/server/workspace-files/file-scope";
 import {resolveProfileSummarizer} from "nbook/server/agent/profiles/profile-summarizer";
 import {resolveProfileRuntimeSettings as resolveRuntimeSettings} from "nbook/server/agent/profiles/profile-runtime-settings";
@@ -703,10 +703,20 @@ export class NeuroAgentHarness {
             throw new Error(`不能在已归档 session ${String(input.parentSessionId)} 下创建关联 Agent。`);
         }
         const projectPath = input.projectPath ?? parentSnapshot?.metadata.projectPath;
+        const workspaceRootRef = normalizeWorkspaceRootRef(input.workspaceRoot ?? parentSnapshot?.metadata.workspaceRoot, projectPath);
+        // Harness的repo root本身就是默认Workspace Root；首次创建session时允许它按仓库合同初始化。
+        // 明确外部Project Workspace仍必须由调用方预先创建，不能由Agent隐式mkdir。
+        const workspaceFsRoot = resolveWorkspaceRootRef(workspaceRootRef, this.workspaceRoot);
+        if (resolve(workspaceFsRoot) === resolve(this.workspaceRoot)) await mkdir(this.workspaceRoot, {recursive: true});
+        await assertSessionFileScope({
+            workspaceRootRef,
+            workspaceFsRoot,
+            projectPath,
+        });
         const snapshot = await this.repo.createSession({
             profileKey: input.profileKey,
             initial: parsedInitial,
-            workspaceRoot: normalizeWorkspaceRootRef(input.workspaceRoot ?? parentSnapshot?.metadata.workspaceRoot, projectPath),
+            workspaceRoot: workspaceRootRef,
             workspaceKey: input.workspaceKey ?? parentSnapshot?.metadata.workspaceKey ?? "global",
             projectPath,
             parentSessionId: input.parentSessionId,
@@ -832,7 +842,22 @@ export class NeuroAgentHarness {
         }
         const invokeTitle = this.normalizeInvokeTitle(input.title);
         const caller = this.normalizeInvokeCaller(input.caller);
-        const admission = await this.withSessionAdmission(input.sessionId, () => this.admitInvocation(input));
+        let admission: InvocationAdmission;
+        try {
+            admission = await this.withSessionAdmission(input.sessionId, () => this.admitInvocation(input));
+        } catch (error) {
+            if (input.mode === "prompt" && error instanceof AgentInvocationPayloadError) {
+                return {
+                    sessionId: input.sessionId,
+                    invocationId: randomUUID(),
+                    status: "error",
+                    error: error.message,
+                    errorPhase: "prepare",
+                    errorInfo: {message: error.message, phase: "prepare", retryable: true, code: error.code},
+                };
+            }
+            throw error;
+        }
         if ("queued" in admission) {
             if (invokeTitle) {
                 await this.writeInvokeTitle(input.sessionId, invokeTitle, admission.queued.invocationId, preflightSnapshot ? this.repo.reduce(preflightSnapshot) : undefined);
@@ -4974,8 +4999,8 @@ export class NeuroAgentHarness {
                     workspaceFsRoot,
                     projectPath,
                 }), path).absolutePath);
-                const relativePath = relative(planRoot, absolutePath);
-                return relativePath !== "" && !relativePath.startsWith("..") && !isAbsolute(relativePath);
+                const relativePath = relativeFilePathInside(absoluteFsPath(planRoot), absoluteFsPath(absolutePath));
+                return Boolean(relativePath && relativePath !== ".");
             } catch {
                 return false;
             }

@@ -11,6 +11,14 @@ import type {
 const ATTACHMENT_ID_PATTERN = /^sha256:[0-9a-f]{64}$/;
 const ASSISTANT_STOP_REASONS = new Set(["stop", "length", "toolUse", "error", "aborted"]);
 const FOLLOW_UP_PAUSE_REASONS = new Set(["error", "aborted", "interrupted"]);
+const USER_MESSAGE_KEYS = new Set(["role", "content", "timestamp"]);
+const TOOL_RESULT_MESSAGE_KEYS = new Set(["role", "toolCallId", "toolName", "content", "details", "isError", "timestamp"]);
+const ASSISTANT_MESSAGE_KEYS = new Set(["role", "content", "api", "provider", "model", "responseModel", "responseId", "diagnostics", "usage", "stopReason", "errorMessage", "timestamp"]);
+const TEXT_CONTENT_KEYS = new Set(["type", "text", "textSignature"]);
+const THINKING_CONTENT_KEYS = new Set(["type", "thinking", "thinkingSignature", "redacted"]);
+const TOOL_CALL_KEYS = new Set(["type", "id", "name", "arguments", "thoughtSignature"]);
+const USAGE_KEYS = new Set(["input", "output", "cacheRead", "cacheWrite", "cacheWrite1h", "reasoning", "totalTokens", "cost"]);
+const COST_KEYS = new Set(["input", "output", "cacheRead", "cacheWrite", "total"]);
 
 export type StoredMessageInvariantCode = "migration_required" | "corrupt";
 
@@ -31,6 +39,7 @@ export function parseStoredMessage(value: unknown): StoredAgentMessage {
         throw new StoredMessageInvariantError("migration_required", `Stored ${message.role} 仍包含 Pi raw image。`);
     }
     if (message.role === "user") {
+        requireExactKeys(message, USER_MESSAGE_KEYS, "Stored user message 包含未声明字段。");
         requireFiniteNumber(message.timestamp, "Stored user message 缺少合法 timestamp。");
         if (typeof message.content === "string") {
             return value as StoredAgentMessage;
@@ -39,6 +48,7 @@ export function parseStoredMessage(value: unknown): StoredAgentMessage {
         return value as StoredAgentMessage;
     }
     if (message.role === "toolResult") {
+        requireExactKeys(message, TOOL_RESULT_MESSAGE_KEYS, "Stored toolResult message 包含未声明字段。");
         requireString(message.toolCallId, "Stored toolResult 缺少 toolCallId。");
         requireString(message.toolName, "Stored toolResult 缺少 toolName。");
         parseStoredContentArray(message.content, "toolResult");
@@ -139,6 +149,7 @@ function parseStoredContentArray(value: unknown, owner: "user" | "toolResult"): 
             throw new StoredMessageInvariantError("migration_required", `Stored ${owner} 仍包含 Pi raw image。`);
         }
         if (content.type === "text") {
+            requireExactKeys(content, TEXT_CONTENT_KEYS, `Stored ${owner} text block 包含未声明字段。`);
             requireString(content.text, `Stored ${owner} text block 缺少 text。`);
             if (content.textSignature !== undefined && typeof content.textSignature !== "string") {
                 corrupt(`Stored ${owner} textSignature 非法。`);
@@ -177,15 +188,20 @@ function parseStoredAttachment(value: unknown): StoredAttachmentContent {
 }
 
 function parseAssistantMessage(message: Record<string, unknown>): void {
+    requireExactKeys(message, ASSISTANT_MESSAGE_KEYS, "Stored assistant message 包含未声明字段。");
     if (!Array.isArray(message.content)) {
         corrupt("Stored assistant content 必须是数组。");
     }
     for (const blockValue of message.content) {
         const block = objectValue(blockValue, "Stored assistant content block 必须是对象。");
-        if (block.type === "image" || block.type === "attachment") {
-            corrupt("Stored assistant 不允许 image 或 attachment block。");
+        if (block.type === "image") {
+            throw new StoredMessageInvariantError("migration_required", "Stored assistant 仍包含 Pi raw image。");
+        }
+        if (block.type === "attachment") {
+            corrupt("Stored assistant 不允许 attachment block。");
         }
         if (block.type === "text") {
+            requireExactKeys(block, TEXT_CONTENT_KEYS, "Stored assistant text block 包含未声明字段。");
             requireString(block.text, "Stored assistant text block 缺少 text。");
             if (block.textSignature !== undefined && typeof block.textSignature !== "string") {
                 corrupt("Stored assistant textSignature 非法。");
@@ -193,6 +209,7 @@ function parseAssistantMessage(message: Record<string, unknown>): void {
             continue;
         }
         if (block.type === "thinking") {
+            requireExactKeys(block, THINKING_CONTENT_KEYS, "Stored assistant thinking block 包含未声明字段。");
             requireString(block.thinking, "Stored assistant thinking block 缺少 thinking。");
             if (block.thinkingSignature !== undefined && typeof block.thinkingSignature !== "string") {
                 corrupt("Stored assistant thinkingSignature 非法。");
@@ -203,6 +220,7 @@ function parseAssistantMessage(message: Record<string, unknown>): void {
             continue;
         }
         if (block.type === "toolCall") {
+            requireExactKeys(block, TOOL_CALL_KEYS, "Stored assistant toolCall block 包含未声明字段。");
             requireString(block.id, "Stored assistant toolCall 缺少 id。");
             requireString(block.name, "Stored assistant toolCall 缺少 name。");
             if (!isJsonObject(block.arguments)) {
@@ -223,6 +241,7 @@ function parseAssistantMessage(message: Record<string, unknown>): void {
     }
     requireFiniteNumber(message.timestamp, "Stored assistant 缺少合法 timestamp。");
     const usage = objectValue(message.usage, "Stored assistant 缺少 usage。");
+    requireExactKeys(usage, USAGE_KEYS, "Stored assistant usage 包含未声明字段。");
     for (const key of ["input", "output", "cacheRead", "cacheWrite", "totalTokens"] as const) {
         requireFiniteNumber(usage[key], `Stored assistant usage.${key} 非法。`);
     }
@@ -233,6 +252,7 @@ function parseAssistantMessage(message: Record<string, unknown>): void {
         requireFiniteNumber(usage.reasoning, "Stored assistant usage.reasoning 非法。");
     }
     const cost = objectValue(usage.cost, "Stored assistant usage.cost 非法。");
+    requireExactKeys(cost, COST_KEYS, "Stored assistant usage.cost 包含未声明字段。");
     for (const key of ["input", "output", "cacheRead", "cacheWrite", "total"] as const) {
         requireFiniteNumber(cost[key], `Stored assistant usage.cost.${key} 非法。`);
     }

@@ -1,6 +1,6 @@
 # Pi Models Runtime Upgrade
 
-> Status: Implemented（升级与合同收口完成；真实 Provider / Docker / 浏览器验证未执行）
+> Status: Implemented / Reopened（Pi runtime 与写入合同已完成；Model Library、Provider Template 与自动模型发现重构已完成设计，待实施）
 >
 > Target baseline: `@earendil-works/pi-ai@0.80.6` and `@earendil-works/pi-agent-core@0.80.6`
 
@@ -650,6 +650,226 @@ Exit criteria:
 
 本轮实际验证：`bun run typecheck`、`bun run nuxt:build` 通过；model draft、model validation、runtime/auth、DTO 和 Global Config 写入合同聚焦测试通过。未自动执行浏览器、Docker 或真实 Provider 验证。当前 workspace 的坏 Global Config 与 session 521 未被自动修改。
 
+## Model Library / Provider Template / Automatic Discovery 重构决策与计划（2026-07-18）
+
+以下目标合同覆盖 2026-07-13/14 实施结果中仍把 Provider Preset、Discovery Adapter 和不完整 disabled draft 作为正式设置模型的部分；旧章节保留为历史实施记录，不能再作为下一轮实现依据。
+
+### 用户反馈与诊断结论
+
+用户验收模型设置页时确认当前产品模型仍然过于复杂：主面板同时出现“已启用模型”和“禁用模型草稿”，任意 Provider 的“管理模型库”会混入全部 NeuroBook Catalog 模型，并展示与当前 Provider 无关的 Cloudflare Workers AI `@cf/...` 模型。只读诊断确认这不是缓存或偶发现象，而是当前实现的直接结果：
+
+- `enabled=false` 同时表达“用户停用”和“能力字段不完整”，导致一个布尔字段承担两种不同状态。
+- 模型库 Dialog 将当前发现结果、全部 Model Catalog、已停用模型和已启用模型合并为一个列表；当前 Model Catalog 约有 730 个条目，因此任意 Provider 都会看到全量目录。
+- Catalog 模型和远程发现模型使用不同 Group 推导规则；`@cf/mistralai/mistral-small-...` 被前端按首个连字符错误分成 `@cf/mistralai/mistral`。
+- Provider Config 暴露并持久化 Discovery Adapter 与 endpoint path；用户需要理解内部发现协议。
+- “由 metadata 决定；纯自定义时必填”仍是旧合同文案。当前 runtime 已经要求每个启用模型保存明确 `model.api`，不会通过 metadata 猜测。
+
+本轮只完成诊断与重构设计，没有修改业务代码、Global Config 或 session 数据。Catalog 与 Model Draft Factory 现有聚焦测试 `7/7` 通过，证明上述表现是当前合同，而不是非确定性故障。
+
+### 最终产品模型
+
+产品层收敛为三个持久概念和一个临时操作：
+
+1. **Model Library**：NeuroBook 维护的只读标准模型资料，按精确 model ID 唯一索引，只保存与模型身份和通用能力有关的资料。
+2. **Provider Template Library**：NeuroBook 维护的精选连接模板，例如 MiMo Token Plan。模板应尽量做到只输入 Secret 即可创建完整 Provider 草稿；保存后结果仍是普通 Provider Config，不保留模板引用。
+3. **Provider Config**：用户保存的完整连接和模型配置，是 runtime 唯一真相源。
+4. **Automatic Model Discovery**：用户显式触发的一次性设置操作。程序在内部有限试探发现协议，结果只存在前端；它不是 Provider Config 字段，也不是 runtime 概念。
+
+Session Model Selection 与既有 runtime 合同不变：session 只保存 `providerConfigId + model.id`，每次 invocation 从当前 Provider Config 重新解析完整模型，RunFrame 内冻结；runtime 不访问 Model Library、Provider Template Library 或 Automatic Model Discovery。
+
+### 数据所有权与补全规则
+
+#### Model Library
+
+Model Library 可以维护：
+
+- 精确 model ID、标准名称与资料来源；
+- reasoning 与输入模态等通用能力；
+- 标准 context window、max output 等参考能力；
+- thinking level 等与模型身份稳定相关的资料。
+
+Model Library 不得把以下 Provider 相关数据当作全局事实：
+
+- Base URL、鉴权、headers 和 request options；
+- Provider 实际价格；
+- Provider 实际限额；
+- 传输 Adapter 专属 compat。
+
+相同 model ID 在不同 Provider 上可能具有不同价格、限制和传输行为。Model Library 的资料是精确 ID 对应的标准补全候选，不代表当前 Provider 一定提供该模型，也不能伪装成远程发现结果。
+
+#### Provider Template Library
+
+Provider Template 是只读创建资料，可以包含：
+
+- 默认名称、Base URL、Pi API 与鉴权方式；
+- request options 和必要传输设置；
+- Automatic Model Discovery 的内部 hint；
+- 推荐 model ID 与必要的模板级模型 patch。
+
+MiMo Token Plan 等精选模板的常见路径应只要求用户输入 Secret。Custom Provider 仍至少需要名称、Base URL 和 Secret。模板实例化完成后不在 Provider Config 中保存 `templateId`，避免持续继承和隐式漂移。
+
+#### Automatic Model Discovery
+
+Provider Config 不再保存 Discovery Adapter 或 endpoint path。Automatic Model Discovery Module 对调用者只公开“使用当前连接发现模型”这一条 Interface，Implementation 内部维护真正存在的 Adapter seam：
+
+- OpenAI-compatible Models Adapter；
+- OpenRouter Models Adapter；
+- Google Models Adapter。
+
+自动探测必须满足以下安全合同：
+
+- 只尝试由用户 Base URL 派生的有限已知路径，按确定顺序执行，成功后短路；
+- 禁止重定向，或在任何凭据发送前严格验证目标 origin 不变；
+- Secret 不进入返回值、日志或错误文案；
+- 每次请求有 timeout 与响应体大小上限；
+- 返回经过清洗的尝试摘要，但前端不展示 Adapter 配置。
+
+#### Model Candidate Completion
+
+远程发现返回 `Discovered Model Candidate`，允许字段不完整，只存在于当前前端发现会话。候选补全使用确定优先级：
+
+1. 远端明确返回的字段优先；
+2. 按精确 model ID 使用 Model Library 补充缺失的通用能力；
+3. 使用 Provider Template 或用户明确选择的 Pi API 补充连接与传输资料；
+4. 仍缺少必填字段时保持为前端临时候选，打开编辑器要求用户补齐。
+
+补全需要记录字段 provenance（`remote` / `model-library` / `provider-template` / `user`），供设置页解释数据来源。禁止模糊 model ID 匹配，禁止把 Catalog 能力整块覆盖远端已经明确返回的 Provider 实际限制。
+
+### Provider Config 新不变量
+
+- 所有持久化模型，无论 `enabled` 为 true 或 false，都必须拥有完整可校验能力。
+- `enabled` 只表达“是否允许被选择和运行”，不再表达“配置是否完整”。
+- 不完整发现结果不得自动进入 Provider Config，也不得通过 `enabled=false` 绕过保存合同。
+- “禁用模型草稿”概念删除。设置页只展示“已启用模型”和能力完整的“已停用模型”。
+- 用户选择不完整候选时，只能补齐后保存，或放弃该候选；如未来需要保留待办，必须另建显式草稿模型，不能复用 Provider Config。
+- `/api/config/global` 继续作为唯一写入路径，shared Provider Config Contract Module 在任何文件写入和 Profile mutation 前验证全部已保存模型。
+
+### 深化 Module 与 Interface seam
+
+1. **Model Library Module**
+   - 从当前同时生成 Provider Preset、Model Catalog 和发现策略的 `server/models/catalog.ts` 中拆出。
+   - Interface 只暴露目录读取与精确 model ID 查询；Pi provider 遍历、canonical 选择、去重和模型 patch 隐藏在 Implementation 内。
+   - 提升 Locality：发现补全、手动添加和显式修复共用同一模型资料真相源。
+
+2. **Provider Template Library Module**
+   - 维护精选连接模板和 Secret-only 常见创建路径，不再从全部 Pi Provider 机械生成用户必须理解的 Preset。
+   - Interface 负责列出模板和实例化普通 Provider 草稿；保存后不保留模板身份。
+
+3. **Automatic Model Discovery Module**
+   - 将 Adapter 选择、URL 构造、鉴权、安全限制、response schema 和归一化收进 Implementation。
+   - 当前已有 OpenAI/OpenRouter/Google 三个 Adapter，因此这是实际存在的 seam，不新增假想扩展点。
+
+4. **Model Candidate Completion Module**
+   - 深化当前 `model-draft-factory.ts`，集中字段级补全、provenance、完整性检查和持久化转换。
+   - Interface 必须区分 `CompleteCandidate` 与 `IncompleteCandidate`；只有 CompleteCandidate 可以转换为 Provider Config model，从类型和调用顺序上约束以后不能再次保存坏草稿。
+
+5. **Provider Config Contract Module**
+   - 延续并强化现有 `shared/models/provider-config-contract.ts`，不建立第二套平行校验。
+   - disabled 模型同样执行完整能力校验；`enabled` 只影响 runnable model key 集合。
+
+6. **Settings UI Module**
+   - 当前 `NovelIdeModelSettingsPanel.vue` 已同时承担 Provider 创建、保存、发现、Catalog、候选补全、健康检查、分组和多个 Dialog，Interface 与 Implementation 都过宽。
+   - 本次重构必须拆出 Provider Template 创建、已保存模型列表、Automatic Discovery Dialog 和发现会话状态 Module；宿主只负责页面编排，单文件继续遵守 `<800` 行约束。
+
+### 前端目标交互
+
+Provider 主页面只展示：
+
+- 已启用模型；
+- 已停用模型；
+- “发现/添加模型”入口。
+
+Automatic Discovery Dialog 只展示：
+
+- 当前 Provider 本次实际发现的模型；
+- 当前 Provider 已保存状态；
+- `远端信息完整`、`已由 Model Library 补充`、`仍需手动补充`等来源/完整性状态；
+- 手动添加入口。
+
+全局 Model Library 不再自动混入远程发现列表。如需要从标准资料直接添加，提供明确独立的“从 Model Library 添加”入口，并提示“该条目未由当前 Provider 发现，需要用户确认并执行健康检查”。Group 由统一纯函数产生，优先使用明确分组或模型资料来源，不再分别按 `/`、`:` 和首个 `-` 推导。
+
+### 实施计划
+
+#### Refactor Phase 0 — 基线与失败合同
+
+- 为当前误导行为建立测试 seam：任意 Provider 的发现 Dialog 不得自动出现全部 Model Library；Catalog-only 模型不得标记为远程可用。
+- 固化不完整 disabled 模型当前可保存的失败用例，作为 Provider Config 新不变量的红灯。
+- 固化 `@cf/...` Group 推导不一致、旧 metadata 文案和 Discovery Adapter 字段暴露。
+- 只读 audit 当前 Global Config 中的不完整模型，列出实施硬切时需要显式补齐或删除的条目；本阶段不自动改用户数据。
+
+#### Refactor Phase 1 — DTO 与稳定术语硬切
+
+- 更新 `CONTEXT.md`、Task 03 和 shared DTO，删除 Provider Discovery Adapter 作为产品与持久化概念。
+- 将 `ProviderPreset` 重命名为 `ProviderTemplate`，将 Catalog 返回结构拆成 Model Library 与 Provider Template Library 两个明确 Interface。
+- 从 Provider Config、Provider 草稿、editor snapshot 和 fixture 删除 `discovery`；评估并删除不再需要的持久化 `defaultApi`，手动添加模型必须明确最终 `model.api`。
+- 不提供 legacy adapter；当前数据按快速开发期规则显式硬切。
+
+#### Refactor Phase 2 — Model Library 与 Provider Template Library 分离
+
+- 拆分当前 `server/models/catalog.ts` 的多重职责。
+- Model Library 只维护精确 ID 的模型资料，不输出 Provider 可用性结论。
+- Provider Template Library 首批至少覆盖 MiMo Token Plan，并保留 Custom 创建入口。
+- 模板实例化产出普通 Provider Config 草稿，验证保存后没有模板引用。
+
+#### Refactor Phase 3 — Automatic Model Discovery
+
+- 保留 `/api/config/models/provider-discover` 作为 HTTP 入口，但请求只包含当前连接草稿，不包含 Adapter 或 endpoint path。
+- 建立内部 discovery router，按安全、有限顺序调用 OpenAI/OpenRouter/Google Adapter。
+- 增加 redirect、跨 origin、timeout、响应大小、Secret 清洗和失败摘要测试。
+- 发现结果保持前端临时状态，刷新替换当前会话，不进入 Global Config。
+
+#### Refactor Phase 4 — Model Candidate Completion
+
+- 将当前整块替换改为字段级补缺；远端明确值优先，Model Library 仅补缺。
+- 引入 provenance 与 Complete/Incomplete 输出类型。
+- Catalog 添加、远程发现、手动添加和显式修复共用同一 Completion Interface。
+- 删除 `source: "incomplete" -> enabled: false` 的持久化路径。
+
+#### Refactor Phase 5 — Provider Config 合同强化与数据硬切
+
+- shared Provider Config Contract Module 校验全部已保存模型，包括 disabled 模型。
+- 删除 `disableInvalidDrafts()` 通过禁用保留坏模型的策略；修复动作只能补齐、要求用户编辑或显式删除。
+- 对当前 Global Config 做变更前审计；经用户确认后，补齐或删除现有不完整 disabled 条目，不保留 runtime/config legacy 兼容分支。
+- 默认模型、Profile 引用、健康检查和 runtime 继续只接受完整 runnable 模型。
+
+#### Refactor Phase 6 — 设置页 Module 重构
+
+- 从 `NovelIdeModelSettingsPanel.vue` 拆出 Provider Template 创建、Saved Model List、Automatic Discovery Dialog 和发现会话状态。
+- 删除 Discovery Adapter、endpoint path、“禁用模型草稿”和旧 metadata 文案。
+- Automatic Discovery Dialog 只投影当前发现结果与已保存状态；Model Library 使用独立入口。
+- 统一 Group 推导、状态 badge、错误出口和保存前检查。
+
+#### Refactor Phase 7 — 回归验证与验收
+
+- 聚焦测试：Model Library、Provider Template、discovery router/Adapter、安全合同、candidate completion、Provider Config、设置页纯状态与 config write。
+- 运行 `bun run typecheck`、`bun run nuxt:build`；涉及 Product runtime closure 时再运行 `bun run product:stage`。
+- 用户授权后执行真实 Provider smoke：MiMo Token Plan、普通 OpenAI-compatible、OpenRouter、Google 各至少一次发现与单模型健康检查。
+- 按项目约束不自动运行浏览器验证；实现完成后建议由用户验收模板创建、Custom 自动发现、补全来源、手动补齐、启停模型和保存恢复。
+- 更新 Task 03、Task 104、`CONTEXT.md` 与 `PROJECT-STATUS.md`，记录实际结果和本计划的出入。
+
+### 测试影响与删除策略
+
+重点修改或重写：
+
+- `server/models/catalog.test.ts`：拆分为 Model Library 与 Provider Template Library 合同。
+- `server/models/discovery.test.ts`：保留 Adapter schema 测试，新增自动 router、安全与失败回退。
+- `server/utils/model-settings.test.ts` 与 discovery route 测试：请求不再包含 Adapter。
+- `app/components/novel-ide/settings/model-draft-factory.test.ts`：改为字段级补全、provenance 与 Complete/Incomplete 类型。
+- `app/components/novel-ide/settings/model-settings-draft.test.ts`：删除 disabled 不完整模型可保存的旧期望。
+- Config DTO、normalizer、config-service 与 model validation 测试：删除 `discovery` fixture，disabled 模型同样要求完整。
+- 设置页状态测试：覆盖发现列表不混入 Model Library、刷新替换临时结果、只允许完整候选进入 Provider Config。
+
+旧测试如果只证明“用户可以配置 Discovery Adapter”“Catalog 未命中会持久化禁用草稿”或“disabled 条目可缺能力字段”，在新合同下已经没有价值，应删除而不是改名保留。runtime、session selection、invocation reconcile、compaction、trace 和健康检查的 Provider Config 真相源测试继续保留。
+
+### 风险与决策
+
+- **Model ID 冲突风险**：第三方 Provider 可能复用同一 ID 指向不同能力。Model Library 只提供精确 ID 补全候选，UI 必须展示来源并允许用户覆盖；Provider Config 最终快照承担执行真相。
+- **Secret 外发风险**：自动发现比手工 Adapter 更易产生隐藏请求。必须先完成 redirect/origin/timeout/size 安全合同，再接入真实凭据。
+- **探测覆盖与复杂度权衡**：有限顺序试探更安全、可测试，但无法覆盖所有私有协议；建议首批只覆盖现有三个真实 Adapter，失败后进入手动添加，不实现任意 JSONPath 或插件式用户脚本。
+- **字段级合并复杂度**：provenance 会增加前端状态类型，但能避免整块 Catalog 覆盖 Provider 实际限制。建议接受这部分复杂度，并集中在 Model Candidate Completion Module，防止散落到 Vue 调用点。
+- **现有数据硬切**：当前 Global Config 已存在不完整 disabled 模型。实施时应显式审计并在用户确认后清理，不保留 legacy 读取或 runtime fallback。
+- **大文件风险**：如果只删除字段、继续把发现会话逻辑堆入现有设置页，会形成新的 hack。本次必须以 Settings UI Module 拆分作为完成条件。
+
 ## TODO / Follow-ups
 
 - [x] D3 已锁定：本轮不加入 Pi OAuth、订阅登录或持久化 CredentialStore。
@@ -667,3 +887,9 @@ Exit criteria:
 - [x] 用户授权后执行真实 Provider smoke；MiMo/DeepSeek、thinking、tool call、compaction、trace-on/off 已覆盖，health-check trace binding 缺口另行修复。
 - [ ] 在具备 Docker CLI 的环境执行 Docker build smoke。
 - [x] 同步 `PROJECT-STATUS.md` 并记录最终验证与残余风险。
+- [ ] 按 2026-07-18 新合同完成 Model Library / Provider Template Library 分离。
+- [ ] 删除 Provider Config 的 Discovery Adapter / endpoint path，实施 Automatic Model Discovery Module。
+- [ ] 实施 Model Candidate Completion 字段级补全与 provenance，禁止不完整候选持久化。
+- [ ] 强化 Provider Config：disabled 模型也必须能力完整，删除“禁用模型草稿”语义。
+- [ ] 重构模型设置页，远程发现列表不再混入全量 Model Library，并拆分当前超大 Vue Module。
+- [ ] 用户确认后硬切清理当前 Global Config 中的不完整 disabled 模型。

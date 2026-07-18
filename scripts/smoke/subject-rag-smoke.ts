@@ -7,6 +7,7 @@ import {
     type SubjectPaths,
 } from "nbook/server/agent/tools/subject-rag-index";
 import type {ToolExecutionContext} from "nbook/server/agent/tools/types";
+import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
 
 /**
  * Bun runtime 下验证 subject RAG 能加载 sqlite-vec、调用 embedding、建索引并检索。
@@ -86,6 +87,8 @@ async function main(): Promise<void> {
         const candidates = await searchSubjectRag({
             context: {
                 workspaceRoot,
+                workspaceRootRef: "workspace",
+                workspaceFsRoot: absoluteFsPath(workspaceRoot),
                 workspaceKey: "global",
                 profileKey: "smoke",
                 sessionId: 0,
@@ -107,6 +110,8 @@ async function main(): Promise<void> {
         const memoryOnlyCandidates = await searchSubjectRag({
             context: {
                 workspaceRoot,
+                workspaceRootRef: "workspace",
+                workspaceFsRoot: absoluteFsPath(workspaceRoot),
                 workspaceKey: "global",
                 profileKey: "smoke",
                 sessionId: 0,
@@ -129,6 +134,8 @@ async function main(): Promise<void> {
         await searchSubjectRag({
             context: {
                 workspaceRoot,
+                workspaceRootRef: "workspace",
+                workspaceFsRoot: absoluteFsPath(workspaceRoot),
                 workspaceKey: "global",
                 profileKey: "smoke",
                 sessionId: 0,

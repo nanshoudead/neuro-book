@@ -17,7 +17,7 @@ describe("GET /api/workspace-files/download", () => {
             projectPath: normalizeProjectPath("workspace/novel-1"),
         };
         const resolveWorkspaceFileTarget = vi.fn(async () => target);
-        const createWorkspaceZipStream = vi.fn(async () => ({
+        const createProjectWorkspaceZipStream = vi.fn(async () => ({
             root: target.root,
             filename: "novel-1.zip",
             stream: Readable.from([]),
@@ -38,7 +38,8 @@ describe("GET /api/workspace-files/download", () => {
         }));
         vi.doMock("nbook/server/runtime/paths/runtime-paths", () => ({runtimePathsFromEnv: vi.fn(() => ({}))}));
         vi.doMock("nbook/server/workspace-files/workspace-archive", () => ({
-            createWorkspaceZipStream,
+            createProjectWorkspaceZipStream,
+            createWorkspaceZipStream: vi.fn(),
         }));
         vi.doMock("nbook/server/workspace-files/project-open-guard", () => ({
             assertProjectOpenForTarget: vi.fn(),
@@ -54,7 +55,44 @@ describe("GET /api/workspace-files/download", () => {
             projectPath: "workspace/novel-1",
             workspaceKind: undefined,
         });
+        expect(createProjectWorkspaceZipStream).toHaveBeenCalledWith(target.root);
+    });
+
+    it("user-assets 继续使用普通 workspace archive", async () => {
+        const target = {
+            kind: "user-assets" as const,
+            root: absoluteFsPath("C:/test/state/.nbook"),
+        };
+        const resolveWorkspaceFileTarget = vi.fn(async () => target);
+        const createWorkspaceZipStream = vi.fn(async () => ({
+            root: target.root,
+            filename: ".nbook.zip",
+            stream: Readable.from([]),
+        }));
+        const createProjectWorkspaceZipStream = vi.fn();
+
+        vi.stubGlobal("getQuery", () => ({workspaceKind: "user-assets"}));
+        vi.doMock("h3", () => ({
+            createError: (input: {statusCode?: number; message?: string}) => Object.assign(new Error(input.message), input),
+            sendStream: vi.fn((_event, stream) => stream),
+            setResponseHeader: vi.fn(),
+        }));
+        vi.doMock("nbook/server/workspace-files/novel-workspace", () => ({
+            resolveWorkspaceFileTarget,
+            USER_ASSETS_WORKSPACE_KIND: "user-assets",
+        }));
+        vi.doMock("nbook/server/runtime/paths/runtime-paths", () => ({runtimePathsFromEnv: vi.fn(() => ({}))}));
+        vi.doMock("nbook/server/workspace-files/workspace-archive", () => ({
+            createProjectWorkspaceZipStream,
+            createWorkspaceZipStream,
+        }));
+        vi.doMock("nbook/server/workspace-files/project-open-guard", () => ({assertProjectOpenForTarget: vi.fn()}));
+
+        const handler = (await import("nbook/server/api/workspace-files/download.get")).default;
+        await handler({} as never);
+
         expect(createWorkspaceZipStream).toHaveBeenCalledWith(target.root);
+        expect(createProjectWorkspaceZipStream).not.toHaveBeenCalled();
     });
 
     it("缺少 projectPath 时拒绝下载", async () => {
@@ -71,6 +109,7 @@ describe("GET /api/workspace-files/download", () => {
             USER_ASSETS_WORKSPACE_KIND: "user-assets",
         }));
         vi.doMock("nbook/server/workspace-files/workspace-archive", () => ({
+            createProjectWorkspaceZipStream: vi.fn(),
             createWorkspaceZipStream: vi.fn(),
         }));
         vi.doMock("nbook/server/utils/prisma", () => ({

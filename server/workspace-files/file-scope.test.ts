@@ -48,6 +48,12 @@ describe("统一File Scope与File Address", () => {
             .toThrow("完整Project File Address必须使用workspace/<project>/<relative-path>");
         expect(() => resolveFileAddress(scope, "workspace/beta/."))
             .toThrow("必须指向Project Workspace内的文件或目录项");
+        expect(resolveFileAddress(scope, "workspace/beta/lorebook/../manuscript/002.md")).toEqual({
+            kind: "project-address",
+            absolutePath: path.join(workspaceRoot, "beta", "manuscript", "002.md"),
+            projectPath: "workspace/beta",
+            relativePath: "manuscript/002.md",
+        });
     });
 
     it("拒绝旧slug-relative路径与相对路径越界", () => {
@@ -114,6 +120,25 @@ describe("统一File Scope与File Address", () => {
             absolutePath: inside,
             projectPath: normalizeProjectPath("workspace/alpha"),
             relativePath: "manuscript/001.md",
+        });
+    });
+
+    it("普通相对地址接受安全dot segment但只输出canonical路径", () => {
+        const scope = createFileScope({
+            kind: "managed-project",
+            workspaceRoot,
+            projectPath: normalizeProjectPath("workspace/alpha"),
+        });
+
+        expect(resolveFileAddress(scope, "lorebook/../manuscript/003.md")).toEqual({
+            kind: "scope-relative",
+            absolutePath: path.join(projectRoot, "manuscript", "003.md"),
+            projectPath: "workspace/alpha",
+            relativePath: "manuscript/003.md",
+        });
+        expect(resolveFileAddress(scope, "..draft/notes.md")).toMatchObject({
+            absolutePath: path.join(projectRoot, "..draft", "notes.md"),
+            relativePath: "..draft/notes.md",
         });
     });
 });

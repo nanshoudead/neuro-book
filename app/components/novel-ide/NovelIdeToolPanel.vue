@@ -399,6 +399,7 @@ function handleSyncDiffAction(payload: DiffWorkbenchActionPayload): void {
 
         <Dialog v-model="downloadConfirmOpen" :title="t('ide.toolPanel.downloadTitle', {target: downloadTargetLabel})" width="420px" show-cancel :busy="downloadingWorkspace" @confirm="confirmDownloadWorkspace">
             <p>{{ t("ide.toolPanel.downloadConfirm", {target: downloadTargetLabel}) }}</p>
+            <p v-if="!props.userAssetsMode" class="mt-3 rounded-md border border-[var(--status-warning-border)] bg-[var(--status-warning-bg)] px-3 py-2 text-sm leading-5 text-[var(--status-warning)]">{{ t("ide.toolPanel.downloadProjectHistoryWarning") }}</p>
         </Dialog>
 
         <Dialog v-model="syncWarningsOpen" :title="t('ide.toolPanel.syncDetailsTitle')" width="620px" :show-footer="false">

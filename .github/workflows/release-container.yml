@@ -147,9 +147,15 @@ jobs:
           cp scripts/install/install.cmd dist/install.cmd
           cp scripts/install/install.sh dist/install.sh
           manager_version="$(bun -e 'console.log(require("./packages/neuro-book-manager/package.json").version)')"
-          if [[ "${manager_version}" == *-* ]]; then manager_tag=canary; else manager_tag=latest; fi
-          published_manager="$(npm view "@notnotype/neuro-book-manager@${manager_tag}" version)"
-          test "${published_manager}" = "${manager_version}"
+          bun run manager:build
+          mkdir -p manager-npm
+          npm pack "@notnotype/neuro-book-manager@${manager_version}" --pack-destination manager-npm >/dev/null
+          mkdir -p manager-npm/package
+          tar -xzf manager-npm/*.tgz -C manager-npm
+          cmp packages/neuro-book-manager/dist/neuro-book.mjs manager-npm/package/dist/neuro-book.mjs
+          cmp packages/neuro-book-manager/dist/schema.mjs manager-npm/package/dist/schema.mjs
+          unzip -p dist/neuro-book-windows-x64.zip ".runtime/manager/${manager_version}/neuro-book.mjs" > manager-npm/portable-neuro-book.mjs
+          cmp manager-npm/package/dist/neuro-book.mjs manager-npm/portable-neuro-book.mjs
           bun scripts/release/release-assets.ts manifest \
             --tag "${{ github.event.release.tag_name }}" \
             --revision "${{ github.sha }}" \
@@ -537,6 +543,66 @@ jobs:
           } finally {
             if (-not $launcherProcess.HasExited) { taskkill /PID $launcherProcess.Id /T /F | Out-Null }
           }
+      - name: Verify Windows Portable authenticated login
+        shell: pwsh
+        run: |
+          $portableRoot = (Resolve-Path portable).Path
+          $manager = Join-Path $portableRoot ".runtime/bin/neuro-book.cmd"
+          $stateRoot = Join-Path $portableRoot "data"
+          $databasePath = Join-Path $stateRoot "workspace/.nbook/neuro-book.sqlite"
+          $shadowWorkspace = Join-Path $portableRoot "workspace"
+          $stdout = Join-Path $stateRoot "logs/release-auth-smoke.stdout.log"
+          $stderr = Join-Path $stateRoot "logs/release-auth-smoke.stderr.log"
+          $launcher = Join-Path $portableRoot "Start Neuro Book.cmd"
+          $port = 39123
+          $env:NO_COLOR = "1"
+          $env:AUTH_ADMIN_PASSWORD = "release-auth-smoke-password"
+          try {
+            & $manager --root $portableRoot admin create release-smoke-admin
+            if ($LASTEXITCODE -ne 0) {
+              throw "Portable create admin failed: $LASTEXITCODE"
+            }
+          } finally {
+            Remove-Item Env:AUTH_ADMIN_PASSWORD -ErrorAction SilentlyContinue
+          }
+          if (-not (Test-Path -LiteralPath $databasePath -PathType Leaf)) {
+            throw "Portable App SQLite没有位于data/workspace/.nbook"
+          }
+          if (Test-Path -LiteralPath $shadowWorkspace) {
+            throw "Portable创建管理员后在Installation Root产生了影子workspace"
+          }
+          $launcherProcess = Start-Process -FilePath $env:ComSpec -ArgumentList @("/d", "/c", "`"$launcher`"") -WorkingDirectory $env:RUNNER_TEMP -RedirectStandardOutput $stdout -RedirectStandardError $stderr -WindowStyle Hidden -PassThru
+          try {
+            $ready = $false
+            for ($attempt = 0; $attempt -lt 120; $attempt++) {
+              if ($launcherProcess.HasExited) { break }
+              try {
+                $response = Invoke-WebRequest -Uri "http://127.0.0.1:$port/api/app/version" -TimeoutSec 1
+                if ($response.StatusCode -eq 200) { $ready = $true; break }
+              } catch {}
+              Start-Sleep -Milliseconds 500
+            }
+            if (-not $ready) {
+              Get-Content -Raw $stdout -ErrorAction SilentlyContinue | Write-Host
+              Get-Content -Raw $stderr -ErrorAction SilentlyContinue | Write-Host
+              throw "Portable authenticated Product did not become ready"
+            }
+            $webSession = New-Object Microsoft.PowerShell.Commands.WebRequestSession
+            $body = @{ username = "release-smoke-admin"; password = "release-auth-smoke-password" } | ConvertTo-Json -Compress
+            $login = Invoke-WebRequest -Uri "http://127.0.0.1:$port/api/auth/login" -Method Post -ContentType "application/json" -Body $body -WebSession $webSession -TimeoutSec 10
+            if ($login.StatusCode -ne 200) { throw "Portable login returned HTTP $($login.StatusCode)" }
+            $payload = $login.Content | ConvertFrom-Json
+            if (-not $payload.authEnabled -or $payload.user.username -ne "release-smoke-admin" -or $payload.user.role -ne "admin") {
+              throw "Portable login payload不符合管理员合同"
+            }
+            if ($webSession.Cookies.Count -lt 1) { throw "Portable login没有写入session cookie" }
+            if (Test-Path -LiteralPath $shadowWorkspace) {
+              throw "Portable登录后在Installation Root产生了影子workspace"
+            }
+          } finally {
+            if (-not $launcherProcess.HasExited) { taskkill /PID $launcherProcess.Id /T /F | Out-Null }
+            Remove-Item Env:NO_COLOR -ErrorAction SilentlyContinue
+          }
       - name: Verify Windows Stage 0 syntax
         shell: pwsh
         run: |
@@ -558,6 +624,7 @@ jobs:
           if-no-files-found: ignore
           path: |
             portable/data/logs/release-browser-smoke*
+            portable/data/logs/release-auth-smoke*
             portable/data-moved/logs/**
             portable/data-moved/workspace/.nbook/logs/**
 
@@ -632,8 +699,151 @@ jobs:
           docker pull "${IMAGE}"
           test "$(docker image inspect "${IMAGE}" --format '{{ index .RepoDigests 0 }}')" = "${APP_IMAGE_NAME}@${{ needs.build-and-push.outputs.app-digest }}"
 
-  publish-index:
+  verify-public-ghcr-installation:
     needs: [verify-public-payload]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-candidate
+          path: candidate-assets
+      - name: Install public GHCR instance with published Manager
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          NEURO_BOOK_MANAGER_CONFIG: ${{ runner.temp }}/neuro-book-manager/config.json
+        run: |
+          set -euo pipefail
+          root="${RUNNER_TEMP}/public-ghcr-install"
+          manager_version="$(node -p 'require("./packages/neuro-book-manager/package.json").version')"
+          candidate_manifest="$PWD/candidate-assets/release-manifest.json"
+          channel="$(node -p 'require(process.argv[1]).channel' "${candidate_manifest}")"
+          rm -rf "$root" "${RUNNER_TEMP}/neuro-book-manager"
+          mkdir -p "${RUNNER_TEMP}/neuro-book-manager"
+          bunx --bun "@notnotype/neuro-book-manager@${manager_version}" install \
+            --profile ghcr \
+            --channel "${channel}" \
+            --release-manifest "${candidate_manifest}" \
+            --dir "$root" \
+            --port 39487 \
+            --yes
+          bunx --bun "@notnotype/neuro-book-manager@${manager_version}" --root "$root" doctor --json > "${RUNNER_TEMP}/doctor-running.json"
+          node -e 'const r=require(process.argv[1]); if (!r.healthy || r.checks.some((c)=>c.status === "fail")) process.exit(1)' "${RUNNER_TEMP}/doctor-running.json"
+          docker compose --env-file "$root/.env" -f "$root/.deploy/docker-compose.generated.yml" stop app
+          bunx --bun "@notnotype/neuro-book-manager@${manager_version}" --root "$root" doctor --json > "${RUNNER_TEMP}/doctor-stopped.json"
+          node -e 'const r=require(process.argv[1]); if (!r.healthy || !r.checks.some((c)=>c.id === "service.application" && c.status === "warn")) process.exit(1)' "${RUNNER_TEMP}/doctor-stopped.json"
+          bunx --bun "@notnotype/neuro-book-manager@${manager_version}" --root "$root" start
+          for attempt in $(seq 1 60); do
+            curl --fail --silent "http://127.0.0.1:39487/api/app/version" && exit 0
+            sleep 1
+          done
+          docker compose --env-file "$root/.env" -f "$root/.deploy/docker-compose.generated.yml" logs --no-color app || true
+          exit 1
+      - name: Cleanup public GHCR instance
+        if: always()
+        shell: bash
+        run: |
+          root="${RUNNER_TEMP}/public-ghcr-install"
+          if [[ -f "$root/.deploy/docker-compose.generated.yml" ]]; then
+            docker compose --env-file "$root/.env" -f "$root/.deploy/docker-compose.generated.yml" down --remove-orphans || true
+          fi
+          rm -rf "$root" "${RUNNER_TEMP}/neuro-book-manager"
+
+  verify-public-windows-update:
+    needs: [verify-public-payload]
+    runs-on: windows-latest
+    permissions:
+      contents: read
+    env:
+      BASELINE_RELEASE_TAG: v0.8.6-canary.20260717.130406Z.a91a96f
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-candidate
+          path: candidate-assets
+      - name: Update public 0.8.6 Portable with exact npm Manager and candidate Manifest
+        shell: pwsh
+        run: |
+          $root = Join-Path $env:RUNNER_TEMP "portable-update"
+          $archive = Join-Path $env:RUNNER_TEMP "portable-0.8.6.zip"
+          $manifestPath = (Resolve-Path candidate-assets/release-manifest.json).Path
+          $candidate = Get-Content -Raw $manifestPath | ConvertFrom-Json
+          $managerVersion = (Get-Content -Raw packages/neuro-book-manager/package.json | ConvertFrom-Json).version
+          $channel = $candidate.channel
+          $port = 39327
+          Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue
+          Invoke-WebRequest -Uri "https://github.com/$env:GITHUB_REPOSITORY/releases/download/$env:BASELINE_RELEASE_TAG/neuro-book-windows-x64.zip" -OutFile $archive
+          Expand-Archive -LiteralPath $archive -DestinationPath $root
+          $envPath = Join-Path $root "data/.env"
+          $databasePath = Join-Path $root "data/workspace/.nbook/neuro-book.sqlite"
+          $absoluteDatabaseUrl = "file:" + $databasePath.Replace("\", "/")
+          $envText = Get-Content -Raw $envPath
+          $envText = $envText -replace '(?m)^DATABASE_URL=.*$', "DATABASE_URL=$absoluteDatabaseUrl"
+          $envText = $envText -replace '(?m)^NUXT_PORT=.*$', "NUXT_PORT=$port"
+          $envText = $envText -replace '(?m)^PORT=.*$', "PORT=$port"
+          Set-Content -LiteralPath $envPath -Value $envText -Encoding utf8
+          $env:AUTH_ADMIN_PASSWORD = "release-update-password"
+          try {
+            bunx --bun "@notnotype/neuro-book-manager@$managerVersion" --root $root admin create release-update-admin
+            if ($LASTEXITCODE -ne 0) { throw "0.8.6 create admin failed: $LASTEXITCODE" }
+          } finally {
+            Remove-Item Env:AUTH_ADMIN_PASSWORD -ErrorAction SilentlyContinue
+          }
+          $envText = Get-Content -Raw $envPath
+          $envText = $envText -replace '(?m)^DATABASE_URL=.*$', 'DATABASE_URL=file:./workspace/.nbook/neuro-book.sqlite'
+          Set-Content -LiteralPath $envPath -Value $envText -Encoding utf8
+          $beforeHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $databasePath).Hash
+          bunx --bun "@notnotype/neuro-book-manager@$managerVersion" --root $root update --channel $channel --release-manifest $manifestPath
+          if ($LASTEXITCODE -ne 0) { throw "Portable candidate update failed: $LASTEXITCODE" }
+          if ((Get-Content -Raw $envPath) -notmatch '(?m)^DATABASE_URL=file:\./workspace/\.nbook/neuro-book\.sqlite$') {
+            throw "Portable update改写了逻辑DATABASE_URL"
+          }
+          if (-not (Test-Path -LiteralPath $databasePath -PathType Leaf)) { throw "Portable update丢失App SQLite" }
+          if (Test-Path -LiteralPath (Join-Path $root "workspace")) { throw "Portable update创建了影子workspace" }
+          $manager = Join-Path $root ".runtime/bin/neuro-book.cmd"
+          $stdout = Join-Path $root "data/logs/public-update.stdout.log"
+          $stderr = Join-Path $root "data/logs/public-update.stderr.log"
+          $process = Start-Process -FilePath $manager -ArgumentList @("--root", $root, "start") -WorkingDirectory $env:RUNNER_TEMP -RedirectStandardOutput $stdout -RedirectStandardError $stderr -WindowStyle Hidden -PassThru
+          try {
+            $ready = $false
+            for ($attempt = 0; $attempt -lt 240; $attempt++) {
+              if ($process.HasExited) { break }
+              try {
+                $response = Invoke-WebRequest -Uri "http://127.0.0.1:$port/api/app/version" -TimeoutSec 1
+                if ($response.StatusCode -eq 200) { $ready = $true; break }
+              } catch {}
+              Start-Sleep -Milliseconds 500
+            }
+            if (-not $ready) {
+              Get-Content -Raw $stdout -ErrorAction SilentlyContinue | Write-Host
+              Get-Content -Raw $stderr -ErrorAction SilentlyContinue | Write-Host
+              throw "Updated Portable did not become ready"
+            }
+            $session = New-Object Microsoft.PowerShell.Commands.WebRequestSession
+            $body = @{username = "release-update-admin"; password = "release-update-password"} | ConvertTo-Json -Compress
+            $login = Invoke-WebRequest -Uri "http://127.0.0.1:$port/api/auth/login" -Method Post -ContentType "application/json" -Body $body -WebSession $session -TimeoutSec 10
+            if ($login.StatusCode -ne 200 -or $session.Cookies.Count -lt 1) { throw "Updated Portable login failed" }
+          } finally {
+            if (-not $process.HasExited) { taskkill /PID $process.Id /T /F | Out-Null }
+          }
+          $afterHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $databasePath).Hash
+          if ($beforeHash -eq $afterHash) { Write-Host "Database content unchanged by migration; administrator data still preserved." }
+      - name: Cleanup public Portable update
+        if: always()
+        shell: pwsh
+        run: |
+          Remove-Item -LiteralPath (Join-Path $env:RUNNER_TEMP "portable-update") -Recurse -Force -ErrorAction SilentlyContinue
+          Remove-Item -LiteralPath (Join-Path $env:RUNNER_TEMP "portable-0.8.6.zip") -Force -ErrorAction SilentlyContinue
+
+  publish-index:
+    needs: [verify-public-ghcr-installation, verify-public-windows-update]
     runs-on: ubuntu-latest
     permissions:
       contents: write

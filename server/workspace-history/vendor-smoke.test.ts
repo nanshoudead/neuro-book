@@ -47,6 +47,19 @@ describe("vendored nb-history 冒烟", () => {
         expect(diff.changes.length).toBeGreaterThan(0);
         expect(diff.afterText).toBe("第二版正文\n多了一行\n");
 
+        const runtimeEntry = await history.performWrite(
+            {kind: "system", source: "vendor-smoke"},
+            "runtime-artifact-import-cache/example.mjs",
+            "export {};\n",
+        );
+        const purge = await history.purgePaths((recordedPath) => recordedPath.startsWith("runtime-artifact-import-cache/"));
+        expect(purge.entriesDeleted).toBe(1);
+        expect(await history.timeline("runtime-artifact-import-cache/example.mjs")).toHaveLength(0);
+        if (runtimeEntry.operation.type !== "file.create") {
+            throw new Error("预期 runtime artifact 为 file.create");
+        }
+        expect(await history.snapshotBody(runtimeEntry.operation.afterHash)).toBeNull();
+
         await history.close();
         // 「close 后立即可删库文件」只在 bun 运行时是模块承诺(close 内建强制 GC 收敛句柄);
         // vitest worker 跑在 node 运行时时无强制 GC,只能等自然 GC——删除断言降级为 best-effort,

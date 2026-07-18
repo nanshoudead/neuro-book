@@ -38,7 +38,7 @@ describe("Workspace文件操作真实路径范围", () => {
             .rejects.toThrow("真实路径越过文件系统根");
 
         await deleteWorkspacePath(root, "escape", true);
-        await expect(access(marker)).resolves.toBeUndefined();
+        await access(marker);
         await expect(access(path.join(projectRoot, "escape"))).rejects.toMatchObject({code: "ENOENT"});
     });
 
@@ -55,8 +55,24 @@ describe("Workspace文件操作真实路径范围", () => {
         });
 
         await expect(resolveNovelWorkspaceTarget(runtimePaths, "workspace/project-a"))
-            .rejects.toThrow("真实路径越过文件系统根");
+            .rejects.toThrow("不能是symlink或junction");
         await expect(access(path.join(outsideRoot, "new.md"))).rejects.toMatchObject({code: "ENOENT"});
+    });
+
+    it("Project Workspace根链接到Workspace Root内部时仍拒绝别名身份", async () => {
+        const fixture = await fixtureRoot();
+        const stateRoot = path.join(fixture, "state");
+        const workspaceRoot = path.join(stateRoot, "workspace");
+        const targetRoot = path.join(workspaceRoot, "project-target");
+        await mkdir(targetRoot, {recursive: true});
+        await symlink(targetRoot, path.join(workspaceRoot, "project-alias"), process.platform === "win32" ? "junction" : "dir");
+        const runtimePaths = createRuntimePaths({
+            applicationRoot: absoluteFsPath(fixture),
+            stateRoot: absoluteFsPath(stateRoot),
+        });
+
+        await expect(resolveNovelWorkspaceTarget(runtimePaths, "workspace/project-alias"))
+            .rejects.toThrow("不能是symlink或junction");
     });
 });
 

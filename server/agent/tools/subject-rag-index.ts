@@ -1,6 +1,6 @@
 import {mkdir, readFile, rename, rm, unlink, writeFile} from "node:fs/promises";
 import {basename, dirname, join, relative} from "node:path";
-import {loadEffectiveConfigForAgentRuntime} from "nbook/server/config/config-service";
+import {loadEffectiveConfigAtWorkspaceRoot} from "nbook/server/config/config-service";
 import type {EmbeddingServiceConfig} from "nbook/server/config/types";
 import type {ToolExecutionContext} from "nbook/server/agent/tools/types";
 import {
@@ -555,7 +555,8 @@ function splitLongText(text: string): string[] {
 }
 
 async function resolveSubjectRagEmbedding(context: SubjectRagRuntimeContext): Promise<RagEmbeddingModel> {
-    const config = await loadEffectiveConfigForAgentRuntime({
+    const config = await loadEffectiveConfigAtWorkspaceRoot({
+        workspaceRoot: context.workspaceFsRoot,
         projectPath: context.projectPath,
     });
     const embedding = config.embedding;

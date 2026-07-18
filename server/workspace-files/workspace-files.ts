@@ -15,6 +15,7 @@ import {
     WorkspaceContentStateFrontmatterSchema,
     WORKSPACE_CONTENT_STATUSES,
 } from "nbook/server/workspace-files/content-node-schema";
+import {isRuntimeGeneratedWorkspacePath} from "nbook/server/workspace-files/runtime-generated-path";
 import type {WorkspaceIssueSummaryDto} from "nbook/shared/dto/workspace-tree.dto";
 
 export {WORKSPACE_CONTENT_STATUSES, WORKSPACE_STATUS_DESCRIPTIONS} from "nbook/server/workspace-files/content-node-schema";
@@ -527,7 +528,16 @@ export async function scanWorkspaceTree(options: WorkspaceScanOptions): Promise<
 
     for (const targetInput of targetInputs) {
         const targetPath = await resolveWorkspaceContentPath(root, targetInput);
-        if (!await pathExists(targetPath)) {
+        let targetStat: Awaited<ReturnType<typeof fs.stat>>;
+        try {
+            targetStat = await fs.stat(targetPath);
+        } catch (error) {
+            if (isMissingPathError(error)) {
+                continue;
+            }
+            throw error;
+        }
+        if (shouldSkipWorkspacePath(root, targetPath, targetStat.isDirectory(), ignoreRules)) {
             continue;
         }
         await visitPath(root, targetPath, {
@@ -712,7 +722,17 @@ async function collectWorkspaceContentValidationNodes(
 
     for (const targetInput of targetInputs) {
         const absoluteTarget = await resolveWorkspaceContentPath(absoluteFsPath(root), targetInput);
-        if (!await pathExists(absoluteTarget)) {
+        const relativeTarget = path.relative(root, absoluteTarget).split(path.sep).join("/");
+        if (isRuntimeGeneratedWorkspacePath(relativeTarget)) {
+            continue;
+        }
+        let targetStat: Awaited<ReturnType<typeof fs.stat>>;
+        try {
+            targetStat = await fs.stat(absoluteTarget);
+        } catch (error) {
+            if (!isMissingPathError(error)) {
+                throw error;
+            }
             issues.push({
                 level: "P1",
                 code: "missing-target",
@@ -721,8 +741,6 @@ async function collectWorkspaceContentValidationNodes(
             });
             continue;
         }
-
-        const targetStat = await fs.stat(absoluteTarget);
         if (!targetStat.isDirectory()) {
             issues.push({
                 level: "P2",
@@ -1021,28 +1039,45 @@ async function visitPath(
     },
     nodes: WorkspaceFileNode[],
 ): Promise<void> {
-    await assertRealPathContained(absoluteFsPath(root), absoluteFsPath(absolutePath));
-    const stat = await fs.stat(absolutePath);
-    const isDirectory = stat.isDirectory();
-    const displayPath = toWorkspaceDisplayPath(root, absolutePath, isDirectory);
-    const depth = displayPath === "./" ? 0 : displayPath.split("/").filter(Boolean).length;
-    if (options.depth !== null && depth > options.depth) {
-        return;
-    }
-
-    nodes.push(await buildWorkspaceNode(root, absolutePath, options));
-    if (!isDirectory) {
-        return;
-    }
-
-    const children = await fs.readdir(absolutePath, {withFileTypes: true});
-    for (const child of children.sort((left, right) => left.name.localeCompare(right.name, "zh-Hans-CN"))) {
-        const childPath = path.join(absolutePath, child.name);
-        if (shouldSkipWorkspacePath(root, childPath, child.isDirectory(), options.ignoreRules)) {
-            continue;
+    try {
+        await assertRealPathContained(absoluteFsPath(root), absoluteFsPath(absolutePath));
+        const stat = await fs.stat(absolutePath);
+        const isDirectory = stat.isDirectory();
+        const displayPath = toWorkspaceDisplayPath(root, absolutePath, isDirectory);
+        const depth = displayPath === "./" ? 0 : displayPath.split("/").filter(Boolean).length;
+        if (options.depth !== null && depth > options.depth) {
+            return;
         }
-        await visitPath(root, childPath, options, nodes);
+
+        const node = await buildWorkspaceNode(root, absolutePath, options);
+        if (!isDirectory) {
+            nodes.push(node);
+            return;
+        }
+
+        const children = await fs.readdir(absolutePath, {withFileTypes: true});
+        nodes.push(node);
+        for (const child of children.sort((left, right) => left.name.localeCompare(right.name, "zh-Hans-CN"))) {
+            const childPath = path.join(absolutePath, child.name);
+            if (shouldSkipWorkspacePath(root, childPath, child.isDirectory(), options.ignoreRules)) {
+                continue;
+            }
+            await visitPath(root, childPath, options, nodes);
+        }
+    } catch (error) {
+        if (isMissingPathError(error)) {
+            return;
+        }
+        throw error;
     }
+}
+
+/** 判断节点访问失败是否仅表示扫描期间路径已经消失。 */
+function isMissingPathError(error: unknown): boolean {
+    return typeof error === "object"
+        && error !== null
+        && "code" in error
+        && error.code === "ENOENT";
 }
 
 async function buildWorkspaceNode(
@@ -1532,6 +1567,9 @@ export function shouldSkipWorkspacePath(root: string, absolutePath: string, isDi
     }
 
     const relativePath = path.relative(root, absolutePath).split(path.sep).join("/");
+    if (isRuntimeGeneratedWorkspacePath(relativePath)) {
+        return true;
+    }
     let ignored = false;
     for (const rule of ignoreRules) {
         if (matchesWorkspaceIgnoreRule(relativePath, isDirectory, rule)) {

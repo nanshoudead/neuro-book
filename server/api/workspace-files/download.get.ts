@@ -1,5 +1,9 @@
 import {createError, sendStream, setResponseHeader} from "h3";
-import {createWorkspaceZipStream} from "nbook/server/workspace-files/workspace-archive";
+import {
+    createProjectWorkspaceZipStream,
+    createWorkspaceZipStream,
+    type WorkspaceArchive,
+} from "nbook/server/workspace-files/workspace-archive";
 import {
     USER_ASSETS_WORKSPACE_KIND,
     resolveWorkspaceFileTarget,
@@ -20,14 +24,16 @@ export default defineEventHandler(async (event) => {
 
     const target = await resolveWorkspaceFileTarget(runtimePathsFromEnv(), {projectPath, workspaceKind});
     assertProjectOpenForTarget(target);
-    const archive = await createWorkspaceZipStream(target.root);
+    const archive = target.kind === "project-workspace"
+        ? await createProjectWorkspaceZipStream(target.root)
+        : await createWorkspaceZipStream(target.root);
     return sendArchive(event, archive);
 });
 
 /**
  * 发送当前挂载目标压缩包。
  */
-function sendArchive(event: Parameters<typeof setResponseHeader>[0], archive: Awaited<ReturnType<typeof createWorkspaceZipStream>>) {
+function sendArchive(event: Parameters<typeof setResponseHeader>[0], archive: WorkspaceArchive) {
     const filename = encodeURIComponent(archive.filename);
 
     setResponseHeader(event, "Content-Type", "application/zip");

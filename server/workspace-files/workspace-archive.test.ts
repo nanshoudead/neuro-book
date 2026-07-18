@@ -1,8 +1,22 @@
+import {execFile} from "node:child_process";
 import {randomUUID} from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
-import {afterEach, beforeEach, describe, expect, it} from "vitest";
-import {createWorkspaceZipStream} from "nbook/server/workspace-files/workspace-archive";
+import {setTimeout} from "node:timers/promises";
+import {promisify} from "node:util";
+import {createClient} from "@libsql/client";
+import {unzipSync} from "fflate";
+import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
+import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
+import {WorkspaceHistory} from "nbook/server/vendor/nb-history/workspace-history";
+import {
+    createProjectWorkspaceZipStream,
+    createWorkspaceZipStream,
+} from "nbook/server/workspace-files/workspace-archive";
+import {toSqliteFileUrl} from "nbook/server/workspace-files/project-workspace";
+import {collectReleasedSqliteHandles} from "nbook/server/workspace-files/sqlite-handle-release";
+
+const execFileAsync = promisify(execFile);
 
 describe("workspace-archive", () => {
     let root: string;
@@ -13,7 +27,9 @@ describe("workspace-archive", () => {
     });
 
     afterEach(async () => {
-        await fs.rm(root, {recursive: true, force: true});
+        vi.restoreAllMocks();
+        collectReleasedSqliteHandles({force: true});
+        await removeTestRoot(root);
     });
 
     it("打包 workspace 文件并遵守忽略规则", async () => {
@@ -22,6 +38,9 @@ describe("workspace-archive", () => {
         await writeFile("assets/image.bin", Buffer.from([0, 1, 2, 3]));
         await writeFile("ignored.tmp", "skip\n");
         await writeFile(".git/config", "skip\n");
+        await writeFile(".nbook/config.json", "{}\n");
+        await writeFile(".nbook/runtime-artifact-import-cache/world-engine-calendar/a.mjs", "export {};\n");
+        await writeFile("world-engine/.runtime-artifact-import-cache/world-engine-schema/a.mjs", "export {};\n");
         await writeFile(".gitignore", "*.tmp\n");
 
         const archive = await createWorkspaceZipStream(root);
@@ -31,12 +50,163 @@ describe("workspace-archive", () => {
         expect(archive.filename).toBe(`${path.basename(root)}.zip`);
         expect(entries).toEqual(expect.arrayContaining([
             ".gitignore",
+            ".nbook/config.json",
             "assets/image.bin",
             "manuscript/001/index.md",
             "workspace.yaml",
         ]));
         expect(entries).not.toContain("ignored.tmp");
         expect(entries.some((entry) => entry.startsWith(".git/"))).toBe(false);
+        expect(entries.some((entry) => entry.includes("runtime-artifact-import-cache"))).toBe(false);
+    });
+
+    it("Project 下载在线快照两个 SQLite，并强制纳入 metadata 且排除 live sidecar", async () => {
+        await writeFile("project.yaml", "kind: novel\ntitle: test\nsummary: ''\n");
+        await writeFile(".nbook/config.json", "{}\n");
+        await writeFile("ignored.tmp", "skip\n");
+        await writeFile(".nbook/private.txt", "ignored by directory rule\n");
+        await writeFile(".nbook/runtime-artifact-import-cache/world-engine-calendar/a.mjs", "export {};\n");
+        await writeFile("world-engine/.runtime-artifact-import-cache/world-engine-schema/a.mjs", "export {};\n");
+        await writeFile("world-engine/calendar.ts", "export default {};\n");
+        await writeFile(".gitignore", [
+            "project.yaml",
+            ".nbook/",
+            "ignored.tmp",
+            "!.nbook/runtime-artifact-import-cache/**",
+            "!world-engine/.runtime-artifact-import-cache/**",
+            "",
+        ].join("\n"));
+
+        const projectDatabasePath = path.join(root, ".nbook", "project.sqlite");
+        const projectClient = createClient({url: toSqliteFileUrl(projectDatabasePath)});
+        await projectClient.execute("PRAGMA journal_mode = WAL");
+        await projectClient.execute("CREATE TABLE archive_probe (value TEXT NOT NULL)");
+        await projectClient.execute({sql: "INSERT INTO archive_probe (value) VALUES (?)", args: ["live-wal"]});
+
+        const historyDatabasePath = path.join(root, ".nbook", "history.sqlite");
+        const history = await WorkspaceHistory.open({
+            databasePath: historyDatabasePath,
+            workspaceRoot: root,
+        });
+        const acceptedEntry = await history.performWrite(
+            {kind: "agent", sessionId: "writer"},
+            "manuscript/001.md",
+            "第一版正文",
+        );
+        await history.accept("local", "manuscript/001.md");
+        await history.initCursor("reader-session");
+        await history.performWrite(
+            {kind: "external"},
+            "manuscript/001.md",
+            "第二版正文",
+        );
+        const originalMkdtemp = fs.mkdtemp.bind(fs);
+        let stagingRoot: string | null = null;
+        vi.spyOn(fs, "mkdtemp").mockImplementation(async (prefix, options) => {
+            stagingRoot = await originalMkdtemp(prefix, options);
+            return stagingRoot;
+        });
+
+        try {
+            const archive = await createProjectWorkspaceZipStream(absoluteFsPath(path.resolve(root)));
+            const buffer = await readStreamBuffer(archive.stream);
+            const files = unzipSync(buffer);
+            const entries = Object.keys(files).sort((left, right) => left.localeCompare(right, "zh-Hans-CN"));
+
+            expect(entries).toEqual(expect.arrayContaining([
+                ".gitignore",
+                ".nbook/config.json",
+                ".nbook/history.sqlite",
+                ".nbook/project.sqlite",
+                "project.yaml",
+                "world-engine/calendar.ts",
+            ]));
+            expect(entries).not.toContain("ignored.tmp");
+            expect(entries).not.toContain(".nbook/private.txt");
+            expect(entries.some((entry) => entry.endsWith(".sqlite-wal") || entry.endsWith(".sqlite-shm"))).toBe(false);
+            expect(entries.some((entry) => entry.includes("runtime-artifact-import-cache"))).toBe(false);
+
+            const extractedRoot = path.join(root, "extracted");
+            const extractedProjectPath = await writeExtractedDatabase(files, PROJECT_DATABASE_ENTRY, extractedRoot);
+            const extractedHistoryPath = await writeExtractedDatabase(files, HISTORY_DATABASE_ENTRY, extractedRoot);
+            const extractedProject = createClient({url: toSqliteFileUrl(extractedProjectPath)});
+            const extractedHistory = createClient({url: toSqliteFileUrl(extractedHistoryPath)});
+            try {
+                const projectRows = await extractedProject.execute("SELECT value FROM archive_probe");
+                expect(projectRows.rows.map((row) => String(row["value"]))).toEqual(["live-wal"]);
+
+                const operationRows = await extractedHistory.execute("SELECT id, path FROM operation_log ORDER BY id");
+                const acceptanceRows = await extractedHistory.execute("SELECT user_id, path, accepted_entry_id FROM file_acceptance");
+                const cursorRows = await extractedHistory.execute("SELECT session_id, last_seen_entry_id FROM session_cursor");
+                const snapshotRows = await extractedHistory.execute("SELECT body FROM file_snapshot WHERE body IS NOT NULL");
+                expect(operationRows.rows).toHaveLength(2);
+                expect(acceptanceRows.rows).toEqual(expect.arrayContaining([
+                    expect.objectContaining({
+                        user_id: "local",
+                        path: "manuscript/001.md",
+                        accepted_entry_id: acceptedEntry.id,
+                    }),
+                ]));
+                expect(cursorRows.rows).toEqual(expect.arrayContaining([
+                    expect.objectContaining({session_id: "reader-session", last_seen_entry_id: acceptedEntry.id}),
+                ]));
+                expect(snapshotRows.rows).toHaveLength(2);
+            } finally {
+                await extractedProject.close();
+                await extractedHistory.close();
+            }
+            expect(stagingRoot).not.toBeNull();
+            await waitForMissing(stagingRoot!);
+        } finally {
+            await projectClient.close();
+            await history.close();
+        }
+    });
+
+    it("Project SQLite 损坏时拒绝成功归档并清理 staging", async () => {
+        await writeFile("project.yaml", "kind: novel\ntitle: broken\nsummary: ''\n");
+        const childTempRoot = path.join(root, "child-temp");
+        await fs.mkdir(childTempRoot, {recursive: true});
+        const childScriptPath = path.join(root, "corrupt-archive-child.ts");
+        await fs.writeFile(childScriptPath, corruptArchiveChildScript(), "utf-8");
+
+        const result = await execFileAsync("bun", [childScriptPath, path.resolve(root)], {
+            cwd: process.cwd(),
+            env: {
+                ...process.env,
+                TEMP: path.resolve(childTempRoot),
+                TMP: path.resolve(childTempRoot),
+            },
+        });
+
+        expect(result.stdout).toContain("EXPECTED_PROJECT_ARCHIVE_FAILURE");
+        const remainingStaging = (await fs.readdir(childTempRoot))
+            .filter((name) => name.startsWith("nbook-project-archive-"));
+        expect(remainingStaging).toEqual([]);
+    });
+
+    it("可选 Project Config 不可访问时失败，不伪装成缺失后继续下载", async () => {
+        await writeFile("project.yaml", "kind: novel\ntitle: denied\nsummary: ''\n");
+        await writeFile(".nbook/config.json", "{}\n");
+        const databasePath = path.join(root, ".nbook", "project.sqlite");
+        const client = createClient({url: toSqliteFileUrl(databasePath)});
+        await client.execute("CREATE TABLE archive_probe (value TEXT)");
+        await client.close();
+        collectReleasedSqliteHandles({force: true});
+
+        const deniedPath = path.resolve(root, ".nbook", "config.json");
+        const originalStat = fs.stat.bind(fs);
+        vi.spyOn(fs, "stat").mockImplementation(async (target, options) => {
+            if (path.resolve(String(target)) === deniedPath) {
+                const error = new Error("EACCES: simulated config access failure") as NodeJS.ErrnoException;
+                error.code = "EACCES";
+                throw error;
+            }
+            return originalStat(target, options);
+        });
+
+        await expect(createProjectWorkspaceZipStream(absoluteFsPath(path.resolve(root))))
+            .rejects.toMatchObject({code: "EACCES"});
     });
 
     /**
@@ -48,6 +218,9 @@ describe("workspace-archive", () => {
         await fs.writeFile(absolutePath, content);
     }
 });
+
+const PROJECT_DATABASE_ENTRY = ".nbook/project.sqlite";
+const HISTORY_DATABASE_ENTRY = ".nbook/history.sqlite";
 
 /**
  * 读取 Node stream 的完整 Buffer。
@@ -79,4 +252,91 @@ function readZipEntryNames(buffer: Buffer): string[] {
         offset = nameEnd + extraLength + commentLength - 1;
     }
     return names.sort((left, right) => left.localeCompare(right, "zh-Hans-CN"));
+}
+
+/** 把 zip 中的数据库写到隔离目录，供独立连接验证。 */
+async function writeExtractedDatabase(
+    entries: Record<string, Uint8Array>,
+    entryPath: string,
+    extractedRoot: string,
+): Promise<string> {
+    const content = entries[entryPath];
+    if (!content) {
+        throw new Error(`压缩包缺少数据库：${entryPath}`);
+    }
+    const outputPath = path.join(extractedRoot, ...entryPath.split("/"));
+    await fs.mkdir(path.dirname(outputPath), {recursive: true});
+    await fs.writeFile(outputPath, content);
+    return outputPath;
+}
+
+/** Windows 下 libsql native 句柄释放可能晚一个事件循环，测试清理做有限重试。 */
+async function removeTestRoot(root: string): Promise<void> {
+    let lastError: unknown = null;
+    for (const delayMs of [0, 25, 100, 250, 500]) {
+        if (delayMs > 0) {
+            await setTimeout(delayMs);
+        }
+        try {
+            await fs.rm(root, {recursive: true, force: true});
+            return;
+        } catch (error) {
+            lastError = error;
+            collectReleasedSqliteHandles({force: true});
+        }
+    }
+    throw lastError;
+}
+
+/**
+ * 损坏库在 libsql 进程内可能长期持有 Windows 句柄；子进程既验证真实失败链，也让退出成为明确释放边界。
+ */
+function corruptArchiveChildScript(): string {
+    return `
+import fs from "node:fs/promises";
+import path from "node:path";
+import {createClient} from "@libsql/client";
+import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
+import {createProjectWorkspaceZipStream} from "nbook/server/workspace-files/workspace-archive";
+import {toSqliteFileUrl} from "nbook/server/workspace-files/project-workspace";
+
+const root = process.argv[2];
+if (!root) throw new Error("missing root");
+const databasePath = path.join(root, ".nbook", "project.sqlite");
+await fs.mkdir(path.dirname(databasePath), {recursive: true});
+const client = createClient({url: toSqliteFileUrl(databasePath)});
+await client.execute("CREATE TABLE broken_probe (value TEXT)");
+await client.execute("PRAGMA writable_schema = ON");
+await client.execute("UPDATE sqlite_master SET sql = 'CREATE TABLE broken_probe (' WHERE name = 'broken_probe'");
+await client.execute("PRAGMA writable_schema = OFF");
+await client.close();
+
+try {
+    await createProjectWorkspaceZipStream(absoluteFsPath(root));
+    throw new Error("corrupt Project SQLite unexpectedly archived");
+} catch (error) {
+    if (!(error instanceof Error) || !error.message.includes("Project SQLite 在线快照失败")) {
+        throw error;
+    }
+    process.stdout.write("EXPECTED_PROJECT_ARCHIVE_FAILURE\\n");
+}
+`;
+}
+
+/** 等待 archive stream 事件触发的异步 staging 清理完成。 */
+async function waitForMissing(targetPath: string): Promise<void> {
+    for (const delayMs of [0, 10, 25, 50, 100, 250]) {
+        if (delayMs > 0) {
+            await setTimeout(delayMs);
+        }
+        try {
+            await fs.access(targetPath);
+        } catch (error) {
+            if (typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT") {
+                return;
+            }
+            throw error;
+        }
+    }
+    throw new Error(`归档 staging 未及时清理：${targetPath}`);
 }

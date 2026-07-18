@@ -611,6 +611,27 @@ uninstall
 - 实际计划差异：Docker镜像必须在build成功后立即写入Journal，不能等`prepareUpdate()`整体返回，否则后续Manager/Compose准备失败会留下孤儿镜像；实现因此把Journal更新推进到build完成点，并让catch统一重新读取持久化Journal恢复。
 - Manager `0.1.0-canary.14` release workflow `29258344967`全绿，npm `canary`与真实`bunx --bun ...@canary --version`均返回`.14`。
 
+### 2026-07-18：Release Candidate、Profile Update Planner与Operation Journal v2
+
+- 审查确认下一次Release存在确定性循环：Payload公开后，公开GHCR安装仍使用默认Resolver寻找尚未发布的最终`release-manifest.json`，因此验证job必然失败，`publish-index`永远无法运行。Manager现在支持`install/update --release-manifest <local-path|https-url>`，默认用户路径仍只选择已完整装配的正式Release；候选CI使用本地Manifest和已公开Payload完成验证。
+- Release workflow不再使用浮动`@canary`或只比较版本字符串。Assemble会下载Manifest记录的精确npm Manager tarball，逐字节比较本地`neuro-book.mjs/schema.mjs`、npm包与Portable内嵌Manager；公开GHCR和Windows`0.8.6 → candidate`更新也使用该精确版本。两个公开门禁完成后才发布最终Manifest与SHA256SUMS。
+- `neuro-book update --component`已删除。新的`update-planner.ts`按Profile固定原子范围：Source Dev更新Source；Source Product更新Source+Product；Source Docker更新Source+image+Compose；Product Bun/Portable更新Release Source+Product；GHCR更新container Source+digest Product+Compose。Runtime与Tool只保留独立维护命令。
+- Update预检在Operation前完成Release解析或Git fetch、Manager方向与无操作判断。应用/Manager/channel均一致时无持久化副作用；Manager只允许严格升级，同版本bundle checksum不同或执行版本低于Manifest时直接失败，不覆盖不可变版本目录。
+- Git staged checkout现在不仅用于build，也用于Source Dev frozen install与目标revision migration。主checkout只在migration/健康完成后fast-forward；恢复读取真实HEAD：target+healthy完成Manifest提交，previous执行回滚，第三种HEAD或未到healthy的target停止人工处理。
+- Operation Journal硬切v2，记录真实SQLite逻辑URL/物理路径/backup/checkpoint、Git revision、Docker原运行状态/stop状态/Compose/镜像、Manager wrapper和即时创建路径。已提交v1作为审计记录跳过，未完成v1拒绝自动恢复。Docker原来停止或不存在时，目标健康验证后保持非运行状态；回滚不再无条件启动旧实例。
+- App SQLite备份不再硬编码`workspace/.nbook/neuro-book.sqlite`。Manager读取State Root `.env/config.yaml`，验证`busy=0 && checkpointed=log`后复制真实文件；Docker外部数据库在Compose生成前拒绝，Portable外部数据库由doctor警告可移动性风险。
+- Windows Portable正式启动与更新健康窗口统一为120秒并定期输出等待阶段；子进程提前退出仍立即失败。
+
+#### 本轮验证与计划差异
+
+- Manager串行完整回归为22文件87项通过；Profile planner、候选Manifest、Journal v2、SQLite backup、Git/Docker恢复和不可变Manager聚焦40项通过。Manager/Runtime/根typecheck、Manager build、Release workflow YAML解析均通过。
+- SQLite/Prisma/Login聚焦4文件20项通过；登录测试已改为mock当前Boot Config入口，并恢复真实Prisma查询分支，不再误走鉴权关闭路径。
+- 公开`0.8.6`基线Release与Portable资产已通过GitHub CLI确认存在，workflow已把它固定为未来Windows A→B门禁输入。
+- SSH Arch使用干净clone叠加本轮源码验证了clean-checkout边界。首次Manager测试暴露SQLite Location位于`server/database`时会回退读取根Nuxt tsconfig；实现改为复用已有`server/runtime`独立编译边界后，远端Manager相关20文件80项、Runtime typecheck及SQLite/Prisma/Login 20项通过。
+- 同一Arch环境完成真实47阶段Docker build，frozen workspace install保持lockfile不变；镜像以分离挂载State Root启动，创建管理员后真实`POST /api/auth/login`与`/api/auth/me`均返回admin session，SQLite只位于挂载Root。首次login失败仅因测试夹具session password不足32字符，改用合法长度后通过；这没有引入产品兼容分支。
+- 远端容器、镜像、clone与State Root最终均已清理。容器root写入导致普通用户首次删除失败，最终使用一次性root容器删除明确测试目录，并再次断言无残留。
+- 与原计划不同：本轮尚未发布预计Manager `.20`或应用patch，也没有公开候选Manifest可供完整Windows/Arch A→B实跑。因此Task 105继续保持Implementing；npm/Portable/GHCR公开验证仍是发布前阻断，不把本地源码门禁写成已发布完成。
+
 ## TODO / Follow-ups
 
 - [x] Windows Portable 使用 `data/` State Root，不使用 junction。
@@ -743,3 +764,26 @@ uninstall
 - SSH Arch从空目录使用公开Manager安装GHCR成功。Attachment one-off migration真实退出，Operation为`committed / success`，Manifest和wrapper提交完成且没有残留one-off容器；这与`.18`阻断时的`rolled-back`证据形成完整修复对照。
 - doctor healthy；容器内Attachment rollback和同根State Root Agent smoke通过；`/app/.agent`不存在。停止Compose后，Manager `start`按固定digest重新启动，HTTP返回精确版本，State Root标记保持不变。
 - 测试实例、隔离HOME、容器、网络和本轮镜像引用均已清理。Task 108/109因此完成；Task 105继续跟踪其尚未完成的平台扩展、Portable用户链与故障注入，不把本次GHCR终验扩大解释为整个Task 105归档。
+
+### 2026-07-18 Windows Portable SQLite与Update事务回归
+
+- 公开`0.8.6` Portable在鉴权开启后稳定复现登录500。数据库配置层已经计算State Root下的绝对`sqliteFilePath`，但Prisma仍消费原始相对URL，最终相对Product进程cwd打开错误文件；临时改为现有数据库的绝对`file:C:/...`后登录链恢复，证明不是用户数据库损坏。
+- App数据库新增唯一SQLite Location解析接口。`.env`与Boot Config继续保存逻辑相对URL，运行时URL和物理path统一从当前State Root计算；Prisma Runtime与Prisma CLI准备流程复用同一算法，不修改用户配置、不增加旧路径fallback。
+- Update的`bad parameter or other API misuse`来自`bun:sqlite`以`{create:false}`覆盖默认flags。备份现在显式使用`{readwrite:true, create:false}`，并把open、checkpoint、close和copy错误统一标注为“App SQLite备份”及目标路径；不存在的数据库不会被创建。
+- Release Profile在创建Operation、backup和staging前完成版本与checksum差异规划。应用、channel和Manager均一致时返回`already-current`且无文件系统副作用；仅Manager较新时只接管Manager、wrapper和Manifest。审查中额外修复GHCR仅Manager更新仍生成Compose的问题。
+- CLI、Clack上下文菜单和TUI统一消费`UpdateResult`，不再各自猜测更新是否发生。显式Runtime/Tool维护命令保持独立，不把同版本Update扩展为隐式repair。
+- Release Windows verify新增真实鉴权链：创建管理员、确认SQLite只位于`data/workspace/.nbook`、从Portable目录外启动、POST登录并验证管理员/session cookie，同时拒绝Installation Root影子`workspace/`。该门禁将在下一次发布时运行，本轮按决策不发布版本。
+- 聚焦结果：SQLite Location/Database Config/Prisma env共12项通过；Manager SQLite备份与Update预检共8项通过；Manager typecheck、workflow YAML与新增PowerShell步骤语法通过。
+- 真实Windows链使用公开`0.8.6` Portable ZIP解压全新实例，只把隔离副本的`.output`替换为当前源码Product build，并通过本地Manager创建管理员。随后从Portable目录外直接启动Product，真实`POST /api/auth/login`返回200、`authEnabled=true`、admin身份和session cookie；数据库只位于`data/workspace/.nbook/neuro-book.sqlite`，Installation Root没有影子`workspace/`。
+- 同一实例使用本地Manager执行同版本Update，输出“已是最新版本”；Operation文件数保持1、backup/staging保持0、数据库SHA256逐字节不变。SQLite checkpoint/open失败的事务边界由聚焦Manager测试覆盖，没有为故障注入破坏这份真实用户数据库。
+- 混合测试overlay首次经Manager `start`时在30秒健康窗口内未就绪；相同Product随后直接通过正式`product-start.mjs`启动并完成HTTP/登录链。该现象可能来自“公开Source/State + 当前未发布Product overlay”的首次资产准备差异，本轮不据此修改启动超时；未来完整候选Portable仍由Release launcher门禁判定。
+- 实际计划差异：Update预检实现后发现GHCR的Compose生成不受差异集合约束，已在同一事务切片中修正；真实Portable验证使用“公开0.8.6完整布局 + 当前Product overlay”，而不是不存在的未来公开资产。没有迁移、移动或重写用户数据库，也没有发布npm或应用patch。
+
+### 2026-07-18 Installation Health与公开GHCR门禁
+
+- Manager新增`installation-health`深层Module，正式区分Offline Integrity与Runtime Service。`instances import`只消费离线门禁；`status`执行轻量探测；`doctor`执行checksum、版本、wrapper真实内容、Source/Product revision、State Root、Compose和Operation完整检查。
+- 容器状态按用户语义分类：未创建或退出码0的停止容器为warning且`healthy=true`；Docker/Compose不可用、Compose镜像与Manifest不符、实际容器镜像错误、异常退出、health失败、HTTP不可达或版本错误为fail。原生服务同样把正常停机与错误端口/版本区分开。
+- Docker `start`在`compose up -d`后等待`/api/app/version`返回精确版本。安装、更新、Operation恢复和普通start均传入Manifest应用版本，不再把Compose命令成功当作应用健康。
+- stable Manager/Runtime/Tool wrapper模板提取为纯render函数；写入侧与doctor比较侧使用同一来源，wrapper存在但指向旧组件会明确失败。TUI删除`object`手工断言，直接消费`InstallationStatus`和`DoctorReport`。
+- Release workflow新增公开GHCR安装门禁：公开Manager空目录安装、running doctor、停止容器后的healthy+warning、再次start和HTTP验证全部通过后才发布最终Release index。
+- 本机Manager 22 files / 78 tests、typecheck、build和pack审计通过；根Harness 169/169、black-box+payload 25/25、路径/Attachment聚焦回归全绿。SSH Arch确认Bun 1.3.13、Docker 29.4.2和Compose 5.1.3可用，但新Manager尚未公开，因此本轮没有发布canary，也没有把CI设计写成已执行的公开证据。

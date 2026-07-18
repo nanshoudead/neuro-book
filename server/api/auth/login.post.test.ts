@@ -13,10 +13,12 @@ vi.mock("nbook/server/utils/prisma", () => ({
     prisma: prismaMock,
 }));
 
-vi.mock("nbook/server/config/config-service", () => ({
-    loadGlobalEffectiveConfigSync: () => ({
-        auth: {enabled: true},
-    }),
+vi.mock("nbook/server/utils/novel-chapter", () => ({
+    validateBody: async () => (globalThis as typeof globalThis & {readBody: ReturnType<typeof vi.fn>}).readBody(),
+}));
+
+vi.mock("nbook/server/config/boot-config", () => ({
+    loadBootAuthEnabledSync: () => true,
 }));
 
 vi.mock("h3", () => ({

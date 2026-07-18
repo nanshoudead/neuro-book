@@ -4,6 +4,7 @@ import {join} from "node:path";
 import {parse, stringify} from "yaml";
 
 import {ensureDirectory, pathExists, writeJsonAtomic, writeTextAtomic} from "#manager/files";
+import {selectAppSqliteUrl} from "nbook/server/runtime/app-sqlite-location";
 
 /** 初始化 State Root，并返回本次新建的路径供事务回滚。 */
 export async function ensureStateFiles(stateRoot: string, port: number, authEnabled: boolean): Promise<string[]> {
@@ -62,6 +63,23 @@ export async function loadStateEnv(stateRoot: string): Promise<NodeJS.ProcessEnv
         }
     }
     return result;
+}
+
+/** 按Product相同优先级读取State Root中的App SQLite逻辑URL。 */
+export async function resolveStateDatabaseUrl(stateRoot: string): Promise<string> {
+    const environment = await loadStateEnv(stateRoot);
+    const bootConfigPath = join(stateRoot, "config.yaml");
+    const bootText = await readFile(bootConfigPath, "utf8").catch((error: NodeJS.ErrnoException) => {
+        if (error.code === "ENOENT") return "";
+        throw error;
+    });
+    const expanded = bootText.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-(.*?))?\}/gu, (_match, name: string, fallback: string | undefined) => {
+        const value = environment[name] ?? process.env[name];
+        return value !== undefined && value !== "" ? value : fallback ?? "";
+    });
+    const boot = expanded ? parse(expanded) as {database?: {url?: unknown}} | null : null;
+    const bootUrl = typeof boot?.database?.url === "string" ? boot.database.url : undefined;
+    return selectAppSqliteUrl(environment.DATABASE_URL, bootUrl);
 }
 
 /** 仅供 Windows Portable 创建管理员成功后启用鉴权。 */

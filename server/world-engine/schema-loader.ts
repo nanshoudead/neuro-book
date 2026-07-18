@@ -65,7 +65,11 @@ export class WorldSchemaLoader {
         }
 
         try {
-            const schemaModule = await importSingleFileTypeScriptConfig<{default?: unknown; WorldSchema?: unknown}>(tsSchemaPath, "schema");
+            const schemaModule = await importSingleFileTypeScriptConfig<{default?: unknown; WorldSchema?: unknown}>({
+                filePath: tsSchemaPath,
+                label: "schema",
+                runtimeCacheRoot: path.join(projectRoot, ".nbook", "runtime-artifact-import-cache"),
+            });
             const exportedSchema = schemaModule.default ?? schemaModule.WorldSchema;
             if (!exportedSchema || typeof exportedSchema !== "object") {
                 throw createError({statusCode: 400, message: "schema 必须导出 { subjectTypes: {...} } 或 WorldSchema 注册表对象"});

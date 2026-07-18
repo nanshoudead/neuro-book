@@ -258,6 +258,26 @@ describe("v3 file tools", () => {
         expect(state.entries).toEqual([expect.objectContaining({path: "lorebook/character/beta/"})]);
     });
 
+    it("read 使用Project内绝对地址时保留Resolver提供的context access归属", async () => {
+        const projectRoot = join(root, "workspace", "silver-dragon-hime");
+        const target = join(projectRoot, "lorebook", "character", "absolute", "index.md");
+        await mkdir(dirname(target), {recursive: true});
+        await writeFile(target, "Absolute", "utf8");
+        const tool = mustTool("read", harness);
+
+        await tool.executeWithContext?.({
+            ...context,
+            workspaceRootRef: "workspace",
+            workspaceFsRoot: absoluteFsPath(workspaceRoot),
+            projectPath: "workspace/silver-dragon-hime",
+        }, "read-absolute-project", {path: target});
+
+        const state = JSON.parse(await readFile(join(projectRoot, ".nbook", "context-access", "test.file-tools.json"), "utf8")) as {
+            entries: Array<{path: string}>;
+        };
+        expect(state.entries).toEqual([expect.objectContaining({path: "lorebook/character/absolute/"})]);
+    });
+
     it("跨 Project 读取图片时来源归目标 Project，blob 仍写入 Workspace Root 全局 Attachment Store", async () => {
         const betaRoot = join(root, "workspace", "beta");
         const bytes = Buffer.from([0xff, 0xd8, 0xff, 0xd9]);
@@ -275,7 +295,7 @@ describe("v3 file tools", () => {
         }
         const hash = attachment.attachment.id.slice("sha256:".length);
 
-        await expect(access(join(workspaceRoot, ".nbook", "agent", "attachments", "sha256", hash.slice(0, 2), hash.slice(2)))).resolves.toBeUndefined();
+        await access(join(workspaceRoot, ".nbook", "agent", "attachments", "sha256", hash.slice(0, 2), hash.slice(2)));
         await expect(access(join(betaRoot, ".nbook", "agent", "attachments"))).rejects.toThrow();
     });
 

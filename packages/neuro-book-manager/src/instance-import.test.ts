@@ -8,6 +8,7 @@ import {afterEach, describe, expect, it} from "vitest";
 import {importInstallation, inspectImport} from "#manager/instance-import";
 import {writeInstallationManifest} from "#manager/manifest-store";
 import {installationPaths} from "#manager/paths";
+import {renderManagerWrapper} from "#manager/runtime";
 import type {InstallationManifest} from "#manager/types";
 
 const roots: string[] = [];
@@ -43,18 +44,21 @@ async function fixture(): Promise<string> {
     await mkdir(join(root, ".deploy"), {recursive: true});
     await mkdir(join(root, "workspace"), {recursive: true});
     await mkdir(join(root, "logs"), {recursive: true});
+    await mkdir(join(root, ".output", "server"), {recursive: true});
     await mkdir(join(manager, ".."), {recursive: true});
     await mkdir(join(wrapper, ".."), {recursive: true});
     const bundle = "console.log('manager')\n";
     await writeFile(manager, bundle, "utf8");
-    await writeFile(wrapper, process.platform === "win32" ? ".runtime\\manager\\0.1.0\\neuro-book.mjs" : ".runtime/manager/0.1.0/neuro-book.mjs", "utf8");
+    await writeFile(wrapper, renderManagerWrapper({provider: "managed", version: "0.1.0", path: ".runtime/manager/0.1.0/neuro-book.mjs", bundleSha256: ""}, {provider: "system", version: "1.3.0", executable: "bun"}), "utf8");
+    await writeFile(join(root, ".output", "server", "index.mjs"), "export default {}\n", "utf8");
     await writeFile(join(root, "config.yaml"), "server: {}\n", "utf8");
     const revision = "b".repeat(40);
     const now = new Date().toISOString();
     const manifest: InstallationManifest = {
-        schemaVersion: 3, profile: "source-dev", managerVersion: "0.1.0", appVersion: "1.0.0", channel: "canary", sourceRevision: revision, stateRoot: ".",
+        schemaVersion: 3, profile: "product-bun", managerVersion: "0.1.0", appVersion: "1.0.0", channel: "canary", sourceRevision: revision, stateRoot: ".",
         components: {
-            source: {provider: "git", version: "1.0.0", revision, path: ".", repository: "https://github.com/notnotype/neuro-book.git", branch: "master"},
+            source: {provider: "release", version: "1.0.0", revision, path: ".", files: ["package.json"], archiveSha256: "c".repeat(64), sourceUrl: "https://example.com/source.zip", license: "test", redistribution: "test"},
+            product: {provider: "release", version: "1.0.0", revision, path: ".output", platform: process.platform === "win32" ? "windows-x64" : "linux-x64-glibc", archiveSha256: "d".repeat(64), sourceUrl: "https://example.com/product.zip", license: "test", redistribution: "test"},
             manager: {provider: "managed", version: "0.1.0", path: ".runtime/manager/0.1.0/neuro-book.mjs", bundleSha256: createHash("sha256").update(bundle).digest("hex")},
             managerRuntime: {provider: "system", version: "1.3.0", executable: "bun"}, applicationRuntime: {provider: "system", version: "1.3.0", executable: "bun"}, tools: {git: {provider: "system", version: "git version 2", executable: "git"}},
         }, installedAt: now, updatedAt: now,

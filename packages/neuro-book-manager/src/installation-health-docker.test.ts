@@ -1,0 +1,96 @@
+import {mkdtemp, rm, writeFile} from "node:fs/promises";
+import {tmpdir} from "node:os";
+import {join} from "node:path";
+
+import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
+
+const mocks = vi.hoisted(() => ({
+    commandStatus: vi.fn(),
+    inspectDockerApplication: vi.fn(),
+}));
+
+vi.mock("#manager/app-commands", () => ({commandStatus: mocks.commandStatus}));
+vi.mock("#manager/docker", () => ({inspectDockerApplication: mocks.inspectDockerApplication}));
+
+import {inspectInstallationService} from "#manager/installation-health";
+import type {InstallationManifest} from "#manager/types";
+
+const roots: string[] = [];
+const digest = `sha256:${"a".repeat(64)}`;
+
+beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.commandStatus.mockResolvedValue({available: true, version: "Docker"});
+});
+
+afterEach(async () => {
+    vi.unstubAllGlobals();
+    await Promise.all(roots.splice(0).map((root) => rm(root, {recursive: true, force: true})));
+});
+
+describe("Docker Installation Health", () => {
+    it("容器未创建时返回stopped而不是fail", async () => {
+        const root = await fixture();
+        mocks.inspectDockerApplication.mockResolvedValue({configuredImage: `ghcr.io/notnotype/neuro-book:v1@${digest}`});
+        const service = await inspectInstallationService(root, manifest());
+        expect(service.status).toBe("stopped");
+        expect(service.message).toContain("尚未创建");
+    });
+
+    it("运行镜像与Manifest不一致时返回degraded", async () => {
+        const root = await fixture();
+        mocks.inspectDockerApplication.mockResolvedValue({
+            configuredImage: `ghcr.io/notnotype/neuro-book:v1@${digest}`,
+            containerId: "container",
+            actualImage: "ghcr.io/notnotype/neuro-book:old",
+            status: "running",
+        });
+        const service = await inspectInstallationService(root, manifest());
+        expect(service.status).toBe("degraded");
+        expect(service.message).toContain("镜像与Manifest不一致");
+    });
+
+    it("运行容器HTTP版本错误时返回degraded", async () => {
+        const root = await fixture();
+        mocks.inspectDockerApplication.mockResolvedValue({
+            configuredImage: `ghcr.io/notnotype/neuro-book:v1@${digest}`,
+            containerId: "container",
+            actualImage: `ghcr.io/notnotype/neuro-book:v1@${digest}`,
+            status: "running",
+        });
+        vi.stubGlobal("fetch", vi.fn(async () => Response.json({versionLabel: "v0.9.0"})));
+        const service = await inspectInstallationService(root, manifest());
+        expect(service.status).toBe("degraded");
+        expect(service.observedVersion).toBe("v0.9.0");
+    });
+});
+
+async function fixture(): Promise<string> {
+    const root = await mkdtemp(join(tmpdir(), "nbook-health-docker-"));
+    roots.push(root);
+    await writeFile(join(root, ".env"), "NUXT_PORT=19374\n", "utf8");
+    return root;
+}
+
+function manifest(): InstallationManifest {
+    const revision = "b".repeat(40);
+    return {
+        schemaVersion: 3,
+        profile: "ghcr",
+        managerVersion: "0.1.0",
+        appVersion: "1.0.0",
+        channel: "canary",
+        sourceRevision: revision,
+        stateRoot: ".",
+        components: {
+            source: {provider: "container", version: "1.0.0", revision, path: "/app"},
+            product: {provider: "container", version: "1.0.0", revision, image: "ghcr.io/notnotype/neuro-book:v1", digest},
+            manager: {provider: "managed", version: "0.1.0", path: ".runtime/manager/0.1.0/neuro-book.mjs", bundleSha256: "c".repeat(64)},
+            managerRuntime: {provider: "managed", version: "1.3.0", path: ".runtime/bun/1.3.0/bun", executableSha256: "d".repeat(64), archiveSha256: "e".repeat(64), sourceUrl: "https://example.com/bun", license: "MIT", redistribution: "test"},
+            applicationRuntime: {provider: "container", version: "1.0.0"},
+            tools: {rg: {provider: "container", version: "1.0.0"}, git: {provider: "container", version: "1.0.0"}, python: {provider: "container", version: "1.0.0"}},
+        },
+        installedAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+    };
+}

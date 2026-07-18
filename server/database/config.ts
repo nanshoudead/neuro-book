@@ -1,17 +1,20 @@
 import fs from "node:fs";
 import path from "node:path";
 import * as yaml from "yaml";
+import {resolveAppSqliteLocation, selectAppSqliteUrl} from "nbook/server/runtime/app-sqlite-location";
 import {resolveBootConfigPath, resolveStateRoot} from "nbook/server/runtime/installation-paths";
 
 export type DatabaseKind = "sqlite";
 
 export type DatabaseRuntimeConfig = {
     kind: DatabaseKind;
+    /** `.env`/Boot Config中的逻辑值。 */
+    configuredUrl: string;
+    /** 当前进程可直接连接的绝对file URL。 */
     url: string;
-    sqliteFilePath: string | null;
+    sqliteFilePath: string;
+    sqliteScope: "state-root" | "external";
 };
-
-const DEFAULT_SQLITE_URL = "file:./workspace/.nbook/neuro-book.sqlite";
 
 /**
  * 解析当前进程实际使用的数据库配置。
@@ -26,16 +29,18 @@ export function resolveDatabaseConfig(): DatabaseRuntimeConfig {
     const bootKind = normalizeKind(bootDatabase.kind);
     const bootUrl = normalizeText(bootDatabase.url);
     const kind = envKind ?? inferKindFromUrl(envUrl) ?? bootKind ?? inferKindFromUrl(bootUrl) ?? "sqlite";
-    const url = envUrl || bootUrl || DEFAULT_SQLITE_URL;
+    const url = selectAppSqliteUrl(envUrl, bootUrl);
 
     assertDatabaseConfig(kind, url);
-    const sqliteFilePath = resolveSqliteFilePath(url);
-    fs.mkdirSync(path.dirname(sqliteFilePath), {recursive: true});
+    const location = resolveAppSqliteLocation(url, resolveStateRoot());
+    fs.mkdirSync(path.dirname(location.hostPath), {recursive: true});
 
     return {
         kind,
-        url,
-        sqliteFilePath,
+        configuredUrl: location.configuredUrl,
+        url: location.connectionUrl,
+        sqliteFilePath: location.hostPath,
+        sqliteScope: location.scope,
     };
 }
 
@@ -50,23 +55,14 @@ export function currentDatabaseKind(): DatabaseKind {
  * SQLite URL 默认值，供部署脚本和测试复用。
  */
 export function defaultSqliteDatabaseUrl(): string {
-    return DEFAULT_SQLITE_URL;
+    return selectAppSqliteUrl(undefined, undefined);
 }
 
 /**
  * 将 SQLite file URL 解析成本机绝对路径。
  */
 export function resolveSqliteFilePath(url: string): string {
-    if (!url.startsWith("file:")) {
-        throw new Error(`SQLite DATABASE_URL 必须以 file: 开头，当前为：${url}`);
-    }
-
-    const rawPath = url.slice("file:".length);
-    if (!rawPath || rawPath === ":memory:") {
-        throw new Error("SQLite DATABASE_URL 必须指向文件路径，不能使用空路径或内存库。");
-    }
-
-    return path.resolve(resolveStateRoot(), rawPath);
+    return resolveAppSqliteLocation(url, resolveStateRoot()).hostPath;
 }
 
 function readBootDatabaseConfig(): {kind?: unknown; url?: unknown} {

@@ -1,4 +1,4 @@
-import {mkdtemp, readdir, rm} from "node:fs/promises";
+import {access, mkdir, mkdtemp, readdir, rm, symlink, writeFile} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
 import {afterEach, describe, expect, it} from "vitest";
@@ -51,5 +51,36 @@ describe("LocalAttachmentBlobAdapter", () => {
         ]);
         const published = await first.get("sha256/cc/blob");
         expect([Buffer.from([1, 2, 3]), Buffer.from([4, 5, 6])]).toContainEqual(published);
+    });
+
+    it("拒绝沿Store内部junction或symlink读写外部目录", async () => {
+        const fixture = await mkdtemp(join(tmpdir(), "nbook-attachment-link-"));
+        roots.push(fixture);
+        const root = join(fixture, "store");
+        const outside = join(fixture, "outside");
+        await Promise.all([mkdir(join(root, "sha256"), {recursive: true}), mkdir(outside, {recursive: true})]);
+        await symlink(outside, join(root, "sha256", "aa"), process.platform === "win32" ? "junction" : "dir");
+        const adapter = new LocalAttachmentBlobAdapter(root);
+
+        await expect(adapter.put("sha256/aa/blob", new Uint8Array([1, 2, 3])))
+            .rejects.toMatchObject({code: "corrupt"});
+        await expect(access(join(outside, "blob"))).rejects.toMatchObject({code: "ENOENT"});
+
+        await writeFile(join(outside, "blob"), new Uint8Array([4, 5, 6]));
+        await expect(adapter.get("sha256/aa/blob")).rejects.toMatchObject({code: "corrupt"});
+    });
+
+    it("拒绝Attachment Store根本身是链接目录", async () => {
+        const fixture = await mkdtemp(join(tmpdir(), "nbook-attachment-root-link-"));
+        roots.push(fixture);
+        const outside = join(fixture, "outside");
+        const root = join(fixture, "store");
+        await mkdir(outside, {recursive: true});
+        await symlink(outside, root, process.platform === "win32" ? "junction" : "dir");
+        const adapter = new LocalAttachmentBlobAdapter(root);
+
+        await expect(adapter.put("sha256/aa/blob", new Uint8Array([1])))
+            .rejects.toMatchObject({code: "corrupt"});
+        await expect(adapter.get("sha256/aa/blob")).rejects.toMatchObject({code: "corrupt"});
     });
 });

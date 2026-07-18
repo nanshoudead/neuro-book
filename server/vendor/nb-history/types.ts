@@ -133,6 +133,15 @@ export type PruneReport = {
     bytesFreed: number;
 };
 
+/** 显式路径清理报告。用于宿主收紧记账范围后移除不再受管的错误历史。 */
+export type PathPurgeReport = {
+    entriesDeleted: number;
+    acceptancesDeleted: number;
+    snapshotsDeleted: number;
+    /** 近似值:被删快照 body 的字节数合计 */
+    bytesFreed: number;
+};
+
 /** 文本 diff 结果。任一侧 body 不可用时返回明确标记而非抛错(R13)。 */
 export type TextDiffResult =
     | {

@@ -603,6 +603,7 @@ describe("NeuroAgentHarness", () => {
             },
         }), false);
 
+        await mkdir(join(root, "novel-7"), {recursive: true});
         const created = await harness.createAgent({
             profileKey: "test.workspace-container",
             initial: {},
@@ -617,6 +618,7 @@ describe("NeuroAgentHarness", () => {
     });
 
     it("/new 创建的新 session 保留 Workspace Root 和 projectPath", async () => {
+        await mkdir(join(root, "novel-7"), {recursive: true});
         const created = await harness.createAgent({
             profileKey: "leader.default",
             initial: {},
@@ -6926,6 +6928,7 @@ describe("NeuroAgentHarness", () => {
                         return {};
                     },
                 }), false);
+                await mkdir(projectRoot, {recursive: true});
                 const created = await harness.createAgent({
                     profileKey: "test.plan-mode-preview",
                     initial: {},
@@ -8251,12 +8254,13 @@ describe("NeuroAgentHarness", () => {
     });
 
     it("子 session 未显式传 workspace 时继承父 session 归属并能看到绑定者", async () => {
+        await mkdir(join(root, "novel-one"), {recursive: true});
         const parent = await harness.createAgent({
             profileKey: "leader.default",
             initial: {},
-            workspaceRoot: root,
+            workspaceRoot: "workspace",
             workspaceKey: "novel-one",
-            projectPath: "novel-one",
+            projectPath: "workspace/novel-one",
         });
         const child = await harness.createAgent({
             profileKey: "leader.default",
@@ -8267,7 +8271,7 @@ describe("NeuroAgentHarness", () => {
         const childSnapshot = await harness.getSessionRecovery(child.sessionId);
 
         expect(childSnapshot.summary.workspaceKey).toBe("novel-one");
-        expect(childSnapshot.summary.projectPath).toBe("novel-one");
+        expect(childSnapshot.summary.projectPath).toBe("workspace/novel-one");
         expect(childSnapshot.linkedByAgents).toEqual([
             expect.objectContaining({
                 sessionId: parent.sessionId,

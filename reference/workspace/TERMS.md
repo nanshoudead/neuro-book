@@ -16,6 +16,8 @@
 - **File Scope**：文件工具与 bash 在一次 Agent invocation 中共用的物理 cwd。绑定 Project Path 时是当前 Project Workspace；未绑定项目时是 Workspace Root；user-assets 时是 Workspace Root `.nbook`；外部 Project Workspace 时是其绝对目录。
 - **Project File Address**：显式跨项目文件地址，形态为 `workspace/{project-slug}/{relative-path}`。它由 Project Path Resolver 解析，不是通过 cwd 字符串剥离得到的 alias。
 - **Project Workspace `.nbook`**：Project Workspace 的项目级控制区，默认是 `workspace/{project}/.nbook/`。它保存 Project Config、项目状态和项目私有元数据。
+- **Project Runtime Artifact**：NeuroBook 从 Project Workspace 源文件派生、可随时重建、仅供运行时执行或缓存使用的文件。canonical 位置在 Project Workspace `.nbook`；它不是项目内容，不进入文件历史、Agent 文件变更提醒、Project Workspace File Index 或 Project 下载包。
+- **Project Workspace Download Archive**：Project Workspace 的可携带完整备份。普通文件继续遵守 `.gitignore`，`project.yaml`、Project Config、Project SQLite 和已有 History SQLite 强制纳入；两个 SQLite 使用独立在线 snapshot，不复制 live WAL/SHM。History SQLite 可能包含全文、删除内容、acceptance 与 session cursor，分享前必须评估隐私风险。
 - **user-assets**：前端用于编辑 Workspace Root `.nbook` 的入口。它不是独立配置层，而是把当前 Studio 挂载在 `workspace/.nbook/`。
 - **Bundled Workspace Template**：随项目发布的默认 workspace 模板与系统资源，位于 `assets/workspace/`。
 
@@ -29,6 +31,8 @@
 - `assets/workspace/workspace.config.example.json` 对应运行时 `workspace/{project}/.nbook/config.json` 的示例。
 - user-assets 入口直接编辑 `workspace/.nbook`，不再使用 `workspace/.nbook/assets` 作为嵌套资产根。
 - Project-bound Agent 的 File Scope 是当前 Project Workspace。当前项目使用 `manuscript/...`、`lorebook/...`、`reference/...`；跨项目使用完整 Project File Address `workspace/{project-slug}/...`。
+- Project Runtime Artifact 固定写入 Project Workspace `.nbook` 控制区；源码目录旁的旧 runtime artifact 位置只用于迁移清理，不再作为当前写入位置。
+- Project Workspace Download Archive 在 OS 临时目录准备 SQLite snapshot，不向 Project Workspace 写入打包中转文件；Project SQLite 与 History SQLite 分别一致，但不承诺与普通文件构成跨存储全局事务。
 - Agent session保存Agent Workspace Root Reference和Project Path；每次invocation据此投影File Scope，不持久化managed绝对cwd。Windows Portable中当前Project因此解析到`data/workspace/{project-slug}/`。
 - Current Project Workspace决定Project-bound invocation的File Scope；它不是权限边界，跨项目访问必须使用显式Project File Address。
 - 仓库源码根与仓库级 `reference/` 位于Project File Scope外，使用runtime reminder提供的绝对路径访问。

@@ -6,17 +6,30 @@ import {downloadVerified, extractArchive, githubReleaseAsset} from "#manager/dow
 import {ensureDirectory, pathExists, removePath, sha256File, writeTextAtomic} from "#manager/files";
 import {assertManagerPlatform, executableName} from "#manager/platform";
 import type {ManagedRuntimeComponent, ManagerComponent, ManagerRuntimeComponent} from "#manager/types";
+import {compare} from "semver";
 
 const STAGE0_PATH = "NEURO_BOOK_STAGE0_BUN_PATH";
 const STAGE0_VERSION = "NEURO_BOOK_STAGE0_BUN_VERSION";
 const STAGE0_SOURCE_URL = "NEURO_BOOK_STAGE0_BUN_SOURCE_URL";
 const STAGE0_SHA256 = "NEURO_BOOK_STAGE0_BUN_SHA256";
 
+/** Manager自接管只允许严格升级；同版本bundle身份必须完全一致。 */
+export async function assertManagerUpgrade(currentVersion: string, installedVersion: string, installedChecksum: string, source: string): Promise<boolean> {
+    const direction = compare(currentVersion, installedVersion);
+    if (direction < 0) {
+        throw new Error(`当前Manager ${currentVersion}低于安装记录的${installedVersion}；拒绝覆盖或降级不可变Manager版本目录。请使用不低于${installedVersion}的Manager重试。`);
+    }
+    if (direction === 0 && await sha256File(source) !== installedChecksum) {
+        throw new Error(`Manager ${currentVersion}版本相同但bundle checksum与Installation Manifest不一致；不可变版本目录不会被覆盖。`);
+    }
+    return direction > 0;
+}
+
 /** 解析 Manager Host Runtime；Stage 0 优先复制为 managed，否则使用当前 Bun。 */
-export async function resolveManagerRuntime(root: string, forceManaged = false, createdPaths: string[] = []): Promise<ManagerRuntimeComponent> {
+export async function resolveManagerRuntime(root: string, forceManaged = false, createdPaths: string[] = [], recordCreated?: (path: string) => Promise<void>): Promise<ManagerRuntimeComponent> {
     const stage0 = stage0Runtime();
-    if (stage0) return installStage0Bun(root, stage0, createdPaths);
-    if (forceManaged) return installManagedBun(root, undefined, createdPaths);
+    if (stage0) return installStage0Bun(root, stage0, createdPaths, recordCreated);
+    if (forceManaged) return installManagedBun(root, undefined, createdPaths, recordCreated);
     return {
         provider: "system",
         version: process.versions.bun ?? "unknown",
@@ -25,7 +38,7 @@ export async function resolveManagerRuntime(root: string, forceManaged = false, 
 }
 
 /** 安装托管 Bun Runtime，使用 staging 后原子提交不可变版本目录。 */
-export async function installManagedBun(root: string, requestedVersion?: string, createdPaths: string[] = []): Promise<ManagedRuntimeComponent> {
+export async function installManagedBun(root: string, requestedVersion?: string, createdPaths: string[] = [], recordCreated?: (path: string) => Promise<void>): Promise<ManagedRuntimeComponent> {
     assertManagerPlatform();
     const tag = requestedVersion
         ? requestedVersion.startsWith("bun-v") ? requestedVersion : `bun-v${requestedVersion.replace(/^v/u, "")}`
@@ -48,7 +61,9 @@ export async function installManagedBun(root: string, requestedVersion?: string,
         await rename(extractedRoot, runtimeRoot);
         await removePath(stageRoot);
         executable = join(runtimeRoot, relative(extractedRoot, executable));
-        createdPaths.push(relative(root, runtimeRoot).replaceAll("\\", "/"));
+        const createdPath = relative(root, runtimeRoot).replaceAll("\\", "/");
+        createdPaths.push(createdPath);
+        await recordCreated?.(createdPath);
     }
     return {
         provider: "managed",
@@ -63,12 +78,20 @@ export async function installManagedBun(root: string, requestedVersion?: string,
 }
 
 /** 把当前 Manager bundle安装到版本目录，并返回严格组件状态。 */
-export async function installManagerExecutable(root: string, version: string, source: string, createdPaths: string[] = []): Promise<ManagerComponent> {
+export async function installManagerExecutable(root: string, version: string, source: string, createdPaths: string[] = [], recordCreated?: (path: string) => Promise<void>): Promise<ManagerComponent> {
     const managerRoot = join(root, ".runtime", "manager", version);
     await ensureDirectory(managerRoot);
     const target = join(managerRoot, "neuro-book.mjs");
-    if (!await pathExists(target)) createdPaths.push(relative(root, managerRoot).replaceAll("\\", "/"));
-    if (resolve(source) !== resolve(target)) await copyFile(source, target);
+    if (await pathExists(target)) {
+        if (resolve(source) !== resolve(target) && await sha256File(source) !== await sha256File(target)) {
+            throw new Error(`Manager版本目录不可变且bundle checksum不一致：${target}`);
+        }
+    } else {
+        const createdPath = relative(root, managerRoot).replaceAll("\\", "/");
+        createdPaths.push(createdPath);
+        await recordCreated?.(createdPath);
+        if (resolve(source) !== resolve(target)) await copyFile(source, target);
+    }
     return {
         provider: "managed",
         version,
@@ -81,23 +104,30 @@ export async function installManagerExecutable(root: string, version: string, so
 export async function writeManagerWrapper(root: string, manager: ManagerComponent, runtime: ManagerRuntimeComponent): Promise<void> {
     const binRoot = join(root, ".runtime", "bin");
     await ensureDirectory(binRoot);
-    const managerPath = manager.path.replaceAll("/", process.platform === "win32" ? "\\" : "/");
     if (process.platform === "win32") {
-        const runtimeCommand = runtime.provider === "managed"
-            ? `"%ROOT%\\${runtime.path.replaceAll("/", "\\")}"`
-            : `"${runtime.executable}"`;
         await writeTextAtomic(
             join(binRoot, "neuro-book.cmd"),
-            `@echo off\r\nset "ROOT=%~dp0..\\.."\r\n${runtimeCommand} "%ROOT%\\${managerPath}" %*\r\n`,
+            renderManagerWrapper(manager, runtime),
         );
         return;
     }
     const wrapper = join(binRoot, "neuro-book");
+    await writeTextAtomic(wrapper, renderManagerWrapper(manager, runtime));
+    await chmod(wrapper, 0o755);
+}
+
+/** 生成稳定Manager wrapper；安装与doctor必须消费同一模板。 */
+export function renderManagerWrapper(manager: ManagerComponent, runtime: ManagerRuntimeComponent, platform: NodeJS.Platform = process.platform): string {
+    if (platform === "win32") {
+        const runtimeCommand = runtime.provider === "managed"
+            ? `"%ROOT%\\${runtime.path.replaceAll("/", "\\")}"`
+            : `"${runtime.executable}"`;
+        return `@echo off\r\nset "ROOT=%~dp0..\\.."\r\n${runtimeCommand} "%ROOT%\\${manager.path.replaceAll("/", "\\")}" %*\r\n`;
+    }
     const runtimeCommand = runtime.provider === "managed"
         ? `"$ROOT/${runtime.path}"`
         : JSON.stringify(runtime.executable);
-    await writeTextAtomic(wrapper, `#!/bin/sh\nROOT="$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)"\nexec ${runtimeCommand} "$ROOT/${manager.path}" "$@"\n`);
-    await chmod(wrapper, 0o755);
+    return `#!/bin/sh\nROOT="$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)"\nexec ${runtimeCommand} "$ROOT/${manager.path}" "$@"\n`;
 }
 
 /** 返回 Runtime 真实可执行文件。 */
@@ -113,7 +143,7 @@ export function prependExecutablePath(executable: string): void {
     if (!current.split(separator).includes(directory)) process.env.PATH = `${directory}${separator}${current}`;
 }
 
-async function installStage0Bun(root: string, stage0: Stage0Runtime, createdPaths: string[] = []): Promise<ManagedRuntimeComponent> {
+async function installStage0Bun(root: string, stage0: Stage0Runtime, createdPaths: string[] = [], recordCreated?: (path: string) => Promise<void>): Promise<ManagedRuntimeComponent> {
     const actualChecksum = await sha256File(stage0.path);
     if (actualChecksum.toLowerCase() !== stage0.executableSha256.toLowerCase()) {
         throw new Error(`Stage 0 Bun checksum 不匹配：${stage0.path}`);
@@ -122,7 +152,9 @@ async function installStage0Bun(root: string, stage0: Stage0Runtime, createdPath
     const target = join(targetRoot, basename(stage0.path));
     await ensureDirectory(targetRoot);
     if (!await pathExists(target)) {
-        createdPaths.push(relative(root, targetRoot).replaceAll("\\", "/"));
+        const createdPath = relative(root, targetRoot).replaceAll("\\", "/");
+        createdPaths.push(createdPath);
+        await recordCreated?.(createdPath);
         await copyFile(stage0.path, target);
     }
     return {
@@ -139,17 +171,23 @@ async function installStage0Bun(root: string, stage0: Stage0Runtime, createdPath
 
 /** 为已验证的 managed Bun 写入稳定 wrapper。 */
 export async function writeRuntimeWrapper(root: string, runtime: ManagedRuntimeComponent): Promise<void> {
-    const executable = resolve(root, runtime.path);
     const binRoot = join(root, ".runtime", "bin");
     await ensureDirectory(binRoot);
-    const executableRelative = relative(root, executable);
     if (process.platform === "win32") {
-        await writeTextAtomic(join(binRoot, "bun.cmd"), `@echo off\r\nset "ROOT=%~dp0..\\.."\r\n"%ROOT%\\${executableRelative}" %*\r\n`);
+        await writeTextAtomic(join(binRoot, "bun.cmd"), renderRuntimeWrapper(runtime));
         return;
     }
     const wrapper = join(binRoot, "bun");
-    await writeTextAtomic(wrapper, `#!/bin/sh\nROOT="$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)"\nexec "$ROOT/${executableRelative}" "$@"\n`);
+    await writeTextAtomic(wrapper, renderRuntimeWrapper(runtime));
     await chmod(wrapper, 0o755);
+}
+
+/** 生成稳定managed Bun wrapper；安装与doctor必须消费同一模板。 */
+export function renderRuntimeWrapper(runtime: ManagedRuntimeComponent, platform: NodeJS.Platform = process.platform): string {
+    if (platform === "win32") {
+        return `@echo off\r\nset "ROOT=%~dp0..\\.."\r\n"%ROOT%\\${runtime.path.replaceAll("/", "\\")}" %*\r\n`;
+    }
+    return `#!/bin/sh\nROOT="$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)"\nexec "$ROOT/${runtime.path}" "$@"\n`;
 }
 
 /** 在解压目录中递归寻找指定文件。 */

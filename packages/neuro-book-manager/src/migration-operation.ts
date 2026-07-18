@@ -22,12 +22,16 @@ export async function applyJournaledApplicationMigrations(
     root: string,
     manifest: InstallationManifest,
     journal: OperationJournal,
+    applicationRoot = root,
 ): Promise<OperationJournal> {
-    await migrateDatabase(root, manifest);
+    let next = applicationRoot === root
+        ? journal
+        : await updateOperation(journal, journal.phase, {migrationRoot: applicationRoot});
+    await migrateDatabase(root, manifest, applicationRoot);
     const runId = `${journal.id}-attachment`;
-    const plan = await planAttachmentMigration(root, manifest, runId);
-    if (!plan) return journal;
-    let next = await updateOperation(journal, journal.phase, {
+    const plan = await planAttachmentMigration(root, manifest, runId, applicationRoot);
+    if (!plan) return next;
+    next = await updateOperation(next, next.phase, {
         attachmentMigration: {
             runId: plan.runId,
             state: "planned",
@@ -35,7 +39,7 @@ export async function applyJournaledApplicationMigrations(
             sessions: plan.sessions,
         },
     });
-    const applied = await applyAttachmentMigration(root, manifest, plan.runId);
+    const applied = await applyAttachmentMigration(root, manifest, plan.runId, applicationRoot);
     next = await updateOperation(next, next.phase, {
         attachmentMigration: {
             ...next.attachmentMigration!,

@@ -46,8 +46,8 @@ describe("Journaled application migration", () => {
 
         const result = await applyJournaledApplicationMigrations(root, manifest, journal);
 
-        expect(migrations.database).toHaveBeenCalledWith(root, manifest);
-        expect(migrations.apply).toHaveBeenCalledWith(root, manifest, "migration-success-attachment");
+        expect(migrations.database).toHaveBeenCalledWith(root, manifest, root);
+        expect(migrations.apply).toHaveBeenCalledWith(root, manifest, "migration-success-attachment", root);
         expect(result.attachmentMigration?.state).toBe("applied");
         expect((await savedJournal(root, "migration-success")).attachmentMigration?.state).toBe("applied");
     });
@@ -85,7 +85,7 @@ describe("Journaled application migration", () => {
 
         await startInstallationApplication(root, manifest);
 
-        expect(migrations.database).toHaveBeenCalledWith(root, manifest);
+        expect(migrations.database).toHaveBeenCalledWith(root, manifest, root);
         expect(migrations.start).toHaveBeenCalledWith(root, manifest);
         expect(migrations.start.mock.invocationCallOrder[0]).toBeGreaterThan(migrations.plan.mock.invocationCallOrder[0]!);
         const operationFiles = await readdir(join(root, ".deploy", "operations"));

@@ -221,6 +221,7 @@
 - 都提问题我也来提个不知道算不算问题的问题，我调用api次数比较多，一分钟能来个十多次的时候，有时候不知道是api那边未响应还是什么原因就agent一直在处理，点暂停停不下来，只能等十多分钟模型报错或者关掉powershell重新启动
 
 
+The following 2 project files changed since you last viewed them: - added: [world-engine/.runtime-artifact-import-cache/world-engine-calendar/c2f7b2530f52f26d.mjs](world-engine/.runtime-artifact-import-cache/world-engine-calendar/c2f7b2530f52f26d.mjs) — 1 change; by an external tool; added Location: new L1-L23 / old ∅ Diff size: 756 characters, 23 changed lines; above the inline limit of 512 characters / 16 lines. Use read for the complete current file instead of guessing unseen content. - added: [world-engine/schema/.runtime-artifact-import-cache/world-engine-schema/815fd59192ab8da8.mjs](world-engine/schema/.runtime-artifact-import-cache/world-engine-schema/815fd59192ab8da8.mjs) — 1 change; by an external tool; added Location: new L1-L106 / old ∅ Diff size: 9441 characters, 106 changed lines; above the inline limit of 512 characters / 16 lines. Use read for the complete current file instead of guessing unseen content. Non-sensitive files may no longer match versions you read earlier. Inline diffs show changed fragments only; use read only when the task needs complete current content from a non-sensitive path.
 
 ------
 

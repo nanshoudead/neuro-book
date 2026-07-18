@@ -1,4 +1,7 @@
+import path from "node:path";
 import {describe, expect, it} from "vitest";
+import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
+import {normalizeProjectPath} from "nbook/server/workspace-files/project-path";
 import {ProjectNotOpenError} from "nbook/server/workspace-files/project-session";
 import {
     isIgnoredWorkspaceWatchPath,
@@ -9,7 +12,11 @@ import {
 describe("project-workspace-index ProjectSession 守卫", () => {
     it("Project root 未 open 时拒绝创建 workspace tree index", async () => {
         await expect(readProjectWorkspaceTreeSnapshot({
-            root: "workspace/not-open",
+            target: {
+                kind: "project-workspace",
+                root: absoluteFsPath(path.resolve("workspace/not-open")),
+                projectPath: normalizeProjectPath("workspace/not-open"),
+            },
         })).rejects.toBeInstanceOf(ProjectNotOpenError);
     });
 });
@@ -21,6 +28,8 @@ describe("isIgnoredWorkspaceWatchPath", () => {
         expect(isIgnoredWorkspaceWatchPath(".nbook/history.sqlite-wal")).toBe(true);
         expect(isIgnoredWorkspaceWatchPath(".agent/plan/draft.md")).toBe(true);
         expect(isIgnoredWorkspaceWatchPath("sub\\.nbook\\config.json")).toBe(true);
+        expect(isIgnoredWorkspaceWatchPath("world-engine/.runtime-artifact-import-cache/world-engine-calendar/a.mjs")).toBe(true);
+        expect(isIgnoredWorkspaceWatchPath("world-engine/.world-engine-calendar-0123456789abcdef.mjs")).toBe(true);
     });
 
     it("不误伤普通内容路径与形似名称", () => {

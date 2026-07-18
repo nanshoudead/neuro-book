@@ -2,6 +2,7 @@ import {Type} from "typebox";
 import type {Static, TSchema} from "typebox";
 import {Value} from "typebox/value";
 import {valid} from "semver";
+import {isAbsolute, relative, resolve} from "node:path";
 
 import type {InstallationManifest, OperationJournal, ReleaseManifest} from "#manager/types";
 
@@ -159,7 +160,7 @@ const OperationPhaseSchema = Type.Union([
 ]);
 
 export const OperationJournalSchema = Type.Object({
-    schemaVersion: Type.Literal(1),
+    schemaVersion: Type.Literal(2),
     id: Type.String({minLength: 1}),
     action: Type.Union([Type.Literal("install"), Type.Literal("update")]),
     phase: OperationPhaseSchema,
@@ -171,11 +172,19 @@ export const OperationJournalSchema = Type.Object({
     git: Type.Optional(Type.Object({
         previousRevision: RevisionSchema,
         targetRevision: RevisionSchema,
-        committed: Type.Boolean(),
+        dependenciesInstalled: Type.Optional(Type.Boolean()),
     }, {additionalProperties: false})),
-    sourceDependenciesInstalled: Type.Optional(Type.Boolean()),
-    databaseBackup: Type.Optional(Type.String({minLength: 1})),
-    databasePath: Type.Optional(Type.String({minLength: 1})),
+    database: Type.Optional(Type.Object({
+        configuredUrl: Type.String({minLength: 1}),
+        path: Type.String({minLength: 1}),
+        backup: Type.String({minLength: 1}),
+        checkpoint: Type.Object({
+            busy: Type.Integer({minimum: 0}),
+            log: Type.Integer({minimum: -1}),
+            checkpointed: Type.Integer({minimum: -1}),
+        }, {additionalProperties: false}),
+    }, {additionalProperties: false})),
+    migrationRoot: Type.Optional(Type.String({minLength: 1})),
     attachmentMigration: Type.Optional(Type.Object({
         runId: Type.String({pattern: "^[A-Za-z0-9_-]+$"}),
         state: Type.Union([
@@ -192,13 +201,21 @@ export const OperationJournalSchema = Type.Object({
             backupPath: Type.Optional(Type.String({minLength: 1})),
         }, {additionalProperties: false}), {minItems: 1}),
     }, {additionalProperties: false})),
-    previousCompose: Type.Optional(Type.String({minLength: 1})),
-    composeChanged: Type.Optional(Type.Boolean()),
-    composeCreated: Type.Optional(Type.Boolean()),
-    dockerImageCreated: Type.Optional(Type.String({minLength: 1})),
-    dockerImageCleanupError: Type.Optional(Type.String({minLength: 1})),
-    wrapperBackup: Type.Optional(Type.String({minLength: 1})),
-    wrappersChanged: Type.Optional(Type.Boolean()),
+    docker: Type.Optional(Type.Object({
+        previousState: Type.Union([Type.Literal("running"), Type.Literal("stopped"), Type.Literal("missing")]),
+        stopped: Type.Boolean(),
+        previousCompose: Type.Optional(Type.String({minLength: 1})),
+        composeChanged: Type.Boolean(),
+        composeCreated: Type.Boolean(),
+        previousImage: Type.Optional(Type.String({minLength: 1})),
+        targetImage: Type.Optional(Type.String({minLength: 1})),
+        imageCreated: Type.Optional(Type.String({minLength: 1})),
+        cleanupError: Type.Optional(Type.String({minLength: 1})),
+    }, {additionalProperties: false})),
+    manager: Type.Optional(Type.Object({
+        wrapperBackup: Type.Optional(Type.String({minLength: 1})),
+        wrappersChanged: Type.Boolean(),
+    }, {additionalProperties: false})),
     outcome: Type.Optional(Type.Union([Type.Literal("success"), Type.Literal("rolled-back")])),
     createdAt: Type.String({pattern: ISO_DATE_PATTERN}),
     updatedAt: Type.String({pattern: ISO_DATE_PATTERN}),
@@ -260,11 +277,14 @@ export function parseOperationJournal(value: unknown, path: string): OperationJo
     for (const createdPath of journal.createdPaths) assertSafeRelativePath(createdPath);
     if (journal.previousManifest) parseInstallationManifest(journal.previousManifest);
     if (journal.nextManifest) parseInstallationManifest(journal.nextManifest);
-    if (journal.git?.committed && !journal.nextManifest) {
-        throw new Error(`Git 已提交的 Operation journal 缺少 nextManifest：${path}`);
-    }
     if (journal.attachmentMigration && !journal.nextManifest) {
         throw new Error(`Attachment migration Operation journal缺少nextManifest：${path}`);
+    }
+    if (journal.migrationRoot) {
+        const relativePath = relative(resolve(journal.root), resolve(journal.migrationRoot));
+        if (relativePath === ".." || relativePath.startsWith(`..${process.platform === "win32" ? "\\" : "/"}`) || isAbsolute(relativePath)) {
+            throw new Error(`Operation migrationRoot越过Installation Root：${journal.migrationRoot}`);
+        }
     }
     return journal;
 }

@@ -139,6 +139,8 @@ neuro-book tools list
 - 每个组件的 provider、version、platform、path、checksum。
 - managed 组件的官方 `sourceUrl`、`license` 和 `redistribution`。
 
+解释doctor时区分“安装完整性”和“服务状态”：服务正常停止只应出现warning并保持`healthy=true`；运行中的服务若镜像、端口、HTTP或版本不匹配才是fail。Docker Profile还要比较Compose配置镜像、容器实际镜像和Manifest固定digest/revision tag。不要为了让doctor变绿而手工改Manifest或放宽检查。
+
 `installation.json` 是严格 schema，不要手工加入任意字段。如果状态与文件系统不一致，先报告，不要直接伪造 manifest。
 
 ## 更新流程
@@ -147,8 +149,9 @@ neuro-book tools list
 
 ```bash
 neuro-book update
-neuro-book update --component product
-neuro-book update --component runtime tools
+neuro-book update
+neuro-book runtime update bun
+neuro-book tools update rg
 ```
 
 更新应满足：

@@ -514,13 +514,13 @@ export class AgentProfileCatalog implements ProfileReleaseRegistrySink {
             return undefined;
         }
         if (!profile.payloadSchema) {
-            throw new Error(`profile ${profile.manifest.key} 未声明 PayloadSchema，不能接收 invocation input。`);
+            throw new AgentInvocationPayloadError(`profile ${profile.manifest.key} 未声明 PayloadSchema，不能接收 invocation input。`);
         }
         try {
             return Value.Parse(profile.payloadSchema, payload) as JsonValue;
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
-            throw new Error(`profile ${profile.manifest.key} payload 校验失败：${message}`);
+            throw new AgentInvocationPayloadError(`profile ${profile.manifest.key} payload 校验失败：${message}`);
         }
     }
 
@@ -971,6 +971,16 @@ export class AgentProfileCatalog implements ProfileReleaseRegistrySink {
 
     private relativeProfilePath(sourcePath: string, root: string): string {
         return relative(root, sourcePath).split(/[\\/]+/).join("/");
+    }
+}
+
+/** Admission阶段的结构化payload错误；prompt将其转为error结果，队列操作继续拒绝入队。 */
+export class AgentInvocationPayloadError extends Error {
+    readonly code = "invalid_payload";
+
+    constructor(message: string) {
+        super(message);
+        this.name = "AgentInvocationPayloadError";
     }
 }
 

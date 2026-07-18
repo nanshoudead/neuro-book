@@ -11,7 +11,7 @@
 
 > 2026-07-11 提示词与通用设置优化：`<file-change-notice>` 正文统一改为英文，文件条目使用 Git 风格 added/modified/deleted/renamed/restored/reverted 状态，并保留 hunk、diff 统计、安全阻断、预算和 at-least-once 游标语义。`<FileChangeNotice>` 只保留 `mode`，单文件 diff 上限迁入每个 Profile 的通用运行设置。Reminder runtime state 分离观察 baseline 与实际注入轮次；空 linked agents 不生成消息，但清空后重新关联同一 Agent 会再次提醒。Runtime Location 与 Workspace Focus 明确区分稳定访问能力和当前默认焦点。
 
-> 2026-07-11 发布阻断修复：`defineAgentProfile().prepare()` 的直接调用 fallback 曾在补入通用 diff 默认值时，以 `ctx.settings → settingsForm defaults` 的错误顺序覆盖调用方设置。现统一为 `settingsForm defaults < 调用方 settings`，`fileChangeDiffMaxChars` 只在缺失时补 512，显式 0 保留；该通用键同时成为 settingsForm 保留键，定义阶段会检查 schema、defaults 与 fields 三个入口。正式 Harness/Preview 原本已传入完整通用设置，持久化 Config 无需迁移。敏感路径由 notice 渲染层直接识别，即使超出前四个 diff detail 也只输出不可点击路径与 inbox 指引，不再建议 Agent 主动读取。
+> 2026-07-11 发布阻断修复：`defineAgentProfile().prepare()` 的直接调用 fallback 曾在补入通用 diff 默认值时，以 `ctx.settings → settingsForm defaults` 的错误顺序覆盖调用方设置。现统一为 `settingsForm defaults < 调用方 settings`，`fileChangeDiffMaxChars` 只在缺失时补 512，显式 0 保留；该通用键同时成为 settingsForm 保留键，定义阶段会检查 schema、defaults 与 fields 三个入口。正式 Harness/Preview 原本已传入完整通用设置，持久化 Config 无需迁移。敏感路径由 notice 渲染层直接识别，即使超出前四个 diff detail 也只输出不可点击路径与安全限制，不再建议 Agent 主动读取，也不推断 Inbox 状态。
 
 ## Relative documents refs
 
@@ -40,6 +40,7 @@
 - Composer 与完整 Dialog 共用版本化 diff 请求契约：缓存键为 `projectPath + path + revision + mode`，项目切换、Inbox 刷新和组件卸载会 abort 全部旧请求；loading/error/result 按版本键隔离，旧项目、旧 revision 和旧响应不能回填。Agent 模式从变更卡打开文件后会自动展开 Studio。
 - 公开读取入口已硬切到按 `projectPath + inbox path + mode` 授权的 `/api/workspace-history/diff`；旧 hash-only `snapshot` 路由已删除。
 - `<FileChangeNotice />` 是 Profile DSL 节点，公开属性只保留 `mode`。Agent 小 diff 字符预算来自 `agent.profiles[profileKey].fileChangeNotice.diffMaxChars`，Global/Project 可继承覆盖，默认 512。Harness 只物化 `turnContexts` 并在成功 ingest 后结算游标；未声明节点的 profile 即使存在 unseen 也不会注入提醒。
+- `<file-change-notice>` 的逐文件条目只陈述状态、路径、归因、位置和 diff 统计；完整读取、敏感路径限制与删除路径限制在 footer 按整批文件汇总一次，不再随超限文件数量重复指导。Notice 不查询或推断 Inbox 状态。
 - provider 与 Profile Preview 共用 prompt assembler，固定顺序为 `History → ModelContext → AppendingSet → CurrentUserInput`。
 - 当前用户输入继续由 Harness 持久化为独立 durable prompt；`writer` / `inline.editor` 已删除对 `ctx.invocation.message` 的 AppendingSet 复制，只在缺少可见 message 时保留条件式安全提示。
 
@@ -54,6 +55,7 @@
 - D7：Agent diff 不运行 tokenizer。单文件字符预算属于 Profile 通用运行设置，默认 512 字符约 256 tokens；范围 0–8192，Project 可继承或覆盖 Global。系统再施加整轮硬保护：inline 总预算 `min(8192, diffMaxChars × 4)`、最多计算 4 个文件详情、最多逐项列出 50 个文件、最终 notice 不超过 12,288 字符。无法完整放入剩余预算时整段降级为 reference，不截断 diff；reference 不保留正文。
 - D8：敏感策略采用明确路径黑名单，不做内容扫描和 `secret` 等宽泛子串匹配。阻断 `.ssh/.aws/.azure/.kube/.docker/.gnupg`、所有 `.env` 变体与 `.envrc`、常见凭据文件、私钥名和 `.pem/.key/.p12/.pfx/.jks/.keystore`；安全近似创作文件不误拦。
 - D9：删除文件不生成可点击的当前文件引用；小型删除允许内联 removed diff，超限或快照不可用时明确说明当前路径不可 `read`，不再给通用读取建议。
+- D10：notice 的文件条目与操作指导分层。文件条目只输出事实；read/sensitive/deleted 三类 clause 由 footer 根据整批文件能力聚合，整条 notice 各类指导最多出现一次。敏感 clause 要求当前任务确有需要时先询问用户；删除 clause 要求进一步查看历史或恢复前先询问用户；两者都不承诺 Inbox 中存在对应路径。
 
 ## Verification / Test
 
@@ -67,6 +69,7 @@
 - 2026-07-11 通用运行设置与 Reminder 收口回归：11 files / 167 tests 全部通过；system/user Profile 各 14 个 `status` 均为 `loaded`，Profile source check 全绿。
 - 2026-07-11 settings fallback 发布阻断回归：最终聚焦套件 4 files / 74 tests 通过；10 文件组合套件 307/308，通过外唯一失败为 Harness 既有并发 claim 时序抖动，单用例复跑及 Harness 整文件串行 164/164 均通过；`bun run typecheck`、system/user Profile source check、system 全量 14 Profile 编译和两侧 14/14 `loaded` status 全部通过。
 - 2026-07-11 二次发布阻断审查修复：聚焦套件 5 files / 89 tests 通过；11 文件组合套件 321/322，通过外唯一失败为 Windows 并发文件锁，Config 单文件单 worker 复跑 39/39 通过。settingsForm 保留键覆盖 schema-only/defaults/field 三种声明；敏感 notice 覆盖单文件、混合文件、第 5 个无 detail 文件和删除文件。`bun run typecheck`、system/user source check、system 全量 14 Profile 编译和两侧 14/14 `loaded` status 全部通过。
+- 2026-07-18 notice 指导去重与能力表述收口：`file-change-reminder.test.ts` 18/18 通过，覆盖 2/4 个 reference 文件在 minimal/full 下只输出一次读取指导、inline/reference/敏感/删除同批 footer、长路径逼近 12,288 字符上限、消息顺序与 at-least-once 游标结算；敏感与删除 clause 均不再出现 `file change inbox` 承诺。
 - 卫生检查：旧 path-only 调用为 0；相关文件均小于 800 行；UI 无 Tailwind 调色板色、`dark:`、调试日志或 demo 文本。
 - `$playwright-cli` 在《命定之诗2》完成真实浏览器终验：默认收起、展开/收起高度动画、稳定滚动属性、Project Workspace 原始相对路径、同名 slug 子目录准确打开、Agent 模式自动展开 Studio、小 diff、`.envrc` 0 正文、延迟旧 200 diff 在 revision 刷新后不回填、accept / revert / accept-all 412 刷新均通过。临时文件已删除并只接受对应三组，最终 Inbox 恢复原 `test-html-demo.md` 单组基线；新会话 0 error / 0 warning。
 
@@ -85,7 +88,7 @@
 - 2026-07-10 可读性与动画修复轮：移除 8–9px 字号，标题、路径、操作与 diff 调整到 10–11px；展开主体拆为裁切动画外壳与稳定滚动视口，滚动区和 diff 区接入 `custom-scrollbar`、稳定 scrollbar gutter 与 overscroll containment。卡片、diff、文件行不再嵌套 `max-height` 动画，避免展开、接受和 diff 切换时反复重排及滚动条横跳；继续支持 `prefers-reduced-motion`。
 - 2026-07-10 收起动画与文件打开修复轮：展开主体不再依赖自适应 `grid-template-rows` 插值，而是在离场前锁定真实 `offsetHeight`，再以 220ms 高度过渡收至 0；文件行新增「打开」入口，复用 IDE workspace 引用打开链并永久打开对应标签，已删除文件禁用入口。
 - Composer inline diff 的“小型”契约仍为：前后全文 UTF-8 字节数合计不超过 24 KiB，且 added/removed 变更行合计不超过 120 行；任一超限只返回统计。
-- Agent `FileChangeNotice` 使用 Profile 通用配置中的单文件最终 unified diff 字符预算，系统默认 512（约 256 tokens）；任一超限不内联 diff，只给 Project Workspace 文件引用、hunk 新旧行号与 `read` 提示。设置为 0 可完全关闭 Agent diff 内联。敏感路径即使很小也只显示引用和阻断说明。
+- Agent `FileChangeNotice` 使用 Profile 通用配置中的单文件最终 unified diff 字符预算，系统默认 512（约 256 tokens）；任一超限不内联 diff，只给 Project Workspace 文件引用、hunk 新旧行号与统计，整批 notice 只在 footer 给一次完整读取指导。设置为 0 可完全关闭 Agent diff 内联。敏感路径即使很小也只显示不可点击路径和阻断说明。
 - 2026-07-11：英文 notice 主状态按净状态和操作历史分类，锁定 create→edit=`added`、rename→edit=`renamed`、restore/revert 后续 edit 仍保留对应主语义，最终不存在统一为 `deleted`。
 - 2026-07-11：Reminder 状态把 observed fingerprint/value 与 `injectedAtTurn` 分开。空渲染会更新 observed baseline，但不伪造注入时间；linked agents 的空→关联→清空→同 Agent 重关联序列因此能正确二次提醒。
 - 2026-07-11：最终契约扫描确认旧 `<FileChangeNotice diffMaxChars>`、`builtin.variable`、`Variable` / `VariableSchema` Profile helper 无真实公开实现残留；Variable 全局 tools/runtime 继续存在。

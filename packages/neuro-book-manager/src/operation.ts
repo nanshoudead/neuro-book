@@ -9,6 +9,7 @@ import {writeInstallationManifest} from "#manager/manifest-store";
 import {installationPaths} from "#manager/paths";
 import {installSourceDependencies} from "#manager/product";
 import {runtimeExecutable, writeManagerWrapper, writeRuntimeWrapper} from "#manager/runtime";
+import {repositoryRevision} from "#manager/git";
 import {parseOperationJournal} from "#manager/schema";
 import {writeManagedToolWrappers} from "#manager/tools";
 import type {InstallationManifest, OperationJournal, OperationPhase} from "#manager/types";
@@ -16,7 +17,7 @@ import type {InstallationManifest, OperationJournal, OperationPhase} from "#mana
 /** 创建持久化 operation journal。 */
 export async function createOperation(input: Omit<OperationJournal, "schemaVersion" | "phase" | "createdAt" | "updatedAt">): Promise<OperationJournal> {
     const now = new Date().toISOString();
-    const journal: OperationJournal = {...input, schemaVersion: 1, phase: "planned", createdAt: now, updatedAt: now};
+    const journal: OperationJournal = {...input, schemaVersion: 2, phase: "planned", createdAt: now, updatedAt: now};
     await writeOperation(journal);
     return journal;
 }
@@ -42,15 +43,25 @@ export async function recoverInterruptedOperations(root: string): Promise<void> 
         const path = join(paths.operations, entry.name);
         const value = await readJson(path);
         if (!value || typeof value !== "object") throw new Error(`Operation journal 损坏：${path}`);
+        if ("schemaVersion" in value && value.schemaVersion === 1) {
+            if ("phase" in value && value.phase === "committed") continue;
+            throw new Error(`发现未完成的Operation Journal v1，拒绝自动恢复：${path}\n请备份实例并人工核对Manifest、Product、数据库、Git和Compose状态。`);
+        }
         const journal = parseOperationJournal(value, path);
         if (journal.root !== resolve(root)) throw new Error(`Operation journal 的 Installation Root 不匹配：${path}`);
         if (journal.phase === "committed") continue;
-        if (journal.git?.committed && journal.nextManifest) {
-            if (journal.nextManifest.profile === "source-dev" && !journal.sourceDependenciesInstalled) {
+        if (journal.git) {
+            const head = await repositoryRevision(root);
+            if (head !== journal.git.previousRevision && head !== journal.git.targetRevision) {
+                throw new Error(`Git HEAD既不是Operation的previous也不是target，拒绝自动恢复：${head}\nOperation：${path}`);
+            }
+            if (head === journal.git.targetRevision && journal.nextManifest && journal.phase === "healthy") {
+            if (journal.nextManifest.profile === "source-dev" && !journal.git.dependenciesInstalled) {
                 const runtime = journal.nextManifest.components.applicationRuntime;
                 if (runtime.provider === "container") throw new Error("Source Dev 不能使用 container Application Runtime。" );
                 await installSourceDependencies(root, runtimeExecutable(root, runtime));
-                await updateOperation(journal, journal.phase, {sourceDependenciesInstalled: true});
+                journal.git.dependenciesInstalled = true;
+                await updateOperation(journal, journal.phase, {git: journal.git});
             }
             if (journal.nextManifest.components.managerRuntime.provider === "managed") {
                 await writeRuntimeWrapper(root, journal.nextManifest.components.managerRuntime);
@@ -60,6 +71,10 @@ export async function recoverInterruptedOperations(root: string): Promise<void> 
             await writeInstallationManifest(paths.manifest, journal.nextManifest);
             await commitOperation(journal);
             continue;
+            }
+            if (head === journal.git.targetRevision) {
+                throw new Error(`Git HEAD已到target，但Operation尚未到达healthy commit point，拒绝自动提交Manifest：${path}`);
+            }
         }
         await rollbackOperation(journal);
     }
@@ -71,7 +86,7 @@ export async function rollbackOperation(journal: OperationJournal): Promise<void
     const currentCompose = join(root, ".deploy", "docker-compose.generated.yml");
     const stateRoot = resolve(root, journal.previousManifest?.stateRoot ?? journal.nextManifest?.stateRoot ?? ".");
     // 新容器可能持有Attachment runtime lease；必须先停容器，rollback one-shot才能取得独占锁。
-    if (journal.composeChanged && await pathExists(currentCompose)) {
+    if (journal.docker?.composeChanged && await pathExists(currentCompose)) {
         await removeDockerDeployment(root, stateRoot);
     }
     if (journal.attachmentMigration && journal.attachmentMigration.state !== "rolled_back") {
@@ -81,6 +96,7 @@ export async function rollbackOperation(journal: OperationJournal): Promise<void
             journal.nextManifest,
             journal.attachmentMigration.runId,
             journal.attachmentMigration.state === "planned",
+            journal.migrationRoot ?? root,
         );
         journal = await updateOperation(journal, journal.phase, {
             attachmentMigration: {...journal.attachmentMigration, state: "rolled_back"},
@@ -88,12 +104,13 @@ export async function rollbackOperation(journal: OperationJournal): Promise<void
     }
     const previousProduct = journal.previousManifest?.components.product;
     const nextProduct = journal.nextManifest?.components.product;
-    if (nextProduct && nextProduct.provider !== "container" && JSON.stringify(nextProduct) !== JSON.stringify(previousProduct)) {
+    const switched = ["switched", "migrated", "healthy"].includes(journal.phase);
+    if (switched && nextProduct && nextProduct.provider !== "container" && JSON.stringify(nextProduct) !== JSON.stringify(previousProduct)) {
         await rollbackProduct(root, join(journal.backupRoot, "product"));
     }
     const previousSource = journal.previousManifest?.components.source;
     const nextSource = journal.nextManifest?.components.source;
-    if (nextSource?.provider === "release" && previousSource?.provider !== "git") {
+    if (switched && nextSource?.provider === "release" && previousSource?.provider !== "git") {
         await rollbackReleaseSource(
             root,
             join(journal.backupRoot, "source"),
@@ -101,39 +118,42 @@ export async function rollbackOperation(journal: OperationJournal): Promise<void
             nextSource.files,
         );
     }
-    if (journal.databaseBackup && journal.databasePath && await pathExists(journal.databaseBackup)) {
-        await ensureDirectory(resolve(journal.databasePath, ".."));
-        await rm(`${journal.databasePath}-wal`, {force: true});
-        await rm(`${journal.databasePath}-shm`, {force: true});
-        await copyFile(journal.databaseBackup, journal.databasePath);
+    if (journal.database && await pathExists(journal.database.backup)) {
+        await ensureDirectory(resolve(journal.database.path, ".."));
+        await rm(`${journal.database.path}-wal`, {force: true});
+        await rm(`${journal.database.path}-shm`, {force: true});
+        await copyFile(journal.database.backup, journal.database.path);
     }
-    if (journal.previousCompose && await pathExists(journal.previousCompose)) {
-        await copyFile(journal.previousCompose, currentCompose);
-    } else if (journal.composeCreated) {
+    if (journal.docker?.previousCompose && await pathExists(journal.docker.previousCompose)) {
+        await copyFile(journal.docker.previousCompose, currentCompose);
+    } else if (journal.docker?.composeCreated) {
         await removePath(currentCompose);
     }
-    if (journal.previousManifest && isDockerProfile(journal.previousManifest.profile)) {
-        await startDocker(root, resolve(root, journal.previousManifest.stateRoot), journal.previousManifest.profile);
+    if (journal.previousManifest && isDockerProfile(journal.previousManifest.profile) && journal.docker?.previousState === "running") {
+        await startDocker(root, resolve(root, journal.previousManifest.stateRoot), journal.previousManifest.profile, journal.previousManifest.appVersion);
     }
-    if (journal.wrappersChanged) {
+    if (journal.manager?.wrappersChanged) {
         const runtimeBin = join(root, ".runtime", "bin");
         await removePath(runtimeBin);
-        if (journal.wrapperBackup && await pathExists(journal.wrapperBackup)) {
+        if (journal.manager.wrapperBackup && await pathExists(journal.manager.wrapperBackup)) {
             await ensureDirectory(resolve(runtimeBin, ".."));
-            await cp(journal.wrapperBackup, runtimeBin, {recursive: true});
+            await cp(journal.manager.wrapperBackup, runtimeBin, {recursive: true});
         }
     }
     for (const path of [...journal.createdPaths].reverse()) await removePath(safeTarget(root, path));
     let dockerImageCleanupError: string | undefined;
-    if (journal.dockerImageCreated) {
+    if (journal.docker?.imageCreated) {
         try {
-            await removeDockerImage(root, journal.dockerImageCreated);
+            await removeDockerImage(root, journal.docker.imageCreated);
         } catch (error) {
             dockerImageCleanupError = error instanceof Error ? error.message : String(error);
         }
     }
     if (journal.previousManifest) await writeInstallationManifest(join(root, ".deploy", "installation.json"), journal.previousManifest);
-    await updateOperation(journal, "committed", {outcome: "rolled-back", dockerImageCleanupError});
+    await updateOperation(journal, "committed", {
+        outcome: "rolled-back",
+        ...(journal.docker ? {docker: {...journal.docker, cleanupError: dockerImageCleanupError}} : {}),
+    });
 }
 
 /** 在切换稳定 wrapper 前备份现有 `.runtime/bin`。 */

@@ -2,7 +2,8 @@ import {randomUUID} from "node:crypto";
 import {mkdir, rm, writeFile, unlink} from "node:fs/promises";
 import {join} from "node:path";
 import os from "node:os";
-import {afterEach, beforeEach, describe, expect, it} from "vitest";
+import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
+import {WorkspaceHistory} from "nbook/server/vendor/nb-history/index";
 import {registerProjectResourceOwner, resetProjectSessionsForTest} from "nbook/server/workspace-files/project-session";
 import {openProjectForTest, closeProjectForTest} from "nbook/server/workspace-files/project-session-test-utils";
 import {writeProjectManifest as writeProjectManifestAtRoot} from "nbook/server/workspace-files/project-workspace";
@@ -59,10 +60,14 @@ describe("history-paths 谓词", () => {
     it("排除 .git/.nbook/.agent 任意段与项目根第一层 agents/", () => {
         expect(isHistoryTrackedRelativePath("manuscript/001/index.md")).toBe(true);
         expect(isHistoryTrackedRelativePath("lorebook/agents/npc.md")).toBe(true);
+        expect(isHistoryTrackedRelativePath("world-engine/calendar.ts")).toBe(true);
+        expect(isHistoryTrackedRelativePath("world-engine/schema/index.ts")).toBe(true);
         expect(isHistoryTrackedRelativePath(".nbook/history.sqlite")).toBe(false);
         expect(isHistoryTrackedRelativePath("sub/.git/HEAD")).toBe(false);
         expect(isHistoryTrackedRelativePath(".agent/plan/x.md")).toBe(false);
         expect(isHistoryTrackedRelativePath("agents/leader.default/persona.md")).toBe(false);
+        expect(isHistoryTrackedRelativePath("world-engine/.runtime-artifact-import-cache/world-engine-calendar/a.mjs")).toBe(false);
+        expect(isHistoryTrackedRelativePath("world-engine/.world-engine-calendar-0123456789abcdef.mjs")).toBe(false);
         expect(isHistoryTrackedRelativePath("")).toBe(false);
     });
 
@@ -169,16 +174,82 @@ describe("workspace-history 门面", () => {
         expect(await reopened!.timeline("manuscript/a.md")).toHaveLength(1);
     });
 
+    it("open 在 unseen 与 D15 前原子清理旧 runtime artifact 历史并保留 cursor", async () => {
+        const projectPath = await createTempProject("purge-runtime-artifact");
+        await openProjectForTest(projectPath);
+        const root = resolveProjectAbsolutePath(projectPath);
+        const history = (await ensureProjectHistory(projectPath))!;
+        const acceptedCachePath = "world-engine/.runtime-artifact-import-cache/world-engine-calendar/0123456789abcdef.mjs";
+        const unacceptedCachePath = "world-engine/schema/.runtime-artifact-import-cache/world-engine-schema/fedcba9876543210.mjs";
+        await mkdir(join(root, "world-engine", ".runtime-artifact-import-cache", "world-engine-calendar"), {recursive: true});
+        await mkdir(join(root, "world-engine", "schema", ".runtime-artifact-import-cache", "world-engine-schema"), {recursive: true});
+        await writeFile(join(root, ...acceptedCachePath.split("/")), "accepted runtime artifact", "utf-8");
+        await writeFile(join(root, ...unacceptedCachePath.split("/")), "unaccepted runtime artifact", "utf-8");
+
+        await history.performWrite({kind: "user", userId: LOCAL_USER_ID}, "manuscript/before.md", "游标前正文");
+        await history.initCursor("77");
+        await history.performWrite({kind: "agent", sessionId: "other"}, acceptedCachePath, "accepted runtime artifact");
+        await history.accept(LOCAL_USER_ID, acceptedCachePath);
+        await history.performWrite({kind: "agent", sessionId: "other"}, unacceptedCachePath, "unaccepted runtime artifact");
+        await history.performWrite({kind: "user", userId: LOCAL_USER_ID}, "manuscript/keep.md", "正文");
+        await closeProjectForTest(projectPath);
+
+        await openProjectForTest(projectPath);
+        const reopened = (await ensureProjectHistory(projectPath))!;
+        expect(await reopened.timeline(acceptedCachePath)).toHaveLength(0);
+        expect(await reopened.timeline(unacceptedCachePath)).toHaveLength(0);
+        expect(await reopened.timeline("manuscript/before.md")).toHaveLength(1);
+        expect(await reopened.timeline("manuscript/keep.md")).toHaveLength(1);
+        const inboxPaths = (await reopened.inbox(LOCAL_USER_ID)).map((group) => group.path);
+        expect(inboxPaths).not.toContain(acceptedCachePath);
+        expect(inboxPaths).not.toContain(unacceptedCachePath);
+        const unseenBeforeMaintenance = (await reopened.unseenChanges("77")).map((group) => group.path);
+        expect(unseenBeforeMaintenance).not.toContain("manuscript/before.md");
+        expect(unseenBeforeMaintenance).toContain("manuscript/keep.md");
+        expect(unseenBeforeMaintenance).not.toContain(acceptedCachePath);
+        expect(unseenBeforeMaintenance).not.toContain(unacceptedCachePath);
+
+        await openProjectHistoryAndMaintain(projectPath);
+        expect(await reopened.timeline(acceptedCachePath)).toHaveLength(0);
+        expect(await reopened.timeline(unacceptedCachePath)).toHaveLength(0);
+        const projectManifestTimeline = await reopened.timeline("project.yaml");
+        expect(projectManifestTimeline).toHaveLength(1);
+        expect(projectManifestTimeline[0]!.entry.actor).toEqual({kind: "external"});
+        await reopened.performWrite({kind: "user", userId: LOCAL_USER_ID}, "manuscript/after.md", "后续正文");
+        const unseenPaths = (await reopened.unseenChanges("77")).map((group) => group.path);
+        expect(unseenPaths).toContain("manuscript/after.md");
+        expect(unseenPaths).not.toContain(acceptedCachePath);
+        expect(unseenPaths).not.toContain(unacceptedCachePath);
+    });
+
+    it("purge 失败时关闭句柄并移除 opening，后续 ensure 可重试", async () => {
+        const projectPath = await createTempProject("purge-open-failure");
+        await openProjectForTest(projectPath);
+        const closeSpy = vi.spyOn(WorkspaceHistory.prototype, "close");
+        const purgeSpy = vi.spyOn(WorkspaceHistory.prototype, "purgePaths")
+            .mockRejectedValueOnce(new Error("purge failed"));
+
+        await expect(ensureProjectHistory(projectPath)).rejects.toThrow("purge failed");
+        expect(closeSpy).toHaveBeenCalledTimes(1);
+
+        purgeSpy.mockRestore();
+        closeSpy.mockRestore();
+        await expect(ensureProjectHistory(projectPath)).resolves.not.toBeNull();
+    });
+
     it("watcher 对账批：外部直写补 external、回声抑制、排除路径忽略、unlink 补删除", async () => {
         const projectPath = await createTempProject("reconcile");
         await openProjectForTest(projectPath);
         const root = resolveProjectAbsolutePath(projectPath);
         await mkdir(join(root, "manuscript"), {recursive: true});
+        await mkdir(join(root, "world-engine", ".runtime-artifact-import-cache", "world-engine-calendar"), {recursive: true});
         await writeFile(join(root, "manuscript", "ext.md"), "外部写入", "utf-8");
+        await writeFile(join(root, "world-engine", ".runtime-artifact-import-cache", "world-engine-calendar", "a.mjs"), "cache", "utf-8");
 
         const events = [
             {kind: "add" as const, path: "manuscript/ext.md"},
             {kind: "change" as const, path: ".nbook/project.sqlite"},
+            {kind: "add" as const, path: "world-engine/.runtime-artifact-import-cache/world-engine-calendar/a.mjs"},
         ];
         await reconcileWatcherBatch(projectPath, root, events);
         const history = (await ensureProjectHistory(projectPath))!;
@@ -186,6 +257,7 @@ describe("workspace-history 门面", () => {
         expect(timeline).toHaveLength(1);
         expect(timeline[0]!.entry.actor).toEqual({kind: "external"});
         expect(await history.timeline(".nbook/project.sqlite")).toHaveLength(0);
+        expect(await history.timeline("world-engine/.runtime-artifact-import-cache/world-engine-calendar/a.mjs")).toHaveLength(0);
 
         // 回声：同内容再对账不产生新条目
         await reconcileWatcherBatch(projectPath, root, [{kind: "change", path: "manuscript/ext.md"}]);

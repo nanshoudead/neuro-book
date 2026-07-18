@@ -1,9 +1,9 @@
 import {lstat, mkdir, readFile, rm, writeFile} from "node:fs/promises";
-import {dirname, relative, resolve} from "node:path";
+import {dirname} from "node:path";
 import {createPatch} from "diff";
 import {firstChangedLine} from "nbook/server/agent/tools/file-tool-utils";
 import {resolveFileAddress, type FileScope, type ResolvedFileAddress} from "nbook/server/workspace-files/file-scope";
-import {assertRealPathContained} from "nbook/server/runtime/paths/file-path";
+import {assertRealPathContained, relativeFilePathInside} from "nbook/server/runtime/paths/file-path";
 
 type AddOperation = {
     type: "add";
@@ -416,8 +416,8 @@ function resolvePatchPath(filePath: string, fileScope: FileScope): ResolvedFileA
     const address = resolveFileAddress(fileScope, filePath);
     const absolutePath = address.absolutePath;
     const containmentRoot = fileScope.workspaceRoot ?? fileScope.root;
-    const relativePath = relative(containmentRoot, absolutePath);
-    if (relativePath === "" || relativePath.startsWith("..") || resolve(containmentRoot, relativePath) !== absolutePath) {
+    const relativePath = relativeFilePathInside(containmentRoot, absolutePath);
+    if (!relativePath || relativePath === ".") {
         throw new Error(`apply_patch 路径越过 workspaceRoot：${filePath}`);
     }
     return address;

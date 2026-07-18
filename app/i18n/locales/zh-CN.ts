@@ -1328,6 +1328,7 @@ const zhCN = {
             viewSyncConflicts: "查看同步冲突",
             downloadTitle: "下载 {target}",
             downloadConfirm: "将先保存所有未保存的文件，然后打包下载当前 {target}。",
+            downloadProjectHistoryWarning: "下载包包含完整文件历史，可能保留已删除正文和敏感历史。分享压缩包前请确认接收方与用途。",
             syncDetailsTitle: "用户资产同步详情",
             syncDetailsDescription: "以下用户覆盖已保留，系统版本没有自动覆盖。可以打开 diff 查看差异。",
             userOverrideDiff: "用户覆盖 Diff",

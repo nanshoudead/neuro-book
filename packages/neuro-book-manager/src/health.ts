@@ -5,8 +5,9 @@ import {dirname, join} from "node:path";
 
 import {Database} from "bun:sqlite";
 
-import {loadStateEnv} from "#manager/config";
+import {loadStateEnv, resolveStateDatabaseUrl} from "#manager/config";
 import {ensureDirectory, pathExists} from "#manager/files";
+import {resolveAppSqliteLocation} from "nbook/server/runtime/app-sqlite-location";
 
 /** 更新原生 Product 前确认端口未被运行中的服务占用。 */
 export async function assertNativeProductStopped(stateRoot: string): Promise<void> {
@@ -16,20 +17,38 @@ export async function assertNativeProductStopped(stateRoot: string): Promise<voi
     }
 }
 
+export type ApplicationDatabaseBackup = {
+    configuredUrl: string;
+    databasePath: string;
+    backupPath: string;
+    checkpoint: {busy: number; log: number; checkpointed: number};
+};
+
 /** checkpoint WAL 后备份 App SQLite；数据库尚未创建时返回 null。 */
-export async function backupApplicationDatabase(stateRoot: string, backupRoot: string): Promise<{databasePath: string; backupPath: string} | null> {
-    const databasePath = join(stateRoot, "workspace", ".nbook", "neuro-book.sqlite");
+export async function backupApplicationDatabase(stateRoot: string, backupRoot: string): Promise<ApplicationDatabaseBackup | null> {
+    const configuredUrl = await resolveStateDatabaseUrl(stateRoot);
+    const databasePath = resolveAppSqliteLocation(configuredUrl, stateRoot).hostPath;
     if (!await pathExists(databasePath)) return null;
-    const database = new Database(databasePath, {create: false});
     try {
-        database.exec("PRAGMA wal_checkpoint(TRUNCATE)");
-    } finally {
-        database.close();
+        const database = new Database(databasePath, {readwrite: true, create: false});
+        let checkpoint: ApplicationDatabaseBackup["checkpoint"];
+        try {
+            const result = database.query<{busy: number; log: number; checkpointed: number}, []>("PRAGMA wal_checkpoint(TRUNCATE)").get();
+            if (!result || result.busy !== 0 || result.checkpointed !== result.log) {
+                throw new Error(`WAL checkpoint未完成：${JSON.stringify(result)}`);
+            }
+            checkpoint = result;
+        } finally {
+            database.close();
+        }
+        const backupPath = join(backupRoot, "database", "app.sqlite");
+        await ensureDirectory(dirname(backupPath));
+        await copyFile(databasePath, backupPath);
+        return {configuredUrl, databasePath, backupPath, checkpoint};
+    } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        throw new Error(`App SQLite备份失败：${databasePath}\n${message}`, {cause: error});
     }
-    const backupPath = join(backupRoot, "database", "neuro-book.sqlite");
-    await ensureDirectory(dirname(backupPath));
-    await copyFile(databasePath, backupPath);
-    return {databasePath, backupPath};
 }
 
 /** 临时启动 Product，验证基础 HTTP 与版本接口后关闭进程。 */
@@ -53,8 +72,9 @@ export async function verifyNativeProduct(root: string, stateRoot: string, bun: 
         windowsHide: true,
     });
     try {
-        const deadline = Date.now() + 30_000;
+        const deadline = Date.now() + 120_000;
         let lastError = "服务尚未响应";
+        let nextProgressAt = Date.now() + 10_000;
         while (Date.now() < deadline) {
             if (child.exitCode !== null) throw new Error(`Product 健康检查进程提前退出：${child.exitCode}`);
             try {
@@ -68,6 +88,10 @@ export async function verifyNativeProduct(root: string, stateRoot: string, bun: 
                 lastError = `HTTP ${response.status}`;
             } catch (error) {
                 lastError = error instanceof Error ? error.message : String(error);
+            }
+            if (Date.now() >= nextProgressAt) {
+                console.log(`Product健康检查仍在等待：${lastError}`);
+                nextProgressAt = Date.now() + 10_000;
             }
             await new Promise((resolvePromise) => setTimeout(resolvePromise, 250));
         }

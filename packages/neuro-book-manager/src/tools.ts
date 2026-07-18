@@ -11,15 +11,15 @@ import type {ManagedGitToolComponent, ManagedToolComponent, ToolComponents} from
 export type ManagedToolName = "rg" | "git";
 
 /** 安装 Manager 支持的托管工具。 */
-export async function installManagedTool(root: string, tool: "rg", createdPaths?: string[]): Promise<ManagedToolComponent>;
-export async function installManagedTool(root: string, tool: "git", createdPaths?: string[]): Promise<ManagedGitToolComponent>;
-export async function installManagedTool(root: string, tool: ManagedToolName, createdPaths: string[] = []): Promise<ManagedToolComponent | ManagedGitToolComponent> {
+export async function installManagedTool(root: string, tool: "rg", createdPaths?: string[], recordCreated?: (path: string) => Promise<void>): Promise<ManagedToolComponent>;
+export async function installManagedTool(root: string, tool: "git", createdPaths?: string[], recordCreated?: (path: string) => Promise<void>): Promise<ManagedGitToolComponent>;
+export async function installManagedTool(root: string, tool: ManagedToolName, createdPaths: string[] = [], recordCreated?: (path: string) => Promise<void>): Promise<ManagedToolComponent | ManagedGitToolComponent> {
     assertManagerPlatform();
-    return tool === "git" ? installPortableGit(root, createdPaths) : installRipgrep(root, createdPaths);
+    return tool === "git" ? installPortableGit(root, createdPaths, recordCreated) : installRipgrep(root, createdPaths, recordCreated);
 }
 
 /** 安装最新 ripgrep，部分版本目录会自动重建。 */
-async function installRipgrep(root: string, createdPaths: string[]): Promise<ManagedToolComponent> {
+async function installRipgrep(root: string, createdPaths: string[], recordCreated?: (path: string) => Promise<void>): Promise<ManagedToolComponent> {
     const suffix = process.platform === "win32" ? "x86_64-pc-windows-msvc.zip" : "x86_64-unknown-linux-gnu.tar.gz";
     const release = await githubReleaseAsset("BurntSushi/ripgrep", undefined, (name) => name.endsWith(suffix));
     const version = release.tag.replace(/^v/u, "");
@@ -38,7 +38,9 @@ async function installRipgrep(root: string, createdPaths: string[]): Promise<Man
         await rename(extractedRoot, targetRoot);
         executable = join(targetRoot, relative(extractedRoot, executable));
         await removePath(stageRoot);
-        createdPaths.push(relative(root, targetRoot).replaceAll("\\", "/"));
+        const createdPath = relative(root, targetRoot).replaceAll("\\", "/");
+        createdPaths.push(createdPath);
+        await recordCreated?.(createdPath);
     }
     return {
         provider: "managed",
@@ -53,7 +55,7 @@ async function installRipgrep(root: string, createdPaths: string[]): Promise<Man
 }
 
 /** Windows 安装 PortableGit，确保 Git 与真正 bash 同属一个受审计发行包。 */
-async function installPortableGit(root: string, createdPaths: string[]): Promise<ManagedGitToolComponent> {
+async function installPortableGit(root: string, createdPaths: string[], recordCreated?: (path: string) => Promise<void>): Promise<ManagedGitToolComponent> {
     if (process.platform !== "win32") throw new Error("PortableGit managed provider 只支持 Windows x64。" );
     const release = await githubReleaseAsset(
         "git-for-windows/git",
@@ -81,7 +83,9 @@ async function installPortableGit(root: string, createdPaths: string[]): Promise
         git = join(targetRoot, relative(extractedRoot, git));
         bash = join(targetRoot, relative(extractedRoot, bash));
         await removePath(stageRoot);
-        createdPaths.push(relative(root, targetRoot).replaceAll("\\", "/"));
+        const createdPath = relative(root, targetRoot).replaceAll("\\", "/");
+        createdPaths.push(createdPath);
+        await recordCreated?.(createdPath);
     }
     return {
         provider: "managed",
@@ -107,25 +111,32 @@ export function activateManagedTools(root: string, tools: ToolComponents): void 
 /** 在所有 managed Tool 校验完成后一次性刷新稳定 wrapper。 */
 export async function writeManagedToolWrappers(root: string, tools: ToolComponents): Promise<void> {
     if (tools.rg?.provider === "managed") {
-        await writeToolWrapper(root, "rg", resolve(root, tools.rg.path));
+        await writeToolWrapper(root, "rg", tools.rg.path);
     }
     if (tools.git?.provider === "managed") {
-        await writeToolWrapper(root, "git", resolve(root, tools.git.path));
-        await writeToolWrapper(root, "bash", resolve(root, tools.git.bashPath));
+        await writeToolWrapper(root, "git", tools.git.path);
+        await writeToolWrapper(root, "bash", tools.git.bashPath);
     }
 }
 
-async function writeToolWrapper(root: string, tool: "rg" | "git" | "bash", executable: string): Promise<void> {
+async function writeToolWrapper(root: string, tool: "rg" | "git" | "bash", executablePath: string): Promise<void> {
     const binRoot = join(root, ".runtime", "bin");
     await ensureDirectory(binRoot);
-    const executableRelative = relative(root, executable);
     if (process.platform === "win32") {
-        await writeTextAtomic(join(binRoot, `${tool}.cmd`), `@echo off\r\nset "ROOT=%~dp0..\\.."\r\n"%ROOT%\\${executableRelative}" %*\r\n`);
+        await writeTextAtomic(join(binRoot, `${tool}.cmd`), renderToolWrapper(executablePath));
         return;
     }
     const wrapper = join(binRoot, tool);
-    await writeTextAtomic(wrapper, `#!/bin/sh\nROOT="$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)"\nexec "$ROOT/${executableRelative}" "$@"\n`);
+    await writeTextAtomic(wrapper, renderToolWrapper(executablePath));
     await chmodFile(wrapper, 0o755);
+}
+
+/** 生成稳定managed Tool wrapper；安装与doctor必须消费同一模板。 */
+export function renderToolWrapper(executablePath: string, platform: NodeJS.Platform = process.platform): string {
+    if (platform === "win32") {
+        return `@echo off\r\nset "ROOT=%~dp0..\\.."\r\n"%ROOT%\\${executablePath.replaceAll("/", "\\")}" %*\r\n`;
+    }
+    return `#!/bin/sh\nROOT="$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)"\nexec "$ROOT/${executablePath}" "$@"\n`;
 }
 
 function activatePortableGit(git: string, bash: string): void {

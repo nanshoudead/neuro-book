@@ -79,12 +79,14 @@ neuro-book/
 
 Release 更新只替换组件拥有的路径，不覆盖 State Root。
 
+`neuro-book update`按当前Profile执行原子应用更新，不接受`--component`拆分Source/Product；同版本且Manager checksum一致时直接返回“已是最新版本”。Runtime与Tool分别使用`neuro-book runtime update bun`、`neuro-book tools update <rg|git>`。候选CI或审计可用`--release-manifest <本地路径或HTTPS URL>`，它与`--version`互斥，仍会校验channel、revision、平台、资产文件名和checksum。
+
 ## 常用命令
 
 ```text
 neuro-book                              # 交互式安装向导
 neuro-book manage                       # 多实例 TUI
-neuro-book install --profile <profile> [--dir <path>] [--version <version>]
+neuro-book install --profile <profile> [--dir <path>] [--version <version> | --release-manifest <path-or-url>]
     [--channel <stable|canary>] [--port <port>]
     [--auth <enabled|disabled>] [--yes] [--dry-run]
 
@@ -99,7 +101,7 @@ neuro-book instances forget <name-or-id>
 neuro-book instances default <name-or-id>
 neuro-book instances config
 
-neuro-book update [--component <source|product|runtime|tools>...] [--dry-run]
+neuro-book update [--version <version> | --release-manifest <path-or-url>] [--dry-run]
 neuro-book start
 neuro-book status [--json]
 neuro-book doctor [--json]
@@ -129,6 +131,8 @@ Manager 配置默认位于 `~/.neuro-book-manager/config.json`。它只保存：
 配置不复制应用版本、组件 checksum、Runtime 或 Product 状态；这些信息仍只存在于实例的 `.deploy/installation.json`。配置可保存有限`discoveryRoots`，默认最多向下扫描3层并跳过依赖、构建和Manager目录，不递归整个磁盘。配置损坏或删除不会破坏实例，重新执行 `neuro-book instances import <path>` 即可恢复索引。
 
 无参数入口会按当前目录切换管理、损坏实例处理、接管和部署菜单；非TTY只输出离线检测结果与下一步命令，不产生文件。Candidate Discovery不执行Bun/Docker等环境子进程，其他Git仓库不会进入候选。`instances import`校验Manifest、组件checksum、wrapper、Product、State Root和Operation，但服务或容器停机只产生warning。`adopt`只接受干净且remote/branch/upstream合法的NeuroBook Git checkout；三个Source Profile均先在系统临时目录的短路径detached worktree准备，避免Windows长路径并保证主checkout在提交前不变。
+
+`status`是轻量运行状态，不重算所有大文件checksum；`doctor`才执行完整离线完整性和服务检查。正常停机的原生服务或容器返回warning但保持`healthy=true`，并给出`start`下一步。Docker/Compose缺失、Compose与Manifest镜像不一致、运行中容器实际镜像错误、HTTP不可达或版本错误均为fail。`start`在Docker `up -d`后等待版本接口，不把Compose退出码0当作应用已经可用。
 
 `neuro-book manage` 的 blessed TUI 支持多实例查看、状态、诊断、启动、事务更新、注册、设为默认和忘记记录。安装、启动和更新等长操作会退出 TUI 后在正常终端中继续，避免子进程输出破坏界面。
 

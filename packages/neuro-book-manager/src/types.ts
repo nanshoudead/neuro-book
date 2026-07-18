@@ -1,3 +1,5 @@
+import type {StateRootIntegrityResult} from "nbook/server/runtime/state-root-integrity";
+
 /** NeuroBook Manager 支持的安装 Profile。 */
 export type InstallProfile =
     | "source-dev"
@@ -40,6 +42,82 @@ export type EnvironmentInspection = {bun: CommandInspection; git: CommandInspect
 export type InstanceDiscovery = {candidates: OfflineInspection[]; warnings: InspectionIssue[]};
 export type ImportInspection = OfflineInspection & {importable: boolean};
 
+export type InstallationCheckStatus = "pass" | "warn" | "fail";
+export type InstallationCheckCategory = "manifest" | "manager" | "runtime" | "tool" | "source" | "product" | "state" | "service" | "operation";
+
+/** doctor与离线导入共用的稳定检查项。 */
+export type InstallationCheck = {
+    id: string;
+    category: InstallationCheckCategory;
+    status: InstallationCheckStatus;
+    message: string;
+    /** 仅在用户可采取明确修复动作时存在。 */
+    remediation?: string;
+};
+
+/** 当前实例服务状态；停止是合法状态，degraded/unavailable表示需要处理。 */
+export type InstallationServiceStatus = {
+    kind: "native" | "container";
+    status: "running" | "stopped" | "degraded" | "unavailable";
+    port: number;
+    expectedVersion: string;
+    /** 成功访问版本接口时存在。 */
+    observedVersion?: string;
+    /** Docker Profile中由Manifest决定。 */
+    expectedImage?: string;
+    /** Docker Compose可解析时存在。 */
+    configuredImage?: string;
+    /** 已创建容器可inspect时存在。 */
+    actualImage?: string;
+    /** 已创建容器存在时记录。 */
+    containerId?: string;
+    message: string;
+};
+
+/** status的轻量、稳定JSON合同。 */
+export type InstallationStatus = {
+    root: string;
+    profile: InstallProfile;
+    managerVersion: string;
+    executingManagerVersion: string;
+    appVersion: string;
+    channel: ReleaseChannel;
+    sourceRevision: string;
+    stateRoot: string;
+    port: number;
+    productReady: boolean;
+    service: InstallationServiceStatus;
+    unfinishedOperations: string[];
+    stateIntegrity: StateRootIntegrityResult;
+    nextActions: string[];
+    components: InstallationComponents;
+};
+
+/** doctor的完整、稳定JSON合同。 */
+export type DoctorReport = {
+    healthy: boolean;
+    checks: InstallationCheck[];
+    paths: {
+        root: string;
+        stateRoot: string;
+        workspace: string;
+        bootConfig: string;
+        stateIntegrity: StateRootIntegrityResult;
+    };
+    service: InstallationServiceStatus & {
+        commands: {
+            bun: CommandInspection;
+            git: CommandInspection;
+            rg: CommandInspection;
+            docker: CommandInspection;
+            compose: CommandInspection;
+        };
+    };
+    components: InstallationComponents;
+    operations: string[];
+    python: {python3: CommandInspection; python: CommandInspection; note: string};
+};
+
 /** 用户注册的 NeuroBook 实例索引；实例自身状态仍以 installation.json 为准。 */
 export type ManagerInstance = {
     id: string;
@@ -59,9 +137,6 @@ export type ManagerConfig = {
 
 /** 当前支持的 Product 平台。 */
 export type ProductPlatform = "windows-x64" | "linux-x64-glibc";
-
-/** update 命令可独立选择的应用组件。 */
-export type ComponentId = "source" | "product" | "runtime" | "tools";
 
 /** 安装根允许的 State Root 映射。 */
 export type StateRootPath = "." | "data";
@@ -256,7 +331,7 @@ export type OperationPlan = {
 export type OperationPhase = "planned" | "staged" | "validated" | "switched" | "migrated" | "healthy" | "committed";
 
 export type OperationJournal = {
-    schemaVersion: 1;
+    schemaVersion: 2;
     id: string;
     action: "install" | "update";
     phase: OperationPhase;
@@ -268,12 +343,17 @@ export type OperationJournal = {
     git?: {
         previousRevision: string;
         targetRevision: string;
-        committed: boolean;
+        /** Source Dev主checkout frozen install完成后为true。 */
+        dependenciesInstalled?: boolean;
     };
-    /** Source Dev Git 已提交后，主 checkout 的 frozen install 是否完成。 */
-    sourceDependenciesInstalled?: boolean;
-    databaseBackup?: string;
-    databasePath?: string;
+    database?: {
+        configuredUrl: string;
+        path: string;
+        backup: string;
+        checkpoint: {busy: number; log: number; checkpointed: number};
+    };
+    /** Source Dev迁移使用的目标revision staged root；默认使用Installation Root。 */
+    migrationRoot?: string;
     /** Product数据格式迁移必须先于Product/Compose回滚恢复。 */
     attachmentMigration?: {
         runId: string;
@@ -288,17 +368,21 @@ export type OperationJournal = {
             backupPath?: string;
         }>;
     };
-    previousCompose?: string;
-    /** Compose 已切换；回滚前必须先停止当前容器。 */
-    composeChanged?: boolean;
-    /** 本次操作前不存在受管 Compose，回滚时应删除新文件。 */
-    composeCreated?: boolean;
-    /** Source Docker 本次创建的本地镜像；失败时删除。 */
-    dockerImageCreated?: string;
-    /** 镜像删除失败时保留给 doctor/人工清理。 */
-    dockerImageCleanupError?: string;
-    wrapperBackup?: string;
-    wrappersChanged?: boolean;
+    docker?: {
+        previousState: "running" | "stopped" | "missing";
+        stopped: boolean;
+        previousCompose?: string;
+        composeChanged: boolean;
+        composeCreated: boolean;
+        previousImage?: string;
+        targetImage?: string;
+        imageCreated?: string;
+        cleanupError?: string;
+    };
+    manager?: {
+        wrapperBackup?: string;
+        wrappersChanged: boolean;
+    };
     outcome?: "success" | "rolled-back";
     createdAt: string;
     updatedAt: string;

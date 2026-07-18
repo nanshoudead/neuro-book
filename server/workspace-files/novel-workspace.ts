@@ -17,7 +17,7 @@ import {
 } from "nbook/server/agent/profiles/profile-artifact-compiler";
 import {readVariableDefinitionManifest, validateVariableDefinitionArtifact, type VariableDefinitionManifestItem} from "nbook/server/agent/variables/definition-artifact";
 import {normalizeProjectPath, resolveProjectWorkspaceRoot} from "nbook/server/workspace-files/project-path";
-import {assertRealPathContained, type AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
+import {absoluteFsPath, assertRealPathContained, relativeFilePathInside, type AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
 import {assertProjectWorkspaceDirectory} from "nbook/server/workspace-files/project-workspace";
 import type {WorkspaceFileTarget} from "nbook/server/workspace-files/workspace-file-target";
 import {
@@ -293,7 +293,6 @@ export async function resolveNovelWorkspaceTarget(
         normalizeProjectPath(projectPathInput),
     );
     const root = resolveProjectWorkspaceRoot(runtimePaths.workspaceRoot, projectPath);
-    await assertRealPathContained(runtimePaths.stateRoot, root);
     return {
         kind: "project-workspace",
         root,
@@ -1470,8 +1469,7 @@ function resolveInsideRoot(root: string, relativePath: string): string {
     }
     const absoluteRoot = path.resolve(root);
     const resolved = path.resolve(absoluteRoot, normalized);
-    const relative = path.relative(absoluteRoot, resolved);
-    if (relative.startsWith("..") || path.isAbsolute(relative)) {
+    if (!relativeFilePathInside(absoluteFsPath(absoluteRoot), absoluteFsPath(resolved))) {
         throw new Error(`路径越界: ${relativePath}`);
     }
     return resolved;

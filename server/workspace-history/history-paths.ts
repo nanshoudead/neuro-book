@@ -1,4 +1,5 @@
 import {managedProjectPath} from "nbook/server/workspace-files/project-data-plane-guard";
+import {isRuntimeGeneratedWorkspacePath} from "nbook/server/workspace-files/runtime-generated-path";
 
 /**
  * 记账排除段（任意深度命中即排除，与 watcher 的忽略清单对齐）：
@@ -28,6 +29,9 @@ export function historyProjectPathFromRoot(rootInput: string | undefined): strin
 export function isHistoryTrackedRelativePath(relativePath: string): boolean {
     const normalized = relativePath.replace(/\\/g, "/").replace(/^\/+/u, "").replace(/\/+$/u, "");
     if (!normalized) {
+        return false;
+    }
+    if (isRuntimeGeneratedWorkspacePath(normalized)) {
         return false;
     }
     const segments = normalized.split("/");

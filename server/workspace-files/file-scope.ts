@@ -1,6 +1,7 @@
 import path from "node:path";
 import {
     absoluteFsPath,
+    relativeFilePathInside,
     resolveContainedFilePath,
     type AbsoluteFsPath,
 } from "nbook/server/runtime/paths/file-path";
@@ -153,7 +154,7 @@ export function resolveFileAddress(scope: FileScope, input: string): ResolvedFil
     if (path.isAbsolute(normalizedInput)) {
         const absolutePath = absoluteFsPath(normalizedInput);
         const relativePath = scope.currentProjectPath
-            ? relativeInside(scope.root, absolutePath)
+            ? relativeFilePathInside(scope.root, absolutePath)
             : null;
         if (scope.currentProjectPath && relativePath !== null) {
             return {
@@ -179,16 +180,15 @@ export function resolveFileAddress(scope: FileScope, input: string): ResolvedFil
             throw new Error("完整Project File Address必须使用workspace/<project>/<relative-path>");
         }
         const projectPath = normalizeProjectPath(`workspace/${segments[1]}`);
-        const relativePath = segments.slice(2).join("/");
-        if (path.posix.normalize(relativePath) === ".") {
+        const projectRoot = resolveProjectWorkspaceRoot(scope.workspaceRoot, projectPath);
+        const absolutePath = resolveContainedFilePath(projectRoot, segments.slice(2).join("/"));
+        const relativePath = relativeFilePathInside(projectRoot, absolutePath);
+        if (!relativePath || relativePath === ".") {
             throw new Error("Project File Address必须指向Project Workspace内的文件或目录项");
         }
         return {
             kind: "project-address",
-            absolutePath: resolveContainedFilePath(
-                resolveProjectWorkspaceRoot(scope.workspaceRoot, projectPath),
-                relativePath,
-            ),
+            absolutePath,
             projectPath,
             relativePath,
         };
@@ -198,19 +198,15 @@ export function resolveFileAddress(scope: FileScope, input: string): ResolvedFil
         throw new Error(`当前Project Workspace内请使用相对路径，不要重复添加${segments[0]}/前缀`);
     }
 
+    const absolutePath = resolveContainedFilePath(scope.root, normalizedInput);
+    const relativePath = relativeFilePathInside(scope.root, absolutePath);
+    if (!relativePath) {
+        throw new Error(`路径越过文件系统根：${input}`);
+    }
     return {
         kind: "scope-relative",
-        absolutePath: resolveContainedFilePath(scope.root, normalizedInput),
+        absolutePath,
         projectPath: scope.currentProjectPath,
-        relativePath: normalizedInput,
+        relativePath,
     };
-}
-
-/** 仅在 target 位于 root 内时返回 `/` 相对路径。 */
-function relativeInside(root: AbsoluteFsPath, target: AbsoluteFsPath): string | null {
-    const relativePath = path.relative(root, target);
-    if (!relativePath || relativePath.startsWith("..") || path.isAbsolute(relativePath)) {
-        return relativePath === "" ? "." : null;
-    }
-    return relativePath.replaceAll(path.sep, "/");
 }

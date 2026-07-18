@@ -1,5 +1,5 @@
-import {join, normalize, relative} from "node:path";
-import type {AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
+import {join, normalize} from "node:path";
+import {absoluteFsPath, relativeFilePathInside, type AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
 import type {WorkspaceRootRef} from "nbook/server/workspace-files/workspace-root-ref";
 import {resolveSessionFileScope} from "nbook/server/agent/workspace/session-file-scope";
 
@@ -53,8 +53,8 @@ export function resolvePlanModeFile(input: PlanModeLocationInput & {planFilePath
     const projectRoot = planModeProjectRoot(input);
     const planRoot = normalize(planModeDirectory(input));
     const absolutePath = normalize(join(projectRoot, normalizedInput));
-    const relativeToPlanRoot = relative(planRoot, absolutePath);
-    if (relativeToPlanRoot.startsWith("..") || relativeToPlanRoot === "" || relativeToPlanRoot.startsWith("/") || /^[A-Za-z]:/.test(relativeToPlanRoot)) {
+    const relativeToPlanRoot = relativeFilePathInside(absoluteFsPath(planRoot), absoluteFsPath(absolutePath));
+    if (!relativeToPlanRoot || relativeToPlanRoot === ".") {
         throw new Error(`switch_mode planFilePath must stay inside ${PLAN_MODE_DIRECTORY}/.`);
     }
 

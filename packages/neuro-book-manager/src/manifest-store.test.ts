@@ -1,3 +1,6 @@
+import {mkdtemp, rm, writeFile} from "node:fs/promises";
+import {tmpdir} from "node:os";
+import {join} from "node:path";
 import {afterEach, describe, expect, it, vi} from "vitest";
 
 import {resolveReleaseManifest} from "#manager/manifest-store";
@@ -5,7 +8,13 @@ import {resolveReleaseManifest} from "#manager/manifest-store";
 const SHA = "a".repeat(64);
 const REVISION = "b".repeat(40);
 
-afterEach(() => vi.unstubAllGlobals());
+let temporaryRoot: string | null = null;
+
+afterEach(async () => {
+    vi.unstubAllGlobals();
+    if (temporaryRoot) await rm(temporaryRoot, {recursive: true, force: true});
+    temporaryRoot = null;
+});
 
 describe("Release resolver", () => {
     it("跳过最新但尚未装配的 Release", async () => {
@@ -36,6 +45,27 @@ describe("Release resolver", () => {
             ? Response.json([complete.github])
             : Response.json(complete.manifest)));
         expect((await resolveReleaseManifest("canary")).version).toBe("1.1.0-beta.2");
+    });
+
+    it("可从本地候选Manifest解析尚未公开最终索引的Release", async () => {
+        temporaryRoot = await mkdtemp(join(tmpdir(), "manager-release-manifest-"));
+        const candidate = release("v1.1.0-beta.2", true).manifest;
+        const manifestPath = join(temporaryRoot, "release-manifest.json");
+        await writeFile(manifestPath, JSON.stringify(candidate), "utf8");
+
+        const resolved = await resolveReleaseManifest("canary", undefined, manifestPath);
+
+        expect(resolved).toEqual(candidate);
+    });
+
+    it("显式Manifest与version互斥且不能绕过channel", async () => {
+        temporaryRoot = await mkdtemp(join(tmpdir(), "manager-release-manifest-"));
+        const candidate = release("v1.1.0-beta.2", true).manifest;
+        const manifestPath = join(temporaryRoot, "release-manifest.json");
+        await writeFile(manifestPath, JSON.stringify(candidate), "utf8");
+
+        await expect(resolveReleaseManifest("canary", "1.1.0-beta.2", manifestPath)).rejects.toThrow("不能同时使用");
+        await expect(resolveReleaseManifest("stable", undefined, manifestPath)).rejects.toThrow("channel");
     });
 });
 

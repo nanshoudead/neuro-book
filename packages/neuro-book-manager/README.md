@@ -48,6 +48,8 @@ Windows Portable的State Root固定为`data/`。如果Installation Root下另外
 
 已有Manifest v3实例使用`instances import <path> --yes`执行离线完整性门禁后登记；`--yes`只接受“服务未启动”等warning，不能绕过checksum、wrapper或Operation blocker。无Manifest源码checkout使用`adopt`显式接管；三个Source Profile均在detached worktree准备，dirty、未知remote或非法branch会停止。无法证明revision/checksum的历史`.output`不会直接纳入管理。
 
+`status`只做轻量路径、Operation和服务探测；`doctor`执行完整checksum、组件版本、wrapper内容、Source/Product revision、Compose镜像和HTTP版本检查。服务正常停止是warning且`healthy=true`，下一步会提示`start`；Docker/Compose不可用、运行中镜像或版本错误、HTTP不可达和组件损坏才会使doctor失败。Docker `start`会等待真实版本接口通过，Compose命令成功不等于应用健康。
+
 Install、Update与Start在修改应用数据前都会先恢复未完成Operation，并在install lock内持久化Operation Journal。Agent Attachment格式迁移先dry-run记录受影响session的source/target hash，再apply并补充backup路径；健康检查或进程中断时，Manager先停止新Product/容器释放runtime lease并撤销session格式，之后才恢复Product、SQLite和Compose。缺少迁移脚本、runId不一致或`applied`操作返回`not_started`都会停止，不能静默启动不完整Product。
 
 不要使用 `bunx run @notnotype/neuro-book-manager`；`bunx run` 会把包名按本地脚本或路径解析，Manager 不会被启动。

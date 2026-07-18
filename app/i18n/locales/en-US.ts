@@ -1330,6 +1330,7 @@ const enUS = {
             viewSyncConflicts: "View sync conflicts",
             downloadTitle: "Download {target}",
             downloadConfirm: "Unsaved files will be saved first, then the current {target} will be packaged and downloaded.",
+            downloadProjectHistoryWarning: "The archive includes complete file history and may retain deleted manuscript text and sensitive history. Confirm the recipient and purpose before sharing it.",
             syncDetailsTitle: "User Assets Sync Details",
             syncDetailsDescription: "The following user overrides were kept, and system versions were not applied automatically. Open a diff to inspect changes.",
             userOverrideDiff: "User Override Diff",

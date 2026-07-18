@@ -27,7 +27,7 @@ import {discoverInstallationRoot, installationPaths} from "#manager/paths";
 import {parseProfile, profileNames} from "#manager/profiles";
 import {runManagerTui} from "#manager/tui";
 import {adoptSourceInstallation} from "#manager/source-adoption";
-import type {ComponentId, InstallProfile, InstallationManifest, OfflineInspection, ReleaseChannel} from "#manager/types";
+import type {InstallProfile, InstallationManifest, OfflineInspection, ReleaseChannel} from "#manager/types";
 import {updateInstallation} from "#manager/updater";
 import {MANAGER_VERSION} from "#manager/version-info";
 
@@ -46,6 +46,7 @@ program.command("install")
     .option("--profile <profile>", `安装 Profile：${profileNames().join(", ")}`)
     .option("--dir <path>", "Installation Root。")
     .option("--version <version>", "指定 NeuroBook Release 版本。")
+    .option("--release-manifest <path-or-url>", "使用本地路径或HTTPS候选Release Manifest；与--version互斥。")
     .option("--channel <channel>", "Release channel：stable 或 canary。", parseChannel)
     .option("--port <port>", "Web 端口。", parsePort)
     .option("--auth <mode>", "密码保护：enabled 或 disabled。Windows Portable 默认 disabled，其他 Profile 默认 enabled。", parseAuth)
@@ -55,17 +56,20 @@ program.command("install")
         profile?: string;
         dir?: string;
         version?: string;
+        releaseManifest?: string;
         channel?: ReleaseChannel;
         port?: number;
         auth?: boolean;
         yes: boolean;
         dryRun: boolean;
     }) => {
+        if (options.version && options.releaseManifest) throw new Error("--version 与 --release-manifest 不能同时使用。" );
         if (!options.yes && process.stdin.isTTY && process.stdout.isTTY) {
             await runInstallGuide({
                 profile: options.profile ? parseProfile(options.profile) : undefined,
                 root: options.dir,
                 version: options.version,
+                releaseManifest: options.releaseManifest,
                 channel: options.channel,
                 port: options.port,
                 authEnabled: options.auth,
@@ -81,6 +85,7 @@ program.command("install")
             profile,
             channel: options.channel ?? managerConfig.preferences.channel,
             version: options.version,
+            releaseManifest: options.releaseManifest,
             port: options.port ?? 3000,
             authEnabled: options.auth ?? profile !== "windows-portable",
             dryRun: options.dryRun,
@@ -231,25 +236,28 @@ program.command("adopt")
 
 program.command("update")
     .description("事务更新当前或指定安装。")
-    .option("--component <components...>", "更新组件：source product runtime tools。", collectComponent, [])
     .option("--version <version>", "指定 NeuroBook Release 版本。")
+    .option("--release-manifest <path-or-url>", "使用本地路径或HTTPS候选Release Manifest；与--version互斥。")
     .option("--channel <channel>", "切换 Release channel。", parseChannel)
     .option("--dry-run", "只打印更新目标。", false)
-    .action(async (options: {component?: ComponentId[]; version?: string; channel?: ReleaseChannel; dryRun: boolean}) => {
+    .action(async (options: {version?: string; releaseManifest?: string; channel?: ReleaseChannel; dryRun: boolean}) => {
+        if (options.version && options.releaseManifest) throw new Error("--version 与 --release-manifest 不能同时使用。" );
         const {root, manifest} = await currentInstallation();
         if (options.dryRun) {
-            printJson({action: "update", root, profile: manifest.profile, components: options.component ?? "profile-default", version: options.version ?? "latest"});
+            printJson({action: "update", root, profile: manifest.profile, scope: "profile-atomic", version: options.version ?? "latest"});
             return;
         }
-        const next = await updateInstallation({
+        const result = await updateInstallation({
             root,
             manifest,
-            components: options.component?.length ? options.component : undefined,
             version: options.version,
+            releaseManifest: options.releaseManifest,
             channel: options.channel,
             managerExecutable,
         });
-        p.outro(`更新完成：${next.appVersion}`);
+        p.outro(result.changed
+            ? `更新完成：${result.manifest.appVersion}`
+            : `已是最新版本：${result.manifest.appVersion}`);
     });
 
 program.command("start")
@@ -379,7 +387,11 @@ async function runContextEntry(): Promise<void> {
         if (action === "start") return startInstallationApplication(inspection.root, inspection.manifest);
         if (action === "status") return printObject(await installationStatus(inspection.root, inspection.manifest));
         if (action === "doctor") return printObject(await doctor(inspection.root, inspection.manifest));
-        if (action === "update") { await updateInstallation({root: inspection.root, manifest: inspection.manifest, managerExecutable}); return; }
+        if (action === "update") {
+            const result = await updateInstallation({root: inspection.root, manifest: inspection.manifest, managerExecutable});
+            p.outro(result.changed ? `更新完成：${result.manifest.appVersion}` : `已是最新版本：${result.manifest.appVersion}`);
+            return;
+        }
         if (action === "runtime") { printJson({managerRuntime: inspection.manifest.components.managerRuntime, applicationRuntime: inspection.manifest.components.applicationRuntime}); return; }
         if (action === "tools") { printJson(inspection.manifest.components.tools); return; }
         if (action === "instances") { printJson(await readManagerConfig()); return; }
@@ -505,12 +517,6 @@ function parseAuth(value: string): boolean {
 }
 
 /** 累积并校验 update 组件参数。 */
-function collectComponent(value: string, previous: ComponentId[]): ComponentId[] {
-    const allowed: ComponentId[] = ["source", "product", "runtime", "tools"];
-    if (!allowed.includes(value as ComponentId)) throw new Error(`不支持的组件：${value}`);
-    return [...previous, value as ComponentId];
-}
-
 /** 限制 v1 可维护工具集合。 */
 function assertTool(value: string): asserts value is "rg" | "git" {
     if (value !== "rg" && value !== "git") throw new Error(`不支持的工具：${value}`);

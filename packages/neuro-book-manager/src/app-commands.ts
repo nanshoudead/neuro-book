@@ -8,7 +8,7 @@ import {runDockerApplicationCommand, startDocker} from "#manager/docker";
 import {pathExists} from "#manager/files";
 import {commandAvailable, run, runCapture} from "#manager/process";
 import {activateManagedTools} from "#manager/tools";
-import type {InstallationManifest} from "#manager/types";
+import type {CommandInspection, InstallationManifest} from "#manager/types";
 import {formatStateRootIntegrityWarning, inspectInstallationStateIntegrity, stateRootIntegrityFailed} from "#manager/state-integrity";
 
 const MigrationSessionSchema = Type.Object({
@@ -66,7 +66,7 @@ export async function startApplication(root: string, manifest: InstallationManif
     }
     activateManagedTools(root, manifest.components.tools);
     if (manifest.profile === "ghcr" || manifest.profile === "source-docker") {
-        await startDocker(root, stateRoot, manifest.profile);
+        await startDocker(root, stateRoot, manifest.profile, manifest.appVersion);
         return;
     }
     const env = await applicationEnvironment(root, stateRoot, manifest.profile === "source-dev");
@@ -76,7 +76,7 @@ export async function startApplication(root: string, manifest: InstallationManif
     }
     const entry = join(root, ".output", "server", "scripts", "deploy", "product-start.mjs");
     if (!await pathExists(entry)) {
-        throw new Error("当前安装缺少 Product 启动入口，请先执行 neuro-book update --component product。");
+        throw new Error("当前安装缺少 Product 启动入口，请执行 neuro-book update；应用更新始终按Profile原子执行。" );
     }
     const bun = resolveBun(root, manifest);
     if (manifest.profile === "windows-portable") {
@@ -87,16 +87,18 @@ export async function startApplication(root: string, manifest: InstallationManif
 }
 
 /** 原生Product执行Prisma migration；容器与Source Dev由各自启动合同负责。 */
-export async function migrateDatabase(root: string, manifest: InstallationManifest): Promise<void> {
-    if (manifest.profile === "ghcr" || manifest.profile === "source-docker" || manifest.profile === "source-dev") return;
-    const script = join(root, ".output", "server", "scripts", "db", "prisma-migrate.mjs");
+export async function migrateDatabase(root: string, manifest: InstallationManifest, applicationRoot = root): Promise<void> {
+    if (manifest.profile === "ghcr" || manifest.profile === "source-docker") return;
+    const script = manifest.profile === "source-dev"
+        ? join(applicationRoot, "scripts", "db", "prisma-migrate.mjs")
+        : join(applicationRoot, ".output", "server", "scripts", "db", "prisma-migrate.mjs");
     if (!await pathExists(script)) {
         throw new Error("Product 缺少数据库迁移脚本。");
     }
     const stateRoot = resolve(root, manifest.stateRoot);
     await run(resolveBun(root, manifest), [script, "--deploy"], {
-        cwd: root,
-        env: await applicationEnvironment(root, stateRoot, false),
+        cwd: applicationRoot,
+        env: await applicationEnvironment(applicationRoot, stateRoot, manifest.profile === "source-dev"),
     });
 }
 
@@ -105,12 +107,13 @@ export async function planAttachmentMigration(
     root: string,
     manifest: InstallationManifest,
     runId: string,
+    applicationRoot = root,
 ): Promise<AttachmentMigrationPlan | null> {
-    const script = attachmentMigrationScript(root, manifest);
+    const script = attachmentMigrationScript(applicationRoot, manifest);
     if (manifest.components.applicationRuntime.provider !== "container" && !await pathExists(script)) {
         throw new Error(`Product 缺少Attachment migration脚本：${script}`);
     }
-    const report = await runAttachmentMigrationCommand(root, manifest, [script, "--dry-run", "--run-id", runId]);
+    const report = await runAttachmentMigrationCommand(root, manifest, [script, "--dry-run", "--run-id", runId], applicationRoot);
     if (report.mode !== "dry-run" || report.status !== "planned" || report.runId !== runId) {
         throw new Error("Attachment migration dry-run返回了不一致的报告。");
     }
@@ -124,9 +127,10 @@ export async function applyAttachmentMigration(
     root: string,
     manifest: InstallationManifest,
     runId: string,
+    applicationRoot = root,
 ): Promise<AttachmentMigrationPlan> {
-    const script = attachmentMigrationScript(root, manifest);
-    const report = await runAttachmentMigrationCommand(root, manifest, [script, "--apply", "--run-id", runId]);
+    const script = attachmentMigrationScript(applicationRoot, manifest);
+    const report = await runAttachmentMigrationCommand(root, manifest, [script, "--apply", "--run-id", runId], applicationRoot);
     if (report.mode !== "apply" || report.status !== "complete" || report.runId !== runId) {
         throw new Error("Attachment migration apply返回了不一致的报告。");
     }
@@ -139,9 +143,10 @@ export async function rollbackAttachmentMigration(
     manifest: InstallationManifest,
     runId: string,
     allowNotStarted = false,
+    applicationRoot = root,
 ): Promise<void> {
-    const script = attachmentMigrationScript(root, manifest);
-    const output = await runApplicationCommand(root, manifest, [script, "--rollback", runId]);
+    const script = attachmentMigrationScript(applicationRoot, manifest);
+    const output = await runApplicationCommand(root, manifest, [script, "--rollback", runId], applicationRoot);
     const value: unknown = JSON.parse(output);
     if (!Value.Check(MigrationRollbackReportSchema, value)) {
         throw new Error("Attachment migration rollback返回了无效报告。");
@@ -181,14 +186,18 @@ export async function createAdmin(root: string, manifest: InstallationManifest, 
     });
 }
 
-/** 生成状态/doctor 所需的命令版本。 */
-export async function commandStatus(command: string): Promise<{available: boolean; version: string | null}> {
-    const available = await commandAvailable(command);
+/** 生成状态/doctor 所需的命令版本；args允许检查docker compose等子命令。 */
+export async function commandStatus(command: string, args = ["--version"]): Promise<CommandInspection> {
+    const available = await commandAvailable(command, args);
     if (!available) {
-        return {available: false, version: null};
+        return {available: false};
     }
-    const version = (await runCapture(command, ["--version"])).split(/\r?\n/u)[0]?.trim() ?? null;
-    return {available: true, version};
+    try {
+        const version = (await runCapture(command, args)).split(/\r?\n/u)[0]?.trim();
+        return {available: true, ...(version ? {version} : {})};
+    } catch {
+        return {available: false};
+    }
 }
 
 export async function applicationEnvironment(root: string, stateRoot: string, development: boolean): Promise<NodeJS.ProcessEnv> {
@@ -223,8 +232,9 @@ async function runAttachmentMigrationCommand(
     root: string,
     manifest: InstallationManifest,
     args: string[],
+    applicationRoot: string,
 ): Promise<MigrationReport> {
-    const output = await runApplicationCommand(root, manifest, args);
+    const output = await runApplicationCommand(root, manifest, args, applicationRoot);
     const value: unknown = JSON.parse(output);
     if (!Value.Check(MigrationReportSchema, value)) {
         throw new Error("Attachment migration返回了无效报告。");
@@ -248,14 +258,15 @@ async function runApplicationCommand(
     root: string,
     manifest: InstallationManifest,
     args: string[],
+    applicationRoot = root,
 ): Promise<string> {
     const stateRoot = resolve(root, manifest.stateRoot);
     if (manifest.components.applicationRuntime.provider === "container") {
         return runDockerApplicationCommand(root, stateRoot, ["bun", ...args]);
     }
     return runCapture(resolveBun(root, manifest), args, {
-        cwd: root,
-        env: await applicationEnvironment(root, stateRoot, manifest.profile === "source-dev"),
+        cwd: applicationRoot,
+        env: await applicationEnvironment(applicationRoot, stateRoot, manifest.profile === "source-dev"),
     });
 }
 
@@ -269,8 +280,9 @@ async function runPortableForeground(bun: string, entry: string, root: string, e
         });
     });
     const url = `http://127.0.0.1:${port}`;
-    const deadline = Date.now() + 30_000;
+    const deadline = Date.now() + 120_000;
     let opened = false;
+    let nextProgressAt = Date.now() + 10_000;
     while (Date.now() < deadline && child.exitCode === null) {
         try {
             const response = await fetch(`${url}/api/app/version`, {signal: AbortSignal.timeout(1_000)});
@@ -282,12 +294,16 @@ async function runPortableForeground(bun: string, entry: string, root: string, e
         } catch {
             // 服务启动期间连接失败属于预期状态。
         }
+        if (Date.now() >= nextProgressAt) {
+            console.log(`Windows Portable仍在启动：${url}`);
+            nextProgressAt = Date.now() + 10_000;
+        }
         await new Promise((resolvePromise) => setTimeout(resolvePromise, 250));
     }
     if (!opened && child.exitCode === null) {
         child.kill();
         await exited.catch(() => undefined);
-        throw new Error(`Windows Portable 启动后 30 秒内未通过健康检查：${url}`);
+        throw new Error(`Windows Portable 启动后 120 秒内未通过健康检查：${url}`);
     }
     await exited;
 }

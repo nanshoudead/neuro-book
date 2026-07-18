@@ -23,6 +23,7 @@ export type {
     OpenOptions,
     OperationActor,
     OperationLogEntry,
+    PathPurgeReport,
     PruneReport,
     TextDiffResult,
     TimelineEntry,

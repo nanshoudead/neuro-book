@@ -6,6 +6,7 @@ import {
     absoluteFsPath,
     assertRealParentContained,
     assertRealPathContained,
+    relativeFilePathInside,
     resolveContainedFilePath,
     resolveFilePath,
 } from "nbook/server/runtime/paths/file-path";
@@ -32,8 +33,17 @@ describe("通用文件系统路径解析", () => {
     it("contained解析拒绝越过物理根", () => {
         expect(resolveContainedFilePath(root, "manuscript/chapter.md"))
             .toBe(path.resolve(root, "manuscript", "chapter.md"));
+        expect(resolveContainedFilePath(root, "..draft/chapter.md"))
+            .toBe(path.resolve(root, "..draft", "chapter.md"));
         expect(() => resolveContainedFilePath(root, "../outside.md"))
             .toThrow("越过文件系统根");
+    });
+
+    it("根内绝对目标转换为canonical相对路径", () => {
+        expect(relativeFilePathInside(root, absoluteFsPath(path.join(root, "lorebook", "..", "manuscript", "001.md"))))
+            .toBe("manuscript/001.md");
+        expect(relativeFilePathInside(root, root)).toBe(".");
+        expect(relativeFilePathInside(root, absoluteFsPath(path.resolve(root, "..", "outside.md")))).toBeNull();
     });
 
     it("拒绝把相对领域引用伪装为绝对路径", () => {

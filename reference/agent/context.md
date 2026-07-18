@@ -139,8 +139,10 @@ System + HistorySet/history -> ModelContext -> AppendingSet -> CurrentUserInput
 - `mode="off"` 不产生计划；`minimal` 只描述路径和条数；`full` 额外描述归因与操作类型。
 - `<FileChangeNotice>` 只声明 awareness mode。每个文件最终 unified diff 的字符预算来自当前 Profile 的通用运行设置 `agent.profiles[profileKey].fileChangeNotice.diffMaxChars`，范围 0–8192，缺省 512（约 256 tokens）；0 表示不内联 diff。
 - 系统整轮预算不可由 Profile 放宽：inline 总额为 `min(8192, diffMaxChars × 4)`，最多计算 4 个文件详情、逐项列出 50 个文件，最终 `<file-change-notice>` 不超过 12,288 字符。reference 只保留 hunk 位置、字符数和变更行统计，不保存 diff 正文；某段放不下时整段降级，不截断正文。
+- 逐文件条目只陈述状态、路径、归因、位置与 diff 统计；完整读取、敏感路径限制和删除路径限制由 footer 按整批文件聚合，每类指导最多出现一次。Notice 不查询或推断 Inbox 状态。
 - 敏感路径在读取 snapshot 正文前由服务端硬阻断：`.ssh/.aws/.azure/.kube/.docker/.gnupg`、所有 `.env` 变体与 `.envrc`、明确凭据文件、私钥名和 `.pem/.key/.p12/.pfx/.jks/.keystore`。策略不扫描内容，也不使用 `secret` 等宽泛子串；Profile 不能放宽，notice 不得出现正文或 diff。
-- 删除文件不生成可点击的当前文件引用。小型删除可内联 removed diff；超限或不可用时明确说明当前路径不可 `read`，需要旧内容时交由文件变更收件箱审查或还原。
+- 敏感文件 footer 只说明正文与 diff 未进入 notice，并要求仅在当前任务确有需要时先征得用户同意；不承诺该路径存在于文件变更收件箱。
+- 删除文件不生成可点击的当前文件引用。小型删除可内联 removed diff；超限或不可用时明确说明没有当前文件，并在进一步查看历史或恢复前询问用户；不承诺该路径存在于文件变更收件箱。
 - Profile 未声明该节点时，即使 Project 存在 unseen 文件变更也不会注入提醒。
 - Workbench dry-run 只显示占位消息，不读取真实 history。
 - 真实运行只在 notice 进入模型且 turn ingest 成功后推进游标；失败时下轮仍会重现，保持 at-least-once。

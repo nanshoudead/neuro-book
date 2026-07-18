@@ -37,7 +37,7 @@ describe("database config", () => {
         const result = resolveDatabaseConfig();
 
         expect(result.kind).toBe("sqlite");
-        expect(result.url).toBe("file:./workspace/.nbook/neuro-book.sqlite");
+        expect(result.url).toBe(fileUrl(join(originalCwd, "workspace", ".nbook", "neuro-book.sqlite")));
     });
 
     it("Boot Config 可以选择自定义 SQLite 文件路径", async () => {
@@ -56,7 +56,7 @@ describe("database config", () => {
         const result = resolveDatabaseConfig();
 
         expect(result.kind).toBe("sqlite");
-        expect(result.url).toBe("file:./workspace/.nbook/custom.sqlite");
+        expect(result.url).toBe(fileUrl(join(tempDir, "workspace", ".nbook", "custom.sqlite")));
         expect(result.sqliteFilePath?.replaceAll("\\", "/")).toContain("/workspace/.nbook/custom.sqlite");
     });
 
@@ -76,7 +76,7 @@ describe("database config", () => {
         const result = resolveDatabaseConfig();
 
         expect(result.kind).toBe("sqlite");
-        expect(result.url).toBe("file:./workspace/.nbook/env.sqlite");
+        expect(result.url).toBe(fileUrl(join(tempDir, "workspace", ".nbook", "env.sqlite")));
     });
 
     it("相对 SQLite 路径基于 State Root 解析", async () => {
@@ -91,12 +91,17 @@ describe("database config", () => {
         const result = resolveDatabaseConfig();
 
         expect(result.sqliteFilePath).toBe(join(stateRoot, "workspace", ".nbook", "state.sqlite"));
+        expect(result.url).toBe(fileUrl(join(stateRoot, "workspace", ".nbook", "state.sqlite")));
     });
 });
 
 async function importFreshConfig() {
     vi.resetModules();
     return await import("nbook/server/database/config");
+}
+
+function fileUrl(databasePath: string): string {
+    return `file:${databasePath.replaceAll("\\", "/")}`;
 }
 
 function restoreEnv(

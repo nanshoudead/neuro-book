@@ -6,6 +6,7 @@ import {openDatabase, openReader} from "./db";
 import {looksBinary, sha256Hex, toBytes} from "./hash";
 import {validateRelativePath} from "./paths";
 import {runPrune} from "./prune";
+import {runPathPurge} from "./path-purge";
 import {entryToColumns, mapRow, type NewEntry} from "./rows";
 import {
     afterStateHash,
@@ -19,6 +20,7 @@ import {
     type OpenOptions,
     type OperationActor,
     type OperationLogEntry,
+    type PathPurgeReport,
     type PruneReport,
     type TextDiffResult,
     type TimelineEntry,
@@ -557,6 +559,14 @@ export class WorkspaceHistory {
     /** 执行保留策略(R12):窗口外稀疏化 + 保护规则 + 快照引用计数 GC。 */
     async prune(): Promise<PruneReport> {
         return this.locked(() => runPrune(this.client, this.config, this.clock()));
+    }
+
+    /**
+     * 删除宿主明确判定为不再受管的路径历史，并在同一事务内清理 acceptance 与孤儿快照。
+     * session cursor 保持原位；未来自增 entry id 仍会严格大于既有游标。
+     */
+    async purgePaths(shouldPurge: (path: string) => boolean): Promise<PathPurgeReport> {
+        return this.locked(() => runPathPurge(this.client, shouldPurge));
     }
 
     /**

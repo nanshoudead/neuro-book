@@ -45,7 +45,7 @@ export class WorldCalendarLoader {
         // 只支持 calendar.ts
         const tsPath = path.join(projectRoot, "world-engine", "calendar.ts");
         if (await fileExists(tsPath)) {
-            return await this.loadFromTypeScript(tsPath);
+            return await this.loadFromTypeScript(projectRoot, tsPath);
         }
 
         // calendar.ts 不存在，报错
@@ -55,10 +55,14 @@ export class WorldCalendarLoader {
         });
     }
 
-    private async loadFromTypeScript(tsPath: string): Promise<WorldCalendar> {
+    private async loadFromTypeScript(projectRoot: AbsoluteFsPath, tsPath: string): Promise<WorldCalendar> {
         try {
             // calendar.ts 是单文件配置入口；入口内容变化时通过 hash 模块路径热加载。
-            const module = await importSingleFileTypeScriptConfig<{default?: unknown}>(tsPath, "calendar");
+            const module = await importSingleFileTypeScriptConfig<{default?: unknown}>({
+                filePath: tsPath,
+                label: "calendar",
+                runtimeCacheRoot: path.join(projectRoot, ".nbook", "runtime-artifact-import-cache"),
+            });
             const config = module.default;
 
             if (!config || typeof config !== "object") {

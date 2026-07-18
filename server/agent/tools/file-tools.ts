@@ -202,7 +202,7 @@ function addLineNumbers(content: string, firstLine: number): string {
 }
 
 function resolveContextAccessProject(context: ToolExecutionContext, address: ResolvedFileAddress): {root: string; slug: string; filePath: string} | null {
-    if (address.kind === "absolute" || !address.projectPath) {
+    if (!address.projectPath) {
         return null;
     }
     const filePath = address.relativePath;

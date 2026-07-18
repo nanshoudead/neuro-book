@@ -24,6 +24,7 @@ import {absoluteFsPath, type AbsoluteFsPath} from "nbook/server/runtime/paths/fi
 import {normalizeProjectPath, resolveProjectWorkspaceRoot} from "nbook/server/workspace-files/project-path";
 import {WORKSPACE_CONTAINER_ROOT} from "nbook/server/workspace-files/workspace-root-ref";
 import {collectReleasedSqliteHandles} from "nbook/server/workspace-files/sqlite-handle-release";
+import {MAX_AGENT_CHANGE_NOTICE_CHARS} from "nbook/shared/agent/file-change-policy";
 import {
     LOCAL_USER_ID,
     recordProjectWrite,
@@ -153,10 +154,31 @@ describe("file-change-reminder 纯函数", () => {
         }]]);
         const reference = buildFileChangeReminder(groups, "minimal", referenceDetails, 512);
         expect(reference).toContain("Location: new L20-L40 / old L18-L35");
-        expect(reference).toContain("Use read for the complete current file");
+        expect(reference).toContain("read complete current content only from non-sensitive paths when relevant");
+        expect(reference).not.toContain("Use read for the complete current file");
     });
 
-    it("单个敏感文件只给普通路径和 inbox 指引，不生成链接或 read 建议", () => {
+    it("2/4 个超限文件在 minimal/full 下都只输出一次完整读取指导", () => {
+        for (const count of [2, 4]) {
+            const groups = Array.from({length: count}, (_, index) => unseenGroup(`notes/reference-${index}.md`, index + 1));
+            const details = new Map<string, AgentChangeDiffDetail>(groups.map((group, index) => [group.path, {
+                kind: "reference" as const,
+                locations: [`新 L${index + 1} / 旧 L${index + 1}`],
+                charCount: 900 + index,
+                changedLineCount: 30 + index,
+                lineLimit: 16,
+            }]));
+
+            for (const mode of ["minimal", "full"] as const) {
+                const notice = buildFileChangeReminder(groups, mode, details, 512);
+                expect(notice.match(/Diff size:/g)).toHaveLength(count);
+                expect(notice.match(/read complete current content only from non-sensitive paths when relevant/g)).toHaveLength(1);
+                expect(notice).not.toContain("Use read for the complete current file");
+            }
+        }
+    });
+
+    it("单个敏感文件只给普通路径和检查限制，不生成链接、Inbox 或 read 建议", () => {
         const group = unseenGroup(".env.local", 1);
         const details = new Map<string, AgentChangeDiffDetail>([[group.path, {kind: "blocked"}]]);
 
@@ -165,7 +187,8 @@ describe("file-change-reminder 纯函数", () => {
         expect(notice).toContain("modified: .env.local");
         expect(notice).not.toContain("[.env.local](.env.local)");
         expect(notice).toContain("Sensitive path");
-        expect(notice).toContain("file change inbox");
+        expect(notice).toContain("ask the user before inspecting them when the current task requires it");
+        expect(notice).not.toContain("file change inbox");
         expect(notice).not.toContain("use read");
         expect(notice).not.toContain("Use read");
     });
@@ -184,18 +207,74 @@ describe("file-change-reminder 纯函数", () => {
         expect(notice).toContain("modified: .env.production");
         expect(notice).not.toContain("[.env.production](.env.production)");
         expect(notice).toContain("Sensitive path");
-        expect(notice).toContain("Sensitive paths must be reviewed in the file change inbox");
+        expect(notice).toContain("ask the user before inspecting them when the current task requires it");
+        expect(notice).not.toContain("file change inbox");
     });
 
     it("敏感与普通文件混合时 read 指引只适用于非敏感路径", () => {
         const groups = [unseenGroup("manuscript/ch1.md", 1), unseenGroup(".env.local", 2)];
 
-        const notice = buildFileChangeReminder(groups, "full", new Map(), 512);
+        for (const mode of ["minimal", "full"] as const) {
+            const notice = buildFileChangeReminder(groups, mode, new Map(), 512);
 
-        expect(notice).toContain("[manuscript/ch1.md](manuscript/ch1.md)");
+            expect(notice).toContain("[manuscript/ch1.md](manuscript/ch1.md)");
+            expect(notice).not.toContain("[.env.local](.env.local)");
+            expect(notice).toContain("read complete current content only from non-sensitive paths when relevant");
+            expect(notice).toContain("Do not read or reproduce them solely because they changed");
+            expect(notice).not.toContain("file change inbox");
+        }
+    });
+
+    it("inline/reference/敏感/删除混合时逐文件事实完整且 footer 每类指导只出现一次", () => {
+        const inlineGroup = unseenGroup("notes/inline.md", 1);
+        const referenceGroup = unseenGroup("notes/reference.md", 2);
+        const sensitiveGroup = unseenGroup(".env.local", 3);
+        const deletedGroup = unseenGroup("manuscript/deleted.md", 4, null);
+        const details = new Map<string, AgentChangeDiffDetail>([
+            [inlineGroup.path, {
+                kind: "inline",
+                diff: "@@ -1,1 +1,1 @@\n-old\n+new",
+                locations: ["新 L1 / 旧 L1"],
+                charCount: 31,
+                changedLineCount: 2,
+                lineLimit: 16,
+            }],
+            [referenceGroup.path, {
+                kind: "reference",
+                locations: ["新 L20-L40 / 旧 L18-L35"],
+                charCount: 900,
+                changedLineCount: 30,
+                lineLimit: 16,
+            }],
+            [sensitiveGroup.path, {kind: "blocked"}],
+            [deletedGroup.path, {
+                kind: "reference",
+                locations: ["新 ∅ / 旧 L1-L40"],
+                charCount: 901,
+                changedLineCount: 40,
+                lineLimit: 16,
+            }],
+        ]);
+
+        const notice = buildFileChangeReminder(
+            [inlineGroup, referenceGroup, sensitiveGroup, deletedGroup],
+            "full",
+            details,
+            512,
+        );
+
+        expect(notice).toContain("Location: new L1 / old L1");
+        expect(notice).toContain("Diff: 31 characters, 2 changed lines");
+        expect(notice).toContain("Location: new L20-L40 / old L18-L35");
+        expect(notice).toContain("Diff size: 900 characters, 30 changed lines");
         expect(notice).not.toContain("[.env.local](.env.local)");
-        expect(notice).toContain("use read only when the task needs complete current content from a non-sensitive path");
-        expect(notice).toContain("Sensitive paths are excluded from the prompt and must be reviewed in the file change inbox");
+        expect(notice).toContain("Sensitive path");
+        expect(notice).not.toContain("[manuscript/deleted.md](manuscript/deleted.md)");
+        expect(notice).toContain("The current file is deleted");
+        expect(notice.match(/read complete current content only from non-sensitive paths when relevant/g)).toHaveLength(1);
+        expect(notice.match(/Do not read or reproduce them solely because they changed/g)).toHaveLength(1);
+        expect(notice.match(/Deleted paths have no current file/g)).toHaveLength(1);
+        expect(notice).not.toContain("file change inbox");
     });
 
     it("敏感删除文件无链接且明确当前路径不可读取", () => {
@@ -206,7 +285,8 @@ describe("file-change-reminder 纯函数", () => {
         expect(notice).toContain("deleted: credentials/private.key");
         expect(notice).not.toContain("[credentials/private.key](credentials/private.key)");
         expect(notice).toContain("Sensitive path");
-        expect(notice).toContain("current path cannot be read");
+        expect(notice).toContain("current file is deleted");
+        expect(notice).toContain("Deleted paths have no current file");
         expect(notice).not.toContain("use read");
         expect(notice).not.toContain("Use read");
     });
@@ -220,6 +300,21 @@ describe("file-change-reminder 纯函数", () => {
         expect(notice).not.toContain("notes/change-50.md");
         expect(notice).toContain("5 additional changed files were not expanded");
         expect(Array.from(notice).length).toBeLessThanOrEqual(12_288);
+    });
+
+    it("长路径批次逼近总预算时减少展开项并保持 notice 硬上限", () => {
+        const groups = Array.from({length: 50}, (_, index) => unseenGroup(
+            `notes/${String(index).padStart(2, "0")}-${"x".repeat(900)}.md`,
+            index + 1,
+        ));
+
+        const notice = buildFileChangeReminder(groups, "full");
+        const listedCount = notice.match(/^- modified:/gmu)?.length ?? 0;
+
+        expect(listedCount).toBeGreaterThan(0);
+        expect(listedCount).toBeLessThan(50);
+        expect(notice).toContain(`${50 - listedCount} additional changed files were not expanded`);
+        expect(Array.from(notice).length).toBeLessThanOrEqual(MAX_AGENT_CHANGE_NOTICE_CHARS);
     });
 
     it("删除文件不生成当前文件链接，超限时只提示当前路径不可读取", () => {
@@ -236,7 +331,7 @@ describe("file-change-reminder 纯函数", () => {
 
         expect(notice).toContain("deleted: manuscript/deleted.md");
         expect(notice).not.toContain("[manuscript/deleted.md](manuscript/deleted.md)");
-        expect(notice).toContain("current path cannot be read");
+        expect(notice).toContain("current file is deleted");
         expect(notice).not.toContain("Use read for the complete current file");
     });
 

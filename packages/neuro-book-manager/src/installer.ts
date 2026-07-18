@@ -13,10 +13,10 @@ import {
     type StagedReleaseSource,
 } from "#manager/component";
 import {ensureStateFiles} from "#manager/config";
-import {buildSourceDockerImage, startDocker, stopDocker, verifyDockerApplication, writeDockerCompose} from "#manager/docker";
+import {buildSourceDockerImage, inspectDockerApplication, startDocker, stopDocker, writeDockerCompose} from "#manager/docker";
 import {ensureDirectory, pathExists, removePath} from "#manager/files";
 import {assertCleanWorktree, createStagedWorktree, materializeRepository, removeStagedWorktree, repositoryRevision} from "#manager/git";
-import {assertNativeProductStopped, backupApplicationDatabase, statePort, verifyNativeProduct} from "#manager/health";
+import {assertNativeProductStopped, backupApplicationDatabase, verifyNativeProduct} from "#manager/health";
 import {withInstallLock} from "#manager/lock";
 import {readInstallationManifest, resolveReleaseManifest, writeInstallationManifest} from "#manager/manifest-store";
 import {backupRuntimeWrappers, commitOperation, createOperation, recoverInterruptedOperations, updateOperation} from "#manager/operation";
@@ -25,6 +25,7 @@ import {installationPaths} from "#manager/paths";
 import {writePortableLaunchers} from "#manager/portable-launchers";
 import {buildSourceProduct, installSourceDependencies} from "#manager/product";
 import {profileDefinition} from "#manager/profiles";
+import {parseInstallationManifest} from "#manager/schema";
 import {commandAvailable, runCapture} from "#manager/process";
 import {installManagerExecutable, resolveManagerRuntime, runtimeExecutable, writeManagerWrapper, writeRuntimeWrapper} from "#manager/runtime";
 import {activateManagedTools, installManagedTool, writeManagedToolWrappers} from "#manager/tools";
@@ -50,6 +51,7 @@ export type InstallOptions = {
     profile: InstallProfile;
     channel: ReleaseChannel;
     version?: string;
+    releaseManifest?: string;
     port: number;
     authEnabled: boolean;
     dryRun: boolean;
@@ -99,29 +101,34 @@ async function installInternal(options: InstallOptions, mode: "fresh" | "adopt")
         const id = randomUUID();
         const staging = join(paths.staging, id);
         const backup = join(paths.backups, id);
-        await ensureDirectory(staging);
         let journal = await createOperation({
             id,
             action: "install",
             root: paths.root,
-            createdPaths: [relative(paths.root, staging)],
+            createdPaths: [relative(paths.root, staging).replaceAll("\\", "/")],
             backupRoot: backup,
             previousManifest: null,
             nextManifest: null,
         });
+        await ensureDirectory(staging);
         const createdComponents: string[] = [];
         let stagedWorktree: string | null = null;
         try {
             if (mode === "adopt" && (options.profile === "source-product" || options.profile === "source-docker")) {
                 await assertNativeProductStopped(paths.state);
                 const database = await backupApplicationDatabase(paths.state, backup);
-                if (database) journal = await updateOperation(journal, "planned", {databasePath: database.databasePath, databaseBackup: database.backupPath});
+                if (database) journal = await updateOperation(journal, "planned", {database: {
+                    configuredUrl: database.configuredUrl,
+                    path: database.databasePath,
+                    backup: database.backupPath,
+                    checkpoint: database.checkpoint,
+                }});
             }
             const result = await prepareInstallation(options, journal, staging, backup, createdComponents, mode);
             stagedWorktree = result.stagedWorktree;
             journal = result.journal;
             const wrapperBackup = await backupRuntimeWrappers(paths.root, backup);
-            journal = await updateOperation(journal, journal.phase, {wrapperBackup, wrappersChanged: true});
+            journal = await updateOperation(journal, journal.phase, {manager: {wrapperBackup, wrappersChanged: true}});
             if (result.manifest.components.managerRuntime.provider === "managed") {
                 await writeRuntimeWrapper(paths.root, result.manifest.components.managerRuntime);
             }
@@ -151,11 +158,14 @@ async function prepareInstallation(
     const portable = options.profile === "windows-portable";
     const paths = installationPaths(options.root, portable);
     const definition = profileDefinition(options.profile);
-    const managerRuntime = await resolveManagerRuntime(paths.root, portable, createdComponents);
-    const manager = await installManagerExecutable(paths.root, MANAGER_VERSION, options.managerExecutable, createdComponents);
-    let journal = await updateOperation(initialJournal, "planned", {
-        createdPaths: [...new Set([...initialJournal.createdPaths, ...createdComponents])],
-    });
+    let journal = initialJournal;
+    const recordCreated = async (path: string): Promise<void> => {
+        journal = await updateOperation(journal, journal.phase, {
+            createdPaths: [...new Set([...journal.createdPaths, path])],
+        });
+    };
+    const managerRuntime = await resolveManagerRuntime(paths.root, portable, createdComponents, recordCreated);
+    const manager = await installManagerExecutable(paths.root, MANAGER_VERSION, options.managerExecutable, createdComponents, recordCreated);
     const preparedTools = await prepareTools(paths.root, options.profile, createdComponents, journal);
     const tools = preparedTools.tools;
     journal = preparedTools.journal;
@@ -167,8 +177,11 @@ async function prepareInstallation(
     let stagedProduct: StagedProduct | null = null;
     let stagedWorktree: string | null = null;
     const release = definition.source === "release" || definition.source === "container"
-        ? await resolveReleaseManifest(options.channel, options.version)
+        ? await resolveReleaseManifest(options.channel, options.version, options.releaseManifest)
         : null;
+    if (!release && (options.version || options.releaseManifest)) {
+        throw new Error(`Profile ${options.profile}使用Git Source，不接受--version或--release-manifest。`);
+    }
     if (release) {
         assertManagerVersion(release.minManagerVersion, paths.root, options.channel);
         appVersion = release.version;
@@ -242,7 +255,14 @@ async function prepareInstallation(
     } else if (options.profile === "source-docker") {
         product = {provider: "container", version: appVersion, revision: sourceRevision, image: `neuro-book-source:${sourceRevision.slice(0, 12)}`};
         await buildSourceDockerImage(stagedWorktree ?? paths.root, product.image);
-        journal = await updateOperation(journal, journal.phase, {dockerImageCreated: product.image});
+        journal = await updateOperation(journal, journal.phase, {docker: {
+            previousState: "missing",
+            stopped: false,
+            composeChanged: false,
+            composeCreated: false,
+            imageCreated: product.image,
+            targetImage: product.image,
+        }});
     } else if (options.profile === "ghcr" && release) {
         product = {
             provider: "container",
@@ -269,6 +289,7 @@ async function prepareInstallation(
         installedAt: now,
         updatedAt: now,
     };
+    parseInstallationManifest(manifest);
     journal = await updateOperation(journal, "validated", {nextManifest: manifest});
     if (stagedSource) {
         await switchReleaseSource({root: paths.root, staged: stagedSource, backup: join(backup, "source"), previousFiles: []});
@@ -284,6 +305,10 @@ async function prepareInstallation(
             await ensureDirectory(backup);
             await copyFile(finalCompose, previousCompose);
         }
+        const previousInspection = composeCreated ? null : await inspectDockerApplication(paths.root, paths.state);
+        const previousState = !previousInspection?.containerId
+            ? "missing" as const
+            : previousInspection.status === "running" ? "running" as const : "stopped" as const;
         const stagedCompose = await writeDockerCompose({
             root: paths.root,
             stateRoot: paths.state,
@@ -293,14 +318,20 @@ async function prepareInstallation(
             output: join(staging, "docker-compose.generated.yml"),
             layoutPath: finalCompose,
         });
-        journal = await updateOperation(journal, journal.phase, {
-            composeChanged: true,
+        journal = await updateOperation(journal, journal.phase, {docker: {
+            previousState,
+            stopped: previousState === "running",
+            composeChanged: false,
             composeCreated,
             previousCompose,
-        });
-        if (!composeCreated) await stopDocker(paths.root, paths.state);
+            previousImage: previousInspection?.configuredImage,
+            targetImage: options.profile === "ghcr" ? `${product.image}@${product.digest}` : product.image,
+            imageCreated: journal.docker?.imageCreated,
+        }});
+        if (previousState === "running") await stopDocker(paths.root, paths.state);
         await removePath(finalCompose);
         await rename(stagedCompose, finalCompose);
+        journal = await updateOperation(journal, journal.phase, {docker: {...journal.docker!, composeChanged: true}});
     }
     journal = await updateOperation(journal, "switched");
     const createdState = await ensureStateFiles(paths.state, options.port, options.authEnabled);
@@ -314,8 +345,7 @@ async function prepareInstallation(
         if (!bun) throw new Error("原生 Product 健康检查缺少 Application Runtime。" );
         await verifyNativeProduct(paths.root, paths.state, bun, appVersion);
     } else if (options.profile === "ghcr" || options.profile === "source-docker") {
-        await startDocker(paths.root, paths.state, options.profile);
-        await verifyDockerApplication(await statePort(paths.state), appVersion);
+        await startDocker(paths.root, paths.state, options.profile, appVersion);
     }
     if (portable) await writePortableLaunchers(paths.root);
     journal = await updateOperation(journal, "healthy");
@@ -347,9 +377,9 @@ async function prepareTools(
     initialJournal: OperationJournal,
 ): Promise<{tools: ToolComponents; journal: OperationJournal}> {
     let journal = initialJournal;
-    const record = async (): Promise<void> => {
+    const record = async (path: string): Promise<void> => {
         journal = await updateOperation(journal, journal.phase, {
-            createdPaths: [...new Set([...journal.createdPaths, ...createdPaths])],
+            createdPaths: [...new Set([...journal.createdPaths, path])],
         });
     };
     if (profile === "ghcr" || profile === "source-docker") {
@@ -361,17 +391,14 @@ async function prepareTools(
         }, journal};
     }
     if (profile === "windows-portable") {
-        const rg = await installManagedTool(root, "rg", createdPaths);
-        await record();
-        const git = await installManagedTool(root, "git", createdPaths);
-        await record();
+        const rg = await installManagedTool(root, "rg", createdPaths, record);
+        const git = await installManagedTool(root, "git", createdPaths, record);
         return {tools: {rg, git}, journal};
     }
     if (profile === "source-dev" || profile === "source-product") {
         if (await commandAvailable("git")) return {tools: {git: await systemTool("git")}, journal};
         if (process.platform === "win32") {
-            const git = await installManagedTool(root, "git", createdPaths);
-            await record();
+            const git = await installManagedTool(root, "git", createdPaths, record);
             return {tools: {git}, journal};
         }
         throw new Error("缺少 Git。Linux 请先通过系统包管理器安装 Git。" );

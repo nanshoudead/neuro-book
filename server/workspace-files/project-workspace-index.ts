@@ -12,6 +12,7 @@ import {
 } from "nbook/server/workspace-files/workspace-files";
 import type {AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
 import {workspaceFileTargetRef, type WorkspaceFileTarget} from "nbook/server/workspace-files/workspace-file-target";
+import {isRuntimeGeneratedWorkspacePath} from "nbook/server/workspace-files/runtime-generated-path";
 import {readProjectManifestIssueFromRoot} from "nbook/server/workspace-files/project-workspace";
 import {assertProjectOpen, markProjectActivity, registerProjectResourceOwner} from "nbook/server/workspace-files/project-session";
 import type {
@@ -533,12 +534,14 @@ function normalizeWorkspaceEventPath(root: string, changedPath: string): string 
 
 /**
  * watcher 忽略段：`.git` 版本库、`.nbook` 运行态（project.sqlite / history.sqlite 的 WAL 高频写会抖动索引重建）、
- * `.agent` 运行态（plan 草稿等）。只收窄 watcher 事件面，不影响 scanWorkspaceTree 的树展示（读取路径 dirty 重建兜底）。
+ * `.agent` 运行态（plan 草稿等）。runtime artifact 由共享路径 Module 在 watcher 与完整扫描两侧统一硬排除。
  */
 const IGNORED_WORKSPACE_WATCH_SEGMENTS = new Set([".git", ".nbook", ".agent"]);
 
 export function isIgnoredWorkspaceWatchPath(value: string): boolean {
-    return value.replace(/\\/g, "/").split("/").some((segment) => IGNORED_WORKSPACE_WATCH_SEGMENTS.has(segment));
+    const normalized = value.replace(/\\/g, "/");
+    return isRuntimeGeneratedWorkspacePath(normalized)
+        || normalized.split("/").some((segment) => IGNORED_WORKSPACE_WATCH_SEGMENTS.has(segment));
 }
 
 function projectIndexToSnapshot(index: ProjectWorkspaceIndex): WorkspaceTreeSnapshotDto<WorkspaceFileNode> {

@@ -2,6 +2,8 @@ import {readFile} from "node:fs/promises";
 import {fileURLToPath} from "node:url";
 import {describe, expect, it} from "vitest";
 import {isNovelIdeTab, NOVEL_IDE_TABS} from "nbook/app/components/novel-ide/mock-data";
+import enUS from "nbook/app/i18n/locales/en-US";
+import zhCN from "nbook/app/i18n/locales/zh-CN";
 
 const headerPath = fileURLToPath(new URL("../components/novel-ide/NovelIdeHeader.vue", import.meta.url));
 const sidebarPath = fileURLToPath(new URL("../components/novel-ide/NovelIdeSidebar.vue", import.meta.url));
@@ -85,5 +87,16 @@ describe("Novel writing mode entries", () => {
         expect(agentSurface).not.toContain("{profileKey: \"simulator.leader\"");
         expect(agentSurface).toContain("case \"rp.leader\": return t(\"agent.profiles.rpLeader\")");
         expect(agentSurface).toContain("case \"simulator.leader\": return t(\"agent.profiles.simulatorLeader\")");
+    });
+
+    it("Project 下载确认提示完整 History 隐私风险，user-assets 不显示该提示", async () => {
+        const toolPanel = await readFile(toolPanelPath, "utf-8");
+
+        expect(toolPanel).toContain("v-if=\"!props.userAssetsMode\"");
+        expect(toolPanel).toContain("ide.toolPanel.downloadProjectHistoryWarning");
+        expect(zhCN.ide.toolPanel.downloadProjectHistoryWarning).toContain("完整文件历史");
+        expect(zhCN.ide.toolPanel.downloadProjectHistoryWarning).toContain("已删除正文和敏感历史");
+        expect(enUS.ide.toolPanel.downloadProjectHistoryWarning).toContain("complete file history");
+        expect(enUS.ide.toolPanel.downloadProjectHistoryWarning).toContain("deleted manuscript text and sensitive history");
     });
 });

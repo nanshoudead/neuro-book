@@ -1,6 +1,6 @@
 # Task 109：统一 File Scope、File Address 与 Product Runtime 路径合同
 
-> 当前状态：已完成 / Implemented & Verified。Generic File Path、Project Path、File Scope、Resolved File Address 与不可变 RuntimePaths 已完成硬切；Workspace Files/History、World Engine/Plot、Profile/Skill Catalog、Harness、Session Repository 和 bash 均由进程/HTTP Adapter 显式传入物理根，核心 Module 不再重新发现 cwd 或环境。`0.8.5`公开Product Bun与`0.8.6`公开GHCR已在SSH Arch完成Attachment、五工具、Config/Profile/Variable、State Root、启动和HTTP链路；Windows Portable与Release平台门禁已由GitHub Actions实跑闭合。
+> 当前状态：实现中 / Implementing。2026-07-18补漏审查确认canonical relative path、managed Project链接隔离和Manager容器健康合同仍有缺口；`0.8.5`/`0.8.6`公开证据继续作为历史基线，但在新门禁与下一公开canary通过前不再标记Verified。
 
 ## Relative documents refs
 
@@ -713,4 +713,39 @@ Profile/Harness             -> 上述稳定 Interface
 - SSH Arch从空目录安装GHCR后，Operation Journal为`committed / success`，Manifest v3记录container Source/Product、同一source revision与固定digest。一次性Attachment migration正常退出，正式服务容器随后启动，没有残留one-off容器。
 - `doctor --json`为`healthy=true`；容器内同根runner在`Application Root = State Root = /app`条件下完成read/write/edit/apply_patch/bash、Config/Profile/Variable、外部Project图片和全局Attachment Store。容器根`/app/.agent`不存在，所有用户状态均通过挂载的State Root路径落盘。
 - 停止Compose后，Manager `start`按Manifest固定digest重新创建服务；HTTP返回精确`v0.8.6-canary.20260717.130406Z.a91a96f`，宿主State Root标记保持不变。测试实例、HOME、容器、网络与镜像引用已清理。
-- 阶段五最后一个公开资产checkbox已完成。人工浏览器验收仍按Explicit non-goals不自动执行；它不是路径合同完成条件。Task 109现标记Implemented & Verified。
+- 阶段五最后一个公开资产checkbox已完成。人工浏览器验收仍按Explicit non-goals不自动执行；它不是路径合同完成条件。Task 109现标记Implementing。
+
+### 2026-07-18 路径与Manager健康合同补漏审查
+
+- Generic File Path使用`startsWith("..")`判断越界，错误拒绝`..draft`等合法名称；相同判断仍散落在File Scope、apply_patch、Plan Mode和Harness。
+- `ResolvedFileAddress`虽然把绝对路径解析到正确文件，仍保留含`.`/`..`的输入字符串作为`relativePath`，导致History fail-open静默丢失归因并让Context Access分类漂移。
+- managed Project目录只执行`stat()`，Project根junction/symlink可指向Workspace Root外；Harness直接`openProject()`时还绕过了State Root真实路径检查。
+- Manager container Profile的status/doctor未检查Compose、容器、实际镜像和HTTP版本，`productReady`对container无条件为true；Release CI仅对Portable执行真实doctor。
+- 现有聚焦组合为40 pass / 1 fail；失败是containment测试写死`fs.access()`成功返回值，生产删除行为正常，但正式门禁并非全绿。根typecheck和Manager 18 files / 65 tests通过，证明主要问题是缺少Interface级语义门禁。
+- 本轮锁定：managed Project根链接全部拒绝；安全dot segment接受并输出canonical路径；服务正常停止为doctor warning且保持healthy。任务恢复为Implementing，待本地、Product及公开canary重新闭环。
+
+### 2026-07-18 Portable App SQLite连接路径补漏
+
+- 公开`0.8.6` Windows Portable真实登录暴露出数据库连接层仍绕过State Root：`resolveDatabaseConfig()`给文件操作生成了正确绝对路径，但Prisma连接继续使用逻辑相对URL，进程从Portable外部cwd启动时会打开错误位置。
+- 修复没有新增Agent专用路径概念，也不改变Task 109的RuntimePaths/File Scope合同。数据库领域现在通过单一SQLite Location接口，把逻辑`file:./workspace/.nbook/neuro-book.sqlite`按当前State Root解析为同一份绝对path与连接URL；Prisma Runtime和CLI migration共用该结果。
+- `.env`不被重写，完整`data/`移动后会在新位置重新解析；不提供Installation Root根`workspace/`、junction、旧盘符或cwd fallback。Release Windows门禁增加鉴权开启后的真实登录与影子Workspace断言。
+- 聚焦数据库12项测试已通过，包含Portable `data/`、cwd变化、绝对URL、非法协议和PrismaLibSql真实查询。公开`0.8.6` Portable布局替换当前Product overlay后，从目录外启动并完成真实鉴权登录：SQLite只位于`data/workspace/.nbook`且根目录无影子`workspace`。Task 109的路径设计不变；公开验证状态仍服从当前补漏审查的整体Implementing状态，待后续包含该Product修复的canary重验。
+
+### 2026-07-18 路径、Attachment 与 Manager 健康合同实现切片
+
+- Generic File Path、File Address、managed Project Location、Session File Scope、Local Attachment Adapter 与 Stored Message Codec 的补漏实现已落地；安全`.`/`..`输入统一canonicalize，`..draft`/`foo..bar`不再误拒绝，managed Project一级symlink/junction一律拒绝，外部绝对Project继续要求真实目录。
+- `read`现在保留Resolver给出的Project归属，History与Context Access不再从物理绝对路径反推；Harness默认Workspace Root首次创建只初始化Repository root，明确外部Project不会由Agent隐式mkdir。
+- Local Attachment Adapter对Store根、已有中间目录和发布父目录执行链接门禁；Stored Codec对user/toolResult/assistant及内容块执行exact-key校验，raw image按`migration_required`拒绝。聚焦Attachment/Codec 37项、路径/文件工具62项、State Root 7项均通过。
+- Manager新增`installation-health`模块，把离线完整性与运行时服务状态分离。doctor/status/import共用结构化合同；wrapper使用与写入侧相同的render函数比较实际内容；managed Runtime/Tool执行checksum与版本检查；Docker检查Compose配置镜像、容器实际镜像、状态、health和HTTP精确版本。
+- 服务正常停止现在是warning且`healthy=true`，容器/原生服务运行但版本错误、镜像错误、HTTP不可达或Docker/Compose不可用才fail。Docker `start`在`up -d`后等待真实版本接口，不再把Compose命令成功当作应用健康。
+- Manager新增2个健康回归和3个Docker服务状态回归；Manager 22 files / 78 tests、typecheck、build、pack审计通过。根与runtime typecheck通过，路径/Attachment聚焦回归全绿。
+- 完整Harness/black-box回归现为Harness 169/169、black-box+payload 25/25；修复了prompt payload错误结果合同、默认Workspace Root初始化、managed Project创建前门禁和subject RAG配置入口。公开Windows/Arch Product与下一canary仍未重验，因此Task 109保持Implementing。
+- Release CI已增加公开GHCR临时实例门禁：公开Manager安装后执行running doctor、停止容器后的healthy+stopped warning、再次start和HTTP版本验证；该job成功后才发布最终release index。
+### 2026-07-18：App SQLite Location最终接入与Portable升级门禁
+
+- App SQLite不再由Product和Manager分别猜测。`AppSqliteLocation`同时给出逻辑`configuredUrl`、宿主绝对`connectionUrl/hostPath`、`state-root|external`归属和可选容器URL；Runtime、Prisma CLI、Manager备份和Compose生成消费同一解析结果。
+- 相对`file:`路径必须规范化后仍位于State Root；支持Windows `file:C:/...`、`file:/C:/...`、`file:///C:/...`和POSIX绝对路径，拒绝UNC、内存库、空路径、非file协议与相对越界。配置文件不被改写，Portable移动完整`data/`后仍按新State Root解析。
+- 原生Profile允许用户明确选择外部绝对SQLite，Manager按真实路径备份；Portable由doctor给出可移动性warning；Docker因没有明确外部volume合同而直接拒绝外部数据库，不做宿主路径猜测。
+- Release Windows候选继续执行新安装鉴权登录，并新增公开`0.8.6 → candidate`路径：旧版临时使用绝对URL创建管理员，随后恢复逻辑相对URL，再由精确npm Manager更新、登录并断言根目录无影子`workspace/`。
+- 本地SQLite/Prisma/Login聚焦20项和根typecheck通过；公开候选尚未产生，Windows/Arch公开资产验证仍未完成，因此Task 109保持Implementing。
+- SSH Arch clean checkout确认共享Location必须位于已有`server/runtime`独立tsconfig边界；移动后Manager测试不再依赖残留`.nuxt`。真实Docker镜像在`Application Root=/app`、`State Root=/app/state`下完成migration、管理员创建、login/me和SQLite落盘，验证容器绝对URL没有回退到cwd或Application Root。

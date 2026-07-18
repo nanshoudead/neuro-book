@@ -100,8 +100,18 @@ async function openHistoryInstance(projectRoot: AbsoluteFsPath, key: string): Pr
             keepDailyLastAfterWindow: config.keepDailyLastAfterWindow,
         },
     });
-    consola.info({projectPath: key}, "workspace-history 已打开");
-    return history;
+    try {
+        const purge = await history.purgePaths((recordedPath) => !isHistoryTrackedRelativePath(recordedPath));
+        if (purge.entriesDeleted > 0 || purge.acceptancesDeleted > 0 || purge.snapshotsDeleted > 0) {
+            consola.info({projectPath: key, ...purge}, "workspace-history 已清理不再受管的路径历史");
+        }
+        consola.info({projectPath: key}, "workspace-history 已打开");
+        return history;
+    } catch (error) {
+        await history.close().catch(() => undefined);
+        collectReleasedSqliteHandles();
+        throw error;
+    }
 }
 
 /** 关闭并移除项目实例。未打开时幂等 no-op；close 失败向上抛（由 ProjectSession 泄漏表重试）。 */
@@ -365,7 +375,7 @@ async function reconcileFullScan(projectRoot: AbsoluteFsPath, key: string, histo
     }
     const diskSet = new Set(diskFiles);
     for (const live of await history.liveFiles()) {
-        if (diskSet.has(live.path)) {
+        if (!isHistoryTrackedRelativePath(live.path) || diskSet.has(live.path)) {
             continue;
         }
         try {

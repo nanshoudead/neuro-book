@@ -14,6 +14,7 @@ export type InstallGuideDefaults = {
     root?: string;
     channel?: ReleaseChannel;
     version?: string;
+    releaseManifest?: string;
     port?: number;
     authEnabled?: boolean;
     dryRun?: boolean;
@@ -96,6 +97,7 @@ export async function runInstallGuide(defaults: InstallGuideDefaults = {}): Prom
         profile,
         channel,
         version: defaults.version,
+        releaseManifest: defaults.releaseManifest,
         port: Number(portText),
         authEnabled,
         dryRun: defaults.dryRun ?? false,
