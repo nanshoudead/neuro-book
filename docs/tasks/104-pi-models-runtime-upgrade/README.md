@@ -792,7 +792,7 @@ Automatic Discovery Dialog 只展示：
 
 #### Refactor Phase 0 — 基线与失败合同
 
-- 为当前误导行为建立测试 seam：任意 Provider 的发现 Dialog 不得自动出现全部 Model Library；Catalog-only 模型不得标记为远程可用。
+- 为当前误导行为建立测试 seam：任意 Provider 的发现 Dialog 不得自动出现全部 Model Library；Model Library-only 模型不得标记为远程可用。
 - 固化不完整 disabled 模型当前可保存的失败用例，作为 Provider Config 新不变量的红灯。
 - 固化 `@cf/...` Group 推导不一致、旧 metadata 文案和 Discovery Adapter 字段暴露。
 - 只读 audit 当前 Global Config 中的不完整模型，列出实施硬切时需要显式补齐或删除的条目；本阶段不自动改用户数据。
@@ -822,7 +822,7 @@ Automatic Discovery Dialog 只展示：
 
 - 将当前整块替换改为字段级补缺；远端明确值优先，Model Library 仅补缺。
 - 引入 provenance 与 Complete/Incomplete 输出类型。
-- Catalog 添加、远程发现、手动添加和显式修复共用同一 Completion Interface。
+- Model Library 添加、远程发现、手动添加和显式修复共用同一 Completion Interface。
 - 删除 `source: "incomplete" -> enabled: false` 的持久化路径。
 
 #### Refactor Phase 5 — Provider Config 合同强化与数据硬切
