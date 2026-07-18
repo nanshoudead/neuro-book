@@ -322,7 +322,9 @@ assets/
 ### 2026-07-18：Model Config 硬切验证
 
 - `bun run typecheck`：通过。
-- `bunx vitest run` 聚焦 18 个文件：155 tests passed，覆盖 Config normalizer/service、Provider Config 合同、Model Library、Provider Template、Automatic Discovery、Candidate Completion、model settings、App Config parser 和 Agent harness fixture。
+- `bunx vitest run` 聚焦 21 个文件：156 tests passed，覆盖 Config normalizer/service、Provider Config 合同、Model Library、Provider Template、Automatic Discovery、Candidate Completion、model settings、四个前端 session Module、模型检查 route 和 Agent harness fixture。
+- `NovelIdeModelSettingsPanel.vue` 已从约 1980 行降至 695 行；Config 草稿、Provider Template、Automatic Discovery 和模型健康检查分别由独立 Module 持有。
+- `bun run nuxt:build`：通过。
 - `bun run nuxt:build`：通过，确认模型设置页拆分后的客户端与 Product Runtime bundle 可编译。
 - `bun run generate:openapi`：42 个 route meta 更新成功；`server/api/config/**` 的 `defaultApi` / `discovery` 审计为零，相关 route 已包含 `modelApi`。
 

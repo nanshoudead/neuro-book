@@ -1,6 +1,6 @@
 # Pi Models Runtime Upgrade
 
-> Status: Implemented / Reopened（核心模型发现重构已实施并通过类型/聚焦回归；设置页会话 Module 拆分与真实验收仍未完成）
+> Status: Implemented（核心模型发现重构与设置页 Module 门禁已完成；真实 Global Config 清理和交互验收仍待用户授权）
 >
 > Target baseline: `@earendil-works/pi-ai@0.80.6` and `@earendil-works/pi-agent-core@0.80.6`
 
@@ -27,14 +27,19 @@
 
 ### 设置页 Module 拆分实际差异
 
-本轮已抽出 `SavedModelsList.vue`、`ModelDiscoveryDialog.vue`、`ModelLibraryDialog.vue` 和共享视图类型 Module。三个展示 Module 只消费 props 并通过 emits 把动作交还宿主，Provider Config 草稿、网络请求和保存编排仍留在宿主。
+最终实现抽出 `SavedModelsList.vue`、`ModelDiscoveryDialog.vue`、`ModelLibraryDialog.vue` 和共享视图类型 Module；三个展示 Module 只消费 props 并通过 emits 把动作交还宿主。状态与行为进一步按领域拆为四个深 Module：
 
-Task 104 原计划要求继续拆出 Provider Template 创建与发现会话状态，并让 `NovelIdeModelSettingsPanel.vue` 保持 `<800` 行。当前宿主仍约 1980 行，因此 Phase 6 **没有完成**，任务保持 Reopened；后续应优先把发现会话和模型健康检查会话分别深化为独立 Module，而不是继续向宿主增加状态。
+- `useModelSettingsDraftSession.ts`：Provider Config 草稿、Config 快照、验证、保存与引用迁移；
+- `useProviderTemplateSession.ts`：Model Library / Provider Template Library 加载与模板实例化；
+- `useModelDiscoverySession.ts`：Automatic Model Discovery 的前端临时结果、手动候选和独立 Model Library 会话；
+- `useModelCheckSession.ts`：模型健康检查的请求、取消、批次锁和临时结果。
+
+`NovelIdeModelSettingsPanel.vue` 从约 1980 行降至 695 行，相关 Vue 文件全部低于 800 行。Automatic Discovery Dialog 只展示本次远端发现结果，已保存模型仅用于标注这些结果的 enabled/disabled 状态，不再把未发现的 Provider 模型混入发现列表。Phase 6 门禁已经完成。
 
 ### 本轮验证
 
 - `bun run typecheck`：通过（OpenAPI 重新生成后复跑）。
-- 聚焦 Vitest：18 个文件、155 项测试全部通过，覆盖 Provider Config、DTO、Model Library、Provider Template、Automatic Discovery、安全限制、Candidate Completion、Config normalizer/service、model settings、App Config parser 和三个 Agent harness fixture。
+- 聚焦 Vitest：21 个文件、156 项测试全部通过，覆盖 Provider Config、DTO、Model Library、Provider Template、Automatic Discovery、安全限制、Candidate Completion、Config normalizer/service、model settings、四个前端 session Module、两个模型检查 route 和三个 Agent harness fixture。
 - `bun run generate:openapi`：42 个 route meta 更新成功；审计确认 `server/api/config/**` 无 `defaultApi` / `discovery`，相关模型 route 与 Config route 已包含 `modelApi`。
 - UI 拆分后 `bun run nuxt:build` 已通过；没有自动执行浏览器、Docker 或真实 Provider smoke。
 - 没有修改真实 Workspace Root `.nbook/config.json`；其中既有不完整 disabled 模型仍等待用户明确授权后清理。
@@ -928,5 +933,5 @@ Automatic Discovery Dialog 只展示：
 - [x] 删除 Provider Config 的 Discovery Adapter / endpoint path，实施 Automatic Model Discovery Module。
 - [x] 实施 Model Candidate Completion 字段级补全与 provenance，禁止不完整候选持久化。
 - [x] 强化 Provider Config：disabled 模型也必须能力完整，删除“禁用模型草稿”语义。
-- [ ] 完成设置页 Module 重构：发现列表与 Model Library 已分离，三个展示 Module 已抽出；发现会话、健康检查会话、Provider Template 创建仍需拆分，宿主仍约 1980 行，未达到 `<800` 行门禁。
+- [x] 完成设置页 Module 重构：发现列表与 Model Library 已分离，三个展示 Module与四个状态/行为 Module 已抽出；宿主降至 695 行，相关 Vue 文件全部满足 `<800` 行门禁。
 - [ ] 用户确认后硬切清理当前 Global Config 中的不完整 disabled 模型。

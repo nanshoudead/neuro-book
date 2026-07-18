@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import {computed, onBeforeUnmount, onMounted, ref, watch} from "vue";
 import type {SelectOption} from "nbook/app/components/common/form/FormSelect.vue";
 import FormInput from "nbook/app/components/common/form/FormInput.vue";
 import FormSelect from "nbook/app/components/common/form/FormSelect.vue";
@@ -8,53 +9,22 @@ import NovelIdeModelEditDialog from "nbook/app/components/novel-ide/settings/Nov
 import ModelDiscoveryDialog from "nbook/app/components/novel-ide/settings/ModelDiscoveryDialog.vue";
 import ModelLibraryDialog from "nbook/app/components/novel-ide/settings/ModelLibraryDialog.vue";
 import SavedModelsList from "nbook/app/components/novel-ide/settings/SavedModelsList.vue";
-import {clearModelCostDraft, createEmptyModelCostDraft, createModelCostDraft, parseModelCostDraft} from "nbook/app/components/novel-ide/settings/model-cost-draft";
-import {candidateFromLibrary, completeModelCandidate, requiredModelFields} from "nbook/app/components/novel-ide/settings/model-draft-factory";
-import {
-    buildModelsSection,
-    cleanGlobalAgent,
-    cleanModelKey,
-    cleanProjectAgent,
-    ensureRunnableDefault,
-    inspectSettingsDraft,
-    parseDraftInteger,
-    parseModelCompat,
-    parseModelInput,
-    parseModelReasoning,
-    parseRequestOptions,
-    parseStringMap,
-    previewModelLibraryRepairs,
-    renameAgentProvider,
-    type ModelSettingsDraft,
-    type ModelSettingsModelDraft,
-    type ModelSettingsProviderDraft,
-} from "nbook/app/components/novel-ide/settings/model-settings-draft";
-import {useNovelIdeStore} from "nbook/app/stores/novel-ide";
-import {useConfigApi} from "nbook/app/composables/useConfigApi";
+import {clearModelCostDraft, createModelCostDraft} from "nbook/app/components/novel-ide/settings/model-cost-draft";
+import {candidateFromLibrary, requiredModelFields} from "nbook/app/components/novel-ide/settings/model-draft-factory";
+import {parseDraftInteger, parseModelInput, parseModelReasoning, type ModelSettingsModelDraft, type ModelSettingsProviderDraft} from "nbook/app/components/novel-ide/settings/model-settings-draft";
+import type {SavedModelGroupView} from "nbook/app/components/novel-ide/settings/model-settings-view";
+import {useModelCheckSession} from "nbook/app/components/novel-ide/settings/useModelCheckSession";
+import {useModelDiscoverySession} from "nbook/app/components/novel-ide/settings/useModelDiscoverySession";
+import {useModelSettingsDraftSession, type ModelSettingsPanelProps, type ModelSettingsScope} from "nbook/app/components/novel-ide/settings/useModelSettingsDraftSession";
+import {useProviderTemplateSession} from "nbook/app/components/novel-ide/settings/useProviderTemplateSession";
 import {useNotification} from "nbook/app/composables/useNotification";
 import {resolveApiErrorMessage} from "nbook/app/utils/api-error";
-import type {
-    CheckModelResponseDto,
-    ConfiguredModelDto,
-    DiscoverProviderModelsResponseDto,
-    DiscoveredProviderModelDto,
-    EnabledModelOptionDto,
-    ModelInputKind,
-    ModelLibraryDto,
-    ModelLibraryEntryDto,
-    ModelProviderDraftDto,
-    ProviderTemplateDto,
-    ProviderTemplateLibraryDto,
-} from "nbook/shared/dto/app-settings.dto";
-import type {ConfigEditorSnapshotDto, ConfigModelSettingsDto, ConfigWorkspaceQueryDto, GlobalConfigUpdateDto, ProjectConfigDto} from "nbook/shared/dto/config.dto";
-import {selectModelApi, type ModelReferenceInput} from "nbook/shared/models/provider-config-contract";
+import type {ConfiguredModelDto, ModelInputKind, ModelLibraryDto} from "nbook/shared/dto/app-settings.dto";
+import type {ConfigWorkspaceQueryDto} from "nbook/shared/dto/config.dto";
 import {deriveModelGroup} from "nbook/shared/models/model-group";
-import type {DiscoveryListModel, ManualModelDraft, SavedModelGroupView} from "nbook/app/components/novel-ide/settings/model-settings-view";
-
-type ConfigSettingsScope = "global" | "project";
 
 const props = withDefaults(defineProps<{
-    scope?: ConfigSettingsScope;
+    scope?: ModelSettingsScope;
     targetQuery?: ConfigWorkspaceQueryDto;
     targetLabel?: string;
 }>(), {
@@ -64,70 +34,90 @@ const props = withDefaults(defineProps<{
 });
 
 type ModelDraft = ModelSettingsModelDraft;
-
 type ProviderDraft = ModelSettingsProviderDraft;
 
-type ModelCheckResult = CheckModelResponseDto & {
-    cancelled?: boolean;
-};
-
-type ModelCheckControllerState = {
-    controller: AbortController;
-};
-
-type ModelCheckBatchState = {
-    providerKey: string;
-    modelKeys: string[];
-};
-
 const {t} = useI18n();
-
-const fallbackProviderTemplate: ProviderTemplateDto = {
-    id: "custom",
-    name: "Custom Provider",
-    baseUrl: "",
-    defaultModelApi: null,
-    models: [],
-};
-
-const novelIdeStore = useNovelIdeStore();
-const configApi = useConfigApi();
 const notification = useNotification();
+let loadLibraries: () => Promise<ModelLibraryDto> = async () => ({models: []});
+let resetChecks = (): void => undefined;
+let cancelProviderChecks = (_provider: ProviderDraft, _clearBatch: boolean): void => undefined;
+let cancelModelCheck = (_provider: ProviderDraft, _model: ModelDraft): void => undefined;
+let resetDiscovery = (_preserveResults: boolean): void => undefined;
+let renameDiscovery = (_previousId: string, _nextId: string): void => undefined;
+let removeDiscovery = (_providerId: string): void => undefined;
 
-const loading = ref(false);
-const saving = ref(false);
-const activeProviderKey = ref("");
-const selectedTemplate = ref<string>(fallbackProviderTemplate.id);
-const draft = ref<ModelSettingsDraft>({
-    defaultModelKey: null,
-    providers: [],
+const draftSession = useModelSettingsDraftSession({
+    props: props as ModelSettingsPanelProps,
+    loadLibraries: () => loadLibraries(),
+    resetChecks: () => resetChecks(),
+    cancelProviderChecks: (provider, clearBatch) => cancelProviderChecks(provider, clearBatch),
+    cancelModelCheck: (provider, model) => cancelModelCheck(provider, model),
+    resetDiscovery: (preserveResults) => resetDiscovery(preserveResults),
+    renameDiscovery: (previousId, nextId) => renameDiscovery(previousId, nextId),
+    removeDiscovery: (providerId) => removeDiscovery(providerId),
 });
-const snapshotText = ref("");
-const scopeAgentSnapshotText = ref("");
-const discoveredModels = ref<Record<string, DiscoveredProviderModelDto[]>>({});
-const modelLibraryData = ref<ModelLibraryDto | null>(null);
-const providerTemplateData = ref<ProviderTemplateLibraryDto | null>(null);
-const resolvedContextWindowMap = ref<Record<string, number | null>>({});
-const providerDiscoveringId = ref("");
-const modelCheckControllers = ref<Record<string, ModelCheckControllerState>>({});
-const modelCheckResults = ref<Record<string, ModelCheckResult>>({});
-const activeModelCheckBatches = ref<Record<string, ModelCheckBatchState>>({});
-const manualModelDrafts = ref<Record<string, ManualModelDraft>>({});
-const libraryDialogOpen = ref(false);
-const modelLibraryDialogOpen = ref(false);
-const editorSnapshot = ref<ConfigEditorSnapshotDto | null>(null);
-let providerLocalKeySeed = 0;
-let modelLocalKeySeed = 0;
-let modelCheckStateVersion = 0;
 
-const expandedGroups = ref<Record<string, boolean>>({});
+const {
+    loading,
+    saving,
+    activeProviderKey,
+    draft,
+    activeProvider,
+    deleteProviderDialogOpen,
+    validationDialogOpen,
+    repairingModels,
+    isProjectScope,
+    dirty,
+    validationState,
+    validationIssues,
+    validationIssueDetails,
+    defaultModelOptions,
+    enabledModelGroups,
+    disabledModels,
+    activeProviderEnabledModelCount,
+    createProviderKey,
+    cloneModel,
+    buildProviderRequest,
+    buildModelDraft: buildModelCheckDraft,
+    useSavedApiKey,
+    ensureDefaultModel: ensureDefaultModelKey,
+    clearActiveProviderApiKey,
+    toggleActiveProviderEnabled,
+    renameActiveProviderId,
+    requestDeleteActiveProvider,
+    confirmDeleteActiveProvider,
+    enableModel,
+    disableModel,
+    deleteModel,
+    savedModelIssues,
+    displayedContextWindow: resolveDisplayedContextWindow,
+    repair: repairModelSettings,
+    load: loadSettings,
+    save: saveSettings,
+    restore: restoreSettings,
+} = draftSession;
+
+const templateSession = useProviderTemplateSession({
+    draft,
+    activeProviderKey,
+    createProviderKey,
+    cloneModel,
+    ensureDefaultModel: ensureDefaultModelKey,
+});
+const {
+    modelLibrary: modelLibraryData,
+    selectedTemplate,
+    templateOptions: providerTemplateOptions,
+    load: loadModelLibraries,
+    findModel: findLibraryModel,
+    addProvider,
+} = templateSession;
+loadLibraries = loadModelLibraries;
+
 const editingModel = ref<ModelDraft | null>(null);
 const editingTransientCandidate = ref(false);
 const modelEditDialogOpen = ref(false);
-const deleteProviderDialogOpen = ref(false);
-const validationDialogOpen = ref(false);
-const repairingModels = ref(false);
-const isProjectScope = computed(() => props.scope === "project");
+const expandedGroups = ref<Record<string, boolean>>({});
 const modelApiOptions: SelectOption[] = [
     {value: "openai-completions", label: "OpenAI Completions", description: "OpenAI-compatible Chat Completions"},
     {value: "openai-responses", label: "OpenAI Responses", description: "OpenAI Responses API"},
@@ -144,12 +134,7 @@ const modelInputOptions = computed<Array<{value: ModelInputKind; label: string; 
     {value: "image", label: t("settings.panels.models.imageInput"), iconClass: "i-lucide-image"},
 ]);
 
-const providerTemplateOptions = computed<ProviderTemplateDto[]>(() => providerTemplateData.value?.templates ?? [fallbackProviderTemplate]);
-
-function toggleGroup(group: string): void {
-    expandedGroups.value[group] = !expandedGroups.value[group];
-}
-
+/** 打开已保存模型编辑器。 */
 async function openModelEdit(model: ModelDraft): Promise<void> {
     editingTransientCandidate.value = false;
     editingModel.value = model;
@@ -160,14 +145,6 @@ async function openModelEdit(model: ModelDraft): Promise<void> {
     } finally {
         modelEditDialogOpen.value = true;
     }
-}
-
-/**
- * 创建只用于前端渲染和选中状态的稳定 Provider key。
- */
-function createProviderLocalKey(providerId: string): string {
-    providerLocalKeySeed += 1;
-    return `provider-${providerLocalKeySeed}-${providerId.trim() || "draft"}`;
 }
 
 /** 打开尚未进入 Provider Config 的临时候选编辑器。 */
@@ -183,7 +160,7 @@ async function openTransientCandidate(candidate: Omit<ConfiguredModelDto, "enabl
     }
 }
 
-/** 只有能力完整的临时候选才能加入 Provider Config。 */
+/** 只有能力完整的临时候选才能进入 Provider Config。 */
 function confirmTransientCandidate(): void {
     const model = editingModel.value;
     if (!editingTransientCandidate.value || !model) {
@@ -201,441 +178,66 @@ function confirmTransientCandidate(): void {
     notification.success(t("settings.panels.models.manualAdded"));
 }
 
-/** 创建只用于前端渲染和检测状态的稳定模型 key。 */
-function createModelLocalKey(modelId: string): string {
-    modelLocalKeySeed += 1;
-    return `model-${modelLocalKeySeed}-${modelId.trim() || "draft"}`;
-}
-
-/**
- * 收集当前 Provider 的本地 key。按队列复用，避免临时重复配置 ID 时生成重复 Vue key。
- */
-function collectProviderLocalKeys(): Map<string, string[]> {
-    const localKeyMap = new Map<string, string[]>();
-    for (const provider of draft.value.providers) {
-        const localKeys = localKeyMap.get(provider.id) ?? [];
-        localKeys.push(provider.localKey);
-        localKeyMap.set(provider.id, localKeys);
-    }
-    return localKeyMap;
-}
-
-/**
- * 克隆模型草稿。
- */
-function cloneModel(model: ConfiguredModelDto): ModelDraft {
-    return {
-        localKey: createModelLocalKey(model.id),
-        name: model.name,
-        id: model.id,
-        group: model.group ?? "",
-        enabled: model.enabled,
-        api: model.api ?? "",
-        reasoning: model.reasoning === null ? "inherit" : model.reasoning ? "true" : "false",
-        input: model.input?.join(",") ?? "",
-        maxTokens: typeof model.maxTokens === "number" ? String(model.maxTokens) : "",
-        cost: createModelCostDraft(model.cost),
-        compat: model.compat ? JSON.stringify(model.compat, null, 2) : "",
-        headers: model.headers ? JSON.stringify(model.headers, null, 2) : "",
-        thinkingLevelMap: model.thinkingLevelMap ? JSON.stringify(model.thinkingLevelMap, null, 2) : "",
-        contextWindowTokens: typeof model.contextWindowTokens === "number" ? String(model.contextWindowTokens) : "",
-    };
-}
-
-/**
- * 切换模型输入能力；空数组表示能力尚未填写。
- */
-function toggleModelInput(model: ModelDraft, inputKind: ModelInputKind): void {
-    const values = parseModelInput(model.input) ?? [];
-    model.input = values.includes(inputKind)
-        ? values.filter((item) => item !== inputKind).join(",")
-        : [...values, inputKind].join(",");
-}
-
-function modelInputEnabled(model: ModelDraft, inputKind: ModelInputKind): boolean {
-    return (parseModelInput(model.input) ?? []).includes(inputKind);
-}
-
-/**
- * 清空用户模型配置中的价格。
- */
-function resetModelCost(model: ModelDraft): void {
-    clearModelCostDraft(model.cost);
-}
-
-/** 为当前模型启用显式价格覆盖。 */
-function enableModelCostOverride(model: ModelDraft): void {
-    model.cost = createModelCostDraft({
-        input: 0,
-        output: 0,
-        cacheRead: 0,
-        cacheWrite: 0,
-        tiers: [],
-    });
-}
-
-/**
- * 克隆 Provider 草稿。
- */
-function cloneProvider(provider: ConfigModelSettingsDto["providers"][number], localKeyMap: Map<string, string[]> = new Map()): ProviderDraft {
-    const localKeyQueue = localKeyMap.get(provider.id);
-    return {
-        localKey: localKeyQueue?.shift() ?? createProviderLocalKey(provider.id),
-        sourceIndex: provider.sourceIndex,
-        id: provider.id,
-        name: provider.name,
-        enabled: provider.enabled,
-        modelApi: provider.modelApi ?? "",
-        options: {
-            apiKey: "",
-            apiKeyConfigured: provider.options.apiKey.configured,
-            apiKeyMaskedValue: provider.options.apiKey.maskedValue,
-            apiKeyCleared: false,
-            baseURL: provider.options.baseURL,
-            proxy: provider.options.proxy,
-            timeoutMs: typeof provider.options.timeoutMs === "number" ? String(provider.options.timeoutMs) : "",
-            requestOptions: Object.keys(provider.options.requestOptions).length > 0
-                ? JSON.stringify(provider.options.requestOptions, null, 2)
-                : "",
-        },
-        models: provider.models.map(cloneModel),
-    };
-}
-
-/**
- * 将接口响应应用到本地草稿。
- */
-function applySettings(snapshot: ConfigEditorSnapshotDto, options: {preserveUiState?: boolean; preferredProviderKey?: string} = {}): void {
-    const localKeyMap = collectProviderLocalKeys();
-    const preferredProviderKey = options.preferredProviderKey ?? activeProviderKey.value;
-    draft.value = {
-        defaultModelKey: snapshot.modelSettings.defaultModelKey,
-        providers: snapshot.modelSettings.providers.map((provider) => cloneProvider(provider, localKeyMap)),
-    };
-    snapshotText.value = JSON.stringify(draft.value);
-    scopeAgentSnapshotText.value = JSON.stringify(snapshot.global.agent ?? null);
-    activeProviderKey.value = draft.value.providers.some((provider) => provider.localKey === preferredProviderKey)
-        ? preferredProviderKey
-        : draft.value.providers[0]?.localKey ?? "";
-    if (!options.preserveUiState) {
-        discoveredModels.value = {};
-        manualModelDrafts.value = {};
-    }
-    resetModelCheckState();
-    resolvedContextWindowMap.value = Object.fromEntries(
-        snapshot.modelSettings.enabledModels.map((model) => [model.key, model.contextWindowTokens]),
-    );
-    novelIdeStore.setSelectedModelLabel(snapshot.modelSettings.defaultModelLabel);
-}
-
-/**
- * 读取 Project Config 中显式保存的默认模型覆盖。
- */
-function readProjectDefaultModelKey(snapshot: ConfigEditorSnapshotDto): string | null {
-    return snapshot.project?.models && Object.hasOwn(snapshot.project.models, "default")
-        ? snapshot.project.models.default ?? null
-        : null;
-}
-
-/**
- * 将 Project Config 默认模型覆盖应用到表单草稿。
- */
-function applyProjectSettings(snapshot: ConfigEditorSnapshotDto): void {
-    const localKeyMap = collectProviderLocalKeys();
-    editorSnapshot.value = snapshot;
-    draft.value = {
-        defaultModelKey: readProjectDefaultModelKey(snapshot),
-        providers: snapshot.modelSettings.providers.map((provider) => cloneProvider(provider, localKeyMap)),
-    };
-    snapshotText.value = JSON.stringify({
-        defaultModelKey: draft.value.defaultModelKey,
-    });
-    scopeAgentSnapshotText.value = JSON.stringify(snapshot.project?.agent ?? null);
-    activeProviderKey.value = draft.value.providers.some((provider) => provider.localKey === activeProviderKey.value)
-        ? activeProviderKey.value
-        : draft.value.providers[0]?.localKey ?? "";
-    discoveredModels.value = {};
-    resolvedContextWindowMap.value = Object.fromEntries(
-        snapshot.modelSettings.enabledModels.map((model) => [model.key, model.contextWindowTokens]),
-    );
-    manualModelDrafts.value = {};
-    resetModelCheckState();
-    novelIdeStore.setSelectedModelLabel(snapshot.modelSettings.defaultModelLabel);
-}
-
-/**
- * 读取当前显示给用户的上下文窗口。
- * 已保存模型优先显示后端解析结果；本地草稿回退到手动输入值。
- */
-function resolveDisplayedContextWindow(providerId: string, model: ModelDraft): string {
-    const savedValue = resolvedContextWindowMap.value[`${providerId}/${model.id}`];
-    if (typeof savedValue === "number" && Number.isFinite(savedValue)) {
-        return String(savedValue);
-    }
-
-    return model.contextWindowTokens.trim();
-}
-
-/**
- * 标记清空当前 Provider API key。保存后后端会写入空字符串。
- */
-function clearActiveProviderApiKey(): void {
-    if (!activeProvider.value) {
-        return;
-    }
-    activeProvider.value.options.apiKey = "";
-    activeProvider.value.options.apiKeyConfigured = false;
-    activeProvider.value.options.apiKeyMaskedValue = null;
-    activeProvider.value.options.apiKeyCleared = true;
-}
-
-/**
- * 构造 Global Config 写回体，secret 字段遵守“空输入保留旧值”语义。
- */
-function buildGlobalConfigPayload(): GlobalConfigUpdateDto {
-    const base = editorSnapshot.value?.global;
-    const modelKeys = availableModelKeys();
-    const cleanedAgent = cleanGlobalAgent(base?.agent, modelKeys);
-    const agentChanged = JSON.stringify(cleanedAgent ?? null) !== scopeAgentSnapshotText.value;
-    return {
-        ...(agentChanged && cleanedAgent ? {agent: cleanedAgent} : {}),
-        models: buildModelsSection(draft.value),
-    };
-}
-
-/**
- * 构造 Project Config 写回体，清理已不存在 Provider 的模型引用。
- */
-function buildProjectConfigPayload(): ProjectConfigDto {
-    const base = editorSnapshot.value?.project;
-    const modelKeys = availableModelKeys();
-    const cleanedAgent = cleanProjectAgent(base?.agent, modelKeys);
-    const agentChanged = JSON.stringify(cleanedAgent ?? null) !== scopeAgentSnapshotText.value;
-    return {
-        models: {default: cleanModelKey(draft.value.defaultModelKey, modelKeys)},
-        ...(agentChanged && cleanedAgent ? {agent: cleanedAgent} : {}),
-    };
-}
-
-/** 当前草稿中真正可运行的完整模型 key 集合。 */
-function availableModelKeys(): Set<string> {
-    return inspectSettingsDraft({...draft.value, defaultModelKey: null}).runnableModelKeys;
-}
-
-/**
- * 读取模型设定。
- */
-async function loadSettings(): Promise<void> {
-    loading.value = true;
-
-    try {
-        if (!isProjectScope.value) {
-            void loadModelLibraries();
-        }
-        const snapshot = await configApi.editorSnapshot(props.targetQuery);
-        editorSnapshot.value = snapshot;
-        if (isProjectScope.value) {
-            applyProjectSettings(snapshot);
-        } else {
-            applySettings(snapshot);
-        }
-    } catch (error) {
-        notification.error(resolveApiErrorMessage(error, t("settings.panels.models.loadFailed")));
-    } finally {
-        loading.value = false;
-    }
-}
-
-/**
- * 生成唯一 providerId。
- */
-function buildUniqueProviderId(baseId: string): string {
-    const normalizedBaseId = baseId.trim() || "provider";
-    const providerIdSet = new Set(draft.value.providers.map((provider) => provider.id));
-    if (!providerIdSet.has(normalizedBaseId)) {
-        return normalizedBaseId;
-    }
-
-    let suffix = 2;
-    while (providerIdSet.has(`${normalizedBaseId}-${String(suffix)}`)) {
-        suffix += 1;
-    }
-
-    return `${normalizedBaseId}-${String(suffix)}`;
-}
-
-/** 确保默认模型仍然指向一个真正可运行的模型。 */
-function ensureDefaultModelKey(): void {
-    ensureRunnableDefault(draft.value);
-}
-
-/**
- * 获取当前激活的 Provider。
- */
-const activeProvider = computed<ProviderDraft | null>(() => {
-    return draft.value.providers.find((provider) => provider.localKey === activeProviderKey.value) ?? null;
+const checkSession = useModelCheckSession({
+    activeProvider,
+    runnableModelKeys: computed(() => validationState.value.runnableModelKeys),
+    buildProviderRequest,
+    buildModelDraft: buildModelCheckDraft,
+    useSavedApiKey,
 });
+const {
+    activeCheckingCount: activeProviderCheckingModelCount,
+    checkingAll: checkingAllModels,
+    runnable: modelDraftRunnable,
+    result: modelCheckResult,
+    isChecking: isModelChecking,
+    checkModel,
+    checkAll: checkAllActiveProviderModels,
+    cancelActiveProvider: cancelActiveProviderChecks,
+    cancelActiveModel: cancelActiveModelCheck,
+} = checkSession;
+resetChecks = checkSession.reset;
+cancelProviderChecks = (provider, clearBatch) => checkSession.cancelProvider(provider, clearBatch);
+cancelModelCheck = checkSession.cancelModel;
 
-/**
- * Provider 下模型自身标记为 enabled 的数量。
- */
-function providerEnabledModelCount(provider: ProviderDraft): number {
-    return provider.models.filter((model) => model.enabled).length;
-}
-
-const activeProviderEnabledModelCount = computed(() => {
-    return activeProvider.value?.enabled ? providerEnabledModelCount(activeProvider.value) : 0;
+const discoverySession = useModelDiscoverySession({
+    activeProvider,
+    modelLibrary: modelLibraryData,
+    loadLibraries: loadModelLibraries,
+    findLibraryModel,
+    buildProviderRequest,
+    enableModel,
+    disableModel,
+    openTransientCandidate,
+    ensureDefaultModel: ensureDefaultModelKey,
 });
-
-const activeProviderModelCheckKeys = computed(() => {
-    const provider = activeProvider.value;
-    if (!provider?.enabled) {
-        return [] as string[];
-    }
-    return provider.models
-        .filter((model) => model.enabled)
-        .map((model) => modelCheckKey(provider, model));
-});
-
-const activeProviderCheckingModelKeys = computed(() => {
-    return activeProviderModelCheckKeys.value.filter((key) => Boolean(modelCheckControllers.value[key]));
-});
-
-const activeProviderCheckingModelCount = computed(() => activeProviderCheckingModelKeys.value.length);
-const checkingAllModels = computed(() => {
-    const provider = activeProvider.value;
-    if (!provider) {
-        return false;
-    }
-    const batch = activeModelCheckBatches.value[provider.localKey];
-    return batch?.modelKeys.some((modelKey) => Boolean(modelCheckControllers.value[modelKey])) ?? false;
-});
-
-/**
- * 切换 Provider 启用状态；禁用后运行时把它视为不存在。
- */
-function toggleActiveProviderEnabled(): void {
-    const provider = activeProvider.value;
-    if (!provider) {
-        return;
-    }
-    if (provider.enabled) {
-        cancelProviderChecks(provider, {clearBatch: true});
-    }
-    provider.enabled = !provider.enabled;
-    ensureDefaultModelKey();
-}
-
-/**
- * 当前草稿是否有未保存修改。
- */
-const dirty = computed(() => {
-    const scopeAgent = isProjectScope.value
-        ? editorSnapshot.value?.project?.agent
-        : editorSnapshot.value?.global.agent;
-    const agentChanged = JSON.stringify(scopeAgent ?? null) !== scopeAgentSnapshotText.value;
-    if (isProjectScope.value) {
-        return agentChanged || JSON.stringify({
-            defaultModelKey: draft.value.defaultModelKey,
-        }) !== snapshotText.value;
-    }
-    return agentChanged || JSON.stringify(draft.value) !== snapshotText.value;
-});
-
-/**
- * 默认模型候选列表。
- */
-const defaultModelOptions = computed<EnabledModelOptionDto[]>(() => {
-    return draft.value.providers.flatMap((provider) => provider.models
-        .filter((model) => model.id.trim() && validationState.value.runnableModelKeys.has(`${provider.id.trim()}/${model.id.trim()}`))
-        .map((model) => ({
-            key: `${provider.id}/${model.id.trim()}`,
-            label: `${provider.name} / ${model.name || model.id}`,
-            providerId: provider.id,
-            modelId: model.id.trim(),
-            contextWindowTokens: parseDraftInteger(model.contextWindowTokens),
-        })))
-        .sort((left, right) => left.label.localeCompare(right.label));
-});
-
-/**
- * 当前 Provider 下启用模型的分组列表。
- */
-const enabledModelGroups = computed(() => {
-    const provider = activeProvider.value;
-    if (!provider?.enabled) {
-        return [] as Array<{group: string; models: ModelDraft[]}>;
-    }
-
-    const groupMap = new Map<string, ModelDraft[]>();
-    for (const model of provider.models) {
-        if (!model.enabled) {
-            continue;
-        }
-
-        const groupName = model.group.trim() || deriveModelGroup(model.id);
-        const groupModels = groupMap.get(groupName) ?? [];
-        groupModels.push(model);
-        groupMap.set(groupName, groupModels);
-    }
-
-    return [...groupMap.entries()]
-        .map(([group, models]) => ({
-            group,
-            models: [...models].sort((left, right) => left.id.localeCompare(right.id)),
-        }))
-        .sort((left, right) => left.group.localeCompare(right.group));
-});
-
-/**
- * 当前 Provider 下已禁用模型列表。
- */
-const disabledModels = computed(() => {
-    const provider = activeProvider.value;
-    if (!provider) {
-        return [] as ModelDraft[];
-    }
-
-    return provider.models
-        .filter((model) => !model.enabled)
-        .sort((left, right) => left.id.localeCompare(right.id));
-});
-
-/**
- * 获取当前 Provider 的手动新增模型草稿。
- */
-function getManualModelDraft(providerId: string): ManualModelDraft {
-    if (!manualModelDrafts.value[providerId]) {
-        manualModelDrafts.value[providerId] = {
-            name: "",
-            id: "",
-            api: "",
-            group: "",
-            contextWindowTokens: "",
-            maxTokens: "",
-        };
-    }
-
-    return manualModelDrafts.value[providerId];
-}
-
-function displayModelApi(model: ModelDraft): string {
-    return model.api.trim() || t("settings.panels.models.notConfigured");
-}
-
-function displayModelApiSource(model: ModelDraft): string {
-    return model.api.trim() ? t("settings.panels.models.modelApiSourceModel") : t("settings.panels.models.modelApiSourceMissing");
-}
-
-/** 按精确 model ID 查询 NeuroBook Model Library。 */
-function findLibraryModel(modelId: string): ModelLibraryEntryDto | null {
-    return modelLibraryData.value?.models.find((model) => model.id === modelId.trim()) ?? null;
-}
+const {
+    discoveringProviderId: providerDiscoveringId,
+    discoveryDialogOpen: libraryDialogOpen,
+    modelLibraryDialogOpen,
+    discoverySearchQuery: librarySearchQuery,
+    modelLibrarySearchQuery,
+    discoveryExpandedGroups: libraryExpandedGroups,
+    modelLibraryExpandedGroups,
+    discoveryGroups: unifiedLibraryGroups,
+    modelLibraryGroups,
+    enabledModelIds,
+    manualDraft: getManualModelDraft,
+    updateManualField: updateManualModelField,
+    discover: discoverModels,
+    addManualModel,
+    toggleDiscoveredModel: toggleLibraryModel,
+    toggleLibraryModel: toggleModelLibraryEntry,
+    openModelLibrary,
+} = discoverySession;
+resetDiscovery = discoverySession.reset;
+renameDiscovery = discoverySession.renameProvider;
+removeDiscovery = discoverySession.removeProvider;
 
 const editingLibraryModel = computed(() => editingModel.value ? findLibraryModel(editingModel.value.id) : null);
 const editingModelMissingFields = computed(() => editingModel.value ? requiredModelFields(buildModelCheckDraft(editingModel.value)) : []);
 
-/** 用 Model Library 补齐通用能力，不覆盖 Provider 专属价格和传输设置。 */
+/** 用 Model Library 补齐通用能力，不覆盖 Provider 专属字段。 */
 function reapplyLibraryModel(model: ModelDraft): void {
     const libraryModel = findLibraryModel(model.id);
     if (!libraryModel) {
@@ -644,11 +246,6 @@ function reapplyLibraryModel(model: ModelDraft): void {
     }
     const completed = candidateFromLibrary(libraryModel, model.api.trim() || activeProvider.value?.modelApi.trim() || null);
     const replacement = completed.status === "complete" ? completed.model : {...completed.candidate, enabled: model.enabled};
-    applyLibraryCapabilities(model, replacement);
-}
-
-/** 用 Model Library 通用能力覆盖草稿，同时保留 Provider 专属字段。 */
-function applyLibraryCapabilities(model: ModelDraft, replacement: ConfiguredModelDto): void {
     const libraryDraft = cloneModel(replacement);
     Object.assign(model, {
         api: libraryDraft.api,
@@ -660,130 +257,54 @@ function applyLibraryCapabilities(model: ModelDraft, replacement: ConfiguredMode
     });
 }
 
-/** 只清理当前设置 scope 中已经不能运行的模型引用。 */
-function cleanScopeModelReferences(modelKeys: Set<string>): boolean {
-    const snapshot = editorSnapshot.value;
-    if (!snapshot) {
-        return false;
-    }
-    const currentAgent = isProjectScope.value ? snapshot.project?.agent : snapshot.global.agent;
-    const nextAgent = isProjectScope.value
-        ? cleanProjectAgent(snapshot.project?.agent, modelKeys)
-        : cleanGlobalAgent(snapshot.global.agent, modelKeys);
-    const changed = JSON.stringify(nextAgent) !== JSON.stringify(currentAgent);
-    if (!changed) {
-        return false;
-    }
-    if (isProjectScope.value && snapshot.project) {
-        snapshot.project.agent = nextAgent as typeof snapshot.project.agent;
-    } else if (!isProjectScope.value) {
-        snapshot.global.agent = nextAgent as typeof snapshot.global.agent;
-    }
-    return true;
+/** 切换模型输入能力。 */
+function toggleModelInput(model: ModelDraft, inputKind: ModelInputKind): void {
+    const values = parseModelInput(model.input) ?? [];
+    model.input = values.includes(inputKind) ? values.filter((item) => item !== inputKind).join(",") : [...values, inputKind].join(",");
 }
 
-/**
- * 一键修复当前模型草稿：应用可命中的 Model Library 并清理失效引用。
- * 只修改前端草稿，不自动保存。
- */
-async function repairModelSettings(): Promise<void> {
-    if (repairingModels.value) {
-        return;
-    }
-    repairingModels.value = true;
-    try {
-        const repairs = [] as ReturnType<typeof previewModelLibraryRepairs>;
-        if (!isProjectScope.value) {
-            const library = await loadModelLibraries();
-            repairs.push(...previewModelLibraryRepairs(draft.value, library.models));
-            for (const repair of repairs) {
-                const model = draft.value.providers[repair.providerIndex]?.models[repair.modelIndex];
-                if (model) {
-                    applyLibraryCapabilities(model, repair.replacement);
-                }
-            }
-            ensureRunnableDefault(draft.value);
-        } else {
-            draft.value.defaultModelKey = cleanModelKey(draft.value.defaultModelKey, availableModelKeys());
-        }
-        const modelKeys = availableModelKeys();
-        const referencesChanged = cleanScopeModelReferences(modelKeys);
-        resetModelCheckState();
-        await nextTick();
-        const remaining = validationIssues.value.length;
-        const message = t("settings.panels.models.oneClickRepairResult", {
-            repaired: repairs.length,
-            cleared: 0,
-            disabled: 0,
-            remaining,
-        });
-        if (remaining > 0) {
-            notification.warning(message, {title: t("settings.panels.models.oneClickRepairNeedsReview")});
-        } else if (repairs.length > 0 || referencesChanged) {
-            notification.success(message, {title: t("settings.panels.models.oneClickRepairDone")});
-        } else {
-            notification.info(t("settings.panels.models.oneClickRepairNoChange"));
-        }
-    } catch (error) {
-        notification.error(resolveApiErrorMessage(error, t("settings.panels.models.oneClickRepairFailed")));
-    } finally {
-        repairingModels.value = false;
-    }
+function modelInputEnabled(model: ModelDraft, inputKind: ModelInputKind): boolean {
+    return (parseModelInput(model.input) ?? []).includes(inputKind);
 }
 
-/** 收集 Config agent 中显式保存的模型引用。 */
-function agentModelReferences(
-    agent: {profileModelDefaults?: {modelKey?: string | null}; profiles?: Record<string, {model?: {modelKey?: string | null}}>} | undefined,
-    pathPrefix: Array<string | number>,
-    labelPrefix: string,
-): ModelReferenceInput[] {
-    if (!agent) {
-        return [];
-    }
-    const references: ModelReferenceInput[] = [];
-    if (agent.profileModelDefaults && Object.hasOwn(agent.profileModelDefaults, "modelKey")) {
-        references.push({
-            modelKey: agent.profileModelDefaults.modelKey ?? null,
-            path: [...pathPrefix, "profileModelDefaults", "modelKey"],
-            label: `${labelPrefix} Profile 默认模型`,
-        });
-    }
-    for (const [profileKey, profile] of Object.entries(agent.profiles ?? {})) {
-        if (!profile.model || !Object.hasOwn(profile.model, "modelKey")) {
-            continue;
-        }
-        references.push({
-            modelKey: profile.model.modelKey ?? null,
-            path: [...pathPrefix, "profiles", profileKey, "model", "modelKey"],
-            label: `${labelPrefix} Profile ${profileKey} 模型`,
-        });
-    }
-    return references;
+function resetModelCost(model: ModelDraft): void {
+    clearModelCostDraft(model.cost);
 }
 
-/** 当前草稿的实时校验结果；Project scope 的 null 默认值表示继承 Global。 */
-const validationState = computed(() => {
-    const globalDefaultModelKey = editorSnapshot.value?.global.models?.default ?? null;
-    const contractDraft = isProjectScope.value
-        ? {...draft.value, defaultModelKey: draft.value.defaultModelKey ?? globalDefaultModelKey}
-        : draft.value;
-    const references = isProjectScope.value
-        ? agentModelReferences(editorSnapshot.value?.project?.agent, ["project", "agent"], "Project")
-        : agentModelReferences(editorSnapshot.value?.global.agent, ["agent"], "Global");
-    return inspectSettingsDraft(contractDraft, references);
-});
+function enableModelCostOverride(model: ModelDraft): void {
+    model.cost = createModelCostDraft({input: 0, output: 0, cacheRead: 0, cacheWrite: 0, tiers: []});
+}
 
-const validationIssues = computed(() => validationState.value.issues);
-const validationIssueDetails = computed(() => validationIssues.value.map((issue) => issue.message).join("\n"));
+function toggleGroup(group: string): void {
+    expandedGroups.value[group] = !expandedGroups.value[group];
+}
+
+function toggleLibraryGroup(group: string): void {
+    libraryExpandedGroups.value[group] = !libraryExpandedGroups.value[group];
+}
+
+function toggleModelLibraryGroup(group: string): void {
+    modelLibraryExpandedGroups.value[group] = !modelLibraryExpandedGroups.value[group];
+}
+
+function providerEnabledModelCount(provider: ProviderDraft): number {
+    return provider.models.filter((model) => model.enabled).length;
+}
+
+function displayModelApi(model: ModelDraft): string {
+    return model.api.trim() || t("settings.panels.models.notConfigured");
+}
+
+function displayModelApiSource(model: ModelDraft): string {
+    return model.api.trim() ? t("settings.panels.models.modelApiSourceModel") : t("settings.panels.models.modelApiSourceMissing");
+}
 
 function modelApiInheritLabel(model: ModelDraft): string {
     return model.api.trim() || t("settings.panels.modelEdit.requiredForCustomModel");
 }
 
 function modelInputDisplayLabel(model: ModelDraft): string {
-    return (parseModelInput(model.input) ?? [])
-        .map((item) => modelInputOptions.value.find((option) => option.value === item)?.label ?? item)
-        .join(" / ");
+    return (parseModelInput(model.input) ?? []).map((item) => modelInputOptions.value.find((option) => option.value === item)?.label ?? item).join(" / ");
 }
 
 function modelReasoningDisplayLabel(model: ModelDraft): string {
@@ -792,795 +313,21 @@ function modelReasoningDisplayLabel(model: ModelDraft): string {
 }
 
 function formatTokenLimit(value: number | null | undefined): string {
-    if (typeof value !== "number" || !Number.isFinite(value)) {
-        return t("settings.panels.models.unknown");
-    }
-    return new Intl.NumberFormat(undefined, {maximumFractionDigits: 0}).format(value);
+    return typeof value === "number" && Number.isFinite(value)
+        ? new Intl.NumberFormat(undefined, {maximumFractionDigits: 0}).format(value)
+        : t("settings.panels.models.unknown");
 }
 
 function modelContextWindowDefaultLabel(model: ModelDraft): string {
-    return parseDraftInteger(model.contextWindowTokens)
-        ? `${formatTokenLimit(parseDraftInteger(model.contextWindowTokens))} tokens`
-        : t("settings.panels.modelEdit.requiredForCustomModel");
+    const value = parseDraftInteger(model.contextWindowTokens);
+    return value ? `${formatTokenLimit(value)} tokens` : t("settings.panels.modelEdit.requiredForCustomModel");
 }
 
 function modelMaxTokensDefaultLabel(model: ModelDraft): string {
-    return parseDraftInteger(model.maxTokens)
-        ? `${formatTokenLimit(parseDraftInteger(model.maxTokens))} tokens`
-        : t("settings.panels.modelEdit.requiredForCustomModel");
+    const value = parseDraftInteger(model.maxTokens);
+    return value ? `${formatTokenLimit(value)} tokens` : t("settings.panels.modelEdit.requiredForCustomModel");
 }
 
-/**
- * 更新手动模型 ID 时，尽量从 Pi 内置目录同步 API 元数据。
- */
-function updateManualModelId(providerId: string, modelId: string): void {
-    const manualDraft = getManualModelDraft(providerId);
-    manualDraft.id = modelId;
-}
-
-/**
- * 懒加载 Model Library 与 Provider Template Library。
- */
-async function loadModelLibraries(): Promise<ModelLibraryDto> {
-    if (!modelLibraryData.value || !providerTemplateData.value) {
-        const [library, templates] = await Promise.all([
-            configApi.modelLibrary(),
-            configApi.providerTemplates(),
-        ]);
-        modelLibraryData.value = library;
-        providerTemplateData.value = templates;
-        if (!providerTemplateOptions.value.some((template) => template.id === selectedTemplate.value)) {
-            selectedTemplate.value = providerTemplateOptions.value[0]?.id ?? fallbackProviderTemplate.id;
-        }
-    }
-    return modelLibraryData.value;
-}
-
-/** 把 Provider Template 的完整模型快照复制为用户模型草稿。 */
-function cloneTemplateModel(model: ConfiguredModelDto): ModelDraft {
-    return cloneModel({...model, enabled: model.enabled});
-}
-
-/**
- * 从 Provider Template 新增普通 Provider Config 草稿。
- */
-async function addProvider(): Promise<void> {
-    try {
-        await loadModelLibraries();
-    } catch (error) {
-        notification.error(resolveApiErrorMessage(error, t("settings.panels.models.loadModelLibraryFailed")));
-        return;
-    }
-    const template = providerTemplateOptions.value.find((item) => item.id === selectedTemplate.value) ?? providerTemplateOptions.value[0];
-    if (!template) {
-        return;
-    }
-
-    const providerId = buildUniqueProviderId(template.id);
-    const localKey = createProviderLocalKey(providerId);
-    activeProviderKey.value = localKey;
-    draft.value.providers.push({
-        localKey,
-        id: providerId,
-        name: template.name,
-        enabled: true,
-        modelApi: template.defaultModelApi ?? "",
-        options: {
-            apiKey: "",
-            baseURL: template.baseUrl,
-            proxy: "",
-            timeoutMs: "",
-            requestOptions: "",
-            apiKeyConfigured: false,
-            apiKeyMaskedValue: null,
-            apiKeyCleared: false,
-        },
-        models: template.models.map(cloneTemplateModel),
-    });
-    ensureDefaultModelKey();
-    notification.success(t("settings.panels.models.providerAdded", {label: template.name}));
-}
-
-/**
- * 保存模型设定并返回是否成功，供删除 Provider 这类复合操作复用。
- */
-async function saveSettingsResult(successMessage?: string): Promise<boolean> {
-    if (!dirty.value || saving.value) {
-        return false;
-    }
-
-    saving.value = true;
-
-    try {
-        const snapshot = isProjectScope.value
-            ? await configApi.saveProject(buildProjectConfigPayload(), props.targetQuery)
-            : await configApi.saveGlobal(buildGlobalConfigPayload(), props.targetQuery);
-        editorSnapshot.value = snapshot;
-        if (isProjectScope.value) {
-            applyProjectSettings(snapshot);
-            notification.success(successMessage ?? t("settings.panels.models.projectSaveSuccess"));
-        } else {
-            applySettings(snapshot, {preserveUiState: true, preferredProviderKey: activeProviderKey.value});
-            notification.success(successMessage ?? t("settings.panels.models.globalSaveSuccess"));
-        }
-        return true;
-    } catch (error) {
-        notification.error(resolveApiErrorMessage(error, t("settings.panels.models.saveFailed")));
-        return false;
-    } finally {
-        saving.value = false;
-    }
-}
-
-/**
- * 保存模型设定。
- */
-async function saveSettings(): Promise<void> {
-    await saveSettingsResult();
-}
-
-/**
- * 重新读取已保存的模型设定，放弃当前草稿。
- */
-async function restoreSettings(): Promise<void> {
-    await loadSettings();
-}
-
-/**
- * 重命名当前激活 Provider 的 id，并同步相关引用。
- */
-function renameActiveProviderId(nextProviderId: string): void {
-    const provider = activeProvider.value;
-    if (!provider) {
-        return;
-    }
-
-    const previousProviderId = provider.id;
-    const normalizedProviderId = nextProviderId.trim();
-    cancelProviderChecks(provider, {clearBatch: true});
-    provider.id = normalizedProviderId;
-
-    if (previousProviderId === normalizedProviderId) {
-        return;
-    }
-
-    if (draft.value.defaultModelKey?.startsWith(`${previousProviderId}/`)) {
-        draft.value.defaultModelKey = draft.value.defaultModelKey.replace(`${previousProviderId}/`, `${normalizedProviderId}/`);
-    }
-    renameProviderModelReferences(previousProviderId, normalizedProviderId);
-
-    if (discoveredModels.value[previousProviderId]) {
-        discoveredModels.value = {
-            ...discoveredModels.value,
-            [normalizedProviderId]: discoveredModels.value[previousProviderId] ?? [],
-        };
-        delete discoveredModels.value[previousProviderId];
-    }
-
-    if (manualModelDrafts.value[previousProviderId]) {
-        manualModelDrafts.value = {
-            ...manualModelDrafts.value,
-            [normalizedProviderId]: manualModelDrafts.value[previousProviderId],
-        };
-        delete manualModelDrafts.value[previousProviderId];
-    }
-}
-
-/**
- * Provider ID 重命名时只迁移 Global Config 中的模型引用。
- */
-function renameProviderModelReferences(previousProviderId: string, nextProviderId: string): void {
-    if (editorSnapshot.value?.global.agent) {
-        const renamedGlobalAgent = renameAgentProvider(
-            editorSnapshot.value.global.agent,
-            previousProviderId,
-            nextProviderId,
-        );
-        editorSnapshot.value.global.agent = renamedGlobalAgent.agent ?? editorSnapshot.value.global.agent;
-    }
-}
-
-/**
- * 请求删除当前 Provider。
- */
-function requestDeleteActiveProvider(): void {
-    if (!activeProvider.value) {
-        return;
-    }
-    deleteProviderDialogOpen.value = true;
-}
-
-/**
- * 删除当前 Provider，确认后立即保存当前模型面板草稿。
- */
-async function confirmDeleteActiveProvider(): Promise<void> {
-    const provider = activeProvider.value;
-    if (!provider) {
-        deleteProviderDialogOpen.value = false;
-        return;
-    }
-
-    const deletedProviderId = provider.id;
-    const deletedProviderName = provider.name;
-    draft.value.providers = draft.value.providers.filter((item) => item !== provider);
-    if (draft.value.defaultModelKey?.startsWith(`${deletedProviderId}/`)) {
-        draft.value.defaultModelKey = null;
-    }
-    delete discoveredModels.value[deletedProviderId];
-    delete manualModelDrafts.value[deletedProviderId];
-    activeProviderKey.value = draft.value.providers[0]?.localKey ?? "";
-    ensureDefaultModelKey();
-    deleteProviderDialogOpen.value = false;
-    await saveSettingsResult(t("settings.panels.models.providerDeleted", {name: deletedProviderName}));
-}
-
-/**
- * 读取当前 Provider 草稿请求体。
- */
-function buildProviderRequest(provider: ProviderDraft): {provider: ModelProviderDraftDto} {
-    return {
-        provider: {
-            id: provider.id.trim(),
-            name: provider.name.trim(),
-            modelApi: selectModelApi(provider.modelApi, null),
-            options: {
-                apiKey: provider.options.apiKey.trim(),
-                baseURL: provider.options.baseURL.trim(),
-                proxy: provider.options.proxy.trim(),
-                timeoutMs: parseDraftInteger(provider.options.timeoutMs),
-                requestOptions: parseRequestOptions(provider.options.requestOptions),
-            },
-        },
-    };
-}
-
-function shouldUseSavedProviderApiKey(provider: ProviderDraft): boolean {
-    return !provider.options.apiKeyCleared && !provider.options.apiKey.trim();
-}
-
-function buildModelCheckDraft(model: ModelDraft): Omit<ConfiguredModelDto, "enabled"> {
-    return {
-        name: model.name.trim(),
-        id: model.id.trim(),
-        group: model.group.trim() || null,
-        api: model.api.trim() || null,
-        reasoning: parseModelReasoning(model.reasoning),
-        input: parseModelInput(model.input),
-        maxTokens: parseDraftInteger(model.maxTokens),
-        cost: parseModelCostDraft(model.cost),
-        compat: parseModelCompat(model.compat),
-        headers: parseStringMap(model.headers),
-        thinkingLevelMap: parseStringMap(model.thinkingLevelMap),
-        contextWindowTokens: parseDraftInteger(model.contextWindowTokens),
-    };
-}
-
-/**
- * 从 Provider 抓取模型列表。
- */
-async function discoverModels(): Promise<void> {
-    const provider = activeProvider.value;
-    if (!provider || providerDiscoveringId.value) {
-        return;
-    }
-
-    providerDiscoveringId.value = provider.id;
-
-    try {
-        await loadModelLibraries();
-        const result = await $fetch<DiscoverProviderModelsResponseDto>("/api/config/models/provider-discover", {
-            method: "POST",
-            body: buildProviderRequest(provider),
-        });
-        discoveredModels.value = {
-            ...discoveredModels.value,
-            [provider.id]: result.models,
-        };
-        notification.success(result.message);
-    } catch (error) {
-        notification.error(resolveApiErrorMessage(error, t("settings.panels.models.discoverFailed")));
-    } finally {
-        providerDiscoveringId.value = "";
-    }
-}
-
-/**
- * 启用或新增模型。
- */
-function enableModel(model: ConfiguredModelDto): ModelDraft | null {
-    const provider = activeProvider.value;
-    if (!provider) {
-        return null;
-    }
-
-    const modelId = model.id.trim();
-    if (!modelId) {
-        return null;
-    }
-
-    const existingModel = provider.models.find((item) => item.id === modelId);
-    if (existingModel) {
-        Object.assign(existingModel, cloneModel(model));
-    } else {
-        provider.models.push(cloneModel(model));
-    }
-
-    ensureDefaultModelKey();
-    return provider.models.find((item) => item.id === modelId) ?? null;
-}
-
-/**
- * 将模型标记为禁用。
- */
-function disableModel(model: ModelDraft): void {
-    const provider = activeProvider.value;
-    if (provider) {
-        cancelModelCheck(provider, model);
-    }
-    model.enabled = false;
-    ensureDefaultModelKey();
-}
-
-/** 删除指定模型条目；按对象身份处理，重复 ID 条目也能分别删除。 */
-function deleteModel(model: ModelDraft): void {
-    const provider = activeProvider.value;
-    if (!provider) {
-        return;
-    }
-    cancelModelCheck(provider, model);
-    provider.models = provider.models.filter((item) => item !== model);
-    ensureDefaultModelKey();
-    cleanScopeModelReferences(availableModelKeys());
-}
-
-/**
- * 手动新增一个模型。
- */
-function addManualModel(): void {
-    const provider = activeProvider.value;
-    if (!provider) {
-        return;
-    }
-
-    const manualDraft = getManualModelDraft(provider.id);
-    if (!manualDraft.name.trim() || !manualDraft.id.trim()) {
-        notification.error(t("settings.panels.models.manualRequired"));
-        return;
-    }
-
-    const libraryModel = findLibraryModel(manualDraft.id);
-    const discovered: DiscoveredProviderModelDto = {
-        name: manualDraft.name,
-        id: manualDraft.id,
-        api: manualDraft.api || null,
-        group: manualDraft.group || null,
-        reasoning: null,
-        input: null,
-        contextWindowTokens: parseDraftInteger(manualDraft.contextWindowTokens),
-        maxTokens: parseDraftInteger(manualDraft.maxTokens),
-        cost: null,
-        compat: null,
-        headers: null,
-        thinkingLevelMap: null,
-    };
-    const completed = completeModelCandidate(discovered, libraryModel, provider.modelApi.trim() || null);
-
-    manualModelDrafts.value = {
-        ...manualModelDrafts.value,
-        [provider.id]: {
-            name: "",
-            id: "",
-            api: "",
-            group: "",
-            contextWindowTokens: "",
-            maxTokens: "",
-        },
-    };
-    if (completed.status === "complete") {
-        enableModel(completed.model);
-        notification.success(t("settings.panels.models.manualAdded"));
-    } else {
-        void openTransientCandidate(completed.candidate);
-    }
-}
-
-function modelCheckKey(provider: ProviderDraft, model: ModelDraft): string {
-    return `${provider.localKey}/${model.localKey}`;
-}
-
-/** 返回当前草稿对应模型的问题，编辑后立即更新。 */
-function savedModelIssues(providerId: string, modelId: string) {
-    const modelKey = `${providerId.trim()}/${modelId.trim()}`;
-    return validationIssues.value.filter((issue) => issue.modelKey === modelKey);
-}
-
-/** 判断当前前端草稿是否已经具备健康检查所需的完整能力。 */
-function modelDraftRunnable(provider: ProviderDraft, model: ModelDraft): boolean {
-    return validationState.value.runnableModelKeys.has(`${provider.id.trim()}/${model.id.trim()}`);
-}
-
-function modelCheckResult(provider: ProviderDraft, model: ModelDraft): ModelCheckResult | null {
-    return modelCheckResults.value[modelCheckKey(provider, model)] ?? null;
-}
-
-function isModelChecking(provider: ProviderDraft, model: ModelDraft): boolean {
-    return Boolean(modelCheckControllers.value[modelCheckKey(provider, model)]);
-}
-
-function isAbortError(error: unknown): boolean {
-    if (error instanceof DOMException && error.name === "AbortError") {
-        return true;
-    }
-    const name = typeof error === "object" && error !== null && "name" in error
-        ? (error as {name?: unknown}).name
-        : null;
-    return name === "AbortError";
-}
-
-function setModelCheckController(modelKey: string, controller: AbortController): void {
-    modelCheckControllers.value = {
-        ...modelCheckControllers.value,
-        [modelKey]: {controller},
-    };
-}
-
-/**
- * 批次下所有模型都停止后，释放“检测全部”的 UI 锁。
- */
-function clearModelCheckBatchesIfSettled(providerKey?: string): void {
-    const nextBatches = {...activeModelCheckBatches.value};
-    const entries = providerKey
-        ? [[providerKey, nextBatches[providerKey]] as const]
-        : Object.entries(nextBatches);
-    let changed = false;
-
-    for (const [batchProviderKey, batch] of entries) {
-        if (!batch) {
-            continue;
-        }
-        if (batch.modelKeys.some((modelKey) => Boolean(modelCheckControllers.value[modelKey]))) {
-            continue;
-        }
-        delete nextBatches[batchProviderKey];
-        changed = true;
-    }
-
-    if (changed) {
-        activeModelCheckBatches.value = nextBatches;
-    }
-}
-
-/**
- * Provider 被禁用或重命名时，丢弃旧 Provider 批次锁。
- */
-function clearProviderModelCheckBatch(provider: ProviderDraft): void {
-    if (activeModelCheckBatches.value[provider.localKey]) {
-        const nextBatches = {...activeModelCheckBatches.value};
-        delete nextBatches[provider.localKey];
-        activeModelCheckBatches.value = nextBatches;
-    }
-}
-
-function clearModelCheckController(modelKey: string, controller: AbortController): void {
-    if (modelCheckControllers.value[modelKey]?.controller !== controller) {
-        return;
-    }
-    const nextControllers = {...modelCheckControllers.value};
-    delete nextControllers[modelKey];
-    modelCheckControllers.value = nextControllers;
-    clearModelCheckBatchesIfSettled();
-}
-
-function writeModelCheckResult(modelKey: string, result: ModelCheckResult): void {
-    modelCheckResults.value = {
-        ...modelCheckResults.value,
-        [modelKey]: result,
-    };
-}
-
-function resetModelCheckState(): void {
-    modelCheckStateVersion += 1;
-    for (const state of Object.values(modelCheckControllers.value)) {
-        state.controller.abort();
-    }
-    modelCheckControllers.value = {};
-    modelCheckResults.value = {};
-    activeModelCheckBatches.value = {};
-}
-
-function cancelProviderChecks(provider: ProviderDraft, options: {clearBatch?: boolean} = {}): void {
-    for (const model of provider.models) {
-        modelCheckControllers.value[modelCheckKey(provider, model)]?.controller.abort();
-    }
-    if (options.clearBatch) {
-        clearProviderModelCheckBatch(provider);
-    }
-}
-
-function cancelModelCheck(provider: ProviderDraft, model: ModelDraft): void {
-    modelCheckControllers.value[modelCheckKey(provider, model)]?.controller.abort();
-}
-
-function cancelActiveProviderChecks(): void {
-    const provider = activeProvider.value;
-    if (!provider) {
-        return;
-    }
-    cancelProviderChecks(provider);
-}
-
-/**
- * 对单个模型执行健康检查，并把结果写入模型行临时状态。
- */
-async function runModelCheck(provider: ProviderDraft, model: ModelDraft): Promise<ModelCheckResult> {
-    const modelKey = modelCheckKey(provider, model);
-    const controller = new AbortController();
-    const stateVersion = modelCheckStateVersion;
-    setModelCheckController(modelKey, controller);
-
-    try {
-        const result = await $fetch<CheckModelResponseDto>("/api/config/models/model-check", {
-            method: "POST",
-            signal: controller.signal,
-            body: {
-                provider: buildProviderRequest(provider).provider,
-                model: buildModelCheckDraft(model),
-                useSavedApiKey: shouldUseSavedProviderApiKey(provider),
-            },
-        });
-        if (stateVersion === modelCheckStateVersion && !controller.signal.aborted) {
-            writeModelCheckResult(modelKey, result);
-        }
-        return result;
-    } catch (error) {
-        const result: ModelCheckResult = controller.signal.aborted || isAbortError(error)
-            ? {
-                success: false,
-                latencyMs: null,
-                message: t("settings.panels.models.modelCheckCancelled"),
-                cancelled: true,
-            }
-            : {
-                success: false,
-                latencyMs: null,
-                message: resolveApiErrorMessage(error, t("settings.panels.models.modelCheckFailed")),
-            };
-        if (stateVersion === modelCheckStateVersion) {
-            writeModelCheckResult(modelKey, result);
-        }
-        return result;
-    } finally {
-        clearModelCheckController(modelKey, controller);
-    }
-}
-
-/**
- * 对单个模型执行健康检查。
- */
-async function checkModel(model: ModelDraft): Promise<void> {
-    const provider = activeProvider.value;
-    if (!provider?.enabled || !model.enabled || isModelChecking(provider, model)) {
-        return;
-    }
-
-    await runModelCheck(provider, model);
-}
-
-/**
- * 并发检测当前 Provider 下所有启用且尚未检测中的模型。
- */
-async function checkAllActiveProviderModels(): Promise<void> {
-    const provider = activeProvider.value;
-    if (!provider?.enabled || checkingAllModels.value) {
-        return;
-    }
-    const enabledModels = provider.models.filter((model) => model.enabled);
-    if (enabledModels.length === 0) {
-        notification.info(t("settings.panels.models.noEnabledProviderModels"));
-        return;
-    }
-    const batchModelKeys = enabledModels.map((model) => modelCheckKey(provider, model));
-    activeModelCheckBatches.value = {
-        ...activeModelCheckBatches.value,
-        [provider.localKey]: {
-            providerKey: provider.localKey,
-            modelKeys: batchModelKeys,
-        },
-    };
-    const models = enabledModels.filter((model) => !isModelChecking(provider, model));
-    if (models.length === 0) {
-        clearModelCheckBatchesIfSettled(provider.localKey);
-        return;
-    }
-
-    try {
-        await Promise.allSettled(models.map((model) => runModelCheck(provider, model)));
-    } finally {
-        clearModelCheckBatchesIfSettled(provider.localKey);
-    }
-}
-
-/**
- * 获取当前 Provider 下远程抓取到的模型列表。
- */
-const currentDiscoveredModels = computed(() => {
-    return activeProvider.value ? (discoveredModels.value[activeProvider.value.id] ?? []) : [];
-});
-
-/**
- * 获取远程抓取模型的当前状态。
- */
-function resolveDiscoveredModelState(modelId: string): "enabled" | "disabled" | "missing" {
-    const provider = activeProvider.value;
-    if (!provider) {
-        return "missing";
-    }
-
-    const existingModel = provider.models.find((model) => model.id === modelId);
-    if (!existingModel) {
-        return "missing";
-    }
-
-    return existingModel.enabled ? "enabled" : "disabled";
-}
-
-const librarySearchQuery = ref("");
-
-const unifiedLibraryGroups = computed(() => {
-    const provider = activeProvider.value;
-    if (!provider) return [];
-
-    const allModelsMap = new Map<string, DiscoveryListModel>();
-
-    for (const rm of currentDiscoveredModels.value) {
-        const completed = completeModelCandidate(rm, findLibraryModel(rm.id), provider.modelApi.trim() || null);
-        const group = rm.group || deriveModelGroup(rm.id);
-        const savedState = resolveDiscoveredModelState(rm.id);
-        allModelsMap.set(rm.id, {
-            name: rm.name,
-            id: rm.id,
-            group,
-            state: savedState === "enabled"
-                ? "enabled"
-                : savedState === "disabled"
-                    ? "disabled"
-                    : completed.status === "complete"
-                        ? "remote-complete"
-                        : "remote-incomplete",
-            ...(completed.status === "complete"
-                ? {completeModel: completed.model}
-                : {incompleteCandidate: completed.candidate}),
-        });
-    }
-
-    for (const m of disabledModels.value) {
-        const group = m.group.trim() || deriveModelGroup(m.id);
-        allModelsMap.set(m.id, {
-            name: m.name,
-            id: m.id,
-            group,
-            state: "disabled",
-        });
-    }
-
-    for (const m of provider.models.filter(m => m.enabled)) {
-        const group = m.group.trim() || deriveModelGroup(m.id);
-        allModelsMap.set(m.id, {name: m.name, id: m.id, group, state: "enabled"});
-    }
-
-    const query = librarySearchQuery.value.toLowerCase().trim();
-    
-    const groupMap = new Map<string, DiscoveryListModel[]>();
-    for (const model of allModelsMap.values()) {
-        if (query && !model.name.toLowerCase().includes(query) && !model.id.toLowerCase().includes(query)) {
-            continue;
-        }
-        const g = groupMap.get(model.group) ?? [];
-        g.push(model);
-        groupMap.set(model.group, g);
-    }
-    
-    return [...groupMap.entries()]
-        .map(([group, models]) => ({
-            group,
-            models: [...models].sort((left, right) => left.id.localeCompare(right.id)),
-        }))
-        .sort((left, right) => left.group.localeCompare(right.group));
-});
-
-const libraryExpandedGroups = ref<Record<string, boolean>>({});
-function toggleLibraryGroup(group: string) {
-    libraryExpandedGroups.value[group] = !libraryExpandedGroups.value[group];
-}
-
-function toggleLibraryModel(model: DiscoveryListModel): void {
-    if (model.state === "enabled") {
-        const existing = activeProvider.value?.models.find((item) => item.id === model.id);
-        if (existing) disableModel(existing);
-        return;
-    }
-    if (model.state === "disabled") {
-        const existing = activeProvider.value?.models.find((item) => item.id === model.id);
-        if (existing) {
-            existing.enabled = true;
-            ensureDefaultModelKey();
-        }
-        return;
-    }
-    if (model.completeModel) {
-        enableModel(model.completeModel);
-        return;
-    }
-    if (model.incompleteCandidate) {
-        void openTransientCandidate(model.incompleteCandidate);
-    }
-}
-
-/** 处理 Saved Models Module 发出的单模型取消事件。 */
-function cancelActiveModelCheck(model: ModelDraft): void {
-    const provider = activeProvider.value;
-    if (provider) {
-        cancelModelCheck(provider, model);
-    }
-}
-
-const modelLibrarySearchQuery = ref("");
-const modelLibraryExpandedGroups = ref<Record<string, boolean>>({});
-
-/** 独立 Model Library 只展示标准资料，不伪装成当前 Provider 远程可用模型。 */
-const modelLibraryGroups = computed(() => {
-    const provider = activeProvider.value;
-    const query = modelLibrarySearchQuery.value.trim().toLowerCase();
-    if (!provider || !modelLibraryData.value) {
-        return [] as Array<{group: string; models: ModelLibraryEntryDto[]}>;
-    }
-    const groups = new Map<string, ModelLibraryEntryDto[]>();
-    for (const model of modelLibraryData.value.models) {
-        if (query && !model.id.toLowerCase().includes(query) && !model.name.toLowerCase().includes(query)) {
-            continue;
-        }
-        const values = groups.get(model.source) ?? [];
-        values.push(model);
-        groups.set(model.source, values);
-    }
-    return [...groups.entries()]
-        .map(([group, models]) => ({group, models: [...models].sort((left, right) => left.id.localeCompare(right.id))}))
-        .sort((left, right) => left.group.localeCompare(right.group));
-});
-
-function toggleModelLibraryGroup(group: string): void {
-    modelLibraryExpandedGroups.value[group] = !modelLibraryExpandedGroups.value[group];
-}
-
-function toggleModelLibraryEntry(model: ModelLibraryEntryDto): void {
-    const existing = activeProvider.value?.models.find((item) => item.id === model.id);
-    if (existing) {
-        existing.enabled = !existing.enabled;
-        ensureDefaultModelKey();
-        return;
-    }
-    const candidate = candidateFromLibrary(model, activeProvider.value?.modelApi.trim() || null);
-    if (candidate.status === "complete") {
-        enableModel(candidate.model);
-        return;
-    }
-    void openTransientCandidate(candidate.candidate);
-}
-
-/** 将 Automatic Model Discovery 手动表单字段更新留在宿主会话中。 */
-function updateManualModelField(field: keyof ManualModelDraft, value: string): void {
-    const provider = activeProvider.value;
-    if (!provider) {
-        return;
-    }
-    if (field === "id") {
-        updateManualModelId(provider.id, value);
-        return;
-    }
-    getManualModelDraft(provider.id)[field] = value;
-}
-
-/** 为 Saved Models 展示 Module 生成稳定、无副作用的视图数据。 */
 const savedModelGroups = computed<SavedModelGroupView[]>(() => {
     const provider = activeProvider.value;
     if (!provider) {
@@ -1601,51 +348,17 @@ const savedModelGroups = computed<SavedModelGroupView[]>(() => {
     }));
 });
 
-const enabledModelIds = computed(() => new Set(activeProvider.value?.models.filter((model) => model.enabled).map((model) => model.id) ?? []));
-
-async function openModelLibrary(): Promise<void> {
-    try {
-        await loadModelLibraries();
-        modelLibraryDialogOpen.value = true;
-    } catch (error) {
-        notification.error(resolveApiErrorMessage(error, t("settings.panels.models.loadModelLibraryFailed")));
-    }
-}
-
-watch(() => activeProvider.value?.id ?? "", (providerId) => {
-    if (!providerId) {
-        return;
-    }
-
-    getManualModelDraft(providerId);
-});
-
 watch(modelEditDialogOpen, (open) => {
     if (!open && editingTransientCandidate.value) {
         editingTransientCandidate.value = false;
         editingModel.value = null;
     }
 });
+watch(() => [props.scope, props.targetQuery?.workspaceKind, props.targetQuery?.projectPath] as const, () => void loadSettings());
+onMounted(() => void loadSettings());
+onBeforeUnmount(() => checkSession.reset());
 
-onMounted(() => {
-    void loadSettings();
-});
-
-onBeforeUnmount(() => {
-    resetModelCheckState();
-});
-
-watch(() => [props.scope, props.targetQuery?.workspaceKind, props.targetQuery?.projectPath] as const, () => {
-    void loadSettings();
-});
-
-defineExpose({
-    dirty,
-    loading,
-    saving,
-    saveSettings,
-    restoreSettings,
-});
+defineExpose({dirty, loading, saving, saveSettings, restoreSettings});
 </script>
 
 <template>
