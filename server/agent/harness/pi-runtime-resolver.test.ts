@@ -103,8 +103,7 @@ function createConfig(providerConfigId: string, model: Model<Api>, api: string |
                 [providerConfigId]: {
                     name: providerConfigId,
                     enabled: true,
-                    defaultApi: api,
-                    discovery: {adapter: "none", endpointPath: null},
+                    modelApi: null,
                     options: {apiKey: "", baseURL: model.baseUrl, proxy: "", timeoutMs: null, requestOptions: {}},
                     models: {
                         [model.id]: {

@@ -3,8 +3,8 @@ import type {ConfiguredModelConfig, ConfiguredProviderConfig, ModelSettingsConfi
 import {assertConfiguredModel, ModelConfigError, validateConfiguredModel, validateModelSettings} from "nbook/server/models/model-config-validation";
 
 describe("model config validation", () => {
-    it("Provider defaultApi 不替代 model.api", () => {
-        const provider = createProvider({defaultApi: "openai-completions"});
+    it("Provider 连接不会替代缺失的 model.api", () => {
+        const provider = createProvider();
         const issues = validateConfiguredModel("local", provider, createModel({api: null}));
         expect(issues.map((issue) => issue.code)).toContain("missing_api");
     });
@@ -37,8 +37,7 @@ function createProvider(overrides: Partial<ConfiguredProviderConfig> = {}): Conf
     return {
         name: "Local",
         enabled: true,
-        defaultApi: null,
-        discovery: {adapter: "none", endpointPath: null},
+        modelApi: null,
         options: {apiKey: "", baseURL: "http://127.0.0.1:11434/v1", proxy: "", timeoutMs: null, requestOptions: {}},
         models: {},
         ...overrides,

@@ -43,7 +43,7 @@ describe("Provider/model check DTO", () => {
         const model = modelDraft();
         const parsed = CheckProviderRequestDtoSchema.parse({provider, models: [model]});
 
-        expect(parsed.provider.discovery).toEqual({adapter: "none", endpointPath: null});
+        expect(parsed.provider).not.toHaveProperty("discovery");
         expect(parsed.models).toEqual([expect.objectContaining({id: "draft-model", headers: {"X-Test": "value"}})]);
         expect(parsed.useSavedApiKey).toBe(true);
         expect(parsed.useSavedModels).toBe(true);
@@ -71,8 +71,7 @@ function modelSettingsRequest() {
             id: "custom",
             name: "Custom",
             enabled: true,
-            defaultApi: "openai-completions" as string,
-            discovery: {adapter: "none" as const, endpointPath: null},
+            modelApi: "openai-completions",
             options: {apiKey: "", baseURL: "https://example.com/v1", proxy: "", timeoutMs: null, requestOptions: {}},
             models: [{...modelDraft(), id: "model", name: "Model", enabled: true}],
         }],
@@ -83,8 +82,7 @@ function providerDraft() {
     return {
         id: "custom",
         name: "Custom",
-        defaultApi: "openai-completions",
-        discovery: {adapter: "none", endpointPath: null},
+        modelApi: "openai-completions",
         options: {apiKey: "", baseURL: "https://example.com/v1", proxy: "", timeoutMs: null, requestOptions: {}},
     };
 }

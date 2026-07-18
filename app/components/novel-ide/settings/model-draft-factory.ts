@@ -1,107 +1,109 @@
 import type {
     ConfiguredModelDto,
     DiscoveredProviderModelDto,
-    ModelCatalogEntryDto,
+    ModelLibraryEntryDto,
 } from "nbook/shared/dto/app-settings.dto";
-import {
-    inspectModelCapability,
-    selectCatalogApi,
-} from "nbook/shared/models/provider-config-contract";
+import {inspectModelCapability, selectModelApi} from "nbook/shared/models/provider-config-contract";
 
-export type ModelDraftSource = "discovery" | "catalog" | "incomplete";
+export type ModelCandidateSource = "remote" | "model-library" | "provider-config" | "provider-template" | "user";
 
-export type ResolvedModelDraft = {
+export type ModelCandidateProvenance = Partial<Record<
+    "name" | "api" | "reasoning" | "input" | "contextWindowTokens" | "maxTokens" | "thinkingLevelMap" | "cost" | "compat" | "headers",
+    ModelCandidateSource
+>>;
+
+export type CompleteModelCandidate = {
+    status: "complete";
     model: ConfiguredModelDto;
-    source: ModelDraftSource;
-    canonicalSource: string | null;
+    provenance: ModelCandidateProvenance;
+};
+
+export type IncompleteModelCandidate = {
+    status: "incomplete";
+    candidate: Omit<ConfiguredModelDto, "enabled">;
+    provenance: ModelCandidateProvenance;
     missingFields: string[];
 };
 
+export type CompletedModelCandidate = CompleteModelCandidate | IncompleteModelCandidate;
+
 /**
- * 将前端临时发现结果转换成完整模型配置。
- * 远程能力不完整时整块替换为 Model Catalog，不进行逐字段拼接。
+ * 将远程候选按字段补全为可保存模型。
+ * 远端明确字段优先，Model Library 只补缺；不完整候选不会得到可持久化 model。
  */
-export function resolveDiscoveredModelDraft(
+export function completeModelCandidate(
     discovered: DiscoveredProviderModelDto,
-    catalogModel: ModelCatalogEntryDto | null,
-    providerApi: string | null,
-): ResolvedModelDraft {
-    const remoteMissing = requiredModelFields(discovered);
-    if (remoteMissing.length === 0) {
-        return {
-            model: {...discovered, enabled: true},
-            source: "discovery",
-            canonicalSource: null,
-            missingFields: [],
-        };
-    }
-    if (catalogModel) {
-        return {
-            model: configuredModelFromCatalog(catalogModel, {
-                id: discovered.id,
-                name: catalogModel.name,
-                group: discovered.group,
-                enabled: true,
-                modelApi: discovered.api,
-                providerDefaultApi: providerApi,
-            }),
-            source: "catalog",
-            canonicalSource: catalogModel.canonicalSource,
-            missingFields: [],
-        };
-    }
-    return {
-        model: {...discovered, enabled: false},
-        source: "incomplete",
-        canonicalSource: null,
-        missingFields: remoteMissing,
+    knowledge: ModelLibraryEntryDto | null,
+    providerModelApi: ConfiguredModelDto["api"] = null,
+): CompletedModelCandidate {
+    const api = selectModelApi(discovered.api, providerModelApi);
+    const provenance: ModelCandidateProvenance = {
+        name: "remote",
+        ...(discovered.api ? {api: "remote" as const} : api ? {api: "provider-config" as const} : {}),
+        ...(typeof discovered.reasoning === "boolean" ? {reasoning: "remote" as const} : {}),
+        ...(discovered.input?.length ? {input: "remote" as const} : {}),
+        ...(discovered.contextWindowTokens ? {contextWindowTokens: "remote" as const} : {}),
+        ...(discovered.maxTokens ? {maxTokens: "remote" as const} : {}),
+        ...(discovered.thinkingLevelMap ? {thinkingLevelMap: "remote" as const} : {}),
+        ...(discovered.cost ? {cost: "remote" as const} : {}),
+        ...(discovered.compat ? {compat: "remote" as const} : {}),
+        ...(discovered.headers ? {headers: "remote" as const} : {}),
     };
-}
 
-/**
- * 从唯一标准 Model Catalog 创建完整、自包含的用户模型快照。
- * Catalog 添加、发现回填和“重新应用 Catalog”必须共用此 factory。
- */
-export function configuredModelFromCatalog(
-    catalogModel: ModelCatalogEntryDto,
-    input: {
-        id?: string;
-        name?: string;
-        group?: string | null;
-        enabled: boolean;
-        modelApi?: string | null;
-        providerDefaultApi?: string | null;
-    },
-): ConfiguredModelDto {
-    const api = selectCatalogApi(input.modelApi ?? null, input.providerDefaultApi ?? null, catalogModel.defaultApi);
-    return {
-        name: input.name ?? catalogModel.name,
-        id: input.id ?? catalogModel.id,
-        group: input.group ?? null,
-        enabled: input.enabled,
+    const candidate: Omit<ConfiguredModelDto, "enabled"> = {
+        id: discovered.id,
+        name: discovered.name,
+        group: discovered.group,
         api,
-        reasoning: catalogModel.reasoning,
-        input: [...catalogModel.input],
-        maxTokens: catalogModel.maxTokens,
-        cost: catalogModel.cost ? {...catalogModel.cost, tiers: catalogModel.cost.tiers.map((tier) => ({...tier}))} : null,
-        compat: catalogModel.compatByApi[api] ?? null,
-        headers: catalogModel.headersByApi[api] ?? null,
-        thinkingLevelMap: catalogModel.thinkingLevelMap ? {...catalogModel.thinkingLevelMap} : null,
-        contextWindowTokens: catalogModel.contextWindowTokens,
+        reasoning: discovered.reasoning ?? knowledge?.reasoning ?? null,
+        input: discovered.input ?? (knowledge ? [...knowledge.input] : null),
+        contextWindowTokens: discovered.contextWindowTokens ?? knowledge?.contextWindowTokens ?? null,
+        maxTokens: discovered.maxTokens ?? knowledge?.maxTokens ?? null,
+        thinkingLevelMap: discovered.thinkingLevelMap ?? (knowledge?.thinkingLevelMap ? {...knowledge.thinkingLevelMap} : null),
+        cost: discovered.cost,
+        compat: discovered.compat,
+        headers: discovered.headers,
     };
+
+    if (knowledge) {
+        if (typeof discovered.reasoning !== "boolean") provenance.reasoning = "model-library";
+        if (!discovered.input?.length) provenance.input = "model-library";
+        if (!discovered.contextWindowTokens) provenance.contextWindowTokens = "model-library";
+        if (!discovered.maxTokens) provenance.maxTokens = "model-library";
+        if (!discovered.thinkingLevelMap && knowledge.thinkingLevelMap) provenance.thinkingLevelMap = "model-library";
+    }
+
+    const missingFields = requiredModelFields(candidate);
+    if (missingFields.length > 0) {
+        return {status: "incomplete", candidate, provenance, missingFields};
+    }
+    return {status: "complete", model: {...candidate, enabled: true}, provenance};
 }
 
-/** 返回模型启用前必须补齐的字段。 */
+/** 从 Model Library 创建需要用户明确 API 的候选。 */
+export function candidateFromLibrary(
+    knowledge: ModelLibraryEntryDto,
+    providerModelApi: ConfiguredModelDto["api"],
+): CompletedModelCandidate {
+    return completeModelCandidate({
+        id: knowledge.id,
+        name: knowledge.name,
+        group: knowledge.source,
+        api: null,
+        reasoning: null,
+        input: null,
+        contextWindowTokens: null,
+        maxTokens: null,
+        cost: null,
+        compat: null,
+        headers: null,
+        thinkingLevelMap: null,
+    }, knowledge, providerModelApi);
+}
+
+/** 返回模型保存前必须补齐的字段。 */
 export function requiredModelFields(model: Pick<ConfiguredModelDto, "api" | "reasoning" | "input" | "contextWindowTokens" | "maxTokens">): string[] {
-    return inspectModelCapability("draft", {
-        id: "model",
-        enabled: true,
-        api: model.api,
-        reasoning: model.reasoning,
-        input: model.input,
-        contextWindowTokens: model.contextWindowTokens,
-        maxTokens: model.maxTokens,
-    }).map((issue) => ({
+    const fieldByIssueCode: Readonly<Record<string, string>> = {
         missing_api: "api",
         unsupported_api: "api",
         missing_reasoning: "reasoning",
@@ -109,5 +111,14 @@ export function requiredModelFields(model: Pick<ConfiguredModelDto, "api" | "rea
         missing_context_window: "contextWindowTokens",
         missing_max_tokens: "maxTokens",
         max_tokens_exceeds_context: "maxTokens<=contextWindowTokens",
-    } as Record<string, string>)[issue.code] ?? issue.code);
+    };
+    return inspectModelCapability("candidate", {
+        id: "model",
+        enabled: true,
+        api: model.api,
+        reasoning: model.reasoning,
+        input: model.input,
+        contextWindowTokens: model.contextWindowTokens,
+        maxTokens: model.maxTokens,
+    }).map((issue) => fieldByIssueCode[issue.code] ?? issue.code);
 }

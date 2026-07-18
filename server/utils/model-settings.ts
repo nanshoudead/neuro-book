@@ -202,8 +202,7 @@ async function runPiModelSmokeCheck(
         const model = resolvePiModelMetadata(providerDraft.id, {
             name: providerDraft.name,
             enabled: true,
-        defaultApi: providerDraft.defaultApi,
-            discovery: providerDraft.discovery,
+            modelApi: providerDraft.modelApi,
             options: providerDraft.options,
             models: {},
         }, {...modelDraft, enabled: true});
@@ -214,8 +213,7 @@ async function runPiModelSmokeCheck(
                     [providerDraft.id]: {
                         name: providerDraft.name,
                         enabled: true,
-                        defaultApi: providerDraft.defaultApi,
-                        discovery: providerDraft.discovery,
+                        modelApi: providerDraft.modelApi,
                         options: providerDraft.options,
                         models: {
                             [modelDraft.id]: {...modelDraft, enabled: true},

@@ -212,8 +212,7 @@ describe("config normalizer Provider Config identity", () => {
             id: "duplicate",
             name: "First",
             enabled: true,
-            defaultApi: "openai-completions",
-            discovery: {adapter: "none" as const, endpointPath: null},
+            modelApi: "openai-completions",
             options: {apiKey: "", baseURL: "https://example.com/v1", proxy: "", timeoutMs: null, requestOptions: {}},
             models: [{id: "model", name: "Model", enabled: true}],
         };
@@ -232,8 +231,7 @@ describe("config normalizer Provider Config identity", () => {
                     id: "provider",
                     name: "Provider",
                     enabled: true,
-                    defaultApi: "openai-completions",
-                    discovery: {adapter: "none", endpointPath: null},
+                    modelApi: "openai-completions",
                     options: {apiKey: "", baseURL: "https://example.com/v1", proxy: "", timeoutMs: null, requestOptions: {}},
                     models: [
                         {id: "duplicate", name: "First", enabled: true},

@@ -5,11 +5,12 @@ import FormSelect from "nbook/app/components/common/form/FormSelect.vue";
 import Dialog from "nbook/app/components/common/Dialog.vue";
 import NovelIdeModelSelect from "nbook/app/components/novel-ide/settings/NovelIdeModelSelect.vue";
 import NovelIdeModelEditDialog from "nbook/app/components/novel-ide/settings/NovelIdeModelEditDialog.vue";
+import ModelDiscoveryDialog from "nbook/app/components/novel-ide/settings/ModelDiscoveryDialog.vue";
+import ModelLibraryDialog from "nbook/app/components/novel-ide/settings/ModelLibraryDialog.vue";
+import SavedModelsList from "nbook/app/components/novel-ide/settings/SavedModelsList.vue";
 import {clearModelCostDraft, createEmptyModelCostDraft, createModelCostDraft, parseModelCostDraft} from "nbook/app/components/novel-ide/settings/model-cost-draft";
-import {configuredModelFromCatalog, requiredModelFields, resolveDiscoveredModelDraft} from "nbook/app/components/novel-ide/settings/model-draft-factory";
+import {candidateFromLibrary, completeModelCandidate, requiredModelFields} from "nbook/app/components/novel-ide/settings/model-draft-factory";
 import {
-    disableInvalidDrafts,
-    clearUnsupportedDefaultApis,
     buildModelsSection,
     cleanGlobalAgent,
     cleanModelKey,
@@ -22,7 +23,7 @@ import {
     parseModelReasoning,
     parseRequestOptions,
     parseStringMap,
-    previewCatalogRepairs,
+    previewModelLibraryRepairs,
     renameAgentProvider,
     type ModelSettingsDraft,
     type ModelSettingsModelDraft,
@@ -39,13 +40,16 @@ import type {
     DiscoveredProviderModelDto,
     EnabledModelOptionDto,
     ModelInputKind,
-    ModelCatalogEntryDto,
+    ModelLibraryDto,
+    ModelLibraryEntryDto,
     ModelProviderDraftDto,
-    NeuroModelCatalogDto,
-    ProviderPresetDto,
+    ProviderTemplateDto,
+    ProviderTemplateLibraryDto,
 } from "nbook/shared/dto/app-settings.dto";
 import type {ConfigEditorSnapshotDto, ConfigModelSettingsDto, ConfigWorkspaceQueryDto, GlobalConfigUpdateDto, ProjectConfigDto} from "nbook/shared/dto/config.dto";
-import type {ModelReferenceInput} from "nbook/shared/models/provider-config-contract";
+import {selectModelApi, type ModelReferenceInput} from "nbook/shared/models/provider-config-contract";
+import {deriveModelGroup} from "nbook/shared/models/model-group";
+import type {DiscoveryListModel, ManualModelDraft, SavedModelGroupView} from "nbook/app/components/novel-ide/settings/model-settings-view";
 
 type ConfigSettingsScope = "global" | "project";
 
@@ -60,15 +64,6 @@ const props = withDefaults(defineProps<{
 });
 
 type ModelDraft = ModelSettingsModelDraft;
-
-type ManualModelDraft = {
-    name: string;
-    id: string;
-    api: string;
-    group: string;
-    contextWindowTokens: string;
-    maxTokens: string;
-};
 
 type ProviderDraft = ModelSettingsProviderDraft;
 
@@ -87,13 +82,12 @@ type ModelCheckBatchState = {
 
 const {t} = useI18n();
 
-const fallbackProviderPreset: ProviderPresetDto = {
-    id: "custom-openai-completions",
-    name: "Custom OpenAI Completions",
+const fallbackProviderTemplate: ProviderTemplateDto = {
+    id: "custom",
+    name: "Custom Provider",
     baseUrl: "",
-    supportedApis: ["openai-completions"],
-    defaultApi: "openai-completions",
-    discovery: {adapter: "openai-models", endpointPath: null},
+    defaultModelApi: null,
+    models: [],
 };
 
 const novelIdeStore = useNovelIdeStore();
@@ -103,7 +97,7 @@ const notification = useNotification();
 const loading = ref(false);
 const saving = ref(false);
 const activeProviderKey = ref("");
-const selectedPreset = ref<string>(fallbackProviderPreset.id);
+const selectedTemplate = ref<string>(fallbackProviderTemplate.id);
 const draft = ref<ModelSettingsDraft>({
     defaultModelKey: null,
     providers: [],
@@ -111,7 +105,8 @@ const draft = ref<ModelSettingsDraft>({
 const snapshotText = ref("");
 const scopeAgentSnapshotText = ref("");
 const discoveredModels = ref<Record<string, DiscoveredProviderModelDto[]>>({});
-const modelCatalog = ref<NeuroModelCatalogDto | null>(null);
+const modelLibraryData = ref<ModelLibraryDto | null>(null);
+const providerTemplateData = ref<ProviderTemplateLibraryDto | null>(null);
 const resolvedContextWindowMap = ref<Record<string, number | null>>({});
 const providerDiscoveringId = ref("");
 const modelCheckControllers = ref<Record<string, ModelCheckControllerState>>({});
@@ -119,6 +114,7 @@ const modelCheckResults = ref<Record<string, ModelCheckResult>>({});
 const activeModelCheckBatches = ref<Record<string, ModelCheckBatchState>>({});
 const manualModelDrafts = ref<Record<string, ManualModelDraft>>({});
 const libraryDialogOpen = ref(false);
+const modelLibraryDialogOpen = ref(false);
 const editorSnapshot = ref<ConfigEditorSnapshotDto | null>(null);
 let providerLocalKeySeed = 0;
 let modelLocalKeySeed = 0;
@@ -126,6 +122,7 @@ let modelCheckStateVersion = 0;
 
 const expandedGroups = ref<Record<string, boolean>>({});
 const editingModel = ref<ModelDraft | null>(null);
+const editingTransientCandidate = ref(false);
 const modelEditDialogOpen = ref(false);
 const deleteProviderDialogOpen = ref(false);
 const validationDialogOpen = ref(false);
@@ -138,23 +135,28 @@ const modelApiOptions: SelectOption[] = [
     {value: "google-generative-ai", label: "Google Generative AI", description: "Gemini / Google GenAI"},
     {value: "bedrock-converse-stream", label: "Bedrock Converse", description: "AWS Bedrock Converse Stream"},
 ];
+const providerModelApiOptions = computed<SelectOption[]>(() => [
+    {value: "", label: t("settings.panels.models.notConfigured"), description: t("settings.panels.models.providerModelApiHint")},
+    ...modelApiOptions,
+]);
 const modelInputOptions = computed<Array<{value: ModelInputKind; label: string; iconClass: string}>>(() => [
     {value: "text", label: t("settings.panels.models.textInput"), iconClass: "i-lucide-type"},
     {value: "image", label: t("settings.panels.models.imageInput"), iconClass: "i-lucide-image"},
 ]);
 
-const providerPresetOptions = computed<ProviderPresetDto[]>(() => modelCatalog.value?.providerPresets ?? [fallbackProviderPreset]);
+const providerTemplateOptions = computed<ProviderTemplateDto[]>(() => providerTemplateData.value?.templates ?? [fallbackProviderTemplate]);
 
 function toggleGroup(group: string): void {
     expandedGroups.value[group] = !expandedGroups.value[group];
 }
 
 async function openModelEdit(model: ModelDraft): Promise<void> {
+    editingTransientCandidate.value = false;
     editingModel.value = model;
     try {
-        await loadModelCatalog();
+        await loadModelLibraries();
     } catch (error) {
-        notification.error(resolveApiErrorMessage(error, t("settings.panels.models.loadPiCatalogFailed")));
+        notification.error(resolveApiErrorMessage(error, t("settings.panels.models.loadModelLibraryFailed")));
     } finally {
         modelEditDialogOpen.value = true;
     }
@@ -166,6 +168,37 @@ async function openModelEdit(model: ModelDraft): Promise<void> {
 function createProviderLocalKey(providerId: string): string {
     providerLocalKeySeed += 1;
     return `provider-${providerLocalKeySeed}-${providerId.trim() || "draft"}`;
+}
+
+/** 打开尚未进入 Provider Config 的临时候选编辑器。 */
+async function openTransientCandidate(candidate: Omit<ConfiguredModelDto, "enabled">): Promise<void> {
+    editingTransientCandidate.value = true;
+    editingModel.value = cloneModel({...candidate, enabled: true});
+    try {
+        await loadModelLibraries();
+    } catch (error) {
+        notification.error(resolveApiErrorMessage(error, t("settings.panels.models.loadModelLibraryFailed")));
+    } finally {
+        modelEditDialogOpen.value = true;
+    }
+}
+
+/** 只有能力完整的临时候选才能加入 Provider Config。 */
+function confirmTransientCandidate(): void {
+    const model = editingModel.value;
+    if (!editingTransientCandidate.value || !model) {
+        return;
+    }
+    const missingFields = requiredModelFields(buildModelCheckDraft(model));
+    if (missingFields.length > 0) {
+        notification.error(`模型仍缺少必填字段：${missingFields.join(", ")}`);
+        return;
+    }
+    enableModel({...buildModelCheckDraft(model), enabled: true});
+    editingTransientCandidate.value = false;
+    editingModel.value = null;
+    modelEditDialogOpen.value = false;
+    notification.success(t("settings.panels.models.manualAdded"));
 }
 
 /** 创建只用于前端渲染和检测状态的稳定模型 key。 */
@@ -230,11 +263,9 @@ function resetModelCost(model: ModelDraft): void {
     clearModelCostDraft(model.cost);
 }
 
-/**
- * 从当前 Model Catalog 复制完整基础价格与 tiers。
- */
+/** 为当前模型启用显式价格覆盖。 */
 function enableModelCostOverride(model: ModelDraft): void {
-    model.cost = createModelCostDraft(findCatalogModel(model.id)?.cost ?? {
+    model.cost = createModelCostDraft({
         input: 0,
         output: 0,
         cacheRead: 0,
@@ -254,11 +285,7 @@ function cloneProvider(provider: ConfigModelSettingsDto["providers"][number], lo
         id: provider.id,
         name: provider.name,
         enabled: provider.enabled,
-        defaultApi: provider.defaultApi ?? "",
-        discovery: {
-            adapter: provider.discovery.adapter,
-            endpointPath: provider.discovery.endpointPath ?? "",
-        },
+        modelApi: provider.modelApi ?? "",
         options: {
             apiKey: "",
             apiKeyConfigured: provider.options.apiKey.configured,
@@ -403,7 +430,7 @@ async function loadSettings(): Promise<void> {
 
     try {
         if (!isProjectScope.value) {
-            void loadModelCatalog();
+            void loadModelLibraries();
         }
         const snapshot = await configApi.editorSnapshot(props.targetQuery);
         editorSnapshot.value = snapshot;
@@ -546,7 +573,7 @@ const enabledModelGroups = computed(() => {
             continue;
         }
 
-        const groupName = model.group.trim() || deriveGroup(model.id);
+        const groupName = model.group.trim() || deriveModelGroup(model.id);
         const groupModels = groupMap.get(groupName) ?? [];
         groupModels.push(model);
         groupMap.set(groupName, groupModels);
@@ -575,23 +602,6 @@ const disabledModels = computed(() => {
 });
 
 /**
- * 根据模型 ID 推导默认 group。
- */
-function deriveGroup(modelId: string): string {
-    const normalizedId = modelId.trim();
-    if (!normalizedId) {
-        return "default";
-    }
-
-    const separatorIndex = normalizedId.indexOf("-");
-    if (separatorIndex <= 0) {
-        return normalizedId;
-    }
-
-    return normalizedId.slice(0, separatorIndex);
-}
-
-/**
  * 获取当前 Provider 的手动新增模型草稿。
  */
 function getManualModelDraft(providerId: string): ManualModelDraft {
@@ -617,39 +627,36 @@ function displayModelApiSource(model: ModelDraft): string {
     return model.api.trim() ? t("settings.panels.models.modelApiSourceModel") : t("settings.panels.models.modelApiSourceMissing");
 }
 
-/** 按精确 model ID 查询 NeuroBook 唯一标准 Model Catalog。 */
-function findCatalogModel(modelId: string): ModelCatalogEntryDto | null {
-    return modelCatalog.value?.models.find((model) => model.id === modelId.trim()) ?? null;
+/** 按精确 model ID 查询 NeuroBook Model Library。 */
+function findLibraryModel(modelId: string): ModelLibraryEntryDto | null {
+    return modelLibraryData.value?.models.find((model) => model.id === modelId.trim()) ?? null;
 }
 
-const editingModelCatalogCost = computed(() => editingModel.value ? findCatalogModel(editingModel.value.id)?.cost ?? null : null);
-const editingCatalogModel = computed(() => editingModel.value ? findCatalogModel(editingModel.value.id) : null);
+const editingLibraryModel = computed(() => editingModel.value ? findLibraryModel(editingModel.value.id) : null);
 const editingModelMissingFields = computed(() => editingModel.value ? requiredModelFields(buildModelCheckDraft(editingModel.value)) : []);
 
-/** 用当前标准 Catalog 能力块完整覆盖模型能力，不修改名称、分组和启用状态。 */
-function reapplyCatalogModel(model: ModelDraft): void {
-    const catalogModel = findCatalogModel(model.id);
-    if (!catalogModel) {
-        notification.warning(t("settings.panels.models.noCatalogMetadata"));
+/** 用 Model Library 补齐通用能力，不覆盖 Provider 专属价格和传输设置。 */
+function reapplyLibraryModel(model: ModelDraft): void {
+    const libraryModel = findLibraryModel(model.id);
+    if (!libraryModel) {
+        notification.warning(t("settings.panels.models.noLibraryMetadata"));
         return;
     }
-    const catalogDraft = cloneCatalogModel(catalogModel, activeProvider.value?.defaultApi || null, model.api || null);
-    applyCatalogCapabilities(model, {...buildModelCheckDraft(catalogDraft), enabled: model.enabled});
+    const completed = candidateFromLibrary(libraryModel, model.api.trim() || activeProvider.value?.modelApi.trim() || null);
+    const replacement = completed.status === "complete" ? completed.model : {...completed.candidate, enabled: model.enabled};
+    applyLibraryCapabilities(model, replacement);
 }
 
-/** 用 Catalog 完整能力块覆盖草稿，同时保留用户名称、分组和启用状态。 */
-function applyCatalogCapabilities(model: ModelDraft, replacement: ConfiguredModelDto): void {
-    const catalogDraft = cloneModel(replacement);
+/** 用 Model Library 通用能力覆盖草稿，同时保留 Provider 专属字段。 */
+function applyLibraryCapabilities(model: ModelDraft, replacement: ConfiguredModelDto): void {
+    const libraryDraft = cloneModel(replacement);
     Object.assign(model, {
-        api: catalogDraft.api,
-        reasoning: catalogDraft.reasoning,
-        input: catalogDraft.input,
-        maxTokens: catalogDraft.maxTokens,
-        cost: catalogDraft.cost,
-        compat: catalogDraft.compat,
-        headers: catalogDraft.headers,
-        thinkingLevelMap: catalogDraft.thinkingLevelMap,
-        contextWindowTokens: catalogDraft.contextWindowTokens,
+        api: libraryDraft.api,
+        reasoning: libraryDraft.reasoning,
+        input: libraryDraft.input,
+        maxTokens: libraryDraft.maxTokens,
+        thinkingLevelMap: libraryDraft.thinkingLevelMap,
+        contextWindowTokens: libraryDraft.contextWindowTokens,
     });
 }
 
@@ -676,7 +683,7 @@ function cleanScopeModelReferences(modelKeys: Set<string>): boolean {
 }
 
 /**
- * 一键修复当前模型草稿：应用可命中的 Catalog，禁用剩余无效模型并清理引用。
+ * 一键修复当前模型草稿：应用可命中的 Model Library 并清理失效引用。
  * 只修改前端草稿，不自动保存。
  */
 async function repairModelSettings(): Promise<void> {
@@ -685,20 +692,16 @@ async function repairModelSettings(): Promise<void> {
     }
     repairingModels.value = true;
     try {
-        const repairs = [] as ReturnType<typeof previewCatalogRepairs>;
-        let disabledModelKeys: string[] = [];
-        let clearedDefaultApis = 0;
+        const repairs = [] as ReturnType<typeof previewModelLibraryRepairs>;
         if (!isProjectScope.value) {
-            const catalog = await loadModelCatalog();
-            clearedDefaultApis = clearUnsupportedDefaultApis(draft.value);
-            repairs.push(...previewCatalogRepairs(draft.value, catalog.models));
+            const library = await loadModelLibraries();
+            repairs.push(...previewModelLibraryRepairs(draft.value, library.models));
             for (const repair of repairs) {
                 const model = draft.value.providers[repair.providerIndex]?.models[repair.modelIndex];
                 if (model) {
-                    applyCatalogCapabilities(model, repair.replacement);
+                    applyLibraryCapabilities(model, repair.replacement);
                 }
             }
-            disabledModelKeys = disableInvalidDrafts(draft.value);
             ensureRunnableDefault(draft.value);
         } else {
             draft.value.defaultModelKey = cleanModelKey(draft.value.defaultModelKey, availableModelKeys());
@@ -710,13 +713,13 @@ async function repairModelSettings(): Promise<void> {
         const remaining = validationIssues.value.length;
         const message = t("settings.panels.models.oneClickRepairResult", {
             repaired: repairs.length,
-            cleared: clearedDefaultApis,
-            disabled: disabledModelKeys.length,
+            cleared: 0,
+            disabled: 0,
             remaining,
         });
         if (remaining > 0) {
             notification.warning(message, {title: t("settings.panels.models.oneClickRepairNeedsReview")});
-        } else if (repairs.length > 0 || clearedDefaultApis > 0 || disabledModelKeys.length > 0 || referencesChanged) {
+        } else if (repairs.length > 0 || referencesChanged) {
             notification.success(message, {title: t("settings.panels.models.oneClickRepairDone")});
         } else {
             notification.info(t("settings.panels.models.oneClickRepairNoChange"));
@@ -726,12 +729,6 @@ async function repairModelSettings(): Promise<void> {
     } finally {
         repairingModels.value = false;
     }
-}
-
-function providerDefaultApiLabel(provider: ProviderDraft): string {
-    return provider.defaultApi.trim()
-        ? t("settings.panels.models.providerDefaultApi", {api: provider.defaultApi.trim()})
-        : t("settings.panels.models.metadataOrRequiredApi");
 }
 
 /** 收集 Config agent 中显式保存的模型引用。 */
@@ -780,10 +777,6 @@ const validationIssues = computed(() => validationState.value.issues);
 const validationIssueDetails = computed(() => validationIssues.value.map((issue) => issue.message).join("\n"));
 
 function modelApiInheritLabel(model: ModelDraft): string {
-    const providerApi = activeProvider.value?.defaultApi.trim();
-    if (providerApi) {
-        return t("settings.panels.models.providerDefaultApi", {api: providerApi});
-    }
     return model.api.trim() || t("settings.panels.modelEdit.requiredForCustomModel");
 }
 
@@ -826,59 +819,55 @@ function updateManualModelId(providerId: string, modelId: string): void {
 }
 
 /**
- * 懒加载 Pi 内置模型目录。
+ * 懒加载 Model Library 与 Provider Template Library。
  */
-async function loadModelCatalog(): Promise<NeuroModelCatalogDto> {
-    if (!modelCatalog.value) {
-        modelCatalog.value = await configApi.modelCatalog();
-        if (!providerPresetOptions.value.some((preset) => preset.id === selectedPreset.value)) {
-            selectedPreset.value = providerPresetOptions.value[0]?.id ?? fallbackProviderPreset.id;
+async function loadModelLibraries(): Promise<ModelLibraryDto> {
+    if (!modelLibraryData.value || !providerTemplateData.value) {
+        const [library, templates] = await Promise.all([
+            configApi.modelLibrary(),
+            configApi.providerTemplates(),
+        ]);
+        modelLibraryData.value = library;
+        providerTemplateData.value = templates;
+        if (!providerTemplateOptions.value.some((template) => template.id === selectedTemplate.value)) {
+            selectedTemplate.value = providerTemplateOptions.value[0]?.id ?? fallbackProviderTemplate.id;
         }
     }
-    return modelCatalog.value;
+    return modelLibraryData.value;
 }
 
-/** 把标准 Catalog 模型复制为完整、自包含的用户模型草稿。 */
-function cloneCatalogModel(model: ModelCatalogEntryDto, providerDefaultApi: string | null, modelApi: string | null = null): ModelDraft {
-    return cloneModel(configuredModelFromCatalog(model, {
-        group: deriveGroup(model.id),
-        enabled: false,
-        modelApi,
-        providerDefaultApi,
-    }));
+/** 把 Provider Template 的完整模型快照复制为用户模型草稿。 */
+function cloneTemplateModel(model: ConfiguredModelDto): ModelDraft {
+    return cloneModel({...model, enabled: model.enabled});
 }
 
 /**
- * 新增 Provider 预设。
+ * 从 Provider Template 新增普通 Provider Config 草稿。
  */
 async function addProvider(): Promise<void> {
     try {
-        await loadModelCatalog();
+        await loadModelLibraries();
     } catch (error) {
-        notification.error(resolveApiErrorMessage(error, t("settings.panels.models.loadPiCatalogFailed")));
+        notification.error(resolveApiErrorMessage(error, t("settings.panels.models.loadModelLibraryFailed")));
         return;
     }
-    const preset = providerPresetOptions.value.find((item) => item.id === selectedPreset.value) ?? providerPresetOptions.value[0];
-    if (!preset) {
+    const template = providerTemplateOptions.value.find((item) => item.id === selectedTemplate.value) ?? providerTemplateOptions.value[0];
+    if (!template) {
         return;
     }
 
-    const providerId = buildUniqueProviderId(preset.id.replace(/^custom-/u, "custom-"));
+    const providerId = buildUniqueProviderId(template.id);
     const localKey = createProviderLocalKey(providerId);
     activeProviderKey.value = localKey;
     draft.value.providers.push({
         localKey,
         id: providerId,
-        name: preset.name,
+        name: template.name,
         enabled: true,
-        defaultApi: preset.defaultApi ?? "",
-        discovery: {
-            adapter: preset.discovery.adapter,
-            endpointPath: preset.discovery.endpointPath ?? "",
-        },
+        modelApi: template.defaultModelApi ?? "",
         options: {
             apiKey: "",
-            baseURL: preset.baseUrl,
+            baseURL: template.baseUrl,
             proxy: "",
             timeoutMs: "",
             requestOptions: "",
@@ -886,9 +875,10 @@ async function addProvider(): Promise<void> {
             apiKeyMaskedValue: null,
             apiKeyCleared: false,
         },
-        models: [],
+        models: template.models.map(cloneTemplateModel),
     });
-    notification.success(t("settings.panels.models.providerAdded", {label: preset.name}));
+    ensureDefaultModelKey();
+    notification.success(t("settings.panels.models.providerAdded", {label: template.name}));
 }
 
 /**
@@ -1032,11 +1022,7 @@ function buildProviderRequest(provider: ProviderDraft): {provider: ModelProvider
         provider: {
             id: provider.id.trim(),
             name: provider.name.trim(),
-            defaultApi: provider.defaultApi.trim() || null,
-            discovery: {
-                adapter: provider.discovery.adapter,
-                endpointPath: provider.discovery.endpointPath.trim() || null,
-            },
+            modelApi: selectModelApi(provider.modelApi, null),
             options: {
                 apiKey: provider.options.apiKey.trim(),
                 baseURL: provider.options.baseURL.trim(),
@@ -1081,7 +1067,7 @@ async function discoverModels(): Promise<void> {
     providerDiscoveringId.value = provider.id;
 
     try {
-        await loadModelCatalog();
+        await loadModelLibraries();
         const result = await $fetch<DiscoverProviderModelsResponseDto>("/api/config/models/provider-discover", {
             method: "POST",
             body: buildProviderRequest(provider),
@@ -1162,11 +1148,11 @@ function addManualModel(): void {
         return;
     }
 
-    const catalogModel = findCatalogModel(manualDraft.id);
+    const libraryModel = findLibraryModel(manualDraft.id);
     const discovered: DiscoveredProviderModelDto = {
         name: manualDraft.name,
         id: manualDraft.id,
-        api: manualDraft.api || provider.defaultApi || null,
+        api: manualDraft.api || null,
         group: manualDraft.group || null,
         reasoning: null,
         input: null,
@@ -1177,8 +1163,7 @@ function addManualModel(): void {
         headers: null,
         thinkingLevelMap: null,
     };
-    const resolved = resolveDiscoveredModelDraft(discovered, catalogModel, provider.defaultApi || null);
-    const added = enableModel(resolved.model);
+    const completed = completeModelCandidate(discovered, libraryModel, provider.modelApi.trim() || null);
 
     manualModelDrafts.value = {
         ...manualModelDrafts.value,
@@ -1191,10 +1176,12 @@ function addManualModel(): void {
             maxTokens: "",
         },
     };
-    if (added && resolved.source === "incomplete") {
-        void openModelEdit(added);
+    if (completed.status === "complete") {
+        enableModel(completed.model);
+        notification.success(t("settings.panels.models.manualAdded"));
+    } else {
+        void openTransientCandidate(completed.candidate);
     }
-    notification.success(t("settings.panels.models.manualAdded"));
 }
 
 function modelCheckKey(provider: ProviderDraft, model: ModelDraft): string {
@@ -1442,55 +1429,48 @@ const librarySearchQuery = ref("");
 const unifiedLibraryGroups = computed(() => {
     const provider = activeProvider.value;
     if (!provider) return [];
-    
-    const allModelsMap = new Map<string, {name: string; id: string; group: string; state: "enabled" | "disabled" | "remote"; draftModel?: ConfiguredModelDto}>();
-    
+
+    const allModelsMap = new Map<string, DiscoveryListModel>();
+
     for (const rm of currentDiscoveredModels.value) {
-        const resolved = resolveDiscoveredModelDraft(rm, findCatalogModel(rm.id), provider.defaultApi || null);
-        const group = rm.group || deriveGroup(rm.id);
+        const completed = completeModelCandidate(rm, findLibraryModel(rm.id), provider.modelApi.trim() || null);
+        const group = rm.group || deriveModelGroup(rm.id);
+        const savedState = resolveDiscoveredModelState(rm.id);
         allModelsMap.set(rm.id, {
             name: rm.name,
             id: rm.id,
             group,
-            state: resolveDiscoveredModelState(rm.id) === 'enabled' ? 'enabled' : 'remote',
-            draftModel: resolved.model,
+            state: savedState === "enabled"
+                ? "enabled"
+                : savedState === "disabled"
+                    ? "disabled"
+                    : completed.status === "complete"
+                        ? "remote-complete"
+                        : "remote-incomplete",
+            ...(completed.status === "complete"
+                ? {completeModel: completed.model}
+                : {incompleteCandidate: completed.candidate}),
         });
     }
 
-    for (const catalogModel of modelCatalog.value?.models ?? []) {
-        if (allModelsMap.has(catalogModel.id)) {
-            continue;
-        }
-        const catalogDraft = cloneCatalogModel(catalogModel, provider.defaultApi || null);
-        allModelsMap.set(catalogModel.id, {
-            name: catalogModel.name,
-            id: catalogModel.id,
-            group: deriveGroup(catalogModel.id),
-            state: "remote",
-            draftModel: {...buildModelCheckDraft(catalogDraft), enabled: true},
-        });
-    }
-    
     for (const m of disabledModels.value) {
-        const group = m.group.trim() || deriveGroup(m.id);
-        const draftModel = buildModelCheckDraft(m);
+        const group = m.group.trim() || deriveModelGroup(m.id);
         allModelsMap.set(m.id, {
             name: m.name,
             id: m.id,
             group,
             state: "disabled",
-            draftModel: {...draftModel, enabled: requiredModelFields(draftModel).length === 0},
         });
     }
-    
+
     for (const m of provider.models.filter(m => m.enabled)) {
-        const group = m.group.trim() || deriveGroup(m.id);
-        allModelsMap.set(m.id, { name: m.name, id: m.id, group, state: 'enabled' });
+        const group = m.group.trim() || deriveModelGroup(m.id);
+        allModelsMap.set(m.id, {name: m.name, id: m.id, group, state: "enabled"});
     }
 
     const query = librarySearchQuery.value.toLowerCase().trim();
     
-    const groupMap = new Map<string, Array<{name: string; id: string; group: string; state: string; draftModel?: ConfiguredModelDto}>>();
+    const groupMap = new Map<string, DiscoveryListModel[]>();
     for (const model of allModelsMap.values()) {
         if (query && !model.name.toLowerCase().includes(query) && !model.id.toLowerCase().includes(query)) {
             continue;
@@ -1513,37 +1493,122 @@ function toggleLibraryGroup(group: string) {
     libraryExpandedGroups.value[group] = !libraryExpandedGroups.value[group];
 }
 
-function toggleLibraryModel(model: {name: string; id: string; group: string; state: string; draftModel?: ConfiguredModelDto}) {
-    if (model.state === 'enabled') {
-        const existing = activeProvider.value?.models.find(m => m.id === model.id);
+function toggleLibraryModel(model: DiscoveryListModel): void {
+    if (model.state === "enabled") {
+        const existing = activeProvider.value?.models.find((item) => item.id === model.id);
         if (existing) disableModel(existing);
-    } else {
-        if (model.state === "disabled" && !(model.draftModel?.enabled ?? false)) {
-            const existing = activeProvider.value?.models.find((item) => item.id === model.id);
-            if (existing) {
-                void openModelEdit(existing);
-            }
-            return;
+        return;
+    }
+    if (model.state === "disabled") {
+        const existing = activeProvider.value?.models.find((item) => item.id === model.id);
+        if (existing) {
+            existing.enabled = true;
+            ensureDefaultModelKey();
         }
-        const fallbackModel: ConfiguredModelDto = {
-            name: model.name,
-            id: model.id,
-            group: model.group,
-            enabled: false,
-            api: activeProvider.value?.defaultApi || null,
-            reasoning: null,
-            input: null,
-            maxTokens: null,
-            cost: null,
-            compat: null,
-            headers: null,
-            thinkingLevelMap: null,
-            contextWindowTokens: null,
-        };
-        const enabled = enableModel(model.draftModel ?? fallbackModel);
-        if (enabled && !(model.draftModel?.enabled ?? false)) {
-            void openModelEdit(enabled);
+        return;
+    }
+    if (model.completeModel) {
+        enableModel(model.completeModel);
+        return;
+    }
+    if (model.incompleteCandidate) {
+        void openTransientCandidate(model.incompleteCandidate);
+    }
+}
+
+/** 处理 Saved Models Module 发出的单模型取消事件。 */
+function cancelActiveModelCheck(model: ModelDraft): void {
+    const provider = activeProvider.value;
+    if (provider) {
+        cancelModelCheck(provider, model);
+    }
+}
+
+const modelLibrarySearchQuery = ref("");
+const modelLibraryExpandedGroups = ref<Record<string, boolean>>({});
+
+/** 独立 Model Library 只展示标准资料，不伪装成当前 Provider 远程可用模型。 */
+const modelLibraryGroups = computed(() => {
+    const provider = activeProvider.value;
+    const query = modelLibrarySearchQuery.value.trim().toLowerCase();
+    if (!provider || !modelLibraryData.value) {
+        return [] as Array<{group: string; models: ModelLibraryEntryDto[]}>;
+    }
+    const groups = new Map<string, ModelLibraryEntryDto[]>();
+    for (const model of modelLibraryData.value.models) {
+        if (query && !model.id.toLowerCase().includes(query) && !model.name.toLowerCase().includes(query)) {
+            continue;
         }
+        const values = groups.get(model.source) ?? [];
+        values.push(model);
+        groups.set(model.source, values);
+    }
+    return [...groups.entries()]
+        .map(([group, models]) => ({group, models: [...models].sort((left, right) => left.id.localeCompare(right.id))}))
+        .sort((left, right) => left.group.localeCompare(right.group));
+});
+
+function toggleModelLibraryGroup(group: string): void {
+    modelLibraryExpandedGroups.value[group] = !modelLibraryExpandedGroups.value[group];
+}
+
+function toggleModelLibraryEntry(model: ModelLibraryEntryDto): void {
+    const existing = activeProvider.value?.models.find((item) => item.id === model.id);
+    if (existing) {
+        existing.enabled = !existing.enabled;
+        ensureDefaultModelKey();
+        return;
+    }
+    const candidate = candidateFromLibrary(model, activeProvider.value?.modelApi.trim() || null);
+    if (candidate.status === "complete") {
+        enableModel(candidate.model);
+        return;
+    }
+    void openTransientCandidate(candidate.candidate);
+}
+
+/** 将 Automatic Model Discovery 手动表单字段更新留在宿主会话中。 */
+function updateManualModelField(field: keyof ManualModelDraft, value: string): void {
+    const provider = activeProvider.value;
+    if (!provider) {
+        return;
+    }
+    if (field === "id") {
+        updateManualModelId(provider.id, value);
+        return;
+    }
+    getManualModelDraft(provider.id)[field] = value;
+}
+
+/** 为 Saved Models 展示 Module 生成稳定、无副作用的视图数据。 */
+const savedModelGroups = computed<SavedModelGroupView[]>(() => {
+    const provider = activeProvider.value;
+    if (!provider) {
+        return [];
+    }
+    return enabledModelGroups.value.map((group) => ({
+        group: group.group,
+        models: group.models.map((model) => ({
+            model,
+            apiLabel: displayModelApi(model),
+            apiSourceLabel: displayModelApiSource(model),
+            contextWindowLabel: resolveDisplayedContextWindow(provider.id, model),
+            issues: savedModelIssues(provider.id, model.id),
+            checkResult: modelCheckResult(provider, model),
+            checking: isModelChecking(provider, model),
+            runnable: modelDraftRunnable(provider, model),
+        })),
+    }));
+});
+
+const enabledModelIds = computed(() => new Set(activeProvider.value?.models.filter((model) => model.enabled).map((model) => model.id) ?? []));
+
+async function openModelLibrary(): Promise<void> {
+    try {
+        await loadModelLibraries();
+        modelLibraryDialogOpen.value = true;
+    } catch (error) {
+        notification.error(resolveApiErrorMessage(error, t("settings.panels.models.loadModelLibraryFailed")));
     }
 }
 
@@ -1553,6 +1618,13 @@ watch(() => activeProvider.value?.id ?? "", (providerId) => {
     }
 
     getManualModelDraft(providerId);
+});
+
+watch(modelEditDialogOpen, (open) => {
+    if (!open && editingTransientCandidate.value) {
+        editingTransientCandidate.value = false;
+        editingModel.value = null;
+    }
 });
 
 onMounted(() => {
@@ -1628,7 +1700,7 @@ defineExpose({
                 </div>
                 <div class="flex items-center gap-2">
                     <div class="min-w-0 flex-1">
-                        <FormSelect :model-value="selectedPreset" :options="providerPresetOptions.map((item) => ({value: item.id, label: item.name}))" @update:model-value="selectedPreset = $event" />
+                        <FormSelect :model-value="selectedTemplate" :options="providerTemplateOptions.map((item) => ({value: item.id, label: item.name}))" @update:model-value="selectedTemplate = $event" />
                     </div>
                     <button class="inline-flex h-7 shrink-0 items-center justify-center rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] px-3 text-xs font-medium text-[var(--text-main)] shadow-sm transition-colors hover:bg-[var(--bg-hover)] active:scale-95" @click="void addProvider()">
                         <span class="i-lucide-plus mr-1 h-3 w-3"></span>
@@ -1726,13 +1798,14 @@ defineExpose({
                                     <label class="text-xs font-medium text-[var(--text-secondary)] transition-colors group-focus-within:text-[var(--text-main)]">{{ t("settings.panels.models.providerName") }}</label>
                                     <FormInput v-model="activeProvider.name" :placeholder="t('settings.panels.models.providerNamePlaceholder')" />
                                 </div>
-                                <div class="group space-y-1.5">
-                                    <label class="text-xs font-medium text-[var(--text-secondary)] transition-colors group-focus-within:text-[var(--text-main)]">{{ t("settings.panels.models.apiFormat") }}</label>
-                                    <FormSelect v-model="activeProvider.defaultApi" :options="[{value: '', label: providerDefaultApiLabel(activeProvider)}, ...modelApiOptions]" />
-                                </div>
-                                <div class="group space-y-1.5">
+                                <div class="group space-y-1.5 md:col-span-2">
                                     <label class="text-xs font-medium text-[var(--text-secondary)] transition-colors group-focus-within:text-[var(--text-main)]">API Base</label>
                                     <FormInput v-model="activeProvider.options.baseURL" :placeholder="t('settings.panels.models.apiBasePlaceholder')" />
+                                </div>
+                                <div class="group space-y-1.5 md:col-span-2">
+                                    <label class="text-xs font-medium text-[var(--text-secondary)] transition-colors group-focus-within:text-[var(--text-main)]">{{ t("settings.panels.models.providerModelApi") }}</label>
+                                    <FormSelect v-model="activeProvider.modelApi" :options="providerModelApiOptions" :placeholder="t('settings.panels.models.apiFormat')" />
+                                    <p class="text-[11px] leading-5 text-[var(--text-muted)]">{{ t("settings.panels.models.providerModelApiHint") }}</p>
                                 </div>
                                 <div class="group space-y-1.5 md:col-span-2">
                                     <div class="flex items-center justify-between gap-3">
@@ -1753,143 +1826,28 @@ defineExpose({
                                     <label class="text-xs font-medium text-[var(--text-secondary)] transition-colors group-focus-within:text-[var(--text-main)]">{{ t("settings.panels.models.requestOptions") }}</label>
                                     <textarea v-model="activeProvider.options.requestOptions" rows="4" placeholder="{&quot;store&quot;:false}" class="w-full resize-y rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2.5 py-2 font-mono text-[12px] text-[var(--text-main)] outline-none transition-colors placeholder:text-[var(--text-muted)] placeholder:opacity-80 focus:border-[var(--accent-main)] focus:ring-1 focus:ring-[var(--accent-main)]/20"></textarea>
                                 </div>
-                                <div class="group space-y-1.5">
-                                    <label class="text-xs font-medium text-[var(--text-secondary)]">Discovery Adapter</label>
-                                    <FormSelect v-model="activeProvider.discovery.adapter" :options="[
-                                        {value: 'openai-models', label: 'OpenAI-compatible /models'},
-                                        {value: 'openrouter-models', label: 'OpenRouter Models'},
-                                        {value: 'google-models', label: 'Google Models'},
-                                        {value: 'none', label: 'Manual only'},
-                                    ]" />
-                                </div>
-                                <div class="group space-y-1.5">
-                                    <label class="text-xs font-medium text-[var(--text-secondary)]">Discovery Endpoint Path</label>
-                                    <FormInput v-model="activeProvider.discovery.endpointPath" placeholder="/models" />
-                                </div>
                             </div>
                         </div>
 
-                        <!-- 已启用模型 -->
-                        <div class="rounded-2xl border border-[var(--border-color)] bg-[var(--bg-panel)] shadow-sm transition-all duration-300 hover:shadow-md overflow-hidden">
-                            <div class="flex flex-wrap items-center justify-between gap-4 border-b border-[var(--border-color)] px-5 py-4 bg-[var(--bg-panel)]">
-                                <div>
-                                    <div class="flex items-center gap-2">
-                                        <h3 class="text-base font-semibold text-[var(--text-main)]">{{ t("settings.panels.models.enabledModels") }}</h3>
-                                        <div class="flex items-center justify-center rounded-full bg-[var(--bg-input)] px-2 py-0.5 text-[11px] font-medium text-[var(--text-secondary)]">{{ activeProviderEnabledModelCount }}</div>
-                                    </div>
-                                    <p class="mt-1 text-xs text-[var(--text-secondary)]">{{ t("settings.panels.models.enabledModelsDescription") }}</p>
-                                </div>
-                                <div class="flex flex-wrap items-center justify-end gap-2">
-                                    <button class="inline-flex h-8 items-center gap-1.5 rounded-lg border border-[var(--border-color)] bg-[var(--bg-input)] px-3 text-xs font-medium text-[var(--text-main)] shadow-sm transition-all duration-200 hover:bg-[var(--bg-hover)] active:scale-95 disabled:pointer-events-none disabled:opacity-50" :disabled="checkingAllModels || activeProviderEnabledModelCount === 0" @click="void checkAllActiveProviderModels()">
-                                        <span class="h-3.5 w-3.5" :class="checkingAllModels ? 'i-lucide-loader-2 animate-spin' : 'i-lucide-list-checks'"></span>
-                                        {{ checkingAllModels ? t("settings.panels.models.checkingAllModels") : t("settings.panels.models.checkAllModels") }}
-                                    </button>
-                                    <button v-if="activeProviderCheckingModelCount > 0" class="inline-flex h-8 items-center gap-1.5 rounded-lg border border-[var(--status-danger-border)] bg-[var(--status-danger-bg)] px-3 text-xs font-medium text-[var(--status-danger)] shadow-sm transition-all duration-200 hover:bg-[var(--status-danger-bg)] active:scale-95" @click="cancelActiveProviderChecks">
-                                        <span class="i-lucide-circle-x h-3.5 w-3.5"></span>
-                                        {{ t("settings.panels.models.cancelModelChecks") }}
-                                    </button>
-                                </div>
-                            </div>
-
-                            <div class="max-h-[360px] min-h-[150px] overflow-y-auto bg-[var(--bg-input)]/20 p-3 custom-scrollbar">
-                                <div v-if="enabledModelGroups.length === 0" class="flex flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-[var(--border-color)] py-8 text-center bg-[var(--bg-panel)]">
-                                    <span class="i-lucide-box h-5 w-5 text-[var(--text-muted)]"></span>
-                                    <div class="text-sm text-[var(--text-secondary)]">{{ t("settings.panels.models.noEnabledProviderModels") }}</div>
-                                </div>
-
-                                <div v-else class="space-y-2">
-                                    <div v-for="group in enabledModelGroups" :key="group.group" class="rounded-xl border border-[var(--border-color)] bg-[var(--bg-panel)] overflow-hidden shadow-sm">
-                                        <button class="flex w-full items-center justify-between gap-2 px-4 py-3 hover:bg-[var(--bg-hover)]/50 transition-colors" @click="toggleGroup(group.group)">
-                                            <div class="flex items-center gap-2">
-                                                <span class="h-4 w-4 shrink-0 transition-transform duration-200" :class="expandedGroups[group.group] === false ? 'i-lucide-chevron-right' : 'i-lucide-chevron-down text-[var(--text-muted)]'"></span>
-                                                <span class="text-[12px] font-bold text-[var(--text-main)]">{{ group.group }}</span>
-                                                <div class="flex items-center justify-center rounded-full bg-[var(--bg-input)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--text-secondary)]">{{ group.models.length }}</div>
-                                            </div>
-                                        </button>
-
-                                        <div v-show="expandedGroups[group.group] !== false" class="border-t border-[var(--border-color)] bg-[var(--bg-input)]/10 divide-y divide-[var(--border-color)]">
-                                            <div v-for="model in group.models" :key="model.localKey" class="group/model relative flex items-center justify-between px-4 py-2.5 transition-colors hover:bg-[var(--bg-hover)]/40">
-                                                <div class="flex items-center gap-3 min-w-0">
-                                                    <div class="flex h-6 w-6 items-center justify-center rounded bg-[var(--accent-bg)] text-[var(--accent-text)] shrink-0">
-                                                        <span class="i-lucide-sparkles h-3.5 w-3.5"></span>
-                                                    </div>
-                                                    <div class="min-w-0 flex flex-col">
-                                                        <div class="flex items-center gap-2">
-                                                            <div class="truncate text-[13px] font-medium text-[var(--text-main)]">{{ model.name }}</div>
-                                                            <span class="shrink-0 rounded border border-[var(--border-color)] bg-[var(--bg-input)] px-1.5 py-0.5 text-[10px] text-[var(--text-muted)]">
-                                                                {{ displayModelApi(model) }}
-                                                            </span>
-                                                            <span class="shrink-0 rounded border border-[var(--border-color)] bg-[var(--bg-input)] px-1.5 py-0.5 text-[10px] text-[var(--text-muted)]">
-                                                                {{ displayModelApiSource(model) }}
-                                                            </span>
-                                                            <span v-if="resolveDisplayedContextWindow(activeProvider.id, model)" class="shrink-0 rounded border border-[var(--border-color)] bg-[var(--bg-input)] px-1.5 py-0.5 text-[10px] text-[var(--text-muted)]">
-                                                                {{ resolveDisplayedContextWindow(activeProvider.id, model) }} ctx
-                                                            </span>
-                                                        </div>
-                                                        <div class="truncate text-[11px] text-[var(--text-muted)] mt-0.5">{{ model.id }}</div>
-                                                        <div v-if="savedModelIssues(activeProvider.id, model.id).length > 0" class="mt-1 flex max-w-[520px] items-center gap-1.5 text-[11px] text-[var(--status-warning)]" :title="savedModelIssues(activeProvider.id, model.id).map((issue) => issue.message).join('\n')">
-                                                            <span class="i-lucide-triangle-alert h-3 w-3 shrink-0"></span>
-                                                            <span class="truncate">{{ savedModelIssues(activeProvider.id, model.id)[0]?.message }}</span>
-                                                            <span v-if="savedModelIssues(activeProvider.id, model.id).length > 1" class="shrink-0 opacity-70">+{{ savedModelIssues(activeProvider.id, model.id).length - 1 }}</span>
-                                                        </div>
-                                                        <div v-if="modelCheckResult(activeProvider, model)" class="mt-1 flex max-w-[520px] items-center gap-1.5 text-[11px]" :class="modelCheckResult(activeProvider, model)?.cancelled ? 'text-[var(--text-muted)]' : modelCheckResult(activeProvider, model)?.success ? 'text-[var(--status-success)]' : 'text-[var(--status-danger)]'" :title="modelCheckResult(activeProvider, model)?.message">
-                                                            <span class="h-3 w-3 shrink-0" :class="modelCheckResult(activeProvider, model)?.cancelled ? 'i-lucide-circle-slash' : modelCheckResult(activeProvider, model)?.success ? 'i-lucide-circle-check' : 'i-lucide-circle-x'"></span>
-                                                            <span class="truncate">{{ modelCheckResult(activeProvider, model)?.message }}</span>
-                                                            <span v-if="modelCheckResult(activeProvider, model)?.latencyMs !== null" class="shrink-0 opacity-70">{{ modelCheckResult(activeProvider, model)?.latencyMs }}ms</span>
-                                                        </div>
-                                                    </div>
-                                                </div>
-
-                                                <div class="flex shrink-0 items-center gap-1">
-                                                    <button class="flex h-7 w-7 items-center justify-center rounded-md text-[var(--text-secondary)] hover:bg-[var(--bg-input)] hover:text-[var(--text-main)] transition-colors disabled:opacity-50" :disabled="isModelChecking(activeProvider, model) || !modelDraftRunnable(activeProvider, model)" :title="t('settings.panels.models.checkModel')" @click="void checkModel(model)">
-                                                        <span v-if="isModelChecking(activeProvider, model)" class="i-lucide-loader-2 h-3.5 w-3.5 animate-spin"></span>
-                                                        <span v-else class="i-lucide-play h-3.5 w-3.5"></span>
-                                                    </button>
-                                                    <button v-if="isModelChecking(activeProvider, model)" class="flex h-7 w-7 items-center justify-center rounded-md text-[var(--status-danger)] transition-colors hover:bg-[var(--status-danger-bg)] hover:opacity-80" :title="t('settings.panels.models.cancelModelCheck')" @click="cancelModelCheck(activeProvider, model)">
-                                                        <span class="i-lucide-circle-x h-3.5 w-3.5"></span>
-                                                    </button>
-                                                    <button class="flex h-7 w-7 items-center justify-center rounded-md text-[var(--text-secondary)] hover:bg-[var(--bg-input)] hover:text-[var(--text-main)] transition-colors" :title="t('settings.panels.models.editSettings')" @click="openModelEdit(model)">
-                                                        <span class="i-lucide-settings h-3.5 w-3.5"></span>
-                                                    </button>
-                                                    <button class="flex h-7 w-7 items-center justify-center rounded-md text-[var(--text-secondary)] transition-colors hover:bg-[var(--status-danger-bg)] hover:text-[var(--status-danger)]" :title="t('settings.panels.models.disableModel')" @click="disableModel(model)">
-                                                        <span class="i-lucide-minus h-3.5 w-3.5"></span>
-                                                    </button>
-                                                    <button class="flex h-7 w-7 items-center justify-center rounded-md text-[var(--text-secondary)] transition-colors hover:bg-[var(--status-danger-bg)] hover:text-[var(--status-danger)]" :title="t('settings.panels.models.deleteModel')" @click="deleteModel(model)">
-                                                        <span class="i-lucide-trash-2 h-3.5 w-3.5"></span>
-                                                    </button>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <!-- 禁用草稿也保留独立条目，重复 ID 可逐项编辑或删除。 -->
-                                <div v-if="disabledModels.length > 0" class="mt-3 space-y-1 rounded-xl border border-[var(--border-color)] bg-[var(--bg-panel)] p-2">
-                                    <div class="px-2 py-1 text-[11px] font-semibold text-[var(--text-muted)]">{{ t("settings.panels.models.disabledDrafts") }}</div>
-                                    <div v-for="model in disabledModels" :key="model.localKey" class="flex items-center justify-between gap-3 rounded-lg px-2 py-2 hover:bg-[var(--bg-hover)]">
-                                        <div class="min-w-0">
-                                            <div class="truncate text-xs text-[var(--text-main)]">{{ model.name || model.id }}</div>
-                                            <div class="truncate text-[10px] text-[var(--text-muted)]">{{ model.id }}</div>
-                                        </div>
-                                        <div class="flex shrink-0 items-center gap-1">
-                                            <button class="flex h-7 w-7 items-center justify-center rounded-md text-[var(--text-secondary)] hover:bg-[var(--bg-input)] hover:text-[var(--text-main)]" :title="t('settings.panels.models.editSettings')" @click="openModelEdit(model)"><span class="i-lucide-settings h-3.5 w-3.5"></span></button>
-                                            <button class="flex h-7 w-7 items-center justify-center rounded-md text-[var(--text-secondary)] hover:bg-[var(--status-danger-bg)] hover:text-[var(--status-danger)]" :title="t('settings.panels.models.deleteModel')" @click="deleteModel(model)"><span class="i-lucide-trash-2 h-3.5 w-3.5"></span></button>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                            
-                            <div class="flex items-center gap-3 px-4 py-3 bg-[var(--bg-panel)] border-t border-[var(--border-color)]">
-                                <button class="inline-flex h-8 items-center gap-1.5 rounded-lg border border-[var(--status-success-border)] bg-[var(--status-success-bg)] px-4 text-xs font-medium text-[var(--status-success)] shadow-sm transition-all duration-200 hover:bg-[var(--status-success-bg)] active:scale-95" @click="libraryDialogOpen = true">
-                                    <span class="i-lucide-list-filter h-3.5 w-3.5"></span>
-                                    {{ t("settings.panels.models.manageLibrary") }}
-                                </button>
-                                <button class="inline-flex h-8 items-center gap-1.5 rounded-lg border border-[var(--border-color)] bg-[var(--bg-input)] px-4 text-xs font-medium text-[var(--text-main)] shadow-sm transition-all duration-200 hover:bg-[var(--bg-hover)] active:scale-95" @click="libraryDialogOpen = true">
-                                    <span class="i-lucide-plus h-3.5 w-3.5"></span>
-                                    {{ t("settings.panels.models.add") }}
-                                </button>
-                            </div>
-                        </div>
+                        <SavedModelsList
+                            :provider="activeProvider"
+                            :groups="savedModelGroups"
+                            :disabled-models="disabledModels"
+                            :enabled-count="activeProviderEnabledModelCount"
+                            :checking-count="activeProviderCheckingModelCount"
+                            :checking-all="checkingAllModels"
+                            :expanded-groups="expandedGroups"
+                            @toggle-group="toggleGroup"
+                            @check-all="void checkAllActiveProviderModels()"
+                            @cancel-checks="cancelActiveProviderChecks"
+                            @check-model="($event) => void checkModel($event)"
+                            @cancel-model-check="cancelActiveModelCheck"
+                            @edit-model="openModelEdit"
+                            @disable-model="disableModel"
+                            @delete-model="deleteModel"
+                            @open-discovery="libraryDialogOpen = true"
+                            @open-library="void openModelLibrary()"
+                        />
                     </section>
 
                     <section v-else class="flex min-h-[400px] flex-col items-center justify-center gap-4 rounded-2xl border border-[var(--border-color)] bg-[var(--bg-panel)] px-8 py-10 text-center shadow-sm">
@@ -1927,80 +1885,35 @@ defineExpose({
         </div>
     </Dialog>
 
-    <Dialog
+    <ModelDiscoveryDialog
+        v-if="activeProvider"
         v-model="libraryDialogOpen"
-        :title="activeProvider ? t('settings.panels.models.modelLibraryTitle', {provider: activeProvider.name}) : t('settings.panels.models.modelLibrary')"
-        width="800px"
-        height="85%"
-        overlay-type="blur"
-        :show-footer="false"
-    >
-        <div v-if="activeProvider" class="flex h-full flex-col gap-4 px-1 py-2">
-            <!-- Header bar with search and discover button -->
-            <div class="flex items-center gap-3 shrink-0">
-                <div class="relative flex-1">
-                    <span class="i-lucide-search absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--text-muted)]"></span>
-                    <input v-model="librarySearchQuery" type="text" :placeholder="t('settings.panels.models.searchModels')" class="h-9 w-full rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] pl-9 pr-3 text-sm text-[var(--text-main)] outline-none placeholder:text-[var(--text-muted)] focus:border-[var(--accent-main)]" />
-                </div>
-                <button class="flex h-9 items-center justify-center gap-2 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-3 text-sm text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:opacity-50" :disabled="providerDiscoveringId === activeProvider.id" :title="t('settings.panels.models.refreshModels')" @click="void discoverModels()">
-                    <span class="h-4 w-4" :class="providerDiscoveringId === activeProvider.id ? 'i-lucide-loader-2 animate-spin' : 'i-lucide-refresh-cw'"></span>
-                    {{ t("settings.panels.models.refresh") }}
-                </button>
-            </div>
-            
-            <div class="flex-1 overflow-y-auto custom-scrollbar rounded-xl border border-[var(--border-color)] bg-[var(--bg-panel)] p-2 min-h-0">
-                <div v-if="unifiedLibraryGroups.length === 0" class="flex h-full flex-col items-center justify-center py-20 text-center">
-                    <span class="i-lucide-search-x mb-2 h-8 w-8 text-[var(--text-muted)] opacity-50"></span>
-                    <span class="text-sm text-[var(--text-muted)]">{{ t("settings.panels.models.noMatchingModels") }}</span>
-                </div>
-                
-                <div v-else class="space-y-2">
-                    <div v-for="group in unifiedLibraryGroups" :key="group.group" class="rounded-xl border border-[var(--border-color)] bg-[var(--bg-panel)] shadow-sm overflow-hidden">
-                        <button class="flex w-full items-center justify-between px-4 py-2 hover:bg-[var(--bg-hover)]/40 transition-colors bg-[var(--bg-input)]/30" @click="toggleLibraryGroup(group.group)">
-                            <div class="flex items-center gap-2">
-                                <span class="h-3.5 w-3.5 shrink-0 transition-transform duration-200" :class="libraryExpandedGroups[group.group] === false ? 'i-lucide-chevron-right' : 'i-lucide-chevron-down text-[var(--text-muted)]'"></span>
-                                <span class="text-[12px] font-bold text-[var(--text-main)]">{{ group.group }}</span>
-                                <div class="flex items-center justify-center rounded-full bg-[var(--bg-panel)] border border-[var(--border-color)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--text-secondary)]">{{ group.models.length }}</div>
-                            </div>
-                        </button>
+        :provider-name="activeProvider.name"
+        :groups="unifiedLibraryGroups"
+        :search-query="librarySearchQuery"
+        :discovering="providerDiscoveringId === activeProvider.id"
+        :expanded-groups="libraryExpandedGroups"
+        :manual-draft="getManualModelDraft(activeProvider.id)"
+        :model-api-options="modelApiOptions"
+        @update:search-query="librarySearchQuery = $event"
+        @update-manual-field="updateManualModelField"
+        @discover="void discoverModels()"
+        @toggle-group="toggleLibraryGroup"
+        @toggle-model="toggleLibraryModel"
+        @add-manual="addManualModel"
+    />
 
-                        <div v-show="libraryExpandedGroups[group.group] !== false" class="border-t border-[var(--border-color)] divide-y divide-[var(--border-color)] bg-[var(--bg-panel)]">
-                            <div v-for="(model, index) in group.models" :key="`${group.group}-${model.id}`" class="flex items-center justify-between px-4 py-3 hover:bg-[var(--bg-hover)]/40 transition-colors" :class="{'opacity-60': model.state !== 'enabled'}">
-                                <div class="flex items-center gap-3 min-w-0 flex-1 pr-4">
-                                    <div class="flex h-6 w-6 items-center justify-center rounded bg-[var(--accent-bg)] text-[var(--accent-text)] shrink-0">
-                                        <span class="i-lucide-sparkles h-3.5 w-3.5"></span>
-                                    </div>
-                                    <div class="min-w-0 flex flex-col">
-                                        <div class="truncate text-[13px] font-medium text-[var(--text-main)]">{{ model.name }}</div>
-                                        <div class="truncate text-[11px] text-[var(--text-muted)] mt-0.5">{{ model.id }}</div>
-                                    </div>
-                                </div>
-                                <button class="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-input)] hover:text-[var(--text-main)] active:scale-95" @click="toggleLibraryModel(model)">
-                                    <span class="h-4 w-4" :class="model.state === 'enabled' ? 'i-lucide-minus' : 'i-lucide-plus'"></span>
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            
-            <!-- 手动添加模型入口 -->
-            <div class="shrink-0 rounded-xl border border-[var(--border-color)] bg-[var(--bg-input)]/30 p-3">
-                <div class="flex flex-wrap items-center gap-3">
-                    <FormInput v-model="getManualModelDraft(activeProvider.id).name" :placeholder="t('settings.panels.models.manualName')" class="flex-1 bg-[var(--bg-panel)] shadow-sm !h-8 !text-xs" />
-                    <FormInput :model-value="getManualModelDraft(activeProvider.id).id" :placeholder="t('settings.panels.models.manualId')" class="flex-1 bg-[var(--bg-panel)] shadow-sm !h-8 !text-xs" @update:model-value="updateManualModelId(activeProvider.id, $event)" />
-                    <div class="w-[190px]">
-                        <FormSelect v-model="getManualModelDraft(activeProvider.id).api" :options="[{value: '', label: activeProvider.defaultApi ? t('settings.panels.models.providerDefaultApi', {api: activeProvider.defaultApi}) : providerDefaultApiLabel(activeProvider)}, ...modelApiOptions]" :placeholder="t('settings.panels.models.apiFormat')" />
-                    </div>
-                    <FormInput v-model="getManualModelDraft(activeProvider.id).contextWindowTokens" :placeholder="t('settings.panels.models.contextWindow')" class="w-[120px] bg-[var(--bg-panel)] shadow-sm !h-8 !text-xs" />
-                    <FormInput v-model="getManualModelDraft(activeProvider.id).maxTokens" :placeholder="t('settings.panels.models.maxTokens')" class="w-[120px] bg-[var(--bg-panel)] shadow-sm !h-8 !text-xs" />
-                    <button class="inline-flex h-8 shrink-0 items-center justify-center rounded-md bg-[var(--accent-main)] px-3 text-xs font-medium text-[var(--text-inverse)] shadow-sm transition-all hover:opacity-90 active:scale-95" @click="addManualModel">
-                        {{ t("settings.panels.models.add") }}
-                    </button>
-                </div>
-            </div>
-        </div>
-    </Dialog>
+    <ModelLibraryDialog
+        v-if="activeProvider"
+        v-model="modelLibraryDialogOpen"
+        :groups="modelLibraryGroups"
+        :search-query="modelLibrarySearchQuery"
+        :expanded-groups="modelLibraryExpandedGroups"
+        :enabled-model-ids="enabledModelIds"
+        @update:search-query="modelLibrarySearchQuery = $event"
+        @toggle-group="toggleModelLibraryGroup"
+        @toggle-model="toggleModelLibraryEntry"
+    />
 
     <Dialog
         v-model="deleteProviderDialogOpen"
@@ -2020,12 +1933,11 @@ defineExpose({
         v-model="modelEditDialogOpen"
         :editing-model="editingModel"
         :active-provider="activeProvider"
-        :catalog-cost="editingModelCatalogCost"
-        :catalog-model="editingCatalogModel"
+        :library-model="editingLibraryModel"
         :missing-fields="editingModelMissingFields"
         :model-api-options="modelApiOptions"
         :model-input-options="modelInputOptions"
-        :derive-group="deriveGroup"
+        :derive-group="deriveModelGroup"
         :resolve-displayed-context-window="resolveDisplayedContextWindow"
         :model-api-inherit-label="modelApiInheritLabel"
         :model-context-window-default-label="modelContextWindowDefaultLabel"
@@ -2038,7 +1950,9 @@ defineExpose({
         @reset-model-input="($event) => { $event.input = ''; }"
         @reset-model-cost="resetModelCost"
         @enable-model-cost="enableModelCostOverride"
-        @reapply-catalog="reapplyCatalogModel"
+        :confirm-mode="editingTransientCandidate"
+        @confirm="confirmTransientCandidate"
+        @reapply-library="reapplyLibraryModel"
     />
 </template>
 

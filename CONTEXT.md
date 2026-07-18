@@ -116,8 +116,12 @@ _Avoid_: Provider Config, runtime provider, credential profile
 Global Config 中用户保存的完整 Provider 连接与模型能力配置；包含本地 ID、连接参数和自包含模型列表，是模型 runtime 的唯一配置真值源。所有已保存模型无论是否启用都必须能力完整；`enabled` 只表达是否允许选择和运行。
 _Avoid_: Provider Template, Pi Provider ID, discovery result
 
+**Provider Model API**:
+Provider Config 中用于创建新模型候选的连接级 Pi API 提示，配置字段名为 `modelApi`。Provider Template 可以预填，Custom Provider 可以由用户选择；它只参与 Automatic Model Discovery、手动添加和 Model Library 候选补全，runtime 不得从它回退，最终执行格式必须保存到每个模型自己的 `model.api`。
+_Avoid_: Discovery Adapter, runtime API fallback, model capability
+
 **Automatic Model Discovery**:
-用户在设置页显式触发的一次性模型发现操作。它通过内部有限、有序且受安全约束的 Adapter 自动试探当前 Provider 连接，结果只存在于当前前端发现会话；Provider Config 不保存 Adapter 或 endpoint path。
+用户在设置页显式触发的一次性模型发现操作。Implementation 按已知主机或连接级 `modelApi` 选择 OpenAI/OpenRouter/Google Adapter，不会因为响应失败把同一 Secret 切换到另一种认证形式；结果只存在于当前前端发现会话，Provider Config 不保存 Adapter 或 endpoint path。
 _Avoid_: Provider Config field, runtime refresh, user-configured discovery adapter
 
 **Discovered Model Candidate**:
@@ -215,6 +219,7 @@ _Avoid_: files-only panel, workspace switcher
 - **Global Config** lives in **Workspace Root `.nbook`**.
 - A **Provider Template** may create one **Provider Config**, but the saved Provider Config does not retain a reference to the template.
 - A **Provider Config** owns its Base URL, credentials, request options and complete user model list; it does not persist Automatic Model Discovery strategy.
+- A **Provider Config** may own one **Provider Model API** for new candidate completion, while every saved model owns its final `model.api` and runtime reads only that model field.
 - A **Model Library** entry may supplement a Discovered Model Candidate by exact model ID, but it does not assert that the current Provider offers that model.
 - **Automatic Model Discovery** returns frontend-temporary Discovered Model Candidates through internal Adapters; users do not configure or persist Adapter selection.
 - A **Discovered Model Candidate** must become complete before it can enter a Provider Config; incomplete candidates cannot be persisted by setting `enabled=false`.

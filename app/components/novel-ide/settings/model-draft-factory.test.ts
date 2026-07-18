@@ -1,33 +1,78 @@
 import {describe, expect, it} from "vitest";
-import {resolveDiscoveredModelDraft} from "nbook/app/components/novel-ide/settings/model-draft-factory";
-import type {DiscoveredProviderModelDto, ModelCatalogEntryDto} from "nbook/shared/dto/app-settings.dto";
+import {completeModelCandidate} from "nbook/app/components/novel-ide/settings/model-draft-factory";
+import type {DiscoveredProviderModelDto, ModelLibraryEntryDto} from "nbook/shared/dto/app-settings.dto";
 
-describe("Model Draft Factory", () => {
-    it("完整远程 metadata 直接采用", () => {
-        const remote = discovered({reasoning: false, input: ["text"], contextWindowTokens: 32000, maxTokens: 4000});
-        expect(resolveDiscoveredModelDraft(remote, catalog(), "openai-completions")).toMatchObject({source: "discovery", model: {enabled: true, contextWindowTokens: 32000}});
-    });
+describe("Model Candidate Completion", () => {
+    it("完整远程字段保持优先", () => {
+        const result = completeModelCandidate(discovered({
+            reasoning: false,
+            input: ["text"],
+            contextWindowTokens: 32_000,
+            maxTokens: 4_000,
+        }), knowledge());
 
-    it("不完整远程 metadata 用 Catalog 能力整块替换", () => {
-        const result = resolveDiscoveredModelDraft(discovered({contextWindowTokens: 123}), catalog(), "openai-completions");
         expect(result).toMatchObject({
-            source: "catalog",
-            canonicalSource: "vendor",
-            model: {contextWindowTokens: 128000, maxTokens: 8000, reasoning: true, cost: {input: 1}},
+            status: "complete",
+            model: {enabled: true, contextWindowTokens: 32_000, maxTokens: 4_000, reasoning: false},
+            provenance: {contextWindowTokens: "remote", maxTokens: "remote"},
         });
     });
 
-    it("Catalog 未命中时保持禁用并列出缺失字段", () => {
-        const result = resolveDiscoveredModelDraft(discovered(), null, "openai-completions");
-        expect(result.model.enabled).toBe(false);
-        expect(result.missingFields).toEqual(expect.arrayContaining(["reasoning", "input", "contextWindowTokens", "maxTokens"]));
+    it("Model Library 只补远端缺失字段", () => {
+        const result = completeModelCandidate(discovered({contextWindowTokens: 64_000}), knowledge());
+        expect(result).toMatchObject({
+            status: "complete",
+            model: {contextWindowTokens: 64_000, maxTokens: 8_000, reasoning: true, input: ["text"]},
+            provenance: {contextWindowTokens: "remote", maxTokens: "model-library", reasoning: "model-library"},
+        });
+    });
+
+    it("OpenAI 发现无法判断接口时使用 Provider Config 的 Responses 格式", () => {
+        const result = completeModelCandidate(discovered({api: null}), knowledge(), "openai-responses");
+        expect(result).toMatchObject({
+            status: "complete",
+            model: {api: "openai-responses"},
+            provenance: {api: "provider-config"},
+        });
+    });
+
+    it("未补全候选不产生可持久化 model", () => {
+        const result = completeModelCandidate(discovered({api: null}), null);
+        expect(result).toMatchObject({status: "incomplete"});
+        expect(result).not.toHaveProperty("model");
+        if (result.status === "incomplete") {
+            expect(result.missingFields).toEqual(expect.arrayContaining(["api", "reasoning", "input", "contextWindowTokens", "maxTokens"]));
+        }
     });
 });
 
 function discovered(overrides: Partial<DiscoveredProviderModelDto> = {}): DiscoveredProviderModelDto {
-    return {id: "model", name: "Model", group: null, api: "openai-completions", reasoning: null, input: null, contextWindowTokens: null, maxTokens: null, cost: null, compat: null, headers: null, thinkingLevelMap: null, ...overrides};
+    return {
+        id: "model",
+        name: "Remote Model",
+        group: null,
+        api: "openai-completions",
+        reasoning: null,
+        input: null,
+        contextWindowTokens: null,
+        maxTokens: null,
+        cost: null,
+        compat: null,
+        headers: null,
+        thinkingLevelMap: null,
+        ...overrides,
+    };
 }
 
-function catalog(): ModelCatalogEntryDto {
-    return {id: "model", name: "Catalog Model", canonicalSource: "vendor", defaultApi: "openai-completions", reasoning: true, thinkingLevelMap: null, input: ["text"], cost: {input: 1, output: 2, cacheRead: 0, cacheWrite: 0, tiers: []}, contextWindowTokens: 128000, maxTokens: 8000, compatByApi: {"openai-completions": null}, headersByApi: {"openai-completions": null}};
+function knowledge(): ModelLibraryEntryDto {
+    return {
+        id: "model",
+        name: "Library Model",
+        source: "vendor",
+        reasoning: true,
+        thinkingLevelMap: null,
+        input: ["text"],
+        contextWindowTokens: 128_000,
+        maxTokens: 8_000,
+    };
 }

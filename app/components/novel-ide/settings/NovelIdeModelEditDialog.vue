@@ -4,7 +4,7 @@ import Dialog from "nbook/app/components/common/Dialog.vue";
 import FormInput from "nbook/app/components/common/form/FormInput.vue";
 import FormSelect from "nbook/app/components/common/form/FormSelect.vue";
 import {hasModelCostOverride, parseModelCostDraft, type ModelCostDraft} from "nbook/app/components/novel-ide/settings/model-cost-draft";
-import type {ConfiguredModelDto, ModelCatalogEntryDto, ModelInputKind} from "nbook/shared/dto/app-settings.dto";
+import type {ModelInputKind, ModelLibraryEntryDto} from "nbook/shared/dto/app-settings.dto";
 
 type ModelDraft = {
     localKey: string;
@@ -26,16 +26,15 @@ type ModelDraft = {
 type ProviderDraft = {
     id: string;
     name: string;
-    defaultApi: string;
 };
 
 const props = defineProps<{
     modelValue: boolean;
     editingModel: ModelDraft | null;
     activeProvider: ProviderDraft | null;
-    /** 当前模型在 NeuroBook Model Catalog 中的标准价格；未命中时为空。 */
-    catalogCost: NonNullable<ConfiguredModelDto["cost"]> | null;
-    catalogModel: ModelCatalogEntryDto | null;
+    /** 当前模型在 NeuroBook Model Library 中的标准资料；未命中时为空。 */
+    libraryModel: ModelLibraryEntryDto | null;
+    confirmMode?: boolean;
     missingFields: string[];
     modelApiOptions: SelectOption[];
     modelInputOptions: Array<{value: ModelInputKind; label: string; iconClass: string}>;
@@ -56,7 +55,8 @@ const emit = defineEmits<{
     (e: "reset-model-input", model: ModelDraft): void;
     (e: "reset-model-cost", model: ModelDraft): void;
     (e: "enable-model-cost", model: ModelDraft): void;
-    (e: "reapply-catalog", model: ModelDraft): void;
+    (e: "reapply-library", model: ModelDraft): void;
+    (e: "confirm"): void;
 }>();
 
 const {t} = useI18n();
@@ -114,13 +114,6 @@ function modelCostUnitLabel(model: ModelDraft): string {
 }
 
 /**
- * 格式化只读 Catalog 价格。
- */
-function formatInheritedPrice(value: number): string {
-    return Number.isFinite(value) ? String(value) : "-";
-}
-
-/**
  * 关闭模型编辑弹窗。
  */
 function updateOpen(value: boolean): void {
@@ -136,8 +129,10 @@ function updateOpen(value: boolean): void {
         width="min(740px, calc(100vw - 32px))"
         max-height="calc(100vh - 32px)"
         overlay-type="blur"
-        :show-footer="false"
+        :show-footer="props.confirmMode ?? false"
+        :show-cancel="props.confirmMode ?? false"
         body-class="!min-h-0 !gap-0 !overflow-hidden !p-0"
+        @confirm="emit('confirm')"
         @update:model-value="updateOpen"
     >
         <div v-if="props.editingModel" class="flex max-h-[calc(100vh_-_96px)] min-h-0 flex-col bg-[var(--bg-panel)]">
@@ -183,14 +178,14 @@ function updateOpen(value: boolean): void {
                                 </div>
                             </div>
                             <div class="space-y-2 rounded-lg border border-[var(--border-color)] border-opacity-40 bg-[var(--bg-input)] bg-opacity-20 p-3">
-                                <template v-if="props.catalogModel">
-                                    <p class="text-[10px] leading-4 text-[var(--text-muted)]">使用 NeuroBook 维护的模型数据：{{ props.catalogModel.canonicalSource }}</p>
-                                    <button type="button" class="inline-flex h-7 items-center gap-1.5 rounded-md border border-[var(--accent-main)] px-2 text-[10px] font-medium text-[var(--accent-text)] hover:bg-[var(--accent-bg)]" @click="emit('reapply-catalog', props.editingModel)">
+                                <template v-if="props.libraryModel">
+                                    <p class="text-[10px] leading-4 text-[var(--text-muted)]">使用 NeuroBook Model Library 补充：{{ props.libraryModel.source }}</p>
+                                    <button type="button" class="inline-flex h-7 items-center gap-1.5 rounded-md border border-[var(--accent-main)] px-2 text-[10px] font-medium text-[var(--accent-text)] hover:bg-[var(--accent-bg)]" @click="emit('reapply-library', props.editingModel)">
                                         <span class="i-lucide-refresh-cw h-3 w-3"></span>
-                                        重新应用 Catalog 数据
+                                        重新应用 Model Library 数据
                                     </button>
                                 </template>
-                                <p v-else class="text-[10px] leading-4 text-[var(--status-warning)]">NeuroBook Model Catalog 中没有该模型，启用前需手工补齐全部必需能力。</p>
+                                <p v-else class="text-[10px] leading-4 text-[var(--status-warning)]">NeuroBook Model Library 中没有该模型，保存前需手工补齐全部必需能力。</p>
                                 <p v-if="props.missingFields.length" class="text-[10px] leading-4 text-[var(--status-danger)]">缺失字段：{{ props.missingFields.join(", ") }}</p>
                             </div>
                         </div>
@@ -312,27 +307,7 @@ function updateOpen(value: boolean): void {
                                 <span class="shrink-0 text-[9px] font-bold uppercase tracking-wider bg-[var(--bg-hover)] border border-[var(--border-color)] px-1.5 py-0.5 rounded" :class="hasModelCostOverride(props.editingModel.cost) ? 'text-[var(--accent-text)]' : 'text-[var(--text-muted)]'">{{ modelCostSourceLabel(props.editingModel) }}</span>
                             </div>
                             <div v-if="!hasModelCostOverride(props.editingModel.cost)" class="space-y-2 rounded-lg border border-[var(--border-color)] border-opacity-30 bg-[var(--bg-input)] bg-opacity-15 p-3">
-                                <p class="text-[10px] leading-normal text-[var(--text-muted)]">{{ t("settings.panels.modelEdit.inheritedCostDescription") }}</p>
-                                <template v-if="props.catalogCost">
-                                    <!-- Model Catalog 基础价格摘要 -->
-                                    <div class="grid grid-cols-2 gap-2">
-                                        <div v-for="field in costFields" :key="field.key" class="rounded-md border border-[var(--border-color)] border-opacity-30 px-2 py-1.5">
-                                            <div class="text-[9px] text-[var(--text-muted)]">{{ field.label }}</div>
-                                            <div class="mt-0.5 text-[10px] font-medium text-[var(--text-main)]">{{ formatInheritedPrice(props.catalogCost[field.key]) }}</div>
-                                        </div>
-                                    </div>
-                                    <!-- Model Catalog 长上下文 tier 摘要 -->
-                                    <div class="space-y-1.5">
-                                        <div class="text-[10px] font-medium text-[var(--text-secondary)]">{{ t("settings.panels.modelEdit.inheritedCostTierCount", {count: props.catalogCost.tiers.length}) }}</div>
-                                        <div v-for="tier in props.catalogCost.tiers" :key="tier.inputTokensAbove" class="rounded-md border border-[var(--border-color)] border-opacity-30 px-2 py-1.5 text-[9px] text-[var(--text-muted)]">
-                                            <div class="font-medium text-[var(--text-secondary)]">{{ t("settings.panels.modelEdit.inheritedCostThreshold", {threshold: tier.inputTokensAbove}) }}</div>
-                                            <div class="mt-1 grid grid-cols-2 gap-x-2 gap-y-0.5">
-                                                <span v-for="field in costFields" :key="field.key">{{ field.label }}: {{ formatInheritedPrice(tier[field.key]) }}</span>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </template>
-                                <p v-else class="text-[10px] text-[var(--status-warning)]">{{ t("settings.panels.modelEdit.inheritedCostUnavailable") }}</p>
+                                <p class="text-[10px] leading-normal text-[var(--text-muted)]">价格属于当前 Provider，不从 Model Library 继承。需要费用统计时请显式填写。</p>
                                 <button type="button" class="inline-flex h-7 items-center gap-1.5 rounded-md border border-[var(--accent-main)] px-2 text-[10px] font-medium text-[var(--accent-text)] transition-colors hover:bg-[var(--accent-bg)]" @click="emit('enable-model-cost', props.editingModel)">
                                     <span class="i-lucide-pencil h-3 w-3"></span>
                                     {{ t("settings.panels.modelEdit.enableCostOverride") }}

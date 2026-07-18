@@ -300,6 +300,14 @@ assets/
 - `shared/dto/workspace-settings.dto.ts`
 - `shared/dto/app-settings.dto.ts` 中的 Agent tool settings DTO
 
+## 2026-07-18 Model Config 硬切
+
+- Provider Config 已删除 `defaultApi`、Discovery Adapter 和 endpoint path；Automatic Model Discovery 的 Adapter 选择不再属于 Global Config。
+- 新增连接级 `modelApi`，只用于发现、手动添加和 Model Library 候选补全；每个已保存模型仍必须保存最终 `model.api`，runtime 不从 Provider 字段回退。
+- Global Config 写入合同现在校验所有模型，包括 disabled 模型；`enabled` 只影响 runnable 集合，不能再用禁用状态保存不完整模型。
+- Model Library 与 Provider Template Library 只服务设置页创建/补全，不进入 Config runtime 解析。
+- 本轮没有自动修改真实 Workspace Root `.nbook/config.json`；既有不完整 disabled 模型等待用户授权后显式补齐或删除。
+
 ## Verification
 
 ### 2026-07-14：Global Config 测试隔离事故修复
@@ -310,6 +318,13 @@ assets/
 - 数据恢复：按用户决策使用7月11日备份恢复真实Global Config；恢复后文件SHA256与备份完全一致，JSON解析通过，未输出任何secret。
 - 验证：`bun test server/config/config-service.test.ts --path-ignore-patterns=product`通过39项测试；测试前后真实Global Config SHA256保持不变。另一次误包含`product/`源码副本的测试运行虽然出现重复模块`instanceof`失败，真实Global Config仍保持不变，证明失败路径也不会再搬移用户配置。
 - 实际计划差异：仓库已有Workspace assets隔离基础设施，无需新增Config专用fixture。问题不是业务Config读写，而是测试绕开统一路径Context直接操作真实cwd。
+
+### 2026-07-18：Model Config 硬切验证
+
+- `bun run typecheck`：通过。
+- `bunx vitest run` 聚焦 18 个文件：155 tests passed，覆盖 Config normalizer/service、Provider Config 合同、Model Library、Provider Template、Automatic Discovery、Candidate Completion、model settings、App Config parser 和 Agent harness fixture。
+- `bun run nuxt:build`：通过，确认模型设置页拆分后的客户端与 Product Runtime bundle 可编译。
+- `bun run generate:openapi`：42 个 route meta 更新成功；`server/api/config/**` 的 `defaultApi` / `discovery` 审计为零，相关 route 已包含 `modelApi`。
 
 已通过：
 

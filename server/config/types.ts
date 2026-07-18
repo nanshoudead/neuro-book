@@ -72,14 +72,6 @@ export type ConfiguredModelConfig = {
     contextWindowTokens: number | null;
 };
 
-export type ProviderDiscoveryAdapter = "openai-models" | "openrouter-models" | "google-models" | "none";
-
-export type ProviderDiscoveryConfig = {
-    adapter: ProviderDiscoveryAdapter;
-    /** 相对 Provider Base URL 的发现路径；为空时使用 Adapter 默认路径。 */
-    endpointPath: string | null;
-};
-
 export type ModelProviderOptionsConfig = {
     apiKey: string;
     baseURL: string;
@@ -91,9 +83,8 @@ export type ModelProviderOptionsConfig = {
 export type ConfiguredProviderConfig = {
     name: string;
     enabled: boolean;
-    /** 创建、发现和新模型草稿使用的默认 API；runtime 只读取 model.api。 */
-    defaultApi: string | null;
-    discovery: ProviderDiscoveryConfig;
+    /** 创建、发现和手动添加候选时使用；runtime 始终读取最终 model.api。 */
+    modelApi: string | null;
     options: ModelProviderOptionsConfig;
     models: Record<string, ConfiguredModelConfig>;
 };

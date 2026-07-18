@@ -29,32 +29,17 @@ defineRouteMeta({
                                     "type": "string",
                                     "minLength": 1
                                 },
-                                "defaultApi": {
+                                "modelApi": {
                                     "default": null,
                                     "nullable": true,
                                     "type": "string",
-                                    "minLength": 1
-                                },
-                                "discovery": {
-                                    "type": "object",
-                                    "properties": {
-                                        "adapter": {
-                                            "default": "none",
-                                            "type": "string",
-                                            "enum": [
-                                                "openai-models",
-                                                "openrouter-models",
-                                                "google-models",
-                                                "none"
-                                            ]
-                                        },
-                                        "endpointPath": {}
-                                    },
-                                    "required": [
-                                        "adapter",
-                                        "endpointPath"
-                                    ],
-                                    "additionalProperties": false
+                                    "enum": [
+                                        "openai-completions",
+                                        "openai-responses",
+                                        "anthropic-messages",
+                                        "google-generative-ai",
+                                        "bedrock-converse-stream"
+                                    ]
                                 },
                                 "options": {
                                     "type": "object",
@@ -186,8 +171,7 @@ defineRouteMeta({
                             "required": [
                                 "id",
                                 "name",
-                                "defaultApi",
-                                "discovery",
+                                "modelApi",
                                 "options"
                             ],
                             "additionalProperties": false

@@ -10,8 +10,7 @@ function createProviderDraft(overrides: Partial<ModelProviderDraftDto> = {}): Mo
     return {
         id: "qwen",
         name: "Qwen",
-        defaultApi: "openai-completions",
-        discovery: {adapter: "openai-models", endpointPath: null},
+        modelApi: "openai-completions",
         options: {
             apiKey: "sk-test",
             baseURL: "https://dashscope.aliyuncs.com/compatible-mode/v1/",
@@ -57,16 +56,14 @@ describe("model settings provider enabled", () => {
                 "disabled-provider": {
                 name: "Disabled Provider",
                 enabled: false,
-                defaultApi: "openai-completions",
-                discovery: {adapter: "none", endpointPath: null},
+                modelApi: "openai-completions",
                 options: createProviderDraft().options,
                 models: {"disabled-model": createConfiguredModel({id: "disabled-model", name: "Disabled Model"})},
             },
                 "enabled-provider": {
                 name: "Enabled Provider",
                 enabled: true,
-                defaultApi: "openai-completions",
-                discovery: {adapter: "none", endpointPath: null},
+                modelApi: "openai-completions",
                 options: createProviderDraft().options,
                 models: {"enabled-model": createConfiguredModel({id: "enabled-model", name: "Enabled Model"})},
             },
@@ -118,7 +115,7 @@ describe("provider/model Pi checks", () => {
         const result = await checkModelHealth(createProviderDraft({
             id: "faux-check",
             name: "Faux",
-            defaultApi: "openai-completions",
+            modelApi: "openai-completions",
         }), createModelDraft({
             id: "faux-fast",
         }), {runtimeResolver: () => faux.runtime});
@@ -155,7 +152,7 @@ describe("provider/model Pi checks", () => {
         const result = await checkModelHealth(createProviderDraft({
             id: "faux-signal-check",
             name: "Faux Signal",
-            defaultApi: "openai-completions",
+            modelApi: "openai-completions",
         }), createModelDraft({
             id: "faux-fast",
         }), {
@@ -176,7 +173,7 @@ describe("provider/model Pi checks", () => {
         const result = await checkProviderConnection(createProviderDraft({
             id: "faux-provider-check",
             name: "Faux Provider",
-            defaultApi: "openai-completions",
+            modelApi: "openai-completions",
             }), [createModelDraft({id: "faux-fast"})], {runtimeResolver: () => faux.runtime});
 
         expect(result.success).toBe(true);
@@ -298,8 +295,8 @@ describe("discoverProviderModels", () => {
             },
         });
         expect(result.models.map((model) => ({id: model.id, name: model.name, group: model.group}))).toEqual([
-            {id: "qwen-max", name: "qwen-max", group: "default"},
-            {id: "qwen-plus", name: "qwen-plus", group: "default"},
+            {id: "qwen-max", name: "qwen-max", group: "qwen"},
+            {id: "qwen-plus", name: "qwen-plus", group: "qwen"},
         ]);
         expect(result.message).toContain("已从 Qwen 发现 2 个模型");
     });
@@ -322,7 +319,7 @@ describe("discoverProviderModels", () => {
             statusText: "Unauthorized",
         })) as unknown as typeof fetch;
 
-        await expect(discoverProviderModels(createProviderDraft())).rejects.toThrow("HTTP 401 Unauthorized");
+        await expect(discoverProviderModels(createProviderDraft())).rejects.toThrow("HTTP 401");
     });
 
     it("远端 JSON 缺少 data 数组时给出结构错误", async () => {

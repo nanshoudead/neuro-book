@@ -9,7 +9,7 @@ import type {
     GlobalConfigUpdateDto,
     ProjectConfigDto,
 } from "nbook/shared/dto/config.dto";
-import type {NeuroModelCatalogDto} from "nbook/shared/dto/app-settings.dto";
+import type {ModelLibraryDto, ProviderTemplateLibraryDto} from "nbook/shared/dto/app-settings.dto";
 
 type AgentProfileSettingsQueryParams = ConfigWorkspaceQueryDto & {
     scope: "global" | "project";
@@ -156,11 +156,14 @@ export function useConfigApi() {
         return snapshot;
     }
 
-    /**
-     * 读取 NeuroBook Provider Preset 与唯一 Model Catalog。
-     */
-    async function modelCatalog(): Promise<NeuroModelCatalogDto> {
-        return $fetch<NeuroModelCatalogDto>("/api/config/models/catalog");
+    /** 读取 NeuroBook Model Library。 */
+    async function modelLibrary(): Promise<ModelLibraryDto> {
+        return $fetch<ModelLibraryDto>("/api/config/models/library");
+    }
+
+    /** 读取 NeuroBook Provider Template Library。 */
+    async function providerTemplates(): Promise<ProviderTemplateLibraryDto> {
+        return $fetch<ProviderTemplateLibraryDto>("/api/config/models/provider-templates");
     }
 
     /**
@@ -187,7 +190,8 @@ export function useConfigApi() {
         saveGlobal,
         saveProject,
         resetProfileHome,
-        modelCatalog,
+        modelLibrary,
+        providerTemplates,
         exchangeRate,
     };
 }

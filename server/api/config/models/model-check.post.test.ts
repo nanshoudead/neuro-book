@@ -49,8 +49,7 @@ function createProviderDraft() {
     return {
         id: "custom",
         name: "Custom",
-        defaultApi: "openai-completions",
-        discovery: {adapter: "none", endpointPath: null},
+        modelApi: "openai-completions",
         options: {
             apiKey: "",
             baseURL: "https://example.com/v1",
@@ -111,7 +110,9 @@ describe("POST /api/config/models/model-check", () => {
         vi.clearAllMocks();
         vi.stubGlobal("defineEventHandler", (handler: unknown) => handler);
         vi.stubGlobal("defineRouteMeta", () => undefined);
-        vi.stubGlobal("readBody", (event: {body?: unknown}) => event.body);
+        vi.doMock("nbook/server/utils/novel-chapter", () => ({
+            validateBody: vi.fn(async (event: {body?: unknown}) => event.body),
+        }));
     });
 
     it("禁用 API Key 回退时不会补齐已保存密钥", async () => {

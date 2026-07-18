@@ -1,8 +1,18 @@
 import {z} from "zod";
 import {ProxyAgent} from "undici";
 import type {DiscoveredProviderModelDto, ModelProviderDraftDto} from "nbook/shared/dto/app-settings.dto";
+import {deriveModelGroup} from "nbook/shared/models/model-group";
 
 type ProviderFetchInit = RequestInit & {dispatcher?: ProxyAgent};
+type DiscoveryAdapterId = "openai-models" | "openrouter-models" | "google-models";
+type DiscoveryAdapter = {
+    id: DiscoveryAdapterId;
+    url(provider: ModelProviderDraftDto, baseURL: URL): URL;
+    headers(provider: ModelProviderDraftDto): Record<string, string>;
+    parse(payload: unknown): DiscoveredProviderModelDto[];
+};
+
+const MAX_DISCOVERY_RESPONSE_BYTES = 5 * 1024 * 1024;
 
 const OpenAIModelsSchema = z.object({
     data: z.array(z.object({
@@ -41,59 +51,195 @@ const GoogleModelsSchema = z.object({
     }).passthrough()).default([]),
 });
 
-/** 通过 Provider Config 选择的 Adapter 发现并归一化模型列表。 */
+const openAiAdapter: DiscoveryAdapter = {
+    id: "openai-models",
+    url: (_provider, baseURL) => modelsUrl(baseURL),
+    headers: bearerHeaders,
+    parse: (payload) => parseOpenAIModels(payload, false, null),
+};
+
+const openRouterAdapter: DiscoveryAdapter = {
+    id: "openrouter-models",
+    url: (_provider, baseURL) => modelsUrl(baseURL),
+    headers: bearerHeaders,
+    parse: (payload) => parseOpenAIModels(payload, true, "openai-completions"),
+};
+
+const googleAdapter: DiscoveryAdapter = {
+    id: "google-models",
+    url: (provider, baseURL) => {
+        const url = modelsUrl(baseURL);
+        const apiKey = provider.options.apiKey.trim();
+        if (apiKey) {
+            url.searchParams.set("key", apiKey);
+        }
+        url.searchParams.set("pageSize", "1000");
+        return url;
+    },
+    headers: () => ({accept: "application/json"}),
+    parse: parseGoogleModels,
+};
+
+/**
+ * 自动发现当前 Provider 的模型。
+ * Adapter 选择、路径、鉴权与响应归一化全部隐藏在本 Module 内部。
+ */
 export async function discoverProviderModelMetadata(provider: ModelProviderDraftDto): Promise<DiscoveredProviderModelDto[]> {
-    if (provider.discovery.adapter === "none") {
-        return [];
-    }
-    const baseURL = provider.options.baseURL.trim();
-    if (!baseURL) {
+    const baseUrlText = provider.options.baseURL.trim();
+    if (!baseUrlText) {
         throw new Error(`${provider.name} 缺少 API Base，无法发现模型。`);
     }
-    const payload = await fetchDiscoveryPayload(provider, baseURL);
-    if (provider.discovery.adapter === "google-models") {
-        return parseGoogleModels(provider, payload);
+
+    let baseURL: URL;
+    try {
+        baseURL = new URL(baseUrlText);
+    } catch {
+        throw new Error(`${provider.name} 的 API Base 不是有效 URL。`);
     }
-    return parseOpenAIModels(provider, payload);
+
+    const adapters = orderedAdapters(provider, baseURL);
+    if (adapters.length === 0) {
+        throw new Error(`${provider.name} 当前配置的模型 API 不支持自动发现，请从 Model Library 添加或手动配置模型。`);
+    }
+
+    const attempts: string[] = [];
+    for (const adapter of adapters) {
+        try {
+            const models = await runAdapter(provider, baseURL, adapter);
+            if (models.length > 0) {
+                return models;
+            }
+            attempts.push(`${adapter.id}: empty`);
+        } catch (error) {
+            attempts.push(`${adapter.id}: ${safeAttemptMessage(error)}`);
+        }
+    }
+
+    throw new Error(`${provider.name} 未发现可用模型。尝试结果：${attempts.join("；")}`);
 }
 
-async function fetchDiscoveryPayload(provider: ModelProviderDraftDto, baseURL: string): Promise<unknown> {
+async function runAdapter(provider: ModelProviderDraftDto, baseURL: URL, adapter: DiscoveryAdapter): Promise<DiscoveredProviderModelDto[]> {
     const timeoutMs = provider.options.timeoutMs ?? 30_000;
     const controller = new AbortController();
     const timeout = globalThis.setTimeout(() => controller.abort(), timeoutMs);
-    const headers: Record<string, string> = {accept: "application/json"};
-    const apiKey = provider.options.apiKey.trim();
-    if (apiKey && provider.discovery.adapter !== "google-models") {
-        headers.authorization = `Bearer ${apiKey}`;
+    const url = adapter.url(provider, baseURL);
+    if (url.origin !== baseURL.origin) {
+        throw new Error("目标 origin 与 API Base 不一致");
     }
-    const url = new URL(discoveryUrl(baseURL, provider.discovery.endpointPath));
-    if (apiKey && provider.discovery.adapter === "google-models") {
-        url.searchParams.set("key", apiKey);
-        url.searchParams.set("pageSize", "1000");
-    }
+
+    const proxyUrl = provider.options.proxy.trim();
+    const dispatcher = proxyUrl ? new ProxyAgent(proxyUrl) : null;
     try {
         const init: ProviderFetchInit = {
             method: "GET",
-            headers,
+            headers: adapter.headers(provider),
+            redirect: "error",
             signal: controller.signal,
-            ...(provider.options.proxy.trim() ? {dispatcher: new ProxyAgent(provider.options.proxy.trim())} : {}),
+            ...(dispatcher ? {dispatcher} : {}),
         };
         const response = await fetch(url, init as RequestInit);
         if (!response.ok) {
-            throw new Error(`${provider.name} 模型发现失败：HTTP ${String(response.status)} ${response.statusText}`);
+            throw new Error(`HTTP ${String(response.status)}`);
         }
-        return await response.json();
+        return adapter.parse(await readJson(response));
     } catch (error) {
-        if (error instanceof DOMException && error.name === "AbortError") {
-            throw new Error(`${provider.name} 模型发现请求超时（${String(timeoutMs)}ms）。`);
+        if (error instanceof Error && error.name === "AbortError") {
+            throw new Error(`请求超时（${String(timeoutMs)}ms）`);
         }
         throw error;
     } finally {
         globalThis.clearTimeout(timeout);
+        if (dispatcher) {
+            await dispatcher.close();
+        }
     }
 }
 
-function parseOpenAIModels(provider: ModelProviderDraftDto, payload: unknown): DiscoveredProviderModelDto[] {
+/**
+ * 按连接已知协议选择发现 Adapter。
+ *
+ * 不对未知 Provider 轮换鉴权形式：API Key 不能因为响应格式不匹配，
+ * 从 Bearer Header 改写到查询参数或发送给另一套协议。
+ */
+function orderedAdapters(provider: ModelProviderDraftDto, baseURL: URL): DiscoveryAdapter[] {
+    const host = baseURL.hostname.toLowerCase();
+    if (host.includes("openrouter")) {
+        return [openRouterAdapter];
+    }
+    if (host.includes("googleapis.com") || provider.modelApi === "google-generative-ai") {
+        return [googleAdapter];
+    }
+    if (provider.modelApi === "anthropic-messages" || provider.modelApi === "bedrock-converse-stream") {
+        return [];
+    }
+    return [openAiAdapter];
+}
+
+function modelsUrl(baseURL: URL): URL {
+    const url = new URL(baseURL.toString());
+    url.pathname = `${url.pathname.replace(/\/+$/u, "")}/models`;
+    url.search = "";
+    return url;
+}
+
+function bearerHeaders(provider: ModelProviderDraftDto): Record<string, string> {
+    const headers: Record<string, string> = {accept: "application/json"};
+    const apiKey = provider.options.apiKey.trim();
+    if (apiKey) {
+        headers.authorization = `Bearer ${apiKey}`;
+    }
+    return headers;
+}
+
+async function readJson(response: Response): Promise<unknown> {
+    const contentLength = Number(response.headers.get("content-length"));
+    if (Number.isFinite(contentLength) && contentLength > MAX_DISCOVERY_RESPONSE_BYTES) {
+        throw new Error("响应体过大");
+    }
+    return JSON.parse(await readResponseText(response)) as unknown;
+}
+
+/** 在读取过程中执行硬字节上限，避免未知 Content-Length 的响应占满内存。 */
+async function readResponseText(response: Response): Promise<string> {
+    if (!response.body) {
+        return "";
+    }
+
+    const reader = response.body.getReader();
+    const chunks: Uint8Array[] = [];
+    let totalBytes = 0;
+    try {
+        while (true) {
+            const chunk = await reader.read();
+            if (chunk.done) {
+                break;
+            }
+            totalBytes += chunk.value.byteLength;
+            if (totalBytes > MAX_DISCOVERY_RESPONSE_BYTES) {
+                await reader.cancel("响应体过大");
+                throw new Error("响应体过大");
+            }
+            chunks.push(chunk.value);
+        }
+    } catch (error) {
+        await reader.cancel().catch(() => undefined);
+        throw error;
+    }
+
+    const bytes = new Uint8Array(totalBytes);
+    let offset = 0;
+    for (const chunk of chunks) {
+        bytes.set(chunk, offset);
+        offset += chunk.byteLength;
+    }
+    return new TextDecoder().decode(bytes);
+}
+
+function parseOpenAIModels(
+    payload: unknown,
+    includePricing: boolean,
+    api: DiscoveredProviderModelDto["api"],
+): DiscoveredProviderModelDto[] {
     const parsed = OpenAIModelsSchema.parse(payload);
     const models = new Map<string, DiscoveredProviderModelDto>();
     for (const item of parsed.data) {
@@ -102,18 +248,16 @@ function parseOpenAIModels(provider: ModelProviderDraftDto, payload: unknown): D
             continue;
         }
         const modalities = item.input_modalities ?? item.architecture?.input_modalities;
-        const contextWindowTokens = positiveInteger(item.context_length ?? item.context_window ?? item.max_context_length ?? item.max_model_len);
-        const maxTokens = positiveInteger(item.max_completion_tokens ?? item.max_output_tokens ?? item.top_provider?.max_completion_tokens);
         models.set(id, {
             id,
             name: item.name?.trim() || id,
-            group: deriveGroup(id),
-            api: provider.defaultApi,
+            group: deriveModelGroup(id),
+            api,
             reasoning: item.reasoning ?? item.supports_reasoning ?? (item.supported_parameters ? item.supported_parameters.some((parameter) => parameter === "reasoning" || parameter === "include_reasoning") : null),
             input: modalities ? normalizeModalities(modalities) : null,
-            contextWindowTokens,
-            maxTokens,
-            cost: provider.discovery.adapter === "openrouter-models" ? normalizeOpenRouterCost(item.pricing) : null,
+            contextWindowTokens: positiveInteger(item.context_length ?? item.context_window ?? item.max_context_length ?? item.max_model_len),
+            maxTokens: positiveInteger(item.max_completion_tokens ?? item.max_output_tokens ?? item.top_provider?.max_completion_tokens),
+            cost: includePricing ? normalizeOpenRouterCost(item.pricing) : null,
             compat: null,
             headers: null,
             thinkingLevelMap: null,
@@ -122,7 +266,7 @@ function parseOpenAIModels(provider: ModelProviderDraftDto, payload: unknown): D
     return [...models.values()].sort((left, right) => left.id.localeCompare(right.id));
 }
 
-function parseGoogleModels(provider: ModelProviderDraftDto, payload: unknown): DiscoveredProviderModelDto[] {
+function parseGoogleModels(payload: unknown): DiscoveredProviderModelDto[] {
     const parsed = GoogleModelsSchema.parse(payload);
     return parsed.models
         .filter((model) => model.supportedGenerationMethods?.includes("generateContent") ?? true)
@@ -131,8 +275,8 @@ function parseGoogleModels(provider: ModelProviderDraftDto, payload: unknown): D
             return {
                 id,
                 name: model.displayName?.trim() || id,
-                group: deriveGroup(id),
-            api: provider.defaultApi ?? "google-generative-ai",
+                group: deriveModelGroup(id),
+                api: "google-generative-ai",
                 reasoning: model.reasoning ?? model.supportsReasoning ?? null,
                 input: ["text"],
                 contextWindowTokens: model.inputTokenLimit ?? null,
@@ -144,11 +288,6 @@ function parseGoogleModels(provider: ModelProviderDraftDto, payload: unknown): D
             };
         })
         .sort((left, right) => left.id.localeCompare(right.id));
-}
-
-function discoveryUrl(baseURL: string, endpointPath: string | null): string {
-    const path = endpointPath?.trim() || "/models";
-    return `${baseURL.replace(/\/+$/u, "")}/${path.replace(/^\/+/, "")}`;
 }
 
 function positiveInteger(value: number | null | undefined): number | null {
@@ -186,7 +325,10 @@ function perTokenPrice(value: string | undefined): number | null {
     return Number.isFinite(parsed) && parsed >= 0 ? parsed * 1_000_000 : null;
 }
 
-function deriveGroup(modelId: string): string {
-    const separatorIndex = modelId.search(/[\/:]/u);
-    return separatorIndex > 0 ? modelId.slice(0, separatorIndex) : "default";
+function safeAttemptMessage(error: unknown): string {
+    if (error instanceof z.ZodError || error instanceof SyntaxError) {
+        return "响应格式不匹配";
+    }
+    const message = error instanceof Error ? error.message : "未知错误";
+    return message.replace(/https?:\/\/\S+/giu, "[URL]").slice(0, 160);
 }

@@ -59,6 +59,8 @@ import {
     CheckProviderResponseDtoSchema,
     DiscoverProviderModelsRequestDtoSchema,
     DiscoverProviderModelsResponseDtoSchema,
+    ModelLibraryDtoSchema,
+    ProviderTemplateLibraryDtoSchema,
 } from "nbook/shared/dto/app-settings.dto";
 import {
     ConfigBootstrapDtoSchema,
@@ -757,6 +759,20 @@ export const routeMetaMap: RouteMetaEntry[] = [
         summary: "Discover available models from a provider",
         requestBody: DiscoverProviderModelsRequestDtoSchema,
         responseBody: DiscoverProviderModelsResponseDtoSchema,
+    },
+    {
+        file: "config/models/library.get.ts",
+        method: "get",
+        tags: ["Config"],
+        summary: "Read the NeuroBook model library",
+        responseBody: ModelLibraryDtoSchema,
+    },
+    {
+        file: "config/models/provider-templates.get.ts",
+        method: "get",
+        tags: ["Config"],
+        summary: "Read the NeuroBook provider template library",
+        responseBody: ProviderTemplateLibraryDtoSchema,
     },
 
     // ═══ Project RAG ═══

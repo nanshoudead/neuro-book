@@ -53,12 +53,6 @@ const PiModelCostSchema = PiModelCostObjectSchema.nullable().default(null);
 const PiModelCompatSchema = z.record(z.string(), z.json()).nullable().default(null);
 const PiModelHeadersSchema = z.record(z.string(), z.string().nullable()).nullable().default(null);
 const PiThinkingLevelMapSchema = z.record(z.string(), z.string().nullable()).nullable().default(null);
-export const ProviderDiscoveryAdapterSchema = z.enum(["openai-models", "openrouter-models", "google-models", "none"]);
-export const ProviderDiscoveryConfigSchema = z.object({
-    adapter: ProviderDiscoveryAdapterSchema.default("none"),
-    endpointPath: NullableTextSchema,
-});
-
 /**
  * Provider 连接配置。
  */
@@ -125,8 +119,7 @@ export const AgentProfileModelConfigDtoSchema = z.object({
 export const ModelProviderDraftDtoSchema = z.object({
     id: ProviderIdSchema,
     name: z.string().trim().min(1, "Provider 名称不能为空"),
-    defaultApi: PiModelApiSchema,
-    discovery: ProviderDiscoveryConfigSchema,
+    modelApi: SupportedPiApiSchema.nullable().default(null),
     options: ModelProviderOptionsDtoSchema,
 });
 
@@ -204,36 +197,35 @@ export const CheckModelResponseDtoSchema = z.object({
     message: z.string().trim().min(1),
 });
 
-/** NeuroBook 维护的唯一标准模型条目。 */
-export const ModelCatalogEntryDtoSchema = z.object({
+/** NeuroBook 维护的唯一标准模型资料。 */
+export const ModelLibraryEntryDtoSchema = z.object({
     id: ModelIdSchema,
     name: z.string().trim().min(1),
-    canonicalSource: ProviderIdSchema,
-    defaultApi: SupportedPiApiSchema,
+    source: ProviderIdSchema,
     reasoning: z.boolean(),
     thinkingLevelMap: PiThinkingLevelMapSchema,
     input: z.array(ModelInputKindSchema).min(1),
-    cost: PiModelCostObjectSchema.nullable(),
     contextWindowTokens: z.number().int().positive(),
     maxTokens: z.number().int().positive(),
-    compatByApi: z.record(z.string(), PiModelCompatSchema),
-    headersByApi: z.record(z.string(), PiModelHeadersSchema),
 });
 
-/** NeuroBook Provider 创建预设；复制后与用户配置无持续关联。 */
-export const ProviderPresetDtoSchema = z.object({
+/** NeuroBook Provider 创建模板；复制后与用户配置无持续关联。 */
+export const ProviderTemplateDtoSchema = z.object({
     id: ProviderIdSchema,
     name: z.string().trim().min(1),
     baseUrl: z.string().trim(),
-    supportedApis: z.array(SupportedPiApiSchema).min(1),
-    defaultApi: SupportedPiApiSchema.nullable(),
-    discovery: ProviderDiscoveryConfigSchema,
+    defaultModelApi: SupportedPiApiSchema.nullable(),
+    models: z.array(ConfiguredModelDtoSchema).default([]),
 });
 
-/** 设置页一次加载的 NeuroBook Provider Preset 与 Model Catalog。 */
-export const NeuroModelCatalogDtoSchema = z.object({
-    providerPresets: z.array(ProviderPresetDtoSchema).default([]),
-    models: z.array(ModelCatalogEntryDtoSchema).default([]),
+/** 设置页读取的 NeuroBook Model Library。 */
+export const ModelLibraryDtoSchema = z.object({
+    models: z.array(ModelLibraryEntryDtoSchema).default([]),
+});
+
+/** 设置页读取的 NeuroBook Provider Template Library。 */
+export const ProviderTemplateLibraryDtoSchema = z.object({
+    templates: z.array(ProviderTemplateDtoSchema).default([]),
 });
 
 export type ModelInputKind = z.infer<typeof ModelInputKindSchema>;
@@ -251,7 +243,7 @@ export type DiscoverProviderModelsRequestDto = z.infer<typeof DiscoverProviderMo
 export type DiscoverProviderModelsResponseDto = z.infer<typeof DiscoverProviderModelsResponseDtoSchema>;
 export type CheckModelRequestDto = z.infer<typeof CheckModelRequestDtoSchema>;
 export type CheckModelResponseDto = z.infer<typeof CheckModelResponseDtoSchema>;
-export type ProviderDiscoveryAdapterDto = z.infer<typeof ProviderDiscoveryAdapterSchema>;
-export type ModelCatalogEntryDto = z.infer<typeof ModelCatalogEntryDtoSchema>;
-export type ProviderPresetDto = z.infer<typeof ProviderPresetDtoSchema>;
-export type NeuroModelCatalogDto = z.infer<typeof NeuroModelCatalogDtoSchema>;
+export type ModelLibraryEntryDto = z.infer<typeof ModelLibraryEntryDtoSchema>;
+export type ProviderTemplateDto = z.infer<typeof ProviderTemplateDtoSchema>;
+export type ModelLibraryDto = z.infer<typeof ModelLibraryDtoSchema>;
+export type ProviderTemplateLibraryDto = z.infer<typeof ProviderTemplateLibraryDtoSchema>;

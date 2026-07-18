@@ -12,7 +12,7 @@ export type SupportedPiApi = typeof SUPPORTED_PI_APIS[number];
 export const PROVIDER_CONFIG_ISSUE_CODES = [
     "duplicate_provider_id",
     "duplicate_model_id",
-    "unsupported_default_api",
+    "unsupported_provider_model_api",
     "missing_api",
     "unsupported_api",
     "missing_base_url",
@@ -48,7 +48,7 @@ export type ProviderConfigModelInput = {
 export type ProviderConfigInput = {
     id: string;
     enabled: boolean;
-    defaultApi: string | null;
+    modelApi: string | null;
     options: {baseURL: string};
     models: readonly ProviderConfigModelInput[];
 };
@@ -127,8 +127,8 @@ export function inspectRunnableModel(provider: ProviderConfigInput, model: Provi
 /**
  * 校验原始 Provider Config 文档，并返回当前真正可运行的模型 key。
  *
- * 该函数必须在数组转 runtime Record 前调用：Provider/model 唯一性与 enabled 无关，
- * disabled 条目只放宽能力完整性，不放宽持久化身份与 defaultApi 语义。
+ * 该函数必须在数组转 runtime Record 前调用：Provider/model 唯一性和模型能力完整性
+ * 与 enabled 无关；enabled 只决定模型是否进入 runnable key 集合。
  */
 export function inspectProviderConfigDocument(input: ModelSettingsContractInput): ProviderConfigInspection {
     const issues: ProviderConfigIssue[] = [];
@@ -143,13 +143,13 @@ export function inspectProviderConfigDocument(input: ModelSettingsContractInput)
             issues.push(issue("duplicate_provider_id", [...providerPath, "id"], null, `Provider ID 重复：${providerId}`));
         }
 
-        const defaultApi = provider.defaultApi?.trim() ?? "";
-        if (defaultApi && !isSupportedPiApi(defaultApi)) {
+        const providerModelApi = provider.modelApi?.trim() ?? "";
+        if (providerModelApi && !isSupportedPiApi(providerModelApi)) {
             issues.push(issue(
-                "unsupported_default_api",
-                [...providerPath, "defaultApi"],
+                "unsupported_provider_model_api",
+                [...providerPath, "modelApi"],
                 null,
-                `Provider ${providerId} 的默认 Pi API“${defaultApi}”不受支持。`,
+                `Provider ${providerId} 的新模型 Pi API“${providerModelApi}”不受支持。`,
             ));
         }
 
@@ -168,11 +168,7 @@ export function inspectProviderConfigDocument(input: ModelSettingsContractInput)
             }
         }
 
-        if (!provider.enabled || providerDuplicated) {
-            continue;
-        }
-
-        const runnableCandidates = provider.models.filter((model) => model.enabled && !duplicateModelIds.has(model.id.trim()));
+        const runnableCandidates = provider.models.filter((model) => provider.enabled && model.enabled && !duplicateModelIds.has(model.id.trim()));
         const needsBaseUrl = runnableCandidates.some((model) => isSupportedPiApi(model.api) && model.api !== "bedrock-converse-stream");
         const baseUrlMissing = needsBaseUrl && !provider.options.baseURL.trim();
         if (baseUrlMissing) {
@@ -184,11 +180,11 @@ export function inspectProviderConfigDocument(input: ModelSettingsContractInput)
             if (duplicateModelIds.has(modelId)) {
                 continue;
             }
-            if (!model.enabled) {
-                continue;
-            }
             const modelIssues = inspectModelCapability(providerId, model, [...providerPath, "models", modelIndex]);
             issues.push(...modelIssues);
+            if (!provider.enabled || providerDuplicated || !model.enabled) {
+                continue;
+            }
             const modelNeedsBaseUrl = isSupportedPiApi(model.api) && model.api !== "bedrock-converse-stream";
             if (modelIssues.length === 0 && (!modelNeedsBaseUrl || !baseUrlMissing)) {
                 runnableModelKeys.add(`${providerId}/${modelId}`);
@@ -243,15 +239,15 @@ export function inspectModelSettings(
     };
 }
 
-/** Catalog 应用时选择最终模型 API；非法旧值不会继续进入新草稿。 */
-export function selectCatalogApi(modelApi: string | null, providerDefaultApi: string | null, catalogDefaultApi: SupportedPiApi): SupportedPiApi {
+/** Model Library 补全时选择最终模型 API；候选或模板必须提供明确的受支持值。 */
+export function selectModelApi(modelApi: string | null, templateApi: string | null): SupportedPiApi | null {
     if (isSupportedPiApi(modelApi)) {
         return modelApi;
     }
-    if (isSupportedPiApi(providerDefaultApi)) {
-        return providerDefaultApi;
+    if (isSupportedPiApi(templateApi)) {
+        return templateApi;
     }
-    return catalogDefaultApi;
+    return null;
 }
 
 function issue(code: ProviderConfigIssueCode, path: Array<string | number>, modelKey: string | null, message: string): ProviderConfigIssue {

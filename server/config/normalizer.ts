@@ -12,7 +12,6 @@ import type {
     ConfiguredProviderConfig,
     EffectiveConfig,
     ModelProviderOptionsConfig,
-    ProviderDiscoveryConfig,
     ModelSettingsConfig,
     EmbeddingModelConfig,
     EmbeddingServiceConfig,
@@ -382,8 +381,7 @@ export function normalizeModelSettings(input: StoredGlobalConfig["models"] | und
                     return [provider.id, {
                         name: normalizeText(provider.name) || provider.id,
                         enabled: provider.enabled ?? true,
-                        defaultApi: normalizeNullableText(provider.defaultApi),
-                        discovery: normalizeProviderDiscovery(provider.discovery),
+                        modelApi: normalizeNullableText(provider.modelApi),
                         options: normalizeProviderOptions(provider.options),
                         models: Object.fromEntries(provider.models
                             .filter((model) => (modelCounts.get(model.id) ?? 0) === 1)
@@ -405,8 +403,7 @@ export function serializeModelSettings(config: ModelSettingsConfig): StoredGloba
                 id: providerId,
                 name: provider.name,
                 enabled: provider.enabled,
-                defaultApi: provider.defaultApi,
-                discovery: provider.discovery,
+                modelApi: provider.modelApi,
                 options: provider.options,
                 models: Object.values(provider.models)
                     .map((model) => ({...model}))
@@ -561,8 +558,7 @@ function normalizeStoredProviders(input: StoredProviderConfig[] | undefined): St
             id: normalizeText(provider.id),
             name: normalizeText(provider.name),
             enabled: provider.enabled ?? true,
-            defaultApi: normalizeNullableText(provider.defaultApi),
-            discovery: normalizeProviderDiscovery(provider.discovery),
+            modelApi: normalizeNullableText(provider.modelApi),
             options: normalizeProviderOptions(provider.options),
             models: Array.isArray(provider.models) ? provider.models.map(normalizeModel) : [],
         }))
@@ -595,16 +591,6 @@ function normalizeModel(input: Partial<ConfiguredModelConfig>): ConfiguredModelC
         headers: normalizeNullableStringRecord(input.headers),
         thinkingLevelMap: normalizeNullableStringRecord(input.thinkingLevelMap),
         contextWindowTokens: normalizeNullablePositiveInteger(input.contextWindowTokens),
-    };
-}
-
-function normalizeProviderDiscovery(input: Partial<ProviderDiscoveryConfig> | undefined): ProviderDiscoveryConfig {
-    const adapter = input?.adapter;
-    return {
-        adapter: adapter === "openai-models" || adapter === "openrouter-models" || adapter === "google-models" || adapter === "none"
-            ? adapter
-            : "none",
-        endpointPath: normalizeNullableText(input?.endpointPath),
     };
 }
 

@@ -17,7 +17,7 @@ function validInput(): MutableInput {
         providers: [{
             id: "provider",
             enabled: true,
-            defaultApi: "openai-completions",
+            modelApi: "openai-completions",
             options: {baseURL: "https://example.com/v1"},
             models: [{
                 id: "model",
@@ -44,12 +44,11 @@ describe("Provider Config contract", () => {
         expect(result.runnableModelKeys.size).toBe(0);
     });
 
-    it("disabled Provider 允许不完整模型草稿，但非法 defaultApi 仍明确失败", () => {
+    it("disabled Provider 下的 disabled 模型仍必须能力完整", () => {
         const input = validInput();
         input.providers[0] = {
             ...input.providers[0]!,
             enabled: false,
-            defaultApi: "legacy-api",
             models: [{
                 id: "draft",
                 enabled: false,
@@ -63,9 +62,14 @@ describe("Provider Config contract", () => {
 
         const result = inspectProviderConfigDocument(input);
 
-        expect(result.issues).toEqual([
-            expect.objectContaining({code: "unsupported_default_api", path: ["providers", 0, "defaultApi"]}),
-        ]);
+        expect(result.issues.map((issue) => issue.code)).toEqual(expect.arrayContaining([
+            "missing_api",
+            "missing_reasoning",
+            "missing_input",
+            "missing_context_window",
+            "missing_max_tokens",
+        ]));
+        expect(result.runnableModelKeys.size).toBe(0);
     });
 
     it("重复 Provider 组全部排除 runnable，且每个原始条目都有独立路径", () => {

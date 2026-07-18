@@ -6,7 +6,9 @@ describe("POST /api/config/models/provider-check", () => {
         vi.clearAllMocks();
         vi.stubGlobal("defineEventHandler", (handler: unknown) => handler);
         vi.stubGlobal("defineRouteMeta", () => undefined);
-        vi.stubGlobal("readBody", (event: {body?: unknown}) => event.body);
+        vi.doMock("nbook/server/utils/novel-chapter", () => ({
+            validateBody: vi.fn(async (event: {body?: unknown}) => event.body),
+        }));
     });
 
     it("草稿没有启用模型且禁用保存模型回退时不会使用旧模型", async () => {
@@ -21,8 +23,7 @@ describe("POST /api/config/models/provider-check", () => {
                     providers: {
                         custom: {
                             enabled: true,
-                            defaultApi: "openai-completions",
-                            discovery: {adapter: "none", endpointPath: null},
+                            modelApi: "openai-completions",
                             options: {apiKey: "sk-saved"},
                             models: {
                                 "saved-model": {
@@ -68,8 +69,7 @@ describe("POST /api/config/models/provider-check", () => {
                 provider: {
                     id: "custom",
                     name: "Custom",
-                    defaultApi: "openai-completions",
-                    discovery: {adapter: "none", endpointPath: null},
+                    modelApi: "openai-completions",
                     options: {
                         apiKey: "",
                         baseURL: "https://example.com/v1",

@@ -466,7 +466,7 @@ function redactGlobalConfig(config: StoredGlobalConfig): GlobalConfigDto {
             providers: (config.models?.providers ?? []).map((provider, sourceIndex) => ({
                 ...provider,
                 sourceIndex,
-                defaultApi: provider.defaultApi ?? null,
+                modelApi: provider.modelApi ?? null,
                 options: {
                     ...provider.options,
                     apiKey: maskSecret(provider.options.apiKey),
@@ -486,8 +486,7 @@ function buildConfigModelSettingsDto(
         id: provider.id,
         name: provider.name,
         enabled: provider.enabled,
-        defaultApi: provider.defaultApi,
-        discovery: provider.discovery,
+        modelApi: provider.modelApi,
         options: {
             apiKey: maskSecret(provider.options.apiKey),
             baseURL: provider.options.baseURL,
@@ -545,7 +544,7 @@ function rawModelSettingsInput(
         providers: (models?.providers ?? []).map((provider) => ({
             id: provider.id,
             enabled: provider.enabled ?? true,
-            defaultApi: provider.defaultApi ?? null,
+            modelApi: provider.modelApi ?? null,
             options: {baseURL: provider.options.baseURL},
             models: provider.models,
         })),
@@ -1235,8 +1234,7 @@ function normalizeGlobalModelsForWrite(
             id: provider.id,
             name: provider.name,
             enabled: provider.enabled,
-            defaultApi: provider.defaultApi,
-            discovery: provider.discovery,
+            modelApi: provider.modelApi,
             options: {
                 ...provider.options,
                 apiKey: resolveSecretWrite({

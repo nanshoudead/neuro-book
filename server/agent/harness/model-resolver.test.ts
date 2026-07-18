@@ -46,8 +46,7 @@ function createConfig(): Pick<EffectiveConfig, "agent" | "models"> {
                 "local-openai": {
                     name: "Local OpenAI",
                     enabled: true,
-                    defaultApi: "openai-completions",
-                    discovery: {adapter: "none", endpointPath: null},
+                    modelApi: null,
                     options: {apiKey: "secret", baseURL: "http://127.0.0.1:11434/v1", proxy: "", timeoutMs: null, requestOptions: {}},
                     models: {
                         "test-model": {

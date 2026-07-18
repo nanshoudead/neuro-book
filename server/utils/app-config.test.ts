@@ -85,9 +85,7 @@ models:
   providers:
     custom:
       name: Custom
-      api: openai-completions
-      discovery:
-        adapter: none
+      modelApi: openai-completions
       options:
         baseURL: https://model.example/v1
       models:
@@ -115,7 +113,7 @@ models:
 `);
 
         expect(config.models.defaultModelKey).toBe("custom/mimo-vl");
-        expect(config.models.providers.custom?.api).toBe("openai-completions");
+        expect(config.models.providers.custom?.modelApi).toBe("openai-completions");
         expect(config.models.providers.custom?.models["mimo-vl"]).toMatchObject({
             api: "openai-completions",
             reasoning: true,

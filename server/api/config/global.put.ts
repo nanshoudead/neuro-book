@@ -60,6 +60,11 @@ defineRouteMeta({
                                     "items": {
                                         "type": "object",
                                         "properties": {
+                                            "sourceIndex": {
+                                                "type": "integer",
+                                                "minimum": 0,
+                                                "maximum": 9007199254740991
+                                            },
                                             "id": {
                                                 "type": "string",
                                                 "minLength": 1,
@@ -73,28 +78,7 @@ defineRouteMeta({
                                                 "default": true,
                                                 "type": "boolean"
                                             },
-                                            "defaultApi": {},
-                                            "discovery": {
-                                                "type": "object",
-                                                "properties": {
-                                                    "adapter": {
-                                                        "default": "none",
-                                                        "type": "string",
-                                                        "enum": [
-                                                            "openai-models",
-                                                            "openrouter-models",
-                                                            "google-models",
-                                                            "none"
-                                                        ]
-                                                    },
-                                                    "endpointPath": {}
-                                                },
-                                                "required": [
-                                                    "adapter",
-                                                    "endpointPath"
-                                                ],
-                                                "additionalProperties": false
-                                            },
+                                            "modelApi": {},
                                             "options": {
                                                 "type": "object",
                                                 "properties": {
@@ -415,8 +399,7 @@ defineRouteMeta({
                                             "id",
                                             "name",
                                             "enabled",
-                                            "defaultApi",
-                                            "discovery",
+                                            "modelApi",
                                             "options",
                                             "models"
                                         ],
@@ -1818,6 +1801,11 @@ defineRouteMeta({
                                                 "items": {
                                                     "type": "object",
                                                     "properties": {
+                                                        "sourceIndex": {
+                                                            "type": "integer",
+                                                            "minimum": 0,
+                                                            "maximum": 9007199254740991
+                                                        },
                                                         "id": {
                                                             "type": "string",
                                                             "minLength": 1,
@@ -1831,28 +1819,7 @@ defineRouteMeta({
                                                             "default": true,
                                                             "type": "boolean"
                                                         },
-                                                        "defaultApi": {},
-                                                        "discovery": {
-                                                            "type": "object",
-                                                            "properties": {
-                                                                "adapter": {
-                                                                    "default": "none",
-                                                                    "type": "string",
-                                                                    "enum": [
-                                                                        "openai-models",
-                                                                        "openrouter-models",
-                                                                        "google-models",
-                                                                        "none"
-                                                                    ]
-                                                                },
-                                                                "endpointPath": {}
-                                                            },
-                                                            "required": [
-                                                                "adapter",
-                                                                "endpointPath"
-                                                            ],
-                                                            "additionalProperties": false
-                                                        },
+                                                        "modelApi": {},
                                                         "options": {
                                                             "type": "object",
                                                             "properties": {
@@ -2173,8 +2140,7 @@ defineRouteMeta({
                                                         "id",
                                                         "name",
                                                         "enabled",
-                                                        "defaultApi",
-                                                        "discovery",
+                                                        "modelApi",
                                                         "options",
                                                         "models"
                                                     ],
@@ -4348,6 +4314,11 @@ defineRouteMeta({
                                         "items": {
                                             "type": "object",
                                             "properties": {
+                                                "sourceIndex": {
+                                                    "type": "integer",
+                                                    "minimum": 0,
+                                                    "maximum": 9007199254740991
+                                                },
                                                 "id": {
                                                     "type": "string",
                                                     "minLength": 1,
@@ -4361,28 +4332,7 @@ defineRouteMeta({
                                                     "default": true,
                                                     "type": "boolean"
                                                 },
-                                                "defaultApi": {},
-                                                "discovery": {
-                                                    "type": "object",
-                                                    "properties": {
-                                                        "adapter": {
-                                                            "default": "none",
-                                                            "type": "string",
-                                                            "enum": [
-                                                                "openai-models",
-                                                                "openrouter-models",
-                                                                "google-models",
-                                                                "none"
-                                                            ]
-                                                        },
-                                                        "endpointPath": {}
-                                                    },
-                                                    "required": [
-                                                        "adapter",
-                                                        "endpointPath"
-                                                    ],
-                                                    "additionalProperties": false
-                                                },
+                                                "modelApi": {},
                                                 "options": {
                                                     "type": "object",
                                                     "properties": {
@@ -4703,8 +4653,7 @@ defineRouteMeta({
                                                 "id",
                                                 "name",
                                                 "enabled",
-                                                "defaultApi",
-                                                "discovery",
+                                                "modelApi",
                                                 "options",
                                                 "models"
                                             ],
@@ -4719,7 +4668,21 @@ defineRouteMeta({
                                             "properties": {
                                                 "code": {
                                                     "type": "string",
-                                                    "minLength": 1
+                                                    "enum": [
+                                                        "duplicate_provider_id",
+                                                        "duplicate_model_id",
+                                                        "unsupported_provider_model_api",
+                                                        "missing_api",
+                                                        "unsupported_api",
+                                                        "missing_base_url",
+                                                        "missing_reasoning",
+                                                        "missing_input",
+                                                        "missing_context_window",
+                                                        "missing_max_tokens",
+                                                        "max_tokens_exceeds_context",
+                                                        "missing_default_model",
+                                                        "invalid_model_reference"
+                                                    ]
                                                 },
                                                 "path": {
                                                     "type": "array",

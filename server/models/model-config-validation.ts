@@ -73,7 +73,7 @@ function providerContractInput(providerId: string, provider: ConfiguredProviderC
     return {
         id: providerId,
         enabled: provider.enabled,
-        defaultApi: provider.defaultApi,
+        modelApi: provider.modelApi,
         options: {baseURL: provider.options.baseURL},
         models: Object.values(provider.models),
     };

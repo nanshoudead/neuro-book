@@ -84,8 +84,7 @@ describe("config service", {timeout: 30_000}, () => {
                     id: "custom",
                     name: "Custom",
                     enabled: true,
-                    defaultApi: null,
-                    discovery: {adapter: "none", endpointPath: null},
+                    modelApi: null,
                     options: {
                         apiKey: {configured: false, maskedValue: null},
                         baseURL: "https://example.com/v1",
@@ -126,8 +125,7 @@ describe("config service", {timeout: 30_000}, () => {
                     id: "broken",
                     name: "Broken",
                     enabled: true,
-                    defaultApi: null,
-                    discovery: {adapter: "none", endpointPath: null},
+                    modelApi: null,
                     options: {apiKey: "", baseURL: "", proxy: "", timeoutMs: null, requestOptions: {}},
                     models: [{id: "model", name: "Model", enabled: true}],
                 }],
@@ -159,14 +157,15 @@ describe("config service", {timeout: 30_000}, () => {
         });
     });
 
-    it("disabled Provider 的非法 defaultApi 仍拒绝保存", async () => {
+    it("disabled Provider 的不完整模型仍拒绝保存", async () => {
         const models = validModelsInput();
         models.providers[0]!.enabled = false;
-        models.providers[0]!.defaultApi = "legacy-api";
+        models.providers[0]!.models[0]!.enabled = false;
+        models.providers[0]!.models[0]!.api = null;
 
         await expect(saveGlobalConfig({models}, {workspaceKind: "user-assets"})).rejects.toMatchObject({
             statusCode: 400,
-            data: {issues: expect.arrayContaining([expect.objectContaining({code: "unsupported_default_api"})])},
+            data: {issues: expect.arrayContaining([expect.objectContaining({code: "missing_api"})])},
         });
     });
 
@@ -261,7 +260,7 @@ describe("config service", {timeout: 30_000}, () => {
         });
     });
 
-    it("Provider enabled 旧配置默认 true，保存 false 时会持久化", async () => {
+    it("Provider enabled 缺省为 true，保存 false 时会持久化", async () => {
         await fs.mkdir(path.join("workspace", ".nbook"), {recursive: true});
         await fs.writeFile(path.join("workspace", ".nbook", "config.json"), JSON.stringify({
             models: {
@@ -269,8 +268,6 @@ describe("config service", {timeout: 30_000}, () => {
                 providers: [{
                     id: "legacy-provider",
                     name: "Legacy Provider",
-                    defaultApi: "openai-completions",
-                    discovery: {adapter: "none", endpointPath: null},
                     options: {
                         apiKey: "",
                         baseURL: "",
@@ -296,8 +293,6 @@ describe("config service", {timeout: 30_000}, () => {
                     id: "legacy-provider",
                     name: "Legacy Provider",
                     enabled: false,
-                    defaultApi: "openai-completions",
-                    discovery: {adapter: "none", endpointPath: null},
                     options: {
                         apiKey: {configured: false, maskedValue: null, value: ""},
                         baseURL: "",
@@ -310,7 +305,15 @@ describe("config service", {timeout: 30_000}, () => {
                         name: "Legacy Model",
                         group: null,
                         enabled: true,
+                        api: "openai-completions",
+                        reasoning: false,
+                        input: ["text"],
                         contextWindowTokens: 128000,
+                        maxTokens: 8192,
+                        cost: null,
+                        compat: null,
+                        headers: null,
+                        thinkingLevelMap: null,
                     }],
                 }],
             },
@@ -425,8 +428,7 @@ describe("config service", {timeout: 30_000}, () => {
                     id: "deepseek",
                     name: "DeepSeek",
                     enabled: true,
-                    defaultApi: "openai-completions",
-                    discovery: {adapter: "none", endpointPath: null},
+                    modelApi: "openai-completions",
                     options: {
                         apiKey: {configured: false, maskedValue: null, value: "sk-test-123456"},
                         baseURL: "https://api.deepseek.com/v1",
@@ -456,8 +458,7 @@ describe("config service", {timeout: 30_000}, () => {
                     id: "deepseek",
                     name: "DeepSeek",
                     enabled: true,
-                    defaultApi: "openai-completions",
-                    discovery: {adapter: "none", endpointPath: null},
+                    modelApi: "openai-completions",
                     options: {
                         apiKey: {configured: true, maskedValue: "sk-t...3456"},
                         baseURL: "https://api.deepseek.com/v1",
@@ -552,8 +553,7 @@ describe("config service", {timeout: 30_000}, () => {
                     id: "deepseek",
                     name: "DeepSeek",
                     enabled: true,
-                    defaultApi: "openai-completions",
-                    discovery: {adapter: "none", endpointPath: null},
+                    modelApi: "openai-completions",
                     options: {
                         apiKey: {configured: false, maskedValue: null, value: "sk-keep-model"},
                         baseURL: "https://api.deepseek.com/v1",
@@ -606,8 +606,7 @@ describe("config service", {timeout: 30_000}, () => {
                     id: "deepseek",
                     name: "DeepSeek",
                     enabled: true,
-                    defaultApi: "openai-completions",
-                    discovery: {adapter: "none", endpointPath: null},
+                    modelApi: "openai-completions",
                     options: {
                         apiKey: {configured: false, maskedValue: null, value: "sk-keep-me"},
                         baseURL: "https://api.deepseek.com/v1",
@@ -657,8 +656,7 @@ describe("config service", {timeout: 30_000}, () => {
                     id: "custom",
                     name: "Custom",
                     enabled: true,
-                    defaultApi: "openai-completions",
-                    discovery: {adapter: "none", endpointPath: null},
+                    modelApi: "openai-completions",
                     options: {
                         apiKey: {configured: false, maskedValue: null, value: "sk-custom"},
                         baseURL: "https://model.example/v1",
@@ -714,7 +712,6 @@ describe("config service", {timeout: 30_000}, () => {
             thinkingLevelMap: {high: "high"},
             contextWindowTokens: 98765,
         });
-        expect(snapshot.modelSettings.providers[0]?.defaultApi).toBe("openai-completions");
     });
 
     it("Project Config 可以覆盖默认模型、embedding 模型与默认 profile，但拒绝全局字段", async () => {
@@ -725,8 +722,7 @@ describe("config service", {timeout: 30_000}, () => {
                     id: "deepseek",
                     name: "DeepSeek",
                     enabled: true,
-                    defaultApi: "openai-completions",
-                    discovery: {adapter: "none", endpointPath: null},
+                    modelApi: "openai-completions",
                     options: {apiKey: {configured: false, maskedValue: null}, baseURL: "https://api.deepseek.com/v1", proxy: "", timeoutMs: null, requestOptions: {}},
                     models: [
                         {id: "a", name: "A", group: null, enabled: true, api: "openai-completions", reasoning: false, input: ["text"], maxTokens: 8192, contextWindowTokens: 128000},
@@ -865,8 +861,7 @@ describe("config service", {timeout: 30_000}, () => {
                     id: "deepseek",
                     name: "DeepSeek",
                     enabled: true,
-                    defaultApi: "openai-completions",
-                    discovery: {adapter: "none", endpointPath: null},
+                    modelApi: "openai-completions",
                     options: {apiKey: {configured: false, maskedValue: null}, baseURL: "https://api.deepseek.com/v1", proxy: "", timeoutMs: null, requestOptions: {}},
                     models: [
                         {id: "a", name: "A", group: null, enabled: true, api: "openai-completions", reasoning: false, input: ["text"], maxTokens: 8192, contextWindowTokens: 128000},
@@ -1675,8 +1670,7 @@ function validModelsInput(): NonNullable<GlobalConfigUpdateDto["models"]> {
             id: "local",
             name: "Local",
             enabled: true,
-            defaultApi: "openai-completions",
-            discovery: {adapter: "none", endpointPath: null},
+                    modelApi: "openai-completions",
             options: {
                 apiKey: {configured: false, maskedValue: null},
                 baseURL: "https://example.com/v1",

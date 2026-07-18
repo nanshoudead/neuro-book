@@ -1,8 +1,7 @@
 import type {
     ConfiguredModelDto,
-    ModelCatalogEntryDto,
+    ModelLibraryEntryDto,
     ModelInputKind,
-    ProviderDiscoveryAdapterDto,
 } from "nbook/shared/dto/app-settings.dto";
 import type {GlobalConfigUpdateDto, SecretConfigValueDto} from "nbook/shared/dto/config.dto";
 import {PiSimpleRequestOptionsSchema, type PiSimpleRequestOptionsDto} from "nbook/shared/dto/pi-request-options.dto";
@@ -12,7 +11,6 @@ import {
     inspectModelSettings,
     inspectRunnableModel,
     isSupportedPiApi,
-    selectCatalogApi,
     type ModelReferenceInput,
     type ProviderConfigIssue,
     type ProviderConfigInput,
@@ -33,7 +31,7 @@ export type ContractModelDraft = {
 export type ContractProviderDraft<TModel extends ContractModelDraft = ContractModelDraft> = {
     id: string;
     enabled: boolean;
-    defaultApi: string;
+    modelApi: string;
     options: {baseURL: string};
     models: TModel[];
 };
@@ -61,10 +59,6 @@ export type ModelSettingsProviderDraft = ContractProviderDraft<ModelSettingsMode
     /** 已保存原始 Provider 数组位置；新建 Provider 为空。 */
     sourceIndex?: number;
     name: string;
-    discovery: {
-        adapter: ProviderDiscoveryAdapterDto;
-        endpointPath: string;
-    };
     options: {
         apiKey: string;
         apiKeyConfigured: boolean;
@@ -85,13 +79,13 @@ type AgentModelConfig = {
     profiles?: Record<string, {model?: {modelKey?: string | null}}>;
 };
 
-/** Catalog 批量修复中单个模型的可审计变更。 */
-export type CatalogRepair = {
+/** Model Library 批量补全中单个模型的可审计变更。 */
+export type ModelLibraryRepair = {
     providerIndex: number;
     modelIndex: number;
     providerId: string;
     modelId: string;
-    canonicalSource: string;
+    source: string;
     previousIssueCodes: string[];
     replacement: ConfiguredModelDto;
 };
@@ -161,11 +155,7 @@ export function buildModelsSection(draft: ModelSettingsDraft): NonNullable<Globa
             id: provider.id.trim(),
             name: provider.name.trim(),
             enabled: provider.enabled,
-            defaultApi: provider.defaultApi.trim() || null,
-            discovery: {
-                adapter: provider.discovery.adapter,
-                endpointPath: provider.discovery.endpointPath.trim() || null,
-            },
+            modelApi: provider.modelApi.trim() || null,
             options: {
                 apiKey: secretPayload(provider),
                 baseURL: provider.options.baseURL.trim(),
@@ -308,55 +298,51 @@ export function ensureRunnableDefault(draft: ContractSettingsDraft): Set<string>
 }
 
 /**
- * 预览 Catalog 可修复项。
- * 只处理启用且能力不完整的模型；Provider Base URL 问题不能由 Catalog 修复。
+ * 预览 Model Library 可补全项。
+ * 所有持久化模型都必须完整；Provider Base URL 与缺失 API 不能由 Model Library 修复。
  */
-export function previewCatalogRepairs(
+export function previewModelLibraryRepairs(
     draft: ContractSettingsDraft,
-    catalogModels: readonly ModelCatalogEntryDto[],
-): CatalogRepair[] {
-    const catalogById = new Map(catalogModels.map((model) => [model.id, model]));
-    const repairs: CatalogRepair[] = [];
+    libraryModels: readonly ModelLibraryEntryDto[],
+): ModelLibraryRepair[] {
+    const libraryById = new Map(libraryModels.map((model) => [model.id, model]));
+    const repairs: ModelLibraryRepair[] = [];
     const providerCounts = countIds(draft.providers.map((provider) => provider.id));
     for (const [providerIndex, provider] of draft.providers.entries()) {
-        if (!provider.enabled || (providerCounts.get(provider.id.trim()) ?? 0) > 1) {
+        if ((providerCounts.get(provider.id.trim()) ?? 0) > 1) {
             continue;
         }
         const modelCounts = countIds(provider.models.map((model) => model.id));
         for (const [modelIndex, model] of provider.models.entries()) {
-            if (!model.enabled || (modelCounts.get(model.id.trim()) ?? 0) > 1) {
+            if ((modelCounts.get(model.id.trim()) ?? 0) > 1) {
                 continue;
             }
             const issues = inspectModelCapability(provider.id.trim(), modelContractInput(model));
-            const catalogModel = catalogById.get(model.id.trim());
-            if (issues.length === 0 || !catalogModel) {
+            const libraryModel = libraryById.get(model.id.trim());
+            if (issues.length === 0 || !libraryModel || !isSupportedPiApi(model.api)) {
                 continue;
             }
-            const api = selectCatalogApi(model.api, provider.defaultApi, catalogModel.defaultApi);
             repairs.push({
                 providerIndex,
                 modelIndex,
                 providerId: provider.id.trim(),
                 modelId: model.id.trim(),
-                canonicalSource: catalogModel.canonicalSource,
+                source: libraryModel.source,
                 previousIssueCodes: issues.map((issue) => issue.code),
                 replacement: {
-                    name: catalogModel.name,
+                    name: libraryModel.name,
                     id: model.id.trim(),
                     group: null,
-                    enabled: true,
-                    api,
-                    reasoning: catalogModel.reasoning,
-                    input: [...catalogModel.input],
-                    contextWindowTokens: catalogModel.contextWindowTokens,
-                    maxTokens: catalogModel.maxTokens,
-                    cost: catalogModel.cost ? {
-                        ...catalogModel.cost,
-                        tiers: catalogModel.cost.tiers.map((tier) => ({...tier})),
-                    } : null,
-                    compat: catalogModel.compatByApi[api] ?? null,
-                    headers: catalogModel.headersByApi[api] ?? null,
-                    thinkingLevelMap: catalogModel.thinkingLevelMap ? {...catalogModel.thinkingLevelMap} : null,
+                    enabled: model.enabled,
+                    api: model.api,
+                    reasoning: libraryModel.reasoning,
+                    input: [...libraryModel.input],
+                    contextWindowTokens: libraryModel.contextWindowTokens,
+                    maxTokens: libraryModel.maxTokens,
+                    cost: null,
+                    compat: null,
+                    headers: null,
+                    thinkingLevelMap: libraryModel.thinkingLevelMap ? {...libraryModel.thinkingLevelMap} : null,
                 },
             });
         }
@@ -364,46 +350,11 @@ export function previewCatalogRepairs(
     return repairs;
 }
 
-/** 禁用 Catalog 应用后仍不可运行的启用模型。 */
-export function disableInvalidDrafts(draft: ContractSettingsDraft): string[] {
-    const disabled: string[] = [];
-    const providerCounts = countIds(draft.providers.map((provider) => provider.id));
-    for (const provider of draft.providers) {
-        if (!provider.enabled || (providerCounts.get(provider.id.trim()) ?? 0) > 1) {
-            continue;
-        }
-        const modelCounts = countIds(provider.models.map((model) => model.id));
-        for (const model of provider.models) {
-            if (!model.enabled || (modelCounts.get(model.id.trim()) ?? 0) > 1 || isRunnableDraft(provider, model)) {
-                continue;
-            }
-            model.enabled = false;
-            disabled.push(`${provider.id.trim()}/${model.id.trim()}`);
-        }
-    }
-    ensureRunnableDefault(draft);
-    return disabled;
-}
-
-/** 一键修复只清空非法 Provider defaultApi，不替用户猜测替代值。 */
-export function clearUnsupportedDefaultApis(draft: ContractSettingsDraft): number {
-    let cleared = 0;
-    for (const provider of draft.providers) {
-        const api = provider.defaultApi.trim();
-        if (!api || isSupportedPiApi(api)) {
-            continue;
-        }
-        provider.defaultApi = "";
-        cleared += 1;
-    }
-    return cleared;
-}
-
 function providerContractInput(provider: ContractProviderDraft): ProviderConfigInput {
     return {
         id: provider.id.trim(),
         enabled: provider.enabled,
-        defaultApi: provider.defaultApi.trim() || null,
+        modelApi: provider.modelApi.trim() || null,
         options: {baseURL: provider.options.baseURL.trim()},
         models: provider.models.map(modelContractInput),
     };
