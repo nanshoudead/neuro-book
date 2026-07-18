@@ -30,7 +30,7 @@
 - Manager串行完整回归23文件109项通过，另有1文件/2项按平台跳过；Manager/Runtime/根typecheck、5文件pack审计与完整Nuxt/Product build通过。
 - SQLite/Prisma/Login聚焦4文件20项通过；包含真实PrismaLibSql连接、Windows绝对URL、相对越界、外部数据库和鉴权登录查询。
 - Release workflow YAML解析通过；公开`0.8.6`基线Portable资产仍可下载，已作为未来`0.8.6 → 候选版本`门禁输入。
-- 五平台资产映射、宿主交叉包装拒绝、Docker/Podman固定engine、rootless Podman UID、POSIX Stage 0与Managed Bun执行位的本地聚焦回归已通过；Linux ARM64与macOS平台workflow仍需在集成分支执行。
+- 五平台资产映射、宿主交叉包装拒绝、Docker/Podman固定engine、rootless Podman UID、POSIX Stage 0与Managed Bun执行位的本地聚焦回归已通过；集成分支[Product Platform Checks 29643196339](https://github.com/notnotype/neuro-book/actions/runs/29643196339)进一步完成Linux ARM64 glibc、macOS x64与macOS ARM64原生Product构建和运行门禁。
 - Windows x64 Product归档从当前`.output`成功写入44,998个文件条目；其他四个平台不做交叉包装，由对应原生runner生成和验收。
 - SSH Arch clean checkout完成Manager/SQLite回归与真实47阶段Docker build；分离State Root容器完成管理员创建、登录、session查询和SQLite位置断言，测试容器、镜像和目录已清理。
 - 尚未发布Manager或应用版本，也未执行人工浏览器验收。Apple Silicon Docker Desktop/rootless Podman实机链本次明确豁免，仍保留为Task 105后续证据。

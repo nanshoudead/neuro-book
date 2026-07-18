@@ -1,6 +1,6 @@
 # 105 - 统一安装目录与 NeuroBook Manager
 
-> 当前状态：实现中。Manager `0.1.0-canary.19`与应用[`v0.8.6-canary.20260717.130406Z.a91a96f`](https://github.com/notnotype/neuro-book/releases/tag/v0.8.6-canary.20260717.130406Z.a91a96f)仍是最新公开版本。PR #11的AArch64/macOS/Podman能力已整合到当前主线事务架构，协议升级为Installation Manifest v4与Release Manifest v3，Operation Journal保持v2；新代码尚未发布，Linux ARM64/macOS平台workflow和公开A→B仍需完成。Apple Silicon Docker Desktop/rootless Podman实机门禁按本次决策豁免，但继续作为未完成证据，不得标记为已验证。
+> 当前状态：实现中。Manager `0.1.0-canary.19`与应用[`v0.8.6-canary.20260717.130406Z.a91a96f`](https://github.com/notnotype/neuro-book/releases/tag/v0.8.6-canary.20260717.130406Z.a91a96f)仍是最新公开版本。PR #11的AArch64/macOS/Podman能力已整合到当前主线事务架构，协议升级为Installation Manifest v4与Release Manifest v3，Operation Journal保持v2；集成分支的Linux ARM64、macOS x64与macOS ARM64原生Product workflow已全绿，新代码尚未发布，精确npm Manager、公开多架构资产与A→B仍需完成。Apple Silicon Docker Desktop/rootless Podman实机门禁按本次决策豁免，但继续作为未完成证据，不得标记为已验证。
 
 > 2026-07-17发布状态：`manager-v0.1.0-canary.15`、应用`0.8.1`与`0.8.3`保留为失败审计记录；Manager `.19`和应用`0.8.6`已按顺序公开，Manifest最低Manager版本、source revision与GHCR digest均已交叉验证。
 
@@ -76,7 +76,7 @@
 
 - 当前公开Manager仍为`0.1.0-canary.19`，公开应用仍为`0.8.6`；它们不包含本次Manifest v4、五平台Product与Podman持久化能力。
 - 主线源码已提供Windows x64、Linux x64/AArch64 glibc、macOS x64/ARM64平台映射，Release Manifest消费端使用穷举资产名，Release workflow构建五平台Product并发布linux/amd64与linux/arm64 OCI。
-- 本地代码与静态workflow门禁不能替代真实runner和公开资产证据。Linux ARM64/macOS Product workflow、未来精确npm Manager和应用候选仍是合并后的验收步骤；Apple Silicon双engine实机链本次只豁免阻断，不视为完成。
+- 集成分支[Product Platform Checks 29643196339](https://github.com/notnotype/neuro-book/actions/runs/29643196339)已在真实runner通过Linux ARM64 glibc、macOS x64和macOS ARM64原生Product门禁。该结果不等于公开资产证据；未来精确npm Manager、应用候选与多架构OCI仍是发布前验收步骤。Apple Silicon双engine实机链本次只豁免阻断，不视为完成。
 
 ## Decisions / Discussion
 
@@ -199,7 +199,7 @@ Profile 只声明需求与来源，下载、校验、安装和状态记录复用
 | Windows x64 | 支持 | 支持 | 支持 | 有Container Engine时支持 | 有Container Engine时支持 | 推荐 |
 | Linux x64 glibc | 支持 | 支持 | 支持 | 支持 | 推荐 | 不支持 |
 | Linux AArch64 glibc | 支持 | 支持 | 支持 | 支持 | 推荐 | 不支持 |
-| macOS x64/ARM64 | 支持 | 支持（待runner证据） | 支持（待runner证据） | 支持 | 推荐 | 不支持 |
+| macOS x64/ARM64 | 支持 | 支持 | 支持 | 支持 | 推荐 | 不支持 |
 
 - 平台门禁必须使用正向、穷举的支持矩阵；不得用“只有macOS列出不支持项，其他平台默认全部放行”的负向列表。
 - Windows ARM64、Linux musl与其他架构不在本轮支持矩阵；检测到时必须明确拒绝，不能回退到x64资产或依赖系统仿真。
@@ -402,7 +402,7 @@ uninstall
 当前未完成的环境级验收：
 
 - 提升并公开包含Manifest v4、Release v3、五平台与Podman合同的新Manager版本；当前`.19`不得以同版本不同bundle复用。
-- 在主仓集成分支完成Linux ARM64 glibc、macOS x64和macOS ARM64 Product workflow；覆盖native package、Stage 0、migration、无根`node_modules`启动、HTTP和浏览器smoke。
+- 将已通过的Linux ARM64 glibc、macOS x64和macOS ARM64原生Product门禁带入未来正式Release workflow，并用公开候选资产复验；集成分支run `29643196339`已覆盖native package、Stage 0、migration、无根`node_modules`启动、HTTP和浏览器smoke。
 - 未来应用候选以精确npm Manager消费五平台Manifest，完成公开Payload、linux/amd64+linux/arm64 GHCR、Windows`0.8.6 → candidate`更新和最终索引后发布。
 - Windows Portable仍需交互式start → create-admin → restart → update → data保留终验；本轮不自动执行人工浏览器操作。
 - Apple Silicon Docker Desktop与rootless Podman machine的Source Docker/GHCR、UID映射、create-admin、A→B更新和Operation恢复被豁免本次合并阻断，但继续保留为未验证证据。
@@ -795,4 +795,6 @@ uninstall
 - Release资产与workflow保留“公开payload、验证公开GHCR/Windows A→B、最后发布Manifest/SHA256SUMS”的主线顺序，并加入前置公开Manager bundle门禁、五平台native Product、linux/amd64+linux/arm64 OCI、Linux ARM64 Playwright与macOS双架构Product smoke。所有Product继续执行system artifact与runtime test-source边界检查。
 - 本地已通过应用与Manager typecheck、Manifest/Operation/Docker/Podman/Runtime/Stage 0/Release聚焦回归、5文件Manager pack审计和完整Nuxt/Product build。Manager串行完整回归为23文件109项通过，另有1文件/2项按平台跳过；Windows Product归档成功写入44,998个文件条目。完整并行suite在Windows出现Git临时目录与5秒默认超时竞争，三个失败文件隔离重跑全部通过，属于既有并行测试抖动，不作为功能失败掩盖。
 - 当前尚未发布新Manager或应用版本。`0.1.0-canary.19`代码与当前本地bundle已不同，因此未来Release前置公开Manager门禁会按设计失败，必须先提升并发布新Manager版本，不能复用`.19`。
-- 与原计划差异：Apple Silicon Docker Desktop/rootless Podman双engine实机门禁由用户明确豁免本次合并阻断；该证据继续保留TODO且不能写成已验证。Linux ARM64与macOS runner结果将在集成分支workflow完成后补记。
+- 与原计划差异：Apple Silicon Docker Desktop/rootless Podman双engine实机门禁由用户明确豁免本次合并阻断；该证据继续保留TODO且不能写成已验证。Linux ARM64与macOS原生runner门禁已在集成分支完成，结果见下条记录。
+- 集成分支merge commit `a4ecec1be018adc8df313076564cc3b8b2d95de7`触发的[Product Platform Checks 29643196339](https://github.com/notnotype/neuro-book/actions/runs/29643196339)全绿：Linux ARM64 glibc 3分32秒、macOS ARM64 4分06秒、macOS x64 4分51秒。三个job均通过POSIX Stage 0、Manager平台合同、Nuxt build、Source archive、对应原生Product构建与native Product smoke；Linux ARM64额外通过Chromium smoke。
+- 实际验收边界：本次runner结果关闭了原计划中的原生Linux ARM64/macOS Product合并门禁，但没有执行Apple Silicon上的Docker Desktop或rootless Podman machine，也没有产生公开npm、GHCR、Portable或最终Release索引。因此Task 105继续保持实现中，后续发布与双engine证据不被本次合并结果替代。
