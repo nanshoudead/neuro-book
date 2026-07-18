@@ -66,7 +66,8 @@ export async function startApplication(root: string, manifest: InstallationManif
     }
     activateManagedTools(root, manifest.components.tools);
     if (manifest.profile === "ghcr" || manifest.profile === "source-docker") {
-        await startDocker(root, stateRoot, manifest.profile, manifest.appVersion);
+        if (!manifest.containerEngine) throw new Error(`${manifest.profile} Manifest缺少Container Engine。`);
+        await startDocker(manifest.containerEngine, root, stateRoot, manifest.profile, manifest.appVersion);
         return;
     }
     const env = await applicationEnvironment(root, stateRoot, manifest.profile === "source-dev");
@@ -163,11 +164,10 @@ export async function createAdmin(root: string, manifest: InstallationManifest, 
     activateManagedTools(root, manifest.components.tools);
     const stateRoot = resolve(root, manifest.stateRoot);
     if (manifest.profile === "ghcr" || manifest.profile === "source-docker") {
+        if (!manifest.containerEngine) throw new Error(`${manifest.profile} Manifest缺少Container Engine。`);
         const compose = join(root, ".deploy", "docker-compose.generated.yml");
         const composeArgs = ["compose", "--env-file", join(stateRoot, ".env"), "-f", compose];
-        const running = (await runCapture("docker", [...composeArgs, "ps", "--status", "running", "--services", "app"], {cwd: root})).trim();
-        if (running !== "app") throw new Error("容器 app 尚未运行，请先执行 neuro-book start。" );
-        await run("docker", [...composeArgs, "exec", "app", "bun", ".output/server/scripts/cli/create-admin.ts", ...(username ? [username] : [])], {cwd: root});
+        await run(manifest.containerEngine, [...composeArgs, "exec", "app", "bun", ".output/server/scripts/cli/create-admin.ts", ...(username ? [username] : [])], {cwd: root});
         return;
     }
     const productScript = join(root, ".output", "server", "scripts", "cli", "create-admin.ts");
@@ -262,7 +262,8 @@ async function runApplicationCommand(
 ): Promise<string> {
     const stateRoot = resolve(root, manifest.stateRoot);
     if (manifest.components.applicationRuntime.provider === "container") {
-        return runDockerApplicationCommand(root, stateRoot, ["bun", ...args]);
+        if (!manifest.containerEngine) throw new Error(`${manifest.profile} Manifest缺少Container Engine。`);
+        return runDockerApplicationCommand(manifest.containerEngine, root, stateRoot, ["bun", ...args]);
     }
     return runCapture(resolveBun(root, manifest), args, {
         cwd: applicationRoot,

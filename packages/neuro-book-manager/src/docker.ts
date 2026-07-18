@@ -7,8 +7,8 @@ import {parse, stringify} from "yaml";
 import {resolveStateDatabaseUrl} from "#manager/config";
 import {writeTextAtomic} from "#manager/files";
 import {statePort} from "#manager/health";
-import {run, runCapture} from "#manager/process";
-import type {InstallProfile} from "#manager/types";
+import {commandAvailable, run, runCapture} from "#manager/process";
+import type {ContainerEngine, InstallProfile} from "#manager/types";
 import {resolveAppSqliteLocation} from "nbook/server/runtime/app-sqlite-location";
 
 const ComposeSchema = Type.Object({
@@ -34,8 +34,32 @@ export type DockerApplicationInspection = {
     health?: string;
 };
 
+/**
+ * 为新安装选择并验证Container Engine。
+ *
+ * 已安装实例不得调用此函数重新选择，必须使用Manifest或Journal中的固定值。
+ */
+export async function resolveContainerEngine(preferred?: ContainerEngine): Promise<ContainerEngine> {
+    const configured = preferred ?? configuredContainerEngine();
+    if (configured) {
+        await validateContainerEngine(configured);
+        return configured;
+    }
+    const failures: string[] = [];
+    for (const candidate of ["docker", "podman"] as const) {
+        try {
+            await validateContainerEngine(candidate);
+            return candidate;
+        } catch (error) {
+            failures.push(`${candidate}: ${error instanceof Error ? error.message : String(error)}`);
+        }
+    }
+    throw new Error(`未检测到可用的 Docker 或 Podman。\n${failures.join("\n")}`);
+}
+
 /** 生成完整 Docker Compose，不依赖仓库根旧模板。 */
 export async function writeDockerCompose(input: {
+    engine: ContainerEngine;
     root: string;
     stateRoot: string;
     profile: "source-docker" | "ghcr";
@@ -74,7 +98,7 @@ export async function writeDockerCompose(input: {
             ],
             restart: "unless-stopped",
         };
-    if (process.platform !== "win32" && typeof process.getuid === "function" && typeof process.getgid === "function") {
+    if (process.platform !== "win32" && typeof process.getuid === "function" && typeof process.getgid === "function" && !await isRootlessPodman(input.engine)) {
         Object.assign(service, {user: `${process.getuid()}:${process.getgid()}`});
     }
     await writeTextAtomic(composePath, stringify({services: {app: service}}));
@@ -104,14 +128,14 @@ export async function verifyDockerApplication(port: number, expectedVersion: str
 }
 
 /** 启动 Docker Profile，并等待真实HTTP版本健康。 */
-export async function startDocker(root: string, stateRoot: string, profile: InstallProfile, expectedVersion: string): Promise<void> {
+export async function startDocker(engine: ContainerEngine, root: string, stateRoot: string, profile: InstallProfile, expectedVersion: string): Promise<void> {
     const compose = join(root, ".deploy", "docker-compose.generated.yml");
     const args = ["compose", "--env-file", join(stateRoot, ".env"), "-f", compose];
     if (profile === "ghcr") {
-        await run("docker", [...args, "pull", "app"], {cwd: root});
-        await run("docker", [...args, "up", "-d"], {cwd: root});
+        await run(engine, [...args, "pull", "app"], {cwd: root});
+        await run(engine, [...args, "up", "-d"], {cwd: root});
     } else {
-        await run("docker", [...args, "up", "-d"], {cwd: root});
+        await run(engine, [...args, "up", "-d"], {cwd: root});
     }
     await verifyDockerApplication(await statePort(stateRoot), expectedVersion);
 }
@@ -128,8 +152,8 @@ export async function readDockerComposeImage(root: string): Promise<string> {
 }
 
 /** 读取Compose配置与app容器状态；容器未创建是合法结果。 */
-export async function inspectDockerApplication(root: string, stateRoot: string): Promise<DockerApplicationInspection> {
-    const configuredImages = (await runCapture("docker", [...composeArgs(root, stateRoot), "config", "--images"], {cwd: root}))
+export async function inspectDockerApplication(engine: ContainerEngine, root: string, stateRoot: string): Promise<DockerApplicationInspection> {
+    const configuredImages = (await runCapture(engine, [...composeArgs(root, stateRoot), "config", "--images"], {cwd: root}))
         .split(/\r?\n/u)
         .map((line) => line.trim())
         .filter(Boolean);
@@ -137,13 +161,13 @@ export async function inspectDockerApplication(root: string, stateRoot: string):
         throw new Error(`Compose必须只配置一个app镜像，实际为：${configuredImages.join(", ") || "<missing>"}`);
     }
     const configuredImage = configuredImages[0];
-    const containerId = (await runCapture("docker", [...composeArgs(root, stateRoot), "ps", "--all", "--quiet", "app"], {cwd: root})).trim();
+    const containerId = (await runCapture(engine, [...composeArgs(root, stateRoot), "ps", "--all", "--quiet", "app"], {cwd: root})).trim();
     if (!containerId) return {configuredImage};
     const [actualImage, status, exitCodeText, health] = await Promise.all([
-        runCapture("docker", ["inspect", "--format", "{{.Config.Image}}", containerId], {cwd: root}).then((value) => value.trim()),
-        runCapture("docker", ["inspect", "--format", "{{.State.Status}}", containerId], {cwd: root}).then((value) => value.trim()),
-        runCapture("docker", ["inspect", "--format", "{{.State.ExitCode}}", containerId], {cwd: root}).then((value) => value.trim()),
-        runCapture("docker", ["inspect", "--format", "{{if .State.Health}}{{.State.Health.Status}}{{end}}", containerId], {cwd: root}).then((value) => value.trim()),
+        runCapture(engine, ["inspect", "--format", "{{.Config.Image}}", containerId], {cwd: root}).then((value) => value.trim()),
+        runCapture(engine, ["inspect", "--format", "{{.State.Status}}", containerId], {cwd: root}).then((value) => value.trim()),
+        runCapture(engine, ["inspect", "--format", "{{.State.ExitCode}}", containerId], {cwd: root}).then((value) => value.trim()),
+        runCapture(engine, ["inspect", "--format", "{{if .State.Health}}{{.State.Health.Status}}{{end}}", containerId], {cwd: root}).then((value) => value.trim()),
     ]);
     const exitCode = Number(exitCodeText);
     return {
@@ -157,29 +181,30 @@ export async function inspectDockerApplication(root: string, stateRoot: string):
 }
 
 /** 在切换Compose或备份SQLite前停止受管app容器。 */
-export async function stopDocker(root: string, stateRoot: string): Promise<void> {
-    await run("docker", [...composeArgs(root, stateRoot), "stop", "app"], {cwd: root});
+export async function stopDocker(engine: ContainerEngine, root: string, stateRoot: string): Promise<void> {
+    await run(engine, [...composeArgs(root, stateRoot), "stop", "app"], {cwd: root});
 }
 
 /** 回滚或Fresh Install失败时移除当前Compose创建的容器与网络。 */
-export async function removeDockerDeployment(root: string, stateRoot: string): Promise<void> {
-    await run("docker", [...composeArgs(root, stateRoot), "down", "--remove-orphans"], {cwd: root});
+export async function removeDockerDeployment(engine: ContainerEngine, root: string, stateRoot: string): Promise<void> {
+    await run(engine, [...composeArgs(root, stateRoot), "down", "--remove-orphans"], {cwd: root});
 }
 
 /** 删除Source Docker事务创建但未提交的本地镜像。 */
-export async function removeDockerImage(root: string, image: string): Promise<void> {
-    await run("docker", ["image", "rm", image], {cwd: root, stdio: "ignore"});
+export async function removeDockerImage(engine: ContainerEngine, root: string, image: string): Promise<void> {
+    await run(engine, ["image", "rm", image], {cwd: root, stdio: "ignore"});
 }
 
 /** 在当前Compose的app镜像中执行一次性命令，不启动依赖或长期服务。 */
 export async function runDockerApplicationCommand(
+    engine: ContainerEngine,
     root: string,
     stateRoot: string,
     command: string[],
 ): Promise<string> {
     const [entrypoint, ...args] = command;
     if (!entrypoint) throw new Error("Docker一次性应用命令不能为空。");
-    return runCapture("docker", [
+    return runCapture(engine, [
         ...composeArgs(root, stateRoot),
         "run",
         "--rm",
@@ -193,8 +218,8 @@ export async function runDockerApplicationCommand(
 }
 
 /** 从 staged Git worktree 构建带 revision tag 的 Source Docker image。 */
-export async function buildSourceDockerImage(sourceRoot: string, image: string): Promise<void> {
-    await run("docker", ["build", "--file", join(sourceRoot, "Dockerfile"), "--tag", image, sourceRoot], {cwd: sourceRoot});
+export async function buildSourceDockerImage(engine: ContainerEngine, sourceRoot: string, image: string): Promise<void> {
+    await run(engine, ["build", "--file", join(sourceRoot, "Dockerfile"), "--tag", image, sourceRoot], {cwd: sourceRoot});
 }
 
 /** 生成所有Docker生命周期命令共用的Compose参数。 */
@@ -211,4 +236,35 @@ function commonEnvironment(port: number, databaseUrl: string): Record<string, st
         DATABASE_URL: databaseUrl,
         NEURO_BOOK_STATE_ROOT: "/app",
     };
+}
+
+/** rootless Podman已把容器root映射为宿主用户，不能再次注入宿主UID。 */
+async function isRootlessPodman(engine: ContainerEngine): Promise<boolean> {
+    if (engine !== "podman") return false;
+    return (await runCapture(engine, ["info", "--format", "{{.Host.Security.Rootless}}"])).trim() === "true";
+}
+
+/** 只接受正式支持的Container Engine名称，禁止把环境变量当任意命令入口。 */
+function configuredContainerEngine(): ContainerEngine | undefined {
+    const value = process.env.NEURO_BOOK_CONTAINER_ENGINE?.trim();
+    if (!value) return undefined;
+    if (value !== "docker" && value !== "podman") {
+        throw new Error(`NEURO_BOOK_CONTAINER_ENGINE只接受docker或podman，当前值为${value}。`);
+    }
+    return value;
+}
+
+/** 验证CLI、Compose子命令和Engine daemon/machine均可用。 */
+async function validateContainerEngine(engine: ContainerEngine): Promise<void> {
+    if (!await commandAvailable(engine)) throw new Error(`系统中未找到${engine}命令。`);
+    try {
+        await runCapture(engine, ["compose", "version"]);
+    } catch (error) {
+        throw new Error(`${engine} compose不可用：${error instanceof Error ? error.message : String(error)}`);
+    }
+    try {
+        await runCapture(engine, ["info"]);
+    } catch (error) {
+        throw new Error(`${engine} daemon或machine不可用：${error instanceof Error ? error.message : String(error)}`);
+    }
 }

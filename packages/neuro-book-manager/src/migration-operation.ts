@@ -69,6 +69,7 @@ export async function startInstallationApplication(
             id,
             action: "update",
             root: paths.root,
+            containerEngine: manifest.containerEngine,
             createdPaths: [],
             backupRoot: join(paths.backups, id),
             previousManifest: manifest,

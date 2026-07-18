@@ -63,6 +63,18 @@ describe("Docker Installation Health", () => {
         expect(service.status).toBe("degraded");
         expect(service.observedVersion).toBe("v0.9.0");
     });
+
+    it("Podman实例只探测Manifest固定engine", async () => {
+        const root = await fixture();
+        const podmanManifest = {...manifest(), containerEngine: "podman" as const};
+        mocks.inspectDockerApplication.mockResolvedValue({configuredImage: `ghcr.io/notnotype/neuro-book:v1@${digest}`});
+
+        await inspectInstallationService(root, podmanManifest);
+
+        expect(mocks.commandStatus).toHaveBeenCalledWith("podman");
+        expect(mocks.commandStatus).toHaveBeenCalledWith("podman", ["compose", "version"]);
+        expect(mocks.inspectDockerApplication).toHaveBeenCalledWith("podman", root, root);
+    });
 });
 
 async function fixture(): Promise<string> {
@@ -75,8 +87,9 @@ async function fixture(): Promise<string> {
 function manifest(): InstallationManifest {
     const revision = "b".repeat(40);
     return {
-        schemaVersion: 3,
+        schemaVersion: 4,
         profile: "ghcr",
+        containerEngine: "docker",
         managerVersion: "0.1.0",
         appVersion: "1.0.0",
         channel: "canary",

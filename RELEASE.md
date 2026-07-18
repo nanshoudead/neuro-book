@@ -11,6 +11,8 @@
 - `neuro-book update`不再接受`--component`。六种Profile按固定原子范围更新；Runtime和Tool继续使用独立维护命令。同版本应用与Manager直接返回“已是最新版本”，不创建Operation、backup或staging。
 - Operation Journal硬切v2，记录真实数据库位置/checkpoint、Git前后revision、Docker原运行状态与Manager wrapper。未完成v1 Journal拒绝自动恢复；已提交v1只作为审计记录跳过。
 - `install/update --release-manifest <local-path|https-url>`可验证候选资产；Release CI使用Manifest记录的精确npm Manager版本，并逐字节比较npm、本地构建和Portable内嵌bundle。公开Payload与GHCR/Windows A→B验证通过后才发布最终Manifest与SHA256SUMS。
+- Installation Manifest硬切v4，容器Profile持久化Docker或Podman engine；Release Manifest硬切v3并要求Windows x64、Linux x64/AArch64 glibc、macOS x64/ARM64五个平台完整且唯一。后续start/update/rollback/doctor/admin不会重新选择另一套容器engine。
+- POSIX Stage 0与managed Bun支持Linux x64/AArch64 glibc和macOS x64/ARM64，恢复执行位并验证真实版本后才提交Runtime。Release构建增加Linux ARM64与macOS双架构Product、native package和浏览器门禁，GHCR改为linux/amd64与linux/arm64。
 
 ### 迁移指南
 
@@ -20,15 +22,18 @@
   DATABASE_URL=file:./workspace/.nbook/neuro-book.sqlite
   ```
 - 不要创建Installation Root根`workspace/`、junction或数据库副本；Manager会按真实数据库路径备份，Product会按当前`data/`重新解析逻辑URL。
+- Manifest v3实例不自动迁移到v4。重新安装对应Profile后只复用正式State Root；Windows Portable只复用完整`data/`，不要复制旧`.deploy`、`.runtime`或`.output`。
 - 本节描述的版本尚未发布。当前源码验证通过不等于公开npm、Portable或GHCR已经包含修复。
 
 ### 当前验证
 
-- Manager完整22文件87项测试、Manager/Runtime/根typecheck与Manager bundle build通过。
+- Manager串行完整回归23文件109项通过，另有1文件/2项按平台跳过；Manager/Runtime/根typecheck、5文件pack审计与完整Nuxt/Product build通过。
 - SQLite/Prisma/Login聚焦4文件20项通过；包含真实PrismaLibSql连接、Windows绝对URL、相对越界、外部数据库和鉴权登录查询。
 - Release workflow YAML解析通过；公开`0.8.6`基线Portable资产仍可下载，已作为未来`0.8.6 → 候选版本`门禁输入。
+- 五平台资产映射、宿主交叉包装拒绝、Docker/Podman固定engine、rootless Podman UID、POSIX Stage 0与Managed Bun执行位的本地聚焦回归已通过；Linux ARM64与macOS平台workflow仍需在集成分支执行。
+- Windows x64 Product归档从当前`.output`成功写入44,998个文件条目；其他四个平台不做交叉包装，由对应原生runner生成和验收。
 - SSH Arch clean checkout完成Manager/SQLite回归与真实47阶段Docker build；分离State Root容器完成管理员创建、登录、session查询和SQLite位置断言，测试容器、镜像和目录已清理。
-- 尚未发布Manager或应用版本，也未执行人工浏览器验收。
+- 尚未发布Manager或应用版本，也未执行人工浏览器验收。Apple Silicon Docker Desktop/rootless Podman实机链本次明确豁免，仍保留为Task 105后续证据。
 
 ## 0.8.6-canary - 2026-07-17
 

@@ -103,6 +103,7 @@ async function fixture(id: string) {
         id,
         action: "update",
         root,
+        containerEngine: manifest.containerEngine,
         createdPaths: [],
         backupRoot: join(root, ".deploy", "backups", id),
         previousManifest: manifest,
@@ -120,8 +121,9 @@ async function savedJournal(root: string, id: string) {
 function productManifest(): InstallationManifest {
     const revision = "a".repeat(40);
     return {
-        schemaVersion: 3,
+        schemaVersion: 4,
         profile: "product-bun",
+        containerEngine: null,
         managerVersion: "0.1.0",
         appVersion: "0.8.0-canary.1",
         channel: "canary",

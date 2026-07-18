@@ -85,6 +85,7 @@ export async function updateInstallation(options: UpdateOptions): Promise<Update
             id,
             action: "update",
             root: paths.root,
+            containerEngine: options.manifest.containerEngine,
             createdPaths: [stagingRelative],
             backupRoot: backup,
             previousManifest: options.manifest,
@@ -131,7 +132,8 @@ export async function updateInstallation(options: UpdateOptions): Promise<Update
                 await ensureDirectory(backup);
                 await copyFile(compose, previousCompose);
                 const stateRoot = resolve(paths.root, options.manifest.stateRoot);
-                const previousInspection = await inspectDockerApplication(paths.root, stateRoot);
+                const engine = requiredContainerEngine(options.manifest);
+                const previousInspection = await inspectDockerApplication(engine, paths.root, stateRoot);
                 const previousState = !previousInspection.containerId
                     ? "missing" as const
                     : previousInspection.status === "running" ? "running" as const : "stopped" as const;
@@ -147,7 +149,7 @@ export async function updateInstallation(options: UpdateOptions): Promise<Update
                         : undefined,
                     imageCreated: journal.docker?.imageCreated,
                 }});
-                if (previousState === "running") await stopDocker(paths.root, stateRoot);
+                if (previousState === "running") await stopDocker(engine, paths.root, stateRoot);
                 const database = await backupApplicationDatabase(stateRoot, backup);
                 if (database) journal = await updateOperation(journal, "validated", {database: {
                     configuredUrl: database.configuredUrl,
@@ -191,8 +193,9 @@ export async function updateInstallation(options: UpdateOptions): Promise<Update
                     );
                 } else if (result.manifest.profile === "ghcr" || result.manifest.profile === "source-docker") {
                     const stateRoot = resolve(paths.root, result.manifest.stateRoot);
-                    await startDocker(paths.root, stateRoot, result.manifest.profile, result.manifest.appVersion);
-                    if (journal.docker?.previousState !== "running") await stopDocker(paths.root, stateRoot);
+                    const engine = requiredContainerEngine(result.manifest);
+                    await startDocker(engine, paths.root, stateRoot, result.manifest.profile, result.manifest.appVersion);
+                    if (journal.docker?.previousState !== "running") await stopDocker(engine, paths.root, stateRoot);
                 }
             }
             journal = await updateOperation(journal, "healthy");
@@ -295,8 +298,9 @@ async function prepareUpdate(
             });
             product = stagedProduct.component;
         } else if (profile === "source-docker") {
+            const engine = requiredContainerEngine(options.manifest);
             product = {provider: "container", version: appVersion, revision: sourceRevision, image: `neuro-book-source:${sourceRevision.slice(0, 12)}`};
-            await buildSourceDockerImage(stagedWorktree, product.image);
+            await buildSourceDockerImage(engine, stagedWorktree, product.image);
             journal = await updateOperation(journal, journal.phase, {docker: {
                 previousState: "missing",
                 stopped: false,
@@ -367,6 +371,7 @@ async function prepareUpdate(
         && product?.provider === "container" && product.digest) {
         const finalCompose = join(paths.deploy, "docker-compose.generated.yml");
         stagedCompose = await writeDockerCompose({
+            engine: requiredContainerEngine(options.manifest),
             root: paths.root,
             stateRoot: resolve(paths.root, options.manifest.stateRoot),
             profile: "ghcr",
@@ -378,6 +383,7 @@ async function prepareUpdate(
     } else if (profile === "source-docker" && product?.provider === "container") {
         const finalCompose = join(paths.deploy, "docker-compose.generated.yml");
         stagedCompose = await writeDockerCompose({
+            engine: requiredContainerEngine(options.manifest),
             root: paths.root,
             stateRoot: resolve(paths.root, options.manifest.stateRoot),
             profile: "source-docker",
@@ -427,6 +433,12 @@ async function resolveUpdatePreflight(options: UpdateOptions): Promise<UpdatePre
         release,
         gitTarget: null,
     };
+}
+
+/** 返回已安装容器实例固定使用的Container Engine。 */
+function requiredContainerEngine(manifest: InstallationManifest): NonNullable<InstallationManifest["containerEngine"]> {
+    if (!manifest.containerEngine) throw new Error(`${manifest.profile} Manifest缺少Container Engine。`);
+    return manifest.containerEngine;
 }
 
 async function sourceVersion(root: string): Promise<string> {

@@ -43,7 +43,7 @@ export async function inspectInstallationIntegrity(root: string, manifest: Insta
     const checks: InstallationCheck[] = [];
     try {
         parseInstallationManifest(manifest);
-        pass(checks, "manifest.schema", "manifest", "Installation Manifest v3语义有效");
+        pass(checks, "manifest.schema", "manifest", "Installation Manifest v4语义有效");
     } catch (error) {
         fail(checks, "manifest.schema", "manifest", errorMessage(error), "重新安装该实例；Manager不迁移旧Installation Manifest。" );
     }
@@ -133,9 +133,13 @@ export async function inspectInstallationService(root: string, manifest: Install
     if (!expectedImage) {
         return {kind: "container", status: "unavailable", port, expectedVersion: manifest.appVersion, message: "Docker Profile缺少container Product"};
     }
+    const engine = manifest.containerEngine;
+    if (!engine) {
+        return {kind: "container", status: "unavailable", port, expectedVersion: manifest.appVersion, expectedImage, message: "Container Profile缺少固定Container Engine"};
+    }
     const [docker, compose] = await Promise.all([
-        commandStatus("docker"),
-        commandStatus("docker", ["compose", "version"]),
+        commandStatus(engine),
+        commandStatus(engine, ["compose", "version"]),
     ]);
     if (!docker.available || !compose.available) {
         return {
@@ -144,11 +148,11 @@ export async function inspectInstallationService(root: string, manifest: Install
             port,
             expectedVersion: manifest.appVersion,
             expectedImage,
-            message: !docker.available ? "Docker不可用" : "Docker Compose不可用",
+            message: !docker.available ? `${engine}不可用` : `${engine} Compose不可用`,
         };
     }
     try {
-        const container = await inspectDockerApplication(absoluteRoot, stateRoot);
+        const container = await inspectDockerApplication(engine, absoluteRoot, stateRoot);
         if (container.configuredImage !== expectedImage) {
             return {kind: "container", status: "degraded", port, expectedVersion: manifest.appVersion, expectedImage, configuredImage: container.configuredImage, message: "Compose配置镜像与Manifest不一致"};
         }
@@ -189,7 +193,7 @@ export async function inspectInstallationService(root: string, manifest: Install
             ? {kind: "container", status: "running", port, expectedVersion: manifest.appVersion, observedVersion: probe.version, expectedImage, configuredImage: container.configuredImage, actualImage: container.actualImage, containerId: container.containerId, message: "app容器正在运行且HTTP版本正确"}
             : {kind: "container", status: "degraded", port, expectedVersion: manifest.appVersion, ...(probe.version ? {observedVersion: probe.version} : {}), expectedImage, configuredImage: container.configuredImage, actualImage: container.actualImage, containerId: container.containerId, message: probe.message};
     } catch (error) {
-        return {kind: "container", status: "unavailable", port, expectedVersion: manifest.appVersion, expectedImage, message: `无法读取Docker应用状态：${errorMessage(error)}`};
+        return {kind: "container", status: "unavailable", port, expectedVersion: manifest.appVersion, expectedImage, message: `无法读取${engine}应用状态：${errorMessage(error)}`};
     }
 }
 
@@ -217,6 +221,7 @@ export async function installationStatus(root: string, manifest: InstallationMan
     return {
         root: absoluteRoot,
         profile: manifest.profile,
+        containerEngine: manifest.containerEngine,
         managerVersion: manifest.managerVersion,
         executingManagerVersion: MANAGER_VERSION,
         appVersion: manifest.appVersion,
@@ -238,17 +243,19 @@ export async function doctor(root: string, manifest: InstallationManifest): Prom
     const absoluteRoot = resolve(root);
     const stateRoot = resolve(absoluteRoot, manifest.stateRoot);
     const integrity = await inspectInstallationIntegrity(absoluteRoot, manifest);
+    const containerCommand = manifest.containerEngine;
     const commands = {
         bun: await commandStatus("bun"),
         git: await commandStatus("git"),
         rg: await commandStatus("rg"),
-        docker: await commandStatus("docker"),
-        compose: await commandStatus("docker", ["compose", "version"]),
+        container: containerCommand ? await commandStatus(containerCommand) : {available: false},
+        compose: containerCommand ? await commandStatus(containerCommand, ["compose", "version"]) : {available: false},
     };
     const service = await inspectInstallationService(absoluteRoot, manifest);
-    const checks = [...integrity.checks, ...serviceChecks(service, commands)];
+    const checks = [...integrity.checks, ...serviceChecks(service, manifest.containerEngine, commands)];
     return {
         healthy: checks.every((check) => check.status !== "fail"),
+        containerEngine: manifest.containerEngine,
         checks,
         paths: {
             root: absoluteRoot,
@@ -381,13 +388,18 @@ async function checkCompose(checks: InstallationCheck[], root: string, manifest:
     }
 }
 
-function serviceChecks(service: InstallationServiceStatus, commands: {docker: CommandInspection; compose: CommandInspection}): InstallationCheck[] {
+function serviceChecks(
+    service: InstallationServiceStatus,
+    engine: InstallationManifest["containerEngine"],
+    commands: {container: CommandInspection; compose: CommandInspection},
+): InstallationCheck[] {
     const checks: InstallationCheck[] = [];
     if (service.kind === "container") {
-        if (commands.docker.available) pass(checks, "service.docker", "service", `Docker可用：${commands.docker.version ?? "版本未知"}`);
-        else fail(checks, "service.docker", "service", "Docker不可用", "安装并启动Docker。" );
-        if (commands.compose.available) pass(checks, "service.compose-command", "service", `Docker Compose可用：${commands.compose.version ?? "版本未知"}`);
-        else fail(checks, "service.compose-command", "service", "Docker Compose不可用", "安装支持docker compose的Docker版本。" );
+        const label = engine ?? "Container Engine";
+        if (commands.container.available) pass(checks, "service.container-engine", "service", `${label}可用：${commands.container.version ?? "版本未知"}`);
+        else fail(checks, "service.container-engine", "service", `${label}不可用`, `安装并启动${label}。` );
+        if (commands.compose.available) pass(checks, "service.compose-command", "service", `${label} Compose可用：${commands.compose.version ?? "版本未知"}`);
+        else fail(checks, "service.compose-command", "service", `${label} Compose不可用`, `安装支持${label} compose的版本。` );
     }
     if (service.status === "running") pass(checks, "service.application", "service", service.message);
     else if (service.status === "stopped") warn(checks, "service.application", "service", service.message, "运行 neuro-book start。" );

@@ -12,6 +12,9 @@ export type InstallProfile =
 /** Release channel。canary 表示全部受支持 prerelease。 */
 export type ReleaseChannel = "stable" | "canary";
 
+/** 受管容器部署使用的宿主引擎。 */
+export type ContainerEngine = "docker" | "podman";
+
 /** 用户级 Manager 配置中的安装偏好。 */
 export type ManagerPreferences = {
     channel: ReleaseChannel;
@@ -38,7 +41,13 @@ export type OfflineInspection = {
     warnings: InspectionIssue[];
 };
 
-export type EnvironmentInspection = {bun: CommandInspection; git: CommandInspection; docker: CommandInspection; compose: CommandInspection};
+export type EnvironmentInspection = {
+    bun: CommandInspection;
+    git: CommandInspection;
+    containerEngine: ContainerEngine | null;
+    container: CommandInspection;
+    compose: CommandInspection;
+};
 export type InstanceDiscovery = {candidates: OfflineInspection[]; warnings: InspectionIssue[]};
 export type ImportInspection = OfflineInspection & {importable: boolean};
 
@@ -78,6 +87,7 @@ export type InstallationServiceStatus = {
 export type InstallationStatus = {
     root: string;
     profile: InstallProfile;
+    containerEngine: ContainerEngine | null;
     managerVersion: string;
     executingManagerVersion: string;
     appVersion: string;
@@ -96,6 +106,7 @@ export type InstallationStatus = {
 /** doctor的完整、稳定JSON合同。 */
 export type DoctorReport = {
     healthy: boolean;
+    containerEngine: ContainerEngine | null;
     checks: InstallationCheck[];
     paths: {
         root: string;
@@ -109,7 +120,7 @@ export type DoctorReport = {
             bun: CommandInspection;
             git: CommandInspection;
             rg: CommandInspection;
-            docker: CommandInspection;
+            container: CommandInspection;
             compose: CommandInspection;
         };
     };
@@ -135,8 +146,17 @@ export type ManagerConfig = {
     instances: ManagerInstance[];
 };
 
+/** 当前支持的Product平台唯一枚举。 */
+export const PRODUCT_PLATFORMS = [
+    "windows-x64",
+    "linux-x64-glibc",
+    "linux-aarch64-glibc",
+    "darwin-x64",
+    "darwin-aarch64",
+] as const;
+
 /** 当前支持的 Product 平台。 */
-export type ProductPlatform = "windows-x64" | "linux-x64-glibc";
+export type ProductPlatform = typeof PRODUCT_PLATFORMS[number];
 
 /** 安装根允许的 State Root 映射。 */
 export type StateRootPath = "." | "data";
@@ -265,8 +285,10 @@ export type InstallationComponents = {
 
 /** 本机安装状态真相源。 */
 export type InstallationManifest = {
-    schemaVersion: 3;
+    schemaVersion: 4;
     profile: InstallProfile;
+    /** Container Profile记录实际引擎；原生Profile固定为null。 */
+    containerEngine: ContainerEngine | null;
     managerVersion: string;
     appVersion: string;
     channel: ReleaseChannel;
@@ -299,7 +321,7 @@ export type ReleaseImage = {
 
 /** GitHub Release 附带的统一组件清单。 */
 export type ReleaseManifest = {
-    schemaVersion: 2;
+    schemaVersion: 3;
     version: string;
     channel: ReleaseChannel;
     sourceRevision: string;
@@ -336,6 +358,8 @@ export type OperationJournal = {
     action: "install" | "update";
     phase: OperationPhase;
     root: string;
+    /** 本次事务固定使用的容器引擎；非容器事务为null。 */
+    containerEngine: ContainerEngine | null;
     createdPaths: string[];
     backupRoot: string;
     previousManifest: InstallationManifest | null;

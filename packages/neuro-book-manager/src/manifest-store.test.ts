@@ -47,6 +47,15 @@ describe("Release resolver", () => {
         expect((await resolveReleaseManifest("canary")).version).toBe("1.1.0-beta.2");
     });
 
+    it("未来公开schema先根据envelope提示升级Manager", async () => {
+        const complete = release("v2.0.0", false);
+        vi.stubGlobal("fetch", vi.fn(async (input: string | URL | Request) => String(input).includes("api.github.com")
+            ? Response.json([complete.github])
+            : Response.json({schemaVersion: 99, minManagerVersion: "99.0.0"})));
+
+        await expect(resolveReleaseManifest("stable")).rejects.toThrow("请先执行");
+    });
+
     it("可从本地候选Manifest解析尚未公开最终索引的Release", async () => {
         temporaryRoot = await mkdtemp(join(tmpdir(), "manager-release-manifest-"));
         const candidate = release("v1.1.0-beta.2", true).manifest;
@@ -67,6 +76,14 @@ describe("Release resolver", () => {
         await expect(resolveReleaseManifest("canary", "1.1.0-beta.2", manifestPath)).rejects.toThrow("不能同时使用");
         await expect(resolveReleaseManifest("stable", undefined, manifestPath)).rejects.toThrow("channel");
     });
+
+    it("未来显式schema先根据envelope提示升级Manager", async () => {
+        temporaryRoot = await mkdtemp(join(tmpdir(), "manager-release-manifest-future-"));
+        const manifestPath = join(temporaryRoot, "release-manifest.json");
+        await writeFile(manifestPath, JSON.stringify({schemaVersion: 99, minManagerVersion: "99.0.0"}), "utf8");
+
+        await expect(resolveReleaseManifest("canary", undefined, manifestPath)).rejects.toThrow("请先执行");
+    });
 });
 
 function release(tag: string, prerelease: boolean) {
@@ -77,6 +94,9 @@ function release(tag: string, prerelease: boolean) {
         source: `${root}/neuro-book-source.zip`,
         windows: `${root}/neuro-book-product-windows-x64.zip`,
         linux: `${root}/neuro-book-product-linux-x64-glibc.tar.gz`,
+        linuxArm64: `${root}/neuro-book-product-linux-aarch64-glibc.tar.gz`,
+        darwin: `${root}/neuro-book-product-darwin-x64.tar.gz`,
+        darwinArm64: `${root}/neuro-book-product-darwin-aarch64.tar.gz`,
         portable: `${root}/neuro-book-windows-x64.zip`,
     };
     return {
@@ -89,19 +109,25 @@ function release(tag: string, prerelease: boolean) {
                 {name: "neuro-book-source.zip", browser_download_url: urls.source},
                 {name: "neuro-book-product-windows-x64.zip", browser_download_url: urls.windows},
                 {name: "neuro-book-product-linux-x64-glibc.tar.gz", browser_download_url: urls.linux},
+                {name: "neuro-book-product-linux-aarch64-glibc.tar.gz", browser_download_url: urls.linuxArm64},
+                {name: "neuro-book-product-darwin-x64.tar.gz", browser_download_url: urls.darwin},
+                {name: "neuro-book-product-darwin-aarch64.tar.gz", browser_download_url: urls.darwinArm64},
                 {name: "neuro-book-windows-x64.zip", browser_download_url: urls.portable},
             ],
         },
         manifest: {
-            schemaVersion: 2,
+            schemaVersion: 3,
             version,
             channel: prerelease ? "canary" : "stable",
             sourceRevision: REVISION,
-            minManagerVersion: "0.1.0",
+            minManagerVersion: "0.1.0-canary.1",
             source: {url: urls.source, sha256: SHA, bytes: 1},
             products: [
                 {url: urls.windows, sha256: SHA, bytes: 1, platform: "windows-x64", sourceRevision: REVISION},
                 {url: urls.linux, sha256: SHA, bytes: 1, platform: "linux-x64-glibc", sourceRevision: REVISION},
+                {url: urls.linuxArm64, sha256: SHA, bytes: 1, platform: "linux-aarch64-glibc", sourceRevision: REVISION},
+                {url: urls.darwin, sha256: SHA, bytes: 1, platform: "darwin-x64", sourceRevision: REVISION},
+                {url: urls.darwinArm64, sha256: SHA, bytes: 1, platform: "darwin-aarch64", sourceRevision: REVISION},
             ],
             windowsPortable: {url: urls.portable, sha256: SHA, bytes: 1},
             ghcr: {ref: `ghcr.io/notnotype/neuro-book:${tag}`, digest: `sha256:${SHA}`, sourceRevision: REVISION},

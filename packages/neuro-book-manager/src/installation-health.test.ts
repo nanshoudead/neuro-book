@@ -8,6 +8,7 @@ import {afterEach, describe, expect, it} from "vitest";
 import {doctor} from "#manager/installation-health";
 import {writeInstallationManifest} from "#manager/manifest-store";
 import {installationPaths} from "#manager/paths";
+import {currentProductPlatform} from "#manager/platform";
 import {renderManagerWrapper} from "#manager/runtime";
 import type {InstallationManifest} from "#manager/types";
 
@@ -61,8 +62,9 @@ async function fixture(): Promise<{root: string; manifest: InstallationManifest}
     const now = new Date().toISOString();
     const asset = {archiveSha256: "b".repeat(64), sourceUrl: "https://example.com/asset.zip", license: "test", redistribution: "test"};
     const manifest: InstallationManifest = {
-        schemaVersion: 3,
+        schemaVersion: 4,
         profile: "product-bun",
+        containerEngine: null,
         managerVersion: "0.1.0",
         appVersion: "1.0.0",
         channel: "canary",
@@ -70,7 +72,7 @@ async function fixture(): Promise<{root: string; manifest: InstallationManifest}
         stateRoot: ".",
         components: {
             source: {provider: "release", version: "1.0.0", revision, path: ".", files: ["package.json"], ...asset},
-            product: {provider: "release", version: "1.0.0", revision, path: ".output", platform: process.platform === "win32" ? "windows-x64" : "linux-x64-glibc", ...asset},
+            product: {provider: "release", version: "1.0.0", revision, path: ".output", platform: currentProductPlatform(), ...asset},
             manager,
             managerRuntime: runtime,
             applicationRuntime: runtime,

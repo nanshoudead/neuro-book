@@ -5,10 +5,11 @@ import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
 
 import {
     applyAttachmentMigration,
+    createAdmin,
     planAttachmentMigration,
     rollbackAttachmentMigration,
 } from "#manager/app-commands";
-import type {InstallationManifest} from "#manager/types";
+import type {ContainerEngine, InstallationManifest} from "#manager/types";
 
 const processCommands = vi.hoisted(() => ({
     capture: vi.fn(),
@@ -77,7 +78,7 @@ describe("Application Attachment migration command", () => {
     it("容器Profile通过Compose一次性app执行相同协议", async () => {
         const root = await mkdtemp(join(tmpdir(), "manager-container-migration-"));
         roots.push(root);
-        docker.command.mockImplementation(async (_root: string, _stateRoot: string, args: string[]) => {
+        docker.command.mockImplementation(async (_engine: string, _root: string, _stateRoot: string, args: string[]) => {
             if (args.includes("--rollback")) return JSON.stringify(rollbackReport("docker-attachment"));
             return JSON.stringify(migrationReport(
                 "docker-attachment",
@@ -92,7 +93,7 @@ describe("Application Attachment migration command", () => {
         await rollbackAttachmentMigration(root, manifest, plan!.runId);
 
         expect(docker.command).toHaveBeenCalledTimes(3);
-        expect(docker.command.mock.calls[0]?.[2]).toEqual([
+        expect(docker.command.mock.calls[0]?.[3]).toEqual([
             "bun",
             ".output/server/scripts/db/migrate-agent-attachments.ts",
             "--dry-run",
@@ -119,6 +120,23 @@ describe("Application Attachment migration command", () => {
             .rejects.toThrow("拒绝恢复旧Product");
         await expect(rollbackAttachmentMigration(root, productManifest(), "rollback-run", true))
             .resolves.toBeUndefined();
+    });
+});
+
+describe("容器管理员命令", () => {
+    it.each(["docker", "podman"] as const)("%s只使用Manifest固定engine和公共Compose参数", async (engine) => {
+        const root = await mkdtemp(join(tmpdir(), "manager-container-admin-"));
+        roots.push(root);
+        const manifest = {...dockerManifest(), containerEngine: engine as ContainerEngine};
+
+        await createAdmin(root, manifest, "admin");
+
+        expect(processCommands.run).toHaveBeenCalledWith(engine, [
+            "compose",
+            "--env-file", join(root, ".env"),
+            "-f", join(root, ".deploy", "docker-compose.generated.yml"),
+            "exec", "app", "bun", ".output/server/scripts/cli/create-admin.ts", "admin",
+        ], {cwd: root});
     });
 });
 
@@ -163,8 +181,9 @@ function rollbackReport(runId: string, status: "not_started" | "rolled_back" = "
 function productManifest(): InstallationManifest {
     const revision = "a".repeat(40);
     return {
-        schemaVersion: 3,
+        schemaVersion: 4,
         profile: "product-bun",
+        containerEngine: null,
         managerVersion: "0.1.0",
         appVersion: "0.8.0-canary.1",
         channel: "canary",
@@ -206,8 +225,9 @@ function productManifest(): InstallationManifest {
 function dockerManifest(): InstallationManifest {
     const revision = "b".repeat(40);
     return {
-        schemaVersion: 3,
+        schemaVersion: 4,
         profile: "ghcr",
+        containerEngine: "docker",
         managerVersion: "0.1.0",
         appVersion: "0.8.0-canary.1",
         channel: "canary",

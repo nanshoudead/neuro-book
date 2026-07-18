@@ -1,6 +1,6 @@
 # 105 - 统一安装目录与 NeuroBook Manager
 
-> 当前状态：实现中。Manager `0.1.0-canary.19`与应用[`v0.8.6-canary.20260717.130406Z.a91a96f`](https://github.com/notnotype/neuro-book/releases/tag/v0.8.6-canary.20260717.130406Z.a91a96f)已公开；九资产与Windows/Linux平台门禁全绿，SSH Arch公开Product Bun与GHCR空目录安装、doctor、Attachment/State Root、start和HTTP均已通过。Task 108/109不再阻塞；Task 105仍保留AArch64、macOS、Portable完整用户链与更宽故障注入等独立后续范围，因此暂不归档。
+> 当前状态：实现中。Manager `0.1.0-canary.19`与应用[`v0.8.6-canary.20260717.130406Z.a91a96f`](https://github.com/notnotype/neuro-book/releases/tag/v0.8.6-canary.20260717.130406Z.a91a96f)仍是最新公开版本。PR #11的AArch64/macOS/Podman能力已整合到当前主线事务架构，协议升级为Installation Manifest v4与Release Manifest v3，Operation Journal保持v2；新代码尚未发布，Linux ARM64/macOS平台workflow和公开A→B仍需完成。Apple Silicon Docker Desktop/rootless Podman实机门禁按本次决策豁免，但继续作为未完成证据，不得标记为已验证。
 
 > 2026-07-17发布状态：`manager-v0.1.0-canary.15`、应用`0.8.1`与`0.8.3`保留为失败审计记录；Manager `.19`和应用`0.8.6`已按顺序公开，Manifest最低Manager版本、source revision与GHCR digest均已交叉验证。
 
@@ -74,9 +74,9 @@
 
 ### macOS与ARM64当前缺口
 
-- 当前公开Manager `0.1.0-canary.14`只正式验证Windows/Linux x64；`bun dev`能在macOS运行，不代表Manager、Stage 0、Product、更新和回滚合同已经支持macOS。
-- 当前公开Release只有Windows x64和Linux x64 glibc Product；GHCR的ARM64构建、Linux AArch64 Product与macOS宿主Profile仍没有进入notnotype主仓的公开Release证据。
-- PR #11已在fork中完成Linux AArch64 Product和多架构OCI构建，但新增ProductPlatform后遗漏Release Manifest消费端资产映射，且没有发布包含新代码的Manager版本，因此不能把fork workflow全绿等同于用户可安装。
+- 当前公开Manager仍为`0.1.0-canary.19`，公开应用仍为`0.8.6`；它们不包含本次Manifest v4、五平台Product与Podman持久化能力。
+- 主线源码已提供Windows x64、Linux x64/AArch64 glibc、macOS x64/ARM64平台映射，Release Manifest消费端使用穷举资产名，Release workflow构建五平台Product并发布linux/amd64与linux/arm64 OCI。
+- 本地代码与静态workflow门禁不能替代真实runner和公开资产证据。Linux ARM64/macOS Product workflow、未来精确npm Manager和应用候选仍是合并后的验收步骤；Apple Silicon双engine实机链本次只豁免阻断，不视为完成。
 
 ## Decisions / Discussion
 
@@ -199,8 +199,7 @@ Profile 只声明需求与来源，下载、校验、安装和状态记录复用
 | Windows x64 | 支持 | 支持 | 支持 | 有Container Engine时支持 | 有Container Engine时支持 | 推荐 |
 | Linux x64 glibc | 支持 | 支持 | 支持 | 支持 | 推荐 | 不支持 |
 | Linux AArch64 glibc | 支持 | 支持 | 支持 | 支持 | 推荐 | 不支持 |
-| macOS x64/ARM64 Phase 1 | 支持 | 暂不开放 | 暂不开放 | 支持 | 推荐 | 不支持 |
-| macOS x64/ARM64 Phase 2 | 支持 | native build验证后支持 | native Product发布后支持 | 支持 | 支持 | 不支持 |
+| macOS x64/ARM64 | 支持 | 支持（待runner证据） | 支持（待runner证据） | 支持 | 推荐 | 不支持 |
 
 - 平台门禁必须使用正向、穷举的支持矩阵；不得用“只有macOS列出不支持项，其他平台默认全部放行”的负向列表。
 - Windows ARM64、Linux musl与其他架构不在本轮支持矩阵；检测到时必须明确拒绝，不能回退到x64资产或依赖系统仿真。
@@ -219,9 +218,9 @@ ProductPlatform标准值与阶段：
 | --- | --- | --- |
 | `windows-x64` | `neuro-book-product-windows-x64.zip` | 已支持 |
 | `linux-x64-glibc` | `neuro-book-product-linux-x64-glibc.tar.gz` | 已支持 |
-| `linux-aarch64-glibc` | `neuro-book-product-linux-aarch64-glibc.tar.gz` | 本轮目标 |
-| `darwin-x64` | `neuro-book-product-darwin-x64.tar.gz` | macOS Phase 2 |
-| `darwin-aarch64` | `neuro-book-product-darwin-aarch64.tar.gz` | macOS Phase 2 |
+| `linux-aarch64-glibc` | `neuro-book-product-linux-aarch64-glibc.tar.gz` | 已实现，待主仓runner证据 |
+| `darwin-x64` | `neuro-book-product-darwin-x64.tar.gz` | 已实现，待主仓runner证据 |
+| `darwin-aarch64` | `neuro-book-product-darwin-aarch64.tar.gz` | 已实现，待主仓runner证据 |
 
 - Windows Product必须在Windows x64 runner构建；Linux Product必须在对应x64/AArch64 Linux runner原生构建；macOS Product必须在对应macOS runner构建。
 - GHCR只发布Linux容器平台，目标为`linux/amd64`与`linux/arm64`；macOS通过Docker Desktop或Podman machine运行Linux容器，不把OCI镜像误称为Darwin Product。
@@ -239,7 +238,7 @@ ProductPlatform标准值与阶段：
 第一阶段托管范围建议：
 
 - Bun：必须支持 managed。
-- ripgrep：支持 Windows/Linux managed。
+- ripgrep：支持Windows x64、Linux x64/AArch64 glibc与macOS x64/ARM64 managed。
 - Git：Windows 优先评估 MinGit；Linux/macOS 优先系统包管理器。
 - bash：Windows 可随 MinGit 提供，Linux/macOS 使用 system/container。
 - Python：第一阶段只检测与给出安装建议，不承诺全平台 managed Python；Windows embeddable Python、pip/venv 和 Linux libc 差异单独评估。
@@ -260,15 +259,18 @@ Container Engine同样属于部署provider合同：
 
 ```json
 {
-    "schemaVersion": 1,
+    "schemaVersion": 4,
     "profile": "product-bun",
+    "containerEngine": null,
     "managerVersion": "1.0.0",
     "appVersion": "0.8.0",
-    "releaseChannel": "stable",
+    "channel": "stable",
     "components": {
         "source": {"provider": "release", "version": "0.8.0"},
         "product": {"provider": "release", "version": "0.8.0", "platform": "windows-x64"},
-        "bun": {"provider": "system", "version": "1.x"}
+        "managerRuntime": {"provider": "system", "version": "1.x"},
+        "applicationRuntime": {"provider": "system", "version": "1.x"},
+        "tools": {}
     }
 }
 ```
@@ -399,15 +401,11 @@ uninstall
 
 当前未完成的环境级验收：
 
-- Manager `0.1.0-canary.5`已公开发布；仍需把npm当前误指prerelease的`latest` dist-tag清理，并在稳定版发布时重新建立正确`latest`。
-- `0.7.5` Source、Linux Product与GHCR镜像CI已通过，Windows Product、assemble、verify和publish仍在运行；正式Manifest公开后再执行Product Bun、Manager GHCR无宿主checkout安装、admin/update和digest回滚终验。
-- Windows Portable 尚未完成交互式 start → 浏览器 → create-admin → restart → update → data 保留终验；本轮不自动执行浏览器验收。
-- Release Manifest三平台消费回归：候选manifest必须由当前源码Manager和npm已发布的精确Manager版本分别解析，逐项核对Windows x64、Linux x64与Linux AArch64资产URL，并证明本机只选择匹配平台的Product。
-- Linux AArch64原生Product：在ARM64 runner完成依赖安装、Product构建、native package、migration、无根`node_modules`启动、Agent State Root、HTTP与浏览器smoke。
-- GHCR多架构：分别在Linux amd64与ARM64环境按manifest list digest拉取、核对revision label、migration、State Root写入和HTTP；不能只在amd64上验证multi-arch index。
-- macOS x64/ARM64 Stage 0与Source Dev：从无Bun或隔离缓存开始，验证下载checksum、Manager启动、Git materialize、frozen install、dev server与更新入口。
-- macOS Docker/Podman：验证Docker Desktop与rootless Podman machine的Compose、UID映射、GHCR启动、create-admin、A→B更新、Operation Journal中断恢复和用户数据保留。
-- macOS native Product Phase 2：在对应Darwin runner完成Source Product与Product Bun全链路后，才能从安装向导中解除禁用。
+- 提升并公开包含Manifest v4、Release v3、五平台与Podman合同的新Manager版本；当前`.19`不得以同版本不同bundle复用。
+- 在主仓集成分支完成Linux ARM64 glibc、macOS x64和macOS ARM64 Product workflow；覆盖native package、Stage 0、migration、无根`node_modules`启动、HTTP和浏览器smoke。
+- 未来应用候选以精确npm Manager消费五平台Manifest，完成公开Payload、linux/amd64+linux/arm64 GHCR、Windows`0.8.6 → candidate`更新和最终索引后发布。
+- Windows Portable仍需交互式start → create-admin → restart → update → data保留终验；本轮不自动执行人工浏览器操作。
+- Apple Silicon Docker Desktop与rootless Podman machine的Source Docker/GHCR、UID映射、create-admin、A→B更新和Operation恢复被豁免本次合并阻断，但继续保留为未验证证据。
 - Windows ARM64、Linux musl与其他平台保持明确拒绝测试，避免错误下载x64或glibc资产。
 
 ## Implementation Walkthrough
@@ -640,14 +638,14 @@ uninstall
 - [x] Stage 0 用户 cache Bun、Manager Host Runtime 接管与空目录 Git materialize实现及聚焦测试通过。
 - [x] Windows PortableGit/rg/Bun 托管、bash、checksum、wrapper、许可证与再分发记录完成本地组装验证。
 - [x] Windows/Linux Product artifact 与 Windows Portable 结构。
-- [ ] 修复PR #11暴露的Release Manifest消费端AArch64资产名映射，并用穷举类型映射约束后续ProductPlatform扩展。
+- [x] 修复PR #11暴露的Release Manifest消费端AArch64资产名映射，并用穷举类型映射约束五个ProductPlatform。
 - [ ] 提升并先发布包含Linux AArch64、macOS平台门禁与Podman合同的新Manager版本；应用Release引用新的`minManagerVersion`，并由公开Manager精确版本消费候选manifest。
-- [ ] Linux POSIX Stage 0正式支持x64/AArch64 glibc；macOS POSIX Stage 0正式支持x64/ARM64，不复用Linux glibc门禁。
+- [x] Linux POSIX Stage 0支持x64/AArch64 glibc；macOS POSIX Stage 0支持x64/ARM64，并分别使用sha256sum/shasum与独立平台门禁。
 - [ ] 完成Linux AArch64 Product与`linux/arm64` GHCR native runtime门禁，并将公开资产证据记录回本任务。
 - [ ] 完成macOS Phase 1：Source Dev、Source Docker、GHCR、Docker Desktop与Podman machine真实验收。
-- [ ] 评估并实现macOS Phase 2原生Source Product/Product Bun；`darwin-x64`与`darwin-aarch64`未通过native Product验收前保持禁用。
-- [ ] 将Container Engine写入Installation Manifest与Operation Journal，覆盖双engine共存、daemon不可用、显式选择和中断恢复测试。
-- [ ] 用正向宿主平台/Profile矩阵替代负向unsupported列表，锁定Linux不显示Windows Portable、macOS不提前开放native Product、Windows ARM64不回退x64。
+- [ ] 完成macOS x64/ARM64原生Source Product/Product Bun runner验收；源码和Release合同已开放，未通过workflow前不写成公开可用证据。
+- [x] 将Container Engine写入Installation Manifest v4与Operation Journal v2，覆盖自动选择、显式选择、daemon不可用、rootless Podman与恢复固定engine。
+- [x] 用正向宿主平台/Profile矩阵替代负向unsupported列表，锁定POSIX不显示Windows Portable、Windows ARM64/Linux musl不回退x64。
 - [x] 删除旧部署入口并同步当前部署文档。
 - [x] 停止现有服务后重建根 `node_modules`，完成全新 Product build和无根 `node_modules` Product 隔离运行。
 - [ ] 使用本轮新 `.output` 完成 Windows Portable start/create-admin/update/data 保留 smoke。
@@ -787,3 +785,14 @@ uninstall
 - stable Manager/Runtime/Tool wrapper模板提取为纯render函数；写入侧与doctor比较侧使用同一来源，wrapper存在但指向旧组件会明确失败。TUI删除`object`手工断言，直接消费`InstallationStatus`和`DoctorReport`。
 - Release workflow新增公开GHCR安装门禁：公开Manager空目录安装、running doctor、停止容器后的healthy+warning、再次start和HTTP验证全部通过后才发布最终Release index。
 - 本机Manager 22 files / 78 tests、typecheck、build和pack审计通过；根Harness 169/169、black-box+payload 25/25、路径/Attachment聚焦回归全绿。SSH Arch确认Bun 1.3.13、Docker 29.4.2和Compose 5.1.3可用，但新Manager尚未公开，因此本轮没有发布canary，也没有把CI设计写成已执行的公开证据。
+
+### 2026-07-18：PR #11跨平台能力整合
+
+- 采用merge commit保留贡献者历史，并以当前主线Profile Update Planner、App SQLite Location、Release Candidate Resolver和Operation Journal v2为底稿整合PR，而不是选择任一侧整文件覆盖。
+- Installation Manifest硬切v4，容器Profile持久化`docker | podman`，原生Profile固定`null`；Release Manifest硬切v3并要求Windows x64、Linux x64/AArch64 glibc、macOS x64/ARM64五个Product完整唯一。v3 Installation明确重新安装，不增加迁移层。
+- Docker Adapter现在负责新安装engine选择与验证；Manifest/Journal随后固定engine贯穿start、status/doctor、admin、migration one-off、update、rollback和镜像清理。rootless Podman不重复注入宿主UID；`create-admin`删除Podman不兼容的`ps --status`探测，直接使用共同支持的`compose exec`。
+- Managed Bun与ripgrep资产使用ProductPlatform穷举映射。POSIX Bun在缓存复用和新下载提交前恢复执行位并执行`bun --version`；Stage 0覆盖Linux x64/AArch64 glibc和macOS x64/ARM64，分别使用`sha256sum`与`shasum -a 256`。
+- Release资产与workflow保留“公开payload、验证公开GHCR/Windows A→B、最后发布Manifest/SHA256SUMS”的主线顺序，并加入前置公开Manager bundle门禁、五平台native Product、linux/amd64+linux/arm64 OCI、Linux ARM64 Playwright与macOS双架构Product smoke。所有Product继续执行system artifact与runtime test-source边界检查。
+- 本地已通过应用与Manager typecheck、Manifest/Operation/Docker/Podman/Runtime/Stage 0/Release聚焦回归、5文件Manager pack审计和完整Nuxt/Product build。Manager串行完整回归为23文件109项通过，另有1文件/2项按平台跳过；Windows Product归档成功写入44,998个文件条目。完整并行suite在Windows出现Git临时目录与5秒默认超时竞争，三个失败文件隔离重跑全部通过，属于既有并行测试抖动，不作为功能失败掩盖。
+- 当前尚未发布新Manager或应用版本。`0.1.0-canary.19`代码与当前本地bundle已不同，因此未来Release前置公开Manager门禁会按设计失败，必须先提升并发布新Manager版本，不能复用`.19`。
+- 与原计划差异：Apple Silicon Docker Desktop/rootless Podman双engine实机门禁由用户明确豁免本次合并阻断；该证据继续保留TODO且不能写成已验证。Linux ARM64与macOS runner结果将在集成分支workflow完成后补记。

@@ -8,6 +8,7 @@ import {afterEach, describe, expect, it} from "vitest";
 import {importInstallation, inspectImport} from "#manager/instance-import";
 import {writeInstallationManifest} from "#manager/manifest-store";
 import {installationPaths} from "#manager/paths";
+import {currentProductPlatform} from "#manager/platform";
 import {renderManagerWrapper} from "#manager/runtime";
 import type {InstallationManifest} from "#manager/types";
 
@@ -55,10 +56,10 @@ async function fixture(): Promise<string> {
     const revision = "b".repeat(40);
     const now = new Date().toISOString();
     const manifest: InstallationManifest = {
-        schemaVersion: 3, profile: "product-bun", managerVersion: "0.1.0", appVersion: "1.0.0", channel: "canary", sourceRevision: revision, stateRoot: ".",
+        schemaVersion: 4, profile: "product-bun", containerEngine: null, managerVersion: "0.1.0", appVersion: "1.0.0", channel: "canary", sourceRevision: revision, stateRoot: ".",
         components: {
             source: {provider: "release", version: "1.0.0", revision, path: ".", files: ["package.json"], archiveSha256: "c".repeat(64), sourceUrl: "https://example.com/source.zip", license: "test", redistribution: "test"},
-            product: {provider: "release", version: "1.0.0", revision, path: ".output", platform: process.platform === "win32" ? "windows-x64" : "linux-x64-glibc", archiveSha256: "d".repeat(64), sourceUrl: "https://example.com/product.zip", license: "test", redistribution: "test"},
+            product: {provider: "release", version: "1.0.0", revision, path: ".output", platform: currentProductPlatform(), archiveSha256: "d".repeat(64), sourceUrl: "https://example.com/product.zip", license: "test", redistribution: "test"},
             manager: {provider: "managed", version: "0.1.0", path: ".runtime/manager/0.1.0/neuro-book.mjs", bundleSha256: createHash("sha256").update(bundle).digest("hex")},
             managerRuntime: {provider: "system", version: "1.3.0", executable: "bun"}, applicationRuntime: {provider: "system", version: "1.3.0", executable: "bun"}, tools: {git: {provider: "system", version: "git version 2", executable: "git"}},
         }, installedAt: now, updatedAt: now,

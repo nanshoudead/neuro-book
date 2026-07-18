@@ -10,14 +10,24 @@ permissions:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-  APP_IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/neuro-book
-  RUNTIME_IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/neuro-book-runtime
+  NODE_OPTIONS: --max-old-space-size=4096
 
 jobs:
+  verify-manager:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile --linker hoisted
+      - name: Verify public Manager bundle
+        run: bun run manager:verify-public
+
   build-and-push:
+    needs: verify-manager
     runs-on: ubuntu-latest
     outputs:
       app-digest: ${{ steps.app-build.outputs.digest }}
+      app-image-name: ${{ steps.image-names.outputs.app }}
     steps:
       - uses: actions/checkout@v5
       - uses: docker/setup-buildx-action@v3
@@ -27,10 +37,18 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - id: image-names
+        name: Resolve lowercase image names
+        shell: bash
+        run: |
+          owner="$(printf '%s' "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')"
+          echo "app=ghcr.io/${owner}/neuro-book" >> "${GITHUB_OUTPUT}"
+          echo "runtime=ghcr.io/${owner}/neuro-book-runtime" >> "${GITHUB_OUTPUT}"
+
       - id: runtime-meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.RUNTIME_IMAGE_NAME }}
+          images: ${{ steps.image-names.outputs.runtime }}
           tags: |
             type=raw,value=${{ github.event.release.tag_name }}
             type=raw,value=latest,enable=${{ !github.event.release.prerelease }}
@@ -40,7 +58,7 @@ jobs:
         with:
           context: .
           target: runtime-base
-          platforms: linux/amd64
+          platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.runtime-meta.outputs.tags }}
           cache-from: type=gha,scope=runtime
@@ -49,7 +67,7 @@ jobs:
       - id: app-meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.APP_IMAGE_NAME }}
+          images: ${{ steps.image-names.outputs.app }}
           tags: |
             type=raw,value=${{ github.event.release.tag_name }}
             type=raw,value=latest,enable=${{ !github.event.release.prerelease }}
@@ -59,7 +77,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          platforms: linux/amd64
+          platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.app-meta.outputs.tags }}
           labels: ${{ steps.app-meta.outputs.labels }}
@@ -69,6 +87,7 @@ jobs:
           cache-to: type=gha,mode=max,scope=app
 
   source:
+    needs: verify-manager
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -81,11 +100,16 @@ jobs:
           path: dist/neuro-book-source.zip
 
   product-linux:
+    needs: verify-manager
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
       - uses: oven-sh/setup-bun@v2
       - run: bun install --frozen-lockfile --linker hoisted
+      - name: Verify POSIX Stage 0 behavior
+        run: bun run test:install
+      - name: Verify Manager platform contracts
+        run: bun run manager:test
       - name: Verify Agent State Root paths
         run: bun run test:agent-state-root
       - run: bun run nuxt:build
@@ -94,6 +118,117 @@ jobs:
         with:
           name: product-linux
           path: dist/neuro-book-product-linux-x64-glibc.tar.gz
+
+  product-linux-aarch64:
+    needs: source
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile --linker hoisted
+      - name: Verify POSIX Stage 0 behavior
+        run: bun run test:install
+      - name: Verify Manager platform contracts
+        run: bun run manager:test
+      - run: bun run nuxt:build
+      - run: bun run release:product:linux-aarch64
+      - uses: actions/download-artifact@v4
+        with:
+          name: source
+          path: dist
+      - name: Install Playwright Chromium
+        run: bunx playwright-core install --with-deps chromium
+      - name: Verify Linux ARM64 Product
+        shell: bash
+        run: |
+          version="${{ github.event.release.tag_name }}"
+          bash scripts/release/verify-posix-product.sh \
+            linux-aarch64-glibc \
+            dist/neuro-book-source.zip \
+            dist/neuro-book-product-linux-aarch64-glibc.tar.gz \
+            "${version#v}" \
+            39127 \
+            playwright
+      - name: Upload Linux ARM64 Product diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-aarch64-product-diagnostics
+          if-no-files-found: ignore
+          path: ${{ runner.temp }}/neuro-book-linux-aarch64-glibc-smoke/*
+      - uses: actions/upload-artifact@v4
+        with:
+          name: product-linux-aarch64
+          path: dist/neuro-book-product-linux-aarch64-glibc.tar.gz
+
+  product-darwin-x64:
+    needs: source
+    runs-on: macos-15-intel
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile --linker hoisted
+      - name: Verify POSIX Stage 0 behavior
+        run: bun run test:install
+      - name: Verify Manager platform contracts
+        run: bun run manager:test
+      - run: bun run nuxt:build
+      - run: bun run release:product:darwin
+      - uses: actions/download-artifact@v4
+        with:
+          name: source
+          path: dist
+      - name: Verify macOS x64 Product
+        shell: bash
+        run: |
+          version="${{ github.event.release.tag_name }}"
+          bash scripts/release/verify-posix-product.sh \
+            darwin-x64 \
+            dist/neuro-book-source.zip \
+            dist/neuro-book-product-darwin-x64.tar.gz \
+            "${version#v}" \
+            39125 \
+            "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: product-darwin-x64
+          path: dist/neuro-book-product-darwin-x64.tar.gz
+
+  product-darwin-aarch64:
+    needs: source
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile --linker hoisted
+      - name: Verify POSIX Stage 0 behavior
+        run: bun run test:install
+      - name: Verify Manager platform contracts
+        run: bun run manager:test
+      - run: bun run nuxt:build
+      - run: bun run release:product:darwin-aarch64
+      - uses: actions/download-artifact@v4
+        with:
+          name: source
+          path: dist
+      - name: Verify macOS ARM64 Product
+        shell: bash
+        run: |
+          version="${{ github.event.release.tag_name }}"
+          bash scripts/release/verify-posix-product.sh \
+            darwin-aarch64 \
+            dist/neuro-book-source.zip \
+            dist/neuro-book-product-darwin-aarch64.tar.gz \
+            "${version#v}" \
+            39126 \
+            "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: product-darwin-aarch64
+          path: dist/neuro-book-product-darwin-aarch64.tar.gz
 
   product-windows:
     needs: source
@@ -120,7 +255,7 @@ jobs:
             dist/neuro-book-windows-x64.zip
 
   assemble:
-    needs: [build-and-push, source, product-linux, product-windows]
+    needs: [build-and-push, source, product-linux, product-linux-aarch64, product-darwin-x64, product-darwin-aarch64, product-windows]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -136,12 +271,25 @@ jobs:
           path: dist
       - uses: actions/download-artifact@v4
         with:
+          name: product-linux-aarch64
+          path: dist
+      - uses: actions/download-artifact@v4
+        with:
+          name: product-darwin-x64
+          path: dist
+      - uses: actions/download-artifact@v4
+        with:
+          name: product-darwin-aarch64
+          path: dist
+      - uses: actions/download-artifact@v4
+        with:
           name: product-windows
           path: dist
       - name: Build release manifest
         shell: bash
         env:
           GHCR_DIGEST: ${{ needs.build-and-push.outputs.app-digest }}
+          APP_IMAGE_NAME: ${{ needs.build-and-push.outputs.app-image-name }}
         run: |
           cp scripts/install/install.ps1 dist/install.ps1
           cp scripts/install/install.cmd dist/install.cmd
@@ -163,6 +311,9 @@ jobs:
             --source dist/neuro-book-source.zip \
             --windows-product dist/neuro-book-product-windows-x64.zip \
             --linux-product dist/neuro-book-product-linux-x64-glibc.tar.gz \
+            --linux-aarch64-product dist/neuro-book-product-linux-aarch64-glibc.tar.gz \
+            --darwin-product dist/neuro-book-product-darwin-x64.tar.gz \
+            --darwin-aarch64-product dist/neuro-book-product-darwin-aarch64.tar.gz \
             --portable dist/neuro-book-windows-x64.zip \
             --stage0-windows dist/install.ps1 \
             --stage0-windows-cmd dist/install.cmd \
@@ -178,6 +329,9 @@ jobs:
             dist/neuro-book-source.zip
             dist/neuro-book-product-windows-x64.zip
             dist/neuro-book-product-linux-x64-glibc.tar.gz
+            dist/neuro-book-product-linux-aarch64-glibc.tar.gz
+            dist/neuro-book-product-darwin-x64.tar.gz
+            dist/neuro-book-product-darwin-aarch64.tar.gz
             dist/neuro-book-windows-x64.zip
             dist/release-manifest.json
             dist/SHA256SUMS
@@ -205,7 +359,7 @@ jobs:
         run: bash -n candidate-assets/install.sh
       - name: Verify GHCR digest and source revision
         env:
-          IMAGE: ${{ env.APP_IMAGE_NAME }}@${{ needs.build-and-push.outputs.app-digest }}
+          IMAGE: ${{ needs.build-and-push.outputs.app-image-name }}@${{ needs.build-and-push.outputs.app-digest }}
         run: |
           docker pull "${IMAGE}"
           test "$(docker image inspect "${IMAGE}" --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}')" = "${{ github.sha }}"
@@ -286,11 +440,9 @@ jobs:
       - name: Public Manager CLI smoke
         shell: bash
         run: |
-          version="${{ github.event.release.tag_name }}"
-          version="${version#v}"
-          if [[ "${version}" == *-* ]]; then manager_tag=canary; channel=canary; else manager_tag=latest; channel=stable; fi
-          bunx --bun "@notnotype/neuro-book-manager@${manager_tag}" --version
-          bunx --bun "@notnotype/neuro-book-manager@${manager_tag}" status --help
+          manager_version="$(node -p 'require("./packages/neuro-book-manager/package.json").version')"
+          bunx --bun "@notnotype/neuro-book-manager@${manager_version}" --version
+          bunx --bun "@notnotype/neuro-book-manager@${manager_version}" status --help
       - name: Upload Linux browser smoke diagnostics
         if: failure()
         uses: actions/upload-artifact@v4
@@ -651,6 +803,9 @@ jobs:
             dist/neuro-book-source.zip
             dist/neuro-book-product-windows-x64.zip
             dist/neuro-book-product-linux-x64-glibc.tar.gz
+            dist/neuro-book-product-linux-aarch64-glibc.tar.gz
+            dist/neuro-book-product-darwin-x64.tar.gz
+            dist/neuro-book-product-darwin-aarch64.tar.gz
             dist/neuro-book-windows-x64.zip
             dist/install.ps1
             dist/install.cmd
@@ -683,6 +838,9 @@ jobs:
             neuro-book-source.zip \
             neuro-book-product-windows-x64.zip \
             neuro-book-product-linux-x64-glibc.tar.gz \
+            neuro-book-product-linux-aarch64-glibc.tar.gz \
+            neuro-book-product-darwin-x64.tar.gz \
+            neuro-book-product-darwin-aarch64.tar.gz \
             neuro-book-windows-x64.zip \
             install.ps1 \
             install.cmd \
@@ -694,7 +852,8 @@ jobs:
         run: bun scripts/release/release-assets.ts verify --dir public-assets --tag "${{ github.event.release.tag_name }}" --revision "${{ github.sha }}"
       - name: Verify public GHCR digest
         env:
-          IMAGE: ${{ env.APP_IMAGE_NAME }}@${{ needs.build-and-push.outputs.app-digest }}
+          IMAGE: ${{ needs.build-and-push.outputs.app-image-name }}@${{ needs.build-and-push.outputs.app-digest }}
+          APP_IMAGE_NAME: ${{ needs.build-and-push.outputs.app-image-name }}
         run: |
           docker pull "${IMAGE}"
           test "$(docker image inspect "${IMAGE}" --format '{{ index .RepoDigests 0 }}')" = "${APP_IMAGE_NAME}@${{ needs.build-and-push.outputs.app-digest }}"

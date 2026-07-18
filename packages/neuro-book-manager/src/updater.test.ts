@@ -130,8 +130,9 @@ async function fixtureRoot(): Promise<string> {
 
 function productManifest(overrides: {managerVersion?: string} = {}): InstallationManifest {
     return {
-        schemaVersion: 3,
+        schemaVersion: 4,
         profile: "product-bun",
+        containerEngine: null,
         managerVersion: overrides.managerVersion ?? "0.1.0-canary.19",
         appVersion: "0.8.6-canary.1",
         channel: "canary",
@@ -229,7 +230,7 @@ function releaseManifest(overrides: {version?: string; sourceRevision?: string; 
     const sourceRevision = overrides.sourceRevision ?? "1".repeat(40);
     const sourceSha = overrides.sha ?? SHA_A;
     return {
-        schemaVersion: 2,
+        schemaVersion: 3,
         version,
         channel: "canary",
         sourceRevision,

@@ -5,7 +5,9 @@ import {basename, dirname, relative, resolve} from "node:path";
 import {Command} from "commander";
 import {unzipSync} from "fflate";
 
+import {currentProductPlatform, PRODUCT_ASSET_NAMES} from "nbook/packages/neuro-book-manager/src/platform";
 import {parseReleaseManifest} from "nbook/packages/neuro-book-manager/src/schema";
+import {PRODUCT_PLATFORMS, type ProductPlatform} from "nbook/packages/neuro-book-manager/src/types";
 import {verifyReleaseChecksums, writeReleaseChecksums} from "nbook/scripts/release/release-checksums";
 import {run, runCapture} from "nbook/scripts/utils/process.mjs";
 import {isRuntimeTestSourcePath} from "nbook/scripts/utils/runtime-source-prune.mjs";
@@ -32,6 +34,9 @@ program.command("manifest")
     .requiredOption("--source <path>")
     .requiredOption("--windows-product <path>")
     .requiredOption("--linux-product <path>")
+    .requiredOption("--linux-aarch64-product <path>")
+    .requiredOption("--darwin-product <path>")
+    .requiredOption("--darwin-aarch64-product <path>")
     .requiredOption("--portable <path>")
     .requiredOption("--stage0-windows <path>")
     .requiredOption("--stage0-windows-cmd <path>")
@@ -56,6 +61,9 @@ type ManifestOptions = {
     source: string;
     windowsProduct: string;
     linuxProduct: string;
+    linuxAarch64Product: string;
+    darwinProduct: string;
+    darwinAarch64Product: string;
     portable: string;
     stage0Windows: string;
     stage0WindowsCmd: string;
@@ -73,7 +81,16 @@ async function buildSourceArchive(output: string): Promise<void> {
 }
 
 /** 把当前平台 `.output` 打成 Product overlay。 */
-async function buildProductArchive(platform: string, output: string): Promise<void> {
+async function buildProductArchive(platformInput: string, output: string): Promise<void> {
+    if (!(platformInput in PRODUCT_ASSET_NAMES)) throw new Error(`不支持的 Product 平台：${platformInput}`);
+    const platform = platformInput as ProductPlatform;
+    if (basename(output) !== PRODUCT_ASSET_NAMES[platform]) {
+        throw new Error(`${platform} Product输出资产名必须为${PRODUCT_ASSET_NAMES[platform]}。`);
+    }
+    const hostPlatform = currentProductPlatform();
+    if (platform !== hostPlatform) {
+        throw new Error(`当前宿主${hostPlatform}不能包装${platform} Product；不支持交叉包装现有.output。`);
+    }
     if (!existsSync(resolve(ROOT, ".output", "server", "index.mjs"))) {
         throw new Error("缺少 .output/server/index.mjs，请先执行 bun run nuxt:build。");
     }
@@ -88,11 +105,10 @@ async function buildProductArchive(platform: string, output: string): Promise<vo
         })));
         return;
     }
-    if (platform === "linux-x64-glibc") {
+    if (platform !== "windows-x64") {
         await run("tar", ["-czf", output, ".output"], {cwd: ROOT});
         return;
     }
-    throw new Error(`不支持的 Product 平台：${platform}`);
 }
 
 /** 汇总平台产物、GHCR digest 和 checksum，生成正式 Release Manifest。 */
@@ -105,20 +121,27 @@ async function buildReleaseManifest(options: ManifestOptions): Promise<void> {
     }
     const baseUrl = `https://github.com/notnotype/neuro-book/releases/download/${encodeURIComponent(tag)}`;
     const source = await asset(resolve(ROOT, options.source), baseUrl);
-    const windowsProduct = await asset(resolve(ROOT, options.windowsProduct), baseUrl);
-    const linuxProduct = await asset(resolve(ROOT, options.linuxProduct), baseUrl);
+    const productPaths = {
+        "windows-x64": resolve(ROOT, options.windowsProduct),
+        "linux-x64-glibc": resolve(ROOT, options.linuxProduct),
+        "linux-aarch64-glibc": resolve(ROOT, options.linuxAarch64Product),
+        "darwin-x64": resolve(ROOT, options.darwinProduct),
+        "darwin-aarch64": resolve(ROOT, options.darwinAarch64Product),
+    } satisfies Record<ProductPlatform, string>;
+    const products = await Promise.all(PRODUCT_PLATFORMS.map(async (platform) => ({
+        ...await asset(productPaths[platform], baseUrl),
+        platform,
+        sourceRevision: options.revision,
+    })));
     const portable = await asset(resolve(ROOT, options.portable), baseUrl);
     const manifest = {
-        schemaVersion: 2,
+        schemaVersion: 3,
         version,
         channel: version.includes("-") ? "canary" : "stable",
         sourceRevision: options.revision,
         minManagerVersion: options.managerVersion,
         source,
-        products: [
-            {...windowsProduct, platform: "windows-x64", sourceRevision: options.revision},
-            {...linuxProduct, platform: "linux-x64-glibc", sourceRevision: options.revision},
-        ],
+        products,
         windowsPortable: portable,
         ghcr: {
             ref: options.ghcrRef,
@@ -132,8 +155,7 @@ async function buildReleaseManifest(options: ManifestOptions): Promise<void> {
     await writeFile(output, `${JSON.stringify(manifest, null, 4)}\n`, "utf8");
     const allFiles = [
         resolve(ROOT, options.source),
-        resolve(ROOT, options.windowsProduct),
-        resolve(ROOT, options.linuxProduct),
+        ...Object.values(productPaths),
         resolve(ROOT, options.portable),
         output,
         resolve(ROOT, options.stage0Windows),
@@ -154,6 +176,9 @@ async function verifyReleaseAssets(directory: string, tagInput: string, revision
         "neuro-book-source.zip",
         "neuro-book-product-windows-x64.zip",
         "neuro-book-product-linux-x64-glibc.tar.gz",
+        "neuro-book-product-linux-aarch64-glibc.tar.gz",
+        "neuro-book-product-darwin-x64.tar.gz",
+        "neuro-book-product-darwin-aarch64.tar.gz",
         "neuro-book-windows-x64.zip",
         "release-manifest.json",
         "install.ps1",
@@ -185,6 +210,27 @@ async function verifyReleaseAssets(directory: string, tagInput: string, revision
         ".output/server/node_modules/sqlite-vec-linux-x64/",
     ], "Linux Product");
     assertNoRuntimeTestEntries(linuxEntries, "Linux Product");
+    const linuxAarch64Entries = (await runCapture("tar", ["-tzf", resolve(directory, "neuro-book-product-linux-aarch64-glibc.tar.gz")], {cwd: directory})).split(/\r?\n/u);
+    assertEntries(linuxAarch64Entries, [
+        ".output/server/index.mjs",
+        ".output/server/node_modules/@libsql/linux-arm64-gnu/",
+        ".output/server/node_modules/sqlite-vec-linux-arm64/",
+    ], "Linux ARM64 Product");
+    assertNoRuntimeTestEntries(linuxAarch64Entries, "Linux ARM64 Product");
+    const darwinEntries = (await runCapture("tar", ["-tzf", resolve(directory, "neuro-book-product-darwin-x64.tar.gz")], {cwd: directory})).split(/\r?\n/u);
+    assertEntries(darwinEntries, [
+        ".output/server/index.mjs",
+        ".output/server/node_modules/@libsql/darwin-x64/",
+        ".output/server/node_modules/sqlite-vec-darwin-x64/",
+    ], "macOS x64 Product");
+    assertNoRuntimeTestEntries(darwinEntries, "macOS x64 Product");
+    const darwinAarch64Entries = (await runCapture("tar", ["-tzf", resolve(directory, "neuro-book-product-darwin-aarch64.tar.gz")], {cwd: directory})).split(/\r?\n/u);
+    assertEntries(darwinAarch64Entries, [
+        ".output/server/index.mjs",
+        ".output/server/node_modules/@libsql/darwin-arm64/",
+        ".output/server/node_modules/sqlite-vec-darwin-arm64/",
+    ], "macOS ARM64 Product");
+    assertNoRuntimeTestEntries(darwinAarch64Entries, "macOS ARM64 Product");
     const portableEntries = Object.keys(unzipSync(await readFile(resolve(directory, "neuro-book-windows-x64.zip"))));
     assertEntries(portableEntries, [
         ".deploy/installation.json",

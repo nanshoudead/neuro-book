@@ -7,6 +7,7 @@ import {afterEach, describe, expect, it} from "vitest";
 import {addDiscoveryRoot, forgetManagerInstance, readManagerConfig, registerManagerInstance, removeDiscoveryRoot, setDefaultManagerInstance} from "#manager/manager-config";
 import {writeInstallationManifest} from "#manager/manifest-store";
 import {installationPaths} from "#manager/paths";
+import {currentProductPlatform} from "#manager/platform";
 import type {InstallationManifest} from "#manager/types";
 
 const roots: string[] = [];
@@ -82,8 +83,9 @@ function manifest(): InstallationManifest {
     const revision = "b".repeat(40);
     const now = new Date().toISOString();
     return {
-        schemaVersion: 3,
+        schemaVersion: 4,
         profile: "product-bun",
+        containerEngine: null,
         managerVersion: "0.1.0",
         appVersion: "0.8.0",
         channel: "stable",
@@ -106,7 +108,7 @@ function manifest(): InstallationManifest {
                 version: "0.8.0",
                 revision,
                 path: ".output",
-                platform: process.platform === "win32" ? "windows-x64" : "linux-x64-glibc",
+                platform: currentProductPlatform(),
                 archiveSha256: checksum,
                 sourceUrl: "https://example.com/product.zip",
                 license: "AGPL-3.0-only",

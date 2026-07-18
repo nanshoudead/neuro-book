@@ -5,31 +5,73 @@ import {join} from "node:path";
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
 import {parse} from "yaml";
 
-import {runDockerApplicationCommand, writeDockerCompose} from "#manager/docker";
+import {resolveContainerEngine, runDockerApplicationCommand, writeDockerCompose} from "#manager/docker";
 
 const processCommands = vi.hoisted(() => ({
+    available: vi.fn(),
     capture: vi.fn(),
     run: vi.fn(),
 }));
 
 vi.mock("#manager/process", () => ({
+    commandAvailable: processCommands.available,
     runCapture: processCommands.capture,
     run: processCommands.run,
 }));
 
 const roots: string[] = [];
-beforeEach(() => vi.clearAllMocks());
-afterEach(async () => Promise.all(roots.splice(0).map((root) => rm(root, {recursive: true, force: true}))));
+beforeEach(() => {
+    vi.clearAllMocks();
+    processCommands.available.mockResolvedValue(true);
+});
+afterEach(async () => {
+    delete process.env.NEURO_BOOK_CONTAINER_ENGINE;
+    await Promise.all(roots.splice(0).map((root) => rm(root, {recursive: true, force: true})));
+});
 
 describe("Docker Compose部署合同", () => {
+    it("Docker验证失败时选择完整可用的Podman", async () => {
+        processCommands.capture.mockImplementation(async (command: string, args: string[]) => {
+            if (command === "docker" && args[0] === "compose") throw new Error("compose missing");
+            return "ok\n";
+        });
+        await expect(resolveContainerEngine()).resolves.toBe("podman");
+        expect(processCommands.capture).toHaveBeenCalledWith("podman", ["compose", "version"]);
+        expect(processCommands.capture).toHaveBeenCalledWith("podman", ["info"]);
+    });
+
+    it("显式engine在info失败时不静默切换", async () => {
+        processCommands.capture.mockImplementation(async (command: string, args: string[]) => {
+            if (command === "docker" && args[0] === "info") throw new Error("daemon unavailable");
+            return "ok\n";
+        });
+        await expect(resolveContainerEngine("docker")).rejects.toThrow("daemon或machine不可用");
+        expect(processCommands.available).not.toHaveBeenCalledWith("podman");
+    });
+
+    it("环境变量只接受docker或podman", async () => {
+        process.env.NEURO_BOOK_CONTAINER_ENGINE = "nerdctl";
+        await expect(resolveContainerEngine()).rejects.toThrow("只接受docker或podman");
+        expect(processCommands.available).not.toHaveBeenCalled();
+    });
+
     it("POSIX容器使用当前用户写入State Root", async () => {
         const root = await mkdtemp(join(tmpdir(), "nbook-compose-"));
         roots.push(root);
-        const output = await writeDockerCompose({root, stateRoot: root, profile: "source-docker", image: "neuro-book:test", port: 3000});
+        const output = await writeDockerCompose({engine: "docker", root, stateRoot: root, profile: "source-docker", image: "neuro-book:test", port: 3000});
         const compose = parse(await readFile(output, "utf8")) as {services: {app: {user?: string; volumes: string[]}}};
         if (process.platform === "win32") expect(compose.services.app.user).toBeUndefined();
         else expect(compose.services.app.user).toBe(`${process.getuid?.()}:${process.getgid?.()}`);
         expect(compose.services.app.volumes).toContain("../.env:/app/.env");
+    });
+
+    it("rootless Podman不重复注入宿主UID", async () => {
+        processCommands.capture.mockResolvedValue("true\n");
+        const root = await mkdtemp(join(tmpdir(), "nbook-compose-podman-"));
+        roots.push(root);
+        const output = await writeDockerCompose({engine: "podman", root, stateRoot: root, profile: "source-docker", image: "neuro-book:test", port: 3000});
+        const compose = parse(await readFile(output, "utf8")) as {services: {app: {user?: string}}};
+        expect(compose.services.app.user).toBeUndefined();
     });
 
     it("一次性应用命令覆盖Product ENTRYPOINT并保留参数边界", async () => {
@@ -37,7 +79,7 @@ describe("Docker Compose部署合同", () => {
         const root = "/tmp/neuro-book";
         const stateRoot = "/tmp/neuro-book-state";
 
-        await expect(runDockerApplicationCommand(root, stateRoot, [
+        await expect(runDockerApplicationCommand("docker", root, stateRoot, [
             "bun",
             ".output/server/scripts/db/migrate-agent-attachments.ts",
             "--dry-run",
@@ -65,7 +107,7 @@ describe("Docker Compose部署合同", () => {
     });
 
     it("一次性应用命令拒绝空命令", async () => {
-        await expect(runDockerApplicationCommand("/tmp/neuro-book", "/tmp/neuro-book-state", []))
+        await expect(runDockerApplicationCommand("docker", "/tmp/neuro-book", "/tmp/neuro-book-state", []))
             .rejects.toThrow("Docker一次性应用命令不能为空");
         expect(processCommands.capture).not.toHaveBeenCalled();
     });

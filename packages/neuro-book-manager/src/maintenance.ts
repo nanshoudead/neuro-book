@@ -20,7 +20,7 @@ export async function maintainRuntime(root: string, manifest: InstallationManife
         await recoverInterruptedOperations(root);
         await assertManagerUpgrade(MANAGER_VERSION, manifest.managerVersion, manifest.components.manager.bundleSha256, managerExecutable);
         const createdPaths: string[] = [];
-        let journal = await createOperation({id: randomUUID(), action: "update", root, createdPaths, backupRoot: join(paths.backups, randomUUID()), previousManifest: manifest, nextManifest: null});
+        let journal = await createOperation({id: randomUUID(), action: "update", root, containerEngine: manifest.containerEngine, createdPaths, backupRoot: join(paths.backups, randomUUID()), previousManifest: manifest, nextManifest: null});
         try {
             const recordCreated = async (path: string): Promise<void> => {
                 journal = await updateOperation(journal, journal.phase, {createdPaths: [...new Set([...journal.createdPaths, path])]});
@@ -55,7 +55,7 @@ export async function maintainTool(root: string, manifest: InstallationManifest,
         await recoverInterruptedOperations(root);
         await assertManagerUpgrade(MANAGER_VERSION, manifest.managerVersion, manifest.components.manager.bundleSha256, managerExecutable);
         const createdPaths: string[] = [];
-        let journal = await createOperation({id: randomUUID(), action: "update", root, createdPaths, backupRoot: join(paths.backups, randomUUID()), previousManifest: manifest, nextManifest: null});
+        let journal = await createOperation({id: randomUUID(), action: "update", root, containerEngine: manifest.containerEngine, createdPaths, backupRoot: join(paths.backups, randomUUID()), previousManifest: manifest, nextManifest: null});
         try {
             const recordCreated = async (path: string): Promise<void> => {
                 journal = await updateOperation(journal, journal.phase, {createdPaths: [...new Set([...journal.createdPaths, path])]});

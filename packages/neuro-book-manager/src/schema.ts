@@ -4,7 +4,8 @@ import {Value} from "typebox/value";
 import {valid} from "semver";
 import {isAbsolute, relative, resolve} from "node:path";
 
-import type {InstallationManifest, OperationJournal, ReleaseManifest} from "#manager/types";
+import {PRODUCT_ASSET_NAMES} from "#manager/platform";
+import {PRODUCT_PLATFORMS, type InstallationManifest, type OperationJournal, type ReleaseManifest} from "#manager/types";
 
 const SHA256_PATTERN = "^[a-fA-F0-9]{64}$";
 const REVISION_PATTERN = "^[a-f0-9]{40}$";
@@ -19,7 +20,8 @@ const InstallProfileSchema = Type.Union([
     Type.Literal("ghcr"),
 ]);
 const ReleaseChannelSchema = Type.Union([Type.Literal("stable"), Type.Literal("canary")]);
-const ProductPlatformSchema = Type.Union([Type.Literal("windows-x64"), Type.Literal("linux-x64-glibc")]);
+const ContainerEngineSchema = Type.Union([Type.Literal("docker"), Type.Literal("podman")]);
+const ProductPlatformSchema = Type.Union(PRODUCT_PLATFORMS.map((platform) => Type.Literal(platform)));
 const StateRootSchema = Type.Union([Type.Literal("."), Type.Literal("data")]);
 const RevisionSchema = Type.String({pattern: REVISION_PATTERN});
 const ChecksumSchema = Type.String({pattern: SHA256_PATTERN});
@@ -130,8 +132,9 @@ const ToolComponentsSchema = Type.Object({
 }, {additionalProperties: false});
 
 export const InstallationManifestSchema = Type.Object({
-    schemaVersion: Type.Literal(3),
+    schemaVersion: Type.Literal(4),
     profile: InstallProfileSchema,
+    containerEngine: Type.Union([ContainerEngineSchema, Type.Null()]),
     managerVersion: Type.String({minLength: 1}),
     appVersion: Type.String({minLength: 1}),
     channel: ReleaseChannelSchema,
@@ -165,6 +168,7 @@ export const OperationJournalSchema = Type.Object({
     action: Type.Union([Type.Literal("install"), Type.Literal("update")]),
     phase: OperationPhaseSchema,
     root: Type.String({minLength: 1}),
+    containerEngine: Type.Union([ContainerEngineSchema, Type.Null()]),
     createdPaths: Type.Array(RelativePathSchema),
     backupRoot: Type.String({minLength: 1}),
     previousManifest: Type.Union([InstallationManifestSchema, Type.Null()]),
@@ -240,7 +244,7 @@ const ReleaseImageSchema = Type.Object({
 }, {additionalProperties: false});
 
 export const ReleaseManifestSchema = Type.Object({
-    schemaVersion: Type.Literal(2),
+    schemaVersion: Type.Literal(3),
     version: Type.String({minLength: 1}),
     channel: ReleaseChannelSchema,
     sourceRevision: RevisionSchema,
@@ -251,6 +255,11 @@ export const ReleaseManifestSchema = Type.Object({
     ghcr: ReleaseImageSchema,
 }, {additionalProperties: false});
 
+const ReleaseManifestEnvelopeSchema = Type.Object({
+    schemaVersion: Type.Integer({minimum: 1}),
+    minManagerVersion: Type.String({minLength: 1}),
+}, {additionalProperties: true});
+
 export type InstallationManifestValue = Static<typeof InstallationManifestSchema>;
 export type OperationJournalValue = Static<typeof OperationJournalSchema>;
 export type ReleaseManifestValue = Static<typeof ReleaseManifestSchema>;
@@ -260,7 +269,7 @@ export function parseInstallationManifest(value: unknown): InstallationManifest 
     assertSchema(
         InstallationManifestSchema,
         value,
-        "installation.json 不符合 NeuroBook Manager schema v3；旧版安装必须重新安装，Windows Portable 只复用完整 data/。",
+        "installation.json 不符合 NeuroBook Manager schema v4；旧版安装必须重新安装，Windows Portable 只复用完整 data/。",
     );
     const manifest = value as InstallationManifest;
     assertSemVer(manifest.managerVersion, "managerVersion");
@@ -286,12 +295,30 @@ export function parseOperationJournal(value: unknown, path: string): OperationJo
             throw new Error(`Operation migrationRoot越过Installation Root：${journal.migrationRoot}`);
         }
     }
+    for (const manifest of [journal.previousManifest, journal.nextManifest]) {
+        if (manifest && manifest.containerEngine !== journal.containerEngine) {
+            throw new Error(`Operation journal与Installation Manifest的Container Engine不一致：${path}`);
+        }
+    }
+    const containerState = Boolean(journal.docker)
+        || [journal.previousManifest, journal.nextManifest].some((manifest) => manifest?.profile === "ghcr" || manifest?.profile === "source-docker");
+    if (containerState && !journal.containerEngine) {
+        throw new Error(`包含容器状态的Operation journal缺少Container Engine：${path}`);
+    }
     return journal;
+}
+
+/** 在严格解析前读取稳定Release envelope，用于优先提示Manager升级。 */
+export function parseReleaseManifestEnvelope(value: unknown): {schemaVersion: number; minManagerVersion: string} {
+    assertSchema(ReleaseManifestEnvelopeSchema, value, "release-manifest.json缺少有效的schemaVersion/minManagerVersion envelope。");
+    const envelope = value as {schemaVersion: number; minManagerVersion: string};
+    assertSemVer(envelope.minManagerVersion, "minManagerVersion");
+    return {schemaVersion: envelope.schemaVersion, minManagerVersion: envelope.minManagerVersion};
 }
 
 /** 严格解析并执行 Release revision/platform 语义校验。 */
 export function parseReleaseManifest(value: unknown): ReleaseManifest {
-    assertSchema(ReleaseManifestSchema, value, "release-manifest.json 不符合 NeuroBook Release schema v2。");
+    assertSchema(ReleaseManifestSchema, value, "release-manifest.json 不符合 NeuroBook Release schema v3。");
     const manifest = value as ReleaseManifest;
     assertSemVer(manifest.version, "version");
     assertSemVer(manifest.minManagerVersion, "minManagerVersion");
@@ -303,7 +330,20 @@ export function parseReleaseManifest(value: unknown): ReleaseManifest {
         if (platforms.has(product.platform)) {
             throw new Error(`Release Manifest 包含重复 Product 平台：${product.platform}`);
         }
+        let filename: string;
+        try {
+            filename = new URL(product.url).pathname.split("/").at(-1) ?? "";
+        } catch {
+            throw new Error(`Product ${product.platform} URL非法：${product.url}`);
+        }
+        if (filename !== PRODUCT_ASSET_NAMES[product.platform]) {
+            throw new Error(`Product ${product.platform}资产名非法：${filename}`);
+        }
         platforms.add(product.platform);
+    }
+    const missingPlatforms = PRODUCT_PLATFORMS.filter((platform) => !platforms.has(platform));
+    if (missingPlatforms.length > 0 || platforms.size !== PRODUCT_PLATFORMS.length) {
+        throw new Error(`Release Manifest必须完整包含五个平台，缺少：${missingPlatforms.join(", ") || "<unknown>"}`);
     }
     if (manifest.ghcr.sourceRevision !== manifest.sourceRevision) {
         throw new Error("GHCR sourceRevision 与 Release Source 不一致。");
@@ -320,6 +360,10 @@ function assertInstallationSemantics(manifest: InstallationManifest): void {
         throw new Error(`Profile ${manifest.profile} 的 State Root 非法：${manifest.stateRoot}`);
     }
     const expected = profileContract(manifest.profile);
+    const containerProfile = manifest.profile === "ghcr" || manifest.profile === "source-docker";
+    if (containerProfile !== (manifest.containerEngine !== null)) {
+        throw new Error(`Profile ${manifest.profile}的Container Engine记录非法。`);
+    }
     if (source.provider !== expected.source || (product?.provider ?? "none") !== expected.product || !expected.runtimes.includes(applicationRuntime.provider)) {
         throw new Error(`Profile ${manifest.profile} 的 Source/Product/Application Runtime 组件组合非法。`);
     }

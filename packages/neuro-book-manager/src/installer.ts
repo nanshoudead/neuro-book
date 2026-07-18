@@ -13,14 +13,14 @@ import {
     type StagedReleaseSource,
 } from "#manager/component";
 import {ensureStateFiles} from "#manager/config";
-import {buildSourceDockerImage, inspectDockerApplication, startDocker, stopDocker, writeDockerCompose} from "#manager/docker";
+import {buildSourceDockerImage, inspectDockerApplication, resolveContainerEngine, startDocker, stopDocker, writeDockerCompose} from "#manager/docker";
 import {ensureDirectory, pathExists, removePath} from "#manager/files";
 import {assertCleanWorktree, createStagedWorktree, materializeRepository, removeStagedWorktree, repositoryRevision} from "#manager/git";
 import {assertNativeProductStopped, backupApplicationDatabase, verifyNativeProduct} from "#manager/health";
 import {withInstallLock} from "#manager/lock";
 import {readInstallationManifest, resolveReleaseManifest, writeInstallationManifest} from "#manager/manifest-store";
 import {backupRuntimeWrappers, commitOperation, createOperation, recoverInterruptedOperations, updateOperation} from "#manager/operation";
-import {assertManagerPlatform, currentProductPlatform} from "#manager/platform";
+import {assertManagerPlatform, assertProfileSupported, currentProductPlatform} from "#manager/platform";
 import {installationPaths} from "#manager/paths";
 import {writePortableLaunchers} from "#manager/portable-launchers";
 import {buildSourceProduct, installSourceDependencies} from "#manager/product";
@@ -88,6 +88,9 @@ export async function installSourceAdoption(options: AdoptSourceOptions): Promis
 async function installInternal(options: InstallOptions, mode: "fresh" | "adopt"): Promise<InstallationManifest> {
     if (options.dryRun) throw new Error("dry-run 应通过 installPlan 输出，不应调用 install。" );
     assertManagerPlatform();
+    assertProfileSupported(options.profile);
+    const definition = profileDefinition(options.profile);
+    const containerEngine = definition.docker ? await resolveContainerEngine() : null;
     const portable = options.profile === "windows-portable";
     const paths = installationPaths(options.root, portable);
     await ensureDirectory(paths.root);
@@ -105,6 +108,7 @@ async function installInternal(options: InstallOptions, mode: "fresh" | "adopt")
             id,
             action: "install",
             root: paths.root,
+            containerEngine,
             createdPaths: [relative(paths.root, staging).replaceAll("\\", "/")],
             backupRoot: backup,
             previousManifest: null,
@@ -253,8 +257,9 @@ async function prepareInstallation(
         });
         product = stagedProduct.component;
     } else if (options.profile === "source-docker") {
+        if (!journal.containerEngine) throw new Error("Source Docker安装缺少Container Engine。" );
         product = {provider: "container", version: appVersion, revision: sourceRevision, image: `neuro-book-source:${sourceRevision.slice(0, 12)}`};
-        await buildSourceDockerImage(stagedWorktree ?? paths.root, product.image);
+        await buildSourceDockerImage(journal.containerEngine, stagedWorktree ?? paths.root, product.image);
         journal = await updateOperation(journal, journal.phase, {docker: {
             previousState: "missing",
             stopped: false,
@@ -278,8 +283,9 @@ async function prepareInstallation(
     const components: InstallationComponents = {source, product, manager, managerRuntime, applicationRuntime, tools};
     const now = new Date().toISOString();
     const manifest: InstallationManifest = {
-        schemaVersion: 3,
+        schemaVersion: 4,
         profile: options.profile,
+        containerEngine: journal.containerEngine,
         managerVersion: MANAGER_VERSION,
         appVersion,
         channel: options.channel,
@@ -305,11 +311,14 @@ async function prepareInstallation(
             await ensureDirectory(backup);
             await copyFile(finalCompose, previousCompose);
         }
-        const previousInspection = composeCreated ? null : await inspectDockerApplication(paths.root, paths.state);
+        const engine = journal.containerEngine;
+        if (!engine) throw new Error(`${options.profile}安装缺少Container Engine。`);
+        const previousInspection = composeCreated ? null : await inspectDockerApplication(engine, paths.root, paths.state);
         const previousState = !previousInspection?.containerId
             ? "missing" as const
             : previousInspection.status === "running" ? "running" as const : "stopped" as const;
         const stagedCompose = await writeDockerCompose({
+            engine,
             root: paths.root,
             stateRoot: paths.state,
             profile: options.profile,
@@ -328,7 +337,7 @@ async function prepareInstallation(
             targetImage: options.profile === "ghcr" ? `${product.image}@${product.digest}` : product.image,
             imageCreated: journal.docker?.imageCreated,
         }});
-        if (previousState === "running") await stopDocker(paths.root, paths.state);
+        if (previousState === "running") await stopDocker(engine, paths.root, paths.state);
         await removePath(finalCompose);
         await rename(stagedCompose, finalCompose);
         journal = await updateOperation(journal, journal.phase, {docker: {...journal.docker!, composeChanged: true}});
@@ -345,7 +354,8 @@ async function prepareInstallation(
         if (!bun) throw new Error("原生 Product 健康检查缺少 Application Runtime。" );
         await verifyNativeProduct(paths.root, paths.state, bun, appVersion);
     } else if (options.profile === "ghcr" || options.profile === "source-docker") {
-        await startDocker(paths.root, paths.state, options.profile, appVersion);
+        if (!journal.containerEngine) throw new Error(`${options.profile}启动缺少Container Engine。`);
+        await startDocker(journal.containerEngine, paths.root, paths.state, options.profile, appVersion);
     }
     if (portable) await writePortableLaunchers(paths.root);
     journal = await updateOperation(journal, "healthy");

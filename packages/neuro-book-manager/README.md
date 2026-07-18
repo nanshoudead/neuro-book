@@ -12,7 +12,7 @@ irm https://raw.githubusercontent.com/notnotype/neuro-book/master/scripts/instal
 curl -fsSL https://raw.githubusercontent.com/notnotype/neuro-book/master/scripts/install/install.sh | sh
 ```
 
-Linux Stage 0支持x64 glibc，并依赖`curl`、`unzip`和`sha256sum`。Windows普通用户也可以直接从GitHub Release下载`neuro-book-windows-x64.zip`解压使用。
+POSIX Stage 0支持Linux x64/AArch64 glibc与macOS x64/ARM64：Linux依赖`sha256sum`并验证glibc，macOS使用系统`shasum -a 256`；两者都依赖`curl`和`unzip`。Windows普通用户也可以直接从GitHub Release下载`neuro-book-windows-x64.zip`解压使用。
 
 直接运行且不传参数，会先检测当前目录：受管实例进入管理菜单，未接管的NeuroBook Git checkout进入接管菜单，普通目录进入部署菜单：
 
@@ -26,7 +26,11 @@ bunx --bun @notnotype/neuro-book-manager@canary
 bunx --bun @notnotype/neuro-book-manager@canary install --profile ghcr --yes
 ```
 
-六种Profile分别是：Windows解压/托管运行时使用`windows-portable`；Linux服务器预构建镜像使用`ghcr`；无Docker的预构建Product使用`product-bun`；开发使用`source-dev`；本机源码生产构建使用`source-product`；容器内源码构建使用`source-docker`。
+六种Profile分别是：Windows解压/托管运行时使用`windows-portable`；Linux/macOS容器部署使用`ghcr`；无容器的预构建Product使用`product-bun`；开发使用`source-dev`；本机源码生产构建使用`source-product`；容器内源码构建使用`source-docker`。Windows x64、Linux x64/AArch64 glibc和macOS x64/ARM64支持各自原生Product；Windows ARM64和Linux musl明确不支持。
+
+容器Profile首次安装时会验证Docker/Podman CLI、Compose和engine状态，并把选定engine写入Installation Manifest与Operation Journal。后续start/update/rollback/doctor/create-admin始终使用该engine，不会在Docker与Podman之间静默切换；管理员命令只使用Docker Compose与`podman compose`共同支持的`compose exec`。
+
+Managed Bun在复用或提交版本目录前会恢复POSIX执行位并执行真实版本检查；损坏缓存会删除后重新下载，不会进入Installation Manifest。
 
 安装成功后，实例会注册到 `~/.neuro-book-manager/config.json`。该文件只保存用户偏好、默认实例和实例目录索引；每个实例的真实部署状态仍由其 `.deploy/installation.json` 管理。
 
@@ -46,7 +50,7 @@ neuro-book --root <path> doctor
 
 Windows Portable的State Root固定为`data/`。如果Installation Root下另外出现了真实`workspace/`目录，Manager会把它视为可能的数据分叉：`doctor`报告`state.shadow-workspace`失败，`status`给出人工处理步骤，`start`只警告并继续。Manager不会自动复制、合并、删除或重命名两个目录；junction或symlink若与`data/workspace/`指向同一真实目录则不会误报。
 
-已有Manifest v3实例使用`instances import <path> --yes`执行离线完整性门禁后登记；`--yes`只接受“服务未启动”等warning，不能绕过checksum、wrapper或Operation blocker。无Manifest源码checkout使用`adopt`显式接管；三个Source Profile均在detached worktree准备，dirty、未知remote或非法branch会停止。无法证明revision/checksum的历史`.output`不会直接纳入管理。
+已有Manifest v4实例使用`instances import <path> --yes`执行离线完整性门禁后登记；v3不自动迁移，需要重新安装并只复用用户状态。`--yes`只接受“服务未启动”等warning，不能绕过checksum、wrapper或Operation blocker。无Manifest源码checkout使用`adopt`显式接管；三个Source Profile均在detached worktree准备，dirty、未知remote或非法branch会停止。无法证明revision/checksum的历史`.output`不会直接纳入管理。
 
 `status`只做轻量路径、Operation和服务探测；`doctor`执行完整checksum、组件版本、wrapper内容、Source/Product revision、Compose镜像和HTTP版本检查。服务正常停止是warning且`healthy=true`，下一步会提示`start`；Docker/Compose不可用、运行中镜像或版本错误、HTTP不可达和组件损坏才会使doctor失败。Docker `start`会等待真实版本接口通过，Compose命令成功不等于应用健康。
 

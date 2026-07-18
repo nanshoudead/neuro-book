@@ -4,14 +4,24 @@ import {basename, dirname, join, relative, resolve} from "node:path";
 
 import {downloadVerified, extractArchive, githubReleaseAsset} from "#manager/download";
 import {ensureDirectory, pathExists, removePath, sha256File, writeTextAtomic} from "#manager/files";
-import {assertManagerPlatform, executableName} from "#manager/platform";
-import type {ManagedRuntimeComponent, ManagerComponent, ManagerRuntimeComponent} from "#manager/types";
+import {currentProductPlatform, executableName} from "#manager/platform";
+import {runCapture} from "#manager/process";
+import type {ManagedRuntimeComponent, ManagerComponent, ManagerRuntimeComponent, ProductPlatform} from "#manager/types";
 import {compare} from "semver";
 
 const STAGE0_PATH = "NEURO_BOOK_STAGE0_BUN_PATH";
 const STAGE0_VERSION = "NEURO_BOOK_STAGE0_BUN_VERSION";
 const STAGE0_SOURCE_URL = "NEURO_BOOK_STAGE0_BUN_SOURCE_URL";
 const STAGE0_SHA256 = "NEURO_BOOK_STAGE0_BUN_SHA256";
+
+/** 当前Manager支持的平台到Bun官方Release资产名。 */
+export const BUN_ASSET_NAMES = {
+    "windows-x64": "bun-windows-x64.zip",
+    "linux-x64-glibc": "bun-linux-x64.zip",
+    "linux-aarch64-glibc": "bun-linux-aarch64.zip",
+    "darwin-x64": "bun-darwin-x64.zip",
+    "darwin-aarch64": "bun-darwin-aarch64.zip",
+} as const satisfies Record<ProductPlatform, string>;
 
 /** Manager自接管只允许严格升级；同版本bundle身份必须完全一致。 */
 export async function assertManagerUpgrade(currentVersion: string, installedVersion: string, installedChecksum: string, source: string): Promise<boolean> {
@@ -39,31 +49,41 @@ export async function resolveManagerRuntime(root: string, forceManaged = false, 
 
 /** 安装托管 Bun Runtime，使用 staging 后原子提交不可变版本目录。 */
 export async function installManagedBun(root: string, requestedVersion?: string, createdPaths: string[] = [], recordCreated?: (path: string) => Promise<void>): Promise<ManagedRuntimeComponent> {
-    assertManagerPlatform();
     const tag = requestedVersion
         ? requestedVersion.startsWith("bun-v") ? requestedVersion : `bun-v${requestedVersion.replace(/^v/u, "")}`
         : undefined;
-    const archiveName = process.platform === "win32" ? "bun-windows-x64.zip" : "bun-linux-x64.zip";
+    const archiveName = BUN_ASSET_NAMES[currentProductPlatform()];
     const release = await githubReleaseAsset("oven-sh/bun", tag, (name) => name === archiveName);
     const version = release.tag.replace(/^bun-v/u, "");
     const runtimeRoot = join(root, ".runtime", "bun", version);
     let executable = await findNamedFile(runtimeRoot, executableName("bun")).catch(() => null);
+    if (executable) {
+        try {
+            await verifyManagedBun(executable, version);
+        } catch {
+            await removePath(runtimeRoot);
+            executable = null;
+        }
+    }
     if (!executable) {
-        await removePath(runtimeRoot);
         const stageRoot = join(root, ".deploy", "staging", `bun-${version}`);
         const archivePath = join(stageRoot, archiveName);
         const extractedRoot = join(stageRoot, "extracted");
         await removePath(stageRoot);
-        await downloadVerified(release.asset.url, archivePath, release.asset.sha256);
-        await extractArchive(archivePath, extractedRoot);
-        executable = await findNamedFile(extractedRoot, executableName("bun"));
-        await ensureDirectory(dirname(runtimeRoot));
-        await rename(extractedRoot, runtimeRoot);
-        await removePath(stageRoot);
-        executable = join(runtimeRoot, relative(extractedRoot, executable));
-        const createdPath = relative(root, runtimeRoot).replaceAll("\\", "/");
-        createdPaths.push(createdPath);
-        await recordCreated?.(createdPath);
+        try {
+            await downloadVerified(release.asset.url, archivePath, release.asset.sha256);
+            await extractArchive(archivePath, extractedRoot);
+            executable = await findNamedFile(extractedRoot, executableName("bun"));
+            await verifyManagedBun(executable, version);
+            await ensureDirectory(dirname(runtimeRoot));
+            await rename(extractedRoot, runtimeRoot);
+            executable = join(runtimeRoot, relative(extractedRoot, executable));
+            const createdPath = relative(root, runtimeRoot).replaceAll("\\", "/");
+            createdPaths.push(createdPath);
+            await recordCreated?.(createdPath);
+        } finally {
+            await removePath(stageRoot);
+        }
     }
     return {
         provider: "managed",
@@ -75,6 +95,15 @@ export async function installManagedBun(root: string, requestedVersion?: string,
         license: "MIT",
         redistribution: "按 Bun 官方 Release 原样再分发，并保留上游许可证与版本信息。",
     };
+}
+
+/** 修复POSIX执行位并验证Managed Bun真实版本。 */
+async function verifyManagedBun(executable: string, expectedVersion: string): Promise<void> {
+    if (process.platform !== "win32") await chmod(executable, 0o755);
+    const actualVersion = (await runCapture(executable, ["--version"])).trim();
+    if (actualVersion !== expectedVersion) {
+        throw new Error(`Managed Bun版本不匹配：期望${expectedVersion}，实际${actualVersion || "<missing>"}。`);
+    }
 }
 
 /** 把当前 Manager bundle安装到版本目录，并返回严格组件状态。 */
@@ -150,6 +179,10 @@ async function installStage0Bun(root: string, stage0: Stage0Runtime, createdPath
     }
     const targetRoot = join(root, ".runtime", "bun", stage0.version);
     const target = join(targetRoot, basename(stage0.path));
+    if (await pathExists(target)) {
+        const checksum = await sha256File(target);
+        if (checksum.toLowerCase() !== stage0.executableSha256.toLowerCase()) await removePath(targetRoot);
+    }
     await ensureDirectory(targetRoot);
     if (!await pathExists(target)) {
         const createdPath = relative(root, targetRoot).replaceAll("\\", "/");
@@ -157,6 +190,7 @@ async function installStage0Bun(root: string, stage0: Stage0Runtime, createdPath
         await recordCreated?.(createdPath);
         await copyFile(stage0.path, target);
     }
+    await verifyManagedBun(target, stage0.version);
     return {
         provider: "managed",
         version: stage0.version,

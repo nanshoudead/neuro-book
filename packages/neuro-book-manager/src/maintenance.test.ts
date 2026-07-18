@@ -45,8 +45,9 @@ describe("Manager State Root诊断", () => {
             redistribution: "test",
         };
         const manifest: InstallationManifest = {
-            schemaVersion: 3,
+            schemaVersion: 4,
             profile: "windows-portable",
+            containerEngine: null,
             managerVersion: "0.1.0",
             appVersion: "0.8.0",
             channel: "canary",

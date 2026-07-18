@@ -56,21 +56,21 @@ export async function recoverInterruptedOperations(root: string): Promise<void> 
                 throw new Error(`Git HEAD既不是Operation的previous也不是target，拒绝自动恢复：${head}\nOperation：${path}`);
             }
             if (head === journal.git.targetRevision && journal.nextManifest && journal.phase === "healthy") {
-            if (journal.nextManifest.profile === "source-dev" && !journal.git.dependenciesInstalled) {
-                const runtime = journal.nextManifest.components.applicationRuntime;
-                if (runtime.provider === "container") throw new Error("Source Dev 不能使用 container Application Runtime。" );
-                await installSourceDependencies(root, runtimeExecutable(root, runtime));
-                journal.git.dependenciesInstalled = true;
-                await updateOperation(journal, journal.phase, {git: journal.git});
-            }
-            if (journal.nextManifest.components.managerRuntime.provider === "managed") {
-                await writeRuntimeWrapper(root, journal.nextManifest.components.managerRuntime);
-            }
-            await writeManagedToolWrappers(root, journal.nextManifest.components.tools);
-            await writeManagerWrapper(root, journal.nextManifest.components.manager, journal.nextManifest.components.managerRuntime);
-            await writeInstallationManifest(paths.manifest, journal.nextManifest);
-            await commitOperation(journal);
-            continue;
+                if (journal.nextManifest.profile === "source-dev" && !journal.git.dependenciesInstalled) {
+                    const runtime = journal.nextManifest.components.applicationRuntime;
+                    if (runtime.provider === "container") throw new Error("Source Dev 不能使用 container Application Runtime。" );
+                    await installSourceDependencies(root, runtimeExecutable(root, runtime));
+                    journal.git.dependenciesInstalled = true;
+                    await updateOperation(journal, journal.phase, {git: journal.git});
+                }
+                if (journal.nextManifest.components.managerRuntime.provider === "managed") {
+                    await writeRuntimeWrapper(root, journal.nextManifest.components.managerRuntime);
+                }
+                await writeManagedToolWrappers(root, journal.nextManifest.components.tools);
+                await writeManagerWrapper(root, journal.nextManifest.components.manager, journal.nextManifest.components.managerRuntime);
+                await writeInstallationManifest(paths.manifest, journal.nextManifest);
+                await commitOperation(journal);
+                continue;
             }
             if (head === journal.git.targetRevision) {
                 throw new Error(`Git HEAD已到target，但Operation尚未到达healthy commit point，拒绝自动提交Manifest：${path}`);
@@ -87,7 +87,7 @@ export async function rollbackOperation(journal: OperationJournal): Promise<void
     const stateRoot = resolve(root, journal.previousManifest?.stateRoot ?? journal.nextManifest?.stateRoot ?? ".");
     // 新容器可能持有Attachment runtime lease；必须先停容器，rollback one-shot才能取得独占锁。
     if (journal.docker?.composeChanged && await pathExists(currentCompose)) {
-        await removeDockerDeployment(root, stateRoot);
+        await removeDockerDeployment(requiredContainerEngine(journal), root, stateRoot);
     }
     if (journal.attachmentMigration && journal.attachmentMigration.state !== "rolled_back") {
         if (!journal.nextManifest) throw new Error("Attachment migration回滚缺少nextManifest。");
@@ -130,7 +130,7 @@ export async function rollbackOperation(journal: OperationJournal): Promise<void
         await removePath(currentCompose);
     }
     if (journal.previousManifest && isDockerProfile(journal.previousManifest.profile) && journal.docker?.previousState === "running") {
-        await startDocker(root, resolve(root, journal.previousManifest.stateRoot), journal.previousManifest.profile, journal.previousManifest.appVersion);
+        await startDocker(requiredContainerEngine(journal), root, resolve(root, journal.previousManifest.stateRoot), journal.previousManifest.profile, journal.previousManifest.appVersion);
     }
     if (journal.manager?.wrappersChanged) {
         const runtimeBin = join(root, ".runtime", "bin");
@@ -144,7 +144,7 @@ export async function rollbackOperation(journal: OperationJournal): Promise<void
     let dockerImageCleanupError: string | undefined;
     if (journal.docker?.imageCreated) {
         try {
-            await removeDockerImage(root, journal.docker.imageCreated);
+            await removeDockerImage(requiredContainerEngine(journal), root, journal.docker.imageCreated);
         } catch (error) {
             dockerImageCleanupError = error instanceof Error ? error.message : String(error);
         }
@@ -175,4 +175,10 @@ async function writeOperation(journal: OperationJournal): Promise<void> {
 /** Docker Profile回滚后必须恢复旧Compose对应的实例。 */
 function isDockerProfile(profile: InstallationManifest["profile"]): profile is "ghcr" | "source-docker" {
     return profile === "ghcr" || profile === "source-docker";
+}
+
+/** 返回事务固定的Container Engine。 */
+function requiredContainerEngine(journal: OperationJournal): NonNullable<OperationJournal["containerEngine"]> {
+    if (!journal.containerEngine) throw new Error(`Operation ${journal.id}缺少Container Engine。`);
+    return journal.containerEngine;
 }

@@ -9,7 +9,7 @@ export async function inspectImport(root: string): Promise<ImportInspection> {
     const blockers = [...inspection.blockers];
     const warnings = [...inspection.warnings];
     if (inspection.kind !== "managed-installation" || !inspection.manifest) {
-        blockers.push({code: "import.not-managed", message: "目录不是有效的Manifest v3实例。"});
+        blockers.push({code: "import.not-managed", message: "目录不是有效的Manifest v4实例。"});
         return {...inspection, blockers, warnings, importable: false};
     }
     const integrity = await inspectInstallationIntegrity(inspection.root, inspection.manifest);

@@ -65,8 +65,9 @@ async function packagePortable(output: string, sourceArchive: string, productArc
     await verifyPortableExecutables(stage, runtime.path, rg.path, git.path, git.bashPath);
     const now = new Date().toISOString();
     const manifest: InstallationManifest = {
-        schemaVersion: 3,
+        schemaVersion: 4,
         profile: "windows-portable",
+        containerEngine: null,
         managerVersion: MANAGER_VERSION,
         appVersion: version,
         channel: version.includes("-") ? "canary" : "stable",

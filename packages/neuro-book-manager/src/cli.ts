@@ -143,7 +143,7 @@ instances.command("add")
     .option("--yes", "接受离线检查warning。", false)
     .action(importCommand);
 instances.command("import")
-    .description("导入已有Manifest v3实例，不修改实例文件。")
+    .description("导入已有Manifest v4实例，不修改实例文件。")
     .argument("<path>")
     .option("--name <name>", "实例显示名称。")
     .option("--default", "设为默认实例。", false)

@@ -184,6 +184,7 @@ async function runStable(options: StableOptions): Promise<void> {
     await assertReleaseDoesNotExist(tag, options.repo);
     await assertGitTagDoesNotExist(tag);
     await assertCleanWorktree();
+    await run("bun", ["run", "manager:verify-public"], {cwd: REPO_ROOT});
 
     if (shouldBumpPackage) {
         await writePackageVersion(version);
@@ -276,6 +277,7 @@ async function runPrerelease(options: PrereleaseOptions): Promise<void> {
     if (shouldBumpPackage || !options.allowDirty) {
         await assertCleanTrackedWorktree();
     }
+    await run("bun", ["run", "manager:verify-public"], {cwd: REPO_ROOT});
     if (shouldBumpPackage) {
         await writePackageVersion(tagPlan.packageVersion);
         await run("git", ["add", "package.json"], {cwd: REPO_ROOT});
@@ -331,6 +333,7 @@ async function printStableDryRun(input: {
         console.log("warning: 真实 stable release 要求工作区完全干净。");
     }
     await printDryRunTagWarnings(input.tag, input.options.repo);
+    console.log("command: bun run manager:verify-public");
     if (input.shouldBumpPackage) {
         console.log(`command: update package.json version ${input.currentPackageVersion} -> ${input.version}`);
         console.log("command: git add package.json");
@@ -377,6 +380,7 @@ async function printCanaryDryRun(input: {
     console.log(`branch: ${input.branch}`);
     console.log(`current package version: ${input.currentPackageVersion}`);
     await printDryRunTagWarnings(input.tag, input.options.repo);
+    console.log("command: bun run manager:verify-public");
     if (input.shouldBumpPackage) {
         console.log(`command: update package.json version ${input.currentPackageVersion} -> ${input.packageVersion}`);
         console.log("command: git add package.json");
