@@ -1,6 +1,6 @@
 # 105 - 统一安装目录与 NeuroBook Manager
 
-> 当前状态：实现中，应用发布进行中。Manager `0.1.0-canary.21`已公开；[`v0.8.9-canary.20260719.144929Z.399cb2f9`](https://github.com/notnotype/neuro-book/releases/tag/v0.8.9-canary.20260719.144929Z.399cb2f9)因Windows Portable的Bun ZIP目录条目适配失败而未形成完整资产，workflow `29691602413`已取消。`0.8.6`仍是最新已确认含资产版本；下一顺序是先发布Manager `.22`，再发布应用`0.8.10`。当前源码协议为Installation Manifest v4、Release Manifest v3与Operation Journal v3；公开多架构资产、Canary A数据复用与Canary A→B事务更新仍需完成。Apple Silicon Docker Desktop/rootless Podman实机门禁继续豁免，但不得标记为已验证。
+> 当前状态：实现中，应用发布进行中。Manager `0.1.0-canary.22`已公开并通过npm精确bunx；[`v0.8.10-canary.20260719.153805Z.13c85b2c`](https://github.com/notnotype/neuro-book/releases/tag/v0.8.10-canary.20260719.153805Z.13c85b2c)已创建，workflow `29693247437`后台运行。`0.8.9`因Windows Portable的Bun ZIP目录条目适配失败而未形成完整资产，workflow `29691602413`已取消；`0.8.6`仍是最新已确认含资产版本。当前源码协议为Installation Manifest v4、Release Manifest v3与Operation Journal v3；公开多架构资产、Canary A数据复用与Canary A→B事务更新仍需完成。Apple Silicon Docker Desktop/rootless Podman实机门禁继续豁免，但不得标记为已验证。
 
 ## 2026-07-19：Operation Journal v3与资产ownership收口
 
@@ -867,3 +867,4 @@ uninstall
 - Windows依赖缓存绑定OS、架构、精确Bun版本和lockfile；命中后仍执行frozen install完成完整性收口。新prerelease会取消仍运行的旧prerelease，stable按tag隔离。
 - 当前最大剩余耗时是amd64 runner通过QEMU重新编译ARM64 Nuxt Product：本次取消前超过18分钟，而原生ARM64 runner同类Nuxt build约94秒。后续优化应让Container Packaging Adapter直接消费原生Linux Product Artifact并只做OCI封装/manifest merge；本轮不仓促改变镜像字节来源和发布事务。
 - 验证：Archive Adapter 2项、Manager完整29文件/143项（另1文件/2项按平台跳过）、Release资产/checksum 2文件/8项通过。下一发布顺序固定为Manager `.22`公开后再创建应用`0.8.10` patch canary；不复用失败tag，不等待应用Release workflow。
+- 实际发布：Manager `.22` workflow `29693189437`全绿，npm精确版本、`canary`和真实bunx均返回`.22`；应用`v0.8.10-canary.20260719.153805Z.13c85b2c`随后创建，workflow `29693247437`按`--no-watch`约定在后台运行。本轮没有把尚未完成的Product/GHCR/最终索引门禁写成通过。

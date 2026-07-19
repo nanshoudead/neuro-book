@@ -4,6 +4,8 @@
 
 本次patch修复`0.8.9`候选Windows Portable在组装内置Bun时失败的问题，并收口Release Actions的前置门禁、重复测试和旧canary资源占用。该版本需要`@notnotype/neuro-book-manager@0.1.0-canary.22`或更高版本。
 
+公开prerelease：[`v0.8.10-canary.20260719.153805Z.13c85b2c`](https://github.com/notnotype/neuro-book/releases/tag/v0.8.10-canary.20260719.153805Z.13c85b2c)。Release workflow [`29693247437`](https://github.com/notnotype/neuro-book/actions/runs/29693247437)已启动；按发布约定未等待Actions，最终资产与公开Manifest仍以workflow结果为准。
+
 ### 修复与改进
 
 - Windows Portable现在正确识别Bun官方ZIP中的目录条目（例如`bun-windows-x64/`）。目录身份会在Archive Extraction Adapter中规范化，严格Installation Root路径校验本身没有放宽，路径穿越仍会被拒绝。
@@ -23,6 +25,7 @@
 
 - Archive Extraction Adapter回归覆盖合法空目录、普通文件与`../`路径穿越；真实Bun `1.3.14` Windows ZIP已完成受管物化并得到可执行路径。
 - Manager完整测试为29个文件通过、1个按平台跳过，143项通过、2项跳过；Release资产与checksum合同通过。
+- Manager `0.1.0-canary.22`已由npm Trusted Publisher公开，workflow [`29693189437`](https://github.com/notnotype/neuro-book/actions/runs/29693189437)全绿；npm精确版本、`canary` dist-tag与真实`bunx --bun`均返回`.22`，历史`latest`保持`.4`。
 - 多架构公开Product、GHCR、Windows完整`data/`复用与最终索引仍以本版本Release workflow结果为准；本轮不自动执行人工浏览器验收。
 
 ## 0.8.9-canary - 2026-07-19
