@@ -1,6 +1,6 @@
 # 105 - 统一安装目录与 NeuroBook Manager
 
-> 当前状态：实现中，应用发布进行中。Manager `0.1.0-canary.21`已公开，`0.8.6`仍是最新已确认含资产版本。`.20`未进入npm；`0.8.7`与`0.8.8`分别在provenance和POSIX测试门禁失败，均保留零资产审计Release；Canary A推进到`0.8.9`。当前源码协议为Installation Manifest v4、Release Manifest v3与Operation Journal v3；公开多架构资产、Canary A数据复用与Canary A→B事务更新仍需完成。Apple Silicon Docker Desktop/rootless Podman实机门禁继续豁免，但不得标记为已验证。
+> 当前状态：实现中，应用发布进行中。Manager `0.1.0-canary.21`已公开；[`v0.8.9-canary.20260719.144929Z.399cb2f9`](https://github.com/notnotype/neuro-book/releases/tag/v0.8.9-canary.20260719.144929Z.399cb2f9)已创建，workflow `29691602413`后台执行，`0.8.6`仍是最新已确认含资产版本。`.20`未进入npm；`0.8.7`与`0.8.8`均保留零资产审计Release。当前源码协议为Installation Manifest v4、Release Manifest v3与Operation Journal v3；公开多架构资产、Canary A数据复用与Canary A→B事务更新仍需完成。Apple Silicon Docker Desktop/rootless Podman实机门禁继续豁免，但不得标记为已验证。
 
 ## 2026-07-19：Operation Journal v3与资产ownership收口
 
@@ -856,3 +856,4 @@ uninstall
 - 预检现先执行按SHA、depth=1的只读fetch，再比较Manager构建输入。失败的`0.8.7`继续保留为审计记录，不复用tag；下一patch `0.8.8`承担Canary A。
 - `v0.8.8-canary.20260719.143648Z.93ce3b3f` workflow `29691194281`的Manager provenance与Source通过，但Linux x64/ARM64和macOS x64/ARM64都在`Verify POSIX Stage 0 behavior`失败。共同失败是“缺少curl”测试未传参数，先命中了正确的非TTY拒绝；不是Stage 0下载或平台选择回归。
 - 测试现显式传`--profile product-bun --yes`后再移除`curl`，精确验证依赖缺失发生在缓存/临时目录创建前。已取消`0.8.8`剩余构建，失败Release继续保留，下一patch `0.8.9`承担Canary A。
+- `v0.8.9-canary.20260719.144929Z.399cb2f9`已创建并推送，workflow `29691602413`按`--no-watch`约定交由Actions后台执行。本轮只确认Release与workflow入口存在，不把未完成的Portable、GHCR或最终索引门禁写成已通过。
