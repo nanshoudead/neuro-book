@@ -1,6 +1,6 @@
 {
   "name": "neuro-book",
-  "version": "0.8.9-canary.20260719.144929Z.399cb2f9",
+  "version": "0.8.10-canary.20260719.153805Z.13c85b2c",
   "description": "A local AI workspace for long-form novel writing, integrating a file-based workspace, Markdown Studio, story structure management, and multi-agent writing workflows.",
   "license": "AGPL-3.0-only",
   "repository": {
