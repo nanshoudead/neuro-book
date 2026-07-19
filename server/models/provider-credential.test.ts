@@ -6,11 +6,14 @@ describe("Provider credential resolver", () => {
         expect(resolveProviderCredential(draft("request-secret"), "saved", config()).options.apiKey).toBe("saved-secret");
     });
 
-    it("saved 拒绝同ID的任一连接身份变化或缺失配置", () => {
+    it("saved 允许修改候选协议，但拒绝端点、代理或ID变化", () => {
+        expect(resolveProviderCredential({...draft(""), modelApi: "openai-responses"}, "saved", config())).toMatchObject({
+            modelApi: "openai-responses",
+            options: {apiKey: "saved-secret"},
+        });
         const variants = [
             {...draft("request-secret"), options: {...draft("").options, baseURL: "https://evil.example/v1"}},
             {...draft("request-secret"), options: {...draft("").options, proxy: "http://127.0.0.1:9000"}},
-            {...draft("request-secret"), modelApi: "openai-responses" as const},
         ];
         for (const variant of variants) {
             expect(() => resolveProviderCredential(variant, "saved", config()))

@@ -1326,6 +1326,7 @@ function normalizeGlobalModelsForWrite(
 
 /**
  * Provider Config ID 是连接身份，不允许通过普通保存偷偷改名或换端点。
+ * Provider Model API 只影响发现和候选补全，可以在同一连接上显式修改。
  * 显式 clone/migrate 尚未进入此保存接口；调用方必须新建 Provider 并重新提供凭据。
  */
 function assertProviderConnectionsStable(
@@ -1360,18 +1361,16 @@ function assertProviderConnectionsStable(
         }
         if (!sameProviderConnection({
             id: stored.id,
-            modelApi: stored.modelApi,
             baseURL: stored.options.baseURL,
             proxy: stored.options.proxy,
         }, {
             id: provider.id,
-            modelApi: provider.modelApi,
             baseURL: provider.options.baseURL,
             proxy: provider.options.proxy,
         })) {
             throw createError({
                 statusCode: 400,
-                message: `Provider ${provider.id} 的连接身份不可修改（API、Base URL 或代理已变化）。请复制为新的 Provider。`,
+                message: `Provider ${provider.id} 的连接身份不可修改（Base URL 或代理已变化）。请复制为新的 Provider。`,
             });
         }
     }

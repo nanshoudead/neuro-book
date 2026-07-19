@@ -3,6 +3,7 @@ import {
     ensureRunnableDefault,
     inspectSettingsDraft,
     previewModelLibraryRepairs,
+    previewProviderModelApiRepairs,
     removeIncompleteDisabledModels,
     modelContractInput,
     type ContractSettingsDraft,
@@ -81,6 +82,32 @@ describe("model settings draft contract", () => {
             issueCodes: ["missing_api"],
         }]);
         expect(draft.providers[0]!.models.map((model) => model.id)).toEqual(["complete-disabled", "incomplete-enabled"]);
+    });
+
+    it("一键修复只从一致的已保存模型 API 补全 Provider 默认接口", () => {
+        const draft = createDraft();
+        draft.providers[0]!.modelApi = "";
+
+        expect(previewProviderModelApiRepairs(draft)).toEqual([{
+            providerIndex: 0,
+            providerId: "local",
+            api: "openai-completions",
+        }]);
+
+        draft.providers[0]!.models.push({...draft.providers[0]!.models[0]!, id: "responses", api: "openai-responses"});
+        expect(previewProviderModelApiRepairs(draft)).toEqual([]);
+        draft.providers[0]!.models = [];
+        expect(previewProviderModelApiRepairs(draft)).toEqual([]);
+    });
+
+    it("一键修复遇到缺失或未知模型 API 时不猜 Provider 默认接口", () => {
+        const draft = createDraft();
+        draft.providers[0]!.modelApi = "";
+        draft.providers[0]!.models[0]!.api = "";
+        expect(previewProviderModelApiRepairs(draft)).toEqual([]);
+
+        draft.providers[0]!.models[0]!.api = "unknown-api";
+        expect(previewProviderModelApiRepairs(draft)).toEqual([]);
     });
 
     it("小数 token limit 作为无效字段处理，不会截断后进入 payload", () => {

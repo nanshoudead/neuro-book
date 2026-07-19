@@ -106,6 +106,11 @@ export class WorldEngineFacade {
         return this.runWithModule(projectPath, (module) => module.service.listSubjects(query));
     }
 
+    /** 语义搜索 EmbeddingText 字段。 */
+    async searchText(projectPath: string, query: string, options: {k?: number; threshold?: number; types?: string[]; attrs?: string[]; at?: bigint} = {}): Promise<Array<{subjectId: string; attr: string; text: string; score: number}>> {
+        return this.runWithModule(projectPath, (module) => module.service.searchText(query, options));
+    }
+
     /**
      * 列出 subject 身份元数据，不加载 World Engine schema/calendar。
      *

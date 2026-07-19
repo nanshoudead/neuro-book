@@ -13,10 +13,12 @@ const ROOT = resolve(import.meta.dirname, "..", "..");
 const roots: string[] = [];
 
 type WorkflowStep = {
+    id?: string;
+    if?: string;
     name?: string;
     run?: string;
     uses?: string;
-    with?: {platforms?: string};
+    with?: {key?: string; path?: string; platforms?: string};
 };
 
 type WorkflowJob = {
@@ -26,12 +28,18 @@ type WorkflowJob = {
 };
 
 type ReleaseWorkflow = {
+    concurrency?: {
+        group?: string;
+        "cancel-in-progress"?: string | boolean;
+    };
     jobs: {
-        "verify-manager": WorkflowJob;
+        preflight: WorkflowJob;
         "build-and-push": WorkflowJob;
         source: WorkflowJob;
         "product-linux": WorkflowJob;
         "product-linux-aarch64": WorkflowJob;
+        "product-darwin-x64": WorkflowJob;
+        "product-windows": WorkflowJob;
     };
 };
 
@@ -66,15 +74,41 @@ describe("Product Release宿主合同", () => {
         ], {cwd: ROOT})).rejects.toThrow(`当前宿主${current}不能包装${foreign}`);
     });
 
-    it("在任何GHCR或资产构建前验证公开Manager bundle", async () => {
+    it("在任何GHCR或资产构建前集中执行Release Preflight", async () => {
         const workflow = parse(await readFile(resolve(ROOT, ".github/workflows/release-container.yml"), "utf8")) as ReleaseWorkflow;
-        expect(workflow.jobs["verify-manager"].steps).toContainEqual(
+        expect(workflow.jobs.preflight.steps).toContainEqual(
             expect.objectContaining({run: "bun run manager:verify-public"}),
         );
-        expect(workflow.jobs["build-and-push"].needs).toBe("verify-manager");
-        expect(workflow.jobs.source.needs).toBe("verify-manager");
-        expect(workflow.jobs["product-linux"].needs).toBe("verify-manager");
+        const preflightRun = workflow.jobs.preflight.steps.map(({run}) => run ?? "").join("\n");
+        expect(preflightRun).toContain("bun run test:install");
+        expect(preflightRun).toContain("bun run manager:test");
+        expect(preflightRun).toContain("release-assets.test.ts");
+        expect(workflow.jobs["build-and-push"].needs).toBe("preflight");
+        expect(workflow.jobs.source.needs).toBe("preflight");
+        expect(workflow.jobs["product-linux"].needs).toBe("preflight");
         expect(workflow.jobs["product-linux-aarch64"].needs).toBe("source");
+        const productLinuxRun = workflow.jobs["product-linux"].steps.map(({run}) => run ?? "").join("\n");
+        expect(productLinuxRun).not.toContain("bun run test:install");
+        expect(productLinuxRun).not.toContain("bun run manager:test");
+        const macosRun = workflow.jobs["product-darwin-x64"].steps.map(({run}) => run ?? "").join("\n");
+        expect(macosRun).toContain("bun run test:install");
+        expect(macosRun).toContain("bun run manager:test");
+        const windowsRun = workflow.jobs["product-windows"].steps.map(({run}) => run ?? "").join("\n");
+        expect(windowsRun).toContain("bun run manager:test");
+    });
+
+    it("Canary自动取消旧Release并精确缓存Windows依赖", async () => {
+        const workflow = parse(await readFile(resolve(ROOT, ".github/workflows/release-container.yml"), "utf8")) as ReleaseWorkflow;
+        expect(workflow.concurrency?.group).toContain("github.event.release.prerelease");
+        expect(workflow.concurrency?.["cancel-in-progress"]).toContain("github.event.release.prerelease");
+        const cache = workflow.jobs["product-windows"].steps.find(({uses}) => uses === "actions/cache@v4");
+        expect(cache?.with?.path).toContain("node_modules");
+        expect(cache?.with?.path).toContain("~/.bun/install/cache");
+        expect(cache?.with?.key).toContain("steps.setup-bun.outputs.bun-version");
+        expect(cache?.with?.key).toContain("hashFiles('bun.lock', 'package.json', 'packages/neuro-book-manager/package.json')");
+        expect(workflow.jobs["product-windows"].steps).toContainEqual(expect.objectContaining({
+            run: "bun install --frozen-lockfile --linker hoisted",
+        }));
     });
 
     it("Linux AArch64 Product必须安装并执行真实浏览器smoke", async () => {

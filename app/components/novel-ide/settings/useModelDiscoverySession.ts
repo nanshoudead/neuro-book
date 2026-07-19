@@ -76,18 +76,22 @@ export function useModelDiscoverySession(options: ModelDiscoverySessionOptions) 
         discoveringProviderId.value = provider.id;
         try {
             await options.loadLibraries();
+            const credentialRevision = credentialRevisions.value[provider.localKey] ?? 0;
+            const requestFingerprint = discoveryFingerprint(provider, credentialRevision);
+            const providerRequest = options.buildProviderRequest(provider);
+            const credentialSource = options.credentialSource(provider);
             const response = await $fetch<DiscoverProviderModelsResponseDto>("/api/config/models/provider-discover", {
                 method: "POST",
                 body: {
-                    provider: options.buildProviderRequest(provider),
-                    credentialSource: options.credentialSource(provider),
+                    provider: providerRequest,
+                    credentialSource,
                 },
             });
             discoveredModels.value = {
                 ...discoveredModels.value,
                 [provider.localKey]: {
-                    providerId: provider.id,
-                    fingerprint: discoveryFingerprint(provider, credentialRevisions.value[provider.localKey] ?? 0),
+                    providerId: providerRequest.id,
+                    fingerprint: requestFingerprint,
                     models: response.models,
                 },
             };

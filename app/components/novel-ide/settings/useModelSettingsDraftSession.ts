@@ -18,6 +18,7 @@ import {
     parseRequestOptions,
     parseStringMap,
     previewModelLibraryRepairs,
+    previewProviderModelApiRepairs,
     removeIncompleteDisabledModels,
     renameAgentProvider,
     type ModelSettingsDraft,
@@ -434,7 +435,7 @@ export function useModelSettingsDraftSession(options: DraftSessionOptions) {
 
     /**
      * 显式复制当前连接。新 Provider 不继承 Secret 或既有引用，用户确认后再单独保存。
-     * 这是修改 ID、协议、Base URL 或代理的唯一设置页入口。
+     * 这是修改 ID、Base URL 或代理的唯一设置页入口；Provider Model API 可在原连接上直接修改。
      */
     function cloneActiveProviderConnection(): void {
         const provider = activeProvider.value;
@@ -577,9 +578,17 @@ export function useModelSettingsDraftSession(options: DraftSessionOptions) {
         repairingModels.value = true;
         try {
             const repairs = [] as ReturnType<typeof previewModelLibraryRepairs>;
+            const providerApiRepairs = [] as ReturnType<typeof previewProviderModelApiRepairs>;
             let removedCount = 0;
             if (!isProjectScope.value) {
                 const library = await options.loadLibraries();
+                providerApiRepairs.push(...previewProviderModelApiRepairs(draft.value));
+                for (const repairItem of providerApiRepairs) {
+                    const provider = draft.value.providers[repairItem.providerIndex];
+                    if (provider) {
+                        provider.modelApi = repairItem.api;
+                    }
+                }
                 repairs.push(...previewModelLibraryRepairs(draft.value, library.models));
                 for (const repairItem of repairs) {
                     const model = draft.value.providers[repairItem.providerIndex]?.models[repairItem.modelIndex];
@@ -596,10 +605,10 @@ export function useModelSettingsDraftSession(options: DraftSessionOptions) {
             const referencesChanged = cleanScopeReferences(availableModelKeys());
             options.resetChecks();
             await nextTick();
-            const message = t("settings.panels.models.oneClickRepairResult", {repaired: repairs.length, removed: removedCount, remaining: validationIssues.value.length});
+            const message = t("settings.panels.models.oneClickRepairResult", {providerRepaired: providerApiRepairs.length, repaired: repairs.length, removed: removedCount, remaining: validationIssues.value.length});
             if (validationIssues.value.length > 0) {
                 notification.warning(message, {title: t("settings.panels.models.oneClickRepairNeedsReview")});
-            } else if (repairs.length > 0 || removedCount > 0 || referencesChanged) {
+            } else if (providerApiRepairs.length > 0 || repairs.length > 0 || removedCount > 0 || referencesChanged) {
                 notification.success(message, {title: t("settings.panels.models.oneClickRepairDone")});
             } else {
                 notification.info(t("settings.panels.models.oneClickRepairNoChange"));

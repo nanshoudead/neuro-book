@@ -309,6 +309,8 @@ assets/
 - Model Library 与 Provider Template Library 只服务设置页创建/补全，不进入 Config runtime 解析。
 - 核心实现阶段没有擅自修改真实 Workspace Root `.nbook/config.json`；数据清理只在后续获得用户明确授权后执行。
 - 2026-07-18 用户授权后，正式 Config Service 写入 seam 已删除 5 条历史不完整 disabled 模型；默认模型和 Secret 保留语义未变，清理后模型 validation issue 为 0。
+- 2026-07-19 交互验收纠正 Provider 连接身份：Provider ID、Base URL 与 proxy 继续不可隐式迁移；`modelApi` 只是可编辑的 discovery/候选补全偏好。已保存 Provider 可更新该字段并通过 `sourceIndex` 保留原 Secret，端点身份变化仍必须复制连接。
+- 一键修复只在 Provider 的所有已保存模型都使用同一种受支持 `model.api` 时补全缺失 `modelApi`；空模型、混合 API、缺失或未知值继续要求用户选择，不从名称、URL 或 Secret 猜测。
 
 ## Verification
 

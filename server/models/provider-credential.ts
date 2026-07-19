@@ -21,12 +21,10 @@ export function resolveProviderCredential(
     const saved = config.models.providers[draft.id];
     if (!saved || !sameProviderConnection({
         id: draft.id,
-        modelApi: saved.modelApi,
         baseURL: saved.options.baseURL,
         proxy: saved.options.proxy,
     }, {
         id: draft.id,
-        modelApi: draft.modelApi,
         baseURL: draft.options.baseURL,
         proxy: draft.options.proxy,
     })) {

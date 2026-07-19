@@ -1,5 +1,30 @@
 # Release Notes
 
+## 0.8.10-canary - 2026-07-19
+
+本次patch修复`0.8.9`候选Windows Portable在组装内置Bun时失败的问题，并收口Release Actions的前置门禁、重复测试和旧canary资源占用。该版本需要`@notnotype/neuro-book-manager@0.1.0-canary.22`或更高版本。
+
+### 修复与改进
+
+- Windows Portable现在正确识别Bun官方ZIP中的目录条目（例如`bun-windows-x64/`）。目录身份会在Archive Extraction Adapter中规范化，严格Installation Root路径校验本身没有放宽，路径穿越仍会被拒绝。
+- Release workflow新增统一preflight，在昂贵的五平台Product与多架构OCI构建前完成公开Manager provenance、Stage 0、Manager和Release资产合同测试。
+- Windows Product使用绑定OS、架构、精确Bun版本和lockfile的依赖缓存；缓存命中后仍执行`bun install --frozen-lockfile`校验，避免损坏缓存被当成可信安装。
+- Manager全量领域测试只在Linux preflight执行一次；macOS x64和Windows继续保留各自真实Stage 0/Manager Adapter门禁，ARM64同OS job不重复运行同一套领域测试。
+- 新canary发布会自动取消仍在运行的旧canary Release workflow；stable按tag隔离，不会被其他发布取消。
+
+### 迁移指南
+
+- `0.8.9`的Release workflow在Windows Portable组装阶段失败，没有形成完整最终索引，不要下载或安装其不完整资产。
+- 已使用`0.8.6`的用户无需迁移数据库、Workspace Root或Installation Manifest；等待`0.8.10`完整资产公开后，通过NeuroBook Manager执行正常更新或重新下载新的Windows Portable。
+- 不要手工修改`.runtime`、放宽路径校验或把Bun ZIP内容复制到旧Portable。Portable用户继续备份完整`data/`；重新解压时只把该`data/`带到新Installation Root。
+- `0.8.6`期间为SQLite登录问题临时改成绝对`DATABASE_URL`的用户，升级后应恢复为`DATABASE_URL=file:./workspace/.nbook/neuro-book.sqlite`，以保留Portable移动能力。
+
+### 验证边界
+
+- Archive Extraction Adapter回归覆盖合法空目录、普通文件与`../`路径穿越；真实Bun `1.3.14` Windows ZIP已完成受管物化并得到可执行路径。
+- Manager完整测试为29个文件通过、1个按平台跳过，143项通过、2项跳过；Release资产与checksum合同通过。
+- 多架构公开Product、GHCR、Windows完整`data/`复用与最终索引仍以本版本Release workflow结果为准；本轮不自动执行人工浏览器验收。
+
 ## 0.8.9-canary - 2026-07-19
 
 本次patch收口`0.8.6`之后发现的Portable数据库、Manager更新事务、Provider身份、Agent文件授权与公开事件安全问题。该版本需要`@notnotype/neuro-book-manager@0.1.0-canary.21`或更高版本。
@@ -87,7 +112,7 @@ bun scripts/maintenance/migrate-session-model-refs.ts --workspace-root <Workspac
 - `0.8.7` prerelease只创建了审计Release，workflow `29690944232`在任何资产构建前失败。原因是`actions/checkout`的单提交浅克隆没有npm `gitHead`对象；预检现显式按SHA取回该提交后再比较构建输入。修复版本改为`0.8.8`。
 - `0.8.8` workflow `29691194281`的Manager provenance与Source门禁通过，但四个POSIX Product job被同一个过期测试阻断：测试未传显式自动化参数，却期待先报告缺少`curl`。生产Stage 0按既定合同先拒绝“无TTY且无参数”，行为正确。
 - 缺少`curl`测试现显式传`--profile product-bun --yes`，因此会越过非TTY入口门禁并验证依赖检查仍发生在缓存/临时目录创建前。`0.8.8`剩余构建已取消，修复版本推进为`0.8.9`。
-- `0.8.9` prerelease已创建并推送，workflow `29691602413`在后台执行。本轮未等待应用Actions，也未执行人工浏览器验收。
+- `0.8.9` prerelease已创建并推送。workflow `29691602413`在Windows Portable组装内置Bun时失败：上游ZIP的合法目录条目`bun-windows-x64/`被错误送入严格文件路径校验。其余仍运行的兄弟job已人工取消；该Release没有形成完整最终索引。
 - Provider、Session、公开事件、文件授权、Attachment和HTTP组合：20个文件、190项通过；Harness黑盒/State Root/Payload 30项与Trace/File Change 20项通过。
 - 根typecheck、Nuxt client/SSR/Nitro、Product runtime后处理和`git diff --check`通过。
 - Linux ARM64 glibc、macOS x64与macOS ARM64原生Product平台门禁已有集成证据；本次发布仍需由公开Release workflow生成并验证最终资产。

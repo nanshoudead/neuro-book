@@ -14,6 +14,7 @@ import {
     type ModelReferenceInput,
     type ProviderConfigIssue,
     type ProviderConfigInput,
+    type SupportedPiApi,
 } from "nbook/shared/models/provider-config-contract";
 
 /** 设置页用于业务校验的最小模型草稿。 */
@@ -88,6 +89,13 @@ export type ModelLibraryRepair = {
     source: string;
     previousIssueCodes: string[];
     replacement: ConfiguredModelDto;
+};
+
+/** 一键修复中可由已有完整模型 API 确定的 Provider 默认接口补全。 */
+export type ProviderModelApiRepair = {
+    providerIndex: number;
+    providerId: string;
+    api: SupportedPiApi;
 };
 
 /** 将 UI 字符串草稿转换成 shared Provider Config contract 输入。 */
@@ -345,6 +353,31 @@ export function previewModelLibraryRepairs(
                     thinkingLevelMap: libraryModel.thinkingLevelMap ? {...libraryModel.thinkingLevelMap} : null,
                 },
             });
+        }
+    }
+    return repairs;
+}
+
+/**
+ * 预览缺失 Provider Model API 的确定性补全。
+ * 只有 Provider 下每个已保存模型都声明同一种受支持 API 时才补全；空模型、缺失值、
+ * 未知值或混合 API 都保留给用户选择，禁止根据名称、Base URL 或 Secret 猜测协议。
+ */
+export function previewProviderModelApiRepairs(draft: ContractSettingsDraft): ProviderModelApiRepair[] {
+    const repairs: ProviderModelApiRepair[] = [];
+    const providerCounts = countIds(draft.providers.map((provider) => provider.id));
+    for (const [providerIndex, provider] of draft.providers.entries()) {
+        if (provider.modelApi.trim() || (providerCounts.get(provider.id.trim()) ?? 0) > 1 || provider.models.length === 0) {
+            continue;
+        }
+        const modelApis = provider.models.map((model) => model.api.trim());
+        if (!modelApis.every(isSupportedPiApi)) {
+            continue;
+        }
+        const uniqueApis = new Set<SupportedPiApi>(modelApis);
+        const api = uniqueApis.size === 1 ? uniqueApis.values().next().value : undefined;
+        if (api) {
+            repairs.push({providerIndex, providerId: provider.id.trim(), api});
         }
     }
     return repairs;

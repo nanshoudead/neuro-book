@@ -552,7 +552,7 @@ describe("WorldEngineFacade", {timeout: 30_000}, () => {
         const projectPath = await createProject();
         const facade = createFacade();
 
-        await facade.writeSlice(projectPath, {
+        const place = await facade.writeSlice(projectPath, {
             instant: 5n,
             title: "地点存在",
             patches: [{subjectId: "old-place", type: "location", name: "旧地点", path: "/name", op: "replace", value: "旧地点"}],
@@ -562,6 +562,7 @@ describe("WorldEngineFacade", {timeout: 30_000}, () => {
             title: "错误地点",
             patches: [{subjectId: "erina", type: "character", name: "艾莉娜", path: "/location", op: "replace", value: "subject://old-place"}],
         });
+        await facade.deleteSlice(projectPath, place.sliceId);
         await deleteWorldSubject(projectPath, "old-place");
         const state = await facade.queryState(projectPath, {subjectIds: ["erina"], attrs: ["location"]});
 
@@ -595,6 +596,54 @@ describe("WorldEngineFacade", {timeout: 30_000}, () => {
         expect(any.map((slice) => slice.title)).toEqual(["艾莉娜登场", "双人同行"]);
         expect(all.map((slice) => slice.title)).toEqual(["双人同行"]);
         expect(state.subjects[0]?.attrs).toEqual({hp: 100, events: []});
+    });
+
+    it("语义搜索在请求 embedding 前拒绝没有 EmbeddingText 能力的 schema", async () => {
+        const projectPath = await createProject();
+        const facade = createFacade();
+
+        await expect(facade.searchText(projectPath, "祭坛")).rejects.toThrow("没有声明 EmbeddingText 字段");
+    });
+
+    it("语义搜索拒绝未知 type 与非 EmbeddingText attr，不静默返回空结果", async () => {
+        const projectPath = await createProject(embeddingSchemaSource());
+        const facade = createFacade();
+
+        await expect(facade.searchText(projectPath, "祭坛", {types: ["unknown"]})).rejects.toThrow("schema 未声明 subject type：unknown");
+        await expect(facade.searchText(projectPath, "祭坛", {attrs: ["hp"]})).rejects.toThrow("attr 不是当前搜索范围内的 EmbeddingText 字段：hp");
+        await expect(facade.searchText(projectPath, "祭坛", {types: []})).rejects.toThrow("types 不能为空");
+        await expect(facade.searchText(projectPath, "祭坛", {attrs: []})).rejects.toThrow("attrs 不能为空");
+    });
+
+    it("语义搜索校验 k/threshold，空查询也不绕过 scope 校验", async () => {
+        const projectPath = await createProject(embeddingSchemaSource());
+        const facade = createFacade();
+
+        await expect(facade.searchText(projectPath, "祭坛", {k: 0})).rejects.toThrow("k 必须是安全正整数");
+        await expect(facade.searchText(projectPath, "祭坛", {k: -1})).rejects.toThrow("k 必须是安全正整数");
+        await expect(facade.searchText(projectPath, "祭坛", {threshold: 1.1})).rejects.toThrow("threshold 必须是 -1..1");
+        await expect(facade.searchText(projectPath, "祭坛", {threshold: Number.NaN})).rejects.toThrow("threshold 必须是 -1..1");
+        await expect(facade.searchText(projectPath, "", {attrs: ["hp"]})).rejects.toThrow("attr 不是当前搜索范围内的 EmbeddingText 字段：hp");
+    });
+
+    it("删除 subject 的唯一切面后保留稳定身份", async () => {
+        const projectPath = await createProject();
+        const facade = createFacade();
+
+        const written = await facade.writeSlice(projectPath, {
+            instant: 10n,
+            title: "测试实体登场",
+            patches: [{subjectId: "stable-identity", type: "character", name: "稳定身份", path: "/hp", op: "replace", value: 100}],
+        });
+
+        await facade.deleteSlice(projectPath, written.sliceId);
+
+        expect(await facade.listSubjects(projectPath)).toContainEqual({
+            id: "stable-identity",
+            type: "character",
+            name: "稳定身份",
+        });
+        expect(await facade.listSlices(projectPath, {subjectIds: ["stable-identity"]})).toEqual([]);
     });
 
     it("calendar 可格式化和解析同一个 instant", async () => {
@@ -661,7 +710,7 @@ function projectRoot(projectPath: string): string {
 }
 
 async function tableExists(projectPath: string, table: string): Promise<boolean> {
-    const adapter = new TrackedPrismaLibSql({url: toSqliteFileUrl(resolveProjectDatabasePath(projectPath))});
+    const adapter = new TrackedPrismaLibSql({url: toSqliteFileUrl(resolveProjectDatabasePath(resolveRuntimeWorkspaceRoot(), projectPath))});
     const client = new PrismaClient({adapter});
     try {
         const rows = await client.$queryRawUnsafe<Array<{name: string}>>("SELECT name FROM sqlite_master WHERE type='table' AND name=?", table);
@@ -674,9 +723,13 @@ async function tableExists(projectPath: string, table: string): Promise<boolean>
 }
 
 async function deleteWorldSubject(projectPath: string, subjectId: string): Promise<void> {
-    const adapter = new TrackedPrismaLibSql({url: toSqliteFileUrl(resolveProjectDatabasePath(projectPath))});
+    const adapter = new TrackedPrismaLibSql({url: toSqliteFileUrl(resolveProjectDatabasePath(resolveRuntimeWorkspaceRoot(), projectPath))});
     const client = new PrismaClient({adapter});
     try {
+        const patchCount = await client.worldPatch.count({where: {subjectId}});
+        if (patchCount !== 0) {
+            throw new Error(`测试辅助函数拒绝删除非空 WorldSubject：${subjectId} 仍有 ${String(patchCount)} 条 WorldPatch`);
+        }
         await client.worldSubject.delete({where: {id: subjectId}});
     } finally {
         await client.$disconnect();
@@ -686,7 +739,7 @@ async function deleteWorldSubject(projectPath: string, subjectId: string): Promi
 }
 
 async function insertRawWorldSubject(projectPath: string, input: {id: string; type: string; name: string}): Promise<void> {
-    const client = createClient({url: toSqliteFileUrl(resolveProjectDatabasePath(projectPath))});
+    const client = createClient({url: toSqliteFileUrl(resolveProjectDatabasePath(resolveRuntimeWorkspaceRoot(), projectPath))});
     try {
         await client.execute({
             sql: `INSERT INTO "WorldSubject" ("id", "type", "name") VALUES (?, ?, ?)`,
@@ -708,7 +761,7 @@ async function insertRawWorldPatch(projectPath: string, input: {
     op: string;
     valueJson: string;
 }): Promise<void> {
-    const client = createClient({url: toSqliteFileUrl(resolveProjectDatabasePath(projectPath))});
+    const client = createClient({url: toSqliteFileUrl(resolveProjectDatabasePath(resolveRuntimeWorkspaceRoot(), projectPath))});
     try {
         await client.execute({
             sql: `INSERT INTO "WorldSlice" ("id", "instant", "title", "summary", "kind") VALUES (?, ?, ?, ?, ?)`,

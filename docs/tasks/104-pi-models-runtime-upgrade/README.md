@@ -4,13 +4,13 @@
 
 ## 2026-07-19：Provider连接身份与Session模型脱敏收口
 
-- Provider Config ID现在是不可变连接身份；Base URL、proxy、model API或协议变化必须显式clone，不能沿用旧ID与Secret。
+- Provider Config ID现在是不可变连接身份；Base URL或proxy变化必须显式clone，不能沿用旧ID与Secret。后续交互验收确认`modelApi`只是候选补全偏好，已从连接身份中移除并允许在原Provider上直接修改。
 - discovery、Provider check和Model check统一显式提交`credentialSource: provided | saved | cleared`，删除隐式读取saved Secret和默认`true`。
 - 自动发现按严格hostname/子域匹配选择Adapter，cache绑定连接fingerprint，并限制并发检查数量。
 - Session JSONL只持久化`{providerConfigId, modelId}`；已有明确`providerConfigId`的完整Pi Model可原子脱敏，其他旧记录不再从`model.provider`猜本地身份。无法证明时只阻断该Session，健康Session继续可读写。
 - 一次性维护入口固定为`bun scripts/maintenance/migrate-session-model-refs.ts --workspace-root <root> --mapping <mapping.json> [--dry-run]`。mapping按`sessionId + entryId`明确指定`providerConfigId + modelId`，apply前验证全部映射、Global Config目标和未使用映射；不创建包含旧完整Model的backup。
 - dry-run会只读报告需要迁移的Session与历史`.redaction.tmp/.bak`敏感副本；apply对所有Session逐文件原子替换，并清理已脱敏Session旁的遗留副本。临时文件在rename前显式sync，失败保持原JSONL不变。
-- Provider discovery/check/model-check在`saved`连接身份不匹配时保留HTTP 400，Resolver抛错后网络Adapter调用次数为零；discovery不再把该错误重映射为502。
+- Provider discovery/check/model-check在`saved`连接身份的ID、Base URL或proxy不匹配时保留HTTP 400，Resolver抛错后网络Adapter调用次数为零；同一端点显式修改`modelApi`可继续复用saved Secret，discovery不再把身份错误重映射为502。
 - 最终相关组合为20个文件/190项通过，另有Harness黑盒、State Root与Payload 30项、Trace/File Change 20项通过；Faux测试统一写入真实Provider Config身份，不通过放宽生产Resolver绕过新合同。
 - Runtime对失效的durable model ref严格报错，不回退当前默认模型；Model Resolver是判断引用能否解析的唯一Interface。
 - Provider删除先检查当前草稿，再由服务端扫描Global与全部managed Project引用；存在任一引用时阻断，不自动清空或切换默认模型。
@@ -58,6 +58,16 @@
 - `bun run generate:openapi`：42 个 route meta 更新成功；审计确认 `server/api/config/**` 无 `defaultApi` / `discovery`，相关模型 route 与 Config route 已包含 `modelApi`。
 - UI 拆分后 `bun run nuxt:build` 已通过；没有自动执行浏览器、Docker 或真实 Provider smoke。
 - 用户已明确授权清理真实 Workspace Root `.nbook/config.json`：删除 5 条无法由 Model Library 补全的 disabled 模型，模型合同问题由 23 条降为 0；默认模型保持 `xiaomi-token-plan-cn/mimo-v2.5-pro`，其余 Provider Secret 配置状态保持完整。
+
+## 2026-07-19：Provider Model API 可编辑修复
+
+- 真实设置页验收发现所有已保存 Provider 都携带 `sourceIndex`，而主表单把 `modelApi` 绑定为 `sourceIndex !== undefined` 时禁用；与此同时 Config Service 与 saved credential resolver 也把 `modelApi` 计入不可变连接 fingerprint，导致旧 Provider 缺少必填默认接口时无法修复。
+- 合同纠正为：Provider Config ID、Base URL 与 proxy 继续构成不可隐式迁移的连接身份；`modelApi` 是可编辑的候选协议偏好，不修改已有模型自己的 `model.api`，也不参与 runtime 解析。
+- Config 保存允许同一 `sourceIndex` 更新 `modelApi`并保留原 Secret；临时 discovery/check 请求在端点身份不变时也允许新 `modelApi` 复用 saved Secret。Base URL、proxy 或 ID 变化仍返回 400，且不调用网络 Adapter。
+- Automatic Discovery 现在在发请求前冻结请求体、凭据来源和 fingerprint，避免请求期间修改 `modelApi` 后把旧协议响应绑定到新协议缓存。
+- 一键修复新增确定性 Provider 默认接口补全：只有同一 Provider 的每个已保存模型都声明同一种受支持 `model.api` 时才补全；空模型、缺失/未知 API 或混合 API 不猜测。真实 Global Config 只读审计显示 10 个 Provider 缺失默认接口，其中 8 个满足确定性补全，`doubao` 无模型、`elysiver-opensource` 为混合 API；本轮未写真实配置。
+- 实际计划差异：原方案曾建议把所有协议变化都强制 clone；交互验收证明这会阻断新必填字段的正常修复。实现没有放宽端点或 Secret 安全门禁，只移除了错误耦合的候选偏好。
+- 验证：`bun run typecheck` 通过；模型设置、连接身份、凭据、discovery 与三个模型 route 聚焦 13 个文件、55 项通过；Config Service 的默认接口更新/Secret 保留、端点不可变、sourceIndex 与缺失默认接口 4 项通过；`bunx nuxt build --dotenv .env` 通过。Config Service 整文件仍只出现 Vitest header、没有可信汇总，因此不计为全量通过。
 
 ## Historical contract correction（2026-07-14，已被 2026-07-18 合同覆盖）
 
@@ -938,7 +948,7 @@ Automatic Discovery Dialog 只展示：
 - `JsonViewer` 新增受控 `update:value` 与 `validation-change` 合同；字符串编辑使用上游 `stringified` v-model 保留输入中的非法 JSON，tree 编辑模式恢复插入热区，只读场景继续隐藏无意义的插入占位。
 - 模型必需能力提示不再调用会解析 Compat / Headers / Thinking Map 的完整草稿转换；高级 JSON 暂时非法时只在字段列表标错。临时候选最终确认仍调用正式解析并把错误显示为通知，不放松持久化校验。
 - 价格从高级配置中拆成独立页签，基础价格和长上下文 tiers 保留原有完整覆盖合同；Provider、Model Library、Automatic Discovery 与 Config 保存接口均未改变。
-- Provider 的 `modelApi` 保留为候选补全和 discovery 路由提示，并按用户后续验收改为主连接表单中的必填“Provider 默认接口格式”。Provider Template 负责预填，Custom Provider 必须由用户明确选择后才能检查、发现或保存；已保存模型继续只使用各自的 `model.api`，同一 Provider 可以保存不同接口格式的模型。Anthropic Messages 的模型发现只在该显式选择下发送 `x-api-key`，不拿 Secret 做多协议试探。
+- Provider 的 `modelApi` 保留为候选补全和 discovery 路由提示，并按用户后续验收改为主连接表单中的必填“Provider 默认接口格式”。Provider Template 负责预填，Custom Provider 必须由用户明确选择后才能检查、发现或保存；已保存 Provider 可直接修改该提示并在端点身份不变时复用 saved Secret。已有模型继续只使用各自的 `model.api`，同一 Provider 可以保存不同接口格式的模型。Anthropic Messages 的模型发现只在该显式选择下发送 `x-api-key`，不拿 Secret 做多协议试探。
 
 计划差异：本任务早期范围曾写“不重做模型设置页整体布局”，本轮用户明确要求优化该界面，因此该限制被后续指令覆盖。实际只重构 `NovelIdeModelEditDialog.vue`，没有扩大到 Provider 主设置页或重新设计 Task 104 的模型业务合同。Dialog 当前约 350 行，仍满足 `<800` 行门禁。
 

@@ -138,6 +138,10 @@ deleteSlice(projectPath, sliceId) -> { issues: WorldIssue[] } // HTTP / Workbenc
 - 删除会返回受影响 subject 重新 reduce 后的 E issues。如果删掉的是某个相对 op 的基准切面，下游的 `increment` / `append` 可能因缺基显形 `broken-relative`（见 §7）。
 - 删除切面**不会**自动删除 subject 身份。例如删掉"捡到剑"那条切面，`sword-01` 这个 subject 仍然存在，只是不再被任何切面引用。
 
+subject 身份是稳定登记，不是由当前 patch 数量推导出的缓存。即使删除了它的唯一切面，`WorldSubject` 行仍保留，因此同一 id 后续继续写入时会复用原 type/name，也不会重新应用 schema default。列表中出现 0 patch 的 subject 是这一契约的直接结果，不是 reduce 数据损坏。
+
+第一版不提供通用 `world.subject.delete()`。持久层的 `WorldPatch.subjectId` 外键使用级联删除；直接删除一个非空 subject 会跨全部历史切面物理抹掉它的 patches，并可能让 Plot anchor 或其它 subject 的 `subject://id` 引用失效。若自动化验收产生了不需要保留的空身份，应让 smoke 在隔离的临时 Project 中运行并整体清理 Project；已有 Project 的异常空身份只能通过受控维护脚本处理，且必须先确认它没有自身 patch、没有 WorldPatch ref、没有 Plot anchor。不能把这种维护动作包装成普通生产 API。
+
 ## 7. issues 反馈通道
 
 写入、编辑、删除、查询都会通过 `issues` 暴露需要处理或确认的问题。完整 code 表、`WorldIssue` wire shape 和用户展示规则见 [issues.md](issues.md)；本文只讲它们在生命周期中何时出现。
@@ -195,6 +199,7 @@ await world.slice.delete(written.sliceId);
 - `at` 在 CodeAct 里使用 instant bigint；省略取最新。
 - `listLimit` 控制 list / collection 属性最多返回多少条，避免长 events 流把上下文撑爆。
 - `world.search.text` 的 `types` 过滤 subject type（如 `character` / `location`），不是 slice kind；要搜经历流文本，用 `attrs: ["events"]`。
+- `world.search.text` 的 `k`（默认 10）必须是正整数；`threshold` 必须是 `[-1, 1]` 内的有限数值。空 query 会在完成这些参数和 schema 范围校验后返回空数组，不会发起 embedding 请求。
 - 返回的 `issues` 是当前 reduce 显形的 E 问题；如果传了 `attrs`，issues 也跟随投影范围收窄（查 `hp` 不会带回 `location` 的 `dangling-ref` 噪音）。
 
 典型用法：

@@ -78,6 +78,19 @@ describe("Provider Config draft frontend session", () => {
         expect(clone.models.map((model) => model.id)).toEqual(["model"]);
         expect(session.draft.value.defaultModelKey).toBe("provider/model");
     });
+
+    it("一键修复会从一致的已保存模型 API 补全 Provider 默认接口", async () => {
+        const session = createSession();
+        const provider = createProvider();
+        provider.modelApi = "";
+        provider.models.push(session.cloneModel(configuredModel()));
+        session.draft.value.providers.push(provider);
+        session.activeProviderKey.value = provider.localKey;
+
+        await session.repair();
+
+        expect(provider.modelApi).toBe("openai-responses");
+    });
 });
 
 /** 创建被测 Config 草稿会话。 */

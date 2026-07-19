@@ -396,6 +396,9 @@ export class WorldEngineService {
      * @returns 相似度降序的 [{ subjectId, attr, text, score }]，不含 vector
      */
     async searchText(query: string, options: {k?: number; threshold?: number; types?: string[]; attrs?: string[]; at?: bigint} = {}): Promise<Array<{subjectId: string; attr: string; text: string; score: number}>> {
+        assertPositiveInteger(options.k, "k");
+        assertSearchThreshold(options.threshold);
+        this.assertTextSearchScope(options);
         const trimmed = query.trim();
         if (!trimmed) {
             return [];
@@ -1117,6 +1120,66 @@ export class WorldEngineService {
             throw createError({statusCode: 400, message: `schema 未声明 subject type：${type}`});
         }
     }
+
+    /**
+     * 在发起 embedding 请求前校验语义搜索范围。
+     *
+     * “schema 没有可检索字段”与“有能力但当前没有文本”是不同状态：前者属于配置错误，
+     * 后者才应返回空结果。显式 type / attr 拼错也必须就地拒绝，避免把调用错误伪装成零命中。
+     */
+    private assertTextSearchScope(options: {types?: string[]; attrs?: string[]}): void {
+        assertNonEmptyArray(options.types, "types");
+        assertNonEmptyArray(options.attrs, "attrs");
+        assertUniqueStrings(options.types, "types");
+        assertUniqueStrings(options.attrs, "attrs");
+
+        const schemaTypes = Object.keys(this.schema.subjectTypes);
+        const types = options.types ?? schemaTypes;
+        for (const type of types) {
+            this.assertSubjectType(type);
+        }
+
+        const embeddingAttrsByType = new Map<string, Set<string>>();
+        for (const type of types) {
+            const subjectType = this.schema.subjectTypes[type];
+            if (subjectType) {
+                embeddingAttrsByType.set(type, collectEmbeddingAttrs(subjectType.attrs));
+            }
+        }
+        const availableAttrs = unique([...embeddingAttrsByType.values()].flatMap((attrs) => [...attrs]));
+        if (availableAttrs.length === 0) {
+            const scope = options.types?.length ? `subject type ${options.types.join(", ")}` : "当前 schema";
+            throw createError({statusCode: 400, message: `${scope} 没有声明 EmbeddingText 字段，world.search.text 无可检索范围`});
+        }
+
+        for (const attr of options.attrs ?? []) {
+            const normalizedAttr = attr.startsWith("/") ? pointerParts(attr).join(".") : attr;
+            assertAttrPath(normalizedAttr);
+            if (!availableAttrs.includes(normalizedAttr)) {
+                throw createError({
+                    statusCode: 400,
+                    message: `attr 不是当前搜索范围内的 EmbeddingText 字段：${attr}（可用：${availableAttrs.join(", ")}）`,
+                });
+            }
+        }
+    }
+}
+
+/** 收集 schema 中承载 EmbeddingText 的属性路径。 */
+function collectEmbeddingAttrs(attrs: Record<string, WorldAttrSchema>, prefix = ""): Set<string> {
+    const result = new Set<string>();
+    for (const [name, attr] of Object.entries(attrs)) {
+        const path = prefix ? `${prefix}.${name}` : name;
+        if (attr.embedding) {
+            result.add(path);
+        }
+        if (attr.fields) {
+            for (const nested of collectEmbeddingAttrs(attr.fields, path)) {
+                result.add(nested);
+            }
+        }
+    }
+    return result;
 }
 
 /** 给一组 patch 补上从 startSeq 起的应用顺序。 */
@@ -1704,6 +1767,15 @@ function assertPositiveInteger(value: number | undefined, label: string): void {
     }
     if (!Number.isSafeInteger(value) || value <= 0) {
         throw createError({statusCode: 400, message: `${label} 必须是安全正整数`});
+    }
+}
+
+function assertSearchThreshold(value: number | undefined): void {
+    if (value === undefined) {
+        return;
+    }
+    if (!Number.isFinite(value) || value < -1 || value > 1) {
+        throw createError({statusCode: 400, message: "threshold 必须是 -1..1 范围内的有限数字"});
     }
 }
 

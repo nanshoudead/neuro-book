@@ -68,7 +68,7 @@ async function seed() {
             title: "阿斯塔利亚纪元起始",
             kind: "backstory",
             patches: [
-                {subjectId: "astaria-world", type: "world", name: "阿斯塔利亚", path: "/events", op: "append", value: "复兴纪元元年：第二次位面入侵通道封印，诸族进入和平重建期。", summary: "纪元锚点"},
+                {subjectId: "astaria-world", type: "world", name: "阿斯塔利亚", path: "/events", op: "append", value: {text: "复兴纪元元年：第二次位面入侵通道封印，诸族进入和平重建期。"}, summary: "纪元锚点"},
             ],
         },
 
@@ -79,7 +79,7 @@ async function seed() {
             kind: "backstory",
             patches: [
                 {subjectId: "faction-augustim-empire", type: "faction", name: "奥古斯提姆帝国", path: "/factionType", op: "replace", value: "empire", summary: "政体类型"},
-                {subjectId: "faction-augustim-empire", path: "/events", op: "append", value: "复兴纪元元年：帝国正式立国，统一东部平原人类诸邦。", summary: "建国事件"},
+                {subjectId: "faction-augustim-empire", path: "/events", op: "append", value: {text: "复兴纪元元年：帝国正式立国，统一东部平原人类诸邦。"}, summary: "建国事件"},
             ],
         },
         {
@@ -88,7 +88,7 @@ async function seed() {
             kind: "backstory",
             patches: [
                 {subjectId: "location-brauer-territory", type: "location", name: "布劳尔子爵领", path: "/control", op: "replace", value: "subject://faction-augustim-empire", summary: "归属帝国"},
-                {subjectId: "location-brauer-territory", path: "/events", op: "append", value: "复兴纪元380年：布劳尔家族受封西北边境子爵领，承担边境防御职责。", summary: "封地历史"},
+                {subjectId: "location-brauer-territory", path: "/events", op: "append", value: {text: "复兴纪元380年：布劳尔家族受封西北边境子爵领，承担边境防御职责。"}, summary: "封地历史"},
             ],
         },
 
@@ -103,7 +103,7 @@ async function seed() {
                 {subjectId: "viktor-brauer", path: "/level", op: "replace", value: 10, summary: "等级"},
                 {subjectId: "viktor-brauer", path: "/tier", op: "replace", value: 3, summary: "第三层级精英"},
                 {subjectId: "viktor-brauer", path: "/location", op: "replace", value: "subject://location-brauer-territory", summary: "出生地"},
-                {subjectId: "viktor-brauer", path: "/events", op: "append", value: "复兴纪元453年：出生于布劳尔家族，父亲是当时的子爵。", summary: "出生"},
+                {subjectId: "viktor-brauer", path: "/events", op: "append", value: {text: "复兴纪元453年：出生于布劳尔家族，父亲是当时的子爵。"}, summary: "出生"},
             ],
         },
         {
@@ -111,7 +111,7 @@ async function seed() {
             title: "父亲去世，维克托继承爵位",
             kind: "backstory",
             patches: [
-                {subjectId: "viktor-brauer", path: "/events", op: "append", value: "复兴纪元478年：父亲去世，我继承子爵爵位。领地已负债累累，边境压力与日俱增。", summary: "继承爵位"},
+                {subjectId: "viktor-brauer", path: "/events", op: "append", value: {text: "复兴纪元478年：父亲去世，我继承子爵爵位。领地已负债累累，边境压力与日俱增。"}, summary: "继承爵位"},
             ],
         },
         {
@@ -119,7 +119,7 @@ async function seed() {
             title: "维克托决定进行召唤仪式",
             kind: "backstory",
             patches: [
-                {subjectId: "viktor-brauer", path: "/events", op: "append", value: "复兴纪元487年冬：在家族古籍中找到'勇者召唤仪式'记载。观测到即将到来的位面交汇天象，决定赌一把。", summary: "决定召唤"},
+                {subjectId: "viktor-brauer", path: "/events", op: "append", value: {text: "复兴纪元487年冬：在家族古籍中找到'勇者召唤仪式'记载。观测到即将到来的位面交汇天象，决定赌一把。"}, summary: "决定召唤"},
             ],
         },
 
@@ -133,7 +133,7 @@ async function seed() {
                 {subjectId: "veiluosi", path: "/age", op: "replace", value: 20, summary: "外貌年龄"},
                 {subjectId: "veiluosi", path: "/level", op: "replace", value: 1, summary: "等级"},
                 {subjectId: "veiluosi", path: "/tier", op: "replace", value: 1, summary: "第一层级"},
-                {subjectId: "veiluosi", path: "/events", op: "append", value: "地球，某日黄昏：我在回家路上被天降陨石击中。视野变黑前，我只记得那块石头散发着诡异的光。然后...就没有然后了。", summary: "死亡"},
+                {subjectId: "veiluosi", path: "/events", op: "append", value: {text: "地球，某日黄昏：我在回家路上被天降陨石击中。视野变黑前，我只记得那块石头散发着诡异的光。然后...就没有然后了。"}, summary: "死亡"},
             ],
         },
         {
@@ -146,7 +146,7 @@ async function seed() {
                 {subjectId: "yuelian", path: "/level", op: "replace", value: 1, summary: "等级"},
                 {subjectId: "yuelian", path: "/tier", op: "replace", value: 1, summary: "第一层级"},
                 {subjectId: "yuelian", path: "/intelligence", op: "replace", value: 14, summary: "高智力"},
-                {subjectId: "yuelian", path: "/events", op: "append", value: "泰拉位面，某日夜晚：我所在的城市突然被巨大的能量波包裹。所有人都感到天旋地转，然后失去意识。醒来时，星空变了。", summary: "位面传送"},
+                {subjectId: "yuelian", path: "/events", op: "append", value: {text: "泰拉位面，某日夜晚：我所在的城市突然被巨大的能量波包裹。所有人都感到天旋地转，然后失去意识。醒来时，星空变了。"}, summary: "位面传送"},
             ],
         },
         {
@@ -160,7 +160,7 @@ async function seed() {
                 {subjectId: "grush", path: "/tier", op: "replace", value: 1, summary: "第一层级"},
                 {subjectId: "grush", path: "/str", op: "replace", value: 14, summary: "高力量"},
                 {subjectId: "grush", path: "/con", op: "replace", value: 13, summary: "高体质"},
-                {subjectId: "grush", path: "/events", op: "append", value: "血牙部落，狩猎之夜：我在追踪猎物时，突然被一道光柱笼罩。身体被撕裂般的痛苦，然后坠入黑暗。", summary: "被拉入通道"},
+                {subjectId: "grush", path: "/events", op: "append", value: {text: "血牙部落，狩猎之夜：我在追踪猎物时，突然被一道光柱笼罩。身体被撕裂般的痛苦，然后坠入黑暗。"}, summary: "被拉入通道"},
             ],
         },
         {
@@ -176,7 +176,7 @@ async function seed() {
                 {subjectId: "erina", path: "/spi", op: "replace", value: 13, summary: "高精神"},
                 {subjectId: "erina", path: "/skills", op: "append", value: "光系魔法(Lv2)", summary: "技能"},
                 {subjectId: "erina", path: "/skills", op: "append", value: "风系魔法(Lv1)", summary: "技能"},
-                {subjectId: "erina", path: "/events", op: "append", value: "时钟塔城外围，深夜：我在测量位面屏障波动数据时，仪器突然失控。一股巨大的吸力把我拉向未知方向。", summary: "误入召唤"},
+                {subjectId: "erina", path: "/events", op: "append", value: {text: "时钟塔城外围，深夜：我在测量位面屏障波动数据时，仪器突然失控。一股巨大的吸力把我拉向未知方向。"}, summary: "误入召唤"},
             ],
         },
 
@@ -186,15 +186,15 @@ async function seed() {
             title: "勇者召唤仪式成功",
             kind: "event",
             patches: [
-                {subjectId: "viktor-brauer", path: "/events", op: "append", value: "复兴纪元488年5月10日凌晨：召唤仪式成功。四名异界者出现在祭坛上，昏迷不醒。我不知道他们会怎样反应，但箭在弦上，不得不发。", summary: "仪式成功"},
+                {subjectId: "viktor-brauer", path: "/events", op: "append", value: {text: "复兴纪元488年5月10日凌晨：召唤仪式成功。四名异界者出现在祭坛上，昏迷不醒。我不知道他们会怎样反应，但箭在弦上，不得不发。"}, summary: "仪式成功"},
                 {subjectId: "veiluosi", path: "/location", op: "replace", value: "subject://location-brauer-territory", summary: "苏醒地"},
-                {subjectId: "veiluosi", path: "/events", op: "append", value: "我在一个陌生的石质祭坛上醒来。周围有三个同样困惑的人，以及一个穿着贵族礼服的中年男人。他说我们是'被召唤的勇者'。", summary: "苏醒"},
+                {subjectId: "veiluosi", path: "/events", op: "append", value: {text: "我在一个陌生的石质祭坛上醒来。周围有三个同样困惑的人，以及一个穿着贵族礼服的中年男人。他说我们是'被召唤的勇者'。"}, summary: "苏醒"},
                 {subjectId: "yuelian", path: "/location", op: "replace", value: "subject://location-brauer-territory", summary: "苏醒地"},
-                {subjectId: "yuelian", path: "/events", op: "append", value: "醒来时发现自己躺在一个充满魔法波动的房间里。那个自称'子爵'的人解释说这是'召唤仪式'——但这和泰拉的任何科学理论都不符。", summary: "苏醒"},
+                {subjectId: "yuelian", path: "/events", op: "append", value: {text: "醒来时发现自己躺在一个充满魔法波动的房间里。那个自称'子爵'的人解释说这是'召唤仪式'——但这和泰拉的任何科学理论都不符。"}, summary: "苏醒"},
                 {subjectId: "grush", path: "/location", op: "replace", value: "subject://location-brauer-territory", summary: "苏醒地"},
-                {subjectId: "grush", path: "/events", op: "append", value: "我在冰冷的石头上醒来。周围有三个陌生的人，一个瘦弱的人类男性在说话。我听不太懂，但能感觉到他很紧张。", summary: "苏醒"},
+                {subjectId: "grush", path: "/events", op: "append", value: {text: "我在冰冷的石头上醒来。周围有三个陌生的人，一个瘦弱的人类男性在说话。我听不太懂，但能感觉到他很紧张。"}, summary: "苏醒"},
                 {subjectId: "erina", path: "/location", op: "replace", value: "subject://location-brauer-territory", summary: "苏醒地"},
-                {subjectId: "erina", path: "/events", op: "append", value: "醒来时发现自己躺在一个改良版召唤阵中央。阵法结构很复杂，但有几处明显的偏差...这就是为什么我被误认为'异界者'吗？", summary: "苏醒"},
+                {subjectId: "erina", path: "/events", op: "append", value: {text: "醒来时发现自己躺在一个改良版召唤阵中央。阵法结构很复杂，但有几处明显的偏差...这就是为什么我被误认为'异界者'吗？"}, summary: "苏醒"},
             ],
         },
 
@@ -204,11 +204,11 @@ async function seed() {
             title: "勇者们的初步对话",
             kind: "event",
             patches: [
-                {subjectId: "viktor-brauer", path: "/events", op: "append", value: "今天是召唤后第五天。四名勇者逐渐恢复，开始探索城堡和领地。我必须尽快让他们理解我的处境，建立合作关系。", summary: "当前状态"},
-                {subjectId: "veiluosi", path: "/events", op: "append", value: "过去五天我一直在观察：子爵很焦虑，领地很穷，其他三个'勇者'各有来历。我需要更多信息才能决定下一步。", summary: "当前状态"},
-                {subjectId: "yuelian", path: "/events", op: "append", value: "我花了五天时间尝试理解这个世界的'魔法'。艾莉娜的解释很有帮助，但仍有太多不符合物理定律的现象。", summary: "当前状态"},
-                {subjectId: "grush", path: "/events", op: "append", value: "五天了，我已经摸清了这座城堡的布局。这个'子爵'很弱，但他召唤我们的目的还不清楚。", summary: "当前状态"},
-                {subjectId: "erina", path: "/events", op: "append", value: "五天的观察让我确认：召唤阵确实有问题，我不该被拉进来。但既然已经发生了，我要弄清楚整个事件的真相。", summary: "当前状态"},
+                {subjectId: "viktor-brauer", path: "/events", op: "append", value: {text: "今天是召唤后第五天。四名勇者逐渐恢复，开始探索城堡和领地。我必须尽快让他们理解我的处境，建立合作关系。"}, summary: "当前状态"},
+                {subjectId: "veiluosi", path: "/events", op: "append", value: {text: "过去五天我一直在观察：子爵很焦虑，领地很穷，其他三个'勇者'各有来历。我需要更多信息才能决定下一步。"}, summary: "当前状态"},
+                {subjectId: "yuelian", path: "/events", op: "append", value: {text: "我花了五天时间尝试理解这个世界的'魔法'。艾莉娜的解释很有帮助，但仍有太多不符合物理定律的现象。"}, summary: "当前状态"},
+                {subjectId: "grush", path: "/events", op: "append", value: {text: "五天了，我已经摸清了这座城堡的布局。这个'子爵'很弱，但他召唤我们的目的还不清楚。"}, summary: "当前状态"},
+                {subjectId: "erina", path: "/events", op: "append", value: {text: "五天的观察让我确认：召唤阵确实有问题，我不该被拉进来。但既然已经发生了，我要弄清楚整个事件的真相。"}, summary: "当前状态"},
             ],
         },
     ];

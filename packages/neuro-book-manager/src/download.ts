@@ -82,7 +82,8 @@ export async function extractZip(archivePath: string, targetRoot: string): Promi
     const files = unzipSync(new Uint8Array(await readFile(archivePath)));
     for (const [relativePath, bytes] of Object.entries(files)) {
         if (relativePath.endsWith("/")) {
-            await ensureDirectory(safeTarget(targetRoot, relativePath));
+            // ZIP以尾部斜杠表达目录；InstallationRelativePath仍保持拒绝空segment的严格合同。
+            await ensureDirectory(safeTarget(targetRoot, relativePath.slice(0, -1)));
             continue;
         }
         const target = safeTarget(targetRoot, relativePath);

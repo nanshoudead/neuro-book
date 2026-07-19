@@ -1,19 +1,18 @@
 /**
  * Provider 连接身份。
  *
- * Provider Config ID 是稳定的本地连接身份；端点、协议和代理属于同一连接
- * 的不可隐式迁移属性。API key 不进入 fingerprint，避免把凭据写入缓存键或日志。
+ * Provider Config ID 是稳定的本地连接身份；端点和代理属于同一连接
+ * 的不可隐式迁移属性。Provider Model API 只是候选补全偏好，不属于连接身份。
+ * API key 不进入 fingerprint，避免把凭据写入缓存键或日志。
  */
 export type ProviderConnectionIdentityInput = {
     id: string;
-    modelApi: string | null | undefined;
     baseURL: string;
     proxy: string;
 };
 
 export type ProviderConnectionIdentity = {
     id: string;
-    modelApi: string | null;
     baseURL: string;
     proxy: string;
 };
@@ -22,7 +21,6 @@ export type ProviderConnectionIdentity = {
 export function normalizeProviderConnectionIdentity(input: ProviderConnectionIdentityInput): ProviderConnectionIdentity {
     return {
         id: input.id.trim(),
-        modelApi: normalizeNullableText(input.modelApi),
         baseURL: normalizeEndpoint(input.baseURL),
         proxy: normalizeEndpoint(input.proxy),
     };
@@ -42,11 +40,6 @@ export function sameProviderConnection(
     right: ProviderConnectionIdentityInput,
 ): boolean {
     return providerConnectionFingerprint(left) === providerConnectionFingerprint(right);
-}
-
-function normalizeNullableText(value: string | null | undefined): string | null {
-    const normalized = value?.trim() ?? "";
-    return normalized || null;
 }
 
 function normalizeEndpoint(value: string): string {

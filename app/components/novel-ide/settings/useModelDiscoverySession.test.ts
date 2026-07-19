@@ -94,6 +94,23 @@ describe("Automatic Model Discovery frontend session", () => {
 
         expect(session.discoveryGroups.value).toEqual([]);
     });
+
+    it("请求期间修改 Provider Model API 不会把旧协议结果绑定到新协议", async () => {
+        const provider = reactive(createProvider({models: []}));
+        let resolveRequest: ((value: {models: DiscoveredProviderModelDto[]; message: string}) => void) | undefined;
+        vi.stubGlobal("$fetch", vi.fn(() => new Promise<{models: DiscoveredProviderModelDto[]; message: string}>((resolve) => {
+            resolveRequest = resolve;
+        })));
+        const session = createSession(provider, "saved");
+
+        const discovering = session.discover();
+        await nextTick();
+        provider.modelApi = "openai-responses";
+        resolveRequest?.({models: [remoteModel()], message: "ok"});
+        await discovering;
+
+        expect(session.discoveryGroups.value).toEqual([]);
+    });
 });
 
 /** 创建被测发现会话。 */

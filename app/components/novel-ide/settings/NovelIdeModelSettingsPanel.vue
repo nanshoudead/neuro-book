@@ -540,7 +540,7 @@ defineExpose({dirty, loading, saving, saveSettings, restoreSettings});
                                 </div>
                                 <div class="group space-y-1.5 md:col-span-2">
                                     <label class="flex items-center gap-1 text-xs font-medium text-[var(--text-secondary)] transition-colors group-focus-within:text-[var(--text-main)]"><span>{{ t("settings.panels.models.providerModelApi") }}</span><span class="text-[var(--status-danger)]" aria-hidden="true">*</span></label>
-                                    <FormSelect v-model="activeProvider.modelApi" :disabled="activeProvider.sourceIndex !== undefined" :options="modelApiOptions" :placeholder="t('settings.panels.models.apiFormat')" />
+                                    <FormSelect v-model="activeProvider.modelApi" :options="modelApiOptions" :placeholder="t('settings.panels.models.apiFormat')" />
                                     <p class="text-[11px] leading-5 text-[var(--text-muted)]">{{ t("settings.panels.models.providerModelApiHint") }}</p>
                                 </div>
                                 <div class="group space-y-1.5 md:col-span-2">

@@ -118,7 +118,9 @@ world.slice.delete(sliceId)
 
 ## Decisions After Round 01
 
-- **Resolved D14：`ming-ding-zhi-shi-2` 的 `/events` 暂不迁到 `EmbeddingText`。** 当前项目 schema 使用 `z.array(z.string())`，且 SQLite 已有裸字符串 `/events` patch。本轮保留字符串 events，不改写 `.nbook/project.sqlite`；若未来迁到 `EmbeddingText`，必须先写受控 SQLite 迁移，把旧 patch value 从 `"文本"` 改为 `{"text":"文本"}`。
+- **Superseded D14：`ming-ding-zhi-shi-2` 的 `/events` 暂不迁到 `EmbeddingText`。** 这是 2026-06-29 的阶段性决定，已被 D27 取代；保留本条只用于解释历史状态。
+- **D27：`ming-ding-zhi-shi-2` 的 events + memory 迁到 `EmbeddingText`，SQLite 必须由受控维护脚本同步迁移。** schema 的 world / character / faction / location / item `events` 与 character `memory` 统一使用 `EmbeddingText`。旧 `/events` 非空数组 replace 拆成 `replace []` + 同 slice 独立 append，旧字符串 append / memory replace 改成 `{text}`；迁移默认 dry-run，`--apply` 才先备份、再单事务重写受影响 slice，并做 patch 计数与 slice 级文本 reduce 等价验证。生产 World API 不增加历史数据绕过入口。
+- **D28：`world.search.text` 必须区分“无检索能力”和“能力存在但无数据”。** schema 或选定 type 没有 EmbeddingText、显式 type/attr 不合法时返回 400；只有检索范围合法但当前没有 embedding 文本行时才返回 `[]`。校验发生在 embedding 网络请求之前。
 - **Resolved D15：`ming-ding-zhi-shi-2` 的 Calendar 保留复兴纪元 Simple Calendar。** 本轮只去掉秒并修正文档示例，不把奇幻纪年强行改成 Gregorian。
 - **Resolved D16：readonly 分组 API 不注入写方法。** writer readonly 模式下没有 `world.slice.write` / `world.slice.editPatches` / `world.slice.delete`，tool description、sandbox 类型和测试跟随该形态。
 - **Resolved D17：旧脚本直接迁移到分组 API。** `scripts/**` 中的当前 seed / write 脚本不标记废弃，已迁移 `world.slice.*` / `world.subject.*` / `world.time.*`。
@@ -254,7 +256,7 @@ replace /events [{...}]  ❌ 仍禁止，避免一行 patch 承载多个向量
 
 ## Implementation Walkthrough
 
-> 状态：Round 01 已完成运行时 API、EmbeddingText、Calendar 模板、脚本、profile artifact 与核心文档同步。Round 02 已完成当前 reference / bundled skills 的文档契约补漏，统一公历示例、`EmbeddingText` events 写法、首写 `type` 与 `search.types` 语义。Round 03 补齐报告后续项：task checklist 稳定性、subject 相关切面查询、EmbeddingText vector/model 边界、calendar/schema 热加载与 delete/rollback 验证。Round 04 收口 `world.engine` profile runtime 文案。Round 05 收紧 compiled artifact、Vitest 入口与热加载缓存。Round 06 修复 Windows 下 SQLite 句柄释放与测试清理残留。Round 07 按用户决策把 schema/calendar loader 收紧为单文件配置入口。Round 08 收口 `execute_world` 字符串摘要返回契约，减少 Agent 默认读取低效 JSON。Round 09 修复四项审查问题：收紧 EmbeddingText payload、更新 Task 56 当前契约、纳入 Task 76、拆掉 server 测试对前端组件的跨层依赖。Round 10 收口 issue 去重与 append 自动初始化：公共 issue identity 保留 `sliceId/patchId` 定位，写入层对缺基准数组插入真实 `replace []`。Round 11 把 schema/calendar hash 临时模块改为转译后的 `.mjs` 再加载，并补齐 Product runtime 的 `nbook/world-engine/schema` helper。Round 12 将运行时生成 `.mjs` artifact 导入统一改为 server 原生动态 import seam，避免 Product/Nitro bundle resolver 接管。Round 13 补齐 World Engine loader 的物理 artifact cache 使用，避免 Project 目录临时 `.world-engine-*.mjs` 成为最终 import 源。Round 14 将 World Engine runtime artifact 迁入 Project Workspace `.nbook` 控制区，并补齐旧 cache cleanup 的失败可观测与同 hash 重试。详见 [walkthroughs/2026-06-28-round-01-runtime-api-calendar-scripts.md](walkthroughs/2026-06-28-round-01-runtime-api-calendar-scripts.md)、[walkthroughs/2026-06-28-round-02-reference-skill-contract-cleanup.md](walkthroughs/2026-06-28-round-02-reference-skill-contract-cleanup.md)、[walkthroughs/2026-06-29-round-03-report-followups.md](walkthroughs/2026-06-29-round-03-report-followups.md)、[walkthroughs/2026-06-29-round-04-world-engine-profile-runtime-contract.md](walkthroughs/2026-06-29-round-04-world-engine-profile-runtime-contract.md)、[walkthroughs/2026-06-29-round-05-runtime-contract-system-closure.md](walkthroughs/2026-06-29-round-05-runtime-contract-system-closure.md)、[walkthroughs/2026-06-29-round-06-sqlite-handle-cleanup.md](walkthroughs/2026-06-29-round-06-sqlite-handle-cleanup.md)、[walkthroughs/2026-06-29-round-07-single-file-loader-contract.md](walkthroughs/2026-06-29-round-07-single-file-loader-contract.md)、[walkthroughs/2026-06-29-round-08-execute-world-text-return.md](walkthroughs/2026-06-29-round-08-execute-world-text-return.md)、[walkthroughs/2026-06-29-round-09-embedding-issue-doc-review-fixes.md](walkthroughs/2026-06-29-round-09-embedding-issue-doc-review-fixes.md)、[walkthroughs/2026-06-29-round-10-issue-dedupe-append-initializer.md](walkthroughs/2026-06-29-round-10-issue-dedupe-append-initializer.md)、[walkthroughs/2026-07-01-round-11-loader-mjs-runtime-compat.md](walkthroughs/2026-07-01-round-11-loader-mjs-runtime-compat.md)、[walkthroughs/2026-07-01-round-12-native-dynamic-import.md](walkthroughs/2026-07-01-round-12-native-dynamic-import.md) 与 [walkthroughs/2026-07-01-round-13-world-engine-artifact-cache.md](walkthroughs/2026-07-01-round-13-world-engine-artifact-cache.md)。
+> 状态：Round 01-14 已完成运行时 API、EmbeddingText、Calendar、loader 与 artifact cache 收口。Round 15 取代旧 D14：为 `ming-ding-zhi-shi-2` 实现 events + memory EmbeddingText schema、搜索能力 preflight、写入脚本同步与受控 SQLite migration；真实 `--apply` 已执行并生成备份。迁移脚本可安全重跑，已完成数据库会正常报告 already migrated。详见 [walkthroughs/2026-07-19-round-15-project-embedding-migration.md](walkthroughs/2026-07-19-round-15-project-embedding-migration.md)，早期轮次仍见本目录既有 walkthrough。
 
 建议实施顺序：
 
@@ -281,10 +283,10 @@ replace /events [{...}]  ❌ 仍禁止，避免一行 patch 承载多个向量
 - [x] 检查写作流程 skills、builtin profiles（`leader.default` / `world.engine`）和 agent reference，迁移旧 World Engine 工具名与 `world.getMany` 示例。
 - [x] 统一 reference / skills 中默认 `EmbeddingText` 的 `/events` 示例：`append` value 使用 `{text:"..."}`，不再用裸字符串误导 Agent。
 - [x] 默认 Calendar 模板切到 Gregorian 现实日历，format 到分钟、不带秒。
-- [x] 确认 `workspace/ming-ding-zhi-shi-2` 的 `/events` schema 策略：本轮保留 `z.array(z.string())`，不改写 SQLite 旧 patch。
+- [x] 原 D14 已被 D27 取代：`workspace/ming-ding-zhi-shi-2` 的 events + memory 改用 `EmbeddingText`，受控 SQLite migration 已实现并完成真实库 `--apply`；脚本支持重复执行并在已迁移库上正常退出。
 - [x] 确认 `workspace/ming-ding-zhi-shi-2` 的 Calendar 策略：保留 `复兴纪元` Simple Calendar，但去秒并修示例。
 - [x] 将 `workspace/ming-ding-zhi-shi-2` 的 Calendar 迁移与 `/events` schema 迁移拆开记录和验证。
-- [x] 按确认策略同步迁移 `workspace/ming-ding-zhi-shi-2/world-engine/**`；本轮不改写 `.nbook/project.sqlite`。
+- [x] 已同步 `workspace/ming-ding-zhi-shi-2/world-engine/**` 的 EmbeddingText schema；`.nbook/project.sqlite` 已由受控脚本 `--apply` 单独改写并保留备份。
 - [x] 修复 Simple Calendar `cycleNames` 示例、reference 文档和默认模板注释。
 - [x] 补充或更新相关测试。
 - [x] 创建 `docs/tasks/75-world-engine-api-calendar-embedding-cleanup/walkthroughs/` 下的实现 walkthrough，记录每轮实现、验证、偏离原 task 的设计选择和未决策项。

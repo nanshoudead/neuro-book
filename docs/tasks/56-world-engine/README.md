@@ -348,6 +348,8 @@ interface Mutation {
 - **存储形态（当前定论）**：切面 mutation 持久化为 `op + value`，不存旧值字段，不维护后端派生改写缓存。声明式 mutation 序列是唯一真相源，任意时刻状态都由 reduce 得到。
 - **E/A issues**：issue 字段、完整 code catalog、E/A taxonomy 和作者可见解释以 [reference/world-engine/issues.md](../../../reference/world-engine/issues.md) 为准。当前处理口诀是：`severity: "error"` 表示持久数据错误，必须修；`severity: "advisory"` 表示补过去或编辑旧时间点的一次性提醒，确认语义即可。UI / Agent 应使用后端返回的 `title`、`message`、`explanation`，不要自行按 code 生成文案。
 - **第一版回退能力**：提供 `deleteSlice` 物理删除切面，返回删除后受影响 subject 的 E issues；不做可恢复撤销、不做自动补写、不自动改写后续切面。
+- **subject 身份采用稳定登记语义**：删除唯一 slice 后仍保留 `WorldSubject`，不因 patch 数量归零而自动回收；后续同 id 写入复用原 type/name，且不重新应用 schema default。第一版不增加通用 `subject.delete()`，因为当前 `WorldPatch.subjectId` 为级联外键，生产删除会跨历史切面抹除 patch，并可能破坏 Plot anchor 与 `subject://id` 引用。
+- **验收与孤儿清理边界**：会写 World Engine 的 leader/browser smoke 必须使用隔离临时 Project，并在结束时整体删除，不得把测试 subject 写入长期 Project。既有空身份只允许使用 `scripts/maintenance/cleanup-empty-world-subject.ts` 做一次性维护：默认 dry-run，要求精确 id/type/name，检查自身 patch、所有 WorldPatch JSON ref 与 StoryScene anchor 均为零；只有显式 `--apply` 才在事务中删除。该脚本不是生产 API，也不得用于非空 subject。本轮只提供工具与合同，不自动执行真实清理。
 
 ### 已明确：嵌套属性 + 引用规则
 

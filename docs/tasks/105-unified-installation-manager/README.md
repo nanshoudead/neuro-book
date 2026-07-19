@@ -1,6 +1,6 @@
 # 105 - 统一安装目录与 NeuroBook Manager
 
-> 当前状态：实现中，应用发布进行中。Manager `0.1.0-canary.21`已公开；[`v0.8.9-canary.20260719.144929Z.399cb2f9`](https://github.com/notnotype/neuro-book/releases/tag/v0.8.9-canary.20260719.144929Z.399cb2f9)已创建，workflow `29691602413`后台执行，`0.8.6`仍是最新已确认含资产版本。`.20`未进入npm；`0.8.7`与`0.8.8`均保留零资产审计Release。当前源码协议为Installation Manifest v4、Release Manifest v3与Operation Journal v3；公开多架构资产、Canary A数据复用与Canary A→B事务更新仍需完成。Apple Silicon Docker Desktop/rootless Podman实机门禁继续豁免，但不得标记为已验证。
+> 当前状态：实现中，应用发布进行中。Manager `0.1.0-canary.21`已公开；[`v0.8.9-canary.20260719.144929Z.399cb2f9`](https://github.com/notnotype/neuro-book/releases/tag/v0.8.9-canary.20260719.144929Z.399cb2f9)因Windows Portable的Bun ZIP目录条目适配失败而未形成完整资产，workflow `29691602413`已取消。`0.8.6`仍是最新已确认含资产版本；下一顺序是先发布Manager `.22`，再发布应用`0.8.10`。当前源码协议为Installation Manifest v4、Release Manifest v3与Operation Journal v3；公开多架构资产、Canary A数据复用与Canary A→B事务更新仍需完成。Apple Silicon Docker Desktop/rootless Podman实机门禁继续豁免，但不得标记为已验证。
 
 ## 2026-07-19：Operation Journal v3与资产ownership收口
 
@@ -857,3 +857,13 @@ uninstall
 - `v0.8.8-canary.20260719.143648Z.93ce3b3f` workflow `29691194281`的Manager provenance与Source通过，但Linux x64/ARM64和macOS x64/ARM64都在`Verify POSIX Stage 0 behavior`失败。共同失败是“缺少curl”测试未传参数，先命中了正确的非TTY拒绝；不是Stage 0下载或平台选择回归。
 - 测试现显式传`--profile product-bun --yes`后再移除`curl`，精确验证依赖缺失发生在缓存/临时目录创建前。已取消`0.8.8`剩余构建，失败Release继续保留，下一patch `0.8.9`承担Canary A。
 - `v0.8.9-canary.20260719.144929Z.399cb2f9`已创建并推送，workflow `29691602413`按`--no-watch`约定交由Actions后台执行。本轮只确认Release与workflow入口存在，不把未完成的Portable、GHCR或最终索引门禁写成已通过。
+
+### 2026-07-19：`0.8.9` Windows Portable归档失败与Actions收口
+
+- workflow `29691602413`的Windows Product本体已经构建完成，失败发生在随后`package:windows-portable`组装内置Managed Bun：Bun官方ZIP包含合法目录条目`bun-windows-x64/`，Archive Extraction Adapter把尾部斜杠直接传给`InstallationRelativePath`，严格路径Module因此把空segment正确拒绝。
+- 修复保持路径核心合同不变：ZIP Adapter先识别目录身份并移除唯一的尾部分隔符，再执行相同的Installation Root containment。新增回归同时证明目录和文件能够解压，`../outside.txt`仍被拒绝；真实Bun `1.3.14` Windows ZIP已成功物化为`.runtime/bun/1.3.14/bun-windows-x64/bun.exe`。
+- `build-and-push`在Windows失败后继续运行是Actions DAG语义，不是发布绕过：二者都是preflight后的并行兄弟job，没有`needs`关系；下游`assemble`仍同时依赖它们，因此Windows失败时最终索引不可能发布。本次已取消剩余run，避免ARM64 QEMU继续消耗资源。
+- workflow新增统一Release preflight，把公开Manager provenance、Stage 0、Manager和Release资产合同放到昂贵fan-out之前。领域测试只在Linux执行一次，但macOS x64与Windows保留原生Adapter门禁，不能用Ubuntu模拟测试冒充平台证据。
+- Windows依赖缓存绑定OS、架构、精确Bun版本和lockfile；命中后仍执行frozen install完成完整性收口。新prerelease会取消仍运行的旧prerelease，stable按tag隔离。
+- 当前最大剩余耗时是amd64 runner通过QEMU重新编译ARM64 Nuxt Product：本次取消前超过18分钟，而原生ARM64 runner同类Nuxt build约94秒。后续优化应让Container Packaging Adapter直接消费原生Linux Product Artifact并只做OCI封装/manifest merge；本轮不仓促改变镜像字节来源和发布事务。
+- 验证：Archive Adapter 2项、Manager完整29文件/143项（另1文件/2项按平台跳过）、Release资产/checksum 2文件/8项通过。下一发布顺序固定为Manager `.22`公开后再创建应用`0.8.10` patch canary；不复用失败tag，不等待应用Release workflow。

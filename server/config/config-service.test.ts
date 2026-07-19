@@ -250,6 +250,27 @@ describe("config service", {timeout: 30_000}, () => {
         await expect(fs.readFile(configPath, "utf8")).resolves.toBe(before);
     });
 
+    it("已保存 Provider 可修改默认接口并保留原 Secret", async () => {
+        const initial = validModelsInput();
+        initial.providers[0]!.options.apiKey = {configured: false, maskedValue: null, value: "sk-keep-model-api"};
+        await saveGlobalConfig({models: initial}, {workspaceKind: "user-assets"});
+        const snapshot = await readConfigEditorSnapshot({workspaceKind: "user-assets"});
+        const provider = snapshot.modelSettings.providers[0]!;
+
+        await saveGlobalConfig({
+            models: {
+                default: snapshot.modelSettings.defaultModelKey,
+                providers: [{...provider, modelApi: "openai-responses"}],
+            },
+        }, {workspaceKind: "user-assets"});
+        const raw = JSON.parse(await fs.readFile(path.join("workspace", ".nbook", "config.json"), "utf8")) as {
+            models?: {providers?: Array<{modelApi?: string; options?: {apiKey?: string}}>};
+        };
+
+        expect(raw.models?.providers?.[0]?.modelApi).toBe("openai-responses");
+        expect(raw.models?.providers?.[0]?.options?.apiKey).toBe("sk-keep-model-api");
+    });
+
     it("旧客户端省略 sourceIndex 时不会按 Provider ID 猜测 Secret", async () => {
         await saveGlobalConfig({models: validModelsInput()}, {workspaceKind: "user-assets"});
         const snapshot = await readConfigEditorSnapshot({workspaceKind: "user-assets"});
