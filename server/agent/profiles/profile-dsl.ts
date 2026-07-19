@@ -1588,6 +1588,7 @@ function renderAgentCatalogIndexItem(profile: AgentCatalogItem): string {
         `  name: ${profile.name}`,
         profile.description ? `  description: ${profile.description}` : "",
         profile.source ? `  source: ${profile.source}` : "",
+        `  creation: ${profile.creationMode}`,
     ].filter(Boolean);
     return lines.join("\n");
 }
@@ -2089,7 +2090,7 @@ async function defaultSkillCatalogText(ctx: ProfilePrepareContext<any>, mode: "w
 
 async function defaultAgentCatalogText(ctx: ProfilePrepareContext<any>): Promise<string> {
     const profiles = ctx.catalog.profiles
-        .filter((profile) => profile.loadStatus === "loaded")
+        .filter((profile) => profile.loadStatus === "loaded" && profile.creationMode === "public")
         .map(renderAgentCatalogIndexItem);
     if (profiles.length === 0) {
         return "";
@@ -2098,7 +2099,7 @@ async function defaultAgentCatalogText(ctx: ProfilePrepareContext<any>): Promise
         "<system-reminder>",
         "## Available Agents",
         "",
-        "These agent profiles are currently available through create_agent / invoke_agent.",
+        "These public agent profiles are currently available through create_agent / invoke_agent.",
         "This catalog is only an index. Before creating or invoking an unfamiliar profile, call get_agent_profile({ profileKey }) to inspect InitialSchema, PayloadSchema, OutputSchema, and profile root tools.",
         "",
         ...profiles,

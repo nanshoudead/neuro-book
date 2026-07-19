@@ -53,11 +53,11 @@ type PendingMessageUpdate = {
 };
 
 /** 将 tool.user-input-required 事件转换为前端等待输入状态。 */
-function toUserInputSession(
+function toPendingUserInputDto(
     event: Extract<AgentRuntimeStreamEventDto, {type: "tool.user-input-required"}>,
     assistantMessageId?: string,
-): AgentPendingUserInputSession | null {
-    return toPendingUserInputSession({
+): AgentPendingUserInputDto {
+    return {
         assistantMessageId,
         toolCallId: event.toolCallId,
         toolName: event.toolName,
@@ -71,7 +71,15 @@ function toUserInputSession(
                 },
             }
             : {}),
-    }, []);
+    };
+}
+
+/** 将 tool.user-input-required 事件转换为前端等待输入状态。 */
+function toUserInputSession(
+    event: Extract<AgentRuntimeStreamEventDto, {type: "tool.user-input-required"}>,
+    assistantMessageId?: string,
+): AgentPendingUserInputSession | null {
+    return toPendingUserInputSession(toPendingUserInputDto(event, assistantMessageId), []);
 }
 
 /**
@@ -474,9 +482,14 @@ export function useAgentSession() {
         }
         const current = recoveryShell.value;
         const activePathChanged = state.activePathRevision !== current.activePathRevision;
+        let pendingDetailsMissing = false;
         const pendingUserInputs = state.pendingUserInputs.map((pending) => {
             const existing = current.pendingUserInputs.find((item) => item.toolCallId === pending.toolCallId);
-            return existing ? {...existing, ...pending, planContent: existing.planContent, planContentBytes: existing.planContentBytes} : pending;
+            if (pending.detailsOmitted && !existing?.formSpec) {
+                pendingDetailsMissing = true;
+            }
+            // 同一 pending tool call 的参数与表单在生命周期内不可变；runtime/recovery 详情比共享预算 live preview 更完整。
+            return existing ? {...pending, ...existing, detailsOmitted: pending.detailsOmitted} : pending;
         });
         recoveryShell.value = {
             ...current,
@@ -503,6 +516,9 @@ export function useAgentSession() {
         pendingUserInputSessions.value = pendingUserInputs
             .map((pending: AgentPendingUserInputDto) => toPendingUserInputSession(pending, messages.value))
             .filter((session): session is AgentPendingUserInputSession => session !== null);
+        if (pendingDetailsMissing) {
+            requestRecovery("pending_input_details_missing");
+        }
         if (activePathChanged) {
             requestRecovery("active_path_changed");
         }
@@ -554,9 +570,22 @@ export function useAgentSession() {
                 flushPendingMessageUpdates();
                 const event = payload.event;
                 const assistant = messages.value.find((message) => message.toolCalls?.some((toolCall) => toolCall.id === event.toolCallId));
+                const pendingInput = toPendingUserInputDto(event, assistant?.id);
+                if (recoveryShell.value) {
+                    recoveryShell.value = {
+                        ...recoveryShell.value,
+                        pendingUserInputs: [
+                            ...recoveryShell.value.pendingUserInputs.filter((item) => item.toolCallId !== event.toolCallId),
+                            pendingInput,
+                        ],
+                    };
+                }
                 const pending = toUserInputSession(event, assistant?.id);
                 if (pending) {
-                    pendingUserInputSessions.value = [...pendingUserInputSessions.value, pending];
+                    pendingUserInputSessions.value = [
+                        ...pendingUserInputSessions.value.filter((item) => item.formToolCallId !== event.toolCallId && item.questions.every((question) => question.toolCallId !== event.toolCallId)),
+                        pending,
+                    ];
                     liveRunStatus.value = "waiting";
                     runPhase.value = "waiting_user";
                 }

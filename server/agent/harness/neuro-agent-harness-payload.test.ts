@@ -3,7 +3,7 @@ import {rm} from "node:fs/promises";
 import {resolve} from "node:path";
 import {afterEach, beforeEach, describe, expect, it} from "vitest";
 import {fauxAssistantMessage, fauxToolCall} from "@earendil-works/pi-ai";
-import {createFauxModels, type FauxModelsFixture} from "nbook/server/agent/test-utils/faux-models";
+import {createFauxModels, type FauxModelsFixture, writeFauxProviderConfig} from "nbook/server/agent/test-utils/faux-models";
 import {Type} from "typebox";
 import {NeuroAgentHarness} from "nbook/server/agent/harness/neuro-agent-harness";
 import {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
@@ -20,9 +20,10 @@ describe("NeuroAgentHarness invocation payload", () => {
     let faux: FauxModelsFixture;
     let harness: NeuroAgentHarness;
 
-    beforeEach(() => {
+    beforeEach(async () => {
         root = resolve(".agent", "agent-harness-payload-test", randomUUID());
         faux = createFauxModels();
+        await writeFauxProviderConfig(root, faux);
         harness = new NeuroAgentHarness({
             repo: new JsonlSessionRepository(root),
             profiles: new AgentProfileCatalog(resolve(root, "profiles-system"), resolve(root, "profiles-user")),
@@ -54,8 +55,29 @@ describe("NeuroAgentHarness invocation payload", () => {
             profileKey: "test.initial-required",
             initial: {},
             workspaceRoot: root,
-        })).rejects.toThrow("initial 校验失败");
+        })).rejects.toThrow("initial 校验失败：/topic：缺少必填字段");
     }, 20_000);
+
+    it("public createAgent 拒绝 system-only profile", async () => {
+        harness.profiles.register(defineAgentProfile({
+            manifest: {
+                key: "test.system-only",
+                name: "System Only",
+            },
+            capabilities: {creation: "system_only"},
+            initialSchema: Type.Object({sourceSessionId: Type.Number()}),
+            tools: profileToolsFromKeys([]),
+            prepare() {
+                return {};
+            },
+        }), false);
+
+        await expect(harness.createAgent({
+            profileKey: "test.system-only",
+            initial: {sourceSessionId: 1},
+            workspaceRoot: root,
+        })).rejects.toThrow("仅供系统内部创建");
+    });
 
     it("prompt 可以只传 payload，并按 PayloadSchema 校验后进入 ctx.invocation.payload", async () => {
         let observedMessage: string | undefined;
@@ -205,7 +227,7 @@ describe("NeuroAgentHarness invocation payload", () => {
         })).rejects.toThrow("continue 模式不能提供 message 或 input");
 
         expect(invalidPayload.status).toBe("error");
-        expect(invalidPayload.error).toContain("payload 校验失败");
+        expect(invalidPayload.error).toContain("payload 校验失败：/plotId：must be string");
     }, 20_000);
 
     it("running followup 入队前会校验 payload，失败时不污染队列", async () => {

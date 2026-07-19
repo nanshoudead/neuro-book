@@ -1,6 +1,20 @@
 # Pi Models Runtime Upgrade
 
-> Status: Implemented（核心模型发现重构与设置页 Module 门禁已完成；真实 Global Config 清理和交互验收仍待用户授权）
+> Status: Implementing（核心模型发现与设置页重构已完成；Provider连接身份、凭据来源和Session脱敏已本地收口，完整Config Service/产品验收仍待完成）
+
+## 2026-07-19：Provider连接身份与Session模型脱敏收口
+
+- Provider Config ID现在是不可变连接身份；Base URL、proxy、model API或协议变化必须显式clone，不能沿用旧ID与Secret。
+- discovery、Provider check和Model check统一显式提交`credentialSource: provided | saved | cleared`，删除隐式读取saved Secret和默认`true`。
+- 自动发现按严格hostname/子域匹配选择Adapter，cache绑定连接fingerprint，并限制并发检查数量。
+- Session JSONL只持久化`{providerConfigId, modelId}`；已有明确`providerConfigId`的完整Pi Model可原子脱敏，其他旧记录不再从`model.provider`猜本地身份。无法证明时只阻断该Session，健康Session继续可读写。
+- 一次性维护入口固定为`bun scripts/maintenance/migrate-session-model-refs.ts --workspace-root <root> --mapping <mapping.json> [--dry-run]`。mapping按`sessionId + entryId`明确指定`providerConfigId + modelId`，apply前验证全部映射、Global Config目标和未使用映射；不创建包含旧完整Model的backup。
+- dry-run会只读报告需要迁移的Session与历史`.redaction.tmp/.bak`敏感副本；apply对所有Session逐文件原子替换，并清理已脱敏Session旁的遗留副本。临时文件在rename前显式sync，失败保持原JSONL不变。
+- Provider discovery/check/model-check在`saved`连接身份不匹配时保留HTTP 400，Resolver抛错后网络Adapter调用次数为零；discovery不再把该错误重映射为502。
+- 最终相关组合为20个文件/190项通过，另有Harness黑盒、State Root与Payload 30项、Trace/File Change 20项通过；Faux测试统一写入真实Provider Config身份，不通过放宽生产Resolver绕过新合同。
+- Runtime对失效的durable model ref严格报错，不回退当前默认模型；Model Resolver是判断引用能否解析的唯一Interface。
+- Provider删除先检查当前草稿，再由服务端扫描Global与全部managed Project引用；存在任一引用时阻断，不自动清空或切换默认模型。
+- 本地聚焦回归与根typecheck通过；完整Config Service、真实Provider和浏览器验收仍待完成，本Task不能标记Verified。
 >
 > Target baseline: `@earendil-works/pi-ai@0.80.6` and `@earendil-works/pi-agent-core@0.80.6`
 
@@ -9,10 +23,11 @@
 本轮已完成核心合同硬切：
 
 - `server/models/model-library.ts` 与 `server/models/provider-template-library.ts` 分离 Model Library 和 Provider Template Library；旧 `catalog.ts`、Catalog route 与测试已删除，设置页改读 `/api/config/models/library` 和 `/api/config/models/provider-templates`。
-- Automatic Model Discovery Module 内部维护 OpenAI/OpenRouter/Google Adapter，并按已知主机或连接级 `modelApi` 选择单一协议；未知 Provider 不会因响应失败切换鉴权形式。实现统一限制同 origin、禁止 redirect、timeout、流式 5 MiB 响应体上限、代理连接释放和错误摘要脱敏；Provider Config、DTO 与设置页不再保存或展示 Adapter/endpoint path。
+- Automatic Model Discovery Module 内部维护 OpenAI/OpenRouter/Anthropic/Google Adapter，并按已知主机或必填的连接级 `modelApi` 选择单一协议；未知 Provider 不会因响应失败切换鉴权形式。实现统一限制同 origin、禁止 redirect、timeout、流式 5 MiB 响应体上限、代理连接释放和错误摘要脱敏；Provider Config、DTO 与设置页不再保存或展示 Adapter/endpoint path。
 - Provider Template 只复制明确精选的模型快照：MiMo Token Plan 保留 Secret-only 模型集，OpenRouter/OpenAI/Google 等普通连接模板不再把 Pi Registry 的数十或数百个模型机械写入用户配置，模型改由发现或 Model Library 显式添加。
 - Model Candidate Completion Module 按字段合并远端资料与精确 ID 的 Model Library 资料，并用 `CompleteCandidate | IncompleteCandidate` 约束不完整候选不能进入 Provider Config。
 - shared Provider Config Contract Module 现在校验全部已保存模型，包括 disabled 模型；`enabled` 只决定是否进入 runnable 集合。设置页文案已从“禁用模型草稿”收敛为“已停用模型”。
+- 设置页“一键修复”先应用 Model Library 可验证补全，再删除仍不完整的 disabled 模型；enabled 坏模型和能力完整的 disabled 模型不会自动删除，继续交给用户编辑。
 - Group 推导已集中到 `shared/models/model-group.ts`；`@cf/mistralai/mistral-small...` 统一归入 `@cf/mistralai`。
 - OpenAPI meta 已重新生成，`server/api/config/**` 不再包含持久化 `defaultApi` 或 `discovery`，新请求/响应合同包含 `modelApi`。
 
@@ -21,8 +36,8 @@
 原计划评估直接删除 Provider 级默认 API。实施中确认普通 OpenAI-compatible `/models` 无法区分 Chat Completions 与 Responses；如果完全删除连接级提示，Responses-only Provider 的发现候选只能错误猜测或永远要求逐模型重复填写。因此实际硬切为语义更窄的 `modelApi`：
 
 - Provider Template 用 `defaultModelApi` 预填，Custom Provider 允许用户明确选择；保存后它属于普通 Provider Config，不保留 templateId。
-- `modelApi` 只用于 Automatic Model Discovery、手动添加和从 Model Library 添加时补全最终 `model.api`；runtime 仍只读取每个模型自己的 `model.api`，绝不回退到 Provider 字段。
-- OpenRouter Adapter 可以明确返回 `openai-completions`，Google Adapter 可以明确返回 `google-generative-ai`；普通 OpenAI-compatible Adapter 返回 `api: null`，由 Provider Config 的 `modelApi` 补全。没有明确值时候选保持 incomplete。
+- `modelApi` 是 Provider Config 与 Provider request draft 的必填字段，只用于 Automatic Model Discovery、手动添加和从 Model Library 添加时补全最终 `model.api`；runtime 仍只读取每个模型自己的 `model.api`，绝不回退到 Provider 字段。同一 Provider 下的已保存模型可以分别选择不同接口。
+- Base URL、Secret Key 和 `/models` 响应无法可靠区分 Chat Completions、Responses 与 Anthropic Messages，程序不得通过轮换 Bearer、`x-api-key` 或查询参数来猜协议。OpenRouter Adapter 可以明确返回 `openai-completions`，Google Adapter 返回 `google-generative-ai`；普通 OpenAI-compatible Adapter 返回 `api: null`，由必填 `modelApi` 补全；用户明确选择 Anthropic Messages 后才使用 `x-api-key + anthropic-version` 调用 `/models` 并返回 `anthropic-messages`。
 - provenance 新增 `provider-config`，使设置页能够区分远端明确值与连接级补全值。
 
 ### 设置页 Module 拆分实际差异
@@ -42,7 +57,7 @@
 - 聚焦 Vitest：21 个文件、156 项测试全部通过，覆盖 Provider Config、DTO、Model Library、Provider Template、Automatic Discovery、安全限制、Candidate Completion、Config normalizer/service、model settings、四个前端 session Module、两个模型检查 route 和三个 Agent harness fixture。
 - `bun run generate:openapi`：42 个 route meta 更新成功；审计确认 `server/api/config/**` 无 `defaultApi` / `discovery`，相关模型 route 与 Config route 已包含 `modelApi`。
 - UI 拆分后 `bun run nuxt:build` 已通过；没有自动执行浏览器、Docker 或真实 Provider smoke。
-- 没有修改真实 Workspace Root `.nbook/config.json`；其中既有不完整 disabled 模型仍等待用户明确授权后清理。
+- 用户已明确授权清理真实 Workspace Root `.nbook/config.json`：删除 5 条无法由 Model Library 补全的 disabled 模型，模型合同问题由 23 条降为 0；默认模型保持 `xiaomi-token-plan-cn/mimo-v2.5-pro`，其余 Provider Secret 配置状态保持完整。
 
 ## Historical contract correction（2026-07-14，已被 2026-07-18 合同覆盖）
 
@@ -912,6 +927,23 @@ Automatic Discovery Dialog 只展示：
 - **现有数据硬切**：当前 Global Config 已存在不完整 disabled 模型。实施时应显式审计并在用户确认后清理，不保留 legacy 读取或 runtime fallback。
 - **大文件风险**：如果只删除字段、继续把发现会话逻辑堆入现有设置页，会形成新的 hack。本次必须以 Settings UI Module 拆分作为完成条件。
 
+## 2026-07-18 模型编辑体验优化
+
+用户在真实模型设置页验收时确认，模型编辑 Dialog 仍把基本信息、接口、能力、限制、三个 JSON 字段和价格同时铺在一条长滚动页面中；信息层级弱，低频高级字段挤占首屏，JSON 使用裸 `textarea`，输入半截 JSON 时还可能触发宿主的完整草稿解析异常。
+
+本轮实际调整：
+
+- Dialog 改为固定摘要头与“基本信息 / 能力与限制 / 请求参数 / 价格”四个页签；去除四张同权重悬浮卡片，内容区按任务分组并保留窄屏横向页签滚动。
+- 请求参数页将 Compat、Headers、Thinking Map 收进字段切换栏，同一时间只编辑一个 JSON；复用通用 `JsonViewer` 的 `json-editor-vue` 包装，开放文本/树形编辑、状态栏、格式化和即时合法性状态。
+- `JsonViewer` 新增受控 `update:value` 与 `validation-change` 合同；字符串编辑使用上游 `stringified` v-model 保留输入中的非法 JSON，tree 编辑模式恢复插入热区，只读场景继续隐藏无意义的插入占位。
+- 模型必需能力提示不再调用会解析 Compat / Headers / Thinking Map 的完整草稿转换；高级 JSON 暂时非法时只在字段列表标错。临时候选最终确认仍调用正式解析并把错误显示为通知，不放松持久化校验。
+- 价格从高级配置中拆成独立页签，基础价格和长上下文 tiers 保留原有完整覆盖合同；Provider、Model Library、Automatic Discovery 与 Config 保存接口均未改变。
+- Provider 的 `modelApi` 保留为候选补全和 discovery 路由提示，并按用户后续验收改为主连接表单中的必填“Provider 默认接口格式”。Provider Template 负责预填，Custom Provider 必须由用户明确选择后才能检查、发现或保存；已保存模型继续只使用各自的 `model.api`，同一 Provider 可以保存不同接口格式的模型。Anthropic Messages 的模型发现只在该显式选择下发送 `x-api-key`，不拿 Secret 做多协议试探。
+
+计划差异：本任务早期范围曾写“不重做模型设置页整体布局”，本轮用户明确要求优化该界面，因此该限制被后续指令覆盖。实际只重构 `NovelIdeModelEditDialog.vue`，没有扩大到 Provider 主设置页或重新设计 Task 104 的模型业务合同。Dialog 当前约 350 行，仍满足 `<800` 行门禁。
+
+验证：`bun run typecheck` 通过；模型设置目录 8 个测试文件、29 项测试通过；接口收紧后的模型/DTO/Provider contract 快速套件 15 个文件、78 项测试通过；Normalizer 12 项测试通过；Config Service 的“缺少 Provider 默认 API”与旧 Provider 写回补齐 API 两个关键用例通过；`bun run generate:openapi` 更新 42 个 route meta；`bunx nuxt build --dotenv .env` 通过。`server/config/config-service.test.ts` 整文件在当前环境运行超过 300 秒未返回报告，未将其计为通过。按项目约束未自动执行浏览器验证；2048×1017 截图对应的真实主题布局、JSON Editor 键盘交互、必填接口选择和窄屏表现仍待用户验收。
+
 ## TODO / Follow-ups
 
 - [x] D3 已锁定：本轮不加入 Pi OAuth、订阅登录或持久化 CredentialStore。
@@ -934,4 +966,4 @@ Automatic Discovery Dialog 只展示：
 - [x] 实施 Model Candidate Completion 字段级补全与 provenance，禁止不完整候选持久化。
 - [x] 强化 Provider Config：disabled 模型也必须能力完整，删除“禁用模型草稿”语义。
 - [x] 完成设置页 Module 重构：发现列表与 Model Library 已分离，三个展示 Module与四个状态/行为 Module 已抽出；宿主降至 695 行，相关 Vue 文件全部满足 `<800` 行门禁。
-- [ ] 用户确认后硬切清理当前 Global Config 中的不完整 disabled 模型。
+- [x] 用户确认后硬切清理当前 Global Config 中的不完整 disabled 模型；已删除 5 条，清理后 validation issue 为 0。

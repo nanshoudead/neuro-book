@@ -13,6 +13,7 @@ vi.mock("#manager/manifest-store", async () => {
 });
 
 import {
+    assertInstallConsent,
     assertInstallPreflight,
     inspectInstallPreflight,
     recommendedInstallProfile,
@@ -36,6 +37,12 @@ afterEach(async () => {
 });
 
 describe("Install Preflight", () => {
+    it("非TTY安装必须显式传入--yes", () => {
+        expect(() => assertInstallConsent(false, false)).toThrow("--yes");
+        expect(() => assertInstallConsent(true, false)).not.toThrow();
+        expect(() => assertInstallConsent(false, true)).not.toThrow();
+    });
+
     it("Source Profile一次报告宿主、Git、端口和组件来源", async () => {
         const root = await mkdtemp(join(tmpdir(), "nbook-preflight-source-"));
         roots.push(root);

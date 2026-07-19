@@ -110,5 +110,12 @@ high effort code review 确认 10 个问题（9 CONFIRMED + 1 PLAUSIBLE），本
 - 用户显式开启未声明策略的 Profile，或手动执行 `/summarize` 时，使用系统默认策略：`summarizer` profile、16 个 source invocation 间隔、80,000 dialogue token 上限。
 - Profile `summarizer` 声明只定义 profileKey、interval 和 token 上限等执行策略，不再包含静态 `enabled` 开关。
 - hidden summarizer 的结果由 Harness 统一写回 source session：标题遵守 `session.titleOwner`，summary 始终更新；source leaf 在运行中变化时只标 dirty 并基于新 leaf 重跑。`systemRole=summarizer` session 不递归调度自身摘要。
+
+### 2026-07-19 system-only creation boundary
+
+- `summarizer` profile 声明 `capabilities.creation = "system_only"`。它的 `sourceSessionId`、system role 和 source-side `summarizer.state` 由 Harness 调度器共同建立，不能通过 `create_agent` 或公开 session API手动创建。
+- 公共创建入口按通用 capability 拒绝，不硬编码 `summarizer` key；私有 `createSystemAgent()` 继续供摘要调度器创建隐藏 session。
+- AgentCatalog 的可创建列表过滤 system-only profile；`get_agent_profile` / Workbench catalog 显式返回 creation capability，避免把“可加载、可检查”误解为“可公开创建”。
+- 该边界同时阻止调用者伪造 `sourceSessionId`，借 summarizer settle hook 跨 session 写标题或摘要。
 - 验证覆盖默认开关 resolver、普通 Profile 手动 summarize、interval、失败重试、leaf stale 重跑和标题所有权；摘要聚焦 7 tests、相关组合回归 11 files / 167 tests 与全仓 typecheck 通过。
 - 等 Task 94 会话收敛后确认 "Plan Mode exit preview" harness 测试恢复绿。

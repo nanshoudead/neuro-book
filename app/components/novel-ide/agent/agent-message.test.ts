@@ -1,6 +1,7 @@
 import {describe, expect, it} from "vitest";
 import {applyRuntimeEventToMessages, applySessionEntryToMessages, deriveMessagesFromChatEntries, isContinuationPointMessage, type AgentMessage} from "nbook/app/components/novel-ide/agent/agent-message";
 import type {AgentChatEntryDto} from "nbook/shared/dto/agent-public-event.dto";
+import {assertPublicToolCallId} from "nbook/shared/agent/public-tool-identity";
 
 describe("agent-message public projection", () => {
     it("durable history 保留正文 preview 的 bytes/omitted 元数据", () => {
@@ -32,13 +33,13 @@ describe("agent-message public projection", () => {
     it("durable tool result 归并到 toolCallId 所属 assistant", () => {
         const withAssistant = applySessionEntryToMessages([], {
             ...assistant("assistant-1", "", 0, false),
-            toolCalls: [{id: "call-1", index: 0, name: "write", args: {kind: "write", path: "a.md", contentPreview: "", contentBytes: 0, contentOmitted: false}}],
+            toolCalls: [{id: assertPublicToolCallId("call-1"), index: 0, name: "write", args: {kind: "write", path: "a.md", contentPreview: "", contentBytes: 0, contentOmitted: false}}],
         });
         const messages = applySessionEntryToMessages(withAssistant, {
             id: "result-1",
             timestamp: 2,
             type: "tool_result",
-            toolCallId: "call-1",
+            toolCallId: assertPublicToolCallId("call-1"),
             toolName: "write",
             result: {content: [{type: "text", contentIndex: 0, textPreview: "完成", textBytes: 6, textOmitted: false}], omittedContentBlocks: 0},
             isError: false,
@@ -116,13 +117,13 @@ describe("agent-message public projection", () => {
         const messages = deriveMessagesFromChatEntries([
             {
                 ...assistant("assistant-image", "", 0, false),
-                toolCalls: [{id: "call-image", index: 0, name: "read", args: {kind: "generic", value: {kind: "object", entries: [], omittedEntries: 0}}}],
+                toolCalls: [{id: assertPublicToolCallId("call-image"), index: 0, name: "read", args: {kind: "generic", value: {kind: "object", entries: [], omittedEntries: 0}}}],
             },
             {
                 id: "result-image",
                 timestamp: 2,
                 type: "tool_result",
-                toolCallId: "call-image",
+                toolCallId: assertPublicToolCallId("call-image"),
                 toolName: "read",
                 isError: false,
                 result: {

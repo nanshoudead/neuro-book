@@ -34,6 +34,45 @@ describe("useAgentSessionStream", () => {
         stream.stop();
     });
 
+    it("连接 open 前 stop 会以 AbortError 结算 start", async () => {
+        const session = useAgentSession();
+        session.applyRecovery(recovery(1, 0));
+        const stream = useAgentSessionStream({
+            session,
+            activeSessionId: ref(1),
+            api: {
+                getSessionRecovery: vi.fn(async () => recovery(1, 0)),
+                subscribeSessionEvents: vi.fn(async (_sessionId, _cursor, _onEvent, signal) => untilAbort(signal)),
+            },
+        });
+
+        const starting = stream.start(1);
+        await Promise.resolve();
+        stream.stop();
+
+        await expect(starting).rejects.toMatchObject({name: "AbortError"});
+    });
+
+    it("订阅在 open 前正常关闭会拒绝 start 并安排重连", async () => {
+        const session = useAgentSession();
+        session.applyRecovery(recovery(1, 0));
+        const subscribeSessionEvents = vi.fn(async () => {});
+        const stream = useAgentSessionStream({
+            session,
+            activeSessionId: ref(1),
+            api: {
+                getSessionRecovery: vi.fn(async () => recovery(1, 0)),
+                subscribeSessionEvents,
+            },
+        });
+
+        await expect(stream.start(1)).rejects.toThrow("event stream closed before open");
+        expect(session.connectionStatus.value).toBe("reconnecting");
+        await vi.advanceTimersByTimeAsync(300);
+        expect(subscribeSessionEvents).toHaveBeenCalledTimes(2);
+        stream.stop();
+    });
+
     it("多个 snapshot_required 事件共用一次 recovery", async () => {
         const session = useAgentSession();
         session.applyRecovery(recovery(1, 1));
@@ -46,11 +85,13 @@ describe("useAgentSessionStream", () => {
             activeSessionId: ref(1),
             api: {
                 getSessionRecovery,
-                subscribeSessionEvents: vi.fn(async (_sessionId, _cursor, onEvent, _signal, options) => {
+                subscribeSessionEvents: vi.fn(async (_sessionId, _cursor, onEvent, signal, options) => {
                     options?.onOpen?.();
-                    void onEvent(control(2, {type: "snapshot_required", reason: "trimmed"}));
-                    void onEvent(control(3, {type: "snapshot_required", reason: "trimmed again"}));
-                    await never();
+                    if (!signal?.aborted && getSessionRecovery.mock.calls.length === 0) {
+                        void onEvent(control(2, {type: "snapshot_required", reason: "trimmed"}));
+                        void onEvent(control(3, {type: "snapshot_required", reason: "trimmed again"}));
+                    }
+                    await untilAbort(signal);
                 }),
             },
         });
@@ -62,6 +103,39 @@ describe("useAgentSessionStream", () => {
         resolveRecovery(recovery(1, 3));
         await vi.waitFor(() => expect(session.lastSeq.value).toBe(3));
         expect(session.needsRecovery.value).toBe(false);
+        stream.stop();
+    });
+
+    it("活动连接应用 recovery 后从返回 cursor 重新订阅", async () => {
+        const session = useAgentSession();
+        session.applyRecovery(recovery(1, 5));
+        const cursors: AgentSessionEventsQueryDto[] = [];
+        let subscriptionCount = 0;
+        const stream = useAgentSessionStream({
+            session,
+            activeSessionId: ref(1),
+            api: {
+                getSessionRecovery: vi.fn(async () => recovery(1, 2)),
+                subscribeSessionEvents: vi.fn(async (_sessionId, cursor, onEvent, signal, options) => {
+                    subscriptionCount += 1;
+                    cursors.push(cursor);
+                    options?.onOpen?.();
+                    await onEvent(connected(subscriptionCount === 1 ? 5 : 2));
+                    if (subscriptionCount === 1) {
+                        await onEvent(control(6, {type: "snapshot_required", reason: "replay expired"}));
+                    }
+                    await untilAbort(signal);
+                }),
+            },
+        });
+
+        await stream.start(1);
+        await vi.waitFor(() => expect(cursors).toEqual([
+            {eventEpoch: "epoch-1", after: 5},
+            {eventEpoch: "epoch-1", after: 2},
+        ]));
+        expect(session.lastSeq.value).toBe(2);
+        expect(session.connectionStatus.value).toBe("connected");
         stream.stop();
     });
 
@@ -304,4 +378,10 @@ function control(seq: number, event: Extract<AgentSessionEventDto, {kind: "sessi
 
 function never(): Promise<void> {
     return new Promise<void>(() => {});
+}
+
+function untilAbort(signal?: AbortSignal): Promise<void> {
+    if (!signal) return never();
+    if (signal.aborted) return Promise.resolve();
+    return new Promise<void>((resolve) => signal.addEventListener("abort", () => resolve(), {once: true}));
 }

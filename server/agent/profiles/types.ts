@@ -23,6 +23,7 @@ export type AgentProfileManifest<TKey extends string = string> = {
 };
 
 export type AgentProfileSourceKind = "memory" | "system" | "user";
+export type AgentProfileCreationMode = "public" | "system_only";
 
 export type AgentProfileLoadStatus =
     | "loaded"
@@ -72,6 +73,7 @@ export type AgentCatalogItem = {
     hasSettingsForm: boolean;
     /** 是否声明专用 summarizer 策略；决定无用户覆盖时的默认开关，不控制设置 UI 可见性。 */
     canResetHome: boolean;
+    creationMode: AgentProfileCreationMode;
     issue?: AgentProfileIssue;
 };
 
@@ -185,6 +187,10 @@ export type AgentProfileDefinition<
     TTools extends ProfileTools = ProfileTools,
 > = {
     manifest: AgentProfileManifest;
+    /** Agent session 创建入口能力。system_only 只能由 Harness 内部系统流程创建。 */
+    capabilities?: {
+        creation?: AgentProfileCreationMode;
+    };
     initialSchema: TInitialSchema;
     payloadSchema?: TPayloadSchema;
     outputSchema?: TOutputSchema;

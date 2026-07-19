@@ -41,6 +41,19 @@ describe("AgentSessionEventHub", () => {
         expect(hub.lastSeq(1)).toBe(1);
     });
 
+    it("Task 22 的 agent_end 终态事件保持 5 KiB 以内且不携带 messages", () => {
+        const hub = new AgentSessionEventHub();
+        const published = hub.publish({
+            sessionId: 1,
+            invocationId: "invocation-1",
+            kind: "runtime",
+            event: {type: "agent_end", status: "completed"},
+        });
+
+        expect(published.frameBytes).toBeLessThan(5 * 1024);
+        expect(published.payload.event).not.toHaveProperty("messages");
+    });
+
     it("replay pin 仍受事件数和字节数硬上限约束", () => {
         const hub = new AgentSessionEventHub({replayLimit: 3, replayByteLimit: 700});
         hub.pinReplayFrom(1, 1);
@@ -427,6 +440,38 @@ describe("AgentSessionEventHub", () => {
                     event: {
                         type: "snapshot_required",
                         reason: "event cursor is ahead of server",
+                    },
+                }),
+            }),
+        });
+
+        await subscription.return?.();
+    });
+
+    it("正数 after 缺少 eventEpoch 时拒绝 replay 当前进程事件", async () => {
+        const hub = new AgentSessionEventHub();
+        hub.pinReplayFrom(1, 1);
+        hub.publish({
+            sessionId: 1,
+            kind: "session",
+            event: {type: "invocation_aborted", reason: "current-epoch"},
+        });
+        hub.publish({
+            sessionId: 1,
+            kind: "session",
+            event: {type: "invocation_aborted", reason: "must-not-replay"},
+        });
+        const subscription = hub.subscribe(1, {after: 1})[Symbol.asyncIterator]();
+
+        await expect(subscription.next()).resolves.toEqual({
+            done: false,
+            value: expect.objectContaining({
+                payload: expect.objectContaining({
+                    eventEpoch: hub.eventEpoch,
+                    kind: "session",
+                    event: {
+                        type: "snapshot_required",
+                        reason: "event cursor is missing epoch",
                     },
                 }),
             }),

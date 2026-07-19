@@ -1,7 +1,7 @@
 import {existsSync} from "node:fs";
 import {mkdir, readFile, readdir, stat} from "node:fs/promises";
 import {basename, dirname, join, relative, resolve} from "node:path";
-import {Value} from "typebox/value";
+import {assertTypeBoxValue} from "nbook/server/agent/profiles/schema-validation";
 import type {JsonValue} from "nbook/server/agent/messages/types";
 import {
     PROFILE_COMPILED_DIR_NAME,
@@ -499,7 +499,8 @@ export class AgentProfileCatalog implements ProfileReleaseRegistrySink {
      */
     parseInitial(profile: AgentProfile, initial: JsonValue): JsonValue {
         try {
-            return Value.Parse(profile.initialSchema, initial) as JsonValue;
+            assertTypeBoxValue(profile.initialSchema, initial);
+            return initial;
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
             throw new Error(`profile ${profile.manifest.key} initial 校验失败：${message}`);
@@ -517,7 +518,8 @@ export class AgentProfileCatalog implements ProfileReleaseRegistrySink {
             throw new AgentInvocationPayloadError(`profile ${profile.manifest.key} 未声明 PayloadSchema，不能接收 invocation input。`);
         }
         try {
-            return Value.Parse(profile.payloadSchema, payload) as JsonValue;
+            assertTypeBoxValue(profile.payloadSchema, payload);
+            return payload;
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
             throw new AgentInvocationPayloadError(`profile ${profile.manifest.key} payload 校验失败：${message}`);
@@ -545,6 +547,7 @@ export class AgentProfileCatalog implements ProfileReleaseRegistrySink {
                 loadStatus: buildState.running || buildState.queued ? "compiling" : issue ? statusFromIssue(issue) : "loaded",
                 hasSettingsForm: Boolean(profile.settingsForm),
                 canResetHome: Boolean(profile.home?.reset),
+                creationMode: profile.capabilities?.creation ?? "public",
                 issue,
             };
         });
@@ -560,6 +563,7 @@ export class AgentProfileCatalog implements ProfileReleaseRegistrySink {
                 loadStatus: buildState.running || buildState.queued ? "compiling" : profile.loadStatus,
                 hasSettingsForm: false,
                 canResetHome: false,
+                creationMode: "public",
                 issue: profile.issue,
             };
         });

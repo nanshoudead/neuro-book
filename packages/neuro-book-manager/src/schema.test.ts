@@ -50,7 +50,7 @@ describe("Manager manifest schemas", () => {
         expect(() => parseInstallationManifest({...container, containerEngine: null})).toThrow("Container Engine");
     });
 
-    it("Operation Journal v2固定并校验Manifest engine", () => {
+    it("Operation Journal v3固定并校验Manifest engine", () => {
         const manifest = dockerManifest();
         const journal = operationJournal(manifest);
         expect(parseOperationJournal(journal, "memory.json").containerEngine).toBe("podman");
@@ -149,13 +149,13 @@ function dockerManifest() {
 function operationJournal(manifest: ReturnType<typeof dockerManifest>) {
     const now = "2026-07-16T00:00:00.000Z";
     return {
-        schemaVersion: 2 as const,
+        schemaVersion: 3 as const,
         id: "operation",
         action: "update" as const,
         phase: "planned" as const,
         root: "C:/neuro-book",
         containerEngine: "podman" as const,
-        createdPaths: [],
+        effects: [],
         backupRoot: "C:/neuro-book/.deploy/backups/operation",
         previousManifest: manifest,
         nextManifest: manifest,

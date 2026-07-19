@@ -2,6 +2,17 @@
 
 > 当前状态：实现中 / Implementing。2026-07-18补漏审查确认canonical relative path、managed Project链接隔离和Manager容器健康合同仍有缺口；`0.8.5`/`0.8.6`公开证据继续作为历史基线，但在新门禁与下一公开canary通过前不再标记Verified。
 
+## 2026-07-19：Authorized File Operation集成
+
+- 新增唯一`authorizeFileOperation()` Module；read/write/edit/apply_patch与Subject Memory/RAG统一执行File Address解析、Project open gate和最近存在父目录realpath containment。
+- managed当前Project与跨Project目标都必须显式open；写操作在mkdir前授权父目录，junction/symlink根外逃逸统一拒绝。
+- managed Project中的绝对路径只能指向当前Project Workspace；跨Project必须使用完整`workspace/<slug>/<relative-path>`。`apply_patch`先授权全部source/target/moveTo，全部通过后才读取或写入。
+- Bash明确是受信任完整Shell，是文件级Authorized File Operation的例外。`authorizeProcessCwd()`只验证当前Project已open和cwd真实可信，不限制命令中访问的文件，也不新增Discuss/Plan审批。
+- Harness已删除私有`resolveSessionProjectRoot()`，Context Access/History继续消费`ResolvedFileAddress`携带的canonical Project Path，不从绝对路径反推身份。
+- Attachment route同样通过Session metadata复用Project生命周期，不把blob路径当Project归属。
+- 文件授权、apply_patch、Subject与State Root聚焦回归通过；Portable/Product公开运行、Plan Mode/World Engine完整产品链与浏览器验收仍待完成。
+- 本轮复核再次确认Bash不进入`authorizeFileOperation()`：这是明确的能力边界，不是遗漏。文件类工具保存Resolver给出的Project身份；Bash只消费`authorizeProcessCwd()`并保持完整Shell语义。
+
 ## Relative documents refs
 
 - [Project status](../../../PROJECT-STATUS.md)

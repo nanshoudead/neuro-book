@@ -1,5 +1,5 @@
 import {createHash, randomUUID} from "node:crypto";
-import {appendFile, mkdtemp, mkdir, readFile, rename, rm, stat, writeFile} from "node:fs/promises";
+import {appendFile, copyFile, mkdtemp, mkdir, readFile, rename, rm, stat, symlink, writeFile} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {dirname, join} from "node:path";
 import {afterEach, describe, expect, it} from "vitest";
@@ -316,6 +316,55 @@ describe("Agent Attachment v1 migration", () => {
         await expect(runAgentAttachmentMigration({rootWorkspace: root, mode: "apply", resume: true}))
             .rejects.toThrow(expected);
         await expect(stat(join(root, ".nbook", "agent", "migrations", "attachment-v1.lock"))).resolves.toBeDefined();
+    });
+
+    it.each([
+        {
+            name: "backup覆盖source",
+            mutate: (session: Record<string, unknown>) => {
+                session.backupPath = session.sourcePath;
+            },
+        },
+        {
+            name: "rollback指向控制文件",
+            mutate: (session: Record<string, unknown>) => {
+                session.rollbackPath = ".nbook/config.json";
+            },
+        },
+    ])("resume 拒绝manifest中的$name", async ({mutate}) => {
+        const root = await createWorkspace();
+        roots.push(root);
+        await writeLegacySession(root, 41);
+        const runId = `manifest-path-${randomUUID()}`;
+        await interruptAtPublishing(root, runId);
+        const manifestPath = join(root, ".nbook", "agent", "migrations", "attachment-v1", runId, "manifest.json");
+        const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as {sessions: Record<string, unknown>[]};
+        const session = manifest.sessions[0];
+        if (!session) {
+            throw new Error("fixture 缺少 migration session");
+        }
+        mutate(session);
+        await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
+
+        await expect(runAgentAttachmentMigration({rootWorkspace: root, mode: "apply", resume: true}))
+            .rejects.toThrow("migration session 路径不属于当前 run 的确定计划");
+    });
+
+    it("resume 拒绝Session真相源目录被junction或symlink替换", async () => {
+        const root = await createWorkspace();
+        roots.push(root);
+        await writeLegacySession(root, 41);
+        const runId = `manifest-link-${randomUUID()}`;
+        await interruptAtPublishing(root, runId);
+        const sessionsRoot = join(root, ".nbook", "agent", "sessions");
+        const externalRoot = await mkdtemp(join(tmpdir(), "nbook-attachment-external-"));
+        roots.push(externalRoot);
+        await copyFile(join(sessionsRoot, "41.jsonl"), join(externalRoot, "41.jsonl"));
+        await rm(sessionsRoot, {recursive: true, force: true});
+        await symlink(externalRoot, sessionsRoot, process.platform === "win32" ? "junction" : "dir");
+
+        await expect(runAgentAttachmentMigration({rootWorkspace: root, mode: "apply", resume: true}))
+            .rejects.toThrow("migration session 路径包含symlink或junction");
     });
 
     it("resume 在读取前拒绝超过固定预算的 journal", async () => {

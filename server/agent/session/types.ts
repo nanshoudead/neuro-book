@@ -1,5 +1,6 @@
-import type {JsonValue, Model, ThinkingLevel} from "nbook/server/agent/messages/types";
+import type {JsonValue, ThinkingLevel} from "nbook/server/agent/messages/types";
 import type {StoredAgentMessage} from "nbook/server/agent/messages/stored-types";
+import type {DurableSessionModelRef} from "nbook/server/agent/session/session-model-redaction";
 import type {VariableJsonPatchOperation, VariableNamespace} from "nbook/server/agent/variables/types";
 import type {AgentMode} from "nbook/shared/dto/agent-session.dto";
 import type {WorkspaceRootRef} from "nbook/server/workspace-files/workspace-root-ref";
@@ -136,7 +137,7 @@ export type ModelChangeEntry = {
     parentId: SessionEntryId | null;
     timestamp: number;
     type: "model_change";
-    model: Model<any> | null;
+    model: DurableSessionModelRef | null;
 };
 
 export type ThinkingLevelChangeEntry = {
@@ -252,7 +253,7 @@ export type SessionSnapshot = {
 export type NeuroSessionContext = {
     systemPrompt: string;
     messages: StoredAgentMessage[];
-    model: Model<any> | null;
+    model: DurableSessionModelRef | null;
     /** Session 级显式 thinking 覆盖；null 表示跟随 Agent Profile 默认。 */
     thinkingLevel: ThinkingLevel | null;
     profileKey: string;

@@ -1,5 +1,16 @@
 # Agent Runtime Event OOM 与 SSE 内存边界
 
+> 当前状态：实现中 / Integrated locally。公开事件预算主链已完成；Public Tool Identity全入口与Product证据仍按本轮集成状态跟踪。
+
+## 2026-07-19：Public Tool Identity统一入口
+
+- Public DTO的wire type保持普通`string`；branded identity只存在于服务端`assertPublicToolCallId()`验证后的内部投影。
+- `client_variable_patch_requested`在注册pending Map和EventHub publish前验证tool-call ID；空白、超过512 UTF-8 bytes及多字节超限全部fail closed，不产生pending或replay。
+
+- 新增共享`Public Tool Identity` Module，非空且UTF-8不超过512 bytes；live projector、durable Chat、Stored Codec、pending recovery、HTTP resolution与client patch ack统一消费。
+- 非法tool ID不再被`return null`静默丢弃，也不会先序列化后截断；Provider终态、durable replay/history和用户resolution均fail closed。
+- 公共DTO覆盖512/513 ASCII、多字节边界与空白ID；事件、HTTP、Harness和durable聚焦回归通过。浏览器/SSE真实连接验收未执行。
+
 ## Relative documents refs
 
 - [Agent SSE Front-End Contract](../14-agent-sse-front-end-contract/README.md)
@@ -545,6 +556,13 @@ CHAT_ENTRY_PREVIEW_BYTES + envelope margin
 - 表单 projector 对非法 formSpec fail closed，不静默降级为普通 approval。
 
 相关 Harness、black-box、queue projector、stable ID、plan recovery 和前端状态测试已按新 DTO 契约迁移。最终组合回归 `15 files / 297 tests passed`，`bun run typecheck` passed；未执行浏览器验证。
+
+### Control event semantic boundary closure (2026-07-19)
+
+- 必须精确送达并获得 ack 的 `client_variable_patch_requested` 不再依赖 EventHub oversized fallback；请求超过 64 KiB 时在注册 pending 和发布 SSE 前明确失败。
+- `invocation_aborted.reason` 只公开 2 KiB 预览，避免 abort 信号因大原因退化为 `snapshot_required`。
+- 无前端消费者且从未完成 `sidecarContext` 透传的 Sidecar lifecycle events 已退出公开 DTO；内部 Sidecar 执行、side branch 与日志不变。
+- Task 22/107/HTTP/Harness/variables/frontend 最终去重组合回归 `17 files / 319 tests passed`，`bun run typecheck` passed。
 
 - [x] 复现累计 `message_update` 的序列化放大。
 - [x] 复现 replay pin 绕过数量裁剪。

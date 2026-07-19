@@ -4,6 +4,7 @@ import {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
 import {runtimePathsFromEnv} from "nbook/server/runtime/paths/runtime-paths";
 import {AgentHistoryQueryError} from "nbook/server/agent/session/history-query";
 import {isAttachmentError} from "nbook/server/agent/attachments/types";
+import {projectPublicInvocationResult} from "nbook/server/agent/events/public-invocation-result-projection";
 import type {InvokeAgentInput} from "nbook/server/agent/harness/types";
 import type {ServerTimingSink} from "nbook/server/utils/server-timing";
 import {
@@ -19,6 +20,8 @@ import {
     type AgentSessionQueryDto,
     type AgentSessionQueryResultDto,
     type AgentTreeRequestDto,
+    type AgentTreeResult,
+    type InvokeAgentResult,
 } from "nbook/shared/dto/agent-session.dto";
 
 type GlobalAgentHttp = {
@@ -133,9 +136,10 @@ export async function getAgentSessionRelations(sessionId: number, harness = useA
 /**
  * 阻塞调用 Agent session。
  */
-export async function invokeAgentSession(sessionId: number, body: AgentInvokeRequestDto, harness = useAgentHarness()) {
+export async function invokeAgentSession(sessionId: number, body: AgentInvokeRequestDto, harness = useAgentHarness()): Promise<InvokeAgentResult> {
     try {
-        return await harness.invokeAgent(toInvokeInput(sessionId, body));
+        const result = await harness.invokeAgent(toInvokeInput(sessionId, body));
+        return projectPublicInvocationResult(result);
     } catch (error) {
         if (!isAttachmentError(error)) {
             throw error;
@@ -176,8 +180,11 @@ export async function runAgentSessionCommand(sessionId: number, body: AgentComma
  *
  * 当前实现先移动 leaf 再 invoke；若 invoke 失败，leaf 不会自动回滚。
  */
-export async function moveAgentSessionTree(sessionId: number, body: AgentTreeRequestDto, harness = useAgentHarness()) {
-    return harness.moveTree(sessionId, body);
+export async function moveAgentSessionTree(sessionId: number, body: AgentTreeRequestDto, harness = useAgentHarness()): Promise<AgentTreeResult> {
+    const result = await harness.moveTree(sessionId, body);
+    return result.invocation
+        ? {...result, invocation: projectPublicInvocationResult(result.invocation)}
+        : {status: result.status, state: result.state};
 }
 
 /**
@@ -226,6 +233,7 @@ export function toInvokeInput(
         payload: body.input,
         title: body.title,
         resolution: body.resolution as InvokeAgentInput["resolution"],
+        resolutions: body.resolutions as InvokeAgentInput["resolutions"],
         clientState: body.clientState,
         caller: {kind: "user"},
         block: body.block,

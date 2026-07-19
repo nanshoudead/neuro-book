@@ -1,6 +1,6 @@
 import {join} from "node:path";
 
-import {writeTextAtomic} from "#manager/files";
+import {pathExists, writeTextAtomic} from "#manager/files";
 
 export type PortableLauncher = {
     name: string;
@@ -39,8 +39,13 @@ export function portableLaunchers(): PortableLauncher[] {
 }
 
 /** 原子写入Windows Portable入口文件。 */
-export async function writePortableLaunchers(root: string): Promise<void> {
+export async function writePortableLaunchers(root: string, recordCreated?: (path: string) => Promise<void>): Promise<void> {
     for (const launcher of portableLaunchers()) {
-        await writeTextAtomic(join(root, launcher.name), launcher.content);
+        const path = join(root, launcher.name);
+        if (recordCreated && await pathExists(path)) {
+            throw new Error(`Portable Launcher与既有路径冲突：${launcher.name}`);
+        }
+        await recordCreated?.(path);
+        await writeTextAtomic(path, launcher.content);
     }
 }

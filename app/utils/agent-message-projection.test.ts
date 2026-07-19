@@ -1,6 +1,7 @@
 import {describe, expect, it} from "vitest";
 import {RequestUserInputToolArgsSchema, applyRuntimeEventToMessages, applySessionEntryToMessages, deriveMessagesFromChatEntries, deriveRequestUserInputAnswerViews, hasVisibleInvocationError, messageStatusLabel, toLocalMessage, toPendingUserInputSession} from "nbook/app/components/novel-ide/agent/agent-message";
 import {projectPublicToolArgs} from "nbook/server/agent/events/public-tool-projection";
+import {assertPublicToolCallId} from "nbook/shared/agent/public-tool-identity";
 
 describe("agent message projection helpers", () => {
     it("request_user_input schema 拒绝默认值、推荐和多选旧字段", () => {
@@ -41,7 +42,7 @@ describe("agent message projection helpers", () => {
 
     it("approval pending session 保留批准和拒绝选项", () => {
         const session = toPendingUserInputSession({
-            toolCallId: "plan-1",
+            toolCallId: assertPublicToolCallId("plan-1"),
             toolName: "switch_mode",
             args: projectPublicToolArgs("switch_mode", {
                 targetMode: "plan",
@@ -59,7 +60,7 @@ describe("agent message projection helpers", () => {
 
     it("switch_mode 退出计划 pending session 保留计划文件预览", () => {
         const session = toPendingUserInputSession({
-            toolCallId: "exit-1",
+            toolCallId: assertPublicToolCallId("exit-1"),
             toolName: "switch_mode",
             args: projectPublicToolArgs("switch_mode", {
                 targetMode: "normal",
@@ -70,7 +71,7 @@ describe("agent message projection helpers", () => {
             planContent: "# Preview\n\n- one\n",
         }, []);
         const enterSession = toPendingUserInputSession({
-            toolCallId: "enter-1",
+            toolCallId: assertPublicToolCallId("enter-1"),
             toolName: "switch_mode",
             args: projectPublicToolArgs("switch_mode", {
                 targetMode: "plan",
@@ -375,7 +376,7 @@ describe("agent message projection helpers", () => {
             id: "tool-result-1",
             timestamp: Date.now(),
             type: "tool_result",
-            toolCallId: "approval-call",
+            toolCallId: assertPublicToolCallId("approval-call"),
             toolName: "request_user_input",
             result: {
                 content: [{type: "text", contentIndex: 0, textPreview: "用户已选择：继续", textBytes: 24, textOmitted: false}],
@@ -406,7 +407,7 @@ describe("agent message projection helpers", () => {
             }],
         }], {
             type: "tool_execution_start",
-            toolCallId: "patch-1",
+            toolCallId: assertPublicToolCallId("patch-1"),
             toolName: "apply_patch",
             args: {
                 kind: "apply_patch",

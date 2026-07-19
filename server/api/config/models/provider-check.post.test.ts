@@ -24,7 +24,7 @@ describe("POST /api/config/models/provider-check", () => {
                         custom: {
                             enabled: true,
                             modelApi: "openai-completions",
-                            options: {apiKey: "sk-saved"},
+                            options: {apiKey: "sk-saved", baseURL: "https://example.com/v1", proxy: ""},
                             models: {
                                 "saved-model": {
                                     name: "Saved",
@@ -79,13 +79,45 @@ describe("POST /api/config/models/provider-check", () => {
                     },
                 },
                 models: [],
-                useSavedApiKey: true,
+                credentialSource: "saved",
                 useSavedModels: false,
             },
         } as never);
 
-        expect(checkProviderConnection).toHaveBeenCalledWith(expect.anything(), [], {
+        expect(checkProviderConnection).toHaveBeenCalledWith(expect.objectContaining({
+            options: expect.objectContaining({apiKey: "sk-saved"}),
+        }), [], {
             trace: {kind: "test-trace"},
         });
+    });
+
+    it("saved连接身份不匹配时返回400且网络Adapter零调用", async () => {
+        const checkProviderConnection = vi.fn();
+        vi.doMock("nbook/server/config/config-service", () => ({
+            loadGlobalEffectiveConfigSync: vi.fn(() => ({
+                models: {providers: {custom: {
+                    enabled: true,
+                    modelApi: "openai-completions",
+                    options: {apiKey: "sk-saved", baseURL: "https://saved.example/v1", proxy: ""},
+                    models: {},
+                }}},
+            })),
+        }));
+        vi.doMock("nbook/server/utils/model-settings", () => ({checkProviderConnection}));
+        vi.doMock("nbook/server/agent/http", () => ({useAgentHarness: vi.fn()}));
+
+        const handler = (await import("nbook/server/api/config/models/provider-check.post")).default;
+        await expect(handler({body: {
+            provider: {
+                id: "custom",
+                name: "Custom",
+                modelApi: "openai-completions",
+                options: {apiKey: "request-secret", baseURL: "https://changed.example/v1", proxy: "", timeoutMs: null, requestOptions: {}},
+            },
+            models: [],
+            credentialSource: "saved",
+            useSavedModels: false,
+        }} as never)).rejects.toMatchObject({statusCode: 400});
+        expect(checkProviderConnection).not.toHaveBeenCalled();
     });
 });

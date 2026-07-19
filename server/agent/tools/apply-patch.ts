@@ -2,8 +2,8 @@ import {lstat, mkdir, readFile, rm, writeFile} from "node:fs/promises";
 import {dirname} from "node:path";
 import {createPatch} from "diff";
 import {firstChangedLine} from "nbook/server/agent/tools/file-tool-utils";
-import {resolveFileAddress, type FileScope, type ResolvedFileAddress} from "nbook/server/workspace-files/file-scope";
-import {assertRealPathContained, relativeFilePathInside} from "nbook/server/runtime/paths/file-path";
+import type {FileScope, ResolvedFileAddress} from "nbook/server/workspace-files/file-scope";
+import {authorizeFileOperation} from "nbook/server/workspace-files/authorized-file-operation";
 
 type AddOperation = {
     type: "add";
@@ -139,12 +139,24 @@ export async function applyCodexPatch(input: {
     patchText: string;
 }): Promise<ApplyCodexPatchResult> {
     const operations = parseCodexPatch(input.patchText);
+    const authorizedAddresses = new Map<string, ResolvedFileAddress>();
+    for (const operation of operations) {
+        const paths = operation.type === "update" && operation.moveTo
+            ? [operation.path, operation.moveTo]
+            : [operation.path];
+        for (const patchPath of paths) {
+            if (!authorizedAddresses.has(patchPath)) {
+                const authorized = await authorizeFileOperation(input.fileScope, patchPath, "apply_patch");
+                authorizedAddresses.set(patchPath, authorized.address);
+            }
+        }
+    }
     const fileState = new Map<string, VirtualFileState>();
     const changes = new Map<string, PlannedFileChange>();
 
     for (const operation of operations) {
         if (operation.type === "add") {
-            const target = await readVirtualFile(fileState, input.fileScope, operation.path);
+            const target = await readVirtualFile(fileState, authorizedPatchAddress(authorizedAddresses, operation.path), operation.path);
             if (target.exists && target.content !== null) {
                 throw new Error(`文件已存在，不能 Add File：${operation.path}`);
             }
@@ -167,7 +179,7 @@ export async function applyCodexPatch(input: {
         }
 
         if (operation.type === "delete") {
-            const target = await readVirtualFile(fileState, input.fileScope, operation.path);
+            const target = await readVirtualFile(fileState, authorizedPatchAddress(authorizedAddresses, operation.path), operation.path);
             await assertPatchTargetIsFile(target.absolutePath, operation.path);
             fileState.set(target.absolutePath, {
                 ...target,
@@ -186,7 +198,7 @@ export async function applyCodexPatch(input: {
             continue;
         }
 
-        const source = await readVirtualFile(fileState, input.fileScope, operation.path);
+        const source = await readVirtualFile(fileState, authorizedPatchAddress(authorizedAddresses, operation.path), operation.path);
         await assertPatchTargetIsFile(source.absolutePath, operation.path);
         if (source.content === null) {
             throw new Error(`无法更新已删除文件：${operation.path}`);
@@ -203,7 +215,7 @@ export async function applyCodexPatch(input: {
         };
         if (operation.moveTo) {
             const targetPath = operation.moveTo;
-            const target = await readVirtualFile(fileState, input.fileScope, targetPath);
+            const target = await readVirtualFile(fileState, authorizedPatchAddress(authorizedAddresses, targetPath), targetPath);
             fileState.set(source.absolutePath, {
                 ...source,
                 content: null,
@@ -353,12 +365,10 @@ function isPatchBoundary(line: string): boolean {
 
 async function readVirtualFile(
     fileState: Map<string, VirtualFileState>,
-    fileScope: FileScope,
+    address: ResolvedFileAddress,
     displayPath: string,
 ): Promise<VirtualFileState> {
-    const address = resolvePatchPath(displayPath, fileScope);
     const absolutePath = address.absolutePath;
-    await assertRealPathContained(fileScope.workspaceRoot ?? fileScope.root, absolutePath);
     const existing = fileState.get(absolutePath);
     if (existing) {
         return existing;
@@ -412,13 +422,11 @@ async function rollbackPlannedChanges(plannedChanges: PlannedFileChange[]): Prom
     }
 }
 
-function resolvePatchPath(filePath: string, fileScope: FileScope): ResolvedFileAddress {
-    const address = resolveFileAddress(fileScope, filePath);
-    const absolutePath = address.absolutePath;
-    const containmentRoot = fileScope.workspaceRoot ?? fileScope.root;
-    const relativePath = relativeFilePathInside(containmentRoot, absolutePath);
-    if (!relativePath || relativePath === ".") {
-        throw new Error(`apply_patch 路径越过 workspaceRoot：${filePath}`);
+/** 读取预授权地址；缺失表示调用方破坏了“全部授权后再读写”的事务边界。 */
+function authorizedPatchAddress(addresses: Map<string, ResolvedFileAddress>, displayPath: string): ResolvedFileAddress {
+    const address = addresses.get(displayPath);
+    if (!address) {
+        throw new Error(`apply_patch 缺少预授权地址：${displayPath}`);
     }
     return address;
 }

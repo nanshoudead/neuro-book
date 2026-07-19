@@ -7,6 +7,7 @@ import type {
     StoredFollowUpQueuePause,
     StoredFollowUpQueueState,
 } from "nbook/server/agent/messages/stored-types";
+import {assertPublicToolCallId} from "nbook/shared/agent/public-tool-identity";
 
 const ATTACHMENT_ID_PATTERN = /^sha256:[0-9a-f]{64}$/;
 const ASSISTANT_STOP_REASONS = new Set(["stop", "length", "toolUse", "error", "aborted"]);
@@ -50,6 +51,7 @@ export function parseStoredMessage(value: unknown): StoredAgentMessage {
     if (message.role === "toolResult") {
         requireExactKeys(message, TOOL_RESULT_MESSAGE_KEYS, "Stored toolResult message 包含未声明字段。");
         requireString(message.toolCallId, "Stored toolResult 缺少 toolCallId。");
+        assertPublicToolCallId(message.toolCallId);
         requireString(message.toolName, "Stored toolResult 缺少 toolName。");
         parseStoredContentArray(message.content, "toolResult");
         if (typeof message.isError !== "boolean") {
@@ -222,6 +224,7 @@ function parseAssistantMessage(message: Record<string, unknown>): void {
         if (block.type === "toolCall") {
             requireExactKeys(block, TOOL_CALL_KEYS, "Stored assistant toolCall block 包含未声明字段。");
             requireString(block.id, "Stored assistant toolCall 缺少 id。");
+            assertPublicToolCallId(block.id);
             requireString(block.name, "Stored assistant toolCall 缺少 name。");
             if (!isJsonObject(block.arguments)) {
                 corrupt("Stored assistant toolCall arguments 不是 JSON object。");

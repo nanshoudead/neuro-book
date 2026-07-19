@@ -126,6 +126,11 @@ async function cleanupFailedMaterialize(root: string): Promise<void> {
     await removePath(join(root, ".git"));
 }
 
+/** 删除Fresh Install本次创建的Git checkout，只保留其他Manager-owned目录。 */
+export async function removeMaterializedRepository(root: string): Promise<void> {
+    await cleanupFailedMaterialize(root);
+}
+
 function normalizeRepository(repository: string): string {
     return repository.trim()
         .replace(/^git@github\.com:/u, "https://github.com/")

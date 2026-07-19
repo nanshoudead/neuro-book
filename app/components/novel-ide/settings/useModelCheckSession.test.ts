@@ -46,6 +46,26 @@ describe("Model health check frontend session", () => {
         expect(session.result(provider, provider.models[0]!)).toMatchObject({cancelled: true, success: false});
         expect(session.isChecking(provider, provider.models[0]!)).toBe(false);
     });
+
+    it("批量检查限制并发请求数量", async () => {
+        const models = Array.from({length: 9}, (_, index) => createModel(`model-${String(index)}`));
+        const provider = createProvider(models);
+        let active = 0;
+        let maxActive = 0;
+        vi.stubGlobal("$fetch", vi.fn(async () => {
+            active += 1;
+            maxActive = Math.max(maxActive, active);
+            await new Promise((resolve) => setTimeout(resolve, 1));
+            active -= 1;
+            return {success: true, latencyMs: 1, message: "ok"};
+        }));
+        const session = createSession(provider, new Set(models.map((model) => `provider/${model.id}`)));
+
+        await session.checkAll();
+
+        expect(maxActive).toBeLessThanOrEqual(4);
+        expect(session.checkingAll.value).toBe(false);
+    });
 });
 
 /** 创建被测健康检查会话。 */
@@ -73,7 +93,7 @@ function createSession(provider: ModelSettingsProviderDraft, runnableKeys: Set<s
             thinkingLevelMap: null,
             contextWindowTokens: 8192,
         }),
-        useSavedApiKey: () => false,
+        credentialSource: () => "cleared",
     });
 }
 

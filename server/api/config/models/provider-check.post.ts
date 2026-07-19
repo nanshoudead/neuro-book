@@ -1,6 +1,7 @@
 import {CheckProviderRequestDtoSchema, type CheckProviderRequestDto} from "nbook/shared/dto/app-settings.dto";
 import {loadGlobalEffectiveConfigSync} from "nbook/server/config/config-service";
-import {checkProviderConnection, withSavedProviderApiKey} from "nbook/server/utils/model-settings";
+import {checkProviderConnection} from "nbook/server/utils/model-settings";
+import {resolveProviderCredential} from "nbook/server/models/provider-credential";
 import {validateBody} from "nbook/server/utils/novel-chapter";
 import {useAgentHarness} from "nbook/server/agent/http";
 
@@ -30,8 +31,6 @@ defineRouteMeta({
                                     "minLength": 1
                                 },
                                 "modelApi": {
-                                    "default": null,
-                                    "nullable": true,
                                     "type": "string",
                                     "enum": [
                                         "openai-completions",
@@ -344,9 +343,13 @@ defineRouteMeta({
                                 "additionalProperties": false
                             }
                         },
-                        "useSavedApiKey": {
-                            "default": true,
-                            "type": "boolean"
+                        "credentialSource": {
+                            "type": "string",
+                            "enum": [
+                                "provided",
+                                "saved",
+                                "cleared"
+                            ]
                         },
                         "useSavedModels": {
                             "default": true,
@@ -356,7 +359,7 @@ defineRouteMeta({
                     "required": [
                         "provider",
                         "models",
-                        "useSavedApiKey",
+                        "credentialSource",
                         "useSavedModels"
                     ],
                     "additionalProperties": false,
@@ -472,15 +475,13 @@ defineRouteMeta({
 
 
 /**
- * Provider 连通性测试。草稿未携带明文 API Key 时，回退读取已保存的 Global Config secret。
+ * Provider 连通性测试。凭据来源必须由调用方明确选择。
  */
 export default defineEventHandler(async (event) => {
     const body = await validateBody<CheckProviderRequestDto>(event, CheckProviderRequestDtoSchema);
     const config = loadGlobalEffectiveConfigSync();
+    const provider = resolveProviderCredential(body.provider, body.credentialSource, config);
     const savedProvider = config.models.providers[body.provider.id];
-    const provider = body.useSavedApiKey
-        ? withSavedProviderApiKey(body.provider, savedProvider?.options.apiKey)
-        : body.provider;
     const modelDrafts = body.models.length > 0
         ? body.models
         : body.useSavedModels

@@ -12,6 +12,7 @@ import {
 } from "nbook/server/agent/http";
 import {AgentHistoryQueryError} from "nbook/server/agent/session/history-query";
 import {AttachmentError} from "nbook/server/agent/attachments/types";
+import {assertPublicToolCallId} from "nbook/shared/agent/public-tool-identity";
 
 describe("agent session http helpers", () => {
     it("createAgentSession 调用 harness.createAgent", async () => {
@@ -127,6 +128,68 @@ describe("agent session http helpers", () => {
         });
     });
 
+    it("invokeAgentSession 保留内部结构化结果但只返回有界 HTTP 摘要", async () => {
+        const data = {body: "完整结构化正文".repeat(100_000)};
+        const reportText = "\u0000".repeat(100_000);
+        const finalMessage = "最终正文".repeat(100_000);
+        const internalResult = {
+            sessionId: 12,
+            invocationId: "run-large-output",
+            status: "completed" as const,
+            finalMessage,
+            reportResult: {
+                result: reportText,
+                success: true,
+                data,
+            },
+        };
+
+        const result = await invokeAgentSession(12, {
+            mode: "prompt",
+            message: {text: "hello"},
+        }, {
+            invokeAgent: vi.fn(async () => internalResult),
+        } as never);
+
+        expect(internalResult.reportResult.data).toBe(data);
+        expect(result.reportResult).toEqual(expect.objectContaining({
+            success: true,
+            resultBytes: Buffer.byteLength(reportText, "utf8"),
+            resultOmitted: true,
+            dataOmitted: true,
+        }));
+        expect(result.reportResult).not.toHaveProperty("data");
+        expect(result.finalMessageOmitted).toBe(true);
+        expect(Buffer.byteLength(JSON.stringify(result), "utf8")).toBeLessThan(96 * 1024);
+    });
+
+    it("invokeAgentSession 的 partial finalMessage 与重复错误文本共享响应预算", async () => {
+        const errorMessage = "\u0000".repeat(4_000);
+        const finalMessage = "部分正文".repeat(100_000);
+
+        const result = await invokeAgentSession(12, {
+            mode: "prompt",
+            message: {text: "hello"},
+        }, {
+            invokeAgent: vi.fn(async () => ({
+                sessionId: 12,
+                invocationId: "run-large-error",
+                status: "error",
+                finalMessage,
+                error: errorMessage,
+                errorPhase: "model",
+                errorInfo: {
+                    message: errorMessage,
+                    phase: "model",
+                },
+            })),
+        } as never);
+
+        expect(result.error).toBe(result.errorInfo?.message);
+        expect(result.finalMessageOmitted).toBe(true);
+        expect(Buffer.byteLength(JSON.stringify(result), "utf8")).toBeLessThan(96 * 1024);
+    });
+
     it("invokeAgentSession 将图片输入和存储错误映射为稳定 HTTP 合同", async () => {
         const body = {mode: "prompt" as const, message: {text: "hello"}};
 
@@ -176,15 +239,31 @@ describe("agent session http helpers", () => {
         expect(runCommand).toHaveBeenCalledWith(12, {command: "mode", mode: "plan"}, timingSink);
     });
 
-    it("moveAgentSessionTree 调用 harness.moveTree", async () => {
+    it("moveAgentSessionTree 调用 harness.moveTree 并投影嵌套 invocation", async () => {
         const moveTree = vi.fn(async () => ({
-            status: "completed",
+            status: "invoked",
             state: {},
+            invocation: {
+                sessionId: 12,
+                invocationId: "tree-run-1",
+                status: "completed",
+                reportResult: {
+                    result: "done",
+                    data: {privateOutput: "完整内部结果"},
+                },
+            },
         }));
 
-        await moveAgentSessionTree(12, {targetEntryId: "entry-1", position: "at"}, {moveTree} as never);
+        const result = await moveAgentSessionTree(12, {targetEntryId: "entry-1", position: "at"}, {moveTree} as never);
 
         expect(moveTree).toHaveBeenCalledWith(12, {targetEntryId: "entry-1", position: "at"});
+        expect(result.invocation?.reportResult).toEqual({
+            result: "done",
+            resultBytes: 4,
+            resultOmitted: false,
+            dataOmitted: true,
+        });
+        expect(result.invocation?.reportResult).not.toHaveProperty("data");
     });
 
     it("abortAgentSession 调用 harness.abortInvocation", async () => {
@@ -205,7 +284,7 @@ describe("agent session http helpers", () => {
             mode: "continue",
             resolution: {
                 kind: "tool_approval",
-                toolCallId: "tool-1",
+                toolCallId: assertPublicToolCallId("tool-1"),
                 approved: true,
             },
         }, onEvent)).toEqual({

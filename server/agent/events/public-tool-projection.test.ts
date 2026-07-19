@@ -169,6 +169,25 @@ describe("projectPublicToolResult", () => {
         expect(Buffer.byteLength(JSON.stringify(projected), "utf8")).toBeLessThan(128 * 1024);
     });
 
+    it("图片 MIME 也必须是有界公开字符串", () => {
+        const mimeType = "application/x-" + "m".repeat(10_000);
+        const projected = projectPublicToolResult("read", {
+            content: [{type: "image", mimeType, data: "AAAA"}],
+        });
+
+        expect(projected.content).toEqual([{
+            type: "image",
+            contentIndex: 0,
+            mimeType: expect.any(String),
+            dataBytes: 3,
+            dataOmitted: true,
+        }]);
+        const image = projected.content[0];
+        if (image?.type !== "image") return;
+        expect(Buffer.byteLength(image.mimeType, "utf8")).toBeLessThanOrEqual(256);
+        expect(image.mimeType).not.toContain(mimeType);
+    });
+
     it("多个文本 block 共享结果预览预算", () => {
         const text = "输出".repeat(100_000);
         const projected = projectPublicToolResult("bash", {

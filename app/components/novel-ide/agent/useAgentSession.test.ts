@@ -2,6 +2,7 @@ import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
 import {useAgentSession} from "nbook/app/components/novel-ide/agent/useAgentSession";
 import type {AgentSessionEventDto, AgentSessionLiveStateDto, AgentSessionRecoveryDto} from "nbook/shared/dto/agent-session.dto";
 import type {AgentChatEntryDto} from "nbook/shared/dto/agent-public-event.dto";
+import {assertPublicToolCallId} from "nbook/shared/agent/public-tool-identity";
 
 describe("useAgentSession event reducer", () => {
     beforeEach(() => {
@@ -33,6 +34,115 @@ describe("useAgentSession event reducer", () => {
         expect(session.recoveryShell.value?.agentMode).toBe("plan");
         expect(session.recoveryShell.value?.activePathRevision).toBe("rev-2");
         expect(session.recoveryReasons.value).toContain("active_path_changed");
+    });
+
+    it("live state 省略 pending form 详情且本地无 runtime 详情时请求 recovery", () => {
+        const session = useAgentSession();
+        session.applyRecovery(recovery(0));
+
+        session.applyLiveState({
+            ...liveState(),
+            pendingUserInputs: [{
+                toolCallId: assertPublicToolCallId("form-1"),
+                toolName: "large_form_input",
+                args: {
+                    kind: "generic",
+                    value: {kind: "object", entries: [], omittedEntries: 0},
+                },
+                detailsOmitted: true,
+            }],
+        });
+
+        expect(session.recoveryReasons.value).toContain("pending_input_details_missing");
+        expect(session.pendingUserInputSession.value).toBeNull();
+    });
+
+    it("runtime form 详情会跨后续 identity-only live state 保留", () => {
+        const session = useAgentSession();
+        session.applyRecovery(recovery(0));
+        session.applyEvent(runtime(1, {
+            type: "tool.user-input-required",
+            toolCallId: assertPublicToolCallId("form-1"),
+            toolName: "large_form_input",
+            args: {
+                kind: "generic",
+                value: {kind: "object", entries: [], omittedEntries: 0},
+            },
+            formSpec: {
+                form: {
+                    defaults: {},
+                    fields: [{path: "name", component: "text", label: "名称", required: true, options: []}],
+                },
+                layout: "dialog",
+                prompt: "请输入名称",
+            },
+        }));
+
+        session.applyLiveState({
+            ...liveState(),
+            pendingUserInputs: [{
+                toolCallId: assertPublicToolCallId("form-1"),
+                toolName: "large_form_input",
+                args: {
+                    kind: "generic",
+                    value: {kind: "object", entries: [], omittedEntries: 0},
+                },
+                detailsOmitted: true,
+            }],
+        });
+
+        expect(session.recoveryReasons.value).not.toContain("pending_input_details_missing");
+        expect(session.pendingUserInputSession.value?.form).toEqual(expect.objectContaining({
+            fields: [expect.objectContaining({path: "name"})],
+        }));
+    });
+
+    it("runtime request_user_input args 不会被后续共享预算预览覆盖", () => {
+        const session = useAgentSession();
+        session.applyRecovery(recovery(0));
+        session.applyEvent(runtime(1, {
+            type: "tool.user-input-required",
+            toolCallId: assertPublicToolCallId("question-1"),
+            toolName: "request_user_input",
+            args: {
+                kind: "generic",
+                value: {
+                    kind: "object",
+                    entries: [{
+                        key: "questions",
+                        value: {
+                            kind: "array",
+                            items: [{
+                                kind: "object",
+                                entries: [{
+                                    key: "question",
+                                    value: {kind: "string", preview: "是否继续？", bytes: 15, omitted: false},
+                                }],
+                                omittedEntries: 0,
+                            }],
+                            omittedItems: 0,
+                        },
+                    }],
+                    omittedEntries: 0,
+                },
+            },
+        }));
+
+        session.applyLiveState({
+            ...liveState(),
+            pendingUserInputs: [{
+                toolCallId: assertPublicToolCallId("question-1"),
+                toolName: "request_user_input",
+                args: {
+                    kind: "generic",
+                    value: {kind: "object", entries: [], omittedEntries: 1},
+                },
+            }],
+        });
+
+        expect(session.pendingUserInputSession.value?.questions).toEqual([
+            expect.objectContaining({question: "是否继续？", toolCallId: "question-1"}),
+        ]);
     });
 
     it("relations 和 queue 事件只更新 recovery shell，不重建 durable history", () => {

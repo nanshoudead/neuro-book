@@ -23,6 +23,7 @@ import AgentSessionDialog from "nbook/app/components/novel-ide/agent/AgentSessio
 import AgentSessionTreeDialog from "nbook/app/components/novel-ide/agent/AgentSessionTreeDialog.vue";
 import {deriveAgentTreeState, resolveBranchSwitchTarget} from "nbook/app/components/novel-ide/agent/session-tree";
 import {AgentSessionListRequestGuard} from "nbook/app/components/novel-ide/agent/session-list-request-guard";
+import {assertPublicToolCallId} from "nbook/shared/agent/public-tool-identity";
 import {AGENT_REQUEST_USER_INPUT_CONTEXT_KEY} from "nbook/app/components/novel-ide/agent/request-user-input-context";
 import {useConfigApi} from "nbook/app/composables/useConfigApi";
 import {useThemeManager} from "nbook/app/composables/useThemeManager";
@@ -937,6 +938,7 @@ const scrollToBottom = (): void => {
 };
 
 const acknowledgeClientPatch = async (sessionId: number, request: Parameters<typeof applyClientVariablePatch>[0]): Promise<void> => {
+    const toolCallId = request.toolCallId === undefined ? undefined : assertPublicToolCallId(request.toolCallId);
     try {
         const appliedValue = await applyClientVariablePatch(request, buildClientState(), {
             setActivePanel: (value) => {
@@ -951,7 +953,7 @@ const acknowledgeClientPatch = async (sessionId: number, request: Parameters<typ
             operations: request.operations,
             appliedValue,
             invocationId: request.invocationId,
-            toolCallId: request.toolCallId,
+            toolCallId,
         });
     } catch (error) {
         await agentApi.acknowledgeClientVariablePatch(sessionId, {
@@ -960,7 +962,7 @@ const acknowledgeClientPatch = async (sessionId: number, request: Parameters<typ
             operations: request.operations,
             error: error instanceof Error ? error.message : String(error),
             invocationId: request.invocationId,
-            toolCallId: request.toolCallId,
+            toolCallId,
         });
     }
 };
@@ -1030,7 +1032,7 @@ const submitUserInputForm = async (payload: {
                 kind: "user_input",
                 toolCallId: payload.toolCallId,
                 data: dataValidation.data,
-            } as any,
+            },
         });
         await handleInvokeResult(result);
         await syncActiveSessionRecovery();
@@ -1071,7 +1073,7 @@ const submitUserInputAnswers = async (payload: {
     try {
         submittingUserInputKey.value = pendingKey;
         await ensureActiveSessionEvents();
-        const toolCallId = pendingSession.questions[0]?.toolCallId ?? pendingSession.questions[0]?.toolNodeId;
+        const toolCallId = pendingSession.questions[0]?.toolCallId;
         const firstQuestion = pendingSession.questions[0];
         if (!toolCallId || !firstQuestion) {
             return;
@@ -1116,12 +1118,13 @@ const submitUserInputAnswers = async (payload: {
                 toolCallId: string;
                 answers: AnswerItem[];
             };
-            const resolutions: Array<ResolutionItem | null> = allPendingSessions.map((session: AgentPendingUserInputSession) => {
-                const sessionToolCallId = session.questions[0]?.toolCallId ?? session.questions[0]?.toolNodeId;
+            const resolutionCandidates: Array<ResolutionItem | null> = allPendingSessions.map((session: AgentPendingUserInputSession) => {
+                const rawSessionToolCallId = session.questions[0]?.toolCallId;
                 const sessionFirstQuestion = session.questions[0];
-                if (!sessionToolCallId || !sessionFirstQuestion) {
+                if (!rawSessionToolCallId || !sessionFirstQuestion) {
                     return null;
                 }
+                const sessionToolCallId = assertPublicToolCallId(rawSessionToolCallId);
                 // 只有第一个审批使用用户交互的答案，其余使用默认批准
                 const isFirstSession = session === pendingSession;
                 const sessionAnswers: AnswerItem[] = isFirstSession
@@ -1146,12 +1149,13 @@ const submitUserInputAnswers = async (payload: {
                     toolCallId: sessionToolCallId,
                     answers: sessionAnswers,
                 };
-            }).filter((r: ResolutionItem | null): r is ResolutionItem => r !== null);
+            });
+            const resolutions = resolutionCandidates.filter((resolution): resolution is ResolutionItem => resolution !== null);
 
             const result = await agentApi.invokeSession(activeSessionId.value, {
                 mode: "continue",
                 clientState: buildClientState(),
-                resolutions: resolutions as any,
+                resolutions,
             });
             await handleInvokeResult(result);
             await syncActiveSessionRecovery();
@@ -1655,11 +1659,8 @@ async function resetSessionModelSettings(): Promise<void> {
 
 function modelDraftFromRecovery(recovery: Pick<AgentSessionRecoveryDto, "model" | "thinkingLevel"> | null): AgentSessionModelDraft {
     const model = recovery?.model ?? null;
-    const providerConfigId = model && "providerConfigId" in model && typeof model.providerConfigId === "string"
-        ? model.providerConfigId
-        : model?.provider;
     return {
-        modelKey: model ? `${providerConfigId}/${model.id}` : null,
+        modelKey: model ? `${model.providerConfigId}/${model.modelId}` : null,
         reasoningEffort: recovery?.thinkingLevel ?? null,
     };
 }

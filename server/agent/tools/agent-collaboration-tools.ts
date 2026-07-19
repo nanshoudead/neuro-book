@@ -259,7 +259,7 @@ function compactInvokeAgentResult(result: {
     return output;
 }
 
-async function getAgentProfileDetail(harness: {profiles: {snapshot(): Promise<{profiles: Array<{key: string; name: string; description?: string; loadStatus: string; initialSchema?: unknown; payloadSchema?: unknown; outputSchema?: unknown}>}>; get(profileKey: string): Promise<{rootToolKeys: readonly string[]; initialSchema?: unknown; payloadSchema?: unknown; outputSchema?: unknown}>}}, profileKey: string): Promise<Record<string, JsonValue>> {
+async function getAgentProfileDetail(harness: {profiles: {snapshot(): Promise<{profiles: Array<{key: string; name: string; description?: string; loadStatus: string; creationMode: "public" | "system_only"; initialSchema?: unknown; payloadSchema?: unknown; outputSchema?: unknown}>}>; get(profileKey: string): Promise<{rootToolKeys: readonly string[]; initialSchema?: unknown; payloadSchema?: unknown; outputSchema?: unknown}>}}, profileKey: string): Promise<Record<string, JsonValue>> {
     const {renderSchemaSummary} = await import("nbook/server/agent/profiles/profile-dsl");
     const snapshot = await harness.profiles.snapshot();
     const item = snapshot.profiles.find((profile) => profile.key === profileKey);
@@ -271,6 +271,8 @@ async function getAgentProfileDetail(harness: {profiles: {snapshot(): Promise<{p
         profileKey,
         name: item.name,
         description: item.description ?? "",
+        creationMode: item.creationMode,
+        createAgentAllowed: item.creationMode === "public",
         toolKeys: [...profile.rootToolKeys],
         initialSchema: item.initialSchema ? renderSchemaSummary(item.initialSchema as never) : "none",
         payloadSchema: item.payloadSchema ? renderSchemaSummary(item.payloadSchema as never) : "none",

@@ -3,9 +3,10 @@ import {rm} from "node:fs/promises";
 import {join, resolve} from "node:path";
 import {afterEach, beforeEach, describe, expect, it} from "vitest";
 import {fauxAssistantMessage, fauxText, fauxToolCall} from "@earendil-works/pi-ai";
-import {createFauxModels, type FauxModelsFixture} from "nbook/server/agent/test-utils/faux-models";
+import {createFauxModels, type FauxModelsFixture, writeFauxProviderConfig} from "nbook/server/agent/test-utils/faux-models";
 import {Type} from "typebox";
 import {NeuroAgentHarness} from "nbook/server/agent/harness/neuro-agent-harness";
+import type {AgentInvocationResult} from "nbook/server/agent/harness/types";
 import {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
 import {AgentProfileCatalog} from "nbook/server/agent/profiles/catalog";
 import {defineAgentProfile as defineRuntimeAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
@@ -15,14 +16,13 @@ import type {Message as RuntimeMessage} from "nbook/server/agent/messages/types"
 import type {StoredAgentMessage, StoredUserMessage} from "nbook/server/agent/messages/stored-types";
 import {storedMessageText} from "nbook/server/agent/messages/stored-message-presentation";
 import type {AgentSessionEventDto} from "nbook/shared/dto/agent-session.dto";
-import type {InvokeAgentResult} from "nbook/shared/dto/agent-session.dto";
 import type {NeuroSessionContext, SessionEntry} from "nbook/server/agent/session/types";
 import {normalizeWorkspaceRootRef} from "nbook/server/workspace-files/workspace-root-ref";
 
 const pngBytes = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3]);
 
 type ObservedRun = {
-    result: InvokeAgentResult;
+    result: AgentInvocationResult;
     events: AgentSessionEventDto[];
     snapshot: Awaited<ReturnType<JsonlSessionRepository["readSession"]>>;
     context: NeuroSessionContext;
@@ -169,7 +169,7 @@ async function observeSession(harness: NeuroAgentHarness, sessionId: number): Pr
 async function runAndObserve(
     harness: NeuroAgentHarness,
     sessionId: number,
-    run: () => Promise<InvokeAgentResult>,
+    run: () => Promise<AgentInvocationResult>,
 ): Promise<ObservedRun> {
     const observer = await observeSession(harness, sessionId);
     try {
@@ -203,7 +203,7 @@ describe("NeuroAgentHarness black-box contract", () => {
     let faux: FauxModelsFixture;
     let harness: NeuroAgentHarness;
 
-    beforeEach(() => {
+    beforeEach(async () => {
         root = resolve(".agent", "agent-harness-black-box-test", randomUUID());
         faux = createFauxModels({
             models: [{
@@ -212,6 +212,7 @@ describe("NeuroAgentHarness black-box contract", () => {
                 maxTokens: 8_000,
             }],
         });
+        await writeFauxProviderConfig(root, faux);
         harness = new NeuroAgentHarness({
             repo: new JsonlSessionRepository(root),
             profiles: new AgentProfileCatalog(join(root, "profiles-system"), join(root, "profiles-user")),

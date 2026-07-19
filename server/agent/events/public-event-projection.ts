@@ -6,9 +6,14 @@ import {
     LIVE_TOOL_PREVIEW_BYTES,
     LIVE_TOOL_PROGRESS_BYTES,
     PUBLIC_PATH_MAX_BYTES,
+    PUBLIC_RUNTIME_TOOL_CALLS,
+    PUBLIC_RUNTIME_TOOL_PREVIEW_BYTES,
 } from "nbook/server/agent/events/public-event-policy";
+import {assertPublicToolCallId} from "nbook/shared/agent/public-tool-identity";
 import {
+    createPublicProjectionBudget,
     projectPublicToolArgs,
+    projectPublicToolName,
     projectPublicToolResult,
     publicToolArgsOmitted,
     textPreview,
@@ -30,6 +35,7 @@ type PublicToolCallStreamState = {
     lastMilestone: number;
     nextProjectionBytes: number;
     lastArgsSignature: string;
+    previewBytes: number;
     observedTextCodeUnits: number;
     observedTextBytes: number;
     observedTextTail: string;
@@ -43,6 +49,8 @@ export type PublicRuntimeProjectionState = {
     nextMessageSequence: number;
     activeMessageId?: string;
     toolCalls: Map<number, PublicToolCallStreamState>;
+    /** 当前 assistant message 尚未分配给 tool-call preview 的 aggregate 预算。 */
+    toolPreviewBytesRemaining: number;
 };
 
 /**
@@ -53,6 +61,7 @@ export function createPublicRuntimeProjectionState(): PublicRuntimeProjectionSta
         runStreamId: randomUUID(),
         nextMessageSequence: 0,
         toolCalls: new Map(),
+        toolPreviewBytesRemaining: PUBLIC_RUNTIME_TOOL_PREVIEW_BYTES,
     };
 }
 
@@ -71,6 +80,7 @@ export function projectRuntimeEvent(
         const messageId = nextMessageId(state);
         state.activeMessageId = messageId;
         state.toolCalls.clear();
+        state.toolPreviewBytesRemaining = PUBLIC_RUNTIME_TOOL_PREVIEW_BYTES;
         return {
             type: "message_start",
             messageId,
@@ -101,6 +111,7 @@ export function projectRuntimeEvent(
         const messageId = state.activeMessageId ?? nextMessageId(state);
         state.activeMessageId = undefined;
         state.toolCalls.clear();
+        state.toolPreviewBytesRemaining = PUBLIC_RUNTIME_TOOL_PREVIEW_BYTES;
         return {
             type: "message_end",
             messageId,
@@ -111,39 +122,43 @@ export function projectRuntimeEvent(
         };
     }
     if (event.type === "tool_execution_start") {
+        const toolCallId = assertPublicToolCallId(event.toolCallId);
         return {
             type: "tool_execution_start",
-            toolCallId: event.toolCallId,
-            toolName: textPreview(event.toolName, 512).preview,
+            toolCallId,
+            toolName: projectPublicToolName(event.toolName),
             args: projectPublicToolArgs(event.toolName, event.args),
         };
     }
     if (event.type === "tool_execution_update") {
+        const toolCallId = assertPublicToolCallId(event.toolCallId);
         return {
             type: "tool_execution_update",
-            toolCallId: event.toolCallId,
-            toolName: textPreview(event.toolName, 512).preview,
+            toolCallId,
+            toolName: projectPublicToolName(event.toolName),
             partialResult: projectPublicToolResult(event.toolName, event.partialResult),
         };
     }
     if (event.type === "tool_execution_end") {
+        const toolCallId = assertPublicToolCallId(event.toolCallId);
         return {
             type: "tool_execution_end",
-            toolCallId: event.toolCallId,
-            toolName: textPreview(event.toolName, 512).preview,
+            toolCallId,
+            toolName: projectPublicToolName(event.toolName),
             result: projectPublicToolResult(event.toolName, event.result),
             isError: event.isError,
         };
     }
     if (event.type === "tool_user_input_required") {
+        const toolCallId = assertPublicToolCallId(event.toolCallId);
         let formSpec: ReturnType<typeof publicAgentUserInputFormSpec> | undefined;
         if (event.toolName !== "request_user_input" && event.formSpec?.form) {
             formSpec = publicAgentUserInputFormSpec(event.formSpec);
         }
         return {
             type: "tool.user-input-required",
-            toolCallId: event.toolCallId,
-            toolName: textPreview(event.toolName, 512).preview,
+            toolCallId,
+            toolName: projectPublicToolName(event.toolName),
             args: projectPublicToolArgs(event.toolName, event.args),
             ...(formSpec ? {formSpec} : {}),
         };
@@ -179,11 +194,34 @@ function projectAssistantUpdate(
     }
     if (event.type === "toolcall_start") {
         const toolCall = partialToolCall(event);
+        if (!toolCall) {
+            return null;
+        }
+        const toolCallId = assertPublicToolCallId(toolCall.id);
+        if (state.toolCalls.has(event.contentIndex)) {
+            return {
+                type: "toolcall_start",
+                contentIndex: event.contentIndex,
+                toolCallId,
+                ...(toolCall.name ? {toolName: projectPublicToolName(toolCall.name)} : {}),
+            };
+        }
+        if (state.toolCalls.size >= PUBLIC_RUNTIME_TOOL_CALLS) {
+            return {
+                type: "toolcall_start",
+                contentIndex: event.contentIndex,
+                toolCallId,
+                ...(toolCall.name ? {toolName: projectPublicToolName(toolCall.name)} : {}),
+            };
+        }
+        const previewBytes = Math.min(LIVE_TOOL_PREVIEW_BYTES, state.toolPreviewBytesRemaining);
+        state.toolPreviewBytesRemaining = Math.max(0, state.toolPreviewBytesRemaining - previewBytes);
         state.toolCalls.set(event.contentIndex, {
             streamBytes: 0,
             lastMilestone: -1,
             nextProjectionBytes: LIVE_TOOL_PREVIEW_BYTES,
             lastArgsSignature: "",
+            previewBytes,
             observedTextCodeUnits: 0,
             observedTextBytes: 0,
             observedTextTail: "",
@@ -191,21 +229,20 @@ function projectAssistantUpdate(
         return {
             type: "toolcall_start",
             contentIndex: event.contentIndex,
-            ...(toolCall?.id ? {toolCallId: toolCall.id} : {}),
-            ...(toolCall?.name ? {toolName: textPreview(toolCall.name, 512).preview} : {}),
+            toolCallId,
+            ...(toolCall?.name ? {toolName: projectPublicToolName(toolCall.name)} : {}),
         };
     }
     if (event.type === "toolcall_delta") {
         const toolCall = partialToolCall(event);
-        const current = state.toolCalls.get(event.contentIndex) ?? {
-            streamBytes: 0,
-            lastMilestone: -1,
-            nextProjectionBytes: LIVE_TOOL_PREVIEW_BYTES,
-            lastArgsSignature: "",
-            observedTextCodeUnits: 0,
-            observedTextBytes: 0,
-            observedTextTail: "",
-        };
+        if (!toolCall) {
+            return null;
+        }
+        const toolCallId = assertPublicToolCallId(toolCall.id);
+        const current = state.toolCalls.get(event.contentIndex);
+        if (!current) {
+            return null;
+        }
         current.streamBytes += Buffer.byteLength(event.delta, "utf8");
         if (current.streamBytes > LIVE_TOOL_PREVIEW_BYTES && current.streamBytes < current.nextProjectionBytes) {
             state.toolCalls.set(event.contentIndex, current);
@@ -231,20 +268,21 @@ function projectAssistantUpdate(
         return {
             type: "toolcall_args",
             contentIndex: event.contentIndex,
-            ...(toolCall?.id ? {toolCallId: toolCall.id} : {}),
-            ...(toolCall?.name ? {toolName: textPreview(toolCall.name, 512).preview} : {}),
+            toolCallId,
+            ...(toolCall?.name ? {toolName: projectPublicToolName(toolCall.name)} : {}),
             args,
             streamBytes: current.streamBytes,
             omitted,
         };
     }
     if (event.type === "toolcall_end") {
+        const toolCallId = assertPublicToolCallId(event.toolCall.id);
         state.toolCalls.delete(event.contentIndex);
         return {
             type: "toolcall_end",
             contentIndex: event.contentIndex,
-            toolCallId: event.toolCall.id,
-            toolName: textPreview(event.toolCall.name, 512).preview,
+            toolCallId,
+            toolName: projectPublicToolName(event.toolCall.name),
             args: projectPublicToolArgs(event.toolCall.name, event.toolCall.arguments),
         };
     }
@@ -261,7 +299,7 @@ function projectStreamingToolArgs(
     state: PublicToolCallStreamState,
 ): ReturnType<typeof projectPublicToolArgs> {
     if (toolName !== "write" || args === null || typeof args !== "object" || Array.isArray(args)) {
-        return projectPublicToolArgs(toolName, args);
+        return projectPublicToolArgs(toolName, args, createPublicProjectionBudget(state.previewBytes));
     }
     const record = args as Record<string, unknown>;
     const content = typeof record.content === "string" ? record.content : "";
@@ -273,7 +311,7 @@ function projectStreamingToolArgs(
         : Buffer.byteLength(content, "utf8");
     state.observedTextCodeUnits = content.length;
     state.observedTextTail = content.slice(Math.max(0, content.length - 32));
-    const preview = textPreview(content.slice(0, LIVE_TOOL_PREVIEW_BYTES), LIVE_TOOL_PREVIEW_BYTES);
+    const preview = textPreview(content.slice(0, state.previewBytes), state.previewBytes);
     const previewBytes = Buffer.byteLength(preview.preview, "utf8");
     return {
         kind: "write",

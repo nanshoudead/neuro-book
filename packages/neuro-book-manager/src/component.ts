@@ -70,9 +70,12 @@ export async function switchReleaseSource(input: {
     staged: StagedReleaseSource;
     backup: string;
     previousFiles: string[];
+    /** 非破坏性backup完成后、首次删除或覆盖前持久化switch intent。 */
+    onSwitchIntent?: () => Promise<void>;
 }): Promise<void> {
     const nextFiles = input.staged.component.files;
     await backupPaths(input.root, input.backup, input.previousFiles);
+    await input.onSwitchIntent?.();
     try {
         for (const oldFile of input.previousFiles.filter((file) => !nextFiles.includes(file))) {
             await rm(safeTarget(input.root, oldFile), {force: true});
@@ -118,10 +121,16 @@ export async function stageReleaseProduct(input: {
 }
 
 /** 原子切换已经通过校验的 staging Product。 */
-export async function switchProduct(root: string, stagedOutput: string, backup: string): Promise<void> {
+export async function switchProduct(
+    root: string,
+    stagedOutput: string,
+    backup: string,
+    onSwitchIntent?: () => Promise<void>,
+): Promise<void> {
     const targetOutput = join(root, ".output");
     const backupOutput = join(backup, ".output");
     await ensureDirectory(backup);
+    await onSwitchIntent?.();
     if (await pathExists(targetOutput)) {
         await removePath(backupOutput);
         await rename(targetOutput, backupOutput);
@@ -195,9 +204,16 @@ export async function rollbackReleaseSource(root: string, backup: string, previo
 }
 
 /** 回滚已切换的 Product。 */
-export async function rollbackProduct(root: string, backup: string): Promise<void> {
+export async function rollbackProduct(root: string, backup: string, hadPrevious: boolean): Promise<void> {
     const targetOutput = join(root, ".output");
     const backupOutput = join(backup, ".output");
+    if (!hadPrevious && !await pathExists(backupOutput)) {
+        await removePath(targetOutput);
+        return;
+    }
+    if (hadPrevious && !await pathExists(backupOutput)) {
+        return;
+    }
     await removePath(targetOutput);
     if (await pathExists(backupOutput)) {
         await rename(backupOutput, targetOutput);

@@ -12,6 +12,9 @@ export const summarizerProfile = defineAgentProfile({
         name: "Session Summarizer",
         description: "Maintains display title and summary for an Agent session.",
     },
+    capabilities: {
+        creation: "system_only",
+    },
     initialSchema: SessionSummarizerInitialSchema,
     outputSchema: SessionSummarizerOutputSchema,
     tools: toolset(

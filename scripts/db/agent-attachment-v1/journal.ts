@@ -1,5 +1,5 @@
-import {mkdir, open, readFile, rename, rm} from "node:fs/promises";
-import {dirname} from "node:path";
+import {lstat, mkdir, open, readFile, rename, rm} from "node:fs/promises";
+import {dirname, relative, resolve} from "node:path";
 import type {
     AttachmentMigrationJournalRecord,
     AttachmentMigrationManifest,
@@ -9,6 +9,7 @@ import type {
     AttachmentSessionMigrationStatus,
     AttachmentSessionTransition,
 } from "nbook/scripts/db/agent-attachment-v1/types";
+import {syncParentDirectories} from "nbook/scripts/db/agent-attachment-v1/durable-file";
 
 const JOURNAL_BYTE_LIMIT = 8 * 1024 * 1024;
 const JOURNAL_LINE_BYTE_LIMIT = 64 * 1024;
@@ -52,7 +53,9 @@ const SESSION_GRAPH: Record<AttachmentSessionMigrationStatus, readonly Attachmen
 
 /** WAL 与 checkpoint 使用的迁移文件路径。 */
 export type AttachmentMigrationJournalPaths = {
+    rootWorkspace: string;
     runRoot: string;
+    runRootRelative: string;
     manifestPath: string;
     journalPath: string;
 };
@@ -65,6 +68,8 @@ export async function writeInitialManifest(
     if (manifest.appliedSeq !== 0 || manifest.status !== "running") {
         throw new Error("初始 migration manifest 状态无效");
     }
+    const parsed = parseManifest(manifest, paths);
+    await assertManifestPathOwnership(paths, parsed);
     await writeAtomicJson(paths.manifestPath, manifest, false);
 }
 
@@ -76,6 +81,8 @@ export async function checkpointManifest(
     if (manifest.status !== "report_written" && manifest.status !== "rolled_back") {
         throw new Error("只有 report_written或rolled_back migration可以写最终checkpoint");
     }
+    const parsed = parseManifest(manifest, paths);
+    await assertManifestPathOwnership(paths, parsed);
     await writeAtomicJson(paths.manifestPath, manifest, true);
 }
 
@@ -98,7 +105,8 @@ export async function loadManifest(
     } catch (error) {
         throw new Error(`migration manifest 损坏：${errorMessage(error)}`);
     }
-    const checkpoint = parseManifest(parsed);
+    const checkpoint = parseManifest(parsed, paths);
+    await assertManifestPathOwnership(paths, checkpoint);
     const records = await readJournal(paths.journalPath);
     return replayJournal(checkpoint, records);
 }
@@ -329,6 +337,7 @@ async function readJournal(path: string): Promise<AttachmentMigrationJournalReco
     } finally {
         await handle.close();
     }
+    await syncParentDirectories(path);
 }
 
 /** 解析一条具有换行提交标记的 WAL；任何完整坏行都拒绝恢复。 */
@@ -387,7 +396,7 @@ function assertRecordBase(record: {[key: string]: unknown}): void {
 }
 
 /** 严格解析 manifest checkpoint 和 immutable session plan 字段。 */
-function parseManifest(value: unknown): AttachmentMigrationManifest {
+function parseManifest(value: unknown, paths: AttachmentMigrationJournalPaths): AttachmentMigrationManifest {
     const manifest = objectValue(value, "migration manifest");
     assertExactKeys(manifest, [
         "version", "journalVersion", "runId", "status", "appliedSeq", "startedAt", "updatedAt", "sessions",
@@ -403,7 +412,11 @@ function parseManifest(value: unknown): AttachmentMigrationManifest {
         || !Array.isArray(manifest.sessions)) {
         throw new Error("migration manifest 公共字段无效");
     }
-    const sessions = manifest.sessions.map((session) => parseSessionState(session));
+    const expectedRunRoot = `.nbook/agent/migrations/attachment-v1/${manifest.runId}`;
+    if (paths.runRootRelative !== expectedRunRoot) {
+        throw new Error("migration manifest runRoot 与 runId 不一致");
+    }
+    const sessions = manifest.sessions.map((session) => parseSessionState(session, expectedRunRoot));
     if (new Set(sessions.map((session) => session.sourcePath)).size !== sessions.length) {
         throw new Error("migration manifest sourcePath 重复");
     }
@@ -418,7 +431,7 @@ function parseManifest(value: unknown): AttachmentMigrationManifest {
 }
 
 /** 严格解析单个 session 的 immutable plan 和 checkpoint status。 */
-function parseSessionState(value: unknown): AttachmentSessionMigrationState {
+function parseSessionState(value: unknown, runRootRelative: string): AttachmentSessionMigrationState {
     const session = objectValue(value, "migration session");
     assertExactKeys(session, [
         "sessionId", "sourcePath", "backupPath", "stagePath", "rollbackPath", "sourceHash", "targetHash",
@@ -442,7 +455,69 @@ function parseSessionState(value: unknown): AttachmentSessionMigrationState {
         || (!session.changed && session.status !== "verified")) {
         throw new Error("migration session 字段无效");
     }
+    const sourcePath = session.sourcePath as string;
+    const expectedBackup = `${runRootRelative}/backups/${sourcePath}.backup`;
+    const expectedStage = `${runRootRelative}/stages/${sourcePath}.stage`;
+    const expectedRollback = `${runRootRelative}/rollbacks/${sourcePath}.rollback`;
+    if (!isSessionSourcePath(sourcePath)
+        || session.backupPath !== expectedBackup
+        || session.stagePath !== expectedStage
+        || session.rollbackPath !== expectedRollback
+        || new Set([sourcePath, session.backupPath, session.stagePath, session.rollbackPath]).size !== 4) {
+        throw new Error("migration session 路径不属于当前 run 的确定计划");
+    }
     return session as AttachmentSessionMigrationState;
+}
+
+/** Session source 只能位于 Agent Session JSONL 真相源目录，且必须是 portable path。 */
+function isSessionSourcePath(value: string): boolean {
+    if (value.includes("\\") || value.startsWith("/") || /^[A-Za-z]:/.test(value)) {
+        return false;
+    }
+    const segments = value.split("/");
+    if (segments.length < 4
+        || segments[0] !== ".nbook"
+        || segments[1] !== "agent"
+        || segments[2] !== "sessions"
+        || segments.some((segment) => !segment || segment === "." || segment === "..")) {
+        return false;
+    }
+    return segments.at(-1)?.endsWith(".jsonl") === true;
+}
+
+/**
+ * 验证迁移拥有的所有既有路径段都留在Workspace Root内，且不是symlink/junction。
+ * 不存在的stage/rollback尾段允许继续，由后续发布步骤创建。
+ */
+async function assertManifestPathOwnership(
+    paths: AttachmentMigrationJournalPaths,
+    manifest: AttachmentMigrationManifest,
+): Promise<void> {
+    for (const session of manifest.sessions) {
+        for (const path of [session.sourcePath, session.backupPath, session.stagePath, session.rollbackPath]) {
+            const target = resolve(paths.rootWorkspace, ...path.split("/"));
+            const inside = relative(paths.rootWorkspace, target);
+            if (!inside || inside === "." || inside.startsWith("..") || resolve(paths.rootWorkspace, inside) !== target) {
+                throw new Error("migration session 路径越过Workspace Root");
+            }
+            let current = resolve(paths.rootWorkspace);
+            for (const segment of path.split("/")) {
+                current = resolve(current, segment);
+                const stats = await lstat(current).catch((error: NodeJS.ErrnoException) => {
+                    if (error.code === "ENOENT") {
+                        return null;
+                    }
+                    throw error;
+                });
+                if (!stats) {
+                    break;
+                }
+                if (stats.isSymbolicLink()) {
+                    throw new Error(`migration session 路径包含symlink或junction：${path}`);
+                }
+            }
+        }
+    }
 }
 
 /** append 并 sync 一条有界 WAL，禁止 journal 越过固定读写预算。 */
@@ -490,6 +565,7 @@ async function writeAtomicJson(path: string, value: object, replace: boolean): P
     }
     try {
         await rename(tempPath, path);
+        await syncParentDirectories(tempPath, path);
     } finally {
         await rm(tempPath, {force: true});
     }

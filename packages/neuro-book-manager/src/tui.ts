@@ -16,7 +16,7 @@ import {installationPaths} from "#manager/paths";
 import {startInstallationApplication} from "#manager/migration-operation";
 import type {DoctorReport, InstallationManifest, InstallationStatus, ManagerConfig, ManagerInstance, OfflineInspection} from "#manager/types";
 import {updateInstallation} from "#manager/updater";
-import {adoptSourceInstallation} from "#manager/source-adoption";
+import {adoptSourceInstallation, assertAdoptionPreflight, inspectAdoptionPreflight, type AdoptionProfile} from "#manager/source-adoption";
 
 type InstanceView = {
     instance: ManagerInstance;
@@ -236,9 +236,16 @@ export async function runManagerTui(managerExecutable: string): Promise<void> {
     screen.key("o", () => void runAction(async () => {
         const item = items[selectedIndex];
         if (!item || item.kind !== "discovered" || item.inspection.kind !== "neuro-book-checkout") throw new Error("请选择一个可接管的NeuroBook checkout。" );
-        if (item.inspection.blockers.length) throw new Error(item.inspection.blockers.map((issue) => issue.message).join("\n"));
-        screen.destroy();
-        await adoptSourceInstallation({root: item.inspection.root, profile: "source-dev", channel: config.preferences.channel, port: 3000, authEnabled: true, dryRun: false, managerExecutable});
+        prompt.input("接管Profile（source-dev/source-product/source-docker）", "source-dev", (_error, value) => {
+            if (!value?.trim()) return;
+            void runAction(async () => {
+                const profile = adoptionProfile(value);
+                const preflight = await inspectAdoptionPreflight({root: item.inspection.root, profile, port: 3000});
+                assertAdoptionPreflight(preflight);
+                await adoptSourceInstallation({root: item.inspection.root, profile, channel: config.preferences.channel, port: 3000, authEnabled: true, dryRun: false, managerExecutable}, preflight);
+                await refresh();
+            });
+        });
     }));
     screen.key("r", () => void runAction(refresh));
     screen.key("f", () => void runAction(async () => {
@@ -263,6 +270,12 @@ export async function runManagerTui(managerExecutable: string): Promise<void> {
     await refresh();
     list.focus();
     screen.render();
+}
+
+function adoptionProfile(value: string): AdoptionProfile {
+    const normalized = value.trim();
+    if (normalized === "source-dev" || normalized === "source-product" || normalized === "source-docker") return normalized;
+    throw new Error(`接管Profile无效：${value}`);
 }
 
 /** 渲染左侧实例列表中的单行摘要。 */

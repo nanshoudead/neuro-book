@@ -20,13 +20,24 @@ import {assertNativeProductStopped, backupApplicationDatabase, verifyNativeProdu
 import {withInstallLock} from "#manager/lock";
 import {assertInstallPreflight, inspectInstallPreflight, type InstallPreflightResult} from "#manager/install-preflight";
 import {readInstallationManifest, resolveReleaseManifest, writeInstallationManifest} from "#manager/manifest-store";
-import {backupRuntimeWrappers, commitOperation, createOperation, recoverInterruptedOperations, updateOperation} from "#manager/operation";
+import {
+    completeRuntimeWrapperSwitch,
+    commitOperation,
+    createOperation,
+    pathCreateEffect,
+    pathRetireEffect,
+    prepareRuntimeWrapperSwitch,
+    recoverInterruptedOperations,
+    setOperationEffect,
+    updateOperation,
+} from "#manager/operation";
 import {assertProfileSupported, currentProductPlatform} from "#manager/platform";
 import {installationPaths} from "#manager/paths";
-import {writePortableLaunchers} from "#manager/portable-launchers";
+import {portableLaunchers, writePortableLaunchers} from "#manager/portable-launchers";
 import {buildSourceProduct, installSourceDependencies} from "#manager/product";
 import {profileDefinition} from "#manager/profiles";
 import {parseInstallationManifest} from "#manager/schema";
+import {sourceDockerImageName} from "#manager/source-docker-image";
 import {commandAvailable, runCapture} from "#manager/process";
 import {installManagerExecutable, resolveManagerRuntime, runtimeExecutable, writeManagerWrapper, writeRuntimeWrapper} from "#manager/runtime";
 import {activateManagedTools, installManagedTool, writeManagedToolWrappers} from "#manager/tools";
@@ -121,37 +132,55 @@ async function installInternal(options: InstallOptions, mode: "fresh" | "adopt",
             action: "install",
             root: paths.root,
             containerEngine,
-            createdPaths: [relative(paths.root, staging).replaceAll("\\", "/")],
+            effects: [pathCreateEffect(relative(paths.root, staging).replaceAll("\\", "/"))],
             backupRoot: backup,
             previousManifest: null,
             nextManifest: null,
         });
         await ensureDirectory(staging);
+        journal = await setOperationEffect(journal, pathCreateEffect(relative(paths.root, staging).replaceAll("\\", "/"), "applied"));
         const createdComponents: string[] = [];
         const retiredComponents: string[] = [];
         let stagedWorktree: string | null = null;
         try {
             if (mode === "adopt" && (options.profile === "source-product" || options.profile === "source-docker")) {
                 await assertNativeProductStopped(paths.state);
-                const database = await backupApplicationDatabase(paths.state, backup);
-                if (database) journal = await updateOperation(journal, "planned", {database: {
+                const database = await backupApplicationDatabase(paths.state, backup, async (intent) => {
+                    journal = await setOperationEffect(journal, {
+                        kind: "sqlite-backup",
+                        state: "planned",
+                        owner: "app-sqlite",
+                        configuredUrl: intent.configuredUrl,
+                        stateRoot: intent.stateRoot,
+                        hostPath: intent.databasePath,
+                        backupPath: intent.backupPath,
+                        checkpoint: {busy: 0, log: -1, checkpointed: -1},
+                    });
+                });
+                if (database) journal = await setOperationEffect(journal, {
+                    kind: "sqlite-backup",
+                    state: "applied",
+                    owner: "app-sqlite",
                     configuredUrl: database.configuredUrl,
-                    path: database.databasePath,
-                    backup: database.backupPath,
+                    stateRoot: paths.state,
+                    hostPath: database.databasePath,
+                    backupPath: database.backupPath,
                     checkpoint: database.checkpoint,
-                }});
+                });
             }
             const result = await prepareInstallation(options, journal, staging, backup, createdComponents, retiredComponents, mode, preflight?.release ?? null);
             stagedWorktree = result.stagedWorktree;
             journal = result.journal;
-            const wrapperBackup = await backupRuntimeWrappers(paths.root, backup);
-            journal = await updateOperation(journal, journal.phase, {manager: {wrapperBackup, wrappersChanged: true}});
+            journal = await prepareRuntimeWrapperSwitch(journal);
             if (result.manifest.components.managerRuntime.provider === "managed") {
                 await writeRuntimeWrapper(paths.root, result.manifest.components.managerRuntime);
             }
             await writeManagedToolWrappers(paths.root, result.manifest.components.tools);
             await writeManagerWrapper(paths.root, result.manifest.components.manager, result.manifest.components.managerRuntime);
+            journal = await completeRuntimeWrapperSwitch(journal);
+            journal = await setOperationEffect(journal, {kind: "manifest-switch", state: "planned", owner: "manifest"});
             await writeInstallationManifest(paths.manifest, result.manifest);
+            journal = await setOperationEffect(journal, {kind: "manifest-switch", state: "applied", owner: "manifest"});
             await commitOperation(journal);
             if (stagedWorktree) await removeStagedWorktree(paths.root, stagedWorktree);
             await removePath(staging);
@@ -178,21 +207,22 @@ async function prepareInstallation(
     const paths = installationPaths(options.root, portable);
     const definition = profileDefinition(options.profile);
     let journal = initialJournal;
+    journal = await setOperationEffect(journal, {kind: "component-switch", state: "planned", owner: "managed-assets"});
     const recordCreated = async (path: string): Promise<void> => {
-        journal = await updateOperation(journal, journal.phase, {
-            createdPaths: [...new Set([...journal.createdPaths, path])],
-        });
+        journal = await setOperationEffect(journal, pathCreateEffect(path));
+    };
+    const recordCreatedApplied = async (path: string): Promise<void> => {
+        journal = await setOperationEffect(journal, pathCreateEffect(path, "applied"));
     };
     const recordRetired = async (path: string): Promise<void> => {
-        journal = await updateOperation(journal, journal.phase, {
-            retiredPaths: [...new Set([...(journal.retiredPaths ?? []), path])],
-        });
+        journal = await setOperationEffect(journal, pathRetireEffect(path));
     };
-    const managerRuntime = await resolveManagerRuntime(paths.root, portable, createdComponents, recordCreated, retiredComponents, recordRetired);
-    const manager = await installManagerExecutable(paths.root, MANAGER_VERSION, options.managerExecutable, createdComponents, recordCreated);
+    const managerRuntime = await resolveManagerRuntime(paths.root, portable, createdComponents, recordCreated, recordCreatedApplied, retiredComponents, recordRetired);
+    const manager = await installManagerExecutable(paths.root, MANAGER_VERSION, options.managerExecutable, createdComponents, recordCreated, recordCreatedApplied);
     const preparedTools = await prepareTools(paths.root, options.profile, createdComponents, retiredComponents, journal);
     const tools = preparedTools.tools;
     journal = preparedTools.journal;
+    journal = await setOperationEffect(journal, {kind: "component-switch", state: "applied", owner: "managed-assets"});
     activateManagedTools(paths.root, tools);
     let appVersion = options.version?.replace(/^v/u, "") ?? "0.0.0";
     let sourceRevision = "";
@@ -214,7 +244,16 @@ async function prepareInstallation(
         sourceRevision = release.sourceRevision;
     }
     if (definition.source === "git") {
+        if (mode === "fresh") {
+            if (await pathExists(join(paths.root, ".git"))) {
+                throw new Error("Fresh Install目标已存在Git checkout，请改用adopt。" );
+            }
+            journal = await setOperationEffect(journal, {kind: "git-checkout", state: "planned", owner: "source"});
+        }
         await materializeRepository(paths.root);
+        if (mode === "fresh") {
+            journal = await setOperationEffect(journal, {kind: "git-checkout", state: "applied", owner: "source"});
+        }
         sourceRevision = await repositoryRevision(paths.root);
         appVersion = await sourcePackageVersion(paths.root);
         source = {
@@ -252,8 +291,11 @@ async function prepareInstallation(
         if (!bun) throw new Error("Source Dev 缺少 Application Runtime。" );
         if (stagedWorktree) await installSourceDependencies(stagedWorktree, bun);
         const createsNodeModules = !await pathExists(join(paths.root, "node_modules"));
+        if (createsNodeModules) journal = await setOperationEffect(journal, pathCreateEffect("node_modules"));
         await installSourceDependencies(paths.root, bun);
-        if (createsNodeModules) journal = await updateOperation(journal, journal.phase, {createdPaths: [...journal.createdPaths, "node_modules"]});
+        if (createsNodeModules) {
+            journal = await setOperationEffect(journal, pathCreateEffect("node_modules", "applied"));
+        }
     } else if (options.profile === "source-product") {
         if (!bun) throw new Error("Source Product 缺少 Application Runtime。" );
         await installSourceDependencies(stagedWorktree ?? paths.root, bun);
@@ -280,16 +322,11 @@ async function prepareInstallation(
         product = stagedProduct.component;
     } else if (options.profile === "source-docker") {
         if (!journal.containerEngine) throw new Error("Source Docker安装缺少Container Engine。" );
-        product = {provider: "container", version: appVersion, revision: sourceRevision, image: `neuro-book-source:${sourceRevision.slice(0, 12)}`};
-        await buildSourceDockerImage(journal.containerEngine, stagedWorktree ?? paths.root, product.image);
-        journal = await updateOperation(journal, journal.phase, {docker: {
-            previousState: "missing",
-            stopped: false,
-            composeChanged: false,
-            composeCreated: false,
-            imageCreated: product.image,
-            targetImage: product.image,
-        }});
+        const engine = journal.containerEngine;
+        product = {provider: "container", version: appVersion, revision: sourceRevision, image: sourceDockerImageName(sourceRevision, journal.id)};
+        journal = await setOperationEffect(journal, {kind: "docker-image", state: "planned", owner: "product", image: product.image});
+        await buildSourceDockerImage(engine, stagedWorktree ?? paths.root, product.image);
+        journal = await setOperationEffect(journal, {kind: "docker-image", state: "applied", owner: "product", image: product.image});
     } else if (options.profile === "ghcr" && release) {
         product = {
             provider: "container",
@@ -299,10 +336,7 @@ async function prepareInstallation(
             digest: release.ghcr.digest,
         };
     }
-    journal = await updateOperation(journal, "staged", {
-        createdPaths: [...new Set([...journal.createdPaths, ...createdComponents])],
-        retiredPaths: [...new Set([...(journal.retiredPaths ?? []), ...retiredComponents])],
-    });
+    journal = await updateOperation(journal, "staged");
     const components: InstallationComponents = {source, product, manager, managerRuntime, applicationRuntime, tools};
     const now = new Date().toISOString();
     const manifest: InstallationManifest = {
@@ -321,25 +355,49 @@ async function prepareInstallation(
     parseInstallationManifest(manifest);
     journal = await updateOperation(journal, "validated", {nextManifest: manifest});
     if (stagedSource) {
-        await switchReleaseSource({root: paths.root, staged: stagedSource, backup: join(backup, "source"), previousFiles: []});
+        await switchReleaseSource({
+            root: paths.root,
+            staged: stagedSource,
+            backup: join(backup, "source"),
+            previousFiles: [],
+            onSwitchIntent: async () => {
+                journal = await setOperationEffect(journal, {kind: "component-switch", state: "planned", owner: "source"});
+            },
+        });
+        journal = await setOperationEffect(journal, {kind: "component-switch", state: "applied", owner: "source"});
     }
-    if (stagedProduct) await switchProduct(paths.root, stagedProduct.outputRoot, join(backup, "product"));
+    if (stagedProduct) {
+        await switchProduct(paths.root, stagedProduct.outputRoot, join(backup, "product"), async () => {
+            journal = await setOperationEffect(journal, {kind: "component-switch", state: "planned", owner: "product"});
+        });
+        journal = await setOperationEffect(journal, {kind: "component-switch", state: "applied", owner: "product"});
+    }
     if (options.profile === "source-docker" && product?.provider === "container"
         || options.profile === "ghcr" && product?.provider === "container" && product.digest) {
         const finalCompose = join(paths.deploy, "docker-compose.generated.yml");
         const composeCreated = !await pathExists(finalCompose);
-        let previousCompose: string | undefined;
-        if (!composeCreated) {
-            previousCompose = join(backup, "docker-compose.generated.yml");
-            await ensureDirectory(backup);
-            await copyFile(finalCompose, previousCompose);
-        }
+        const previousCompose = composeCreated ? undefined : join(backup, "docker-compose.generated.yml");
         const engine = journal.containerEngine;
         if (!engine) throw new Error(`${options.profile}安装缺少Container Engine。`);
         const previousInspection = composeCreated ? null : await inspectDockerApplication(engine, paths.root, paths.state);
         const previousState = !previousInspection?.containerId
             ? "missing" as const
             : previousInspection.status === "running" ? "running" as const : "stopped" as const;
+        journal = await setOperationEffect(journal, {
+            kind: "compose",
+            state: "planned",
+            owner: "compose",
+            previousState,
+            stopped: previousState === "running",
+            previousCompose,
+            created: composeCreated,
+            previousImage: previousInspection?.configuredImage,
+            targetImage: options.profile === "ghcr" ? `${product.image}@${product.digest}` : product.image,
+        });
+        if (previousCompose) {
+            await ensureDirectory(backup);
+            await copyFile(finalCompose, previousCompose);
+        }
         const stagedCompose = await writeDockerCompose({
             engine,
             root: paths.root,
@@ -350,26 +408,29 @@ async function prepareInstallation(
             output: join(staging, "docker-compose.generated.yml"),
             layoutPath: finalCompose,
         });
-        journal = await updateOperation(journal, journal.phase, {docker: {
-            previousState,
-            stopped: previousState === "running",
-            composeChanged: false,
-            composeCreated,
-            previousCompose,
-            previousImage: previousInspection?.configuredImage,
-            targetImage: options.profile === "ghcr" ? `${product.image}@${product.digest}` : product.image,
-            imageCreated: journal.docker?.imageCreated,
-        }});
         if (previousState === "running") await stopDocker(engine, paths.root, paths.state);
         await removePath(finalCompose);
         await rename(stagedCompose, finalCompose);
-        journal = await updateOperation(journal, journal.phase, {docker: {...journal.docker!, composeChanged: true}});
+        journal = await setOperationEffect(journal, {
+            kind: "compose",
+            state: "applied",
+            owner: "compose",
+            previousState,
+            stopped: previousState === "running",
+            previousCompose,
+            created: composeCreated,
+            previousImage: previousInspection?.configuredImage,
+            targetImage: options.profile === "ghcr" ? `${product.image}@${product.digest}` : product.image,
+        });
     }
     journal = await updateOperation(journal, "switched");
-    const createdState = await ensureStateFiles(paths.state, options.port, options.authEnabled);
-    journal = await updateOperation(journal, "switched", {
-        createdPaths: [...journal.createdPaths, ...createdState.map((path) => relative(paths.root, path))],
+    const createdStatePaths = await ensureStateFiles(paths.state, options.port, options.authEnabled, async (path) => {
+        const ownedPath = relative(paths.root, path).replaceAll("\\", "/");
+        journal = await setOperationEffect(journal, {kind: "path-create", state: "planned", owner: "state", path: ownedPath});
     });
+    for (const path of createdStatePaths) {
+        journal = await setOperationEffect(journal, {kind: "path-create", state: "applied", owner: "state", path: relative(paths.root, path).replaceAll("\\", "/")});
+    }
     journal = await applyJournaledApplicationMigrations(paths.root, manifest, journal);
     journal = await updateOperation(journal, "migrated");
     if (options.profile === "source-product" || options.profile === "product-bun" || options.profile === "windows-portable") {
@@ -380,7 +441,14 @@ async function prepareInstallation(
         if (!journal.containerEngine) throw new Error(`${options.profile}启动缺少Container Engine。`);
         await startDocker(journal.containerEngine, paths.root, paths.state, options.profile, appVersion);
     }
-    if (portable) await writePortableLaunchers(paths.root);
+    if (portable) {
+        await writePortableLaunchers(paths.root, async (path) => {
+            journal = await setOperationEffect(journal, pathCreateEffect(relative(paths.root, path).replaceAll("\\", "/")));
+        });
+        for (const launcher of portableLaunchers()) {
+            journal = await setOperationEffect(journal, pathCreateEffect(launcher.name, "applied"));
+        }
+    }
     journal = await updateOperation(journal, "healthy");
     if (mode === "adopt") {
         await assertCleanWorktree(paths.root, [".deploy", ".runtime", ".output", "workspace", "config.yaml", ".env", "logs", "node_modules"]);
@@ -422,14 +490,13 @@ async function prepareTools(
 ): Promise<{tools: ToolComponents; journal: OperationJournal}> {
     let journal = initialJournal;
     const record = async (path: string): Promise<void> => {
-        journal = await updateOperation(journal, journal.phase, {
-            createdPaths: [...new Set([...journal.createdPaths, path])],
-        });
+        journal = await setOperationEffect(journal, pathCreateEffect(path));
+    };
+    const applied = async (path: string): Promise<void> => {
+        journal = await setOperationEffect(journal, pathCreateEffect(path, "applied"));
     };
     const retire = async (path: string): Promise<void> => {
-        journal = await updateOperation(journal, journal.phase, {
-            retiredPaths: [...new Set([...(journal.retiredPaths ?? []), path])],
-        });
+        journal = await setOperationEffect(journal, pathRetireEffect(path));
     };
     if (profile === "ghcr" || profile === "source-docker") {
         const version = profile;
@@ -440,14 +507,14 @@ async function prepareTools(
         }, journal};
     }
     if (profile === "windows-portable") {
-        const rg = await installManagedTool(root, "rg", {createdPaths, recordCreated: record, retiredPaths, recordRetired: retire});
-        const git = await installManagedTool(root, "git", {createdPaths, recordCreated: record, retiredPaths, recordRetired: retire});
+        const rg = await installManagedTool(root, "rg", {createdPaths, recordCreated: record, recordCreatedApplied: applied, retiredPaths, recordRetired: retire});
+        const git = await installManagedTool(root, "git", {createdPaths, recordCreated: record, recordCreatedApplied: applied, retiredPaths, recordRetired: retire});
         return {tools: {rg, git}, journal};
     }
     if (profile === "source-dev" || profile === "source-product") {
         if (await commandAvailable("git")) return {tools: {git: await systemTool("git")}, journal};
         if (process.platform === "win32") {
-            const git = await installManagedTool(root, "git", {createdPaths, recordCreated: record, retiredPaths, recordRetired: retire});
+            const git = await installManagedTool(root, "git", {createdPaths, recordCreated: record, recordCreatedApplied: applied, retiredPaths, recordRetired: retire});
             return {tools: {git}, journal};
         }
         throw new Error("缺少 Git。Linux 请先通过系统包管理器安装 Git。" );

@@ -1,6 +1,26 @@
 # 105 - 统一安装目录与 NeuroBook Manager
 
-> 当前状态：实现中。Manager `0.1.0-canary.19`与应用[`v0.8.6-canary.20260717.130406Z.a91a96f`](https://github.com/notnotype/neuro-book/releases/tag/v0.8.6-canary.20260717.130406Z.a91a96f)仍是最新公开版本。PR #11的AArch64/macOS/Podman能力已整合到当前主线事务架构，协议升级为Installation Manifest v4与Release Manifest v3，Operation Journal保持v2；集成分支的Linux ARM64、macOS x64与macOS ARM64原生Product workflow已全绿，新代码尚未发布，精确npm Manager、公开多架构资产与A→B仍需完成。Apple Silicon Docker Desktop/rootless Podman实机门禁按本次决策豁免，但继续作为未完成证据，不得标记为已验证。
+> 当前状态：实现中。Manager `0.1.0-canary.19`与应用[`v0.8.6-canary.20260717.130406Z.a91a96f`](https://github.com/notnotype/neuro-book/releases/tag/v0.8.6-canary.20260717.130406Z.a91a96f)仍是最新公开版本。当前源码协议为Installation Manifest v4、Release Manifest v3与Operation Journal v3；新代码尚未发布，精确npm Manager、公开多架构资产、Canary A数据复用与Canary A→B事务更新仍需完成。Apple Silicon Docker Desktop/rootless Podman实机门禁继续豁免，但不得标记为已验证。
+
+## 2026-07-19：Operation Journal v3与资产ownership收口
+
+- Journal硬切v3并引入严格`InstallationRelativePath`；拒绝空值、`.`、绝对路径、盘符、UNC、空segment与`..`。未完成v1/v2不自动恢复，已提交旧记录仅作审计。
+- Journal删除通用`createdPaths/retiredPaths/cleanupPaths`和布尔式switch表，改为严格`OperationEffect[]`。Path create/retire、Source/Product、wrapper、Manifest、Git、Docker image、Compose与App SQLite都记录`kind/state/owner`及恢复字段。
+- 所有持久化动作先写`planned`，完成后写`applied`；App SQLite备份在打开数据库前通过intent回调记录`configuredUrl/stateRoot/hostPath/backupPath`，完成checkpoint/copy后补真实结果。
+- rollback只清理本次PathCreate ownership并保留旧资产；success只执行PathRetire与Operation staging/backup清理。清理失败落在具体effect并由下一次mutating command幂等重试，不反向回滚已成功安装。
+- Managed Asset Repository在staging目录和不可变代次rename前后分别推进PathCreate effect；Manager bundle仍保持同版本checksum不一致直接失败。
+- updater、start与Runtime/Tool维护在lock内先恢复，再重新读取真实Manifest，禁止继续使用调用前旧快照。
+- App SQLite Location新增真实路径containment：相对URL通过junction/symlink逃出State Root会被拒绝；Runtime、Prisma、Manager与Docker继续消费同一Location结果。
+- Manager Effect Ledger聚焦回归与typecheck通过；完整Manager suite、pack和Product build结果记录在本轮最终验证。未发布Manager或应用，也未完成公开A→B、GHCR ARM64与设备证据。
+
+### 2026-07-19：执行前崩溃窗口与入口复核
+
+- wrapper切换不再用“planned但未知旧状态”的Effect。统一助手先记录`previousState`和确定的backup path，再把旧`.runtime/bin`复制到临时目录并原子rename；恢复时备份尚未完成会保留当前wrapper，备份已完成才执行恢复，原本不存在wrapper时才删除本次部分写入。
+- Source Docker本地镜像不再复用纯revision tag。镜像名包含Operation ID的SHA-256代次，Journal schema校验新镜像属于当前Operation；失败只删除本次镜像，成功后只退役`previousManifest`明确证明的旧镜像，并记录幂等清理结果。
+- `update --dry-run`与正式update共用同一个Release/Git目标Resolver，Git目标只fetch一次；dry-run额外输出Effect Ledger身份计划，真实路径、checkpoint和运行结果仍只在物理动作前写入Journal，不使用占位路径伪装真实Effect。
+- 无参数发现候选与blessed TUI接管现在都消费统一Adoption Preflight并允许选择三种Source Profile；TUI接管成功后刷新实例列表，不提前销毁界面。
+- 本节修复来自最终ownership审查，补充并取代早期`createdPaths/retiredPaths`口径。当前仍只完成源码与测试收口，没有发布Manager或应用版本。
+- 最终Manager全量为28个文件通过、1个按平台跳过，141项通过、2项跳过；Manager typecheck与pack审计通过。根typecheck、Nuxt client/SSR/Nitro/Product后处理构建及`git diff --check`通过；未执行浏览器或公开Release验证。
 
 > 2026-07-17发布状态：`manager-v0.1.0-canary.15`、应用`0.8.1`与`0.8.3`保留为失败审计记录；Manager `.19`和应用`0.8.6`已按顺序公开，Manifest最低Manager版本、source revision与GHCR digest均已交叉验证。
 

@@ -4671,6 +4671,7 @@ defineRouteMeta({
                                                     "enum": [
                                                         "duplicate_provider_id",
                                                         "duplicate_model_id",
+                                                        "missing_provider_model_api",
                                                         "unsupported_provider_model_api",
                                                         "missing_api",
                                                         "unsupported_api",

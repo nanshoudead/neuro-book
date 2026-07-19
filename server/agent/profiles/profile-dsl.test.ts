@@ -746,6 +746,7 @@ describe("profile TSX DSL", () => {
                     loadStatus: "loaded",
                     hasSettingsForm: false,
                     canResetHome: false,
+                    creationMode: "public",
                 }],
                 issues: [],
             },
@@ -924,6 +925,17 @@ describe("profile TSX DSL", () => {
                     loadStatus: "loaded",
                     hasSettingsForm: false,
                     canResetHome: false,
+                    creationMode: "public",
+                }, {
+                    key: "summarizer",
+                    name: "Summarizer",
+                    description: "后台摘要",
+                    source: "system",
+                    builtin: true,
+                    loadStatus: "loaded",
+                    hasSettingsForm: false,
+                    canResetHome: false,
+                    creationMode: "system_only",
                 }],
                 issues: [],
             },
@@ -933,6 +945,7 @@ describe("profile TSX DSL", () => {
 
         expect(text).toContain("## Available Agents");
         expect(text).toContain("writer");
+        expect(text).not.toContain("summarizer");
         expect(text).toContain("get_agent_profile");
         expect(text).not.toContain("allowedTools: read, write");
         expect(text).not.toContain("写作任务说明");

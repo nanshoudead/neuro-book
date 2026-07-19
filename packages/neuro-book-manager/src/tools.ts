@@ -14,6 +14,7 @@ export type ManagedToolName = "rg" | "git";
 export type ManagedToolInstallOptions = {
     createdPaths?: string[];
     recordCreated?: (path: string) => Promise<void>;
+    recordCreatedApplied?: (path: string) => Promise<void>;
     retiredPaths?: string[];
     recordRetired?: (path: string) => Promise<void>;
     /** 仅允许传入当前有效Installation Manifest中的managed Tool。 */
@@ -57,6 +58,7 @@ async function installRipgrep(root: string, options: ManagedToolInstallOptions):
         extract: extractArchive,
         createdPaths: options.createdPaths,
         recordCreated: options.recordCreated,
+        recordCreatedApplied: options.recordCreatedApplied,
         retiredPaths: options.retiredPaths,
         recordRetired: options.recordRetired,
     });
@@ -99,6 +101,7 @@ async function installPortableGit(root: string, options: ManagedToolInstallOptio
         },
         createdPaths: options.createdPaths,
         recordCreated: options.recordCreated,
+        recordCreatedApplied: options.recordCreatedApplied,
         retiredPaths: options.retiredPaths,
         recordRetired: options.recordRetired,
     });

@@ -236,7 +236,15 @@ neuro-book-windows-x64.zip
 ghcr.io/notnotype/neuro-book:<tag>
 ```
 
-Release Manifest v3记录应用版本、Git revision、channel、最低Manager版本、五平台资产URL/SHA256、Windows Portable资产以及GHCR digest。五个平台必须完整且唯一，资产名必须匹配平台；Product打包命令还会拒绝把当前宿主`.output`交叉标记为其他平台。Resolver先读取稳定envelope并提示升级Manager，再严格解析平台payload。Installation Manifest v4与Operation Journal v2是硬切协议，旧Installation不自动迁移。官方release CLI会在创建GitHub Release前验证本地Manager与npm同版本公开bundle；Release workflow也在任何Source/Product/GHCR构建或推送前执行同一门禁。
+Release Manifest v3记录应用版本、Git revision、channel、最低Manager版本、五平台资产URL/SHA256、Windows Portable资产以及GHCR digest。五个平台必须完整且唯一，资产名必须匹配平台；Product打包命令还会拒绝把当前宿主`.output`交叉标记为其他平台。Resolver先读取稳定envelope并提示升级Manager，再严格解析平台payload。Installation Manifest v4与Operation Journal v3是硬切协议，旧Installation不自动迁移。官方release CLI会在创建GitHub Release前验证本地Manager与npm同版本公开bundle；Release workflow也在任何Source/Product/GHCR构建或推送前执行同一门禁。
+
+### v3实例迁移到v4
+
+- 先停止实例并备份完整State Root。Windows Portable必须备份完整`data/`。
+- 在新的Installation Root重新安装相同Profile，只复用State Root；不要复制旧`.deploy`、`.runtime`、`.output`、generated Compose或wrapper。
+- Portable曾使用绝对`DATABASE_URL`临时修复登录时，迁移后恢复`file:./workspace/.nbook/neuro-book.sqlite`。
+- 未完成的Operation Journal v1/v2需要人工核对Manifest、Product、Git、Compose和SQLite；v3 Manager不会自动转换或忽略。
+- 旧Agent Session包含完整Pi Model且无法证明Provider Config ID时，按[RELEASE迁移指南](../RELEASE.md#旧agent-session模型引用)使用逐entry mapping维护命令。
 
 ## 验收建议
 

@@ -47,6 +47,12 @@ export type InstallPreflightResult = {
     release: ReleaseManifest | null;
 };
 
+/** 非交互安装必须显式确认；TTY缺失不能被解释为同意默认安装。 */
+export function assertInstallConsent(yes: boolean, interactive = Boolean(process.stdin.isTTY && process.stdout.isTTY)): void {
+    if (yes || interactive) return;
+    throw new Error("非交互安装必须显式传入--yes；如需先审查计划，请使用--dry-run --yes --json。" );
+}
+
 /**
  * 探测一次安装操作需要的宿主命令；传入已有结果时只补充尚未检查的能力。
  *
@@ -94,7 +100,7 @@ export async function inspectInstallPreflight(
     }
     if (!Number.isInteger(input.port) || input.port < 1 || input.port > 65535) {
         blockers.push({code: "network.port", message: `端口必须是1-65535：${input.port}`});
-    } else if (!await portAvailable(input.port)) {
+    } else if (!await inspectPortAvailable(input.port)) {
         blockers.push({code: "network.port", message: `端口${input.port}已被占用。`, remediation: "选择其他端口，或停止当前占用该端口的服务。"});
     }
     await inspectTargetRoot(targetRoot, input.profile, blockers, warnings);
@@ -256,7 +262,7 @@ async function inspectCommand(command: string, args: string[]): Promise<CommandI
 }
 
 /** 检查本地TCP端口是否尚未被监听。 */
-async function portAvailable(port: number): Promise<boolean> {
+export async function inspectPortAvailable(port: number): Promise<boolean> {
     return new Promise<boolean>((resolvePromise) => {
         const server = createServer();
         server.once("error", () => resolvePromise(false));

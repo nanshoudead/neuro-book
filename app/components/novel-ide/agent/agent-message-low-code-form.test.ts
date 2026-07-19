@@ -3,6 +3,7 @@ import {toPendingUserInputSession} from "nbook/app/components/novel-ide/agent/ag
 import type {AgentPendingApprovalDto} from "nbook/shared/dto/agent-session.dto";
 import type {AgentUserInputFormDto} from "nbook/shared/dto/agent-public-event.dto";
 import {projectPublicToolArgs} from "nbook/server/agent/events/public-tool-projection";
+import {assertPublicToolCallId} from "nbook/shared/agent/public-tool-identity";
 
 describe("agent-message Low-Code Form 集成", () => {
     test("非 request_user_input 工具存在 pending.formSpec 时，生成 Low-Code Form session", () => {
@@ -20,7 +21,7 @@ describe("agent-message Low-Code Form 集成", () => {
         };
 
         const pending: AgentPendingApprovalDto = {
-            toolCallId: "call_form_spec",
+            toolCallId: assertPublicToolCallId("call_form_spec"),
             toolName: "custom_form_tool",
             args: projectPublicToolArgs("custom_form_tool", {
                 reason: "需要表单输入",
@@ -58,7 +59,7 @@ describe("agent-message Low-Code Form 集成", () => {
         };
 
         const pending: AgentPendingApprovalDto = {
-            toolCallId: "call_request_user_input",
+            toolCallId: assertPublicToolCallId("call_request_user_input"),
             toolName: "request_user_input",
             args: projectPublicToolArgs("request_user_input", {
                 questions: [
@@ -118,7 +119,7 @@ describe("agent-message Low-Code Form 集成", () => {
         };
 
         const pending: AgentPendingApprovalDto = {
-            toolCallId: "call_123",
+            toolCallId: assertPublicToolCallId("call_123"),
             toolName: "custom_tool",
             args: projectPublicToolArgs("custom_tool", {form}),
         };
@@ -136,7 +137,7 @@ describe("agent-message Low-Code Form 集成", () => {
 
     test("request_user_input 没有 formSpec 时生成普通问题 session", () => {
         const pending: AgentPendingApprovalDto = {
-            toolCallId: "call_456",
+            toolCallId: assertPublicToolCallId("call_456"),
             toolName: "request_user_input",
             args: projectPublicToolArgs("request_user_input", {
                 questions: [
@@ -168,7 +169,7 @@ describe("agent-message Low-Code Form 集成", () => {
 
     test("当 args.form 结构不完整时，回退到 tool_approval 模式", () => {
         const pending: AgentPendingApprovalDto = {
-            toolCallId: "call_789",
+            toolCallId: assertPublicToolCallId("call_789"),
             toolName: "some_tool",
             args: projectPublicToolArgs("some_tool", {
                 form: {fields: "invalid"},

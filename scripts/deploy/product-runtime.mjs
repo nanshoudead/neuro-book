@@ -297,6 +297,7 @@ async function writeProductPackageJson() {
             "migrate:deploy": "bun .output/server/scripts/db/prisma-migrate.mjs --deploy",
             "migrate:agent-attachments": "bun .output/server/scripts/db/migrate-agent-attachments.ts",
             "migrate:agent-session-initial": "bun .output/server/scripts/db/migrate-agent-session-initial.ts",
+            "migrate:agent-session-models": "bun .output/server/scripts/db/migrate-agent-session-models.ts",
             "migrate:writer-session-initial": "bun .output/server/scripts/db/migrate-writer-session-initial.ts",
             "system-assets:prepare": "bun .output/server/scripts/build/prepare-system-assets.ts",
             "profile:check": "bun .output/server/scripts/build/profile.ts check",

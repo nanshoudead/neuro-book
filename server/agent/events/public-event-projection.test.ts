@@ -1,6 +1,7 @@
 import {describe, expect, it} from "vitest";
 import type {AgentEvent} from "@earendil-works/pi-agent-core";
 import {createPublicRuntimeProjectionState, projectRuntimeEvent} from "nbook/server/agent/events/public-event-projection";
+import {PublicToolIdentityError} from "nbook/shared/agent/public-tool-identity";
 import {createAssistantTextMessage, createTextToolResult} from "nbook/server/agent/messages/message-utils";
 
 describe("projectRuntimeEvent", () => {
@@ -54,6 +55,23 @@ describe("projectRuntimeEvent", () => {
         });
     });
 
+    it("10 MiB tool result 只公开有界预览和原始字节数", () => {
+        const text = "结果".repeat(5 * 1024 * 1024);
+        const projected = projectRuntimeEvent(createPublicRuntimeProjectionState(), {
+            type: "tool_execution_end",
+            toolCallId: "tool-large-result",
+            toolName: "read",
+            result: {content: [{type: "text", text}]},
+            isError: false,
+        });
+
+        expect(projected?.type).toBe("tool_execution_end");
+        expect(Buffer.byteLength(JSON.stringify(projected), "utf8")).toBeLessThan(50 * 1024);
+        if (projected?.type !== "tool_execution_end") return;
+        expect(projected.result.content[0]).toMatchObject({textBytes: Buffer.byteLength(text, "utf8"), textOmitted: true});
+        expect(JSON.stringify(projected)).not.toContain(text);
+    });
+
     it("tool_execution_update 不重复公开未消费的完整参数", () => {
         const projected = projectRuntimeEvent(createPublicRuntimeProjectionState(), {
             type: "tool_execution_update",
@@ -66,6 +84,40 @@ describe("projectRuntimeEvent", () => {
         expect(projected).toEqual(expect.objectContaining({type: "tool_execution_update", partialResult: expect.any(Object)}));
         expect(projected).not.toHaveProperty("args");
         expect(Buffer.byteLength(JSON.stringify(projected), "utf8")).toBeLessThan(128 * 1024);
+    });
+
+    it("非法或超长 tool-call ID 在 streaming public event 中 fail closed", () => {
+        const message = createAssistantTextMessage({text: ""});
+        const hugeId = "tool-id-" + "x".repeat(300_000);
+        message.content = [{type: "toolCall", id: hugeId, name: "write", arguments: {path: "a.md", content: "body"}}];
+        const toolCall = message.content[0];
+        if (toolCall?.type !== "toolCall") {
+            throw new Error("expected tool call");
+        }
+        const state = createPublicRuntimeProjectionState();
+
+        projectRuntimeEvent(state, {type: "message_start", message});
+        expect(() => projectRuntimeEvent(state, {
+            type: "message_update",
+            message,
+            assistantMessageEvent: {type: "toolcall_start", contentIndex: 0, partial: message},
+        })).toThrow(PublicToolIdentityError);
+        expect(() => projectRuntimeEvent(state, {
+            type: "message_update",
+            message,
+            assistantMessageEvent: {type: "toolcall_delta", contentIndex: 0, delta: "body", partial: message},
+        })).toThrow(PublicToolIdentityError);
+        expect(() => projectRuntimeEvent(state, {
+            type: "message_update",
+            message,
+            assistantMessageEvent: {type: "toolcall_end", contentIndex: 0, toolCall, partial: message},
+        })).toThrow(PublicToolIdentityError);
+        expect(() => projectRuntimeEvent(createPublicRuntimeProjectionState(), {
+            type: "tool_execution_start",
+            toolCallId: hugeId,
+            toolName: "write",
+            args: {path: "a.md", content: "body"},
+        })).toThrow(PublicToolIdentityError);
     });
 
     it("非 request_user_input 工具的用户输入事件会公开 Low-Code formSpec", () => {
@@ -250,6 +302,72 @@ describe("projectRuntimeEvent", () => {
 
         expect(published.length).toBeLessThan(60);
         expect(Buffer.byteLength(JSON.stringify(published), "utf8")).toBeLessThan(1024 * 1024);
+    });
+
+    it("同一 assistant message 的 tool-call accumulator 有数量和 aggregate preview 上限", () => {
+        const message = createAssistantTextMessage({text: ""});
+        message.content = Array.from({length: 40}, (_, index) => ({
+            type: "toolCall" as const,
+            id: `write-${String(index)}`,
+            name: "write",
+            arguments: {path: `file-${String(index)}.md`, content: "seed"},
+        }));
+        const state = createPublicRuntimeProjectionState();
+        projectRuntimeEvent(state, {type: "message_start", message});
+
+        for (let contentIndex = 0; contentIndex < 40; contentIndex += 1) {
+            projectRuntimeEvent(state, {
+                type: "message_update",
+                message,
+                assistantMessageEvent: {type: "toolcall_start", contentIndex, partial: message},
+            });
+        }
+
+        expect(state.toolCalls.size).toBe(32);
+        expect(state.toolPreviewBytesRemaining).toBe(0);
+
+        const first = projectRuntimeEvent(state, {
+            type: "message_update",
+            message,
+            assistantMessageEvent: {type: "toolcall_delta", contentIndex: 0, delta: "x", partial: message},
+        });
+        const fifth = projectRuntimeEvent(state, {
+            type: "message_update",
+            message,
+            assistantMessageEvent: {type: "toolcall_delta", contentIndex: 4, delta: "x", partial: message},
+        });
+
+        expect(first?.type).toBe("message_update");
+        if (first?.type !== "message_update" || first.update.type !== "toolcall_args" || first.update.args.kind !== "write") return;
+        expect(first.update.args.contentPreview).not.toBe("");
+        expect(fifth?.type).toBe("message_update");
+        if (fifth?.type !== "message_update" || fifth.update.type !== "toolcall_args" || fifth.update.args.kind !== "write") return;
+        expect(fifth.update.args.contentPreview).toBe("");
+        expect(fifth.update.args.contentOmitted).toBe(true);
+    });
+
+    it("重复 toolcall_start 不会再次消耗 aggregate preview budget", () => {
+        const message = createAssistantTextMessage({text: ""});
+        message.content = [{
+            type: "toolCall",
+            id: "write-duplicate",
+            name: "write",
+            arguments: {path: "manuscript/example.md", content: "seed"},
+        }];
+        const state = createPublicRuntimeProjectionState();
+        projectRuntimeEvent(state, {type: "message_start", message});
+
+        const start = {
+            type: "message_update" as const,
+            message,
+            assistantMessageEvent: {type: "toolcall_start" as const, contentIndex: 0, partial: message},
+        };
+        projectRuntimeEvent(state, start);
+        const remaining = state.toolPreviewBytesRemaining;
+        projectRuntimeEvent(state, start);
+
+        expect(state.toolCalls.size).toBe(1);
+        expect(state.toolPreviewBytesRemaining).toBe(remaining);
     });
 
     it("10 MiB write 累计 partial 的公开事件总量保持线性有界", () => {

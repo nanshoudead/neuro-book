@@ -3,7 +3,8 @@ import {mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile} from "node:fs/pr
 import {tmpdir} from "node:os";
 import {join} from "node:path";
 import {afterEach, describe, expect, it, vi} from "vitest";
-import {readInstallationManifest} from "#manager/manifest-store";
+import {readInstallationManifest, writeInstallationManifest} from "#manager/manifest-store";
+import {createOperation} from "#manager/operation";
 import {installationPaths} from "#manager/paths";
 import type {InstallationManifest, ReleaseManifest} from "#manager/types";
 import {updateInstallation} from "#manager/updater";
@@ -41,6 +42,35 @@ describe("Release Update预检", () => {
         expect(result).toEqual({manifest, changed: false, reason: "already-current"});
         await expect(stat(installationPaths(root).operations)).rejects.toMatchObject({code: "ENOENT"});
         await expect(stat(installationPaths(root).staging)).rejects.toMatchObject({code: "ENOENT"});
+    });
+
+    it("加锁恢复后使用真实Manifest而不是调用方旧快照", async () => {
+        root = await fixtureRoot();
+        const current = productManifest();
+        const stale = productManifest();
+        stale.appVersion = "0.8.5-canary.1";
+        stale.sourceRevision = "0".repeat(40);
+        stale.components.source = {...stale.components.source, version: stale.appVersion, revision: stale.sourceRevision};
+        if (stale.components.product?.provider === "release") {
+            stale.components.product = {...stale.components.product, version: stale.appVersion, revision: stale.sourceRevision};
+        }
+        await writeInstallationManifest(installationPaths(root).manifest, stale);
+        await createOperation({
+            id: "restore-current-manifest",
+            action: "update",
+            root,
+            containerEngine: null,
+            backupRoot: join(root, ".deploy", "backups", "restore-current-manifest"),
+            previousManifest: current,
+            nextManifest: stale,
+        });
+        manifestStore.resolve.mockResolvedValue(releaseManifest());
+
+        const result = await updateInstallation({root, manifest: stale, managerExecutable: join(root, "manager-source.mjs")});
+
+        expect(result).toEqual({manifest: current, changed: false, reason: "already-current"});
+        expect(await readInstallationManifest(installationPaths(root).manifest)).toEqual(current);
+        expect(await readdir(installationPaths(root).operations)).toHaveLength(1);
     });
 
     it("应用相同但Manager较新时只接管Manager", async () => {

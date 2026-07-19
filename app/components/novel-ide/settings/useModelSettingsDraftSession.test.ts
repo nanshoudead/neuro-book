@@ -53,6 +53,31 @@ describe("Provider Config draft frontend session", () => {
         expect(renameDiscovery).toHaveBeenCalledWith("provider", "renamed");
         expect(cancelProviderChecks).toHaveBeenCalledWith(provider, true);
     });
+
+    it("已保存 Provider ID 不可修改，显式复制不会继承 Secret 或模型引用", () => {
+        const session = createSession();
+        const provider = createProvider();
+        provider.sourceIndex = 0;
+        provider.options.apiKeyConfigured = true;
+        provider.options.apiKeyMaskedValue = "sk-...aved";
+        provider.models.push(session.cloneModel(configuredModel()));
+        session.draft.value.providers.push(provider);
+        session.activeProviderKey.value = provider.localKey;
+        session.draft.value.defaultModelKey = "provider/model";
+
+        session.renameActiveProviderId("renamed");
+        expect(provider.id).toBe("provider");
+
+        session.cloneActiveProviderConnection();
+        const clone = session.activeProvider.value!;
+        expect(clone).toMatchObject({
+            id: "provider-copy",
+            options: {apiKey: "", apiKeyConfigured: false, apiKeyMaskedValue: null},
+        });
+        expect(clone.sourceIndex).toBeUndefined();
+        expect(clone.models.map((model) => model.id)).toEqual(["model"]);
+        expect(session.draft.value.defaultModelKey).toBe("provider/model");
+    });
 });
 
 /** 创建被测 Config 草稿会话。 */

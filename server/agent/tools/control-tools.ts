@@ -1,6 +1,6 @@
 import {Type} from "typebox";
 import type {Static, TSchema} from "typebox";
-import {Value} from "typebox/value";
+import {assertTypeBoxValue} from "nbook/server/agent/profiles/schema-validation";
 import {defineAgentTool} from "nbook/server/agent/tools/types";
 import type {NeuroAgentTool, UserInputRequestContext, UserInputFormSpec} from "nbook/server/agent/tools/types";
 import type {LowCodeFieldDto} from "nbook/shared/dto/low-code-form.dto";
@@ -313,11 +313,5 @@ function hasOwn(value: Record<string, unknown>, key: string): boolean {
  * 严格校验 schema，不执行 TypeBox Parse/Convert，避免把模型错误参数静默修正。
  */
 export function assertStrictSchemaValue(schema: TSchema, value: unknown): void {
-    if (Value.Check(schema, value)) {
-        return;
-    }
-    const errors = [...Value.Errors(schema, value)]
-        .map((error) => error.message)
-        .join("; ");
-    throw new Error(errors || "Parse");
+    assertTypeBoxValue(schema, value);
 }

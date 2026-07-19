@@ -1,5 +1,5 @@
 import {randomUUID} from "node:crypto";
-import {rm} from "node:fs/promises";
+import {mkdir, rm} from "node:fs/promises";
 import {join, resolve} from "node:path";
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
 import {NeuroAgentHarness} from "nbook/server/agent/harness/neuro-agent-harness";
@@ -8,6 +8,7 @@ import {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
 import type {SessionEntryDraft} from "nbook/server/agent/session/types";
 import type {AttachmentRef} from "nbook/shared/dto/agent-attachment.dto";
 import {absoluteFsPath, type AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
+import {closeProject, openProject} from "nbook/server/workspace-files/project-session";
 
 describe("NeuroAgentHarness session attachment locator", () => {
     let root: AbsoluteFsPath;
@@ -76,6 +77,35 @@ describe("NeuroAgentHarness session attachment locator", () => {
 
         await expect(harness.resolveSessionAttachment(session.metadata.sessionId, entry.id, 0)).resolves.toMatchObject({ref: attachment});
         expect(readSession).not.toHaveBeenCalled();
+    });
+
+    it("Project session attachment 复用 Project open gate", async () => {
+        const projectPath = "workspace/attachment-project";
+        const projectRoot = join(root, "attachment-project");
+        await mkdir(projectRoot, {recursive: true});
+        const session = await repo.createSession({
+            profileKey: "leader.default",
+            initial: {},
+            workspaceRoot: root,
+            projectPath,
+        });
+        const attachment = attachmentRef("e", "image/png", 8);
+        const entry = await repo.appendEntry(session.metadata.sessionId, {
+            type: "message",
+            origin: "prompt",
+            message: {
+                role: "user",
+                content: [{type: "attachment", attachment}],
+                timestamp: 100,
+            },
+        } as unknown as SessionEntryDraft);
+
+        await expect(harness.resolveSessionAttachment(session.metadata.sessionId, entry.id, 0))
+            .rejects.toThrow(`Project 未打开：${projectPath}`);
+        await openProject(root, projectPath, {kind: "agent", sessionId: session.metadata.sessionId});
+        await expect(harness.resolveSessionAttachment(session.metadata.sessionId, entry.id, 0))
+            .resolves.toMatchObject({ref: attachment});
+        await closeProject(projectPath, "shutdown");
     });
 
     it("解析 projector 实际公开的 durable tool result attachment locator", async () => {

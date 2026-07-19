@@ -8,6 +8,7 @@ import {
     PUBLIC_TOOL_RESULT_CONTENT_BYTES,
     PUBLIC_TOOL_RESULT_DETAILS_BYTES,
     PUBLIC_TOOL_RESULT_MAX_BLOCKS,
+    PUBLIC_TOOL_NAME_BYTES,
     PUBLIC_VALUE_MAX_DEPTH,
     PUBLIC_VALUE_MAX_ENTRIES,
     PUBLIC_VALUE_MAX_ITEMS,
@@ -172,6 +173,11 @@ export function textPreview(value: string, maxBytes: number): PublicTextPreviewD
     };
 }
 
+/** 将工具名称投影为所有公开工具卡共用的有界文本。 */
+export function projectPublicToolName(value: string): string {
+    return textPreview(value, PUBLIC_TOOL_NAME_BYTES).preview;
+}
+
 /**
  * 在遍历时限制深度与集合大小；不会先 stringify 整个未知对象。
  */
@@ -300,7 +306,9 @@ function projectToolContent(value: unknown, contentIndex: number, previewBytes: 
         return {
             type: "image",
             contentIndex,
-            mimeType: typeof block.mimeType === "string" ? block.mimeType : "application/octet-stream",
+            mimeType: typeof block.mimeType === "string"
+                ? textPreview(block.mimeType, 256).preview
+                : "application/octet-stream",
             dataBytes: base64DecodedBytes(block.data),
             dataOmitted: true,
         };

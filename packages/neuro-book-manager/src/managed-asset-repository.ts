@@ -54,6 +54,8 @@ export type MaterializeManagedAssetOptions<TKey extends string> = {
     retiredPaths?: string[];
     /** 每个本次创建路径出现后立即写入Operation Journal。 */
     recordCreated?: (relativePath: string) => Promise<void>;
+    /** 物理创建完成后把同一PathCreateEffect推进到applied。 */
+    recordCreatedApplied?: (relativePath: string) => Promise<void>;
     /** 每个待退役目录确定后立即写入Operation Journal。 */
     recordRetired?: (relativePath: string) => Promise<void>;
 };
@@ -89,8 +91,9 @@ export async function materializeManagedAsset<TKey extends string>(
     const extractedRoot = join(stageRoot, "extracted");
     let committedRoot: string | null = null;
     try {
-        await ensureDirectory(stageRoot);
         await recordCreated(options, stagePath);
+        await ensureDirectory(stageRoot);
+        await options.recordCreatedApplied?.(stagePath);
         if (options.fetch) await options.fetch(archivePath);
         else await downloadVerified(options.release.url, archivePath, options.release.sha256);
         await options.extract(archivePath, extractedRoot);
@@ -98,11 +101,13 @@ export async function materializeManagedAsset<TKey extends string>(
         const commitRoot = await generationRoot(targetRoot);
         const createdPath = ownedRelativePath(installationRoot, commitRoot, "受管资产目标");
         const retiredPaths = await retiredAssetPaths(options, installationRoot, targetRoot);
-        await ensureDirectory(resolve(commitRoot, ".."));
-        await rename(extractedRoot, commitRoot);
-        committedRoot = commitRoot;
+        // 先持久化ownership，再进行不可变代次rename；进程硬中断后恢复可安全删除目标。
         await recordCreated(options, createdPath);
         for (const retiredPath of retiredPaths) await recordRetired(options, retiredPath);
+        await ensureDirectory(resolve(commitRoot, ".."));
+        await rename(extractedRoot, commitRoot);
+        await options.recordCreatedApplied?.(createdPath);
+        committedRoot = commitRoot;
         return {
             archiveSha256: options.release.sha256,
             sourceUrl: options.release.url,

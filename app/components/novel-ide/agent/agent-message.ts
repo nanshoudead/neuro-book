@@ -433,7 +433,7 @@ export const applySessionEntryToMessages = (
     }
     const nextMessage = messageFromChatEntry(entry);
     if (entry.type === "assistant") {
-        const toolCallIds = new Set(entry.toolCalls.map((toolCall) => toolCall.id));
+        const toolCallIds = new Set<string>(entry.toolCalls.map((toolCall) => toolCall.id));
         let liveIndex = previousMessages.findIndex((message) => message.id === entry.id);
         if (liveIndex < 0 && toolCallIds.size > 0) {
             liveIndex = previousMessages.findIndex((message) => {
@@ -565,6 +565,9 @@ export const toPendingUserInputSession = (
     messages: AgentMessage[],
 ): AgentPendingUserInputSession | null => {
     if (!pending) {
+        return null;
+    }
+    if (pending.detailsOmitted && !pending.formSpec) {
         return null;
     }
     const assistantMessage = messages.find((message) => message.toolCalls?.some((toolCall) => toolCall.id === pending.toolCallId));

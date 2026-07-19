@@ -1,5 +1,5 @@
 import {describe, expect, it} from "vitest";
-import {CheckModelRequestDtoSchema, CheckProviderRequestDtoSchema, ConfiguredModelDtoSchema, ThinkingLevelSchema} from "nbook/shared/dto/app-settings.dto";
+import {CheckModelRequestDtoSchema, CheckProviderRequestDtoSchema, ConfiguredModelDtoSchema, ModelProviderDraftDtoSchema, ThinkingLevelSchema} from "nbook/shared/dto/app-settings.dto";
 import {PiSimpleRequestOptionsSchema} from "nbook/shared/dto/pi-request-options.dto";
 import {inspectModelSettings} from "nbook/shared/models/provider-config-contract";
 
@@ -10,6 +10,10 @@ describe("Pi settings contracts", () => {
 
     it("Provider requestOptions 拒绝 runtime-owned 字段", () => {
         expect(() => PiSimpleRequestOptionsSchema.parse({apiKey: "hidden"})).toThrow("apiKey");
+    });
+
+    it("Provider 草稿必须明确默认接口格式", () => {
+        expect(() => ModelProviderDraftDtoSchema.parse({...providerDraft(), modelApi: null})).toThrow();
     });
 
     it("保存时拒绝未知 Pi API", () => {
@@ -41,26 +45,31 @@ describe("Provider/model check DTO", () => {
     it("保留完整 Provider 与模型草稿", () => {
         const provider = providerDraft();
         const model = modelDraft();
-        const parsed = CheckProviderRequestDtoSchema.parse({provider, models: [model]});
+        const parsed = CheckProviderRequestDtoSchema.parse({provider, models: [model], credentialSource: "saved"});
 
         expect(parsed.provider).not.toHaveProperty("discovery");
         expect(parsed.models).toEqual([expect.objectContaining({id: "draft-model", headers: {"X-Test": "value"}})]);
-        expect(parsed.useSavedApiKey).toBe(true);
+        expect(parsed.credentialSource).toBe("saved");
         expect(parsed.useSavedModels).toBe(true);
     });
 
     it("未传模型草稿时使用空列表默认值", () => {
-        expect(CheckProviderRequestDtoSchema.parse({provider: providerDraft()}).models).toEqual([]);
+        expect(CheckProviderRequestDtoSchema.parse({provider: providerDraft(), credentialSource: "cleared"}).models).toEqual([]);
     });
 
     it("保留检查回退开关", () => {
-        const parsed = CheckProviderRequestDtoSchema.parse({provider: providerDraft(), models: [], useSavedApiKey: false, useSavedModels: false});
-        expect(parsed.useSavedApiKey).toBe(false);
+        const parsed = CheckProviderRequestDtoSchema.parse({provider: providerDraft(), models: [], credentialSource: "provided", useSavedModels: false});
+        expect(parsed.credentialSource).toBe("provided");
         expect(parsed.useSavedModels).toBe(false);
     });
 
     it("单模型检查保留 API Key 回退开关", () => {
-        expect(CheckModelRequestDtoSchema.parse({provider: providerDraft(), model: modelDraft(), useSavedApiKey: false}).useSavedApiKey).toBe(false);
+        expect(CheckModelRequestDtoSchema.parse({provider: providerDraft(), model: modelDraft(), credentialSource: "cleared"}).credentialSource).toBe("cleared");
+    });
+
+    it("凭据来源不能缺省，避免隐式读取已保存 Secret", () => {
+        expect(() => CheckProviderRequestDtoSchema.parse({provider: providerDraft()})).toThrow();
+        expect(() => CheckModelRequestDtoSchema.parse({provider: providerDraft(), model: modelDraft()})).toThrow();
     });
 });
 

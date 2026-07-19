@@ -1,5 +1,7 @@
 # Task 62: Harness 黑盒合同与 SSE 恢复修复
 
+> 2026-07-19 superseded：本文件保留当时的历史计划，不再代表当前公开 SSE 合同。Task 22/107 已确认前端从未消费 `sidecar.*` / `sidecar_*` 或 `sidecarContext`；这些内部旁路生命周期已退出 Public Event Projection。Sidecar 执行、side-branch transcript 与日志仍保留。当前合同以 [Task 22](../22-agent-public-event-projection/README.md) 和 [Task 107](../107-agent-event-memory-boundaries/README.md) 为准。
+
 ## 任务概述
 
 **创建时间**：2026-06-21  

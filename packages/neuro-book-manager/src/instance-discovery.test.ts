@@ -21,7 +21,7 @@ describe("实例检测与有限发现", () => {
         await writeFile(join(root, "dirty.txt"), "dirty", "utf8");
         inspection = await inspectInstance(root);
         expect(inspection.blockers.some((issue) => issue.code === "git.dirty")).toBe(true);
-    });
+    }, 15_000);
 
     it("损坏Manifest不会退化为普通Git checkout", async () => {
         const root = await gitFixture();

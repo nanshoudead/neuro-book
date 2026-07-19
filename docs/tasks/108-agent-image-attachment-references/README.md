@@ -1,5 +1,16 @@
 # Agent Attachment 存储内核与图片引用
 
+> 当前状态：实现中 / Integrated locally。Stored Codec与Local Adapter已收口；Project授权、migration路径ownership已补齐，公开Product与浏览器图片验收待完成。
+
+## 2026-07-19：Session Entry授权与Migration路径ownership
+
+- Attachment route不再把content hash当授权凭证；Repository一次流式扫描同时返回Session metadata与目标entry，Project session先经过Project open gate，再校验公开Chat Flow locator。
+- 路由只把locator缺失映射404；`ProjectNotOpenError`保留统一409，避免typed生命周期错误被裸catch吞掉。
+- migration manifest中的source必须位于`.nbook/agent/sessions/**/*.jsonl`；backup/stage/rollback必须由run root与source确定性派生、互不重叠。
+- load/write/checkpoint都会检查现有路径段的symlink/junction，损坏manifest不能指向其他Session、Global Config或Workspace Root外文件。
+- Stored Message exact-key与Local Adapter锁/链接隔离复核通过。Migration的文件create/rename现在在POSIX同步父目录，补齐断电后的目录项持久性；Windows受Node目录句柄能力限制，继续依赖文件handle sync与原子rename。Migration、Repository、route与Harness聚焦回归通过。
+- 本轮文件授权整合保持Attachment Store仍固定在全局Workspace Root `.nbook/agent/attachments`；source读取复用Task 109的Project身份/open gate，不把物理blob路径反推为Project。分页与公开事件协议未改变，公开Product和浏览器图片展示仍未重验。
+
 ## Relative documents refs
 
 - [Agent Runtime Event OOM 与 SSE 内存边界](../107-agent-event-memory-boundaries/README.md)

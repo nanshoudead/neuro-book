@@ -1,4 +1,4 @@
-import {chmod, copyFile, mkdtemp, mkdir, readFile, writeFile} from "node:fs/promises";
+import {chmod, mkdtemp, mkdir, readFile, writeFile} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
 import {afterEach, describe, expect, it} from "vitest";
@@ -43,12 +43,11 @@ describe("portable manager wrapper", () => {
     it("校验并接管 Stage 0 Bun", async () => {
         const root = await mkdtemp(join(tmpdir(), "nbook-manager-stage0-"));
         roots.push(root);
-        const source = join(root, process.platform === "win32" ? "cache-bun.exe" : "cache-bun");
+        // Windows直接使用当前Bun作为Stage 0来源，避免在并行suite中为同一大文件做两次复制。
+        const source = process.platform === "win32" ? process.execPath : join(root, "cache-bun");
         const version = process.versions.bun;
         if (!version) throw new Error("Stage 0测试必须由Bun执行。" );
-        if (process.platform === "win32") {
-            await copyFile(process.execPath, source);
-        } else {
+        if (process.platform !== "win32") {
             await writeFile(source, `#!/bin/sh\nprintf '${version}\\n'\n`, "utf8");
             await chmod(source, 0o755);
         }
@@ -66,5 +65,5 @@ describe("portable manager wrapper", () => {
         } finally {
             process.env = previous;
         }
-    });
+    }, 30_000);
 });

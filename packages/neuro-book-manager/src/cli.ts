@@ -7,7 +7,7 @@ import {Command} from "commander";
 
 import {createAdmin} from "#manager/app-commands";
 import {runInstallGuide} from "#manager/install-guide";
-import {inspectInstallEnvironment, inspectInstallPreflight, recommendedInstallProfile} from "#manager/install-preflight";
+import {assertInstallConsent, inspectInstallEnvironment, inspectInstallPreflight, recommendedInstallProfile} from "#manager/install-preflight";
 import {installPlan, installWithPreflight} from "#manager/installer";
 import {configuredDiscoveryRoots, discoverInstances, inspectInstance} from "#manager/instance-discovery";
 import {importInstallation, inspectImport} from "#manager/instance-import";
@@ -27,9 +27,10 @@ import {readInstallationManifest} from "#manager/manifest-store";
 import {discoverInstallationRoot, installationPaths} from "#manager/paths";
 import {parseProfile, profileNames} from "#manager/profiles";
 import {runManagerTui} from "#manager/tui";
-import {adoptSourceInstallation} from "#manager/source-adoption";
+import {adoptSourceInstallation, assertAdoptionPreflight, inspectAdoptionPreflight} from "#manager/source-adoption";
 import type {InstallProfile, InstallationManifest, OfflineInspection, ReleaseChannel} from "#manager/types";
 import {updateInstallation} from "#manager/updater";
+import {inspectUpdatePreflight} from "#manager/update-preflight";
 import {MANAGER_VERSION} from "#manager/version-info";
 
 const managerExecutable = fileURLToPath(import.meta.url);
@@ -68,6 +69,7 @@ program.command("install")
     }) => {
         if (options.version && options.releaseManifest) throw new Error("--version 与 --release-manifest 不能同时使用。" );
         if (options.json && !options.dryRun) throw new Error("--json当前只与--dry-run一起使用。" );
+        if (!options.dryRun) assertInstallConsent(options.yes);
         if (!options.yes && process.stdin.isTTY && process.stdout.isTTY) {
             await runInstallGuide({
                 profile: options.profile ? parseProfile(options.profile) : undefined,
@@ -223,9 +225,7 @@ program.command("adopt")
     .option("--yes", "使用默认值，不进入交互。", false)
     .option("--dry-run", "只输出接管计划。", false)
     .action(async (path: string, options: {profile?: string; port?: number; auth?: boolean; yes: boolean; dryRun: boolean}) => {
-        const inspection = await inspectInstance(path);
-        if (inspection.kind !== "neuro-book-checkout") throw new Error("adopt只接受没有Manifest的NeuroBook Git checkout。" );
-        if (inspection.blockers.length) throw new Error(inspection.blockers.map((issue) => issue.message).join("\n"));
+        if (!options.dryRun) assertInstallConsent(options.yes);
         let profile = options.profile ? parseAdoptProfile(options.profile) : "source-dev" as const;
         if (!options.yes && process.stdin.isTTY && process.stdout.isTTY) {
             profile = await promptResult(p.select({message: "选择接管后的运行方式", initialValue: profile, options: [
@@ -233,13 +233,18 @@ program.command("adopt")
                 {value: "source-product" as const, label: "Source Product", hint: "从当前revision事务重建Product"},
                 {value: "source-docker" as const, label: "Source Docker", hint: "容器内构建明确revision镜像"},
             ]}));
+        }
+        const config = await readManagerConfig();
+        const preflight = await inspectAdoptionPreflight({root: path, profile, port: options.port ?? 3000});
+        assertAdoptionPreflight(preflight);
+        const inspection = preflight.inspection;
+        if (!options.yes && process.stdin.isTTY && process.stdout.isTTY) {
             const confirmed = await promptResult(p.confirm({message: `接管${inspection.root}为${profile}？`, initialValue: true}));
             if (!confirmed) { p.cancel("已取消接管，没有修改目录。" ); return; }
         }
-        const config = await readManagerConfig();
-        const input = {root: inspection.root, profile, channel: config.preferences.channel, port: options.port ?? 3000, authEnabled: options.auth ?? true, dryRun: options.dryRun, managerExecutable};
-        if (options.dryRun) { printJson(installPlan(input)); return; }
-        const {manifest} = await adoptSourceInstallation(input);
+        const adoptedInput = {root: inspection.root, profile, channel: config.preferences.channel, port: options.port ?? 3000, authEnabled: options.auth ?? true, dryRun: options.dryRun, managerExecutable};
+        if (options.dryRun) { printJson({preflight: preflight.report, plan: installPlan(adoptedInput)}); return; }
+        const {manifest} = await adoptSourceInstallation(adoptedInput, preflight);
         p.outro(`接管完成：${inspection.root}\nProfile: ${manifest.profile}\nVersion: ${manifest.appVersion}`);
     });
 
@@ -253,7 +258,14 @@ program.command("update")
         if (options.version && options.releaseManifest) throw new Error("--version 与 --release-manifest 不能同时使用。" );
         const {root, manifest} = await currentInstallation();
         if (options.dryRun) {
-            printJson({action: "update", root, profile: manifest.profile, scope: "profile-atomic", version: options.version ?? "latest"});
+            printJson(await inspectUpdatePreflight({
+                root,
+                manifest,
+                version: options.version,
+                releaseManifest: options.releaseManifest,
+                channel: options.channel,
+                managerExecutable,
+            }));
             return;
         }
         const result = await updateInstallation({
@@ -452,11 +464,17 @@ async function handleDiscoveredCandidates(candidates: OfflineInspection[]): Prom
         return;
     }
     if (inspection.kind === "neuro-book-checkout") {
-        if (inspection.blockers.length) throw new Error(inspection.blockers.map((issue) => issue.message).join("\n"));
-        const confirmed = await promptResult(p.confirm({message: "以Source Dev接管此checkout？", initialValue: true}));
+        const profile = await promptResult(p.select({message: "选择接管后的运行方式", options: [
+            {value: "source-dev" as const, label: "Source Dev", hint: "保留源码；现有不可信.output不纳入管理"},
+            {value: "source-product" as const, label: "Source Product", hint: "从当前revision事务重建Product"},
+            {value: "source-docker" as const, label: "Source Docker", hint: "容器内构建明确revision镜像"},
+        ]}));
+        const preflight = await inspectAdoptionPreflight({root: inspection.root, profile, port: 3000});
+        assertAdoptionPreflight(preflight);
+        const confirmed = await promptResult(p.confirm({message: `以${profile}接管此checkout？`, initialValue: true}));
         if (!confirmed) return;
         const config = await readManagerConfig();
-        await adoptSourceInstallation({root: inspection.root, profile: "source-dev", channel: config.preferences.channel, port: 3000, authEnabled: true, dryRun: false, managerExecutable});
+        await adoptSourceInstallation({root: inspection.root, profile, channel: config.preferences.channel, port: 3000, authEnabled: true, dryRun: false, managerExecutable}, preflight);
     }
 }
 

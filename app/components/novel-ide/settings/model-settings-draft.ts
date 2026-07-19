@@ -350,6 +350,40 @@ export function previewModelLibraryRepairs(
     return repairs;
 }
 
+export type RemovedIncompleteDisabledModel = {
+    providerId: string;
+    modelId: string;
+    issueCodes: ProviderConfigIssue["code"][];
+};
+
+/**
+ * 删除无法满足 Provider Config 合同的已停用模型。
+ *
+ * 该动作只由用户显式触发的一键修复调用：enabled 模型始终保留给用户编辑，
+ * 能力完整的 disabled 模型也保留；只有过去借 disabled 保存的坏草稿会被移除。
+ */
+export function removeIncompleteDisabledModels(draft: ContractSettingsDraft): RemovedIncompleteDisabledModel[] {
+    const removed: RemovedIncompleteDisabledModel[] = [];
+    for (const provider of draft.providers) {
+        provider.models = provider.models.filter((model) => {
+            if (model.enabled) {
+                return true;
+            }
+            const issues = inspectModelCapability(provider.id.trim(), modelContractInput(model));
+            if (issues.length === 0) {
+                return true;
+            }
+            removed.push({
+                providerId: provider.id.trim(),
+                modelId: model.id.trim(),
+                issueCodes: issues.map((issue) => issue.code),
+            });
+            return false;
+        });
+    }
+    return removed;
+}
+
 function providerContractInput(provider: ContractProviderDraft): ProviderConfigInput {
     return {
         id: provider.id.trim(),

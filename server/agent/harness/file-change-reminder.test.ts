@@ -4,7 +4,7 @@ import {join} from "node:path";
 import os from "node:os";
 import {afterEach, beforeEach, describe, expect, it} from "vitest";
 import {fauxAssistantMessage} from "@earendil-works/pi-ai";
-import {createFauxModels, type FauxModelsFixture} from "nbook/server/agent/test-utils/faux-models";
+import {createFauxModels, type FauxModelsFixture, writeFauxProviderConfig} from "nbook/server/agent/test-utils/faux-models";
 import {Type} from "typebox";
 import {NeuroAgentHarness} from "nbook/server/agent/harness/neuro-agent-harness";
 import {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
@@ -382,6 +382,7 @@ describe("file-change notice 端到端（FauxProvider 黑盒）", () => {
         faux = createFauxModels({
             models: [{id: `faux-${randomUUID()}`, contextWindow: 128_000, maxTokens: 8_000}],
         });
+        await writeFauxProviderConfig(workspaceRoot, faux);
         harness = new NeuroAgentHarness({
             repo: new JsonlSessionRepository(agentRoot),
             modelResolver: () => faux.getModel(),

@@ -303,10 +303,12 @@ assets/
 ## 2026-07-18 Model Config 硬切
 
 - Provider Config 已删除 `defaultApi`、Discovery Adapter 和 endpoint path；Automatic Model Discovery 的 Adapter 选择不再属于 Global Config。
-- 新增连接级 `modelApi`，只用于发现、手动添加和 Model Library 候选补全；每个已保存模型仍必须保存最终 `model.api`，runtime 不从 Provider 字段回退。
+- 新增连接级必填 `modelApi`，用于选择 discovery 协议，以及手动添加和 Model Library 候选补全；Base URL、Secret 与模型目录不足以安全推断协议。每个已保存模型仍必须保存最终 `model.api`，runtime 不从 Provider 字段回退，同一 Provider 的模型允许分别使用不同接口。
 - Global Config 写入合同现在校验所有模型，包括 disabled 模型；`enabled` 只影响 runnable 集合，不能再用禁用状态保存不完整模型。
+- 设置页一键修复会删除无法补全的 disabled 坏模型，但不会自动删除 enabled 模型或能力完整的 disabled 模型。
 - Model Library 与 Provider Template Library 只服务设置页创建/补全，不进入 Config runtime 解析。
-- 本轮没有自动修改真实 Workspace Root `.nbook/config.json`；既有不完整 disabled 模型等待用户授权后显式补齐或删除。
+- 核心实现阶段没有擅自修改真实 Workspace Root `.nbook/config.json`；数据清理只在后续获得用户明确授权后执行。
+- 2026-07-18 用户授权后，正式 Config Service 写入 seam 已删除 5 条历史不完整 disabled 模型；默认模型和 Secret 保留语义未变，清理后模型 validation issue 为 0。
 
 ## Verification
 

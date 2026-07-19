@@ -61,6 +61,14 @@
 - `invoke_agent` 工具已支持 `prompt | continue | steer | followup`、`message?: string`、`input?: Record<string, JsonValue>`、`title?`，并保持为 HTTP/API invoke 的 agent-facing 子集。
 - `get_agent_profile` 保持 `{ profileKey }` 参数，只返回 agent 需要的 `initialSchema`、`payloadSchema`、`outputSchema` 和 `toolKeys` 摘要，不暴露 `source` / report schema。
 - `invoke_agent` 返回已收敛为 `result.message/data` 与简洁 `stats`；`finalMessage`、`invocationId`、原始 `usage`、`reportResult` 二分结构不再作为 agent-facing 字段暴露。
+- Initial/Payload 与 `report_result.data` / `report_sidecar_result.data` 共用严格 TypeBox 校验和错误格式化：不执行 Convert/default 填充，错误包含 JSON Pointer，并明确缺少必填字段、额外字段及具体类型/枚举/范围错误，不再暴露 TypeBox 的通用 `Parse`。
+- Profile 支持通用 `capabilities.creation = public | system_only`；默认 `public`。`create_agent` 与公开 session API 拒绝 `system_only`，内部系统创建入口保留。`get_agent_profile` 返回 `creationMode/createAgentAllowed`，AgentCatalog 只把 public profile 宣称为可创建。
+
+### 2026-07-19 validation error and creation capability contract
+
+- `initial`、invocation payload、主路 result data 和 sidecar data 只能按声明 schema 严格通过；校验失败不修改输入。
+- 错误格式为“合同位置校验失败：`/json/pointer`：原因”，多个问题用分号分隔，调用方可直接定位字段。
+- `system_only` 是 profile 能力而非 profile key 特判；系统 profile 仍可进入管理/诊断 catalog，但不会进入 Agent prompt 的可创建列表。
 
 ## Decisions / Discussion
 

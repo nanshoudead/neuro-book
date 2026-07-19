@@ -525,5 +525,7 @@ SSE 断线不是 run error，不应投影为聊天错误卡。短暂断线在 co
 - `session_state_changed` 只携带 live state，不再携带完整 snapshot；它可以更新 shell 并触发统一 recovery，但不能直接替代 recovery response。
 - `snapshot_required`、seq gap、event epoch 变化、active path 变化和 invalid history cursor 都复用同一 recovery 调度，不建立平行请求状态。
 - Task 107 已将 runtime event 改为有界公开投影；Task 106 的 durable history 使用同一个 `AgentChatEntryDto` projector。
+- EventHub 只保存一次序列化的 immutable public frame，并按 UTF-8 bytes 管理 event/replay/subscriber 预算；公开 route 不再重新 stringify raw Pi event。
+- Task 22 原始预算现有直接回归：`session_state_changed < 50 KiB`、`agent_end < 5 KiB`；10 MiB tool result 只进入有界 preview。更通用的单事件 hard limit 仍为 128 KiB。
 
 因此前文关于 `session_state_changed.snapshot`、command/tree response snapshot 和 `applySnapshotOrSync()` 的描述仅是历史实现记录，不是当前接口契约。

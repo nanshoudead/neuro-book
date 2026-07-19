@@ -4,7 +4,7 @@ import type {DiscoveredProviderModelDto, ModelProviderDraftDto} from "nbook/shar
 import {deriveModelGroup} from "nbook/shared/models/model-group";
 
 type ProviderFetchInit = RequestInit & {dispatcher?: ProxyAgent};
-type DiscoveryAdapterId = "openai-models" | "openrouter-models" | "google-models";
+type DiscoveryAdapterId = "openai-models" | "openrouter-models" | "anthropic-models" | "google-models";
 type DiscoveryAdapter = {
     id: DiscoveryAdapterId;
     url(provider: ModelProviderDraftDto, baseURL: URL): URL;
@@ -18,6 +18,7 @@ const OpenAIModelsSchema = z.object({
     data: z.array(z.object({
         id: z.string(),
         name: z.string().optional(),
+        display_name: z.string().optional(),
         context_length: z.number().optional(),
         context_window: z.number().optional(),
         max_context_length: z.number().optional(),
@@ -63,6 +64,13 @@ const openRouterAdapter: DiscoveryAdapter = {
     url: (_provider, baseURL) => modelsUrl(baseURL),
     headers: bearerHeaders,
     parse: (payload) => parseOpenAIModels(payload, true, "openai-completions"),
+};
+
+const anthropicAdapter: DiscoveryAdapter = {
+    id: "anthropic-models",
+    url: (_provider, baseURL) => modelsUrl(baseURL),
+    headers: anthropicHeaders,
+    parse: (payload) => parseOpenAIModels(payload, false, "anthropic-messages"),
 };
 
 const googleAdapter: DiscoveryAdapter = {
@@ -163,16 +171,27 @@ async function runAdapter(provider: ModelProviderDraftDto, baseURL: URL, adapter
  */
 function orderedAdapters(provider: ModelProviderDraftDto, baseURL: URL): DiscoveryAdapter[] {
     const host = baseURL.hostname.toLowerCase();
-    if (host.includes("openrouter")) {
-        return [openRouterAdapter];
+    if (provider.modelApi === "anthropic-messages") {
+        return [anthropicAdapter];
     }
-    if (host.includes("googleapis.com") || provider.modelApi === "google-generative-ai") {
-        return [googleAdapter];
-    }
-    if (provider.modelApi === "anthropic-messages" || provider.modelApi === "bedrock-converse-stream") {
+    if (provider.modelApi === "bedrock-converse-stream") {
         return [];
     }
+    if (provider.modelApi === "google-generative-ai") {
+        return [googleAdapter];
+    }
+    if (isHostnameOrSubdomain(host, "openrouter.ai")) {
+        return [openRouterAdapter];
+    }
+    if (isHostnameOrSubdomain(host, "googleapis.com")) {
+        return [googleAdapter];
+    }
     return [openAiAdapter];
+}
+
+/** 只接受精确域名或其子域名，避免 evil-openrouter.ai / googleapis.com.evil.example 误选协议。 */
+function isHostnameOrSubdomain(hostname: string, domain: string): boolean {
+    return hostname === domain || hostname.endsWith(`.${domain}`);
 }
 
 function modelsUrl(baseURL: URL): URL {
@@ -187,6 +206,19 @@ function bearerHeaders(provider: ModelProviderDraftDto): Record<string, string> 
     const apiKey = provider.options.apiKey.trim();
     if (apiKey) {
         headers.authorization = `Bearer ${apiKey}`;
+    }
+    return headers;
+}
+
+/** Anthropic-compatible 模型目录只在用户明确选择协议后使用 x-api-key。 */
+function anthropicHeaders(provider: ModelProviderDraftDto): Record<string, string> {
+    const headers: Record<string, string> = {
+        accept: "application/json",
+        "anthropic-version": "2023-06-01",
+    };
+    const apiKey = provider.options.apiKey.trim();
+    if (apiKey) {
+        headers["x-api-key"] = apiKey;
     }
     return headers;
 }
@@ -250,7 +282,7 @@ function parseOpenAIModels(
         const modalities = item.input_modalities ?? item.architecture?.input_modalities;
         models.set(id, {
             id,
-            name: item.name?.trim() || id,
+            name: item.name?.trim() || item.display_name?.trim() || id,
             group: deriveModelGroup(id),
             api,
             reasoning: item.reasoning ?? item.supports_reasoning ?? (item.supported_parameters ? item.supported_parameters.some((parameter) => parameter === "reasoning" || parameter === "include_reasoning") : null),

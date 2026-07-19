@@ -22,6 +22,9 @@ export type Output = Static<typeof OutputSchema>;
 
 export default defineAgentProfile({
     manifest: profileManifest,
+    capabilities: {
+        creation: "system_only",
+    },
     initialSchema: InitialSchema,
     outputSchema: OutputSchema,
     tools: toolset(

@@ -1,6 +1,7 @@
 import {CheckModelRequestDtoSchema, type CheckModelRequestDto} from "nbook/shared/dto/app-settings.dto";
 import {loadGlobalEffectiveConfigSync} from "nbook/server/config/config-service";
-import {checkModelHealth, withSavedProviderApiKey} from "nbook/server/utils/model-settings";
+import {checkModelHealth} from "nbook/server/utils/model-settings";
+import {resolveProviderCredential} from "nbook/server/models/provider-credential";
 import {validateBody} from "nbook/server/utils/novel-chapter";
 import type {H3Event} from "h3";
 import {useAgentHarness} from "nbook/server/agent/http";
@@ -31,8 +32,6 @@ defineRouteMeta({
                                     "minLength": 1
                                 },
                                 "modelApi": {
-                                    "default": null,
-                                    "nullable": true,
                                     "type": "string",
                                     "enum": [
                                         "openai-completions",
@@ -341,15 +340,19 @@ defineRouteMeta({
                             ],
                             "additionalProperties": false
                         },
-                        "useSavedApiKey": {
-                            "default": true,
-                            "type": "boolean"
+                        "credentialSource": {
+                            "type": "string",
+                            "enum": [
+                                "provided",
+                                "saved",
+                                "cleared"
+                            ]
                         }
                     },
                     "required": [
                         "provider",
                         "model",
-                        "useSavedApiKey"
+                        "credentialSource"
                     ],
                     "additionalProperties": false,
                     "definitions": {
@@ -502,16 +505,13 @@ function createModelCheckAbortSignal(event: H3Event): {signal: AbortSignal; clea
 }
 
 /**
- * 单模型健康检查。草稿未携带明文 API Key 时，回退读取已保存的 Global Config secret。
+ * 单模型健康检查。凭据来源必须由调用方明确选择。
  */
 export default defineEventHandler(async (event) => {
     const body = await validateBody<CheckModelRequestDto>(event, CheckModelRequestDtoSchema);
     const requestAbort = createModelCheckAbortSignal(event);
     const config = loadGlobalEffectiveConfigSync();
-    const savedApiKey = config.models.providers[body.provider.id]?.options.apiKey;
-    const provider = body.useSavedApiKey
-        ? withSavedProviderApiKey(body.provider, savedApiKey)
-        : body.provider;
+    const provider = resolveProviderCredential(body.provider, body.credentialSource, config);
     try {
         return await checkModelHealth(provider, body.model, {
             signal: requestAbort.signal,

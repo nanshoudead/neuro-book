@@ -8,8 +8,7 @@ import type {NeuroSessionContext, InvocationErrorInfo, SessionEntryId, SessionSn
 import type {SessionWritePlan} from "nbook/server/agent/session/write-plan";
 import type {AgentToolRegistry} from "nbook/server/agent/tools/tool-registry";
 import type {NeuroAgentTool} from "nbook/server/agent/tools/types";
-import type {AgentInvokeCaller} from "nbook/server/agent/harness/types";
-import type {InvokeAgentResult} from "nbook/shared/dto/agent-session.dto";
+import type {AgentInvokeCaller, AgentInvocationResult} from "nbook/server/agent/harness/types";
 import type {AgentRuntimeStreamEventDto} from "nbook/shared/dto/agent-session.dto";
 import type {AgentMode} from "nbook/shared/dto/agent-session.dto";
 import type {UserInputFormSpec} from "nbook/server/agent/tools/types";
@@ -42,7 +41,7 @@ export type RuntimeToolResult = {
 
 export type RunToolBatchResult = {
     toolResults: RuntimeToolResult[];
-    reportResult?: InvokeAgentResult["reportResult"];
+    reportResult?: AgentInvocationResult["reportResult"];
     sidecarResult?: RunSidecarToolResult;
     reportResultError?: string;
     sidecarResultError?: string;
@@ -89,7 +88,7 @@ export type RuntimeHookExecutionInput = {
     runResult?: {
         status: "completed" | "waiting";
         finalAssistant?: AssistantMessage;
-        reportResult?: InvokeAgentResult["reportResult"];
+        reportResult?: AgentInvocationResult["reportResult"];
         waiting?: RunToolBatchResult["waiting"];
     };
     modelMessages?: StoredAgentMessage[];
@@ -115,14 +114,14 @@ export type TurnIngestResult = {
 export type CompletedRunLoopResult = {
     status: "completed";
     finalAssistant?: AssistantMessage;
-    reportResult?: InvokeAgentResult["reportResult"];
+    reportResult?: AgentInvocationResult["reportResult"];
     sidecarResult?: RunSidecarToolResult;
 };
 
 export type WaitingRunLoopResult = {
     status: "waiting";
     finalAssistant?: AssistantMessage;
-    reportResult?: InvokeAgentResult["reportResult"];
+    reportResult?: AgentInvocationResult["reportResult"];
     sidecarResult?: RunSidecarToolResult;
     waiting: NonNullable<RunToolBatchResult["waiting"]>;
 };
@@ -194,7 +193,7 @@ export type RunFrame = {
     messages: StoredAgentMessage[];
     /** prepareNextTurn 注入的下一轮临时上下文；进入一次 provider snapshot 后清空。 */
     nextTurnRuntimeMessages: StoredAgentMessage[];
-    reportResult?: InvokeAgentResult["reportResult"];
+    reportResult?: AgentInvocationResult["reportResult"];
     /** 当前 sidecar run 通过 report_sidecar_result 返回的结构化结果。 */
     sidecarResult?: RunSidecarToolResult;
     /** 连续 report_result 工具错误次数；成功 report_result 后清零。 */
@@ -260,7 +259,7 @@ export type RuntimeTurn = {
     assistant: AssistantMessage;
     toolCalls: AgentToolCall[];
     toolResults: RuntimeToolResult[];
-    reportResult?: InvokeAgentResult["reportResult"];
+    reportResult?: AgentInvocationResult["reportResult"];
     sidecarResult?: RunSidecarToolResult;
     reportResultError?: string;
     sidecarResultError?: string;

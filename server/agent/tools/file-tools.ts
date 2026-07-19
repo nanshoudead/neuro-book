@@ -6,7 +6,7 @@ import {createPatch} from "diff";
 import {Type} from "typebox";
 import type {Static} from "typebox";
 import {recordContextAccess} from "nbook/server/agent/context-access/profile-context-access";
-import {detectImageMimeType, assertReadable, assertWritable, firstChangedLine} from "nbook/server/agent/tools/file-tool-utils";
+import {detectImageMimeType, firstChangedLine} from "nbook/server/agent/tools/file-tool-utils";
 import {formatSize, DEFAULT_MAX_BYTES, truncateHead, type TruncationResult} from "nbook/server/agent/tools/truncate";
 import {OutputAccumulator} from "nbook/server/agent/tools/output-accumulator";
 import type {NeuroAgentTool, NeuroToolUpdateCallback, ToolExecutionContext} from "nbook/server/agent/tools/types";
@@ -15,7 +15,8 @@ import {recordAgentWorkspaceWrite} from "nbook/server/workspace-history/agent-fi
 import {resolveSystemNbookRoot} from "nbook/server/workspace-files/system-workspace-assets";
 import {normalizeToolResultDetails} from "nbook/server/agent/messages/message-utils";
 import {resolveSessionFileScope} from "nbook/server/agent/workspace/session-file-scope";
-import {resolveFileAddress, type ResolvedFileAddress} from "nbook/server/workspace-files/file-scope";
+import {authorizeFileOperation, authorizeProcessCwd} from "nbook/server/workspace-files/authorized-file-operation";
+import type {ResolvedFileAddress} from "nbook/server/workspace-files/file-scope";
 import {imageMimeType} from "nbook/server/agent/attachments/agent-attachment-codec";
 import {AttachmentError} from "nbook/server/agent/attachments/types";
 import {AGENT_IMAGE_POLICY} from "nbook/server/agent/attachments/agent-attachment-policy";
@@ -88,8 +89,13 @@ export function createFileTools(): NeuroAgentTool[] {
 }
 
 /** 使用统一 File Scope / File Address Module解析工具路径，并保留领域归属。 */
-function resolveToolFile(context: ToolExecutionContext, inputPath: string): ResolvedFileAddress {
-    return resolveFileAddress(resolveSessionFileScope(context), inputPath);
+async function resolveToolFile(
+    context: ToolExecutionContext,
+    inputPath: string,
+    operation: "read" | "write" | "edit",
+): Promise<ResolvedFileAddress> {
+    const authorized = await authorizeFileOperation(resolveSessionFileScope(context), inputPath, operation);
+    return authorized.address;
 }
 
 function createReadTool(): NeuroAgentTool {
@@ -102,9 +108,8 @@ function createReadTool(): NeuroAgentTool {
         parameters: ReadSchema,
         async executeWithContext(context: ToolExecutionContext, _toolCallId: string, params: unknown, _userInput?: unknown, signal?: AbortSignal) {
             const input = params as ReadInput;
-            const address = resolveToolFile(context, input.path);
+            const address = await resolveToolFile(context, input.path, "read");
             const absolutePath = address.absolutePath;
-            await assertReadable(absolutePath);
             const imageCandidate = detectImageMimeType(absolutePath) !== null;
             if (imageCandidate && (await stat(absolutePath)).size > AGENT_IMAGE_POLICY.maxImageBytes) {
                 throw new AttachmentError("limit_exceeded", "图片超过 read 工具允许大小。");
@@ -231,7 +236,7 @@ function createWriteTool(): NeuroAgentTool {
         parameters: WriteSchema,
         async executeWithContext(context: ToolExecutionContext, _toolCallId: string, params: unknown, _userInput?: unknown, signal?: AbortSignal) {
             const input = params as WriteInput;
-            const address = resolveToolFile(context, input.path);
+            const address = await resolveToolFile(context, input.path, "write");
             const absolutePath = address.absolutePath;
             // 记账 before：覆盖写前补读一次旧内容（不存在 = null，file.create 语义）
             const before = await readFile(absolutePath).catch(() => null);
@@ -287,9 +292,8 @@ function createEditTool(): NeuroAgentTool {
             if (!Array.isArray(input.edits) || input.edits.length === 0) {
                 throw new Error("edits must contain at least one replacement.");
             }
-            const address = resolveToolFile(context, input.path);
+            const address = await resolveToolFile(context, input.path, "edit");
             const absolutePath = address.absolutePath;
-            await assertWritable(absolutePath);
             const original = await readFile(absolutePath, "utf-8");
             const updated = applyExactEdits(original, input.edits, input.path);
             await writeFile(absolutePath, updated, "utf-8");
@@ -374,11 +378,13 @@ function createBashTool(): NeuroAgentTool {
         ) {
             const input = params as BashInput;
             const bash = resolveBashPath();
+            const fileScope = resolveSessionFileScope(context);
+            const authorizedScope = await authorizeProcessCwd(fileScope);
             const output = new OutputAccumulator();
             const result = await runBash({
                 bash,
                 command: input.command,
-                cwd: resolveSessionFileScope(context).root,
+                cwd: authorizedScope.root,
                 env: createBashEnvironment(context),
                 timeout: input.timeout,
                 signal,

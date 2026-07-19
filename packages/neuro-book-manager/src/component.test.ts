@@ -79,7 +79,7 @@ describe("Product component rollback", () => {
         await mkdir(join(root, ".output"), {recursive: true});
         await writeFile(join(root, ".output", "new.txt"), "new", "utf8");
 
-        await rollbackProduct(root, backup);
+        await rollbackProduct(root, backup, false);
 
         await expect(stat(join(root, ".output"))).rejects.toMatchObject({code: "ENOENT"});
     });
@@ -93,7 +93,7 @@ describe("Product component rollback", () => {
         await writeFile(join(root, ".output", "new.txt"), "new", "utf8");
         await writeFile(join(backup, ".output", "old.txt"), "old", "utf8");
 
-        await rollbackProduct(root, backup);
+        await rollbackProduct(root, backup, true);
 
         expect(await readFile(join(root, ".output", "old.txt"), "utf8")).toBe("old");
         await expect(stat(join(root, ".output", "new.txt"))).rejects.toMatchObject({code: "ENOENT"});

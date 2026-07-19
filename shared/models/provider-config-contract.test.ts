@@ -33,6 +33,18 @@ function validInput(): MutableInput {
 }
 
 describe("Provider Config contract", () => {
+    it("Provider 默认 API 是持久化必填字段", () => {
+        const input = validInput();
+        input.providers[0]!.modelApi = null;
+
+        const result = inspectProviderConfigDocument(input);
+
+        expect(result.issues).toContainEqual(expect.objectContaining({
+            code: "missing_provider_model_api",
+            path: ["providers", 0, "modelApi"],
+        }));
+    });
+
     it("disabled Provider 下的重复 model ID 仍是持久化错误", () => {
         const input = validInput();
         input.providers[0]!.enabled = false;

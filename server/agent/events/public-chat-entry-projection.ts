@@ -10,16 +10,19 @@ import {
     createPublicProjectionBudget,
     projectPublicAttachment,
     projectPublicToolArgs,
+    projectPublicToolName,
     projectPublicToolResult,
     textPreview,
 } from "nbook/server/agent/events/public-tool-projection";
+import {createPublicTextBudget, projectPublicText} from "nbook/server/agent/events/public-text-projection";
 import {
     PUBLIC_ASSISTANT_TEXT_BYTES,
     PUBLIC_ASSISTANT_TOOL_CALLS,
     PUBLIC_TOOL_ARGS_TEXT_BYTES,
 } from "nbook/server/agent/events/public-event-policy";
 import type {SessionEntry} from "nbook/server/agent/session/types";
-import type {AgentChatEntryDto, AgentChatUserEntryDto, PublicTextPreviewDto} from "nbook/shared/dto/agent-public-event.dto";
+import type {AgentChatEntryDto, AgentChatUserEntryDto} from "nbook/shared/dto/agent-public-event.dto";
+import {assertPublicToolCallId} from "nbook/shared/agent/public-tool-identity";
 
 export type AgentChatEntryProjectionContext = {
     /** assistant entry 所属 invocation；非 assistant 时忽略。 */
@@ -126,9 +129,9 @@ function projectMessageEntry(
         const toolCalls = rawToolCalls
             .slice(0, PUBLIC_ASSISTANT_TOOL_CALLS)
             .map(({block, index}) => ({
-                id: block.id,
+                id: assertPublicToolCallId(block.id),
                 index,
-                name: textPreview(block.name, 512).preview,
+                name: projectPublicToolName(block.name),
                 args: projectPublicToolArgs(block.name, block.arguments, toolArgsBudget),
             }));
         return {
@@ -160,12 +163,9 @@ function projectUserContent(
     message: Message | StoredAgentMessage,
     steer: string | null,
 ): Pick<AgentChatUserEntryDto, "blocks" | "omittedBlocks" | "textSummary"> {
-    const textBudget = {
-        remainingRawBytes: CHAT_ENTRY_PREVIEW_BYTES,
-        remainingSerializedBytes: CHAT_ENTRY_SERIALIZED_TEXT_BYTES,
-    };
+    const textBudget = createPublicTextBudget(CHAT_ENTRY_PREVIEW_BYTES, CHAT_ENTRY_SERIALIZED_TEXT_BYTES);
     if (steer !== null) {
-        const text = budgetUserText(steer, textBudget);
+        const text = projectPublicText(steer, textBudget);
         const blocks: AgentChatUserEntryDto["blocks"] = [
             {type: "text" as const, contentIndex: 0, content: text},
             ...messageAttachmentBlocks(message),
@@ -178,7 +178,7 @@ function projectUserContent(
         };
     }
     if (typeof message.content === "string") {
-        const content = budgetUserText(message.content, textBudget);
+        const content = projectPublicText(message.content, textBudget);
         return {
             blocks: [{type: "text", contentIndex: 0, content}],
             omittedBlocks: 0,
@@ -200,7 +200,7 @@ function projectUserContent(
                 textOmitted = textOmitted || block.text.length > 0;
                 return;
             }
-            const content = budgetUserText(block.text, textBudget);
+            const content = projectPublicText(block.text, textBudget);
             textOmitted = textOmitted || content.omitted;
             blocks.push({type: "text", contentIndex, content});
             return;
@@ -221,59 +221,6 @@ function projectUserContent(
         omittedBlocks: Math.max(0, message.content.length - blocks.length),
         textSummary: {bytes: textBytes, omitted: textOmitted},
     };
-}
-
-type UserTextBudget = {
-    remainingRawBytes: number;
-    remainingSerializedBytes: number;
-};
-
-/**
- * 同时约束正文 UTF-8 大小与 JSON string 转义后的大小。
- * 控制字符会在 stringify 时扩张，不能只按原始 UTF-8 预算判断 event 大小。
- */
-function budgetUserText(value: string, budget: UserTextBudget): PublicTextPreviewDto {
-    const raw = textPreview(value, budget.remainingRawBytes);
-    let preview = raw.preview;
-    if (jsonStringBytes(preview) > budget.remainingSerializedBytes) {
-        let low = 0;
-        let high = preview.length;
-        while (low < high) {
-            let middle = Math.ceil((low + high) / 2);
-            const lastCodeUnit = preview.charCodeAt(middle - 1);
-            if (lastCodeUnit >= 0xd800 && lastCodeUnit <= 0xdbff) {
-                middle -= 1;
-            }
-            if (jsonStringBytes(preview.slice(0, middle)) <= budget.remainingSerializedBytes) {
-                low = Math.max(low + 1, middle);
-            } else {
-                high = Math.max(0, middle - 1);
-            }
-        }
-        let safeLength = Math.min(low, preview.length);
-        while (safeLength > 0 && jsonStringBytes(preview.slice(0, safeLength)) > budget.remainingSerializedBytes) {
-            safeLength -= 1;
-        }
-        const lastCodeUnit = preview.charCodeAt(safeLength - 1);
-        if (lastCodeUnit >= 0xd800 && lastCodeUnit <= 0xdbff) {
-            safeLength -= 1;
-        }
-        preview = preview.slice(0, Math.max(0, safeLength));
-    }
-    const rawPreviewBytes = Buffer.byteLength(preview, "utf8");
-    const serializedPreviewBytes = jsonStringBytes(preview);
-    budget.remainingRawBytes = Math.max(0, budget.remainingRawBytes - rawPreviewBytes);
-    budget.remainingSerializedBytes = Math.max(0, budget.remainingSerializedBytes - serializedPreviewBytes);
-    return {
-        preview,
-        bytes: raw.bytes,
-        omitted: raw.omitted || preview.length < raw.preview.length,
-    };
-}
-
-/** 返回 JSON string 内容本身的 UTF-8 bytes，不计外围引号。 */
-function jsonStringBytes(value: string): number {
-    return Math.max(0, Buffer.byteLength(JSON.stringify(value), "utf8") - 2);
 }
 
 /** 投影 steer message 的 attachment blocks，并保留原 stored content index。 */
@@ -303,8 +250,8 @@ function projectToolResultEntry(
         id,
         timestamp,
         type: "tool_result",
-        toolCallId: message.toolCallId,
-        toolName: message.toolName,
+        toolCallId: assertPublicToolCallId(message.toolCallId),
+        toolName: projectPublicToolName(message.toolName),
         result: projectPublicToolResult(message.toolName, {
             content: message.content,
             details: message.details,

@@ -1,5 +1,4 @@
 import {appendFile, mkdir, readFile, readdir, writeFile} from "node:fs/promises";
-import {existsSync} from "node:fs";
 import {createReadStream} from "node:fs";
 import {createInterface} from "node:readline";
 import {dirname, join, resolve} from "node:path";
@@ -27,6 +26,9 @@ import {reduceRelationLedger} from "nbook/server/agent/session/relation-ledger";
 import {AttachmentMigrationGate} from "nbook/server/agent/session/attachment-migration-gate";
 import {storedMessageText} from "nbook/server/agent/messages/stored-message-presentation";
 import {normalizeWorkspaceRootRef, type WorkspaceRootRef} from "nbook/server/workspace-files/workspace-root-ref";
+import {PUBLIC_TREE_TEXT_BYTES} from "nbook/server/agent/events/public-event-policy";
+import {projectPublicToolName, textPreview} from "nbook/server/agent/events/public-tool-projection";
+import {migrateSessionJsonlModels, parseDurableSessionModelRef} from "nbook/server/agent/session/session-model-redaction";
 
 type CreateSessionInput = {
     profileKey: string;
@@ -57,6 +59,12 @@ export type SessionListResult = {
     issues: SessionListIssue[];
 };
 
+/** 定点读取 entry 时同时返回其 durable Session 身份，供路由授权而不构造完整 snapshot。 */
+export type SessionEntryContext = {
+    metadata: SessionMetadata;
+    entry: SessionEntry | null;
+};
+
 /**
  * JSONL session 仓库。所有状态变化都通过 append entry 表达。
  */
@@ -65,6 +73,8 @@ export class JsonlSessionRepository {
     private readonly attachmentMigrationGate: AttachmentMigrationGate;
     /** 避免同一批损坏Session在每次列表刷新时重复淹没运行日志。 */
     private issueFingerprint = "";
+    /** 每个 Session 独立执行旧模型脱敏；单文件失败不能阻断其他 Session。 */
+    private readonly modelRedactionReady = new Map<SessionId, Promise<void>>();
 
     constructor(rootWorkspace: string) {
         this.rootWorkspace = rootWorkspace;
@@ -115,6 +125,7 @@ export class JsonlSessionRepository {
      * 读取 session。workspaceKey 仅为旧调用点保留，不参与路径定位。
      */
     async readSession(sessionId: SessionId, workspaceKey?: string): Promise<SessionSnapshot> {
+        await this.ensureSessionModelRedaction(sessionId);
         const sessionPath = this.sessionPath(sessionId);
         const text = await readFile(sessionPath, "utf8");
         const records = text.split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line) as SessionFileRecord);
@@ -152,14 +163,33 @@ export class JsonlSessionRepository {
      * 避免每张图片都 reduce 整个长 session。该 seam 不建立额外索引，JSONL 仍是真相源。
      */
     async readEntry(sessionId: SessionId, entryId: SessionEntryId): Promise<SessionEntry | null> {
+        return (await this.readEntryContext(sessionId, entryId)).entry;
+    }
+
+    /**
+     * 单次顺序扫描读取 header 与目标 entry。
+     *
+     * Attachment route 需要 Project Path 执行数据面 open gate；这个 Interface 保留
+     * JSONL 流式读取的 locality，同时避免调用方从物理 blob 路径反推 Project 身份。
+     */
+    async readEntryContext(sessionId: SessionId, entryId: SessionEntryId): Promise<SessionEntryContext> {
+        await this.ensureSessionModelRedaction(sessionId);
         const stream = createReadStream(this.sessionPath(sessionId), {encoding: "utf8"});
         const lines = createInterface({input: stream, crlfDelay: Infinity});
+        let metadata: SessionMetadata | null = null;
         try {
             for await (const line of lines) {
                 if (!line) {
                     continue;
                 }
                 const record = JSON.parse(line) as SessionFileRecord;
+                if (record.kind === "header") {
+                    metadata = {
+                        ...record.metadata,
+                        workspaceRoot: normalizeWorkspaceRootRef(record.metadata.workspaceRoot, record.metadata.projectPath),
+                    };
+                    continue;
+                }
                 const entry = record.kind === "entry"
                     ? record.entry
                     : record.kind === "batch"
@@ -169,9 +199,15 @@ export class JsonlSessionRepository {
                     continue;
                 }
                 this.assertStoredEntry(entry);
-                return entry;
+                if (!metadata) {
+                    throw new Error(`session ${sessionId} 缺少 header`);
+                }
+                return {metadata, entry};
             }
-            return null;
+            if (!metadata) {
+                throw new Error(`session ${sessionId} 缺少 header`);
+            }
+            return {metadata, entry: null};
         } finally {
             lines.close();
             stream.destroy();
@@ -655,9 +691,11 @@ export class JsonlSessionRepository {
                 messageId: entry.type === "message" || entry.type === "custom_message" ? entry.id : undefined,
                 preview: this.treeNodePreview(entry),
                 toolName: entry.type === "message" && entry.message.role === "toolResult"
-                    ? entry.message.toolName
+                    ? projectPublicToolName(entry.message.toolName)
                     : undefined,
-                label: labelsByTargetId.get(entry.id),
+                label: labelsByTargetId.has(entry.id)
+                    ? textPreview(labelsByTargetId.get(entry.id) ?? "", PUBLIC_TREE_TEXT_BYTES).preview
+                    : undefined,
             }));
     }
 
@@ -666,28 +704,34 @@ export class JsonlSessionRepository {
      */
     private treeNodePreview(entry: SessionEntry): string | undefined {
         if (entry.type === "message") {
-            return storedMessageText(entry.message, {stripThinking: true}).replace(/\s+/g, " ").trim().slice(0, 180) || undefined;
+            return textPreview(
+                storedMessageText(entry.message, {stripThinking: true}).replace(/\s+/g, " ").trim(),
+                PUBLIC_TREE_TEXT_BYTES,
+            ).preview || undefined;
         }
         if (entry.type === "custom_message") {
-            return entry.message.role;
+            return typeof entry.message.role === "string"
+                ? textPreview(entry.message.role, PUBLIC_TREE_TEXT_BYTES).preview
+                : undefined;
         }
         if (entry.type === "compaction") {
-            return entry.summary.replace(/\s+/g, " ").trim().slice(0, 180) || undefined;
+            return textPreview(entry.summary.replace(/\s+/g, " ").trim(), PUBLIC_TREE_TEXT_BYTES).preview || undefined;
         }
         if (entry.type === "branch_summary") {
-            return entry.summary.replace(/\s+/g, " ").trim().slice(0, 180) || undefined;
+            return textPreview(entry.summary.replace(/\s+/g, " ").trim(), PUBLIC_TREE_TEXT_BYTES).preview || undefined;
         }
         if (entry.type === "session_update") {
-            return entry.updates.title || entry.updates.summary;
+            const value = entry.updates.title || entry.updates.summary;
+            return value ? textPreview(value, PUBLIC_TREE_TEXT_BYTES).preview : undefined;
         }
         if (entry.type === "label") {
-            return entry.label;
+            return textPreview(entry.label, PUBLIC_TREE_TEXT_BYTES).preview || undefined;
         }
         if (entry.type === "invocation_lifecycle") {
-            return `${entry.invocationId} ${entry.status}`;
+            return textPreview(`${entry.invocationId} ${entry.status}`, PUBLIC_TREE_TEXT_BYTES).preview;
         }
         if (entry.type === "custom") {
-            return entry.key;
+            return textPreview(entry.key, PUBLIC_TREE_TEXT_BYTES).preview || undefined;
         }
         return undefined;
     }
@@ -793,6 +837,19 @@ export class JsonlSessionRepository {
         if (entry.type === "message" || entry.type === "custom_message") {
             parseStoredMessage(entry.message);
         }
+        if (entry.type === "model_change") {
+            parseDurableSessionModelRef(entry.model);
+        }
+    }
+
+    /** 在任何现有Session进入runtime前原子脱敏完整Pi Model。 */
+    private async ensureSessionModelRedaction(sessionId: SessionId): Promise<void> {
+        let ready = this.modelRedactionReady.get(sessionId);
+        if (!ready) {
+            ready = migrateSessionJsonlModels(this.sessionPath(sessionId)).then(() => undefined);
+            this.modelRedactionReady.set(sessionId, ready);
+        }
+        await ready;
     }
 
     private async appendLine(path: string, record: SessionFileRecord): Promise<void> {

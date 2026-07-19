@@ -35,6 +35,7 @@ import type {
     RunAttachmentRollbackOptions,
     AttachmentMigrationRollbackReport,
 } from "nbook/scripts/db/agent-attachment-v1/types";
+import {syncParentDirectories} from "nbook/scripts/db/agent-attachment-v1/durable-file";
 
 const RUN_ID_PATTERN = /^[A-Za-z0-9_-]+$/;
 
@@ -299,6 +300,7 @@ function migrationPaths(rootWorkspace: string, runId: string) {
     const runRootRelative = `.nbook/agent/migrations/attachment-v1/${runId}`;
     const runRoot = resolve(rootWorkspace, ...runRootRelative.split("/"));
     return {
+        rootWorkspace,
         runRoot,
         runRootRelative,
         lockPath: resolve(rootWorkspace, ATTACHMENT_MIGRATION_LOCK_RELATIVE_PATH),
@@ -496,14 +498,14 @@ async function recoverRollbackPublishing(
             await rm(rollback, {force: true});
         }
         await mkdir(dirname(rollback), {recursive: true});
-        await rename(original, rollback);
-        await rename(stage, original);
+        await renameDurable(original, rollback);
+        await renameDurable(stage, original);
         await assertFileHash(original, session.sourceHash, `${session.sourcePath}: restored source hash无效`);
         await rm(rollback, {force: true});
         return;
     }
     if (originalHash === null && rollbackHash === session.targetHash && stageHash === session.sourceHash) {
-        await rename(stage, original);
+        await renameDurable(stage, original);
         await assertFileHash(original, session.sourceHash, `${session.sourcePath}: crash recovery source hash无效`);
         await rm(rollback, {force: true});
         return;
@@ -538,19 +540,19 @@ async function recoverPublishing(
             await rm(rollback, {force: true});
         }
         await mkdir(dirname(rollback), {recursive: true});
-        await rename(original, rollback);
-        await rename(stage, original);
+        await renameDurable(original, rollback);
+        await renameDurable(stage, original);
         await assertFileHash(original, session.targetHash, "发布后的 original hash 无效");
         return "published";
     }
     if (originalHash === null && rollbackHash === session.sourceHash && stageHash === session.targetHash) {
-        await rename(stage, original);
+        await renameDurable(stage, original);
         await assertFileHash(original, session.targetHash, "恢复发布后的 original hash 无效");
         return "published";
     }
     if (originalHash === null && rollbackHash === session.sourceHash && stageHash === null) {
         await mkdir(dirname(original), {recursive: true});
-        await rename(rollback, original);
+        await renameDurable(rollback, original);
         return "rebuild_stage";
     }
     throw new Error(`${session.sourcePath}: publishing 磁盘状态无法安全恢复`);
@@ -851,6 +853,7 @@ async function writeDurableText(path: string, text: string, exclusive = false): 
     } finally {
         await handle.close();
     }
+    await syncParentDirectories(path);
 }
 
 async function writeDurableJson(path: string, value: object): Promise<void> {
@@ -895,6 +898,13 @@ async function syncFile(path: string): Promise<void> {
     } finally {
         await handle.close();
     }
+    await syncParentDirectories(path);
+}
+
+/** rename成功后同步源/目标父目录；跨目录发布同样获得确定的目录项持久性。 */
+async function renameDurable(source: string, target: string): Promise<void> {
+    await rename(source, target);
+    await syncParentDirectories(source, target);
 }
 
 function sameBytes(left: Uint8Array, right: Uint8Array): boolean {

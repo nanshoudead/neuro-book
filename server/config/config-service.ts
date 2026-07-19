@@ -13,7 +13,7 @@ import {
     WORKSPACE_CONTAINER_ROOT,
     type WorkspaceRootKind,
 } from "nbook/server/workspace-files/novel-workspace";
-import {assertProjectWorkspaceDirectory} from "nbook/server/workspace-files/project-workspace";
+import {assertProjectWorkspaceDirectory, listProjectWorkspaces} from "nbook/server/workspace-files/project-workspace";
 import {normalizeProjectPath, resolveProjectWorkspaceRoot} from "nbook/server/workspace-files/project-path";
 import {GlobalConfigDtoSchema} from "nbook/shared/dto/config.dto";
 import type {
@@ -75,6 +75,7 @@ import {
 } from "nbook/shared/models/provider-config-contract";
 import {assertProjectOpen, markProjectActivity} from "nbook/server/workspace-files/project-session";
 import {resolveUserNbookRoot} from "nbook/server/workspace-files/workspace-runtime-root";
+import {sameProviderConnection} from "nbook/shared/models/provider-connection-identity";
 
 /** Global Config 路径跟随当前 State Root。 */
 function globalConfigPath(): string {
@@ -205,6 +206,9 @@ export async function saveGlobalConfig(
     profiles: AgentProfileCatalog = useAgentHarness().profiles,
 ): Promise<ConfigEditorSnapshotDto> {
     const current = await readGlobalConfigFile();
+    if (input.models !== undefined) {
+        assertProviderConnectionsStable(input.models.providers, current);
+    }
     const next = normalizeGlobalConfig({
         ...current,
         ...(input.agent !== undefined ? {agent: input.agent} : {}),
@@ -427,7 +431,7 @@ async function readGlobalConfigFile(): Promise<StoredGlobalConfig> {
     return normalizeGlobalConfig(await readJsonFile<StoredGlobalConfig>(globalConfigPath()));
 }
 
-async function readGlobalConfigFileAtWorkspaceRoot(workspaceRoot: AbsoluteFsPath): Promise<StoredGlobalConfig> {
+export async function readGlobalConfigFileAtWorkspaceRoot(workspaceRoot: AbsoluteFsPath): Promise<StoredGlobalConfig> {
     return normalizeGlobalConfig(await readJsonFile<StoredGlobalConfig>(path.join(workspaceRoot, ".nbook", "config.json")));
 }
 
@@ -588,6 +592,63 @@ function assertReferencesRunnable(
         message: issues[0]?.message ?? "模型引用校验失败。",
         data: {issues},
     });
+}
+
+/**
+ * Global Provider mutation 前扫描所有 managed Project 引用。
+ * 这是控制面完整性检查，不隐式 open Project，也不修改 Project Config。
+ */
+async function assertManagedProjectModelReferences(global: StoredGlobalConfig): Promise<void> {
+    const workspaceRoot = absoluteFsPath(resolveStateWorkspaceRoot());
+    const runnableModelKeys = inspectProviderConfigDocument(rawModelSettingsInput(global.models, null)).runnableModelKeys;
+    const issues = [] as ReturnType<typeof inspectModelReferences>;
+    for (const project of await listProjectWorkspaces(workspaceRoot)) {
+        const projectRoot = resolveProjectWorkspaceRoot(workspaceRoot, normalizeProjectPath(project.projectPath));
+        const config = await readProjectConfigFile(path.join(projectRoot, ".nbook", "config.json"));
+        const references: ModelReferenceInput[] = [{
+            modelKey: config.models?.default ?? global.models?.default ?? null,
+            path: [project.projectPath, "models", "default"],
+            label: `${project.projectPath} 默认模型`,
+        }, ...projectModelReferences(config).map((reference) => ({
+            ...reference,
+            path: [project.projectPath, ...reference.path],
+            label: `${project.projectPath} ${reference.label}`,
+        }))];
+        issues.push(...inspectModelReferences(runnableModelKeys, references));
+    }
+    if (issues.length > 0) {
+        throw createError({
+            statusCode: 400,
+            message: issues[0]?.message ?? "Project 模型引用校验失败。",
+            data: {issues},
+        });
+    }
+}
+
+/** 删除 Provider 前列出 Global 与全部 managed Project 中仍指向它的模型引用。 */
+export async function inspectProviderReferences(providerId: string): Promise<Array<{label: string; modelKey: string}>> {
+    const global = await readGlobalConfigFile();
+    const prefix = `${providerId}/`;
+    const references: Array<{label: string; modelKey: string}> = [];
+    for (const reference of [{modelKey: global.models?.default ?? null, label: "Global 默认模型"}, ...globalModelReferences(global)]) {
+        if (reference.modelKey?.startsWith(prefix)) {
+            references.push({label: reference.label, modelKey: reference.modelKey});
+        }
+    }
+    const workspaceRoot = absoluteFsPath(resolveStateWorkspaceRoot());
+    for (const project of await listProjectWorkspaces(workspaceRoot)) {
+        const projectRoot = resolveProjectWorkspaceRoot(workspaceRoot, normalizeProjectPath(project.projectPath));
+        const config = await readProjectConfigFile(path.join(projectRoot, ".nbook", "config.json"));
+        for (const reference of [
+            {modelKey: config.models?.default ?? global.models?.default ?? null, label: `${project.projectPath} 默认模型`},
+            ...projectModelReferences(config).map((item) => ({...item, label: `${project.projectPath} ${item.label}`})),
+        ]) {
+            if (reference.modelKey?.startsWith(prefix)) {
+                references.push({label: reference.label, modelKey: reference.modelKey});
+            }
+        }
+    }
+    return references;
 }
 
 /** 返回 Global Agent 配置中所有显式模型引用。 */
@@ -1263,6 +1324,59 @@ function normalizeGlobalModelsForWrite(
     };
 }
 
+/**
+ * Provider Config ID 是连接身份，不允许通过普通保存偷偷改名或换端点。
+ * 显式 clone/migrate 尚未进入此保存接口；调用方必须新建 Provider 并重新提供凭据。
+ */
+function assertProviderConnectionsStable(
+    providers: NonNullable<GlobalConfigUpdateDto["models"]>["providers"],
+    current: StoredGlobalConfig,
+): void {
+    const storedProviders = current.models?.providers ?? [];
+    const seenSourceIndexes = new Set<number>();
+    for (const provider of providers) {
+        if (provider.sourceIndex === undefined) {
+            if (storedProviders.some((stored) => stored.id === provider.id)) {
+                throw createError({
+                    statusCode: 400,
+                    message: `Provider ${provider.id} 必须携带来源索引；修改连接身份请先复制为新的 Provider。`,
+                });
+            }
+            continue;
+        }
+        if (seenSourceIndexes.has(provider.sourceIndex)) {
+            throw createError({statusCode: 400, message: `Provider 来源索引重复：${String(provider.sourceIndex)}`});
+        }
+        seenSourceIndexes.add(provider.sourceIndex);
+        const stored = storedProviders[provider.sourceIndex];
+        if (!stored) {
+            throw createError({statusCode: 400, message: `Provider ${provider.id} 的来源索引无效。`});
+        }
+        if (stored.id !== provider.id) {
+            throw createError({
+                statusCode: 400,
+                message: `Provider ID 不可修改：${stored.id}。请复制为新的 Provider，再迁移模型和引用。`,
+            });
+        }
+        if (!sameProviderConnection({
+            id: stored.id,
+            modelApi: stored.modelApi,
+            baseURL: stored.options.baseURL,
+            proxy: stored.options.proxy,
+        }, {
+            id: provider.id,
+            modelApi: provider.modelApi,
+            baseURL: provider.options.baseURL,
+            proxy: provider.options.proxy,
+        })) {
+            throw createError({
+                statusCode: 400,
+                message: `Provider ${provider.id} 的连接身份不可修改（API、Base URL 或代理已变化）。请复制为新的 Provider。`,
+            });
+        }
+    }
+}
+
 /** 按编辑快照来源索引保留对应 Provider secret，避免重复 ID 修复时串 key。 */
 function resolveProviderApiKey(
     config: StoredGlobalConfig,
@@ -1282,14 +1396,13 @@ function resolveProviderApiKey(
         return source.options.apiKey;
     }
 
-    const matches = storedProviders.filter((item) => item.id === provider.id);
-    if (matches.length === 1) {
-        return matches[0]?.options.apiKey ?? "";
+    if (storedProviders.some((item) => item.id === provider.id) && provider.options.apiKey.value === undefined) {
+        throw createError({
+            statusCode: 400,
+            message: `Provider ${provider.id} 缺少来源索引或显式 API key；不能按 Provider ID 猜测旧 Secret。`,
+        });
     }
-    if (matches.length > 1 && provider.options.apiKey.value === undefined) {
-        throw createError({statusCode: 400, message: `Provider ${provider.id} 存在重复项，保存前必须保留来源索引或重新填写 API key。`});
-    }
-    return "";
+    return provider.options.apiKey.value?.trim() ?? "";
 }
 
 const DEFAULT_GLOBAL_EMBEDDING_MODEL = "text-embedding-3-small";

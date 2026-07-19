@@ -79,11 +79,12 @@ const {
     cloneModel,
     buildProviderRequest,
     buildModelDraft: buildModelCheckDraft,
-    useSavedApiKey,
+    credentialSource,
     ensureDefaultModel: ensureDefaultModelKey,
     clearActiveProviderApiKey,
     toggleActiveProviderEnabled,
     renameActiveProviderId,
+    cloneActiveProviderConnection,
     requestDeleteActiveProvider,
     confirmDeleteActiveProvider,
     enableModel,
@@ -125,10 +126,6 @@ const modelApiOptions: SelectOption[] = [
     {value: "google-generative-ai", label: "Google Generative AI", description: "Gemini / Google GenAI"},
     {value: "bedrock-converse-stream", label: "Bedrock Converse", description: "AWS Bedrock Converse Stream"},
 ];
-const providerModelApiOptions = computed<SelectOption[]>(() => [
-    {value: "", label: t("settings.panels.models.notConfigured"), description: t("settings.panels.models.providerModelApiHint")},
-    ...modelApiOptions,
-]);
 const modelInputOptions = computed<Array<{value: ModelInputKind; label: string; iconClass: string}>>(() => [
     {value: "text", label: t("settings.panels.models.textInput"), iconClass: "i-lucide-type"},
     {value: "image", label: t("settings.panels.models.imageInput"), iconClass: "i-lucide-image"},
@@ -166,12 +163,18 @@ function confirmTransientCandidate(): void {
     if (!editingTransientCandidate.value || !model) {
         return;
     }
-    const missingFields = requiredModelFields(buildModelCheckDraft(model));
-    if (missingFields.length > 0) {
-        notification.error(`模型仍缺少必填字段：${missingFields.join(", ")}`);
+    try {
+        const candidate = buildModelCheckDraft(model);
+        const missingFields = requiredModelFields(candidate);
+        if (missingFields.length > 0) {
+            notification.error(`模型仍缺少必填字段：${missingFields.join(", ")}`);
+            return;
+        }
+        enableModel({...candidate, enabled: true});
+    } catch (error) {
+        notification.error(error instanceof Error ? error.message : String(error));
         return;
     }
-    enableModel({...buildModelCheckDraft(model), enabled: true});
     editingTransientCandidate.value = false;
     editingModel.value = null;
     modelEditDialogOpen.value = false;
@@ -183,7 +186,7 @@ const checkSession = useModelCheckSession({
     runnableModelKeys: computed(() => validationState.value.runnableModelKeys),
     buildProviderRequest,
     buildModelDraft: buildModelCheckDraft,
-    useSavedApiKey,
+    credentialSource,
 });
 const {
     activeCheckingCount: activeProviderCheckingModelCount,
@@ -206,6 +209,7 @@ const discoverySession = useModelDiscoverySession({
     loadLibraries: loadModelLibraries,
     findLibraryModel,
     buildProviderRequest,
+    credentialSource,
     enableModel,
     disableModel,
     openTransientCandidate,
@@ -235,7 +239,21 @@ renameDiscovery = discoverySession.renameProvider;
 removeDiscovery = discoverySession.removeProvider;
 
 const editingLibraryModel = computed(() => editingModel.value ? findLibraryModel(editingModel.value.id) : null);
-const editingModelMissingFields = computed(() => editingModel.value ? requiredModelFields(buildModelCheckDraft(editingModel.value)) : []);
+const editingModelMissingFields = computed(() => {
+    const model = editingModel.value;
+    if (!model) {
+        return [];
+    }
+
+    // JSON 字段允许在编辑中暂时非法；缺失能力检查只解析基础字段，避免输入半截 JSON 时让弹窗抛错。
+    return requiredModelFields({
+        api: model.api.trim() || null,
+        reasoning: parseModelReasoning(model.reasoning),
+        input: parseModelInput(model.input),
+        contextWindowTokens: parseDraftInteger(model.contextWindowTokens),
+        maxTokens: parseDraftInteger(model.maxTokens),
+    });
+});
 
 /** 用 Model Library 补齐通用能力，不覆盖 Provider 专属字段。 */
 function reapplyLibraryModel(model: ModelDraft): void {
@@ -494,6 +512,10 @@ defineExpose({dirty, loading, saving, saveSettings, restoreSettings});
                                         <span v-else class="i-lucide-cloud-lightning h-3.5 w-3.5 text-[var(--text-muted)]"></span>
                                         {{ providerDiscoveringId === activeProvider.id ? t("settings.panels.models.discovering") : t("settings.panels.models.discoverModels") }}
                                     </button>
+                                    <button v-if="activeProvider.sourceIndex !== undefined" class="inline-flex h-8 items-center gap-1.5 rounded-lg border border-[var(--border-color)] bg-[var(--bg-input)] px-3 text-xs font-medium text-[var(--text-main)] shadow-sm transition-all duration-200 hover:bg-[var(--bg-hover)] hover:shadow active:scale-95" @click="cloneActiveProviderConnection">
+                                        <span class="i-lucide-copy-plus h-3.5 w-3.5"></span>
+                                        {{ t("settings.panels.models.cloneProvider") }}
+                                    </button>
                                     <button class="inline-flex h-8 items-center gap-1.5 rounded-lg border border-[var(--status-danger-border)] bg-[var(--status-danger-bg)] px-3 text-xs font-medium text-[var(--status-danger)] shadow-sm transition-all duration-200 hover:bg-[var(--status-danger-bg)] hover:shadow active:scale-95" @click="requestDeleteActiveProvider">
                                         <span class="i-lucide-trash-2 h-3.5 w-3.5"></span>
                                         {{ t("settings.panels.models.delete") }}
@@ -505,7 +527,8 @@ defineExpose({dirty, loading, saving, saveSettings, restoreSettings});
                             <div class="mt-4 grid gap-4 md:grid-cols-2">
                                 <div class="group space-y-1.5">
                                     <label class="text-xs font-medium text-[var(--text-secondary)] transition-colors group-focus-within:text-[var(--text-main)]">{{ t("settings.panels.models.providerId") }}</label>
-                                    <FormInput :model-value="activeProvider.id" :placeholder="t('settings.panels.models.providerIdPlaceholder')" @update:model-value="renameActiveProviderId" />
+                                    <FormInput :model-value="activeProvider.id" :readonly="activeProvider.sourceIndex !== undefined" :placeholder="t('settings.panels.models.providerIdPlaceholder')" @update:model-value="renameActiveProviderId" />
+                                    <p v-if="activeProvider.sourceIndex !== undefined" class="text-[11px] leading-5 text-[var(--text-muted)]">{{ t("settings.panels.models.providerIdentityHint") }}</p>
                                 </div>
                                 <div class="group space-y-1.5">
                                     <label class="text-xs font-medium text-[var(--text-secondary)] transition-colors group-focus-within:text-[var(--text-main)]">{{ t("settings.panels.models.providerName") }}</label>
@@ -513,11 +536,11 @@ defineExpose({dirty, loading, saving, saveSettings, restoreSettings});
                                 </div>
                                 <div class="group space-y-1.5 md:col-span-2">
                                     <label class="text-xs font-medium text-[var(--text-secondary)] transition-colors group-focus-within:text-[var(--text-main)]">API Base</label>
-                                    <FormInput v-model="activeProvider.options.baseURL" :placeholder="t('settings.panels.models.apiBasePlaceholder')" />
+                                    <FormInput v-model="activeProvider.options.baseURL" :readonly="activeProvider.sourceIndex !== undefined" :placeholder="t('settings.panels.models.apiBasePlaceholder')" />
                                 </div>
                                 <div class="group space-y-1.5 md:col-span-2">
-                                    <label class="text-xs font-medium text-[var(--text-secondary)] transition-colors group-focus-within:text-[var(--text-main)]">{{ t("settings.panels.models.providerModelApi") }}</label>
-                                    <FormSelect v-model="activeProvider.modelApi" :options="providerModelApiOptions" :placeholder="t('settings.panels.models.apiFormat')" />
+                                    <label class="flex items-center gap-1 text-xs font-medium text-[var(--text-secondary)] transition-colors group-focus-within:text-[var(--text-main)]"><span>{{ t("settings.panels.models.providerModelApi") }}</span><span class="text-[var(--status-danger)]" aria-hidden="true">*</span></label>
+                                    <FormSelect v-model="activeProvider.modelApi" :disabled="activeProvider.sourceIndex !== undefined" :options="modelApiOptions" :placeholder="t('settings.panels.models.apiFormat')" />
                                     <p class="text-[11px] leading-5 text-[var(--text-muted)]">{{ t("settings.panels.models.providerModelApiHint") }}</p>
                                 </div>
                                 <div class="group space-y-1.5 md:col-span-2">
@@ -529,7 +552,7 @@ defineExpose({dirty, loading, saving, saveSettings, restoreSettings});
                                 </div>
                                 <div class="group space-y-1.5 md:col-span-2">
                                     <label class="text-xs font-medium text-[var(--text-secondary)] transition-colors group-focus-within:text-[var(--text-main)]">{{ t("settings.panels.models.proxy") }}</label>
-                                    <FormInput v-model="activeProvider.options.proxy" placeholder="http://127.0.0.1:7890" />
+                                    <FormInput v-model="activeProvider.options.proxy" :readonly="activeProvider.sourceIndex !== undefined" placeholder="http://127.0.0.1:7890" />
                                 </div>
                                 <div class="group space-y-1.5 md:col-span-2">
                                     <label class="text-xs font-medium text-[var(--text-secondary)] transition-colors group-focus-within:text-[var(--text-main)]">{{ t("settings.panels.models.requestTimeout") }}</label>
@@ -651,8 +674,6 @@ defineExpose({dirty, loading, saving, saveSettings, restoreSettings});
         :model-api-options="modelApiOptions"
         :model-input-options="modelInputOptions"
         :derive-group="deriveModelGroup"
-        :resolve-displayed-context-window="resolveDisplayedContextWindow"
-        :model-api-inherit-label="modelApiInheritLabel"
         :model-context-window-default-label="modelContextWindowDefaultLabel"
         :model-max-tokens-default-label="modelMaxTokensDefaultLabel"
         :model-input-display-label="modelInputDisplayLabel"

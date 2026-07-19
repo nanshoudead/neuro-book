@@ -1,7 +1,8 @@
 import {createHash, randomUUID} from "node:crypto";
 import {createReadStream} from "node:fs";
 import {mkdir, readFile, rename, rm, stat, writeFile} from "node:fs/promises";
-import {dirname, resolve} from "node:path";
+import {dirname} from "node:path";
+import {installationTarget} from "#manager/installation-path";
 
 /** 确保目录存在。 */
 export async function ensureDirectory(path: string): Promise<void> {
@@ -65,12 +66,7 @@ export async function pathExists(path: string): Promise<boolean> {
 
 /** 断言子路径没有越出目标根。 */
 export function safeTarget(root: string, relativePath: string): string {
-    const normalizedRoot = resolve(root);
-    const target = resolve(normalizedRoot, relativePath);
-    if (target !== normalizedRoot && !target.startsWith(`${normalizedRoot}\\`) && !target.startsWith(`${normalizedRoot}/`)) {
-        throw new Error(`归档路径越出目标目录：${relativePath}`);
-    }
-    return target;
+    return installationTarget(root, relativePath);
 }
 
 function isFileError(error: unknown, code: string): error is NodeJS.ErrnoException {

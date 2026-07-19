@@ -12,6 +12,7 @@ export type SupportedPiApi = typeof SUPPORTED_PI_APIS[number];
 export const PROVIDER_CONFIG_ISSUE_CODES = [
     "duplicate_provider_id",
     "duplicate_model_id",
+    "missing_provider_model_api",
     "unsupported_provider_model_api",
     "missing_api",
     "unsupported_api",
@@ -144,12 +145,19 @@ export function inspectProviderConfigDocument(input: ModelSettingsContractInput)
         }
 
         const providerModelApi = provider.modelApi?.trim() ?? "";
-        if (providerModelApi && !isSupportedPiApi(providerModelApi)) {
+        if (!providerModelApi) {
+            issues.push(issue(
+                "missing_provider_model_api",
+                [...providerPath, "modelApi"],
+                null,
+                `Provider ${providerId} 缺少必填的默认 Pi API。`,
+            ));
+        } else if (!isSupportedPiApi(providerModelApi)) {
             issues.push(issue(
                 "unsupported_provider_model_api",
                 [...providerPath, "modelApi"],
                 null,
-                `Provider ${providerId} 的新模型 Pi API“${providerModelApi}”不受支持。`,
+                `Provider ${providerId} 的默认 Pi API“${providerModelApi}”不受支持。`,
             ));
         }
 

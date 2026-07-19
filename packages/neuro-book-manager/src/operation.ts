@@ -1,206 +1,343 @@
-import {copyFile, cp, readdir, rm} from "node:fs/promises";
-import {join, resolve} from "node:path";
+import {copyFile, cp, readdir, rename, rm} from "node:fs/promises";
+import {join, relative, resolve} from "node:path";
 
-import {rollbackProduct, rollbackReleaseSource} from "#manager/component";
 import {rollbackAttachmentMigration} from "#manager/app-commands";
+import {rollbackProduct, rollbackReleaseSource} from "#manager/component";
 import {removeDockerDeployment, removeDockerImage, startDocker} from "#manager/docker";
-import {ensureDirectory, pathExists, readJson, removePath, safeTarget, writeJsonAtomic} from "#manager/files";
-import {writeInstallationManifest} from "#manager/manifest-store";
+import {ensureDirectory, pathExists, readJson, removePath, writeJsonAtomic} from "#manager/files";
+import {removeMaterializedRepository, repositoryRevision} from "#manager/git";
+import {installationTarget} from "#manager/installation-path";
+import {readInstallationManifest, writeInstallationManifest} from "#manager/manifest-store";
 import {installationPaths} from "#manager/paths";
 import {installSourceDependencies} from "#manager/product";
 import {runtimeExecutable, writeManagerWrapper, writeRuntimeWrapper} from "#manager/runtime";
-import {repositoryRevision} from "#manager/git";
 import {parseOperationJournal} from "#manager/schema";
 import {writeManagedToolWrappers} from "#manager/tools";
-import type {InstallationManifest, OperationJournal, OperationPhase} from "#manager/types";
+import type {
+    InstallationManifest,
+    OperationEffect,
+    OperationJournal,
+    OperationPathOwner,
+    OperationPhase,
+} from "#manager/types";
 
-/** 创建持久化 operation journal。 */
-export async function createOperation(input: Omit<OperationJournal, "schemaVersion" | "phase" | "createdAt" | "updatedAt">): Promise<OperationJournal> {
+type OperationInput = Omit<OperationJournal, "schemaVersion" | "phase" | "effects" | "createdAt" | "updatedAt"> & {
+    effects?: OperationEffect[];
+};
+
+/** 创建持久化Operation Journal；backup ownership在任何backup写入前进入Ledger。 */
+export async function createOperation(input: OperationInput): Promise<OperationJournal> {
     const now = new Date().toISOString();
-    const journal: OperationJournal = {...input, schemaVersion: 2, phase: "planned", createdAt: now, updatedAt: now};
+    const backupPath = relative(input.root, input.backupRoot).replaceAll("\\", "/");
+    const effects = upsertEffect(input.effects ?? [], {
+        kind: "path-create",
+        state: "planned",
+        owner: "backup",
+        path: backupPath,
+    });
+    const journal: OperationJournal = {
+        ...input,
+        schemaVersion: 3,
+        phase: "planned",
+        effects,
+        createdAt: now,
+        updatedAt: now,
+    };
+    parseOperationJournal(journal, `${input.root}/.deploy/operations/${input.id}.json`);
     await writeOperation(journal);
     return journal;
 }
 
-/** 原子更新 operation phase 与恢复信息。 */
+/** 原子更新Operation phase与非Effect恢复信息。 */
 export async function updateOperation(journal: OperationJournal, phase: OperationPhase, patch: Partial<OperationJournal> = {}): Promise<OperationJournal> {
     const next = {...journal, ...patch, phase, updatedAt: new Date().toISOString()};
+    parseOperationJournal(next, `${next.root}/.deploy/operations/${next.id}.json`);
     await writeOperation(next);
     return next;
 }
 
-/** 标记操作成功提交。 */
-export async function commitOperation(journal: OperationJournal): Promise<OperationJournal> {
-    const committed = await updateOperation(journal, "committed", {outcome: "success"});
-    return cleanupRetiredPaths(committed);
+/** 先持久化planned，再以同一identity写入applied；禁止状态倒退。 */
+export async function setOperationEffect(journal: OperationJournal, effect: OperationEffect): Promise<OperationJournal> {
+    const previous = journal.effects.find((candidate) => effectIdentity(candidate) === effectIdentity(effect));
+    if (previous?.state === "applied" && effect.state === "planned") {
+        throw new Error(`Operation effect不能从applied退回planned：${effectIdentity(effect)}`);
+    }
+    if (effect.state === "applied" && !previous) {
+        throw new Error(`Operation effect缺少planned intent：${effectIdentity(effect)}`);
+    }
+    return updateOperation(journal, journal.phase, {effects: upsertEffect(journal.effects, effect)});
 }
 
-/** 在 mutating command 开始前恢复上次未完成操作。 */
-export async function recoverInterruptedOperations(root: string): Promise<void> {
+/** 在任何wrapper写入前记录旧状态，并以临时目录原子提交恢复副本。 */
+export async function prepareRuntimeWrapperSwitch(journal: OperationJournal): Promise<OperationJournal> {
+    const runtimeBin = join(journal.root, ".runtime", "bin");
+    const previousState = await pathExists(runtimeBin) ? "present" as const : "missing" as const;
+    const backupPath = previousState === "present" ? join(journal.backupRoot, "runtime-bin") : undefined;
+    let next = await setOperationEffect(journal, {
+        kind: "wrapper-switch",
+        state: "planned",
+        owner: "wrapper",
+        previousState,
+        backupPath,
+    });
+    if (backupPath) await backupRuntimeWrappers(journal.root, journal.backupRoot);
+    return next;
+}
+
+/** 所有稳定wrapper写入完成后提交同一切换Effect。 */
+export async function completeRuntimeWrapperSwitch(journal: OperationJournal): Promise<OperationJournal> {
+    const effect = operationEffect(journal, "wrapper-switch");
+    if (!effect) throw new Error("Wrapper切换缺少planned intent。" );
+    return setOperationEffect(journal, {...effect, state: "applied"});
+}
+
+/** 按固定Installation Root布局记录路径创建。 */
+export function pathCreateEffect(path: string, state: OperationEffect["state"] = "planned"): OperationEffect {
+    return {kind: "path-create", state, owner: operationPathOwner(path), path};
+}
+
+/** 按固定受管资产布局记录提交后退役。 */
+export function pathRetireEffect(path: string, state: OperationEffect["state"] = "planned"): OperationEffect {
+    const owner = operationPathOwner(path);
+    if (owner !== "runtime" && owner !== "tool") throw new Error(`只有Runtime/Tool资产代次可以退役：${path}`);
+    return {kind: "path-retire", state, owner, path};
+}
+
+/** 返回指定kind的Effect；singleton Effect由schema保证唯一。 */
+export function operationEffect<K extends OperationEffect["kind"]>(journal: OperationJournal, kind: K): Extract<OperationEffect, {kind: K}> | undefined {
+    return journal.effects.find((effect) => effect.kind === kind) as Extract<OperationEffect, {kind: K}> | undefined;
+}
+
+/** 返回指定组件切换Effect。 */
+export function componentSwitchEffect(journal: OperationJournal, owner: Extract<OperationEffect, {kind: "component-switch"}>["owner"]): Extract<OperationEffect, {kind: "component-switch"}> | undefined {
+    return journal.effects.find((effect) => effect.kind === "component-switch" && effect.owner === owner) as Extract<OperationEffect, {kind: "component-switch"}> | undefined;
+}
+
+/** 标记操作成功提交，再清理已退役资产与Operation临时目录。 */
+export async function commitOperation(journal: OperationJournal): Promise<OperationJournal> {
+    const committed = await updateOperation(journal, "committed", {outcome: "success"});
+    return cleanupCommittedEffects(committed, true);
+}
+
+/** 在mutating command开始前恢复上次未完成操作。 */
+export async function recoverInterruptedOperations(root: string): Promise<InstallationManifest | null> {
     const paths = installationPaths(root);
-    if (!await pathExists(paths.operations)) return;
-    for (const entry of await readdir(paths.operations, {withFileTypes: true})) {
+    if (await pathExists(paths.operations)) for (const entry of await readdir(paths.operations, {withFileTypes: true})) {
         if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
         const path = join(paths.operations, entry.name);
         const value = await readJson(path);
-        if (!value || typeof value !== "object") throw new Error(`Operation journal 损坏：${path}`);
-        if ("schemaVersion" in value && value.schemaVersion === 1) {
+        if (!value || typeof value !== "object") throw new Error(`Operation journal损坏：${path}`);
+        if ("schemaVersion" in value && (value.schemaVersion === 1 || value.schemaVersion === 2)) {
             if ("phase" in value && value.phase === "committed") continue;
-            throw new Error(`发现未完成的Operation Journal v1，拒绝自动恢复：${path}\n请备份实例并人工核对Manifest、Product、数据库、Git和Compose状态。`);
+            throw new Error(`发现未完成的Operation Journal v${String(value.schemaVersion)}，v3 Manager拒绝自动恢复：${path}\n请备份实例并人工核对Manifest、Product、数据库、Git和Compose状态。`);
         }
         const journal = parseOperationJournal(value, path);
-        if (journal.root !== resolve(root)) throw new Error(`Operation journal 的 Installation Root 不匹配：${path}`);
+        if (resolve(journal.root) !== resolve(root)) throw new Error(`Operation journal的Installation Root不匹配：${path}`);
         if (journal.phase === "committed") {
-            if (journal.outcome === "success") await cleanupRetiredPaths(journal);
+            await cleanupCommittedEffects(journal, journal.outcome === "success");
             continue;
         }
-        if (journal.git) {
+        const git = operationEffect(journal, "git-fast-forward");
+        if (git) {
             const head = await repositoryRevision(root);
-            if (head !== journal.git.previousRevision && head !== journal.git.targetRevision) {
+            if (head !== git.previousRevision && head !== git.targetRevision) {
                 throw new Error(`Git HEAD既不是Operation的previous也不是target，拒绝自动恢复：${head}\nOperation：${path}`);
             }
-            if (head === journal.git.targetRevision && journal.nextManifest && journal.phase === "healthy") {
-                if (journal.nextManifest.profile === "source-dev" && !journal.git.dependenciesInstalled) {
+            if (head === git.targetRevision && journal.nextManifest && journal.phase === "healthy") {
+                let nextJournal = journal;
+                if (journal.nextManifest.profile === "source-dev" && !git.dependenciesInstalled) {
                     const runtime = journal.nextManifest.components.applicationRuntime;
-                    if (runtime.provider === "container") throw new Error("Source Dev 不能使用 container Application Runtime。" );
+                    if (runtime.provider === "container") throw new Error("Source Dev不能使用container Application Runtime。");
                     await installSourceDependencies(root, runtimeExecutable(root, runtime));
-                    journal.git.dependenciesInstalled = true;
-                    await updateOperation(journal, journal.phase, {git: journal.git});
+                    nextJournal = await setOperationEffect(nextJournal, {...git, state: "applied", dependenciesInstalled: true});
                 }
+                const wrapper = operationEffect(nextJournal, "wrapper-switch");
+                if (!wrapper) nextJournal = await prepareRuntimeWrapperSwitch(nextJournal);
                 if (journal.nextManifest.components.managerRuntime.provider === "managed") {
                     await writeRuntimeWrapper(root, journal.nextManifest.components.managerRuntime);
                 }
                 await writeManagedToolWrappers(root, journal.nextManifest.components.tools);
                 await writeManagerWrapper(root, journal.nextManifest.components.manager, journal.nextManifest.components.managerRuntime);
+                nextJournal = await setOperationEffect(nextJournal, {...operationEffect(nextJournal, "wrapper-switch")!, state: "applied"});
+                if (!operationEffect(nextJournal, "manifest-switch")) {
+                    nextJournal = await setOperationEffect(nextJournal, {kind: "manifest-switch", state: "planned", owner: "manifest"});
+                }
                 await writeInstallationManifest(paths.manifest, journal.nextManifest);
-                await commitOperation(journal);
+                nextJournal = await setOperationEffect(nextJournal, {kind: "manifest-switch", state: "applied", owner: "manifest"});
+                await commitOperation(nextJournal);
                 continue;
             }
-            if (head === journal.git.targetRevision) {
+            if (head === git.targetRevision) {
                 throw new Error(`Git HEAD已到target，但Operation尚未到达healthy commit point，拒绝自动提交Manifest：${path}`);
             }
         }
         await rollbackOperation(journal);
     }
+    return readInstallationManifest(paths.manifest);
 }
 
-/** 清理成功事务已退役的资产代次；重复执行必须安全。 */
-async function cleanupRetiredPaths(journal: OperationJournal): Promise<OperationJournal> {
-    const failed: string[] = [];
-    const messages: string[] = [];
-    for (const path of journal.retiredPaths ?? []) {
+/** 清理提交后Effect；失败信息保存在具体Effect并由下一次mutating command重试。 */
+async function cleanupCommittedEffects(journal: OperationJournal, includeRetired: boolean): Promise<OperationJournal> {
+    let changed = false;
+    const effects: OperationEffect[] = [];
+    for (const effect of journal.effects) {
+        const shouldRemove = effect.kind === "path-create" && (effect.owner === "staging" || effect.owner === "backup")
+            || includeRetired && effect.kind === "path-retire";
+        if (includeRetired && effect.kind === "docker-image" && effect.previousImage && !effect.previousImageRetired) {
+            try {
+                await removeDockerImage(requiredContainerEngine(journal), journal.root, effect.previousImage);
+                changed = true;
+                effects.push({...effect, previousImageRetired: true, cleanupError: undefined});
+            } catch (error) {
+                changed = true;
+                effects.push({...effect, cleanupError: error instanceof Error ? error.message : String(error)});
+            }
+            continue;
+        }
+        if (!shouldRemove) {
+            effects.push(effect);
+            continue;
+        }
         try {
-            await removePath(safeTarget(journal.root, path));
+            await removePath(installationTarget(journal.root, effect.path));
+            changed = changed || effect.cleanupError !== undefined || effect.kind === "path-retire" && effect.state !== "applied";
+            effects.push(effect.kind === "path-retire" ? {...effect, state: "applied", cleanupError: undefined} : {...effect, cleanupError: undefined});
         } catch (error) {
-            failed.push(path);
-            messages.push(`${path}: ${error instanceof Error ? error.message : String(error)}`);
+            changed = true;
+            effects.push({...effect, cleanupError: error instanceof Error ? error.message : String(error)});
         }
     }
-    if (failed.length === 0 && !journal.retiredCleanupError && (journal.retiredPaths?.length ?? 0) === 0) return journal;
-    return updateOperation(journal, "committed", {
-        retiredPaths: failed,
-        retiredCleanupError: messages.length ? messages.join("\n") : undefined,
-    });
+    return changed ? updateOperation(journal, "committed", {effects}) : journal;
 }
 
-/** 按 journal 恢复当前操作；不会 reset Git。 */
-export async function rollbackOperation(journal: OperationJournal): Promise<void> {
+/** 按Journal恢复当前操作；不会reset/stash/restore Git。 */
+export async function rollbackOperation(initialJournal: OperationJournal): Promise<void> {
+    let journal = initialJournal;
     const root = journal.root;
     const currentCompose = join(root, ".deploy", "docker-compose.generated.yml");
     const stateRoot = resolve(root, journal.previousManifest?.stateRoot ?? journal.nextManifest?.stateRoot ?? ".");
-    // 新容器可能持有Attachment runtime lease；必须先停容器，rollback one-shot才能取得独占锁。
-    if (journal.docker?.composeChanged && await pathExists(currentCompose)) {
+    const compose = operationEffect(journal, "compose");
+    if (compose && await pathExists(currentCompose)) {
         await removeDockerDeployment(requiredContainerEngine(journal), root, stateRoot);
     }
     if (journal.attachmentMigration && journal.attachmentMigration.state !== "rolled_back") {
         if (!journal.nextManifest) throw new Error("Attachment migration回滚缺少nextManifest。");
-        await rollbackAttachmentMigration(
-            root,
-            journal.nextManifest,
-            journal.attachmentMigration.runId,
-            journal.attachmentMigration.state === "planned",
-            journal.migrationRoot ?? root,
-        );
-        journal = await updateOperation(journal, journal.phase, {
-            attachmentMigration: {...journal.attachmentMigration, state: "rolled_back"},
-        });
+        await rollbackAttachmentMigration(root, journal.nextManifest, journal.attachmentMigration.runId, journal.attachmentMigration.state === "planned", journal.migrationRoot ?? root);
+        journal = await updateOperation(journal, journal.phase, {attachmentMigration: {...journal.attachmentMigration, state: "rolled_back"}});
     }
     const previousProduct = journal.previousManifest?.components.product;
     const nextProduct = journal.nextManifest?.components.product;
     const switched = ["switched", "migrated", "healthy"].includes(journal.phase);
-    if (switched && nextProduct && nextProduct.provider !== "container" && JSON.stringify(nextProduct) !== JSON.stringify(previousProduct)) {
-        await rollbackProduct(root, join(journal.backupRoot, "product"));
+    if ((componentSwitchEffect(journal, "product") || switched) && nextProduct && nextProduct.provider !== "container" && JSON.stringify(nextProduct) !== JSON.stringify(previousProduct)) {
+        await rollbackProduct(root, join(journal.backupRoot, "product"), Boolean(previousProduct));
     }
     const previousSource = journal.previousManifest?.components.source;
     const nextSource = journal.nextManifest?.components.source;
-    if (switched && nextSource?.provider === "release" && previousSource?.provider !== "git") {
-        await rollbackReleaseSource(
-            root,
-            join(journal.backupRoot, "source"),
-            previousSource?.provider === "release" ? previousSource.files : [],
-            nextSource.files,
-        );
+    if ((componentSwitchEffect(journal, "source") || switched) && nextSource?.provider === "release" && previousSource?.provider !== "git") {
+        await rollbackReleaseSource(root, join(journal.backupRoot, "source"), previousSource?.provider === "release" ? previousSource.files : [], nextSource.files);
     }
-    if (journal.database && await pathExists(journal.database.backup)) {
-        await ensureDirectory(resolve(journal.database.path, ".."));
-        await rm(`${journal.database.path}-wal`, {force: true});
-        await rm(`${journal.database.path}-shm`, {force: true});
-        await copyFile(journal.database.backup, journal.database.path);
+    const database = operationEffect(journal, "sqlite-backup");
+    if (database && await pathExists(database.backupPath)) {
+        await ensureDirectory(resolve(database.hostPath, ".."));
+        await rm(`${database.hostPath}-wal`, {force: true});
+        await rm(`${database.hostPath}-shm`, {force: true});
+        await copyFile(database.backupPath, database.hostPath);
     }
-    if (journal.docker?.previousCompose && await pathExists(journal.docker.previousCompose)) {
-        await copyFile(journal.docker.previousCompose, currentCompose);
-    } else if (journal.docker?.composeCreated) {
-        await removePath(currentCompose);
-    }
-    if (journal.previousManifest && isDockerProfile(journal.previousManifest.profile) && journal.docker?.previousState === "running") {
+    if (compose?.previousCompose && await pathExists(compose.previousCompose)) await copyFile(compose.previousCompose, currentCompose);
+    else if (compose?.created) await removePath(currentCompose);
+    if (journal.previousManifest && isDockerProfile(journal.previousManifest.profile) && compose?.previousState === "running") {
         await startDocker(requiredContainerEngine(journal), root, resolve(root, journal.previousManifest.stateRoot), journal.previousManifest.profile, journal.previousManifest.appVersion);
     }
-    if (journal.manager?.wrappersChanged) {
+    const wrapper = operationEffect(journal, "wrapper-switch");
+    if (wrapper) {
         const runtimeBin = join(root, ".runtime", "bin");
-        await removePath(runtimeBin);
-        if (journal.manager.wrapperBackup && await pathExists(journal.manager.wrapperBackup)) {
+        const backupExists = Boolean(wrapper.backupPath && await pathExists(wrapper.backupPath));
+        if (wrapper.previousState === "present" && !backupExists) {
+            if (wrapper.state === "applied") {
+                throw new Error(`Wrapper切换已应用但恢复副本不存在，拒绝删除当前wrapper：${wrapper.backupPath ?? "<missing>"}`);
+            }
+        } else {
+            await removePath(runtimeBin);
+        }
+        if (wrapper.previousState === "present" && wrapper.backupPath && backupExists) {
             await ensureDirectory(resolve(runtimeBin, ".."));
-            await cp(journal.manager.wrapperBackup, runtimeBin, {recursive: true});
+            await cp(wrapper.backupPath, runtimeBin, {recursive: true});
         }
     }
-    for (const path of [...journal.createdPaths].reverse()) await removePath(safeTarget(root, path));
-    let dockerImageCleanupError: string | undefined;
-    if (journal.docker?.imageCreated) {
+    if (!journal.previousManifest && operationEffect(journal, "git-checkout")) await removeMaterializedRepository(root);
+    const rollbackEffects = [...journal.effects];
+    for (const effect of [...journal.effects].reverse()) {
+        if (effect.kind !== "path-create" || effect.owner === "state") continue;
         try {
-            await removeDockerImage(requiredContainerEngine(journal), root, journal.docker.imageCreated);
+            await removePath(installationTarget(root, effect.path));
         } catch (error) {
-            dockerImageCleanupError = error instanceof Error ? error.message : String(error);
+            const index = rollbackEffects.findIndex((candidate) => effectIdentity(candidate) === effectIdentity(effect));
+            rollbackEffects[index] = {...effect, cleanupError: error instanceof Error ? error.message : String(error)};
         }
     }
-    if (journal.previousManifest) await writeInstallationManifest(join(root, ".deploy", "installation.json"), journal.previousManifest);
-    await updateOperation(journal, "committed", {
-        outcome: "rolled-back",
-        ...(journal.docker ? {docker: {...journal.docker, cleanupError: dockerImageCleanupError}} : {}),
-    });
+    const image = operationEffect(journal, "docker-image");
+    if (image) {
+        try {
+            await removeDockerImage(requiredContainerEngine(journal), root, image.image);
+        } catch (error) {
+            const index = rollbackEffects.findIndex((candidate) => candidate.kind === "docker-image");
+            rollbackEffects[index] = {...image, cleanupError: error instanceof Error ? error.message : String(error)};
+        }
+    }
+    const manifestPath = join(root, ".deploy", "installation.json");
+    if (journal.previousManifest) await writeInstallationManifest(manifestPath, journal.previousManifest);
+    else if (operationEffect(journal, "manifest-switch")) await rm(manifestPath, {force: true});
+    const committed = await updateOperation(journal, "committed", {outcome: "rolled-back", effects: rollbackEffects});
+    await cleanupCommittedEffects(committed, false);
 }
 
-/** 在切换稳定 wrapper 前备份现有 `.runtime/bin`。 */
+/** 在切换稳定wrapper前备份现有`.runtime/bin`。 */
 export async function backupRuntimeWrappers(root: string, backupRoot: string): Promise<string | undefined> {
     const runtimeBin = join(root, ".runtime", "bin");
     if (!await pathExists(runtimeBin)) return undefined;
     const backup = join(backupRoot, "runtime-bin");
+    const temporary = join(backupRoot, "runtime-bin.pending");
     await removePath(backup);
+    await removePath(temporary);
     await ensureDirectory(resolve(backup, ".."));
-    await cp(runtimeBin, backup, {recursive: true});
+    await cp(runtimeBin, temporary, {recursive: true});
+    await rename(temporary, backup);
     return backup;
 }
 
-async function writeOperation(journal: OperationJournal): Promise<void> {
-    const path = join(journal.root, ".deploy", "operations", `${journal.id}.json`);
-    await writeJsonAtomic(path, journal);
+function writeOperation(journal: OperationJournal): Promise<void> {
+    return writeJsonAtomic(join(journal.root, ".deploy", "operations", `${journal.id}.json`), journal);
 }
 
-/** Docker Profile回滚后必须恢复旧Compose对应的实例。 */
+function operationPathOwner(path: string): OperationPathOwner {
+    const normalized = path.replaceAll("\\", "/");
+    if (normalized.startsWith(".deploy/staging/")) return "staging";
+    if (normalized.startsWith(".deploy/backups/")) return "backup";
+    if (normalized === "node_modules") return "source";
+    if (normalized.startsWith(".runtime/bun/")) return "runtime";
+    if (normalized.startsWith(".runtime/tools/")) return "tool";
+    if (normalized.startsWith(".runtime/manager/")) return "manager";
+    if (normalized === ".runtime/bin") return "wrapper";
+    const launchers = new Set(["Start Neuro Book.cmd", "Start Neuro Book.ps1", "Update Neuro Book.cmd", "Update Neuro Book.ps1", "Create Admin.cmd", "Create Admin.ps1"]);
+    if (launchers.has(normalized)) return "portable-launcher";
+    throw new Error(`无法从固定Installation布局确定Effect owner：${path}`);
+}
+
+function upsertEffect(effects: OperationEffect[], effect: OperationEffect): OperationEffect[] {
+    const identity = effectIdentity(effect);
+    return [...effects.filter((candidate) => effectIdentity(candidate) !== identity), effect];
+}
+
+function effectIdentity(effect: OperationEffect): string {
+    if (effect.kind === "path-create" || effect.kind === "path-retire") return `${effect.kind}:${effect.path}`;
+    if (effect.kind === "component-switch") return `${effect.kind}:${effect.owner}`;
+    return effect.kind;
+}
+
 function isDockerProfile(profile: InstallationManifest["profile"]): profile is "ghcr" | "source-docker" {
     return profile === "ghcr" || profile === "source-docker";
 }
 
-/** 返回事务固定的Container Engine。 */
 function requiredContainerEngine(journal: OperationJournal): NonNullable<OperationJournal["containerEngine"]> {
     if (!journal.containerEngine) throw new Error(`Operation ${journal.id}缺少Container Engine。`);
     return journal.containerEngine;

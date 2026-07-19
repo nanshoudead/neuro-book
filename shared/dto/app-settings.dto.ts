@@ -119,7 +119,7 @@ export const AgentProfileModelConfigDtoSchema = z.object({
 export const ModelProviderDraftDtoSchema = z.object({
     id: ProviderIdSchema,
     name: z.string().trim().min(1, "Provider 名称不能为空"),
-    modelApi: SupportedPiApiSchema.nullable().default(null),
+    modelApi: SupportedPiApiSchema,
     options: ModelProviderOptionsDtoSchema,
 });
 
@@ -141,6 +141,15 @@ export const DiscoveredProviderModelDtoSchema = z.object({
     thinkingLevelMap: PiThinkingLevelMapSchema,
 });
 
+/** 设置页连接请求明确选择的凭据来源，禁止服务端根据空字符串猜测。 */
+export const ProviderCredentialSourceSchema = z.enum(["provided", "saved", "cleared"]);
+
+/** Provider 删除前引用检查。 */
+export const CheckProviderReferencesRequestDtoSchema = z.object({providerId: ProviderIdSchema});
+export const CheckProviderReferencesResponseDtoSchema = z.object({
+    references: z.array(z.object({label: z.string(), modelKey: z.string()})),
+});
+
 /**
  * Provider 连通性测试请求。
  */
@@ -149,7 +158,7 @@ export const CheckProviderRequestDtoSchema = z.object({
     models: z.array(ConfiguredModelDtoSchema.omit({
         enabled: true,
     })).default([]),
-    useSavedApiKey: z.boolean().default(true),
+    credentialSource: ProviderCredentialSourceSchema,
     useSavedModels: z.boolean().default(true),
 });
 
@@ -167,6 +176,7 @@ export const CheckProviderResponseDtoSchema = z.object({
  */
 export const DiscoverProviderModelsRequestDtoSchema = z.object({
     provider: ModelProviderDraftDtoSchema,
+    credentialSource: ProviderCredentialSourceSchema,
 });
 
 /**
@@ -185,7 +195,7 @@ export const CheckModelRequestDtoSchema = z.object({
     model: ConfiguredModelDtoSchema.omit({
         enabled: true,
     }),
-    useSavedApiKey: z.boolean().default(true),
+    credentialSource: ProviderCredentialSourceSchema,
 });
 
 /**
@@ -240,6 +250,9 @@ export type DiscoveredProviderModelDto = z.infer<typeof DiscoveredProviderModelD
 export type CheckProviderRequestDto = z.infer<typeof CheckProviderRequestDtoSchema>;
 export type CheckProviderResponseDto = z.infer<typeof CheckProviderResponseDtoSchema>;
 export type DiscoverProviderModelsRequestDto = z.infer<typeof DiscoverProviderModelsRequestDtoSchema>;
+export type ProviderCredentialSource = z.infer<typeof ProviderCredentialSourceSchema>;
+export type CheckProviderReferencesRequestDto = z.infer<typeof CheckProviderReferencesRequestDtoSchema>;
+export type CheckProviderReferencesResponseDto = z.infer<typeof CheckProviderReferencesResponseDtoSchema>;
 export type DiscoverProviderModelsResponseDto = z.infer<typeof DiscoverProviderModelsResponseDtoSchema>;
 export type CheckModelRequestDto = z.infer<typeof CheckModelRequestDtoSchema>;
 export type CheckModelResponseDto = z.infer<typeof CheckModelResponseDtoSchema>;

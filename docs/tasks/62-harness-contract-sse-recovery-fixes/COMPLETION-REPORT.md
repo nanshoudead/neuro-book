@@ -1,5 +1,7 @@
 # Task 62 & 63 完成报告
 
+> 2026-07-19 historical note：下文记录 2026-06-22 的实际实现历史，但 Sidecar SSE 结论已被 Task 22/107 取代。公开 DTO 不再包含 `sidecar.*` / `sidecar_*` / `sidecarContext`；内部 Sidecar 运行与 side-branch JSONL 不受影响。
+
 **日期**：2026-06-22  
 **执行模式**：Ultracode（多 agent 并行）  
 **状态**：✅ 核心功能完成

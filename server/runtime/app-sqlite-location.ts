@@ -1,4 +1,5 @@
 import path from "node:path";
+import {existsSync, realpathSync} from "node:fs";
 
 /** App SQLite在宿主机与容器中的统一位置描述。 */
 export type AppSqliteLocation = {
@@ -68,7 +69,7 @@ export function resolveAppSqliteLocation(configuredUrl: string, stateRoot: strin
         }
     }
 
-    const scope = isInside(statePath, hostPath) ? "state-root" : "external";
+    const scope = isInside(statePath, hostPath) && isPhysicallyInside(statePath, hostPath) ? "state-root" : "external";
     if (!explicitAbsolute && scope !== "state-root") {
         throw new Error(`相对SQLite DATABASE_URL越过State Root：${configuredUrl}`);
     }
@@ -82,6 +83,38 @@ export function resolveAppSqliteLocation(configuredUrl: string, stateRoot: strin
         scope,
         ...(containerUrl ? {containerUrl} : {}),
     };
+}
+
+/**
+ * 以最近存在的父目录解析真实路径，阻止相对SQLite通过symlink/junction逃出State Root。
+ * State Root本身可以是用户选择的链接；它的真实目标作为本次信任锚。
+ */
+function isPhysicallyInside(root: string, target: string): boolean {
+    const existingRoot = nearestExistingPath(root);
+    const existingTarget = nearestExistingPath(target);
+    if (!existingRoot || !existingTarget) {
+        return true;
+    }
+    const realRoot = realpathSync.native(existingRoot);
+    const rootSuffix = path.relative(existingRoot, root);
+    const physicalRoot = path.resolve(realRoot, rootSuffix);
+    const realTarget = realpathSync.native(existingTarget);
+    const targetSuffix = path.relative(existingTarget, target);
+    const physicalTarget = path.resolve(realTarget, targetSuffix);
+    return isInside(physicalRoot, physicalTarget);
+}
+
+/** 返回自身或最近存在的父目录；跨到文件系统根仍不存在时返回null。 */
+function nearestExistingPath(input: string): string | null {
+    let current = path.resolve(input);
+    while (!existsSync(current)) {
+        const parent = path.dirname(current);
+        if (parent === current) {
+            return null;
+        }
+        current = parent;
+    }
+    return current;
 }
 
 /** 将绝对物理路径转换为libsql已验证的file URL格式。 */

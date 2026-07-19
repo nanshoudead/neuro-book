@@ -40,7 +40,7 @@ Clack、`--yes`和`--dry-run`消费同一份宿主、命令、端口、目标目
 
 容器Profile首次安装时会验证Docker/Podman CLI、Compose和engine状态，并把选定engine写入Installation Manifest与Operation Journal。后续start/update/rollback/doctor/create-admin始终使用该engine，不会在Docker与Podman之间静默切换；管理员命令只使用Docker Compose与`podman compose`共同支持的`compose exec`。
 
-Managed Bun、ripgrep和PortableGit由统一Managed Asset Repository物化。既有不可变版本目录只有在当前有效Installation Manifest证明archive、source URL、全部executable checksum与真实版本时才可复用；Fresh Install或身份不完整时整目录重建，所有资产验证完成后才刷新稳定wrapper。
+Managed Bun、ripgrep和PortableGit由统一Managed Asset Repository物化。既有不可变版本目录只有在当前有效Installation Manifest证明archive、source URL、全部executable checksum与真实版本时才可复用；Fresh Install、身份不完整或资产损坏时会在staging验证并提交新的不可变代次，旧目录和稳定wrapper在Manifest提交前保持不变。
 
 安装成功后，实例会注册到 `~/.neuro-book-manager/config.json`。该文件只保存用户偏好、默认实例和实例目录索引；每个实例的真实部署状态仍由其 `.deploy/installation.json` 管理。
 
@@ -64,7 +64,7 @@ Windows Portable的State Root固定为`data/`。如果Installation Root下另外
 
 `status`只做轻量路径、Operation和服务探测；`doctor`执行完整checksum、组件版本、wrapper内容、Source/Product revision、Compose镜像和HTTP版本检查。服务正常停止是warning且`healthy=true`，下一步会提示`start`；Docker/Compose不可用、运行中镜像或版本错误、HTTP不可达和组件损坏才会使doctor失败。Docker `start`会等待真实版本接口通过，Compose命令成功不等于应用健康。
 
-Install、Update与Start在修改应用数据前都会先恢复未完成Operation，并在install lock内持久化Operation Journal。Agent Attachment格式迁移先dry-run记录受影响session的source/target hash，再apply并补充backup路径；健康检查或进程中断时，Manager先停止新Product/容器释放runtime lease并撤销session格式，之后才恢复Product、SQLite和Compose。缺少迁移脚本、runId不一致或`applied`操作返回`not_started`都会停止，不能静默启动不完整Product。
+Install、Update与Start在修改应用数据前都会先恢复未完成Operation，并在install lock内持久化Operation Journal v3 Effect Ledger。每个受管物理动作先记录planned intent，再记录applied结果；wrapper备份、SQLite、Git、Compose、镜像和Manifest恢复都使用字段级ownership。Agent Attachment格式迁移先dry-run记录受影响session的source/target hash，再apply并补充backup路径；健康检查或进程中断时，Manager先停止新Product/容器释放runtime lease并撤销session格式，之后才恢复Product、SQLite和Compose。缺少迁移脚本、runId不一致或`applied`操作返回`not_started`都会停止，不能静默启动不完整Product。
 
 不要使用 `bunx run @notnotype/neuro-book-manager`；`bunx run` 会把包名按本地脚本或路径解析，Manager 不会被启动。
 

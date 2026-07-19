@@ -1,10 +1,11 @@
 import {z} from "zod";
-import type {JsonValue, Model, Usage} from "nbook/server/agent/messages/types";
+import type {JsonValue, Usage} from "nbook/server/agent/messages/types";
 import type {SessionTreeNode} from "nbook/server/agent/session/types";
 import type {VariablePatchAck, VariablePatchRequest} from "nbook/server/agent/variables/types";
 import {ThinkingLevelSchema} from "nbook/shared/dto/app-settings.dto";
 import type {AgentChatEntryDto, AgentUserInputFormDto, PublicToolArgsDto, PublicToolResultDto} from "nbook/shared/dto/agent-public-event.dto";
 import {AGENT_IMAGE_POLICY} from "nbook/shared/agent/agent-image-policy";
+import {PublicToolCallIdSchema} from "nbook/shared/agent/public-tool-identity";
 
 const JsonValueSchema: z.ZodType<JsonValue> = z.lazy(() => z.union([
     z.string(),
@@ -46,7 +47,7 @@ export const AgentUserMessageInputDtoSchema = z.object({
 export const AgentResolutionDtoSchema = z.discriminatedUnion("kind", [
     z.object({
         kind: z.literal("tool_approval"),
-        toolCallId: z.string().trim().min(1),
+        toolCallId: PublicToolCallIdSchema,
         approved: z.boolean(),
         resultText: z.string().optional(),
         data: JsonValueSchema.optional(),
@@ -60,7 +61,7 @@ export const AgentResolutionDtoSchema = z.discriminatedUnion("kind", [
     }),
     z.object({
         kind: z.literal("user_input"),
-        toolCallId: z.string().trim().min(1),
+        toolCallId: PublicToolCallIdSchema,
         /** Task 63: Low-Code Form 提交数据（存在时优先于 answers）。 */
         data: JsonValueSchema.optional(),
         answers: z.array(z.object({
@@ -196,7 +197,7 @@ export const ClientVariablePatchAckDtoSchema = z.object({
     appliedValue: JsonValueSchema.optional(),
     error: z.string().optional(),
     invocationId: z.string().optional(),
-    toolCallId: z.string().optional(),
+    toolCallId: PublicToolCallIdSchema.optional(),
 });
 
 export type AgentCreateSessionRequestDto = z.infer<typeof AgentCreateSessionRequestDtoSchema>;
@@ -258,7 +259,9 @@ export type AgentSessionSummaryDto = {
     projectPath?: string;
     parentSessionId?: number;
     systemRole?: "summarizer";
+    /** 公开 API 的有界展示标题；完整值保留在 session durable truth。 */
     title?: string;
+    /** 公开 API 的有界展示摘要；完整值保留在 session durable truth。 */
     summary?: string;
     status: AgentSessionStatus;
     updatedAt: number;
@@ -283,7 +286,7 @@ export type AgentSessionSummarizerStateDto = {
     lastDialogueContentTokens?: number;
     /** 最近一次成功摘要的完成时间。为空表示尚未成功写回过。 */
     lastRunAt?: number;
-    /** 最近一次后台摘要错误。为空表示当前没有可展示错误。 */
+    /** 最近一次后台摘要错误的有界公开预览。为空表示当前没有可展示错误。 */
     lastError?: string;
 };
 
@@ -305,6 +308,8 @@ export type AgentPendingUserInputDto = {
     toolCallId: string;
     toolName: string;
     args?: PublicToolArgsDto;
+    /** live state 省略了不可安全截断的交互规格；调用方应复用 runtime event 详情或拉 recovery。 */
+    detailsOmitted?: true;
     planFilePath?: string;
     /** 仅 recovery 返回完整计划正文；live state 不携带。 */
     planContent?: string;
@@ -358,6 +363,12 @@ export type AgentActiveInvocationDto = {
     startedAt: number;
 };
 
+/** 公开 session shell 只暴露模型选择身份，不暴露 baseUrl、headers、compat 或价格 metadata。 */
+export type AgentSessionModelRefDto = {
+    providerConfigId: string;
+    modelId: string;
+};
+
 export type AgentSessionLiveStateDto = {
     summary: AgentSessionSummaryDto;
     /** 后台标题/摘要维护状态。为空表示当前 session 未启用或尚无摘要状态。 */
@@ -369,7 +380,7 @@ export type AgentSessionLiveStateDto = {
     steerQueue: AgentQueueSummaryDto;
     followUpQueue: AgentFollowUpQueueSummaryDto;
     activeInvocation: AgentActiveInvocationDto | null;
-    model: Model<any> | null;
+    model: AgentSessionModelRefDto | null;
     /** 当前 session 的显式 thinking 覆盖；null 表示跟随 Agent Profile。 */
     thinkingLevel: z.infer<typeof ThinkingLevelSchema> | null;
     /** 当前新 run 实际会传给 PI 的 thinking level。 */
@@ -392,12 +403,21 @@ export type InvokeAgentResult = {
     sessionId: number;
     invocationId: string;
     status: "completed" | "waiting" | "error";
+    /** Durable assistant 正文的有界公开预览；完整内容通过 session history 读取。 */
     finalMessage?: string;
+    /** finalMessage 对应原始正文的 UTF-8 字节数。 */
+    finalMessageBytes?: number;
+    /** true 表示 finalMessage 只是公开预览。 */
+    finalMessageOmitted?: boolean;
     reportResult?: {
         result: string;
+        /** report_result.result 的原始 UTF-8 字节数。 */
+        resultBytes: number;
+        /** true 表示 result 只是公开预览。 */
+        resultOmitted: boolean;
         success?: boolean;
-        /** 为空表示本次主路没有可用结构化 JSON 结果。 */
-        data?: JsonValue;
+        /** true 表示内部存在结构化结果，但 HTTP DTO 不携带该结果。 */
+        dataOmitted?: true;
     };
     error?: string;
     errorPhase?: AgentInvocationErrorPhaseDto;
@@ -457,7 +477,7 @@ export type AgentAssistantUpdateDto =
     | {
         type: "toolcall_end";
         contentIndex: number;
-        toolCallId: string;
+    toolCallId: string;
         toolName: string;
         args: PublicToolArgsDto;
     };
@@ -465,24 +485,20 @@ export type AgentAssistantUpdateDto =
 export type AgentRuntimeStreamEventDto =
     | {
         type: "agent_start";
-        sidecarContext?: { type: string; leafId: string };
     }
     | {
         type: "agent_end";
         status: "completed" | "waiting" | "failed" | "aborted" | "interrupted";
         usage?: Usage;
-        sidecarContext?: { type: string; leafId: string };
     }
     | {
         type: "turn_start";
         turnIndex: number;
-        sidecarContext?: { type: string; leafId: string };
     }
     | {
         type: "turn_end";
         turnIndex: number;
         status: "completed" | "waiting" | "failed";
-        sidecarContext?: { type: string; leafId: string };
     }
     | {
         type: "message_start";
@@ -490,13 +506,11 @@ export type AgentRuntimeStreamEventDto =
         role: "assistant";
         timestamp: number;
         model: string;
-        sidecarContext?: { type: string; leafId: string };
     }
     | {
         type: "message_update";
         messageId: string;
         update: AgentAssistantUpdateDto;
-        sidecarContext?: { type: string; leafId: string };
     }
     | {
         type: "message_end";
@@ -505,33 +519,29 @@ export type AgentRuntimeStreamEventDto =
         usage: Usage;
         responseModel?: string;
         errorMessage?: string;
-        sidecarContext?: { type: string; leafId: string };
     }
     | {
         type: "tool_execution_start";
-        toolCallId: string;
+    toolCallId: string;
         toolName: string;
         args: PublicToolArgsDto;
-        sidecarContext?: { type: string; leafId: string };
     }
     | {
         type: "tool_execution_update";
-        toolCallId: string;
+    toolCallId: string;
         toolName: string;
         partialResult: PublicToolResultDto;
-        sidecarContext?: { type: string; leafId: string };
     }
     | {
         type: "tool_execution_end";
-        toolCallId: string;
+    toolCallId: string;
         toolName: string;
         result: PublicToolResultDto;
         isError: boolean;
-        sidecarContext?: { type: string; leafId: string };
     }
     | {
         type: "tool.user-input-required";
-        toolCallId: string;
+    toolCallId: string;
         toolName: string;
         args: PublicToolArgsDto;
         formSpec?: {
@@ -539,59 +549,6 @@ export type AgentRuntimeStreamEventDto =
             prompt?: string;
             layout?: "dialog" | "inline" | "fullscreen";
         };
-        sidecarContext?: { type: string; leafId: string };
-    }
-    | {
-        type: "sidecar.start";
-        sidecarType: string;
-        stage: string;
-        leafId: string;
-    }
-    | {
-        type: "sidecar.complete";
-        sidecarType: string;
-        stage: string;
-        leafId: string;
-    }
-    | {
-        type: "sidecar.error";
-        sidecarType: string;
-        stage: string;
-        error: string;
-    }
-    | {
-        type: "sidecar_start";
-        /** sidecar 类型名称，例如 "context-load" */
-        sidecarType: string;
-        /** sidecar 执行阶段，prepareRun 或 settleRun */
-        stage: "prepareRun" | "settleRun";
-        /** sidecar transcript 在 session 中的 leafId */
-        leafId: string | null;
-        sidecarContext?: { type: string; leafId: string };
-    }
-    | {
-        type: "sidecar_complete";
-        sidecarType: string;
-        stage: "prepareRun" | "settleRun";
-        leafId: string | null;
-        sidecarContext?: { type: string; leafId: string };
-    }
-    | {
-        type: "sidecar_error";
-        sidecarType: string;
-        stage: "prepareRun" | "settleRun";
-        leafId: string | null;
-        error: string;
-        sidecarContext?: { type: string; leafId: string };
-    }
-    | {
-        type: "sidecar_merge";
-        /** 合并了哪些 sidecar 的数据 */
-        sidecarTypes: string[];
-        stage: "prepareRun" | "settleRun";
-        /** 合并后实际写入 persistedMessages 的消息数量 */
-        mergedMessageCount: number;
-        sidecarContext?: { type: string; leafId: string };
     };
 
 export type AgentSessionControlEvent =
@@ -626,10 +583,12 @@ export type AgentSessionControlEvent =
     }
     | {
         type: "invocation_aborted";
+        /** 有界公开预览；完整原因可保留在内部 invocation lifecycle。 */
         reason?: string;
     }
     | {
         type: "client_variable_patch_requested";
+        /** 必须原样送达并获得 ack；Harness 在发布前强制执行 64 KiB 上限。 */
         request: VariablePatchRequest;
     };
 
@@ -676,7 +635,7 @@ export type AgentSessionRecoveryDto = {
     steerQueue: AgentQueuedMessageListDto;
     followUpQueue: AgentFollowUpQueueStateDto;
     activeInvocation: AgentActiveInvocationDto | null;
-    model: Model<any> | null;
+    model: AgentSessionModelRefDto | null;
     /** 当前 session 的显式 thinking 覆盖；null 表示跟随 Agent Profile。 */
     thinkingLevel: z.infer<typeof ThinkingLevelSchema> | null;
     /** 当前新 run 实际会传给 PI 的 thinking level。 */

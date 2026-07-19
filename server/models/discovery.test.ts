@@ -56,6 +56,17 @@ describe("Automatic Model Discovery", () => {
         expect(new Headers(init.headers).has("authorization")).toBe(false);
     });
 
+    it("相似但不受信任的 Google 主机不会把 key 放进 query", async () => {
+        const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({data: [{id: "proxy-model"}]})));
+        globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+        const [model] = await discoverProviderModelMetadata(createProvider("https://googleapis.com.evil.example/v1", "secret"));
+        expect(model?.api).toBeNull();
+        const [url, init] = fetchMock.mock.calls[0] as [URL, RequestInit];
+        expect(url.searchParams.has("key")).toBe(false);
+        expect(new Headers(init.headers).get("authorization")).toBe("Bearer secret");
+    });
+
     it("未知 Provider 响应不匹配时不切换认证形式", async () => {
         const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({unexpected: []})));
         globalThis.fetch = fetchMock as unknown as typeof fetch;
@@ -120,16 +131,34 @@ describe("Automatic Model Discovery", () => {
         expect(globalThis.fetch).toHaveBeenCalledTimes(1);
     });
 
-    it("Anthropic 与 Bedrock 明确提示不支持自动发现且不发送请求", async () => {
+    it("明确选择 Anthropic Messages 后使用 x-api-key 发现模型", async () => {
+        const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({data: [{
+            id: "mimo-v2.5-pro",
+            display_name: "MiMo V2.5 Pro",
+        }]})));
+        globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+        const [model] = await discoverProviderModelMetadata(createProvider("https://api.xiaomimimo.com/v1", "secret", "anthropic-messages"));
+
+        expect(model).toMatchObject({id: "mimo-v2.5-pro", name: "MiMo V2.5 Pro", api: "anthropic-messages"});
+        const [url, init] = fetchMock.mock.calls[0] as [URL, RequestInit];
+        expect(url.pathname).toBe("/v1/models");
+        const headers = new Headers(init.headers);
+        expect(headers.get("x-api-key")).toBe("secret");
+        expect(headers.get("anthropic-version")).toBe("2023-06-01");
+        expect(headers.has("authorization")).toBe(false);
+    });
+
+    it("Bedrock 明确提示不支持自动发现且不发送请求", async () => {
         const fetchMock = vi.fn();
         globalThis.fetch = fetchMock as unknown as typeof fetch;
 
-        await expect(discoverProviderModelMetadata(createProvider("https://api.anthropic.com", "secret", "anthropic-messages"))).rejects.toThrow("不支持自动发现");
+        await expect(discoverProviderModelMetadata(createProvider("https://example.com", "secret", "bedrock-converse-stream"))).rejects.toThrow("不支持自动发现");
         expect(fetchMock).not.toHaveBeenCalled();
     });
 });
 
-function createProvider(baseURL: string, apiKey = "", modelApi: ModelProviderDraftDto["modelApi"] = null): ModelProviderDraftDto {
+function createProvider(baseURL: string, apiKey = "", modelApi: ModelProviderDraftDto["modelApi"] = "openai-completions"): ModelProviderDraftDto {
     return {
         id: "test",
         name: "Test",

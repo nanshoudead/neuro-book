@@ -1,9 +1,11 @@
 import {mkdir, readFile, writeFile} from "node:fs/promises";
-import {join, sep} from "node:path";
+import {isAbsolute, join} from "node:path";
 import {Type} from "typebox";
 import type {Static} from "typebox";
 import {resolveSessionFileScope} from "nbook/server/agent/workspace/session-file-scope";
-import {resolveFileAddress} from "nbook/server/workspace-files/file-scope";
+import type {ResolvedFileAddress} from "nbook/server/workspace-files/file-scope";
+import {authorizeFileOperation, type AuthorizedFileOperation} from "nbook/server/workspace-files/authorized-file-operation";
+import {recordAgentWorkspaceWrite} from "nbook/server/workspace-history/agent-file-recorder";
 import type {NeuroAgentTool, ToolExecutionContext} from "nbook/server/agent/tools/types";
 import {normalizeToolResultDetails} from "nbook/server/agent/messages/message-utils";
 import {
@@ -61,23 +63,30 @@ export function createSubjectMemoryTools(): NeuroAgentTool[] {
         createSubjectMemoryUpdateTool(),
     ];
 }
-
 function createSubjectEventAppendTool(): NeuroAgentTool {
     return {
         key: "subject_event_append",
         name: "subject_event_append",
         label: "Append Subject Events",
         executionMode: "sequential",
+        mutatesWorkspace: true,
         description: "Append validated subject-facing events to simulation/subjects/{id}/events.jsonl and mark the subject RAG event source dirty.",
         parameters: SubjectEventAppendSchema,
         async executeWithContext(context, _toolCallId, params: unknown) {
             const input = params as SubjectEventAppendInput;
-            const subject = resolveSubjectPaths(context, input.subjectPath);
+            const subject = await resolveSubjectPaths(context, input.subjectPath, {events: "write", ragState: "write"});
             const events = input.events.map((event, index) => parseSubjectEvent(event, `events[${index}]`));
             await mkdir(subject.absolutePath, {recursive: true});
             const existing = await readTextIfExists(subject.eventsPath);
             const appended = appendJsonl(existing, serializeSubjectEventsJsonl(events));
             await writeFile(subject.eventsPath, appended, "utf-8");
+            await recordAgentWorkspaceWrite({
+                sessionId: context.sessionId,
+                workspaceRoot: context.workspaceFsRoot,
+                address: subject.eventsAddress,
+                before: existing || null,
+                after: appended,
+            });
             await markSubjectRagDirty(subject, "events", appended);
             return {
                 content: [{type: "text", text: `已追加 ${events.length} 条 subject event。`}],
@@ -105,8 +114,12 @@ function createSubjectRagSearchTool(): NeuroAgentTool {
         parameters: SubjectRagSearchSchema,
         async executeWithContext(context, _toolCallId, params: unknown) {
             const input = params as SubjectRagSearchInput;
-            const subject = resolveSubjectPaths(context, input.subjectPath);
             const sources = normalizeSearchSources(input.sources);
+            const subject = await resolveSubjectPaths(context, input.subjectPath, {
+                events: sources[0] === "events" ? "read" : undefined,
+                memory: sources[0] === "memory" ? "read" : undefined,
+                ragState: "write",
+            });
             await ensureSubjectJsonlReadable(subject, sources);
             const candidates = await searchSubjectRag({
                 context,
@@ -151,11 +164,12 @@ function createSubjectMemoryUpdateTool(): NeuroAgentTool {
         name: "subject_memory_update",
         label: "Curate Subject Memory",
         executionMode: "sequential",
+        mutatesWorkspace: true,
         description: "Report subject-facing facts to the memory curator. The tool owns merge/update/delete logic for memory.jsonl.",
         parameters: SubjectMemoryUpdateSchema,
         async executeWithContext(context, _toolCallId, params: unknown) {
             const input = params as SubjectMemoryUpdateInput;
-            const subject = resolveSubjectPaths(context, input.subjectPath);
+            const subject = await resolveSubjectPaths(context, input.subjectPath, {memory: "edit", ragState: "write"});
             const currentText = await readTextIfExists(subject.memoryPath);
             const currentMemories = parseSubjectMemoriesJsonl(currentText, subject.memoryPath);
             const result = await runMemoryCurator(context, input, currentMemories);
@@ -186,6 +200,13 @@ function createSubjectMemoryUpdateTool(): NeuroAgentTool {
             const nextText = serialized ? `${serialized}\n` : "";
             await mkdir(subject.absolutePath, {recursive: true});
             await writeFile(subject.memoryPath, nextText, "utf-8");
+            await recordAgentWorkspaceWrite({
+                sessionId: context.sessionId,
+                workspaceRoot: context.workspaceFsRoot,
+                address: subject.memoryAddress,
+                before: currentText || null,
+                after: nextText,
+            });
             await markSubjectRagDirty(subject, "memory", nextText);
             return {
                 content: [{type: "text", text: `subject_memory_update 已更新 memory.jsonl：${result.summary}`}],
@@ -341,18 +362,41 @@ function parseJsonPatchValue(value: unknown): SubjectMemory | string | string[] 
     return parseSubjectMemory(value, "JSON Patch value");
 }
 
-function resolveSubjectPaths(context: ToolExecutionContext, subjectPath: string): {
+async function resolveSubjectPaths(
+    context: ToolExecutionContext,
+    subjectPath: string,
+    access: Readonly<{
+        events?: AuthorizedFileOperation;
+        memory?: AuthorizedFileOperation;
+        ragState: AuthorizedFileOperation;
+    }>,
+): Promise<{
     absolutePath: string;
     eventsPath: string;
     memoryPath: string;
     ragStatePath: string;
-} {
-    const absolutePath = resolveFileAddress(resolveSessionFileScope(context), subjectPath).absolutePath;
+    eventsAddress: ResolvedFileAddress;
+    memoryAddress: ResolvedFileAddress;
+}> {
+    const scope = resolveSessionFileScope(context);
+    if (scope.kind !== "managed-project") {
+        throw new Error("subject工具只允许在当前managed Project Workspace中运行");
+    }
+    const normalized = subjectPath.trim().replaceAll("\\", "/");
+    const segments = normalized.split("/");
+    if (isAbsolute(subjectPath) || segments.length !== 3 || segments[0] !== "simulation" || segments[1] !== "subjects" || !segments[2] || segments[2] === "." || segments[2] === "..") {
+        throw new Error("subjectPath必须是当前Project内的simulation/subjects/<id>");
+    }
+    const eventsAddress = (await authorizeFileOperation(scope, `${normalized}/events.jsonl`, access.events ?? "read")).address;
+    const memoryAddress = (await authorizeFileOperation(scope, `${normalized}/memory.jsonl`, access.memory ?? "read")).address;
+    const ragStateAddress = (await authorizeFileOperation(scope, ".nbook/subject-rag-dirty.json", access.ragState)).address;
     return {
-        absolutePath,
-        eventsPath: join(absolutePath, "events.jsonl"),
-        memoryPath: join(absolutePath, "memory.jsonl"),
-        ragStatePath: join(resolveProjectRootFromSubjectPath(absolutePath), ".nbook", "subject-rag-dirty.json"),
+        absolutePath: join(scope.root, ...segments),
+        eventsPath: eventsAddress.absolutePath,
+        memoryPath: memoryAddress.absolutePath,
+        ragStatePath: ragStateAddress.absolutePath,
+        eventsAddress,
+        memoryAddress,
     };
 }
 
@@ -376,7 +420,7 @@ function appendJsonl(existing: string, next: string): string {
     return normalizedNext ? `${normalizedExisting}\n${normalizedNext}\n` : `${normalizedExisting}\n`;
 }
 
-async function ensureSubjectJsonlReadable(subject: ReturnType<typeof resolveSubjectPaths>, sources: SubjectSourceType[]): Promise<void> {
+async function ensureSubjectJsonlReadable(subject: Awaited<ReturnType<typeof resolveSubjectPaths>>, sources: SubjectSourceType[]): Promise<void> {
     for (const source of sources) {
         if (source === "events") {
             parseSubjectEventsJsonl(await readTextIfExists(subject.eventsPath), subject.eventsPath);
@@ -397,13 +441,4 @@ function renderSubjectRagCandidates(candidates: SubjectRagCandidate[]): string {
             candidate.text,
         ].join("\n")),
     ].join("\n\n");
-}
-
-function resolveProjectRootFromSubjectPath(absoluteSubjectPath: string): string {
-    const marker = `${sep}simulation${sep}subjects${sep}`;
-    const markerIndex = absoluteSubjectPath.lastIndexOf(marker);
-    if (markerIndex < 0) {
-        throw new Error(`subjectPath 必须位于 simulation/subjects/{id}/ 下：${absoluteSubjectPath}`);
-    }
-    return absoluteSubjectPath.slice(0, markerIndex);
 }

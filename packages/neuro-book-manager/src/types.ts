@@ -411,35 +411,126 @@ export type InstallPreflightReport = {
 };
 
 export type OperationPhase = "planned" | "staged" | "validated" | "switched" | "migrated" | "healthy" | "committed";
+export type OperationEffectState = "planned" | "applied";
+export type OperationPathOwner = "staging" | "backup" | "source" | "runtime" | "tool" | "manager" | "wrapper" | "state" | "portable-launcher";
+
+export type PathCreateEffect = {
+    kind: "path-create";
+    state: OperationEffectState;
+    owner: OperationPathOwner;
+    path: string;
+    /** 清理失败时保留，下一次mutating command继续重试。 */
+    cleanupError?: string;
+};
+
+export type PathRetireEffect = {
+    kind: "path-retire";
+    state: OperationEffectState;
+    owner: "runtime" | "tool";
+    path: string;
+    /** 提交后退役失败时保留，不改变事务成功结果。 */
+    cleanupError?: string;
+};
+
+export type ComponentSwitchEffect = {
+    kind: "component-switch";
+    state: OperationEffectState;
+    owner: "source" | "product" | "managed-assets";
+};
+
+export type WrapperSwitchEffect = {
+    kind: "wrapper-switch";
+    state: OperationEffectState;
+    owner: "wrapper";
+    /** 切换前稳定wrapper目录是否存在；恢复不得从backup缺失反推。 */
+    previousState: "present" | "missing";
+    /** 旧wrapper存在时指向Operation backup内的绝对路径。 */
+    backupPath?: string;
+};
+
+export type ManifestSwitchEffect = {
+    kind: "manifest-switch";
+    state: OperationEffectState;
+    owner: "manifest";
+};
+
+export type GitCheckoutEffect = {
+    kind: "git-checkout";
+    state: OperationEffectState;
+    owner: "source";
+};
+
+export type GitFastForwardEffect = {
+    kind: "git-fast-forward";
+    state: OperationEffectState;
+    owner: "source";
+    previousRevision: string;
+    targetRevision: string;
+    /** Source Dev目标revision依赖安装成功后为true。 */
+    dependenciesInstalled?: boolean;
+};
+
+export type DockerImageEffect = {
+    kind: "docker-image";
+    state: OperationEffectState;
+    owner: "product";
+    /** 本次Operation唯一创建的新镜像代次。 */
+    image: string;
+    /** 仅可来自previousManifest；成功提交后幂等退役。 */
+    previousImage?: string;
+    /** previousImage已经成功退役时为true。 */
+    previousImageRetired?: boolean;
+    cleanupError?: string;
+};
+
+export type ComposeEffect = {
+    kind: "compose";
+    state: OperationEffectState;
+    owner: "compose";
+    previousState: "running" | "stopped" | "missing";
+    stopped: boolean;
+    previousCompose?: string;
+    created: boolean;
+    previousImage?: string;
+    targetImage?: string;
+};
+
+export type SqliteBackupEffect = {
+    kind: "sqlite-backup";
+    state: OperationEffectState;
+    owner: "app-sqlite";
+    configuredUrl: string;
+    stateRoot: string;
+    hostPath: string;
+    backupPath: string;
+    checkpoint: {busy: number; log: number; checkpointed: number};
+};
+
+export type OperationEffect =
+    | PathCreateEffect
+    | PathRetireEffect
+    | ComponentSwitchEffect
+    | WrapperSwitchEffect
+    | ManifestSwitchEffect
+    | GitCheckoutEffect
+    | GitFastForwardEffect
+    | DockerImageEffect
+    | ComposeEffect
+    | SqliteBackupEffect;
 
 export type OperationJournal = {
-    schemaVersion: 2;
+    schemaVersion: 3;
     id: string;
     action: "install" | "update";
     phase: OperationPhase;
     root: string;
     /** 本次事务固定使用的容器引擎；非容器事务为null。 */
     containerEngine: ContainerEngine | null;
-    createdPaths: string[];
-    /** 事务成功提交后幂等删除；失败回滚时必须保留。 */
-    retiredPaths?: string[];
-    /** Windows运行文件占用等导致清理延后时存在；不改变事务成功结果。 */
-    retiredCleanupError?: string;
+    /** 所有物理动作的字段级ownership账本；动作前planned，完成后applied。 */
+    effects: OperationEffect[];
     backupRoot: string;
     previousManifest: InstallationManifest | null;
     nextManifest: InstallationManifest | null;
-    git?: {
-        previousRevision: string;
-        targetRevision: string;
-        /** Source Dev主checkout frozen install完成后为true。 */
-        dependenciesInstalled?: boolean;
-    };
-    database?: {
-        configuredUrl: string;
-        path: string;
-        backup: string;
-        checkpoint: {busy: number; log: number; checkpointed: number};
-    };
     /** Source Dev迁移使用的目标revision staged root；默认使用Installation Root。 */
     migrationRoot?: string;
     /** Product数据格式迁移必须先于Product/Compose回滚恢复。 */
@@ -455,21 +546,6 @@ export type OperationJournal = {
             /** apply完成后由migration报告提供；planned阶段为空。 */
             backupPath?: string;
         }>;
-    };
-    docker?: {
-        previousState: "running" | "stopped" | "missing";
-        stopped: boolean;
-        previousCompose?: string;
-        composeChanged: boolean;
-        composeCreated: boolean;
-        previousImage?: string;
-        targetImage?: string;
-        imageCreated?: string;
-        cleanupError?: string;
-    };
-    manager?: {
-        wrapperBackup?: string;
-        wrappersChanged: boolean;
     };
     outcome?: "success" | "rolled-back";
     createdAt: string;

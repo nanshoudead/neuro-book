@@ -8,6 +8,7 @@ import {
 } from "#manager/app-commands";
 import {ensureStateFiles} from "#manager/config";
 import {withInstallLock} from "#manager/lock";
+import {readInstallationManifest} from "#manager/manifest-store";
 import {commitOperation, createOperation, recoverInterruptedOperations, updateOperation} from "#manager/operation";
 import {installationPaths} from "#manager/paths";
 import {assertInstallationHostCompatible} from "#manager/platform";
@@ -60,25 +61,26 @@ export async function startInstallationApplication(
     root: string,
     manifest: InstallationManifest,
 ): Promise<void> {
-    assertInstallationHostCompatible(manifest);
     const paths = installationPaths(root, manifest.profile === "windows-portable");
-    const stateRoot = resolve(paths.root, manifest.stateRoot);
-    await ensureStateFiles(stateRoot, 3000, manifest.profile !== "windows-portable");
+    let activeManifest = manifest;
     await withInstallLock(join(paths.deploy, "install.lock"), async () => {
-        await recoverInterruptedOperations(paths.root);
+        const recovered = await recoverInterruptedOperations(paths.root);
+        activeManifest = recovered ?? await readInstallationManifest(paths.manifest) ?? manifest;
+        assertInstallationHostCompatible(activeManifest);
+        const stateRoot = resolve(paths.root, activeManifest.stateRoot);
+        await ensureStateFiles(stateRoot, 3000, activeManifest.profile !== "windows-portable");
         const id = randomUUID();
         let journal = await createOperation({
             id,
             action: "update",
             root: paths.root,
-            containerEngine: manifest.containerEngine,
-            createdPaths: [],
+            containerEngine: activeManifest.containerEngine,
             backupRoot: join(paths.backups, id),
-            previousManifest: manifest,
-            nextManifest: manifest,
+            previousManifest: activeManifest,
+            nextManifest: activeManifest,
         });
         try {
-            journal = await applyJournaledApplicationMigrations(paths.root, manifest, journal);
+            journal = await applyJournaledApplicationMigrations(paths.root, activeManifest, journal);
             journal = await updateOperation(journal, "migrated");
             await commitOperation(journal);
         } catch (error) {
@@ -86,5 +88,5 @@ export async function startInstallationApplication(
             throw error;
         }
     });
-    await startApplication(paths.root, manifest);
+    await startApplication(paths.root, activeManifest);
 }

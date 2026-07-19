@@ -116,6 +116,17 @@ describe("config service", {timeout: 30_000}, () => {
         await expect(fs.access(path.join("workspace", ".nbook", "config.json"))).rejects.toMatchObject({code: "ENOENT"});
     });
 
+    it("Global Config 写入拒绝缺少 Provider 默认 API", async () => {
+        const models = validModelsInput();
+        models.providers[0]!.modelApi = null;
+
+        await expect(saveGlobalConfig({models}, {workspaceKind: "user-assets"})).rejects.toMatchObject({
+            statusCode: 400,
+            data: {issues: expect.arrayContaining([expect.objectContaining({code: "missing_provider_model_api"})])},
+        });
+        await expect(fs.access(path.join("workspace", ".nbook", "config.json"))).rejects.toMatchObject({code: "ENOENT"});
+    });
+
     it("不包含 models 的 Global 保存不会被当前坏模型阻断", async () => {
         await fs.mkdir(path.join("workspace", ".nbook"), {recursive: true});
         await fs.writeFile(path.join("workspace", ".nbook", "config.json"), JSON.stringify({
@@ -192,7 +203,7 @@ describe("config service", {timeout: 30_000}, () => {
         expect(snapshot.modelSettings.enabledModels).toEqual([]);
     });
 
-    it("重复 Provider 分别改名时按来源索引保留各自 API key", async () => {
+    it("已保存 Provider 不允许通过来源索引改名或继承旧 API key", async () => {
         const models = validModelsInput();
         const first = models.providers[0]!;
         await fs.mkdir(path.join("workspace", ".nbook"), {recursive: true});
@@ -211,16 +222,63 @@ describe("config service", {timeout: 30_000}, () => {
             id: index === 0 ? "first" : "second",
         }));
 
-        await saveGlobalConfig({models: {default: "first/model", providers}}, {workspaceKind: "user-assets"});
-        const raw = JSON.parse(await fs.readFile(path.join("workspace", ".nbook", "config.json"), "utf-8")) as {
-            models: {providers: Array<{id: string; sourceIndex?: number; options: {apiKey: string}}>};
-        };
+        const configPath = path.join("workspace", ".nbook", "config.json");
+        const before = await fs.readFile(configPath, "utf-8");
+        await expect(saveGlobalConfig({models: {default: "first/model", providers}}, {workspaceKind: "user-assets"})).rejects.toMatchObject({
+            statusCode: 400,
+            message: expect.stringContaining("Provider ID 不可修改"),
+        });
+        await expect(fs.readFile(configPath, "utf-8")).resolves.toBe(before);
+    });
 
-        expect(raw.models.providers.map((provider) => [provider.id, provider.options.apiKey])).toEqual([
-            ["first", "first-secret"],
-            ["second", "second-secret"],
-        ]);
-        expect(raw.models.providers.some((provider) => provider.sourceIndex !== undefined)).toBe(false);
+    it("已保存 Provider 的端点身份变化必须显式复制", async () => {
+        await saveGlobalConfig({models: validModelsInput()}, {workspaceKind: "user-assets"});
+        const snapshot = await readConfigEditorSnapshot({workspaceKind: "user-assets"});
+        const provider = snapshot.modelSettings.providers[0]!;
+        const configPath = path.join("workspace", ".nbook", "config.json");
+        const before = await fs.readFile(configPath, "utf8");
+
+        await expect(saveGlobalConfig({
+            models: {
+                default: snapshot.modelSettings.defaultModelKey,
+                providers: [{...provider, options: {...provider.options, baseURL: "https://other.example/v1"}}],
+            },
+        }, {workspaceKind: "user-assets"})).rejects.toMatchObject({
+            statusCode: 400,
+            message: expect.stringContaining("连接身份不可修改"),
+        });
+        await expect(fs.readFile(configPath, "utf8")).resolves.toBe(before);
+    });
+
+    it("旧客户端省略 sourceIndex 时不会按 Provider ID 猜测 Secret", async () => {
+        await saveGlobalConfig({models: validModelsInput()}, {workspaceKind: "user-assets"});
+        const snapshot = await readConfigEditorSnapshot({workspaceKind: "user-assets"});
+        const provider = snapshot.modelSettings.providers[0]!;
+        const {sourceIndex: _sourceIndex, ...withoutSource} = provider;
+
+        await expect(saveGlobalConfig({
+            models: {default: snapshot.modelSettings.defaultModelKey, providers: [withoutSource]},
+        }, {workspaceKind: "user-assets"})).rejects.toMatchObject({
+            statusCode: 400,
+            message: expect.stringContaining("必须携带来源索引"),
+        });
+    });
+
+    it("删除 Provider 前扫描 managed Project 的显式模型引用", async () => {
+        const models = validModelsInput();
+        await saveGlobalConfig({models}, {workspaceKind: "user-assets"});
+        const modelKey = `${models.providers[0]!.id}/${models.providers[0]!.models[0]!.id}`;
+        await fs.mkdir(path.join("workspace", "config-test-project", ".nbook"), {recursive: true});
+        await fs.writeFile(path.join("workspace", "config-test-project", ".nbook", "config.json"), JSON.stringify({
+            models: {default: modelKey},
+        }), "utf8");
+
+        await expect(saveGlobalConfig({
+            models: {default: null, providers: []},
+        }, {workspaceKind: "user-assets"})).rejects.toMatchObject({
+            statusCode: 400,
+            data: {issues: expect.arrayContaining([expect.objectContaining({modelKey})])},
+        });
     });
 
     it("Agent-only Global 保存拒绝不可运行 modelKey 且不写文件", async () => {
@@ -268,6 +326,7 @@ describe("config service", {timeout: 30_000}, () => {
                 providers: [{
                     id: "legacy-provider",
                     name: "Legacy Provider",
+                    modelApi: "openai-completions",
                     options: {
                         apiKey: "",
                         baseURL: "",
@@ -291,8 +350,10 @@ describe("config service", {timeout: 30_000}, () => {
                 default: null,
                 providers: [{
                     id: "legacy-provider",
+                    sourceIndex: 0,
                     name: "Legacy Provider",
                     enabled: false,
+                    modelApi: "openai-completions",
                     options: {
                         apiKey: {configured: false, maskedValue: null, value: ""},
                         baseURL: "",
@@ -456,6 +517,7 @@ describe("config service", {timeout: 30_000}, () => {
                 default: "deepseek/deepseek-v4-flash",
                 providers: [{
                     id: "deepseek",
+                    sourceIndex: 0,
                     name: "DeepSeek",
                     enabled: true,
                     modelApi: "openai-completions",

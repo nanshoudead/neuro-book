@@ -498,6 +498,45 @@ describe("JsonlSessionRepository", () => {
         });
     });
 
+    it("Session Tree 的工具名、标题预览和 label 都使用有界公开文本", async () => {
+        const session = await repo.createSession({
+            profileKey: "leader.default",
+            initial: {},
+            workspaceRoot: root,
+            workspaceKey: "global",
+        });
+        const user = await repo.appendUserMessage(session.metadata.sessionId, "root", session.metadata.workspaceKey);
+        const toolName = "tool-" + "x".repeat(10_000);
+        await repo.appendMessage(session.metadata.sessionId, createTextToolResult({
+            toolCallId: "call-1",
+            toolName,
+            text: "ok",
+        }), session.metadata.workspaceKey);
+        await repo.appendEntry(session.metadata.sessionId, {
+            type: "session_update",
+            updates: {
+                title: "标题" + "长".repeat(10_000),
+            },
+        }, session.metadata.workspaceKey);
+        await repo.appendEntry(session.metadata.sessionId, {
+            type: "label",
+            targetEntryId: user.id,
+            label: "标签" + "长".repeat(10_000),
+        }, session.metadata.workspaceKey);
+
+        const tree = repo.tree(await repo.readSession(session.metadata.sessionId, session.metadata.workspaceKey));
+        const toolNode = tree.find((node) => node.role === "toolResult");
+        const titleNode = tree.find((node) => node.type === "session_update");
+        const userNode = tree.find((node) => node.id === user.id);
+
+        expect(toolNode?.toolName).toBeDefined();
+        expect(Buffer.byteLength(toolNode?.toolName ?? "", "utf8")).toBeLessThanOrEqual(512);
+        expect(titleNode?.preview).toBeDefined();
+        expect(Buffer.byteLength(titleNode?.preview ?? "", "utf8")).toBeLessThanOrEqual(512);
+        expect(userNode?.label).toBeDefined();
+        expect(Buffer.byteLength(userNode?.label ?? "", "utf8")).toBeLessThanOrEqual(512);
+    });
+
     it("支持 leaf 移动和 fork，历史不删除", async () => {
         const session = await repo.createSession({
             profileKey: "leader.default",
@@ -690,5 +729,108 @@ describe("JsonlSessionRepository", () => {
 
         await expect(repo.readEntry(session.metadata.sessionId, target.id)).resolves.toMatchObject({id: target.id});
         await expect(repo.readSession(session.metadata.sessionId)).rejects.toThrow();
+    });
+
+    it("首次读取会原子脱敏旧完整 Model，后续只暴露 durable identity", async () => {
+        const session = await repo.createSession({
+            profileKey: "leader.default",
+            initial: {},
+            workspaceRoot: "workspace",
+            workspaceKey: "global",
+        });
+        const sessionPath = join(root, ".nbook", "agent", "sessions", `${String(session.metadata.sessionId)}.jsonl`);
+        await appendFile(sessionPath, `${JSON.stringify({
+            kind: "entry",
+            entry: {
+                id: randomUUID(),
+                parentId: null,
+                timestamp: Date.now(),
+                type: "model_change",
+                model: {
+                    providerConfigId: "provider-a",
+                    provider: "upstream-provider",
+                    id: "model-a",
+                    baseUrl: "https://private.example",
+                    headers: {Authorization: "Bearer secret"},
+                },
+            },
+        })}\n`, "utf8");
+
+        const migratedRepo = new JsonlSessionRepository(root);
+        const snapshot = await migratedRepo.readSession(session.metadata.sessionId);
+        const modelChange = snapshot.entries.find((entry) => entry.type === "model_change");
+        const source = await readFile(sessionPath, "utf8");
+
+        expect(modelChange).toMatchObject({
+            type: "model_change",
+            model: {providerConfigId: "provider-a", modelId: "model-a"},
+        });
+        expect(source).not.toContain("Bearer secret");
+        expect(source).not.toContain("private.example");
+        expect(source).not.toContain("upstream-provider");
+    });
+
+    it("旧 Model 身份无法证明时稳定阻断且不改写源文件", async () => {
+        const session = await repo.createSession({
+            profileKey: "leader.default",
+            initial: {},
+            workspaceRoot: "workspace",
+            workspaceKey: "global",
+        });
+        const sessionPath = join(root, ".nbook", "agent", "sessions", `${String(session.metadata.sessionId)}.jsonl`);
+        await appendFile(sessionPath, `${JSON.stringify({
+            kind: "entry",
+            entry: {
+                id: randomUUID(),
+                parentId: null,
+                timestamp: Date.now(),
+                type: "model_change",
+                model: {id: "model-without-provider", headers: {Authorization: "Bearer secret"}},
+            },
+        })}\n`, "utf8");
+        const original = await readFile(sessionPath, "utf8");
+        const blockedRepo = new JsonlSessionRepository(root);
+
+        await expect(blockedRepo.readSession(session.metadata.sessionId)).rejects.toThrow("显式映射");
+        await expect(blockedRepo.readEntry(session.metadata.sessionId, randomUUID())).rejects.toThrow("显式映射");
+        expect(await readFile(sessionPath, "utf8")).toBe(original);
+    });
+
+    it("新 model_change 只允许写入 Provider Config ID 与 Model ID", async () => {
+        const session = await repo.createSession({
+            profileKey: "leader.default",
+            initial: {},
+            workspaceRoot: "workspace",
+            workspaceKey: "global",
+        });
+        await repo.appendEntry(session.metadata.sessionId, {
+            type: "model_change",
+            model: {providerConfigId: "provider-a", modelId: "model-a"},
+        });
+        const sessionPath = join(root, ".nbook", "agent", "sessions", `${String(session.metadata.sessionId)}.jsonl`);
+        const records = (await readFile(sessionPath, "utf8")).trim().split(/\r?\n/u).map((line) => JSON.parse(line) as {entry?: {type?: string; model?: object}});
+        const modelChange = records.find((record) => record.entry?.type === "model_change");
+
+        expect(modelChange?.entry?.model).toEqual({providerConfigId: "provider-a", modelId: "model-a"});
+        await expect(repo.appendEntry(session.metadata.sessionId, {
+            type: "model_change",
+            model: {providerConfigId: "provider-a", modelId: "model-a", headers: {Authorization: "secret"}},
+        } as never)).rejects.toThrow("只包含providerConfigId和modelId");
+    });
+
+    it("一个旧 Session 无法脱敏时不会阻断其他 Session", async () => {
+        const blocked = await repo.createSession({profileKey: "leader.default", initial: {}, workspaceRoot: "workspace", workspaceKey: "global"});
+        const healthy = await repo.createSession({profileKey: "leader.default", initial: {}, workspaceRoot: "workspace", workspaceKey: "global"});
+        const blockedPath = join(root, ".nbook", "agent", "sessions", `${String(blocked.metadata.sessionId)}.jsonl`);
+        await appendFile(blockedPath, `${JSON.stringify({
+            kind: "entry",
+            entry: {id: randomUUID(), parentId: null, timestamp: Date.now(), type: "model_change", model: {provider: "registry", id: "model"}},
+        })}\n`, "utf8");
+        const isolatedRepo = new JsonlSessionRepository(root);
+
+        await expect(isolatedRepo.readSession(healthy.metadata.sessionId)).resolves.toMatchObject({metadata: {sessionId: healthy.metadata.sessionId}});
+        const result = await isolatedRepo.listSessionsWithIssues();
+        expect(result.sessions.some((session) => session.sessionId === healthy.metadata.sessionId)).toBe(true);
+        expect(result.issues).toEqual(expect.arrayContaining([expect.objectContaining({sessionId: blocked.metadata.sessionId, message: expect.stringContaining("显式映射")})]));
     });
 });

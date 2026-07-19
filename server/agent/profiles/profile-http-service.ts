@@ -36,6 +36,7 @@ import {resolveProfileRuntimeSettings} from "nbook/server/agent/profiles/profile
 import type {ProfileRuntimeSettings} from "nbook/shared/agent/profile-runtime-settings";
 import {absoluteFsPath, type AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
 import {resolveWorkspaceRootRef, WORKSPACE_CONTAINER_ROOT} from "nbook/server/workspace-files/workspace-root-ref";
+import {resolvePiModelFromConfig} from "nbook/server/agent/harness/model-resolver";
 
 /**
  * 列出 v3 Agent Profile catalog，并适配旧 profile 工作台 DTO。
@@ -199,7 +200,7 @@ export async function previewAgentProfilePrepare(
             ...modelContextMessages.map((message) => toPreviewMessage(message, "modelContext")),
             ...modelContextAppendingMessages.map((message) => toPreviewMessage(message, "modelContextAppending")),
             ...explicitAppendingMessages.map((message) => toPreviewMessage(message, "appending")),
-            compactionPreviewMessage(runtimeSettings.compaction, session.model),
+            compactionPreviewMessage(runtimeSettings.compaction, resolvePreviewModel(effectiveConfig, sessionContext)),
             ...finalMessages.map((message) => toPreviewMessage(message, "reactMessages")),
             ...(prepared.stateWrites ?? []).map((write) => ({
                 role: "custom",
@@ -271,6 +272,7 @@ function toCatalogItem(profiles: AgentProfileCatalog, snapshot: AgentCatalogSnap
         schemaLocked: profile.builtin,
         canEdit: source === "user" && Boolean(fileName),
         canRestore: false,
+        creationMode: profile.creationMode,
         issues,
     };
 }
@@ -441,7 +443,7 @@ function systemPromptPreviewMessage(systemPrompt: string): AgentProfilePreparePr
 /**
  * Compaction policy 在工作台预览中作为独立配置卡片展示。
  */
-function compactionPreviewMessage(compaction: ProfileRuntimeSettings["compaction"], model: NeuroSessionContext["model"]): AgentProfilePreparePreviewDto["messages"][number] {
+function compactionPreviewMessage(compaction: ProfileRuntimeSettings["compaction"], model: Model<any> | null): AgentProfilePreparePreviewDto["messages"][number] {
     const options = resolveCompactionOptions(compaction, model ?? PREVIEW_COMPACTION_MODEL);
     return {
         role: "compaction",
@@ -544,6 +546,20 @@ function buildProfileVariableGroups(profile: AgentCatalogItem | undefined, runti
 
 async function createPreviewVariableRegistry(profile: AgentProfile, globalWorkspaceRoot: AbsoluteFsPath): Promise<VariableRegistry> {
     return createVariableRegistryForSession({profile, globalWorkspaceRoot, currentProjectWorkspace: null});
+}
+
+/** Profile Preview也从当前Config按durable selection重新解析完整模型。 */
+function resolvePreviewModel(
+    config: Awaited<ReturnType<typeof loadPreviewEffectiveConfig>>,
+    context: NeuroSessionContext,
+): Model<any> | null {
+    try {
+        return resolvePiModelFromConfig(config, context.profileKey, context.model
+            ? {modelKey: `${context.model.providerConfigId}/${context.model.modelId}`}
+            : undefined);
+    } catch {
+        return null;
+    }
 }
 
 function previewSessionSnapshot(profileKey: string, session: NeuroSessionContext): SessionSnapshot {

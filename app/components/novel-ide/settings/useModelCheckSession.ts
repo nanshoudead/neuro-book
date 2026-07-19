@@ -2,7 +2,7 @@ import {computed, ref, type ComputedRef} from "vue";
 import {useNotification} from "nbook/app/composables/useNotification";
 import {resolveApiErrorMessage} from "nbook/app/utils/api-error";
 import type {ModelSettingsModelDraft, ModelSettingsProviderDraft} from "nbook/app/components/novel-ide/settings/model-settings-draft";
-import type {CheckModelResponseDto, ConfiguredModelDto, ModelProviderDraftDto} from "nbook/shared/dto/app-settings.dto";
+import type {CheckModelResponseDto, ConfiguredModelDto, ModelProviderDraftDto, ProviderCredentialSource} from "nbook/shared/dto/app-settings.dto";
 
 type ModelCheckResult = CheckModelResponseDto & {
     /** 请求被用户取消时为 true；普通失败为空。 */
@@ -23,8 +23,11 @@ type ModelCheckSessionOptions = {
     runnableModelKeys: ComputedRef<ReadonlySet<string>>;
     buildProviderRequest(provider: ModelSettingsProviderDraft): ModelProviderDraftDto;
     buildModelDraft(model: ModelSettingsModelDraft): Omit<ConfiguredModelDto, "enabled">;
-    useSavedApiKey(provider: ModelSettingsProviderDraft): boolean;
+    credentialSource(provider: ModelSettingsProviderDraft): ProviderCredentialSource;
 };
+
+/** 单个 Provider 批量检查的最大并发，避免设置页一次性打爆远端端点。 */
+export const MODEL_CHECK_CONCURRENCY_LIMIT = 4;
 
 /**
  * 管理模型健康检查的取消、批次锁和临时结果。
@@ -164,7 +167,7 @@ export function useModelCheckSession(options: ModelCheckSessionOptions) {
                 body: {
                     provider: options.buildProviderRequest(provider),
                     model: options.buildModelDraft(model),
-                    useSavedApiKey: options.useSavedApiKey(provider),
+                    credentialSource: options.credentialSource(provider),
                 },
             });
             if (version === stateVersion && !controller.signal.aborted) {
@@ -219,7 +222,7 @@ export function useModelCheckSession(options: ModelCheckSessionOptions) {
             return;
         }
         try {
-            await Promise.allSettled(pendingModels.map((model) => run(provider, model)));
+            await runWithConcurrency(pendingModels, MODEL_CHECK_CONCURRENCY_LIMIT, (model) => run(provider, model));
         } finally {
             clearSettledBatches(provider.localKey);
         }
@@ -240,4 +243,21 @@ export function useModelCheckSession(options: ModelCheckSessionOptions) {
         clearProviderBatch,
         reset,
     };
+}
+
+/** 以固定 worker 数执行批量检查，保留每个模型独立的失败结果。 */
+async function runWithConcurrency<T>(items: readonly T[], limit: number, task: (item: T) => Promise<unknown>): Promise<void> {
+    let cursor = 0;
+    const worker = async (): Promise<void> => {
+        while (cursor < items.length) {
+            const index = cursor;
+            cursor += 1;
+            const item = items[index];
+            if (item !== undefined) {
+                await task(item);
+            }
+        }
+    };
+    const workers = Array.from({length: Math.min(Math.max(1, limit), items.length)}, () => worker());
+    await Promise.all(workers);
 }

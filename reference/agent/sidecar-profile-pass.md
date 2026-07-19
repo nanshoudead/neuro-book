@@ -68,6 +68,7 @@ type ReportSidecarResultArgs = {
 - `report_sidecar_result.data` 是旁路结构化输出的 keyed 包装。profile normalize 会收集所有 sidecar 的 `sidecarDataSchema`，把它们渲染成 `{ "<sidecar-name>": payload }` 形态的 profile-stable union provider-visible schema。
 - provider-visible tools 和 schema 始终来自 profile root `tools`，不随当前 active sidecar 改变；sidecar 只用 `toolKeys` 收窄执行权限。
 - sidecar 运行期按当前 active sidecar 精确读取并校验 `report_sidecar_result.data[activeSidecar.name]`；缺 key、传错 key、额外 key 或 payload 类型不匹配都会在 tool execution 阶段返回模型可见 error toolResult，并允许同一 run 自我修正。
+- sidecar runtime schema 校验使用统一的严格 TypeBox formatter：不执行 Convert/default 填充，错误保留 sidecar 名称和 JSON Pointer 字段路径，不暴露裸 `Parse`。
 - 没有 `report_sidecar_result` 时，可按 `outputFallback` 使用最后一条 assistant message。
 
 `merge()` 可以返回：

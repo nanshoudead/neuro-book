@@ -1,5 +1,5 @@
 import {spawn} from "node:child_process";
-import {mkdir, mkdtemp, rm} from "node:fs/promises";
+import {mkdir, mkdtemp, rm, symlink} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import path from "node:path";
 import {afterEach, describe, expect, it} from "vitest";
@@ -32,6 +32,18 @@ describe("SQLite Location", () => {
         const stateRoot = path.join(tempRoot, "data");
 
         expect(() => resolveAppSqliteLocation("file:../../outside/neuro-book.sqlite", stateRoot))
+            .toThrow("越过State Root");
+    });
+
+    it("拒绝相对URL通过junction或symlink逃出State Root", async () => {
+        tempRoot = await mkdtemp(path.join(tmpdir(), "nbook-sqlite-location-"));
+        const stateRoot = path.join(tempRoot, "data");
+        const externalRoot = path.join(tempRoot, "external");
+        await mkdir(stateRoot, {recursive: true});
+        await mkdir(externalRoot, {recursive: true});
+        await symlink(externalRoot, path.join(stateRoot, "linked"), process.platform === "win32" ? "junction" : "dir");
+
+        expect(() => resolveAppSqliteLocation("file:./linked/app.sqlite", stateRoot))
             .toThrow("越过State Root");
     });
 

@@ -133,6 +133,36 @@ describe("GET /api/agent/sessions/:sessionId/entries/:entryId/attachments/:conte
         expect(setResponseHeader).toHaveBeenCalledWith(event, "Cache-Control", "no-store");
     });
 
+    it("Project 未 open 保留 typed 409，不降级成 Attachment 404", async () => {
+        const setResponseHeader = vi.fn();
+        const projectPath = "workspace/closed-attachment";
+        vi.doMock("h3", async (importOriginal) => ({
+            ...(await importOriginal<typeof import("h3")>()),
+            getRouterParam: vi.fn((_event: unknown, key: string) => key === "entryId" ? "entry-image" : "0"),
+            setResponseHeader,
+        }));
+        vi.doMock("nbook/server/agent/http", async () => {
+            const {ProjectNotOpenError} = await import("nbook/server/workspace-files/project-session");
+            return {
+                requireAgentSessionId: vi.fn(() => 12),
+                useAgentHarness: vi.fn(() => ({
+                    resolveSessionAttachment: vi.fn(async () => {
+                        throw new ProjectNotOpenError(projectPath);
+                    }),
+                })),
+            };
+        });
+
+        const event = {};
+        const handler = (await import("nbook/server/api/agent/sessions/[sessionId]/entries/[entryId]/attachments/[contentIndex].get")).default;
+
+        await expect(handler(event as never)).rejects.toMatchObject({
+            statusCode: 409,
+            data: {code: "PROJECT_NOT_OPEN", projectPath},
+        });
+        expect(setResponseHeader).not.toHaveBeenCalledWith(event, "Cache-Control", "no-store");
+    });
+
     it("blob 不可用返回 410 且禁止缓存错误", async () => {
         const setResponseHeader = vi.fn();
         vi.doMock("h3", async (importOriginal) => ({

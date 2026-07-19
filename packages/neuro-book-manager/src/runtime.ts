@@ -42,12 +42,13 @@ export async function resolveManagerRuntime(
     forceManaged = false,
     createdPaths: string[] = [],
     recordCreated?: (path: string) => Promise<void>,
+    recordCreatedApplied?: (path: string) => Promise<void>,
     retiredPaths: string[] = [],
     recordRetired?: (path: string) => Promise<void>,
 ): Promise<ManagerRuntimeComponent> {
     const stage0 = stage0Runtime();
-    if (stage0) return installStage0Bun(root, stage0, createdPaths, recordCreated, retiredPaths, recordRetired);
-    if (forceManaged) return installManagedBun(root, {createdPaths, recordCreated, retiredPaths, recordRetired});
+    if (stage0) return installStage0Bun(root, stage0, createdPaths, recordCreated, recordCreatedApplied, retiredPaths, recordRetired);
+    if (forceManaged) return installManagedBun(root, {createdPaths, recordCreated, recordCreatedApplied, retiredPaths, recordRetired});
     return {
         provider: "system",
         version: process.versions.bun ?? "unknown",
@@ -61,6 +62,7 @@ export type InstallManagedBunOptions = {
     trustedIdentity?: ManagedRuntimeComponent;
     createdPaths?: string[];
     recordCreated?: (path: string) => Promise<void>;
+    recordCreatedApplied?: (path: string) => Promise<void>;
     retiredPaths?: string[];
     recordRetired?: (path: string) => Promise<void>;
 };
@@ -95,6 +97,7 @@ export async function installManagedBun(root: string, options: InstallManagedBun
         extract: extractArchive,
         createdPaths: options.createdPaths,
         recordCreated: options.recordCreated,
+        recordCreatedApplied: options.recordCreatedApplied,
         retiredPaths: options.retiredPaths,
         recordRetired: options.recordRetired,
     });
@@ -121,19 +124,30 @@ async function verifyManagedBun(executable: string, expectedVersion: string): Pr
 }
 
 /** 把当前 Manager bundle安装到版本目录，并返回严格组件状态。 */
-export async function installManagerExecutable(root: string, version: string, source: string, createdPaths: string[] = [], recordCreated?: (path: string) => Promise<void>): Promise<ManagerComponent> {
+export async function installManagerExecutable(
+    root: string,
+    version: string,
+    source: string,
+    createdPaths: string[] = [],
+    recordCreated?: (path: string) => Promise<void>,
+    recordCreatedApplied?: (path: string) => Promise<void>,
+): Promise<ManagerComponent> {
     const managerRoot = join(root, ".runtime", "manager", version);
-    await ensureDirectory(managerRoot);
     const target = join(managerRoot, "neuro-book.mjs");
     if (await pathExists(target)) {
         if (resolve(source) !== resolve(target) && await sha256File(source) !== await sha256File(target)) {
             throw new Error(`Manager版本目录不可变且bundle checksum不一致：${target}`);
         }
     } else {
+        if (await pathExists(managerRoot)) {
+            throw new Error(`Manager版本目录不完整且不可变：${managerRoot}`);
+        }
         const createdPath = relative(root, managerRoot).replaceAll("\\", "/");
         createdPaths.push(createdPath);
         await recordCreated?.(createdPath);
+        await ensureDirectory(managerRoot);
         if (resolve(source) !== resolve(target)) await copyFile(source, target);
+        await recordCreatedApplied?.(createdPath);
     }
     return {
         provider: "managed",
@@ -191,6 +205,7 @@ async function installStage0Bun(
     stage0: Stage0Runtime,
     createdPaths: string[] = [],
     recordCreated?: (path: string) => Promise<void>,
+    recordCreatedApplied?: (path: string) => Promise<void>,
     retiredPaths: string[] = [],
     recordRetired?: (path: string) => Promise<void>,
 ): Promise<ManagedRuntimeComponent> {
@@ -220,6 +235,7 @@ async function installStage0Bun(
         },
         createdPaths,
         recordCreated,
+        recordCreatedApplied,
         retiredPaths,
         recordRetired,
     });

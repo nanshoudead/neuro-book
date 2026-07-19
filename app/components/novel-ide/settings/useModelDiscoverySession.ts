@@ -4,7 +4,7 @@ import {resolveApiErrorMessage} from "nbook/app/utils/api-error";
 import {candidateFromLibrary, completeModelCandidate} from "nbook/app/components/novel-ide/settings/model-draft-factory";
 import {parseDraftInteger, type ModelSettingsModelDraft, type ModelSettingsProviderDraft} from "nbook/app/components/novel-ide/settings/model-settings-draft";
 import type {DiscoveryListModel, ManualModelDraft, ModelLibraryGroup} from "nbook/app/components/novel-ide/settings/model-settings-view";
-import type {ConfiguredModelDto, DiscoverProviderModelsResponseDto, DiscoveredProviderModelDto, ModelLibraryDto, ModelLibraryEntryDto, ModelProviderDraftDto} from "nbook/shared/dto/app-settings.dto";
+import type {ConfiguredModelDto, DiscoverProviderModelsResponseDto, DiscoveredProviderModelDto, ModelLibraryDto, ModelLibraryEntryDto, ModelProviderDraftDto, ProviderCredentialSource} from "nbook/shared/dto/app-settings.dto";
 import {deriveModelGroup} from "nbook/shared/models/model-group";
 
 type ModelDiscoverySessionOptions = {
@@ -13,10 +13,17 @@ type ModelDiscoverySessionOptions = {
     loadLibraries(): Promise<ModelLibraryDto>;
     findLibraryModel(modelId: string): ModelLibraryEntryDto | null;
     buildProviderRequest(provider: ModelSettingsProviderDraft): ModelProviderDraftDto;
+    credentialSource(provider: ModelSettingsProviderDraft): ProviderCredentialSource;
     enableModel(model: ConfiguredModelDto): void;
     disableModel(model: ModelSettingsModelDraft): void;
     openTransientCandidate(candidate: Omit<ConfiguredModelDto, "enabled">): Promise<void>;
     ensureDefaultModel(): void;
+};
+
+type DiscoveryCacheEntry = {
+    providerId: string;
+    fingerprint: string;
+    models: DiscoveredProviderModelDto[];
 };
 
 /**
@@ -26,7 +33,8 @@ type ModelDiscoverySessionOptions = {
 export function useModelDiscoverySession(options: ModelDiscoverySessionOptions) {
     const {t} = useI18n();
     const notification = useNotification();
-    const discoveredModels = ref<Record<string, DiscoveredProviderModelDto[]>>({});
+    /** 发现结果按本地 Provider 实例和连接 fingerprint 缓存，不能只按可编辑 ID。 */
+    const discoveredModels = ref<Record<string, DiscoveryCacheEntry>>({});
     const manualDrafts = ref<Record<string, ManualModelDraft>>({});
     const discoveringProviderId = ref("");
     const discoveryDialogOpen = ref(false);
@@ -35,6 +43,9 @@ export function useModelDiscoverySession(options: ModelDiscoverySessionOptions) 
     const modelLibrarySearchQuery = ref("");
     const discoveryExpandedGroups = ref<Record<string, boolean>>({});
     const modelLibraryExpandedGroups = ref<Record<string, boolean>>({});
+    /** Secret 不进入 fingerprint；本地 revision 只用于在凭据编辑后作废发现缓存。 */
+    const credentialRevisions = ref<Record<string, number>>({});
+    const credentialSnapshots = new Map<string, string>();
 
     /** 获取指定 Provider 的手动候选草稿。 */
     function manualDraft(providerId: string): ManualModelDraft {
@@ -58,14 +69,28 @@ export function useModelDiscoverySession(options: ModelDiscoverySessionOptions) 
         if (!provider || discoveringProviderId.value) {
             return;
         }
+        if (!provider.modelApi.trim()) {
+            notification.error(t("settings.panels.models.providerModelApiRequired"));
+            return;
+        }
         discoveringProviderId.value = provider.id;
         try {
             await options.loadLibraries();
             const response = await $fetch<DiscoverProviderModelsResponseDto>("/api/config/models/provider-discover", {
                 method: "POST",
-                body: {provider: options.buildProviderRequest(provider)},
+                body: {
+                    provider: options.buildProviderRequest(provider),
+                    credentialSource: options.credentialSource(provider),
+                },
             });
-            discoveredModels.value = {...discoveredModels.value, [provider.id]: response.models};
+            discoveredModels.value = {
+                ...discoveredModels.value,
+                [provider.localKey]: {
+                    providerId: provider.id,
+                    fingerprint: discoveryFingerprint(provider, credentialRevisions.value[provider.localKey] ?? 0),
+                    models: response.models,
+                },
+            };
             notification.success(response.message);
         } catch (error) {
             notification.error(resolveApiErrorMessage(error, t("settings.panels.models.discoverFailed")));
@@ -122,7 +147,9 @@ export function useModelDiscoverySession(options: ModelDiscoverySessionOptions) 
             return [];
         }
         const models = new Map<string, DiscoveryListModel>();
-        for (const remote of discoveredModels.value[provider.id] ?? []) {
+        const cache = discoveredModels.value[provider.localKey];
+        const remoteModels = cache?.fingerprint === discoveryFingerprint(provider, credentialRevisions.value[provider.localKey] ?? 0) ? cache.models : [];
+        for (const remote of remoteModels) {
             const completed = completeModelCandidate(remote, options.findLibraryModel(remote.id), provider.modelApi.trim() || null);
             const state = savedState(remote.id);
             models.set(remote.id, {
@@ -206,20 +233,23 @@ export function useModelDiscoverySession(options: ModelDiscoverySessionOptions) 
     }
 
     /** Provider ID 变化时迁移当前前端发现会话。 */
-    function renameProvider(previousId: string, nextId: string): void {
-        if (discoveredModels.value[previousId]) {
-            discoveredModels.value = {...discoveredModels.value, [nextId]: discoveredModels.value[previousId] ?? []};
-            delete discoveredModels.value[previousId];
-        }
-        if (manualDrafts.value[previousId]) {
-            manualDrafts.value = {...manualDrafts.value, [nextId]: manualDrafts.value[previousId]};
-            delete manualDrafts.value[previousId];
-        }
+    /**
+     * Provider ID 已是不可变连接身份；该函数仅保留旧调用面的状态迁移能力，
+     * 实际缓存键使用 localKey，避免不同连接因同名 ID 串结果。
+     */
+    function renameProvider(_previousId: string, _nextId: string): void {
+        // 不迁移缓存：ID 变更必须由显式 clone 产生新的 localKey 和 fingerprint。
     }
 
     /** 删除 Provider 对应的全部临时发现状态。 */
     function removeProvider(providerId: string): void {
-        delete discoveredModels.value[providerId];
+        const next = {...discoveredModels.value};
+        for (const [localKey, entry] of Object.entries(next)) {
+            if (entry.providerId === providerId) {
+                delete next[localKey];
+            }
+        }
+        discoveredModels.value = next;
         delete manualDrafts.value[providerId];
     }
 
@@ -237,6 +267,30 @@ export function useModelDiscoverySession(options: ModelDiscoverySessionOptions) 
             manualDraft(providerId);
         }
     });
+
+    watch(() => {
+        const provider = options.activeProvider.value;
+        return provider ? {
+            localKey: provider.localKey,
+            credential: JSON.stringify({
+                apiKey: provider.options.apiKey,
+                configured: provider.options.apiKeyConfigured,
+                cleared: provider.options.apiKeyCleared,
+            }),
+        } : null;
+    }, (current) => {
+        if (!current) {
+            return;
+        }
+        const previous = credentialSnapshots.get(current.localKey);
+        credentialSnapshots.set(current.localKey, current.credential);
+        if (previous !== undefined && previous !== current.credential) {
+            credentialRevisions.value = {
+                ...credentialRevisions.value,
+                [current.localKey]: (credentialRevisions.value[current.localKey] ?? 0) + 1,
+            };
+        }
+    }, {immediate: true});
 
     return {
         discoveringProviderId,
@@ -265,6 +319,43 @@ export function useModelDiscoverySession(options: ModelDiscoverySessionOptions) 
 /** 创建空手动候选。 */
 function emptyManualDraft(): ManualModelDraft {
     return {name: "", id: "", api: "", group: "", contextWindowTokens: "", maxTokens: ""};
+}
+
+/** 生成不含 API key 的前端发现 fingerprint。 */
+function discoveryFingerprint(provider: ModelSettingsProviderDraft, credentialRevision: number): string {
+    return JSON.stringify({
+        id: provider.id.trim(),
+        modelApi: provider.modelApi.trim() || null,
+        baseURL: normalizeDiscoveryEndpoint(provider.options.baseURL),
+        proxy: normalizeDiscoveryEndpoint(provider.options.proxy),
+        credentialRevision,
+        apiKeyState: provider.options.apiKeyCleared
+            ? "cleared"
+            : provider.options.apiKey.trim()
+                ? "provided"
+                : provider.options.apiKeyConfigured
+                    ? "saved"
+                    : "empty",
+    });
+}
+
+function normalizeDiscoveryEndpoint(value: string): string {
+    const normalized = value.trim();
+    if (!normalized) {
+        return "";
+    }
+    try {
+        const url = new URL(normalized);
+        url.username = "";
+        url.password = "";
+        url.hash = "";
+        if (url.pathname.length > 1) {
+            url.pathname = url.pathname.replace(/\/+$/u, "");
+        }
+        return url.toString();
+    } catch {
+        return normalized;
+    }
 }
 
 /** 按搜索和 Group 归并发现候选。 */

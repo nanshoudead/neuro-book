@@ -131,7 +131,7 @@ describe("SessionWriteExecutor", () => {
             expect(stateChangedEvent.event.state).not.toHaveProperty("messages");
             expect(stateChangedEvent.event.state).not.toHaveProperty("entries");
             expect(stateChangedEvent.event.state).not.toHaveProperty("tree");
-            expect(JSON.stringify(stateChangedEvent).length).toBeLessThan(50_000);
+            expect(Buffer.byteLength(JSON.stringify(stateChangedEvent), "utf8")).toBeLessThan(50 * 1024);
         }
         expect(repo.reduce(await repo.readSession(session.metadata.sessionId)).messages.map((message) => message.role)).toEqual(["assistant", "toolResult"]);
         expect(result.liveStates.get(session.metadata.sessionId)).toEqual(

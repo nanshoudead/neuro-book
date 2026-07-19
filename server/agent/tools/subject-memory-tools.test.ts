@@ -1,5 +1,5 @@
 import {mkdir, mkdtemp, readFile, rm, writeFile} from "node:fs/promises";
-import {join} from "node:path";
+import {join, resolve} from "node:path";
 import {tmpdir} from "node:os";
 import {Type} from "typebox";
 import {afterEach, beforeEach, describe, expect, it} from "vitest";
@@ -12,6 +12,8 @@ import {profileToolsFromKeys} from "nbook/server/agent/test/profile-tools";
 import {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
 import type {ToolExecutionContext} from "nbook/server/agent/tools/types";
 import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
+import {createRuntimePaths} from "nbook/server/runtime/paths/runtime-paths";
+import {closeProject, openProject} from "nbook/server/workspace-files/project-session";
 import memoryCuratorProfile from "../../../assets/workspace/.nbook/agent/profiles/builtin/memory.curator.profile";
 import {
     applySubjectMemoryPatch,
@@ -25,11 +27,16 @@ describe("subject memory tools", () => {
     let harness: NeuroAgentHarness;
     let context: ToolExecutionContext;
     let faux: FauxModelsFixture;
+    const projectPath = "workspace/demo";
 
     beforeEach(async () => {
         root = await mkdtemp(join(tmpdir(), "nbook-subject-memory-tools-test-"));
         workspaceRoot = join(root, "workspace");
-        await mkdir(workspaceRoot, {recursive: true});
+        await mkdir(join(workspaceRoot, "demo"), {recursive: true});
+        const runtimePaths = createRuntimePaths({
+            applicationRoot: absoluteFsPath(resolve(".")),
+            stateRoot: absoluteFsPath(root),
+        });
         faux = createFauxModels({
             models: [{
                 id: "subject-memory-faux",
@@ -37,12 +44,26 @@ describe("subject memory tools", () => {
                 maxTokens: 8_000,
             }],
         });
+        const fauxModel = faux.getModel();
+        await mkdir(join(workspaceRoot, ".nbook"), {recursive: true});
+        await writeFile(join(workspaceRoot, ".nbook", "config.json"), JSON.stringify({models: {
+            default: `faux/${fauxModel.id}`,
+            providers: [{
+                id: "faux",
+                name: "Faux",
+                enabled: true,
+                modelApi: fauxModel.api,
+                options: {apiKey: "", baseURL: "", proxy: "", timeoutMs: null, requestOptions: {}},
+                models: [{id: fauxModel.id, name: fauxModel.name, enabled: true, api: fauxModel.api, contextWindowTokens: fauxModel.contextWindow, maxTokens: fauxModel.maxTokens}],
+            }],
+        }}), "utf8");
         const profiles = new AgentProfileCatalog(
             join(root, "missing-system-profiles"),
             join(root, "missing-user-profiles"),
         );
         harness = new NeuroAgentHarness({
-            repo: new JsonlSessionRepository(root),
+            repo: new JsonlSessionRepository(runtimePaths.workspaceRoot),
+            runtimePaths,
             profiles,
             modelResolver: () => faux.getModel(),
             runtimeResolver: () => faux.runtime,
@@ -63,19 +84,23 @@ describe("subject memory tools", () => {
         const session = await harness.createAgent({
             profileKey: "test.subject-memory-tools",
             initial: {},
-            workspaceRoot,
+            workspaceRoot: "workspace",
+            projectPath,
         });
+        await openProject(absoluteFsPath(workspaceRoot), projectPath, {kind: "job", source: "subject-memory-tools-test"});
         context = {
             harness,
             sessionId: session.sessionId,
             profileKey: "test.subject-memory-tools",
-            workspaceRootRef: absoluteFsPath(workspaceRoot),
+            workspaceRootRef: "workspace",
             workspaceFsRoot: absoluteFsPath(workspaceRoot),
             workspaceKey: "global",
+            projectPath,
         };
     });
 
     afterEach(async () => {
+        await closeProject(projectPath, "shutdown").catch(() => undefined);
         await harness.drainBackgroundTasks();
         await harness.dispose();
         await rm(root, {recursive: true, force: true});
@@ -132,6 +157,31 @@ describe("subject memory tools", () => {
         }]);
     });
 
+    it("subject工具只接受当前已打开Project内的规范subjectPath", async () => {
+        const tool = mustTool("subject_event_append", harness);
+        await expect(tool.executeWithContext?.(context, "absolute-subject", {
+            subjectPath: join(workspaceRoot, "demo", "simulation", "subjects", "heroine"),
+            events: [{text: "不应写入。"}],
+        })).rejects.toThrow("subjectPath必须是当前Project内");
+        await expect(tool.executeWithContext?.(context, "cross-project-subject", {
+            subjectPath: "workspace/beta/simulation/subjects/heroine",
+            events: [{text: "不应写入。"}],
+        })).rejects.toThrow("subjectPath必须是当前Project内");
+
+        await closeProject(projectPath, "shutdown");
+        await expect(tool.executeWithContext?.(context, "closed-project-subject", {
+            subjectPath: "simulation/subjects/heroine",
+            events: [{text: "不应写入。"}],
+        })).rejects.toThrow("Project 未打开");
+        await openProject(absoluteFsPath(workspaceRoot), projectPath, {kind: "job", source: "subject-memory-tools-test"});
+    });
+
+    it("subject写工具声明Workspace变更，RAG查询保持运行时写入语义", () => {
+        expect(mustTool("subject_event_append", harness).mutatesWorkspace).toBe(true);
+        expect(mustTool("subject_memory_update", harness).mutatesWorkspace).toBe(true);
+        expect(mustTool("subject_rag_search", harness).mutatesWorkspace).not.toBe(true);
+    });
+
     it("subject_event_append 追加 JSONL 并标记 RAG dirty", async () => {
         const subjectRoot = join(workspaceRoot, "demo", "simulation", "subjects", "heroine");
         await mkdir(subjectRoot, {recursive: true});
@@ -139,7 +189,7 @@ describe("subject memory tools", () => {
         const tool = mustTool("subject_event_append", harness);
 
         await tool.executeWithContext?.(context, "append-events", {
-            subjectPath: "demo/simulation/subjects/heroine",
+            subjectPath: "simulation/subjects/heroine",
             events: [
                 {tick: "000002", text: "我确认艾琳娜就是早上帮过我的女孩。"},
             ],
@@ -160,7 +210,7 @@ describe("subject memory tools", () => {
         const tool = mustTool("subject_event_append", harness);
 
         await tool.executeWithContext?.(context, "append-events-hard-cut", {
-            subjectPath: "demo/simulation/subjects/heroine",
+            subjectPath: "simulation/subjects/heroine",
             events: [
                 {text: "我今天再次想起那次雨夜带路。"},
             ],
@@ -181,7 +231,7 @@ describe("subject memory tools", () => {
         const tool = mustTool("subject_rag_search", harness);
 
         await expect(tool.executeWithContext?.(context, "rag-search", {
-            subjectPath: "demo/simulation/subjects/heroine",
+            subjectPath: "simulation/subjects/heroine",
             query: "艾琳娜",
             sources: ["events"],
         })).rejects.toThrow("不会执行关键词 fallback");
@@ -195,7 +245,7 @@ describe("subject memory tools", () => {
         const tool = mustTool("subject_rag_search", harness);
 
         await expect(tool.executeWithContext?.(context, "rag-search-missing-sources", {
-            subjectPath: "demo/simulation/subjects/heroine",
+            subjectPath: "simulation/subjects/heroine",
             query: "艾琳娜",
         })).rejects.toThrow("必须显式指定且只能指定一个 source");
     });
@@ -208,7 +258,7 @@ describe("subject memory tools", () => {
         const tool = mustTool("subject_rag_search", harness);
 
         await expect(tool.executeWithContext?.(context, "rag-search-two-sources", {
-            subjectPath: "demo/simulation/subjects/heroine",
+            subjectPath: "simulation/subjects/heroine",
             query: "艾琳娜",
             sources: ["events", "memory"],
         })).rejects.toThrow("必须显式指定且只能指定一个 source");
@@ -252,13 +302,13 @@ describe("subject memory tools", () => {
             const searchTool = mustTool("subject_rag_search", harness);
 
             await appendTool.executeWithContext?.(context, "append-before-search", {
-                subjectPath: "demo/simulation/subjects/heroine",
+            subjectPath: "simulation/subjects/heroine",
                 events: [
                     {text: "我刚刚确认艾琳娜就是早上帮我的粉色头发女孩。"},
                 ],
             });
             const result = await searchTool.executeWithContext?.(context, "search-after-append", {
-                subjectPath: "demo/simulation/subjects/heroine",
+            subjectPath: "simulation/subjects/heroine",
                 query: "艾琳娜 粉色头发",
                 sources: ["events"],
                 limit: 3,
@@ -268,7 +318,7 @@ describe("subject memory tools", () => {
             expect(text).toContain("粉色头发女孩");
             expect(text).not.toContain("旧事件只提到了王都学院走廊");
             expect(result?.details).toEqual({
-                subjectPath: "demo/simulation/subjects/heroine",
+            subjectPath: "simulation/subjects/heroine",
                 source: "events",
                 count: 1,
             });
@@ -322,7 +372,7 @@ describe("subject memory tools", () => {
             const tool = mustTool("subject_rag_search", harness);
 
             const result = await tool.executeWithContext?.(context, "rag-search-medium-match", {
-                subjectPath: "demo/simulation/subjects/heroine",
+            subjectPath: "simulation/subjects/heroine",
                 query: "艾琳娜",
                 sources: ["events"],
                 limit: 2,
@@ -367,7 +417,7 @@ describe("subject memory tools", () => {
             const tool = mustTool("subject_rag_search", harness);
 
             await expect(tool.executeWithContext?.(context, "rag-search-timeout", {
-                subjectPath: "demo/simulation/subjects/heroine",
+            subjectPath: "simulation/subjects/heroine",
                 query: "艾琳娜",
                 sources: ["events"],
                 limit: 1,
@@ -409,7 +459,7 @@ describe("subject memory tools", () => {
         const tool = mustTool("subject_memory_update", harness);
 
         const result = await tool.executeWithContext?.(context, "subject-memory-update", {
-            subjectPath: "demo/simulation/subjects/heroine",
+            subjectPath: "simulation/subjects/heroine",
             facts: ["我确认艾琳娜就是早上帮过我的粉色头发女孩。"],
         });
 
@@ -450,7 +500,7 @@ describe("subject memory tools", () => {
         const tool = mustTool("subject_memory_update", harness);
 
         const result = await tool.executeWithContext?.(context, "subject-memory-update-hard-cut", {
-            subjectPath: "demo/simulation/subjects/heroine",
+            subjectPath: "simulation/subjects/heroine",
             facts: ["我今天确认自己仍然记得艾琳娜帮过我。"],
         });
 
@@ -491,7 +541,7 @@ describe("subject memory tools", () => {
         const tool = mustTool("subject_memory_update", harness);
 
         const result = await tool.executeWithContext?.(context, "subject-memory-update-bad", {
-            subjectPath: "demo/simulation/subjects/heroine",
+            subjectPath: "simulation/subjects/heroine",
             facts: ["事实需要更新，但 curator patch 不合法。"],
         });
 

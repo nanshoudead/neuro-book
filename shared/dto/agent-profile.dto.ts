@@ -100,6 +100,7 @@ export const AgentProfileCatalogItemDtoSchema = z.object({
     schemaLocked: z.boolean(),
     canEdit: z.boolean(),
     canRestore: z.boolean(),
+    creationMode: z.enum(["public", "system_only"]),
     issues: z.array(AgentProfileIssueDtoSchema),
 });
 

@@ -1,5 +1,15 @@
 # Agent Chat Flow Snapshot 分页
 
+> 当前状态：实现中（分页Interface与前端合并已本地完成；等待Task 107/108/109合并后的Product证据与浏览器长Session验收）。
+
+## 2026-07-19：104–109集成复核
+
+- 生产代码未发现重新公开raw`snapshot.entries`的旁路；history继续只输出`AgentChatEntryDto`。
+- durable tool-call identity现在在Stored Codec、history projector、live event与HTTP resolution/ack入口共用同一512 UTF-8 byte Module，非法历史数据fail closed。
+- 当前Repository仍需完整读取JSONL并投影active path，因此复杂度仍为O(session file size)；30组/256 KiB只约束网络窗口与前端常驻历史，不宣称服务端O(page)。
+- 本轮history/session query/frontend聚焦回归已通过；真实cold/hot、读取bytes、内存与浏览器滚动证据仍沿用待办，不增加未经benchmark证明的索引或cache。
+- 本轮104/105/107/109安全与事务整合没有修改分页endpoint、DTO、opaque cursor或Repository seam；尚未重新取得长Session性能样本，因此不更新既有复杂度结论或宣称新的性能收益。
+
 ## Relative documents refs
 
 - [Agent Runtime Event OOM 与 SSE 内存边界](../107-agent-event-memory-boundaries/README.md)

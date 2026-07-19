@@ -9,7 +9,7 @@
  * <JsonViewer :value="someObject" mode="text" :max-height="200" />
  */
 import JsonEditorVue from "json-editor-vue";
-import { Mode } from "vanilla-jsoneditor";
+import {Mode} from "vanilla-jsoneditor";
 
 type JsonViewerMode = Mode;
 
@@ -54,19 +54,12 @@ const props = withDefaults(defineProps<{
     maxHeight: 300,
 });
 
-/** json-editor-vue 使用 content 对象格式。 */
-const editorContent = computed(() => {
-    // value 是已解析的 JSON 对象时使用 json 属性
-    if (typeof props.value === "object" && props.value !== null) {
-        return { json: props.value };
-    }
-    // value 是字符串时，尝试作为 JSON 文本传入
-    if (typeof props.value === "string") {
-        return { text: props.value };
-    }
-    // 其他基本类型包裹成 json
-    return { json: props.value };
-});
+const emit = defineEmits<{
+    /** 编辑内容变化；字符串模式保留用户当前输入，即使 JSON 暂时不完整。 */
+    (e: "update:value", value: unknown): void;
+    /** 编辑器报告语法或结构校验结果。 */
+    (e: "validation-change", hasErrors: boolean): void;
+}>();
 
 /**
  * 当前编辑器模式。
@@ -158,11 +151,29 @@ function collapseAll() {
 
     jsonEditor.value?.collapse([], true);
 }
+
+/**
+ * 将 json-editor-vue 的正式 v-model 输出回写给父组件。
+ * `stringified` 模式会保留文本模式中的原始输入，即使 JSON 仍处于编辑中的非法状态。
+ */
+function handleEditorUpdate(value: unknown): void {
+    emit("update:value", value);
+    if (typeof value !== "string" || !value.trim()) {
+        emit("validation-change", false);
+        return;
+    }
+    try {
+        JSON.parse(value);
+        emit("validation-change", false);
+    } catch {
+        emit("validation-change", true);
+    }
+}
 </script>
 
 <template>
     <!-- JSON 查看器容器 -->
-    <div class="json-viewer" :style="containerStyle">
+    <div class="json-viewer" :class="{'json-viewer--readonly': props.readOnly}" :style="containerStyle">
         <!-- 自定义工具栏 -->
         <div v-if="props.mainMenuBar" class="json-viewer__toolbar">
             <div class="json-viewer__modes">
@@ -208,12 +219,14 @@ function collapseAll() {
         <div class="json-viewer__editor">
             <JsonEditorVue
                 ref="editorRef"
-                :content="editorContent"
+                :model-value="props.value"
                 :mode="currentMode"
+                :stringified="typeof props.value === 'string'"
                 :read-only="props.readOnly"
                 :main-menu-bar="false"
                 :navigation-bar="props.navigationBar"
                 :status-bar="props.statusBar"
+                @update:model-value="handleEditorUpdate"
             />
         </div>
     </div>
@@ -449,10 +462,10 @@ function collapseAll() {
     min-width: 0;
 }
 
-/* 只读查看场景下，插入热区不应吞掉大段横向空间 */
-.json-viewer :deep(.jse-insert-selection-area),
-.json-viewer :deep(.jse-insert-selection-area.jse-after),
-.json-viewer :deep(.jse-insert-selection-area.jse-before) {
+/* 只读查看场景下，插入热区不应吞掉大段横向空间；编辑模式保留这些热区。 */
+.json-viewer--readonly :deep(.jse-insert-selection-area),
+.json-viewer--readonly :deep(.jse-insert-selection-area.jse-after),
+.json-viewer--readonly :deep(.jse-insert-selection-area.jse-before) {
     width: 0 !important;
     min-width: 0 !important;
     flex: 0 0 0 !important;

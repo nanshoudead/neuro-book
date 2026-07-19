@@ -1,5 +1,9 @@
 import {describe, expect, it} from "vitest";
-import {AgentInvokeRequestDtoSchema, AgentSessionQueryDtoSchema} from "nbook/shared/dto/agent-session.dto";
+import {
+    AgentInvokeRequestDtoSchema,
+    AgentSessionQueryDtoSchema,
+    ClientVariablePatchAckDtoSchema,
+} from "nbook/shared/dto/agent-session.dto";
 
 describe("AgentInvokeRequestDtoSchema", () => {
     it("要求 prompt、steer、followup 携带 message 或 input", () => {
@@ -40,6 +44,25 @@ describe("AgentInvokeRequestDtoSchema", () => {
             message: {text: "hello"},
             caller: {kind: "agent"},
         }).success).toBe(false);
+    });
+
+    it("resolution toolCallId 按UTF-8字节统一fail closed", () => {
+        const request = (toolCallId: string) => ({
+            mode: "continue",
+            resolution: {kind: "tool_approval", toolCallId, approved: true},
+        });
+        expect(AgentInvokeRequestDtoSchema.safeParse(request("a".repeat(512))).success).toBe(true);
+        expect(AgentInvokeRequestDtoSchema.safeParse(request("a".repeat(513))).success).toBe(false);
+        expect(AgentInvokeRequestDtoSchema.safeParse(request("工".repeat(170))).success).toBe(true);
+        expect(AgentInvokeRequestDtoSchema.safeParse(request("工".repeat(171))).success).toBe(false);
+        expect(AgentInvokeRequestDtoSchema.safeParse(request(" ")).success).toBe(false);
+    });
+
+    it("client patch ack 只在存在toolCallId时应用同一身份合同", () => {
+        const base = {namespace: "client", path: "ide.selection", operations: []};
+        expect(ClientVariablePatchAckDtoSchema.safeParse(base).success).toBe(true);
+        expect(ClientVariablePatchAckDtoSchema.safeParse({...base, toolCallId: "tool-1"}).success).toBe(true);
+        expect(ClientVariablePatchAckDtoSchema.safeParse({...base, toolCallId: "工".repeat(172)}).success).toBe(false);
     });
 });
 

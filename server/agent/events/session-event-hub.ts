@@ -372,6 +372,9 @@ export class AgentSessionEventHub {
         state: SessionStreamState,
         cursor: AgentSessionEventCursor,
     ): PublishedAgentSessionEvent[] {
+        if (typeof cursor.after === "number" && cursor.after > 0 && !cursor.eventEpoch) {
+            return [this.snapshotRequiredEvent(sessionId, "event cursor is missing epoch")];
+        }
         if (cursor.eventEpoch && cursor.eventEpoch !== this.eventEpoch) {
             return [];
         }

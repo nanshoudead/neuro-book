@@ -1,43 +1,89 @@
 # Release Notes
 
-## 下一版 canary（尚未发布）
+## 0.8.7-canary - 2026-07-19
 
-下一版将修复公开`0.8.6` Windows Portable的SQLite登录与Update事务回归，并重做候选Release的最终提交顺序。
+本次patch收口`0.8.6`之后发现的Portable数据库、Manager更新事务、Provider身份、Agent文件授权与公开事件安全问题。该版本需要`@notnotype/neuro-book-manager@0.1.0-canary.20`或更高版本。
 
 ### 更新说明
 
-- App SQLite现在由单一Location Module解析：配置继续保存逻辑相对`file:` URL，Product Runtime、Prisma CLI、Manager备份和Docker使用同一State Root语义。相对路径不能越过State Root；原生Profile允许明确外部绝对数据库，Docker拒绝无法映射的外部位置。
-- Manager备份真实配置指向的SQLite，使用read-write/create:false打开已有文件，并验证`wal_checkpoint(TRUNCATE)`返回`busy=0`且`checkpointed=log`后才复制。
-- `neuro-book update`不再接受`--component`。六种Profile按固定原子范围更新；Runtime和Tool继续使用独立维护命令。同版本应用与Manager直接返回“已是最新版本”，不创建Operation、backup或staging。
-- Operation Journal硬切v2，记录真实数据库位置/checkpoint、Git前后revision、Docker原运行状态与Manager wrapper。未完成v1 Journal拒绝自动恢复；已提交v1只作为审计记录跳过。
-- `install/update --release-manifest <local-path|https-url>`可验证候选资产；Release CI使用Manifest记录的精确npm Manager版本，并逐字节比较npm、本地构建和Portable内嵌bundle。公开Payload与GHCR/Windows A→B验证通过后才发布最终Manifest与SHA256SUMS。
-- Installation Manifest硬切v4，容器Profile持久化Docker或Podman engine；Release Manifest硬切v3并要求Windows x64、Linux x64/AArch64 glibc、macOS x64/ARM64五个平台完整且唯一。后续start/update/rollback/doctor/admin不会重新选择另一套容器engine。
-- POSIX Stage 0与managed Bun支持Linux x64/AArch64 glibc和macOS x64/ARM64，恢复执行位并验证真实版本后才提交Runtime。Release构建增加Linux ARM64与macOS双架构Product、native package和浏览器门禁，GHCR改为linux/amd64与linux/arm64。
-- Manager新增统一Host Platform Module：原生宿主架构、当前Bun进程架构和Product平台只解析一次。Windows ARM64、Linux musl、Rosetta及其他跨架构进程会在安装、导入、doctor、start、update和Runtime/Tool维护前明确失败，不会执行错误平台二进制。
-- Bun、ripgrep与PortableGit改由统一Managed Asset Repository物化。只有当前有效Manifest能够证明archive、source URL、全部checksum与真实版本的不可变目录才可复用；Fresh Install或损坏目录会先在staging验证并提交新代次，Manifest与wrapper成功切换后才清理旧目录，不会原地覆盖运行文件。
-- Clack、`install --yes`与`install --dry-run --json`现在消费同一Install Preflight，统一报告Git、Docker/Podman、Compose、端口、目标目录、Release和组件来源；`--yes`不能跳过blocker。
-- POSIX Stage 0无参数管道会从`/dev/tty`恢复交互；无TTY自动化必须显式传`--profile ... --yes`。Windows Stage 0按原生OS架构拒绝ARM64，并在首次解压后再次验证Bun checksum与版本。
+- Windows Portable登录不再受启动cwd影响。App SQLite的逻辑URL、Prisma连接URL、Manager备份路径和Docker容器URL统一从State Root解析；配置文件继续保存可移动的相对URL。
+- Manager更新事务升级为Operation Journal v3 Effect Ledger。SQLite checkpoint、Git、Product、Compose、wrapper、Manifest和受管资产都在物理动作前记录planned intent，完成后记录applied结果。
+- Bun、ripgrep和PortableGit使用不可变资产代次。下载、解压、checksum、执行位和真实版本全部在staging验证；失败不会删除当前Runtime或wrapper。
+- wrapper旧状态与恢复路径会在切换前持久化，备份通过临时目录原子提交。进程在备份或写wrapper期间中断时，不再误删当前可用wrapper。
+- Source Docker镜像使用Operation唯一代次。回滚只删除本次事务创建的镜像，成功提交后只退役previous Manifest明确证明的旧镜像。
+- `update --dry-run`和正式update共用同一个Release/Git目标Resolver，并输出将进入的Effect Ledger计划。同版本更新保持零Operation、零backup、零staging。
+- Installation Manifest硬切v4，Release Manifest硬切v3；容器Profile固定记录Docker或Podman engine，原生Product完整覆盖Windows x64、Linux x64/ARM64 glibc和macOS x64/ARM64。
+- Provider Config ID成为不可变连接身份。使用saved凭据时，Provider ID、Model API、Base URL和proxy必须与保存配置完全一致；身份变化返回400且不会发送网络请求。
+- Agent Session只持久化`providerConfigId + modelId`。失效引用只阻断对应Session，不会回退默认模型或把Pi Provider名称猜成本地Provider ID。
+- read/write/edit/apply_patch与Subject Memory共用Authorized File Operation，统一Project open gate、跨Project地址和symlink/junction containment。Bash仍是受信任完整Shell，只验证当前Project与cwd。
+- Public Tool Call ID在live、durable history、HTTP、SSE、queue、replay和client patch入口统一限制为非空且不超过512 UTF-8 bytes，非法身份fail closed。
+- Attachment读取继续按Session Entry和Project身份授权；blob固定写入全局Workspace Root的`.nbook/agent/attachments`，不从物理路径反推Project。
 
 ### 迁移指南
 
-- `0.8.6` Portable用户升级前先停止NeuroBook并备份完整`data/`。
-- 如果曾按临时指南把`data/.env`改成绝对数据库URL，升级成功后必须恢复：
-  ```text
-  DATABASE_URL=file:./workspace/.nbook/neuro-book.sqlite
-  ```
-- 不要创建Installation Root根`workspace/`、junction或数据库副本；Manager会按真实数据库路径备份，Product会按当前`data/`重新解析逻辑URL。
-- Manifest v3实例不自动迁移到v4。重新安装对应Profile后只复用正式State Root；Windows Portable只复用完整`data/`，不要复制旧`.deploy`、`.runtime`或`.output`。
-- 本节描述的版本尚未发布。当前源码验证通过不等于公开npm、Portable或GHCR已经包含修复。
+#### 从0.8.6 Windows Portable迁移
 
-### 当前验证
+1. 完全停止NeuroBook，并备份旧Portable的完整`data/`目录。
+2. 解压新的`neuro-book-windows-x64.zip`到新的Installation Root。
+3. 用旧实例的完整`data/`替换新实例默认`data/`。不要复制旧`.deploy`、`.runtime`、`.output`或根目录wrapper。
+4. 如果曾按0.8.6临时指南使用绝对数据库URL，把新实例`data/.env`恢复为：
+   ```text
+   DATABASE_URL=file:./workspace/.nbook/neuro-book.sqlite
+   ```
+5. 运行`Start Neuro Book.cmd`，确认登录、项目和Agent Session可用后，再删除旧Installation Root。
 
-- Manager最终完整回归26文件127项通过，另有1文件/2项按平台跳过；Manager pack审计为5个文件、约0.37 MiB，Manager与根typecheck、Nuxt build及Product后处理通过。新增回归确认损坏同版本Runtime/Tool在下载、验证或Journal记账失败时保留旧目录，事务成功后才幂等清理退役代次。
-- SQLite/Prisma/Login聚焦4文件20项通过；包含真实PrismaLibSql连接、Windows绝对URL、相对越界、外部数据库和鉴权登录查询。
-- Release workflow YAML解析、GHCR脚本`bash -n`与Windows PowerShell 5/7 Parser通过。首次Manifest v4公开门禁已改为`0.8.6`在旧根创建数据后，只把完整`data/`复制进新候选Installation Root；不再尝试让v4 Manager直接update v3 Manifest。
-- 五平台资产映射、宿主交叉包装拒绝、Docker/Podman固定engine、rootless Podman UID、POSIX Stage 0与Managed Bun执行位的本地聚焦回归已通过；集成分支[Product Platform Checks 29643196339](https://github.com/notnotype/neuro-book/actions/runs/29643196339)进一步完成Linux ARM64 glibc、macOS x64与macOS ARM64原生Product构建和运行门禁。
-- Windows x64 Product归档从当前`.output`成功写入44,998个文件条目；其他四个平台不做交叉包装，由对应原生runner生成和验收。
-- SSH Arch clean checkout完成Manager/SQLite回归与真实47阶段Docker build；分离State Root容器完成管理员创建、登录、session查询和SQLite位置断言，测试容器、镜像和目录已清理。
-- 公开GHCR门禁已拆为Linux x64 Docker、Linux ARM64 Docker与Linux x64 rootless Podman，统一覆盖migration、admin、login、restart、doctor和Operation恢复；这些workflow尚未执行。尚未发布Manager或应用版本，也未执行人工浏览器验收。Apple Silicon Docker Desktop/rootless Podman实机链本次明确豁免，仍保留为Task 105后续证据。
+不要创建Portable根`workspace/`、junction或SQLite副本。若根`workspace/`已经存在，先分别备份并人工比较它与`data/workspace/`；Manager只诊断和警告，不会自动合并用户数据。
+
+#### Manifest v3实例
+
+Manifest v3不会由v4 Manager原地升级。请使用相同Profile重新安装到新的Installation Root，只复用正式State Root：
+
+- Windows Portable复用完整`data/`。
+- Product Bun和Source Profile复用原State Root或明确配置的外部State Root。
+- GHCR重新安装后重新挂载原State Root。
+- 不复制旧`.deploy`、`.runtime`、`.output`、generated Compose或wrapper。
+
+如果发现未完成的Operation Journal v1/v2，v3 Manager会拒绝自动恢复。请先备份Installation Root和State Root，人工核对Manifest、Product、Git HEAD、Compose和SQLite，再处理旧Journal；不要直接删除Journal后继续update。
+
+#### 旧Agent Session模型引用
+
+无法证明Provider Config身份的旧完整Pi Model不会被自动猜测。先准备逐entry映射文件：
+
+```json
+{
+    "mappings": [
+        {
+            "sessionId": 241,
+            "entryId": "model-change-entry-id",
+            "providerConfigId": "my-provider",
+            "modelId": "my-model"
+        }
+    ]
+}
+```
+
+先执行只读检查，再应用迁移：
+
+```text
+bun scripts/maintenance/migrate-session-model-refs.ts --workspace-root <Workspace Root> --mapping <mapping.json> --dry-run
+bun scripts/maintenance/migrate-session-model-refs.ts --workspace-root <Workspace Root> --mapping <mapping.json>
+```
+
+命令会验证Global Config中的Provider和Model、拒绝缺失或未使用的mapping，并清理历史`.redaction.tmp/.bak`敏感副本。迁移前仍建议备份完整State Root。
+
+#### Provider配置
+
+- 修改Base URL、proxy、Model API或协议时，请clone为新的Provider Config ID，再显式迁移Global/Project引用。
+- `saved`只使用身份完全匹配的已保存Secret；`provided`只使用请求Secret；`cleared`强制空Secret。
+- 删除Provider前必须先处理Global和所有managed Project引用。系统不会自动清空引用或改用默认模型。
+
+### 验证与已知边界
+
+- Manager全量：28个文件通过、1个按平台跳过；141项通过、2项跳过。Manager typecheck和5文件约0.38 MiB pack审计通过。
+- Provider、Session、公开事件、文件授权、Attachment和HTTP组合：20个文件、190项通过；Harness黑盒/State Root/Payload 30项与Trace/File Change 20项通过。
+- 根typecheck、Nuxt client/SSR/Nitro、Product runtime后处理和`git diff --check`通过。
+- Linux ARM64 glibc、macOS x64与macOS ARM64原生Product平台门禁已有集成证据；本次发布仍需由公开Release workflow生成并验证最终资产。
+- 未自动执行人工浏览器验收。Apple Silicon Docker Desktop/rootless Podman实机链继续作为Task 105待办，不标记为已验证。
 
 ## 0.8.6-canary - 2026-07-17
 

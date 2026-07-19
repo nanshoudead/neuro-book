@@ -187,4 +187,67 @@ describe("projectAgentChatEntry", () => {
         expect(projected.omittedToolCalls).toBe(8);
         expect(Buffer.byteLength(JSON.stringify(projected), "utf8")).toBeLessThan(96 * 1024);
     });
+
+    it("durable tool result 的 toolName 使用与 runtime 相同的有界投影", () => {
+        const toolName = "tool-" + "x".repeat(10_000);
+        const entry = {
+            id: "entry-tool-result",
+            parentId: null,
+            timestamp: 1,
+            type: "message" as const,
+            origin: "ingest" as const,
+            message: {
+                role: "toolResult" as const,
+                toolCallId: "call-1",
+                toolName,
+                content: [{type: "text" as const, text: "ok"}],
+                isError: false,
+                timestamp: 1,
+            },
+        } as unknown as SessionEntry;
+
+        const projected = projectAgentChatEntry(entry);
+
+        expect(projected?.type).toBe("tool_result");
+        if (projected?.type !== "tool_result") return;
+        expect(Buffer.byteLength(projected.toolName, "utf8")).toBeLessThanOrEqual(512);
+        expect(projected.toolName).not.toContain(toolName);
+    });
+
+    it("durable assistant 与 tool result 遇到非法 toolCallId 时 fail closed", () => {
+        const invalidId = "工".repeat(200);
+        expect(() => projectAgentChatEntry({
+            id: "assistant-invalid-tool-id",
+            parentId: null,
+            timestamp: 1,
+            type: "message",
+            origin: "ingest",
+            message: {
+                role: "assistant",
+                content: [{type: "toolCall", id: invalidId, name: "read", arguments: {path: "manuscript/1.md"}}],
+                api: "test",
+                provider: "test",
+                model: "test",
+                usage: {input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: {input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0}},
+                stopReason: "toolUse",
+                timestamp: 1,
+            },
+        })).toThrow("Tool call identity 无效");
+
+        expect(() => projectAgentChatEntry({
+            id: "tool-result-invalid-tool-id",
+            parentId: null,
+            timestamp: 1,
+            type: "message",
+            origin: "ingest",
+            message: {
+                role: "toolResult",
+                toolCallId: " ",
+                toolName: "read",
+                content: [{type: "text", text: "ok"}],
+                isError: false,
+                timestamp: 1,
+            },
+        })).toThrow("Tool call identity 无效");
+    });
 });

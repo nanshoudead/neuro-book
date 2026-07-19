@@ -134,6 +134,7 @@ export async function readProfileSource(profiles: AgentProfileCatalog, request: 
                 fileName: request.fileName,
                 source: "user",
                 overrideState: "user_only",
+                creationMode: "public",
                 loadStatus: "source_error",
                 schemaLocked: false,
                 canEdit: true,

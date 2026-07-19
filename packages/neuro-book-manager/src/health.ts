@@ -24,11 +24,21 @@ export type ApplicationDatabaseBackup = {
     checkpoint: {busy: number; log: number; checkpointed: number};
 };
 
+export type ApplicationDatabaseBackupIntent = Omit<ApplicationDatabaseBackup, "checkpoint"> & {
+    stateRoot: string;
+};
+
 /** checkpoint WAL 后备份 App SQLite；数据库尚未创建时返回 null。 */
-export async function backupApplicationDatabase(stateRoot: string, backupRoot: string): Promise<ApplicationDatabaseBackup | null> {
+export async function backupApplicationDatabase(
+    stateRoot: string,
+    backupRoot: string,
+    onIntent?: (intent: ApplicationDatabaseBackupIntent) => Promise<void>,
+): Promise<ApplicationDatabaseBackup | null> {
     const configuredUrl = await resolveStateDatabaseUrl(stateRoot);
     const databasePath = resolveAppSqliteLocation(configuredUrl, stateRoot).hostPath;
     if (!await pathExists(databasePath)) return null;
+    const backupPath = join(backupRoot, "database", "app.sqlite");
+    await onIntent?.({configuredUrl, databasePath, backupPath, stateRoot});
     try {
         const database = new Database(databasePath, {readwrite: true, create: false});
         let checkpoint: ApplicationDatabaseBackup["checkpoint"];
@@ -41,7 +51,6 @@ export async function backupApplicationDatabase(stateRoot: string, backupRoot: s
         } finally {
             database.close();
         }
-        const backupPath = join(backupRoot, "database", "app.sqlite");
         await ensureDirectory(dirname(backupPath));
         await copyFile(databasePath, backupPath);
         return {configuredUrl, databasePath, backupPath, checkpoint};

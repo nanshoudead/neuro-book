@@ -3,6 +3,7 @@ import {
     ensureRunnableDefault,
     inspectSettingsDraft,
     previewModelLibraryRepairs,
+    removeIncompleteDisabledModels,
     modelContractInput,
     type ContractSettingsDraft,
 } from "nbook/app/components/novel-ide/settings/model-settings-draft";
@@ -65,6 +66,21 @@ describe("model settings draft contract", () => {
         expect(inspectSettingsDraft(draft).issues).toEqual(expect.arrayContaining([
             expect.objectContaining({code: "missing_api"}),
         ]));
+    });
+
+    it("一键修复只删除不完整的已停用模型", () => {
+        const draft = createDraft();
+        const completeDisabled = {...draft.providers[0]!.models[0]!, id: "complete-disabled", enabled: false};
+        const incompleteDisabled = {...draft.providers[0]!.models[0]!, id: "incomplete-disabled", enabled: false, api: ""};
+        const incompleteEnabled = {...draft.providers[0]!.models[0]!, id: "incomplete-enabled", enabled: true, api: ""};
+        draft.providers[0]!.models = [completeDisabled, incompleteDisabled, incompleteEnabled];
+
+        expect(removeIncompleteDisabledModels(draft)).toEqual([{
+            providerId: "local",
+            modelId: "incomplete-disabled",
+            issueCodes: ["missing_api"],
+        }]);
+        expect(draft.providers[0]!.models.map((model) => model.id)).toEqual(["complete-disabled", "incomplete-enabled"]);
     });
 
     it("小数 token limit 作为无效字段处理，不会截断后进入 payload", () => {

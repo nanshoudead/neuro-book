@@ -1,4 +1,4 @@
-import {computed, ref} from "vue";
+import {computed, nextTick, reactive, ref} from "vue";
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
 import {useModelDiscoverySession} from "nbook/app/components/novel-ide/settings/useModelDiscoverySession";
 import type {ModelSettingsProviderDraft} from "nbook/app/components/novel-ide/settings/model-settings-draft";
@@ -53,26 +53,51 @@ describe("Automatic Model Discovery frontend session", () => {
         });
     });
 
-    it("缺少 Provider Model API 时保持为不可持久化候选", async () => {
+    it("发现请求显式声明凭据来源", async () => {
+        const provider = reactive(createProvider({models: []}));
+        const fetchMock = vi.fn(async () => ({models: [], message: "ok"}));
+        vi.stubGlobal("$fetch", fetchMock);
+        const session = createSession(provider, "saved");
+
+        await session.discover();
+
+        expect(fetchMock).toHaveBeenCalledWith("/api/config/models/provider-discover", expect.objectContaining({
+            body: expect.objectContaining({credentialSource: "saved"}),
+        }));
+    });
+
+    it("缺少 Provider Model API 时阻止模型发现", async () => {
         const provider = createProvider({modelApi: "", models: []});
-        vi.stubGlobal("$fetch", vi.fn(async () => ({
+        const fetchMock = vi.fn(async () => ({
             models: [remoteModel({api: null})],
             message: "ok",
-        })));
+        }));
+        vi.stubGlobal("$fetch", fetchMock);
         const session = createSession(provider);
 
         await session.discover();
 
-        expect(session.discoveryGroups.value[0]?.models[0]).toMatchObject({
-            state: "remote-incomplete",
-            incompleteCandidate: {api: null},
-        });
-        expect(session.discoveryGroups.value[0]?.models[0]).not.toHaveProperty("completeModel");
+        expect(fetchMock).not.toHaveBeenCalled();
+        expect(session.discoveryGroups.value).toEqual([]);
+    });
+
+    it("provided Secret 内容变化会作废旧发现缓存", async () => {
+        const provider = reactive(createProvider({models: []}));
+        provider.options.apiKey = "first-secret";
+        vi.stubGlobal("$fetch", vi.fn(async () => ({models: [remoteModel()], message: "ok"})));
+        const session = createSession(provider, "provided");
+        await session.discover();
+        expect(session.discoveryGroups.value).toHaveLength(1);
+
+        provider.options.apiKey = "second-secret";
+        await nextTick();
+
+        expect(session.discoveryGroups.value).toEqual([]);
     });
 });
 
 /** 创建被测发现会话。 */
-function createSession(provider: ModelSettingsProviderDraft) {
+function createSession(provider: ModelSettingsProviderDraft, credentialSource: "provided" | "saved" | "cleared" = "cleared") {
     const activeProvider = computed(() => provider);
     const modelLibrary = ref<ModelLibraryDto>({models: []});
     return useModelDiscoverySession({
@@ -83,9 +108,10 @@ function createSession(provider: ModelSettingsProviderDraft) {
         buildProviderRequest: (value) => ({
             id: value.id,
             name: value.name,
-            modelApi: value.modelApi === "openai-responses" ? "openai-responses" : null,
+            modelApi: value.modelApi === "openai-responses" ? "openai-responses" : "openai-completions",
             options: {apiKey: "", baseURL: value.options.baseURL, proxy: "", timeoutMs: null, requestOptions: {}},
         }),
+        credentialSource: () => credentialSource,
         enableModel: () => undefined,
         disableModel: () => undefined,
         openTransientCandidate: async () => undefined,

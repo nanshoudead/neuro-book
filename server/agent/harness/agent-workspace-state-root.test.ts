@@ -9,7 +9,7 @@ import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profi
 import {AgentProfileCatalog} from "nbook/server/agent/profiles/catalog";
 import {profileToolsFromKeys} from "nbook/server/agent/test/profile-tools";
 import {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
-import {createFauxModels} from "nbook/server/agent/test-utils/faux-models";
+import {createFauxModels, writeFauxProviderConfig} from "nbook/server/agent/test-utils/faux-models";
 import {setWorkspaceRuntimeRootContextForTest} from "nbook/server/workspace-files/workspace-runtime-root";
 import {closeProjectForTest} from "nbook/server/workspace-files/project-session-test-utils";
 import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
@@ -47,6 +47,7 @@ describe("Agent State Root工具链", () => {
         setWorkspaceRuntimeRootContextForTest({workspaceRoot: workspaceFsRoot});
 
         const faux = createFauxModels({models: [{id: "state-root-faux", contextWindow: 32_000, maxTokens: 4_000}]});
+        await writeFauxProviderConfig(workspaceFsRoot, faux);
         harness = new NeuroAgentHarness({
             runtimePaths,
             repo: new JsonlSessionRepository(workspaceFsRoot),
@@ -124,6 +125,7 @@ describe("Agent State Root工具链", () => {
         setWorkspaceRuntimeRootContextForTest({workspaceRoot});
 
         const faux = createFauxModels({models: [{id: "project-scope-faux", contextWindow: 32_000, maxTokens: 4_000}]});
+        await writeFauxProviderConfig(runtimePaths.workspaceRoot, faux);
         harness = new NeuroAgentHarness({
             runtimePaths,
             repo: new JsonlSessionRepository(workspaceRoot),

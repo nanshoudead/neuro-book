@@ -18,12 +18,13 @@ import {
     parseRequestOptions,
     parseStringMap,
     previewModelLibraryRepairs,
+    removeIncompleteDisabledModels,
     renameAgentProvider,
     type ModelSettingsDraft,
     type ModelSettingsModelDraft,
     type ModelSettingsProviderDraft,
 } from "nbook/app/components/novel-ide/settings/model-settings-draft";
-import type {ConfiguredModelDto, EnabledModelOptionDto, ModelLibraryDto, ModelProviderDraftDto} from "nbook/shared/dto/app-settings.dto";
+import type {CheckProviderReferencesResponseDto, ConfiguredModelDto, EnabledModelOptionDto, ModelLibraryDto, ModelProviderDraftDto} from "nbook/shared/dto/app-settings.dto";
 import type {ConfigEditorSnapshotDto, ConfigModelSettingsDto, ConfigWorkspaceQueryDto, GlobalConfigUpdateDto, ProjectConfigDto} from "nbook/shared/dto/config.dto";
 import {selectModelApi, type ModelReferenceInput} from "nbook/shared/models/provider-config-contract";
 import {deriveModelGroup} from "nbook/shared/models/model-group";
@@ -293,10 +294,14 @@ export function useModelSettingsDraftSession(options: DraftSessionOptions) {
 
     /** 构造 Provider 检查和发现请求。 */
     function buildProviderRequest(provider: ModelSettingsProviderDraft): ModelProviderDraftDto {
+        const modelApi = selectModelApi(provider.modelApi, null);
+        if (!modelApi) {
+            throw new Error(t("settings.panels.models.providerModelApiRequired"));
+        }
         return {
             id: provider.id.trim(),
             name: provider.name.trim(),
-            modelApi: selectModelApi(provider.modelApi, null),
+            modelApi,
             options: {
                 apiKey: provider.options.apiKey.trim(),
                 baseURL: provider.options.baseURL.trim(),
@@ -317,9 +322,12 @@ export function useModelSettingsDraftSession(options: DraftSessionOptions) {
         };
     }
 
-    /** 判断健康检查是否应读取已保存 Secret。 */
-    function useSavedApiKey(provider: ModelSettingsProviderDraft): boolean {
-        return !provider.options.apiKeyCleared && !provider.options.apiKey.trim();
+    /** 明确选择临时连接请求的凭据来源，禁止服务端根据空值猜测。 */
+    function credentialSource(provider: ModelSettingsProviderDraft): "provided" | "saved" | "cleared" {
+        if (provider.options.apiKeyCleared) {
+            return "cleared";
+        }
+        return provider.options.apiKey.trim() ? "provided" : provider.options.apiKeyConfigured ? "saved" : "cleared";
     }
 
     /** Global Config 写回体。 */
@@ -403,6 +411,10 @@ export function useModelSettingsDraftSession(options: DraftSessionOptions) {
         if (!provider) {
             return;
         }
+        if (provider.sourceIndex !== undefined) {
+            notification.error(t("settings.panels.models.providerIdentityImmutable"));
+            return;
+        }
         const previousId = provider.id;
         const normalizedId = nextId.trim();
         options.cancelProviderChecks(provider, true);
@@ -418,6 +430,46 @@ export function useModelSettingsDraftSession(options: DraftSessionOptions) {
             editorSnapshot.value.global.agent = renamed.agent ?? editorSnapshot.value.global.agent;
         }
         options.renameDiscovery(previousId, normalizedId);
+    }
+
+    /**
+     * 显式复制当前连接。新 Provider 不继承 Secret 或既有引用，用户确认后再单独保存。
+     * 这是修改 ID、协议、Base URL 或代理的唯一设置页入口。
+     */
+    function cloneActiveProviderConnection(): void {
+        const provider = activeProvider.value;
+        if (!provider) {
+            return;
+        }
+        const ids = new Set(draft.value.providers.map((item) => item.id.trim()));
+        const baseId = `${provider.id.trim() || "provider"}-copy`;
+        let nextId = baseId;
+        let suffix = 2;
+        while (ids.has(nextId)) {
+            nextId = `${baseId}-${String(suffix)}`;
+            suffix += 1;
+        }
+        const clone: ModelSettingsProviderDraft = {
+            localKey: createProviderKey(nextId),
+            id: nextId,
+            name: `${provider.name} Copy`,
+            enabled: provider.enabled,
+            modelApi: provider.modelApi,
+            options: {
+                apiKey: "",
+                apiKeyConfigured: false,
+                apiKeyMaskedValue: null,
+                apiKeyCleared: false,
+                baseURL: provider.options.baseURL,
+                proxy: provider.options.proxy,
+                timeoutMs: provider.options.timeoutMs,
+                requestOptions: provider.options.requestOptions,
+            },
+            models: provider.models.map((model) => cloneModel({...buildModelDraft(model), enabled: model.enabled})),
+        };
+        draft.value.providers.push(clone);
+        activeProviderKey.value = clone.localKey;
+        notification.info(t("settings.panels.models.providerCloned", {id: nextId}));
     }
 
     /** 请求删除当前 Provider。 */
@@ -436,14 +488,33 @@ export function useModelSettingsDraftSession(options: DraftSessionOptions) {
         }
         const providerId = provider.id;
         const providerName = provider.name;
+        const prefix = `${providerId}/`;
+        const currentAgent = isProjectScope.value ? editorSnapshot.value?.project?.agent : editorSnapshot.value?.global.agent;
+        const localReferences = [
+            {modelKey: draft.value.defaultModelKey, label: isProjectScope.value ? "Project 默认模型" : "Global 默认模型"},
+            ...agentReferences(currentAgent, ["agent"], isProjectScope.value ? "Project" : "Global"),
+        ].filter((reference) => reference.modelKey?.startsWith(prefix));
+        if (localReferences.length > 0) {
+            notification.error(`Provider 仍被当前草稿引用：${localReferences.map((item) => item.label).join("、")}`);
+            return;
+        }
+        try {
+            const inspection = await $fetch<CheckProviderReferencesResponseDto>("/api/config/models/provider-references", {
+                method: "POST",
+                body: {providerId},
+            });
+            if (inspection.references.length > 0) {
+                notification.error(`Provider 仍被以下配置引用：${inspection.references.map((item) => item.label).join("、")}`);
+                return;
+            }
+        } catch (error) {
+            notification.error(resolveApiErrorMessage(error, "Provider 引用检查失败"));
+            return;
+        }
         options.cancelProviderChecks(provider, true);
         draft.value.providers = draft.value.providers.filter((item) => item !== provider);
-        if (draft.value.defaultModelKey?.startsWith(`${providerId}/`)) {
-            draft.value.defaultModelKey = null;
-        }
         options.removeDiscovery(providerId);
         activeProviderKey.value = draft.value.providers[0]?.localKey ?? "";
-        ensureDefaultModel();
         deleteProviderDialogOpen.value = false;
         await saveResult(t("settings.panels.models.providerDeleted", {name: providerName}));
     }
@@ -506,6 +577,7 @@ export function useModelSettingsDraftSession(options: DraftSessionOptions) {
         repairingModels.value = true;
         try {
             const repairs = [] as ReturnType<typeof previewModelLibraryRepairs>;
+            let removedCount = 0;
             if (!isProjectScope.value) {
                 const library = await options.loadLibraries();
                 repairs.push(...previewModelLibraryRepairs(draft.value, library.models));
@@ -516,6 +588,7 @@ export function useModelSettingsDraftSession(options: DraftSessionOptions) {
                         Object.assign(model, {api: replacement.api, reasoning: replacement.reasoning, input: replacement.input, maxTokens: replacement.maxTokens, thinkingLevelMap: replacement.thinkingLevelMap, contextWindowTokens: replacement.contextWindowTokens});
                     }
                 }
+                removedCount = removeIncompleteDisabledModels(draft.value).length;
                 ensureDefaultModel();
             } else {
                 draft.value.defaultModelKey = cleanModelKey(draft.value.defaultModelKey, availableModelKeys());
@@ -523,10 +596,10 @@ export function useModelSettingsDraftSession(options: DraftSessionOptions) {
             const referencesChanged = cleanScopeReferences(availableModelKeys());
             options.resetChecks();
             await nextTick();
-            const message = t("settings.panels.models.oneClickRepairResult", {repaired: repairs.length, cleared: 0, disabled: 0, remaining: validationIssues.value.length});
+            const message = t("settings.panels.models.oneClickRepairResult", {repaired: repairs.length, removed: removedCount, remaining: validationIssues.value.length});
             if (validationIssues.value.length > 0) {
                 notification.warning(message, {title: t("settings.panels.models.oneClickRepairNeedsReview")});
-            } else if (repairs.length > 0 || referencesChanged) {
+            } else if (repairs.length > 0 || removedCount > 0 || referencesChanged) {
                 notification.success(message, {title: t("settings.panels.models.oneClickRepairDone")});
             } else {
                 notification.info(t("settings.panels.models.oneClickRepairNoChange"));
@@ -541,8 +614,8 @@ export function useModelSettingsDraftSession(options: DraftSessionOptions) {
     return {
         loading, saving, activeProviderKey, draft, activeProvider, editorSnapshot, deleteProviderDialogOpen, validationDialogOpen, repairingModels,
         isProjectScope, dirty, validationState, validationIssues, validationIssueDetails, defaultModelOptions, enabledModelGroups, disabledModels,
-        activeProviderEnabledModelCount, createProviderKey, cloneModel, buildProviderRequest, buildModelDraft, useSavedApiKey, ensureDefaultModel,
-        clearActiveProviderApiKey, toggleActiveProviderEnabled, renameActiveProviderId, requestDeleteActiveProvider, confirmDeleteActiveProvider,
+        activeProviderEnabledModelCount, createProviderKey, cloneModel, buildProviderRequest, buildModelDraft, credentialSource, ensureDefaultModel,
+        clearActiveProviderApiKey, toggleActiveProviderEnabled, renameActiveProviderId, cloneActiveProviderConnection, requestDeleteActiveProvider, confirmDeleteActiveProvider,
         enableModel, disableModel, deleteModel, savedModelIssues, displayedContextWindow, repair, load, save, restore,
     };
 }
