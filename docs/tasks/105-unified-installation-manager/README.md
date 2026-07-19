@@ -1,6 +1,6 @@
 # 105 - 统一安装目录与 NeuroBook Manager
 
-> 当前状态：实现中，应用发布进行中。Manager `0.1.0-canary.21`已公开；[`v0.8.8-canary.20260719.143648Z.93ce3b3f`](https://github.com/notnotype/neuro-book/releases/tag/v0.8.8-canary.20260719.143648Z.93ce3b3f)已创建，workflow `29691194281`后台执行，`0.8.6`仍是最新已确认含资产版本。`.20`未进入npm；`0.8.7`在任何资产构建前失败并保留零资产审计Release。当前源码协议为Installation Manifest v4、Release Manifest v3与Operation Journal v3；公开多架构资产、Canary A数据复用与Canary A→B事务更新仍需完成。Apple Silicon Docker Desktop/rootless Podman实机门禁继续豁免，但不得标记为已验证。
+> 当前状态：实现中，应用发布进行中。Manager `0.1.0-canary.21`已公开，`0.8.6`仍是最新已确认含资产版本。`.20`未进入npm；`0.8.7`与`0.8.8`分别在provenance和POSIX测试门禁失败，均保留零资产审计Release；Canary A推进到`0.8.9`。当前源码协议为Installation Manifest v4、Release Manifest v3与Operation Journal v3；公开多架构资产、Canary A数据复用与Canary A→B事务更新仍需完成。Apple Silicon Docker Desktop/rootless Podman实机门禁继续豁免，但不得标记为已验证。
 
 ## 2026-07-19：Operation Journal v3与资产ownership收口
 
@@ -841,7 +841,7 @@ uninstall
 - Host/Preflight/Managed Asset/Container Admin聚焦5文件30项通过；Release workflow合同5项、Stage 0 Windows静态/Parser 8项通过，POSIX行为9项在Windows按平台跳过；GHCR与POSIX脚本`bash -n`通过。
 - 最终Manager完整suite为26文件127项通过，另有1文件/2项按平台跳过；新增覆盖损坏旧代次保留、新代次提交、Journal记账失败清理、`retiredPaths`安全校验及提交后恢复清理。Manager pack审计为5个文件、约0.37 MiB；Manager与根typecheck、Nuxt build及Product后处理通过。
 - 与原计划相比，新增修复了两个执行前审查才暴露的真实入口问题：Windows PowerShell 5对UTF-8无BOM中文脚本的解析失败，以及容器管理员非交互密码没有传入容器。两者均通过平台/容器共同Interface解决，没有为CI增加测试专用业务fallback。
-- Manager `.21`已经公开；应用A的`0.8.8` workflow正在后台执行，Windows公开Portable、Linux双架构公开GHCR与rootless Podman结果尚未确认。应用B的A→B事务更新和Apple Silicon Docker Desktop/rootless Podman设备验收仍保留未完成状态。
+- Manager `.21`已经公开；应用A推进到`0.8.9`。Windows公开Portable、Linux双架构公开GHCR与rootless Podman结果尚未确认。应用B的A→B事务更新和Apple Silicon Docker Desktop/rootless Podman设备验收仍保留未完成状态。
 
 ### 2026-07-19：Manager `.20` Linux发布门禁失败与跨平台夹具修复
 
@@ -854,4 +854,5 @@ uninstall
 - Release现把npm tarball作为Manager可执行bundle唯一发布来源：Portable直接安装公开`neuro-book.mjs`，assemble逐字节比较Portable与npm；公开schema再次解析候选Release Manifest。预检使用npm registry `gitHead`并比较Manager源码、Manager package/build脚本、共享`server/runtime`和`bun.lock`，有任何构建输入漂移都要求先发布新Manager；应用自身版本号变化不会伪装成Manager漂移。
 - 应用`v0.8.7-canary.20260719.142942Z.9081e659` workflow `29690944232`在`verify-manager`立即失败，没有构建或上传资产。GitHub Actions默认checkout只有当前Release提交，npm provenance的`d42ab2fa...`不在浅克隆对象库中；生产校验本身没有失败。
 - 预检现先执行按SHA、depth=1的只读fetch，再比较Manager构建输入。失败的`0.8.7`继续保留为审计记录，不复用tag；下一patch `0.8.8`承担Canary A。
-- `v0.8.8-canary.20260719.143648Z.93ce3b3f`已创建并推送，workflow `29691194281`启动后按`--no-watch`约定交由Actions后台执行。本轮只确认Release和workflow存在，不把未完成的公开资产、Portable数据复用或GHCR门禁写成已验证。
+- `v0.8.8-canary.20260719.143648Z.93ce3b3f` workflow `29691194281`的Manager provenance与Source通过，但Linux x64/ARM64和macOS x64/ARM64都在`Verify POSIX Stage 0 behavior`失败。共同失败是“缺少curl”测试未传参数，先命中了正确的非TTY拒绝；不是Stage 0下载或平台选择回归。
+- 测试现显式传`--profile product-bun --yes`后再移除`curl`，精确验证依赖缺失发生在缓存/临时目录创建前。已取消`0.8.8`剩余构建，失败Release继续保留，下一patch `0.8.9`承担Canary A。

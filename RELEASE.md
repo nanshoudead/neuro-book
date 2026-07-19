@@ -1,10 +1,10 @@
 # Release Notes
 
-## 0.8.8-canary - 2026-07-19
+## 0.8.9-canary - 2026-07-19
 
 本次patch收口`0.8.6`之后发现的Portable数据库、Manager更新事务、Provider身份、Agent文件授权与公开事件安全问题。该版本需要`@notnotype/neuro-book-manager@0.1.0-canary.21`或更高版本。
 
-公开prerelease：[`v0.8.8-canary.20260719.143648Z.93ce3b3f`](https://github.com/notnotype/neuro-book/releases/tag/v0.8.8-canary.20260719.143648Z.93ce3b3f)。Release workflow [`29691194281`](https://github.com/notnotype/neuro-book/actions/runs/29691194281)已启动；按发布约定未等待Actions，最终资产与公开Manifest仍以workflow结果为准。
+`0.8.9`是本轮待发布修复版本。`0.8.7`与`0.8.8`均保留为零资产审计prerelease，不应下载或安装。
 
 ### 更新说明
 
@@ -85,7 +85,8 @@ bun scripts/maintenance/migrate-session-model-refs.ts --workspace-root <Workspac
 - Manager全量：28个文件通过、1个按平台跳过；141项通过、2项跳过。Manager typecheck和5文件约0.38 MiB pack审计通过。
 - Manager `0.1.0-canary.21`已由npm Trusted Publisher公开，workflow `29690567507`全绿；npm精确版本和全新Bun cache中的`bunx --bun ...@0.1.0-canary.21 --version`均返回`.21`。`.20`发布在npm publish前被Linux测试夹具阻断，不是可安装版本。
 - `0.8.7` prerelease只创建了审计Release，workflow `29690944232`在任何资产构建前失败。原因是`actions/checkout`的单提交浅克隆没有npm `gitHead`对象；预检现显式按SHA取回该提交后再比较构建输入。修复版本改为`0.8.8`。
-- `0.8.8` prerelease已创建并推送，Release workflow `29691194281`正在后台执行。本次没有等待或监控应用Actions，也没有执行人工浏览器验收。
+- `0.8.8` workflow `29691194281`的Manager provenance与Source门禁通过，但四个POSIX Product job被同一个过期测试阻断：测试未传显式自动化参数，却期待先报告缺少`curl`。生产Stage 0按既定合同先拒绝“无TTY且无参数”，行为正确。
+- 缺少`curl`测试现显式传`--profile product-bun --yes`，因此会越过非TTY入口门禁并验证依赖检查仍发生在缓存/临时目录创建前。`0.8.8`剩余构建已取消，修复版本推进为`0.8.9`。
 - Provider、Session、公开事件、文件授权、Attachment和HTTP组合：20个文件、190项通过；Harness黑盒/State Root/Payload 30项与Trace/File Change 20项通过。
 - 根typecheck、Nuxt client/SSR/Nitro、Product runtime后处理和`git diff --check`通过。
 - Linux ARM64 glibc、macOS x64与macOS ARM64原生Product平台门禁已有集成证据；本次发布仍需由公开Release workflow生成并验证最终资产。

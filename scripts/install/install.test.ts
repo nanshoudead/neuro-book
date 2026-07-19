@@ -134,7 +134,10 @@ describePosix("POSIX Stage 0行为", () => {
         await mkdir(bin, {recursive: true});
         await writeExecutable(join(bin, "uname"), '#!/bin/sh\n[ "$1" = "-s" ] && echo Linux || echo x86_64\n');
         await writeExecutable(join(bin, "getconf"), "#!/bin/sh\necho 'glibc 2.39'\n");
-        const result = await spawnScript({PATH: bin, HOME: join(root, "home")});
+        const result = await spawnScript(
+            {PATH: bin, HOME: join(root, "home")},
+            ["--profile", "product-bun", "--yes"],
+        );
 
         expect(result.code).toBe(1);
         expect(result.stderr).toContain("Stage 0 缺少命令：curl");
