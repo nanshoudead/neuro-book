@@ -5,6 +5,7 @@ import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
 
 import {applyJournaledApplicationMigrations, startInstallationApplication} from "#manager/migration-operation";
 import {createOperation} from "#manager/operation";
+import {currentProductPlatform} from "#manager/platform";
 import type {InstallationManifest} from "#manager/types";
 
 const migrations = vi.hoisted(() => ({
@@ -144,7 +145,7 @@ function productManifest(): InstallationManifest {
                 provider: "release",
                 version: "0.8.0-canary.1",
                 revision,
-                platform: "windows-x64",
+                platform: currentProductPlatform(),
                 path: ".output",
                 archiveSha256: "b".repeat(64),
                 sourceUrl: "https://example.com/neuro-book-product-windows-x64.zip",

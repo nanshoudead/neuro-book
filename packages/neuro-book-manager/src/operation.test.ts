@@ -5,6 +5,7 @@ import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
 
 import {removePath} from "#manager/files";
 import {commitOperation, createOperation, pathCreateEffect, pathRetireEffect, recoverInterruptedOperations, updateOperation} from "#manager/operation";
+import {currentProductPlatform} from "#manager/platform";
 import {parseOperationJournal} from "#manager/schema";
 import {sourceDockerImageName} from "#manager/source-docker-image";
 import type {InstallationManifest} from "#manager/types";
@@ -31,6 +32,8 @@ vi.mock("#manager/git", () => ({
 }));
 
 const roots: string[] = [];
+const JOURNAL_ROOT = join(tmpdir(), "neuro-book-operation-fixture");
+const OUTSIDE_ROOT = join(tmpdir(), "neuro-book-operation-outside");
 
 afterEach(async () => Promise.all(roots.splice(0).map((root) => removePath(root))));
 beforeEach(() => {
@@ -60,12 +63,14 @@ describe("Operation recovery", () => {
     it("分别校验backup、SQLite、Compose、wrapper和Attachment路径合同", () => {
         const journal = {...operationJournal(), previousManifest: nativeManifest("1.0.0", "a".repeat(40))};
         const checkpoint = {busy: 0, log: 1, checkpointed: 1};
-        expect(() => parseOperationJournal({...journal, backupRoot: "C:/outside"}, "memory.json"))
+        expect(() => parseOperationJournal({...journal, backupRoot: OUTSIDE_ROOT}, "memory.json"))
             .toThrow("backupRoot越过允许根目录");
         expect(() => parseOperationJournal({...journal, effects: [{kind: "sqlite-backup", state: "planned", owner: "app-sqlite", configuredUrl: "file:./workspace/.nbook/neuro-book.sqlite", stateRoot: "workspace", hostPath: "workspace/.nbook/neuro-book.sqlite", backupPath: "C:/neuro-book/.deploy/backups/operation/database/app.sqlite", checkpoint}]}, "memory.json")).toThrow("绝对stateRoot/hostPath");
-        expect(() => parseOperationJournal({...journal, effects: [{kind: "sqlite-backup", state: "planned", owner: "app-sqlite", configuredUrl: "file:C:/external/neuro-book.sqlite", stateRoot: "C:/neuro-book", hostPath: "C:/external/neuro-book.sqlite", backupPath: "C:/outside/app.sqlite", checkpoint}]}, "memory.json")).toThrow("SQLite backup越过允许根目录");
-        expect(() => parseOperationJournal({...journal, containerEngine: "docker", effects: [{kind: "compose", state: "planned", owner: "compose", previousState: "stopped", stopped: false, previousCompose: "C:/outside/compose.yml", created: false}]}, "memory.json")).toThrow("previousCompose越过允许根目录");
-        expect(() => parseOperationJournal({...journal, effects: [{kind: "wrapper-switch", state: "planned", owner: "wrapper", previousState: "present", backupPath: "C:/outside/runtime-bin"}]}, "memory.json")).toThrow("wrapper backup越过允许根目录");
+        const externalDatabase = join(OUTSIDE_ROOT, "neuro-book.sqlite");
+        const externalDatabaseUrl = `file:${externalDatabase.replaceAll("\\", "/")}`;
+        expect(() => parseOperationJournal({...journal, effects: [{kind: "sqlite-backup", state: "planned", owner: "app-sqlite", configuredUrl: externalDatabaseUrl, stateRoot: JOURNAL_ROOT, hostPath: externalDatabase, backupPath: join(OUTSIDE_ROOT, "app.sqlite"), checkpoint}]}, "memory.json")).toThrow("SQLite backup越过允许根目录");
+        expect(() => parseOperationJournal({...journal, containerEngine: "docker", effects: [{kind: "compose", state: "planned", owner: "compose", previousState: "stopped", stopped: false, previousCompose: join(OUTSIDE_ROOT, "compose.yml"), created: false}]}, "memory.json")).toThrow("previousCompose越过允许根目录");
+        expect(() => parseOperationJournal({...journal, effects: [{kind: "wrapper-switch", state: "planned", owner: "wrapper", previousState: "present", backupPath: join(OUTSIDE_ROOT, "runtime-bin")}]}, "memory.json")).toThrow("wrapper backup越过允许根目录");
         expect(() => parseOperationJournal({...journal, effects: [{kind: "wrapper-switch", state: "planned", owner: "wrapper", previousState: "present"}]}, "memory.json")).toThrow("必须预先记录backupPath");
         expect(() => parseOperationJournal({
             ...journal,
@@ -77,7 +82,7 @@ describe("Operation recovery", () => {
                 sessions: [{...attachmentSessions(1)[0]!, sourcePath: "../sessions/1.jsonl"}],
             },
         }, "memory.json")).toThrow("非根目录项");
-        expect(() => parseOperationJournal({...journal, effects: [{kind: "sqlite-backup", state: "planned", owner: "app-sqlite", configuredUrl: "file:C:/external/neuro-book.sqlite", stateRoot: "C:/neuro-book", hostPath: "C:/external/neuro-book.sqlite", backupPath: "C:/neuro-book/.deploy/backups/operation/database/app.sqlite", checkpoint}]}, "memory.json")).not.toThrow();
+        expect(() => parseOperationJournal({...journal, effects: [{kind: "sqlite-backup", state: "planned", owner: "app-sqlite", configuredUrl: externalDatabaseUrl, stateRoot: JOURNAL_ROOT, hostPath: externalDatabase, backupPath: join(JOURNAL_ROOT, ".deploy", "backups", "operation", "database", "app.sqlite"), checkpoint}]}, "memory.json")).not.toThrow();
     });
 
     it("拒绝退役nextManifest仍引用的受管资产目录", () => {
@@ -202,7 +207,7 @@ describe("Operation recovery", () => {
     });
 
     it("拒绝迁移脚本根越过Installation Root", () => {
-        expect(() => parseOperationJournal({...operationJournal(), migrationRoot: "C:/outside"}, "memory.json"))
+        expect(() => parseOperationJournal({...operationJournal(), migrationRoot: OUTSIDE_ROOT}, "memory.json"))
             .toThrow("migrationRoot越过允许根目录");
     });
 
@@ -588,7 +593,7 @@ function nativeManifest(version: string, revision: string): InstallationManifest
         stateRoot: ".",
         components: {
             source: {provider: "release", version, revision, path: ".", files: ["package.json"], archiveSha256: "a".repeat(64), sourceUrl: "https://example.com/source.zip", license: "AGPL-3.0-only", redistribution: "test"},
-            product: {provider: "release", version, revision, path: ".output", platform: "windows-x64", archiveSha256: "a".repeat(64), sourceUrl: "https://example.com/product.zip", license: "AGPL-3.0-only", redistribution: "test"},
+            product: {provider: "release", version, revision, path: ".output", platform: currentProductPlatform(), archiveSha256: "a".repeat(64), sourceUrl: "https://example.com/product.zip", license: "AGPL-3.0-only", redistribution: "test"},
             manager: {provider: "managed", version: "0.1.0", path: ".runtime/manager/0.1.0/neuro-book.mjs", bundleSha256: "a".repeat(64)},
             managerRuntime: {provider: "system", version: "1.3.0", executable: "bun"},
             applicationRuntime: {provider: "system", version: "1.3.0", executable: "bun"},
@@ -628,10 +633,10 @@ function operationJournal() {
         id: "operation",
         action: "update" as const,
         phase: "planned" as const,
-        root: "C:/neuro-book",
+        root: JOURNAL_ROOT,
         containerEngine: null,
         effects: [],
-        backupRoot: "C:/neuro-book/.deploy/backups/operation",
+        backupRoot: join(JOURNAL_ROOT, ".deploy", "backups", "operation"),
         previousManifest: null,
         nextManifest: null,
         createdAt: now,

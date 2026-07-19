@@ -6,6 +6,7 @@ import {afterEach, describe, expect, it, vi} from "vitest";
 import {readInstallationManifest, writeInstallationManifest} from "#manager/manifest-store";
 import {createOperation} from "#manager/operation";
 import {installationPaths} from "#manager/paths";
+import {currentProductPlatform, PRODUCT_ASSET_NAMES} from "#manager/platform";
 import type {InstallationManifest, ReleaseManifest} from "#manager/types";
 import {updateInstallation} from "#manager/updater";
 import {planGitProfileUpdate, planReleaseProfileUpdate} from "#manager/update-planner";
@@ -186,7 +187,7 @@ function productManifest(overrides: {managerVersion?: string} = {}): Installatio
                 version: "0.8.6-canary.1",
                 revision: "1".repeat(40),
                 path: ".output",
-                platform: "windows-x64",
+                platform: currentProductPlatform(),
                 archiveSha256: SHA_A,
                 sourceUrl: "https://example.com/product.zip",
                 license: "AGPL-3.0-only",
@@ -250,7 +251,7 @@ function gitManifest(profile: "source-dev" | "source-product"): InstallationMani
                 version: manifest.appVersion,
                 revision: manifest.sourceRevision,
                 path: ".output",
-                platform: "windows-x64",
+                platform: currentProductPlatform(),
             },
         },
     };
@@ -267,7 +268,7 @@ function releaseManifest(overrides: {version?: string; sourceRevision?: string; 
         sourceRevision,
         minManagerVersion: MANAGER_VERSION,
         source: {url: "https://example.com/source.zip", sha256: sourceSha, bytes: 1},
-        products: [{platform: "windows-x64", sourceRevision, url: "https://example.com/product.zip", sha256: overrides.productSha ?? sourceSha, bytes: 1}],
+        products: [{platform: currentProductPlatform(), sourceRevision, url: `https://example.com/${PRODUCT_ASSET_NAMES[currentProductPlatform()]}`, sha256: overrides.productSha ?? sourceSha, bytes: 1}],
         windowsPortable: {url: "https://example.com/portable.zip", sha256: sourceSha, bytes: 1},
         ghcr: {ref: `ghcr.io/notnotype/neuro-book:v${version}`, digest: `sha256:${SHA_A}`, sourceRevision},
     };

@@ -1,6 +1,6 @@
 # 105 - 统一安装目录与 NeuroBook Manager
 
-> 当前状态：实现中。Manager `0.1.0-canary.19`与应用[`v0.8.6-canary.20260717.130406Z.a91a96f`](https://github.com/notnotype/neuro-book/releases/tag/v0.8.6-canary.20260717.130406Z.a91a96f)仍是最新公开版本。当前源码协议为Installation Manifest v4、Release Manifest v3与Operation Journal v3；新代码尚未发布，精确npm Manager、公开多架构资产、Canary A数据复用与Canary A→B事务更新仍需完成。Apple Silicon Docker Desktop/rootless Podman实机门禁继续豁免，但不得标记为已验证。
+> 当前状态：实现中，发布进行中。Manager `0.1.0-canary.19`与应用[`v0.8.6-canary.20260717.130406Z.a91a96f`](https://github.com/notnotype/neuro-book/releases/tag/v0.8.6-canary.20260717.130406Z.a91a96f)仍是最新公开版本。`.20`发布workflow在npm publish前被Linux跨平台测试夹具阻断，未形成公开npm版本；修复后改发`.21`。当前源码协议为Installation Manifest v4、Release Manifest v3与Operation Journal v3；公开多架构资产、Canary A数据复用与Canary A→B事务更新仍需完成。Apple Silicon Docker Desktop/rootless Podman实机门禁继续豁免，但不得标记为已验证。
 
 ## 2026-07-19：Operation Journal v3与资产ownership收口
 
@@ -841,4 +841,11 @@ uninstall
 - Host/Preflight/Managed Asset/Container Admin聚焦5文件30项通过；Release workflow合同5项、Stage 0 Windows静态/Parser 8项通过，POSIX行为9项在Windows按平台跳过；GHCR与POSIX脚本`bash -n`通过。
 - 最终Manager完整suite为26文件127项通过，另有1文件/2项按平台跳过；新增覆盖损坏旧代次保留、新代次提交、Journal记账失败清理、`retiredPaths`安全校验及提交后恢复清理。Manager pack审计为5个文件、约0.37 MiB；Manager与根typecheck、Nuxt build及Product后处理通过。
 - 与原计划相比，新增修复了两个执行前审查才暴露的真实入口问题：Windows PowerShell 5对UTF-8无BOM中文脚本的解析失败，以及容器管理员非交互密码没有传入容器。两者均通过平台/容器共同Interface解决，没有为CI增加测试专用业务fallback。
-- 尚未完成Manager `.20`、应用A/B、Windows公开Portable、Linux双架构公开GHCR和rootless Podman workflow执行；Apple Silicon Docker Desktop/rootless Podman设备验收仍按用户决策豁免本轮发布阻断，但继续保留未完成状态。
+- 尚未完成Manager `.21`、应用A/B、Windows公开Portable、Linux双架构公开GHCR和rootless Podman workflow执行；Apple Silicon Docker Desktop/rootless Podman设备验收仍按用户决策豁免本轮发布阻断，但继续保留未完成状态。
+
+### 2026-07-19：Manager `.20` Linux发布门禁失败与跨平台夹具修复
+
+- `manager-v0.1.0-canary.20`已创建提交与tag，但workflow `29690301774`在`Verify package`阶段失败，npm publish没有执行，因此`.20`不是可安装的公开版本。
+- 生产Host Platform与Operation路径校验按设计拒绝错误宿主；失败来自测试夹具把可运行Product固定为`windows-x64`，并把Journal根固定为`C:/neuro-book`。这些夹具在Windows本地全绿，却在Linux runner被正确识别为跨平台Product和非POSIX绝对路径。
+- 修复不放宽任何生产校验：需要运行实例的测试Manifest改用`currentProductPlatform()`，Journal/backup/SQLite/Compose/wrapper/migration路径改用当前操作系统的`tmpdir()`与`path.join()`。Release Product URL继续从平台资产映射生成。
+- Windows Manager全量仍为28个文件通过、1个按平台跳过，141项通过、2项跳过。下一公开Manager版本改为`.21`；应用`0.8.7`的最低Manager版本同步提升为`.21`。

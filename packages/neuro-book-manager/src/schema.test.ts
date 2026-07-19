@@ -1,3 +1,5 @@
+import {tmpdir} from "node:os";
+import {join} from "node:path";
 import {describe, expect, it} from "vitest";
 
 import {PRODUCT_ASSET_NAMES} from "#manager/platform";
@@ -6,6 +8,7 @@ import {PRODUCT_PLATFORMS} from "#manager/types";
 
 const SHA = "a".repeat(64);
 const REVISION = "b".repeat(40);
+const JOURNAL_ROOT = join(tmpdir(), "neuro-book-schema-fixture");
 
 describe("Manager manifest schemas", () => {
     it("接受 Product Bun 的固定组件结构", () => {
@@ -153,10 +156,10 @@ function operationJournal(manifest: ReturnType<typeof dockerManifest>) {
         id: "operation",
         action: "update" as const,
         phase: "planned" as const,
-        root: "C:/neuro-book",
+        root: JOURNAL_ROOT,
         containerEngine: "podman" as const,
         effects: [],
-        backupRoot: "C:/neuro-book/.deploy/backups/operation",
+        backupRoot: join(JOURNAL_ROOT, ".deploy", "backups", "operation"),
         previousManifest: manifest,
         nextManifest: manifest,
         createdAt: now,

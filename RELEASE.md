@@ -2,7 +2,7 @@
 
 ## 0.8.7-canary - 2026-07-19
 
-本次patch收口`0.8.6`之后发现的Portable数据库、Manager更新事务、Provider身份、Agent文件授权与公开事件安全问题。该版本需要`@notnotype/neuro-book-manager@0.1.0-canary.20`或更高版本。
+本次patch收口`0.8.6`之后发现的Portable数据库、Manager更新事务、Provider身份、Agent文件授权与公开事件安全问题。该版本需要`@notnotype/neuro-book-manager@0.1.0-canary.21`或更高版本。
 
 ### 更新说明
 
