@@ -30,6 +30,15 @@ jobs:
         run: |
           bun run test:install
           bun run manager:test
+      - name: Verify Product Agent state root contract
+        shell: bash
+        run: |
+          smoke_root="$(mktemp -d)"
+          trap 'rm -rf "${smoke_root}"' EXIT
+          mkdir -p "${smoke_root}/application"
+          NEURO_BOOK_APPLICATION_ROOT="${smoke_root}/application" \
+          NEURO_BOOK_STATE_ROOT="${smoke_root}/state" \
+          bun scripts/deploy/product-agent-state-root-smoke.ts
       - name: Verify release asset contracts
         run: bun node_modules/vitest/vitest.mjs run scripts/release/release-assets.test.ts scripts/release/release-checksums.test.ts
 

@@ -1,8 +1,26 @@
 # Release Notes
 
+## 0.8.12-canary - 2026-07-20
+
+本次patch修复`0.8.11`候选资产验证中的Product Agent State Root smoke配置漂移。继续使用已经公开的`@notnotype/neuro-book-manager@0.1.0-canary.23`。
+
+### 修复
+
+- Product Agent smoke不再用缺少本地Provider身份的旧Faux Pi Model创建Session；它会通过正式Config Service写入最小Provider Config和Model，并让runtime model携带同一个`providerConfigId`。
+- 移动完整State Root后不再重复创建Provider配置，而是复用随State Root迁移的Global Config，验证旧Session能从durable `{providerConfigId, modelId}`恢复。
+- Release preflight新增真实Product Agent State Root smoke，在五平台Product和多架构OCI fan-out前覆盖五文件工具、外部Project Attachment、State Root移动和旧Session恢复。
+
+### 迁移指南
+
+- `0.8.11`没有发布最终Manifest或完整资产索引，不要安装其候选资产；`0.8.6`用户继续等待本版本完成公开门禁。
+- 本次只修复发布smoke和候选门禁，不修改用户Session、Provider Config、数据库或Installation Manifest，不需要数据迁移。
+- 用户不应为绕过错误手工给历史Session补Provider名称；真实旧Session仍必须通过Task 104的显式映射维护流程处理无法证明的模型身份。
+
 ## 0.8.11-canary - 2026-07-20
 
 本次patch修复`0.8.10`新增原生平台Manager门禁后暴露的两个子进程测试问题。该版本需要`@notnotype/neuro-book-manager@0.1.0-canary.23`或更高版本。
+
+公开prerelease：[`v0.8.11-canary.20260719.161808Z.afed53ec`](https://github.com/notnotype/neuro-book/releases/tag/v0.8.11-canary.20260719.161808Z.afed53ec)。Release workflow [`29694596325`](https://github.com/notnotype/neuro-book/actions/runs/29694596325)完成五平台Product和多架构OCI构建，但Linux/Windows候选验证被过期Product Agent smoke阻断，没有公开最终索引。
 
 ### 修复
 

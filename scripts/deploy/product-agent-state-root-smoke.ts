@@ -40,7 +40,13 @@ if (sameRootLayout && !rootsMatch) {
 }
 
 const stateProfileKey = "test.product-state-root";
-type SmokeModels = FauxProviderHandle & {runtime: Models};
+const stateProviderConfigId = "product-state-root-faux";
+const stateModelId = "product-state-root-faux";
+type SmokeModels = FauxProviderHandle & {
+    runtime: Models;
+    /** Faux Provider在Session持久化合同中的本地Provider Config身份。 */
+    providerConfigId: string;
+};
 if (process.argv[2] === "resume-moved-state") {
     const movedSessionId = Number(process.argv[3]);
     const movedProjectSlug = process.argv[4]?.trim();
@@ -72,7 +78,7 @@ await writeFile(path.join(externalProjectRoot, "project.yaml"), [
 ].join("\n"), "utf8");
 await writeFile(path.join(externalProjectRoot, "lorebook", "cover.jpg"), externalImageBytes);
 
-const faux = createSmokeModels("product-state-root-faux");
+const faux = createSmokeModels();
 const harness = createSmokeHarness(runtimePaths, faux);
 let sessionId: number | null = null;
 
@@ -245,7 +251,7 @@ async function runMovedStateRootPhase(
 ): Promise<void> {
     const movedProjectPath = `workspace/${movedProjectSlug}`;
     const movedProjectRoot = path.join(paths.workspaceRoot, movedProjectSlug);
-    const movedFaux = createSmokeModels("product-state-root-moved-faux");
+    const movedFaux = createSmokeModels();
     const movedHarness = createSmokeHarness(paths, movedFaux);
     try {
         registerSmokeProfile(movedHarness);
@@ -283,11 +289,11 @@ async function runMovedStateRootPhase(
 }
 
 /** 创建Product smoke专用Faux Provider。 */
-function createSmokeModels(id: string): SmokeModels {
-    const faux = fauxProvider({models: [{id, contextWindow: 32_000, maxTokens: 4_000}]});
+function createSmokeModels(): SmokeModels {
+    const faux = fauxProvider({models: [{id: stateModelId, contextWindow: 32_000, maxTokens: 4_000}]});
     const runtime = createModels();
     runtime.setProvider(faux.provider);
-    return {...faux, runtime};
+    return {...faux, runtime, providerConfigId: stateProviderConfigId};
 }
 
 /** 使用当前Product RuntimePaths建立Harness。 */
@@ -302,7 +308,10 @@ function createSmokeHarness(
             path.join(paths.applicationRoot, "missing-system-profiles"),
             path.join(paths.applicationRoot, "missing-user-profiles"),
         ),
-        modelResolver: () => smokeFaux.getModel(),
+        modelResolver: () => ({
+            ...smokeFaux.getModel(),
+            providerConfigId: smokeFaux.providerConfigId,
+        }),
         runtimeResolver: () => smokeFaux.runtime,
         enableSessionSummarizer: false,
     });
@@ -338,6 +347,37 @@ async function writeProductState(
     marker: string,
 ): Promise<void> {
     await saveGlobalConfig({
+        ...(marker === "initial-state-root" ? {models: {
+            default: `${stateProviderConfigId}/${stateModelId}`,
+            providers: [{
+                id: stateProviderConfigId,
+                name: "Product State Root Faux",
+                enabled: true,
+                modelApi: "openai-completions",
+                options: {
+                    apiKey: {configured: false, maskedValue: null},
+                    baseURL: "http://127.0.0.1:1/v1",
+                    proxy: "",
+                    timeoutMs: null,
+                    requestOptions: {},
+                },
+                models: [{
+                    id: stateModelId,
+                    name: "Product State Root Faux",
+                    group: null,
+                    enabled: true,
+                    api: "openai-completions",
+                    reasoning: false,
+                    input: ["text", "image"],
+                    maxTokens: 4_000,
+                    contextWindowTokens: 32_000,
+                    cost: null,
+                    compat: null,
+                    headers: null,
+                    thinkingLevelMap: null,
+                }],
+            }],
+        }} : {}),
         ui: {
             theme: "sepia",
             customThemes: [],

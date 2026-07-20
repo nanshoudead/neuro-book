@@ -1,6 +1,6 @@
 # 105 - 统一安装目录与 NeuroBook Manager
 
-> 当前状态：实现中，应用发布进行中。Manager `0.1.0-canary.22`已公开；`v0.8.10` workflow `29693247437`在Windows/macOS x64原生Manager门禁失败后取消，没有形成最终索引。生产子进程捕获与真实集成测试预算已修复，下一顺序为Manager `.23`后发布应用`0.8.11`并持续验收。`0.8.6`仍是最新已确认含资产版本。当前源码协议为Installation Manifest v4、Release Manifest v3与Operation Journal v3；公开多架构资产、Canary A数据复用与Canary A→B事务更新仍需完成。Apple Silicon Docker Desktop/rootless Podman实机门禁继续豁免，但不得标记为已验证。
+> 当前状态：实现中，应用发布进行中。Manager `0.1.0-canary.23`已公开，Product Platform Checks `29694350114`全绿。`v0.8.11`完成五平台Product和多架构OCI构建，但Linux/Windows候选验证被过期Product Agent State Root smoke阻断，没有最终索引。smoke已改为正式Provider Config + durable model ref并进入Release preflight；下一应用patch为`0.8.12`。`0.8.6`仍是最新已确认含资产版本。当前源码协议为Installation Manifest v4、Release Manifest v3与Operation Journal v3；公开多架构资产、Canary A数据复用与Canary A→B事务更新仍需完成。Apple Silicon Docker Desktop/rootless Podman实机门禁继续豁免，但不得标记为已验证。
 
 ## 2026-07-19：Operation Journal v3与资产ownership收口
 
@@ -875,3 +875,11 @@ uninstall
 - 两者不是Portable归档修复回归。Linux preflight、Linux x64/ARM64 Product和macOS ARM64 Product均已通过；workflow在最终索引前被阻断并取消，剩余OCI构建也随之停止。
 - 生产修复将捕获完成点改为`close`，保证stdout/stderr完整；测试基础设施统一20秒预算覆盖真实Git、PowerShell和子进程冷启动，job级硬超时继续负责识别真正挂死。
 - 本地Manager typecheck通过，完整29文件/144项连续两轮通过（另1文件/2项按平台跳过），Release资产/checksum 8项通过。下一版本为Manager `.23`和应用`0.8.11`，不复用`.22/.10`的bundle或tag。
+
+### 2026-07-20：`0.8.11`候选Product Agent smoke失败
+
+- workflow `29694596325`的Release preflight、五平台Product、Windows Portable和多架构OCI均通过；Linux与Windows在执行同一个`product-agent-state-root-smoke.ts`时失败，后续最终索引按设计全部跳过。
+- Task 104已要求Session只持久化`{providerConfigId, modelId}`。smoke仍返回没有`providerConfigId`的Faux Pi Model；初步补字段后，运行时又正确要求Effective Config中存在该Provider，移动后重复写Provider则触发`sourceIndex`身份门禁。
+- 最终修复让smoke首次阶段通过正式Config Service写入最小Provider/Model配置，Faux runtime model携带相同本地ID；移动阶段复用随完整State Root一起移动的Config，不重建Provider。
+- 同一脚本的源码入口和Nuxt Product `.output`副本均在隔离Application/State Root完成五工具、Attachment、State Root移动和旧Session恢复。Release preflight新增约5秒的同链门禁，避免再次在40分钟OCI后才发现Session合同漂移。
+- 本地根typecheck、Session model 4项、Release合同8项、完整Nuxt/Product build通过。Manager bundle未变化，下一应用patch`0.8.12`继续使用公开`.23`。

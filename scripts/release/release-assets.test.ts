@@ -82,6 +82,7 @@ describe("Product Release宿主合同", () => {
         const preflightRun = workflow.jobs.preflight.steps.map(({run}) => run ?? "").join("\n");
         expect(preflightRun).toContain("bun run test:install");
         expect(preflightRun).toContain("bun run manager:test");
+        expect(preflightRun).toContain("product-agent-state-root-smoke.ts");
         expect(preflightRun).toContain("release-assets.test.ts");
         expect(workflow.jobs["build-and-push"].needs).toBe("preflight");
         expect(workflow.jobs.source.needs).toBe("preflight");
