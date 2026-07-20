@@ -1,8 +1,26 @@
 # Release Notes
 
+## 0.8.14-canary - 2026-07-20
+
+本次patch修复Product容器在Docker/Podman中无法于默认10秒停止窗口内响应SIGTERM的问题。继续使用已公开的`@notnotype/neuro-book-manager@0.1.0-canary.24`。
+
+### 修复
+
+- Product启动器现在把容器PID 1收到的SIGINT/SIGTERM转发给真正的Nitro子进程，并在子进程退出后正常结束；Docker/Podman不再等满10秒后以SIGKILL强制停止。
+- Release preflight新增真实父子进程信号回归，在五平台Product和多架构OCI构建前验证Nitro子进程确实收到SIGTERM且launcher在5秒内退出。
+- rootless Podman runner在预检时也明确固定`podman-compose` provider，避免“安装了podman-compose，但预检实际调用Docker Compose plugin”的假阳性。
+
+### 迁移指南
+
+- `0.8.13`仍未发布最终Manifest和SHA256SUMS，不要把其payload资产当作完整Release安装。Windows完整`data/`复用连续两轮通过，用户数据迁移方式不变。
+- 已自行运行`0.8.13` GHCR候选的用户可执行`docker compose down`或`podman compose down`停止并删除候选容器，再等待本版本完整索引；State Root volume中的用户数据不应删除。
+- 本次不修改数据库、State Root、Installation Manifest或Compose schema，不需要数据迁移。
+
 ## 0.8.13-canary - 2026-07-20
 
 本次patch修复`0.8.12`公开容器用户链暴露的Docker停机诊断与rootless Podman Compose provider问题。该版本需要`@notnotype/neuro-book-manager@0.1.0-canary.24`或更高版本。
+
+公开prerelease：[`v0.8.13-canary.20260720.041424Z.eb589ffc`](https://github.com/notnotype/neuro-book/releases/tag/v0.8.13-canary.20260720.041424Z.eb589ffc)。Release workflow [`29716399007`](https://github.com/notnotype/neuro-book/actions/runs/29716399007)通过五平台Product、双架构OCI、候选资产、公开payload和Windows完整`data/`复用，但三条GHCR链暴露Product启动器未转发SIGTERM，最终索引未发布。
 
 ### 修复
 

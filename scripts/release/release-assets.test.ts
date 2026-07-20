@@ -82,6 +82,7 @@ describe("Product Release宿主合同", () => {
         const preflightRun = workflow.jobs.preflight.steps.map(({run}) => run ?? "").join("\n");
         expect(preflightRun).toContain("bun run test:install");
         expect(preflightRun).toContain("bun run manager:test");
+        expect(preflightRun).toContain("scripts/deploy/product-start.test.ts");
         expect(preflightRun).toContain("product-agent-state-root-smoke.ts");
         expect(preflightRun).toContain("release-assets.test.ts");
         expect(workflow.jobs["build-and-push"].needs).toBe("preflight");
@@ -142,7 +143,9 @@ describe("Product Release宿主合同", () => {
         expect(buildSteps).toHaveLength(2);
         for (const step of buildSteps) expect(step.with?.platforms).toBe("linux/amd64,linux/arm64");
         expect(workflow.jobs["verify-public-ghcr-arm64"]["runs-on"]).toBe("ubuntu-24.04-arm");
-        expect(workflow.jobs["verify-public-ghcr-podman"].steps.some(({run}) => run?.includes("podman-compose"))).toBe(true);
+        expect(workflow.jobs["verify-public-ghcr-podman"].steps.some(
+            ({run}) => run?.includes("PODMAN_COMPOSE_PROVIDER=podman-compose podman compose version"),
+        )).toBe(true);
         expect(workflow.jobs["verify-public-ghcr-podman"].steps.some(({run}) => run?.includes("verify-public-ghcr.sh") && run.includes("podman"))).toBe(true);
         expect(workflow.jobs["publish-index"].needs).toEqual([
             "verify-public-ghcr-amd64",

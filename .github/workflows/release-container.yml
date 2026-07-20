@@ -30,6 +30,7 @@ jobs:
         run: |
           bun run test:install
           bun run manager:test
+          bun test scripts/deploy/product-start.test.ts
       - name: Verify Product Agent state root contract
         shell: bash
         run: |
@@ -942,7 +943,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install --yes podman podman-compose
           podman info
-          podman compose version
+          PODMAN_COMPOSE_PROVIDER=podman-compose podman compose version
       - name: Verify public GHCR on Linux x64 rootless Podman
         shell: bash
         run: |

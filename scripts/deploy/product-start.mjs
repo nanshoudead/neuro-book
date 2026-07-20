@@ -25,6 +25,17 @@ const child = spawn(process.execPath, [entry, ...process.argv.slice(2)], {
     stdio: "inherit",
     windowsHide: false,
 });
+let shutdownSignal;
+
+/** Product启动器是容器PID 1时，必须把停止信号转发给真正的Nitro进程。 */
+for (const signal of ["SIGINT", "SIGTERM"]) {
+    process.once(signal, () => {
+        shutdownSignal = signal;
+        if (child.exitCode === null && child.signalCode === null) {
+            child.kill(signal);
+        }
+    });
+}
 
 async function prepareSystemAssets(root, env) {
     await run(process.execPath, [resolve(root, ".output", "server", "scripts", "build", "prepare-system-assets.ts"), "--sync-user-assets"], {
@@ -43,6 +54,9 @@ child.on("error", (error) => {
 });
 
 child.on("exit", (code, signal) => {
+    if (shutdownSignal) {
+        process.exit(0);
+    }
     if (signal) {
         process.kill(process.pid, signal);
         return;

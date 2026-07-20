@@ -1,6 +1,15 @@
 # 105 - 统一安装目录与 NeuroBook Manager
 
-> 当前状态：实现中，应用发布进行中。`v0.8.12`已通过五平台Product、多架构OCI、Windows/Linux候选、公开payload及Windows `0.8.6`完整`data/`复用，但Docker停机doctor和rootless Podman Compose provider使三条公开GHCR链失败，最终索引未发布。修复进入Manager `0.1.0-canary.24`与应用`0.8.13`。`0.8.6`仍是最新已确认含完整索引版本。当前源码协议为Installation Manifest v4、Release Manifest v3与Operation Journal v3；Canary A公开多架构索引、Canary A→B事务更新仍需完成。Apple Silicon Docker Desktop/rootless Podman实机门禁继续豁免，但不得标记为已验证。
+> 当前状态：实现中，应用发布进行中。`v0.8.13`确认Podman provider固定生效，并通过五平台Product、双架构OCI、Windows/Linux候选、公开payload及Windows `0.8.6`完整`data/`复用；三条GHCR链共同暴露Product launcher未把PID 1的SIGTERM转发给Nitro子进程，最终索引未发布。信号链修复进入应用`0.8.14`，继续使用已公开Manager `0.1.0-canary.24`。`0.8.6`仍是最新已确认含完整索引版本。当前源码协议为Installation Manifest v4、Release Manifest v3与Operation Journal v3；Canary A公开多架构索引、Canary A→B事务更新仍需完成。Apple Silicon Docker Desktop/rootless Podman实机门禁继续豁免，但不得标记为已验证。
+
+## 2026-07-20：`0.8.13` Product容器SIGTERM链路
+
+- Release workflow [`29716399007`](https://github.com/notnotype/neuro-book/actions/runs/29716399007)再次通过五平台Product、多架构OCI、候选/公开payload和Windows `0.8.6`完整`data/`复用；最终索引因三条GHCR链失败而跳过。
+- `.24`的Podman修复已由日志证实：Manager安装、migration、start与admin全部明确委托`podman-compose 1.0.6`，不再调用Docker plugin。因此第一轮provider根因已关闭。
+- Docker x64/ARM64和Podman均在`stop`等待10秒后强制SIGKILL。根因不在doctor：Dockerfile的shell ENTRYPOINT已经exec，但`product-start.mjs`又spawn Nitro server且没有转发PID 1收到的SIGTERM。
+- Product launcher现统一转发SIGINT/SIGTERM并等待Nitro退出。新增POSIX真实父子进程回归，Release preflight在昂贵fan-out前要求子进程收到SIGTERM且launcher 5秒内退出；Windows本地按平台跳过信号测试。
+- rootless Podman安装步骤也固定`PODMAN_COMPOSE_PROVIDER=podman-compose`执行版本预检，使runner预检与Manager运行时使用同一provider合同。
+- 与上一轮计划差异：把137加入doctor正常退出集合会掩盖真实的信号转发缺陷，已明确否决；修复位于Product进程生命周期层，Manager bundle未变化，因此不发布新的Manager版本。
 
 ## 2026-07-20：`0.8.12`公开GHCR停机与Podman provider回归
 
