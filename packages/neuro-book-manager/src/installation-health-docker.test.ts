@@ -50,6 +50,37 @@ describe("Docker Installation Health", () => {
         expect(service.message).toContain("镜像与Manifest不一致");
     });
 
+    it("Podman省略tag但保留相同repository与digest时仍是同一镜像", async () => {
+        const root = await fixture();
+        mocks.inspectDockerApplication.mockResolvedValue({
+            configuredImage: `ghcr.io/notnotype/neuro-book:v1@${digest}`,
+            containerId: "container",
+            actualImage: `ghcr.io/notnotype/neuro-book@${digest}`,
+            status: "running",
+        });
+        vi.stubGlobal("fetch", vi.fn(async () => Response.json({versionLabel: "v1.0.0"})));
+
+        const service = await inspectInstallationService(root, {...manifest(), containerEngine: "podman"});
+
+        expect(service.status).toBe("running");
+        expect(service.actualImage).toBe(`ghcr.io/notnotype/neuro-book@${digest}`);
+    });
+
+    it("相同digest但repository不同仍拒绝", async () => {
+        const root = await fixture();
+        mocks.inspectDockerApplication.mockResolvedValue({
+            configuredImage: `ghcr.io/notnotype/neuro-book:v1@${digest}`,
+            containerId: "container",
+            actualImage: `ghcr.io/notnotype/other@${digest}`,
+            status: "running",
+        });
+
+        const service = await inspectInstallationService(root, manifest());
+
+        expect(service.status).toBe("degraded");
+        expect(service.message).toContain("镜像与Manifest不一致");
+    });
+
     it("运行容器HTTP版本错误时返回degraded", async () => {
         const root = await fixture();
         mocks.inspectDockerApplication.mockResolvedValue({

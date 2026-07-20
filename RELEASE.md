@@ -1,5 +1,21 @@
 # Release Notes
 
+## 0.8.19-canary - 2026-07-20
+
+本次patch统一Docker与Podman的不可变镜像身份比较。该版本需要`@notnotype/neuro-book-manager@0.1.0-canary.29`或更高版本。
+
+### 修复
+
+- GHCR镜像同时携带repository和`sha256` digest时，doctor以二者作为不可变身份；tag只作为可读别名。Docker返回的`repository:tag@digest`与Podman规范化后的`repository@digest`会被识别为同一镜像。
+- repository不同或digest不同仍保持degraded；Source Docker等不携带digest的本地镜像继续逐字比较，不放宽revision image合同。
+- Compose配置镜像和实际运行镜像都使用同一不可变身份规则，HTTP精确版本、容器状态和Manifest digest检查继续保留。
+
+### 迁移指南
+
+- 已自行运行`0.8.18`候选的Podman用户不需要修改Compose、State Root或数据库。使用Manager `.29`重新安装或启动即可。
+- 不要通过改tag或镜像名称绕过校验：repository与digest必须同时匹配Manifest；只有同repository、同digest时允许provider省略tag。
+- `0.8.18`已越过Podman Compose命令兼容性，失败仅来自Podman显示同一digest时省略tag；最终索引未发布。完整Release以本版本workflow结果为准。
+
 ## 0.8.18-canary - 2026-07-20
 
 本次patch完成rootless Podman 1.0.6的容器查询合同收口。该版本需要`@notnotype/neuro-book-manager@0.1.0-canary.28`或更高版本。

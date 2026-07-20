@@ -1,6 +1,19 @@
 # 105 - 统一安装目录与 NeuroBook Manager
 
-> 当前状态：实现中，应用发布进行中。`v0.8.17`已验证原生双架构OCI/manifest merge、五平台Product、Windows/Linux候选、公开payload和Docker x64/ARM64链；rootless Podman因1.0.6的`ps`不接受Docker参数而阻断最终索引。统一容器ID Adapter进入Manager `0.1.0-canary.28`/应用`0.8.18`候选。`0.8.6`仍是最新已确认含完整索引版本。当前源码协议为Installation Manifest v4、Release Manifest v3与Operation Journal v3；Canary A公开多架构索引、Canary A→B事务更新仍需完成。Apple Silicon Docker Desktop/rootless Podman实机门禁继续豁免，但不得标记为已验证。
+> 当前状态：实现中，应用发布进行中。`v0.8.18`已越过Podman Compose命令差异，运行态doctor只因Podman把`tag@digest`规范化为`repository@digest`而误报；统一不可变镜像身份进入Manager `0.1.0-canary.29`/应用`0.8.19`候选。原生双架构OCI/manifest merge、五平台Product、Windows/Linux候选、公开payload和Docker x64/ARM64链持续通过。`0.8.6`仍是最新已确认含完整索引版本。当前源码协议为Installation Manifest v4、Release Manifest v3与Operation Journal v3；Canary A公开多架构索引、Canary A→B事务更新仍需完成。Apple Silicon Docker Desktop/rootless Podman实机门禁继续豁免，但不得标记为已验证。
+
+## 2026-07-20：`0.8.18` 不可变容器镜像身份
+
+- Release workflow [`29736480814`](https://github.com/notnotype/neuro-book/actions/runs/29736480814)证明Podman `ps --quiet`与唯一容器ID Adapter生效；安装、migration、启动、管理员创建、登录和running doctor的容器查询均已越过。
+- doctor读取到Manifest/Compose期望`ghcr.io/notnotype/neuro-book:tag@sha256:...`，Podman实际返回`ghcr.io/notnotype/neuro-book@sha256:...`。repository与digest完全一致，只有可变tag别名被provider规范化移除；旧整字符串比较因此误报degraded。
+- Installation Health新增严格不可变身份比较：双方带digest时要求规范化repository与SHA256都一致，忽略tag；任一无digest时继续精确字符串比较。该规则同时用于Compose与运行容器，不影响Source Docker本地revision image。
+- 新增Podman省略tag成功、相同digest但不同repository拒绝、既有错误镜像拒绝回归。Manager bundle变化进入`.29`，下一应用patch为`0.8.19`。
+
+### 验证与计划差异
+
+- 这一失败不是第四个Compose provider命令差异，而是两个OCI客户端对同一不可变引用的合法显示差异。修复位于Installation Health身份层，不修改Manifest、Compose或Podman Adapter。
+- 容器身份与Adapter聚焦19项、Release合同8项、Manager typecheck与5文件pack审计通过；完整Manager suite最终为29文件152项通过，另1文件/2项按平台跳过。首次完整suite的既有PowerShell参数转发夹具一次退出66，隔离连续两轮及随后完整suite均通过，未修改该无关用例掩盖抖动。
+- 真实Podman stop/restart/Operation恢复尚未执行完，仍必须由下一公开workflow证明；不能仅凭running doctor越过就标记完成。
 
 ## 2026-07-20：`0.8.17` Podman唯一容器查询Adapter
 

@@ -164,13 +164,13 @@ export async function inspectInstallationService(root: string, manifest: Install
     }
     try {
         const container = await inspectDockerApplication(engine, absoluteRoot, stateRoot);
-        if (container.configuredImage !== expectedImage) {
+        if (!sameContainerImageIdentity(expectedImage, container.configuredImage)) {
             return {kind: "container", status: "degraded", port, expectedVersion: manifest.appVersion, expectedImage, configuredImage: container.configuredImage, message: "Compose配置镜像与Manifest不一致"};
         }
         if (!container.containerId) {
             return {kind: "container", status: "stopped", port, expectedVersion: manifest.appVersion, expectedImage, configuredImage: container.configuredImage, message: "app容器尚未创建"};
         }
-        if (container.actualImage !== expectedImage) {
+        if (!container.actualImage || !sameContainerImageIdentity(expectedImage, container.actualImage)) {
             return {
                 kind: "container",
                 status: "degraded",
@@ -478,6 +478,37 @@ function expectedContainerImage(manifest: InstallationManifest): string {
     const product = manifest.components.product;
     if (!product || product.provider !== "container") throw new Error("Docker Profile缺少container Product。" );
     return manifest.profile === "ghcr" ? `${product.image}@${product.digest}` : product.image;
+}
+
+/**
+ * 比较容器镜像的不可变身份。
+ *
+ * Docker通常保留`repository:tag@digest`，Podman可能规范化为`repository@digest`。
+ * 双方都携带digest时，repository与digest必须一致，tag不参与不可变身份；
+ * Source Docker等无digest引用继续要求逐字一致。
+ */
+function sameContainerImageIdentity(expected: string, actual: string): boolean {
+    if (expected === actual) return true;
+    const expectedIdentity = immutableContainerImageIdentity(expected);
+    const actualIdentity = immutableContainerImageIdentity(actual);
+    return expectedIdentity !== null
+        && actualIdentity !== null
+        && expectedIdentity.repository === actualIdentity.repository
+        && expectedIdentity.digest === actualIdentity.digest;
+}
+
+/** 从带digest的OCI引用中提取规范化repository与digest，忽略可变tag别名。 */
+function immutableContainerImageIdentity(reference: string): {repository: string; digest: string} | null {
+    const separator = reference.lastIndexOf("@");
+    if (separator <= 0 || reference.indexOf("@") !== separator) return null;
+    const name = reference.slice(0, separator);
+    const digest = reference.slice(separator + 1).toLowerCase();
+    if (!/^sha256:[a-f0-9]{64}$/u.test(digest)) return null;
+    const lastSlash = name.lastIndexOf("/");
+    const lastColon = name.lastIndexOf(":");
+    const repository = (lastColon > lastSlash ? name.slice(0, lastColon) : name).toLowerCase();
+    if (!repository || /[\s@]/u.test(repository)) return null;
+    return {repository, digest};
 }
 
 function wrapperPath(root: string, name: string): string {
