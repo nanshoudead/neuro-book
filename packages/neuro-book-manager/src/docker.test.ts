@@ -174,9 +174,18 @@ describe("Docker Compose部署合同", () => {
     });
 
     it("Podman状态探测不读取Docker专属Health字段", async () => {
+        const root = await mkdtemp(join(tmpdir(), "nbook-compose-inspect-podman-"));
+        roots.push(root);
         const containerId = "b".repeat(64);
+        await writeDockerCompose({
+            engine: "docker",
+            root,
+            stateRoot: root,
+            profile: "ghcr",
+            image: "ghcr.io/notnotype/neuro-book:test",
+            port: 3000,
+        });
         processCommands.capture.mockImplementation(async (_command: string, args: string[]) => {
-            if (args.includes("config")) return "ghcr.io/notnotype/neuro-book:test\n";
             if (args.includes("ps")) return `${containerId}\n`;
             const format = args[2];
             if (format === "{{.Config.Image}}") return "ghcr.io/notnotype/neuro-book:test\n";
@@ -186,7 +195,7 @@ describe("Docker Compose部署合同", () => {
             throw new Error(`未预期命令：${args.join(" ")}`);
         });
 
-        await expect(inspectDockerApplication("podman", "/tmp/neuro-book", "/tmp/neuro-book-state"))
+        await expect(inspectDockerApplication("podman", root, root))
             .resolves.toEqual({
                 configuredImage: "ghcr.io/notnotype/neuro-book:test",
                 containerId,
@@ -195,6 +204,8 @@ describe("Docker Compose部署合同", () => {
                 exitCode: 0,
             });
         expect(processCommands.capture.mock.calls.some(([, args]) => args.includes("{{if .State.Health}}{{.State.Health.Status}}{{end}}")))
+            .toBe(false);
+        expect(processCommands.capture.mock.calls.some(([, args]) => args.includes("config")))
             .toBe(false);
     });
 

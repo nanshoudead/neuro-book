@@ -1,6 +1,20 @@
 # 105 - 统一安装目录与 NeuroBook Manager
 
-> 当前状态：实现中，应用发布进行中。`v0.8.15`已通过五平台Product、Windows完整`data/`复用及Docker x64/ARM64公开GHCR链；rootless Podman因运行态探测读取Docker专属`.State.Health`失败，最终索引尚未发布。修复进入Manager `0.1.0-canary.26`/应用`0.8.16`候选；OCI同步改为原生双runner并行构建。`0.8.6`仍是最新已确认含完整索引版本。当前源码协议为Installation Manifest v4、Release Manifest v3与Operation Journal v3；Canary A公开多架构索引、Canary A→B事务更新仍需完成。Apple Silicon Docker Desktop/rootless Podman实机门禁继续豁免，但不得标记为已验证。
+> 当前状态：实现中，应用发布进行中。`v0.8.16`已验证原生双架构OCI构建、manifest merge、五平台Product、Windows/Linux候选与公开payload；rootless Podman因`podman-compose 1.0.6`不支持`config --images`而阻断最终索引。修复进入Manager `0.1.0-canary.27`/应用`0.8.17`候选。`0.8.6`仍是最新已确认含完整索引版本。当前源码协议为Installation Manifest v4、Release Manifest v3与Operation Journal v3；Canary A公开多架构索引、Canary A→B事务更新仍需完成。Apple Silicon Docker Desktop/rootless Podman实机门禁继续豁免，但不得标记为已验证。
+
+## 2026-07-20：`0.8.16` Podman Compose镜像读取合同
+
+- Release workflow [`29731981264`](https://github.com/notnotype/neuro-book/actions/runs/29731981264)证明上一轮两项改动均生效：Podman已越过Docker Health字段；amd64/ARM64原生OCI job并行完成，多架构manifest merge成功。
+- 实际OCI时间从旧单job约47分钟降到两个原生job均约7分钟，merge约20秒。五平台Product与Windows Portable、Windows/Linux候选、公开payload也全部通过，Actions关键路径已回到Windows Product/Portable。
+- rootless Podman安装、镜像拉取、migration、启动、管理员创建和HTTP登录成功；运行态doctor随后失败于`podman-compose 1.0.6 config --images`。该provider只实现`config`，不接受Docker Compose的`--images`扩展。
+- generated Compose本来就是Manager写入、schema验证并由Installation Manifest约束的配置真相。`inspectDockerApplication()`现复用`readDockerComposeImage()`读取固定app镜像，再让Container Engine查询真实容器状态；不增加Podman命令特判、fallback或宽松解析。
+- Manager bundle变化要求发布精确`.27`；`0.8.16`继续保留为无最终索引的审计prerelease，下一应用patch为`0.8.17`。
+
+### 验证与计划差异
+
+- Podman回归必须证明状态探测既不调用Health模板，也不调用Compose `config`；Docker/Podman的实际镜像仍与generated Compose固定镜像比较。
+- Podman/Docker健康聚焦17项通过；Manager完整suite为29文件150项通过，另1文件/2项按平台跳过；Manager typecheck、5文件pack审计与Release合同8项通过。
+- 原计划只预期修复Health字段；增强诊断后暴露第二个provider能力差异。修复收口到已有Compose读取Module，没有在doctor或脚本中加入provider版本分支。
 
 ## 2026-07-20：`0.8.15` Podman运行态探测与OCI构建关键路径
 

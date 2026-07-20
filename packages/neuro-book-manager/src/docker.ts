@@ -181,14 +181,8 @@ export async function readDockerComposeImage(root: string): Promise<string> {
 
 /** 读取Compose配置与app容器状态；容器未创建是合法结果。 */
 export async function inspectDockerApplication(engine: ContainerEngine, root: string, stateRoot: string): Promise<DockerApplicationInspection> {
-    const configuredImages = (await runCapture(engine, [...composeArgs(root, stateRoot), "config", "--images"], containerComposeOptions(engine, root)))
-        .split(/\r?\n/u)
-        .map((line) => line.trim())
-        .filter(Boolean);
-    if (configuredImages.length !== 1 || !configuredImages[0]) {
-        throw new Error(`Compose必须只配置一个app镜像，实际为：${configuredImages.join(", ") || "<missing>"}`);
-    }
-    const configuredImage = configuredImages[0];
+    // generated Compose由Manager写入并已通过严格Schema门禁；不要依赖各Compose provider不一致的`config --images`扩展。
+    const configuredImage = await readDockerComposeImage(root);
     const containerId = (await runCapture(engine, [...composeArgs(root, stateRoot), "ps", "--all", "--quiet", "app"], containerComposeOptions(engine, root))).trim();
     if (!containerId) return {configuredImage};
     const [actualImage, status, exitCodeText, health] = await Promise.all([

@@ -1,5 +1,21 @@
 # Release Notes
 
+## 0.8.17-canary - 2026-07-20
+
+本次patch修复rootless Podman运行态doctor依赖`podman-compose 1.0.6`不支持的`config --images`扩展。该版本需要`@notnotype/neuro-book-manager@0.1.0-canary.27`或更高版本。
+
+### 修复
+
+- Container Engine Adapter从Manager生成的`.deploy/docker-compose.generated.yml`读取固定app镜像，并复用既有严格Compose schema；容器引擎只负责查询真实容器ID、镜像和状态。
+- Docker与Podman不再依赖provider特有的`compose config --images`输出。Podman仍不读取Docker专属Health字段，应用健康继续由容器状态与HTTP精确版本共同判断。
+- `0.8.16`原生amd64/ARM64 OCI构建均约7分钟完成，多架构manifest merge约20秒；旧QEMU构建约47分钟。Windows Portable因此成为候选组装关键路径，OCI不再拖后。
+
+### 迁移指南
+
+- 已自行运行`0.8.16`候选的Podman用户不需要迁移数据库、State Root或Compose。等待完整索引后，使用Manager `.27`重新安装或启动同一实例。
+- 不要手工修改generated Compose来规避doctor；Manager会从该文件验证固定镜像，并继续检查实际容器镜像与Release digest一致。
+- `0.8.16`的五平台Product、原生双架构OCI、manifest merge、Windows/Linux候选和公开payload已通过；rootless Podman失败使最终索引未发布，完整Release以本版本workflow结果为准。
+
 ## 0.8.16-canary - 2026-07-20
 
 本次patch修复rootless Podman运行态doctor读取Docker专属Health字段而失败的问题，并缩短多架构GHCR构建对Product Release的阻塞时间。该版本需要`@notnotype/neuro-book-manager@0.1.0-canary.26`或更高版本。
