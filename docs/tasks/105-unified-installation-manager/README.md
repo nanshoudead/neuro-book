@@ -1,6 +1,6 @@
 # 105 - 统一安装目录与 NeuroBook Manager
 
-> 当前状态：实现中，应用发布进行中。`v0.8.18`已越过Podman Compose命令差异，运行态doctor只因Podman把`tag@digest`规范化为`repository@digest`而误报；统一不可变镜像身份进入Manager `0.1.0-canary.29`/应用`0.8.19`候选。原生双架构OCI/manifest merge、五平台Product、Windows/Linux候选、公开payload和Docker x64/ARM64链持续通过。`0.8.6`仍是最新已确认含完整索引版本。当前源码协议为Installation Manifest v4、Release Manifest v3与Operation Journal v3；Canary A公开多架构索引、Canary A→B事务更新仍需完成。Apple Silicon Docker Desktop/rootless Podman实机门禁继续豁免，但不得标记为已验证。
+> 当前状态：实现中，Canary A公开索引已完成。`v0.8.19`的五平台Product、原生双架构OCI/manifest merge、Windows/Linux候选、公开payload、Windows完整`0.8.6 data/`复用、Docker x64/ARM64与rootless Podman链全部通过，最终`release-manifest.json`和`SHA256SUMS`已发布；它是最新已确认完整canary。当前源码协议为Installation Manifest v4、Release Manifest v3与Operation Journal v3；Canary A→B事务更新仍需完成。Apple Silicon Docker Desktop/rootless Podman实机门禁继续豁免，但不得标记为已验证。
 
 ## 2026-07-20：`0.8.18` 不可变容器镜像身份
 
@@ -13,7 +13,10 @@
 
 - 这一失败不是第四个Compose provider命令差异，而是两个OCI客户端对同一不可变引用的合法显示差异。修复位于Installation Health身份层，不修改Manifest、Compose或Podman Adapter。
 - 容器身份与Adapter聚焦19项、Release合同8项、Manager typecheck与5文件pack审计通过；完整Manager suite最终为29文件152项通过，另1文件/2项按平台跳过。首次完整suite的既有PowerShell参数转发夹具一次退出66，隔离连续两轮及随后完整suite均通过，未修改该无关用例掩盖抖动。
-- 真实Podman stop/restart/Operation恢复尚未执行完，仍必须由下一公开workflow证明；不能仅凭running doctor越过就标记完成。
+- Manager `.29` workflow [`29738493614`](https://github.com/notnotype/neuro-book/actions/runs/29738493614)全绿，npm精确版本、`canary` dist-tag、gitHead和全新缓存bunx一致。
+- 应用workflow [`29738619452`](https://github.com/notnotype/neuro-book/actions/runs/29738619452)最终全绿：rootless Podman完整通过running doctor、原生stop后容器保留、stopped doctor warning、restart、登录和planned Operation恢复；Docker双架构与Windows完整`data/`复用同时通过，`publish-index`成功。
+- 公开Release共12个资产；`release-manifest.json`固定Manager `.29`、source revision和GHCR digest，`SHA256SUMS`包含其余11个公开资产。Canary A因此完成，但A→B事务update尚未执行，Task 105保持实现中。
+- 原生OCI实测amd64 8.0分钟、ARM64 7.2分钟、merge 0.2分钟，Windows Product/Portable 9.3分钟，完整workflow 27.4分钟；旧单runner QEMU容器job约47分钟。首阶段关键路径已回到Windows Product，暂不继续改缓存或Dockerfile。
 
 ## 2026-07-20：`0.8.17` Podman唯一容器查询Adapter
 

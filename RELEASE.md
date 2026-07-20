@@ -4,6 +4,8 @@
 
 本次patch统一Docker与Podman的不可变镜像身份比较。该版本需要`@notnotype/neuro-book-manager@0.1.0-canary.29`或更高版本。
 
+公开prerelease：[`v0.8.19-canary.20260720.112718Z.1b4c9685`](https://github.com/notnotype/neuro-book/releases/tag/v0.8.19-canary.20260720.112718Z.1b4c9685)。Release workflow [`29738619452`](https://github.com/notnotype/neuro-book/actions/runs/29738619452)全绿并发布最终`release-manifest.json`与`SHA256SUMS`。
+
 ### 修复
 
 - GHCR镜像同时携带repository和`sha256` digest时，doctor以二者作为不可变身份；tag只作为可读别名。Docker返回的`repository:tag@digest`与Podman规范化后的`repository@digest`会被识别为同一镜像。
@@ -14,7 +16,9 @@
 
 - 已自行运行`0.8.18`候选的Podman用户不需要修改Compose、State Root或数据库。使用Manager `.29`重新安装或启动即可。
 - 不要通过改tag或镜像名称绕过校验：repository与digest必须同时匹配Manifest；只有同repository、同digest时允许provider省略tag。
-- `0.8.18`已越过Podman Compose命令兼容性，失败仅来自Podman显示同一digest时省略tag；最终索引未发布。完整Release以本版本workflow结果为准。
+- `0.8.18`已越过Podman Compose命令兼容性，失败仅来自Podman显示同一digest时省略tag；其最终索引未发布。
+- 本版本已通过五平台Product、Windows/Linux候选、Windows完整`0.8.6 data/`复用、Docker x64/ARM64、rootless Podman、管理员登录、stop/restart和Operation恢复。公开Manifest固定Manager `.29`与GHCR digest，`SHA256SUMS`覆盖其余11个公开资产。
+- 原生OCI并行构建实测amd64 8.0分钟、ARM64 7.2分钟、manifest merge 0.2分钟；Windows Product/Portable为9.3分钟，完整workflow为27.4分钟。旧QEMU容器job约47分钟，当前Product已成为首阶段关键路径。
 
 ## 0.8.18-canary - 2026-07-20
 
