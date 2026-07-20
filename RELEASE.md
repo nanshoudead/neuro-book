@@ -1,5 +1,22 @@
 # Release Notes
 
+## 0.8.18-canary - 2026-07-20
+
+本次patch完成rootless Podman 1.0.6的容器查询合同收口。该版本需要`@notnotype/neuro-book-manager@0.1.0-canary.28`或更高版本。
+
+### 修复
+
+- Container Engine Adapter集中读取唯一app容器ID：Docker使用`compose ps --all --quiet app`；Podman使用其原生支持的`compose ps --quiet`，provider内部负责查询停止容器和按Compose project过滤。
+- 两条路径都要求0或1个12–64位十六进制ID；多容器和非法输出fail closed。Podman停止仍调用原生`podman stop --time 10`，不会触发`podman-compose stop`的连带删除。
+- generated Compose schema现在明确只允许唯一`app` service，与此前“只接受一个配置镜像”的运行时合同一致；不靠service名称参数补偿宽松配置。
+- 公开GHCR验证脚本使用同一Podman `ps --quiet`能力面，并继续验证停止后容器仍存在、doctor为warning、重新启动和Operation恢复。
+
+### 迁移指南
+
+- 已自行运行`0.8.17`候选的Podman用户不需要迁移State Root、数据库或Compose。使用Manager `.28`重新安装或启动即可。
+- generated Compose是Manager受管文件；若手工加入额外service，doctor会拒绝该实例。需要额外服务时应使用独立Compose项目，不要修改NeuroBook生成文件。
+- `0.8.17`已通过双架构Docker、五平台Product、Windows/Linux候选和公开payload；Podman在运行态查询容器ID时失败，最终索引未发布。完整Release以本版本workflow结果为准。
+
 ## 0.8.17-canary - 2026-07-20
 
 本次patch修复rootless Podman运行态doctor依赖`podman-compose 1.0.6`不支持的`config --images`扩展。该版本需要`@notnotype/neuro-book-manager@0.1.0-canary.27`或更高版本。

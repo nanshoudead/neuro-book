@@ -14,7 +14,7 @@ import {resolveAppSqliteLocation} from "nbook/server/runtime/app-sqlite-location
 const ComposeSchema = Type.Object({
     services: Type.Object({
         app: Type.Object({image: Type.String({minLength: 1})}, {additionalProperties: true}),
-    }, {additionalProperties: true}),
+    }, {additionalProperties: false}),
 }, {additionalProperties: true});
 
 type ComposeValue = Static<typeof ComposeSchema>;
@@ -183,7 +183,7 @@ export async function readDockerComposeImage(root: string): Promise<string> {
 export async function inspectDockerApplication(engine: ContainerEngine, root: string, stateRoot: string): Promise<DockerApplicationInspection> {
     // generated Compose由Manager写入并已通过严格Schema门禁；不要依赖各Compose provider不一致的`config --images`扩展。
     const configuredImage = await readDockerComposeImage(root);
-    const containerId = (await runCapture(engine, [...composeArgs(root, stateRoot), "ps", "--all", "--quiet", "app"], containerComposeOptions(engine, root))).trim();
+    const containerId = await readApplicationContainerId(engine, root, stateRoot);
     if (!containerId) return {configuredImage};
     const [actualImage, status, exitCodeText, health] = await Promise.all([
         runCapture(engine, ["inspect", "--format", "{{.Config.Image}}", containerId], {cwd: root}).then((value) => value.trim()),
@@ -210,17 +210,8 @@ export async function stopDocker(engine: ContainerEngine, root: string, stateRoo
         await run(engine, [...composeArgs(root, stateRoot), "stop", "app"], containerComposeOptions(engine, root));
         return;
     }
-    const containerId = (await runCapture(engine, [
-        ...composeArgs(root, stateRoot),
-        "ps",
-        "--all",
-        "--quiet",
-        "app",
-    ], containerComposeOptions(engine, root))).trim();
+    const containerId = await readApplicationContainerId(engine, root, stateRoot);
     if (!containerId) return;
-    if (!/^[a-f0-9]{12,64}$/u.test(containerId)) {
-        throw new Error(`Podman Compose返回了非法app容器ID：${containerId}`);
-    }
     // podman-compose 1.0.6的`stop`会连带rm；原生stop保留容器供doctor、restart和事务恢复。
     await run(engine, ["stop", "--time", "10", containerId], {cwd: root});
 }
@@ -265,6 +256,32 @@ export async function buildSourceDockerImage(engine: ContainerEngine, sourceRoot
 /** 生成所有Docker生命周期命令共用的Compose参数。 */
 function composeArgs(root: string, stateRoot: string): string[] {
     return ["compose", "--env-file", join(stateRoot, ".env"), "-f", join(root, ".deploy", "docker-compose.generated.yml")];
+}
+
+/**
+ * 读取Manager生成的唯一app容器ID。
+ *
+ * podman-compose 1.0.6的`ps --quiet`内部已经查询全部状态并按Compose project过滤，
+ * 不支持Docker Compose的`--all`或service位置参数。
+ */
+async function readApplicationContainerId(engine: ContainerEngine, root: string, stateRoot: string): Promise<string | undefined> {
+    const psArgs = engine === "podman"
+        ? ["ps", "--quiet"]
+        : ["ps", "--all", "--quiet", "app"];
+    const containerIds = (await runCapture(
+        engine,
+        [...composeArgs(root, stateRoot), ...psArgs],
+        containerComposeOptions(engine, root),
+    ))
+        .split(/\r?\n/u)
+        .map((value) => value.trim())
+        .filter(Boolean);
+    if (containerIds.length === 0) return undefined;
+    const containerId = containerIds[0];
+    if (containerIds.length !== 1 || !containerId || !/^[a-f0-9]{12,64}$/u.test(containerId)) {
+        throw new Error(`${engine} Compose返回了非法app容器ID：${containerIds.join(", ") || "<missing>"}`);
+    }
+    return containerId;
 }
 
 /** Podman必须固定Compose provider，避免宿主同时安装Docker插件时静默连接错误daemon。 */

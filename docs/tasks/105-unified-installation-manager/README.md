@@ -1,6 +1,19 @@
 # 105 - 统一安装目录与 NeuroBook Manager
 
-> 当前状态：实现中，应用发布进行中。`v0.8.16`已验证原生双架构OCI构建、manifest merge、五平台Product、Windows/Linux候选与公开payload；rootless Podman因`podman-compose 1.0.6`不支持`config --images`而阻断最终索引。修复进入Manager `0.1.0-canary.27`/应用`0.8.17`候选。`0.8.6`仍是最新已确认含完整索引版本。当前源码协议为Installation Manifest v4、Release Manifest v3与Operation Journal v3；Canary A公开多架构索引、Canary A→B事务更新仍需完成。Apple Silicon Docker Desktop/rootless Podman实机门禁继续豁免，但不得标记为已验证。
+> 当前状态：实现中，应用发布进行中。`v0.8.17`已验证原生双架构OCI/manifest merge、五平台Product、Windows/Linux候选、公开payload和Docker x64/ARM64链；rootless Podman因1.0.6的`ps`不接受Docker参数而阻断最终索引。统一容器ID Adapter进入Manager `0.1.0-canary.28`/应用`0.8.18`候选。`0.8.6`仍是最新已确认含完整索引版本。当前源码协议为Installation Manifest v4、Release Manifest v3与Operation Journal v3；Canary A公开多架构索引、Canary A→B事务更新仍需完成。Apple Silicon Docker Desktop/rootless Podman实机门禁继续豁免，但不得标记为已验证。
+
+## 2026-07-20：`0.8.17` Podman唯一容器查询Adapter
+
+- Release workflow [`29734199679`](https://github.com/notnotype/neuro-book/actions/runs/29734199679)再次通过原生双架构OCI、manifest merge、五平台Product、Windows/Linux候选、公开payload与Docker x64/ARM64链；rootless Podman越过`config --images`后，失败于`podman-compose 1.0.6 ps --all --quiet app`。
+- 对1.0.6源码的能力审计确认：`ps`只声明`-q/--quiet`，其实现内部固定调用`podman ps -a`并用`io.podman.compose.project`过滤；`pull/up/run/down`当前使用参数均受支持。
+- `docker.ts`新增唯一容器ID读取Adapter：Docker保留`--all --quiet app`，Podman使用`--quiet`；两边统一解析0/1个合法ID。inspect与stop复用该Adapter，不再各自复制Compose参数。
+- generated Compose schema同步收紧为仅允许`services.app`，使Podman project级`ps --quiet`的“唯一容器”假设由配置类型合同证明；额外service不会被静默纳入状态或停止操作。
+- 公开GHCR脚本同步改用Podman `ps --quiet`并保留ID门禁。下一Manager为`.28`，应用为`0.8.18`；失败的`0.8.17`不发布最终索引。
+
+### 验证与计划差异
+
+- 本轮在第三次provider差异后从单命令修复升级为完整Compose调用面审计，避免继续逐个等待公开链暴露；没有替换Podman provider、放宽doctor或增加版本fallback。
+- 自动化已覆盖Podman命令不含`--all/app`、非法/多ID拒绝、Docker参数保持和脚本合同：聚焦17项、Release合同8项、Manager完整29文件150项通过，另1文件/2项按平台跳过；Manager typecheck、5文件pack审计与GHCR脚本`bash -n`通过。真实停止/重启仍以新公开workflow为最终证据。
 
 ## 2026-07-20：`0.8.16` Podman Compose镜像读取合同
 

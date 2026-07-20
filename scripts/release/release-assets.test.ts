@@ -165,7 +165,8 @@ describe("Product Release宿主合同", () => {
         )).toBe(true);
         expect(workflow.jobs["verify-public-ghcr-podman"].steps.some(({run}) => run?.includes("verify-public-ghcr.sh") && run.includes("podman"))).toBe(true);
         const publicGhcr = await readFile(resolve(ROOT, "scripts/release/verify-public-ghcr.sh"), "utf8");
-        expect(publicGhcr).toContain('ps --all --quiet app');
+        expect(publicGhcr).toContain('ps --quiet');
+        expect(publicGhcr).not.toContain('ps --all --quiet app');
         expect(publicGhcr).toContain('"$engine" stop --time 10 "$container_id"');
         expect(workflow.jobs["publish-index"].needs).toEqual([
             "verify-public-ghcr-amd64",

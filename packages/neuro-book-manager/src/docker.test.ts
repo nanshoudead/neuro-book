@@ -149,9 +149,7 @@ describe("Docker Compose部署合同", () => {
             "-f",
             join(root, ".deploy", "docker-compose.generated.yml"),
             "ps",
-            "--all",
             "--quiet",
-            "app",
         ], {
             cwd: root,
             env: expect.objectContaining({PODMAN_COMPOSE_PROVIDER: "podman-compose"}),
@@ -206,6 +204,8 @@ describe("Docker Compose部署合同", () => {
         expect(processCommands.capture.mock.calls.some(([, args]) => args.includes("{{if .State.Health}}{{.State.Health.Status}}{{end}}")))
             .toBe(false);
         expect(processCommands.capture.mock.calls.some(([, args]) => args.includes("config")))
+            .toBe(false);
+        expect(processCommands.capture.mock.calls.some(([, args]) => args.includes("--all") || args.includes("app")))
             .toBe(false);
     });
 
