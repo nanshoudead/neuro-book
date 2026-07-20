@@ -195,7 +195,9 @@ export async function inspectDockerApplication(engine: ContainerEngine, root: st
         runCapture(engine, ["inspect", "--format", "{{.Config.Image}}", containerId], {cwd: root}).then((value) => value.trim()),
         runCapture(engine, ["inspect", "--format", "{{.State.Status}}", containerId], {cwd: root}).then((value) => value.trim()),
         runCapture(engine, ["inspect", "--format", "{{.State.ExitCode}}", containerId], {cwd: root}).then((value) => value.trim()),
-        runCapture(engine, ["inspect", "--format", "{{if .State.Health}}{{.State.Health.Status}}{{end}}", containerId], {cwd: root}).then((value) => value.trim()),
+        engine === "docker"
+            ? runCapture(engine, ["inspect", "--format", "{{if .State.Health}}{{.State.Health.Status}}{{end}}", containerId], {cwd: root}).then((value) => value.trim())
+            : Promise.resolve(""),
     ]);
     const exitCode = Number(exitCodeText);
     return {

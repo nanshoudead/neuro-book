@@ -1,5 +1,22 @@
 # Release Notes
 
+## 0.8.16-canary - 2026-07-20
+
+本次patch修复rootless Podman运行态doctor读取Docker专属Health字段而失败的问题，并缩短多架构GHCR构建对Product Release的阻塞时间。该版本需要`@notnotype/neuro-book-manager@0.1.0-canary.26`或更高版本。
+
+### 修复与优化
+
+- Container Engine Adapter只在Docker容器上读取`.State.Health`；Podman继续读取镜像、运行状态和退出码，并由既有HTTP版本探针判断应用健康，不放宽doctor的健康定义。
+- 公开GHCR脚本在运行态doctor失败时输出service状态和全部fail checks，后续平台差异不再只留下无上下文的退出码。
+- OCI的amd64与ARM64镜像改由`ubuntu-latest`和`ubuntu-24.04-arm`原生runner并行构建，按架构digest推送后再由轻量job合并多架构manifest；五平台Product构建继续独立并行。
+- 上一轮单个x64 job中，ARM64 QEMU `nuxt:build`约耗时30分47秒，amd64约2分51秒，缓存导出约8分8秒。新结构先消除QEMU主瓶颈，不在本次重写Dockerfile或改变Product/OCI字节来源。
+
+### 迁移指南
+
+- 已自行运行`0.8.15`候选的Docker或Podman用户不需要迁移数据库、State Root、Installation Manifest或Compose；使用新Manager重新执行安装或启动即可。
+- Podman实例不要手工移动Workspace Root或SQLite，也不要通过放宽doctor绕过运行态检查。容器、Compose和State Root仍由当前Installation Manifest管理。
+- `0.8.15`的Windows完整`data/`复用、Docker x64/ARM64和五平台Product门禁已经通过，但rootless Podman失败使最终`release-manifest.json`与`SHA256SUMS`未发布；完整Release仍以本版本workflow最终结果为准。
+
 ## 0.8.15-canary - 2026-07-20
 
 本次patch修复rootless Podman使用`podman-compose 1.0.6`停止应用时意外删除容器的问题。该版本需要`@notnotype/neuro-book-manager@0.1.0-canary.25`或更高版本。

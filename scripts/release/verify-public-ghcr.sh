@@ -59,7 +59,7 @@ curl --fail --silent --show-error -c "$cookie" \
 curl --fail --silent --show-error -b "$cookie" "$base/api/auth/me" >/dev/null
 
 manager --root "$root" doctor --json > "${root}-doctor-running.json"
-node -e 'const r=require(process.argv[1]); if (!r.healthy || r.checks.some((c)=>c.status === "fail")) process.exit(1)' "${root}-doctor-running.json"
+node -e 'const r=require(process.argv[1]); if (!r.healthy || r.checks.some((c)=>c.status === "fail")) { console.error(JSON.stringify({service:r.service,failures:r.checks.filter((c)=>c.status === "fail")}, null, 2)); process.exit(1); }' "${root}-doctor-running.json"
 
 if [[ "$engine" == "podman" ]]; then
     container_id="$("$engine" compose --env-file "$root/.env" -f "$root/.deploy/docker-compose.generated.yml" ps --all --quiet app)"

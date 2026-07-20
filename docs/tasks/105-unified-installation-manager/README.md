@@ -1,6 +1,21 @@
 # 105 - 统一安装目录与 NeuroBook Manager
 
-> 当前状态：实现中，应用发布进行中。`v0.8.14`的Linux preflight真实SIGTERM回归与Docker x64/ARM64公开GHCR链通过；rootless Podman暴露`podman-compose 1.0.6 stop`会删除容器。Podman Adapter改用“Compose解析唯一ID + 原生stop”并进入Manager `0.1.0-canary.25`/应用`0.8.15`，最终索引尚未发布。`0.8.6`仍是最新已确认含完整索引版本。当前源码协议为Installation Manifest v4、Release Manifest v3与Operation Journal v3；Canary A公开多架构索引、Canary A→B事务更新仍需完成。Apple Silicon Docker Desktop/rootless Podman实机门禁继续豁免，但不得标记为已验证。
+> 当前状态：实现中，应用发布进行中。`v0.8.15`已通过五平台Product、Windows完整`data/`复用及Docker x64/ARM64公开GHCR链；rootless Podman因运行态探测读取Docker专属`.State.Health`失败，最终索引尚未发布。修复进入Manager `0.1.0-canary.26`/应用`0.8.16`候选；OCI同步改为原生双runner并行构建。`0.8.6`仍是最新已确认含完整索引版本。当前源码协议为Installation Manifest v4、Release Manifest v3与Operation Journal v3；Canary A公开多架构索引、Canary A→B事务更新仍需完成。Apple Silicon Docker Desktop/rootless Podman实机门禁继续豁免，但不得标记为已验证。
+
+## 2026-07-20：`0.8.15` Podman运行态探测与OCI构建关键路径
+
+- Release workflow [`29725087505`](https://github.com/notnotype/neuro-book/actions/runs/29725087505)通过五平台Product、Windows候选与完整`0.8.6 data/`复用、Docker x64/ARM64公开GHCR用户链；rootless Podman在运行态doctor失败，因此`publish-index`按设计跳过。
+- 日志确认Podman Compose provider、Product SIGTERM和原生Podman stop均已生效。本轮失败发生得更早：`inspectDockerApplication()`无条件读取Docker模板`{{if .State.Health}}...`，Podman 4.9没有同一字段合同。Adapter现只对Docker读取Health；Podman仍通过status、exit code与HTTP版本探针完成健康判断，不放宽doctor。
+- 公开GHCR脚本在运行态doctor失败时同步输出service与全部fail checks，避免下一次平台差异只留下退出码1。Manager bundle变化，下一精确版本为`.26`，不能覆盖`.25`。
+- Actions步骤时间证明旧`build-and-push`的主瓶颈是x64 runner经QEMU执行ARM64 Nuxt：ARM64 `nuxt:build`约30分47秒、amd64约2分51秒、`mode=max`缓存导出约8分8秒；Windows Product完整job约10分钟、Linux x64 Product约3分钟。
+- OCI构建改为两个原生runner矩阵：amd64使用`ubuntu-latest`，ARM64使用`ubuntu-24.04-arm`；两端分别按digest推送runtime/app，轻量merge job验证恰好两个digest并创建release tag的多架构manifest。`assemble`及GHCR验证统一消费merge输出，五平台Product继续只依赖preflight/source，不等待OCI。
+- 本轮没有把ARM64或amd64从Release Manifest移除，也没有让它们绕过最终索引门禁；“Product优先”通过消除QEMU关键路径实现，而不是发布不完整Manifest。后续以首次真实原生runner数据决定是否继续调整缓存，不先重写Dockerfile或引入第二套Product/OCI组装协议。
+
+### 验证与计划差异
+
+- Podman状态探测与Docker健康回归聚焦17项通过；Manager完整suite为29文件150项通过，另1文件/2项按平台跳过；Manager typecheck与5文件pack审计通过；根typecheck及Release资产/checksum合同2文件8项通过，GHCR脚本`bash -n`通过。
+- 原生runner与manifest merge仍需下一次公开Release workflow取得真实耗时和digest证据，不能把本地YAML合同测试写成Actions已通过。
+- 与此前“Container Packaging直接消费原生Linux Product Artifact”的设想相比，本轮选择更小且边界清晰的原生BuildKit拆分：不改变OCI镜像内容来源，只替换执行架构和发布manifest的编排方式。
 
 ## 2026-07-20：`0.8.14` rootless Podman停止语义
 

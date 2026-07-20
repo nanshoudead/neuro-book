@@ -43,12 +43,20 @@ jobs:
       - name: Verify release asset contracts
         run: bun node_modules/vitest/vitest.mjs run scripts/release/release-assets.test.ts scripts/release/release-checksums.test.ts
 
-  build-and-push:
+  build-container:
     needs: preflight
-    runs-on: ubuntu-latest
-    outputs:
-      app-digest: ${{ steps.app-build.outputs.digest }}
-      app-image-name: ${{ steps.image-names.outputs.app }}
+    name: build-container-${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            platform: linux/amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            platform: linux/arm64
+            runner: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v5
       - uses: docker/setup-buildx-action@v3
@@ -66,24 +74,31 @@ jobs:
           echo "app=ghcr.io/${owner}/neuro-book" >> "${GITHUB_OUTPUT}"
           echo "runtime=ghcr.io/${owner}/neuro-book-runtime" >> "${GITHUB_OUTPUT}"
 
-      - id: runtime-meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ steps.image-names.outputs.runtime }}
-          tags: |
-            type=raw,value=${{ github.event.release.tag_name }}
-            type=raw,value=latest,enable=${{ !github.event.release.prerelease }}
-
-      - name: Build and push runtime image
+      - id: runtime-build
+        name: Build and push runtime image by digest
         uses: docker/build-push-action@v6
         with:
           context: .
           target: runtime-base
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ steps.runtime-meta.outputs.tags }}
-          cache-from: type=gha,scope=runtime
-          cache-to: type=gha,mode=max,scope=runtime
+          platforms: ${{ matrix.platform }}
+          outputs: type=image,name=${{ steps.image-names.outputs.runtime }},push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=runtime-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=runtime-${{ matrix.arch }}
+
+      - name: Record runtime digest
+        shell: bash
+        run: |
+          digest='${{ steps.runtime-build.outputs.digest }}'
+          test "${digest}" != "${digest#sha256:}"
+          mkdir -p /tmp/digests/runtime
+          touch "/tmp/digests/runtime/${digest#sha256:}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: container-runtime-digest-${{ matrix.arch }}
+          path: /tmp/digests/runtime/*
+          if-no-files-found: error
+          retention-days: 1
 
       - id: app-meta
         uses: docker/metadata-action@v5
@@ -94,18 +109,98 @@ jobs:
             type=raw,value=latest,enable=${{ !github.event.release.prerelease }}
 
       - id: app-build
-        name: Build and push app image
+        name: Build and push app image by digest
         uses: docker/build-push-action@v6
         with:
           context: .
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ steps.app-meta.outputs.tags }}
+          platforms: ${{ matrix.platform }}
           labels: ${{ steps.app-meta.outputs.labels }}
+          outputs: type=image,name=${{ steps.image-names.outputs.app }},push-by-digest=true,name-canonical=true,push=true
           cache-from: |
-            type=gha,scope=runtime
-            type=gha,scope=app
-          cache-to: type=gha,mode=max,scope=app
+            type=gha,scope=runtime-${{ matrix.arch }}
+            type=gha,scope=app-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=app-${{ matrix.arch }}
+
+      - name: Record app digest
+        shell: bash
+        run: |
+          digest='${{ steps.app-build.outputs.digest }}'
+          test "${digest}" != "${digest#sha256:}"
+          mkdir -p /tmp/digests/app
+          touch "/tmp/digests/app/${digest#sha256:}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: container-app-digest-${{ matrix.arch }}
+          path: /tmp/digests/app/*
+          if-no-files-found: error
+          retention-days: 1
+
+  merge-container-images:
+    needs: build-container
+    runs-on: ubuntu-latest
+    outputs:
+      app-digest: ${{ steps.merge.outputs.app-digest }}
+      app-image-name: ${{ steps.image-names.outputs.app }}
+    steps:
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: image-names
+        name: Resolve lowercase image names
+        shell: bash
+        run: |
+          owner="$(printf '%s' "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')"
+          echo "app=ghcr.io/${owner}/neuro-book" >> "${GITHUB_OUTPUT}"
+          echo "runtime=ghcr.io/${owner}/neuro-book-runtime" >> "${GITHUB_OUTPUT}"
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: container-runtime-digest-*
+          path: /tmp/digests/runtime
+          merge-multiple: true
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: container-app-digest-*
+          path: /tmp/digests/app
+          merge-multiple: true
+
+      - id: merge
+        name: Merge native architecture images
+        shell: bash
+        env:
+          APP_IMAGE: ${{ steps.image-names.outputs.app }}
+          RUNTIME_IMAGE: ${{ steps.image-names.outputs.runtime }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          PRERELEASE: ${{ github.event.release.prerelease }}
+        run: |
+          set -euo pipefail
+          merge_image() {
+            image="$1"
+            digest_root="$2"
+            mapfile -t digests < <(find "$digest_root" -maxdepth 1 -type f -printf '%f\n' | sort)
+            test "${#digests[@]}" -eq 2
+            refs=()
+            for digest in "${digests[@]}"; do
+              [[ "$digest" =~ ^[a-f0-9]{64}$ ]]
+              refs+=("${image}@sha256:${digest}")
+            done
+            tags=(--tag "${image}:${RELEASE_TAG}")
+            if [[ "$PRERELEASE" != "true" ]]; then
+              tags+=(--tag "${image}:latest")
+            fi
+            docker buildx imagetools create "${tags[@]}" "${refs[@]}"
+          }
+
+          merge_image "$RUNTIME_IMAGE" /tmp/digests/runtime
+          merge_image "$APP_IMAGE" /tmp/digests/app
+          app_digest="sha256:$(docker buildx imagetools inspect "${APP_IMAGE}:${RELEASE_TAG}" --raw | sha256sum | awk '{print $1}')"
+          [[ "$app_digest" =~ ^sha256:[a-f0-9]{64}$ ]]
+          echo "app-digest=${app_digest}" >> "$GITHUB_OUTPUT"
 
   source:
     needs: preflight
@@ -276,7 +371,7 @@ jobs:
             dist/neuro-book-windows-x64.zip
 
   assemble:
-    needs: [build-and-push, source, product-linux, product-linux-aarch64, product-darwin-x64, product-darwin-aarch64, product-windows]
+    needs: [merge-container-images, source, product-linux, product-linux-aarch64, product-darwin-x64, product-darwin-aarch64, product-windows]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -309,8 +404,8 @@ jobs:
       - name: Build release manifest
         shell: bash
         env:
-          GHCR_DIGEST: ${{ needs.build-and-push.outputs.app-digest }}
-          APP_IMAGE_NAME: ${{ needs.build-and-push.outputs.app-image-name }}
+          GHCR_DIGEST: ${{ needs.merge-container-images.outputs.app-digest }}
+          APP_IMAGE_NAME: ${{ needs.merge-container-images.outputs.app-image-name }}
         run: |
           cp scripts/install/install.ps1 dist/install.ps1
           cp scripts/install/install.cmd dist/install.cmd
@@ -360,7 +455,7 @@ jobs:
             dist/install.sh
 
   verify-linux:
-    needs: [assemble, build-and-push]
+    needs: [assemble, merge-container-images]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -379,7 +474,7 @@ jobs:
         run: bash -n candidate-assets/install.sh
       - name: Verify GHCR digest and source revision
         env:
-          IMAGE: ${{ needs.build-and-push.outputs.app-image-name }}@${{ needs.build-and-push.outputs.app-digest }}
+          IMAGE: ${{ needs.merge-container-images.outputs.app-image-name }}@${{ needs.merge-container-images.outputs.app-digest }}
         run: |
           docker pull "${IMAGE}"
           test "$(docker image inspect "${IMAGE}" --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}')" = "${{ github.sha }}"
@@ -832,7 +927,7 @@ jobs:
             dist/install.sh
 
   verify-public-payload:
-    needs: [publish-payload, build-and-push]
+    needs: [publish-payload, merge-container-images]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -872,11 +967,11 @@ jobs:
         run: bun scripts/release/release-assets.ts verify --dir public-assets --tag "${{ github.event.release.tag_name }}" --revision "${{ github.sha }}"
       - name: Verify public GHCR digest
         env:
-          IMAGE: ${{ needs.build-and-push.outputs.app-image-name }}@${{ needs.build-and-push.outputs.app-digest }}
-          APP_IMAGE_NAME: ${{ needs.build-and-push.outputs.app-image-name }}
+          IMAGE: ${{ needs.merge-container-images.outputs.app-image-name }}@${{ needs.merge-container-images.outputs.app-digest }}
+          APP_IMAGE_NAME: ${{ needs.merge-container-images.outputs.app-image-name }}
         run: |
           docker pull "${IMAGE}"
-          test "$(docker image inspect "${IMAGE}" --format '{{ index .RepoDigests 0 }}')" = "${APP_IMAGE_NAME}@${{ needs.build-and-push.outputs.app-digest }}"
+          test "$(docker image inspect "${IMAGE}" --format '{{ index .RepoDigests 0 }}')" = "${APP_IMAGE_NAME}@${{ needs.merge-container-images.outputs.app-digest }}"
 
   verify-public-ghcr-amd64:
     needs: [verify-public-payload]

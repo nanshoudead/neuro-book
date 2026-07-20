@@ -18,7 +18,7 @@ type WorkflowStep = {
     name?: string;
     run?: string;
     uses?: string;
-    with?: {key?: string; path?: string; platforms?: string};
+    with?: {key?: string; outputs?: string; path?: string; pattern?: string; platforms?: string};
 };
 
 type WorkflowJob = {
@@ -34,7 +34,10 @@ type ReleaseWorkflow = {
     };
     jobs: {
         preflight: WorkflowJob;
-        "build-and-push": WorkflowJob;
+        "build-container": WorkflowJob & {
+            strategy: {matrix: {include: Array<{arch: string; platform: string; runner: string}>}};
+        };
+        "merge-container-images": WorkflowJob;
         source: WorkflowJob;
         "product-linux": WorkflowJob;
         "product-linux-aarch64": WorkflowJob;
@@ -85,7 +88,8 @@ describe("Product Release宿主合同", () => {
         expect(preflightRun).toContain("scripts/deploy/product-start.test.ts");
         expect(preflightRun).toContain("product-agent-state-root-smoke.ts");
         expect(preflightRun).toContain("release-assets.test.ts");
-        expect(workflow.jobs["build-and-push"].needs).toBe("preflight");
+        expect(workflow.jobs["build-container"].needs).toBe("preflight");
+        expect(workflow.jobs["merge-container-images"].needs).toBe("build-container");
         expect(workflow.jobs.source.needs).toBe("preflight");
         expect(workflow.jobs["product-linux"].needs).toBe("preflight");
         expect(workflow.jobs["product-linux-aarch64"].needs).toBe("source");
@@ -139,9 +143,22 @@ describe("Product Release宿主合同", () => {
                 "verify-public-windows-data-reuse": WorkflowJob;
             };
         };
-        const buildSteps = workflow.jobs["build-and-push"].steps.filter(({uses}) => uses === "docker/build-push-action@v6");
+        expect(workflow.jobs["build-container"]["runs-on"]).toBe("${{ matrix.runner }}");
+        expect(workflow.jobs["build-container"].strategy.matrix.include).toEqual([
+            {arch: "amd64", platform: "linux/amd64", runner: "ubuntu-latest"},
+            {arch: "arm64", platform: "linux/arm64", runner: "ubuntu-24.04-arm"},
+        ]);
+        const buildSteps = workflow.jobs["build-container"].steps.filter(({uses}) => uses === "docker/build-push-action@v6");
         expect(buildSteps).toHaveLength(2);
-        for (const step of buildSteps) expect(step.with?.platforms).toBe("linux/amd64,linux/arm64");
+        for (const step of buildSteps) {
+            expect(step.with?.platforms).toBe("${{ matrix.platform }}");
+            expect(step.with?.outputs).toContain("push-by-digest=true");
+        }
+        const mergeRun = workflow.jobs["merge-container-images"].steps.map(({run}) => run ?? "").join("\n");
+        expect(mergeRun).toContain("docker buildx imagetools create");
+        expect(mergeRun).toContain("imagetools inspect");
+        expect(mergeRun).toContain("--raw | sha256sum");
+        expect(mergeRun).toContain('test "${#digests[@]}" -eq 2');
         expect(workflow.jobs["verify-public-ghcr-arm64"]["runs-on"]).toBe("ubuntu-24.04-arm");
         expect(workflow.jobs["verify-public-ghcr-podman"].steps.some(
             ({run}) => run?.includes("PODMAN_COMPOSE_PROVIDER=podman-compose podman compose version"),

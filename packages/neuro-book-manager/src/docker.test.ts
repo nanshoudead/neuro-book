@@ -5,7 +5,7 @@ import {join} from "node:path";
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
 import {parse} from "yaml";
 
-import {resolveContainerEngine, runDockerApplicationCommand, stopDocker, writeDockerCompose} from "#manager/docker";
+import {inspectDockerApplication, resolveContainerEngine, runDockerApplicationCommand, stopDocker, writeDockerCompose} from "#manager/docker";
 
 const processCommands = vi.hoisted(() => ({
     available: vi.fn(),
@@ -171,6 +171,31 @@ describe("Docker Compose部署合同", () => {
         await expect(stopDocker("podman", "/tmp/neuro-book", "/tmp/neuro-book-state"))
             .rejects.toThrow("非法app容器ID");
         expect(processCommands.run).not.toHaveBeenCalled();
+    });
+
+    it("Podman状态探测不读取Docker专属Health字段", async () => {
+        const containerId = "b".repeat(64);
+        processCommands.capture.mockImplementation(async (_command: string, args: string[]) => {
+            if (args.includes("config")) return "ghcr.io/notnotype/neuro-book:test\n";
+            if (args.includes("ps")) return `${containerId}\n`;
+            const format = args[2];
+            if (format === "{{.Config.Image}}") return "ghcr.io/notnotype/neuro-book:test\n";
+            if (format === "{{.State.Status}}") return "running\n";
+            if (format === "{{.State.ExitCode}}") return "0\n";
+            if (format?.includes("Health")) throw new Error("Podman无State.Health");
+            throw new Error(`未预期命令：${args.join(" ")}`);
+        });
+
+        await expect(inspectDockerApplication("podman", "/tmp/neuro-book", "/tmp/neuro-book-state"))
+            .resolves.toEqual({
+                configuredImage: "ghcr.io/notnotype/neuro-book:test",
+                containerId,
+                actualImage: "ghcr.io/notnotype/neuro-book:test",
+                status: "running",
+                exitCode: 0,
+            });
+        expect(processCommands.capture.mock.calls.some(([, args]) => args.includes("{{if .State.Health}}{{.State.Health.Status}}{{end}}")))
+            .toBe(false);
     });
 
     it("一次性应用命令拒绝空命令", async () => {
