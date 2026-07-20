@@ -11,6 +11,9 @@ channel="$(node -e 'const m=require(process.argv[1]); process.stdout.write(m.cha
 export NEURO_BOOK_CONTAINER_ENGINE="$engine"
 export NEURO_BOOK_MANAGER_CONFIG="${root}-manager/config.json"
 export NO_COLOR=1
+if [[ "$engine" == "podman" ]]; then
+    export PODMAN_COMPOSE_PROVIDER="podman-compose"
+fi
 
 manager() {
     bunx --bun "@notnotype/neuro-book-manager@${manager_version}" "$@"
@@ -60,7 +63,7 @@ node -e 'const r=require(process.argv[1]); if (!r.healthy || r.checks.some((c)=>
 
 "$engine" compose --env-file "$root/.env" -f "$root/.deploy/docker-compose.generated.yml" stop app
 manager --root "$root" doctor --json > "${root}-doctor-stopped.json"
-node -e 'const r=require(process.argv[1]); if (!r.healthy || !r.checks.some((c)=>c.id === "service.application" && c.status === "warn")) process.exit(1)' "${root}-doctor-stopped.json"
+node -e 'const r=require(process.argv[1]); if (!r.healthy || !r.checks.some((c)=>c.id === "service.application" && c.status === "warn")) { console.error(JSON.stringify({service:r.service,failures:r.checks.filter((c)=>c.status === "fail")}, null, 2)); process.exit(1); }' "${root}-doctor-stopped.json"
 manager --root "$root" start
 
 for attempt in $(seq 1 120); do

@@ -16,7 +16,7 @@ const processCommands = vi.hoisted(() => ({
     run: vi.fn(),
     available: vi.fn(),
 }));
-const docker = vi.hoisted(() => ({command: vi.fn(), start: vi.fn()}));
+const docker = vi.hoisted(() => ({command: vi.fn(), start: vi.fn(), options: vi.fn()}));
 
 vi.mock("#manager/process", () => ({
     runCapture: processCommands.capture,
@@ -24,13 +24,19 @@ vi.mock("#manager/process", () => ({
     commandAvailable: processCommands.available,
 }));
 vi.mock("#manager/docker", () => ({
+    containerComposeOptions: docker.options,
     runDockerApplicationCommand: docker.command,
     startDocker: docker.start,
 }));
 
 const roots: string[] = [];
 
-beforeEach(() => vi.clearAllMocks());
+beforeEach(() => {
+    vi.clearAllMocks();
+    docker.options.mockImplementation((engine: ContainerEngine, cwd: string) => engine === "podman"
+        ? {cwd, env: {...process.env, PODMAN_COMPOSE_PROVIDER: "podman-compose"}}
+        : {cwd});
+});
 afterEach(async () => Promise.all(roots.splice(0).map((root) => rm(root, {recursive: true, force: true}))));
 
 describe("Application Attachment migration command", () => {
@@ -136,7 +142,9 @@ describe("容器管理员命令", () => {
             "--env-file", join(root, ".env"),
             "-f", join(root, ".deploy", "docker-compose.generated.yml"),
             "exec", "-T", "app", "bun", ".output/server/scripts/cli/create-admin.ts", "admin",
-        ], {cwd: root});
+        ], engine === "podman"
+            ? {cwd: root, env: expect.objectContaining({PODMAN_COMPOSE_PROVIDER: "podman-compose"})}
+            : {cwd: root});
     });
 
     it("非交互容器管理员创建显式传递环境密码", async () => {

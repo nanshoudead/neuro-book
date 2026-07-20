@@ -64,6 +64,37 @@ describe("Docker Installation Health", () => {
         expect(service.observedVersion).toBe("v0.9.0");
     });
 
+    it("容器收到SIGTERM正常停止时返回stopped", async () => {
+        const root = await fixture();
+        mocks.inspectDockerApplication.mockResolvedValue({
+            configuredImage: `ghcr.io/notnotype/neuro-book:v1@${digest}`,
+            containerId: "container",
+            actualImage: `ghcr.io/notnotype/neuro-book:v1@${digest}`,
+            status: "exited",
+            exitCode: 143,
+        });
+
+        const service = await inspectInstallationService(root, manifest());
+
+        expect(service.status).toBe("stopped");
+        expect(service.message).toContain("正常停止");
+    });
+
+    it("容器异常退出时保持degraded", async () => {
+        const root = await fixture();
+        mocks.inspectDockerApplication.mockResolvedValue({
+            configuredImage: `ghcr.io/notnotype/neuro-book:v1@${digest}`,
+            containerId: "container",
+            actualImage: `ghcr.io/notnotype/neuro-book:v1@${digest}`,
+            status: "exited",
+            exitCode: 1,
+        });
+
+        const service = await inspectInstallationService(root, manifest());
+
+        expect(service.status).toBe("degraded");
+    });
+
     it("Podman实例只探测Manifest固定engine", async () => {
         const root = await fixture();
         const podmanManifest = {...manifest(), containerEngine: "podman" as const};

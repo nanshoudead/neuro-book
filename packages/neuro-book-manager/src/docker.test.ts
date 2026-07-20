@@ -36,7 +36,9 @@ describe("Docker Compose部署合同", () => {
             return "ok\n";
         });
         await expect(resolveContainerEngine()).resolves.toBe("podman");
-        expect(processCommands.capture).toHaveBeenCalledWith("podman", ["compose", "version"]);
+        expect(processCommands.capture).toHaveBeenCalledWith("podman", ["compose", "version"], {
+            env: expect.objectContaining({PODMAN_COMPOSE_PROVIDER: "podman-compose"}),
+        });
         expect(processCommands.capture).toHaveBeenCalledWith("podman", ["info"]);
     });
 
@@ -104,6 +106,32 @@ describe("Docker Compose部署合同", () => {
             "--run-id",
             "operation-attachment",
         ], {cwd: root});
+    });
+
+    it("Podman Compose固定使用podman-compose provider", async () => {
+        processCommands.capture.mockResolvedValue("migration-report");
+        const root = "/tmp/neuro-book";
+        const stateRoot = "/tmp/neuro-book-state";
+
+        await runDockerApplicationCommand("podman", root, stateRoot, ["bun", "migration.ts"]);
+
+        expect(processCommands.capture).toHaveBeenCalledWith("podman", [
+            "compose",
+            "--env-file",
+            join(stateRoot, ".env"),
+            "-f",
+            join(root, ".deploy", "docker-compose.generated.yml"),
+            "run",
+            "--rm",
+            "--no-deps",
+            "--entrypoint",
+            "bun",
+            "app",
+            "migration.ts",
+        ], {
+            cwd: root,
+            env: expect.objectContaining({PODMAN_COMPOSE_PROVIDER: "podman-compose"}),
+        });
     });
 
     it("一次性应用命令拒绝空命令", async () => {

@@ -1,6 +1,14 @@
 # 105 - 统一安装目录与 NeuroBook Manager
 
-> 当前状态：实现中，应用发布进行中。Manager `0.1.0-canary.23`已公开，Product Platform Checks `29694350114`全绿。`v0.8.11`完成五平台Product和多架构OCI构建，但Linux/Windows候选验证被过期Product Agent State Root smoke阻断，没有最终索引。smoke已改为正式Provider Config + durable model ref并进入Release preflight；下一应用patch为`0.8.12`。`0.8.6`仍是最新已确认含资产版本。当前源码协议为Installation Manifest v4、Release Manifest v3与Operation Journal v3；公开多架构资产、Canary A数据复用与Canary A→B事务更新仍需完成。Apple Silicon Docker Desktop/rootless Podman实机门禁继续豁免，但不得标记为已验证。
+> 当前状态：实现中，应用发布进行中。`v0.8.12`已通过五平台Product、多架构OCI、Windows/Linux候选、公开payload及Windows `0.8.6`完整`data/`复用，但Docker停机doctor和rootless Podman Compose provider使三条公开GHCR链失败，最终索引未发布。修复进入Manager `0.1.0-canary.24`与应用`0.8.13`。`0.8.6`仍是最新已确认含完整索引版本。当前源码协议为Installation Manifest v4、Release Manifest v3与Operation Journal v3；Canary A公开多架构索引、Canary A→B事务更新仍需完成。Apple Silicon Docker Desktop/rootless Podman实机门禁继续豁免，但不得标记为已验证。
+
+## 2026-07-20：`0.8.12`公开GHCR停机与Podman provider回归
+
+- Release workflow [`29711720389`](https://github.com/notnotype/neuro-book/actions/runs/29711720389)完成五平台Product、双架构OCI、Windows/Linux候选、公开payload和Windows `0.8.6`完整`data/`复用；`publish-index`因三条GHCR用户链失败而跳过。
+- Linux x64与ARM64 Docker链已完成安装、管理员创建、登录和运行态doctor，失败发生在`compose stop`后的doctor。真实容器由SIGTERM退出为143，旧状态映射只接受0，错误报告为degraded。现在143归入受控停止，退出码1仍是异常。
+- rootless Podman链在Attachment migration阶段失败。Ubuntu runner同时存在Docker Compose plugin时，Podman 4.9会把`podman compose`委托给Docker plugin并连接错误daemon。Container Engine Adapter现在为所有Podman Compose调用固定`PODMAN_COMPOSE_PROVIDER=podman-compose`；公开脚本也使用相同合同。
+- 新增Podman provider、SIGTERM正常停止与异常退出回归；Manager完整suite为29文件通过、1文件按平台跳过，147项通过、2项跳过。Manager typecheck与Release资产合同通过。
+- 与原计划差异：Windows完整`data/`复用已经取得公开资产证据，但Canary A仍不能视为完成，因为最终Manifest/SHA256SUMS没有发布；下一patch必须重新执行三条GHCR链并成功发布最终索引。
 
 ## 2026-07-19：Operation Journal v3与资产ownership收口
 

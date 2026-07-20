@@ -4,7 +4,7 @@ import {Type, type Static} from "typebox";
 import {Value} from "typebox/value";
 
 import {enableAuthentication, ensureStateFiles, loadStateEnv} from "#manager/config";
-import {runDockerApplicationCommand, startDocker} from "#manager/docker";
+import {containerComposeOptions, runDockerApplicationCommand, startDocker} from "#manager/docker";
 import {pathExists} from "#manager/files";
 import {assertInstallationHostCompatible} from "#manager/platform";
 import {commandAvailable, run, runCapture} from "#manager/process";
@@ -175,7 +175,7 @@ export async function createAdmin(root: string, manifest: InstallationManifest, 
             ...(!process.stdin.isTTY ? ["-T"] : []),
             ...(password ? ["-e", `AUTH_ADMIN_PASSWORD=${password}`] : []),
         ];
-        await run(manifest.containerEngine, [...composeArgs, "exec", ...execOptions, "app", "bun", ".output/server/scripts/cli/create-admin.ts", ...(username ? [username] : [])], {cwd: root});
+        await run(manifest.containerEngine, [...composeArgs, "exec", ...execOptions, "app", "bun", ".output/server/scripts/cli/create-admin.ts", ...(username ? [username] : [])], containerComposeOptions(manifest.containerEngine, root));
         return;
     }
     const productScript = join(root, ".output", "server", "scripts", "cli", "create-admin.ts");

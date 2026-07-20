@@ -160,10 +160,10 @@ export async function startDocker(engine: ContainerEngine, root: string, stateRo
     const compose = join(root, ".deploy", "docker-compose.generated.yml");
     const args = ["compose", "--env-file", join(stateRoot, ".env"), "-f", compose];
     if (profile === "ghcr") {
-        await run(engine, [...args, "pull", "app"], {cwd: root});
-        await run(engine, [...args, "up", "-d"], {cwd: root});
+        await run(engine, [...args, "pull", "app"], containerComposeOptions(engine, root));
+        await run(engine, [...args, "up", "-d"], containerComposeOptions(engine, root));
     } else {
-        await run(engine, [...args, "up", "-d"], {cwd: root});
+        await run(engine, [...args, "up", "-d"], containerComposeOptions(engine, root));
     }
     await verifyDockerApplication(await statePort(stateRoot), expectedVersion);
 }
@@ -181,7 +181,7 @@ export async function readDockerComposeImage(root: string): Promise<string> {
 
 /** 读取Compose配置与app容器状态；容器未创建是合法结果。 */
 export async function inspectDockerApplication(engine: ContainerEngine, root: string, stateRoot: string): Promise<DockerApplicationInspection> {
-    const configuredImages = (await runCapture(engine, [...composeArgs(root, stateRoot), "config", "--images"], {cwd: root}))
+    const configuredImages = (await runCapture(engine, [...composeArgs(root, stateRoot), "config", "--images"], containerComposeOptions(engine, root)))
         .split(/\r?\n/u)
         .map((line) => line.trim())
         .filter(Boolean);
@@ -189,7 +189,7 @@ export async function inspectDockerApplication(engine: ContainerEngine, root: st
         throw new Error(`Compose必须只配置一个app镜像，实际为：${configuredImages.join(", ") || "<missing>"}`);
     }
     const configuredImage = configuredImages[0];
-    const containerId = (await runCapture(engine, [...composeArgs(root, stateRoot), "ps", "--all", "--quiet", "app"], {cwd: root})).trim();
+    const containerId = (await runCapture(engine, [...composeArgs(root, stateRoot), "ps", "--all", "--quiet", "app"], containerComposeOptions(engine, root))).trim();
     if (!containerId) return {configuredImage};
     const [actualImage, status, exitCodeText, health] = await Promise.all([
         runCapture(engine, ["inspect", "--format", "{{.Config.Image}}", containerId], {cwd: root}).then((value) => value.trim()),
@@ -210,12 +210,12 @@ export async function inspectDockerApplication(engine: ContainerEngine, root: st
 
 /** 在切换Compose或备份SQLite前停止受管app容器。 */
 export async function stopDocker(engine: ContainerEngine, root: string, stateRoot: string): Promise<void> {
-    await run(engine, [...composeArgs(root, stateRoot), "stop", "app"], {cwd: root});
+    await run(engine, [...composeArgs(root, stateRoot), "stop", "app"], containerComposeOptions(engine, root));
 }
 
 /** 回滚或Fresh Install失败时移除当前Compose创建的容器与网络。 */
 export async function removeDockerDeployment(engine: ContainerEngine, root: string, stateRoot: string): Promise<void> {
-    await run(engine, [...composeArgs(root, stateRoot), "down", "--remove-orphans"], {cwd: root});
+    await run(engine, [...composeArgs(root, stateRoot), "down", "--remove-orphans"], containerComposeOptions(engine, root));
 }
 
 /** 删除Source Docker事务创建但未提交的本地镜像。 */
@@ -242,7 +242,7 @@ export async function runDockerApplicationCommand(
         entrypoint,
         "app",
         ...args,
-    ], {cwd: root});
+    ], containerComposeOptions(engine, root));
 }
 
 /** 从 staged Git worktree 构建带 revision tag 的 Source Docker image。 */
@@ -253,6 +253,18 @@ export async function buildSourceDockerImage(engine: ContainerEngine, sourceRoot
 /** 生成所有Docker生命周期命令共用的Compose参数。 */
 function composeArgs(root: string, stateRoot: string): string[] {
     return ["compose", "--env-file", join(stateRoot, ".env"), "-f", join(root, ".deploy", "docker-compose.generated.yml")];
+}
+
+/** Podman必须固定Compose provider，避免宿主同时安装Docker插件时静默连接错误daemon。 */
+export function containerComposeEnvironment(engine: ContainerEngine): NodeJS.ProcessEnv {
+    return engine === "podman"
+        ? {...process.env, PODMAN_COMPOSE_PROVIDER: "podman-compose"}
+        : process.env;
+}
+
+/** 为所有Compose调用提供一致的工作目录与Podman provider合同。 */
+export function containerComposeOptions(engine: ContainerEngine, cwd: string): {cwd: string; env?: NodeJS.ProcessEnv} {
+    return engine === "podman" ? {cwd, env: containerComposeEnvironment(engine)} : {cwd};
 }
 
 function commonEnvironment(port: number, databaseUrl: string): Record<string, string> {
@@ -299,7 +311,9 @@ async function inspectContainerEngine(engine: ContainerEngine): Promise<Containe
     }
     let compose: CommandInspection;
     try {
-        const version = (await runCapture(engine, ["compose", "version"])).split(/\r?\n/u)[0]?.trim();
+        const version = (await runCapture(engine, ["compose", "version"], {
+            env: containerComposeEnvironment(engine),
+        })).split(/\r?\n/u)[0]?.trim();
         compose = {available: true, ...(version ? {version} : {})};
     } catch (error) {
         return {

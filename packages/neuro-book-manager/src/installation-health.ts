@@ -184,16 +184,18 @@ export async function inspectInstallationService(root: string, manifest: Install
             };
         }
         if (container.status !== "running") {
+            const normallyStopped = container.status === "created"
+                || container.status === "exited" && (container.exitCode === 0 || container.exitCode === 143);
             return {
                 kind: "container",
-                status: container.status === "created" || container.status === "exited" && container.exitCode === 0 ? "stopped" : "degraded",
+                status: normallyStopped ? "stopped" : "degraded",
                 port,
                 expectedVersion: manifest.appVersion,
                 expectedImage,
                 configuredImage: container.configuredImage,
                 actualImage: container.actualImage,
                 containerId: container.containerId,
-                message: container.status === "created" || container.status === "exited" && container.exitCode === 0 ? "app容器已正常停止" : `app容器状态异常：${container.status ?? "unknown"}`,
+                message: normallyStopped ? "app容器已正常停止" : `app容器状态异常：${container.status ?? "unknown"}`,
             };
         }
         if (container.health === "unhealthy") {

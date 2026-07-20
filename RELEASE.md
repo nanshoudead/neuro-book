@@ -1,5 +1,22 @@
 # Release Notes
 
+## 0.8.13-canary - 2026-07-20
+
+本次patch修复`0.8.12`公开容器用户链暴露的Docker停机诊断与rootless Podman Compose provider问题。该版本需要`@notnotype/neuro-book-manager@0.1.0-canary.24`或更高版本。
+
+### 修复
+
+- Docker与Podman容器被Manager或`compose stop`发送`SIGTERM`后，doctor会把退出码143识别为正常停止并给出`service.application` warning；退出码1等异常退出仍保持fail。
+- Podman的所有Compose操作固定使用`podman-compose` provider，避免GitHub runner或用户宿主同时安装Docker Compose plugin时，`podman compose`静默委托给Docker plugin并连接错误daemon。
+- 公开GHCR验证脚本在停机doctor不符合合同时输出service状态和全部fail checks，后续失败不再只留下无上下文的退出码1。
+
+### 迁移指南
+
+- `0.8.12`已通过Windows Portable完整`data/`复用门禁，但三条GHCR链失败且未发布最终`release-manifest.json`与`SHA256SUMS`，不要把其payload资产当作完整Release安装。
+- Windows `0.8.6`用户继续使用“新目录解压 + 复用完整`data/`”方式迁移；不要复制旧`.deploy`、`.runtime`、`.output`或wrapper。
+- Podman用户需要安装可执行的`podman-compose`。Manager会明确固定该provider，不再根据宿主上偶然存在的Docker插件改变Compose实现。
+- 本次不修改State Root、SQLite、Installation Manifest或用户数据，不需要数据库迁移。
+
 ## 0.8.12-canary - 2026-07-20
 
 本次patch修复`0.8.11`候选资产验证中的Product Agent State Root smoke配置漂移。继续使用已经公开的`@notnotype/neuro-book-manager@0.1.0-canary.23`。
