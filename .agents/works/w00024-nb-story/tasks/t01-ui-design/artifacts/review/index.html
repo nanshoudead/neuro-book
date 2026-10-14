@@ -62,19 +62,79 @@ code { font-family: var(--mono); font-size: 12.5px; }
 </style>
 </head>
 <body>
-<header class="top"><b>nb-story 界面评审板</b><small>w00024 t01-ui-design 的产物 · 第 3 轮 · 2026-10-14</small></header>
+<header class="top"><b>nb-story 界面评审板</b><small>w00024 t01-ui-design 的产物 · 第 4 轮 · 2026-10-14</small></header>
 <main>
 
 <div class="lead">
-    <h1>第 3 轮：静态稿</h1>
-    <p>按前两轮的决定（独立服务；首页是全书总览；顶栏常驻读到哪里和提问框；三栏像 IDE，能拖拽、能收起；沿用 t28 的六项机制）在 Lab 里用 nb-ui 的真实组件搭了五个画面。数据是 t34 前 100 章抽取结果里“读到第 38 章”的一份样本，人物、秘密、悬念、问答都是真的，不是编的。</p>
-    <p>这一轮问两件事：整体版式能不能往下细化，以及问答的答案怎么呈现。搭稿时发现的、会影响实现的问题在“待定”的最后。</p>
+    <h1>第 4 轮：图、段落级的阅读位置、成百上千条记录</h1>
+    <p>第 3 轮你定了版式可以往下细化，另提了三点（Task README 决定第 8 条）。这一轮按这三点改了稿子：读到哪里可以精确到段；人物卡改成页签，记录按几百条的量级做了筛选、搜索和按章分组；加了“关系图”和“全书图”两页，人物卡里也有一张小关系图。数据仍是“读到第 38 章”的真实样本。</p>
+    <p>画图用的是 Cytoscape.js（MIT 许可，成熟，样式和布局多，几千个点还流畅），只装在草稿 worktree 里。读到第 100 章、要画上万个点时，再看要不要换成用 WebGL 画的库（例如 Sigma.js）。</p>
 </div>
 
 <div class="round">待定</div>
 
+<section class="q">
+    <h2>这一轮的改动（不用答）</h2>
+    <div class="shots">
+        <figure><img src="r4/fine-reading.webp" alt="读到哪里精确到段"><figcaption>读到哪里：章的滑块右边有个“段”按钮，默认收起；打开后多一个段落滑块（第 57 段 / 122），所有页面的“截至”都跟着变成“第 38 章第 57 段”。</figcaption></figure>
+        <figure><img src="r4/graph.webp" alt="关系图"><figcaption>关系图：点是人和事物，实线是关系说法（越粗说法越多），虚线是同场次数；“同场至少 N 次”可调。点主要人物打开人物卡，点别的打开它的连线说明。同一份数据在“人物”页是条目，在这里是图。</figcaption></figure>
+        <figure><img src="r4/card-relations.webp" alt="人物卡的关系页签"><figcaption>人物卡的“关系”页签：这个人的小关系图，下面按说法条数列出和每个人的关系，最近一条说法可点开原文。</figcaption></figure>
+        <figure><img src="r4/card-records.webp" alt="人物卡的记录页签"><figcaption>人物卡的“记录”页签：读到第 38 章时苏天晴已有 258 条知情记录、420 条相关说法，读完 100 章会上千条。按状态筛（知道、听说和认为、怀疑、不知道，各带条数）、按字搜、按章分组，章标题吸顶；实现时用虚拟列表，只渲染看得见的几十条。“在主区打开”给更宽的表格和更多筛选。</figcaption></figure>
+    </div>
+</section>
+
+<section class="q" data-nbdev-question="data-graph-layout" data-nbdev-type="single" data-nbdev-recommend="both-storyline">
+    <h2><span class="badge todo" data-nbdev-skip>待定</span>9. 全书图怎么排？</h2>
+    <p class="ask">“整个数据结构用一张图展示”有两种排法。读到第 38 章是 258 个点、669 条连线；读到第 100 章约 700 个点、几千条连线。</p>
+    <div class="shots">
+        <figure><img src="r4/datagraph.webp" alt="按关联排"><figcaption>按关联（力导向）：人物、情节、秘密、悬念四类点，按类型开关。能看出谁是中心、什么和什么连着，但点一多就成一团，要靠搜索、选中高亮和类型开关才看得清。</figcaption></figure>
+        <figure><img src="r4/storyline.webp" alt="按章节排"><figcaption>按章节（故事线）：横轴是章，一行一个主要人物或事物，点是他参与的一段情节，竖线把同一段情节里的人连起来。一眼看出谁在哪几章出场、和谁交汇，读到第 100 章也不会乱；但看不到秘密、悬念这些不按时间排的东西。</figcaption></figure>
+    </div>
+    <div class="opts">
+        <div class="opt rec" data-nbdev-option="both-storyline"><h3>两种都要，默认按章节</h3><p>页面上一个切换；先给最好读的，想看关联再切。</p></div>
+        <div class="opt" data-nbdev-option="both-force"><h3>两种都要，默认按关联</h3><p>先看全貌，再切到时间线。</p></div>
+        <div class="opt" data-nbdev-option="force-only"><h3>只要按关联</h3><p>故事线以后再说。</p></div>
+    </div>
+    <div class="rec-note"><b>推荐两种都要、默认按章节。</b>按关联在几百个点时已经成团，默认给它要先学会筛选才有用；按章节第一眼就能读，人物出场和交汇正是“梳理剧情”要的。</div>
+</section>
+
+<section class="q" data-nbdev-question="card-tabs" data-nbdev-type="single" data-nbdev-recommend="tabs">
+    <h2><span class="badge todo" data-nbdev-skip>待定</span>10. 人物卡分页签，还是一长页？</h2>
+    <p class="ask">记录上千条以后，人物卡一长页往下翻就到不了底。上面两张人物卡的图是分页签的做法：概况（含知道的秘密）、关系、记录、情节，页签上带条数。</p>
+    <div class="opts">
+        <div class="opt rec" data-nbdev-option="tabs"><h3>分页签</h3><p>默认停在“概况”；从别处点进来时直接停在对应的页签（例如从关系图点进来停在“关系”）。</p></div>
+        <div class="opt" data-nbdev-option="long"><h3>一长页，各节折叠</h3><p>各节标题带条数，默认只展开概况；展开的节在抽屉里各自滚动。</p></div>
+    </div>
+    <div class="rec-note"><b>推荐分页签。</b>抽屉只有三四百像素宽，几个可以各自滚动的折叠节叠在一起很难用；页签让每一类都能占满抽屉的高度。</div>
+</section>
+
+<section class="q" data-nbdev-question="qa-answer-format" data-nbdev-type="single" data-nbdev-recommend="table">
+    <h2><span class="badge todo" data-nbdev-skip>待定</span>8. 问答的答案怎么呈现？<small data-nbdev-skip>（第 3 轮的题，还没答）</small></h2>
+    <p class="ask">现在的答案是模型写的一大段文字（见上面问答页那张图）：结论一段，之后每个人物一段，编号夹在句子里。“谁知道什么”这类题一屏看不完，也很难对照。要改的话，作答规则要让模型按固定格式输出，属于问答核心的改动，要随问答回归一起测。</p>
+    <div class="opts">
+        <div class="opt" data-nbdev-option="prose"><h3>保持长文</h3><p>结论加底色放最上面，其余照原样；编号做成可点的链接（就是现在的稿子）。</p></div>
+        <div class="opt rec" data-nbdev-option="table"><h3>结论加表格，长文收起</h3><p>“谁知道什么”的题，答案先给结论，再给一张表：一行一个人，列是“知道吗”（知道、不知道、原文没有表明）、“怎么知道的”、依据编号；模型的完整说明收在“展开说明”里。其他题型（概括、关系）仍是结论加分点。</p></div>
+    </div>
+    <div class="rec-note"><b>推荐结论加表格。</b>这类题是 nb-story 最常被问的（t34 的 16 道知情、身份题），表格和秘密矩阵是同一种读法，扫一眼就能对照；依据编号集中在一列，点开就是原文。</div>
+</section>
+
+<section class="q">
+    <h2>这一轮搭稿时发现的问题（不用答，记下来进计划）</h2>
+    <ol>
+        <li><b>关系线上的字不是“关系”。</b>图里南嘉鱼和苏天晴之间写的是“朋友”，但南小风和苏天晴之间写的是“对风信子的评价”：抽取只给每条说法起了短标签，没有“两人是什么关系”这一项。要在图上写出“姐妹”“朋友”“对手”这类关系，得在抽取或编译时给每对人归纳一个关系（随读到哪里变化），这是记忆图要补的东西。</li>
+        <li><b>同名的两个对象。</b>关系图里有两个“苏天晴”：主角和“这副身体的原主人（也叫苏天晴）”。名册与图要能区分同名对象（显示描述或编号）。</li>
+        <li><b>人物卡里的小关系图太挤。</b>苏天晴有 27 个关系对象，小图里字看不清；实现时小图只画关系最多的十来个，其余在下面的列表里。</li>
+    </ol>
+</section>
+
+
+
+
+
+<div class="round">已定（第 3 轮，2026-10-14 答复）</div>
+
 <section class="q" data-nbdev-question="draft-layout" data-nbdev-type="single" data-nbdev-recommend="go">
-    <h2><span class="badge todo" data-nbdev-skip>待定</span>7. 整体版式能不能按这个往下细化？</h2>
+    <h2><span class="badge done" data-nbdev-skip>已定</span>7. 整体版式能不能按这个往下细化？</h2>
     <p class="ask">顶栏：书名、读到第几章（上一章、下一章、拖动条）、搜索、提问框。左侧导航十项，能收成图标条；右侧抽屉放人物卡或原文，点名字、点“章.段”编号就打开。三栏之间的分隔条能拖，拖过头就收起。底栏常驻“自动抽取，以原文为准”。</p>
     <div class="shots">
         <figure><img src="r3/overview.webp" alt="全书总览"><figcaption>全书总览（第一次打开）：四个数字（人物、秘密、悬念、神典石余额）、主要人物（化名并在一起）、主线、秘密矩阵缩略、这一章发生了什么。</figcaption></figure>
@@ -88,20 +148,11 @@ code { font-family: var(--mono); font-size: 12.5px; }
         <div class="opt" data-nbdev-option="revise"><h3>版式要改</h3><p>在备注里写要改哪里，下一轮先改版式。</p></div>
     </div>
     <div class="rec-note"><b>推荐往下细化。</b>五个画面里最先要看的东西（读到哪里、主要人物、谁知道什么）都在第一屏；拖拽和收起用的是 nb-ui 的分隔条，和工作台同一套手感。</div>
-</section>
-
-<section class="q" data-nbdev-question="qa-answer-format" data-nbdev-type="single" data-nbdev-recommend="table">
-    <h2><span class="badge todo" data-nbdev-skip>待定</span>8. 问答的答案怎么呈现？</h2>
-    <p class="ask">现在的答案是模型写的一大段文字（见上面问答页那张图）：结论一段，之后每个人物一段，编号夹在句子里。“谁知道什么”这类题一屏看不完，也很难对照。要改的话，作答规则要让模型按固定格式输出，属于问答核心的改动，要随问答回归一起测。</p>
-    <div class="opts">
-        <div class="opt" data-nbdev-option="prose"><h3>保持长文</h3><p>结论加底色放最上面，其余照原样；编号做成可点的链接（就是现在的稿子）。</p></div>
-        <div class="opt rec" data-nbdev-option="table"><h3>结论加表格，长文收起</h3><p>“谁知道什么”的题，答案先给结论，再给一张表：一行一个人，列是“知道吗”（知道、不知道、原文没有表明）、“怎么知道的”、依据编号；模型的完整说明收在“展开说明”里。其他题型（概括、关系）仍是结论加分点。</p></div>
-    </div>
-    <div class="rec-note"><b>推荐结论加表格。</b>这类题是 nb-story 最常被问的（t34 的 16 道知情、身份题），表格和秘密矩阵是同一种读法，扫一眼就能对照；依据编号集中在一列，点开就是原文。</div>
+    <div class="decided"><b>已定：可以往下细化。另提三点：读到哪里要能精确到段（默认收起）；很多地方是成百上千条，要按这个量级设计；最主要的是图，关系和整个数据结构都可以用图展示，同一份数据既能看图也能看条目。（开发者 2026-10-14 在会话里答复）</b></div>
 </section>
 
 <section class="q">
-    <h2>搭稿时发现的问题（不用答，记下来进计划）</h2>
+    <h2>第 3 轮搭稿时发现的问题（不用答，记下来进计划）</h2>
     <ol>
         <li><b>秘密矩阵和问答会说法不一。</b>矩阵按图里的知情记录画：“南嘉鱼也是反派魔法少女”这一行，苏天晴那格没有记录；同一本书、同样读到第 38 章，问答（读原文作答）说苏天晴在第 37 章当面叫她“地狱猫”，是知道的。矩阵的格子来自抽取，问答来自原文，抽取漏记时两边就对不上。实现时矩阵的每一格要能点开依据；“没有记录”的格子提供“问一下”，把这一格当问题交给问答。</li>
         <li><b>主要人物要把化名合并成一个人。</b>图里“苏天晴”和“心月狐”是两个对象，要按“读者此时知道的同一身份”合并成一列、一张人物卡；读到第 8 章以前，读者还不知道心月狐就是苏天晴，就不能合并。稿子里是手工合并的，实现时要由核心库按读到哪里算。</li>
