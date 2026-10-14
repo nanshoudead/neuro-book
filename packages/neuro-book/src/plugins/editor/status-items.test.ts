@@ -19,10 +19,16 @@ import {files, filesScene} from "nbook/plugins/files/testing/scene";
 import type {Scene} from "nbook/plugins/files/testing/scene";
 
 import {createEditorArea} from "./web/area";
-import type {EditorArea, EditorControlHandle} from "./web/area";
+import type {EditorArea, EditorControlHandle, TextEditorBinding} from "./web/area";
 import {editorStateValues} from "./web/state";
 import {CURSOR_ITEM, editorStatusItems, UNSAVED_ITEM, WORD_COUNT_DELAY_MS, WORD_COUNT_ITEM} from "./web/status-items";
 import {CODE_EDITOR} from "./shared/contracts";
+
+/** 组的文本绑定（这些用例里的标签都是文本编辑器）；字节绑定或没有绑定为 null。 */
+const textBinding = (area: Pick<EditorArea, "binding">, groupId: string): TextEditorBinding | null => {
+    const binding = area.binding(groupId);
+    return binding?.kind === "text" ? binding : null;
+};
 
 let tmp = "";
 let counter = 0;
@@ -58,13 +64,13 @@ async function opened(scene: Scene, area: EditorArea, address: string): Promise<
     area.open(address, {mode: "permanent"});
     await waitUntil(`${address} 就绪`, () => {
         scene.world.clock.advance(BATCH_DELAY_MS);
-        return area.binding(area.groups.activeGroup.value)?.address.value.endsWith(address.slice("project://".length)) === true;
+        return textBinding(area, area.groups.activeGroup.value)?.address.value.endsWith(address.slice("project://".length)) === true;
     });
 }
 
 /** 在活动视图里输入：经绑定交出一份正文，与控件的输入同一条路径。 */
 function type(area: EditorArea, text: string): void {
-    const binding = area.binding(area.groups.activeGroup.value)!;
+    const binding = textBinding(area, area.groups.activeGroup.value)!;
     expect(binding.commit(binding.revision.value, text).status).toBe("accepted");
 }
 

@@ -105,7 +105,7 @@ owners:
   | `nbook.editor.change-language` | `{language?}`（不给时弹出选择，输出 45） | `activeEditor` 是 `nbook.editor.code` | read | auto | — |
 
   `when` 列写 `nbook.editor/` 下的公开键名。`revert` 丢弃未保存修改，对 Agent 不开放。`open-preview` 与 `change-language` 两行是（planned）。键位只在编辑器区有焦点时由编辑器区处理并执行同一命令，不写成全局键位，`when` 也不含焦点：命令面板取得焦点时这些命令仍可选。第一批的 `nbook.editor.focus`、`nbook.edit.undo`、`nbook.edit.redo`、`nbook.editor.go-to-line` 由本插件登记，`when` 改用下面的公开键，其余声明不变。
-- 公开状态（布尔）：`nbook.editor/focused`（编辑区获得焦点）、`nbook.editor/active`（有活动视图）、`nbook.editor/writable`（活动视图可写）、`nbook.editor/lineNavigation`（活动视图支持行导航）、`nbook.editor/dirty`（活动文档 dirty）、`nbook.editor/hasUnsavedDocuments`（本窗口有任一打开的文档需要保存，按文档去重）、`nbook.editor/hasCursorPosition`（活动控件给出光标位置）、`nbook.editor/ready`（编辑器区已建好：绑定项目的窗口读完会话记录之后），前四个对应命令目录第一批的 `editor-focus`、`editor-active`、`editor-writable`、`editor-line-navigation`。公开状态（字符串）：`nbook.editor/activeDocument`（活动组的活动标签的地址，文档还没读到也有；没有时为空串），资源管理器在打开作品时据此揭示活动文件（[workbench.files-explorer](files-explorer.md)）。（planned）`nbook.editor/active` 改为“活动组有活动的文件标签且它的控件交出了句柄”，不再要求文本文档；新增字符串 `nbook.editor/activeEditor`（活动标签的编辑器 id，页面标签或空组为空串）与布尔 `nbook.editor/hasPreview`（活动标签的文件有可用的预览编辑器，且活动标签本身不是预览视图）。
+- 公开状态（布尔）：`nbook.editor/focused`（编辑区获得焦点）、`nbook.editor/active`（有活动视图）、`nbook.editor/writable`（活动视图可写）、`nbook.editor/lineNavigation`（活动视图支持行导航）、`nbook.editor/dirty`（活动文档 dirty）、`nbook.editor/hasUnsavedDocuments`（本窗口有任一打开的文档需要保存，按文档去重）、`nbook.editor/hasCursorPosition`（活动控件给出光标位置）、`nbook.editor/ready`（编辑器区已建好：绑定项目的窗口读完会话记录之后），前四个对应命令目录第一批的 `editor-focus`、`editor-active`、`editor-writable`、`editor-line-navigation`。公开状态（字符串）：`nbook.editor/activeDocument`（活动组的活动标签的地址，文档还没读到也有；没有时为空串），资源管理器在打开作品时据此揭示活动文件（[workbench.files-explorer](files-explorer.md)）。（planned）`nbook.editor/active` 改为“活动组有活动的文件标签且它的控件交出了句柄”，不再要求文本文档；新增字符串 `nbook.editor/activeEditor`（活动标签的编辑器 id，页面标签或空组为空串），布尔 `nbook.editor/hasPreview`（活动标签的文件有可用的预览编辑器，且活动标签本身不是预览视图）、`nbook.editor/hasDocument`（活动标签有文本文档；字节标签与页面为假）、`nbook.editor/hasEditorStatus`（活动控件交出了一行状态，输出 42）；`nbook.editor/writable` 改为活动视图能输入（预览视图为假，输出 48）。
 - 文档协调服务 `documentCoordinatorKey`（`nbook.editor` 的共享合同），资源管理器作为可选依赖使用：
 
   ```ts
@@ -174,12 +174,13 @@ owners:
 
 **状态栏条目**
 
-编辑器插件向 `workbench.statusbar-items` 贡献下面三个条目，都在右侧（[`ui.workbench-shell`](../ui/workbench-shell.md) 输出 33–35）：
+编辑器插件向 `workbench.statusbar-items` 贡献下面几个条目，都在右侧（[`ui.workbench-shell`](../ui/workbench-shell.md) 输出 33–35）：
 
 | id | 文字 | `when` | 点击 | order | priority |
 |---|---|---|---|---|---|
 | `nbook.editor.unsaved` | 未保存 N 个 | `nbook.editor/hasUnsavedDocuments` | `nbook.editor.save-all` | 10 | 30 |
-| `nbook.editor.word-count` | 活动文档的字数，例如“1,234 字” | `nbook.editor/active` | 无 | 20 | 20 |
+| `nbook.editor.word-count` | 活动文档的字数，例如“1,234 字” | `nbook.editor/active` 且 `nbook.editor/hasDocument`（planned：之前只要 `active`） | 无 | 20 | 20 |
+| `nbook.editor.editor-status`（planned） | 活动控件交出的一行状态，例如图片的尺寸 | `nbook.editor/hasEditorStatus` | 无 | 25 | 15 |
 | `nbook.editor.cursor` | 第 L 行，第 C 列 | `nbook.editor/hasCursorPosition` | 无 | 30 | 10 |
 
 26. 未保存数按文档计（同一文件在几个组里打开只算一个），含非活动的文档；“需要保存”与第 4 条询问的判据相同（dirty、未裁决输入）。提示列出至多 5 个文件；有文档正在保存时写“正在保存”；有保存失败的文档时条目为 `error` 状态，提示列出失败的文件与原因。点击执行全部保存。
@@ -219,10 +220,10 @@ owners:
 
     选择只看已接受的声明，不看实现有没有交付，所以结果不随插件激活的先后变化。
 38. **指定编辑器**：`open` 与 `reopen-with` 的 `editor` 必须是已接受声明的 id，否则为 `unavailable`；`input: "bytes"` 的编辑器只能打开 selector 命中的文件，`input: "text"` 的编辑器可以打开任何文本（否则为 `unavailable`）。
-39. **用其它编辑器重新打开**：不带参数时经工作台的选择服务（[workbench.quick-open](quick-open.md) 的选择模式）列出候选，选中后换：候选是 selector 命中这个文件的全部编辑器（含 `option` 档与预览编辑器），加上 `nbook.editor.code`；当前的那个标“当前”。带参数时直接换。要换成的编辑器在本组已有同一地址的标签时，切到那个标签、关掉当前这个。换编辑器丢掉标签记下的光标与语言（输出 30、45）。
+39. **用其它编辑器重新打开**：不带参数时经工作台的选择服务（[workbench.quick-open](quick-open.md) 的选择模式）列出候选，选中后换：候选是 selector 命中这个文件的全部编辑器（含 `option` 档与预览编辑器），加上 `nbook.editor.code`；当前的那个标“当前”。带参数时直接换。要换成的编辑器在本组已有同一地址的标签时，切到那个标签、关掉当前这个。换编辑器丢掉标签记下的光标与语言（输出 30、45）。从文本编辑器换成按字节显示的编辑器时，这个标签若是这份文档最后一个能编辑的标签、而文档 dirty 或有未裁决输入，则为 `unavailable`（先保存或放弃修改），不丢正文。
 40. **编辑器的三种状态**：标签的编辑器声明不在（贡献方停止或没装）时，内容区写“这个编辑器已经不在了”并给出“用默认编辑器打开”（按输出 37 重选，不再选这个编辑器）；声明在、实现还没交付时内容区空白，800 毫秒后仍未交付才显示进度条（与输出 6 同一规则）；交付后渲染。会话恢复与继续写作时编辑器还没交付，标签照常恢复，等交付后渲染。
-41. **字节标签**：`input: "bytes"` 的编辑器打开的标签只持有文件条目的字节引用，不读正文：它不 dirty、不可写、没有字数与光标位置；控件经绑定的 `url` 读文件（[workspace.files](../workspace/files.md) 的“按地址读取字节”），文件每次变化 `version` 加一、控件据此重新读。改名、移动、资源管理器的删除、其它来源的删除与文本标签同样处理（输出 17、18、24、25，删除后只有“关闭”）：同一组里改名后不会出现两个地址与编辑器都相同的标签。关闭、拆分、重新打开、聚焦照常可用。同一文件同时有文本标签时，文本引用照常读正文，两者互不影响。
-42. **编辑器状态条目**：状态栏右侧条目 `nbook.editor.editor-status`（`when: nbook.editor/active`，order 25、priority 15）显示活动控件句柄交出的 `status`；没有交出或为 null 时不显示。图片查看器用它显示尺寸与大小（[workbench.image-viewer](image-viewer.md)）。
+41. **字节标签**：`input: "bytes"` 的编辑器打开的标签只持有文件条目的字节引用，不读正文：它不 dirty、不可写、没有字数与光标位置；控件经绑定的 `url` 读文件（[workspace.files](../workspace/files.md) 的“按地址读取字节”），文件每次变化 `version` 加一、控件据此重新读。改名、移动、资源管理器的删除、其它来源的删除与文本标签同样处理（输出 17、18、24、25，删除后只有“关闭”）：同一组里改名后不会出现两个地址与编辑器都相同的标签。关闭、拆分、重新打开、聚焦照常可用。同一文件同时有文本标签时，文本引用照常读正文，两者互不影响；最后一个文本标签关闭后（需要结算的正文已按第 4 条结算）条目丢掉正文，只按字节。订阅第一次就绪时字节引用的 `version` 也加一：就绪之前的变化没有事件。
+42. **编辑器状态条目**：状态栏右侧条目 `nbook.editor.editor-status`（`when: nbook.editor/hasEditorStatus`，order 25、priority 15）显示活动控件句柄交出的 `status`；没有交出或为 null 时不显示。图片查看器用它显示尺寸与大小（[workbench.image-viewer](image-viewer.md)）。
 
 **语言**（planned）
 

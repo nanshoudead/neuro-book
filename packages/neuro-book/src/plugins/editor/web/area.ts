@@ -14,7 +14,7 @@ import type {RuntimeClock} from "@notnotype/nb-runtime/lifecycle";
 import type {FilesService} from "nbook/plugins/files/shared/contracts";
 
 import {CODE_EDITOR} from "../shared/contracts";
-import type {EditorControlHandle, TextEditorBinding, ViewStateSlot} from "../shared/contracts";
+import type {BytesEditorBinding, EditorBinding, EditorControlHandle, TextEditorBinding, ViewStateSlot} from "../shared/contracts";
 import {createDocumentStore} from "./documents/store";
 import type {DocumentReference, DocumentStore, TextDocument} from "./documents/store";
 import {BINARY_TAB_EDITOR, BUILTIN_CATALOG, editorRefusal, resolveEditor} from "./editors";
@@ -23,7 +23,7 @@ import {createEditorGroups} from "./groups/groups";
 import {pageAddress, pageIdOf} from "./pages";
 import type {EditorGroups, EditorTab, FileTab, GroupsSnapshot, SplitDirection} from "./groups/groups";
 
-export type {EditorControlHandle, TextEditorBinding, ViewStateSlot} from "../shared/contracts";
+export type {BytesEditorBinding, EditorBinding, EditorControlHandle, TextEditorBinding, ViewStateSlot} from "../shared/contracts";
 
 /** 打开后这么久正文还没就绪才显示进度条（files-explorer 的“打开与切换”）。 */
 export const PROGRESS_DELAY_MS = 800;
@@ -63,10 +63,14 @@ export type OpenResult = {readonly ok: true; readonly tabId: string} | {readonly
 export interface EditorArea {
     readonly documents: DocumentStore;
     readonly groups: EditorGroups;
-    /** 组的当前绑定；没有活动的文本标签或文档还没就绪为 null。 */
-    binding(groupId: string): TextEditorBinding | null;
-    /** 组的活动标签的文档；没有为 null。 */
+    /** 组的当前绑定（文本或字节）；没有活动的文件标签、文档还没就绪为 null。 */
+    binding(groupId: string): EditorBinding | null;
+    /** 组的活动标签的文档（有文本引用的那种）；字节标签与页面为 null。 */
     documentOf(groupId: string): TextDocument | null;
+    /** 组的活动文件标签的文件条目，文本与字节标签都有（删除、订阅结束的提示用它）；页面为 null。 */
+    fileOf(groupId: string): TextDocument | null;
+    /** 活动标签的视图能不能输入：文本编辑器、不是预览视图、文档可写（docs/specs/workbench/editor.md 输出 48）。 */
+    viewWritable(groupId: string): boolean;
     /**
      * 每组每种编辑器一个、活到组关闭的槽：控件把编辑器实例存在这里，布局变化（拆分、关闭相邻组）让组件重挂时接着用，
      * 撤销历史与编辑状态不丢（输出 2、10）。
@@ -124,10 +128,13 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
     const groups = createEditorGroups(options.initial, (editor) => catalog.declaration(editor)?.cursor ?? null);
     /** 预览编辑器（`role: "preview"`）的标签不算这个文件“已经打开”的那一个（输出 1）。声明已不在的编辑器不算预览编辑器。 */
     const isPreview = (editor: string): boolean => catalog.declaration(editor)?.role === "preview";
+    /**
+     * 文件标签取文本引用还是字节引用（输出 41）：“不能在这里打开”的标签、按字节显示的编辑器取字节引用，不读正文；声明已
+     * 不在的编辑器也不读，用户换成默认编辑器之后才读。
+     */
+    const readsText = (tab: FileTab): boolean => tab.editor !== BINARY_TAB_EDITOR && catalog.declaration(tab.editor)?.input === "text";
     /** 能编辑这份文档的标签：文本编辑器、不是预览视图（输出 4）。 */
-    const editable = (tab: EditorTab): boolean => tab.kind === "file" && !isPreview(tab.editor) && catalog.declaration(tab.editor)?.input !== "bytes" && tab.editor !== BINARY_TAB_EDITOR;
-    /** 标签读不读正文：页面与“不能在这里打开”的标签不读。 */
-    const readsText = (tab: EditorTab): tab is FileTab => tab.kind === "file" && tab.editor !== BINARY_TAB_EDITOR;
+    const editable = (tab: EditorTab): boolean => tab.kind === "file" && readsText(tab) && !isPreview(tab.editor);
     const references = new Map<string, DocumentReference>();
     const slots = new Map<string, ViewStateSlot>();
     /** 每组每种编辑器的非活动视图状态，最近用过的在后。 */
@@ -144,10 +151,10 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
     const slotKey = (groupId: string, editor: string, document: TextDocument): string => `${groupId}|${editor}|${document.target.value.documentId}`;
 
     /** 标签的文档引用：恢复出来的标签第一次成为活动标签时才打开文档。 */
-    const referenceOf = (tab: EditorTab): DocumentReference => {
+    const referenceOf = (tab: FileTab): DocumentReference => {
         let reference = references.get(tab.id);
         if (reference === undefined) {
-            reference = documents.acquire(tab.address);
+            reference = documents.acquire(tab.address, {text: readsText(tab)});
             references.set(tab.id, reference);
         }
         return reference;
@@ -161,7 +168,7 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
         // 同一地址还有恢复出来、还没读到的标签：它们没有引用，先替它们拿上，正文才不会随这次释放丢掉。
         for (const group of groups.groups.value) {
             for (const other of group.tabs) {
-                if (readsText(other) && other.address === tab.address && !references.has(other.id)) references.set(other.id, documents.acquire(other.address));
+                if (other.kind === "file" && other.address === tab.address && !references.has(other.id)) references.set(other.id, documents.acquire(other.address, {text: readsText(other)}));
             }
         }
         const key = slotKey(groupId, tab.editor, reference.document);
@@ -227,15 +234,15 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
 
     /** 组此刻交给控件的绑定与它背后的文档（文档只在编辑器区里用，不交给控件）。 */
     interface Bound {
-        readonly binding: TextEditorBinding;
+        readonly binding: EditorBinding;
         readonly document: TextDocument;
     }
     const bindings = new Map<string, Bound>();
-    const binding = (groupId: string): TextEditorBinding | null => {
+    const binding = (groupId: string): EditorBinding | null => {
         const group = groups.groups.value.find((candidate) => candidate.id === groupId);
         const tab = group?.tabs.find((candidate) => candidate.id === group.active);
-        // 页面标签与“不能在这里打开”的标签没有文档，也就没有绑定。
-        if (group === undefined || tab === undefined || !readsText(tab)) return null;
+        // 页面标签与“不能在这里打开”的标签没有控件，也就没有绑定。
+        if (group === undefined || tab === undefined || tab.kind === "page" || tab.editor === BINARY_TAB_EDITOR) return null;
         const document = referenceOf(tab).document;
         const status = document.status.value;
         if (status !== "ready" && status !== "deleted") return null;
@@ -259,14 +266,20 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
         const token = `v${String(nextToken)}`;
         // 换下的绑定（换文档、关闭标签、换编辑器）不再改变任何文档：换下之前，切换的路径已经结算过它的输入（`leave`、
         // `closeTab`），之后迟到的回调一律当作过时。
-        const current = (): boolean => bindings.get(groupId)?.binding === created;
         const tabId = tab.id;
+        const address = computed(() => groups.find(tabId)?.tab.address ?? tab.address);
+        if (!readsText(tab)) {
+            const bytes: BytesEditorBinding = {kind: "bytes", token, tabId, editor: tab.editor, address, url: computed(() => options.files.rawUrl(address.value)), version: document.version, slot};
+            bindings.set(groupId, {binding: bytes, document});
+            return bytes;
+        }
+        const current = (): boolean => bindings.get(groupId)?.binding === created;
         const created: TextEditorBinding = {
             kind: "text",
             token,
             tabId,
             editor: tab.editor,
-            address: computed(() => groups.find(tabId)?.tab.address ?? tab.address),
+            address,
             text: document.text,
             revision: document.revision,
             slot,
@@ -287,10 +300,18 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
         return created;
     };
 
-    const documentOf = (groupId: string): TextDocument | null => {
+    const activeFileTab = (groupId: string): FileTab | null => {
         const group = groups.groups.value.find((candidate) => candidate.id === groupId);
         const tab = group?.tabs.find((candidate) => candidate.id === group.active);
-        return tab === undefined || !readsText(tab) ? null : referenceOf(tab).document;
+        return tab === undefined || tab.kind === "page" ? null : tab;
+    };
+    const documentOf = (groupId: string): TextDocument | null => {
+        const tab = activeFileTab(groupId);
+        return tab === null || !readsText(tab) ? null : referenceOf(tab).document;
+    };
+    const fileOf = (groupId: string): TextDocument | null => {
+        const tab = activeFileTab(groupId);
+        return tab === null ? null : referenceOf(tab).document;
     };
 
     // 进度条：活动文档还在读取时计时，800 ms 后仍在读取才显示；换标签或读完时撤掉。
@@ -352,6 +373,7 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
         const open = new Set<TextDocument>();
         for (const group of groups.groups.value) {
             for (const tab of group.tabs) {
+                if (tab.kind === "page" || !readsText(tab)) continue;
                 const document = documents.get(tab.address);
                 if (document !== null) open.add(document);
             }
@@ -399,7 +421,7 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
         if (pending === null) return null;
         const group = groups.groups.value.find((candidate) => candidate.id === pending.groupId);
         const tab = group?.tabs.find((candidate) => candidate.id === pending.tabId);
-        if (group === undefined || tab === undefined || !readsText(tab) || group.active !== tab.id || groups.activeGroup.value !== group.id) return {outcome: "cancelled"};
+        if (group === undefined || tab === undefined || tab.kind === "page" || !readsText(tab) || group.active !== tab.id || groups.activeGroup.value !== group.id) return {outcome: "cancelled"};
         const status = referenceOf(tab).document.status.value;
         if (status === "failed") return {outcome: "failed", address: pending.address, reveal: pending.reveal};
         if (status !== "ready" && status !== "deleted") return null;
@@ -439,6 +461,33 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
 
     const needsSettle = (document: TextDocument): boolean => document.dirty.value || document.unresolved.value.length > 0 || document.saving.value;
 
+    /**
+     * 换编辑器（输出 39）：文本与字节之间换了，标签的引用随之换一份（先取新的再放旧的，条目不会因此被丢掉）。从文本换到
+     * 字节、而这是这份文档最后一个能编辑的标签、它又需要结算时拒绝：放掉最后一个文本引用会丢掉没保存的正文。
+     */
+    const changeEditor = (tab: FileTab, groupId: string, editor: string): ActionResult => {
+        const before = readsText(tab);
+        const after = editor !== BINARY_TAB_EDITOR && catalog.declaration(editor)?.input === "text";
+        const reference = references.get(tab.id);
+        if (before && !after && reference !== undefined) {
+            documents.settle(reference.document);
+            const others = groups.groups.value.some((group) => group.tabs.some((other) => other.id !== tab.id && other.address === tab.address && editable(other)));
+            if (!others && needsSettle(reference.document)) return {ok: false, reason: "有未保存的修改：先保存或放弃修改，再换成按字节显示的编辑器"};
+        }
+        const closed = groups.setEditor(tab.id, editor);
+        if (closed !== null) {
+            releaseTab(closed, groupId);
+            return {ok: true};
+        }
+        if (before !== after && reference !== undefined) {
+            references.delete(tab.id);
+            const changed = groups.find(tab.id)?.tab;
+            if (changed !== undefined && changed.kind === "file") referenceOf(changed);
+            reference.release();
+        }
+        return {ok: true};
+    };
+
     const ask = (address: string): Promise<CloseChoice> => new Promise<CloseChoice>((resolve) => {
         answerDialog?.("cancel");
         dialog.value = {address};
@@ -459,7 +508,7 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
             if (document === null) break;
             documents.settle(document);
             const shown = bindings.get(found.group.id);
-            const own = shown !== undefined && shown.binding.tabId === tabId ? shown.binding : null;
+            const own = shown !== undefined && shown.binding.tabId === tabId && shown.binding.kind === "text" ? shown.binding : null;
             const ownInput = own !== null && own.unresolved();
             // 只剩预览视图或只读的编辑器时照常问：它们改不了正文（输出 4）。
             const shared = groups.groups.value.some((group) => group.tabs.some((tab) => tab.id !== tabId && tab.address === found.tab.address && editable(tab)));
@@ -493,6 +542,11 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
         groups,
         binding,
         documentOf,
+        fileOf,
+        viewWritable: (groupId) => {
+            const tab = activeFileTab(groupId);
+            return tab !== null && editable(tab) && documentOf(groupId)?.writable.value === true;
+        },
         controlSlot: (groupId, editor) => {
             const key = `${groupId}|${editor}`;
             let slot = controlSlots.get(key);
@@ -595,18 +649,14 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
             if (refusal !== null) return {ok: false, reason: refusal};
             if (!leave(group)) return {ok: false, reason: "当前视图有未裁决的输入"};
             // 换成的编辑器在本组已有这个文件的标签：切过去，当前这个关掉并释放。
-            const closed = groups.setEditor(tab.id, editor);
-            if (closed !== null) releaseTab(closed, group);
-            return {ok: true};
+            return changeEditor(tab, group, editor);
         },
         reopenWithDefault: () => {
             const tab = groups.activeTab();
             if (tab === null || tab.kind === "page") return {ok: false, reason: "没有活动的文件标签"};
             const resolution = resolveEditor(catalog, tab.address);
             const editor = resolution.kind === "binary" ? BINARY_TAB_EDITOR : resolution.editor === tab.editor ? CODE_EDITOR : resolution.editor;
-            const closed = groups.setEditor(tab.id, editor);
-            if (closed !== null) releaseTab(closed, groups.activeGroup.value);
-            return {ok: true};
+            return changeEditor(tab, groups.activeGroup.value, editor);
         },
         save: async () => {
             const document = activeDocument.value;

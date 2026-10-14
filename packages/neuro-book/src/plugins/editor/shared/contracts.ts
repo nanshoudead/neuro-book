@@ -184,6 +184,23 @@ export interface TextEditorBinding {
     readonly language: string | null;
 }
 
+/**
+ * 字节编辑器（`input: "bytes"`）收到的绑定：`url` 读文件字节（docs/specs/workspace/files.md 的“按地址读取字节”），没有
+ * 绑定项目时为 null；`version` 在文件每次变化时加一，控件据此重新取。
+ */
+export interface BytesEditorBinding {
+    readonly kind: "bytes";
+    readonly token: string;
+    readonly tabId: string;
+    readonly editor: string;
+    readonly address: Readonly<Ref<string>>;
+    readonly url: Readonly<Ref<string | null>>;
+    readonly version: Readonly<Ref<number>>;
+    readonly slot: ViewStateSlot;
+}
+
+export type EditorBinding = TextEditorBinding | BytesEditorBinding;
+
 /** 控件交出的句柄：命令（聚焦、撤销、重做、跳转到行）作用于活动组的活动控件。 */
 export interface EditorControlHandle {
     focus(): void;

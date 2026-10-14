@@ -45,6 +45,8 @@ interface World {
     readonly reports: unknown[];
     /** 文档模型发出、还没有结果的读取（经真实客户端，只多记一笔）。 */
     readonly pendingReads: Set<symbol>;
+    /** 文档模型发出过的全部读取的地址。 */
+    readonly readAddresses: string[];
 }
 
 const LAYOUT: Layout = {"a.md": "A", "b.md": "B", "dir/c.md": "C"};
@@ -55,8 +57,10 @@ async function world(layout: Layout = LAYOUT): Promise<World> {
     const scene = await filesScene(join(tmp, `case-${String(counter)}`), {project: layout, user: {"u.md": "U"}}, {wrapLink: tap.wrap});
     const reports: unknown[] = [];
     const pendingReads = new Set<symbol>();
+    const readAddresses: string[] = [];
     const client = files(scene.window);
     const observed: FilesService = {...client, read: async (address, options) => {
+        readAddresses.push(address);
         const marker = Symbol(address);
         pendingReads.add(marker);
         try {
@@ -74,7 +78,7 @@ async function world(layout: Layout = LAYOUT): Promise<World> {
         for (const result of closed) expect(result).toMatchObject({status: "closed"});
         await rm(scene.root, {recursive: true, force: true});
     });
-    return {scene, tap, store, events, reports, pendingReads};
+    return {scene, tap, store, events, reports, pendingReads, readAddresses};
 }
 
 /** 等可观察的条件，期间推进场地的时钟（变化事件按批延迟交付）。 */
@@ -446,6 +450,50 @@ describe("Spec workbench.editor 输出 17–18：改名、删除与订阅结束"
         await until(at, "订阅结束", () => document.ended.value !== null);
         expect(document.writable.value).toBe(false);
         expect(await at.store.save(document)).toMatchObject({ok: false, code: "ended"});
+    });
+});
+
+describe("Spec workbench.editor 输出 41：字节引用", () => {
+    it("只有字节引用时不读正文：就绪、没有正文、不 dirty；文件每次变化 version 加一；删除标为已删除，又出现回到就绪", async () => {
+        const at = await world({...LAYOUT, "a.png": "PNG"});
+        const reference = at.store.acquire("project://a.png", {text: false});
+        const document = reference.document;
+        expect(document.status.value).toBe("ready");
+        expect([document.text.value, document.dirty.value, document.writable.value]).toEqual(["", false, true]);
+        // 订阅就绪时 version 加一（就绪之前的变化没有事件，控件要再取一次）。
+        await until(at, "订阅就绪", () => document.version.value > 0);
+        const start = document.version.value;
+        await writeFile(join(at.scene.project, "a.png"), "PNG2");
+        await until(at, "变化交付", () => document.version.value > start);
+        await rm(join(at.scene.project, "a.png"));
+        await until(at, "标为已删除", () => document.status.value === "deleted");
+        await writeFile(join(at.scene.project, "a.png"), "PNG3");
+        await until(at, "又出现", () => document.status.value === "ready");
+        expect(at.readAddresses).not.toContain("project://a.png");
+        reference.release();
+        expect(at.store.get("project://a.png")).toBeNull();
+    });
+
+    it("同一地址先有字节引用、后来有文本引用：开始读正文；文本引用都释放后丢掉正文、回到只按字节", async () => {
+        const at = await world({...LAYOUT, "a.svg": "<svg/>"});
+        const bytes = at.store.acquire("project://a.svg", {text: false});
+        const text = at.store.acquire("project://a.svg");
+        expect(text.document).toBe(bytes.document);
+        await until(at, "读到正文", () => text.document.status.value === "ready" && text.document.text.value === "<svg/>");
+        text.release();
+        expect([bytes.document.status.value, bytes.document.text.value, bytes.document.dirty.value]).toEqual(["ready", "", false]);
+        bytes.release();
+    });
+
+    it("改名与资源管理器的删除对字节引用同样生效：条目跟到新地址、关闭时通知标签", async () => {
+        const at = await world({...LAYOUT, "dir/p.png": "PNG"});
+        const reference = at.store.acquire("project://dir/p.png", {text: false});
+        expect(await files(at.scene.window).rename("project://dir", "moved")).toMatchObject({ok: true});
+        await until(at, "改到新地址", () => reference.document.target.value.path === "project://moved/p.png");
+        expect(at.events).toContainEqual({kind: "rebound", from: "project://dir", to: "project://moved", kept: []});
+        at.store.coordinator.close(["project://moved"]);
+        expect(at.events.at(-1)).toEqual({kind: "closed", addresses: ["project://moved/p.png"]});
+        expect(at.readAddresses).not.toContain("project://dir/p.png");
     });
 });
 

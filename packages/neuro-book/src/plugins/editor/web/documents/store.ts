@@ -7,6 +7,8 @@
  * - 读取在途时该文件有变化，结果回来后再读一次；接纳读取结果时再核对输入修订没有前进、没有 dirty、没有在途保存。
  * - 变化事件不带基线，来源也分不出是不是本窗口：一律读一次，用读到的哈希与本窗口已提交或正在提交的正文比较。
  * - 每份文档的保存排成一列：一次保存开始时固定快照，下一次用它完成后的基线；租约期间新的保存等租约结束。
+ * - 条目按地址一份，文本标签与字节标签（图片这类，输出 41）共用它的生命周期：改名、删除、外部变化都只在这里判定。只有
+ *   文本引用时才读正文；只剩字节引用时不读，文件有变化就把 `version` 加一，交给按字节显示的控件重新取。
  */
 
 import {computed, ref, shallowRef} from "@vue/reactivity";
@@ -57,6 +59,8 @@ export interface TextDocument {
     /** 有未裁决输入的视图标识。 */
     readonly unresolved: ComputedRef<ReadonlyArray<string>>;
     readonly writable: ComputedRef<boolean>;
+    /** 磁盘上这个文件每有一次变化（变更事件、resync）加一：按字节显示的控件据此重新取。 */
+    readonly version: Readonly<Ref<number>>;
 }
 
 export type CommitResult = {readonly status: "accepted"; readonly revision: number} | {readonly status: "conflict"; readonly revision: number} | {readonly status: "stale"};
@@ -75,7 +79,8 @@ export interface DocumentReference {
 }
 
 export interface DocumentStore {
-    acquire(address: string): DocumentReference;
+    /** `text` 为假时是字节引用：不读正文（输出 41）；缺省为文本引用。 */
+    acquire(address: string, options?: {readonly text?: boolean}): DocumentReference;
     /** 已打开的文档；没有为 null。 */
     get(address: string): TextDocument | null;
     /** 视图交来输入（输入回执）：`baseRevision` 是视图看到的修订。 */
@@ -112,6 +117,9 @@ export interface DocumentStoreOptions {
 interface Entry {
     address: string;
     refs: number;
+    /** 其中的文本引用：为 0 时不读正文。 */
+    textRefs: number;
+    readonly version: Ref<number>;
     closed: boolean;
     readonly document: TextDocument;
     readonly target: ShallowRef<DocumentTarget>;
@@ -192,6 +200,8 @@ export function createDocumentStore(options: DocumentStoreOptions): DocumentStor
             if (message.kind === "ready" && first) {
                 first = false;
                 markReady();
+                // 字节引用不等订阅就绪：控件先取了一次，订阅建好之前的变化没有事件。就绪时让它们再取一次。
+                for (const entry of entries.values()) if (entry.textRefs === 0 && schemeOf(entry.address) === scheme) entry.version.value += 1;
                 return;
             }
             onMessage(scheme, watch, message);
@@ -219,7 +229,10 @@ export function createDocumentStore(options: DocumentStoreOptions): DocumentStor
                     }
                     for (const entry of inScheme()) {
                         const touched = event.type === "deleted" ? isWithin(entry.address, address) : entry.address === address;
-                        if (touched) recheck(entry);
+                        if (!touched) continue;
+                        // 只有字节引用的条目不读正文，事件本身就是全部消息：删除标为已删除，别的变化（含删除后又出现）回到就绪。
+                        if (entry.textRefs === 0) entry.status.value = event.type === "deleted" ? "deleted" : "ready";
+                        recheck(entry);
                     }
                 }
         }
@@ -228,6 +241,8 @@ export function createDocumentStore(options: DocumentStoreOptions): DocumentStor
     /** 读一次磁盘并按接纳规则应用；读取在途时只记下要再读。 */
     const recheck = (entry: Entry): void => {
         if (entry.closed || disposed) return;
+        entry.version.value += 1;
+        if (entry.textRefs === 0) return;
         if (entry.reading) {
             entry.reread = true;
             return;
@@ -245,6 +260,8 @@ export function createDocumentStore(options: DocumentStoreOptions): DocumentStor
                 const revision = entry.revision.value;
                 const result = await files.read(address);
                 if (entry.closed || disposed) return;
+                // 读取期间最后一个文本标签关了：不再需要正文。
+                if (entry.textRefs === 0) return;
                 // 读取期间改名了或又有变化：这份结果已经过时，再读一次。
                 if (entry.reread || entry.address !== address) continue;
                 await apply(entry, result, revision);
@@ -332,6 +349,7 @@ export function createDocumentStore(options: DocumentStoreOptions): DocumentStor
         const pending = shallowRef<Promise<SaveResult> | null>(null);
         const ended = ref<string | null>(watches.get(schemeOf(address))?.ended ?? null);
         const conflict = ref<Baseline | null>(null);
+        const version = ref(0);
         const document: TextDocument = {
             target,
             status,
@@ -347,10 +365,13 @@ export function createDocumentStore(options: DocumentStoreOptions): DocumentStor
             unresolved: computed(() => [...candidates.value.keys()]),
             // 外部删除后只读（输出 18）：dirty 的正文仍可保存重建，那是保存的事，不是继续输入。
             writable: computed(() => status.value === "ready" && ended.value === null),
+            version,
         };
         const entry: Entry = {
             address,
             refs: 0,
+            textRefs: 0,
+            version,
             closed: false,
             document,
             target,
@@ -377,6 +398,33 @@ export function createDocumentStore(options: DocumentStoreOptions): DocumentStor
             leaseWaiters: [],
         };
         return entry;
+    };
+
+    /** 开始为文本引用读正文；订阅已结束时直接失败（与第一次打开同一表现）。 */
+    const startText = (entry: Entry): void => {
+        if (entry.ended.value !== null) {
+            entry.failure.value = {code: "ended", detail: entry.ended.value};
+            entry.status.value = "failed";
+            return;
+        }
+        if (entry.saved.value === null) entry.status.value = "loading";
+        if (entry.reading) entry.reread = true;
+        else void read(entry);
+    };
+
+    /** 不再有文本引用：正文、基线与正文相关的标记都清掉，状态回到“就绪、没有正文”（已删除的保持）。 */
+    const stopText = (entry: Entry): void => {
+        entry.text.value = "";
+        entry.saved.value = null;
+        entry.baseline = null;
+        entry.revision.value += 1;
+        entry.candidates.value = new Map();
+        entry.conflict.value = null;
+        entry.diskChanged.value = false;
+        entry.saveProblem.value = null;
+        entry.failure.value = null;
+        entry.uncertain = null;
+        if (entry.status.value !== "deleted") entry.status.value = "ready";
     };
 
     const drop = (entry: Entry): void => {
@@ -599,19 +647,22 @@ export function createDocumentStore(options: DocumentStoreOptions): DocumentStor
     };
 
     return {
-        acquire: (address) => {
+        acquire: (address, acquireOptions = {}) => {
             schemeOf(address);
+            const text = acquireOptions.text !== false;
             let entry = entries.get(address);
             if (entry === undefined) {
                 entry = create(address);
                 entries.set(address, entry);
+                // 字节引用不读正文，也不等订阅：条目一建好就是就绪（控件自己读字节、自己报失败）。订阅照样建，变化才进得来。
                 const watch = watchFor(schemeOf(address));
-                if (watch.ended !== null) {
-                    entry.failure.value = {code: "ended", detail: watch.ended};
-                    entry.status.value = "failed";
-                } else {
-                    void read(entry);
-                }
+                if (!text) entry.status.value = "ready";
+                if (watch.ended !== null) entry.ended.value = watch.ended;
+            }
+            if (text) {
+                entry.textRefs += 1;
+                // 第一个文本引用：开始读正文。只有字节引用时条目是“就绪、没有正文”，这里回到加载中。
+                if (entry.textRefs === 1) startText(entry);
             }
             entry.refs += 1;
             const held = entry;
@@ -622,6 +673,11 @@ export function createDocumentStore(options: DocumentStoreOptions): DocumentStor
                     if (released) return;
                     released = true;
                     held.refs -= 1;
+                    if (text) {
+                        held.textRefs -= 1;
+                        // 最后一个文本标签关了、还有字节标签：正文已在关闭前结算（输出 4），丢掉它，回到只按字节的条目。
+                        if (held.textRefs === 0 && held.refs > 0) stopText(held);
+                    }
                     if (held.refs <= 0) drop(held);
                 },
             };

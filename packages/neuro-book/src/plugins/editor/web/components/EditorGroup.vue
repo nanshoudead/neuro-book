@@ -57,6 +57,8 @@ const hasTitleActions = computed(() => titleModel.value !== null && (titleModel.
 const group = computed(() => props.area.groups.groups.value.find((candidate) => candidate.id === props.groupId) ?? null);
 const activeTab = computed(() => group.value?.tabs.find((tab) => tab.id === group.value?.active) ?? null);
 const document = computed(() => props.area.documentOf(props.groupId));
+/** 活动文件标签的文件条目：字节标签也有（删除、订阅结束的提示用它）。 */
+const file = computed(() => props.area.fileOf(props.groupId));
 const binding = computed(() => props.area.binding(props.groupId));
 const active = computed(() => props.area.groups.activeGroup.value === props.groupId);
 
@@ -71,10 +73,10 @@ const tabs = computed((): TabItem[] => (group.value?.tabs ?? []).map((tab) => {
 type Banner = {readonly tone: "danger" | "warning" | "info"; readonly text: string; readonly actions: ReadonlyArray<{readonly id: string; readonly label: string; readonly run: () => void}>};
 
 const banner = computed((): Banner | null => {
-    const current = document.value;
+    const current = file.value;
     if (current === null) return null;
     const t = (key: Parameters<typeof editorText>[1], values?: Readonly<Record<string, string>>): string => editorText(props.locale, key, values);
-    if (binding.value?.unresolved() === true) {
+    if (binding.value?.kind === "text" && binding.value.unresolved()) {
         return {tone: "warning", text: t("unresolved"), actions: [
             {id: "adopt", label: t("adopt"), run: () => props.area.resolve(props.groupId, "adopt-current")},
             {id: "keep", label: t("keep"), run: () => props.area.resolve(props.groupId, "keep-view")},
@@ -219,7 +221,7 @@ export interface EditorGroupTitleActions {
                         :is="mounted.component"
                         :binding="binding !== null && binding.editor === mounted.editor ? binding : null"
                         :host="area.controlSlot(groupId, mounted.editor)"
-                        :readonly="document?.writable.value !== true"
+                        :readonly="!area.viewWritable(groupId)"
                         :visible="binding !== null && binding.editor === mounted.editor"
                         :label="activeTab === null ? '' : nameOf(activeTab.address)"
                         @ready="(handle: EditorControlHandle | null) => onReady(mounted.editor, handle)"
