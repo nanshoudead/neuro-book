@@ -1,0 +1,65 @@
+w00022/t16 实现审查第 1 到 6 条修正：交付报告
+
+worktree：.worktree/w00022-dev-panel（分支 feat/w00022-dev-panel，基于 d5535e531）
+提交：
+- 819235c82 fix(dev-panel): 产物引用识别改为词法扫描：跳过注释与字符串、收 template 与 noscript 里的资源、线性时间（t16 实现审查 1 到 5）
+  改动文件：packages/dev-panel/src/core/references.ts、src/core/references.test.ts、src/core/questions.ts、tests/artifacts-cli.test.ts、docs/file-formats.md
+- 02f7303e8 test(dev-panel): 旧格式发布记录提交失败后重跑，有题页面靠题表种子找回（t16 实现审查 6）
+  改动文件：packages/dev-panel/tests/artifacts-write.test.ts
+没有 push、stash、切分支、rebase、amend，没有 Co-Authored-By。t17 的文件没碰。
+
+各条怎么改的
+1. 脚本 import（references.ts）：删掉 STATIC_IMPORT、DYNAMIC_IMPORT 两条正则，换成 JsLexer 分词器加 TokenStream 上的识别器。
+   - 分词器跳过 // 与块注释、开头的 #!；字符串（遇到没转义的换行就当没闭合，换行之后照常分词）；模板字符串（用括号栈处理 ${ } 嵌套，插值里的记号照常输出，所以 `${import("./x.js")}` 也算）；正则字面量（按前一个记号区分正则与除号：`)`、`]`、词、字面量之后是除号，return/typeof 等关键字之后是正则）。
+   - 识别器认 import "x"、import 子句 from "x"、export * / export {…} from "x"、import("x") 与不带插值的 import(`x`)（第二个参数可有可无）。前一个记号是 `.` 时不算（foo.import(...)），import.meta 不算。记号之间的注释自然跳过。子句遇到不认识的记号就放弃，且不取走那个记号，所以每个记号只看一次。子句里遇到 import/export 立刻放弃，这样没写分号时 `export {a}` 不会吞掉下一行的 import。
+   - 仍然只留 ./、../、/ 开头的与带协议的地址。
+2. CSS（references.ts）：删掉 blankComments 与 CSS_URL/CSS_IMPORT 正则，改成一遍按 CSS Syntax 3 分词的扫描：注释、字符串、名字（整个名字一起读，所以 my-url( 不算）、url( 记号、@import。不带引号的 url 与带引号的字符串都按 CSS 转义解码（十六进制转义加一个可选空白，单字符转义，字符串里反斜杠加换行是续行）。坏的 url(（地址中间有空白、引号、左括号、控制字符）按规范吞掉剩下的部分，不算引用。字符串里的 url(...) 不算。
+3. template 与 noscript（questions.ts）：找题的遍历（walk）不再收资源；新增 collectResources 做资源遍历，在整个文档上单独跑一遍。template 进入 content.childNodes；noscript 在 parse5 默认按开着脚本解析时内容是一段文字，就用 parseFragment 再解析一遍（带位置信息），行号按文字开头的行数平移。两种都只收资源、不登记题；scriptMarkers 与 questions_in_script 的判定没变（template、noscript 里写标记照样报警告、不登记题）。
+   文档：docs/file-formats.md 的“文件集”一节改了 .html、.css、.js 三条，“提问标记”一节补了一句“template、noscript 里的资源照样进文件集”。docs/cli.md 里没有“不追踪 template、noscript”这种写法（只有 questions_in_script 那一行，说的是提问标记，仍然准确），所以没改。
+4. 性能：两种扫描都用一个只往前走的 Cursor，经过换行时累计行号，每处引用直接取当前行号，删掉了 lineOffsetAt（原来每处引用都从头数一遍换行）和会回溯的 url\(\s*…\s*\) 正则。JS 的正则字面量在行内没闭合时退回去当除号；为避免同一行里每个 `/` 都往行尾扫一遍变成平方级，记下上次失败扫到的位置，从那之前开始的 `/` 直接当除号（这个折中写在 regexScannedUntil 的注释里）。
+5. 测试措辞（tests/artifacts-cli.test.ts，“不带 --json”那个用例）：两句中文原因不再逐字断言，改成 expect.stringMatching：invalid_question_id 那条断言 `index.html:5:1`、题号 Bad_Id、`[invalid_question_id]`；options_missing 那条断言题号 pick 与 `[options_missing]`。退出码 2 与明细条数（toEqual 里数组只有一个元素）保留。
+6. （协调者中途追加）tests/artifacts-write.test.ts 的“提交失败之后的补救”里，在 --include 用例后面补了旧格式场景：发布时带 --include side.html，index.lock 被占导致失败；放锁后把 v1.json 的 files 字段删掉（按 base 那种写法）；side.html 没被跟踪、入口也没链接它，上面有题 side-q。不带 --include 重跑，断言 unchanged: true、只补交 index.html、side.html、v1.json，三道题的 outcome 都是 null，提交里正好是这三个文件。
+
+回归测试（都补在暴露缺口的那条行为里）
+- src/core/references.test.ts 新增 2 个用例：
+  CSS：字符串里的 /* 与 */ 不吞掉中间的 url(real.png)；字符串里的 url(in-string.png) 不算；url(pic\ name.png) 解出 pic name.png；url("q\"uote.png") 与 url(\31 x.png) 正确解码；坏的 url(bad name.png) 与 my-url(not.png) 不算；注释里的 @import 不算，`@import /* 注释 */ 'new.css'` 算；最后一个没闭合的 url( 不算；行号都对。
+  JS：行注释、块注释、模板字符串、普通字符串里的 import 不算；含引号的正则 /['"]/ 之后的 `import /* webpackChunkName: "real" */ "./real.js"` 算；没写分号的 export {a} 后面的 export {b} from 算；模板插值里的 import() 算，foo.import() 不算；跨行带注释的 import {…} from 算；行号都对。
+- tests/artifacts-cli.test.ts 新增 2 个真实 CLI 发布用例：
+  a) “文件集按词法找引用”：app.js 里 `// import "./shot.png"` 与 `` `import "./notes.txt"` ``，加上 `import /* webpackChunkName: "real" */ "./lib.js"`；style.css 里字符串含 /* 和 */、url(real.png)、url(pic\ name.png)；页面里 <template><img src="card.png"> 与 <noscript><img src="noscript.png">。断言提交里正好是 app.js、card.png、index.html、lib.js、noscript.png、pic name.png、real.png、style.css、versions/v1.json；警告只有一条 unreferenced_files_not_committed，路径是 notes.txt 与 shot.png（误引用没进提交）。
+  b) “找引用的扫描对文件长度是线性的”：4 万行 url(data:,x)，末尾再接 `url(` 加 12.8 万个空格、没有右括号，两组慢输入放在一份样式表里；断言退出 0、没有错误，用时 < 5000 ms。
+- 用改动之前的 references.ts 与 questions.ts 临时换回去（用 git show HEAD: 导出，跑完从 scratchpad 恢复，git diff 确认恢复正确）跑这两个 CLI 用例：两个都失败。a 的提交列表不对；b 用了 16943 ms，超过 5000 ms 的上限。换回新代码后两个都通过。
+- 第 6 条的变异检查：把 artifacts.ts 第 736 行的 versionSeeds 改成 `return [...(version.files ?? [])];`，跑“提交失败之后的补救”：3 个通过，只有新加的那个失败。从备份恢复后 git diff src/core/artifacts.ts 为空。
+
+验证命令与结果（cwd 为 worktree 根，TMPDIR=/dev/shm/t16fix-tmp）
+- bun run --cwd packages/dev-panel typecheck：退出 0（tsc 三份配置加 vue-tsc 都通过）。
+- bun test src/core/references.test.ts src/core/questions.test.ts（在包目录下）：15 个通过、0 个失败。
+- bun test --isolate tests/artifacts-cli.test.ts：18 个通过、0 个失败。
+- bun test --isolate tests/artifacts-write.test.ts -t "提交失败之后的补救"：4 个通过、0 个失败。
+- bun run --cwd packages/dev-panel test（全量）：450 个通过、0 个失败、2138 次断言、64 个文件，用时 417.75 秒，退出 0。日志在 /dev/shm/t16fix-fulltest.log（里面的 readDismissedNotify 堆栈是已有用例打出来的，不是失败）。
+
+第 4 条在真实 CLI 下测得的用时（审查用的 performance.ts，每组都是一个新的 Git 仓库、经 CLI 子进程 artifact publish、退出码都是 0）
+                                  改动前（d5535e531）  改动后（819235c82）  base（61e1c5dd4）
+  5,000 行 url(data:,x)                313 ms             167 ms           133 ms
+  10,000 行                            812 ms             172 ms           135 ms
+  20,000 行                          2,855 ms             188 ms           144 ms
+  40,000 行（1.16 MB）              11,800 ms             237 ms           178 ms
+  url( 后 32,000 个空格                527 ms             139 ms           150 ms
+  64,000 个空格                      1,758 ms             141 ms           160 ms
+  128,000 个空格                     6,799 ms             142 ms           215 ms
+  base 那一列是改动前那次运行里，同一个脚本跑审查实验目录里导出的 base CLI 得到的。改动后再跑时，审查方已经把实验目录（/dev/shm/review-t16-impl-lab）删了，base 那一列没能重跑；改动前与改动后都是我在本会话里跑的。改动后与 base 在同一量级。
+
+偏离与理由
+- 时限测试用的是 4 万行加 12.8 万个空格，不是说明里举的 2 万行。2 万行在改动前也只要 2.9 秒，一个不容易偶发失败的上限（5 秒）抓不住它；用 4 万行加无右括号那组，改动前要 17 秒，改动后不到 1 秒，5 秒的上限两边都有足够余量，能稳定区分线性与平方级。这样一个用例把审查报的两条慢路径都覆盖了。照着已有的写法（artifacts-cli 场景 4 里的 toBeLessThan(5_000)）写的。
+- docs/cli.md 没改，原因见第 3 条。
+- 提交分了两个：第 1 到 5 条一个，第 6 条（只有测试）一个，在说明允许的一到两个提交之内。
+- noscript 的内容用 parseFragment 再解析，没有改成整个文档都用 scriptingEnabled: false 解析：后者会改变 head 里 noscript 的解析模式与页面其余部分的树，影响找题。
+
+已知的局限（写在注释里，不影响验收）
+- JS 用前一个记号区分正则与除号，`a++ /re/` 这样的少见写法会认错；为保持线性，同一行里先认错一次之后，那一段里的 `/` 都当除号。最坏的后果是正则里的引号被当成字符串的开头，那一行剩下的 import 漏掉，漏掉的文件会出现在 unreferenced_files_not_committed 里。
+
+禁止清单自查
+- 没有按错误文案做程序分支；没有加 catch（新代码里没有 try/catch）。
+- 没有跳过测试或放宽断言（只按第 5 条删了两句逐字的措辞）；产品代码里没有测试专用分支。
+- 没有删除或改写任务之外的代码、配置与注释：references.ts 里改写的注释只有说明旧正则做法的那几处（文件头、cssReferences、scriptImports），srcsetUrls 原样保留；questions.ts 只改了 ParsedMarkup.references 的说明和遍历里那句注释，内容移到了 collectResources。
+- 没有跨包深导入；parse5 是 dev-panel 自己的依赖，按原来的方式按需导入（status 不加载 parse5 的那个用例在全量测试里通过了）。测试都用真实 Git 夹具与真实 CLI 子进程或公开的 core 函数，没有 mock、spy、假计时器，也没有固定时长的等待。
+- 没有用 rm -rf 清理仓库里的目录；没碰 worktree 之外的文件，只用了 /dev/shm/t16fix-*、/dev/shm/t16fix-delivery.txt 和本会话的 scratchpad；没有用 pkill -f、pgrep -f。TMPDIR /dev/shm/t16fix-tmp 已经删掉。
