@@ -19,10 +19,10 @@
 - 根 `<label>` 加 `relative`，让 `sr-only` input 的包含块就是这个 label。input 仍是 `sr-only`，读屏与键盘行为不变。主应用里直接用它的只有 `FilesExplorerView.vue` 一处与 Lab 夹具，样式都不依赖 label 是否定位（计划审查已核实）。
 - 同名 `FormCheckbox.md` 的“布局”一节补一句：根节点是定位上下文，隐藏的原生 input 不会让外层的滚动容器跟着滚动。
 - **测试**：单元测试环境没有布局引擎，所以用 nb-ui 现有的 Playwright 验收（`packages/nb-ui/e2e/`，宿主是 `playground`）。
-  - **新验收夹具** `form-checkbox-focus`：在 `playground/app/pages/acceptance/[name].vue` 的 `FIXTURES` 与 `playground/app/acceptance/definitions.ts` 两处登记，没有事件就给空数组，两处文件头列验收夹具的注释一起改。夹具结构是一个 `overflow: hidden` 的定高格子，里面一个可滚动的列表，列表靠下放一个 `FormCheckbox`。**格子、列表、label 三层都不能是定位上下文**，否则改前也会通过（计划审查第 10 条）。
+  - **新验收夹具** `form-checkbox-focus`：在 `playground/app/pages/acceptance/[name].vue` 的 `FIXTURES` 与 `playground/app/acceptance/definitions.ts` 两处登记，没有事件就给空数组，两处文件头列验收夹具的注释一起改。夹具结构是一个 `overflow: hidden` 的定高格子，里面一个可滚动的列表，列表靠下放一个 `FormCheckbox`。格子与 Splitter 的格子一样是 `relative overflow-hidden`，**列表与 label 都不能是定位上下文**，否则改前也会通过。原计划按计划审查第 10 条写成“三层都不定位”，实施时发现这样复现不了：三层都不定位时 input 的包含块越过格子落到更外层，聚焦不会滚格子；面板里真实的格子（Splitter 的 `nb-grid-panel`）本来就是定位上下文。
   - **用例** `e2e/form-checkbox.spec.ts`：
     1. 先滚动列表，让勾选框露出来；
-    2. 断言前提成立：列表的 `scrollTop > 0`，input 的静态位置在格子的可见区之外；
+    2. 断言前提成立：格子是 `relative`、列表是 `static`，列表的 `scrollTop > 0`，勾选框在列表内容里的偏移大于格子的可见高度（修好之后 input 跟着 label 走，所以不直接看 input 的位置）；
     3. 点勾选框，再用 Tab 让它聚焦；
     4. 断言夹具里那个格子（不是外面的 `.acc-canvas`）的 `scrollTop` 一直是 0，勾选框仍在视野里。
   - 先在不改组件的情况下跑，确认用例失败，失败截图存进 Task 的本地 `shots/`。不失败就调整夹具，不改断言；再改组件。
