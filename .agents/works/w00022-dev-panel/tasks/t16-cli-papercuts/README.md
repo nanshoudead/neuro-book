@@ -34,7 +34,13 @@ updated: 2026-10-14
 - 计划与计划审查：[plan.md](plan.md)，omp 审查 [evidences/plan-review.txt](evidences/plan-review.txt)（阻断 0、重要 5、建议 1，全部改进计划）。
 - 交付报告：[evidences/delivery.txt](evidences/delivery.txt)，其中 9 处与计划的偏离都有理由，主会话核对后接受。
 - 主会话自跑：dev-panel typecheck 通过、全量 438 个通过、`build:web` 成功；S4 在真实开发服务上验证，见 [evidences/s4-live-check.txt](evidences/s4-live-check.txt)。
-- 实现审查待处理（omp，不阻塞下一个 Task）。
+- 实现审查：omp（默认模型，中途回退链额度用完后续跑两次），报告 [evidences/impl-review.txt](evidences/impl-review.txt)：阻断 0、重要 4、建议 2，全部成立并已修正（`819235c82`、`02f7303e8`，交付报告 [evidences/impl-review-fix.txt](evidences/impl-review-fix.txt)）：
+  - 脚本 import 与 CSS 引用改为线性的词法扫描，跳过注释与字符串，CSS 转义解码；
+  - `<template>`、`<noscript>` 里的资源也收；
+  - 4 万行 `url(data:,x)` 的发布从 11.8 秒回到 0.24 秒；
+  - 删掉测试里对诊断措辞的逐字断言；
+  - 补旧格式发布记录提交失败后重跑的回归用例。
+  修正后 dev-panel 全量 450 个通过。
 
 ## 下一步
 
