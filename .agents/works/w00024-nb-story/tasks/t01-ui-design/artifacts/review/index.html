@@ -37,6 +37,8 @@ section.q { margin-top: 28px; padding: 18px 20px; background: var(--card); borde
 .opt p { margin: 4px 0 0; color: var(--muted); }
 .rec-note { margin-top: 10px; padding: 10px 14px; border-radius: var(--radius); background: var(--accent-soft); }
 .rec-note b { color: var(--accent); }
+.decided { margin-top: 10px; padding: 10px 14px; border-radius: var(--radius); background: var(--ok-soft); }
+.decided b { color: var(--ok); font-weight: 600; }
 table { width: 100%; border-collapse: collapse; font-size: 13px; }
 th, td { text-align: left; vertical-align: top; padding: 8px 10px; border-top: 1px solid var(--line); }
 th { color: var(--muted); font-weight: 600; border-top: 0; }
@@ -60,19 +62,64 @@ code { font-family: var(--mono); font-size: 12.5px; }
 </style>
 </head>
 <body>
-<header class="top"><b>nb-story 界面评审板</b><small>w00024 t01-ui-design 的产物 · 第 1 轮 · 2026-10-13</small></header>
+<header class="top"><b>nb-story 界面评审板</b><small>w00024 t01-ui-design 的产物 · 第 2 轮 · 2026-10-14</small></header>
 <main>
 
 <div class="lead">
-    <h1>第 1 轮：先定注意力排序</h1>
-    <p>nb-story 第一版是网页查看器加问答，数据是 w00005 t34 自动抽取的前 100 章。视觉稿要在“首先看什么、默认收起什么、什么时候整块收起”定了以后再画，否则会被反复推翻。所以这一轮只有五道题：首页、默认收起、问答的位置、嵌进 NeuroBook 后的尺寸、旧查看器的机制沿用哪些。</p>
-    <p>每道题都写了推荐和理由（带色框的是推荐项）。现状的截图和问题在最下面；完整清单见 Task 目录的 <code>reference.md</code>。</p>
+    <h1>第 2 轮：界面跑在哪里</h1>
+    <p>第 1 轮定了注意力排序，并要求“布局像 IDE，面板能拖拽、能收起”。w00017 合入以后，NeuroBook 的工作台外壳和插件系统已经能用，所以在画静态稿之前先定一件事：nb-story 的网页是自己起一个服务（提案原定），还是直接做成 NeuroBook 的插件、单独使用也在 NeuroBook 里打开。两条路的静态稿画法不同，所以这一轮只问这一题。</p>
+    <p>命令行和给 Agent 的 Skill 不受影响：两条路都放在不依赖 NeuroBook 的核心包里，单独能用。第 1 轮的五道题和决定在下面“已定”里。</p>
 </div>
 
 <div class="round">待定</div>
 
+<section class="q" data-nbdev-question="host" data-nbdev-type="single" data-nbdev-recommend="nbook-plugin">
+    <h2><span class="badge todo" data-nbdev-skip>待定</span>6. nb-story 的网页跑在哪里？</h2>
+    <p class="ask">两条路都要做“读到哪里”、人物卡、秘密矩阵、问答这些页面；差别在外面那层：分栏、拖拽、收起、布局保存、命令、主题、设置由谁提供，以及以后嵌进 NeuroBook 时要不要再做一遍。</p>
+    <div class="opts">
+        <div class="opt" data-nbdev-option="standalone">
+            <h3>独立服务（提案原定）</h3>
+            <p><code>nbstory serve</code> 起自己的服务和页面，三栏用 nb-ui 的分栏组件自己搭，布局保存自己做。以后做成 NeuroBook 插件时，页面组件搬过去，外面那层重写。</p>
+        </div>
+        <div class="opt rec" data-nbdev-option="nbook-plugin">
+            <h3>做成 NeuroBook 的插件</h3>
+            <p>一本书是 NeuroBook 里的一个项目，在书架上打开。导航、人物卡、问答用工作台现成的侧栏、右栏、编辑区、标题栏和状态栏。单独使用和嵌进 NeuroBook 只有一套界面。</p>
+        </div>
+    </div>
+    <table>
+        <tr><th></th><th>独立服务</th><th>NeuroBook 插件</th></tr>
+        <tr><td>单独使用时怎么打开</td><td>运行 <code>nbstory serve</code>，浏览器打开</td><td>启动 NeuroBook，在书架上打开这本书</td></tr>
+        <tr><td>拖拽、收起、布局保存</td><td>用 nb-ui 的分栏组件自己搭三栏；保存、窄宽度的规则照工作台外壳自己写一遍</td><td>工作台现成：侧栏、右栏、面板可拖拽、可收起，布局会保存；命令面板、快捷键、主题、设置、通知也都有</td></tr>
+        <tr><td>第 1 轮定的“侧栏精简版以后再做”</td><td>以后另做一套</td><td>本来就是侧栏视图，写作时放在稿子旁边</td></tr>
+        <tr><td>以后嵌进 NeuroBook</td><td>再写一个插件：页面组件能搬，外面那层重写</td><td>不用再做</td></tr>
+        <tr><td>命令行、Skill</td><td colspan="2">一样：放在不依赖 NeuroBook 的核心包里</td></tr>
+        <tr><td>要等什么</td><td>不用等</td><td>编辑区里开“剧情图谱”页签，要等 w00025 t02 正在做的“编辑器贡献点”（按文件类型选编辑器；计划已定，正在实施）。等的时候可以先做侧栏、右栏和标题栏里的部分</td></tr>
+        <tr><td>暂时做不到的</td><td>无</td><td>① 每个人物卡单独开一个页签：要插件能登记自己的地址方案，这部分 Spec 还是 <code>planned</code>；第一版一本书只开一个“剧情图谱”页签，人物卡在右栏打开。② 第三方插件安装还是 <code>planned</code>，nb-story 先作为内置插件放在 NeuroBook 包里。③ 问答要调模型，插件的密钥接口还是 <code>planned</code>，第一版从环境变量或用户设置读</td></tr>
+        <tr><td>代价</td><td>多写一套外壳和服务；以后迁移</td><td>跟着 NeuroBook v2 重建的节奏走，别的 Work 改外壳时可能要跟着改；启动比独立服务重</td></tr>
+    </table>
+    <p>做成插件时各部分放在哪里（虚线框是区域，不是视觉稿）：</p>
+    <div class="wire">
+        <div class="topbar"><span><span class="n">1</span>标题栏：书名 · 读到第 37 章（选章、拖动条、上一章、下一章）· 提问框</span></div>
+        <div class="nav"><span class="n">2</span>侧栏视图：总览、人物名册、秘密、数值、悬念、时间线、情节、原文目录</div>
+        <div class="main"><span class="n">3</span>编辑区：“剧情图谱”页签，显示当前页（总览、秘密矩阵、问答页……）；原文的章节也能开成页签</div>
+        <div class="drawer"><span class="n">4</span>右栏视图：人物卡；点出处编号时显示那几段原文和前后文</div>
+        <div class="foot"><span class="n">5</span>状态栏：读到第 37 章 · 自动抽取，以原文为准</div>
+    </div>
+    <div class="legend">
+        <span class="n">1</span><span>标题栏条目贡献：读到哪里和提问框常驻，回车进问答页（第 3 题）。</span>
+        <span class="n">2</span><span>侧栏视图贡献：活动栏上一个 nb-story 图标切过来；可拖拽、可收起、可挪到别的位置。</span>
+        <span class="n">3</span><span>编辑区页签：需要编辑器贡献点（w00025 t02）。打开书时回到上次的页面，第一次进入全书总览（第 1 题）。</span>
+        <span class="n">4</span><span>右栏视图贡献：就是第 1 轮骨架里的“右侧抽屉”，不另做。</span>
+        <span class="n">5</span><span>状态栏条目贡献。</span>
+    </div>
+    <div class="rec-note"><b>推荐做成 NeuroBook 插件。</b>你要的“像 IDE 一样拖拽、收起”，工作台已经做好并验收过，自己再搭一套是重复劳动，以后还要再迁一次；第 1 轮定的“两种尺寸都要”在插件里天然成立。要等的只有编辑区页签这一块，等的时候先做侧栏、右栏和标题栏，不耽误进度。代价是跟着 v2 重建的节奏走，这本来也是 nb-story 的最终去处。</div>
+</section>
+
+<div class="round">已定（第 1 轮，2026-10-13 答复）</div>
+
+
 <section class="q" data-nbdev-question="home" data-nbdev-type="single" data-nbdev-recommend="chapter">
-    <h2><span class="badge todo" data-nbdev-skip>待定</span>1. 打开一本书，首先看到什么？</h2>
+    <h2><span class="badge done" data-nbdev-skip>已定</span>1. 打开一本书，首先看到什么？</h2>
     <p class="ask">这决定首页，也决定左侧导航的第一项。三种都能做，差别是第一眼服务哪种用法。</p>
     <div class="opts">
         <div class="opt rec" data-nbdev-option="chapter">
@@ -89,10 +136,11 @@ code { font-family: var(--mono); font-size: 12.5px; }
         </div>
     </div>
     <div class="rec-note"><b>推荐“本章”。</b>开发者说这个图要帮人“梳理剧情”，梳理最先要的是“发生了什么、变了什么”；隔几天回来接着读、或者读完一章回顾，也都从这里开始。原文阅读器和全书总览仍然各占一页，一键就到。</div>
+    <div class="decided"><b>已定：打开一本书回到上一次的界面；第一次打开进入全书总览。没有采用推荐的“本章”。</b></div>
 </section>
 
 <section class="q" data-nbdev-question="default-collapsed" data-nbdev-type="multi" data-nbdev-recommend="minor-entities,record-ids,block-summaries,trivial-questions,long-alias-list">
-    <h2><span class="badge todo" data-nbdev-skip>待定</span>2. 哪些东西默认收起或不显示？（可多选）</h2>
+    <h2><span class="badge done" data-nbdev-skip>已定</span>2. 哪些东西默认收起或不显示？（可多选）</h2>
     <p class="ask">图里的东西很多（176 个对象、1,739 条说法、227 条没解开的悬念），全摊开就是现在 t28 的样子。选中的项默认收起，点一下展开；没选的照常显示。</p>
     <table>
         <tr><th>选项</th><th>收起后怎么找到</th></tr>
@@ -104,10 +152,11 @@ code { font-family: var(--mono); font-size: 12.5px; }
         <tr class="opt-row" data-nbdev-option="inferred-records" data-nbdev-label="标了“推断”的记录"><td>标了“推断”的记录</td><td>筛选项“含推断”</td></tr>
     </table>
     <div class="rec-note"><b>推荐收起前五项，“推断”的记录照常显示。</b>推断不是噪音：书里很多关键信息（例如“深蓝猫娘就是南嘉鱼”）读者只能推断，藏起来反而缺了一块；标签已经说明它是推断。</div>
+    <div class="decided"><b>已定：按推荐，前五项默认收起，“推断”的记录照常显示。</b></div>
 </section>
 
 <section class="q" data-nbdev-question="qa-place" data-nbdev-type="single" data-nbdev-recommend="topbar-to-page">
-    <h2><span class="badge todo" data-nbdev-skip>待定</span>3. 问答放在哪里？</h2>
+    <h2><span class="badge done" data-nbdev-skip>已定</span>3. 问答放在哪里？</h2>
     <p class="ask">问答默认用“图当目录”，要等十几秒到两三分钟，过程分步显示（在图里找记录、读第几章、作答中），答案带依据编号，点开看原文。</p>
     <div class="opts">
         <div class="opt rec" data-nbdev-option="topbar-to-page">
@@ -124,10 +173,11 @@ code { font-family: var(--mono); font-size: 12.5px; }
         </div>
     </div>
     <div class="rec-note"><b>推荐顶栏提问框加问答页。</b>提问的冲动往往发生在看人物卡或秘密的时候，入口要在手边；答案需要宽的地方放依据和原文。</div>
+    <div class="decided"><b>已定：按推荐，顶栏常驻提问框，回车后进问答页。</b></div>
 </section>
 
 <section class="q" data-nbdev-question="embed-size" data-nbdev-type="single" data-nbdev-recommend="editor-area">
-    <h2><span class="badge todo" data-nbdev-skip>待定</span>4. 以后嵌进 NeuroBook，主要以什么尺寸出现？</h2>
+    <h2><span class="badge done" data-nbdev-skip>已定</span>4. 以后嵌进 NeuroBook，主要以什么尺寸出现？</h2>
     <p class="ask">这决定窄的时候先收起哪一块。单独使用时是整个浏览器窗口；嵌进 NeuroBook 后是工作台里的视图，可能在编辑区，也可能在侧栏。</p>
     <div class="opts">
         <div class="opt rec" data-nbdev-option="editor-area">
@@ -144,10 +194,11 @@ code { font-family: var(--mono); font-size: 12.5px; }
         </div>
     </div>
     <div class="rec-note"><b>推荐编辑区整页。</b>第一版数据是“拆书”用的已抽好的书，不是正在写的稿子，旁边对照写作的需求还没有出现；侧栏精简版等写作场景定了再设计。</div>
+    <div class="decided"><b>已定：两种都要。整页是主体，侧栏精简版以后再做；第一版保证整页在窄宽度下不坏。</b></div>
 </section>
 
 <section class="q" data-nbdev-question="keep-mechanisms" data-nbdev-type="multi" data-nbdev-recommend="reading-position,paragraph-records,name-highlight,assertion-tags,no-record-legend">
-    <h2><span class="badge todo" data-nbdev-skip>待定</span>5. 旧查看器（t28）的机制沿用哪些？（可多选）</h2>
+    <h2><span class="badge done" data-nbdev-skip>已定</span>5. 旧查看器（t28）的机制沿用哪些？（可多选）</h2>
     <p class="ask">每一项写了它防什么。选中的沿用，没选的在产品里去掉或改掉。</p>
     <table>
         <tr><th>机制</th><th>防什么</th></tr>
@@ -159,9 +210,10 @@ code { font-family: var(--mono); font-size: 12.5px; }
         <tr class="opt-row" data-nbdev-option="stats-page" data-nbdev-label="“说明与统计”页（草稿写了多少条、程序生成了多少项）"><td>“说明与统计”页（草稿写了多少条、程序生成了多少项）</td><td>开发核对程序生成了什么；普通用户用不上</td></tr>
     </table>
     <div class="rec-note"><b>推荐沿用前五项，去掉“说明与统计”页。</b>前五项都在防“把图当定论”或剧透，是产品的核心；统计页留给开发，“关于这本书”只写来源和“自动抽取，以原文为准”。</div>
+    <div class="decided"><b>已定：六项都沿用，“说明与统计”页保留。另：布局要像 IDE，各面板能拖拽改尺寸、能收起。</b></div>
 </section>
 
-<div class="round">参考：建议的骨架（不是视觉稿）</div>
+<div class="round">参考：第 1 轮的骨架（独立服务时的区域划分，不是视觉稿）</div>
 
 <section class="q">
     <p>五道题按推荐定下时的区域划分。虚线框是区域，编号对应右边的说明；尺寸、颜色、组件都还没画。</p>
