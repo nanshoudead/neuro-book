@@ -8,7 +8,7 @@ import type {ActivationContext} from "@notnotype/nb-runtime/plugins";
 import type {RemoteFailure, RemoteFailureCode, RemoteResult, RemoteSubscribeOptions, RemoteSubscription} from "@notnotype/nb-runtime/remote";
 import type {ConsumerIdentity} from "@notnotype/nb-runtime/services";
 
-import {encodedBytes, encodedTextBytes, FILES_FAILURES, MAX_OPERATION_ITEMS, parseResource, projectFilesContract, TEXT_BUDGET_BYTES, userFilesContract} from "../shared/contracts";
+import {encodedBytes, encodedTextBytes, FILES_FAILURES, rawUrlOf, MAX_OPERATION_ITEMS, parseResource, projectFilesContract, TEXT_BUDGET_BYTES, userFilesContract} from "../shared/contracts";
 import type {Baseline, BatchHandle, BatchResult, BatchTransfer, ChangesMessage, FilesFailureCode, FilesResult, FilesService, OperationDone, Scheme, WatchMessage} from "../shared/contracts";
 
 type Remote = ActivationContext["remote"];
@@ -19,7 +19,8 @@ export interface FilesFacade {
     release(): void;
 }
 
-export function createFilesClient(remote: Remote, consumer: ConsumerIdentity, watches: WatchRegistry): FilesFacade {
+/** `project` 是窗口绑定的作品与代次（字节地址要用）；没有绑定为 null。 */
+export function createFilesClient(remote: Remote, consumer: ConsumerIdentity, watches: WatchRegistry, project: {readonly id: string; readonly generation: number} | null): FilesFacade {
     // 两份合同的方法相同；按方案分开取，客户端类型才精确。
     const client = (scheme: Scheme) => (scheme === "project" ? remote.on(consumer).use(projectFilesContract) : remote.on(consumer).use(userFilesContract));
     const releases = new Set<() => void>();
@@ -110,6 +111,7 @@ export function createFilesClient(remote: Remote, consumer: ConsumerIdentity, wa
             releases.add(once);
             return once;
         },
+        rawUrl: (address) => rawUrlOf(address, project),
     };
     return {
         service,

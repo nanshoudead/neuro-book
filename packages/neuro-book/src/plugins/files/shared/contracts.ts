@@ -17,6 +17,7 @@ import {RPC_MAX_MESSAGE_BYTES} from "nbook/shared/rpc-socket";
 
 import {FILES_FAILURES} from "./failures";
 import type {FilesFailureCode} from "./failures";
+import {parseResource} from "./resource";
 import type {Scheme} from "./resource";
 
 export {FILES_FAILURES};
@@ -304,6 +305,17 @@ export interface FilesService {
     delete(items: ReadonlyArray<{readonly address: string; readonly expected?: string}>): BatchHandle;
     /** 订阅一个方案的变更：同一窗口同一方案共用一条远程订阅。返回释放函数（幂等），释放后不再有回调。 */
     watch(scheme: Scheme, listener: (message: WatchMessage) => void): () => void;
+    /** 按地址读取字节的 URL（docs/specs/workspace/files.md 的“按地址读取字节”），本页面同源；没有绑定项目时 `project://` 为 null。 */
+    rawUrl(address: string): string | null;
+}
+
+/** 字节路由的 URL：`project://` 带窗口绑定的作品与代次；地址不合法或没有绑定项目时为 null。 */
+export function rawUrlOf(address: string, project: {readonly id: string; readonly generation: number} | null): string | null {
+    const parsed = parseResource(address);
+    if (!parsed.ok) return null;
+    const path = parsed.resource.path.split("/").map((segment) => encodeURIComponent(segment)).join("/");
+    if (parsed.resource.scheme === "user") return `/api/nbook.files/raw/user/${path}`;
+    return project === null ? null : `/api/nbook.files/raw/project/${encodeURIComponent(project.id)}/${String(project.generation)}/${path}`;
 }
 
 /** 浏览器里的插件依赖它取得按调用方的文件客户端。 */

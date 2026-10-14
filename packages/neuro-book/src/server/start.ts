@@ -218,6 +218,7 @@ export function startServer(options: StartServerOptions): RunningServer {
             options.onListening?.(address);
         },
         rpc: {port: rpc.port, path: RPC_PATH},
+        allowOrigin,
         projectTitle: (reference) => (projects === null ? Promise.resolve(null) : projects.displayTitle(reference)),
     };
     let plugins: ReadonlyArray<PluginDefinition>;
