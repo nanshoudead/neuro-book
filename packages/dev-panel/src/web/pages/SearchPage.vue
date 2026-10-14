@@ -77,6 +77,6 @@ onBeforeUnmount(() => {
     <PageShell :crumbs="[{label: '首页', href: '/'}, {label: '搜索'}]" :title="`搜索“${route.query.q ?? ''}”`" @navigate="(href) => void router.push(href)">
         <template v-if="!finished && !error" #status><Spinner size="sm" label="搜索中" /></template>
         <LoadState v-if="error" :loading="false" :error="error" @retry="run(String(route.query.q ?? ''))" />
-        <SearchResults :records="records" :hits="hits" :done="done" :finished="finished" @navigate="(href) => router.push(href)" />
+        <SearchResults :records="records" :hits="hits" :done="done" :finished="finished" :q="String(route.query.q ?? '')" @navigate="(href) => router.push(href)" />
     </PageShell>
 </template>

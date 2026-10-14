@@ -4,7 +4,7 @@
 
 # SearchResults
 
-搜索结果：最上面是缓存里 Work、Task、产物标题与会话的匹配，下面按 checkout 分组列文件名与内容的匹配（内容带行号与那一行），结果流式到达时逐条出现；某个 checkout 截断了（超过 200 条或 5 秒）时标出来。
+搜索结果：最上面是缓存里 Work、Task、产物标题与会话的匹配（服务端已按相关度排好），下面按 checkout 分组列文件名与内容的匹配（内容带行号与那一行），结果流式到达时逐条出现；某个 checkout 截断了（超过 200 条或 5 秒）时标出来。t15 阶段 4 第 5 批：搜索词在记录、文件名命中的路径与内容里高亮（`HighlightText`）；内容那一行只显示一行，命中靠后时从命中前 30 个字开始、前面加省略号；每组里 `.agents/tasks/` 下的命中（历史 Task 记录）收在组尾，默认折叠，点“展开历史 Task 记录”才列出。
 
 ## 数据
 
@@ -18,6 +18,8 @@ interface SearchResultsProps {
     done: SearchCheckoutDone[];
     /** 整组搜索结束了；必填 */
     finished: boolean;
+    /** 搜索词（高亮用）；必填 */
+    q: string;
 }
 interface SearchResultsEmits {
     /** 普通左键点了一个入口；参数是面板内的地址，由页面 `router.push`。中键与带修饰键的点击交给浏览器（新标签页） */
@@ -25,4 +27,4 @@ interface SearchResultsEmits {
 }
 ```
 
-没有插槽与 expose。记录的匹配与 Markdown 文件的匹配是真实链接（`<a href>`，去对应页与文档页），能在新标签页打开；其它文件面板不提供正文，只列出来。
+没有插槽与 expose。历史记录展开与否是零件自己的状态，不记。记录的匹配与 Markdown 文件的匹配是真实链接（`<a href>`，去对应页与文档页），能在新标签页打开；其它文件面板不提供正文，只列出来。
