@@ -1,0 +1,21 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00024-nb-story",
+    "taskId": "t01-ui-design",
+    "artifactId": "review",
+    "answerId": "20261014T154304622Z-544e762e",
+    "artifactVersion": 2,
+    "contentHash": "e730db5e82d31c736ba9e5510d43606b3662670158e894b5516c73bd716d415d",
+    "submittedAt": "2026-10-14T15:43:04.156Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "host": "standalone"
+    },
+    "comments": {
+        "host": "还是按照原计划，先做独立服务，然后再做插件接入。"
+    },
+    "note": null
+}
