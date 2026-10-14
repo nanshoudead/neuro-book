@@ -186,7 +186,12 @@ body {
 .nbdev-hint.nbdev-hint-warn {
     background: var(--status-warning-bg, var(--bg-subtle));
 }
-/* 屏幕末尾、更早的输出这类等宽的预览块（有上限高度，可以自己滚，见 docs/panel.md 的“滚动”）。 */
+/* 搜索结果里的关键词（parts/HighlightText）：强调色的浅底，文字颜色不变。 */
+.nbdev-mark {
+    background: color-mix(in srgb, var(--accent-main) 24%, transparent);
+    color: inherit;
+    border-radius: 2px;
+}
 /* Markdown 里的外站图片换成的链接或文字（host/markdown.ts 的 replaceExternalImages）：虚线框，看得出是占位。 */
 .nbdev-external-image {
     display: inline-block;
@@ -196,6 +201,7 @@ body {
     font-size: var(--text-xs);
     color: var(--text-secondary);
 }
+/* 屏幕末尾、更早的输出这类等宽的预览块（有上限高度，可以自己滚，见 docs/panel.md 的“滚动”）。 */
 .nbdev-pre {
     border-radius: var(--radius-control);
     padding: 0.5rem;
