@@ -12,7 +12,7 @@ import {historySource} from "./delivery.js";
 import {taskReadmePath, workReadmePath} from "../core/records.js";
 import type {CheckoutInfo} from "../core/repo.js";
 import {withActivity, type ProjectStatus, type TaskView, type WorkView} from "../core/status.js";
-import {matchRecords} from "../core/search.js";
+import {matchRecords, rankRecordMatches, type RankableRecord} from "../core/search.js";
 import {readTaskDetail} from "../core/task-detail.js";
 import type {PanelState} from "./state.js";
 import type {SessionTitles} from "./session-titles.js";
@@ -358,9 +358,10 @@ export async function sessionsView(state: PanelState, titles: SessionTitles): Pr
 export function recordMatches(state: PanelState, q: string): Array<Record<string, unknown>> {
     const lower = q.toLowerCase();
     const has = (text: string | null | undefined) => typeof text === "string" && text.toLowerCase().includes(lower);
-    const matches: Array<Record<string, unknown>> = [...matchRecords({works: state.records.part.value?.records.works ?? []}, q)];
+    const matches: RankableRecord[] = [...matchRecords({works: state.records.part.value?.records.works ?? []}, q)];
     for (const session of state.activity.part.value?.activity.sessions ?? []) {
         if (has(session.key) || has(session.label)) matches.push({kind: "session", key: session.key, label: session.label});
     }
-    return matches.slice(0, 50);
+    // 先按相关度排再截：命中多时，截掉的是最不相关的（t15 阶段 4 第 5 批）。
+    return rankRecordMatches(matches, q).slice(0, 50);
 }

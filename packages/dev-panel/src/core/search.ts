@@ -42,6 +42,35 @@ export function matchRecords(records: Pick<ProjectRecords, "works">, q: string):
     return matches;
 }
 
+/** 面板搜索里能排序的一条记录类命中：`matchRecords` 的结果，加上面板另找的会话（`key` 与 `label`）。 */
+export type RankableRecord = {kind: string; workId?: string; taskId?: string | null; artifactId?: string; key?: string; title?: string | null; label?: string | null};
+
+const KIND_ORDER: Record<string, number> = {work: 0, task: 1, artifact: 2, session: 3};
+
+/**
+ * 一条记录类命中与搜索词的相关度，越小越相关（t15 阶段 4 第 5 批）：标题或编号与搜索词相同（编号也认 `w00022`、`t15` 这样的短号）、
+ * 标题以它开头、编号以它开头、标题包含它、编号包含它。不分大小写。
+ */
+export function recordRelevance(match: RankableRecord, q: string): number {
+    const lower = q.toLowerCase();
+    const title = (match.title ?? match.label ?? "").toLowerCase();
+    const id = (match.kind === "work" ? match.workId : match.kind === "task" ? match.taskId : match.kind === "artifact" ? match.artifactId : match.key ?? "")?.toLowerCase() ?? "";
+    // 短号只给 Work 与 Task（`w00022`、`t15`）；产物与会话的编号没有编号段。
+    const shortId = /^(?:w\d{5}|t\d{2,3})-/u.exec(id)?.[0].slice(0, -1) ?? null;
+    if (title === lower || id === lower || shortId === lower) return 0;
+    if (title.startsWith(lower)) return 1;
+    if (id.startsWith(lower)) return 2;
+    if (title.includes(lower)) return 3;
+    return 4;
+}
+
+/** 按相关度排记录类命中，同分时 Work、Task、产物、会话依次在前，再保持原来的顺序（稳定排序）。返回新数组。 */
+export function rankRecordMatches<T extends RankableRecord>(matches: readonly T[], q: string): T[] {
+    return matches.map((match, index) => ({match, index, score: recordRelevance(match, q)}))
+        .sort((left, right) => left.score - right.score || (KIND_ORDER[left.match.kind] ?? 9) - (KIND_ORDER[right.match.kind] ?? 9) || left.index - right.index)
+        .map((entry) => entry.match);
+}
+
 /** 去掉首尾空白后：非空、不含控制字符、长度 2 到 200；不合格报 `usage`。 */
 export function validateSearchQuery(raw: string): string {
     const q = raw.trim();
