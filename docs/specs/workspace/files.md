@@ -63,6 +63,25 @@ owners:
 - **控制目录**：项目根下第一段名字不区分大小写等于 `.nbook` 的目录（项目身份、项目层配置与 Storage）不列出、不可读写，失败码 `protected-path`。请求的词法路径与解析符号链接后的真实路径都要检查，`alias -> .nbook` 这类根内链接同样拒绝。用户资产根没有控制目录；嵌套的 `notes/.nbook/` 是普通目录。
 - **根身份**：提供者记下方案根的设备号与 inode，每个请求先核对；根被移走、删除或换成别的目录为 `root-gone`，不重新解析到新目录。
 
+### 按地址读取字节（planned）
+
+图片这类二进制文件不走远程服务（正文上限与 UTF-8 校验都不适用），由 `nbook.files` 的 server 入口在 HTTP 端口上按地址给出原始字节；浏览器直接把地址交给 `<img>` 或 `fetch`。
+
+- **地址**：`GET /api/nbook.files/raw/project/<项目 id>/<代次>/<路径…>` 与 `GET /api/nbook.files/raw/user/<路径…>`，路径各段按 URL 编码。浏览器的文件客户端给出 `rawUrl(address)`：按窗口绑定的项目与代次拼出 `project://` 地址的 URL，`user://` 同理；没有绑定项目、或地址不是这两个方案时为 null。
+- **项目根**：只服务正在运行的那一代。服务端核对登记表里这个 id 正在运行且代次与 URL 一致，不一致为 410 `generation-gone`；该代次的根在第一次请求时打开并记下身份（同“根身份”一条），代次结束后丢弃；打开时核对项目身份文件里的 id 与登记一致，不一致为 409 `identity-conflict`。没有运行的项目读不到：与“只用有效 ready 绑定”一致，窗口绑定项目期间持有它的租约，所以它在运行。
+- **规则**：路径包含、符号链接与控制目录的规则与“读取与保存”相同（同一实现），根身份同样逐请求核对。上限 32 MiB，超过为 413 `too-large`。
+- **状态码**：`not-found`、`not-a-file`、`invalid-address`、`outside-root`、`protected-path` 一律 404，不区分受保护与不存在；`permission-denied` 403；`root-gone` 410；`io-failed` 500。错误体与 HTTP 端口的其它错误相同：`{error: {code, message}}`。
+- **响应头**：`Content-Type` 按扩展名的白名单（png、jpeg、gif、webp、svg、avif、bmp、ico、html、css、js、mjs、json、txt、md、woff、woff2、ttf、otf），其它为 `application/octet-stream`；`X-Content-Type-Options: nosniff`；`Content-Security-Policy: sandbox`（直接打开一个 HTML 或 SVG 的地址也不在应用的源里运行）；`ETag`（修改时间与大小），`If-None-Match` 命中时 304；`Cache-Control: no-cache`。
+- **跨站读取**：带 `Sec-Fetch-Site` 且不是 `same-origin` 的请求为 403 `cross-site`：别的网页不能把这条路由当作读取接口。不带这个头的本机进程照常（与 HTTP 端口未加载鉴权时的信任相同，[runtime.server-host](../runtime/server-host.md)）。
+
+### 预览的受限读取（planned）
+
+HTML 预览（[workbench.html-preview](../workbench/html-preview.md)）运行在不透明源的沙箱里，它对文件的每个请求都是跨站的。这里给它一个只认令牌的只读入口：
+
+- **令牌**：远程服务 `nbook.files.preview`（server 入口，按调用方门面提供）的 `open({project, generation}) → {token, base}` 签发令牌：128 位随机数，只放行这部作品的这一代，只读；`close({token})` 作废它。调用方的门面释放（窗口断开、入口停止）时它签发的令牌全部作废；项目这一代结束时这一代的令牌全部作废。令牌不写日志、不落盘。
+- **路由**：`GET /api/nbook.files/preview/<令牌>/<路径…>`，路径相对项目根，根与规则同上一节（含上限、状态码与前五个响应头，`Content-Security-Policy: sandbox` 除外）。令牌无效或已作废为 404。它接受跨站请求，请求带 `Origin: null` 时回 `Access-Control-Allow-Origin: null`：沙箱里的 `fetch`、模块脚本与字体按 CORS 读到响应，别的来源读不到。另加 `Referrer-Policy: no-referrer`，令牌不随引用头带到外部。
+- **`base`**：令牌对应的 URL 前缀（`<应用源>/api/nbook.files/preview/<令牌>/`），预览据此拼出文件所在目录的地址。
+
 ### 文件操作
 
 两份远程合同（`project://`、`user://`）提供同一组操作。只支持同一方案内、同一设备上的移动与复制，不跨根搬运。
@@ -148,6 +167,8 @@ owners:
 7. 关闭一个资源管理器或窗口后，其订阅停止，另一个窗口仍可读写同一有效项目；正常释放不删除文件或历史。
 8. 主页面不激活角色/世界书等领域适配也能完成基础链；同名文件/目录目标不覆盖、不合并，同目录复制要求改名，预检后目标被占用时仍拒绝写入。
 9. 目录复制中途失败保留已产生的残留并报告范围；取消后已完成项不回滚、未开始项不执行，在途不能确认则标为结果未知；断线后先核对磁盘，绝不重复已确认成功的副作用。
+10. （planned）用 `rawUrl` 读一个运行中项目里的 png，得到原始字节与 `image/png`、`nosniff`、`sandbox` 三个头，再带 `If-None-Match` 得到 304；代次不符得到 410，`.nbook/` 下的文件与目录得到 404，超过 32 MiB 得到 413，`Sec-Fetch-Site: cross-site` 得到 403。
+11. （planned）经 `nbook.files.preview` 取得令牌后，带 `Origin: null` 读同一项目的文件得到响应与 `Access-Control-Allow-Origin: null`；令牌读不到别的项目；`close` 之后、窗口断开之后、项目这一代结束之后都得到 404。
 
 ## 实现合同
 

@@ -54,6 +54,11 @@ owners:
 
 **内核 RPC 端口：** 协议、握手与 `Origin` 规则见 [远程服务与 RPC 协议](plugin-channel.md) 的“WebSocket 传输与握手”。允许的来源是本进程 HTTP 端口在三个回环别名上的来源（`http://127.0.0.1:<端口>`、`http://localhost:<端口>`、`http://[::1]:<端口>`，端口取实际监听的端口），加上 `NBOOK_ALLOWED_ORIGINS`；比较前按 URL 规范化。服务端用 WebSocket ping 发现失联客户端：空闲 120 秒且不回应即断开。
 
+**HTTP 端口的来源核对（planned）：** 未加载鉴权时，分发请求之前先核对两件事，对所有路由（含宿主接口与页面资源）都适用：
+- `Host` 必须是回环名（`127.0.0.1`、`localhost`、`[::1]`，可带端口）或 `NBOOK_ALLOWED_ORIGINS` 里来源的主机，否则 421 `misdirected-host`。这一条防 DNS 重绑定：重绑定后攻击页与本机端口同源、GET 请求不带 `Origin`，只有 `Host` 分得出来。
+- `GET`、`HEAD` 以外的请求带了 `Origin` 且它不是允许的来源（与 RPC 端口同一份：HTTP 端口的三个回环来源加 `NBOOK_ALLOWED_ORIGINS`；`null` 不是允许的来源）时为 403 `origin-not-allowed`。不带 `Origin` 的本机进程照常放行（见已知限制）。
+错误体是 HTTP 端口统一的 `{error: {code, message}}`。
+
 **页面资源：** 设置了 `NBOOK_WEB_ROOT` 时，`/api/` 之外的路径由前端构建产物提供：只有 GET、HEAD；路径（含符号链接）不能越出该目录；没有扩展名的页面路径回退到 `index.html`，`/assets/` 下与带扩展名的缺失文件是 404；`/assets/` 下的文件长期缓存（Vite 只往这个目录放文件名带内容哈希的产物），其余（含 `index.html`）每次重新验证。页面资源同样经过准入，就绪前等待、排空期间 503。目录缺少 `index.html` 时 `nbook.http` 激活失败，即启动失败。未设置时 `/api/` 之外的路径一律 404（开发模式由 Vite 提供页面）。`/api` 命名空间（按解码后的路径判断）里没有匹配的路径不回退到页面。
 
 **停止序列：** 任一停止来源触发后：
@@ -152,6 +157,7 @@ owners:
 14. **项目子进程的停止顺序**。Given 一个打开的项目与绑定它的窗口；When 发送 SIGTERM；Then 新握手与新的打开项目被拒，项目子进程先于服务端插件退出，进程以 0 退出。
 15. **项目子进程停止超时**。Given 一个不响应停止请求的项目子进程；When 服务端停止；Then 到 `NBOOK_PROJECT_STOP_MS` 时它被强制结束并记为外部终止，其余步骤照常，进程以 1 退出。
 16. **项目参数与输出**。`NBOOK_PROJECT_GRACE_MS`、`NBOOK_PROJECT_START_MS`、`NBOOK_PROJECT_STOP_MS` 不是合法毫秒数时以 1 退出；项目子进程的输出带 `[project <短名>#<代次>]` 前缀出现在服务端输出里。
+17. （planned）**HTTP 来源核对。** `Host: evil.example:<端口>` 的请求得到 421；带 `Origin: null` 或 `Origin: http://evil.example` 的 `POST` 得到 403；页面自己的写请求、不带 `Origin` 的本机写请求与任意来源的 `GET` 照常。
 
 Smoke：生产打包产物在 Bun 下用临时状态根运行场景 1、2、4、11，以及一次 RPC 握手（场景 12 的来源核对）和一次打开项目（登记临时目录、经 RPC 绑定、项目子进程报告身份）；开发模式运行场景 7、8，并核对页面直连 RPC 端口、后端重启后页面显示服务端已重启。
 
