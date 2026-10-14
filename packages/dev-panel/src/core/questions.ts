@@ -113,8 +113,9 @@ export type MarkupReference = {page: string; line: number | null; target: string
 export type ParsedMarkup = {
     questions: MarkupQuestion[];
     /**
-     * 页面引用的地址（原样，未归一化）：元素的 `src`、`href`、`poster`、`srcset`（脚本、样式、模板元素自己的也算），
-     * 内联 `<style>` 与 `style` 属性里的 `url(...)`、`@import`，内联 `<script type="module">` 里字面量的 import。
+     * 页面引用的地址（原样，未归一化）：元素的 `src`、`href`、`poster`、`srcset`（脚本、样式、模板元素自己的也算，
+     * `<template>` 的内容与 `<noscript>` 里的元素也算），内联 `<style>` 与 `style` 属性里的 `url(...)`、`@import`，
+     * 内联 `<script type="module">` 里字面量的 import。
      */
     references: MarkupReference[];
     problems: MarkupProblem[];
@@ -198,7 +199,7 @@ type QuestionScope = {element: Element; id: string; options: Array<{element: Ele
  * parse5 按规范补全 HTML：题的范围元素被隐式闭合时它不报错，只是 `endTag` 缺失，所以这里据此报 `question_not_closed`。
  */
 export async function parseQuestionMarkup(html: string, page: string): Promise<ParsedMarkup> {
-    const {parse} = await import("parse5");
+    const {parse, parseFragment} = await import("parse5");
     const document = parse(html, {sourceCodeLocationInfo: true});
     const result: ParsedMarkup = {questions: [], references: [], problems: [], scriptMarkers: false, title: null};
     const problem = (element: Element | null, questionId: string | null, code: string, message: string) => {
@@ -208,8 +209,13 @@ export async function parseQuestionMarkup(html: string, page: string): Promise<P
     const reference = (target: string, line: number | null) => {
         if (target !== "") result.references.push({page, line, target});
     };
-    const collectAttributes = (element: Element) => {
-        const line = element.sourceCodeLocation?.startLine ?? null;
+    /** `lineShift` 加在 parse5 给的行号上：`<noscript>` 的正文另行解析，那里的行号从正文开头算起。为 null 时不知道行号。 */
+    const lineOf = (node: Node, lineShift: number | null) => {
+        const line = node.sourceCodeLocation?.startLine;
+        return line === undefined || lineShift === null ? null : line + lineShift;
+    };
+    const collectAttributes = (element: Element, lineShift: number | null) => {
+        const line = lineOf(element, lineShift);
         for (const name of REFERENCE_ATTRIBUTES) {
             const value = attribute(element, name);
             if (value === null) continue;
@@ -219,10 +225,39 @@ export async function parseQuestionMarkup(html: string, page: string): Promise<P
         if (style !== null) for (const {target} of cssReferences(style)) reference(target, line);
     };
     /** 内联样式、内联模块脚本的正文；行号从正文的第一行算起。 */
-    const collectInline = (element: Element, extract: (text: string) => TextReference[]) => {
+    const collectInline = (element: Element, extract: (text: string) => TextReference[], lineShift: number | null) => {
         const texts = element.childNodes.filter((child): child is DefaultTreeAdapterMap["textNode"] => child.nodeName === "#text");
-        const firstLine = texts[0]?.sourceCodeLocation?.startLine ?? element.sourceCodeLocation?.startLine ?? null;
+        const firstLine = texts[0] ? lineOf(texts[0], lineShift) : lineOf(element, lineShift);
         for (const {target, lineOffset} of extract(texts.map((text) => text.value).join(""))) reference(target, firstLine === null ? null : firstLine + lineOffset);
+    };
+    /**
+     * 资源引用的遍历，与找题的遍历分开：`<template>` 的内容与 `<noscript>` 里的元素不登记题（渲染出来的题解析不到），
+     * 但写在里面的资源照样会被用到（模板被脚本克隆进页面，关掉脚本时显示 noscript），要进文件集。
+     */
+    const collectResources = (node: Node, lineShift: number | null) => {
+        if (!isElement(node)) return;
+        // 脚本、样式、模板元素自己的属性（`<script src>`、`<link href>`）照样是引用。
+        collectAttributes(node, lineShift);
+        if (node.tagName === "style") {
+            collectInline(node, cssReferences, lineShift);
+            return;
+        }
+        if (node.tagName === "script") {
+            if (attribute(node, "src") === null && (attribute(node, "type") ?? "").trim().toLowerCase() === "module") collectInline(node, scriptImports, lineShift);
+            return;
+        }
+        if (node.tagName === "template") {
+            for (const child of (node as DefaultTreeAdapterMap["template"]).content.childNodes) collectResources(child, lineShift);
+            return;
+        }
+        for (const child of node.childNodes) {
+            // parse5 默认按开着脚本解析，`<noscript>` 的内容是一段文字；把它当 HTML 片段再解析一遍，取里面的元素。
+            if (node.tagName === "noscript" && child.nodeName === "#text") {
+                const textLine = lineOf(child, lineShift);
+                const fragment = parseFragment((child as DefaultTreeAdapterMap["textNode"]).value, {sourceCodeLocationInfo: true});
+                for (const inner of fragment.childNodes) collectResources(inner, textLine === null ? null : textLine - 1);
+            } else collectResources(child, lineShift);
+        }
     };
 
     const finishQuestion = (scope: QuestionScope) => {
@@ -250,11 +285,8 @@ export async function parseQuestionMarkup(html: string, page: string): Promise<P
     const walk = (node: Node, scope: QuestionScope | null) => {
         if (!isElement(node)) return;
         if (node.tagName === "title" && result.title === null) result.title = collapse(textOf(node)) || null;
-        // 脚本、样式、模板元素自己的属性（`<script src>`、`<link href>`）照样是引用；不进入的只是它们的子节点（不在里面找提问标记）。
-        collectAttributes(node);
+        // 不进入脚本、样式、模板与 noscript 找题；里面的资源由 collectResources 收。
         if (NON_TEXT.has(node.tagName)) {
-            if (node.tagName === "style") collectInline(node, cssReferences);
-            else if (node.tagName === "script" && attribute(node, "src") === null && (attribute(node, "type") ?? "").trim().toLowerCase() === "module") collectInline(node, scriptImports);
             if (containsMarker(node)) result.scriptMarkers = true;
             return;
         }
@@ -280,5 +312,6 @@ export async function parseQuestionMarkup(html: string, page: string): Promise<P
         for (const child of node.childNodes) walk(child, scope);
     };
     for (const child of document.childNodes) walk(child, null);
+    for (const child of document.childNodes) collectResources(child, 0);
     return result;
 }

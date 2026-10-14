@@ -34,4 +34,46 @@ describe("引用的提取", () => {
         expect(scriptImports(js).map((entry) => entry.target)).toEqual(["./lib/a.mjs", "./side.js", "../shared/x.js", "./lazy.js", "./tpl.js", "https://cdn.example/x.js"]);
         expect(scriptImports(js)[1]).toEqual({target: "./side.js", lineOffset: 2});
     });
+
+    test("样式表按 CSS 的分词：字符串里的注释界符不吞掉规则，字符串里的 url() 不算，地址按转义解码，坏的 url() 不算", () => {
+        const css = [
+            '.a::before { content: "/*"; }',
+            ".a { background: url(real.png) }",
+            '.b::before { content: "*/ url(in-string.png)"; }',
+            ".c { background: url(pic\\ name.png) }",
+            '.d { background: url("q\\"uote.png") } .e { background: url(\\31 x.png) }',
+            ".f { background: url(bad name.png) } .g { background: my-url(not.png) }",
+            "/* @import 'old.css'; */ @import /* 注释 */ 'new.css';",
+            ".h { background: url(   " + " ".repeat(64),
+        ].join("\n");
+        expect(cssReferences(css)).toEqual([
+            {target: "real.png", lineOffset: 1},
+            {target: "pic name.png", lineOffset: 3},
+            {target: 'q"uote.png', lineOffset: 4},
+            {target: "1x.png", lineOffset: 4},
+            {target: "new.css", lineOffset: 6},
+        ]);
+    });
+
+    test("脚本按记号识别 import：注释、字符串、模板字符串与正则里写的不算，记号之间可以夹注释，模板插值里的照样算", () => {
+        const js = [
+            '// import "./commented.js";',
+            "/* import './block.js'; */",
+            'const sample = `import "./in-template.js"`;',
+            "const text = 'import(\"./in-string.js\")';",
+            "const re = /['\"]/; const half = total / 2; import /* webpackChunkName: \"real\" */ \"./real.js\";",
+            "export {a}",
+            "export {b} from './b.js'",
+            "const lazy = `${await import('./in-expr.js')}`; foo.import('./member.js');",
+            "import {",
+            "  c, // 注释",
+            '} from "./c.js"',
+        ].join("\n");
+        expect(scriptImports(js)).toEqual([
+            {target: "./real.js", lineOffset: 4},
+            {target: "./b.js", lineOffset: 6},
+            {target: "./in-expr.js", lineOffset: 7},
+            {target: "./c.js", lineOffset: 8},
+        ]);
+    });
 });

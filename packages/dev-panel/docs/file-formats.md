@@ -213,9 +213,9 @@ artifacts/<artifactId>/
 - 候选：产物目录里 Git 不忽略的文件（`git ls-files -z --cached --others --exclude-standard`），去掉 `versions/`、`answers/`，只算磁盘上还在的。文件集只从候选里取。
 - 种子：入口；已跟踪的文件（`git ls-files --cached`）；上一版的 `files`；上一版题表里 `page` 不为 `null` 的页面；本次的 `--include`。已经发布或提交过的文件因此不会因为页面不再链接它而掉出去。
 - 闭包：从全部种子出发，对纳入的每个文件收集引用，直到集合不再增长。
-  - `.html`、`.htm`：元素的 `src`、`href`、`poster`、`srcset`（`script`、`style`、`template`、`noscript` 自己的属性也收，但不进入它们的子节点）；内联 `<style>` 与 `style` 属性里的 `url(...)`、`@import`；内联的 `<script type="module">`（没有 `src`）里的 import。
-  - `.css`：`url(...)` 与 `@import "…"`，块注释里的不算。
-  - `.js`、`.mjs`：字面量的 `import … from "…"`、`import "…"`、`export … from "…"`、`import("…")`；只认 `./`、`../`、`/` 开头的与带协议的地址，裸模块名与拼出来的地址追踪不到，要用 `--include` 列出。
+  - `.html`、`.htm`：元素的 `src`、`href`、`poster`、`srcset`（`script`、`style`、`template`、`noscript` 自己的属性也收；`<template>` 的内容与 `<noscript>` 里的元素同样收，只是不在里面登记题）；内联 `<style>` 与 `style` 属性里的 `url(...)`、`@import`；内联的 `<script type="module">`（没有 `src`）里的 import。
+  - `.css`：`url(...)` 与 `@import "…"`，按 CSS 的分词规则识别：注释与其它字符串里写的不算；地址按 CSS 的转义解码（`url(pic\ name.png)` 指向 `pic name.png`）；坏的 `url(...)`（不带引号的地址中间有空白、引号或左括号）不算。
+  - `.js`、`.mjs`：字面量的 `import … from "…"`、`import "…"`、`export … from "…"`、`import("…")`，按记号识别：注释、字符串、模板字符串与正则里写的不算，记号之间可以夹注释（`import /* x */ "./lib.js"`）；只认 `./`、`../`、`/` 开头的与带协议的地址，裸模块名与拼出来的地址追踪不到，要用 `--include` 列出。
   - `srcset` 按 HTML 的候选语法解析：地址是一段不含空白的字符，后面是描述符，候选之间用逗号分隔；地址里的逗号（`assets/a,b.png 1x`）与 `data:` 地址不会被切开。
   - 引用的归一化：跳过带协议的、`//` 开头的与只有 `#` 的；去掉 `?`、`#` 之后的部分，按引用所在文件的目录解析，百分号解码（解码失败按字面）；`/` 开头的与解析后指向产物目录之外的不进文件集。引用检查（`missing_reference`、`reference_outside_artifact`）用的是同一份引用。
 
@@ -263,7 +263,7 @@ artifacts/<artifactId>/
 - 题不能嵌套。题外的选项报 `option_outside_question`：多半是 HTML 自动闭合把它挤了出去（例如 `<p>` 里放了块级元素）。范围元素没有显式结束标签报 `question_not_closed`。
 - 不合规就整体不发布（`invalid_questions`），`details.problems[]` 是 `{page, line, column, questionId, code, message}`。
 - 取题目与选项名的文字时，行内元素直接拼接，块级元素与 `br` 处补一个空格，连续空白折叠成一个空格。
-- 写在内联 `<script>`、`<template>`、`<noscript>` 或产物目录的 `.js`、`.mjs` 文件里的标记解析不到，给 `questions_in_script` 警告。这里只认属性写法（`data-nbdev-question=`）：脚本里按属性查询、`<style>` 里的属性选择器不算。
+- 写在内联 `<script>`、`<template>`、`<noscript>` 或产物目录的 `.js`、`.mjs` 文件里的标记解析不到，给 `questions_in_script` 警告；`<template>`、`<noscript>` 里的资源照样进文件集。这里只认属性写法（`data-nbdev-question=`）：脚本里按属性查询、`<style>` 里的属性选择器不算。
 - 扁平的板（标题后跟兄弟元素）要先给每道题包一层元素（通常是 `section`）。
 
 ## 答复与确认

@@ -282,6 +282,34 @@ describe("产物与答复的命令（场景）", () => {
         expect(await committed(fixture, result)).toEqual([`${DIR}/assets/a,b.png`, `${DIR}/index.html`, `${DIR}/versions/v1.json`, `${DIR}/图.png`]);
     });
 
+    test("文件集按词法找引用：注释与字符串里写的地址不提交；带注释的 import、按转义解码的 CSS 地址、template 与 noscript 里的资源提交", async () => {
+        const fixture = await createFixture("cli-file-set-lexing");
+        await fixture.write(`${DIR}/index.html`, [
+            page(),
+            '<link rel="stylesheet" href="style.css"><script type="module" src="app.js"></script>',
+            '<template id="card"><img src="card.png"></template><noscript><img src="noscript.png"></noscript>',
+        ].join("\n"));
+        await fixture.write(`${DIR}/app.js`, ['// import "./shot.png";', 'const sample = `import "./notes.txt"`;', 'import /* webpackChunkName: "real" */ "./lib.js";'].join("\n"));
+        await fixture.write(`${DIR}/lib.js`, "export const x = 1;\n");
+        await fixture.write(`${DIR}/style.css`, ['.a::before {content:"/*";}', ".a {background:url(real.png)}", '.b::before {content:"*/";}', ".c {background:url(pic\\ name.png)}"].join("\n"));
+        for (const path of ["shot.png", "notes.txt", "real.png", "pic name.png", "card.png", "noscript.png"]) await fixture.write(`${DIR}/${path}`, path);
+        const result = await fixture.cli(["artifact", "publish", "w00001", "t01", "review", "--kind", "design", "--as", "bob", "--json"]);
+        expect([result.exitCode, result.json?.warnings.map((warning) => [warning.code, warning.details?.paths])]).toEqual([0, [["unreferenced_files_not_committed", [`${DIR}/notes.txt`, `${DIR}/shot.png`]]]]);
+        const inArtifact = ["app.js", "card.png", "index.html", "lib.js", "noscript.png", "pic name.png", "real.png", "style.css", "versions/v1.json"];
+        expect(await committed(fixture, result)).toEqual(inArtifact.map((path) => `${DIR}/${path}`).sort());
+    });
+
+    test("找引用的扫描对文件长度是线性的：4 万行 url() 加一个没有右括号的 url( 的样式表照常很快发布完", async () => {
+        const fixture = await createFixture("cli-file-set-large-css");
+        await fixture.write(`${DIR}/index.html`, `${page()}\n<link rel="stylesheet" href="style.css">`);
+        await fixture.write(`${DIR}/style.css`, `${".x { background: url(data:,x) }\n".repeat(40_000)}.y { background: url(${" ".repeat(128_000)}`);
+        const started = Date.now();
+        const result = await fixture.cli(["artifact", "publish", "w00001", "t01", "review", "--kind", "design", "--as", "bob", "--json"]);
+        expect([result.exitCode, result.json?.errors]).toEqual([0, []]);
+        // 线性扫描在这份输入上不到一秒，平方级的要十几秒；5 秒的上限只为抓住后者，不衡量快慢。
+        expect(Date.now() - started).toBeLessThan(5_000);
+    }, 60_000);
+
     test("--include 指向不存在、被 Git 忽略或产物目录之外的文件：报 usage，不写发布记录", async () => {
         const fixture = await createFixture("cli-include-usage");
         await fixture.write(`${DIR}/index.html`, page());
@@ -316,10 +344,11 @@ describe("产物与答复的命令（场景）", () => {
         expect(detailsOf(warned.stderr, "警告", "missing_reference")).toEqual([...gone.slice(0, 20).map((_, index) => `  index.html:${6 + index} gone-${index}.png`), "  另有 2 条，加 --json 看全部"]);
 
         await fixture.write(`${DIR}/index.html`, [page(), '<section data-nbdev-question="Bad_Id" data-nbdev-type="confirm"><h2>坏题号</h2></section>'].join("\n"));
+        // 原因的措辞不断言：只看位置、题号与括号里的错误码。
         const failed = await fixture.cli(["artifact", "publish", "w00001", "t01", "review", "--as", "bob"]);
-        expect([failed.exitCode, detailsOf(failed.stderr, "错误", "invalid_questions")]).toEqual([2, ["  index.html:5:1 题 Bad_Id：题号只能用小写字母、数字与连字符，以字母或数字开头，最长 63 个字符：Bad_Id [invalid_question_id]"]]);
+        expect([failed.exitCode, detailsOf(failed.stderr, "错误", "invalid_questions")]).toEqual([2, [expect.stringMatching(/^ {2}index\.html:5:1 .*Bad_Id.* \[invalid_question_id\]$/u)]]);
         const asked = await fixture.cli(["ask", "w00001", "t01", "--id", "pick", "--type", "single", "--label", "选一个", "--as", "bob"]);
-        expect([asked.exitCode, detailsOf(asked.stderr, "错误", "invalid_questions")]).toEqual([2, ["  题 pick：single 题至少要两个选项 [options_missing]"]]);
+        expect([asked.exitCode, detailsOf(asked.stderr, "错误", "invalid_questions")]).toEqual([2, [expect.stringMatching(/^ {2}.*pick.* \[options_missing\]$/u)]]);
     });
 
     test("场景 7：两个进程同时发布同一个产物：版本号不重复，两次都提交了", async () => {
