@@ -20,7 +20,8 @@ updated: 2026-10-14
 ## 当前状态
 
 - 现状与参照清单：[reference.md](reference.md)（数据、t28 查看器的问题、要沿用的机制和它防什么、外部参照）。
-- 评审板 [artifacts/review/index.html](artifacts/review/index.html)：第 1 轮五道题已答（见下文“决定”）。第 2 轮（2026-10-14）只问一题 `host`，已答：先做独立服务（见下文“决定”第 7 条）。
+- 评审板 [artifacts/review/index.html](artifacts/review/index.html)：第 1 轮五道题已答（见下文“决定”）。第 2 轮（2026-10-14）只问一题 `host`，已答：先做独立服务（见下文“决定”第 7 条）。第 3 轮（2026-10-14）是静态稿：五个画面（全书总览、人物名册加人物卡、秘密矩阵、问答页加原文、导航收起），问两题：版式能否往下细化（`draft-layout`），问答答案怎么呈现（`qa-answer-format`）；另列了搭稿时发现的四个问题（矩阵与问答说法不一、化名按读到哪里合并、后面章节标题会剧透、称呼噪音）。
+- 静态稿：草稿 worktree 的 `packages/neuro-book/src/plugins/lab/web/components/drafts/NbStoryDraft.vue`，Lab 场景 `NbStoryDraft`（五个场景），数据 `fixtures/drafts/story-draft-data.json` 由 t34 `dataset-v9.json` 抽“读到第 38 章”的样本；都不提交。截图集在主工作区 `.local/agent/works/w00024-nb-story/tasks/t01-ui-design/shots/`。
 
 ## 决定
 
@@ -53,4 +54,4 @@ updated: 2026-10-14
 
 ## 下一步
 
-1. 在草稿 worktree 的 Lab 里搭第 3 轮静态稿：顶栏（书名、读到哪里、搜索、提问框）加三栏（左侧导航、主区、右侧抽屉，nb-ui 分栏可拖拽、可收起），主区放全书总览、人物卡、秘密矩阵、问答页。
+1. 等开发者答第 3 轮两题；版式通过就补数值、悬念、时间线、情节、原文五页和手机、平板宽度的稿子。
