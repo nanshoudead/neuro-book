@@ -1,0 +1,89 @@
+# w00022 t18 前端与截图脚本实现审查的修正：交付报告
+
+worktree：.worktree/w00022-t18-agent-self-check（分支 feat/w00022-t18-agent-self-check）
+基线 b4772ba3a；提交：
+- 88ac82e68 fix(neuro-book): 加载占位带读屏说明、失败时撤掉 aria-busy，补加载标记的测试（第 1、3、4、6 条的前端部分与 bookshelf.md）
+- cc23fbe74 fix(neuro-book): page:shot 停在宿主失败页以 2 退出、不等无限动画（第 2、5、6 条的脚本部分，AGENTS.md、PageOutlet.md）
+
+## 逐条
+
+1. 编辑器页面加载失败（plugins/editor/web/pages.ts）
+   defineAsyncComponent 补 errorComponent（EditorPageFailed：role="alert"、data-editor-page-failed，“页面加载失败：<原因>”），失败时占位连同 aria-busy 一起换掉，与编辑区的失败组件一致。
+   文字放进 editor/web/messages.ts（pageLoading、pageFailed）；为此 EditorPageRegistry 的构造多一个 locale 读取函数，plugin.ts 传 () => locale.value。
+   测试：src/plugins/editor/web/pages.dom.test.ts（真实内核、产品的贡献点校验）：加载失败后没有 [aria-busy]、有 role=alert 的原因、错误交给应用错误处理。临时去掉 errorComponent 时这一条失败，已确认。
+   editor.md 输出 33 补了失败时的去向。
+
+2. page:shot 停在宿主失败页（scripts/page-shot.ts）
+   - 失败页（data-browser-host-status 不是 loading/idle/starting）默认失败，退出码 2（截图过程失败仍是 1），stderr 写“页面停在宿主的失败页 <状态>：<.nb-host-reason 的原因>；要截失败页本身加 --allow-host-failure”，另存 failure.png；不打印“截图：”。
+   - 报告新增 hostReason、failedAtHostPage（及第 5 条的 persistentAnimations），保留 hostStatus。
+   - --allow-host-failure：不带步骤时照常截图、以 0 退出；带步骤时仍以 2 失败（“失败页上不执行步骤”）。
+   - 步骤执行途中：开一个跨导航的 waitForFunction 监视失败页，与每一步赛跑，转到失败页立即失败（实测 --timeout 60 时 2.6 秒退出 2）。截图前再查一次（等稳定期间断线也能拦住）。
+   - 导出 exitCodeOf，USAGE 写了退出码；AGENTS.md 的用法同步。
+   - dev-panel 的 nbdev shot 对任何非 0 都报 shot_failed（不在本任务范围，没改）；如需区分 2，可以在后端那边单独跟进。
+
+3. 合同测试（vitest DOM）
+   - 编辑区：src/plugins/workbench/web/editor-area.dom.test.ts（加载中有 role=status 的 aria-busy 占位、context 与槽标记不落到占位；加载完撤掉、标记在提供者组件上；失败后没有 aria-busy、有原因）。
+   - 编辑器页面：pages.dom.test.ts（同上，加载中、加载完、失败）。
+   - 欢迎页：src/plugins/projects/web/welcome.dom.test.ts（真实 WelcomePage；shelf 与 list 都返回前带 aria-busy，只返回一个时仍带，都返回后撤掉；取数失败也撤掉并记诊断）。
+   - NotFoundPage：router.dom.test.ts 现有一条里断言 data-page-rendered。
+   - 书架页：BookshelfPage.dom.test.ts 加一条加载中 aria-busy、取到后撤掉。
+   没有补审查报告里建议的 home-page.dom.test 两条（文档根失败、提供者 A 换 B），主会话决定里没列，审查者也已实测当前实现正确。
+
+4. 占位改正
+   - 两个占位都是 <div role="status" aria-busy="true" data-…-loading><span class="sr-only">正在加载编辑器… / 正在加载页面…</span></div>；注释改成与实际一致（读屏听到说明，截图工具按 aria-busy 等）。
+   - 占位与失败组件都设 inheritAttrs: false，外壳与编辑组给的 context、data-workbench-editor-area 不再落到它们的 DOM 上（测试断言）。
+   - 删掉无样式的 workbench-shell__editor-loading。编辑区的异步组件从 WorkbenchShell.vue 挪到 editor-area.ts 的 editorAreaComponent(provider, locale)，以便直接挂载测试；失败组件的样式改用 Uno 类（p-[var(--space-4)] text-[var(--status-danger)]），删掉 WorkbenchShell.vue 里的 .workbench-shell__editor-failed 与随之不用的 vue 导入、editorFailed 文案。
+   - workbench-shell.md、WorkbenchShell.md、editor.md 的说法同步。
+
+5. settle 与常驻动画
+   - 只有有限动画（effect.getComputedTiming().endTime 有限）算“没稳定”；无限循环的列进报告 persistentAnimations（去重），stdout 一行“有 N 个常驻动画…”。
+   - 注释写明 document.getAnimations() 不含 shadow DOM（书架页看板娘），并写明加载区域要靠 aria-busy 标出、不能只靠动画；PageOutlet.md 的页面合同同步这句。
+   - 后果：只靠骨架/转圈表示加载、又没有 aria-busy 的地方不再被等住。排查过：书架页骨架（本次补了 aria-busy）、编辑组进度条（已有 aria-busy）、资源管理器行的转圈（行已有 aria-busy）、ExplorerFeedback 的长操作转圈（长任务状态，不该等）、index.html 的加载页（waitRendered 已在等它消失）。
+   - 真实开发服务冷、热各一次：书架、工作台、打开第一章都截对（见下），这些页 persistentAnimations 都是空。
+
+6. 小项
+   - 书架页 loading 分支包一层 <div class="bookshelf-page__loading" role="status" aria-busy="true" data-shelf-loading>，内含 sr-only“正在读取书架…”，gap: inherit 保持原间距；bookshelf.md 输出 15、BookshelfPage.md 同步。
+   - 步骤取第一个可见的匹配项：locator(selector).filter({visible: true}).first()，--click 也用同一规则（只能点可见的，说法统一，USAGE 写明）；AGENTS.md 示例去掉 :visible。静态页实测：先隐藏后可见的两个 .t，--wait-for .t 通过。
+   - --help/-h：parsePageShotArgs 返回 null，主程序打印用法、以 0 退出（实测 0）。
+   - --url 无效：用 URL.canParse 判断，报“--url 不是有效的地址（要写完整地址，例如 http://127.0.0.1:4217/），收到：nonsense”，退出 1。
+   - bookshelf.md 公开入口登记 nbook/plugins/projects/shared/project-url。
+
+## 验证
+
+- bun run --cwd packages/neuro-book typecheck：通过。
+- bun test scripts/page-shot.test.ts src/architecture.test.ts src/plugins/workbench/web/editor-area.test.ts：18 pass。page-shot.test.ts 新增 --allow-host-failure、--help、--url 无效、退出码几条。
+- vitest 新增与改动的文件（editor-area.dom、pages.dom、welcome.dom、BookshelfPage.dom、router.dom）：全过。
+- bun run test:affected（TMPDIR=/dev/shm/t18ui-tmp）：bun 部分 1169 pass / 0 fail（131 文件）；vitest 部分 50 文件 219 条全过；“全部通过”。
+- bun run governance:check：failures 0、warnings 0（本次范围）。
+- 静态页实测（python http.server 127.0.0.1:4995，已停）：正常页带无限动画 exit 0 且列出 1 个常驻动画、有限 1.5 秒动画被等完；失败页默认 exit 2；--allow-host-failure exit 0；--allow-host-failure 加 --click exit 2；画出后 1.5 秒转失败页、--wait-for 不存在的元素、--timeout 60：2.6 秒 exit 2，报告 hostStatus=connection-failed、hostReason=连接断了、failedAtHostPage=true。
+
+## 真实开发服务截图
+
+nbdev dev start --sample --work w00022 --task t18（Claude Code 后台任务），地址 http://127.0.0.1:4417/；用完 nbdev dev stop，“已停”、EXITED 0，dev status 为 ended（stopped），4417–4419 无监听。静态服务也已停。
+目录 .local/agent/works/w00022-dev-panel/tasks/t18-agent-self-check/shots/：
+- uifix-cold-shelf、uifix-warm-shelf：exit 0（5.9s / 2.6s）。书架完整：案头统计、看板娘、sample 书卡与新建作品卡，无骨架。
+- uifix-cold-workbench、uifix-warm-workbench：exit 0（3.8s / 2.4s）。资源管理器与欢迎页完整（简介、字数篇数、快捷入口、入门）。
+- uifix-cold-chapter、uifix-warm-chapter：exit 0（3.9s / 3.2s），按 AGENTS.md 去掉 :visible 后的示例步骤。第一章正文完整显示，树展开、选中第一章，状态栏 353 字。
+- uifix-missing-default（/?project=nope-missing）：exit 2，“页面停在宿主的失败页 project-unavailable：没有登记的项目：nope-missing；要截失败页本身加 --allow-host-failure”，failure.png。
+- uifix-missing-allow：exit 0，page.png 是“无法打开项目”失败页（原因、重试、不打开项目）。
+所有报告 problems 为空、persistentAnimations 为空。“冷”是服务刚起后第一次打开页面（Vite 首次编译），不是清空缓存的冷启动。
+
+## 偏离与理由
+
+- --click 也改为取第一个可见的匹配项（任务只写了 --wait-for）：两种步骤共用一条选择规则，说明更简单；隐藏元素本来就点不了。
+- 编辑区的异步组件挪进 editor-area.ts：WorkbenchShell 要布局 store 等一整套才能挂载，挪出来才能用 DOM 测试直接测加载中与失败；行为不变。
+- 失败页退出码选 2（任务只要求非 0），与截图过程失败的 1 分开；dev-panel 侧没有据此区分（后端范围）。
+- --allow-host-failure 带步骤时仍失败（退出 2），按任务“带步骤时一遇到失败页立即失败”。
+
+## 禁止清单自查
+
+- 不按错误文案分支：失败页用 HostPageError 类型判断，Playwright 超时用 errors.TimeoutError 类型；没有按 message 分支。
+- 静默 catch：outcomeOf 把结果变成值供赛跑，输掉一方之后的结果不再读取（注释写了原因）；监视在步骤期间异常结束会写进 problems；failure.png 截不出来写进 problems。
+- 没有为过测试放宽断言或加测试专用分支；产品代码没有测试分支。
+- 没改任务之外的代码与注释（WorkbenchShell.vue 只删了挪走的部分及随之不用的导入）。
+- 没有跨包深导入；新测试只用 nb-runtime 的公开入口与本插件代码；architecture.test.ts 通过。
+- 测试不用 mock、spy、假计时器与固定等待（deferred 加 flushPromises；governance 没有新增警告）。
+- 没用 rm -rf 清理仓库内目录；仓库内没有误写文件。
+- worktree 之外只写了截图目录、/dev/shm/t18ui-tmp（结束删除）与本报告。
+- 没碰 4400、4401、systemd 单元与别的会话的开发服务；没用 pkill -f、pgrep -f；静态服务用 TaskStop 停。
+- 只用 git add -- <路径>，两次提交，无 Co-Authored-By，没有 push、切分支、stash、rebase、amend。
