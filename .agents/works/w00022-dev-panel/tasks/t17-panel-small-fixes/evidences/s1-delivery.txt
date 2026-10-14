@@ -1,0 +1,62 @@
+w00022 t17 S1 交付报告（nb-ui FormCheckbox 的 label 加 relative + Playwright 验收）
+
+提交
+- 43a1090c7（分支 fix/w00022-t17-nb-ui-checkbox，父 3a4929d5c）
+  fix(nb-ui): FormCheckbox 的 label 作定位上下文，聚焦隐藏的 input 不再滚动外层容器（w00022 t17 S1）
+- worktree 干净；未 push、未切分支、未 stash；没有 Co-Authored-By。
+
+改动文件（均在 .worktree/w00022-t17-nb-ui-checkbox 下）
+- packages/nb-ui/src/components/form/FormCheckbox.vue：根 <label> 加 relative，上方加一条 HTML 注释说明原因
+- packages/nb-ui/src/components/form/FormCheckbox.md：“布局”一节补：根节点是定位上下文，隐藏的原生 input 不会让外层滚动容器跟着滚动；指向 e2e 用例
+- packages/nb-ui/playground/app/acceptance/FormCheckboxFocusFixture.vue：新夹具
+- packages/nb-ui/playground/app/acceptance/definitions.ts：登记 form-checkbox-focus（controls、events 为空数组），改文件头注释
+- packages/nb-ui/playground/app/pages/acceptance/[name].vue：FIXTURES 登记，改文件头注释
+- packages/nb-ui/e2e/form-checkbox.spec.ts：新用例
+- dist/nb-ui.css：跑了 build:css，无变化（relative 类原本就在产物里），不需要提交
+
+验证
+1. 改组件前（夹具最终版）：
+   TMPDIR=/dev/shm/t17s1-tmp NB_UI_E2E_PORT=3170 node ../../node_modules/@playwright/test/cli.js test -c <临时配置> form-checkbox
+   -> 1 failed：“点击聚焦后格子的 scrollTop” Expected 0, Received 280（form-checkbox.spec.ts:88）
+   失败截图：.local/agent/works/w00022-dev-panel/tasks/t17-panel-small-fixes/shots/checkbox-before.png
+   （画面里格子整块是空的，与面板“页面变空白”一致）
+2. 改组件后：同一命令 -> 1 passed（点击与 Shift+Tab/Tab 两段都通过）
+3. nb-ui 全部 e2e（同一临时配置，不带过滤）：31 passed（含 nested-grid、splitter，确认改验收页登记没有影响它们）
+4. bun run --cwd packages/nb-ui test：39 files / 581 tests passed
+5. bun run typecheck（nb-ui，含 playground）：通过
+6. bun run governance:check（提交后）：failures 0、warnings 0
+7. 收尾：Playwright 自己起停 nuxt dev（webServer），每次跑完 ps 里没有 nuxt 进程、3170 无监听；没有用 pkill/pgrep。
+   第一次（未换 Chrome 前）的失败运行在 packages/nb-ui/test-results（git 忽略）留下三份文件，已逐个删除并 rmdir；/dev/shm/t17s1-tmp 已删除。
+
+偏离与理由
+A. 夹具条件与计划/审查第 10 条不同（重要，请主会话判断是否回写计划）：
+   计划写“格子、列表、label 三层都不能是定位上下文”。按这个条件搭的夹具在组件未修时用例就通过了（实测 1 passed）：
+   三层都不定位时 input 的包含块越过格子落到更外层（ICB），格子不在包含块链上，聚焦不会滚它。
+   面板里真实的结构是 Splitter 的格子：nb-ui Splitter.vue:592 的 `nb-grid-panel relative min-h-0 min-w-0 overflow-hidden`，格子本身是定位上下文。
+   按简报“不失败就调整夹具，不改断言”，把夹具的格子改为 `position: relative; overflow: hidden`（与 Splitter 格子一致），列表与 label 不定位，
+   于是组件未修时稳定复现（格子 scrollTop 280），修后通过。用例开头的前提断言相应写成：格子 position 为 relative、列表为 static、格子 overflow-y 为 hidden。
+   计划里的四步断言（列表 scrollTop>0、静态位置在可见区外、点击与 Tab 后格子 scrollTop 为 0、勾选框仍在视野内）都保留，未放宽。
+B. “input 的静态位置在格子可见区之外”的写法：审查建议用 input 的 getBoundingClientRect 判断，但修好后 input 跟着 label 走、矩形会落在格子内，
+   这条前提会在改后失败。改为与组件修没修无关的量：label 在列表内容里的偏移（rect.top - list.top + list.scrollTop）大于格子 clientHeight，
+   即勾选框在列表没滚动时的位置落在格子可见区下方。
+C. “一直是 0”：在格子上挂 scroll 监听记录出现过的最大 scrollTop，读之前等两帧 requestAnimationFrame（等滚动事件派发，不是固定时长）。
+D. Tab 聚焦的做法：点击后 Shift+Tab 离开，再 Tab 回到 input，并断言聚焦状态。
+E. 运行方式（未解决，需要主会话决定）：本机 ~/.cache/ms-playwright 不存在，没有 Playwright 自带浏览器；
+   packages/nb-ui/playwright.config.ts 用 devices["Desktop Chrome"] 且没写 channel，所以简报里的 `bun run test:e2e -- form-checkbox`
+   直接报 “Executable doesn't exist ... chrome-headless-shell”。docs/testing/README.md 规定用本机 Chrome（channel: "chrome"）、不下载自带浏览器，
+   nb-ui 的配置与此不一致。我没有改包内配置（范围外），而是用 /dev/shm/t17s1-tmp 里的临时配置跑：import 包内配置，只覆盖
+   projects[].use.channel = "chrome"、testDir/webServer.cwd 改为绝对路径、outputDir 放 /dev/shm、失败时截图。临时配置内容：
+     import base from "<worktree>/packages/nb-ui/playwright.config.ts";
+     const pkg = "<worktree>/packages/nb-ui";
+     export default {...base, testDir: `${pkg}/e2e`, outputDir: "/dev/shm/t17s1-tmp/test-results",
+       use: {...base.use, screenshot: "only-on-failure"},
+       projects: base.projects!.map((p) => ({...p, use: {...p.use, channel: "chrome"}})),
+       webServer: {...base.webServer, cwd: pkg}};
+   建议另开一处小改动给 nb-ui 的 playwright.config.ts 加 channel: "chrome"（与仓库测试规范一致），之后 `bun run test:e2e` 可直接跑。
+
+禁止清单自查
+- 没有放宽断言、没有跳过测试、组件里没有测试专用分支：是。夹具调整只改了格子的 position，并按真实 Splitter 结构说明理由；用例的行为断言未改。
+- 没有删除或改写任务之外的代码、配置与注释：是。只改了两处登记文件的头注释（任务允许）；包内 playwright.config.ts 未改。
+- 没有用 waitForTimeout：是。用 toBeFocused/toBeChecked 等可观察状态，滚动事件等两帧 rAF。
+- 没有碰 worktree 之外的文件：只写了指定的截图目录（checkbox-before.png）、/dev/shm/t17s1-tmp（已删）与本报告；没有用 rm -rf 清理仓库内目录（test-results 逐个文件删除，它被 git 忽略、git ls-files 为 0）。
+- 没有碰 packages/dev-panel：是（只读了 app.css 等作参考）。
