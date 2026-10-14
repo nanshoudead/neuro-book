@@ -1,0 +1,106 @@
+# w00022/t18 后端实现审查 6 条意见的修正：交付报告
+
+worktree：.worktree/w00022-t18-agent-self-check（分支 feat/w00022-t18-agent-self-check，起点 cc23fbe74）
+审查报告：.agents/works/w00022-dev-panel/tasks/t18-agent-self-check/evidences/impl-review-server.txt
+
+## 提交
+1. 67e2a0212 fix(neuro-book): 样例取消后不再写登记、沿用前校验目录、按完整真实路径认出样例（w00022 t18 后端实现审查）
+   packages/neuro-book/src/server/dev/sample.ts、sample.test.ts、projects/registry.ts、projects/identity.ts
+2. 822013a2d fix(dev-panel): 样例结果逐代结算、截止只算首代、复用重放固定开始时的日志末尾（t18 后端实现审查）
+   packages/dev-panel/src/dev/sample.ts、tests/dev-live.test.ts、docs/cli.md
+
+## 每条怎么改
+1. 取消后不再开始新的登记写入
+   - registry.ts 新增 ProjectWriteOptions {signal?} 与 isAbortedBy(signal, error)；register(path, options?)、create(input, options?)。
+     register 在排队轮到时、读登记表、校验目录、读身份文件、读原路径身份之后各核对一次；write() 在建状态根、写临时文件、改名之前核对
+     （改名前取消时临时文件照旧在 finally 里删掉）。save()/writeIdentity() 原来把所有异常转成 write-failed，现在 abort 原样 rethrow。
+   - identity.ts：ensureParentDirectory、writeProjectIdentity、createProjectDirectory 加可选 signal，建目录、写身份文件前核对。
+     createProjectDirectory 里“建 .nbook/ 加写身份文件”算一步，开始了就做完（否则要为取消再走一遍撤销）；作品目录建好、身份文件
+     未写时取消会留下空目录，再新建同一书名按 exists 报出、可登记接回，注释里写明了。
+   - abort 以 signal.reason reject（标准 AbortSignal 做法），不在共享的 ProjectRegisterFailure 里加新失败码；seedDevSample 用
+     isAbortedBy 认出（按身份比较 signal.reason，不看文案），返回 {ok:false, reason:"样例任务已取消"}。去掉了 SampleAborted 类。
+   - 停止与总截止本来就是同一个 AbortController，现在这条 signal 一路传进登记表与建目录。登记表单写者、串行队列不变。
+   - 用例“卡在登记内部时取消”：样例目录已在、身份文件是没有写端的 FIFO；以 O_NONBLOCK 打开写端，ENXIO 就继续等（打开成功即说明
+     登记正卡在读身份文件，不用固定等待）；abort 后写入一份合法身份放行，断言结果是已取消、登记表不存在、样例目录只有 .nbook。
+2. 沿用已有样例前校验目录
+   - restore 里目录存在的分支先 checkProjectDirectory(existing.path, paths)（与 manager.ts 打开作品相同），不过就 sample-failed，
+     不补文件、不报 open-path；新建/重建分支仍用 ensureParentDirectory 的父目录规则。
+   - 用例：在状态根拒绝的循环里加“已有的样例在登记表搬到状态根为包目录本身 / .dev-sample 之后再放”：先在别的状态根放好，
+     搬登记表、删大纲.md，再放：ok false、大纲.md 没补回、登记表原样。
+3. 符号链接父目录与按原 id 重建
+   - expected 改为 realpathAllowMissing(<包>/.dev-sample/sample)：整条路径 realpath；不存在（ENOENT/ENOTDIR）时解析最近一级还在的
+     祖先再拼上其余各级。之后按旧登记恢复原 id，没有改写已有身份。
+   - “目录被删”用例改成两个变体：普通（删 .dev-sample）与 .dev-sample 是指向 ../external-samples 的符号链接（只删链接目标里的
+     sample）；断言重建后 project 与首次相同、身份文件 id 为原 id、登记表仍只有原来那一项。
+4-6. nbdev followSample 重写（packages/dev-panel/src/dev/sample.ts）
+   - 首次 stat 的长度定为重放终点 replayEnd；tail 时从 max(0, replayEnd-4MiB) 起，每块读 min(64KiB, replayEnd-offset)，不越过它。
+     tail（复用）重放只喂 tracker、读完立刻结算这份快照的本代结果；非 tail（新起）重放也逐行结算。读到 0 字节（日志被截短）就停止重放。
+   - 之后跟随：每次读一块 64 KiB，每行喂 tracker 后立刻结算（每代首个结果各 emit 一次，settled 记已报的最后一代，代号只增不减）；
+     块与块之间查 shouldStop 与截止，只在读到 EOF 时 sleep 200 ms。
+   - 截止：timed = 重放完历史时的那一代。follow:true 时只有当前代仍是 timed 且 timed 未报过才会超时，超时只封 timed；
+     换代即不再计时。follow:false（复用）时截止是等这一行的总时限，超时报一次就返回，不会封后面的代。FollowSampleOptions 的注释已写明。
+   - docs/cli.md 的“样例”何时打：新起服务写明时限只算开始读时那一代、一次读到几代各打一行；复用写明只读开始读时日志末尾的 4 MiB、
+     读到开始读时的长度为止、之后接着读新写入的。
+   - 用例：
+     (4) 第一个 --sample 用例把第二、三代的完整输出一次写进 feed（fake-dev 一次转出），等三行 SAMPLE/SAMPLE_FAILED；
+     (5) 新用例“首代还没报告就重启”：--sample-timeout 2 起服务，READY 后放行 backend-ready pid=2；用复用方 --sample-timeout 3 当时钟
+         （它在 READY 之后才起，等满 3 秒打 SAMPLE_FAILED，回来时监管的 2 秒截止早就过了），断言监管没打任何 SAMPLE 行；再放行第二代
+         open-path，断言只有一行 SAMPLE …?project=second；
+     (6) 复用用例里加“读的期间日志在增长”：另起一个 bun 进程每 50 ms 往日志追加约 32 KiB 整行噪声，复用照样立刻报本代 /new、以 0 退出，
+         返回时写入进程仍在跑。
+
+## 新用例对旧实现的判别（把三个/一个文件临时换回 HEAD 版本跑，跑完拷回，git diff 核对恢复）
+- neuro-book sample.test.ts：旧实现 4 个新用例全部失败（符号链接重建、两个换状态根、卡在登记内部取消），新实现 18 pass。
+- dev-panel dev-live 的 sample 组：旧实现失败 2 个（一次放行两代：只打出 2 行，第二代缺失；首代未报告就重启），新实现 4 pass。
+- 增长用例对旧实现不判别（偏离 1）。另做了补充测量：/dev/shm 下 3 MB 日志、末尾有本代结果，followSample(tail, follow:false) 开始后
+  另一进程以最快速度追加 64 块约 512 KiB；strace -f 统计日志描述符的 read/pread64：新实现约 3.08 MB、48 次、60 ms 报出 /current；
+  旧实现 36.6 MB、560 次、540 ms（与审查报告的 36.7 MB 一致）。这个测量直接调用了 followSample，不是 CLI 端到端。
+
+## 验证（TMPDIR=/dev/shm/t18srv-tmp，NBOOK_HOST_SYSTEM_TEMP_ROOT 同）
+- bun run --cwd packages/neuro-book typecheck：通过（tsc + 两个 vue-tsc）
+- bun run --cwd packages/dev-panel typecheck：通过
+- packages/neuro-book：bun test src/server/dev/ src/server/projects/ src/server/server.test.ts src/server/server-projects.test.ts src/architecture.test.ts → 118 pass、0 fail、12 files
+- bun run test:affected（仓库根）：exit 0，“全部通过”；dev-panel 445 pass/0 fail（63 files），neuro-book bun 1173 pass/0 fail（131 files），vitest 50 files 219 tests 通过
+- bun run --cwd packages/dev-panel test（全量）：445 pass、0 fail、63 files、398.84 s（herdr 真实用例这次没有出现 1–2 ms 的失败，不需要单独重跑）
+
+## 真实开发服务
+- bun packages/dev-panel/src/cli.ts dev start --sample --work w00022 --task t18（run dev-20261014T194928Z-41413f4a，4217、4317 两组被占用，
+  自动顺延到 4417/4418/4419）：
+  READY http://127.0.0.1:4417/ …；SAMPLE http://127.0.0.1:4417/?project=sample …
+- touch packages/neuro-book/src/server/start.ts（只改 mtime、内容不变）触发后端重启：第二行 SAMPLE …?project=sample；日志里两代
+  backend-ready pid=2216958 / 2217152 各跟一行 open-path。
+- 复用：同一命令再跑一次，0.56 s 内 READY reused + SAMPLE，退出 0。
+- dev stop dev-20261014T194928Z-41413f4a：已停，退出 0；监管打 EXITED 0 后以 0 退出，stderr 为空；dev status 判 ended（stopped）；
+  ps 里没有指向本 worktree 的进程；4417–4419 没有监听。
+- 日志按 nbdev 的设计写在主仓库 .local/agent/works/w00022-dev-panel/tasks/t18-agent-self-check/logs/（git 忽略），这是工具自己的落点，
+  不是我手工写的文件。
+
+## 偏离与理由
+1. 增长用例没有对旧实现形成判别：要在黑盒里让旧实现追着读，写入速度得超过读者，可开始读前写入的又不能超过 4 MiB（否则本代结果
+   掉出尾部窗口），两者在不控制时序的前提下互相矛盾；我按测试规范不用固定等待、不改产品代码加钩子。用例保留，说明“日志在增长时复用
+   照样立刻报本代结果”的行为；固定 EOF 的判别证据是上面的 strace 测量。审查建议的“部分首行边界”同样因无法从外部控制尾部起点
+   落在哪一行而没有加，旧有逻辑（起点前一字节不是行尾就丢掉首行）未改。
+2. 复用（follow:false）的截止没有按代取消：复用方只等一行结果，截止是总时限，超时报一次就返回，不会把超时封到后面的代上；
+   若也按代取消，复用方在后端重启后可能无限等。FollowSampleOptions.timeoutMs 的注释写明了两种模式的区别。
+3. 取消以 signal.reason reject 而不是新增失败码：避免改 shared/projects.ts 的公开失败码合同（RPC、书架都在用）；只有传了 signal 的
+   调用方会遇到，项目管理器与书架不传，行为不变。
+4. createProjectDirectory 中“建 .nbook/ 加写身份文件”作为一步不再中途核对（理由见第 1 条）。
+5. docs/specs/runtime/projects.md 未改：signal 是服务端内部 API 的可选参数，不改变黑盒合同。
+
+## 禁止清单自查
+- 不按错误文案分支：abort 用 signal.reason 的身份比较（isAbortedBy）；文件错误仍按 code。是。
+- 不用静默 catch：新增的 catch 只有 realpathAllowMissing（非 ENOENT/ENOTDIR 原样抛出）与测试里 ENXIO 判断（其余抛出）；save/writeIdentity
+  的 catch 对 abort rethrow。是。
+- 不为过测试放宽断言、不加测试专用分支：没有改已有断言（第一个 --sample 用例只是把两次 append 合成一次，期望的三行不变）；产品代码没有测试分支。是。
+- 不改任务之外的代码与注释：只动了列出的 7 个文件；sample.ts 原 SampleAborted/checkpoint 换成 signal.throwIfAborted，属于本次改动。是。
+- 不跨包深导入、遵守前后端边界：neuro-book 只在 server/ 内部相对导入；architecture.test.ts 通过。是。
+- 测试不用 mock、spy、假计时器与固定等待：用真实文件、真实 FIFO、真实 CLI 与 fake-dev 夹具；等待都是 until/waitUntil 查可观察状态；
+  增长进程的 setInterval 是被测环境里写入者的节奏，不是测试等待。已有的“登记完成时取消”用例里包了一层 registry（审查前就有），没动。是。
+- 不用 rm -rf 清理仓库内目录：没有；/dev/shm 下自建的 t18srv-tmp、t18srv-bak、t18srv-lab 用 rm -r 删除。是。
+- 不碰 worktree 之外的文件：只写了 /dev/shm 下自己的目录与本报告；nbdev 往主仓库 .local 写运行日志是工具设计。是。
+- 不碰 4400、4401、systemd 单元与别的会话的开发服务：开发服务落在 4417–4419，用 dev stop 停自己的 run。是。
+- 不用 pkill -f、pgrep -f：没用。是。
+- 没有 push、切分支、stash、rebase、amend；提交只用 git add -- <路径>，没有 Co-Authored-By。是。
+
+## 未解决
+- 无阻塞问题。偏离 1 的增长用例判别力有限，见上。
