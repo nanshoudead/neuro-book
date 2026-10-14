@@ -22,7 +22,7 @@
 | `nbdev release [<workRef> <taskRef>]` | `--as` | `nbdev.release/v1` |
 | `nbdev registry import` | 无 | `nbdev.registry-import/v1` |
 | `nbdev status` | `--work <workRef>`、`--task <taskRef>`（要求同时有 `--work`） | `nbdev.status/v1` |
-| `nbdev artifact publish <workRef> <taskRef> <artifactId>` | `--kind`（第一次必填：`design`、`report`、`review`）、`--title`、`--entry`（缺省 `index.html`）、`--keep <题号>`（可重复）、`--force-version`、`--as` | `nbdev.artifact-publish/v1` |
+| `nbdev artifact publish <workRef> <taskRef> <artifactId>` | `--kind`（第一次必填：`design`、`report`、`review`）、`--title`、`--entry`（缺省 `index.html`）、`--include <路径>`（可重复，相对产物目录）、`--keep <题号>`（可重复）、`--force-version`、`--as` | `nbdev.artifact-publish/v1` |
 | `nbdev artifact close <workRef> <taskRef> <artifactId>` | `--as` | `nbdev.artifact-close/v1` |
 | `nbdev ask <workRef> <taskRef>` | `--id`、`--type`、`--label`，`--option <值>[=<名称>]`（可重复，或 `@review`）、`--optional`、`--recommend <值>`（可重复）、`--artifact <artifactId>`、`--about <路径>`；或 `--from <JSON 文件>`（不与单题参数混用）；`--as` | `nbdev.ask/v1` |
 | `nbdev ask withdraw <workRef> <taskRef> <提问>` | `--as` | `nbdev.ask-withdraw/v1` |
@@ -50,7 +50,7 @@
 - `work status`、`task status`：只改 frontmatter 的 `status` 与 `updated` 两行并提交。取值与现值相同时不写不提交。记录来自分支、或 Work README 未提交时拒绝。目标文件是暂存区里一次改名或复制的一端时一律拒绝（`staged_rename`：只提交它会拆开那次改名）。目标文件在主工作区有未提交改动时默认拒绝（`uncommitted_changes`，`details` 带 `currentHash`、`status`、`staged`（`git diff --cached`）、`unstaged`（`git diff`）、`untracked`），`--include-uncommitted` 才连同这些改动一起提交。调用方给了期望的哈希（面板）时先比哈希、再查未提交改动。
 - `registry import`：按扫描结果补登 `imported` 条目，只写 `.local/agent/registry.json`，可以重复运行。
 - `status`：只读，不取锁，不写任何文件，不加载页面解析器；herdr 只调只读方法，总时限 2.5 秒。
-- `artifact publish`：页面文件由会话直接写在主工作区的产物目录里；在写事务的锁内读上一版、列页面文件、解析提问标记、算 `contentHash`、生成新的题表，写 `versions/v<N>.json`，与产物目录里 Git 有变化的页面文件（不含删除项与 `answers/`）一起提交。内容与题都没变时不出新版本（`unchanged: true`），`--force-version` 照样出。格式与题表规则见 [文件格式](file-formats.md#产物)。
+- `artifact publish`：页面文件由会话直接写在主工作区的产物目录里；在写事务的锁内读上一版、从入口等种子出发按引用算出文件集、解析文件集里页面的提问标记、算 `contentHash`、生成新的题表，写 `versions/v<N>.json`，与文件集里 Git 有变化的文件（不含删除项与 `answers/`）一起提交。没被引用、也没被跟踪的文件不提交，给 `unreferenced_files_not_committed`；页面要用的就在页面里引用，或用 `--include` 列出（列过的记进发布记录的 `files`，以后不用再列）。`--include` 的文件不存在、被 Git 忽略或在 `versions/`、`answers/` 里时报 `usage`，不写任何东西。文件集的规则见 [文件格式](file-formats.md#发布记录-versionsvnjson)。内容与题都没变时不出新版本（`unchanged: true`），`--force-version` 照样出。格式与题表规则见 [文件格式](file-formats.md#产物)。
 - `artifact close`、`ask`、`ask withdraw`、`ask supersede`：各写一版新的发布记录，沿用上一版的内容字段，页面不重新解析。`ask` 不给 `--artifact` 时记进 Task 的提问集（`artifacts/questions/`，第一次登记时建它）；指向已关闭的产物报 `artifact_closed`。Task 的提问集不能 `artifact close`（`usage`）：它不能发布，关了就没法重新打开，不要的题逐题 `ask withdraw`。`--about` 只校验路径格式，主工作区与调用者的 checkout 里都找不到时给 `about_not_found` 警告。
 - `panel serve`、`panel open`：见 [面板](panel.md)。`panel serve` 在前台运行，收到 SIGINT、SIGTERM、SIGHUP 时收口退出（退出码 0）。
 - `answers record`：写一份代录的答复（`submittedBy.kind: "agent-transcribed"`）；`--set`、`--comment` 的题号不合格式、或同一道题给了两次时报 `usage`。`answers --since` 不是答复 id 的写法时报 `usage`。`answers ack`：写一份确认，并把 `--include` 列出的记录（相对主工作区根，只收 `.agents/works/` 下的普通文件；目录与被 `.gitignore` 忽略的文件在写任何东西之前报 `usage`）放进同一个提交。`--through` 填读答复时输出里的 `cursor`：只确认 id 不大于它的未确认答复（同一个 `answers/` 目录里 id 在锁内单调生成，不大于游标就是会话读之前已落位），比它新的留着、给 `newer_answers_unacked`。不给 `--through` 时确认锁内看到的全部未确认答复，其中可能有会话没读过的，给 `ack_without_through`。要确认的答复为空时不写，给 `already_acked`，`--include` 的文件也不提交；但有上次提交失败的残留时照样把残留与 `--include` 的文件一起补交（见下文“提交失败后的补救”）。
@@ -200,12 +200,13 @@ stdout 只有一个对象，诊断走 stderr：
 | `questions_dropped` | 页面里没有了、还没答的题记为被这一版取代；暂时删掉的用 `--keep` 保留 |
 | `retired_question_in_page` | 已撤回或已取代的题号又出现在页面里，结局不变 |
 | `artifact_reopened` | 发布重新打开了已关闭的产物，恢复了因关闭而撤回的题里页面还在的与 `ask` 登记的 |
-| `questions_in_script` | 脚本、模板、`noscript` 或 `.js` 文件里写了提问标记（属性写法 `data-nbdev-question=`），解析不到 |
+| `questions_in_script` | 文件集里的脚本、模板、`noscript` 或 `.js` 文件里写了提问标记（属性写法 `data-nbdev-question=`），解析不到 |
 | `missing_reference` | 页面引用的本地文件不存在 |
 | `reference_outside_artifact` | 页面引用了产物目录之外的文件 |
-| `image_too_large` | 产物目录里有超过 300 KiB 的图片 |
+| `image_too_large` | 文件集里有超过 300 KiB 的图片 |
 | `task_images_too_large` | 这个 Task 的 `artifacts/` 与 `evidences/` 里的图片合计超过 5 MiB |
 | `artifact_deletions_not_committed` | 产物目录里有被删的文件，没有随发布提交 |
+| `unreferenced_files_not_committed` | 产物目录里有没被引用、也没被跟踪的文件，没有随发布提交（`details.paths`）；页面要用就引用它，或用 `--include` 列出 |
 | `build_failed` | `panel serve`：前端构建失败，用的是旧的产物（没有旧产物时是错误） |
 | `open_failed` | `panel open`：没能用 `xdg-open` 打开浏览器，打印跳转页的路径（`details.page`），手动在浏览器里打开它或改用 `--print` |
 | `no_display` | `panel open`：没有桌面环境（`DISPLAY`、`WAYLAND_DISPLAY` 都没设），没有调 `xdg-open`；按消息里的命令从你的电脑转发两个端口，再用 `--print`（`details.panelPort`、`details.artifactPort`） |

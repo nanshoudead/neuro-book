@@ -29,7 +29,7 @@ import type {CliIo, CommandOutcome} from "./output.js";
 
 /** 产物、提问与答复的命令（t08）。合同见 docs/cli.md。 */
 
-export const ARTIFACT_USAGE = `  artifact publish <workRef> <taskRef> <artifactId> [--kind <design|report|review>] [--title <标题>] [--entry <入口>] [--keep <题号>]… [--force-version] [--as <标签>]
+export const ARTIFACT_USAGE = `  artifact publish <workRef> <taskRef> <artifactId> [--kind <design|report|review>] [--title <标题>] [--entry <入口>] [--include <路径>]… [--keep <题号>]… [--force-version] [--as <标签>]
   artifact close <workRef> <taskRef> <artifactId> [--as <标签>]
   ask <workRef> <taskRef> --id <题号> --type <single|multi|text|confirm> --label <题目> [--option <值>[=<名称>]|@review]… [--optional] [--recommend <值>]… [--artifact <artifactId>] [--about <路径>] [--as <标签>]
   ask <workRef> <taskRef> --from <JSON 文件> [--artifact <artifactId>] [--as <标签>]
@@ -150,7 +150,7 @@ export const ARTIFACT_COMMANDS: Record<string, CommandSpec> = {
     "artifact publish": {
         schema: "nbdev.artifact-publish/v1",
         positionals: ["workRef", "taskRef", "artifactId"],
-        options: {kind: {type: "string"}, title: {type: "string"}, entry: {type: "string"}, keep: {type: "string", multiple: true}, "force-version": {type: "boolean"}, ...AS_OPTION},
+        options: {kind: {type: "string"}, title: {type: "string"}, entry: {type: "string"}, include: {type: "string", multiple: true}, keep: {type: "string", multiple: true}, "force-version": {type: "boolean"}, ...AS_OPTION},
         async run({io, positionals, values}) {
             const outcome = await withCaller(io, values, (context, options) => publishArtifact(context, {
                 workRef: positionals[0]!,
@@ -159,6 +159,7 @@ export const ARTIFACT_COMMANDS: Record<string, CommandSpec> = {
                 kind: stringValue(values, "kind"),
                 title: stringValue(values, "title"),
                 entry: stringValue(values, "entry"),
+                include: listValue(values, "include"),
                 keep: listValue(values, "keep"),
                 forceVersion: values["force-version"] === true,
             }, options));

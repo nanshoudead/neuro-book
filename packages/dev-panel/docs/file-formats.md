@@ -189,6 +189,7 @@ artifacts/<artifactId>/
     "version": 2, "supersedes": 1, "action": "publish",
     "kind": "design", "title": "开发面板评审板", "state": "open",
     "entry": "index.html", "contentHash": "<sha256>",
+    "files": ["assets/home.png", "index.html", "r1/index.html", "style.css"],
     "questions": [
         {"id": "home-layout", "type": "single", "label": "首页的 Work 区用卡片还是表",
          "options": [{"value": "cards", "label": "A 每个 Work 一张卡片"}, {"value": "table", "label": "B 一张表"}],
@@ -199,12 +200,24 @@ artifacts/<artifactId>/
 }
 ```
 
-- `action`：这一版由哪个动作产生，`publish`、`close`、`ask`、`withdraw`、`supersede`。非发布动作沿用上一版的 `kind`、`title`、`entry`、`contentHash`，页面不重新解析。
+- `action`：这一版由哪个动作产生，`publish`、`close`、`ask`、`withdraw`、`supersede`。非发布动作沿用上一版的 `kind`、`title`、`entry`、`contentHash`、`files`，页面不重新解析。
 - `kind`：`design`、`report`、`review`；Task 提问集为 `questions`（`entry`、`contentHash` 为 `null`）。`state`：`open` 或 `closed`。
 - 每道题：`origin` 是 `markup`（来自页面标记）或 `ask`（来自 `nbdev ask`）；`page` 是题所在的页面（`ask` 登记的、或已答后从页面删掉的为 `null`）；`about` 是 `--about` 记的仓库根相对路径；`since` 是题号第一次出现的版本。
 - `outcome`：`null`（活的）；`{kind: "withdrawn", in: N, reason: "explicit" | "closed"}`；`{kind: "superseded", in: N, by: null | {workId, taskId, artifactId, questionId}}`（`by` 是完整 id；`null` 表示被这一版的页面取代）。
 - **最新一版带全部题**，被取代、撤回的也在；状态只看最新一版与答复。最新一版读不出时不退回旧版，读取给警告、写入报 `invalid_record`。
-- `contentHash`：产物目录里 Git 会跟踪的文件（`git ls-files -z --cached --others --exclude-standard`，去掉 `versions/`、`answers/`，只算磁盘上还在的），路径相对产物目录、按 UTF-8 字节序排序，对“路径、NUL、文件内容的 sha256、换行”逐行求 sha256。遇到符号链接拒绝发布。
+- `files`：这一版的**文件集**（见下），路径相对产物目录、按 UTF-8 字节序排序。只有 `publish` 写新的清单；Task 的提问集为 `null`；没有这个字段的旧记录读成空清单。发布记录先落盘、`git add` 后执行，所以提交失败时面板与下一次发布仍能按这份清单找回完整的集合。
+- `contentHash`：文件集的摘要。路径相对产物目录、按 UTF-8 字节序排序，对“路径、NUL、文件内容的 sha256、换行”逐行求 sha256。遇到符号链接拒绝发布。
+
+**文件集**是发布时提交、求摘要、找提问标记的范围，其余文件不提交（列在 `unreferenced_files_not_committed` 里）：
+
+- 候选：产物目录里 Git 不忽略的文件（`git ls-files -z --cached --others --exclude-standard`），去掉 `versions/`、`answers/`，只算磁盘上还在的。文件集只从候选里取。
+- 种子：入口；已跟踪的文件（`git ls-files --cached`）；上一版的 `files`；上一版题表里 `page` 不为 `null` 的页面；本次的 `--include`。已经发布或提交过的文件因此不会因为页面不再链接它而掉出去。
+- 闭包：从全部种子出发，对纳入的每个文件收集引用，直到集合不再增长。
+  - `.html`、`.htm`：元素的 `src`、`href`、`poster`、`srcset`（`script`、`style`、`template`、`noscript` 自己的属性也收，但不进入它们的子节点）；内联 `<style>` 与 `style` 属性里的 `url(...)`、`@import`；内联的 `<script type="module">`（没有 `src`）里的 import。
+  - `.css`：`url(...)` 与 `@import "…"`，块注释里的不算。
+  - `.js`、`.mjs`：字面量的 `import … from "…"`、`import "…"`、`export … from "…"`、`import("…")`；只认 `./`、`../`、`/` 开头的与带协议的地址，裸模块名与拼出来的地址追踪不到，要用 `--include` 列出。
+  - `srcset` 按 HTML 的候选语法解析：地址是一段不含空白的字符，后面是描述符，候选之间用逗号分隔；地址里的逗号（`assets/a,b.png 1x`）与 `data:` 地址不会被切开。
+  - 引用的归一化：跳过带协议的、`//` 开头的与只有 `#` 的；去掉 `?`、`#` 之后的部分，按引用所在文件的目录解析，百分号解码（解码失败按字面）；`/` 开头的与解析后指向产物目录之外的不进文件集。引用检查（`missing_reference`、`reference_outside_artifact`）用的是同一份引用。
 
 ### 新版本的题表
 
@@ -232,7 +245,7 @@ artifacts/<artifactId>/
 
 ## 提问标记
 
-写在产物目录里任意一个 `.html` 页上，题号在整个产物内唯一。例子见 [`examples/questions.html`](examples/questions.html)（包的测试会解析它）。
+写在产物文件集（见“发布记录”）里任意一个 `.html` 页上，题号在整个产物内唯一；没被链接、也没被跟踪的页面要用 `--include` 列出。例子见 [`examples/questions.html`](examples/questions.html)（包的测试会解析它）。
 
 | 属性 | 含义 |
 |---|---|

@@ -152,9 +152,12 @@ describe("面板服务（场景）", () => {
         expect((await fixture.cli(["answers", "record", "w00002", "t01", "review", "--set", "approve=yes", "--as", "bob", "--json"])).exitCode).toBe(0);
         await fixture.write(".agents/works/w00002-alpha/tasks/t01-board/artifacts/review/index.html", (await Bun.file(join(fixture.main, ".agents/works/w00002-alpha/tasks/t01-board/artifacts/review/index.html")).text()).replace('data-nbdev-question="layout"', 'data-nbdev-question="layout-v2"'));
         expect((await fixture.cli(["artifact", "publish", "w00002", "t01", "review", "--as", "bob", "--json"])).exitCode).toBe(0);
-        await fixture.write(".agents/works/w00002-alpha/tasks/t01-board/artifacts/review/notes.txt", "没发布的改动\n");
+        // 页面没有引用的未跟踪文件（检查页面时的截图）不在文件集里，不算改动；页面引用的图片改了才算。
+        await fixture.write(".agents/works/w00002-alpha/tasks/t01-board/artifacts/review/notes.txt", "没被引用的草稿\n");
         const panel = await startPanel(fixture, null);
         type ArtifactData = {versions: number[]; version: number; questions: Array<{question: {id: string}; state: string}>; answers: unknown[]; pageUrl: string; unpublishedChanges: boolean};
+        expect((await panel.json<ArtifactData>("/api/artifact/w00002-alpha/t01-board/review")).body.data.unpublishedChanges).toBe(false);
+        await writeFile(join(fixture.main, ".agents/works/w00002-alpha/tasks/t01-board/artifacts/review/shot.png"), randomBytes(64));
         const {body} = await panel.json<ArtifactData>("/api/artifact/w00002-alpha/t01-board/review");
         expect([body.data.versions, body.data.version, body.data.questions.map((state) => [state.question.id, state.state]), body.data.answers.length, body.data.unpublishedChanges]).toEqual([
             [1, 2], 2, [["layout", "superseded"], ["approve", "answered"], ["layout-v2", "open"]], 1, true,

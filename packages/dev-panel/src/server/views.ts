@@ -1,7 +1,7 @@
 import {readdir, readFile} from "node:fs/promises";
 import {resolve} from "node:path";
 import type {Activity} from "../core/activity.js";
-import {artifactContentHash, artifactDirPath, QUESTIONS_ARTIFACT, questionStates, readArtifact, type ArtifactRef} from "../core/artifacts.js";
+import {artifactDirPath, currentContentHash, QUESTIONS_ARTIFACT, questionStates, readArtifact, type ArtifactRef} from "../core/artifacts.js";
 import {branchChangedDocs, listDocPaths, readDocDiff, readDocFile, readDocTree} from "../core/docs.js";
 import {readEditableFile} from "../core/edit-ops.js";
 import {readGovernanceLineLimits} from "../core/governance-limits.js";
@@ -176,7 +176,8 @@ export async function artifactsView(state: PanelState): Promise<{data: unknown; 
 
 /**
  * 一个产物：题与状态、答复与确认、版本列表。产物页不按版本切换页面（页面文件不按版本保存），只切换题表；
- * iframe 指向产物来源上磁盘里的当前页面，磁盘内容与最新一版的 contentHash 不同时标 `unpublishedChanges`。
+ * iframe 指向产物来源上磁盘里的当前页面，磁盘上文件集的内容与最新一版的 contentHash 不同时标 `unpublishedChanges`
+ * （没被引用的未跟踪文件不在文件集里，检查页面时留下的截图不算改动）。
  */
 export async function artifactView(state: PanelState, input: {workId: string; taskId: string | null; artifactId: string; version: string | null}, artifactBase: (checkoutKey: string, path: string) => string): Promise<{data: unknown; warnings: Warning[]} | null> {
     const {status, warnings} = currentStatus(state);
@@ -201,7 +202,7 @@ export async function artifactView(state: PanelState, input: {workId: string; ta
     let unpublishedChanges: boolean | null = false;
     if (latest?.contentHash) {
         try {
-            unpublishedChanges = (await artifactContentHash(root, ref)) !== latest.contentHash;
+            unpublishedChanges = (await currentContentHash(root, ref, latest)) !== latest.contentHash;
         } catch (error) {
             // 产物目录里有符号链接等：算不出哈希不影响看题与答复，只是不知道有没有未发布的改动。
             if (!isNbdevError(error)) throw error;

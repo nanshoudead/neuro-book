@@ -36,6 +36,12 @@ function data<T>(envelope: CliEnvelope | null): T {
     return envelope?.data as T;
 }
 
+/** 一次发布的提交里的文件（仓库根相对，排好序）；中文路径不转义。 */
+async function committed(fixture: Fixture, result: {json: CliEnvelope | null}): Promise<string[]> {
+    const sha = data<{commit: {sha: string}}>(result.json).commit.sha;
+    return (await git(fixture.main, "-c", "core.quotepath=off", "diff-tree", "--no-commit-id", "--name-only", "-r", sha)).split("\n").filter(Boolean).sort();
+}
+
 async function published(name: string, html = page()): Promise<Fixture> {
     const fixture = await createFixture(name);
     await fixture.write(`${DIR}/index.html`, html);
@@ -223,6 +229,67 @@ describe("产物与答复的命令（场景）", () => {
         await writeFile(join(fixture.main, DIR, "shot.png"), randomBytes(800 * 1024));
         const result = await fixture.cli(["artifact", "publish", "w00001", "t01", "review", "--kind", "design", "--as", "bob", "--json"]);
         expect([result.exitCode, result.json?.warnings.map((warning) => warning.code)]).toEqual([0, ["image_too_large"]]);
+    });
+
+    test("文件集：只提交页面引用到的文件（img、CSS 的 url()、script src 与它 import 的模块、链接的子页）与 --include 列出的及其引用；未引用的截图不提交、给警告", async () => {
+        const fixture = await createFixture("cli-file-set");
+        // 已跟踪的文件（例如手动提交过的）即使没被引用也在文件集里：不会从哈希里掉出去，也不报未引用。
+        await fixture.write(`${DIR}/legacy.txt`, "早先手动提交的\n");
+        await fixture.commit("legacy file");
+        await fixture.write(`${DIR}/index.html`, [page(), '<link rel="stylesheet" href="style.css"><script type="module" src="app.js"></script>', '<img src="assets/pic.png"><a href="r1/index.html">第一轮</a>'].join("\n"));
+        await fixture.write(`${DIR}/style.css`, '@font-face { font-family: f; src: url("fonts/f.woff2") }');
+        await fixture.write(`${DIR}/fonts/f.woff2`, "字体");
+        await fixture.write(`${DIR}/app.js`, 'import {x} from "./lib/util.mjs";\nconsole.log(x);\n');
+        await fixture.write(`${DIR}/lib/util.mjs`, "export const x = 1;\n");
+        await fixture.write(`${DIR}/assets/pic.png`, "图");
+        await fixture.write(`${DIR}/r1/index.html`, '<!doctype html><title>第一轮</title><section data-nbdev-question="r1-ok" data-nbdev-type="confirm"><h2>第一轮可以吗</h2></section>');
+        await fixture.write(`${DIR}/data.json`, "{}\n");
+        await fixture.write(`${DIR}/extra.css`, ".x { background: url(fonts/extra.woff2) }");
+        await fixture.write(`${DIR}/fonts/extra.woff2`, "另一个字体");
+        await fixture.write(`${DIR}/shot.png`, "检查页面时的截图");
+        const first = await fixture.cli(["artifact", "publish", "w00001", "t01", "review", "--kind", "design", "--include", "data.json", "--include", "extra.css", "--as", "bob", "--json"]);
+        expect([first.exitCode, first.json?.warnings.map((warning) => [warning.code, warning.details?.paths])]).toEqual([0, [["unreferenced_files_not_committed", [`${DIR}/shot.png`]]]]);
+        const inArtifact = ["app.js", "assets/pic.png", "data.json", "extra.css", "fonts/extra.woff2", "fonts/f.woff2", "index.html", "lib/util.mjs", "r1/index.html", "style.css"];
+        expect(await committed(fixture, first)).toEqual([...inArtifact.map((path) => `${DIR}/${path}`), `${DIR}/versions/v1.json`].sort());
+        expect((await readArtifact(fixture.main, REF)).latest?.files).toEqual([...inArtifact.slice(0, 7), "legacy.txt", ...inArtifact.slice(7)]);
+        expect(data<{questions: Array<{id: string}>}>(first.json).questions.map((question) => question.id)).toEqual(["layout", "approve", "r1-ok"]);
+
+        // 入口改为只链接 r2：仍被跟踪的 r1 是种子，它新加的图片照样追进来，它的题不被取代。
+        await fixture.write(`${DIR}/index.html`, [page(), '<link rel="stylesheet" href="style.css"><script type="module" src="app.js"></script>', '<img src="assets/pic.png"><a href="r2/index.html">第二轮</a>'].join("\n"));
+        await fixture.write(`${DIR}/r2/index.html`, "<!doctype html><title>第二轮</title><p>第二轮</p>");
+        await fixture.write(`${DIR}/r1/index.html`, '<!doctype html><title>第一轮</title><section data-nbdev-question="r1-ok" data-nbdev-type="confirm"><h2>第一轮可以吗</h2><img src="new.webp"></section>');
+        await fixture.write(`${DIR}/r1/new.webp`, "新图");
+        const second = await fixture.cli(["artifact", "publish", "w00001", "t01", "review", "--as", "bob", "--json"]);
+        expect([second.exitCode, data<{dropped: string[]}>(second.json).dropped, second.json?.warnings.map((warning) => warning.code)]).toEqual([0, [], ["unreferenced_files_not_committed"]]);
+        expect(await committed(fixture, second)).toEqual([`${DIR}/index.html`, `${DIR}/r1/index.html`, `${DIR}/r1/new.webp`, `${DIR}/r2/index.html`, `${DIR}/versions/v2.json`]);
+
+        // 只多出没被引用的未跟踪文件：哈希不变，不出新版本。
+        await fixture.write(`${DIR}/notes.txt`, "草稿\n");
+        const third = await fixture.cli(["artifact", "publish", "w00001", "t01", "review", "--as", "bob", "--json"]);
+        expect([third.exitCode, data<{unchanged: boolean}>(third.json).unchanged, third.json?.warnings.map((warning) => warning.details?.paths)]).toEqual([0, true, [[`${DIR}/notes.txt`, `${DIR}/shot.png`]]]);
+    });
+
+    test("srcset 按候选语法解析：含逗号的路径与 data: 地址不被切开、不出伪引用；百分号编码加查询串的路径照样提交", async () => {
+        const fixture = await createFixture("cli-srcset");
+        await fixture.write(`${DIR}/index.html`, `${page()}\n<img srcset="assets/a,b.png 1x, data:image/png;base64,iVBOR,AAA 2x" src="%E5%9B%BE.png?size=1#top">`);
+        await fixture.write(`${DIR}/assets/a,b.png`, "含逗号");
+        await fixture.write(`${DIR}/图.png`, "中文名");
+        const result = await fixture.cli(["artifact", "publish", "w00001", "t01", "review", "--kind", "design", "--as", "bob", "--json"]);
+        expect([result.exitCode, result.json?.warnings]).toEqual([0, []]);
+        expect(await committed(fixture, result)).toEqual([`${DIR}/assets/a,b.png`, `${DIR}/index.html`, `${DIR}/versions/v1.json`, `${DIR}/图.png`]);
+    });
+
+    test("--include 指向不存在、被 Git 忽略或产物目录之外的文件：报 usage，不写发布记录", async () => {
+        const fixture = await createFixture("cli-include-usage");
+        await fixture.write(`${DIR}/index.html`, page());
+        await fixture.write(`${DIR}/.gitignore`, "*.log\n");
+        await fixture.write(`${DIR}/debug.log`, "忽略");
+        for (const include of ["nope.json", "debug.log", "../README.md", "versions/v1.json"]) {
+            const result = await fixture.cli(["artifact", "publish", "w00001", "t01", "review", "--kind", "design", "--include", include, "--as", "bob", "--json"]);
+            expect([include, result.exitCode, result.json?.errors[0]?.code]).toEqual([include, 2, "usage"]);
+        }
+        expect((await readArtifact(fixture.main, REF)).versions).toEqual([]);
+        expect(await git(fixture.main, "log", "--format=%s")).toBe("seed");
     });
 
     test("场景 7：两个进程同时发布同一个产物：版本号不重复，两次都提交了", async () => {

@@ -1,4 +1,5 @@
 import type {DefaultTreeAdapterMap} from "parse5";
+import {cssReferences, scriptImports, srcsetUrls, type TextReference} from "./references.js";
 import {controlCharProblem} from "./text-rules.js";
 
 /**
@@ -111,6 +112,10 @@ export type MarkupProblem = {page: string; line: number | null; column: number |
 export type MarkupReference = {page: string; line: number | null; target: string};
 export type ParsedMarkup = {
     questions: MarkupQuestion[];
+    /**
+     * 页面引用的地址（原样，未归一化）：元素的 `src`、`href`、`poster`、`srcset`（脚本、样式、模板元素自己的也算），
+     * 内联 `<style>` 与 `style` 属性里的 `url(...)`、`@import`，内联 `<script type="module">` 里字面量的 import。
+     */
     references: MarkupReference[];
     problems: MarkupProblem[];
     /** 内联 `<script>`、`<template>`、`<noscript>` 里写了提问标记（属性写法）：渲染出来的题解析不到。 */
@@ -200,6 +205,25 @@ export async function parseQuestionMarkup(html: string, page: string): Promise<P
         result.problems.push({page, line: element?.sourceCodeLocation?.startLine ?? null, column: element?.sourceCodeLocation?.startCol ?? null, questionId, code, message});
     };
     const seenIds = new Set<string>();
+    const reference = (target: string, line: number | null) => {
+        if (target !== "") result.references.push({page, line, target});
+    };
+    const collectAttributes = (element: Element) => {
+        const line = element.sourceCodeLocation?.startLine ?? null;
+        for (const name of REFERENCE_ATTRIBUTES) {
+            const value = attribute(element, name);
+            if (value === null) continue;
+            for (const target of name === "srcset" ? srcsetUrls(value) : [value.trim()]) reference(target, line);
+        }
+        const style = attribute(element, "style");
+        if (style !== null) for (const {target} of cssReferences(style)) reference(target, line);
+    };
+    /** 内联样式、内联模块脚本的正文；行号从正文的第一行算起。 */
+    const collectInline = (element: Element, extract: (text: string) => TextReference[]) => {
+        const texts = element.childNodes.filter((child): child is DefaultTreeAdapterMap["textNode"] => child.nodeName === "#text");
+        const firstLine = texts[0]?.sourceCodeLocation?.startLine ?? element.sourceCodeLocation?.startLine ?? null;
+        for (const {target, lineOffset} of extract(texts.map((text) => text.value).join(""))) reference(target, firstLine === null ? null : firstLine + lineOffset);
+    };
 
     const finishQuestion = (scope: QuestionScope) => {
         const {element, id} = scope;
@@ -226,15 +250,13 @@ export async function parseQuestionMarkup(html: string, page: string): Promise<P
     const walk = (node: Node, scope: QuestionScope | null) => {
         if (!isElement(node)) return;
         if (node.tagName === "title" && result.title === null) result.title = collapse(textOf(node)) || null;
+        // 脚本、样式、模板元素自己的属性（`<script src>`、`<link href>`）照样是引用；不进入的只是它们的子节点（不在里面找提问标记）。
+        collectAttributes(node);
         if (NON_TEXT.has(node.tagName)) {
+            if (node.tagName === "style") collectInline(node, cssReferences);
+            else if (node.tagName === "script" && attribute(node, "src") === null && (attribute(node, "type") ?? "").trim().toLowerCase() === "module") collectInline(node, scriptImports);
             if (containsMarker(node)) result.scriptMarkers = true;
             return;
-        }
-        for (const name of REFERENCE_ATTRIBUTES) {
-            const value = attribute(node, name);
-            if (value === null) continue;
-            const targets = name === "srcset" ? value.split(",").map((entry) => entry.trim().split(/\s+/u)[0] ?? "") : [value.trim()];
-            for (const target of targets) if (target !== "") result.references.push({page, line: node.sourceCodeLocation?.startLine ?? null, target});
         }
         const questionId = attribute(node, MARKUP.question);
         if (questionId !== null) {
