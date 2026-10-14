@@ -13,14 +13,15 @@
  */
 
 import {mkdir, readdir, readFile, realpath, stat, writeFile} from "node:fs/promises";
-import {join, relative} from "node:path";
+import {basename, dirname, join, relative} from "node:path";
 
 import {describe} from "nbook/backend/locked-replace";
 import {projectUrl} from "nbook/plugins/projects/shared/project-url";
 import type {ProjectRecord} from "nbook/shared/projects";
 
-import {ensureParentDirectory, readProjectIdentity, writeProjectIdentity} from "../projects/identity";
+import {checkProjectDirectory, ensureParentDirectory, readProjectIdentity, writeProjectIdentity} from "../projects/identity";
 import type {ProjectPathOptions} from "../projects/identity";
+import {isAbortedBy} from "../projects/registry";
 import type {ProjectRegistry} from "../projects/registry";
 
 /** 开关样例的环境变量，只由 nbdev 设置（`nbdev dev start --sample`）。 */
@@ -46,20 +47,14 @@ export type DevSampleResult = {readonly ok: true; readonly openPath: string; rea
 export interface DevSampleOptions {
     readonly stateRoot: string;
     readonly packageRoot: string;
-    /** abort 之后不再开始新的写入步骤；已开始的那一步照常完成。 */
+    /**
+     * abort 之后不再开始新的写入步骤；已开始的那一步照常完成。一路传进登记表与建目录的操作（`ProjectWriteOptions`），
+     * 所以卡在登记内部的读写返回之后也不再写。
+     */
     readonly signal: AbortSignal;
 }
 
-class SampleAborted extends Error {
-    constructor() {
-        super("样例任务已取消");
-        this.name = "SampleAborted";
-    }
-}
-
-function checkpoint(signal: AbortSignal): void {
-    if (signal.aborted) throw new SampleAborted();
-}
+const ABORTED_REASON = "样例任务已取消";
 
 function code(error: unknown): string | undefined {
     return (error as NodeJS.ErrnoException | null)?.code;
@@ -73,7 +68,7 @@ export async function seedDevSample(registry: ProjectRegistry, options: DevSampl
     try {
         return await seed(registry, options);
     } catch (error) {
-        if (error instanceof SampleAborted) return {ok: false, reason: error.message};
+        if (isAbortedBy(options.signal, error)) return {ok: false, reason: ABORTED_REASON};
         throw error;
     }
 }
@@ -84,20 +79,19 @@ async function seed(registry: ProjectRegistry, options: DevSampleOptions): Promi
     const parent = join(options.packageRoot, DEV_SAMPLE_PARENT);
     const listed = await registry.list();
     if (!listed.ok) return {ok: false, reason: `项目登记表无效，不改它：${listed.detail}`};
-    // 登记表里记的是解析过符号链接的真实路径；包目录一定存在，按它的真实路径拼出样例目录来比较。
-    const expected = join(await realpath(options.packageRoot), DEV_SAMPLE_PARENT, DEV_SAMPLE_DIRECTORY);
+    // 登记表里记的是解析过符号链接的真实路径（`.dev-sample` 或 `sample` 可能是链接）；样例目录被删时解析还在的那一级。
+    const expected = await realpathAllowMissing(join(options.packageRoot, DEV_SAMPLE_PARENT, DEV_SAMPLE_DIRECTORY));
     const existing = listed.value.find((project) => project.path === expected);
     let project: ProjectRecord;
     if (existing === undefined) {
-        checkpoint(signal);
+        signal.throwIfAborted();
         // 父目录的规则（不存在就建、拒绝状态根和状态根里面的位置）由 create 自己执行。
-        const created = await registry.create({title: DEV_SAMPLE_DIRECTORY, description: DEV_SAMPLE_DESCRIPTION, parent});
+        const created = await registry.create({title: DEV_SAMPLE_DIRECTORY, description: DEV_SAMPLE_DESCRIPTION, parent}, {signal});
         if (created.ok) {
             project = created.project;
         } else if (created.reason === "exists") {
             // 目录还在、登记丢了（例如换了状态根）：按登记的规则接回来，身份文件在就沿用它的 id。
-            checkpoint(signal);
-            const registered = await registry.register(created.path);
+            const registered = await registry.register(created.path, {signal});
             if (!registered.ok) return {ok: false, reason: `登记已有的样例目录失败（${registered.reason}）：${registered.detail}`};
             project = registered.project;
         } else {
@@ -112,7 +106,25 @@ async function seed(registry: ProjectRegistry, options: DevSampleOptions): Promi
     return {ok: true, openPath: projectUrl(project.name), project};
 }
 
-/** 登记表里已有样例：目录与身份文件都对得上就沿用；身份文件缺了按登记的 id 修复；目录没了按原 id 重建。 */
+/**
+ * 路径的真实路径；末尾几级还不存在时，解析最近一级还在的祖先，再拼上其余各级。这样样例目录被删、父目录是符号链接时，
+ * 拼出的仍是登记表里记的那个真实路径。
+ */
+async function realpathAllowMissing(path: string): Promise<string> {
+    try {
+        return await realpath(path);
+    } catch (error) {
+        if (code(error) !== "ENOENT" && code(error) !== "ENOTDIR") throw error;
+        const up = dirname(path);
+        if (up === path) throw error;
+        return join(await realpathAllowMissing(up), basename(path));
+    }
+}
+
+/**
+ * 登记表里已有样例：目录在，先按打开作品的同一套规则校验它（状态根换到了它上方时不在那里补文件），再核对身份文件，
+ * 对得上就沿用，缺了按登记的 id 修复；目录没了按原 id 重建。
+ */
 async function restore(
     registry: ProjectRegistry,
     existing: ProjectRecord,
@@ -121,15 +133,18 @@ async function restore(
     signal: AbortSignal,
 ): Promise<{readonly ok: true; readonly project: ProjectRecord} | {readonly ok: false; readonly reason: string}> {
     if (!(await isDirectory(existing.path))) {
-        checkpoint(signal);
+        signal.throwIfAborted();
         // 与新建时同一套父目录规则：状态根换到了样例目录上方时不在那里建。
-        const checked = await ensureParentDirectory(parent, paths);
+        const checked = await ensureParentDirectory(parent, paths, signal);
         if (!checked.ok) return {ok: false, reason: `样例目录不能放在这里（${checked.reason}）：${checked.detail}`};
-        checkpoint(signal);
+        signal.throwIfAborted();
         await mkdir(existing.path, {recursive: true});
-        const written = await writeProjectIdentity(existing.path, existing.id);
+        const written = await writeProjectIdentity(existing.path, existing.id, signal);
         if (written.status !== "found" || written.id !== existing.id) return {ok: false, reason: `重建样例目录的身份文件失败：${written.status === "invalid" ? written.detail : "读回的 id 与登记表不一致"}`};
     } else {
+        // 打开作品时也做这项校验（`manager.ts`）：校验不过的目录打不开，不在那里补文件、不报 open-path。
+        const checked = await checkProjectDirectory(existing.path, paths);
+        if (!checked.ok) return {ok: false, reason: `样例目录不能作为作品打开（${checked.reason}）：${checked.detail}`};
         const identity = await readProjectIdentity(existing.path);
         if (identity.status === "invalid") return {ok: false, reason: `样例目录的身份文件损坏，不覆盖它：${identity.detail}`};
         if (identity.status === "found" && identity.id !== existing.id) {
@@ -137,9 +152,8 @@ async function restore(
         }
         if (identity.status === "found") return {ok: true, project: existing};
     }
-    checkpoint(signal);
     // 身份文件缺失时，登记会按登记表里的 id 重建它（projects.md 输出第 1 条）。
-    const registered = await registry.register(existing.path);
+    const registered = await registry.register(existing.path, {signal});
     if (!registered.ok) return {ok: false, reason: `修复样例作品的登记失败（${registered.reason}）：${registered.detail}`};
     return registered;
 }
@@ -159,14 +173,14 @@ async function copyMissing(source: string, target: string, signal: AbortSignal):
         const from = join(source, entry.name);
         const to = join(target, entry.name);
         if (entry.isDirectory()) {
-            checkpoint(signal);
+            signal.throwIfAborted();
             await mkdir(to, {recursive: true});
             await copyMissing(from, to, signal);
             continue;
         }
         if (!entry.isFile()) throw new Error(`样例内容里只能有文件和目录：${relative(CONTENT_ROOT, from)}`);
         const text = await readFile(from);
-        checkpoint(signal);
+        signal.throwIfAborted();
         try {
             await writeFile(to, text, {flag: "wx"});
         } catch (error) {

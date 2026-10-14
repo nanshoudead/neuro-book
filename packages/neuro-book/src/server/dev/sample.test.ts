@@ -4,7 +4,8 @@
  */
 
 import {afterAll, afterEach, beforeAll, describe, expect, it} from "bun:test";
-import {mkdir, readdir, readFile, realpath, rm, writeFile} from "node:fs/promises";
+import {constants} from "node:fs";
+import {mkdir, open, readdir, readFile, realpath, rm, stat, symlink, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
@@ -78,6 +79,15 @@ async function exists(path: string): Promise<boolean> {
     }
 }
 
+async function fileExists(path: string): Promise<boolean> {
+    try {
+        return (await stat(path)).isFile();
+    } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+        throw error;
+    }
+}
+
 async function identityId(path: string): Promise<string | null> {
     const identity = await readProjectIdentity(path);
     return identity.status === "found" ? identity.id : null;
@@ -118,17 +128,24 @@ describe("放样例作品", () => {
         expect(await identityId(w.sampleDir)).toBe(first.project.id);
     });
 
-    it("目录被删：按原 id 重建目录与身份文件，内容复制回来，登记表不多出一项", async () => {
-        const w = await workspace();
-        const first = succeeded(await w.seed());
-        await rm(join(w.packageRoot, DEV_SAMPLE_PARENT), {recursive: true});
-        const second = succeeded(await w.seed());
-        expect(second.project).toEqual(first.project);
-        expect(await identityId(w.sampleDir)).toBe(first.project.id);
-        expect(await readFile(join(w.sampleDir, FIRST_CHAPTER), "utf8")).toContain("雾港");
-        const listed = await w.registry.list();
-        expect(listed.ok && listed.value.length).toBe(1);
-    });
+    for (const linked of [false, true]) {
+        it(`目录被删${linked ? "（.dev-sample 是指向别处的符号链接，只删了链接目标里的样例）" : ""}：按原 id 重建目录与身份文件，内容复制回来，登记表不多出一项`, async () => {
+            const w = await workspace();
+            if (linked) {
+                const external = await mkdirp(join(w.packageRoot, "..", "external-samples"));
+                await symlink(external, join(w.packageRoot, DEV_SAMPLE_PARENT));
+            }
+            const first = succeeded(await w.seed());
+            if (linked) expect(first.project.path).toBe(join(w.packageRoot, "..", "external-samples", DEV_SAMPLE_DIRECTORY));
+            await rm(linked ? first.project.path : join(w.packageRoot, DEV_SAMPLE_PARENT), {recursive: true});
+            const second = succeeded(await w.seed());
+            expect(second.project).toEqual(first.project);
+            expect(await identityId(w.sampleDir)).toBe(first.project.id);
+            expect(await readFile(join(w.sampleDir, FIRST_CHAPTER), "utf8")).toContain("雾港");
+            const listed = await w.registry.list();
+            expect(listed.ok && listed.value).toEqual([first.project]);
+        });
+    }
 
     it("目录还在、登记表丢了（换了状态根）：接回原来的目录，沿用它的 id", async () => {
         const w = await workspace();
@@ -146,6 +163,20 @@ describe("放样例作品", () => {
             expect(result.ok).toBe(false);
             expect(await exists(w.sampleDir)).toBe(false);
             expect(await w.registryText()).toBeNull();
+        });
+
+        it(`已有的样例在登记表搬到状态根为${label}之后再放：报失败，不补文件，登记表不动`, async () => {
+            const w = await workspace({stateRoot});
+            const elsewhere = join(w.packageRoot, "..", "first-state");
+            succeeded(await seedDevSample(createProjectRegistry({stateRoot: elsewhere, cwd: w.packageRoot}), {stateRoot: elsewhere, packageRoot: w.packageRoot, signal: new AbortController().signal}));
+            const table = await readFile(join(elsewhere, PROJECT_REGISTRY_FILE), "utf8");
+            await mkdir(w.stateRoot, {recursive: true});
+            await writeFile(join(w.stateRoot, PROJECT_REGISTRY_FILE), table);
+            await rm(join(w.sampleDir, "大纲.md"));
+            const result = await w.seed();
+            expect(result.ok).toBe(false);
+            expect(await fileExists(join(w.sampleDir, "大纲.md"))).toBe(false);
+            expect(await w.registryText()).toBe(table);
         });
     }
 
@@ -201,6 +232,28 @@ describe("放样例作品", () => {
         };
         const result = await seedDevSample(registry, {stateRoot: w.stateRoot, packageRoot: w.packageRoot, signal: later.signal});
         expect(result.ok).toBe(false);
+        expect(await readdir(w.sampleDir)).toEqual([".nbook"]);
+    });
+
+    it("卡在登记内部时取消：卡住的那次读取返回之后，不再写登记表", async () => {
+        const w = await workspace();
+        // 样例目录已在、登记表里还没有它，放样例要走登记；身份文件是没有写端的 FIFO，登记读它时卡住。
+        await mkdir(join(w.sampleDir, ".nbook"), {recursive: true});
+        const fifo = join(w.sampleDir, PROJECT_IDENTITY_FILE);
+        expect(Bun.spawnSync(["mkfifo", fifo]).exitCode).toBe(0);
+        const controller = new AbortController();
+        const seeding = w.seed(controller.signal);
+        // 非阻塞地打开写端：还没有读端时报 ENXIO；打开成功，说明登记正在读这个身份文件。
+        const writer = await waitUntil("登记打开身份文件读取", () => open(fifo, constants.O_WRONLY | constants.O_NONBLOCK).catch((error: unknown) => {
+            if ((error as NodeJS.ErrnoException).code === "ENXIO") return null;
+            throw error;
+        }));
+        controller.abort();
+        // 放行的是一份合法身份：没有取消的话，登记接着就会把它写进登记表。
+        await writer.writeFile(`${JSON.stringify({schema: 1, id: crypto.randomUUID()})}\n`);
+        await writer.close();
+        expect(await seeding).toEqual({ok: false, reason: "样例任务已取消"});
+        expect(await w.registryText()).toBeNull();
         expect(await readdir(w.sampleDir)).toEqual([".nbook"]);
     });
 

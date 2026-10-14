@@ -92,12 +92,13 @@ export async function checkProjectDirectory(input: string, options: ProjectPathO
 
 /**
  * 新建作品的父目录（输出第 14 条）：不存在就建出来（含中间目录），再按 `checkProjectDirectory` 校验。先按字面路径排除状态根，
- * 不在状态根里建目录；建不出来按 `not-accessible` 报，详情带解析后的路径。
+ * 不在状态根里建目录；建不出来按 `not-accessible` 报，详情带解析后的路径。`signal` 已 abort 时不建目录，以 `signal.reason` reject。
  */
-export async function ensureParentDirectory(input: string, options: ProjectPathOptions): Promise<DirectoryCheck> {
+export async function ensureParentDirectory(input: string, options: ProjectPathOptions, signal?: AbortSignal): Promise<DirectoryCheck> {
     if (input.trim() === "" || input.includes("\0")) return {ok: false, reason: "invalid-path", detail: "路径为空或含非法字符"};
     const literal = resolve(options.cwd, expandHome(input.trim(), homeOf(options)));
     const stateRoot = await stateRootOf(options);
+    signal?.throwIfAborted();
     if (literal === stateRoot || literal.startsWith(stateRoot + sep)) return {ok: false, reason: "inside-state-root", detail: "不能把作品放进应用的状态目录"};
     try {
         await mkdir(literal, {recursive: true});
@@ -206,10 +207,13 @@ function identityText(record: Readonly<Record<string, unknown>>): string {
 
 /**
  * 写入身份文件（含 `.nbook/` 目录）。以独占方式创建：别处刚好先写了一份时不覆盖，返回读回的那一份。
+ * `signal` 已 abort 时不再开始下一次写入（建 `.nbook/`、写文件），以 `signal.reason` reject。
  */
-export async function writeProjectIdentity(projectPath: string, id: string): Promise<ProjectIdentity> {
+export async function writeProjectIdentity(projectPath: string, id: string, signal?: AbortSignal): Promise<ProjectIdentity> {
     const file = join(projectPath, PROJECT_IDENTITY_FILE);
+    signal?.throwIfAborted();
     await mkdir(dirname(file), {recursive: true});
+    signal?.throwIfAborted();
     try {
         await writeFile(file, identityText({schema: 1, id}), {flag: "wx"});
     } catch (error) {
@@ -318,14 +322,20 @@ export type ProjectDirectoryCreated =
  * 新建作品的前两个阶段（输出第 14 条）：父目录不存在就建出来，在它下面排他新建由书名生成的目录，再写身份文件（新 id、书名与简介）。
  * 登记是第三个阶段，由登记表做。写身份文件失败时只撤掉本次建的东西：本次建的文件删掉，目录只在空了时删掉（`rmdir`），
  * 别人同时放进去的东西不会被删。
+ *
+ * `signal` 已 abort 时不再开始下一次写入，以 `signal.reason` reject：建父目录、建作品目录、写身份文件各是一步，写身份文件
+ * 这一步（建 `.nbook/` 与写文件）开始了就做完，免得为取消再走一遍撤销。作品目录建好、身份文件还没写时取消，留下的空目录
+ * 再新建同一书名时按 `exists` 报出，可以登记接回。
  */
 export async function createProjectDirectory(
     input: {readonly title: string; readonly description?: string; readonly parent: string},
     options: ProjectPathOptions,
+    signal?: AbortSignal,
 ): Promise<ProjectDirectoryCreated> {
     const invalid = checkMetadataPatch({title: input.title, ...(input.description === undefined ? {} : {description: input.description})});
     if (invalid !== null) return invalid;
-    const parent = await ensureParentDirectory(input.parent, options);
+    const parent = await ensureParentDirectory(input.parent, options, signal);
+    signal?.throwIfAborted();
     if (!parent.ok) return {ok: false, reason: "invalid-parent", cause: parent.reason, detail: parent.detail};
     const path = join(parent.path, projectDirectoryName(input.title));
     try {
@@ -334,6 +344,7 @@ export async function createProjectDirectory(
         if (code(error) === "EEXIST") return {ok: false, reason: "exists", path, detail: `目录已存在：${path}`};
         return {ok: false, reason: "write-failed", detail: `无法创建目录 ${path}：${describe(error)}`};
     }
+    signal?.throwIfAborted();
     const id = randomUUID();
     const record = {schema: 1, id, title: normalized("title", input.title), ...(input.description === undefined ? {} : {description: input.description})};
     const control = join(path, dirname(PROJECT_IDENTITY_FILE));
