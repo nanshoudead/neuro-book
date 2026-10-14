@@ -1,0 +1,20 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00024-nb-story",
+    "taskId": "t01-ui-design",
+    "artifactId": "review",
+    "answerId": "20261014T160710419Z-2337330a",
+    "artifactVersion": 3,
+    "contentHash": "8f2c8b98575846b3986a36a4fd2903e53ba0ac07df58969f28584108f496aa3f",
+    "submittedAt": "2026-10-14T16:07:10.419Z",
+    "submittedBy": {
+        "kind": "agent-transcribed"
+    },
+    "values": {
+        "draft-layout": "go"
+    },
+    "comments": {
+        "draft-layout": "版式可以细化。1. 读到哪里的最小单位不是章：章节滑块之外再加一个（段落级）滑块，不常用，可以隐藏收起。2. 很多地方不止几十条，可能成百上千条，例如人物卡里的知道的秘密、参与的情节。3. 最主要的是图：可以引入画图的依赖库；关系题很适合用图展示，甚至整个数据结构都可以用一张图展示；既能通过图展示，也能通过人物卡这种条目展示。"
+    },
+    "note": "开发者 2026-10-14 在会话里口头答复，Agent 代录；qa-answer-format 未答"
+}
