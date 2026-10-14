@@ -5,7 +5,7 @@
  */
 
 import {afterAll, beforeAll, describe, expect, it} from "bun:test";
-import {mkdir, rm, symlink, truncate, writeFile} from "node:fs/promises";
+import {mkdir, rm, stat, symlink, truncate, utimes, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
@@ -84,6 +84,20 @@ describe("workspace.files 按地址读取字节", () => {
         expect(again.status).toBe(304);
         expect(again.headers.get("etag")).toBe(etag);
         expect((await get(`/raw/project/${id}/3/page.html`)).headers.get("content-type")).toBe("text/html; charset=utf-8");
+    });
+
+    it("同样大小的改写、并把修改时间改回原值：ETag 仍然变，不会 304 出旧字节", async () => {
+        const {book, id, get} = await world();
+        const file = join(book, "images", "a.png");
+        const before = await stat(file);
+        const first = await get(`/raw/project/${id}/3/images/a.png`);
+        const etag = first.headers.get("etag")!;
+        const changed = PNG.map((byte, at) => (at === PNG.length - 1 ? byte ^ 1 : byte));
+        await writeFile(file, changed);
+        await utimes(file, before.atime, before.mtime);
+        const again = await get(`/raw/project/${id}/3/images/a.png`, {"If-None-Match": etag});
+        expect(again.status).toBe(200);
+        expect(new Uint8Array(await again.arrayBuffer())).toEqual(changed);
     });
 
     it("路径各段按 URL 编码", async () => {

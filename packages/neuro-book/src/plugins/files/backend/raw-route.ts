@@ -6,6 +6,7 @@
  * 记下根身份，之后同样逐请求核对；代次变了就丢掉重开。这样两边对同一个地址给出同一个文件，根被换掉时两边都是 `root-gone`。
  */
 
+import type {Stats} from "node:fs";
 import {join} from "node:path";
 
 import {Hono} from "hono";
@@ -129,16 +130,18 @@ export async function serveFile(root: RootedRoot, path: string, request: Request
     const resolved = await root.resolve(path);
     if ("ok" in resolved) return failureResponse(resolved);
     if (!resolved.stats.isFile()) return failureResponse({code: "not-a-file", detail: `${path} 不是普通文件`});
-    const etagOf = (mtimeMs: number, size: number): string => `"${Math.round(mtimeMs).toString(36)}-${size.toString(36)}"`;
+    // 验证器要在内容变了时一定变：同样大小、改回原修改时间的改写也要认得出。inode 随“写临时文件再改名”换新，ctime 在
+    // 任何写入时前进且不能被用户改回去，所以带上这两个；不读内容算哈希。
+    const etagOf = (stats: Stats): string => `"${[stats.ino, Math.round(stats.ctimeMs * 1000), Math.round(stats.mtimeMs * 1000), stats.size].map((part) => part.toString(36)).join("-")}"`;
     const headers = {
         "X-Content-Type-Options": "nosniff",
         "Cache-Control": "no-cache",
         ...extra,
     };
-    if (request.headers.get("if-none-match") === etagOf(resolved.stats.mtimeMs, resolved.stats.size)) return new Response(null, {status: 304, headers: {...headers, ETag: etagOf(resolved.stats.mtimeMs, resolved.stats.size)}});
+    if (request.headers.get("if-none-match") === etagOf(resolved.stats)) return new Response(null, {status: 304, headers: {...headers, ETag: etagOf(resolved.stats)}});
     const read = await root.read(path, RAW_MAX_BYTES);
     if (!read.ok) return failureResponse(read);
-    return new Response(read.bytes, {headers: {...headers, "Content-Type": contentTypeOf(path), ETag: etagOf(read.resolved.stats.mtimeMs, read.resolved.stats.size)}});
+    return new Response(read.bytes, {headers: {...headers, "Content-Type": contentTypeOf(path), ETag: etagOf(read.resolved.stats)}});
 }
 
 /**
