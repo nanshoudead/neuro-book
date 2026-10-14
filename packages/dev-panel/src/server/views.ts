@@ -12,7 +12,7 @@ import {historySource} from "./delivery.js";
 import {taskReadmePath, workReadmePath} from "../core/records.js";
 import type {CheckoutInfo} from "../core/repo.js";
 import {withActivity, type ProjectStatus, type TaskView, type WorkView} from "../core/status.js";
-import {matchRecords, rankRecordMatches, type RankableRecord} from "../core/search.js";
+import {matchRecords, topRecordMatches, type RankableRecord} from "../core/search.js";
 import {readTaskDetail} from "../core/task-detail.js";
 import type {PanelState} from "./state.js";
 import type {SessionTitles} from "./session-titles.js";
@@ -362,6 +362,5 @@ export function recordMatches(state: PanelState, q: string): Array<Record<string
     for (const session of state.activity.part.value?.activity.sessions ?? []) {
         if (has(session.key) || has(session.label)) matches.push({kind: "session", key: session.key, label: session.label});
     }
-    // 先按相关度排再截：命中多时，截掉的是最不相关的（t15 阶段 4 第 5 批）。
-    return rankRecordMatches(matches, q).slice(0, 50);
+    return topRecordMatches(matches, q);
 }

@@ -55,13 +55,21 @@ export function recordRelevance(match: RankableRecord, q: string): number {
     const lower = q.toLowerCase();
     const title = (match.title ?? match.label ?? "").toLowerCase();
     const id = (match.kind === "work" ? match.workId : match.kind === "task" ? match.taskId : match.kind === "artifact" ? match.artifactId : match.key ?? "")?.toLowerCase() ?? "";
-    // 短号只给 Work 与 Task（`w00022`、`t15`）；产物与会话的编号没有编号段。
-    const shortId = /^(?:w\d{5}|t\d{2,3})-/u.exec(id)?.[0].slice(0, -1) ?? null;
+    // 短号只给 Work 与 Task（`w00022`、`t15`）。产物编号可以长得像（`t15-review`、`w00022-report`），按种类判断，不按形状。
+    const shortId = match.kind === "work" || match.kind === "task" ? /^(?:w\d{5}|t\d{2,3})-/u.exec(id)?.[0].slice(0, -1) ?? null : null;
     if (title === lower || id === lower || shortId === lower) return 0;
     if (title.startsWith(lower)) return 1;
     if (id.startsWith(lower)) return 2;
     if (title.includes(lower)) return 3;
     return 4;
+}
+
+/** 面板搜索最多送这么多条记录类命中。 */
+export const RECORD_MATCH_LIMIT = 50;
+
+/** 先按相关度排、再截前 `limit` 条：命中多时截掉的是最不相关的（t15 阶段 4 第 5 批）。 */
+export function topRecordMatches<T extends RankableRecord>(matches: readonly T[], q: string, limit = RECORD_MATCH_LIMIT): T[] {
+    return rankRecordMatches(matches, q).slice(0, limit);
 }
 
 /** 按相关度排记录类命中，同分时 Work、Task、产物、会话依次在前，再保持原来的顺序（稳定排序）。返回新数组。 */

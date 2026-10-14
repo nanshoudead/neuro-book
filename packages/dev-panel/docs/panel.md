@@ -89,7 +89,7 @@
 ### 搜索
 
 - 范围：已检出的 checkout（缺省全部，`checkout=` 只选一个），文件名与内容。`q` 去掉首尾空白后要非空、不含控制字符、长度 2 到 200，否则 400。
-- 最先送缓存里 Work、Task、产物标题与会话的匹配（`{type: "record"}`），按相关度排好、最多 50 条（t15 阶段 4 第 5 批，`core/search.ts` 的 `recordRelevance`：标题或编号与搜索词相同，含 `w00022`、`t15` 这样的短号；标题以它开头；编号以它开头；标题包含；编号包含。同分时 Work、Task、产物、会话依次在前；先排再截）；再在各 checkout 上并发搜文件名（`ls-files` 的结果按 checkout 的 HEAD 缓存）与内容（`git grep -I -n -i -F --untracked --exclude-standard`），逐条送 `{type: "hit", checkout, kind, path, line, text}`，每个 checkout 做完送 `{type: "checkout_done", count, truncated, elapsedMs, error}`（先做完的先送），最后 `{type: "end", truncated, aborted, elapsedMs}`。
+- 最先送缓存里 Work、Task、产物标题与会话的匹配（`{type: "record"}`），按相关度排好、最多 50 条（t15 阶段 4 第 5 批，`core/search.ts` 的 `recordRelevance`：标题或编号与搜索词相同，Work 与 Task 的编号也认 `w00022`、`t15` 这样的短号（产物、会话只按完整编号比）；标题以它开头；编号以它开头；标题包含；编号包含。同分时 Work、Task、产物、会话依次在前；先排再截）；再在各 checkout 上并发搜文件名（`ls-files` 的结果按 checkout 的 HEAD 缓存）与内容（`git grep -I -n -i -F --untracked --exclude-standard`），逐条送 `{type: "hit", checkout, kind, path, line, text}`，每个 checkout 做完送 `{type: "checkout_done", count, truncated, elapsedMs, error}`（先做完的先送），最后 `{type: "end", truncated, aborted, elapsedMs}`。
 - 排除 `**/evidences/**`、`**/experiments/**`、`**/node_modules/**`；搜索用单独的 Git 调用（不带 `GIT_LITERAL_PATHSPECS`，pathspec 由服务端写死，用户输入只经 `-e`）。结果逐行套段检查。
 - 每个 checkout 的文件名与内容各最多 200 条，读满就结束子进程；5 秒截断。全局同一时刻只跑一组：有新搜索或客户端断开就结束旧的子进程，被取代的那组最后一行带 `aborted: true`。
 
