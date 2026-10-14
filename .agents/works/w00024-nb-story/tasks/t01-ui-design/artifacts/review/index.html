@@ -62,19 +62,58 @@ code { font-family: var(--mono); font-size: 12.5px; }
 </style>
 </head>
 <body>
-<header class="top"><b>nb-story 界面评审板</b><small>w00024 t01-ui-design 的产物 · 第 2 轮 · 2026-10-14</small></header>
+<header class="top"><b>nb-story 界面评审板</b><small>w00024 t01-ui-design 的产物 · 第 3 轮 · 2026-10-14</small></header>
 <main>
 
 <div class="lead">
-    <h1>第 2 轮：界面跑在哪里</h1>
-    <p>第 1 轮定了注意力排序，并要求“布局像 IDE，面板能拖拽、能收起”。w00017 合入以后，NeuroBook 的工作台外壳和插件系统已经能用，所以在画静态稿之前先定一件事：nb-story 的网页是自己起一个服务（提案原定），还是直接做成 NeuroBook 的插件、单独使用也在 NeuroBook 里打开。两条路的静态稿画法不同，所以这一轮只问这一题。</p>
-    <p>命令行和给 Agent 的 Skill 不受影响：两条路都放在不依赖 NeuroBook 的核心包里，单独能用。第 1 轮的五道题和决定在下面“已定”里。</p>
+    <h1>第 3 轮：静态稿</h1>
+    <p>按前两轮的决定（独立服务；首页是全书总览；顶栏常驻读到哪里和提问框；三栏像 IDE，能拖拽、能收起；沿用 t28 的六项机制）在 Lab 里用 nb-ui 的真实组件搭了五个画面。数据是 t34 前 100 章抽取结果里“读到第 38 章”的一份样本，人物、秘密、悬念、问答都是真的，不是编的。</p>
+    <p>这一轮问两件事：整体版式能不能往下细化，以及问答的答案怎么呈现。搭稿时发现的、会影响实现的问题在“待定”的最后。</p>
 </div>
 
 <div class="round">待定</div>
 
+<section class="q" data-nbdev-question="draft-layout" data-nbdev-type="single" data-nbdev-recommend="go">
+    <h2><span class="badge todo" data-nbdev-skip>待定</span>7. 整体版式能不能按这个往下细化？</h2>
+    <p class="ask">顶栏：书名、读到第几章（上一章、下一章、拖动条）、搜索、提问框。左侧导航十项，能收成图标条；右侧抽屉放人物卡或原文，点名字、点“章.段”编号就打开。三栏之间的分隔条能拖，拖过头就收起。底栏常驻“自动抽取，以原文为准”。</p>
+    <div class="shots">
+        <figure><img src="r3/overview.webp" alt="全书总览"><figcaption>全书总览（第一次打开）：四个数字（人物、秘密、悬念、神典石余额）、主要人物（化名并在一起）、主线、秘密矩阵缩略、这一章发生了什么。</figcaption></figure>
+        <figure><img src="r3/roster-card.webp" alt="人物名册和人物卡"><figcaption>人物：主要人物合并了化名（苏天晴＝心月狐），其他按出场次数，次要的收起。点一个人，右侧抽屉打开人物卡：称呼先显示 6 个、读者此时知道的同一身份、概况、关系、能力、知道的秘密、参与的情节。</figcaption></figure>
+        <figure><img src="r3/secrets.webp" alt="秘密矩阵"><figcaption>秘密矩阵：一行一个秘密，一列一个人（含读者），格子里是知道、不知道、怀疑等和依据段落；“·”是没有记录，图例写明“没有记录不等于不知道”。</figcaption></figure>
+        <figure><img src="r3/qa-source.webp" alt="问答页和原文"><figcaption>问答页：问题、作答方式（图当目录默认，可换全读）、四步进度、答案；答案里的“章.段”编号可点，右侧抽屉显示那几段原文，引用的段落有底色，人名有底色。</figcaption></figure>
+        <figure><img src="r3/narrow.webp" alt="导航收起"><figcaption>导航收成图标条，抽屉打开苏天晴的人物卡；主区让出来的宽度给秘密矩阵。</figcaption></figure>
+    </div>
+    <div class="opts">
+        <div class="opt rec" data-nbdev-option="go"><h3>可以，按这个往下细化</h3><p>下一轮补数值、悬念、时间线、情节、原文五页和窄宽度（手机、平板）的样子。</p></div>
+        <div class="opt" data-nbdev-option="revise"><h3>版式要改</h3><p>在备注里写要改哪里，下一轮先改版式。</p></div>
+    </div>
+    <div class="rec-note"><b>推荐往下细化。</b>五个画面里最先要看的东西（读到哪里、主要人物、谁知道什么）都在第一屏；拖拽和收起用的是 nb-ui 的分隔条，和工作台同一套手感。</div>
+</section>
+
+<section class="q" data-nbdev-question="qa-answer-format" data-nbdev-type="single" data-nbdev-recommend="table">
+    <h2><span class="badge todo" data-nbdev-skip>待定</span>8. 问答的答案怎么呈现？</h2>
+    <p class="ask">现在的答案是模型写的一大段文字（见上面问答页那张图）：结论一段，之后每个人物一段，编号夹在句子里。“谁知道什么”这类题一屏看不完，也很难对照。要改的话，作答规则要让模型按固定格式输出，属于问答核心的改动，要随问答回归一起测。</p>
+    <div class="opts">
+        <div class="opt" data-nbdev-option="prose"><h3>保持长文</h3><p>结论加底色放最上面，其余照原样；编号做成可点的链接（就是现在的稿子）。</p></div>
+        <div class="opt rec" data-nbdev-option="table"><h3>结论加表格，长文收起</h3><p>“谁知道什么”的题，答案先给结论，再给一张表：一行一个人，列是“知道吗”（知道、不知道、原文没有表明）、“怎么知道的”、依据编号；模型的完整说明收在“展开说明”里。其他题型（概括、关系）仍是结论加分点。</p></div>
+    </div>
+    <div class="rec-note"><b>推荐结论加表格。</b>这类题是 nb-story 最常被问的（t34 的 16 道知情、身份题），表格和秘密矩阵是同一种读法，扫一眼就能对照；依据编号集中在一列，点开就是原文。</div>
+</section>
+
+<section class="q">
+    <h2>搭稿时发现的问题（不用答，记下来进计划）</h2>
+    <ol>
+        <li><b>秘密矩阵和问答会说法不一。</b>矩阵按图里的知情记录画：“南嘉鱼也是反派魔法少女”这一行，苏天晴那格没有记录；同一本书、同样读到第 38 章，问答（读原文作答）说苏天晴在第 37 章当面叫她“地狱猫”，是知道的。矩阵的格子来自抽取，问答来自原文，抽取漏记时两边就对不上。实现时矩阵的每一格要能点开依据；“没有记录”的格子提供“问一下”，把这一格当问题交给问答。</li>
+        <li><b>主要人物要把化名合并成一个人。</b>图里“苏天晴”和“心月狐”是两个对象，要按“读者此时知道的同一身份”合并成一列、一张人物卡；读到第 8 章以前，读者还不知道心月狐就是苏天晴，就不能合并。稿子里是手工合并的，实现时要由核心库按读到哪里算。</li>
+        <li><b>章节选择不能露出后面章节的标题。</b>后面章节的标题本身可能剧透，选章时只显示已读章节的标题，后面的只显示章号。</li>
+        <li><b>抽取出来的称呼里有噪音。</b>例如南嘉鱼的称呼里有“天晴”。人物卡默认只显示前 6 个称呼能挡住大部分，根上要在抽取时修。</li>
+    </ol>
+</section>
+
+<div class="round">已定（第 2 轮，2026-10-14 答复）</div>
+
 <section class="q" data-nbdev-question="host" data-nbdev-type="single" data-nbdev-recommend="nbook-plugin">
-    <h2><span class="badge todo" data-nbdev-skip>待定</span>6. nb-story 的网页跑在哪里？</h2>
+    <h2><span class="badge done" data-nbdev-skip>已定</span>6. nb-story 的网页跑在哪里？</h2>
     <p class="ask">两条路都要做“读到哪里”、人物卡、秘密矩阵、问答这些页面；差别在外面那层：分栏、拖拽、收起、布局保存、命令、主题、设置由谁提供，以及以后嵌进 NeuroBook 时要不要再做一遍。</p>
     <div class="opts">
         <div class="opt" data-nbdev-option="standalone">
@@ -113,6 +152,7 @@ code { font-family: var(--mono); font-size: 12.5px; }
         <span class="n">5</span><span>状态栏条目贡献。</span>
     </div>
     <div class="rec-note"><b>推荐做成 NeuroBook 插件。</b>你要的“像 IDE 一样拖拽、收起”，工作台已经做好并验收过，自己再搭一套是重复劳动，以后还要再迁一次；第 1 轮定的“两种尺寸都要”在插件里天然成立。要等的只有编辑区页签这一块，等的时候先做侧栏、右栏和标题栏，不耽误进度。代价是跟着 v2 重建的节奏走，这本来也是 nb-story 的最终去处。</div>
+    <div class="decided"><b>已定：按提案原计划，先做独立服务，再做插件接入（开发者 2026-10-14）。上面的评估留作以后接插件时的起点。</b></div>
 </section>
 
 <div class="round">已定（第 1 轮，2026-10-13 答复）</div>
