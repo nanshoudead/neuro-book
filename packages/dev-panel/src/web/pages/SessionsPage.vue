@@ -213,7 +213,7 @@ const phoneDetail = computed(() => tier.value === "phone" && showDetailOnPhone.v
 <template>
     <!-- 铺满（路由 layout: fill）：页头下面左列表、右详情，各自滚动，页面本身不滚（ux-b F3、ux-c R4）。手机上列表与详情分两屏。 -->
     <div class="relative h-full min-h-0" :class="tier === 'phone' && !showDetailOnPhone ? 'overflow-y-auto' : 'overflow-hidden'">
-        <PageShell width="full" class="h-full min-h-0" :bare="phoneDetail" :crumbs="[{label: '首页', href: '/'}, {label: '会话'}]" title="会话" @navigate="navigate">
+        <PageShell width="full" class="h-full min-h-0" compact :bare="phoneDetail" :crumbs="[{label: '首页', href: '/'}, {label: '会话'}]" title="会话" @navigate="navigate">
             <template v-if="data" #meta>
                 <Badge :tone="data.herdr.available ? 'success' : 'warning'" variant="soft" size="sm">{{ data.herdr.available ? `herdr ${data.herdr.version ?? ""}` : "herdr 不可用" }}</Badge>
                 <span v-if="data.herdr.available">{{ data.herdr.mode === "subscribed" ? "已订阅推送" : "轮询中" }}<template v-if="data.herdr.at"> · {{ relativeTime(data.herdr.at) }}更新</template><template v-if="data.herdr.missedEvents > 0"> · 对账补上了 {{ data.herdr.missedEvents }} 次漏掉的状态变化</template></span>
@@ -255,13 +255,12 @@ const phoneDetail = computed(() => tier.value === "phone" && showDetailOnPhone.v
                     </div>
 
                     <template v-else>
-                        <header class="nbdev-divider flex shrink-0 flex-col gap-1 border-b" :class="phoneDetail ? 'px-3 py-2' : 'px-4 py-3'">
-                            <div class="flex min-w-0 flex-wrap items-center gap-2">
-                                <h2 v-if="!phoneDetail" class="nbdev-card-title min-w-0 truncate" :title="row?.title">{{ row?.title ?? `pane ${selected.paneId}` }}</h2>
-                                <Badge v-if="isAgent" tone="accent" variant="soft" size="sm">{{ HERDR_STATUS_LABEL[selected.status] ?? selected.status }}</Badge>
-                                <Badge v-else tone="neutral" variant="soft" size="sm">只看</Badge>
-                            </div>
-                            <div class="nbdev-note flex flex-wrap items-center gap-x-2 gap-y-1">
+                        <!-- 会话信息合成一行（t17）：放不下就折行，不截断链接与原因；只有会话键截断（点一下复制全文）。 -->
+                        <header class="nbdev-divider flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1 border-b px-3 py-2">
+                            <h2 v-if="!phoneDetail" class="nbdev-card-title min-w-0 break-words">{{ row?.title ?? `pane ${selected.paneId}` }}</h2>
+                            <Badge v-if="isAgent" tone="accent" variant="soft" size="sm">{{ HERDR_STATUS_LABEL[selected.status] ?? selected.status }}</Badge>
+                            <Badge v-else tone="neutral" variant="soft" size="sm">只看</Badge>
+                            <div class="nbdev-note contents">
                                 <span v-if="isAgent">{{ selected.agent }}</span>
                                 <span v-else>{{ selected.agent ? `${selected.agent}，还没报会话` : "不是 Agent 会话" }}：不能发消息、不能接管</span>
                                 <span>pane <span class="font-mono">{{ selected.paneId }}</span></span>

@@ -46,13 +46,23 @@ const KEYS: Array<{key: string; label: string; hint: string; controlHint: string
     {key: "n", label: "n", hint: "回答确认界面（未核实是否有效，要确认）", controlHint: "n（接管中，单击即发）", confirm: true},
 ];
 const idle = computed(() => props.session.status === "idle" || props.session.status === "done");
-const promptBlocked = computed(() => {
-    if (props.disabledReason) return props.disabledReason;
-    if (props.session.status === "working") return "会话在工作中：空闲之后才能发文字（不排队）";
-    if (props.session.status === "blocked") return "会话在等确认：用下面的按键回应";
-    if (!idle.value) return `会话状态是${HERDR_STATUS_LABEL[props.session.status] ?? props.session.status}：空闲之后才能发文字`;
+/**
+ * 不能发文字的原因。`line` 为真的单独占一行（整块不可用、等确认：要开发者去做点什么）；
+ * 工作中这类只是“等一会儿”的写进禁用输入框的 placeholder（t17）：会话在工作与空闲之间来回时不多出、少掉一行，终端不跟着变高变矮。
+ */
+const promptBlocked = computed<{text: string; line: boolean} | null>(() => {
+    if (props.disabledReason) return {text: props.disabledReason, line: true};
+    if (props.session.status === "blocked") return {text: "会话在等确认：用下面的按键回应", line: true};
+    if (props.session.status === "working") return {text: "会话在工作中：空闲之后才能发文字（不排队）", line: false};
+    if (!idle.value) return {text: `会话状态是${HERDR_STATUS_LABEL[props.session.status] ?? props.session.status}：空闲之后才能发文字`, line: false};
     return null;
 });
+/** 输入框缺省只有一行：placeholder 要短到手机上一行放得下（原来那句“替你在它的输入框里打字并回车”写进了同名 .md 与读屏说明）。 */
+const placeholder = computed(() => (promptBlocked.value ? promptBlocked.value.text : `发给这个会话的文字（${sendShortcut} 发送）`));
+/** 输入框的行数只由草稿的换行数决定（1 到 4 行），聚焦、失焦不改布局。 */
+const rows = computed(() => Math.min(4, Math.max(1, draft.value.split("\n").length)));
+/** 字数只在接近上限（八成以上）时显示。 */
+const showCount = computed(() => draft.value.length > MAX * 0.8);
 const canSend = computed(() => promptBlocked.value === null && !props.pending && draft.value.trim() !== "" && draft.value.length <= MAX);
 function send(): void {
     if (canSend.value) emit("prompt", draft.value);
@@ -73,20 +83,21 @@ function send(): void {
             <slot name="result" />
             <p v-if="sessionChange && !controlling" class="nbdev-warn nbdev-small" role="status">{{ sessionChange }}</p>
             <p v-if="controlling" class="nbdev-note">接管中输入框收起：直接在上面的终端里打字。15 分钟没有输入自动释放。</p>
-            <p v-else-if="promptBlocked" class="nbdev-note flex flex-wrap items-center gap-2">
-                <Badge tone="neutral" variant="soft" size="sm">{{ HERDR_STATUS_LABEL[session.status] ?? session.status }}</Badge>{{ promptBlocked }}
+            <p v-else-if="promptBlocked?.line" class="nbdev-note flex flex-wrap items-center gap-2">
+                <Badge tone="neutral" variant="soft" size="sm">{{ HERDR_STATUS_LABEL[session.status] ?? session.status }}</Badge>{{ promptBlocked.text }}
             </p>
-            <form v-if="!controlling" class="grid grid-cols-[minmax(0,1fr)_auto] items-end gap-2" @submit.prevent="send">
-                <FormTextarea v-model="draft" :rows="2" :maxlength="MAX" :disabled="promptBlocked !== null" :placeholder="`发给这个会话的文字：替你在它的输入框里打字并回车（${sendShortcut} 发送）`" aria-label="发给会话的文字" @keydown="onKeydown" />
-                <div class="flex flex-col items-end gap-1">
-                    <span class="nbdev-caption nbdev-num">{{ draft.length }} / {{ MAX }}</span>
-                    <Button type="submit" size="sm" variant="primary" :disabled="!canSend" :loading="pending" :aria-keyshortcuts="isMac ? 'Meta+Enter' : 'Control+Enter'">发送 <kbd class="nbdev-send-kbd">{{ sendShortcut }}</kbd></Button>
+            <!-- 输入框独占一行；发送与字数在下面按键那一行的右端，右列不再比一行输入框高（t17）。 -->
+            <FormTextarea v-if="!controlling" v-model="draft" :rows="rows" :maxlength="MAX" :disabled="promptBlocked !== null" :placeholder="placeholder" aria-label="发给会话的文字" aria-description="替你在这个会话的输入框里打字并回车" style="resize: none" @keydown="onKeydown" />
+            <div class="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+                <div class="flex min-w-0 flex-wrap items-center gap-1.5" role="group" aria-label="按键">
+                    <span class="nbdev-note">按键{{ controlling ? "（接管中单击即发）" : "" }}：</span>
+                    <Button v-for="entry in KEYS" :key="entry.key" size="sm" variant="secondary" :title="controlling ? entry.controlHint : entry.hint" :aria-label="controlling ? entry.controlHint : entry.hint" :disabled="pending || (disabledReason !== null && !controlling)" @click="emit('key', entry.key)">{{ entry.label }}<span v-if="!controlling && entry.confirm" class="nbdev-confirm-mark" aria-hidden="true">确认</span></Button>
+                    <span v-if="!controlling" class="nbdev-caption nbdev-key-note">带“确认”的键先给你看屏幕再发</span>
                 </div>
-            </form>
-            <div class="flex flex-wrap items-center gap-1.5" role="group" aria-label="按键">
-                <span class="nbdev-note">按键{{ controlling ? "（接管中单击即发）" : "" }}：</span>
-                <Button v-for="entry in KEYS" :key="entry.key" size="sm" variant="secondary" :title="controlling ? entry.controlHint : entry.hint" :aria-label="controlling ? entry.controlHint : entry.hint" :disabled="pending || (disabledReason !== null && !controlling)" @click="emit('key', entry.key)">{{ entry.label }}<span v-if="!controlling && entry.confirm" class="nbdev-confirm-mark" aria-hidden="true">确认</span></Button>
-                <span v-if="!controlling" class="nbdev-caption">带“确认”的键先给你看屏幕再发</span>
+                <div v-if="!controlling" class="ml-auto flex items-center gap-2">
+                    <span v-if="showCount" class="nbdev-caption nbdev-num" :class="{'nbdev-warn': draft.length >= MAX}">{{ draft.length }} / {{ MAX }}</span>
+                    <Button size="sm" variant="primary" :disabled="!canSend" :loading="pending" :aria-keyshortcuts="isMac ? 'Meta+Enter' : 'Control+Enter'" @click="send">发送 <kbd class="nbdev-send-kbd">{{ sendShortcut }}</kbd></Button>
+                </div>
             </div>
         </div>
     </section>
@@ -95,6 +106,22 @@ function send(): void {
 <style scoped>
 .nbdev-dock, .nbdev-term-snapshot-bar {
     background: var(--panel-surface);
+}
+/* 按键那一行放不下说明时收起说明，发送按钮留在这一行的右端，不为一句说明多占一行（t17）；
+   说明在各键的提示与读屏名里还有（“要确认”）。54rem 约是按键、说明与发送按钮排成一行要的宽度。 */
+.nbdev-dock {
+    container-type: inline-size;
+}
+@container (max-width: 54rem) {
+    .nbdev-key-note {
+        display: none;
+    }
+}
+/* 再窄一些（中档的详情栏）时发送按钮里不写组合键：输入框的 placeholder 与按钮的 aria-keyshortcuts 里都有。 */
+@container (max-width: 46rem) {
+    .nbdev-send-kbd {
+        display: none;
+    }
 }
 .nbdev-send-kbd {
     margin-left: 0.25em;
