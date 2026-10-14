@@ -495,9 +495,10 @@ export async function startPanelServer(options: PanelServerOptions): Promise<Pan
             await terminals.stop();
             github.stop();
             await notifier.stop();
-            state.stop();
+            // `state.stop()` 同步停掉监视与定时器，返回的 Promise 等读标题的文件操作结束（有上限）：与关连接、关端口一起等。
+            const stateStopped = state.stop();
             for (const ws of sockets) ws.close(1001, "面板退出");
-            await Promise.all([panel?.stop(true), artifacts?.stop(true)]);
+            await Promise.all([panel?.stop(true), artifacts?.stop(true), stateStopped]);
         },
     };
 }

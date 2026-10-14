@@ -41,6 +41,8 @@ export type ActivityValue = {activity: Activity; procs: ProcRunView[]; sessionTi
 const DEBOUNCE_MS = 300;
 /** 一轮读标题最多等这么久；没查完的键留到下一轮（活动每次重算后都会再起一轮），活动的发布从不等它。 */
 const TITLE_BUDGET_MS = 2_000;
+/** 停止时最多等读标题的文件操作结束这么久：慢盘上的读盘取消不了，超时就记一条诊断后返回（之后它们结束也不再改数据）。 */
+const TITLE_STOP_MS = 3_000;
 const CHECK_MS = 5_000;
 const FALLBACK_MS = 30_000;
 
@@ -255,8 +257,9 @@ export class PanelState {
         return picked;
     }
 
-    /** 单飞：在读时又被要求，就在这一轮读完后按那时最新的键再读一轮。 */
+    /** 单飞：在读时又被要求，就在这一轮读完后按那时最新的键再读一轮。停止之后不再开始（预热途中停止时，预热还会算一次活动）。 */
     private scheduleTitles(): void {
+        if (this.stopped) return;
         if (this.titleTask) {
             this.titleAgain = true;
             return;
@@ -280,6 +283,8 @@ export class PanelState {
     private async readTitles(): Promise<void> {
         const keys = this.titleKeys;
         const {titles, pending} = await this.titles.titlesOf(keys, {budgetMs: TITLE_BUDGET_MS});
+        // 读的途中停止了：不再改已知标题与快照，停止返回之后数据不变。
+        if (this.stopped) return;
         const left = new Set(pending);
         for (const key of keys) {
             if (left.has(key)) continue;
@@ -343,12 +348,26 @@ export class PanelState {
         if (this.clients === 0) this.herdr.setActive(false);
     }
 
-    stop(): void {
+    /**
+     * 停止：同步部分（置 `stopped`、关监视与定时器、停 herdr）在调用时就做完；返回的 Promise 等读标题的后台任务与已经开始的查找结束，
+     * 最多 `TITLE_STOP_MS`，超时记一条诊断。之后读标题不再开始、不再改数据。
+     */
+    async stop(): Promise<void> {
         this.stopped = true;
         for (const watcher of this.watchers) watcher.close();
         for (const timer of this.timers) clearInterval(timer);
         if (this.debounce) clearTimeout(this.debounce);
         this.herdr.stop();
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        const timedOut = new Promise<true>((resolveTimeout) => {
+            timer = setTimeout(() => resolveTimeout(true), TITLE_STOP_MS);
+        });
+        try {
+            const finished = Promise.all([this.titleTask, this.titles.close()]).then(() => false as const);
+            if (await Promise.race([finished, timedOut])) this.log(`停止时读会话标题的文件操作等了 ${TITLE_STOP_MS} 毫秒还没结束，不再等；它们结束之后不会再改面板的数据`);
+        } finally {
+            clearTimeout(timer);
+        }
     }
 
     private scheduleRecords(): void {

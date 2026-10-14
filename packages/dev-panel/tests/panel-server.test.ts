@@ -13,6 +13,7 @@ import {computeBuildHash, ensureWebBuild} from "../src/server/build.js";
 import {backoffDelay, HerdrMonitor} from "../src/server/herdr-monitor.js";
 import {startPanelServer, type PanelServer} from "../src/server/serve.js";
 import {claudePane, shellPane, startFakeHerdr, type FakeHerdr} from "./fake-herdr.js";
+import {holdFileLeases} from "./file-lease.js";
 import {cleanupFixtures, createFixture, git, panelEnv, run, taskReadme, workReadme, type Fixture} from "./git-fixture.js";
 import {startFakeClaude, spawnMarked, stopProcess, type MarkedChild} from "./processes.js";
 
@@ -317,6 +318,20 @@ async function ompTitleFile(path: string, title: string): Promise<void> {
 
 type Titles = Record<string, {text: string; source: string}>;
 
+/** 登记一次经 nbdev 起过、已经结束的服务，属主是 `owner`：它就成了要读标题的会话，不需要 herdr 或租约。 */
+async function registerEndedRun(fixture: Fixture, owner: {key: string; agent: string}): Promise<void> {
+    const procs = join(fixture.main, ".local", "agent", "run", "procs");
+    await mkdir(procs, {recursive: true});
+    const now = new Date().toISOString();
+    const bootId = (await Bun.file("/proc/sys/kernel/random/boot_id").text()).trim();
+    const runId = "dev-20261014T010000Z-0e0e0e0e";
+    await writeFile(join(procs, `${runId}.json`), JSON.stringify({
+        schema: "nbdev.proc/v1", runId, kind: "dev", checkout: fixture.main, checkoutKey: "main", package: "apps/web", script: "dev", argv: [],
+        logPath: join(fixture.root, "dev.log"), bootId, startedAt: now, startedBy: {...owner, label: null, process: null},
+        supervisor: {pid: 1, startTicks: "0"}, endedAt: now, endedReason: "exited", exitCode: 0,
+    }));
+}
+
 describe("会话标题（t17）", () => {
     test("首页、Work 页、Task 页、运行页各带 sessionTitles，只放本视图出现的会话：首页含已不在活动里的提问者，运行页含只剩进程登记的属主；会话页的 title 取自同一份", async () => {
         const fixture = await createFixture("panel-titles-views");
@@ -402,11 +417,75 @@ describe("会话标题（t17）", () => {
             await waitUntil("取到新标题", settled, {timeoutMs: 15_000, intervalMs: 50});
             await waitUntil("标题变了推 activity", () => activityChanges > before);
         }
+        const activityRevision = async () => (await panel.json("/api/runs")).body.revisions.activity!;
+        // 文字不变、只有来源变了（自动起的名被 /rename 成同一个名字）：页面显示的来源变了，照样增加 revision、推送。
+        const beforeSource = await activityRevision();
+        await afterChange(() => appendFile(file, `${JSON.stringify({type: "custom-title", customTitle: "第一版"})}\n`), titlesAre({[workerKey]: {text: "第一版", source: "claude-custom"}}));
+        expect(await activityRevision()).toBeGreaterThan(beforeSource);
         await afterChange(() => appendFile(file, `${JSON.stringify({type: "custom-title", customTitle: "改过的名"})}\n`), titlesAre({[workerKey]: {text: "改过的名", source: "claude-custom"}}));
         await afterChange(() => rm(file), titlesAre({}));
         await afterChange(() => ompTitleFile(ompPath, "后来建的"), async () => JSON.stringify(await paneTitle()) === JSON.stringify({text: "后来建的", source: "omp"}));
         expect((await panel.json<{sessionTitles: Titles}>("/api/overview")).body.data.sessionTitles).toEqual({});
+
+        // 读到的 {text, source} 不变时不推送：omp 的文件按原样重写（修改时间变了，会重读），同时 Claude 的文件重新出现。
+        // 读到 Claude 新标题的那一轮一定也重读了 omp 的文件；两处只有 Claude 一处变了，revision 只能多 1。
+        const beforeSame = await activityRevision();
+        await afterChange(async () => {
+            await ompTitleFile(ompPath, "后来建的");
+            await writeFile(file, `${JSON.stringify({type: "ai-title", aiTitle: "又回来了"})}\n`);
+        }, titlesAre({[workerKey]: {text: "又回来了", source: "claude-ai-title"}}));
+        expect(await activityRevision()).toBe(beforeSame + 1);
+        expect(await paneTitle()).toEqual({text: "后来建的", source: "omp"});
     }, 60_000);
+
+    test("运行中停止：读标题卡在文件系统上时，stop 等那次读盘结束才返回；返回之后快照与 revision 不再变", async () => {
+        const fixture = await createFixture("panel-titles-stop");
+        const sessionId = randomUUID();
+        const file = await claudeTitleFile(fixture, sessionId, "停止后才读完的标题");
+        await registerEndedRun(fixture, {key: `claude:${sessionId}`, agent: "claude"});
+        // 标题文件挂上租约：面板读它的 open() 卡在内核里，直到测试放掉。
+        const leases = await holdFileLeases([file]);
+        closers.push(() => leases.close());
+        const panel = await startPanel(fixture, null);
+        await waitUntil("读标题卡在打开文件上", async () => (await leases.states())[0] === "breaking");
+        const revision = panel.server.state.revisions().activity;
+        expect((await panel.json<{sessionTitles: Titles}>("/api/runs")).body.data.sessionTitles).toEqual({});
+
+        let released = false;
+        const stopping = panel.server.stop().then(() => released);
+        // 端口关了：stop 除了等读标题，别的收口都做完了。这时还没放租约，stop 不能已经返回。
+        const refused = (url: string) => fetch(url).then(() => false, () => true);
+        await waitUntil("面板的两个端口都已关闭", async () => await refused(panel.server.url) && await refused(panel.server.artifactUrl));
+        released = true;
+        await leases.release(0);
+        expect(await stopping).toBe(true);
+        // 读盘已经结束：面板关了标题文件，租约才挂得回去。读到的标题没有并进快照。
+        await leases.reacquire(0);
+        expect(panel.server.state.revisions().activity).toBe(revision);
+        expect(panel.server.state.activity.part.value?.sessionTitles).toEqual({});
+    }, 30_000);
+
+    test("预热中停止：预热之后算出的活动不再起读标题，预热与 stop 返回之后没有打开过标题文件、快照里没有标题", async () => {
+        const fixture = await createFixture("panel-titles-warm-stop");
+        const sessionId = randomUUID();
+        const file = await claudeTitleFile(fixture, sessionId, "不该读到的标题");
+        await registerEndedRun(fixture, {key: `claude:${sessionId}`, agent: "claude"});
+        // 有人打开标题文件，租约就会进入 breaking：用它看停止之后有没有读标题。
+        const leases = await holdFileLeases([file]);
+        closers.push(() => leases.close());
+        const server = await startPanelServer({
+            context: await locateRepository(fixture.main), host: "127.0.0.1", port: 0, artifactPort: 0, herdr: null,
+            token: randomBytes(32).toString("hex"), log: () => undefined, env: panelEnv(fixture),
+        });
+        closers.push(() => server.stop());
+        // 预热的第一步要等 git，stop 一定落在预热中途；预热随后照常算一遍记录与活动。
+        const warming = server.warm();
+        await server.stop();
+        expect(await warming).toBe(false);
+        expect(server.state.activity.part.value?.procs.map((run) => run.startedBy?.key)).toEqual([`claude:${sessionId}`]);
+        expect(await leases.states()).toEqual(["held"]);
+        expect(server.state.activity.part.value?.sessionTitles).toEqual({});
+    }, 30_000);
 });
 
 describe("面板服务的安全", () => {
