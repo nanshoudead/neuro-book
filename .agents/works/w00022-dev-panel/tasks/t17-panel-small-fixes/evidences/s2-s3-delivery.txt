@@ -1,0 +1,110 @@
+w00022/t17 S2（会话标题）与 S3（会话页紧凑写法）交付报告
+worktree：.worktree/w00022-dev-panel（分支 feat/w00022-dev-panel，起点 8276c0bb2）
+现状：三个提交都已落下，worktree 干净；没有 push，没有 amend。
+
+一、提交
+
+1. 7c6d9ca97 feat(dev-panel): 会话标题进活动快照，各页写“标题 + 短键”（t17 S2），改了 27 个文件
+   服务端
+   - src/session-titles.ts：titlesOf 按会话键读标题。sessionKeyParts 按第一个冒号拆键，只认 claude、codex、omp 三种；BATCH_PARALLEL=4；一批只列一次 projects/；同一个键同时只查一次（lookupOnce）；codex 索引也只建一次。
+   - src/state.ts：ActivityValue.sessionTitles。指纹里含标题。titlesFor 从这几处收集要读标题的键：有效租约、activity.sessions、procs 的 startedBy、herdr 快照里所有 pane 的会话、收件箱的 askedBy。
+   - serve.ts、views.ts（overview、work、task 加 sessionTitles；sessionsView 同步取快照）、live-views.ts（runsView 加 sessionTitles）。
+   网页端
+   - host/format.ts：SessionName {title, short, source}、sessionName，并导出 TITLE_SOURCE。
+   - 新文件 host/session-titles.ts：provideSessionTitles 和 useSessionTitles，没有 provide 时是空表。host/types.ts 同步改。
+   - LeaseChip.vue：有标题时显示 Tooltip，这时可以用 Tab 聚焦；标题 max-w-64，超出截断；短键 shrink-0，不截断。
+   - WorkCard、InboxList、TaskTable、ProcList 改用 useSessionTitles。它们的同名 .md 标签改成 ["state:inject"]，并加了“隐藏通道理由”一节。LeaseChip.md 已更新。
+   - HomePage、WorkPage、RunsPage 负责 provide；TaskPage、SessionsPage 同步改。
+   - docs/panel.md：接口表；“缓存与刷新”加“会话标题”一条；前端加“会话的写法”一条，列出哪些地方写标题 + 短键、哪些地方保留短键。
+   测试：tests/session-titles.test.ts、tests/panel-server.test.ts、新文件 tests/web-session-name.test.ts。
+
+2. 066fceb6a fix(dev-panel): 读会话标题改为活动之外的后台任务，带整轮预算（t17 S2 修订）
+   按协调者的中途要求改：读标题不再挡活动刷新。
+   - titlesOf(keys, {budgetMs}) 返回 TitleBatch {titles, pending}。到预算后不再开始新的查找，已开始的继续跑完；到点之后才失败的查找记日志。
+   - state.ts：TITLE_BUDGET_MS=2000。
+     Refresher 加了两样东西：构造参数 settle，算完后同步填入最新已知的标题；方法 patch(update)，指纹变了才加 revision 并推送。
+     computeActivity 设好 titleKeys，再调 scheduleTitles()，不等标题读完。
+     scheduleTitles 是单飞任务：读的时候键集合又变了，就用 titleAgain 记下，读完再跑一轮。
+     knownTitles 是一张 Map。每轮读完的键写入新值；没读完的键沿用旧值；最后修剪成最新的键集合，所以过期结果不会覆盖更新的键集合。titlesLeft 变化时记日志。
+     activity.patch 按最新的 titleKeys 推送。
+   - 指纹只用最终的 text 和 source，按完整键稳定排序。
+   - 测试改成先 waitUntil 等标题出现，再等 activity changed。panel.md 的“会话标题”一条按新做法重写。
+   - 变异检查：让 patch 不推送，刷新测试失败；检查后已恢复。
+
+3. d5535e531 feat(dev-panel): 会话页紧凑写法，给终端让出高度（t17 S3）
+   - PageShell.vue 加 compact：
+     面包屑去掉最后一项和它前面的箭头；可见 h1 用正文字号加粗；
+     meta 排在同一行右侧，min-w-0 flex-1，可以折行，不截断；actions 放最后；
+     padding 和 gap 都是 0.75rem；同时给了 bare 时 bare 优先。
+     PageShell.md 写了 compact 的布局、工具页例外、为什么没有 aria-current，并更新 props。
+   - SessionsPage.vue：PageShell 用 compact。会话信息合成一行 flex-wrap；h2 改成 break-words，不截断；px-3 py-2；次要项包进 nbdev-note contents。
+   - SessionConsole.vue：
+     promptBlocked 改成 {text, line}。整块不可用和 blocked（等确认）单独占一行；working 和其它非空闲状态写进 placeholder。
+     placeholder 缩短为“发给这个会话的文字（Ctrl+Enter 发送）”，原来的说明移到 aria-description。
+     rows 按换行数取 1 到 4；style="resize: none"。
+     去掉 form，发送按钮用 @click="send"，放在按键行右端。
+     字数只在超过上限的 80% 时显示，到上限时用警示色。
+     .nbdev-dock 设了 container-type：容器 54rem 以下隐藏“带确认…”说明，46rem 以下隐藏发送按钮里的 kbd。
+     SessionConsole.md 同步更新。
+   - docs/panel.md：会话页一行。
+
+二、验证（都在上面的 worktree 里跑）
+
+- bun run --cwd packages/dev-panel typecheck：通过（tsc 三套加 vue-tsc）
+- TMPDIR=/dev/shm/t17-tmp bun run --cwd packages/dev-panel test：445 pass，0 fail，64 个文件，2129 个 expect，用时 434s
+- bun run --cwd packages/dev-panel build:web：通过
+- bun x vitest run --config scripts/vitest.config.ts scripts/ci/dev-panel-records.test.ts：5 passed
+- governance:check：failures []、warnings []。S2 提交时它对 panel-server.test.ts 报过 fixed-wait 警告，指向的是原有代码行，不是本次新增的。
+- docs:check：warnings []
+- 日志已移到截图目录：t17-gate-test.log、t17-gate-typecheck.log、t17-gate-build.log
+
+三、截图与高度
+
+目录：.local/agent/works/w00022-dev-panel/tasks/t17-panel-small-fixes/shots/
+- S3 改前：s3-before-1440x650-light/dark、1440x900、1280x650、1100x700、390x640（都是 .png）
+- S3 改后：同样几种尺寸的 s3-after-*.png，另有 s3-after-working-1440x650-light.png（working 状态）
+- S2：s2-home-1440x900-light.png、s2-work-1440x900-light.png、s2-task-1440x900-light.png
+- 测量：s3-heights.txt（前后对比表）、s3-after-measure.json、s3-after-working-measure.json
+- before-1440x650.png、checkbox-before.png 不是本次产出（16:19、16:39 就已存在），没有动。
+
+终端画面高度，改前 -> 改后（px）：
+- 1440x650：222 -> 346，达到计划要的至少 320
+- 1440x900：472 -> 596，没有变矮
+- 1280x650：184 -> 346
+- 1100x700：229 -> 353
+- 390x640：手机是文字视图，没有终端框；输入区 142 -> 156，会话信息 76 -> 56
+
+各部分：页头 82 -> 20，会话信息 67 -> 56（“标题来源”那句折到第二行），输入区 110 -> 92。模式条前后都是 50px，因为假终端报“尺寸不确定”，模式条占两行。各视口都没有横向滚动，没有控制台错误。
+截图用的是临时面板：临时仓库，加 tests/fake-herdr.ts、fake-terminal.ts，再用 startFakeClaude 拿 w00001/t01 的租约，端口随机。不是真实的 4400 面板。
+
+四、偏离与理由
+
+- SessionName 比计划多一个 source 字段，LeaseChip 的提示要写“标题取自…”。
+- 收集键里加了 herdr 全部 pane 的会话。计划原来的清单没有，这是协调者第 2 条要求；S2 第一个提交就做了。
+- panel 测试“文件后来出现”用的是 omp 的绝对路径：Claude 查不到时有 60 秒缓存，这条由单元测试覆盖。场景 1 改为面板启动前先写会话文件，再等可观察的状态。
+- 解耦之后标题是最终一致的：面板刚启动时 GET 可能还拿不到标题；warm 不等标题。
+- S3 的等确认（blocked）和整块不可用仍单独占一行，因为这两种情况要开发者操作；只有 working 和其它非空闲状态进 placeholder。
+- 窄容器隐藏按键说明和发送按钮里的 kbd（容器查询 54rem、46rem）；会话信息的 h2 改为可以折行、不截断；compact 下面包屑没有 aria-current。
+
+五、没验证的地方
+
+- “读标题很慢时，新租约照样随活动变化及时发布”没有自动测试。用真实慢文件构造不出来：FIFO 会被 isFile 拒绝，tmpfs 上的大文件读得太快。永远不完成的假 SessionTitles 属于替身，按要求没用。这一条留给实现审查。从代码看，computeActivity 不 await 标题，scheduleTitles 是单飞的后台任务。
+- 预算路径的单元测试只覆盖“预算够用时 pending 为空”，没覆盖预算用完的情况。“一轮只列一次目录”、单飞和并发上限都是性能性质，没有测试。
+- “会话页上没有租约的 pane 仍有标题”有覆盖：场景 1 的 pane 没有租约，刷新测试里的 omp pane 也没有租约。
+- 已知观感问题：Work 页 Task 表“谁在动”一列最窄 7rem，1440 宽时标题被截到只剩一两个字（短键完整，提示里有全名）。试过把这列放宽到 10rem，1440 宽时表格会横向溢出，所以撤回了，没改。
+- 横屏手机没处理（计划里写的是“不做”）。合入 master 后在真实面板上的截图没做，计划的验证节写的是由主 Agent 做。
+
+六、禁止清单自查
+
+- 不按错误文案分支：没有。读标题失败只在 err instanceof Error 时记日志，不看文案。
+- 不用静默 catch：读标题和到点后失败的查找都记日志；没有空 catch。
+- 不为过测试掩盖问题：没有跳过测试，没有放宽断言，没有把一种失败改报成另一种，产品代码里没有测试分支。
+- 不删改任务外的代码、配置和注释：diff 只涉及 S2、S3 的文件；.md 标签按组件规范改。
+- 重构保留清理和收口：Refresher 原有的收口照旧；titlesOf 到点后仍等已开始的查找结束。
+- 不跨包深导入：没有。
+- 测试测行为，依赖用真的：用真实文件、fake-herdr 和 fake-claude（仓库已有的契约替身）；没有 mock、spy、假计时器和固定等待，等待都靠 waitUntil 等可观察状态。
+- 没用 rm -rf 清理仓库内目录。删的只有 /dev/shm/t17-tmp 和 /dev/shm/t17-shots 里的临时文件：逐个 rm，最后 rmdir。
+- 没碰 worktree 外的文件，例外只有截图目录和 /dev/shm 下自建的目录；没碰主工作区。
+- 没用 pkill -f、pgrep -f。自己起的进程都按记下的 PID 发 SIGTERM 结束；用 ps 确认过，没有 serve-fixture、fake-herdr、fake-claude、fake-terminal 残留。
+- 没碰 4400、4401 端口和 nbdev-panel-neuro-book.service，没用 herdr 写操作。
+- 没有 push，没有切分支，没有 stash、rebase、amend；只用 git add -- <路径>；没加 Co-Authored-By。
