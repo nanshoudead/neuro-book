@@ -7,16 +7,16 @@ import type {DevEvent} from "../dev/dev-ops.js";
 import type {CommandOutcome} from "./output.js";
 
 /**
- * t14 的命令：开发服务三个、`worktree new`、`find`、`shot`。`dev start` 是长命令：边跑边按行输出 `READY`、`NOT_READY`、`EXITED`（`--json` 时是同样含义的 JSON 行），
+ * t14 的命令：开发服务三个、`worktree new`、`find`、`shot`。`dev start` 是长命令：边跑边按行输出 `READY`、`NOT_READY`、`EXITED`，带 `--sample` 时还有 `SAMPLE`、`SAMPLE_FAILED`（t18；`--json` 时是同样含义的 JSON 行），
  * 不套一次性的外壳。合同见 docs/cli.md 的“dev”。监管与登记的实现在 `src/dev/`，只在这几个命令里按需导入。
  */
 
-export const DEV_USAGE = `  dev start [--checkout <key|路径>] [--package packages/neuro-book] [--script dev] [--work <W> --task <T>] [--ready-pattern <正则>] [--ready-timeout <秒>] [--grace <秒>] [--as <标签>]
+export const DEV_USAGE = `  dev start [--checkout <key|路径>] [--package packages/neuro-book] [--script dev] [--work <W> --task <T>] [--ready-pattern <正则>] [--ready-timeout <秒>] [--sample [--sample-timeout <秒>]] [--grace <秒>] [--as <标签>]
   dev status [--checkout <key|路径>] [--package …] [--script …] [--all] [--wait-ready [--timeout <秒>]]
   dev stop (<runId> | [--checkout <key|路径>] [--package …] [--script …]) [--force] [--grace <秒>] [--as <标签>]
   worktree new <workRef> <taskRef> [--slug <短名>] [--type feat] [--from master] [--as <标签>]
   find <词> [--in <checkout key|all>] [--name] [--limit 20]
-  shot [--checkout <key|路径>] [--package packages/neuro-book] [--work <W> --task <T>] [--url <地址>] -- <交给 lab:shot 的参数…>`;
+  shot [--checkout <key|路径>] [--package packages/neuro-book] [--work <W> --task <T>] [--url <地址>] [--page <路径>] -- <交给 lab:shot 或 page:shot 的参数…>`;
 
 /** `find` 的总条数上限：17 个 checkout 每个 20 条时也不会把几千行塞进 Agent 的上下文（t14 设计审查 S11）。 */
 const FIND_TOTAL_LIMIT = 200;
@@ -36,6 +36,8 @@ function eventLine(event: DevEvent): string {
     case "ready": return `READY ${event.url} run=${event.runId}${event.reused ? " reused" : ""}${event.owner ? ` owner=${event.owner}` : ""}`;
     case "not_ready": return `NOT_READY ${event.logPath} run=${event.runId}${event.lastStatus !== null ? ` status=${event.lastStatus}` : ""}${event.reused ? " reused" : ""}`;
     case "exited": return `EXITED ${event.signal ?? event.exitCode ?? "?"} run=${event.runId}${event.leftovers > 0 ? ` leftovers=${event.leftovers}` : ""}`;
+    case "sample": return `SAMPLE ${event.url} run=${event.runId}`;
+    case "sample_failed": return `SAMPLE_FAILED ${event.reason} run=${event.runId}`;
     }
 }
 
@@ -94,7 +96,7 @@ export const DEV_COMMANDS: Record<string, CommandSpec> = {
         schema: "nbdev.shot/v1",
         positionals: ["参数…"],
         positionalsRange: [0, 100],
-        options: {checkout: {type: "string"}, package: {type: "string"}, work: {type: "string"}, task: {type: "string"}, url: {type: "string"}},
+        options: {checkout: {type: "string"}, package: {type: "string"}, work: {type: "string"}, task: {type: "string"}, url: {type: "string"}, page: {type: "string"}},
         async run({io, positionals, values}): Promise<CommandOutcome> {
             const {runShot} = await import("../dev/shot.js");
             const workRef = stringValue(values, "work");
@@ -102,7 +104,7 @@ export const DEV_COMMANDS: Record<string, CommandSpec> = {
             if ((workRef === undefined) !== (taskRef === undefined)) throw new NbdevError("usage", "--work 与 --task 要一起给");
             const context = await locateRepository(io.cwd);
             const task = workRef !== undefined && taskRef !== undefined ? await resolveTaskTarget(context, workRef, taskRef) : null;
-            const result = await runShot(context, io.cwd, {checkoutRef: stringValue(values, "checkout") ?? null, packageDir: stringValue(values, "package") ?? "packages/neuro-book", url: stringValue(values, "url") ?? null, task, passthrough: positionals}, io.env);
+            const result = await runShot(context, io.cwd, {checkoutRef: stringValue(values, "checkout") ?? null, packageDir: stringValue(values, "package") ?? "packages/neuro-book", url: stringValue(values, "url") ?? null, page: stringValue(values, "page") ?? null, task, passthrough: positionals}, io.env);
             return {schema: "nbdev.shot/v1", data: result, warnings: [], error: null, human: [`截图在 ${result.outDir}（${result.files.length} 个文件）`, ...result.files.map((file) => `  ${file}`)]};
         },
     },
@@ -133,9 +135,12 @@ export const DEV_COMMANDS: Record<string, CommandSpec> = {
     "dev start": {
         schema: "nbdev.dev-start/v1",
         positionals: [],
-        options: {...TARGET_OPTIONS, work: {type: "string"}, task: {type: "string"}, "ready-pattern": {type: "string"}, "ready-timeout": {type: "string"}, grace: {type: "string"}, ...AS_OPTION},
+        options: {...TARGET_OPTIONS, work: {type: "string"}, task: {type: "string"}, "ready-pattern": {type: "string"}, "ready-timeout": {type: "string"}, sample: {type: "boolean"}, "sample-timeout": {type: "string"}, grace: {type: "string"}, ...AS_OPTION},
         async run({io, values}): Promise<CommandOutcome> {
             const {devStart, DEFAULT_GRACE_MS, DEFAULT_READY_TIMEOUT_MS} = await import("../dev/dev-ops.js");
+            const {DEFAULT_SAMPLE_TIMEOUT_MS} = await import("../dev/sample.js");
+            const sample = values.sample === true;
+            if (!sample && stringValue(values, "sample-timeout") !== undefined) throw new NbdevError("usage", "--sample-timeout 要与 --sample 一起给");
             const workRef = stringValue(values, "work");
             const taskRef = stringValue(values, "task");
             if ((workRef === undefined) !== (taskRef === undefined)) throw new NbdevError("usage", "--work 与 --task 要一起给");
@@ -151,6 +156,8 @@ export const DEV_COMMANDS: Record<string, CommandSpec> = {
                 readyPattern: stringValue(values, "ready-pattern") ?? null,
                 readyTimeoutMs: seconds(values, "ready-timeout", DEFAULT_READY_TIMEOUT_MS),
                 graceMs: seconds(values, "grace", DEFAULT_GRACE_MS),
+                sample,
+                sampleTimeoutMs: seconds(values, "sample-timeout", DEFAULT_SAMPLE_TIMEOUT_MS),
             }, caller, io.env, (event) => io.stdout.write(`${json ? JSON.stringify(event) : eventLine(event)}\n`));
             return {schema: "nbdev.dev-start/v1", data: null, warnings: [...warnings, ...result.warnings], error: null, human: [], streamed: {exitCode: result.exitCode}};
         },

@@ -105,7 +105,7 @@ Work 与 Task 的 README 由 Work 规则定义（`.agents/works/README.md`）。
 {
     "schema": "nbdev.proc/v1", "runId": "dev-20261013T131502Z-a3f9c2d1", "kind": "dev",
     "checkout": "/…/.worktree/w00017-t83-dnd-titlebar", "checkoutKey": "w00017-t83-dnd-titlebar", "package": "packages/neuro-book", "script": "dev",
-    "argv": ["bun", "run", "dev"], "readyPattern": null, "workId": null, "taskId": null,
+    "argv": ["bun", "run", "dev"], "readyPattern": null, "sample": false, "workId": null, "taskId": null,
     "logPath": "/…/.local/agent/logs/dev/w00017-t83-dnd-titlebar-dev-20261013T131502Z-a3f9c2d1.log", "bootId": "…",
     "startedAt": "…", "startedBy": {"key": "claude:…", "agent": "claude", "label": null, "process": {"pid": 123, "startTicks": "…"}},
     "supervisor": {"pid": 456, "startTicks": "…"}, "pid": 789, "pgid": 789, "startTicks": "…",
@@ -118,6 +118,7 @@ Work 与 Task 的 README 由 Work 规则定义（`.agents/works/README.md`）。
 - `runId` 是 `dev-<YYYYMMDDTHHMMSSZ>-<8 位十六进制>`，日志名带它。
 - 登记在锁里先写好 `pid`、`startTicks` 再放锁（锁内起服务）；读到没有 `pid` 的登记时，监管进程活着算 `starting`，不活算 `ended`（`never_started`）。
 - `descendants`：监管进程每 2 秒重收一次，新出现的并进来，上限 256 个。后代被收养到 PID 1 之后 ppid 链就断了，所以要在还连着的时候记下。组长还在时，它进程组里的进程也一并记下；组长退出、监管进程给它收尸时再收一次组里剩下的（这时组里还有进程的话组号不会被复用）。读者只凭这里的组员认进程组（见“状态”）。
+- `sample`：起时带了 `--sample`，开发脚本的环境里有 `NBDEV_SAMPLE=1`（t18）；不带时 nbdev 从环境里去掉这个变量。t18 之前的登记没有这个字段，按 `false` 读，schema 不变。
 - `startedBy`：认不出的调用者为 null。`stoppedBy`：`dev stop` 的调用者会话键（`--force` 时后缀“（--force）”），或 `signal:<名>`。
 - 监管进程与 `dev stop` 都在 `run/procs.lock/` 里读改写，各改各的字段。
 - **状态**（读取时现算）：下面任一条成立就算还活着：监管进程 pid 在且启动时刻相同；组长 pid 在且启动时刻相同；进程组仍是我们那一组（组长不在、`/proc/<pgid>` 也不在，`kill(-pgid, 0)` 成功，且快照里至少有一个进程 pid 与启动时刻都对得上、并在这个组里。我们的组还有成员时 Linux 不把这个号分给新进程，组空了以后号可以再分给别的组长：`/proc/<pgid>` 在而启动时刻与登记的组长不同，就是号已被复用；EPERM 是别的用户的组。这两种都不算我们的组）；快照里有进程 pid 在且启动时刻相同。

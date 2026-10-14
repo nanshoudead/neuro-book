@@ -1,5 +1,5 @@
 import {describe, expect, test} from "bun:test";
-import {createReadyMatcher, LineSplitter, readyStatus, stripAnsi} from "./ready.js";
+import {createReadyMatcher, createSampleTracker, LineSplitter, readyStatus, sampleUrl, stripAnsi} from "./ready.js";
 
 /** t14 的就绪识别（L1）：去 ANSI、按 \r 与 \n 切行、两种内置就绪行与自定义规则、5xx 不算就绪（设计审查 S2）。 */
 describe("就绪识别", () => {
@@ -31,5 +31,26 @@ describe("就绪识别", () => {
 
     test("探测的状态：2xx、3xx、4xx 算就绪，5xx 不算", () => {
         expect([200, 302, 404, 500, 503].map(readyStatus)).toEqual([true, true, true, false, false]);
+    });
+
+    test("样例结果按代记：每行 backend-ready 开新的一代，本代只认第一行结果；还没有 backend-ready 时算第 0 代", () => {
+        const tracker = createSampleTracker();
+        tracker.feed("[dev] open-path /?project=early");
+        expect(tracker.current()).toEqual({generation: 0, outcome: {kind: "open-path", path: "/?project=early"}});
+        tracker.feed("[dev] backend-ready pid=1 http://127.0.0.1:4219/");
+        expect(tracker.current()).toEqual({generation: 1, outcome: null});
+        tracker.feed("[dev] sample-failed 超时（30 秒内没有放好样例）");
+        tracker.feed("[dev] open-path /?project=late");
+        expect(tracker.current()).toEqual({generation: 1, outcome: {kind: "failed", reason: "超时（30 秒内没有放好样例）"}});
+        tracker.feed("[dev] backend-ready pid=2 http://127.0.0.1:4219/");
+        tracker.feed("[dev] sample-failed");
+        expect(tracker.current()).toEqual({generation: 2, outcome: {kind: "failed", reason: "（应用没有写原因）"}});
+    });
+
+    test("open-path 只收同源路径：绝对 URL、// 开头、含反斜杠、拼出来不同源的都不收", () => {
+        expect(sampleUrl("/?project=sample", "http://127.0.0.1:4217/")).toBe("http://127.0.0.1:4217/?project=sample");
+        for (const path of ["http://evil.example/", "HTTP://127.0.0.1:4217/", "javascript:alert(1)", "//evil.example/x", "/\\evil.example", "\\evil.example"]) {
+            expect([path, sampleUrl(path, "http://127.0.0.1:4217/")]).toEqual([path, null]);
+        }
     });
 });

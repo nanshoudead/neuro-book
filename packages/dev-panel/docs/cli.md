@@ -32,12 +32,12 @@
 | `nbdev answers record <workRef> <taskRef> <artifactId>` | `--set <题号>=<值>`（可重复，至少一个；`multi` 用逗号分隔，`confirm` 写 `yes` 或 `no`）、`--comment <题号>=<文字>`（可重复）、`--note`、`--as` | `nbdev.answers-record/v1` |
 | `nbdev panel serve` | `--host`（只接受 `127.0.0.1` 与 `localhost`，缺省 `127.0.0.1`）、`--port`（缺省 4400）、`--artifact-port`（缺省 4401）、`--no-build`（不构建，用现有的 `dist/web`）或 `--static-dir <目录>`（用现成的前端产物） | `nbdev.panel-serve/v1` |
 | `nbdev panel open` | `--print`（只打印登录链接，不打开浏览器） | `nbdev.panel-open/v1` |
-| `nbdev dev start` | `--checkout <key 或路径>`（缺省调用者所在的 checkout）、`--package`（缺省 `packages/neuro-book`）、`--script`（缺省 `dev`）、`--work <workRef> --task <taskRef>`（日志放进这个 Task）、`--ready-pattern <正则>`、`--ready-timeout <秒>`（缺省 180）、`--grace <秒>`（停时的宽限期，缺省 10）、`--as` | `nbdev.dev-start/v1`（长命令，见“开发服务”） |
+| `nbdev dev start` | `--checkout <key 或路径>`（缺省调用者所在的 checkout）、`--package`（缺省 `packages/neuro-book`）、`--script`（缺省 `dev`）、`--work <workRef> --task <taskRef>`（日志放进这个 Task）、`--ready-pattern <正则>`、`--ready-timeout <秒>`（缺省 180）、`--sample`（让应用准备样例数据，见“开发服务”的“样例”）、`--sample-timeout <秒>`（只与 `--sample` 一起给，缺省 60）、`--grace <秒>`（停时的宽限期，缺省 10）、`--as` | `nbdev.dev-start/v1`（长命令，见“开发服务”） |
 | `nbdev dev status` | `--checkout`、`--package`、`--script`、`--all`（全部 checkout）、`--wait-ready`、`--timeout <秒>` | `nbdev.dev-status/v1` |
 | `nbdev dev stop [<runId>]` | 不给 runId 时按 `--checkout`、`--package`、`--script` 找；`--force`、`--grace <秒>`、`--as` | `nbdev.dev-stop/v1` |
 | `nbdev worktree new <workRef> <taskRef>` | `--slug <短名>`（缺省 Task 的 slug）、`--type`（缺省 `feat`）、`--from`（缺省 `master`）、`--as` | `nbdev.worktree-new/v1` |
 | `nbdev find <词>` | `--in <checkout key 或 all>`（缺省 all）、`--name`（只找文件名，不跑内容搜索，条数与截断只算文件名）、`--limit <n>`（每个 checkout，缺省 20） | `nbdev.find/v1` |
-| `nbdev shot [-- <参数…>]` | `--checkout`、`--package`（缺省 `packages/neuro-book`）、`--work <workRef> --task <taskRef>`、`--url <地址>`；`--` 之后的参数原样交给 `lab:shot` | `nbdev.shot/v1` |
+| `nbdev shot [-- <参数…>]` | `--checkout`、`--package`（缺省 `packages/neuro-book`）、`--work <workRef> --task <taskRef>`、`--url <地址>`、`--page <同源路径>`（截产品页面，交给 `page:shot`）；`--` 之后的参数原样交给 `lab:shot`（带 `--page` 时交给 `page:shot`） | `nbdev.shot/v1` |
 
 - `workRef` 是完整 id（`w00022-dev-panel`）或编号（`w00022`）；`taskRef` 是完整 id 或编号（`t06`、`t100`）。
 - `<提问>` 写 `<artifactId>#<题号>`；Task 提问集里的题可以只写题号。`--by` 另可写 `<workRef>/<taskRef>/<artifactId>#<题号>` 指向别的 Task。
@@ -73,13 +73,23 @@
   - `READY <url> run=<runId> [reused] [owner=<会话键>]`（`ready`）；
   - `NOT_READY <日志> run=<runId> [status=<最后一次的状态码>] [reused]`（`not_ready`）：到 `--ready-timeout` 还没就绪，服务照留、照常监管。监管进程之后照样读日志、探测（探测放慢到 2 秒一次），就绪时补写登记的 `url`、`readyAt`，**再打一行 `READY`**：`NOT_READY` 之后可能还会有 `READY`；
   - `EXITED <退出码或信号> run=<runId> [leftovers=<n>]`（`exited`）：服务退出，`leftovers` 是组长退出后补收的进程数（快照里与进程组里还活着的，按 pid 去重）。
+  - `SAMPLE <地址> run=<runId>`（`{"event": "sample", "url", "runId"}`）与 `SAMPLE_FAILED <原因> run=<runId>`（`{"event": "sample_failed", "reason", "runId"}`）：只在带 `--sample` 时出现，见下面的“样例”。
   - 起来之前就失败（参数、checkout、脚本、工具）照常输出错误外壳与退出码。
+- **样例**（`--sample`，t18）：让应用在开发服务里准备一份样例数据，告诉 nbdev 打开它的地址。约定只有下面三条，任何应用都可以按它实现；应用知道样例是什么、放在哪、怎样算准备好，nbdev 不知道应用的路由。
+  - nbdev 给开发脚本的环境设 `NBDEV_SAMPLE=1`；不带 `--sample` 时从环境里去掉 `NBDEV_SAMPLE`，所以登记里的 `sample` 就是应用实际收到的。
+  - 应用准备好之后在日志里打一行 `[dev] open-path <同源路径>`（例如 `[dev] open-path /?project=sample`）；失败或超时打一行 `[dev] sample-failed <原因>`，服务照常运行。“本代”的结果是最后一行 `[dev] backend-ready` 之后的第一行结果（日志里没有 `backend-ready` 的应用从头算）；后端重启（新的一行 `backend-ready`）就是新的一代。
+  - nbdev 用 `new URL(<同源路径>, <READY 的地址>)` 拼出地址。路径是绝对 URL、以 `//` 开头、含反斜杠，或拼出来与 `READY` 的地址不同源，就当作失败，原因是“open-path 不是同源路径：<路径>”。
+
+  样例结果不与 `READY` 绑在一起：应用在服务就绪之后才在后台准备，结果可能比 `READY` 晚到。何时打：
+  - 新起的服务：`READY` 之后接着读日志，读到本代的结果就打 `SAMPLE` 或 `SAMPLE_FAILED`；`READY` 之后到 `--sample-timeout` 还没有结果就打 `SAMPLE_FAILED`，原因是“应用没有报告样例结果（不支持 NBDEV_SAMPLE，或还没准备好）”，这一代之后再到的结果不补打。之后后端每重启一代、报了结果就再打一行。
+  - 复用的服务：打过 `READY` 之后只读日志末尾 4 MiB，找最后一行 `backend-ready` 之后的结果，有就立刻打；没有就接着读，到 `--sample-timeout` 打上面那条 `SAMPLE_FAILED`；打过一行就以 0 退出。复用的服务起时没有带 `--sample` 时，应用不会报结果，立即打 `SAMPLE_FAILED`（原因“复用的服务起时没有带 --sample，应用没有准备样例”）。等的时候它结束了就打 `EXITED`、以 1 退出（与等就绪时一样）。
+  - 没有 `READY` 就不打；`EXITED` 之后不再打。样例失败不改变退出码。
 - **监管进程的退出码**：服务被 `dev stop` 或信号停掉为 0；服务自己退出为 1（`dev_exited`，不论之前有没有就绪）；停完核对不过为 1（`stop_incomplete`）。服务自己的退出码只在 `EXITED` 行里。
 - **复用**：键是（checkout、package、script）。
   - 只复用组长还活着的同键运行（状态 `starting`、`running`，或 `orphaned` 且原因是 `supervisor_gone`）。`leader_exited`（开发脚本已退、只剩没收掉的进程）的服务早就不在了：先按下面的停法收掉（监管进程不在，按属主判据不要 `--force`），给 `leftovers_stopped`，再起新的；收不干净报 `stop_incomplete`。
   - 在 `run/procs/` 的锁里查，有能复用的就不起新的，按同一套就绪规则读它的日志、打 `READY` 或 `NOT_READY`，带 `reused`，退出码 0；认出就绪时把 `url`、`readyAt` 写回登记（只在还没有 `readyAt` 时写）。等的时候每秒重读登记，复用的服务在就绪之前结束了就打 `EXITED`（退出码取它登记里的，监管进程还没写时为空）、以 1 退出，不再等满时限；没有就在锁里起服务、写好含 pid 的登记再放锁，两个会话同时起只有一份。
   - 登记里已就绪的，先按就绪的判据探测一次地址：连得上才打 `READY … reused`；连不上报 `dev_unresponsive`（3），不替别人停服务，按提示先 `dev stop` 再起（不是你起的、属主还在要加 `--force`）。
-  - 复用别人起的给 `reused_other_owner`（它随属主的会话结束而停，要独立的一份请换 checkout）；复用没人监管的（`supervisor_gone`）给 `supervisor_gone`（用完请 `dev stop`）；给的 `--ready-pattern`、`--work --task` 与它起时不同给 `reused_with_different_options`。
+  - 复用别人起的给 `reused_other_owner`（它随属主的会话结束而停，要独立的一份请换 checkout）；复用没人监管的（`supervisor_gone`）给 `supervisor_gone`（用完请 `dev stop`）；给的 `--ready-pattern`、`--work --task` 与它起时不同，或带不带 `--sample` 与它起时不同，给 `reused_with_different_options`（`details.differences` 列出 `ready-pattern`、`work/task`、`sample`）。
 - **停法**（`dev stop`、监管进程收到 SIGTERM、SIGINT、SIGHUP，以及组长自己退出之后的补收，都用同一套）：
   1. 先写登记的 `stoppingAt`、`stoppedBy`；
   2. 组长还在就**只给组长发 SIGTERM**（`bun run` 转给开发脚本，按它自己的顺序收口：master 的 source-dev 经 owned-process 收掉另一个会话里的运行时）；组长已不在就给进程组与后代快照里还活着的发 SIGTERM；
@@ -99,12 +109,13 @@
 
 **`find`**：与面板的搜索同一套实现。记录（Work、Task、产物的编号与标题）加各 checkout 里跟踪的与未被忽略的文件的文件名与内容；每个 checkout 缺省 20 条、合计最多 200 条，截断时 `truncated: true`。没有命中也是退出码 0。
 
-**`shot`**：只做薄包装，截图逻辑全在目标 checkout 的 `lab:shot` 里。
+**`shot`**：只做薄包装，截图逻辑全在目标 checkout 的包脚本里：缺省是 `lab:shot`（Lab 场景），带 `--page <同源路径>` 时是 `page:shot`（产品页面，t18）。
 
 - 地址：`--url`，没有就取这个 checkout 上经 nbdev 起、能复用（判据同 `dev start` 的复用）、已就绪且地址此刻按就绪判据连得上的服务的地址；都没有报 `dev_not_running`（退出码 5）。
 - 输出目录：带 `--work --task` 时是 `.local/agent/works/<W>/tasks/<T>/shots/<UTC 时间>/`，否则是 `.local/agent/shots/<UTC 时间>/`。
 - `TMPDIR` 指到 `/dev/shm/nbdev-shot-<随机>`，跑完删掉：`/tmp` 是带配额的内存盘，Chrome 的临时数据会把它占满。
-- 不注入浏览器路径。`package.json` 里没有 `lab:shot` 报 `shot_unavailable`（3），`package.json` 不是合法 JSON 报 `invalid_record`（1，`details.path`）；`lab:shot` 失败报 `shot_failed`（1），带它 stderr 的末尾。
+- 参数：交给 `lab:shot` 的是 `--url <地址> --out <目录>`，交给 `page:shot` 的是 `--url <地址> --path <路径> --out <目录>`，再接 `--` 之后的参数，原样、顺序不变（`page:shot` 的点击、等待步骤按出现的顺序执行）。路径是否同源由 `page:shot` 自己核对。
+- 不注入浏览器路径。`package.json` 里没有要用的脚本报 `shot_unavailable`（3，`details.script` 是缺的脚本名 `lab:shot` 或 `page:shot`），`package.json` 不是合法 JSON 报 `invalid_record`（1，`details.path`）；脚本失败报 `shot_failed`（1），带它 stderr 的末尾。
 
 ### 会话与租约
 
@@ -229,12 +240,12 @@ stdout 只有一个对象，诊断走 stderr：
 | `audit_write_failed` | 面板：写仓库成功了，但审计初始化过却写不进去（权限、属主不对），这次没记上 |
 | `unreadable_notify_record` | 面板：某份通知的尝试记录读不出或格式不对，已跳过（只影响去重与历史） |
 | `reused_other_owner` | `dev start` 复用了别的会话（或认不出的调用者）起的服务：它随属主的会话结束而停 |
-| `reused_with_different_options` | `dev start` 复用了已在跑的服务，给的 `--ready-pattern`、`--work --task` 与它起时不同、没有生效（`details.differences`） |
+| `reused_with_different_options` | `dev start` 复用了已在跑的服务，给的 `--ready-pattern`、`--work --task`、带不带 `--sample` 与它起时不同、没有生效（`details.differences`） |
 | `unreadable_proc_record` | 某份进程登记读不出或格式不对，已跳过 |
 | `proc_record_write_failed` | `dev start` 收到信号时没能写登记（之后的读者按 `supervisor_killed` 判） |
 | `supervisor_gone` | `dev start` 复用了监管进程已不在的服务：没有人监管它，用完请 `dev stop` |
 | `leftovers_stopped` | `dev start` 先收掉了同键的残留（开发脚本已退、只剩没收掉的进程），再起新的 |
-| `proc_snapshot_failed`、`ready_watch_failed` | 监管进程记后代快照、读日志认就绪时出错（诊断用） |
+| `proc_snapshot_failed`、`ready_watch_failed`、`sample_watch_failed` | 监管进程记后代快照、读日志认就绪、读日志等样例结果时出错（诊断用） |
 | `stop_incomplete` | 监管进程收尾时还有进程没收掉（`details.leftoverPids`）；`dev stop` 遇到同样情形报同名错误 |
 | `home_not_written` | `worktree new` 建好了 worktree，但没能在登记表写 `home` |
 

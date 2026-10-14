@@ -5,6 +5,7 @@
  * - 内置两种就绪行：w00017 一系的 `[dev] page-ready <url>`（就绪以随后的 `[dev] backend-ready` 为准），
  *   listhen 的 `➜ Local: <url>`（master、nb-ui 与 Lab 的 Nuxt）；`--ready-pattern` 给了就只认它，第一个捕获组是地址。
  * 认出地址之后还要 HTTP 探测（见 `probeStatus` 的调用方）：listhen 那一行出现时 Nuxt 只是开始监听。
+ * 样例结果行（`[dev] open-path`、`[dev] sample-failed`，t18）也在这里认，读日志与发事件见 `sample.ts`。
  */
 
 const CSI = /\u001b\[[0-9;?<=>!]*[ -/]*[@-~]/gu;
@@ -71,6 +72,49 @@ export function createReadyMatcher(custom: RegExp | null): {feed(line: string): 
             return progress();
         },
     };
+}
+
+const SAMPLE_OPEN_PATH = /^\[dev\] open-path (\S+)/u;
+const SAMPLE_FAILED = /^\[dev\] sample-failed(?:\s+(.*))?$/u;
+
+/** 应用报告的样例结果（`dev start --sample`，t18）：打开样例的同源路径，或失败原因。 */
+export type SampleOutcome = {kind: "open-path"; path: string} | {kind: "failed"; reason: string};
+
+/**
+ * 按“代”记样例结果（t18）：每行 `[dev] backend-ready` 开始新的一代，本代只认第一行结果；
+ * 读到的部分里还没有 `backend-ready` 时，从读起的位置算第 0 代（listhen 式等不打 `backend-ready` 的应用，以及只读日志末尾一段时）。
+ */
+export function createSampleTracker(): {feed(line: string): void; current(): {generation: number; outcome: SampleOutcome | null}} {
+    let generation = 0;
+    let outcome: SampleOutcome | null = null;
+    return {
+        current: () => ({generation, outcome}),
+        feed(line) {
+            if (NBOOK_BACKEND.test(line)) {
+                generation += 1;
+                outcome = null;
+                return;
+            }
+            if (outcome !== null) return;
+            const open = SAMPLE_OPEN_PATH.exec(line);
+            if (open) {
+                outcome = {kind: "open-path", path: open[1]!};
+                return;
+            }
+            const failed = SAMPLE_FAILED.exec(line);
+            if (failed) outcome = {kind: "failed", reason: failed[1]?.trim() || "（应用没有写原因）"};
+        },
+    };
+}
+
+/**
+ * 把 `open-path` 拼成地址：先排除绝对 URL、`//` 开头与含反斜杠的，再核对拼出来的地址与就绪地址同源。
+ * nbdev 不知道应用的路由，只做这一步。
+ */
+export function sampleUrl(path: string, readyUrl: string): string | null {
+    if (/^[a-z][a-z0-9+.-]*:/iu.test(path) || path.startsWith("//") || path.includes("\\")) return null;
+    const url = new URL(path, readyUrl);
+    return url.origin === new URL(readyUrl).origin ? url.href : null;
 }
 
 /** `--ready-pattern` 的正则：写错报用法错误；没有捕获组时整个匹配当地址。 */
