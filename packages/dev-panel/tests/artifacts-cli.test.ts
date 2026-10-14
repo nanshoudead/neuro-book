@@ -156,10 +156,13 @@ describe("产物与答复的命令（场景）", () => {
         expect([immediate.exitCode, data<{cursor: string}>(immediate.json).cursor]).toEqual([0, answered.data.answer.answerId]);
         const timedOut = await fixture.cli(["answers", "w00001", "t01", "review", "--wait", "--since", answered.data.answer.answerId, "--timeout", "1", "--json"]);
         expect([timedOut.exitCode, timedOut.json?.errors[0]?.code]).toEqual([4, "wait_timeout"]);
-        const interrupted = await startWaiter(fixture, ["w00001", "t01", "review", "--since", answered.data.answer.answerId, "--timeout", "60"]);
-        interrupted.child.kill("SIGTERM");
-        const stopped = await interrupted.result;
-        expect([stopped.exitCode, (JSON.parse(stopped.stdout) as CliEnvelope).errors[0]?.code]).toEqual([4, "wait_interrupted"]);
+        // SIGHUP 是挂着它的终端或会话关掉时收到的，与 SIGTERM 一样要带回外壳。
+        for (const signal of ["SIGTERM", "SIGHUP"] as const) {
+            const interrupted = await startWaiter(fixture, ["w00001", "t01", "review", "--since", answered.data.answer.answerId, "--timeout", "60"]);
+            interrupted.child.kill(signal);
+            const stopped = await interrupted.result;
+            expect([signal, stopped.exitCode, (JSON.parse(stopped.stdout) as CliEnvelope).errors[0]?.code]).toEqual([signal, 4, "wait_interrupted"]);
+        }
         expect((await fixture.cli(["answers", "--wait", "--pending", "--json"])).exitCode).toBe(2);
         expect((await fixture.cli(["answers", "w00099", "--json"])).json?.errors[0]?.code).toBe("work_not_found");
     }, 60_000);
@@ -290,6 +293,33 @@ describe("产物与答复的命令（场景）", () => {
         }
         expect((await readArtifact(fixture.main, REF)).versions).toEqual([]);
         expect(await git(fixture.main, "log", "--format=%s")).toBe("seed");
+    });
+
+    test("不带 --json：错误、警告那一行之后逐条列出题的位置、未提交的文件与缺失、越界的引用，超过 20 条只列 20 条", async () => {
+        const fixture = await createFixture("cli-details");
+        /** stderr 里 `<label> [<code>]` 那一行之后、缩进两格的明细。 */
+        const detailsOf = (stderr: string, label: string, code: string): string[] => {
+            const lines = stderr.split("\n");
+            const start = lines.findIndex((line) => line.startsWith(`${label} [${code}]`));
+            expect([code, start >= 0]).toEqual([code, true]);
+            const rest = lines.slice(start + 1);
+            const end = rest.findIndex((line) => !line.startsWith("  "));
+            return end === -1 ? rest : rest.slice(0, end);
+        };
+        const gone = Array.from({length: 22}, (_, index) => `<img src="gone-${index}.png">`);
+        await fixture.write(`${DIR}/index.html`, [page(), '<img src="../outside.png">', ...gone].join("\n"));
+        await fixture.write(`${DIR}/shot.png`, "截图");
+        const warned = await fixture.cli(["artifact", "publish", "w00001", "t01", "review", "--kind", "design", "--as", "bob"]);
+        expect(warned.exitCode).toBe(0);
+        expect(detailsOf(warned.stderr, "警告", "unreferenced_files_not_committed")).toEqual([`  ${DIR}/shot.png`]);
+        expect(detailsOf(warned.stderr, "警告", "reference_outside_artifact")).toEqual(["  index.html:5 ../outside.png"]);
+        expect(detailsOf(warned.stderr, "警告", "missing_reference")).toEqual([...gone.slice(0, 20).map((_, index) => `  index.html:${6 + index} gone-${index}.png`), "  另有 2 条，加 --json 看全部"]);
+
+        await fixture.write(`${DIR}/index.html`, [page(), '<section data-nbdev-question="Bad_Id" data-nbdev-type="confirm"><h2>坏题号</h2></section>'].join("\n"));
+        const failed = await fixture.cli(["artifact", "publish", "w00001", "t01", "review", "--as", "bob"]);
+        expect([failed.exitCode, detailsOf(failed.stderr, "错误", "invalid_questions")]).toEqual([2, ["  index.html:5:1 题 Bad_Id：题号只能用小写字母、数字与连字符，以字母或数字开头，最长 63 个字符：Bad_Id [invalid_question_id]"]]);
+        const asked = await fixture.cli(["ask", "w00001", "t01", "--id", "pick", "--type", "single", "--label", "选一个", "--as", "bob"]);
+        expect([asked.exitCode, detailsOf(asked.stderr, "错误", "invalid_questions")]).toEqual([2, ["  题 pick：single 题至少要两个选项 [options_missing]"]]);
     });
 
     test("场景 7：两个进程同时发布同一个产物：版本号不重复，两次都提交了", async () => {

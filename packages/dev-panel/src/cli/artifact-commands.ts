@@ -273,6 +273,8 @@ export const ARTIFACT_COMMANDS: Record<string, CommandSpec> = {
                 const abort = () => controller.abort();
                 process.once("SIGINT", abort);
                 process.once("SIGTERM", abort);
+                // 挂着它的终端或面板会话关掉时发的是 SIGHUP；不接的话进程直接退出，stdout 什么也没有（docs/cli.md 的“answers --wait”）。
+                process.once("SIGHUP", abort);
                 try {
                     result = await waitForAnswers(context, query, {
                         timeoutMs: timeoutSeconds * 1_000,
@@ -285,6 +287,7 @@ export const ARTIFACT_COMMANDS: Record<string, CommandSpec> = {
                 } finally {
                     process.off("SIGINT", abort);
                     process.off("SIGTERM", abort);
+                    process.off("SIGHUP", abort);
                 }
                 // 等完再续期一次；认不出的调用者开头已经给过 caller_unknown，不再重复。
                 if (touch?.caller?.kind === "session") await touch.run();

@@ -131,6 +131,10 @@ stdout 只有一个对象，诊断走 stderr：
 ```
 
 - `warnings`、`errors` 的元素是 `{code, message, details?}`，调用方按 `code` 判断，不看 `message`。
+- 不带 `--json` 时，stderr 的 `警告 [<code>] …`、`错误 [<code>] …` 一行之后，下面几种逐条列出明细（缩进两格，最多 20 条，超出的写“另有 N 条，加 --json 看全部”），其余的码只有那一行：
+  - `invalid_questions`：`<页面>:<行>:<列> 题 <题号>…原因 [<code>]`，`nbdev ask` 登记的题没有页面与行号，从“题 <题号>”写起；
+  - `unreferenced_files_not_committed`：文件路径；
+  - `missing_reference`、`reference_outside_artifact`：`<页面>:<行> <引用>`，没有行号时只写页面。
 - 不带命令、命令不认识或参数在分派到命令之前就出错时，`schema` 为 `nbdev.cli/v1`（错误码 `usage`，退出码 2）；`nbdev help --json`（或 `--help --json`）同样用 `nbdev.cli/v1`，`data.usage` 是用法文本。
 - 写命令的 `data`：`workId`、`taskId`、`paths`、`commit`、`conflicts`、`registryOnly`（登记表里有、但哪里都找不到的 id；本次刚领的号不算），以及 `lease`（取得或续期后的租约，未知调用者为 `null`）与 `released`（这次释放的租约）。`commit` 是下列之一：
   - `{"committed": true, "sha", "paths", "viaOtherCommit"}`：`viaOtherCommit` 为真表示文件被别的会话不带路径的提交一起带走了，内容已在 `master`；
@@ -238,7 +242,7 @@ stdout 只有一个对象，诊断走 stderr：
 
 - 等到选中的答复不为空就退出（退出码 0），输出与不带 `--wait` 时相同。缺省按未确认的答复选：已有未确认的答复时立即返回，所以发布之后、挂上等待之前到达的答复不会被漏掉。只想等之后的新答复时加 `--since <cursor>`（`cursor` 取上一次输出里的值）。
 - 开始时完整读一次范围内的产物，在 stderr 报一行“等待中”；之后每秒只 `readdir` 主工作区里这些产物的 `answers/`，不跑 Git，目录有变化才重读那个产物。没指定产物时还 `readdir` 范围内各 Task 的 `artifacts/`，等待期间新建的产物（例如先挂等待、后 `ask` 建出的 Task 提问集）加入范围。范围里一个产物都没有时照常等，给 `wait_scope_empty`。
-- `--timeout` 缺省 1800 秒，到点退出码 4（`wait_timeout`）；收到 SIGTERM 或 SIGINT 退出码同样是 4（`wait_interrupted`）。
+- `--timeout` 缺省 1800 秒，到点退出码 4（`wait_timeout`）；收到 SIGTERM、SIGINT 或 SIGHUP（终端或挂着它的会话关掉）退出码同样是 4（`wait_interrupted`），照常输出外壳。被 SIGKILL 结束时来不及输出，stdout 为空：调用方把“退出码不是 0、stdout 为空”当作需要重挂。Claude Code 的 TaskStop 先发 SIGTERM，所以通常仍有外壳。
 - **重挂办法**：退出码 4（或被宿主结束）时按原参数重挂；退出码 0 时先处理答复并 `answers ack --through <cursor>`，或带 `--since <cursor>` 重挂，否则按原参数重挂会立刻返回。
 - Claude Code 会话用 `run_in_background` 挂着，命令一退出会话就被唤醒；单个后台任务能活多久没有核实，被宿主结束时照样按原参数重挂，不会丢答复。
 

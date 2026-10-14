@@ -171,12 +171,12 @@ function assertArtifactPath(option: "--entry" | "--include", path: string): void
 
 /** 文件集写下的引用（归一化见 `resolveReference`）：指向产物目录之外的、不存在的各给警告。 */
 async function checkReferences(mainRoot: string, ref: ArtifactRef, references: readonly ArtifactReference[], warnings: Warning[]): Promise<void> {
-    const outside: Array<{page: string; target: string}> = [];
+    const outside: Array<{page: string; target: string; line: number | null}> = [];
     const missing: Array<{page: string; target: string; line: number | null}> = [];
     const dir = artifactDirPath(ref);
     for (const {page, target, line, path} of references) {
         if (path === null) {
-            outside.push({page, target});
+            outside.push({page, target, line});
             continue;
         }
         try {
@@ -442,7 +442,8 @@ export async function askQuestions(context: RepoContext, input: {workRef: string
     const problems: Array<{questionId: string; code: string; message: string}> = [];
     for (const spec of input.questions) {
         for (const problem of validateQuestionDefinition({id: spec.id, type: spec.type, label: spec.label, options: spec.options ?? [], recommend: spec.recommend ?? []})) {
-            problems.push({questionId: spec.id, ...problem});
+            // 与页面标记的问题一样，消息自己写明是哪道题：普通输出逐条列出时不另拼题号。
+            problems.push({questionId: spec.id, code: problem.code, message: `题 ${spec.id}：${problem.message}`});
         }
         if (spec.about) assertAbout(spec.about);
     }
