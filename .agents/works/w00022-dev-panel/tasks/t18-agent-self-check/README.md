@@ -38,6 +38,8 @@ updated: 2026-10-14
 - 范围外的改动：为让截图可靠，改了 neuro-book 的工作台、编辑器、项目三处产品代码，已记进[待确认清单](../../pending-confirmations.md)。
 - 与 w00025 的分支在 `docs/specs/runtime/server-host.md` 第 160 行附近可能有相邻改动，后合入的一方处理。
 
+- 集成分支合入 t18 后（`3ec9f45e5`）主会话跑的门禁：dev-panel、neuro-book、nb-ui 三个包 typecheck 通过；`test:affected --since master` 选中三个包：dev-panel 461 个、nb-ui 581 个、neuro-book bun 1173 个与 vitest 219 个，全部通过；dev-panel `build:web` 成功；`governance:check` 没有失败与警告（范围内）。
+
 ## 下一步
 
 合入 `master` 要开发者授权，合入后重启面板 4400。
