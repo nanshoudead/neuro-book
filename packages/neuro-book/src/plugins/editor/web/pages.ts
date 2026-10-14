@@ -4,7 +4,7 @@
  * 不是资源地址：不读文档、不进会话记录。
  */
 
-import {defineAsyncComponent, shallowRef} from "vue";
+import {defineAsyncComponent, defineComponent, h, shallowRef} from "vue";
 import type {Component} from "vue";
 
 import type {ContributionDeclarations, ContributionHandle, ContributionReceiver} from "@notnotype/nb-runtime/plugins";
@@ -16,6 +16,12 @@ import {EDITOR_PAGES_POINT} from "../shared/contracts";
 import type {EditorPageDeclaration} from "../shared/contracts";
 
 const PAGE_SCHEME = "page://";
+
+/** 页面组件加载期间的占位：空的，只标 aria-busy。 */
+const PAGE_LOADING = defineComponent({
+    name: "EditorPageLoading",
+    setup: () => () => h("div", {"aria-busy": "true", "data-editor-page-loading": ""}),
+});
 
 export const pageAddress = (id: string): string => `${PAGE_SCHEME}${id}`;
 
@@ -91,7 +97,9 @@ export class EditorPageRegistry {
                 if (handle === undefined) return null;
                 let component = this.#components.get(handle);
                 if (component === undefined) {
-                    component = defineAsyncComponent(() => handle.implementation().load());
+                    // 加载期间放一个标了 aria-busy 的空占位（立即显示，不等缺省的 200 毫秒）：标签内容还没出来，读屏与截图工具
+                    // （page:shot）据此知道这里还在加载。
+                    component = defineAsyncComponent({loader: () => handle.implementation().load(), loadingComponent: PAGE_LOADING, delay: 0});
                     this.#components.set(handle, component);
                 }
                 return component;

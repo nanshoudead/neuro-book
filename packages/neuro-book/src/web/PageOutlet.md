@@ -28,6 +28,10 @@ type Emits = {
 - **离线**：页面保留不动，根元素的 `data-rpc-state` 变为 `offline`；横幅 `.nb-offline-banner`（`role="status"`）固定在视口顶部，不占布局、不拦截指针，出现与收起都不推动页面内容。重连成功后横幅收起、标记回到 `online`。
 - **服务端已重启、窗口已关闭**：不再渲染页面，显示 FailurePage，只给刷新。
 
+## 页面合同
+
+上面三个标记在页面组件挂上时就有了，页面按需加载的主体可能还没出来。页面自己在首屏的主体挂上之后，在根元素上加 `data-page-rendered`（空值）；主体同步渲染的页面直接写在根上（`NotFoundPage`），按需加载主体的页面等它挂上再加（工作台的 `/` 与 `/workbench`，见 `plugins/workbench/web/home-page.ts`）。页面里还在加载的区域标 `aria-busy="true"`，加载完去掉。截图工具 `page:shot`（`scripts/page-shot.ts`）按这两条与动画判断画面是否就绪；不给 `data-page-rendered` 的页面（目前是 `/lab`，它有自己的 `lab:shot`）截不了。
+
 ## 隐藏通道理由
 
 - `state:local`：持有窗口状态的本地快照，随订阅更新，组件卸载时取消订阅。

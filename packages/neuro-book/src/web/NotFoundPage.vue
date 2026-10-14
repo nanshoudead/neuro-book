@@ -6,7 +6,7 @@ const route = useRoute();
 </script>
 
 <template>
-    <main class="nb-host-page" data-page-not-found>
+    <main class="nb-host-page" data-page-not-found data-page-rendered>
         <h1>页面不存在</h1>
         <p class="nb-host-reason">{{ route.fullPath }}</p>
         <RouterLink to="/">回到工作台</RouterLink>

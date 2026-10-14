@@ -88,6 +88,8 @@ export function createWelcomeHost(options: WelcomeHostOptions): Component {
             const creating = shallowRef(false);
             const problem = shallowRef<string | null>(null);
             const now = shallowRef(new Date(options.now()).toISOString());
+            /** 作品信息与项目根的列出还在取：根上标 aria-busy，免得把“还没有简介”这类缺省当成结果（截图工具也据此等）。 */
+            const loading = shallowRef(options.project !== null);
 
             const execute = (command: string, args: Record<string, unknown>): void => {
                 void options.commands.execute(command, args, {source: "user"}).then((result) => {
@@ -100,6 +102,7 @@ export function createWelcomeHost(options: WelcomeHostOptions): Component {
                 if (project === null) return;
                 const files = options.files;
                 const [shelf, listing] = await Promise.all([options.remote.shelf({}), files === null ? null : files.list("project://")]);
+                loading.value = false;
                 now.value = new Date(options.now()).toISOString();
                 if (shelf.ok) {
                     const item = shelf.value.find((candidate) => candidate.id === project.id);
@@ -145,6 +148,7 @@ export function createWelcomeHost(options: WelcomeHostOptions): Component {
                 creating: creating.value,
                 problem: problem.value,
                 shortcut: options.shortcut(),
+                "aria-busy": loading.value ? "true" : undefined,
                 "onNew-chapter": () => void newChapter(),
                 onOpen: (address: string) => execute("nbook.editor.open", {address, mode: "permanent"}),
                 onReveal: (address: string) => execute("nbook.files.reveal", {address, expand: true}),

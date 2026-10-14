@@ -104,6 +104,9 @@ const EditorAreaFailed = markRaw(defineComponent({
     props: {error: {type: Error, required: true}},
     setup: (failed) => () => h("p", {"class": "workbench-shell__editor-failed", "role": "alert"}, text(formatText(TEXT.editorFailed, {reason: failed.error.message}))),
 }));
+const EditorAreaLoading = markRaw(defineComponent({
+    setup: () => () => h("div", {"class": "workbench-shell__editor-loading", "aria-busy": "true", "data-workbench-editor-loading": ""}),
+}));
 /** 手势预览里已经拉出来、记录里还收着的部件（外壳布局按预览报上来，手势结束清空）：视图的首次加载与“可见”跟着它走。 */
 const previewParts = shallowRef<ReadonlyArray<ShellPartId>>([]);
 const editorContext: EditorAreaContext = {visible: computed(() => state.value.facts?.effectivePanel.maximized !== true || previewParts.value.includes("editor"))};
@@ -112,6 +115,9 @@ const editorComponent = computed((): Component | null => {
     if (provider === null) return null;
     return markRaw(defineAsyncComponent({
         loader: () => provider.load(),
+        // 加载期间槽里是一个标了 aria-busy 的空占位，立即显示（不等缺省的 200 毫秒）：截图工具据此等编辑器内容出来。
+        loadingComponent: EditorAreaLoading,
+        delay: 0,
         errorComponent: EditorAreaFailed,
     }));
 });
