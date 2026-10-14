@@ -1,5 +1,5 @@
 ---
-标签: ["state:inject"]
+标签: []
 ---
 
 # InboxList
@@ -18,6 +18,8 @@ type InboxConflict = {kind: "number_conflict"; label: string; live: boolean; ids
 interface InboxListProps {
     /** 收件箱条目；必填，空数组时显示空态 */
     items: Array<InboxQuestion | InboxConflict>;
+    /** 会话标题（`/api/overview` 的 `sessionTitles`，键是会话键）；必填，没有标题的提问者缺项、只写短键 */
+    sessionTitles: Readonly<Record<string, SessionTitle>>;
 }
 interface InboxListEmits {
     /** 普通左键点了一个入口；参数是面板内的地址，由页面 `router.push`。中键与带修饰键的点击交给浏览器（新标签页） */
@@ -26,7 +28,3 @@ interface InboxListEmits {
 ```
 
 没有插槽与 expose。每个产物一行，是去产物页的真实链接（`<a href>`），能在新标签页打开。撞号那一行本身不是链接，“怎么处理”是去文档页的真实链接（`ActionLink`）。
-
-## 隐藏通道理由
-
-`state:inject`：会话标题（`sessionTitles`，t17）由页面用 `host/session-titles.ts` 的 `provideSessionTitles` 提供，这里用 `useSessionTitles` 取。标题只是给“谁”加一个好认的名字，经过的每一层零件都多一个 prop 只为往下传一张表，不值得；没有页面提供时按空表处理，只显示短键，和没有标题时一样，所以单独挂载照样能渲染。

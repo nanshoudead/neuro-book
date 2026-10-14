@@ -2,10 +2,11 @@
 import {Tooltip} from "@notnotype/nb-ui/components";
 import {computed} from "vue";
 import {TITLE_SOURCE, type SessionName} from "../host/format.js";
+import SessionLabel from "./SessionLabel.vue";
 
 /** 一份租约（谁在动）的虚线胶囊；契约见同名 .md。 */
-const props = withDefaults(defineProps<{session: SessionName; task?: string | null; stale?: boolean; ended?: boolean; hint?: string}>(), {task: null, stale: false, ended: false, hint: ""});
-/** 提示：调用方的说明在前，有标题时补上完整标题与它从哪里读的（标题可能被截断）。 */
+const props = withDefaults(defineProps<{session: SessionName; task?: string | null; stale?: boolean; ended?: boolean; hint?: string; compact?: boolean}>(), {task: null, stale: false, ended: false, hint: "", compact: false});
+/** 提示：调用方的说明在前，有标题时补上完整标题与它从哪里读的（标题可能被截断，`compact` 时根本不显示）。 */
 const tip = computed(() => {
     const {title, source} = props.session;
     const titleNote = title && source ? `${title}（标题取自 ${TITLE_SOURCE[source]}）` : "";
@@ -21,11 +22,9 @@ const tip = computed(() => {
             :tabindex="tip === '' ? undefined : 0"
         >
             <span class="i-lucide-user-round size-3 shrink-0" aria-hidden="true" />
-            <template v-if="session.title">
-                <span class="min-w-0 max-w-64 truncate">{{ session.title }}</span>
-                <span class="nbdev-caption nbdev-secondary shrink-0">{{ session.short }}</span>
-            </template>
-            <span v-else class="truncate">{{ session.short }}</span>
+            <span v-if="compact" class="whitespace-nowrap">{{ session.short }}</span>
+            <!-- 完整标题在胶囊自己的提示里，标题这里只截断，不再套一层提示。 -->
+            <SessionLabel v-else :session="session" :full-text="false" />
             <span v-if="task" class="shrink-0 nbdev-secondary">· {{ task }}</span>
             <span v-if="ended" class="sr-only">（已失效）</span>
         </span>

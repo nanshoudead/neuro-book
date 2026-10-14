@@ -37,8 +37,9 @@ html {
 /*
  * 竖向滚动者：内容长短变化时宽度不跳（会动态溢出的容器，nb-ui 界面开发规范第 15 条的场景 B）。滚动与槽位一起声明，
  * 不用 nb-ui 的 nb-ui-scrollbar-stable（它只管槽位）；要带断点前缀的地方（文档页）用 Tailwind 的 [scrollbar-gutter:stable]。
- * 滚动容器都带 relative，做绝对定位后代的包含块：nb-ui 的 CheckboxGroup 把 sr-only（absolute）的 input 放在 label 里，
- * 包含块落到外面 overflow: hidden 的 Splitter 格子时，点选项聚焦它会把那一格滚走，整页变空（t15 阶段 4 第 1 批）。
+ * 滚动容器都带 relative，做绝对定位后代的包含块。起因是 t15 阶段 4 第 1 批：nb-ui 复选框里 sr-only（absolute）的 input
+ * 包含块落到外面 overflow: hidden 的 Splitter 格子，点选项聚焦它会把那一格滚走、整页变空。nb-ui 已在 label 上修好
+ * （t17，见 FormCheckbox.md），这条留作面板的防御性约定：别的绝对定位后代聚焦时也不会去滚外面的格子。
  * 页面里自己开的滚动容器同样加 relative，tests/web-scroll-containers.test.ts 钉住。
  */
 .nbdev-scroll-y {

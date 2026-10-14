@@ -5,7 +5,6 @@ import {useRouter} from "vue-router";
 import {daysSince, HERDR_STATUS_LABEL} from "../host/format.js";
 import {loadStateOf, useResource} from "../host/panel-data.js";
 import {byAttention} from "../host/nav.js";
-import {provideSessionTitles} from "../host/session-titles.js";
 import {attentionCount} from "../host/notify-actions.js";
 import type {NotifyData, Overview, OverviewWork} from "../host/types.js";
 import InboxList from "../parts/InboxList.vue";
@@ -21,8 +20,6 @@ import WorkCard from "../parts/WorkCard.vue";
  */
 const router = useRouter();
 const overview = useResource<Overview>(() => "/api/overview", ["records", "activity"]);
-// Work 卡片的“谁在动”与收件箱的提问者显示会话标题（t17）。
-provideSessionTitles(() => overview.data.value?.sessionTitles);
 const STALE_DAYS = 30;
 const showRest = ref(false);
 
@@ -57,7 +54,7 @@ const navigate = (href: string) => void router.push(href);
                     <ActionLink href="/live/sessions?view=notify" icon="i-lucide-arrow-right" @navigate="navigate">去处理</ActionLink>
                 </p>
                 <div class="nbdev-surface px-3 py-1">
-                    <InboxList :items="overview.data.value.inbox" @navigate="navigate" />
+                    <InboxList :items="overview.data.value.inbox" :session-titles="overview.data.value.sessionTitles" @navigate="navigate" />
                 </div>
             </section>
             <section class="nbdev-stack" aria-labelledby="works-title">
@@ -66,7 +63,7 @@ const navigate = (href: string) => void router.push(href);
                     <ActionLink href="/live/sessions" icon="i-lucide-terminal" @navigate="navigate">{{ sessionLine }}</ActionLink>
                 </div>
                 <div class="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
-                    <WorkCard v-for="work in current" :key="work.workId" :work="work" @navigate="navigate" />
+                    <WorkCard v-for="work in current" :key="work.workId" :work="work" :session-titles="overview.data.value.sessionTitles" @navigate="navigate" />
                 </div>
                 <p v-if="current.length === 0" class="nbdev-empty">最近 {{ STALE_DAYS }} 天没有在动的 Work</p>
                 <div v-if="rest.length > 0" class="nbdev-stack">
@@ -74,7 +71,7 @@ const navigate = (href: string) => void router.push(href);
                         其余 {{ rest.length }} 个 Work（完成、搁置或超过 {{ STALE_DAYS }} 天没有更新）
                     </Button>
                     <div v-if="showRest" class="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
-                        <WorkCard v-for="work in rest" :key="work.workId" :work="work" @navigate="navigate" />
+                        <WorkCard v-for="work in rest" :key="work.workId" :work="work" :session-titles="overview.data.value.sessionTitles" @navigate="navigate" />
                     </div>
                 </div>
             </section>

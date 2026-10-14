@@ -8,7 +8,6 @@ import {taskPeekHref} from "../host/peek.js";
 import {emptyExpansion, MAX_EXPANDED, toggleExpansion, type TaskTableDetail} from "../host/task-expand.js";
 import {loadStateOf, useResource} from "../host/panel-data.js";
 import {docHref, editHref, newHref} from "../host/routes.js";
-import {provideSessionTitles} from "../host/session-titles.js";
 import {useStatusChange} from "../host/status-change.js";
 import type {Meta, TaskPageData, WorkView} from "../host/types.js";
 import ActionLink from "../parts/ActionLink.vue";
@@ -28,8 +27,6 @@ import TaskTable from "../parts/TaskTable.vue";
 const props = defineProps<{workId: string}>();
 const router = useRouter();
 const work = useResource<WorkView>(() => `/api/work/${encodeURIComponent(props.workId)}`, ["records", "activity"]);
-// Task 表里租约的会话标题（t17）。
-provideSessionTitles(() => work.data.value?.sessionTitles);
 const meta = useResource<Meta>(() => "/api/meta", ["records"]);
 const WORK_STATUSES = ["active", "done", "shelved"];
 /** 写入口的可用性：主工作区不能写、记录来自分支时只说明原因。 */
@@ -118,7 +115,7 @@ const currentHtml = computed<Record<string, string>>(() => Object.fromEntries((w
             </section>
             <section class="nbdev-stack" aria-labelledby="tasks-title">
                 <h2 id="tasks-title" class="nbdev-heading">Task</h2>
-                <TaskTable :work-id="props.workId" :tasks="work.data.value.tasks" :expanded="expansion.order" :details="details" :current-html="currentHtml" @navigate="navigate" @toggle="(taskId) => (expansion = toggleExpansion(expansion, taskId))" @retry="retryDetail" />
+                <TaskTable :work-id="props.workId" :tasks="work.data.value.tasks" :expanded="expansion.order" :details="details" :current-html="currentHtml" :session-titles="work.data.value.sessionTitles" @navigate="navigate" @toggle="(taskId) => (expansion = toggleExpansion(expansion, taskId))" @retry="retryDetail" />
             </section>
             <UncommittedDialog :open="status.pending.value !== null" :path="status.pending.value?.path ?? ''" :changes="status.pending.value?.changes ?? null" :pending="status.write.pending.value" @confirm="status.confirmUncommitted" @cancel="status.pending.value = null" />
             <!-- 持久页里混着的临时片段，仍用虚线框标出（t15 阶段 3g）。 -->
