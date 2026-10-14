@@ -62,11 +62,13 @@ code { font-family: var(--mono); font-size: 12.5px; }
 </style>
 </head>
 <body>
-<header class="top"><b>nb-story 界面评审板</b><small>w00024 t01-ui-design 的产物 · 第 4 轮 · 2026-10-14</small></header>
+<header class="top"><b>nb-story 界面评审板</b><small>w00024 t01-ui-design 的产物 · 第 5 轮 · 2026-10-14</small></header>
 <main>
 
 <div class="lead">
-    <h1>第 4 轮：图、段落级的阅读位置、成百上千条记录</h1>
+    <h1>第 5 轮：剩下五页，以及平板、手机宽度</h1>
+    <p>第 4 轮的三道题（9、10，以及第 3 轮的 8）还没答，等答复期间先把计划里剩下的部分做完：数值、悬念、时间线、情节、原文五页，人物卡记录“在主区打开”的宽表格，以及平板、手机宽度。这一轮新问两道题（11、12），第 4 轮的内容在下面原样保留。</p>
+    <h1 style="margin-top:20px;font-size:18px">第 4 轮：图、段落级的阅读位置、成百上千条记录</h1>
     <p>第 3 轮你定了版式可以往下细化，另提了三点（Task README 决定第 8 条）。这一轮按这三点改了稿子：读到哪里可以精确到段；人物卡改成页签，记录按几百条的量级做了筛选、搜索和按章分组；加了“关系图”和“全书图”两页，人物卡里也有一张小关系图。数据仍是“读到第 38 章”的真实样本。</p>
     <p>画图用的是 Cytoscape.js（MIT 许可，成熟，样式和布局多，几千个点还流畅），只装在草稿 worktree 里。读到第 100 章、要画上万个点时，再看要不要换成用 WebGL 画的库（例如 Sigma.js）。</p>
 </div>
@@ -74,7 +76,55 @@ code { font-family: var(--mono); font-size: 12.5px; }
 <div class="round">待定</div>
 
 <section class="q">
-    <h2>这一轮的改动（不用答）</h2>
+    <h2>第 5 轮的改动（不用答）</h2>
+    <p>数据仍是“读到第 38 章”的真实样本。每页都按几百条的量级做：能筛、能搜、默认最近的在前，实现时长列表都用虚拟滚动。</p>
+    <div class="shots">
+        <figure><img src="r5/ledger.webp" alt="数值页"><figcaption>数值：上面按资源切换（神典石、粉丝数、打赏收入、现金），余额画成阶梯线，下面逐笔列出变化、余额和原因。原文直接报出余额的那一笔和逐笔累加对账，对不上的标黄并写出差额（见第 12 题）。下方是任务（按进行中、已完成筛）和道具的得失。</figcaption></figure>
+        <figure><img src="r5/questions.webp" alt="悬念页"><figcaption>悬念：94 条，默认只看还没解开的（82 条），最近有进展的在前，可改成按提出顺序；按字或人物搜。点一条展开它的经过：哪章提出、每次部分解答写了什么，每一步都能点开原文。</figcaption></figure>
+        <figure><img src="r5/timeline.webp" alt="时间线页"><figcaption>时间线：按故事里的第几天、什么时段排（69 个时间点，故事里过了 7 天），“五分钟前”这类相对时间写在下面。故事时间早、却在后面章节才写到的事标“第 N 章补叙”。可切到按章节排，对照每章写的是哪一天。</figcaption></figure>
+        <figure><img src="r5/episodes.webp" alt="情节页"><figcaption>情节：左边是主线（33 条，悬停看概要），点一条只看它的情节；右边按章分组，点一段展开概要、步骤（每步带出处）、结果，以及和前面哪段情节相连（接着、发生在其后、起因是……），点关联直接跳过去。</figcaption></figure>
+        <figure><img src="r5/source.webp" alt="原文页"><figcaption>原文：左边目录，读到之后的章只显示“未读”，不显示标题（标题会剧透，第 3 轮的问题 3）；正文里人名标色，段落之间插一行这几段的概要；段号右边的数字是引用了这一段的记录条数，点开在右侧列出。打开“段”时有一条“读到这里”的线，之后的记录不显示。</figcaption></figure>
+        <figure><img src="r5/records.webp" alt="记录宽表格"><figcaption>人物卡“记录”页签里点“在主区打开”：同样的筛选加“只看秘密”，宽表格多出“怎么知道的”一列；实现时整表虚拟滚动、表头固定、可按列排序。</figcaption></figure>
+    </div>
+    <div class="shots">
+        <figure><img src="r5/tablet.webp" alt="平板宽度"><figcaption>平板（约 780 像素宽）：导航收成图标条；人物卡这类抽屉浮在主区右侧，不再挤窄主区，点外面关掉。顶栏的搜索收成按钮，提问框变短。情节页的主线改成横向一排。</figcaption></figure>
+        <figure><img src="r5/phone.webp" alt="手机宽度"><figcaption>手机（约 400 像素宽），从左到右：总览、人物卡、导航、原文的段落记录。顶栏分两行，读到哪里单占一行；底部四个常用页（总览、人物、关系图、问答）加“更多”，“更多”打开完整导航；抽屉改成从底部拉起的面板。</figcaption></figure>
+    </div>
+</section>
+
+<section class="q" data-nbdev-question="phone-scope" data-nbdev-type="single" data-nbdev-recommend="desktop-tablet-first">
+    <h2><span class="badge todo" data-nbdev-skip>待定</span>11. 手机宽度要不要进第一版？</h2>
+    <p class="ask">上面的手机稿说明版式能收进手机，但真做出来还要处理触屏上的图（双指缩放、点选）、局域网访问（独立服务跑在电脑上）和一套手机宽度的检查。平板宽度只是收起导航、抽屉改浮层，代价小。</p>
+    <div class="opts">
+        <div class="opt rec" data-nbdev-option="desktop-tablet-first"><h3>第一版做宽屏和平板，手机后做</h3><p>代码按三档宽度写（手机档先能显示、不保证好用），手机的触屏交互和局域网访问放到下一版。</p></div>
+        <div class="opt" data-nbdev-option="all-three"><h3>三档都进第一版</h3><p>手机上图页也要能用；第一版的工作量和检查范围都更大。</p></div>
+    </div>
+    <div class="rec-note"><b>推荐第一版做宽屏和平板。</b>第一版是本机跑的独立服务，最常见的用法是在电脑上边读边查、边写边查；手机要先解决怎么连到电脑上的服务。版式已经按三档留好，以后加手机不用改结构。</div>
+</section>
+
+<section class="q" data-nbdev-question="ledger-mismatch" data-nbdev-type="single" data-nbdev-recommend="show-gap">
+    <h2><span class="badge todo" data-nbdev-skip>待定</span>12. 原文报的余额和逐笔累加对不上时怎么显示？</h2>
+    <p class="ask">神典石 18 笔里有 6 处，原文直接写出的余额比抽到的收支逐笔累加多出 100 到 800（例如第 38 章原文说余额 1300，累加只有 500）：中间有任务奖励没抽到。现金第一笔就是支出，起始金额不明。</p>
+    <div class="opts">
+        <div class="opt rec" data-nbdev-option="show-gap"><h3>以原文报数为准，标出差额</h3><p>余额跟着原文报数走；对不上的那一笔标黄，写“比累加多 800”，页顶提示有几处对不上（就是现在的稿子）。</p></div>
+        <div class="opt" data-nbdev-option="stated-only"><h3>只显示原文报数</h3><p>余额只在原文报数处显示，中间的收支只列变化、不算余额；不提示差额。</p></div>
+        <div class="opt" data-nbdev-option="sum-only"><h3>只显示逐笔累加</h3><p>余额全按累加算，原文报数只当一条说明。</p></div>
+    </div>
+    <div class="rec-note"><b>推荐以原文报数为准、标出差额。</b>原文报的数是读者在书里看到的，必须对得上；差额本身也是有用的信息：告诉读者“中间有没记到的收支”，也告诉我们抽取漏了什么。</div>
+</section>
+
+<section class="q">
+    <h2>第 5 轮搭稿时发现的问题（不用答，记下来进计划）</h2>
+    <ol>
+        <li><b>收支漏抽。</b>见第 12 题：神典石有 6 处原文报数比累加多，多半是任务奖励入账没抽到。抽取要么补“任务完成即入账”，要么编译时用原文报数对账并留下差额记录。</li>
+        <li><b>最近几章还没归入主线。</b>主线是隔几章归纳一次的，读到第 38 章时最新的主线只到第 35 章，第 36 到 38 章的情节显示“没有归入主线”。界面要写明“第 36 到 38 章还没归入主线”，或者编译时让主线跟到读到的那一章。</li>
+        <li><b>显示名取哪个称呼。</b>稿子里取的是“读到这里时第一个出现的称呼”，南嘉鱼的化身因此显示成“猫女兽人”。显示名要有规则：例如读到这里时用得最多的称呼，或者读者已知的身份名；没有名字的对象（“与心月狐交谈的深蓝猫娘”）才用描述。</li>
+        <li><b>时间线有 3 个点不知道是哪天。</b>放在最后的“日子不明”一组；判断补叙时不算它们，否则会把前面的点都误判成补叙。</li>
+    </ol>
+</section>
+
+<section class="q">
+    <h2>第 4 轮的改动（不用答）</h2>
     <div class="shots">
         <figure><img src="r4/fine-reading.webp" alt="读到哪里精确到段"><figcaption>读到哪里：章的滑块右边有个“段”按钮，默认收起；打开后多一个段落滑块（第 57 段 / 122），所有页面的“截至”都跟着变成“第 38 章第 57 段”。</figcaption></figure>
         <figure><img src="r4/graph.webp" alt="关系图"><figcaption>关系图：点是人和事物，实线是关系说法（越粗说法越多），虚线是同场次数；“同场至少 N 次”可调。点主要人物打开人物卡，点别的打开它的连线说明。同一份数据在“人物”页是条目，在这里是图。</figcaption></figure>
@@ -84,7 +134,7 @@ code { font-family: var(--mono); font-size: 12.5px; }
 </section>
 
 <section class="q" data-nbdev-question="data-graph-layout" data-nbdev-type="single" data-nbdev-recommend="both-storyline">
-    <h2><span class="badge todo" data-nbdev-skip>待定</span>9. 全书图怎么排？</h2>
+    <h2><span class="badge todo" data-nbdev-skip>待定</span>9. 全书图怎么排？<small data-nbdev-skip>（第 4 轮的题，还没答）</small></h2>
     <p class="ask">“整个数据结构用一张图展示”有两种排法。读到第 38 章是 258 个点、669 条连线；读到第 100 章约 700 个点、几千条连线。</p>
     <div class="shots">
         <figure><img src="r4/datagraph.webp" alt="按关联排"><figcaption>按关联（力导向）：人物、情节、秘密、悬念四类点，按类型开关。能看出谁是中心、什么和什么连着，但点一多就成一团，要靠搜索、选中高亮和类型开关才看得清。</figcaption></figure>
@@ -99,7 +149,7 @@ code { font-family: var(--mono); font-size: 12.5px; }
 </section>
 
 <section class="q" data-nbdev-question="card-tabs" data-nbdev-type="single" data-nbdev-recommend="tabs">
-    <h2><span class="badge todo" data-nbdev-skip>待定</span>10. 人物卡分页签，还是一长页？</h2>
+    <h2><span class="badge todo" data-nbdev-skip>待定</span>10. 人物卡分页签，还是一长页？<small data-nbdev-skip>（第 4 轮的题，还没答）</small></h2>
     <p class="ask">记录上千条以后，人物卡一长页往下翻就到不了底。上面两张人物卡的图是分页签的做法：概况（含知道的秘密）、关系、记录、情节，页签上带条数。</p>
     <div class="opts">
         <div class="opt rec" data-nbdev-option="tabs"><h3>分页签</h3><p>默认停在“概况”；从别处点进来时直接停在对应的页签（例如从关系图点进来停在“关系”）。</p></div>
@@ -119,7 +169,7 @@ code { font-family: var(--mono); font-size: 12.5px; }
 </section>
 
 <section class="q">
-    <h2>这一轮搭稿时发现的问题（不用答，记下来进计划）</h2>
+    <h2>第 4 轮搭稿时发现的问题（不用答，记下来进计划）</h2>
     <ol>
         <li><b>关系线上的字不是“关系”。</b>图里南嘉鱼和苏天晴之间写的是“朋友”，但南小风和苏天晴之间写的是“对风信子的评价”：抽取只给每条说法起了短标签，没有“两人是什么关系”这一项。要在图上写出“姐妹”“朋友”“对手”这类关系，得在抽取或编译时给每对人归纳一个关系（随读到哪里变化），这是记忆图要补的东西。</li>
         <li><b>同名的两个对象。</b>关系图里有两个“苏天晴”：主角和“这副身体的原主人（也叫苏天晴）”。名册与图要能区分同名对象（显示描述或编号）。</li>
