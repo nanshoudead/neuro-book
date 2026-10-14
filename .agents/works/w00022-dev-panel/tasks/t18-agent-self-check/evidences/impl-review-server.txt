@@ -1,0 +1,500 @@
+# w00022/t18 后端与 nbdev 只读实现审查
+
+审查范围：`8276c0bb2..b4772ba3a` 的后端样例、开发后端日志转发、nbdev `--sample` / `shot --page`、相关测试与合同。前端、`page-shot.ts` 与截图视觉结果不在本报告范围。发现按影响排序追加；仓库文件保持只读，实验数据仅在 `/dev/shm/review-t18-srv-lab/`。
+
+### 1. 样例超时后仍会开始新的登记写入
+
+- **严重程度**：重要；**类别**：正确性、不变量。
+- **位置**：`.worktree/w00022-review-t18-impl/packages/neuro-book/src/server/dev/sample.ts:94-100,129-142,208-215`；实际写入链在 `src/server/projects/registry.ts:92-133,168-177`。
+- **现象**：`signal` 只在调用 `registry.create/register` 之前检查，没有传进它们；进入登记后的读取、排队与多步写入不受取消约束。已经报告 `sample-failed 超时` 后，任务仍能新建状态目录、写临时登记表并改名落位；重建分支的 `mkdir` 与后续 `writeProjectIdentity` 之间也没有检查。
+- **为什么是问题**：计划要求“每一步写入之前先查 signal”“超时后不再写”；`DevSampleOptions.signal` 允许已开始的一步完成，不允许尚未开始的登记表写入在取消后启动。把整个 `register/create` 当成一份不可取消写入没有兑现合同，也使停止截止返回时无法保证没有继续写盘的任务。
+- **如何核实**：实际运行 `env TMPDIR=/dev/shm/review-t18-srv-lab/tmp bun --tsconfig-override /dev/shm/review-t18-srv-lab/tsconfig.json /dev/shm/review-t18-srv-lab/server-smoke.ts timeout-register`。实验使用真实 `startServer`、真实登记表与真实 FIFO，不替换方法：预建样例目录，把 `.nbook/project.json` 设成没有写端的 FIFO，让 `register` 卡在身份读取；300 ms 总截止后已收到 `[dev] sample-failed 超时（0.3 秒内没有放好样例）`，此时 `projects.json` 不存在；随后向 FIFO 写入合法身份 `{schema:1,id:"11111111-2222-4333-8444-555555555555"}`，登记表才被创建并含该 id。健康接口为 **200**，停止退出码 **0**、停止失败 **0**，结果行只有那条超时失败。Bun 结束时另有 `Internal error: directory mismatch ... tsconfig.json`，没有将其算作产品问题。
+- **base 对照**：`8276c0bb2` 没有样例任务；登记与身份函数在本范围 diff 中没有变化。回归是新增样例取消合同没有进入既有多步写入链，不是把既有登记 API 不支持取消单独算作问题。
+- **建议改法**：让样例使用的登记/建目录操作显式接受可选 signal，在队列真正执行时、各次异步等待之后和每次新写入前核对；保留已完成步骤的正常恢复语义。停止与总截止使用同一取消链。补“卡在登记内部，取消后释放真实 I/O”的行为用例；现有用例只在 `create` 返回后取消，FIFO 用例只卡在最前面的 `list`，两者均漏掉此边界。
+
+### 2. 沿用已有样例时跳过目录校验，会在状态根内补文件并报告打不开的地址
+
+- **严重程度**：重要；**类别**：正确性、不变量。
+- **位置**：`.worktree/w00022-review-t18-impl/packages/neuro-book/src/server/dev/sample.ts:107-112,132-138`。
+- **现象**：已有登记的样例目录存在且身份匹配时，`restore` 直接返回成功，没有调用 `checkProjectDirectory` 或父目录规则；随后直接补内容并打 `open-path`。状态根换成包目录或 `.dev-sample` 后，旧登记里的样例可以继续命中这个分支。
+- **为什么是问题**：作品合同要求项目目录不在当前状态根内部，真正的项目打开在 `manager.ts:416-419` 仍执行此校验。样例分支因而一面在禁止的状态根内写作品文件，一面把无法打开的项目报成准备成功；首次新建的拒绝规则不能覆盖重启时沿用已有目录的分支。
+- **如何核实**：实际运行 `env TMPDIR=/dev/shm/review-t18-srv-lab/tmp bun --tsconfig-override /dev/shm/review-t18-srv-lab/tsconfig.json /dev/shm/review-t18-srv-lab/server-smoke.ts existing-state-root`。先用真实登记表放好样例，保留其 id/path，把登记表迁到新的状态根 `<临时包>/.dev-sample/`，删掉实验样例的 `大纲.md`，再用真实 `startServer` 启动样例任务：输出 **`[dev] open-path /?project=sample`**，`大纲.md` 在状态根内部被补回；同一真实服务的 `server.projects.acquire("sample", "review-t18")` 返回 **`{status:"rejected",reason:"create-failed",detail:"不能登记应用的状态目录或它里面的目录"}`**。停止退出码 **0**、停止失败 **0**。Bun 的独立目录诊断同第 1 条。
+- **base 对照**：base 的正常项目打开就已有状态根校验，且本次未改该链路；新样例的已有目录快路径独自绕过了它。
+- **建议改法**：复用样例前对当前真实目录执行与打开项目相同的校验，校验通过后再检查身份和补内容；父目录规则保留给新建/重建。扩展现有状态根拒绝用例，覆盖“已有合法样例，换状态根后再次启动”，同时断言不补文件、不报成功。
+
+### 3. 样例父目录是符号链接时，删目录重建会生成新 id 并留下身份冲突
+
+- **严重程度**：重要；**类别**：正确性、恢复。
+- **位置**：`.worktree/w00022-review-t18-impl/packages/neuro-book/src/server/dev/sample.ts:87-100`。
+- **现象**：登记表保存真实路径，但 `expected` 只对 `packageRoot` 做 `realpath`，没有解析 `.dev-sample` 或 `sample` 的符号链接。`.dev-sample` 指向外部目录时，第一次正常创建与登记；删掉样例目录再重启时，旧登记的真实路径不等于这个字面 expected，被误判成“没有样例”，调用 `create` 生成新 id；登记随后按已有路径 id 不符拒绝，留下无法自动修复的身份冲突。
+- **为什么是问题**：计划与作品合同明确采用真实路径认出项目，样例目录被删必须按原 id 重建。这里不是拒绝符号链接的设计：第一代允许并已经成功使用；第二代却因路径比较不一致破坏原身份，后续每次重启都失败。
+- **如何核实**：实际运行 `env TMPDIR=/dev/shm/review-t18-srv-lab/tmp bun --tsconfig-override /dev/shm/review-t18-srv-lab/tsconfig.json /dev/shm/review-t18-srv-lab/server-smoke.ts symlink-rebuild`。所有路径在隔离实验根：`.dev-sample` 是指向 `external-samples` 的真实符号链接；首次真实 seed 得原 id **`5f78ed9d-2301-4da0-b8f3-8cea16599603`**；删除 `external-samples/sample` 后，由真实 `startServer` 再次放样例，收到 **`sample-failed 新建样例作品失败（register-failed）`**。登记表仍只有原 id，重建的身份文件却是 **`a912eeea-73ef-4b00-bf48-defa786bd270`**，两者冲突；停止退出码 **0**、停止失败 **0**。Bun 的独立目录诊断同第 1 条。
+- **base 对照**：base 的 `checkProjectDirectory` / `registry.register` 已按真实路径登记，未被本次修改；错误是新增样例识别只规范化了路径的一部分。
+- **建议改法**：样例存在时比较样例目录的完整真实路径；样例已删除时，解析仍存在的父目录（或最近的现存祖先）后拼出预期路径，再按旧登记恢复原 id。不要为了绕过冲突改写已有身份。给现有“目录被删按原 id 重建”用例增加符号链接父目录的同一行为场景。
+
+### 4. 同一轮日志读取包含多代结果时，nbdev 永久漏报较早代的 SAMPLE
+
+- **严重程度**：重要；**类别**：正确性、日志协议。
+- **位置**：`.worktree/w00022-review-t18-impl/packages/dev-panel/src/dev/sample.ts:59-81`；测试缺口 `packages/dev-panel/tests/dev-live.test.ts:568-573`。
+- **现象**：`readNew` 把读到 EOF 的所有行喂给 tracker，只在全部读完后查询一次 `current()`。如果这段中出现两行 `backend-ready` 及各自结果，第二代会把第一代 outcome 清掉，只有最后一代被 emit；被吞掉的那一代不会补报。
+- **为什么是问题**：新起服务的合同要求 READY 后每次后端重启、报告结果就再打一行，不是每 200 ms 轮询只留最后一代。日志管道/调度会自然合并输出，一次 read 包含多代不需要非法日志。复用时重放只选最后一代是另一条合同，不能用同一个“最终快照”算法替代新起服务的逐代事件。
+- **如何核实**：实际运行 `env TMPDIR=/dev/shm/review-t18-srv-lab/tmp NBOOK_HOST_SYSTEM_TEMP_ROOT=/dev/shm/review-t18-srv-lab/tmp bun /dev/shm/review-t18-srv-lab/cli-smoke.ts batch-generations`，真实 nbdev CLI 监管临时包的真实 Bun 开发脚本；收到 READY 后通过该应用的 HTTP 控制口一次写入第二代 `/two` 与第三代 `/three` 的四行合法日志，再放行第四代 `/four`。应用报告 **3** 个结果，nbdev 只输出 **2** 个 SAMPLE（`http://127.0.0.1:40791/three`、`http://127.0.0.1:40791/four`），`/two` 永久缺失；`dev stop` **0**、监管退出 **0**、应用存活 **false**、stderr 为空。没有直接调用私有读取器或改仓库实现。
+- **base 对照**：`8276c0bb2` 没有 `src/dev/sample.ts` 和样例事件；本次新增读取/派发逻辑的问题。
+- **建议改法**：首次历史重放只折叠到本代，转入跟随后在逐行消费时结算每一代的首个结果（或保留待发事件队列），不要等 EOF 后只读快照。扩展现有逐代事件用例，一次放行两代完整输出；当前测试每写一代都先等 nbdev 输出才继续，强制把本应受测的批量边界排除了。
+
+### 5. 首代未报告就重启时，首代截止会错误地永久封掉新一代结果
+
+- **严重程度**：重要；**类别**：正确性、状态转换。
+- **位置**：`.worktree/w00022-review-t18-impl/packages/dev-panel/src/dev/sample.ts:73-86`。
+- **现象**：deadline 没有绑定启动读取时的 generation。首代尚无结果、截止前又读到新 `backend-ready` 时，`settled` 仍为 null；原 deadline 到期却把此刻的新 generation 写进 settled，随后新一代合法结果被作为“已经超时的同代结果”永久忽略。
+- **为什么是问题**：`FollowSampleOptions.timeoutMs` 明确只对开始时那一代计时，交付报告偏离 5 也明确后续各代只在报结果时输出、不另计时。现有实现把前一代的剩余时间借给新一代：新代最多只剩原时限减已耗时，甚至刚开始即被封掉；同一正在运行的服务，新起监管不报 SAMPLE，复用方却能从日志读到成功。
+- **如何核实**：实际运行 `env TMPDIR=/dev/shm/review-t18-srv-lab/tmp NBOOK_HOST_SYSTEM_TEMP_ROOT=/dev/shm/review-t18-srv-lab/tmp bun /dev/shm/review-t18-srv-lab/cli-smoke.ts generation-timeout`。真实 CLI 用 `--sample --sample-timeout 1` 起临时开发应用，READY 后立即报告第二代 backend-ready、暂不报告结果；原 1 秒截止打出 **1** 行 SAMPLE_FAILED，之后应用写第二代 `/second-late`，原监管永久没有这行 SAMPLE。此时复用同一服务的 CLI 退出 **0**，输出 READY 加 **`SAMPLE .../second-late`**；再报告第三代 `/third`，原监管又正常打 SAMPLE，证明不是读取器停止。`dev stop` **0**、原监管退出 **0**、应用存活 **false**、stderr 为空。
+- **base 对照**：样例等待器为本次新增；没有把 base 的旧就绪时限行为计入发现。
+- **建议改法**：首次读完历史日志后记录被计时的 generation；后续换代时取消该代的截止判定，不能把超时结算写到别的 generation。若产品决定改为每代都有时限，应另定义每代起点并更新合同，不能沿用首代 deadline。把此顺序补到现有“超时与重启”行为测试，当前测试分别覆盖超时和重启，没有覆盖它们交叉。
+
+### 6. 复用时没有固定 EOF，已有样例结果也会被持续增长的日志拖住
+
+- **严重程度**：重要；**类别**：安全与性能、截止与收口。
+- **位置**：`.worktree/w00022-review-t18-impl/packages/dev-panel/src/dev/sample.ts:47-48,59-77`。
+- **现象**：stat 得到的 size 只用来算开始偏移，没有用作本轮结束边界；`readNew` 不断从新的 offset 读到动态 EOF 才返回，在这个内循环里不核对 deadline 或 shouldStop。已有本代结果也必须等增长日志被读到 EOF，才有机会 emit。
+- **为什么是问题**：计划要求历史重放只读末尾的一段、不追着增长日志读，复用已有结果立即输出；两轮计划审查已明确需要固定 EOF 与字节/时间边界。4 MiB 在当前代码里只是起点，不是一次重放的上界。写者持续快于读者时，读取、超时判定、事件输出与收口都没有有限边界；这不是要求限制应用日志总大小。
+- **如何核实**：实际运行 `env TMPDIR=/dev/shm/review-t18-srv-lab/tmp NBOOK_HOST_SYSTEM_TEMP_ROOT=/dev/shm/review-t18-srv-lab/tmp bun /dev/shm/review-t18-srv-lab/growth-smoke.ts`。真实 CLI 复用时，日志已有本代 `/current`，初始 **3,145,947 bytes**；收到复用 READY 后，让同一真实开发应用连续输出 64 块约 512 KiB 日志。用 `strace -f -qq -yy -e trace=pread64,read -o /dev/shm/review-t18-srv-lab/growth.trace` 跟踪复用 CLI，只统计目标 `.log` 描述符的已完成 read/pread64：共 **562** 次，实际读 **36,699,975 bytes**，不是合同的 **4,194,304 bytes**；结束时日志 **36,700,187 bytes**。SAMPLE 在这次增长重放之后才输出，复用退出 **0**、stderr 为空；`dev stop` **0**、监管退出 **0**、应用存活 **false**。有限日志实验已证实追逐增长；无限输出时的不收口为上述无边界内循环的代码推断，不声称本轮放了无限日志。
+- **base 对照**：新 `followSample` 在 base 不存在；旧 `waitReady` 的相似循环未作为另一条回归计数，本发现针对新合同明确要求的样例复用边界。
+- **建议改法**：历史重放固定首次 stat 的 EOF，每次 read 限制到该 EOF，最多读取尾部 4 MiB；立即结算这份快照已有的本代结果。需要等新结果时，再按有字节/时间预算的增量块跟随，并在块间检查截止、停止及派发结果。给复用测试加入读期间增长的真实日志与部分首行边界；当前尾部测试不足以检验动态 EOF。
+
+## 第 1 条的停止边界追加核实
+
+实际运行 `env TMPDIR=/dev/shm/review-t18-srv-lab/tmp bun --tsconfig-override /dev/shm/review-t18-srv-lab/tsconfig.json /dev/shm/review-t18-srv-lab/server-smoke.ts stop-register`：同一真实 FIFO 卡住登记，300 ms 超时报失败后请求停止；200 ms 停止截止写 `sample-abandoned`，真实 `startServer` 的 `stopped` 已完成（退出码 **0**、停止失败 **0**），此时登记表仍不存在。再释放 FIFO，登记表才新建并写入样例。证明公开 `DevTask.stop` / `RunningServer.stopped` 完成后仍有写入；正常进程入口随后 `process.exit` 会强制终止未完成工作，未声称“进程已经退出后仍会写盘”。这与第 1 条为同一取消链缺口，不另计发现。
+
+## 本轮实际验证
+
+所有命令都在固定审查 worktree 上运行；未使用交付报告里的旧结果作为本轮通过证据。Bun 版本为 **1.4.2 (744846f84)**。
+
+1. cwd `.worktree/w00022-review-t18-impl/packages/neuro-book`：
+   ```sh
+   env TMPDIR=/dev/shm/review-t18-srv-lab/tmp NBOOK_HOST_SYSTEM_TEMP_ROOT=/dev/shm/review-t18-srv-lab/tmp bun test src/server/dev/sample.test.ts src/server/dev/supervisor.test.ts src/server/dev/run.test.ts src/server/projects/registry.test.ts src/server/server.test.ts src/architecture.test.ts
+   ```
+   **69 pass、0 fail、302 expect()、6 files、11.63 s**。
+2. cwd `.worktree/w00022-review-t18-impl/packages/dev-panel`：
+   ```sh
+   env TMPDIR=/dev/shm/review-t18-srv-lab/tmp NBOOK_HOST_SYSTEM_TEMP_ROOT=/dev/shm/review-t18-srv-lab/tmp bun test --isolate src/dev/ready.test.ts tests/dev-live.test.ts tests/find-shot.test.ts
+   ```
+   **31 pass、0 fail、160 expect()、3 files、55.16 s**。
+3. cwd `.worktree/w00022-review-t18-impl`：
+   ```sh
+   env TMPDIR=/dev/shm/review-t18-srv-lab/tmp bun run --cwd packages/dev-panel typecheck
+   env TMPDIR=/dev/shm/review-t18-srv-lab/tmp bun run --cwd packages/neuro-book typecheck
+   ```
+   两条均通过；实际执行的 tsc / vue-tsc 阶段完整结束，耗时分别 **16.02 s**、**46.84 s**。
+4. 生产源码入口实际 smoke：
+   ```sh
+   env TMPDIR=/dev/shm/review-t18-srv-lab/tmp bun /dev/shm/review-t18-srv-lab/production-smoke.ts
+   ```
+   `src/server/main.ts` 收到 `NBDEV_SAMPLE=1`，health **200**，停止退出码 **0**，样例结果行 **0**，未创建 `projects.json`，进程存活 **false**。本轮没有构建生产产物，不把源码入口 smoke 当作打包产物验证。
+5. 日志首行截断 smoke：`cli-smoke.ts tail-boundary`。真实日志有 **5,242,880 bytes** 长首行，4 MiB 尾部从其内部开始；复用成功返回 `/tail-current`，未把残缺首行末尾的伪标记当成结果。退出 **0**，dev stop **0**，应用存活 **false**。动态 EOF 的例外另见第 6 条。
+6. 第 1—6 条各自的真实文件/运行实例/CLI/系统调用实验与输出见发现正文；后端 4 个实验均完成停止，CLI 4 个场景均经真实 `dev stop` 收口并核对应用不在。没有变异仓库源码，因而没有待恢复的实现修改。
+
+## 合同与测试的映射
+
+| 合同边界 | 本轮证据与覆盖结论 |
+|---|---|
+| 样例首次创建、再次沿用、只补缺文件、不覆盖用户改动 | `sample.test.ts:87-110` 已运行；普通路径覆盖，符号链接父目录的重建缺口见第 3 条 |
+| 缺身份按原 id 修复、删目录按原 id 重建 | `sample.test.ts:112-139` 已运行；普通路径覆盖，真实路径规范化不完整见第 3 条 |
+| 坏身份、id 冲突不覆盖；坏登记表不改 | `sample.test.ts:152-170` 与 registry 既有用例已运行；未发现普通路径的覆盖式写入 |
+| 按样例路径认出，不按短名误动用户作品 | `sample.test.ts:173-181` 已运行；已有 user sample 保持原目录，样例另取 sample-2 |
+| 父目录不存在可创建、拒绝状态根内部 | 初次创建拒绝有 `sample.test.ts:142-149`；已有目录换状态根未覆盖，真实运行失败见第 2 条 |
+| 登记只由后端写、与其他登记并发不丢项 | `sample.test.ts:207-216` 已运行；真实 startServer 传给任务的是项目管理器使用的同一个 registry |
+| 就绪后后台准备，慢 I/O 不挡 health | `sample.test.ts:258-282` 已运行；本轮 FIFO 实验 health 200。实际 30 秒默认值从代码核对，测试经 seam 缩短到 300 ms |
+| 截止取消、停止 abort 并等任务 | 已覆盖“初始取消”“create 完成后取消”“首步 list 卡住”；登记内部取消、停止完成后新写入未覆盖且已复现，见第 1 条 |
+| backend-ready 先于样例结果、重启分代 | `supervisor.test.ts:82-107`、`run.test.ts:135-147` 已运行；实现对 stdout 的本应用结果保护成立。stderr 不经过该屏障，本应用 open-path/sample-failed 都由 console.log 写 stdout；不承诺两条管道的一般全序 |
+| 生产入口不消费 NBDEV_SAMPLE | 生产源码入口真实 smoke 已验证；生产打包产物未运行 |
+| flag 与环境、登记 sample、旧登记缺省及 differences | `dev-live.test.ts:554-650` 已运行；两向复用、旧字段缺失和无 flag 清理环境均覆盖 |
+| 样例结果晚于 READY、失败与时限实时输出且不结束服务 | 同上已运行；每代输出和截止/重启交叉分别存在第 4、5 条缺口 |
+| 复用取本代、没有结果继续等、无 sample 的服务立即失败 | 同上已运行；已完成的大日志首行截断实验补了静态尾部边界，增长 EOF 缺口见第 6 条 |
+| open-path 排除绝对 URL、//、反斜杠并核同源 | `ready.test.ts:50-54` 与 `dev-live.test.ts:572-582` 已运行，普通合法路径与这些拒绝分支已覆盖 |
+| 没有 READY 不发样例、EXITED 后不再补发 | 源码起点/停止检查与现有运行末行 EXITED 已核对；未独立注入样例等待中途退出或晚到结果的组合场景 |
+| sample_watch_failed | 新起服务的读取失败 catch 与合同警告表一致；本次没有针对日志读取失败的故障注入测试，复用分支不使用这个监管警告 |
+| shot --page 脚本选择、--path 转交、步骤顺序、details.script | `find-shot.test.ts:72-89` 已运行，真实 CLI + 记 argv 的包脚本覆盖；未启动浏览器、未审 page-shot.ts |
+| JSON 流式输出读法 | `streamCli` 使用 run 收集 stdout，再按行 parse；不再把多个事件塞给一次性 fixture.cli 的 JSON 外壳解析。新增用例通过；未发现此改法问题 |
+
+测试质量：新增样例用例使用真实文件、真实登记表、真实后端和真实 nbdev 子进程；feed 的 50 ms 轮询与 until 的 50 ms 轮询是观察状态，不是断言前固定等待。原有 TaskStop 用例中的 1.5 秒模拟等待在 base 就存在，未当作本次回归。主要缺口已落在第 1—6 条的真实行为实验，不另把同一测试缺口重复计为发现。
+
+未运行：全量测试、浏览器/e2e、page:shot 实际截图、生产构建或打包 smoke、真实 herdr 用例、governance:check、docs:check。没有操作端口 4400/4401 或 systemd；未调用子审查。语言服务器查询返回未配置，代码定位采用已知文件读取与文本检索。
+
+## 可恢复的实验源码
+
+实验文件按要求在收尾删除；以下保存实际源码，复现时先创建 `/dev/shm/review-t18-srv-lab/tmp`，将代码块分别写回标明的绝对路径，再运行上面的实际命令。每个后端模式须从对应 case 目录不存在开始；CLI 实验通过仓库已有 fixture 创建并清理隔离临时仓库，不修改审查 checkout。UUID、端口与 runId 每次会变；核对身份不一致、事件缺失与读取边界，不固定这些随机值。`invalid-url` 是未执行的实验分支，不列为本轮证据。
+
+**`/dev/shm/review-t18-srv-lab/tsconfig.json`**
+
+```json
+{"compilerOptions":{"target":"ESNext","module":"ESNext","moduleResolution":"bundler","paths":{"nbook/*":[".worktree/w00022-review-t18-impl/packages/neuro-book/src/*"],"@notnotype/neuro-book-test-support/*":[".worktree/w00022-review-t18-impl/packages/neuro-book-test-support/src/*"]}}}
+```
+
+**`/dev/shm/review-t18-srv-lab/server-smoke.ts`**
+
+```typescript
+import assert from "node:assert/strict";
+import {EventEmitter} from "node:events";
+import {mkdir, readFile, rm, stat, symlink, writeFile} from "node:fs/promises";
+import {existsSync} from "node:fs";
+import {join} from "node:path";
+import {readServerConfig} from ".worktree/w00022-review-t18-impl/packages/neuro-book/src/server/config.ts";
+import {startServer} from ".worktree/w00022-review-t18-impl/packages/neuro-book/src/server/start.ts";
+import {seedDevSample, startDevSample} from ".worktree/w00022-review-t18-impl/packages/neuro-book/src/server/dev/sample.ts";
+import {createProjectRegistry} from ".worktree/w00022-review-t18-impl/packages/neuro-book/src/server/projects/registry.ts";
+
+const mode = process.argv[2]!;
+const root = join("/dev/shm/review-t18-srv-lab", mode);
+const packageRoot = join(root, "package");
+await mkdir(packageRoot, {recursive: true});
+const sample = join(packageRoot, ".dev-sample", "sample");
+const oldState = join(root, "old-state");
+const lines: string[] = [];
+const result = Promise.withResolvers<string>();
+const report = (line: string) => { lines.push(line); console.log(line); result.resolve(line); };
+const config = (stateRoot: string) => readServerConfig([], {...process.env, NBOOK_STATE_ROOT: stateRoot, NBOOK_PORT: "0", NBOOK_RPC_PORT: "0", NBOOK_WEB_ROOT: ""}, packageRoot);
+async function until<T>(read: () => Promise<T> | T, accept: (value: T) => boolean, label: string): Promise<T> {
+    const deadline = Date.now() + 10000;
+    for (;;) {
+        const value = await read();
+        if (accept(value)) return value;
+        if (Date.now() > deadline) throw new Error(`未观察到 ${label}`);
+        await Bun.sleep(10);
+    }
+}
+if (mode === "timeout-register" || mode === "stop-register") {
+    const stateRoot = join(root, "state");
+    await mkdir(join(sample, ".nbook"), {recursive: true});
+    const fifo = join(sample, ".nbook", "project.json");
+    assert.equal(Bun.spawnSync(["mkfifo", fifo]).exitCode, 0);
+    const server = startServer({config: config(stateRoot), process: new EventEmitter(), devTask: ({registry}) => startDevSample({registry, stateRoot, packageRoot, report, timeoutMs: 300, stopMs: 200})});
+    try {
+        await server.ready;
+        const health = (await fetch(new URL("/api/runtime/health", server.url!))).status;
+        assert.equal(health, 200);
+        const failed = await result.promise;
+        assert.match(failed, /sample-failed 超时/u);
+        const table = join(stateRoot, "projects.json");
+        const before = existsSync(table);
+        assert.equal(before, false);
+        if (mode === "stop-register") {
+            server.requestStop("review:stop-before-release");
+            const stopped = await server.stopped;
+            assert.equal(existsSync(table), false);
+            console.log(JSON.stringify({mode, phase: "server-stopped-before-fifo-release", exitCode: stopped.exitCode, failures: stopped.failures.length}));
+        }
+        const id = "11111111-2222-4333-8444-555555555555";
+        await writeFile(fifo, JSON.stringify({schema: 1, id}) + "\n");
+        await until(() => existsSync(table), Boolean, "超时之后登记表被创建");
+        const projects = JSON.parse(await readFile(table, "utf8")).projects;
+        assert.equal(projects[0].id, id);
+        console.log(JSON.stringify({mode, health, beforeTimeoutReleaseRegistryExists: before, afterTimeoutReleaseRegistryExists: existsSync(table), projects, sampleLines: lines}));
+    } finally {
+        server.requestStop("review:cleanup");
+        const stopped = await server.stopped;
+        console.log(JSON.stringify({mode, stopExitCode: stopped.exitCode, stopFailures: stopped.failures.length}));
+    }
+} else if (mode === "existing-state-root") {
+    const initial = await seedDevSample(createProjectRegistry({stateRoot: oldState, cwd: packageRoot}), {stateRoot: oldState, packageRoot, signal: new AbortController().signal});
+    assert.equal(initial.ok, true);
+    const stateRoot = join(packageRoot, ".dev-sample");
+    await writeFile(join(stateRoot, "projects.json"), await readFile(join(oldState, "projects.json")));
+    await rm(join(sample, "大纲.md"));
+    const server = startServer({config: config(stateRoot), process: new EventEmitter(), devTask: ({registry}) => startDevSample({registry, stateRoot, packageRoot, report})});
+    try {
+        await server.ready;
+        const line = await result.promise;
+        assert.match(line, /open-path/u);
+        const acquired = await server.projects.acquire("sample", "review-t18");
+        assert.equal(acquired.status, "rejected");
+        assert.equal(existsSync(join(sample, "大纲.md")), true);
+        console.log(JSON.stringify({mode, sampleLine: line, wroteMissingOutlineInsideStateRoot: true, acquire: acquired}));
+    } finally {
+        server.requestStop("review:cleanup");
+        const stopped = await server.stopped;
+        console.log(JSON.stringify({mode, stopExitCode: stopped.exitCode, stopFailures: stopped.failures.length}));
+    }
+} else if (mode === "symlink-rebuild") {
+    const external = join(root, "external-samples");
+    await mkdir(external, {recursive: true});
+    await symlink(external, join(packageRoot, ".dev-sample"));
+    const registry = createProjectRegistry({stateRoot: oldState, cwd: packageRoot});
+    const first = await seedDevSample(registry, {stateRoot: oldState, packageRoot, signal: new AbortController().signal});
+    assert.equal(first.ok, true);
+    if (!first.ok) throw new Error(first.reason);
+    await rm(first.project.path, {recursive: true});
+    const server = startServer({config: config(oldState), process: new EventEmitter(), devTask: ({registry}) => startDevSample({registry, stateRoot: oldState, packageRoot, report})});
+    try {
+        await server.ready;
+        await result.promise;
+        const listed = await server.projects.registry.list();
+        assert.equal(listed.ok, true);
+        if (!listed.ok) throw new Error(listed.detail);
+        console.log(JSON.stringify({mode, oldProject: first.project, projects: listed.value, identity: JSON.parse(await readFile(join(external, "sample", ".nbook", "project.json"), "utf8")), sampleLines: lines}));
+    } finally {
+        server.requestStop("review:cleanup");
+        const stopped = await server.stopped;
+        console.log(JSON.stringify({mode, stopExitCode: stopped.exitCode, stopFailures: stopped.failures.length}));
+    }
+} else throw new Error(`未知实验 ${mode}`);
+```
+
+**`/dev/shm/review-t18-srv-lab/protocol-app.ts`**
+
+```typescript
+import {writeFileSync} from "node:fs";
+let floodChunks = 0;
+let flooding = false;
+const server = Bun.serve({
+    hostname: "127.0.0.1", port: 0,
+    async fetch(request) {
+        const path = new URL(request.url).pathname;
+        if (path === "/feed" && request.method === "POST") {
+            process.stdout.write(await request.text());
+            return new Response("fed");
+        }
+        if (path === "/flood") {
+            flooding = true;
+            const chunk = "noise-line\n".repeat(47660) + "[dev] open-path /current\n";
+            const pump = () => {
+                process.stdout.write(chunk);
+                floodChunks += 1;
+                if (floodChunks < 64) setImmediate(pump);
+                else flooding = false;
+            };
+            setImmediate(pump);
+            return new Response("flooding");
+        }
+        if (path === "/flood-status") return Response.json({floodChunks, flooding});
+        return new Response("ok");
+    },
+});
+if (process.env.REVIEW_APP_INFO) writeFileSync(process.env.REVIEW_APP_INFO, JSON.stringify({pid: process.pid, url: server.url.href, sample: process.env.NBDEV_SAMPLE ?? null}));
+console.log(`[dev] page-ready ${server.url.href}`);
+console.log(`[dev] backend-ready pid=${process.pid} ${server.url.href}`);
+const ended = Promise.withResolvers<void>();
+for (const signal of ["SIGTERM", "SIGINT"] as const) process.on(signal, () => ended.resolve());
+await ended.promise;
+await server.stop(true);
+process.exit(0);
+```
+
+**`/dev/shm/review-t18-srv-lab/cli-smoke.ts`**
+
+```typescript
+import assert from "node:assert/strict";
+import {spawn} from "node:child_process";
+import {once} from "node:events";
+import {existsSync} from "node:fs";
+import {appendFile, readFile, writeFile} from "node:fs/promises";
+import {join} from "node:path";
+import {createFixture, cleanupFixtures, CLI_PATH, run} from ".worktree/w00022-review-t18-impl/packages/dev-panel/tests/git-fixture.ts";
+
+const mode = process.argv[2]!;
+const fixture = await createFixture(`srv-review-${mode}`);
+const env = {REVIEW_APP_INFO: join(fixture.root, "app.json"), HERDR_SOCKET_PATH: "/dev/shm/review-t18-srv-lab/no-herdr.sock"};
+await fixture.write("apps/web/package.json", JSON.stringify({name: "review-web", scripts: {dev: "bun /dev/shm/review-t18-srv-lab/protocol-app.ts"}}));
+const args = ["dev", "start", "--package", "apps/web", "--sample", "--sample-timeout", mode === "generation-timeout" ? "1" : "30", "--json", "--as", "t18srv-review"];
+const child = spawn(process.execPath, [CLI_PATH, ...args], {cwd: fixture.main, env: {...process.env, ...env}, stdio: ["ignore", "pipe", "pipe"]});
+const exit = once(child, "exit").then(([code]) => code as number | null);
+let stdout = "", stderr = "";
+const streamLog = join("/dev/shm/review-t18-srv-lab", `${mode}.events.txt`);
+child.stdout!.on("data", (chunk) => { stdout += chunk; void appendFile(streamLog, chunk); });
+child.stderr!.on("data", (chunk) => { stderr += chunk; });
+const events = () => stdout.split("\n").filter(Boolean).map((line) => JSON.parse(line));
+async function until<T>(read: () => Promise<T> | T, accept: (value: T) => boolean, label: string): Promise<T> {
+    const deadline = Date.now() + 15000;
+    for (;;) {
+        const value = await read();
+        if (accept(value)) return value;
+        if (child.exitCode !== null) throw new Error(`监管提前结束 ${child.exitCode}: ${stderr}`);
+        if (Date.now() > deadline) throw new Error(`未观察到 ${label}: ${stdout}, ${stderr}`);
+        await Bun.sleep(10);
+    }
+}
+let runId: string | undefined;
+try {
+    const ready = await until(() => events().find((event) => event.event === "ready"), Boolean, "READY");
+    runId = ready.runId;
+    const feed = async (text: string) => assert.equal((await fetch(new URL("/feed", ready.url), {method: "POST", body: text})).status, 200);
+    const samples = () => events().filter((event) => event.event === "sample" || event.event === "sample_failed");
+    if (mode === "batch-generations") {
+        await feed(`[dev] backend-ready pid=2 ${ready.url}\n[dev] open-path /two\n[dev] backend-ready pid=3 ${ready.url}\n[dev] open-path /three\n`);
+        await until(samples, (all) => all.length > 0, "批量结果");
+        await feed(`[dev] backend-ready pid=4 ${ready.url}\n[dev] open-path /four\n`);
+        await until(samples, (all) => all.some((event) => event.url?.endsWith("/four")), "下一轮读完");
+        console.log(JSON.stringify({mode, appReports: ["/two", "/three", "/four"], samples: samples(), missingTwo: !samples().some((event) => event.url?.endsWith("/two"))}));
+    } else if (mode === "generation-timeout") {
+        await feed(`[dev] backend-ready pid=2 ${ready.url}\n`);
+        await until(samples, (all) => all.some((event) => event.event === "sample_failed"), "截止失败");
+        await feed("[dev] open-path /second-late\n");
+        const log = ready.logPath;
+        await until(() => readFile(log, "utf8"), (text) => text.includes("/second-late"), "应用写出第二代结果");
+        const reused = await run(process.execPath, [CLI_PATH, "dev", "start", "--package", "apps/web", "--sample", "--json", "--as", "t18srv-review"], fixture.main, undefined, 15000, env);
+        await feed(`[dev] backend-ready pid=3 ${ready.url}\n[dev] open-path /third\n`);
+        await until(samples, (all) => all.some((event) => event.url?.endsWith("/third")), "第三代结果");
+        console.log(JSON.stringify({mode, samples: samples(), secondGenerationSuppressed: !samples().some((event) => event.url?.endsWith("/second-late")), reusedExit: reused.exitCode, reusedEvents: reused.stdout.trim().split("\n").map((line) => JSON.parse(line))}));
+    } else if (mode === "tail-boundary") {
+        await feed("x".repeat(5 * 1024 * 1024) + "[dev] open-path /partial-poison\n" + `[dev] backend-ready pid=2 ${ready.url}\n[dev] open-path /tail-current\n`);
+        const reused = await run(process.execPath, [CLI_PATH, "dev", "start", "--package", "apps/web", "--sample", "--json", "--as", "t18srv-review"], fixture.main, undefined, 15000, env);
+        const replayed = reused.stdout.trim().split("\n").map((line) => JSON.parse(line));
+        assert.equal(reused.exitCode, 0);
+        assert.equal(replayed[1].url, new URL("/tail-current", ready.url).href);
+        console.log(JSON.stringify({mode, longLineBytes: 5 * 1024 * 1024, tailLimitBytes: 4 * 1024 * 1024, reusedExit: reused.exitCode, reusedEvents: replayed}));
+    } else if (mode === "invalid-url") {
+        await feed("[dev] open-path //[\n");
+        const reused = await run(process.execPath, [CLI_PATH, "dev", "start", "--package", "apps/web", "--sample", "--json", "--as", "t18srv-review"], fixture.main, undefined, 15000, env);
+        console.log(JSON.stringify({mode, supervisorEvents: events(), reusedExit: reused.exitCode, reusedStdout: reused.stdout, reusedStderr: reused.stderr}));
+    } else throw new Error(`未知实验 ${mode}`);
+} finally {
+    const stopped = await run(process.execPath, [CLI_PATH, "dev", "stop", ...(runId ? [runId] : ["--package", "apps/web"]), "--force", "--grace", "2", "--json", "--as", "t18srv-review"], fixture.main, undefined, 20000, env);
+    const code = await exit;
+    const info = JSON.parse(await readFile(env.REVIEW_APP_INFO, "utf8"));
+    console.log(JSON.stringify({mode, devStopExit: stopped.exitCode, supervisorExit: code, appAlive: existsSync(`/proc/${info.pid}`), events: events(), stderr}));
+    assert.equal(stopped.exitCode, 0);
+    assert.equal(existsSync(`/proc/${info.pid}`), false);
+    await cleanupFixtures();
+}
+```
+
+**`/dev/shm/review-t18-srv-lab/growth-smoke.ts`**
+
+```typescript
+import assert from "node:assert/strict";
+import {spawn} from "node:child_process";
+import {once} from "node:events";
+import {existsSync} from "node:fs";
+import {readFile, stat, writeFile} from "node:fs/promises";
+import {join} from "node:path";
+import {createFixture, cleanupFixtures, CLI_PATH, run} from ".worktree/w00022-review-t18-impl/packages/dev-panel/tests/git-fixture.ts";
+const fixture = await createFixture("srv-review-growing-log");
+const env = {REVIEW_APP_INFO: join(fixture.root, "app.json"), HERDR_SOCKET_PATH: "/dev/shm/review-t18-srv-lab/no-herdr.sock"};
+await fixture.write("apps/web/package.json", JSON.stringify({name: "review-web", scripts: {dev: "bun /dev/shm/review-t18-srv-lab/protocol-app.ts"}}));
+const start = [CLI_PATH, "dev", "start", "--package", "apps/web", "--sample", "--sample-timeout", "30", "--json", "--as", "t18srv-review"];
+const supervisor = spawn(process.execPath, start, {cwd: fixture.main, env: {...process.env, ...env}, stdio: ["ignore", "pipe", "pipe"]});
+const exited = once(supervisor, "exit").then(([code]) => code);
+let output = "", errors = "";
+supervisor.stdout!.on("data", (chunk) => output += chunk);
+supervisor.stderr!.on("data", (chunk) => errors += chunk);
+async function until<T>(read: () => Promise<T> | T, accept: (value: T) => boolean): Promise<T> {
+    const deadline = Date.now() + 15000;
+    for (;;) {
+        const value = await read();
+        if (accept(value)) return value;
+        if (Date.now() > deadline) throw new Error(`观察超时：${output}, ${errors}`);
+        await Bun.sleep(10);
+    }
+}
+let runId: string | undefined;
+try {
+    const ready = await until(() => output.split("\n").filter(Boolean).map((line) => JSON.parse(line)).find((event) => event.event === "ready"), Boolean);
+    runId = ready.runId;
+    await fetch(new URL("/feed", ready.url), {method: "POST", body: "noise-line\n".repeat(285975) + `[dev] backend-ready pid=2 ${ready.url}\n[dev] open-path /current\n`});
+    await until(() => output, (text) => text.includes('"event":"sample"'));
+    const sizeBefore = (await stat(ready.logPath)).size;
+    const tracePath = "/dev/shm/review-t18-srv-lab/growth.trace";
+    const reused = spawn("strace", ["-f", "-qq", "-yy", "-e", "trace=pread64,read", "-o", tracePath, process.execPath, ...start], {cwd: fixture.main, env: {...process.env, ...env}, stdio: ["ignore", "pipe", "pipe"]});
+    let reuseOut = "", reuseErr = "";
+    const reuseExit = once(reused, "exit").then(([code]) => code);
+    const reuseReady = Promise.withResolvers<void>();
+    reused.stdout!.on("data", (chunk) => {
+        reuseOut += chunk;
+        if (reuseOut.includes('"event":"ready"')) reuseReady.resolve();
+    });
+    reused.stderr!.on("data", (chunk) => reuseErr += chunk);
+    await reuseReady.promise;
+    assert.equal((await fetch(new URL("/flood", ready.url))).status, 200);
+    const code = await reuseExit;
+    assert.equal(code, 0);
+    await until(async () => (await fetch(new URL("/flood-status", ready.url))).json() as Promise<{floodChunks: number; flooding: boolean}>, (value) => value.floodChunks === 64 && !value.flooding);
+    const trace = await readFile(tracePath, "utf8");
+    const amounts: number[] = [];
+    for (const line of trace.split("\n")) {
+        if (!line.includes(ready.logPath)) continue;
+        const match = /(?:pread64|read)\(.*\)\s+=\s+(\d+)/u.exec(line);
+        if (match) amounts.push(Number(match[1]));
+    }
+    const observedLogBytes = amounts.reduce((sum, value) => sum + value, 0);
+    const result = {sizeBefore, sizeAfter: (await stat(ready.logPath)).size, observedLogBytes, tailLimitBytes: 4194304, readCalls: amounts.length, reuseExit: code, reuseEvents: reuseOut.trim().split("\n").map((line) => JSON.parse(line)), reuseStderr: reuseErr};
+    await writeFile("/dev/shm/review-t18-srv-lab/growth-result.json", JSON.stringify(result));
+    console.log(JSON.stringify(result));
+} finally {
+    const stopped = await run(process.execPath, [CLI_PATH, "dev", "stop", ...(runId ? [runId] : ["--package", "apps/web"]), "--force", "--grace", "2", "--json", "--as", "t18srv-review"], fixture.main, undefined, 20000, env);
+    const code = await exited;
+    const info = JSON.parse(await readFile(env.REVIEW_APP_INFO, "utf8"));
+    console.log(JSON.stringify({devStopExit: stopped.exitCode, supervisorExit: code, appAlive: existsSync(`/proc/${info.pid}`), stderr: errors}));
+    assert.equal(stopped.exitCode, 0);
+    assert.equal(existsSync(`/proc/${info.pid}`), false);
+    await cleanupFixtures();
+}
+```
+
+**`/dev/shm/review-t18-srv-lab/production-smoke.ts`**
+
+```typescript
+import assert from "node:assert/strict";
+import {existsSync} from "node:fs";
+import {mkdir} from "node:fs/promises";
+const stateRoot = "/dev/shm/review-t18-srv-lab/production-state";
+await mkdir(stateRoot, {recursive: true});
+const child = Bun.spawn([process.execPath, ".worktree/w00022-review-t18-impl/packages/neuro-book/src/server/main.ts", "--stop-stdin"], {
+    cwd: ".worktree/w00022-review-t18-impl/packages/neuro-book",
+    env: {...process.env, NBOOK_STATE_ROOT: stateRoot, NBOOK_PORT: "0", NBOOK_RPC_PORT: "0", NBOOK_WEB_ROOT: "", NBDEV_SAMPLE: "1"},
+    stdin: "pipe", stdout: "pipe", stderr: "pipe",
+});
+let output = "";
+const reading = [child.stdout, child.stderr].map(async (stream) => {
+    for await (const chunk of stream.pipeThrough(new TextDecoderStream())) output += chunk;
+});
+try {
+    const deadline = Date.now() + 10000;
+    let url: string | undefined;
+    while (!(url = /^Listening on (\S+)/mu.exec(output)?.[1])) {
+        if (Date.now() > deadline || child.exitCode !== null) throw new Error(`没有就绪：${output}`);
+        await Bun.sleep(10);
+    }
+    const health = (await fetch(new URL("/api/runtime/health", url))).status;
+    assert.equal(health, 200);
+    child.stdin.write("stop\n");
+    child.stdin.flush();
+    const exitCode = await child.exited;
+    await Promise.all(reading);
+    assert.equal(exitCode, 0);
+    assert.equal(/\[dev\] (?:open-path|sample-failed)/u.test(output), false);
+    assert.equal(existsSync(`${stateRoot}/projects.json`), false);
+    console.log(JSON.stringify({entry: "src/server/main.ts", NBDEV_SAMPLE: "1", health, exitCode, sampleResultLines: false, registryCreated: false, pidAlive: existsSync(`/proc/${child.pid}`)}));
+} finally {
+    if (child.exitCode === null) child.kill("SIGKILL");
+    await child.exited;
+}
+```
+
+## 清理与范围核对
+
+- 真实 CLI 实验都通过 `dev stop` 停止，监管退出码均为 0，应用 PID 均已不在；真实后端运行实例均完成停止。最终 `ps -eo pid,ppid,args` 未发现指向实验脚本的残留进程；对记录下来的 4 个组长 PID `2066562,2067427,2077988,2089310` 执行 `ps -p ... -o pid,ppid,args`，只输出表头，退出码 1（均不在）。
+- 实际收尾命令：`rm -r -- /dev/shm/review-t18-srv-lab && test ! -e /dev/shm/review-t18-srv-lab && git status --short`，cwd 为 `.worktree/w00022-review-t18-impl`，命令成功、stdout 为空。实验目录已删除，最后工作区干净。没有修改、删除审查 checkout 的文件，没有 commit、push、stash、切换分支或变异实现。
+- 报告始终经 `cat >>` 追加，每次追加后 `grep -c '^### '` 核对未减少；发现数从 0 递增到 6。
+- 回写评估：不新增规范。取消/截止、真实路径、日志重放边界与测试顺序在既有合同和规则中已写清，本报告是实现未遵守与测试覆盖缺口；Bun 的 `directory mismatch` 内部诊断根因未查明，不据此提出环境经验。未改任何真相源。
+
+## 未发现问题的方面
+
+以下具体方面仔细检查后没有发现本次回归；不覆盖第 1—6 条及上文明确未运行的边界：
+
+- **单一写者与正常恢复**：开发任务获得项目管理器使用的同一个登记表实例，未新增第二个离线写者。普通路径的重复运行、身份缺失修复、目录删除后保留原 id、坏身份/坏登记表不覆盖、其他作品并发登记保留均经本轮相关测试验证。
+- **就绪隔离与入口范围**：准入 ready 后才启动后台样例，真实阻塞 I/O 时 health 仍为 200。生产源码入口即使环境中有 `NBDEV_SAMPLE=1` 也没有样例结果和登记副作用，实际停止正常；没有把它当作生产打包验证。
+- **本应用 stdout 转发屏障**：`spawnBackend` 先挂 ready 状态回调，调用方同步挂 backend-ready 回调，早到的 stdout 结果回调排在它之后；实际顺序测试和两代运行测试通过。本应用报告成功/失败都用 stdout，stderr 的 sample-abandoned 不是样例结果。两条管道一般全序不在已验证保证内。
+- **nbdev 环境、登记与普通事件**：无 flag 时去掉继承的 NBDEV_SAMPLE，带 flag 时设 1；schema v1 保留，旧登记缺 sample 按 false；sample 的两向复用 differences、READY 后的实时成功/失败、复用未带样例服务的即时失败均由现有真实 CLI 用例验证。动态读取与跨代截止的例外见发现。
+- **shot 与共享边界**：`shot --page` 按合同选择 page:shot，`--url --path --out` 在前、passthrough 保序，缺脚本的 details.script 能区分两类脚本；新增真实 CLI 用例通过。后端从共享 project-url 引用纯函数，架构测试通过；根 .gitignore 的样例目录新增项与实际生成目录一致。前端迁移和 page-shot.ts 的行为未在本报告重审。
+- **流式 JSON 测试入口**：改用 run 收集事件流、逐行解析，避免 fixture.cli 对整个 stdout 的单对象 JSON.parse；本轮新增流式复用用例通过，没有发现此偏离本身的问题。
+
+## 各级数量
+
+| 严重程度 | 数量 |
+|---|---:|
+| 阻断 | 0 |
+| 重要 | 6 |
+| 建议 | 0 |
+| 合计 | 6 |
+
+6 条均已在固定版本上通过真实运行实例、真实 CLI 或真实文件/系统调用核实；每条含 base 对照。现有测试本轮合计 **100 pass、0 fail**，这是上述 9 个文件的聚焦结果，不是全量测试通过。
