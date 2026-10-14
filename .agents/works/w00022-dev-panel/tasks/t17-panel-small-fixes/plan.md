@@ -46,11 +46,16 @@
 - **验收目标**：1440×650 下终端画面不低于 320px（原来约 200px）；1440×900 下不比原来矮。截图覆盖 1440×650、1440×900、1280×650（中档）、1100×700（切换档）、390×640（手机），亮色各一张，1440×650 加一张暗色。高度用量取脚本量，记进 Task 证据。
 - 横屏手机（例如 844×390）不另做：走文字视图，可视高度本来就容不下终端。写进“不做”。
 
-### `packages/dev-panel/src/server/views.ts`：带出会话标题
+### `packages/dev-panel/src/server/state.ts`、`session-titles.ts`、`views.ts`、`live-views.ts`：带出会话标题
 
-- 在 `views.ts` 里加一个辅助函数：收集一份视图里出现的会话键（租约、提问者、运行的属主），按会话键的 Agent 与会话 id 调 `titles.titleOf`，返回 `sessionTitles: Record<会话键, {text, source}>`。认不出 Agent 或会话 id 的不放进去。
-- 首页（含收件箱与 Work 卡片）、Work 页、Task 页、运行页这几份数据各带一份 `sessionTitles`。会话页已有逐条的 `title`，不改。产物页只用到通知状态，按下一节通知保留短键，所以不带。
-- `titleOf` 已经带缓存：文件没变不重读，找不到的记 60 秒。一份视图里多查几次，不会多读文件。
+原计划在每次 GET 时逐个调 `titleOf`。omp 审查指出四个问题：运行页走的是 `live-views.ts` 而不是 `views.ts`；标题不进状态快照和推送，改名后已打开的页面不会刷新；逐个查标题会放大文件系统开销；会话键的拆法没有测试（[t18 计划审查](../t18-agent-self-check/evidences/plan-review.txt) 第 8 到 11 条）。改为**在后台的活动刷新里读标题**：
+
+- **会话键的拆法**写成一个小函数 `sessionKeyParts(key)`：按第一个冒号切开，冒号前是 Agent，只认 `claude`、`codex`、`omp`，冒号后的整段原样作为会话值。omp 的会话值可能是含冒号的绝对路径，所以只切第一个冒号。`external:` 与不认识的 Agent 返回 `null`。标题表一律用原始的完整键作索引。
+- **批量读取**：`session-titles.ts` 加 `titlesOf(keys)`，一轮刷新只列一次 Claude 的 `projects/` 目录，再按会话 id 定位。同一个键在途时只查一次（单飞），冷查找限制并发数。原有的内容缓存与“找不到记 60 秒”保留。
+- **放进快照**：`PanelState` 的活动刷新（现有的 5 秒一轮）在算完活动之后，收集要显示标题的完整键，调 `titlesOf`，把结果作为快照的 `sessionTitles` 一起保存。标题的 `{text, source}`（包括从无到有、从有到无）计入活动的指纹，标题变了就照现有的规则增加 revision、推 `changed`，已打开的页面会重新取数。不另造订阅。
+  - 要收集的键：有效租约的会话、`sessions[]`、各运行的属主、进程登记里的 `startedBy.key`（运行页“经 nbdev 起的服务”），以及记录快照里收件箱提问者的 `askedBy`。提问者可能早已不在活动里，也要算进去。
+- **视图从快照读**：首页、Work 页、Task 页（`views.ts`）与运行页（`live-views.ts` 的 `runsView`）都从同一份快照里取 `sessionTitles`，只放本视图出现的键。不在 GET 时查盘，也就不用把这几个同步的视图函数改成异步。会话页已有逐条的 `title`，改为也从这份快照里取，不再单独查。
+- 产物页只用到通知状态，按下一节通知保留短键，所以不带。
 
 ### `packages/dev-panel/src/web/host/format.ts` 与各零件：显示标题
 
@@ -80,7 +85,7 @@
 | 片 | 内容 | 自跑验证 |
 |---|---|---|
 | S1 | nb-ui `FormCheckbox` 加 `relative`，加验收夹具与 e2e | `bun run --cwd packages/nb-ui test`；`NB_UI_E2E_PORT=<空闲端口> bun run --cwd packages/nb-ui test:e2e -- form-checkbox`，改前失败、改后通过 |
-| S2 | 视图带出 `sessionTitles`，网页端显示标题加短键 | dev-panel typecheck；`tests/panel-core.test.ts`（或 `tests/panel-server.test.ts`）的视图用例，`sessionName` 的单元测试 |
+| S2 | 快照里读标题、视图带出 `sessionTitles`，网页端显示标题加短键 | dev-panel typecheck；`tests/session-titles.test.ts`、`tests/panel-server.test.ts` 或状态刷新的用例，`sessionName` 的单元测试 |
 | S3 | 会话页的紧凑写法 | dev-panel typecheck、`build:web`；截图与高度测量（见“验收目标”） |
 
 S1 是 nb-ui，与 S2、S3 不重叠，可以交给另一个编码子代理，在独立的 worktree 里并行做，做完合回集成分支。
@@ -90,7 +95,9 @@ S1 是 nb-ui，与 S2、S3 不重叠，可以交给另一个编码子代理，�
 | 合同条目 | 覆盖 |
 |---|---|
 | 勾选框聚焦不滚动外层容器 | `packages/nb-ui/e2e/form-checkbox.spec.ts`，改前失败的截图 |
-| 首页、Work 页、Task 页、运行页带 `sessionTitles` | 视图用例：夹具里放一个 Claude 会话文件，断言 `sessionTitles` 里有它的标题 |
+| 会话键到标题的映射：Claude、Codex、omp 的绝对路径（含冒号）、omp 的 id、`external:`、文件不存在 | `tests/session-titles.test.ts`：真实临时会话文件，断言最终的 `sessionTitles` |
+| 四个视图各带 `sessionTitles`：首页含已不在活动里的提问者，运行页含只剩进程登记的属主 | 面板服务的视图用例（真实 HTTP），逐个视图核对 |
+| 标题改名、文件后来出现、文件删掉，已打开的页面收到 `changed` 并取到新标题 | 状态刷新用例：改真实会话文件后等可观察的 revision 变化，不用固定等待 |
 | “谁”显示标题加短键；同名的两个会话可区分；“核对身份”的句子保留短键 | `sessionName` 的单元测试（有标题、无标题、同名）；截图 |
 | 1440×650 下终端画面不低于 320px，1440×900 下不变矮 | 高度测量脚本与截图，记进 Task 证据 |
 
@@ -98,7 +105,7 @@ S1 是 nb-ui，与 S2、S3 不重叠，可以交给另一个编码子代理，�
 
 - 收口跑 dev-panel 全量、typecheck、`build:web`，以及 nb-ui 的 `test`、受影响的 e2e。
 - 合入 `master` 后重启面板 4400，用真实面板按“验收目标”的尺寸截图，再看一眼首页、Work 页、Task 页的租约显示。
-- 未验证的边界：Codex、omp 会话的标题只靠 t15 第 3 批的单元测试，这次不另测。
+- 未验证的边界：批量读取“一轮只列一次目录、同键单飞”是性能性质，不另写测试（要测就得为测试加诊断计数），留给实现审查核对代码。
 
 ## 计划审查
 
@@ -110,7 +117,7 @@ S1 是 nb-ui，与 S2、S3 不重叠，可以交给另一个编码子代理，�
 - 面板绕法的理由改写、同名 `.md` 列全（第 11、12 条）。
 - 第 14 条（矮窗口的判断要可测）随“不分高度档”一起消失，会话页的布局以截图与高度测量验收。
 
-服务端一节（`views.ts`）随 t18 的计划一起交 omp 审。
+服务端一节随 t18 的计划一起交 omp 审，报告见 [t18 的 evidences/plan-review.txt](../t18-agent-self-check/evidences/plan-review.txt) 第 8 到 11 条：重要 3、建议 1，全部成立，这一节已按“在后台的活动刷新里读标题”重写。
 
 ## 不做与风险
 

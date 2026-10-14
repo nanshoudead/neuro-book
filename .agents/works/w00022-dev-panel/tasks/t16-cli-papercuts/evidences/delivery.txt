@@ -1,0 +1,59 @@
+w00022 t16 交付报告（worktree .worktree/w00022-dev-panel，分支 feat/w00022-dev-panel，起点 61e1c5dd4）
+
+一、提交
+S1 7d0307e55 feat(dev-panel): artifact publish 只提交页面引用到的文件集，其余列出提醒，加 --include
+  - 新增 src/core/references.ts（srcset 候选语法、CSS url()/@import、脚本字面量 import 的提取，无 node 依赖）与 references.test.ts
+  - questions.ts：所有元素先收资源属性（src/href/poster/srcset、style 属性 url()），script/style/template/noscript 只是不进子节点；内联 <style>、无 src 的 <script type="module"> 也收引用
+  - artifacts.ts：ArtifactVersion.files（提问集 null，旧记录读成 []）；resolveReference、artifactFileSet（候选、五类种子、BFS 闭包，引用检查与文件集共用一份引用）、versionSeeds、currentContentHash；artifactContentHash 改为输入文件集
+  - artifact-ops.ts：publish 用文件集算哈希、题、提交范围（changedArtifactFiles 与文件集的交集）；unreferenced_files_not_committed（details.paths）；--include 校验报 usage（details {include, exists}）；版本记录写 files，非 publish 动作沿用上一版 files
+  - views.ts：unpublishedChanges 用 currentContentHash；artifact-commands.ts 加 --include；index.ts 导出新函数
+  - 文档：docs/file-formats.md 发布记录（files 字段、文件集的候选/种子/闭包/srcset/归一化）、提问标记只看文件集；docs/cli.md 命令表、写什么、警告表
+S2 dd8aeac70 feat(dev-panel): 普通输出逐条列出明细，answers --wait 接 SIGHUP
+  - src/cli/output.ts：detailLines(entry) 与 writeEntry，最多 20 条，超出写“另有 N 条，加 --json 看全部”；streamed 路径的警告同样带明细；--json 外壳不变
+  - artifact-commands.ts：--wait 期间 once SIGHUP，finally 里 off
+  - docs/cli.md：“--json 外壳”写明三类明细；“answers --wait”写 SIGHUP、SIGKILL 后 stdout 为空的重挂约定、TaskStop 先发 SIGTERM
+S3 569ac99e6 feat(dev-panel): work new、task new 只报涉及这次领号的撞号，加 --no-lease
+  - scan.ts：ClaimedNumber 类型与纯函数 partitionConflicts（Work 按 wNNNNN，Task 按完整 workId 加 tNN）
+  - operations.ts：reportConflicts 可选 claimed；CreateResult 加 otherConflicts；CreateOptions.skipLease，提交失败时同样不取；registry import 不变
+  - main.ts：--no-lease 选项、用法文本、“另有 N 组撞号与这次领号无关，见 nbdev status”
+  - docs/cli.md：命令表、自动取得与续期的例外、写命令 data 的 conflicts/otherConflicts、number_conflicts 说明
+S4 4a7eab593 fix(neuro-book): lab:shot 的组件或场景不在 Lab 清单里时立即失败并提示重启开发服务
+  - packages/neuro-book/scripts/lab-shot.ts：openLab 的 waitForFunction 返回 LabWait；__nbLab 就位而 components() 没有目标组件、或给了场景而 scenes(组件) 没有时立即返回并抛错（列清单前 15 个，提示重启开发服务）；合法组件仍等 ready/loadError
+  - docs/specs/ui/component-lab.md 场景 14 加一句
+
+二、验证（TMPDIR=/dev/shm/t16-tmp）
+- 每片：bun run --cwd packages/dev-panel typecheck 通过
+- S1：bun test --isolate src/core/artifacts.test.ts tests/artifacts-cli.test.ts tests/artifacts-write.test.ts tests/panel-core.test.ts tests/panel-server.test.ts src/core/references.test.ts src/core/questions.test.ts：83 pass 0 fail
+- S2：bun test --isolate tests/artifacts-cli.test.ts tests/cli.test.ts tests/artifacts-write.test.ts：42 pass 0 fail
+- S3：bun test --isolate tests/cli.test.ts tests/leases-cli.test.ts src/core/scan.test.ts tests/panel-writes.test.ts tests/panel-writes-core.test.ts：52 pass 0 fail
+- S4：bun run --cwd packages/neuro-book typecheck 通过（lab-shot.ts 在 tsconfig.browser-test.json 里）
+- 收口：bun run --cwd packages/dev-panel test：438 pass 0 fail（63 个文件，400 秒），无偶发失败；build:web 成功；bun run governance:check：failures 0、warnings 0
+- 变异检查（改完恢复）：去掉 NON_TEXT 元素的属性收集、去掉已跟踪种子、去掉 SIGHUP 监听、task new 忽略 skipLease，对应测试都失败
+
+三、与计划的偏离
+1. sameContent 不比较 files：否则旧记录（无 files）升级后每个产物下一次发布都会多出一版。
+2. “--include 的发布 git add 失败后重跑只补交”用例写在 tests/artifacts-write.test.ts 的核心层（gitLockWaitMs 300 + 真实 index.lock），没写在 artifacts-cli：同样是真实锁，免去 CLI 层约 10 秒的等待。用例覆盖面板重算哈希一致、重跑不出新版本、未链接有题页面的题不被取代。
+3. invalid_questions 明细：页面标记的问题 message 本身已写“题 <题号>…”，按计划格式再拼会重复。改为明细行 = `<page>:<line>:<column> <message> [<code>]`，并把 nbdev ask 的问题 message 也加上“题 <题号>：”前缀，两类一致（--json 里 ask 的 errors[].details.problems[].message 文字因此变了，code 不变）。
+4. reference_outside_artifact 的 details.references 多了 line 字段，供明细行写 `<page>:<line> <target>`。
+5. --no-lease 的提交失败路径用真实 pre-commit 钩子拒绝（git_failed）触发，没用 index.lock（不等 10 秒）。
+6. 核心选项名为 skipLease；新增导出 CreateOptions、partitionConflicts、ClaimedNumber、artifactFileSet、currentContentHash、resolveReference、versionSeeds 及相关类型。
+7. 面板新建接口也走 createWork/createTask，所以它的响应里 conflicts 同样只剩相关撞号、多了 otherConflicts（--no-lease 不影响面板）；前端不读这个字段。
+8. followups.md 六条的“去向”在起点提交里已写 t16，没有改动。
+9. lab-shot.ts 里 `if (outcome === false) throw` 实际不可达（waitForFunction 只在真值时 resolve），只为收窄类型，已注释说明。
+
+四、没做到与未验证
+- S4 未在真实开发服务上跑（按派发由主会话做）：建议 `bun run lab:shot -- -c NoSuchThing --url …` 与 `-c <合法组件> -s no-such-scene`。
+- task_images_too_large 仍按 Task 的 artifacts/、evidences/ 里全部未忽略的图片合计；只有单张 image_too_large 改成看文件集。
+- <template>、<noscript> 子节点里的引用不追踪；脚本里拼出来的地址、裸模块名不追踪（会出现在 unreferenced 警告里，用 --include 补）；脚本注释里的 import 会被当成引用（至多多一条 missing_reference）。
+- 没有改旧应用、nbdev shot。
+
+五、禁止清单自查
+- 不按错误文案分支：明细按 code 分派；--include 的两种 usage 按 pathExists 区分。通过
+- 无静默 catch：openLab 的 catch 带快照重抛；新代码没有吞错。通过
+- 未跳过测试、未放宽断言：场景 6 按新合同重写（旧断言 work new 列出无关撞号正是要改的行为），其余只新增。通过
+- 未删改任务外代码、配置、注释。通过
+- 重构保留清理收口（--wait 的 finally 照样 off 全部信号），无多余路径；唯一不可达行见偏离第 9 条。通过
+- 无跨包深导入。通过
+- 测试用真实 Git 夹具与 CLI 子进程，无 mock、spy、假计时器、固定等待。通过
+- 未用 rm -rf 清理仓库内目录；未碰 worktree 外文件（/dev/shm/t16-tmp 除外，结束已删）；未碰主工作区；未用 pkill -f、pgrep -f。通过
+- 提交只用 git add -- <路径>；无 Co-Authored-By；未 push、未切分支、未 stash、未 rebase（S4 提交补注释时用了一次 git commit --amend，改的是我自己刚做、未推送的提交）。
