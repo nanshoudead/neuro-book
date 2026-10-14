@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import {Badge} from "@notnotype/nb-ui/components";
-import {computed, ref} from "vue";
+import {computed, onBeforeUnmount, ref} from "vue";
 import {taskLabel, workLabel} from "../host/format.js";
 import {snippetAround} from "../host/highlight.js";
 import {docHref, isPlainClick, searchRecordHref} from "../host/routes.js";
@@ -30,7 +30,20 @@ const groups = computed(() => {
         done: props.done.find((entry) => entry.checkout === checkout) ?? null,
     }));
 });
-/** 展开了历史记录的 checkout（不记，换个搜索词就收起）。 */
+/**
+ * 内容片段在命中前留多少个字：窄屏（手机）上内容那一行只有约 350px，中文 30 个字就放不下，命中会落在截断之外，所以只留 6 个字。
+ * 内容那一行至少 16rem 宽，放不下就换到路径下面独占一行：原来它挤在长路径旁边只剩几个字宽。
+ * （2026-10-14 在 390 宽下实测：搜“决定点”，原来 199 行里 129 行的命中看不见。）
+ */
+const narrowQuery = window.matchMedia("(max-width: 767px)");
+const narrow = ref(narrowQuery.matches);
+const onNarrow = () => {
+    narrow.value = narrowQuery.matches;
+};
+narrowQuery.addEventListener("change", onNarrow);
+onBeforeUnmount(() => narrowQuery.removeEventListener("change", onNarrow));
+const snippetBefore = computed(() => (narrow.value ? 6 : 30));
+/** 展开了历史记录的 checkout。页面按搜索词给零件加 key，换个搜索词零件重建、历史收起。 */
 const historyOpen = ref<Set<string>>(new Set());
 function toggleHistory(checkout: string): void {
     const next = new Set(historyOpen.value);
@@ -69,11 +82,11 @@ function recordText(match: SearchRecordMatch): string {
                 <li v-for="(hit, index) in [...group.hits, ...(historyOpen.has(group.checkout) ? group.history : [])]" :key="index" class="min-w-0">
                     <a v-if="hit.path.endsWith('.md')" :href="docHref(hit.checkout, hit.path)" class="flex w-full min-w-0 flex-wrap items-baseline gap-x-2 px-1 py-0.5 hover:bg-[var(--bg-hover)]" @click="follow($event, docHref(hit.checkout, hit.path))">
                         <span class="font-medium"><HighlightText :text="hit.path" :q="hit.kind === 'name' ? q : ''" /><template v-if="hit.line">:{{ hit.line }}</template></span>
-                        <code v-if="hit.text" class="min-w-0 flex-1 truncate nbdev-secondary"><HighlightText :text="snippetAround(hit.text, q)" :q="q" /></code>
+                        <code v-if="hit.text" class="min-w-[16rem] max-w-full flex-1 truncate nbdev-secondary"><HighlightText :text="snippetAround(hit.text, q, snippetBefore)" :q="q" /></code>
                     </a>
                     <div v-else class="flex w-full min-w-0 flex-wrap items-baseline gap-x-2 px-1 py-0.5">
                         <span><HighlightText :text="hit.path" :q="hit.kind === 'name' ? q : ''" /><template v-if="hit.line">:{{ hit.line }}</template></span>
-                        <code v-if="hit.text" class="min-w-0 flex-1 truncate nbdev-secondary"><HighlightText :text="snippetAround(hit.text, q)" :q="q" /></code>
+                        <code v-if="hit.text" class="min-w-[16rem] max-w-full flex-1 truncate nbdev-secondary"><HighlightText :text="snippetAround(hit.text, q, snippetBefore)" :q="q" /></code>
                     </div>
                 </li>
             </ul>

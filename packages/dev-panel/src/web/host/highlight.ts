@@ -23,13 +23,19 @@ export function highlightParts(text: string, q: string): HighlightPart[] {
     return parts.length === 0 ? [{text, hit: false}] : parts;
 }
 
+/** 按字素切：emoji 的代理对、带组合符号的字不会被切开（第 5 批前端审查第 6 条）。 */
+const graphemes = new Intl.Segmenter(undefined, {granularity: "grapheme"});
+
 /**
- * 内容命中那一行只显示一行、超出截断：第一个命中在 `before` 个字之后时，前面换成省略号，让命中落在看得见的地方。
- * 前导空白（缩进）先去掉。
+ * 内容命中那一行只显示一行、超出截断：第一个命中前多于 `before` 个字时，前面换成省略号，让命中落在看得见的地方。
+ * 前导空白（缩进）先去掉。`before` 按字素数；起点落在字素中间时退到这个字素的开头。
  */
 export function snippetAround(text: string, q: string, before = 30): string {
     const line = text.replace(/^\s+/u, "");
     const regex = pattern(q);
     const index = regex ? line.search(regex) : -1;
-    return index > before ? `…${line.slice(index - before)}` : line;
+    if (index <= 0) return line;
+    const starts = [...graphemes.segment(line.slice(0, index))].map((segment) => segment.index);
+    if (starts.length <= before) return line;
+    return `…${line.slice(starts[starts.length - before])}`;
 }

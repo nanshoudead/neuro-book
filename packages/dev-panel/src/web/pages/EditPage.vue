@@ -44,7 +44,7 @@ const crumbs = computed(() => {
     return items;
 });
 /**
- * 文件找不到（404）时去哪里：记录的 README 回到它的 Task 或 Work；别的文件回到文档页。
+ * 文件找不到（404）时去哪里：Work 或 Task 目录里的文件回到那个 Task 或 Work；别的文件回到文档页。
  * 不用面包屑里的“文档里的它”：那份文档同样找不到。
  */
 const up = computed(() => {
@@ -80,19 +80,38 @@ async function copyDraft(): Promise<void> {
 }
 
 /**
- * 站内离开的确认框（面板自己的 `AlertDialog`，不用 `window.confirm`）：路由守卫返回 Promise，等开发者选。
- * 开着时又来一次导航（例如连点两下左栏），先把上一次当作“留下”结算，只留最新的一次。
+ * 站内离开的确认框（面板自己的 `AlertDialog`，不用 `window.confirm`）：路由守卫返回 Promise，等开发者选（t15 阶段 4 第 5 批）。
+ * - 框的寿命跟着它等的那一次导航：又来一次离开这一页的导航（框是模态的，只有浏览器后退、前进来得了），先把上一次按“留下”结算；
+ *   回到这一页同一个文件的导航（后退之后再前进）不经守卫、直接放行，vue-router 会取消上一次，框也要跟着关（见 `router.beforeEach`）；
+ * - “离开”“留下”各自结算；Esc 只发关闭，等 `closed`（关闭做完、焦点栈已释放）再按“留下”结算。点遮罩不会关（nb-ui 的 AlertDialog）；
+ * - 留下时焦点回到打开框之前的元素，没有（或已不在页面上）就回到编辑框：AlertDialog 没有触发器时不归还焦点。
  */
-const leaveAsk = ref<((leave: boolean) => void) | null>(null);
+const leaveOpen = ref(false);
+let pendingLeave: ((leave: boolean) => void) | null = null;
+let returnFocus: HTMLElement | null = null;
+let stayed = false;
+function settleLeave(leave: boolean): void {
+    const settle = pendingLeave;
+    pendingLeave = null;
+    stayed = !leave;
+    leaveOpen.value = false;
+    settle?.(leave);
+}
 function askLeave(): Promise<boolean> {
-    leaveAsk.value?.(false);
+    if (pendingLeave) settleLeave(false);
+    returnFocus = document.activeElement instanceof HTMLElement && document.activeElement !== document.body ? document.activeElement : null;
+    leaveOpen.value = true;
     return new Promise((resolve) => {
-        const settle = (leave: boolean) => {
-            if (leaveAsk.value === settle) leaveAsk.value = null;
-            resolve(leave);
-        };
-        leaveAsk.value = settle;
+        pendingLeave = resolve;
     });
+}
+/** Esc 关掉框：关闭做完之后还没结算的按“留下”结算；留下时把焦点还回去。 */
+function onLeaveDialogClosed(): void {
+    if (pendingLeave) settleLeave(false);
+    if (!stayed) return;
+    const target = returnFocus?.isConnected ? returnFocus : document.querySelector<HTMLElement>("textarea[aria-label='文件内容']");
+    target?.focus();
+    returnFocus = null;
 }
 /** 站内离开：保存在途时直接拒绝（这次保存照样会提交，离开不会丢掉它，等结果回来再走）；有未保存的改动时问。 */
 async function mayLeave(): Promise<boolean> {
@@ -102,20 +121,18 @@ async function mayLeave(): Promise<boolean> {
     }
     return !dirty.value || await askLeave();
 }
-/**
- * 确认框关上（Esc、点遮罩）算“留下”。点“离开”时 reka 先发关闭、再发 `confirm`，所以这里推到下一轮再结算：
- * `confirm` 先结算成“离开”，之后这一次是空操作（Promise 只认第一次）。
- */
-function onLeaveDialogOpen(open: boolean): void {
-    if (open) return;
-    const pending = leaveAsk.value;
-    setTimeout(() => pending?.(false), 0);
-}
 onBeforeRouteLeave(() => mayLeave());
 onBeforeRouteUpdate((to) => to.query.path === route.query.path || mayLeave());
-onBeforeUnmount(() => leaveAsk.value?.(false));
+/** 回到这一页同一个文件的导航不经上面两个守卫：它会取消框在等的那一次，所以在这里按“留下”结算并关框。 */
+const removeBeforeEach = router.beforeEach((to) => {
+    if (pendingLeave && to.name === route.name && to.query.path === route.query.path) settleLeave(false);
+});
+onBeforeUnmount(() => {
+    removeBeforeEach();
+    if (pendingLeave) settleLeave(false);
+});
 
-/** Ctrl+S（Mac 上 ⌘+S）保存；不能保存时也拦下浏览器的“另存网页”，在操作栏写原因。 */
+/** Ctrl+S（Mac 上 ⌘+S）保存；不能保存时也拦下浏览器的“另存网页”，在操作栏写原因（保存在途时按钮已在转圈，不另写）。 */
 const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/u.test(navigator.platform);
 const saveShortcut = isMac ? "⌘+S" : "Ctrl+S";
 const shortcutNote = ref<string | null>(null);
@@ -125,10 +142,9 @@ watch(draft, () => {
 function onKeydown(event: KeyboardEvent): void {
     if (event.key.toLowerCase() !== "s" || !(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey || event.isComposing) return;
     event.preventDefault();
-    // 有对话框开着（别人没提交的改动、离开确认）时由对话框决定，快捷键不越过它。
-    if (uncommitted.value !== null || leaveAsk.value !== null) return;
-    if (write.pending.value) shortcutNote.value = "正在保存";
-    else if (blocked.value !== null) shortcutNote.value = blocked.value;
+    // 按住不放的重复、有对话框开着（别人没提交的改动、离开确认）、正在保存：都不再处理。
+    if (event.repeat || uncommitted.value !== null || leaveOpen.value || write.pending.value) return;
+    if (blocked.value !== null) shortcutNote.value = blocked.value;
     else if (mismatch.value !== null) shortcutNote.value = "文件在你打开之后被改过，先处理上面的差异";
     else if (!dirty.value) shortcutNote.value = "没有改动，不用保存";
     else {
@@ -185,10 +201,11 @@ onBeforeUnmount(() => window.removeEventListener("beforeunload", guardUnload));
                         <Button :loading="write.pending.value" :disabled="!dirty || blocked !== null || mismatch !== null" :aria-keyshortcuts="isMac ? 'Meta+S' : 'Control+S'" @click="session.save()">保存并提交 <kbd class="nbdev-save-kbd">{{ saveShortcut }}</kbd></Button>
                         <Button variant="ghost" :disabled="!dirty || write.pending.value" @click="session.discard">放弃改动</Button>
                         <span v-if="write.slow.value" class="nbdev-note">在等别的写入完成…</span>
-                        <span v-else-if="shortcutNote" class="nbdev-note" role="status">{{ saveShortcut }}：{{ shortcutNote }}</span>
+                        <!-- 常驻的实时区域：内容变了读屏才会播报；插入时就带着字的不播报。 -->
+                        <span class="nbdev-note" role="status">{{ shortcutNote && !write.slow.value ? `${saveShortcut}：${shortcutNote}` : "" }}</span>
                     </div>
                 </div>
-                <AlertDialog :open="leaveAsk !== null" title="有未保存的改动" description="离开这一页会丢掉还没保存的改动。" confirm-text="离开，丢掉改动" cancel-text="留下" tone="warning" @confirm="leaveAsk?.(true)" @cancel="leaveAsk?.(false)" @update:open="onLeaveDialogOpen" />
+                <AlertDialog :open="leaveOpen" title="有未保存的改动" description="离开这一页会丢掉还没保存的改动。" confirm-text="离开，丢掉改动" cancel-text="留下" tone="warning" @update:open="(open) => (leaveOpen = open)" @confirm="settleLeave(true)" @cancel="settleLeave(false)" @closed="onLeaveDialogClosed" />
                 <UncommittedDialog :open="uncommitted !== null" :path="path" :changes="uncommitted?.changes ?? null" :pending="write.pending.value" @confirm="uncommitted && session.save(true, uncommitted.currentHash)" @cancel="uncommitted = null" />
             </template>
         </template>

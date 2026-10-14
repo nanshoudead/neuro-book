@@ -17,4 +17,13 @@ describe("高亮", () => {
         expect(snippetAround(long, "needle")).toBe(`…${"x".repeat(30)}needle 后面`);
         expect(snippetAround("    短的 needle", "needle")).toBe("短的 needle");
     });
+
+    test("片段按字素切：emoji 的代理对与带组合符号的字不会被切开（第 5 批前端审查第 6 条）", () => {
+        const emoji = snippetAround(`${"😀".repeat(40)}needle`, "needle", 31);
+        expect(emoji).toBe(`…${"😀".repeat(31)}needle`);
+        expect(emoji.includes("\ufffd") || /[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/u.test(emoji)).toBe(false);
+        const accent = snippetAround(`${"x".repeat(10)}e\u0301${"y".repeat(29)}needle`, "needle", 30);
+        expect(accent).toBe(`…e\u0301${"y".repeat(29)}needle`);
+        expect(snippetAround("短的 needle", "needle", 30)).toBe("短的 needle");
+    });
 });
