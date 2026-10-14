@@ -57,7 +57,7 @@ export {
     type RegistryTaskEntry,
     type RegistryWorkEntry,
 } from "./core/registry.js";
-export {findConflicts, nextTaskNumber, nextWorkNumber, scanNumbers, type ConflictId, type IdLocation, type NumberConflict, type NumberScan} from "./core/scan.js";
+export {findConflicts, nextTaskNumber, nextWorkNumber, partitionConflicts, scanNumbers, type ClaimedNumber, type ConflictId, type IdLocation, type NumberConflict, type NumberScan} from "./core/scan.js";
 export {chooseExecutionCheckout, findBranchRecordChanges, type ExecutionCheckout} from "./core/sources.js";
 export {readProjectRecords, readProjectStatus, readTransitionState, withActivity, type ArtifactSummary, type InboxItem, type ActiveLease, type ProjectRecords, type ProjectStatus, type RecordSource, type StatusFilter, type StatusOptions, type TaskView, type TransitionState, type WorkView} from "./core/status.js";
 export {createBranchChangesCache, type BranchChangesCache} from "./core/sources.js";
@@ -92,6 +92,7 @@ export {
     setRecordStatus,
     setTaskStatus,
     type CreateInput,
+    type CreateOptions,
     type CreatePreview,
     type CreateResult,
     type CreateTaskInput,

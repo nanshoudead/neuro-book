@@ -13,8 +13,8 @@
 
 | 命令 | 参数 | `schema` |
 |---|---|---|
-| `nbdev work new <slug>` | `--title`、`--goal`、`--task <slug>` 必填；`--task-title`（缺省用 Work 标题）、`--issue <正整数>`、`--status`（首个 Task 的状态，缺省 `planned`）、`--as` | `nbdev.work-new/v1` |
-| `nbdev task new <workRef> <slug>` | `--title` 必填；`--goal`、`--status`、`--as` | `nbdev.task-new/v1` |
+| `nbdev work new <slug>` | `--title`、`--goal`、`--task <slug>` 必填；`--task-title`（缺省用 Work 标题）、`--issue <正整数>`、`--status`（首个 Task 的状态，缺省 `planned`）、`--no-lease`、`--as` | `nbdev.work-new/v1` |
+| `nbdev task new <workRef> <slug>` | `--title` 必填；`--goal`、`--status`、`--no-lease`、`--as` | `nbdev.task-new/v1` |
 | `nbdev work status <workRef> <status>` | `--include-uncommitted` | `nbdev.work-status/v1` |
 | `nbdev task status <workRef> <taskRef> <status>` | `--include-uncommitted`、`--as` | `nbdev.task-status/v1` |
 | `nbdev lease take <workRef> <taskRef>` | `--as` | `nbdev.lease-take/v1` |
@@ -113,7 +113,7 @@
   2. `CLAUDE_CODE_SESSION_ID`：只在 `CLAUDE_PID` 存在、进程还活着、id 是 UUID、并且是调用者进程的祖先时才信，否则给 `claude_env_untrusted` 警告（`details.reason` 为 `invalid` 或 `not_ancestor`）并忽略。环境变量是继承来的：herdr server、tmux 若是从某个 Claude 的 Bash 里起的，里面所有 pane 都会带着那个仍活着的 `CLAUDE_PID`。子代理与 Claude 会话派出的进程（包括 `omp -p`）都继承它，记在同一个会话名下；嵌套的 `claude -p`（外层的 `CLAUDE_PID` 是内层 claude 的祖先）归到外层会话，`parentSessionId` 记外层的 id，`nestedSessionId` 记调用者环境里的内层 id。
   3. 只有 `HERDR_PANE_ID`（omp 等）：用那格 pane 上 herdr 认出的 Agent 会话，进程记 pane 的前台主进程；读不到 pane 的进程信息时进程记 `null`，给 `herdr_partial` 警告。
   4. 都没有：未知调用者。写命令照常完成但不取得租约（`caller_unknown` 警告）；`lease take`、`release` 报 `caller_unknown`。
-- **自动取得与续期**：`work new`、`task new` 之后取得新 Task 的租约（提交失败但文件已写、号已领时也取）；`task status` 改成别的状态时续期调用者的租约。
+- **自动取得与续期**：`work new`、`task new` 之后取得新 Task 的租约（提交失败但文件已写、号已领时也取）；`task status` 改成别的状态时续期调用者的租约。例外：`work new`、`task new` 带 `--no-lease`（先记下、还不开工的 Task）时不取得租约、不写 pane 标签，提交失败时也不取，`data.lease` 为 `null`，未知调用者也不给 `caller_unknown`；调用者照常解析，登记表里的 `by` 照记调用者。
 - **自动释放**：Task 改成 `done` 或 `shelved` 时释放这个 Task 的全部租约，与由谁调用无关（面板以开发者身份改状态时同样释放）。
 - `lease take` 遇到已 `done` 或 `shelved` 的 Task 报 `task_closed`。
 - **不带参数的 `release` 释放调用者的全部租约**。子代理与父会话是同一个身份，子代理这样做会释放父会话的全部租约。
@@ -136,7 +136,7 @@ stdout 只有一个对象，诊断走 stderr：
   - `unreferenced_files_not_committed`：文件路径；
   - `missing_reference`、`reference_outside_artifact`：`<页面>:<行> <引用>`，没有行号时只写页面。
 - 不带命令、命令不认识或参数在分派到命令之前就出错时，`schema` 为 `nbdev.cli/v1`（错误码 `usage`，退出码 2）；`nbdev help --json`（或 `--help --json`）同样用 `nbdev.cli/v1`，`data.usage` 是用法文本。
-- 写命令的 `data`：`workId`、`taskId`、`paths`、`commit`、`conflicts`、`registryOnly`（登记表里有、但哪里都找不到的 id；本次刚领的号不算），以及 `lease`（取得或续期后的租约，未知调用者为 `null`）与 `released`（这次释放的租约）。`commit` 是下列之一：
+- 写命令的 `data`：`workId`、`taskId`、`paths`、`commit`、`conflicts`（`work new`、`task new` 只列涉及这次领的号的撞号：Work 号按 `wNNNNN`，Task 号按完整 Work id 加 `tNN`）、`otherConflicts`（`work new`、`task new`：与这次领号无关的撞号组数，普通输出写“另有 N 组撞号与这次领号无关，见 nbdev status”；完整列表看 `status` 或 `registry import`）、`registryOnly`（登记表里有、但哪里都找不到的 id；本次刚领的号不算），以及 `lease`（取得或续期后的租约，未知调用者为 `null`）与 `released`（这次释放的租约）。`commit` 是下列之一：
   - `{"committed": true, "sha", "paths", "viaOtherCommit"}`：`viaOtherCommit` 为真表示文件被别的会话不带路径的提交一起带走了，内容已在 `master`；
   - `{"committed": false, "reason": "nothing_to_commit", "paths"}`：写入的内容与 `HEAD` 相同，无需提交；
   - `{"committed": false, "reason": "git_lock_timeout" | "git_failed", "writtenPaths", "detail"}`：文件已写在主工作区但没有提交，退出码 1。不要重跑 `task new`（号已领），先处理 Git 的问题，再手动提交 `writtenPaths`。`git_lock_timeout` 只在等 `index.lock` 约 10 秒仍被占着时出现；其它失败（钩子拒绝、对象库不可写等）是 `git_failed`，`detail` 里有 Git 的输出。Git 退出码 128 而一直没见到 `index.lock` 时，连续 5 次就停止重试。
@@ -177,7 +177,7 @@ stdout 只有一个对象，诊断走 stderr：
 |---|---|
 | `registry_initialized` | 登记表原本不存在，这次按扫描结果整表导入 |
 | `unregistered_ids` | 扫描到登记表里没有的号，已补登为 `imported`；说明有人绕过了 nbdev |
-| `number_conflicts` | 有撞号，详见 `conflicts` |
+| `number_conflicts` | 有撞号，详见 `conflicts`；`work new`、`task new` 只在有涉及这次领号的撞号时给 |
 | `prunable_worktree` | 某个已登记的 worktree 目录已不存在，跳过 |
 | `caller_unknown` | 认不出调用者，没有取得租约 |
 | `claude_env_untrusted` | 环境里的 Claude 会话 id 不可信，已忽略 |

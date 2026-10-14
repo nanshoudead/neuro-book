@@ -156,6 +156,19 @@ function groupByNumber(ids: Iterable<string>, parse: (id: string) => {number: nu
     return groups;
 }
 
+/** 一次领的号：Work 号（`w00023`），或某个 Work（完整 id）里的 Task 号（`t02`）。 */
+export type ClaimedNumber = {kind: "work"; number: string} | {kind: "task"; workId: string; number: string};
+
+/**
+ * 把撞号分成与这次领号有关的和其余的：领号命令只报前者，其余的只给组数，完整列表看 `nbdev status`。
+ * Task 撞号按完整 workId 加 Task 号匹配，不拿裸的 `t01` 与别的 Work 比。
+ */
+export function partitionConflicts(conflicts: readonly NumberConflict[], claimed: readonly ClaimedNumber[]): {related: NumberConflict[]; others: number} {
+    const keys = new Set(claimed.map((entry) => entry.kind === "work" ? `work ${entry.number}` : `task ${entry.workId}/${entry.number}`));
+    const related = conflicts.filter((conflict) => keys.has(`${conflict.kind} ${conflict.label}`));
+    return {related, others: conflicts.length - related.length};
+}
+
 /**
  * 撞号：同一序号在工作区或 ref 里出现两个以上不同的 id。至少两个 id 不是旧副本时，这组撞号 `live`。
  * 登记表只保留号段，不作为撞号的位置；登记了但哪里都找不到的 id 列进 `registryOnly`。
