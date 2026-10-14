@@ -9,14 +9,17 @@ updated: 2026-10-14
 
 ## 目标与范围
 
-处理试用建议里第三档：dev start --sample 放一份样例作品，nbdev shot --page 截打开了作品的真实工作台并可带点击步骤
+处理[后续清单](../../followups.md)第三档（开发者 2026-10-14 定，按 autonomous-delivery 推进）：
 
-合同：待补充（链接具体 Spec，或说明行为合同是否改变）。
+1. `nbdev dev start --sample`：起开发服务时顺带放一份样例作品；
+2. `nbdev shot --page <路径>`：截打开了作品的真实工作台，可带点击步骤。
+
+合同：[命令行合同](../../../../../packages/dev-panel/docs/cli.md)；neuro-book 包新增 `dev:sample`、`page:shot` 两个脚本。计划见 [plan.md](plan.md)。
 
 ## 当前状态
 
-2026-10-14 经 nbdev 新建，尚未开工。
+2026-10-14 经 nbdev 新建；计划已写，待计划审查，排在 t16 之后。
 
 ## 下一步
 
-待补充。
+计划审查，处理意见后按切片实施。
