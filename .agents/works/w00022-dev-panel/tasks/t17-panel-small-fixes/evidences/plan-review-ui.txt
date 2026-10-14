@@ -1,0 +1,173 @@
+# t17 计划审查（前端部分）
+
+审查对象：`.agents/works/w00022-dev-panel/tasks/t17-panel-small-fixes/plan.md`。代码取集成分支 worktree `.worktree/w00022-dev-panel`，只读；未跑开发服务与 e2e，凡是靠推算的数字都标了“估算”。
+
+### 1. “输入框收成一行”几乎省不出高度，计划预期的 330px 实际来自另外两处
+- 严重程度：重要
+- 类别：设计假设
+- 位置：plan.md“矮窗口下 3.”与“预期 1440×650 下终端画面从约 200px 增加到约 330px”；`src/web/parts/SessionConsole.vue:79-85`
+- 现象：输入区的 form 是 `grid grid-cols-[minmax(0,1fr)_auto] items-end`，右列是“字数计数 + 发送按钮”（纵向 flex，计数 `nbdev-caption` 加 `gap-1` 加 `Button size="sm"`）。按 `before-1440x650.png` 量：textarea 两行约 54px（y 526 到 580），右列约 45px（计数 y≈543，按钮 y 556 到 581）。一行 textarea 约 37px（13px 字号 × 1.5 行高 + `py-2` 16 + 边框 2，估算），小于右列，所以 form 的高度由右列决定：54 变 45，只省约 8 到 9px。
+- 为什么是问题：预期的 +130px 是 页头 120→约 32（省约 88）加 会话信息 67→约 28（省约 39）凑出来的，输入框这一项贡献接近 0；计划把它当成三项等价的收法，实现者照做后会得到“看起来改了、高度没变”的结果。另外截图里的会话是“工作中”，textarea 是 `disabled`（`promptBlocked`），根本不会聚焦展开，这一状态下输入区的高度大头是“提示行 + 禁用的 textarea + 按键行”，计划没提。
+- 如何核实：在 1440×650 的真实面板里给 textarea 设 `rows=1`，量 `form` 的 `getBoundingClientRect().height`；或直接按上面的数字推算。
+- 建议改法：矮窗口下把字数计数与发送按钮并到 textarea 同一行（计数放按钮左边或去掉，超限才显示），form 才真的变成一行；`disabled`（工作中）时把“会话在工作中”提示与禁用 textarea 合成一行（提示当 placeholder 或只留提示、不渲染 textarea）。同时 textarea 带 `resize-y`：用户拖过把手后行内 `height` 会盖过 `rows`，“收起/展开”失效，矮窗口下应改 `resize-none` 或在收起时清掉行内高度。
+
+### 2. 760px 处终端高度出现悬崖，且比它高的常见窗口得不到好处
+- 严重程度：重要
+- 类别：边界、遗漏
+- 位置：plan.md“新增一档……可视高度小于 760px”“窗口高度 760 以上不变”
+- 现象：按计划自己的数字，未收起时终端高度约为 H − 450（H=650 时 200）。H=760 未收起：约 310；H=759 收起：约 759−450+130 = 439。窗口高 1px，终端高 130px，而且“更矮的窗口终端更高”（759 比 760 高 130px，非单调）。H 在 760 到 850 之间（例如 1536×864 在 125% 缩放下常见的可视高度约 720 到 800，MacBook 13 寸可视高度约 780）仍是 310 到 400px，没有任何改善，但 759 以下一下子给了 130px。
+- 为什么是问题：用户拖窗口、开关浏览器底部的开发者工具、进出全屏时，页头与会话信息会整块跳；阈值 760 是为 1440×650 这一个窗口定的，没有依据地落在常见高度的中间。
+- 如何核实：量 H=759 与 H=760 的终端框高（计划自己的 1440×650、1440×900 之外加这两档）。
+- 建议改法：按“终端框能分到多少高度”分档，而不是按窗口高度的一个阈值；或者分步收（先收信息行，再收页头，再收输入框），每一步各自的阈值错开，避免一次跳 130px；至少给阈值写依据并在 759/760 两档各截一张图。
+
+### 3. “聚焦或有内容时展开”会随聚焦、失焦、发送反复改终端框高，接管时的测量还依赖草稿状态
+- 严重程度：重要
+- 类别：交互、时序
+- 位置：plan.md“矮窗口下 3.”；`src/web/parts/TerminalView.vue:204-213`（ResizeObserver 150ms 防抖）、`:65-82`（`fitWatchFont`）、`:131-148`（`proposeControlSize`）
+- 现象：
+  1. 聚焦展开多出约 18 到 19px（一行变两行）。终端框是 `flex-1 min-h-0`，高度随之变；观看模式下 150ms 后 `fitWatchFont` 重算字号。窄而高的 pane 字号在 5 到 14 之间取整，框矮 18px 时 `floor(height/(rows*rowRatio))` 很可能少 1 号，于是每次聚焦、失焦终端文字都重画一次；点“发送”时（`mousedown` 先让 textarea 失焦）若草稿为空会塌回，发送成功后草稿被清空、焦点又在按钮上，同样塌回，正好是回复内容刷新的时刻。
+  2. 输入时（草稿非空）展开状态稳定，不会随敲字跳动，这一点没问题；问题在聚焦与失焦的边沿。
+  3. 接管：`requestTakeover`（点击时）才测一次尺寸。草稿非空时 textarea 保持展开，测到的框比草稿为空时矮约 18px，TakeoverDialog 里写的行数与实际不同（差约 1 行）；接管后输入框不渲染（`controlling`），框高再变，`ResizeObserver` 走 control 分支，与 `props.rows` 不一致就再发一次 `resize`（不弹确认框，直接改 herdr 那一格的行数）。现状里 `TerminalView.vue:132-134` 的注释说“观看与接管时框高一样”，靠的是接管后输入框换成 20px 的提示行、同时 `TerminalView` 多出一行 24px 左右的说明（`:259`）大致抵消；这个抵消在输入框一行/两行不同时不成立。此条是从代码推断，未实测。
+- 为什么是问题：计划要求“按键一行不变、其余收起”，没写展开时终端怎么处理；开发者专门问的两项（多余的 resize、接管确认）正好落在这里。
+- 如何核实：1440×650（收起档）下，草稿为空与非空各点一次“接管键盘”，比较确认框的行数与接管后 `frameBox` 的 `clientHeight`；再看 `terminal.resize` 是否在接管后紧接着又发一次。
+- 建议改法：高度只由内容决定，不看聚焦：`rows = clamp(草稿行数, 1, 4)`（或 `field-sizing: content`，Chrome 123 起支持，但 nb-ui 的 `FormTextarea` 没透出，要看它的 `.md`），聚焦与失焦不改布局；展开用的行数变化只发生在用户真的换行或粘贴多行时。若仍要“聚焦展开”，展开部分不要挤终端（但盖在终端最后一两行上不可取，agent 的输入行在屏幕最底部）。
+
+### 4. 会话信息“收成一行”会把可点的 Task 链接与不能发消息的原因截掉，悬停全文在触屏与键盘上不可用
+- 严重程度：重要
+- 类别：交互、无障碍
+- 位置：plan.md“矮窗口下 2.”；`SessionsPage.vue` 的 `<header class="nbdev-divider …">` 块（约 `:257-275`）
+- 现象：当前第二行有 8 种内容：Agent、pane、会话键（`TruncatedText`，最宽 10rem）、各租约的 Task 链接（`<a>`，可跳到 Task 页）、运行数、非 Agent 的 pane 的目录、`titleNote`（“标题取自……”）；非 Agent 的 pane 还有 “不是 Agent 会话：不能发消息、不能接管”。计划写“同在一行，放不下时截断，悬停显示全文”。
+- 为什么是问题：
+  1. 截断一行里的多个控件，被截掉的 Task 链接用不了；“悬停”只能给纯文字，不能给一串链接。
+  2. 触屏没有悬停，键盘到不了 `title`，读屏对 `title` 的支持也不稳；仓库里已经有 `TruncatedText`（`Tooltip`、聚焦可见、点击复制，同时给了 `aria-label`），计划没提复用。
+  3. 只读 pane 的“为什么不能发”被截断后，开发者在输入区找不到发送入口又读不到原因。
+  4. 计划没说一行里的次序与优先级；`titleNote` 是标题来源的唯一展示位置（第 8 条也要依赖它），收起后放哪里没写。
+- 如何核实：在 1280×650（medium 档，详情宽约 700px）下选一个有两个租约的会话，数一行放得下几项。
+- 建议改法：写明优先级（状态徽章、标题、pane 先；Task 链接次之；会话键、运行数、来源放最后），每个可截断项用 `TruncatedText` 并设 `min-w-0`，链接不截断（放不下就折行或收进“更多”）；非 Agent 的 pane 保留原因文字。
+
+### 5. `PageShell compact`：面包屑与标题合并后会出现两个“会话”，并破坏 PageShell 自己写下的“换页标题停在同一处”
+- 严重程度：重要
+- 类别：既有约定、无障碍
+- 位置：plan.md“矮窗口下 1.”；`src/web/parts/PageShell.vue:26-45`、`src/web/parts/PageShell.md`（“布局”“交互”“数据”各节）
+- 现象：会话页的面包屑是 `首页 > 会话`，最后一项是“当前页”，`title` 也是“会话”。并成一行、只把标题缩小字号后会显示“首页 > 会话　会话　herdr 0.9.1 …”。另外：
+  1. PageShell.md 写明“各页的内边距、标题字号与标题的顶边都由它给，所以换页时标题停在同一个位置”，“标题行至少 2rem 高”，compact 打破这一条，而且是同一个页面里随窗口高度变（拖窗口时标题位置变）；合同没改。
+  2. 标题是页面唯一的 `h1`，外壳换页时把焦点放到它上面、“跳到主内容”也落在它上面。如果为避免重复把 `h1` 做成 `sr-only`，焦点环就看不见了；如果把最后一项面包屑去掉，读屏用户少了 `aria-current` 的“当前页”提示，要写清楚。
+  3. `bare` 与 `compact` 同时为真时谁优先没写（会话页手机详情是 `bare`，同时窗口也可能很矮，计划里矮窗口档在手机档下是否生效没说，见第 13 条）。
+  4. meta 插槽的内容（herdr 徽章、订阅状态、对账补了几条、“另有 N 个短命进程”）在 herdr 不可用时是一整句错误文案（`SessionsPage.vue` 的 `data.herdr.error`），放进同一行后如果不规定 `nowrap + truncate`，在 switch 档（内容区约 470 到 900px）会自然折成 2 到 3 行，一点高度也省不下，还比现在更乱。
+- 如何核实：读 `PageShell.vue` 的模板，`Breadcrumb` 在 `v-if="items.length > 0"` 里、`h1` 在标题行里，两者在 compact 并排；计划没规定谁去重。
+- 建议改法：compact 下标题行直接用面包屑，去掉最后一项（`h1` 保留可见，文字改成与最后一项相同的“会话”），状态与 meta 放同一行右侧，`min-w-0 truncate`；PageShell.md 的布局、数据、不变量各节同步写 compact；写明 `bare` 优先。
+
+### 6. 要换成标题的零件清单不全：同一屏会同时出现短键与标题
+- 严重程度：重要
+- 类别：遗漏、事实不符
+- 位置：plan.md“用到的地方：WorkCard.vue、TaskPage.vue、RunsPage.vue、InboxList.vue、NotifyStatus.vue”与“首页（含收件箱与 Work 卡片）、Work 页、Task 页、运行页、通知状态这几份数据各带一份 sessionTitles”
+- 现象：`grep shortSession src/web` 命中 13 个文件，计划只列 5 个。漏掉的：
+  - `WorkPage.vue:126`（Work 页的会话 `LeaseChip`，而计划的服务端部分却写了 Work 页要带 `sessionTitles`）；
+  - `TaskTable.vue:78`、`:115`（Work 页与 Task 页的任务表里的租约 chip，计划标题里说“Task 页”，任务表才是租约出现最多的地方）；
+  - `ProcList.vue:37`（运行页“经 nbdev 起的服务”的“某会话起”）；
+  - `ArtifactPage.vue:150` 的 `NotifyStatus`（`answerJobs` 来自产物页的数据，计划的数据清单里没有产物页）；
+  - `DeveloperMessageDialog.vue:41`、`SessionsPage.vue:157`（`sessionChangeNote`）、`SessionConsole.vue:63` 的 `aria-label`、`host/session-console.ts:36`、`host/sessions-list.ts:48`（这几处是否要标题计划没表态）。
+- 为什么是问题：Work 页上方的会话 chip 变成标题、下面的任务表仍是 `claude c38df555`，同一个会话两个名字；运行页上半是短键、下半是标题。实现者只按清单改会留下这些缝。
+- 如何核实：`grep -rn "shortSession" packages/dev-panel/src/web`，与计划的 5 个文件对照。
+- 建议改法：先列“哪些位置用标题、哪些位置明确保留短键”的完整表；或者把 `sessionTitles` 做成 `provide/inject`（`useSessionNames()`），免得每个零件都新增 prop 并在每个视图里重复传。`/api/*` 这边请另一位审查者核对产物页与通知视图各自带不带这份数据。
+
+### 7. 核对身份的句子里不应该只显示标题
+- 严重程度：重要
+- 类别：产品语义、安全相关
+- 位置：plan.md“显示标题”；`src/web/parts/NotifyStatus.vue:27`（`who`）、`:34-38`、`:69`、`:82`、`:107`；`SessionsPage.vue:157`
+- 现象：这些句子的作用是让开发者确认“消息会发给哪个会话”：“通知 w1:p2（claude c38df555，空闲）”按钮、“会话已更换：w1:p2 上现在是 X，不是提问的 Y”、“替 X”、`sessionChangeNote`“这格的会话换了（A → B），发出去会发给后者”。标题来自会话文件，不唯一（`claude --resume`、fork 沿用同一个标题，`ai-title` 是自动起的、会随对话变）、能被 `/rename` 成任意文字，而且最长 120 字（`MAX_TITLE`）。
+- 为什么是问题：panel.md 要求会话页的动作绑定发起时的目标，开发者按这些句子判断“是不是同一个会话”。两个会话同名时“会话已更换：……现在是《接着做 t17》，不是提问的《接着做 t17》”读不出差别；标题可以被写成另一个会话的短键，造成误认。计划只写了“有标题时返回标题”。
+- 如何核实：构造两个同标题的会话（resume 一次即可），看通知任务里 `replaced` 状态的那一句话。
+- 建议改法：这几处不用 `sessionName`，仍用 `shortSession`；或者写成“标题（claude c38df5）”，标题截到 20 字左右，短键必带。
+
+### 8. 同一处出现多个同名标题时，计划没有区分规则
+- 严重程度：重要
+- 类别：边界
+- 位置：plan.md“新增 sessionName(key, label, titles)：有标题时返回标题”
+- 现象：`WorkCard`“谁在动”、Task 页的 chip 列表、Work 页会话列表都是同一视图里多个会话并排。标题重名是常态而不是例外：resume、fork、同一个 `/rename` 都会让不同会话共用一个标题；已失效的旧会话（划线）与接着做的新会话同名最常见。LeaseChip 只靠划线（`ended`）与淡化（`stale`）区分，色盲或打印看不出来；同一个 Task 被两个同名会话持有时两个 chip 文字一样。
+- 为什么是问题：此前用短键时每个 chip 必然互不相同，改完以后失去了这个性质。
+- 如何核实：`WorkCard` 里放两个 `lease.sessionKey` 不同、标题相同的租约，看渲染。
+- 建议改法：`sessionName` 不是单个会话的纯函数，要看同一视图的全部名字：有重名时给重名的几个追加短键后 4 位（`标题 · c38d`）；或者 chip 一律显示“标题 + 短键（`nbdev-secondary` 小字）”，窄时才丢掉短键。写进 LeaseChip.md 与单元测试（重名用例）。
+
+### 9. LeaseChip 的提示：与现有 `hint` 冲突、触屏与键盘读不到、来源文案要搬家、长标题进句子会很长
+- 严重程度：建议
+- 类别：交互、无障碍
+- 位置：plan.md“LeaseChip 显示 sessionName 的结果……悬停提示里写短键和标题来源”；`LeaseChip.vue:5-12`、`InboxList.vue:57`、`SessionsPage.vue` 的 `TITLE_SOURCE`
+- 现象：
+  1. `LeaseChip` 已有 `hint` 且 `InboxList` 在用（“提问的会话”“提问的会话已经不在……”）；计划要往同一个 `title` 属性里再写短键与来源，没有说怎么合并。
+  2. chip 是 `<span>`，不可聚焦；`title` 在触屏上不出现，键盘与多数读屏也读不到（只有 `ended` 有 `sr-only` 补充）。截断后的完整标题与短键只能靠悬停看到。
+  3. `titleNote` 的文案取决于 `SessionsPage.vue` 里的局部常量 `TITLE_SOURCE`，计划写“沿用会话页的 titleNote”，但要被多处共用就得搬到 `host/format.ts`，计划没写。
+  4. `NotifyStatus` 里的名字嵌在整句里（`break-words`，不截断），120 字的标题会让一条通知占好几行，也会把后面的“：审计不可用……”挤远。
+- 如何核实：读 `LeaseChip.vue`；在手机档点一个被截断的 chip，看不到全文。
+- 建议改法：chip 渲染 `标题`（可截断）+ 短键小字（不截断，或 sr-only），把 `title` 换成 `Tooltip`（已有）并保证可聚焦；`hint` 与来源合并成一个 `title/aria-describedby` 文案；`NotifyStatus` 里的名字截到 20 到 30 字。`LeaseChip.md` 的 `session` 字段说明（现在写“会话的短名”）与来源 prop 同步更新。
+
+### 10. FormCheckbox 的 Playwright 验收：夹具条件没写死，“改前真的失败”没有保证
+- 严重程度：重要
+- 类别：测试
+- 位置：plan.md“测试：……新加验收页 playground/app/acceptance/form-checkbox-focus”；`packages/nb-ui/playground/app/pages/acceptance/[name].vue`、`playground/app/acceptance/definitions.ts`
+- 现象：
+  1. 复现这个 bug 的条件是：外层 `overflow: hidden` 的格子、中间的滚动层、label，三层都不是定位上下文（没有 `position: relative` 等）；此外 `sr-only` input 的静态位置要落在外层格子的可见区之外（也就是列表要滚过一段，勾选框的视觉位置与 input 的位置才错开）。计划只写了“overflow:hidden 的定高格子、可滚动列表、靠下放勾选框”，没写“都不能定位”，也没写断言之前要先断言“列表已经滚动（`scrollTop > 0`）且 input 的静态位置不在格子内”。任何一层被无意加了 `relative`（例如照搬面板的绕法或 acceptance 页的样式）测试会改前也通过，成为不可证伪的验收。
+  2. “先在不改组件的情况下确认这条用例会失败”只写了一句，没写失败了怎么办（调整夹具、不改断言）。
+  3. 路由是 `/acceptance/<name>`，由 `[name].vue` 的 `FIXTURES` 与 `ACCEPTANCE_DEFINITIONS` 两处登记，不是一个叫 `form-checkbox-focus` 的文件；`LabComponentDefinition` 要求 `scenes`、`controls`、`events`，该夹具没有事件，要给空数组；两处文件头的注释（“只承载需要真实指针与布局引擎的验收……两个”）也要改。计划的“文件”一项没列这些位置。
+  4. 外层 `.acc-canvas` 本身是 `overflow: auto` 且不定位，是 label 的另一个祖先滚动者，断言“外层格子的 `scrollTop` 为 0”时要指明是夹具里的格子，不是它。
+- 如何核实：读 `[name].vue` 与 `definitions.ts`；改前跑一次并保存失败截图作为证据（本次没跑 e2e）。
+- 建议改法：夹具里写明三层都不定位；用例先断言前置（列表 `scrollTop > 0`、`input` 的 `getBoundingClientRect()` 在格子外），再断言 `scrollTop === 0`；把两处登记与文件头注释列进 S1。
+
+### 11. 面板里那套“relative 绕法”的注释与测试头注释在 nb-ui 修好后会说错话
+- 严重程度：建议
+- 类别：文档、注释
+- 位置：plan.md“不做与风险：不删面板里‘滚动容器都带 relative’的绕法”；`packages/dev-panel/src/web/app.css:40-43`、`src/web/parts/QuestionControl.md:28`、`tests/web-scroll-containers.test.ts:6-9`、`docs/panel.md` 的“滚动”一条
+- 现象：这些地方都写着“nb-ui 的 CheckboxGroup 的 sr-only input 包含块落到外面……所以滚动容器要带 relative”。计划保留代码但没说改这些说明，nb-ui 修好后，它们变成对一个已不存在的原因的描述；下次有人想简化会被误导，也会被它挡住（测试在钉“为了绕 nb-ui”这个理由）。
+- 建议改法：保留规则，把理由改成“防御：nb-ui 已在 label 上加了 relative（见 FormCheckbox.md），但滚动容器带 relative 仍是面板的约定”；或者明确“待 nb-ui 发版后统一删”并在 followups 里记一条。
+
+### 12. 伴生 `.md` 与合同文档没列全
+- 严重程度：建议
+- 类别：规范（components.md）
+- 位置：plan.md“Spec 与文档改动”
+- 现象：只列了 `panel.md` 与 `FormCheckbox.md`。按 `docs/standards/code/components.md`“改组件必同步更新同名 .md”，还要改：`PageShell.md`（新增 `compact`，且改动“标题停在同一处”的合同）、`SessionConsole.md`（新增矮窗口的 prop 或行为）、`LeaseChip.md`（`session` 字段的含义、来源、重名处理）、`NotifyStatus.md`、`InboxList.md`、`WorkCard`、`TaskTable.md`、`ProcList.md`（若它们新增 `sessionTitles` 的 prop 或注入）；`TerminalView.md`（若改接管测量）。
+- 建议改法：把这些补进“Spec 与文档改动”，并各挂到对应的切片。
+
+### 13. 档位矩阵：矮窗口与 switch 档、手机档、横屏手机的组合没有定义
+- 严重程度：建议
+- 类别：边界、窄窗口
+- 位置：plan.md“宽、中、窄几档的现有布局不变”；`SessionsPage.vue` 的 `tier`、`phoneDetail`、`narrow`
+- 现象：
+  1. `tier === 'switch'`（内容区 768 到 900 之间，有侧栏时窗口约 1070 到 1200 宽）时，详情顶上还有一行 `FormSelect`（约 49px，含 `py-2` 与 `border-b`），矮窗口收起时它依然占着，计划没提；矮窗口加 switch 档是最缺高度的组合之一。
+  2. `phone` 档且在详情页时 `PageShell` 已经 `bare`（无页头），页内第二行也已经是 `phoneDetail` 的 `px-3 py-2` 紧凑版，h2 不显示；矮窗口档在这里生效与否、是否重复收起没写。小屏手机竖屏（360×640 等，高度 < 760）就会同时落在两者里。
+  3. 横屏手机（如 844×390）：宽 ≥ 768，所以 `tier` 不是 `phone`，但 `(pointer: coarse)` 让 `narrow` 为真，走文字视图；高度 390 减去外壳工具栏 49、页面内边距 48、页头约 36、会话信息约 28、输入区约 110（按键会折行，更高），留给屏幕的不到 100px。计划的收法在这种窗口下依然不够，没提还要不要更多。
+  4. 终端模式条在 medium 档（`flex-wrap`，“观看中……只看当前屏……接管后按 Ctrl+] 退出 [接管键盘]”）会折成两行（约 +20px），截图只覆盖了 wide 档的一行。
+  5. 软键盘：个别移动浏览器（Firefox Android、旧版 Chrome）打开软键盘会缩小布局视口，`max-height` 媒体查询会在点输入框的瞬间翻转，整页布局在打字时跳变；Chrome Android 108 起默认只缩小可视视口，不受影响。此条为已知浏览器差异，未在本机验证。
+- 建议改法：写一张“档位 × 矮窗口”的矩阵（每格是否生效、各项怎么收），把 switch 档的下拉并进会话信息行；横屏手机要么不处理（写进“不做”），要么另给规则；截图清单加：1280×650（medium）、1100×700（switch）、844×390、390×640。
+
+### 14. 验证覆盖：矮窗口这一片没有任何自动检查，S3 列的测试与它无关
+- 严重程度：建议
+- 类别：测试
+- 位置：plan.md“切片 S3 自跑验证：tests/web-session-console.test.ts”与“验收映射”
+- 现象：`tests/web-session-console.test.ts` 测的是 `host/session-console.ts`（按键、确认、目标绑定），没有任何用例挂载 `SessionsPage` 或 `SessionConsole`（`grep -l "SessionsPage\|SessionConsole.vue" tests` 为空）；`dev-panel` 没有 Playwright e2e 目录。也就是说 `compact` 的行为、窗口高度判断、重名区分都只有截图。计划的“验收映射”也只写了截图。
+- 为什么是问题：矮窗口是一个带阈值与档位组合的行为，改一次布局后回归的概率高；至少“按窗口高度判断出矮窗口”可以放进 `host/*.ts` 里做成纯函数或 composable，在测试里直接喂 `window.innerHeight`、`matchMedia` 桩验证（`narrowQuery` 本身也没有测试，是同一类缺口）。
+- 建议改法：把 `tier` 与新的矮窗口判断抽到 `host/` 下的一个可测函数；截图至少覆盖第 13 条列的档位，并用同一个窗口尺寸、亮暗两种主题各一张。
+
+### 15. 更大的杠杆没用上，验收指标应是“可读性”而不是像素
+- 严重程度：建议
+- 类别：遗漏、更有用的做法
+- 位置：plan.md“核实过的事实：第 2 件”“预期……约 330px”
+- 现象：
+  1. 会话页是铺满页（`layout: fill`），`PageShell` 仍给 `1.5rem` 内边距（上下共 48px）与页头/正文之间 `1.25rem` 间隙。紧凑页头之后这两处合起来 ≈ 68px，比“输入框收成一行”（第 1 条，约 8px）大得多，计划没提。也可以让会话页在矮窗口下把内边距收到 `0.5rem`。
+  2. 观看模式下终端字号由 `fitWatchFont` 在 5 到 14px 内按框的宽高取较小值。一个 40 行的 pane：框 200px 时算出 3.8px，被钳到 5px 并出滚动；框 330px 时约 6px。也就是收完之后字号只多 1px，“终端画面从约 200 增加到约 330”这个数字对开发者没有意义，真正要看的是同一屏的字号与可见行数。
+- 建议改法：验收写成“1440×650 下终端框能放下的行数（按 13px 接管字号）与观看字号”，各给目标值；评估把会话页内边距、终端模式条与按键行一起收紧。
+
+---
+
+## 未发现问题的方面
+
+- FormCheckbox `relative` 对主应用的影响：`grep` 全仓（排除 legacy）：`packages/neuro-book` 里只有 `FilesExplorerView.vue:299`（对话框里的“应用到全部”）与 Component Lab 夹具 `plugins/lab/web/fixtures/nb-ui/form.ts`；nb-ui 内部只有 `CheckboxGroup.vue`；dev-panel 通过 `QuestionControl.vue` 用 `CheckboxGroup`。没有任何样式依赖“label 不是定位上下文”。`relative` 不带 inset，`sr-only` 的 input 仍按静态位置放在 label 起点，视觉与布局不变；`transition-opacity` 与禁用态 `opacity-40` 本来就已形成层叠上下文。`token-consumption.test.ts` 只钉颜色字面量，不钉类名。计划的“只加了 relative，不改外观”成立。
+- 计划写的“nb-ui 里另外几处 `sr-only`（Dialog、QuickInput 的 DialogTitle、FormField 的错误文字）不可聚焦”：核对属实（`grep sr-only` 只有这几处与 `FormCheckbox`，`SegmentedControl` 的是 `opacity-0` 的指示块不是输入）。
+- 现有 `tier` 与新增矮窗口判断在实现上不冲突：`tier` 来自 `contentWidth/viewport`（宽度），矮窗口只读高度，二者独立；高度变化不会反馈改变宽度（页面本身不滚），没有振荡；`TerminalView` 在接管中窗口高度变化只走既有的 `resize` 路径（不弹接管确认框，确认框只在 `requestTakeover` 时出现）。
+- 深色主题：计划没有引入新颜色；`LeaseChip` 用的是 `--status-info`/`--accent-main` 变量。截图仍应亮暗各一张（第 14 条），但没有从代码上推出对比度问题。
+- 第 3 件的数据形状（`Record<会话键, {text, source}>`）对网页端够用，键与 `lease.sessionKey`、`asker.key`、`session.key`、`job.sessionKey` 一致；只是需要决定重名处理（第 8 条）与产物页等视图的覆盖（第 6 条）。
+
+## 数量
+
+- 阻断：0
+- 重要：9（第 1、2、3、4、5、6、7、8、10 条）
+- 建议：6（第 9、11、12、13、14、15 条）
