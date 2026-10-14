@@ -2,7 +2,7 @@
 schema: nbook.task/v2
 taskId: t01-ui-design
 status: active
-updated: 2026-10-13
+updated: 2026-10-14
 ---
 
 # nb-story 第一版界面设计
@@ -11,7 +11,7 @@ updated: 2026-10-13
 
 定下 nb-story 第一版网页（查看器加问答）的版式、入口和信息层级，按 [design-review](../../../../../.claude/skills/design-review/SKILL.md) 的流程：先定注意力排序，再在 Lab 里用真实 nb-ui 组件搭静态稿逐轮评审，定稿后把行为写进 `planned` Spec。
 
-- 不写产品代码。Lab 草稿放在单独的草稿 worktree，等 w00017 合入 master 后再开（开发者 2026-10-13 定：先等 w00017 合入）。
+- 不写产品代码。Lab 草稿放在单独的草稿 worktree `.worktree/w00024-t01-drafts`（分支 `chore/w00024-t01-drafts`，由 `nbdev worktree new` 建，不合并、不推送；2026-10-14 w00017 合入后开）。
 - 设计依据：w00005 的提案 `docs/proposals/novel-story-app.md`（accepted，2026-10-13；随 w00005 落到 master 之前，只在 `.worktree/w00005-novel-understanding-spike/` 里）。
 - 数据：w00005 t34 自动抽取的前 100 章。
 
@@ -20,7 +20,7 @@ updated: 2026-10-13
 ## 当前状态
 
 - 现状与参照清单：[reference.md](reference.md)（数据、t28 查看器的问题、要沿用的机制和它防什么、外部参照）。
-- 第 1 轮评审板 [artifacts/review/index.html](artifacts/review/index.html)：只问注意力排序，五道题（首页、默认收起、问答的位置、嵌进 NeuroBook 后的尺寸、t28 机制沿用哪些），每题附推荐。已用 nbdev 发布，等开发者答复。
+- 评审板 [artifacts/review/index.html](artifacts/review/index.html)：第 1 轮五道题已答（见下文“决定”）。第 2 轮（2026-10-14）只问一题 `host`：网页做成独立服务，还是 NeuroBook 插件；推荐插件，对比见评审板与下文“跑在哪里”一节。等开发者答复后再搭静态稿：两条路的稿子画法不同。
 
 ## 决定
 
@@ -39,7 +39,15 @@ updated: 2026-10-13
 - **工作台外壳的规则可以照搬**（w00017 `packages/neuro-book/src/plugins/workbench/web/shell/layout.ts`，纯模块，从旧应用已验证的外壳搬来）：侧栏、右栏的偏好只存绝对宽度，主区吸收余量；放不下时先保住主区最小宽度，再按比例压侧栏，仍放不下就进入紧凑呈现；拖过阈值收起。这份代码带着工作台的词表（标题栏、活动栏、编辑器、面板），不能原样引用，规则照着做。
 - **还有一条路，等 w00017 合入后评估**：单独使用时，nb-story 直接跑在“NeuroBook 运行时加工作台插件加 nb-story 插件”上，整套 IDE 外壳（拖拽、收起、布局保存）全部复用，单独使用和嵌进 NeuroBook 只有一套界面。代价是单独使用也要带上插件运行时，而插件系统的 Spec 大部分还是 `planned`。提案原定先做独立服务、以后再接插件；要不要改，等看过合入后的工作台再交开发者定。
 
+## 跑在哪里（2026-10-14 w00017 合入后评估，只读）
+
+- **已经能用的**（`implemented`）：插件描述与激活（`runtime/plugins.md`）、工作台外壳（`ui/workbench-shell.md`，七个 Part、拖拽、收起、布局记录）、视图贡献点 `workbench.views`（侧栏、右栏、面板）、标题栏与状态栏与活动栏底部的条目贡献点、页面浮层、项目（一本书可以是一个项目，在书架上打开）。
+- **要等的**：编辑区里开 nb-story 自己的页签，要靠 w00025 t02 正在做的编辑器贡献点（按文件类型选编辑器，计划已定，S2 进行中）。
+- **暂时做不到的**（`planned`）：插件登记自己的地址方案（`workspace/resources.md`；没有它，每个人物卡不能各开一个页签）、第三方插件安装（`runtime/plugin-install.md`；nb-story 先作内置插件放在 `packages/neuro-book/src/plugins/` 下）、插件的密钥接口（`runtime/plugin-api.md`；问答调模型先读环境变量或用户设置）。
+- **不受影响的**：核心库、命令行、Skill 不依赖 NeuroBook，两条路一样。
+- 推荐做成插件：工作台已经提供开发者要的“像 IDE 一样”的拖拽与收起，第 1 轮定的“侧栏精简版”本来就是侧栏视图；代价是跟着 v2 重建的节奏走。交开发者在评审板第 2 轮 `host` 题定。
+
 ## 下一步
 
-1. w00017 合入后，看工作台外壳和插件运行时的实际状态，评估上一节的第三条路，交开发者定。
-2. 开草稿 worktree，按定下的排序在 Lab 里搭第 2 轮静态稿：全书总览、人物卡、秘密矩阵、问答页，三栏可拖拽、可收起。
+1. 等开发者答 `host`（`nbdev answers w00024 t01 review --wait` 挂着）。
+2. 按答复改提案 `novel-story-app.md` 的网页一节，在草稿 worktree 的 Lab 里搭第 3 轮静态稿：全书总览、人物卡、秘密矩阵、问答页；选插件时按工作台的各 Part 摆放，选独立服务时用 nb-ui 分栏搭三栏。
