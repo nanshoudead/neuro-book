@@ -3,7 +3,7 @@ import {existsSync, readFileSync} from "node:fs";
 import {join, resolve} from "node:path";
 import {cleanupFixtures, createFixture} from "./git-fixture.js";
 
-/** t14 的 `find` 与 `shot`（L3，临时仓库）。`shot` 用记下参数的假 `lab:shot`（`tests/fixtures/fake-lab-shot.ts`）。 */
+/** t14 的 `find` 与 `shot`（L3，临时仓库）。`shot` 用记下参数的假 `lab:shot`（`tests/fixtures/fake-lab-shot.ts`）；`shot --page`（t18）的假 `page:shot` 是同一个脚本。 */
 
 const FAKE_SHOT = resolve(import.meta.dirname, "fixtures", "fake-lab-shot.ts");
 
@@ -67,5 +67,24 @@ describe("shot", () => {
             expect([args[0], broken.exitCode, broken.json?.errors[0]?.code, String((broken.json?.errors[0]?.details as {path?: string} | undefined)?.path)]).toEqual([args[0], 1, "invalid_record", join(fixture.main, "apps/broken/package.json")]);
         }
         expect(failing.json?.errors[0]?.message).toContain("截图失败：假的");
+    }, 60_000);
+
+    test("--page 运行 page:shot：--url、--path、--out 在前，-- 之后的步骤参数原样、顺序不变；缺的脚本报 shot_unavailable，details.script 写明是哪个", async () => {
+        const fixture = await createFixture("shot-page");
+        await fixture.write("apps/web/package.json", JSON.stringify({name: "web", private: true, scripts: {"page:shot": `bun ${FAKE_SHOT}`}}));
+        await fixture.write("apps/lab/package.json", JSON.stringify({name: "lab", private: true, scripts: {"lab:shot": `bun ${FAKE_SHOT}`}}));
+        const steps = ["--click", "#a", "--wait-for", "#b", "--click", "#c"];
+        const result = await fixture.cli(["shot", "--package", "apps/web", "--url", "http://127.0.0.1:1/", "--page", "/?project=sample", "--json", "--", ...steps]);
+        expect([result.exitCode, result.json?.errors]).toEqual([0, []]);
+        const data = result.json!.data as {outDir: string};
+        expect(data.outDir.startsWith(join(fixture.main, ".local/agent/shots/"))).toBe(true);
+        const recorded = JSON.parse(readFileSync(join(data.outDir, "args.json"), "utf8")) as {args: string[]; tmpdir: string};
+        expect(recorded.args).toEqual(["--url", "http://127.0.0.1:1/", "--path", "/?project=sample", "--out", data.outDir, ...steps]);
+        expect(recorded.tmpdir.startsWith("/dev/shm/nbdev-shot-")).toBe(true);
+
+        const missingPage = await fixture.cli(["shot", "--package", "apps/lab", "--url", "http://127.0.0.1:1/", "--page", "/", "--json"]);
+        expect([missingPage.exitCode, missingPage.json?.errors[0]?.code, missingPage.json?.errors[0]?.details?.script]).toEqual([3, "shot_unavailable", "page:shot"]);
+        const missingLab = await fixture.cli(["shot", "--package", "apps/web", "--url", "http://127.0.0.1:1/", "--json"]);
+        expect([missingLab.exitCode, missingLab.json?.errors[0]?.code, missingLab.json?.errors[0]?.details?.script]).toEqual([3, "shot_unavailable", "lab:shot"]);
     }, 60_000);
 });

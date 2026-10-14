@@ -399,6 +399,7 @@ Smoke 入口：生产构建下打开 `/` 与 `/?project=…`（桌面与 `390 ×
 - **拖放只有一个会话**：组件只写拖动源与落点的 DOM 标记（`data-drag-view`、`data-drag-container`、`data-switcher-band` 与其中的 `data-switcher-entry`、`data-container-host`、`data-empty-part`，以及既不起拖也不接收投递的工具区 `data-no-drag`），外壳根上的会话（`views/drag-session.ts`）负责指针与键盘手势、按 `elementsFromPoint` 命中、读可见几何，交给纯函数 `views/drop.ts` 判定；预览与提交出自同一次判定，放下时只提交已显示过的动作。保存时前提不成立的并入作用在最新值上没有变化，store 以 `unchanged` 结算、不写（[`state/store.md`](../state/store.md) 输出 10）。
 - **浮层挂在页面根、不占位**：`createWorkbenchPages` 的两页都渲染浮层宿主（`overlays.ts` 的 `createOverlayHost`）；宿主不包外层元素，页面根仍是外壳的承载盒。每个浮层一个框，各自加载、用 Vue 的错误边界各自接住渲染错误。
 - **首页只换外壳**：`createHomePage` 在没有项目且有首页贡献时渲染贡献的组件，文档根与命令宿主不变；`/workbench` 与 `/` 共用同一页面组件，区别只是是否采用首页贡献。首页贡献点的声明与校验在 `shared/home.ts`。
+- **页面自己加载首屏、自己标画出**：文档根的设置与外壳由 `createWorkbenchPages` 自己加载（`WorkbenchPageParts` 的 `document`、`shell` 给加载函数与渲染时取的属性），不经 `defineAsyncComponent` 包装，两页共用加载结果；文档根的设置与此刻的主体（外壳或首页贡献）都挂上之后，页面根才带 `data-page-rendered`（页面合同见 [PageOutlet](../../../packages/neuro-book/src/web/PageOutlet.md)），主体换了等新主体挂上再带。外壳或文档根加载失败记 `workbench.page` 诊断、页面根不带这个标记，再挂载页面时重新加载。编辑器槽的提供者组件加载期间，槽里是一句给读屏的“正在加载编辑器”（`role="status"`，这个容器带 `aria-busy="true"` 与 `data-workbench-editor-loading`），加载失败时换成失败原因（`role="alert"`），不再带 `aria-busy`（`editor-area.ts` 的 `editorAreaComponent`）。
 - **三层 Teleport、一份记忆**：Part 内容、容器宿主、视图实例三层各自 Teleport 到落点，没有落点时退回各自的停放区（登记在共用的 `TeleportMemory`）；滚动位置随滚动事件记下、记录时不用读到的 0 覆盖，滚动盒归视图实例（`WorkbenchViewFrame`）而不归会重建的分节。
 
 ## 证据

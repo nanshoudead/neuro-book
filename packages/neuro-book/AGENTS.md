@@ -43,12 +43,15 @@
 
 ```text
 bun run dev              # 开发模式：页面 http://127.0.0.1:4217/（RPC 4218、后端 4219；被占用时三个一起加 100），后端改动后有序重启；状态根缺省 .dev-state/
+NBDEV_SAMPLE=1 bun run dev   # 另在后端就绪后放样例作品 .dev-sample/sample/（被 Git 忽略，只补缺少的文件），日志打 [dev] open-path /?project=sample；失败打 [dev] sample-failed <原因>，服务照常运行。nbdev dev start --sample 设这个变量（src/server/dev/sample.ts）
 bun run typecheck        # 类型检查：后端 tsc、前端 vue-tsc、组件测试与 e2e 的 vue-tsc
 bun run test             # bun test（合同测试，含真实子进程）后接 Vitest 组件测试
 bun run test:e2e         # 构建后用本机 Chrome 跑浏览器验收（Playwright 由 Node 运行）
 bun run build            # 打包后端到 dist/server、前端到 dist/web，最后 check:dist 确认产物不含开发插件与本机路径
 bun run smoke:server     # 打包后对产物运行进程级 smoke
 bun run lab:shot -- -c <组件> --url <开发页面地址>   # 对 Lab 场景截图并检查溢出（Node 运行，对着 bun run dev）
+bun run page:shot -- --url <开发页面地址> [--path /]   # 截产品页面：等页面画出（data-page-rendered）、画面稳定（没有有限动画与 aria-busy；无限循环的动画不等，列在报告里）再截，--click、--wait-for 按出现顺序执行、取第一个可见的匹配项；输出 page.png 与 report.json。停在宿主失败页（connection-failed、project-unavailable 等）时以 2 退出并写明是哪种，专门截失败页加 --allow-host-failure（Node 运行，对着 bun run dev；参数见 --help）
+bun run page:shot -- --url <开发页面地址> --path '/?project=sample' --click '[data-explorer-row="project://正文"]' --wait-for '[data-explorer-row="project://正文/第一章 雾港.md"]' --click '[data-explorer-row="project://正文/第一章 雾港.md"]' --wait-for '[data-editor-group-active] [data-editor-kind="markdown"] [data-editor-prose]'   # 打开样例作品并点开第一章（要 NBDEV_SAMPLE=1 起的开发服务）
 bun run perf:files       # Files 的性能验收（files-explorer 验收 12）：生成 3000 个文件的样本、生产构建，本机 Chrome 逐项测；在参考机器上跑，浏览器部分由 Node 运行
 NBOOK_STATE_ROOT=<目录> bun run start   # 运行打包产物（同时提供页面）
 ```

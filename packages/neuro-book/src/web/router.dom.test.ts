@@ -29,9 +29,9 @@ async function openAt(path: string) {
 }
 
 describe("页面路由", () => {
-    it("页面表之外的路径显示“页面不存在”并设置标题", async () => {
+    it("页面表之外的路径显示“页面不存在”并设置标题；主体同步渲染，根上直接标了画出（PageOutlet.md 的页面合同）", async () => {
         const {view} = await openAt("/nope");
-        expect(view.find("[data-page-not-found]").exists()).toBe(true);
+        expect(view.get("[data-page-not-found]").attributes("data-page-rendered")).toBe("");
         expect(view.text()).toContain("/nope");
         expect(document.title).toBe("页面不存在");
     });

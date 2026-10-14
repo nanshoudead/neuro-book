@@ -40,6 +40,7 @@ import type {ServerPluginContext} from "./plugins";
 import {createProjectManager} from "./projects/manager";
 import type {ProjectManager} from "./projects/manager";
 import {createProjectRegistry} from "./projects/registry";
+import type {ProjectRegistry} from "./projects/registry";
 import {startRpcListener} from "./rpc/listener";
 import type {RpcGateResult, RpcListener} from "./rpc/listener";
 
@@ -69,6 +70,16 @@ export interface StartServerOptions {
     readonly onRpcListening?: (url: string) => void;
     /** 致命通道，必须同步写完；缺省写进程的标准错误描述符。 */
     readonly writeFatal?: (line: string) => void;
+    /**
+     * 运行实例可用之后在后台做的开发任务，只由开发入口给出（样例作品，见 `dev/sample.ts`）。它拿到的是项目管理器用的同一个
+     * 登记表实例，登记表仍只有一个写者。启动失败、或在可用之前已开始停止时不启动；停止序列开头 abort 它，与排空并行等它结束。
+     */
+    readonly devTask?: (context: {readonly registry: ProjectRegistry; readonly stateRoot: string}) => DevTask;
+}
+
+/** 后台开发任务的停止：abort 并等它结束（截止由任务自己定），完成后不再写任何东西。 */
+export interface DevTask {
+    stop(): Promise<void>;
 }
 
 export interface ServerStopOutcome {
@@ -243,6 +254,13 @@ export function startServer(options: StartServerOptions): RunningServer {
             cancel();
         }
     };
+    let devTask: DevTask | null = null;
+    // 停止一开始就置位：运行实例在停止请求之后才报告可用时（启动中请求停止），不再启动开发任务。
+    let devTaskClosed = false;
+    const stopDevTask = (): Promise<void> => {
+        devTaskClosed = true;
+        return devTask?.stop() ?? Promise.resolve();
+    };
     const drainBoth = async (): Promise<void> => {
         // 与下面两处排空开头的停止接纳在同一个同步段里：排空期间不会再有项目被打开。
         projects?.stopAdmission();
@@ -288,18 +306,27 @@ export function startServer(options: StartServerOptions): RunningServer {
         process: options.process,
         signals: options.signals,
         stopInput: options.stopInput,
-        beforeStop: drainBoth,
+        beforeStop: async () => {
+            // 先 abort 开发任务（同步），再在同一个同步段里开始排空，两者并行。
+            const devTaskStopped = stopDevTask();
+            try {
+                await drainBoth();
+            } finally {
+                await devTaskStopped;
+            }
+        },
         onFatal: (error: unknown, kind: FatalKind) => {
             fatalSeen = true;
             reportFatal(`process.${kind}`, kind === "uncaught-exception" ? "未捕获的异常，后端将有序关闭" : "未处理的 Promise 拒绝，后端将有序关闭", error);
         },
     });
 
+    const registry = createProjectRegistry({stateRoot: options.config.stateRoot, cwd: process.cwd(), home});
     const projectManager = createProjectManager({
         application: host.application,
         serverInstanceId: INSTANCE_ID,
         router,
-        registry: createProjectRegistry({stateRoot: options.config.stateRoot, cwd: process.cwd(), home}),
+        registry,
         stateRoot: options.config.stateRoot,
         cwd: process.cwd(),
         entry: options.projectEntry ?? productProjectEntry(),
@@ -315,6 +342,7 @@ export function startServer(options: StartServerOptions): RunningServer {
     const ready = host.application.startup.then((startup) => {
         if (startup.status === "available") {
             admission.ready();
+            if (options.devTask !== undefined && !devTaskClosed) devTask = options.devTask({registry, stateRoot: options.config.stateRoot});
             return;
         }
         // 启动没有成功时内核已自行关闭（"stopped" 表示宿主在启动中请求了停止）。
