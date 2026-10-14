@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import {Badge, Button} from "@notnotype/nb-ui/components";
-import {computed, onBeforeUnmount, onMounted} from "vue";
+import {AlertDialog, Badge, Button} from "@notnotype/nb-ui/components";
+import {computed, onBeforeUnmount, onMounted, ref, watch} from "vue";
 import {onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter} from "vue-router";
 import {useFileEditSession} from "../host/file-edit-session.js";
 import {renderMarkdown} from "../host/markdown.js";
@@ -20,15 +20,16 @@ import WriteResult from "../parts/WriteResult.vue";
 /**
  * 编辑页（`/edit?path=`）：只编辑主工作区里的文件（Work 与 Task 的 README、文档类产物、文档树上的文档），保存即在 master 上提交这一个路径。
  * 保存带打开时的哈希（`baseHash`）：别人在打开之后改过就不写，显示两版之间的差异（前端按行算）；目标有别人没提交的改动时先弹差异再确认。
- * 未保存的改动：站内跳转（左栏、链接、改 `?path=`）用路由守卫拦，关标签页与刷新用 `beforeunload` 拦。
- * 文件身份、基线与草稿、保存与冲突在 `host/file-edit-session.ts`（t15）；这里只接路由守卫、剪贴板与模板。
+ * 未保存的改动：站内跳转（左栏、链接、改 `?path=`、浏览器后退）用路由守卫拦，等面板自己的确认框（t15 阶段 4 第 5 批）；
+ * 关标签页与刷新只能用原生的 `beforeunload`（浏览器不让自定义）。Ctrl+S（Mac 上 ⌘+S）保存。
+ * 文件身份、基线与草稿、保存与冲突在 `host/file-edit-session.ts`（t15）；这里只接路由守卫、快捷键、剪贴板与模板。
  */
 const route = useRoute();
 const router = useRouter();
 const path = computed(() => (typeof route.query.path === "string" ? route.query.path : null));
-/** 记录的 README（Work 或 Task 的）属于谁：面包屑与找不到时的出口按它推。 */
-const record = computed(() => (path.value ? /^\.agents\/works\/([^/]+)(?:\/tasks\/([^/]+))?\/README\.md$/u.exec(path.value) : null));
-/** 面包屑按路径推出所属的 Work、Task（记录的 README）；别的文件回到文档页里的它。 */
+/** Work 或 Task 目录里的文件（README、文档类产物、计划……）属于谁：面包屑与找不到时的出口按它推（t15 阶段 4 第 5 批起不只 README）。 */
+const record = computed(() => (path.value ? /^\.agents\/works\/([^/]+)\/(?:tasks\/([^/]+)\/)?.+$/u.exec(path.value) : null));
+/** 面包屑按路径推出所属的 Work、Task；别的文件回到文档页里的它。 */
 const crumbs = computed(() => {
     const value = path.value;
     const owner = record.value;
@@ -78,17 +79,65 @@ async function copyDraft(): Promise<void> {
     }
 }
 
-const LEAVE = "有未保存的改动，离开会丢掉。确定离开？";
-/** 站内离开：保存在途时直接拒绝（这次保存照样会提交，离开不会丢掉它，等结果回来再走）；有未保存的改动时确认。 */
-function mayLeave(): boolean {
+/**
+ * 站内离开的确认框（面板自己的 `AlertDialog`，不用 `window.confirm`）：路由守卫返回 Promise，等开发者选。
+ * 开着时又来一次导航（例如连点两下左栏），先把上一次当作“留下”结算，只留最新的一次。
+ */
+const leaveAsk = ref<((leave: boolean) => void) | null>(null);
+function askLeave(): Promise<boolean> {
+    leaveAsk.value?.(false);
+    return new Promise((resolve) => {
+        const settle = (leave: boolean) => {
+            if (leaveAsk.value === settle) leaveAsk.value = null;
+            resolve(leave);
+        };
+        leaveAsk.value = settle;
+    });
+}
+/** 站内离开：保存在途时直接拒绝（这次保存照样会提交，离开不会丢掉它，等结果回来再走）；有未保存的改动时问。 */
+async function mayLeave(): Promise<boolean> {
     if (saving.value) {
         notice.value = {outcome: "info", title: "正在保存", message: "等它完成再离开（等别的写入最长 30 秒）", items: [], notes: [], retry: false};
         return false;
     }
-    return !dirty.value || window.confirm(LEAVE);
+    return !dirty.value || await askLeave();
+}
+/**
+ * 确认框关上（Esc、点遮罩）算“留下”。点“离开”时 reka 先发关闭、再发 `confirm`，所以这里推到下一轮再结算：
+ * `confirm` 先结算成“离开”，之后这一次是空操作（Promise 只认第一次）。
+ */
+function onLeaveDialogOpen(open: boolean): void {
+    if (open) return;
+    const pending = leaveAsk.value;
+    setTimeout(() => pending?.(false), 0);
 }
 onBeforeRouteLeave(() => mayLeave());
 onBeforeRouteUpdate((to) => to.query.path === route.query.path || mayLeave());
+onBeforeUnmount(() => leaveAsk.value?.(false));
+
+/** Ctrl+S（Mac 上 ⌘+S）保存；不能保存时也拦下浏览器的“另存网页”，在操作栏写原因。 */
+const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/u.test(navigator.platform);
+const saveShortcut = isMac ? "⌘+S" : "Ctrl+S";
+const shortcutNote = ref<string | null>(null);
+watch(draft, () => {
+    shortcutNote.value = null;
+});
+function onKeydown(event: KeyboardEvent): void {
+    if (event.key.toLowerCase() !== "s" || !(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey || event.isComposing) return;
+    event.preventDefault();
+    // 有对话框开着（别人没提交的改动、离开确认）时由对话框决定，快捷键不越过它。
+    if (uncommitted.value !== null || leaveAsk.value !== null) return;
+    if (write.pending.value) shortcutNote.value = "正在保存";
+    else if (blocked.value !== null) shortcutNote.value = blocked.value;
+    else if (mismatch.value !== null) shortcutNote.value = "文件在你打开之后被改过，先处理上面的差异";
+    else if (!dirty.value) shortcutNote.value = "没有改动，不用保存";
+    else {
+        shortcutNote.value = null;
+        void session.save();
+    }
+}
+onMounted(() => window.addEventListener("keydown", onKeydown));
+onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown));
 function guardUnload(event: BeforeUnloadEvent): void {
     if (!dirty.value) return;
     event.preventDefault();
@@ -133,11 +182,13 @@ onBeforeUnmount(() => window.removeEventListener("beforeunload", guardUnload));
                 <div class="nbdev-edit-bar nbdev-stack sticky bottom-0 z-10 border-t py-3">
                     <WriteResult v-if="notice" :notice="notice" @dismiss="notice = null" @retry="session.save()" />
                     <div class="flex flex-wrap items-center gap-2">
-                        <Button :loading="write.pending.value" :disabled="!dirty || blocked !== null || mismatch !== null" @click="session.save()">保存并提交</Button>
+                        <Button :loading="write.pending.value" :disabled="!dirty || blocked !== null || mismatch !== null" :aria-keyshortcuts="isMac ? 'Meta+S' : 'Control+S'" @click="session.save()">保存并提交 <kbd class="nbdev-save-kbd">{{ saveShortcut }}</kbd></Button>
                         <Button variant="ghost" :disabled="!dirty || write.pending.value" @click="session.discard">放弃改动</Button>
                         <span v-if="write.slow.value" class="nbdev-note">在等别的写入完成…</span>
+                        <span v-else-if="shortcutNote" class="nbdev-note" role="status">{{ saveShortcut }}：{{ shortcutNote }}</span>
                     </div>
                 </div>
+                <AlertDialog :open="leaveAsk !== null" title="有未保存的改动" description="离开这一页会丢掉还没保存的改动。" confirm-text="离开，丢掉改动" cancel-text="留下" tone="warning" @confirm="leaveAsk?.(true)" @cancel="leaveAsk?.(false)" @update:open="onLeaveDialogOpen" />
                 <UncommittedDialog :open="uncommitted !== null" :path="path" :changes="uncommitted?.changes ?? null" :pending="write.pending.value" @confirm="uncommitted && session.save(true, uncommitted.currentHash)" @cancel="uncommitted = null" />
             </template>
         </template>
@@ -148,5 +199,11 @@ onBeforeUnmount(() => window.removeEventListener("beforeunload", guardUnload));
 .nbdev-edit-bar {
     border-color: var(--divider);
     background: var(--bg-main);
+}
+.nbdev-save-kbd {
+    margin-left: 0.25em;
+    font-family: var(--font-mono);
+    font-size: 0.85em;
+    opacity: 0.85;
 }
 </style>
