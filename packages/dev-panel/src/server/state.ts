@@ -22,7 +22,8 @@ import type {SessionTitle, SessionTitles} from "./session-titles.js";
  *   顺带重算各 worktree 未提交的记录改动（它们不改 HEAD，也不在监视范围里）。
  * - **活动**（租约、会话、运行）：租约是否有效是读取时现算的（会话退出、过期、Task 关闭都不碰租约文件），
  *   所以有浏览器连着时每 5 秒整份重算；记录或会话变化时也重算。监视租约目录只当加速。
- *   会话标题（t17）也在这一轮里读，进活动的快照与指纹：会话改了名，已打开的页面随活动的推送重新取数，GET 时不查盘。
+ *   会话标题（t17）进活动的快照与指纹，GET 时不查盘；但读标题不在这一轮里等：活动算完就用已知的标题发布，
+ *   读标题是另一个单飞的后台任务（每轮有预算），读完标题有变化时只改快照里的标题、增加 revision、推送，见 `readTitles`。
  * - **会话**：`HerdrMonitor`。
  * - **通知**：`Notifier` 现算的通知任务（t11），变了就经 `notifyChanged()` 推送。
  * 每块的重算单飞并合并；失败时保留上一份，在 `meta` 里标错。只有显示用到的字段变了才增加 revision。
@@ -33,11 +34,13 @@ export type PartName = "records" | "activity" | "sessions" | "notify" | "github"
 export type RecordsValue = {records: ProjectRecords; transition: TransitionState; warnings: Warning[]};
 /**
  * `procs`：经 nbdev 起的运行（还活着的，加 24 小时内结束的），“在跑”页的第一块（t14）。
- * `sessionTitles`：页面上会显示的会话的标题，键是完整会话键，读不到标题的键不在里面（t17）。
+ * `sessionTitles`：页面上会显示的会话的已知标题，键是完整会话键，读不到或还没读到标题的键不在里面（t17）。
  */
 export type ActivityValue = {activity: Activity; procs: ProcRunView[]; sessionTitles: Record<string, SessionTitle>; warnings: Warning[]};
 
 const DEBOUNCE_MS = 300;
+/** 一轮读标题最多等这么久；没查完的键留到下一轮（活动每次重算后都会再起一轮），活动的发布从不等它。 */
+const TITLE_BUDGET_MS = 2_000;
 const CHECK_MS = 5_000;
 const FALLBACK_MS = 30_000;
 
@@ -56,7 +59,8 @@ class Refresher<T> {
     /** 正在算时又被要求重算：合并成一次排在后面的重算。 */
     private queued: {promise: Promise<void>; resolve: () => void} | null = null;
 
-    constructor(private readonly name: PartName, private readonly compute: () => Promise<T>, private readonly fingerprintOf: (value: T) => string, private readonly onChanged: (name: PartName) => void, private readonly log: (message: string) => void) {}
+    /** `settle`：算完之后、定下这一份之前同步调一次（与 `patch` 之间不会插进别的代码），活动用它填最新的已知标题。 */
+    constructor(private readonly name: PartName, private readonly compute: () => Promise<T>, private readonly fingerprintOf: (value: T) => string, private readonly onChanged: (name: PartName) => void, private readonly log: (message: string) => void, private readonly settle: (value: T) => T = (value) => value) {}
 
     /**
      * 重算一次，返回的承诺在一次“调用之后才开始”的重算完成时兑现：正在算的那次可能读的是写入之前的文件，
@@ -86,7 +90,7 @@ class Refresher<T> {
 
     private async once(): Promise<void> {
         try {
-            const value = await this.compute();
+            const value = this.settle(await this.compute());
             const print = this.fingerprintOf(value);
             const changed = print !== this.fingerprint;
             const recovered = this.part.error !== null;
@@ -101,6 +105,17 @@ class Refresher<T> {
             this.part = {...this.part, error: message};
             this.onChanged(this.name);
         }
+    }
+
+    /** 不重算，只改当前这一份（t17 的标题由后台任务补上）：指纹变了才增加 revision 并推送；还没有值时不动。 */
+    patch(update: (value: T) => T): void {
+        if (this.part.value === null) return;
+        const value = update(this.part.value);
+        const print = this.fingerprintOf(value);
+        if (print === this.fingerprint) return;
+        this.part = {...this.part, value, revision: this.part.revision + 1};
+        this.fingerprint = print;
+        this.onChanged(this.name);
     }
 }
 
@@ -146,7 +161,7 @@ export class PanelState {
             changed("sessions");
         }, log);
         this.records = new Refresher("records", () => this.computeRecords(), (value) => JSON.stringify(value.records), changed, log);
-        this.activity = new Refresher("activity", () => this.computeActivity(herdrClient), activityFingerprint, changed, log);
+        this.activity = new Refresher("activity", () => this.computeActivity(herdrClient), activityFingerprint, changed, log, (value) => ({...value, sessionTitles: this.knownTitlesFor(this.titleKeys)}));
     }
 
     sessionsRevision = 0;
@@ -154,6 +169,14 @@ export class PanelState {
     githubRevision = 0;
     /** `stop()` 之后为 true：之后的 `watchAll()` 与 herdr 的 `start()` 都不再挂监视与定时器。 */
     stopped = false;
+    /** 最近一次活动重算收集的、要显示标题的完整会话键（`titledKeys`）；读标题的任务与快照都按这一份取，过期的任务结果不会改键集合。 */
+    private titleKeys: string[] = [];
+    /** 读到过的标题，键是完整会话键；只留 `titleKeys` 里的。 */
+    private knownTitles = new Map<string, SessionTitle>();
+    private titleTask: Promise<void> | null = null;
+    private titleAgain = false;
+    /** 上一轮预算用完时没查完的键数：变了才记日志，慢盘上不每 5 秒刷一条。 */
+    private titlesLeft = 0;
 
     onChange(listener: (part: PartName) => void): () => void {
         this.listeners.add(listener);
@@ -217,8 +240,60 @@ export class PanelState {
         const {runs, warnings: procWarnings} = await listProcRuns(this.context.mainRoot);
         const dayAgo = Date.now() - 24 * 3_600_000;
         const procs = runs.filter((run) => run.state !== "ended" || Date.parse(run.endedAt ?? run.startedAt) >= dayAgo).sort((left, right) => right.startedAt.localeCompare(left.startedAt));
-        const sessionTitles = await this.titles.titlesOf(this.titledKeys(activity, procs, herdr.panes));
-        return {activity, procs, sessionTitles, warnings: [...warnings, ...activityWarnings, ...procWarnings]};
+        this.titleKeys = [...this.titledKeys(activity, procs, herdr.panes)];
+        this.scheduleTitles();
+        // 标题由 `settle` 按最新的已知值填（见构造函数），这里不等读标题。
+        return {activity, procs, sessionTitles: {}, warnings: [...warnings, ...activityWarnings, ...procWarnings]};
+    }
+
+    private knownTitlesFor(keys: readonly string[]): Record<string, SessionTitle> {
+        const picked: Record<string, SessionTitle> = {};
+        for (const key of keys) {
+            const title = this.knownTitles.get(key);
+            if (title) picked[key] = title;
+        }
+        return picked;
+    }
+
+    /** 单飞：在读时又被要求，就在这一轮读完后按那时最新的键再读一轮。 */
+    private scheduleTitles(): void {
+        if (this.titleTask) {
+            this.titleAgain = true;
+            return;
+        }
+        this.titleTask = this.readTitles().catch((error: unknown) => {
+            if (!(error instanceof Error)) throw error;
+            this.log(`读会话标题失败，沿用已知的：${error.message}`);
+        }).finally(() => {
+            this.titleTask = null;
+            if (this.titleAgain && !this.stopped) {
+                this.titleAgain = false;
+                this.scheduleTitles();
+            }
+        });
+    }
+
+    /**
+     * 一轮读标题：按开始时的键读，读完的键更新已知标题（读不到的删掉），没查完的沿用已知值；
+     * 再按此刻最新的键集合改快照里的标题（只改标题，不重算活动）。指纹只看最终的标题，没变就不推送。
+     */
+    private async readTitles(): Promise<void> {
+        const keys = this.titleKeys;
+        const {titles, pending} = await this.titles.titlesOf(keys, {budgetMs: TITLE_BUDGET_MS});
+        const left = new Set(pending);
+        for (const key of keys) {
+            if (left.has(key)) continue;
+            const title = titles[key];
+            if (title) this.knownTitles.set(key, title);
+            else this.knownTitles.delete(key);
+        }
+        const latest = new Set(this.titleKeys);
+        for (const key of [...this.knownTitles.keys()]) if (!latest.has(key)) this.knownTitles.delete(key);
+        if (left.size !== this.titlesLeft) {
+            this.titlesLeft = left.size;
+            this.log(left.size > 0 ? `读会话标题超过 ${TITLE_BUDGET_MS} 毫秒，还有 ${left.size} 个会话没查完，先沿用已知的，下一轮接着查` : "会话标题都查完了");
+        }
+        this.activity.patch((value) => ({...value, sessionTitles: this.knownTitlesFor(this.titleKeys)}));
     }
 
     /**

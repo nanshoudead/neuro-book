@@ -142,13 +142,13 @@ describe("一批完整会话键的标题（t17）", () => {
             "claude:00000000-0000-4000-8000-000000000000",
             `claude:${CLAUDE_ID}`,
         ];
-        expect(await titles.titlesOf(keys)).toEqual({
+        expect(await titles.titlesOf(keys)).toEqual({titles: {
             [`claude:${CLAUDE_ID}`]: {text: "Claude 的名字", source: "claude-custom"},
             "codex:codex-1": {text: "Codex 的名字", source: "codex"},
             [`omp:${ompFile}`]: {text: "omp 的名字", source: "omp"},
             "omp:0b0b0b0b-0000-4000-8000-000000000000": {text: "按 id 找到的", source: "omp"},
-        });
-        expect(await titles.titlesOf([])).toEqual({});
+        }, pending: []});
+        expect(await titles.titlesOf([])).toEqual({titles: {}, pending: []});
         expect(logs).toEqual([]);
     });
 
@@ -161,12 +161,14 @@ describe("一批完整会话键的标题（t17）", () => {
         await writeFile(file, line({type: "ai-title", aiTitle: "第一版"}));
         const titles = createSessionTitles({HOME: home});
         const key = `claude:${CLAUDE_ID}`;
-        expect(await titles.titlesOf([key])).toEqual({[key]: {text: "第一版", source: "claude-ai-title"}});
+        // 面板带整轮预算调用（state.ts）：预算够时与不带预算一样，全部查完、pending 为空。
+        const batch = () => titles.titlesOf([key], {budgetMs: 30_000});
+        expect(await batch()).toEqual({titles: {[key]: {text: "第一版", source: "claude-ai-title"}}, pending: []});
         await appendFile(file, line({type: "custom-title", customTitle: "改过的名"}));
-        expect(await titles.titlesOf([key])).toEqual({[key]: {text: "改过的名", source: "claude-custom"}});
+        expect(await batch()).toEqual({titles: {[key]: {text: "改过的名", source: "claude-custom"}}, pending: []});
         await rm(file);
-        expect(await titles.titlesOf([key])).toEqual({});
+        expect(await batch()).toEqual({titles: {}, pending: []});
         await writeFile(file, line({type: "ai-title", aiTitle: "又回来了"}));
-        expect(await titles.titlesOf([key])).toEqual({[key]: {text: "又回来了", source: "claude-ai-title"}});
+        expect(await batch()).toEqual({titles: {[key]: {text: "又回来了", source: "claude-ai-title"}}, pending: []});
     });
 });

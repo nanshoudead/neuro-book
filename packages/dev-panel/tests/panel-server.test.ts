@@ -141,19 +141,19 @@ describe("面板服务（场景）", () => {
         panel.fake!.emit("pane.agent_status_changed", {pane_id: "w9:p1", workspace_id: "w9", agent_status: "working"});
         while (!messages.some((message) => message.type === "changed" && message.parts?.includes("sessions"))) await Bun.sleep(10);
         expect(Date.now() - started).toBeLessThan(1_000);
-        // 标题在活动的刷新里读（t17）：herdr 报上这格之后的那一轮带上标题。
+        // 标题由活动刷新之后的后台任务读（t17）：herdr 报上这格之后，这格没有租约也带上标题。
         type SessionsBody = {panes: Array<{paneId: string; status: string; inRepository: boolean; title: {text: string; source: string} | null}>};
         const sessions = await waitUntil("会话页带上标题", async () => {
             const body = (await panel.json<SessionsBody>("/api/sessions")).body;
             return body.data.panes[0]?.title ? body : null;
         });
         expect(sessions.data.panes).toEqual([expect.objectContaining({paneId: "w9:p1", status: "working", inRepository: true, title: {text: "会话页重做", source: "claude-ai-title"}})]);
-        // 文件更新之后，下一轮活动刷新（有浏览器连着时每 5 秒）把新标题推给已打开的页面：先收到 activity 的 changed，再取到新标题。
+        // 文件更新之后，下一轮活动刷新（有浏览器连着时每 5 秒）之后读到新标题，并推 activity 的 changed 给已打开的页面。
         const changedBefore = messages.filter((message) => message.type === "changed" && message.parts?.includes("activity")).length;
         await appendFile(sessionFile, `${JSON.stringify({type: "ai-title", aiTitle: "会话页重做：两栏", sessionId})}\n`);
-        await waitUntil("标题变了推 activity", () => messages.filter((message) => message.type === "changed" && message.parts?.includes("activity")).length > changedBefore, {timeoutMs: 15_000});
-        const titled = await panel.json<SessionsBody>("/api/sessions");
-        expect(titled.body.data.panes.map((pane) => [pane.paneId, pane.title])).toEqual([["w9:p1", {text: "会话页重做：两栏", source: "claude-ai-title"}]]);
+        const paneTitles = async () => (await panel.json<SessionsBody>("/api/sessions")).body.data.panes.map((pane) => [pane.paneId, pane.title]);
+        await waitUntil("取到新标题", async () => JSON.stringify(await paneTitles()) === JSON.stringify([["w9:p1", {text: "会话页重做：两栏", source: "claude-ai-title"}]]), {timeoutMs: 15_000, intervalMs: 50});
+        await waitUntil("标题变了推 activity", () => messages.filter((message) => message.type === "changed" && message.parts?.includes("activity")).length > changedBefore);
     }, 30_000);
 
     test("场景 2：产物页的题与状态、答复；iframe 地址在产物来源上、带随机前缀；改了页面没发布时标出来；产物来源只给 .agents/works/ 下的文件", async () => {
@@ -351,6 +351,8 @@ describe("会话标题（t17）", () => {
         const askerKey = `claude:${asker.sessionId}`;
         const workerKey = `claude:${worker.sessionId}`;
         const ompKey = `omp:${ompPath}`;
+        // 标题由活动刷新之后的后台任务读，一轮读完一起并进快照：首页带上两个标题时，各视图用的是同一份。
+        await waitUntil("标题读进快照", async () => Object.keys((await panel.json<{sessionTitles: Titles}>("/api/overview")).body.data.sessionTitles).length === 2, {intervalMs: 50});
         const overview = (await panel.json<{inbox: Array<{askedBy?: string | null; askerActive?: boolean | null}>; sessionTitles: Titles}>("/api/overview")).body.data;
         expect(overview.inbox.map((item) => [item.askedBy, item.askerActive])).toEqual([[askerKey, false]]);
         expect(overview.sessionTitles).toEqual({
@@ -387,23 +389,22 @@ describe("会话标题（t17）", () => {
         });
         await waitUntil("连上 /ws", () => socket.readyState === WebSocket.OPEN);
         const taskTitles = async () => (await panel.json<{sessionTitles: Titles}>("/api/task/w00001-seed/t01-seed")).body.data.sessionTitles;
-        expect(await taskTitles()).toEqual({[workerKey]: {text: "第一版", source: "claude-ai-title"}});
+        const titlesAre = (expected: Titles) => async () => JSON.stringify(await taskTitles()) === JSON.stringify(expected);
+        await waitUntil("读到第一版标题", titlesAre({[workerKey]: {text: "第一版", source: "claude-ai-title"}}), {intervalMs: 50});
         const paneTitle = async () => (await panel.json<{panes: Array<{paneId: string; title: unknown}>}>("/api/sessions")).body.data.panes.find((pane) => pane.paneId === "w9:p2")?.title;
         await waitUntil("herdr 报上 omp 那一格", async () => (await panel.json<{panes: unknown[]}>("/api/sessions")).body.data.panes.length === 1);
         expect(await paneTitle()).toBeNull();
 
-        // 每一步都等 activity 的 changed（有浏览器连着时活动每 5 秒重算一次），再取数核对。
-        async function afterChange(change: () => Promise<void>): Promise<void> {
+        // 每一步：等取到新标题（有浏览器连着时活动每 5 秒重算一次，之后的后台任务读标题），再等这次变化推来的 activity changed。
+        async function afterChange(change: () => Promise<void>, settled: () => Promise<boolean>): Promise<void> {
             const before = activityChanges;
             await change();
-            await waitUntil("标题变了推 activity", () => activityChanges > before, {timeoutMs: 15_000});
+            await waitUntil("取到新标题", settled, {timeoutMs: 15_000, intervalMs: 50});
+            await waitUntil("标题变了推 activity", () => activityChanges > before);
         }
-        await afterChange(() => appendFile(file, `${JSON.stringify({type: "custom-title", customTitle: "改过的名"})}\n`));
-        expect(await taskTitles()).toEqual({[workerKey]: {text: "改过的名", source: "claude-custom"}});
-        await afterChange(() => rm(file));
-        expect(await taskTitles()).toEqual({});
-        await afterChange(() => ompTitleFile(ompPath, "后来建的"));
-        expect(await paneTitle()).toEqual({text: "后来建的", source: "omp"});
+        await afterChange(() => appendFile(file, `${JSON.stringify({type: "custom-title", customTitle: "改过的名"})}\n`), titlesAre({[workerKey]: {text: "改过的名", source: "claude-custom"}}));
+        await afterChange(() => rm(file), titlesAre({}));
+        await afterChange(() => ompTitleFile(ompPath, "后来建的"), async () => JSON.stringify(await paneTitle()) === JSON.stringify({text: "后来建的", source: "omp"}));
         expect((await panel.json<{sessionTitles: Titles}>("/api/overview")).body.data.sessionTitles).toEqual({});
     }, 60_000);
 });

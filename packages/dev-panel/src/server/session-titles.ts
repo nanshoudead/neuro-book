@@ -14,18 +14,20 @@ import {systemErrorCode} from "../core/errors.js";
  * 会话值来自 herdr（本机任何进程都能给一格报会话值），按不可信输入处理：Claude 的 id 只认 uuid 的字符，omp 的路径要在 omp 的会话目录里；
  * 只读普通文件（FIFO 会让读挂住）。只读、按（路径、大小、修改时间）缓存，找不到的文件记 60 秒，不写审计；
  * 读不出（文件系统的错误）就是 null，原因进面板日志，同一个路径的同一种错误只记一次；其它异常照常抛出。
- * t17 起面板不在 GET 时逐个查：`PanelState` 的活动刷新一轮调一次 `titlesOf`，结果放进活动的快照（见 state.ts）。
+ * t17 起面板不在 GET 时逐个查：`PanelState` 在活动刷新之外另起一个后台任务调 `titlesOf`（带整轮预算），结果并进活动的快照（见 state.ts）。
  */
 export type SessionTitleSource = "claude-custom" | "claude-agent-name" | "claude-ai-title" | "codex" | "omp";
 export type SessionTitle = {text: string; source: SessionTitleSource};
 export type SessionTitles = {
     titleOf(agent: string, sessionValue: string): Promise<SessionTitle | null>;
     /**
-     * 一批完整会话键的标题，只放读到了标题的键（键原样是传入的完整键）。一批里 Claude 的 `projects/` 目录最多列一次；
-     * 同一个键正在查时不再另查（单飞），冷查找最多 `BATCH_PARALLEL` 个同时进行。
+     * 一批完整会话键的标题：`titles` 只放读到了标题的键（键原样是传入的完整键），`pending` 是到预算用完时还没查完的键。
+     * 一批里 Claude 的 `projects/` 目录最多列一次；同一个键正在查时不再另查（单飞），冷查找最多 `BATCH_PARALLEL` 个同时进行。
+     * 给了 `budgetMs` 时到点就回，不再开始新的查找；已经开始的照常做完，结果留在缓存与单飞里，下一批再问同一个键时直接用上。
      */
-    titlesOf(keys: Iterable<string>): Promise<Record<string, SessionTitle>>;
+    titlesOf(keys: Iterable<string>, options?: {budgetMs?: number}): Promise<TitleBatch>;
 };
+export type TitleBatch = {titles: Record<string, SessionTitle>; pending: string[]};
 
 /** 会读标题的 Agent；`external:` 这类自报标签的会话没有会话文件。 */
 const TITLE_AGENTS = ["claude", "codex", "omp"] as const;
@@ -315,23 +317,44 @@ export function createSessionTitles(env: NodeJS.ProcessEnv, log: (line: string) 
         titleOf(agent, sessionValue) {
             return lookupOnce(agent, sessionValue, claudeProjectsOnce());
         },
-        async titlesOf(keys) {
-            const pending = [...new Set(keys)].flatMap((key) => {
+        async titlesOf(keys, options = {}) {
+            const queue = [...new Set(keys)].flatMap((key) => {
                 const parts = sessionKeyParts(key);
                 return parts ? [{key, ...parts}] : [];
             });
             const projectsOf = claudeProjectsOnce();
             const titles: Record<string, SessionTitle> = {};
+            const done = new Set<string>();
             let next = 0;
+            let expired = false;
             async function worker(): Promise<void> {
-                while (next < pending.length) {
-                    const {key, agent, value} = pending[next++]!;
+                while (!expired && next < queue.length) {
+                    const {key, agent, value} = queue[next++]!;
                     const title = await lookupOnce(agent, value, projectsOf);
                     if (title) titles[key] = title;
+                    done.add(key);
                 }
             }
-            await Promise.all(Array.from({length: Math.min(BATCH_PARALLEL, pending.length)}, () => worker()));
-            return titles;
+            const all = Promise.all(Array.from({length: Math.min(BATCH_PARALLEL, queue.length)}, () => worker()));
+            if (options.budgetMs === undefined) await all;
+            else {
+                let timer: ReturnType<typeof setTimeout> | undefined;
+                const deadline = new Promise<void>((resolveDeadline) => {
+                    timer = setTimeout(() => {
+                        expired = true;
+                        resolveDeadline();
+                    }, options.budgetMs);
+                });
+                try {
+                    await Promise.race([all, deadline]);
+                } finally {
+                    clearTimeout(timer);
+                }
+                // 到点之后还在做的查找没人等了：它们失败（只会是编程错误，文件系统的错误已在里面记过）时记一条，不成为没人处理的 reject。
+                if (expired) void all.catch((error: unknown) => log(`预算用完之后，读会话标题的查找失败：${error instanceof Error ? error.message : String(error)}`));
+            }
+            // 到点时的快照：之后才查完的键不改这一批的结果。
+            return {titles: {...titles}, pending: queue.filter((entry) => !done.has(entry.key)).map((entry) => entry.key)};
         },
     };
 }
