@@ -22,7 +22,8 @@ export default defineConfig({
         baseURL: `http://127.0.0.1:${port}`,
         trace: "retain-on-failure",
     },
-    projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
+    // 用本机安装的 Chrome，不下载 Playwright 自带的浏览器（docs/testing/README.md 的浏览器 E2E 一条）。
+    projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"], channel: "chrome" } }],
     webServer: {
         command: `node ../../node_modules/nuxt/bin/nuxt.mjs dev playground --port ${port}`,
         url: `http://127.0.0.1:${port}/`,
