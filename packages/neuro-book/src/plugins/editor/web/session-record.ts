@@ -10,6 +10,7 @@ import {RESOURCE_PATH_PATTERN} from "nbook/plugins/files/shared/contracts";
 import {defineRecord, MAX_RECORD_MAX_BYTES} from "nbook/shared/storage";
 import {defineStore} from "nbook/shared/store/store";
 
+import {CODE_EDITOR, MARKDOWN_EDITOR} from "../shared/contracts";
 import type {GroupsSnapshot} from "./groups/groups";
 
 /** 每组最多这么多个标签、最多这么多组：只为记录有界，界面上不限制。 */
@@ -25,13 +26,16 @@ const SessionSchema = Type.Object({
         id: Type.String({minLength: 1, maxLength: 64}),
         tabs: Type.Array(Type.Object({
             address: Type.String({pattern: ADDRESS_PATTERN}),
-            editor: Type.Union([Type.Literal("markdown"), Type.Literal("code")]),
+            // 编辑器 id（docs/specs/workbench/editor.md 的“副作用与数据”）；旧记录里的 `markdown`、`code` 读出时换成内置 id。
+            editor: Type.String({pattern: "^(?:markdown|code|[a-z][a-z0-9-]*(?:\\.[a-z][a-z0-9-]*)+)$"}),
             preview: Type.Boolean(),
             // 上次的光标（输出 30）；可选字段，没有它的旧记录照样合法，记录版本不变。
             cursor: Type.Optional(Type.Union([
                 Type.Object({offset: Type.Integer({minimum: 0})}, {additionalProperties: false}),
                 Type.Object({line: Type.Integer({minimum: 1}), column: Type.Integer({minimum: 1})}, {additionalProperties: false}),
             ])),
+            // 选定的语言（输出 45）；可选字段，版本不变。
+            language: Type.Optional(Type.String({pattern: "^[A-Za-z0-9][A-Za-z0-9_.+-]{0,63}$"})),
         }, {additionalProperties: false}), {maxItems: MAX_TABS}),
         active: Type.Union([Type.Integer({minimum: 0}), Type.Null()]),
     }, {additionalProperties: false}), {maxItems: MAX_GROUPS}),
@@ -73,8 +77,12 @@ export const editorSessionStore = defineStore("editor", ({persist}) => {
 
 export type EditorSessionStore = ReturnType<typeof editorSessionStore.create>;
 
+/** 第一版记录里的编辑器名。 */
+const LEGACY_EDITORS: Readonly<Record<string, string>> = {markdown: MARKDOWN_EDITOR, code: CODE_EDITOR};
+
 /** 记录里的值转成组模型的快照；空记录为 null。 */
 export function snapshotOf(value: {readonly layout: unknown; readonly groups: ReadonlyArray<unknown>; readonly activeGroup: string}): GroupsSnapshot | null {
     if (value.groups.length === 0) return null;
-    return value as unknown as GroupsSnapshot;
+    const snapshot = value as unknown as GroupsSnapshot;
+    return {...snapshot, groups: snapshot.groups.map((group) => ({...group, tabs: group.tabs.map((tab) => ({...tab, editor: LEGACY_EDITORS[tab.editor] ?? tab.editor}))}))};
 }

@@ -15,7 +15,8 @@ type Props = {
     area: EditorArea;
     groupId: string;
     locale: DisplayLocale;
-    control: (kind: "markdown" | "code") => Component;
+    /** 编辑器此刻的组件（`editor-registry.ts`）：不在（gone）、未交付（pending）或已交付（ready，带组件）。 */
+    control: (editor: string) => {kind: "gone"} | {kind: "pending"} | {kind: "ready"; component: Component};
     /** 页面标签（输出 33）的标题与组件；不给时页面标签显示页面 id 与“这个页面已经不在了”。 */
     pages?: EditorPageSource | null;
     /** 没有标签时的提示，宿主已按命令可用性筛好（`web/empty-tips.ts`）；缺省为空，空态只有标志。 */
@@ -39,9 +40,11 @@ type Emits = {
 底色是面板底色 `--panel-surface`（纸面，与外壳同一块面）。纵向：标签条一行（`EditorTabBar` 占剩下的宽度、放不下时自己横向滚动；拿到 `titleActions` 时右侧是共享组件 [`TitleActions`](../../../../ui/menus/TitleActions.md)，不随标签滚动、不收缩；这一行的宽度用 `ResizeObserver` 量，按它决定放几个按钮：至多 4 个，给标签条至少留一个截断标签的宽度，放不下一个按钮时只剩“⋯”）、2px 的进度条位（活动文档 800 ms 后仍在读取时出现一条往复的细条，取强调色 `--accent-main`，减少动效时为静止的整条；细条只是装饰，同时给读屏一条“正在读取”的状态并把内容区标为 `aria-busy`）、状态条、内容区。内容区：
 
 - 没有标签：内容区正中是淡色的图形标志（`NeuroBookMark`，132px，组很矮时缩小）与 `emptyTips` 给的几行提示，两列对齐：说明靠右，快捷键（nb-ui `Kbd`）或入口位置靠左。每行是一个原生按钮，点了发 `run-tip`。它是两列对齐的列表行（像资源管理器的行），不是按钮控件：nb-ui `Button` 自带的固定高度、内边距与 inline-flex 装不进跨两列的 subgrid 行，所以不用它；焦点用全局焦点环，悬停是 `--bg-hover`（[`workbench/editor.md`](../../../../../../../docs/specs/workbench/editor.md) 输出 32）。
-- 打开失败：原因与“重试”（`role="alert"`）。
+- 打开失败：原因与“重试”（`role="alert"`）；不是 UTF-8 文本时只有原因，没有重试（[`workbench/editor.md`](../../../../../../../docs/specs/workbench/editor.md) 输出 37）。
+- 已知二进制（标签的编辑器是 `nbook.editor.binary`）：一行“不能在这里打开”（`data-editor-unavailable="binary"`），不读文件。
+- 标签的编辑器不在了：说明与“用默认编辑器打开”（`data-editor-unavailable="gone"`、`data-editor-reopen-default`）；还没交付：800 ms 内空白，之后一行“正在加载编辑器”（`data-editor-pending`，CSS 动画延迟显示，不用计时器）（输出 40）。
 - 活动标签是页面（`page://<id>`，[`workbench/editor.md`](../../../../../../../docs/specs/workbench/editor.md) 输出 33）：内容区渲染页面组件（属性 `context`），自己滚动；贡献方停了时一行“这个页面已经不在了”。页面标签的文字是页面标题。
-- 其余：每种出现过的编辑器各挂一个控件，换文档只换绑定、不重建控件；当前不用的那种控件停放（`v-show`，不卸载）。文档还在读取时两种控件都停放，内容区空白，不显示旧文件的正文。
+- 其余：组里出现过、已交付的每种编辑器各挂一个控件（容器带 `data-editor-kind="<编辑器 id>"`），换文档只换绑定、不重建控件；当前不用的控件停放（`v-show`，不卸载）。文档还在读取时控件都停放，内容区空白，不显示旧文件的正文。
 
 状态条（`role="status"`）按优先级只显示一条：本视图的未裁决输入（采用当前正文 / 保留本视图的内容）、磁盘冲突（重新载入磁盘版本 / 覆盖磁盘版本）、订阅结束、已删除、磁盘已变化（重新载入）、保存失败或结果未知。
 

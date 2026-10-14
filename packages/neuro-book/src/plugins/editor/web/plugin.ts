@@ -16,20 +16,21 @@ import {filesKey} from "nbook/plugins/files/shared/contracts";
 import {displayLocale, settingsKey} from "nbook/plugins/settings/shared/contracts";
 import {PUBLIC_STATE_POINT, publicStateKey} from "nbook/plugins/state/shared/contracts";
 import {storageKey} from "nbook/plugins/storage/shared/contracts";
-import {WORKBENCH_EDITOR_AREA_POINT, WORKBENCH_STATUSBAR_ITEMS_POINT, WORKBENCH_TITLEBAR_MENU_POINT} from "nbook/plugins/workbench/shared/contracts";
+import {quickPickKey, WORKBENCH_EDITOR_AREA_POINT, WORKBENCH_STATUSBAR_ITEMS_POINT, WORKBENCH_TITLEBAR_MENU_POINT} from "nbook/plugins/workbench/shared/contracts";
 import type {EditorAreaContext, EditorAreaImplementation} from "nbook/plugins/workbench/web/contracts";
 import {clockKey, windowNavigationKey, windowRescueKey} from "nbook/shared/host";
 import {windowProjectKey} from "nbook/shared/projects";
 import {bindingsOf} from "nbook/shared/store/public";
 
 import {descriptor} from "../plugin";
-import {documentCoordinatorKey, EDITOR_PAGES_POINT, EDITOR_TITLE_POINT, validateEditorPageContribution, validateEditorTitleItem} from "../shared/contracts";
-import type {EditorTitleItemDeclaration} from "../shared/contracts";
+import {CODE_EDITOR, documentCoordinatorKey, EDITOR_EDITORS_POINT, EDITOR_PAGES_POINT, EDITOR_TITLE_POINT, MARKDOWN_EDITOR, validateEditorContribution, validateEditorPageContribution, validateEditorTitleItem} from "../shared/contracts";
+import type {EditorImplementation, EditorTitleItemDeclaration} from "../shared/contracts";
 import {CLOSE_COMMAND, EDITOR_COMMAND_DECLARATIONS, editorCommands, SAVE_COMMAND, SPLIT_RIGHT_COMMAND} from "./commands";
 import {EditorPageRegistry} from "./pages";
 import {continueRequestOf, withoutContinueParams} from "./continue-writing";
 import {emptyTips} from "./empty-tips";
-import type {FileEditorKind} from "./groups/groups";
+import {EditorRegistry} from "./editor-registry";
+import {BUILTIN_EDITORS} from "./editors";
 import {editorRecentStore} from "./recent-record";
 import {editorSessionStore} from "./session-record";
 import {createEditorSession} from "./session";
@@ -40,6 +41,18 @@ import {EDITOR_TITLEBAR_MENU_ITEMS} from "./titlebar-menu";
 
 export const EDITOR_AREA_ID = "nbook.editor.area";
 
+/**
+ * 内置编辑器的组件：编辑器区直接持有，不等交付（`editor-registry.ts`）。第一次挂上控件时才加载 Monaco 与 Tiptap，首屏
+ * 不含它们。
+ */
+const BUILTIN_COMPONENTS = {
+    [MARKDOWN_EDITOR]: defineAsyncComponent(() => import("./components/MarkdownControl.vue")),
+    [CODE_EDITOR]: defineAsyncComponent(() => import("./components/MonacoControl.vue")),
+};
+
+/** 内置编辑器投给自己贡献点的实现：交付的组件与直接持有的是同一个，给统一的交付状态用。 */
+const builtinImplementation = (id: keyof typeof BUILTIN_COMPONENTS): EditorImplementation => ({load: async () => BUILTIN_COMPONENTS[id]});
+
 /** 编辑器区内键位的意图对应的命令。 */
 const INTENTS = {"save": SAVE_COMMAND, "close": CLOSE_COMMAND, "split-right": SPLIT_RIGHT_COMMAND} as const;
 
@@ -49,20 +62,23 @@ export const editorBrowserPlugin: PluginDefinition = {
         {id: EDITOR_PAGES_POINT, implementation: "required", validate: validateEditorPageContribution},
         // 编辑区标题的菜单项只有声明，同工作台的菜单位置交空实现（docs/specs/workbench/menus.md）。
         {id: EDITOR_TITLE_POINT, implementation: "required", validate: validateEditorTitleItem},
+        // 编辑器（docs/specs/workbench/editor.md 输出 36）：内置的两个也声明在这里。
+        {id: EDITOR_EDITORS_POINT, implementation: "required", validate: validateEditorContribution},
     ],
     entries: [defineEntry({
         id: "browser",
         location: "browser",
         activationEvents: ["onStartup"],
-        dependencies: [{key: diagnosticsKey}, {key: filesKey}, {key: commandServiceKey}, {key: storageKey}, {key: windowProjectKey}, {key: settingsKey}, {key: clockKey}, {key: windowNavigationKey}, {key: publicStateKey}, {key: windowRescueKey, required: false}],
+        dependencies: [{key: diagnosticsKey}, {key: filesKey}, {key: commandServiceKey}, {key: storageKey}, {key: windowProjectKey}, {key: settingsKey}, {key: clockKey}, {key: windowNavigationKey}, {key: publicStateKey}, {key: windowRescueKey, required: false}, {key: quickPickKey, required: false}],
         provides: [documentCoordinatorKey],
-        receives: [EDITOR_PAGES_POINT, EDITOR_TITLE_POINT],
+        receives: [EDITOR_PAGES_POINT, EDITOR_TITLE_POINT, EDITOR_EDITORS_POINT],
         contributions: [
             {capability: WORKBENCH_EDITOR_AREA_POINT, id: EDITOR_AREA_ID, declaration: {order: 0}},
             ...Object.entries(EDITOR_COMMAND_DECLARATIONS).map(([id, declaration]) => ({capability: COMMANDS_POINT, id, declaration})),
             ...editorState.contributions,
             ...EDITOR_TITLEBAR_MENU_ITEMS.map(({id, declaration}) => ({capability: WORKBENCH_TITLEBAR_MENU_POINT, id, declaration})),
             ...Object.entries(EDITOR_STATUS_ITEMS).map(([id, declaration]) => ({capability: WORKBENCH_STATUSBAR_ITEMS_POINT, id, declaration})),
+            ...Object.entries(BUILTIN_EDITORS).map(([id, declaration]) => ({capability: EDITOR_EDITORS_POINT, id, declaration})),
         ],
         activate: async (context) => {
             const diagnostics = context.services.require(diagnosticsKey);
@@ -74,7 +90,10 @@ export const editorBrowserPlugin: PluginDefinition = {
             const report = (error: unknown): void => {
                 diagnostics.record({level: "error", event: "editor.error", message: error instanceof Error ? error.message : String(error), error, source: {plugin: descriptor.id}});
             };
+            const editors = new EditorRegistry(context.declarations, BUILTIN_COMPONENTS);
             const session = createEditorSession({
+                editors: editors.catalog,
+                conflict: (address, ids) => diagnostics.record({level: "warn", event: "editor.editors.conflict", message: `${address} 有 ${String(ids.length)} 个默认编辑器同级命中，取 ${ids[0] ?? ""}`, data: {address, editors: ids}, source: {plugin: descriptor.id}}),
                 files: context.services.require(filesKey),
                 clock: context.services.require(clockKey),
                 project,
@@ -123,6 +142,7 @@ export const editorBrowserPlugin: PluginDefinition = {
                 context.signal.addEventListener("abort", () => stopFirst(), {once: true});
             }
 
+            const quickPick = await context.services.resolve(quickPickKey);
             // 终态时的抢救：宿主在停止插件之前同步调用。
             const rescue = await context.services.resolve(windowRescueKey);
             if (rescue.status === "resolved") {
@@ -168,12 +188,7 @@ export const editorBrowserPlugin: PluginDefinition = {
             const area: EditorAreaImplementation = {
                 load: async (): Promise<Component> => {
                     const {default: EditorArea} = await import("./components/EditorArea.vue");
-                    // 源码编辑器（Monaco）第一次挂上源码控件时才加载，首屏不含它。
-                    const MonacoControl = defineAsyncComponent(() => import("./components/MonacoControl.vue"));
-                    // Markdown 富文本（Tiptap）同样第一次挂上时才加载。
-                    const MarkdownControl = defineAsyncComponent(() => import("./components/MarkdownControl.vue"));
-                    const controls: Readonly<Record<FileEditorKind, Component>> = {markdown: MarkdownControl, code: MonacoControl};
-                    const control = (kind: FileEditorKind): Component => controls[kind];
+                    const control = (editor: string) => editors.state(editor);
                     return defineComponent({
                         name: "EditorAreaHost",
                         props: {context: {type: Object as PropType<EditorAreaContext>, required: true}},
@@ -191,10 +206,11 @@ export const editorBrowserPlugin: PluginDefinition = {
             const published = bindingsOf(editorState, editorStateValues(session.area));
             return {
                 services: [provide(documentCoordinatorKey, session.coordinator)],
-                receivers: {[EDITOR_PAGES_POINT]: pages.receiver(), [EDITOR_TITLE_POINT]: titleItems.receiver()},
+                receivers: {[EDITOR_PAGES_POINT]: pages.receiver(), [EDITOR_TITLE_POINT]: titleItems.receiver(), [EDITOR_EDITORS_POINT]: editors.receiver()},
                 contributions: {
                     [WORKBENCH_EDITOR_AREA_POINT]: {[EDITOR_AREA_ID]: area},
-                    [COMMANDS_POINT]: editorCommands(session.area, pages),
+                    [COMMANDS_POINT]: editorCommands(session.area, {pages, editors: editors.catalog, pick: quickPick.status === "resolved" ? quickPick.instance : null}),
+                    [EDITOR_EDITORS_POINT]: {[MARKDOWN_EDITOR]: builtinImplementation(MARKDOWN_EDITOR), [CODE_EDITOR]: builtinImplementation(CODE_EDITOR)},
                     [PUBLIC_STATE_POINT]: Object.fromEntries(published.bindings),
                     [WORKBENCH_STATUSBAR_ITEMS_POINT]: editorStatusItems(session.area, locale, context.services.require(clockKey)),
                     [WORKBENCH_TITLEBAR_MENU_POINT]: menuImplementations(EDITOR_TITLEBAR_MENU_ITEMS),

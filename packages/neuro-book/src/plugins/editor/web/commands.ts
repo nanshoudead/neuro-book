@@ -9,9 +9,12 @@ import type {Static} from "typebox";
 import type {ShallowRef} from "@vue/reactivity";
 
 import type {CommandDeclaration, CommandImplementation, CommandResult} from "nbook/plugins/commands/shared/contracts";
+import type {QuickPick} from "nbook/plugins/workbench/shared/contracts";
 
 import {OPEN_PAGE_COMMAND} from "../shared/contracts";
 import type {ActionResult, EditorArea} from "./area";
+import {candidatesFor} from "./editors";
+import type {EditorCatalog} from "./editors";
 import type {EditorPageRegistry} from "./pages";
 import {editorState} from "./state";
 
@@ -38,7 +41,8 @@ const title = (zh: string, en: string) => ({"zh-CN": zh, "en-US": en});
 const OPEN_ARGS = Type.Object({
     address: Type.String(),
     mode: Type.Union([Type.Literal("preview"), Type.Literal("permanent")]),
-    editor: Type.Optional(Type.Union([Type.Literal("markdown"), Type.Literal("code")])),
+    /** 编辑器 id（docs/specs/workbench/editor.md 输出 38）；缺省按输出 37 的顺序选。 */
+    editor: Type.Optional(Type.String({minLength: 1})),
     /** 打开后把光标放到末尾（docs/specs/workbench/editor.md 输出 29）。 */
     reveal: Type.Optional(Type.Literal("end")),
     /** 在哪一组打开：组 id，或 `side`（活动组右侧）；缺省活动组（输出 35）。 */
@@ -47,8 +51,8 @@ const OPEN_ARGS = Type.Object({
 
 const OPEN_PAGE_ARGS = Type.Object({id: Type.String({minLength: 1})}, {additionalProperties: false});
 
-/** 不给 `editor` 时换成另一种（命令面板里不必手写参数）。 */
-const REOPEN_ARGS = Type.Object({editor: Type.Optional(Type.Union([Type.Literal("markdown"), Type.Literal("code")]))}, {additionalProperties: false});
+/** 不给 `editor` 时弹出选择（输出 39），命令面板里不必手写参数。 */
+const REOPEN_ARGS = Type.Object({editor: Type.Optional(Type.String({minLength: 1}))}, {additionalProperties: false});
 
 const GO_TO_LINE_ARGS = Type.Object({
     target: Type.Object({
@@ -71,7 +75,7 @@ export const EDITOR_COMMAND_DECLARATIONS: Readonly<Record<string, CommandDeclara
     [CLOSE_OTHERS_COMMAND]: {title: title("关闭其它编辑器", "Close Other Editors"), category: EDITOR, description: "Close the other tabs in the active group.", args: NO_ARGS, effect: "read", when: when("active"), expose: {agent: "auto"}},
     [SPLIT_RIGHT_COMMAND]: {title: title("向右拆分编辑器", "Split Editor Right"), category: EDITOR, description: "Open the active document in a new group to the right.", args: NO_ARGS, effect: "read", when: when("active"), expose: {agent: "auto"}},
     [SPLIT_DOWN_COMMAND]: {title: title("向下拆分编辑器", "Split Editor Down"), category: EDITOR, description: "Open the active document in a new group below.", args: NO_ARGS, effect: "read", when: when("active"), expose: {agent: "auto"}},
-    [REOPEN_WITH_COMMAND]: {title: title("用其它编辑器重新打开", "Reopen Editor With"), category: EDITOR, description: "Reopen the active tab with the Markdown or the source editor; without an editor, switch to the other one.", args: REOPEN_ARGS, effect: "read", when: when("active"), expose: {agent: "auto"}},
+    [REOPEN_WITH_COMMAND]: {title: title("用其它编辑器重新打开", "Reopen Editor With"), category: EDITOR, description: "Reopen the active tab with another editor, given by id; without an editor, pick one from the editors that can open the file.", args: REOPEN_ARGS, effect: "read", when: when("active"), expose: {agent: "auto"}},
     [FOCUS_COMMAND]: {title: title("聚焦编辑器", "Focus Editor"), category: EDITOR, description: "Focus the active editor.", args: NO_ARGS, effect: "read", when: when("active"), expose: {agent: "auto"}},
     [UNDO_COMMAND]: {title: title("撤销", "Undo"), category: EDIT, description: "Undo the latest edit in the active editor.", args: NO_ARGS, effect: "write", when: when("active", "writable"), expose: {agent: "confirm"}},
     [REDO_COMMAND]: {title: title("重做", "Redo"), category: EDIT, description: "Redo the latest undone edit in the active editor.", args: NO_ARGS, effect: "write", when: when("active", "writable"), expose: {agent: "never"}},
@@ -82,8 +86,16 @@ export const EDITOR_COMMAND_DECLARATIONS: Readonly<Record<string, CommandDeclara
 const unavailable = (reason: string): CommandResult<unknown> => ({ok: false, code: "unavailable", reason});
 const fromAction = (result: ActionResult): CommandResult<unknown> => (result.ok ? {ok: true, value: null} : unavailable(result.reason));
 
+export interface EditorCommandSources {
+    readonly pages: Pick<EditorPageRegistry, "available">;
+    readonly editors: EditorCatalog;
+    /** 工作台的选择服务（“用其它编辑器重新打开”不带参数时）；没有为 null。 */
+    readonly pick: QuickPick | null;
+}
+
 /** 命令的实现：执行时才问编辑器区，不在登记时捕获。 */
-export function editorCommands(area: Readonly<ShallowRef<EditorArea | null>>, pages: Pick<EditorPageRegistry, "available">): Record<string, CommandImplementation> {
+export function editorCommands(area: Readonly<ShallowRef<EditorArea | null>>, sources: EditorCommandSources): Record<string, CommandImplementation> {
+    const {pages} = sources;
     const run = (action: (current: EditorArea, args: unknown) => CommandResult<unknown> | Promise<CommandResult<unknown>>): CommandImplementation => ({
         run: (args) => {
             const current = area.value;
@@ -127,11 +139,25 @@ export function editorCommands(area: Readonly<ShallowRef<EditorArea | null>>, pa
         }),
         [SPLIT_RIGHT_COMMAND]: run((current) => fromAction(current.split("right"))),
         [SPLIT_DOWN_COMMAND]: run((current) => fromAction(current.split("down"))),
-        [REOPEN_WITH_COMMAND]: run((current, args) => {
-            const chosen = (args as Static<typeof REOPEN_ARGS>).editor;
+        [REOPEN_WITH_COMMAND]: run(async (current, args) => {
+            const given = (args as Static<typeof REOPEN_ARGS>).editor;
             const tab = current.groups.activeTab();
-            if (tab === null) return unavailable("没有活动标签");
-            return fromAction(current.reopenWith(chosen ?? (tab.editor === "markdown" ? "code" : "markdown")));
+            if (tab === null || tab.kind === "page") return unavailable("没有活动的文件标签");
+            if (given !== undefined) return fromAction(current.reopenWith(given));
+            if (sources.pick === null) return unavailable("没有选择服务，请给出 editor 参数");
+            // 当前的那个也列出（标“当前”），选它等于不换。
+            const ids = candidatesFor(sources.editors, tab.address);
+            const picked = await sources.pick.pick({
+                title: {"zh-CN": "用其它编辑器重新打开", "en-US": "Reopen Editor With"},
+                placeholder: {"zh-CN": "选择打开这个文件的编辑器", "en-US": "Select an editor for this file"},
+                items: ids.map((id) => ({id, label: sources.editors.declaration(id)?.title ?? id, ...(id === tab.editor ? {detail: {"zh-CN": "当前", "en-US": "Current"}} : {})})),
+            });
+            if (picked.kind === "unavailable") return unavailable(picked.reason);
+            if (picked.kind !== "item") return {ok: true, value: null};
+            // 选择期间活动标签可能已经换了：只对发起时的那个标签生效。
+            const still = current.groups.activeTab();
+            if (still?.id !== tab.id || still.kind === "page" || still.editor !== tab.editor) return {ok: false, code: "stale-target", reason: "选择期间活动标签已经换了"};
+            return fromAction(picked.id === tab.editor ? {ok: true} : current.reopenWith(picked.id));
         }),
         [FOCUS_COMMAND]: run((current) => {
             const handle = current.activeHandle.value;

@@ -6,13 +6,13 @@
 
 # MonacoControl
 
-源码编辑器控件：一个 Monaco 编辑器实例，按编辑器控件合同（`control.ts`）绑定文档（[`workbench/editor.md`](../../../../../../../docs/specs/workbench/editor.md) 输出 9–13、20）。同组的源码文件共用这一个实例，换文档只换模型。
+源码编辑器控件：一个 Monaco 编辑器实例，按编辑器控件合同（`shared/contracts.ts` 的 `TextEditorBinding`）绑定文档（[`workbench/editor.md`](../../../../../../../docs/specs/workbench/editor.md) 输出 9–13、20）。同组的源码文件共用这一个实例，换文档只换模型。
 
 ## 数据
 
 ```ts
 type Props = {
-    binding: ViewBinding | null;
+    binding: TextEditorBinding | null;
     readonly: boolean;
     /** 变为可见时重新布局（停放期间尺寸为零）。 */
     visible: boolean;

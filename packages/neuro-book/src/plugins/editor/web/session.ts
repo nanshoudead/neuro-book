@@ -14,6 +14,7 @@ import type {FilesService} from "nbook/plugins/files/shared/contracts";
 import type {DocumentCoordinator} from "../shared/contracts";
 import {createEditorArea} from "./area";
 import type {EditorArea} from "./area";
+import type {EditorCatalog} from "./editors";
 import type {EditorRecentStore} from "./recent-record";
 import {snapshotOf} from "./session-record";
 import type {EditorSessionStore} from "./session-record";
@@ -28,6 +29,9 @@ export interface EditorSessionOptions {
     /** 绑定项目时打开最近打开的记录（输出 31）；未绑定为 null。 */
     readonly createRecentStore: (() => EditorRecentStore) | null;
     readonly report: (error: unknown) => void;
+    /** 已接受的编辑器声明；缺省只有内置的两个。 */
+    readonly editors?: EditorCatalog;
+    readonly conflict?: (address: string, editors: ReadonlyArray<string>) => void;
 }
 
 export interface EditorSession {
@@ -65,6 +69,8 @@ export function createEditorSession(options: EditorSessionOptions): EditorSessio
             ...(persist === undefined ? {} : {persist}),
             ...(recent === null ? {} : {opened: (address: string) => recent.actions.opened(address)}),
             report: options.report,
+            ...(options.editors === undefined ? {} : {editors: options.editors}),
+            ...(options.conflict === undefined ? {} : {conflict: options.conflict}),
         });
     };
 

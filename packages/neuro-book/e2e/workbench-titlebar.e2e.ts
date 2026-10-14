@@ -38,7 +38,7 @@ test.afterAll(async () => {
 });
 
 const titlebar = (page: Page) => page.locator("[data-workbench-titlebar]");
-const prose = (page: Page) => page.locator("[data-editor-group-active] [data-editor-kind=\"markdown\"]:visible [data-editor-prose]");
+const prose = (page: Page) => page.locator("[data-editor-group-active] [data-editor-kind=\"nbook.editor.markdown\"]:visible [data-editor-prose]");
 const openMenu = (page: Page) => page.locator('[role="menu"][data-state="open"]');
 
 async function open(page: Page, project = true): Promise<void> {

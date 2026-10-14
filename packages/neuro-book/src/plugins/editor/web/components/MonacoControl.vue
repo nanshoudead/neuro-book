@@ -3,7 +3,7 @@
 import {onBeforeUnmount, onMounted, ref, shallowRef, watch} from "vue";
 import type * as Monaco from "monaco-editor/esm/vs/editor/editor.api.js";
 
-import type {EditorControlHandle, ViewBinding, ViewStateSlot} from "../area";
+import type {EditorControlHandle, TextEditorBinding, ViewStateSlot} from "../area";
 import {languageOf, loadMonaco} from "../code/load-monaco";
 import type {MonacoApi} from "../code/load-monaco";
 import {buildMonacoTheme, MONACO_THEME} from "../code/monaco-theme";
@@ -11,7 +11,7 @@ import type {EditorControlEmits} from "../control";
 import {mergeSource} from "../markdown/source-merge";
 
 // `host`：撤销栈在模型里、模型在视图状态槽里，重挂只重建编辑器实例，不需要把实例留在组的实例槽。
-const props = defineProps<{binding: ViewBinding | null; host: ViewStateSlot; readonly: boolean; visible: boolean; label: string}>();
+const props = defineProps<{binding: TextEditorBinding | null; host: ViewStateSlot; readonly: boolean; visible: boolean; label: string}>();
 const emit = defineEmits<EditorControlEmits>();
 
 /**
@@ -32,7 +32,7 @@ const root = ref<HTMLElement | null>(null);
 const failed = ref<string | null>(null);
 let monaco: MonacoApi | null = null;
 let editor: Monaco.editor.IStandaloneCodeEditor | null = null;
-let bound: ViewBinding | null = null;
+let bound: TextEditorBinding | null = null;
 let detach: (() => void) | null = null;
 /** 程序改模型（换成文档的正文）时不当成用户输入交出去。 */
 let applying = false;
@@ -43,7 +43,7 @@ let cursorTimer: ReturnType<typeof setTimeout> | null = null;
 /** 光标停下这么久才记到标签上（随会话记录保存，输出 30）；换文档与失焦时立即记。 */
 const CURSOR_REMEMBER_MS = 1000;
 
-const stateOf = (binding: ViewBinding): CodeViewState | null => binding.slot.state as CodeViewState | null;
+const stateOf = (binding: TextEditorBinding): CodeViewState | null => binding.slot.state as CodeViewState | null;
 
 /** 模型的文本带上 BOM（`getValue` 默认去掉它）。 */
 const valueOf = (model: Monaco.editor.ITextModel): string => model.getValue(undefined, true);
@@ -51,7 +51,7 @@ const valueOf = (model: Monaco.editor.ITextModel): string => model.getValue(unde
 /** 模型的当前内容对应的正文：没改的行取原文的字节。 */
 const textOf = (state: CodeViewState): string => mergeSource(state.source, state.base, valueOf(state.model));
 
-const commit = (binding: ViewBinding, state: CodeViewState): void => {
+const commit = (binding: TextEditorBinding, state: CodeViewState): void => {
     if (props.readonly) return;
     const result = binding.commit(state.confirmed, textOf(state));
     if (result.status === "accepted") {
@@ -63,31 +63,31 @@ const commit = (binding: ViewBinding, state: CodeViewState): void => {
 };
 
 /** 换成文档的正文：`setValue` 清掉这个模型的撤销栈，外部内容不进用户的撤销历史（输出 12）。 */
-const adopt = (binding: ViewBinding, state: CodeViewState): void => {
-    if (textOf(state) !== binding.document.text.value) {
+const adopt = (binding: TextEditorBinding, state: CodeViewState): void => {
+    if (textOf(state) !== binding.text.value) {
         applying = true;
         try {
-            state.model.setValue(binding.document.text.value);
+            state.model.setValue(binding.text.value);
         } finally {
             applying = false;
         }
     }
-    state.source = binding.document.text.value;
+    state.source = binding.text.value;
     state.base = valueOf(state.model);
-    state.confirmed = binding.document.revision.value;
+    state.confirmed = binding.revision.value;
     state.held = false;
 };
 
-const enter = (binding: ViewBinding): void => {
+const enter = (binding: TextEditorBinding): void => {
     if (monaco === null || editor === null) return;
     let state = stateOf(binding);
     const fresh = state === null;
     if (state === null) {
-        const model = monaco.editor.createModel(binding.document.text.value, languageOf(binding.document.target.value.path));
-        state = {model, view: null, confirmed: binding.document.revision.value, held: false, source: binding.document.text.value, base: valueOf(model)};
+        const model = monaco.editor.createModel(binding.text.value, languageOf(binding.address.value));
+        state = {model, view: null, confirmed: binding.revision.value, held: false, source: binding.text.value, base: valueOf(model)};
         binding.slot.state = state;
         binding.slot.dispose = () => model.dispose();
-    } else if (!state.held && state.confirmed !== binding.document.revision.value) {
+    } else if (!state.held && state.confirmed !== binding.revision.value) {
         adopt(binding, state);
     }
     editor.setModel(state.model);
@@ -106,7 +106,7 @@ const enter = (binding: ViewBinding): void => {
     // 每次输入立即交出，没有缓冲；结算只需补交与文档不同的内容（例如回执冲突后）。
     detach = binding.attach(() => {
         const current = stateOf(binding);
-        if (current !== null && !current.held && textOf(current) !== binding.document.text.value) commit(binding, current);
+        if (current !== null && !current.held && textOf(current) !== binding.text.value) commit(binding, current);
     });
 };
 
@@ -120,7 +120,7 @@ const rememberCursor = (): void => {
     if (bound !== null && at !== null) bound.remember({line: at.lineNumber, column: at.column});
 };
 
-const leave = (binding: ViewBinding): void => {
+const leave = (binding: TextEditorBinding): void => {
     const state = stateOf(binding);
     if (bound === binding) rememberCursor();
     if (state !== null && editor !== null && editor.getModel() === state.model) state.view = editor.saveViewState();
@@ -137,13 +137,13 @@ watch(() => props.binding, (next, previous) => {
 }, {flush: "sync"});
 
 // 正文被别处改了，或自己的未裁决输入被裁决了：按文档的正文重设。
-watch(() => [props.binding?.document.revision.value, props.binding?.unresolved()] as const, () => {
+watch(() => [props.binding?.revision.value, props.binding?.unresolved()] as const, () => {
     const binding = props.binding;
     if (binding === null || binding !== bound) return;
     const state = stateOf(binding);
     if (state === null) return;
     if (state.held && binding.unresolved()) return;
-    if (!state.held && state.confirmed === binding.document.revision.value) return;
+    if (!state.held && state.confirmed === binding.revision.value) return;
     adopt(binding, state);
 });
 

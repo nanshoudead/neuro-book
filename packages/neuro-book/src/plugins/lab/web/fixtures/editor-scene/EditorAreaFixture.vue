@@ -13,7 +13,8 @@ import type {Component} from "vue";
 import {createEditorArea} from "nbook/plugins/editor/web/area";
 import EditorArea from "nbook/plugins/editor/web/components/EditorArea.vue";
 import type {EmptyTip} from "nbook/plugins/editor/web/empty-tips";
-import type {EditorKind} from "nbook/plugins/editor/web/groups/groups";
+import type {EditorState} from "nbook/plugins/editor/web/editor-registry";
+import {CODE_EDITOR, MARKDOWN_EDITOR} from "nbook/plugins/editor/shared/contracts";
 import type {DisplayLocale} from "nbook/shared/localized-text";
 
 import {useLabEventSink} from "../../lab-event-sink";
@@ -54,7 +55,12 @@ if (props.scene === "split") {
 
 const MonacoControl = defineAsyncComponent(() => import("nbook/plugins/editor/web/components/MonacoControl.vue"));
 const MarkdownControl = defineAsyncComponent(() => import("nbook/plugins/editor/web/components/MarkdownControl.vue"));
-const control = (kind: EditorKind): Component => (kind === "code" ? MonacoControl : MarkdownControl);
+/** 只有内置的两个编辑器，组件直接给出（产品里由编辑器的登记表给出，`editor-registry.ts`）。 */
+const controls: Readonly<Record<string, Component>> = {[CODE_EDITOR]: MonacoControl, [MARKDOWN_EDITOR]: MarkdownControl};
+const control = (editor: string): EditorState => {
+    const component = controls[editor];
+    return component === undefined ? {kind: "gone"} : {kind: "ready", component};
+};
 
 const active = computed(() => area.activeDocument.value?.target.value.path ?? null);
 const externalWrite = (): void => {

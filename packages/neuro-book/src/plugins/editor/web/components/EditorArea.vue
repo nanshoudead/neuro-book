@@ -10,7 +10,7 @@ import type {DisplayLocale} from "nbook/shared/localized-text";
 
 import type {EditorArea} from "../area";
 import type {EmptyTip} from "../empty-tips";
-import type {FileEditorKind} from "../groups/groups";
+import type {EditorState} from "../editor-registry";
 import type {EditorPageSource} from "../pages";
 import {editorText, nameOf} from "../messages";
 import EditorGroup from "./EditorGroup.vue";
@@ -22,7 +22,7 @@ export type EditorIntent = "save" | "close" | "split-right";
 const props = defineProps<{
     area: EditorArea;
     locale: DisplayLocale;
-    control: (kind: FileEditorKind) => Component;
+    control: (editor: string) => EditorState;
     pages?: EditorPageSource | null;
     emptyTips?: ReadonlyArray<EmptyTip>;
     /** 活动组的标题动作（`title-actions.ts`）：只画在 `group` 那一组；没有时为 null。 */

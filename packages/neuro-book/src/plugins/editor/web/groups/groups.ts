@@ -13,30 +13,42 @@ import type {Grid, GridNode, GridSnapshot} from "@notnotype/nb-ui/grid";
 
 import {isWithin, rebase} from "../documents/address";
 
-/** 打开文件的两种编辑器；会话记录里只有它们。 */
-export type FileEditorKind = "markdown" | "code";
+import type {TabCursor} from "../../shared/contracts";
 
-/** `page`：不对应文件的页面标签（输出 33），地址是 `page://<页面 id>`，不进会话记录。 */
-export type EditorKind = FileEditorKind | "page";
+export type {TabCursor} from "../../shared/contracts";
 
 /**
- * 标签上次的光标（输出 30）：Markdown 富文本记文档里的位置，源码编辑器记行与列（都从 1 起）。两种写法分开，换了编辑器
- * 的标签不会把一种当成另一种。
+ * 打开文件的标签：`editor` 是编辑器 id（docs/specs/workbench/editor.md 输出 36）。标签按“地址 + 编辑器”区分，同一组里
+ * 一个文件的源码标签与它的预览视图可以并存（输出 1）。
  */
-export type TabCursor = {readonly offset: number} | {readonly line: number; readonly column: number};
-
-export interface EditorTab {
+export interface FileTab {
+    readonly kind: "file";
     readonly id: string;
     readonly address: string;
-    readonly editor: EditorKind;
+    readonly editor: string;
     readonly preview: boolean;
+    /** 上次的光标（输出 30），写法由编辑器声明的 `cursor` 决定。 */
     readonly cursor?: TabCursor;
+    /** 选定的语言（输出 45）；没有时按文件识别。 */
+    readonly language?: string;
 }
 
-/** 光标的写法与编辑器种类对得上；页面没有光标。 */
-function cursorFits(editor: EditorKind, cursor: TabCursor): boolean {
-    if (editor === "page") return false;
-    return editor === "markdown" ? "offset" in cursor : "line" in cursor;
+/** 不对应文件的页面标签（输出 33）：地址是 `page://<页面 id>`，不进会话记录，没有编辑器与光标。 */
+export interface PageTab {
+    readonly kind: "page";
+    readonly id: string;
+    readonly address: string;
+    readonly preview: false;
+}
+
+export type EditorTab = FileTab | PageTab;
+
+/** 编辑器记光标的写法（编辑器声明的 `cursor`）；没有就不记。 */
+export type CursorKind = (editor: string) => "offset" | "line" | null;
+
+function cursorFits(kind: "offset" | "line" | null, cursor: TabCursor): boolean {
+    if (kind === null) return false;
+    return kind === "offset" ? "offset" in cursor : "line" in cursor;
 }
 
 function sameCursor(left: TabCursor | undefined, right: TabCursor): boolean {
@@ -55,7 +67,7 @@ export interface EditorGroup {
 /** 存进记录的形状：布局是 grid 快照，标签只有地址、编辑器、preview 与上次的光标。 */
 export interface GroupsSnapshot {
     readonly layout: GridSnapshot;
-    readonly groups: ReadonlyArray<{readonly id: string; readonly tabs: ReadonlyArray<{readonly address: string; readonly editor: FileEditorKind; readonly preview: boolean; readonly cursor?: TabCursor}>; readonly active: number | null}>;
+    readonly groups: ReadonlyArray<{readonly id: string; readonly tabs: ReadonlyArray<{readonly address: string; readonly editor: string; readonly preview: boolean; readonly cursor?: TabCursor; readonly language?: string}>; readonly active: number | null}>;
     readonly activeGroup: string;
 }
 
@@ -71,10 +83,12 @@ export interface EditorGroups {
     activeTab(): EditorTab | null;
     find(tabId: string): {readonly group: EditorGroup; readonly tab: EditorTab} | null;
     /**
-     * 在组里打开（缺省活动组）：已在本组的只激活（`permanent` 时转正）；`preview` 替换本组已有的 preview 标签；否则插在
-     * 活动标签之后。`replaced` 是被替换掉的 preview 标签。
+     * 在组里打开文件（缺省活动组）：本组有 `reuse` 认可的标签就只激活它（`permanent` 时转正），缺省认可地址与编辑器都相同
+     * 的；`preview` 替换本组已有的 preview 标签；否则插在活动标签之后。`replaced` 是被替换掉的 preview 标签。
      */
-    open(address: string, options: {readonly mode: "preview" | "permanent"; readonly editor: EditorKind; readonly group?: string}): {readonly tab: EditorTab; readonly replaced: EditorTab | null};
+    open(address: string, options: {readonly mode: "preview" | "permanent"; readonly editor: string; readonly group?: string; readonly reuse?: (tab: FileTab) => boolean}): {readonly tab: FileTab; readonly replaced: EditorTab | null};
+    /** 在活动组以正式标签打开页面；窗口里已开着的由调用方先找（同一页面只开一个）。 */
+    openPage(address: string): PageTab;
     /** preview 转为 permanent。 */
     pin(tabId: string): void;
     activate(tabId: string): void;
@@ -93,8 +107,13 @@ export interface EditorGroups {
     rightOf(groupId: string): string | null;
     /** 同组里移动一位（键盘排序）。 */
     move(tabId: string, delta: -1 | 1): void;
-    /** 用另一种编辑器打开同一标签；上次的光标是另一种写法，随之丢掉。 */
-    setEditor(tabId: string, editor: EditorKind): void;
+    /**
+     * 用另一种编辑器打开同一标签，光标与语言随之丢掉（输出 39）。本组已有这个地址、这种编辑器的标签时切到它、关掉当前
+     * 这个，返回被关的标签；否则为 null。
+     */
+    setEditor(tabId: string, editor: string): EditorTab | null;
+    /** 记下标签选定的语言；null 回到按文件识别。 */
+    setLanguage(tabId: string, language: string | null): void;
     /** 记下标签的光标；标签已关、写法与编辑器对不上或与记下的相同时不变。 */
     setCursor(tabId: string, cursor: TabCursor): void;
     /** 地址改名或移动：标签跟到新地址；`kept` 里的地址留在原处。 */
@@ -104,8 +123,11 @@ export interface EditorGroups {
     snapshot(): GroupsSnapshot;
 }
 
+/** 默认的光标写法：只认内置的两个编辑器（测试与没有编辑器目录的场合）。 */
+const BUILTIN_CURSOR: CursorKind = (editor) => (editor === "nbook.editor.markdown" ? "offset" : editor === "nbook.editor.code" ? "line" : null);
+
 /** 至少一组；记录坏了或组不对应布局时从一个空组开始。 */
-export function createEditorGroups(initial: GroupsSnapshot | null = null): EditorGroups {
+export function createEditorGroups(initial: GroupsSnapshot | null = null, cursorKind: CursorKind = BUILTIN_CURSOR): EditorGroups {
     let nextId = 0;
     /** 新的组、分支与标签 id：跳过恢复出来的布局里已有的。 */
     const newId = (prefix: string): string => {
@@ -115,7 +137,7 @@ export function createEditorGroups(initial: GroupsSnapshot | null = null): Edito
             if (restored === null || restored.grid.find(id) === null) return id;
         }
     };
-    const restored = initial === null ? null : restore(initial);
+    const restored = initial === null ? null : restore(initial, cursorKind);
     const grid = restored?.grid ?? createGrid<string>({kind: "leaf", id: "g0", ref: "g0"});
     const groups = shallowRef<ReadonlyArray<EditorGroup>>(restored?.groups ?? [{id: "g0", tabs: [], active: null}]);
     const activeGroup = shallowRef(restored?.activeGroup ?? groups.value[0]?.id ?? "g0");
@@ -142,6 +164,14 @@ export function createEditorGroups(initial: GroupsSnapshot | null = null): Edito
         groups.value = groups.value.filter((candidate) => candidate.id !== group.id);
         layoutVersion.value += 1;
         if (activeGroup.value === group.id) activeGroup.value = (groups.value[Math.min(index, groups.value.length - 1)] as EditorGroup).id;
+    };
+
+    /** 插在组的活动标签之后，成为活动标签。 */
+    const insert = (group: EditorGroup, tab: EditorTab): void => {
+        const at = group.tabs.findIndex((candidate) => candidate.id === group.active);
+        const tabs = [...group.tabs];
+        tabs.splice(at < 0 ? tabs.length : at + 1, 0, tab);
+        replace({...group, tabs, active: tab.id});
     };
 
     const remove = (tabId: string): EditorTab | null => {
@@ -172,23 +202,28 @@ export function createEditorGroups(initial: GroupsSnapshot | null = null): Edito
         open: (address, options) => {
             const group = groupOf(options.group ?? activeGroup.value) ?? (groups.value[0] as EditorGroup);
             activeGroup.value = group.id;
-            const existing = group.tabs.find((tab) => tab.address === address);
+            const reuse = options.reuse ?? ((tab: FileTab) => tab.editor === options.editor);
+            const existing = group.tabs.find((tab): tab is FileTab => tab.kind === "file" && tab.address === address && reuse(tab));
             if (existing !== undefined) {
                 const tab = options.mode === "permanent" && existing.preview ? {...existing, preview: false} : existing;
                 replace({...group, tabs: group.tabs.map((candidate) => (candidate.id === existing.id ? tab : candidate)), active: tab.id});
                 return {tab, replaced: null};
             }
-            const tab: EditorTab = {id: newId("t"), address, editor: options.editor, preview: options.mode === "preview"};
+            const tab: FileTab = {kind: "file", id: newId("t"), address, editor: options.editor, preview: options.mode === "preview"};
             const preview = options.mode === "preview" ? group.tabs.find((candidate) => candidate.preview) : undefined;
             if (preview !== undefined) {
                 replace({...group, tabs: group.tabs.map((candidate) => (candidate.id === preview.id ? tab : candidate)), active: tab.id});
                 return {tab, replaced: preview};
             }
-            const at = group.tabs.findIndex((candidate) => candidate.id === group.active);
-            const tabs = [...group.tabs];
-            tabs.splice(at < 0 ? tabs.length : at + 1, 0, tab);
-            replace({...group, tabs, active: tab.id});
+            insert(group, tab);
             return {tab, replaced: null};
+        },
+        openPage: (address) => {
+            const group = groupOf(activeGroup.value) ?? (groups.value[0] as EditorGroup);
+            activeGroup.value = group.id;
+            const tab: PageTab = {kind: "page", id: newId("t"), address, preview: false};
+            insert(group, tab);
+            return tab;
         },
         pin: (tabId) => {
             const found = locate(tabId);
@@ -214,12 +249,13 @@ export function createEditorGroups(initial: GroupsSnapshot | null = null): Edito
         },
         split: (tabId, direction) => {
             const found = locate(tabId);
-            if (found === null || found.tab.editor === "page") return null;
+            if (found === null || found.tab.kind === "page") return null;
             const id = newId("g");
             const result = grid.splitLeaf(found.group.id, {branchId: newId("b"), orientation: direction === "right" ? "horizontal" : "vertical", side: "after", leaf: {kind: "leaf", id, ref: id}});
             if (!result.ok) return null;
-            // 新组的视图从原标签记下的光标开始。
-            const tab: EditorTab = {id: newId("t"), address: found.tab.address, editor: found.tab.editor, preview: false, ...(found.tab.cursor === undefined ? {} : {cursor: found.tab.cursor})};
+            // 新组的视图从原标签记下的光标开始，语言也跟过去（输出 30、45）。
+            const source = found.tab;
+            const tab: FileTab = {kind: "file", id: newId("t"), address: source.address, editor: source.editor, preview: false, ...(source.cursor === undefined ? {} : {cursor: source.cursor}), ...(source.language === undefined ? {} : {language: source.language})};
             const index = groups.value.findIndex((group) => group.id === found.group.id);
             const next = [...groups.value];
             next.splice(index + 1, 0, {id, tabs: [tab], active: tab.id});
@@ -257,12 +293,28 @@ export function createEditorGroups(initial: GroupsSnapshot | null = null): Edito
         },
         setEditor: (tabId, editor) => {
             const found = locate(tabId);
-            if (found === null || found.tab.editor === editor || found.tab.editor === "page" || editor === "page") return;
-            replace({...found.group, tabs: found.group.tabs.map((tab) => (tab.id === tabId ? {id: tab.id, address: tab.address, editor, preview: tab.preview} : tab))});
+            if (found === null || found.tab.kind === "page" || found.tab.editor === editor) return null;
+            const address = found.tab.address;
+            const twin = found.group.tabs.find((tab) => tab.kind === "file" && tab.id !== tabId && tab.address === address && tab.editor === editor);
+            if (twin !== undefined) {
+                replace({...found.group, active: twin.id});
+                return remove(tabId);
+            }
+            replace({...found.group, tabs: found.group.tabs.map((tab): EditorTab => (tab.id === tabId ? {kind: "file", id: tab.id, address, editor, preview: tab.preview} : tab))});
+            return null;
+        },
+        setLanguage: (tabId, language) => {
+            const found = locate(tabId);
+            if (found === null || found.tab.kind === "page" || (found.tab.language ?? null) === language) return;
+            replace({...found.group, tabs: found.group.tabs.map((tab): EditorTab => {
+                if (tab.id !== tabId || tab.kind === "page") return tab;
+                const {language: _dropped, ...rest} = tab;
+                return language === null ? rest : {...rest, language};
+            })});
         },
         setCursor: (tabId, cursor) => {
             const found = locate(tabId);
-            if (found === null || !cursorFits(found.tab.editor, cursor) || sameCursor(found.tab.cursor, cursor)) return;
+            if (found === null || found.tab.kind === "page" || !cursorFits(cursorKind(found.tab.editor), cursor) || sameCursor(found.tab.cursor, cursor)) return;
             replace({...found.group, tabs: found.group.tabs.map((tab) => (tab.id === tabId ? {...tab, cursor} : tab))});
         },
         rebind: (from, to, kept = []) => {
@@ -282,7 +334,7 @@ export function createEditorGroups(initial: GroupsSnapshot | null = null): Edito
             layout: grid.serialize(),
             groups: groups.value.map((group) => ({
                 id: group.id,
-                tabs: filesOf(group).map((tab) => ({address: tab.address, editor: tab.editor, preview: tab.preview, ...(tab.cursor === undefined ? {} : {cursor: tab.cursor})})),
+                tabs: filesOf(group).map((tab) => ({address: tab.address, editor: tab.editor, preview: tab.preview, ...(tab.cursor === undefined ? {} : {cursor: tab.cursor}), ...(tab.language === undefined ? {} : {language: tab.language})})),
                 active: activeFileIndex(group),
             })),
             activeGroup: activeGroup.value,
@@ -291,8 +343,8 @@ export function createEditorGroups(initial: GroupsSnapshot | null = null): Edito
 }
 
 /** 组里打开文件的标签：页面标签不进会话记录（输出 33）。 */
-function filesOf(group: EditorGroup): Array<EditorTab & {readonly editor: FileEditorKind}> {
-    return group.tabs.filter((tab): tab is EditorTab & {readonly editor: FileEditorKind} => tab.editor !== "page");
+function filesOf(group: EditorGroup): FileTab[] {
+    return group.tabs.filter((tab): tab is FileTab => tab.kind === "file");
 }
 
 /** 记录里的活动项：活动的是页面时取它左边最近的文件标签，没有就取右边的；组里没有文件标签为 null。 */
@@ -300,7 +352,7 @@ function activeFileIndex(group: EditorGroup): number | null {
     const files = filesOf(group);
     const at = group.tabs.findIndex((tab) => tab.id === group.active);
     if (at < 0) return null;
-    const nearest = [...group.tabs.slice(0, at + 1)].reverse().find((tab) => tab.editor !== "page") ?? group.tabs.slice(at).find((tab) => tab.editor !== "page");
+    const nearest = [...group.tabs.slice(0, at + 1)].reverse().find((tab) => tab.kind === "file") ?? group.tabs.slice(at).find((tab) => tab.kind === "file");
     return nearest === undefined ? null : files.findIndex((tab) => tab.id === nearest.id);
 }
 
@@ -330,7 +382,7 @@ function rightNeighbor(root: GridNode<string> | null, id: string): string | null
 }
 
 /** 从记录恢复：布局的叶与组一一对应、活动组存在才接受；否则返回 null，从一个空组开始。 */
-function restore(snapshot: GroupsSnapshot): {grid: Grid<string>; groups: EditorGroup[]; activeGroup: string} | null {
+function restore(snapshot: GroupsSnapshot, cursorKind: CursorKind): {grid: Grid<string>; groups: EditorGroup[]; activeGroup: string} | null {
     const ids = new Set(snapshot.groups.map((group) => group.id));
     if (ids.size !== snapshot.groups.length || ids.size === 0 || !ids.has(snapshot.activeGroup)) return null;
     const grid = createGrid<string>(null);
@@ -343,8 +395,8 @@ function restore(snapshot: GroupsSnapshot): {grid: Grid<string>; groups: EditorG
     const groups = snapshot.groups.map((group): EditorGroup => {
         const tabs = group.tabs.map((saved): EditorTab => {
             tab += 1;
-            const restored: EditorTab = {id: `r${String(tab)}`, address: saved.address, editor: saved.editor, preview: saved.preview};
-            return saved.cursor !== undefined && cursorFits(saved.editor, saved.cursor) ? {...restored, cursor: saved.cursor} : restored;
+            const restored: FileTab = {kind: "file", id: `r${String(tab)}`, address: saved.address, editor: saved.editor, preview: saved.preview, ...(saved.language === undefined ? {} : {language: saved.language})};
+            return saved.cursor !== undefined && cursorFits(cursorKind(saved.editor), saved.cursor) ? {...restored, cursor: saved.cursor} : restored;
         });
         const active = group.active === null ? null : (tabs[group.active]?.id ?? tabs[0]?.id ?? null);
         return {id: group.id, tabs, active};

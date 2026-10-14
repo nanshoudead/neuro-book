@@ -51,7 +51,7 @@ test.afterAll(async () => {
 });
 
 const root = (page: Page) => page.locator("[data-workbench-root]");
-const prose = (page: Page) => page.locator("[data-editor-group-active] [data-editor-kind=\"markdown\"]:visible [data-editor-prose]");
+const prose = (page: Page) => page.locator("[data-editor-group-active] [data-editor-kind=\"nbook.editor.markdown\"]:visible [data-editor-prose]");
 const activeTab = (page: Page) => page.locator("[data-editor-tab][aria-selected=\"true\"]");
 
 async function openBook(page: Page): Promise<void> {

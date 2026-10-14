@@ -19,7 +19,10 @@ import type {Scene} from "nbook/plugins/files/testing/scene";
 import {createLinkTap} from "nbook/plugins/files/testing/tap";
 import type {LinkTap} from "nbook/plugins/files/testing/tap";
 
-import {createEditorArea, defaultEditor} from "./web/area";
+import {CODE_EDITOR, MARKDOWN_EDITOR} from "./shared/contracts";
+import {createEditorArea} from "./web/area";
+import {BINARY_TAB_EDITOR, BUILTIN_EDITORS, catalogOf} from "./web/editors";
+import type {EditorCatalog} from "./web/editors";
 import type {EditorArea, EditorControlHandle} from "./web/area";
 import {createEditorGroups} from "./web/groups/groups";
 import {editorStateValues} from "./web/state";
@@ -51,16 +54,16 @@ interface World {
     readonly opened: string[];
 }
 
-async function world(initial: GroupsSnapshot | null = null): Promise<World> {
+async function world(initial: GroupsSnapshot | null = null, editors?: EditorCatalog): Promise<World> {
     counter += 1;
     const tap = createLinkTap();
-    const scene = await filesScene(join(tmp, `case-${String(counter)}`), {project: {"a.md": "A", "b.md": "B", "c.json": "{}"}}, {wrapLink: tap.wrap});
+    const scene = await filesScene(join(tmp, `case-${String(counter)}`), {project: {"a.md": "A", "b.md": "B", "c.json": "{}", "a.html": "<p>A</p>", "a.pdf": "%PDF-1.7"}}, {wrapLink: tap.wrap});
     const clock = new ManualClock();
     const saved: GroupsSnapshot[] = [];
     const opened: string[] = [];
     const area = createEditorArea({files: files(scene.window), clock, workspaceKey: "p1", generation: 1, initial, persist: (snapshot) => saved.push(snapshot), opened: (address) => opened.push(address), report: (error) => {
         throw error;
-    }});
+    }, ...(editors === undefined ? {} : {editors})});
     closers.push(async () => {
         area.dispose();
         await scene.world.close();
@@ -101,7 +104,7 @@ describe("Spec workbench.editor 输出 6–8：打开与切换", () => {
         held.release();
         await ready(at);
         expect(at.area.groups.activeTab()?.address).toBe("project://b.md");
-        expect(at.area.binding(groupId(at))?.document.text.value).toBe("B");
+        expect(at.area.binding(groupId(at))?.text.value).toBe("B");
     });
 
     it("preview 连续替换多于保留上限：换下的视图状态随标签释放，不再进最近列表，切换照常", async () => {
@@ -109,11 +112,11 @@ describe("Spec workbench.editor 输出 6–8：打开与切换", () => {
         for (let index = 1; index <= 6; index += 1) await writeFile(join(at.scene.project, `p${String(index)}.md`), `P${String(index)}`);
         for (let index = 1; index <= 6; index += 1) {
             at.area.open(`project://p${String(index)}.md`, {mode: "preview"});
-            await until(at, `p${String(index)} 就绪`, () => at.area.binding(groupId(at))?.document.text.value === `P${String(index)}`);
+            await until(at, `p${String(index)} 就绪`, () => at.area.binding(groupId(at))?.text.value === `P${String(index)}`);
         }
         at.area.open("project://a.md", {mode: "permanent"});
         await ready(at);
-        expect(at.area.binding(groupId(at))?.document.text.value).toBe("A");
+        expect(at.area.binding(groupId(at))?.text.value).toBe("A");
         expect(at.area.groups.groups.value[0]?.tabs.map((tab) => tab.address)).toEqual(["project://p6.md", "project://a.md"]);
     });
 
@@ -130,14 +133,12 @@ describe("Spec workbench.editor 输出 6–8：打开与切换", () => {
 
     it("按类型选编辑器；在 preview 标签里编辑即转正；同一文档换回来是同一个视图状态槽", async () => {
         const at = await world();
-        expect(defaultEditor("project://a.md")).toBe("markdown");
-        expect(defaultEditor("project://c.json")).toBe("code");
         at.area.open("project://a.md", {mode: "preview"});
         await ready(at);
         const binding = at.area.binding(groupId(at));
         if (binding === null) throw new Error("没有绑定");
         binding.slot.state = {caret: 1};
-        expect(binding.commit(binding.document.revision.value, "A1")).toMatchObject({status: "accepted"});
+        expect(binding.commit(binding.revision.value, "A1")).toMatchObject({status: "accepted"});
         expect(at.area.groups.activeTab()?.preview).toBe(false);
         at.area.open("project://b.md", {mode: "permanent"});
         await ready(at);
@@ -145,10 +146,10 @@ describe("Spec workbench.editor 输出 6–8：打开与切换", () => {
         const back = at.area.binding(groupId(at));
         expect(back?.slot.state).toEqual({caret: 1});
         expect(back?.token).not.toBe(binding.token);
-        expect(back?.document.text.value).toBe("A1");
+        expect(back?.text.value).toBe("A1");
         // 换下的旧绑定的迟到回调不改变文档（“时序与寿命”）。
-        expect(binding.commit(binding.document.revision.value, "迟到")).toEqual({status: "stale"});
-        expect(back?.document.text.value).toBe("A1");
+        expect(binding.commit(binding.revision.value, "迟到")).toEqual({status: "stale"});
+        expect(back?.text.value).toBe("A1");
     });
 
     it("当前视图有未裁决输入时不换文档，给出提示", async () => {
@@ -160,14 +161,77 @@ describe("Spec workbench.editor 输出 6–8：打开与切换", () => {
         const right = at.area.binding(groupId(at));
         const left = at.area.binding(at.area.groups.groups.value[0]?.id ?? "");
         if (right === null || left === null) throw new Error("没有绑定");
-        const base = right.document.revision.value;
+        const base = right.revision.value;
         left.commit(base, "左");
         expect(right.commit(base, "右")).toMatchObject({status: "conflict"});
         expect(at.area.open("project://b.md", {mode: "preview"})).toMatchObject({ok: false});
         expect(at.area.notice.value).not.toBeNull();
         at.area.resolve(groupId(at), "keep-view");
-        expect(right.document.text.value).toBe("右");
+        expect(right.text.value).toBe("右");
         expect(at.area.open("project://b.md", {mode: "preview"})).toMatchObject({ok: true});
+    });
+});
+
+/** 内置两个编辑器加一个 HTML 预览编辑器与一个只认 png 的字节编辑器。 */
+const WITH_PREVIEW = catalogOf([
+    ...Object.entries(BUILTIN_EDITORS).map(([id, declaration]) => ({id, declaration})),
+    {id: "test.html.preview", declaration: {title: {"zh-CN": "预览", "en-US": "Preview"}, selector: {extensions: ["html"]}, priority: "option", input: "text", role: "preview"}},
+    {id: "test.image.viewer", declaration: {title: {"zh-CN": "图片", "en-US": "Image"}, selector: {extensions: ["png"]}, priority: "default", input: "bytes"}},
+]);
+
+describe("Spec workbench.editor 输出 1、4、37–40：编辑器的选择与同一文件的几个标签", () => {
+    it("不指定编辑器的打开激活本组非预览的那个标签；指定时按编辑器找；未登记的编辑器与不认领的字节编辑器被拒", async () => {
+        const at = await world(null, WITH_PREVIEW);
+        expect(at.area.open("project://a.html", {mode: "permanent"})).toMatchObject({ok: true});
+        const source = at.area.groups.activeTab()!;
+        expect(source).toMatchObject({kind: "file", editor: CODE_EDITOR});
+        const preview = at.area.open("project://a.html", {mode: "permanent", editor: "test.html.preview"});
+        expect(preview).toMatchObject({ok: true});
+        expect(at.area.groups.groups.value[0]?.tabs).toHaveLength(2);
+        expect(at.area.open("project://a.html", {mode: "preview"})).toEqual({ok: true, tabId: source.id});
+        expect(at.area.open("project://a.html", {mode: "permanent", editor: "test.html.preview"})).toEqual(preview);
+        expect(at.area.open("project://a.md", {mode: "permanent", editor: "test.nope.editor"})).toMatchObject({ok: false});
+        expect(at.area.open("project://a.md", {mode: "permanent", editor: "test.image.viewer"})).toMatchObject({ok: false});
+        expect(at.area.groups.groups.value[0]?.tabs).toHaveLength(2);
+    });
+
+    it("关掉 dirty 的源码标签、只剩它的预览视图时照常询问；还有另一个可编辑的标签时不问", async () => {
+        const at = await world(null, WITH_PREVIEW);
+        at.area.open("project://a.html", {mode: "permanent"});
+        await ready(at);
+        const source = at.area.groups.activeTab()!;
+        const binding = at.area.binding(groupId(at))!;
+        binding.commit(binding.revision.value, "<p>改</p>");
+        at.area.open("project://a.html", {mode: "permanent", editor: "test.html.preview"});
+        const closing = at.area.close(source.id);
+        await until(at, "问", () => at.area.dialog.value !== null);
+        at.area.answer("cancel");
+        expect(await closing).toBe("cancelled");
+        // 拆出另一个源码标签：它能编辑这份文档，关掉原来的就不问。
+        at.area.activate(source.id);
+        expect(at.area.split("right")).toMatchObject({ok: true});
+        expect(await at.area.close(source.id)).toBe("closed");
+        expect(at.area.dialog.value).toBeNull();
+    });
+
+    it("已知二进制：标签显示不能在这里打开，不读文件；用其它编辑器可以换成源码编辑器", async () => {
+        const at = await world(null, WITH_PREVIEW);
+        expect(at.area.open("project://a.pdf", {mode: "permanent"})).toMatchObject({ok: true});
+        expect(at.area.groups.activeTab()).toMatchObject({editor: BINARY_TAB_EDITOR});
+        expect(at.area.documentOf(groupId(at))).toBeNull();
+        expect(at.area.documents.get("project://a.pdf")).toBeNull();
+        expect(at.area.reopenWith(CODE_EDITOR)).toEqual({ok: true});
+        await until(at, "源码读到", () => at.area.binding(groupId(at))?.text.value === "%PDF-1.7");
+    });
+
+    it("编辑器不在了的标签：用默认编辑器打开按选择顺序重选", async () => {
+        const recorded = createEditorGroups();
+        recorded.open("project://a.md", {mode: "permanent", editor: "test.gone.editor"});
+        const at = await world(recorded.snapshot(), WITH_PREVIEW);
+        expect(at.area.groups.activeTab()).toMatchObject({editor: "test.gone.editor"});
+        expect(at.area.reopenWith("test.gone.editor")).toMatchObject({ok: false});
+        expect(at.area.reopenWithDefault()).toEqual({ok: true});
+        expect(at.area.groups.activeTab()).toMatchObject({editor: MARKDOWN_EDITOR});
     });
 });
 
@@ -183,7 +247,7 @@ describe("Spec workbench.editor 输出 35：打开到指定的组", () => {
         const right = at.area.binding(rightGroup);
         const left = at.area.binding(leftGroup);
         if (right === null || left === null) throw new Error("没有绑定");
-        const base = right.document.revision.value;
+        const base = right.revision.value;
         left.commit(base, "左");
         expect(right.commit(base, "右")).toMatchObject({status: "conflict"});
 
@@ -206,7 +270,7 @@ describe("Spec workbench.editor 输出 3–5：关闭、拆分与会话", () => 
         at.area.open("project://a.md", {mode: "permanent"});
         await ready(at);
         const binding = at.area.binding(groupId(at));
-        binding?.commit(binding.document.revision.value, "A（改）");
+        binding?.commit(binding.revision.value, "A（改）");
         const tab = at.area.groups.activeTab()?.id ?? "";
         const cancelled = at.area.close(tab);
         await until(at, "问", () => at.area.dialog.value !== null);
@@ -233,7 +297,7 @@ describe("Spec workbench.editor 输出 3–5：关闭、拆分与会话", () => 
         at.area.open("project://a.md", {mode: "permanent"});
         await ready(at);
         const binding = at.area.binding(groupId(at));
-        binding?.commit(binding.document.revision.value, "A（丢掉）");
+        binding?.commit(binding.revision.value, "A（丢掉）");
         const closing = at.area.close(at.area.groups.activeTab()?.id ?? "");
         await until(at, "问", () => at.area.dialog.value !== null);
         at.area.answer("discard");
@@ -256,7 +320,7 @@ describe("Spec workbench.editor 输出 3–5：关闭、拆分与会话", () => 
         await until(restored, "活动的 b 就绪", () => restored.area.binding(groupId(restored)) !== null);
         expect(restored.area.documents.get("project://a.md")).toBeNull();
         restored.area.activate(restored.area.groups.groups.value[0]?.tabs[0]?.id ?? "");
-        await until(restored, "a 就绪", () => restored.area.binding(groupId(restored))?.document.text.value === "A");
+        await until(restored, "a 就绪", () => restored.area.binding(groupId(restored))?.text.value === "A");
     });
 });
 
@@ -293,10 +357,10 @@ describe("Spec workbench.editor 输出 30–31：上次的光标与最近打开"
         const binding = restored.area.binding(groupId(restored))!;
         expect(binding.cursor).toEqual({offset: 1});
         // 光标已移到 4，控件还没到“停下 1 秒”交出：拆分时先让活动控件交出这一刻的光标。
-        restored.area.registerHandle(groupId(restored), "markdown", {focus: () => undefined, flushPendingChange: () => undefined, rememberCursor: () => binding.remember({offset: 4})});
+        restored.area.registerHandle(groupId(restored), MARKDOWN_EDITOR, {focus: () => undefined, flushPendingChange: () => undefined, rememberCursor: () => binding.remember({offset: 4})});
         expect(restored.area.split("right")).toMatchObject({ok: true});
         expect(tabsOf(restored.saved.at(-1)).map((tab) => tab.cursor)).toEqual([{offset: 4}, {offset: 4}]);
-        expect(restored.area.reopenWith("code")).toMatchObject({ok: true});
+        expect(restored.area.reopenWith(CODE_EDITOR)).toMatchObject({ok: true});
         expect(tabsOf(restored.saved.at(-1)).map((tab) => tab.cursor)).toEqual([{offset: 4}, undefined]);
     });
 
@@ -309,18 +373,18 @@ describe("Spec workbench.editor 输出 30–31：上次的光标与最近打开"
 
         const restored = await world(snapshot);
         const calls: string[] = [];
-        restored.area.registerHandle(groupId(restored), "markdown", handle(calls));
+        restored.area.registerHandle(groupId(restored), MARKDOWN_EDITOR, handle(calls));
         await ready(restored);
         restored.clock.advance(0);
         expect(calls).toEqual(["focus"]);
-        restored.area.registerHandle(groupId(restored), "markdown", handle(calls));
+        restored.area.registerHandle(groupId(restored), MARKDOWN_EDITOR, handle(calls));
         restored.clock.advance(0);
         expect(calls).toEqual(["focus"]);
 
         const left = await world(snapshot);
         const leftCalls: string[] = [];
         left.area.focusLeft();
-        left.area.registerHandle(groupId(left), "markdown", handle(leftCalls));
+        left.area.registerHandle(groupId(left), MARKDOWN_EDITOR, handle(leftCalls));
         await ready(left);
         left.clock.advance(0);
         expect(leftCalls).toEqual([]);
@@ -328,7 +392,7 @@ describe("Spec workbench.editor 输出 30–31：上次的光标与最近打开"
         // 就绪、定位已排进时钟，执行前焦点离开：不再聚焦。
         const late = await world(snapshot);
         const lateCalls: string[] = [];
-        late.area.registerHandle(groupId(late), "markdown", handle(lateCalls));
+        late.area.registerHandle(groupId(late), MARKDOWN_EDITOR, handle(lateCalls));
         await ready(late);
         late.area.focusLeft();
         late.clock.advance(0);
@@ -362,14 +426,14 @@ describe("Spec workbench.editor 输出 33：页面标签", () => {
         const opened = at.area.openPage("nbook.test.welcome");
         expect(opened).toMatchObject({ok: true});
         const tab = at.area.groups.activeTab()!;
-        expect([tab.address, tab.editor, tab.preview]).toEqual(["page://nbook.test.welcome", "page", false]);
+        expect([tab.address, tab.kind, tab.preview]).toEqual(["page://nbook.test.welcome", "page", false]);
         expect(at.area.binding(groupId(at))).toBeNull();
         expect(at.area.documentOf(groupId(at))).toBeNull();
         expect(at.area.activeDocument.value).toBeNull();
         // 公开键 activeDocument 只给文件的地址：页面不是资源管理器能揭示的东西。
         expect(editorStateValues(shallowRef(at.area)).activeDocument.value).toBe("");
         expect(at.area.split("right")).toEqual({ok: false, reason: "页面只开一个，不能拆分"});
-        expect(at.area.reopenWith("code")).toEqual({ok: false, reason: "页面不是文件，不能换编辑器"});
+        expect(at.area.reopenWith(CODE_EDITOR)).toEqual({ok: false, reason: "页面不是文件，不能换编辑器"});
         expect(at.area.open("page://nbook.test.welcome", {mode: "permanent"})).toMatchObject({ok: false});
         expect(at.opened).toEqual(["project://a.md"]);
         expect(at.saved.at(-1)?.groups[0]?.tabs.map((saved) => saved.address)).toEqual(["project://a.md"]);
@@ -382,7 +446,7 @@ describe("Spec workbench.editor 输出 33：页面标签", () => {
         expect(at.area.groups.activeGroup.value).toBe(first);
         expect(at.area.groups.activeTab()?.id).toBe(tab.id);
         expect(await at.area.close(tab.id)).toBe("closed");
-        expect(at.area.groups.groups.value.flatMap((group) => group.tabs).some((candidate) => candidate.editor === "page")).toBe(false);
+        expect(at.area.groups.groups.value.flatMap((group) => group.tabs).some((candidate) => candidate.kind === "page")).toBe(false);
     });
 });
 
@@ -393,13 +457,13 @@ describe("Spec workbench.editor 输出 4、13：关闭时的结算", () => {
         await ready(at);
         const binding = at.area.binding(groupId(at));
         if (binding === null) throw new Error("没有绑定");
-        binding.commit(binding.document.revision.value, "A1");
+        binding.commit(binding.revision.value, "A1");
         const held = at.tap.hold((request) => request.method === "write");
         const closing = at.area.close(at.area.groups.activeTab()?.id ?? "");
         await until(at, "问", () => at.area.dialog.value !== null);
         at.area.answer("save");
         await held.arrived;
-        binding.commit(binding.document.revision.value, "A2（保存期间）");
+        binding.commit(binding.revision.value, "A2（保存期间）");
         held.release();
         await until(at, "再问", () => at.area.dialog.value !== null);
         expect(await readFile(join(at.scene.project, "a.md"), "utf8")).toBe("A1");
@@ -419,7 +483,7 @@ describe("Spec workbench.editor 输出 4、13：关闭时的结算", () => {
         const leftGroup = at.area.groups.groups.value[0]?.id ?? "";
         const left = at.area.binding(leftGroup);
         if (right === null || left === null) throw new Error("没有绑定");
-        const base = left.document.revision.value;
+        const base = left.revision.value;
         right.commit(base, "右");
         expect(left.commit(base, "左")).toMatchObject({status: "conflict"});
         const bTab = at.area.groups.groups.value[0]?.tabs.find((tab) => tab.address === "project://b.md")?.id ?? "";
@@ -427,8 +491,8 @@ describe("Spec workbench.editor 输出 4、13：关闭时的结算", () => {
         expect(at.area.binding(leftGroup)?.token).toBe(left.token);
         expect(at.area.binding(leftGroup)?.unresolved()).toBe(true);
         at.area.resolve(leftGroup, "keep-view");
-        expect(left.document.text.value).toBe("左");
-        expect(await at.area.documents.save(left.document)).toEqual({ok: true});
+        expect(left.text.value).toBe("左");
+        expect(await at.area.documents.save(at.area.documentOf(leftGroup)!)).toEqual({ok: true});
     });
 
     it("同一文档还在别的组：关掉有未裁决输入的视图要问；不保存只丢这个视图的输入，文档仍可保存", async () => {
@@ -438,39 +502,40 @@ describe("Spec workbench.editor 输出 4、13：关闭时的结算", () => {
         at.area.split("right");
         await ready(at);
         const right = at.area.binding(groupId(at));
-        const left = at.area.binding(at.area.groups.groups.value[0]?.id ?? "");
+        const leftGroup = at.area.groups.groups.value[0]?.id ?? "";
+        const left = at.area.binding(leftGroup);
         if (right === null || left === null) throw new Error("没有绑定");
-        const base = left.document.revision.value;
+        const base = left.revision.value;
         left.commit(base, "左");
         expect(right.commit(base, "右")).toMatchObject({status: "conflict"});
         const closing = at.area.close(at.area.groups.activeTab()?.id ?? "");
         await until(at, "问", () => at.area.dialog.value !== null);
         at.area.answer("discard");
         expect(await closing).toBe("closed");
-        expect(left.document.unresolved.value).toEqual([]);
-        expect(await at.area.documents.save(left.document)).toEqual({ok: true});
+        expect(at.area.documentOf(leftGroup)?.unresolved.value).toEqual([]);
+        expect(await at.area.documents.save(at.area.documentOf(leftGroup)!)).toEqual({ok: true});
         expect(await readFile(join(at.scene.project, "a.md"), "utf8")).toBe("左");
     });
 
     it("恢复出来、还没读到的标签也算同一文件的标签：关另一组的标签不问，正文留给它", async () => {
         // 用真实的组模型造一份合法记录：左组 a，右组 a、b（活动 b），活动组在左。
         const model = createEditorGroups();
-        model.open("project://a.md", {mode: "permanent", editor: "markdown"});
+        model.open("project://a.md", {mode: "permanent", editor: MARKDOWN_EDITOR});
         const leftId = model.activeGroup.value;
         model.split(model.activeTab()?.id ?? "", "right");
         const rightId = model.activeGroup.value;
-        model.open("project://b.md", {mode: "permanent", editor: "markdown"});
+        model.open("project://b.md", {mode: "permanent", editor: MARKDOWN_EDITOR});
         model.focusGroup(leftId);
         const at = await world(model.snapshot());
         await ready(at);
         const left = at.area.binding(leftId);
         if (left === null) throw new Error("没有绑定");
-        left.commit(left.document.revision.value, "A（未保存）");
+        left.commit(left.revision.value, "A（未保存）");
         expect(await at.area.close(at.area.groups.activeTab()?.id ?? "")).toBe("closed");
         expect(at.area.dialog.value).toBeNull();
         const aTab = at.area.groups.groups.value.find((group) => group.id === rightId)?.tabs[0]?.id ?? "";
         at.area.activate(aTab);
-        await until(at, "右组的 a 就绪", () => at.area.binding(rightId)?.document.text.value === "A（未保存）");
+        await until(at, "右组的 a 就绪", () => at.area.binding(rightId)?.text.value === "A（未保存）");
     });
 });
 
@@ -483,7 +548,7 @@ describe("Spec workbench.editor 输出 21–22：离开与抢救", () => {
         if (binding === null) throw new Error("没有绑定");
         expect(at.area.needsLeaveConfirm()).toBe(false);
         const detach = binding.attach(() => {
-            binding.commit(binding.document.revision.value, "A（防抖中）");
+            binding.commit(binding.revision.value, "A（防抖中）");
         });
         expect(at.area.needsLeaveConfirm()).toBe(true);
         expect(at.area.documents.rescue()).toEqual([{path: "project://a.md", text: "A（防抖中）"}]);
@@ -507,12 +572,12 @@ describe("Spec workbench.editor 输出 29：继续写作", () => {
         expect(at.area.groups.activeTab()?.id).toBe(tabId);
         await ready(at);
         expect(calls).toEqual([]);
-        at.area.registerHandle(groupId(at), "markdown", handleWith(calls));
+        at.area.registerHandle(groupId(at), MARKDOWN_EDITOR, handleWith(calls));
         // 定位推到下一个时钟刻：控件先在自己的 watch 里装上正文。
         expect(calls).toEqual([]);
         at.clock.advance(0);
         expect(calls).toEqual(["revealEnd", "focus"]);
-        at.area.registerHandle(groupId(at), "markdown", handleWith(calls));
+        at.area.registerHandle(groupId(at), MARKDOWN_EDITOR, handleWith(calls));
         at.clock.advance(0);
         expect(calls).toEqual(["revealEnd", "focus"]);
     });
@@ -520,7 +585,7 @@ describe("Spec workbench.editor 输出 29：继续写作", () => {
     it("句柄先到、文档后就绪也定位；没有 revealEnd 的控件只打开、只聚焦", async () => {
         const at = await world();
         const calls: string[] = [];
-        at.area.registerHandle(groupId(at), "markdown", handleWith(calls));
+        at.area.registerHandle(groupId(at), MARKDOWN_EDITOR, handleWith(calls));
         at.area.open("project://a.md", {mode: "permanent", reveal: "end"});
         await ready(at);
         at.clock.advance(0);
@@ -528,7 +593,7 @@ describe("Spec workbench.editor 输出 29：继续写作", () => {
 
         const plain = await world();
         const plainCalls: string[] = [];
-        plain.area.registerHandle(groupId(plain), "markdown", handleWith(plainCalls, false));
+        plain.area.registerHandle(groupId(plain), MARKDOWN_EDITOR, handleWith(plainCalls, false));
         plain.area.open("project://a.md", {mode: "permanent", reveal: "end"});
         await ready(plain);
         plain.clock.advance(0);
@@ -542,8 +607,8 @@ describe("Spec workbench.editor 输出 29：继续写作", () => {
         at.area.open("project://a.md", {mode: "permanent", reveal: "end"});
         await ready(at);
         expect(at.area.open("project://b.md", {mode: "preview"})).toMatchObject({ok: true});
-        await until(at, "b 就绪", () => at.area.binding(groupId(at))?.document.target.value.path.endsWith("b.md") === true);
-        at.area.registerHandle(groupId(at), "markdown", handleWith(calls));
+        await until(at, "b 就绪", () => at.area.binding(groupId(at))?.address.value.endsWith("b.md") === true);
+        at.area.registerHandle(groupId(at), MARKDOWN_EDITOR, handleWith(calls));
         at.clock.advance(0);
         expect(calls).toEqual([]);
         // 切回 a 也不再定位：定位只在打开时记下的那一次。
@@ -559,7 +624,7 @@ describe("Spec workbench.editor 输出 29：继续写作", () => {
         other.area.open("project://a.md", {mode: "permanent", reveal: "end"});
         await ready(other);
         expect(other.area.split("right")).toMatchObject({ok: true});
-        other.area.registerHandle(other.area.groups.groups.value[0]!.id, "markdown", handleWith(otherCalls));
+        other.area.registerHandle(other.area.groups.groups.value[0]!.id, MARKDOWN_EDITOR, handleWith(otherCalls));
         other.clock.advance(0);
         expect(otherCalls).toEqual([]);
     });
@@ -570,7 +635,7 @@ describe("Spec workbench.editor 输出 29：继续写作", () => {
         at.area.open("project://a.md", {mode: "permanent", reveal: "end"});
         await ready(at);
         at.area.focusLeft();
-        at.area.registerHandle(groupId(at), "markdown", handleWith(calls));
+        at.area.registerHandle(groupId(at), MARKDOWN_EDITOR, handleWith(calls));
         at.clock.advance(0);
         expect(calls).toEqual([]);
 
@@ -579,7 +644,7 @@ describe("Spec workbench.editor 输出 29：继续写作", () => {
         const lateCalls: string[] = [];
         late.area.open("project://a.md", {mode: "permanent", reveal: "end"});
         await ready(late);
-        late.area.registerHandle(groupId(late), "markdown", handleWith(lateCalls));
+        late.area.registerHandle(groupId(late), MARKDOWN_EDITOR, handleWith(lateCalls));
         expect(late.area.open("project://b.md", {mode: "preview"})).toMatchObject({ok: true});
         late.clock.advance(0);
         expect(lateCalls).toEqual([]);

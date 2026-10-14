@@ -14,8 +14,8 @@ type Props = {
     /** 编辑器区控制器：组与标签、文档、绑定、进度、关闭询问。 */
     area: EditorArea;
     locale: DisplayLocale;
-    /** 每种编辑器的控件组件（按 `control.ts` 的合同）。 */
-    control: (kind: "markdown" | "code") => Component;
+    /** 编辑器此刻的组件（按 `shared/contracts.ts` 的控件合同），转给每个编辑组。 */
+    control: (editor: string) => {kind: "gone"} | {kind: "pending"} | {kind: "ready"; component: Component};
     /** 页面标签的来源（页面贡献点 `editor.pages`，输出 33），原样交给每个编辑组；默认 null。 */
     pages?: EditorPageSource | null;
     /** 空编辑组的提示（输出 32，`web/empty-tips.ts` 按命令可用性筛好），原样交给每个编辑组；缺省为空。 */

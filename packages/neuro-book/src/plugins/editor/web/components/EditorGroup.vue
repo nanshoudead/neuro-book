@@ -11,9 +11,10 @@ import {buttonBudget} from "nbook/ui/menus/title-actions";
 import type {TitleActionsModel} from "nbook/ui/menus/title-actions";
 
 import type {EditorArea, EditorControlHandle} from "../area";
+import type {EditorState} from "../editor-registry";
+import {BINARY_TAB_EDITOR} from "../editors";
 import type {EmptyTip} from "../empty-tips";
 import {EDITOR_TITLE_MAX_BUTTONS, EDITOR_TITLE_TAB_RESERVE} from "../title-actions";
-import type {FileEditorKind} from "../groups/groups";
 import {pageIdOf} from "../pages";
 import type {EditorPageSource} from "../pages";
 import {editorText, nameOf} from "../messages";
@@ -24,7 +25,8 @@ const props = withDefaults(defineProps<{
     area: EditorArea;
     groupId: string;
     locale: DisplayLocale;
-    control: (kind: FileEditorKind) => Component;
+    /** 编辑器此刻的组件：不在、未交付或已交付（docs/specs/workbench/editor.md 输出 40）。 */
+    control: (editor: string) => EditorState;
     pages?: EditorPageSource | null;
     /** 组里没有标签时显示的提示（已按可用性筛好）。 */
     emptyTips?: ReadonlyArray<EmptyTip>;
@@ -92,22 +94,39 @@ const banner = computed((): Banner | null => {
     return null;
 });
 
-const failure = computed(() => {
+/** 读取失败：不是 UTF-8 文本时说明原因、不给重试（输出 37 第 3 步），其余给重试。 */
+const failure = computed((): {readonly text: string; readonly retry: boolean} | null => {
     const current = document.value;
     if (current === null || current.status.value !== "failed") return null;
-    return editorText(props.locale, "openFailed", {name: nameOf(current.target.value.path), reason: current.failure.value?.code ?? ""});
+    if (current.failure.value?.code === "not-text") return {text: editorText(props.locale, "notText", {name: nameOf(current.target.value.path)}), retry: false};
+    return {text: editorText(props.locale, "openFailed", {name: nameOf(current.target.value.path), reason: current.failure.value?.code ?? ""}), retry: true};
 });
 
-const onReady = (kind: FileEditorKind, handle: EditorControlHandle | null): void => props.area.registerHandle(props.groupId, kind, handle);
+const onReady = (editor: string, handle: EditorControlHandle | null): void => props.area.registerHandle(props.groupId, editor, handle);
+
+/**
+ * 活动文件标签的编辑器不能渲染的原因：已知二进制（输出 37 第 1 步）、编辑器不在了、还没交付（输出 40）。能渲染为 null。
+ */
+const unavailable = computed((): "binary" | "gone" | "pending" | null => {
+    const tab = activeTab.value;
+    if (tab === null || tab.kind === "page") return null;
+    if (tab.editor === BINARY_TAB_EDITOR) return "binary";
+    const state = props.control(tab.editor).kind;
+    return state === "ready" ? null : state;
+});
 
 /** 活动标签是页面时的页面 id；文件标签为 null。 */
 const pageId = computed(() => (activeTab.value === null ? null : pageIdOf(activeTab.value.address)));
 const pageComponent = computed(() => (pageId.value === null ? null : props.pages?.component(pageId.value) ?? null));
 
-// 控件按编辑器种类各挂一个：换文档只换绑定，不重建控件；同组另一种控件停放（不卸载、不可见）。
-const kinds = computed((): FileEditorKind[] => {
-    const present = new Set((group.value?.tabs ?? []).map((tab) => tab.editor));
-    return (["markdown", "code"] as const).filter((kind) => present.has(kind));
+// 控件按编辑器各挂一个：换文档只换绑定，不重建控件；同组另一种控件停放（不卸载、不可见）。只挂已交付的编辑器。
+const controls = computed((): Array<{readonly editor: string; readonly component: Component}> => {
+    const present = new Set<string>();
+    for (const tab of group.value?.tabs ?? []) if (tab.kind === "file" && tab.editor !== BINARY_TAB_EDITOR) present.add(tab.editor);
+    return [...present].flatMap((editor) => {
+        const state = props.control(editor);
+        return state.kind === "ready" ? [{editor, component: state.component}] : [];
+    });
 });
 
 export interface EditorGroupTitleActions {
@@ -179,25 +198,31 @@ export interface EditorGroupTitleActions {
                     </button>
                 </div>
             </div>
+            <div v-else-if="unavailable === 'binary' || unavailable === 'gone'" class="flex flex-col items-start gap-2 p-6 text-sm" role="alert" :data-editor-unavailable="unavailable">
+                <p>{{ editorText(locale, unavailable === "binary" ? "binary" : "editorGone", {name: activeTab === null ? "" : nameOf(activeTab.address)}) }}</p>
+                <Button v-if="unavailable === 'gone'" size="sm" variant="secondary" data-editor-reopen-default @click="area.reopenWithDefault()">{{ editorText(locale, "reopenDefault") }}</Button>
+            </div>
+            <!-- 编辑器还没交付：800 毫秒内空白，之后才说明（与读取的进度条同一规则，输出 6、40）。 -->
+            <p v-else-if="unavailable === 'pending'" class="editor-group__pending" role="status" data-editor-pending>{{ editorText(locale, "editorLoading") }}</p>
             <div v-else-if="failure !== null" class="flex flex-col items-start gap-2 p-6 text-sm" role="alert" data-editor-failure>
-                <p>{{ failure }}</p>
-                <Button size="sm" variant="secondary" @click="document !== null && area.documents.retry(document)">{{ editorText(locale, "retry") }}</Button>
+                <p>{{ failure.text }}</p>
+                <Button v-if="failure.retry" size="sm" variant="secondary" @click="document !== null && area.documents.retry(document)">{{ editorText(locale, "retry") }}</Button>
             </div>
             <!-- 页面标签：渲染页面贡献的组件；贡献方停了时说明，不显示别的。 -->
             <div v-if="pageId !== null" class="absolute inset-0 overflow-auto" :data-editor-page="pageId">
                 <component :is="pageComponent" v-if="pageComponent !== null" :context="pages!.context" />
                 <p v-else class="flex h-full items-center justify-center px-6 text-center text-[13px] text-[var(--text-muted)]" data-editor-page-missing>{{ editorText(locale, "pageMissing") }}</p>
             </div>
-            <template v-for="kind in kinds" :key="kind">
-                <div v-show="binding !== null && binding.kind === kind" class="absolute inset-0" :data-editor-kind="kind">
+            <template v-for="mounted in controls" :key="mounted.editor">
+                <div v-show="binding !== null && binding.editor === mounted.editor" class="absolute inset-0" :data-editor-kind="mounted.editor">
                     <component
-                        :is="control(kind)"
-                        :binding="binding !== null && binding.kind === kind ? binding : null"
-                        :host="area.controlSlot(groupId, kind)"
+                        :is="mounted.component"
+                        :binding="binding !== null && binding.editor === mounted.editor ? binding : null"
+                        :host="area.controlSlot(groupId, mounted.editor)"
                         :readonly="document?.writable.value !== true"
-                        :visible="binding !== null && binding.kind === kind"
+                        :visible="binding !== null && binding.editor === mounted.editor"
                         :label="activeTab === null ? '' : nameOf(activeTab.address)"
-                        @ready="(handle: EditorControlHandle | null) => onReady(kind, handle)"
+                        @ready="(handle: EditorControlHandle | null) => onReady(mounted.editor, handle)"
                         @focus="(focused: boolean) => (area.focused.value = focused)"
                     />
                 </div>
@@ -282,6 +307,20 @@ export interface EditorGroupTitleActions {
     color: var(--text-muted);
 }
 
+.editor-group__pending {
+    padding: 24px;
+    font-size: 13px;
+    color: var(--text-muted);
+    opacity: 0;
+    animation: editor-group-reveal 1ms linear 800ms forwards;
+}
+
+@keyframes editor-group-reveal {
+    to {
+        opacity: 1;
+    }
+}
+
 .editor-group__progress {
     animation: editor-group-progress 1.2s var(--ease-standard) infinite;
 }
@@ -297,7 +336,21 @@ export interface EditorGroupTitleActions {
 }
 
 @media (prefers-reduced-motion: reduce) {
-    .editor-group__progress {
+    .editor-group__pending {
+    padding: 24px;
+    font-size: 13px;
+    color: var(--text-muted);
+    opacity: 0;
+    animation: editor-group-reveal 1ms linear 800ms forwards;
+}
+
+@keyframes editor-group-reveal {
+    to {
+        opacity: 1;
+    }
+}
+
+.editor-group__progress {
         animation: none;
         left: 0;
         width: 100%;

@@ -10,10 +10,11 @@
  *   时只从 DOM 上拿下，重挂时接着用；实例由编辑器区在组关闭时释放。
  */
 
-import type {EditorControlHandle, ViewBinding, ViewStateSlot} from "./area";
+import type {EditorControlHandle, TextEditorBinding, ViewStateSlot} from "../shared/contracts";
 
+/** 文本编辑器控件的属性；合同本身在 `shared/contracts.ts`，供别的插件的编辑器用。 */
 export interface EditorControlProps {
-    readonly binding: ViewBinding | null;
+    readonly binding: TextEditorBinding | null;
     /** 组 × 编辑器种类的实例槽（`EditorArea.controlSlot`）：重挂时接着用存在这里的编辑器实例。 */
     readonly host: ViewStateSlot;
     readonly readonly: boolean;

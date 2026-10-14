@@ -4,14 +4,14 @@ import {Editor} from "@tiptap/core";
 import {EditorState, Selection} from "@tiptap/pm/state";
 import {onBeforeUnmount, onMounted, ref, watch} from "vue";
 
-import type {EditorControlHandle, ViewBinding, ViewStateSlot} from "../area";
+import type {EditorControlHandle, TextEditorBinding, ViewStateSlot} from "../area";
 import type {EditorControlEmits} from "../control";
 import {createMarkdownEditorExtensions} from "../markdown/markdown-editor-extensions";
 import {normalizeMarkdownDialectBlocks} from "../markdown/markdown-workbench";
 import {mergeSource, splitFrontmatter} from "../markdown/source-merge";
 import type {SourceSplit} from "../markdown/source-merge";
 
-const props = defineProps<{binding: ViewBinding | null; host: ViewStateSlot; readonly: boolean; visible: boolean; label: string; placeholder?: string}>();
+const props = defineProps<{binding: TextEditorBinding | null; host: ViewStateSlot; readonly: boolean; visible: boolean; label: string; placeholder?: string}>();
 const emit = defineEmits<EditorControlEmits>();
 
 /** 停止输入这么久才把正文交给文档；保存、切换与离开之前会立即结算。 */
@@ -36,14 +36,14 @@ interface MarkdownViewState {
 const root = ref<HTMLElement | null>(null);
 const scroller = ref<HTMLElement | null>(null);
 let editor: Editor | null = null;
-let bound: ViewBinding | null = null;
+let bound: TextEditorBinding | null = null;
 let detach: (() => void) | null = null;
 let timer: ReturnType<typeof setTimeout> | null = null;
 let cursorTimer: ReturnType<typeof setTimeout> | null = null;
 /** 程序换内容时不当成用户输入。 */
 let loading = false;
 
-const stateOf = (binding: ViewBinding): MarkdownViewState | null => binding.slot.state as MarkdownViewState | null;
+const stateOf = (binding: TextEditorBinding): MarkdownViewState | null => binding.slot.state as MarkdownViewState | null;
 
 /** 组的实例槽里存的编辑器实例（焦点在重挂后由编辑器区交还给活动视图，见 `area.ts` 的 `focusActive`）。 */
 interface KeptEditor {
@@ -64,7 +64,7 @@ const commitNow = (): void => {
     const view = stateOf(binding);
     if (view === null) return;
     const text = view.split.prefix + mergeSource(view.split.body, view.base, editor.getMarkdown());
-    if (text === binding.document.text.value && !view.held) return;
+    if (text === binding.text.value && !view.held) return;
     const result = binding.commit(view.confirmed, text);
     if (result.status === "accepted") {
         view.confirmed = result.revision;
@@ -75,9 +75,9 @@ const commitNow = (): void => {
 };
 
 /** 按文档的正文新建编辑状态：新的撤销历史，记下原文拆分与打开时的序列化结果。 */
-const load = (binding: ViewBinding): MarkdownViewState | null => {
+const load = (binding: TextEditorBinding): MarkdownViewState | null => {
     if (editor === null) return null;
-    const split = splitFrontmatter(binding.document.text.value);
+    const split = splitFrontmatter(binding.text.value);
     loading = true;
     try {
         editor.commands.setContent(normalizeMarkdownDialectBlocks(split.body), {contentType: "markdown", emitUpdate: false});
@@ -96,7 +96,7 @@ const load = (binding: ViewBinding): MarkdownViewState | null => {
             loading = false;
         }
     }
-    const view: MarkdownViewState = {state: editor.state, split, base: editor.getMarkdown(), confirmed: binding.document.revision.value, held: false, scroll: 0};
+    const view: MarkdownViewState = {state: editor.state, split, base: editor.getMarkdown(), confirmed: binding.revision.value, held: false, scroll: 0};
     binding.slot.state = view;
     return view;
 };
@@ -105,9 +105,9 @@ const load = (binding: ViewBinding): MarkdownViewState | null => {
  * 正文被别处改了（另一组的输入、磁盘的新内容、裁决）：只把不同的那一段换掉，这次替换不进撤销历史（输出 12），本组已有
  * 的撤销步骤映射过这次替换后仍可用。原文拆分与序列化结果按新正文重记，之后的保存以它为准。
  */
-const reload = (binding: ViewBinding, view: MarkdownViewState): void => {
+const reload = (binding: TextEditorBinding, view: MarkdownViewState): void => {
     if (editor === null || editor.markdown === undefined) return;
-    const split = splitFrontmatter(binding.document.text.value);
+    const split = splitFrontmatter(binding.text.value);
     const next = editor.schema.nodeFromJSON(editor.markdown.parse(normalizeMarkdownDialectBlocks(split.body)));
     const current = editor.state.doc;
     const start = current.content.findDiffStart(next.content);
@@ -129,11 +129,11 @@ const reload = (binding: ViewBinding, view: MarkdownViewState): void => {
     view.state = editor.state;
     view.split = split;
     view.base = editor.getMarkdown();
-    view.confirmed = binding.document.revision.value;
+    view.confirmed = binding.revision.value;
     view.held = false;
 };
 
-const enter = (binding: ViewBinding): void => {
+const enter = (binding: TextEditorBinding): void => {
     if (editor === null) return;
     bound = binding;
     let view = stateOf(binding);
@@ -143,7 +143,7 @@ const enter = (binding: ViewBinding): void => {
         view = load(binding);
     } else if (view !== null) {
         editor.view.updateState(view.state);
-        if (!view.held && view.confirmed !== binding.document.revision.value) reload(binding, view);
+        if (!view.held && view.confirmed !== binding.revision.value) reload(binding, view);
     }
     editor.setEditable(!props.readonly);
     if (scroller.value !== null) scroller.value.scrollTop = view?.scroll ?? 0;
@@ -161,7 +161,7 @@ const rememberCursor = (): void => {
     if (bound !== null && editor !== null) bound.remember({offset: editor.state.selection.head});
 };
 
-const leave = (binding: ViewBinding): void => {
+const leave = (binding: TextEditorBinding): void => {
     if (bound === binding) {
         commitNow();
         rememberCursor();
@@ -182,13 +182,13 @@ watch(() => props.binding, (next, previous) => {
 }, {flush: "sync"});
 
 // 正文被别处改了，或自己的未裁决输入被裁决了：按文档的正文更新。
-watch(() => [props.binding?.document.revision.value, props.binding?.unresolved()] as const, () => {
+watch(() => [props.binding?.revision.value, props.binding?.unresolved()] as const, () => {
     const binding = props.binding;
     if (binding === null || binding !== bound) return;
     const view = stateOf(binding);
     if (view === null) return;
     if (view.held && binding.unresolved()) return;
-    if (!view.held && view.confirmed === binding.document.revision.value) return;
+    if (!view.held && view.confirmed === binding.revision.value) return;
     reload(binding, view);
 });
 

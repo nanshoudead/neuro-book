@@ -50,7 +50,7 @@ owners:
   - 声明 `{title, selector?: {extensions?: string[], filenames?: string[]}, priority: "default" | "option", input: "text" | "bytes", role?: "preview", cursor?: "offset" | "line"}`。`extensions` 写不带点的小写后缀，可以多段（`d.ts`）；`filenames` 写完整文件名。`cursor` 是这种编辑器记光标的写法（输出 30），没有就不记。
   - 实现 `{load(): Promise<Component>}`；组件按下面的控件合同接收绑定。
   - 编辑器 id 的规则与页面 id 相同。
-- 语言贡献点 `editor.languages`（输出 43–45，只接受浏览器入口；planned）：声明 `{aliases: LocalizedText[] | string[], extensions?: string[], filenames?: string[], firstLine?: string, mimetypes?: string[]}`，与 Monaco 的语言登记同一套字段；实现 `{load(): Promise<{format: "monarch", language, configuration}>}`，`language` 是 Monarch 分词规则，`configuration` 是括号、注释、自动闭合与缩进规则。语言 id 写小写字母、数字与 `-`、`_`，不要求带插件前缀：语言 id 是跨编辑器共用的名字（例如 `python`），与 Monaco 和 VS Code 一致；同一 id 被两个插件登记时只接受先登记的，另一条记诊断。
+- 语言贡献点 `editor.languages`（输出 43–45，只接受浏览器入口；planned）：声明 `{aliases: LocalizedText[] | string[], extensions?: string[], filenames?: string[], firstLine?: string, mimetypes?: string[]}`，与 Monaco 的语言登记同一套字段；实现 `{load(): Promise<{format: "monarch", language, configuration}>}`，`language` 是 Monarch 分词规则，`configuration` 是括号、注释、自动闭合与缩进规则。语言 id 写小写字母、数字与 `-`、`_`，不要求带插件前缀：语言 id 是跨编辑器共用的名字（例如 `python`），与 Monaco 和 VS Code 一致；同一 id 被两个插件登记时按插件 id 的码元顺序取第一个，另一条记诊断。
 - 控件合同（类型在 `editor/shared/contracts.ts`，供编辑器的实现组件使用；planned）：
 
   ```ts
@@ -58,11 +58,12 @@ owners:
   interface TextEditorBinding {
       readonly kind: "text";
       readonly token: string;
-      readonly address: string;
+      readonly tabId: string;
+      readonly editor: string;
+      /** 改名后随之变化。 */
+      readonly address: Readonly<Ref<string>>;
       readonly text: Readonly<Ref<string>>;
       readonly revision: Readonly<Ref<number>>;
-      readonly writable: Readonly<Ref<boolean>>;
-      readonly status: Readonly<Ref<"ready" | "deleted">>;
       commit(baseRevision: number, text: string): {status: "accepted" | "conflict"; revision: number} | {status: "stale"};
       attach(flush: () => void): () => void;
       unresolved(): boolean;
@@ -75,14 +76,16 @@ owners:
   interface BytesEditorBinding {
       readonly kind: "bytes";
       readonly token: string;
-      readonly address: string;
+      readonly tabId: string;
+      readonly editor: string;
+      readonly address: Readonly<Ref<string>>;
       readonly url: string;
       readonly version: Readonly<Ref<number>>;
       readonly slot: ViewStateSlot;
   }
   ```
 
-  组件属性为 `{binding, host, readonly, visible, label}`，事件为 `ready(handle | null)`、`focus(boolean)`；句柄在现有的聚焦、撤销、重做、结算、行号导航之外，可以交出 `status: Readonly<Ref<LocalizedText | null>>`，由状态栏的编辑器状态条目显示（输出 42）。
+  能不能输入由组件属性 `readonly` 给出（输出 48 的预览视图、只读文档为真）。组件属性为 `{binding, host, readonly, visible, label}`，事件为 `ready(handle | null)`、`focus(boolean)`；句柄在现有的聚焦、撤销、重做、结算、行号导航之外，可以交出 `status: Readonly<Ref<LocalizedText | null>>`，由状态栏的编辑器状态条目显示（输出 42）。
 - 地址参数：`/?project=<短名>&open=<地址>&at=end`，书架页的“继续写作”用它跨页传递打开目标（输出 29）。
 - 命令（`editor` 域；参数为 `{}` 的作用于活动编辑组的活动标签）：
 
@@ -211,7 +214,7 @@ owners:
 36. **编辑器贡献**：编辑器区接受 `editor.editors` 的声明；内置的 `nbook.editor.markdown`（default，扩展名 `md`、`markdown`，`cursor: "offset"`）与 `nbook.editor.code`（没有 selector、`cursor: "line"`）也是这样声明的，但它们的组件由编辑器区直接持有，不等交付。
 37. **选择顺序**：没有指定编辑器时，按顺序取第一个成立的：
     1. 文件的扩展名属于已知二进制扩展名（pdf、mp3、mp4、m4a、mov、webm、wav、flac、ogg、ttf、otf、woff、woff2、zip、gz、7z、rar、exe、dll、so、dylib），且没有编辑器的 selector 命中它：标签显示“不能在这里打开”，不读文件；
-    2. `priority: "default"`、selector 命中的编辑器：`filenames` 命中优先于 `extensions`；扩展名取已登记的最长后缀；匹配不区分大小写；同一级有两个时取先登记的，并记一条诊断；
+    2. `priority: "default"`、selector 命中的编辑器：`filenames` 命中优先于 `extensions`；扩展名取已登记的最长后缀；匹配不区分大小写；同一级有两个时按编辑器 id 的码元顺序取第一个，并记一条诊断；
     3. `nbook.editor.code`；它读到 `not-text` 时内容区写“这个文件不是 UTF-8 文本（可能是二进制文件或其它编码），不能在这里打开”，没有“重试”。
 
     选择只看已接受的声明，不看实现有没有交付，所以结果不随插件激活的先后变化。

@@ -89,7 +89,7 @@ const item = (page: Page, address: string) => page.locator(`[data-explorer-row="
 const tabs = (page: Page) => page.locator("[data-editor-tab]");
 const labels = (page: Page) => page.locator("[data-editor-tab-label]");
 /** 活动组里 Markdown 富文本的编辑区。 */
-const prose = (page: Page) => page.locator("[data-editor-group-active] [data-editor-kind=\"markdown\"]:visible [data-editor-prose]");
+const prose = (page: Page) => page.locator("[data-editor-group-active] [data-editor-kind=\"nbook.editor.markdown\"]:visible [data-editor-prose]");
 /** 点进编辑区并把光标放到正文末尾。 */
 async function atEnd(page: Page, editable = prose(page)): Promise<void> {
     await editable.click();
@@ -340,7 +340,7 @@ test("资源管理器的结算：未保存时剪切、保存、粘贴，标签�
 });
 
 /** Monaco 里当前模型的正文（视图行的文字，不含行号）。 */
-const monacoText = (page: Page) => page.locator("[data-editor-kind=\"code\"]:visible .view-lines").evaluate((element) => [...element.querySelectorAll(".view-line")].sort((a, b) => Number.parseFloat((a as HTMLElement).style.top) - Number.parseFloat((b as HTMLElement).style.top)).map((line) => (line.textContent ?? "").replaceAll("\u00a0", " ")).join("\n"));
+const monacoText = (page: Page) => page.locator("[data-editor-kind=\"nbook.editor.code\"]:visible .view-lines").evaluate((element) => [...element.querySelectorAll(".view-line")].sort((a, b) => Number.parseFloat((a as HTMLElement).style.top) - Number.parseFloat((b as HTMLElement).style.top)).map((line) => (line.textContent ?? "").replaceAll("\u00a0", " ")).join("\n"));
 
 test("源码文件用 Monaco：第一次打开源码文件之前不加载它；输入后 Ctrl+S 写盘；A→B→A 后撤销只作用于 A", async ({page}) => {
     const monacoRequests: string[] = [];
@@ -355,7 +355,7 @@ test("源码文件用 Monaco：第一次打开源码文件之前不加载它；�
 
     if (await item(page, "project://data").getAttribute("aria-expanded") !== "true") await item(page, "project://data").click();
     await item(page, "project://data/f.json").dblclick();
-    const editor = page.locator("[data-editor-kind=\"code\"]:visible .monaco-editor");
+    const editor = page.locator("[data-editor-kind=\"nbook.editor.code\"]:visible .monaco-editor");
     await expect(editor).toBeVisible();
     expect(monacoRequests.length).toBeGreaterThan(0);
     await expect.poll(() => monacoText(page)).toBe("{\"f\": 1}\n");
@@ -498,7 +498,7 @@ test("Monaco 保持原文字节：BOM 与混用的换行打开、切走、切回
     await open(page);
     await closeAll(page);
     if (await item(page, "project://data").getAttribute("aria-expanded") !== "true") await item(page, "project://data").click();
-    const editor = page.locator("[data-editor-kind=\"code\"]:visible .monaco-editor");
+    const editor = page.locator("[data-editor-kind=\"nbook.editor.code\"]:visible .monaco-editor");
     // BOM 的文件在第一行开头输入（BOM 所在的那一行被改了也要留住它），混用换行的在末尾输入。
     for (const [name, key, typed, expected] of [
         ["bom.txt", "Control+Home", "零", [0xef, 0xbb, 0xbf, ...new TextEncoder().encode("零甲\r\n乙\r\n")]],
@@ -518,7 +518,7 @@ test("Monaco 保持原文字节：BOM 与混用的换行打开、切走、切回
     await closeAll(page);
 });
 
-test("命令面板里“用其它编辑器重新打开”：Markdown 换成源码编辑器，看得到 frontmatter；再换回富文本", async ({page}) => {
+test("命令面板里“用其它编辑器重新打开”：选择里列出 Markdown（当前）与源码编辑器；换成源码看得到 frontmatter，再换回富文本", async ({page}) => {
     await open(page);
     await closeAll(page);
     // 前面的用例改过这个文件：以打开前的字节为准。
@@ -526,17 +526,20 @@ test("命令面板里“用其它编辑器重新打开”：Markdown 换成源�
     await item(page, "project://notes/dialect.md").dblclick();
     await expect(prose(page)).toContainText("雨下了一整夜。");
     const combobox = page.getByRole("combobox", {name: "输入命令，或输入 : 跳到某一行"});
-    const run = async (): Promise<void> => {
+    const picker = page.getByRole("combobox", {name: "选择打开这个文件的编辑器"});
+    const run = async (editor: string): Promise<void> => {
         await expect(async () => {
             await page.keyboard.press("Control+Shift+P");
             await expect(combobox).toBeFocused({timeout: 500});
         }).toPass();
         await combobox.fill("用其它编辑器重新打开");
         await page.getByRole("option", {name: /用其它编辑器重新打开/u}).click();
+        await expect(picker).toBeFocused();
+        await page.getByRole("option", {name: new RegExp(editor, "u")}).click();
     };
-    await run();
+    await run("源码编辑器");
     await expect.poll(() => monacoText(page)).toContain("title: 第三章");
-    await run();
+    await run("Markdown 编辑器");
     await expect(prose(page)).toContainText("雨下了一整夜。");
     expect(await disk("notes/dialect.md")).toBe(before);
     await closeAll(page);
@@ -565,7 +568,7 @@ test("状态栏条目：Markdown 有字数、没有光标位置；输入后出�
 
     if (await item(page, "project://data").getAttribute("aria-expanded") !== "true") await item(page, "project://data").click();
     await item(page, "project://data/g.json").dblclick();
-    const editor = page.locator("[data-editor-kind=\"code\"]:visible .monaco-editor");
+    const editor = page.locator("[data-editor-kind=\"nbook.editor.code\"]:visible .monaco-editor");
     await expect(editor).toBeVisible();
     await editor.click();
     await page.keyboard.press("Control+Home");
@@ -635,7 +638,7 @@ test("重新打开回到上次的光标：Markdown 放回原处并聚焦、可�
     const status = (id: string) => page.locator(`[data-workbench-status-bar] [data-workbench-item="${id}"]`);
     if (await item(page, "project://data").getAttribute("aria-expanded") !== "true") await item(page, "project://data").click();
     await item(page, "project://data/cursor.txt").dblclick();
-    const code = page.locator("[data-editor-kind=\"code\"]:visible .monaco-editor");
+    const code = page.locator("[data-editor-kind=\"nbook.editor.code\"]:visible .monaco-editor");
     await expect(code).toBeVisible();
     await code.click();
     await page.keyboard.press("Control+Home");

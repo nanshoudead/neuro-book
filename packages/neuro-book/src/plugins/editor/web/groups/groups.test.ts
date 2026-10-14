@@ -6,8 +6,9 @@ import {describe, expect, it} from "bun:test";
 
 import {createEditorGroups} from "./groups";
 import type {EditorGroups} from "./groups";
+import {CODE_EDITOR, MARKDOWN_EDITOR} from "../../shared/contracts";
 
-const md = {editor: "markdown"} as const;
+const md = {editor: MARKDOWN_EDITOR} as const;
 const addresses = (groups: EditorGroups, index = 0): string[] => (groups.groups.value[index]?.tabs ?? []).map((tab) => `${tab.address}${tab.preview ? "*" : ""}`);
 const active = (groups: EditorGroups): string | undefined => groups.activeTab()?.address;
 
@@ -38,6 +39,45 @@ describe("Spec workbench.editor 输出 1：preview 与 permanent", () => {
         groups.activate(groups.groups.value[0]?.tabs[0]?.id ?? "");
         groups.open("project://d.md", {mode: "permanent", ...md});
         expect(addresses(groups)).toEqual(["project://a.md", "project://d.md", "project://b.md", "project://c.md"]);
+    });
+});
+
+describe("Spec workbench.editor 输出 1、39：同一文件的几个标签", () => {
+    it("按地址加编辑器区分：同一组里源码与预览视图并存；reuse 决定哪个算已打开；换成本组已有的那种编辑器时切过去并关掉当前这个", () => {
+        const groups = createEditorGroups();
+        const source = groups.open("project://a.html", {mode: "permanent", editor: CODE_EDITOR}).tab;
+        const preview = groups.open("project://a.html", {mode: "permanent", editor: "test.html.preview"}).tab;
+        expect(addresses(groups)).toEqual(["project://a.html", "project://a.html"]);
+        expect(preview.id).not.toBe(source.id);
+        // 不指定编辑器的打开由调用方给 reuse：认可非预览的那一个。
+        expect(groups.open("project://a.html", {mode: "permanent", editor: CODE_EDITOR, reuse: (tab) => tab.editor !== "test.html.preview"}).tab.id).toBe(source.id);
+        expect(groups.setEditor(preview.id, CODE_EDITOR)?.id).toBe(preview.id);
+        expect(groups.groups.value[0]?.tabs.map((tab) => tab.id)).toEqual([source.id]);
+        expect(groups.activeTab()?.id).toBe(source.id);
+    });
+
+    it("语言随拆分复制，换编辑器时与光标一起丢掉；快照往返保留语言", () => {
+        const groups = createEditorGroups();
+        const tab = groups.open("project://a.txt", {mode: "permanent", editor: CODE_EDITOR}).tab;
+        groups.setLanguage(tab.id, "python");
+        groups.setCursor(tab.id, {line: 2, column: 1});
+        const split = groups.split(tab.id, "right");
+        expect(split).toMatchObject({language: "python", cursor: {line: 2, column: 1}});
+        expect(createEditorGroups(JSON.parse(JSON.stringify(groups.snapshot()))).groups.value.map((group) => group.tabs[0])).toMatchObject([{language: "python"}, {language: "python"}]);
+        groups.setEditor(tab.id, MARKDOWN_EDITOR);
+        const changed = groups.find(tab.id)?.tab;
+        expect(changed?.kind === "file" ? [changed.language, changed.cursor] : null).toEqual([undefined, undefined]);
+        groups.setLanguage(split!.id, null);
+        const cleared = groups.find(split!.id)?.tab;
+        expect(cleared?.kind === "file" ? cleared.language : null).toBeUndefined();
+    });
+
+    it("光标写法按编辑器的声明：没有声明的编辑器不记光标", () => {
+        const groups = createEditorGroups(null, (editor) => (editor === "test.viewer" ? null : "line"));
+        const viewer = groups.open("project://a.png", {mode: "permanent", editor: "test.viewer"}).tab;
+        groups.setCursor(viewer.id, {line: 1, column: 1});
+        const tab = groups.find(viewer.id)?.tab;
+        expect(tab?.kind === "file" ? tab.cursor : null).toBeUndefined();
     });
 });
 
@@ -91,8 +131,8 @@ describe("Spec workbench.editor 输出 2–3：拆分与关闭", () => {
         expect(addresses(groups)).toEqual(["project://a.md", "project://c.md", "project://b.md"]);
         groups.move(b?.id ?? "", 1);
         expect(addresses(groups)).toEqual(["project://a.md", "project://c.md", "project://b.md"]);
-        groups.setEditor(b?.id ?? "", "code");
-        expect(groups.find(b?.id ?? "")?.tab.editor).toBe("code");
+        groups.setEditor(b?.id ?? "", CODE_EDITOR);
+        expect(groups.find(b?.id ?? "")?.tab).toMatchObject({kind: "file", editor: CODE_EDITOR});
         expect(groups.closeOthers(b?.id ?? "").map((tab) => tab.address)).toEqual(["project://a.md", "project://c.md"]);
         expect(addresses(groups)).toEqual(["project://b.md"]);
     });
@@ -161,7 +201,7 @@ describe("Spec workbench.editor 输出 5：会话快照", () => {
         groups.open("project://a.md", {mode: "permanent", ...md});
         groups.open("project://b.md", {mode: "preview", ...md});
         groups.split(groups.activeTab()?.id ?? "", "right");
-        groups.open("user://u.md", {mode: "permanent", editor: "code"});
+        groups.open("user://u.md", {mode: "permanent", editor: CODE_EDITOR});
         const snapshot = groups.snapshot();
         const restored = createEditorGroups(JSON.parse(JSON.stringify(snapshot)));
         expect(restored.snapshot()).toEqual(snapshot);
@@ -178,7 +218,7 @@ describe("Spec workbench.editor 输出 5：会话快照", () => {
     it("上次的光标随快照往返；写法与编辑器对不上的（Markdown 记着行列、源码记着位置）恢复时丢掉（输出 30）", () => {
         const groups = createEditorGroups();
         groups.open("project://a.md", {mode: "permanent", ...md});
-        groups.open("project://c.json", {mode: "permanent", editor: "code"});
+        groups.open("project://c.json", {mode: "permanent", editor: CODE_EDITOR});
         const [a, c] = groups.groups.value[0]!.tabs;
         groups.setCursor(a!.id, {offset: 4});
         groups.setCursor(c!.id, {line: 2, column: 3});
@@ -187,13 +227,13 @@ describe("Spec workbench.editor 输出 5：会话快照", () => {
         expect(snapshot.groups[0]?.tabs.map((tab) => tab.cursor)).toEqual([{offset: 4}, {line: 2, column: 3}]);
         expect(createEditorGroups(JSON.parse(JSON.stringify(snapshot))).snapshot()).toEqual(snapshot);
         const crossed = {...snapshot, groups: snapshot.groups.map((group) => ({...group, tabs: [{...group.tabs[0]!, cursor: {line: 1, column: 1}}, {...group.tabs[1]!, cursor: {offset: 2}}]}))};
-        expect(createEditorGroups(crossed).groups.value[0]?.tabs.map((tab) => tab.cursor)).toEqual([undefined, undefined]);
+        expect(createEditorGroups(crossed).groups.value[0]?.tabs.map((tab) => (tab.kind === "file" ? tab.cursor : null))).toEqual([undefined, undefined]);
     });
 
     it("页面标签（输出 33）不进快照：活动的是页面时记它左边最近的文件标签；页面不拆分、不换编辑器", () => {
         const groups = createEditorGroups();
         groups.open("project://a.md", {mode: "permanent", ...md});
-        groups.open("page://nbook.test.welcome", {mode: "permanent", editor: "page"});
+        groups.openPage("page://nbook.test.welcome");
         groups.open("project://b.md", {mode: "permanent", ...md});
         const page = groups.groups.value[0]!.tabs[1]!;
         groups.activate(page.id);
@@ -201,11 +241,11 @@ describe("Spec workbench.editor 输出 5：会话快照", () => {
         expect(snapshot.groups[0]?.tabs.map((tab) => tab.address)).toEqual(["project://a.md", "project://b.md"]);
         expect(snapshot.groups[0]?.active).toBe(0);
         expect(groups.split(page.id, "right")).toBeNull();
-        groups.setEditor(page.id, "code");
-        expect(groups.find(page.id)?.tab.editor).toBe("page");
+        expect(groups.setEditor(page.id, CODE_EDITOR)).toBeNull();
+        expect(groups.find(page.id)?.tab.kind).toBe("page");
 
         const only = createEditorGroups();
-        only.open("page://nbook.test.welcome", {mode: "permanent", editor: "page"});
+        only.openPage("page://nbook.test.welcome");
         expect(only.snapshot().groups[0]).toMatchObject({tabs: [], active: null});
     });
 

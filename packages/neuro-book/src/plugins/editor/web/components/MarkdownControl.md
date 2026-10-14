@@ -6,13 +6,13 @@
 
 # MarkdownControl
 
-Markdown 富文本控件：一个 Tiptap 编辑器实例，按编辑器控件合同（`control.ts`）绑定文档（[`workbench/editor.md`](../../../../../../../docs/specs/workbench/editor.md) 输出 9–13、19）。读写都是 Markdown，项目方言（批注、注音、双语、对齐、文字标记、内嵌 HTML、硬换行）由方言扩展组往返；同组的 Markdown 文件共用这一个实例，换文档只换编辑状态。
+Markdown 富文本控件：一个 Tiptap 编辑器实例，按编辑器控件合同（`shared/contracts.ts` 的 `TextEditorBinding`）绑定文档（[`workbench/editor.md`](../../../../../../../docs/specs/workbench/editor.md) 输出 9–13、19）。读写都是 Markdown，项目方言（批注、注音、双语、对齐、文字标记、内嵌 HTML、硬换行）由方言扩展组往返；同组的 Markdown 文件共用这一个实例，换文档只换编辑状态。
 
 ## 数据
 
 ```ts
 type Props = {
-    binding: ViewBinding | null;
+    binding: TextEditorBinding | null;
     readonly: boolean;
     visible: boolean;
     /** 编辑区的可访问名称（文件名）。 */

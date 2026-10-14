@@ -56,7 +56,7 @@ export function createEditorTitleActions(options: {
         const group = area.groups.activeGroup.value;
         const found = area.groups.groups.value.find((candidate) => candidate.id === group);
         const tab = found?.tabs.find((candidate) => candidate.id === found.active) ?? null;
-        return {group, tab, file: tab !== null && tab.editor !== "page" ? tab.address : null};
+        return {group, tab, file: tab !== null && tab.kind === "file" ? tab.address : null};
     };
 
     return {

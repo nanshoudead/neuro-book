@@ -50,7 +50,7 @@ export function editorStateValues(area: Readonly<ShallowRef<EditorArea | null>>)
         activeDocument: computed(() => {
             const tab = area.value?.groups.activeTab() ?? null;
             // 页面标签（欢迎页这类）不是文件，没有可揭示的地址。
-            return tab === null || tab.editor === "page" ? "" : tab.address;
+            return tab === null || tab.kind === "page" ? "" : tab.address;
         }),
     };
 }
