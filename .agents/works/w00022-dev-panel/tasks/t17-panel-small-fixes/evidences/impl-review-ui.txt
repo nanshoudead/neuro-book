@@ -1,0 +1,162 @@
+# w00022/t17 前端实现审查（61e1c5dd4..d5535e531 中属于 t17 的提交）
+
+审查对象：`43a1090c7`、`8521f9c83`（nb-ui）、`7c6d9ca97`、`066fceb6a`、`d5535e531`（dev-panel 前端部分）。固定在 worktree `.worktree/w00022-review-t17-impl`。只读；跑了 dev-panel `typecheck`（通过）与 `tests/web-session-name.test.ts`、`web-session-console.test.ts`、`web-scroll-containers.test.ts`（19 pass）。没有起开发服务、没有跑 e2e，需要运行证据的地方标明“从代码推断”或“未验证”。
+
+### 1. Work 页 Task 表“谁在动”一列：标题被挤成一两个字，且列宽已在最窄
+- 严重程度：重要
+- 类别：设计缺陷（已知问题，交付报告未改）
+- 位置：`src/web/parts/TaskTable.vue:80-82`（格子）、`:135`（`grid-template-columns` 末列 `minmax(7rem, 1.2fr)`）、`:129-131`（注释“最窄约 60rem”）；`src/web/parts/LeaseChip.vue:24-27`
+- 现象：1440 宽时这一格只有约 7rem（115px），而 chip 本身要放图标、短键（`claude 6ef046c2`，约 75px）和内边距，标题那一段是 `min-w-0 max-w-64 truncate`，被挤到只剩一两个字（`shots/s2-work-1440x900-light.png`，表格右下角）。表内容越多越窄，宽度只会更差。
+- 为什么是问题：计划要的“标题加短键”在这个位置只剩半截标题，还不如不显示；半截标题还会让人误以为是完整标题。交付报告说放宽到 10rem 会让表横向溢出，这个判断是对的，数字如下：行的 9 列，固定列 2+5.5+6+3+3.5+5.5=25.5rem，三个 `minmax` 的下限 16+12+7=35rem，8 个列间距 8×0.75=6rem，左右内边距 0.5rem，合计 67rem。1440 宽时表格容器是 1080px=67.5rem（截图里表从 x=325 到 1405），几乎正好是最小宽度，没有余量可分给最后一列。`.nbdev-task-grid { min-width: 60rem }` 与注释“最窄约 60rem”是错的（实际 67rem，行本身会超出 grid 容器 7rem；这是这次之前就有的，但这次的需求把它暴露出来了）。
+- 如何核实：读 `grid-template-columns` 与 `shots/s2-work-1440x900-light.png`，按上面的和算一遍；在真实面板用 1440、1280 宽打开有租约的 Work 页量 `getBoundingClientRect().width`（未验证，从代码与截图推断）。
+- 建议改法：表格里不显示标题，只显示短键，标题进 Tooltip。具体做法：`LeaseChip` 加一个 prop（例如 `titleInline?: boolean`，默认 true，或反过来 `compact`），为假时只画图标、短键、task，`tip` 里照旧带完整标题与来源（`tip` 已经是这样算的，`LeaseChip.vue:10-14`）；`TaskTable.vue:81` 的列内 chip 传 `compact`，`:118` 展开区里（三栏之一，约 320px，放得下）保持完整写法。理由：同一页上方“现在谁在动”（`WorkPage.vue:126-129`）已经把每个会话的标题写全了，表里再写一遍是重复信息；而且 chip 有 `tabindex` 与 Tooltip，键盘也能看到标题。这样不用动列宽，也顺带修掉 1440 以下的同样问题（窄于 1440 时表格本来就横向滚动，末列仍是 7rem）。顺手把 `TaskTable.vue:129` 的注释改成“约 67rem”，或把 `min-width` 改成与列和一致。
+- 其它窄位置的检查：Work 卡片（约 322px 宽，chip 里还有 `· t01`，标题约 140px，够用）、Task 页右栏（约 330px，标题约 200px）、收件箱（`flex-wrap`，`max-w-full`）、手机档（Task 表这一列 `display: none`，在展开区里看）都没有同样的问题；只有 Task 表的列内这一处。`ProcList` 与 `RunsPage` 的标题不在 chip 里，宽度由整行给，不会被挤。
+
+### 2. 会话在工作中时，“不能发”的原因只写在 placeholder：输入框里有草稿就看不到，对比度也低
+- 严重程度：重要
+- 类别：交互、正确性（相对改前是退化）
+- 位置：`src/web/parts/SessionConsole.vue:53-60`（`promptBlocked` 的 `line: false`）、`:61`（`placeholder`）、`:90`（`:disabled="promptBlocked !== null"`）；`src/web/parts/SessionConsole.md` 输入框一条
+- 现象：会话状态是 working 或其它非空闲时，原来的整行提示（`会话在工作中：空闲之后才能发文字（不排队）`）不再渲染，原因只进了禁用输入框的 placeholder。placeholder 只在输入框为空时可见。草稿在 `draft` 里一直留着（只有 `resetKey` 变才清，`:37-39`），所以开发者先在空闲时打了半句话、会话随后转成 working，输入框里就是一段灰掉的草稿、发送按钮禁用，界面上没有任何一处说明为什么；左侧只有“工作中”徽章，没有“不排队、要等空闲”这层意思。改前这一行是 `v-else-if="promptBlocked"` 常驻的。
+- 另外：禁用的 textarea 带 `disabled:opacity-60`（`FormTextarea.vue`），placeholder 是 `--text-muted`。面板自己的 `app.css:93` 注释写着 `--text-muted` 在亮色页面底色上只有 2.88:1（2026-10-14 实测），再叠 60% 不透明度只会更低（估计约 2:1，未测）。`shots/s3-after-working-1440x650-light.png` 里这句话几乎看不见。
+- 另外：`line: true`（等确认、整块不可用）时上面一行和 placeholder 写的是同一句（`placeholder` 不看 `line`），同一句话在屏幕上出现两次，读屏也读两次。
+- 为什么是问题：计划的目的是“工作与空闲来回时高度不变”，代价是把状态原因藏进一个会消失的位置；这个状态很常见（会话几乎总在工作与空闲之间切换）。
+- 如何核实：从代码推断。构造方式：空闲时在输入框里打字，再让会话转 working，看输入区；或在 `web-session-console` 一类的 jsdom 测试里挂 `SessionConsole` 断言“有草稿且工作中时能读到原因”。
+- 建议改法：不要靠 placeholder 承载状态。保持“高度不变”的目标，在按键行（有空位）或发送按钮旁放一行不换行的小字原因（例如放在字数的位置：`工作中，空闲后才能发`），始终渲染、不占新行；或者给输入框外层加一个固定一行高的状态槽。placeholder 只写固定的 `发给这个会话的文字（Ctrl+Enter 发送）`；`line: true` 时也不要把同一句再塞进 placeholder。
+
+### 3. 原因与说明的无障碍路径：`aria-description` 把 placeholder 挤出了描述位
+- 严重程度：重要（未验证，从规范推断）
+- 类别：无障碍
+- 位置：`src/web/parts/SessionConsole.vue:90`（`aria-label` 加 `aria-description`，禁用时原因只在 placeholder）
+- 现象：输入框的可读名是 `发给会话的文字`，描述是 `aria-description`（`替你在这个会话的输入框里打字并回车`）。HTML-AAM 里 placeholder 只在没有别的描述来源时才作为描述；这里 `aria-description` 占了位，禁用时的原因（工作中、审计不可用、等确认）对读屏用户就读不到。`aria-description` 本身还是 ARIA 1.3 草案属性，各浏览器与读屏的支持不一致。禁用的输入框不能聚焦，读屏用户只能在浏览模式下逐项读到它，更需要原因写在可读的文字节点里。
+- 如何核实：Chrome 开辅助功能树看这个 textarea 的 Description；或用 NVDA、VoiceOver 浏览模式读一遍禁用态。我没有跑浏览器，这条标未验证。
+- 建议改法：说明与原因都写成真实的文字节点（问题 2 里那行小字），用 `aria-describedby` 指向它；“替你在输入框里打字并回车”的说明也用一个 `sr-only` 的文字节点加 `aria-describedby`，不靠 `aria-description`。
+
+### 4. 输入框行数按换行符数，不按可见行数：一长句会被折成看不见的几行，又不能拖高
+- 严重程度：重要
+- 类别：交互、设计缺陷
+- 位置：`src/web/parts/SessionConsole.vue:63`（`rows = min(4, max(1, draft.split("\n").length))`）、`:90`（`style="resize: none"`）
+- 现象：行数只看 `\n` 的个数。输入一整段没有换行的话（发给 Agent 的指令通常就是一两百字一行），textarea 仍是 1 行，文字在框内软换行后只露出最后一行，往上要滚动框内；因为 `resize: none`，用户也没法拖高。手机档（宽约 330px，一行约 20 个汉字）里写 40 个字就已经有两行看不见。改前是固定 2 行并可拖高。
+- 另外：每按一次 Enter 终端就矮一截。1 行时 dock 高 92px（`s3-after-measure.json`），每多一行约 +20px（估计值，textarea 字号 14px），4 行时终端约 346-60≈286px，低于计划的验收目标 320px；交付的测量只量了空草稿。计划审查第 3 条担心的“终端反复调整尺寸”只是从“聚焦时”换成了“打字时”：观看模式的字号由 `fitWatchFont` 按框高算，打字加行会让终端字号跳一档，发送后清空又跳回去。
+- 为什么是问题：用户写的内容在自己的输入框里看不见，是输入框的基本功能缺口；“行数由内容决定”的判据选错了量。
+- 如何核实：从代码推断；真实面板里粘贴一段 150 字无换行的文字，看输入框高度；再按三次 Enter 量终端框。
+- 建议改法：行数按可见行数算。Chrome 本机用 `field-sizing: content` 加 `min-height: 1 行`、`max-height: 4 行`（面板只给本机开发者用，浏览器版本可控），不用自己量；如果要兼容，监听 `input` 读 `scrollHeight` 再限制到 4 行。同时把验收补上“4 行草稿时终端仍不低于 320px”，做不到就把上限收到 3 行，或在草稿超过 1 行时才让 dock 增高并明说终端会变矮。去掉 `resize: none` 之前先想清楚：保留拖高把手只会在 `field-sizing` 下失效，两者二选一。
+
+### 5. 三个零件加了 `state:inject`，理由不成立，且与同一批页面里的直接传参并存
+- 严重程度：重要
+- 类别：规范一致性、设计
+- 位置：`src/web/host/session-titles.ts`；`src/web/parts/WorkCard.vue:14`、`InboxList.vue:14`、`TaskTable.vue:28`、`ProcList.vue:13`；对应 `.md` 的“隐藏通道理由”；对比 `pages/WorkPage.vue:129`、`pages/TaskPage.vue:251`、`pages/RunsPage.vue:22,42`
+- 现象：`docs/standards/code/components.md` 的核心判断是“组件的真实依赖必须出现在它的调用签名里”，`panel.md:410` 也写着“零件只吃 props、只发事件”。这次给四个零件加了 `state:inject`，`.md` 里的理由是“经过的每一层零件都多一个 prop 只为往下传一张表”。事实：这四个零件都是页面的直接子零件（`HomePage` 渲染 `WorkCard`、`InboxList`，`WorkPage` 渲染 `TaskTable`，`RunsPage` 渲染 `ProcList`），中间没有任何一层，一个 prop 就够。更糟的是同一批页面里 `WorkPage`、`RunsPage` 已经一边 `provideSessionTitles` 一边直接把 `sessionTitles` 传给 `sessionName`，`TaskPage` 完全不用 provide：两套机制并存。
+- 为什么是问题：违反组件规范的核心约束，理由与代码事实不符；漏 provide 的页面悄悄只显示短键（`NONE` 回落，没有任何诊断），出了错没人发现；以后再放一个 `TaskTable` 到别的页面，标题会静默消失。
+- 如何核实：`grep -rn "<TaskTable\|<ProcList\|<WorkCard\|<InboxList" src/web` 看父级只有页面。
+- 建议改法：删掉 `host/session-titles.ts`，四个零件各加一个 `titles: Readonly<Record<string, SessionTitle>>` prop（页面直接传 `data.sessionTitles`），`.md` 的 `标签` 改回原来的、删掉“隐藏通道理由”；`panel.md` 里“`provideSessionTitles`/`useSessionTitles`”那几句同步改。没有标题时传 `{}`，与现在回落一致。
+
+（对第 5 条的勘误：标题里的“三个零件”应为“四个零件”；行号应为 `WorkCard.vue:15`、`InboxList.vue:15`、`TaskTable.vue:29`、`ProcList.vue:13`。）
+
+### 6. 手机档输入区反而变高：发送按钮被挤到单独的第三行
+- 严重程度：建议
+- 类别：响应式、与计划不符
+- 位置：`src/web/parts/SessionConsole.vue:91-101`（按键与发送同在一个 `flex-wrap` 行）
+- 现象：390×640 下 `s3-heights.txt` 记的输入区 142 -> 156px，会话信息 76 -> 56，净收益只有 6px，终端区没有（文字视图）。看 `shots/s3-after-390x640-light.png`：8 个按键折成两行，`发送` 单独落在第三行右端。计划写的是“发送按钮与按键行同在最后一行的右端”，在手机宽度下做不到，实际比改前多占一行。
+- 为什么是问题：手机详情页是最缺高度的地方（640px 高，软键盘一弹更少）；计划要“不破坏手机档”，这里是变差了 14px。
+- 如何核实：看 `shots/s3-after-390x640-light.png` 与 `s3-heights.txt`；或 `s3-after-measure.json` 里 `390x640` 的 `dock: 156`。
+- 建议改法：手机档（容器宽 < 30rem 左右）发送按钮放回输入框那一行右侧（textarea 与按钮同行的 grid），按键行只剩按键；或者让发送与字数占按键行第一格，按键从后面接着排，这样按键折成两行时发送仍在第一行里。
+
+### 7. 常用宽度下，“带‘确认’的键先给你看屏幕再发”的说明永远不可见
+- 严重程度：建议
+- 类别：交互、可发现性
+- 位置：`src/web/parts/SessionConsole.vue:95`（`nbdev-key-note`）、`:115-119`（`@container (max-width: 54rem)` 隐藏）
+- 现象：1440 宽时详情栏宽约 768px=48rem，小于 54rem，说明被隐藏（截图 `s3-after-1440x650-light.png` 里确实没有）。按键上的“确认”小标记是 `aria-hidden`，只剩键的 `title`（悬停才有，触屏与键盘没有）。也就是说，在计划的主要验收宽度（1440、1280、1100）上，这个标记没有任何可见解释。按 54rem 的阈值，要窗口宽过约 1650px 才会看到说明。
+- 为什么是问题：`确认` 贴在 `Shift+Tab`、`Enter`、`Esc` 后面，读起来像“确认这个键”，实际意思是“这个键会先给你看屏幕再发”。一个只在悬停时解释的标记，开发者第一次用会按错预期。
+- 如何核实：看截图；或量真实面板 1440 宽下 `.nbdev-dock` 的 `clientWidth`（<864px）。
+- 建议改法：说明不要整句藏起来。给“按键：”这个前缀加一个 Tooltip（可聚焦，含这句话），或把说明缩成按键行里一个 `i-lucide-info` 图标按钮；也可以把标记文字改成更直白的“先看屏幕”，然后继续隐藏整句。顺带把阈值写成事实：54rem 在 `SessionConsole.md` 里叫“约是按键、说明与发送按钮排成一行要的宽度”，但常用宽度根本排不下，说明实际上等于被删掉了。
+
+### 8. 发送按钮落到 Tab 顺序的最后，隔着 8 个按键
+- 严重程度：建议
+- 类别：键盘可达
+- 位置：`src/web/parts/SessionConsole.vue:91-101`
+- 现象：改前顺序是输入框、发送、按键；现在是输入框、↑、↓、Shift+Tab、Enter、Esc、Ctrl+C、y、n、发送。键盘用户不知道 Ctrl+Enter 时（placeholder 在工作中被原因替换，见第 2 条），要按 9 次 Tab 才到发送。视觉顺序与 DOM 顺序一致，这是有意的，但代价是这个常用动作最难到达。
+- 建议改法：发送在 DOM 里排在输入框之后，用 `order` 或 grid 区域把它视觉上放到右端（Tab 顺序与视觉顺序略不同，这是常见的折中，需在 `.md` 里写一句）；或者保留现状，在输入框的 `aria-description`/说明里写明 Ctrl+Enter。
+
+（对第 7 条的勘误：详情栏宽度 = 窗口宽 - 约 673px（1440 宽时 767px），容器内容宽还要减 `px-3` 的 24px，所以说明要窗口宽到约 1560px 以上才会出现，不是 1650px。）
+
+### 9. 计划要改写的“滚动容器带 relative”的理由没改，四处仍在说一个已经不成立的原因
+- 严重程度：建议
+- 类别：文档与注释一致性
+- 位置：`src/web/app.css:40-42`；`src/web/parts/QuestionControl.md:28`；`tests/web-scroll-containers.test.ts:5-9`（头注释）；`docs/panel.md:397`（“滚动”一条里的括号）
+- 现象：计划“Spec 与文档改动”第三条明确要把这四处改写成“nb-ui 已在 label 上修好，这条留作面板的防御性约定”（计划审查第 11 条）。`git diff 8276c0bb2^1..d5535e531` 里这四个文件都没有改动。它们现在仍写“容器不是 relative 时，点选项会把外面 overflow: hidden 的格子滚走、整页变空”，而 nb-ui 的 `FormCheckbox` 已经修了，这句话对现在的代码是假的，会让后来者误以为这条约定还在防真实故障、或者误以为 nb-ui 没修。`followups.md:49` 那一行也还是未办状态。
+- 如何核实：`git diff 8276c0bb2^1..d5535e531 --stat -- packages/dev-panel/src/web/app.css packages/dev-panel/src/web/parts/QuestionControl.md packages/dev-panel/tests/web-scroll-containers.test.ts` 为空；`grep -n "relative" packages/dev-panel/docs/panel.md` 看 397 行。
+- 建议改法：按计划把四处理由改成“nb-ui 的 FormCheckbox 已让 input 跟着 label 走（t17 S1）；这条留作面板的防御性约定，因为……”，并把 `followups.md` 那一行写去向。
+
+### 10. 文档与代码有三处对不上
+- 严重程度：建议
+- 类别：文档一致性
+- 位置：
+  1. `src/web/parts/LeaseChip.md:16`：`source: "claude" | "codex" | "omp" | null`，代码是 `SessionTitle["source"] | null`，取值是 `claude-custom`、`claude-agent-name`、`claude-ai-title`、`codex`、`omp`（`host/format.ts:56`、`host/types.ts`）。
+  2. `docs/panel.md` 新增的“会话的写法”一条：“Task 页的会话变化说明”只写短键。`sessionChangeNote` 在会话页（`pages/SessionsPage.vue:157`），Task 页里没有会话变化说明。
+  3. `src/web/parts/PageShell.md`（`compact` 一条）写“说明行（meta）放在同一行右侧”：`PageShell.vue:41` 的 meta 是紧跟标题的 `flex-1` 左对齐块，不在最右端；右端的是 `actions`。截图里 meta 紧挨着“会话”。
+- 如何核实：对照上面列出的行。
+- 建议改法：逐条改文字，第 1 条直接引用类型名。
+
+### 11. 被截断的标题没有完整文本的入口：`RunsPage` 小标题与 `ProcList` 没有提示，三处各写一份布局
+- 严重程度：建议
+- 类别：交互、代码质量
+- 位置：`src/web/pages/RunsPage.vue:41-44`、`src/web/parts/ProcList.vue:42`、对比 `src/web/parts/LeaseChip.vue:24-27`
+- 现象：“标题 + 短键”的规则在三处各自实现：chip 里是 `inline-flex` 加 Tooltip，`RunsPage` 的 `h3` 是 flex 加 `max-w-64 truncate`，`ProcList` 是 `inline-block max-w-64 truncate`。前一种有 Tooltip、可聚焦、写了标题来源；后两种标题超过 16rem 就被截断，没有 `title`、没有 Tooltip、不可聚焦，触屏与键盘读不到全文。计划审查第 9 条就是为这个问题要求 Tooltip 的。标题最长 120 字（`MAX_TITLE`），超过 16rem 很常见。`RunsPage` 还把 `ownerOf(session)` 在模板里算了 4 次。
+- 为什么是问题：同一个会话在三个位置有三种截断与提示行为；规则以后要改（例如 `max-w-64`）要改三处。
+- 如何核实：读上述三处。
+- 建议改法：抽一个 `SessionLabel` 零件（标题可截断、短键不截断、带可选的 Tooltip），`LeaseChip` 里的标题与短键、`RunsPage`、`ProcList` 都用它；Tooltip 的文案由 `LeaseChip` 的 `tip` 那段逻辑搬进去。
+
+### 12. `LeaseChip` 的无角色可聚焦 `span`：Tab 停靠点多、读屏会把标题读两遍
+- 严重程度：建议
+- 类别：无障碍
+- 位置：`src/web/parts/LeaseChip.vue:20-21`（`:tabindex="tip === '' ? undefined : 0"`）
+- 现象：只要有标题或 `hint`，每个 chip 都是一个 Tab 停靠点，没有 `role`。首页有 N 个 Work、Work 页的 Task 表每行一个，Tab 序列里多出不可操作的停靠点。Tooltip 的文字里又重复了完整标题，读屏读 chip 内容后再读一遍描述（标题两次）。触屏上点 chip 不会出提示（Reka 在 pointerdown 之后的 focus 不开提示，从代码与 Reka 文档推断，未在设备上验证），所以截断的标题在手机上仍然看不全，计划审查第 9 条要求的“触屏与键盘读得到”只做到了键盘。
+- 建议改法：保留 tabindex 的前提是 Tooltip 里的信息读屏读不到别处；这里 chip 的可见文字已经含完整标题（DOM 里没被截断），所以 Tooltip 其实只服务视觉用户。可以让 `tip` 只在标题被截断或有来源信息时才有值，并给 chip 加 `role="group"` 配 `aria-label`（短键 + 标题来源）代替重复读。触屏上用点按展开的方案是另一件事，如果不做，应在 `LeaseChip.md` 写明“触屏上截断的标题看不到全文”。
+
+（对第 10 条的勘误：第 3 小条的行号是 `PageShell.vue:40`。）
+
+### 13. 用内联 `style="resize: none"` 盖 nb-ui 的 `resize-y`，与面板“用语义类代替内联 style”的约定不符
+- 严重程度：建议
+- 类别：代码质量
+- 位置：`src/web/parts/SessionConsole.vue:90`；约定见 `src/web/app.css` 语义类一段的头注释（“代替散落的内联 style”）
+- 现象：计划写的是 `resize-none`，实现用了内联 style，因为 `FormTextarea` 根上已经有 `resize-y` 类，两个原子类谁生效取决于生成 CSS 的顺序。内联 style 是确定的，但是这个面板别处不这么写，也没有注释说明为什么不用类。
+- 建议改法：在 `app.css` 加一条语义类（如 `.nbdev-no-resize { resize: none; }`，选择器权重要不低于 `.resize-y`），或写 `[resize:none]!`；注释里写明“盖过 FormTextarea 的 resize-y”。如果按第 4 条改成 `field-sizing: content`，这一条自然消失。
+
+### 14. nb-ui 的开发规范文档没有跟上新增的验收夹具
+- 严重程度：建议
+- 类别：文档一致性
+- 位置：`packages/nb-ui/docs/ui-development-spec.md:385`
+- 现象：该行写“需要真实指针与布局引擎的手势验收（嵌套分栏、多栏分割）在 playground 的 `/acceptance/<组件>` 页，由 `e2e/nested-grid.spec.ts`、`e2e/splitter.spec.ts` 驱动”。提交 `43a1090c7` 改了 `definitions.ts` 与 `[name].vue` 的头注释，却没改这份规范，现在规范里没有 `form-checkbox-focus` 与 `e2e/form-checkbox.spec.ts`；而这个验收也不是“手势”验收，规范与页面注释里的“手势验收”措辞要放宽成“需要真实浏览器的验收”。
+- 如何核实：`grep -n "form-checkbox" packages/nb-ui/docs/ui-development-spec.md` 无结果。
+- 建议改法：把该行改成与 `playground/app/pages/acceptance/[name].vue` 头注释一致的写法，加上 `e2e/form-checkbox.spec.ts`。
+
+### 15. 前端自动检查很薄，验收映射里“核对身份保留短键”“同名可区分”只覆盖到函数层
+- 严重程度：建议
+- 类别：测试与验收映射
+- 位置：`tests/web-session-name.test.ts`（3 条，是前端新增的全部自动测试）；计划“验收映射”第 103 行
+- 现象：
+  - `web-session-name.test.ts` 测的是 `sessionName` 的公开返回值，测行为没有问题；“同名两会话靠短键区分”只断言两个 `short` 不同，不能证明 `LeaseChip` 真的把短键画出来（真正的需求是“始终显示、不截断”，而这个性质正好在 chip 的 CSS 里，第 1 条的现象就是它在列内被挤掉的反例，测试通不过也抓不到）。第三条测 `"constructor"` 是在钉实现细节（`Object.hasOwn`），真实会话键不会是这个值，意义很弱。
+  - `LeaseChip`（Tooltip 与 `tabindex`）、`SessionConsole`（`rows`、placeholder、字数显示、工作中禁用）、`PageShell` 的 `compact`（面包屑去尾、`bare` 优先）没有任何自动检查，计划写的是“截图”。包里没有组件渲染的测试环境（只有 `web-session-console.test.ts` 的纯函数与 jsdom），这是可以理解的，但要在交付报告里说明，而交付报告的“没验证的地方”一节没有列这几项。
+  - “核对身份的句子保留短键”没有任何检查：谁把 `NotifyStatus` 改成 `sessionName`，没有测试会失败。
+  - 截图覆盖：没有“两个同名会话”的 chip 截图；Work 页只有 1440×900 一档（问题 1 在 1280、1100 更严重）；没有非空草稿、4 行草稿的会话页；没有 herdr 不可用时 `meta` 那一整句错误的紧凑页头；没有观看字号或可见行数（计划审查第 15 条要求的“可读性”指标）：从 `s3-after-1440x650-light.png` 看，40 行的假 pane 在 346px 里字仍然只有约 5-6px，改前改后都是这个量级，终端“更高”但不一定“更可读”。
+- 如何核实：`ls tests | grep web-`；对照计划验收映射与 `shots/` 的文件名。
+- 建议改法：给 `LeaseChip` 的“短键始终显示”补一个浏览器层的检查（可以放 dev-panel 已有的浏览器验收里，用 1440 宽 Work 页的 Task 表断言短键的 `clientWidth` 等于 `scrollWidth`）；`SessionConsole` 的 `promptBlocked` 与 `placeholder` 逻辑抽成纯函数（`host/session-console.ts` 已有同类），补“有草稿时工作中仍能读到原因”的用例；交付报告里补上这些没验证的项；`"constructor"` 那条删掉或换成真实场景。
+
+## 未发现问题的方面
+
+- nb-ui `FormCheckbox`：根 label 加 `relative` 的改动本身正确。`sr-only` input 没有 inset，仍按静态位置落在 label 起点，外观与布局不变；label 本来就有 `transition-opacity`，已是层叠上下文。`Dialog`、`QuickInput`、`FormField` 里的 `sr-only` 我核对过，确实不可聚焦（`grep sr-only`），计划的判断成立。
+- 验收夹具与 e2e（`e2e/form-checkbox.spec.ts`）：前提断言（格子 `relative`、列表 `static`、格子 `overflow-y: hidden`、列表已滚动、label 的静态位置在可见区下方）与交付报告记录的“改前 scrollTop=280 失败、改后通过”相互印证；偏离计划（格子要 `relative`）的理由成立，也与 `Splitter.vue` 的 `nb-grid-panel relative min-h-0 min-w-0 overflow-hidden` 一致；用 rAF 等滚动事件、没有固定等待。夹具的登记（`definitions.ts`、`[name].vue`、头注释）与同类夹具写法一致。我没有跑 e2e（任务规定不跑）。
+- `playwright.config.ts` 的 `channel: "chrome"`：符合 `docs/testing/README.md` 与 `packages/neuro-book/e2e/playwright.config.ts` 的做法；仓库的 CI 工作流（`.github/workflows/*.yml`）只对 `packages/nb-ui/**` 做路径触发，没有跑 nb-ui e2e，也没有任何文档要求 `playwright install`，所以不影响 CI；本机 `/usr/bin/google-chrome-stable` 存在。唯一副作用是没有本机 Chrome 的机器会报“Chromium distribution 'chrome' is not found”，与仓库约定一致。
+- `PageShell` 的 `compact` 与 `bare`：`bare` 时 `v-if="!bare && compact"` 与 `nbdev-page-compact` 的 `compact && !bare` 都排除了 compact，优先关系成立；`h1` 仍是 `main` 里第一个 `h1`，`App.vue:229,256` 与 `TaskPage.vue:147` 用 `querySelector("h1")` 找到它，焦点与“跳到主内容”落点不变；`.nbdev-page.nbdev-page-compact`（两类选择器）压过 `.nbdev-page` 的响应式内边距与 `nbdev-stack-page` 的 gap。面包屑去掉最后一项后，`nav` 里只剩前面的链接，当前页由 `h1` 表达，`.md` 里写明了没有 `aria-current` 的理由，读屏路径可以接受。
+- 会话信息一行：`flex-wrap`、`display: contents` 的包装器让各 Task 链接成为独立的 flex 子项，窄时整项折到下一行，链接不被截断；样式靠继承，`nbdev-note` 的字号颜色仍作用到子项；手机档（`phoneDetail`）仍隐藏 `h2`，没有被破坏；1100×700 切换档的截图里下拉与信息行正常。
+- 标题与短键的分类：“谁”这一类（`LeaseChip` 在 `WorkCard`、`WorkPage`、`TaskPage`、`TaskTable` 两处、`InboxList`，`RunsPage` 小标题，`ProcList`）都换了；“核对身份”这一类（`NotifyStatus`、`sessionChangeNote`、`DeveloperMessageDialog`、`SessionConsole` 的 `aria-label`、`host/session-console.ts`、`host/sessions-list.ts`）全部仍用 `shortSession`（`grep shortSession` 核对），与计划一致。同名会话靠短键区分（短键始终在 chip 里、不截断）这条在宽的位置成立，只有第 1 条那个位置失效。
+- 没有 provide 时的回落：`NONE` 空表，只显示短键，不报错；`sessionName` 用 `Object.hasOwn`，键为 `__proto__` 之类也安全。数据流：各页面的 `useResource` 都订阅了 `activity`（`SessionsPage` 订阅 `activity`、`sessions`），标题随 `activity` 的 revision 刷新；getter 形式的 provide 让页面数据换了零件下次渲染就是新标题。
+- 类型检查：`bun run --cwd packages/dev-panel typecheck`（tsc 三套加 vue-tsc）通过，用时约 18 秒。
+
+## 数量
+
+- 阻断：0
+- 重要：5（第 1、2、3、4、5 条）
+- 建议：10（第 6 到 15 条）
+
+（共 15 条。其中第 3 条未验证，是从规范与代码推断；第 1、4、6、7 条依据截图与代码，没有在真实浏览器里量；没有起开发服务、没有跑 e2e。）
