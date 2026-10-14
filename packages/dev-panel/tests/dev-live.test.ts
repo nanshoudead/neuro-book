@@ -3,7 +3,7 @@ import {spawn, type ChildProcess} from "node:child_process";
 import {randomUUID} from "node:crypto";
 import {once} from "node:events";
 import {existsSync, readFileSync} from "node:fs";
-import {appendFile, readdir, readFile, writeFile} from "node:fs/promises";
+import {appendFile, readdir, readFile, stat, writeFile} from "node:fs/promises";
 import {join, resolve} from "node:path";
 import {setTimeout as sleep} from "node:timers/promises";
 import {processAlive, processStartTicks, readProcStat} from "../src/core/procfs.js";
@@ -551,8 +551,14 @@ function streamCli(setupValue: Setup, args: string[]): Promise<RunResult> {
     return run(process.execPath, [CLI_PATH, ...args], setupValue.fixture.main, undefined, 60_000, setupValue.env);
 }
 
+/** 每 50 毫秒往 `GROW_LOG` 追加约 32 KiB 的整行噪声，直到被结束；复用读的期间日志一直在增长。 */
+const GROW_LOG_SCRIPT = `const fs = require("node:fs");
+const fd = fs.openSync(process.env.GROW_LOG, "a");
+const chunk = "noise-line\\n".repeat(3000);
+setInterval(() => fs.writeSync(fd, chunk), 50);`;
+
 describe("dev start --sample（t18）", () => {
-    test("应用收到 NBDEV_SAMPLE=1；READY 之后才到的结果打 SAMPLE，后端每重启一代有结果再打；sample-failed 与非同源的 open-path 打 SAMPLE_FAILED，服务照常；复用取最后一代", async () => {
+    test("应用收到 NBDEV_SAMPLE=1；READY 之后才到的结果打 SAMPLE，后端每重启一代有结果再打（两代的结果一次写出也各打一行）；sample-failed 与非同源的 open-path 打 SAMPLE_FAILED，服务照常；复用取最后一代", async () => {
         const s = await setup("dev-sample", {FAKE_DEV_STYLE: "nbook"});
         const feed = join(s.fixture.root, "feed.txt");
         const envOut = join(s.fixture.root, "env.json");
@@ -567,10 +573,9 @@ describe("dev start --sample（t18）", () => {
 
         await appendFile(feed, "[dev] open-path /?project=sample\n");
         await until(sampleLines, (all) => all.length === 1, 10_000, "第一代的 SAMPLE");
-        await appendFile(feed, "[dev] backend-ready pid=2 http://127.0.0.1:1/\n[dev] sample-failed 登记表无效\n");
-        await until(sampleLines, (all) => all.length === 2, 10_000, "第二代的 SAMPLE_FAILED");
-        await appendFile(feed, "[dev] backend-ready pid=3 http://127.0.0.1:1/\n[dev] open-path //evil.example/x\n");
-        await until(sampleLines, (all) => all.length === 3, 10_000, "第三代的 SAMPLE_FAILED");
+        // 第二、三代的完整输出一次放行：监管进程多半一次读到两代，两代的结果都要打。
+        await appendFile(feed, "[dev] backend-ready pid=2 http://127.0.0.1:1/\n[dev] sample-failed 登记表无效\n[dev] backend-ready pid=3 http://127.0.0.1:1/\n[dev] open-path //evil.example/x\n");
+        await until(sampleLines, (all) => all.length === 3, 10_000, "第二、三代的两行 SAMPLE_FAILED");
         expect(sampleLines()).toEqual([
             `SAMPLE ${url}?project=sample run=${runId}`,
             `SAMPLE_FAILED 登记表无效 run=${runId}`,
@@ -619,7 +624,28 @@ describe("dev start --sample（t18）", () => {
         await until(() => alivePids(s.pidsFile), (alive) => alive.length === 0, 10_000, "收干净");
     }, 90_000);
 
-    test("复用：旧登记没有 sample 按 false；从日志末尾找最后一行 backend-ready 之后的结果，本代还没有就接着读", async () => {
+    test("首代还没报告就重启：首代的截止不落到新一代上，新一代过了原截止才到的结果照样打 SAMPLE", async () => {
+        const s = await setup("dev-sample-restart", {FAKE_DEV_STYLE: "nbook"});
+        const feed = join(s.fixture.root, "feed.txt");
+        s.env.FAKE_DEV_FEED = feed;
+        await writeFile(feed, "");
+        const sup = await startDev(s, ["--sample", "--sample-timeout", "2"]);
+        const [, url, runId] = /^READY (\S+) run=(\S+)/u.exec(await readyLine(sup))!;
+        await appendFile(feed, "[dev] backend-ready pid=2 http://127.0.0.1:1/\n");
+        // 拿复用方当时钟：它在 READY 之后才起，等满 3 秒打 SAMPLE_FAILED，回来时监管进程的 2 秒截止早就过了。
+        const reused = await streamCli(s, ["dev", "start", "--package", "apps/web", "--sample", "--sample-timeout", "3", "--json"]);
+        expect([reused.exitCode, events(reused.stdout)]).toEqual([0, [expect.objectContaining({event: "ready", runId, reused: true}), {event: "sample_failed", runId, reason: SAMPLE_SILENT_REASON}]]);
+        const sampleLines = () => sup.lines().filter((line) => line.startsWith("SAMPLE"));
+        expect(sampleLines()).toEqual([]);
+        await appendFile(feed, "[dev] open-path /?project=second\n");
+        await until(sampleLines, (all) => all.length > 0, 10_000, "第二代的 SAMPLE");
+        expect(sampleLines()).toEqual([`SAMPLE ${url}?project=second run=${runId}`]);
+        process.kill(sup.pid, "SIGTERM");
+        expect(await sup.exited).toBe(0);
+        await until(() => alivePids(s.pidsFile), (alive) => alive.length === 0, 10_000, "收干净");
+    }, 60_000);
+
+    test("复用：旧登记没有 sample 按 false；从日志末尾找最后一行 backend-ready 之后的结果，读的期间日志还在增长也立刻打；本代还没有就接着读", async () => {
         const s = await setup("dev-sample-reuse");
         const server = Bun.serve({hostname: "127.0.0.1", port: 0, fetch: () => new Response("ok")});
         cleanups.push(async () => {
@@ -640,6 +666,20 @@ describe("dev start --sample（t18）", () => {
         await writeRecord(s, runId, {...fields, sample: true});
         const latest = await streamCli(s, ["dev", "start", "--package", "apps/web", "--sample", "--json"]);
         expect([latest.exitCode, events(latest.stdout)]).toEqual([0, [expect.objectContaining({event: "ready", runId}), {event: "sample", runId, url: `${url}new`}]]);
+
+        // 另一个进程一直往日志里追加整行的噪声：复用按开始读时的长度结算，本代结果就在里面，不等日志停止增长就打、以 0 退出。
+        const grower = Bun.spawn([process.execPath, "-e", GROW_LOG_SCRIPT], {env: {...process.env, GROW_LOG: logPath}, stdout: "ignore", stderr: "inherit"});
+        cleanups.push(async () => {
+            grower.kill("SIGKILL");
+            await grower.exited;
+        });
+        const sizeBefore = (await stat(logPath)).size;
+        await until(async () => (await stat(logPath)).size, (size) => size > sizeBefore, 10_000, "日志开始增长");
+        const growing = await streamCli(s, ["dev", "start", "--package", "apps/web", "--sample", "--json"]);
+        expect([growing.exitCode, events(growing.stdout)]).toEqual([0, [expect.objectContaining({event: "ready", runId}), {event: "sample", runId, url: `${url}new`}]]);
+        expect(grower.exitCode).toBeNull();
+        grower.kill("SIGKILL");
+        await grower.exited;
 
         await appendFile(logPath, "[dev] backend-ready pid=3 x\n");
         const waiting = await startDev(s, ["--sample", "--sample-timeout", "20", "--json"]);
