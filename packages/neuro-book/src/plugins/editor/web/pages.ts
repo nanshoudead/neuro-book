@@ -14,14 +14,30 @@ import type {DisplayLocale} from "nbook/shared/localized-text";
 
 import {EDITOR_PAGES_POINT} from "../shared/contracts";
 import type {EditorPageDeclaration} from "../shared/contracts";
+import {editorText} from "./messages";
 
 const PAGE_SCHEME = "page://";
 
-/** 页面组件加载期间的占位：空的，只标 aria-busy。 */
-const PAGE_LOADING = defineComponent({
-    name: "EditorPageLoading",
-    setup: () => () => h("div", {"aria-busy": "true", "data-editor-page-loading": ""}),
-});
+/**
+ * 页面组件加载期间与加载失败时的内容（editor.md 输出 33）。加载期间是一句给读屏的“正在加载页面”（`role="status"`），容器标
+ * `aria-busy`，截图工具（page:shot）据此等页面出来；失败时写出原因，aria-busy 随占位一起撤掉。编辑组给页面组件的 `context`
+ * 也会透传到这两个组件上，`inheritAttrs: false` 不让它落成 DOM 属性。
+ */
+function pageStates(locale: () => DisplayLocale): {readonly loading: Component; readonly failed: Component} {
+    return {
+        loading: defineComponent({
+            name: "EditorPageLoading",
+            inheritAttrs: false,
+            setup: () => () => h("div", {"role": "status", "aria-busy": "true", "data-editor-page-loading": ""}, h("span", {class: "sr-only"}, editorText(locale(), "pageLoading"))),
+        }),
+        failed: defineComponent({
+            name: "EditorPageFailed",
+            inheritAttrs: false,
+            props: {error: {type: Error, required: true}},
+            setup: (props) => () => h("p", {"class": "px-6 py-4 text-[13px] text-[var(--status-danger)]", "role": "alert", "data-editor-page-failed": ""}, editorText(locale(), "pageFailed", {reason: props.error.message})),
+        }),
+    };
+}
 
 export const pageAddress = (id: string): string => `${PAGE_SCHEME}${id}`;
 
@@ -53,9 +69,12 @@ export class EditorPageRegistry {
     readonly #published = shallowRef<ReadonlyMap<string, ContributionHandle<EditorPageDeclaration, EditorPageImplementation>>>(new Map());
     /** 每个交付句柄一个异步组件：同一次交付反复渲染不重新加载，换了句柄（重新激活）才重新加载。 */
     readonly #components = new WeakMap<ContributionHandle<EditorPageDeclaration, EditorPageImplementation>, Component>();
+    readonly #states: {readonly loading: Component; readonly failed: Component};
 
-    constructor(declarations: ContributionDeclarations) {
+    /** `locale` 是界面语言，加载中与加载失败的说明按它写。 */
+    constructor(declarations: ContributionDeclarations, locale: () => DisplayLocale) {
         this.#declarations = declarations;
+        this.#states = pageStates(locale);
     }
 
     receiver(): ContributionReceiver<EditorPageDeclaration, EditorPageImplementation> {
@@ -97,9 +116,8 @@ export class EditorPageRegistry {
                 if (handle === undefined) return null;
                 let component = this.#components.get(handle);
                 if (component === undefined) {
-                    // 加载期间放一个标了 aria-busy 的空占位（立即显示，不等缺省的 200 毫秒）：标签内容还没出来，读屏与截图工具
-                    // （page:shot）据此知道这里还在加载。
-                    component = defineAsyncComponent({loader: () => handle.implementation().load(), loadingComponent: PAGE_LOADING, delay: 0});
+                    // 占位立即显示，不等缺省的 200 毫秒：这段空白里截图工具看不出标签内容还没出来。
+                    component = defineAsyncComponent({loader: () => handle.implementation().load(), loadingComponent: this.#states.loading, errorComponent: this.#states.failed, delay: 0});
                     this.#components.set(handle, component);
                 }
                 return component;

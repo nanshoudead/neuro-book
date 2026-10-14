@@ -20,6 +20,8 @@ const TEXT = {
     tipWelcomeWhere: {"zh-CN": "帮助 › 欢迎", "en-US": "Help › Welcome"},
     pageMissing: {"zh-CN": "这个页面已经不在了：贡献它的插件停止了", "en-US": "This page is no longer available: the plugin that provided it has stopped"},
     loading: {"zh-CN": "正在读取…", "en-US": "Reading…"},
+    pageLoading: {"zh-CN": "正在加载页面…", "en-US": "Loading page…"},
+    pageFailed: {"zh-CN": "页面加载失败：{reason}", "en-US": "The page failed to load: {reason}"},
     openFailed: {"zh-CN": "打不开 {name}：{reason}", "en-US": "Cannot open {name}: {reason}"},
     retry: {"zh-CN": "重试", "en-US": "Retry"},
     conflict: {"zh-CN": "磁盘上的文件已被修改，保存没有写入。", "en-US": "The file changed on disk; the save was not written."},

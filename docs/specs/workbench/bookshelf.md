@@ -79,7 +79,7 @@ owners:
 
 **取数与刷新**
 
-15. 第一次取数期间显示骨架；第一次取数失败显示原因与“重试”。
+15. 第一次取数期间显示骨架，骨架所在的区域带 `aria-busy="true"`；第一次取数失败显示原因与“重试”。
 16. 页面可见时每 30 秒刷新一次，窗口重新获得焦点时也刷新，两者合并；同一时间至多一个请求在途，迟到的旧响应丢弃；页面隐藏或离开时停止。
 17. 刷新失败保留上次的数据，发一条常驻通知“书架没有更新”（带原因与“重试”），再失败只换内容不堆第二条，刷新成功后收回；某部作品的统计取不到时只影响那一部，按 `stale` 或 `none` 显示。
 
@@ -160,7 +160,7 @@ Smoke：`e2e/bookshelf.e2e.ts`（生产构建、真实服务端与项目子进�
 
 ## 实现合同
 
-- **公开入口**：`nbook/plugins/projects/shared/contracts`（远程合同与 `ShelfItemSchema`、`librarySetting`）、`nbook/plugins/projects/shared/cover`（封面规则与地址）、`nbook/plugins/projects/shared/shelf`（界面类型与 `projectDisplayName`）；页面模型 `createShelfPage`（`web/shelf-page.ts`）与组件是 `nbook.projects` 的内部实现。
+- **公开入口**：`nbook/plugins/projects/shared/contracts`（远程合同与 `ShelfItemSchema`、`librarySetting`）、`nbook/plugins/projects/shared/cover`（封面规则与地址）、`nbook/plugins/projects/shared/shelf`（界面类型与 `projectDisplayName`）、`nbook/plugins/projects/shared/project-url`（打开某个项目的地址 `projectUrl`，开发模式的样例作品也用它）；页面模型 `createShelfPage`（`web/shelf-page.ts`）与组件是 `nbook.projects` 的内部实现。
 - **owner 与依赖方向**：书架页只经 `nbook.projects/projects` 的远程服务与封面路由取数与写入（[`runtime.projects`](../runtime/projects.md) 输出 17 到 21），用工作台的通知服务、首页贡献点 `workbench.home`、命令服务、公开状态（齿轮的按下态）与宿主的整页导航、新标签页、设置与 Storage（偏好记录）；“作品”分区经设置的贡献点 `settings.sections` 交给设置窗口，写作品目录用本插件自己的配置服务；书架页不引用编辑器，继续写作只经地址参数（[`workbench.editor`](editor.md) 输出 29）；欢迎页贡献到编辑器的页面贡献点 `editor.pages`，经命令打开文件（`nbook.editor.open`）、揭示文件夹（`nbook.files.reveal`）与打开页面（`nbook.editor.open-page`），只引用编辑器的共享合同。目录选择器用 nb-ui 的 `FileBrowser`，数据来源只有 `browse`（书架与“作品”分区共用 `web/browse.ts`）。
 - **关键不变量**：
   - 同一时间至多一个书架请求在途，页面隐藏时不刷新，卸载后迟到的响应不改状态（验收 6 与状态表）。

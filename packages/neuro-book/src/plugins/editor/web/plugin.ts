@@ -83,7 +83,7 @@ export const editorBrowserPlugin: PluginDefinition = {
                 report,
             });
             context.signal.addEventListener("abort", () => session.dispose(), {once: true});
-            const pages = new EditorPageRegistry(context.declarations);
+            const pages = new EditorPageRegistry(context.declarations, () => locale.value);
             // 页面组件收到的上下文：最近打开随记录变化（reactive 把 computed 拆成值）。
             const pageContext = reactive({recent: computed(() => session.recent?.state.recent.display.addresses ?? [])});
 
