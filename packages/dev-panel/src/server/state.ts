@@ -1,7 +1,7 @@
 import {randomBytes} from "node:crypto";
 import {watch, type FSWatcher} from "node:fs";
 import {resolve} from "node:path";
-import type {HerdrClient} from "../herdr/client.js";
+import type {HerdrClient, HerdrPane} from "../herdr/client.js";
 import {readActivity, readPaneProcesses, type Activity, type HerdrSnapshot} from "../core/activity.js";
 import {checkoutKeys} from "../core/checkouts.js";
 import {systemErrorCode, type Warning} from "../core/errors.js";
@@ -13,6 +13,7 @@ import {MASTER_REF, WORKS_ROOT, type CheckoutInfo, type RepoContext} from "../co
 import {createBranchChangesCache} from "../core/sources.js";
 import {readProjectRecords, readTransitionState, type ProjectRecords, type TransitionState} from "../core/status.js";
 import {HerdrMonitor} from "./herdr-monitor.js";
+import type {SessionTitle, SessionTitles} from "./session-titles.js";
 
 /**
  * 面板的内存缓存：页面请求只读这里，从不现算整份 `status`。分三块各自刷新，变了就经 `/ws` 推“哪块变了”：
@@ -21,6 +22,7 @@ import {HerdrMonitor} from "./herdr-monitor.js";
  *   顺带重算各 worktree 未提交的记录改动（它们不改 HEAD，也不在监视范围里）。
  * - **活动**（租约、会话、运行）：租约是否有效是读取时现算的（会话退出、过期、Task 关闭都不碰租约文件），
  *   所以有浏览器连着时每 5 秒整份重算；记录或会话变化时也重算。监视租约目录只当加速。
+ *   会话标题（t17）也在这一轮里读，进活动的快照与指纹：会话改了名，已打开的页面随活动的推送重新取数，GET 时不查盘。
  * - **会话**：`HerdrMonitor`。
  * - **通知**：`Notifier` 现算的通知任务（t11），变了就经 `notifyChanged()` 推送。
  * 每块的重算单飞并合并；失败时保留上一份，在 `meta` 里标错。只有显示用到的字段变了才增加 revision。
@@ -29,8 +31,11 @@ import {HerdrMonitor} from "./herdr-monitor.js";
 export type Part<T> = {value: T | null; revision: number; at: string | null; error: string | null};
 export type PartName = "records" | "activity" | "sessions" | "notify" | "github";
 export type RecordsValue = {records: ProjectRecords; transition: TransitionState; warnings: Warning[]};
-/** `procs`：经 nbdev 起的运行（还活着的，加 24 小时内结束的），“在跑”页的第一块（t14）。 */
-export type ActivityValue = {activity: Activity; procs: ProcRunView[]; warnings: Warning[]};
+/**
+ * `procs`：经 nbdev 起的运行（还活着的，加 24 小时内结束的），“在跑”页的第一块（t14）。
+ * `sessionTitles`：页面上会显示的会话的标题，键是完整会话键，读不到标题的键不在里面（t17）。
+ */
+export type ActivityValue = {activity: Activity; procs: ProcRunView[]; sessionTitles: Record<string, SessionTitle>; warnings: Warning[]};
 
 const DEBOUNCE_MS = 300;
 const CHECK_MS = 5_000;
@@ -107,6 +112,8 @@ function activityFingerprint(value: ActivityValue): string {
         sessions: activity.sessions.map((session) => [session.key, session.alive, session.herdr?.status ?? null, session.leases.length, session.runs.map((run) => [run.pid, run.command, run.checkout])]),
         unowned: activity.unownedRuns.map((run) => [run.pid, run.command, run.checkout]),
         procs: value.procs.map((run) => [run.runId, run.state, run.reason, run.url, run.readyAt]),
+        // 标题从无到有、从有到无、改名都算变化：已打开的页面靠活动的推送才会重新取数。
+        titles: Object.entries(value.sessionTitles).sort(([left], [right]) => left.localeCompare(right)).map(([key, title]) => [key, title.text, title.source]),
     });
 }
 
@@ -129,7 +136,7 @@ export class PanelState {
     private debounce: ReturnType<typeof setTimeout> | null = null;
     private listeners = new Set<(part: PartName) => void>();
 
-    constructor(readonly context: RepoContext, herdrClient: HerdrClient | null, readonly log: (message: string) => void) {
+    constructor(readonly context: RepoContext, herdrClient: HerdrClient | null, readonly log: (message: string) => void, private readonly titles: SessionTitles) {
         const changed = (part: PartName) => {
             for (const listener of this.listeners) listener(part);
             if (part === "records" || part === "sessions") void this.activity.run();
@@ -181,6 +188,16 @@ export class PanelState {
         return this.checkouts.find((checkout) => this.keys.get(checkout.root) === key && !checkout.prunable) ?? null;
     }
 
+    /** 快照里这几个会话键的标题（视图只放自己出现的键）；没有标题的键不在结果里。 */
+    titlesFor(keys: Iterable<string | null | undefined>): Record<string, SessionTitle> {
+        const all = this.activity.part.value?.sessionTitles ?? {};
+        const picked: Record<string, SessionTitle> = {};
+        for (const key of keys) {
+            if (key && Object.hasOwn(all, key)) picked[key] = all[key]!;
+        }
+        return picked;
+    }
+
     private async computeRecords(): Promise<RecordsValue> {
         const transition = await readTransitionState(this.context.mainRoot, this.cache);
         this.checkouts = transition.checkouts;
@@ -200,7 +217,22 @@ export class PanelState {
         const {runs, warnings: procWarnings} = await listProcRuns(this.context.mainRoot);
         const dayAgo = Date.now() - 24 * 3_600_000;
         const procs = runs.filter((run) => run.state !== "ended" || Date.parse(run.endedAt ?? run.startedAt) >= dayAgo).sort((left, right) => right.startedAt.localeCompare(left.startedAt));
-        return {activity, procs, warnings: [...warnings, ...activityWarnings, ...procWarnings]};
+        const sessionTitles = await this.titles.titlesOf(this.titledKeys(activity, procs, herdr.panes));
+        return {activity, procs, sessionTitles, warnings: [...warnings, ...activityWarnings, ...procWarnings]};
+    }
+
+    /**
+     * 页面上会显示的会话：有效租约的、活动里的会话（含运行的属主）、经 nbdev 起的服务的属主、herdr 各格上的会话，
+     * 以及收件箱的提问者（提问者可能早已不在活动里，记录里还留着它的键）。
+     */
+    private titledKeys(activity: Activity, procs: ProcRunView[], panes: readonly HerdrPane[]): Set<string> {
+        const keys = new Set<string>();
+        for (const lease of activity.leases) if (lease.state === "valid") keys.add(lease.session.key);
+        for (const session of activity.sessions) keys.add(session.key);
+        for (const run of procs) if (run.startedBy) keys.add(run.startedBy.key);
+        for (const pane of panes) if (pane.session) keys.add(`${pane.session.agent}:${pane.session.value}`);
+        for (const item of this.records.part.value?.records.inbox ?? []) if (item.kind === "question" && item.askedBy) keys.add(item.askedBy);
+        return keys;
     }
 
     /** 预热：记录与活动各算一遍（herdr 不等，随后补上）。 */

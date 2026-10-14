@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import {Badge} from "@notnotype/nb-ui/components";
-import {relativeDay, shortSession, taskLabel, workLabel} from "../host/format.js";
+import {relativeDay, taskLabel, workLabel} from "../host/format.js";
 import {isPlainClick, workHref} from "../host/routes.js";
+import {useSessionTitles} from "../host/session-titles.js";
 import type {OverviewWork} from "../host/types.js";
 import BranchNote from "./BranchNote.vue";
 import EphemeralFrame from "./EphemeralFrame.vue";
@@ -10,6 +11,8 @@ import StatusBar from "./StatusBar.vue";
 import StatusChip from "./StatusChip.vue";
 
 defineProps<{work: OverviewWork}>();
+/** 会话标题由首页提供（t17）；没有提供时只显示短键。 */
+const nameOf = useSessionTitles();
 const emit = defineEmits<{navigate: [href: string]}>();
 function follow(event: MouseEvent, href: string): void {
     if (!isPlainClick(event)) return;
@@ -40,7 +43,7 @@ function follow(event: MouseEvent, href: string): void {
         <BranchNote v-if="work.source === 'branch'" :branch="work.branch" :checkout-key="work.checkoutKey" />
         <EphemeralFrame v-if="work.activeLeases.length > 0" title="谁在动">
             <div class="flex flex-wrap gap-1.5">
-                <LeaseChip v-for="lease in work.activeLeases" :key="`${lease.sessionKey}/${lease.taskId}`" :session="shortSession(lease.sessionKey, lease.label)" :task="taskLabel(lease.taskId)" :stale="lease.stale" />
+                <LeaseChip v-for="lease in work.activeLeases" :key="`${lease.sessionKey}/${lease.taskId}`" :session="nameOf(lease.sessionKey, lease.label)" :task="taskLabel(lease.taskId)" :stale="lease.stale" />
             </div>
         </EphemeralFrame>
     </article>

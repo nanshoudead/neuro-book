@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import {useRouter} from "vue-router";
-import {HERDR_STATUS_LABEL, relativeDay, relativeTime, shortSession, taskLabel, workLabel} from "../host/format.js";
+import {HERDR_STATUS_LABEL, relativeDay, relativeTime, sessionName, taskLabel, workLabel} from "../host/format.js";
 import {computed, ref} from "vue";
 import {readSection} from "../../core/sections.js";
 import {renderInlineMarkdown, renderMarkdown} from "../host/markdown.js";
@@ -8,6 +8,7 @@ import {taskPeekHref} from "../host/peek.js";
 import {emptyExpansion, MAX_EXPANDED, toggleExpansion, type TaskTableDetail} from "../host/task-expand.js";
 import {loadStateOf, useResource} from "../host/panel-data.js";
 import {docHref, editHref, newHref} from "../host/routes.js";
+import {provideSessionTitles} from "../host/session-titles.js";
 import {useStatusChange} from "../host/status-change.js";
 import type {Meta, TaskPageData, WorkView} from "../host/types.js";
 import ActionLink from "../parts/ActionLink.vue";
@@ -27,6 +28,8 @@ import TaskTable from "../parts/TaskTable.vue";
 const props = defineProps<{workId: string}>();
 const router = useRouter();
 const work = useResource<WorkView>(() => `/api/work/${encodeURIComponent(props.workId)}`, ["records", "activity"]);
+// Task 表里租约的会话标题（t17）。
+provideSessionTitles(() => work.data.value?.sessionTitles);
 const meta = useResource<Meta>(() => "/api/meta", ["records"]);
 const WORK_STATUSES = ["active", "done", "shelved"];
 /** 写入口的可用性：主工作区不能写、记录来自分支时只说明原因。 */
@@ -123,7 +126,7 @@ const currentHtml = computed<Record<string, string>>(() => Object.fromEntries((w
                 <p v-if="work.data.value.sessions.length === 0" class="nbdev-empty">没有会话持有这个 Work 的租约</p>
                 <ul v-else class="nbdev-stack-tight">
                     <li v-for="session in work.data.value.sessions" :key="session.key" class="flex flex-wrap items-center gap-2">
-                        <LeaseChip :session="shortSession(session.key, session.label)" :ended="session.alive === false" />
+                        <LeaseChip :session="sessionName(session.key, session.label, work.data.value.sessionTitles)" :ended="session.alive === false" />
                         <span class="nbdev-note">
                             {{ session.herdr ? HERDR_STATUS_LABEL[session.herdr.status] ?? session.herdr.status : "不在 herdr 里" }}
                             · 在动 {{ session.leases.map((lease) => taskLabel(lease.taskId)).join("、") }}

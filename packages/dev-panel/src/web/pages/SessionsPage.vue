@@ -3,7 +3,7 @@ import {Badge, Button, FormSelect} from "@notnotype/nb-ui/components";
 import {computed, onBeforeUnmount, onMounted, ref, watch} from "vue";
 import {useRoute, useRouter} from "vue-router";
 import {ApiError, getJson} from "../host/api.js";
-import {HERDR_STATUS_LABEL, relativeTime, shortSession, taskLabel, workLabel} from "../host/format.js";
+import {HERDR_STATUS_LABEL, relativeTime, shortSession, taskLabel, TITLE_SOURCE, workLabel} from "../host/format.js";
 import {attentionCount, useNotifyActions} from "../host/notify-actions.js";
 import {loadStateOf, useResource} from "../host/panel-data.js";
 import {taskHref} from "../host/routes.js";
@@ -155,7 +155,6 @@ const consoleDisabled = computed(() => {
     return null;
 });
 const sessionChangeNote = computed(() => (host.sessionChange.value ? `这格的会话换了（${shortSession(host.sessionChange.value.from)} → ${shortSession(host.sessionChange.value.to)}），发出去会发给后者` : null));
-const TITLE_SOURCE: Record<string, string> = {"claude-custom": "Claude Code（/rename）", "claude-agent-name": "Claude Code 的会话名", "claude-ai-title": "Claude Code 自动起的标题", codex: "Codex 的 thread_name", omp: "omp 的会话标题"};
 const titleNote = computed(() => {
     const title = pane.value?.title ?? session.value?.title ?? null;
     if (title) return `标题取自 ${TITLE_SOURCE[title.source] ?? title.source}`;

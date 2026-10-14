@@ -1,12 +1,17 @@
 <script setup lang="ts">
 import {Badge} from "@notnotype/nb-ui/components";
-import {relativeTime, shortSession} from "../host/format.js";
+import {computed} from "vue";
+import {relativeTime} from "../host/format.js";
 import {isPlainClick} from "../host/routes.js";
+import {useSessionTitles} from "../host/session-titles.js";
 import type {ProcRunView} from "../host/types.js";
 
 /** 经 nbdev 起的服务（`run/procs/` 的登记加现算的状态）；契约见同名 .md。 */
-defineProps<{runs: ProcRunView[]}>();
+const props = defineProps<{runs: ProcRunView[]}>();
 const emit = defineEmits<{navigate: [href: string]}>();
+/** 属主的会话标题由运行页提供（t17）；没有提供时只显示短键。 */
+const nameOf = useSessionTitles();
+const rows = computed(() => props.runs.map((run) => ({run, owner: run.startedBy ? nameOf(run.startedBy.key, run.startedBy.label) : null})));
 /** 服务链回它的 checkout 行（分支、worktree 与上面的服务在那一行对得上，后续清单 10-14 的“一一对应”）。 */
 const checkoutHref = (key: string) => `/live/checkouts?focus=${encodeURIComponent(key)}`;
 function follow(event: MouseEvent, href: string): void {
@@ -26,7 +31,7 @@ const safeUrl = (url: string | null) => (url && /^https?:\/\//u.test(url) ? url 
 <template>
     <p class="nbdev-empty" v-if="runs.length === 0">没有经 nbdev 起的服务（Agent 用 nbdev dev start 起）</p>
     <ul v-else class="flex flex-col gap-2">
-        <li v-for="run in runs" :key="run.runId" class="flex flex-col gap-0.5 border-b pb-2 last:border-b-0 nbdev-divider" :class="{'opacity-60': run.state === 'ended'}">
+        <li v-for="{run, owner} in rows" :key="run.runId" class="flex flex-col gap-0.5 border-b pb-2 last:border-b-0 nbdev-divider" :class="{'opacity-60': run.state === 'ended'}">
             <div class="flex min-w-0 flex-wrap items-center gap-2">
                 <Badge :tone="TONE[run.state]" variant="soft" size="sm">{{ LABEL[run.state] }}</Badge>
                 <span class="font-medium"><a :href="checkoutHref(run.checkoutKey)" class="hover:underline" @click="follow($event, checkoutHref(run.checkoutKey))">{{ run.checkoutKey }}</a> · {{ run.package }} · {{ run.script }}</span>
@@ -34,7 +39,7 @@ const safeUrl = (url: string | null) => (url && /^https?:\/\//u.test(url) ? url 
                 <span class="nbdev-empty nbdev-small" v-else-if="run.state !== 'ended'">地址未知</span>
             </div>
             <span class="min-w-0 break-all nbdev-note">
-                {{ run.startedBy ? shortSession(run.startedBy.key, run.startedBy.label) : "未认出的调用者" }}起 · {{ relativeTime(run.startedAt) }}<template v-if="run.workId && run.taskId"> · {{ run.workId.slice(0, 6) }}/{{ run.taskId.slice(0, run.taskId.indexOf("-")) }}</template><template v-if="run.reason"> · {{ REASON[run.reason] ?? run.reason }}</template><template v-if="run.state === 'ended' && run.exitCode !== null"> · 退出码 {{ run.exitCode }}</template> · 日志 <code>{{ run.logPath }}</code>
+                <template v-if="owner"><span v-if="owner.title" class="inline-block max-w-64 truncate align-bottom">{{ owner.title }}</span> <span :class="{'nbdev-secondary': owner.title}">{{ owner.short }}</span></template><template v-else>未认出的调用者</template>起 · {{ relativeTime(run.startedAt) }}<template v-if="run.workId && run.taskId"> · {{ run.workId.slice(0, 6) }}/{{ run.taskId.slice(0, run.taskId.indexOf("-")) }}</template><template v-if="run.reason"> · {{ REASON[run.reason] ?? run.reason }}</template><template v-if="run.state === 'ended' && run.exitCode !== null"> · 退出码 {{ run.exitCode }}</template> · 日志 <code>{{ run.logPath }}</code>
             </span>
         </li>
     </ul>

@@ -1,10 +1,10 @@
 ---
-标签: []
+标签: ["state:inject"]
 ---
 
 # TaskTable
 
-Work 页的 Task 表（t03 第三轮 Work 页；t15 阶段 4 第 2 批改成能就地展开）。每行一个 Task，列出状态、当前情况（README“当前状态”一节的第一行，按行内 Markdown 渲染）、最近更新、产物数、待答数、记录来源与谁在动。行里的 Task 名是去 Task 页的真实链接（`<a href>`，地址由 `host/routes.ts` 拼），能在新标签页打开。
+Work 页的 Task 表（t03 第三轮 Work 页；t15 阶段 4 第 2 批改成能就地展开）。每行一个 Task，列出状态、当前情况（README“当前状态”一节的第一行，按行内 Markdown 渲染）、最近更新、产物数、待答数、记录来源与谁在动（`LeaseChip`，会话写“标题 + 短键”，t17）。行里的 Task 名是去 Task 页的真实链接（`<a href>`，地址由 `host/routes.ts` 拼），能在新标签页打开。
 
 每行前面一个展开按钮（开发者 10-13：Work 页只能看到 Task 列表、不够高效）：展开后在这一行下面显示三栏，“当前状态”“下一步”（README 这两节，渲染后的 Markdown，用正文字号）、产物与文档类产物（带待答数）、证据、谁在动。产物、文档与证据链到 Task 页并打开速览面板（`?peek=`）。展开行的内容由页面取 Task 接口后算好交进来（`details`），零件不取数；同时最多展开几行、展开哪几行也由页面管（`expanded`，决定点 9：最多 3 行）。
 
@@ -42,3 +42,7 @@ interface TaskTableEmits {
 ## 无障碍
 
 展开按钮带 `aria-expanded` 与 `aria-controls`（指向展开内容那一行），可读名固定是“t15 的详情”，展开与否只由 `aria-expanded` 表达（名字不随状态变，读出来不重复）。展开内容那一行只有一个格子，`aria-colspan` 横跨全部列。不写 `aria-rowcount`：所有行都在 DOM 里，读屏自己数得出。展开内容的三栏各有小标题。
+
+## 隐藏通道理由
+
+`state:inject`：会话标题（`sessionTitles`，t17）由页面用 `host/session-titles.ts` 的 `provideSessionTitles` 提供，这里用 `useSessionTitles` 取。标题只是给“谁”加一个好认的名字，经过的每一层零件都多一个 prop 只为往下传一张表，不值得；没有页面提供时按空表处理，只显示短键，和没有标题时一样，所以单独挂载照样能渲染。

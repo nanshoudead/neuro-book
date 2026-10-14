@@ -1,4 +1,4 @@
-import type {NotifyAttempt, RecordedValue} from "./types.js";
+import type {NotifyAttempt, RecordedValue, SessionTitle} from "./types.js";
 
 /** 记录字段的显示：状态的中文名与色调；没有字段的显示“未标”，不合规的显示“不合规”（不推断）。 */
 
@@ -54,6 +54,20 @@ export function shortSession(key: string, label: string | null = null): string {
     const short = id.includes("/") ? id.slice(id.lastIndexOf("/") + 1).replace(/\.jsonl$/u, "").slice(-12) : id.slice(0, 8);
     return `${agent} ${short}`;
 }
+
+/**
+ * “谁”这一类地方（租约、提问者、服务的属主）显示的会话名（t17）：会话文件里的标题加短键。短键始终带着：
+ * 标题不唯一（`--resume`、fork 沿用同一个标题），还能被改成任意文字，同名的两个会话靠短键区分。
+ * “核对发给哪个会话”的句子（通知、会话更换）不用它，只写短键。`titles` 是视图数据里的 `sessionTitles`。
+ */
+export type SessionName = {title: string | null; short: string; source: SessionTitle["source"] | null};
+export function sessionName(key: string, label: string | null, titles: Readonly<Record<string, SessionTitle>>): SessionName {
+    const title = Object.hasOwn(titles, key) ? titles[key]! : null;
+    return {title: title?.text ?? null, short: shortSession(key, label), source: title?.source ?? null};
+}
+
+/** 标题从哪里读的（会话页的标题来源行、租约胶囊的提示）。 */
+export const TITLE_SOURCE: Record<SessionTitle["source"], string> = {"claude-custom": "Claude Code（/rename）", "claude-agent-name": "Claude Code 的会话名", "claude-ai-title": "Claude Code 自动起的标题", codex: "Codex 的 thread_name", omp: "omp 的会话标题"};
 
 export function taskLabel(taskId: string): string {
     return taskId.slice(0, taskId.indexOf("-") > 0 ? taskId.indexOf("-") : undefined);

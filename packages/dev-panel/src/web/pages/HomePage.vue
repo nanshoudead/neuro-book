@@ -5,6 +5,7 @@ import {useRouter} from "vue-router";
 import {daysSince, HERDR_STATUS_LABEL} from "../host/format.js";
 import {loadStateOf, useResource} from "../host/panel-data.js";
 import {byAttention} from "../host/nav.js";
+import {provideSessionTitles} from "../host/session-titles.js";
 import {attentionCount} from "../host/notify-actions.js";
 import type {NotifyData, Overview, OverviewWork} from "../host/types.js";
 import InboxList from "../parts/InboxList.vue";
@@ -20,6 +21,8 @@ import WorkCard from "../parts/WorkCard.vue";
  */
 const router = useRouter();
 const overview = useResource<Overview>(() => "/api/overview", ["records", "activity"]);
+// Work 卡片的“谁在动”与收件箱的提问者显示会话标题（t17）。
+provideSessionTitles(() => overview.data.value?.sessionTitles);
 const STALE_DAYS = 30;
 const showRest = ref(false);
 

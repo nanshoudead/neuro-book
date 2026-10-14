@@ -1,15 +1,18 @@
 <script setup lang="ts">
 import {Badge, EmptyState} from "@notnotype/nb-ui/components";
 import {computed} from "vue";
-import {shortSession, taskLabel, workLabel} from "../host/format.js";
+import {taskLabel, workLabel} from "../host/format.js";
 import {groupInbox} from "../host/inbox.js";
 import {artifactHref, docHref, isPlainClick} from "../host/routes.js";
+import {useSessionTitles} from "../host/session-titles.js";
 import type {ConflictLocation, InboxItem} from "../host/types.js";
 import ActionLink from "./ActionLink.vue";
 import LeaseChip from "./LeaseChip.vue";
 
 /** 首页收件箱：待答的提问按产物合并成一行，撞号一条一行。契约见同名 .md。 */
 const props = defineProps<{items: InboxItem[]}>();
+/** 提问者的会话标题由首页提供（t17）；没有提供时只显示短键。 */
+const nameOf = useSessionTitles();
 const emit = defineEmits<{navigate: [href: string]}>();
 const rows = computed(() => groupInbox(props.items));
 /** 撞号的处理办法写在 .agents/works/README.md（先定保留哪个，另一个领新号）。 */
@@ -54,7 +57,7 @@ function follow(event: MouseEvent, href: string): void {
                 </span>
                 <span class="flex flex-wrap items-center gap-x-2 gap-y-1 pl-6 nbdev-note">
                     <span>{{ workLabel(row.workId) }} / {{ taskLabel(row.taskId) }} · {{ row.artifactId }}</span>
-                    <LeaseChip v-for="asker in row.askers" :key="asker.key" :session="shortSession(asker.key)" :ended="asker.active === false" :hint="asker.active === false ? '提问的会话已经不在（租约失效），答了要等别的会话来采纳' : '提问的会话'" />
+                    <LeaseChip v-for="asker in row.askers" :key="asker.key" :session="nameOf(asker.key)" :ended="asker.active === false" :hint="asker.active === false ? '提问的会话已经不在（租约失效），答了要等别的会话来采纳' : '提问的会话'" />
                     <span v-if="row.askers.length === 0" class="nbdev-empty">提问者未知</span>
                 </span>
             </a>

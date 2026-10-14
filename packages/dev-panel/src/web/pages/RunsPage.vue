@@ -8,7 +8,8 @@ import LoadState from "../parts/LoadState.vue";
 import PageShell from "../parts/PageShell.vue";
 import ProcList from "../parts/ProcList.vue";
 import RunList from "../parts/RunList.vue";
-import {shortSession} from "../host/format.js";
+import {sessionName} from "../host/format.js";
+import {provideSessionTitles} from "../host/session-titles.js";
 
 /**
  * “在跑”页（t14，Proposal 第九节“现场”）：经 nbdev 起的服务、会话派出的运行、无主的运行。只读：停服务用 `nbdev dev stop`。
@@ -16,6 +17,9 @@ import {shortSession} from "../host/format.js";
  */
 const runs = useResource<RunsData>(() => "/api/runs", ["activity"]);
 const data = computed(() => runs.data.value);
+// “经 nbdev 起的服务”的属主显示会话标题（t17）。
+provideSessionTitles(() => data.value?.sessionTitles);
+const ownerOf = (session: {key: string; label: string | null}) => sessionName(session.key, session.label, data.value?.sessionTitles ?? {});
 const router = useRouter();
 const navigate = (href: string) => void router.push(href);
 </script>
@@ -34,7 +38,10 @@ const navigate = (href: string) => void router.push(href);
                 <h2 id="session-runs-title" class="nbdev-heading flex items-center gap-2">会话派出的运行<Badge tone="accent" variant="outline" size="sm">临时</Badge></h2>
                 <p v-if="data.sessions.length === 0" class="nbdev-empty">没有</p>
                 <section v-for="session in data.sessions" :key="session.key" class="nbdev-stack-tight">
-                    <h3 class="nbdev-body font-medium" :class="{'line-through': session.alive === false}">{{ shortSession(session.key, session.label) }}</h3>
+                    <h3 class="nbdev-body flex min-w-0 items-baseline gap-2 font-medium" :class="{'line-through': session.alive === false}">
+                        <span v-if="ownerOf(session).title" class="min-w-0 max-w-64 truncate">{{ ownerOf(session).title }}</span>
+                        <span class="shrink-0" :class="{'nbdev-caption nbdev-secondary font-normal': ownerOf(session).title}">{{ ownerOf(session).short }}</span>
+                    </h3>
                     <RunList :runs="session.runs" show-pane @navigate="navigate" />
                 </section>
             </section>

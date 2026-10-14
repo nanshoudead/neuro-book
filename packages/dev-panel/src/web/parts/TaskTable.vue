@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import {Badge} from "@notnotype/nb-ui/components";
-import {relativeDay, shortSession, taskLabel} from "../host/format.js";
+import {relativeDay, taskLabel} from "../host/format.js";
 import {isPlainClick, taskHref} from "../host/routes.js";
+import {useSessionTitles} from "../host/session-titles.js";
 import type {TaskTableDetail} from "../host/task-expand.js";
 import type {TaskView} from "../host/types.js";
 import LeaseChip from "./LeaseChip.vue";
@@ -24,6 +25,8 @@ const props = defineProps<{
     currentHtml: Readonly<Record<string, string>>;
 }>();
 const emit = defineEmits<{navigate: [href: string]; toggle: [taskId: string]; retry: [taskId: string]}>();
+/** 租约的会话标题由 Work 页提供（t17）；没有提供时只显示短键。 */
+const nameOf = useSessionTitles();
 function follow(event: MouseEvent, href: string): void {
     if (!isPlainClick(event)) return;
     event.preventDefault();
@@ -75,7 +78,7 @@ const COLUMNS = ["Task", "状态", "当前情况", "最近更新", "产物", "�
                         <span v-if="task.uncommitted" class="nbdev-warn"> · 未提交</span>
                     </span>
                     <span role="cell" class="nbdev-task-wide flex min-w-0 flex-wrap gap-1">
-                        <LeaseChip v-for="lease in task.leases" :key="lease.sessionKey" :session="shortSession(lease.sessionKey, lease.label)" :stale="lease.stale" />
+                        <LeaseChip v-for="lease in task.leases" :key="lease.sessionKey" :session="nameOf(lease.sessionKey, lease.label)" :stale="lease.stale" />
                     </span>
                 </div>
                 <div v-if="isOpen(task.taskId)" :id="detailId(task.taskId)" role="row" class="nbdev-task-detail nbdev-divider border-b">
@@ -112,7 +115,7 @@ const COLUMNS = ["Task", "状态", "当前情况", "最近更新", "产物", "�
                                 </ul>
                                 <h3 class="nbdev-card-title mt-2">谁在动</h3>
                                 <p v-if="task.leases.length === 0" class="nbdev-empty">没有</p>
-                                <div v-else class="flex flex-wrap gap-1"><LeaseChip v-for="lease in task.leases" :key="lease.sessionKey" :session="shortSession(lease.sessionKey, lease.label)" :stale="lease.stale" /></div>
+                                <div v-else class="flex flex-wrap gap-1"><LeaseChip v-for="lease in task.leases" :key="lease.sessionKey" :session="nameOf(lease.sessionKey, lease.label)" :stale="lease.stale" /></div>
                             </section>
                         </div>
                     </div>

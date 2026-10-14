@@ -14,10 +14,38 @@ import {systemErrorCode} from "../core/errors.js";
  * 会话值来自 herdr（本机任何进程都能给一格报会话值），按不可信输入处理：Claude 的 id 只认 uuid 的字符，omp 的路径要在 omp 的会话目录里；
  * 只读普通文件（FIFO 会让读挂住）。只读、按（路径、大小、修改时间）缓存，找不到的文件记 60 秒，不写审计；
  * 读不出（文件系统的错误）就是 null，原因进面板日志，同一个路径的同一种错误只记一次；其它异常照常抛出。
+ * t17 起面板不在 GET 时逐个查：`PanelState` 的活动刷新一轮调一次 `titlesOf`，结果放进活动的快照（见 state.ts）。
  */
 export type SessionTitleSource = "claude-custom" | "claude-agent-name" | "claude-ai-title" | "codex" | "omp";
 export type SessionTitle = {text: string; source: SessionTitleSource};
-export type SessionTitles = {titleOf(agent: string, sessionValue: string): Promise<SessionTitle | null>};
+export type SessionTitles = {
+    titleOf(agent: string, sessionValue: string): Promise<SessionTitle | null>;
+    /**
+     * 一批完整会话键的标题，只放读到了标题的键（键原样是传入的完整键）。一批里 Claude 的 `projects/` 目录最多列一次；
+     * 同一个键正在查时不再另查（单飞），冷查找最多 `BATCH_PARALLEL` 个同时进行。
+     */
+    titlesOf(keys: Iterable<string>): Promise<Record<string, SessionTitle>>;
+};
+
+/** 会读标题的 Agent；`external:` 这类自报标签的会话没有会话文件。 */
+const TITLE_AGENTS = ["claude", "codex", "omp"] as const;
+type TitleAgent = (typeof TITLE_AGENTS)[number];
+
+/**
+ * 完整会话键拆成 Agent 与会话值（t17）：只按第一个冒号切，omp 的会话值可能是含冒号的绝对路径；
+ * Agent 只认 `claude`、`codex`、`omp`，会话值不能为空，其余（`external:`、不认识的 Agent）是 null。
+ */
+export function sessionKeyParts(key: string): {agent: TitleAgent; value: string} | null {
+    const colon = key.indexOf(":");
+    if (colon <= 0) return null;
+    const agent = key.slice(0, colon);
+    const value = key.slice(colon + 1);
+    if (value === "" || !(TITLE_AGENTS as readonly string[]).includes(agent)) return null;
+    return {agent: agent as TitleAgent, value};
+}
+
+/** 一批里同时进行的冷查找数：Claude 的定位要 stat 每个项目目录里的候选文件，不限的话一批几十个键会一起打满文件系统。 */
+const BATCH_PARALLEL = 4;
 
 /** Claude Code 的会话文件先读末尾这么多字节；没有标题行时每次往前读到四倍，最多 `CLAUDE_TAIL_MAX`。 */
 const CLAUDE_TAIL_BYTES = 256 * 1024;
@@ -146,18 +174,30 @@ export function createSessionTitles(env: NodeJS.ProcessEnv, log: (line: string) 
     const isMissed = (key: string) => (missed.get(key) ?? 0) > now();
     const markMissed = (key: string) => void missed.set(key, now() + MISS_TTL_MS);
 
+    /** `projects/` 下的项目目录名；读不出为 null（不是 ENOENT 的原因进日志）。 */
+    async function listClaudeProjects(): Promise<string[] | null> {
+        try {
+            return (await readdir(join(claudeRoot, "projects"), {withFileTypes: true})).filter((entry) => entry.isDirectory()).map((entry) => entry.name);
+        } catch (error) {
+            if (systemErrorCode(error) !== "ENOENT") reportFsError(join(claudeRoot, "projects"), error);
+            return null;
+        }
+    }
+    /** 一次查找（`titleOf` 的一次调用，或 `titlesOf` 的一批）里共用的目录列表：要用时才列，最多列一次。 */
+    function claudeProjectsOnce(): () => Promise<string[] | null> {
+        let listing: Promise<string[] | null> | null = null;
+        return () => (listing ??= listClaudeProjects());
+    }
+
     /** `projects/` 下每个项目目录里找 `<id>.jsonl`；找到一次就记住路径。 */
-    async function claudeFile(sessionId: string): Promise<string | null> {
+    async function claudeFile(sessionId: string, projectsOf: () => Promise<string[] | null>): Promise<string | null> {
         if (!/^[0-9a-f-]{8,64}$/iu.test(sessionId)) return null;
         const key = `claude:${sessionId}`;
         const known = located.get(key);
         if (known) return known;
         if (isMissed(key)) return null;
-        let projects: string[];
-        try {
-            projects = (await readdir(join(claudeRoot, "projects"), {withFileTypes: true})).filter((entry) => entry.isDirectory()).map((entry) => entry.name);
-        } catch (error) {
-            if (systemErrorCode(error) !== "ENOENT") reportFsError(join(claudeRoot, "projects"), error);
+        const projects = await projectsOf();
+        if (projects === null) {
             markMissed(key);
             return null;
         }
@@ -222,35 +262,76 @@ export function createSessionTitles(env: NodeJS.ProcessEnv, log: (line: string) 
         }
     }
 
+    /** 正在查的键（`agent:会话值`）：并发的两次查找共用一个结果，不各扫一遍目录。 */
+    const inflight = new Map<string, Promise<SessionTitle | null>>();
+    function lookupOnce(agent: string, sessionValue: string, projectsOf: () => Promise<string[] | null>): Promise<SessionTitle | null> {
+        const key = `${agent}:${sessionValue}`;
+        const running = inflight.get(key);
+        if (running) return running;
+        const promise = lookup(agent, sessionValue, projectsOf).finally(() => inflight.delete(key));
+        inflight.set(key, promise);
+        return promise;
+    }
+
+    /** Codex 的索引是一份文件：同时有几个键在查时只读一次（索引变了的那一轮，几个键会同时发现缓存过期）。 */
+    let codexReading: Promise<Map<string, string> | null> | null = null;
+    function codexIndex(): Promise<Map<string, string> | null> {
+        const path = join(codexRoot, "session_index.jsonl");
+        codexReading ??= cached(path, codexCache, async () => {
+            const names = new Map<string, string>();
+            for (const line of (await readFile(path, "utf8")).split("\n")) {
+                const record = parseLine(line);
+                const name = cleanTitle(record?.thread_name);
+                if (record && typeof record.id === "string" && name) names.set(record.id, name);
+            }
+            return names;
+        }).finally(() => {
+            codexReading = null;
+        });
+        return codexReading;
+    }
+
+    async function lookup(agent: string, sessionValue: string, projectsOf: () => Promise<string[] | null>): Promise<SessionTitle | null> {
+        if (agent === "claude") {
+            const path = await claudeFile(sessionValue, projectsOf);
+            return path ? cached(path, cache, (size, previous) => claudeTitle(path, size, previous)) : null;
+        }
+        if (agent === "codex") {
+            const text = (await codexIndex())?.get(sessionValue);
+            return text ? {text, source: "codex"} : null;
+        }
+        if (agent === "omp") {
+            const path = await ompFile(sessionValue);
+            return path ? cached(path, cache, async () => {
+                const first = parseLine((await readHead(path, 4096)).split("\n")[0] ?? "");
+                const text = first?.type === "title" ? cleanTitle(first.title) : null;
+                return text ? {text, source: "omp" as const} : null;
+            }) : null;
+        }
+        return null;
+    }
+
     return {
-        async titleOf(agent, sessionValue) {
-            if (agent === "claude") {
-                const path = await claudeFile(sessionValue);
-                return path ? cached(path, cache, (size, previous) => claudeTitle(path, size, previous)) : null;
+        titleOf(agent, sessionValue) {
+            return lookupOnce(agent, sessionValue, claudeProjectsOnce());
+        },
+        async titlesOf(keys) {
+            const pending = [...new Set(keys)].flatMap((key) => {
+                const parts = sessionKeyParts(key);
+                return parts ? [{key, ...parts}] : [];
+            });
+            const projectsOf = claudeProjectsOnce();
+            const titles: Record<string, SessionTitle> = {};
+            let next = 0;
+            async function worker(): Promise<void> {
+                while (next < pending.length) {
+                    const {key, agent, value} = pending[next++]!;
+                    const title = await lookupOnce(agent, value, projectsOf);
+                    if (title) titles[key] = title;
+                }
             }
-            if (agent === "codex") {
-                const path = join(codexRoot, "session_index.jsonl");
-                const index = await cached(path, codexCache, async () => {
-                    const names = new Map<string, string>();
-                    for (const line of (await readFile(path, "utf8")).split("\n")) {
-                        const record = parseLine(line);
-                        const name = cleanTitle(record?.thread_name);
-                        if (record && typeof record.id === "string" && name) names.set(record.id, name);
-                    }
-                    return names;
-                });
-                const text = index?.get(sessionValue);
-                return text ? {text, source: "codex"} : null;
-            }
-            if (agent === "omp") {
-                const path = await ompFile(sessionValue);
-                return path ? cached(path, cache, async () => {
-                    const first = parseLine((await readHead(path, 4096)).split("\n")[0] ?? "");
-                    const text = first?.type === "title" ? cleanTitle(first.title) : null;
-                    return text ? {text, source: "omp" as const} : null;
-                }) : null;
-            }
-            return null;
+            await Promise.all(Array.from({length: Math.min(BATCH_PARALLEL, pending.length)}, () => worker()));
+            return titles;
         },
     };
 }
