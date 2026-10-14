@@ -35,6 +35,8 @@
 | 2026-10-14 | 开发者转述 Agent 的建议 | `nbdev answers --wait --json` 等到超时或被打断退出时，标准输出是空的，接它输出的管道会直接报错。建议这时也输出一个带错误码的 JSON | 开发者说先记录；同一批还转述了“Lab 不刷新组件清单、`nbdev shot` 等到超时”，已记在上面 | t16：实测超时、SIGTERM、SIGINT 都有 JSON 外壳，只缺 SIGHUP；SIGKILL 接不住，写进合同 |
 | 2026-10-14 | t15 第 3 批决定点 23 | 会话页渲染 Agent 会话文件里的完整对话记录（比终端回滚翻得更早） | 开发者定这一批只靠终端回滚；实测 xterm 攒不下回滚、Claude 的回滚是 0，Claude 会话在面板里往回翻只能靠它 | 待定 |
 | 2026-10-14 | 开发者转述 Agent 的报告 | `nbdev artifact publish` 会把产物目录里所有未跟踪的文件一起提交：Agent 检查页面时把 4 张截图写进了评审板目录，被一并提交，已在 `b86961ff5` 删掉。建议发布时只提交页面引用到的文件，其余的列出来提醒。（10-14 同一天又有 Agent 报了一次，说明常碰到）另外，重新打开已关闭产物时的 `artifact_reopened` 提示很清楚 | 现在的合同是“与产物目录里 Git 有变化的页面文件一起提交”，`contentHash` 也按目录里全部文件算（[文件格式](../../../packages/dev-panel/docs/file-formats.md#产物)）；开发者说先记录 | t16 |
+| 2026-10-14 | Agent（w00024 t01 设计评审时） | design-review Skill 写的草稿分支是 `<Task>/drafts`，`nbdev worktree new` 只能建 `<类型>/<Work 编号>-<Task 编号>-<短名>`，两边说法不一致；这次按 nbdev 建了 `chore/w00024-t01-drafts`。建议把 Skill 的写法改成和 nbdev 一致 | 改的是 Skill 文字，不是 nbdev | 待定 |
+| 2026-10-14 | Agent（w00024 t01 设计评审时） | 每发一轮评审板，Task README 的“当前状态”也要跟着改，但 `artifact publish` 只提交产物目录，README 要另外手动路径限定提交，多出一个提交。`answers ack` 已有 `--include`，建议 `artifact publish` 也支持 `--include <Task 记录>` | | 待定 |
 
 ## 推迟事项
 
