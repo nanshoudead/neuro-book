@@ -4,6 +4,8 @@ import {Editor} from "@tiptap/core";
 import {EditorState, Selection} from "@tiptap/pm/state";
 import {onBeforeUnmount, onMounted, ref, watch} from "vue";
 
+import type {DisplayLocale} from "nbook/shared/localized-text";
+
 import type {EditorControlHandle, TextEditorBinding, ViewStateSlot} from "../area";
 import type {EditorControlEmits} from "../control";
 import {createMarkdownEditorExtensions} from "../markdown/markdown-editor-extensions";
@@ -11,7 +13,8 @@ import {normalizeMarkdownDialectBlocks} from "../markdown/markdown-workbench";
 import {mergeSource, splitFrontmatter} from "../markdown/source-merge";
 import type {SourceSplit} from "../markdown/source-merge";
 
-const props = defineProps<{binding: TextEditorBinding | null; host: ViewStateSlot; readonly: boolean; visible: boolean; label: string; placeholder?: string}>();
+// `locale`：控件合同的一员；富文本控件自己不显示要翻译的文字（占位文字由宿主给出）。
+const props = defineProps<{binding: TextEditorBinding | null; host: ViewStateSlot; readonly: boolean; visible: boolean; label: string; placeholder?: string; locale?: DisplayLocale}>();
 const emit = defineEmits<EditorControlEmits>();
 
 /** 停止输入这么久才把正文交给文档；保存、切换与离开之前会立即结算。 */

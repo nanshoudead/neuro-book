@@ -3,6 +3,8 @@
 import {onBeforeUnmount, onMounted, ref, shallowRef, watch} from "vue";
 import type * as Monaco from "monaco-editor/esm/vs/editor/editor.api.js";
 
+import type {DisplayLocale} from "nbook/shared/localized-text";
+
 import type {EditorControlHandle, TextEditorBinding, ViewStateSlot} from "../area";
 import {languageOf, loadMonaco} from "../code/load-monaco";
 import type {MonacoApi} from "../code/load-monaco";
@@ -11,7 +13,8 @@ import type {EditorControlEmits} from "../control";
 import {mergeSource} from "../markdown/source-merge";
 
 // `host`：撤销栈在模型里、模型在视图状态槽里，重挂只重建编辑器实例，不需要把实例留在组的实例槽。
-const props = defineProps<{binding: TextEditorBinding | null; host: ViewStateSlot; readonly: boolean; visible: boolean; label: string}>();
+// `locale`：控件合同的一员；源码编辑器自己不显示要翻译的文字。
+const props = defineProps<{binding: TextEditorBinding | null; host: ViewStateSlot; readonly: boolean; visible: boolean; label: string; locale?: DisplayLocale}>();
 const emit = defineEmits<EditorControlEmits>();
 
 /**

@@ -18,7 +18,7 @@ import type {ServiceKey} from "@notnotype/nb-runtime/services";
 import {MENU_BUTTON, MENU_EXTENSIONS, menuItemValidator, menuLocation} from "nbook/plugins/commands/shared/contracts";
 import type {MenuItemDeclaration} from "nbook/plugins/commands/shared/contracts";
 import {LocalizedTextSchema} from "nbook/shared/localized-text";
-import type {LocalizedText} from "nbook/shared/localized-text";
+import type {DisplayLocale, LocalizedText} from "nbook/shared/localized-text";
 
 /** 需要结算的文档此刻的状态：dirty、在保存、有未裁决输入、磁盘冲突。 */
 export type SettleState = "dirty" | "saving" | "unresolved" | "conflict";
@@ -230,4 +230,6 @@ export interface EditorControlProps<B> {
     readonly readonly: boolean;
     readonly visible: boolean;
     readonly label: string;
+    /** 界面语言：控件自己显示的说明（读取失败之类）按它取。 */
+    readonly locale: DisplayLocale;
 }

@@ -224,6 +224,7 @@ export interface EditorGroupTitleActions {
                         :readonly="!area.viewWritable(groupId)"
                         :visible="binding !== null && binding.editor === mounted.editor"
                         :label="activeTab === null ? '' : nameOf(activeTab.address)"
+                        :locale="locale"
                         @ready="(handle: EditorControlHandle | null) => onReady(mounted.editor, handle)"
                         @focus="(focused: boolean) => (area.focused.value = focused)"
                     />
