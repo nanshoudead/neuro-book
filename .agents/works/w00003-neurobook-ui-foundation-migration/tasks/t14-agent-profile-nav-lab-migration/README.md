@@ -3,63 +3,63 @@ schema: nbook.task/v2
 taskId: t14-agent-profile-nav-lab-migration
 ---
 
-# 鍗忎綔璇曡縼绉� Agent Profile 瀵艰埅
+# 协作试迁移 Agent Profile 导航
 
-## 鐩�鏍�
+## 目标
 
-鐢卞紑鍙戣�呬笌 Agent 涓�璧锋妸鐪熷疄璁剧疆鐣岄潰鐨� `AgentProfileNavList` 鍘熷湴閲嶅啓鎴愭柊涓婚�樹綋绯讳笅鍙�鍦� Component Lab 纭�瀹氭�ч獙璇佺殑棰嗗煙缁勪欢锛屽苟瀹屾暣璁板綍浠庢棫涓诲簲鐢ㄧ粍浠跺埌 Lab-ready replacement 鐨勬�ラ�ゃ�佸け璐ャ�佸彇鑸嶅拰鍙�澶嶇敤缁忛獙銆傝繖涓�鏍锋湰鐢ㄤ簬鍐冲畾鍚庣画鑷�涓昏縼绉诲�備綍鎷嗘壒锛屼笉浠ｈ〃璁剧疆鐣岄潰鏁翠綋杩佺Щ锛屼篃涓嶆妸浜у搧涓婚〉鎭㈠�嶄綔涓烘湰 Task 鐨勫畬鎴愭潯浠躲��
+由开发者与 Agent 一起把真实设置界面的 `AgentProfileNavList` 原地重写成新主题体系下可在 Component Lab 确定性验证的领域组件，并完整记录从旧主应用组件到 Lab-ready replacement 的步骤、失败、取舍和可复用经验。这个样本用于决定后续自主迁移如何拆批，不代表设置界面整体迁移，也不把产品主页恢复作为本 Task 的完成条件。
 
-鏈� Task 鍒嗘垚涓や釜瀹屾垚灞傛�★細
+本 Task 分成两个完成层次：
 
-- **鏈� Task 蹇呴』瀹屾垚鐨� Lab-ready**锛氬悓鍚嶆枃妗ｃ�佺‘瀹氭�� fixture銆侀�嗗煙鐘舵�併�佸彈鎺т簨浠躲�侀敭鐩�/鐒︾偣/ARIA銆佹�岄潰鍜� `390 脳 844` 鍧囨湁璇佹嵁銆�
-- **鍚庣画 Task 鎵嶅畬鎴愮殑 Product-ready**锛欳 浜у搧涓婚�� clean cutover 鍚庨獙璇佺湡瀹炶�剧疆椤点�佹仮澶嶅叏灞�闂ㄧ�侊紝骞舵竻鐞嗗墿浣欐棫涓婚�樻垨鏃у熀纭�缁勪欢鍏ュ彛銆�
+- **本 Task 必须完成的 Lab-ready**：同名文档、确定性 fixture、领域状态、受控事件、键盘/焦点/ARIA、桌面和 `390 × 844` 均有证据。
+- **后续 Task 才完成的 Product-ready**：C 产品主题 clean cutover 后验证真实设置页、恢复全局门禁，并清理剩余旧主题或旧基础组件入口。
 
-## 褰撳墠鍩虹嚎
+## 当前基线
 
-### 缁勪欢涓庢秷璐硅��
+### 组件与消费者
 
-- 瀹炵幇锛歚packages/neuro-book/app/components/novel-ide/settings/AgentProfileNavList.vue`锛屽綋鍓嶇害 127 琛屻��
-- 鍞�涓�杩愯�屾椂娑堣垂鑰咃細鍚岀洰褰� `NovelIdeAgentProfileModelSettingsPanel.vue`銆�
-- 褰撳墠鍏�寮�杈撳叆锛歚items`銆乣activeKey`銆乣search`銆乣defaultsDirty`锛涘綋鍓嶅叕寮�杈撳嚭锛歚update:activeKey`銆乣update:search`锛涙病鏈� slot 鎴� expose銆�
-- `activeKey === ""` 琛ㄧず榛樿�よ�剧疆椤点�傜埗缁勪欢璐熻矗鍦� Profile 娑堝け鏃舵妸鏈�鐭� key 绾犳�ｅ洖绌轰覆锛涘�艰埅缁勪欢涓嶆嫢鏈夎�ョ姸鎬併��
-- 鐖剁粍浠舵寜 `profileKey` 鎺掑簭鍚庢瀯閫� `items`銆俙overrideCount` 鏄�妯″瀷銆佽繍琛岀瓥鐣ュ拰 Profile 璁剧疆瑕嗙洊鏁颁箣鍜岋紱`dirty` 鏄�褰撳墠鑽夌�夸笌淇濆瓨蹇�鐓х殑姣旇緝缁撴灉锛沗isDefault` 鐢卞綋鍓嶇敓鏁堥粯璁� Profile 鎺ㄥ�笺��
-- `status` 鐨勫皝闂�闆嗗悎鏉ヨ嚜 `ConfigAgentProfileLoadStatusDtoSchema`锛歚loaded`銆乣compiling`銆乣compile_failed`銆乣not_compiled`銆乣compile_stale`銆乣compiled_load_failed`銆乣source_error`銆�
+- 实现：`packages/neuro-book/app/components/novel-ide/settings/AgentProfileNavList.vue`，当前约 127 行。
+- 唯一运行时消费者：同目录 `NovelIdeAgentProfileModelSettingsPanel.vue`。
+- 当前公开输入：`items`、`activeKey`、`search`、`defaultsDirty`；当前公开输出：`update:activeKey`、`update:search`；没有 slot 或 expose。
+- `activeKey === ""` 表示默认设置页。父组件负责在 Profile 消失时把未知 key 纠正回空串；导航组件不拥有该状态。
+- 父组件按 `profileKey` 排序后构造 `items`。`overrideCount` 是模型、运行策略和 Profile 设置覆盖数之和；`dirty` 是当前草稿与保存快照的比较结果；`isDefault` 由当前生效默认 Profile 推导。
+- `status` 的封闭集合来自 `ConfigAgentProfileLoadStatusDtoSchema`：`loaded`、`compiling`、`compile_failed`、`not_compiled`、`compile_stale`、`compiled_load_failed`、`source_error`。
 
-### 宸茬煡杩佺Щ缂哄彛
+### 已知迁移缺口
 
-- 鎼滅储渚濊禆涓诲簲鐢ㄦ棫 `components/common/form/FormInput.vue`锛岃�屼笉鏄� nb-ui 琛ㄥ崟鍏ュ彛銆�
-- 鍒楄〃鏄�鏅�閫氭寜閽�闆嗗悎锛屼絾娌℃湁鍙�鍛藉悕鐨勫�艰埅 landmark锛屽綋鍓嶉」涔熸病鏈� `aria-current`銆�
-- 缂栬瘧鐘舵�佷富瑕佷緷璧� 6px 鑹茬偣鍜� `title`锛沝irty 涔熶富瑕佷緷璧栬壊鐐癸紝榛樿�� Profile 涓昏�佷緷璧栨槦褰㈠浘鏍囥�傜姸鎬佸�硅Е灞忋�侀敭鐩樺拰鑹茶�夊樊寮傜敤鎴蜂笉澶熸槑纭�銆�
-- 褰撳墠椤逛富瑕佷緷璧栭�滆壊銆侀槾褰卞拰宸︿晶鎸囩ず鏉★紱娌℃湁鐙�绔嬩簬棰滆壊鐨勬寔缁�鍙�瑙侀�夋嫨鏍囪�般��
-- `rounded-2xl`銆乣duration-300`銆乣transition-all` 鍜屾棫浜у搧鍙橀噺涓嶇�﹀悎 nb-ui 璇�涔� token 涓庡姩鏁堝悎鍚屻��
-- 鐜版湁鑱氱劍娴嬭瘯鍙�璇诲彇婧愮爜瀛楃�︿覆锛屾柇瑷�瀛樺湪 `overflow-y-auto` 涓斾笉瀛樺湪 `90vh`锛涘畠涓嶈兘璇佹槑鐪熷疄婊氬姩銆佸浐瀹氭悳绱㈠叆鍙ｃ�佺劍鐐规垨绐勫睆鏃犳孩鍑恒��
-- LSP 鍦ㄥ綋鍓嶇幆澧冧笉鍙�鐢�锛屽紩鐢ㄦ煡璇㈣繑鍥� `No language server found for this action`锛涙湰杞�鍩虹嚎閫氳繃绮剧‘鏂囨湰鎼滅储纭�璁ゅ敮涓�娑堣垂鑰呫�傚疄鐜伴樁娈佃嫢 LSP 鎭㈠�嶏紝浠嶉』鍏堥噸鏂版墽琛� references銆�
+- 搜索依赖主应用旧 `components/common/form/FormInput.vue`，而不是 nb-ui 表单入口。
+- 列表是普通按钮集合，但没有可命名的导航 landmark，当前项也没有 `aria-current`。
+- 编译状态主要依赖 6px 色点和 `title`；dirty 也主要依赖色点，默认 Profile 主要依赖星形图标。状态对触屏、键盘和色觉差异用户不够明确。
+- 当前项主要依赖颜色、阴影和左侧指示条；没有独立于颜色的持续可见选择标记。
+- `rounded-2xl`、`duration-300`、`transition-all` 和旧产品变量不符合 nb-ui 语义 token 与动效合同。
+- 现有聚焦测试只读取源码字符串，断言存在 `overflow-y-auto` 且不存在 `90vh`；它不能证明真实滚动、固定搜索入口、焦点或窄屏无溢出。
+- LSP 在当前环境不可用，引用查询返回 `No language server found for this action`；本轮基线通过精确文本搜索确认唯一消费者。实现阶段若 LSP 恢复，仍须先重新执行 references。
 
-## 宸插畾杈圭晫
+## 已定边界
 
-### 鎵�鏈夋潈涓� replacement 褰㈠紡
+### 所有权与 replacement 形式
 
-- `AgentProfileNavList` 淇濈暀鍦� NeuroBook `novel-ide/settings` 棰嗗煙灞傘�侾rofile load status銆侀粯璁� Profile銆佽�嗙洊璁℃暟鍜� dirty 閮芥槸 NeuroBook 棰嗗煙璇�涔夛紝涓嶄笅娌夊埌 nb-ui銆�
-- 鍘熷湴閲嶅啓鐜版湁 `AgentProfileNavList.vue`锛屼笉鍒涘缓 `Next`銆乣V2`銆乤lias 鎴栧苟琛屾棫鍏ュ彛銆傚綋鍓嶇埗缁勪欢鍥犺矾寰勪笉鍙樹細鐩存帴娑堣垂 replacement锛涙湰 Task 涓嶅彟澶栨敼涓婚〉缂栨帓锛屼篃涓嶆妸涓婚〉鍙�鐢ㄦ�у啓鎴� Lab-ready 閫氳繃銆�
-- 鏂板�炲悓鐩�褰� `AgentProfileNavList.types.ts` 鎸佹湁 `AgentProfileNavItem` 涓� load-status 绫诲瀷锛涚埗缁勪欢鍙�鎶婄幇鏈� SFC type import 鏀逛负璇ユ枃浠剁殑 type-only import锛岃繍琛屾椂鎺ョ嚎涓庢暟鎹�鏋勯�犱笉鍙樸�俧ixture 涓庢祴璇曞�嶇敤鍚屼竴棰嗗煙绫诲瀷锛屼笉浠� SFC 瀵煎嚭绗�浜屼唤鍚堝悓銆�
-- 鍚屽悕鏂囨。鍥哄畾鏀惧湪 `AgentProfileNavList.vue` 鍚岀洰褰曪紝鏂囦欢鍚嶄负 `AgentProfileNavList.md`銆傝繖鏄� `component-index.ts` 鑳借嚜鍔ㄧ撼鍏� Lab 瀵艰埅鐨勫敮涓�姝ｇ‘浣嶇疆锛屼笉缁存姢绗�浜屼唤缁勪欢娓呭崟銆�
+- `AgentProfileNavList` 保留在 NeuroBook `novel-ide/settings` 领域层。Profile load status、默认 Profile、覆盖计数和 dirty 都是 NeuroBook 领域语义，不下沉到 nb-ui。
+- 原地重写现有 `AgentProfileNavList.vue`，不创建 `Next`、`V2`、alias 或并行旧入口。当前父组件因路径不变会直接消费 replacement；本 Task 不另外改主页编排，也不把主页可用性写成 Lab-ready 通过。
+- 新增同目录 `AgentProfileNavList.types.ts` 持有 `AgentProfileNavItem` 与 load-status 类型；父组件只把现有 SFC type import 改为该文件的 type-only import，运行时接线与数据构造不变。fixture 与测试复用同一领域类型，不从 SFC 导出第二份合同。
+- 同名文档固定放在 `AgentProfileNavList.vue` 同目录，文件名为 `AgentProfileNavList.md`。这是 `component-index.ts` 能自动纳入 Lab 导航的唯一正确位置，不维护第二份组件清单。
 
-### 鍏�鍏辩粍浠跺彇鑸�
+### 公共组件取舍
 
-- 鎼滅储妗嗗�嶇敤 `@notnotype/nb-ui/components` 鐨� `FormInput`锛屼娇鐢� `type="search"`銆乣size="sm"` 鍜屽浘鏍囪兘鍔涳紱**涓嶅惎鐢� `clearable`**銆傛悳绱㈡�嗘彁渚涗笌鍘熺敓 input 鍏宠仈鐨勫彲瑙� label锛屼笉鎶� placeholder 褰撲綔鍞�涓�鍙�璁块棶鍚嶇О锛屽洜姝ゆ竻绌洪�氳繃缂栬緫璇� input 瀹屾垚锛屼笉澧炲姞棰濆�� Tab 鍋滈潬鐐癸紝涔熶笉寮曞叆鈥滄竻绌哄悗鐒︾偣褰掕繕 input鈥濈殑鏂板疄鐜板悎鍚屻��
-- 鐘舵�佸厓鏁版嵁浼樺厛澶嶇敤 nb-ui `Badge`銆俙Listbox` 鍙�鏈夊浐瀹氶�夐」缁撴瀯鍜屽崟 badge锛屾棤娉曟棤鎹熻〃杈� load status銆侀粯璁ゃ�乨irty銆佽�嗙洊璁℃暟鍥涚被骞惰�岄�嗗煙鐘舵�侊紱涓嶄负鍗曚釜棰嗗煙缁勪欢鎵╁睍鍏�鍏卞�氭彃妲� API銆�
-- 绌烘�佷繚鎸侀�嗗煙缁勪欢鍐呯殑绱у噾鏂囨湰鍧椼�俷b-ui `EmptyState` 闈㈠悜鍐呭�瑰尯鍩燂紝鏀惧叆 240px 瀵艰埅浼氬紩鍏ヤ笉蹇呰�佺殑鏍囬�樸�佸浘鏍囧拰鐣欑櫧銆�
-- 鍒楄〃缁х画浣跨敤鍘熺敓绾靛悜婊氬姩瀹瑰櫒鍜屽叏灞�缁嗘粴鍔ㄦ潯鏍峰紡锛屼笉寮曞叆 `ScrollArea`銆傚浐瀹氭悳绱�涓庨粯璁ゅ叆鍙ｃ�佸垪琛ㄧ嫭绔嬫粴鍔ㄧ敱鐪熷疄 Lab smoke 楠岃瘉锛屼笉鍐嶈�╂簮鐮� class 瀛楃�︿覆鍏呭綋琛屼负璇佹嵁銆�
+- 搜索框复用 `@notnotype/nb-ui/components` 的 `FormInput`，使用 `type="search"`、`size="sm"` 和图标能力；**不启用 `clearable`**。搜索框提供与原生 input 关联的可见 label，不把 placeholder 当作唯一可访问名称，因此清空通过编辑该 input 完成，不增加额外 Tab 停靠点，也不引入“清空后焦点归还 input”的新实现合同。
+- 状态元数据优先复用 nb-ui `Badge`。`Listbox` 只有固定选项结构和单 badge，无法无损表达 load status、默认、dirty、覆盖计数四类并行领域状态；不为单个领域组件扩展公共多插槽 API。
+- 空态保持领域组件内的紧凑文本块。nb-ui `EmptyState` 面向内容区域，放入 240px 导航会引入不必要的标题、图标和留白。
+- 列表继续使用原生纵向滚动容器和全局细滚动条样式，不引入 `ScrollArea`。固定搜索与默认入口、列表独立滚动由真实 Lab smoke 验证，不再让源码 class 字符串充当行为证据。
 
-### 闅愯棌閫氶亾涓庝富棰�
+### 隐藏通道与主题
 
-- 缁勪欢缁х画浣跨敤搴旂敤 i18n provider锛屾枃妗ｅ�傚疄澹版槑 `鏍囩��: [state:inject]`锛屽苟璇存槑鍙�娉ㄥ叆缈昏瘧鑳藉姏銆傚畠涓嶈�� store銆佽矾鐢便�佹祻瑙堝櫒瀛樺偍銆丄PI 鎴栦骇鍝佹暟鎹�锛屽洜姝ゆ棤闇�鐘舵�佸揩鐓т笖鍙�浠ュ湪 Lab 纭�瀹氭�ф寕杞姐��
-- 涓嶅�炲姞 `isLab`銆佽矾鐢卞垽鏂�銆佹棫涓婚�� fallback 鎴栧�夸富鏉′欢鍒嗘敮銆傜粍浠跺彧娑堣垂 nb-ui 宸茬櫥璁扮殑鏂囧瓧銆佽〃闈�銆佸垎闅斻�佸己璋冦�佺姸鎬併�佸渾瑙掋�侀棿璺濄�佺劍鐐瑰拰鍔ㄦ晥璇�涔� token銆�
-- 涓嶅湪鏈� Task 淇�鏀� `docs/specs/theme/system.md`銆�8 濂楁棫浜у搧涓婚�樸�丟lobal Config銆侀�栧抚涓婚�樻垨娴�灞傚�夸富锛涜繖浜涗粛灞炰簬鍚庣画 C銆�
+- 组件继续使用应用 i18n provider，文档如实声明 `标签: [state:inject]`，并说明只注入翻译能力。它不读 store、路由、浏览器存储、API 或产品数据，因此无需状态快照且可以在 Lab 确定性挂载。
+- 不增加 `isLab`、路由判断、旧主题 fallback 或宿主条件分支。组件只消费 nb-ui 已登记的文字、表面、分隔、强调、状态、圆角、间距、焦点和动效语义 token。
+- 不在本 Task 修改 `docs/specs/theme/system.md`、8 套旧产品主题、Global Config、首帧主题或浮层宿主；这些仍属于后续 C。
 
-### 鎼滅储涓庨�夋嫨琛ュ厖绾︽潫
+### 搜索与选择补充约束
 
-- 缁勪欢涓嶅惎鐢� nb-ui `FormInput` 鐨� `clearable`锛涘洜姝� Tab 搴忓垪涓嶅寘鍚�棰濆�栨竻绌烘寜閽�銆傜敤鎴烽�氳繃鍘熺敓鎼滅储 input 鍒犻櫎鏂囧瓧娓呯┖绛涢�夛紝鐒︾偣濮嬬粓鐣欏湪璇� input銆�
+- 组件不启用 nb-ui `FormInput` 的 `clearable`；因此 Tab 序列不包含额外清空按钮。用户通过原生搜索 input 删除文字清空筛选，焦点始终留在该 input。
 
 ```ts
 type AgentProfileNavItem = {
@@ -73,158 +73,158 @@ type AgentProfileNavItem = {
 
 interface AgentProfileNavListProps {
     items: AgentProfileNavItem[];
-    /** 绌轰覆琛ㄧず榛樿�よ�剧疆椤碉紱鍙楁帶锛岀粍浠朵笉鑷�琛屼慨鏀广�� */
+    /** 空串表示默认设置页；受控，组件不自行修改。 */
     activeKey: string;
-    /** 鍘熷�嬫悳绱㈣緭鍏ワ紱鍙楁帶锛岀粍浠跺彧鐢� trim 鍚庣殑灏忓啓鍊艰繃婊ゃ�� */
+    /** 原始搜索输入；受控，组件只用 trim 后的小写值过滤。 */
     search: string;
-    /** 榛樿�よ�剧疆椤垫槸鍚︽湁鏈�淇濆瓨鏀瑰姩銆� */
+    /** 默认设置页是否有未保存改动。 */
     defaultsDirty: boolean;
 }
 
 interface AgentProfileNavListEmits {
-    /** 鐐瑰嚮榛樿�ら〉鎴� Profile 鏃跺彂鍑虹洰鏍� key锛涢噸澶嶇偣鍑诲綋鍓嶉」浠嶅彂鍑恒�� */
+    /** 点击默认页或 Profile 时发出目标 key；重复点击当前项仍发出。 */
     (event: "update:activeKey", value: string): void;
-    /** 姣忔�℃悳绱㈣緭鍏ュ彉鍖栨椂鍙戝嚭鍘熷�嬪瓧绗︿覆锛屼笉鏇胯皟鐢ㄦ柟 trim銆� */
+    /** 每次搜索输入变化时发出原始字符串，不替调用方 trim。 */
     (event: "update:search", value: string): void;
 }
 ```
 
-- 鎼滅储涓哄ぇ灏忓啓涓嶆晱鎰熺殑 `includes`锛屽悓鏃跺尮閰� `name` 涓� `profileKey`锛涗笉澧炲姞妯＄硦鎼滅储銆佹嫾闊炽�佹帓搴忔垨楂樹寒銆�
-- 鎼滅储鍙�杩囨护 Profile 鍒楄〃锛屼笉闅愯棌榛樿�よ�剧疆鍏ュ彛锛屼笉淇�鏀� `activeKey`銆傚綋鍓� Profile 琚�杩囨护鎺夋椂锛岃�︽儏鐘舵�佷繚鎸佷笉鍙橈紱娓呯┖鎼滅储鍚庡綋鍓嶆爣璁版仮澶嶃�傜敱浜庢悳绱㈡�嗕笉鍚�鐢� `clearable`锛屾竻绌哄姩浣滄槸鐢ㄦ埛鍦ㄥ師鐢熸悳绱� input 涓�鍒犻櫎鏂囧瓧锛岀劍鐐瑰�嬬粓淇濈暀鍦ㄨ�� input銆�
-- 闈� `loaded` Profile 浠嶅彲閫夋嫨銆俵oad status 鏄�璇存槑淇℃伅锛屼笉鍦ㄥ�艰埅灞傛搮鑷�鏀瑰彉璇︽儏椤垫槸鍚﹀彲鐢ㄣ��
-- `items` 涓虹┖鏃舵樉绀衡�滄病鏈夊彲閰嶇疆鐨� Profile鈥濓紱`items` 闈炵┖浣嗚繃婊ょ粨鏋滀负绌烘椂鏄剧ず鈥滄病鏈夊尮閰嶇殑 Profile鈥濄��
-- 鏈�鐭� `activeKey` 涓嶈Е鍙戣嚜鍔� emit锛屼篃涓嶄吉閫犲綋鍓嶉」锛涜皟鐢ㄦ柟缁х画璐熻矗绾犳�ｃ��
-- 娌℃湁 slots銆乪xpose 鎴栬嚜瀹氫箟绂佺敤/鍙�璇�/loading props銆俈ue 榛樿�� attrs 钀藉埌鍗曚竴鏍硅妭鐐癸紝渚� `class`銆乣style`銆乣data-*` 鍜屽彲璁块棶灞炴�ф墿灞曘��
+- 搜索为大小写不敏感的 `includes`，同时匹配 `name` 与 `profileKey`；不增加模糊搜索、拼音、排序或高亮。
+- 搜索只过滤 Profile 列表，不隐藏默认设置入口，不修改 `activeKey`。当前 Profile 被过滤掉时，详情状态保持不变；清空搜索后当前标记恢复。由于搜索框不启用 `clearable`，清空动作是用户在原生搜索 input 中删除文字，焦点始终保留在该 input。
+- 非 `loaded` Profile 仍可选择。load status 是说明信息，不在导航层擅自改变详情页是否可用。
+- `items` 为空时显示“没有可配置的 Profile”；`items` 非空但过滤结果为空时显示“没有匹配的 Profile”。
+- 未知 `activeKey` 不触发自动 emit，也不伪造当前项；调用方继续负责纠正。
+- 没有 slots、expose 或自定义禁用/只读/loading props。Vue 默认 attrs 落到单一根节点，供 `class`、`style`、`data-*` 和可访问属性扩展。
 
-### 淇℃伅灞傜骇涓庣姸鎬佽〃杈�
+### 信息层级与状态表达
 
-- 鏍硅妭鐐规槸鏈夊彲瑙佹爣棰樺叧鑱旂殑璁剧疆椤靛�艰埅 landmark銆傜粨鏋勯『搴忓浐瀹氫负鎼滅储銆侀粯璁よ�剧疆鍏ュ彛銆丳rofile 鍖烘爣棰樸�佺嫭绔嬫粴鍔ㄥ垪琛ㄣ��
-- 姣忚�屼富淇℃伅鏄�鍚嶇О锛宍profileKey` 鏄�娆′俊鎭�锛涢暱鍚嶇О鍜岄暱 key 鎴�鏂�浣嗕笉鎾戠牬杞ㄩ亾锛屽畬鏁村�间粛淇濈暀鍦� DOM 鍙�璁块棶鍚嶇О涓�锛屽苟鎻愪緵鎸囬拡鍙�鍙戠幇鐨勫畬鏁存枃鏈�銆�
-- 褰撳墠椤逛娇鐢ㄦ暣琛屽己璋冨簳銆佸己璋冩枃瀛椼�佹寔缁�鍙�瑙侀�夋嫨鍥炬爣鍜� `aria-current="page"`锛涗笉浣跨敤甯搁┗宸﹁竟妗嗐�傞粯璁ら〉涓� Profile 琛岄噰鐢ㄥ悓涓�閫夋嫨璇�娉曘��
-- load status 浣跨敤鎸佺画鍙�瑙佺殑鐭�鏂囨�堜笌鍥炬爣锛屼笉鍙�鐢ㄨ壊鐐癸細`loaded` 涓� success锛宍compiling` 涓� accent锛宍not_compiled` / `compile_stale` 涓� warning锛宍compile_failed` / `compiled_load_failed` / `source_error` 涓� danger銆傛墍鏈変竷绉嶇姸鎬侀兘浣跨敤鐜版湁 i18n 鏂囨�堛��
-- `isDefault` 鏄剧ず鈥滃綋鍓嶉粯璁も�濊��涔夛紝`dirty` 鏄剧ず鈥滄湁鏈�淇濆瓨鐨勪慨鏀光�濊��涔夛紝`overrideCount > 0` 鏄剧ず鏈�鍦板寲璁℃暟锛涗笁鑰呭潎涓嶈兘鍙�闈犻�滆壊鎴� `title`銆傚�氫釜寰界珷鍏佽�告崲琛岋紝涓嶈兘鎸ゅ帇鍚嶇О杞ㄩ亾鎴栨敼鍙樻寜閽�澶栧�姐��
-- `defaultsDirty` 鍦ㄩ粯璁よ�剧疆琛屼娇鐢ㄥ悓涓� warning 璇�娉曘�俙overrideCount === 0` 涓嶆樉绀鸿�℃暟寰界珷銆�
-- `compiling` 鍙�浠ユ湁鍙� token 鎺у埗鐨勫姩鏁堬紝浣嗗繀椤诲悓鏃舵湁闈欐�佸浘鏍囦笌鏂囧瓧锛沗prefers-reduced-motion` 涓嬪仠姝㈤潪蹇呰�佸姩鐢汇��
+- 根节点是有可见标题关联的设置页导航 landmark。结构顺序固定为搜索、默认设置入口、Profile 区标题、独立滚动列表。
+- 每行主信息是名称，`profileKey` 是次信息；长名称和长 key 截断但不撑破轨道，完整值仍保留在 DOM 可访问名称中，并提供指针可发现的完整文本。
+- 当前项使用整行强调底、强调文字、持续可见选择图标和 `aria-current="page"`；不使用常驻左边框。默认页与 Profile 行采用同一选择语法。
+- load status 使用持续可见的短文案与图标，不只用色点：`loaded` 为 success，`compiling` 为 accent，`not_compiled` / `compile_stale` 为 warning，`compile_failed` / `compiled_load_failed` / `source_error` 为 danger。所有七种状态都使用现有 i18n 文案。
+- `isDefault` 显示“当前默认”语义，`dirty` 显示“有未保存的修改”语义，`overrideCount > 0` 显示本地化计数；三者均不能只靠颜色或 `title`。多个徽章允许换行，不能挤压名称轨道或改变按钮外宽。
+- `defaultsDirty` 在默认设置行使用同一 warning 语法。`overrideCount === 0` 不显示计数徽章。
+- `compiling` 可以有受 token 控制的动效，但必须同时有静态图标与文字；`prefers-reduced-motion` 下停止非必要动画。
 
-### 閿�鐩樸�佺劍鐐逛笌 ARIA
+### 键盘、焦点与 ARIA
 
-| 鍦烘櫙 | 鍚堝悓 |
+| 场景 | 合同 |
 | --- | --- |
-| Tab | 椤哄簭杩涘叆鎼滅储 input銆侀粯璁よ�剧疆鎸夐挳銆佹瘡涓�鍙�瑙� Profile 鎸夐挳锛涚┖鎬佷笉鏄� Tab 鍋滈潬鐐广�傛悳绱�涓嶅惎鐢� nb-ui `FormInput` 鐨� `clearable`锛屽洜姝や笉瀛樺湪棰濆�栨竻绌烘寜閽�鍋滈潬鐐广�� |
-| Enter / Space | 鍘熺敓鎸夐挳瑙﹀彂涓�娆� `update:activeKey`锛屽垎鍒�鎼哄甫绌轰覆鎴� `profileKey`銆� |
-| 鏂瑰悜閿� / Home / End | 涓嶈嚜瀹氫箟銆傝�ョ粍浠舵槸椤甸潰瀵艰埅锛屼笉鍐掑厖 `listbox`锛涙悳绱㈡�嗘壙鎷呭揩閫熷畾浣嶃�� |
-| 鎼滅储杩囨护 | 鐒︾偣淇濈暀鍦ㄦ悳绱� input锛涜繃婊や笉涓诲姩鎶婄劍鐐规垨閫変腑鐘舵�佺Щ鍒伴�栭」銆傛竻绌虹敱 input 缂栬緫瀹屾垚銆� |
-| 褰撳墠椤� | 鎭板ソ涓�涓�鍙�瑙佹寜閽�鍙�甯� `aria-current="page"`锛涘綋鍓嶉」琚�杩囨护鎴� key 鏈�鐭ユ椂鍙�瑙佸垪琛ㄦ病鏈変吉閫� current銆� |
-| 鐘舵�� | 鐘舵�佹枃妗堜綅浜庢寜閽�鍙�璁块棶鍐呭�逛腑锛涜�呴グ鍥炬爣 `aria-hidden`锛屼笉璁╅�滆壊鎴� `title` 鎴愪负鍞�涓�淇℃伅婧愩�� |
-| 鎸傝浇/鍗歌浇 | 涓嶈嚜鍔ㄦ姠鐒︾偣锛涚粍浠舵病鏈夋诞灞傦紝涔熸病鏈夌劍鐐瑰綊杩樿矗浠汇�� |
+| Tab | 顺序进入搜索 input、默认设置按钮、每个可见 Profile 按钮；空态不是 Tab 停靠点。搜索不启用 nb-ui `FormInput` 的 `clearable`，因此不存在额外清空按钮停靠点。 |
+| Enter / Space | 原生按钮触发一次 `update:activeKey`，分别携带空串或 `profileKey`。 |
+| 方向键 / Home / End | 不自定义。该组件是页面导航，不冒充 `listbox`；搜索框承担快速定位。 |
+| 搜索过滤 | 焦点保留在搜索 input；过滤不主动把焦点或选中状态移到首项。清空由 input 编辑完成。 |
+| 当前项 | 恰好一个可见按钮可带 `aria-current="page"`；当前项被过滤或 key 未知时可见列表没有伪造 current。 |
+| 状态 | 状态文案位于按钮可访问内容中；装饰图标 `aria-hidden`，不让颜色或 `title` 成为唯一信息源。 |
+| 挂载/卸载 | 不自动抢焦点；组件没有浮层，也没有焦点归还责任。 |
 
-## 纭�瀹氭�� fixture
+## 确定性 fixture
 
-鏂板�� `packages/neuro-book/app/component-lab/fixtures/AgentProfileNavListFixture.vue`锛屽湪 `fixtures/index.ts` 鍙�鐧昏�颁互涓嬪満鏅�鍜� loader銆俧ixture 鍙�鎸佹湁褰撳墠鍦烘櫙鐨勫唴瀛樻�侊紝鐩戝惉鍦烘櫙鎴� Lab 鏁版嵁杩樺師鍚庨噸缃�锛涙瘡娆� `update:*` 鍏堟洿鏂板彈鎺� ref锛屽啀閫氳繃 `useLabEventSink()` 涓婃姤鍘熶簨浠跺悕涓� payload銆�
+新增 `packages/neuro-book/app/component-lab/fixtures/AgentProfileNavListFixture.vue`，在 `fixtures/index.ts` 只登记以下场景和 loader。fixture 只持有当前场景的内存态，监听场景或 Lab 数据还原后重置；每次 `update:*` 先更新受控 ref，再通过 `useLabEventSink()` 上报原事件名与 payload。
 
-| 鍦烘櫙 id | 鏍囩�� | 鍒濆�嬭緭鍏ヤ笌瑙傚療閲嶇偣 |
+| 场景 id | 标签 | 初始输入与观察重点 |
 | --- | --- | --- |
-| `statuses` | 鐘舵�佸叏闆� | 涓冧釜鍥哄畾 Profile 鍚勮�嗙洊涓�绉� load status锛涘叾涓�涓�椤归�変腑銆佷竴椤� dirty銆佷竴椤瑰綋鍓嶉粯璁ゃ�佷竴椤规湁瑕嗙洊璁℃暟锛岄獙璇佸苟琛屽厓鏁版嵁灞傜骇銆� |
-| `defaults` | 榛樿�よ�剧疆 | `activeKey=""`銆乣defaultsDirty=true`锛岄獙璇侀粯璁ら〉 current 涓庢湭淇濆瓨璇�涔夈�� |
-| `long-list` | 闀垮垪琛ㄤ笌闀挎枃鏈� | 鍥哄畾鐢熸垚涓嶅皯浜� 30 椤癸紝鍚�瓒呴暱涓�鑻辨枃鍚嶇О銆侀暱 key 鍜屽�氬窘绔犺�岋紱fixture 缁欑粍浠舵槑纭�楂樺害锛岄獙璇佸垪琛ㄨ嚜韬�婊氬姩銆� |
-| `empty` | 绌哄垪琛� | `items=[]`銆佺┖鎼滅储锛岄獙璇侀�嗗煙绌烘�佷笖榛樿�よ�剧疆浠嶅彲鎿嶄綔銆� |
-| `no-match` | 鎼滅储鏃犲尮閰� | 闈炵┖ items 鍔犲浐瀹氭棤鍖归厤鎼滅储璇嶏紝楠岃瘉鏃犲尮閰嶆枃妗堛�佹悳绱㈢紪杈戝拰娓呯┖鍚庢仮澶嶃�� |
+| `statuses` | 状态全集 | 七个固定 Profile 各覆盖一种 load status；其中一项选中、一项 dirty、一项当前默认、一项有覆盖计数，验证并行元数据层级。 |
+| `defaults` | 默认设置 | `activeKey=""`、`defaultsDirty=true`，验证默认页 current 与未保存语义。 |
+| `long-list` | 长列表与长文本 | 固定生成不少于 30 项，含超长中英文名称、长 key 和多徽章行；fixture 给组件明确高度，验证列表自身滚动。 |
+| `empty` | 空列表 | `items=[]`、空搜索，验证领域空态且默认设置仍可操作。 |
+| `no-match` | 搜索无匹配 | 非空 items 加固定无匹配搜索词，验证无匹配文案、搜索编辑和清空后恢复。 |
 
-fixture 鐨� JSON 鏁版嵁鍙�浣跨敤鍙�搴忓垪鍖栧瓧娈碉紝涓嶈�诲彇鐪熷疄 Profile銆侀厤缃�銆乻tore銆丄PI銆佹祻瑙堝櫒瀛樺偍銆丳rovider/Model銆丳roject 鎴� Session銆傚垪琛ㄧ敓鎴愯�勫垯鍥哄畾锛屼笉浣跨敤褰撳墠鏃堕棿銆侀殢鏈烘暟鎴栨湰鏈烘暟鎹�銆�
+fixture 的 JSON 数据只使用可序列化字段，不读取真实 Profile、配置、store、API、浏览器存储、Provider/Model、Project 或 Session。列表生成规则固定，不使用当前时间、随机数或本机数据。
 
-## 瀹炴柦椤哄簭涓庢��鏌ョ偣
+## 实施顺序与检查点
 
-### 闃舵�� 0锛氬綊鍥犲熀绾�
+### 阶段 0：归因基线
 
-1. 鍦ㄥ紑濮嬫簮鐮佹敼鍔ㄥ墠璁板綍 revision銆佸伐浣滄爲鍜屽彈褰卞搷鍛戒护鐨勫綋鍓嶇粨鏋溿��
-2. 瀵瑰綋鍓嶅凡鏈夌殑鍏ㄥ眬澶辫触寤虹珛 ledger锛氬懡浠ゃ�乧wd銆乪xit code銆侀敊璇�鍘熸枃銆佹姤閿欒矾寰勩�侀�栨�″紩鍏ユ壒娆″拰鎭㈠�嶆潯浠躲�傛棤娉曚粠鍘嗗彶纭�瀹氶�栨�℃壒娆℃椂鏄庣‘鍐欌�滄湭楠岃瘉鈥濓紝涓嶇寽娴嬨��
-3. 鑻ュ疄鐜版椂 LSP 鍙�鐢�锛屽�� `AgentProfileNavList` 涓� `AgentProfileNavItem` 閲嶆柊鎵ц�� references锛涗粛涓嶅彲鐢ㄥ垯鍦� walkthrough 淇濈暀绮剧‘澶辫触锛屽苟鐢ㄦ枃鏈�鎼滅储澶嶆牳璋冪敤鏂广��
+1. 在开始源码改动前记录 revision、工作树和受影响命令的当前结果。
+2. 对当前已有的全局失败建立 ledger：命令、cwd、exit code、错误原文、报错路径、首次引入批次和恢复条件。无法从历史确定首次批次时明确写“未验证”，不猜测。
+3. 若实现时 LSP 可用，对 `AgentProfileNavList` 与 `AgentProfileNavItem` 重新执行 references；仍不可用则在 walkthrough 保留精确失败，并用文本搜索复核调用方。
 
-### 闃舵�� 1锛氭枃妗ｅ拰 fixture 鍏堣��
+### 阶段 1：文档和 fixture 先行
 
-1. 鏂板�� `AgentProfileNavList.md`锛屽啓鍏ヤ笂杩� props/emits/slots/attrs銆佺姸鎬併�佸竷灞�銆侀敭鐩樸�丄RIA銆佷笉鏀�鎸侀」鍜� `state:inject` 鐞嗙敱銆�
-2. 鏂板�� `AgentProfileNavList.types.ts`銆乫ixture 涓庝簲涓�鍦烘櫙鐧昏�帮紝浣嗘殏涓嶆敼鍙樿�嗚�夊疄鐜般��
-3. 杩愯�岀粍浠剁储寮曡仛鐒︽祴璇曪紝纭�璁ゆ枃妗ｈ嚜鍔ㄨ繘鍏� `settings` 鍒嗙粍銆乫ixture 鍙�鍙戠幇銆佸満鏅�閲嶇疆涓庝簨浠舵棩蹇楃‘瀹氥��
+1. 新增 `AgentProfileNavList.md`，写入上述 props/emits/slots/attrs、状态、布局、键盘、ARIA、不支持项和 `state:inject` 理由。
+2. 新增 `AgentProfileNavList.types.ts`、fixture 与五个场景登记，但暂不改变视觉实现。
+3. 运行组件索引聚焦测试，确认文档自动进入 `settings` 分组、fixture 可发现、场景重置与事件日志确定。
 
-**寮�鍙戣�呮��鏌ョ偣 A**锛氬湪 Lab 鏌ョ湅鏂囨。鍜屽満鏅�鏁版嵁锛岀‘璁や笁椤逛骇鍝佸彇鑸嶏細鍚嶇О/key/鍏冩暟鎹�鐨勪俊鎭�灞傜骇锛涗竷绉� load status 閲囩敤鎸佺画鍙�瑙佺煭鏂囨�堬紱`390 脳 844` 缁х画浣跨敤鍥哄畾鎼滅储鍔犵旱鍚戝垪琛�锛岃�屼笉鏄�妯�鍚戞潯鎴栨娊灞夈�侫gent 鎻愪緵妗岄潰涓庢墜鏈哄疄闄呯敾闈�銆佹浛浠ｆ柟妗堝拰褰卞搷锛涘緱鍒扮粨鏋滃墠涓嶈繘鍏ユ渶缁堣�嗚�夋敹鍙ｃ��
+**开发者检查点 A**：在 Lab 查看文档和场景数据，确认三项产品取舍：名称/key/元数据的信息层级；七种 load status 采用持续可见短文案；`390 × 844` 继续使用固定搜索加纵向列表，而不是横向条或抽屉。Agent 提供桌面与手机实际画面、替代方案和影响；得到结果前不进入最终视觉收口。
 
-### 闃舵�� 2锛氬師鍦� replacement
+### 阶段 2：原地 replacement
 
-1. 鍏堣ˉ鍙�澶辫触鐨勮仛鐒﹁�屼负娴嬭瘯锛屽啀鍘熷湴閲嶅啓缁勪欢锛涜縼绉诲埌 nb-ui `FormInput` / `Badge` 涓庤��涔� token銆俙FormInput` 涓嶅惎鐢� `clearable`锛屾祴璇曚笉涓烘湭閲囩敤鐨勬竻绌烘寜閽�寤虹珛鍚堝悓銆�
-2. 鏇存柊鐖剁粍浠跺敮涓�鐨� type-only import锛涗笉鏀瑰彉 `navItems` 鏋勯�犮�乣v-model` 鎺ョ嚎銆佽�剧疆淇濆瓨鎴栬�︽儏闈㈡澘銆�
-3. 鍒犻櫎 SFC 鍐呮棫绫诲瀷瀵煎嚭銆佹棫 `FormInput` 渚濊禆銆佽壊鐐�-only 鐘舵�併�佸乏渚� current 鎸囩ず鏉°�佹棫涓婚�樺彉閲忋�佸瓧闈㈠姩鏁堟椂闀垮拰 `transition-all`銆�
-4. 鏇存柊鏃у搷搴斿紡婧愮爜瀛楃�︿覆娴嬭瘯锛氱Щ闄� Profile 瀵艰埅鐨� class 鍖归厤锛岀敤缁勪欢琛屼负娴嬭瘯涓庣湡瀹� Lab scroll/overflow smoke 鎺ョ�¤�ュ悎鍚屻��
+1. 先补可失败的聚焦行为测试，再原地重写组件；迁移到 nb-ui `FormInput` / `Badge` 与语义 token。`FormInput` 不启用 `clearable`，测试不为未采用的清空按钮建立合同。
+2. 更新父组件唯一的 type-only import；不改变 `navItems` 构造、`v-model` 接线、设置保存或详情面板。
+3. 删除 SFC 内旧类型导出、旧 `FormInput` 依赖、色点-only 状态、左侧 current 指示条、旧主题变量、字面动效时长和 `transition-all`。
+4. 更新旧响应式源码字符串测试：移除 Profile 导航的 class 匹配，用组件行为测试与真实 Lab scroll/overflow smoke 接管该合同。
 
-### 闃舵�� 3锛氳嚜鍔� Lab 楠屾敹
+### 阶段 3：自动 Lab 验收
 
-1. 妗岄潰涓嶄綆浜� 1440px锛氶獙璇佹悳绱�涓庨粯璁ゅ叆鍙ｄ繚鎸佸彲瑙併�侀暱鍒楄〃鍙�鍦ㄥ唴閮ㄦ粴鍔ㄣ�佺姸鎬�/榛樿��/dirty/璁℃暟鍙�鍖哄垎銆佺劍鐐圭幆鍜屼簨浠� payload 姝ｇ‘銆�
-2. `390 脳 844`锛氶獙璇佹牳蹇冩搷浣滀粛瀹屾暣锛岄暱鍚嶇О/key/寰界珷涓嶉伄鎸°�佷笉浜х敓椤甸潰绾фí鍚戞孩鍑猴紝鎼滅储鍚庝粛鍙�閫夋嫨涓庢仮澶嶅垪琛ㄣ��
-3. 閿�鐩樼湡瀹� smoke锛歍ab 椤哄簭銆丒nter/Space 閫夋嫨銆乧urrent 璇�涔夈�佹悳绱㈣繃婊ゅ悗鐨勭劍鐐逛繚鎸併��
-4. 鑷冲皯鍦� nbook 涓庡彟涓�濂楀樊寮傛槑鏄剧殑 nb-ui 涓婚�樹笅楠岃瘉 token 娑堣垂锛涗笉浠ュ崟涓婚�樷�滅湅璧锋潵姝ｅ父鈥濇浛浠ｄ富棰樺悎鍚屻��
+1. 桌面不低于 1440px：验证搜索与默认入口保持可见、长列表只在内部滚动、状态/默认/dirty/计数可区分、焦点环和事件 payload 正确。
+2. `390 × 844`：验证核心操作仍完整，长名称/key/徽章不遮挡、不产生页面级横向溢出，搜索后仍可选择与恢复列表。
+3. 键盘真实 smoke：Tab 顺序、Enter/Space 选择、current 语义、搜索过滤后的焦点保持。
+4. 至少在 nbook 与另一套差异明显的 nb-ui 主题下验证 token 消费；不以单主题“看起来正常”替代主题合同。
 
-**寮�鍙戣�呮��鏌ョ偣 B**锛氭彁渚涚湡瀹� Lab 棣栫増渚涗汉宸ヨ�傛劅鍒ゆ柇銆備汉宸ラ獙鏀堕渶瑕佸崟鐙�鎺堟潈锛岃嚜鍔� smoke 涓嶆浛浠ｈ�ュ垽鏂�锛涙湭鑾峰緱缁撴灉鏃� Task 淇濇寔鏈�闂�鍚堬紝涓嶆妸鈥滄湭鍙嶉�堚�濊�颁负閫氳繃銆�
+**开发者检查点 B**：提供真实 Lab 首版供人工观感判断。人工验收需要单独授权，自动 smoke 不替代该判断；未获得结果时 Task 保持未闭合，不把“未反馈”记为通过。
 
-### 闃舵�� 4锛氳�板綍涓庝氦鎺�
+### 阶段 4：记录与交接
 
-1. 鎶婃渶缁堝喅绛栥�佽��鍚﹀喅鏂规�堛�佺被鍨�/涓婚��/i18n/fixture 闅愬惈渚濊禆銆佸け璐ヤ笌淇�澶嶅啓鍏� Task walkthrough銆�
-2. 瀵规瘮闃舵�� 0 涓庢渶缁堝叏灞�缁撴灉銆傛瘡涓�鏂板�炲け璐ユ敞鏄庣敱 t14 寮曞叆鍙婃仮澶嶆潯浠讹紱鏃㈡湁澶辫触淇濇寔鍘熷綊鍥狅紝涓嶇�肩粺鍐欌�滈�勬湡澶辫触鈥濄��
-3. 鎻愮偧鍚庣画鎵规�″彲澶嶇敤姝ラ�や笌鏈�缁勪欢鐗逛緥锛屼氦缁� Leader锛涗笉鍦ㄦ湰 Task 棰勫缓鍓╀綑缁勪欢浠诲姟鎴� C銆�
+1. 把最终决策、被否决方案、类型/主题/i18n/fixture 隐含依赖、失败与修复写入 Task walkthrough。
+2. 对比阶段 0 与最终全局结果。每个新增失败注明由 t14 引入及恢复条件；既有失败保持原归因，不笼统写“预期失败”。
+3. 提炼后续批次可复用步骤与本组件特例，交给 Leader；不在本 Task 预建剩余组件任务或 C。
 
-## 棰勮�℃敼鍔ㄦ枃浠�
+## 预计改动文件
 
 - `packages/neuro-book/app/components/novel-ide/settings/AgentProfileNavList.md`
 - `packages/neuro-book/app/components/novel-ide/settings/AgentProfileNavList.vue`
 - `packages/neuro-book/app/components/novel-ide/settings/AgentProfileNavList.types.ts`
 - `packages/neuro-book/app/components/novel-ide/settings/AgentProfileNavList.test.ts`
-- `packages/neuro-book/app/components/novel-ide/settings/NovelIdeAgentProfileModelSettingsPanel.vue`锛屼粎 type-only import
+- `packages/neuro-book/app/components/novel-ide/settings/NovelIdeAgentProfileModelSettingsPanel.vue`，仅 type-only import
 - `packages/neuro-book/app/component-lab/fixtures/AgentProfileNavListFixture.vue`
 - `packages/neuro-book/app/component-lab/fixtures/index.ts`
 - `packages/neuro-book/scripts/smoke/component-lab.ts`
-- `packages/neuro-book/app/utils/novel-ide-settings-responsive.contract.test.ts`锛屼粎绉婚櫎鐢辩湡瀹炶�屼负璇佹嵁鎺ョ�＄殑 Profile 婧愮爜瀛楃�︿覆鏂�瑷�
-- 鏈� Task 鐨� `walkthroughs/` 涓庡繀瑕� `evidences/`
+- `packages/neuro-book/app/utils/novel-ide-settings-responsive.contract.test.ts`，仅移除由真实行为证据接管的 Profile 源码字符串断言
+- 本 Task 的 `walkthroughs/` 与必要 `evidences/`
 
-榛樿�や笉淇�鏀� nb-ui 鍏�鍏辩粍浠跺疄鐜版垨 exports銆傝嫢鐜版湁 `FormInput` / `Badge` 鐨勫凡澹版槑鍚堝悓涓嶈冻锛屽仠姝㈡墿澶у叕鍏� API锛岃�板綍鍏蜂綋缂哄彛骞剁敱 Leader 鍐冲畾鐙�绔� Task銆�
+默认不修改 nb-ui 公共组件实现或 exports。若现有 `FormInput` / `Badge` 的已声明合同不足，停止扩大公共 API，记录具体缺口并由 Leader 决定独立 Task。
 
-## 楠岃瘉鐭╅樀
+## 验证矩阵
 
-瀹炵幇闃舵�垫寜浠ヤ笅椤哄簭涓茶�屾墽琛岋紝閬垮厤 nb-ui `nuxt prepare playground` 涓� Playwright webServer 骞跺彂鍐� `playground/.nuxt`锛�
+实现阶段按以下顺序串行执行，避免 nb-ui `nuxt prepare playground` 与 Playwright webServer 并发写 `playground/.nuxt`：
 
 1. `bun --cwd packages/neuro-book run test -- app/components/novel-ide/settings/AgentProfileNavList.test.ts app/component-lab app/utils/novel-ide-settings-responsive.contract.test.ts`
 2. `bun --cwd packages/nb-ui run test`
 3. `bun --cwd packages/nb-ui run typecheck`
 4. `bun --cwd packages/neuro-book run typecheck`
-5. 鍚�鍔ㄥ綋鍓� revision 鐨� Source Dev 鏈嶅姟锛屽啀杩愯�� `bun --cwd packages/neuro-book run smoke:component-lab -- --url <瀹為檯鍦板潃> --browser-executable <瀹為檯 Chromium>`锛涙湇鍔″拰鎴�鍥惧彧浣跨敤绯荤粺涓存椂鏍广��
-6. 杩愯�� Product 鎺掗櫎闂ㄧ�侊細鎸� t05/t06 宸查獙璇佺殑鏂规硶鎵ц�� `NODE_ENV=production bun x nuxt build --dotenv .env.product --preset node-server`锛屾��鏌� `.nuxt/product-raw` 鐨� Lab/fixture/寮�鍙戠粷瀵硅矾寰�/璇嗗埆鏍囪�板叏鏂囦笌璺�鐢辫〃鍧囨棤鍛戒腑锛屽苟鐢ㄥ悓涓�浜х墿纭�璁ゆ�ｅ紡璺�鐢卞彲鍛戒腑銆傝�ラ棬绂佸繀椤荤豢鑹诧紱涓嶅緱鐢ㄤ富搴旂敤鏈�鎺ョ嚎澶辫触鏇夸唬銆�
+5. 启动当前 revision 的 Source Dev 服务，再运行 `bun --cwd packages/neuro-book run smoke:component-lab -- --url <实际地址> --browser-executable <实际 Chromium>`；服务和截图只使用系统临时根。
+6. 运行 Product 排除门禁：按 t05/t06 已验证的方法执行 `NODE_ENV=production bun x nuxt build --dotenv .env.product --preset node-server`，检查 `.nuxt/product-raw` 的 Lab/fixture/开发绝对路径/识别标记全文与路由表均无命中，并用同一产物确认正式路由可命中。该门禁必须绿色；不得用主应用未接线失败替代。
 7. `bun run docs:check`
 8. `bun run governance:check`
 9. `git diff --check`
 
-涓婅堪绗� 1 鑷� 6 椤逛腑锛宍packages/nb-ui` 鑷�韬� test/typecheck銆丯euroBook Component Lab focused test/smoke 涓� Product 鎺掗櫎闂ㄧ�佸繀椤诲叏缁裤�傜敤浜� Product 鎺掗櫎鐨勭敓浜ф瀯寤哄拰浜х墿鎵�鎻忓睘浜庤�ョ‖闂ㄧ�侊紝涓嶈兘鎶婂畠鐨勫け璐ュ綊鍥犱簬涓婚〉鏈�鎺ュ叆銆傚彧鏈夌嫭绔嬩笖鑳藉�熷畾浣嶄负 NeuroBook 涓诲簲鐢ㄦ湭鎺ュ叆娑堣垂鑰呯殑闆嗘垚妫�鏌ワ紝鎵嶅彲浠ヨ�板綍涓鸿縼绉绘湡闂寸殑鍏佽�哥孩鑹诧紱姣忛」蹇呴』璁板綍鍛戒护銆乧wd銆佽矾寰勩�侀敊璇�鍘熸枃銆佸紩鍏ユ壒娆″拰鎭㈠�嶆潯浠躲�傝嫢 nb-ui銆丩ab 鎴� Product 鎺掗櫎澶辫触锛屽綋鍓嶆壒娆′笉寰楀�ｇО Lab-ready銆�
+上述第 1 至 6 项中，`packages/nb-ui` 自身 test/typecheck、NeuroBook Component Lab focused test/smoke 与 Product 排除门禁必须全绿。用于 Product 排除的生产构建和产物扫描属于该硬门禁，不能把它的失败归因于主页未接入。只有独立且能够定位为 NeuroBook 主应用未接入消费者的集成检查，才可以记录为迁移期间的允许红色；每项必须记录命令、cwd、路径、错误原文、引入批次和恢复条件。若 nb-ui、Lab 或 Product 排除失败，当前批次不得宣称 Lab-ready。
 
-鑱氱劍娴嬭瘯鑷冲皯瑕嗙洊锛氬ぇ灏忓啓涓嶆晱鎰熺殑 name/key 鎼滅储銆佸師濮� search emit銆侀粯璁�/Profile 閫夋嫨 payload銆侀噸澶嶉�夋嫨銆佷竷绉嶇姸鎬佹枃妗堛�乧urrent/dirty/default/override 璇�涔夈�佺┖鍒楄〃銆佹棤鍖归厤鍜屽綋鍓嶉」琚�杩囨护銆傜湡瀹� smoke 鑷冲皯瑕嗙洊锛歍ab/Enter/Space銆佺劍鐐瑰彲瑙併�佹棤棰濆�� clearable Tab 鍋滈潬鐐广�佸唴閮ㄦ粴鍔ㄣ�佹�岄潰涓� `390 脳 844` 婧㈠嚭銆佸満鏅�閲嶇疆銆佷簨浠舵棩蹇楀拰鍙屼富棰樸��
+聚焦测试至少覆盖：大小写不敏感的 name/key 搜索、原始 search emit、默认/Profile 选择 payload、重复选择、七种状态文案、current/dirty/default/override 语义、空列表、无匹配和当前项被过滤。真实 smoke 至少覆盖：Tab/Enter/Space、焦点可见、无额外 clearable Tab 停靠点、内部滚动、桌面与 `390 × 844` 溢出、场景重置、事件日志和双主题。
 
-Product 鎺掗櫎闂ㄧ�佸繀椤荤豢锛涗富椤电湡瀹炴祦绋嬨�佺嫭绔嬬殑涓诲簲鐢� typecheck 鎴栫敱鏈�鎺ュ叆娑堣垂鑰呯洿鎺ュ�艰嚧涓斾笉灞炰簬 Product 鎺掗櫎闂ㄧ�佺殑涓诲簲鐢ㄩ泦鎴愬け璐ワ紝鎵嶅彲杩涘叆绾㈣壊 ledger銆傛瘡椤硅�板綍鍛戒护銆乧wd銆佽矾寰勩�侀敊璇�鍘熸枃銆佸紩鍏ユ壒娆″拰鎭㈠�嶆潯浠讹紱绾㈣壊 revision 涓嶅緱 push銆佹彁 PR銆佸悎骞躲�佸彂甯冦�侀儴缃叉垨澹版槑鏁翠釜 Work 瀹屾垚銆�
+Product 排除门禁必须绿；主页真实流程、独立的主应用 typecheck 或由未接入消费者直接导致且不属于 Product 排除门禁的主应用集成失败，才可进入红色 ledger。每项记录命令、cwd、路径、错误原文、引入批次和恢复条件；红色 revision 不得 push、提 PR、合并、发布、部署或声明整个 Work 完成。
 
-## Lab-ready 楠屾敹
+## Lab-ready 验收
 
-- 鍚屽悕鏂囨。涓庡疄鐜颁竴鑷达紝`state:inject` 濡傚疄鍙嶆槧 i18n provider锛沺rops/emits/slots/attrs 鍙�鏈烘�版牳瀵广��
-- fixture 瑕嗙洊浜斾釜纭�瀹氭�у満鏅�锛岄噸澶嶆墦寮�銆佺紪杈戜笌杩樺師缁撴灉涓�鑷达紱涓嶄緷璧� API銆乻tore銆佹祻瑙堝櫒瀛樺偍鎴栫湡瀹� Profile銆�
-- 缁勪欢鍙�娑堣垂 nb-ui 璇�涔� token锛屼笉璇诲彇鏃� `theme.system` authority锛屼笉鍚� Lab/涓婚〉鏉′欢鍒嗘敮銆�
-- 鎼滅储涓庨�夋嫨淇濇寔鍙楁帶锛涢�変腑銆乨irty銆侀粯璁ゅ拰涓冪�嶇紪璇戠姸鎬佷笉鍙�渚濊禆棰滆壊鎴� `title`銆�
-- 妗岄潰涓� `390 脳 844` Lab 涓�鏃犲叧閿�閬�鎸℃垨椤甸潰绾фí鍚戞孩鍑猴紝闀垮悕绉般�侀暱 key 鍜屽�氬窘绔犱笉鎾戠牬甯冨眬锛屽垪琛ㄧ嫭绔嬫粴鍔ㄣ��
-- 鑱氱劍娴嬭瘯銆丆omponent Lab smoke銆乶b-ui test/typecheck銆丯euroBook typecheck 鍜屾枃妗ｆ不鐞嗘��鏌ュ潎鏈夊疄闄呯粨鏋滐紱鍏ㄥ眬绾㈣壊鍩虹嚎閫愭潯璁板綍锛屼笉鍐掑厖閫氳繃銆�
-- 涓や釜寮�鍙戣�呮��鏌ョ偣鐨勭粨璁哄啓鍏� walkthrough锛涙湭鎺堟潈鐨勪汉宸ラ獙鏀朵笉鍐欐垚宸插畬鎴愩��
+- 同名文档与实现一致，`state:inject` 如实反映 i18n provider；props/emits/slots/attrs 可机械核对。
+- fixture 覆盖五个确定性场景，重复打开、编辑与还原结果一致；不依赖 API、store、浏览器存储或真实 Profile。
+- 组件只消费 nb-ui 语义 token，不读取旧 `theme.system` authority，不含 Lab/主页条件分支。
+- 搜索与选择保持受控；选中、dirty、默认和七种编译状态不只依赖颜色或 `title`。
+- 桌面与 `390 × 844` Lab 中无关键遮挡或页面级横向溢出，长名称、长 key 和多徽章不撑破布局，列表独立滚动。
+- 聚焦测试、Component Lab smoke、nb-ui test/typecheck、NeuroBook typecheck 和文档治理检查均有实际结果；全局红色基线逐条记录，不冒充通过。
+- 两个开发者检查点的结论写入 walkthrough；未授权的人工验收不写成已完成。
 
-## 鍋滄�㈡潯浠�
+## 停止条件
 
-鍑虹幇浠ヤ笅浠讳竴鎯呭喌鏃跺仠姝㈡墿澶у疄鐜帮紝瀹屾垚鑼冨洿鍐呰瘉鎹�鍚庝氦缁� Leader 鎴栧紑鍙戣�呭喅瀹氾細
+出现以下任一情况时停止扩大实现，完成范围内证据后交给 Leader 或开发者决定：
 
-- 蹇呴』鏀瑰彉 `AgentProfileNavItem` 鏁版嵁璇�涔夈�佸叡浜� DTO銆丳rofile 鐘舵�佹満銆佷繚瀛�/缂栬瘧琛屼负鎴栬�︽儏椤靛彲鐢ㄦ�с��
-- 蹇呴』缁� nb-ui 鍏�鍏辩粍浠舵柊澧� API/token锛屾垨鍑虹幇涓や釜浠ヤ笂鍚屾牱鍚堢悊鐨勫叕寮�缁勪欢杈圭晫銆�
-- 蹇呴』淇�鏀� C 浜у搧涓婚�樺悎鍚屻��8 濂楁棫涓婚�樸�丟lobal Config銆侀�栧抚鎴栨诞灞傚�夸富銆�
-- 蹇呴』鏂板�炵湡瀹� API/store/鎸佷箙鍖栦緷璧栵紝鎴� fixture 闇�瑕佽�诲彇鐪熷疄 Project銆丼ession銆丳rovider/Model 鎴栫敤鎴锋枃浠躲��
-- 杩佺Щ闇�瑕佺户缁�鎵╁睍 `LabShell.vue`锛涜繖浼氬懡涓� t09 鐨勬仮澶嶆潯浠讹紝鍏堢敱 Leader 鎭㈠�� t09銆�
+- 必须改变 `AgentProfileNavItem` 数据语义、共享 DTO、Profile 状态机、保存/编译行为或详情页可用性。
+- 必须给 nb-ui 公共组件新增 API/token，或出现两个以上同样合理的公开组件边界。
+- 必须修改 C 产品主题合同、8 套旧主题、Global Config、首帧或浮层宿主。
+- 必须新增真实 API/store/持久化依赖，或 fixture 需要读取真实 Project、Session、Provider/Model 或用户文件。
+- 迁移需要继续扩展 `LabShell.vue`；这会命中 t09 的恢复条件，先由 Leader 恢复 t09。
 
-## 瀹屾垚鍚庣殑 Leader 鍔ㄤ綔
+## 完成后的 Leader 动作
 
-璇诲彇鏈� Task walkthrough锛屽垽鏂�鍝�浜涙�ラ�よ兘鎴愪负鎵归噺杩佺Щ鍚堝悓銆佸摢浜涘彧閫傜敤浜� Agent Profile 瀵艰埅锛屽啀鎸夊疄闄呬緷璧栧垱寤虹��涓�鎵� Agent 鑷�涓昏縼绉� Task銆備笉寰椾粎鍑�鏈� Task 鎴愬姛灏遍�勫缓鍓╀綑鍏ㄩ儴缁勪欢浠诲姟锛涚洰鏍囩粍浠堕泦鍚堣揪鍒� Lab-ready 鍚庢墠鍒涘缓 C銆�
+读取本 Task walkthrough，判断哪些步骤能成为批量迁移合同、哪些只适用于 Agent Profile 导航，再按实际依赖创建第一批 Agent 自主迁移 Task。不得仅凭本 Task 成功就预建剩余全部组件任务；目标组件集合达到 Lab-ready 后才创建 C。
