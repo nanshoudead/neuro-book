@@ -13,7 +13,7 @@ import type {PluginDescriptor} from "nbook/manifest";
 import {readServerConfig, ServerConfigError} from "./config";
 import type {ServerConfig} from "./config";
 import {ServerAssemblyError, startServer} from "./start";
-import type {RunningServer} from "./start";
+import type {RunningServer, StartServerOptions} from "./start";
 
 function readConfigOrExit(): ServerConfig {
     try {
@@ -25,12 +25,13 @@ function readConfigOrExit(): ServerConfig {
     }
 }
 
-function startOrExit(config: ServerConfig, manifest: ReadonlyArray<PluginDescriptor>, projectEntry: string | undefined): RunningServer {
+function startOrExit(config: ServerConfig, manifest: ReadonlyArray<PluginDescriptor>, options: ServerProcessOptions): RunningServer {
     try {
         return startServer({
             config,
             manifest,
-            projectEntry,
+            projectEntry: options.projectEntry,
+            devTask: options.devTask,
             stopInput: config.stopStdin ? process.stdin : null,
             onListening: (url) => {
                 console.log(`Listening on ${url}`);
@@ -46,9 +47,15 @@ function startOrExit(config: ServerConfig, manifest: ReadonlyArray<PluginDescrip
     }
 }
 
-/** `projectEntry` 是项目宿主入口；缺省为产品入口，开发入口给开发用的项目入口。 */
-export async function runServerProcess(manifest: ReadonlyArray<PluginDescriptor>, options: {readonly projectEntry?: string} = {}): Promise<never> {
-    const server = startOrExit(readConfigOrExit(), manifest, options.projectEntry);
+export interface ServerProcessOptions {
+    /** 项目宿主入口；缺省为产品入口，开发入口给开发用的项目入口。 */
+    readonly projectEntry?: string;
+    /** 只有开发入口给出（样例作品）。 */
+    readonly devTask?: StartServerOptions["devTask"];
+}
+
+export async function runServerProcess(manifest: ReadonlyArray<PluginDescriptor>, options: ServerProcessOptions = {}): Promise<never> {
+    const server = startOrExit(readConfigOrExit(), manifest, options);
     const {exitCode} = await server.stopped;
     process.exit(exitCode);
 }

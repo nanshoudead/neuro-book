@@ -79,6 +79,34 @@ const types = (): string[] => events.map((event) => event.type);
 const count = (type: DevEvent["type"]): number => events.filter((event) => event.type === type).length;
 const untilCount = (type: DevEvent["type"], expected: number) => waitUntil(`${type} 出现 ${String(expected)} 次`, () => count(type) >= expected, {timeoutMs: 15_000});
 
+describe("样例结果行的先后", () => {
+    it("样例结果行在就绪探测返回之前就到：等就绪结算后再转发，排在 backend-ready 之后", async () => {
+        const lines: string[] = [];
+        let backendUrl = "";
+        const supervisor = createDevSupervisor({
+            clock: manualClock(),
+            onEvent: (event) => lines.push(`[dev] ${event.type}`),
+            launch: () => spawnBackend({
+                command: [process.execPath, join(PACKAGE_ROOT, "src/server/dev/testing/sample-race-backend.ts")],
+                cwd: PACKAGE_ROOT,
+                env: process.env,
+                output: (line) => {
+                    lines.push(line);
+                    backendUrl = /^Listening on (\S+)/u.exec(line)?.[1] ?? backendUrl;
+                },
+            }),
+        });
+        supervisor.start();
+        // 后端先打样例结果行、再打 health-held；等看到后者，样例结果行已经到过监督进程这边。
+        await waitUntil("后端挂住就绪探测", () => lines.includes("health-held"), {timeoutMs: 15_000});
+        expect(lines).not.toContain("[dev] open-path /?project=sample");
+        await (await fetch(new URL("/release", backendUrl))).text();
+        await waitUntil("样例结果行转发出来", () => lines.includes("[dev] open-path /?project=sample"), {timeoutMs: 15_000});
+        expect(lines.filter((line) => line.startsWith("[dev] ")).slice(-2)).toEqual(["[dev] backend-ready", "[dev] open-path /?project=sample"]);
+        expect(await supervisor.stop()).toBe(0);
+    }, 30_000);
+});
+
 describe("开发监督进程：后端重启", () => {
     it("改动去抖后有序重启：旧进程经标准输入停止并以 0 退出之后，新进程才在同一端口启动", async () => {
         const clock = manualClock();

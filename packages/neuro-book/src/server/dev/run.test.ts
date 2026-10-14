@@ -132,6 +132,20 @@ describe("开发会话（真实子进程）", () => {
         expect(await heldBody).toBe("cut");
     }, 30_000);
 
+    it("NBDEV_SAMPLE=1：每一代后端的样例结果行都排在它的 backend-ready 之后（nbdev 按最后一行 backend-ready 划代）", async () => {
+        const sampleRoot = join(tmp, `sample-${String(sequence + 1)}`);
+        await mkdir(sampleRoot, {recursive: true});
+        const dev = await startDev({NBDEV_SAMPLE: "1", NBOOK_TEST_SAMPLE_ROOT: sampleRoot});
+        await dev.waitFor(/open-path/u);
+        await writeFile(join(dev.watchRoot, "plugin.ts"), "export {};\n");
+        await dev.waitFor(/open-path[\s\S]*open-path/u);
+        const events = dev.devLines().filter((line) => /^\[dev\] (?:backend-ready|open-path|sample-failed)\b/u.test(line)).map((line) => line.split(" ")[1]);
+        expect(events).toEqual(["backend-ready", "open-path", "backend-ready", "open-path"]);
+        expect(dev.devLines().filter((line) => line.startsWith("[dev] open-path")).every((line) => line === "[dev] open-path /?project=sample")).toBe(true);
+        dev.signal("SIGTERM");
+        expect(await dev.exit).toBe(0);
+    }, 30_000);
+
     it("页面端口被占用：以 1 退出，不启动后端", async () => {
         const occupant = Bun.serve({hostname: "127.0.0.1", port: 0, fetch: () => new Response()});
         try {

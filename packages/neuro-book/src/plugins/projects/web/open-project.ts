@@ -13,6 +13,7 @@ import type {DisplayLocale, DisplayText, LocalizedText} from "nbook/shared/local
 
 import {OPEN_PROJECT_COMMAND, projectsRemoteContract} from "../shared/contracts";
 import type {ProjectView} from "../shared/contracts";
+import {projectUrl} from "../shared/project-url";
 import {projectsText, retryTitle} from "./messages";
 
 export {OPEN_PROJECT_COMMAND};
@@ -25,11 +26,6 @@ export const OPEN_PROJECT_DECLARATION: Omit<CommandDeclaration, "args"> = {
     // 整页重新加载会打断 Agent 自己所在的窗口；先只给人用。
     expose: {agent: "never"},
 };
-
-/** 打开某个项目的地址：短名写在地址栏，切换项目即整页加载。 */
-export function projectUrl(name: string): string {
-    return `/?project=${encodeURIComponent(name)}`;
-}
 
 const ACTIVE_STATES: ReadonlySet<ProjectView["state"]> = new Set(["starting", "running", "idle-grace"]);
 
