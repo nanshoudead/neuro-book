@@ -30,7 +30,7 @@ type Emits = {
 
 ## 页面合同
 
-上面三个标记在页面组件挂上时就有了，页面按需加载的主体可能还没出来。页面自己在首屏的主体挂上之后，在根元素上加 `data-page-rendered`（空值）；主体同步渲染的页面直接写在根上（`NotFoundPage`），按需加载主体的页面等它挂上再加（工作台的 `/` 与 `/workbench`，见 `plugins/workbench/web/home-page.ts`）。页面里还在加载的区域标 `aria-busy="true"`，加载完去掉。截图工具 `page:shot`（`scripts/page-shot.ts`）按这两条与动画判断画面是否就绪；不给 `data-page-rendered` 的页面（目前是 `/lab`，它有自己的 `lab:shot`）截不了。
+上面三个标记在页面组件挂上时就有了，页面按需加载的主体可能还没出来。页面自己在首屏的主体挂上之后，在根元素上加 `data-page-rendered`（空值）；主体同步渲染的页面直接写在根上（`NotFoundPage`），按需加载主体的页面等它挂上再加（工作台的 `/` 与 `/workbench`，见 `plugins/workbench/web/home-page.ts`）。页面里还在加载的区域标 `aria-busy="true"`，加载完（成功或失败）去掉；只有骨架、转圈这类动画不够，它们多是无限循环的，截图工具不等。截图工具 `page:shot`（`scripts/page-shot.ts`）按这两条与有限的动画判断画面是否就绪；不给 `data-page-rendered` 的页面（目前是 `/lab`，它有自己的 `lab:shot`）截不了。
 
 ## 隐藏通道理由
 
