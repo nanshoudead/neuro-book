@@ -350,6 +350,27 @@ describe("提交失败之后的补救", () => {
         expect(await changedPaths(fixture, again.commit.sha)).toEqual(expected);
     });
 
+    test("旧格式（没有 files）的发布记录提交失败后重跑：没被跟踪、入口也没链接的有题页面靠题表找回，只补交、不出新版本，题不被取代", async () => {
+        const {fixture, context} = await setup("residue-legacy-record");
+        await fixture.write(`${DIR}/index.html`, page());
+        await fixture.write(`${DIR}/side.html`, '<!doctype html><title>旁页</title><section data-nbdev-question="side-q" data-nbdev-type="confirm"><h2>旁页的题</h2></section>');
+        const release = await holdIndexLock(fixture);
+        const failed = await publishArtifact(context, {...TARGET, kind: "design", include: ["side.html"]}, blocked);
+        expect(failed.commit).toMatchObject({committed: false, reason: "git_lock_timeout"});
+        await release();
+        // 加 files 之前的版本写的记录没有这个字段；那时整个目录都在文件集里，题表照样记着 side.html。
+        const recordPath = join(fixture.main, versionPath(REF, 1));
+        const {files: _files, ...legacy} = JSON.parse(await readFile(recordPath, "utf8")) as Record<string, unknown>;
+        await writeFile(recordPath, `${JSON.stringify(legacy, null, 2)}\n`);
+
+        const again = await publishArtifact(context, TARGET, asBob);
+        const expected = [`${DIR}/index.html`, `${DIR}/side.html`, versionPath(REF, 1)].sort();
+        expect([again.data.unchanged, [...again.data.committedFiles].sort(), again.data.questions.map((question) => [question.id, question.outcome])])
+            .toEqual([true, expected, [["layout", null], ["approve", null], ["side-q", null]]]);
+        if (!again.commit.committed) throw new Error("应已提交");
+        expect(await changedPaths(fixture, again.commit.sha)).toEqual(expected);
+    });
+
     test("代录提交失败：下一次确认把那份答复与确认、README 一起提交；确认提交失败：重跑同一条确认补交确认与 README", async () => {
         const {fixture, context} = await setup("residue-answers");
         await fixture.write(`${DIR}/index.html`, page());
