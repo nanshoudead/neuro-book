@@ -124,15 +124,37 @@ function labUrl(options: ShotOptions, scene: string | null, viewport: string | n
     return url.href;
 }
 
+/** 等 Lab 的结果：就绪（或 fixture 加载失败，由调用方看 loadError），或者要截的组件、场景不在 Lab 的清单里。 */
+type LabWait =
+    | {kind: "ready"}
+    | {kind: "unknown_component"; components: string[]}
+    | {kind: "unknown_scene"; scenes: string[]};
+
+/** 不在清单里时报错列出的组件个数：清单有上百个，全列会淹没提示。 */
+const LISTED_COMPONENTS = 15;
+const RESTART_HINT = "开发服务运行中新建的组件文件或场景，要重启开发服务才进清单";
+
 async function openLab(page: Page, url: string, component: string, scene: string | null): Promise<void> {
     await page.goto(url, {waitUntil: "domcontentloaded", timeout: 180_000});
     // 开发服务首次打开要编译，等待放宽；就绪以调试接口为准，不看外壳文字。
+    let outcome: LabWait | false;
     try {
-        await page.waitForFunction(({component, scene}) => {
-            const state = window.__nbLab?.state();
-            return state !== undefined && state.component === component && (scene === null || state.scene === scene)
-                && (state.ready || state.loadError !== "");
+        const handle = await page.waitForFunction(({component, scene}): LabWait | false => {
+            const lab = window.__nbLab;
+            if (lab === undefined) return false;
+            // 清单在 Lab 挂载时就是全的（组件索引与 fixture 都是静态导入）。不在清单里的组件或场景，Lab 会退回别的，
+            // 下面的就绪条件永远等不到，所以立即返回，不等到超时。
+            const components = lab.components();
+            if (!components.includes(component)) return {kind: "unknown_component", components};
+            if (scene !== null) {
+                const scenes = lab.scenes(component).map((entry) => entry.id);
+                if (!scenes.includes(scene)) return {kind: "unknown_scene", scenes};
+            }
+            const state = lab.state();
+            return state.component === component && (scene === null || state.scene === scene)
+                && (state.ready || state.loadError !== "") ? {kind: "ready"} : false;
         }, {component, scene}, {timeout: 120_000});
+        outcome = await handle.jsonValue();
     } catch (error) {
         const snapshot = await page.evaluate(() => ({
             href: location.href,
@@ -140,6 +162,16 @@ async function openLab(page: Page, url: string, component: string, scene: string
             text: document.body?.innerText.slice(0, 200) ?? "",
         })).catch((reason: unknown) => ({error: String(reason)}));
         throw new Error(`等待 Lab 就绪超时：${url}\n页面：${JSON.stringify(snapshot)}\n${error instanceof Error ? error.message : String(error)}`);
+    }
+    // waitForFunction 只在返回真值时 resolve，这一行只为把类型收窄到 LabWait。
+    if (outcome === false) throw new Error(`等待 Lab 就绪的结果为空：${url}`);
+    if (outcome.kind === "unknown_component") {
+        const listed = outcome.components.slice(0, LISTED_COMPONENTS).join("、");
+        const more = outcome.components.length > LISTED_COMPONENTS ? ` 等 ${outcome.components.length} 个` : "";
+        throw new Error(`组件 ${component} 不在 Lab 的组件清单里（不存在、不可挂载或没有登记场景）。清单里有：${listed}${more}。${RESTART_HINT}`);
+    }
+    if (outcome.kind === "unknown_scene") {
+        throw new Error(`组件 ${component} 没有场景 ${scene}；它的场景：${outcome.scenes.join("、") || "（无）"}。${RESTART_HINT}`);
     }
 }
 
