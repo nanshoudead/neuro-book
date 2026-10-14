@@ -1,0 +1,291 @@
+# w00025 t02 只读设计审查
+
+审查对象：`.agents/works/w00025-editor/tasks/t02-editor-types/plan.md`，审查基线为 `f631ca1c7` 的 detached worktree `/home/notnotype/CodeRepository/neuro-book/.worktree/w00025-t02-review`。开发者决定 1–6、两个独立内置插件与不出界面评审稿均作为既定约束。
+
+以下发现按核实顺序追加；正确性与安全不变量优先。代码位置均相对于上述 worktree。报告只追加，未修改仓库。
+
+### 1. HTML 沙箱没有文件访问范围，字节路由把所有登记项目与用户资产暴露给预览
+
+- **严重程度**：阻断；**类别**：安全与性能；
+- **位置**：计划第 2、3、6 节（`plan.md:34-48,74`）；`t01-requirements/README.md:40`；`src/shared/projects.ts:142-158`、`src/plugins/http/backend/dispatch.ts:66-124`（源码路径前缀为 `packages/neuro-book/`）。
+- **现象**：`sandbox="allow-scripts"` 只隔离 DOM 与源身份，不限制网络目的地。预览脚本可以把 `src` 改成任一 `/raw/project/<其他 id>/…` 或 `/raw/user/…`。第 3 节明确放行 GET，而经典 `<script src>`、图片和样式请求通常不带 Origin；响应里的 `CSP: sandbox` 不为这些子资源施加调用方访问限制。URL 中的项目 id 不是访问授予，也没有目录或代次边界。
+- **为什么是问题**：开发者决定 3 要求“拿不到应用的数据与接口，只能读到页面按相对路径引用的文件”。计划只实现“不许写”，没有实现这条读隔离合同；本机进程的既有信任限制不能当作不可信 HTML 的授权。同一个服务端进程登记的另一个项目，即使未打开，也被第 2 节纳入读取范围。若为修复模块脚本而给整个 raw 路由允许 `Origin: null`，任意预览还会获得整棵项目树和用户树的 `fetch` 读取权。
+- **如何核实**：真实 Chromium 协议探针使用计划指定的 iframe 属性、base 与全部响应头：来自 `Origin: null` 的 iframe 成功执行另一个项目 URL 的经典脚本，得到 `OTHER_PROJECT_DATA`；其请求没有 Origin。与此同时 `parent.document` 被拒。此实验验证浏览器机制，不冒称未实现的产品路由已经存在；计划的 raw 路由没有任何能拒绝这次 GET 的规则。
+- **建议改法**：把普通文件读取与预览资产授予分开。预览只取得限定项目/代次/目录的可撤销资产入口；以独立源或等效隔离的资产网关与 iframe 自身 CSP 限制连接、脚本、图片、样式及子框架的目标，禁止接触应用 `/api`、RPC 与开发服务。明确相对引用可访问的范围、绝对地址与 `..` 的政策，并加“另一个项目、user 根、应用接口均不可读取”的真实浏览器验收；不要对整个 raw API 开放 `null` 来源。
+
+### 2. 无同源权限的 srcdoc 不能加载相对模块脚本或 fetch 相对数据
+
+- **严重程度**：重要；**类别**：正确性；
+- **位置**：计划第 2、6 节（`plan.md:36-41,74`）与验收映射 `plan.md:124`。
+- **现象**：`<base>` 只改变 URL 解析，不改变 iframe 的不透明源。计划的 raw 响应没有 CORS 许可，`<script type="module" src="./main.js">` 与 `fetch("./data.json")` 发出 `Origin: null` 后被浏览器拒绝；同一个 URL 树下的经典脚本、图片和 CSS 则能加载。
+- **为什么是问题**：第 6 节把“相对引用的脚本都从那里取”作为 HTML 预览合同，却没有限制为经典脚本。现代 HTML 的模块脚本、模块里的 import、相对 JSON 数据均无法工作；只测“脚本运行”和“一张相对图片”会让这条失败漏过。单独补全局 CORS 又会扩大第 1 条的读泄露。
+- **如何核实**：真实 Chromium 探针结果：经典脚本执行为 `true`、模块脚本执行为 `false`、相对 `fetch` 为 `TypeError`，SVG 图片为 `20 × 10`，相对 CSS 颜色为 `rgb(17, 34, 51)`。所有资源响应都带 `Content-Security-Policy: sandbox` 与 `nosniff`。模块与 fetch 请求的 Origin 均为字符串 `null`。
+- **建议改法**：在第 1 条的有限资产授予上提供只针对预览的 CORS/资源服务策略，明确模块脚本和相对 fetch 是否属于已承诺的“运行脚本”；若要排除它们，须显式交开发者批准缩减范围。验收增加相对模块入口、模块 import 与相对数据读取，不能只测内联或经典脚本。
+
+### 3. 按登记路径重开 Root 会绕过项目代次与根身份保护
+
+- **严重程度**：重要；**类别**：不变量；
+- **位置**：计划第 2 节与风险第 3 项（`plan.md:35,42,146`）；`src/plugins/files/backend/rooted.ts:102-112,126-132,296-304`；`src/plugins/files/backend/plugin.ts:120-168`；`src/server/projects/manager.ts:315-329`；`docs/specs/workspace/files.md:38,64,107`。
+- **现象**：计划的 URL 只有项目 id，没有 generation；`projectsKey.list/resolve` 返回登记路径，不授予当前项目代次访问。`rooted.ts` 的根身份是 `openRoot` 时捕获的设备号与 inode，不是按名字调用便自然共享的身份。若每次请求重新 `openRoot(record.path)`，旧目录移走后在原路径新建的目录会成为合法的新根；若按 id 缓存 Root，又缺少代次结束、登记路径变更与移出书架时的失效政策。
+- **为什么是问题**：现有 `project://` 根在项目入口激活时建一次，并绑定当前代次；旧代结束后路由拒绝访问，而 raw URL 会继续读、甚至重定向到新目录。封面路由允许不打开项目读取封面，是作品级独立合同，不是正文访问的 ready 绑定合同。直接复用路径解析代码并不复用根身份、租约与寿命。失败也不只有 `not-found` 和 `permission-denied`：还包括 `root-gone`、`protected-path`、`outside-root`、`invalid-address`、`not-a-file`、`too-large`、项目/登记身份失败。
+- **如何核实**：代码确认 `Root.read` 无锁、无项目子进程依赖，能够用于服务端；但 `Root.#checkRoot` 只比较该对象构造时的身份。`projectsKey.acquire` 会启动新代，不是按旧代访问接口；旧代重连实际走 manager 的 `#acquireGeneration`。因此“只复用 rooted.ts”缺的正是根对象取得与撤回合同，而不是解析算法。
+- **建议改法**：定义 raw 的绑定授予、代次、根对象 owner 与释放时机，复用现有 user 根 `<状态根>/user/`（控制目录关闭）与项目代次根（控制目录开启）。明确未打开、启动中、换代、根替换、改登记路径、移出书架各自的结果；在请求接纳与响应交付前核对授予仍有效。保留完整失败码并映射 HTTP 状态。补真实宿主/项目子进程测试，不能只用两个临时目录与 HTTP 分发证明代次隔离。
+
+### 4. 图片标签会被“同地址仍打开”误当成未保存正文的持有者
+
+- **严重程度**：重要；**类别**：不变量；
+- **位置**：计划第 2、4 节（`plan.md:43,52-56`）；`src/plugins/editor/web/area.ts:190-203,475-505`；`docs/specs/workbench/editor.md:89,177`。
+- **现象**：SVG 能同时有 `input: "bytes"` 的图片标签与 `code` 文本标签。源码已修改未保存时关闭 code，现有 `closeTab` 只按地址寻找另一个标签，于是图片标签让 `shared` 成立、跳过保存询问。`releaseTab` 又会为所有同地址的无引用标签 `documents.acquire`，把本应没有文本文档的图片标签强行变成正文持有者。
+- **为什么是问题**：按计划排除图片的文档引用后，关闭 code 会无询问地丢掉 dirty 正文；不排除则违背“字节编辑器没有文本文档”，并留下无可编辑视图的隐藏未保存正文。现有输出 4 的免询问前提是另一个标签真的能保留同一份正文，不是地址字符串相同。HTML 预览是文本持有者，可以共享；SVG 图片标签不是，必须区分。
+- **如何核实**：代码明确 `shared` 只检查 `tab.address`，释放时的补引用也只检查地址；计划同时规定 bytes 无正文与 SVG 可换源码，足以构成此冲突。此项是计划实现路径推断，不把当前没有图片插件的运行时称为已复现回归。
+- **建议改法**：按实际文档引用/文本输入能力计算最后一个正文持有者；关闭最后一个文本标签必须结算并询问，bytes 标签不参与免询问、不补文本引用。补真实 Files 场景：SVG 图片与源码同组、源码 dirty，关闭源码时“取消”保留正文、“不保存”丢弃、“保存”落盘；不同组也覆盖，未保存计数与终态抢救按文档唯一。
+
+### 5. “非预览标签”的两种含义未分开，普通打开会回到 HTML 预览或新建第二个源码标签
+
+- **严重程度**：重要；**类别**：正确性；
+- **位置**：计划第 1、4、5、6 节（`plan.md:20,53-55,60,73`）；`src/plugins/editor/web/groups/groups.ts:28-33,172-191`；`docs/specs/workbench/editor.md:31,86`。
+- **现象**：既有 `tab.preview` 表示可被替换的临时标签，新贡献的 `preview: true` 表示只读内容预览。HTML 预览命令又以 permanent 打开，因此它的 `tab.preview` 为 false。第 4 节“本组有这个地址的非预览标签就激活，不管它是哪种编辑器”没有规定检查哪一种 preview，也没有规定多个匹配者的优先级。
+- **为什么是问题**：若检查 `tab.preview`，永久 HTML 预览会被当成普通打开目标，违背“HTML 以文本打开”；若排除所有临时标签，已有被用户切成 code 的临时 Markdown 标签会被忽略，默认 markdown 与 code 可在同组重复打开同一地址，破坏输出 1 的激活既有标签行为。若检查贡献的 preview，还需要在贡献缺席时保留这条判定，不能凭当前实现是否可用改变打开身份。
+- **如何核实**：现有 `groups.open` 对本组地址只激活、不改编辑器；源码与内容预览并存后，这一分支必须明确区分两个 preview 概念。计划的新验收只有源码与预览并存，没有永久预览活动时普通打开、已换源码的临时标签、贡献撤回后三种判据。
+- **建议改法**：给内容预览独立语义名（例如 `isPreviewEditor`），保留 `tab.preview` 专指临时标签。写出普通打开的唯一选择规则：复用哪个非内容预览标签、如何保留它的编辑器和转 permanent、多个候选时选哪一个；没有这种标签才解析默认编辑器。补同组两个永久标签、临时源码标签、只剩内容预览标签、恢复/贡献缺席的验收。
+
+### 6. 只读 HTML 预览没有视图级能力，仍会被公布为可写编辑器
+
+- **严重程度**：重要；**类别**：正确性；
+- **位置**：计划第 1、5、6 节（`plan.md:20-21,62,73`）；`src/plugins/editor/web/state.ts:38-48`；`src/plugins/editor/web/components/EditorGroup.vue:193-201`；`src/plugins/editor/web/commands.ts:67-79`。
+- **现象**：HTML 预览声明 `input: "text"` 并共享可写文本文档，但贡献声明与现有控件合同没有“此视图只读”的能力字段。现有宿主的 `readonly` 和公开 `writable` 都取文档的 `writable`，不取视图；有句柄的预览因此仍被判为可写，撤销/重做命令也被启用。
+- **为什么是问题**：“同一份文本文档、只读”是两个独立条件，不能把文档改成只读来修补，否则同地址的 code 标签也不能编辑。只在预览组件里不渲染输入控件，无法兑现公开状态与命令可用性合同。视图没有文本光标、导航或撤销能力时也必须明确撤回这些能力。
+- **如何核实**：`EditorGroup` 把 `document?.writable` 直接转为组件属性；`editorStateValues` 对 writable 只检查句柄与文档；undo/redo 的 when 依赖这一公开键。计划仅新增 `hasPreview`，没有更新这三条能力计算路径。
+- **建议改法**：把视图编辑能力与文档可保存性分开：预览和 bytes 视图公开 `writable: false`，正文共享但不许提交输入；保留源文档的 dirty 与保存语义，明确预览活动时“保存”的政策。宿主按视图能力提供 readonly、导航、光标和撤销/重做状态。验收检查真实公开状态与命令可用性，不只检查预览画面。
+
+### 7. 编辑器登记、待交付与撤回被合成“编辑器已经不在了”，恢复与懒激活没有通道
+
+- **严重程度**：重要；**类别**：不变量；
+- **位置**：计划第 1、4 节（`plan.md:23-30,52-56`）；`docs/specs/runtime/plugins.md:31-34,46-47,61-65,71-79`；`src/plugins/editor/web/pages.ts:55-101`；`src/plugins/editor/web/plugin.ts:67-86,191-201`。
+- **现象**：计划只有 resolve、load 和“已经不在了”的表现，没有规定描述已登记但贡献未交付时如何打开/恢复、由谁触发激活、实现交付晚到如何唤醒既有标签，以及加载失败/贡献撤回时如何释放已挂控件与视图槽。`pages.ts` 的 available 只检查已发布句柄，不会因为调用 component 或查到声明而触发贡献方激活。
+- **为什么是问题**：运行时要求区分 5 态，恢复布局时实现可以尚未激活。把“待交付”当“没装”会使恢复出来的图片/HTML 标签永久显示错误或被用户改成 code；按已交付实现而不是静态声明选择，图片打开还会错误落到 code。自贡献 markdown/code 本身可行，但不能在 owner 的 activate 返回前等它们交付：它们只有事务发布后才能经句柄调用。加载 Promise 迟到或撤回后继续使用缓存组件/控件，也会违反停止后不调用旧实现的合同。
+- **如何核实**：内核合同说明 receivers 在 activate 产出后接上，`implementation()` 发布前与撤回后拒绝；页面注册表使用每个 ContributionHandle 的 WeakMap 缓存，并在 published/revoke 更新响应式 Map。计划没有给编辑器的对应状态转换和生命周期验收；“同页面”不能替代页面本来不承担的会话恢复和文件选择时序。
+- **建议改法**：明确静态声明目录与可调用句柄两套状态。恢复立即保留标签与编辑器 id；待交付显示等待/可用原因，交付后重试绑定；失败、未安装、已撤回分别给出结果。规定激活策略（本期两个插件 onStartup 或由 owner 触发的明确事件）和迟到 load 的代次检查；撤回卸下控件、句柄、计时器/对象 URL 与该贡献的视图状态，不丢文本文档。补真实插件宿主的晚交付、发布失败、load 期间停止、恢复时 owner 自贡献尚未发布场景。
+
+### 8. FileEditorKind 放宽为任意字符串会撞 page 哨兵、槽键与光标格式
+
+- **严重程度**：重要；**类别**：不变量；
+- **位置**：计划第 1 节（`plan.md:20,30`）；`src/plugins/editor/web/groups/groups.ts:16-40,258-266,293-295,333-347`；`src/plugins/editor/web/area.ts:177,226-237,517-523`；`src/plugins/editor/web/session-record.ts:26-35`。
+- **现象**：`FileEditorKind = string` 让 `FileEditorKind | "page"` 不再能区分文件与页面。若贡献 id 为 `page`，文件标签被多个分支认作页面、不能拆分换编辑器，且从会话快照中过滤掉。id 含 `|` 时 `${group}|${kind}|${documentId}` 的解析失去边界；现有 `cursorFits` 则把所有非 markdown 编辑器当成行列光标，只拒绝 page。
+- **为什么是问题**：新的贡献合同只说 id 是编辑器 id，未给合法形状或保留值；内核自身仅保证非空与唯一，不替 owner 禁止这些值。状态槽淘汰会取错 documentId；自定义富文本编辑器无法保存 offset 光标，bytes/预览却能被会话记录带入不应存在的行列光标。把联合换成 string 不会自动保持输出 30 与“每组每种最多 3 份”的规则。
+- **如何核实**：`cursorFits` 的二分支、page 的过滤与槽键 `.split("|")[2]` 均是现有实现，计划未给迁移合同或相关验收。任意字符串的 session 校验也不能防住它们。
+- **建议改法**：规定并校验编辑器 id 的有限语法，保留旧 `markdown`、`code` 并明确禁止 `page` 与槽键分隔符；或直接用独立标签 kind 与结构化键消除哨兵/字符串拼接耦合。光标持久化按编辑器声明的支持格式处理；无光标能力的编辑器不接收 cursor。会话恢复继续接受旧记录，但不能把“接受任意字符串”当成完成数据合同。
+
+### 9. 字节标签绕过 DocumentStore 后，现有删除、改名和公开 active 路径全部失去入口
+
+- **严重程度**：重要；**类别**：正确性；
+- **位置**：计划第 2、3、4 节（`plan.md:43,56,109`）；`src/plugins/editor/web/documents/store.ts:180-225,396-430,531-592`；`src/plugins/editor/web/session.ts:87-93`；`src/plugins/editor/web/area.ts:349-364`；`src/plugins/editor/web/state.ts:43-54`；`src/plugins/editor/web/status-items.ts:26-29,80-81`。
+- **现象**：计划只给 bytes 绑定 `{address,url,version}`，说删除/改名“沿用标签已有处理”。实际上文件事件在 DocumentStore 内订阅和转换；资源管理器删除成功的 `coordinator.close` 只关闭存在于 entries 的文档，有文档被关闭才 emit 给 area。只有图片标签时 entries 为空，删除后标签不会关闭；租约成功移动同样不能 rebind 它。现有 `active` 要求文本文档存在，图片活动时为 false，关闭、拆分、换编辑器、聚焦命令全部被禁用。
+- **为什么是问题**：没有正文不是没有资源寿命。bytes 标签仍要支持资源管理器成功删除即关闭、外部删除标只读、祖先目录改名、重连 resync、订阅 ended 与项目终态。只新增第二条监听并 bump version 还会把改名/删除与 DocumentStore 的路径重复应用，且缺少读取前 ready、旧绑定请求迟到与取消规则。为了令 active 为 true 而不拆字数条件，又会显示“0 字”。
+- **如何核实**：`coordinator.close` 以 `within(addresses)` 的 Entry 列表决定事件；area 只监听该事件；`editorStateValues.active` 明确需要 document。bytes 没有 text Entry 时，没有可沿用的自动路径。计划验收只测外部删图片的“已删除”，不测资源管理器主动删除、目录移动、事件 resync/ended 和命令可用性。
+- **建议改法**：在 editor area 的资源绑定 owner 上统一处理地址/祖先改名、删除、coordinator 的成功结果与方案订阅，DocumentStore 只协调正文。协调服务 close 必须对收到的完整地址范围关闭全部资源标签，不以有没有 text Entry 为条件；成功移动也必须通知全部资源绑定。bytes 绑定补状态、失败、代次/绑定 token 与可撤回请求合同，先等 watch ready 再取字节，resync 重取、ended 说明失同步。active 按活动视图算，字数按存在文本文档算，dirty/writable/光标分别按其真实能力算；终态不抢救 bytes。补上述场景和图片标签的关闭/拆分/重新打开验收。
+
+### 10. 两个新增 quickPick 命令没有捕获目标，异步选择会改动另一标签
+
+- **严重程度**：重要；**类别**：正确性；
+- **位置**：计划第 1、7 节（`plan.md:28,87`）；`docs/specs/workbench/quick-open.md:47,50`；`src/plugins/editor/web/commands.ts:86-92,130-135`；`src/plugins/editor/web/area.ts:601-608`。
+- **现象**：“用其它编辑器重新打开”和“切换语言”从同步当前标签操作变成等选择服务返回的异步操作，却没有记录请求时的 area、group、tab 或模型身份，也没有定义返回后目标已关闭/切走/改编辑器/贡献撤回的结果。现有 reopenWith 总是读取执行那一刻的 activeTab。
+- **为什么是问题**：quickPick 返回发生在浮层关闭与焦点归还之后；等待期间可由另一次 open、文件删除或项目/插件停止改变目标。照旧调用 `current.reopenWith(chosen)` 会把用户为 A 选的编辑器应用到 B；切语言还多一个异步 load，迟到结果可以换错模型。选择服务只负责返回选中项，并不替命令锁住编辑器目标。
+- **如何核实**：选择合同明确关闭后才交回结果，且第二次选择可结算第一请求；现有命令/area 在真正执行时重新读取活动项。当前 go-to-line 已用完整文档身份拒绝 stale-target，可以沿用同一目标捕获原则，而不是把 quickPick 误当同步调用。
+- **建议改法**：发起选择前捕获标签 id、组和 area/代次，语言再捕获目标模型；返回和 load 完成时分别重验，目标失效返回 `stale-target` 或取消，不改投当前标签。候选贡献停止时也重新验可用性。补在选择返回前关闭/切换、load 期间切换、第二次选择覆盖第一请求的合同测试。
+
+### 11. 语言声明漏掉 mimetypes，且按建模型才注册会使内嵌语言失去高亮
+
+- **严重程度**：重要；**类别**：正确性；
+- **位置**：计划第 7 节（`plan.md:80-86,125`）；已装 Monaco 0.55.1 的 `esm/vs/basic-languages/html/html.js:193-194,295-296`、`markdown/markdown.js:73-74,193-206`、`_.contribution.js:103-117`、`editor/standalone/common/monarch/monarchLexer.js:631-636,724-738`。
+- **现象**：计划称语言声明“与 registerLanguage 同一套字段”，实际只列 aliases/extensions/filenames/firstLine，缺少 Monaco basic-languages 使用的 mimetypes。HTML 的 `nextEmbedded` 用 `text/javascript` 与 `text/css`，不是语言 id；Markdown 围栏与 HTML 片段也会要求其它语言。计划又在 MonacoControl 建模型、第一次使用时才 register，并只调用 `setMonarchTokensProvider`，没有为尚未使用的内嵌语言登记 lazy factory 或 onLanguageEncountered。
+- **为什么是问题**：即使先打开过 JS/CSS、实现已加载，丢掉 MIME 映射仍让 HTML 内部脚本与样式变成无类型 token；若语言尚未登记，则连内嵌语言的加载事件都不会触发。只验证独立 `.py/.go/.rs` 文件不能验收“Monaco 自带语言经贡献点登记”后的既有 HTML/Markdown 高亮。
+- **如何核实**：使用已装且与 bun.lock 一致的 Monaco 0.55.1、真实 Chromium、真实 `editor.tokenize` 运行。没有 mimetypes 时 `<script>const answer = 42;</script>` 内部为 `language: "text/javascript", type: ""`，CSS 为 `language: "text/css", type: ""`；补 MIME 后分别得到 `keyword.js`、`number.js`、`tag.css`、`attribute.name.css` 等实际 token。结果存于 `lab-omp/monaco-final-result.json`。MonarchLexer 明确对未登记语言返回 NullState，只有已登记语言才 requestBasicLanguageFeatures/getOrCreate。
+- **建议改法**：静态登记全部语言元数据（含 mimetypes），高亮实现通过 `registerTokensProviderFactory` 与 `onLanguageEncountered` 或等效的内嵌触发机制按需交付；不是到创建某个独立语言模型时才 register。加载按贡献句柄/代次管理，失败可诊断且可重试。验收覆盖先开 HTML 的内嵌 JS/CSS、先开 Markdown 的带语言围栏、JS 与 TS 共享定义；保留 JSON 自带服务/worker，不把它硬塞进 Monarch。
+
+### 12. basic-languages 不是“一文件一语言、统一导出 conf/language”，生成表会漏项或加载 undefined
+
+- **严重程度**：重要；**类别**：正确性；
+- **位置**：计划第 7 节（`plan.md:81-85`）；Monaco 0.55.1 的 `cpp/cpp.contribution.js:3-14`、`freemarker2/freemarker2.contribution.js:3-52`、`freemarker2/freemarker2.js:1037-1062`、`systemverilog/systemverilog.contribution.js`。
+- **现象**：已装 Monaco 的 81 份 basic-languages contribution 文件实际登记 89 个语言 id；其中 cpp 登记 2 个、systemverilog 登记 2 个、freemarker2 登记 7 个。FreeMarker2 模块没有顶层 `conf`/`language`，而是导出 6 组变体，contribution 的 loader 在 import 后选择具体变体；7 个 id 中 2 个映射同一变体。另外目录名也不总等于语言 id，例如 sophia 的 id 是 aes、protobuf 的 id 是 proto。
+- **为什么是问题**：“每项一个动态 import”加统一 `{conf,language}` 适配不足以交付决定 6 的“Monaco 自带的语言都登记”。只按文件/目录生成将少 8 个 id；保留全部 id 但统一取模块顶层字段，FreeMarker2 的 7 项仍会得到 undefined。生成器与一致性测试如果共同按同一个错误假设实现，两者会一起通过而消费者失败。
+- **如何核实**：用已装 TypeScript AST 逐份抽取实际 `registerLanguage` 调用得到 81 文件、89 声明、23 项含 mimetypes，结果存于 `lab-omp/basic-language-inventory.json`；FreeMarker2 的每个 loader 原文明确包含 `.then(m => m.<变体>)`，模块末尾只导出 6 个具名变体。JavaScript 对 TypeScript 的 import 则是普通模块依赖，可由打包器自然解析，不需要新增 worker。
+- **建议改法**：按每一个 registerLanguage 调用生成条目，同时保留其 loader 的导出选择语义，而不是按目录枚举语言。对真实加载结果校验 conf/language、至少验证 C 与 C++、Verilog 与 SystemVerilog、FreeMarker2 变体可实际 tokenize；一致性验收比较实际声明语义与消费者能力，不只比较文件名清单。生成表本身可行，但必须明确这 3 处共享/变体例外；JSON 不在这 89 项里，仍须单独纳入贡献目录与状态栏。
+
+### 13. HTTP 来源门禁不覆盖 Vite 的 GET 副作用，开发模式不满足预览安全边界
+
+- **严重程度**：重要；**类别**：安全与性能；
+- **位置**：计划第 3、6 节（`plan.md:45-48,74`）；`src/server/dev/frontend.ts:30-43`；`packages/neuro-book/vite.config.ts:16-52`；已装 Vite 的 `dist/node/chunks/node.js:11160-11179,25965-25983,26078`。
+- **现象**：开发页面的 `/api` 才代理到后端，其他请求直接交 Vite。Vite 在当前配置下挂载 `GET /__open-in-editor?file=…`，处理器调用本机 launch-editor，不核对请求方法或 Origin；默认 CORS 只是控制响应能否被脚本读取，不阻止请求与副作用。预览脚本可用无 CORS 的图片/经典资源 GET 发起该请求，第 3 节的写方法 Origin 门禁不会经过这里。
+- **为什么是问题**：开发者决定 3 是“拿不到应用的数据与接口”，不是只隔离生产后端 POST。Vite 是开发模式的真实页面端口，Lab 也在该服务上。不能以生产构建 e2e 的安全结果替代开发模式；把所有 GET/HEAD 当无副作用不是已存在的全端口保证。
+- **如何核实**：只读追踪真实开发前端入口与已安装 Vite 实现确认上述路由与 `launch(resolved, …)` 调用；本次遵守“不启动开发服务”，未执行本机打开编辑器这一副作用。生产现有 HTTP 路由仅发现 health、bootstrap 与封面 GET，没有把测试插件的故意副作用算成产品漏洞。此项是已存在调用链上的设计遗漏，不声称已经在开发服务动态复现。
+- **建议改法**：按第 1 条的预览 CSP/隔离资产源切断对整个应用/Vite 端口的请求，不只过滤后端写方法；并为开发前端的副作用入口设置真实访问门禁。主 Agent 的开发模式浏览器验收必须核对预览不能触达该入口、不能使用应用代理接口，实际副作用用受控启动器观察，不能在评审时真的打开用户的编辑器。
+
+### 14. raw 的刷新版本与缓存验证不一致，改写事件后仍可能显示旧字节
+
+- **严重程度**：重要；**类别**：正确性；
+- **位置**：计划第 2、6 节（`plan.md:40,43,69`）；`src/plugins/projects/shared/cover.ts:62-64`；`docs/specs/workspace/files.md:58,64`。
+- **现象**：raw 的 ETag 使用修改时间加大小，但这不是内容身份。文件按相同大小改写并保留 mtime 后，事件到达、version 加一，浏览器对同一个 URL 的 no-cache 重新验证仍会命中旧 ETag；图片 fetch 重新执行也能拿到缓存正文。计划把 version 只放在绑定里，没有规定 URL cache-busting、fetch cache 模式或 HTML 子资源更新的缓存政策。
+- **为什么是问题**：“外部改写后刷新”要求新字节，不只是再次发送请求。正文文件服务用 SHA-256 基线，不能把另一条读取通道的弱元数据 ETag 当成等价。HTML 整页重载同样可能沿用未变化 ETag 的 JS/CSS/图片；仅 bump 主 HTML 的版本不足以让子资源可靠更新。
+- **如何核实**：从 HTTP 条件缓存语义与计划 ETag 构造可直接推出相同 mtime/size 的两个版本无法区分；本次未把尚未实现的 raw 缓存行为写成已复现。现有封面客户端明确把 version 拼入 `?v=`，计划 raw 没有对应合同；因此“控件据此重新取”仍欠实际读取策略。
+- **建议改法**：规定内容有效的验证器或禁用该路径的正文缓存；图片每次绑定版本使用确定的 cache-busting/no-store 策略，并明确 HTML 子资源更新的一致性边界。验收增加同大小改写并用真实文件系统恢复原 mtime，观察新像素/脚本而不是请求次数；若只做元数据缓存，需要把这条刷新限制写明并取得取舍批准。
+
+### 15. 字节读取缺少大小、取消与对象 URL 释放合同，复用 Root.read 会无界读入内存
+
+- **严重程度**：重要；**类别**：安全与性能；
+- **位置**：计划第 2、6 节与验证边界（`plan.md:35-43,69,133`）；`src/plugins/files/backend/rooted.ts:95-96,227-246`；`docs/specs/runtime/server-host.md:63`。
+- **现象**：Root.read 的公开方法必须给 maxBytes，内部在读入前检查大小，然后一次 `handle.readFile()` 读取全部内容。计划没规定 raw 的 maxBytes 或流式读取，只说超大图片内存“不测量”；浏览器又 fetch blob 再建对象 URL。bytes 绑定没有取消信号或旧版本回执规则，也没有对象 URL 在换图、重取、关闭标签和贡献撤回时的释放责任。
+- **为什么是问题**：取 Infinity 等于把此前有明确预算的文本服务扩成任意文件的整段内存读取；单次请求至少持有一份全量服务端字节，前端还持有 blob 与解码后的像素。无界文件读与未取消 fetch 会扩大排空和标签切换时的残留，URL 未 revoke 则在反复更新后持续保留旧资源。这是处理合同缺失，不要求本期做性能基准或新增图片类型。
+- **如何核实**：Root.read 的 maxBytes 参数与整段 readFile 均是实际代码；计划公开的 `{address,url,version}` 不含请求寿命标识，验收也无超限与迟到/释放场景。尚无查看器实现，不能宣称已经发生泄漏，但照字面实现没有安全界限可遵守。
+- **建议改法**：明确 raw 的有限字节上限与 `too-large`/HTTP 状态，或另用受验证句柄的可取消流式读取；明确 fetch 的 AbortSignal 与版本/绑定校验，失效后忽略迟到结果并立即释放新建 URL，替换/关闭/撤回时 revoke 旧 URL。PNG/GIF/SVG 解码失败与元数据不可用必须有失败通道。补上限、取图中换标签/改名/停止、连续重取与关闭的资源收口验收，不以“不测量”免掉合同。
+
+### 16. rawUrl 把未绑定项目的 user:// 也判为不可用，缩小了既有文件客户端合同
+
+- **严重程度**：重要；**类别**：正确性；
+- **位置**：计划第 2 节（`plan.md:42`）；`docs/specs/workspace/files.md:38`；`src/plugins/files/backend/plugin.ts:160-168`；`src/plugins/files/web/plugin.ts:21-34`；`src/plugins/editor/web/session.ts:71-73`。
+- **现象**：计划规定“没有绑定项目……返回 null”，对 `user://` 与 `project://` 一起应用。现有 user 远程合同归服务端，根为 `<状态根>/user/`，浏览器 Files 客户端不需要 windowProjectKey；编辑器无项目时也建立纯内存会话。
+- **为什么是问题**：`user://` 与 Project 并列，不是项目有效时才能访问的从属根。项目绑定缺席可以让 project URL 不可用，不能连带让用户资产图片失去字节 URL；这不是已批准的本期限制。
+- **如何核实**：真实代码中 user 后端入口只依赖 stateRootKey，浏览器客户端按方案分派；files Spec 明确 user 根并列访问。计划的项目判空在语义上比这些合同更严格，验收虽列“两根”，却没有未绑定项目的 user 一例。
+- **建议改法**：先解析地址方案，user 独立生成服务端资产 URL，只有 project 分支要求有效项目绑定及代次授予；未知方案或非法地址仍拒绝。补未绑定窗口读 user 图片、同一窗口拒绝 project 地址的合同验收。
+
+### 17. 语言只在建模型时识别，已有模型与标签保存的选择没有更新合同
+
+- **严重程度**：建议；**类别**：文档；
+- **位置**：计划第 7 节（`plan.md:86-87`）；`src/plugins/editor/web/components/MonacoControl.vue:81-92,134-148`；`src/plugins/editor/web/groups/groups.ts:215-222,258-261,268-272`。
+- **现象**：同组每份文档的 Monaco 模型跨切换保留，enter 只有模型不存在时选语言；改名只更新地址。计划没有说明自动语言在无后缀文件首行改变、`.txt` 改名为 `.py`、恢复/拆分已有语言选择、撤回贡献时如何更新，也没说明手动 language 覆盖自动识别的持续范围。拆分与 setEditor 当前只处理 cursor，不处理新增 language 字段。
+- **为什么是问题**：这些状态变化不会自动经过“建模型”，实现者不能按函数名假定 Monaco 会重读文件路径/首行。手动选择是标签持久字段，模型语言却是控件局部状态，两者不定义同步点会在 A→B→A、淘汰重建或拆分后给出不同结果。
+- **如何核实**：现有模型创建和正文 watch 都未更新 language，改名只改 target.path；Monaco standalone 的 `createTextModel` 也只在创建时把 firstLine 交给语言选择。计划只有扩展名文件与切换后刷新场景，无首行、改名、模型保留/淘汰与拆分场景。
+- **建议改法**：写出自动识别与手动覆盖的优先级和重算触发：首次建模、地址变更、首行变更是否重算，手动选择是否一直覆盖；明确切编辑器/拆分时保留还是清除 language。模型重新绑定、已有模型与淘汰重建均遵守同一政策；加无后缀 shebang、改名与手动覆盖一组验收，而不是默认扩展名即完成语言选择。
+
+### 18. 风险里的“已有 base 为准”没有对应插入算法，且多个 base 实际按首个 href 决定
+
+- **严重程度**：建议；**类别**：文档；
+- **位置**：计划第 6 节与风险第 2 项（`plan.md:74,145`）。
+- **现象**：正文说“插一个 base”，风险说“页面本来有 base 时以页面的为准”，却没有规定检测/插入位置或 href 与 target 分开处理。浏览器不是自动优先用户写的 base，而是使用文档树里第一个带 href 的 base。
+- **为什么是问题**：简单在 srcdoc 头部拼接 base 会覆盖用户既有 base，正好与风险接受政策相反；页面只带 `<base target="…">` 时又不应因此丢掉目录 href。路径式 raw URL 还涉及目录末尾 `/`、中文/空格/`#`/`?`/`%` 的逐段编码和只解码一次，计划没有把这些 URL 合同写进验收。
+- **如何核实**：真实 Chromium 两种顺序实验：注入 base 在前时 resolved 为 `/assets/pic.svg`，用户 base 在前时为 `/custom/pic.svg`；结果存于 `lab-omp/base-navigation-result.json`。既有 resource 地址允许 `#/?/%` 出现在单段名字（斜杠仍为分段），不能直接拼成未编码 HTTP 路径。
+- **建议改法**：明确只在不存在有效 href base 时注入目录 base，不改用户 href/target；给出最小的 HTML 解析/插入与 URL 编码策略。补有/无 href 的 base、head 缺席、根目录文件、特殊字符文件名与相对 `../` 的浏览器验收；以实际 first-base 规则写风险，不靠一句“以页面的为准”。
+
+### 19. 独立图片插件没有把尺寸与大小交给宿主状态栏的合同
+
+- **严重程度**：建议；**类别**：代码质量；
+- **位置**：计划第 1、2、6 节（`plan.md:21,43,66-71`）；`src/plugins/editor/web/control.ts:15-26`；`src/plugins/editor/web/area.ts:54-73`；`src/plugins/workbench/web/contracts.ts:36-44`；`src/plugins/workbench/shared/items.ts:26-36`。
+- **现象**：图片组件才能知道 decoded 尺寸与 fetch blob 大小，但现有控件只交 ready/focus，句柄只有编辑/导航/光标能力；计划的 bytes 绑定是单向 `{address,url,version}`，没有统计回报。workbench 状态栏条目是插件激活时静态贡献，由插件提供 text/state 与公开 when，不能从另一插件的私有组件变量自然取得这些数据。
+- **为什么是问题**：第 6 节承诺两个独立插件并用它们证明贡献合同，验收又要求状态栏尺寸与大小。没有这条接口，S4 只能临时让 editor 深入 image-viewer 私有状态、增加全局共享 ref、或者把“状态栏”偷换成查看器自己的底栏，三者都不符合现有插件/状态栏约定。两组各有图片控件时还必须只展示活动标签、换图/卸载撤回旧尺寸。
+- **如何核实**：控件与句柄合同、workbench 状态栏实现原文均无相关数据通道；图片插件的唯一计划贡献是 editor.editors。计划没有提供 owner、活动身份或统计失效时机，这不是已有机制可代劳的转接。
+- **建议改法**：在编辑器控件的公开浏览器合同中补最小的活动视图信息通道（例如句柄可选的只读统计 ref），由 editor 统一投影到状态栏；或明确图片插件自己的状态栏贡献与宿主活动身份绑定协议。不要跨插件读 web 私有状态。验收覆盖两组不同图片、源码/图片切换、加载失败及标签关闭时旧统计撤回。
+
+## 核实补充与影响排序
+
+报告按核实顺序只追加，以下索引给出最终影响排序，避免为排序重写已落盘发现：
+
+1. 阻断：第 1 条。
+2. 正确性与不变量的重要项：第 4、9、3、6、5、7、8、10、2、11、12、16 条。
+3. 安全、缓存与资源收口的重要项：第 13、14、15 条（第 13 条开发服务动态行为未运行，交主 Agent 验收）。
+4. 建议：第 17、18、19 条。
+
+- 第 14 条随后已用真实文件系统与 Chromium 条件缓存核实：两个版本均为 110 字节、mtime 均为 `1767225600000`，从 red 改为 tan 后对原 URL 得到 304，浏览器仍返回 red；加 `?v=2` 得到 200 并返回 tan。此证据验证计划的 mtime+size 方案，不称为未实现产品 raw 路由的动态结果。可复现脚本 `lab-omp/raw-cache-probe.js`，结果 `lab-omp/raw-cache-precise-result.json`。
+- 第 12 条随后已在实际浏览器运行 FreeMarker2 变体：顶层 conf/language 为 undefined，6 个具名导出中的 TagAutoInterpolationDollar 正确产生 `tag.freemarker2`、`identifier.freemarker2`、`number.freemarker2`；结果 `lab-omp/monaco-expanded-result.json`。
+
+## 标签按地址调用的完整核对
+
+| 路径 | 既有地址语义与计划覆盖结论 |
+|---|---|
+| 打开、复用 | `groups.ts:175` 按地址唯一，`area.ts:540-544` 先选默认编辑器再调用；必须迁移为复合身份，同时定义无显式 editor 的复用规则，第 5 条。 |
+| preview 替换 | `groups.ts:182-185` 找组里唯一临时 preview，不按地址；不应把内容预览的贡献字段当该标志，替换后的引用结算见第 4 条。 |
+| 拆分与 side | `groups.ts:215-245` 按 tabId 复制 address/editor/cursor，side 只选组；复合身份可以保留现有定位，但 language 与 bytes 引用要补，见第 9、17 条。 |
+| 换编辑器 | `groups.ts:258-261` 原地改 editor 并清 cursor；`area.ts:601-608` 只结算当前绑定，未合并已有目的标签；第 4 节已规定目的存在时切过去并关当前，但 text→bytes 的 dirty 正文不能凭地址免结算，第 4 条。 |
+| 改名 rebind | `groups.ts:268-272` 对全部子地址改名；文档碰撞由 `store.ts:396-430` 保留 dirty 目标或关闭 clean 目标，再通知组。文本路线可沿用；bytes/未加载目标标签不在 entries 的情况下要单独保证复合身份不重复，第 9 条。 |
+| closeWithin | `groups.ts:274-279` 能按地址关多个标签；问题是 area 仅从 DocumentStore 的“closed”事件收到已打开文档地址，而 coordinator 只 emit 有 text Entry 的项，第 9 条。 |
+| 文档引用与最后标签 | `area.ts:183,197,377,486` 都按地址共享；文档应继续地址唯一，不能跟着标签改成“地址+编辑器”唯一；免询问只适用于仍有真正正文持有者，第 4 条。 |
+| 会话恢复 | `groups.ts:333-353` 按记录保留全部标签，cursorFits 再判断；恢复实现晚交付与新 id/cursor 合同须补，第 7、8 条。 |
+| 继续写作 | `area.ts:412-448,545` 以 tabId+groupId 取消定位，路径只作提示；原取消原则可保留，但普通 open 必须选择非内容预览标签，bytes 没正文不能永远等 document ready，第 5、9 条。 |
+| activeDocument 公开字符串 | `state.ts:50-54` 取活动标签地址，不能改为复合 id；源码与 HTML 预览同地址时它应相同，bytes 仍必须给资源地址。area 的同名 activeDocument 则是 TextDocument，两种接口要分清。 |
+| 资源管理器揭示 | `explorer/web/plugin.ts:60-76` 等 ready 后只揭示一次，读公开地址字符串，不持续跟随标签切换；无需为复合身份改消费者，但必须保持这个字符串合同。 |
+| 输出 4 | `area.ts:475-505` 已考虑另一组/恢复未加载标签、自己的未裁决输入；本期加入同组不同编辑器后必须按文本持有者计，而不是数同地址标签，第 4 条。 |
+
+## 验收映射缺口
+
+现有 9 行验收映射中的选择顺序、两根 raw、图片基本展示、独立语言高亮有可写的真实运行时测试入口；它们不能证明以下新增合同：
+
+- 编辑器与语言的静态登记、待交付、失败、撤回、load 迟到及会话恢复；补真实插件宿主，不用假句柄覆盖。
+- SVG 文本+图片的最后正文引用、text↔bytes 换编辑器、主动删除/成功移动与 resync/ended；补真实 Files、编辑器与资源管理器协调路径。
+- raw 与项目代次、根替换、未打开/换代/移出、未绑定窗口的 user；HTTP 分发加临时目录不足以证明项目子进程寿命。
+- 沙箱的跨项目/user/应用/Vite 读请求、模块及 import/相对 fetch；后端 `/api/` 本来不存在，给它 POST 得 403 只证明拒绝策略，不证明任何真实可写路由的磁盘不变。应对真实封面写入口或受控的已挂载简单 POST 同时断言拒绝与副作用未发生。
+- `allow-scripts` iframe 未给 `allow-forms`，普通表单提交被 sandbox 阻止；要测“简单 POST”应从真实 iframe 用 fetch 的 safelisted Content-Type 发出，不要只测被浏览器阻止的表单。PUT/DELETE 不是简单请求，本次封面上传的 PUT 需预检，不能把 multipart PUT 当作无需 CORS 的简单请求。
+- 图片损坏、SVG 无固有尺寸、超限、取消与对象 URL 收口；旧资源返回不能刷新新标签。
+- 保留模型时语言状态、首行/改名/手动选择、内嵌 JS/CSS/代码围栏、FreeMarker2 变体与 JSON/纯文本在贡献目录中可选择；再覆盖选择期间目标失效。
+- 新状态栏的活动身份、两组切换、失败/关闭撤回；现有字数/光标不得因 bytes active 而显示旧值或 0 字。
+
+另外，S2 的“editor-area.e2e.ts 全部通过（行为不变）”与“reopen-with 无参数改为 quickPick”并不都是原样行为；应保留旧合同中的不变量，更新确实改变的交互断言，而不是机械让整份旧 suite 原样通过。计划用 groups.test 验证保留视图最多 3 份也不对边界：保留槽在 area.ts:223-244，groups 模型不持有控件/模型。语言表一致性测试不要只断言生成源的文字或同一生成器输出；实际语言声明与 tokenize 是消费者合同。
+
+## 未发现问题的方面
+
+- 决定 1：仍按“先文件类型架构、后深度 Markdown”推进，未悄悄加入标签拖放/自动保存/LSP；决定 2 的当前组与 side 双入口齐全。决定 3 的写/DOM 隔离机制有实际基础，但读隔离未满足，见第 1、2、13 条；决定 4 的图片范围与 SVG 源码入口明确，未加入 PDF/音视频；决定 5 的指定/default/code/不支持顺序方向未被偷换；决定 6 的分层与本期 Monarch 范围明确，登记实现缺口见第 11、12、17 条。
+- 图片查看器与 HTML 预览为两个独立浏览器内置插件、都登记产品清单和 Lab，界面不出评审稿：与追加批准一致；第 19 条是独立插件间接口缺失，不重议拆插件。
+- `rooted.ts` 读路径不取写锁、不依赖 ChangeHub 或项目子进程内的全局状态，服务端可以复用；project 须 controlDirectory=true，user 须 false。真正缺失的是根取得、授予与代次寿命，不是锁迁移。
+- RPC 的 `Origin: null` 已确实拒绝：实际 startServer 与端口测试通过；allowOrigin 对字符串 null 的 URL 解析失败，listener 以 403 拒绝。无 Origin 本机客户端继续放行符合既有鉴权前限制。
+- iframe 不给 allow-same-origin 能阻止 parent.document；原生 Chromium 探针已核实。不给 allow-popups 阻止新窗口，且不给 allow-top-navigation/allow-top-navigation-by-user-activation 时，点击 `target=_top` 不改变顶层 URL，实测顶层请求未发出。把“所有链接都在 iframe 内跳转”写成绝对承诺不准确：显式 `_top/_blank` 是被拒而不是自动改成内部导航，应在新 Spec 明确。
+- `CSP: sandbox` 不会阻止原生 `<img>` SVG、经典脚本与 CSS 子资源加载；实测相对 SVG 为 20×10、CSS 颜色正确、经典脚本执行。该头也不替代 iframe 文档自己的出站资源政策。直接文档导航的 CSP 行为本次未单独测试。
+- `markdown`/`code` 贡献给自己的 editor.editors 可行：实际 createApplication 探针启动 available，回调顺序 prepare:false → published:true，code 实现可调用；停止时 revoke:false，之后不再可调用。不能在 activate 返回前等待它们的交付，第 7 条已指出。
+- FileEditorKind 放宽本身不破坏按组/编辑器的状态槽思想；需补合法 id、page 区分与光标能力后才能保持边界。当前 groups 合同实跑 13 项全过，不能据此声称新复合身份或 bytes 行为已验收。
+- 会话版本没有必须升到 2 的依据：新 schema 接受旧 markdown/code、cursor，language 为可选时旧记录仍合法；editor.md 已采用可选 cursor 不升版的同类约定。Storage 会按完整定义（含 schema）拒绝同代混用为 definition-conflict；版本改高反而把旧记录判 unsupported-version，Storage 目前不提供迁移函数。保留版本 1 可以，但须写清新旧外壳不混用/刷新规则及新 id/cursor 校验，不能只因“string 更宽”就强制升版。
+- basic-languages 的 Monarch 词法器不需要 TypeScript/CSS/HTML 语言智能 worker；JS→TS 普通 import 可以自然打包。JSON 独有服务/worker保留是正确例外，但仍要在语言目录里明确登记。
+
+## 风险一节逐项判断
+
+1. 标签复合身份：风险成立且对策不足，原样通过旧 tests 不能保护最后一个文本引用、两种 preview、bytes 协调与恢复晚交付（第 4、5、7、9 条）。
+2. srcdoc 的已有 base：接受用户 href 的取舍可以，但浏览器只按首个 href base，不会自动优先用户页面，计划必须写出检测与插入算法（第 18 条）。
+3. 服务端直接读项目目录：复用 rooted.ts 的解析原语可行，但不复用代次、根身份和授权寿命，单靠同一套路径规则不能兑现 files 合同（第 1、3 条）。
+
+## 本次实际验证与未运行项
+
+以下命令从 `/home/notnotype/CodeRepository/neuro-book/.worktree/w00025-t02-review/packages/neuro-book` 执行：
+
+```text
+bun test src/plugins/editor/web/groups/groups.test.ts
+结果：13 pass，0 fail，64 expect() calls，118ms。
+
+NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/review-t02-design/lab-omp bun test src/plugins/files/project-child.test.ts --test-name-pattern '项目代次结束'
+结果：1 pass，4 filtered out，0 fail，11 expect() calls，752ms；真实项目子进程崩溃、旧代请求/订阅结束、新代读正文。
+
+NBOOK_AGENT_TEMP_ROOT=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/review-t02-design/lab-omp bun test src/server/server.test.ts --test-name-pattern '允许的来源'
+结果：1 pass，22 filtered out，0 fail，10 expect() calls，277ms；真实监听端口，含 null Origin 得 403。
+```
+
+从 worktree 根执行：
+
+```text
+bun /tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/review-t02-design/lab-omp/self-contribution.ts
+结果：startup available、无 failures；prepare:false、published:true，code-is-callable；stop closed、revoke:false，不再可调用。
+```
+
+浏览器机制探针使用 omp 内置 Chromium，临时 Bun.serve 只提供各探针资产，均在 finally 关闭 tab 与监听；未启动产品开发服务、未跑 e2e。可复现的 Eval 入口：
+
+```js
+const p = '/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/review-t02-design/lab-omp';
+await import(`${p}/sandbox-probe.js`).then(m => m.run(browser));
+await import(`${p}/run-monaco-probe.js`).then(m => m.run(browser));
+await import(`${p}/raw-cache-probe.js`).then(m => m.run(browser));
+```
+
+实验过程中有 3 次环境/探针失败，均未据此定产品问题：构建产物向自身路径 Bun.write 导致字节被截断，改为读取输出 ArrayBuffer 后写不同文件；把 languages.register 当返回 IDisposable 导致 dispose 报错，已按真实 API 修正；在 Bun 直接 import FreeMarker2 报 `ReferenceError: window is not defined`，已改真实 Chromium加载并 tokenize。缓存第一次保留 Date 丢失 sub-ms mtime 未碰撞，后以两次相同整数 mtime 核实 304 旧正文，不把第一次当通过证据。
+
+未运行：新 raw/图片/HTML/语言产品行为（尚未实现）、产品 e2e、开发 Vite/Lab 动态安全验收、全量测试、typecheck、Windows/macOS 和超大图片测量。LSP 查询返回 `No language servers configured for this project`，按实际源码读取核对调用点。
+
+## 数量
+
+- 阻断：1 条（第 1 条）。
+- 重要：14 条（第 2–16 条中除第 17–19 条；准确范围为第 2–16 条，共 15 条中的第 16 条亦为重要，见下方校正）。
+- 建议：3 条（第 17–19 条）。
+- 总计：19 条。以上“重要 14”是计数笔误，实际 **重要 15 条**；最终数量为 **阻断 1、重要 15、建议 3，总计 19**。
+
+任务反思：未提出额外治理规则回写；本次可复用的沙箱/贡献寿命/语言数据合同建议已写在对应发现的 Spec 修改建议中。探针错误不扩成产品问题，已有测试规范已覆盖“真实依赖、真实浏览器与失败后只重跑失效项”，不重复追加规则。
+
+## 最终核对
+
+- 报告发现标题数为 19，逐级从发现自身的严重程度字段统计：**阻断 1、重要 15、建议 3**；前文数量段中“重要 14”作废，以本段与其紧随的校正为准。
+- 源码位置中简写的 `src/…` 均应展开为 `/home/notnotype/CodeRepository/neuro-book/.worktree/w00025-t02-review/packages/neuro-book/src/…`；未写 worktree 前缀的 `docs/…` 与 `.agents/…` 均在同一审查 worktree，第三方 Monaco/Vite 路径另按文中给出的主仓库 node_modules 绝对路径读取，只读且版本与审查 bun.lock 一致。
+- 第 18 条特殊文件名说明：单段可含 `#`、`?`、`%`；`/` 是分段符，不能作为单段的一部分。URL 编码需要逐段处理，不把 `#` 当 fragment、`?` 当 query，也不二次解码 `%`。
+- 第 12 条生成表测试若读取磁盘中的 contribution JS，不应放成 `web/code/*.test.ts` 并引入 Node/Bun：本包的浏览器测试类型配置没有 Bun/Node 库。纯选择算法可留 web，磁盘生成/一致性测试放插件根；Monaco/FreeMarker2 真实加载和 tokenize 的消费验证放真实浏览器，不能给 Bun 伪造 window 以后宣称合同通过。
+- 最后一次 `grep -c '^### ' <报告绝对路径>` 得 19；按严重程度字段独立统计亦得 1/15/3；本次所有管理的浏览器标签已关闭（`browser.tabs()` 为 `[]`）。不修改仓库、不提交、不操作分支与远端。
