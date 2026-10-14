@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t15-ui-polish
-status: active
+status: done
 updated: 2026-10-14
 ---
 
