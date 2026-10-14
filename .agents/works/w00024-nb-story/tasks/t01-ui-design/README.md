@@ -22,7 +22,8 @@ updated: 2026-10-14
 - 现状与参照清单：[reference.md](reference.md)（数据、t28 查看器的问题、要沿用的机制和它防什么、外部参照）。
 - 评审板 [artifacts/review/index.html](artifacts/review/index.html)：第 1 轮五道题已答（见下文“决定”）。第 2 轮（2026-10-14）只问一题 `host`，已答：先做独立服务（见下文“决定”第 7 条）。第 3 轮（2026-10-14）是静态稿：五个画面（全书总览、人物名册加人物卡、秘密矩阵、问答页加原文、导航收起），问两题：版式能否往下细化（`draft-layout`），问答答案怎么呈现（`qa-answer-format`）；另列了搭稿时发现的四个问题（矩阵与问答说法不一、化名按读到哪里合并、后面章节标题会剧透、称呼噪音）。
 - 第 4 轮（2026-10-14）按决定第 8 条改稿：段落级阅读位置、人物卡分页签与几百条记录的筛选、关系图、全书图（按关联与按章节两种排布）。问两题：全书图怎么排（`data-graph-layout`）、人物卡分页签还是一长页（`card-tabs`）；第 3 轮的 `qa-answer-format` 仍待答。另列三个问题：关系线上的字不是关系（记忆图缺“两人是什么关系”）、同名对象、小关系图太挤。
-- 静态稿：草稿 worktree 的 `packages/neuro-book/src/plugins/lab/web/components/drafts/`（`NbStoryDraft.vue`、`StoryGraph.vue`、`StoryLine.vue`），Lab 场景 `NbStoryDraft`（12 个场景），数据 `fixtures/drafts/story-draft-data.json` 由 t34 `dataset-v9.json` 抽“读到第 38 章”的样本；画图库 Cytoscape.js 只装在草稿 worktree；都不提交。截图集在主工作区 `.local/agent/works/w00024-nb-story/tasks/t01-ui-design/shots/`。
+- 第 5 轮（2026-10-14，第 4 轮的题还没答时先做）：补齐数值、悬念、时间线、情节、原文五页，人物卡记录“在主区打开”的宽表格，以及平板、手机宽度（按组件自身宽度分三档：平板时导航收成图标条、抽屉浮在主区上；手机时顶栏两行、底部页签、抽屉改成底部面板）。问两题：手机宽度要不要进第一版（`phone-scope`）、原文报的余额和逐笔累加对不上时怎么显示（`ledger-mismatch`）。另列四个问题：收支漏抽（神典石 6 处对不上）、最近几章还没归入主线、显示名取哪个称呼、时间线有日子不明的点。
+- 静态稿：草稿 worktree 的 `packages/neuro-book/src/plugins/lab/web/components/drafts/`（`NbStoryDraft.vue`、`StoryGraph.vue`、`StoryLine.vue`），Lab 场景 `NbStoryDraft`（20 个场景），数据 `fixtures/drafts/story-draft-data.json` 由 t34 `dataset-v9.json` 抽“读到第 38 章”的样本；画图库 Cytoscape.js 只装在草稿 worktree；都不提交。截图集在主工作区 `.local/agent/works/w00024-nb-story/tasks/t01-ui-design/shots/`。
 
 ## 决定
 
@@ -62,4 +63,4 @@ updated: 2026-10-14
 
 ## 下一步
 
-1. 等开发者答第 4 轮两题和第 3 轮的 `qa-answer-format`；之后补数值、悬念、时间线、情节、原文五页、“在主区打开”的记录表和手机、平板宽度的稿子。
+1. 等开发者答待定的五题：第 5 轮 `phone-scope`、`ledger-mismatch`，第 4 轮 `data-graph-layout`、`card-tabs`，第 3 轮 `qa-answer-format`。答完后按决定修稿；各页都画过一遍，之后可以开始写 `planned` Spec。
