@@ -1621,3 +1621,24 @@ Work 与 Task 的记录里现在没有分类和优先级：frontmatter 只有 `s
     - 搜索：展开历史之后换词，去抖期间旧结果仍按旧词高亮；新结果出来后历史收起，高亮是新词。
     - 回归：第 5 批的 `accept.ts` 13 条全过（`review-fixes/rerun-batch5/`）。
   - 验收环境：克隆 master 上又多了几次编辑 `workbench-shell.md` 的提交（Ctrl+S 用例）；4490 已 SIGTERM，浏览器已关，`/dev/shm/nbdev-t15-tmp` 已删。master 到 `a54340499`，`packages/`、`bun.lock`、`package.json` 没有变化，不用同步。
+- 2026-10-14：合入第 5 批前处理两个不稳定的测试。集成分支此前已由主 Agent 合入 master（`256f5e99d`，含 jsdom 的修复）。未 push。
+  - `tests/web-build.test.ts`（`80e3b50f7`）：
+    - 原因：全量负载下 vite 构建变慢，rolldown 往 stderr 打 `[PLUGIN_TIMINGS] Your build spent significant time in plugins` 的性能建议，“stderr 为空”的断言就不成立；构建本身没有问题；
+    - 查证：vite 8.1.4 的 `build.rolldownOptions` 是 rolldown 1.1.5 的 `InputOptions`（去掉 input、logLevel、output），其中 `checks?: ChecksOptions` 有 `pluginTimings?: boolean`（缺省 true，见 `rolldown/dist/shared/define-config-*.d.mts`）；
+    - 改法：`vite.config.ts` 加 `build.rolldownOptions.checks.pluginTimings: false`，写明理由；断言没动；
+    - 核对：
+      - 改前同时跑 6 个构建，2 个打出这段提示；改后同时跑 8 个，0 个；
+      - 新旧配置的构建产物 `diff -r` 完全相同；
+      - `bun run build:web` 没有这段提示。
+  - `tests/artifacts-cli.test.ts`（没有提交）：
+    - 这个文件里没有用例之间共用的状态：每条用例新建自己的临时根与仓库；`closers` 与 `cleanupFixtures` 在 `afterEach` 里清；`process.env` 只在模块加载时改一次。
+    - 场景 5 里没有固定时长的等待：命令行调用的限时是 60 秒，git 提交走 nbdev 自己的写事务。
+    - 后面 6 条在 3 到 9 毫秒内失败：这么短只够跑到建临时根（在系统临时目录下 `mkdtemp`、写标记文件）或 `git init`。用 bun 1.4.2 试过，`afterEach` 抛错不会连带后面的用例失败，所以是同一个外部条件让它们各自在第一步就失败。
+    - 最可能的原因是 `/tmp` 的用户配额，没有拿到当时的错误文字，算推断：
+      - `/tmp` 是带 `usrquota` 的 tmpfs，这个用户的硬上限 6.12 GiB，现在已用 5.83 GiB，余量约 295 MB（`quotactl_fd` 读的；`df` 的空闲量不反映用户配额）。本机所有会话共用这份配额，大头是 `/tmp/claude-1000`（4.2G）、`/tmp/nbook-t20`（880M）、`/tmp/node-compile-cache`（596M）；
+      - 测试的临时根缺省就在 `/tmp/neuro-book/agent`；
+      - 全量测试一边跑一边每 0.2 秒采样配额，这套测试自己在 `/tmp` 的峰值只多用约 1 MB。所以多半是同一时刻别的会话把配额用到了顶，这套测试碰巧在那一刻建临时根；
+      - 旁证：`/tmp/neuro-book/agent` 里留着一个 08:07 的 `dev-panel-cli-close-reopen-*`，里面的 `.git` 缺 `config`，就是 `git init` 写到一半失败的样子（不是 14:25 那一次留下的）。
+    - 复现：在默认 `/tmp` 上连跑三次全量（第三次边跑边采样），都是 428 过、0 失败，没能复现。没有删任何目录，包括本会话的 scratchpad（177 MB，主 Agent 也在用）。
+    - 建议：跑门禁时把 `TMPDIR` 指到配额余量大的地方（`/dev/shm` 同样 6.12 GiB 上限，现在只用了 0.74 GiB），或者由开发者清 `/tmp` 里不用的东西。
+  - 门禁（在 `80e3b50f7` 上，默认 `/tmp`）：包的 `typecheck`、`build:web` 通过；全量 `test` 连跑三次都是 428 过、0 失败；`git diff --check 256f5e99d` 干净（日志在 `accept/phase4/batch5/flaky/`）。
