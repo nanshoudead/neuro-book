@@ -4,6 +4,13 @@ import {JSDOM} from "jsdom";
 /**
  * Markdown 渲染的清洗与外站图片（`host/markdown.ts`，t15 阶段 4 第 4 批审查第 1、7 条）。DOMPurify 在模块求值时取全局的 `window`，
  * 所以先装 jsdom 的 window 与 document，再动态导入被测模块。用的是真的 DOMPurify 与 marked。
+ *
+ * 不用 happy-dom：DOMPurify 3.4 经 `Node.prototype` 的 `nodeName` getter 取标签名，happy-dom 那里固定返回空串；它的 NodeIterator
+ * 在当前节点被移除后也不再往下走，移除元素之后的节点不会被清洗。清洗器的安全测试要跑在合规范的 DOM 上。
+ *
+ * jsdom 的类型用旁边的 `web-jsdom.d.ts`，不装 `@types/jsdom`：它装进仓库根的 node_modules 后，vitest 类型声明里的
+ * `import 'jsdom'` 解析到它，它又引用 lib `dom`，把浏览器的 DOM 类型带进 packages/neuro-book 的类型检查，与 Bun 的
+ * WebSocket、Blob 等类型冲突。等 vitest 不再从类型声明里引用 jsdom，或 `@types/jsdom` 不再引用 lib `dom` 时，可以改回装它。
  */
 const dom = new JSDOM("<!doctype html><html><body></body></html>", {url: "http://127.0.0.1:4490/"});
 Object.assign(globalThis, {window: dom.window, document: dom.window.document});

@@ -1,0 +1,37 @@
+# w00022/t15 阶段 4 第 5 批：服务端实现审查
+
+审查提交：`5706085f4`。只核对同批前端对服务端结果的消费，不审查前端提交自身。
+
+## 问题 1：产物编号误享 Work、Task 的短号精确匹配优先级
+
+- **级别：重要；类别：正确性。**
+- **位置：** `packages/dev-panel/src/core/search.ts:58-60`；影响截断的位置为 `packages/dev-panel/src/server/views.ts:366`。
+- **具体场景：** 搜索 `T15`，存在 Task `t15-ui-polish`、标题为 `t15 计划` 的 Work，以及编号为 `t15-review`、标题为 null 的产物。实际顺序为 Task、产物、Work；按合同应为 Task、Work、产物。产物应属于“编号以搜索词开头”，却被算成“短号完全相同”。编号为 `w00022-report` 的产物有同样问题。
+- **依据与原因：** 第 5 批实施进度明确“短号只认 Work 与 Task 的编号段”；代码注释也这样写。但第 59 行只检查编号的形状，没有检查 `match.kind`，对产物编号也提取了 `t15`、`w00022`。产物编号允许这种 kebab-case，并非非法输入。错误优先级也会改变 50 条的入选集合：实测 51 个 `t15-review-*` 产物与一个标题为 `t15 计划` 的 Work，返回 50 个产物，相关度本应更高的 Work 被截掉。
+- **核实：实测。** 在集成 worktree 的 `packages/dev-panel` 执行仓库外实验 `relevance.ts`，使用真实 `assertArtifactId`、`listArtifactIds` 验证并索引临时产物目录，再调用 `matchRecords`、`recordMatches`。分数输出为 `[["w00022-dev-panel",1],["t15-ui-polish",0],["t15-review",0]]`；缓存视图输出为 `["t15-ui-polish","t15-review","w00022-dev-panel"]`；51 个产物的场景输出为 `{"returned":50,"workRetained":false}`。没有启动 HTTP 服务；结论是实际缓存视图的排序与截断行为，不冒充浏览器或 HTTP 实测。
+- **建议改法：** 仅在 `match.kind === "work" || match.kind === "task"` 时提取短号；产物、会话只能按完整编号比较。补充 `t15-review`、`w00022-report` 不得越过标题前缀命中的排序用例，并覆盖超过 50 条时正确保留标题前缀命中。
+- **测试缺口：** 新增两条单测均通过，但没有 `t15-*`、`w00022-*` 形状的产物用例，也没有服务端 `recordMatches` 的 50 条边界用例。`t15-review` 的错误顺序与截断已实测；`w00022-report` 同样被提升为精确匹配是从第 59 行正则推断，其编号合法性与可索引性已实测。
+
+## 核实记录与边界
+
+执行测试的目录：`.worktree/w00022-dev-panel/packages/dev-panel`。没有安装依赖。
+
+| 实际命令 | 本次结果 |
+|---|---|
+| `bun test --isolate src/core/search.test.ts` | 2 通过、0 失败 |
+| `bun test --isolate tests/find-shot.test.ts -t '记录与文件一起找'` | 1 通过、0 失败、2 条未选中 |
+| `bun test --isolate tests/panel-core.test.ts -t '^搜索'` | 3 通过、0 失败、4 条未选中 |
+
+- **实测：** 仓库外 `relevance.ts` 实验覆盖大小写、查询首尾空白、中文、连续多词、编号前缀 `w0002`、跨 Work 重复短号 `t15`、100 次同输入的顺序、同分的四种记录顺序，以及原输入第 52 条的精确标题进入前 50 条。全角 `Ｐａｎｅｌ` 不等同于半角 `Panel`，沿用原有字串匹配，不是本提交新增的归一化行为。
+- **实测：** 仓库外 `performance.ts` 对合成缓存调用 `recordMatches`，每组预热 30 次、测量 100 次。101、1001、10001 条命中的中位耗时分别为 0.045、0.311、3.550 毫秒，p95 分别为 0.089、0.381、4.704 毫秒。仅测缓存匹配、排序与截断，不含 Git、HTTP 或浏览器。
+- **从代码推断：** 排序每次搜索请求执行一次；`packages/dev-panel/src/server/serve.ts:459-461` 的推送只发 revision，`packages/dev-panel/src/web/pages/SearchPage.vue:65-68` 只随查询变化执行搜索，没有“每次推送都重新排序”的路径。Work、Task、产物输入顺序由各索引排序确定；会话原顺序受最近活动影响，排序仍按计划保留同分同种类的原顺序，没有新增独立次序。
+- **从代码推断，CLI 聚焦测试通过：** `nbdev find` 继续在 `packages/dev-panel/src/cli/dev-commands.ts:58` 调用未修改的 `matchRecords(...).slice(0, 50)`，不调用新排序器；文件搜索继续共用未修改的 `searchCheckouts`。计划中“它不截断”的理由不符合既有 CLI 代码，但其顺序与 50 条上限均未被本提交改变，不计为本提交问题。
+- **从代码推断：** `packages/dev-panel/src/web/pages/SearchPage.vue:50` 按接收顺序追加记录，`packages/dev-panel/src/web/parts/SearchResults.vue:54` 按数组顺序渲染，不再分组或重排。文件计数仍取已接收文件命中数，与记录排序无耦合；此前就没有记录总数与“共 N 条，显示 50”的协议或界面，记录截断未通知前端是既有行为，不计为本提交回归。
+- **提交核对：** 没有放宽或删除既有测试断言；新增测试没有跳过、mock 或 spy。改动没有新增按错误文案分支、吞错、跨包深导入、不可达代码或无关删除。注释重复排序规则未另列低收益意见。
+- **未运行：** 全量测试、typecheck、面板或其它服务、HTTP 与浏览器验收；没有调用 herdr，没有运行写仓库记录的 nbdev 命令。实验文件按要求清理；审查未改代码、未提交、未 stash、未切分支、未 push。
+
+## 结论
+
+阻断 **0** 条，重要 **1** 条，建议 **0** 条；共 **1** 条已核实问题。**当前不能合入：先修正产物被当成 Work、Task 短号的排序错误，再补齐该排序与 50 条边界的回归覆盖。**
+
+条数核对：`grep` 匹配 `^## 问题 [0-9]+` 得到 1 条问题标题，匹配级别条目得到 1 条“重要”，与上述已核实问题数一致。

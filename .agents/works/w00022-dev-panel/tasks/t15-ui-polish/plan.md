@@ -812,6 +812,56 @@ Work 与 Task 的记录里现在没有分类和优先级：frontmatter 只有 `s
 - 外站图片：仓库根 README 的徽章显示成链接，控制台没有 CSP 报错；
 - 明暗两套、390 与 1440 截图：checkout 页（含文件清单）、“在跑”页、文档页（渲染、差异、抽屉）。
 
+### 第 5 批：编辑页与搜索（2026-10-14 细化）
+
+出处：design.md 阶段 4 的“编辑页”“搜索”；分批表第 5 行（服务端改动“搜索排序若要服务端给相关度再定”，验收要点“路由守卫等异步确认的改法先试”）；“要先实测才能定的问题”第 3 条（编辑页的站内确认框）；ux-b F8、F9。后续清单没有标第 5 批的条目。
+
+#### 已查
+
+- 编辑页：
+  - 面包屑（阶段 3）只认 Work 与 Task 的 README，Task 目录里的其它文件（文档类产物、`plan.md` 这类）落到“文档”；
+  - 贴底操作栏（3c）已有“保存并提交”“放弃改动”与结果，没有快捷键；
+  - 站内离开用 `window.confirm`，关标签页、刷新用 `beforeunload`。
+- 搜索：
+  - 记录类命中由服务端 `recordMatches` 先发、页面先显示，但顺序是遍历顺序（Work、它的 Task、产物……），并且服务端先截 50 条再发：命中多时最相关的可能被截掉，所以相关度要在服务端截之前排；
+  - 文件命中按 checkout 分组，每组文件名命中在前、内容命中在后，没有高亮；
+  - `.agents/tasks` 的历史和别的命中混在一起；
+  - `/` 与 Ctrl+K 聚焦搜索框在 `host/shortcuts.ts`（阶段 2d），有单测。
+
+#### 改动
+
+1. **服务端：记录类命中按相关度排**（单独一个提交）。`core/search.ts` 加纯函数 `recordRelevance(match, q)`，`recordMatches` 在截 50 条之前按它稳定排序。分数从高到低：
+   - 标题或编号与搜索词相同（编号也认短号，例如 `w00022`、`t15`）；
+   - 标题以它开头；
+   - 编号以它开头；
+   - 标题包含它；
+   - 编号包含它。
+   同分时 Work、Task、产物、会话依次在前，再按原顺序。`nbdev find` 的顺序不动（它不截断，且有自己的输出合同）。单测钉住排序；`docs/panel.md` 的 `/api/search` 一行写明顺序。
+2. **搜索页**：
+   - 记录类命中照旧在最上面（服务端先发、已排好），标题与编号里的搜索词高亮；
+   - 文件命中高亮：路径与内容里的搜索词（不分大小写）用 `<mark>` 标出，按文字切段渲染，不用 `v-html`；切段函数放 `host/highlight.ts`，有单测；
+   - 每个 checkout 组里，`.agents/tasks/` 下的命中（历史 Task 记录）收进组尾一个默认折叠的“历史 Task 记录 N 条”，点开才列出；
+   - `/` 快捷键浏览器里复核。
+3. **编辑页**：
+   - 面包屑：Task 目录下的任何文件都回到 Work 与 Task（不只 README），找不到时的出口同样；
+   - 快捷键：Ctrl+S（Mac 上 ⌘+S）保存，按钮上写“保存并提交 Ctrl+S”（与会话页的发送按钮同一种写法）。页面挂载时在 `window` 上监听，输入法组字时不处理；能保存才保存，不能保存时仍拦下浏览器的“另存网页”，并在操作栏写原因；
+   - 站内离开：`onBeforeRouteLeave` 与 `onBeforeRouteUpdate` 返回 Promise，等面板自己的确认框（nb-ui `AlertDialog`：“有未保存的改动，离开会丢掉” / 离开 / 留下）。确认就放行，取消、Esc、点遮罩都留下。确认框开着时又来一次导航，先把上一次当作“留下”结算。浏览器后退（popstate）被拦下时，vue-router 会把地址复原，实测核对；
+   - 关标签页、刷新仍只能用原生的 `beforeunload`（浏览器不允许自定义）。
+
+#### 验收（4490，证据 `accept/phase4/batch5/`）
+
+- 编辑页（在克隆里编辑一份文档）：
+  - Ctrl+S 保存成功，克隆里多一个提交；没改动时 Ctrl+S 不提交、浏览器也不弹“另存网页”；
+  - 有未保存改动时点左栏跳走，弹面板自己的确认框：选“留下”还在编辑页、草稿还在；选“离开”跳走；
+  - 浏览器后退同样弹框，选“留下”后地址复原成编辑页；
+  - 面包屑：Task 目录里非 README 的文件回到 Task。
+- 搜索：
+  - 搜一个既是 Work 标题又散在很多 Task、文件里的词，记录类按相关度排；
+  - 路径与内容的高亮；
+  - `.agents/tasks` 的命中默认折叠、能展开；
+  - 按 `/` 聚焦搜索框。
+- 明暗两套、390 与 1440 截图：编辑页（含确认框）、搜索页。
+
 ### 各页的内容（原轮廓，各批引用）
 
 按页切片，每页一个或几个提交，彼此基本独立；涉及服务端的单列在后面，**先于对应的前端片单独提交**，审查时能单独看安全面（审查建议 10）。
@@ -1506,3 +1556,68 @@ Work 与 Task 的记录里现在没有分类和优先级：frontmatter 只有 `s
     - 回归：第 4 批的 `accept.ts` 23 条全过（`review-fixes/rerun-batch4/`）。因为复制按钮现在点了不跳，脚本里点行的位置从 HEAD 格换成“相对 master”格。
   - 验收环境：克隆的 `b4-service` 多了一份未跟踪的 `b4-images.md`；开发服务验完已经 `dev stop --force`（是验收自己起的），4490 已 SIGTERM，浏览器已关，`/dev/shm/nbdev-t15-tmp` 已删。master 到 `5702de26a`，`packages/`、`bun.lock`、`package.json` 没有变化，不用同步；集成分支自己多了上面两个开发依赖。
 - 2026-10-14：阶段 4 第 4 批合入 `master`（合并提交 `23609bdc2`，集成分支 `460ef97c3`），按开发者的长期授权直接合入。合入前主 Agent 在 `460ef97c3` 上复跑门禁：typecheck、build:web 通过，全量测试 421 过、0 失败，`git diff --check` 干净；合并结果与集成分支在 `packages/`、`scripts/`、`package.json`、`bun.lock` 下没有差异，不用另测。合入后 `bun install --frozen-lockfile`（装上 `jsdom`、`@types/jsdom`），`service:restart` 重启 4400，回 200。
+- 2026-10-14：阶段 4 第 5 批（编辑页与搜索）按上面“第 5 批”一节实现，没有要开发者定的决定点。集成分支从 `7cd983c9e` 起（master 同一处），未 push。
+  - 提交（`7cd983c9e..b8c72ab3e`，3 个）：
+    - `5706085f4` 服务端：
+      - `core/search.ts` 加 `recordRelevance` 与 `rankRecordMatches`，`views.ts` 的 `recordMatches` 先按相关度稳定排、再截 50 条；
+      - 短号只认 Work 与 Task 的编号段（`w00022`、`t15`）。实现时发现产物编号 `panel-review` 会被当成短号 `panel`，所以收窄了；
+      - 单测 `src/core/search.test.ts`；`docs/panel.md` 的搜索一节写明顺序。`nbdev find` 的顺序没动。
+    - `4e4ba70ac` 搜索页：
+      - 新纯函数 `host/highlight.ts`（`highlightParts` 用原文上的正则切段，`snippetAround` 让内容片段从命中前 30 个字开始），单测 `tests/web-highlight.test.ts`；
+      - 新零件 `HighlightText`（带 `.md`）用 `<mark class="nbdev-mark">` 标出搜索词，样式在 `app.css`，不用 `v-html`；
+      - `SearchResults` 加 `q`，记录、文件名命中的路径、内容那一行都高亮；每组 `.agents/tasks/` 的命中收在组尾，默认折叠。
+    - `b8c72ab3e` 编辑页：
+      - 面包屑：Work 或 Task 目录里的任何文件都回到那个 Work、Task；
+      - Ctrl+S（Mac 上 ⌘+S）：按钮上写着；不能保存时也拦下浏览器的“另存网页”，在操作栏写原因；对话框开着时不处理；
+      - 站内离开：守卫返回 Promise，等 nb-ui 的 `AlertDialog`。实现时踩到一个先后：点“离开”时 reka 先发关闭、再发 `confirm`，关闭立刻按“留下”结算会把导航取消，所以关闭推到下一轮再结算，让 `confirm` 先结算。
+  - 计划里“要先实测才能定的问题”第 3 条的结论：
+    - `onBeforeRouteLeave` 返回 Promise 能等面板自己的确认框；
+    - 浏览器后退被拦下时，vue-router 把地址复原成编辑页，草稿还在；
+    - 关标签页、刷新仍是原生的 `beforeunload`。
+  - 门禁（在 `b8c72ab3e` 上）：包的 `typecheck`、`build:web` 通过；全量 `test` 425 过、0 失败；`git diff --check` 干净；`dev-panel-records` 过；`docs:check` 通过（`accept/phase4/batch5/gate-*.log`）。
+  - 浏览器验收在 4490 上做，脚本 `accept/phase4/batch5/accept.ts`，13 条全过（`final/results.txt`，截图 `final/b5-*.png`：编辑页、确认框与搜索页，明暗两套，1440 与 390），控制台没有错误与警告：
+    - 编辑页：
+      - 按钮写着 Ctrl+S；
+      - 没改动时 Ctrl+S 不提交、不弹“另存网页”，操作栏写原因；有改动时 Ctrl+S 在克隆的 master 上提交一次；
+      - 站内跳走弹面板自己的确认框，没有原生对话框：“留下”与 Esc 都留下、草稿还在；“离开”跳走；
+      - 浏览器后退同样弹框，“留下”后地址复原、草稿还在；
+      - Task 目录里的 `plan.md` 面包屑回到 Task；
+    - 搜索：
+      - `/` 聚焦搜索框；
+      - 搜“面板”，记录类命中的相关度分数不降，且不止一档（1、1、1、1、3……）；
+      - 搜索词高亮几百处，都是搜索词本身；
+      - `.agents/tasks` 的命中折叠时 0 条，展开后列出。
+  - 验收环境：克隆 master 上多了几次编辑 `docs/specs/ui/workbench-shell.md` 的提交（脚本每跑一次 Ctrl+S 那条，就提交一次）。4490 已 SIGTERM，浏览器已关，`/dev/shm/nbdev-t15-tmp` 已删。master 仍在 `7cd983c9e`，`packages/`、`bun.lock`、`package.json` 没有变化，不用同步。
+  - 没有验证到的地方：Mac 上的 ⌘+S（只在 Linux 的 Chrome 上按了 Ctrl+S）；只看了 Chrome。
+- 2026-10-14：第 5 批两份实现审查的处理。前端（Sonnet，`evidences/impl-review-phase4-batch5-ui.txt`）重要 2、建议 8；服务端（omp，`impl-review-phase4-batch5-server.txt`）重要 1。都按主 Agent 的处理意见改了，在集成分支上，未 push。jsdom 依赖、`tests/web-markdown.test.ts`、dev-panel 的 `package.json` 与 `bun.lock` 由另一个子代理在别的分支上处理，这一轮没碰。
+  - 提交（`b8c72ab3e..8de4f4d92`，2 个）：
+    - `016c44674` 服务端，审查第 1 条：
+      - 短号只在 `kind` 是 work 或 task 时提取，产物、会话只按完整编号比；
+      - “先排再截 50 条”抽成纯函数 `topRecordMatches`，`recordMatches` 调它；
+      - 单测补“`t15-review`、`w00022-report` 排不过标题以搜索词开头的 Work”与“51 个产物加 1 个 Work 时 Work 留在 50 条里”。
+    - `8de4f4d92` 前端，审查第 1 到 10 条：
+      - 离开确认框：
+        - 另设 `leaveOpen`，`confirm`、`cancel` 各自结算，`@closed` 兜住 Esc，不再用 `setTimeout(0)`；
+        - 留下时焦点回到打开框之前的元素，没有（或已不在页面上）就回到编辑框；
+        - 页面注册 `router.beforeEach`：回到这一页同一个文件的导航（后退之后再前进）会取消框在等的那一次，这时按“留下”结算并关框；
+        - 连按两次后退的错位写进 `docs/panel.md` 的已知限制；文档改成“Esc 算留下，点遮罩不会关”。
+      - Ctrl+S：保存在途、按住重复、对话框开着时都不处理，不再写“正在保存”；提示放进常驻的 `role="status"` 容器。
+      - `snippetAround`：用 `Intl.Segmenter` 按字素数前导字数，起点不会落在代理对或组合符号中间；`tests/web-highlight.test.ts` 补用例。
+      - 第 7 条实测属实，而且原因不止前导字数：
+        - 旧构建在 390 宽下搜“决定点”，199 行内容命中里 129 行看不见；只把前导改成 6 个字还有 117 行看不见；
+        - 截图看出主因是内容那一行（`min-w-0 flex-1`）挤在长路径旁边，只剩几个字宽；
+        - 改成内容行至少 16rem、放不下就换到路径下面独占一行，窄屏前导 6 个字、宽屏 30 个字，之后 0 行看不见（`review-fixes/final/probe-snippet-*.json`、`.png`）。
+      - 搜索页记下 `searchedQ`（开始搜时才换），作为 `SearchResults` 的 `q` 与 `key`：换词时历史收起，去抖期间旧结果不按新词高亮。
+      - `SearchResults.md` 的标签改成 `["state:local"]`；`up` 的注释与实现一致；`app.css` 里 `.nbdev-pre` 的注释搬回它前面。
+  - 门禁（在 `8de4f4d92` 上）：
+    - 包的 `typecheck`、`build:web` 通过；
+    - 全量 `test` 428 条里 427 过、1 失败。失败的是 `web-build.test.ts`：全量负载下 vite 的构建慢，stderr 多了一段 `PLUGIN_TIMINGS` 提示，与这次改动无关；单独重跑 1 过（`review-fixes/gate-test-rerun-web-build.log`）；
+    - `git diff --check` 干净；`dev-panel-records` 过；`docs:check` 通过。
+  - 浏览器验收在 4490 上做，脚本 `accept/phase4/batch5/review-fixes/review.ts`，10 条全过加 2 条记录（`review-fixes/final/results.txt`），控制台没有错误与警告：
+    - 留下与 Esc 之后，焦点回到打开框之前的左栏链接；后退触发、打开前焦点不在任何元素上时，回到编辑框；
+    - 后退一次（框开着）再前进：框关上，还在编辑页，草稿还在；之后再点左栏，框照常弹，“离开”照常跳走；
+    - 记录连按两次后退的实际行为：这次选“留下”还在编辑页；选“离开”时地址是 `/docs`、页面却是首页，就是已知限制里写的错位；
+    - 连按三次 Ctrl+S：保存一次，结束后操作栏没有残留提示；
+    - 搜索：展开历史之后换词，去抖期间旧结果仍按旧词高亮；新结果出来后历史收起，高亮是新词。
+    - 回归：第 5 批的 `accept.ts` 13 条全过（`review-fixes/rerun-batch5/`）。
+  - 验收环境：克隆 master 上又多了几次编辑 `workbench-shell.md` 的提交（Ctrl+S 用例）；4490 已 SIGTERM，浏览器已关，`/dev/shm/nbdev-t15-tmp` 已删。master 到 `a54340499`，`packages/`、`bun.lock`、`package.json` 没有变化，不用同步。

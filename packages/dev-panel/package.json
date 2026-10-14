@@ -42,7 +42,6 @@
         "@notnotype/neuro-book-test-support": "workspace:*",
         "@tailwindcss/vite": "^4.3.3",
         "@types/bun": "^1.3.14",
-        "@types/jsdom": "^30.0.0",
         "@types/node": "^26.1.0",
         "@vitejs/plugin-vue": "^6.0.7",
         "jsdom": "^29.1.1",

@@ -1,0 +1,123 @@
+# t15 阶段 4 第 5 批前端实现审查（编辑页与搜索）
+
+范围：`4e4ba70ac`（搜索）、`b8c72ab3e`（编辑页），均在 `packages/dev-panel/`。服务端 `5706085f4` 不在范围。只读审查；实验脚本放 `/dev/shm`，已删。
+
+## 重要 1：点“留下”或按 Esc 之后焦点丢到 `body`
+
+- 位置：`packages/dev-panel/src/web/pages/EditPage.vue:191`（`<AlertDialog>`，没有 trigger 插槽、没有任何焦点交还）。
+- 场景：
+  - 键盘用户在编辑页点左栏（或用 Tab 到左栏按回车）触发离开确认，焦点进框、落在“留下”上（这一点是对的，默认不落在破坏性按钮）。
+  - 选“留下”或按 Esc 后，框卸载，原来的焦点元素（左栏链接或编辑框）不会恢复，`document.activeElement` 变成 `body`。下一次 Tab 从整页最前面（“跳到主内容”）重新数起；读屏用户听不到焦点去了哪。
+  - `docs/panel.md` “可访问性”一节承诺换页等场景的焦点去向，这里是新增的一条焦点断点。
+- 依据：`packages/nb-ui/src/components/feedback/AlertDialog.md` 明写“没有触发器时不执行 Reka 的自动焦点归还”，`AlertDialog.vue` 的 `preventTriggerlessCloseFocus` 实现了它；reka `FocusScope.js:117-118` 只在 `unmountAutoFocus` 没被 `preventDefault` 时才 `focus(previouslyFocusedElement ?? body)`。EditPage 里没有任何自己恢复焦点的代码。验收脚本只验了“还在编辑页、草稿还在”，没有验焦点。
+- 实测还是推断：从代码推断（未在浏览器里量 `activeElement`）。
+- 建议：打开确认框前记下 `document.activeElement`，在 `AlertDialog` 的 `@closed`（文档承诺“内容卸载、焦点栈释放之后”）里选了“留下”才把焦点还回去；选“离开”时页面会卸载，不用还。没有记下元素时回到编辑框。
+
+## 重要 2：确认框开着时再来导航（只可能来自浏览器后退、前进），确认框会滞留，双后退之后地址可能与页面错位
+
+- 位置：`packages/dev-panel/src/web/pages/EditPage.vue:86-116`（`leaveAsk`、`askLeave`、`onBeforeRouteUpdate`）。
+- 前提：确认框是模态，点击、Tab 都出不去，所以“框开着时再来一次导航”实际只有浏览器后退、前进键（或 Alt+Left 等）能触发。连点左栏两下这条路，两次点击落在同一帧，实际不会出现，`askLeave` 里“先把上一次按留下结算”对点击场景是多余的，对后退场景则不够。
+- 实测：用 vue-router 5.1.0 加内存历史模拟（历史栈 `/`、`/a`、`/edit?path=x`，`onBeforeRouteLeave` 与 `onBeforeRouteUpdate` 的守卫按 `EditPage.vue` 里 `askLeave` 原样搬过来，直接挂到路由记录的 `leaveGuards`、`updateGuards` 上；内存历史的 `go` 同步触发监听，浏览器是异步，但先后顺序相同，所以只算“模拟”，不是真浏览器）：
+  - 后退一次、选“留下”：地址复原成 `/edit?path=x`，路由也在编辑页，栈没有多或少。**正常**。
+  - 后退一次、选“离开”：路由与地址都到 `/a`。**正常**。
+  - 连按两次后退、选“留下”：地址回到 `/edit?path=x`。**正常**。
+  - 连按两次后退、选“离开”：路由到 `/`，地址却是 `/a`，页面与地址错位。原因：第二次后退的 `askLeave` 把第一次按“留下”结算，第一次导航以 `ABORTED` 失败，vue-router 对它执行 `go(+1)` 复原地址，之后第二次导航放行时地址已被拉回一格。
+  - 后退一次、再按前进（框还开着）：前进回到的就是当前页，走 `onBeforeRouteUpdate`，因 `to.query.path === route.query.path` 直接放行，不经 `askLeave`，上一次后退的导航被取消，但确认框还开着、`leaveAsk` 还挂着。此时点“离开”什么也不发生（路由不动，框关上），点“留下”同样。一个破坏性按钮没有任何效果，文案与结果不符。
+- 建议：
+  - 让确认框的寿命跟着它等的那次导航：页面里注册 `router.beforeEach`（先于它之后的导航运行；离开守卫在它之前，所以对前进回到当前页这种“更新”导航，要用它而不是 `onBeforeRouteUpdate` 的早返回），一进来就把开着的框按“留下”结算并关掉；
+  - 双后退之后的错位是 vue-router 在异步守卫下对连续 pop 的限制，页面里不好修；记入 `docs/panel.md` 的已知限制，或在框开着时用一个全局 `popstate` 捕获把后退、前进吞掉再 `history.go` 复原，二选一，我倾向前者（概率低）。
+  - 无论哪种，`docs/panel.md:427` 与注释里“开着时又来一次导航，上一次按留下结算”要改成与实际相符的说法。
+
+## 建议 3：用 `setTimeout(0)` 推迟结算“关闭”，nb-ui 已经给了更直接的写法
+
+- 位置：`packages/dev-panel/src/web/pages/EditPage.vue:105-113`（`onLeaveDialogOpen`）。
+- 场景：时序本身是对的：`AlertDialog.md` 明写 `update:open(false)` 先于 `confirm`、`cancel` 发出，所以“离开”时 `confirm` 先结算、之后的 `setTimeout` 里 `pending?.(false)` 是空操作（Promise 只认第一次），Esc 则只有关闭事件、由定时器结算成“留下”。我在 vue-router 上搬了这套逻辑，后退与点“离开”“留下”的几种顺序都对。
+- 问题：
+  - 它依赖“定时器一定晚于同一事件循环里的 `confirm`”这个隐含次序，而 `AlertDialog.md` 明确要求用 `closed` 判断“关闭真的做完了”，“不要改用固定毫秒数”。
+  - 同一处改动能一起解决重要 1：不再让 `open` 绑 `leaveAsk !== null`，另设 `leaveOpen` ref，`@update:open` 只写 `leaveOpen`；`@confirm` 结算“离开”，`@cancel` 结算“留下”，`@closed` 里把还没结算的按“留下”结算（Esc 的情况）并还焦点。
+- 实测还是推断：次序用模拟验证过；“更直接的写法”是从组件文档推断，未实测。
+- 级别：建议（现在的写法验收 13 条全过，能用）。
+
+## 建议 4：文档与注释写“点遮罩算留下”，实际点遮罩没有任何反应
+
+- 位置：`packages/dev-panel/src/web/pages/EditPage.vue:106`（注释“Esc、点遮罩”）、`packages/dev-panel/docs/panel.md:427`（“Esc 与点遮罩都算留下”）。
+- 依据：reka `AlertDialog/AlertDialogContent.js` 对 `pointerDownOutside`、`interactOutside` 都 `preventDefault`，点遮罩不会触发 `update:open`；`AlertDialog.md` 也写“组件不提供 outside-click … 关闭流程”。验收脚本只验了 Esc，没有验点遮罩。
+- 实测还是推断：从代码推断（reka 2.10.3 源码）。
+- 建议：改成“Esc 算留下，点遮罩不会关”，或在页面里不再对外声称点遮罩；这是模态确认框的合适行为，不用改实现。
+
+## 建议 5：连按（或长按）Ctrl+S 后，“正在保存”的提示会在保存结束后残留
+
+- 位置：`packages/dev-panel/src/web/pages/EditPage.vue:130`、`:188`。
+- 场景：
+  - 第一次 Ctrl+S 开始保存；保存在途时再按一次（或按住键盘重复），`shortcutNote` 被写成“正在保存”，且只在 `draft` 变化或下一次 Ctrl+S 时才清；
+  - 保存成功后草稿多半没变（只有服务端改了 README 的 `updated` 时才变），所以操作栏上同时出现“已保存”与旁边的“Ctrl+S：正在保存”，互相矛盾；“没有改动，不用保存”那条也会同样赖着，直到下次输入。
+  - 另外 `role="status"` 是跟内容一起插入 DOM 的，读屏通常不会播报刚插入的实时区域，同一条提示重复按也不会再次播报。
+- 实测还是推断：从代码推断（`useWrite.run` 同步置 `pending`，所以重复按不会提交两次，这一点没问题）。
+- 建议：把“正在保存”这一条拿掉（按钮已经是 loading），或让 `shortcutNote` 在 `write.pending` 变回 false 时清掉；`role="status"` 要生效需要一个常驻的空容器再往里写字，要么常驻、要么放弃播报。顺手可以对 `event.repeat` 直接返回。
+
+## 建议 6：内容片段从命中前 30 个字截取，可能切在代理对或组合字符中间
+
+- 位置：`packages/dev-panel/src/web/host/highlight.ts:34`（`line.slice(index - before)`，按 UTF-16 码元数）。
+- 实测（`bun` 直接调 `snippetAround`）：
+  - `"😀".repeat(16) + "needle tail"`，`before = 31` 时结果以孤立的低代理 `\ude00` 开头，页面上显示成 U+FFFD；
+  - `"x"×10 + "é"（e 加组合重音） + "y"×29 + "needle"`，截取起点正好落在组合重音上，片段变成 `…` 加一个浮空的重音符。
+  - 面板的记录文字里有 emoji（例如状态标记），命中前正好 30 个码元落在代理对中间的概率不高但真实。
+- 建议：起点落在低代理上就前移一位；落在组合字符（`\p{M}`）上就再前移到基字符。测试补一条（与现有“命中在很后面”那条放在一起）。
+
+## 建议 7：窄屏、中文内容行，“前 30 个字”仍不足以让命中落进可见范围
+
+- 位置：`packages/dev-panel/src/web/host/highlight.ts:30-34`，配合 `packages/dev-panel/src/web/parts/SearchResults.vue:72`（`code` 是 `truncate`，`min-w-0 flex-1`）。
+- 场景：390 宽时，代码行的可用宽度约 350px（页内边距 16px 加按钮内边距），等宽字体里中文每字 1em，约 12px（`nbdev-small` 的 `--text-xs`），30 个中文字约 360px，已经超过可见宽度。所以命中位置在 27 到 30 个字之间的不会被前移、被 `truncate` 截掉；前移到“前 30 个字”的，命中恰好落在可见区右缘之外。1440 宽时路径长于剩余宽度会换行，代码行独占一整行，没有这个问题（验收截图 1440 的内容行都对）。验收的 390 截图搜的是 `panel`，命中是文件名，没有覆盖到内容行。
+- 实测还是推断：从代码和字号估算，未在 390 宽下用中文内容命中验证。
+- 建议：保留的前文改短（例如 8 到 10 个字），或内容行允许最多两行（`line-clamp-2`）再保留 30 字。
+
+## 建议 8：展开状态不会随搜索词重置（与注释不符）；高亮用的是路由里的词，不是出结果的那个词
+
+- 位置：`packages/dev-panel/src/web/parts/SearchResults.vue:33`（注释“不记，换个搜索词就收起”）、`packages/dev-panel/src/web/pages/SearchPage.vue:80`（`:q="String(route.query.q ?? '')"`）。
+- 场景：
+  1. `pageKey`（`host/routes.ts:20`）只含路由名与路径参数，`?q=` 变化不重建页面，`SearchResults` 实例一直在，`historyOpen` 就不会清。展开了 main 的历史，再搜别的词，新结果里 main 的历史是展开的。注释和 `SearchResults.md` 的“不记”与行为不符。哪种更合理：新搜索按默认折叠更符合“历史默认折叠”的初衷，我倾向重置。
+  2. 顶栏输入去抖 300 毫秒才改地址，`SearchPage` 的 `watch` 再去抖 300 毫秒才调用 `run`（`run` 里才清 `hits`）。这期间旧结果还在，但 `q` 已经是新词，旧行按新词重新高亮、重新截取片段，片段在新旧词之间跳、高亮会消失。时间窗约 0.3 到 0.6 秒加上流式第一批到达的时间。
+- 实测还是推断：从代码推断（`pageKey` 与 `run` 的先后读过源码）。
+- 建议：`SearchPage` 里单独记一个 `searchedQ`，在 `run` 开始清结果的同一处赋值，`SearchResults` 用它做 `q`，并 `:key="searchedQ"`，既重置展开状态，又让高亮与结果对得上。
+
+## 建议 9：`SearchResults.md` 的能力标签还是空，现在组件有了本地状态
+
+- 位置：`packages/dev-panel/src/web/parts/SearchResults.md:2`（`标签: []`）；状态在 `SearchResults.vue:34` 的 `historyOpen`。
+- 依据：`docs/standards/code/components.md` 的“能力标签”一节：`state:local` 不计入耦合度但“仍须声明”，“声明是对实现的如实描述”；同包的 `FileEditor.md`、`PanelNav.md` 都写了 `["state:local"]`。
+- 实测还是推断：从规范与代码对照得出。
+- 建议：改成 `标签: ["state:local"]`。`HighlightText.md` 的 `标签: []` 是对的（无状态、无根元素）。
+
+## 建议 10：两处注释的小问题
+
+- `packages/dev-panel/src/web/pages/EditPage.vue:47`：`up` 的注释仍写“记录的 README 回到它的 Task 或 Work”，实现已经改成 Work、Task 目录里的任何文件；同一提交已改了 `record` 与 `crumbs` 的注释，漏了这一条。
+- `packages/dev-panel/src/web/app.css:189-196`：新加的 `.nbdev-mark` 块被插在“屏幕末尾、更早的输出这类等宽的预览块…”这条注释与 `.nbdev-pre` 之间；那条注释在这个提交之前就已经跑到别的规则前面（原来紧跟 `.nbdev-external-image`），本提交没有造成、但让它离 `.nbdev-pre` 更远了。顺手把它搬回 `.nbdev-pre` 前面。
+
+## 核对过、没有发现问题的项目
+
+- 路由守卫等异步确认：
+  - 保存在途时离开：`mayLeave` 先拒绝并写“正在保存”，不会弹框；浏览器后退时 vue-router 把地址复原，与模拟一致；
+  - 保存成功后：`session.save` 把基线换成服务端文本，`dirty` 变 false，离开不再问；
+  - 守卫返回 false 的那条 push 导航不会留下半截历史。
+- 后退“留下”之后：历史栈不多不少，前进键状态与进入时一致（模拟里 `go(+1)` 复原后位置回到栈顶）。
+- 确认框开着时焦点：落在“留下”（reka 的 `AlertDialogContent` 对取消按钮聚焦），不落在破坏性按钮上；Esc 能关（验收通过）。
+- Ctrl+S：
+  - 监听挂在 `window`，焦点在页面哪里都生效；`onBeforeUnmount` 里移除了同一个函数引用；
+  - `isComposing` 与 `shiftKey`、`altKey` 都早返回；输入法组字时浏览器给的 `key` 通常是 `Process`，本来也不会匹配；
+  - 保存在途靠 `write.pending`（`useWrite.run` 同步置位）挡重复提交，不会提交两次；
+  - 禁止保存的原因文字清楚（保存中、`blocked` 的原文、有冲突、没有改动）。
+- 高亮：
+  - 大小写、正则特殊字符（`a+b`、`.`）、中文、emoji（按码点匹配）、相邻或重叠命中（`aaa` 中找 `aa` 只标前两个，与 `git grep` 对同一行只算命中一次一致）、搜索词首尾空白（服务端 `validateSearchQuery` 同样先 `trim`，两边一致）、空搜索词都正确；
+  - 服务端是整串字面匹配，所以“多个词”不会被拆开，高亮同样按整串；
+  - `<mark>` 不用 `v-html`，读屏按行内文字朗读，不丢内容；明暗两套截图都清楚（亮色浅蓝底、暗色深蓝底，文字颜色不变）。
+- 折叠：头部“N 条”是命中加历史之和，按钮上的历史数是对的；按钮是真 `button`，空格、回车可用，`aria-expanded` 随状态变；全局 `:where(button):focus-visible` 给了焦点环。
+- 约定：没有新增竖向滚动者；只从 `@notnotype/nb-ui/components` 导入；`HighlightText` 只用 props，取数仍在 `SearchPage`；`HighlightText.md` 与实现一致。
+- 代码质量：
+  - 没有静默吞错、没有不可达代码、没有删除任务之外的代码行（`LEAVE` 与 `window.confirm` 是本任务要换掉的）；
+  - 测试断言的是输出，不是实现细节；
+  - 只是现有测试没有覆盖守卫的状态机，也没有覆盖代理对；验收脚本在 `.local` 里，不入库。
+- 门禁：在集成分支 worktree 上单跑了 `tests/web-highlight.test.ts`，2 个通过；没有跑 typecheck 与全量测试。
+
+## 结论
+
+- 阻断：0；重要：2；建议：8（建议 3 到 10）。
+- 能合入。建议合入前顺手改的、都很小：重要 1（焦点，与建议 3 一起用 `@closed`）、建议 4（文档说法）、建议 8（`searchedQ`）、建议 9（标签）。重要 2 的双后退地址错位是 vue-router 的限制、概率低，写进 `docs/panel.md` 即可，滞留的确认框那一半建议修。
