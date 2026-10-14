@@ -1,6 +1,6 @@
 # t02 实施计划：按文件类型选编辑器
 
-第二版（2026-10-14）：按 Opus 计划审查（`evidences/design-review-opus.txt`，20 条）修订。第 6 节 HTML 预览的“源”待开发者定（见第 6 节开头）。
+第二版（2026-10-14）：按 Opus 计划审查（`evidences/design-review-opus.txt`，20 条）修订；第 6 节按开发者对预览方式的决定改写。
 
 ## Context
 
@@ -75,24 +75,24 @@
 - **Origin**：`GET`、`HEAD` 以外的请求带了 `Origin` 且不在允许的来源里（含 `null`）时 403。不带 `Origin` 的本机进程照旧放行（鉴权上线前已写明的限制）。
 - **接线**：`allowOrigin` 现在是 `server/start.ts` 里的闭包，经 `ServerPluginContext` 传给 `createHttpPlugin`，再交给 `createDispatcher`；403 与 421 用分发器的 `errorResponse`。审查已核实开发代理、e2e 与测试里的请求都不会被误伤。
 
-### 6. HTML 预览 `nbook.html-preview`（`plugins/html-preview/`）
+### 6. HTML 预览 `nbook.html-preview`（`plugins/html-preview/`、`files/backend/preview-route.ts`）
 
-**待开发者定：预览页放在哪个源。** 审查实测：沙箱 iframe（不透明源）里，图片、普通脚本、样式表能按相对路径加载；模块脚本、`fetch`、字体、Worker 都走 CORS，全部失败。要让它们成功，就得给字节路由开通配的 CORS，那等于让任何网页都能读文件。两种做法：
+开发者 2026-10-14 定：沙箱 iframe 加一个受限的读文件接口（审查后讨论的第三种）；独立源（另开端口或 `*.localhost` 主机名）搁置。
 
-- **A. 独立源（推荐，VS Code 的做法）**：
-  - 服务端另开一个只服务预览的回环端口。浏览器经远程服务 `nbook.files.preview` 申请一个令牌，令牌只放行这部作品；窗口断开时令牌作废（按调用方门面的寿命）。
-  - iframe 用 `src` 指向 `http://127.0.0.1:<预览端口>/<令牌>/<文件路径>`，文档本身就在文件所在目录的地址上。相对引用、模块脚本、`fetch`、字体、页内锚点都能正常工作。
-  - 未保存的正文由浏览器经同一个远程服务推给服务端，预览端口对这个文件返回推来的正文，对其它文件返回磁盘内容。
-  - 预览源与应用不同源：RPC 按 `Origin` 拒绝它；应用端口的写请求被第 5 节拒绝；应用端口的读请求拿不到响应（没有 CORS 头）。
-  - 代价：`server-host.md` 多一个端口（与 HTTP、RPC 端口同样的顺延规则）。
-- **B. 不透明源 + `srcdoc`**（计划第一版）：只支持图片、普通脚本、样式表；模块脚本、`fetch`、字体不可用，写进 Spec 的已知限制。页内锚点要靠注入脚本拦截；Chrome 还会先按应用根目录多请求一遍每个相对资源。
-
-两种做法下共同的部分：
-
+- **沙箱**：`<iframe sandbox="allow-scripts" srcdoc>`，不给 `allow-same-origin`、`allow-popups`、`allow-top-navigation`。页面源是不透明的：拿不到应用的存储；RPC 按 `Origin: null` 拒绝它；应用端口的写请求被第 5 节拒绝；应用端口的其它读请求没有 CORS 头，读不到响应。
+- **受限的读文件接口**：
+  - 预览视图打开时，经远程服务 `nbook.files.preview`（`nbook.files` 的 server 入口，按调用方门面提供）申请一个令牌。令牌是 128 位随机串，只放行这部作品正在运行的代次，只读；标签关闭、窗口断开（门面释放）、代次结束时作废。
+  - 路由 `GET /api/nbook.files/preview/<令牌>/<路径…>`，按第 4 节同一套根与规则读文件。与 `raw` 不同，它接受跨站请求，对 `Origin: null` 回 `Access-Control-Allow-Origin: null`。所以页面里的 `fetch`、模块脚本、字体都能读到，不用往页面里注入替换 `fetch` 的脚本。令牌无效为 404。
+  - 响应另加 `Referrer-Policy: no-referrer`，令牌不随引用头流出。
+- **相对引用**：`srcdoc` 开头插 `<base href="<应用源>/api/nbook.files/preview/<令牌>/<文件所在目录>/">`；页面自带 `<base>` 时以页面的为准（已知限制）。同时注入一小段脚本：`#` 开头的链接改为页内滚动，否则会按 `<base>` 导航到目录地址。
+- **联网**：暂按默认不联网做，开发者没有表态，可以改。注入 `<meta http-equiv="Content-Security-Policy">`：默认只放行令牌地址、`data:`、`blob:` 与内联脚本，页面不能把读到的文件发到外网；预览标题栏有“允许联网”开关（记在这个文件的标签上），打开后去掉网络限制。多条 CSP 取交集，页面自己写的 CSP 只能更严，放宽不了。
+- **已知限制**（写进 Spec）：
+  - Worker 不可用：不透明源不能用 http 地址建 Worker；
+  - Chrome 会先按应用根目录多请求一遍相对资源（GET，没有副作用）；
+  - 页面里跳到别的 `.html` 显示磁盘内容，正文变化时回到当前文件。
 - **声明**：`priority: "option"`，`role: "preview"`，`input: "text"`，扩展名 html、htm。激活事件 `onStartup`。
 - **更新**：正文变化停手 300ms 后整页重载（脚本状态会丢，与 VS Code 的 Live Preview 一样），计时用注入的时钟。
 - **不可见时卸载**：绑定为 null 或不可见时移除 iframe，重新可见时重建，被换下的预览页不在后台跑脚本。
-- **导航**：不给 `allow-popups`、`allow-top-navigation`；页面里跳到别的 `.html` 显示磁盘内容，正文变化时回到当前文件，Spec 写明。
 
 ### 7. 图片查看器 `nbook.image-viewer`（`plugins/image-viewer/`）
 
@@ -123,9 +123,9 @@
 |---|---|
 | `docs/specs/workbench/editor.md` | 术语（preview 标签与预览编辑器）；`open` 的 `editor` 为编辑器 id 及失败；输出 1、4 按第 2 节改；输出 19–20 改为选择顺序与重新打开的选择；新增“编辑器贡献”“文件条目与字节标签”“预览”“语言”几节、公开键 `activeEditor`、状态栏的语言与编辑器状态条目；会话记录的字段与降级行为；“边界与兼容”删掉“只有两种”；补验收场景 |
 | `docs/specs/workbench/image-viewer.md`（新） | 图片查看器的行为与验收 |
-| `docs/specs/workbench/html-preview.md`（新） | 预览的源、令牌与寿命、相对引用、更新、不可见时卸载、导航、安全边界、验收 |
-| `docs/specs/workspace/files.md` | 新增“按地址读取字节”：路由、只服务运行中的代次、上限、状态码、响应头、跨站读取；选 A 时加预览令牌服务 |
-| `docs/specs/runtime/server-host.md` | HTTP 的 `Host` 与写请求 `Origin` 核对、场景 12 增补；选 A 时加预览端口 |
+| `docs/specs/workbench/html-preview.md`（新） | 沙箱、令牌与寿命、相对引用、联网开关、更新、不可见时卸载、导航、已知限制、验收 |
+| `docs/specs/workspace/files.md` | 新增“按地址读取字节”：路由、只服务运行中的代次、上限、状态码、响应头、跨站读取；预览令牌服务与 `preview` 路由 |
+| `docs/specs/runtime/server-host.md` | HTTP 的 `Host` 与写请求 `Origin` 核对、场景 12 增补 |
 | `docs/specs/README.md` 注册表 | 两份新 Spec |
 | 组件同名 `.md` | `EditorGroup.md`、`EditorArea.md`、`MonacoControl.md`、`MarkdownControl.md`；新组件先写 `.md` |
 
@@ -138,7 +138,7 @@
 | S2 | 第 1、2、8 节 | 编辑器贡献点、选择顺序、标签判别联合与身份、会话记录、重新打开的选择、公开控件合同 | 同上；`editor-area.e2e.ts` 除“用其它编辑器重新打开”一例外原样通过，那一例改为选择 |
 | S3 | 第 3 节 | 文件条目的文本与字节引用、`version`、公开状态 `active` 与 `activeEditor`、编辑器状态条目 | 同上 |
 | S4 | 第 7 节 | `nbook.image-viewer`、Lab 场景 | 同上；`lab:shot` |
-| S5 | 第 6 节 | `nbook.html-preview`（选 A 时含预览端口与令牌服务）、预览命令与标题动作、Lab 场景 | 同上；`lab:shot` |
+| S5 | 第 6 节 | 预览令牌服务与路由、`nbook.html-preview`、预览命令与标题动作、Lab 场景 | 同上；`lab:shot` |
 | S6 | 第 9 节 | 语言贡献点、生成的语言表、语言条目与切换 | 同上 |
 | S7 | — | e2e、Spec 的实现合同与证据、实现审查与修正 | 下面“验证” |
 
@@ -150,10 +150,11 @@
 | 只看声明：贡献方未交付时标签显示进度、交付后渲染；声明不在时显示“已经不在了”与“用默认编辑器打开” | `area.test.ts`（真实插件宿主，交付先后两种顺序） |
 | 同组里源码与预览视图并存；不指定编辑器的打开激活非预览编辑器的标签（preview 标签照旧被替换）；换编辑器撞上已有标签时切过去；关掉 dirty 的源码标签、只剩预览视图时照常询问 | `groups.test.ts`、`area.test.ts` 增补 |
 | 字节标签：资源管理器删除后标签关闭；改名后跟过去且不重复；外部改写后 `version` 加一；Ctrl+W、拆分、重新打开可用 | `area.test.ts`、`documents.test.ts` 增补 |
+| 预览路由：令牌无效 404、跨作品被拒、代次结束后失效、`Origin: null` 回 CORS 头、`no-referrer` | `files/preview-route.test.ts` |
 | 字节路由：两个根；代次不符 410；身份文件不符被拒；白名单类型与三个响应头；越界、受保护、目录一律 404；超上限 413；304；跨站 403 | `files/raw-route.test.ts`（真实临时目录、真实 HTTP 分发） |
 | `Host` 不是回环名 421；写请求带不允许的 `Origin`（含 `null`）403；GET 与不带 `Origin` 的照旧 | `http/backend/dispatch.test.ts` 增补 |
 | 图片：png 与 svg 显示、状态栏有尺寸与大小、外部改写后刷新、2 MB 的 pdf 显示不能在这里打开 | `e2e/editor-types.e2e.ts` |
-| 预览：标题有“打开预览”、在当前组开；“在侧边打开预览”开到右侧；改正文不保存、停手后更新；相对引用的图片显示；预览里的脚本运行；读不到 `parent.document`、连 RPC 被拒、向应用端口 `POST` 得 403；切走后 iframe 移除。选 A 另验模块脚本、`fetch`、页内锚点 | `e2e/editor-types.e2e.ts` |
+| 预览：标题有“打开预览”、在当前组开；“在侧边打开预览”开到右侧；改正文不保存、停手后更新；相对引用的图片显示；预览里的脚本运行；读不到 `parent.document`、连 RPC 被拒、向应用端口 `POST` 得 403；模块脚本、`fetch`、字体能读到相对文件；页内锚点滚动不跳走；默认不能访问外网、打开开关后可以；关闭标签后令牌失效；切走后 iframe 移除 | `e2e/editor-types.e2e.ts` |
 | 语言：`.py`、`.go`、`.rs` 有高亮；`a.html` 的 `<script>` 与 Markdown 的 ```` ```ts ```` 代码块有嵌入语言的 token；状态栏显示语言名；切换后高亮随之变化、刷新后保留；语言表与已装 Monaco 一致 | `e2e/editor-types.e2e.ts`；`editor/web/code/languages.test.ts` |
 | 现有行为不变 | `editor-area.e2e.ts`、`welcome.e2e.ts`、`bookshelf-stats.e2e.ts`、`lab-editor.e2e.ts`，以及编辑器的 Bun 测试 |
 
@@ -161,7 +162,7 @@
 
 - 每片：`bun run test:affected --typecheck`；改到 Lab 夹具时对该组件跑 `lab:shot`。
 - 收口：生产构建后跑上表的 e2e（本机 Chrome、真实 Files），在 390px 与 1400px 宽下看图片查看器和预览视图，明暗两种主题各看一次。
-- 审查（快速）：前端（S2–S6 的界面与组件）派 Sonnet；后端（S1 的路由与核对、S3 的文件条目、选 A 时的预览端口）开 omp 会话，再加一个 Opus。
+- 审查（快速）：前端（S2–S6 的界面与组件）派 Sonnet；后端（S1 的路由与核对、S3 的文件条目、S5 的令牌服务）开 omp 会话，再加一个 Opus。
 - 留下的未验证边界：Windows 与 macOS 上的路径与符号链接规则（与 `workspace/files.md` 已写的限制相同）；Firefox 与 Safari 上的沙箱行为；超大图片的内存占用不做测量。
 
 ## 不做
@@ -175,4 +176,4 @@
 
 - 标签判别联合与“地址 + 编辑器”的身份碰到打开、拆分、改名、会话恢复、继续写作几条路径：S2 先让现有 `groups.test.ts`、`area.test.ts` 与 `editor-area.e2e.ts` 通过，再加新路径。
 - 文件条目分出文本与字节引用，改的是文档仓库的读取时机：`documents.test.ts` 的现有用例必须原样通过；新增“只有字节引用时不读”“文本引用后来才来”两例。
-- 页面自带 `<base>` 时以页面的为准（选 B 时），写进 Spec 的已知限制。
+- 预览令牌是访问作品文件的凭据：只经 RPC 交给本窗口、只在 `srcdoc` 里出现、不进日志与会话记录；`preview-route.test.ts` 覆盖它的作废。
