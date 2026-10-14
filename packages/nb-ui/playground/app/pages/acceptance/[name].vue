@@ -1,7 +1,8 @@
 <script setup lang="ts">
 /**
  * 组件手势验收页：`/acceptance/<组件>?scene=&theme=&colorway=`。只承载需要真实指针与布局引擎的验收（嵌套分栏、
- * 多栏分割，见 e2e/nested-grid.spec.ts、e2e/splitter.spec.ts）；组件的场景登记在新应用的 Component Lab。
+ * 多栏分割、勾选框聚焦时的滚动，见 e2e/nested-grid.spec.ts、e2e/splitter.spec.ts、e2e/form-checkbox.spec.ts）；
+ * 组件的场景登记在新应用的 Component Lab。
  *
  * 页面给出三样东西：按地址应用主题与配色、装 fixture 的画布、一直可见的事件日志（只收定义里登记的事件）。
  */
@@ -9,13 +10,18 @@ import {computed, ref, watch} from "vue";
 import type {Component} from "vue";
 import {useRoute} from "vue-router";
 
+import FormCheckboxFocusFixture from "../../acceptance/FormCheckboxFocusFixture.vue";
 import NestedGridFixture from "../../acceptance/NestedGridFixture.vue";
 import SplitterFixture from "../../acceptance/SplitterFixture.vue";
 import {ACCEPTANCE_DEFINITIONS} from "../../acceptance/definitions";
 import {useColorway} from "../../composables/useColorway";
 import {useTheme} from "../../composables/useTheme";
 
-const FIXTURES: Record<string, Component> = {"nested-grid": NestedGridFixture, "splitter": SplitterFixture};
+const FIXTURES: Record<string, Component> = {
+    "nested-grid": NestedGridFixture,
+    "splitter": SplitterFixture,
+    "form-checkbox-focus": FormCheckboxFocusFixture,
+};
 
 const route = useRoute();
 const theme = useTheme();
