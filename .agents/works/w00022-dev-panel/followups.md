@@ -38,6 +38,7 @@
 | 2026-10-14 | Agent（w00024 t01 设计评审时） | design-review Skill 写的草稿分支是 `<Task>/drafts`，`nbdev worktree new` 只能建 `<类型>/<Work 编号>-<Task 编号>-<短名>`，两边说法不一致；这次按 nbdev 建了 `chore/w00024-t01-drafts`。建议把 Skill 的写法改成和 nbdev 一致 | 改的是 Skill 文字，不是 nbdev | 待定 |
 | 2026-10-14 | Agent（w00024 t01 设计评审时） | 每发一轮评审板，Task README 的“当前状态”也要跟着改，但 `artifact publish` 只提交产物目录，README 要另外手动路径限定提交，多出一个提交。`answers ack` 已有 `--include`，建议 `artifact publish` 也支持 `--include <Task 记录>` | | 待定 |
 | 2026-10-14 | Agent（w00024 t01 设计评审时） | 后台刚发出 `nbdev dev start`、紧接着跑 `nbdev dev status --wait-ready`，因为登记还没写下，立刻报 `run_not_found`（退出码 5），第二次才等到 `READY`。建议 `--wait-ready` 遇到“还没有登记”时也在超时内等它出现，而不是立刻失败 | Claude Code 的常见用法就是 `dev start` 放后台、再用 `--wait-ready` 等 | 待定 |
+| 2026-10-14 | Agent（w00024 t01 设计评审时） | `nbdev shot` 报 `shot_failed` 时，带回的“stderr 末尾”只有 bun 的一行 `script "lab:shot" exited with code 1`，看不出原因；实际是页面控制台有第三方库的警告，被 `lab:shot` 记成问题、以 1 退出，截图其实都生成了。要翻 `report.json` 或绕过 nbdev 直接跑 `lab:shot` 才知道。建议失败时带回报告里每个场景的问题摘要（或 `lab:shot` 自己的最后几行），并说明截图是否已生成 | | 待定 |
 
 ## 推迟事项
 
