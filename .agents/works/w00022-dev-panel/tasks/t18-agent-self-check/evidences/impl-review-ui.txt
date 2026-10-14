@@ -1,0 +1,100 @@
+# t18 前端与截图脚本实现审查（基线 8276c0bb2，审查点 b4772ba3a）
+
+范围：src/web、plugins/workbench/web、plugins/editor/web/pages.ts、plugins/projects/web、scripts/page-shot.ts 与相关 Spec、同名 .md。每核实一条追加一条。
+
+### 1. 编辑器页面加载失败后，aria-busy 占位永远留在原地（没有 errorComponent）
+
+- 严重程度：重要
+- 类别：正确性 / 无障碍 / 验收映射
+- 位置：packages/neuro-book/src/plugins/editor/web/pages.ts:100（`defineAsyncComponent({loader, loadingComponent: PAGE_LOADING, delay: 0})`）
+- 现象：页面实现的 `load()` 失败（例如 chunk 取不到）时，Vue 的 `defineAsyncComponent` 在没有 `errorComponent` 时仍会继续渲染 `loadingComponent`。基线（8276c0bb2）没有 loadingComponent，失败后渲染 null；现在失败后标签内容区永久是 `<div aria-busy="true" data-editor-page-loading>`。
+- 为什么是问题：a) 读屏被告知“正在忙”而永远不会好；b) `page:shot` 的稳定判据把可见 aria-busy 当作未加载完，失败页面不会被截成“失败”，而是等满 `--timeout`（默认 120 秒）后报“画面没有稳定下来：aria-busy 在 <div data-editor-page-loading>”，把真正原因（模块加载失败）藏了；c) Spec editor.md 第 33 条写“加载期间”是占位，没有写失败时去向，与 WorkbenchShell 的编辑区（有 `EditorAreaFailed`）不一致。
+- 如何核实：读 node_modules/@vue/runtime-core/dist/runtime-core.cjs.js:2799-2812，渲染函数里 `error.value && errorComponent` 不成立后落入 `loadingComponent && !delayed.value` 分支。实测（jsdom 里挂 `defineAsyncComponent({loader: () => Promise.reject(new Error("chunk 404")), loadingComponent, delay: 0})`）：errorHandler 收到错误，50 毫秒后 DOM 仍是 `<div aria-busy="true"></div>`。
+- 建议改法：给页面标签的异步组件也加一个 `errorComponent`（带 `role="alert"` 与原因，同 `EditorAreaFailed`），失败时撤掉 aria-busy；Spec editor.md 第 33 条补一句失败时显示原因；补一条组件测试（load reject 后没有 `[aria-busy]`、有失败说明）。
+
+### 2. 页面停在宿主失败页时 page:shot 以 0 退出并打印“截图：”，带步骤时还要空等满 --timeout
+
+- 严重程度：重要
+- 类别：设计 / 验收映射
+- 位置：packages/neuro-book/scripts/page-shot.ts:246-252（`waitRendered` 返回 `hostStatus` 后照常 `settle`、执行步骤）、:276-281（打印与退出码）
+- 现象：窗口停在 `connection-failed`、`project-unavailable`、`incompatible`、`startup-failed` 等失败页时，脚本把失败页截下来，退出码 0，stdout 先一行“窗口没有就绪…”，紧接着还是“截图：<路径>”。如果带了 `--click`/`--wait-for`，它仍去失败页上找元素，等满 `--timeout` 后报的是 Playwright 的 `locator.click: Timeout`，原因里没有“窗口是失败页”。
+- 为什么是问题：脚本的用途是 Agent 改完代码后自检。开发服务重启间隙、项目没登记、版本不一致都会落到这些状态，此时调用方看退出码与“截图：”两个最显眼的信号，都是“成功”，只有第一行文字和 JSON 里的 `hostStatus` 说明实际截到的是失败页。交付报告偏离 2 把它当作“失败页本身是要自检的画面”，但没有任何开关让调用方选择“期望正常页面”（默认的、最常见的意图）。
+- 如何核实：用本地静态页（`<main data-browser-host-status="project-unavailable">`）加 `--click '[data-x]' --timeout 4` 实测：stdout 第一行“窗口没有就绪，页面停在宿主页：project-unavailable”，第二行“截图失败（已执行 0 步）：locator.click: Timeout 4000ms exceeded.”，耗时 5.2 秒（默认 120 秒就是 2 分钟）；不带步骤时 exit=0 且打印“截图：…”。
+- 建议改法：a) 失败页默认以非零退出（例如 2），区别于“截图过程出错”的 1；需要截失败页的调用方显式传 `--allow-host-failure`；b) 有步骤时遇到失败页直接失败，error 写明 hostStatus 与 reason，不去等元素；c) 不在失败页上打印“截图：”这一行成功措辞。
+
+### 3. aria-busy 的占位只对截图脚本有意义，对读屏是空元素；且占位把 context 对象写成了 DOM 属性
+
+- 严重程度：建议
+- 类别：无障碍 / 代码质量
+- 位置：packages/neuro-book/src/plugins/workbench/web/components/WorkbenchShell.vue:107-109；packages/neuro-book/src/plugins/editor/web/pages.ts:20-24；注释与 Spec 的措辞在 pages.ts:98-100、docs/specs/workbench/editor.md 第 33 条
+- 现象：a) 占位是没有内容、没有 role、没有名字的 `<div aria-busy="true">`，加载完就被整个替换。`aria-busy` 的语义是“这个容器的内容正在更新，读屏可以等一等”，放在一个空的、马上消失的元素上，读屏不会读出任何东西；pages.ts 的注释写“读屏与截图工具据此知道这里还在加载”，对读屏一方不成立。b) 两个占位组件都没声明 props，宿主传下来的 `:context="…"` 对象（WorkbenchShell.vue:507、EditorGroup.vue:188）落成 DOM 属性。实测同样写法的 `defineAsyncComponent` 加载中渲染出 `<div aria-busy="true" context="[object Object]" data-x="">`；WorkbenchShell 的占位还因此带上 `data-workbench-editor-area`。c) `workbench-shell__editor-loading` 类名没有任何样式，是死类名。
+- 为什么是问题：读屏语义与代码注释、Spec 的说法不符；DOM 里出现 `context="[object Object]"` 是属性透传的副作用，e2e/截图工具里 `[data-workbench-editor-area]` 加载期间会匹配到零高度占位（files-explorer.e2e.ts:605 点它，靠 Playwright 重新解析才没出问题）。
+- 如何核实：jsdom 里 `createApp({render: () => h(defineAsyncComponent({loader: () => new Promise(() => {}), loadingComponent: L, delay: 0}), {context: {visible: true}, "data-x": ""})})`，输出见上。
+- 建议改法：把注释与 Spec 的措辞改成“供截图工具与自动化识别”，不承诺读屏；要对读屏有意义就用带 `role="status"` 与文字标签的占位；占位组件设 `inheritAttrs: false`（或声明 `context` prop）避免对象落成属性；删掉死类名或补样式。
+
+### 4. 三处 aria-busy 新增行为与 data-page-rendered 的合同都没有测试；正是这类测试会拦住第 1 条
+
+- 严重程度：重要
+- 类别：测试与验收映射
+- 位置：packages/neuro-book/src/plugins/editor/web/pages.ts、projects/web/welcome.ts、workbench/web/components/WorkbenchShell.vue 的新增；对应测试文件（welcome.test.ts、WelcomePage.dom.test.ts、WorkbenchShell 的 dom 测试）在 b4772ba3a 里均未改
+- 现象：这次改动里只有 home-page.dom.test.ts 与 page-shot.test.ts 有测试变更。编辑区占位、编辑器页面占位、欢迎页 `aria-busy`（加载中带、成功与失败后撤）三条行为 Spec 都写成了合同（workbench-shell.md、editor.md 第 33 条、bookshelf.md 第 20 条），没有一条行为测试；NotFoundPage 的 `data-page-rendered` 也没断言。`grep -rn "aria-busy\|editor-loading\|editor-page-loading"` 在这三处的测试里无命中。
+- 为什么是问题：page:shot 的“不再截到半成品”完全依赖这几个标记；以后谁改了加载结构而丢了标记，不会有任何测试失败，只会悄悄回到“空白截图”。第 1 条（失败后 aria-busy 不撤）正是因为缺“加载失败后撤掉”的测试才漏过。
+- 如何核实：看 diff 的文件列表；跑 `bunx vitest run src/plugins/workbench/web/home-page.dom.test.ts src/plugins/projects src/plugins/editor/web/components`：10 个文件、36 条全过，说明没有任何测试覆盖到上述行为。
+- 建议改法：各补一条：页面标签的 load 未完成时有 `[aria-busy="true"]`，完成后没有，load reject 后没有且有失败说明；欢迎页在 `shelf()` 与 `list()` 未返回前带 aria-busy、返回（成功与失败）后撤；编辑区提供者 load 挂起时有 `[data-workbench-editor-loading]`。home-page.dom.test 再补“文档根加载失败：记诊断、不带标记”与“提供者 A 换 B 的加载期间不带标记”（我用脚本验证过当前实现这两种都正确：A 到 B 加载中为 false，B 到位为 true）。
+
+### 5. settle 把任何常驻动画都当作“没稳定”，且没有逃生口；交付报告“没有页面带常驻动画”未核实
+
+- 严重程度：建议
+- 类别：设计
+- 位置：packages/neuro-book/scripts/page-shot.ts:188-201（`activity()`）、:202-213
+- 现象：`document.getAnimations()` 里只要有 running 或 pending 的动画（不论有限无限、是否在视口里）就不算稳定，没有参数可以放宽。实测：light DOM 里一个 `animation: a 1s infinite` 的元素，`--timeout 4` 后失败，“画面 4 秒内没有稳定下来：动画 a 在 <div>”，exit 1。产品里的常驻动画包括：Notification 的不确定进度条（nb-ui styles.css:590 `nb-ui-indeterminate-runner`，infinite）、各处 `animate-spin`、`Skeleton` 的 `animate-pulse` 与 `nb-shimmer`（infinite）；这些在加载时出现是预期，但长任务通知这类会长期存在，默认 120 秒后失败，调用方没有任何办法。书架页的吉祥物是 shadow DOM 里的无限动画，我实测 `document.getAnimations()` 不包含 shadow tree 里的动画（light 1、shadow 内 0），所以它没挡住，属于“恰好没被数到”，不是设计保证。
+- 为什么是问题：判据对“加载指示”（有 aria-busy 或骨架）是对的，但对“装饰性或长期存在的循环动画”是误判，且和图片判据不一致（图片限定了视口内，动画没有）；交付报告第五节第 7 条称“目前没有页面带常驻动画”，与上面列出的组件不符。
+- 如何核实：见上；静态页服务加 `--timeout 4` 实测，一个 `/inf` 页失败、`/busyhidden` 页（aria-busy 但 display:none）通过。
+- 建议改法：给 `--no-settle`（或 `--settle aria-busy-only`）选项；或者在超时前降级：动画只在“目标元素在视口里且是有限动画或带 aria-busy 的祖先”时才算数；README/AGENTS 的命令说明里写明这个限制。
+
+### 6. “页面里还在加载的区域标 aria-busy，加载完去掉”写成了普遍合同，但书架页（`/` 的首页）没这样做
+
+- 严重程度：建议
+- 类别：Spec 与实现一致
+- 位置：packages/neuro-book/src/web/PageOutlet.md:33（页面合同）对照 packages/neuro-book/src/plugins/projects/web/components/BookshelfPage.vue:140-143、packages/nb-ui/src/components/display/Skeleton.vue:31（`aria-hidden="true"`）
+- 现象：书架页 `status === 'loading'` 时只渲染两个 `Skeleton`（aria-hidden，靠 `animate-pulse`/shimmer 动画），没有任何 aria-busy。`/` 能被 page:shot 等到，是因为骨架恰好是动画，不是因为遵守了合同。
+- 为什么是问题：合同文字与实际不符；如果以后骨架换成静态占位或用户系统开了 prefers-reduced-motion（脚本不模拟，但真实使用者的 Chrome 可能开），截图就会截到骨架，没有任何信号拦住。
+- 如何核实：`grep -rn aria-busy packages/neuro-book/src/plugins/projects` 只在 welcome.ts；读 BookshelfPage.vue 的 loading 分支。
+- 建议改法：BookshelfPage 的 loading 分支根上标 `aria-busy="true"`（并补测试），或把 PageOutlet.md 的合同改成“加载指示（骨架、转圈）与 aria-busy 二者之一”，写实。
+
+### 7. page:shot 的步骤选择器只取第一个匹配项，第一个匹配是隐藏元素时 --wait-for 永远等不到
+
+- 严重程度：建议
+- 类别：正确性 / 易用性
+- 位置：packages/neuro-book/scripts/page-shot.ts:218-221（`page.locator(step.selector).first()`）；packages/neuro-book/AGENTS.md 的第二条示例
+- 现象：实测一个页面里有两个 `.t`，第一个 `display:none`、第二个可见，`--wait-for '.t' --timeout 3` 失败：`locator.waitFor: Timeout 3000ms exceeded`。产品的编辑器容器恰好是 `v-show` 多个 `[data-editor-kind]`，所以 AGENTS.md 的示例被迫写成 `[data-editor-kind="markdown"]:visible`。
+- 为什么是问题：用法说明写“等这个元素可见”，实际是“等第一个匹配的元素可见”，是陷阱；示例用 `:visible` 绕过正说明了它。
+- 如何核实：见上，静态页实测。
+- 建议改法：`page.locator(selector).filter({visible: true}).first()`（等待 wait-for 时），或在 USAGE 里写明“只看第一个匹配项”。
+
+### 8. 其它小问题：--help 以 1 退出；--url 无效时只报 “Invalid URL”；规格“公开入口”未登记新的 shared 模块
+
+- 严重程度：建议
+- 类别：代码质量 / 文档
+- 位置：page-shot.ts:120、:129；docs/specs/workbench/bookshelf.md:163
+- 现象：a) `--help` 抛 `PageShotUsageError` 走错误路径，实测 exit=1，用法打在 stderr。b) `--url nonsense` 直接抛 `new URL` 的 TypeError，输出只有 “Invalid URL”，没有指出是哪个参数。c) `projectUrl` 挪到 `plugins/projects/shared/project-url.ts` 后，bookshelf.md 的“公开入口”清单（contracts、cover、shelf）没有登记它，而服务端 `src/server/dev/sample.ts` 已经跨目录导入了它。
+- 为什么是问题：a、b 是命令行体验；c 是“公开入口”清单与实际被跨层引用的模块不一致。
+- 如何核实：`node scripts/page-shot.ts --url http://127.0.0.1:4991 --help; echo $?` 得 1；`--url nonsense` 得 “Invalid URL”；grep 公开入口那一行。
+- 建议改法：`--help` 退出 0；对 `--url` 包一层 `PageShotUsageError("--url 不是有效地址：…")`；bookshelf.md（或 runtime/projects.md）的公开入口补一项 `nbook/plugins/projects/shared/project-url`。
+
+## 未发现问题的方面
+
+- home-page.ts 的核心状态机：加载失败记诊断且不标记、再挂载重试、首页提供者 A 换 B 的加载期间与迟到结果（我用 jsdom 脚本验证：A 显示时 true，换到加载中的 B 时 false，B 到位 true，B 换新对象重投仍 true，撤回后到外壳 true）、`onVnodeMounted`/`onVnodeUnmounted` 的先后在两种顺序下都有 `mounted === bodyComponent` 的保护、`[null, body, …]` 子节点位置稳定不重挂。
+- `WorkbenchPageParts` 变更的调用方：全仓只有 plugin.ts 与 home-page.dom.test.ts，已改齐；没有残留的 `renderShell`/`renderDocument`。`defineAsyncComponent` 的 Suspense 行为：src 下没有 `Suspense`，没有改变；错误处理从 Vue 的错误处理变成 `workbench.page` 诊断，是交付报告承认并记录的变化。
+- `layout.acquire()` 仍只在要渲染外壳时才调用，首页贡献在场时不创建布局 store，保持原不变量。
+- WorkbenchShell 的编辑区加载中占位在失败时由 `errorComponent` 取代（Vue 先判 error），aria-busy 会撤掉；欢迎页的 aria-busy 在 `shelf()` 与 `list()` 返回后（成功与失败都）撤掉，`files === null` 时也会撤。
+- page-shot 其余判据实测符合设计：aria-busy 在 `display:none` 里不算；视口内未加载完的图片会等并在超时时点名；`data-page-rendered` 晚到 1.5 秒仍能等到；缺该标记时报“页面根已就绪，但…没有标出 data-page-rendered”并提示 lab:shot，exit 1。`--path` 的同源校验有测试。
+- `projectUrl` 挪到 shared 后浏览器端引用（open-project.ts、shelf-page.ts）都已改，没有遗留旧导出的使用者；`architecture.test.ts` 与 `page-shot.test.ts`（10 条）通过，`home-page.dom.test.ts` 等 10 个 vitest 文件 36 条通过。
+- 新增 3 条 home-page 测试测行为、没有固定等待（用 `flushPromises` 与受控 deferred）。
+- 截图 fix-shelf-1、fix-cold-chapter-1、fix-cold-workbench-1 目视完整，无空白。
+
+## 数量
+
+阻断 0；重要 2（第 1、4 条）加 1 条重要（第 2 条）共 3；建议 5（第 3、5、6、7、8 条）。合计 8 条。
+
+更正上一行的数量写法：阻断 0；重要 3（第 1、2、4 条）；建议 5（第 3、5、6、7、8 条）；合计 8 条。审查过程中的临时文件在会话草稿目录与 /dev/shm/review-t18-ui-tmp（已删），worktree 未改动。
