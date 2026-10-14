@@ -31,9 +31,11 @@ updated: 2026-10-14
 - 交付报告：[evidences/s1-delivery.txt](evidences/s1-delivery.txt)、[evidences/s2-s3-delivery.txt](evidences/s2-s3-delivery.txt)。
 - 终端画面高度（假 herdr 起的临时面板）：1440×650 从 222 到 346，1440×900 从 472 到 596，1280×650 从 184 到 346，1100×700 从 229 到 353；截图在本地 `.local/agent/works/w00022-dev-panel/tasks/t17-panel-small-fixes/shots/`。
 - 主会话自跑：dev-panel typecheck 通过、全量 445 个通过、`build:web` 成功；nb-ui 的 e2e 31 个通过。
-- 已知问题：Work 页 Task 表“谁在动”一列里标题被截到只剩一两个字，随实现审查一起处理。
-- 未验证：读标题很慢时活动照样及时发布（构造不出稳定的慢读取），留给实现审查核对代码；合入后在真实面板 4400 上截图。
-- 实现审查待处理：前端 Sonnet 在审；服务端等 omp。
+- 实现审查（已处理）：
+  - 前端 Sonnet，报告 [evidences/impl-review-ui.txt](evidences/impl-review-ui.txt)：重要 5、建议 10。改了 11 条（`c203248fe`、`87dbfd657`，交付报告 [evidences/impl-review-ui-fix.txt](evidences/impl-review-ui-fix.txt)）：Task 表一列只显示短键、标题进提示；不能发的原因放回可见文字并用 `aria-describedby` 关联；输入框改用 `field-sizing: content`；撤掉 provide/inject，页面直接传 prop；“标题 + 短键”抽成 `SessionLabel`；手机档发送按钮回到同一行；文档对齐。不改 4 条（“确认”说明要很宽才出现、Tab 顺序、表格 chip 的停靠点、再铺一层前端自动检查），理由见交付报告。
+  - 服务端 omp，报告 [evidences/impl-review-server.txt](evidences/impl-review-server.txt)：重要 3、建议 1，全部修正（`4d3c48e59`，交付报告 [evidences/impl-review-server-fix.txt](evidences/impl-review-server-fix.txt)）：冷查找的 4 个名额跨轮共享、面板停止时等标题任务收口、Codex 索引只读末尾 4 MiB（288 MB 的索引下独立客户端最长响应从 2078ms 降到 14 到 26ms）、补“只改来源”的推送用例。
+- 修正后：1440×650 下空草稿时终端 345px；草稿写满 4 行时 289px，低于 320px 的目标。目标按空草稿定，写长草稿时暂时变矮可以接受，主会话判断不再压缩。dev-panel 全量 454 个通过。
+- 未验证：合入后在真实面板 4400 上截图。
 
 ## 下一步
 
