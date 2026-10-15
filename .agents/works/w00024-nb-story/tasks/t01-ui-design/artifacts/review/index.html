@@ -62,11 +62,13 @@ code { font-family: var(--mono); font-size: 12.5px; }
 </style>
 </head>
 <body>
-<header class="top"><b>nb-story 界面评审板</b><small>w00024 t01-ui-design 的产物 · 第 6 轮 · 2026-10-15</small></header>
+<header class="top"><b>nb-story 界面评审板</b><small>w00024 t01-ui-design 的产物 · 第 7 轮 · 2026-10-15</small></header>
 <main>
 
 <div class="lead">
-    <h1>第 6 轮：图改用 Sigma.js 重做</h1>
+    <h1>第 7 轮：按你的五条意见继续打磨图</h1>
+    <p>第 6 轮两题你按推荐答了（决定 15、16），并在备注里提了五条（决定 17）：要不要 3D、节点能否拖拽、选中后降暗其他节点、收起右侧栏后画布不重绘、参考 viewer-v7 再优化。这一轮逐条做了，问两道题（15、16）。</p>
+    <h1 style="margin-top:20px;font-size:18px">第 6 轮：图改用 Sigma.js 重做</h1>
     <p>第 3 到 5 轮的五道题你都按推荐答了（Task README 决定 9 到 13）。另外你在会话里说现在的图很乱：没有像样的自动排版，节点和文字大多挤在一起，要深入打磨，直接用 Sigma.js（决定 14）。这一轮把关系图、全书图（按章节、按关联）和人物卡里的小关系图都换成 Sigma.js 重做，问两道题（13、14）。</p>
     <h1 style="margin-top:20px;font-size:18px">第 5 轮：剩下五页，以及平板、手机宽度</h1>
     <p>第 4 轮的三道题（9、10，以及第 3 轮的 8）还没答，等答复期间先把计划里剩下的部分做完：数值、悬念、时间线、情节、原文五页，人物卡记录“在主区打开”的宽表格，以及平板、手机宽度。这一轮新问两道题（11、12），第 4 轮的内容在下面原样保留。</p>
@@ -76,6 +78,60 @@ code { font-family: var(--mono); font-size: 12.5px; }
 </div>
 
 <div class="round">待定</div>
+
+<section class="q">
+    <h2>第 7 轮的改动（不用答）</h2>
+    <table>
+        <thead><tr><th>你的意见</th><th>做了什么</th></tr></thead>
+        <tbody>
+            <tr><td>1. Sigma 有没有 3D</td><td>Sigma 只画平面图。3D 改用 3d-force-graph（three.js 加 d3-force-3d，MIT）做了一个，在关系图右上角“平面 / 3D”切换；要不要进第一版见第 15 题。</td></tr>
+            <tr><td>2. 节点能否拖拽</td><td>能。按住一个点拖动，松开后留在那里（只在这次浏览里）；拖动不算点选，不会拖完就打开人物卡。3D 里也能拖。</td></tr>
+            <tr><td>3. 选中后降暗其他节点</td><td>改了：选中和悬停一样，只留这个点和它的邻居，其余淡到背景色、不出名字，不相连的线隐藏。另加“只看选中的周边”：勾上后其余的点直接隐藏，镜头框住这一圈。</td></tr>
+            <tr><td>4. 收起右侧栏后不重绘</td><td>修了。原因是 Sigma 只在窗口尺寸变化时重设画布，容器变宽它不知道；现在监听容器尺寸，变了就重设画布再重画。拖分隔条、全屏也一样。故事线同样修了。</td></tr>
+            <tr><td>5. 参考 viewer-v7 再优化</td><td>借了四样：点画成类型色的空心圆圈（主要人物的圈更粗）；连线分层、各自开关（关系说法、同场、认知）；“认知”是 v7 的“认知联系”：粉色弧线箭头，A→B 表示 A 知道关于 B 的事，越粗条数越多，A→B 与 B→A 各弯向一边；全屏按钮。v7 的“知情视角”（以某个角色知道的为准看图）还没做，见第 16 题。</td></tr>
+        </tbody>
+    </table>
+    <div class="shots">
+        <figure><img src="r7/graph.webp" alt="关系图"><figcaption>关系图：空心圆圈，工具栏多了连线分层开关（关系说法、同场、认知）、“只看选中的周边”、“平面 / 3D”；右下角放大、缩小、铺满、全屏。这张也是“打开人物卡再收起右侧栏”之后截的，画布已铺满。</figcaption></figure>
+        <figure><img src="r7/know.webp" alt="认知联系"><figcaption>打开“认知”一层并悬停在苏天晴上：粉色箭头是谁知道关于谁的事（南嘉鱼知道关于苏天晴的 94 条，苏天晴知道关于南嘉鱼的 67 条……）。这一层线多，默认关着。</figcaption></figure>
+        <figure><img src="r7/neighborhood.webp" alt="只看选中的周边"><figcaption>选中南嘉鱼并勾上“只看选中的周边”：只剩她和她的邻居。</figcaption></figure>
+        <figure><img src="r7/3d.webp" alt="3D"><figcaption>3D：拖动转视角、滚轮缩放、右键平移，点可以拖。数据和平面图一样（这张开着三层线）。近处的球和字会挡住远处的，字随远近变大变小，要转着看才看得全。</figcaption></figure>
+        <figure><img src="r7/ego.webp" alt="人物卡小图"><figcaption>人物卡里的小图也换成空心圆圈。</figcaption></figure>
+        <figure><img src="r7/viewer-v7.webp" alt="viewer-v7 参照"><figcaption>参照：w00005 t08 的 viewer-v7（自绘 SVG）。借了空心圆圈、分层连线、带箭头的认知联系、全屏；顶部的“知情视角”见第 16 题。</figcaption></figure>
+    </div>
+</section>
+
+<section class="q" data-nbdev-question="graph-3d" data-nbdev-type="single" data-nbdev-recommend="later">
+    <h2><span class="badge todo" data-nbdev-skip>待定</span>15. 3D 图要不要进第一版？</h2>
+    <p class="ask">在 Lab 的 <code>NbStoryDraft</code> 场景 <code>graph-3d</code> 里可以直接转着试（http://127.0.0.1:4217/）。3D 多带一个 three.js（压缩后约 180 KB），图本身的数据与平面图共用。</p>
+    <div class="opts">
+        <div class="opt rec" data-nbdev-option="later"><h3>第一版只做平面，3D 以后再看</h3><p>草稿留着，等平面图用起来再决定。</p></div>
+        <div class="opt" data-nbdev-option="optional"><h3>第一版就带上，作为关系图的可选视图</h3><p>默认平面，右上角切 3D。</p></div>
+        <div class="opt" data-nbdev-option="no"><h3>不做 3D</h3><p>删掉草稿。</p></div>
+    </div>
+    <div class="rec-note"><b>推荐第一版只做平面。</b>3D 看着有立体感，但读图更难：前面的点和字挡住后面的，字随远近忽大忽小，要转着看；“谁和谁什么关系”在平面图上一眼就能读。人物不过十几个、几十个时，3D 带来的空间也用不上。</div>
+</section>
+
+<section class="q" data-nbdev-question="perspective-view" data-nbdev-type="single" data-nbdev-recommend="v1">
+    <h2><span class="badge todo" data-nbdev-skip>待定</span>16. 关系图要不要加“知情视角”？</h2>
+    <p class="ask">viewer-v7 顶部能选“知情视角”：读者，或者某个角色。按角色看时，图只画这个角色知道的事。例如以南嘉鱼的视角，她不知道心月狐就是苏天晴，图上心月狐和苏天晴是两个点；她不知道的关系说法也不画。现在的图都是读者视角。</p>
+    <div class="opts">
+        <div class="opt rec" data-nbdev-option="v1"><h3>第一版就做，先放在关系图上</h3><p>关系图右上角一个“以谁的视角”选择，默认读者。人物卡、秘密矩阵以后再跟。</p></div>
+        <div class="opt" data-nbdev-option="later"><h3>以后再做</h3><p>第一版只有读者视角。</p></div>
+    </div>
+    <div class="rec-note"><b>推荐第一版就在关系图上做。</b>“谁知道什么”是这本书和 nb-story 的核心（身份秘密、知情题），角色视角的图正好把秘密矩阵画出来；数据已经有：知情记录标了谁知道哪条说法、哪个秘密。代价在核心库：按角色合并化名、按角色过滤说法，要随“读到哪里”一起算。</div>
+</section>
+
+<section class="q">
+    <h2>第 7 轮搭稿时发现的问题（不用答，记下来进计划）</h2>
+    <ol>
+        <li><b>“认知”一层集中在主角身上。</b>人物之间 30 条认知联系里，一半以上进出苏天晴（她是视角人物）。线一多就成扇形，所以这一层默认关着，悬停一个人时再看最清楚。</li>
+        <li><b>拖动后的位置要不要记住。</b>草稿里拖动只在这次浏览里有效，刷新就回到自动排版。实现时可以按书、按阅读位置记住用户拖过的点，下次打开沿用；这与“拖读到哪里时图会重排”（第 6 轮问题 3）一起考虑。</li>
+        <li><b>3D 的数据和平面图共用一份。</b>如果以后做 3D，组件只换画法，查询不变。</li>
+    </ol>
+</section>
+
+<div class="round">已定（第 6 轮的题，2026-10-15 答复）</div>
 
 <section class="q">
     <h2>第 6 轮的改动（不用答）</h2>
@@ -101,7 +157,7 @@ code { font-family: var(--mono); font-size: 12.5px; }
 </section>
 
 <section class="q" data-nbdev-question="relation-graph-default" data-nbdev-type="single" data-nbdev-recommend="people-groups">
-    <h2><span class="badge todo" data-nbdev-skip>待定</span>13. 关系图默认画哪些点？</h2>
+    <h2><span class="badge done" data-nbdev-skip>已定</span>13. 关系图默认画哪些点？</h2>
     <p class="ask">读到第 38 章有 65 个对象：人物 9、组织 4、物品 13、地点 12、概念 19、任务 8。全画出来概念和任务会把人挤在中间（第 4 轮的图）。</p>
     <div class="opts">
         <div class="opt rec" data-nbdev-option="people-groups"><h3>默认只画人物与组织，其余按开关加</h3><p>就是现在的稿子。类别开关记住上次的选择。</p></div>
@@ -109,16 +165,18 @@ code { font-family: var(--mono); font-size: 12.5px; }
         <div class="opt" data-nbdev-option="all"><h3>全部都画</h3><p>靠标签分级和悬停聚焦去看清。</p></div>
     </div>
     <div class="rec-note"><b>推荐默认只画人物与组织。</b>“关系图”回答的是人和人之间的事；物品、概念要看时一键打开。黑色古书这类会说话、实际是角色的物品，见下面问题 2。</div>
+    <div class="decided"><b>已定（2026-10-15）：</b>只画人物与组织，其余按开关加（决定 15）。另附五条图的意见（决定 17），见第 7 轮。</div>
 </section>
 
 <section class="q" data-nbdev-question="data-graph-grain" data-nbdev-type="single" data-nbdev-recommend="arc">
-    <h2><span class="badge todo" data-nbdev-skip>待定</span>14. 全书图“按关联”默认按主线聚合，还是逐段情节？</h2>
+    <h2><span class="badge done" data-nbdev-skip>已定</span>14. 全书图“按关联”默认按主线聚合，还是逐段情节？</h2>
     <p class="ask">93 段情节几乎每段都有苏天晴，逐段画时所有情节都挂在她身上，排出来是一个均匀的球，看不出结构；按 33 条主线聚合后能看出哪几条主线围着哪几个人。</p>
     <div class="opts">
         <div class="opt rec" data-nbdev-option="arc"><h3>默认按主线，可切到逐段情节</h3><p>还没归入主线的最近几段情节照常单独画。</p></div>
         <div class="opt" data-nbdev-option="episode"><h3>默认逐段情节，可切到按主线</h3><p>点最全，靠搜索和悬停去找。</p></div>
     </div>
     <div class="rec-note"><b>推荐默认按主线。</b>“按关联”是用来看结构的；逐段的细节在故事线（按章节）和情节页里看更清楚。</div>
+    <div class="decided"><b>已定（2026-10-15）：</b>默认按主线聚合（决定 16）。</div>
 </section>
 
 <section class="q">
