@@ -60,14 +60,14 @@ const STATE_WORD = {knows: "知道", believes: "认为", suspects: "怀疑", hea
         <template v-if="card.data.value">
             <header class="flex flex-col gap-1 border-b border-[var(--divider)] px-3 pb-2 pt-3">
                 <div class="flex items-center gap-2">
-                    <h2 class="text-[var(--text-lg)] font-[var(--weight-strong)]" data-testid="card-name">{{ card.data.value.label }}</h2>
+                    <h2 class="text-[length:var(--text-lg)] font-[var(--weight-strong)]" data-testid="card-name">{{ card.data.value.label }}</h2>
                     <IconButton class="ml-auto" size="xs" icon-class="i-lucide-x" aria-label="关闭" @click="book.closeDrawer()" />
                 </div>
-                <p class="text-[var(--text-sm)] text-[var(--text-secondary)]" data-testid="card-names">
+                <p class="text-[length:var(--text-sm)] text-[var(--text-secondary)]" data-testid="card-names">
                     称呼：<template v-for="(name, index) in (allNames ? card.data.value.names : card.data.value.names.slice(0, NAMES_SHOWN))" :key="name.text">{{ index ? "、" : "" }}{{ name.text }}</template>
                     <button v-if="card.data.value.names.length > NAMES_SHOWN" type="button" class="ml-1 text-[var(--accent-text)]" @click="allNames = !allNames">{{ allNames ? "收起" : `等 ${card.data.value.names.length} 个` }}</button>
                 </p>
-                <p v-if="card.data.value.identities.length" class="text-[var(--text-sm)]" data-testid="card-identities">
+                <p v-if="card.data.value.identities.length" class="text-[length:var(--text-sm)]" data-testid="card-identities">
                     同一身份：<span v-for="item in card.data.value.identities" :key="item.id" class="mr-2">{{ item.label }} <RefLink :ref-text="item.ref" /></span>
                 </p>
             </header>
@@ -75,17 +75,17 @@ const STATE_WORD = {knows: "知道", believes: "认为", suspects: "怀疑", hea
             <div class="story-scroll-y min-h-0 flex-1 px-3 pb-2">
                 <template v-if="tab === 'summary'">
                     <section v-for="facet in card.data.value.facets" :key="facet.facet" class="mb-3">
-                        <h3 class="text-[var(--text-sm)] font-[var(--weight-strong)]">{{ FACETS[facet.facet] ?? facet.facet }} <span class="text-[var(--text-2xs)] text-[var(--text-muted)]">归纳到第 {{ facet.through }} 章</span></h3>
-                        <p v-for="(item, index) in facet.items" :key="index" class="text-[var(--text-sm)] leading-relaxed">{{ item }}</p>
+                        <h3 class="text-[length:var(--text-sm)] font-[var(--weight-strong)]">{{ FACETS[facet.facet] ?? facet.facet }} <span class="text-[length:var(--text-2xs)] text-[var(--text-muted)]">归纳到第 {{ facet.through }} 章</span></h3>
+                        <p v-for="(item, index) in facet.items" :key="index" class="text-[length:var(--text-sm)] leading-relaxed">{{ item }}</p>
                     </section>
                     <section class="mb-3">
-                        <h3 class="text-[var(--text-sm)] font-[var(--weight-strong)]">知道的秘密</h3>
+                        <h3 class="text-[length:var(--text-sm)] font-[var(--weight-strong)]">知道的秘密</h3>
                         <ul class="flex flex-col gap-1">
-                            <li v-for="secret in card.data.value.secrets" :key="secret.id" class="flex items-center gap-2 text-[var(--text-sm)]">
+                            <li v-for="secret in card.data.value.secrets" :key="secret.id" class="flex items-center gap-2 text-[length:var(--text-sm)]">
                                 <StateBadge :state="secret.state" /><span class="min-w-0 flex-1">{{ secret.title }}</span><RefLink v-if="secret.ref" :ref-text="secret.ref" />
                             </li>
                         </ul>
-                        <p class="mt-1 text-[var(--text-2xs)] text-[var(--text-muted)]">“没有记录”不等于不知道。</p>
+                        <p class="mt-1 text-[length:var(--text-2xs)] text-[var(--text-muted)]">“没有记录”不等于不知道。</p>
                     </section>
                 </template>
                 <CardRelations v-else-if="tab === 'relations'" :entity="card.data.value.id" />
@@ -104,7 +104,7 @@ const STATE_WORD = {knows: "知道", believes: "认为", suspects: "怀疑", hea
                                 <span class="mr-1 text-[var(--text-muted)]">{{ STATE_WORD[item.state] }}</span>{{ item.text }}
                                 <RecordTags :tags="item.tags" />
                                 <RefLink v-for="ref in item.refs" :key="ref" class="ml-1" :ref-text="ref" />
-                                <span v-if="showIds" class="ml-1 text-[var(--text-2xs)] text-[var(--text-muted)]" data-testid="record-id">{{ item.id }}</span>
+                                <span v-if="showIds" class="ml-1 text-[length:var(--text-2xs)] text-[var(--text-muted)]" data-testid="record-id">{{ item.id }}</span>
                             </p>
                         </template>
                     </PagedList>
@@ -115,7 +115,7 @@ const STATE_WORD = {knows: "知道", believes: "认为", suspects: "怀疑", hea
                                 {{ item.text }}
                                 <RecordTags :tags="item.tags" />
                                 <RefLink v-for="ref in item.refs" :key="ref" class="ml-1" :ref-text="ref" />
-                                <span v-if="showIds" class="ml-1 text-[var(--text-2xs)] text-[var(--text-muted)]" data-testid="record-id">{{ item.id }}</span>
+                                <span v-if="showIds" class="ml-1 text-[length:var(--text-2xs)] text-[var(--text-muted)]" data-testid="record-id">{{ item.id }}</span>
                             </p>
                         </template>
                     </PagedList>

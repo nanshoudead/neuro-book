@@ -12,11 +12,11 @@ const query = useStoryQuery("source.records", () => ({chapter: props.chapter, pa
 
 <template>
     <div class="flex flex-col gap-2 p-3" data-testid="drawer-records">
-        <h2 class="text-[var(--text-sm)] font-[var(--weight-strong)]">引用 {{ chapter }}.{{ paragraph }} 的记录</h2>
+        <h2 class="text-[length:var(--text-sm)] font-[var(--weight-strong)]">引用 {{ chapter }}.{{ paragraph }} 的记录</h2>
         <PageState :loading="query.loading.value && !query.data.value" :error="query.error.value?.message ?? null" @retry="query.reload()" />
-        <p v-if="query.data.value && query.data.value.records.length === 0" class="text-[var(--text-sm)] text-[var(--text-muted)]">这一段没有可见的记录</p>
+        <p v-if="query.data.value && query.data.value.records.length === 0" class="text-[length:var(--text-sm)] text-[var(--text-muted)]">这一段没有可见的记录</p>
         <ul class="flex flex-col gap-2">
-            <li v-for="record in query.data.value?.records ?? []" :key="`${record.type}:${record.id}`" class="text-[var(--text-sm)]">
+            <li v-for="record in query.data.value?.records ?? []" :key="`${record.type}:${record.id}`" class="text-[length:var(--text-sm)]">
                 <span class="mr-1 text-[var(--text-muted)]">{{ TYPE[record.type] }}</span>{{ record.text }}
                 <RecordTags :tags="record.tags" />
                 <span class="ml-1 inline-flex gap-1"><RefLink v-for="item in record.refs" :key="item" :ref-text="item" /></span>

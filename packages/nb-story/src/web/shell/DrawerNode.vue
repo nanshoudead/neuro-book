@@ -28,11 +28,11 @@ const rows = computed(() => {
 
 <template>
     <div class="flex flex-col gap-2 p-3" data-testid="drawer-node">
-        <h2 class="text-[var(--text-sm)] font-[var(--weight-strong)]"><NameLink :id="id" :label="label" /> 的连线</h2>
+        <h2 class="text-[length:var(--text-sm)] font-[var(--weight-strong)]"><NameLink :id="id" :label="label" /> 的连线</h2>
         <PageState :loading="graph.loading.value && !graph.data.value" :error="graph.error.value?.message ?? null" @retry="graph.reload()" />
-        <p v-if="graph.data.value && rows.length === 0" class="text-[var(--text-sm)] text-[var(--text-muted)]">在当前视角与阅读位置下没有连线</p>
+        <p v-if="graph.data.value && rows.length === 0" class="text-[length:var(--text-sm)] text-[var(--text-muted)]">在当前视角与阅读位置下没有连线</p>
         <ul class="flex flex-col gap-1.5">
-            <li v-for="row in rows" :key="row.other" class="text-[var(--text-sm)]">
+            <li v-for="row in rows" :key="row.other" class="text-[length:var(--text-sm)]">
                 <NameLink :id="row.other" :label="row.label" />：
                 <span v-if="row.edge.identity" class="text-[var(--status-warning)]">{{ IDENTITY[row.edge.identity] }}</span>
                 <template v-if="row.edge.relation">关系{{ row.edge.relation.word ? `“${row.edge.relation.word}”` : "" }}（说法 {{ row.edge.relation.statements }}）</template>

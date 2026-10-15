@@ -45,7 +45,7 @@ const itemDetail = useStoryQuery("ledger.track", () => (itemCurrent.value ? {tra
             <section v-if="resources.length" class="story-block">
                 <SegmentedControl v-model="chosen" size="sm" :options="resources.map(track => ({value: keyOf(track), label: `${track.owner.label} · ${track.name}`}))" aria-label="选一项资源" />
                 <template v-if="current">
-                    <p class="mt-2 text-[var(--text-sm)]">
+                    <p class="mt-2 text-[length:var(--text-sm)]">
                         当前 <b>{{ current.current ?? "—" }}</b><span v-if="current.relative">（起始金额不明，是相对值）</span>
                         <span v-if="current.mismatches" class="ml-2 text-[var(--status-warning)]" data-testid="mismatches">原文报数与累加有 {{ current.mismatches }} 处对不上</span>
                     </p>
@@ -59,7 +59,7 @@ const itemDetail = useStoryQuery("ledger.track", () => (itemCurrent.value ? {tra
                                 <td class="whitespace-nowrap">{{ entry.change === null ? (entry.op === "set" ? "报数" : "") : entry.change > 0 ? `+${entry.change}` : entry.change }}</td>
                                 <td class="whitespace-nowrap">
                                     {{ entry.balance ?? entry.value ?? "" }}<span v-if="entry.relative" class="text-[var(--text-muted)]">（相对）</span>
-                                    <span v-if="entry.gap" class="block text-[var(--text-xs)] text-[var(--status-warning)]">原文比累加{{ entry.gap > 0 ? "多" : "少" }} {{ Math.abs(entry.gap) }}</span>
+                                    <span v-if="entry.gap" class="block text-[length:var(--text-xs)] text-[var(--status-warning)]">原文比累加{{ entry.gap > 0 ? "多" : "少" }} {{ Math.abs(entry.gap) }}</span>
                                 </td>
                                 <td>{{ entry.reason }}</td>
                             </tr>
@@ -70,15 +70,15 @@ const itemDetail = useStoryQuery("ledger.track", () => (itemCurrent.value ? {tra
             <section class="story-block">
                 <h2>任务</h2>
                 <SegmentedControl v-model="taskFilter" size="xs" :options="[{value: 'active', label: '进行中'}, {value: 'done', label: '已完成'}]" aria-label="任务状态" />
-                <ul class="mt-2 flex flex-col gap-1 text-[var(--text-sm)]">
-                    <li v-for="task in shownTasks" :key="keyOf(task)" class="flex items-baseline gap-2">{{ task.name.replace(/^任务[：:]/u, "") }}<span class="text-[var(--text-xs)] text-[var(--text-muted)]">{{ task.current }}</span><RefLink class="ml-auto" :ref-text="task.lastRef" /></li>
+                <ul class="mt-2 flex flex-col gap-1 text-[length:var(--text-sm)]">
+                    <li v-for="task in shownTasks" :key="keyOf(task)" class="flex items-baseline gap-2">{{ task.name.replace(/^任务[：:]/u, "") }}<span class="text-[length:var(--text-xs)] text-[var(--text-muted)]">{{ task.current }}</span><RefLink class="ml-auto" :ref-text="task.lastRef" /></li>
                     <li v-if="shownTasks.length === 0" class="text-[var(--text-muted)]">没有</li>
                 </ul>
             </section>
             <section v-if="items.length" class="story-block">
                 <h2>道具</h2>
                 <SegmentedControl v-if="items.length > 1" v-model="itemTrack" size="xs" :options="items.map(track => ({value: keyOf(track), label: `${track.owner.label} · ${track.name}`}))" aria-label="选一项道具" />
-                <ul class="mt-1 flex flex-col gap-1 text-[var(--text-sm)]">
+                <ul class="mt-1 flex flex-col gap-1 text-[length:var(--text-sm)]">
                     <li v-for="entry in itemDetail.data.value?.entries ?? []" :key="entry.id">{{ entry.op === "get" ? "得到" : entry.op === "use" ? "用掉" : "失去" }} {{ entry.item?.label ?? "" }}：{{ entry.reason }} <RefLink v-if="entry.refs[0]" :ref-text="entry.refs[0]" /></li>
                 </ul>
             </section>

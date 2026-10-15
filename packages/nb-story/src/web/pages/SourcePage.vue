@@ -38,7 +38,7 @@ const readLine = computed(() => (book.at.value.paragraph !== undefined && chapte
 <template>
     <div class="story-page flex" data-testid="page-source">
         <aside v-if="tocOpen" class="story-scroll-y w-[200px] shrink-0 border-r border-[var(--divider)] py-2" aria-label="目录">
-            <div class="flex items-center px-2 pb-1"><b class="text-[var(--text-sm)]">目录</b><IconButton class="ml-auto" size="xs" icon-class="i-lucide-panel-left-close" aria-label="收起目录" @click="tocOpen = false" /></div>
+            <div class="flex items-center px-2 pb-1"><b class="text-[length:var(--text-sm)]">目录</b><IconButton class="ml-auto" size="xs" icon-class="i-lucide-panel-left-close" aria-label="收起目录" @click="tocOpen = false" /></div>
             <button
                 v-for="item in toc.data.value?.toc ?? []" :key="item.chapter" type="button" class="toc-item"
                 :class="[item.chapter === chapter ? 'is-active' : '', item.title === null ? 'is-unread' : '']" :disabled="item.title === null" :data-chapter="item.chapter"
@@ -65,7 +65,7 @@ const readLine = computed(() => (book.at.value.paragraph !== undefined && chapte
                 <template v-else>
                     <PageState :loading="source.loading.value && !source.data.value" :error="source.error.value?.message ?? null" @retry="source.reload()" />
                     <template v-for="paragraph in source.data.value?.paragraphs ?? []" :key="paragraph.paragraph">
-                        <p v-if="showBeats && paragraph.beat" class="beat" data-testid="beat" :data-from="paragraph.beat.from">{{ paragraph.beat.gist }} <span class="text-[var(--text-2xs)]">（{{ paragraph.beat.from }}—{{ paragraph.beat.to }} 段）</span></p>
+                        <p v-if="showBeats && paragraph.beat" class="beat" data-testid="beat" :data-from="paragraph.beat.from">{{ paragraph.beat.gist }} <span class="text-[length:var(--text-2xs)]">（{{ paragraph.beat.from }}—{{ paragraph.beat.to }} 段）</span></p>
                         <p class="source-para" :data-paragraph="paragraph.paragraph">
                             <button v-if="paragraph.recordCount > 0" type="button" class="para-no has-records" :title="`${paragraph.recordCount} 条记录引用这一段`" @click="book.openParagraph(paragraph.chapter, paragraph.paragraph)">{{ paragraph.paragraph }}<sup>{{ paragraph.recordCount }}</sup></button>
                             <span v-else class="para-no">{{ paragraph.paragraph }}</span>

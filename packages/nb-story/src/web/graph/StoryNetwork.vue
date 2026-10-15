@@ -25,6 +25,7 @@ import {edgeLabelDrawer, estimateLabelWidth, fixedColors, Focus, hoverDrawer, la
 import type {Theme} from "./sigma-kit";
 
 import type {IdentityState} from "../../contract/contract";
+import {appearance} from "../host/theme";
 
 /** 点：`kind` 是对象类别，或全书图里的 arc、episode、secret、question。 */
 export type NetworkNode = {id: string; label: string; kind: string; weight: number};
@@ -65,7 +66,12 @@ const props = withDefaults(defineProps<{
     hiddenTypes: () => [], minCo: 2, compact: false, query: "", pinned: () => [],
 });
 
-const emit = defineEmits<{(event: "select", id: string): void}>();
+/** select：点了一个点（拖动不算）；clear：点了空白处或按 Escape，宿主应取消选中（输出 27）。 */
+const emit = defineEmits<{(event: "select", id: string): void; (event: "clear"): void}>();
+defineSlots<{
+    /** 选中的点旁边浮出的小卡片（输出 27）；跟着点在画布上的位置走，点被隐藏时不显示。 */
+    selected?: () => unknown;
+}>();
 
 const root = ref<HTMLElement | null>(null);
 const host = ref<HTMLElement | null>(null);
@@ -132,7 +138,7 @@ function fillRelationEdges(target: Graph): void {
             const color = edge.identity === "no-record" ? t.muted : t.warning;
             const label = IDENTITY_LABEL[edge.identity];
             target.addUndirectedEdgeWithKey(`same:${edge.a}|${edge.b}`, edge.a, edge.b, {
-                size: EDGE_SIZE, color: mix(color, t.bg, 0.35), focusColor: color, type: "line", label, shortLabel: label, alwaysLabel: true, weight: 4, identity: true,
+                size: EDGE_SIZE, color: mix(color, t.bg, 0.35), focusColor: color, type: "line", label, shortLabel: label, alwaysLabel: true, weight: 4, identity: true, group: "identity",
             });
             continue;
         }
@@ -160,6 +166,8 @@ function fillRelationEdges(target: Graph): void {
             alwaysLabel: !aside && Boolean(word),
             weight: Math.max(1, (relation ? edge.statements * 3 : 0) + (co ? edge.together : 0) + (knows ? Math.log2(1 + ab + ba) : 0)),
             type: aside ? "line" : knows ? (ab > 0 && ba > 0 ? "doubleArrow" : "arrow") : "line",
+            // “只看周边”时邻居按最要紧的联系分组排（输出 26）
+            group: relation ? "relation" : knows ? "know" : "co",
         };
         // 单向的认知箭头从知道的人指向被知道的人
         if (knows && !(ab > 0 && ba > 0) && ba > 0) target.addDirectedEdgeWithKey(`p:${edge.b}>${edge.a}`, edge.b, edge.a, attributes);
@@ -208,6 +216,7 @@ function buildData(target: Graph): void {
             focusColor: edge.type === "relation" ? t.accent : t.muted,
             label: edge.type === "participates" && edge.count > 1 ? `${edge.count} 段` : "",
             type: "line",
+            group: edge.type,
         });
     }
 }
@@ -260,6 +269,11 @@ function applyLayout(target: Graph, fresh: boolean): void {
 /** 重新排版：在一份拷贝上算出新位置，再让点从旧位置滑过去，看得出谁挪到了哪里。 */
 function relayout(fresh: boolean): void {
     if (sigma === null || graph === null) return;
+    // “只看周边”的放射排布是临时的：先放回全图位置再排，排完再按新位置围一圈。
+    if (home !== null) {
+        for (const [node, position] of home) if (graph.hasNode(node)) graph.mergeNodeAttributes(node, {x: position.x, y: position.y, labelSide: position.side});
+        home = null;
+    }
     const copy = graph.copy();
     applyLayout(copy, fresh);
     const targets: Record<string, {x: number; y: number}> = {};
@@ -272,12 +286,133 @@ function relayout(fresh: boolean): void {
     // 拖动时固定过的取景范围要放开，否则新位置跑到框外
     sigma.setCustomBBox(null);
     stopAnimation = animateNodes(graph, targets, {duration: 600, easing: "quadraticInOut"}, () => {
-        void sigma?.getCamera().animatedReset({duration: 300});
+        if (props.neighborhood && focus?.selected !== null) enterNeighborhood();
+        else void sigma?.getCamera().animatedReset({duration: 300});
     });
 }
 
-function render(): void {
+type Point = {x: number; y: number};
+/** “只看周边”打开时记下的全图位置与名字朝向；关掉或取消选中时点滑回这里。为 null 表示现在就是全图排版。 */
+let home: Map<string, Point & {side: string}> | null = null;
+
+function positionsOf(target: Graph): Map<string, Point & {side: string}> {
+    const result = new Map<string, Point & {side: string}>();
+    target.forEachNode((node, attributes) => result.set(node, {x: Number(attributes.x), y: Number(attributes.y), side: String(attributes.labelSide ?? "right")}));
+    return result;
+}
+
+/** 由 id 算出的固定角度：新点放在邻居旁边时朝哪个方向错开，同一份数据每次一样。 */
+function angleOf(id: string): number {
+    let hash = 0;
+    for (const char of id) hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
+    return (hash % 360) * Math.PI / 180;
+}
+
+/**
+ * 接着排的起点（输出 25）：已有的点放回原位置；新出现的点放在已放好的邻居的重心旁边，没有邻居的放在外圈。
+ * 返回是否每个点都有原位置。
+ */
+function placeFrom(target: Graph, previous: Map<string, Point>): boolean {
+    let complete = true;
+    const placed = new Set<string>();
+    target.forEachNode((node) => {
+        const position = previous.get(node);
+        if (position === undefined) return;
+        target.mergeNodeAttributes(node, position);
+        placed.add(node);
+    });
+    if (placed.size === 0) return false;
+    const xs = [...placed].map((node) => Number(target.getNodeAttribute(node, "x")));
+    const ys = [...placed].map((node) => Number(target.getNodeAttribute(node, "y")));
+    const cx = xs.reduce((a, b) => a + b, 0) / xs.length;
+    const cy = ys.reduce((a, b) => a + b, 0) / ys.length;
+    const span = Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys), 1);
+    target.forEachNode((node) => {
+        if (placed.has(node)) return;
+        complete = false;
+        const anchors = target.neighbors(node).filter((other) => placed.has(other));
+        const angle = angleOf(node);
+        if (anchors.length > 0) {
+            const ax = anchors.reduce((sum, other) => sum + Number(target.getNodeAttribute(other, "x")), 0) / anchors.length;
+            const ay = anchors.reduce((sum, other) => sum + Number(target.getNodeAttribute(other, "y")), 0) / anchors.length;
+            target.mergeNodeAttributes(node, {x: ax + Math.cos(angle) * span * 0.05, y: ay + Math.sin(angle) * span * 0.05});
+        } else {
+            target.mergeNodeAttributes(node, {x: cx + Math.cos(angle) * span * 0.6, y: cy + Math.sin(angle) * span * 0.6});
+        }
+    });
+    return complete;
+}
+
+const GROUP_ORDER = ["identity", "relation", "know", "co", "participates", "about", "link"];
+
+/**
+ * “只看选中的周边”的放射排布（输出 26）：选中的点在原位置，一跳邻居按最要紧的联系分组（身份、关系说法、认知、
+ * 同场），组内按联系多少排，从正上方顺时针围一圈，组与组之间空一格；邻居多时内外两圈交错，名字不挤。
+ */
+function radialTargets(target: Graph, center: string, base: Map<string, Point>): Record<string, Point> {
+    const origin = base.get(center) ?? {x: 0, y: 0};
+    const xs = [...base.values()].map((point) => point.x);
+    const ys = [...base.values()].map((point) => point.y);
+    const span = Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys), 1);
+    const best = new Map<string, {group: number; weight: number}>();
+    for (const edge of target.edges(center)) {
+        const other = target.opposite(center, edge);
+        const attributes = target.getEdgeAttributes(edge);
+        const group = Math.max(0, GROUP_ORDER.indexOf(String(attributes.group ?? "co")));
+        const weight = Number(attributes.weight ?? 1);
+        const current = best.get(other);
+        if (current === undefined || group < current.group || (group === current.group && weight > current.weight)) best.set(other, {group, weight});
+    }
+    const ordered = [...best].sort((a, b) => a[1].group - b[1].group || b[1].weight - a[1].weight || (a[0] < b[0] ? -1 : 1));
+    const slots: (string | null)[] = [];
+    ordered.forEach(([node, info], index) => {
+        if (index > 0 && ordered[index - 1]![1].group !== info.group) slots.push(null);
+        slots.push(node);
+    });
+    const radius = span * 0.22;
+    const twoRings = ordered.length > 16;
+    const targets: Record<string, Point> = {[center]: origin};
+    slots.forEach((node, index) => {
+        if (node === null) return;
+        // Sigma 的 y 轴朝上：从正上方开始顺时针
+        const angle = Math.PI / 2 - index * 2 * Math.PI / slots.length;
+        const r = twoRings && index % 2 === 1 ? radius * 1.4 : radius;
+        targets[node] = {x: origin.x + Math.cos(angle) * r, y: origin.y + Math.sin(angle) * r};
+        target.setNodeAttribute(node, "labelSide", Math.cos(angle) < -0.15 ? "left" : "right");
+    });
+    return targets;
+}
+
+function enterNeighborhood(): void {
+    if (sigma === null || graph === null || focus === null || focus.selected === null || !graph.hasNode(focus.selected)) return;
+    if (home === null) home = positionsOf(graph);
+    const targets = radialTargets(graph, focus.selected, home);
+    stopAnimation?.();
+    sigma.setCustomBBox(null);
+    stopAnimation = animateNodes(graph, targets, {duration: 500, easing: "quadraticInOut"}, () => fitNeighborhood());
+}
+
+function leaveNeighborhood(): void {
+    if (sigma === null || graph === null || home === null) return;
+    const back: Record<string, Point> = {};
+    for (const [node, position] of home) {
+        if (!graph.hasNode(node)) continue;
+        back[node] = {x: position.x, y: position.y};
+        graph.setNodeAttribute(node, "labelSide", position.side);
+    }
+    home = null;
+    stopAnimation?.();
+    stopAnimation = animateNodes(graph, back, {duration: 500, easing: "quadraticInOut"}, () => void sigma?.getCamera().animatedReset({duration: 300}));
+}
+
+/**
+ * 整张重画。`how`：fresh 从固定起点排（首次显示、换用法）；continue 已有的点从全图原位置接着排、新点放到邻居旁边
+ * （换阅读位置、视角、类别，输出 25）；keep 位置不动只换颜色（换明暗）。
+ */
+function render(how: "fresh" | "continue" | "keep" = "fresh"): void {
     if (host.value === null) return;
+    const previous = how !== "fresh" && graph !== null && props.ego === null ? (home ?? positionsOf(graph)) : null;
+    home = null;
     stopAnimation?.();
     sigma?.kill();
     theme = readTheme(host.value);
@@ -287,7 +422,12 @@ function render(): void {
     focus = new Focus(graph, theme);
     focus.selected = props.selected !== null && graph.hasNode(props.selected) ? props.selected : null;
     focus.onlyNeighborhood = props.neighborhood;
-    applyLayout(graph, true);
+    if (previous === null) applyLayout(graph, true);
+    else {
+        const complete = placeFrom(graph, previous);
+        if (how === "keep" && complete) for (const [node, position] of previous) if (graph.hasNode(node)) graph.setNodeAttribute(node, "labelSide", position.side);
+        else applyLayout(graph, false);
+    }
     const drawLabel = labelDrawer(theme);
     const drawHover = hoverDrawer(theme);
     const drawEdgeLabel = edgeLabelDrawer(theme);
@@ -335,9 +475,10 @@ function render(): void {
     });
     // 线上的字互相避让：每画一帧前清空已占的位置
     sigma.on("beforeRender", drawEdgeLabel.reset);
+    sigma.on("afterRender", updateAnchor);
     bindEvents(sigma, graph);
     applyQuery();
-    if (props.neighborhood) fitNeighborhood();
+    if (props.neighborhood && focus.selected !== null) enterNeighborhood();
 }
 
 /**
@@ -361,6 +502,9 @@ function bindEvents(instance: Sigma, target: Graph): void {
         instance.refresh({skipIndexation: true});
     });
     instance.on("downNode", ({node, event}) => {
+        // 页面上已有的文字选区会让浏览器把这次按下当成拖文字，点就拖不动了：先清掉选区、拦下默认行为。
+        window.getSelection()?.removeAllRanges();
+        event.original.preventDefault();
         dragged = node;
         moved = false;
         downAt = {x: event.x, y: event.y};
@@ -391,14 +535,42 @@ function bindEvents(instance: Sigma, target: Graph): void {
         }
         focus!.selected = node;
         instance.refresh({skipIndexation: true});
-        if (props.neighborhood) fitNeighborhood();
-        if (props.layout === "concentric") relayout(false);
+        if (props.neighborhood) enterNeighborhood();
+        else if (props.layout === "concentric") relayout(false);
         emit("select", node);
     });
     instance.on("clickStage", () => {
+        if (focus!.selected === null) return;
         focus!.selected = null;
         instance.refresh({skipIndexation: true});
+        leaveNeighborhood();
+        emit("clear");
     });
+}
+
+/** 选中的点在画布上的位置（相对画布左上角），给浮出的小卡片定位；点被隐藏或没有选中时为 null。 */
+const anchor = ref<{x: number; y: number; left: boolean} | null>(null);
+function updateAnchor(): void {
+    const selected = focus?.selected ?? null;
+    if (sigma === null || graph === null || selected === null || !graph.hasNode(selected)) {
+        if (anchor.value !== null) anchor.value = null;
+        return;
+    }
+    const data = sigma.getNodeDisplayData(selected);
+    if (data === undefined || data.hidden) {
+        anchor.value = null;
+        return;
+    }
+    const point = sigma.framedGraphToViewport(data);
+    // 点在右侧时卡片放到点的左边，免得出画布。
+    anchor.value = {x: point.x, y: point.y, left: point.x > (host.value?.clientWidth ?? 0) - 300};
+}
+function onKey(event: KeyboardEvent): void {
+    if (event.key !== "Escape" || focus === null || focus.selected === null || sigma === null) return;
+    focus.selected = null;
+    sigma.refresh({skipIndexation: true});
+    leaveNeighborhood();
+    emit("clear");
 }
 
 /** “只看选中的周边”：镜头框住选中的点和它的邻居。 */
@@ -442,9 +614,13 @@ const legend = computed(() => {
 
 let observer: ResizeObserver | null = null;
 let lastSize = "";
+let resizeTimer: ReturnType<typeof setTimeout> | null = null;
+/** 尺寸停止变化多久后才重设画布：分栏收起、展开的过渡约 200 毫秒，过渡中每帧都在变。 */
+const RESIZE_SETTLE_MS = 120;
 onMounted(() => {
     // 容器在 Splitter 量好尺寸之前是 0：有了尺寸才排版。之后尺寸变了（收起、展开右侧栏，拖分隔条，全屏）
-    // Sigma 不会自己发现，要调 resize 重设画布大小再重画（输出 27）
+    // Sigma 不会自己发现，要调 resize 重设画布大小再重画（输出 27）。过渡期间尺寸每帧都变，逐帧重画会掉帧
+    // （输出 1）：等尺寸停下来再重画一次，过渡中画布暂时保持原来的像素大小。
     observer = new ResizeObserver(([entry]) => {
         const size = `${Math.round(entry!.contentRect.width)}x${Math.round(entry!.contentRect.height)}`;
         if (size === lastSize || entry!.contentRect.width === 0 || entry!.contentRect.height === 0) return;
@@ -453,17 +629,27 @@ onMounted(() => {
         if (first) {
             render();
             themeReady.value += 1;
-        } else {
+            return;
+        }
+        if (resizeTimer !== null) clearTimeout(resizeTimer);
+        resizeTimer = setTimeout(() => {
+            resizeTimer = null;
             sigma?.resize();
             sigma?.refresh();
-        }
+        }, RESIZE_SETTLE_MS);
     });
     if (host.value !== null) observer.observe(host.value);
 });
 // 点与线的数据变了（换阅读位置、视角、类别）整张重画，由排版重新决定位置；只换连线的层或同场门槛时换线、重新排版，
 // 点从原位置滑到新位置（输出 24）
-watch(() => [props.ego, props.hiddenTypes.join(","), props.mode, props.nodes, props.edges, props.dataEdges],
-    () => { if (lastSize !== "") render(); });
+watch(() => [props.ego, props.mode], () => { if (lastSize !== "") render("fresh"); });
+watch(() => [props.hiddenTypes.join(","), props.nodes, props.edges, props.dataEdges], () => { if (lastSize !== "") render("continue"); });
+// 换明暗：Sigma 的颜色在绘制时读一次，要按新颜色重画，位置不动。
+watch(appearance, () => {
+    if (lastSize === "") return;
+    render("keep");
+    themeReady.value += 1;
+});
 watch(() => [props.layers.join(","), props.minCo], () => {
     if (sigma === null || graph === null || props.mode !== "relation") return;
     fillRelationEdges(graph);
@@ -474,24 +660,35 @@ watch(() => props.layout, () => relayout(true));
 watch(() => props.relayoutKey, () => relayout(true));
 watch(() => props.selected, (value) => {
     if (sigma === null || focus === null || graph === null) return;
-    focus.selected = value !== null && graph.hasNode(value) ? value : null;
+    const next = value !== null && graph.hasNode(value) ? value : null;
+    if (next === focus.selected && (next === null || !props.neighborhood)) {
+        updateAnchor();
+        return;
+    }
+    focus.selected = next;
     sigma.refresh({skipIndexation: true});
-    if (props.neighborhood) fitNeighborhood();
+    if (!props.neighborhood) return;
+    if (next === null) leaveNeighborhood();
+    else enterNeighborhood();
 });
 watch(() => props.neighborhood, (value) => {
     if (sigma === null || focus === null) return;
     focus.onlyNeighborhood = value;
     sigma.refresh({skipIndexation: true});
-    if (value) fitNeighborhood();
-    else void sigma.getCamera().animatedReset({duration: 300});
+    if (value) enterNeighborhood();
+    else leaveNeighborhood();
 });
 watch(() => props.query, applyQuery);
-onBeforeUnmount(() => { observer?.disconnect(); stopAnimation?.(); sigma?.kill(); });
+window.addEventListener("keydown", onKey);
+onBeforeUnmount(() => { observer?.disconnect(); if (resizeTimer !== null) clearTimeout(resizeTimer); window.removeEventListener("keydown", onKey); stopAnimation?.(); sigma?.kill(); });
 </script>
 
 <template>
     <div ref="root" class="story-graph" :style="{'--know-color': themeReady > 0 && theme ? fixedColors(theme).know : 'transparent'}">
         <div ref="host" class="canvas" />
+        <div v-if="anchor && $slots.selected" class="node-card" :class="anchor.left ? 'is-left' : ''" :style="{left: `${anchor.x}px`, top: `${anchor.y}px`}" data-testid="node-card">
+            <slot name="selected" />
+        </div>
         <div v-if="!compact && themeReady > 0" class="legend">
             <span v-for="item in legend" :key="item.label"><i :style="{borderColor: item.color}" />{{ item.label }}</span>
             <template v-if="mode === 'relation'">
@@ -510,7 +707,9 @@ onBeforeUnmount(() => { observer?.disconnect(); stopAnimation?.(); sigma?.kill()
 </template>
 
 <style scoped>
-.story-graph { position: relative; width: 100%; height: 100%; background: var(--panel-surface); }
+.story-graph { position: relative; width: 100%; height: 100%; background: var(--panel-surface); user-select: none; }
+.node-card { position: absolute; z-index: 3; transform: translate(16px, -50%); }
+.node-card.is-left { transform: translate(calc(-100% - 16px), -50%); }
 .canvas { position: absolute; inset: 0; }
 .legend { position: absolute; left: 10px; bottom: 8px; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; padding: 3px 8px; border-radius: 6px; background: color-mix(in srgb, var(--panel-surface) 88%, transparent); color: var(--text-secondary); font-size: var(--text-2xs); pointer-events: none; }
 .legend span { display: inline-flex; align-items: center; gap: 4px; }

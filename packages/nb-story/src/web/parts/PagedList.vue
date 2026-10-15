@@ -29,12 +29,12 @@ onBeforeUnmount(() => observer?.disconnect());
 <template>
     <div class="paged-list">
         <template v-for="(item, index) in props.items" :key="index"><slot name="item" :item="item" :index="index" /></template>
-        <p v-if="props.error" class="py-3 text-[var(--text-sm)] text-[var(--status-danger)]">
+        <p v-if="props.error" class="py-3 text-[length:var(--text-sm)] text-[var(--status-danger)]">
             {{ props.error }}
             <button type="button" class="ml-2 underline" @click="emit('retry')">重试</button>
         </p>
-        <p v-else-if="props.loading" class="py-3 text-[var(--text-sm)] text-[var(--text-muted)]">正在取……</p>
-        <p v-else-if="props.total === 0" class="py-3 text-[var(--text-sm)] text-[var(--text-muted)]">{{ props.emptyText ?? "没有记录" }}</p>
+        <p v-else-if="props.loading" class="py-3 text-[length:var(--text-sm)] text-[var(--text-muted)]">正在取……</p>
+        <p v-else-if="props.total === 0" class="py-3 text-[length:var(--text-sm)] text-[var(--text-muted)]">{{ props.emptyText ?? "没有记录" }}</p>
         <div ref="sentinel" class="h-px" aria-hidden="true" />
     </div>
 </template>

@@ -25,6 +25,12 @@ export type DrawerContent =
     | {kind: "para"; chapter: number; paragraph: number}
     | {kind: "node"; id: string; label: string};
 
+/**
+ * 从别的页点进来时要定位的东西（总览点主线、秘密、悬念、情节，输出 8）。只在这次跳转里有效，不进地址：
+ * 目标页挂载时用 `takeJump` 取走并清空。
+ */
+export type JumpTarget = {kind: "arc"; id: string} | {kind: "secret"; id: string} | {kind: "question"; id: string} | {kind: "episode"; id: string};
+
 /** 存进书库的界面状态（`reading.set` 的 view）。 */
 interface SavedView {
     page: Page;
@@ -39,6 +45,8 @@ export interface BookSession {
     readonly info: StoryResult<"book.info">;
     readonly at: Ref<PositionInput>;
     readonly atLabel: ComputedRef<string>;
+    /** 读到了抽取到的最后位置（显示“全部读完”，输出 5）。 */
+    readonly atEnd: ComputedRef<boolean>;
     readonly perspective: Ref<string>;
     readonly page: Ref<Page>;
     readonly drawer: Ref<DrawerContent | null>;
@@ -54,6 +62,10 @@ export interface BookSession {
     /** 在主区打开某人的记录宽表（输出 10）；不进地址。 */
     readonly wideRecords: Ref<string | null>;
     reopenDrawer(): void;
+    /** 打开一页并带上要定位的目标。 */
+    jump(page: Page, target: JumpTarget): void;
+    /** 取走发给这一类目标的定位（只取一次）。 */
+    takeJump<K extends JumpTarget["kind"]>(kind: K): string | null;
     setAt(at: PositionInput): void;
     goPage(page: Page): void;
     openCard(entity: string, tab?: Tab): void;
@@ -108,6 +120,12 @@ function validAt(info: StoryResult<"book.info">, at: PositionInput | null): at i
     return at.paragraph === undefined || (at.paragraph >= 1 && at.paragraph <= info.paragraphs[at.chapter - 1]!);
 }
 
+/** 位置是否已到抽取到的最后位置：章是最后抽取的那一章，没指定段或段不早于抽取终点。 */
+export function isEnd(info: StoryResult<"book.info">, at: PositionInput): boolean {
+    const end = info.extractedThrough;
+    return at.chapter > end.chapter || (at.chapter === end.chapter && (at.paragraph === undefined || at.paragraph >= end.paragraph));
+}
+
 const SAVE_DELAY_MS = 1000;
 
 /**
@@ -124,7 +142,9 @@ export async function openBookSession(client: StoryClient, router: Router, bookI
 
     const urlAt = parseAt(query.at);
     if (query.at !== undefined && !validAt(info, urlAt)) notices.push("地址里的阅读位置不在这本书里，已改用上次的位置");
-    const at = ref<PositionInput>(validAt(info, urlAt) ? urlAt : validAt(info, saved.position) ? saved.position : {chapter: 1});
+    // 从没存过（savedAt 为 null）的书第一次打开时读到抽取到的最后位置（输出 4）。
+    const end: PositionInput = {chapter: info.extractedThrough.chapter};
+    const at = ref<PositionInput>(validAt(info, urlAt) ? urlAt : saved.savedAt !== null && validAt(info, saved.position) ? saved.position : end);
     const page = ref<Page>(isPage(route.params.page) ? route.params.page : (savedView.page ?? "overview"));
     let perspective = typeof query.perspective === "string" ? query.perspective : (savedView.perspective ?? "reader");
     let entity: string | null = typeof query.entity === "string" ? query.entity : (savedView.entity ?? null);
@@ -156,7 +176,9 @@ export async function openBookSession(client: StoryClient, router: Router, bookI
     const drawer = ref<DrawerContent | null>(entity === null ? null : {kind: "card", entity, tab});
     const notice = ref<string | null>(notices.length ? notices.join("；") : null);
     const saveFailed = ref(false);
-    const atLabel = computed(() => (at.value.paragraph === undefined ? `第 ${at.value.chapter} 章` : `第 ${at.value.chapter} 章第 ${at.value.paragraph} 段`));
+    const atEnd = computed(() => isEnd(info, at.value));
+    const atLabel = computed(() => (atEnd.value ? "全部读完" : at.value.paragraph === undefined ? `第 ${at.value.chapter} 章` : `第 ${at.value.chapter} 章第 ${at.value.paragraph} 段`));
+    const pendingJump = ref<JumpTarget | null>(null);
 
     function viewState(): SavedView {
         const card = drawer.value?.kind === "card" ? drawer.value : null;
@@ -248,6 +270,7 @@ export async function openBookSession(client: StoryClient, router: Router, bookI
         info,
         at,
         atLabel,
+        atEnd,
         perspective: perspectiveRef,
         page,
         drawer,
@@ -257,6 +280,16 @@ export async function openBookSession(client: StoryClient, router: Router, bookI
         sourceChapter,
         lastDrawer,
         wideRecords: ref(null),
+        jump(next, target) {
+            pendingJump.value = target;
+            page.value = next;
+        },
+        takeJump(kind) {
+            const target = pendingJump.value;
+            if (target?.kind !== kind) return null;
+            pendingJump.value = null;
+            return target.id;
+        },
         reopenDrawer() {
             if (drawer.value === null && lastDrawer.value !== null) drawer.value = lastDrawer.value;
         },

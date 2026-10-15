@@ -1,7 +1,8 @@
 <script setup lang="ts">
 /**
  * 情节（docs/specs/story/viewer.md 输出 15）：主线在左（宽屏）或在上横排（平板）；点一条主线只看它的情节；情节按章
- * 分组，展开看概要、步骤、结果、与前情的连接（点连接跳到那一段情节）；还没归入主线的情节写明。
+ * 分组，标题旁写故事时间与地点，参与者写出以什么身份出场；展开看概要、步骤、结果、与前情的连接与说明（点连接跳到
+ * 那一段情节）；还没归入主线的情节写明。从别的页点进来时（book.jump）先按主线筛或定位到那一段。
  */
 import {computed, nextTick, ref, watch} from "vue";
 
@@ -14,7 +15,7 @@ import RefLink from "../parts/RefLink.vue";
 
 const book = useBook();
 const arcs = useStoryQuery("arcs.list", () => ({}));
-const arc = ref<string | null>(null);
+const arc = ref<string | null>(book.takeJump("arc"));
 const list = usePagedQuery("episodes.list", () => (arc.value ? {arc: arc.value} : {}), 200);
 const expanded = ref(new Set<string>());
 const LINK = {after: "在其后", continues: "接着", retells: "重述", causes: "起因", motivates: "动机", enables: "前提"} as const;
@@ -29,6 +30,8 @@ function toggle(id: string): void {
 }
 /** 要跳到的情节：清掉主线筛选后列表从第一页重取，等它出现在已取到的条目里（不在就接着取下一页）再滚过去。 */
 const pendingJump = ref<string | null>(null);
+const jumpedIn = book.takeJump("episode");
+if (jumpedIn !== null) jump(jumpedIn);
 function jump(id: string): void {
     expanded.value = new Set([...expanded.value, id]);
     pendingJump.value = id;
@@ -52,10 +55,10 @@ watch([() => list.items.value, pendingJump, () => list.loading.value], async () 
     <div class="story-page flex flex-col" data-testid="page-episodes">
         <div class="flex min-h-0 flex-1" :class="side ? 'flex-row' : 'flex-col'">
             <aside class="arcs shrink-0 border-[var(--divider)] p-2" :class="side ? 'w-[240px] overflow-y-auto border-r' : 'flex gap-1 overflow-x-auto border-b'" aria-label="主线">
-                <h2 v-if="side" class="mb-1 text-[var(--text-sm)] font-[var(--weight-strong)]">主线 <span class="text-[var(--text-2xs)] font-normal text-[var(--text-muted)]">归纳到第 {{ arcs.data.value?.through ?? "—" }} 章</span></h2>
+                <h2 v-if="side" class="mb-1 text-[length:var(--text-sm)] font-[var(--weight-strong)]">主线 <span class="text-[length:var(--text-2xs)] font-normal text-[var(--text-muted)]">归纳到第 {{ arcs.data.value?.through ?? "—" }} 章</span></h2>
                 <button type="button" class="arc" :class="arc === null ? 'is-active' : ''" @click="arc = null">全部情节</button>
                 <button v-for="item in arcs.data.value?.arcs ?? []" :key="item.id" type="button" class="arc" :class="arc === item.id ? 'is-active' : ''" :title="item.summary" @click="arc = item.id">
-                    {{ item.title }} <span class="text-[var(--text-2xs)] text-[var(--text-muted)]">{{ item.episodes.length }}</span>
+                    {{ item.title }} <span class="text-[length:var(--text-2xs)] text-[var(--text-muted)]">{{ item.episodes.length }}</span>
                 </button>
                 <PageState :loading="arcs.loading.value && !arcs.data.value" :error="arcs.error.value?.message ?? null" @retry="arcs.reload()" />
             </aside>
@@ -66,19 +69,32 @@ watch([() => list.items.value, pendingJump, () => list.loading.value], async () 
                         <template #item="{item, index}">
                             <h3 v-if="index === 0 || list.items.value[index - 1]!.chapter !== item.chapter" class="chapter-head">第 {{ item.chapter }} 章</h3>
                             <article class="episode" :data-episode="item.id">
-                                <button type="button" class="flex w-full items-baseline gap-2 text-left" @click="toggle(item.id)">
+                                <button type="button" class="flex w-full flex-wrap items-baseline gap-x-2 text-left" @click="toggle(item.id)">
                                     <b class="min-w-0 flex-1">{{ item.title }}</b>
-                                    <span v-if="item.arcs.length === 0" class="text-[var(--text-2xs)] text-[var(--text-muted)]" data-testid="unassigned">未归入主线</span>
+                                    <span v-if="item.time || item.place" class="text-[length:var(--text-2xs)] text-[var(--text-secondary)]" data-testid="episode-when">
+                                        <template v-if="item.time"><span class="i-lucide-clock align-[-1px]" /> {{ item.time.label }}</template>
+                                        <template v-if="item.place"><span class="i-lucide-map-pin ml-1 align-[-1px]" /> {{ item.place.label }}</template>
+                                    </span>
+                                    <span v-if="item.arcs.length === 0" class="text-[length:var(--text-2xs)] text-[var(--text-muted)]" data-testid="unassigned">未归入主线</span>
                                 </button>
-                                <div v-if="expanded.has(item.id)" class="mt-1 flex flex-col gap-1 text-[var(--text-sm)]">
-                                    <p><NameLink v-for="who in item.who" :id="who.id" :key="who.id" :label="who.label" class="mr-1" /></p>
+                                <div v-if="expanded.has(item.id)" class="mt-1 flex flex-col gap-1 text-[length:var(--text-sm)]">
+                                    <p class="flex flex-wrap gap-x-2">
+                                        <span v-for="who in item.who" :key="who.id"><NameLink :id="who.id" :label="who.label" /><span v-if="who.as" class="text-[length:var(--text-xs)] text-[var(--text-muted)]">（以{{ who.as }}）</span></span>
+                                    </p>
                                     <p>{{ item.summary }} <RefLink v-for="ref in item.refs.slice(0, 1)" :key="ref" :ref-text="ref" /></p>
                                     <ol class="list-decimal pl-5">
                                         <li v-for="(step, stepIndex) in item.steps" :key="stepIndex">{{ step.text }} <RefLink :ref-text="step.ref" /></li>
                                     </ol>
                                     <p v-if="item.outcome">结果：{{ item.outcome }}</p>
-                                    <p v-if="item.links.length">与前情：<button v-for="link in item.links" :key="link.to.id + link.type" type="button" class="mr-2 text-[var(--accent-text)]" @click="jump(link.to.id)">{{ LINK[link.type] }} · {{ link.to.title }}</button></p>
-                                    <p v-if="item.arcs.length" class="text-[var(--text-xs)] text-[var(--text-muted)]">主线：{{ item.arcs.map(id => arcTitle.get(id) ?? id).join("、") }}</p>
+                                    <div v-if="item.links.length">与前情：
+                                        <ul class="pl-4">
+                                            <li v-for="link in item.links" :key="link.to.id + link.type">
+                                                <button type="button" class="text-[var(--accent-text)]" @click="jump(link.to.id)">{{ LINK[link.type] }} · {{ link.to.title }}</button>
+                                                <span v-if="link.note" class="ml-1 text-[length:var(--text-xs)] text-[var(--text-muted)]">{{ link.note }}</span>
+                                            </li>
+                                        </ul>
+                                    </div>
+                                    <p v-if="item.arcs.length" class="text-[length:var(--text-xs)] text-[var(--text-muted)]">主线：{{ item.arcs.map(id => arcTitle.get(id) ?? id).join("、") }}</p>
                                 </div>
                             </article>
                         </template>

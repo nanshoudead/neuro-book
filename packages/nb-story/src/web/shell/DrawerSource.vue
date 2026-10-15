@@ -28,8 +28,8 @@ const query = useStoryQuery("source.read", () => (range.value ? {from: {chapter:
 
 <template>
     <div class="flex flex-col gap-2 p-3" data-testid="drawer-source">
-        <h2 class="text-[var(--text-sm)] font-[var(--weight-strong)]">原文 {{ refText }}</h2>
-        <div v-if="query.error.value?.code === 'beyond_position' && range" class="text-[var(--text-sm)]" data-testid="beyond-position">
+        <h2 class="text-[length:var(--text-sm)] font-[var(--weight-strong)]">原文 {{ refText }}</h2>
+        <div v-if="query.error.value?.code === 'beyond_position' && range" class="text-[length:var(--text-sm)]" data-testid="beyond-position">
             第 {{ range.chapter }} 章还没读到。
             <button type="button" class="ml-1 text-[var(--accent-text)] underline" @click="book.setAt({chapter: range.chapter})">把阅读位置拨到第 {{ range.chapter }} 章</button>
         </div>

@@ -66,19 +66,19 @@ function onKey(event: KeyboardEvent): void {
             <FormInput v-model="text" size="sm" icon-class="i-lucide-search" placeholder="搜人物、称呼、说法、原文" aria-label="搜索" data-testid="search-input" @focus="open = query !== ''" />
         </div>
         <div v-if="open" class="search-results absolute overflow-y-auto right-0 top-full z-40 mt-1 max-h-[60vh] w-[360px] max-w-[90vw] rounded-[var(--radius-control)] border border-[var(--divider)] bg-[var(--bg-panel)] p-2 shadow-[var(--shadow-panel)]" data-testid="search-results">
-            <p class="pb-1 text-[var(--text-2xs)] text-[var(--text-muted)]">
+            <p class="pb-1 text-[length:var(--text-2xs)] text-[var(--text-muted)]">
                 <template v-if="results.total.value !== null">共 {{ results.total.value }} 条（截至{{ book.atLabel.value }}）</template>
                 <template v-else-if="results.loading.value">正在搜……</template>
             </p>
-            <p v-if="results.error.value" class="text-[var(--text-sm)] text-[var(--status-danger)]">{{ results.error.value.message }}</p>
+            <p v-if="results.error.value" class="text-[length:var(--text-sm)] text-[var(--status-danger)]">{{ results.error.value.message }}</p>
             <section v-for="group in grouped" :key="group.kind" class="mb-2">
-                <h3 class="text-[var(--text-xs)] font-[var(--weight-strong)] text-[var(--text-secondary)]">{{ KIND[group.kind] }}</h3>
-                <button v-for="(item, index) in group.items" :key="index" type="button" class="search-item block w-full rounded px-1 py-0.5 text-left text-[var(--text-sm)]" @click="choose(item)">
-                    <span class="mr-1 text-[var(--text-2xs)] text-[var(--text-muted)]">{{ item.ref }}</span>{{ item.text }}
+                <h3 class="text-[length:var(--text-xs)] font-[var(--weight-strong)] text-[var(--text-secondary)]">{{ KIND[group.kind] }}</h3>
+                <button v-for="(item, index) in group.items" :key="index" type="button" class="search-item block w-full rounded px-1 py-0.5 text-left text-[length:var(--text-sm)]" @click="choose(item)">
+                    <span class="mr-1 text-[length:var(--text-2xs)] text-[var(--text-muted)]">{{ item.ref }}</span>{{ item.text }}
                 </button>
             </section>
-            <button v-if="results.hasMore.value" type="button" class="text-[var(--text-xs)] text-[var(--accent-text)]" @click="results.more()">再取 50 条</button>
-            <div class="mt-1 text-right"><button type="button" class="text-[var(--text-xs)] text-[var(--text-muted)]" @click="open = false">关闭</button></div>
+            <button v-if="results.hasMore.value" type="button" class="text-[length:var(--text-xs)] text-[var(--accent-text)]" @click="results.more()">再取 50 条</button>
+            <div class="mt-1 text-right"><button type="button" class="text-[length:var(--text-xs)] text-[var(--text-muted)]" @click="open = false">关闭</button></div>
         </div>
     </div>
 </template>

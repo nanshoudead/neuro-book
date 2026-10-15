@@ -115,10 +115,17 @@ async function centerOn(page: Page, name: string): Promise<{x: number; y: number
     return {x: box.x + box.width / 2, y: box.y + box.height / 2};
 }
 
-test("关系图（验收 3）：拖动一个点不打开人物卡；点一下打开；打开认知层后图照常", async ({page}) => {
+test("关系图（验收 3、输出 27）：页面上已有文字选区时拖动一个点照样能拖、不打开人物卡；点一下只出小卡，从小卡打开人物卡；打开认知层后图照常", async ({page}) => {
     await open(page, "/book/fox/relations?at=38&perspective=reader");
     await expect(page.getByTestId("relation-graph").locator("canvas").first()).toBeVisible();
     const center = await centerOn(page, "花铃");
+    // 开发者试用时先选中了页面上的一行字再拖点，点拖不动（t04 反馈 12）：先造一个文字选区。
+    await page.evaluate(() => {
+        const range = document.createRange();
+        range.selectNodeContents(document.querySelector(".story-page-title")!);
+        window.getSelection()!.removeAllRanges();
+        window.getSelection()!.addRange(range);
+    });
     await page.mouse.move(center.x, center.y);
     await page.mouse.down();
     await page.mouse.move(center.x + 60, center.y + 40, {steps: 8});
@@ -126,8 +133,18 @@ test("关系图（验收 3）：拖动一个点不打开人物卡；点一下打
     await expect(page.getByTestId("entity-card")).toHaveCount(0);
     // 松手后马上再点会被 Sigma 当成双击（放大镜头）：等画布稳定（超过双击间隔）再点。
     await settle(page);
+    // 点在拖到的新位置上：说明点确实被拖过去了。点一下只选中、浮出小卡，不开抽屉。
     await page.mouse.click(center.x + 60, center.y + 40);
+    await expect(page.getByTestId("node-popover-name")).toHaveText("花铃");
+    await expect(page.getByTestId("entity-card")).toHaveCount(0);
+    await page.getByTestId("node-popover-open").click();
     await expect(page.getByTestId("card-name")).toHaveText("花铃");
+    // 抽屉开着时点另一个点，抽屉跟着换人。
+    const other = await centerOn(page, "南小风");
+    await page.mouse.click(other.x, other.y);
+    await expect(page.getByTestId("card-name")).toHaveText("南小风");
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("node-popover")).toHaveCount(0);
     await page.getByTestId("entity-card").getByRole("button", {name: "关闭"}).click();
     await settle(page);
     const beforeLayer = await page.getByTestId("relation-graph").screenshot();
@@ -162,13 +179,18 @@ test("视角（验收 5）：苏天晴视角下南嘉鱼与地狱猫不合并；
     });
     await open(page, "/book/fox/relations?at=38&perspective=e1-1");
     await expect.poll(() => graphs.find(graph => graph.view.perspective === "e1-1")?.edges.find(edge => edge.a === "e33-1" && edge.b === "e8-2")?.identity).toBe("unaware");
-    await expect(page.getByTestId("perspective-banner")).toContainText("地狱猫与南嘉鱼");
+    // 视角说明平时只是一个小标记，点开看完整的不合并列表（输出 28）。
+    await expect(page.getByTestId("perspective-banner")).toContainText("处不合并");
+    await page.getByTestId("perspective-banner").click();
+    await expect(page.getByTestId("perspective-detail")).toContainText("地狱猫与南嘉鱼");
+    await page.keyboard.press("Escape");
     await open(page, "/book/fox/relations?at=38&perspective=reader");
     await expect(page.getByTestId("perspective-banner")).toHaveCount(0);
     await expect.poll(() => graphs.find(graph => graph.view.perspective === "reader")?.edges.find(edge => edge.a === "e30-1" && edge.b === "e8-2")?.identity).toBe("uncertain");
-    // 猫娘魔法少女是主要人物：点它打开人物卡的关系页签，身份连接写在列表里。
+    // 点猫娘魔法少女，从小卡打开人物卡的关系页签，身份连接写在列表里。
     const center = await centerOn(page, "猫娘魔法少女");
     await page.mouse.click(center.x, center.y);
+    await page.getByTestId("node-popover-open").click();
     await expect(page.getByTestId("card-relations").getByTestId("identity")).toContainText("可能是同一人");
 });
 
@@ -299,4 +321,67 @@ test("全局搜索的结果浮在页面上，不撑高顶栏；点外面关掉",
     expect((await page.getByTestId("book-frame").locator("> header").boundingBox())!.height).toBe(before);
     await page.getByTestId("page-overview").click({position: {x: 20, y: 400}});
     await expect(page.getByTestId("search-results")).toHaveCount(0);
+});
+
+test("外壳（输出 1、3、4、5、34、35）：第一次打开是全部读完；明暗切换并保持；书架入口与换书；没有页脚，保存失败提示在顶栏", async ({page}) => {
+    // 另导入一本从没打开过的书：第一次打开读到抽取到的最后位置。
+    const file = `${server.library}/../sample.json`;
+    expect((await runCli(["import", file, "--title", "第二本", "--id", "fox2", "--library", server.library])).code).toBe(0);
+    await open(page, "/book/fox2");
+    await expect(page.getByTestId("reading-label")).toContainText("全部读完");
+    await expect(page).toHaveURL(/at=100/u);
+    await expect(page.getByTestId("reading-end")).toHaveCount(0);
+    await expect(page.getByTestId("footer")).toHaveCount(0);
+
+    await page.getByTestId("theme-menu").click();
+    await page.getByRole("menuitemradio", {name: "暗色"}).click();
+    await expect(page.locator("html")).toHaveAttribute("data-nb-appearance", "dark");
+    await page.reload();
+    await expect(page.locator("html")).toHaveAttribute("data-nb-appearance", "dark");
+    await page.getByTestId("theme-menu").click();
+    await page.getByRole("menuitemradio", {name: "亮色"}).click();
+    await expect(page.locator("html")).toHaveAttribute("data-nb-appearance", "light");
+
+    // 书名下拉换到另一本；书架入口回到书架，书架列出两本。
+    await page.getByTestId("book-switcher").click();
+    await page.getByRole("menuitem", {name: "转生反派萝莉，找茬魔法少女"}).click();
+    await expect(page).toHaveURL(/\/book\/fox\//u);
+    await page.getByTestId("go-shelf").click();
+    await expect(page.getByTestId("library")).toContainText("第二本");
+    await expect(page.getByTestId("library")).toContainText("转生反派萝莉，找茬魔法少女");
+
+    // 保存失败：提示出现在顶栏。
+    await open(page, "/book/fox2/overview?at=30");
+    await page.route("**/api/rpc/reading.set", route => route.fulfill({status: 500, contentType: "application/json", body: JSON.stringify({code: "internal", message: "坏了"})}));
+    await page.getByRole("button", {name: "下一章"}).click();
+    await expect(page.locator("header").getByTestId("save-failed")).toBeVisible();
+    await page.unroute("**/api/rpc/reading.set");
+    expect((await runCli(["remove", "fox2", "--library", server.library])).code).toBe(0);
+});
+
+test("总览的入口（输出 8）：点主线到情节页只看这条主线；点秘密到秘密页并高亮那一行", async ({page}) => {
+    await open(page, "/book/fox/overview?at=38&perspective=reader");
+    const arc = page.getByTestId("overview-arc").first();
+    const title = (await arc.textContent())!.trim();
+    await arc.click();
+    await expect(page.getByTestId("page-episodes")).toBeVisible();
+    await expect(page.getByTestId("page-episodes").locator(".story-page-title")).toContainText(title);
+    await page.getByRole("button", {name: "全书总览"}).click();
+    await page.getByTestId("overview-secret").filter({hasText: "心月狐就是苏天晴"}).click();
+    await expect(page.locator('tr.is-highlight[data-secret]')).toContainText("心月狐就是苏天晴");
+});
+
+test("全书图按章节（输出 30）：Ctrl 加滚轮只在水平方向放大，章节条的范围变窄；滚轮平移", async ({page}) => {
+    await open(page, "/book/fox/book-graph?at=100&perspective=reader");
+    const label = page.getByTestId("chapter-range-label");
+    await expect(label).toHaveText("第 1 到 100 章");
+    const box = (await page.getByTestId("storyline").locator("canvas").first().boundingBox())!;
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.keyboard.down("Control");
+    for (let index = 0; index < 6; index += 1) await page.mouse.wheel(0, -100);
+    await page.keyboard.up("Control");
+    await expect(label).not.toHaveText("第 1 到 100 章");
+    const zoomed = await label.textContent();
+    await page.mouse.wheel(0, 300);
+    await expect(label).not.toHaveText(zoomed!);
 });

@@ -38,8 +38,8 @@ const selected = computed(() => (book.drawer.value?.kind === "card" ? book.drawe
                 <ul class="roster">
                     <li v-for="person in main" :key="person.id">
                         <button type="button" class="main-card" :class="selected === person.id ? 'is-selected' : ''" data-testid="roster-main" @click="book.openCard(person.id)">
-                            <div class="flex items-baseline gap-2"><b>{{ person.label }}</b><span class="ml-auto text-[var(--text-xs)] text-[var(--text-muted)]">{{ person.mentions }}</span></div>
-                            <div class="text-[var(--text-xs)] text-[var(--text-secondary)]">{{ person.names.top.join("、") }}<template v-if="person.names.total > person.names.top.length"> 等 {{ person.names.total }} 个称呼</template></div>
+                            <div class="flex items-baseline gap-2"><b>{{ person.label }}</b><span class="ml-auto text-[length:var(--text-xs)] text-[var(--text-muted)]">{{ person.mentions }}</span></div>
+                            <div class="text-[length:var(--text-xs)] text-[var(--text-secondary)]">{{ person.names.top.join("、") }}<template v-if="person.names.total > person.names.top.length"> 等 {{ person.names.total }} 个称呼</template></div>
                         </button>
                     </li>
                 </ul>
@@ -49,12 +49,12 @@ const selected = computed(() => (book.drawer.value?.kind === "card" ? book.drawe
                 <PagedList :items="visibleOthers" :total="all.total.value" :loading="all.loading.value" :has-more="showMinor && all.hasMore.value" :error="all.error.value?.message ?? null" @more="all.more()" @retry="all.reload()">
                     <template #item="{item}">
                         <button type="button" class="other-row" :class="selected === item.id ? 'is-selected' : ''" @click="book.openCard(item.id)">
-                            <b>{{ item.label }}</b><span class="text-[var(--text-xs)] text-[var(--text-muted)]">{{ KIND[item.kind] }}</span>
-                            <span class="ml-auto text-[var(--text-xs)] text-[var(--text-muted)]">{{ item.mentions }}</span>
+                            <b>{{ item.label }}</b><span class="text-[length:var(--text-xs)] text-[var(--text-muted)]">{{ KIND[item.kind] }}</span>
+                            <span class="ml-auto text-[length:var(--text-xs)] text-[var(--text-muted)]">{{ item.mentions }}</span>
                         </button>
                     </template>
                 </PagedList>
-                <button type="button" class="mt-2 text-[var(--text-sm)] text-[var(--accent-text)]" data-testid="toggle-minor" @click="showMinor = !showMinor">{{ showMinor ? "收起次要" : `展开次要${minorCount !== null ? `（${minorCount}）` : ""}` }}</button>
+                <button type="button" class="mt-2 text-[length:var(--text-sm)] text-[var(--accent-text)]" data-testid="toggle-minor" @click="showMinor = !showMinor">{{ showMinor ? "收起次要" : `展开次要${minorCount !== null ? `（${minorCount}）` : ""}` }}</button>
             </section>
         </div>
     </div>

@@ -35,11 +35,11 @@ const rows = computed(() => {
         <PageState :loading="graph.loading.value && !graph.data.value" :error="graph.error.value?.message ?? null" @retry="graph.reload()" />
         <MiniGraph v-if="graph.data.value && rows.length" :center="entity" :nodes="graph.data.value.nodes" :edges="graph.data.value.edges" @select="id => book.openCard(id, 'relations')" />
         <ul class="flex flex-col gap-1">
-            <li v-for="row in rows" :key="row.other" class="flex items-baseline gap-2 text-[var(--text-sm)]">
+            <li v-for="row in rows" :key="row.other" class="flex items-baseline gap-2 text-[length:var(--text-sm)]">
                 <NameLink :id="row.other" :label="row.label" tab="relations" />
                 <span v-if="row.edge.relation?.word" class="text-[var(--accent-text)]">{{ row.edge.relation.word }}</span>
                 <span v-if="row.edge.identity" class="text-[var(--status-warning)]" data-testid="identity">{{ IDENTITY[row.edge.identity] }}</span>
-                <span class="ml-auto whitespace-nowrap text-[var(--text-xs)] text-[var(--text-muted)]">
+                <span class="ml-auto whitespace-nowrap text-[length:var(--text-xs)] text-[var(--text-muted)]">
                     <template v-if="row.edge.relation">说法 {{ row.edge.relation.statements }}</template>
                     <template v-if="row.edge.together"> · 同场 {{ row.edge.together }}</template>
                     <template v-if="row.edge.knows && (row.edge.knows.ab || row.edge.knows.ba)"> · 认知 {{ row.edge.knows.ab }}/{{ row.edge.knows.ba }}</template>

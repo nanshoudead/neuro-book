@@ -1,5 +1,5 @@
 /**
- * 与书无关的界面偏好（导航收起与否、抽屉宽度）：只在这一处读写 localStorage，组件不碰浏览器存储
+ * 与书无关的界面偏好（导航收起与否、抽屉宽度、明暗）：只在这一处读写 localStorage，组件不碰浏览器存储
  * （docs/specs/story/viewer.md 的“副作用与数据”）。读写都包 try/catch：隐私模式、存储被禁用时照常工作，只是记不住。
  */
 
@@ -37,4 +37,15 @@ export function readDrawerWidth(): number {
 
 export function writeDrawerWidth(value: number): void {
     write("drawer-width", String(Math.round(value)));
+}
+
+export type ThemeChoice = "system" | "light" | "dark";
+
+export function readTheme(): ThemeChoice {
+    const value = read("theme");
+    return value === "light" || value === "dark" ? value : "system";
+}
+
+export function writeTheme(value: ThemeChoice): void {
+    write("theme", value);
 }
