@@ -1,0 +1,15 @@
+{
+    "schema": "nbdev.answer-ack/v1",
+    "workId": "w00024-nb-story",
+    "taskId": "t02-specs",
+    "artifactId": "review",
+    "ackId": "20261015T032302913Z-de9efbdd",
+    "answers": [
+        "20261015T032255034Z-65c46c92"
+    ],
+    "through": "20261015T032255034Z-65c46c92",
+    "included": [
+        ".agents/works/w00024-nb-story/tasks/t02-specs/README.md"
+    ],
+    "ackedAt": "2026-10-15T03:23:02.913Z"
+}
