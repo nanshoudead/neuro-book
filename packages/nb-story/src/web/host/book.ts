@@ -155,7 +155,8 @@ export async function openBookSession(client: StoryClient, router: Router, bookI
     function routeTarget() {
         const view = viewState();
         const next: Record<string, string> = {at: formatAt(at.value)};
-        if (view.perspective !== "reader") next.perspective = view.perspective;
+        // 视角总写进地址（含 reader）：地址没写的部分会用存下的状态补齐，省略读者视角就复现不了读者视角的画面。
+        next.perspective = view.perspective;
         if (view.entity) next.entity = view.entity;
         if (view.entity && view.tab) next.tab = view.tab;
         return {path: `/book/${encodeURIComponent(bookId)}/${view.page}`, query: next};
@@ -222,6 +223,8 @@ export async function openBookSession(client: StoryClient, router: Router, bookI
         scheduleSave();
     }, {deep: true});
     syncRoute();
+    // 地址覆盖了存下的状态（或去掉了不存在的对象）时，打开的这一刻就已经是一次变化，照样存。
+    if (JSON.stringify({position: at.value, view: viewState()}) !== JSON.stringify({position: saved.position, view: saved.view})) scheduleSave();
 
     return {
         bookId,

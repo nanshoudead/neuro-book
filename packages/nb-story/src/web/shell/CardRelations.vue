@@ -12,6 +12,7 @@ import PageState from "../parts/PageState.vue";
 import MiniGraph from "../graph/MiniGraph.vue";
 
 const props = defineProps<{entity: string}>();
+const IDENTITY = {uncertain: "可能是同一人", unaware: "其实是同一人（不知道）", heard: "其实是同一人（听说）", believes: "其实是同一人（认为）", suspects: "其实是同一人（怀疑）", "no-record": "可能知道（没有记录）"} as const;
 const book = useBook();
 const graph = useStoryQuery("graph.relations", () => ({kinds: ALL_KINDS, perspective: book.perspective.value}));
 
@@ -23,7 +24,7 @@ const rows = computed(() => {
         .filter(edge => edge.a === props.entity || edge.b === props.entity)
         .map(edge => {
             const other = edge.a === props.entity ? edge.b : edge.a;
-            return {other, label: label.get(other) ?? other, edge, weight: (edge.relation?.statements ?? 0) * 3 + edge.together + (edge.knows ? edge.knows.ab + edge.knows.ba : 0)};
+            return {other, label: label.get(other) ?? other, edge, weight: (edge.identity ? 1000 : 0) + (edge.relation?.statements ?? 0) * 3 + edge.together + (edge.knows ? edge.knows.ab + edge.knows.ba : 0)};
         })
         .sort((a, b) => b.weight - a.weight || (a.other < b.other ? -1 : 1));
 });
@@ -37,6 +38,7 @@ const rows = computed(() => {
             <li v-for="row in rows" :key="row.other" class="flex items-baseline gap-2 text-[var(--text-sm)]">
                 <NameLink :id="row.other" :label="row.label" tab="relations" />
                 <span v-if="row.edge.relation?.word" class="text-[var(--accent-text)]">{{ row.edge.relation.word }}</span>
+                <span v-if="row.edge.identity" class="text-[var(--status-warning)]" data-testid="identity">{{ IDENTITY[row.edge.identity] }}</span>
                 <span class="ml-auto whitespace-nowrap text-[var(--text-xs)] text-[var(--text-muted)]">
                     <template v-if="row.edge.relation">说法 {{ row.edge.relation.statements }}</template>
                     <template v-if="row.edge.together"> · 同场 {{ row.edge.together }}</template>
