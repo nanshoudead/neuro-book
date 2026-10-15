@@ -55,12 +55,19 @@ function directoryHints(addresses: ReadonlyArray<string>, root: RootName): Reado
             if (!clash && mine !== "" && parent !== undefined) hints.set(address, depth < parent.segments.length ? `…/${mine}` : mine);
         }
     }
-    // 一直到根都分不开（不同方案下的同一路径、或文件就在根下）：附根名。
-    for (const address of addresses) {
-        if (hints.has(address)) continue;
+    // 一直到根都分不开（不同方案下的同一路径、或文件就在根下）：附根名加完整目录。
+    const qualified = (address: string): string => {
         const parent = parents.get(address);
-        if (parent === undefined) continue;
-        hints.set(address, [root(parent.scheme), ...parent.segments].join("/"));
+        return parent === undefined ? "" : [root(parent.scheme), ...parent.segments].join("/");
+    };
+    for (const address of addresses) if (!hints.has(address)) hints.set(address, qualified(address));
+    // 根名回退出来的提示可能与别人已经选好的目录后缀重名（目录就叫“作品”）：重名的几个都改用根名加完整目录，这在不同
+    // 地址之间一定不同。
+    for (const address of addresses) {
+        const mine = hints.get(address);
+        if (addresses.some((other) => other !== address && hints.get(other) === mine)) {
+            for (const other of addresses) if (hints.get(other) === mine) hints.set(other, qualified(other));
+        }
     }
     return hints;
 }

@@ -561,15 +561,17 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
             if (shared ? !ownInput : !needsSettle(document)) break;
             const choice = await ask(found.tab.address);
             if (choice === "cancel") return "cancelled";
-            // 等用户回答期间别处可能关掉或换掉了另一个能编辑的标签、这个标签换了组或编辑器：照询问前的判断执行会用错丢弃
-            // 的范围，所以按此刻的状态重新判断，变了就重新问。
+            // 等用户回答期间别处可能新开、关掉或换掉了另一个能编辑的标签，这个标签也可能换了组或编辑器：回答按此刻的状态
+            // 执行。“保存”在任何状态下都照做；“不保存”丢弃的范围取决于还有没有别的能编辑的标签，状态变了就重新问，不按
+            // 询问前的判断丢掉修改。
             const now = groups.find(tabId);
             if (now === null) return "gone";
+            if (references.get(tabId)?.document !== document) continue;
             const nowShown = bindings.get(now.group.id);
             const nowOwn = nowShown !== undefined && nowShown.binding.tabId === tabId && nowShown.binding.kind === "text" ? nowShown.binding : null;
-            const nowShared = groups.groups.value.some((group) => group.tabs.some((tab) => tab.id !== tabId && tab.address === now.tab.address && editable(tab)));
-            if (nowShared !== shared || nowOwn?.token !== own?.token || references.get(tabId)?.document !== document) continue;
             if (choice === "discard") {
+                const nowShared = groups.groups.value.some((group) => group.tabs.some((tab) => tab.id !== tabId && tab.address === now.tab.address && editable(tab)));
+                if (nowShared !== shared || nowOwn?.token !== own?.token) continue;
                 // 文档还有别的能编辑的标签时只丢这个视图的未裁决输入。没有时整份修改都不要了：只剩这个标签的引用，释放时
                 // 整份文档连同输入一起丢弃；预览视图这类只读标签还持有正文时释放丢不掉，关闭后按磁盘还原。
                 if (own !== null) documents.discardInput(document, own.token);
@@ -577,7 +579,7 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
                 break;
             }
             // 保存这个视图看到的内容：它的未裁决输入先成为正文。
-            if (own !== null && ownInput) documents.resolve(document, own.token, "keep-view");
+            if (nowOwn !== null && nowOwn.unresolved()) documents.resolve(document, nowOwn.token, "keep-view");
             const saved = await documents.save(document);
             if (!saved.ok) return "failed";
         }
@@ -626,9 +628,10 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
     };
     /** 不需要保存的标签：页面、按字节的、还没读到的都算；有文档的先结算视图输入再看（输出 51）。 */
     const saved = (tab: EditorTab): boolean => {
-        if (tab.kind === "page") return true;
-        const document = references.get(tab.id)?.document;
-        if (document === undefined || !readsText(tab)) return true;
+        if (tab.kind === "page" || !readsText(tab)) return true;
+        // 恢复出来、还没读到的标签没有自己的引用，但同一地址的文档可能已在别的组打开并改过：按地址找。
+        const document = references.get(tab.id)?.document ?? documents.get(tab.address);
+        if (document === null) return true;
         documents.settle(document);
         return !needsSettle(document) && document.conflict.value === null;
     };

@@ -107,29 +107,31 @@ function stripDrop(strip: HTMLElement, point: {readonly x: number; readonly y: n
     const containerRect = {...line.rect, left: Math.min(line.rect.left, point.x), right: Math.max(line.rect.right, point.x)};
     const insertion = resolveListInsertion({orientation: "horizontal", point: {x: point.x, y: (line.rect.top + line.rect.bottom) / 2}, containerRect, members: line.members.map(({id, rect}) => ({id, rect}))});
     if (insertion === null) return null;
-    // 单行时固定与普通同在一行：插入位前面的标签是固定的才算进固定区，否则进普通区。
-    const partitionOf = (beforeId: string | null): "pinned" | "normal" => {
-        if (line.partition === "pinned") return "pinned";
-        const before = beforeId === null ? undefined : line.members.find((member) => member.id === beforeId);
-        if (before !== undefined) return before.pinned ? "pinned" : "normal";
-        return "normal";
-    };
+    /** 完整顺序（含滚出视口的、折到别的行的），按呈现顺序。 */
+    const all = [...strip.querySelectorAll<HTMLElement>("[data-editor-tab]")].map((tab) => ({id: tab.dataset.editorTab as string, pinned: tab.hasAttribute("data-editor-tab-pinned"), rect: rectOf(tab.parentElement as HTMLElement)}));
     let before = insertion.beforeId;
     let indicator = insertion.indicator;
-    // 行尾的插入位：本分区下一条看得见的行的第一个标签之前，线画在那里（换行处归一到下一行行首）。
-    if (before === null) {
-        const index = lines.indexOf(line);
-        const next = lines.slice(index + 1).find((candidate) => candidate.partition === line.partition && candidate.members.length > 0);
-        const first = next?.members[0];
-        if (first !== undefined) {
-            before = first.id;
-            indicator = {left: first.rect.left - 1, right: first.rect.left + 1, top: first.rect.top, bottom: first.rect.bottom};
+    let partition: "pinned" | "normal";
+    if (before !== null) {
+        // 单行时固定与普通同在一行：插在固定标签前面才算进固定区。
+        partition = line.partition === "pinned" || all.find((tab) => tab.id === before)?.pinned === true ? "pinned" : "normal";
+    } else {
+        // 行尾的插入位：共享算法只认这一行看得见的成员，`null` 只是“最后一个看得见的之后”。换算成完整顺序里它的后继
+        // （滚出视口的、折到下一行的都算），后继看得见时线画在它前面（换行处归一到下一行行首）；没有后继才是分区末尾。
+        const visible = line.members.filter((member) => member.rect.right > containerRect.left && member.rect.left < containerRect.right);
+        const after = visible.at(-1);
+        partition = line.partition === "pinned" || after?.pinned === true ? "pinned" : "normal";
+        const inPartition = all.filter((tab) => tab.pinned === (partition === "pinned"));
+        const successor = after === undefined ? undefined : inPartition[inPartition.findIndex((tab) => tab.id === after.id) + 1];
+        if (successor !== undefined) {
+            before = successor.id;
+            const view = rectOf(strip);
+            if (successor.rect.left >= view.left && successor.rect.right <= view.right && successor.rect.top >= view.top && successor.rect.bottom <= view.bottom) indicator = {left: successor.rect.left - 1, right: successor.rect.left + 1, top: successor.rect.top, bottom: successor.rect.bottom};
         }
     }
-    const partition = partitionOf(before);
     const place: TabPlace = {group, partition, before};
     // 放回原位：同组、同区，插入位就在它自己的前面或后面。
-    const order = [...strip.querySelectorAll<HTMLElement>("[data-editor-tab]")].filter((tab) => tab.hasAttribute("data-editor-tab-pinned") === (partition === "pinned")).map((tab) => tab.dataset.editorTab as string);
+    const order = all.filter((tab) => tab.pinned === (partition === "pinned")).map((tab) => tab.id);
     const index = order.indexOf(dragged.tabId);
     const insertAt = before === null ? order.length : order.indexOf(before);
     const inPlace = group === dragged.group && index >= 0 && (insertAt === index || insertAt === index + 1);
@@ -146,7 +148,8 @@ function contentDrop(groupElement: HTMLElement, content: HTMLElement, point: {re
     if (zone === null) return null;
     const groupRect = rectOf(groupElement);
     if (zone === "center") {
-        const tabs = [...groupElement.querySelectorAll<HTMLElement>("[data-editor-tab]")];
+        // 普通区的最后一个（固定标签拖到中央是取消固定，不是原位）。
+        const tabs = [...groupElement.querySelectorAll<HTMLElement>("[data-editor-tab]:not([data-editor-tab-pinned])")];
         const last = tabs.at(-1)?.dataset.editorTab;
         // 移到这一组普通标签的末尾；已经在那里（同组且是最后一个）就是原位。
         const inPlace = group === dragged.group && last === dragged.tabId;

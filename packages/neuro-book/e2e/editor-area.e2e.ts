@@ -416,6 +416,106 @@ test("拖动标签：组内换位置、拖到另一组的标签条、拖到正�
     await closeAll(page);
 });
 
+test("拖动的边界：关掉多行、标签横向滚出视口时，拖到看得见的最后一个后面落在它的后继之前；只有一个固定标签的组，拖到正文中央取消固定", async ({page}) => {
+    await page.setViewportSize({width: 1000, height: 800});
+    await open(page);
+    await closeAll(page);
+    const settings = join(projectDir, ".nbook", "settings.json");
+    await writeFile(settings, JSON.stringify({"nbook.editor/wrapTabs": false}));
+    try {
+        for (const name of ["a", "b", "c", "d", "e", "h", "i", "u", "v", "w"]) await item(page, `project://notes/${name}.md`).dblclick();
+        const strip = page.locator("[data-editor-group-active] [data-editor-tabs]");
+        await expect(strip).not.toHaveAttribute("data-wrap", "");
+        await page.locator("[data-editor-group-active] [data-editor-tab]").first().click();
+        const names = () => page.locator("[data-editor-group-active] [data-editor-tab-label]").allTextContents();
+        // 把行滚到某个标签的右缘正好贴着标签条的右缘：它后面的那个完全在视口外。
+        const edge = await strip.evaluate((element) => {
+            const row = element.querySelector<HTMLElement>("[data-row]")!;
+            const right = row.getBoundingClientRect().right;
+            const frames = [...row.querySelectorAll("[data-editor-tab]")].map((tab) => tab.parentElement!);
+            const index = frames.findIndex((frame) => frame.getBoundingClientRect().right > right);
+            row.scrollLeft += frames[index]!.getBoundingClientRect().right - right;
+            const box = frames[index]!.getBoundingClientRect();
+            return {index, right: box.right, y: box.top + box.height / 2, name: frames[index]!.querySelector("[data-editor-tab-label]")!.textContent, next: frames[index + 1]!.querySelector("[data-editor-tab-label]")!.textContent, nextLeft: frames[index + 1]!.getBoundingClientRect().left, rowRight: right};
+        });
+        expect(edge.nextLeft).toBeGreaterThanOrEqual(edge.rowRight - 1);
+        // 拖第二个标签（第一个可能被滚出去一部分）到这个标签的右缘：落在它后继之前，不是整行末尾。
+        const source = page.locator("[data-editor-group-active] [data-editor-tab]").nth(1);
+        const dragged = (await source.textContent())?.trim() ?? "";
+        const from = await source.boundingBox();
+        if (from === null) throw new Error("没有标签");
+        await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
+        await page.mouse.down();
+        await page.mouse.move(from.x + from.width / 2 + 10, from.y + from.height / 2, {steps: 2});
+        await page.mouse.move(edge.right - 3, edge.y, {steps: 8});
+        await page.mouse.up();
+        await expect.poll(async () => {
+            const after = await names();
+            return after.indexOf(dragged) === after.indexOf(edge.next ?? "") - 1 && after.indexOf(dragged) === after.indexOf(edge.name ?? "") + 1;
+        }).toBe(true);
+    } finally {
+        await writeFile(settings, "{}");
+    }
+    await expect(page.locator("[data-editor-group-active] [data-editor-tabs]")).toHaveAttribute("data-wrap", "");
+    await closeAll(page);
+
+    // 只有一个固定标签：拖到本组正文中央，取消固定。
+    await item(page, "project://notes/a.md").dblclick();
+    await page.locator("[data-editor-tab]").filter({hasText: "a.md"}).click({button: "right"});
+    await page.getByRole("menu").getByRole("menuitem", {name: "固定", exact: true}).click();
+    await expect(page.locator("[data-editor-tab-pinned]")).toHaveCount(1);
+    const tab = await page.locator("[data-editor-tab]").filter({hasText: "a.md"}).boundingBox();
+    const content = await page.locator("[data-editor-group-active] [data-editor-content]").boundingBox();
+    if (tab === null || content === null) throw new Error("没有盒");
+    await page.mouse.move(tab.x + tab.width / 2, tab.y + tab.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(tab.x + tab.width / 2 + 10, tab.y + tab.height / 2, {steps: 2});
+    await page.mouse.move(content.x + content.width / 2, content.y + content.height / 2, {steps: 8});
+    await page.mouse.up();
+    await expect(page.locator("[data-editor-tab-pinned]")).toHaveCount(0);
+    await closeAll(page);
+});
+
+test("真实控件的缓冲：Markdown 刚输入就把标签拖到另一组，保存后字在磁盘上；刚输入就“关闭已保存”，这个标签留下", async ({page}) => {
+    await page.setViewportSize({width: 1440, height: 900});
+    // 用这一例自己的两个文件：保存会改磁盘，别的用例按 fixture 的原文断言。
+    await writeFile(join(projectDir, "notes/buffer-a.md"), "甲\n");
+    await writeFile(join(projectDir, "notes/buffer-b.md"), "乙\n");
+    await open(page);
+    await closeAll(page);
+    await item(page, "project://notes/buffer-a.md").dblclick();
+    await item(page, "project://notes/buffer-b.md").dblclick();
+    await page.locator("[data-editor-group-active] [data-title-action-key=\"own:split-right\"]").click();
+    const groups = page.locator("[data-editor-group]");
+    await expect(groups).toHaveCount(2);
+    // 左组的 buffer-a.md：输入后立刻拖走（控件的输入还在 150ms 的缓冲里）。
+    await groups.nth(0).locator("[data-editor-tab]").filter({hasText: "buffer-a.md"}).click();
+    await atEnd(page, groups.nth(0).locator("[data-editor-prose]"));
+    await page.keyboard.type("改");
+    const from = await groups.nth(0).locator("[data-editor-tab]").filter({hasText: "buffer-a.md"}).boundingBox();
+    const to = await groups.nth(1).locator("[data-editor-tabs]").boundingBox();
+    if (from === null || to === null) throw new Error("没有盒");
+    await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(from.x + from.width / 2 + 10, from.y + from.height / 2, {steps: 2});
+    await page.mouse.move(to.x + to.width - 40, to.y + 17, {steps: 6});
+    await page.mouse.up();
+    await expect(groups.nth(1).locator("[data-editor-tab]").filter({hasText: "buffer-a.md"})).toHaveCount(1);
+    await groups.nth(1).locator("[data-editor-prose]").click();
+    await page.keyboard.press("Control+s");
+    await expect.poll(() => disk("notes/buffer-a.md")).toBe("甲改\n");
+
+    // 右组的 buffer-b.md：输入后立刻右键“关闭已保存”，它有修改，留下。
+    await groups.nth(1).locator("[data-editor-tab]").filter({hasText: "buffer-b.md"}).click();
+    await atEnd(page, groups.nth(1).locator("[data-editor-prose]"));
+    await page.keyboard.type("改");
+    await groups.nth(1).locator("[data-editor-tab]").filter({hasText: "buffer-b.md"}).click({button: "right"});
+    await page.getByRole("menu").getByRole("menuitem", {name: "关闭已保存"}).click();
+    await expect(groups.nth(1).locator("[data-editor-tab]").filter({hasText: "buffer-b.md"})).toHaveCount(1);
+    await expect(groups.nth(1).locator("[data-editor-tab]").filter({hasText: "buffer-a.md"})).toHaveCount(0);
+    await closeAll(page);
+});
+
 test("面包屑：作品名 › 目录 › 文件 › 标题；点目录列出子项、选文件在本组打开；点标题列出大纲、选中跳过去；聚焦面包屑后 Escape 回到正文", async ({page}) => {
     await writeFile(join(projectDir, "notes/outline.md"), "# 起\n\n正文一。\n\n## 承\n\n正文二。\n");
     await open(page);

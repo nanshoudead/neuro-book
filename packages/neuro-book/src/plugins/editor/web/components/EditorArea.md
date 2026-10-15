@@ -26,6 +26,10 @@ type Props = {
     tabMenu?: {entries: (tabId: string) => ReadonlyArray<TabMenuEntry> | null; identity: (tabId: string) => string | null} | null;
     /** 多行标签（设置 `nbook.editor/wrapTabs`，输出 54），原样交给每个编辑组；缺省 true。 */
     wrapTabs?: boolean;
+    /** 面包屑（设置 `nbook.editor/breadcrumbs`，输出 60），原样交给每个编辑组；缺省 true。 */
+    breadcrumbs?: boolean;
+    /** 作品名（面包屑的第一段）；未绑定作品为 null，写“作品”；缺省 null。 */
+    workTitle?: string | null;
 };
 
 type Emits = {
@@ -49,8 +53,3 @@ type Emits = {
 填满父级、自己不滚动，底色是面板底色 `--panel-surface`。grid 用 `useLayoutExtent` 测量承载盒、`useGridLayout` 落账，拖动分隔条落账后告诉控制器记下会话；组模型原地拆分或关闭组时重算布局。根元素记焦点进出（控制器的 `focused`，即公开键 `nbook.editor/focused`）。控制器的提示（换文档时有未裁决输入）显示在顶部，可关闭。
 
 关闭询问是 nb-ui `Dialog`：标题带文件名，按钮依次是取消、不保存、保存（默认焦点在 Dialog 的规则上）；关闭对话框等于取消。选“保存”后保存期间还能输入，保存完有新输入时再问一次。同一文件还在别的标签里时不问，只有这个视图自己的未裁决输入要问（不保存只丢这份输入）。开始关闭时焦点在编辑器区，关闭后焦点交给新的活动视图（空组关闭时是相邻组），不落到页面根；拆分时焦点在编辑器区则交给新组。布局变化让控件重挂时，只有活动视图的控件会被重新聚焦。活动视图的控件还没挂上（例如 Monaco 在加载）时交接先挂着，用户在这之前把焦点移到编辑器区之外，交接就撤销，控件迟到不抢回焦点。恢复会话时同样等活动组的活动标签就绪后聚焦一次，光标在它记下的位置（输出 30）；在此之前焦点去了别处就不聚焦。
-
-## 不支持
-
-- 不拖动标签换组、不拖到边缘拆分（另行交付）。
-- 不渲染面包屑。

@@ -21,6 +21,8 @@ describe("Spec workbench.editor 输出 56：同名提示", () => {
     it("目录一直到根都相同时附根名；文件在根下时也是根名", () => {
         expect(hints([subject("a", "project://notes/x.md"), subject("b", "user://notes/x.md")])).toEqual({a: "作品/notes", b: "用户资产/notes"});
         expect(hints([subject("a", "project://x.md"), subject("b", "project://dir/x.md")])).toEqual({a: "作品", b: "dir"});
+        // 根名回退与别人的目录后缀重名（目录就叫“作品”）：重名的都写成根名加完整目录。
+        expect(hints([subject("a", "project://notes/x.md"), subject("b", "user://notes/x.md"), subject("c", "project://作品/notes/x.md")])).toEqual({a: "作品/notes", b: "用户资产/notes", c: "作品/作品/notes"});
     });
 
     it("同一个文件的两种编辑器附编辑器名；关掉一个后不再附", () => {

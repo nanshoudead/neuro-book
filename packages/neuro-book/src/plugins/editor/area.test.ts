@@ -947,6 +947,58 @@ describe("Spec workbench.editor 输出 49–51：移动、固定与批量关闭"
         expect(at.area.needsLeaveConfirm()).toBe(false);
     });
 
+    it("询问期间别处又开了这份文档的可编辑标签：选“保存”照样保存，不因状态变了跳过", async () => {
+        const at = await world();
+        at.area.open("project://a.md", {mode: "permanent"});
+        const left = groupAt(at, 0);
+        const view = await boundIn(at, left);
+        view.commit(view.revision.value, "A（改）");
+        const closing = at.area.close(tabId(at, 0, "a.md"));
+        await until(at, "问", () => at.area.dialog.value !== null);
+        expect(at.area.split("right", tabId(at, 0, "a.md"))).toEqual({ok: true});
+        at.area.answer("save");
+        expect(await closing).toBe("closed");
+        expect(await readFile(join(at.scene.project, "a.md"), "utf8")).toBe("A（改）");
+    });
+
+    it("关闭已保存按地址看文档：恢复出来、还没读到的标签，若同一文档在别组改过，也留下", async () => {
+        const first = await world();
+        first.area.open("project://a.md", {mode: "permanent"});
+        first.area.open("project://a.md", {mode: "permanent", group: "side"});
+        first.area.open("project://b.md", {mode: "permanent", group: groupAt(first, 1)});
+        const snapshot = first.saved.at(-1);
+        if (snapshot === undefined) throw new Error("没有会话快照");
+        const at = await world(snapshot);
+        const view = await boundIn(at, groupAt(at, 0));
+        view.commit(view.revision.value, "A（改）");
+        expect(await at.area.closeSaved(tabId(at, 1, "b.md"))).toEqual({ok: true, closed: 1});
+        expect(names(at, 1)).toEqual(["a.md"]);
+    });
+
+    it("设置“预览标签页”关掉：已有的 preview 标签立即转正，之后单击打开也是常驻；再打开照旧", async () => {
+        const enabled = shallowRef(true);
+        counter += 1;
+        const scene = await filesScene(join(tmp, `case-${String(counter)}`), {project: {"a.md": "A", "b.md": "B", "c.md": "C"}});
+        const area = createEditorArea({files: files(scene.window), clock: new ManualClock(), workspaceKey: "p1", generation: 1, initial: null, enablePreview: () => enabled.value, report: (error) => {
+            throw error;
+        }});
+        closers.push(async () => {
+            area.dispose();
+            await scene.world.close();
+            await rm(scene.root, {recursive: true, force: true});
+        });
+        const previews = () => area.groups.groups.value.flatMap((group) => group.tabs).map((tab) => [tab.address, tab.preview]);
+        area.open("project://a.md", {mode: "preview"});
+        expect(previews()).toEqual([["project://a.md", true]]);
+        enabled.value = false;
+        await waitUntil("已有的 preview 转正", () => previews()[0]?.[1] === false);
+        area.open("project://b.md", {mode: "preview"});
+        expect(previews()).toEqual([["project://a.md", false], ["project://b.md", false]]);
+        enabled.value = true;
+        area.open("project://c.md", {mode: "preview"});
+        expect(previews()).toEqual([["project://a.md", false], ["project://b.md", false], ["project://c.md", true]]);
+    });
+
     it("关闭已保存：先结算视图输入，留下要保存的与固定的；保存失败时批量停下", async () => {
         const at = await world();
         for (const name of ["a.md", "b.md", "c.json", "a.html"]) at.area.open(`project://${name}`, {mode: "permanent"});
