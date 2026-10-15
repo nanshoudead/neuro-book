@@ -24,7 +24,14 @@ import {bookInfo, bookStats} from "./queries/books";
 import {makePager} from "./queries/context";
 import type {QueryContext} from "./queries/context";
 import {entitiesList, entityCard, entityEpisodes, entityKnowledge, entityStatements} from "./queries/entities";
+import {arcsList, chapterDigest, episodesList} from "./queries/episodes";
+import {bookGraph, relationsGraph, storyline} from "./queries/graph";
+import {ledgerTrack, ledgerTracks} from "./queries/ledger";
+import {questionsList} from "./queries/questions";
+import {search} from "./queries/search";
 import {secretsMatrix} from "./queries/secrets";
+import {sourceRead, sourceRecords} from "./queries/source";
+import {timeline} from "./queries/timeline";
 
 export type StoryOutcome<M extends StoryMethod> = {ok: true; value: StoryResult<M>} | {ok: false; error: {code: StoryErrorCode; message: string; candidates?: EntityCandidate[]}};
 
@@ -35,7 +42,7 @@ export interface StoryApi {
 
 type BookHandler = (ctx: QueryContext, params: never) => unknown;
 
-/** 书级方法 → 查询函数；不在表里的书级方法属于还没实现的查询。 */
+/** 书级方法 → 查询函数。 */
 const BOOK_HANDLERS: Partial<Record<StoryMethod, BookHandler>> = {
     "book.info": bookInfo,
     "book.stats": bookStats,
@@ -45,6 +52,19 @@ const BOOK_HANDLERS: Partial<Record<StoryMethod, BookHandler>> = {
     "entity.statements": entityStatements,
     "entity.episodes": entityEpisodes,
     "secrets.matrix": secretsMatrix,
+    "chapter.digest": chapterDigest,
+    "ledger.tracks": ledgerTracks,
+    "ledger.track": ledgerTrack,
+    "questions.list": questionsList,
+    timeline,
+    "episodes.list": episodesList,
+    "arcs.list": arcsList,
+    "source.read": sourceRead,
+    "source.records": sourceRecords,
+    search,
+    "graph.relations": relationsGraph,
+    "graph.book": bookGraph,
+    "graph.storyline": storyline,
 };
 
 /** 不适用视角的方法：忽略 perspective，用读者视角。 */
@@ -126,7 +146,7 @@ export function createStoryApi(options: {library?: Library | string} = {}): Stor
             resolveEntity: text => resolveEntity(view, text),
         };
         const handler = BOOK_HANDLERS[method];
-        if (!handler) throw new StoryError("invalid_params", `方法 ${method} 还没有实现`);
+        if (!handler) throw new Error(`书级方法 ${method} 没有登记查询函数`);
         return handler(ctx, params as never);
     }
 

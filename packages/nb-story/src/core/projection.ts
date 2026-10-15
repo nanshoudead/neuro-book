@@ -117,6 +117,10 @@ export class BookView {
         return this.cached("knowledge", () => this.#prefix(this.index.knowledge).filter(item => this.statement(item.about) !== undefined || this.secret(item.about) !== undefined));
     }
 
+    knowledgeItem(id: string): Knowledge | undefined {
+        return this.#ids("knowledgeById", () => this.knowledge).get(id);
+    }
+
     /** 某人对某个说法或秘密的可见知情记录，按位置先后。 */
     knowledgeOf(who: string, about: string): Knowledge[] {
         const all = this.index.knowledgeByWhoAbout.get(`${who}|${about}`) ?? [];
@@ -154,6 +158,10 @@ export class BookView {
         );
     }
 
+    question(id: string): Question | undefined {
+        return this.#ids("questionById", () => this.questions).get(id);
+    }
+
     get times(): TimeAnchor[] {
         return this.cached("times", () => {
             const visibleIds = new Set(this.#prefix(this.index.times).map(time => time.id));
@@ -183,6 +191,10 @@ export class BookView {
                 return rest;
             }),
         );
+    }
+
+    ledgerEntry(id: string): LedgerEntry | undefined {
+        return this.#ids("ledgerById", () => this.ledger).get(id);
     }
 
     get summaries(): Summary[] {

@@ -7,12 +7,19 @@
  * 索引里是全书的原始记录，不按阅读位置过滤；查询不直接读这里的数组，只经 projection.ts 的视图取数。
  */
 
-import type {Arc, Beat, Dataset, Entity, Episode, Knowledge, LedgerEntry, Mention, Position, Question, Secret, SourceChapter, Statement, Summary, TimeAnchor} from "./dataset";
+import type {Arc, Beat, Dataset, Entity, Episode, Knowledge, LedgerEntry, Mention, Position, Question, Secret, SourceChapter, Span, Statement, Summary, TimeAnchor} from "./dataset";
 import type {BookMeta, Library} from "./library";
 import {comparePosition} from "./position";
 
 /** 带成立位置的记录。 */
 interface Located {
+    at: Position;
+}
+
+/** 一条记录对原文某一段的引用；`at` 是这次引用自己的成立位置（悬念进展、情节步骤可能晚于记录本身）。 */
+export interface Citation {
+    type: "statement" | "knowledge" | "episode" | "ledger" | "question" | "time";
+    id: string;
     at: Position;
 }
 
@@ -54,6 +61,43 @@ export interface BookIndex {
     readonly secretOfStatement: ReadonlyMap<string, string>;
     /** 某人对某个说法或秘密的知情记录，键为 `${who}|${about}`，按 at 升序。 */
     readonly knowledgeByWhoAbout: ReadonlyMap<string, readonly Knowledge[]>;
+    /** 原文每一段（键 `章.段`）被哪些记录引用；同一条记录对同一段只记一次。 */
+    readonly citations: ReadonlyMap<string, readonly Citation[]>;
+    /** 原文每一段（键 `章.段`）里程序找到的称呼。 */
+    readonly mentionsByParagraph: ReadonlyMap<string, readonly Mention[]>;
+}
+
+function buildCitations(dataset: Dataset): Map<string, Citation[]> {
+    const map = new Map<string, Citation[]>();
+    const seen = new Set<string>();
+    const cite = (type: Citation["type"], id: string, at: Position, spans: readonly Span[]) => {
+        for (const span of spans) {
+            for (let paragraph = span.from; paragraph <= span.to; paragraph += 1) {
+                const key = `${span.chapter}.${paragraph}`;
+                const unique = `${key}|${type}|${id}`;
+                if (seen.has(unique)) continue;
+                seen.add(unique);
+                const list = map.get(key);
+                const citation = {type, id, at};
+                if (list) list.push(citation);
+                else map.set(key, [citation]);
+            }
+        }
+    };
+    for (const statement of dataset.statements) cite("statement", statement.id, statement.at, statement.source.evidence);
+    for (const item of dataset.knowledge) cite("knowledge", item.id, item.at, item.evidence);
+    for (const episode of dataset.episodes) {
+        cite("episode", episode.id, episode.at, episode.evidence);
+        cite("episode", episode.id, episode.at, episode.steps.map(step => step.evidence));
+    }
+    for (const entry of dataset.ledger) cite("ledger", entry.id, entry.at, entry.evidence);
+    for (const question of dataset.questions) {
+        cite("question", question.id, question.at, question.evidence);
+        for (const update of question.updates) cite("question", question.id, update.at, update.evidence);
+    }
+    for (const time of dataset.times) cite("time", time.id, time.at, time.evidence);
+    for (const list of map.values()) list.sort((a, b) => comparePosition(a.at, b.at) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    return map;
 }
 
 function byPosition<T extends Located & ({id: string} | object)>(records: readonly T[]): T[] {
@@ -102,6 +146,14 @@ export function buildBookIndex(meta: BookMeta, dataset: Dataset): BookIndex {
     }
     const episodes = byPosition(dataset.episodes);
     const times = byPosition(dataset.times);
+    const mentions = byPosition(dataset.mentions);
+    const mentionsByParagraph = new Map<string, Mention[]>();
+    for (const mention of mentions) {
+        const key = `${mention.at.chapter}.${mention.at.paragraph}`;
+        const list = mentionsByParagraph.get(key);
+        if (list) list.push(mention);
+        else mentionsByParagraph.set(key, [mention]);
+    }
     return {
         meta,
         dataset,
@@ -117,7 +169,7 @@ export function buildBookIndex(meta: BookMeta, dataset: Dataset): BookIndex {
         ledger: byPosition(dataset.ledger),
         summaries: byPosition(dataset.summaries),
         arcs: byPosition(dataset.arcs),
-        mentions: byPosition(dataset.mentions),
+        mentions,
         identityLinks,
         entityById,
         statementById: indexBy(statements),
@@ -126,6 +178,8 @@ export function buildBookIndex(meta: BookMeta, dataset: Dataset): BookIndex {
         timeById: indexBy(times),
         secretOfStatement,
         knowledgeByWhoAbout,
+        citations: buildCitations(dataset),
+        mentionsByParagraph,
     };
 }
 
