@@ -9,14 +9,15 @@ updated: 2026-10-15
 
 ## 目标与范围
 
-Monaco 的右键菜单换成应用自己的菜单；语法配色进主题 token
+- 右键菜单：关掉 Monaco 自己的菜单（在 shadow DOM 里，只能改颜色），换成应用的右键菜单（nb-ui `ContextMenu`），菜单项来自 Monaco 的动作，并给插件一个菜单位置。开发者 2026-10-15 同意。
+- 语法配色：现在编辑器的背景、前景、行号、光标取自产品主题，语法着色仍是 Monaco 默认的 vs/vs-dark；把一套语法配色加进主题 token（[`theme/system.md`](../../../../../docs/specs/theme/system.md)），用户覆盖以后再做。
 
-合同：待补充（链接具体 Spec，或说明行为合同是否改变）。
+合同：[`workbench/editor.md`](../../../../../docs/specs/workbench/editor.md)、[`theme/system.md`](../../../../../docs/specs/theme/system.md)、[`workbench/menus.md`](../../../../../docs/specs/workbench/menus.md)。
 
 ## 当前状态
 
-2026-10-15 经 nbdev 新建，尚未开工。
+未开工，排在 t04 之后。
 
 ## 下一步
 
-待补充。
+t04 完成后按当时的代码写计划。
