@@ -37,4 +37,6 @@ updated: 2026-10-15
 
 ## 下一步
 
-1. 按决定 1 到 5 写三份 Spec 正文（`story/queries.md`、`story/viewer.md`、`story/cli-skill.md`），登记进 `docs/specs/README.md` 的待实现规范，跑 `bun run docs:check`；正文按记忆先给开发者看要点，再交 omp 审查、提交。
+1. 三份正文初稿已写在主工作区（未提交）：`docs/specs/story/queries.md`、`viewer.md`、`cli-skill.md`，已登记进 `docs/specs/README.md` 的待实现规范（未提交），`docs:check` 通过。要点评审板 v3 问写正文时自定的十条（`spec-judgments`）。
+2. 开发者确认后：交 omp 审查（后端、领域与设计），处理意见后提交；之后写实施计划。
+3. （原计划）按决定 1 到 5 写三份 Spec 正文，登记进 `docs/specs/README.md` 的待实现规范，跑 `bun run docs:check`；正文按记忆先给开发者看要点，再交 omp 审查、提交。
