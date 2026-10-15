@@ -561,6 +561,19 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
         return "closed";
     };
 
+    /**
+     * preview 打开会换掉本组的 preview 标签。它是文档最后一个能编辑的标签、文档又要结算时（例如别处的正式标签改过之后
+     * 关掉，关的时候因为还有它而没问），先把它转正，不让替换静默丢掉修改（输出 4）。
+     */
+    const keepUnsettledPreview = (groupId: string, address: string): void => {
+        const preview = groups.groups.value.find((group) => group.id === groupId)?.tabs.find((tab) => tab.preview);
+        if (preview === undefined || preview.kind !== "file" || preview.address === address) return;
+        const document = documents.get(preview.address);
+        if (document === null || !needsSettle(document)) return;
+        const others = groups.groups.value.some((group) => group.tabs.some((tab) => tab.id !== preview.id && tab.address === preview.address && editable(tab)));
+        if (!others) groups.pin(preview.id);
+    };
+
     const open: EditorArea["open"] = (address, request) => {
         if (disposed) return {ok: false, reason: "编辑器已关闭"};
         if (pageIdOf(address) !== null) return {ok: false, reason: "页面用 nbook.editor.open-page 打开"};
@@ -579,6 +592,7 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
         })();
         const reuse = request.editor === undefined ? (tab: FileTab) => !isPreview(tab.editor) : undefined;
         const group = target ?? groups.sideGroup();
+        if (request.mode === "preview") keepUnsettledPreview(group, address);
         // 文档在标签成为活动标签、第一次被读到时打开（`referenceOf`）：新开的标签就是活动标签。
         const {tab, replaced} = groups.open(address, {mode: request.mode, editor: resolved, group, ...(reuse === undefined ? {} : {reuse})});
         if (replaced !== null) releaseTab(replaced, group);

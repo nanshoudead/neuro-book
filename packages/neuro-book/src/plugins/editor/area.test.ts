@@ -392,6 +392,24 @@ describe("Spec workbench.editor 输出 3–5：关闭、拆分与会话", () => 
         expect(at.area.documents.get("project://a.md")).toBeNull();
     });
 
+    it("dirty 文档只剩一个 preview 标签（关正式标签时因为它而没问）：本组再单击打开别的文件时它转正、不被换掉，修改还在", async () => {
+        const at = await world();
+        at.area.open("project://a.md", {mode: "preview"});
+        await ready(at);
+        expect(at.area.split("right")).toMatchObject({ok: true});
+        await ready(at);
+        const binding = textBinding(at.area, groupId(at));
+        binding?.commit(binding.revision.value, "A（改）");
+        expect(await at.area.close(at.area.groups.activeTab()?.id ?? "")).toBe("closed");
+        expect(at.area.dialog.value).toBeNull();
+
+        at.area.open("project://b.md", {mode: "preview"});
+        const tabs = at.area.groups.groups.value.flatMap((group) => group.tabs);
+        expect(tabs.map((tab) => [tab.kind === "file" ? tab.address : null, tab.preview])).toEqual([["project://a.md", false], ["project://b.md", true]]);
+        expect(at.area.documents.get("project://a.md")?.dirty.value).toBe(true);
+        expect(at.area.needsLeaveConfirm()).toBe(true);
+    });
+
     it("不保存：丢弃修改关闭，磁盘不变", async () => {
         const at = await world();
         at.area.open("project://a.md", {mode: "permanent"});
