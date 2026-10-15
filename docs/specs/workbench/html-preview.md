@@ -81,6 +81,12 @@ owners:
 
 Smoke：`e2e/editor-types.e2e.ts`（生产构建、本机 Chrome、真实 Files）。
 
+## 实现合同
+
+- 公开入口：插件 `nbook.html-preview` 的浏览器入口向 `editor.editors` 贡献编辑器 `nbook.html-preview.html`（`role: "preview"`），向命令与编辑区标题贡献 `nbook.editor.toggle-preview-network`，公开状态 `nbook.html-preview/active`、`networkAllowed`；正文拼装 `compose.ts` 的 `composePreview`。
+- owner 与依赖方向：令牌服务与预览路由归 `nbook.files`（远程服务 `nbook.files.preview` 与 `/api/nbook.files/preview/`，[workspace.files](../workspace/files.md) 的“预览的受限读取”），CSP 的写法 `previewContentSecurityPolicy` 在它的 `shared/contracts.ts`，拼装与路由共用同一份；本插件只申请、作废令牌，令牌服务、时钟与联网开关由插件包进组件，不经编辑器区的控件合同。
+- 不变量：iframe 的 `sandbox` 只有 `allow-scripts`；保护（`<base>`、CSP、锚点脚本）插在开头的 doctype 之后，不按正文找位置（`compose.test.ts`）；令牌随可见性申请与作废，联网开关切换时换令牌（`e2e/editor-types.e2e.ts`）。
+
 ## 证据
 
 - 批准依据：[w00025 t01 的决定](../../../.agents/works/w00025-editor/tasks/t01-requirements/README.md#开发者的决定) 2、3 与 [t02 实施计划](../../../.agents/works/w00025-editor/tasks/t02-editor-types/plan.md) 第 6 节（预览方式为开发者 2026-10-14 在计划审查后定的“沙箱加受限读文件接口”；默认允许联网为开发者 2026-10-15 定）；2026-10-15 批准晋升 `implemented`。

@@ -68,6 +68,12 @@ owners:
 
 Smoke：`e2e/editor-types.e2e.ts`（生产构建、本机 Chrome、真实 Files）运行场景 1；场景 2 的删除由编辑器区的 `area.test.ts`（字节标签一组，真实 Files 场地）覆盖，项目关闭时的说明只由 Lab 场景展示，没有自动化验收。
 
+## 实现合同
+
+- 公开入口：插件 `nbook.image-viewer` 的浏览器入口向 `editor.editors` 贡献编辑器 `nbook.image-viewer.image`（`input: "bytes"`）；组件 `ImageViewer.vue` 只按编辑器区的控件合同收属性、交句柄（`editor/shared/contracts.ts` 的 `BytesEditorBinding`、`EditorControlHandle`）。
+- owner 与依赖方向：插件只依赖编辑器区的 `shared/contracts.ts` 与 `@notnotype/nb-ui`；字节经绑定给出的地址读取（[workspace.files](../workspace/files.md) 的“按地址读取字节”），不直接用文件服务；尺寸、大小与缩放经句柄的 `status` 交给状态栏的编辑器状态条目。
+- 不变量：换图、读取失败与卸载时释放对象 URL；绑定的地址或 `version` 变化时重取，旧请求迟到的结果丢弃。
+
 ## 证据
 
 - 批准依据：[w00025 t01 的决定](../../../.agents/works/w00025-editor/tasks/t01-requirements/README.md#开发者的决定) 4、5 与 [t02 实施计划](../../../.agents/works/w00025-editor/tasks/t02-editor-types/plan.md) 第 7 节，开发者 2026-10-14 确认；2026-10-15 批准晋升 `implemented`。
