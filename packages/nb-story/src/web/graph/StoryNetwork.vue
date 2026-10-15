@@ -708,7 +708,8 @@ onBeforeUnmount(() => { observer?.disconnect(); if (resizeTimer !== null) clearT
 </script>
 
 <template>
-    <div ref="root" class="story-graph" :style="{'--know-color': themeReady > 0 && theme ? fixedColors(theme).know : 'transparent'}">
+    <!-- 按下画布时把焦点从“在图里找”等输入框移到图上：之后的 Escape 才是给图的（见 onKey） -->
+    <div ref="root" class="story-graph" tabindex="-1" :style="{'--know-color': themeReady > 0 && theme ? fixedColors(theme).know : 'transparent'}" @pointerdown="root?.focus({preventScroll: true})">
         <div ref="host" class="canvas" />
         <div v-if="anchor && $slots.selected" ref="card" class="node-card" :style="{left: `${anchor.x}px`, top: `${anchor.y}px`}" data-testid="node-card">
             <slot name="selected" />
@@ -731,7 +732,7 @@ onBeforeUnmount(() => { observer?.disconnect(); if (resizeTimer !== null) clearT
 </template>
 
 <style scoped>
-.story-graph { position: relative; width: 100%; height: 100%; background: var(--panel-surface); user-select: none; }
+.story-graph { position: relative; width: 100%; height: 100%; background: var(--panel-surface); user-select: none; outline: none; }
 .node-card { position: absolute; z-index: 3; max-width: calc(100% - 16px); }
 .canvas { position: absolute; inset: 0; }
 .legend { position: absolute; left: 10px; bottom: 8px; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; padding: 3px 8px; border-radius: 6px; background: color-mix(in srgb, var(--panel-surface) 88%, transparent); color: var(--text-secondary); font-size: var(--text-2xs); pointer-events: none; }
