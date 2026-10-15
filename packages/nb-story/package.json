@@ -1,0 +1,29 @@
+{
+    "name": "@notnotype/nb-story",
+    "private": true,
+    "version": "0.1.0",
+    "type": "module",
+    "engines": {
+        "bun": ">=1.3.14"
+    },
+    "bin": {
+        "nbstory": "./src/cli.ts"
+    },
+    "exports": {
+        ".": "./src/core/index.ts"
+    },
+    "scripts": {
+        "test": "bun test",
+        "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.core.json"
+    },
+    "dependencies": {
+        "@notnotype/nb-runtime": "workspace:*",
+        "typebox": "^1.3.6"
+    },
+    "devDependencies": {
+        "@notnotype/neuro-book-test-support": "workspace:*",
+        "@types/bun": "^1.3.14",
+        "@types/node": "^26.1.0",
+        "typescript": "^6.0.3"
+    }
+}

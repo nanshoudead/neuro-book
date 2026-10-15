@@ -22,6 +22,7 @@
     "packages/nb-runtime",
     "packages/llmlint",
     "packages/dev-panel",
+    "packages/nb-story",
     "packages/neuro-book",
     "packages/neuro-book-legacy"
   ],

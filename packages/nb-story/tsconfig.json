@@ -1,0 +1,26 @@
+{
+    "compilerOptions": {
+        "target": "ES2022",
+        "module": "ESNext",
+        "moduleResolution": "bundler",
+        "lib": [
+            "ES2022"
+        ],
+        "types": [
+            "bun",
+            "node"
+        ],
+        "strict": true,
+        "noEmit": true,
+        "skipLibCheck": true,
+        "forceConsistentCasingInFileNames": true
+    },
+    "include": [
+        "src",
+        "tests"
+    ],
+    "exclude": [
+        "src/web",
+        "tests/*.e2e.ts"
+    ]
+}
