@@ -1,0 +1,24 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00024-nb-story",
+    "taskId": "t02-specs",
+    "artifactId": "review",
+    "answerId": "20261015T025503509Z-6f8f61ff",
+    "artifactVersion": 1,
+    "contentHash": "f66f1d9f67d4759afbafa707049e555343ff30da4a1a7f4f9aa59d0185bb1b76",
+    "submittedAt": "2026-10-15T02:55:02.967Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "capability-map": "go",
+        "reading-state-store": "library",
+        "no-record-perspective": "separate-mark",
+        "source-beyond": "block"
+    },
+    "comments": {
+        "capability-map": "story.qa 是打算怎么做的？是内置吗？还是做成 cli + skill。还是为了以后接入 nbook 插件做准备？提供相关工具（cli 和 工具提供本质上都是一套接口）。还有独立服务的网页问答可以先不做（因为 agent 框架还需要考虑讨论一下，以及 nb-harness 还没做好）"
+    },
+    "note": null
+}
