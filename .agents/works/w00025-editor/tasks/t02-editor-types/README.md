@@ -2,7 +2,7 @@
 schema: nbook.task/v2
 taskId: t02-editor-types
 status: active
-updated: 2026-10-14
+updated: 2026-10-15
 ---
 
 # 按文件类型选编辑器：编辑器与语言贡献点、图片查看器、HTML 预览
@@ -31,7 +31,14 @@ updated: 2026-10-14
 
 - S0 Spec：`a0a85d7ba`。
 - S1 字节路由与 HTTP 来源核对：`44a604d70`，ETag 修正 `5577e5c07`。
+- S2 编辑器贡献点、选择顺序、标签按地址加编辑器、重新打开的选择、公开控件合同：`ba2e72ed7`。
+- S3 文本与字节共用文件条目、字节标签、视图能否输入与文档能否保存分开、编辑器状态条目：`aa92afad6`。
+- S4 图片查看器：`aaf3efda4`。
+- S5 HTML 预览（沙箱 iframe、令牌服务与预览路由、默认不联网的 CSP、打开预览与在侧边打开预览）：`7db40c889`。实施中发现内置命令的 id 第二段必须是登记过的功能域（`nbook.<域>.<动作>`），插件 id 不算域，“允许联网”改为 `nbook.editor.toggle-preview-network`。
+- S6 语言贡献点、生成的 Monaco 语言表（89 门）、语言条目与“更改语言模式”：`3518cd232`。
+- S7 Spec 去掉 planned 标记、补实现合同与证据（图片查看器与 HTML 预览两份 Spec 待晋升）；预览 e2e 补字体与切走、刷新后令牌作废；预览申请失败按种类说明：`13bedd9af`。
+- 验证（2026-10-15，`13bedd9af`）：`bun run test:affected --typecheck` 全部通过（Bun 1183、组件 209）；生产构建上 `e2e/editor-types.e2e.ts` 3 例、`editor-area`、`lab-editor`、`welcome`、`bookshelf-stats`、`workbench-titlebar` 共 30 例通过；`lab:shot` 图片查看器与 HTML 预览各场景在 390×800、1400×900、亮暗两种配色下 28 张无溢出（截图在本地 `.local/agent/works/w00025-editor/tasks/t02-editor-types/shots/s7/`）；`docs:check`、`governance:check` 无新增问题。
 
 ## 下一步
 
-S2：编辑器贡献点、选择顺序、标签判别联合、会话记录、重新打开的选择、公开控件合同。
+实现审查（快速）：前端 Sonnet、后端与领域 Opus 与 omp 同审 `0e0126753..13bedd9af`，报告在本地 `.local/agent/works/w00025-editor/tasks/t02-editor-types/reports/impl-review/`；Opus 与 Sonnet 的结论处理完即交付，omp 的报告回来后另行处理。
