@@ -42,6 +42,8 @@ owners:
 | `nbstory statements <对象> [--query <字>] [--at]` | `entity.statements` | 关于他的说法 |
 | `nbstory appearances <对象> [--query <字>] [--at]` | `entity.episodes` | 他参与的情节 |
 | `nbstory knows [--at]` | `secrets.matrix` | 谁知道什么（秘密矩阵） |
+| `nbstory ties <对象> [--perspective <对象>] [--at]` | `entity.relations` | 他和每个对象的关系：关系词、身份连接、一句说明 |
+| `nbstory between <对象> <另一个> [--perspective <对象>] [--at]` | `entity.relation` | 两个对象之间的全部说法、一起出场的情节、互相知道的事 |
 | `nbstory relations [--perspective <对象>] [--kinds <类别>] [--min-together <次>] [--at]` | `graph.relations` | 人物之间的关系、同场、认知与身份连接 |
 | `nbstory ledger [--at]` | `ledger.tracks` | 各项数值与任务的当前值 |
 | `nbstory track <数值> [--at]` | `ledger.track` | 某一项的流水与对账差额 |
