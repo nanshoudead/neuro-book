@@ -62,11 +62,13 @@ code { font-family: var(--mono); font-size: 12.5px; }
 </style>
 </head>
 <body>
-<header class="top"><b>nb-story 界面评审板</b><small>w00024 t01-ui-design 的产物 · 第 7 轮 · 2026-10-15</small></header>
+<header class="top"><b>nb-story 界面评审板</b><small>w00024 t01-ui-design 的产物 · 第 8 轮 · 2026-10-15</small></header>
 <main>
 
 <div class="lead">
-    <h1>第 7 轮：按你的五条意见继续打磨图</h1>
+    <h1>第 8 轮：统一点线、合并连线、排版控件、知情视角</h1>
+    <p>第 7 轮你定了 3D 先不做（决定 18）、知情视角第一版就做（决定 19），并在备注里提了画法上的要求（决定 20）。这一轮都做进了关系图，问两道题（17、18）。</p>
+    <h1 style="margin-top:20px;font-size:18px">第 7 轮：按你的五条意见继续打磨图</h1>
     <p>第 6 轮两题你按推荐答了（决定 15、16），并在备注里提了五条（决定 17）：要不要 3D、节点能否拖拽、选中后降暗其他节点、收起右侧栏后画布不重绘、参考 viewer-v7 再优化。这一轮逐条做了，问两道题（15、16）。</p>
     <h1 style="margin-top:20px;font-size:18px">第 6 轮：图改用 Sigma.js 重做</h1>
     <p>第 3 到 5 轮的五道题你都按推荐答了（Task README 决定 9 到 13）。另外你在会话里说现在的图很乱：没有像样的自动排版，节点和文字大多挤在一起，要深入打磨，直接用 Sigma.js（决定 14）。这一轮把关系图、全书图（按章节、按关联）和人物卡里的小关系图都换成 Sigma.js 重做，问两道题（13、14）。</p>
@@ -78,6 +80,62 @@ code { font-family: var(--mono); font-size: 12.5px; }
 </div>
 
 <div class="round">待定</div>
+
+<section class="q">
+    <h2>第 8 轮的改动（不用答）</h2>
+    <table>
+        <thead><tr><th>你的要求</th><th>做了什么</th></tr></thead>
+        <tbody>
+            <tr><td>线一样粗，认知不用弧线，多种联系合并或平行</td><td>所有线一样粗，多少写在线上的字里。一对点之间的关系说法、同场、认知合并成一条直线：蓝色表示有关系说法，粉色表示只有认知，灰色表示只有同场；认知用箭头标方向，从知道的人指向被知道的人，两边都知道就是双向箭头。线上平时只写关系词（姐妹、朋友……），悬停或选中时写全，例如“朋友（说法 71）· 同场 34”。线上的字互相避让，不再叠在一起。合并和平行线二选一见第 17 题。</td></tr>
+            <tr><td>点一样大，选中效果参考 viewer-v7</td><td>点都一样大，主要人物只是名字加粗。名字改成 v7 那样带描边的文字，不再用底色块。选中时圈加粗、填上淡的类型色、外面一圈同色光晕，其余降暗。</td></tr>
+            <tr><td>排版做成控件，切换连线层时重新排版</td><td>工具栏第二行加“排版”：力导向、同心（以选中的人为中心，一圈是一跳邻居）、环形（同类挨着排成一圈，名字朝外），旁边一个“重新排版”按钮。切换连线的层（关系说法、同场、认知）或同场门槛时，按新的线重新排，点从原位置滑到新位置，看得出谁挪到了哪里。默认排法见第 18 题。</td></tr>
+            <tr><td>知情视角（决定 19）</td><td>工具栏第二行加“视角”：读者、苏天晴、南嘉鱼、南小风、花铃。换成某个角色时，只按他知道的身份秘密合并化名，只画他知道（含听说、认为）的说法；读者知道、他不知道的“同一人”用黄线连着，写“其实是同一人”。图上方一行写明这个视角少了哪些说法、不知道哪些身份。</td></tr>
+        </tbody>
+    </table>
+    <div class="shots">
+        <figure><img src="r8/force.webp" alt="力导向"><figcaption>默认（读者视角、力导向）：点一样大、线一样粗，线上只写关系词。</figcaption></figure>
+        <figure><img src="r8/selected.webp" alt="选中"><figcaption>打开南嘉鱼的人物卡（选中）：她的圈加粗、填色、带光晕，其余降暗；她的线写全，例如与苏天晴“朋友（说法 71）· 同场 34”。</figcaption></figure>
+        <figure><img src="r8/know.webp" alt="认知"><figcaption>打开“认知”一层（关掉同场），悬停在苏天晴上：认知不再是弧线，并进了同一条线，用箭头标方向；打开这一层后重新排版，苏天晴被排到中间。</figcaption></figure>
+        <figure><img src="r8/concentric.webp" alt="同心"><figcaption>同心排版：中心是选中的人（没选时是关系最多的人），一圈是一跳邻居，再往外是两跳。</figcaption></figure>
+        <figure><img src="r8/circle.webp" alt="环形"><figcaption>环形排版：组织挨着、人物挨着排成一圈，名字朝圈外写，点和字都不重叠；线在圈里交叉较多。</figcaption></figure>
+        <figure><img src="r8/perspective-tq.webp" alt="苏天晴的视角"><figcaption>以苏天晴的视角：她知道 228 条说法；她不知道南嘉鱼的反派身份，所以南嘉鱼、地狱猫、深蓝色的倩影、未具名身份是分开的点，黄线写“其实是同一人”。</figcaption></figure>
+        <figure><img src="r8/perspective-njy.webp" alt="南嘉鱼的视角"><figcaption>以南嘉鱼的视角：她只知道 47 条说法，图上只剩 12 条线；她不知道心月狐、风信子、鸢尾花分别是谁，这三个是单独的点。</figcaption></figure>
+        <figure><img src="r8/ego.webp" alt="人物卡小图"><figcaption>人物卡小图：点线统一，线上只写关系词。</figcaption></figure>
+        <figure><img src="r8/datagraph.webp" alt="全书图"><figcaption>全书图“按关联”也换成一样大的空心圆圈、一样粗的线。</figcaption></figure>
+    </div>
+</section>
+
+<section class="q" data-nbdev-question="edge-merge" data-nbdev-type="single" data-nbdev-recommend="merge">
+    <h2><span class="badge todo" data-nbdev-skip>待定</span>17. 一对点之间有几种联系时，合并成一条线，还是画成平行的几条？</h2>
+    <p class="ask">你给了两种做法。稿子做的是合并（见上面几张图）。平行线是 viewer-v7 的做法：关系说法一条、认知一条（各带颜色），并排分开画。</p>
+    <div class="opts">
+        <div class="opt rec" data-nbdev-option="merge"><h3>合并成一条</h3><p>颜色按最要紧的一种（关系说法 &gt; 认知 &gt; 同场），认知用箭头标方向，线上的字写全几种联系。</p></div>
+        <div class="opt" data-nbdev-option="parallel"><h3>平行的几条</h3><p>每种联系一条、各自的颜色，并排分开；A→B 与 B→A 的认知也分成两条。</p></div>
+    </div>
+    <div class="rec-note"><b>推荐合并成一条。</b>人物之间几乎每对都同时有关系说法和认知，平行画会让线数翻倍，点多时几条线挤在一起又像叠线；合并后一对人一条线，要知道有哪几种联系，看线上的字或打开连线说明。Sigma 也没有现成的平行线画法，要自己写一个绘制程序。</div>
+</section>
+
+<section class="q" data-nbdev-question="default-layout" data-nbdev-type="single" data-nbdev-recommend="force">
+    <h2><span class="badge todo" data-nbdev-skip>待定</span>18. 关系图默认用哪种排版？</h2>
+    <p class="ask">三种都能随时切换，这里定第一次打开时用哪种。</p>
+    <div class="opts">
+        <div class="opt rec" data-nbdev-option="force"><h3>力导向</h3><p>关系近的排在一起，能看出小团体；每次排出来一样。</p></div>
+        <div class="opt" data-nbdev-option="concentric"><h3>同心</h3><p>以主角（或选中的人）为中心，一眼看出离她几跳。</p></div>
+        <div class="opt" data-nbdev-option="circle"><h3>环形</h3><p>最整齐、不重叠，但线在圈里交叉多。</p></div>
+    </div>
+    <div class="rec-note"><b>推荐力导向。</b>它是唯一能把“谁和谁走得近”画出来的排法；同心适合从人物卡点进来时看某个人的周围，环形适合点多时找人。</div>
+</section>
+
+<section class="q">
+    <h2>第 8 轮搭稿时发现的问题（不用答，记下来进计划）</h2>
+    <ol>
+        <li><b>知情视角分不清“不知道”和“没有记录”。</b>以南嘉鱼的视角，“风信子就是南小风”没有任何记录，规则只能当她不知道；可她是南小风的姐姐，原文也许只是没写到。视角图要能区分“明确不知道”（秘密矩阵里的“不知道”）和“没有记录”：后者可以用虚的黄线标“可能知道”。</li>
+        <li><b>只在一列里的化名，哪些算公开。</b>南嘉鱼一列有四个对象（猫女兽人、地狱猫、深蓝色的倩影、一个未具名身份），只有两对写成了身份秘密。稿子里规则是：没写成秘密的合并一律当作别人不知道（只有本人知道），所以以苏天晴的视角南嘉鱼裂成四个点。抽取时要么把每个化名关系都写成身份秘密，要么标明哪些是公开的。</li>
+        <li><b>没有名字的身份。</b>有的化名对象读到这里还没有名字，抽取只给了一句描述，图上写成“未具名身份”。</li>
+    </ol>
+</section>
+
+<div class="round">已定（第 7 轮的题，2026-10-15 答复）</div>
 
 <section class="q">
     <h2>第 7 轮的改动（不用答）</h2>
@@ -102,7 +160,7 @@ code { font-family: var(--mono); font-size: 12.5px; }
 </section>
 
 <section class="q" data-nbdev-question="graph-3d" data-nbdev-type="single" data-nbdev-recommend="later">
-    <h2><span class="badge todo" data-nbdev-skip>待定</span>15. 3D 图要不要进第一版？</h2>
+    <h2><span class="badge done" data-nbdev-skip>已定</span>15. 3D 图要不要进第一版？</h2>
     <p class="ask">在 Lab 的 <code>NbStoryDraft</code> 场景 <code>graph-3d</code> 里可以直接转着试（http://127.0.0.1:4217/）。3D 多带一个 three.js（压缩后约 180 KB），图本身的数据与平面图共用。</p>
     <div class="opts">
         <div class="opt rec" data-nbdev-option="later"><h3>第一版只做平面，3D 以后再看</h3><p>草稿留着，等平面图用起来再决定。</p></div>
@@ -110,16 +168,18 @@ code { font-family: var(--mono); font-size: 12.5px; }
         <div class="opt" data-nbdev-option="no"><h3>不做 3D</h3><p>删掉草稿。</p></div>
     </div>
     <div class="rec-note"><b>推荐第一版只做平面。</b>3D 看着有立体感，但读图更难：前面的点和字挡住后面的，字随远近忽大忽小，要转着看；“谁和谁什么关系”在平面图上一眼就能读。人物不过十几个、几十个时，3D 带来的空间也用不上。</div>
+    <div class="decided"><b>已定（2026-10-15）：</b>第一版只做平面，3D 先不做（决定 18）。</div>
 </section>
 
 <section class="q" data-nbdev-question="perspective-view" data-nbdev-type="single" data-nbdev-recommend="v1">
-    <h2><span class="badge todo" data-nbdev-skip>待定</span>16. 关系图要不要加“知情视角”？</h2>
+    <h2><span class="badge done" data-nbdev-skip>已定</span>16. 关系图要不要加“知情视角”？</h2>
     <p class="ask">viewer-v7 顶部能选“知情视角”：读者，或者某个角色。按角色看时，图只画这个角色知道的事。例如以南嘉鱼的视角，她不知道心月狐就是苏天晴，图上心月狐和苏天晴是两个点；她不知道的关系说法也不画。现在的图都是读者视角。</p>
     <div class="opts">
         <div class="opt rec" data-nbdev-option="v1"><h3>第一版就做，先放在关系图上</h3><p>关系图右上角一个“以谁的视角”选择，默认读者。人物卡、秘密矩阵以后再跟。</p></div>
         <div class="opt" data-nbdev-option="later"><h3>以后再做</h3><p>第一版只有读者视角。</p></div>
     </div>
     <div class="rec-note"><b>推荐第一版就在关系图上做。</b>“谁知道什么”是这本书和 nb-story 的核心（身份秘密、知情题），角色视角的图正好把秘密矩阵画出来；数据已经有：知情记录标了谁知道哪条说法、哪个秘密。代价在核心库：按角色合并化名、按角色过滤说法，要随“读到哪里”一起算。</div>
+    <div class="decided"><b>已定（2026-10-15）：</b>第一版就做，先放在关系图上（决定 19）。另附画法上的要求（决定 20），见第 8 轮。</div>
 </section>
 
 <section class="q">
