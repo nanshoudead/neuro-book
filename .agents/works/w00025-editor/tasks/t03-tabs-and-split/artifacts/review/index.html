@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>编辑器标签栏评审板</title>
+<style>
+:root {
+    --bg: #f6f5f1; --card: #ffffff; --text: #23211c; --muted: #6f6a60; --line: #e3dfd6; --accent: #0f766e; --accent-soft: #e3f1ef;
+    --warn: #b45309; --warn-soft: #fdf1df; --ok: #15803d; --ok-soft: #e4f4e8;
+    --radius: 10px;
+}
+@media (prefers-color-scheme: dark) {
+    :root { --bg: #18181b; --card: #222226; --text: #ececea; --muted: #a3a09a; --line: #34343a; --accent: #5eead4; --accent-soft: #123b37;
+        --warn: #fbbf24; --warn-soft: #3a2e12; --ok: #86efac; --ok-soft: #173322; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.7 system-ui, "PingFang SC", "Noto Sans CJK SC", sans-serif; }
+main { max-width: 1180px; margin: 0 auto; padding: 28px 24px 120px; }
+h1 { font-size: 22px; margin: 0 0 8px; }
+h2 { font-size: 17px; margin: 0; display: flex; align-items: center; gap: 10px; }
+h3 { font-size: 14px; margin: 0 0 4px; }
+p, li { max-width: 900px; }
+.lead p { color: var(--muted); margin: 6px 0; }
+.round { margin-top: 40px; font-size: 19px; font-weight: 700; border-bottom: 2px solid var(--line); padding-bottom: 6px; }
+section.q { margin-top: 28px; padding: 18px 20px; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); }
+.badge { font-size: 12px; font-weight: 600; padding: 1px 8px; border-radius: 999px; }
+.badge.todo { background: var(--warn-soft); color: var(--warn); }
+.badge.done { background: var(--ok-soft); color: var(--ok); }
+.opts { display: grid; grid-template-columns: 1fr; gap: 12px; margin: 10px 0; }
+.opt { border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; }
+.opt.rec { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+.opt p { margin: 4px 0 0; color: var(--muted); }
+.rec-note { margin-top: 10px; padding: 10px 14px; border-radius: var(--radius); background: var(--accent-soft); }
+.rec-note b { color: var(--accent); }
+figure { margin: 12px 0; }
+figure img { width: 100%; border: 1px solid var(--line); border-radius: var(--radius); display: block; }
+figcaption { color: var(--muted); font-size: 13px; margin-top: 6px; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th, td { text-align: left; vertical-align: top; padding: 8px 10px; border-top: 1px solid var(--line); }
+th { color: var(--muted); font-weight: 600; border-top: 0; }
+</style>
+</head>
+<body>
+<main>
+<h1>编辑器标签栏评审板</h1>
+<div class="lead">
+<p>w00025 t03：编辑器区的标签栏与拆分。草稿在 Lab 里用真实的主题 token 与文件图标搭成，不是产品代码；拖放、右键菜单这类交互不在静态稿里，实现后在真实页面上验收。</p>
+<p>已定的注意力排序（2026-10-15）：标签上是文件图标、文件名与状态位；关闭按钮只在活动标签与悬停的标签上显示，其余隐藏但占位；宽度随名字，过长截断；固定标签排最前、关闭位换成图钉；同名标签附灰色目录；多行默认开。</p>
+</div>
+
+<div class="round">第 1 轮</div>
+
+<section class="q" data-nbdev-question="r1-emphasis" data-nbdev-type="single" data-nbdev-recommend="underline">
+<h2>活动标签怎么突出 <span class="badge todo" data-nbdev-skip>待定</span></h2>
+<p>两张图都是两个编辑组：左组是活动组，右组不是。左组里“第一章 雨夜”呈现为鼠标悬停，“第二章 旧城”是活动标签并且未保存（悬停态与活动标签显示关闭按钮，别的未保存标签显示圆点）。</p>
+<div class="opts">
+<div class="opt" data-nbdev-option="bold">
+<h3>A 加粗（现在的做法）</h3>
+<p>活动标签用加粗的正文色，宽度按加粗预留，切换时不跳。和侧栏、面板的标签一致（ui/workbench-shell.md 输出 38）。问题：右组的活动标签同样加粗，看标签栏分不出哪个组是活动组，只能靠右上角的标题动作只画在活动组。</p>
+<figure><img src="r1/bold-light.webp" alt="A 加粗，亮色"><figcaption>A 加粗 · 亮色</figcaption></figure>
+<figure><img src="r1/bold-dark.webp" alt="A 加粗，暗色"><figcaption>A 加粗 · 暗色</figcaption></figure>
+</div>
+<div class="opt rec" data-nbdev-option="underline">
+<h3>B 底部强调短线</h3>
+<p>活动标签下面一条 2px 的强调色短线，左右各缩进 8px，文字不加粗；不是活动组时短线变成弱化的灰色。活动组一眼可辨，标签宽度也不用为加粗预留。</p>
+<figure><img src="r1/underline-light.webp" alt="B 短线，亮色"><figcaption>B 短线 · 亮色</figcaption></figure>
+<figure><img src="r1/underline-dark.webp" alt="B 短线，暗色"><figcaption>B 短线 · 暗色</figcaption></figure>
+</div>
+</div>
+<div class="rec-note"><b>推荐 B。</b>拆分之后要知道键盘输入会进哪个组，A 只能靠标题动作的位置判断；B 的强调色短线随活动组走，不活动的组降成灰色。代价是编辑器标签与侧栏、面板的标签样子不同：编辑器标签有多组之分，侧栏和面板没有，这个差别是有理由的。</p>
+</section>
+
+<section class="q" data-nbdev-question="r1-notes" data-nbdev-type="text" data-nbdev-optional>
+<h2>其它状态有没有要改的 <span class="badge todo" data-nbdev-skip>选答</span></h2>
+<p>下面几张按已定的排序画，供核对：多行、关掉多行时的横向滚动、悬停在固定标签上。看到要改的写在这里。</p>
+<table>
+<tr><th>看点</th><th>画法</th></tr>
+<tr><td>固定标签</td><td>排最前；不悬停时关闭位是图钉，未保存时是圆点；悬停时是图钉（点它取消固定）</td></tr>
+<tr><td>预览标签</td><td>斜体（“第三章 渡口”“番外 灯下”）</td></tr>
+<tr><td>同名</td><td>两个 README.md 后面分别是灰色小字 notes、drafts</td></tr>
+<tr><td>多行</td><td>放不下时换行，标题动作留在第一行右侧</td></tr>
+<tr><td>标签条与正文</td><td>不画分隔线，与现在一致</td></tr>
+</table>
+<figure><img src="r1/bold-many-light.webp" alt="多行，亮色"><figcaption>多行（A 加粗）· 亮色</figcaption></figure>
+<figure><img src="r1/underline-many-dark.webp" alt="多行，暗色"><figcaption>多行（B 短线）· 暗色</figcaption></figure>
+<figure><img src="r1/scroll-many-light.webp" alt="关掉多行"><figcaption>关掉多行：一行横向滚动（滚动条为悬停滚动条，静止时不画）</figcaption></figure>
+<figure><img src="r1/hover-pinned-light.webp" alt="悬停在固定标签上"><figcaption>悬停在固定的“大纲.md”上：关闭位显示图钉</figcaption></figure>
+</section>
+</main>
+</body>
+</html>
