@@ -1,0 +1,22 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00024-nb-story",
+    "taskId": "t01-ui-design",
+    "artifactId": "review",
+    "answerId": "20261015T012955911Z-a35d1409",
+    "artifactVersion": 6,
+    "contentHash": "07728709fa56cdba8dc96d0ade8425f65727391ccba336840e2fda5f585ef812",
+    "submittedAt": "2026-10-15T01:29:55.502Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "relation-graph-default": "people-groups",
+        "data-graph-grain": "arc"
+    },
+    "comments": {
+        "relation-graph-default": "1. sigma 是否提供 3d 图，如果提供可以做一个出来看看\n2. sigma 的节点是否能做成让用户拖拽的？\n3. 选中某个一节点后需要降暗其他节点的颜色。\n4. 点击某个节点后打开的右侧栏，然后收起右侧栏会导致 canvas 没有重绘\n6. 关于图，应该还能再优化，可以参考一下 /home/notnotype/CodeRepository/neuro-book/.worktree/w00005-novel-understanding-spike/.agents/works/w00005-novel-understanding-spike/tasks/t08-v7-memory-viewer/viewer-v7.html"
+    },
+    "note": null
+}
