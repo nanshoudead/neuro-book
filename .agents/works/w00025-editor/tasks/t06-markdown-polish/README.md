@@ -16,9 +16,20 @@ updated: 2026-10-15
 
 合同：[`workbench/editor.md`](../../../../../docs/specs/workbench/editor.md)（“不承诺”里的正文右键菜单与 Markdown 写作工具）、[`workbench/menus.md`](../../../../../docs/specs/workbench/menus.md)。
 
+## 开发者的决定
+
+问题与取舍见 [analysis.md](analysis.md)，旧应用的清单见 [legacy-markdown.md](legacy-markdown.md)。
+
+1. （2026-10-15）不另做 Markdown 的源码模式：用默认的文本编辑器（Monaco）打开就是源码模式，那里不做排版菜单与斜杠命令。排版菜单等只需要适配富文本一类的编辑器（一到两套）。
+2. （2026-10-15）实时预览用 CodeMirror 6。开发者问：能不能不用 Tiptap、富文本也用 CodeMirror 6 自己做一套。待评估后再定。
+3. （2026-10-15）排版菜单：选区浮动菜单与固定工具栏都有。
+4. （2026-10-15）粘贴、拖进来的图片存到哪里做成设置，参照 Obsidian。
+5. （2026-10-15）音频、视频先不做，以后有需求再做。
+6. （2026-10-15）`@` 引用写成普通 Markdown 链接。
+
 ## 当前状态
 
-2026-10-15 开工：Sonnet 子代理在调研旧应用的 Markdown 功能并对照新应用现状（只读），结果写到本目录的 `legacy-markdown.md`。
+2026-10-15 开工：旧应用调研（`legacy-markdown.md`）与功能分析（`analysis.md`）已完成；开发者定了决定 1–6，富文本用不用 Tiptap 待评估。
 
 ## 下一步
 
