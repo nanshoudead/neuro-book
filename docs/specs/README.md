@@ -200,6 +200,9 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过开发者授权
 | 插件公开 API | [`runtime/plugin-api.md`](runtime/plugin-api.md) | 远程形态约束、激活上下文、错误码、worker 池、私有存储、配置与密钥 |
 | 主线程卡死看门狗 | [`runtime/stall-watchdog.md`](runtime/stall-watchdog.md) | 卡死检测、报告、退出码 76、Manager 自动重启与桌面呈现、提示禁用与自动安全模式 |
 | Component Lab 时间线回放 | [`ui/component-lab-timeline.md`](ui/component-lab-timeline.md) | fixture 声明时间线、虚拟时钟、可复现定位与播放控件 |
+| 剧情图谱：书库与查询 | [`story/queries.md`](story/queries.md) | 书库与导入、按阅读位置与视角的查询、接口合同与独立服务的 HTTP、数值对账、阅读状态 |
+| 剧情图谱：查看器 | [`story/viewer.md`](story/viewer.md) | 网页查看器的外壳、阅读位置、各页、关系图与全书图、出处与地址、宽度三档 |
+| 剧情图谱：命令行与 Skill | [`story/cli-skill.md`](story/cli-skill.md) | `nbstory` 命令与查询方法一一对应、`serve`、给外部 Agent 的 Skill |
 
 ## 旧应用的规范与 Reference（只作参照）
 

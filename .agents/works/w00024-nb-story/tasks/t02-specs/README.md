@@ -9,9 +9,9 @@ updated: 2026-10-15
 
 ## 目标与范围
 
-把 t01 定下的设计（决定 1 到 26）与 nb-story 提案写成 docs/specs/story/ 下四份 planned Spec：queries、viewer、qa、cli-skill；先把提案从 w00005 分支搬到 master。要点先给开发者看，确认后再提交。
+把 t01 定下的设计（决定 1 到 26）与 nb-story 提案写成 docs/specs/story/ 下的 planned Spec（决定 5 之后为三份：queries、viewer、cli-skill）；先把提案从 w00005 分支搬到 master。要点先给开发者看，确认后再提交。
 
-合同：新建 `docs/specs/story/queries.md`、`story/viewer.md`、`story/qa.md`、`story/cli-skill.md`（`planned`，正文待写）。依据：[nb-story 提案](../../../../../docs/proposals/novel-story-app.md)、[V9 记忆图提案](../../../../../docs/proposals/novel-memory-v9.md)、[t01 的决定](../t01-ui-design/README.md#决定)。
+合同：新建 [`story/queries.md`](../../../../../docs/specs/story/queries.md)、[`story/viewer.md`](../../../../../docs/specs/story/viewer.md)、[`story/cli-skill.md`](../../../../../docs/specs/story/cli-skill.md)（`planned`）。依据：[nb-story 提案](../../../../../docs/proposals/novel-story-app.md)、[V9 记忆图提案](../../../../../docs/proposals/novel-memory-v9.md)、[t01 的决定](../t01-ui-design/README.md#决定)。
 
 ## 当前状态
 
@@ -59,8 +59,9 @@ updated: 2026-10-15
 
 6. **写正文时自定的十条（`spec-judgments`）**：可以，交审查。另定：几乎是纯文字、解释不复杂的问题以后直接在会话里问，不发评审板（已写进 design-review Skill）。
 
+7. **审查改了行为的五条（会话里确认，2026-10-15）**：开发者同意设计审查改动里涉及行为的五条：身份只按确定的身份连接合并（角色自称与候选不合并，画“可能是同一人”的线，深蓝色的倩影单独一个点）；全书抽取统计保留、标明不随阅读位置变，另给到位置为止的可见记录数；主线只显示最近一批，未收录的情节标“未归入主线”；Skill 验收改为每题按自己的阅读位置问、48 份答错不超过 11 份、换 Agent 重跑；登录链接在服务停止前可重复使用、会话到服务停止为止。
+
 ## 下一步
 
-1. 三份正文初稿已写在主工作区（未提交）：`docs/specs/story/queries.md`、`viewer.md`、`cli-skill.md`，已登记进 `docs/specs/README.md` 的待实现规范（未提交），`docs:check` 通过。要点评审板 v3 问写正文时自定的十条（`spec-judgments`）。
-2. 交 omp 审查（后端、领域与设计），处理意见后提交；之后写实施计划。
-3. （原计划）按决定 1 到 5 写三份 Spec 正文，登记进 `docs/specs/README.md` 的待实现规范，跑 `bun run docs:check`；正文按记忆先给开发者看要点，再交 omp 审查、提交。
+1. 三份 Spec 已提交（`docs/specs/story/queries.md`、`viewer.md`、`cli-skill.md`，登记进 `docs/specs/README.md` 的待实现规范）。
+2. 写实施计划 `plan.md`（implementation-planning），交审查后开实现 Task。
