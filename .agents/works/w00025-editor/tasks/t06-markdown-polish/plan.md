@@ -6,7 +6,7 @@
 
 - **为什么做**：实验（[conversion.md](conversion.md)）在现有的 Markdown 富文本编辑器里测出 8 类会改坏内容的问题，根因是写出不保留写法、写出后不读回校验、解析结果不校验、按行合并而结构按块。开发者 2026-10-15 决定重做转换并加上常用方言，可以重构或重写，先搭好代码结构。
 - **合同**：`workspace.markdown-dialect`（t06 分支的 `docs/specs/workspace/markdown-dialect.md`，`planned`，下称“方言 Spec”）；[`workbench.editor`](../../../../../docs/specs/workbench/editor.md) 输出 4、13、19、21–23、27、验收 5。
-- **开发者已确认**（[README](README.md) 的“开发者的决定”1–13）。第二版有三处要开发者再确认，见文末“待确认”。
+- **开发者已确认**（[README](README.md) 的“开发者的决定”1–14）。
 - **工作方式**：worktree `.worktree/w00025-t06-markdown-polish`（分支 `feat/w00025-t06-markdown-polish`）。主会话编码；逐片自跑验证后提交，只暂存本片文件。深入审查三轮：设计（本计划，改完由原审查者复审）、转换核心（S3 后）、收尾（S6 后）。
 
 ## 关键设计
