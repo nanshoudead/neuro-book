@@ -62,11 +62,13 @@ code { font-family: var(--mono); font-size: 12.5px; }
 </style>
 </head>
 <body>
-<header class="top"><b>nb-story 界面评审板</b><small>w00024 t01-ui-design 的产物 · 第 8 轮 · 2026-10-15</small></header>
+<header class="top"><b>nb-story 界面评审板</b><small>w00024 t01-ui-design 的产物 · 第 9 轮 · 2026-10-15</small></header>
 <main>
 
 <div class="lead">
-    <h1>第 8 轮：统一点线、合并连线、排版控件、知情视角</h1>
+    <h1>第 9 轮：聚焦时只变淡，不隐藏；图能否定稿</h1>
+    <p>第 8 轮你定了合并成一条线（决定 21）、默认力导向（决定 22），并要求聚焦时其余的线和点稍微变透明、不要消失（决定 23）。这一轮改了这一处，问两题：图能否定稿（19），以及定稿后的 Spec 提纲（20）。</p>
+    <h1 style="margin-top:20px;font-size:18px">第 8 轮：统一点线、合并连线、排版控件、知情视角</h1>
     <p>第 7 轮你定了 3D 先不做（决定 18）、知情视角第一版就做（决定 19），并在备注里提了画法上的要求（决定 20）。这一轮都做进了关系图，问两道题（17、18）。</p>
     <h1 style="margin-top:20px;font-size:18px">第 7 轮：按你的五条意见继续打磨图</h1>
     <p>第 6 轮两题你按推荐答了（决定 15、16），并在备注里提了五条（决定 17）：要不要 3D、节点能否拖拽、选中后降暗其他节点、收起右侧栏后画布不重绘、参考 viewer-v7 再优化。这一轮逐条做了，问两道题（15、16）。</p>
@@ -80,6 +82,48 @@ code { font-family: var(--mono); font-size: 12.5px; }
 </div>
 
 <div class="round">待定</div>
+
+<section class="q">
+    <h2>第 9 轮的改动（不用答）</h2>
+    <p>悬停或选中一个点时：它和它的邻居照常显示，相连的线加深、写全线上的字；其余的点和线只是变淡，点和名字都还在，只去掉线上的字，不再隐藏。只有勾上“只看选中的周边”时，其余的点才隐藏。</p>
+    <div class="shots">
+        <figure><img src="r9/hover.webp" alt="悬停"><figcaption>悬停在南小风上：她的邻居和线照常，其余变淡但都看得见。</figcaption></figure>
+        <figure><img src="r9/hover-dark.webp" alt="悬停，深色"><figcaption>同一画面的深色主题。</figcaption></figure>
+        <figure><img src="r9/selected.webp" alt="选中"><figcaption>打开南嘉鱼的人物卡（选中）：同样只变淡。</figcaption></figure>
+        <figure><img src="r9/know.webp" alt="认知"><figcaption>打开“认知”一层并悬停在苏天晴上。</figcaption></figure>
+    </div>
+</section>
+
+<section class="q" data-nbdev-question="graph-final" data-nbdev-type="single" data-nbdev-recommend="final">
+    <h2><span class="badge todo" data-nbdev-skip>待定</span>19. 图可以定稿了吗？</h2>
+    <p class="ask">定稿是指：关系图、全书图（按章节、按关联）、人物卡小图按第 6 到 9 轮的稿子写进 Spec；实现时还会按真实使用再调细节（颜色深浅、间距、动画时长），这些不再回到评审板。</p>
+    <div class="opts">
+        <div class="opt rec" data-nbdev-option="final"><h3>可以定稿</h3><p>开始写 Spec。</p></div>
+        <div class="opt" data-nbdev-option="more"><h3>还要再改</h3><p>在备注里写要改哪里，下一轮接着改图。</p></div>
+    </div>
+    <div class="rec-note"><b>推荐定稿。</b>点线、合并、选中与悬停、排版、视角都按你的意见改过一遍了；剩下的多是要在真实数据、真实交互里才看得准的细节。</div>
+</section>
+
+<section class="q" data-nbdev-question="spec-plan" data-nbdev-type="single" data-nbdev-recommend="go">
+    <h2><span class="badge todo" data-nbdev-skip>待定</span>20. 定稿后按这个提纲写 Spec，行吗？</h2>
+    <p class="ask">提案第六节预计四份 <code>planned</code> Spec，但没定放在哪里。<code>docs/specs/</code> 是产品 Spec 的唯一落点，拟新建 <code>docs/specs/story/</code>：</p>
+    <table>
+        <thead><tr><th>文件</th><th>管什么</th></tr></thead>
+        <tbody>
+            <tr><td><code>story/queries.md</code></td><td>书库；所有查询按“读到哪里”过滤（不返回后文）；各方法的接口合同；数值对账（决定 13）；显示名、化名合并、知情视角（决定 19）的规则。</td></tr>
+            <tr><td><code>story/viewer.md</code></td><td>查看器：首页、版式、段落级阅读位置、人物卡页签、关系图与全书图（决定 14 到 23）、其余各页、宽度三档、默认收起、出处回原文。</td></tr>
+            <tr><td><code>story/qa.md</code></td><td>问答：默认图当目录、可选全读、分步进度、答案格式（决定 9）、依据、回归门槛。</td></tr>
+            <tr><td><code>story/cli-skill.md</code></td><td>命令行 <code>nbstory</code>、<code>--json</code>、<code>serve</code> 与登录链接、Agent Skill。</td></tr>
+        </tbody>
+    </table>
+    <p>另外：提案现在只在 w00005 的分支上，Spec 要链接它；按提案第七节第 4 条，开工时先把它搬到 master。写 Spec 另开一个 Task（<code>t02-specs</code>）；Spec 写完再写实施计划。各轮“搭稿时发现的问题”里，合同层面的进 <code>queries.md</code>，抽取与记忆图的缺口进实施计划。</p>
+    <div class="opts">
+        <div class="opt rec" data-nbdev-option="go"><h3>按这个写</h3><p>开 t02、搬提案、写四份 Spec 的要点先给你看，确认后再提交。</p></div>
+        <div class="opt" data-nbdev-option="adjust"><h3>要调整</h3><p>在备注里写怎么分、放哪里。</p></div>
+    </div>
+</section>
+
+<div class="round">已定（第 8 轮的题，2026-10-15 答复）</div>
 
 <section class="q">
     <h2>第 8 轮的改动（不用答）</h2>
@@ -106,17 +150,18 @@ code { font-family: var(--mono); font-size: 12.5px; }
 </section>
 
 <section class="q" data-nbdev-question="edge-merge" data-nbdev-type="single" data-nbdev-recommend="merge">
-    <h2><span class="badge todo" data-nbdev-skip>待定</span>17. 一对点之间有几种联系时，合并成一条线，还是画成平行的几条？</h2>
+    <h2><span class="badge done" data-nbdev-skip>已定</span>17. 一对点之间有几种联系时，合并成一条线，还是画成平行的几条？</h2>
     <p class="ask">你给了两种做法。稿子做的是合并（见上面几张图）。平行线是 viewer-v7 的做法：关系说法一条、认知一条（各带颜色），并排分开画。</p>
     <div class="opts">
         <div class="opt rec" data-nbdev-option="merge"><h3>合并成一条</h3><p>颜色按最要紧的一种（关系说法 &gt; 认知 &gt; 同场），认知用箭头标方向，线上的字写全几种联系。</p></div>
         <div class="opt" data-nbdev-option="parallel"><h3>平行的几条</h3><p>每种联系一条、各自的颜色，并排分开；A→B 与 B→A 的认知也分成两条。</p></div>
     </div>
     <div class="rec-note"><b>推荐合并成一条。</b>人物之间几乎每对都同时有关系说法和认知，平行画会让线数翻倍，点多时几条线挤在一起又像叠线；合并后一对人一条线，要知道有哪几种联系，看线上的字或打开连线说明。Sigma 也没有现成的平行线画法，要自己写一个绘制程序。</div>
+    <div class="decided"><b>已定（2026-10-15）：</b>合并成一条线（决定 21）。</div>
 </section>
 
 <section class="q" data-nbdev-question="default-layout" data-nbdev-type="single" data-nbdev-recommend="force">
-    <h2><span class="badge todo" data-nbdev-skip>待定</span>18. 关系图默认用哪种排版？</h2>
+    <h2><span class="badge done" data-nbdev-skip>已定</span>18. 关系图默认用哪种排版？</h2>
     <p class="ask">三种都能随时切换，这里定第一次打开时用哪种。</p>
     <div class="opts">
         <div class="opt rec" data-nbdev-option="force"><h3>力导向</h3><p>关系近的排在一起，能看出小团体；每次排出来一样。</p></div>
@@ -124,6 +169,7 @@ code { font-family: var(--mono); font-size: 12.5px; }
         <div class="opt" data-nbdev-option="circle"><h3>环形</h3><p>最整齐、不重叠，但线在圈里交叉多。</p></div>
     </div>
     <div class="rec-note"><b>推荐力导向。</b>它是唯一能把“谁和谁走得近”画出来的排法；同心适合从人物卡点进来时看某个人的周围，环形适合点多时找人。</div>
+    <div class="decided"><b>已定（2026-10-15）：</b>力导向（决定 22）。另附：聚焦时其余的线和点只变淡、不消失（决定 23），见第 9 轮。</div>
 </section>
 
 <section class="q">
