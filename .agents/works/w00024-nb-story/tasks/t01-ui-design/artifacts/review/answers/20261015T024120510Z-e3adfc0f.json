@@ -1,0 +1,20 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00024-nb-story",
+    "taskId": "t01-ui-design",
+    "artifactId": "review",
+    "answerId": "20261015T024120510Z-e3adfc0f",
+    "artifactVersion": 9,
+    "contentHash": "1e8634da041e78ae9f8be4b3cab787635bb0fe3cd22d675d8c3a1363f9908f9c",
+    "submittedAt": "2026-10-15T02:41:20.105Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "graph-final": "final",
+        "spec-plan": "go"
+    },
+    "comments": {},
+    "note": "同时我看你用的 Lab 目录是：lab/drafts。我觉得可以把这个目录提升一级换成 drafts/。同时也相关规范文档记录一下这个 drafts 目录的用途，防止后续有类似任务需求的 agent 自己重新新建一个目录"
+}
