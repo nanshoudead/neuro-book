@@ -80,6 +80,12 @@ const MATH_BLOCK = /^\$\$[^\n]*\$\$[ \t]*(?=\n|$)|^\$\$[ \t]*\n[\s\S]*?\n[ \t]*\
  */
 export const OPENS_HTML_BLOCK = /^<(?:!--|\?|![A-Za-z]|!\[CDATA\[|(?:script|pre|style|textarea)(?:\s|>|$)|\/?(?:address|article|aside|base|basefont|blockquote|body|caption|center|col|colgroup|dd|details|dialog|dir|div|dl|dt|fieldset|figcaption|figure|footer|form|frame|frameset|h[1-6]|head|header|hr|html|iframe|legend|li|link|main|menu|menuitem|nav|noframes|ol|optgroup|option|p|param|search|section|summary|table|tbody|td|tfoot|th|thead|title|tr|track|ul)(?:\s|\/?>|$))/iu;
 
+/**
+ * 单个完整的标签（开标签或闭标签）：独占一行时会开启 HTML 块（CommonMark 的第 7 类，不能打断段落，但能开始一个块）。原样片段
+ * 是这样的标签时，不能一个人占一行。
+ */
+export const LONE_TAG = /^<\/?[A-Za-z][\w-]*(?:\s(?:"[^"]*"|'[^']*'|[^>"'])*)?\/?>$/u;
+
 export const RawBlock = Node.create({
     name: "rawBlock",
     group: "block",
@@ -224,10 +230,11 @@ export function createRawSyntax(tags: {readonly blockTags: ReadonlyArray<string>
         },
         writeBlock: {rawBlock: (node) => String(node.attrs.raw ?? "")},
         writeInline: {
-            // 段首就是会开启 HTML 块的原样片段时写不出（方言 Spec 输出 9）：它会被读成原样块。
+            // 段首就是会开启 HTML 块的原样片段、或者整段只有一个完整标签时写不出（方言 Spec 输出 9）：它会被读成原样块。
+            // 后面跟着换行的情况由换行的写法处理（写成 `<br>`，标签不独占一行）。
             rawInline: (node, _context, around) => {
                 const raw = String(node.attrs.raw ?? "");
-                if (around.previous === null && around.place.table !== true && OPENS_HTML_BLOCK.test(raw)) throw new Unrepresentable("段首的 HTML 会被读成 HTML 块");
+                if (around.previous === null && around.place.table !== true && (OPENS_HTML_BLOCK.test(raw) || (around.next === null && LONE_TAG.test(raw)))) throw new Unrepresentable("段首的 HTML 会被读成 HTML 块");
                 return raw;
             },
         },

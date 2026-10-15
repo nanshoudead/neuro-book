@@ -20,7 +20,18 @@ export interface ReadContext {
      * 单元必须属于正在读的这一块，并且按出现的先后调用（调度器沿原文向后查找它）。
      */
     raw(token: Token, inline: boolean): JSONContent;
+    /**
+     * 用读这一篇的同一个词法器给一段文字分词，整篇的引用定义可用：读法要把单元的一部分另作内容时用（提示块去掉第一行后的内容）。
+     */
+    lexBlocks(src: string): Token[];
+    lexInline(src: string): Token[];
 }
+
+/**
+ * 整篇读完之后的处理：各块读法产出的 JSON（按文件顺序，每块一组），可以就地改。跨块的分组（分截批注合成一条）在这里做；
+ * 写回校验只读一个窗口时也会调用，窗口外的部分看不到。
+ */
+export type ReadResolver = (blocks: ReadonlyArray<ReadonlyArray<JSONContent>>) => void;
 
 /** 一种词法单元的读法：返回 null 表示不认领，交给下一个读法。 */
 export type TokenReader = (token: Token, context: ReadContext) => JSONContent[] | null;
@@ -57,6 +68,21 @@ export interface WriteContext {
     style<T>(target: PMNode | Mark): T | null;
     /** 全篇的引用定义：标签（小写）→ 地址。`[注]` 只有在有同名定义时才会被读成链接；引用式链接要定义的地址就是它的地址。 */
     readonly definitions: ReadonlyMap<string, string>;
+    /** 语法模块对整篇做的写前准备（`MarkdownSyntax.prepareWrite` 的结果），按模块名取；没有为 undefined。 */
+    prepared<T>(syntax: string): T | undefined;
+}
+
+/** 编解码器给写前准备的工具。 */
+export interface WriteTools {
+    /** 一个文本块里各个标记开标签的位置，与写出时的安排一致（按记下的写法）。 */
+    openings(parent: PMNode): ReadonlyArray<{readonly mark: Mark; readonly offset: number}>;
+}
+
+/** `MarkdownSyntax.contextDependents` 看到的一项。 */
+export interface ContextBlock {
+    readonly nodes: ReadonlyArray<PMNode>;
+    /** 写原文时是这块现在的原文；重新写出时为 null。 */
+    readonly raw: string | null;
 }
 
 /** 写不出：写法遇到 GFM 表达不了的结构（多段单元格、没有表头的表格、合并单元格）时抛出。 */
@@ -68,14 +94,29 @@ export type BlockWriter = (node: PMNode, context: WriteContext) => string;
 /** 一种行内节点的写法（硬换行、图片、原样片段……）。`around` 给出前后的节点与位置：换行的写法要看它在段首、段末还是紧跟另一个换行。 */
 export type InlineWriter = (node: PMNode, context: WriteContext, around: {readonly previous: PMNode | null; readonly next: PMNode | null; readonly place: InlinePlace}) => string;
 
-/** 一种标记的写法。`run` 是这个标记覆盖的那一段的纯文字（链接据它判断能不能写成自动链接）。 */
+/**
+ * 一次开标签到闭标签（一个标记可能因为嵌套被拆成几次）：这一次的纯文字（链接据它判断能不能写成自动链接，行内代码据它定
+ * 反引号），所在的文本块与开标签在块内容里的位置（文字按字、行内节点各算一个；分截批注据此判断是不是整条批注的第一截）。
+ */
+export interface MarkRun {
+    readonly text: string;
+    readonly parent: PMNode;
+    readonly offset: number;
+}
+
+/** 一种标记的写法。 */
 export interface MarkWriter {
-    open(mark: Mark, context: WriteContext, run: {readonly text: string}): string;
-    close(mark: Mark, context: WriteContext, run: {readonly text: string}): string;
+    open(mark: Mark, context: WriteContext, run: MarkRun): string;
+    close(mark: Mark, context: WriteContext, run: MarkRun): string;
     /** 标记里的文字原样写、不转义：行内代码，写成自动链接的链接（`<https://…>`、裸网址）。 */
-    verbatim?(mark: Mark, context: WriteContext, run: {readonly text: string}): boolean;
+    verbatim?(mark: Mark, context: WriteContext, run: MarkRun): boolean;
     /** 开闭符号能被侧翼规则吃掉的强调类标记：标记两端的空白移到标记外面写。 */
     readonly emphasis?: boolean;
+    /**
+     * 只盖文字的标记（注音的正文只能是纯文字）：行内节点（换行、图片、原样片段）身上的它写不出来，写出与读回校验都不管；
+     * 标记在行内节点处断开。
+     */
+    readonly textOnly?: boolean;
 }
 
 /** 一种语法。 */
@@ -102,6 +143,24 @@ export interface MarkdownSyntax {
     readonly derivedAttrs?: Readonly<Record<string, ReadonlyArray<string>>>;
     /** 标记看不出来、也写不出来的行内节点（硬换行）：写出与读回校验都不管它身上的标记。 */
     readonly marklessInline?: ReadonlyArray<string>;
+    /**
+     * 由跨块的上下文决定、读回一个窗口时对不上的属性（节点或标记类型 → 属性名）：读回校验不比较它们。例如分截批注的 `body`
+     * 只写在第一截，窗口里的后几截读回来没有意见。
+     */
+    readonly contextAttrs?: Readonly<Record<string, ReadonlyArray<string>>>;
+    /** 整篇读完之后的处理（见 `ReadResolver`）。 */
+    readonly resolve?: ReadResolver;
+    /**
+     * 写出前对整篇做的准备（例如分截批注哪一截是第一截、要分配的 `id`），写法经 `WriteContext.prepared` 取。`blocks` 是这次
+     * 写出的各项（写原文的带着原文），准备时可以参考原文里已经写着的东西。
+     */
+    readonly prepareWrite?: (doc: PMNode, blocks: ReadonlyArray<ContextBlock>, tools: WriteTools) => unknown;
+    /**
+     * 没被编辑的块里，哪些因为上下文变了要重新写出：`blocks` 是这次写出的全部项（`raw` 为 null 的是要重新写出的），返回要改为
+     * 重新写出的项的下标。例如分截批注带意见的那一截所在的块被删掉，剩下的截的原文里都没有意见（输出 11）。编解码器反复调用，
+     * 直到不再有新的。
+     */
+    readonly contextDependents?: (blocks: ReadonlyArray<ContextBlock>, prepared: unknown) => Iterable<number>;
     /** 写法：块节点类型、行内节点类型、标记类型 → 写法。 */
     readonly writeBlock?: Readonly<Record<string, BlockWriter>>;
     readonly writeInline?: Readonly<Record<string, InlineWriter>>;

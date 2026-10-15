@@ -67,19 +67,27 @@ function linesOf(body: string): SourceLine[] {
     return lines;
 }
 
-/** 代码围栏的开栏：最多 3 空格缩进加 ``` 或 ~~~。 */
-const FENCE_OPEN = /^ {0,3}(`{3,}|~{3,})/u;
+/** 代码围栏的开栏：最多 3 空格缩进加 ``` 或 ~~~；反引号围栏后面的信息串里不能再有反引号（CommonMark），否则只是段落。 */
+const FENCE_OPEN = /^ {0,3}(`{3,}(?=[^`]*$)|~{3,})/u;
 /** 开标签前只有空白与容器标记（引用 `>`、列表 `-*+`、有序 `1.`/`1)`）：这是正常的嵌套，不拆。 */
 const CONTAINER_ONLY_PREFIX = /^[ \t]*(?:(?:>|[-*+]|\d{1,9}[.)])[ \t]*)*$/u;
 
-/** 每一行在不在代码围栏里（开栏、栏内、闭栏都算）；一次扫描。 */
+/** 可渲染 HTML 块（方言 Spec 输出 16）的开闭行：里面是 HTML，不是 Markdown，其中的 ``` 不开代码围栏。 */
+const HTML_OPEN = /^<html>[ \t]*$/iu;
+const HTML_CLOSE = /^ {0,3}<\/html\s*>[ \t]*$/iu;
+
+/** 每一行在不在代码围栏或 `<html>` 块里（开、内、闭都算）；一次扫描。 */
 function fencedLines(body: string, lines: ReadonlyArray<SourceLine>): boolean[] {
     const fenced: boolean[] = [];
     let fence: {marker: string; length: number} | null = null;
+    let html = false;
     for (const line of lines) {
         const text = body.slice(line.start, line.end);
         const matched = FENCE_OPEN.exec(text);
-        if (fence !== null) {
+        if (html || (fence === null && HTML_OPEN.test(text))) {
+            html = !(html && HTML_CLOSE.test(text));
+            fenced.push(true);
+        } else if (fence !== null) {
             if (matched !== null && (matched[1] as string).startsWith(fence.marker) && (matched[1] as string).length >= fence.length && text.slice(matched[0].length).trim() === "") fence = null;
             fenced.push(true);
         } else if (matched !== null) {
@@ -124,6 +132,12 @@ function gluedSplits(body: string, lines: ReadonlyArray<SourceLine>, blockTags: 
         splits.set(index, matched.index);
     });
     return splits;
+}
+
+/** 宽容写法会在哪里拆开：开标签在正文里的位置，从小到大。写回用它检查整篇输出（拆分点只能在块的开头）。 */
+export function gluedOpenings(body: string, blockTags: ReadonlyArray<string>, openAtLineEnd: RegExp): number[] {
+    const lines = linesOf(body);
+    return [...gluedSplits(body, lines, blockTags, openAtLineEnd)].map(([line, column]) => (lines[line] as SourceLine).start + column).sort((left, right) => left - right);
 }
 
 /**

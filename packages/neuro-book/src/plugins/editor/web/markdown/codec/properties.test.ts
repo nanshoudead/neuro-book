@@ -12,13 +12,13 @@ import {readdirSync, readFileSync} from "node:fs";
 import {join} from "node:path";
 
 import {getSchema} from "@tiptap/core";
-import type {Node as PMNode} from "@tiptap/pm/model";
+import type {Mark, Node as PMNode} from "@tiptap/pm/model";
 import {Transform, findWrapping} from "@tiptap/pm/transform";
 import {describe, expect, it} from "bun:test";
 import fc from "fast-check";
 
 import {markdownLanguage} from "../syntax";
-import {OPENS_HTML_BLOCK} from "../syntax/raw";
+import {LONE_TAG, OPENS_HTML_BLOCK} from "../syntax/raw";
 import {codecFor} from "./codec";
 import {equivalent} from "./compare";
 
@@ -28,8 +28,8 @@ const codec = codecFor(schema, language);
 const CORPUS = join(import.meta.dir, "corpus");
 const sources = readdirSync(CORPUS).filter((name) => name.endsWith(".md")).sort().map((name) => readFileSync(join(CORPUS, name), "utf8"));
 const seed = Number(process.env.MARKDOWN_PROPERTY_SEED ?? 20261015);
-const emphasis = new Set(["bold", "italic", "strike"]);
-const compareOptions = {styles: "canonical" as const, emphasis, derived: language.derivedAttrs, markless: language.marklessInline};
+const emphasis = new Set([...language.markWriters].filter(([, writer]) => writer.emphasis === true).map(([type]) => type));
+const compareOptions = {styles: "canonical" as const, emphasis, ignored: language.uncomparedAttrs, markless: language.marklessInline, textOnly: language.textOnlyMarks};
 
 /** 读回的整篇与文档是否相同（顶层逐个比，空段落也算）。 */
 function sameDoc(doc: PMNode, text: string): string | null {
@@ -49,9 +49,21 @@ const alphabet = fc.constantFrom("甲", "乙", "，", "。", "“", "”", "a", 
 const text = fc.array(alphabet, {minLength: 1, maxLength: 8}).map((chars) => chars.join(""));
 const markNames = ["bold", "italic", "strike", "code"] as const;
 
+let comments = 0;
+/** 方言的标记：每次调用新建一个（批注带新的 `key`，是一条新批注）。 */
+const dialectMarks: ReadonlyArray<(value: string) => Mark> = [
+    (value) => schema.marks.comment!.create({body: `意见${value}`, key: `test-${(comments += 1)}`}),
+    () => schema.marks.markdownHighlight!.create(),
+    () => schema.marks.markdownHighlight!.create({color: "yellow"}),
+    (value) => schema.marks.markdownRuby!.create({text: value}),
+    () => schema.marks.markdownTextColor!.create({color: "#ff0000"}),
+    () => schema.marks.markdownSuperscript!.create(),
+];
+
 describe("随机新建：写出读回相同，不出现写不出", () => {
     const inline = fc.array(fc.oneof(
         {weight: 6, arbitrary: fc.tuple(text, fc.subarray([...markNames])).map(([value, marks]) => schema.text(value, (marks.includes("code") ? ["code"] : marks).map((name) => schema.marks[name]!.create())))},
+        {weight: 2, arbitrary: fc.tuple(text, fc.nat({max: dialectMarks.length - 1}), fc.subarray(["bold", "italic"])).map(([value, which, marks]) => schema.text(value, [(dialectMarks[which] as (value: string) => Mark)(value), ...marks.map((name) => schema.marks[name]!.create())]))},
         {weight: 1, arbitrary: fc.constant(null).map(() => schema.nodes.hardBreak!.create())},
         {weight: 1, arbitrary: text.map((value) => schema.text(value, [schema.marks.link!.create({href: "https://example.com/a"})]))},
     ), {minLength: 1, maxLength: 5});
@@ -63,6 +75,12 @@ describe("随机新建：写出读回相同，不出现写不出", () => {
         {weight: 1, arbitrary: fc.array(paragraph, {minLength: 1, maxLength: 2}).map((items) => schema.nodes.taskList!.create(null, items.map((item, index) => schema.nodes.taskItem!.create({checked: index % 2 === 0}, [item]))))},
         {weight: 1, arbitrary: fc.array(paragraph, {minLength: 1, maxLength: 2}).map((items) => schema.nodes.blockquote!.create(null, items))},
         {weight: 1, arbitrary: fc.array(alphabet, {maxLength: 12}).map((chars) => schema.nodes.codeBlock!.create(null, chars.length === 0 ? [] : [schema.text(chars.join(""))]))},
+        // 提示块的标题由界面设置：首尾没有空白，空的是 null。
+        {weight: 1, arbitrary: fc.tuple(fc.array(paragraph, {minLength: 1, maxLength: 2}), text, fc.constantFrom("NOTE", "warning"), fc.constantFrom(null, "-", "+")).map(([items, title, type, fold]) => schema.nodes.callout!.create({type, title: title.trim() === "" ? null : title.trim(), fold}, items))},
+        {weight: 1, arbitrary: fc.tuple(fc.array(paragraph, {minLength: 1, maxLength: 2}), text).map(([items, body]) => schema.nodes.commentBlock!.create({body}, items))},
+        {weight: 1, arbitrary: fc.tuple(fc.array(paragraph, {minLength: 1, maxLength: 2}), fc.constantFrom("center", "right", "justify", "left")).map(([items, align]) => schema.nodes.markdownAlign!.create({align}, items))},
+        {weight: 1, arbitrary: fc.tuple(fc.array(paragraph, {minLength: 1, maxLength: 2}), text).map(([items, translation]) => schema.nodes.markdownBilingual!.create({text: translation}, items))},
+        {weight: 1, arbitrary: fc.array(alphabet, {maxLength: 12}).map((chars) => schema.nodes.htmlEmbed!.create({html: chars.join("")}))},
         {weight: 1, arbitrary: fc.tuple(inline, inline).map(([head, body]) => schema.nodes.table!.create(null, [
             schema.nodes.tableRow!.create(null, [schema.nodes.tableHeader!.create(null, [schema.nodes.paragraph!.create(null, head)])]),
             schema.nodes.tableRow!.create(null, [schema.nodes.tableCell!.create(null, [schema.nodes.paragraph!.create(null, body)])]),
@@ -141,14 +159,37 @@ function nearEdit(before: PMNode, after: PMNode): Set<number> {
             if (usesReference) near.add(index);
         });
     }
+    // 批注的分组（方言 Spec 输出 11）：一条批注有一截挨着编辑处、或者它的截在编辑前后有增减，它涉及的块都会按规则重新写出。
+    const comments = (doc: PMNode): Map<string, number[]> => {
+        const groups = new Map<string, number[]>();
+        doc.forEach((node, _offset, index) => {
+            node.descendants((child) => {
+                for (const mark of child.marks) {
+                    if (mark.type.name !== "comment") continue;
+                    const group = JSON.stringify([mark.attrs.id, mark.attrs.body, mark.attrs.key]);
+                    groups.set(group, [...new Set([...(groups.get(group) ?? []), index])]);
+                }
+            });
+        });
+        return groups;
+    };
+    const previous = comments(before);
+    for (const [group, blocks] of comments(after)) {
+        const earlier = previous.get(group) ?? [];
+        const touched = blocks.some((index) => near.has(index)) || earlier.length !== blocks.length;
+        if (touched) for (const index of blocks) near.add(index);
+    }
     return near;
 }
 
-/** 有没有文本块以会开启 HTML 块的原样片段开头。 */
+/** 有没有文本块以会开启 HTML 块的原样片段开头，或者整段只有一个完整标签的原样片段（方言 Spec 输出 9 的已知限制）。 */
 function startsWithHtmlBlock(doc: PMNode): boolean {
     let found = false;
     doc.descendants((node) => {
-        if (node.isTextblock && node.firstChild?.type.name === "rawInline" && OPENS_HTML_BLOCK.test(String(node.firstChild.attrs.raw ?? ""))) found = true;
+        const first = node.isTextblock ? node.firstChild : null;
+        if (first?.type.name !== "rawInline") return;
+        const raw = String(first.attrs.raw ?? "");
+        if (OPENS_HTML_BLOCK.test(raw) || (node.childCount === 1 && LONE_TAG.test(raw))) found = true;
     });
     return found;
 }
@@ -231,7 +272,8 @@ function apply(doc: PMNode, [kind, a, b, value]: Edit): {doc: PMNode; touched: n
                 if (at === null) return null;
                 const $at = doc.resolve(at);
                 const range = $at.blockRange();
-                const type = [schema.nodes.bulletList!, schema.nodes.blockquote!, schema.nodes.orderedList!][b % 3]!;
+                const types = [schema.nodes.bulletList!, schema.nodes.blockquote!, schema.nodes.orderedList!, schema.nodes.callout!, schema.nodes.commentBlock!, schema.nodes.markdownAlign!, schema.nodes.markdownBilingual!];
+                const type = types[b % types.length]!;
                 const wrapping = range === null ? null : findWrapping(range, type);
                 if (range === null || wrapping === null) return null;
                 tr.wrap(range, wrapping);
@@ -240,7 +282,8 @@ function apply(doc: PMNode, [kind, a, b, value]: Edit): {doc: PMNode; touched: n
             case 7: {
                 if (at === null) return null;
                 const end = Math.min(at + 1 + (b % 4), doc.resolve(at).end());
-                const mark = schema.marks[markNames[b % markNames.length] as string]!.create();
+                const marks = [...markNames.map((name) => () => schema.marks[name]!.create()), ...dialectMarks.map((create) => () => create(value))];
+                const mark = (marks[b % marks.length] as () => Mark)();
                 if (b % 3 === 0) tr.removeMark(at, end, mark.type);
                 else tr.addMark(at, end, mark);
                 return {doc: tr.doc, touched: [indexAt(at)]};

@@ -1,8 +1,8 @@
 /**
  * 行内内容的写出（docs/specs/workspace/markdown-dialect.md 输出 2、4、5）：一个文本块里的文字、行内节点与标记。
  *
- * 标记的开闭：相邻两个节点的标记集合不同时，先关掉不再延续的（从里往外），再开新的。延续的标记排在前面、新开的按 schema 的
- * 优先级排，这样一个标记在它覆盖的那一段里只开一次，标签自然嵌套（两条重叠的批注在边界处拆成截）。
+ * 标记的开闭（`layout`）：相邻两个节点的标记集合不同时，先关掉不再延续的（从里往外），再开新的。延续的标记排在前面、新开的
+ * 按 schema 的优先级排，这样一个标记在它覆盖的那一段里尽量只开一次，标签自然嵌套（两条重叠的批注在边界处拆成截）。
  *
  * 强调类标记（`emphasis`）两端的空白移到标记外面写：`** a**` 读不成粗体。写出前先对整段内容做 `../compare.ts` 的 `expel`，
  * 比较前也做同样的处理，两边按同一个规则。
@@ -10,10 +10,10 @@
 
 import type {Mark, Node as PMNode, Schema} from "@tiptap/pm/model";
 
-import {expel, flatten, withoutStyles} from "../compare";
+import {bridge, expel, flatten, withoutStyles} from "../compare";
 import type {InlineItem} from "../compare";
 
-import type {InlinePlace, InlineWriter, MarkWriter, WriteContext} from "../../syntax/types";
+import type {InlinePlace, InlineWriter, MarkRun, MarkWriter, WriteContext} from "../../syntax/types";
 import {Unrepresentable} from "../../syntax/types";
 import {escapeText} from "./escape";
 
@@ -21,6 +21,7 @@ export interface InlineWriters {
     readonly inline: ReadonlyMap<string, InlineWriter>;
     readonly marks: ReadonlyMap<string, MarkWriter>;
     readonly markless: ReadonlySet<string>;
+    readonly textOnly: ReadonlySet<string>;
 }
 
 /**
@@ -44,14 +45,15 @@ export function follow(items: InlineItem[]): void {
 }
 
 /**
- * 按强调与跟随规则整理过的行内内容：文字按标记重新分段，行内节点照旧。`markless` 的节点（硬换行）身上的标记去掉：行内代码里
- * 不能有换行，粗体跨着换行时去掉也只是在换行处关一次、再开一次。
+ * 整理过的行内内容（硬换行取两边共有的标记、规范写法去写法属性、跟随、强调两端的空白，规则都在 `../compare.ts`）：文字按标记
+ * 重新分段，行内节点照旧。
  */
-function normalized(parent: PMNode, emphasis: ReadonlySet<string>, markless: ReadonlySet<string>, canonical: boolean): PMNode[] {
-    const items = flatten(parent, markless);
+function normalized(parent: PMNode, emphasis: ReadonlySet<string>, markless: ReadonlySet<string>, textOnly: ReadonlySet<string>, canonical: boolean): PMNode[] {
+    const items = flatten(parent, markless, textOnly);
+    bridge(items, markless, textOnly);
     if (canonical) withoutStyles(items);
     follow(items);
-    expel(items, emphasis);
+    expel(items, emphasis, markless);
     const schema: Schema = parent.type.schema;
     const out: PMNode[] = [];
     let text = "";
@@ -75,27 +77,70 @@ function normalized(parent: PMNode, emphasis: ReadonlySet<string>, markless: Rea
     return out;
 }
 
-/** 一个标记覆盖的那一段（从第一个带它的节点到最后一个）的纯文字。 */
-function runText(children: ReadonlyArray<PMNode>, index: number, mark: Mark): string {
-    let start = index;
-    while (start > 0 && mark.isInSet((children[start - 1] as PMNode).marks)) start -= 1;
-    let end = index;
-    while (end < children.length - 1 && mark.isInSet((children[end + 1] as PMNode).marks)) end += 1;
-    return children.slice(start, end + 1).map((child) => (child.isText ? (child.text as string) : "")).join("");
+/**
+ * 这个节点要用的标记顺序：已经开着的、它也带的排前面（保持开着的先后），其余按 schema 的优先级。只盖文字的标记（注音、
+ * 行内代码）排在最后：它的里面只能是文字，别的标记要在它里面开时，它先关上、在里面重开。
+ */
+function ordered(marks: ReadonlyArray<Mark>, active: ReadonlyArray<Mark>, textOnly: ReadonlySet<string>): Mark[] {
+    const inner = (mark: Mark): boolean => textOnly.has(mark.type.name);
+    const kept = active.filter((mark) => mark.isInSet(marks) && !inner(mark));
+    const fresh = marks.filter((mark) => !mark.isInSet(kept) && !inner(mark)).sort((left, right) => (left.type as unknown as {rank: number}).rank - (right.type as unknown as {rank: number}).rank);
+    return [...kept, ...fresh, ...active.filter((mark) => mark.isInSet(marks) && inner(mark)), ...marks.filter((mark) => inner(mark) && !mark.isInSet(active))];
 }
 
-/** 这个节点要用的标记顺序：已经开着的、它也带的排前面（保持开着的先后），其余按 schema 的优先级。 */
-function ordered(marks: ReadonlyArray<Mark>, active: ReadonlyArray<Mark>): Mark[] {
-    const kept = active.filter((mark) => mark.isInSet(marks));
-    const fresh = marks.filter((mark) => !mark.isInSet(kept)).sort((left, right) => (left.type as unknown as {rank: number}).rank - (right.type as unknown as {rank: number}).rank);
-    return [...kept, ...fresh];
+/** 一次开标签到闭标签：从第几个子节点到第几个（含），写法拿到的 `MarkRun` 就是它。 */
+interface Run extends MarkRun {
+    readonly mark: Mark;
+    readonly start: number;
+    end: number;
+}
+
+/**
+ * 标记的开闭安排：相邻两个节点的标记集合不同时，先关掉不再延续的（从里往外），再开新的（顺序见 `ordered`）。返回每个子节点
+ * 前要关的与要开的，以及每一次开闭的范围、文字与起点。
+ */
+function layout(parent: PMNode, children: ReadonlyArray<PMNode>, textOnly: ReadonlySet<string>): {readonly closes: Run[][]; readonly opens: Run[][]; readonly active: Run[][]; readonly tail: Run[]} {
+    const runs: Run[] = [];
+    const closes: Run[][] = [];
+    const opens: Run[][] = [];
+    const activeAt: Run[][] = [];
+    let active: Run[] = [];
+    let offset = 0;
+    children.forEach((child, index) => {
+        const wanted = ordered(child.marks, active.map((run) => run.mark), textOnly);
+        let common = 0;
+        while (common < active.length && common < wanted.length && (active[common] as Run).mark.eq(wanted[common] as Mark)) common += 1;
+        const closing = active.slice(common).reverse();
+        for (const run of closing) run.end = index - 1;
+        const opening = wanted.slice(common).map((mark): Run => ({mark, start: index, end: children.length - 1, offset, parent, text: ""}));
+        runs.push(...opening);
+        closes.push(closing);
+        opens.push(opening);
+        active = [...active.slice(0, common), ...opening];
+        activeAt.push(active);
+        offset += child.isText ? (child.text as string).length : 1;
+    });
+    for (const run of runs) {
+        (run as {text: string}).text = children.slice(run.start, run.end + 1).map((child) => (child.isText ? (child.text as string) : "")).join("");
+    }
+    return {closes, opens, active: activeAt, tail: [...active].reverse()};
+}
+
+/**
+ * 一个文本块里各个标记开标签的位置（按写出的顺序），与写出时一样整理与安排（按记下的写法，不降级）。写前准备用它数一条
+ * 批注会写成几段、哪一段是第一段。
+ */
+export function openings(parent: PMNode, writers: InlineWriters): ReadonlyArray<{readonly mark: Mark; readonly offset: number}> {
+    const emphasis = new Set([...writers.marks].filter(([, writer]) => writer.emphasis === true).map(([type]) => type));
+    const children = normalized(parent, emphasis, writers.markless, writers.textOnly, false);
+    return layout(parent, children, writers.textOnly).opens.flat().map((run) => ({mark: run.mark, offset: run.offset}));
 }
 
 export function renderInline(parent: PMNode, context: WriteContext, place: InlinePlace, writers: InlineWriters): string {
     const emphasis = new Set([...writers.marks].filter(([, writer]) => writer.emphasis === true).map(([type]) => type));
-    const children = normalized(parent, emphasis, writers.markless, context.options.styles === "canonical");
+    const children = normalized(parent, emphasis, writers.markless, writers.textOnly, context.options.styles === "canonical");
+    const plan = layout(parent, children, writers.textOnly);
     const out: string[] = [];
-    let active: Mark[] = [];
     const last = (): string => {
         for (let index = out.length - 1; index >= 0; index -= 1) {
             const piece = out[index] as string;
@@ -103,37 +148,35 @@ export function renderInline(parent: PMNode, context: WriteContext, place: Inlin
         }
         return "";
     };
+    // GFM 表格先按没转义的 `|` 切单元格（标签与行内节点的原文里的也算），再解析单元格的内容：表格里这些输出的 `|` 都写成
+    // `\|`（切单元格时去掉反斜杠）。正文文字的 `|` 由 `escapeText` 转义。
+    const cell = (output: string): string => (place.table === true ? output.replace(/(?<!\\)\|/gu, "\\|") : output);
     const writerOf = (mark: Mark): MarkWriter => {
         const writer = writers.marks.get(mark.type.name);
         if (writer === undefined) throw new Unrepresentable(`没有 ${mark.type.name} 标记的写法`);
         return writer;
     };
-    for (let index = 0; index < children.length; index += 1) {
-        const child = children[index] as PMNode;
+    children.forEach((child, index) => {
         const previous = index === 0 ? null : (children[index - 1] as PMNode);
         const next = index === children.length - 1 ? null : (children[index + 1] as PMNode);
-        const wanted = ordered(child.marks, active);
-        let common = 0;
-        while (common < active.length && common < wanted.length && (active[common] as Mark).eq(wanted[common] as Mark)) common += 1;
-        for (let at = active.length - 1; at >= common; at -= 1) out.push(writerOf(active[at] as Mark).close(active[at] as Mark, context, {text: runText(children, index - 1, active[at] as Mark)}));
-        const content = child.isText ? (child.text as string) : "";
-        for (const mark of wanted.slice(common)) out.push(writerOf(mark).open(mark, context, {text: runText(children, index, mark)}));
-        active = wanted;
+        for (const run of plan.closes[index] as Run[]) out.push(cell(writerOf(run.mark).close(run.mark, context, run)));
+        for (const run of plan.opens[index] as Run[]) out.push(cell(writerOf(run.mark).open(run.mark, context, run)));
         if (!child.isText) {
             const writer = writers.inline.get(child.type.name);
             if (writer === undefined) throw new Unrepresentable(`没有 ${child.type.name} 的写法`);
-            out.push(writer(child, context, {previous, next, place}));
-            continue;
+            out.push(cell(writer(child, context, {previous, next, place})));
+            return;
         }
-        if (active.some((mark) => writerOf(mark).verbatim?.(mark, context, {text: runText(children, index, mark)}) === true)) {
+        const content = child.text as string;
+        if ((plan.active[index] as Run[]).some((run) => writerOf(run.mark).verbatim?.(run.mark, context, run) === true)) {
             // GFM 表格先按没转义的 `|` 切单元格，再解析行内内容：行内代码里的 `|` 也要转义。
             out.push(place.table === true ? content.replace(/\|/gu, "\\|") : content);
-            continue;
+            return;
         }
         const lineEnd = next === null || next.type.name === "hardBreak";
         const after = next === null ? "" : next.isText ? ((next.text as string)[0] as string) : next.type.name === "hardBreak" ? "\n" : "￼";
         out.push(escapeText(content, {lineStart: last() === "" || last() === "\n", lineEnd, before: last(), after, place, full: context.options.escape === "full", definitions: context.definitions}));
-    }
-    for (let at = active.length - 1; at >= 0; at -= 1) out.push(writerOf(active[at] as Mark).close(active[at] as Mark, context, {text: runText(children, children.length - 1, active[at] as Mark)}));
+    });
+    for (const run of plan.tail) out.push(cell(writerOf(run.mark).close(run.mark, context, run)));
     return out.join("");
 }

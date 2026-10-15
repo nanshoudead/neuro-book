@@ -8,6 +8,7 @@
  */
 
 import {Extension} from "@tiptap/core";
+import {Code} from "@tiptap/extension-code";
 import type {AnyExtension, JSONContent} from "@tiptap/core";
 import {Image} from "@tiptap/extension-image";
 import {Link} from "@tiptap/extension-link";
@@ -42,6 +43,13 @@ const MarkdownStyle = Extension.create({
  * 新增块级节点的优先级不能超过它。
  */
 const MarkdownParagraph = Paragraph.extend({priority: 1500});
+
+/**
+ * 行内代码只排斥自己与注音：Tiptap 自带的排斥一切别的标记，读入 `` [`代码`](地址) ``、`` **`代码`** `` 时外面的链接与粗体会被
+ * 丢掉，改过这一块再写回就没了。别的标记盖住行内代码时写在反引号外面（写法里它在最里层，`textOnly`）；注音的正文只能是文字，
+ * 两者不能同在。光标在行内代码末尾继续输入时不带它（`inclusive: false`，沿旧应用）。
+ */
+const MarkdownCode = Code.extend({excludes: "code markdownRuby", inclusive: false});
 
 /** 表格单元格只有一段（输出 20）：单元格里的 Enter 是换行，GFM 写不出多段。 */
 const SingleParagraphCell = TableCell.extend({content: "paragraph"});
@@ -324,12 +332,14 @@ export const coreExtensions: ReadonlyArray<AnyExtension> = [
     StarterKit.configure({
         paragraph: false,
         link: false,
+        code: false,
         // 没有下划线（输出 26）：`++` 是普通文字，Ctrl+U 不起作用。
         underline: false,
         trailingNode: false,
         // 列表由 `@tiptap/extension-list` 的同名扩展提供（与任务列表同一个包）。
     }),
     MarkdownParagraph,
+    MarkdownCode,
     TaskList,
     TaskItem.configure({nested: true}),
     TableKit.configure({tableCell: false, tableHeader: false}),

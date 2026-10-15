@@ -6,7 +6,7 @@
 import type {Mark, Node as PMNode} from "@tiptap/pm/model";
 
 import type {BlockWriter, InlineWriter, MarkWriter, WriteContext} from "../types";
-import {OPENS_HTML_BLOCK} from "../raw";
+import {LONE_TAG, OPENS_HTML_BLOCK} from "../raw";
 import {Unrepresentable} from "../types";
 
 /** 写出的列表开头的符号（无序的 `-`、`*`、`+`，有序的分隔符）；不是列表时为 null。 */
@@ -16,7 +16,7 @@ const leadingMarker = (text: string): string | null => /^(?:\d+([.)])|([-*+]))(?
  * 容器里的子块：空段落不保留（方言 Spec 的“块”），只剩一个空段落时它是占位，写成空串。相邻的两个列表符号相同时会读成一个
  * 列表（方言 Spec 输出 3），后一个换符号；子块里的列表从不轮换的写法开始，不沿用外层的轮换。
  */
-function children(node: PMNode, context: WriteContext): string[] {
+export function children(node: PMNode, context: WriteContext): string[] {
     const blocks: PMNode[] = [];
     node.forEach((child) => {
         if (!(child.type.name === "paragraph" && child.childCount === 0)) blocks.push(child);
@@ -157,8 +157,13 @@ const hardBreak: InlineWriter = (node, context, around) => {
     // 单换行、两空格、反斜杠在段首、段末与挨着另一个换行时读不回来（输出 5）：这些位置写 `<br>`，几个相邻的换行写在同一行，
     // `<br>` 不会单独占一行（单独一行的 `<br>` 会被读成 HTML 块）。
     if (around.previous === null || around.next === null || around.previous.type.name === "hardBreak" || around.next.type.name === "hardBreak") return "<br>";
-    // 换行后面紧跟会开启 HTML 块的原样片段：换了行它会打断段落，写 `<br>` 留在同一行。
-    if (around.next.type.name === "rawInline" && OPENS_HTML_BLOCK.test(String(around.next.attrs.raw ?? ""))) return "<br>";
+    // 换行后面紧跟会开启 HTML 块的原样片段：换了行它会打断段落，写 `<br>` 留在同一行。挨着单个完整标签的原样片段时也写
+    // `<br>`：标签独占一行会被读成 HTML 块（`../raw` 的 `LONE_TAG`）。
+    const raw = (other: PMNode): string | null => (other.type.name === "rawInline" ? String(other.attrs.raw ?? "") : null);
+    const nextRaw = raw(around.next);
+    const previousRaw = raw(around.previous);
+    if (nextRaw !== null && (OPENS_HTML_BLOCK.test(nextRaw) || LONE_TAG.test(nextRaw))) return "<br>";
+    if (previousRaw !== null && LONE_TAG.test(previousRaw)) return "<br>";
     switch (context.style<string>(node)) {
         case "spaces":
             return "  \n";
@@ -237,6 +242,8 @@ const marks: Readonly<Record<string, MarkWriter>> = {
     },
     code: {
         verbatim: () => true,
+        // 行内代码里只能是文字：盖住它的格式写在反引号外面。
+        textOnly: true,
         open: (mark, context, run) => {
             const longest = Math.max(0, ...(run.text.match(/`+/gu) ?? []).map((ticks) => ticks.length));
             const ticks = "`".repeat(Math.max(longest + 1, context.style<number>(mark) ?? 1));

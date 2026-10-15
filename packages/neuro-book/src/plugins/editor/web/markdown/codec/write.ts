@@ -20,9 +20,9 @@ import {equivalent} from "./compare";
 import type {Definitions, Gap, SourceMap, SourceUnit} from "./read";
 import {END, START, emptiesBetween, emptiesLeading, emptiesTrailing, readBody, recordGap} from "./read";
 import {renderBlock} from "./render";
-import {splitFrontmatter} from "./source";
+import {gluedOpenings, splitFrontmatter} from "./source";
 import {SENTINEL, stripSentinels} from "./render/escape";
-import {follow} from "./render/inline";
+import {follow, openings} from "./render/inline";
 
 export type WriteResult =
     | {readonly ok: true; readonly text: string; readonly record: () => void}
@@ -173,13 +173,31 @@ function definitionsOf(doc: PMNode, skip: ReadonlySet<PMNode> = new Set()): Defi
 /** 重新写出的文字换成原文的换行符；原样内容里自带的 `\r\n` 不动。 */
 const withEol = (text: string, eol: "\n" | "\r\n"): string => (eol === "\n" ? text : text.replace(/(?<!\r)\n/gu, "\r\n"));
 
-export function writeMarkdown(doc: PMNode, map: SourceMap, language: MarkdownLanguage, schema: Schema): WriteResult {
-    const {items, trailing} = itemsOf(doc, map);
+/**
+ * `forced` 是要重新写出的节点：整篇检查（见文末）发现没被编辑的块会被宽容写法拆开时，带上它们再写一遍。
+ */
+export function writeMarkdown(doc: PMNode, map: SourceMap, language: MarkdownLanguage, schema: Schema, forced: ReadonlySet<PMNode> = new Set()): WriteResult {
+    const {items: listed, trailing} = itemsOf(doc, map);
+    const found = listed.flatMap((item) => (item.unit !== null && item.nodes.some((node) => forced.has(node)) ? splitItem(item) : [item]));
     const eol = map.eol;
     // 整篇没有内容（只有空段落：没有块就没有间隔，几个空段落都读成一个）：读入时就没有块的，写原文的空白；否则写空正文（输出 2）。
-    if (items.length === 0) {
+    if (found.length === 0) {
         const text = map.prefix + (map.emptyBody ?? "");
         return {ok: true, text, record: () => undefined};
+    }
+    const view = found.map((item) => ({nodes: item.nodes, raw: item.unit?.raw ?? null}));
+    const writers = {inline: language.inlineWriters, marks: language.markWriters, markless: language.marklessInline, textOnly: language.textOnlyMarks};
+    const tools = {openings: (parent: PMNode) => openings(parent, writers)};
+    const prepared = new Map([...language.prepareWrite].map(([name, prepare]) => [name, prepare(doc, view, tools)]));
+    // 没被编辑、但它依赖的上下文变了的块，按语法模块的判断改为重新写出（例如分截批注带意见的那一截没了，剩下的截要写上
+    // 意见）。改为重新写出的块又可能牵连别的块，所以反复问，直到没有新的。
+    let items = found;
+    for (;;) {
+        const blocks = items.map((item) => ({nodes: item.nodes, raw: item.unit?.raw ?? null}));
+        const dependents = new Set<number>();
+        for (const [name, find] of language.contextDependents) for (const index of find(blocks, prepared.get(name))) if (items[index]?.unit !== null) dependents.add(index);
+        if (dependents.size === 0) break;
+        items = items.flatMap((item, index): Item[] => (dependents.has(index) ? splitItem(item) : [item]));
     }
     const definitions = definitionsOf(doc);
     const labels = new Map(Object.entries(definitions).map(([label, value]) => [label, value.href]));
@@ -203,7 +221,7 @@ export function writeMarkdown(doc: PMNode, map: SourceMap, language: MarkdownLan
 
     const render = (item: Item): boolean => {
         try {
-            item.text = renderBlock(language, item.nodes[0] as PMNode, {...(LADDER[item.level] as Omit<WriteOptions, "alternate">), alternate: item.alternate}, labels);
+            item.text = renderBlock(language, item.nodes[0] as PMNode, {...(LADDER[item.level] as Omit<WriteOptions, "alternate">), alternate: item.alternate}, labels, prepared);
             return true;
         } catch (error) {
             if (error instanceof Unrepresentable) return false;
@@ -252,7 +270,7 @@ export function writeMarkdown(doc: PMNode, map: SourceMap, language: MarkdownLan
             // 没被编辑的块（写原文）只比结构：它的写法就是原文，编辑器里记着的写法可能是上一次规范写法写出前的。
             const level = (items[want.item] as Item).level;
             const styles = level === 0 ? "keep" : "canonical";
-            if (!equivalent(want.node, read.child(at), {styles, emphasis, derived: language.derivedAttrs, markless: language.marklessInline, follow})) return {item: want.item, absorbed: read.childCount < expected.length};
+            if (!equivalent(want.node, read.child(at), {styles, emphasis, ignored: language.uncomparedAttrs, markless: language.marklessInline, textOnly: language.textOnlyMarks, follow})) return {item: want.item, absorbed: read.childCount < expected.length};
         }
         return {item: -1, absorbed: false};
     };
@@ -382,12 +400,37 @@ export function writeMarkdown(doc: PMNode, map: SourceMap, language: MarkdownLan
         rerenderGaps();
     }
     const texts = items.map((item) => (item.unit === null ? withEol(item.text, eol) : item.text));
-    const out: string[] = [map.prefix];
-    items.forEach((_, index) => out.push((gaps[index] as {gap: Gap}).gap.raw, texts[index] as string));
+    const out: string[] = [];
+    const starts: number[] = [];
+    let length = 0;
+    items.forEach((_, index) => {
+        const gap = (gaps[index] as {gap: Gap}).gap.raw;
+        starts.push(length + gap.length);
+        out.push(gap, texts[index] as string);
+        length += gap.length + (texts[index] as string).length;
+    });
     out.push((gaps[items.length] as {gap: Gap}).gap.raw);
+    const body = out.join("");
+
+    // 宽容写法（方言 Spec 输出 17）看的是整篇：段末黏着方言开标签、下面某处有独占一行的闭标签时，读入会拆开。读回只读窗口，
+    // 看不到远处的闭标签（例如这一段被挪到了一个块级批注前面），所以对整篇输出再扫一遍：拆分点只能在块的开头。落在没被
+    // 编辑的块中间时把它改为重新写出（换行写成 `<br>`，开标签不再在行尾）再写一遍；落在重新写出的块中间时写不出。
+    const blockStarts = new Set(starts);
+    const misplaced = gluedOpenings(body, language.blockTags, language.openTagAtLineEnd).filter((offset) => !blockStarts.has(offset));
+    if (misplaced.length > 0) {
+        const nodes = new Set(forced);
+        for (const offset of misplaced) {
+            let index = starts.length - 1;
+            while (index > 0 && (starts[index] as number) > offset) index -= 1;
+            const item = items[index] as Item;
+            if (item.unit === null) return unrepresentable(item, "段末的方言开标签会把这一段拆开（宽容写法）");
+            for (const node of item.nodes) nodes.add(node);
+        }
+        return writeMarkdown(doc, map, language, schema, nodes);
+    }
     return {
         ok: true,
-        text: out.join(""),
+        text: map.prefix + body,
         record: () => {
             const units = items.map((item, index) => item.unit ?? {raw: texts[index] as string, size: item.nodes.length});
             units.forEach((unit, index) => (items[index] as Item).nodes.forEach((node, part) => {
@@ -447,6 +490,16 @@ function listFamily(node: PMNode | undefined): "bullet" | "ordered" | null {
         default:
             return null;
     }
+}
+
+/** 一块原文的各个节点改为各自重新写出。 */
+function splitItem(item: Item): Item[] {
+    let from = item.from;
+    return item.nodes.map((node, part) => {
+        const split: Item = {nodes: [node], unit: null, empties: part === 0 ? item.empties : 0, from, to: from + node.nodeSize, level: 0, alternate: 0, text: ""};
+        from += node.nodeSize;
+        return split;
+    });
 }
 
 function unrepresentable(item: Item, reason: string): WriteResult {

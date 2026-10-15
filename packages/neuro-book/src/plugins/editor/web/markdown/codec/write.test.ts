@@ -18,7 +18,7 @@ const language = markdownLanguage();
 const schema = getSchema([...language.extensions]);
 const codec = codecFor(schema, language);
 const CORPUS = join(import.meta.dir, "corpus");
-const emphasis = new Set(["bold", "italic", "strike"]);
+const emphasis = new Set([...language.markWriters].filter(([, writer]) => writer.emphasis === true).map(([type]) => type));
 
 /** 把文档的第 index 个顶层节点换成内容相同的新对象（编辑器看来就是“改过了”）。 */
 function touch(doc: PMNode, index: number): PMNode {
@@ -53,7 +53,7 @@ describe("性质 2：每块当作改过重新写出，读回与原来相同", ()
                 expect(again.childCount).toBe(doc.childCount);
                 for (let at = 0; at < doc.childCount; at += 1) {
                     // 写法是否保持另由明确期望测：为分开相邻的列表，后一个会换符号。
-                    expect(equivalent(doc.child(at), again.child(at), {styles: "canonical", emphasis, derived: language.derivedAttrs, markless: language.marklessInline}) ? null : `${name} 第 ${index} 块改过后，第 ${at} 块读回不同：${JSON.stringify(again.child(at).toJSON())}`).toBeNull();
+                    expect(equivalent(doc.child(at), again.child(at), {styles: "canonical", emphasis, ignored: language.uncomparedAttrs, markless: language.marklessInline, textOnly: language.textOnlyMarks}) ? null : `${name} 第 ${index} 块改过后，第 ${at} 块读回不同：${JSON.stringify(again.child(at).toJSON())}`).toBeNull();
                 }
             }
         });
@@ -104,8 +104,19 @@ describe("写出的明确期望", () => {
         expect(written(schema.nodes.bulletList!.create(null, [item]))).toBe("- &#x3000;\n\n  \u3000正文");
     });
 
-    it("强调两端的空白移到外面", () => {
+    it("行内代码外面的链接、粗体读得进来，改过这一块写回不丢；只盖住一部分代码的格式写在反引号外面", () => {
+        const read = codec.read("看[`code`](https://a.com)与**`粗`**。");
+        const doc = touch(read.doc, 0);
+        const result = codec.write(doc, read.map);
+        expect(result.ok && result.text).toBe("看[`code`](https://a.com)与**`粗`**。");
+        const code = schema.marks.code!.create();
+        expect(written(p(t("ab", ...[]).mark([code]), t("cd").mark([code, schema.marks.bold!.create()])))).toBe("`ab`**`cd`**");
+    });
+
+    it("强调两端的空白移到外面；夹在强调中间的换行不把它断开，在两端的换行移到外面", () => {
         expect(written(p(t("甲"), t(" 粗 ", "bold"), t("乙")))).toBe("甲 **粗** 乙");
+        expect(written(p(t("甲", "strike"), br(), t(" 乙", "strike")))).toBe("~~甲\n&#x20;乙~~");
+        expect(written(p(t(" ", "strike"), br(), t("甲", "strike")))).toBe("&#x20;\n~~甲~~");
     });
 
     it("规范写法：列表、任务列表、引用、代码块、分割线、表格（输出 10、20）", () => {

@@ -10,7 +10,7 @@
 import {Fragment, Mark} from "@tiptap/pm/model";
 import type {Node as PMNode, Schema} from "@tiptap/pm/model";
 import type {JSONContent} from "@tiptap/core";
-import type {Token} from "marked";
+import type {Lexer, Token} from "marked";
 
 import type {MarkdownLanguage} from "../language";
 import type {ReadContext} from "../syntax/types";
@@ -121,11 +121,19 @@ function toNode(schema: Schema, json: JSONContent): PMNode {
     return type.create(json.attrs ?? null, content, marks as Mark[]);
 }
 
+/** 给一段块内容分词，并处理它排队的行内分词（`lex` 结束时才做的那一步）。 */
+function lexBlocks(lexer: Lexer, src: string): Token[] {
+    const tokens = lexer.blockTokens(src, []);
+    const queue = lexer.inlineQueue.splice(0);
+    for (const next of queue) lexer.inlineTokens(next.src, next.tokens);
+    return tokens;
+}
+
 /**
- * 读一块：调度语法模块的读法，读出的节点逐个校验。`raw` 节点的原文按单元在规范化文字里的位置从原文切出：沿块里的位置向后找，
- * 找不到（例如引用里的子块去掉了行首的 `>`）时退回单元自己的文字，这时原文里的 CR 不会保留。
+ * 读一块成 JSON：调度语法模块的读法。`raw` 节点的原文按单元在规范化文字里的位置从原文切出：沿块里的位置向后找，找不到
+ * （例如引用里的子块去掉了行首的 `>`）时退回单元自己的文字，这时原文里的 CR 不会保留。
  */
-function readBlock(language: MarkdownLanguage, schema: Schema, normalized: Normalized, source: string, block: {readonly from: number; readonly to: number}, token: Token): PMNode[] {
+function readBlock(language: MarkdownLanguage, lexer: Lexer, normalized: Normalized, source: string, block: {readonly from: number; readonly to: number}, token: Token): JSONContent[] {
     let cursor = block.from;
     const sourceOf = (value: string): string => {
         const at = normalized.text.indexOf(value, cursor);
@@ -138,6 +146,8 @@ function readBlock(language: MarkdownLanguage, schema: Schema, normalized: Norma
         blocks: (tokens) => tokens.flatMap((child) => (child.type === "space" ? [] : readToken(child, false))),
         mark: (type, content, attrs) => content.map((node) => ({...node, marks: [...(node.marks ?? []), {type, attrs}]})),
         raw: (child, inline) => ({type: inline ? "rawInline" : "rawBlock", attrs: {raw: sourceOf(inline ? child.raw : child.raw.replace(/\n+$/u, ""))}}),
+        lexBlocks: (src) => lexBlocks(lexer, src),
+        lexInline: (src) => lexer.inlineTokens(src, []),
     };
     function readToken(child: Token, inline: boolean): JSONContent[] {
         for (const reader of (inline ? language.inlineReaders : language.readers).get(child.type) ?? []) {
@@ -147,8 +157,13 @@ function readBlock(language: MarkdownLanguage, schema: Schema, normalized: Norma
         // 没有读法认领：保住原文。
         return [context.raw(child, inline)];
     }
-    return readToken(token, false).map((json) => {
-        const node = toNode(schema, json);
+    return readToken(token, false);
+}
+
+/** JSON → 节点并校验；不合 schema 时抛出。 */
+function build(schema: Schema, json: ReadonlyArray<JSONContent>): PMNode[] {
+    return json.map((value) => {
+        const node = toNode(schema, value);
         node.check();
         return node;
     });
@@ -178,18 +193,33 @@ export function readBody(language: MarkdownLanguage, schema: Schema, prefix: str
     const nodes: PMNode[] = [];
     const empty = (): PMNode => schema.nodes.paragraph!.create();
     const problems: string[] = [];
+    // 读入不失败（输出 9）：读不出或不合 schema 的块读成原样块，原因留给诊断。读法自己的缺陷也走这里，由语料测试的 `problems` 断言发现。
+    const fail = (block: {readonly unit: Token | null}, error: unknown): null => {
+        problems.push(`${block.unit?.type ?? "?"}: ${error instanceof Error ? error.message : String(error)}`);
+        return null;
+    };
+    const json = blocks.map((block) => {
+        if (block.unit === null) return null;
+        try {
+            return readBlock(language, lexer, normalized, body, block, block.unit);
+        } catch (error) {
+            return fail(block, error);
+        }
+    });
+    for (const resolve of language.resolvers) resolve(json.filter((value): value is JSONContent[] => value !== null));
     let previous: object = START;
     blocks.forEach((block, index) => {
         const gap = gaps[index] as string;
         const empties = index === 0 ? emptiesLeading(gap) : emptiesBetween(gap);
         for (let count = 0; count < empties; count += 1) nodes.push(empty());
-        let read: PMNode[];
-        try {
-            read = block.unit === null ? [] : readBlock(language, schema, normalized, body, block, block.unit);
-        } catch (error) {
-            // 读入不失败（输出 9）：这一块读成原样块，原因留给诊断。读法自己的缺陷也走这里，由语料测试的 `problems` 断言发现。
-            problems.push(`${block.unit?.type ?? "?"}: ${error instanceof Error ? error.message : String(error)}`);
-            read = [];
+        let read: PMNode[] = [];
+        const value = json[index];
+        if (value !== null && value !== undefined) {
+            try {
+                read = build(schema, value);
+            } catch (error) {
+                fail(block, error);
+            }
         }
         if (read.length === 0) read = [schema.nodes.rawBlock!.create({raw: block.raw})];
         const unit: SourceUnit = {raw: block.raw, size: read.length};

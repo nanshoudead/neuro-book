@@ -9,13 +9,14 @@ import type {WriteContext, WriteOptions} from "../../syntax/types";
 import {Unrepresentable} from "../../syntax/types";
 import {renderInline} from "./inline";
 
-/** 写出一个块；写不出时抛 `Unrepresentable`。 */
-export function renderBlock(language: MarkdownLanguage, node: PMNode, options: WriteOptions, definitions: ReadonlyMap<string, string>): string {
-    const writers = {inline: language.inlineWriters, marks: language.markWriters, markless: language.marklessInline};
+/** 写出一个块；写不出时抛 `Unrepresentable`。`prepared` 是各语法模块对整篇的写前准备（模块名 → 结果）。 */
+export function renderBlock(language: MarkdownLanguage, node: PMNode, options: WriteOptions, definitions: ReadonlyMap<string, string>, prepared: ReadonlyMap<string, unknown> = new Map()): string {
+    const writers = {inline: language.inlineWriters, marks: language.markWriters, markless: language.marklessInline, textOnly: language.textOnlyMarks};
     const contextFor = (current: WriteOptions): WriteContext => {
         const context: WriteContext = {
             options: current,
             definitions,
+            prepared: <T>(syntax: string) => prepared.get(syntax) as T | undefined,
             style: <T>(target: {readonly attrs: Readonly<Record<string, unknown>>}) => (current.styles === "canonical" ? null : ((target.attrs.markdown as T | undefined) ?? null)),
             inline: (parent, place = {}) => renderInline(parent, context, place, writers),
             block: (child, alternate) => {
