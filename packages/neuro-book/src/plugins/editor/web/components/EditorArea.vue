@@ -1,6 +1,7 @@
 <script setup lang="ts">
 /** 编辑器区的根（同名 .md）：按 grid 排列编辑组，承载关闭询问与编辑器区内的键位。 */
 import {Button, Dialog, DropFeedbackOverlay} from "@notnotype/nb-ui/components";
+import {NB_Z_INDEX} from "@notnotype/nb-ui/theme";
 import {useGridLayout, useLayoutExtent} from "@notnotype/nb-ui/composables";
 import {GridRenderer} from "@notnotype/nb-ui/layout";
 import {computed, onBeforeUnmount, onMounted, ref, shallowRef, watch} from "vue";
@@ -13,6 +14,10 @@ import type {EmptyTip} from "../empty-tips";
 import type {EditorState} from "../editor-registry";
 import type {EditorPageSource} from "../pages";
 import {editorText, nameOf} from "../messages";
+import FileIcon from "nbook/ui/file-icons/FileIcon.vue";
+import {fileIconForName} from "nbook/ui/file-icons/file-icons";
+import {tabLabel} from "../tab-label";
+import {pageIdOf} from "../pages";
 import {createTabDrag} from "../tab-drag";
 import type {TabDrag, TabDrop} from "../tab-drag";
 import EditorGroup from "./EditorGroup.vue";
@@ -79,6 +84,7 @@ onBeforeUnmount(() => document.removeEventListener("focusin", onDocumentFocusIn)
  * 设置：起拖后它们变了，那一场拖动取消。
  */
 const drop = shallowRef<TabDrop | null>(null);
+const pointer = shallowRef<{readonly tabId: string; readonly x: number; readonly y: number} | null>(null);
 let tabDrag: TabDrag | null = null;
 onMounted(() => {
     if (root.value === null) return;
@@ -86,6 +92,9 @@ onMounted(() => {
         structure: () => JSON.stringify([props.wrapTabs ?? true, props.area.groups.groups.value.map((group) => [group.id, group.tabs.map((tab) => [tab.id, tab.kind === "file" && tab.pinned === true])])]),
         show: (next) => {
             drop.value = next;
+        },
+        follow: (next) => {
+            pointer.value = next;
         },
         commit: (action) => {
             if (action.kind === "split") props.area.moveToNewGroup(action.tabId, action.group, action.edge);
@@ -95,6 +104,14 @@ onMounted(() => {
 });
 onBeforeUnmount(() => tabDrag?.dispose());
 const DROP_LABELS = {"move": "dropMove", "keep": "dropKeep", "split-left": "dropSplitLeft", "split-right": "dropSplitRight", "split-top": "dropSplitTop", "split-bottom": "dropSplitBottom"} as const;
+/** 跟手的拖影：被拖标签的图标与名字（与标签条上写的相同），画在指针右下。标签在拖动中没了时整场已经取消。 */
+const ghost = computed(() => {
+    const at = pointer.value;
+    if (at === null) return null;
+    const tab = props.area.groups.groups.value.flatMap((group) => group.tabs).find((candidate) => candidate.id === at.tabId);
+    if (tab === undefined) return null;
+    return {label: tabLabel(props.area, tab, props.locale, props.pages ?? null), icon: pageIdOf(tab.address) === null ? fileIconForName(nameOf(tab.address)) : null, x: at.x, y: at.y};
+});
 const dropLabel = computed(() => (drop.value === null ? "" : editorText(props.locale, DROP_LABELS[drop.value.label])));
 
 const dialog = computed(() => props.area.dialog.value);
@@ -141,6 +158,12 @@ const dialog = computed(() => props.area.dialog.value);
                 />
             </template>
         </GridRenderer>
+        <Teleport to="body">
+            <div v-if="ghost !== null" class="editor-drag-ghost" :style="{left: `${ghost.x + 12}px`, top: `${ghost.y + 12}px`, zIndex: NB_Z_INDEX.dragFeedback}" aria-hidden="true" data-editor-drag-ghost>
+                <FileIcon v-if="ghost.icon !== null" :icon="ghost.icon" />
+                <span class="truncate">{{ ghost.label }}</span>
+            </div>
+        </Teleport>
         <DropFeedbackOverlay :preview="drop?.preview ?? null" :label="dropLabel" :data-editor-drop="drop === null ? undefined : drop.label" />
         <Dialog
             :model-value="dialog !== null"
@@ -159,3 +182,38 @@ const dialog = computed(() => props.area.dialog.value);
         </Dialog>
     </div>
 </template>
+
+<style scoped>
+/*
+ * 拖影：与标签同字号、同底色的一小块（图标加名字），跟着指针、不挡命中（落点用 elementFromPoint 算）。它在 body 下，
+ * 不受编辑器区的裁剪；scoped 的类名照样生效。
+ */
+.editor-drag-ghost {
+    position: fixed;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    max-width: 240px;
+    height: 28px;
+    padding-inline: 10px 12px;
+    border: var(--border-w) solid var(--control-outline);
+    border-radius: var(--radius-control);
+    background: var(--panel-surface);
+    box-shadow: var(--elevation-raised);
+    color: var(--text-main);
+    font-family: var(--font-ui);
+    font-size: 13px;
+    white-space: nowrap;
+    pointer-events: none;
+    user-select: none;
+}
+</style>
+
+<style>
+/* 标签拖动进行中（tab-drag.ts 在编辑器区的根上写的标记；指针捕获在根上，光标随根）：抓手光标、不扩选文字。 */
+[data-editor-tab-dragging],
+[data-editor-tab-dragging] * {
+    cursor: grabbing !important;
+    user-select: none !important;
+}
+</style>

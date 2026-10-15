@@ -363,15 +363,24 @@ test("拖动标签：组内换位置、拖到另一组的标签条、拖到正�
         return {x: box.x + box.width / 2, y: box.y + box.height / 2, box};
     };
 
-    // 组内：把 c 拖到 a 的左半边，排到最前。
+    // 组内：把 c 拖到 a 的左半边，排到最前。拖动中指针右下跟着写着 c.md 的拖影，松手后撤下。
     const a = await center(tab(0, "a.md"));
-    await drag(await center(tab(0, "c.md")), {x: a.box.x + 4, y: a.y});
+    const ghost = page.locator("[data-editor-drag-ghost]");
+    await drag(await center(tab(0, "c.md")), {x: a.box.x + 4, y: a.y}, async () => {
+        await expect(ghost).toHaveText("c.md");
+        const box = await ghost.boundingBox();
+        expect(box).not.toBeNull();
+        expect(Math.round(box!.x - (a.box.x + 4))).toBe(12);
+        expect(Math.round(box!.y - a.y)).toBe(12);
+    });
+    await expect(ghost).toHaveCount(0);
     await expect.poll(() => names(0)).toEqual(["c.md", "a.md", "b.md"]);
 
     // Escape：拖到别处后按 Escape，什么都不变。
     await drag(await center(tab(0, "c.md")), {x: (await center(tab(0, "b.md"))).box.x + (await center(tab(0, "b.md"))).box.width - 4, y: a.y}, async () => {
         await page.keyboard.press("Escape");
         await expect(page.locator("[data-editor-drop]")).toHaveCount(0);
+        await expect(ghost).toHaveCount(0);
     });
     await expect.poll(() => names(0)).toEqual(["c.md", "a.md", "b.md"]);
 

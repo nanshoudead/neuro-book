@@ -38,6 +38,8 @@ export interface TabDragHost {
     structure(): string;
     /** 每帧交一次落点（null 是哪儿都不是）；收场时交 null。 */
     show(drop: TabDrop | null): void;
+    /** 拖影跟着的指针（视口坐标）与被拖的标签：起拖时与每帧交一次，收场时交 null。落点为 null 时拖影照样跟着。 */
+    follow(pointer: {readonly tabId: string; readonly x: number; readonly y: number} | null): void;
     /** 放下且与最后显示的落点相同：提交。 */
     commit(action: TabDropAction): void;
 }
@@ -207,6 +209,7 @@ export function createTabDrag(root: HTMLElement, host: TabDragHost): TabDrag {
         swallowClick = true;
         if (root.hasPointerCapture(current.pointerId)) root.releasePointerCapture(current.pointerId);
         host.show(null);
+        host.follow(null);
     };
 
     /** 这一刻的落点；结构变了就取消整场，返回 undefined。 */
@@ -228,6 +231,7 @@ export function createTabDrag(root: HTMLElement, host: TabDragHost): TabDrag {
         if (drop === undefined) return;
         current.shown = drop;
         host.show(drop);
+        host.follow({tabId: current.tabId, x: current.x, y: current.y});
     };
 
     const begin = (from: NonNullable<typeof pending>): void => {

@@ -27,6 +27,7 @@ import {formatResource} from "nbook/plugins/files/shared/contracts";
 
 import {resourceOf} from "../documents/address";
 import {tabHints} from "../tab-hints";
+import {tabLabel} from "../tab-label";
 import EditorBreadcrumbs from "./EditorBreadcrumbs.vue";
 import type {BreadcrumbListing, BreadcrumbSegment} from "./EditorBreadcrumbs.vue";
 import EditorTabBar from "./EditorTabBar.vue";
@@ -105,14 +106,7 @@ const binding = computed(() => props.area.binding(props.groupId));
 const active = computed(() => props.area.groups.activeGroup.value === props.groupId);
 
 const tabs = computed((): TabItem[] => {
-    const shown = (group.value?.tabs ?? []).map((tab) => {
-        // 页面标签（输出 33）按页面的标题显示；贡献方停了、标题取不到时显示页面 id。
-        const page = pageIdOf(tab.address);
-        // 预览视图的标题写“预览 a.html”（输出 47），与同组里这个文件的源码标签分得开。
-        const preview = tab.kind === "file" && props.area.editors.declaration(tab.editor)?.role === "preview";
-        const label = page === null ? (preview ? editorText(props.locale, "previewOf", {name: nameOf(tab.address)}) : nameOf(tab.address)) : (props.pages?.title(page, props.locale) ?? page);
-        return {tab, page, label};
-    });
+    const shown = (group.value?.tabs ?? []).map((tab) => ({tab, page: pageIdOf(tab.address), label: tabLabel(props.area, tab, props.locale, props.pages)}));
     // 同名提示只看文件标签（输出 56）。
     const hints = tabHints(shown.flatMap(({tab, page, label}) => (page === null && tab.kind === "file" ? [{id: tab.id, label, address: tab.address, editor: tab.editor}] : [])), {
         root: (scheme) => editorText(props.locale, scheme === "project" ? "rootProject" : "rootUser"),
