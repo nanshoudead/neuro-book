@@ -21,7 +21,7 @@ import {BINARY_TAB_EDITOR, BUILTIN_CATALOG, editorRefusal, previewEditorFor, res
 import type {EditorCatalog} from "./editors";
 import {createEditorGroups} from "./groups/groups";
 import {pageAddress, pageIdOf} from "./pages";
-import type {EditorGroups, EditorTab, FileTab, GroupsSnapshot, SplitDirection} from "./groups/groups";
+import type {EditorGroups, EditorTab, FileTab, GroupEdge, GroupsSnapshot, SplitDirection, TabPlace} from "./groups/groups";
 
 export type {BytesEditorBinding, EditorBinding, EditorControlHandle, TextEditorBinding, ViewStateSlot} from "../shared/contracts";
 
@@ -56,6 +56,9 @@ export interface EditorAreaOptions {
 }
 
 export type ActionResult = {readonly ok: true} | {readonly ok: false; readonly reason: string};
+
+/** 批量关闭的结果（输出 51）：`closed` 是关掉的个数，停下时 `reason` 写明停在哪个文件、为什么。 */
+export type BatchCloseResult = {readonly ok: true; readonly closed: number} | {readonly ok: false; readonly closed: number; readonly reason: string};
 
 /** 打开成功时给出标签 id：继续写作的定位绑定到这个标签。 */
 export type OpenResult = {readonly ok: true; readonly tabId: string} | {readonly ok: false; readonly reason: string};
@@ -95,13 +98,24 @@ export interface EditorArea {
     /** 打开一个页面（输出 33）：窗口里已经开着就切过去（连同它所在的组），否则在活动组开一个正式标签。 */
     openPage(id: string): OpenResult;
     activate(tabId: string): ActionResult;
-    pin(tabId: string): void;
+    /** preview 转为 permanent（双击标签）。 */
+    keep(tabId: string): void;
+    /** 固定或取消固定（输出 50）。 */
+    setPinned(tabId: string, pinned: boolean): ActionResult;
+    /** 把标签移到组内另一位置或别的组（输出 49）；目标组已有同一标签时并掉，可能要问，问完之前 Promise 不结束。 */
+    moveTab(tabId: string, place: TabPlace): Promise<ActionResult>;
+    /** 在 `group` 的一边拆出新组并把标签移过去（输出 49）。 */
+    moveToNewGroup(tabId: string, group: string, edge: GroupEdge): ActionResult;
     focusGroup(groupId: string): void;
     /** 关闭标签；文档最后一个标签且需要结算时先问，问的结果出来之前 Promise 不结束。 */
     close(tabId: string): Promise<"closed" | "cancelled">;
-    closeOthers(tabId: string): Promise<void>;
+    /** 批量关闭（输出 51）：标签所在组里除它以外的、它右侧的、不需要保存的标签；都跳过固定标签。 */
+    closeOthers(tabId: string): Promise<BatchCloseResult>;
+    closeToRight(tabId: string): Promise<BatchCloseResult>;
+    closeSaved(tabId: string): Promise<BatchCloseResult>;
     answer(choice: CloseChoice): void;
-    split(direction: SplitDirection): ActionResult;
+    /** 拆分标签（缺省活动标签）所在的组，打开同一文档。 */
+    split(direction: SplitDirection, tabId?: string): ActionResult;
     reopenWith(editor: string): ActionResult;
     /** 活动标签的文件能打开的预览编辑器；活动的是页面、预览视图或没有预览编辑器时为 null（输出 46）。 */
     previewEditor(): string | null;
@@ -300,7 +314,7 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
                 if (!current()) return {status: "stale"};
                 const result = documents.commit(document, token, baseRevision, text);
                 // 在 preview 标签里编辑即转正（输出 1）：只看真正改了正文的输入。
-                if (result.status === "accepted" && result.revision > baseRevision && groups.find(tab.id)?.tab.preview === true) groups.pin(tab.id);
+                if (result.status === "accepted" && result.revision > baseRevision && groups.find(tab.id)?.tab.preview === true) groups.keep(tab.id);
                 return result;
             },
             attach: (flush) => (current() ? documents.attachView(document, flush) : () => undefined),
@@ -518,13 +532,13 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
      * 自己的未裁决输入；否则文档需要结算时问。选“保存”后保存期间还能输入：保存完回到开头再结算、再看要不要问，直到没有
      * 要结算的东西或用户取消。
      */
-    const closeTab = async (tabId: string): Promise<"closed" | "cancelled"> => {
+    const closeOne = async (tabId: string): Promise<"closed" | "cancelled" | "failed" | "gone"> => {
         const hadFocus = focused.value;
         /** 选了“不保存”、又没有别的能编辑的标签时要还原的文档。 */
         let discarded: TextDocument | null = null;
         for (;;) {
             const found = groups.find(tabId);
-            if (found === null) return "cancelled";
+            if (found === null) return "gone";
             const document = references.get(tabId)?.document ?? null;
             if (document === null) break;
             documents.settle(document);
@@ -546,7 +560,7 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
             // 保存这个视图看到的内容：它的未裁决输入先成为正文。
             if (own !== null && ownInput) documents.resolve(document, own.token, "keep-view");
             const saved = await documents.save(document);
-            if (!saved.ok) return "cancelled";
+            if (!saved.ok) return "failed";
         }
         const current = groups.find(tabId);
         if (current === null) return "closed";
@@ -560,6 +574,79 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
         if (hadFocus) focusActive();
         return "closed";
     };
+    const closeTab = async (tabId: string): Promise<"closed" | "cancelled"> => ((await closeOne(tabId)) === "closed" ? "closed" : "cancelled");
+
+    /**
+     * 批量关闭（输出 51）：开始时定下要关的标签，逐个按 `closeOne` 关；用户取消或保存失败就停，已关的不恢复。同一时刻只有
+     * 一批：两批交错时询问对话框会互相顶掉，结果说不清是谁取消的。
+     */
+    let batchRunning = false;
+    const closeBatch = async (tabId: string, pick: (group: {readonly id: string; readonly tabs: ReadonlyArray<EditorTab>}, index: number) => ReadonlyArray<EditorTab>): Promise<BatchCloseResult> => {
+        if (batchRunning) return {ok: false, closed: 0, reason: "正在关闭编辑器"};
+        const found = groups.find(tabId);
+        if (found === null) return {ok: false, closed: 0, reason: "标签已关闭"};
+        const groupId = found.group.id;
+        const targets = pick(found.group, found.group.tabs.findIndex((tab) => tab.id === tabId)).filter((tab) => !(tab.kind === "file" && tab.pinned === true)).map((tab) => tab.id);
+        batchRunning = true;
+        let closed = 0;
+        try {
+            for (const id of targets) {
+                const where = groups.find(id);
+                if (where === null || where.group.id !== groupId) continue;
+                const outcome = await closeOne(id);
+                if (outcome === "closed") closed += 1;
+                else if (outcome === "cancelled") return {ok: false, closed, reason: `关了 ${String(closed)} 个，在 ${where.tab.address} 处取消`};
+                else if (outcome === "failed") return {ok: false, closed, reason: `关了 ${String(closed)} 个，${where.tab.address} 保存失败`};
+            }
+            return {ok: true, closed};
+        } finally {
+            batchRunning = false;
+        }
+    };
+    /** 不需要保存的标签：页面、按字节的、还没读到的都算；有文档的先结算视图输入再看（输出 51）。 */
+    const saved = (tab: EditorTab): boolean => {
+        if (tab.kind === "page") return true;
+        const document = references.get(tab.id)?.document;
+        if (document === undefined || !readsText(tab)) return true;
+        documents.settle(document);
+        return !needsSettle(document) && document.conflict.value === null;
+    };
+
+    /**
+     * 移动标签（输出 49）。绑定按组记、视图状态按“组 × 编辑器 × 文档”记，所以移动是一次事务：先结算活动标签会变的组，
+     * 有未裁决输入就不动；改完结构后撤下源组里它的绑定与视图状态（旧绑定的 `commit` 从此过时），它在目标组按记下的光标
+     * 重建视图。引用跟着标签 id 走，不动。
+     */
+    const afterMove = (sourceGroup: string, targetGroup: string, tab: EditorTab, reference: DocumentReference | undefined): void => {
+        if (sourceGroup === targetGroup) return;
+        if (bindings.get(sourceGroup)?.binding.tabId === tab.id) bindings.delete(sourceGroup);
+        if (tab.kind === "file" && reference !== undefined) dropSlot(slotKey(sourceGroup, tab.editor, reference.document));
+    };
+    const moveTab = async (tabId: string, place: TabPlace): Promise<ActionResult> => {
+        if (disposed) return {ok: false, reason: "编辑器已关闭"};
+        const found = groups.find(tabId);
+        if (found === null) return {ok: false, reason: "标签已关闭"};
+        const target = groups.groups.value.find((group) => group.id === place.group);
+        if (target === undefined) return {ok: false, reason: "编辑组已关闭"};
+        const moving = found.tab;
+        const twin = target.id === found.group.id || moving.kind !== "file" ? undefined : target.tabs.find((tab) => tab.kind === "file" && tab.address === moving.address && tab.editor === moving.editor);
+        if (twin !== undefined) {
+            // 目标组已有同一标签：激活它，再按关闭的规则关掉被移动的这个（只问它自己的未裁决输入）。
+            if (target.active !== twin.id && !leave(target.id)) return {ok: false, reason: "目标组有未裁决的输入"};
+            groups.activate(twin.id);
+            const outcome = await closeOne(tabId);
+            focusActive();
+            return outcome === "closed" || outcome === "gone" ? {ok: true} : {ok: false, reason: outcome === "failed" ? "保存失败" : "已取消"};
+        }
+        if (found.group.active === tabId && target.id !== found.group.id && !leave(found.group.id)) return {ok: false, reason: "当前视图有未裁决的输入"};
+        if (target.active !== tabId && !leave(target.id)) return {ok: false, reason: "目标组有未裁决的输入"};
+        const reference = references.get(tabId);
+        const moved = groups.moveTab(tabId, place);
+        if (moved === null) return {ok: false, reason: "位置没有变化"};
+        afterMove(found.group.id, target.id, moving, reference);
+        focusActive();
+        return {ok: true};
+    };
 
     /**
      * preview 打开会换掉本组的 preview 标签。它是文档最后一个能编辑的标签、文档又要结算时（例如别处的正式标签改过之后
@@ -571,7 +658,7 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
         const document = documents.get(preview.address);
         if (document === null || !needsSettle(document)) return;
         const others = groups.groups.value.some((group) => group.tabs.some((tab) => tab.id !== preview.id && tab.address === preview.address && editable(tab)));
-        if (!others) groups.pin(preview.id);
+        if (!others) groups.keep(preview.id);
     };
 
     const open: EditorArea["open"] = (address, request) => {
@@ -665,30 +752,47 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
             groups.activate(tabId);
             return {ok: true};
         },
-        pin: (tabId) => groups.pin(tabId),
+        keep: (tabId) => groups.keep(tabId),
+        setPinned: (tabId, pinned) => {
+            const found = groups.find(tabId);
+            if (found === null) return {ok: false, reason: "标签已关闭"};
+            if (found.tab.kind === "page") return {ok: false, reason: "页面标签不能固定"};
+            groups.setPinned(tabId, pinned);
+            return {ok: true};
+        },
+        moveTab,
+        moveToNewGroup: (tabId, groupId, edge) => {
+            if (disposed) return {ok: false, reason: "编辑器已关闭"};
+            const found = groups.find(tabId);
+            if (found === null) return {ok: false, reason: "标签已关闭"};
+            if (!groups.groups.value.some((group) => group.id === groupId)) return {ok: false, reason: "编辑组已关闭"};
+            if (found.group.active === tabId && !leave(found.group.id)) return {ok: false, reason: "当前视图有未裁决的输入"};
+            const reference = references.get(tabId);
+            const moved = groups.moveToNewGroup(tabId, groupId, edge);
+            if (moved === null) return {ok: false, reason: "不能再拆分"};
+            afterMove(found.group.id, moved.group, found.tab, reference);
+            focusActive();
+            return {ok: true};
+        },
         focusGroup: (groupId) => groups.focusGroup(groupId),
         close: closeTab,
-        closeOthers: async (tabId) => {
-            const found = groups.find(tabId);
-            if (found === null) return;
-            for (const tab of found.group.tabs) {
-                if (tab.id === tabId) continue;
-                if ((await closeTab(tab.id)) === "cancelled") return;
-            }
-        },
+        closeOthers: (tabId) => closeBatch(tabId, (group) => group.tabs.filter((tab) => tab.id !== tabId)),
+        closeToRight: (tabId) => closeBatch(tabId, (group, index) => group.tabs.slice(index + 1)),
+        closeSaved: (tabId) => closeBatch(tabId, (group) => group.tabs.filter(saved)),
         answer: (choice) => {
             const resolve = answerDialog;
             answerDialog = null;
             dialog.value = null;
             resolve?.(choice);
         },
-        split: (direction) => {
-            const tab = groups.activeTab();
-            if (tab === null) return {ok: false, reason: "没有活动标签"};
+        split: (direction, tabId) => {
+            const active = groups.activeTab();
+            const tab = tabId === undefined ? active : groups.find(tabId)?.tab ?? null;
+            if (tab === null) return {ok: false, reason: tabId === undefined ? "没有活动标签" : "标签已关闭"};
             if (tab.kind === "page") return {ok: false, reason: "页面只开一个，不能拆分"};
             const hadFocus = focused.value;
             // 控件在光标停下 1 秒或失焦时才交出光标：先让它交出这一刻的，拆出的标签才带着它。
-            activeHandle.value?.rememberCursor?.();
+            if (tab === active) activeHandle.value?.rememberCursor?.();
             const created = groups.split(tab.id, direction);
             if (created === null) return {ok: false, reason: "不能再拆分"};
             // 焦点在编辑器区时交给新组（新组是活动组）。

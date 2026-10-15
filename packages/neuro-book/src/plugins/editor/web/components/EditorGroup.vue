@@ -164,7 +164,7 @@ export interface EditorGroupTitleActions {
                 :close-label="(name: string) => editorText(locale, 'closeTab', {name})"
                 :unsaved-label="editorText(locale, 'unsaved')"
                 @activate="(id: string) => area.activate(id)"
-                @pin="(id: string) => area.pin(id)"
+                @pin="(id: string) => area.keep(id)"
                 @close="(id: string) => void area.close(id)"
                 @move="(id: string, delta: -1 | 1) => area.groups.move(id, delta)"
             />

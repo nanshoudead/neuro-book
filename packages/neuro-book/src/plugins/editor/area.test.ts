@@ -797,3 +797,113 @@ describe("Spec workbench.editor 输出 29：继续写作", () => {
         expect(at.area.notice.value).toContain("只能打开项目里的文件");
     });
 });
+
+describe("Spec workbench.editor 输出 49–51：移动、固定与批量关闭", () => {
+    /** 组里标签的地址（去掉 `project://`）。 */
+    const names = (at: World, index: number): string[] => (at.area.groups.groups.value[index]?.tabs ?? []).map((tab) => tab.address.replace("project://", ""));
+    const tabId = (at: World, index: number, name: string): string => at.area.groups.groups.value[index]?.tabs.find((tab) => tab.address === `project://${name}`)?.id ?? "";
+    const groupAt = (at: World, index: number): string => at.area.groups.groups.value[index]?.id ?? "";
+    async function boundIn(at: World, group: string): Promise<TextEditorBinding> {
+        await until(at, `组 ${group} 的文档就绪`, () => textBinding(at.area, group) !== null);
+        const binding = textBinding(at.area, group);
+        if (binding === null) throw new Error("没有绑定");
+        return binding;
+    }
+
+    it("换组：旧绑定的输入从此过时，新组的视图写进同一份文档；源组还有标签时留着；目标组有未裁决输入时不动并提示", async () => {
+        const at = await world();
+        at.area.open("project://a.md", {mode: "permanent"});
+        at.area.open("project://b.md", {mode: "permanent"});
+        const left = groupAt(at, 0);
+        const before = await boundIn(at, left);
+        before.commit(before.revision.value, "B1");
+        at.area.open("project://c.md", {mode: "permanent", group: "side"});
+        const right = groupAt(at, 1);
+        expect(await at.area.moveTab(tabId(at, 0, "b.md"), {group: right, partition: "normal", before: null})).toEqual({ok: true});
+        expect([names(at, 0), names(at, 1)]).toEqual([["a.md"], ["c.md", "b.md"]]);
+        expect(before.commit(before.revision.value, "迟到")).toEqual({status: "stale"});
+        const after = await boundIn(at, right);
+        expect(after.text.value).toBe("B1");
+        after.commit(after.revision.value, "B2");
+        expect(await at.area.documents.save(at.area.documentOf(right)!)).toEqual({ok: true});
+        expect(await readFile(join(at.scene.project, "b.md"), "utf8")).toBe("B2");
+
+        // 左组也打开 b.md，两个视图基于同一修订输入不同内容：右组的那个有未裁决输入。
+        at.area.open("project://b.md", {mode: "permanent", group: left});
+        const leftB = await boundIn(at, left);
+        const base = leftB.revision.value;
+        leftB.commit(base, "左");
+        expect(after.commit(base, "右")).toMatchObject({status: "conflict"});
+        expect(await at.area.moveTab(tabId(at, 0, "a.md"), {group: right, partition: "normal", before: null})).toMatchObject({ok: false});
+        expect(at.area.notice.value).not.toBeNull();
+        expect(names(at, 0)).toEqual(["a.md", "b.md"]);
+    });
+
+    it("移到已有同一标签的组：共享的修改不问，源组空了随之关闭；被移动的视图有未裁决输入时问，取消则留在原处", async () => {
+        const at = await world();
+        at.area.open("project://a.md", {mode: "permanent"});
+        await ready(at);
+        expect(at.area.split("right")).toEqual({ok: true});
+        const [left, right] = [groupAt(at, 0), groupAt(at, 1)];
+        const leftView = await boundIn(at, left);
+        leftView.commit(leftView.revision.value, "A1");
+        expect(await at.area.moveTab(tabId(at, 0, "a.md"), {group: right, partition: "normal", before: null})).toEqual({ok: true});
+        expect(at.area.dialog.value).toBeNull();
+        expect(at.area.groups.groups.value.map((group) => group.id)).toEqual([right]);
+        expect(at.area.documents.get("project://a.md")?.text.value).toBe("A1");
+
+        expect(at.area.split("right")).toEqual({ok: true});
+        const [first, second] = [groupAt(at, 0), groupAt(at, 1)];
+        const one = await boundIn(at, first);
+        const two = await boundIn(at, second);
+        const base = one.revision.value;
+        one.commit(base, "一");
+        expect(two.commit(base, "二")).toMatchObject({status: "conflict"});
+        const moving = at.area.moveTab(tabId(at, 1, "a.md"), {group: first, partition: "normal", before: null});
+        await until(at, "问", () => at.area.dialog.value !== null);
+        at.area.answer("cancel");
+        expect(await moving).toMatchObject({ok: false});
+        expect(names(at, 1)).toEqual(["a.md"]);
+        expect(two.unresolved()).toBe(true);
+    });
+
+    it("关闭其他、关闭右侧跳过固定标签；询问里取消时停下、之前的已关；进行中的第二批被拒；固定刷新后仍在", async () => {
+        const at = await world();
+        for (const name of ["a", "b", "c", "c.json"]) at.area.open(`project://${name.includes(".") ? name : `${name}.md`}`, {mode: "permanent"});
+        at.area.open("project://a.html", {mode: "permanent"});
+        const group = groupAt(at, 0);
+        expect(at.area.setPinned(tabId(at, 0, "a.md"), true)).toEqual({ok: true});
+        at.area.activate(tabId(at, 0, "c.json"));
+        const dirty = await boundIn(at, group);
+        dirty.commit(dirty.revision.value, "{\"x\": 1}");
+        at.area.activate(tabId(at, 0, "a.html"));
+        const closing = at.area.closeOthers(tabId(at, 0, "a.html"));
+        await until(at, "问", () => at.area.dialog.value !== null);
+        expect(await at.area.closeToRight(tabId(at, 0, "a.md"))).toEqual({ok: false, closed: 0, reason: "正在关闭编辑器"});
+        at.area.answer("cancel");
+        expect(await closing).toMatchObject({ok: false, closed: 2});
+        expect(names(at, 0)).toEqual(["a.md", "c.json", "a.html"]);
+        expect(at.saved.at(-1)?.groups[0]?.tabs.map((tab) => [tab.address, tab.pinned ?? false])).toEqual([["project://a.md", true], ["project://c.json", false], ["project://a.html", false]]);
+    });
+
+    it("关闭已保存：先结算视图输入，留下要保存的与固定的；保存失败时批量停下", async () => {
+        const at = await world();
+        for (const name of ["a.md", "b.md", "c.json", "a.html"]) at.area.open(`project://${name}`, {mode: "permanent"});
+        const group = groupAt(at, 0);
+        at.area.setPinned(tabId(at, 0, "a.md"), true);
+        at.area.activate(tabId(at, 0, "b.md"));
+        const b = await boundIn(at, group);
+        b.commit(b.revision.value, "B（改）");
+        expect(await at.area.closeSaved(tabId(at, 0, "b.md"))).toEqual({ok: true, closed: 2});
+        expect(names(at, 0)).toEqual(["a.md", "b.md"]);
+
+        // 磁盘被别处改过：选“保存”得到冲突，批量停在这里。
+        await writeFile(join(at.scene.project, "b.md"), "外部");
+        const closing = at.area.closeToRight(tabId(at, 0, "a.md"));
+        await until(at, "问", () => at.area.dialog.value !== null);
+        at.area.answer("save");
+        expect(await closing).toMatchObject({ok: false, closed: 0});
+        expect(names(at, 0)).toEqual(["a.md", "b.md"]);
+        expect(await readFile(join(at.scene.project, "b.md"), "utf8")).toBe("外部");
+    });
+});

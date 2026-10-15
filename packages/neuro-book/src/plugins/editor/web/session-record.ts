@@ -29,6 +29,8 @@ const SessionSchema = Type.Object({
             // 编辑器 id（docs/specs/workbench/editor.md 的“副作用与数据”）；旧记录里的 `markdown`、`code` 读出时换成内置 id。
             editor: Type.String({pattern: "^(?:markdown|code|[a-z][a-z0-9-]*(?:\\.[a-z][a-z0-9-]*)+)$"}),
             preview: Type.Boolean(),
+            // 固定（输出 50）；可选字段，没有它的旧记录为不固定，记录版本不变。
+            pinned: Type.Optional(Type.Literal(true)),
             // 上次的光标（输出 30）；可选字段，没有它的旧记录照样合法，记录版本不变。
             cursor: Type.Optional(Type.Union([
                 Type.Object({offset: Type.Integer({minimum: 0})}, {additionalProperties: false}),
