@@ -49,10 +49,55 @@ th { color: var(--muted); font-weight: 600; border-top: 0; }
 <p>已定的注意力排序（2026-10-15）：标签上是文件图标、文件名与状态位；关闭按钮只在活动标签与悬停的标签上显示，其余隐藏但占位；宽度随名字，过长截断；固定标签排最前、关闭位换成图钉；同名标签附灰色目录；多行默认开。</p>
 </div>
 
+<div class="round">第 3 轮</div>
+
+<section class="q" data-nbdev-question="r3-tone" data-nbdev-type="single" data-nbdev-recommend="t93">
+<h2>标签条的深浅 <span class="badge todo" data-nbdev-skip>待定</span></h2>
+<p>按第 2 轮选的 C（活动标签是与正文同色的一块），只调标签条比正文低多少：从正文面往正文字色混 4%、7%、11%。暗色主题里“低一档”是更亮一点（同 VS Code 暗色）。同一行相邻标签之间是开放式分隔线（1px，上下各留四分之一），活动与悬停标签两侧不画。实现时深浅做成主题 token，各主题可以各自调。</p>
+<div class="opts">
+<div class="opt" data-nbdev-option="t96"><h3>浅（4%）</h3>
+<figure><img src="r3/tone-96-light.webp" alt="浅，亮色"><figcaption>浅 · 亮色</figcaption></figure>
+<figure><img src="r3/tone-96-dark.webp" alt="浅，暗色"><figcaption>浅 · 暗色</figcaption></figure>
+</div>
+<div class="opt rec" data-nbdev-option="t93"><h3>中（7%，第 2 轮用的）</h3>
+<figure><img src="r3/tone-93-light.webp" alt="中，亮色"><figcaption>中 · 亮色</figcaption></figure>
+<figure><img src="r3/tone-93-dark.webp" alt="中，暗色"><figcaption>中 · 暗色</figcaption></figure>
+</div>
+<div class="opt" data-nbdev-option="t89"><h3>深（11%）</h3>
+<figure><img src="r3/tone-89-light.webp" alt="深，亮色"><figcaption>深 · 亮色</figcaption></figure>
+<figure><img src="r3/tone-89-dark.webp" alt="深，暗色"><figcaption>深 · 暗色</figcaption></figure>
+</div>
+</div>
+<div class="rec-note"><b>推荐中。</b>浅的在亮色里标签条和正文几乎连成一片，活动标签那一块不明显；深的在暗色里标签条发灰，抢正文的注意。</div>
+</section>
+
+<section class="q" data-nbdev-question="r3-separators" data-nbdev-type="confirm">
+<h2>分隔线按这样画 <span class="badge todo" data-nbdev-skip>待定</span></h2>
+<p>对照：不画分隔线时（下图）标签之间只靠间距分开；上面三档都画了开放式分隔线。</p>
+<figure><img src="r3/no-separators-light.webp" alt="不画分隔线，亮色"><figcaption>不画分隔线 · 亮色</figcaption></figure>
+<figure><img src="r3/no-separators-dark.webp" alt="不画分隔线，暗色"><figcaption>不画分隔线 · 暗色</figcaption></figure>
+<figure><img src="r3/many-light.webp" alt="多行加分隔线"><figcaption>多行加分隔线 · 亮色</figcaption></figure>
+</section>
+
+<section class="q" data-nbdev-question="r3-plan" data-nbdev-type="confirm">
+<h2>实施计划可以定稿 <span class="badge todo" data-nbdev-skip>待定</span></h2>
+<p>计划在 Task 目录的 plan.md。要点：</p>
+<ol>
+<li>组模型：标签可固定（存进会话记录，固定的在前）；组内排序与换组；拖到别的组边缘拆出新组；关闭右侧、关闭已保存；“关闭其他”“关闭右侧”不关固定标签。目标组已有同一标签时并掉（同 VS Code）。标签换组后那个视图的撤销历史从空开始（与拆分一样）。</li>
+<li>设置“编辑器”分区：启用预览标签页、多行标签、面包屑，都默认开。</li>
+<li>标签栏按评审定稿重写；文件图标挪到共享目录，资源管理器与编辑器共用。</li>
+<li>拖动标签：拖到标签条是插入，拖到正文中央移进那一组，拖到四边拆分；Escape 取消。</li>
+<li>标签右键菜单：关闭、关闭其他、关闭右侧、关闭已保存、固定、拆分、复制路径、在资源管理器中显示；别的插件可以往里加。</li>
+<li>悬停时显示：标题动作与非活动标签的关闭按钮。</li>
+<li>面包屑：作品名 › 目录 › 文件 › Markdown 标题，点段出下拉。</li>
+<li>不做：拖动时复制、拖出窗口、资源管理器拖到编辑区边缘拆分、固定标签的紧凑样式。</li>
+</ol>
+</section>
+
 <div class="round">第 2 轮</div>
 
 <section class="q" data-nbdev-question="r2-emphasis" data-nbdev-type="single" data-nbdev-recommend="card-top">
-<h2>VS Code 式的活动标签 <span class="badge todo" data-nbdev-skip>待定</span></h2>
+<h2>VS Code 式的活动标签 <span class="badge done" data-nbdev-skip>已定</span></h2>
 <p>按第 1 轮的答复改学 VS Code：标签条比正文低一档，活动标签是与正文同色的一块（顶部两角圆），像从正文里长出来；不加粗、不加底线。两张图都是两个编辑组，左组是活动组；左组里“第一章 雨夜”呈现为悬停。多行时活动标签不在最后一行也照样是一块（VS Code 相同）。</p>
 <div class="opts">
 <div class="opt" data-nbdev-option="card">
@@ -68,18 +113,19 @@ th { color: var(--muted); font-weight: 600; border-top: 0; }
 <figure><img src="r2/card-top-dark.webp" alt="D 标签块加顶线，暗色"><figcaption>D · 暗色</figcaption></figure>
 </div>
 </div>
+<div class="rec-note" style="background:var(--ok-soft)"><b style="color:var(--ok)">开发者：选 C，调一下配色看效果（见第 3 轮）；面包屑同意；相邻标签之间用开放式分隔线。</b></div>
 <div class="rec-note"><b>推荐 D。</b>标签块回答“正文是哪个文件”，顶线回答“键盘输入进哪个组”；拆分后后者只靠字色差别不够明显。</div>
 </section>
 
 <section class="q" data-nbdev-question="r2-breadcrumbs" data-nbdev-type="confirm">
-<h2>面包屑按这样做 <span class="badge todo" data-nbdev-skip>待定</span></h2>
+<h2>面包屑按这样做 <span class="badge done" data-nbdev-skip>已定</span></h2>
 <p>标签条下面一行：作品名 › 目录 › 文件；Markdown 文件后面再接光标所在的标题。点目录段列出它下面的文件与文件夹，点文件段列出同级，点标题段列出这一章的大纲（按标题层级缩进），选中即打开或跳到那里。面包屑默认显示，设置里可以关掉。键盘：命令“聚焦面包屑”后用 ←/→ 换段、Enter 打开下拉。</p>
 <figure><img src="r2/picker-folder-light.webp" alt="点目录段"><figcaption>点“正文”：列出同级的章节</figcaption></figure>
 <figure><img src="r2/picker-outline-dark.webp" alt="点标题段"><figcaption>点“雨夜的来客”：列出这一章的大纲 · 暗色</figcaption></figure>
 </section>
 
 <section class="q" data-nbdev-question="r2-notes" data-nbdev-type="text" data-nbdev-optional>
-<h2>其它要改的 <span class="badge todo" data-nbdev-skip>选答</span></h2>
+<h2>其它要改的 <span class="badge done" data-nbdev-skip>已定</span></h2>
 <p>多行时固定标签单独一行；同名附 <code>…/目录</code>；标题动作在最后一行右侧（多行时贴着正文）。</p>
 <figure><img src="r2/many-light.webp" alt="多行"><figcaption>多行：第一行是固定标签</figcaption></figure>
 <figure><img src="r2/scroll-dark.webp" alt="关掉多行"><figcaption>关掉多行：一行横向滚动，固定标签排在最前 · 暗色</figcaption></figure>
