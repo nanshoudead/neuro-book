@@ -39,7 +39,53 @@ export interface MetaEntry extends SessionEntryBase {
     readonly value: JsonValue;
 }
 
-export type SessionEntry = MessageEntry | ToolCallEntry | ToolResultEntry | CompactionEntry | MetaEntry;
+/**
+ * 会话的第一条条目：Profile 的身份、校验过的初始输入与生效工具集的声明（docs/specs/agent/harness.md 输出 3）。
+ * 工具声明的形状由 harness 定，这里只按 JSON 存取。
+ */
+export interface SessionSnapshotEntry extends SessionEntryBase {
+    readonly kind: "session_snapshot";
+    readonly profile: {readonly key: string; readonly version: string};
+    readonly initial: JsonValue;
+    readonly tools: readonly JsonValue[];
+}
+
+/** 模型消息或工具结果的原样（harness 写 OMP 的 AgentMessage），恢复会话时逐字段交回模型。 */
+export interface AgentMessageEntry extends SessionEntryBase {
+    readonly kind: "agent_message";
+    readonly message: JsonValue;
+}
+
+/** 一条模型消息的用量；`cost` 为 null 表示单价未知。 */
+export interface UsageEntry extends SessionEntryBase {
+    readonly kind: "usage";
+    readonly input: number;
+    readonly output: number;
+    readonly cacheRead: number;
+    readonly cacheWrite: number;
+    readonly cost: number | null;
+}
+
+/** 一次运行以出错或取消结束时记下原因；正常结束不记。 */
+export interface RunEndEntry extends SessionEntryBase {
+    readonly kind: "run_end";
+    readonly stopReason: string;
+    readonly error: JsonValue;
+}
+
+/**
+ * `message`、`tool_call`、`tool_result` 是只存文字的旧条目：harness 不再写，旧日志仍可读。
+ */
+export type SessionEntry =
+    | MessageEntry
+    | ToolCallEntry
+    | ToolResultEntry
+    | CompactionEntry
+    | MetaEntry
+    | SessionSnapshotEntry
+    | AgentMessageEntry
+    | UsageEntry
+    | RunEndEntry;
 
 /** `append` 的入参：不含 `seq`/`at`，由 log 打戳。 */
 export type SessionEntryInput =
@@ -47,7 +93,11 @@ export type SessionEntryInput =
     | {readonly kind: "tool_call"; readonly callId: string; readonly toolName: string; readonly argsJson: string}
     | {readonly kind: "tool_result"; readonly callId: string; readonly isError: boolean; readonly text: string}
     | {readonly kind: "compaction"; readonly summary: string; readonly replacedThroughSeq: number}
-    | {readonly kind: "meta"; readonly key: string; readonly value: JsonValue};
+    | {readonly kind: "meta"; readonly key: string; readonly value: JsonValue}
+    | Omit<SessionSnapshotEntry, keyof SessionEntryBase>
+    | Omit<AgentMessageEntry, keyof SessionEntryBase>
+    | Omit<UsageEntry, keyof SessionEntryBase>
+    | Omit<RunEndEntry, keyof SessionEntryBase>;
 
 /** 可读写的会话 id 形状；用于文件名，避免路径穿越。 */
 export const SESSION_ID_PATTERN = /^[A-Za-z0-9._-]{1,128}$/;
@@ -69,10 +119,18 @@ export function materializeEntry(input: SessionEntryInput, seq: number, at: stri
             return {kind: "compaction", seq, at, summary: input.summary, replacedThroughSeq: input.replacedThroughSeq};
         case "meta":
             return {kind: "meta", seq, at, key: input.key, value: input.value};
+        case "session_snapshot":
+            return {kind: "session_snapshot", seq, at, profile: input.profile, initial: input.initial, tools: input.tools};
+        case "agent_message":
+            return {kind: "agent_message", seq, at, message: input.message};
+        case "usage":
+            return {kind: "usage", seq, at, input: input.input, output: input.output, cacheRead: input.cacheRead, cacheWrite: input.cacheWrite, cost: input.cost};
+        case "run_end":
+            return {kind: "run_end", seq, at, stopReason: input.stopReason, error: input.error};
     }
 }
 
-const KINDS = new Set(["message", "tool_call", "tool_result", "compaction", "meta"]);
+const KINDS = new Set(["message", "tool_call", "tool_result", "compaction", "meta", "session_snapshot", "agent_message", "usage", "run_end"]);
 const ROLES = new Set(["user", "assistant", "system"]);
 
 /** 解析一行 JSONL；字段不合法或 JSON 损坏时返回 null（调用方据此判定中断尾）。 */
@@ -110,6 +168,20 @@ export function parseEntryLine(line: string): SessionEntry | null {
                 : null;
         case "meta":
             return typeof candidate.key === "string" ? (value as MetaEntry) : null;
+        case "session_snapshot": {
+            const profile = candidate.profile as Record<string, unknown> | null | undefined;
+            return typeof profile === "object" && profile !== null && typeof profile.key === "string" && typeof profile.version === "string" && "initial" in candidate && Array.isArray(candidate.tools)
+                ? (value as SessionSnapshotEntry)
+                : null;
+        }
+        case "agent_message":
+            return typeof candidate.message === "object" && candidate.message !== null ? (value as AgentMessageEntry) : null;
+        case "usage":
+            return ["input", "output", "cacheRead", "cacheWrite"].every((key) => typeof candidate[key] === "number") && (candidate.cost === null || typeof candidate.cost === "number")
+                ? (value as UsageEntry)
+                : null;
+        case "run_end":
+            return typeof candidate.stopReason === "string" && "error" in candidate ? (value as RunEndEntry) : null;
         default:
             return null;
     }
