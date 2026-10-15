@@ -25,6 +25,7 @@ const TEXT = {
     dropSplitTop: {"zh-CN": "拆分到上方", "en-US": "Split Up"},
     dropSplitBottom: {"zh-CN": "拆分到下方", "en-US": "Split Down"},
     unsaved: {"zh-CN": "未保存", "en-US": "Unsaved"},
+    pinned: {"zh-CN": "已固定", "en-US": "Pinned"},
     preview: {"zh-CN": "预览", "en-US": "Preview"},
     previewOf: {"zh-CN": "预览 {name}", "en-US": "Preview {name}"},
     tipCommands: {"zh-CN": "显示所有命令", "en-US": "Show All Commands"},

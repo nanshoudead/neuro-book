@@ -18,7 +18,7 @@ afterEach(() => {
 });
 
 function bar(tabs: TabItem[] = TABS, wrap = true) {
-    const wrapper = mount(EditorTabBar, {props: {tabs, label: "打开的编辑器", closeLabel: (name: string) => `关闭 ${name}`, unpinLabel: (name: string) => `取消固定 ${name}`, unsavedLabel: "未保存", wrap}, attachTo: document.body});
+    const wrapper = mount(EditorTabBar, {props: {tabs, label: "打开的编辑器", closeLabel: (name: string) => `关闭 ${name}`, unpinLabel: (name: string) => `取消固定 ${name}`, unsavedLabel: "未保存", pinnedLabel: "已固定", wrap}, attachTo: document.body});
     mounted.push(wrapper);
     return wrapper;
 }
@@ -70,6 +70,8 @@ describe("EditorTabBar", () => {
         expect(wrapper.emitted("unpin")).toEqual([["p1"]]);
         expect(wrapper.get("[data-editor-tab-unpin=\"p1\"]").attributes("aria-label")).toBe("取消固定 大纲.md");
         expect(wrapper.findAll("[data-editor-tab-hint]").map((hint) => hint.text())).toEqual(["notes", "drafts"]);
+        // 固定状态读屏器也听得到。
+        expect(tab(wrapper, "p1").text()).toBe("大纲.md（已固定）");
         const single = bar(tabs, false);
         expect(single.findAll("[data-row]").map((row) => row.attributes("data-row"))).toEqual(["all"]);
     });

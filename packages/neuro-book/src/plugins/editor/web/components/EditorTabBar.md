@@ -5,7 +5,7 @@
 
 # EditorTabBar
 
-编辑组的标签条（受控，[`workbench/editor.md`](../../../../../../../docs/specs/workbench/editor.md) 输出 53、54、56、58、59）：VS Code 式，条底是主题角色 `--editor-tabs-surface`（比正文低一档），活动标签是与正文同色（`--panel-surface`）的一块、顶部两角圆，不加粗；不是活动组时活动标签的文字降为次级色。同一行相邻标签之间是开放式分隔线（1px `--divider`，上下各空出四分之一），活动与悬停标签两侧不画。每个标签依次是文件图标（共享的 [`FileIcon`](../../../../ui/file-icons/FileIcon.md)，页面标签没有）、名字（preview 为斜体，过长截断，悬停提示完整地址）、同名提示（次级色小字）与状态位。
+编辑组的标签条（受控，[`workbench/editor.md`](../../../../../../../docs/specs/workbench/editor.md) 输出 53、54、56、58、59）：VS Code 式，条底是主题角色 `--editor-tabs-surface`（比正文低一档），活动标签是与正文同色（`--panel-surface`）的一块、顶部两角圆，不加粗；不是活动组时活动标签的文字降为次级色。同一行相邻标签之间是开放式分隔线（1px `--divider`，上下各空出四分之一），活动与悬停标签两侧不画。每个标签依次是文件图标（共享的 [`FileIcon`](../../../../ui/file-icons/FileIcon.md)，页面标签没有）、名字（preview 为斜体，过长截断，悬停提示完整地址）、同名提示（次级色小字，至多占标签宽度的一半，过长同样截断）与状态位；固定与未保存另有读屏文字。
 
 ## 数据
 
@@ -35,6 +35,8 @@ type Props = {
     unpinLabel: (label: string) => string;
     /** 未保存标记的读屏文字。 */
     unsavedLabel: string;
+    /** 固定标签的读屏文字。 */
+    pinnedLabel: string;
     /** 多行（设置 `wrapTabs`）；缺省 true。 */
     wrap?: boolean;
     /** 这一组是活动组；缺省 true。 */

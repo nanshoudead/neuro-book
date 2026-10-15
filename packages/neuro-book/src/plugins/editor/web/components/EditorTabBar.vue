@@ -26,6 +26,8 @@ const props = withDefaults(defineProps<{
     closeLabel: (label: string) => string;
     unpinLabel: (label: string) => string;
     unsavedLabel: string;
+    /** 固定标签的读屏文字（固定改变“关闭其他”“关闭右侧”的行为，只靠图钉与位置读屏器听不出来）。 */
+    pinnedLabel: string;
     /** 多行（设置 `wrapTabs`）：固定标签单独一行，普通标签放不下时换行；否则一行横向滚动。 */
     wrap?: boolean;
     /** 这一组是活动组：别的组的活动标签文字降为次级色。 */
@@ -185,6 +187,7 @@ const onAuxClick = (event: MouseEvent, id: string): void => {
                     <FileIcon v-if="tab.icon !== null" :icon="tab.icon" class="editor-tab__icon" />
                     <span class="editor-tab__label" :class="tab.preview ? 'italic' : ''" data-editor-tab-label>{{ tab.label }}</span>
                     <span v-if="tab.hint !== null" class="editor-tab__hint" data-editor-tab-hint>{{ tab.hint }}</span>
+                    <span v-if="tab.pinned" class="sr-only">（{{ pinnedLabel }}）</span>
                     <span v-if="tab.dirty" class="sr-only">（{{ unsavedLabel }}）</span>
                 </button>
                 <!-- 状态位：固定的是图钉（点它取消固定）；否则未保存是圆点，活动、悬停或聚焦时换成关闭。不进 Tab 顺序（键盘用 Delete）。 -->
@@ -322,8 +325,13 @@ const onAuxClick = (event: MouseEvent, id: string): void => {
     white-space: nowrap;
 }
 
+/* 提示与名字分着标签的宽度：提示至多占一半，过长同样截断，不把名字挤没、不溢出到相邻标签。 */
 .editor-tab__hint {
-    flex: none;
+    flex: 0 1 auto;
+    min-width: 0;
+    max-width: 50%;
+    overflow: hidden;
+    text-overflow: ellipsis;
     font-size: 12px;
     color: var(--text-muted);
     white-space: nowrap;

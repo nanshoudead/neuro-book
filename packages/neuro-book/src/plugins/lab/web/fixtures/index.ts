@@ -680,7 +680,7 @@ export const labFixtures: LabFixture[] = [
         scenes: (() => {
             type Extra = {preview?: boolean; dirty?: boolean; active?: boolean; pinned?: boolean; hint?: string};
             const tab = (id: string, label: string, extra: Extra = {}) => ({id, label, title: `project://chapters/${label}`, preview: extra.preview ?? false, dirty: extra.dirty ?? false, active: extra.active ?? false, pinned: extra.pinned ?? false, icon: fileIconForName(label), hint: extra.hint ?? null});
-            const base = {label: "打开的编辑器", unsavedLabel: "未保存"};
+            const base = {label: "打开的编辑器", unsavedLabel: "未保存", pinnedLabel: "已固定"};
             const typical = [
                 tab("p1", "大纲.md", {pinned: true}),
                 tab("p2", "人物.md", {pinned: true, dirty: true}),

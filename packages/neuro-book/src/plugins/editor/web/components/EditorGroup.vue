@@ -151,6 +151,13 @@ const listCrumb = async (address: string, signal: AbortSignal): Promise<Breadcru
     // 内容根的清单文件不列（资源管理器缺省也不显示它）。
     return {ok: true, entries: result.value.entries.filter((entry) => entry.role !== "manifest").map((entry) => ({name: entry.name, kind: entry.kind, address: formatResource({scheme, path: path === "" ? entry.name : `${path}/${entry.name}`})}))};
 };
+/** 面包屑交还焦点：给本组的编辑器；控件还没交出句柄（还在加载）时给本组的活动标签，不让焦点掉到页面根上。 */
+const section = ref<HTMLElement | null>(null);
+const returnFocus = (): void => {
+    const handle = props.area.handleOf(props.groupId);
+    if (handle !== null) handle.focus();
+    else section.value?.querySelector<HTMLElement>("[data-editor-tab][aria-selected=\"true\"]")?.focus();
+};
 const crumbFocus = computed(() => (props.area.breadcrumbFocus.value?.group === props.groupId ? props.area.breadcrumbFocus.value.seq : 0));
 
 type Banner = {readonly tone: "danger" | "warning" | "info"; readonly text: string; readonly actions: ReadonlyArray<{readonly id: string; readonly label: string; readonly run: () => void}>};
@@ -235,6 +242,7 @@ export interface EditorGroupTitleActions {
 
 <template>
     <section
+        ref="section"
         class="flex h-full min-h-0 w-full min-w-0 flex-col bg-[var(--panel-surface)]"
         :class="active ? '' : 'opacity-[0.98]'"
         :aria-label="editorText(locale, 'areaLabel')"
@@ -252,6 +260,7 @@ export interface EditorGroupTitleActions {
                 :close-label="(name: string) => editorText(locale, 'closeTab', {name})"
                 :unpin-label="(name: string) => editorText(locale, 'unpinTab', {name})"
                 :unsaved-label="editorText(locale, 'unsaved')"
+                :pinned-label="editorText(locale, 'pinned')"
                 :wrap="wrapTabs"
                 :group-active="active"
                 @activate="(id: string) => area.activate(id)"
@@ -283,7 +292,7 @@ export interface EditorGroupTitleActions {
             :focus-seq="crumbFocus"
             @open="(address: string) => void area.open(address, {mode: 'preview', group: groupId})"
             @reveal="(binding: string, version: number, id: string) => void area.handleOf(groupId)?.revealHeading?.(binding, version, id)"
-            @escape="area.handleOf(groupId)?.focus()"
+            @escape="returnFocus"
         />
         <div class="relative h-0.5 shrink-0 overflow-hidden" aria-hidden="true">
             <div v-if="area.progress(groupId)" class="editor-group__progress absolute inset-y-0 w-1/3 bg-[var(--accent-main)]" data-editor-progress></div>
