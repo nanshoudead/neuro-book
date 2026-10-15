@@ -24,4 +24,4 @@ updated: 2026-10-15
 
 ## 下一步
 
-1. 写 `docs/specs/agent/harness.md`（planned）与 `plan.md`，要点先给开发者看。
+1. 计划 [plan.md](plan.md) 交开发者确认后，建 worktree `.worktree/w00002-t21-harness` 按切片实施。
