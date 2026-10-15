@@ -19,8 +19,13 @@ beforeAll(async () => {
     book = await openTestBook("server");
 });
 
+// 收尾走正常停止并核对：退出码 0、登记已撤销。只有专门测崩溃的用例自己强杀。
 afterEach(async () => {
-    for (const serve of running.splice(0)) await serve.stop("SIGKILL");
+    for (const serve of running.splice(0)) {
+        if (!serve.running()) continue;
+        expect(await serve.stop("SIGTERM")).toBe(0);
+    }
+    expect(existsSync(join(book.library, ".serve.json"))).toBe(false);
 });
 
 afterAll(async () => {
@@ -119,7 +124,7 @@ describe("单实例与登记（cli-skill 验收 4、F3）", () => {
 
     test("服务被强行结束（不撤销登记）后再启动也成功", async () => {
         const first = await serve();
-        await first.stop("SIGKILL");
+        expect(await first.stop("SIGKILL")).not.toBe(0);
         expect(existsSync(join(book.library, ".serve.json"))).toBe(true);
         const second = await serve();
         expect(second.login).not.toBeNull();
@@ -174,5 +179,7 @@ describe("命令行的查看器地址（cli-skill 输出 4）", () => {
         await server.stop("SIGKILL");
         const stale = await runCli(["card", "苏天晴", "--at", "38", "--library", book.library]);
         expect(stale.stdout).not.toContain("查看器：");
+        // 强杀留下的登记由下一个服务覆盖；这里起一个再正常停掉，收尾时登记已撤销。
+        await serve();
     });
 });

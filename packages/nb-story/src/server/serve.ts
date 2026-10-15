@@ -94,10 +94,18 @@ export async function serveCommand(options: ServeOptions, io: CliIo): Promise<nu
         const stop = async () => {
             if (stopping) return;
             stopping = true;
-            await lock.withdraw();
-            await server.stop(true);
-            lock.release();
-            resolve(0);
+            // 撤销登记失败（例如书库目录变成只读）也要停掉监听、放锁，否则进程停不下来并一直占着锁；这时退出码为 1。
+            let code = 0;
+            try {
+                await lock.withdraw();
+            } catch (error) {
+                code = 1;
+                io.stderr(`撤销服务登记失败：${error instanceof Error ? error.message : String(error)}`);
+            } finally {
+                await server.stop(true);
+                lock.release();
+            }
+            resolve(code);
         };
         process.once("SIGINT", stop);
         process.once("SIGTERM", stop);

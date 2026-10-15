@@ -25,6 +25,8 @@ export interface ServeProcess {
     login: string | null;
     base: string | null;
     stderr(): string;
+    /** 进程还没退出。 */
+    running(): boolean;
     /** 发信号并等进程退出，返回退出码。 */
     stop(signal?: NodeJS.Signals): Promise<number>;
     exited: Promise<number>;
@@ -46,12 +48,20 @@ export async function startServe(library: string): Promise<ServeProcess> {
     void child.exited.then(() => {
         exited = true;
     });
-    await waitUntil("serve 打印登录链接或退出", () => /http:\/\/\S+\/login\?token=\S+/u.test(out) || exited, {timeoutMs: 15_000});
+    try {
+        await waitUntil("serve 打印登录链接或退出", () => /http:\/\/\S+\/login\?token=\S+/u.test(out) || exited, {timeoutMs: 15_000});
+    } catch (error) {
+        // 没等到就绪：调用方拿不到句柄，这里自己收口。
+        child.kill("SIGKILL");
+        await child.exited;
+        throw error;
+    }
     const login = /http:\/\/\S+\/login\?token=\S+/u.exec(out)?.[0] ?? null;
     return {
         login,
         base: login ? login.slice(0, login.indexOf("/login")) : null,
         stderr: () => err,
+        running: () => !exited,
         async stop(signal = "SIGTERM") {
             if (!exited) child.kill(signal);
             return child.exited;

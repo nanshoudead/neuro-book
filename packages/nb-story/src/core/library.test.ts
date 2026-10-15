@@ -121,18 +121,24 @@ describe("导入与删除", () => {
         void churn.exited.then(() => {
             running = false;
         });
-        while (running) {
-            let pinned;
-            try {
-                pinned = await lib.pinBook("fox");
-            } catch (error) {
-                if (error instanceof StoryError && error.code === "book_not_found") continue;
-                throw error;
+        try {
+            while (running) {
+                let pinned;
+                try {
+                    pinned = await lib.pinBook("fox");
+                } catch (error) {
+                    if (error instanceof StoryError && error.code === "book_not_found") continue;
+                    throw error;
+                }
+                try {
+                    expect((await pinned.readDataset()).book.title).toBe(pinned.meta.title);
+                } finally {
+                    await pinned.release();
+                }
+                pinnedCount += 1;
             }
-            const dataset = await pinned.readDataset();
-            await pinned.release();
-            expect(dataset.book.title).toBe(pinned.meta.title);
-            pinnedCount += 1;
+        } finally {
+            if (running) churn.kill("SIGKILL");
         }
         expect(await churn.exited).toBe(0);
         expect(pinnedCount).toBeGreaterThan(0);
@@ -167,11 +173,15 @@ describe("导入与删除", () => {
             const id = `fox-${attempt}`;
             const watcher = watch(library);
             const child = runImportChild(library, file, id);
-            watcher.on("change", (_event, name) => {
-                if (String(name).startsWith(".importing-")) child.kill("SIGKILL");
-            });
-            await child.exited;
-            watcher.close();
+            try {
+                watcher.on("change", (_event, name) => {
+                    if (String(name).startsWith(".importing-")) child.kill("SIGKILL");
+                });
+                await child.exited;
+            } finally {
+                watcher.close();
+                if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
+            }
             const lib = new Library(library);
             const listed = (await lib.listBooks()).find(book => book.id === id);
             if (listed) {
