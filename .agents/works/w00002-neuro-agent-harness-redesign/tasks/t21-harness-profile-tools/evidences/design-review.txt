@@ -1,0 +1,171 @@
+# w00002 t21 只读设计审查
+
+审查对象：`/home/notnotype/CodeRepository/neuro-book/.worktree/w00002-t21-review/docs/proposals/nb-harness-profile-and-tools.md`。
+
+审查方式：本会话顺序自审；源码以指定 worktree 为准，OMP 以主工作区安装的 18.2.5 为准。下文仓库相对路径均相对该 worktree；`node_modules/` 路径相对主工作区。没有修改源码、Task 记录或 Git 状态。报告按核实进度追加。
+
+### 1. 文字日志无法成为无损的唯一模型上下文，提案缺少消息格式迁移
+
+- **严重程度**：阻断；**类别**：正确性。
+- **位置**：提案“1. Profile 定义”“影响：数据”（第 80、145 行）；`packages/nb-harness/src/harness.ts:73-83,149-158`；`packages/nb-profile/src/nodes.ts:11-26`；`packages/nb-session/src/entries.ts:10-28`。
+- **现象**：提案把日志渲染提升为模型的唯一上下文，但数据变更只增加工具 `details` 和用量。现有日志将整条 assistant 消息压成一段 text，另将调用记成 `tool_call`；渲染时调用和结果都变成 `{role: "tool", text, callId}`。它不保留 assistant 内容块的原始次序、thinking、签名、provider 信息或工具结果的多模态内容。
+- **为什么是问题**：OMP 需要 assistant 的 `toolCall` 块和 `toolResult` 消息成对，而不是两条同形的 tool 文本；`ToolResultMessage` 还要求 `toolName`。OMP `pi-ai/src/types.ts:738-754,869-891,1019-1104` 定义的 `textSignature`、`thinkingSignature`、`thoughtSignature`、`providerPayload`、调用及结果的 `providerMetadata` 都无法从当前日志恢复。同 provider 的推理与工具历史重放会失真；下一次渲染还会重写已有请求前缀。加 `sessionId` 只能设置路由键，不能恢复已丢失的数据。旧日志“可读”不等于可恢复执行。
+- **如何核实**：逐行对照上述 3 包的消息类型与 `node_modules/@oh-my-pi/pi-ai/src/types.ts:738-754,869-891,1019-1104`；`harness.ts:149-158` 的落盘路径明确只取 text 与调用参数。此结论来自源码，不声称已调用真实 provider 验证拒绝响应。
+- **建议改法**：先定义可版本化、保留原始内容块和 provider replay 字段的持久化消息及 Profile 渲染输出，再规定哪些段落允许裁剪、如何保持整组调用与结果及顺序。明确旧文字日志只能阅读、降级重放还是拒绝续跑，不能承诺从旧日志无损恢复。增加跨两次请求和关闭后重开的脚本化验收，逐字段核对模型实际收到的上下文。
+
+### 2. 收尾没有定义批次语义；一次成功会中止同批兄弟调用，也允许两个结果同时被接受
+
+- **严重程度**：阻断；**类别**：不变量。
+- **位置**：提案“4. 收尾工具”（第 120-125 行）；`node_modules/@oh-my-pi/pi-agent-core/src/agent-loop.ts:160-165,1593-1597,3194-3229,3336-3387`。
+- **现象**：`afterToolCall` 只支持覆盖工具结果，没有“停止循环”的返回值。直接 `agent.abort()` 会走用户取消路径；使用 OMP 的专用 `TERMINAL_TOOL_RESULT_ABORT_REASON` 可以避免下一次模型调用并保留成对历史，但仍会向同批正在执行的工具传播 abort。同批两个 finish 都已完成时，两个 post-hook 都会执行，提案的单个 `finish` 没有唯一结果规则。
+- **为什么是问题**：模型允许在一条 assistant 消息里发出多个调用，OMP 默认 `concurrency: "shared"`。问答的“提交答案”可以在另一项资料校验完成前被接受，随后另一项被中止；两个答案也可以同时成功，结果取哪个将取决于实现里的覆盖顺序。改成 exclusive 只改变调度，不等于规定一个批次中只允许一个终结提交。外部取消先于或晚于提交成功时，`finished` 与 `aborted` 的优先级同样没有合同。
+- **如何核实**：运行 `bun /home/notnotype/.claude/jobs/568d0811/tmp/review-t21-design/lab/runtime-probes.ts`，经真实 `Agent.prompt()` 和 OMP 调度器，未调用模型。实测普通 abort 调用 streamFn **2 次**、消息尾多出 `assistant:aborted`；专用 terminal reason 调用 **1 次**、保留 `assistant:toolUse → toolResult:false`。finish 加兄弟工具得到 `[{tool:"finish",isError:false},{tool:"sibling",isError:true}]`；两个 finish 得到 `accepted:["f3a","f3b"]` 和 **2 条成功结果**。源码确认完成的工具在信号已中止时仍会进入 post-hook。首次探针把普通 abort 也预期为 1 次，因此断言失败；改为记录实际次数后完成其余实验，没有修改产品代码。
+- **建议改法**：明确 finish 的批次仲裁、与普通工具的执行次序、多个 finish 的拒绝规则、外部取消和提交的线性化点，以及日志提交失败是否还能返回 `finished`。实现使用已存在的 terminal reason，不靠普通 abort 再把结果改名。必须覆盖“同批普通工具”“两个 finish”“用户取消竞争”“校验失败后重新提交”。第 125 行回退为“再问一次模型”会改变收尾合同，不能由实现者自行启用。
+
+### 3. 并发 turn 的排他点没有定义，失败请求已经污染会话和另一次运行的结果
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：提案“3. 一次运行的结果”“影响：接口”；`packages/nb-harness/src/harness.ts:170-192,200-209`；`node_modules/@oh-my-pi/pi-agent-core/src/agent.ts:1294-1296`。
+- **现象**：同一 harness 的第二次 `turn()` 在 OMP 抛 `AgentBusyError` 之前已经读取并渲染历史、改系统提示词、追加用户输入、安装可中止同一个 Agent 的监听器。提案要求日志成为唯一上下文并返回本次 `entries`，但没有规定重叠运行是拒绝还是排队，也没有在进入这些副作用前设边界。
+- **为什么是问题**：第二次运行即使失败，其输入仍成为后续 Profile 的上下文；第一次的 `entries` 也会把第二次输入算进去。第二次 signal 在竞争窗口触发时还会取消第一次运行。`close()` 当前先取消订阅再 abort，未等 Agent idle，结束事件及在途工具结果也可能没有入日志；仅等待写队列不是等待生产者结束。这些都会破坏新的“日志唯一真相源”和逐次用量归属合同，不是加返回字段就能保留不变的细节。
+- **如何核实**：同一 `runtime-probes.ts` 经真实 `createHarness()` 调两次 `turn()`，用 Promise 屏障在第一次 streamFn 内挂起；实测第二次报 `AgentBusyError`，日志用户输入为 `["first","second"]`，第一次返回的条目文字为 `["first","second","first reply"]`。`close()` 的顺序及 signal 共享来自源码，未把这两项附加风险写成已经运行验证。
+- **建议改法**：规定单会话的运行所有权，优先在任何日志、渲染、监听副作用前原子拒绝重叠 turn；也可明确串行排队及排队时取消语义。每次运行用独立状态和日志范围结算。关闭应先停止接纳、abort 并等在途运行完成及事件落盘，最后解除订阅；关闭后的方法明确拒绝。验收覆盖重叠、竞争取消和在途关闭。
+
+### 4. 冻结的工具定义与可撤销实现没有分层，现有插件接口不能兑现 P1、P11
+
+- **严重程度**：重要；**类别**：不变量。
+- **位置**：提案“2. 工具三层”（第 85-97 行）、“影响：接口”；`packages/nb-harness/src/plugins.ts:17-28,46-67`；`packages/nb-harness/src/harness.ts:104-118,200-203`。
+- **现象**：提案要求会话工具集不变，插件移除后执行返回 `plugin-unavailable`，但没有给 registry 定义声明与实现的两个寿命、撤回通知、在途调用的结算接口，也没有交代现有 `harness.use()` 的去留。当前 registry 实际保存 `AgentTool` 活对象，取出后直接把 `execute` 闭包交给 Agent；`unregister()` 只从 Map 删除插件，不能使 Agent 已持有的工具失效。
+- **为什么是问题**：按现有方式冻结 AgentTool，会继续执行被禁用插件并持有其闭包；按现有 `use()` 重建工具列表，则破坏会话内不变。只在调用开始时检查登记状态也不够：禁用时在途工具必须有界结算、只产生一条结果、丢弃迟到结果。平台 P1 第 5、6 项与 P11 明确要求可撤销句柄和三步停止，不能把该承诺缩成“下一次 not found”。同 id 热升级还会出现旧 schema 配新实现，参数合同失配。
+- **如何核实**：源码对照上述现有注册和装配路径；`docs/proposals/extensible-application-platform.md:114-116,486-501` 要求调用包装、撤回和等待 **5 秒**加中止宽限 **2 秒**；2026-09-29 研究材料第 12-15 行还明确要求不缓存实现、每次调用经句柄取得并为在途调用记结果。此项是合同缺口，未声称新 registry 已存在或已运行插件卸载实验。
+- **建议改法**：registry 分离可复制冻结的 wire 描述（id、模型名、schema、提供方及版本）和运行时可撤销调用句柄；Profile 的 typed reference 只引用稳定 id，不 import 插件执行模块。明确 `use()` 是移除、仅影响后续新会话，还是改为 registry 级登记；按句柄调用对接平台的取消和在途结算。旧会话遇到同 id 不兼容升级时保持不可用，不把新实现塞给旧 schema。增加执行中撤回、迟到完成和重新启用的验收。
+
+### 5. 会话没有保存 Profile 和工具快照，重开后无法维持“会话内不变”或解释原有日志
+
+- **严重程度**：重要；**类别**：不变量。
+- **位置**：提案“1. Profile 定义”“2. 工具三层”“影响：数据”（第 80、89-97、145 行）；`packages/nb-session/src/entries.ts:16-28,36-50`。
+- **现象**：工具集按当前 registry 与 policy 在开始时计算，但日志新增内容只有 details、usage；没有 Profile 身份及版本、initial、生效工具 id、wire 名、schema 与提供方版本的快照。两次创建同一个 Profile 时，可选工具存在与否不同，`<If tool>` 就会生成不同系统前缀。
+- **为什么是问题**：关闭并重开同一个 sessionLog 后，会用当前登记表再次决定工具集和提示词，同一个会话的工具声明可以改变。日志只存给模型看的 `toolName`，不能反查当时是哪个命名空间 id、哪个实现版本；新环境同名工具还可能归不同提供方。日志因此不足以重建原请求，不能证明“会话内不变”、重启续接或缓存前缀稳定。这里的回放指重建当时上下文，不要求再次执行有副作用的工具。
+- **如何核实**：对照提案第 89-97、145 行与 `SessionEntry` 全部 5 种条目；当前 JSONL 重开只恢复条目与 seq（`packages/nb-session/src/jsonl-log.ts:55-69`），没有工具或 Profile 的配置恢复。此项是持久化合同遗漏，未把新方案尚不存在的重启行为说成实测故障。
+- **建议改法**：区分新会话和恢复会话；在首个请求前记录无密钥的 Profile 版本、结构化初始输入及有序工具声明快照，调用条目关联稳定 id 与 wire 名。恢复时从快照重建声明，再取得可撤销执行句柄；缺失或版本不匹配时按明确策略拒绝恢复或返回不可用，不默默换配置。验收同一个 Profile 的两个不同工具环境，以及同一个 session 在 registry/policy 改变后重开。
+
+### 6. Profile 示例使用了不存在的会话输入合同，自带工具也没有取得会话状态的通道
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：提案“1. Profile 定义”（第 66-80 行）、“影响：接口”；`packages/nb-profile/src/nodes.ts:18-26,77-79`；旧应用 `profile-sdk/contracts.ts:299-343`。
+- **现象**：示例写 `rules(ctx.initial)` 和 `<If tool="story.timeline">`，但未定义 initial 的传入、校验、持久化与不可变边界，也未给渲染输入增加生效工具集。现有 If 必须提供 `when: boolean`，渲染器只按 `props.when` 判断。Profile 内的 answerTool 还要按本次作品、阅读位置与已读资料校验，工具 execute 如何取得这些会话数据没有合同。
+- **为什么是问题**：旧应用已有 `initialSchema`、结构化 initial、`executeWithContext` 的 sessionId/profileKey 等输入，以及按 initial 构造结果 schema 的能力；新稿只画出 context 回调，没有替代这些输入。照字面实现会被迫让工具捕获模块级可变状态或临时再发明宿主注入通道。同一默认导出 Profile 被 Bun 模块缓存复用到两个会话时，作品和防剧透阅读边界不能放在共享工具闭包里。否则“带类型句柄”并不保证这次执行使用的是这个会话的数据。
+- **如何核实**：现有 `ProfileRenderInput` 只有 messages 与 now，If 的参数只有 when；`packages/nb-profile/src/loader.ts:23-27` 经普通 import 加载默认导出。对照旧应用 `researcher.profile.tsx:20-37` 的 `initialSchema` 与 ctx.initial、`profile-sdk/contracts.ts:299-343` 的执行上下文和动态 schema。这里只报告缺少替代合同，不要求照搬旧应用全部 runtime hook 系统或本次已明确后置的审批。
+- **建议改法**：明确 Profile 的结构化初始输入、类型及运行时校验，和逐次 input 的区别；为 context 规定同一会话的只读 initial、历史及冻结 effectiveTools。定义工具引用的稳定 id 与 wire 名映射，If 按 id 判断，并明确嵌在 System 内时也生效。自带工具保持无状态声明，通过每会话绑定的执行上下文或工厂取得作品/阅读位置/状态；验收一个 Profile 同时服务两个不同初始输入的会话，不能串状态。
+
+### 7. 逐条模型消息求和会漏掉 OMP 隐藏重试的已知用量，取消时也不能把未知当成零
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：提案“3. 一次运行的结果”（第 109、115-116 行）；`node_modules/@oh-my-pi/pi-ai/src/providers/openai-completions.ts:1545-1554`；`node_modules/@oh-my-pi/pi-ai/src/utils/empty-completion-retry.ts:103-188`。
+- **现象**：OMP provider 层会在输出提交前重试空 completion 或瞬时故障；被丢弃 attempt 的终态和 usage 不会发给 Agent。harness 对 `message_end` 求和只能得到最终可见消息的用量，不是实际请求总用量。取消路径还会立即以最近 partial 结算，不等待 provider 最终 usage。
+- **为什么是问题**：费用可被系统性低报，且这不是 provider 没有报告，而是 OMP 已收到的计量被内部重试丢弃。若取消早于 usage 尾帧，OMP 可能只有初始化的 0；现有结果只有 token 数字，`cost: null` 又仅解释为“没有单价”，无法表达“已有单价但计量未知/不完整”。调用方会把未计出的费用当成实际 0。
+- **如何核实**：运行 `bun /home/notnotype/.claude/jobs/568d0811/tmp/review-t21-design/lab/usage-probe.ts`；经真实 `Agent.prompt → streamOpenAICompletions → SSE 解析 → provider 重试`，只在公开 fetch seam 注入协议帧，没有调用内部重试函数或真实模型。**2 次 HTTP 传输返回**分别报告 input **100**、**200**，只产生 **1 条** assistant `message_end`，可见 usage.input **200**，实际已报告总量 **300**，漏 **100**；按每百万 input/output 各 1 的测试单价，返回 cost **0.000205**，已报告合计应为 **0.000305**。取消相关结论另据 `agent-loop.ts:1932-1976,2497-2517`，没有冒充取消计费实测。
+- **建议改法**：先定义统计口径：若只保证可见 assistant 消息的 usage，明确它不是账单总额并交出完整性状态；若保证一次运行所有 attempt 的已报告消耗，必须从 provider attempt 层收集，确认公开接口是否足够，不在 harness 增加第二套重试。记录 request/attempt 归属，终态只计一次；单价缺失与计量缺失分别表达，取消时保留已知部分并标记不完整。验收真实 provider 包装下的空响应重试，不能只让 scriptedStreamFn 返回两条普通消息。
+
+### 8. apiKeyEnv 缺失时必须阻止 OMP 回退，否则会把另一份凭据发往自定义端点
+
+- **严重程度**：重要；**类别**：安全与性能。
+- **位置**：提案“6. 模型与缓存”“影响：安全”（第 133、146 行）；`packages/nb-harness/src/model.ts:56-65`；`node_modules/@oh-my-pi/pi-ai/src/providers/openai-completions.ts:720-721`。
+- **现象**：提案只写“按 apiKeyEnv 从环境变量读”，没有规定指定键缺失或空白时 fail closed。OMP 的客户端会在传入 apiKey 为空时继续按 provider 找默认凭据；自定义 baseUrl 并不禁止该回退。沿用当前 resolver 则更是直接按 provider 选 key，完全没有 apiKeyEnv 的维度。
+- **为什么是问题**：`provider:"openai", baseUrl:第三方地址, apiKeyEnv:"JIJI_KEY"` 在 JIJI_KEY 没配或拼错时，不应悄悄发送 OPENAI_API_KEY。OMP 的 pi-utils 还在导入时从项目、agent、config、HOME 四处 `.env` 补进缺失变量；故“宿主没有显式设置默认 key”不能证明默认凭据不存在。相同 provider/id 配两个端点、两个 apiKeyEnv 时也不能用 provider/id 作为 resolver 的唯一关联键。
+- **如何核实**：运行 `bun /home/notnotype/.claude/jobs/568d0811/tmp/review-t21-design/lab/credential-probe.ts`，使用真实 `Agent → streamSimple → openai-completions`，经公开 fetch seam 截取请求。`getApiKey: () => undefined`、自定义 baseUrl、仅设置一个虚构 OPENAI_API_KEY，实测 `unintendedCredentialSent:true`、运行正常 `stop`；没有发出外部网络请求、没有打印真实密钥。导入期来源及优先级据 `node_modules/@oh-my-pi/pi-utils/src/env.ts:287-305`；首次脚本把 MissingApiKeyError 导入了错误模块，修正为 error/index.ts 后运行成功。
+- **建议改法**：自定义模型的描述和凭据绑定保留在同一对象或显式 resolver 中，按模型配置实例关联，不按 provider/id 全局复用。指定 apiKeyEnv 缺失、空白或不合法时，在进入 provider 前以结构化 auth/config 错误终止，不返回 undefined/空串触发默认回退；明确是否允许无认证端点，不用缺 key 暗示匿名。文档说明 OMP 导入期环境来源，不能宣称只读取了宿主白名单。
+
+### 9. 五类错误不是 OMP 的直接枚举，且 Agent 的外层 catch 会丢掉已有结构化错误
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：提案“3. 一次运行的结果”（第 108、114 行）；`node_modules/@oh-my-pi/pi-agent-core/src/agent.ts:1749-1799`；`packages/nb-harness/src/harness.ts:123-142,189`。
+- **现象**：常规 provider 消息有 `errorId`、`errorStatus`，但不是提案的五选一：OMP 使用可叠加的 bit flags。发生在 getApiKey、上下文变换、streamFn 抛出的错误会进入 Agent 的外层 catch，通常只留下 errorMessage，即使原错误已经携带结构化 errorId。提案没有规定这一层信息损失怎么办，也没规定运行期日志/渲染错误是否抛出。
+- **为什么是问题**：`MissingApiKeyError` 原本带 `Flag.AuthFailed`，但取最后一条消息无法无文案分支地恢复为 auth。`Flag.Transient` 同时覆盖网络与 HTTP 429、5xx，`Flag.UsageLimit` 既可能是余额也可能是账户配额，不能直接当作某个 kind。把日志写失败或 Profile 渲染失败一概塞进 provider 又会谎报故障来源；继续沿用 `drain()` 则违背“启动期错误外不抛”的字面合同。
+- **如何核实**：同一 `credential-probe.ts` 的第二段通过真实 `Agent.prompt()`，让公开 getApiKey 抛 OMP 的 `MissingApiKeyError`；实测最后消息 `stopReason:"error"`，`errorIdPresent:false`、`errorStatusPresent:false`。错误原类定义见 `pi-ai/src/error/auth.ts:11-18`；映射范围见 `error/flags.ts:20-45,624-648`，provider 正常赋值见 `providers/openai-completions.ts:1528-1531`。运行期日志异常来自当前 drain 实现，未假称已实测磁盘故障。
+- **建议改法**：把五类定位为 harness 的映射，而不是 OMP 已有枚举；列出 errorStatus/flags 的优先级、余额/配额的归属及缺少结构化证据时退到 provider 的规则，禁止本包重新按文案判断。凭据解析和 Profile 渲染放在可保留错误类型的宿主边界处理；对日志 I/O 等本地失败明确另设 kind 或明确拒绝 Promise，不许假报成模型失败。测试必须分别从真实 provider error 事件和 Agent 外层抛错两条入口进入。
+
+### 10. defineModel 的字段不足以调用 buildModel，缺省价格也不能直接用零替代
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：提案“6. 模型与缓存”（第 133 行）、“3. 一次运行的结果”（第 115 行）；`node_modules/@oh-my-pi/pi-catalog/src/types.ts:1167-1215,1341-1354`；`src/build.ts:281-302`。
+- **现象**：公开子路径可用，但 `buildModel` 不为提案的 `{provider,baseUrl,id,api,cost?}` 自动补齐 ModelSpec。必需字段还包括 `name`、`reasoning`、`input`、`contextWindow`、`maxTokens` 和完整 cost；apiKeyEnv 则是 harness 自己的凭据绑定，不是 catalog 的字段合同。
+- **为什么是问题**：直接透传不仅类型不通过，运行时首先会在 `cleanModelName(spec.name)` 崩溃。补一个 name 也没有解决模态、推理与输出上限。OMP 的 Model.cost 和 Usage.cost 都强制是数字；把省略的 cost 填成四个 0 以后，“未知单价”和“明确免费”就不可区分，无法再按第 115 行正确返回 null。catalog 还可能施加价格修正规则，自定义端点显式单价是否优先也要确定。
+- **如何核实**：`runtime-probes.ts` 经 `Bun.resolveSync("@oh-my-pi/pi-catalog/build", 主工作区)` 实测公开 exports 解析及导入成功；最小参数调用报 `undefined is not an object (evaluating 'name.replace')`，补齐上述必需字段后构造成功。未把故意不完整的输入强转当作合法 API；此实验专门验证缺省字段不会由 builder 补齐。价格计算见 `node_modules/@oh-my-pi/pi-catalog/src/models.ts:138-156`，其零值结果没有“未知”标记。
+- **建议改法**：给出完整的 DefineModelOptions 类型及每项缺省语义；`name=id` 可以内置，input/reasoning/限制值应显式提供或写明保守默认，允许 catalog 接受的 null 限制而非猜窗口。价格保留独立的“是否已知”信息，明确币种、每百万 token 单位、缓存读写费率和显式单价优先级；内部可给 OMP 补零，但对外未知价格返回 null。Model 描述与 apiKeyEnv 绑定的返回形状同时写清。
+
+### 11. complete 无法同时满足必需工具合同，而且把“全读”改成单次请求违背已定调用方需求
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：提案“5. 单次请求”（第 129 行）、“2. 工具三层”（第 89-95 行）；主工作区 `.agents/works/w00024-nb-story/tasks/t05-qa/README.md`“决定”第 11、13、14 条。
+- **现象**：complete 强制经过 Profile、不带工具，却只接受 `{model,profile,input,signal}`；没有 registry/policy。遇到声明必需工具的 Profile，既不能按第 93 行验证工具可用，也没说是否忽略声明。提案还明确把问答“全读”分配给 complete，但开发者已定全读是“同一个 Agent 一开始就拿到全部原文”。
+- **为什么是问题**：若验证必需工具，complete 缺输入且可能因为一个根本不会执行的工具被禁用而失败；若跳过验证却保留 Profile 的工具提示词，模型会被要求使用不存在的工具，`<If tool>` 的值也不明确。nb-story 的同一个问答 Profile 还含作答工具及防剧透程序校验；换成无工具 complete 会绕过该提交合同，并非只是一种实现复用。返回“与 TurnResult 同形但没有 finish”也没有明确是 `finish:null` 还是类型里删字段；entries 的来源、是否落日志及会话 id 同样缺失。
+- **如何核实**：交叉对照提案第 129 行与 t05 决定第 13 条，以及第 37 行的缺必需工具启动失败规则；这三项合同不能同时按字面执行。OMP 的 `completeSimple` 是单个 provider 消息结果，`Agent.prompt` 是有历史与循环的执行，两者不会自动替 harness 决定持久化和 Profile 工具校验语义。
+- **建议改法**：单次请求使用明确的无工具 Profile，或为 Profile 设计显式 completion 上下文并规定 tools 必须为空及启动失败方式；不要静默忽略必需声明。共用无副作用的模型/上下文准备、结果与用量映射，不强求两种运行器复用整个会话生命周期。明确 CompleteResult 是否为 `Omit<TurnResult,"finish">`、或始终 `finish:null`，以及 entries、日志与缓存键合同。t05 全读继续使用同一问答 Agent；若要改成单次请求，必须重新交开发者决定，不能从“新增 complete”推导出来。
+
+### 12. 删除 DEEPSEEK_API_BASE 没有配套迁移，现有真实模型测试会静默改用目录地址
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：提案“6. 模型与缓存”（第 133 行）、“影响”（第 144-148 行）；`packages/nb-harness/tests/harness.llm.test.ts:14,33-38,64-69`；`packages/neuro-book-test-support/src/llm.ts:15-22,34-47`。
+- **现象**：当前测试支持明确加载 `DEEPSEEK_API_BASE` 到环境，但返回值只有 `{apiKey,model:string}`；harness 的真实模型测试只把这个 model 字符串交给 createHarness。删除 applyBaseUrlOverride 后，resolveModel 仍返回内置目录地址，不会读取该 base。
+- **为什么是问题**：已有 `.env` 使用代理地址时，测试不一定显式失败，而可能拿着代理凭据请求官方目录地址，或在两处凭据恰好都可用时静默走错计费/路由。提案既承诺删除特例，又只说“三包整体回退”，没有说明仓库测试约定和宿主配置如何过渡。`docs/testing/README.md:75-76` 仍把该环境键列为有效输入。
+- **如何核实**：从 `llmTestConfig()` 返回的 model 字符串，跟到 `harness.ts:101` 的 resolveModel/applyBaseUrlOverride；这是唯一应用该环境键的现有路径。静态追踪已能证明删除后不会再应用覆盖，没有为核实此点调用真实模型或读取仓库实际 `.env` 内容。
+- **建议改法**：删除 harness 的专用特例，但在测试/宿主装配边界将已有 base、模型和 apiKeyEnv 转成 defineModel 描述；或明确迁移环境格式并同步测试支持、测试规范及全部消费者。两种都不应让 harness 重新读取配置文件。用两个不同的虚构 base 配合公开 fetch seam 断言最终请求目标，无需真实模型费用即可验证路由迁移。
+
+### 13. 现有脚本化流不能表达提案列出的验收，需要明确扩展测试输入而非假称已有覆盖
+
+- **严重程度**：建议；**类别**：测试。
+- **位置**：提案“对 Spec 的预期改动”（第 157 行）；`packages/nb-harness/src/testing/index.ts:5-7,13-34`；`packages/nb-harness/tests/harness.e2e.test.ts:27-104`。
+- **现象**：现有 `scriptedStreamFn` 只接收 text，永远返回 1 条 stop、全零 usage，无 toolCall、error、partial 或多步脚本；当前装配测试仅覆盖普通文字和插件登记。它不能直接写出收尾退回、并行收尾、length、取消、费用等拟定验收。
+- **为什么是问题**：只修改断言或让替身直接返回 TurnResult 会绕过真正待验证的 OMP 循环、校验和停止路径。重试用量和凭据路由尤其不能在纯 AgentMessage 替身里得到证据；本次已经通过真实 provider 包装复现了这两项差异。
+- **如何核实**：读取 testing/index.ts 全部 35 行及现有装配测试；本次 runtime-probes.ts 证明工具/终结路径可经公开 StreamFn 进入真实 Agent，usage-probe.ts 与 credential-probe.ts 证明 provider 边界可通过公开 fetch seam 无网络验证。不需要 e2e 服务或真实模型，故这些测试不应因“只有文字替身”被标成无法验证。
+- **建议改法**：在同一 Task 明确扩展脚本输入为有限步骤及可观察的取消屏障，支持内容块、stopReason、usage 和请求上下文检查；只替换 provider 输入，保留真实 Agent 调度、schema 校验和日志。provider 特有的隐藏重试、凭据和请求地址另用公开 fetch seam。新增验收映射应把“一个成功 finish”扩成成对重放、同批/多个 finish、关闭/取消、两个会话隔离及未知用量等有可观察判据的场景。
+
+## 验收映射核对
+
+| 提案验收及遗漏边界 | 能否经真实运行时无模型验证 | 应固定的可观察判据 |
+|---|---|---|
+| 工具集计算 | 能；待明确 registry/ref/policy 合同 | 必需缺失/禁用在写入首轮输入前失败；可选不存在不暴露 schema 或提示；id/wire 名冲突明确拒绝 |
+| Profile 上下文与恢复 | 能；真实日志、Profile 渲染和 Agent/fetch seam | 每次请求前日志写入完成；调用结果成对；thinking/签名/provider replay 字段及历史前缀保真；重开后工具快照不变 |
+| 收尾成功与退回 | 能；本次已经用真实 Agent 验证终结标记 | 成功无下一次 provider 调用；校验失败形成工具错误并允许再次提交；同批、重复 finish 和用户取消竞争按明确规则结算 |
+| 出错、length、取消 | 能；需扩展脚本步骤 | 区分 provider 终态、宿主抛错、工具错误；partial 不假报成功；关闭和预先取消不遗失终态或留下未配对调用 |
+| 用量与费用 | 部分能直接经 Agent，隐藏重试必须经过真实 provider 包装 | 只计本次运行、终态只计一次；明确 attempt 口径；已知免费、未知价格、未知/不完整计量分开 |
+| 自定义端点与凭据 | 能；真实 streamSimple 的公开 fetch seam | URL 来自本次模型配置；密钥来自指定绑定；缺指定键不回退；旧测试环境键迁移后路由不变 |
+| 单次请求 | 运行机制能验证，产品合同尚不完整 | 无工具 Profile 的上下文与结果确定；必需工具 Profile 明确拒绝或采用另定模式；不绕过 nb-story 作答校验 |
+
+本次没有运行仓库 `bun test`、typecheck、e2e、开发服务或真实模型，也没有安装依赖。运行的是下列仓库外探针，四个最终命令均退出 0：
+
+```text
+bun /home/notnotype/.claude/jobs/568d0811/tmp/review-t21-design/lab/runtime-probes.ts
+bun /home/notnotype/.claude/jobs/568d0811/tmp/review-t21-design/lab/usage-probe.ts
+bun /home/notnotype/.claude/jobs/568d0811/tmp/review-t21-design/lab/credential-probe.ts
+bun /home/notnotype/.claude/jobs/568d0811/tmp/review-t21-design/lab/context-probe.ts
+```
+
+前两次探针调试失败已分别记在发现 2、8，不计为产品测试失败或通过。涉及真实 provider 的探针都注入公开 fetch，未连接远端；没有以内部函数实验代替真实循环复现。实验文件及 JSONL 仅位于用户指定的 lab。
+
+## 未发现问题的方面
+
+- **公开构造路径存在，已实测**：OMP 18.2.5 的 `@oh-my-pi/pi-catalog/build` 可经 package exports 导入。问题是输入不完整，不是需要深导入或换依赖版本。
+- **结束工具后直接停模型请求可以做到，已实测**：专用 `TERMINAL_TOOL_RESULT_ABORT_REASON` 保持单个工具的调用与结果配对，并把 streamFn 次数保持为 1；不能据此推论同批多工具仲裁已经解决。
+- **上下文替换机制存在，已查源码**：`transformContext → convertToLlm` 在每次 provider 请求前执行（`agent-loop.ts:1717-1723`），能替换送往模型的 messages，不要求把 Agent 自己的内存历史当模型输入。但它不更新 Agent 内部历史或 systemPrompt；全上下文应使用 `syncContextBeforeModelCall` 或 `transformProviderContext`，并保留 Agent 所需的调度状态。不能把“唯一模型上下文”误写成“Agent 不再维护任何状态”。
+- **异步日志可以在请求前同步，已实测一个完整工具循环**：`context-probe.ts` 使用真实 JSONL 与当前 harness 同形的订阅写队列，在每次 transform 前等待写队列。第 1 次请求日志仅有 user；第 2 次请求，Agent 为 `user,assistant,toolResult`，日志已为 `message:user,message:assistant,tool_call,tool_result`。因此日志 I/O 不是必须放弃渲染上下文方案的理由，但这条同步屏障必须写进实现与验收。
+- **缓存路由键机制存在，来自源码**：`pi-ai/src/providers/openai-shared.ts:492-494` 取 `promptCacheKey ?? sessionId`，OpenAI Responses 及支持该选项的 Completions 会写入请求；关闭缓存时不发键。它是路由提示，不保证命中，更不修复历史内容变化。本次未请求真实服务验证缓存命中率。
+- **OMP 确有结构化错误信息，来自源码**：provider 的 errorId/errorStatus 足以避免本包另造文案匹配层；缺的是五类映射、优先级和外层 catch 的保真处理，不是 OMP 完全没有错误机制。
+- **已定范围未重复争论**：强制 Profile、Profile 选择工具、插件仅贡献工具、不加步数上限、新增单次请求，以及后置工具发现/公共工具/追加工具/审批，均按开发者原决定审查。去掉 readFormats、Spec 位置、新开 w00002 Task 三项没有重开决策；read/edit 工具原有共享 EditStore 的会话级所有权应在新装配中保留。
+
+## 对待确认项的判断
+
+“无”不成立。至少有以下两个已写进草稿、但不能从现有授权推出的产品改变：
+
+1. **问答全读改为无工具 complete**：与 t05 决定 13 冲突。建议直接回到既定的同一个问答 Agent；若坚持改变，须开发者决定。
+2. **收尾失败退而多调用一次模型**：这是放宽“通过作答工具即结束”的合同。OMP 已有干净停止单调用的机制，不能把回退作为实现者可自行开启的选项；若仍需回退，须开发者明确接受多一次请求及其出错/截断后的结果语义。
+
+另有两项需要在 Spec 定义，而非让实现者猜：finish 与同批其它工具、外部取消的仲裁；usage 是可见消息下界还是所有已报告 attempt 的运行总量。它们改变调用方可观察结果和计费含义，修订提案时应交开发者确认。其余如 ref 的字段、公开 builder 的补齐、日志格式与队列屏障属于履行现有决定的工程合同，不必另制造产品门禁。
+
+## 数量
+
+- 阻断：**2** 条（1、2）。
+- 重要：**10** 条（3-12）。
+- 建议：**1** 条（13）。
+- 合计：**13** 条；逐次追加后使用专用 grep 工具匹配 `^### ` 核对标题，条数依次增加，未重写或删除已记录发现。
