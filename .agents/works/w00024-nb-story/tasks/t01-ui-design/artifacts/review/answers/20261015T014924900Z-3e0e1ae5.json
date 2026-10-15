@@ -1,0 +1,20 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00024-nb-story",
+    "taskId": "t01-ui-design",
+    "artifactId": "review",
+    "answerId": "20261015T014924900Z-3e0e1ae5",
+    "artifactVersion": 7,
+    "contentHash": "c71b90445ff39b13a0313b8a93885420d8b2c484e45e6d9abe335e5b05a97ee4",
+    "submittedAt": "2026-10-15T01:49:24.403Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "graph-3d": "later",
+        "perspective-view": "v1"
+    },
+    "comments": {},
+    "note": "1. 为什么有的线粗，有的线细？建议都保持一个大小，不然我看这个粗的线还以为是多个线叠起来的。然后是认知没必要做成弧线，我觉得如果两个节点之间有多个关系其实可以多条线合并成一条线（或者和 viewer-7 一样画两条平行分开的线）。\n1.5. 还有：节点大小也保持一致，节点的选中效果也优化一下。viewer-7 做的还是可以的，可以参考一下\n2. 3D 的先不做\n3. 继续优化这个图的查看方式。同时拓扑排序可以做一一个控件，然后是我切换换关系线条的时候需要重新排序"
+}
