@@ -15,7 +15,7 @@ owners:
 
 不承诺：
 
-- 拖动标签换组、拖到边缘拆分、固定标签与多行标签条（随编辑器拖放另行交付）；面包屑（状态栏的文档项见输出 26–28）；编辑器标签的右键菜单与正文的右键菜单（随第一个往里加东西的插件定义菜单位置；编辑区标题见输出 34）。
+- 正文的右键菜单（随第一个往里加东西的插件定义菜单位置；标签的右键菜单见输出 57）；把标签拖出窗口；拖动时按 Ctrl 复制标签；资源管理器拖到编辑区边缘拆分（只打开到那一组，输出 35）；固定标签的紧凑样式；标签条的滚动按钮。
 - 自动保存；未保存的修改跨页面刷新保留。
 - Markdown 富文本里的批注侧栏、选区浮动菜单、斜杠命令、Agent 与 AI 引用、工作区引用标签、frontmatter 面板（这些语法在正文里原样保留，见输出 19）。
 - 差异比较界面；跨文件撤销；同一文档在两个组里共享撤销历史。
@@ -86,7 +86,7 @@ owners:
   }
   ```
 
-  能不能输入由组件属性 `readonly` 给出（输出 48 的预览视图、只读文档为真）。组件属性为 `{binding, host, readonly, visible, label, locale}`（`locale` 是界面语言，控件自己显示的说明按它取），事件为 `ready(handle | null)`、`focus(boolean)`；句柄在现有的聚焦、撤销、重做、结算、行号导航之外，可以交出 `status: Readonly<Ref<LocalizedText | null>>`，由状态栏的编辑器状态条目显示（输出 42）；分语言的控件（源码编辑器）交出 `language: Readonly<Ref<string | null>>`，即视图此刻用的语言 id（标签记着的，或识别出的），由语言条目显示（输出 45）。
+  能不能输入由组件属性 `readonly` 给出（输出 48 的预览视图、只读文档为真）。组件属性为 `{binding, host, readonly, visible, label, locale}`（`locale` 是界面语言，控件自己显示的说明按它取），事件为 `ready(handle | null)`、`focus(boolean)`；句柄在现有的聚焦、撤销、重做、结算、行号导航之外，可以交出 `status: Readonly<Ref<LocalizedText | null>>`，由状态栏的编辑器状态条目显示（输出 42）；分语言的控件（源码编辑器）交出 `language: Readonly<Ref<string | null>>`，即视图此刻用的语言 id（标签记着的，或识别出的），由语言条目显示（输出 45）。（planned）按标题组织的控件（Markdown 富文本）交出 `outline: Readonly<Ref<{binding: string; version: number; items: ReadonlyArray<{id: string; level: number; text: string}>; current: string | null} | null>>` 与 `revealHeading(binding, version, id): "ok" | "stale"`，供面包屑（输出 60）使用：`binding` 是当前绑定的 `token`，正文每变一次 `version` 加一，`id` 按位置区分同名标题；换绑定、没有绑定、卸载时同步为 `null`；`binding` 或 `version` 对不上为 `stale`，不移动光标。
 - 地址参数：`/?project=<短名>&open=<地址>&at=end`，书架页的“继续写作”用它跨页传递打开目标（输出 29）。
 - 命令（`editor` 域；参数为 `{}` 的作用于活动编辑组的活动标签）：
 
@@ -97,15 +97,20 @@ owners:
   | `nbook.editor.save` | `{}` | `dirty` | write | confirm | Ctrl+S |
   | `nbook.editor.save-all` | `{}` | 无 | write | confirm | — |
   | `nbook.editor.revert` | `{}` | `active` | write | never | — |
-  | `nbook.editor.close` | `{}` | `active` | read | auto | Ctrl+W |
-  | `nbook.editor.close-others` | `{}` | `active` | read | auto | — |
-  | `nbook.editor.split-right` | `{}` | `active` | read | auto | Ctrl+\\ |
-  | `nbook.editor.split-down` | `{}` | `active` | read | auto | — |
+  | `nbook.editor.close` | `{tabId?}`（planned） | `active` | read | auto | Ctrl+W |
+  | `nbook.editor.close-others` | `{tabId?}`（planned） | `active` | read | auto | — |
+  | `nbook.editor.close-to-right` | `{tabId?}`（planned） | `active` | read | auto | — |
+  | `nbook.editor.close-saved` | `{tabId?}`（planned） | `active` | read | auto | — |
+  | `nbook.editor.pin-tab` | `{tabId?}`（planned） | `active` | read | auto | — |
+  | `nbook.editor.unpin-tab` | `{tabId?}`（planned） | `active` | read | auto | — |
+  | `nbook.editor.split-right` | `{tabId?}`（planned） | `active` | read | auto | Ctrl+\\ |
+  | `nbook.editor.split-down` | `{tabId?}`（planned） | `active` | read | auto | — |
+  | `nbook.editor.focus-breadcrumbs` | `{}`（planned） | `active` | read | never | — |
   | `nbook.editor.reopen-with` | `{editor?}`（不给时弹出选择，输出 39） | `active` | read | auto | — |
   | `nbook.editor.open-preview` | `{side?: boolean}` | `hasPreview` | read | auto | — |
   | `nbook.editor.change-language` | `{language?}`（不给时弹出选择，输出 45） | `hasLanguage` | read | auto | — |
 
-  `when` 列写 `nbook.editor/` 下的公开键名。`revert` 丢弃未保存修改，对 Agent 不开放。键位只在编辑器区有焦点时由编辑器区处理并执行同一命令，不写成全局键位，`when` 也不含焦点：命令面板取得焦点时这些命令仍可选。第一批的 `nbook.editor.focus`、`nbook.edit.undo`、`nbook.edit.redo`、`nbook.editor.go-to-line` 由本插件登记，`when` 改用下面的公开键，其余声明不变。
+  `tabId` 是被右击的标签（输出 57），缺省为活动组的活动标签；标签不存在为 `unavailable`，命令的可用性按目标标签算。`close-others`、`close-to-right`、`close-saved` 作用于目标标签所在的组（输出 51）。`when` 列写 `nbook.editor/` 下的公开键名。`revert` 丢弃未保存修改，对 Agent 不开放。键位只在编辑器区有焦点时由编辑器区处理并执行同一命令，不写成全局键位，`when` 也不含焦点：命令面板取得焦点时这些命令仍可选。第一批的 `nbook.editor.focus`、`nbook.edit.undo`、`nbook.edit.redo`、`nbook.editor.go-to-line` 由本插件登记，`when` 改用下面的公开键，其余声明不变。
 - 公开状态（布尔）：`nbook.editor/focused`（编辑区获得焦点）、`nbook.editor/active`（有活动视图）、`nbook.editor/writable`（活动视图可写）、`nbook.editor/lineNavigation`（活动视图支持行导航）、`nbook.editor/dirty`（活动文档 dirty）、`nbook.editor/hasUnsavedDocuments`（本窗口有任一打开的文档需要保存，按文档去重）、`nbook.editor/hasCursorPosition`（活动控件给出光标位置）、`nbook.editor/ready`（编辑器区已建好：绑定项目的窗口读完会话记录之后），前四个对应命令目录第一批的 `editor-focus`、`editor-active`、`editor-writable`、`editor-line-navigation`。公开状态（字符串）：`nbook.editor/activeDocument`（活动组的活动标签的地址，文档还没读到也有；没有时为空串），资源管理器在打开作品时据此揭示活动文件（[workbench.files-explorer](files-explorer.md)）。`nbook.editor/active` 是“活动组有活动的文件标签且它的控件交出了句柄”，不要求文本文档；字符串 `nbook.editor/activeEditor` 是活动标签的编辑器 id（页面标签或空组为空串）；另有布尔 `nbook.editor/hasPreview`（活动标签的文件有可用的预览编辑器，且活动标签本身不是预览视图）、`nbook.editor/hasDocument`（活动标签有文本文档；字节标签与页面为假）、`nbook.editor/hasEditorStatus`（活动控件交出了一行状态，输出 42）、`nbook.editor/hasLanguage`（活动控件交出了语言，即活动视图是源码编辑器，输出 45）；`nbook.editor/writable` 是活动视图能输入（预览视图为假，输出 48）。
 - 文档协调服务 `documentCoordinatorKey`（`nbook.editor` 的共享合同），资源管理器作为可选依赖使用：
 
@@ -136,7 +141,7 @@ owners:
 2. 打开在活动组进行；活动组是最近获得焦点或执行过打开的组。拆分在活动组右侧或下方新建组、打开同一文档，新组成为活动组；两个组的视图共用一份文档，各有自己的撤销历史。组与组之间是 1px 的分隔线，拖动它（或聚焦后用方向键）调整两边的大小，规则同 nb-ui 的 grid（[ui.nested-grid](../ui/nested-grid.md)）；编辑组至少 220×120px，调整后的尺寸随第 5 条的会话记录保存。
 3. 关闭标签后同组激活它右侧的标签（没有时左侧）；组里最后一个标签关闭且还有别的组时，组随之关闭，焦点到相邻组。
 4. 关闭文档的最后一个标签时，文档 dirty 或有未裁决输入就询问“保存 / 不保存 / 取消”，默认在取消；文档仍在别的组打开时不问。preview 打开不会换掉这样的标签：本组的 preview 标签是要结算的文档最后一个能编辑的标签时（例如别处改过的正式标签关掉时因为还有它而没问），它先转为 permanent，新文件另开 preview 标签，不询问也不丢修改。“仍在别处打开”只算可编辑的标签：剩下的只有预览视图或只读的编辑器时照常询问，选“不保存”时修改丢掉，这些视图回到磁盘上的内容。预览视图显示 dirty 圆点，在它上面可以保存。
-5. 绑定项目的窗口把组的布局、每组的标签（地址、编辑器、preview）与活动项存进 project/local 记录 `editor.session`，不存正文；重新打开时按记录恢复，标签先出现，正文按打开流程读取。读不到的标签显示原因，不静默删除。未绑定项目的窗口只在内存里。
+5. 绑定项目的窗口把组的布局、每组的标签（地址、编辑器、preview、固定）与活动项存进 project/local 记录 `editor.session`，不存正文；重新打开时按记录恢复，标签先出现，正文按打开流程读取。读不到的标签显示原因，不静默删除。未绑定项目的窗口只在内存里。
 
 **打开与切换**
 
@@ -239,6 +244,21 @@ owners:
 47. **标题动作**：编辑器自己那一节在“向右拆分”之前加按钮“打开预览”（`when: hasPreview`），“⋯”里加“在侧边打开预览”；活动的是预览视图时两项都不出现。预览视图的标签标题写“预览 <文件名>”。
 48. **预览视图绑定同一份文档**：预览编辑器是 `input: "text"`，收到与源码标签同一份文档的绑定、只读，所以没保存的修改也会显示；它进会话记录，刷新后恢复。
 
+**标签栏、移动与面包屑**
+
+49. **移动标签**：标签可以在组内换位置、移到别的组，或移到某个组的一边拆出新组（输出 55 的拖动与输出 57 的命令）。移动前先结算源组与目标组的活动视图；任一组有未裁决输入就不移动，组顶部给出与换文档相同的提示。移到别的组的视图在那一组按标签记下的光标恢复（输出 30），撤销历史从空开始（与拆分相同）；那一组以前为同一文档、同一编辑器留下的视图状态照常沿用。真实发生移动的 preview 标签转为 permanent，每组至多一个 preview 标签。源组空了随之关闭（输出 3）。目标组已有地址与编辑器都相同的标签时不再多开：激活那个标签，再按第 3、4 条关闭被移动的标签：共享的修改不问，只问被移动的视图自己的未裁决输入；用户取消时被移动的标签留在原处。移动后焦点在目标组的活动视图。（planned）
+50. **固定标签**：标签可以固定（输出 57）。每组里固定标签排在前、普通标签在后；固定标签不是 preview，固定时转为 permanent 并排到固定标签的末尾，取消固定时排到普通标签的开头；页面标签不能固定。新打开的标签插在活动标签之后，但不插进固定标签之间（活动标签是固定的时插在普通标签开头）；preview 替换只找普通标签；Alt+←/→ 只在同一类标签里移动；拖动的落点跨过两类的分界时随之固定或取消固定。换编辑器保留固定（并到同组已有的同编辑器标签时，两者有一个固定就固定）；拆分出的标签不固定；改名保留固定；资源管理器删除与普通关闭照常关闭固定标签。固定记进会话记录（第 5 条），旧记录没有这一项时为不固定；记录里两类交错时按出现顺序把固定的排到前面，活动标签不变。（planned）
+51. **批量关闭**：“关闭其他”“关闭右侧”“关闭已保存”作用于一个组：开始时定下要关的标签（跳过固定标签；“关闭已保存”先结算各视图的输入，再取不需要保存、没有未裁决输入、没有在途保存的标签），之后新开或移进来的标签不在其中。逐个按第 3、4 条关闭：已经不在这一组的跳过；用户在询问里取消、或选“保存”而保存失败时停下，已关的不恢复，结果写明关了几个、停在哪个文件、为什么停。同一时刻只进行一次批量关闭，第二次为 `unavailable`。（planned）
+52. **设置**：设置窗口的“编辑器”分区有三项，缺省都开，改了立即生效：`nbook.editor/enablePreview`（预览标签页：关掉时单击打开也是 permanent，已有的 preview 标签立即转为 permanent，恢复的会话同样）；`nbook.editor/wrapTabs`（多行标签，输出 54；切换后活动标签滚到可见，键盘焦点留在原标签）；`nbook.editor/breadcrumbs`（面包屑，输出 60；关掉时它的下拉收起、在途读取作废，焦点在面包屑里时交给本组的编辑器）。（planned）
+53. **标签栏的样子**：标签条的底色比正文低一档（主题 token `--editor-tabs-surface`，[theme.system](../theme/system.md)），活动标签是与正文同色的一块、顶部两角圆，像从正文里长出来；不用加粗区分。别的组的活动标签同样是一块，文字为次级色。每个标签依次是文件图标（与资源管理器同一套）、名字、同名提示（输出 56）与状态位：未保存时是圆点，活动或悬停时换成关闭按钮，固定标签是图钉（点它取消固定）；关闭按钮不显示时仍占位，preview 标签的名字是斜体。同一行相邻标签之间是 1px 的竖线，上下各空出四分之一的高度，活动与悬停标签两侧不画。切换活动标签、悬停与状态变化都不改变标签的宽度。（planned）
+54. **多行标签**：多行时固定标签单独占第一行，这一行不换行，放不下时在行内横向滚动；普通标签放不下时换行，最多显示 3 行，再多在标签区里纵向滚动（悬停滚动条）；编辑区标题（输出 34）在最后一行的右侧。编辑组最小（220×120）时正文仍有可用的高度，标题动作与菜单仍能打开。关掉多行时所有标签在一行里横向滚动，固定标签排在最前。（planned）
+55. **拖动标签**：按住标签的名字或图标拖动（鼠标与笔移动 6px、触摸按住 200 毫秒起拖），关闭按钮、图钉与编辑区标题不起拖；按下落在组与组之间分隔线的命中带里时是调整大小，不是拖标签。落点有两种：某组的标签条（插入位置画一条竖线，多行时先按纵向距离选行；行尾的插入位是下一行的行首之前），或某组的正文区（中央是移到那一组普通标签的末尾，四边按 nb-ui 的边缘落点拆出新组，画出预览区域）。放在原位不移动。Escape、指针被取消或丢失、窗口失焦、页面隐藏都取消且不改任何东西。拖动中组或标签的结构变了（组关闭、标签增减、固定状态或多行设置变化）整场取消；只是窗口尺寸或滚动变了时按当前位置重新显示落点。松手时按当前位置再算一次，与最后显示的落点相同才按第 49 条移动。（planned）
+56. **同名提示**：同一组里显示名相同的文件标签，名字后面用次级色附上能区分它们的最短上级目录（`…/notes`）；目录一直到根都相同（例如 `project://` 与 `user://` 下的同一路径）时附根的名字（“作品”“用户资产”）；同一个文件的两种非预览编辑器附编辑器的名字。改名或关掉其中一个后，提示按剩下的标签重新算。（planned）
+57. **标签的右键菜单**：在标签上右击（或聚焦标签按 Shift+F10、菜单键）打开菜单，作用于被右击的标签，不先激活它。编辑器自己的项：关闭、关闭其他、关闭右侧、关闭已保存；固定或取消固定；向右拆分、向下拆分；文件标签另有复制路径、复制相对路径、在资源管理器中显示（执行 `nbook.files.copy-path`、`copy-relative-path`、`reveal` 并带这个标签的地址）。之后是别的插件经贡献点 `editor.tab-context` 贡献的项（共同规则见 [workbench.menus](menus.md)，`context: "resource"` 的项收到 `{address}`）。菜单打开期间被右击的标签被关闭、移到别的组或换了编辑器时菜单关闭，之前的选择不执行。（planned）
+58. **悬停时显示**：编辑区标题（输出 34）与非活动标签的关闭按钮只在鼠标位于这个编辑组上、焦点在组里或它的菜单打开时显示，其余时候透明（仍占位、仍能用 Tab 到达），淡入淡出 100 毫秒；不能悬停的设备一直显示。规则同 [workbench.views](views.md) 输出 10。（planned）
+59. **标签的键盘**：多行时 ↑/↓ 换到上一行或下一行水平位置最近的标签并激活；其余按键见组件合同（←/→、Home/End、Delete、Alt+←/→）。（planned）
+60. **面包屑**：标签条下面一行：作品名（`user://` 下为“用户资产”）› 目录 › 文件；Markdown 文件再接光标所在的标题。每个组显示自己活动标签的路径；页面标签没有面包屑。放不下时先把中间的目录收成“…”（点它列出收起的段），文件段与标题段保留。点目录段列出它的子项：目录点了在下拉里进入下一层，文件点了在这一组打开，符号链接、其它类型与缺失的项显示但不可选；读取中显示进度，空目录写“空”，读取失败写原因并给“重试”。点文件段列出同级。点标题段列出这一章的大纲（按标题层级缩进，当前标题高亮），选中后光标跳到那个标题；下拉打开后正文或绑定变了，旧的选项不再跳转，下拉关闭。下拉关闭、换段或换文档后，还没回来的读取结果丢掉。键盘：`nbook.editor.focus-breadcrumbs` 聚焦面包屑，←/→ 换段，Enter 或 ↓ 打开下拉，Escape 先关下拉、再回到编辑器。（planned）
+
 ## 状态与转换
 
 | 文档状态 | 进入 | 离开 |
@@ -320,6 +340,14 @@ dirty、saving（有在途保存）、unresolved（有未裁决输入）、confl
 25. Given 会话记录里有一个图片标签，When 刷新页面且图片查看器晚于编辑器区交付，Then 标签照常恢复，交付后显示图片，期间不出现“这个编辑器已经不在了”；When 停用图片查看器插件，Then 标签显示“这个编辑器已经不在了”，点“用默认编辑器打开”后显示“不是 UTF-8 文本”。
 26. Given `a.py`、`a.html`（含 `<script>`）与一个含 ```` ```ts ```` 代码块的 `a.md`，When 用源码编辑器打开，Then 三者都有高亮，`<script>` 里与代码块里是嵌入语言的着色；状态栏显示“Python”；When 执行“更改语言模式”选“纯文本”，Then 着色消失；When 刷新，Then 仍是纯文本。
 
+27. Given 两个组、左组活动标签有刚输入还没交出的字，When 把它拖到右组，Then 标签在右组、两边输入都在，保存后磁盘上都有；When 右组有未裁决输入时再拖，Then 不移动并给出提示；When 拖到右组已有同一文件的标签上，Then 不多开标签。（planned）
+28. Given 固定了 `a.md`、`b.md` 的组，When 在固定标签上打开新文件、按 Alt+←/→、换编辑器、刷新，Then 新文件在普通标签里、固定标签不跨到普通区、换编辑器后仍固定、刷新后仍固定；When 执行“关闭其他”，Then 固定标签留下；When “关闭右侧”途中在询问里取消，Then 停在那个文件、之前的已关。（planned）
+29. Given 多行标签，When 打开很多文件，Then 固定标签单独一行、普通标签最多 3 行后在标签区里滚动，220×120 的组里正文仍可见；When 关掉“多行标签”，Then 一行横向滚动、活动标签可见；When 关掉“预览标签页”，Then 已有的 preview 标签转正、单击打开的是普通标签。（planned）
+30. Given 两个组，When 把标签拖到另一组的正文中央、标签条的某个位置、正文的右边，Then 分别移到那一组末尾、那个位置、新拆出的右侧组；When 拖动中按 Escape，或从关闭按钮、离分隔线 4px 处按下，Then 什么都不变。（planned）
+31. Given 活动组的 A、另一组的 B 与资源管理器选着的 C，When 右击 B 选“关闭其他”“复制相对路径”“在资源管理器中显示”，Then 作用于 B 所在的组与 B 的地址，A 与 C 不受影响；When 菜单打开期间 B 被关闭，Then 菜单关闭。（planned）
+32. Given 一组里 `notes/README.md` 与 `drafts/README.md`，When 看标签，Then 各附 `…/notes`、`…/drafts`；关掉一个后另一个不再附目录。（planned）
+33. Given 打开的 `正文/第二章.md` 有三个标题，When 看面包屑，Then 是“作品名 › 正文 › 第二章.md › 光标所在的标题”；When 点“正文”，Then 列出同级的章节，选一章即打开；When 点标题段选另一个标题，Then 光标跳过去；When 下拉打开期间切到另一个文件，Then 下拉关闭、旧选项不跳。（planned）
+
 Smoke：产品页 e2e `e2e/editor-area.e2e.ts`（生产构建、本机 Chrome、真实 Files）运行场景 1、3–11；场景 2 的阈值由注入时钟的组件与模型测试验收，e2e 只核对正常打开不出现进度条。场景 15 由编辑器的 Bun 测试（`area.test.ts` 的“继续写作”一组、`continue-writing.test.ts`）与 `e2e/bookshelf-stats.e2e.ts` 运行。场景 16 的停手时间由注入时钟的 `status-items.test.ts` 验收，e2e 的状态栏用例核对输入后字数会更新。场景 22–24、26 由 `e2e/editor-types.e2e.ts` 运行；场景 23 的改名与删除、场景 24 的关闭时询问另由 `area.test.ts` 覆盖；场景 25 由 `editor-registry.test.ts`（真实插件宿主，交付先后与停止）与 `area.test.ts`（用默认编辑器打开）覆盖。
 
 ## 实现合同
@@ -338,6 +366,7 @@ Smoke：产品页 e2e `e2e/editor-area.e2e.ts`（生产构建、本机 Chrome、
 
 ## 证据
 
+- 批准依据：输出 49–60 与场景 27–33 来自 w00025 t03 的“开发者的决定”1–11 与实施计划第二版，开发者 2026-10-15 确认（记录在主工作区 master 的 `.agents/works/w00025-editor/tasks/t03-tabs-and-split/README.md` 与 `plan.md`）。
 - 批准依据：输出 36–48 与场景 22–26 来自 [w00025 t01 的决定](../../../.agents/works/w00025-editor/tasks/t01-requirements/README.md#开发者的决定) 1–6 与 [t02 实施计划](../../../.agents/works/w00025-editor/tasks/t02-editor-types/plan.md)，开发者 2026-10-14 确认。
 - 批准依据：输出 35（`group` 参数与 `data-editor-group` 公开标记）来自[t86 的决定](../../../.agents/works/w00017-application-runtime-architecture/tasks/t86-explorer-polish/README.md#决定)与[实施计划](../../../.agents/works/w00017-application-runtime-architecture/tasks/t86-explorer-polish/plan.md)，开发者 2026-10-14 确认。
 - 批准依据：输出 30–33 为 [t79 计划](../../../.agents/works/w00017-application-runtime-architecture/tasks/t79-workbench-polish/plan.md) 第 4 节，开发者 2026-10-12 确认；[NeuroBook v2：并排重建应用](../../proposals/neuro-book-v2-rebuild.md) 第 5 节（编辑器组件从旧包迁入）与推进顺序第 6 条；[项目文件底座与 Files 竖切](../../proposals/project-file-foundation.md)（沿用第一版切换设计）；本 Spec 的取舍见 [w00017 待确认清单](../../../.agents/works/w00017-application-runtime-architecture/pending-confirmations.md) 2026-10-09 的 t71 条目（按推荐先做，开发者 2026-10-14 整体追认）；输出 32 的空态改为标志与提示，为 t79 计划第二轮第 11 节，开发者 2026-10-12 选第五轮稿 E1。

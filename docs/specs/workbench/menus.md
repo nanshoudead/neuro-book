@@ -17,7 +17,7 @@ owners:
 
 - 子菜单、按住修饰键换成另一条命令、菜单项上报运行状态（忙碌）。
 - 按语言过滤：只按文件后缀；有语言登记之后再加。
-- 编辑器标签右键、编辑器正文右键：随第一个往里加东西的插件再定义位置。
+- 编辑器正文右键：随第一个往里加东西的插件再定义位置（编辑器标签右键见位置表，planned）。
 - 插件运行期启用与禁用时菜单项的增减：随 [`runtime.plugin-hot-plug`](../runtime/plugin-hot-plug.md)。
 
 ## 术语与参与者
@@ -54,6 +54,7 @@ interface MenuItemDeclaration {
 | 视图标题 | `workbench.view-title` | `nbook.workbench` | `view`（视图 id，必填）、`icon`、`placement` | `"instance"` → `{viewId, generation}` | 无 | [`workbench.views`](views.md) 输出 10、11 |
 | 资源管理器右键 | `explorer.context` | `nbook.explorer` | `extensions` | `"selection"` → `{addresses}` | 被右键的选择 | [`workbench.files-explorer`](files-explorer.md) 的“右键菜单” |
 | 编辑区标题 | `editor.title` | `nbook.editor` | `icon`、`placement`、`extensions` | `"resource"` → `{address}` | 编辑组的活动标签 | [`workbench.editor`](editor.md) 输出 34 |
+| 编辑器标签右键（planned） | `editor.tab-context` | `nbook.editor` | `extensions` | `"resource"` → `{address}` | 被右击的文件标签（页面标签没有当前文件） | [`workbench.editor`](editor.md) 输出 57 |
 
 | 规则 | 不满足时 |
 |---|---|
@@ -87,7 +88,7 @@ interface MenuItemDeclaration {
 - 拥有者在自己的入口激活时读已接受的菜单项声明；这次激活期间声明集合不变。之后才登记的插件的菜单项，要等拥有者下一次激活才可能出现。
 - 菜单项从贡献方入口的这次激活交付（`published`）起显示，到这条贡献撤回为止；入口再次激活、重新交付后又显示。入口开始停止到撤回送达之间，已经画出的项可能还在：视图标题、资源管理器右键与编辑区标题的项点了以后由拥有者按当下的交付状态重新核对，已不再交付的不执行。
 - 菜单项引用的命令可以由别的插件提供：那个插件的入口停止、命令撤回时这一项不显示，命令重新登记后又显示。
-- 参数取哪一刻的当前文件由位置定：资源管理器右键取打开菜单时被右键的选择，编辑区标题取点下去时这个组的活动标签。
+- 参数取哪一刻的当前文件由位置定：资源管理器右键取打开菜单时被右键的选择，编辑区标题取点下去时这个组的活动标签，编辑器标签右键取打开菜单时被右击的标签（planned）。
 
 ## 副作用与数据
 
@@ -104,7 +105,7 @@ interface MenuItemDeclaration {
 
 ## 边界与兼容
 
-- 公开接口：菜单项的声明形状与四个贡献点 id。字段只追加；新增位置时在位置表里加一行。
+- 公开接口：菜单项的声明形状与各位置的贡献点 id。字段只追加；新增位置时在位置表里加一行。
 - 信任边界：菜单项只能引用命令，执行一律经命令服务，命令自己的 `when` 与参数校验照常生效；位置给出的参数只含位置表里列出的东西。
 
 ## 验收与 Smoke
