@@ -16,6 +16,7 @@ updated: 2026-10-15
 ## 当前状态
 
 - 2026-10-15：经 nbdev 新建；计划初稿写好，开发者确认（见“决定”）。
+- 2026-10-15：omp 审查计划，18 条，处理写进 [plan.md](plan.md) 的“计划审查”一节，报告 [evidences/plan-review.txt](evidences/plan-review.txt)。worktree `.worktree/w00024-t03-impl`（分支 `feat/w00024-nb-story`）：S1 已提交（`003fdc4ad`），并按审查改了一代的固定、导入校验与测试位置；S2 进行中。
 
 ## 决定
 
@@ -27,5 +28,4 @@ updated: 2026-10-15
 
 ## 下一步
 
-1. 提交计划，交 omp 审查计划，处理意见。
-2. 开 worktree `.worktree/w00024-t03-impl`（分支 `feat/w00024-nb-story`），按切片 S1 起实现。
+1. 完成 S2（合同、API、索引与投影、身份合并、人物与秘密查询）及其测试，接着 S3 到 S5，合入一次。
