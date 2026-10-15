@@ -39,7 +39,7 @@ owners:
 2. **令牌**：预览视图可见时申请令牌（这部作品、窗口绑定的那一代），切走、不可见、标签关闭时作废，再次可见时重新申请；项目换代时服务端作废。令牌只出现在 `srcdoc` 里。
 3. **相对引用**：`srcdoc` 是文档正文，在开头的 doctype 之后（没有 doctype 时在最前面）插入，不按正文里的 `<head>` 找位置：`<base href>`，指向文件所在目录在令牌下的地址；一段 CSP（见第 5 条）；一小段脚本，把 `#` 开头的链接点击改为页内滚动（否则按 `<base>` 会导航到目录地址）。于是页面按相对路径引用的图片、样式、脚本、模块脚本、`fetch`、字体都读到作品里的文件；`../` 可以往上，到作品根为止。
 4. **更新**：正文变化停手 300 毫秒后整页重载；脚本里的状态随之丢失。正文没变时不重载。
-5. **联网**：默认 CSP 只放行令牌地址、`data:`、`blob:` 与内联脚本和样式，页面不能把读到的内容发到外网，也加载不了 CDN 上的资源（包括向本应用端口发请求）。“允许联网”打开后去掉网络限制，按文件地址记在本窗口的内存里，刷新后回到不联网；预览随即换一个令牌并重载。同一组限制也由预览路由按令牌写在响应头里（[workspace.files](../workspace/files.md) 的“预览的受限读取”），页面在 iframe 里导航到作品里的另一页时照样生效。页面自己写的 CSP 与它取交集，只能更严。打开联网后预览页可以向本机端口发 GET（读不到响应）：开发模式的 Vite 有带副作用的 GET 入口，不要对不受信任的页面在开发模式里打开联网。
+5. **联网**：默认允许联网：页面能加载 CDN 上的资源、向外网发请求，也就能把读到的作品文件发出去。关掉“允许联网”后 CSP 只放行令牌地址、`data:`、`blob:` 与内联脚本和样式，页面不能把读到的内容发到外网，也加载不了外部资源（包括向本应用端口发请求）。关掉的开关按文件地址记在本窗口的内存里，刷新后回到联网；切换时预览换一个令牌并重载。同一组限制也由预览路由按令牌写在响应头里（[workspace.files](../workspace/files.md) 的“预览的受限读取”），页面在 iframe 里导航到作品里的另一页时照样生效。页面自己写的 CSP 与它取交集，只能更严。联网时预览页可以向本机端口发 GET（读不到响应）：开发模式的 Vite 有带副作用的 GET 入口，在开发模式里预览不受信任的页面前先关掉联网。
 6. **不可见时卸载**：预览视图不可见（切到别的标签、所在组被别的编辑器占着）时移除 iframe，可见时重建；被换下的页面不在后台运行脚本。
 7. **只读**：预览视图不接受输入，没有光标位置；它显示文档的 dirty 圆点，在它上面可以保存（[workbench.editor](editor.md) 输出 4）。
 
@@ -59,7 +59,7 @@ owners:
 
 ## 副作用与数据
 
-不写文件与记录；“允许联网”只在本窗口的内存里。
+不写文件与记录；关掉“允许联网”只记在本窗口的内存里。
 
 ## 失败与恢复
 
@@ -71,19 +71,19 @@ owners:
 
 ## 边界与兼容
 
-信任边界：预览页是不受信任的代码。它能读到这部作品里的文件（经令牌，只读），不能写文件，不能执行命令，默认不能联网；打开“允许联网”是用户对这个文件的明确授权。
+信任边界：预览页是不受信任的代码。它能读到这部作品里的文件（经令牌，只读），不能写文件，不能执行命令。它默认能联网，所以能把读到的作品文件发到外网；预览不受信任的页面前先关掉“允许联网”。
 
 ## 验收与 Smoke
 
 1. Given `site/index.html` 引用 `./a.png`、`./s.css`、`<script type="module" src="./m.js">`、`fetch("./d.json")`、`@font-face` 的 `./f.woff2` 与页内锚点，When 打开预览，Then 图片、样式、模块脚本、`fetch` 与字体都生效，点锚点在页内滚动、地址不变。
-2. Given 预览页里的脚本，When 它读 `parent.document`、用 WebSocket 连 RPC 端口、向应用端口 `POST`、`fetch` 一个外网地址，Then 依次被拒、被拒、得到 403、被 CSP 拦下；When 打开“允许联网”，Then 外网请求可以发出。
+2. Given 预览页里的脚本，When 它读 `parent.document`、用 WebSocket 连 RPC 端口、向应用端口 `POST`、`fetch` 一个外网地址，Then 依次被拒、被拒、得到 403、外网请求发出；When 关掉“允许联网”，Then 外网请求与向应用端口的 `POST` 被 CSP 拦下，在 iframe 里导航到作品里的另一页同样被拦。
 3. Given 预览视图与源码在同一组，When 切到源码，Then iframe 被移除；When 在侧边打开预览、在源码里输入不保存，Then 停手后右侧的预览显示新内容；When 关闭预览标签，Then 它的令牌失效。
 
 Smoke：`e2e/editor-types.e2e.ts`（生产构建、本机 Chrome、真实 Files）。
 
 ## 证据
 
-- 批准依据：[w00025 t01 的决定](../../../.agents/works/w00025-editor/tasks/t01-requirements/README.md#开发者的决定) 2、3 与 [t02 实施计划](../../../.agents/works/w00025-editor/tasks/t02-editor-types/plan.md) 第 6 节（预览方式为开发者 2026-10-14 在计划审查后定的“沙箱加受限读文件接口”；默认不联网为暂定）。
+- 批准依据：[w00025 t01 的决定](../../../.agents/works/w00025-editor/tasks/t01-requirements/README.md#开发者的决定) 2、3 与 [t02 实施计划](../../../.agents/works/w00025-editor/tasks/t02-editor-types/plan.md) 第 6 节（预览方式为开发者 2026-10-14 在计划审查后定的“沙箱加受限读文件接口”；默认允许联网为开发者 2026-10-15 定）。
 - 实现入口：[`plugins/html-preview/web/plugin.ts`](../../../packages/neuro-book/src/plugins/html-preview/web/plugin.ts)、[`HtmlPreview.vue`](../../../packages/neuro-book/src/plugins/html-preview/web/components/HtmlPreview.vue)、[`compose.ts`](../../../packages/neuro-book/src/plugins/html-preview/web/compose.ts)、令牌服务与预览路由 [`files/backend/raw-route.ts`](../../../packages/neuro-book/src/plugins/files/backend/raw-route.ts)
 - 合同测试：[`html-preview/compose.test.ts`](../../../packages/neuro-book/src/plugins/html-preview/compose.test.ts)、[`files/raw-route.test.ts`](../../../packages/neuro-book/src/plugins/files/raw-route.test.ts)（预览的受限读取）
 - Smoke：[`e2e/editor-types.e2e.ts`](../../../packages/neuro-book/e2e/editor-types.e2e.ts)

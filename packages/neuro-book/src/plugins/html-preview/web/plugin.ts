@@ -1,7 +1,7 @@
 /**
  * `nbook.html-preview` 浏览器入口（docs/specs/workbench/html-preview.md）：向编辑器区交 HTML 的预览编辑器（`role: "preview"`），
  * 另有“允许联网”的开关（命令、公开状态与编辑区标题上的按钮）。控件要的令牌服务、时钟与联网开关由这里包进组件，控件
- * 合同之外的东西不经编辑器区。联网开关只在内存里、按地址记，刷新后回到不联网。
+ * 合同之外的东西不经编辑器区。默认联网；关掉的开关只在内存里、按地址记，刷新后回到联网。
  */
 
 import {computed, defineComponent, h, reactive} from "vue";
@@ -47,11 +47,11 @@ const previewState = definePublicState("nbook.html-preview", {
 const TOGGLE: CommandDeclaration = {
     title: {"zh-CN": "预览：允许联网", "en-US": "Preview: Allow Network Access"},
     category: {"zh-CN": "HTML 预览", "en-US": "HTML Preview"},
-    description: "Allow or forbid network access for the active HTML preview; by default the preview can only read files in the work.",
+    description: "Allow or forbid network access for the active HTML preview; network access is allowed by default, and when forbidden the preview can only read files in the work.",
     args: Type.Object({}, {additionalProperties: false}),
     effect: "read",
     when: {requires: [previewState.key("active")]},
-    // 打开联网是对不受信任的页面放权，只由用户自己点。
+    // 联网与否是对不受信任的页面放不放权，只由用户自己点。
     expose: {agent: "never"},
 };
 
@@ -99,16 +99,16 @@ export const htmlPreviewBrowserPlugin: PluginDefinition = {
                     }, (error: unknown) => report("作废预览令牌失败", error));
                 },
             };
-            /** 允许联网的地址（只在内存里）。 */
-            const allowed = reactive(new Set<string>());
+            /** 关掉了联网的地址（只在内存里）；默认联网。 */
+            const blocked = reactive(new Set<string>());
             const read = (key: string): unknown => {
                 const value = state.read(key);
                 return value.status === "ready" ? value.value : null;
             };
             const active = computed(() => read("nbook.editor/activeEditor") === HTML_PREVIEW_EDITOR);
             const activeAddress = computed(() => read("nbook.editor/activeDocument"));
-            const networkAllowed = computed(() => active.value && typeof activeAddress.value === "string" && allowed.has(activeAddress.value));
-            const network = (address: string): boolean => allowed.has(address);
+            const networkAllowed = computed(() => active.value && typeof activeAddress.value === "string" && !blocked.has(activeAddress.value));
+            const network = (address: string): boolean => !blocked.has(address);
             const published = bindingsOf(previewState, {active, networkAllowed});
             return {
                 contributions: {
@@ -124,8 +124,8 @@ export const htmlPreviewBrowserPlugin: PluginDefinition = {
                     [COMMANDS_POINT]: {[TOGGLE_NETWORK_COMMAND]: {run: () => {
                         const address = activeAddress.value;
                         if (!active.value || typeof address !== "string") return {ok: false, code: "unavailable", reason: "活动的不是 HTML 预览"};
-                        if (allowed.has(address)) allowed.delete(address);
-                        else allowed.add(address);
+                        if (blocked.has(address)) blocked.delete(address);
+                        else blocked.add(address);
                         return {ok: true, value: null};
                     }}},
                     [PUBLIC_STATE_POINT]: Object.fromEntries(published.bindings),

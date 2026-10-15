@@ -17,7 +17,7 @@ export interface ComposeOptions {
     readonly base: string;
     /** 文件在作品里的路径（不含方案），例如 `site/index.html`。 */
     readonly path: string;
-    /** 用户打开了“允许联网”。 */
+    /** 放行外网（“允许联网”开着，默认开）。 */
     readonly network: boolean;
 }
 

@@ -187,7 +187,7 @@ test("图片：png 与 svg 以图片查看器显示，状态栏有尺寸与大�
     await expect(labels(page).filter({hasText: "a.png"})).toHaveCount(0);
 });
 
-test("HTML 预览：标题栏打开预览；相对引用的样式、图片、字体、模块脚本与 fetch 都生效，锚点页内滚动；沙箱拿不到应用；默认不联网，打开开关后可以；侧边预览随未保存的正文更新；切走、刷新、关掉后令牌作废", async ({page}) => {
+test("HTML 预览：标题栏打开预览；相对引用的样式、图片、字体、模块脚本与 fetch 都生效，锚点页内滚动；沙箱拿不到应用；默认联网，关掉开关后不能；侧边预览随未保存的正文更新；切走、刷新、关掉后令牌作废", async ({page}) => {
     const blockedPosts: number[] = [];
     page.on("response", (response) => {
         if (response.url().endsWith("/api/runtime/health") && response.request().method() === "POST") blockedPosts.push(response.status());
@@ -209,11 +209,24 @@ test("HTML 预览：标题栏打开预览；相对引用的样式、图片、字
     await expect(body).toHaveAttribute("data-fetch", "ok");
     await expect(body).toHaveAttribute("data-font", "ok");
     await expect(body).toHaveAttribute("data-parent", "denied");
-    await expect(body).toHaveAttribute("data-net", "blocked");
-    await expect(body).toHaveAttribute("data-post", "blocked");
-    expect(blockedPosts).toEqual([]);
+    // 默认联网：外网请求放行；向应用端口的写请求得到 403；连 RPC 被拒。Chrome 把沙箱 iframe 放进单独的进程，
+    // Playwright 接上它之前页面自己发的请求不经 `page.route`、也不报响应：外网与写请求在接上之后从框架里再发一次。
+    await expect(body).not.toHaveAttribute("data-net", "blocked");
+    await expect(body).toHaveAttribute("data-post", "sent");
+    await expect(body).toHaveAttribute("data-rpc", "refused");
+    expect(await frame.evaluate(() => fetch("https://net.example/z").then(() => "ok", () => "failed"))).toBe("ok");
+    await frame.evaluate((origin) => fetch(`${origin}/api/runtime/health`, {method: "POST", mode: "no-cors"}).then(() => null, () => null), new URL(server.url).origin);
+    await expect.poll(() => blockedPosts).toContain(403);
     await frame.locator("#jump").click();
     await expect.poll(() => frame.evaluate(() => [location.href, window.scrollY > 0])).toEqual(["about:srcdoc", true]);
+
+    // 关掉联网：重载后外网请求与写请求都被 CSP 拦下。
+    const posts = blockedPosts.length;
+    await activeGroup(page).getByRole("button", {name: "允许联网"}).click();
+    frame = await previewFrame(page);
+    await expect(frame.locator("body")).toHaveAttribute("data-net", "blocked");
+    await expect(frame.locator("body")).toHaveAttribute("data-post", "blocked");
+    expect(blockedPosts).toHaveLength(posts);
 
     // 在预览里导航到作品里的另一页：仍在沙箱里、仍不能联网。
     await frame.locator("#other").click();
@@ -227,13 +240,6 @@ test("HTML 预览：标题栏打开预览；相对引用的样式、图片、字
             return "denied";
         }
     })).toBe("denied");
-
-    // 打开联网：外网请求放行；向应用端口的写请求得到 403；连 RPC 被拒。
-    await activeGroup(page).getByRole("button", {name: "允许联网"}).click();
-    frame = await previewFrame(page);
-    await expect(frame.locator("body")).toHaveAttribute("data-net", "ok");
-    await expect(frame.locator("body")).toHaveAttribute("data-rpc", "refused");
-    await expect.poll(() => blockedPosts).toContain(403);
     const base = await frame.evaluate(() => document.baseURI);
     expect((await fetch(new URL("data.json", base))).status).toBe(200);
 

@@ -271,7 +271,7 @@ export const filesPreviewContract = defineRemoteService({
     callers: ["browser"],
     methods: {
         open: {
-            /** `network`：这个令牌下的响应放不放行外网（用户对这个文件打开了“允许联网”）；切换时换令牌。 */
+            /** `network`：这个令牌下的响应放不放行外网（预览的“允许联网”，默认开）；切换时换令牌。 */
             input: Type.Object({project: Type.String({minLength: 1}), generation: Type.Integer({minimum: 1}), network: Type.Boolean()}, {additionalProperties: false}),
             output: Type.Object({token: Type.String(), base: Type.String()}, {additionalProperties: false}),
             effect: "read",
