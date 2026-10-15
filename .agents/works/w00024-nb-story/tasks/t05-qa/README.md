@@ -25,6 +25,10 @@ updated: 2026-10-15
 2. **引擎建在 nb-harness 上**：挑章 Agent 用 nb-story 的查询接口当工具，经 nb-harness 的循环运行；以后接成插件不用换。计划阶段先核实 nb-harness 能否在包外单独使用，不行再回来问。
 3. **入口**：网页问答页加 `nbstory ask`，同一个引擎；两种做法都可选，默认图当目录，原文超过上限时全读不可选（提案原样）。
 4. **顺序**：先做问答（本 Task），再做 ingest（[t06](../t06-ingest/README.md)）。
+5. **nb-harness 默认不带工具**：核实时发现 `createHarness` 总会挂上以 cwd 为根的读文件、改文件两个内置工具。开发者定：不加开关，nb-harness 默认就不该包含工具，工具全由调用方经插件给。改 `packages/nb-harness`（w00002 的包；目前只有它自己的测试调用 `createHarness`），读、改文件工具仍导出，要用的调用方自己装。
+6. **Spec 假设**：会话里列的八条（防剧透、两种做法、挑章工具、答案格式、模型与密钥、过程与记录、回归门槛、Skill 不变）开发者确认“没有要改的”。
+7. **前端组件**：对话、输入这类 Agent 组件用 w00019 在 Lab 里打磨过的那一套（现在在 `packages/neuro-book-legacy/app/components/agent/`），nb-story 与 NeuroBook 共用。
+8. **先优化 nb-harness**：动 nb-story 之前，先看问答 Agent 要哪些能力、工具，要不要 TSX Profile，nb-harness 在这个场景好不好用。
 
 ## 下一步
 
