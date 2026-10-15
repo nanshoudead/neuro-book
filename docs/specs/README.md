@@ -202,6 +202,7 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过开发者授权
 | 插件公开 API | [`runtime/plugin-api.md`](runtime/plugin-api.md) | 远程形态约束、激活上下文、错误码、worker 池、私有存储、配置与密钥 |
 | 主线程卡死看门狗 | [`runtime/stall-watchdog.md`](runtime/stall-watchdog.md) | 卡死检测、报告、退出码 76、Manager 自动重启与桌面呈现、提示禁用与自动安全模式 |
 | Component Lab 时间线回放 | [`ui/component-lab-timeline.md`](ui/component-lab-timeline.md) | fixture 声明时间线、虚拟时钟、可复现定位与播放控件 |
+| Markdown 方言 | [`workspace/markdown-dialect.md`](workspace/markdown-dialect.md) | 作品 Markdown 的读写规则：CommonMark 与 GFM 之上的中文规则、项目方言、认不出的语法原样保留、以块为单位写回与读回校验 |
 
 ## 旧应用的规范与 Reference（只作参照）
 
