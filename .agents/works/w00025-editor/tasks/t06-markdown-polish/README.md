@@ -35,7 +35,7 @@ updated: 2026-10-15
 
 ## 当前状态
 
-2026-10-15 开工：旧应用调研（`legacy-markdown.md`）与功能分析（`analysis.md`）已完成；开发者定了决定 1–9：只做富文本模式，继续用 Tiptap 与 `@tiptap/markdown`；方言 Spec 已写好并提交（t06 分支，`planned`），下一步写转换重构的计划。
+2026-10-15 开工：旧应用调研（`legacy-markdown.md`）与功能分析（`analysis.md`）已完成；开发者定了决定 1–9：只做富文本模式，继续用 Tiptap 与 `@tiptap/markdown`；方言 Spec 已写好并提交（t06 分支，`planned`）；实施计划见 [plan.md](plan.md)，待开发者看过后开第 1 轮深入审查（设计）。
 
 ## 下一步
 
