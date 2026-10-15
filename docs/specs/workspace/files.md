@@ -63,7 +63,7 @@ owners:
 - **控制目录**：项目根下第一段名字不区分大小写等于 `.nbook` 的目录（项目身份、项目层配置与 Storage）不列出、不可读写，失败码 `protected-path`。请求的词法路径与解析符号链接后的真实路径都要检查，`alias -> .nbook` 这类根内链接同样拒绝。用户资产根没有控制目录；嵌套的 `notes/.nbook/` 是普通目录。
 - **根身份**：提供者记下方案根的设备号与 inode，每个请求先核对；根被移走、删除或换成别的目录为 `root-gone`，不重新解析到新目录。
 
-### 按地址读取字节（planned）
+### 按地址读取字节
 
 图片这类二进制文件不走远程服务（正文上限与 UTF-8 校验都不适用），由 `nbook.files` 的 server 入口在 HTTP 端口上按地址给出原始字节；浏览器直接把地址交给 `<img>` 或 `fetch`。
 
@@ -74,7 +74,7 @@ owners:
 - **响应头**：`Content-Type` 按扩展名的白名单（png、jpeg、gif、webp、svg、avif、bmp、ico、html、css、js、mjs、json、txt、md、woff、woff2、ttf、otf），其它为 `application/octet-stream`；`X-Content-Type-Options: nosniff`；`Content-Security-Policy: sandbox`（直接打开一个 HTML 或 SVG 的地址也不在应用的源里运行）；`ETag`（修改时间与大小），`If-None-Match` 命中时 304；`Cache-Control: no-cache`。
 - **跨站读取**：带 `Sec-Fetch-Site` 且不是 `same-origin` 的请求为 403 `cross-site`：别的网页不能把这条路由当作读取接口。不带这个头的本机进程照常（与 HTTP 端口未加载鉴权时的信任相同，[runtime.server-host](../runtime/server-host.md)）。
 
-### 预览的受限读取（planned）
+### 预览的受限读取
 
 HTML 预览（[workbench.html-preview](../workbench/html-preview.md)）运行在不透明源的沙箱里，它对文件的每个请求都是跨站的。这里给它一个只认令牌的只读入口：
 
@@ -167,8 +167,8 @@ HTML 预览（[workbench.html-preview](../workbench/html-preview.md)）运行在
 7. 关闭一个资源管理器或窗口后，其订阅停止，另一个窗口仍可读写同一有效项目；正常释放不删除文件或历史。
 8. 主页面不激活角色/世界书等领域适配也能完成基础链；同名文件/目录目标不覆盖、不合并，同目录复制要求改名，预检后目标被占用时仍拒绝写入。
 9. 目录复制中途失败保留已产生的残留并报告范围；取消后已完成项不回滚、未开始项不执行，在途不能确认则标为结果未知；断线后先核对磁盘，绝不重复已确认成功的副作用。
-10. （planned）用 `rawUrl` 读一个运行中项目里的 png，得到原始字节与 `image/png`、`nosniff`、`sandbox` 三个头，再带 `If-None-Match` 得到 304；代次不符得到 410，`.nbook/` 下的文件与目录得到 404，超过 32 MiB 得到 413，`Sec-Fetch-Site: cross-site` 得到 403。
-11. （planned）经 `nbook.files.preview` 取得令牌后，带 `Origin: null` 读同一项目的文件得到响应与 `Access-Control-Allow-Origin: null`；令牌读不到别的项目；`close` 之后、窗口断开之后、项目这一代结束之后都得到 404。
+10. 用 `rawUrl` 读一个运行中项目里的 png，得到原始字节与 `image/png`、`nosniff`、`sandbox` 三个头，再带 `If-None-Match` 得到 304；代次不符得到 410，`.nbook/` 下的文件与目录得到 404，超过 32 MiB 得到 413，`Sec-Fetch-Site: cross-site` 得到 403。
+11. 经 `nbook.files.preview` 取得令牌后，带 `Origin: null` 读同一项目的文件得到响应与 `Access-Control-Allow-Origin: null`；令牌读不到别的项目；`close` 之后、窗口断开之后、项目这一代结束之后都得到 404。
 
 ## 实现合同
 
@@ -179,11 +179,12 @@ HTML 预览（[workbench.html-preview](../workbench/html-preview.md)）运行在
   - 条件保存与排他改名在系统调用层核对身份，核对与系统调用之间的窗口不承诺抵御恶意并发替换（`rooted.test.ts`、`exclusive.test.ts`）；
   - 批量操作的源按目录项去重、父子重叠只处理最外层一次，移动/复制到自身或后代在产生任何结果前拒绝（`batch.test.ts`）；
   - 内容文件夹内的操作与清单更新在同一次操作里结算，文件已改而清单未改时返回部分完成并指明哪份清单（见 `workspace.folder-kinds` 的“经文件服务的操作同步清单”，`operations.test.ts`）；
-  - 结果编码超预算时按路径→详情→清单表的顺序截断，每步重新核对装进一条消息（`transport.test.ts`）。
+  - 结果编码超预算时按路径→详情→清单表的顺序截断，每步重新核对装进一条消息（`transport.test.ts`）；
+  - 字节路由与预览路由（`files/backend/raw-route.ts`，挂在 `nbook.http` 的 `http.routes` 上）每次请求按运行中的项目登记核对代次与身份文件，项目根按代次缓存；ETag 取目录项的 inode、ctime、mtime 与大小，同样大小、改回修改时间的改写也换 ETag；预览令牌只在内存里，按调用方门面记下签发的令牌，门面释放（窗口断开）时作废（`raw-route.test.ts`，窗口断开与切走后作废由 `e2e/editor-types.e2e.ts` 核对）。
 
 ## 证据
 
 - 批准依据：2026-09-26 开发者“可以，就这么做，收口”批准 [首版设计决策记录](../../../packages/neuro-book-legacy/docs/proposals/files-explorer.md#决策记录)（F1–F9）；2026-10-02 [项目文件底座与 Files 竖切](../../proposals/project-file-foundation.md#决策记录)；2026-10-09 [w00017 待确认清单](../../../.agents/works/w00017-application-runtime-architecture/pending-confirmations.md) 的 t68 条目（“读取与保存”一节：基线、文本、正文上限、只保存已有文件）与 t69 条目（“文件操作”一节：只读文件删除拒绝、复制与删除的失败政策、源身份令牌、批量的大小上限、结果未知不提供状态查询）；2026-10-14 [t86 的决定](../../../.agents/works/w00017-application-runtime-architecture/tasks/t86-explorer-polish/README.md#决定)（目录项的叶子标记、`realPath`、移动到指定位置）。
 - 实现入口：[`plugins/files/backend/`](../../../packages/neuro-book/src/plugins/files/backend/)、[`plugins/files/web/`](../../../packages/neuro-book/src/plugins/files/web/)、[`plugins/files/shared/contracts.ts`](../../../packages/neuro-book/src/plugins/files/shared/contracts.ts)
-- 合同测试：[`files/files.test.ts`](../../../packages/neuro-book/src/plugins/files/files.test.ts)、[`files/operations.test.ts`](../../../packages/neuro-book/src/plugins/files/operations.test.ts)、[`files/batch.test.ts`](../../../packages/neuro-book/src/plugins/files/batch.test.ts)、[`files/changes.test.ts`](../../../packages/neuro-book/src/plugins/files/changes.test.ts)、[`files/transport.test.ts`](../../../packages/neuro-book/src/plugins/files/transport.test.ts)、[`files/project-child.test.ts`](../../../packages/neuro-book/src/plugins/files/project-child.test.ts)、[`files/backend/rooted.test.ts`](../../../packages/neuro-book/src/plugins/files/backend/rooted.test.ts)、[`files/backend/entry-ops.test.ts`](../../../packages/neuro-book/src/plugins/files/backend/entry-ops.test.ts)、[`files/backend/exclusive.test.ts`](../../../packages/neuro-book/src/plugins/files/backend/exclusive.test.ts)
-- Smoke：不适用——没有独立的跨机器 e2e；单机双窗口、Lab 与切换性能的记录随 [workbench.files-explorer](../workbench/files-explorer.md) 的 `e2e/files-explorer.e2e.ts`、`scripts/perf/files-perf.ts`（最近一次测量见 t72，2026-10-10，未重新运行）
+- 合同测试：[`files/files.test.ts`](../../../packages/neuro-book/src/plugins/files/files.test.ts)、[`files/operations.test.ts`](../../../packages/neuro-book/src/plugins/files/operations.test.ts)、[`files/batch.test.ts`](../../../packages/neuro-book/src/plugins/files/batch.test.ts)、[`files/changes.test.ts`](../../../packages/neuro-book/src/plugins/files/changes.test.ts)、[`files/transport.test.ts`](../../../packages/neuro-book/src/plugins/files/transport.test.ts)、[`files/project-child.test.ts`](../../../packages/neuro-book/src/plugins/files/project-child.test.ts)、[`files/backend/rooted.test.ts`](../../../packages/neuro-book/src/plugins/files/backend/rooted.test.ts)、[`files/backend/entry-ops.test.ts`](../../../packages/neuro-book/src/plugins/files/backend/entry-ops.test.ts)、[`files/backend/exclusive.test.ts`](../../../packages/neuro-book/src/plugins/files/backend/exclusive.test.ts)、[`files/raw-route.test.ts`](../../../packages/neuro-book/src/plugins/files/raw-route.test.ts)
+- Smoke：不适用——没有独立的跨机器 e2e；单机双窗口、Lab 与切换性能的记录随 [workbench.files-explorer](../workbench/files-explorer.md) 的 `e2e/files-explorer.e2e.ts`、`scripts/perf/files-perf.ts`（最近一次测量见 t72，2026-10-10，未重新运行）；字节读取与预览读取由 [`e2e/editor-types.e2e.ts`](../../../packages/neuro-book/e2e/editor-types.e2e.ts) 在生产构建与本机 Chrome 里运行

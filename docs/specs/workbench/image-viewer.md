@@ -66,8 +66,11 @@ owners:
 1. Given 一个 png 与一个带透明部分的 svg，When 单击打开，Then 图片按适应显示、透明处是棋盘格，状态栏有尺寸、大小与比例；When 单击图片，Then 变为 100%，状态栏比例为 100%；When 外部改写 png，Then 显示新图。
 2. Given 一个打开着的 png，When 它被删除，Then 标签关闭（资源管理器删除）或按编辑器区的规则标为已删除（其它来源）；When 项目关闭，Then 内容区说明原因。
 
-Smoke：`e2e/editor-types.e2e.ts`（生产构建、本机 Chrome、真实 Files）。
+Smoke：`e2e/editor-types.e2e.ts`（生产构建、本机 Chrome、真实 Files）运行场景 1；场景 2 的删除由编辑器区的 `area.test.ts`（字节标签一组，真实 Files 场地）覆盖，项目关闭时的说明只由 Lab 场景展示，没有自动化验收。
 
 ## 证据
 
 - 批准依据：[w00025 t01 的决定](../../../.agents/works/w00025-editor/tasks/t01-requirements/README.md#开发者的决定) 4、5 与 [t02 实施计划](../../../.agents/works/w00025-editor/tasks/t02-editor-types/plan.md) 第 7 节，开发者 2026-10-14 确认。
+- 实现入口：[`plugins/image-viewer/web/plugin.ts`](../../../packages/neuro-book/src/plugins/image-viewer/web/plugin.ts)、[`ImageViewer.vue`](../../../packages/neuro-book/src/plugins/image-viewer/web/components/ImageViewer.vue)
+- 合同测试：[`editor/area.test.ts`](../../../packages/neuro-book/src/plugins/editor/area.test.ts)（字节标签）、[`editor/editor-registry.test.ts`](../../../packages/neuro-book/src/plugins/editor/editor-registry.test.ts)（交付先后与停止）
+- Smoke：[`e2e/editor-types.e2e.ts`](../../../packages/neuro-book/e2e/editor-types.e2e.ts)

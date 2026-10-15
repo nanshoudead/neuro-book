@@ -29,7 +29,7 @@ const slot: ViewStateSlot = {state: null, dispose: null};
 const binding = shallowRef<TextEditorBinding | null>(null);
 
 const access = computed((): PreviewAccess => ({
-    open: async () => (props.scene === "denied" ? {ok: false, reason: "generation-gone"} : {ok: true, token: "lab", base: `${globalThis.location.origin}/__lab-preview/lab/`}),
+    open: async () => (props.scene === "denied" ? {ok: false, denial: "closed"} : {ok: true, token: "lab", base: `${globalThis.location.origin}/__lab-preview/lab/`}),
     close: (token) => record("close", token),
 }));
 

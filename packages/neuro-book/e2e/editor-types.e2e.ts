@@ -5,7 +5,8 @@
  */
 
 import {randomUUID} from "node:crypto";
-import {mkdir, rm, writeFile} from "node:fs/promises";
+import {mkdir, readFile, rm, writeFile} from "node:fs/promises";
+import {createRequire} from "node:module";
 import {dirname, join} from "node:path";
 import {DatabaseSync} from "node:sqlite";
 
@@ -25,7 +26,7 @@ const PNG_5X4 = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAUAAAAECAYAAABGM/VAAAAAEUl
 const SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="40" height="20"><circle cx="10" cy="10" r="8" fill="red"/></svg>`;
 
 /**
- * 预览页：相对引用的样式、图片、模块脚本与 `fetch`，页内锚点，以及几条越界的尝试，结果都记在 `<body>` 的 data 属性上。
+ * 预览页：相对引用的样式、图片、字体、模块脚本与 `fetch`，页内锚点，以及几条越界的尝试，结果都记在 `<body>` 的 data 属性上。
  * `__RPC__`、`__ORIGIN__` 在服务端起来之后换成真实的端口与应用源。
  */
 const PAGE = `<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="style.css"></head><body>
@@ -36,6 +37,7 @@ const PAGE = `<!doctype html><html><head><meta charset="utf-8"><link rel="styles
 <script type="module" src="./m.js"></script>
 <script>
 var mark = function (key, value) { document.body.dataset[key] = value; };
+document.fonts.load("16px Probe").then(function (faces) { mark("font", faces.length > 0 ? "ok" : "none"); }, function () { mark("font", "fail"); });
 fetch("data.json").then(function (r) { return r.json(); }).then(function (d) { mark("fetch", d.ok ? "ok" : "bad"); }, function () { mark("fetch", "fail"); });
 try { void parent.document.title; mark("parent", "open"); } catch (e) { mark("parent", "denied"); }
 document.addEventListener("securitypolicyviolation", function (e) { if (e.blockedURI.indexOf("net.example") >= 0) mark("net", "blocked"); });
@@ -63,7 +65,9 @@ test.beforeAll(async () => {
         "docs/manual.pdf": new Uint8Array(2 * 1024 * 1024).fill(0x25),
         // GBK 编码的“你好”：不是 UTF-8。
         "notes/gbk.txt": new Uint8Array([0xc4, 0xe3, 0xba, 0xc3]),
-        "site/style.css": "#title { color: rgb(1, 2, 3); }\n",
+        // 字体经样式表里的相对地址加载：与模块脚本一样是跨源的 CORS 读取。字体文件借 Monaco 自带的 codicon。
+        "site/style.css": "@font-face { font-family: Probe; src: url(fonts/f.ttf); }\n#title { color: rgb(1, 2, 3); }\n",
+        "site/fonts/f.ttf": await readFile(createRequire(import.meta.url).resolve("monaco-editor/esm/vs/base/browser/ui/codicons/codicon/codicon.ttf")),
         "site/m.js": "document.body.dataset.module = \"ok\";\n",
         "site/data.json": "{\"ok\": true}\n",
         "site/img/a.png": PNG_3X2,
@@ -181,7 +185,7 @@ test("图片：png 与 svg 以图片查看器显示，状态栏有尺寸与大�
     await expect(labels(page).filter({hasText: "a.png"})).toHaveCount(0);
 });
 
-test("HTML 预览：标题栏打开预览；相对引用的样式、图片、模块脚本与 fetch 都生效，锚点页内滚动；沙箱拿不到应用；默认不联网，打开开关后可以；侧边预览随未保存的正文更新；关掉后令牌作废", async ({page}) => {
+test("HTML 预览：标题栏打开预览；相对引用的样式、图片、字体、模块脚本与 fetch 都生效，锚点页内滚动；沙箱拿不到应用；默认不联网，打开开关后可以；侧边预览随未保存的正文更新；切走、刷新、关掉后令牌作废", async ({page}) => {
     const blockedPosts: number[] = [];
     page.on("response", (response) => {
         if (response.url().endsWith("/api/runtime/health") && response.request().method() === "POST") blockedPosts.push(response.status());
@@ -201,6 +205,7 @@ test("HTML 预览：标题栏打开预览；相对引用的样式、图片、模
     const body = frame.locator("body");
     await expect(body).toHaveAttribute("data-module", "ok");
     await expect(body).toHaveAttribute("data-fetch", "ok");
+    await expect(body).toHaveAttribute("data-font", "ok");
     await expect(body).toHaveAttribute("data-parent", "denied");
     await expect(body).toHaveAttribute("data-net", "blocked");
     await expect(body).toHaveAttribute("data-post", "blocked");
@@ -217,9 +222,10 @@ test("HTML 预览：标题栏打开预览；相对引用的样式、图片、模
     const base = await frame.evaluate(() => document.baseURI);
     expect((await fetch(new URL("data.json", base))).status).toBe(200);
 
-    // 切到源码标签：预览的 iframe 被移除。
+    // 切到源码标签：预览的 iframe 被移除，它的令牌作废。
     await labels(page).filter({hasText: /^index\.html$/u}).click();
     await expect(page.locator("[data-html-preview-frame]")).toHaveCount(0);
+    await expect.poll(async () => (await fetch(new URL("data.json", base))).status).toBe(404);
 
     // 在侧边打开预览：在源码里输入、不保存，停手后右侧的预览更新。
     await activeGroup(page).getByRole("button", {name: "更多操作"}).click();
@@ -232,8 +238,19 @@ test("HTML 预览：标题栏打开预览；相对引用的样式、图片、模
     await page.keyboard.insertText("<p id=\"added\">新段</p>");
     frame = await previewFrame(page);
     await expect(frame.locator("#added")).toHaveText("新段");
+    const sideBase = await frame.evaluate(() => document.baseURI);
+    expect((await fetch(new URL("data.json", sideBase))).status).toBe(200);
 
-    // 关掉两个预览标签：令牌作废。
+    // 刷新：旧窗口断开，它申请的令牌作废；恢复出的预览视图重新申请。
+    await page.reload();
+    await expect(page.locator("[data-workbench-root]")).toHaveAttribute("data-rpc-state", "online");
+    await expect.poll(async () => (await fetch(new URL("data.json", sideBase))).status).toBe(404);
+    frame = await previewFrame(page);
+    const restoredBase = await frame.evaluate(() => document.baseURI);
+    expect(restoredBase).not.toBe(sideBase);
+    expect((await fetch(new URL("data.json", restoredBase))).status).toBe(200);
+
+    // 关掉预览标签：令牌作废。
     for (const group of await page.locator("[data-editor-group]").all()) {
         const preview = group.locator("[data-editor-tab]").filter({hasText: "预览 index.html"});
         if (await preview.count() === 0) continue;
@@ -242,7 +259,7 @@ test("HTML 预览：标题栏打开预览；相对引用的样式、图片、模
         await group.locator(`[data-editor-tab-close="${id ?? ""}"]`).click();
     }
     await expect(page.locator("[data-html-preview-frame]")).toHaveCount(0);
-    await expect.poll(async () => (await fetch(new URL("data.json", base))).status).toBe(404);
+    await expect.poll(async () => (await fetch(new URL("data.json", restoredBase))).status).toBe(404);
 });
 
 test("语言：py、html 里的 script、Markdown 的 ts 代码块都有着色，状态栏显示语言名；换成纯文本后着色消失，刷新后仍是纯文本", async ({page}) => {

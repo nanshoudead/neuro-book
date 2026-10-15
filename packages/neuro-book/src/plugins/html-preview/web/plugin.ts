@@ -85,9 +85,12 @@ export const htmlPreviewBrowserPlugin: PluginDefinition = {
             };
             const access: PreviewAccess = {
                 open: async () => {
-                    if (project === null) return {ok: false, reason: "窗口没有绑定作品"};
+                    if (project === null) return {ok: false, denial: "no-project"};
                     const result = await remote.open({project: project.id, generation: project.generation});
-                    if (!result.ok) return {ok: false, reason: result.code};
+                    if (!result.ok) {
+                        report(`申请预览令牌失败：${result.code}`);
+                        return {ok: false, denial: result.code === "generation-gone" ? "closed" : "unreachable"};
+                    }
                     return {ok: true, token: result.value.token, base: new URL(result.value.base, navigation.currentUrl()).href};
                 },
                 close: (token) => {

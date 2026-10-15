@@ -17,7 +17,9 @@ const emit = defineEmits<{(event: "ready", handle: EditorControlHandle | null): 
 
 const TEXT = {
     notProject: {"zh-CN": "只能预览作品里的文件。", "en-US": "Only files in the work can be previewed."},
-    failed: {"zh-CN": "预览打不开：{reason}", "en-US": "The preview cannot be opened: {reason}"},
+    "no-project": {"zh-CN": "这个窗口没有打开作品，预览读不到文件。", "en-US": "No work is open in this window, so the preview cannot read files."},
+    "closed": {"zh-CN": "作品已经关闭，预览读不到它的文件。", "en-US": "The work is closed, so the preview cannot read its files."},
+    "unreachable": {"zh-CN": "暂时连不上服务端，预览打不开。", "en-US": "Cannot reach the server, so the preview cannot be opened."},
     retry: {"zh-CN": "重试", "en-US": "Retry"},
 } satisfies Record<string, LocalizedText>;
 
@@ -60,7 +62,7 @@ const acquire = async (binding: TextEditorBinding): Promise<void> => {
         return;
     }
     if (!result.ok) {
-        problem.value = say("failed", {reason: result.reason});
+        problem.value = say(result.denial);
         return;
     }
     grant.value = {binding, token: result.token, base: result.base};
