@@ -3,7 +3,7 @@ schema: nbook.work/v1
 workId: w00025-editor
 issueId: null
 status: active
-updated: 2026-10-14
+updated: 2026-10-15
 ---
 
 # 编辑器
@@ -14,4 +14,4 @@ updated: 2026-10-14
 
 ## 集成分支
 
-t02 到 t05 叠在一条线上：t03 从 t02 的分支 `feat/w00025-t02-editor-types` 拉出，t04、t05 依次从前一个拉出；打磨完一次性合入 master（开发者 2026-10-15 定）。
+t02 之后的 Task 叠在一条线上：t03 从 t02 的分支 `feat/w00025-t02-editor-types` 拉出，之后的 Task 依次从线上最后一个拉出；打磨完一次性合入 master（开发者 2026-10-15 定）。t03 之后先做 t06 Markdown 打磨（开发者 2026-10-15 定），t04 自动保存、t05 Monaco 打磨随后。
