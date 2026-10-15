@@ -4,10 +4,13 @@
  *
  * 撤回的时序：句柄被撤回时，正在执行的调用立刻以“中断”结算（交给 OMP 的 Promise 先完成），同时中止
  * 实现拿到的 signal；实现之后才完成的结果被丢弃。所以每次调用在会话里恰有一条结果。
+ *
+ * 资源的寿命与执行权限分开：撤回只禁止之后的执行，用过的实现仍记在这里，会话关闭时照样
+ * `releaseSession`。
  */
 
 import type {AgentTool, AgentToolResult} from "@oh-my-pi/pi-agent-core";
-import type {RegisteredTool, ToolRegistry} from "./registry.js";
+import type {RegisteredTool, ToolImpl, ToolRegistry} from "./registry.js";
 
 export const PLUGIN_UNAVAILABLE = "plugin-unavailable";
 
@@ -18,13 +21,16 @@ function unavailableResult(toolId: string, interrupted: boolean): AgentToolResul
 
 export interface BridgedTools {
     readonly agentTools: AgentTool[];
-    /** 解除对撤回的订阅；会话关闭时调用。 */
+    /** 对这个会话用过的每个实现调 `releaseSession`，逐个进行，一个抛错不影响其余；返回收集到的错误。 */
+    releaseAll(): unknown[];
+    /** 解除对撤回的订阅。 */
     dispose(): void;
 }
 
 export function bridgeTools(tools: readonly RegisteredTool[], session: {readonly sessionId: string; readonly initial: unknown}, registry: ToolRegistry): BridgedTools {
     // 每个工具 id 下正在执行的调用：撤回时逐个以中断结算。
     const inflight = new Map<string, Set<(result: AgentToolResult) => void>>();
+    const used = new Set<ToolImpl>();
     const unsubscribe = registry.onRevoke((id) => {
         const pending = inflight.get(id);
         if (pending === undefined) return;
@@ -44,12 +50,10 @@ export function bridgeTools(tools: readonly RegisteredTool[], session: {readonly
         async execute(toolCallId, params, signal, onUpdate) {
             const impl = handle.resolve();
             if (impl === null) return unavailableResult(declaration.id, false);
+            used.add(impl);
 
             const controller = new AbortController();
             const forward = (): void => controller.abort(signal?.reason);
-            if (signal?.aborted) controller.abort(signal.reason);
-            else signal?.addEventListener("abort", forward, {once: true});
-
             let settle!: (result: AgentToolResult) => void;
             const revoked = new Promise<AgentToolResult>((resolve) => {
                 settle = (result) => {
@@ -58,20 +62,41 @@ export function bridgeTools(tools: readonly RegisteredTool[], session: {readonly
                 };
             });
             const pending = inflight.get(declaration.id) ?? new Set();
-            pending.add(settle);
-            inflight.set(declaration.id, pending);
-
-            const running = impl.execute(params as Record<string, unknown>, {sessionId: session.sessionId, toolCallId, initial: session.initial, signal: controller.signal}, onUpdate);
-            // 撤回先结算时 running 的完成或失败没有人等；挂上处理免得变成未处理的拒绝。
-            running.catch(() => undefined);
             try {
+                if (signal?.aborted) controller.abort(signal.reason);
+                else signal?.addEventListener("abort", forward, {once: true});
+                pending.add(settle);
+                inflight.set(declaration.id, pending);
+                // 实现可能在返回 Promise 之前就同步抛错：调用本身也在 try 里，finally 才能收口。
+                const running = impl.execute(params as Record<string, unknown>, {sessionId: session.sessionId, toolCallId, initial: session.initial, signal: controller.signal}, onUpdate);
+                // 撤回先结算时 running 的完成或失败没有人等；挂上处理免得变成未处理的拒绝。
+                running.catch(() => undefined);
                 return await Promise.race([running, revoked]);
             } finally {
                 pending.delete(settle);
+                if (pending.size === 0 && inflight.get(declaration.id) === pending) inflight.delete(declaration.id);
                 signal?.removeEventListener("abort", forward);
             }
         },
     }));
 
-    return {agentTools, dispose: unsubscribe};
+    return {
+        agentTools,
+        releaseAll() {
+            const errors: unknown[] = [];
+            for (const impl of used) {
+                try {
+                    impl.releaseSession?.(session.sessionId);
+                } catch (error) {
+                    errors.push(error);
+                }
+            }
+            used.clear();
+            return errors;
+        },
+        dispose() {
+            unsubscribe();
+            inflight.clear();
+        },
+    };
 }

@@ -61,19 +61,19 @@ export function defineModel(options: DefineModelOptions): ResolvedModel {
         throw new Error("defineModel 要恰好给 apiKeyEnv 或 apiKey: \"none\" 中的一个");
     }
     const price = options.price;
-    const model = buildModel({
-        provider: options.provider,
-        api: options.api,
-        baseUrl: options.baseUrl,
-        id: options.id,
+    const configured = {
         name: options.name ?? options.id,
         reasoning: options.reasoning ?? false,
-        input: [...(options.input ?? ["text"])],
+        input: [...(options.input ?? ["text"])] as ("text" | "image")[],
         contextWindow: options.contextWindow ?? null,
         maxTokens: options.maxTokens ?? null,
         // OMP 要求数字；单价未知时补零，对外的 cost 由 priceKnown 改成 null。
         cost: {input: price?.input ?? 0, output: price?.output ?? 0, cacheRead: price?.cacheRead ?? 0, cacheWrite: price?.cacheWrite ?? 0},
-    } as Parameters<typeof buildModel>[0]) as Model;
+    };
+    const built = buildModel({provider: options.provider, api: options.api, baseUrl: options.baseUrl, id: options.id, ...configured} as Parameters<typeof buildModel>[0]) as Model;
+    // buildModel 会按 provider 与 id 套目录里的修正（单价、分时价、上限、模态）。这里是宿主给自定义端点的配置，
+    // 构建后用宿主的值整个盖回去：cost 整个替换，去掉目录附加的分时价与长上下文价。
+    const model: Model = {...built, ...configured};
     const variable = options.apiKeyEnv;
     return {
         model,

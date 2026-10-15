@@ -84,6 +84,7 @@ export interface ProfileContext<I> {
 
 export interface ProfileDefinition<S extends TSchema = TSchema> {
     readonly kind: "profile-definition";
+    readonly [DEFINED]?: true;
     readonly manifest: ProfileManifest;
     readonly initialSchema: S;
     readonly tools: readonly ToolSetItem[];
@@ -91,6 +92,9 @@ export interface ProfileDefinition<S extends TSchema = TSchema> {
     /** 按 `initialSchema` 校验初始输入；不合时抛 `invalid_initial`。 */
     parseInitial(value: unknown): Static<S>;
 }
+
+/** 只有 defineProfile 造出的定义带这个标记；加载时据此拒绝手写的同形对象。 */
+const DEFINED = Symbol("nb-profile.defined");
 
 export function defineProfile<S extends TSchema>(definition: {
     readonly manifest: ProfileManifest;
@@ -104,9 +108,17 @@ export function defineProfile<S extends TSchema>(definition: {
             throw new ProfileError("profile_invalid", `Profile 的 manifest.${field} 不能为空`);
         }
     }
+    if (typeof definition.initialSchema !== "object" || definition.initialSchema === null) throw new ProfileError("profile_invalid", `Profile ${manifest.key} 的 initialSchema 不是 schema 对象`);
+    if (typeof definition.context !== "function") throw new ProfileError("profile_invalid", `Profile ${manifest.key} 的 context 不是函数`);
+    if (!Array.isArray(definition.tools)) throw new ProfileError("profile_invalid", `Profile ${manifest.key} 的 tools 不是数组`);
+    for (const item of definition.tools) {
+        const valid = typeof item === "object" && item !== null && (item.kind === "tool-ref" || item.kind === "local-tool" || (item.kind === "optional" && item.ref?.kind === "tool-ref"));
+        if (!valid || toolSetItemId(item).trim() === "") throw new ProfileError("profile_invalid", `Profile ${manifest.key} 的 tools 里有不认识的项`);
+    }
     // 再走一遍重复检查：调用方可能没经 toolset() 直接给数组。
     toolset(...definition.tools);
     return {
+        [DEFINED]: true,
         kind: "profile-definition",
         manifest,
         initialSchema: definition.initialSchema,
@@ -121,7 +133,5 @@ export function defineProfile<S extends TSchema>(definition: {
 }
 
 export function isProfileDefinition(value: unknown): value is ProfileDefinition {
-    if (typeof value !== "object" || value === null) return false;
-    const candidate = value as Partial<ProfileDefinition>;
-    return candidate.kind === "profile-definition" && typeof candidate.context === "function" && Array.isArray(candidate.tools);
+    return typeof value === "object" && value !== null && (value as {[DEFINED]?: unknown})[DEFINED] === true;
 }

@@ -202,12 +202,15 @@ describe("收尾工具（输出 13 到 16）", () => {
 });
 
 describe("出错、取消与用量（输出 10 到 12）", () => {
-    test("provider 错误按状态码与标记归类：429 为 rate_limit，带用尽标记为 quota，无状态为 network", async () => {
+    test("provider 错误按状态码与标记归类：429 为 rate_limit，带用尽标记为 quota，网关状态或无状态的瞬时故障为 network，证据不够为 provider", async () => {
         const cases: [ScriptedStep["error"], ErrorKind][] = [
             [{message: "too many", status: 429}, "rate_limit"],
             [{message: "quota", status: 429, errorId: Flag.UsageLimit}, "quota"],
             [{message: "denied", status: 401}, "auth"],
-            [{message: "reset"}, "network"],
+            [{message: "reset", errorId: Flag.Transient}, "network"],
+            [{message: "gateway", status: 524}, "network"],
+            [{message: "无状态也无标记"}, "provider"],
+            [{message: "拦截", errorId: Flag.ContentBlocked}, "provider"],
             [{message: "bad", status: 400}, "provider"],
             [{message: "long", status: 400, errorId: Flag.ContextOverflow}, "context_overflow"],
         ];
@@ -247,11 +250,12 @@ describe("出错、取消与用量（输出 10 到 12）", () => {
 
     test("调用方取消：aborted，用量标为不完整，日志记一条运行结束", async () => {
         const gate = Promise.withResolvers<void>();
-        const {harness, log} = await open([{content: "迟到", gate: gate.promise}]);
+        const requested = Promise.withResolvers<void>();
+        const {harness, log} = await open([{content: "迟到", gate: gate.promise, onRequest: requested.resolve}]);
         const controller = new AbortController();
         try {
             const running = harness.turn("问", {signal: controller.signal});
-            await Bun.sleep(0);
+            await requested.promise;
             controller.abort();
             gate.resolve();
             const result = await running;
@@ -282,11 +286,13 @@ describe("状态与转换", () => {
 
     test("关闭在途运行：运行以 aborted 结束，日志里没有未配对的工具调用；关闭后 turn 与 subscribe 报 session_closed，重复 close 幂等", async () => {
         const gate = Promise.withResolvers<void>();
+        const toolDone = Promise.withResolvers<void>();
         const {harness, log} = await open([[toolCall("c1", "story_search", {query: "x"})], {content: "不会到这里", gate: gate.promise}]);
-        const events: string[] = [];
-        harness.subscribe((event) => events.push(event.type));
+        harness.subscribe((event) => {
+            if (event.type === "tool_execution_end") toolDone.resolve();
+        });
         const running = harness.turn("问");
-        while (!events.includes("tool_execution_end")) await Bun.sleep(1);
+        await toolDone.promise;
 
         const closing = harness.close();
         expect(harness.close()).toBe(closing);

@@ -6,7 +6,7 @@
 import type {LocalTool, ProfileDefinition} from "@notnotype/nb-profile";
 import type {JsonValue} from "@notnotype/nb-session";
 import {HarnessError} from "../errors.js";
-import {completeDeclaration, type PluginToolDeclaration, type RegisteredTool, type ToolDeclaration, type ToolImpl} from "./registry.js";
+import {completeDeclaration, frozenCopy, type PluginToolDeclaration, type RegisteredTool, type ToolDeclaration, type ToolImpl} from "./registry.js";
 import type {ToolRegistry} from "./registry.js";
 
 /** 宿主给的禁用策略；harness 不读配置文件。 */
@@ -38,7 +38,7 @@ function isLocalToolDefinition(item: unknown): item is LocalToolDefinition {
 }
 
 function localEntry(profile: ProfileDefinition, tool: LocalToolDefinition): RegisteredTool {
-    const declaration = completeDeclaration(tool.declaration, `profile:${profile.manifest.key}`, profile.manifest.version);
+    const declaration = frozenCopy(completeDeclaration(tool.declaration, `profile:${profile.manifest.key}`, profile.manifest.version));
     return {declaration, handle: {resolve: () => tool.impl}};
 }
 
@@ -94,8 +94,18 @@ export function declarationJson(declaration: ToolDeclaration): JsonValue {
     return JSON.parse(JSON.stringify(declaration)) as JsonValue;
 }
 
+/** 对象键排好序的 JSON：只比字段与值，不比属性先后；数组的顺序照旧算数。 */
+function canonical(value: unknown): string {
+    if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
+    if (typeof value === "object" && value !== null) {
+        const entries = Object.entries(value).filter(([, child]) => child !== undefined).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+        return `{${entries.map(([key, child]) => `${JSON.stringify(key)}:${canonical(child)}`).join(",")}}`;
+    }
+    return JSON.stringify(value);
+}
+
 function sameDeclaration(snapshot: JsonValue, current: ToolDeclaration): boolean {
-    return JSON.stringify(snapshot) === JSON.stringify(declarationJson(current));
+    return canonical(snapshot) === canonical(current);
 }
 
 /**

@@ -13,6 +13,8 @@ export interface ScriptedStep {
     readonly stopReason?: StopReason;
     readonly usage?: Partial<Pick<AssistantMessage["usage"], "input" | "output" | "cacheRead" | "cacheWrite">> & {readonly cost?: number};
     readonly error?: {readonly message: string; readonly status?: number; readonly errorId?: number};
+    /** 收到这一步的请求时先调用（例如通知测试“请求已经发出”），再等 `gate`。 */
+    readonly onRequest?: () => void;
     /** 发出这一步之前等它完成：用来在“模型请求进行中”做取消、重叠、关闭。 */
     readonly gate?: Promise<unknown>;
 }
@@ -40,6 +42,7 @@ export function scriptedModel(inputs: readonly ScriptedInput[]): ScriptedModel {
         const step = steps[index];
         index += 1;
         if (step === undefined) throw new Error(`脚本只有 ${steps.length} 步，收到第 ${index} 次请求`);
+        step.onRequest?.();
         if (step.gate !== undefined) await step.gate;
         const content: AssistantMessage["content"] = typeof step.content === "string" ? [{type: "text", text: step.content}] : step.content;
         const hasCalls = content.some((block) => block.type === "toolCall");

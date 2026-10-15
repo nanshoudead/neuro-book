@@ -1,6 +1,6 @@
 import {resolve} from "node:path";
 import {pathToFileURL} from "node:url";
-import {isProfileDefinition, type ProfileDefinition} from "./define.js";
+import {isProfileDefinition, ProfileError, type ProfileDefinition} from "./define.js";
 
 export interface LoadedProfile {
     readonly path: string;
@@ -12,10 +12,10 @@ export function profileFromModule(mod: unknown, path?: string): LoadedProfile {
     const label = path ?? "<memory>";
     const candidate = typeof mod === "object" && mod !== null ? (mod as {readonly default?: unknown}).default : undefined;
     if (candidate === undefined) {
-        throw new Error(`profile 模块没有默认导出：${label}`);
+        throw new ProfileError("profile_invalid", `profile 模块没有默认导出：${label}`);
     }
     if (!isProfileDefinition(candidate)) {
-        throw new Error(`profile 默认导出不是 defineProfile 的结果：${label}`);
+        throw new ProfileError("profile_invalid", `profile 默认导出不是 defineProfile 的结果：${label}`);
     }
     return {path: label, profile: candidate};
 }

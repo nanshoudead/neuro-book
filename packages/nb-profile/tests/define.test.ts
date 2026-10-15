@@ -32,6 +32,13 @@ describe("defineProfile", () => {
         expect(codeOf(() => defineProfile({manifest, initialSchema, tools: [toolRef("a"), toolRef("a")], context: () => ProfilePrompt({})}))).toBe("profile_invalid");
     });
 
+    test("context 不是函数、tools 里有不认识的项、initialSchema 不是对象：都报 profile_invalid", () => {
+        const base = {manifest, initialSchema, tools: [], context: () => ProfilePrompt({})};
+        expect(codeOf(() => defineProfile({...base, context: "x" as never}))).toBe("profile_invalid");
+        expect(codeOf(() => defineProfile({...base, tools: [{kind: "weird", id: "a"} as never]}))).toBe("profile_invalid");
+        expect(codeOf(() => defineProfile({...base, initialSchema: null as never}))).toBe("profile_invalid");
+    });
+
     test("manifest 缺字段报 profile_invalid", () => {
         expect(codeOf(() => defineProfile({manifest: {...manifest, version: ""}, initialSchema, tools: [], context: () => ProfilePrompt({})}))).toBe("profile_invalid");
     });

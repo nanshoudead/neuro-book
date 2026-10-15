@@ -144,7 +144,8 @@ read omp://sdk.md               # 读某一篇
 10. **工具执行完成、结果事件、日志提交是三个边界**：顺序是 `execute` → `afterToolCall` → `tool_execution_end` → 工具结果的 `message_end`。在前面的钩子里等后面事件驱动的写入会环等。要在工具结果后结束循环且不再请求模型，用公开的 `TERMINAL_TOOL_RESULT_ABORT_REASON` 中止（普通 `abort()` 会多一次请求并留下一条 aborted 消息）；`beforeToolCall` 返回 `{block: true}` 的调用不执行，但照样有成对的错误结果。
 11. **provider 层重试的用量不交出**：空回复、503、响应前断连等由 provider 内部重试，被丢弃的那次请求的用量不进 Agent 的消息；`onResponse` 只在成功响应后触发，数不到传输层的重试。nb-harness 用流选项里的 `fetch` 计数实际请求来察觉；不支持 `fetch` 选项的 provider 察觉不到。
 12. **`getApiKey` 返回空会退回默认密钥**：自定义 `baseUrl` 下也会改用同一 provider 的环境变量（例如 `OPENAI_API_KEY`）。指定的密钥缺失时必须在发请求前失败；无认证的 OpenAI 兼容端点返回公开的 `NO_AUTH_SENTINEL`（`@oh-my-pi/pi-ai/providers/openai-shared`），不带认证头。
-13. **错误归类不按文字**：失败的助手消息带 `errorStatus` 与 `errorId`（`@oh-my-pi/pi-ai/error/flags` 的 `Flag` 位）；但 `getApiKey`、上下文变换、`streamFn` 抛出的错误经 Agent 外层捕获后只剩文字，要在调用 OMP 之前或钩子里自己捕获并保留类型。
+13. **`buildModel` 会套目录修正**（2026-10-15 w00002 t21 实现审查实测）：`@oh-my-pi/pi-catalog/build` 按 provider 与 id 应用目录里的单价、分时价、上下文与输出上限、模态修正，宿主显式给的值会被覆盖（例如 `deepseek/deepseek-flash` 的 `maxTokens: 100` 变成 384000）。自定义端点要在构建后用宿主的值盖回去，`cost` 整个替换，并以实际请求参数与费用验证。
+14. **错误归类不按文字**：失败的助手消息带 `errorStatus` 与 `errorId`（`@oh-my-pi/pi-ai/error/flags` 的 `Flag` 位）；没有状态码不等于网络故障（SSE 里的内容拦截、模型终态错误也没有状态码，带 `ContentBlocked`、`ProviderFinishError`）； `getApiKey`、上下文变换、`streamFn` 抛出的错误经 Agent 外层捕获后只剩文字，要在调用 OMP 之前或钩子里自己捕获并保留类型。
 
 ## 8. 本仓库的使用位置
 

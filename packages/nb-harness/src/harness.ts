@@ -16,7 +16,7 @@
 
 import {Agent, TERMINAL_TOOL_RESULT_ABORT_REASON, type AgentEvent, type AgentMessage, type StreamFn} from "@oh-my-pi/pi-agent-core";
 import {streamSimple, type AssistantMessage, type Effort} from "@oh-my-pi/pi-ai";
-import {ProfileError, toolSetItemId, type ProfileDefinition} from "@notnotype/nb-profile";
+import {isProfileDefinition, ProfileError, type ProfileDefinition} from "@notnotype/nb-profile";
 import type {JsonValue, SessionEntry, SessionEntryInput, SessionLog} from "@notnotype/nb-session";
 import {renderContext} from "./context.js";
 import {HarnessError} from "./errors.js";
@@ -24,7 +24,7 @@ import {MissingModelKeyError, type ResolvedModel} from "./model.js";
 import {classifyProviderError, usageEntry, UsageMeter, type RunError, type StopReason, type TurnResult} from "./run-result.js";
 import {bridgeTools} from "./tools/bridge.js";
 import {declarationJson, resolveEffectiveTools, restoreEffectiveTools, type ToolPolicy} from "./tools/effective.js";
-import type {RegisteredTool, ToolRegistry} from "./tools/registry.js";
+import {frozenCopy, type RegisteredTool, type ToolRegistry} from "./tools/registry.js";
 
 export interface HarnessOptions {
     readonly profile: ProfileDefinition;
@@ -51,8 +51,11 @@ export interface Harness {
 /** 一次运行的可变状态；只在它自己的 `turn` 任务里读写。 */
 interface Run {
     readonly meter: UsageMeter;
+    /** 这次运行写进日志的条目，按写入顺序；结果里的 `entries` 就是它，不再回读日志。 */
+    readonly entries: SessionEntry[];
     cancelled: boolean;
-    localError: RunError | null;
+    /** harness 自己的步骤出的错（密钥缺失、写日志、渲染、序列化），优先于模型给的错误。 */
+    hostError: RunError | null;
     finishCandidate: {readonly callId: string; readonly tool: string; readonly args: unknown} | null;
     finished: {readonly tool: string; readonly args: unknown} | null;
     task: Promise<TurnResult> | null;
@@ -60,6 +63,10 @@ interface Run {
 
 function toJson(value: unknown): JsonValue {
     return JSON.parse(JSON.stringify(value)) as JsonValue;
+}
+
+function authError(error: MissingModelKeyError): RunError {
+    return {kind: "auth", status: null, message: error.message};
 }
 
 function localError(message: string): RunError {
@@ -73,6 +80,7 @@ function wrapProfileError(error: unknown): never {
 
 export async function createHarness(options: HarnessOptions): Promise<Harness> {
     const {profile, registry, sessionLog, model} = options;
+    if (!isProfileDefinition(profile)) throw new HarnessError("profile_invalid", "profile 不是 defineProfile 的结果");
     const sessionId = sessionLog.sessionId;
     const existing = await sessionLog.read();
 
@@ -82,7 +90,7 @@ export async function createHarness(options: HarnessOptions): Promise<Harness> {
     if (existing.length === 0) {
         if (options.initial === undefined) throw new HarnessError("invalid_initial", "新会话要给 initial");
         try {
-            initial = profile.parseInitial(options.initial);
+            initial = frozenCopy(toJson(profile.parseInitial(options.initial)));
         } catch (error) {
             wrapProfileError(error);
         }
@@ -100,7 +108,7 @@ export async function createHarness(options: HarnessOptions): Promise<Harness> {
                 profile: {key: profile.manifest.key, version: profile.manifest.version},
             });
         }
-        initial = snapshot.initial;
+        initial = frozenCopy(snapshot.initial);
         tools = restoreEffectiveTools(snapshot.tools, profile, registry);
         for (const entry of existing) if (entry.kind === "agent_message") history.push(entry.message as unknown as AgentMessage);
     }
@@ -112,17 +120,19 @@ export async function createHarness(options: HarnessOptions): Promise<Harness> {
     // 写队列：条目按事件到达的顺序串行写入；`history` 只收已写进日志的原样消息，渲染就用它。
     let writes: Promise<void> = Promise.resolve();
     let writeError: unknown = null;
-    const enqueue = (inputs: readonly SessionEntryInput[], onWritten?: (messages: readonly AgentMessage[]) => void, messages: readonly AgentMessage[] = []): Promise<void> => {
+    const enqueue = (owner: Run | null, inputs: readonly SessionEntryInput[], onWritten?: () => void, messages: readonly AgentMessage[] = []): Promise<void> => {
         const write = writes.then(async () => {
             if (writeError !== null) throw writeError;
+            let stamped: readonly SessionEntry[];
             try {
-                await sessionLog.append(inputs);
+                stamped = await sessionLog.append(inputs);
             } catch (error) {
                 writeError = error;
                 throw error;
             }
+            owner?.entries.push(...stamped);
             history.push(...messages);
-            onWritten?.(messages);
+            onWritten?.();
         });
         writes = write.catch(() => undefined);
         return write;
@@ -143,7 +153,15 @@ export async function createHarness(options: HarnessOptions): Promise<Harness> {
     const agent = new Agent({
         initialState: {model: model.model, systemPrompt: [], tools: bridged.agentTools, messages: [...history]},
         sessionId,
-        getApiKey: () => model.apiKey(),
+        // 每次请求前 OMP 都会取密钥：缺失时在这里记下 auth，否则经 Agent 外层捕获后只剩文字（输出 18）。
+        getApiKey: () => {
+            try {
+                return model.apiKey();
+            } catch (error) {
+                if (error instanceof MissingModelKeyError && run !== null && run.hostError === null) run.hostError = authError(error);
+                throw error;
+            }
+        },
         // 计数的 fetch：一次运行里实际发出的 HTTP 请求多于助手消息时，中间有被 provider 丢弃的尝试（输出 11）。
         streamFn: (streamModel, context, streamOptions) => {
             const inner = streamOptions?.fetch ?? fetch;
@@ -175,7 +193,7 @@ export async function createHarness(options: HarnessOptions): Promise<Harness> {
         try {
             await drain();
         } catch (error) {
-            if (run !== null) run.localError = localError(`写会话日志失败：${String(error)}`);
+            if (run !== null) run.hostError = localError(`写会话日志失败：${String(error)}`);
             throw error;
         }
         try {
@@ -183,7 +201,7 @@ export async function createHarness(options: HarnessOptions): Promise<Harness> {
             agent.setSystemPrompt(rendered.systemPrompt);
             renderedMessages = rendered.messages;
         } catch (error) {
-            if (run !== null) run.localError = localError(`渲染 Profile 失败：${String(error)}`);
+            if (run !== null) run.hostError = localError(`渲染 Profile 失败：${String(error)}`);
             throw error;
         }
     });
@@ -195,7 +213,17 @@ export async function createHarness(options: HarnessOptions): Promise<Harness> {
         if (persisted.has(message)) return;
         persisted.add(message);
         const current = run;
-        const inputs: SessionEntryInput[] = [{kind: "agent_message", message: toJson(message)}];
+        let serialized: JsonValue;
+        try {
+            serialized = toJson(message);
+        } catch (error) {
+            // 不能原样写进日志的消息（例如工具 details 里有循环引用）：这次运行以 local 失败、不再请求模型，
+            // 不让日志里留下没有结果的工具调用却报成功。
+            if (current !== null && current.hostError === null) current.hostError = localError(`消息不能写进会话日志：${String(error)}`);
+            agent.abort();
+            return;
+        }
+        const inputs: SessionEntryInput[] = [{kind: "agent_message", message: serialized}];
         if (message.role === "assistant") {
             inputs.push(usageEntry(message as AssistantMessage, model.priceKnown));
             current?.meter.add(message as AssistantMessage);
@@ -207,8 +235,8 @@ export async function createHarness(options: HarnessOptions): Promise<Harness> {
                 current.finished = {tool: current.finishCandidate.tool, args: current.finishCandidate.args};
             }
         };
-        enqueue(inputs, settleFinish, [message]).catch((error: unknown) => {
-            if (current !== null && current.localError === null) current.localError = localError(`写会话日志失败：${String(error)}`);
+        enqueue(current, inputs, settleFinish, [message]).catch((error: unknown) => {
+            if (current !== null && current.hostError === null) current.hostError = localError(`写会话日志失败：${String(error)}`);
         });
     });
 
@@ -222,22 +250,28 @@ export async function createHarness(options: HarnessOptions): Promise<Harness> {
     };
 
     const execute = async (current: Run, input: string): Promise<TurnResult> => {
-        const startSeq = (await sessionLog.tail())?.seq ?? 0;
         const startIndex = agent.state.messages.length;
         const finishRun = async (stopReason: StopReason, error: RunError | null, text: string): Promise<TurnResult> => {
-            if (stopReason === "error" || stopReason === "aborted") {
-                await enqueue([{kind: "run_end", stopReason, error: error === null ? null : toJson(error)}]).catch(() => undefined);
+            let reason = stopReason;
+            let finalError = error;
+            if (reason === "error" || reason === "aborted") {
+                try {
+                    await enqueue(current, [{kind: "run_end", stopReason: reason, error: finalError === null ? null : toJson(finalError)}]);
+                } catch (writeFailure) {
+                    // 结束标记没写进去也要让调用方知道：改报 local，原来的原因留在文字里。
+                    const before = finalError === null ? reason : `${finalError.kind}：${finalError.message}`;
+                    reason = "error";
+                    finalError = localError(`写会话日志失败：${String(writeFailure)}（这次运行原本是 ${before}）`);
+                }
             }
-            await writes;
-            if (current.cancelled) current.meter.markIncomplete();
-            const entries: readonly SessionEntry[] = await sessionLog.read({sinceSeq: startSeq}).catch(() => []);
-            return {stopReason, text, finish: stopReason === "finished" ? current.finished : null, error, usage: current.meter.snapshot(), entries};
+            if (current.cancelled || reason === "aborted") current.meter.markIncomplete();
+            return {stopReason: reason, text, finish: reason === "finished" ? current.finished : null, error: finalError, usage: current.meter.snapshot(), entries: [...current.entries]};
         };
 
         try {
             model.apiKey();
         } catch (error) {
-            if (error instanceof MissingModelKeyError) return finishRun("error", {kind: "auth", status: null, message: error.message}, "");
+            if (error instanceof MissingModelKeyError) return finishRun("error", authError(error), "");
             throw error;
         }
         if (current.cancelled) return finishRun("aborted", null, "");
@@ -245,7 +279,7 @@ export async function createHarness(options: HarnessOptions): Promise<Harness> {
         const userMessage: AgentMessage = {role: "user", content: input, timestamp: Date.now()};
         persisted.add(userMessage);
         try {
-            await enqueue([{kind: "agent_message", message: toJson(userMessage)}], undefined, [userMessage]);
+            await enqueue(current, [{kind: "agent_message", message: toJson(userMessage)}], undefined, [userMessage]);
         } catch (error) {
             return finishRun("error", localError(`写会话日志失败：${String(error)}`), "");
         }
@@ -255,13 +289,13 @@ export async function createHarness(options: HarnessOptions): Promise<Harness> {
         try {
             await drain();
         } catch (error) {
-            if (current.localError === null) current.localError = localError(`写会话日志失败：${String(error)}`);
+            if (current.hostError === null) current.hostError = localError(`写会话日志失败：${String(error)}`);
         }
 
         const last = lastAssistant(startIndex);
         const text = last === null ? "" : last.content.flatMap((block) => (block.type === "text" ? [block.text] : [])).join("");
         if (current.finished !== null) return finishRun("finished", null, text);
-        if (current.localError !== null) return finishRun("error", current.localError, text);
+        if (current.hostError !== null) return finishRun("error", current.hostError, text);
         if (current.cancelled) return finishRun("aborted", null, text);
         if (last === null) return finishRun("error", localError("模型没有返回消息"), "");
         switch (last.stopReason) {
@@ -284,7 +318,7 @@ export async function createHarness(options: HarnessOptions): Promise<Harness> {
             if (state === "closing" || state === "closed") return Promise.reject(new HarnessError("session_closed", "会话已关闭"));
             if (state === "running") return Promise.reject(new HarnessError("session_busy", "这个会话正在运行"));
             state = "running";
-            const current: Run = {meter: new UsageMeter(model.priceKnown), cancelled: false, localError: null, finishCandidate: null, finished: null, task: null};
+            const current: Run = {meter: new UsageMeter(model.priceKnown), entries: [], cancelled: false, hostError: null, finishCandidate: null, finished: null, task: null};
             run = current;
             const signal = turnOptions?.signal;
             const cancel = (): void => {
@@ -318,19 +352,20 @@ export async function createHarness(options: HarnessOptions): Promise<Harness> {
                     agent.abort();
                     await current.task?.catch(() => undefined);
                 }
-                await writes;
-                for (const tool of tools) tool.handle.resolve()?.releaseSession?.(sessionId);
-                bridged.dispose();
-                unsubscribeAgent();
-                listeners.clear();
-                state = "closed";
+                // 释放、退订、终结状态都要做完，哪一步抛错都不能让会话停在“关闭中”；错误收集起来最后一起报。
+                const errors: unknown[] = [];
+                try {
+                    await writes;
+                } finally {
+                    errors.push(...bridged.releaseAll());
+                    bridged.dispose();
+                    unsubscribeAgent();
+                    listeners.clear();
+                    state = "closed";
+                }
+                if (errors.length > 0) throw new AggregateError(errors, "关闭会话时释放工具资源出错");
             })();
             return closing;
         },
     };
-}
-
-/** Profile 声明的工具 id（不看登记表）；单次请求用它判断 Profile 是否带工具。 */
-export function declaredToolIds(profile: ProfileDefinition): string[] {
-    return profile.tools.map(toolSetItemId);
 }

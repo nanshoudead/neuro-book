@@ -55,30 +55,58 @@ export interface RegisteredTool {
     readonly handle: ToolHandle;
 }
 
+/** 一次登记的凭据：撤回只对这一次登记生效，同 id 后来的登记不受影响。 */
+export interface Registration {
+    readonly id: string;
+}
+
 export interface ToolRegistry {
-    register(declaration: ToolDeclaration, impl: ToolImpl): void;
-    /** 撤回：之后句柄返回 null，在途调用经 `onRevoke` 收到中止。 */
-    revoke(id: string): void;
+    /** 声明会被复制并冻结；同 id 已有有效登记时抛错。 */
+    register(declaration: ToolDeclaration, impl: ToolImpl): Registration;
+    has(id: string): boolean;
+    /** 撤回这次登记：之后它的句柄返回 null，在途调用经 `onRevoke` 收到中止；已被撤回或已被替换时什么也不做。 */
+    revoke(registration: Registration): void;
     get(id: string): RegisteredTool | undefined;
     /** 订阅撤回；返回解除函数。 */
     onRevoke(listener: (id: string) => void): () => void;
 }
 
+/** 深复制一份 JSON 数据并冻结：会话快照与执行用的是同一份，宿主之后改原对象影响不到会话（输出 3）。 */
+export function frozenCopy<T>(value: T): T {
+    const copy = structuredClone(value);
+    const freeze = (node: unknown): void => {
+        if (typeof node !== "object" || node === null || Object.isFrozen(node)) return;
+        Object.freeze(node);
+        for (const child of Object.values(node)) freeze(child);
+    };
+    freeze(copy);
+    return copy;
+}
+
+interface Entry extends Registration {
+    readonly declaration: ToolDeclaration;
+    impl: ToolImpl | null;
+}
+
 export function createToolRegistry(): ToolRegistry {
-    const entries = new Map<string, {declaration: ToolDeclaration; impl: ToolImpl | null}>();
+    const entries = new Map<string, Entry>();
     const listeners = new Set<(id: string) => void>();
     return {
         register(declaration, impl) {
-            const existing = entries.get(declaration.id);
-            if (existing !== undefined && existing.impl !== null) throw new Error(`工具已登记：${declaration.id}`);
-            entries.set(declaration.id, {declaration, impl});
+            if (entries.has(declaration.id)) throw new Error(`工具已登记：${declaration.id}`);
+            const entry: Entry = {id: declaration.id, declaration: frozenCopy(declaration), impl};
+            entries.set(declaration.id, entry);
+            return entry;
         },
-        revoke(id) {
-            const entry = entries.get(id);
-            if (entry === undefined || entry.impl === null) return;
+        has(id) {
+            return entries.has(id);
+        },
+        revoke(registration) {
+            const entry = entries.get(registration.id);
+            if (entry !== registration || entry.impl === null) return;
             entry.impl = null;
-            entries.delete(id);
-            for (const listener of [...listeners]) listener(id);
+            entries.delete(entry.id);
+            for (const listener of [...listeners]) listener(entry.id);
         },
         get(id) {
             const entry = entries.get(id);
@@ -114,16 +142,18 @@ export interface HarnessPlugin {
     readonly tools: readonly {readonly declaration: PluginToolDeclaration; readonly impl: ToolImpl}[];
 }
 
+/** 一次性登记插件的全部工具：先检查再登记，失败时什么都不留下；`unregister` 幂等，只撤回这次登记的工具。 */
 export function registerPlugin(registry: ToolRegistry, plugin: HarnessPlugin): {unregister(): void} {
     if (plugin.name.trim() === "") throw new Error("插件 name 不能为空");
-    const ids: string[] = [];
-    for (const tool of plugin.tools) {
-        registry.register(completeDeclaration(tool.declaration, plugin.name, plugin.version), tool.impl);
-        ids.push(tool.declaration.id);
-    }
+    const ids = plugin.tools.map((tool) => tool.declaration.id);
+    const duplicate = ids.find((id, index) => ids.indexOf(id) !== index);
+    if (duplicate !== undefined) throw new Error(`插件 ${plugin.name} 的工具 id 重复：${duplicate}`);
+    const taken = ids.find((id) => registry.has(id));
+    if (taken !== undefined) throw new Error(`工具已登记：${taken}`);
+    const registrations = plugin.tools.map((tool) => registry.register(completeDeclaration(tool.declaration, plugin.name, plugin.version), tool.impl));
     return {
         unregister() {
-            for (const id of ids) registry.revoke(id);
+            for (const registration of registrations) registry.revoke(registration);
         },
     };
 }

@@ -8,7 +8,7 @@
 
 import {afterAll, afterEach, beforeAll, describe, expect, test} from "bun:test";
 import {rm} from "node:fs/promises";
-import {defineProfile, ProfilePrompt, System, toolRef} from "@notnotype/nb-profile";
+import {AIMessage, defineProfile, Message, ProfilePrompt, System, toolRef} from "@notnotype/nb-profile";
 import {createJsonlSessionLog} from "@notnotype/nb-session";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {Type} from "typebox";
@@ -20,6 +20,9 @@ interface Seen {
     readonly authorization: string | null;
 }
 
+/** 请求正文里的消息（按角色与文字），供断言“模型实际收到什么”。 */
+const bodies: {role: string; content: unknown}[][] = [];
+
 /** 按顺序给出响应的本机端点；每个响应是状态码加正文（200 的正文按 SSE 发）。 */
 function endpoint() {
     const seen: Seen[] = [];
@@ -29,7 +32,8 @@ function endpoint() {
         hostname: "127.0.0.1",
         async fetch(request) {
             seen.push({path: new URL(request.url).pathname, authorization: request.headers.get("authorization")});
-            await request.text();
+            const body = JSON.parse(await request.text()) as {messages?: {role: string; content: unknown}[]};
+            bodies.push(body.messages ?? []);
             const reply = replies.shift() ?? {status: 200, text: "默认回答"};
             if (reply.status !== 200) {
                 return new Response(JSON.stringify({error: {message: "unavailable"}}), {status: reply.status, headers: {"content-type": "application/json", "retry-after": "0"}});
@@ -70,6 +74,7 @@ afterAll(async () => {
 
 afterEach(() => {
     server.seen.length = 0;
+    bodies.length = 0;
     delete process.env.NB_PROVIDER_TEST_KEY;
     if (savedOpenAiKey === undefined) delete process.env.OPENAI_API_KEY;
     else process.env.OPENAI_API_KEY = savedOpenAiKey;
@@ -157,7 +162,8 @@ describe("单次请求（输出 17）", () => {
         manifest: {key: "summary", version: "1", name: "摘要", description: "测试"},
         initialSchema: Type.Object({}),
         tools: [],
-        context: () => ProfilePrompt({children: [System({children: ["只回答一个词。"]})]}),
+        // 静态消息是会话用的：单次请求不应把它们发出去（输出 17）。
+        context: () => ProfilePrompt({children: [System({children: ["只回答一个词。"]}), Message({children: ["静态的问题"]}), AIMessage({children: ["静态的回答"]})]}),
     });
 
     test("不带工具的 Profile：请求一次，input 是唯一一条用户消息", async () => {
@@ -167,6 +173,21 @@ describe("单次请求（输出 17）", () => {
 
         expect(result).toMatchObject({stopReason: "stop", text: "好", error: null, usage: {input: 12, complete: true}});
         expect(server.seen).toHaveLength(1);
+        expect(bodies[0]!.filter((message) => message.role !== "system" && message.role !== "developer")).toEqual([{role: "user", content: "打个招呼"}]);
+    });
+
+    test("provider 在建流时抛错：返回 error（provider），不直接抛出", async () => {
+        process.env.NB_PROVIDER_TEST_KEY = "k";
+        const result = await complete({
+            profile: noTools,
+            initial: {},
+            input: "x",
+            model: model(),
+            streamFn: () => {
+                throw new Error("provider 不可用");
+            },
+        });
+        expect(result).toMatchObject({stopReason: "error", error: {kind: "provider"}, usage: {complete: false}});
     });
 
     test("声明了工具的 Profile 报 profile_has_tools", async () => {

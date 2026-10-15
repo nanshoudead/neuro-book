@@ -54,6 +54,18 @@ describe("loadProfile", () => {
         await expect(loadProfile(join(fixtures, "no-default.profile.tsx"))).rejects.toThrow(/没有默认导出/u);
     });
 
+    test("同形但不是 defineProfile 造出的对象报 profile_invalid（F4）", async () => {
+        const fixturePath = join(tmpRoot, "forged.profile.ts");
+        await writeFile(fixturePath, `export default {kind: "profile-definition", tools: [], context: () => null};\n`, "utf-8");
+        let code = "";
+        try {
+            await loadProfile(fixturePath);
+        } catch (error) {
+            code = (error as {code?: string}).code ?? "";
+        }
+        expect(code).toBe("profile_invalid");
+    });
+
     test("profileFromModule 拒绝不是 defineProfile 结果的默认导出", () => {
         expect(() => profileFromModule({default: {kind: "X"}}, "memory.profile.tsx")).toThrow(/不是 defineProfile/u);
         expect(() => profileFromModule({}, "memory.profile.tsx")).toThrow(/memory\.profile\.tsx/u);
