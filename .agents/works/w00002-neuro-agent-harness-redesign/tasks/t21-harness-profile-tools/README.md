@@ -20,8 +20,8 @@ updated: 2026-10-15
   - 成立、已改进提案：1 日志改存 OMP 原样消息（`agent_message`），渲染结果经 `syncContextBeforeModelCall` 交给模型，旧日志只读；2 收尾工具用 OMP 公开的 `TERMINAL_TOOL_RESULT_ABORT_REASON`，定下结束的时刻，去掉“多回传一次”的退路，混批规则交开发者（待定项 1）；3 同一会话同一时刻一次运行，重叠在任何副作用之前拒绝（`session_busy`），关闭的顺序；4 登记表分声明与可撤回句柄，去掉 `harness.use()`，撤回时在途调用按平台 P1、P11 结算；5 会话快照（Profile 版本、`initial`、工具声明），恢复时对不上报 `session_incompatible`；6 Profile 加 `initialSchema`，工具经会话执行上下文取数据，`If` 加 `tool` 参数；8 `apiKeyEnv` 缺失时发请求前就报 `auth`，不退回别的凭据；9 错误归类改为 harness 自己的映射（按 `errorStatus` 与标记的优先级，加 `quota`、`local`），密钥解析与渲染放在能保留错误类型的地方；10 `defineModel` 写全选项与缺省，未知单价对外为 `null`；11 单次请求只收无工具的 Profile，不经会话；问答的全读仍是同一个 Agent（草稿把它写成单次请求，违背 t05 决定 13）；12 `DEEPSEEK_API_BASE` 挪到测试支持；13 脚本化流扩成按步骤的脚本，provider 层用 fetch 接缝测。
   - 7 用量漏计：成立，口径会改变调用方看到的费用含义，交开发者（待定项 2）。
   - 审查用的 worktree `.worktree/w00002-t21-review` 已删。
+- 2026-10-15：开发者定两个待定项（收尾工具混批一律退回；用量取可见消息之和加“是否完整”），提案接受。
 
 ## 下一步
 
-1. 开发者定提案的两个待定项（收尾工具混批、用量口径），接受提案。
-2. 写 `docs/specs/agent/harness.md` 与 `plan.md`。
+1. 写 `docs/specs/agent/harness.md`（planned）与 `plan.md`，要点先给开发者看。

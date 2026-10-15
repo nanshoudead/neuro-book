@@ -1,8 +1,8 @@
 ---
 schema: nbook.proposal/v1
-status: draft
+status: accepted
 created: 2026-10-15
-decided: null
+decided: 2026-10-15
 supersedes: []
 superseded-by: null
 specs: []
@@ -151,7 +151,11 @@ type ErrorKind = "network" | "rate_limit" | "auth" | "quota" | "context_overflow
 
   出错不抛异常，按 `stopReason: "error"` 返回。启动期与生命周期的合同错误照旧抛出：`tool_unavailable`、`tool_name_conflict`、`session_incompatible`、`session_busy`、`session_closed`、Profile 不合法、`initial` 不合 schema。
 - **会话日志**：每条模型消息之后记一条用量，出错与取消也各记一条。
-- **用量的口径**：见待定项 2。
+- **用量的口径**：`usage` 是这次运行里看得到的模型消息的用量之和，另带 `complete: boolean`。发生过取消、或者察觉到 provider 层重试（经 `onResponse` 数到的响应多于模型消息）时为 `false`，调用方写成“至少”。OMP 在 provider 层重试时，被丢掉的那次请求的用量不交给 Agent，所以这个和是下界，不是账单。单价未知时 `cost` 为 `null`，与“计量不完整”分开表达：
+
+  ```ts
+  type Usage = {input: number; output: number; cacheRead: number; cacheWrite: number; cost: number | null; complete: boolean};
+  ```
 
 ### 5. 收尾工具
 
@@ -159,7 +163,7 @@ type ErrorKind = "network" | "rate_limit" | "auth" | "quota" | "context_overflow
 
 - **成功即结束**：一条助手消息里只调用了一个收尾工具，且 `execute` 返回成功时，这次运行结束。参数（按 schema 校验过）放进 `TurnResult.finish`，`stopReason` 为 `"finished"`。工具结果照常写进会话日志，调用与结果成对，但不再回传给模型。实现用 OMP 公开的 `TERMINAL_TOOL_RESULT_ABORT_REASON`，审查时实测过：只发一次模型请求，历史保持成对。
 - **校验失败就退回**：`execute` 返回 `isError`（例如问答的作答工具发现依据晚于阅读位置），当普通工具出错，结果回传，模型改了再交。
-- **和别的调用混在一起**：同一条助手消息里收尾工具与别的工具一起调用，或者调用了两个收尾工具时，见待定项 1。
+- **和别的调用混在一起**：同一条助手消息里收尾工具与别的工具一起调用，或者调用了两个收尾工具时，收尾工具一律以工具错误退回（“收尾工具要单独调用”），不执行；别的工具照常执行，模型下一轮单独再交。不会有两个答案同时被接受，也不会中止正在跑的工具。
 - **结束以哪一刻为准**：收尾工具的结果写进会话日志的那一刻。在此之前用户取消，结果是 `aborted`；在此之后的取消不影响 `finished`。写日志失败时结果是 `error`（`local`），不返回 `finished`。
 
 ### 6. 单次请求
@@ -253,12 +257,7 @@ type ErrorKind = "network" | "rate_limit" | "auth" | "quota" | "context_overflow
 
 ## 待定项
 
-1. **收尾工具和别的调用混在一批**（推荐 A）：
-   - A：同一条助手消息里收尾工具与别的工具一起调用，或者调用了两个收尾工具时，收尾工具一律以工具错误退回（“收尾工具要单独调用”），别的工具照常执行，模型下一轮单独再交。规则简单，不会出现两个答案同时被接受，也不会中止正在跑的工具。
-   - B：先跑完别的工具，再判收尾。要定义执行顺序，两个收尾工具时还得另定取哪个。
-2. **用量的口径**（推荐 A）：审查实测，OMP 在 provider 层重试空回复、瞬时故障时，被丢掉的那次请求的用量不会交给 Agent（两次请求只计了后一次，漏了三分之一）；取消时也可能只有部分用量。
-   - A：`usage` 是“看得到的模型消息”的用量之和，另给 `complete: boolean`，发生过取消、或者察觉到 provider 层重试（经 `onResponse` 数到的响应多于模型消息）时为 `false`，界面写成“至少”。
-   - B：从 provider 每次尝试那一层收集，算出所有已报告请求的总量。要先确认 OMP 的公开接口够用（`onResponse` 等），不够就要在 harness 里另做一层，代价大。
+无。
 
 ## 决策记录
 
@@ -266,3 +265,4 @@ type ErrorKind = "network" | "rate_limit" | "auth" | "quota" | "context_overflow
 |---|---|---|
 | 2026-10-15 | 开发者 | 在 w00024 t05 讨论问答时定：nb-harness 强制使用 Profile；工具由 Profile 选；不加步数上限；加单次请求；工具发现、公共工具、配置追加工具放到后续 Task；插件只能贡献工具。 |
 | 2026-10-15 | 开发者 | 草稿要点确认，三个待定项按推荐：插件接口去掉 `readFormats`（改成 `read` 工具的构造参数）；Spec 新建在 `docs/specs/agent/harness.md`；在 w00002 下新开 Task 实施，w00024 t05 等它完成再接问答。 |
+| 2026-10-15 | 开发者 | 设计审查（omp 13 条）处理后定两个待定项，都按推荐：收尾工具和别的调用混在一批、或一批里有两个收尾工具时，收尾工具一律退回；用量取看得到的模型消息之和，另给“是否完整”。提案接受。 |
