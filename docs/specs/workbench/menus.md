@@ -17,7 +17,7 @@ owners:
 
 - 子菜单、按住修饰键换成另一条命令、菜单项上报运行状态（忙碌）。
 - 按语言过滤：只按文件后缀；有语言登记之后再加。
-- 编辑器正文右键：随第一个往里加东西的插件再定义位置（编辑器标签右键见位置表，planned）。
+- 编辑器正文右键：随第一个往里加东西的插件再定义位置（编辑器标签右键见位置表）。
 - 插件运行期启用与禁用时菜单项的增减：随 [`runtime.plugin-hot-plug`](../runtime/plugin-hot-plug.md)。
 
 ## 术语与参与者
@@ -54,7 +54,7 @@ interface MenuItemDeclaration {
 | 视图标题 | `workbench.view-title` | `nbook.workbench` | `view`（视图 id，必填）、`icon`、`placement` | `"instance"` → `{viewId, generation}` | 无 | [`workbench.views`](views.md) 输出 10、11 |
 | 资源管理器右键 | `explorer.context` | `nbook.explorer` | `extensions` | `"selection"` → `{addresses}` | 被右键的选择 | [`workbench.files-explorer`](files-explorer.md) 的“右键菜单” |
 | 编辑区标题 | `editor.title` | `nbook.editor` | `icon`、`placement`、`extensions` | `"resource"` → `{address}` | 编辑组的活动标签 | [`workbench.editor`](editor.md) 输出 34 |
-| 编辑器标签右键（planned） | `editor.tab-context` | `nbook.editor` | `extensions` | `"resource"` → `{address}` | 被右击的文件标签（页面标签没有当前文件） | [`workbench.editor`](editor.md) 输出 57 |
+| 编辑器标签右键 | `editor.tab-context` | `nbook.editor` | `extensions` | `"resource"` → `{address}` | 被右击的文件标签（页面标签没有当前文件） | [`workbench.editor`](editor.md) 输出 57 |
 
 | 规则 | 不满足时 |
 |---|---|
@@ -88,7 +88,7 @@ interface MenuItemDeclaration {
 - 拥有者在自己的入口激活时读已接受的菜单项声明；这次激活期间声明集合不变。之后才登记的插件的菜单项，要等拥有者下一次激活才可能出现。
 - 菜单项从贡献方入口的这次激活交付（`published`）起显示，到这条贡献撤回为止；入口再次激活、重新交付后又显示。入口开始停止到撤回送达之间，已经画出的项可能还在：视图标题、资源管理器右键与编辑区标题的项点了以后由拥有者按当下的交付状态重新核对，已不再交付的不执行。
 - 菜单项引用的命令可以由别的插件提供：那个插件的入口停止、命令撤回时这一项不显示，命令重新登记后又显示。
-- 参数取哪一刻的当前文件由位置定：资源管理器右键取打开菜单时被右键的选择，编辑区标题取点下去时这个组的活动标签，编辑器标签右键取打开菜单时被右击的标签（planned）。
+- 参数取哪一刻的当前文件由位置定：资源管理器右键取打开菜单时被右键的选择，编辑区标题取点下去时这个组的活动标签，编辑器标签右键取打开菜单时被右击的标签。
 
 ## 副作用与数据
 
@@ -118,7 +118,7 @@ Smoke：`e2e/workbench-titlebar.e2e.ts`、`e2e/workbench-views.e2e.ts`、`e2e/fi
 
 ## 实现合同
 
-- 公开入口：命令插件的 `plugins/commands/shared/contracts.ts`（`MenuItemDeclaration`、`menuLocation`、`menuItemValidator`、`arrangeMenu`、`matchesExtensions`、`MenuItemRegistry`、`menuImplementations`）；四个贡献点 id 与声明类型从各拥有者的 `shared/contracts.ts` 导出（`WORKBENCH_TITLEBAR_MENU_POINT`、`WORKBENCH_VIEW_TITLE_POINT`、`EXPLORER_CONTEXT_POINT`、`EDITOR_TITLE_POINT`）；标题行的按钮与“⋯”是共享前端组件 `src/ui/menus/TitleActions.vue` 与 `title-actions.ts`。
+- 公开入口：命令插件的 `plugins/commands/shared/contracts.ts`（`MenuItemDeclaration`、`menuLocation`、`menuItemValidator`、`arrangeMenu`、`matchesExtensions`、`MenuItemRegistry`、`menuImplementations`）；各位置的贡献点 id 与声明类型从各拥有者的 `shared/contracts.ts` 导出（`WORKBENCH_TITLEBAR_MENU_POINT`、`WORKBENCH_VIEW_TITLE_POINT`、`EXPLORER_CONTEXT_POINT`、`EDITOR_TITLE_POINT`、`EDITOR_TAB_CONTEXT_POINT`）；标题行的按钮与“⋯”是共享前端组件 `src/ui/menus/TitleActions.vue` 与 `title-actions.ts`。
 - owner 与依赖方向：共同合同归 `nbook.commands`，只依赖内核的贡献类型与命令的键位写法；每个位置的拥有者依赖它，定义自己的贡献点、给出当前文件与参数并执行；贡献方只引用拥有者的 `shared/contracts.ts`；`src/ui/menus` 不认识命令与插件。
 - 不变量：贡献点要求实现、菜单项交空实现，`MenuItemRegistry` 只给出已交付且没撤回的项，撤回推进它的版本、读它的 computed 随之重算（`workbench/titlebar-menu.test.ts`）。拥有者执行时按菜单项 id（贡献 id 或自己的 key）重新找回声明，不按显示位置（`workbench/view-actions.test.ts`、`editor/title-actions.test.ts`）。放不下的按钮回到它所在的节，拥有者自己的一节在前（`ui/menus/title-actions.test.ts`）。
 
