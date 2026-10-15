@@ -166,17 +166,24 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
         return reference;
     };
 
+    /**
+     * 放掉一个引用之前调用：同一地址还有恢复出来、还没读到的标签时，它们没有引用，先替它们拿上，正文才不会随这次释放丢掉
+     * （“别处还有能编辑的标签”的判断按标签算，这里让引用与它一致）。
+     */
+    const adoptOrphans = (address: string): void => {
+        for (const group of groups.groups.value) {
+            for (const other of group.tabs) {
+                if (other.kind === "file" && other.address === address && !references.has(other.id)) references.set(other.id, documents.acquire(other.address, {text: readsText(other)}));
+            }
+        }
+    };
+
     /** 标签已从组模型移除之后调用：释放它的文档引用。 */
     const releaseTab = (tab: EditorTab, groupId: string): void => {
         const reference = references.get(tab.id);
         if (reference === undefined || tab.kind === "page") return;
         references.delete(tab.id);
-        // 同一地址还有恢复出来、还没读到的标签：它们没有引用，先替它们拿上，正文才不会随这次释放丢掉。
-        for (const group of groups.groups.value) {
-            for (const other of group.tabs) {
-                if (other.kind === "file" && other.address === tab.address && !references.has(other.id)) references.set(other.id, documents.acquire(other.address, {text: readsText(other)}));
-            }
-        }
+        adoptOrphans(tab.address);
         const key = slotKey(groupId, tab.editor, reference.document);
         const stillShown = groups.groups.value.some((group) => group.id === groupId && group.tabs.some((other) => other.kind === "file" && other.editor === tab.editor && references.get(other.id)?.document === reference.document));
         if (!stillShown) dropSlot(key);
@@ -475,6 +482,8 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
      * 字节、而这是这份文档最后一个能编辑的标签、它又需要结算时拒绝：放掉最后一个文本引用会丢掉没保存的正文。
      */
     const changeEditor = (tab: FileTab, groupId: string, editor: string): ActionResult => {
+        // 释放之后组模型还在：不再为它取新的文件引用（会开出没人释放的订阅）。
+        if (disposed) return {ok: false, reason: "编辑器已关闭"};
         const before = readsText(tab);
         const after = editor !== BINARY_TAB_EDITOR && catalog.declaration(editor)?.input === "text";
         const reference = references.get(tab.id);
@@ -492,6 +501,7 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
             references.delete(tab.id);
             const changed = groups.find(tab.id)?.tab;
             if (changed !== undefined && changed.kind === "file") referenceOf(changed);
+            adoptOrphans(tab.address);
             reference.release();
         }
         return {ok: true};

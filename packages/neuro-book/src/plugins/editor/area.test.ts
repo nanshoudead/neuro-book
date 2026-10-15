@@ -274,6 +274,25 @@ describe("Spec workbench.editor 输出 41、48：字节标签与视图能否输�
         expect(at.area.binding(groupId(at))).toMatchObject({kind: "bytes"});
     });
 
+    it("另一组里恢复出来、还没读到的源码标签算作能编辑的标签：换成字节编辑器时它接过正文，未保存的修改不丢", async () => {
+        const at = await world(null, WITH_PREVIEW);
+        at.area.open("project://img/a.png", {mode: "permanent", editor: CODE_EDITOR});
+        await ready(at);
+        const first = groupId(at);
+        expect(at.area.split("right")).toMatchObject({ok: true});
+        at.area.open("project://b.md", {mode: "permanent"});
+        at.area.groups.focusGroup(first);
+        // 恢复后右侧组的 a.png 不是活动标签：它还没有文档引用。
+        const restored = await world(at.saved.at(-1) ?? null, WITH_PREVIEW);
+        await ready(restored);
+        const binding = textBinding(restored.area, groupId(restored))!;
+        expect(binding.address.value).toBe("project://img/a.png");
+        binding.commit(binding.revision.value, "PNG（改）");
+        expect(restored.area.reopenWith("test.image.viewer")).toEqual({ok: true});
+        const png = restored.area.openDocuments.value.find((document) => document.target.value.path === "project://img/a.png");
+        expect([png?.text.value, png?.dirty.value]).toEqual(["PNG（改）", true]);
+    });
+
     it("资源管理器删除图片：标签关闭；改名：标签跟到新地址", async () => {
         const at = await world(null, WITH_PREVIEW);
         at.area.open("project://img/a.png", {mode: "permanent"});

@@ -72,8 +72,10 @@ export class LanguageRegistry {
                 this.#stopped.delete(handle.id);
                 this.#settle(handle.id, handle);
             },
+            // 与编辑器的交付同一规则（`editor-registry.ts`）：撤回不要求发布过，新一次交付之后旧句柄迟到的撤回不算。
             revoke: (handle) => {
-                if (this.#published.get(handle.id) !== handle) return;
+                const current = this.#published.get(handle.id);
+                if (current !== undefined && current !== handle) return;
                 this.#published.delete(handle.id);
                 this.#stopped.add(handle.id);
                 this.#settle(handle.id, null);

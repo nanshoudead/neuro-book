@@ -84,9 +84,9 @@ export const htmlPreviewBrowserPlugin: PluginDefinition = {
                 diagnostics.record({level: "warn", event: "html-preview.token", message, ...(error === undefined ? {} : {error}), source: {plugin: descriptor.id}});
             };
             const access: PreviewAccess = {
-                open: async () => {
+                open: async (network) => {
                     if (project === null) return {ok: false, denial: "no-project"};
-                    const result = await remote.open({project: project.id, generation: project.generation});
+                    const result = await remote.open({project: project.id, generation: project.generation, network});
                     if (!result.ok) {
                         report(`申请预览令牌失败：${result.code}`);
                         return {ok: false, denial: result.code === "generation-gone" ? "closed" : "unreachable"};

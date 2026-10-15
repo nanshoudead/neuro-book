@@ -5,7 +5,9 @@
 
 import {describe, expect, it} from "bun:test";
 
-import {composePreview, contentSecurityPolicy, directoryUrl} from "./web/compose";
+import {previewContentSecurityPolicy as contentSecurityPolicy} from "nbook/plugins/files/shared/contracts";
+
+import {composePreview, directoryUrl} from "./web/compose";
 
 const BASE = "http://127.0.0.1:3100/api/nbook.files/preview/abc/";
 

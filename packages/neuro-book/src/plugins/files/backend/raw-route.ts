@@ -16,6 +16,7 @@ import type {Context} from "hono";
 import type {HttpRouteEnv} from "nbook/plugins/http/shared/contracts";
 import type {ProjectsService} from "nbook/shared/projects";
 
+import {previewContentSecurityPolicy} from "../shared/contracts";
 import type {FilesFailureCode} from "../shared/failures";
 import {openRoot} from "./rooted";
 import type {RootedFailure, RootedRoot} from "./rooted";
@@ -73,17 +74,24 @@ export function failureResponse(failure: {readonly code: string; readonly detail
  * 令牌是读文件的凭据：不写日志、不落盘。
  */
 export interface PreviewTokens {
-    issue(project: string, generation: number): string;
+    issue(project: string, generation: number, network: boolean): string;
     revoke(token: string): void;
-    lookup(token: string): {readonly project: string; readonly generation: number} | null;
+    lookup(token: string): PreviewGrant | null;
+}
+
+/** 一个令牌放行的范围：哪部作品的哪一代，响应放不放行外网。 */
+export interface PreviewGrant {
+    readonly project: string;
+    readonly generation: number;
+    readonly network: boolean;
 }
 
 export function createPreviewTokens(): PreviewTokens {
-    const tokens = new Map<string, {readonly project: string; readonly generation: number}>();
+    const tokens = new Map<string, PreviewGrant>();
     return {
-        issue: (project, generation) => {
+        issue: (project, generation, network) => {
             const token = randomBytes(16).toString("hex");
-            tokens.set(token, {project, generation});
+            tokens.set(token, {project, generation, network});
             return token;
         },
         revoke: (token) => {
@@ -170,6 +178,11 @@ export async function serveFile(root: RootedRoot, path: string, request: Request
         ...extra,
     };
     if (request.headers.get("if-none-match") === etagOf(resolved.stats)) return new Response(null, {status: 304, headers: {...headers, ETag: etagOf(resolved.stats)}});
+    // HEAD 只要头：大小与验证器取自解析时的目录项，不读内容；上限照样判。
+    if (request.method === "HEAD") {
+        if (resolved.stats.size > RAW_MAX_BYTES) return failureResponse({code: "too-large", detail: `${path} 超过 ${String(RAW_MAX_BYTES)} 字节`});
+        return new Response(null, {headers: {...headers, "Content-Type": contentTypeOf(path), "Content-Length": String(resolved.stats.size), ETag: etagOf(resolved.stats)}});
+    }
     const read = await root.read(path, RAW_MAX_BYTES);
     if (!read.ok) return failureResponse(read);
     return new Response(read.bytes, {headers: {...headers, "Content-Type": contentTypeOf(path), ETag: etagOf(read.resolved.stats)}});
@@ -220,7 +233,11 @@ export function createRawRoutes(sources: RawRouteSources): Hono<{Bindings: HttpR
             return missing();
         }
         const cors: Record<string, string> = c.req.header("origin") === "null" ? {"Access-Control-Allow-Origin": "null", "Vary": "Origin"} : {"Vary": "Origin"};
-        return serveFile(opened.root, path, c.req.raw, {...cors, "Referrer-Policy": "no-referrer"});
+        // 预览页在 iframe 里导航到作品里别的 HTML、或有人直接打开这个地址时，加载的是这里给的原文：响应头自己带沙箱与网络
+        // 限制，不靠控件注入的 meta。
+        const base = `${new URL(c.req.url).origin}${PREVIEW_PREFIX}${token}/`;
+        const policy = `sandbox allow-scripts; ${previewContentSecurityPolicy(base, granted.network)}`;
+        return serveFile(opened.root, path, c.req.raw, {...cors, "Referrer-Policy": "no-referrer", "Content-Security-Policy": policy});
     });
 
     app.on(["GET", "HEAD"], "/raw/user/*", async (c) => {

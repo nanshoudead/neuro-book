@@ -167,7 +167,8 @@ export function editorCommands(area: Readonly<ShallowRef<EditorArea | null>>, so
             });
             if (picked.kind === "unavailable") return unavailable(picked.reason);
             if (picked.kind !== "item") return {ok: true, value: null};
-            // 选择期间活动标签可能已经换了：只对发起时的那个标签生效。
+            // 选择期间编辑器区可能已经换了（窗口换绑项目）、活动标签可能已经换了：只对发起时的那个标签生效。
+            if (area.value !== current) return {ok: false, code: "stale-target", reason: "选择期间编辑器区已经换了"};
             const still = current.groups.activeTab();
             if (still?.id !== tab.id || still.kind === "page" || still.editor !== tab.editor) return {ok: false, code: "stale-target", reason: "选择期间活动标签已经换了"};
             return fromAction(picked.id === tab.editor ? {ok: true} : current.reopenWith(picked.id));
@@ -190,7 +191,8 @@ export function editorCommands(area: Readonly<ShallowRef<EditorArea | null>>, so
             });
             if (picked.kind === "unavailable") return unavailable(picked.reason);
             if (picked.kind !== "item") return {ok: true, value: null};
-            // 选择期间活动标签可能已经换了：只对发起时的那个标签生效。
+            // 选择期间编辑器区可能已经换了（窗口换绑项目）、活动标签可能已经换了：只对发起时的那个标签生效。
+            if (area.value !== current) return {ok: false, code: "stale-target", reason: "选择期间编辑器区已经换了"};
             const still = current.groups.activeTab();
             if (still?.id !== tab.id || still.kind === "page" || still.editor !== tab.editor) return {ok: false, code: "stale-target", reason: "选择期间活动标签已经换了"};
             current.groups.setLanguage(tab.id, picked.id);

@@ -6,6 +6,8 @@
  * 前面：那样页面进怪异模式。CSP 的 meta 只管它后面的内容，所以它排第一个。
  */
 
+import {previewContentSecurityPolicy} from "nbook/plugins/files/shared/contracts";
+
 /** 正文停手这么久才重载预览（docs/specs/workbench/html-preview.md 输出 4）。 */
 export const PREVIEW_DELAY_MS = 300;
 
@@ -25,28 +27,6 @@ export function directoryUrl(base: string, path: string): string {
 }
 
 /**
- * 默认只放行令牌下的地址与 `data:`、`blob:`、内联脚本与样式：页面读得到作品里的文件，却发不到外网。打开联网后只去掉网络
- * 限制。两种都不让提交表单、不让嵌套框架。
- */
-export function contentSecurityPolicy(base: string, network: boolean): string {
-    if (network) return "default-src * data: blob: 'unsafe-inline' 'unsafe-eval'; form-action 'none'; frame-src 'none'";
-    const own = `${base} data: blob:`;
-    return [
-        "default-src 'none'",
-        `script-src ${own} 'unsafe-inline' 'unsafe-eval'`,
-        `style-src ${own} 'unsafe-inline'`,
-        `img-src ${own}`,
-        `font-src ${own}`,
-        `connect-src ${own}`,
-        `media-src ${own}`,
-        "worker-src blob:",
-        "frame-src 'none'",
-        "form-action 'none'",
-        `base-uri ${base}`,
-    ].join("; ");
-}
-
-/**
  * `#` 开头的链接改为页内滚动：有了 `<base>`，`#章节` 会按目录地址解析、把预览导航走。用捕获阶段，页面自己的处理照常收到
  * 事件；按 id 找不到时按 name 找（旧式的 `<a name>`）。
  */
@@ -55,7 +35,7 @@ const ANCHOR_SCRIPT = `document.addEventListener("click",function(e){var t=e.tar
 const escapeAttribute = (value: string): string => value.replaceAll("&", "&amp;").replaceAll("\"", "&quot;").replaceAll("<", "&lt;");
 
 export function composePreview(html: string, options: ComposeOptions): string {
-    const injected = `<meta http-equiv="Content-Security-Policy" content="${escapeAttribute(contentSecurityPolicy(options.base, options.network))}"><meta name="referrer" content="no-referrer"><base href="${escapeAttribute(directoryUrl(options.base, options.path))}"><script>${ANCHOR_SCRIPT}</script>`;
+    const injected = `<meta http-equiv="Content-Security-Policy" content="${escapeAttribute(previewContentSecurityPolicy(options.base, options.network))}"><meta name="referrer" content="no-referrer"><base href="${escapeAttribute(directoryUrl(options.base, options.path))}"><script>${ANCHOR_SCRIPT}</script>`;
     for (const pattern of [/<head(?:\s[^>]*)?>/iu, /<html(?:\s[^>]*)?>/iu, /<!doctype[^>]*>/iu]) {
         const match = pattern.exec(html);
         if (match !== null) {

@@ -12,8 +12,8 @@ export type PreviewDenial = "no-project" | "closed" | "unreachable";
 export type PreviewGrant = {readonly ok: true; readonly token: string; readonly base: string} | {readonly ok: false; readonly denial: PreviewDenial};
 
 export interface PreviewAccess {
-    /** 为窗口绑定的这部作品签一个令牌；`base` 带应用源、以 `/` 结尾。 */
-    open(): Promise<PreviewGrant>;
+    /** 为窗口绑定的这部作品签一个令牌；`network` 为真时令牌下的响应放行外网。`base` 带应用源、以 `/` 结尾。 */
+    open(network: boolean): Promise<PreviewGrant>;
     /** 作废自己签的令牌；失败（断线）只记诊断，门面释放时服务端照样作废。 */
     close(token: string): void;
 }

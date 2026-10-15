@@ -459,7 +459,8 @@ describe("Spec workbench.editor 输出 41：字节引用", () => {
         const reference = at.store.acquire("project://a.png", {text: false});
         const document = reference.document;
         expect(document.status.value).toBe("ready");
-        expect([document.text.value, document.dirty.value, document.writable.value]).toEqual(["", false, true]);
+        expect([document.text.value, document.dirty.value, document.writable.value]).toEqual(["", false, false]);
+        expect(at.store.commit(document, "v", document.revision.value, "x")).toEqual({status: "stale"});
         // 订阅就绪时 version 加一（就绪之前的变化没有事件，控件要再取一次）。
         await until(at, "订阅就绪", () => document.version.value > 0);
         const start = document.version.value;
@@ -480,8 +481,32 @@ describe("Spec workbench.editor 输出 41：字节引用", () => {
         const text = at.store.acquire("project://a.svg");
         expect(text.document).toBe(bytes.document);
         await until(at, "读到正文", () => text.document.status.value === "ready" && text.document.text.value === "<svg/>");
+        expect(text.document.writable.value).toBe(true);
         text.release();
-        expect([bytes.document.status.value, bytes.document.text.value, bytes.document.dirty.value]).toEqual(["ready", "", false]);
+        await until(at, "丢掉正文", () => bytes.document.text.value === "");
+        expect([bytes.document.status.value, bytes.document.dirty.value, bytes.document.writable.value]).toEqual(["ready", false, false]);
+        bytes.release();
+    });
+
+    it("保存在途时放掉最后一个文本引用（关闭时选了不保存）：保存回来之后才丢正文，字节条目不会变成 dirty 的空正文", async () => {
+        const at = await world({...LAYOUT, "a.svg": "<svg/>"});
+        const bytes = at.store.acquire("project://a.svg", {text: false});
+        const text = at.store.acquire("project://a.svg");
+        await until(at, "读到正文", () => text.document.status.value === "ready" && text.document.text.value === "<svg/>");
+        at.store.commit(text.document, "v", text.document.revision.value, "<svg id=\"x\"/>");
+        const held = at.tap.hold((request) => request.method === "write");
+        const saving = at.store.save(text.document);
+        await held.arrived;
+        text.release();
+        held.release();
+        expect(await saving).toEqual({ok: true});
+        await until(at, "丢掉正文", () => bytes.document.text.value === "");
+        expect([bytes.document.dirty.value, bytes.document.saving.value]).toEqual([false, false]);
+        // 再开文本标签读到的是磁盘上的新内容。
+        const again = at.store.acquire("project://a.svg");
+        await until(at, "重新读到正文", () => again.document.status.value === "ready" && again.document.text.value === "<svg id=\"x\"/>");
+        expect(again.document.dirty.value).toBe(false);
+        again.release();
         bytes.release();
     });
 

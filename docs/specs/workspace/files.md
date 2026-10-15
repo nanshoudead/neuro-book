@@ -78,8 +78,8 @@ owners:
 
 HTML 预览（[workbench.html-preview](../workbench/html-preview.md)）运行在不透明源的沙箱里，它对文件的每个请求都是跨站的。这里给它一个只认令牌的只读入口：
 
-- **令牌**：远程服务 `nbook.files.preview`（server 入口，按调用方门面提供）的 `open({project, generation}) → {token, base}` 签发令牌：128 位随机数，只放行这部作品的这一代，只读；`close({token})` 作废它。调用方的门面释放（窗口断开、入口停止）时它签发的令牌全部作废；项目这一代结束时这一代的令牌全部作废。令牌不写日志、不落盘。
-- **路由**：`GET /api/nbook.files/preview/<令牌>/<路径…>`，路径相对项目根，根与规则同上一节（含上限、状态码与前五个响应头，`Content-Security-Policy: sandbox` 除外）。令牌无效或已作废为 404。它接受跨站请求，请求带 `Origin: null` 时回 `Access-Control-Allow-Origin: null`：沙箱里的 `fetch`、模块脚本与字体按 CORS 读到响应，别的来源读不到。另加 `Referrer-Policy: no-referrer`，令牌不随引用头带到外部。
+- **令牌**：远程服务 `nbook.files.preview`（server 入口，按调用方门面提供）的 `open({project, generation, network}) → {token, base}` 签发令牌：128 位随机数，只放行这部作品的这一代，只读；`network` 是这个令牌下的页面放不放行外网（预览的“允许联网”），切换时换令牌；`close({token})` 作废它。调用方的门面释放（窗口断开、入口停止）时它签发的令牌全部作废；项目这一代结束时这一代的令牌全部作废。令牌不写日志、不落盘。
+- **路由**：`GET /api/nbook.files/preview/<令牌>/<路径…>`，路径相对项目根，根与规则同上一节（含上限、状态码与前五个响应头），只是 `Content-Security-Policy` 换成 `sandbox allow-scripts` 加预览的网络限制（[workbench.html-preview](../workbench/html-preview.md) 输出 5，按令牌的 `network`）：预览页在 iframe 里导航到作品里别的 HTML、或有人直接打开这个地址时，加载的页面同样在沙箱里、同样不能联网。令牌无效或已作废为 404。它接受跨站请求，请求带 `Origin: null` 时回 `Access-Control-Allow-Origin: null`：沙箱里的 `fetch`、模块脚本与字体按 CORS 读到响应，别的来源读不到。另加 `Referrer-Policy: no-referrer`，令牌不随引用头带到外部。
 - **`base`**：令牌对应的 URL 前缀（`<应用源>/api/nbook.files/preview/<令牌>/`），预览据此拼出文件所在目录的地址。
 
 ### 文件操作

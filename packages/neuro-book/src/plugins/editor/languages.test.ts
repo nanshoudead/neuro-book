@@ -27,6 +27,9 @@ describe("Spec workbench.editor 输出 43：语言登记", () => {
         expect(validateLanguageContribution(contribution("json", fine))).not.toBeNull();
         expect(validateLanguageContribution(contribution("plaintext", fine))).not.toBeNull();
         expect(validateLanguageContribution(contribution("Vue", fine))).not.toBeNull();
+        // 与会话记录的 `language` 同一个上限：选了它之后会话记录照样写得进去。
+        expect(validateLanguageContribution(contribution(`v${"a".repeat(63)}`, fine))).toBeNull();
+        expect(validateLanguageContribution(contribution(`v${"a".repeat(64)}`, fine))).not.toBeNull();
         expect(validateLanguageContribution(contribution("vue", {aliases: ["Vue"], extensions: [".vue"]}))).not.toBeNull();
         expect(validateLanguageContribution(contribution("vue", {aliases: []}))).not.toBeNull();
         expect(validateLanguageContribution(contribution("vue", {aliases: ["Vue"], firstLine: "(<template"}))).not.toBeNull();

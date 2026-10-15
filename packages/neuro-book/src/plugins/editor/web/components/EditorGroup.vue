@@ -103,7 +103,9 @@ const failure = computed((): {readonly text: string; readonly retry: boolean} | 
     const current = document.value;
     if (current === null || current.status.value !== "failed") return null;
     if (current.failure.value?.code === "not-text") return {text: editorText(props.locale, "notText", {name: nameOf(current.target.value.path)}), retry: false};
-    return {text: editorText(props.locale, "openFailed", {name: nameOf(current.target.value.path), reason: current.failure.value?.code ?? ""}), retry: true};
+    // 与保存失败的提示一样给文件服务的说明，没有说明时才给失败码。
+    const problem = current.failure.value;
+    return {text: editorText(props.locale, "openFailed", {name: nameOf(current.target.value.path), reason: problem?.detail || problem?.code || ""}), retry: true};
 });
 
 const onReady = (editor: string, handle: EditorControlHandle | null): void => props.area.registerHandle(props.groupId, editor, handle);
@@ -341,21 +343,7 @@ export interface EditorGroupTitleActions {
 }
 
 @media (prefers-reduced-motion: reduce) {
-    .editor-group__pending {
-    padding: 24px;
-    font-size: 13px;
-    color: var(--text-muted);
-    opacity: 0;
-    animation: editor-group-reveal 1ms linear 800ms forwards;
-}
-
-@keyframes editor-group-reveal {
-    to {
-        opacity: 1;
-    }
-}
-
-.editor-group__progress {
+    .editor-group__progress {
         animation: none;
         left: 0;
         width: 100%;

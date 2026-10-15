@@ -238,6 +238,32 @@ export const userFilesContract = defineRemoteService({id: "nbook.files/user", ve
  * 预览的受限读取（docs/specs/workspace/files.md 的“预览的受限读取”）：签发只放行这部作品这一代的只读令牌，HTML 预览在沙箱里
  * 按 `base` 拼出相对引用的地址。调用方的门面释放（窗口断开、入口停止）时它签发的令牌全部作废。
  */
+/**
+ * 预览页的内容安全策略（docs/specs/workspace/files.md 的“预览的受限读取”，docs/specs/workbench/html-preview.md 输出 5）：
+ * 默认只放行令牌下的地址与 `data:`、`blob:`、内联脚本与样式，页面读得到作品里的文件，却发不到外网；`network` 为真时只去掉
+ * 网络限制。两种都不让提交表单、不让嵌套框架。`base` 是令牌的 URL 前缀，带应用源、以 `/` 结尾。
+ *
+ * 两处用它：预览控件注入 `srcdoc` 的 meta，与预览路由的响应头（页面在 iframe 里导航到作品里别的 HTML 时，加载的是路由给的
+ * 原文，没有注入的 meta）。
+ */
+export function previewContentSecurityPolicy(base: string, network: boolean): string {
+    if (network) return "default-src * data: blob: 'unsafe-inline' 'unsafe-eval'; form-action 'none'; frame-src 'none'";
+    const own = `${base} data: blob:`;
+    return [
+        "default-src 'none'",
+        `script-src ${own} 'unsafe-inline' 'unsafe-eval'`,
+        `style-src ${own} 'unsafe-inline'`,
+        `img-src ${own}`,
+        `font-src ${own}`,
+        `connect-src ${own}`,
+        `media-src ${own}`,
+        "worker-src blob:",
+        "frame-src 'none'",
+        "form-action 'none'",
+        `base-uri ${base}`,
+    ].join("; ");
+}
+
 export const filesPreviewContract = defineRemoteService({
     id: "nbook.files/preview",
     version: 1,
@@ -245,7 +271,8 @@ export const filesPreviewContract = defineRemoteService({
     callers: ["browser"],
     methods: {
         open: {
-            input: Type.Object({project: Type.String({minLength: 1}), generation: Type.Integer({minimum: 1})}, {additionalProperties: false}),
+            /** `network`：这个令牌下的响应放不放行外网（用户对这个文件打开了“允许联网”）；切换时换令牌。 */
+            input: Type.Object({project: Type.String({minLength: 1}), generation: Type.Integer({minimum: 1}), network: Type.Boolean()}, {additionalProperties: false}),
             output: Type.Object({token: Type.String(), base: Type.String()}, {additionalProperties: false}),
             effect: "read",
             errors: {"generation-gone": Detail, "unavailable-project": Detail},

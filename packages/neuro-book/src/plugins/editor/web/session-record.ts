@@ -10,7 +10,7 @@ import {RESOURCE_PATH_PATTERN} from "nbook/plugins/files/shared/contracts";
 import {defineRecord, MAX_RECORD_MAX_BYTES} from "nbook/shared/storage";
 import {defineStore} from "nbook/shared/store/store";
 
-import {CODE_EDITOR, MARKDOWN_EDITOR} from "../shared/contracts";
+import {CODE_EDITOR, LANGUAGE_ID_PATTERN, MARKDOWN_EDITOR} from "../shared/contracts";
 import type {GroupsSnapshot} from "./groups/groups";
 
 /** 每组最多这么多个标签、最多这么多组：只为记录有界，界面上不限制。 */
@@ -35,7 +35,7 @@ const SessionSchema = Type.Object({
                 Type.Object({line: Type.Integer({minimum: 1}), column: Type.Integer({minimum: 1})}, {additionalProperties: false}),
             ])),
             // 选定的语言（输出 45）；可选字段，版本不变。
-            language: Type.Optional(Type.String({pattern: "^[A-Za-z0-9][A-Za-z0-9_.+-]{0,63}$"})),
+            language: Type.Optional(Type.String({pattern: LANGUAGE_ID_PATTERN})),
         }, {additionalProperties: false}), {maxItems: MAX_TABS}),
         active: Type.Union([Type.Integer({minimum: 0}), Type.Null()]),
     }, {additionalProperties: false}), {maxItems: MAX_GROUPS}),

@@ -66,7 +66,7 @@ async function world() {
     if ("ok" in userRoot) throw new Error(userRoot.detail);
     const tokens = createPreviewTokens();
     const app = createRawRoutes({projects, user: userRoot, tokens, record: () => undefined});
-    const get = (path: string, headers: Record<string, string> = {}) => app.fetch(new Request(`http://127.0.0.1${path}`, {headers}), {registerEventStream: () => undefined});
+    const get = (path: string, headers: Record<string, string> = {}, method = "GET") => app.fetch(new Request(`http://127.0.0.1${path}`, {headers, method}), {registerEventStream: () => undefined});
     return {root, book, id, run, get, tokens};
 }
 
@@ -84,6 +84,10 @@ describe("workspace.files 按地址读取字节", () => {
         const again = await get(`/raw/project/${id}/3/images/a.png`, {"If-None-Match": etag!});
         expect(again.status).toBe(304);
         expect(again.headers.get("etag")).toBe(etag);
+        // HEAD 给出同样的头与大小，不带正文。
+        const head = await get(`/raw/project/${id}/3/images/a.png`, {}, "HEAD");
+        expect([head.status, head.headers.get("etag"), head.headers.get("content-length"), head.headers.get("content-type")]).toEqual([200, etag, String(PNG.length), "image/png"]);
+        expect((await head.arrayBuffer()).byteLength).toBe(0);
         expect((await get(`/raw/project/${id}/3/page.html`)).headers.get("content-type")).toBe("text/html; charset=utf-8");
     });
 
@@ -176,15 +180,21 @@ describe("workspace.files 按地址读取字节", () => {
 });
 
 describe("workspace.files 预览的受限读取", () => {
-    it("令牌放行这部作品：带 Origin: null 读到响应与 CORS 头、no-referrer；不看 Sec-Fetch-Site", async () => {
+    it("令牌放行这部作品：带 Origin: null 读到响应与 CORS 头、no-referrer；不看 Sec-Fetch-Site；响应头自带沙箱与令牌的网络限制", async () => {
         const {id, get, tokens} = await world();
-        const token = tokens.issue(id, 3);
+        const token = tokens.issue(id, 3, false);
         const response = await get(`/preview/${token}/images/a.png`, {"Origin": "null", "Sec-Fetch-Site": "cross-site"});
         expect(response.status).toBe(200);
         expect(new Uint8Array(await response.arrayBuffer())).toEqual(PNG);
         expect(response.headers.get("access-control-allow-origin")).toBe("null");
         expect(response.headers.get("referrer-policy")).toBe("no-referrer");
         expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+        // 页面在 iframe 里导航到作品里别的 HTML 时加载的是这份响应：不靠注入的 meta，响应头自己带沙箱与网络限制。
+        const policy = response.headers.get("content-security-policy") ?? "";
+        expect(policy).toStartWith("sandbox allow-scripts; default-src 'none'");
+        expect(policy).toContain(`connect-src http://127.0.0.1/api/nbook.files/preview/${token}/ data: blob:`);
+        const online = tokens.issue(id, 3, true);
+        expect((await get(`/preview/${online}/images/a.png`)).headers.get("content-security-policy")).toStartWith("sandbox allow-scripts; default-src *");
         // 别的来源拿不到 CORS 头：浏览器里读不到响应。
         expect((await get(`/preview/${token}/images/a.png`, {"Origin": "http://evil.example"})).headers.get("access-control-allow-origin")).toBeNull();
     });
@@ -192,11 +202,11 @@ describe("workspace.files 预览的受限读取", () => {
     it("令牌无效、作废、这一代结束都是 404；控制目录照样读不到", async () => {
         const {id, run, get, tokens} = await world();
         expect((await get("/preview/0123456789abcdef0123456789abcdef/images/a.png")).status).toBe(404);
-        const token = tokens.issue(id, 3);
+        const token = tokens.issue(id, 3, false);
         expect((await get(`/preview/${token}/.nbook/project.json`)).status).toBe(404);
         tokens.revoke(token);
         expect((await get(`/preview/${token}/images/a.png`)).status).toBe(404);
-        const second = tokens.issue(id, 3);
+        const second = tokens.issue(id, 3, false);
         run.generation = 4;
         expect((await get(`/preview/${second}/images/a.png`)).status).toBe(404);
         // 代次结束后令牌已作废：这一代回来（测试里改回）也不再放行。

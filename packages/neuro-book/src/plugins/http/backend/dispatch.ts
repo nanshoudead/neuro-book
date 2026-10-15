@@ -83,6 +83,8 @@ const API_PATH_PATTERN = /^\/api\/([^/]+)(\/.*)?$/u;
 
 export function createDispatcher(options: DispatchOptions): (request: Request) => Promise<Response> {
     return async (request) => {
+        // 不带 `Host`（HTTP/1.0）或 `Host` 为空时，Bun 给的 `request.url` 是相对地址：同样是不认识的主机名。
+        if (!URL.canParse(request.url)) return errorResponse(421, "misdirected-host", "请求没有主机名。");
         const url = new URL(request.url);
         const refused = rejected(request, url, options.allowOrigin);
         if (refused !== null) return refused;

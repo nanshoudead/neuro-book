@@ -164,12 +164,12 @@ const serverEntry = defineEntry({
         const preview = provideRemote(filesPreviewContract, () => {
             const mine = new Set<string>();
             const facade = {methods: {
-                open: async ({project, generation}: {readonly project: string; readonly generation: number}) => {
+                open: async ({project, generation, network}: {readonly project: string; readonly generation: number; readonly network: boolean}) => {
                     if (registry === null) return {ok: false as const, code: "unavailable-project" as const, detail: {detail: "这个实例没有项目登记"}};
                     const listed = await registry.list();
                     const running = listed.ok ? listed.value.find((item) => item.id === project) : undefined;
                     if (running === undefined || running.generation !== generation) return {ok: false as const, code: "generation-gone" as const, detail: {detail: `作品 ${project} 的第 ${String(generation)} 代不在运行`}};
-                    const token = tokens.issue(project, generation);
+                    const token = tokens.issue(project, generation, network);
                     mine.add(token);
                     return {ok: true as const, value: {token, base: `${PREVIEW_PREFIX}${token}/`}};
                 },

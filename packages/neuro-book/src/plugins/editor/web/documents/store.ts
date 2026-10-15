@@ -119,6 +119,8 @@ interface Entry {
     refs: number;
     /** 其中的文本引用：为 0 时不读正文。 */
     textRefs: number;
+    /** `textRefs > 0` 的响应式副本：只按字节的条目不可写（输出 41）。 */
+    readonly textual: Ref<boolean>;
     readonly version: Ref<number>;
     closed: boolean;
     readonly document: TextDocument;
@@ -350,6 +352,7 @@ export function createDocumentStore(options: DocumentStoreOptions): DocumentStor
         const ended = ref<string | null>(watches.get(schemeOf(address))?.ended ?? null);
         const conflict = ref<Baseline | null>(null);
         const version = ref(0);
+        const textual = ref(false);
         const document: TextDocument = {
             target,
             status,
@@ -364,13 +367,15 @@ export function createDocumentStore(options: DocumentStoreOptions): DocumentStor
             saveProblem: ref(null),
             unresolved: computed(() => [...candidates.value.keys()]),
             // 外部删除后只读（输出 18）：dirty 的正文仍可保存重建，那是保存的事，不是继续输入。
-            writable: computed(() => status.value === "ready" && ended.value === null),
+            // 只剩字节引用的条目没有正文可改（输出 41）。
+            writable: computed(() => status.value === "ready" && ended.value === null && textual.value),
             version,
         };
         const entry: Entry = {
             address,
             refs: 0,
             textRefs: 0,
+            textual,
             version,
             closed: false,
             document,
@@ -661,6 +666,7 @@ export function createDocumentStore(options: DocumentStoreOptions): DocumentStor
             }
             if (text) {
                 entry.textRefs += 1;
+                entry.textual.value = true;
                 // 第一个文本引用：开始读正文。只有字节引用时条目是“就绪、没有正文”，这里回到加载中。
                 if (entry.textRefs === 1) startText(entry);
             }
@@ -675,8 +681,15 @@ export function createDocumentStore(options: DocumentStoreOptions): DocumentStor
                     held.refs -= 1;
                     if (text) {
                         held.textRefs -= 1;
-                        // 最后一个文本标签关了、还有字节标签：正文已在关闭前结算（输出 4），丢掉它，回到只按字节的条目。
-                        if (held.textRefs === 0 && held.refs > 0) stopText(held);
+                        held.textual.value = held.textRefs > 0;
+                        // 最后一个文本标签关了、还有字节标签：正文已在关闭前结算（输出 4），丢掉它，回到只按字节的条目。在途或排队
+                        // 的保存回来时还要写基线与已保存的正文（关闭时选了“不保存”，保存也可能已经在路上）：排在它们后面丢，
+                        // 期间又来了文本引用就不丢。
+                        if (held.textRefs === 0 && held.refs > 0) {
+                            held.queue = held.queue.then(() => {
+                                if (held.textRefs === 0 && !held.closed) stopText(held);
+                            });
+                        }
                     }
                     if (held.refs <= 0) drop(held);
                 },
@@ -687,7 +700,7 @@ export function createDocumentStore(options: DocumentStoreOptions): DocumentStor
             const entry = entryOf(document);
             // 订阅结束只挡保存，不挡输入进入正文：结束之前敲下、还没交出的输入要能抢救（输出 22）。
             const status = entry?.status.value;
-            if (entry === null || (status !== "ready" && status !== "deleted")) return {status: "stale"};
+            if (entry === null || entry.textRefs === 0 || (status !== "ready" && status !== "deleted")) return {status: "stale"};
             const revision = entry.revision.value;
             if (text === entry.text.value) return {status: "accepted", revision};
             if (baseRevision === revision) {

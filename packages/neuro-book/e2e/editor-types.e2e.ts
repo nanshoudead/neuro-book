@@ -32,7 +32,7 @@ const SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="40" height="20"><cir
 const PAGE = `<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="style.css"></head><body>
 <h1 id="title">预览标题</h1>
 <img id="img" src="img/a.png" alt="">
-<p><a id="jump" href="#end">跳到末尾</a></p>
+<p><a id="jump" href="#end">跳到末尾</a> <a id="other" href="other.html">另一页</a></p>
 <div style="height:3000px"></div><p id="end">末尾</p>
 <script type="module" src="./m.js"></script>
 <script>
@@ -70,6 +70,8 @@ test.beforeAll(async () => {
         "site/fonts/f.ttf": await readFile(createRequire(import.meta.url).resolve("monaco-editor/esm/vs/base/browser/ui/codicons/codicon/codicon.ttf")),
         "site/m.js": "document.body.dataset.module = \"ok\";\n",
         "site/data.json": "{\"ok\": true}\n",
+        // 从预览页导航过去的另一页：加载的是预览路由给的原文，没有注入的 meta，网络限制要靠响应头。
+        "site/other.html": "<!doctype html><html><body><script>document.addEventListener(\"securitypolicyviolation\", function (e) { if (e.blockedURI.indexOf(\"net.example\") >= 0) document.body.dataset.net = \"blocked\"; }); fetch(\"https://net.example/y\").then(function () { document.body.dataset.net = \"ok\"; }, function () { if (!document.body.dataset.net) document.body.dataset.net = \"failed\"; });</script></body></html>\n",
         "site/img/a.png": PNG_3X2,
         "code/a.py": "def hello():\n    return 1\n",
         "code/a.html": "<p>x</p>\n<script>\nconst answer = 42;\n</script>\n",
@@ -212,6 +214,19 @@ test("HTML 预览：标题栏打开预览；相对引用的样式、图片、字
     expect(blockedPosts).toEqual([]);
     await frame.locator("#jump").click();
     await expect.poll(() => frame.evaluate(() => [location.href, window.scrollY > 0])).toEqual(["about:srcdoc", true]);
+
+    // 在预览里导航到作品里的另一页：仍在沙箱里、仍不能联网。
+    await frame.locator("#other").click();
+    await expect.poll(async () => (await previewFrame(page)).url()).toContain("/site/other.html");
+    frame = await previewFrame(page);
+    await expect(frame.locator("body")).toHaveAttribute("data-net", "blocked");
+    expect(await frame.evaluate(() => {
+        try {
+            return String(parent.document.title);
+        } catch {
+            return "denied";
+        }
+    })).toBe("denied");
 
     // 打开联网：外网请求放行；向应用端口的写请求得到 403；连 RPC 被拒。
     await activeGroup(page).getByRole("button", {name: "允许联网"}).click();

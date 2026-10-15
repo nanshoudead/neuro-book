@@ -155,7 +155,9 @@ export interface EditorImplementation {
  */
 export const EDITOR_LANGUAGES_POINT = "editor.languages";
 
-const LANGUAGE_ID = /^[a-z][a-z0-9_.-]*$/u;
+/** 语言 id 的写法；长度与会话记录的 `language` 字段一致（`web/session-record.ts` 引用它）。 */
+export const LANGUAGE_ID_PATTERN = "^[a-z][a-z0-9_.-]{0,63}$";
+const LANGUAGE_ID = new RegExp(LANGUAGE_ID_PATTERN, "u");
 
 /** 源码编辑器自带的语言：纯文本（Monaco 的缺省）与 JSON（Monaco 的语言服务，带校验与格式化）。 */
 export const SOURCE_EDITOR_LANGUAGE_IDS: ReadonlyArray<string> = ["plaintext", "json"];
@@ -176,7 +178,7 @@ export type LanguageDeclaration = Static<typeof LanguageDeclarationSchema>;
 
 export function validateLanguageContribution(descriptor: ContributionDescriptor): string | null {
     if (descriptor.location !== "browser") return `${EDITOR_LANGUAGES_POINT} 只接受浏览器入口的贡献`;
-    if (!LANGUAGE_ID.test(descriptor.id)) return `语言 id 只能用小写字母、数字与 . _ -，并以字母开头：${descriptor.id}`;
+    if (!LANGUAGE_ID.test(descriptor.id)) return `语言 id 只能用小写字母、数字与 . _ -，以字母开头，至多 64 个字符：${descriptor.id}`;
     if (SOURCE_EDITOR_LANGUAGE_IDS.includes(descriptor.id)) return `语言 ${descriptor.id} 由源码编辑器自带，不接受贡献`;
     if (!Value.Check(LanguageDeclarationSchema, descriptor.declaration)) {
         const first = [...Value.Errors(LanguageDeclarationSchema, descriptor.declaration)][0];

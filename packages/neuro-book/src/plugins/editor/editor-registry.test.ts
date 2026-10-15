@@ -76,6 +76,36 @@ function viewer(holder: {context: ActivationContext | null}): PluginDefinition {
     };
 }
 
+/** 另一个贡献点的拥有者：它的接收方在暂存时拒绝，让投给它的贡献方激活失败。 */
+const TRAP_POINT = "test.trap";
+const trap: PluginDefinition = {
+    id: "test.trap",
+    contributionPoints: [{id: TRAP_POINT, implementation: "required"}],
+    entries: [{
+        id: "browser",
+        location: "browser",
+        activationEvents: ["onStartup"],
+        receives: [TRAP_POINT],
+        activate: () => ({receivers: {[TRAP_POINT]: {prepare: () => {
+            throw new Error("拒绝暂存");
+        }}}}),
+    }],
+};
+
+/** 贡献方：同时投给编辑器与 `test.trap`，后者暂存失败，编辑器的暂存项随之撤回、从没发布。 */
+const brokenViewer: PluginDefinition = {
+    id: "test.broken",
+    entries: [{
+        id: "browser",
+        location: "browser",
+        contributions: [
+            {capability: EDITOR_EDITORS_POINT, id: "test.broken.image", declaration: VIEWER},
+            {capability: TRAP_POINT, id: "test.broken.trap", declaration: {}},
+        ],
+        activate: () => ({contributions: {[EDITOR_EDITORS_POINT]: {"test.broken.image": {load: async () => Viewer}}, [TRAP_POINT]: {"test.broken.trap": {}}}}),
+    }],
+};
+
 async function start(plugins: ReadonlyArray<PluginDefinition>, holder: {registry: EditorRegistry | null}): Promise<Application> {
     const identity = {location: "browser" as const, instanceId: "editor-registry"};
     const store = createDiagnosticsStore({identity});
@@ -108,6 +138,14 @@ describe("Spec workbench.editor 输出 36–40：编辑器的登记与交付", (
 
         await contributor.context?.scope.parent?.close();
         expect(registry.state("test.viewer.image").kind).toBe("gone");
+    });
+
+    it("贡献方暂存之后激活失败：它的编辑器为不在了，不停在未交付", async () => {
+        const holder: {registry: EditorRegistry | null} = {registry: null};
+        const application = await start([trap, brokenViewer], holder);
+        expect(holder.registry!.state("test.broken.image").kind).toBe("pending");
+        expect(await application.plugins.activate({plugin: "test.broken", entry: "browser"})).toMatchObject({status: "failed", stage: "prepare"});
+        expect(holder.registry!.state("test.broken.image").kind).toBe("gone");
     });
 
     it("贡献点校验：id 要带插件前缀；按字节显示的编辑器必须声明 selector", async () => {

@@ -42,11 +42,16 @@ export class EditorRegistry {
                 this.#published.value = new Map(this.#published.value).set(handle.id, handle);
                 if (this.#stopped.value.has(handle.id)) this.#stopped.value = new Set([...this.#stopped.value].filter((id) => id !== handle.id));
             },
+            // 撤回不要求发布过：贡献方暂存之后激活失败也会撤回，它同样不会自己回来（“不在了”）。已经换成新一次交付的，
+            // 旧句柄迟到的撤回不算。
             revoke: (handle) => {
-                if (this.#published.value.get(handle.id) !== handle) return;
-                const next = new Map(this.#published.value);
-                next.delete(handle.id);
-                this.#published.value = next;
+                const current = this.#published.value.get(handle.id);
+                if (current !== undefined && current !== handle) return;
+                if (current !== undefined) {
+                    const next = new Map(this.#published.value);
+                    next.delete(handle.id);
+                    this.#published.value = next;
+                }
                 this.#stopped.value = new Set(this.#stopped.value).add(handle.id);
             },
         };
