@@ -19,6 +19,10 @@ export interface LlmTestConfig {
     readonly apiKey: string;
     /** `REAL_MODEL_SMOKE_MODEL` 可覆盖，缺省 `deepseek/deepseek-flash`。 */
     readonly model: string;
+    /** `DEEPSEEK_API_BASE`：改用代理地址时给出；没有时用模型目录里的地址。调用方据此自己组模型，这里不改任何全局状态。 */
+    readonly baseUrl: string | null;
+    /** 保存密钥的环境变量名，供调用方绑定到模型实例。 */
+    readonly apiKeyEnv: "DEEPSEEK_API_KEY";
 }
 
 export interface LlmTestConfigOptions {
@@ -44,7 +48,8 @@ export function llmTestConfig(options: LlmTestConfigOptions = {}): LlmTestConfig
         console.warn(`${LLM_TESTS_ENV}=1 但缺少 DEEPSEEK_API_KEY：真实模型测试跳过，记为未验证`);
         return null;
     }
-    return {apiKey, model: env.REAL_MODEL_SMOKE_MODEL || DEFAULT_LLM_TEST_MODEL};
+    const baseUrl = env.DEEPSEEK_API_BASE?.trim() || null;
+    return {apiKey, model: env.REAL_MODEL_SMOKE_MODEL || DEFAULT_LLM_TEST_MODEL, baseUrl, apiKeyEnv: "DEEPSEEK_API_KEY"};
 }
 
 /** 只解析 `KEY=VALUE` 行；值两侧成对的引号去掉。 */

@@ -1,12 +1,18 @@
-import type {ProfileChild, ProfileNode, ProfileRenderInput, ProfileRenderMessage, RenderedProfile} from "./nodes.js";
+import type {ProfileChild, ProfileNode, ProfileRenderInput, RenderedMessage, RenderedProfile} from "./nodes.js";
 
 /** 连续空行折叠成一个空行，并去掉首尾空白。 */
 function collapseBlankLines(text: string): string {
     return text.replace(/\n{3,}/gu, "\n\n").trim();
 }
 
+/** `If` 节点此刻是否成立：`when` 看布尔值，`tool` 看生效工具集。 */
+function ifHolds(node: ProfileNode, tools: ReadonlySet<string>): boolean {
+    if (typeof node.props.tool === "string") return tools.has(node.props.tool);
+    return node.props.when === true;
+}
+
 /** 把一棵子树的文本子节点按换行拼接成段落（`If` 在拼接阶段同样生效）。 */
-export function collectText(children: readonly ProfileChild[]): string {
+export function collectText(children: readonly ProfileChild[], tools: ReadonlySet<string> = new Set()): string {
     const parts: string[] = [];
     const walk = (nodes: readonly ProfileChild[]): void => {
         for (const child of nodes) {
@@ -20,11 +26,7 @@ export function collectText(children: readonly ProfileChild[]): string {
                 continue;
             }
             const node = child as ProfileNode;
-            if (node.kind === "If") {
-                if (node.props.when !== true) continue;
-                walk(node.children);
-                continue;
-            }
+            if (node.kind === "If" && !ifHolds(node, tools)) continue;
             walk(node.children);
         }
     };
@@ -32,19 +34,14 @@ export function collectText(children: readonly ProfileChild[]): string {
     return collapseBlankLines(parts.join("\n"));
 }
 
-function lookupCallId(node: ProfileNode, messages: readonly ProfileRenderMessage[]): ProfileRenderMessage | undefined {
-    const callId = node.props.callId;
-    if (typeof callId !== "string" || callId === "") return undefined;
-    return messages.find((message) => message.callId === callId);
-}
-
 /**
- * 渲染 profile 树：`System`/`Reminder` 段落进 `systemPrompt`，消息类节点按文档顺序进 `messages`。
+ * 渲染 profile 树：`System`/`Reminder` 段落进 `systemPrompt`，消息类节点按文档顺序进 `messages`，
+ * `HistorySet` 把宿主交来的历史原样展开（docs/specs/agent/harness.md 输出 7、8）。
  * 纯函数：不读环境、不读文件、不改输入。
  */
-export function renderProfile(node: ProfileNode, input: ProfileRenderInput): RenderedProfile {
+export function renderProfile<H>(node: ProfileNode, input: ProfileRenderInput<H>): RenderedProfile<H> {
     const systemPrompt: string[] = [];
-    const messages: ProfileRenderMessage[] = [];
+    const messages: RenderedMessage<H>[] = [];
 
     const walkAll = (children: readonly ProfileChild[]): void => {
         for (const child of children) {
@@ -67,39 +64,22 @@ export function renderProfile(node: ProfileNode, input: ProfileRenderInput): Ren
                 return;
             case "System":
             case "Reminder": {
-                const text = collectText(current.children);
+                const text = collectText(current.children, input.tools);
                 if (text !== "") systemPrompt.push(text);
                 return;
             }
-            case "HistorySet": {
-                const onlyToolResults = current.props.kind === "tool-results";
-                for (const message of input.messages) {
-                    if (onlyToolResults && message.role !== "tool") continue;
-                    messages.push(message);
-                }
+            case "HistorySet":
+                for (const message of input.history) messages.push({kind: "history", message});
                 return;
-            }
-            case "Message": {
-                messages.push({
-                    role: current.props.role === "assistant" ? "assistant" : "user",
-                    text: collectText(current.children),
-                });
+            case "Message":
+                messages.push({kind: "text", role: current.props.role === "assistant" ? "assistant" : "user", text: collectText(current.children, input.tools)});
                 return;
-            }
-            case "AIMessage": {
-                messages.push({role: "assistant", text: collectText(current.children)});
+            case "AIMessage":
+                messages.push({kind: "text", role: "assistant", text: collectText(current.children, input.tools)});
                 return;
-            }
-            case "ToolCall":
-            case "ToolResult": {
-                const found = lookupCallId(current, input.messages);
-                if (found !== undefined) messages.push(found);
+            case "If":
+                if (ifHolds(current, input.tools)) walkAll(current.children);
                 return;
-            }
-            case "If": {
-                if (current.props.when === true) walkAll(current.children);
-                return;
-            }
             default:
                 walkAll(current.children);
                 return;

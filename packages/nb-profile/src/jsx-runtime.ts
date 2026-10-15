@@ -8,8 +8,6 @@ import {
     ProfilePrompt,
     Reminder,
     System,
-    ToolCall,
-    ToolResult,
     type ProfileChild,
     type ProfileNode,
 } from "./nodes.js";
@@ -20,14 +18,13 @@ type Component = (props: Props) => ProfileNode;
 const components: Readonly<Record<string, Component>> = {
     ProfilePrompt: (props) => ProfilePrompt({children: props.children}),
     System: (props) => System({children: props.children}),
-    HistorySet: (props) => HistorySet({kind: props.kind as "messages" | "tool-results" | undefined, children: props.children}),
+    HistorySet: (props) => HistorySet({children: props.children}),
     AppendingSet: (props) => AppendingSet({children: props.children}),
     Message: (props) => Message({role: props.role as "user" | "assistant" | undefined, children: props.children}),
     AIMessage: (props) => AIMessage({children: props.children}),
-    ToolCall: (props) => ToolCall({callId: typeof props.callId === "string" ? props.callId : undefined, children: props.children}),
-    ToolResult: (props) => ToolResult({callId: typeof props.callId === "string" ? props.callId : undefined, children: props.children}),
     Reminder: (props) => Reminder({children: props.children}),
-    If: (props) => If({when: props.when === true, children: props.children}),
+    If: (props) =>
+        typeof props.tool === "string" ? If({tool: props.tool, children: props.children}) : If({when: props.when === true, children: props.children}),
     Fragment: (props) => Fragment({children: props.children}),
 };
 

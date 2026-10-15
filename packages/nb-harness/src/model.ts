@@ -1,5 +1,92 @@
+/**
+ * 模型与密钥（docs/specs/agent/harness.md “模型”一节、输出 18）。
+ *
+ * 密钥绑定在模型实例上，不按 provider 全局取：OMP 的 `getApiKey` 返回空时会退回同一 provider 的默认密钥
+ * （设计审查实测，自定义地址下会发出别的 `OPENAI_API_KEY`），所以指定的变量缺失时这里直接抛
+ * `MissingModelKeyError`，由 harness 在发请求前归为 `auth`。另注意 OMP 导入时会从项目、agent、配置目录与
+ * 家目录的 `.env` 补进环境变量，“只读宿主给的变量”在 OMP 进程里不成立。
+ */
+
+import {getEnvApiKey, getEnvApiKeyName} from "@oh-my-pi/pi-ai";
+import {NO_AUTH_SENTINEL} from "@oh-my-pi/pi-ai/providers/openai-shared";
 import {getBundledModel, getBundledModels, getBundledProviders, type Model} from "@oh-my-pi/pi-catalog";
-import {getEnvApiKey} from "@oh-my-pi/pi-ai";
+import {buildModel} from "@oh-my-pi/pi-catalog/build";
+
+/** 指定的密钥变量缺失或为空。 */
+export class MissingModelKeyError extends Error {
+    constructor(readonly variable: string | null) {
+        super(variable === null ? "模型没有指定密钥来源" : `模型的密钥变量 ${variable} 没有设置`);
+        this.name = "MissingModelKeyError";
+    }
+}
+
+export interface ModelPrice {
+    /** 每百万 token 的单价。 */
+    readonly input: number;
+    readonly output: number;
+    readonly cacheRead?: number;
+    readonly cacheWrite?: number;
+    readonly currency: string;
+}
+
+export interface DefineModelOptions {
+    readonly provider: string;
+    readonly api: Model["api"];
+    readonly baseUrl: string;
+    readonly id: string;
+    readonly name?: string;
+    /** 保存密钥的环境变量名；与 `apiKey: "none"` 二选一。 */
+    readonly apiKeyEnv?: string;
+    /** `"none"`：端点不要认证（只在 OpenAI 兼容端点验证过）。 */
+    readonly apiKey?: "none";
+    readonly reasoning?: boolean;
+    readonly input?: readonly ("text" | "image")[];
+    readonly contextWindow?: number | null;
+    readonly maxTokens?: number | null;
+    readonly price?: ModelPrice;
+}
+
+/** 解析好的模型：OMP 的模型对象、绑定在它身上的密钥解析，以及单价是否已知。 */
+export interface ResolvedModel {
+    readonly model: Model;
+    readonly apiKey: () => string;
+    readonly priceKnown: boolean;
+}
+
+export function defineModel(options: DefineModelOptions): ResolvedModel {
+    for (const field of ["provider", "baseUrl", "id"] as const) {
+        if (options[field].trim() === "") throw new Error(`defineModel 的 ${field} 不能为空`);
+    }
+    if ((options.apiKeyEnv === undefined) === (options.apiKey === undefined)) {
+        throw new Error("defineModel 要恰好给 apiKeyEnv 或 apiKey: \"none\" 中的一个");
+    }
+    const price = options.price;
+    const model = buildModel({
+        provider: options.provider,
+        api: options.api,
+        baseUrl: options.baseUrl,
+        id: options.id,
+        name: options.name ?? options.id,
+        reasoning: options.reasoning ?? false,
+        input: [...(options.input ?? ["text"])],
+        contextWindow: options.contextWindow ?? null,
+        maxTokens: options.maxTokens ?? null,
+        // OMP 要求数字；单价未知时补零，对外的 cost 由 priceKnown 改成 null。
+        cost: {input: price?.input ?? 0, output: price?.output ?? 0, cacheRead: price?.cacheRead ?? 0, cacheWrite: price?.cacheWrite ?? 0},
+    } as Parameters<typeof buildModel>[0]) as Model;
+    const variable = options.apiKeyEnv;
+    return {
+        model,
+        priceKnown: price !== undefined,
+        apiKey: variable === undefined ? () => NO_AUTH_SENTINEL : () => readKey(variable),
+    };
+}
+
+function readKey(variable: string): string {
+    const value = process.env[variable] ?? Bun.env[variable];
+    if (value === undefined || value.trim() === "") throw new MissingModelKeyError(variable);
+    return value;
+}
 
 /** 已知的 provider id 列表（OMP 目录）。 */
 export function listProviders(): readonly string[] {
@@ -8,67 +95,48 @@ export function listProviders(): readonly string[] {
 
 type CatalogProvider = Parameters<typeof getBundledModel>[0];
 
-/** 解析 `provider/modelId`（或全局唯一的裸 modelId）为目录里的模型。 */
-export function resolveModel(reference: string): Model {
+/**
+ * 内置目录里的模型（`provider/modelId`，或全局唯一的裸 modelId）。密钥按该 provider 的环境变量取，缺失同样失败；
+ * 单价取目录里的（目录有单价）。
+ */
+export function resolveModel(reference: string): ResolvedModel {
+    const model = lookupModel(reference);
+    const variable = getEnvApiKeyName(model.provider) ?? null;
+    return {
+        model,
+        priceKnown: true,
+        apiKey: () => {
+            const value = getEnvApiKey(model.provider);
+            if (typeof value !== "string" || value.trim() === "") throw new MissingModelKeyError(variable);
+            return value;
+        },
+    };
+}
+
+function lookupModel(reference: string): Model {
     const trimmed = reference.trim();
-    if (trimmed === "") {
-        throw new Error("模型引用不能为空");
-    }
+    if (trimmed === "") throw new Error("模型引用不能为空");
     const slash = trimmed.indexOf("/");
     if (slash > 0) {
         const provider = trimmed.slice(0, slash);
         const modelId = trimmed.slice(slash + 1);
-        if (!listProviders().includes(provider)) {
-            throw new Error(`未知 provider：${provider}（模型引用：${reference}）`);
+        if (!listProviders().includes(provider)) throw new Error(`未知 provider：${provider}（模型引用：${reference}）`);
+        let model: Model | undefined;
+        try {
+            model = getBundledModel(provider as CatalogProvider, modelId) as Model | undefined;
+        } catch (error) {
+            throw new Error(`未知模型：${reference}`, {cause: error});
         }
-        return loadBundledModel(provider, modelId, reference);
+        if (model === undefined) throw new Error(`未知模型：${reference}`);
+        return model;
     }
-
     const matches: Model[] = [];
     for (const provider of getBundledProviders()) {
         for (const model of getBundledModels(provider as CatalogProvider)) {
             if (model.id === trimmed) matches.push(model);
         }
     }
-    if (matches.length === 1) {
-        return matches[0];
-    }
-    if (matches.length === 0) {
-        throw new Error(`未知模型：${reference}`);
-    }
+    if (matches.length === 1) return matches[0]!;
+    if (matches.length === 0) throw new Error(`未知模型：${reference}`);
     throw new Error(`模型 id 不唯一（命中 ${matches.length} 个 provider）：${reference}；请写成 provider/modelId`);
-}
-
-function loadBundledModel(provider: string, modelId: string, reference: string): Model {
-    try {
-        const model = getBundledModel(provider as CatalogProvider, modelId) as Model | undefined;
-        if (model === undefined) throw new Error("missing");
-        return model;
-    } catch {
-        throw new Error(`未知模型：${reference}`);
-    }
-}
-
-/**
- * 从环境解析 API key：优先 OMP 的 `getEnvApiKey(provider)`；
- * `deepseek` 额外回退到 `DEEPSEEK_API_KEY`（OMP 的 env 模块在 import 期已把仓库根 `.env` 注入 `Bun.env`）。
- */
-export function createEnvApiKeyResolver(): (model: Model) => string | undefined {
-    return (model) => {
-        const fromProvider = getEnvApiKey(model.provider);
-        if (typeof fromProvider === "string" && fromProvider !== "") return fromProvider;
-        if (model.provider === "deepseek") {
-            const fallback = process.env.DEEPSEEK_API_KEY ?? Bun.env.DEEPSEEK_API_KEY;
-            if (typeof fallback === "string" && fallback !== "") return fallback;
-        }
-        return undefined;
-    };
-}
-
-/** 用 `DEEPSEEK_API_BASE` 覆盖 deepseek 模型的 baseUrl（其它 provider 原样返回）。 */
-export function applyBaseUrlOverride(model: Model): Model {
-    if (model.provider !== "deepseek") return model;
-    const override = process.env.DEEPSEEK_API_BASE ?? Bun.env.DEEPSEEK_API_BASE;
-    if (typeof override !== "string" || override.trim() === "") return model;
-    return {...model, baseUrl: override.trim()};
 }
