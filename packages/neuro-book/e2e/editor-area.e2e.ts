@@ -201,7 +201,7 @@ test("外部修改：不 dirty 时换成磁盘内容；dirty 时提示，保存�
     await expect(page.locator("[data-editor-banner]")).toHaveCount(0);
 });
 
-test("关闭 dirty 标签先问：取消不关，不保存则丢弃；向右拆分后两组共用正文；刷新后组与标签恢复", async ({page}) => {
+test("关闭 dirty 标签先问：取消不关，不保存则丢弃；向右拆分后两组共用正文；拖动两组间的分隔线调整宽度；刷新后组、标签与宽度恢复", async ({page}) => {
     await open(page);
     await closeAll(page);
     await item(page, "project://notes/d.md").dblclick();
@@ -220,9 +220,23 @@ test("关闭 dirty 标签先问：取消不关，不保存则丢弃；向右拆�
     await page.keyboard.type("！");
     await expect(page.locator("[data-editor-group]").first().locator("[data-editor-prose]")).toHaveText("第四章草稿！");
 
+    // 两组之间的分隔线：拖动它，左组变窄、右组变宽；刷新后宽度照旧。
+    const widths = () => page.locator("[data-editor-group]").evaluateAll((nodes) => nodes.map((node) => Math.round(node.getBoundingClientRect().width)));
+    const [left = 0, right = 0] = await widths();
+    const sash = page.locator("[data-editor-area] [role=separator]");
+    await expect(sash).toHaveCount(1);
+    const box = await sash.boundingBox();
+    if (box === null) throw new Error("分隔线没有盒");
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.width / 2 - 120, box.y + box.height / 2, {steps: 6});
+    await page.mouse.up();
+    await expect.poll(widths).toEqual([left - 120, right + 120]);
+
     await page.reload();
     await expect(page.locator("[data-workbench-root]")).toHaveAttribute("data-rpc-state", "online");
     await expect(page.locator("[data-editor-group]")).toHaveCount(2);
+    await expect.poll(widths).toEqual([left - 120, right + 120]);
     await expect(page.locator("[data-editor-group]").first().locator("[data-editor-tab-label]")).toHaveText(["d.md"]);
     // 刷新丢掉了未保存的修改（不跨刷新保留草稿）：正文是磁盘上的。
     await expect(prose(page)).toHaveText("第四章");
@@ -777,7 +791,8 @@ test.describe("编辑区标题（docs/specs/workbench/editor.md 输出 34，验�
     });
 
     test("编辑组窄到放不下按钮时：按钮都收进“⋯”，“⋯”与至少一个标签宽的标签条都在这一组里，“⋯”里仍能执行拆分与贡献的项", async ({page}) => {
-        await page.setViewportSize({width: 1440, height: 900});
+        // 编辑组至少 220px（输出 2）：窗口放不下四个最小宽度时各组按比例压缩，活动组才会窄到放不下按钮。
+        await page.setViewportSize({width: 900, height: 900});
         await page.goto(new URL("/?project=book", probe.url).href);
         await item(page, "project://a.md").dblclick();
         const group = page.locator("[data-editor-group-active]");

@@ -9,13 +9,25 @@ import type {ShallowRef} from "@vue/reactivity";
 
 // 只要 grid 的结构与快照，不要渲染器：`./grid` 不依赖 Vue 与 DOM，插件激活时就能用、Bun 里也能测。
 import {createGrid} from "@notnotype/nb-ui/grid";
-import type {Grid, GridNode, GridSnapshot} from "@notnotype/nb-ui/grid";
+import type {Grid, GridLeafInput, GridNode, GridSnapshot} from "@notnotype/nb-ui/grid";
 
 import {isWithin, rebase} from "../documents/address";
 
 import type {TabCursor} from "../../shared/contracts";
 
 export type {TabCursor} from "../../shared/contracts";
+
+/**
+ * 组与组之间的分隔线占 1px（与工作台的分隔线相同）。nb-ui 把 0px 的分隔线当作不可交互的接缝：不画线、不能拖，
+ * 所以这里不能取 0。
+ */
+const GROUP_SASH_PX = 1;
+/** 编辑组的最小尺寸：再窄放不下一个截断的标签与标题动作的“⋯”。 */
+const GROUP_MIN_SIZE = {width: 220, height: 120} as const;
+
+function groupLeaf(id: string): GridLeafInput<string> {
+    return {kind: "leaf", id, ref: id, minimumSize: GROUP_MIN_SIZE};
+}
 
 /**
  * 打开文件的标签：`editor` 是编辑器 id（docs/specs/workbench/editor.md 输出 36）。标签按“地址 + 编辑器”区分，同一组里
@@ -138,7 +150,7 @@ export function createEditorGroups(initial: GroupsSnapshot | null = null, cursor
         }
     };
     const restored = initial === null ? null : restore(initial, cursorKind);
-    const grid = restored?.grid ?? createGrid<string>({kind: "leaf", id: "g0", ref: "g0"});
+    const grid = restored?.grid ?? createGrid<string>(groupLeaf("g0"), {sashSize: GROUP_SASH_PX});
     const groups = shallowRef<ReadonlyArray<EditorGroup>>(restored?.groups ?? [{id: "g0", tabs: [], active: null}]);
     const activeGroup = shallowRef(restored?.activeGroup ?? groups.value[0]?.id ?? "g0");
     const layoutVersion = shallowRef(0);
@@ -251,7 +263,7 @@ export function createEditorGroups(initial: GroupsSnapshot | null = null, cursor
             const found = locate(tabId);
             if (found === null || found.tab.kind === "page") return null;
             const id = newId("g");
-            const result = grid.splitLeaf(found.group.id, {branchId: newId("b"), orientation: direction === "right" ? "horizontal" : "vertical", side: "after", leaf: {kind: "leaf", id, ref: id}});
+            const result = grid.splitLeaf(found.group.id, {branchId: newId("b"), orientation: direction === "right" ? "horizontal" : "vertical", side: "after", leaf: groupLeaf(id)});
             if (!result.ok) return null;
             // 新组的视图从原标签记下的光标开始，语言也跟过去（输出 30、45）。
             const source = found.tab;
@@ -272,7 +284,7 @@ export function createEditorGroups(initial: GroupsSnapshot | null = null, cursor
             const right = rightNeighbor(grid.root(), activeGroup.value);
             if (right !== null && groupOf(right) !== undefined) return right;
             const id = newId("g");
-            const result = grid.splitLeaf(activeGroup.value, {branchId: newId("b"), orientation: "horizontal", side: "after", leaf: {kind: "leaf", id, ref: id}});
+            const result = grid.splitLeaf(activeGroup.value, {branchId: newId("b"), orientation: "horizontal", side: "after", leaf: groupLeaf(id)});
             if (!result.ok) return activeGroup.value;
             const index = groups.value.findIndex((group) => group.id === activeGroup.value);
             const next = [...groups.value];
@@ -385,8 +397,8 @@ function rightNeighbor(root: GridNode<string> | null, id: string): string | null
 function restore(snapshot: GroupsSnapshot, cursorKind: CursorKind): {grid: Grid<string>; groups: EditorGroup[]; activeGroup: string} | null {
     const ids = new Set(snapshot.groups.map((group) => group.id));
     if (ids.size !== snapshot.groups.length || ids.size === 0 || !ids.has(snapshot.activeGroup)) return null;
-    const grid = createGrid<string>(null);
-    const restored = grid.restore(snapshot.layout, (ref) => (ids.has(ref) ? {ref} : null));
+    const grid = createGrid<string>(null, {sashSize: GROUP_SASH_PX});
+    const restored = grid.restore(snapshot.layout, (ref) => (ids.has(ref) ? {ref, minimumSize: GROUP_MIN_SIZE} : null));
     if (!restored.ok || restored.dropped.length > 0) return null;
     // 渲染按叶的 id 找组：叶的 id 与 ref 不一致的记录同样当作坏了。
     const leaves = leafNodesOf(grid.root());
