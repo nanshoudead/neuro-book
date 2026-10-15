@@ -1,0 +1,120 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00024-nb-story",
+    "taskId": "t02-specs",
+    "artifactId": "review",
+    "version": 1,
+    "supersedes": null,
+    "action": "publish",
+    "kind": "review",
+    "title": "nb-story Spec 要点",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "f66f1d9f67d4759afbafa707049e555343ff30da4a1a7f4f9aa59d0185bb1b76",
+    "files": [
+        "index.html"
+    ],
+    "questions": [
+        {
+            "id": "capability-map",
+            "type": "single",
+            "label": "1. 能力地图：这样分四份行吗？",
+            "options": [
+                {
+                    "value": "go",
+                    "label": "按这个分"
+                },
+                {
+                    "value": "adjust",
+                    "label": "要调整"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "go"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "reading-state-store",
+            "type": "single",
+            "label": "2. “读到哪里”和上次的界面存在哪里？",
+            "options": [
+                {
+                    "value": "library",
+                    "label": "存进书库，跟着书走"
+                },
+                {
+                    "value": "browser",
+                    "label": "存在浏览器本地"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "library"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "no-record-perspective",
+            "type": "single",
+            "label": "3. 知情视角里，“没有记录”的身份秘密怎么算？",
+            "options": [
+                {
+                    "value": "separate-mark",
+                    "label": "当作不知道画成分开的点，但标“没有记录”"
+                },
+                {
+                    "value": "unknown",
+                    "label": "当作不知道，不另外标"
+                },
+                {
+                    "value": "merge",
+                    "label": "当作知道，合并成一个点"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "separate-mark"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "source-beyond",
+            "type": "single",
+            "label": "4. 读到位置之后的章，原文能不能看？",
+            "options": [
+                {
+                    "value": "block",
+                    "label": "之后的章不给原文，要看先把“读到哪里”往后拨"
+                },
+                {
+                    "value": "allow",
+                    "label": "原文都能看，只是记录、标题不显示"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "block"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        }
+    ],
+    "publishedAt": "2026-10-15T02:47:56.627Z"
+}

@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>nb-story Spec 要点</title>
+<style>
+:root {
+    --bg: #f6f5f1; --card: #ffffff; --text: #23211c; --muted: #6f6a60; --line: #e3dfd6; --accent: #0f766e; --accent-soft: #e3f1ef;
+    --warn: #b45309; --warn-soft: #fdf1df; --ok: #15803d; --ok-soft: #e4f4e8; --mark: #d9468f;
+    --radius: 10px; --mono: ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+    :root { --bg: #18181b; --card: #222226; --text: #ececea; --muted: #a3a09a; --line: #34343a; --accent: #5eead4; --accent-soft: #123b37;
+        --warn: #fbbf24; --warn-soft: #3a2e12; --ok: #86efac; --ok-soft: #173322; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.7 system-ui, "PingFang SC", "Noto Sans CJK SC", sans-serif; }
+header.top { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 12px; padding: 10px 24px; background: var(--card); border-bottom: 1px solid var(--line); }
+header.top b { font-size: 15px; }
+header.top small { color: var(--muted); }
+main { max-width: 1180px; margin: 0 auto; padding: 28px 24px 120px; }
+h1 { font-size: 22px; margin: 0 0 8px; }
+h2 { font-size: 17px; margin: 0; display: flex; align-items: center; gap: 10px; }
+h3 { font-size: 14px; margin: 0 0 4px; }
+p, li { max-width: 900px; }
+.lead p { color: var(--muted); margin: 6px 0; }
+.round { margin-top: 40px; font-size: 19px; font-weight: 700; border-bottom: 2px solid var(--line); padding-bottom: 6px; }
+section.q { margin-top: 28px; padding: 18px 20px; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); }
+.badge { font-size: 12px; font-weight: 600; padding: 1px 8px; border-radius: 999px; }
+.badge.todo { background: var(--warn-soft); color: var(--warn); }
+.badge.done { background: var(--ok-soft); color: var(--ok); }
+.ask { margin: 10px 0 12px; }
+.opts { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; margin: 10px 0; }
+.opt { border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; }
+.opt.rec { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+.opt p { margin: 4px 0 0; color: var(--muted); }
+.rec-note { margin-top: 10px; padding: 10px 14px; border-radius: var(--radius); background: var(--accent-soft); }
+.rec-note b { color: var(--accent); }
+.decided { margin-top: 10px; padding: 10px 14px; border-radius: var(--radius); background: var(--ok-soft); }
+.decided b { color: var(--ok); font-weight: 600; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th, td { text-align: left; vertical-align: top; padding: 8px 10px; border-top: 1px solid var(--line); }
+th { color: var(--muted); font-weight: 600; border-top: 0; }
+.opt-row td:first-child { white-space: nowrap; }
+figure { margin: 12px 0; }
+figure img { width: 100%; border: 1px solid var(--line); border-radius: var(--radius); display: block; }
+figcaption { color: var(--muted); font-size: 13px; margin-top: 6px; }
+.shots { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 16px; }
+/* 骨架示意：只表达区域和优先级，不是视觉稿 */
+code { font-family: var(--mono); font-size: 12.5px; }
+ol.items li { margin: 3px 0; }
+h3.spec { margin-top: 14px; }
+</style>
+
+</head>
+<body>
+<header class="top"><b>nb-story Spec 要点</b><small>w00024 t02-specs 的产物 · 第 1 轮 · 2026-10-15</small></header>
+<main>
+
+<div class="lead">
+    <h1>四份 planned Spec 的要点（写正文之前）</h1>
+    <p>依据：<a href="../../../../../../docs/proposals/novel-story-app.md">nb-story 提案</a>（accepted，已搬到 master）与 w00024 t01 的 26 条决定。按写 Spec 的流程，先给能力地图和会改变行为的假设，你确认后再写正文、提交。</p>
+    <p>四份都是 <code>planned</code>，放在新的 <code>docs/specs/story/</code>，在 Spec 注册表的“待实现规范”里登记。只写对外可观察的行为；实现做法、取舍理由不进 Spec。</p>
+</div>
+
+<div class="round">待定</div>
+
+<section class="q" data-nbdev-question="capability-map" data-nbdev-type="single" data-nbdev-recommend="go">
+    <h2><span class="badge todo" data-nbdev-skip>待定</span>1. 能力地图：这样分四份行吗？</h2>
+    <table>
+        <thead><tr><th>能力</th><th>文件</th><th>职责</th><th>依赖</th></tr></thead>
+        <tbody>
+            <tr><td><code>story.queries</code></td><td><code>story/queries.md</code></td><td>书库、导入、按“读到哪里”的全部查询、接口合同（方法清单与错误码），以及独立服务的 HTTP 形式与登录</td><td>无（只读 V9 数据文件）</td></tr>
+            <tr><td><code>story.qa</code></td><td><code>story/qa.md</code></td><td>问答：两种作答方式、分步进度、答案格式、依据、历史、模型配置与密钥</td><td><code>story.queries</code></td></tr>
+            <tr><td><code>story.viewer</code></td><td><code>story/viewer.md</code></td><td>网页查看器与问答页的界面行为</td><td><code>story.queries</code>、<code>story.qa</code></td></tr>
+            <tr><td><code>story.cli</code></td><td><code>story/cli-skill.md</code></td><td>命令行 <code>nbstory</code>（含 <code>serve</code>）与 Agent Skill</td><td><code>story.queries</code>、<code>story.qa</code></td></tr>
+        </tbody>
+    </table>
+    <p>依赖都是单向的。独立服务的 HTTP 与登录放进 <code>story.queries</code>：它只是接口合同的一种传输形式，网页和以后的插件通道都按同一份合同；<code>serve</code> 命令只负责把它启动起来。</p>
+    <div class="opts">
+        <div class="opt rec" data-nbdev-option="go"><h3>按这个分</h3><p>按下面各节的要点写正文。</p></div>
+        <div class="opt" data-nbdev-option="adjust"><h3>要调整</h3><p>在备注里写怎么分。</p></div>
+    </div>
+</section>
+
+<section class="q">
+    <h2>各份 Spec 的要点（不用答，看有没有漏的、写错的）</h2>
+
+    <h3 class="spec"><code>story.queries</code> 书与按阅读位置的查询</h3>
+    <ol class="items">
+        <li><b>书库</b>：一本书一个目录（书的信息、编译好的图含原文、问答记录）；默认在用户数据目录，可以另指定。导入只认 V9 数据格式第 1 版，别的版本拒绝、不改写。</li>
+        <li><b>阅读位置</b>：所有查询都带位置，章或章加段；不带时是读到最后。结果里不含这个位置之后出现的任何东西：记录、称呼、身份合并、章节标题、计数都按位置算，过滤在核心库里做，不靠页面隐藏。</li>
+        <li><b>化名合并</b>：读者视角下，两个对象合并成一个人，当且仅当读者在这个位置已经知道它们是同一人（身份秘密已揭晓）。显示名取这个位置为止用得最多的称呼；同名的不同对象加区分说明。</li>
+        <li><b>知情视角</b>：以某个角色的视角，只按他知道的身份秘密合并化名、只给他知道（含听说、认为）的说法；读者知道、他不知道的“同一人”单独给出，标明只有读者知道。“没有记录”怎么处理见第 3 题。</li>
+        <li><b>方法清单</b>（提案第四节第 4 小节）：书、本章变化、名册与人物卡、秘密矩阵、数值、悬念、时间线、情节与主线、原文、搜索、关系图（点、合并后的线、关系词、认知方向）、全书图。每个方法的参数与结果都有 schema；每条结果的出处带“章.段”。</li>
+        <li><b>数值对账</b>（决定 13）：逐笔累加，原文报数处以原文为准并给出差额；起始金额不明时余额是相对值。</li>
+        <li><b>原文</b>：能读到位置为止的原文；位置之后的章怎样处理见第 4 题。</li>
+        <li><b>独立服务</b>：只监听本机；启动时生成带口令的登录链接，没带口令的请求一律拒绝；HTTP 形式是 <code>POST /api/rpc/&lt;方法&gt;</code>，错误是 <code>{code, message}</code>，与以后的插件通道一致。</li>
+        <li><b>失败码</b>（暂定）：<code>book_not_found</code>、<code>position_out_of_range</code>、<code>entity_not_found</code>、<code>beyond_position</code>、<code>unsupported_format</code>、<code>unauthorized</code>。</li>
+    </ol>
+
+    <h3 class="spec"><code>story.qa</code> 问答</h3>
+    <ol class="items">
+        <li>两种作答方式，默认“图当目录”：先在图里找记录、挑至多 20 章，再只凭这些章的原文作答；可选“全读”，原文超过上限（可配置）时不可选。</li>
+        <li>只用阅读位置以前的内容作答，挑章、读原文都受同一位置限制。</li>
+        <li>进度分步可见：找记录（列出找到的条数）、挑了哪些章、读原文、作答；可以取消。</li>
+        <li>答案格式（决定 9）：先给结论，“谁知道什么”的题再给一行一人的表（知道吗、怎么知道的、依据）；完整说明默认收起；结论标明明说、推断或无法确定；附读了哪些章、用时与费用。</li>
+        <li>每条问答存进书库，有固定的链接地址，可以重新回答。</li>
+        <li>模型配置：配置文件写服务地址、模型名和放密钥的环境变量名；密钥不出现在书库、日志、页面和问答记录里。</li>
+        <li>回归门槛（提案第六节）：用 t34 的题，一审答错不高于 19.6%，其中知情、身份 16 题不高于 22.9%。</li>
+    </ol>
+
+    <h3 class="spec"><code>story.viewer</code> 查看器</h3>
+    <ol class="items">
+        <li>版式（决定 6、7、8）：顶栏（书名、读到哪里、搜索、常驻提问框）、左侧导航、主区、右侧抽屉，三栏可拖、可收起；第一次打开进全书总览，之后回到上一次的界面（决定 1）。</li>
+        <li>读到哪里（决定 8）：章滑块加可收起的段滑块；全部页面跟着变，“截至第 N 章第 M 段”。</li>
+        <li>各页：总览、关系图、全书图、人物、秘密矩阵、数值、悬念、时间线、情节、原文、问答、说明与统计；默认收起的内容按决定 2；沿用 t28 的六项机制（决定 5）。</li>
+        <li>人物卡（决定 11）：概况、关系、记录、情节四个页签，带条数；几百条以上的列表可筛、可搜、按章分组、虚拟滚动；记录可在主区打开成宽表格。</li>
+        <li>关系图（决定 14 到 25）：默认只画人物与组织；点一样大、线一样粗，一对点一条线；视角（决定 19）；排版力导向、同心、环形，默认力导向，切换连线层时重新排版并带过渡；悬停、选中时其余变淡、不消失；可拖动；搜索、全屏、只看选中的周边。</li>
+        <li>全书图：默认按章节（故事线），可切到按关联，按关联默认按主线聚合。</li>
+        <li>出处：每个“章.段”可点，在右侧打开原文并高亮。</li>
+        <li>宽度：宽屏与平板两档保证可用（决定 12）；手机档能显示、不保证好用。</li>
+    </ol>
+
+    <h3 class="spec"><code>story.cli</code> 命令行与 Skill</h3>
+    <ol class="items">
+        <li>命令（提案第七节）：<code>books</code>、<code>import</code>、<code>chapter</code>、<code>find</code>、<code>card</code>、<code>knows</code>、<code>ledger</code>、<code>questions</code>、<code>timeline</code>、<code>search</code>、<code>read</code>、<code>ask</code>、<code>serve</code>；书库只有一本书时不用写 <code>--book</code>；都支持 <code>--at</code> 和 <code>--json</code>。</li>
+        <li>同一问题、同一位置，命令行与网页结果一致（都调同一个核心库）。</li>
+        <li><code>serve</code> 打印登录链接，<code>--open</code> 打开浏览器。</li>
+        <li>Skill 教 Agent：先查对象的全部称呼，按题型查线索，读原文核对，答案引用“章.段”；用户说了读到哪里就一律带 <code>--at</code>。</li>
+    </ol>
+</section>
+
+<section class="q" data-nbdev-question="reading-state-store" data-nbdev-type="single" data-nbdev-recommend="library">
+    <h2><span class="badge todo" data-nbdev-skip>待定</span>2. “读到哪里”和上次的界面存在哪里？</h2>
+    <p class="ask">决定 1 要求打开一本书回到上一次的界面（页面、人物、阅读位置）。存的位置决定换浏览器、换设备时还在不在。</p>
+    <div class="opts">
+        <div class="opt rec" data-nbdev-option="library"><h3>存进书库，跟着书走</h3><p>服务端按书保存；换浏览器、以后接进 NeuroBook 都还在。命令行不读它，命令行的位置都写在参数里。</p></div>
+        <div class="opt" data-nbdev-option="browser"><h3>存在浏览器本地</h3><p>简单，但换浏览器就没了。</p></div>
+    </div>
+    <div class="rec-note"><b>推荐存进书库。</b>阅读位置是防剧透的根，丢了就可能剧透；书库本来就在服务端。</div>
+</section>
+
+<section class="q" data-nbdev-question="no-record-perspective" data-nbdev-type="single" data-nbdev-recommend="separate-mark">
+    <h2><span class="badge todo" data-nbdev-skip>待定</span>3. 知情视角里，“没有记录”的身份秘密怎么算？</h2>
+    <p class="ask">第 8 轮发现：以南嘉鱼的视角，“风信子就是南小风”没有任何记录（她是南小风的姐姐，原文也许只是没写到）。秘密矩阵里“没有记录”与“不知道”是两回事。</p>
+    <div class="opts">
+        <div class="opt rec" data-nbdev-option="separate-mark"><h3>当作不知道画成分开的点，但标“没有记录”</h3><p>“明确不知道”的黄线写“其实是同一人”；“没有记录”的写“可能知道（没有记录）”，样式区分开。</p></div>
+        <div class="opt" data-nbdev-option="unknown"><h3>当作不知道，不另外标</h3><p>就是第 8 轮的稿子。</p></div>
+        <div class="opt" data-nbdev-option="merge"><h3>当作知道，合并成一个点</h3><p>只有明确不知道的才分开。</p></div>
+    </div>
+    <div class="rec-note"><b>推荐分开画、标“没有记录”。</b>和秘密矩阵的图例一致（“没有记录不等于不知道”，决定 5），既不替角色编造知道，也不让读者误以为她确定不知道。</div>
+</section>
+
+<section class="q" data-nbdev-question="source-beyond" data-nbdev-type="single" data-nbdev-recommend="block">
+    <h2><span class="badge todo" data-nbdev-skip>待定</span>4. 读到位置之后的章，原文能不能看？</h2>
+    <p class="ask">稿子里原文页的目录把之后的章画成“未读”、点不开；段落级位置时，本章位置之后的原文照常显示，只是记录不显示。</p>
+    <div class="opts">
+        <div class="opt rec" data-nbdev-option="block"><h3>之后的章不给原文，要看先把“读到哪里”往后拨</h3><p>接口也拒绝（<code>beyond_position</code>）；本章内位置之后的段落照常给原文，不给记录。</p></div>
+        <div class="opt" data-nbdev-option="allow"><h3>原文都能看，只是记录、标题不显示</h3><p>原文页当阅读器用，往后翻不受限。</p></div>
+    </div>
+    <div class="rec-note"><b>推荐不给。</b>防剧透靠核心库统一过滤；原文是最直接的剧透。想往后读的人拨一下位置即可，拨动本身就是“我读到这里了”的表态。</div>
+</section>
+
+</main>
+</body>
+</html>
