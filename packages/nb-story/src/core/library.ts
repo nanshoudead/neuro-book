@@ -8,17 +8,20 @@
  *   <书库>/<书 id>/graph.json     导入的数据文件原样
  *   <书库>/<书 id>/reading.json   ReadingState
  *
- * 并发与原子性都靠同一个文件系统内的 rename：
+ * 并发与原子性都靠同一个文件系统内的 rename，前提是书目录从不原地改写：
  * - 导入先写进 `.importing-<随机>/`，写完整个目录改名成 `<书 id>/`。目标已存在时改名失败，于是同一个 id 的并发
- *   导入只有一次成功；进程中途被杀只会留下临时目录，`books.list` 只列正式目录，看不到半本书。
- * - 删除先把目录改名成 `.removed-<随机>/`，再递归删。改名之后这个 id 立刻可以重新导入；已经开始的查询用的是
- *   内存里那一代的数据（book-index.ts），不再读盘。
- * - 阅读状态写到临时文件再改名覆盖，后改名的那次整份生效。
+ *   导入只有一次成功；进程中途被杀只留下临时目录，`books.list` 只列正式目录，看不到半本书。中途退出留下的临时
+ *   目录不自动清：判断不了它的主人是否还活着，留着只占磁盘，不影响任何查询。
+ * - 删除先把目录改名成 `.removed-<随机>/`，再递归删。改名之后这个 id 立刻可以重新导入。
+ * - 一次查询开始时用 pinBook 固定一代（见它的注释）：先打开数据文件，之后删除、重新导入都不影响已打开的文件。
+ * - 阅读状态写到临时文件再改名覆盖：改名的那一刻就是“写进书库”的时刻，后改名的整份生效，读到的总是某一次
+ *   完整的写入。
  * 书库放在不支持原子 rename 的文件系统上（某些网络盘）时这些保证不成立。
  */
 
 import {randomUUID, createHash} from "node:crypto";
-import {mkdir, readdir, readFile, rename, rm, stat, writeFile} from "node:fs/promises";
+import {mkdir, open, readdir, readFile, rename, rm, stat, writeFile} from "node:fs/promises";
+import type {FileHandle} from "node:fs/promises";
 import {homedir} from "node:os";
 import {join} from "node:path";
 
@@ -30,8 +33,6 @@ import type {PositionInput} from "./position";
 export const LIBRARY_FORMAT = 1;
 /** 界面状态的上限（JSON 序列化后的字节数）。 */
 export const MAX_VIEW_BYTES = 64 * 1024;
-/** 超过这个时长的 `.importing-*` 视为中途退出留下的，下一次导入时清掉。 */
-const STALE_IMPORT_MS = 60 * 60 * 1000;
 const BOOK_ID_PATTERN = /^[a-z0-9][a-z0-9-]{0,63}$/u;
 
 export interface BookMeta {
@@ -122,20 +123,40 @@ export class Library {
         throw new StoryError("book_ambiguous", `书库里有 ${books.length} 本书，请指定 book：${books.map(item => item.id).join("、")}`);
     }
 
-    /** 读这一代的数据集。meta 必须来自同一次 readMeta：读到的 graph.json 已换代时报 `book_not_found`，调用方重试即可。 */
-    async readDataset(meta: BookMeta): Promise<Dataset> {
-        const dir = join(this.root, meta.id);
-        let current: unknown;
-        let dataset: unknown;
-        try {
-            [current, dataset] = await Promise.all([readJson(join(dir, "book.json")), readJson(join(dir, "graph.json"))]);
-        } catch (error) {
-            if (systemErrorCode(error) === "ENOENT") throw new StoryError("book_not_found", `书 ${meta.id} 已被删除`, {cause: error});
-            throw error;
+    /**
+     * 固定这本书当前的一代：返回这一代的信息与已打开的数据文件。之后这本书被删除或同 id 重新导入，已打开的文件
+     * 照样读得到这一代的数据（文件被删只是去掉了名字）。调用方读完或不再需要时 release。
+     *
+     * 顺序是先打开 graph.json、再读 book.json、最后核对路径上的 graph.json 仍是打开的那个文件（同一个 inode）。
+     * 核对通过说明两次读之间路径上始终是同一个书目录（书目录只会整体改名移走、从不移回），读到的信息与打开的
+     * 文件属于同一代；不通过就是中途换了代，重来一次，这次查询就从新的一代开始。
+     */
+    async pinBook(id: string): Promise<PinnedBook> {
+        if (!BOOK_ID_PATTERN.test(id)) throw new StoryError("book_not_found", `书库里没有书 ${id}`);
+        const graphPath = join(this.root, id, "graph.json");
+        for (let attempt = 0; attempt < 5; attempt += 1) {
+            let handle: FileHandle;
+            try {
+                handle = await open(graphPath, "r");
+            } catch (error) {
+                if (systemErrorCode(error) === "ENOENT" || systemErrorCode(error) === "ENOTDIR") throw new StoryError("book_not_found", `书库里没有书 ${id}`, {cause: error});
+                throw error;
+            }
+            try {
+                const meta = await this.readMetaOrNull(id);
+                const [opened, current] = await Promise.all([handle.stat(), stat(graphPath).catch((error: unknown) => {
+                    if (systemErrorCode(error) === "ENOENT") return null;
+                    throw error;
+                })]);
+                if (meta && current && current.ino === opened.ino && current.dev === opened.dev) return new PinnedBook(meta, handle);
+            } catch (error) {
+                await handle.close();
+                throw error;
+            }
+            await handle.close();
         }
-        // book.json 与 graph.json 不是一次读出的：两次读之间这本书可能被删除并重新导入。核对代号，读到的不是同一代就当作已删除。
-        if (!isObject(current) || current.generation !== meta.generation) throw new StoryError("book_not_found", `书 ${meta.id} 已换了一代`);
-        return dataset as Dataset;
+        // 连续几次都碰上换代，几乎只会是有进程在不停地删除与导入同一本书。
+        throw new StoryError("book_not_found", `书 ${id} 正在被反复删除与导入，没能固定一代`);
     }
 
     /** 导入 V9 数据集，成功后返回新书的 id 与这一代的代号。失败时书库不变。 */
@@ -173,7 +194,6 @@ export class Library {
         };
 
         await mkdir(this.root, {recursive: true});
-        await this.sweepStaleImports();
         const staging = join(this.root, `.importing-${generation}`);
         await mkdir(staging);
         try {
@@ -267,18 +287,28 @@ export class Library {
         await mkdir(this.root, {recursive: true});
         await writeFile(path, `${JSON.stringify({format: LIBRARY_FORMAT})}\n`);
     }
+}
 
-    /** 清掉中途退出留下的临时目录；正在进行的导入不到 STALE_IMPORT_MS，不会被误删。 */
-    private async sweepStaleImports(): Promise<void> {
-        const now = Date.now();
-        for (const entry of await readdir(this.root, {withFileTypes: true})) {
-            if (!entry.isDirectory() || !(entry.name.startsWith(".importing-") || entry.name.startsWith(".removed-"))) continue;
-            const path = join(this.root, entry.name);
-            try {
-                if (now - (await stat(path)).mtimeMs > STALE_IMPORT_MS) await rm(path, {recursive: true, force: true});
-            } catch (error) {
-                if (systemErrorCode(error) !== "ENOENT") throw error;
-            }
-        }
+/** pinBook 固定下来的一代。 */
+export class PinnedBook {
+    readonly meta: BookMeta;
+    readonly #handle: FileHandle;
+    #released = false;
+
+    constructor(meta: BookMeta, handle: FileHandle) {
+        this.meta = meta;
+        this.#handle = handle;
+    }
+
+    /** 读这一代的数据集。导入时已整份校验过，这里不再校验。 */
+    async readDataset(): Promise<Dataset> {
+        if (this.#released) throw new Error("PinnedBook 已 release");
+        return JSON.parse(await this.#handle.readFile("utf8")) as Dataset;
+    }
+
+    async release(): Promise<void> {
+        if (this.#released) return;
+        this.#released = true;
+        await this.#handle.close();
     }
 }

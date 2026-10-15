@@ -8,11 +8,12 @@ import {watch} from "node:fs";
 import {mkdir, readdir, rm, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
-import {StoryError} from "../src/core/errors";
-import {Library} from "../src/core/library";
-import {makeSampleRoot, SAMPLE_TITLE} from "./fixtures/sample";
+import {StoryError} from "./errors";
+import {Library} from "./library";
+import {makeSampleRoot, SAMPLE_TITLE, smallDataset} from "../../testing/sample";
 
-const IMPORT_CHILD = join(import.meta.dir, "fixtures", "import-child.ts");
+const IMPORT_CHILD = join(import.meta.dir, "..", "..", "testing", "import-child.ts");
+const CHURN_CHILD = join(import.meta.dir, "..", "..", "testing", "churn-child.ts");
 const roots: string[] = [];
 
 afterEach(async () => {
@@ -35,6 +36,14 @@ async function codeOf(promise: Promise<unknown>): Promise<string> {
     throw new Error("期望失败，却成功了");
 }
 
+/** 只有前两章、book.title 改成 `title` 的小书，用来分辨读到的是哪一代。 */
+async function writeVariant(root: string, title: string): Promise<string> {
+    const dataset = await smallDataset(2, title);
+    const file = join(root, `variant-${title}.json`);
+    await writeFile(file, JSON.stringify(dataset));
+    return file;
+}
+
 function runImportChild(library: string, file: string, id: string) {
     return Bun.spawn(["bun", IMPORT_CHILD, library, file, SAMPLE_TITLE, id], {stdout: "pipe", stderr: "inherit"});
 }
@@ -49,7 +58,10 @@ describe("导入与删除", () => {
         expect(books[0]!.chapters).toBe(100);
         expect(books[0]!.paragraphs[0]).toBe(76);
         expect(books[0]!.extractedThrough).toEqual({chapter: 100, paragraph: 94});
-        expect((await lib.readDataset(books[0]!)).sources).toHaveLength(100);
+        const pinned = await lib.pinBook("fox");
+        expect(pinned.meta.generation).toBe(result.generation);
+        expect((await pinned.readDataset()).sources).toHaveLength(100);
+        await pinned.release();
     });
 
     test("不给 id 时由书名得到 id；同一书名再导入报 book_exists（F3）", async () => {
@@ -81,13 +93,49 @@ describe("导入与删除", () => {
         expect(second.generation).not.toBe(first.generation);
     });
 
-    test("读数据时这本书已换了一代，报 book_not_found 而不是读到新一代", async () => {
-        const {lib, file} = await setup("generation");
-        await lib.importBook({file, title: SAMPLE_TITLE, id: "fox"});
-        const old = await lib.readMeta("fox");
+    test("固定一代之后删除并同 id 重新导入，读到的仍是固定的那一代（时序第 2 条）", async () => {
+        const {lib, root} = await setup("generation");
+        const fileA = await writeVariant(root, "A");
+        const fileB = await writeVariant(root, "B");
+        const a = await lib.importBook({file: fileA, title: "A", id: "fox"});
+        const pinned = await lib.pinBook("fox");
         await lib.removeBook("fox");
-        await lib.importBook({file, title: SAMPLE_TITLE, id: "fox"});
-        expect(await codeOf(lib.readDataset(old))).toBe("book_not_found");
+        const b = await lib.importBook({file: fileB, title: "B", id: "fox"});
+        expect(pinned.meta.generation).toBe(a.generation);
+        expect((await pinned.readDataset()).book.title).toBe("A");
+        await pinned.release();
+        const fresh = await lib.pinBook("fox");
+        expect(fresh.meta.generation).toBe(b.generation);
+        expect((await fresh.readDataset()).book.title).toBe("B");
+        await fresh.release();
+    });
+
+    test("另一个进程反复删除并重新导入时，固定下来的信息与数据总是同一代", async () => {
+        const {lib, root, library} = await setup("generation-race");
+        const fileA = await writeVariant(root, "A");
+        const fileB = await writeVariant(root, "B");
+        await lib.importBook({file: fileA, title: "A", id: "fox"});
+        const churn = Bun.spawn(["bun", CHURN_CHILD, library, fileA, fileB, "40"], {stdout: "pipe", stderr: "inherit"});
+        let pinnedCount = 0;
+        let running = true;
+        void churn.exited.then(() => {
+            running = false;
+        });
+        while (running) {
+            let pinned;
+            try {
+                pinned = await lib.pinBook("fox");
+            } catch (error) {
+                if (error instanceof StoryError && error.code === "book_not_found") continue;
+                throw error;
+            }
+            const dataset = await pinned.readDataset();
+            await pinned.release();
+            expect(dataset.book.title).toBe(pinned.meta.title);
+            pinnedCount += 1;
+        }
+        expect(await churn.exited).toBe(0);
+        expect(pinnedCount).toBeGreaterThan(0);
     });
 
     test("省略 book：一本书时取它，没有书或多本书时报错（F2）", async () => {
@@ -127,7 +175,9 @@ describe("导入与删除", () => {
             const lib = new Library(library);
             const listed = (await lib.listBooks()).find(book => book.id === id);
             if (listed) {
-                expect((await lib.readDataset(listed)).sources).toHaveLength(100);
+                const pinned = await lib.pinBook(id);
+                expect((await pinned.readDataset()).sources).toHaveLength(100);
+                await pinned.release();
             } else {
                 caughtMidway += 1;
                 expect(await codeOf(lib.readMeta(id))).toBe("book_not_found");

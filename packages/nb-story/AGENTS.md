@@ -15,7 +15,8 @@
 ## 测试
 
 - 用 `bun test`；临时目录用 `@notnotype/neuro-book-test-support/tmp` 的 `createTestTmpRoot`。
-- 样例书是 `tests/fixtures/sample-100ch.json.gz`（来源见同目录 README），Spec 验收里的数字都按它；`tests/fixtures/sample.ts` 负责解压与建临时书库。
+- 测试与被测源码同目录（`<module>.test.ts`）；测试工具与子进程入口放 `testing/`，不含断言。
+- 样例书是 `tests/fixtures/sample-100ch.json.gz`（来源见同目录 README），Spec 验收里的数字都按它；`testing/sample.ts` 负责解压与建临时书库。
 - 并发导入、中途结束进程、服务登记这类跨进程合同用真的子进程测。
 
 ## 完成门禁
