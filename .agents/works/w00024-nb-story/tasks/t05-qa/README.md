@@ -39,5 +39,5 @@ updated: 2026-10-15
 
 ## 下一步
 
-1. 读 nb-harness 与 t34 的问答脚本（`chapters-answer.ts`、作答规则 v5），核实 nb-harness 能否单独使用。
-2. 写问答 Spec 与 `plan.md`，要点先给开发者看。
+1. 等 [w00002 t21](../../../w00002-neuro-agent-harness-redesign/tasks/t21-harness-profile-tools/README.md) 做完 nb-harness 的加强（[提案](../../../../../docs/proposals/nb-harness-profile-and-tools.md)，开发者 2026-10-15 确认要点，在 w00002 下实施）。
+2. 写问答 Spec 与 `plan.md`（单个 Agent、作答工具带程序校验与退回、`search` 按词拆开按命中排序），要点先给开发者看。
