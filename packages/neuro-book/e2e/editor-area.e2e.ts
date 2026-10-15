@@ -339,6 +339,83 @@ test("多行标签：↑/↓ 换到上下一行最近的标签；组只有 120px
     await closeAll(page);
 });
 
+test("拖动标签：组内换位置、拖到另一组的标签条、拖到正文右边拆出新组；Escape 取消；按在关闭按钮上不起拖", async ({page}) => {
+    await page.setViewportSize({width: 1440, height: 900});
+    await open(page);
+    await closeAll(page);
+    for (const name of ["a", "b", "c"]) await item(page, `project://notes/${name}.md`).dblclick();
+    const groups = page.locator("[data-editor-group]");
+    const names = (index: number) => groups.nth(index).locator("[data-editor-tab-label]").allTextContents();
+    const tab = (index: number, name: string) => groups.nth(index).locator("[data-editor-tab]").filter({hasText: name});
+    /** 按住 from 拖到 to 的某一点再松手；`before` 在松手前做（例如按 Escape）。 */
+    const drag = async (from: {x: number; y: number}, to: {x: number; y: number}, before?: () => Promise<void>) => {
+        await page.mouse.move(from.x, from.y);
+        await page.mouse.down();
+        await page.mouse.move(from.x + 10, from.y, {steps: 2});
+        await page.mouse.move(to.x, to.y, {steps: 8});
+        await expect(page.locator("[data-editor-drop]")).toHaveCount(1);
+        await before?.();
+        await page.mouse.up();
+    };
+    const center = async (locator: ReturnType<typeof tab>) => {
+        const box = await locator.boundingBox();
+        if (box === null) throw new Error("没有盒");
+        return {x: box.x + box.width / 2, y: box.y + box.height / 2, box};
+    };
+
+    // 组内：把 c 拖到 a 的左半边，排到最前。
+    const a = await center(tab(0, "a.md"));
+    await drag(await center(tab(0, "c.md")), {x: a.box.x + 4, y: a.y});
+    await expect.poll(() => names(0)).toEqual(["c.md", "a.md", "b.md"]);
+
+    // Escape：拖到别处后按 Escape，什么都不变。
+    await drag(await center(tab(0, "c.md")), {x: (await center(tab(0, "b.md"))).box.x + (await center(tab(0, "b.md"))).box.width - 4, y: a.y}, async () => {
+        await page.keyboard.press("Escape");
+        await expect(page.locator("[data-editor-drop]")).toHaveCount(0);
+    });
+    await expect.poll(() => names(0)).toEqual(["c.md", "a.md", "b.md"]);
+
+    // 拖动中结构变了（按 Ctrl+W 关掉了活动的 c.md）：整场取消，松手不写。
+    await tab(0, "c.md").click();
+    await drag(await center(tab(0, "c.md")), {x: (await center(tab(0, "b.md"))).box.x + (await center(tab(0, "b.md"))).box.width - 4, y: a.y}, async () => {
+        await page.keyboard.press("Control+w");
+        await expect(tab(0, "c.md")).toHaveCount(0);
+        await page.mouse.move(a.box.x + a.box.width - 4, a.y, {steps: 2});
+        await expect(page.locator("[data-editor-drop]")).toHaveCount(0);
+    });
+    await expect.poll(() => names(0)).toEqual(["a.md", "b.md"]);
+    await item(page, "project://notes/c.md").dblclick();
+    await tab(0, "c.md").waitFor();
+    await drag(await center(tab(0, "c.md")), {x: a.box.x + 4, y: a.y});
+    await expect.poll(() => names(0)).toEqual(["c.md", "a.md", "b.md"]);
+
+    // 按在关闭按钮上拖：不起拖，松手只是点了关闭。
+    const close = page.locator(`[data-editor-tab-close="${await tab(0, "b.md").getAttribute("data-editor-tab") ?? ""}"]`);
+    const closeBox = await close.boundingBox();
+    if (closeBox === null) throw new Error("没有关闭按钮");
+    await page.mouse.move(closeBox.x + closeBox.width / 2, closeBox.y + closeBox.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(closeBox.x - 120, closeBox.y + 4, {steps: 6});
+    await expect(page.locator("[data-editor-drop]")).toHaveCount(0);
+    await page.mouse.up();
+
+    // 拖到正文的右边：拆出新组，c 移过去。
+    const content = await groups.nth(0).locator("[data-editor-content]").boundingBox();
+    if (content === null) throw new Error("没有正文区");
+    await drag(await center(tab(0, "c.md")), {x: content.x + content.width - 10, y: content.y + content.height / 2});
+    await expect(groups).toHaveCount(2);
+    await expect.poll(() => names(1)).toEqual(["c.md"]);
+    await expect(groups.nth(1)).toHaveAttribute("data-editor-group-active", "");
+
+    // 拖到另一组的标签条末尾：a 移到右组，左组剩 b。
+    const strip = await groups.nth(1).locator("[data-editor-tabs]").boundingBox();
+    if (strip === null) throw new Error("没有标签条");
+    await drag(await center(tab(0, "a.md")), {x: strip.x + strip.width - 60, y: strip.y + 17});
+    await expect.poll(() => names(1)).toEqual(["c.md", "a.md"]);
+    await expect.poll(() => names(0)).toEqual(["b.md"]);
+    await closeAll(page);
+});
+
 test("有未保存的修改时离开页面先请求确认；保存之后不再请求", async ({page}) => {
     await open(page);
     await closeAll(page);

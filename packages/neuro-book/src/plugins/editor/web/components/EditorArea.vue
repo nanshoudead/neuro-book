@@ -1,9 +1,9 @@
 <script setup lang="ts">
 /** 编辑器区的根（同名 .md）：按 grid 排列编辑组，承载关闭询问与编辑器区内的键位。 */
-import {Button, Dialog} from "@notnotype/nb-ui/components";
+import {Button, Dialog, DropFeedbackOverlay} from "@notnotype/nb-ui/components";
 import {useGridLayout, useLayoutExtent} from "@notnotype/nb-ui/composables";
 import {GridRenderer} from "@notnotype/nb-ui/layout";
-import {computed, onBeforeUnmount, onMounted, ref, watch} from "vue";
+import {computed, onBeforeUnmount, onMounted, ref, shallowRef, watch} from "vue";
 import type {Component} from "vue";
 
 import type {DisplayLocale} from "nbook/shared/localized-text";
@@ -13,6 +13,8 @@ import type {EmptyTip} from "../empty-tips";
 import type {EditorState} from "../editor-registry";
 import type {EditorPageSource} from "../pages";
 import {editorText, nameOf} from "../messages";
+import {createTabDrag} from "../tab-drag";
+import type {TabDrag, TabDrop} from "../tab-drag";
 import EditorGroup from "./EditorGroup.vue";
 import type {EditorGroupTabMenu, EditorGroupTitleActions} from "./EditorGroup.vue";
 
@@ -68,6 +70,29 @@ const onDocumentFocusIn = (event: FocusEvent): void => {
 onMounted(() => document.addEventListener("focusin", onDocumentFocusIn));
 onBeforeUnmount(() => document.removeEventListener("focusin", onDocumentFocusIn));
 
+/**
+ * 拖动标签（输出 55）：手势与落点在 `tab-drag.ts`，这里给它结构键、画反馈、提交。结构键包括各组的标签 id、固定状态与多行
+ * 设置：起拖后它们变了，那一场拖动取消。
+ */
+const drop = shallowRef<TabDrop | null>(null);
+let tabDrag: TabDrag | null = null;
+onMounted(() => {
+    if (root.value === null) return;
+    tabDrag = createTabDrag(root.value, {
+        structure: () => JSON.stringify([props.wrapTabs ?? true, props.area.groups.groups.value.map((group) => [group.id, group.tabs.map((tab) => [tab.id, tab.kind === "file" && tab.pinned === true])])]),
+        show: (next) => {
+            drop.value = next;
+        },
+        commit: (action) => {
+            if (action.kind === "split") props.area.moveToNewGroup(action.tabId, action.group, action.edge);
+            else void props.area.moveTab(action.tabId, action.place);
+        },
+    });
+});
+onBeforeUnmount(() => tabDrag?.dispose());
+const DROP_LABELS = {"move": "dropMove", "keep": "dropKeep", "split-left": "dropSplitLeft", "split-right": "dropSplitRight", "split-top": "dropSplitTop", "split-bottom": "dropSplitBottom"} as const;
+const dropLabel = computed(() => (drop.value === null ? "" : editorText(props.locale, DROP_LABELS[drop.value.label])));
+
 const dialog = computed(() => props.area.dialog.value);
 </script>
 
@@ -110,6 +135,7 @@ const dialog = computed(() => props.area.dialog.value);
                 />
             </template>
         </GridRenderer>
+        <DropFeedbackOverlay :preview="drop?.preview ?? null" :label="dropLabel" :data-editor-drop="drop === null ? undefined : drop.label" />
         <Dialog
             :model-value="dialog !== null"
             :title="editorText(locale, 'closeTitle', {name: dialog === null ? '' : nameOf(dialog.address)})"

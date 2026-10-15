@@ -42,6 +42,8 @@ type Emits = {
 
 无 slots、无 expose；attrs 落在根元素。
 
+拖动标签（[`workbench/editor.md`](../../../../../../../docs/specs/workbench/editor.md) 输出 55）装在根上（`web/tab-drag.ts`）：按住标签主体移动起拖，落点用 nb-ui 的 `DropFeedbackOverlay` 画出（插入线，或正文区的整块与半块），带 `data-editor-drop`（落点种类）；起拖后组、标签或固定状态、多行设置变了就取消，松手时与最后显示的落点相同才交给控制器的 `moveTab`、`moveToNewGroup`。
+
 ## 布局与交互
 
 填满父级、自己不滚动，底色是面板底色 `--panel-surface`。grid 用 `useLayoutExtent` 测量承载盒、`useGridLayout` 落账，拖动分隔条落账后告诉控制器记下会话；组模型原地拆分或关闭组时重算布局。根元素记焦点进出（控制器的 `focused`，即公开键 `nbook.editor/focused`）。控制器的提示（换文档时有未裁决输入）显示在顶部，可关闭。
