@@ -5,6 +5,7 @@ import type {ContextMenuItem} from "@notnotype/nb-ui/components";
 import {computed, onBeforeUnmount, onMounted, ref, shallowRef, watch} from "vue";
 import type {Component} from "vue";
 
+import {localize} from "nbook/shared/localized-text";
 import type {DisplayLocale} from "nbook/shared/localized-text";
 import NeuroBookMark from "nbook/ui/brand/NeuroBookMark.vue";
 import TitleActions from "nbook/ui/menus/TitleActions.vue";
@@ -20,6 +21,9 @@ import type {TabMenuEntry} from "../tab-menu";
 import {pageIdOf} from "../pages";
 import type {EditorPageSource} from "../pages";
 import {editorText, nameOf} from "../messages";
+import {fileIconForName} from "nbook/ui/file-icons/file-icons";
+
+import {tabHints} from "../tab-hints";
 import EditorTabBar from "./EditorTabBar.vue";
 import type {TabItem} from "./EditorTabBar.vue";
 
@@ -36,7 +40,9 @@ const props = withDefaults(defineProps<{
     titleActions?: EditorGroupTitleActions | null;
     /** 标签的右键菜单（输出 57）；没有时右键不出菜单。 */
     tabMenu?: EditorGroupTabMenu | null;
-}>(), {pages: null, emptyTips: () => [], titleActions: null, tabMenu: null});
+    /** 多行标签（设置 `nbook.editor/wrapTabs`，输出 54）；缺省开。 */
+    wrapTabs?: boolean;
+}>(), {pages: null, emptyTips: () => [], titleActions: null, tabMenu: null, wrapTabs: true});
 
 /** 点了空态里的一条提示：交出它的命令，由宿主执行（组件不执行命令）。点了标题动作、标签菜单的一项：交出它的 key。 */
 const emit = defineEmits<{(event: "run-tip", command: string): void; (event: "title-action", key: string): void; (event: "tab-menu", tabId: string, key: string): void}>();
@@ -89,15 +95,32 @@ const file = computed(() => props.area.fileOf(props.groupId));
 const binding = computed(() => props.area.binding(props.groupId));
 const active = computed(() => props.area.groups.activeGroup.value === props.groupId);
 
-const tabs = computed((): TabItem[] => (group.value?.tabs ?? []).map((tab) => {
-    const opened = props.area.documents.get(tab.address);
-    // 页面标签（输出 33）按页面的标题显示；贡献方停了、标题取不到时显示页面 id。
-    const page = pageIdOf(tab.address);
-    // 预览视图的标题写“预览 a.html”（输出 47），与同组里这个文件的源码标签分得开。
-    const preview = tab.kind === "file" && props.area.editors.declaration(tab.editor)?.role === "preview";
-    const label = page === null ? (preview ? editorText(props.locale, "previewOf", {name: nameOf(tab.address)}) : nameOf(tab.address)) : (props.pages?.title(page, props.locale) ?? page);
-    return {id: tab.id, label, title: page === null ? tab.address : label, preview: tab.preview, dirty: opened?.dirty.value === true, active: tab.id === group.value?.active};
-}));
+const tabs = computed((): TabItem[] => {
+    const shown = (group.value?.tabs ?? []).map((tab) => {
+        // 页面标签（输出 33）按页面的标题显示；贡献方停了、标题取不到时显示页面 id。
+        const page = pageIdOf(tab.address);
+        // 预览视图的标题写“预览 a.html”（输出 47），与同组里这个文件的源码标签分得开。
+        const preview = tab.kind === "file" && props.area.editors.declaration(tab.editor)?.role === "preview";
+        const label = page === null ? (preview ? editorText(props.locale, "previewOf", {name: nameOf(tab.address)}) : nameOf(tab.address)) : (props.pages?.title(page, props.locale) ?? page);
+        return {tab, page, label};
+    });
+    // 同名提示只看文件标签（输出 56）。
+    const hints = tabHints(shown.flatMap(({tab, page, label}) => (page === null && tab.kind === "file" ? [{id: tab.id, label, address: tab.address, editor: tab.editor}] : [])), {
+        root: (scheme) => editorText(props.locale, scheme === "project" ? "rootProject" : "rootUser"),
+        editor: (id) => localize(props.area.editors.declaration(id)?.title ?? {"zh-CN": id, "en-US": id}, props.locale),
+    });
+    return shown.map(({tab, page, label}): TabItem => ({
+        id: tab.id,
+        label,
+        title: page === null ? tab.address : label,
+        preview: tab.preview,
+        dirty: props.area.documents.get(tab.address)?.dirty.value === true,
+        active: tab.id === group.value?.active,
+        pinned: tab.kind === "file" && tab.pinned === true,
+        icon: page === null ? fileIconForName(nameOf(tab.address)) : null,
+        hint: hints.get(tab.id) ?? null,
+    }));
+});
 
 type Banner = {readonly tone: "danger" | "warning" | "info"; readonly text: string; readonly actions: ReadonlyArray<{readonly id: string; readonly label: string; readonly run: () => void}>};
 
@@ -196,9 +219,13 @@ export interface EditorGroupTitleActions {
                 :tabs="tabs"
                 :label="editorText(locale, 'tabsLabel')"
                 :close-label="(name: string) => editorText(locale, 'closeTab', {name})"
+                :unpin-label="(name: string) => editorText(locale, 'unpinTab', {name})"
                 :unsaved-label="editorText(locale, 'unsaved')"
+                :wrap="wrapTabs"
+                :group-active="active"
                 @activate="(id: string) => area.activate(id)"
-                @pin="(id: string) => area.keep(id)"
+                @keep="(id: string) => area.keep(id)"
+                @unpin="(id: string) => area.setPinned(id, false)"
                 @close="(id: string) => void area.close(id)"
                 @move="(id: string, delta: -1 | 1) => area.groups.move(id, delta)"
                 @menu="openTabMenu"
@@ -229,7 +256,7 @@ export interface EditorGroupTitleActions {
             <span class="min-w-0 flex-1">{{ banner.text }}</span>
             <Button v-for="action in banner.actions" :key="action.id" size="sm" variant="secondary" :data-editor-banner-action="action.id" @click="action.run()">{{ action.label }}</Button>
         </div>
-        <div class="relative min-h-0 flex-1" :aria-busy="area.progress(groupId) ? 'true' : undefined" data-editor-content>
+        <div class="relative min-h-7 flex-1" :aria-busy="area.progress(groupId) ? 'true' : undefined" data-editor-content>
             <div v-if="activeTab === null" class="editor-group__empty" data-editor-empty>
                 <NeuroBookMark class="editor-group__mark" aria-hidden="true" />
                 <div v-if="emptyTips.length > 0" class="editor-group__tips">
@@ -276,11 +303,17 @@ export interface EditorGroupTitleActions {
 
 <style scoped>
 /* 标签条与标题动作一行：标签条占剩下的宽度、放不下时自己横向滚动，标题动作不收缩（docs/specs/workbench/editor.md 输出 34）。 */
+/*
+ * 标签条一行到三行（输出 54）：组矮的时候先收它（flex 可收缩、至少一行），正文至少留一行字的高度、提示条不收缩，标签区
+ * 在自己里面纵向滚动。底色与标签条同一档，标题动作落在最后一行的右侧。
+ */
 .editor-group__header {
     display: flex;
-    flex-shrink: 0;
+    flex: 0 1 auto;
     align-items: stretch;
-    background: var(--panel-surface);
+    min-height: 34px;
+    overflow: hidden;
+    background: var(--editor-tabs-surface);
 }
 
 .editor-group__tabs {
@@ -289,8 +322,30 @@ export interface EditorGroupTitleActions {
 }
 
 .editor-group__title-actions {
-    align-self: center;
+    align-self: flex-end;
+    height: 34px;
     padding-inline: var(--space-1) var(--space-2);
+    /* 悬停时显示（输出 58）：鼠标在组上、焦点在组里或“⋯”打开时；仍占位、仍能 Tab 到。 */
+    opacity: 0;
+    transition: opacity 100ms linear;
+}
+
+[data-editor-group]:hover .editor-group__title-actions,
+[data-editor-group]:focus-within .editor-group__title-actions,
+.editor-group__title-actions:has([aria-expanded="true"]) {
+    opacity: 1;
+}
+
+@media (hover: none) {
+    .editor-group__title-actions {
+        opacity: 1;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .editor-group__title-actions {
+        transition: none;
+    }
 }
 
 /* 空态（docs/specs/workbench/editor.md 输出 32）：正中一个淡色的图形标志，下面几行提示，说明靠右、按键或位置靠左。 */

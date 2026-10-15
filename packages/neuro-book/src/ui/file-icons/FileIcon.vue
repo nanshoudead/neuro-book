@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import {computed} from "vue";
 
-import {CATPPUCCIN_ICONS} from "../icons/catppuccin";
-import type {CatppuccinIcon} from "../icons/catppuccin";
+import {CATPPUCCIN_ICONS} from "./catppuccin";
+import type {CatppuccinIcon} from "./catppuccin";
 
 const props = defineProps<{icon: CatppuccinIcon}>();
 

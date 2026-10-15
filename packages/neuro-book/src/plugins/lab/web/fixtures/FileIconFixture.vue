@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import {CATPPUCCIN_ICONS} from "nbook/plugins/explorer/web/icons/catppuccin";
-import type {CatppuccinIcon} from "nbook/plugins/explorer/web/icons/catppuccin";
-import FileIcon from "nbook/plugins/explorer/web/components/FileIcon.vue";
+import {CATPPUCCIN_ICONS} from "nbook/ui/file-icons/catppuccin";
+import type {CatppuccinIcon} from "nbook/ui/file-icons/catppuccin";
+import FileIcon from "nbook/ui/file-icons/FileIcon.vue";
 
 import {useLabSubject, type LabFixtureProps} from "../lab-subject";
 

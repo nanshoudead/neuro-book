@@ -29,6 +29,8 @@ const props = defineProps<{
     titleActions?: EditorGroupTitleActions | null;
     /** 标签的右键菜单（输出 57），每组都用。 */
     tabMenu?: EditorGroupTabMenu | null;
+    /** 多行标签（设置 `nbook.editor/wrapTabs`，输出 54）；缺省开。 */
+    wrapTabs?: boolean;
 }>();
 const emit = defineEmits<{(event: "intent", intent: EditorIntent): void; (event: "run-tip", command: string): void; (event: "title-action", key: string): void; (event: "tab-menu", tabId: string, key: string): void}>();
 
@@ -101,6 +103,7 @@ const dialog = computed(() => props.area.dialog.value);
                     :empty-tips="emptyTips ?? []"
                     :title-actions="titleActions != null && titleActions.group === node.id ? titleActions : null"
                     :tab-menu="tabMenu ?? null"
+                    :wrap-tabs="wrapTabs ?? true"
                     @tab-menu="(tabId: string, key: string) => emit('tab-menu', tabId, key)"
                     @run-tip="(command) => emit('run-tip', command)"
                     @title-action="(key) => emit('title-action', key)"

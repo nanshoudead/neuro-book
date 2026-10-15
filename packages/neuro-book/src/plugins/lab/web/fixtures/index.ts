@@ -5,10 +5,11 @@ import type EditorArea from "nbook/plugins/editor/web/components/EditorArea.vue"
 import type HtmlPreview from "nbook/plugins/html-preview/web/components/HtmlPreview.vue";
 import type ImageViewer from "nbook/plugins/image-viewer/web/components/ImageViewer.vue";
 import type EditorTabBar from "nbook/plugins/editor/web/components/EditorTabBar.vue";
+import {fileIconForName} from "nbook/ui/file-icons/file-icons";
 import type ExplorerRow from "nbook/plugins/explorer/web/components/ExplorerRow.vue";
 import type ExplorerTree from "nbook/plugins/explorer/web/components/ExplorerTree.vue";
 import type FilesExplorerView from "nbook/plugins/explorer/web/components/FilesExplorerView.vue";
-import type FileIcon from "nbook/plugins/explorer/web/components/FileIcon.vue";
+import type FileIcon from "nbook/ui/file-icons/FileIcon.vue";
 import type BookCard from "nbook/plugins/projects/web/components/BookCard.vue";
 import type WelcomePage from "nbook/plugins/projects/web/components/WelcomePage.vue";
 import type BookCover from "nbook/plugins/projects/web/components/BookCover.vue";
@@ -651,18 +652,32 @@ export const labFixtures: LabFixture[] = [
     }),
     defineSubjectFixture<typeof EditorTabBar>({
         component: "EditorTabBar",
-        events: ["activate", "pin", "close", "move"],
+        events: ["activate", "keep", "close", "unpin", "move", "menu"],
         class: "w-full",
         scenes: (() => {
-            const tab = (id: string, label: string, extra: {preview?: boolean; dirty?: boolean; active?: boolean} = {}) => ({id, label, title: `project://chapters/${label}`, preview: extra.preview ?? false, dirty: extra.dirty ?? false, active: extra.active ?? false});
+            type Extra = {preview?: boolean; dirty?: boolean; active?: boolean; pinned?: boolean; hint?: string};
+            const tab = (id: string, label: string, extra: Extra = {}) => ({id, label, title: `project://chapters/${label}`, preview: extra.preview ?? false, dirty: extra.dirty ?? false, active: extra.active ?? false, pinned: extra.pinned ?? false, icon: fileIconForName(label), hint: extra.hint ?? null});
             const base = {label: "打开的编辑器", unsavedLabel: "未保存"};
+            const typical = [
+                tab("p1", "大纲.md", {pinned: true}),
+                tab("p2", "人物.md", {pinned: true, dirty: true}),
+                tab("t1", "第一章 雨夜.md"),
+                tab("t2", "第二章 旧城.md", {active: true, dirty: true}),
+                tab("t3", "README.md", {hint: "notes"}),
+                tab("t4", "README.md", {hint: "drafts"}),
+                tab("t5", "cover.png"),
+                tab("t6", "第三章 渡口.md", {preview: true}),
+            ];
+            const many = [tab("p1", "大纲.md", {pinned: true}), ...Array.from({length: 18}, (_, index) => tab(`t${String(index)}`, `第${String(index + 1)}章 一个相当长的章节标题.md`, {active: index === 9, dirty: index % 4 === 0}))];
             return [
-                {id: "mixed", label: "预览、未保存与活动标签", input: {props: {...base, tabs: [tab("t1", "第一章.md", {dirty: true}), tab("t2", "第二章.md", {active: true}), tab("t3", "第三章.md", {preview: true})]}}},
-                {id: "many", label: "放不下时横向滚动", input: {props: {...base, tabs: Array.from({length: 18}, (_, index) => tab(`t${String(index)}`, `第${String(index + 1)}章 一个相当长的章节标题.md`, {active: index === 9, dirty: index % 4 === 0}))}}},
+                {id: "mixed", label: "固定、未保存、同名、预览与活动标签", input: {props: {...base, tabs: typical}}},
+                {id: "many", label: "多行：固定标签单独一行，普通标签至多 3 行后滚动", input: {props: {...base, tabs: many}}},
+                {id: "single-line", label: "关掉多行：一行横向滚动", input: {props: {...base, tabs: many, wrap: false}}},
+                {id: "inactive-group", label: "不是活动组：活动标签文字为次级色", input: {props: {...base, tabs: typical, groupActive: false}}},
                 {id: "single", label: "只有一个预览标签", input: {props: {...base, tabs: [tab("t1", "第一章.md", {preview: true, active: true})]}}},
             ];
         })(),
-        runtimeProps: async () => ({closeLabel: (name: string) => `关闭 ${name}`}),
+        runtimeProps: async () => ({closeLabel: (name: string) => `关闭 ${name}`, unpinLabel: (name: string) => `取消固定 ${name}`}),
         subject: () => import("nbook/plugins/editor/web/components/EditorTabBar.vue"),
     }),
     defineSubjectFixture<typeof SkillChip>({

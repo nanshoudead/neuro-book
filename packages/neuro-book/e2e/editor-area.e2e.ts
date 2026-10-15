@@ -145,24 +145,24 @@ test("单击以预览打开、再单击替换预览、双击转正；编辑后 C
     await expect(tabs(page).first()).not.toHaveAttribute("data-editor-tab-preview", "");
     await item(page, "project://notes/a.md").click();
     await expect(labels(page)).toHaveText(["b.md", "a.md"]);
-    // 标签条与标签之间不画线，活动标签靠加粗区分；切换活动标签时各标签宽度不变（ui/workbench-shell.md 输出 38）。
+    // 标签条与标签之间不画边框线；活动标签不加粗，是与正文同色的一块；切换活动标签时各标签宽度不变（editor.md 输出 53）。
     const looks = () => page.locator("[data-editor-tabs]").evaluate((list) => {
         const wrappers = [...list.querySelectorAll("[data-editor-tab]")].map((tab) => tab.parentElement!);
         return {
             lines: [list, ...wrappers].flatMap((element) => ["top", "right", "bottom", "left"].map((side) => getComputedStyle(element).getPropertyValue(`border-${side}-width`))).filter((width) => width !== "0px"),
             weights: wrappers.map((wrapper) => getComputedStyle(wrapper).fontWeight),
+            active: wrappers.map((wrapper) => wrapper.classList.contains("is-active")),
             widths: wrappers.map((wrapper) => wrapper.getBoundingClientRect().width),
         };
     });
     const settled = await looks();
-    expect(settled).toMatchObject({lines: [], weights: ["400", "600"]});
-    // 加粗副本看不见，也不进可访问名称：标签的名字就是文件名。
+    expect(settled).toMatchObject({lines: [], weights: ["400", "400"], active: [false, true]});
     await expect(page.getByRole("tab", {name: "b.md", exact: true})).toHaveCount(1);
     await tabs(page).first().click();
-    await expect.poll(async () => (await looks()).weights).toEqual(["600", "400"]);
+    await expect.poll(async () => (await looks()).active).toEqual([true, false]);
     expect((await looks()).widths).toEqual(settled.widths);
     await tabs(page).nth(1).click();
-    await expect.poll(async () => (await looks()).weights).toEqual(["400", "600"]);
+    await expect.poll(async () => (await looks()).active).toEqual([false, true]);
 
     await atEnd(page);
     await page.keyboard.type("（续）");
@@ -242,6 +242,101 @@ test("关闭 dirty 标签先问：取消不关，不保存则丢弃；向右拆�
     await expect(prose(page)).toHaveText("第四章");
     await closeAll(page);
     await expect(page.locator("[data-editor-group]")).toHaveCount(1);
+});
+
+test("标签栏的样子：条底比正文低一档、活动标签与正文同色；开放式分隔线；关闭按钮按标签显示；标题动作悬停时显示；固定标签单独一行并随刷新保留", async ({page}) => {
+    await page.setViewportSize({width: 1440, height: 900});
+    await open(page);
+    await closeAll(page);
+    for (const name of ["a", "b", "c", "d"]) await item(page, `project://notes/${name}.md`).dblclick();
+    await expect(labels(page)).toHaveText(["a.md", "b.md", "c.md", "d.md"]);
+    const style = () => page.locator("[data-editor-group-active]").evaluate((group) => {
+        // 用同一套变量算出的参照色：组件读主题角色，这里按 editor.md 输出 53 的配方另算一遍。
+        const probe = document.createElement("div");
+        group.append(probe);
+        probe.style.background = "color-mix(in srgb, var(--panel-surface) 93%, var(--text-main))";
+        const mixed = getComputedStyle(probe).backgroundColor;
+        probe.style.background = "var(--panel-surface)";
+        const panel = getComputedStyle(probe).backgroundColor;
+        probe.remove();
+        const strip = group.querySelector("[data-editor-tabs]")!;
+        const frames = [...strip.querySelectorAll("[data-editor-tab]")].map((tab) => tab.parentElement!);
+        const separator = (frame: Element) => {
+            const before = getComputedStyle(frame, "::before");
+            return {width: before.width, opacity: before.opacity, top: Math.round(Number.parseFloat(before.top) / frame.getBoundingClientRect().height * 100)};
+        };
+        const reveal = (frame: Element) => getComputedStyle(frame.querySelector(".editor-tab__reveal")!).visibility;
+        return {
+            strip: getComputedStyle(strip).backgroundColor === mixed,
+            activeBlock: getComputedStyle(frames[3]!).backgroundColor === panel,
+            inactive: getComputedStyle(frames[1]!).backgroundColor,
+            separators: frames.slice(1).map(separator),
+            closes: frames.map(reveal),
+            actions: getComputedStyle(group.querySelector("[data-editor-title-actions]")!).opacity,
+        };
+    });
+    await page.locator("[data-editor-group-active] [data-editor-content]").hover();
+    const shown = await style();
+    expect(shown).toMatchObject({strip: true, activeBlock: true, inactive: "rgba(0, 0, 0, 0)"});
+    // b、c 前的线画着（上下各空 25%），活动的 d 前面不画。
+    expect(shown.separators).toEqual([{width: "1px", opacity: "1", top: 25}, {width: "1px", opacity: "1", top: 25}, {width: "1px", opacity: "0", top: 25}]);
+    expect(shown.closes).toEqual(["hidden", "hidden", "hidden", "visible"]);
+    await expect.poll(async () => (await style()).actions).toBe("1");
+    await page.locator("[data-editor-tab]").filter({hasText: "b.md"}).hover();
+    await expect.poll(async () => (await style()).closes).toEqual(["hidden", "visible", "hidden", "visible"]);
+    // 鼠标离开编辑组、焦点也不在组里：标题动作透明（仍占位）。
+    await item(page, "project://notes").hover();
+    await page.locator("[data-explorer-row=\"project://notes\"]").focus();
+    await expect.poll(async () => (await style()).actions).toBe("0");
+
+    // 固定：右键 c 选“固定”，c 排到单独的第一行；刷新后仍在那一行。
+    await page.locator("[data-editor-tab]").filter({hasText: "c.md"}).click({button: "right"});
+    await page.getByRole("menu").getByRole("menuitem", {name: "固定", exact: true}).click();
+    const rows = () => page.locator("[data-editor-group-active] [data-row]").evaluateAll((nodes) => nodes.map((row) => [row.getAttribute("data-row"), [...row.querySelectorAll("[data-editor-tab-label]")].map((label) => label.textContent)]));
+    await expect.poll(rows).toEqual([["pinned", ["c.md"]], ["normal", ["a.md", "b.md", "d.md"]]]);
+    await page.reload();
+    await expect(page.locator("[data-workbench-root]")).toHaveAttribute("data-rpc-state", "online");
+    await expect.poll(rows).toEqual([["pinned", ["c.md"]], ["normal", ["a.md", "b.md", "d.md"]]]);
+    await page.locator("[data-editor-tab-unpin]").click();
+    await expect.poll(rows).toEqual([["normal", ["c.md", "a.md", "b.md", "d.md"]]]);
+    await closeAll(page);
+});
+
+test("多行标签：↑/↓ 换到上下一行最近的标签；组只有 120px 高时标签区让出高度，正文仍有一行、标题动作可点", async ({page}) => {
+    await page.setViewportSize({width: 1000, height: 560});
+    await open(page);
+    await closeAll(page);
+    for (const name of ["a", "b", "c", "d", "e", "h", "i", "u", "v", "w"]) await item(page, `project://notes/${name}.md`).dblclick();
+    const strip = page.locator("[data-editor-group-active] [data-editor-tabs]");
+    const geometry = () => strip.evaluate((element) => [...element.querySelectorAll("[data-editor-tab]")].map((tab) => ({name: tab.textContent?.trim() ?? "", top: Math.round(tab.getBoundingClientRect().top), active: tab.getAttribute("aria-selected") === "true"})));
+    await expect.poll(async () => new Set((await geometry()).map((tab) => tab.top)).size).toBeGreaterThan(1);
+    const activeTop = async () => (await geometry()).find((tab) => tab.active)?.top ?? -1;
+    const last = await activeTop();
+    await page.locator("[data-editor-group-active] [data-editor-tab][aria-selected=\"true\"]").focus();
+    await page.keyboard.press("ArrowUp");
+    await expect.poll(activeTop).toBeLessThan(last);
+    await page.keyboard.press("ArrowDown");
+    await expect.poll(activeTop).toBe(last);
+
+    // 一直向下拆分到组的最小高度（120px）：标签区让出高度，正文至少留一行，标题动作仍在组里。
+    for (let index = 0; index < 3; index += 1) {
+        const count = await page.locator("[data-editor-group]").count();
+        await page.locator("[data-editor-group-active] [data-editor-tab][aria-selected=\"true\"]").click({button: "right"});
+        await page.getByRole("menu").getByRole("menuitem", {name: "向下拆分", exact: true}).click();
+        await expect(page.locator("[data-editor-group]")).toHaveCount(count + 1);
+    }
+    const group = page.locator("[data-editor-group-active]");
+    await expect.poll(() => group.evaluate((element) => Math.round(element.getBoundingClientRect().height))).toBeLessThanOrEqual(121);
+    for (const name of ["a", "b", "c", "d", "e", "h", "i", "u"]) await item(page, `project://notes/${name}.md`).dblclick();
+    const room = await group.evaluate((element) => {
+        const box = element.getBoundingClientRect();
+        const content = element.querySelector("[data-editor-content]")!.getBoundingClientRect();
+        const actions = element.querySelector("[data-editor-title-actions]")?.getBoundingClientRect();
+        return {content: content.height, inside: actions === undefined || (actions.top >= box.top - 0.5 && actions.bottom <= box.bottom + 0.5)};
+    });
+    expect(room.content).toBeGreaterThanOrEqual(28);
+    expect(room.inside).toBe(true);
+    await closeAll(page);
 });
 
 test("有未保存的修改时离开页面先请求确认；保存之后不再请求", async ({page}) => {
@@ -477,13 +572,14 @@ test("Markdown 的撤销历史属于各组：拆分之后原组仍能撤销拆�
     // 拆分后新组是活动组、焦点在它里面：原组重挂不把焦点与活动组抢回去。
     await expect(page.locator("[data-editor-group]").nth(1)).toHaveAttribute("data-editor-group-active", "");
     await expect.poll(() => page.evaluate(() => document.activeElement?.closest("[data-editor-group]")?.getAttribute("data-editor-group-active"))).toBe("");
-    // 窄组里标签放不下：新打开的标签滚到完整可见。
+    // 窄组里标签放不下：多行时换行（输出 54），新打开的标签在标签区里完整可见。
     for (const name of ["a.md", "b.md", "c.md", "d.md", "e.md", "v.md", "w.md"]) await item(page, `project://notes/${name}`).dblclick();
     const strip = page.locator("[data-editor-group-active] [data-editor-tabs]");
     await expect.poll(() => strip.evaluate((element) => {
         const active = element.querySelector("[data-editor-tab][aria-selected=\"true\"]")?.parentElement?.getBoundingClientRect();
         const view = element.getBoundingClientRect();
-        return active !== undefined && active.left >= view.left - 0.5 && active.right <= view.right + 0.5 && element.scrollWidth > element.clientWidth;
+        const rows = new Set([...element.querySelectorAll("[data-editor-tab]")].map((tab) => Math.round(tab.getBoundingClientRect().top))).size;
+        return active !== undefined && active.left >= view.left - 0.5 && active.right <= view.right + 0.5 && active.top >= view.top - 0.5 && active.bottom <= view.bottom + 0.5 && rows > 1;
     })).toBe(true);
     await page.locator("[data-editor-group-active] [data-editor-tab]", {hasText: "u.md"}).click();
     await atEnd(page, left);

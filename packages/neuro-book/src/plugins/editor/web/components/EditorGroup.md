@@ -25,6 +25,8 @@ type Props = {
     titleActions?: {group: string; model: (maxButtons: number) => TitleActionsModel; identity: string} | null;
     /** 标签的右键菜单（输出 57，`web/tab-menu.ts` 算好）：按标签 id 给出菜单项与菜单身份；缺省 null，右键不出菜单。 */
     tabMenu?: {entries: (tabId: string) => ReadonlyArray<TabMenuEntry> | null; identity: (tabId: string) => string | null} | null;
+    /** 多行标签（输出 54），交给 `EditorTabBar`；缺省 true。 */
+    wrapTabs?: boolean;
 };
 
 type Emits = {
@@ -43,7 +45,7 @@ type Emits = {
 
 ## 布局与状态
 
-底色是面板底色 `--panel-surface`（纸面，与外壳同一块面）。纵向：标签条一行（`EditorTabBar` 占剩下的宽度、放不下时自己横向滚动；拿到 `titleActions` 时右侧是共享组件 [`TitleActions`](../../../../ui/menus/TitleActions.md)，不随标签滚动、不收缩；这一行的宽度用 `ResizeObserver` 量，按它决定放几个按钮：至多 4 个，给标签条至少留一个截断标签的宽度，放不下一个按钮时只剩“⋯”）、2px 的进度条位（活动文档 800 ms 后仍在读取时出现一条往复的细条，取强调色 `--accent-main`，减少动效时为静止的整条；细条只是装饰，同时给读屏一条“正在读取”的状态并把内容区标为 `aria-busy`）、状态条、内容区。内容区：
+底色是面板底色 `--panel-surface`（纸面，与外壳同一块面）。纵向：标签区（底色是主题角色 `--editor-tabs-surface`，比正文低一档；`EditorTabBar` 占剩下的宽度，一到三行，组矮的时候先收它、至少留一行，正文至少留一行字的高度；拿到 `titleActions` 时右侧是共享组件 [`TitleActions`](../../../../ui/menus/TitleActions.md)，落在最后一行的右侧，不随标签滚动、不收缩，只在鼠标位于组上、焦点在组里或“⋯”打开时显示，其余时候透明但占位，不能悬停的设备一直显示；这一行的宽度用 `ResizeObserver` 量，按它决定放几个按钮：至多 4 个，给标签条至少留一个截断标签的宽度，放不下一个按钮时只剩“⋯”）、2px 的进度条位（活动文档 800 ms 后仍在读取时出现一条往复的细条，取强调色 `--accent-main`，减少动效时为静止的整条；细条只是装饰，同时给读屏一条“正在读取”的状态并把内容区标为 `aria-busy`）、状态条、内容区。内容区：
 
 - 没有标签：内容区正中是淡色的图形标志（`NeuroBookMark`，132px，组很矮时缩小）与 `emptyTips` 给的几行提示，两列对齐：说明靠右，快捷键（nb-ui `Kbd`）或入口位置靠左。每行是一个原生按钮，点了发 `run-tip`。它是两列对齐的列表行（像资源管理器的行），不是按钮控件：nb-ui `Button` 自带的固定高度、内边距与 inline-flex 装不进跨两列的 subgrid 行，所以不用它；焦点用全局焦点环，悬停是 `--bg-hover`（[`workbench/editor.md`](../../../../../../../docs/specs/workbench/editor.md) 输出 32）。
 - 打开失败：原因与“重试”（`role="alert"`）；不是 UTF-8 文本时只有原因，没有重试（[`workbench/editor.md`](../../../../../../../docs/specs/workbench/editor.md) 输出 37）。

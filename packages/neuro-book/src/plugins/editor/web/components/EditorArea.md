@@ -24,6 +24,8 @@ type Props = {
     titleActions?: {group: string; model: (maxButtons: number) => TitleActionsModel; identity: string} | null;
     /** 标签的右键菜单（输出 57，`web/tab-menu.ts` 算好），原样交给每个编辑组；缺省 null。 */
     tabMenu?: {entries: (tabId: string) => ReadonlyArray<TabMenuEntry> | null; identity: (tabId: string) => string | null} | null;
+    /** 多行标签（设置 `nbook.editor/wrapTabs`，输出 54），原样交给每个编辑组；缺省 true。 */
+    wrapTabs?: boolean;
 };
 
 type Emits = {
