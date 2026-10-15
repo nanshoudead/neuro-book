@@ -29,6 +29,10 @@ updated: 2026-10-15
 6. **Spec 假设**：会话里列的八条（防剧透、两种做法、挑章工具、答案格式、模型与密钥、过程与记录、回归门槛、Skill 不变）开发者确认“没有要改的”。
 7. **前端组件**：对话、输入这类 Agent 组件用 w00019 在 Lab 里打磨过的那一套（现在在 `packages/neuro-book-legacy/app/components/agent/`），nb-story 与 NeuroBook 共用。
 8. **先优化 nb-harness**：动 nb-story 之前，先看问答 Agent 要哪些能力、工具，要不要 TSX Profile，nb-harness 在这个场景好不好用。
+9. **工具由 Profile 选（修订第 5 条）**：开发者看过分析后改定：nb-harness 可以有内置工具，用哪些由 Profile 决定；nb-harness 强制使用 Profile，nb-story 的问答也写 Profile。
+10. **不加步数上限**：现在的模型很少失控，保持现状；以后有需要再在 nb-harness 里做失控保护。
+11. **nb-harness 加单次请求**（不带工具的一次调用）。
+12. **前端组件以后再议**：t05 先做 `nbstory ask`，网页问答页与对话组件的去处后续再讨论。
 
 ## 下一步
 
