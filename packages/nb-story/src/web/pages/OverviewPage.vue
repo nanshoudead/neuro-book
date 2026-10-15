@@ -174,6 +174,9 @@ function signed(value: number | null): string {
 }
 .entry {
     color: inherit;
+    text-decoration: underline;
+    text-decoration-color: var(--divider);
+    text-underline-offset: 3px;
 }
 .entry:hover {
     color: var(--accent-text);

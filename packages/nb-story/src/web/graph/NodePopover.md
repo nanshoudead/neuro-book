@@ -22,6 +22,8 @@ defineProps<{
     detail?: string | null;
     /** 主按钮文字。必填。 */
     action: string;
+    /** 右侧抽屉里已经开着它：主按钮写“已在右侧打开”并禁用；缺省 false。 */
+    opened?: boolean;
     /** 现在是否“只看周边”。必填。 */
     neighborhood: boolean;
 }>();

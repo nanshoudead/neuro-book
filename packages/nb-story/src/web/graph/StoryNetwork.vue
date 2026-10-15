@@ -425,8 +425,13 @@ function render(how: "fresh" | "continue" | "keep" = "fresh"): void {
     if (previous === null) applyLayout(graph, true);
     else {
         const complete = placeFrom(graph, previous);
-        if (how === "keep" && complete) for (const [node, position] of previous) if (graph.hasNode(node)) graph.setNodeAttribute(node, "labelSide", position.side);
-        else applyLayout(graph, false);
+        if (how === "keep" && complete) {
+            for (const [node, position] of previous) {
+                if (graph.hasNode(node)) graph.setNodeAttribute(node, "labelSide", position.side);
+            }
+        } else {
+            applyLayout(graph, false);
+        }
     }
     const drawLabel = labelDrawer(theme);
     const drawHover = hoverDrawer(theme);
@@ -548,25 +553,42 @@ function bindEvents(instance: Sigma, target: Graph): void {
     });
 }
 
-/** 选中的点在画布上的位置（相对画布左上角），给浮出的小卡片定位；点被隐藏或没有选中时为 null。 */
-const anchor = ref<{x: number; y: number; left: boolean} | null>(null);
+/**
+ * 小卡片左上角在画布里的位置；没有选中、点被隐藏或点移出画布时为 null。卡片先放在点的右边，放不下放左边，再上下
+ * 左右夹在画布内（留 8 像素），不压到画布外的筛选条与顶栏。卡片尺寸量渲染出来的元素，第一次还没渲染时按 240×90 估。
+ */
+const anchor = ref<{x: number; y: number} | null>(null);
+const card = ref<HTMLElement | null>(null);
+const CARD_GAP = 16;
+const EDGE = 8;
 function updateAnchor(): void {
     const selected = focus?.selected ?? null;
-    if (sigma === null || graph === null || selected === null || !graph.hasNode(selected)) {
+    if (sigma === null || graph === null || host.value === null || selected === null || !graph.hasNode(selected)) {
         if (anchor.value !== null) anchor.value = null;
         return;
     }
     const data = sigma.getNodeDisplayData(selected);
-    if (data === undefined || data.hidden) {
+    const width = host.value.clientWidth;
+    const height = host.value.clientHeight;
+    const point = data === undefined || data.hidden ? null : sigma.framedGraphToViewport(data);
+    if (point === null || point.x < 0 || point.y < 0 || point.x > width || point.y > height) {
         anchor.value = null;
         return;
     }
-    const point = sigma.framedGraphToViewport(data);
-    // 点在右侧时卡片放到点的左边，免得出画布。
-    anchor.value = {x: point.x, y: point.y, left: point.x > (host.value?.clientWidth ?? 0) - 300};
+    const cardWidth = card.value?.offsetWidth ?? 240;
+    const cardHeight = card.value?.offsetHeight ?? 90;
+    const right = point.x + CARD_GAP;
+    const x = right + cardWidth <= width - EDGE ? right : point.x - CARD_GAP - cardWidth;
+    anchor.value = {
+        x: Math.min(Math.max(EDGE, x), Math.max(EDGE, width - cardWidth - EDGE)),
+        y: Math.min(Math.max(EDGE, point.y - cardHeight / 2), Math.max(EDGE, height - cardHeight - EDGE)),
+    };
 }
 function onKey(event: KeyboardEvent): void {
     if (event.key !== "Escape" || focus === null || focus.selected === null || sigma === null) return;
+    // 在输入框里按 Escape 是给输入框的（例如清空搜索），不取消图上的选中。
+    const target = event.target as HTMLElement | null;
+    if (target !== null && (target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName))) return;
     focus.selected = null;
     sigma.refresh({skipIndexation: true});
     leaveNeighborhood();
@@ -679,6 +701,8 @@ watch(() => props.neighborhood, (value) => {
     else leaveNeighborhood();
 });
 watch(() => props.query, applyQuery);
+// 卡片第一次渲染出来后才量得到尺寸：按实际尺寸重新夹一次。
+watch(card, () => updateAnchor());
 window.addEventListener("keydown", onKey);
 onBeforeUnmount(() => { observer?.disconnect(); if (resizeTimer !== null) clearTimeout(resizeTimer); window.removeEventListener("keydown", onKey); stopAnimation?.(); sigma?.kill(); });
 </script>
@@ -686,7 +710,7 @@ onBeforeUnmount(() => { observer?.disconnect(); if (resizeTimer !== null) clearT
 <template>
     <div ref="root" class="story-graph" :style="{'--know-color': themeReady > 0 && theme ? fixedColors(theme).know : 'transparent'}">
         <div ref="host" class="canvas" />
-        <div v-if="anchor && $slots.selected" class="node-card" :class="anchor.left ? 'is-left' : ''" :style="{left: `${anchor.x}px`, top: `${anchor.y}px`}" data-testid="node-card">
+        <div v-if="anchor && $slots.selected" ref="card" class="node-card" :style="{left: `${anchor.x}px`, top: `${anchor.y}px`}" data-testid="node-card">
             <slot name="selected" />
         </div>
         <div v-if="!compact && themeReady > 0" class="legend">
@@ -708,8 +732,7 @@ onBeforeUnmount(() => { observer?.disconnect(); if (resizeTimer !== null) clearT
 
 <style scoped>
 .story-graph { position: relative; width: 100%; height: 100%; background: var(--panel-surface); user-select: none; }
-.node-card { position: absolute; z-index: 3; transform: translate(16px, -50%); }
-.node-card.is-left { transform: translate(calc(-100% - 16px), -50%); }
+.node-card { position: absolute; z-index: 3; max-width: calc(100% - 16px); }
 .canvas { position: absolute; inset: 0; }
 .legend { position: absolute; left: 10px; bottom: 8px; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; padding: 3px 8px; border-radius: 6px; background: color-mix(in srgb, var(--panel-surface) 88%, transparent); color: var(--text-secondary); font-size: var(--text-2xs); pointer-events: none; }
 .legend span { display: inline-flex; align-items: center; gap: 4px; }

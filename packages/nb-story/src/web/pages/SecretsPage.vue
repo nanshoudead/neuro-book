@@ -17,8 +17,6 @@ import StateBadge from "../parts/StateBadge.vue";
 const book = useBook();
 const matrix = useStoryQuery("secrets.matrix", () => ({}));
 const LEGEND: Awareness[] = ["knows", "read", "believes", "heard", "suspects", "unaware", "no-record"];
-/** “怎么知道的”写得长的（整句描述）在格里只留前面一截，悬停看全文。 */
-const HOW_LIMIT = 10;
 
 const highlight = ref<string | null>(book.takeJump("secret"));
 function chapterOf(ref: string): string {
@@ -58,14 +56,14 @@ onMounted(() => void scrollToHighlight());
                         <tr v-for="row in matrix.data.value.rows" :key="row.id" :data-secret="row.id" :class="highlight === row.id ? 'is-highlight' : ''">
                             <td class="min-w-[200px]">
                                 <div>{{ row.title }}</div>
-                                <div class="text-[length:var(--text-2xs)] text-[var(--text-muted)]" data-testid="secret-revealed">{{ row.revealedAt ? `第 ${chapterOf(row.revealedAt)} 章读者知道` : "读者还不知道" }}</div>
+                                <div class="text-[length:var(--text-2xs)] text-[var(--text-secondary)]" data-testid="secret-revealed">{{ row.revealedAt ? `第 ${chapterOf(row.revealedAt)} 章读者知道` : "读者还不知道" }}</div>
                             </td>
                             <td v-for="cell in row.cells" :key="cell.column" :data-column="cell.column">
                                 <div v-if="cell.state === 'no-record'" class="text-[var(--text-muted)]">·</div>
                                 <div v-else class="flex flex-col items-start gap-0.5">
                                     <StateBadge :state="cell.state" />
                                     <span class="how">
-                                        <span v-if="cell.how" :title="cell.how">{{ cell.how.length > HOW_LIMIT ? `${cell.how.slice(0, HOW_LIMIT)}…` : cell.how }}</span>
+                                        <span v-if="cell.how" class="how-text" :title="cell.how">{{ cell.how }}</span>
                                         <RefLink v-if="cell.ref" :ref-text="cell.ref" />
                                     </span>
                                 </div>
@@ -93,6 +91,14 @@ onMounted(() => void scrollToHighlight());
     font-size: var(--text-2xs);
     font-weight: normal;
     color: var(--text-muted);
+}
+.how-text {
+    /* “怎么知道的”可能是一整句：最多两行，其余省略，全文在 title 里 */
+    display: -webkit-box;
+    max-width: 12em;
+    overflow: hidden;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
 }
 .how {
     display: inline-flex;

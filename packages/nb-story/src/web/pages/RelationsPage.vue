@@ -45,6 +45,12 @@ const pinned = computed(() => (graph.data.value?.nodes ?? []).filter(node => nod
 // 选中的点：打开页面时沿用抽屉里正开着的对象。
 const selected = ref<string | null>(book.drawer.value?.kind === "card" ? book.drawer.value.entity : book.drawer.value?.kind === "node" ? book.drawer.value.id : null);
 const selectedNode = computed(() => (selected.value === null ? null : (graph.data.value?.nodes.find(node => node.id === selected.value) ?? null)));
+// 小卡片只在用户点了这个点之后弹出：进页面时沿用抽屉里的对象只高亮，不和抽屉重复。
+const popoverFor = ref<string | null>(null);
+const openedInDrawer = computed(() => {
+    const drawer = book.drawer.value;
+    return selected.value !== null && ((drawer?.kind === "card" && drawer.entity === selected.value) || (drawer?.kind === "node" && drawer.id === selected.value));
+});
 const KIND_LABEL: Record<string, string> = {person: "人物", persona: "身份", group: "组织", item: "物品", place: "地点", concept: "概念", task: "任务", other: "其他"};
 const isPerson = (kind: string) => kind === "person" || kind === "persona";
 
@@ -71,6 +77,7 @@ function open(id: string): void {
 }
 function onSelect(id: string): void {
     selected.value = id;
+    popoverFor.value = id;
     // 抽屉开着时跟着换；关着时只选中，等用户在小卡片上点打开。
     if (book.drawer.value !== null) open(id);
 }
@@ -117,10 +124,10 @@ function onSelect(id: string): void {
                 v-if="graph.data.value" mode="relation" :nodes="nodes" :edges="edges" :layers="shownLayers" :min-co="minTogether" :layout="layout" :relayout-key="relayoutKey"
                 :neighborhood="neighborhood" :query="search" :pinned="pinned" :selected="selected" @select="onSelect" @clear="selected = null"
             >
-                <template v-if="selectedNode" #selected>
+                <template v-if="selectedNode && popoverFor === selectedNode.id" #selected>
                     <NodePopover
                         :label="selectedNode.label" :kind="KIND_LABEL[selectedNode.kind] ?? selectedNode.kind" :detail="`出场 ${selectedNode.mentions} 次`"
-                        :action="isPerson(selectedNode.kind) ? '打开人物卡' : '连线说明'" :neighborhood="neighborhood"
+                        :action="isPerson(selectedNode.kind) ? '打开人物卡' : '连线说明'" :opened="openedInDrawer" :neighborhood="neighborhood"
                         @open="open(selectedNode.id)" @neighborhood="(value: boolean) => (neighborhood = value)" @close="selected = null"
                     />
                 </template>

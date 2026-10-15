@@ -56,8 +56,8 @@ watch([() => list.items.value, pendingJump, () => list.loading.value], async () 
         <div class="flex min-h-0 flex-1" :class="side ? 'flex-row' : 'flex-col'">
             <aside class="arcs shrink-0 border-[var(--divider)] p-2" :class="side ? 'w-[240px] overflow-y-auto border-r' : 'flex gap-1 overflow-x-auto border-b'" aria-label="主线">
                 <h2 v-if="side" class="mb-1 text-[length:var(--text-sm)] font-[var(--weight-strong)]">主线 <span class="text-[length:var(--text-2xs)] font-normal text-[var(--text-muted)]">归纳到第 {{ arcs.data.value?.through ?? "—" }} 章</span></h2>
-                <button type="button" class="arc" :class="arc === null ? 'is-active' : ''" @click="arc = null">全部情节</button>
-                <button v-for="item in arcs.data.value?.arcs ?? []" :key="item.id" type="button" class="arc" :class="arc === item.id ? 'is-active' : ''" :title="item.summary" @click="arc = item.id">
+                <button type="button" class="arc" :class="arc === null ? 'is-active' : ''" :aria-pressed="arc === null" @click="arc = null">全部情节</button>
+                <button v-for="item in arcs.data.value?.arcs ?? []" :key="item.id" type="button" class="arc" :class="arc === item.id ? 'is-active' : ''" :aria-pressed="arc === item.id" :title="item.summary" @click="arc = item.id">
                     {{ item.title }} <span class="text-[length:var(--text-2xs)] text-[var(--text-muted)]">{{ item.episodes.length }}</span>
                 </button>
                 <PageState :loading="arcs.loading.value && !arcs.data.value" :error="arcs.error.value?.message ?? null" @retry="arcs.reload()" />
@@ -69,7 +69,7 @@ watch([() => list.items.value, pendingJump, () => list.loading.value], async () 
                         <template #item="{item, index}">
                             <h3 v-if="index === 0 || list.items.value[index - 1]!.chapter !== item.chapter" class="chapter-head">第 {{ item.chapter }} 章</h3>
                             <article class="episode" :data-episode="item.id">
-                                <button type="button" class="flex w-full flex-wrap items-baseline gap-x-2 text-left" @click="toggle(item.id)">
+                                <button type="button" class="flex w-full flex-wrap items-baseline gap-x-2 text-left" :aria-expanded="expanded.has(item.id)" @click="toggle(item.id)">
                                     <b class="min-w-0 flex-1">{{ item.title }}</b>
                                     <span v-if="item.time || item.place" class="text-[length:var(--text-2xs)] text-[var(--text-secondary)]" data-testid="episode-when">
                                         <template v-if="item.time"><span class="i-lucide-clock align-[-1px]" /> {{ item.time.label }}</template>

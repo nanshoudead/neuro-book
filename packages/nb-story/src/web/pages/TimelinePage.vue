@@ -99,7 +99,7 @@ const days = computed(() => Math.max(0, ...(timeline.data.value?.points ?? []).m
     flex-shrink: 0;
     width: 4rem;
     font-size: var(--text-xs);
-    color: var(--text-muted);
+    color: var(--text-secondary);
 }
 .episode {
     font-size: var(--text-xs);

@@ -23,8 +23,9 @@ function shade(count: number): string {
     <div class="heatmap" :style="{gridTemplateColumns: `7em repeat(${total}, minmax(0, 1fr))`}" role="table" aria-label="主要人物逐章出场">
         <template v-for="person in cast" :key="person.id">
             <div class="name" role="rowheader"><NameLink :id="person.id" :label="person.label" /></div>
+            <!-- 格子不进 Tab 顺序：12 人乘上百章会有上千个停靠点；键盘用户从原文页的目录选章 -->
             <button
-                v-for="(count, index) in person.counts" :key="index" type="button" class="cell" :style="{background: shade(count)}"
+                v-for="(count, index) in person.counts" :key="index" type="button" tabindex="-1" class="cell" :style="{background: shade(count)}"
                 :title="`${person.label}：第 ${index + 1} 章出场 ${count} 次`" :aria-label="`${person.label} 第 ${index + 1} 章 ${count} 次`" @click="emit('select', index + 1)"
             />
             <div v-for="index in total - person.counts.length" :key="`unread-${index}`" class="cell is-unread" />

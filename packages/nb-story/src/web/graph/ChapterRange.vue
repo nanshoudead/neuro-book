@@ -17,6 +17,19 @@ const width = computed(() => ((props.range.end - props.range.start) / (full.valu
 const label = computed(() => `第 ${Math.max(1, Math.round(props.range.start + 0.5))} 到 ${Math.min(props.chapters, Math.round(props.range.end - 0.5))} 章`);
 
 /** 按拖动的部位改范围：move 平移，start、end 只动一端；不越出全书，也不小于 minSpan。 */
+/** 键盘：左右方向键平移 1 章，按住 Shift 平移 5 章；Home、End 到两头。 */
+function onKey(event: KeyboardEvent): void {
+    const span = props.range.end - props.range.start;
+    let start: number;
+    if (event.key === "ArrowLeft" || event.key === "ArrowRight") start = props.range.start + (event.key === "ArrowLeft" ? -1 : 1) * (event.shiftKey ? 5 : 1);
+    else if (event.key === "Home") start = full.value.start;
+    else if (event.key === "End") start = full.value.end - span;
+    else return;
+    event.preventDefault();
+    start = Math.min(Math.max(full.value.start, start), full.value.end - span);
+    emit("update:range", {start, end: start + span});
+}
+
 function drag(event: PointerEvent, part: "move" | "start" | "end"): void {
     const element = track.value;
     if (element === null) return;
@@ -52,7 +65,10 @@ function drag(event: PointerEvent, part: "move" | "start" | "end"): void {
     <div class="chapter-range" data-testid="chapter-range">
         <span class="edge-label">1</span>
         <div ref="track" class="track">
-            <div class="thumb" :style="{left: `${left}%`, width: `${width}%`}" :title="label" data-testid="chapter-range-thumb" @pointerdown="drag($event, 'move')">
+            <div
+                class="thumb" role="slider" tabindex="0" aria-label="看着的章节范围（方向键平移）" :aria-valuemin="1" :aria-valuemax="chapters" :aria-valuenow="Math.round(range.start + 0.5)" :aria-valuetext="label"
+                :style="{left: `${left}%`, width: `${width}%`}" :title="label" data-testid="chapter-range-thumb" @pointerdown="drag($event, 'move')" @keydown="onKey"
+            >
                 <span class="handle is-start" aria-label="改起点" @pointerdown.stop="drag($event, 'start')" />
                 <span class="handle is-end" aria-label="改终点" @pointerdown.stop="drag($event, 'end')" />
             </div>
@@ -68,7 +84,7 @@ function drag(event: PointerEvent, part: "move" | "start" | "end"): void {
     align-items: center;
     gap: 6px;
     font-size: var(--text-2xs);
-    color: var(--text-muted);
+    color: var(--text-secondary);
     user-select: none;
 }
 .track {
@@ -82,7 +98,8 @@ function drag(event: PointerEvent, part: "move" | "start" | "end"): void {
     position: absolute;
     top: 0;
     bottom: 0;
-    min-width: 8px;
+    /* 最窄时两端的拖动区各占 6 像素，中间至少留 12 像素给平移 */
+    min-width: 24px;
     border: 1px solid var(--border-accent, var(--accent-main));
     border-radius: 4px;
     background: var(--accent-bg);
@@ -100,6 +117,10 @@ function drag(event: PointerEvent, part: "move" | "start" | "end"): void {
 }
 .handle.is-end {
     right: -3px;
+}
+.thumb:focus-visible {
+    outline: 2px solid var(--accent-main);
+    outline-offset: 1px;
 }
 .range-label {
     min-width: 8em;

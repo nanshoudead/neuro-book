@@ -179,12 +179,14 @@ watch(notice, value => {
                 <template v-if="tier === 'phone'">
                     <SearchBox class="ml-auto" compact />
                     <Dropdown :items="themeItems" compact align="end" @select="setTheme"><IconButton size="sm" :icon-class="themeIcon" aria-label="明暗" data-testid="theme-menu" /></Dropdown>
+                    <IconButton size="sm" icon-class="i-lucide-panel-bottom-open" aria-label="打开详情面板" :disabled="!drawerOpen && !book.lastDrawer.value" @click="toggleDrawer" />
                 </template>
             </div>
             <ReadingControl :class="tier === 'phone' ? 'w-full' : 'shrink-0'" :at="book.at.value" :paragraphs="book.info.paragraphs" :end="book.info.extractedThrough.chapter" :at-end="book.atEnd.value" :compact="tier !== 'wide'" @update:at="book.setAt" />
             <div v-if="tier !== 'phone'" class="ml-auto flex min-w-0 items-center gap-1">
                 <SearchBox :compact="tier === 'tablet'" />
-                <span v-if="book.saveFailed.value" class="save-failed whitespace-nowrap" role="status" data-testid="save-failed"><span class="i-lucide-triangle-alert" />阅读位置没存上</span>
+                <!-- 平板放不下整句：只留图标，文字给悬停与读屏（审查 F03：整句会把右侧栏开关挤出屏外） -->
+                <span v-if="book.saveFailed.value" class="save-failed whitespace-nowrap" role="status" title="阅读位置没存上" aria-label="阅读位置没存上" data-testid="save-failed"><span class="i-lucide-triangle-alert" /><span v-if="tier === 'wide'">阅读位置没存上</span></span>
                 <Dropdown :items="themeItems" compact align="end" @select="setTheme"><IconButton size="sm" :icon-class="themeIcon" aria-label="明暗" title="明暗" data-testid="theme-menu" /></Dropdown>
                 <IconButton
                     size="sm" :icon-class="drawerOpen ? 'i-lucide-panel-right-close' : 'i-lucide-panel-right-open'" :aria-label="drawerOpen ? '收起右侧栏' : '展开右侧栏'"

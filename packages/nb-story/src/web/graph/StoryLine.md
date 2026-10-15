@@ -22,8 +22,14 @@ defineProps<{
     storyline: {lanes: {id: string; label: string}[]; dots: {episode: string; title: string; chapter: number; lane: string}[]};
     /** 横轴画到第几章（阅读位置所在章）。必填。 */
     chapters: number;
+    /** 看着的章节范围，由页面持有（v-model:range）；null 或缺省为全部章节，章数变多时跟着扩。 */
+    range?: {start: number; end: number} | null;
 }>();
-defineEmits<{(event: "select", episode: string): void}>();
+defineEmits<{
+    (event: "select", episode: string): void;
+    /** 范围变了；回到全部章节时发 null。 */
+    (event: "update:range", range: {start: number; end: number} | null): void;
+}>();
 ```
 
 没有 slots、expose；attrs 透传。

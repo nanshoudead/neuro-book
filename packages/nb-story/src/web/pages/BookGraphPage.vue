@@ -10,6 +10,7 @@ import {useBook} from "../host/book";
 import {useStoryQuery} from "../host/query";
 import PageState from "../parts/PageState.vue";
 import NodePopover from "../graph/NodePopover.vue";
+import type {ChapterWindow} from "../graph/ChapterRange.vue";
 import StoryLine from "../graph/StoryLine.vue";
 import StoryNetwork from "../graph/StoryNetwork.vue";
 
@@ -29,6 +30,8 @@ function toggle(id: string): void {
     hidden.value = hidden.value.includes(id) ? hidden.value.filter(item => item !== id) : [...hidden.value, id];
 }
 const neighborhood = ref(false);
+/** 按章节看着的章节范围（null 为全部）：放在页面里，换阅读位置重取故事线时不丢（审查 F07）。 */
+const storyRange = ref<ChapterWindow | null>(null);
 /**
  * 点一下只选中（输出 27、31），旁边的小卡片按类型给去处：对象打开人物卡，主线、情节、秘密、悬念跳到对应的页并
  * 定位。抽屉开着时，选中的对象跟着换人物卡。
@@ -66,14 +69,15 @@ function openSelected(): void {
         </div>
         <PageState class="px-3" :loading="(storyline.loading.value && !storyline.data.value) || (data.loading.value && !data.data.value)" :error="storyline.error.value?.message ?? data.error.value?.message ?? null" @retry="arrange === 'storyline' ? storyline.reload() : data.reload()" />
         <div class="relative min-h-0 flex-1">
-            <StoryLine v-if="arrange === 'storyline' && storyline.data.value" :storyline="storyline.data.value" :chapters="book.at.value.chapter" @select="(episode: string) => book.jump('episodes', {kind: 'episode', id: episode})" />
+            <StoryLine v-if="arrange === 'storyline' && storyline.data.value" v-model:range="storyRange" :storyline="storyline.data.value" :chapters="book.at.value.chapter" @select="(episode: string) => book.jump('episodes', {kind: 'episode', id: episode})" />
             <StoryNetwork
                 v-else-if="arrange === 'force' && data.data.value" mode="data" :nodes="nodes" :data-edges="dataEdges" :hidden-types="hidden" :query="search" :pinned="pinned" :selected="selected"
                 :neighborhood="neighborhood" @select="onSelect" @clear="selected = null"
             >
                 <template v-if="selectedNode" #selected>
                     <NodePopover
-                        :label="selectedNode.label" :kind="TYPE_LABEL[selectedNode.type]" :action="ACTION[selectedNode.type]" :neighborhood="neighborhood"
+                        :label="selectedNode.label" :kind="TYPE_LABEL[selectedNode.type]" :action="ACTION[selectedNode.type]"
+                        :opened="selectedNode.type === 'entity' && book.drawer.value?.kind === 'card' && book.drawer.value.entity === selectedNode.id" :neighborhood="neighborhood"
                         @open="openSelected" @neighborhood="(value: boolean) => (neighborhood = value)" @close="selected = null"
                     />
                 </template>

@@ -13,6 +13,8 @@ const props = defineProps<{
     detail?: string | null;
     /** 主按钮的文字：“打开人物卡”或“连线说明”。 */
     action: string;
+    /** 右侧抽屉里已经开着它：主按钮改成“已在右侧打开”并禁用。 */
+    opened?: boolean;
     neighborhood: boolean;
 }>();
 const emit = defineEmits<{open: []; neighborhood: [boolean]; close: []}>();
@@ -28,7 +30,7 @@ const emit = defineEmits<{open: []; neighborhood: [boolean]; close: []}>();
             <IconButton size="xs" icon-class="i-lucide-x" aria-label="取消选中" @click="emit('close')" />
         </div>
         <div class="mt-2 flex flex-wrap gap-1">
-            <Button size="sm" variant="primary" data-testid="node-popover-open" @click="emit('open')">{{ props.action }}</Button>
+            <Button size="sm" variant="primary" :disabled="props.opened" data-testid="node-popover-open" @click="emit('open')">{{ props.opened ? "已在右侧打开" : props.action }}</Button>
             <Button size="sm" variant="secondary" :aria-pressed="props.neighborhood" @click="emit('neighborhood', !props.neighborhood)">{{ props.neighborhood ? "看全图" : "只看周边" }}</Button>
         </div>
     </div>

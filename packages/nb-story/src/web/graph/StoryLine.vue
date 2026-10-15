@@ -20,8 +20,12 @@ import {appearance} from "../host/theme";
 import ChapterRange, {type ChapterWindow} from "./ChapterRange.vue";
 import {fixedColors, Focus, hoverDrawer, labelDrawer, mix, readTheme} from "./sigma-kit";
 
-const props = defineProps<{storyline: StoryResult<"graph.storyline">; chapters: number}>();
-const emit = defineEmits<{select: [episode: string]}>();
+/**
+ * `range` 由页面持有：换阅读位置时图要重新取数，这个组件会被卸载再挂上，范围放在这里会丢（审查 F07）。null 表示看全部
+ * 章节，章数变多时跟着扩到新的全书。
+ */
+const props = defineProps<{storyline: StoryResult<"graph.storyline">; chapters: number; range?: ChapterWindow | null}>();
+const emit = defineEmits<{select: [episode: string]; "update:range": [ChapterWindow | null]}>();
 
 const host = ref<HTMLElement | null>(null);
 let sigma: Sigma | null = null;
@@ -32,7 +36,7 @@ const W = 1000;
 /** 最窄能看几章。 */
 const MIN_SPAN = 4;
 const full = computed<ChapterWindow>(() => ({start: 0.5, end: props.chapters + 0.5}));
-const range = ref<ChapterWindow>({...full.value});
+const range = ref<ChapterWindow>(props.range ? clampRange(props.range) : {...full.value});
 /** 横向放大倍数（全书章数除以看着的章数），给滑块用。 */
 const scale = computed(() => (full.value.end - full.value.start) / (range.value.end - range.value.start));
 const maxScale = computed(() => Math.max(1, (full.value.end - full.value.start) / MIN_SPAN));
@@ -44,6 +48,8 @@ function clampRange(next: ChapterWindow): ChapterWindow {
 }
 function setRange(next: ChapterWindow): void {
     range.value = clampRange(next);
+    const isFull = range.value.start <= full.value.start + 0.01 && range.value.end >= full.value.end - 0.01;
+    emit("update:range", isFull ? null : range.value);
 }
 /** 以某一章（连续坐标）为中心缩放到 span 章宽，这一章在屏幕上的位置不变。 */
 function zoomAround(center: number, span: number): void {
@@ -62,9 +68,9 @@ function setScale(value: number | number[]): void {
 
 const toX = (chapter: number) => ((chapter - range.value.start) / (range.value.end - range.value.start)) * W;
 
-/** 每隔几章标一个章号：看着的章越少标得越密，约 20 个。 */
-function tickStep(span: number): number {
-    for (const step of [1, 2, 5, 10, 20, 50]) if (span / step <= 22) return step;
+/** 每隔几章标一个章号：相邻两个章号至少隔 32 像素（窄屏上也不叠在一起）。 */
+function tickStep(pxPerChapterValue: number): number {
+    for (const step of [1, 2, 5, 10, 20, 50]) if (step * pxPerChapterValue >= 32) return step;
     return 100;
 }
 
@@ -72,7 +78,7 @@ function tickStep(span: number): number {
 function place(): void {
     if (graph === null || sigma === null) return;
     const {start, end} = range.value;
-    const step = tickStep(end - start);
+    const step = tickStep(pxPerChapter());
     graph.updateEachNodeAttributes((node, attributes) => {
         const at = attributes.cx as number | undefined;
         if (at === undefined) return attributes;
@@ -259,7 +265,7 @@ onMounted(() => {
     if (host.value !== null) observer.observe(host.value);
 });
 watch(() => [props.storyline, props.chapters], () => {
-    range.value = clampRange(range.value);
+    range.value = props.range ? clampRange(props.range) : {...full.value};
     if (rendered) render();
 });
 watch(range, place, {deep: true});

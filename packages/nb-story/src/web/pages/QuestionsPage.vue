@@ -95,7 +95,7 @@ function toggle(id: string): void {
                         <button type="button" class="flex w-full items-baseline gap-2 text-left" :aria-expanded="expanded.has(item.id)" @click="toggle(item.id)">
                             <Badge size="sm" variant="soft" :tone="TONE[item.state]" class="shrink-0" :data-state="item.state">{{ STATE[item.state] }}</Badge>
                             <span class="min-w-0 flex-1" :class="expanded.has(item.id) ? 'font-[var(--weight-strong)]' : ''">{{ item.text }}</span>
-                            <span class="shrink-0 text-[length:var(--text-2xs)] text-[var(--text-muted)]">{{ lastLine(item) }}</span>
+                            <span class="shrink-0 text-[length:var(--text-2xs)] text-[var(--text-secondary)]">{{ lastLine(item) }}</span>
                         </button>
                         <div v-if="expanded.has(item.id)" class="detail">
                             <p v-if="item.about.length" class="text-[length:var(--text-xs)]">关于：<NameLink v-for="who in item.about" :id="who.id" :key="who.id" :label="who.label" class="mr-1.5" /></p>
