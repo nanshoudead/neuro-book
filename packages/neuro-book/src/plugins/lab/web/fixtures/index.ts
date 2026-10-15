@@ -4,6 +4,7 @@ import type ExplorerFeedback from "nbook/plugins/explorer/web/components/Explore
 import type EditorArea from "nbook/plugins/editor/web/components/EditorArea.vue";
 import type HtmlPreview from "nbook/plugins/html-preview/web/components/HtmlPreview.vue";
 import type ImageViewer from "nbook/plugins/image-viewer/web/components/ImageViewer.vue";
+import type EditorBreadcrumbs from "nbook/plugins/editor/web/components/EditorBreadcrumbs.vue";
 import type EditorTabBar from "nbook/plugins/editor/web/components/EditorTabBar.vue";
 import {fileIconForName} from "nbook/ui/file-icons/file-icons";
 import type ExplorerRow from "nbook/plugins/explorer/web/components/ExplorerRow.vue";
@@ -649,6 +650,28 @@ export const labFixtures: LabFixture[] = [
             ];
         })(),
         load: async () => (await import("./html-preview-scene/HtmlPreviewFixture.vue")).default,
+    }),
+    defineSubjectFixture<typeof EditorBreadcrumbs>({
+        component: "EditorBreadcrumbs",
+        events: ["open", "reveal", "escape"],
+        class: "w-full",
+        scenes: (() => {
+            const segments = [
+                {kind: "root" as const, label: "长夜", address: "project://"},
+                {kind: "dir" as const, label: "正文", address: "project://正文"},
+                {kind: "dir" as const, label: "卷一 一个相当长的卷名用来看截断", address: "project://正文/卷一 一个相当长的卷名用来看截断"},
+                {kind: "file" as const, label: "第二章 旧城.md", address: "project://正文/卷一 一个相当长的卷名用来看截断/第二章 旧城.md", icon: fileIconForName("第二章 旧城.md")},
+            ];
+            const outline = {binding: "lab", version: 1, items: [{id: "h0", level: 1, text: "第二章 旧城"}, {id: "h1", level: 2, text: "雨夜的来客"}, {id: "h2", level: 2, text: "旧书店"}], current: "h1"};
+            const base = {segments, parent: segments[2]?.address ?? null, locale: "zh-CN" as const};
+            return [
+                {id: "outline", label: "目录、文件与光标所在的标题", input: {props: {...base, outline}}},
+                {id: "plain", label: "不是 Markdown：没有标题段", input: {props: {...base, outline: null}}},
+            ];
+        })(),
+        // 目录下拉的列表：场景里的假数据，点哪个目录都列出同样几项。
+        runtimeProps: async () => ({list: async (address: string) => ({ok: true as const, entries: [{name: "卷二", address: `${address}/卷二`, kind: "directory" as const}, {name: "第一章 雨夜.md", address: `${address}/第一章 雨夜.md`, kind: "file" as const}, {name: "第二章 旧城.md", address: `${address}/第二章 旧城.md`, kind: "file" as const}]})}),
+        subject: () => import("nbook/plugins/editor/web/components/EditorBreadcrumbs.vue"),
     }),
     defineSubjectFixture<typeof EditorTabBar>({
         component: "EditorTabBar",

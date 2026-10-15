@@ -27,6 +27,10 @@ type Props = {
     tabMenu?: {entries: (tabId: string) => ReadonlyArray<TabMenuEntry> | null; identity: (tabId: string) => string | null} | null;
     /** 多行标签（输出 54），交给 `EditorTabBar`；缺省 true。 */
     wrapTabs?: boolean;
+    /** 面包屑（输出 60）；缺省 true。 */
+    breadcrumbs?: boolean;
+    /** 作品名，面包屑的第一段；缺省 null（写“作品”）。 */
+    workTitle?: string | null;
 };
 
 type Emits = {
@@ -40,6 +44,8 @@ type Emits = {
 ```
 
 无 slots、expose；attrs 落在根 `section`（`data-editor-group`，活动组另有 `data-editor-group-active`）。
+
+标签区下面是面包屑（[`EditorBreadcrumbs`](EditorBreadcrumbs.md)，输出 60）：活动标签是文件时才有，段由活动标签的地址算出，目录读取经控制器的 `list`，Markdown 的标题段读本组控件句柄的大纲（`handleOf`），选中文件在本组 preview 打开、选中标题交给句柄的 `revealHeading`，Escape 把焦点还给本组的编辑器；命令 `focus-breadcrumbs` 经控制器的 `breadcrumbFocus` 聚焦本组的面包屑。
 
 标签的右键菜单（`EditorTabBar` 的 `menu` 事件）用 nb-ui 的 `ContextMenu` 在给出的位置打开；右键不让这一组成为活动组（只有主键按下才切换活动组），菜单的项作用于被右击的标签而不是活动的那个；打开时记下这个标签的菜单身份，身份变了（标签关闭、移到别的组、换编辑器）就关上，之前的选择不交出。
 

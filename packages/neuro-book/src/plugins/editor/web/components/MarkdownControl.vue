@@ -2,11 +2,12 @@
 /** Markdown 富文本控件（同名 .md）：一个 Tiptap 编辑器实例，按编辑器控件合同（`control.ts`）绑定文档。 */
 import {Editor} from "@tiptap/core";
 import {EditorState, Selection} from "@tiptap/pm/state";
-import {onBeforeUnmount, onMounted, ref, watch} from "vue";
+import {onBeforeUnmount, onMounted, ref, shallowRef, watch} from "vue";
 
 import type {DisplayLocale} from "nbook/shared/localized-text";
 
 import type {EditorControlHandle, TextEditorBinding, ViewStateSlot} from "../area";
+import type {EditorOutline} from "../../shared/contracts";
 import type {EditorControlEmits} from "../control";
 import {createMarkdownEditorExtensions} from "../markdown/markdown-editor-extensions";
 import {normalizeMarkdownDialectBlocks} from "../markdown/markdown-workbench";
@@ -153,6 +154,7 @@ const enter = (binding: TextEditorBinding): void => {
     // 按记下的光标新建的视图：滚到光标处。
     if (fresh && binding.cursor !== null) editor.commands.scrollIntoView();
     detach = binding.attach(commitNow);
+    refreshOutline(true);
 };
 
 /** 把光标记到当前绑定的标签上。 */
@@ -177,6 +179,7 @@ const leave = (binding: TextEditorBinding): void => {
     detach?.();
     detach = null;
     if (bound === binding) bound = null;
+    refreshOutline(true);
 };
 
 watch(() => props.binding, (next, previous) => {
@@ -198,7 +201,56 @@ watch(() => [props.binding?.revision.value, props.binding?.unresolved()] as cons
 // 变成只读（例如文件被外部删除）之前敲下、还在延迟里的输入照常由计时器交出：文档在已删除时仍接受输入回执。
 watch(() => props.readonly, (readonly) => editor?.setEditable(!readonly));
 
+/**
+ * 大纲（面包屑用，docs/specs/workbench/editor.md 输出 60）：跟着当前绑定。正文变了重算、`version` 加一；光标动了只换
+ * `current`。标题的位置只在这里记，面包屑拿到的是 id，跳转时按 `binding` 与 `version` 核对，对不上不跳。
+ */
+const outline = shallowRef<EditorOutline | null>(null);
+let outlineVersion = 0;
+let headingPositions: ReadonlyMap<string, number> = new Map();
+const currentHeading = (): string | null => {
+    if (editor === null) return null;
+    const at = editor.state.selection.from;
+    let current: string | null = null;
+    for (const [id, position] of headingPositions) if (position <= at) current = id;
+    return current;
+};
+const refreshOutline = (contentChanged: boolean): void => {
+    const binding = bound;
+    if (binding === null || editor === null) {
+        outline.value = null;
+        headingPositions = new Map();
+        return;
+    }
+    const previous = outline.value;
+    if (!contentChanged && previous !== null && previous.binding === binding.token) {
+        const current = currentHeading();
+        if (current !== previous.current) outline.value = {...previous, current};
+        return;
+    }
+    outlineVersion += 1;
+    const items: Array<{id: string; level: number; text: string}> = [];
+    const positions = new Map<string, number>();
+    editor.state.doc.descendants((node, position) => {
+        if (node.type.name !== "heading") return true;
+        const id = `h${String(items.length)}`;
+        items.push({id, level: Number(node.attrs.level), text: node.textContent});
+        positions.set(id, position);
+        return false;
+    });
+    headingPositions = positions;
+    outline.value = {binding: binding.token, version: outlineVersion, items, current: currentHeading()};
+};
+const revealHeading = (binding: string, version: number, id: string): "ok" | "stale" => {
+    const position = headingPositions.get(id);
+    if (editor === null || outline.value?.binding !== binding || outline.value.version !== version || position === undefined) return "stale";
+    editor.chain().focus().setTextSelection(position + 1).scrollIntoView().run();
+    return "ok";
+};
+
 const handle: EditorControlHandle = {
+    outline,
+    revealHeading,
     focus: () => editor?.commands.focus(),
     undo: () => editor?.commands.undo(),
     redo: () => editor?.commands.redo(),
@@ -208,11 +260,14 @@ const handle: EditorControlHandle = {
 };
 
 const onUpdate = ({transaction}: {transaction: {docChanged: boolean}}): void => {
+    // 程序换的内容（按文档的正文重载）也改大纲。
+    if (transaction.docChanged) refreshOutline(true);
     if (loading || !transaction.docChanged) return;
     if (timer !== null) clearTimeout(timer);
     timer = setTimeout(commitNow, COMMIT_DELAY_MS);
 };
 const onSelection = (): void => {
+    refreshOutline(false);
     if (loading) return;
     if (cursorTimer !== null) clearTimeout(cursorTimer);
     cursorTimer = setTimeout(rememberCursor, CURSOR_REMEMBER_MS);
@@ -266,6 +321,7 @@ onBeforeUnmount(() => {
         editor.unmount();
     }
     editor = null;
+    refreshOutline(true);
     emit("ready", null);
 });
 </script>

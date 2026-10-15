@@ -23,7 +23,12 @@ import type {EditorPageSource} from "../pages";
 import {editorText, nameOf} from "../messages";
 import {fileIconForName} from "nbook/ui/file-icons/file-icons";
 
+import {formatResource} from "nbook/plugins/files/shared/contracts";
+
+import {resourceOf} from "../documents/address";
 import {tabHints} from "../tab-hints";
+import EditorBreadcrumbs from "./EditorBreadcrumbs.vue";
+import type {BreadcrumbListing, BreadcrumbSegment} from "./EditorBreadcrumbs.vue";
 import EditorTabBar from "./EditorTabBar.vue";
 import type {TabItem} from "./EditorTabBar.vue";
 
@@ -42,7 +47,11 @@ const props = withDefaults(defineProps<{
     tabMenu?: EditorGroupTabMenu | null;
     /** 多行标签（设置 `nbook.editor/wrapTabs`，输出 54）；缺省开。 */
     wrapTabs?: boolean;
-}>(), {pages: null, emptyTips: () => [], titleActions: null, tabMenu: null, wrapTabs: true});
+    /** 面包屑（设置 `nbook.editor/breadcrumbs`，输出 60）；缺省开。 */
+    breadcrumbs?: boolean;
+    /** 作品名（面包屑的第一段）；未绑定作品时为 null，写“作品”。 */
+    workTitle?: string | null;
+}>(), {pages: null, emptyTips: () => [], titleActions: null, tabMenu: null, wrapTabs: true, breadcrumbs: true, workTitle: null});
 
 /** 点了空态里的一条提示：交出它的命令，由宿主执行（组件不执行命令）。点了标题动作、标签菜单的一项：交出它的 key。 */
 const emit = defineEmits<{(event: "run-tip", command: string): void; (event: "title-action", key: string): void; (event: "tab-menu", tabId: string, key: string): void}>();
@@ -121,6 +130,28 @@ const tabs = computed((): TabItem[] => {
         hint: hints.get(tab.id) ?? null,
     }));
 });
+
+/** 面包屑的段（输出 60）：活动标签是文件时，根 › 目录 › 文件；页面标签与空组没有。 */
+const crumbs = computed((): {segments: BreadcrumbSegment[]; parent: string | null} => {
+    const tab = activeTab.value;
+    if (!props.breadcrumbs || tab === null || tab.kind === "page") return {segments: [], parent: null};
+    const {scheme, path} = resourceOf(tab.address);
+    const parts = path.split("/");
+    const root = formatResource({scheme, path: ""});
+    const segments: BreadcrumbSegment[] = [{kind: "root", label: scheme === "project" ? (props.workTitle ?? editorText(props.locale, "rootProject")) : editorText(props.locale, "rootUser"), address: root}];
+    for (let index = 0; index < parts.length - 1; index += 1) segments.push({kind: "dir", label: parts[index] as string, address: formatResource({scheme, path: parts.slice(0, index + 1).join("/")})});
+    segments.push({kind: "file", label: parts.at(-1) ?? "", address: tab.address, icon: fileIconForName(parts.at(-1) ?? "")});
+    return {segments, parent: segments.at(-2)?.address ?? null};
+});
+const outline = computed(() => (props.breadcrumbs ? props.area.handleOf(props.groupId)?.outline?.value ?? null : null));
+const listCrumb = async (address: string, signal: AbortSignal): Promise<BreadcrumbListing> => {
+    const result = await props.area.list(address, signal);
+    if (!result.ok) return {ok: false, reason: result.detail === "" ? result.code : result.detail};
+    const {scheme, path} = resourceOf(address);
+    // 内容根的清单文件不列（资源管理器缺省也不显示它）。
+    return {ok: true, entries: result.value.entries.filter((entry) => entry.role !== "manifest").map((entry) => ({name: entry.name, kind: entry.kind, address: formatResource({scheme, path: path === "" ? entry.name : `${path}/${entry.name}`})}))};
+};
+const crumbFocus = computed(() => (props.area.breadcrumbFocus.value?.group === props.groupId ? props.area.breadcrumbFocus.value.seq : 0));
 
 type Banner = {readonly tone: "danger" | "warning" | "info"; readonly text: string; readonly actions: ReadonlyArray<{readonly id: string; readonly label: string; readonly run: () => void}>};
 
@@ -241,6 +272,19 @@ export interface EditorGroupTitleActions {
                 @run="(key: string) => emit('title-action', key)"
             />
         </div>
+        <EditorBreadcrumbs
+            v-if="crumbs.segments.length > 0"
+            class="shrink-0"
+            :segments="crumbs.segments"
+            :parent="crumbs.parent"
+            :outline="outline"
+            :list="listCrumb"
+            :locale="locale"
+            :focus-seq="crumbFocus"
+            @open="(address: string) => void area.open(address, {mode: 'preview', group: groupId})"
+            @reveal="(binding: string, version: number, id: string) => void area.handleOf(groupId)?.revealHeading?.(binding, version, id)"
+            @escape="area.handleOf(groupId)?.focus()"
+        />
         <div class="relative h-0.5 shrink-0 overflow-hidden" aria-hidden="true">
             <div v-if="area.progress(groupId)" class="editor-group__progress absolute inset-y-0 w-1/3 bg-[var(--accent-main)]" data-editor-progress></div>
         </div>

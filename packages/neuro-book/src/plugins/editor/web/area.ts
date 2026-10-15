@@ -11,7 +11,7 @@ import type {ComputedRef, Ref, ShallowRef} from "@vue/reactivity";
 
 import type {RuntimeClock} from "@notnotype/nb-runtime/lifecycle";
 
-import type {FilesService} from "nbook/plugins/files/shared/contracts";
+import type {FilesResult, FilesService, Listing} from "nbook/plugins/files/shared/contracts";
 
 import {CODE_EDITOR} from "../shared/contracts";
 import type {BytesEditorBinding, EditorBinding, EditorControlHandle, TextEditorBinding, ViewStateSlot} from "../shared/contracts";
@@ -90,6 +90,13 @@ export interface EditorArea {
     /** 本窗口打开着的文档，按文档去重：同一文件在几个组里打开只算一份。 */
     readonly openDocuments: ComputedRef<ReadonlyArray<TextDocument>>;
     readonly activeHandle: ComputedRef<EditorControlHandle | null>;
+    /** 组的活动标签的控件句柄（面包屑按组读大纲，输出 60）；没有为 null。响应式。 */
+    handleOf(groupId: string): EditorControlHandle | null;
+    /** 列出目录（面包屑的下拉）：经文件服务，`signal` 中止时结果作废。 */
+    list(address: string, signal?: AbortSignal): Promise<FilesResult<Listing>>;
+    /** 请求聚焦某组的面包屑（命令 `focus-breadcrumbs`）：组件看到 `seq` 变了就聚焦，组 id 对不上的不理。 */
+    readonly breadcrumbFocus: Readonly<ShallowRef<{readonly group: string; readonly seq: number} | null>>;
+    focusBreadcrumbs(): ActionResult;
     readonly focused: ShallowRef<boolean>;
     readonly dialog: Readonly<ShallowRef<CloseDialog | null>>;
     /** 组顶部的一行提示（例如换文档前有未裁决输入）；没有为 null。 */
@@ -429,11 +436,13 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
             refocusOnRemount = false;
         }, 0);
     };
-    const activeHandle = computed(() => {
-        const group = groups.groups.value.find((candidate) => candidate.id === groups.activeGroup.value);
+    const handleOf = (groupId: string): EditorControlHandle | null => {
+        const group = groups.groups.value.find((candidate) => candidate.id === groupId);
         const tab = group?.tabs.find((candidate) => candidate.id === group.active);
-        return tab === undefined || tab.kind === "page" ? null : handles.value.get(`${groups.activeGroup.value}|${tab.editor}`) ?? null;
-    });
+        return tab === undefined || tab.kind === "page" ? null : handles.value.get(`${groupId}|${tab.editor}`) ?? null;
+    };
+    const activeHandle = computed(() => handleOf(groups.activeGroup.value));
+    const breadcrumbFocus = shallowRef<{readonly group: string; readonly seq: number} | null>(null);
 
     /**
      * 继续写作的定位（输出 29）：打开时记下标签与组，等它的文档就绪、它所在组的控件交出句柄再定位；在此之前用户切到别的
@@ -748,6 +757,15 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
         activeDocument,
         openDocuments,
         activeHandle,
+        handleOf,
+        list: (address, signal) => options.files.list(address, signal === undefined ? {} : {signal}),
+        breadcrumbFocus,
+        focusBreadcrumbs: () => {
+            const tab = groups.activeTab();
+            if (tab === null || tab.kind === "page") return {ok: false, reason: "活动的不是文件标签"};
+            breadcrumbFocus.value = {group: groups.activeGroup.value, seq: (breadcrumbFocus.value?.seq ?? 0) + 1};
+            return {ok: true};
+        },
         focused,
         dialog,
         notice,

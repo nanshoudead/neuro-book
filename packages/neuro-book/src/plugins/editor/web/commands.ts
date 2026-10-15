@@ -33,6 +33,7 @@ export const CLOSE_SAVED_COMMAND = "nbook.editor.close-saved";
 export const PIN_TAB_COMMAND = "nbook.editor.pin-tab";
 export const UNPIN_TAB_COMMAND = "nbook.editor.unpin-tab";
 export const COPY_PATH_COMMAND = "nbook.editor.copy-path";
+export const FOCUS_BREADCRUMBS_COMMAND = "nbook.editor.focus-breadcrumbs";
 export const COPY_RELATIVE_PATH_COMMAND = "nbook.editor.copy-relative-path";
 export const SPLIT_RIGHT_COMMAND = "nbook.editor.split-right";
 export const SPLIT_DOWN_COMMAND = "nbook.editor.split-down";
@@ -105,6 +106,8 @@ export const EDITOR_COMMAND_DECLARATIONS: Readonly<Record<string, CommandDeclara
     [REOPEN_WITH_COMMAND]: {title: title("用其它编辑器重新打开", "Reopen Editor With"), category: EDITOR, description: "Reopen the active tab with another editor, given by id; without an editor, pick one from the editors that can open the file.", args: REOPEN_ARGS, effect: "read", when: when("active"), expose: {agent: "auto"}},
     [OPEN_PREVIEW_COMMAND]: {title: title("打开预览", "Open Preview"), category: EDITOR, description: "Open the preview of the active file (for example an HTML page) in the active group, or with side true in the group to the right.", args: OPEN_PREVIEW_ARGS, effect: "read", when: when("hasPreview"), expose: {agent: "auto"}},
     [CHANGE_LANGUAGE_COMMAND]: {title: title("更改语言模式", "Change Language Mode"), category: EDITOR, description: "Change the language (syntax highlighting and editing rules) of the active source editor, given by language id; without a language, pick one from the registered languages. The choice is remembered on the tab.", args: CHANGE_LANGUAGE_ARGS, effect: "read", when: when("hasLanguage"), expose: {agent: "auto"}},
+    // 只移动键盘焦点：Agent 不需要。
+    [FOCUS_BREADCRUMBS_COMMAND]: {title: title("聚焦面包屑", "Focus Breadcrumbs"), category: EDITOR, description: "Move keyboard focus to the breadcrumbs of the active editor group.", args: NO_ARGS, effect: "read", when: when("active"), expose: {agent: "never"}},
     [FOCUS_COMMAND]: {title: title("聚焦编辑器", "Focus Editor"), category: EDITOR, description: "Focus the active editor.", args: NO_ARGS, effect: "read", when: when("active"), expose: {agent: "auto"}},
     [UNDO_COMMAND]: {title: title("撤销", "Undo"), category: EDIT, description: "Undo the latest edit in the active editor.", args: NO_ARGS, effect: "write", when: when("active", "writable"), expose: {agent: "confirm"}},
     [REDO_COMMAND]: {title: title("重做", "Redo"), category: EDIT, description: "Redo the latest undone edit in the active editor.", args: NO_ARGS, effect: "write", when: when("active", "writable"), expose: {agent: "never"}},
@@ -247,6 +250,7 @@ export function editorCommands(area: Readonly<ShallowRef<EditorArea | null>>, so
             return {ok: true, value: null};
         }),
         [OPEN_PREVIEW_COMMAND]: run((current, args) => fromAction(current.openPreview((args as Static<typeof OPEN_PREVIEW_ARGS>).side === true))),
+        [FOCUS_BREADCRUMBS_COMMAND]: run((current) => fromAction(current.focusBreadcrumbs())),
         [FOCUS_COMMAND]: run((current) => {
             const handle = current.activeHandle.value;
             if (handle === null) return unavailable("当前没有可聚焦的编辑器");

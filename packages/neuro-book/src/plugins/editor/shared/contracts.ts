@@ -299,6 +299,19 @@ export interface EditorControlHandle {
     readonly status?: Readonly<Ref<LocalizedText | string | null>>;
     /** 视图此刻用的语言 id（输出 44、45）：标签记着的，或按文件识别出的；只有分语言的控件（源码编辑器）提供。 */
     readonly language?: Readonly<Ref<string | null>>;
+    /** 按标题组织的控件（Markdown 富文本）交出的大纲，面包屑用（输出 60）；换绑定、没有绑定、卸载时为 null。 */
+    readonly outline?: Readonly<Ref<EditorOutline | null>>;
+    /** 跳到大纲里的一个标题：`binding`、`version` 与此刻的大纲对不上为 `stale`，不移动光标。 */
+    revealHeading?(binding: string, version: number, id: string): "ok" | "stale";
+}
+
+/** 大纲（docs/specs/workbench/editor.md 的控件合同）：`binding` 是当前绑定的 token，正文每变一次 `version` 加一；`id` 按位置给，同名标题不冲突。 */
+export interface EditorOutline {
+    readonly binding: string;
+    readonly version: number;
+    readonly items: ReadonlyArray<{readonly id: string; readonly level: number; readonly text: string}>;
+    /** 光标所在的标题（它之前最近的那一个）；在第一个标题之前为 null。 */
+    readonly current: string | null;
 }
 
 /** 控件的属性与事件（`binding` 的类型按编辑器的 `input`）。 */

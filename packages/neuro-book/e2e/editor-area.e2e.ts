@@ -416,6 +416,42 @@ test("拖动标签：组内换位置、拖到另一组的标签条、拖到正�
     await closeAll(page);
 });
 
+test("面包屑：作品名 › 目录 › 文件 › 标题；点目录列出子项、选文件在本组打开；点标题列出大纲、选中跳过去；聚焦面包屑后 Escape 回到正文", async ({page}) => {
+    await writeFile(join(projectDir, "notes/outline.md"), "# 起\n\n正文一。\n\n## 承\n\n正文二。\n");
+    await open(page);
+    await closeAll(page);
+    await item(page, "project://notes/outline.md").dblclick();
+    const crumbs = page.locator("[data-editor-group-active] [data-editor-breadcrumbs]");
+    const segments = crumbs.locator("[data-breadcrumb-segment]");
+    await expect(segments).toHaveCount(4);
+    expect(await segments.evaluateAll((nodes) => nodes.map((node) => node.getAttribute("data-breadcrumb-segment")))).toEqual(["root", "dir", "file", "heading"]);
+    await expect(segments.nth(1)).toHaveText("notes");
+    await expect(segments.nth(2)).toHaveText("outline.md");
+    await expect(segments.nth(3)).toHaveText("起");
+
+    // 标题段：列出大纲，选“承”，光标跳过去，标题段随之变成“承”。
+    await segments.nth(3).click();
+    const menu = page.getByRole("menu");
+    await expect(menu.getByRole("menuitemradio")).toHaveCount(2);
+    await menu.getByRole("menuitemradio", {name: "承"}).click();
+    await expect(segments.nth(3)).toHaveText("承");
+
+    // 目录段：列出 notes 的子项，选 a.md 在本组打开。
+    await segments.nth(1).click();
+    await menu.getByRole("menuitemradio", {name: "a.md", exact: true}).click();
+    await expect(page.locator("[data-editor-group-active] [data-editor-tab][aria-selected=\"true\"]")).toContainText("a.md");
+    await expect(segments.nth(2)).toHaveText("a.md");
+
+    // 命令面板“聚焦面包屑”：焦点到最后一段；Escape 回到正文。
+    await page.keyboard.press("Control+Shift+P");
+    await page.getByRole("combobox").fill("聚焦面包屑");
+    await page.getByRole("option", {name: /聚焦面包屑/u}).first().click();
+    await expect.poll(() => page.evaluate(() => document.activeElement?.getAttribute("data-breadcrumb-segment"))).toBe("file");
+    await page.keyboard.press("Escape");
+    await expect.poll(() => page.evaluate(() => document.activeElement?.closest("[data-editor-prose]") !== null)).toBe(true);
+    await closeAll(page);
+});
+
 test("有未保存的修改时离开页面先请求确认；保存之后不再请求", async ({page}) => {
     await open(page);
     await closeAll(page);
