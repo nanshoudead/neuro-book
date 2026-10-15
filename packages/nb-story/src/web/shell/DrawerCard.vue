@@ -27,6 +27,8 @@ const allNames = ref(false);
 const recordKind = ref<"knowledge" | "statements">("knowledge");
 const stateFilter = ref("");
 const recordQuery = ref("");
+/** 记录编号默认收起（输出 7）。 */
+const showIds = ref(false);
 
 const tabs = computed(() => {
     const counts = card.data.value?.counts;
@@ -70,7 +72,7 @@ const STATE_WORD = {knows: "知道", believes: "认为", suspects: "怀疑", hea
                 </p>
             </header>
             <Tabs class="px-3" size="sm" :model-value="tab" :items="tabs" aria-label="人物卡" @update:model-value="setTab" />
-            <div class="story-scroll-y min-h-0 flex-1 px-3 py-2">
+            <div class="story-scroll-y min-h-0 flex-1 px-3 pb-2">
                 <template v-if="tab === 'summary'">
                     <section v-for="facet in card.data.value.facets" :key="facet.facet" class="mb-3">
                         <h3 class="text-[var(--text-sm)] font-[var(--weight-strong)]">{{ FACETS[facet.facet] ?? facet.facet }} <span class="text-[var(--text-2xs)] text-[var(--text-muted)]">归纳到第 {{ facet.through }} 章</span></h3>
@@ -88,33 +90,37 @@ const STATE_WORD = {knows: "知道", believes: "认为", suspects: "怀疑", hea
                 </template>
                 <CardRelations v-else-if="tab === 'relations'" :entity="card.data.value.id" />
                 <template v-else-if="tab === 'records'">
-                    <div class="sticky top-0 z-10 flex flex-wrap items-center gap-2 bg-[var(--bg-panel)] py-1">
+                    <div class="flex flex-wrap items-center gap-2 py-1">
                         <SegmentedControl v-model="recordKind" size="xs" :options="[{value: 'knowledge', label: `他知道的 ${card.data.value.counts.knowledge}`}, {value: 'statements', label: `关于他的 ${card.data.value.counts.statements}`}]" aria-label="记录的种类" />
                         <SegmentedControl v-if="recordKind === 'knowledge'" v-model="stateFilter" size="xs" :options="STATES" aria-label="按状态筛" />
                         <div class="w-32"><FormInput v-model="recordQuery" size="sm" icon-class="i-lucide-search" placeholder="按字搜" /></div>
+                        <button type="button" class="story-chip" :class="showIds ? 'is-on' : ''" :aria-pressed="showIds" @click="showIds = !showIds">编号</button>
+                        <button type="button" class="story-chip" data-testid="open-wide" @click="book.wideRecords.value = card.data.value!.id">在主区打开</button>
                     </div>
-                    <PagedList v-if="recordKind === 'knowledge'" :items="knowledge.items.value" :total="knowledge.total.value" :loading="knowledge.loading.value" :has-more="knowledge.hasMore.value" :error="knowledge.error.value?.message ?? null" @more="knowledge.more()">
+                    <PagedList v-if="recordKind === 'knowledge'" :items="knowledge.items.value" :total="knowledge.total.value" :loading="knowledge.loading.value" :has-more="knowledge.hasMore.value" :error="knowledge.error.value?.message ?? null" @more="knowledge.more()" @retry="knowledge.reload()">
                         <template #item="{item, index}">
                             <h4 v-if="index === 0 || knowledge.items.value[index - 1]!.chapter !== item.chapter" class="chapter-head">第 {{ item.chapter }} 章</h4>
                             <p class="record" data-testid="record">
                                 <span class="mr-1 text-[var(--text-muted)]">{{ STATE_WORD[item.state] }}</span>{{ item.text }}
                                 <RecordTags :tags="item.tags" />
                                 <RefLink v-for="ref in item.refs" :key="ref" class="ml-1" :ref-text="ref" />
+                                <span v-if="showIds" class="ml-1 text-[var(--text-2xs)] text-[var(--text-muted)]" data-testid="record-id">{{ item.id }}</span>
                             </p>
                         </template>
                     </PagedList>
-                    <PagedList v-else :items="statements.items.value" :total="statements.total.value" :loading="statements.loading.value" :has-more="statements.hasMore.value" :error="statements.error.value?.message ?? null" @more="statements.more()">
+                    <PagedList v-else :items="statements.items.value" :total="statements.total.value" :loading="statements.loading.value" :has-more="statements.hasMore.value" :error="statements.error.value?.message ?? null" @more="statements.more()" @retry="statements.reload()">
                         <template #item="{item, index}">
                             <h4 v-if="index === 0 || statements.items.value[index - 1]!.chapter !== item.chapter" class="chapter-head">第 {{ item.chapter }} 章</h4>
                             <p class="record" data-testid="record">
                                 {{ item.text }}
                                 <RecordTags :tags="item.tags" />
                                 <RefLink v-for="ref in item.refs" :key="ref" class="ml-1" :ref-text="ref" />
+                                <span v-if="showIds" class="ml-1 text-[var(--text-2xs)] text-[var(--text-muted)]" data-testid="record-id">{{ item.id }}</span>
                             </p>
                         </template>
                     </PagedList>
                 </template>
-                <PagedList v-else :items="episodes.items.value" :total="episodes.total.value" :loading="episodes.loading.value" :has-more="episodes.hasMore.value" :error="episodes.error.value?.message ?? null" @more="episodes.more()">
+                <PagedList v-else :items="episodes.items.value" :total="episodes.total.value" :loading="episodes.loading.value" :has-more="episodes.hasMore.value" :error="episodes.error.value?.message ?? null" @more="episodes.more()" @retry="episodes.reload()">
                     <template #item="{item, index}">
                         <h4 v-if="index === 0 || episodes.items.value[index - 1]!.chapter !== item.chapter" class="chapter-head">第 {{ item.chapter }} 章</h4>
                         <p class="record">{{ item.title }} <RefLink v-for="ref in item.refs.slice(0, 1)" :key="ref" :ref-text="ref" /></p>
@@ -128,7 +134,7 @@ const STATE_WORD = {knows: "知道", believes: "认为", suspects: "怀疑", hea
 <style scoped>
 .chapter-head {
     position: sticky;
-    top: 30px;
+    top: 0;
     background: var(--bg-panel);
     font-size: var(--text-xs);
     color: var(--text-muted);

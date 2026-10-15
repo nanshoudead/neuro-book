@@ -3,7 +3,7 @@
  * 关系图（docs/specs/story/viewer.md 输出 22 到 28）：类别开关、连线的三层与同场门槛、视角、三种排版、“只看选中的周边”、
  * 图里搜名字。点一下主要人物打开人物卡（停在关系页签），点其他对象打开它的连线说明。
  */
-import {FormInput, FormSelect, IconButton, SegmentedControl, Slider} from "@notnotype/nb-ui/components";
+import {FormCheckbox, FormInput, FormSelect, IconButton, SegmentedControl, Slider} from "@notnotype/nb-ui/components";
 import {computed, ref} from "vue";
 
 import type {EntityKind} from "../../core/dataset";
@@ -79,7 +79,7 @@ function onSelect(id: string): void {
             <span class="text-[var(--text-secondary)]">排版</span>
             <SegmentedControl v-model="layout" size="xs" :options="[{value: 'force', label: '力导向'}, {value: 'concentric', label: '同心'}, {value: 'circle', label: '环形'}]" aria-label="排版方式" />
             <IconButton size="xs" icon-class="i-lucide-refresh-cw" aria-label="重新排版" title="重新排版" @click="relayoutKey += 1" />
-            <label class="flex items-center gap-1 whitespace-nowrap"><input v-model="neighborhood" type="checkbox">只看选中的周边</label>
+            <FormCheckbox v-model="neighborhood" label="只看选中的周边" />
             <div class="ml-auto w-40"><FormInput v-model="search" size="sm" icon-class="i-lucide-search" placeholder="在图里找" /></div>
         </div>
         <p v-if="banner" class="mx-3 mb-1 rounded-[var(--radius-control)] bg-[var(--status-info-bg)] px-2 py-1 text-[var(--text-xs)]" data-testid="perspective-banner">{{ banner }}</p>

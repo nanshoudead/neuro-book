@@ -16,7 +16,8 @@ const router = useRouter();
 const session = shallowRef<BookSession | null>(null);
 const error = shallowRef<string | null>(null);
 
-watch(() => route.params.id, async id => {
+const attempt = shallowRef(0);
+watch([() => route.params.id, attempt], async ([id]) => {
     if (typeof id !== "string") return;
     if (session.value?.bookId === id) return;
     session.value?.dispose();
@@ -42,6 +43,8 @@ onBeforeUnmount(() => session.value?.dispose());
 
 <template>
     <BookFrame v-if="session" :key="session.bookId" :session="session" />
-    <div v-else-if="error" class="p-6 text-[var(--status-danger)]">{{ error }}</div>
+    <div v-else-if="error" class="p-6 text-[var(--status-danger)]" role="alert">
+        {{ error }} <button type="button" class="ml-2 underline" @click="attempt += 1">重试</button>
+    </div>
     <div v-else class="p-6 text-[var(--text-muted)]">正在打开……</div>
 </template>

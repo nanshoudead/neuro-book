@@ -12,7 +12,7 @@ import {onBeforeUnmount, onMounted, ref, watch} from "vue";
 import {IconButton} from "@notnotype/nb-ui/components";
 
 import type {StoryResult} from "../../contract/contract";
-import {Focus, hoverDrawer, labelDrawer, mix, readTheme, zoom} from "./sigma-kit";
+import {fixedColors, Focus, hoverDrawer, labelDrawer, mix, readTheme, zoom} from "./sigma-kit";
 
 const props = defineProps<{storyline: StoryResult<"graph.storyline">; chapters: number}>();
 const emit = defineEmits<{select: [episode: string]}>();
@@ -21,7 +21,6 @@ const host = ref<HTMLElement | null>(null);
 let sigma: Sigma | null = null;
 
 const X = 10;
-const LANE_COLORS = ["#2563eb", "#db2777", "#0891b2", "#7c3aed", "#ea580c", "#65a30d", "#92400e"];
 
 function render(): void {
     if (host.value === null) return;
@@ -32,8 +31,12 @@ function render(): void {
     const row = new Map(lanes.map((lane, index) => [lane.id, index]));
     // 行距按画布比例算：Sigma 取景保持横纵比，行距太小整张图只占中间一窄条（输出 30：行距铺满高度）
     const box = host.value.getBoundingClientRect();
-    const Y = Math.max(14, Math.min(40, (props.chapters * X) * (box.height / Math.max(1, box.width)) / (lanes.length + 1)));
-    const color = (index: number) => LANE_COLORS[index % LANE_COLORS.length]!;
+    // Sigma 取景保持横纵比：图的宽是 章数 × X 加左边行名的留白，按画布宽高比算出这张图能有多高，再分给各行与轴标那一行，
+    // 行距就铺满高度（输出 30）。
+    const graphWidth = props.chapters * X + 7 * X;
+    const Y = Math.max(14, (graphWidth * (box.height / Math.max(1, box.width))) / (lanes.length + 1));
+    const lanesColors = fixedColors(theme).lanes;
+    const color = (index: number) => lanesColors[index % lanesColors.length]!;
     const graph = new Graph({type: "undirected", multi: false});
     lanes.forEach((lane, index) => {
         graph.addNode(`lane-${lane.id}`, {x: 0, y: -index * Y, size: 0.1, color: theme.bg, label: lane.label, forceLabel: true, labelSide: "left", kind: "lane"});

@@ -45,6 +45,15 @@ export interface BookSession {
     /** 打开时去掉了地址里不存在的对象或视角等，给页面角落的一次性提示。 */
     readonly notice: Ref<string | null>;
     readonly saveFailed: Ref<boolean>;
+    /** 外壳的宽度档，由外壳按自己的宽度写；页面按它决定版式（输出 32、33）。 */
+    readonly tier: Ref<"wide" | "tablet" | "phone">;
+    /** 原文页正在看的章；null 表示阅读位置所在章。写进地址（`chapter`），指向阅读位置之后的章时页面显示 F3。 */
+    readonly sourceChapter: Ref<number | null>;
+    /** 最近一次关掉的抽屉内容：宽屏下把收起的抽屉再拖开或点“展开”时恢复它（输出 1）。 */
+    readonly lastDrawer: Ref<DrawerContent | null>;
+    /** 在主区打开某人的记录宽表（输出 10）；不进地址。 */
+    readonly wideRecords: Ref<string | null>;
+    reopenDrawer(): void;
     setAt(at: PositionInput): void;
     goPage(page: Page): void;
     openCard(entity: string, tab?: Tab): void;
@@ -141,6 +150,9 @@ export async function openBookSession(client: StoryClient, router: Router, bookI
     }
 
     const perspectiveRef = ref(perspective);
+    const urlChapter = typeof query.chapter === "string" && /^\d+$/u.test(query.chapter) ? Number(query.chapter) : null;
+    const sourceChapter = ref<number | null>(urlChapter !== null && urlChapter >= 1 && urlChapter <= info.chapters ? urlChapter : null);
+    const lastDrawer = ref<DrawerContent | null>(null);
     const drawer = ref<DrawerContent | null>(entity === null ? null : {kind: "card", entity, tab});
     const notice = ref<string | null>(notices.length ? notices.join("；") : null);
     const saveFailed = ref(false);
@@ -159,6 +171,7 @@ export async function openBookSession(client: StoryClient, router: Router, bookI
         next.perspective = view.perspective;
         if (view.entity) next.entity = view.entity;
         if (view.entity && view.tab) next.tab = view.tab;
+        if (view.page === "source" && sourceChapter.value !== null) next.chapter = String(sourceChapter.value);
         return {path: `/book/${encodeURIComponent(bookId)}/${view.page}`, query: next};
     }
     function syncRoute(): void {
@@ -173,6 +186,8 @@ export async function openBookSession(client: StoryClient, router: Router, bookI
         const nextAt = parseAt(to.query.at);
         if (validAt(info, nextAt) && formatAt(nextAt) !== formatAt(at.value)) at.value = nextAt;
         if (typeof to.query.perspective === "string" && to.query.perspective !== perspectiveRef.value) perspectiveRef.value = to.query.perspective;
+        const chapter = typeof to.query.chapter === "string" && /^\d+$/u.test(to.query.chapter) ? Number(to.query.chapter) : null;
+        if (chapter !== sourceChapter.value && (chapter === null || chapter <= info.chapters)) sourceChapter.value = chapter;
     });
 
     // ---- 保存 ----
@@ -218,6 +233,8 @@ export async function openBookSession(client: StoryClient, router: Router, bookI
     document.addEventListener("visibilitychange", onVisibility);
     window.addEventListener("pagehide", flushOnHide);
 
+    // 原文页的章只进地址，不进存下的状态；变了只同步地址。
+    const stopChapter = watch(sourceChapter, () => syncRoute());
     const stopWatch = watch([at, page, perspectiveRef, drawer], () => {
         syncRoute();
         scheduleSave();
@@ -236,6 +253,13 @@ export async function openBookSession(client: StoryClient, router: Router, bookI
         drawer,
         notice,
         saveFailed,
+        tier: ref<"wide" | "tablet" | "phone">("wide"),
+        sourceChapter,
+        lastDrawer,
+        wideRecords: ref(null),
+        reopenDrawer() {
+            if (drawer.value === null && lastDrawer.value !== null) drawer.value = lastDrawer.value;
+        },
         setAt(next) {
             if (validAt(info, next)) at.value = next;
         },
@@ -255,10 +279,12 @@ export async function openBookSession(client: StoryClient, router: Router, bookI
             drawer.value = {kind: "node", id, label};
         },
         closeDrawer() {
+            if (drawer.value !== null) lastDrawer.value = drawer.value;
             drawer.value = null;
         },
         dispose() {
             stopWatch();
+            stopChapter();
             stopRoute();
             document.removeEventListener("visibilitychange", onVisibility);
             window.removeEventListener("pagehide", flushOnHide);

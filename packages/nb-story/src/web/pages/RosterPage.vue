@@ -36,15 +36,17 @@ const selected = computed(() => (book.drawer.value?.kind === "card" ? book.drawe
                 <h2>主要人物</h2>
                 <PageState :loading="head.loading.value && !head.data.value" :error="head.error.value?.message ?? null" @retry="head.reload()" />
                 <ul class="roster">
-                    <li v-for="person in main" :key="person.id" :class="selected === person.id ? 'is-selected' : ''" data-testid="roster-main" @click="book.openCard(person.id)">
-                        <div class="flex items-baseline gap-2"><b>{{ person.label }}</b><span class="ml-auto text-[var(--text-xs)] text-[var(--text-muted)]">{{ person.mentions }}</span></div>
-                        <div class="text-[var(--text-xs)] text-[var(--text-secondary)]">{{ person.names.top.join("、") }}<template v-if="person.names.total > person.names.top.length"> 等 {{ person.names.total }} 个称呼</template></div>
+                    <li v-for="person in main" :key="person.id">
+                        <button type="button" class="main-card" :class="selected === person.id ? 'is-selected' : ''" data-testid="roster-main" @click="book.openCard(person.id)">
+                            <div class="flex items-baseline gap-2"><b>{{ person.label }}</b><span class="ml-auto text-[var(--text-xs)] text-[var(--text-muted)]">{{ person.mentions }}</span></div>
+                            <div class="text-[var(--text-xs)] text-[var(--text-secondary)]">{{ person.names.top.join("、") }}<template v-if="person.names.total > person.names.top.length"> 等 {{ person.names.total }} 个称呼</template></div>
+                        </button>
                     </li>
                 </ul>
             </section>
             <section class="story-block">
                 <h2>其他</h2>
-                <PagedList :items="visibleOthers" :total="all.total.value" :loading="all.loading.value" :has-more="showMinor && all.hasMore.value" :error="all.error.value?.message ?? null" @more="all.more()">
+                <PagedList :items="visibleOthers" :total="all.total.value" :loading="all.loading.value" :has-more="showMinor && all.hasMore.value" :error="all.error.value?.message ?? null" @more="all.more()" @retry="all.reload()">
                     <template #item="{item}">
                         <button type="button" class="other-row" :class="selected === item.id ? 'is-selected' : ''" @click="book.openCard(item.id)">
                             <b>{{ item.label }}</b><span class="text-[var(--text-xs)] text-[var(--text-muted)]">{{ KIND[item.kind] }}</span>
@@ -64,17 +66,20 @@ const selected = computed(() => (book.drawer.value?.kind === "card" ? book.drawe
     grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
     gap: 6px;
 }
-.roster li {
-    cursor: pointer;
+.main-card {
+    display: block;
+    width: 100%;
+    height: 100%;
     padding: 8px 10px;
     border-radius: var(--radius-control);
     background: var(--bg-subtle);
+    text-align: left;
 }
-.roster li:hover,
+.main-card:hover,
 .other-row:hover {
     background: var(--bg-hover);
 }
-.roster li.is-selected,
+.main-card.is-selected,
 .other-row.is-selected {
     background: var(--accent-bg);
 }

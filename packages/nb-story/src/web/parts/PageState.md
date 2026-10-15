@@ -13,4 +13,4 @@ defineProps<{loading: boolean; error: string | null}>();
 defineEmits<{retry: []}>();
 ```
 
-没有 slots、expose；attrs 透传。出错时根元素带 `data-testid="page-error"`。
+没有 slots、expose；attrs 透传。出错时根元素是 `role="alert"`、带 `data-testid="page-error"`；在取时是 `role="status"`、`aria-busy="true"`。

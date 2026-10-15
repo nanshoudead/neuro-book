@@ -29,7 +29,11 @@ const query = useStoryQuery("source.read", () => (range.value ? {from: {chapter:
 <template>
     <div class="flex flex-col gap-2 p-3" data-testid="drawer-source">
         <h2 class="text-[var(--text-sm)] font-[var(--weight-strong)]">原文 {{ refText }}</h2>
-        <PageState :loading="query.loading.value && !query.data.value" :error="query.error.value?.code === 'beyond_position' ? '这一段在阅读位置之后的章里，还没读到' : (query.error.value?.message ?? null)" @retry="query.reload()" />
+        <div v-if="query.error.value?.code === 'beyond_position' && range" class="text-[var(--text-sm)]" data-testid="beyond-position">
+            第 {{ range.chapter }} 章还没读到。
+            <button type="button" class="ml-1 text-[var(--accent-text)] underline" @click="book.setAt({chapter: range.chapter})">把阅读位置拨到第 {{ range.chapter }} 章</button>
+        </div>
+        <PageState v-else :loading="query.loading.value && !query.data.value" :error="query.error.value?.message ?? null" @retry="query.reload()" />
         <p
             v-for="paragraph in query.data.value?.paragraphs ?? []" :key="paragraph.paragraph"
             class="source-para" :class="range && paragraph.paragraph >= range.from && paragraph.paragraph <= range.to ? 'is-cited' : ''"

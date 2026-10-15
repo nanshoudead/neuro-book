@@ -26,8 +26,15 @@ watch(text, value => {
         open.value = query.value !== "";
     }, DEBOUNCE_MS);
 });
+// 点搜索框与结果面板之外的地方关掉面板。
+const root = ref<HTMLElement | null>(null);
+function onPointer(event: PointerEvent): void {
+    if (open.value && root.value && !root.value.contains(event.target as Node)) open.value = false;
+}
+document.addEventListener("pointerdown", onPointer);
 onBeforeUnmount(() => {
     if (timer !== null) clearTimeout(timer);
+    document.removeEventListener("pointerdown", onPointer);
 });
 
 const results = usePagedQuery("search", () => (query.value ? {query: query.value} : null), 50);
@@ -53,12 +60,12 @@ function onKey(event: KeyboardEvent): void {
 </script>
 
 <template>
-    <div class="search-box relative" @keydown="onKey">
+    <div ref="root" class="search-box relative" @keydown="onKey">
         <IconButton v-if="compact && !expanded" size="sm" icon-class="i-lucide-search" aria-label="搜索" @click="expanded = true" />
         <div v-else :class="compact ? 'w-[200px]' : 'w-[280px]'">
             <FormInput v-model="text" size="sm" icon-class="i-lucide-search" placeholder="搜人物、称呼、说法、原文" aria-label="搜索" data-testid="search-input" @focus="open = query !== ''" />
         </div>
-        <div v-if="open" class="search-results story-scroll-y absolute right-0 top-full z-40 mt-1 max-h-[60vh] w-[360px] max-w-[90vw] rounded-[var(--radius-control)] border border-[var(--divider)] bg-[var(--bg-panel)] p-2 shadow-[var(--shadow-panel)]" data-testid="search-results">
+        <div v-if="open" class="search-results absolute overflow-y-auto right-0 top-full z-40 mt-1 max-h-[60vh] w-[360px] max-w-[90vw] rounded-[var(--radius-control)] border border-[var(--divider)] bg-[var(--bg-panel)] p-2 shadow-[var(--shadow-panel)]" data-testid="search-results">
             <p class="pb-1 text-[var(--text-2xs)] text-[var(--text-muted)]">
                 <template v-if="results.total.value !== null">共 {{ results.total.value }} 条（截至{{ book.atLabel.value }}）</template>
                 <template v-else-if="results.loading.value">正在搜……</template>

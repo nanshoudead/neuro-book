@@ -7,7 +7,7 @@ import {FormInput, SegmentedControl} from "@notnotype/nb-ui/components";
 import {computed, ref} from "vue";
 
 import {useBook} from "../host/book";
-import {usePagedQuery} from "../host/query";
+import {usePagedQuery, useStoryQuery} from "../host/query";
 import NameLink from "../parts/NameLink.vue";
 import PagedList from "../parts/PagedList.vue";
 import RefLink from "../parts/RefLink.vue";
@@ -24,6 +24,10 @@ const list = usePagedQuery("questions.list", () => ({
     sort: sort.value,
     ...(text.value.trim() ? {query: text.value.trim()} : {}),
 }), 200);
+// 总条数：“没解开的”是未解与有进展两档相加，其余档取接口给的总数。
+const openCount = useStoryQuery("questions.list", () => ({state: "open", limit: 1}) as const);
+const partialCount = useStoryQuery("questions.list", () => ({state: "partial", limit: 1}) as const);
+const total = computed(() => (state.value === "unsolved" ? (openCount.data.value && partialCount.data.value ? openCount.data.value.total + partialCount.data.value.total : null) : list.total.value));
 const rows = computed(() => list.items.value.filter(item => state.value !== "unsolved" || item.state !== "answered"));
 const main = computed(() => rows.value.filter(item => !item.trivial));
 const trivial = computed(() => rows.value.filter(item => item.trivial));
@@ -39,13 +43,13 @@ function toggle(id: string): void {
 <template>
     <div class="story-page story-scroll-y" data-testid="page-questions">
         <div class="story-page-body">
-            <h1 class="story-page-title">悬念 <span class="sub">截至{{ book.atLabel.value }}</span></h1>
+            <h1 class="story-page-title">悬念 <span class="sub">截至{{ book.atLabel.value }}<template v-if="total !== null">，共 {{ total }} 条</template></span></h1>
             <div class="flex flex-wrap items-center gap-2">
                 <SegmentedControl v-model="state" size="xs" :options="[{value: 'unsolved', label: '没解开的'}, {value: 'open', label: '未解'}, {value: 'partial', label: '有进展'}, {value: 'answered', label: '已解'}, {value: 'all', label: '全部'}]" aria-label="按状态筛" />
                 <SegmentedControl v-model="sort" size="xs" :options="[{value: 'recent', label: '最近有进展'}, {value: 'raised', label: '按提出顺序'}]" aria-label="排序" />
                 <div class="w-44"><FormInput v-model="text" size="sm" icon-class="i-lucide-search" placeholder="按字或人物搜" /></div>
             </div>
-            <PagedList class="mt-2" :items="main" :total="list.total.value" :loading="list.loading.value" :has-more="list.hasMore.value" :error="list.error.value?.message ?? null" empty-text="没有悬念" @more="list.more()">
+            <PagedList class="mt-2" :items="main" :total="list.total.value" :loading="list.loading.value" :has-more="list.hasMore.value" :error="list.error.value?.message ?? null" empty-text="没有悬念" @more="list.more()" @retry="list.reload()">
                 <template #item="{item}">
                     <article class="question" data-testid="question">
                         <button type="button" class="flex w-full items-baseline gap-2 text-left" @click="toggle(item.id)">

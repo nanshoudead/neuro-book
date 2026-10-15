@@ -41,6 +41,8 @@ export function useStoryQuery<M extends StoryMethod>(method: M, params: () => No
         controller = current;
         loading.value = true;
         error.value = null;
+        // 参数（阅读位置、视角、筛选）一变先清掉旧结果：新数据回来之前显示“正在取”，不让旧位置的内容留在新位置的页面上。
+        data.value = null;
         try {
             const result = await client.call(method, {at: book.at.value, ...next, book: book.bookId} as StoryParams<M>, {signal: current.signal});
             if (current.signal.aborted) return;
@@ -75,6 +77,8 @@ export interface PagedState<T> {
     hasMore: Ref<boolean>;
     /** 再取一页；已在取或没有更多时什么也不做。 */
     more(): void;
+    /** 出错后重试：已经取到的保留，从出错的那一页接着取；第一页就出错时从头取。 */
+    reload(): void;
 }
 
 type PagedMethod = "entities.list" | "entity.knowledge" | "entity.statements" | "entity.episodes" | "questions.list" | "episodes.list" | "search";
@@ -145,6 +149,9 @@ export function usePagedQuery<M extends PagedMethod>(method: M, params: () => No
         hasMore,
         more() {
             if (!loading.value && hasMore.value) void fetchPage(false);
+        },
+        reload() {
+            if (!loading.value) void fetchPage(items.value.length === 0);
         },
     };
 }

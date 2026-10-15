@@ -15,6 +15,7 @@ import DrawerCard from "./DrawerCard.vue";
 import DrawerNode from "./DrawerNode.vue";
 import DrawerParagraph from "./DrawerParagraph.vue";
 import DrawerSource from "./DrawerSource.vue";
+import RecordsTable from "./RecordsTable.vue";
 import SearchBox from "./SearchBox.vue";
 
 const props = defineProps<{session: BookSession}>();
@@ -58,6 +59,9 @@ const PAGES: Record<Page, ReturnType<typeof defineAsyncComponent>> = {
 const root = ref<HTMLElement | null>(null);
 const width = ref(1440);
 const tier = computed<"wide" | "tablet" | "phone">(() => (width.value < 720 ? "phone" : width.value < 1100 ? "tablet" : "wide"));
+watch(tier, value => {
+    book.tier.value = value;
+}, {immediate: true});
 const overlayDrawer = computed(() => tier.value !== "wide");
 const navCollapsed = ref(readNavCollapsed());
 const navSheet = ref(false);
@@ -69,7 +73,15 @@ onMounted(() => {
     });
     if (root.value) observer.observe(root.value);
 });
-onBeforeUnmount(() => observer?.disconnect());
+// 浮层抽屉按 Escape 关掉（输出 32、33）。
+function onKey(event: KeyboardEvent): void {
+    if (event.key === "Escape" && overlayDrawer.value && book.drawer.value) book.closeDrawer();
+}
+window.addEventListener("keydown", onKey);
+onBeforeUnmount(() => {
+    observer?.disconnect();
+    window.removeEventListener("keydown", onKey);
+});
 
 const navIsCollapsed = computed(() => tier.value === "tablet" || navCollapsed.value);
 const panels = computed<SplitterPanelConfig[]>(() => [
@@ -82,6 +94,7 @@ function onGestureEnd(state: {collapsed?: Readonly<Record<string, boolean>>; siz
     const collapsed = state.collapsed ?? {};
     if (collapsed.nav !== undefined) setNavCollapsed(collapsed.nav);
     if (collapsed.drawer === true) book.closeDrawer();
+    if (collapsed.drawer === false) book.reopenDrawer();
     const drawerSize = state.sizesPx?.[2];
     if (drawerSize !== undefined && drawerSize >= 280) {
         drawerWidth.value = drawerSize;
@@ -93,6 +106,7 @@ function setNavCollapsed(value: boolean): void {
     writeNavCollapsed(value);
 }
 function goPage(page: Page): void {
+    book.wideRecords.value = null;
     book.goPage(page);
     navSheet.value = false;
 }
@@ -132,16 +146,18 @@ watch(notice, value => {
                         </button>
                         <div class="flex-1" />
                         <IconButton v-if="tier === 'wide'" size="xs" :icon-class="navCollapsed ? 'i-lucide-panel-left-open' : 'i-lucide-panel-left-close'" :aria-label="navCollapsed ? '展开导航' : '收起导航'" @click="setNavCollapsed(!navCollapsed)" />
+                        <IconButton v-if="tier === 'wide' && !book.drawer.value && book.lastDrawer.value" size="xs" icon-class="i-lucide-panel-right-open" aria-label="展开右侧抽屉" data-testid="reopen-drawer" @click="book.reopenDrawer()" />
                     </nav>
                 </template>
                 <template #panel-main>
                     <main class="h-full min-w-0" data-testid="main">
-                        <component :is="PAGES[book.page.value]" :key="book.page.value" />
+                        <RecordsTable v-if="book.wideRecords.value" :entity="book.wideRecords.value" />
+                        <component :is="PAGES[book.page.value]" v-else :key="book.page.value" />
                     </main>
                 </template>
                 <template v-if="!overlayDrawer" #panel-drawer>
                     <aside class="h-full min-w-0 overflow-hidden border-l border-[var(--divider)]" data-testid="drawer">
-                        <DrawerCard v-if="book.drawer.value?.kind === 'card'" :entity="book.drawer.value.entity" :tab="book.drawer.value.tab" />
+                        <DrawerCard v-if="book.drawer.value?.kind === 'card'" :key="book.drawer.value.entity" :entity="book.drawer.value.entity" :tab="book.drawer.value.tab" />
                         <DrawerSource v-else-if="book.drawer.value?.kind === 'source'" :ref-text="book.drawer.value.ref" class="story-scroll-y h-full" />
                         <DrawerParagraph v-else-if="book.drawer.value?.kind === 'para'" :chapter="book.drawer.value.chapter" :paragraph="book.drawer.value.paragraph" class="story-scroll-y h-full" />
                         <DrawerNode v-else-if="book.drawer.value?.kind === 'node'" :id="book.drawer.value.id" :label="book.drawer.value.label" class="story-scroll-y h-full" />
@@ -149,19 +165,21 @@ watch(notice, value => {
                 </template>
             </Splitter>
             <main v-else class="h-full min-w-0 pb-12" data-testid="main">
-                <component :is="PAGES[book.page.value]" :key="book.page.value" />
+                <RecordsTable v-if="book.wideRecords.value" :entity="book.wideRecords.value" />
+                <component :is="PAGES[book.page.value]" v-else :key="book.page.value" />
             </main>
 
             <!-- 平板与手机：抽屉是浮层，不挤窄主区；点外面关掉（输出 32、33） -->
             <template v-if="overlayDrawer && book.drawer.value">
                 <div class="absolute inset-0 z-20 bg-[var(--overlay-bg)]" data-testid="drawer-scrim" @click="book.closeDrawer()" />
                 <aside
+                    role="dialog" aria-modal="true" aria-label="详情"
                     class="drawer-overlay absolute z-30 flex flex-col overflow-hidden border-[var(--divider)] bg-[var(--bg-panel)] shadow-[var(--shadow-panel)]"
                     :class="tier === 'phone' ? 'inset-x-0 bottom-0 h-[78%] rounded-t-[12px] border-t' : 'inset-y-0 right-0 w-[min(420px,90%)] border-l'" data-testid="drawer"
                 >
                     <div v-if="book.drawer.value.kind !== 'card'" class="flex justify-end px-2 pt-1"><IconButton size="xs" icon-class="i-lucide-x" aria-label="关闭" @click="book.closeDrawer()" /></div>
                     <div class="min-h-0 flex-1">
-                        <DrawerCard v-if="book.drawer.value.kind === 'card'" :entity="book.drawer.value.entity" :tab="book.drawer.value.tab" />
+                        <DrawerCard v-if="book.drawer.value.kind === 'card'" :key="book.drawer.value.entity" :entity="book.drawer.value.entity" :tab="book.drawer.value.tab" />
                         <DrawerSource v-else-if="book.drawer.value.kind === 'source'" :ref-text="book.drawer.value.ref" class="story-scroll-y h-full" />
                         <DrawerParagraph v-else-if="book.drawer.value.kind === 'para'" :chapter="book.drawer.value.chapter" :paragraph="book.drawer.value.paragraph" class="story-scroll-y h-full" />
                         <DrawerNode v-else :id="book.drawer.value.id" :label="book.drawer.value.label" class="story-scroll-y h-full" />

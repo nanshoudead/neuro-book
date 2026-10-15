@@ -1,5 +1,5 @@
 ---
-标签: []
+标签: ["state:inject"]
 ---
 
 # 原文段落
@@ -18,6 +18,10 @@ defineProps<{
 ```
 
 没有 emits、slots、expose；attrs 透传到外层 `span`。
+
+## 隐藏通道理由
+
+`state:inject`：自己不注入任何东西，但渲染的 NameLink 经注入打开人物卡（见 NameLink 的理由）；原文里称呼的位置由查询给出，不能交给父组件逐个渲染。
 
 ## 注意事项
 

@@ -13,7 +13,19 @@ import type {NodeDisplayData, PartialButFor} from "sigma/types";
 export type Theme = {
     text: string; muted: string; accent: string; success: string; warning: string; danger: string;
     divider: string; surface: string; bg: string; font: string;
+    /** 暗色：主题里没有的几种类别色、泳道色要换成提亮的一组。 */
+    dark: boolean;
 };
+
+/** 主题变量覆盖不到的固定色（地点、任务、主线、情节、认知线、故事线泳道），各有明暗两组。 */
+export const FIXED_COLORS = {
+    light: {place: "#0d9488", task: "#8b5cf6", episode: "#94a3b8", arc: "#475569", link: "#64748b", know: "#b35375", lanes: ["#2563eb", "#db2777", "#0891b2", "#7c3aed", "#ea580c", "#65a30d", "#92400e"]},
+    dark: {place: "#2dd4bf", task: "#a78bfa", episode: "#94a3b8", arc: "#cbd5e1", link: "#94a3b8", know: "#f472b6", lanes: ["#60a5fa", "#f472b6", "#22d3ee", "#a78bfa", "#fb923c", "#a3e635", "#fbbf24"]},
+} as const;
+
+export function fixedColors(theme: Theme) {
+    return theme.dark ? FIXED_COLORS.dark : FIXED_COLORS.light;
+}
 
 function toHex(element: HTMLElement, name: string, fallback: string): string {
     const value = getComputedStyle(element).getPropertyValue(name).trim();
@@ -42,6 +54,7 @@ export function readTheme(element: HTMLElement): Theme {
         surface: toHex(element, "--panel-surface", "#ffffff"),
         bg: toHex(element, "--bg-panel", "#fafafa"),
         font: getComputedStyle(element).getPropertyValue("--font-ui").trim() || "system-ui, sans-serif",
+        dark: document.documentElement.dataset.nbAppearance === "dark",
     };
 }
 
@@ -85,7 +98,7 @@ export function labelDrawer(theme: Theme) {
     };
 }
 
-type EdgeLabelData = {label?: string | null; color: string; size: number};
+type EdgeLabelData = {label?: string | null; color: string; size: number; identity?: boolean};
 type EndData = {x: number; y: number; size: number};
 
 /**
@@ -102,9 +115,10 @@ export function edgeLabelDrawer(theme: Theme) {
         context.font = `${settings.edgeLabelWeight} ${size}px ${settings.edgeLabelFont}`;
         const width = context.measureText(edge.label).width;
         const length = Math.hypot(target.x - source.x, target.y - source.y) - source.size - target.size;
-        if (length < width + 8) return;
+        // 身份线上的字（“其实是同一人”等）是视角的要点：线短、和别的字重叠时也照样写。
+        if (length < width + 8 && edge.identity !== true) return;
         const box = {x: (source.x + target.x) / 2 - width / 2 - 2, y: (source.y + target.y) / 2 - size / 2 - 2, w: width + 4, h: size + 4};
-        if (occupied.some((item) => box.x < item.x + item.w && item.x < box.x + box.w && box.y < item.y + item.h && item.y < box.y + box.h)) return;
+        if (edge.identity !== true && occupied.some((item) => box.x < item.x + item.w && item.x < box.x + box.w && box.y < item.y + item.h && item.y < box.y + box.h)) return;
         occupied.push(box);
         haloText(context, theme, edge.label, box.x + 2, (source.y + target.y) / 2 + size / 3, theme.muted);
     };

@@ -5,6 +5,7 @@
  */
 import {useBook} from "../host/book";
 import {useStoryQuery} from "../host/query";
+import NameLink from "../parts/NameLink.vue";
 import PageState from "../parts/PageState.vue";
 import RefLink from "../parts/RefLink.vue";
 import StateBadge from "../parts/StateBadge.vue";
@@ -23,7 +24,7 @@ const matrix = useStoryQuery("secrets.matrix", () => ({}));
             <div v-if="matrix.data.value && matrix.data.value.rows.length" class="overflow-x-auto">
                 <table class="story-table" data-testid="secrets-matrix">
                     <thead>
-                        <tr><th>秘密</th><th v-for="column in matrix.data.value.columns" :key="column.id">{{ column.label }}</th></tr>
+                        <tr><th>秘密</th><th v-for="column in matrix.data.value.columns" :key="column.id"><NameLink v-if="column.id !== 'reader'" :id="column.id" :label="column.label" /><template v-else>{{ column.label }}</template></th></tr>
                     </thead>
                     <tbody>
                         <tr v-for="row in matrix.data.value.rows" :key="row.id" :data-secret="row.id">

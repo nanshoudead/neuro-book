@@ -1,5 +1,5 @@
 ---
-标签: ["state:local", "env:global"]
+标签: ["state:local"]
 ---
 
 # 网络图
@@ -50,8 +50,7 @@ defineEmits<{(event: "select", id: string): void}>();
 
 ## 状态
 
-- `state:local`：Sigma 实例、graphology 图、悬停与选中、拖动中的点、正在进行的移动动画。
-- `env:global`：全屏按钮调 `requestFullscreen`/`exitFullscreen`；ResizeObserver 只观察自己的画布。
+- `state:local`：Sigma 实例、graphology 图、悬停与选中、拖动中的点、正在进行的移动动画。ResizeObserver 只观察自己的画布；全屏按钮只对自己的根元素调 `requestFullscreen`，不注册全局监听。
 
 ## 上游边界
 

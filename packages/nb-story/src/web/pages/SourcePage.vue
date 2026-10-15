@@ -13,13 +13,22 @@ import PageState from "../parts/PageState.vue";
 import SourceText from "../parts/SourceText.vue";
 
 const book = useBook();
-const chapter = ref(book.at.value.chapter);
-const tocOpen = ref(true);
-const showBeats = ref(false);
-// 阅读位置变了，正在看的章跟着落到新的位置所在章。
-watch(() => book.at.value.chapter, value => {
-    chapter.value = value;
+// 正在看的章在会话里（写进地址的 chapter）；没写时是阅读位置所在章。阅读位置变了回到新位置所在章。
+const chapter = computed({
+    get: () => book.sourceChapter.value ?? book.at.value.chapter,
+    set: value => {
+        book.sourceChapter.value = value === book.at.value.chapter ? null : value;
+    },
 });
+watch(() => book.at.value.chapter, () => {
+    book.sourceChapter.value = null;
+});
+// 手机宽度下目录默认收起，正文才有地方（输出 33）。
+const tocOpen = ref(book.tier.value !== "phone");
+const showBeats = ref(false);
+const body = ref<HTMLElement | null>(null);
+// 换章回到顶部，不停在上一章滚到的位置。
+watch(chapter, () => body.value?.scrollTo({top: 0}));
 const beyond = computed(() => chapter.value > book.at.value.chapter);
 const toc = useStoryQuery("book.info", () => ({}));
 const source = useStoryQuery("source.read", () => (beyond.value ? null : {from: {chapter: chapter.value}}));
@@ -38,7 +47,7 @@ const readLine = computed(() => (book.at.value.paragraph !== undefined && chapte
                 <template v-if="item.title !== null">{{ item.title }}</template><template v-else>第 {{ item.chapter }} 章 · 未读</template>
             </button>
         </aside>
-        <div class="story-scroll-y min-w-0 flex-1">
+        <div ref="body" class="story-scroll-y min-w-0 flex-1">
             <div class="mx-auto max-w-[760px] px-4 py-3">
                 <div class="mb-2 flex flex-wrap items-center gap-2">
                     <IconButton v-if="!tocOpen" size="xs" icon-class="i-lucide-panel-left-open" aria-label="展开目录" @click="tocOpen = true" />

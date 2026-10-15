@@ -39,12 +39,19 @@ export function useStoryClient(): StoryClient {
 export function createHttpClient(onUnauthorized: () => void): StoryClient {
     return {
         async call(method, params, options = {}) {
-            const response = await fetch(`/api/rpc/${method}`, {
-                method: "POST",
-                headers: {"content-type": "application/json"},
-                body: JSON.stringify(params),
-                ...(options.signal ? {signal: options.signal} : {}),
-            });
+            let response: Response;
+            try {
+                response = await fetch(`/api/rpc/${method}`, {
+                    method: "POST",
+                    headers: {"content-type": "application/json"},
+                    body: JSON.stringify(params),
+                    ...(options.signal ? {signal: options.signal} : {}),
+                });
+            } catch (error) {
+                // 中止照原样抛给调用方（它据此丢弃结果）；其余网络失败统一成失败码 network，页面按查询失败显示。
+                if (options.signal?.aborted) throw error;
+                throw new StoryCallError("network", "连不上查看器的服务，确认 nbstory serve 还在运行");
+            }
             const body = (await response.json().catch(() => null)) as {code?: string; message?: string; candidates?: []} | null;
             if (response.ok) return body as never;
             if (response.status === 401) onUnauthorized();

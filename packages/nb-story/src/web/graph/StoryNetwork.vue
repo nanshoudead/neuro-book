@@ -21,7 +21,7 @@ import {computed, onBeforeUnmount, onMounted, ref, watch} from "vue";
 
 import {IconButton} from "@notnotype/nb-ui/components";
 
-import {edgeLabelDrawer, estimateLabelWidth, Focus, hoverDrawer, labelDrawer, layoutCircle, layoutConcentric, layoutForce, mix, readTheme, seedSpiral, zoom} from "./sigma-kit";
+import {edgeLabelDrawer, estimateLabelWidth, fixedColors, Focus, hoverDrawer, labelDrawer, layoutCircle, layoutConcentric, layoutForce, mix, readTheme, seedSpiral, zoom} from "./sigma-kit";
 import type {Theme} from "./sigma-kit";
 
 import type {IdentityState} from "../../contract/contract";
@@ -75,15 +75,14 @@ let focus: Focus | null = null;
 let theme: Theme | null = null;
 let stopAnimation: (() => void) | null = null;
 const EGO_LIMIT = 12;
-const KNOW_COLOR = "#b35375";
 const NODE_SIZE = 8;
 const EDGE_SIZE = 2;
 
 function kindColor(kind: string): string {
     const t = theme!;
     const palette: Record<string, string> = {
-        person: t.accent, persona: t.accent, group: t.success, item: t.warning, place: "#0d9488", task: "#8b5cf6",
-        concept: t.muted, other: t.muted, episode: "#94a3b8", arc: "#475569", secret: t.danger, question: t.warning,
+        person: t.accent, persona: t.accent, group: t.success, item: t.warning, place: fixedColors(t).place, task: fixedColors(t).task,
+        concept: t.muted, other: t.muted, episode: fixedColors(t).episode, arc: fixedColors(t).arc, secret: t.danger, question: t.warning,
     };
     return palette[kind] ?? t.muted;
 }
@@ -133,7 +132,7 @@ function fillRelationEdges(target: Graph): void {
             const color = edge.identity === "no-record" ? t.muted : t.warning;
             const label = IDENTITY_LABEL[edge.identity];
             target.addUndirectedEdgeWithKey(`same:${edge.a}|${edge.b}`, edge.a, edge.b, {
-                size: EDGE_SIZE, color: mix(color, t.bg, 0.35), focusColor: color, type: "line", label, shortLabel: label, alwaysLabel: true, weight: 4,
+                size: EDGE_SIZE, color: mix(color, t.bg, 0.35), focusColor: color, type: "line", label, shortLabel: label, alwaysLabel: true, weight: 4, identity: true,
             });
             continue;
         }
@@ -143,7 +142,7 @@ function fillRelationEdges(target: Graph): void {
         const ba = layers.has("know") && props.ego === null ? edge.ba : 0;
         if (!relation && !co && ab === 0 && ba === 0) continue;
         const knows = ab > 0 || ba > 0;
-        const color = relation ? t.accent : knows ? KNOW_COLOR : t.muted;
+        const color = relation ? t.accent : knows ? fixedColors(t).know : t.muted;
         const word = relation ? (edge.word ?? "") : "";
         const parts = [
             relation ? (word ? `${word}（说法 ${edge.statements}）` : `说法 ${edge.statements}`) : "",
@@ -197,7 +196,7 @@ function buildData(target: Graph): void {
         });
     }
     // 线用先和背景色混好的不透明色：半透明的线在 WebGL 里混色会发青，叠多了也会越叠越深
-    const EDGE: Record<string, string> = {participates: mix(t.muted, t.bg, 0.72), link: mix("#64748b", t.bg, 0.55), about: mix(t.danger, t.bg, 0.65), relation: mix(t.accent, t.bg, 0.5)};
+    const EDGE: Record<string, string> = {participates: mix(t.muted, t.bg, 0.72), link: mix(fixedColors(t).link, t.bg, 0.55), about: mix(t.danger, t.bg, 0.65), relation: mix(t.accent, t.bg, 0.5)};
     for (const edge of edges) {
         if (!target.hasNode(edge.a) || !target.hasNode(edge.b) || edge.a === edge.b) continue;
         const key = `${edge.type}:${edge.a}|${edge.b}`;
@@ -264,7 +263,11 @@ function relayout(fresh: boolean): void {
     const copy = graph.copy();
     applyLayout(copy, fresh);
     const targets: Record<string, {x: number; y: number}> = {};
-    copy.forEachNode((node, attributes) => { targets[node] = {x: Number(attributes.x), y: Number(attributes.y)}; });
+    copy.forEachNode((node, attributes) => {
+        targets[node] = {x: Number(attributes.x), y: Number(attributes.y)};
+        // 名字写在哪一边由排版决定（环形左半圈朝左），动画只移坐标，这个属性要先同步过去。
+        graph!.setNodeAttribute(node, "labelSide", attributes.labelSide ?? "right");
+    });
     stopAnimation?.();
     // 拖动时固定过的取景范围要放开，否则新位置跑到框外
     sigma.setCustomBBox(null);
@@ -487,7 +490,7 @@ onBeforeUnmount(() => { observer?.disconnect(); stopAnimation?.(); sigma?.kill()
 </script>
 
 <template>
-    <div ref="root" class="story-graph">
+    <div ref="root" class="story-graph" :style="{'--know-color': themeReady > 0 && theme ? fixedColors(theme).know : 'transparent'}">
         <div ref="host" class="canvas" />
         <div v-if="!compact && themeReady > 0" class="legend">
             <span v-for="item in legend" :key="item.label"><i :style="{borderColor: item.color}" />{{ item.label }}</span>
@@ -515,6 +518,6 @@ onBeforeUnmount(() => { observer?.disconnect(); stopAnimation?.(); sigma?.kill()
 .legend .line { display: inline-block; width: 18px; height: 0; border-top: 2px solid; }
 .legend .line.rel { border-color: var(--accent-main); }
 .legend .line.co { border-color: var(--text-muted); }
-.legend .line.know { border-color: #b35375; }
+.legend .line.know { border-color: var(--know-color); }
 .zoom { position: absolute; right: 8px; bottom: 8px; display: flex; flex-direction: column; gap: 2px; padding: 2px; border-radius: 6px; background: color-mix(in srgb, var(--panel-surface) 88%, transparent); }
 </style>

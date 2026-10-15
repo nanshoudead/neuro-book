@@ -12,6 +12,8 @@ const book = useBook();
 
 <style scoped>
 .name-link {
+    display: inline;
+    text-align: inherit;
     color: inherit;
     border-radius: 3px;
     background: color-mix(in srgb, var(--accent-main) 12%, transparent);

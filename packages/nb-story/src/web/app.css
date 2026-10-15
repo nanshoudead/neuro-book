@@ -22,7 +22,7 @@ body {
     margin: 0;
     background: var(--bg-panel);
     color: var(--text-main);
-    font-family: var(--font-sans, system-ui, sans-serif);
+    font-family: var(--font-ui, system-ui, sans-serif);
 }
 
 * {

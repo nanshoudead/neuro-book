@@ -29,7 +29,12 @@ const points = computed(() =>
 );
 const taskFilter = ref<"active" | "done">("active");
 const shownTasks = computed(() => tasks.value.filter(track => (taskFilter.value === "active" ? String(track.current).startsWith("进行中") : !String(track.current).startsWith("进行中"))));
-const itemTrack = useStoryQuery("ledger.track", () => (items.value[0] ? {track: items.value[0].name, owner: items.value[0].owner.id} : null));
+const itemTrack = ref<string>("");
+watch(items, value => {
+    if (!value.some(track => keyOf(track) === itemTrack.value)) itemTrack.value = value[0] ? keyOf(value[0]) : "";
+}, {immediate: true});
+const itemCurrent = computed(() => items.value.find(track => keyOf(track) === itemTrack.value) ?? null);
+const itemDetail = useStoryQuery("ledger.track", () => (itemCurrent.value ? {track: itemCurrent.value.name, owner: itemCurrent.value.owner.id} : null));
 </script>
 
 <template>
@@ -70,10 +75,11 @@ const itemTrack = useStoryQuery("ledger.track", () => (items.value[0] ? {track: 
                     <li v-if="shownTasks.length === 0" class="text-[var(--text-muted)]">没有</li>
                 </ul>
             </section>
-            <section v-if="itemTrack.data.value" class="story-block">
+            <section v-if="items.length" class="story-block">
                 <h2>道具</h2>
-                <ul class="flex flex-col gap-1 text-[var(--text-sm)]">
-                    <li v-for="entry in itemTrack.data.value.entries" :key="entry.id">{{ entry.op === "get" ? "得到" : entry.op === "use" ? "用掉" : "失去" }} {{ entry.item?.label ?? "" }}：{{ entry.reason }} <RefLink v-if="entry.refs[0]" :ref-text="entry.refs[0]" /></li>
+                <SegmentedControl v-if="items.length > 1" v-model="itemTrack" size="xs" :options="items.map(track => ({value: keyOf(track), label: `${track.owner.label} · ${track.name}`}))" aria-label="选一项道具" />
+                <ul class="mt-1 flex flex-col gap-1 text-[var(--text-sm)]">
+                    <li v-for="entry in itemDetail.data.value?.entries ?? []" :key="entry.id">{{ entry.op === "get" ? "得到" : entry.op === "use" ? "用掉" : "失去" }} {{ entry.item?.label ?? "" }}：{{ entry.reason }} <RefLink v-if="entry.refs[0]" :ref-text="entry.refs[0]" /></li>
                 </ul>
             </section>
         </div>

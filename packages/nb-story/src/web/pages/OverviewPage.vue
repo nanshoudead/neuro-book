@@ -73,7 +73,7 @@ const compactColumns = computed(() => (matrix.data.value?.columns ?? []).slice(0
                 <PageState :loading="matrix.loading.value && !matrix.data.value" :error="matrix.error.value?.message ?? null" @retry="matrix.reload()" />
                 <div v-if="matrix.data.value" class="overflow-x-auto">
                     <table class="story-table">
-                        <thead><tr><th>秘密</th><th v-for="column in compactColumns" :key="column.id">{{ column.label }}</th></tr></thead>
+                        <thead><tr><th>秘密</th><th v-for="column in compactColumns" :key="column.id"><NameLink v-if="column.id !== 'reader'" :id="column.id" :label="column.label" /><template v-else>{{ column.label }}</template></th></tr></thead>
                         <tbody>
                             <tr v-for="row in matrix.data.value.rows" :key="row.id">
                                 <td>{{ row.title }}</td>
