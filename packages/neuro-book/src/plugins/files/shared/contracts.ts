@@ -234,6 +234,30 @@ export const projectFilesContract = defineRemoteService({id: "nbook.files/projec
 
 export const userFilesContract = defineRemoteService({id: "nbook.files/user", version: 5, provider: "server", callers: CALLERS, methods, events});
 
+/**
+ * 预览的受限读取（docs/specs/workspace/files.md 的“预览的受限读取”）：签发只放行这部作品这一代的只读令牌，HTML 预览在沙箱里
+ * 按 `base` 拼出相对引用的地址。调用方的门面释放（窗口断开、入口停止）时它签发的令牌全部作废。
+ */
+export const filesPreviewContract = defineRemoteService({
+    id: "nbook.files/preview",
+    version: 1,
+    provider: "server",
+    callers: ["browser"],
+    methods: {
+        open: {
+            input: Type.Object({project: Type.String({minLength: 1}), generation: Type.Integer({minimum: 1})}, {additionalProperties: false}),
+            output: Type.Object({token: Type.String(), base: Type.String()}, {additionalProperties: false}),
+            effect: "read",
+            errors: {"generation-gone": Detail, "unavailable-project": Detail},
+        },
+        close: {
+            input: Type.Object({token: Type.String()}, {additionalProperties: false}),
+            output: Type.Object({}, {additionalProperties: false}),
+            effect: "read",
+        },
+    },
+});
+
 export type FilesContract = typeof projectFilesContract | typeof userFilesContract;
 
 export function contractOf(scheme: Scheme): FilesContract {

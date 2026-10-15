@@ -14,7 +14,7 @@ import {readProjectIdentity} from "nbook/server/projects/identity";
 import {createProjectRegistry} from "nbook/server/projects/registry";
 import type {ProjectMetadataRead, ProjectRunState, ProjectsService} from "nbook/shared/projects";
 
-import {createRawRoutes, RAW_MAX_BYTES} from "./backend/raw-route";
+import {createPreviewTokens, createRawRoutes, RAW_MAX_BYTES} from "./backend/raw-route";
 import {openRoot} from "./backend/rooted";
 
 let tmp = "";
@@ -64,9 +64,10 @@ async function world() {
     };
     const userRoot = await openRoot(user, {controlDirectory: false, lockDirectory: join(root, "locks"), report: () => undefined});
     if ("ok" in userRoot) throw new Error(userRoot.detail);
-    const app = createRawRoutes({projects, user: userRoot, record: () => undefined});
+    const tokens = createPreviewTokens();
+    const app = createRawRoutes({projects, user: userRoot, tokens, record: () => undefined});
     const get = (path: string, headers: Record<string, string> = {}) => app.fetch(new Request(`http://127.0.0.1${path}`, {headers}), {registerEventStream: () => undefined});
-    return {root, book, id, run, get};
+    return {root, book, id, run, get, tokens};
 }
 
 describe("workspace.files 按地址读取字节", () => {
@@ -171,5 +172,36 @@ describe("workspace.files 按地址读取字节", () => {
         expect(await response.text()).toBe("user note");
         expect(response.headers.get("content-type")).toBe("text/plain; charset=utf-8");
         expect((await get("/raw/user/missing.txt")).status).toBe(404);
+    });
+});
+
+describe("workspace.files 预览的受限读取", () => {
+    it("令牌放行这部作品：带 Origin: null 读到响应与 CORS 头、no-referrer；不看 Sec-Fetch-Site", async () => {
+        const {id, get, tokens} = await world();
+        const token = tokens.issue(id, 3);
+        const response = await get(`/preview/${token}/images/a.png`, {"Origin": "null", "Sec-Fetch-Site": "cross-site"});
+        expect(response.status).toBe(200);
+        expect(new Uint8Array(await response.arrayBuffer())).toEqual(PNG);
+        expect(response.headers.get("access-control-allow-origin")).toBe("null");
+        expect(response.headers.get("referrer-policy")).toBe("no-referrer");
+        expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+        // 别的来源拿不到 CORS 头：浏览器里读不到响应。
+        expect((await get(`/preview/${token}/images/a.png`, {"Origin": "http://evil.example"})).headers.get("access-control-allow-origin")).toBeNull();
+    });
+
+    it("令牌无效、作废、这一代结束都是 404；控制目录照样读不到", async () => {
+        const {id, run, get, tokens} = await world();
+        expect((await get("/preview/0123456789abcdef0123456789abcdef/images/a.png")).status).toBe(404);
+        const token = tokens.issue(id, 3);
+        expect((await get(`/preview/${token}/.nbook/project.json`)).status).toBe(404);
+        tokens.revoke(token);
+        expect((await get(`/preview/${token}/images/a.png`)).status).toBe(404);
+        const second = tokens.issue(id, 3);
+        run.generation = 4;
+        expect((await get(`/preview/${second}/images/a.png`)).status).toBe(404);
+        // 代次结束后令牌已作废：这一代回来（测试里改回）也不再放行。
+        run.generation = 3;
+        expect((await get(`/preview/${second}/images/a.png`)).status).toBe(404);
+        expect(tokens.lookup(second)).toBeNull();
     });
 });

@@ -13,6 +13,7 @@ import {descriptor as diagnostics} from "./plugins/diagnostics/plugin";
 import {descriptor as editor} from "./plugins/editor/plugin";
 import {descriptor as explorer} from "./plugins/explorer/plugin";
 import {descriptor as files} from "./plugins/files/plugin";
+import {descriptor as htmlPreview} from "./plugins/html-preview/plugin";
 import {descriptor as http} from "./plugins/http/plugin";
 import {descriptor as imageViewer} from "./plugins/image-viewer/plugin";
 import {descriptor as projects} from "./plugins/projects/plugin";
@@ -27,7 +28,7 @@ import {descriptor as workbench} from "./plugins/workbench/plugin";
  */
 export type {PluginDescriptor};
 
-export const productPlugins: ReadonlyArray<PluginDescriptor> = [diagnostics, http, state, settings, commands, storage, workbench, projects, files, explorer, editor, imageViewer];
+export const productPlugins: ReadonlyArray<PluginDescriptor> = [diagnostics, http, state, settings, commands, storage, workbench, projects, files, explorer, editor, imageViewer, htmlPreview];
 
 /**
  * 代理允许清单：可以以调用方的身份代为解析服务、发出远程调用的插件（runtime/services.md 输出第 13 条）。

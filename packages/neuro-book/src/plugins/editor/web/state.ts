@@ -31,6 +31,8 @@ export const editorState = definePublicState("nbook.editor", {
     hasDocument: {type: "boolean", unready: false, reason: reason("活动的编辑器没有文本", "The active editor has no text")},
     // 活动标签的编辑器 id（输出 36）；页面或空组为空串。
     activeEditor: {type: "string", unready: ""},
+    // 活动标签的文件有预览编辑器、它本身不是预览视图（输出 46）：“打开预览”据此可用。
+    hasPreview: {type: "boolean", unready: false, reason: reason("这个文件没有预览", "This file has no preview")},
     // 活动控件交出了一行状态（输出 42）：状态栏的编辑器状态条目据此显示。
     hasEditorStatus: {type: "boolean", unready: false, reason: reason("活动的编辑器没有状态可显示", "The active editor reports no status")},
 });
@@ -63,6 +65,7 @@ export function editorStateValues(area: Readonly<ShallowRef<EditorArea | null>>)
         activeDocument: computed(() => fileTab.value?.address ?? ""),
         hasDocument: computed(() => document.value !== null),
         activeEditor: computed(() => fileTab.value?.editor ?? ""),
+        hasPreview: computed(() => area.value?.previewEditor() != null),
         hasEditorStatus: computed(() => fileTab.value !== null && handle.value?.status?.value != null),
     };
 }

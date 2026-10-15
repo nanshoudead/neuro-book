@@ -115,3 +115,14 @@ export function editorRefusal(catalog: EditorCatalog, editor: string, address: s
     if (declaration.input === "bytes" && selectorScore(declaration, address) === 0) return `编辑器 ${editor} 不能打开 ${fileName(address)}`;
     return null;
 }
+
+/** 这个文件的预览编辑器（输出 46）：selector 命中、`role: "preview"` 的里命中最强的，同级按 id；没有为 null。 */
+export function previewEditorFor(catalog: EditorCatalog, address: string): string | null {
+    let best: {readonly id: string; readonly score: number} | null = null;
+    for (const {id, declaration} of catalog.list()) {
+        if (declaration.role !== "preview") continue;
+        const score = selectorScore(declaration, address);
+        if (score > 0 && (best === null || score > best.score)) best = {id, score};
+    }
+    return best?.id ?? null;
+}

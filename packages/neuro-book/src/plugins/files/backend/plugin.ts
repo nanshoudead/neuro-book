@@ -21,7 +21,7 @@ import {HTTP_ROUTES_POINT} from "nbook/plugins/http/shared/contracts";
 import {currentProjectKey, projectsKey} from "nbook/shared/projects";
 
 import {descriptor} from "../plugin";
-import {projectFilesContract, userFilesContract} from "../shared/contracts";
+import {filesPreviewContract, projectFilesContract, userFilesContract} from "../shared/contracts";
 import type {ChangeSource, FilesContract} from "../shared/contracts";
 import {createChangeHub} from "./changes";
 import type {ChangeHub} from "./changes";
@@ -31,7 +31,7 @@ import {createBatch} from "./batch";
 import type {Batch, BatchControl} from "./batch";
 import {createOperations} from "./operations";
 import type {Operations} from "./operations";
-import {createRawRoutes} from "./raw-route";
+import {createPreviewTokens, createRawRoutes, PREVIEW_PREFIX} from "./raw-route";
 import {openRoot} from "./rooted";
 import type {RootOptions} from "./rooted";
 
@@ -149,16 +149,43 @@ const serverEntry = defineEntry({
     // 项目登记只有服务端宿主提供；只装了文件服务的实例（测试场地）里没有它，项目的字节地址随之不可用。
     dependencies: [{key: diagnosticsKey}, {key: clockKey}, {key: stateRootKey}, {key: projectsKey, required: false}],
     contributions: [{capability: HTTP_ROUTES_POINT, id: descriptor.id, declaration: {}}],
-    remoteProvides: [userFilesContract],
+    remoteProvides: [userFilesContract, filesPreviewContract],
     activate: async (context) => {
         const state = context.services.require(stateRootKey).path;
         const path = join(state, "user");
         await mkdir(path, {recursive: true});
         const {root, record, backend} = await openBackend(context, "user", {path, options: {controlDirectory: false, lockDirectory: join(state, "locks", "user-files")}});
         const projects = await context.services.resolve(projectsKey);
-        const routes = createRawRoutes({projects: projects.status === "resolved" ? projects.instance : null, user: root, record: (event, detail, error) => record("warn", event, detail, {}, error)});
+        const registry = projects.status === "resolved" ? projects.instance : null;
+        const tokens = createPreviewTokens();
+        const routes = createRawRoutes({projects: registry, user: root, tokens, record: (event, detail, error) => record("warn", event, detail, {}, error)});
+        // 每个调用方（一个窗口里的一个入口）一份门面，记着它签发的令牌；门面释放时全部作废。
+        const issued = new WeakMap<object, Set<string>>();
+        const preview = provideRemote(filesPreviewContract, () => {
+            const mine = new Set<string>();
+            const facade = {methods: {
+                open: async ({project, generation}: {readonly project: string; readonly generation: number}) => {
+                    if (registry === null) return {ok: false as const, code: "unavailable-project" as const, detail: {detail: "这个实例没有项目登记"}};
+                    const listed = await registry.list();
+                    const running = listed.ok ? listed.value.find((item) => item.id === project) : undefined;
+                    if (running === undefined || running.generation !== generation) return {ok: false as const, code: "generation-gone" as const, detail: {detail: `作品 ${project} 的第 ${String(generation)} 代不在运行`}};
+                    const token = tokens.issue(project, generation);
+                    mine.add(token);
+                    return {ok: true as const, value: {token, base: `${PREVIEW_PREFIX}${token}/`}};
+                },
+                close: async ({token}: {readonly token: string}) => {
+                    // 只作废自己签发的：别的窗口的令牌不归它。
+                    if (mine.delete(token)) tokens.revoke(token);
+                    return {ok: true as const, value: {}};
+                },
+            }};
+            issued.set(facade, mine);
+            return facade;
+        }, {release: (facade) => {
+            for (const token of issued.get(facade) ?? []) tokens.revoke(token);
+        }});
         return {
-            remote: [provideRemote(userFilesContract, (consumer) => implementation(backend, consumer))],
+            remote: [provideRemote(userFilesContract, (consumer) => implementation(backend, consumer)), preview],
             contributions: {[HTTP_ROUTES_POINT]: {[descriptor.id]: routes}},
         };
     },

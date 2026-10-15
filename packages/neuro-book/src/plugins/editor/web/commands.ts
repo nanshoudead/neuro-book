@@ -27,6 +27,7 @@ export const CLOSE_OTHERS_COMMAND = "nbook.editor.close-others";
 export const SPLIT_RIGHT_COMMAND = "nbook.editor.split-right";
 export const SPLIT_DOWN_COMMAND = "nbook.editor.split-down";
 export const REOPEN_WITH_COMMAND = "nbook.editor.reopen-with";
+export const OPEN_PREVIEW_COMMAND = "nbook.editor.open-preview";
 export const FOCUS_COMMAND = "nbook.editor.focus";
 export const UNDO_COMMAND = "nbook.edit.undo";
 export const REDO_COMMAND = "nbook.edit.redo";
@@ -54,6 +55,9 @@ const OPEN_PAGE_ARGS = Type.Object({id: Type.String({minLength: 1})}, {additiona
 /** 不给 `editor` 时弹出选择（输出 39），命令面板里不必手写参数。 */
 const REOPEN_ARGS = Type.Object({editor: Type.Optional(Type.String({minLength: 1}))}, {additionalProperties: false});
 
+/** `side` 为真时在活动组右侧的组打开（docs/specs/workbench/editor.md 输出 46）。 */
+const OPEN_PREVIEW_ARGS = Type.Object({side: Type.Optional(Type.Boolean())}, {additionalProperties: false});
+
 const GO_TO_LINE_ARGS = Type.Object({
     target: Type.Object({
         workspaceKey: Type.String(),
@@ -76,6 +80,7 @@ export const EDITOR_COMMAND_DECLARATIONS: Readonly<Record<string, CommandDeclara
     [SPLIT_RIGHT_COMMAND]: {title: title("向右拆分编辑器", "Split Editor Right"), category: EDITOR, description: "Open the active document in a new group to the right.", args: NO_ARGS, effect: "read", when: when("active"), expose: {agent: "auto"}},
     [SPLIT_DOWN_COMMAND]: {title: title("向下拆分编辑器", "Split Editor Down"), category: EDITOR, description: "Open the active document in a new group below.", args: NO_ARGS, effect: "read", when: when("active"), expose: {agent: "auto"}},
     [REOPEN_WITH_COMMAND]: {title: title("用其它编辑器重新打开", "Reopen Editor With"), category: EDITOR, description: "Reopen the active tab with another editor, given by id; without an editor, pick one from the editors that can open the file.", args: REOPEN_ARGS, effect: "read", when: when("active"), expose: {agent: "auto"}},
+    [OPEN_PREVIEW_COMMAND]: {title: title("打开预览", "Open Preview"), category: EDITOR, description: "Open the preview of the active file (for example an HTML page) in the active group, or with side true in the group to the right.", args: OPEN_PREVIEW_ARGS, effect: "read", when: when("hasPreview"), expose: {agent: "auto"}},
     [FOCUS_COMMAND]: {title: title("聚焦编辑器", "Focus Editor"), category: EDITOR, description: "Focus the active editor.", args: NO_ARGS, effect: "read", when: when("active"), expose: {agent: "auto"}},
     [UNDO_COMMAND]: {title: title("撤销", "Undo"), category: EDIT, description: "Undo the latest edit in the active editor.", args: NO_ARGS, effect: "write", when: when("active", "writable"), expose: {agent: "confirm"}},
     [REDO_COMMAND]: {title: title("重做", "Redo"), category: EDIT, description: "Redo the latest undone edit in the active editor.", args: NO_ARGS, effect: "write", when: when("active", "writable"), expose: {agent: "never"}},
@@ -159,6 +164,7 @@ export function editorCommands(area: Readonly<ShallowRef<EditorArea | null>>, so
             if (still?.id !== tab.id || still.kind === "page" || still.editor !== tab.editor) return {ok: false, code: "stale-target", reason: "选择期间活动标签已经换了"};
             return fromAction(picked.id === tab.editor ? {ok: true} : current.reopenWith(picked.id));
         }),
+        [OPEN_PREVIEW_COMMAND]: run((current, args) => fromAction(current.openPreview((args as Static<typeof OPEN_PREVIEW_ARGS>).side === true))),
         [FOCUS_COMMAND]: run((current) => {
             const handle = current.activeHandle.value;
             if (handle === null) return unavailable("当前没有可聚焦的编辑器");

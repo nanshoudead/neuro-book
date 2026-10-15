@@ -66,7 +66,9 @@ const tabs = computed((): TabItem[] => (group.value?.tabs ?? []).map((tab) => {
     const opened = props.area.documents.get(tab.address);
     // 页面标签（输出 33）按页面的标题显示；贡献方停了、标题取不到时显示页面 id。
     const page = pageIdOf(tab.address);
-    const label = page === null ? nameOf(tab.address) : (props.pages?.title(page, props.locale) ?? page);
+    // 预览视图的标题写“预览 a.html”（输出 47），与同组里这个文件的源码标签分得开。
+    const preview = tab.kind === "file" && props.area.editors.declaration(tab.editor)?.role === "preview";
+    const label = page === null ? (preview ? editorText(props.locale, "previewOf", {name: nameOf(tab.address)}) : nameOf(tab.address)) : (props.pages?.title(page, props.locale) ?? page);
     return {id: tab.id, label, title: page === null ? tab.address : label, preview: tab.preview, dirty: opened?.dirty.value === true, active: tab.id === group.value?.active};
 }));
 

@@ -85,7 +85,7 @@ owners:
   }
   ```
 
-  能不能输入由组件属性 `readonly` 给出（输出 48 的预览视图、只读文档为真）。组件属性为 `{binding, host, readonly, visible, label}`，事件为 `ready(handle | null)`、`focus(boolean)`；句柄在现有的聚焦、撤销、重做、结算、行号导航之外，可以交出 `status: Readonly<Ref<LocalizedText | null>>`，由状态栏的编辑器状态条目显示（输出 42）。
+  能不能输入由组件属性 `readonly` 给出（输出 48 的预览视图、只读文档为真）。组件属性为 `{binding, host, readonly, visible, label, locale}`（`locale` 是界面语言，控件自己显示的说明按它取），事件为 `ready(handle | null)`、`focus(boolean)`；句柄在现有的聚焦、撤销、重做、结算、行号导航之外，可以交出 `status: Readonly<Ref<LocalizedText | null>>`，由状态栏的编辑器状态条目显示（输出 42）。
 - 地址参数：`/?project=<短名>&open=<地址>&at=end`，书架页的“继续写作”用它跨页传递打开目标（输出 29）。
 - 命令（`editor` 域；参数为 `{}` 的作用于活动编辑组的活动标签）：
 

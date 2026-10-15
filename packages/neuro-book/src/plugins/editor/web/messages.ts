@@ -13,6 +13,7 @@ const TEXT = {
     closeTab: {"zh-CN": "关闭 {name}", "en-US": "Close {name}"},
     unsaved: {"zh-CN": "未保存", "en-US": "Unsaved"},
     preview: {"zh-CN": "预览", "en-US": "Preview"},
+    previewOf: {"zh-CN": "预览 {name}", "en-US": "Preview {name}"},
     tipCommands: {"zh-CN": "显示所有命令", "en-US": "Show All Commands"},
     tipNewFile: {"zh-CN": "新建文件", "en-US": "New File"},
     tipNewFileWhere: {"zh-CN": "资源管理器标题行的“新建文件”", "en-US": "“New File” in the Explorer title bar"},

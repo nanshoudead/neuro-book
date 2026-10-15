@@ -7,6 +7,7 @@
  */
 
 import type {Stats} from "node:fs";
+import {randomBytes} from "node:crypto";
 import {join} from "node:path";
 
 import {Hono} from "hono";
@@ -66,11 +67,41 @@ export function failureResponse(failure: {readonly code: string; readonly detail
     return Response.json({error: {code: status === 404 ? "not-found" : failure.code, message: failure.detail}}, {status});
 }
 
+/**
+ * 预览令牌（docs/specs/workspace/files.md 的“预览的受限读取”）：令牌只放行一部作品的一代、只读。签发与作废经远程服务
+ * `nbook.files.preview`（按调用方门面，门面释放时它签发的全部作废）；路由每次请求核对令牌，代次结束的令牌在被用到时作废。
+ * 令牌是读文件的凭据：不写日志、不落盘。
+ */
+export interface PreviewTokens {
+    issue(project: string, generation: number): string;
+    revoke(token: string): void;
+    lookup(token: string): {readonly project: string; readonly generation: number} | null;
+}
+
+export function createPreviewTokens(): PreviewTokens {
+    const tokens = new Map<string, {readonly project: string; readonly generation: number}>();
+    return {
+        issue: (project, generation) => {
+            const token = randomBytes(16).toString("hex");
+            tokens.set(token, {project, generation});
+            return token;
+        },
+        revoke: (token) => {
+            tokens.delete(token);
+        },
+        lookup: (token) => tokens.get(token) ?? null,
+    };
+}
+
+/** 预览路由的前缀（挂载在 `/api/nbook.files/` 下）。 */
+export const PREVIEW_PREFIX = "/api/nbook.files/preview/";
+
 export interface RawRouteSources {
     /** 项目登记；实例里没有它（只装了文件服务的测试场地）时为 null，项目的地址一律 503。 */
     readonly projects: Pick<ProjectsService, "list" | "readMetadata"> | null;
     /** `user://` 的根：服务端入口激活时打开的那一个。 */
     readonly user: RootedRoot;
+    readonly tokens: PreviewTokens;
     readonly record: (event: string, detail: string, error?: unknown) => void;
 }
 
@@ -172,6 +203,24 @@ export function createRawRoutes(sources: RawRouteSources): Hono<{Bindings: HttpR
         const opened = await roots.open(c.req.param("id"), generation);
         if (!opened.ok) return Response.json({error: {code: opened.code, message: opened.detail}}, {status: opened.status});
         return serveFile(opened.root, path, c.req.raw, RAW_HEADERS);
+    });
+
+    // 预览的受限读取：沙箱页面是不透明源，它的每个请求都是跨站的，所以这里不看 `Sec-Fetch-Site`，只认令牌；对 `Origin: null`
+    // 回 CORS 头，模块脚本、`fetch` 与字体才读得到响应。别的来源拿不到令牌，也就读不到。
+    app.on(["GET", "HEAD"], "/preview/:token/*", async (c) => {
+        const missing = (): Response => Response.json({error: {code: "not-found", message: "没有这个预览。"}}, {status: 404});
+        const token = c.req.param("token");
+        const granted = sources.tokens.lookup(token);
+        const path = rest(c, 3);
+        if (granted === null || roots === null || path === null) return missing();
+        const opened = await roots.open(granted.project, granted.generation);
+        if (!opened.ok) {
+            // 这一代结束了：令牌随之作废（同一代不会回来）。
+            if (opened.status === 410) sources.tokens.revoke(token);
+            return missing();
+        }
+        const cors: Record<string, string> = c.req.header("origin") === "null" ? {"Access-Control-Allow-Origin": "null", "Vary": "Origin"} : {"Vary": "Origin"};
+        return serveFile(opened.root, path, c.req.raw, {...cors, "Referrer-Policy": "no-referrer"});
     });
 
     app.on(["GET", "HEAD"], "/raw/user/*", async (c) => {

@@ -17,7 +17,7 @@ import {CODE_EDITOR} from "../shared/contracts";
 import type {BytesEditorBinding, EditorBinding, EditorControlHandle, TextEditorBinding, ViewStateSlot} from "../shared/contracts";
 import {createDocumentStore} from "./documents/store";
 import type {DocumentReference, DocumentStore, TextDocument} from "./documents/store";
-import {BINARY_TAB_EDITOR, BUILTIN_CATALOG, editorRefusal, resolveEditor} from "./editors";
+import {BINARY_TAB_EDITOR, BUILTIN_CATALOG, editorRefusal, previewEditorFor, resolveEditor} from "./editors";
 import type {EditorCatalog} from "./editors";
 import {createEditorGroups} from "./groups/groups";
 import {pageAddress, pageIdOf} from "./pages";
@@ -63,6 +63,8 @@ export type OpenResult = {readonly ok: true; readonly tabId: string} | {readonly
 export interface EditorArea {
     readonly documents: DocumentStore;
     readonly groups: EditorGroups;
+    /** 已接受的编辑器声明（标签的标题、预览编辑器的判断要用）。 */
+    readonly editors: EditorCatalog;
     /** 组的当前绑定（文本或字节）；没有活动的文件标签、文档还没就绪为 null。 */
     binding(groupId: string): EditorBinding | null;
     /** 组的活动标签的文档（有文本引用的那种）；字节标签与页面为 null。 */
@@ -101,6 +103,10 @@ export interface EditorArea {
     answer(choice: CloseChoice): void;
     split(direction: SplitDirection): ActionResult;
     reopenWith(editor: string): ActionResult;
+    /** 活动标签的文件能打开的预览编辑器；活动的是页面、预览视图或没有预览编辑器时为 null（输出 46）。 */
+    previewEditor(): string | null;
+    /** 打开活动标签的文件的预览：当前组，或 `side` 时活动组右侧的组（输出 46）。 */
+    openPreview(side: boolean): OpenResult;
     /** 编辑器不在了的标签（输出 40）：按选择顺序重选，不再选这个编辑器。 */
     reopenWithDefault(): ActionResult;
     save(): Promise<ActionResult>;
@@ -537,9 +543,50 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
         return "closed";
     };
 
+    const open: EditorArea["open"] = (address, request) => {
+        if (disposed) return {ok: false, reason: "编辑器已关闭"};
+        if (pageIdOf(address) !== null) return {ok: false, reason: "页面用 nbook.editor.open-page 打开"};
+        if (request.group !== undefined && request.group !== "side" && !groups.groups.value.some((candidate) => candidate.id === request.group)) return {ok: false, reason: "编辑组已关闭"};
+        // 只结算活动标签要换掉的那一组（同 `activate`）：目标组；侧边还没有组时要新建，没有要结算的。
+        const target = request.group === "side" ? groups.rightOf(groups.activeGroup.value) : (request.group ?? groups.activeGroup.value);
+        if (target !== null && !leave(target)) return {ok: false, reason: target === groups.activeGroup.value ? "当前视图有未裁决的输入" : "目标组有未裁决的输入"};
+        if (request.editor !== undefined) {
+            const refusal = editorRefusal(catalog, request.editor, address);
+            if (refusal !== null) return {ok: false, reason: refusal};
+        }
+        // 不指定编辑器：本组有这个文件、不是预览视图的标签就激活它，不管它用哪种编辑器（输出 1）；没有才按顺序选。
+        const resolved = request.editor ?? (() => {
+            const resolution = resolveEditor(catalog, address, (ids) => options.conflict?.(address, ids));
+            return resolution.kind === "binary" ? BINARY_TAB_EDITOR : resolution.editor;
+        })();
+        const reuse = request.editor === undefined ? (tab: FileTab) => !isPreview(tab.editor) : undefined;
+        const group = target ?? groups.sideGroup();
+        // 文档在标签成为活动标签、第一次被读到时打开（`referenceOf`）：新开的标签就是活动标签。
+        const {tab, replaced} = groups.open(address, {mode: request.mode, editor: resolved, group, ...(reuse === undefined ? {} : {reuse})});
+        if (replaced !== null) releaseTab(replaced, group);
+        pendingReveal.value = request.reveal === "end" ? {groupId: group, tabId: tab.id, address, reveal: "end"} : null;
+        options.opened?.(address);
+        return {ok: true, tabId: tab.id};
+    };
+
+    const previewEditor = (): string | null => {
+        const tab = groups.activeTab();
+        if (tab === null || tab.kind === "page" || isPreview(tab.editor)) return null;
+        return previewEditorFor(catalog, tab.address);
+    };
+
     return {
         documents,
         groups,
+        editors: catalog,
+        previewEditor,
+        openPreview: (side) => {
+            const tab = groups.activeTab();
+            const editor = previewEditor();
+            if (tab === null || editor === null) return {ok: false, reason: "活动标签的文件没有预览"};
+            // 经普通的打开：本组（或右侧的组）已有它的预览视图时激活它。
+            return open(tab.address, {mode: "permanent", editor, ...(side ? {group: "side"} : {})});
+        },
         binding,
         documentOf,
         fileOf,
@@ -563,31 +610,7 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
         focused,
         dialog,
         notice,
-        open: (address, open) => {
-            if (disposed) return {ok: false, reason: "编辑器已关闭"};
-            if (pageIdOf(address) !== null) return {ok: false, reason: "页面用 nbook.editor.open-page 打开"};
-            if (open.group !== undefined && open.group !== "side" && !groups.groups.value.some((candidate) => candidate.id === open.group)) return {ok: false, reason: "编辑组已关闭"};
-            // 只结算活动标签要换掉的那一组（同 `activate`）：目标组；侧边还没有组时要新建，没有要结算的。
-            const target = open.group === "side" ? groups.rightOf(groups.activeGroup.value) : (open.group ?? groups.activeGroup.value);
-            if (target !== null && !leave(target)) return {ok: false, reason: target === groups.activeGroup.value ? "当前视图有未裁决的输入" : "目标组有未裁决的输入"};
-            if (open.editor !== undefined) {
-                const refusal = editorRefusal(catalog, open.editor, address);
-                if (refusal !== null) return {ok: false, reason: refusal};
-            }
-            // 不指定编辑器：本组有这个文件、不是预览视图的标签就激活它，不管它用哪种编辑器（输出 1）；没有才按顺序选。
-            const resolved = open.editor ?? (() => {
-                const resolution = resolveEditor(catalog, address, (ids) => options.conflict?.(address, ids));
-                return resolution.kind === "binary" ? BINARY_TAB_EDITOR : resolution.editor;
-            })();
-            const reuse = open.editor === undefined ? (tab: FileTab) => !isPreview(tab.editor) : undefined;
-            const group = target ?? groups.sideGroup();
-            // 文档在标签成为活动标签、第一次被读到时打开（`referenceOf`）：新开的标签就是活动标签。
-            const {tab, replaced} = groups.open(address, {mode: open.mode, editor: resolved, group, ...(reuse === undefined ? {} : {reuse})});
-            if (replaced !== null) releaseTab(replaced, group);
-            pendingReveal.value = open.reveal === "end" ? {groupId: group, tabId: tab.id, address, reveal: "end"} : null;
-            options.opened?.(address);
-            return {ok: true, tabId: tab.id};
-        },
+        open,
         openPage: (id) => {
             if (disposed) return {ok: false, reason: "编辑器已关闭"};
             const address = pageAddress(id);
