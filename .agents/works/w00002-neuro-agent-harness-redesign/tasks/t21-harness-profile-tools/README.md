@@ -22,6 +22,28 @@ updated: 2026-10-15
   - 审查用的 worktree `.worktree/w00002-t21-review` 已删。
 - 2026-10-15：开发者定两个待定项（收尾工具混批一律退回；用量取可见消息之和加“是否完整”），提案接受。
 
+- 2026-10-15：开发者确认计划。omp 计划审查 9 条（阻断 2、重要 7），全部成立，计划按审查修订（`cf577871c`），报告 [evidences/plan-review.txt](evidences/plan-review.txt)。
+- 2026-10-15：实现完成，worktree `.worktree/w00002-t21-harness`（分支 `feat/w00002-t21-harness`）：S1 `f39549f49`；S2–S4 `e8052cc20`（按计划审查第 8 条合成一次提交）；S5–S7 的测试与文档 `e5ee88009`。nb-session 17、nb-profile 15、nb-harness 50 条测试通过，四个包类型检查通过；`test:llm` 两条真实模型 Smoke 通过（DeepSeek）。和计划不同的地方：
+  - nb-profile 去掉了 `ToolCall`、`ToolResult` 节点与 `HistorySet` 的 `kind`：它们能把工具调用与结果拆开渲染，违背输出 8，计划审查第 9 条也指出了。
+  - 两个会话的已读行隔离没写行为测试：变异检查（让两个会话共用一份 `EditStore`）测试仍通过，OMP 的编辑引擎对没有快照的标签按当前文件内容放行，隔离在行为上观察不到；实现按会话 id 分存储、关闭时 `clear()`。
+  - `neuro-book-test-support` 的“Agent 路径解析”那条测试在 master 上同样失败，与本 Task 无关。
+  - governance 对 `tests/provider.test.ts` 报 6 条 llm-credential 警告：那里设的密钥都是假的、只发往本机端点，设 `OPENAI_API_KEY` 是为了证明不会退回去用它。
+- 2026-10-15：omp 实现审查 19 条（重要 18、建议 1），报告 [evidences/impl-review.txt](evidences/impl-review.txt)，全部成立，修正 `4f7c5f9ab`：
+  - 第 1 条：工具结果不能序列化时，这次运行以 local 失败、不再请求模型。
+  - 第 2、6 条：工具的会话资源由工具桥记下用过的实现，撤回后关闭照样释放；关闭用 finally 收口，一个释放抛错不影响其余，最后以 AggregateError 报出。
+  - 第 3、15 条：登记表按登记代次撤回，`unregister` 幂等，插件先检查再一次性登记。
+  - 第 4、11 条：`complete` 只发 input，不混入 Profile 的静态消息；provider 建流抛错时返回 `provider` 错误。
+  - 第 5、10、12 条：结果里的 `entries` 改为这次运行写入时收集，不再回读日志；最终结论在全部写入之后定；运行结束标记写失败改报 local。
+  - 第 7 条：`defineModel` 在 `buildModel` 之后用宿主的值盖回单价、上限、模态，避免目录修正覆盖。
+  - 第 8 条：没有状态码不再一律归 network，内容拦截与模型终态错误归 provider。
+  - 第 9 条：`initial` 与工具声明在边界复制并冻结。
+  - 第 13 条：工具实现同步抛错也在 try/finally 里收口。
+  - 第 14 条：声明比较不看对象属性先后。
+  - 第 16 条：每次请求取密钥都在 harness 边界捕获 auth。
+  - 第 17 条：Profile 定义带标记，加载与入口处拒绝手写的同形对象。
+  - 第 18、19 条：补 `tests/robustness.test.ts` 等行为测试，审查时存活的四个变异（收尾取消、释放、并发、thinking）与 `complete` 的静态消息变异现在都会失败；去掉固定轮询，会话都在 finally 里关闭。
+  - 结果：nb-harness 69、nb-profile 17、nb-session 17 条通过，类型检查通过，`test:llm` 两条真实模型 Smoke 通过。审查者的实验脚本留在本地 `reports/impl-probes/`。
+
 ## 下一步
 
-1. 计划 [plan.md](plan.md) 交开发者确认后，建 worktree `.worktree/w00002-t21-harness` 按切片实施。
+1. 请开发者合入 `feat/w00002-t21-harness`；合入后 w00024 t05 接着做问答。
