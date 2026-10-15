@@ -14,7 +14,8 @@ import type {MarkedExtension, Token, Tokens} from "marked";
 
 import {escapeAttribute} from "nbook/shared/markdown-dialect";
 
-import {closeInline, openTagAt, openTagIndex, skipInline} from "../tags";
+import {leftFlanking, rightFlanking} from "../flanking";
+import {closeInline, lastMatch, nextMatch, openTagAt, openTagIndex, skipInline} from "../tags";
 import type {MarkdownSyntax, MarkWriter, TokenReader, WriteContext} from "../types";
 
 /** CSS 的颜色名（CSS Color 4）。 */
@@ -35,12 +36,23 @@ const NAMED_COLORS = new Set(
     ).split(" "),
 );
 
+const NUMBER = "[-+]?(?:\\d+\\.?\\d*|\\.\\d+)(?:e[-+]?\\d+)?";
+const PERCENT = `${NUMBER}%`;
+const NUMBER_OR_PERCENT = `(?:${PERCENT}|${NUMBER}|none)`;
+const HUE = `(?:${NUMBER}(?:deg|grad|rad|turn)?|none)`;
+const ALPHA = `(?:${PERCENT}|${NUMBER}|none)`;
+/**
+ * `rgb()`/`rgba()` 与 `hsl()`/`hsla()` 的参数：逗号写法三个或四个，空格写法三个、可带 `/ 透明度`（CSS Color 4）。`var()`、
+ * `calc()` 这类引用与参数个数不对的都不是。
+ */
+const RGB = new RegExp(`^rgba?\\(\\s*(?:${NUMBER_OR_PERCENT}\\s*,\\s*${NUMBER_OR_PERCENT}\\s*,\\s*${NUMBER_OR_PERCENT}(?:\\s*,\\s*${ALPHA})?|${NUMBER_OR_PERCENT}\\s+${NUMBER_OR_PERCENT}\\s+${NUMBER_OR_PERCENT}(?:\\s*\\/\\s*${ALPHA})?)\\s*\\)$`, "iu");
+const HSL = new RegExp(`^hsla?\\(\\s*(?:${HUE}\\s*,\\s*${PERCENT}\\s*,\\s*${PERCENT}(?:\\s*,\\s*${ALPHA})?|${HUE}\\s+${NUMBER_OR_PERCENT}\\s+${NUMBER_OR_PERCENT}(?:\\s*\\/\\s*${ALPHA})?)\\s*\\)$`, "iu");
+
 /** 合法的颜色值（输出 15）：`#` 十六进制、`rgb()`、`hsl()`（含带透明度的写法）与颜色名；不能是 `var()`、`url()` 这类引用。 */
 export function isColor(value: string): boolean {
     const color = value.trim();
     if (/^#(?:[0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/iu.test(color)) return true;
-    // 函数写法里只能是数、百分比、角度单位与分隔符：括号里再有括号（`var()`、`calc()`）就不是。
-    if (/^(?:rgba?|hsla?)\([-+0-9.%\s,/]*(?:(?:deg|grad|rad|turn|none)[-+0-9.%\s,/]*)*\)$/iu.test(color)) return true;
+    if (RGB.test(color) || HSL.test(color)) return true;
     return NAMED_COLORS.has(color.toLowerCase());
 }
 
@@ -143,16 +155,6 @@ function attributesOf(tag: string, attributes: ReadonlyMap<string, string>): str
     }
 }
 
-const SPACE = /\s/u;
-/** CJK 友好的标点判定（输出 6）：标点、符号与中日韩文字在侧翼判断里都当标点。 */
-const PUNCTUATION = /[\p{P}\p{S}\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}　-〿＀-￯]/u;
-const isSpace = (char: string): boolean => char === "" || SPACE.test(char);
-const isPunctuation = (char: string): boolean => PUNCTUATION.test(char);
-/** 左侧翼（能开）：后面不是空白，并且后面不是标点或前面是空白、标点。 */
-const leftFlanking = (before: string, after: string): boolean => !isSpace(after) && (!isPunctuation(after) || isSpace(before) || isPunctuation(before));
-/** 右侧翼（能闭）：前面不是空白，并且前面不是标点或后面是空白、标点。 */
-const rightFlanking = (before: string, after: string): boolean => !isSpace(before) && (!isPunctuation(before) || isSpace(after) || isPunctuation(after));
-
 /** 已分出的行内单元的最后一个字符（`==` 开不开要看前一个字符）。 */
 function previousChar(tokens: ReadonlyArray<Token>): string {
     const last = tokens.at(-1);
@@ -166,7 +168,16 @@ function previousChar(tokens: ReadonlyArray<Token>): string {
 function equalsHighlight(src: string, tokens: ReadonlyArray<Token>): {raw: string; text: string} | null {
     if (!src.startsWith("==") || src[2] === "=") return null;
     if (!leftFlanking(previousChar(tokens), src[2] ?? "")) return null;
+    // 后面没有前面不是空白的 `==`（能闭的必要条件）时直接返回。
+    if (lastMatch(src, /[^\s=]==(?!=)/gu) < 2) return null;
+    // 只停在可能有用的字符上（转义、行内代码、标签、等号），中间的一段用原生搜索跳过：一段里很多闭不上的 `==` 时，每个都逐字
+    // 扫到段末会是平方级。
+    const interesting = /[\\`<=]/gu;
     for (let index = 2; index < src.length; index += 1) {
+        interesting.lastIndex = index;
+        const next = interesting.exec(src);
+        if (next === null) return null;
+        index = next.index;
         const skipped = skipInline(src, index);
         if (skipped !== index) {
             index = skipped - 1;
@@ -192,7 +203,8 @@ const tokenizers: MarkedExtension = {
                 const color = attributesOf(open.name, open.attributes);
                 if (color === undefined) return undefined;
                 const close = closeInline(src, open.name, open.length);
-                if (close === null) return undefined;
+                // 里面是空的不认领：没有文字可以带这个标记，读成原样片段保住原文。
+                if (close === null || close.start === open.length) return undefined;
                 return {
                     type: "textMark",
                     raw: src.slice(0, close.end),
@@ -207,7 +219,7 @@ const tokenizers: MarkedExtension = {
         {
             name: "equalsHighlight",
             level: "inline",
-            start: (src: string) => src.indexOf("=="),
+            start: (src: string) => nextMatch(src, /==/gu),
             tokenizer(src: string, tokens: Token[]) {
                 const matched = equalsHighlight(src, tokens);
                 return matched === null ? undefined : {type: "equalsHighlight", raw: matched.raw, tokens: this.lexer.inlineTokens(matched.text)};

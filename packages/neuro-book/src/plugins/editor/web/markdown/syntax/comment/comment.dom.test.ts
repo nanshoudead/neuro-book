@@ -108,6 +108,24 @@ describe("addComment（场景 6、7）", () => {
         editor.commands.setTextSelection(1);
         expect(editor.commands.addComment("空")).toBe(false);
     });
+
+    it("选区里只有换行与空白时不加：硬换行身上的批注写不出来", () => {
+        const {editor} = session([{type: "paragraph", content: [{type: "text", text: "前"}, {type: "hardBreak"}, {type: "text", text: " 后"}]}]);
+        editor.commands.setTextSelection({from: 2, to: 4});
+        expect(editor.commands.addComment("换行")).toBe(false);
+        expect(comments(editor.state.doc)).toEqual([]);
+    });
+
+    it("先后两次跨段加批注、各自保存：先加的那条沿用写进文件的 c1，后加的是 c2，先加的那条不重写", () => {
+        const {editor, save} = session([p("一甲"), p("乙二"), p("三丙"), p("丁")]);
+        editor.commands.setTextSelection({from: find(editor.state.doc, "甲").from, to: find(editor.state.doc, "乙").to});
+        editor.commands.addComment("旧");
+        const first = save();
+        expect(first).toBe("一<comment id=\"c1\" body=\"旧\">甲</comment>\n\n<comment id=\"c1\">乙</comment>二\n\n三丙\n\n丁");
+        editor.commands.setTextSelection({from: find(editor.state.doc, "丙").from, to: find(editor.state.doc, "丁").to});
+        editor.commands.addComment("新");
+        expect(save()).toBe("一<comment id=\"c1\" body=\"旧\">甲</comment>\n\n<comment id=\"c1\">乙</comment>二\n\n三<comment id=\"c2\" body=\"新\">丙</comment>\n\n<comment id=\"c2\">丁</comment>");
+    });
 });
 
 describe("粘贴进来的批注", () => {
@@ -119,5 +137,19 @@ describe("粘贴进来的批注", () => {
         editor.view.pasteHTML("<p><comment id=\"c1\" body=\"意见\">粘贴</comment></p><p><comment id=\"c1\" body=\"意见\">粘贴二</comment></p>");
         expect(comments(editor.state.doc)).toEqual(["意见", "意见"]);
         expect(save()).toContain("<comment id=\"c2\" body=\"意见\">粘贴</comment>\n\n<comment id=\"c2\">粘贴二</comment>");
+    });
+
+    it("在编辑器里复制两条意见相同的批注再粘贴：仍是两条，各自换新的 id", () => {
+        const {editor, open, save} = session([{type: "paragraph"}]);
+        open("<comment id=\"x\" body=\"意见\">甲</comment>\n\n<comment id=\"x\" body=\"意见\">乙</comment>\n\n尾");
+        expect(comments(editor.state.doc)).toEqual(["意见", "意见"]);
+        editor.commands.setTextSelection({from: find(editor.state.doc, "甲").from, to: find(editor.state.doc, "乙").to});
+        const html = editor.view.serializeForClipboard(editor.state.selection.content()).dom.innerHTML;
+        editor.commands.setTextSelection(find(editor.state.doc, "尾").to);
+        editor.view.pasteHTML(html);
+        expect(comments(editor.state.doc)).toHaveLength(4);
+        const text = save();
+        open(text);
+        expect(comments(editor.state.doc)).toEqual(["意见", "意见", "意见", "意见"]);
     });
 });

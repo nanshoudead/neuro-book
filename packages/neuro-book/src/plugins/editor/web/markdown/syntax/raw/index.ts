@@ -10,8 +10,10 @@
  */
 
 import {mergeAttributes, Node} from "@tiptap/core";
-import type {MarkedExtension} from "marked";
+import type {MarkedExtension, Token, Tokens} from "marked";
 
+import {encodeRawBreaks} from "../../codec/render/escape";
+import {lastMatch, nextMatch, paragraphEnd} from "../tags";
 import type {MarkdownSyntax, TokenReader} from "../types";
 import {Unrepresentable} from "../types";
 
@@ -25,6 +27,8 @@ const CLOSE_TAG = /^<\/([a-zA-Z][\w-]*)\s*>/u;
 
 /** 同名标签嵌套计数下，从 `from` 起找配对的闭标签，返回它的结束位置；没有返回 -1。 */
 function matchingCloseEnd(src: string, tag: string, from: number): number {
+    // 后面根本没有这个名字的闭标签时直接返回（原生搜索）：一段里成千上万个没闭合的 `<a>` 不至于每个都逐个数到段末。
+    if (lastMatch(src, new RegExp(`</${tag}\\s*>`, "giu")) < from) return -1;
     const pattern = new RegExp(`<(/?)${tag}(?=[\\s/>])((?:"[^"]*"|'[^']*'|[^>"'])*)>`, "giu");
     pattern.lastIndex = from;
     let depth = 1;
@@ -141,12 +145,28 @@ export function createRawSyntax(tags: {readonly blockTags: ReadonlyArray<string>
     const marked: MarkedExtension = {
         extensions: [
             {
+                // `marked` 遇到标签已在定义表里的定义（同名的第二条，或读法另作分词时整篇的定义表里已经有它）既不产出单元，
+                // 也不并进别的单元，原文就丢了。这里在它之前把这种定义作为定义单元产出（读成原样块）。紧跟在段落后面的定义
+                // 由 `marked` 并进段落，不管。
+                name: "duplicateDefinition",
+                level: "block",
+                tokenizer(src: string, tokens: Token[]) {
+                    const last = tokens.at(-1);
+                    if (last?.type === "paragraph" || last?.type === "text") return undefined;
+                    const definition = (this.lexer as unknown as {tokenizer: {def(src: string): Tokens.Def | undefined}}).tokenizer.def(src);
+                    if (definition === undefined || this.lexer.tokens.links[definition.tag] === undefined) return undefined;
+                    return {...definition, type: "def"};
+                },
+            },
+            {
                 name: "rawHtmlBlock",
                 level: "block",
                 // 只认“换行后的行首标签”：`marked` 判段落中断时传入 `src.slice(1)`，匹配开头会把段内的行内标签误当成断点。
                 start(src: string) {
+                    // 只在这一段里找（正则 `exec` 找不到时会一直扫到文末）。
+                    const paragraph = src.slice(0, paragraphEnd(src));
                     const pattern = /\n<([a-zA-Z][\w-]*)/gu;
-                    for (let matched = pattern.exec(src); matched !== null; matched = pattern.exec(src)) {
+                    for (let matched = pattern.exec(paragraph); matched !== null; matched = pattern.exec(paragraph)) {
                         if (!blockKnown.has((matched[1] as string).toLowerCase())) return matched.index + 1;
                     }
                     return -1;
@@ -160,7 +180,7 @@ export function createRawSyntax(tags: {readonly blockTags: ReadonlyArray<string>
                 name: "footnoteDef",
                 level: "block",
                 start: (src: string) => {
-                    const at = src.search(/\n\[\^[^\]\s]+\]:/u);
+                    const at = src.slice(0, paragraphEnd(src)).search(/\n\[\^[^\]\s]+\]:/u);
                     return at < 0 ? -1 : at + 1;
                 },
                 tokenizer(src: string) {
@@ -172,7 +192,7 @@ export function createRawSyntax(tags: {readonly blockTags: ReadonlyArray<string>
                 name: "mathBlock",
                 level: "block",
                 start: (src: string) => {
-                    const at = src.search(/\n\$\$/u);
+                    const at = src.slice(0, paragraphEnd(src)).search(/\n\$\$/u);
                     return at < 0 ? -1 : at + 1;
                 },
                 tokenizer(src: string) {
@@ -183,7 +203,7 @@ export function createRawSyntax(tags: {readonly blockTags: ReadonlyArray<string>
             {
                 name: "rawHtmlInline",
                 level: "inline",
-                start: (src: string) => src.search(/<\/?[a-zA-Z]/u),
+                start: (src: string) => nextMatch(src, /<\/?[a-zA-Z]/gu),
                 tokenizer(src: string) {
                     const raw = completeHtml(src, readableInline, false) ?? htmlFragment(src, readableInline);
                     return raw === null ? undefined : {type: "rawHtmlInline", raw};
@@ -192,7 +212,7 @@ export function createRawSyntax(tags: {readonly blockTags: ReadonlyArray<string>
             {
                 name: "footnoteRef",
                 level: "inline",
-                start: (src: string) => src.indexOf("[^"),
+                start: (src: string) => nextMatch(src, /\[\^/gu),
                 tokenizer(src: string) {
                     const matched = FOOTNOTE_REF.exec(src);
                     return matched === null ? undefined : {type: "footnoteRef", raw: matched[0]};
@@ -201,7 +221,7 @@ export function createRawSyntax(tags: {readonly blockTags: ReadonlyArray<string>
             {
                 name: "mathInline",
                 level: "inline",
-                start: (src: string) => src.indexOf("$"),
+                start: (src: string) => nextMatch(src, /\$/gu),
                 tokenizer(src: string) {
                     const matched = MATH_INLINE.exec(src);
                     return matched === null ? undefined : {type: "mathInline", raw: matched[0]};
@@ -228,14 +248,16 @@ export function createRawSyntax(tags: {readonly blockTags: ReadonlyArray<string>
             // 能读的行内 HTML 已由核心语法整体认领，落到这里的是 HTML 注释与配不上对的标签。
             html: inline,
         },
-        writeBlock: {rawBlock: (node) => String(node.attrs.raw ?? "")},
+        joinedInline: {rawInline: "raw"},
+        // 原样内容自带的换行带上标记写出（见 `codec/render/escape.ts` 的 `encodeRawBreaks`）。
+        writeBlock: {rawBlock: (node) => encodeRawBreaks(String(node.attrs.raw ?? ""))},
         writeInline: {
             // 段首就是会开启 HTML 块的原样片段、或者整段只有一个完整标签时写不出（方言 Spec 输出 9）：它会被读成原样块。
             // 后面跟着换行的情况由换行的写法处理（写成 `<br>`，标签不独占一行）。
             rawInline: (node, _context, around) => {
                 const raw = String(node.attrs.raw ?? "");
                 if (around.previous === null && around.place.table !== true && (OPENS_HTML_BLOCK.test(raw) || (around.next === null && LONE_TAG.test(raw)))) throw new Unrepresentable("段首的 HTML 会被读成 HTML 块");
-                return raw;
+                return encodeRawBreaks(raw);
             },
         },
     };

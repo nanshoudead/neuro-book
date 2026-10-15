@@ -17,7 +17,7 @@ const language = markdownLanguage();
 const schema = getSchema([...language.extensions]);
 const codec = codecFor(schema, language);
 const emphasis = new Set([...language.markWriters].filter(([, writer]) => writer.emphasis === true).map(([type]) => type));
-const compareOptions = {styles: "canonical" as const, emphasis, ignored: language.uncomparedAttrs, markless: language.marklessInline, textOnly: language.textOnlyMarks};
+const compareOptions = {styles: "canonical" as const, emphasis, ignored: language.uncomparedAttrs, markless: language.marklessInline, textOnly: language.textOnlyMarks, joined: language.joinedInline};
 
 const shape = (source: string): JSONContent[] => (codec.read(source).doc.toJSON().content ?? []) as JSONContent[];
 const paragraph = (source: string): JSONContent[] => (shape(source)[0]?.content ?? []) as JSONContent[];
@@ -49,6 +49,22 @@ const br = (): PMNode => schema.nodes.hardBreak!.create();
 const mark = (name: string, attrs?: Record<string, unknown>): Mark => schema.marks[name]!.create(attrs);
 const comment = (body: string, key: string, id: string | null = null): Mark => mark("comment", {body, key, id});
 const commentOf = (node: JSONContent | undefined): Record<string, unknown> | undefined => node?.marks?.find((value) => value.type === "comment")?.attrs;
+
+/** 文档里的各条批注（按 `key` 分组，按出现先后）：覆盖的文字与意见。 */
+function groups(doc: PMNode): Array<{text: string; body: string}> {
+    const found = new Map<unknown, {text: string; body: string}>();
+    doc.descendants((node) => {
+        const mark = node.marks.find((value) => value.type.name === "comment");
+        if (mark === undefined || !node.isText) return;
+        const group = found.get(mark.attrs.key) ?? {text: "", body: String(mark.attrs.body)};
+        group.text += node.text as string;
+        found.set(mark.attrs.key, group);
+    });
+    return [...found.values()];
+}
+
+/** 把第 index 块换成内容相同的新对象（编辑器看来改过了）。 */
+const touched = (doc: PMNode, index: number): PMNode => doc.type.create(null, children(doc).map((child, at) => (at === index ? child.type.create(child.attrs, child.content, child.marks) : child)));
 
 describe("批注（输出 11）", () => {
     it("行内批注不拆散句子；旧写法 <inline-comment> 能读，改过后写成 <comment>", () => {
@@ -155,6 +171,50 @@ describe("批注（输出 11）", () => {
         expect(written(schema.nodes.table!.create(null, [row(cell("tableHeader", [t("头")])), row(cell("tableCell", [t("格", comment("a|b", "a"))]))]))).toBe("| 头 |\n| --- |\n| <comment body=\"a\\|b\">格</comment> |");
     });
 
+    it("显式的空意见也是首截：同一个 id 的后一条带意见，改过前一条之后仍是两条", () => {
+        const read = codec.read("<comment id=\"x\" body=\"\">甲</comment>\n\n<comment id=\"x\" body=\"乙\">乙</comment>\n");
+        expect(groups(read.doc)).toEqual([{text: "甲", body: ""}, {text: "乙", body: "乙"}]);
+        const result = codec.write(touched(read.doc, 0), read.map);
+        expect(result.ok && result.text).toBe("<comment id=\"x\" body=\"\">甲</comment>\n\n<comment id=\"x\" body=\"乙\">乙</comment>\n");
+    });
+
+    it("两条批注共用一个 id 时挪动一截：挪动的这截仍归原来那条，后一条换一个新的 id", () => {
+        const read = codec.read("<comment id=\"x\" body=\"A\">a</comment>\n\n<comment id=\"x\">aa</comment>\n\n<comment id=\"x\" body=\"B\">b</comment>\n\n<comment id=\"x\">bb</comment>\n");
+        const [a, aa, b, bb] = children(read.doc) as [PMNode, PMNode, PMNode, PMNode];
+        const result = codec.write(read.doc.type.create(null, [a, b, bb, aa]), read.map);
+        expect(result.ok && result.text).toBe("<comment id=\"x\" body=\"A\">a</comment>\n\n<comment id=\"c1\" body=\"B\">b</comment>\n\n<comment id=\"c1\">bb</comment>\n\n<comment id=\"x\">aa</comment>\n");
+        if (result.ok) expect(groups(codec.read(result.text).doc)).toEqual([{text: "aaa", body: "A"}, {text: "bbb", body: "B"}]);
+    });
+
+    it("降到规范写法后开闭多出一截：多出的那截也带着 id，读回仍是一条", () => {
+        const one = comment("意见", "a");
+        const text = written(p(t("汉"), t("粗", mark("bold", {markdown: "__"})), t("字"), t("a", mark("bold", {markdown: "**"})), t("b", mark("bold", {markdown: "__"}), one), t("c", one)));
+        expect(text).toBe("汉**粗**字**a<comment id=\"c1\" body=\"意见\">b</comment>**<comment id=\"c1\">c</comment>");
+        expect(groups(codec.read(text).doc)).toEqual([{text: "bc", body: "意见"}]);
+    });
+
+    it("行内代码、转义与原样片段里写着 <comment>：没编辑的块原样写回", () => {
+        for (const source of [
+            "写法是 `<comment body=\"…\">` 加正文：<comment body=\"例\">甲</comment>，&amp; 说明\n",
+            "<comment body=\"例\">甲</comment>，示例 \\<comment>\n",
+            "<comment body=\"甲\">a</comment>与<u data-x=\"<comment>\">x</u>\n",
+            "`<comment id=\"c1\">`甲<comment id=\"c1\" body=\"x\">乙</comment>\n\n<comment id=\"c1\">丙</comment>\n",
+        ]) {
+            const read = codec.read(source);
+            expect(codec.write(read.doc, read.map)).toMatchObject({ok: true, text: source});
+        }
+    });
+
+    it("里面没有文字的批注（空的、只有换行）是原样片段，原文与意见都保住；只有空格的是批注", () => {
+        for (const source of ["<comment body=\"重要意见\"></comment>", "前<comment body=\"意见\"><br></comment>后", "<comment id=\"c1\" body=\"重要意见\"></comment>\n\n<comment id=\"c1\">正文</comment>"]) {
+            expect(paragraph(source).some((node) => node.type === "rawInline")).toBe(true);
+            const read = codec.read(source);
+            expect(codec.write(read.doc, read.map)).toMatchObject({ok: true, text: source});
+            expect(rewritten(source)).toContain(source.split("\n")[0] as string);
+        }
+        expect(commentOf(paragraph("<comment body=\"空\"> </comment>甲")[0])?.body).toBe("空");
+    });
+
     it("配不上的标签保住原文：跨空行截断的块是原样块加闭标签的原样片段", () => {
         expect(shape("<comment>\npara1\n\npara2</comment>").map((block) => block.type)).toEqual(["rawBlock", "paragraph"]);
         expect(rewritten("<comment>\npara1\n\npara2</comment>")).toBe("<comment>\npara1\n\npara2</comment>");
@@ -209,6 +269,25 @@ describe("双语对照与对齐（输出 13、14）", () => {
 });
 
 describe("文字标记（输出 15、24）", () => {
+    it("嵌套的互斥标记取内层：上标里的下标、颜色里的另一种颜色都不丢", () => {
+        const marks = (source: string): Array<[string, string[]]> => paragraph(source).map((node) => [String(node.text), (node.marks ?? []).map((value) => `${value.type}${value.attrs?.color === undefined || value.attrs.color === null ? "" : `:${String(value.attrs.color)}`}`)]);
+        expect(marks("<sup>a<sub>b</sub>c</sup>")).toEqual([["a", ["markdownSuperscript"]], ["b", ["markdownSubscript"]], ["c", ["markdownSuperscript"]]]);
+        expect(marks("<span style=\"color:red\">a<span style=\"color:blue\">b</span>c</span>")).toEqual([["a", ["markdownTextColor:red"]], ["b", ["markdownTextColor:blue"]], ["c", ["markdownTextColor:red"]]]);
+    });
+
+    it("颜色要是合法的 CSS 颜色：rgb() 的参数个数与单位不对时整体为原样片段", () => {
+        const isColor = (value: string): boolean => paragraph(`<span style="color: ${value}">字</span>`)[0]?.type === "text";
+        expect(["#f00", "#ff000080", "red", "rgb(1, 2, 3)", "rgba(1,2,3,0.5)", "rgb(10% 20% 30%)", "hsl(120, 50%, 50%)", "hsl(120deg 50% 50% / 0.5)"].filter((value) => !isColor(value))).toEqual([]);
+        expect(["rgb()", "rgb(1,2)", "rgb(1deg,2,3)", "hsl(1,2,3)", "var(--a)", "url(x)", "#12"].filter(isColor)).toEqual([]);
+    });
+
+    it("空的文字标记标签是原样片段，不编辑原样写回", () => {
+        for (const source of ["<mark></mark>\n", "<sup></sup>\n", "<strong></strong>\n", "<span style=\"color: red\"></span>\n"]) {
+            const read = codec.read(source);
+            expect(codec.write(read.doc, read.map)).toMatchObject({ok: true, text: source});
+        }
+    });
+
     it("颜色、高亮、上下标；不合规定的标签整体为原样片段", () => {
         const types = (source: string): Array<string | undefined> => paragraph(source).map((node) => node.marks?.[0]?.type ?? node.type);
         expect(types("<mark>高</mark><span style=\"color: #ef4444\">红</span><sup>2</sup><sub>3</sub>")).toEqual(["markdownHighlight", "markdownTextColor", "markdownSuperscript", "markdownSubscript"]);
@@ -235,6 +314,15 @@ describe("文字标记（输出 15、24）", () => {
 });
 
 describe("可渲染 HTML（输出 16）", () => {
+    it("<html> 块包进块批注、对齐、双语：里面的反引号不算代码围栏，闭标签照常配对", () => {
+        const read = codec.read("<html>\n<p>```</p>\n</html>\n");
+        for (const wrap of [schema.nodes.commentBlock!.create({body: "意见"}, children(read.doc)), schema.nodes.markdownAlign!.create({align: "center"}, children(read.doc)), schema.nodes.markdownBilingual!.create({text: "译"}, children(read.doc))]) {
+            const result = codec.write(read.doc.type.create(null, [wrap]), read.map);
+            expect(result.ok ? null : result.reason).toBeNull();
+            if (result.ok) expect(equivalent(wrap, codec.read(result.text).doc.child(0), compareOptions)).toBe(true);
+        }
+    });
+
     it("<html> 块的内容原样读写，里面的 ``` 不开代码围栏；内容里有独占一行的 </html> 时写不出", () => {
         const source = "<html>\n<div class=\"card\">状态面板</div>\n```\n<script>console.log(1)</script>\n</html>\n\n正文<comment body=\"x\">\n块\n</comment>\n";
         const doc = shape(source);
@@ -247,6 +335,24 @@ describe("可渲染 HTML（输出 16）", () => {
 });
 
 describe("宽容写法（输出 17）", () => {
+    it("引用、列表项里的代码围栏中的方言开标签不拆；跨行的行内代码里的也不拆", () => {
+        expect(shape("> ```\n> 正文<comment body=\"x\">\n> </comment>\n> ```\n")).toEqual([{type: "blockquote", content: [{type: "codeBlock", attrs: {markdown: {fence: "```"}, language: null}, content: [{type: "text", text: "正文<comment body=\"x\">\n</comment>"}]}]}]);
+        expect(shape("- ```\n  正文<comment>\n  ```\n</comment>\n")[0]?.type).toBe("bulletList");
+        expect(paragraph("正文`<comment body=\"x\">\n代码`\n\n</comment>\n").map((node) => node.type)).toEqual(["text", "text"]);
+    });
+
+    it("块分词规则不认的开标签不拆（align 的 value 不合规定）；没闭合的 <html> 不关掉后面的宽容写法", () => {
+        const source = "正文<align value=\"centerx\">\n内容\n</align>\n";
+        expect(shape(source).map((block) => block.type)).toEqual(["paragraph"]);
+        expect(rewritten(source)).toBe(source);
+        expect(shape("<html>\n\n正文<comment body=\"x\">\n块\n</comment>\n").map((block) => block.type)).toEqual(["rawBlock", "paragraph", "commentBlock"]);
+    });
+
+    it("开闭标签不分大小写，闭标签里可以有空白：与块分词规则一致", () => {
+        expect(shape("正文<COMMENT body=\"x\">\n块\n</Comment>\n").map((block) => block.type)).toEqual(["paragraph", "commentBlock"]);
+        expect(shape("正文<comment body=\"x\">\n块\n</comment >\n").map((block) => block.type)).toEqual(["paragraph", "commentBlock"]);
+    });
+
     it("开标签黏在正文后面、下面有闭标签：读成正文一段加一个块；不编辑原样写回，改过后补一个空行", () => {
         const source = "正文<comment body=\"x\">\n跨行的块\n</comment>\n";
         expect(shape(source).map((block) => block.type)).toEqual(["paragraph", "commentBlock"]);
@@ -299,5 +405,14 @@ describe("原样（输出 9）", () => {
         expect(written(p(t("前"), br(), raw()))).toBe("前<br><bilingual text=\"x\">");
         const result = codec.write(schema.nodes.doc!.create(null, [p(raw())]), codec.read("").map);
         expect(result.ok).toBe(false);
+    });
+
+    it("挨着的原样片段读回合成一个，算读得回来：合并两段后 <kbd> 与 </kbd> 挨在一起", () => {
+        const read = codec.read("甲<kbd>\n\n</kbd>乙\n");
+        const [first, second] = children(read.doc) as [PMNode, PMNode];
+        const joined = read.doc.type.create(null, [first.type.create(null, first.content.append(second.content))]);
+        const result = codec.write(joined, read.map);
+        expect(result.ok && result.text).toBe("甲<kbd></kbd>乙\n");
+        if (result.ok) expect(paragraph(result.text)[1]).toEqual({type: "rawInline", attrs: {raw: "<kbd></kbd>"}});
     });
 });

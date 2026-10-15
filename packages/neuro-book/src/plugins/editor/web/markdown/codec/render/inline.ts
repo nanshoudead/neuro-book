@@ -30,6 +30,10 @@ export interface InlineWriters {
  */
 export function follow(items: InlineItem[]): void {
     const sameExceptStyle = (left: Mark, right: Mark): boolean => left.type === right.type && Object.keys(left.attrs).every((key) => key === "markdown" || left.attrs[key] === right.attrs[key]);
+    // 不挨着时跟随同一块里第一个同类、写法已定的标记（`__a__ b` 里给 b 加粗写成 `__b__`）：先从左到右、从右到左按相邻跟随，
+    // 剩下的再按同块跟随。
+    const styled = new Map<string, Mark>();
+    for (const item of items) for (const mark of item.marks) if (mark.attrs.markdown !== null && mark.attrs.markdown !== undefined && !styled.has(mark.type.name)) styled.set(mark.type.name, mark);
     for (const direction of [1, -1] as const) {
         const order = direction === 1 ? items.keys() : [...items.keys()].reverse();
         for (const index of order) {
@@ -41,6 +45,13 @@ export function follow(items: InlineItem[]): void {
                 return neighbour.marks.find((other) => other !== mark && sameExceptStyle(mark, other) && other.attrs.markdown !== null) ?? mark;
             });
         }
+    }
+    for (const item of items) {
+        item.marks = item.marks.map((mark) => {
+            if (mark.attrs.markdown !== null || !("markdown" in mark.attrs)) return mark;
+            const model = styled.get(mark.type.name);
+            return model === undefined || Object.keys(mark.attrs).some((key) => key !== "markdown" && mark.attrs[key] !== model.attrs[key]) ? mark : mark.type.create({...mark.attrs, markdown: model.attrs.markdown});
+        });
     }
 }
 
@@ -99,7 +110,7 @@ interface Run extends MarkRun {
  * 标记的开闭安排：相邻两个节点的标记集合不同时，先关掉不再延续的（从里往外），再开新的（顺序见 `ordered`）。返回每个子节点
  * 前要关的与要开的，以及每一次开闭的范围、文字与起点。
  */
-function layout(parent: PMNode, children: ReadonlyArray<PMNode>, textOnly: ReadonlySet<string>): {readonly closes: Run[][]; readonly opens: Run[][]; readonly active: Run[][]; readonly tail: Run[]} {
+function layout(parent: PMNode, children: ReadonlyArray<PMNode>, textOnly: ReadonlySet<string>, markless: ReadonlySet<string>): {readonly closes: Run[][]; readonly opens: Run[][]; readonly active: Run[][]; readonly tail: Run[]} {
     const runs: Run[] = [];
     const closes: Run[][] = [];
     const opens: Run[][] = [];
@@ -107,9 +118,11 @@ function layout(parent: PMNode, children: ReadonlyArray<PMNode>, textOnly: Reado
     let active: Run[] = [];
     let offset = 0;
     children.forEach((child, index) => {
-        const wanted = ordered(child.marks, active.map((run) => run.mark), textOnly);
+        let wanted = ordered(child.marks, active.map((run) => run.mark), textOnly);
         let common = 0;
         while (common < active.length && common < wanted.length && (active[common] as Run).mark.eq(wanted[common] as Mark)) common += 1;
+        // 硬换行处只延续开着的标记，不新开：新开的标签会落在行尾（宽容写法会把行尾的块级方言开标签拆开），推到换行之后再开。
+        if (markless.has(child.type.name)) wanted = wanted.slice(0, common);
         const closing = active.slice(common).reverse();
         for (const run of closing) run.end = index - 1;
         const opening = wanted.slice(common).map((mark): Run => ({mark, start: index, end: children.length - 1, offset, parent, text: ""}));
@@ -126,20 +139,33 @@ function layout(parent: PMNode, children: ReadonlyArray<PMNode>, textOnly: Reado
     return {closes, opens, active: activeAt, tail: [...active].reverse()};
 }
 
+/** 按文本块节点缓存的开闭安排（节点不可变，没编辑的段落每次写回都命中）：两种写法各一份。 */
+const openingCache = new WeakMap<PMNode, Map<boolean, ReadonlyArray<{readonly mark: Mark; readonly offset: number}>>>();
+
 /**
- * 一个文本块里各个标记开标签的位置（按写出的顺序），与写出时一样整理与安排（按记下的写法，不降级）。写前准备用它数一条
- * 批注会写成几段、哪一段是第一段。
+ * 一个文本块里各个标记开标签的位置（按写出的顺序），与写出时一样整理与安排。写前准备用它数一条批注会写成几段、哪一段是
+ * 第一段；`canonical` 是降级到规范写法时的安排。
  */
-export function openings(parent: PMNode, writers: InlineWriters): ReadonlyArray<{readonly mark: Mark; readonly offset: number}> {
-    const emphasis = new Set([...writers.marks].filter(([, writer]) => writer.emphasis === true).map(([type]) => type));
-    const children = normalized(parent, emphasis, writers.markless, writers.textOnly, false);
-    return layout(parent, children, writers.textOnly).opens.flat().map((run) => ({mark: run.mark, offset: run.offset}));
+export function openings(parent: PMNode, writers: InlineWriters, canonical: boolean): ReadonlyArray<{readonly mark: Mark; readonly offset: number}> {
+    let cached = openingCache.get(parent);
+    if (cached === undefined) {
+        cached = new Map();
+        openingCache.set(parent, cached);
+    }
+    let result = cached.get(canonical);
+    if (result === undefined) {
+        const emphasis = new Set([...writers.marks].filter(([, writer]) => writer.emphasis === true).map(([type]) => type));
+        const children = normalized(parent, emphasis, writers.markless, writers.textOnly, canonical);
+        result = layout(parent, children, writers.textOnly, writers.markless).opens.flat().map((run) => ({mark: run.mark, offset: run.offset}));
+        cached.set(canonical, result);
+    }
+    return result;
 }
 
 export function renderInline(parent: PMNode, context: WriteContext, place: InlinePlace, writers: InlineWriters): string {
     const emphasis = new Set([...writers.marks].filter(([, writer]) => writer.emphasis === true).map(([type]) => type));
     const children = normalized(parent, emphasis, writers.markless, writers.textOnly, context.options.styles === "canonical");
-    const plan = layout(parent, children, writers.textOnly);
+    const plan = layout(parent, children, writers.textOnly, writers.markless);
     const out: string[] = [];
     const last = (): string => {
         for (let index = out.length - 1; index >= 0; index -= 1) {

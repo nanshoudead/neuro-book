@@ -55,7 +55,7 @@ export interface SourceMap {
     /** BOM 与 frontmatter，原样。 */
     readonly prefix: string;
     /** 原文里用得多的换行符：重新写出的块与间隔用它。 */
-    readonly eol: "\n" | "\r\n";
+    readonly eol: Eol;
     readonly origins: WeakMap<PMNode, ReadonlyArray<Origin>>;
     readonly gaps: WeakMap<object, Map<object, Map<number, Gap>>>;
     /** 读入时正文里没有任何块（空文件、只有空行）：正文原文；否则为 null。 */
@@ -82,9 +82,13 @@ export function recordGap(map: SourceMap, before: object, after: object, gap: Ga
     map.gaps.set(before, inner);
 }
 
+/** 换行数：`\r\n` 算一个，单独的 `\r` 也算一个（与规范化一样，见 `source.ts`）。 */
 const newlines = (gap: string): number => {
     let count = 0;
-    for (let index = 0; index < gap.length; index += 1) if (gap.charCodeAt(index) === 10) count += 1;
+    for (let index = 0; index < gap.length; index += 1) {
+        const char = gap.charCodeAt(index);
+        if (char === 10 || (char === 13 && gap.charCodeAt(index + 1) !== 10)) count += 1;
+    }
     return count;
 };
 
@@ -94,20 +98,43 @@ export const emptiesLeading = (gap: string): number => newlines(gap);
 /** 最后一块之后：`k` 个空行对应 `k` 个空段落，最后一个换行是文件末尾的换行。 */
 export const emptiesTrailing = (gap: string): number => Math.max(0, newlines(gap) - 1);
 
-function dominantEol(body: string): "\n" | "\r\n" {
+/** 换行符：`\n`、`\r\n` 或单独的 `\r`（老的 Mac 文本）。 */
+export type Eol = "\n" | "\r\n" | "\r";
+
+/** 整篇（连同 frontmatter）用得最多的换行符：正文没有换行时，新写的内容跟 frontmatter 一致。 */
+function dominantEol(body: string): Eol {
     let crlf = 0;
     let lf = 0;
+    let cr = 0;
     for (let index = 0; index < body.length; index += 1) {
-        if (body.charCodeAt(index) !== 10) continue;
-        if (index > 0 && body.charCodeAt(index - 1) === 13) crlf += 1;
-        else lf += 1;
+        const char = body.charCodeAt(index);
+        if (char === 10) lf += 1;
+        else if (char === 13 && body.charCodeAt(index + 1) === 10) {
+            crlf += 1;
+            index += 1;
+        } else if (char === 13) cr += 1;
     }
-    return crlf > lf ? "\r\n" : "\n";
+    if (crlf > lf && crlf >= cr) return "\r\n";
+    return cr > lf ? "\r" : "\n";
 }
 
 /** 读法产出的 JSON → 节点。标记按施加的先后用 `addToSet` 合成，所以互斥的标记（行内代码排斥其它标记）按 schema 的规则取舍。 */
+/**
+ * 读法给的标记从里到外排（`context.mark` 先加里层）。互斥的标记（颜色套颜色、上标套下标）里层优先：外层的同类标记不盖掉里层，
+ * 这一截只有里层的（`<span red>a<span blue>b</span>c</span>` 的 b 是蓝色）。按 `addToSet` 的先后决定会让外层盖掉里层。
+ */
+function marksOf(schema: Schema, json: JSONContent): ReadonlyArray<Mark> {
+    let set: ReadonlyArray<Mark> = Mark.none;
+    for (const value of json.marks ?? []) {
+        const mark = schema.mark(value.type, value.attrs);
+        if (set.some((existing) => !existing.eq(mark) && (existing.type.excludes(mark.type) || mark.type.excludes(existing.type)))) continue;
+        set = mark.addToSet(set as Mark[]);
+    }
+    return set;
+}
+
 function toNode(schema: Schema, json: JSONContent): PMNode {
-    const marks = (json.marks ?? []).reduce<ReadonlyArray<Mark>>((set, mark) => schema.mark(mark.type, mark.attrs).addToSet(set as Mark[]), Mark.none);
+    const marks = marksOf(schema, json);
     if (json.type === "text") return schema.text(json.text ?? "", marks as Mark[]);
     const type = schema.nodes[json.type ?? ""];
     if (type === undefined) throw new RangeError(`未知的节点类型 ${json.type ?? ""}`);
@@ -184,12 +211,12 @@ export type Definitions = Readonly<Record<string, {readonly href: string; readon
  * 读一段正文（没有 frontmatter）。`definitions` 不为 null 时预置进词法器：写回校验只读一个窗口，引用定义可能在窗口外面。
  */
 export function readBody(language: MarkdownLanguage, schema: Schema, prefix: string, body: string, definitions: Definitions | null): ReadResult {
-    const normalized = normalize(body, language.blockTags, language.openTagAtLineEnd);
-    const lexer = new language.marked.Lexer(language.marked.defaults);
+    const normalized = normalize(body, language.glued);
+    const lexer = language.lexer();
     if (definitions !== null) Object.assign(lexer.tokens.links, definitions);
     const tokens = lexer.lex(normalized.text);
     const {blocks, gaps, skipped} = segment(normalized, body, tokens);
-    const map: SourceMap = {prefix, eol: dominantEol(body), origins: new WeakMap(), gaps: new WeakMap(), emptyBody: blocks.length === 0 ? body : null, finalNewline: /\n$|\r$/u.test(body)};
+    const map: SourceMap = {prefix, eol: dominantEol(prefix + body), origins: new WeakMap(), gaps: new WeakMap(), emptyBody: blocks.length === 0 ? body : null, finalNewline: /\n$|\r$/u.test(body)};
     const nodes: PMNode[] = [];
     const empty = (): PMNode => schema.nodes.paragraph!.create();
     const problems: string[] = [];
@@ -217,6 +244,9 @@ export function readBody(language: MarkdownLanguage, schema: Schema, prefix: str
         if (value !== null && value !== undefined) {
             try {
                 read = build(schema, value);
+                // 原文不是空白、读出来却只有一个空段落（例如只有空标签 `<comment body="意见"></comment>`）：空段落是间隔，写回会把
+                // 这块原文连同意见删掉，改读成原样块。
+                if (read.length === 1 && read[0]?.type.name === "paragraph" && read[0].childCount === 0 && block.raw.trim() !== "") read = [];
             } catch (error) {
                 fail(block, error);
             }

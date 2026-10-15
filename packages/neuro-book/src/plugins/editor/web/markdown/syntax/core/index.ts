@@ -20,6 +20,7 @@ import {decodeHTMLStrict} from "entities";
 import type {MarkedExtension, Token, Tokens} from "marked";
 import markedCjkFriendly from "marked-cjk-friendly";
 
+import {closeInline, nextMatch} from "../tags";
 import type {MarkdownSyntax, ReadContext, TokenReader} from "../types";
 import {coreWriters} from "./write";
 
@@ -78,22 +79,31 @@ function readText(raw: string): JSONContent[] {
     return out;
 }
 
+/**
+ * 一组行内单元的纯文字（CommonMark 的图片说明）：转义去掉反斜杠、实体解码一次、强调与链接只取其中的文字，行内代码取代码，
+ * 换行是空格，HTML 是原文。
+ */
+function plainText(tokens: ReadonlyArray<Token>): string {
+    return tokens.map((token) => {
+        switch (token.type) {
+            case "escape":
+                return (token as Tokens.Escape).text;
+            case "codespan":
+                return (token as Tokens.Codespan).text;
+            case "br":
+                return " ";
+            case "text":
+                return "tokens" in token && Array.isArray(token.tokens) && token.tokens.length > 0 ? plainText(token.tokens) : decodeHTMLStrict(token.raw);
+            default:
+                return "tokens" in token && Array.isArray(token.tokens) ? plainText(token.tokens) : token.raw;
+        }
+    }).join("");
+}
+
 /** 行内 HTML 能读的标签（输出 25）：标签名 → 标记类型。 */
 const HTML_MARKS: Readonly<Record<string, string>> = {strong: "bold", b: "bold", em: "italic", i: "italic", del: "strike", s: "strike"};
 const HTML_MARK_OPEN = /^<(strong|b|em|i|del|s)\s*>/iu;
 const HTML_BREAK = /^<br\s*\/?>/iu;
-
-/** 同名标签嵌套计数下找配对的闭标签，返回闭标签开始与结束的位置；没有为 null。 */
-function closingTag(src: string, tag: string, from: number): {start: number; end: number} | null {
-    const pattern = new RegExp(`<(/?)${tag}\\s*>`, "giu");
-    pattern.lastIndex = from;
-    let depth = 1;
-    for (let matched = pattern.exec(src); matched !== null; matched = pattern.exec(src)) {
-        depth += matched[1] === "/" ? -1 : 1;
-        if (depth === 0) return {start: matched.index, end: matched.index + matched[0].length};
-    }
-    return null;
-}
 
 /**
  * HTML 形式的强调与换行（输出 25）整体认领成一个单元：`<strong>…</strong>` 连同里面的行内内容，`<br>`。配不上对的标签不认领，
@@ -104,20 +114,22 @@ const htmlInline: MarkedExtension = {
         {
             name: "htmlMark",
             level: "inline",
-            start: (src: string) => src.search(/<(?:strong|b|em|i|del|s)\s*>/iu),
+            start: (src: string) => nextMatch(src, /<(?:strong|b|em|i|del|s)\s*>/giu),
             tokenizer(src: string) {
                 const open = HTML_MARK_OPEN.exec(src);
                 if (open === null) return undefined;
                 const tag = (open[1] as string).toLowerCase();
-                const close = closingTag(src, tag, open[0].length);
-                if (close === null) return undefined;
+                // 配对与方言标签用同一个扫描（跳过转义、行内代码与别的标签）；里面是空的不认领（没有文字可以带这个标记，读成原样
+                // 片段保住原文）。
+                const close = closeInline(src, tag, open[0].length);
+                if (close === null || close.start === open[0].length) return undefined;
                 return {type: "htmlMark", raw: src.slice(0, close.end), tag, tokens: this.lexer.inlineTokens(src.slice(open[0].length, close.start))};
             },
         },
         {
             name: "htmlBreak",
             level: "inline",
-            start: (src: string) => src.search(/<br\s*\/?>/iu),
+            start: (src: string) => nextMatch(src, /<br\s*\/?>/giu),
             tokenizer(src: string) {
                 const matched = HTML_BREAK.exec(src);
                 return matched === null ? undefined : {type: "htmlBreak", raw: matched[0]};
@@ -162,8 +174,9 @@ const inlineReaders: Readonly<Record<string, TokenReader>> = {
         return context.mark("link", context.inline(link.tokens), {href: link.href, title: link.title ?? null, markdown: linkStyle(link)});
     },
     image: (token) => {
-        const image = token as Tokens.Image;
-        return [{type: "image", attrs: {src: image.href, alt: image.text, title: image.title ?? null, markdown: linkStyle(image as unknown as Tokens.Link)}}];
+        const image = token as Tokens.Image & {tokens?: Token[]};
+        const alt = image.tokens === undefined ? image.text : plainText(image.tokens);
+        return [{type: "image", attrs: {src: image.href, alt, title: image.title ?? null, markdown: linkStyle(image as unknown as Tokens.Link)}}];
     },
     // 有序列表里的 `1. [ ] 事项` 不是任务项（输出 19）：复选框按文字读回。
     checkbox: (token) => [text(token.raw)],

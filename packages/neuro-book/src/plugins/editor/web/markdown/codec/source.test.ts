@@ -6,13 +6,14 @@
 import {describe, expect, it} from "bun:test";
 import {Lexer} from "marked";
 
+import {markdownLanguage} from "../syntax";
 import {normalize, segment, splitFrontmatter} from "./source";
 
-const TAGS = ["comment", "bilingual", "align", "html"];
-const OPEN = /<(?:comment(?:\s[^>\n]*)?|bilingual(?:\s[^>\n]*)?|align\s+value="(?:left|center|right|justify)"|html)>[ \t]*$/u;
+// 宽容写法的规则用编辑器的那一份：标签名与“认不认这个开标签”都来自语法模块。
+const RULES = markdownLanguage().glued;
 
 function cut(body: string) {
-    const normalized = normalize(body, TAGS, OPEN);
+    const normalized = normalize(body, RULES);
     const units = new Lexer({gfm: true}).lex(normalized.text);
     return {normalized, ...segment(normalized, body, units)};
 }
@@ -59,7 +60,7 @@ describe("块与间隔拼回原文", () => {
 describe("规范化", () => {
     it("换行一律成 LF，偏移表指回原文", () => {
         const body = "甲\r\n乙\r丙\n";
-        const {text, toSource} = normalize(body, TAGS, OPEN);
+        const {text, toSource} = normalize(body, RULES);
         expect(text).toBe("甲\n乙\n丙\n");
         expect(Array.from(toSource)).toEqual([0, 1, 3, 4, 5, 6, 7]);
     });
@@ -73,14 +74,14 @@ describe("规范化", () => {
 
     it("不拆的情况：没有闭标签、只有容器标记、在围栏里、最后一行没有换行", () => {
         for (const body of ["正文<comment>\n内容\n", "> <comment>\n内容\n</comment>\n", "```\n正文<comment>\n```\n</comment>\n", "内容\n</comment>\n正文<comment>"]) {
-            expect(normalize(body, TAGS, OPEN).text).toBe(body);
+            expect(normalize(body, RULES).text).toBe(body);
         }
     });
 
     it("宽容扫描是线性的：八千行异常输入在 100 毫秒内", () => {
         const body = `${"正文<comment>\n".repeat(8000)}</comment>\n`;
         const started = performance.now();
-        normalize(body, TAGS, OPEN);
+        normalize(body, RULES);
         expect(performance.now() - started).toBeLessThan(100);
     });
 });

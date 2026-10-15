@@ -67,8 +67,13 @@ function linesOf(body: string): SourceLine[] {
     return lines;
 }
 
-/** 代码围栏的开栏：最多 3 空格缩进加 ``` 或 ~~~；反引号围栏后面的信息串里不能再有反引号（CommonMark），否则只是段落。 */
-const FENCE_OPEN = /^ {0,3}(`{3,}(?=[^`]*$)|~{3,})/u;
+/** 代码围栏的开栏：``` 或 ~~~；反引号围栏后面的信息串里不能再有反引号（CommonMark），否则只是段落。 */
+const FENCE_OPEN = /^(`{3,}(?=[^`]*$)|~{3,})/u;
+/**
+ * 行首的容器标记与缩进（引用 `>`、列表符号）：判断围栏前先剥掉，容器里的代码围栏也算。剥得宽一些（任意缩进）只会让更多的行
+ * 被当成围栏里的、不参加宽容写法，是保守的方向。
+ */
+const CONTAINER_MARKS = /^(?:[ \t]*(?:>|[-*+](?=[ \t])|\d{1,9}[.)](?=[ \t])))*[ \t]*/u;
 /** 开标签前只有空白与容器标记（引用 `>`、列表 `-*+`、有序 `1.`/`1)`）：这是正常的嵌套，不拆。 */
 const CONTAINER_ONLY_PREFIX = /^[ \t]*(?:(?:>|[-*+]|\d{1,9}[.)])[ \t]*)*$/u;
 
@@ -76,16 +81,24 @@ const CONTAINER_ONLY_PREFIX = /^[ \t]*(?:(?:>|[-*+]|\d{1,9}[.)])[ \t]*)*$/u;
 const HTML_OPEN = /^<html>[ \t]*$/iu;
 const HTML_CLOSE = /^ {0,3}<\/html\s*>[ \t]*$/iu;
 
-/** 每一行在不在代码围栏或 `<html>` 块里（开、内、闭都算）；一次扫描。 */
+/**
+ * 每一行在不在代码围栏或 `<html>` 块里（开、内、闭都算）；一次扫描。`<html>` 只有下面有独占一行的 `</html>` 时才是块（与分词
+ * 规则一样），没闭合的不影响后面的行。
+ */
 function fencedLines(body: string, lines: ReadonlyArray<SourceLine>): boolean[] {
+    let lastHtmlClose = -1;
+    lines.forEach((line, index) => {
+        if (HTML_CLOSE.test(body.slice(line.start, line.end))) lastHtmlClose = index;
+    });
     const fenced: boolean[] = [];
     let fence: {marker: string; length: number} | null = null;
     let html = false;
-    for (const line of lines) {
-        const text = body.slice(line.start, line.end);
+    lines.forEach((line, index) => {
+        const raw = body.slice(line.start, line.end);
+        const text = raw.replace(CONTAINER_MARKS, "");
         const matched = FENCE_OPEN.exec(text);
-        if (html || (fence === null && HTML_OPEN.test(text))) {
-            html = !(html && HTML_CLOSE.test(text));
+        if (html || (fence === null && HTML_OPEN.test(raw) && lastHtmlClose > index)) {
+            html = !(html && HTML_CLOSE.test(raw));
             fenced.push(true);
         } else if (fence !== null) {
             if (matched !== null && (matched[1] as string).startsWith(fence.marker) && (matched[1] as string).length >= fence.length && text.slice(matched[0].length).trim() === "") fence = null;
@@ -96,27 +109,48 @@ function fencedLines(body: string, lines: ReadonlyArray<SourceLine>): boolean[] 
         } else {
             fenced.push(false);
         }
-    }
+    });
     return fenced;
 }
+
+/** 一行的这一段里有没有没闭合的行内代码：有一串反引号，后面没有同样长度的一串。 */
+function unclosedCode(text: string): boolean {
+    const runs = [...text.matchAll(/`+/gu)].map((matched) => matched[0].length);
+    for (let at = 0; at < runs.length; at += 1) {
+        const close = runs.indexOf(runs[at] as number, at + 1);
+        if (close < 0) return true;
+        at = close;
+    }
+    return false;
+}
+
+/** 宽容写法的规则：块级方言标签名，与“写在行尾的这个开标签是不是这种方言的块开标签”（由各语法模块的分词规则判断）。 */
+export interface GluedRules {
+    readonly tags: ReadonlyArray<string>;
+    accepts(name: string, source: string): boolean;
+}
+
+const ATTRIBUTES = `(?:"[^"\\n]*"|'[^'\\n]*'|[^>"'\\n])*`;
 
 /**
  * 宽容写法（输出 17）的拆分点：每行至多一处，值是开标签在行内的列。
  *
- * 判据（每条都对应过一次真实的回归，改动前读 `markdown-dialect.test.ts` 里的宽容写法样例）：开标签在行尾；往下有独占一行的
- * 同名闭标签（只看围栏外的行）；开标签前有真实正文，不只是容器标记；不在围栏里、不是缩进代码；原文不以换行结尾时最后一行
- * 不算“行尾”（流式写入的半截不被抢拆）。“往下有闭标签”用每个标签最后一次出现的闭标签行号判断，整篇一次扫描。
+ * 判据（每条都对应过一次真实的回归，改动前读 `dialects.test.ts` 的“宽容写法”）：开标签在行尾，并且是这种方言认的块开标签
+ * （`rules.accepts`，大小写与属性形态与分词规则一致）；往下有独占一行的同名闭标签（只看围栏外的行）；开标签前有真实正文，
+ * 不只是容器标记；不在围栏里（含容器里的围栏）、不是缩进代码；原文不以换行结尾时最后一行不算“行尾”（流式写入的半截不被
+ * 抢拆）。“往下有闭标签”用每个标签最后一次出现的闭标签行号判断，整篇一次扫描。
  */
-function gluedSplits(body: string, lines: ReadonlyArray<SourceLine>, blockTags: ReadonlyArray<string>, openAtLineEnd: RegExp): Map<number, number> {
+function gluedSplits(body: string, lines: ReadonlyArray<SourceLine>, rules: GluedRules): Map<number, number> {
     const splits = new Map<number, number>();
-    if (blockTags.length === 0) return splits;
+    if (rules.tags.length === 0) return splits;
     const fenced = fencedLines(body, lines);
-    const closePattern = new RegExp(`^[ \\t]*</(${blockTags.join("|")})>[ \\t]*$`, "u");
+    const closePattern = new RegExp(`^[ \\t]*</(${rules.tags.join("|")})\\s*>[ \\t]*$`, "iu");
+    const openPattern = new RegExp(`<(${rules.tags.join("|")})(?=[\\s>/])${ATTRIBUTES}>[ \\t]*$`, "iu");
     const lastClose = new Map<string, number>();
     lines.forEach((line, index) => {
         if (fenced[index] === true) return;
         const matched = closePattern.exec(body.slice(line.start, line.end));
-        if (matched !== null) lastClose.set(matched[1] as string, index);
+        if (matched !== null) lastClose.set((matched[1] as string).toLowerCase(), index);
     });
     if (lastClose.size === 0) return splits;
     const lastLine = lines.length - 1;
@@ -124,29 +158,30 @@ function gluedSplits(body: string, lines: ReadonlyArray<SourceLine>, blockTags: 
         if (fenced[index] === true || (index === lastLine && line.eol === "")) return;
         const text = body.slice(line.start, line.end);
         if (/^(?: {4}|\t)/u.test(text)) return;
-        const matched = openAtLineEnd.exec(text);
+        const matched = openPattern.exec(text);
         if (matched === null || matched.index === 0) return;
         if (CONTAINER_ONLY_PREFIX.test(text.slice(0, matched.index))) return;
-        const tag = /^<([a-zA-Z-]+)/u.exec(matched[0])?.[1];
-        if (tag === undefined || (lastClose.get(tag) ?? -1) <= index) return;
+        // 开标签在一段没闭合的行内代码里（前面有一串没配对的反引号）：它是代码的文字，不拆。
+        if (unclosedCode(text.slice(0, matched.index))) return;
+        const tag = (matched[1] as string).toLowerCase();
+        if ((lastClose.get(tag) ?? -1) <= index || !rules.accepts(tag, matched[0].trimEnd())) return;
         splits.set(index, matched.index);
     });
     return splits;
 }
 
 /** 宽容写法会在哪里拆开：开标签在正文里的位置，从小到大。写回用它检查整篇输出（拆分点只能在块的开头）。 */
-export function gluedOpenings(body: string, blockTags: ReadonlyArray<string>, openAtLineEnd: RegExp): number[] {
+export function gluedOpenings(body: string, rules: GluedRules): number[] {
     const lines = linesOf(body);
-    return [...gluedSplits(body, lines, blockTags, openAtLineEnd)].map(([line, column]) => (lines[line] as SourceLine).start + column).sort((left, right) => left - right);
+    return [...gluedSplits(body, lines, rules)].map(([line, column]) => (lines[line] as SourceLine).start + column).sort((left, right) => left - right);
 }
 
 /**
  * 规范化正文：换行一律成 `\n`（`\r\n` 与单独的 `\r`，与 `marked` 的做法一致），宽容写法在开标签前补一个空行。
- * `openAtLineEnd` 匹配“行尾的块级方言开标签”，各标签的属性形态由语法模块给出，必须与各自的块分词规则一致。
  */
-export function normalize(body: string, blockTags: ReadonlyArray<string>, openAtLineEnd: RegExp): Normalized {
+export function normalize(body: string, rules: GluedRules): Normalized {
     const lines = linesOf(body);
-    const splits = gluedSplits(body, lines, blockTags, openAtLineEnd);
+    const splits = gluedSplits(body, lines, rules);
     const parts: string[] = [];
     const map: number[] = [];
     const copy = (from: number, to: number): void => {

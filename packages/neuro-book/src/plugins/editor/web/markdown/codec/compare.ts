@@ -21,6 +21,8 @@ export interface CompareOptions {
     readonly markless?: ReadonlySet<string>;
     /** 只盖文字的标记类型（注音）：行内节点身上的它不比较。 */
     readonly textOnly?: ReadonlySet<string>;
+    /** 挨着时读回合成一个的行内节点类型 → 存原文的属性（`MarkdownLanguage.joinedInline`）。 */
+    readonly joined?: ReadonlyMap<string, string>;
     /** 写出时对行内内容做的“跟随”整理（`render/inline.ts`），比较前对编辑器的节点做同样的处理。 */
     readonly follow?: (items: InlineItem[]) => void;
 }
@@ -74,10 +76,18 @@ export function flatten(parent: PMNode, markless: ReadonlySet<string> = new Set(
  * 不跨换行。写出前（`render/inline.ts`）与比较前都用它，两边一致。
  */
 export function bridge(items: InlineItem[], markless: ReadonlySet<string>, textOnly: ReadonlySet<string>): void {
+    const isMarkless = (item: InlineItem): boolean => item.node !== null && markless.has(item.node.type.name);
+    // 从后往前记每一项之后第一个不是硬换行的项：连续很多个换行时不至于每个都往后找一遍。
+    const nextContent: Array<InlineItem | undefined> = [];
+    let following: InlineItem | undefined;
+    for (let index = items.length - 1; index >= 0; index -= 1) {
+        nextContent[index] = following;
+        if (!isMarkless(items[index] as InlineItem)) following = items[index];
+    }
     items.forEach((item, index) => {
-        if (item.node === null || !markless.has(item.node.type.name)) return;
+        if (!isMarkless(item)) return;
         const before = items[index - 1];
-        const after = items.slice(index + 1).find((next) => next.node === null || !markless.has(next.node.type.name));
+        const after = nextContent[index];
         item.marks = before === undefined || after === undefined ? [] : before.marks.filter((mark) => mark.isInSet(after.marks) && (mark.type.spec as {code?: boolean}).code !== true && !textOnly.has(mark.type.name));
     });
 }
@@ -116,6 +126,23 @@ export function expel(items: InlineItem[], emphasis: ReadonlySet<string>, markle
     }
 }
 
+/** 标记相同、挨着的 `joined` 类节点合成一个（属性值连起来）。 */
+function joinAdjacent(items: InlineItem[], joined: ReadonlyMap<string, string>): InlineItem[] {
+    if (joined.size === 0) return items;
+    const result: InlineItem[] = [];
+    for (const item of items) {
+        const previous = result.at(-1);
+        const attr = item.node === null ? undefined : joined.get(item.node.type.name);
+        if (attr !== undefined && previous?.node?.type === item.node?.type && previous !== undefined && previous.node !== null && item.node !== null && sameMarkSet(previous.marks, item.marks)) {
+            const node = item.node.type.create({...item.node.attrs, [attr]: String(previous.node.attrs[attr] ?? "") + String(item.node.attrs[attr] ?? "")});
+            result[result.length - 1] = {char: null, node, marks: previous.marks};
+        } else result.push(item);
+    }
+    return result;
+}
+
+const sameMarkSet = (left: ReadonlyArray<Mark>, right: ReadonlyArray<Mark>): boolean => left.length === right.length && left.every((mark) => mark.isInSet(right));
+
 /** 编辑器里的节点与读回的节点是不是同一个东西。 */
 export function equivalent(editor: PMNode, read: PMNode, options: CompareOptions): boolean {
     if (editor.type !== read.type || !sameAttrs(editor.attrs, read.attrs, options, editor.type.name) || !sameMarks(editor.marks, read.marks, options)) return false;
@@ -127,9 +154,12 @@ export function equivalent(editor: PMNode, read: PMNode, options: CompareOptions
         if (options.styles === "canonical") withoutStyles(left);
         options.follow?.(left);
         expel(left, options.emphasis, markless);
-        if (left.length !== right.length) return false;
-        return left.every((item, index) => {
-            const other = right[index] as InlineItem;
+        const joined = options.joined ?? new Map<string, string>();
+        const mine = joinAdjacent(left, joined);
+        const theirs = joinAdjacent(right, joined);
+        if (mine.length !== theirs.length) return false;
+        return mine.every((item, index) => {
+            const other = theirs[index] as InlineItem;
             if (item.char !== other.char) return false;
             if (item.node !== null && (other.node === null || !equivalent(item.node.mark([]), other.node.mark([]), options))) return false;
             // 硬换行身上的标记只是整理时补上的（`bridge`），看不出来，不比较。

@@ -7,7 +7,7 @@ import type {Mark, Node as PMNode} from "@tiptap/pm/model";
 
 import type {BlockWriter, InlineWriter, MarkWriter, WriteContext} from "../types";
 import {LONE_TAG, OPENS_HTML_BLOCK} from "../raw";
-import {Unrepresentable} from "../types";
+import {normalizeLabel, Unrepresentable} from "../types";
 
 /** 写出的列表开头的符号（无序的 `-`、`*`、`+`，有序的分隔符）；不是列表时为 null。 */
 const leadingMarker = (text: string): string | null => /^(?:\d+([.)])|([-*+]))(?:[ \t]|$)/mu.exec(text.split("\n", 1)[0] as string)?.slice(1).find((part) => part !== undefined) ?? null;
@@ -111,12 +111,23 @@ const blocks: Readonly<Record<string, BlockWriter>> = {
         const delimiter = context.options.alternate % 2 === 1 ? (base === ")" ? "." : ")") : base;
         return list(node, context, (index) => `${style?.numbering === "same" ? start : start + index}${delimiter} `);
     },
-    taskList: (node, context) => list(node, context, (_index, item) => {
-        const style = context.style<{marker?: string; check?: string}>(item);
-        const checked = item.attrs.checked === true;
-        const check = checked ? (style?.check === "X" ? "X" : "x") : " ";
-        return `${rotate(style?.marker ?? "-", context.options.alternate)} [${check}] `;
-    }),
+    taskList: (node, context) => {
+        // 新加的项（没有写法）跟随同一个列表里已有的项：符号相同，勾选写成同样大小写的 `x`（输出 2 的“跟随”）。
+        type TaskStyle = {marker?: string; check?: string};
+        const styles: TaskStyle[] = [];
+        node.forEach((item) => {
+            const style = context.style<TaskStyle>(item);
+            if (style !== null) styles.push(style);
+        });
+        const marker = styles[0]?.marker;
+        const upper = styles.find((style) => style.check === "x" || style.check === "X")?.check === "X";
+        return list(node, context, (_index, item) => {
+            const style = context.style<TaskStyle>(item);
+            const checked = item.attrs.checked === true;
+            const check = checked ? ((style?.check ?? (upper ? "X" : "x")) === "X" ? "X" : "x") : " ";
+            return `${rotate(style?.marker ?? marker ?? "-", context.options.alternate)} [${check}] `;
+        });
+    },
     codeBlock: (node, context) => {
         const style = context.style<{fence?: string; indented?: boolean}>(node);
         const content = node.textContent;
@@ -200,7 +211,7 @@ function linkForm(mark: Mark, context: WriteContext, text: string): LinkStyle["s
     const style = context.style<LinkStyle>(mark);
     const href = mark.attrs.href as string;
     // 引用式要定义还在、并且地址就是这个链接的地址（同名定义取全篇第一条，换了顺序地址会变）。
-    const defines = (label: string): boolean => context.definitions.get(label.trim().toLowerCase().replace(/\s+/gu, " ")) === href;
+    const defines = (label: string): boolean => context.definitions.get(normalizeLabel(label)) === href;
     switch (style?.style) {
         case "reference":
             return defines(style.label ?? "") ? "reference" : "inline";
@@ -218,7 +229,8 @@ function linkForm(mark: Mark, context: WriteContext, text: string): LinkStyle["s
 
 const emphasisPair = (markdown: string, html: string, context: WriteContext, mark: Mark): {open: string; close: string} => {
     const style = context.style<string>(mark);
-    const tag = context.options.htmlEmphasis ? html : style !== null && /^[a-z]+$/u.test(style) ? style : null;
+    // 记下的写法是标签名（`strong`、`B`，大小写照原文）还是符号（`**`、`_`）。
+    const tag = context.options.htmlEmphasis ? html : style !== null && /^[a-z]+$/iu.test(style) ? style : null;
     if (tag !== null) return {open: `<${tag}>`, close: `</${tag}>`};
     const delimiter = style ?? markdown;
     return {open: delimiter, close: delimiter};
@@ -286,10 +298,14 @@ const marks: Readonly<Record<string, MarkWriter>> = {
     },
 };
 
+/**
+ * 图片：说明是纯文字（读入时按 CommonMark 取说明的纯文字，见 `index.ts` 的 `plainText`），按正文的规则转义，方括号一律转义
+ * （说明在 `![…]` 里，不配对的 `]` 会提前结束它）。
+ */
 const image: InlineWriter = (node, context) => {
-    const alt = String(node.attrs.alt ?? "").replace(/[[\]\\]/gu, (char) => `\\${char}`);
+    const alt = context.escape(String(node.attrs.alt ?? "")).replace(/(?<!\\)[[\]]/gu, (char) => `\\${char}`);
     const style = context.style<LinkStyle>(node);
-    if (style?.style === "reference" && context.definitions.get((style.label ?? "").trim().toLowerCase()) === String(node.attrs.src ?? "")) return `![${alt}][${style.label}]`;
+    if (style?.style === "reference" && context.definitions.get(normalizeLabel(style.label ?? "")) === String(node.attrs.src ?? "")) return `![${alt}][${style.label}]`;
     return `![${alt}](${destination(String(node.attrs.src ?? ""))}${title(node.attrs.title as string | null)})`;
 };
 

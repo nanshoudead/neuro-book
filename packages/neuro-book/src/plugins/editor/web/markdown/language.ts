@@ -7,12 +7,17 @@
 
 import type {AnyExtension} from "@tiptap/core";
 import {Marked} from "marked";
+import type {Lexer, Token} from "marked";
 
+import type {GluedRules} from "./codec/source";
 import {createRawSyntax} from "./syntax/raw";
+import {lexingInline, openTagAt} from "./syntax/tags";
 import type {BlockWriter, InlineWriter, MarkdownSyntax, MarkWriter, ReadResolver, TokenReader} from "./syntax/types";
 
 export interface MarkdownLanguage {
     readonly marked: Marked;
+    /** 新的词法器：读入、写回校验与写前准备都用它（行内分词期间记下正在分的文字，见 `syntax/tags.ts` 的 `lexingInline`）。 */
+    lexer(): Lexer;
     /** 全部语法模块的扩展，按模块顺序；编辑器与测试都用它建 schema。 */
     readonly extensions: ReadonlyArray<AnyExtension>;
     /** 块层与行内的词法单元类型 → 读法（按模块顺序，先试先赢）。 */
@@ -34,17 +39,18 @@ export interface MarkdownLanguage {
     readonly prepareWrite: ReadonlyMap<string, NonNullable<MarkdownSyntax["prepareWrite"]>>;
     /** 没被编辑的块因上下文变了要重新写出的判断：模块名 → 判断。 */
     readonly contextDependents: ReadonlyMap<string, NonNullable<MarkdownSyntax["contextDependents"]>>;
+    /** 读回窗口的整窗核对：模块名 → 核对。 */
+    readonly verifyWindow: ReadonlyMap<string, NonNullable<MarkdownSyntax["verifyWindow"]>>;
     /** 身上的标记不写出、不比较的行内节点类型。 */
     readonly marklessInline: ReadonlySet<string>;
     /** 只盖文字的标记类型（`MarkWriter.textOnly`）。 */
     readonly textOnlyMarks: ReadonlySet<string>;
-    /** 块级方言标签名与“行尾开标签”的正则（宽容写法用）。 */
+    /** 挨着时读回合成一个的行内节点类型 → 存原文的属性（`MarkdownSyntax.joinedInline`）。 */
+    readonly joinedInline: ReadonlyMap<string, string>;
+    /** 块级方言标签名与宽容写法的规则（行尾的开标签认不认，由各模块的分词规则判断）。 */
     readonly blockTags: ReadonlyArray<string>;
-    readonly openTagAtLineEnd: RegExp;
+    readonly glued: GluedRules;
 }
-
-/** 永远匹配不到的正则：没有块级方言时用。 */
-const NEVER = /$^/u;
 
 /**
  * 组装。原样语法（`syntax/raw`）由这里追加在最后：它要知道全部方言标签，才不会抢走它们。
@@ -52,7 +58,8 @@ const NEVER = /$^/u;
  * `marked` 的扩展分词规则后登记的先试，所以原样语法的分词规则最先登记（最后试），各语法按列表倒序登记（列表里靠前的先试）。
  */
 export function createMarkdownLanguage(syntaxes: ReadonlyArray<MarkdownSyntax>): MarkdownLanguage {
-    const blockTags = syntaxes.flatMap((syntax) => syntax.blockTags ?? []);
+    const blockOpens = new Map(syntaxes.flatMap((syntax) => Object.entries(syntax.blockOpens ?? {})));
+    const blockTags = [...blockOpens.keys()];
     const inlineTags = syntaxes.flatMap((syntax) => syntax.inlineTags ?? []);
     const raw = createRawSyntax({blockTags, inlineTags});
     const all = [...syntaxes, raw];
@@ -75,7 +82,6 @@ export function createMarkdownLanguage(syntaxes: ReadonlyArray<MarkdownSyntax>):
         }
         return map;
     };
-    const opens = syntaxes.flatMap((syntax) => (syntax.openTagAtLineEnd === undefined ? [] : [syntax.openTagAtLineEnd]));
     const attrTable = (pick: (syntax: MarkdownSyntax) => Readonly<Record<string, ReadonlyArray<string>>> | undefined): Map<string, Set<string>> => {
         const map = new Map<string, Set<string>>();
         for (const syntax of all) for (const [type, names] of Object.entries(pick(syntax) ?? {})) map.set(type, new Set([...(map.get(type) ?? []), ...names]));
@@ -90,8 +96,16 @@ export function createMarkdownLanguage(syntaxes: ReadonlyArray<MarkdownSyntax>):
             const value = pick(syntax);
             return value === undefined ? [] : [[syntax.name, value] as [string, T]];
         }));
+    const Base = marked.Lexer;
+    // `marked` 的行内分词规则在一段里的每个位置都会被调用；记下正在分的那段文字，`tags.ts` 才能按段记忆位置（见那里的说明）。
+    class TrackingLexer extends Base {
+        override inlineTokens(src: string, tokens: Token[] = []): Token[] {
+            return lexingInline(src, () => super.inlineTokens(src, tokens));
+        }
+    }
     return {
         marked,
+        lexer: () => new TrackingLexer(marked.defaults),
         extensions: all.flatMap((syntax) => syntax.extensions),
         readers: table((syntax) => syntax.read),
         inlineReaders: table((syntax) => syntax.readInline),
@@ -100,13 +114,21 @@ export function createMarkdownLanguage(syntaxes: ReadonlyArray<MarkdownSyntax>):
         markWriters: writers((syntax) => syntax.writeMark),
         marklessInline: new Set(all.flatMap((syntax) => syntax.marklessInline ?? [])),
         textOnlyMarks: new Set(all.flatMap((syntax) => Object.entries(syntax.writeMark ?? {}).filter(([, writer]) => writer.textOnly === true).map(([type]) => type))),
+        joinedInline: new Map(all.flatMap((syntax) => Object.entries(syntax.joinedInline ?? {}))),
         derivedAttrs,
         contextAttrs,
         uncomparedAttrs,
         resolvers: all.flatMap((syntax) => (syntax.resolve === undefined ? [] : [syntax.resolve])),
         prepareWrite: byName((syntax) => syntax.prepareWrite),
         contextDependents: byName((syntax) => syntax.contextDependents),
+        verifyWindow: byName((syntax) => syntax.verifyWindow),
         blockTags,
-        openTagAtLineEnd: opens.length === 0 ? NEVER : new RegExp(`<(?:${opens.join("|")})>[ \\t]*$`, "u"),
+        glued: {
+            tags: blockTags,
+            accepts: (name, source) => {
+                const open = openTagAt(source, [name]);
+                return open !== null && open.length === source.length && blockOpens.get(name)?.(open) === true;
+            },
+        },
     };
 }

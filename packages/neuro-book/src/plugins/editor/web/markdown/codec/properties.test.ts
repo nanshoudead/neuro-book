@@ -12,7 +12,8 @@ import {readdirSync, readFileSync} from "node:fs";
 import {join} from "node:path";
 
 import {getSchema} from "@tiptap/core";
-import type {Mark, Node as PMNode} from "@tiptap/pm/model";
+import {Mark} from "@tiptap/pm/model";
+import type {Node as PMNode} from "@tiptap/pm/model";
 import {Transform, findWrapping} from "@tiptap/pm/transform";
 import {describe, expect, it} from "bun:test";
 import fc from "fast-check";
@@ -29,9 +30,46 @@ const CORPUS = join(import.meta.dir, "corpus");
 const sources = readdirSync(CORPUS).filter((name) => name.endsWith(".md")).sort().map((name) => readFileSync(join(CORPUS, name), "utf8"));
 const seed = Number(process.env.MARKDOWN_PROPERTY_SEED ?? 20261015);
 const emphasis = new Set([...language.markWriters].filter(([, writer]) => writer.emphasis === true).map(([type]) => type));
-const compareOptions = {styles: "canonical" as const, emphasis, ignored: language.uncomparedAttrs, markless: language.marklessInline, textOnly: language.textOnlyMarks};
+const compareOptions = {styles: "canonical" as const, emphasis, ignored: language.uncomparedAttrs, markless: language.marklessInline, textOnly: language.textOnlyMarks, joined: language.joinedInline};
 
-/** 读回的整篇与文档是否相同（顶层逐个比，空段落也算）。 */
+/**
+ * 两篇文档里的批注分组是否相同：每条批注覆盖的字（文字按字、行内节点各算一个，硬换行不算）一一对应，意见相同。逐块比较不看
+ * 批注的 `id`、`body`、`key`（它们由跨块的分组决定），整篇重读时分组是完整的，要在这里核对。
+ */
+function sameComments(doc: PMNode, again: PMNode): string | null {
+    const groups = (root: PMNode): string[] => {
+        const found = new Map<unknown, {positions: number[]; body: string}>();
+        let position = 0;
+        // 挨着的、标记相同的原样片段读回合成一个，算一个位置。
+        let previous: PMNode | null = null;
+        root.descendants((node) => {
+            if (!node.isInline) {
+                previous = null;
+                return true;
+            }
+            if (node.type.name === "hardBreak") return false;
+            const merged = !node.isText && previous !== null && previous.type === node.type && Mark.sameSet(previous.marks, node.marks);
+            previous = node.isText ? null : node;
+            if (merged) return false;
+            const size = node.isText ? (node.text as string).length : 1;
+            for (const mark of node.marks) {
+                if (mark.type.name !== "comment") continue;
+                const key = JSON.stringify([mark.attrs.id, mark.attrs.body, mark.attrs.key]);
+                const group = found.get(key) ?? {positions: [], body: String(mark.attrs.body)};
+                for (let at = 0; at < size; at += 1) group.positions.push(position + at);
+                found.set(key, group);
+            }
+            position += size;
+            return false;
+        });
+        return [...found.values()].map((group) => `${group.positions.join(",")}|${group.body}`).sort();
+    };
+    const before = groups(doc);
+    const after = groups(again);
+    return JSON.stringify(before) === JSON.stringify(after) ? null : `批注分组不同：${JSON.stringify(before)} → ${JSON.stringify(after)}`;
+}
+
+/** 读回的整篇与文档是否相同（顶层逐个比，空段落也算；批注的分组也比）。 */
 function sameDoc(doc: PMNode, text: string): string | null {
     const again = codec.read(text).doc;
     // 整篇没有内容时，几个空段落都读成一个（没有块就没有间隔）。
@@ -41,7 +79,7 @@ function sameDoc(doc: PMNode, text: string): string | null {
     for (let index = 0; index < doc.childCount; index += 1) {
         if (!equivalent(doc.child(index), again.child(index), compareOptions)) return `第 ${index} 块不同：${JSON.stringify(doc.child(index).toJSON())} → ${JSON.stringify(again.child(index).toJSON())}`;
     }
-    return null;
+    return sameComments(doc, again);
 }
 
 // 文字里故意混进会被读成语法的字符。
@@ -61,17 +99,27 @@ const dialectMarks: ReadonlyArray<(value: string) => Mark> = [
 ];
 
 describe("随机新建：写出读回相同，不出现写不出", () => {
+    const link = fc.tuple(fc.constantFrom("https://example.com/a", "/b c", "a(b)"), fc.option(text, {nil: null})).map(([href, title]) => schema.marks.link!.create({href, title}));
     const inline = fc.array(fc.oneof(
-        {weight: 6, arbitrary: fc.tuple(text, fc.subarray([...markNames])).map(([value, marks]) => schema.text(value, (marks.includes("code") ? ["code"] : marks).map((name) => schema.marks[name]!.create())))},
+        // 行内代码外面可以有粗体与链接（代码里面不能再有别的格式）。
+        {weight: 6, arbitrary: fc.tuple(text, fc.subarray([...markNames])).map(([value, marks]) => schema.text(value, marks.filter((name) => !marks.includes("code") || name === "code" || name === "bold").map((name) => schema.marks[name]!.create())))},
         {weight: 2, arbitrary: fc.tuple(text, fc.nat({max: dialectMarks.length - 1}), fc.subarray(["bold", "italic"])).map(([value, which, marks]) => schema.text(value, [(dialectMarks[which] as (value: string) => Mark)(value), ...marks.map((name) => schema.marks[name]!.create())]))},
         {weight: 1, arbitrary: fc.constant(null).map(() => schema.nodes.hardBreak!.create())},
-        {weight: 1, arbitrary: text.map((value) => schema.text(value, [schema.marks.link!.create({href: "https://example.com/a"})]))},
+        {weight: 1, arbitrary: fc.tuple(text, link, fc.boolean()).map(([value, mark, code]) => schema.text(value, code ? [mark, schema.marks.code!.create()] : [mark]))},
+        {weight: 1, arbitrary: fc.tuple(text, fc.option(text, {nil: null})).map(([alt, title]) => schema.nodes.image!.create({src: "a.png", alt, title}))},
+        // 原样片段：方言之外的标签与注释（方言 Spec 输出 9）。
+        {weight: 1, arbitrary: fc.constantFrom("<kbd>", "</kbd>", "<!-- 注 -->", "<span class=\"x\">").map((raw) => schema.nodes.rawInline!.create({raw}))},
     ), {minLength: 1, maxLength: 5});
     const paragraph = inline.map((content) => schema.nodes.paragraph!.create(null, content));
     const block = fc.oneof(
         {weight: 5, arbitrary: paragraph},
         {weight: 1, arbitrary: fc.tuple(fc.integer({min: 1, max: 3}), inline).map(([level, content]) => schema.nodes.heading!.create({level}, content.filter((node) => node.type.name !== "hardBreak")))},
         {weight: 1, arbitrary: fc.array(paragraph, {minLength: 1, maxLength: 3}).map((items) => schema.nodes.bulletList!.create(null, items.map((item) => schema.nodes.listItem!.create(null, [item]))))},
+        // 有序列表（起始号随机）与嵌套列表。
+        {weight: 1, arbitrary: fc.tuple(fc.array(paragraph, {minLength: 1, maxLength: 2}), fc.nat({max: 12})).map(([items, start]) => schema.nodes.orderedList!.create({start}, items.map((item) => schema.nodes.listItem!.create(null, [item]))))},
+        {weight: 1, arbitrary: fc.tuple(paragraph, paragraph, fc.boolean()).map(([outer, inner, ordered]) => schema.nodes.bulletList!.create(null, [schema.nodes.listItem!.create(null, [outer, (ordered ? schema.nodes.orderedList! : schema.nodes.bulletList!).create(null, [schema.nodes.listItem!.create(null, [inner])])])]))},
+        // 原样块：引用定义（正文里的 `[d]` 要转义）、脚注定义、HTML 块。
+        {weight: 1, arbitrary: fc.constantFrom("[d]: https://d.com", "[a]: /x \"题\"", "[^1]: 脚注", "<div>\n甲\n</div>").map((raw) => schema.nodes.rawBlock!.create({raw}))},
         {weight: 1, arbitrary: fc.array(paragraph, {minLength: 1, maxLength: 2}).map((items) => schema.nodes.taskList!.create(null, items.map((item, index) => schema.nodes.taskItem!.create({checked: index % 2 === 0}, [item]))))},
         {weight: 1, arbitrary: fc.array(paragraph, {minLength: 1, maxLength: 2}).map((items) => schema.nodes.blockquote!.create(null, items))},
         {weight: 1, arbitrary: fc.array(alphabet, {maxLength: 12}).map((chars) => schema.nodes.codeBlock!.create(null, chars.length === 0 ? [] : [schema.text(chars.join(""))]))},
@@ -89,17 +137,35 @@ describe("随机新建：写出读回相同，不出现写不出", () => {
     it("400 篇", () => {
         fc.assert(fc.property(fc.array(block, {minLength: 1, maxLength: 5}), (blocks) => {
             const doc = schema.nodes.doc!.create(null, blocks);
-            // GFM 表格里行内代码不能有“反斜杠加竖线”（切单元格时它总被当成转义的竖线），这是格式本身表达不了的，按写不出处理是对的。
+            // GFM 表格里行内代码与链接、图片的标题不能有“反斜杠加竖线”（切单元格时它总被当成转义的竖线），这是格式本身表达不了的，按写不出
+            // 处理是对的。
             let pipeInTableCode = false;
             doc.descendants((node, _pos, parent) => {
-                if (node.isText && parent?.type.name === "paragraph" && node.marks.some((mark) => mark.type.name === "code") && (node.text as string).includes("\\|")) pipeInTableCode ||= doc.resolve(0) !== null && insideTable(doc, node);
+                const verbatim = node.isText && node.marks.some((mark) => mark.type.name === "code") && (node.text as string).includes("\\|");
+                const title = node.marks.some((mark) => mark.type.name === "link" && String(mark.attrs.title ?? "").includes("\\|")) || (node.type.name === "image" && String(node.attrs.title ?? "").includes("\\|"));
+                if (parent?.type.name === "paragraph" && (verbatim || title)) pipeInTableCode ||= insideTable(doc, node);
             });
             fc.pre(!pipeInTableCode);
+            // 链接文字里的行内代码含反引号或反斜杠：`marked` 的链接文字只认单个反引号成对的代码，也会把代码里的反斜杠当转义，写不出（方言 Spec 输出 3）。
+            let backtickInLinkCode = false;
+            doc.descendants((node) => {
+                if (node.isText && node.marks.some((mark) => mark.type.name === "code") && node.marks.some((mark) => mark.type.name === "link") && /[`\\]/u.test(node.text as string)) backtickInLinkCode = true;
+            });
+            fc.pre(!backtickInLinkCode);
+            // 链接、图片的标题以反斜杠结尾：`marked` 的标题规则把转义的反斜杠后面的引号当成被转义的，写不出（方言 Spec 输出 18）。
+            let titleEndsWithBackslash = false;
+            doc.descendants((node) => {
+                const titles = [node.type.name === "image" ? node.attrs.title : null, ...node.marks.filter((mark) => mark.type.name === "link").map((mark) => mark.attrs.title)];
+                if (titles.some((value) => typeof value === "string" && value.endsWith("\\"))) titleEndsWithBackslash = true;
+            });
+            fc.pre(!titleEndsWithBackslash);
+            // 已知的格式限制（方言 Spec 输出 9）：段首是会开启 HTML 块的原样片段，或整段只有一个完整标签。
+            fc.pre(!rawLimit(doc, 0, doc.content.size));
             const result = codec.write(doc, codec.read("").map);
             expect(result.ok ? null : result.reason).toBeNull();
             if (result.ok) expect(sameDoc(doc, result.text)).toBeNull();
         }), {numRuns: 400, seed, verbose: 2});
-    });
+    }, 60_000);
 });
 
 /**
@@ -142,11 +208,11 @@ function nearEdit(before: PMNode, after: PMNode): Set<number> {
             for (let at = start; at <= end; at += 1) near.add(at);
         }
     });
-    // 上下文变了（引用定义有增删改）：含引用式链接的块按规则会改写成行内链接，也算挨着编辑。
+    // 上下文变了（引用定义有增删改，定义可以在容器里）：含引用式链接的块按规则会改写成行内链接，也算挨着编辑。
     const definitions = (doc: PMNode): string => {
         const raws: string[] = [];
-        doc.forEach((node) => {
-            if (node.type.name === "rawBlock" && /^ {0,3}\[[^\]]+\]:/u.test(String(node.attrs.raw))) raws.push(String(node.attrs.raw));
+        doc.descendants((node) => {
+            if (node.type.name === "rawBlock" && String(node.attrs.raw).includes("]:")) raws.push(String(node.attrs.raw));
         });
         return raws.join("\n");
     };
@@ -182,14 +248,34 @@ function nearEdit(before: PMNode, after: PMNode): Set<number> {
     return near;
 }
 
-/** 有没有文本块以会开启 HTML 块的原样片段开头，或者整段只有一个完整标签的原样片段（方言 Spec 输出 9 的已知限制）。 */
-function startsWithHtmlBlock(doc: PMNode): boolean {
+/**
+ * 写不出的那一块（`from`–`to`）里有没有原样片段的已知限制（方言 Spec 输出 9）：文本块以会开启 HTML 块的原样片段开头（包括后面
+ * 有配对闭标签的开标签），整段只有原样片段，或者同一段里一对能配上的开闭标签片段之间有别的内容（读回合成一个原样片段）。
+ */
+function rawLimit(doc: PMNode, from: number, to: number): boolean {
+    // 全篇的原样片段（按先后）与它们的位置：段首的开标签片段后面（可以隔着空行）有同名的闭标签片段时，读回从它到闭标签是一个
+    // 原样块。
+    const later: Array<{pos: number; raw: string}> = [];
+    doc.descendants((node, pos) => {
+        if (node.type.name === "rawInline") later.push({pos, raw: String(node.attrs.raw ?? "")});
+    });
+    const closedLater = (raw: string, pos: number): boolean => {
+        const name = /^<([A-Za-z][\w-]*)[\s>]/u.exec(raw)?.[1];
+        return name !== undefined && later.some((other) => other.pos > pos && other.raw === `</${name}>`);
+    };
     let found = false;
-    doc.descendants((node) => {
-        const first = node.isTextblock ? node.firstChild : null;
-        if (first?.type.name !== "rawInline") return;
-        const raw = String(first.attrs.raw ?? "");
-        if (OPENS_HTML_BLOCK.test(raw) || (node.childCount === 1 && LONE_TAG.test(raw))) found = true;
+    doc.nodesBetween(from, to, (node, pos) => {
+        if (!node.isTextblock) return true;
+        const raws = Array.from({length: node.childCount}, (_, index) => node.child(index)).map((child) => (child.type.name === "rawInline" ? String(child.attrs.raw ?? "") : null));
+        const first = raws[0] ?? null;
+        const startsBlock = first !== null && (OPENS_HTML_BLOCK.test(first) || (raws.length === 1 && LONE_TAG.test(first)) || closedLater(first, pos));
+        const onlyRaw = raws.length > 0 && raws.every((raw) => raw !== null);
+        const paired = raws.some((raw, index) => {
+            const name = raw === null ? null : /^<([A-Za-z][\w-]*)[\s>]/u.exec(raw)?.[1];
+            return name !== null && name !== undefined && raws.slice(index + 2).includes(`</${name}>`);
+        });
+        if (startsBlock || onlyRaw || paired) found = true;
+        return false;
     });
     return found;
 }
@@ -312,35 +398,70 @@ function apply(doc: PMNode, [kind, a, b, value]: Edit): {doc: PMNode; touched: n
 describe("真实编辑序列：每步写回、重读相同，离编辑远的块原文不变", () => {
     const edit = fc.tuple(fc.nat(), fc.nat(), fc.nat(), text);
     it("语料 × 随机编辑", () => {
-        fc.assert(fc.property(fc.nat({max: sources.length - 1}), fc.array(edit, {minLength: 1, maxLength: 8}), (which, edits) => {
+        fc.assert(fc.property(fc.nat({max: sources.length - 1}), fc.array(edit, {minLength: 1, maxLength: 16}), (which, edits) => {
             const source = sources[which] as string;
             const read = codec.read(source);
             let doc = read.doc;
+            // 每一步写回被接受后的文档与写出，撤销到这一步时写出要与当时逐字节相同。
+            const history: Array<{doc: PMNode; text: string}> = [{doc, text: source}];
             for (const step of edits) {
                 const next = apply(doc, step);
                 if (next === null) continue;
                 const near = nearEdit(doc, next.doc);
-                doc = next.doc;
-                doc.check();
+                next.doc.check();
                 const started = performance.now();
-                const result = codec.write(doc, read.map);
+                const result = codec.write(next.doc, read.map);
                 // 停手写回在主线程上：语料这样的小文档一次写回远不到 500 毫秒（大文档的上限另由性能测试量）。
                 expect(performance.now() - started).toBeLessThan(500);
-                // 已知的格式限制（方言 Spec 输出 9）：段首是会开启 HTML 块的原样片段。
-                if (!result.ok && startsWithHtmlBlock(doc)) return;
+                // 已知的格式限制（方言 Spec 输出 9）：段首是会开启 HTML 块的原样片段。只跳过写不出的这一步（编辑器里这一步交不出去，
+                // 文档仍是上一步的），不结束整个序列。
+                if (!result.ok && rawLimit(next.doc, result.from, result.to)) continue;
                 expect(result.ok ? null : `${result.reason}（${JSON.stringify(step)}）`).toBeNull();
                 if (!result.ok) return;
+                doc = next.doc;
                 expect(sameDoc(doc, result.text)).toBeNull();
-                // 不挨着被编辑处的块：原文字节仍在写出里。
+                // 不挨着被编辑处的块：原文字节不变。整篇重读后同一位置的块（块数已经核对过相同）所在的那段原文包含它原来的原文
+                // （一段原文可能读成几个节点，例如任务列表与普通列表项挨着时是一段）。
+                // 一段原文只读成这一个节点、重读后也是时要逐字节相同。相邻的两个内容块都不挨着编辑处时，中间的间隔也在写出里原样出现。
+                const reread = codec.read(result.text);
+                // 一段原文读成几个节点（任务列表与普通列表项挨着时是一段）时只能要求包含。
+                const nodesOf = new Map<object, number>();
+                for (const [root, map] of [[doc, read.map], [reread.doc, reread.map]] as const) {
+                    root.forEach((node) => {
+                        const unit = map.origins.get(node)?.[0]?.unit;
+                        if (unit !== undefined) nodesOf.set(unit, (nodesOf.get(unit) ?? 0) + 1);
+                    });
+                }
+                let previous: {index: number; unit: {raw: string}} | null = null;
+                let empties = 0;
                 doc.forEach((node, _offset, index) => {
+                    if (node.type.name === "paragraph" && node.childCount === 0) {
+                        empties += 1;
+                        return;
+                    }
                     const origin = read.map.origins.get(node)?.[0];
-                    if (origin === undefined || near.has(index) || origin.unit.raw === "") return;
-                    expect(result.text.includes(origin.unit.raw) ? null : `第 ${index} 块的原文不见了：${JSON.stringify(origin.unit.raw)}`).toBeNull();
+                    const far = origin !== undefined && !near.has(index) && origin.unit.raw !== "";
+                    if (far) {
+                        const unit = reread.map.origins.get(reread.doc.child(index))?.[0]?.unit;
+                        const now = unit?.raw ?? "";
+                        const kept = nodesOf.get(origin.unit) === 1 && unit !== undefined && nodesOf.get(unit) === 1 ? now === origin.unit.raw : now.includes(origin.unit.raw);
+                        expect(kept ? null : `第 ${index} 块的原文变了：${JSON.stringify(origin.unit.raw)} → ${JSON.stringify(now)}`).toBeNull();
+                        const gap = previous === null || previous.unit === origin.unit ? undefined : read.map.gaps.get(previous.unit)?.get(origin.unit)?.get(empties);
+                        if (previous !== null && gap !== undefined) expect(result.text.includes(previous.unit.raw + gap.raw + origin.unit.raw) ? null : `第 ${previous.index} 块与第 ${index} 块之间的间隔变了`).toBeNull();
+                    }
+                    previous = far ? {index, unit: (origin as {unit: {raw: string}}).unit} : null;
+                    empties = 0;
                 });
                 result.record();
+                history.push({doc, text: result.text});
             }
-            // 撤销到底：回到打开时的文档，写出与原文逐字节相同（方言 Spec 输出 2）。
-            expect(codec.write(read.doc, read.map)).toMatchObject({ok: true, text: source});
-        }), {numRuns: 300, seed, verbose: 2});
-    });
+            // 撤销（方言 Spec 输出 2）：回到打开时的文档，写出与原文逐字节相同；回到中间某一步，写出读回与那一步的文档相同。中间步
+            // 不要求逐字节：没被编辑、但随别处的编辑重新写出过的块（例如分截批注的各截），那一步的字节不止一种。
+            for (const [at, {doc: earlier, text}] of history.entries()) {
+                const again = codec.write(earlier, read.map);
+                if (at === 0) expect(again.ok && again.text === text ? null : `撤销到打开时写出不同：${JSON.stringify(again.ok ? again.text : again.reason)}`).toBeNull();
+                else expect(again.ok ? sameDoc(earlier, again.text) : `撤销到第 ${at} 步写不出：${again.reason}`).toBeNull();
+            }
+        }), {numRuns: 200, seed, verbose: 2});
+    }, 120_000);
 });

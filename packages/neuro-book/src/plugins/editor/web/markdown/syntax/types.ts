@@ -7,6 +7,8 @@ import type {AnyExtension, JSONContent} from "@tiptap/core";
 import type {Mark, Node as PMNode} from "@tiptap/pm/model";
 import type {MarkedExtension, Token, Tokens} from "marked";
 
+import type {OpenTag} from "./tags";
+
 /** 读入时交给读法的上下文。 */
 export interface ReadContext {
     /** 行内单元 → 行内节点（文字、标记、行内节点）。 */
@@ -70,12 +72,22 @@ export interface WriteContext {
     readonly definitions: ReadonlyMap<string, string>;
     /** 语法模块对整篇做的写前准备（`MarkdownSyntax.prepareWrite` 的结果），按模块名取；没有为 undefined。 */
     prepared<T>(syntax: string): T | undefined;
+    /**
+     * 一段纯文字按当前的转义级别写出（不在行首、行尾；`full` 级时带哨兵，参与降级后的逐个试撤）。图片说明这类不经行内写法的
+     * 文字用它。
+     */
+    escape(text: string, place?: InlinePlace): string;
 }
 
 /** 编解码器给写前准备的工具。 */
 export interface WriteTools {
-    /** 一个文本块里各个标记开标签的位置，与写出时的安排一致（按记下的写法）。 */
-    openings(parent: PMNode): ReadonlyArray<{readonly mark: Mark; readonly offset: number}>;
+    /**
+     * 一个文本块里各个标记开标签的位置，与写出时的安排一致。`canonical` 为真时按规范写法（降级后标记的开闭可能不同：只差写法
+     * 的相邻同类标记合成一个）。
+     */
+    openings(parent: PMNode, canonical: boolean): ReadonlyArray<{readonly mark: Mark; readonly offset: number}>;
+    /** 用这门语言的词法器给一段原文分词（新的词法器，没有预置的定义）。 */
+    lex(source: string): Token[];
 }
 
 /** `MarkdownSyntax.contextDependents` 看到的一项。 */
@@ -84,6 +96,9 @@ export interface ContextBlock {
     /** 写原文时是这块现在的原文；重新写出时为 null。 */
     readonly raw: string | null;
 }
+
+/** 引用定义的标签按 Markdown 的规则归一：去掉两端空白、中间的空白合成一个、不分大小写（与 `marked` 的定义表一致）。 */
+export const normalizeLabel = (label: string): string => label.trim().replace(/\s+/gu, " ").toLowerCase();
 
 /** 写不出：写法遇到 GFM 表达不了的结构（多段单元格、没有表头的表格、合并单元格）时抛出。 */
 export class Unrepresentable extends Error {}
@@ -130,10 +145,11 @@ export interface MarkdownSyntax {
     readonly readInline?: Readonly<Record<string, TokenReader>>;
     /** 登记进编解码器自己的 `Marked` 实例的扩展（分词规则、对内置分词的覆盖）。 */
     readonly marked?: ReadonlyArray<MarkedExtension>;
-    /** 块级方言标签名：宽容写法的规范化与 HTML 兜底的排除名单都从这里取。 */
-    readonly blockTags?: ReadonlyArray<string>;
-    /** “行尾的块级方言开标签”的一段正则源码（不含首尾），属性形态必须与这个模块的块分词规则一致。 */
-    readonly openTagAtLineEnd?: string;
+    /**
+     * 块级方言标签名 → 认不认这个开标签（与这个模块的块分词规则用同一个判断）。宽容写法判断“行尾的开标签”、HTML 兜底的排除
+     * 名单都从这里取。
+     */
+    readonly blockOpens?: Readonly<Record<string, (open: OpenTag) => boolean>>;
     /** 行内方言标签名（HTML 兜底不抢的名单）。 */
     readonly inlineTags?: ReadonlyArray<string>;
     /**
@@ -143,6 +159,11 @@ export interface MarkdownSyntax {
     readonly derivedAttrs?: Readonly<Record<string, ReadonlyArray<string>>>;
     /** 标记看不出来、也写不出来的行内节点（硬换行）：写出与读回校验都不管它身上的标记。 */
     readonly marklessInline?: ReadonlyArray<string>;
+    /**
+     * 挨着写出后读回会合成一个的行内节点（节点类型 → 存原文的属性）：读回校验把标记相同的相邻几个当作属性值连起来的一个。
+     * 例如原样片段 `<kbd>` 与 `</kbd>` 之间的字删光后挨着写出，读回是一个 `<kbd></kbd>`。
+     */
+    readonly joinedInline?: Readonly<Record<string, string>>;
     /**
      * 由跨块的上下文决定、读回一个窗口时对不上的属性（节点或标记类型 → 属性名）：读回校验不比较它们。例如分截批注的 `body`
      * 只写在第一截，窗口里的后几截读回来没有意见。
@@ -161,6 +182,11 @@ export interface MarkdownSyntax {
      * 直到不再有新的。
      */
     readonly contextDependents?: (blocks: ReadonlyArray<ContextBlock>, prepared: unknown) => Iterable<number>;
+    /**
+     * 读回一个窗口后、逐块比较都通过时的整窗核对：`editor` 与 `read` 是窗口里编辑器的块与读回的块（一一对应）。返回第一个
+     * 对不上的块的下标，都对得上为 -1。逐块比较不看的跨块属性（批注的分组与意见）在这里核对。
+     */
+    readonly verifyWindow?: (editor: ReadonlyArray<PMNode>, read: ReadonlyArray<PMNode>, prepared: unknown) => number;
     /** 写法：块节点类型、行内节点类型、标记类型 → 写法。 */
     readonly writeBlock?: Readonly<Record<string, BlockWriter>>;
     readonly writeInline?: Readonly<Record<string, InlineWriter>>;

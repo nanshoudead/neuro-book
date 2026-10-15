@@ -26,8 +26,14 @@ declare module "@tiptap/core" {
     }
 }
 
-/** 写法：`attr` 是 `text` 属性（记开标签原文），`rt` 是 `<rt>` 子标签，`bare` 是没有注音。 */
-type RubyStyle = {readonly form: "attr"; readonly open: string; readonly text: string} | {readonly form: "rt"} | {readonly form: "bare"};
+/**
+ * 写法：`attr` 是 `text` 属性（记开标签原文与它表示的注音），`rt` 是 `<rt>` 子标签，`bare` 是没有注音。`rt` 与 `bare` 记开闭
+ * 标签的原文（与 `<rt>` 的标签名），写回时大小写不变。
+ */
+type RubyStyle =
+    | {readonly form: "attr"; readonly open: string; readonly text: string}
+    | {readonly form: "rt"; readonly open: string; readonly close: string; readonly rt: string}
+    | {readonly form: "bare"; readonly open: string; readonly close: string};
 
 export const MarkdownRuby = Mark.create({
     name: "markdownRuby",
@@ -60,7 +66,7 @@ interface RubyToken extends Tokens.Generic {
     readonly tokens: Token[];
 }
 
-const RT = /^([\s\S]*?)<rt>([^<]*)<\/rt>$/iu;
+const RT = /^([\s\S]*?)<(rt)>([^<]*)<\/rt>$/iu;
 
 /** 纯文字：只有文字与转义，没有换行。 */
 const plain = (tokens: ReadonlyArray<Token>): boolean =>
@@ -78,6 +84,7 @@ const tokenizer: MarkedExtension = {
                 const close = closeInline(src, "ruby", open.length);
                 if (close === null) return undefined;
                 const inner = src.slice(open.length, close.start);
+                const closing = src.slice(close.start, close.end);
                 let base = inner;
                 let text = open.attributes.get("text");
                 let style: RubyStyle;
@@ -87,11 +94,11 @@ const tokenizer: MarkedExtension = {
                     const rt = RT.exec(inner);
                     if (rt !== null) {
                         base = rt[1] as string;
-                        text = decodeHTMLStrict(rt[2] as string);
-                        style = {form: "rt"};
+                        text = decodeHTMLStrict(rt[3] as string);
+                        style = {form: "rt", open: open.raw, close: closing, rt: rt[2] as string};
                     } else {
                         text = "";
-                        style = {form: "bare"};
+                        style = {form: "bare", open: open.raw, close: closing};
                     }
                 }
                 const tokens = this.lexer.inlineTokens(base);
@@ -115,17 +122,20 @@ function formOf(mark: PMMark, context: WriteContext): RubyStyle {
     const kept = context.style<RubyStyle>(mark);
     if (kept?.form === "attr" && kept.text === text) return kept;
     if (kept?.form === "rt" && text !== "") return kept;
-    return text === "" ? {form: "bare"} : {form: "attr", open: `<ruby text="${escapeAttribute(text)}">`, text};
+    if (kept?.form === "bare" && text === "") return kept;
+    return text === "" ? {form: "bare", open: "<ruby>", close: "</ruby>"} : {form: "attr", open: `<ruby text="${escapeAttribute(text)}">`, text};
 }
 
 const writeMark: Readonly<Record<string, MarkWriter>> = {
     markdownRuby: {
         textOnly: true,
-        open: (mark, context) => {
+        open: (mark, context) => formOf(mark, context).open,
+        close: (mark, context) => {
             const form = formOf(mark, context);
-            return form.form === "attr" ? form.open : "<ruby>";
+            if (form.form === "attr") return "</ruby>";
+            if (form.form === "bare") return form.close;
+            return `<${form.rt}>${String(mark.attrs.text ?? "").replace(/&/gu, "&amp;").replace(/</gu, "&lt;")}</${form.rt}>${form.close}`;
         },
-        close: (mark, context) => (formOf(mark, context).form === "rt" ? `<rt>${String(mark.attrs.text ?? "").replace(/&/gu, "&amp;").replace(/</gu, "&lt;")}</rt></ruby>` : "</ruby>"),
     },
 };
 

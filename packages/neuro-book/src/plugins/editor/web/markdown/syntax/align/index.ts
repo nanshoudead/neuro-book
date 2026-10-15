@@ -13,7 +13,7 @@ import {escapeAttribute} from "nbook/shared/markdown-dialect";
 
 import {children} from "../core/write";
 import {blockTagExtension} from "../tags";
-import type {BlockTagToken} from "../tags";
+import type {BlockTagToken, OpenTag} from "../tags";
 import type {BlockWriter, MarkdownSyntax, TokenReader} from "../types";
 
 export type AlignValue = "left" | "center" | "right" | "justify";
@@ -54,7 +54,7 @@ export const MarkdownAlign = Node.create({
     },
 });
 
-const accepts = (attributes: ReadonlyMap<string, string>): boolean => VALUES.has(attributes.get("value") ?? "");
+const accepts = (open: OpenTag): boolean => VALUES.has(open.attributes.get("value") ?? "");
 
 const tokenizer: MarkedExtension = {extensions: [blockTagExtension("markdownAlign", "align", accepts, true)]};
 
@@ -89,6 +89,5 @@ export const alignSyntax: MarkdownSyntax = {
     marked: [tokenizer],
     read,
     writeBlock,
-    blockTags: ["align"],
-    openTagAtLineEnd: `align\\s(?:[^>\\n]*\\s)?value\\s*=\\s*["']?(?:left|center|right|justify)["']?[^>\\n]*`,
+    blockOpens: {align: accepts},
 };

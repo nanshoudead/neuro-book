@@ -27,7 +27,72 @@ export function openTagAt(src: string, names: ReadonlyArray<string>): OpenTag | 
 
 /** `src` 里第一个开标签的位置（名字在 `names` 里），没有为 -1：给 `marked` 的 `start` 用。 */
 export function openTagIndex(src: string, names: ReadonlyArray<string>): number {
-    return src.search(new RegExp(`<(?:${names.join("|")})(?=[\\s>/])`, "iu"));
+    return nextMatch(src, new RegExp(`<(?:${names.join("|")})(?=[\\s>/])`, "giu"));
+}
+
+/**
+ * 正在做行内分词的那段文字（同一个字符串对象）。编解码器的词法器（`language.ts` 的 `lexer()`）在 `inlineTokens` 期间设置它，
+ * 嵌套的分词（批注、注音里的内容）期间换成里层的文字，结束后换回来。
+ */
+let inlineText: string | null = null;
+/** 每次进入 `lexingInline` 发一个新序号：记忆按序号认那段文字（字符串的 `===` 按内容比，长文字每次都要比一遍）。 */
+let inlineSerial = 0;
+let serials = 0;
+
+/** 在给 `text` 做行内分词期间运行 `run`（只给编解码器的词法器用）。 */
+export function lexingInline<T>(text: string, run: () => T): T {
+    const outerText = inlineText;
+    const outerSerial = inlineSerial;
+    inlineText = text;
+    inlineSerial = serials += 1;
+    try {
+        return run();
+    } finally {
+        inlineText = outerText;
+        inlineSerial = outerSerial;
+    }
+}
+
+/** `positionsOf` 的记忆：写法 → 算过的那段文字的序号与全部出现的位置。 */
+const remembered = new Map<string, {serial: number; positions: number[]}>();
+
+/**
+ * `src` 里 `pattern`（带 `g` 标志）全部出现的位置，与 `src` 在记下的整段文字里的起点。
+ *
+ * `marked` 在一段里的每个位置都调用行内分词规则与它们的 `start`，交进来的是正在分词的那段文字越来越短的后缀；每次都向后找一遍
+ * 是平方级（一段里成千上万个没闭合的标签要几十秒）。所以按那段文字（`inlineText`）算一次全部位置，之后换算。不在行内分词期间
+ * 调用时（块级分词规则）直接在 `src` 上算。
+ */
+function positionsOf(src: string, pattern: RegExp): {readonly positions: ReadonlyArray<number>; readonly offset: number} {
+    if (inlineText === null || src.length > inlineText.length) return {positions: [...src.matchAll(pattern)].map((matched) => matched.index), offset: 0};
+    const key = `${pattern.source}/${pattern.flags}`;
+    let entry = remembered.get(key);
+    if (entry === undefined || entry.serial !== inlineSerial) {
+        entry = {serial: inlineSerial, positions: [...inlineText.matchAll(pattern)].map((matched) => matched.index)};
+        if (remembered.size >= 500) remembered.clear();
+        remembered.set(key, entry);
+    }
+    return {positions: entry.positions, offset: inlineText.length - src.length};
+}
+
+/** `src` 里 `pattern` 第一次出现的位置，没有为 -1（给 `marked` 的行内 `start` 用，见 `positionsOf`）。 */
+export function nextMatch(src: string, pattern: RegExp): number {
+    const {positions, offset} = positionsOf(src, pattern);
+    let low = 0;
+    let high = positions.length;
+    while (low < high) {
+        const middle = (low + high) >> 1;
+        if ((positions[middle] as number) < offset) low = middle + 1;
+        else high = middle;
+    }
+    return low < positions.length ? (positions[low] as number) - offset : -1;
+}
+
+/** `src` 里 `pattern` 最后一次出现的位置，没有为 -1（见 `positionsOf`）。 */
+export function lastMatch(src: string, pattern: RegExp): number {
+    const {positions, offset} = positionsOf(src, pattern);
+    const last = positions.at(-1);
+    return last === undefined || last < offset ? -1 : last - offset;
 }
 
 /** 任意一个开标签或闭标签（引号里的字符不结束标签）。 */
@@ -63,6 +128,8 @@ export function skipInline(src: string, index: number): number {
  * （`skipInline`）。返回闭标签的起止；没有配上为 null。
  */
 export function closeInline(src: string, name: string, from: number): {readonly start: number; readonly end: number} | null {
+    // 后面根本没有闭标签时直接返回：没闭合的开标签很多时，不至于每个都逐字扫到段末。
+    if (lastMatch(src, new RegExp(`</${name}\\s*>`, "giu")) < from) return null;
     const open = new RegExp(`<${name}(?=[\\s>/])${ATTRIBUTES_SOURCE}>`, "iuy");
     const close = new RegExp(`</${name}\\s*>`, "iuy");
     let depth = 1;
@@ -104,14 +171,18 @@ export function closeBlock(src: string, name: string, openLength: number, opensN
     if (src[openLength] !== "\n") return null;
     let depth = 1;
     let fence: {marker: string; length: number} | null = null;
+    // 里面的 `<html>` 块：内容不是 Markdown，其中的 ``` 不开围栏、同名闭标签不算，到它的 `</html>` 为止。
+    let html = false;
     let position = openLength + 1;
     const innerStart = position;
     while (position <= src.length) {
         const newline = src.indexOf("\n", position);
         const end = newline < 0 ? src.length : newline;
         const line = src.slice(position, end);
-        const fenced = markdown ? FENCE.exec(line) : null;
-        if (fence !== null) {
+        const fenced = markdown && !html ? FENCE.exec(line) : null;
+        if (markdown && (html || (fence === null && /^<html>[ \t]*$/iu.test(line)))) {
+            html = !(html && /^ {0,3}<\/html\s*>[ \t]*$/iu.test(line));
+        } else if (fence !== null) {
             if (fenced !== null && (fenced[1] as string).startsWith(fence.marker) && (fenced[1] as string).length >= fence.length && line.slice(fenced[0].length).trim() === "") fence = null;
         } else if (fenced !== null) {
             fence = {marker: (fenced[1] as string)[0] as string, length: (fenced[1] as string).length};
@@ -129,14 +200,29 @@ export function closeBlock(src: string, name: string, openLength: number, opensN
     return null;
 }
 
+const candidates = new Map<string, RegExp>();
+
+/**
+ * `marked` 交给块级 `start` 的是全篇余下的文字，但 `start` 只用来判断当前这一段在哪里被打断，段落在空行处本来就结束：只在
+ * 第一个空行之前找。不这样的话每一段都扫一遍余下的全文，整篇是平方级（二十几万字的章节要好几秒）。
+ */
+export function paragraphEnd(src: string): number {
+    const blank = /\n[ \t]*\n/u.exec(src);
+    return blank === null ? src.length : blank.index;
+}
+
 /**
  * 给 `marked` 的块级 `start`：只认“换行之后、独占一行的开标签”。`marked` 判断段落能不能被打断时传进来的是 `src.slice(1)`，
  * 在开头匹配会把段内的行内用法当成断点；真正在块首的标签不需要 `start`，`marked` 在每个块的开头都会试分词规则。
  * 每个段落都会调用一次，所以先用正则找换行后的 `<名字`，只对这些行做完整判断。
  */
 export function blockStart(src: string, name: string, opensLine: (line: string) => boolean): number {
-    const candidate = new RegExp(`\\n<${name}(?=[\\s>])`, "giu");
-    for (let matched = candidate.exec(src); matched !== null; matched = candidate.exec(src)) {
+    // 只在这一段里找（正则 `exec` 找不到时会一直扫到文末）。
+    const paragraph = src.slice(0, paragraphEnd(src));
+    const candidate = candidates.get(name) ?? new RegExp(`\\n<${name}(?=[\\s>])`, "giu");
+    candidates.set(name, candidate);
+    candidate.lastIndex = 0;
+    for (let matched = candidate.exec(paragraph); matched !== null; matched = candidate.exec(paragraph)) {
         const start = matched.index + 1;
         const end = src.indexOf("\n", start);
         if (opensLine(src.slice(start, end < 0 ? src.length : end))) return start;
@@ -158,10 +244,10 @@ export interface BlockTagToken {
  * 块级方言标签的分词规则：开标签独占一行（`accepts` 认可它的属性），向下配对独占一行的闭标签，中间的内容按块分词。
  * `inlineForm` 为真时也认开闭标签在同一行、独占一行的写法（输出 14 的对齐）。
  */
-export function blockTagExtension(type: string, name: string, accepts: (attributes: ReadonlyMap<string, string>) => boolean, inlineForm = false): TokenizerExtension {
+export function blockTagExtension(type: string, name: string, accepts: (open: OpenTag) => boolean, inlineForm = false): TokenizerExtension {
     const openLine = (line: string): OpenTag | null => {
         const open = openTagAt(line, [name]);
-        return open !== null && accepts(open.attributes) && /^[ \t]*$/u.test(line.slice(open.length)) ? open : null;
+        return open !== null && accepts(open) && /^[ \t]*$/u.test(line.slice(open.length)) ? open : null;
     };
     return {
         name: type,
@@ -178,7 +264,7 @@ export function blockTagExtension(type: string, name: string, accepts: (attribut
             }
             if (!inlineForm) return undefined;
             const single = openTagAt(first, [name]);
-            if (single === null || !accepts(single.attributes)) return undefined;
+            if (single === null || !accepts(single)) return undefined;
             const close = new RegExp(`</${name}\\s*>[ \\t]*$`, "iu").exec(first);
             if (close === null || close.index < single.length) return undefined;
             const inner = first.slice(single.length, close.index);

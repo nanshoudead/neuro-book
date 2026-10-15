@@ -7,6 +7,7 @@ import {readdirSync, readFileSync} from "node:fs";
 import {join} from "node:path";
 
 import {getSchema} from "@tiptap/core";
+import {Fragment} from "@tiptap/pm/model";
 import type {Mark, Node as PMNode} from "@tiptap/pm/model";
 import {describe, expect, it} from "bun:test";
 
@@ -53,7 +54,7 @@ describe("性质 2：每块当作改过重新写出，读回与原来相同", ()
                 expect(again.childCount).toBe(doc.childCount);
                 for (let at = 0; at < doc.childCount; at += 1) {
                     // 写法是否保持另由明确期望测：为分开相邻的列表，后一个会换符号。
-                    expect(equivalent(doc.child(at), again.child(at), {styles: "canonical", emphasis, ignored: language.uncomparedAttrs, markless: language.marklessInline, textOnly: language.textOnlyMarks}) ? null : `${name} 第 ${index} 块改过后，第 ${at} 块读回不同：${JSON.stringify(again.child(at).toJSON())}`).toBeNull();
+                    expect(equivalent(doc.child(at), again.child(at), {styles: "canonical", emphasis, ignored: language.uncomparedAttrs, markless: language.marklessInline, textOnly: language.textOnlyMarks, joined: language.joinedInline}) ? null : `${name} 第 ${index} 块改过后，第 ${at} 块读回不同：${JSON.stringify(again.child(at).toJSON())}`).toBeNull();
                 }
             }
         });
@@ -72,6 +73,44 @@ describe("写出的明确期望", () => {
         expect(written(p(t("- 不是列表")))).toBe("\\- 不是列表");
         expect(written(p(t("a < b & c，&nbsp; 原样")))).toBe("a < b & c，\\&nbsp; 原样");
         expect(written(p(t("C:\\path\\to")))).toBe("C:\\path\\to");
+        // 两侧有空格的 `==`、`~~` 开不了也闭不了；`<` 后面跟着汉字不是标签。
+        for (const text of ["a == b == c", "x ~~ y ~~ z", "a <字 与 a <b c", "a &unknown; b", "第1~2章", "C++ 与 C#"]) expect(written(p(t(text)))).toBe(text);
+    });
+
+    it("制表符写成 &#9;：列表项里的制表符会被换成空格；原有的读成空格", () => {
+        expect(written(p(t("a\tb")))).toBe("a&#9;b");
+        expect(written(schema.nodes.bulletList!.create(null, [schema.nodes.listItem!.create(null, [p(t("a\tb"))])]))).toBe("- a&#9;b");
+        expect(codec.read("- a\tb\n").doc.child(0).textContent).toBe("a b");
+    });
+
+    it("正文里的私用区字符（U+E000）与 NUL 照常写出", () => {
+        expect(written(p(t("图标\uE000在这里")))).toBe("图标\uE000在这里");
+        const read = codec.read("段\uE000落\n\n下一段\n");
+        expect(codec.write(touch(read.doc, 0), read.map)).toMatchObject({ok: true, text: "段\uE000落\n\n下一段\n"});
+    });
+
+    it("图片的说明是纯文字：说明里的反斜杠、星号与实体读回不变；改过的块按纯文字写出说明（输出 18）", () => {
+        const image = (alt: string): PMNode => schema.nodes.image!.create({src: "a.png", alt});
+        expect(written(p(image("a\\{b")))).toBe("![a\\\\{b](a.png)");
+        expect(written(p(image("a\\")))).toBe("![a\\\\](a.png)");
+        expect(written(p(image("`x`")))).toBe("![\\`x\\`](a.png)");
+        expect(written(p(image("1^+\"")))).toBe("![1^+\"](a.png)");
+        const read = codec.read("前![*甲* &amp; 乙](x.png)后\n");
+        expect((read.doc.child(0).child(1).attrs as {alt: string}).alt).toBe("甲 & 乙");
+        expect(codec.write(touch(read.doc, 0), read.map)).toMatchObject({ok: true, text: "前![甲 & 乙](x.png)后\n"});
+    });
+
+    it("HTML 形式的强调与注音保持原来的大小写（输出 25）", () => {
+        for (const source of ["前<B>粗</B>后\n", "前<STRONG>粗</STRONG>后\n", "前<Strong>粗</Strong>后\n", "前<ruby>汉<RT>han</RT></ruby>后\n", "前<MARK>亮</MARK>后\n"]) {
+            const read = codec.read(source);
+            expect(codec.write(touch(read.doc, 0), read.map)).toMatchObject({ok: true, text: source});
+        }
+    });
+
+    it("HTML 强调的配对跳过行内代码与属性值里的闭标签", () => {
+        const marks = (source: string): string[] => (codec.read(source).doc.child(0).toJSON().content as Array<{type: string; marks?: Array<{type: string}>}>).map((node) => `${node.type}:${(node.marks ?? []).map((mark) => mark.type).join("+")}`);
+        expect(marks("<strong>a `</strong>` b</strong>")).toEqual(["text:bold", "text:bold+code", "text:bold"]);
+        expect(marks("<strong>a <x y=\"</strong>\"> b</strong>")).toEqual(["text:bold", "rawInline:bold", "text:bold"]);
     });
 
     it("被编辑的块保持原来的写法：列表符号、强调符号、标题写法（输出 2）", () => {
@@ -161,6 +200,71 @@ describe("写出的明确期望", () => {
     });
 });
 
+describe("引用定义（输出 2、9）", () => {
+    /** 在文末加一段文字后写出。 */
+    const appended = (source: string, text: string): string => {
+        const read = codec.read(source);
+        const result = codec.write(read.doc.type.create(null, [...Array.from({length: read.doc.childCount}, (_, index) => read.doc.child(index)), p(t(text))]), read.map);
+        if (!result.ok) throw new Error(result.reason);
+        return result.text;
+    };
+
+    it("多行的、容器里的、带标题的定义都算：新写的 [标签] 文字要转义", () => {
+        expect(appended("甲\n\n[a]:\n  https://x.com\n", "看[a]")).toBe("甲\n\n[a]:\n  https://x.com\n\n看\\[a]\n");
+        expect(appended("> [b]: https://x.com\n", "看[b]")).toBe("> [b]: https://x.com\n\n看\\[b]\n");
+        expect(appended("- [c]: https://x.com \"题\"\n", "看[c]")).toBe("- [c]: https://x.com \"题\"\n\n看\\[c]\n");
+        // 标签不分大小写、空白合成一个。
+        expect(appended("[Ab  c]: https://x.com\n", "看[ab c]")).toBe("[Ab  c]: https://x.com\n\n看\\[ab c]\n");
+    });
+
+    it("没编辑的引用式链接不改写：标签的大小写与空白不同、定义带标题或尖括号地址、定义在窗口外面", () => {
+        const middle = "\n\n二\n\n三\n\n四\n\n五\n\n";
+        for (const source of ["看[x][A  b]。\n\n[a b]: https://a.com \"t\"\n", `看[注][a]。${middle}[a]: http://x\n  "标题"\n`, `看[注][a]。${middle}[a]: <http://x>\n`, `看[注][a]。${middle}[a]:\nhttp://x\n`, `看[注][a]。${middle}[a]: http://x/\\_y\n`, `看[注][a]。${middle}> [a]: http://x\n`]) {
+            const read = codec.read(source);
+            expect(codec.write(read.doc, read.map)).toMatchObject({ok: true, text: source});
+            expect(codec.write(touch(read.doc, 2), read.map)).toMatchObject({ok: true, text: source});
+        }
+    });
+
+    it("同名的第一条定义被删掉、第二条的标题不同：链接写成行内链接，带着原来的标题", () => {
+        const read = codec.read("看[x][1]。\n\n[1]: https://u \"t1\"\n\n[1]: https://u \"t2\"\n");
+        const result = codec.write(read.doc.type.create(null, [read.doc.child(0), read.doc.child(2)]), read.map);
+        expect(result.ok && result.text).toBe("看[x](https://u \"t1\")。\n\n[1]: https://u \"t2\"\n");
+    });
+
+    it("容器与提示块里的定义：编辑这个容器后定义仍在，链接仍是引用式", () => {
+        const callout = "> [!NOTE]\n> 见[注][a]\n>\n> [a]: http://x\n";
+        let read = codec.read(callout);
+        expect(codec.write(touch(read.doc, 0), read.map)).toMatchObject({ok: true, text: callout});
+        read = codec.read("> 见[注][a]\n>\n> [a]: http://x\n> [a]: http://y\n");
+        const result = codec.write(touch(read.doc, 0), read.map);
+        expect(result.ok && result.text).toBe("> 见[注][a]\n>\n> [a]: http://x\n>\n> [a]: http://y\n");
+    });
+});
+
+describe("换行符与 frontmatter（输出 1、2、22）", () => {
+    it("只用单独 \\r 换行的文件：空行是空段落，编辑相邻块后仍全用 \\r", () => {
+        const read = codec.read("甲\r\r乙\r\r\r丙\r");
+        expect(read.doc.childCount).toBe(4);
+        const doc = read.doc.type.create(null, [read.doc.child(0), p(t("改")), read.doc.child(2), read.doc.child(3)]);
+        expect(codec.write(doc, read.map)).toMatchObject({ok: true, text: "甲\r\r改\r\r\r丙\r"});
+    });
+
+    it("父块重新写出时，原样片段里的换行字节不变", () => {
+        const read = codec.read("甲<span\r\nclass=\"a\">乙</span>\r\n\r\n丙\n");
+        expect(codec.write(touch(read.doc, 0), read.map)).toMatchObject({ok: true, text: "甲<span\r\nclass=\"a\">乙</span>\r\n\r\n丙\n"});
+    });
+
+    it("frontmatter 在文末闭合、后面没有换行：正文前补一个换行，用 frontmatter 自己的换行符", () => {
+        for (const [source, expected] of [["---\na: 1\n---", "---\na: 1\n---\n正文"], ["\uFEFF---\r\na: 1\r\n---", "\uFEFF---\r\na: 1\r\n---\r\n正文"], ["\uFEFF", "\uFEFF正文"]] as const) {
+            const read = codec.read(source);
+            expect(codec.write(read.doc.type.create(null, [p(t("正文"))]), read.map)).toMatchObject({ok: true, text: expected});
+        }
+        const read = codec.read("\uFEFF---\r\na: 1\r\n---");
+        expect(codec.write(read.doc.type.create(null, [p(), p(t("正文"))]), read.map)).toMatchObject({ok: true, text: "\uFEFF---\r\na: 1\r\n---\r\n\r\n正文"});
+    });
+});
+
 describe("间隔与撤销", () => {
     it("在文末接着写一段：前面的块与间隔、文末的引用定义都原样（场景 8）", () => {
         const source = "看[这里][1]。\n\n[1]: https://a.com\n";
@@ -199,6 +303,20 @@ describe("间隔与撤销", () => {
         const doc = read.doc.type.create(null, [read.doc.child(0), p(t("新段"))]);
         const result = codec.write(doc, read.map);
         expect(result.ok && result.text).toBe("```\ncode\n```\n\n新段\n");
+    });
+
+    it("撤销到底：一块随别处的编辑连带重写了十几次，撤销回打开时仍写回原文", () => {
+        const source = "前<comment body=\"意见\" id=\"c1\">甲</comment>后 \\_x &amp; y\n\n<comment id=\"c1\">乙</comment>丙\n";
+        const read = codec.read(source);
+        let doc = read.doc;
+        for (let step = 0; step < 12; step += 1) {
+            const second = doc.child(1);
+            doc = doc.type.create(null, [doc.child(0), second.type.create(null, second.content.append(Fragment.from(schema.text(String(step)))))]);
+            const result = codec.write(doc, read.map);
+            expect(result.ok).toBe(true);
+            if (result.ok) result.record();
+        }
+        expect(codec.write(read.doc, read.map)).toMatchObject({ok: true, text: source});
     });
 
     it("撤销到底：中间插过空段落、一块原文读成的两个节点只编辑过一个，写出仍与原文逐字节相同", () => {

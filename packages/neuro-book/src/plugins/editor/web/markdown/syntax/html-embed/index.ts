@@ -172,8 +172,8 @@ export const htmlEmbedSyntax: MarkdownSyntax = {
     marked: [tokenizer],
     read,
     writeBlock,
-    blockTags: ["html"],
-    openTagAtLineEnd: "html",
+    // 只认不带属性的 `<html>`（与分词规则的 `OPEN_LINE` 一致）。
+    blockOpens: {html: (open) => /^<html>$/iu.test(open.raw)},
 };
 
 /**

@@ -49,7 +49,8 @@ export const MarkdownBilingual = Node.create({
     },
 });
 
-const tokenizer: MarkedExtension = {extensions: [blockTagExtension("markdownBilingual", "bilingual", () => true)]};
+const accepts = (): boolean => true;
+const tokenizer: MarkedExtension = {extensions: [blockTagExtension("markdownBilingual", "bilingual", accepts)]};
 
 interface BilingualStyle {
     readonly open: string;
@@ -80,6 +81,5 @@ export const bilingualSyntax: MarkdownSyntax = {
     marked: [tokenizer],
     read,
     writeBlock,
-    blockTags: ["bilingual"],
-    openTagAtLineEnd: `bilingual(?:\\s(?:"[^"\\n]*"|'[^'\\n]*'|[^>"'\\n])*)?`,
+    blockOpens: {bilingual: accepts},
 };

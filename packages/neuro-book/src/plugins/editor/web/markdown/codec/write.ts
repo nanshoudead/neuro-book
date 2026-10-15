@@ -15,13 +15,13 @@ import type {Node as PMNode, Schema} from "@tiptap/pm/model";
 
 import type {MarkdownLanguage} from "../language";
 import type {WriteOptions} from "../syntax/types";
-import {Unrepresentable} from "../syntax/types";
+import {normalizeLabel, Unrepresentable} from "../syntax/types";
 import {equivalent} from "./compare";
-import type {Definitions, Gap, SourceMap, SourceUnit} from "./read";
+import type {Definitions, Eol, Gap, SourceMap, SourceUnit} from "./read";
 import {END, START, emptiesBetween, emptiesLeading, emptiesTrailing, readBody, recordGap} from "./read";
 import {renderBlock} from "./render";
 import {gluedOpenings, splitFrontmatter} from "./source";
-import {SENTINEL, stripSentinels} from "./render/escape";
+import {decodeRawBreaks, SENTINEL, stripSentinels} from "./render/escape";
 import {follow, openings} from "./render/inline";
 
 export type WriteResult =
@@ -149,29 +149,54 @@ function itemsOf(doc: PMNode, map: SourceMap): {items: Item[]; trailing: number}
     return {items, trailing};
 }
 
-/** 全篇的引用定义（顶层的原样块里的 `[标签]: 地址`）：写出时判断 `[注]` 要不要转义，读回时预置进词法器。 */
-const DEFINITION = /^ {0,3}\[((?:\\.|[^\]\\])+)\]:[ \t]*\n?[ \t]*(<[^>\n]*>|\S+)(?:[ \t]+(?:"([^"]*)"|'([^']*)'|\(([^)]*)\)))?[ \t]*$/u;
+/** 原样块里的引用定义（`marked` 认的全部写法：标题另起一行、地址带转义、尖括号地址），按原文缓存。 */
+const linkCache = new Map<string, Definitions>();
+
+function linksOf(language: MarkdownLanguage, raw: string): Definitions {
+    let links = linkCache.get(raw);
+    if (links === undefined) {
+        const lexer = language.lexer();
+        lexer.lex(raw);
+        links = Object.fromEntries(Object.entries(lexer.tokens.links).map(([label, {href, title}]) => [label, {href, title: title ?? null}]));
+        // 只为不让缓存无限长：原样块的原文在一次编辑里不会有这么多种。
+        if (linkCache.size >= 2000) linkCache.clear();
+        linkCache.set(raw, links);
+    }
+    return links;
+}
 
 /**
- * 全篇的引用定义：同名的取全篇第一条（Markdown 的规则）。`skip` 里的节点（读回的窗口里的定义）：标签的第一条定义在窗口里时
- * 不预置这个标签，让窗口里的定义自己生效；预置了，窗口里的那条反倒成了“重复的”被丢掉。
+ * 全篇的引用定义：原样块（顶层与容器里的）里 `marked` 认出的定义，同名的取全篇第一条（Markdown 的规则）。`skip` 里的节点
+ * （读回的窗口里的原样块）：标签的第一条定义在窗口里时不预置这个标签，让窗口里的定义自己生效；预置了，窗口里的那条反倒成了
+ * “重复的”。
  */
-function definitionsOf(doc: PMNode, skip: ReadonlySet<PMNode> = new Set()): Definitions {
+function definitionsOf(language: MarkdownLanguage, doc: PMNode, skip: ReadonlySet<PMNode> = new Set()): Definitions {
     const first = new Map<string, {node: PMNode; href: string; title: string | null}>();
-    doc.forEach((node) => {
-        if (node.type.name !== "rawBlock") return;
-        const matched = DEFINITION.exec(String(node.attrs.raw ?? ""));
-        if (matched === null) return;
-        const label = (matched[1] as string).trim().toLowerCase().replace(/\s+/gu, " ");
-        if (!first.has(label)) first.set(label, {node, href: (matched[2] as string).replace(/^<|>$/gu, ""), title: matched[3] ?? matched[4] ?? matched[5] ?? null});
+    doc.descendants((node) => {
+        if (node.type.name !== "rawBlock") return true;
+        for (const [label, {href, title}] of Object.entries(linksOf(language, String(node.attrs.raw ?? "")))) {
+            if (!first.has(label)) first.set(label, {node, href, title: title ?? null});
+        }
+        return false;
     });
+    // 窗口里的原样块可能在容器里：窗口的顶层块连同它们的全部后代都算在窗口里。
+    const hidden = new Set<PMNode>();
+    for (const top of skip) {
+        hidden.add(top);
+        top.descendants((child) => {
+            hidden.add(child);
+        });
+    }
     const definitions: Record<string, {href: string; title: string | null}> = {};
-    for (const [label, {node, href, title}] of first) if (!skip.has(node)) definitions[label] = {href, title};
+    for (const [label, {node, href, title}] of first) if (!hidden.has(node)) definitions[label] = {href, title};
     return definitions;
 }
 
 /** 重新写出的文字换成原文的换行符；原样内容里自带的 `\r\n` 不动。 */
-const withEol = (text: string, eol: "\n" | "\r\n"): string => (eol === "\n" ? text : text.replace(/(?<!\r)\n/gu, "\r\n"));
+/**
+ * 重新写出的文字换成原文的主换行符，原样内容自带的换行（带标记，见 `encodeRawBreaks`）不动，最后去掉标记。
+ */
+const withEol = (text: string, eol: Eol): string => decodeRawBreaks(eol === "\n" ? text : text.replace(/(?<![\r\u0001\u0002])\n/gu, eol));
 
 /**
  * `forced` 是要重新写出的节点：整篇检查（见文末）发现没被编辑的块会被宽容写法拆开时，带上它们再写一遍。
@@ -187,7 +212,10 @@ export function writeMarkdown(doc: PMNode, map: SourceMap, language: MarkdownLan
     }
     const view = found.map((item) => ({nodes: item.nodes, raw: item.unit?.raw ?? null}));
     const writers = {inline: language.inlineWriters, marks: language.markWriters, markless: language.marklessInline, textOnly: language.textOnlyMarks};
-    const tools = {openings: (parent: PMNode) => openings(parent, writers)};
+    const tools = {
+        openings: (parent: PMNode, canonical: boolean) => openings(parent, writers, canonical),
+        lex: (source: string) => language.lexer().lex(source),
+    };
     const prepared = new Map([...language.prepareWrite].map(([name, prepare]) => [name, prepare(doc, view, tools)]));
     // 没被编辑、但它依赖的上下文变了的块，按语法模块的判断改为重新写出（例如分截批注带意见的那一截没了，剩下的截要写上
     // 意见）。改为重新写出的块又可能牵连别的块，所以反复问，直到没有新的。
@@ -199,10 +227,14 @@ export function writeMarkdown(doc: PMNode, map: SourceMap, language: MarkdownLan
         if (dependents.size === 0) break;
         items = items.flatMap((item, index): Item[] => (dependents.has(index) ? splitItem(item) : [item]));
     }
-    const definitions = definitionsOf(doc);
+    const definitions = definitionsOf(language, doc);
     const labels = new Map(Object.entries(definitions).map(([label, value]) => [label, value.href]));
     const emphasis = new Set([...language.markWriters].filter(([, writer]) => writer.emphasis === true).map(([type]) => type));
 
+    // frontmatter 在文末闭合、后面没有换行（`---\na: 1\n---`）时，正文前要补一个换行（用前缀自己的换行符），否则闭合的 `---`
+    // 不再独占一行。只有 BOM 的前缀不是 frontmatter，不补。
+    const frontmatter = map.prefix.replace(/^\uFEFF/u, "");
+    const frontmatterBreak = frontmatter !== "" && !/[\r\n]$/u.test(frontmatter) ? (/\r\n|\r|\n/u.exec(frontmatter)?.[0] ?? eol) : "";
     /** 第 i 项之前的间隔（i 等于项数时是结尾）：登记过就用登记的原文，否则重新生成。 */
     const gapAt = (index: number): {gap: Gap; kept: boolean} => {
         const before = index === 0 ? START : items[index - 1]?.unit ?? null;
@@ -212,7 +244,7 @@ export function writeMarkdown(doc: PMNode, map: SourceMap, language: MarkdownLan
             const known = map.gaps.get(before)?.get(after)?.get(empties);
             if (known !== undefined) return {gap: known, kept: true};
         }
-        if (index === 0) return {gap: {raw: eol.repeat(empties), empties}, kept: false};
+        if (index === 0) return {gap: {raw: frontmatterBreak + eol.repeat(empties), empties}, kept: false};
         // 结尾：`k` 个空段落是 `k` 个空行加文件末尾的换行；没有空段落时按原文末尾有没有换行。
         if (index === items.length) return {gap: {raw: empties === 0 ? (map.finalNewline ? eol : "") : eol.repeat(empties + 1), empties}, kept: false};
         return {gap: {raw: eol.repeat(empties + 2), empties}, kept: false};
@@ -220,6 +252,8 @@ export function writeMarkdown(doc: PMNode, map: SourceMap, language: MarkdownLan
     let gaps = items.map((_, index) => gapAt(index)).concat([gapAt(items.length)]);
 
     const render = (item: Item): boolean => {
+        // 正文里有哨兵字符（NUL）时完全转义那几级用不了：试撤会把正文自己的这个字符当成哨兵。
+        if (LADDER[item.level]?.escape === "full" && (item.nodes[0] as PMNode).textContent.includes(SENTINEL)) return false;
         try {
             item.text = renderBlock(language, item.nodes[0] as PMNode, {...(LADDER[item.level] as Omit<WriteOptions, "alternate">), alternate: item.alternate}, labels, prepared);
             return true;
@@ -251,7 +285,9 @@ export function writeMarkdown(doc: PMNode, map: SourceMap, language: MarkdownLan
                 parts.push(gap);
                 pushEmpties(emptiesBetween(gap), index);
             }
-            parts.push(stripSentinels(override?.index === index ? override.text : item.text));
+            // 写原文的项不去哨兵：它的字节就是原文。
+            const text = override?.index === index ? override.text : item.text;
+            parts.push(item.unit === null ? decodeRawBreaks(stripSentinels(text)) : text);
             for (const node of item.nodes) expected.push({node, item: index});
         }
         if (last === items.length - 1) {
@@ -261,7 +297,7 @@ export function writeMarkdown(doc: PMNode, map: SourceMap, language: MarkdownLan
         }
         // 窗口外的引用定义预置进词法器；窗口里的不预置，让 `marked` 照常读它们（预置了同名的，窗口里的会被当成重复的丢掉）。
         const inside = new Set(items.slice(first, last + 1).flatMap((item) => item.nodes));
-        const read = readBody(language, schema, "", parts.join(""), definitionsOf(doc, inside)).doc;
+        const read = readBody(language, schema, "", parts.join(""), definitionsOf(language, doc, inside)).doc;
         const count = Math.max(read.childCount, expected.length);
         for (let at = 0; at < count; at += 1) {
             const want = expected[at];
@@ -270,7 +306,12 @@ export function writeMarkdown(doc: PMNode, map: SourceMap, language: MarkdownLan
             // 没被编辑的块（写原文）只比结构：它的写法就是原文，编辑器里记着的写法可能是上一次规范写法写出前的。
             const level = (items[want.item] as Item).level;
             const styles = level === 0 ? "keep" : "canonical";
-            if (!equivalent(want.node, read.child(at), {styles, emphasis, ignored: language.uncomparedAttrs, markless: language.marklessInline, textOnly: language.textOnlyMarks, follow})) return {item: want.item, absorbed: read.childCount < expected.length};
+            if (!equivalent(want.node, read.child(at), {styles, emphasis, ignored: language.uncomparedAttrs, markless: language.marklessInline, textOnly: language.textOnlyMarks, joined: language.joinedInline, follow})) return {item: want.item, absorbed: read.childCount < expected.length};
+        }
+        const readNodes = Array.from({length: read.childCount}, (_, at) => read.child(at));
+        for (const [name, verify] of language.verifyWindow) {
+            const failed = verify(expected.map((want) => want.node), readNodes, prepared.get(name));
+            if (failed >= 0) return {item: (expected[failed] as {item: number}).item, absorbed: false};
         }
         return {item: -1, absorbed: false};
     };
@@ -393,7 +434,9 @@ export function writeMarkdown(doc: PMNode, map: SourceMap, language: MarkdownLan
         parts.push((gaps[items.length] as {gap: Gap}).gap.raw);
         return parts.join("");
     };
-    if (splitFrontmatter(assemble()).prefix !== map.prefix) {
+    // 读回时前缀可能多出正文前补的那个换行（frontmatter 在文末闭合、后面原来没有换行，见 `gapAt`）。
+    const prefix = splitFrontmatter(assemble()).prefix;
+    if (prefix !== map.prefix && prefix !== map.prefix + frontmatterBreak) {
         if (first.nodes[0]?.type.name !== "horizontalRule") return unrepresentable(first, "正文开头会被读成 frontmatter");
         first.unit = null;
         first.text = "***";
@@ -416,7 +459,7 @@ export function writeMarkdown(doc: PMNode, map: SourceMap, language: MarkdownLan
     // 看不到远处的闭标签（例如这一段被挪到了一个块级批注前面），所以对整篇输出再扫一遍：拆分点只能在块的开头。落在没被
     // 编辑的块中间时把它改为重新写出（换行写成 `<br>`，开标签不再在行尾）再写一遍；落在重新写出的块中间时写不出。
     const blockStarts = new Set(starts);
-    const misplaced = gluedOpenings(body, language.blockTags, language.openTagAtLineEnd).filter((offset) => !blockStarts.has(offset));
+    const misplaced = gluedOpenings(body, language.glued).filter((offset) => !blockStarts.has(offset));
     if (misplaced.length > 0) {
         const nodes = new Set(forced);
         for (const offset of misplaced) {
@@ -432,12 +475,15 @@ export function writeMarkdown(doc: PMNode, map: SourceMap, language: MarkdownLan
         ok: true,
         text: map.prefix + body,
         record: () => {
+            // 重新写出的块总是新的一代，即使字节与上一代相同：间隔按一对来源登记，沿用旧的来源对象会让这一次重新生成的间隔
+            // 覆盖旧一代登记的间隔，撤销回去就写不回原来的间隔了。
             const units = items.map((item, index) => item.unit ?? {raw: texts[index] as string, size: item.nodes.length});
             units.forEach((unit, index) => (items[index] as Item).nodes.forEach((node, part) => {
                 const known = map.origins.get(node) ?? [];
                 if (known[0]?.unit === unit) return;
-                // 同一个节点反复被重新写出时来源会一直加：只留最近的几代。
-                map.origins.set(node, [{unit, part}, ...known].slice(0, ORIGIN_HISTORY));
+                // 同一个节点反复被重新写出时来源会一直加：只留最近的几代，但最早的一代（读入时的）总留着，撤销回打开时要用。
+                const next = [{unit, part}, ...known];
+                map.origins.set(node, next.length <= ORIGIN_HISTORY ? next : [...next.slice(0, ORIGIN_HISTORY - 1), known.at(-1) as {unit: SourceUnit; part: number}]);
             }));
             for (let index = 0; index <= items.length; index += 1) {
                 recordGap(map, index === 0 ? START : (units[index - 1] as SourceUnit), index === items.length ? END : (units[index] as SourceUnit), (gaps[index] as {gap: Gap}).gap);
@@ -459,8 +505,8 @@ function dependsOnChangedDefinition(item: Item, definitions: Definitions): boole
     let changed = false;
     const reference = (style: unknown, text: string): string | null => {
         const value = style as {style?: string; label?: string} | null;
-        if (value?.style === "reference") return (value.label ?? "").trim().toLowerCase();
-        if (value?.style === "collapsed" || value?.style === "shortcut") return text.trim().toLowerCase();
+        if (value?.style === "reference") return normalizeLabel(value.label ?? "");
+        if (value?.style === "collapsed" || value?.style === "shortcut") return normalizeLabel(text);
         return null;
     };
     for (const node of item.nodes) {
@@ -468,7 +514,8 @@ function dependsOnChangedDefinition(item: Item, definitions: Definitions): boole
             for (const mark of child.marks) {
                 if (mark.type.name !== "link") continue;
                 const label = reference(mark.attrs.markdown, child.textContent);
-                if (label !== null && definitions[label]?.href !== mark.attrs.href) changed = true;
+                // 地址与标题都要对得上：删掉同名的第一条定义后，第二条的标题可能不同。
+                if (label !== null && (definitions[label]?.href !== mark.attrs.href || (definitions[label]?.title ?? null) !== (mark.attrs.title ?? null))) changed = true;
             }
             if (child.type.name === "image") {
                 const label = reference(child.attrs.markdown, "");
