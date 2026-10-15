@@ -1,0 +1,248 @@
+# w00025 t06 第 2 轮实现审查（OMP）
+
+对象：`cdad39eac` 的转换核心 S1–S3。所有实验从 `/home/notnotype/CodeRepository/neuro-book/.worktree/w00025-t06-review/packages/neuro-book` 执行；不审 S4–S6、编辑器接入与待删除的旧转换器。以下发现按核实顺序追加；正确性与不变量在前。
+
+### 1. 来源硬截为八代，真实撤销回打开状态后不能恢复原文字节
+
+- **严重程度**：重要；**类别**：不变量。
+- **位置**：`packages/neuro-book/src/plugins/editor/web/markdown/codec/write.ts:46–47,434–440`，`ORIGIN_HISTORY`、成功结果的 `record`。
+- **现象**：打开 `开<comment id='c1' body='意见'>one</comment>\r\n \r\n<comment id='c1'>two</comment>\r\n`，只在第一段开头连续插字十次，每次提交写回、登记来源，随后撤销十次。编辑器文档与初始文档 `eq`，未编辑的第二段还是同一个节点对象，但写出变成双引号属性、段间带空格的原始空行也丢了，`bytesSame: false`。
+- **为什么是问题**：一截编辑会强制重写整条批注，未编辑节点因而不断增加来源。`slice(0, 8)` 丢掉仍由撤销历史引用的最初来源，恢复旧节点也凑不出旧原文。违反方言输出 2 和第三版修订 4 的“更早原文仍记着、撤销到底逐字节相同”；八次成功写回不是合法的合同边界。
+- **如何核实**：`bun zz-review-lab/omp/source-probe.ts`。使用 happy-dom 中已挂载的真实 Tiptap `Editor`，`closeHistory` 分开十个历史事件，`insertText` 编辑，`undo` 撤销；实测 `undone: 10`、`equalDoc: true`、`sameSecond: true`，最后的原文相等检查为 false。不是手工伪造节点恢复。
+- **建议改法**：不要按固定代数截断仍可撤销的来源。保留活节点需要的来源；若必须回收，应与撤销历史实际淘汰联动，而不是独立设八代。补覆盖整条批注联动重写超过八次、撤销到打开状态的明确字节断言。
+### 2. 父块重写会改掉原样片段内部的换行字节，比较器把损坏放行
+
+- **严重程度**：重要；**类别**：不变量。
+- **位置**：`packages/neuro-book/src/plugins/editor/web/markdown/codec/write.ts:173–174,392,402`（`withEol`）；`codec/read.ts:133–142`（`sourceOf`）；`codec/compare.ts:42–43`。
+- **现象**：打开 `文<u>a\nb</u>尾\r\n\r\n另一段\r\n\r\n末段\r\n`，在第一段开头插入“改”。写出成功，但原样片段从 `<u>a\nb</u>` 变成 `<u>a\r\nb</u>`。反向样例 `> 文<u>a\r\n> b</u>尾\n\n另一段\n\n末段\n` 只改“文”，片段里的 CRLF 则变成 LF。
+- **为什么是问题**：`withEol` 对整个已渲染字符串替换 LF，分不清普通块文本和必须保留的原样字节；嵌套片段去掉引用/缩进后又找不到源位置，`sourceOf` 明确退回规范化字符串。比较器无条件把 `raw` 的 CR/CRLF 统一成 LF 再比，恰好让这类改字节通过。违反输出 9“写回时字节不变”，不是允许重写的普通块换行变化。
+- **如何核实**：`bun zz-review-lab/omp/fidelity-more.ts`。第一种样例另经已挂载的真实 Editor 调用 `insertContent("改")`，成功结果实测为 `改文<u>a\r\nb</u>尾…`；列表/引用及普通段落另外直接通过公共 codec 和 ProseMirror Transform 核实。未使用旧转换器。
+- **建议改法**：写出结果保留“可规范化文本 / 原样字节”的片段边界，只对前者转换换行。嵌套分词必须携带去前缀后的源偏移映射，不能找不到就退回规范化 `raw`。字节保持应有独立断言，不由放宽了 `raw` 的语义比较代替。
+
+
+### 3. 空意见的显式首截被写成无 body，重读把两条批注静默合并
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`packages/neuro-book/src/plugins/editor/web/markdown/syntax/comment/index.ts:260–273,355–365`（`resolve`、`tagOf`）；`codec/compare.ts:37–51` 与 `comment/index.ts:463`。
+- **现象**：原文 `<comment id="x" body="">甲</comment>\n\n<comment id="x" body="乙">乙</comment>\n` 读成两条批注，一条意见为空、一条意见为“乙”。只在第一段开头输入“改”，成功写出却省略第一条的 `body=""`，成为 `改<comment id="x">甲</comment>…`；整篇重读后“甲”被并进意见“乙”，两条批注变成一条。
+- **为什么是问题**：显式空意见也是一个分组边界；它与“没有 body、等待归属”的截不是一回事。`tagOf` 用 `body !== ""` 判断是否写属性，破坏了 `resolve` 自己采用的边界。窗口校验和性质测试都忽略批注 `id`、`body`、`key`，本例的 `sameLoose` 实测仍为 true，所谓“读回相同”不能发现这次语义损坏。违反输出 11 同 id 不同 body 各自成条、写回保留的规则。
+- **如何核实**：`bun zz-review-lab/omp/readback-probe.ts`，末项“真实空意见”使用已挂载的真实 Editor 输入；写前两个 key 不同，写出再读两个 key 相同、body 都为“乙”。同脚本还直接调用公共 codec 验证比较器确实放行。
+- **建议改法**：计划里的每条首截总写 `body`，包括空字符串；无 body 只用于同一条的后续截。跨块属性可以在局部校验中暂缓比较，但成功前必须按整篇的批注分组建立一一对应，检查意见和覆盖范围不变；性质测试不能沿用被测比较器的这一组忽略项作为唯一判据。
+
+### 4. 移动同 id 批注的后截会改换意见，依赖判定只验“存在首截”而不验归属顺序
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`packages/neuro-book/src/plugins/editor/web/markdown/syntax/comment/index.ts:439–448`（`contextDependents`）；`codec/write.ts:262–273`。
+- **现象**：四段依次为同 id `x` 的 `body="A">a`、无 body 的 `aa`、`body="B">b`、无 body 的 `bb`，读取后是 A 覆盖 `a/aa`、B 覆盖 `b/bb`。把 `aa` 所在段挪到文末，成功写回仍直接复用 `<comment id="x">aa</comment>`；整篇重读后它归属于 B，不再是 A。
+- **为什么是问题**：`runs.some(body)` 只能证明某处还存在原意见，不能证明无 body 的截前面最近的同 id 首截仍属于同一组。合法的原文件允许同 id 的多条批注；移动/交错这些截会破坏隐含的文件顺序依赖。局部比较不比 body/key，移动边界即使被校验也抓不到。违反输出 11 的意见归属规则和输出 3 的读回语义不变。
+- **如何核实**：`bun zz-review-lab/omp/context-probe.ts` 第一项。已挂载真实 Editor，用 `state.tr.delete(...).insert(..., 原节点)` 移动第二段；写前 `aa` 的 body 为 A，保存重读后为 B。完整结果含两棵文档树，未绕过编解码器入口。
+- **建议改法**：把按文件顺序分组的读入规则用于写前依赖检查，比较每截实际会归到的组；顺序改变后重写相关整条批注。两组在输出里交错时，为冲突组分配独立 id，或明确写出新的首截边界，保证覆盖范围与意见不变。
+
+### 5. 引用定义另写一份不完整解析和失效规则，不编辑也改原文，删定义还能静默换链接标题
+
+- **严重程度**：重要；**类别**：正确性 / 不变量。
+- **位置**：`packages/neuro-book/src/plugins/editor/web/markdown/codec/write.ts:152–170,458–475`（`DEFINITION`、`definitionsOf`、`dependsOnChangedDefinition`）。
+- **现象**：`看[甲][r]` 与定义之间隔五段普通段落时，下列合法定义都会导致 `codec.write(read.doc, read.map)` 在完全未编辑时把引用改成行内链接：换行写标题的 `[r]: /dest\n  "标题"`；引用容器内的 `> [r]: /dest`；地址带转义括号的 `[r]: /dest\(x\)`。另有两条同名定义 `[r]: /dest "A"`、`[r]: /dest "B"`：删除第一条后 writer 返回成功、不重写远处链接，整篇重读的链接 title 从 A 静默变成 B。
+- **为什么是问题**：读入用 marked 的完整词法器，写出却只扫顶层 rawBlock、只接受一行可选标题、也不解 Markdown 转义，因此同一原文在两套定义表中不等。失效检查只比 href 不比 title，窗口之外的 title 变化漏检。前者直接违反输出 1“不编辑不改字节”，后者违反输出 3 的内容/语义不变。
+- **如何核实**：`bun zz-review-lab/omp/context-probe.ts`。三种不编辑样例全部为 `ok: true, unchanged: false`；“只删首定义标题”经真实 Editor 的删除事务，保存前链接 title 为 A，保存后整篇重读为 B。`bun zz-review-lab/omp/readback-probe.ts` 也验证了普通单行定义的对照样例不改字节。
+- **建议改法**：复用读入的引用定义词法结果及其所属节点/源区间，按当前节点顺序重建第一条生效定义，不再维护近似正则。失效键包括规范化标签、href、title；覆盖嵌套容器、转义标签与地址、多行标题。同名定义删除/换序应对链接和图片都保持原语义。
+
+### 6. 批注依赖扫描把代码和属性里的字面开标签当真，未编辑就重写原文
+
+- **严重程度**：重要；**类别**：不变量。
+- **位置**：`packages/neuro-book/src/plugins/editor/web/markdown/syntax/comment/index.ts:382,408–420,439–447`（`OPEN_TAGS`、`rawRuns`、`contextDependents`）。
+- **现象**：打开 `<comment body='甲'>a \`<comment>\` b</comment>\n` 后不做任何编辑，写回成功但属性从单引号变为双引号。`<comment body='甲'>a</comment>与<u data-x="<comment>">x</u>\n` 和批注外代码里出现 `<comment>` 同样触发。
+- **为什么是问题**：读入配对会跳过行内代码和别的标签属性，写前的 `rawRuns` 却直接在全部原文上 `matchAll(OPEN_TAGS)`，把字面标签也计入，再因数量不同归入 unknown、强制重写。这不是上下文变化，只是两套扫描语义不一致。违反输出 1“不编辑不改任何字节”；测试已有闭标签在代码里的例子，没有开标签的对称例子。
+- **如何核实**：`bun zz-review-lab/omp/context-more.ts`，三个不编辑样例的 `same` 全为 false，末项又经已挂载真实 Editor 不做任何命令直接保存，写出同样变成双引号。报告中的反引号是原文代码跨度，不是模型生成的标签计数模拟。
+- **建议改法**：保留读入时识别出的真实批注开标签及其所属组/源位置，或使用同一屏蔽代码、属性和原样节点的扫描器；不要用未过滤的正则重数原文。加不编辑、编辑别处和撤销三类字节断言，覆盖 `<comment>` 与 `</comment>` 两个方向。
+
+### 7. 新内容没有按整块继承写法，新增任务项会让整个列表退回规范写法
+
+- **严重程度**：重要；**类别**：合同 / 正确性。
+- **位置**：`packages/neuro-book/src/plugins/editor/web/markdown/codec/render/index.ts:19–20`；`codec/render/inline.ts:27–44`（`follow`）；`syntax/core/write.ts:114–119`。
+- **现象**：在 `* [X] 旧项\n* [ ] 末项\n` 的末项按任务列表的拆项命令，再输入“新增”，成功写出为 `- [x] 旧项\n- [ ] 末项\n- [ ] 新增\n`；原列表符号 `*` 和原复选框大写 `X` 全丢了。`+` 列表同样退回 `-`。在 `__a__ b` 里只给 b 加粗，输出 `__a__ **b**`，没有跟随同块的 `__`。
+- **为什么是问题**：任务项的写法各记在 item 上，拆出的新 item 为 null，writer 直接默认 `-`，导致一份任务列表被分成不同符号的列表，随后校验只能把整块推到 canonical，连未改项写法一起清掉。`follow` 只看紧邻字符，隔一个普通空格就找不到同块已有强调写法。违反输出 2“同一块的新内容跟随已有写法”，不是合同允许的“跟随写法读不回来”情形。
+- **如何核实**：`bun zz-review-lab/omp/task-style.ts`：真实已挂载 Editor 调用 `splitListItem("taskItem")`、`insertContent("新增")`，两种符号均返回上述结果。`bun zz-review-lab/omp/style-probe.ts`：真实 `setBold()` 后首次写回即为 `__a__ **b**`；此问题不依赖 S5 尚未接入的写法回填。
+- **建议改法**：写每个顶层块前收集可跟随的写法，只有目标节点/标记无写法时从块内同类取值；任务项至少继承当前 taskList 已有的 marker 与勾选字符惯例。保留显式旧写法，仅在确实不可读回时改变必要的那一处，而不是整块 canonical。
+
+### 8. HTML 强调仍用不屏蔽代码和属性的独立配对器，合法输入被提前截断
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`packages/neuro-book/src/plugins/editor/web/markdown/syntax/core/index.ts:86–95,108–114`（`closingTag`、`htmlInline`）。
+- **现象**：`<strong>a \`</strong>\` b</strong>` 应为一整段粗体，其中 `</strong>` 是行内代码；实际读成粗体文字 `a \``、普通文字 `\` b` 和原样片段 `</strong>`，代码标记也丢了。`<b>a <ruby text="</b>">字</ruby> b</b>` 在 ruby 属性里的 `</b>` 提前闭合，注音被拆坏；HTML 注释里的同名闭标签也触发。
+- **为什么是问题**：方言配对器已经有跳过代码和标签属性的 `skipInline`，核心 HTML 强调另外实现 `closingTag`，只用正则计同名标签，没有这些屏蔽状态。首次读入就误解内容，往返自洽校验只会保留这棵错误的树，不能补救。违反输出 21“代码中不解释语法”和输出 25“HTML 强调能读”。
+- **如何核实**：`bun zz-review-lab/omp/core-probe.ts` 前三项，直接经公共 `codec.read`，`problems` 仍为空；重写也返回成功。实验走实际转换核心的读入入口，不是对正则的模拟。
+- **建议改法**：核心 HTML 强调也复用同一行内配对扫描，统一跳过转义、代码跨度、标签属性和原样注释；不要维护第二套近似规则。补代码、注音/颜色属性、嵌套同名标签交错的明确树断言。
+
+### 9. 提示块重新分词丢掉里面的引用定义，编辑正文会直接删除定义
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`packages/neuro-book/src/plugins/editor/web/markdown/syntax/callout/index.ts:63–72`；`codec/read.ts:124–129`。
+- **现象**：原文 `> [!NOTE]\n>\n> 甲\n>\n> [r]: /dest\n\n看[乙][r]\n` 读出来的提示块只有“甲”，里面的 `[r]: /dest` 没有 rawBlock。只在提示块正文前输入“改”，成功输出 `> [!NOTE]\n> 改甲\n\n看[乙](/dest)\n`，原定义整行被删除。
+- **为什么是问题**：整篇首次分词已经收集了 r；callout 读法又用同一 lexer 对去掉标题的正文 `blockTokens`，该定义此时是重复定义，marked 消费但不产出 token。此路径不经过顶层的偏移核对补 rawBlock，因而定义没有节点和可删除身份，重写父容器就丢内容。输出 9 明确要求定义读成原样块，输出 2 也不授权编辑提示块文字时删除定义。
+- **如何核实**：`bun zz-review-lab/omp/dialect-loss.ts` 的“提示块定义”，真实已挂载 Editor 在“甲”前输入；报告的 before 树可见定义缺席，write 为成功且删除定义。`bun zz-review-lab/omp/dialect-probe.ts` 有不编辑仍保原文的对照。
+- **建议改法**：提示块在首次块分词阶段就认领标题和正文，保留初次产生的定义 token；或对二次分词也执行带源偏移的漏失片段补全。不要靠把引用补成行内链接掩盖原始定义已经丢失。加入提示块、嵌套容器中定义卡片可见、编辑保留、显式删除的断言。
+
+### 10. 宽容规范化不识别容器里的围栏和跨行代码，代码中的方言标签被提成真实块
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`packages/neuro-book/src/plugins/editor/web/markdown/codec/source.ts:80–100,110–133`（`fencedLines`、`gluedSplits`）。
+- **现象**：`> \`\`\`\n> 正文<comment>\n> \`\`\`\n</comment>\n` 的引用代码块中应有字面文字 `正文<comment>`，实际读取后代码只剩“正文”，另生一个 commentBlock。`正文\`<comment body="x">\n代码\`\n\n</comment>\n` 里的跨行行内代码也被拆成普通段落和块批注。编辑附近文字再保存，输出会把原本在代码里的 `<comment>` 移成真实标签。
+- **为什么是问题**：预处理发生在 Markdown 分词之前，却只按没有 `>`/列表前缀的物理行判断围栏，没有行内代码状态。一次错误插入空行已经改变后续词法含义，顶层偏移核对只能保字节，不能纠正读错的结构。违反输出 17“不在代码块里才拆”和输出 21“代码里不解释任何语法”。
+- **如何核实**：`bun zz-review-lab/omp/dialect-loss.ts` 的“引用代码围栏”“行内代码跨行”，先经真实 codec 读入，再在已挂载 Editor 插字并保存；两例均成功写出错误结构。初始代码 token 的明确内容已在 before 树里给出，不是仅凭写后字符串推断。
+- **建议改法**：宽容拆分必须基于与实际块/行内词法器一致的代码范围（包括容器去前缀后的围栏和跨行代码跨度），在受保护区内绝不插入空行。增加引用/列表围栏、缩进代码、跨行行内代码里的开标签，以及容器外存在同名闭标签的组合。
+
+### 11. 只有空行内标签的源块被当作空白间隔，不编辑保存即删除内容和批注意见
+
+- **严重程度**：重要；**类别**：正确性 / 不变量。
+- **位置**：`packages/neuro-book/src/plugins/editor/web/markdown/codec/read.ts:144–148,224–229`；`codec/write.ts:65,80–87,183–186`；`syntax/comment/index.ts:221–225,237–249`。
+- **现象**：`<comment body="重要意见"></comment>` 读成一个空 paragraph，未编辑写回得到空字符串。`<mark></mark>\n`、`<strong></strong>\n`、`<span style="color: red"></span>\n` 同样被删。更严重的是 `<comment id="c1" body="重要意见"></comment>\n\n<comment id="c1">正文</comment>`：首截和意见读取时已丢失，写回变成只有无意见的后截，且开头多出一个换行。
+- **为什么是问题**：空标记没有任何子节点可承载其属性，read 仍给它一个有内容来源的空 paragraph；itemsOf 不区分“真实空白间隔”和“来自非空源块的空段落”，一律移出内容项。`emptyBody` 又只记录原文零块的情况，最终丢掉这类非空源码。违反输出 1 的无条件字节保持；不能表达的空标签应按输出 9 保成原样节点，而不是静默删除。
+- **如何核实**：`bun zz-review-lab/omp/empty-dialect.ts`。五个不编辑样例均 `same: false`；最后另在已挂载真实 Editor 不做任何编辑直接保存空批注，结果 `{ok:true,text:""}`。空块批注、空双语和空对齐的对照可原样保存。
+- **建议改法**：读法产出空内容且源块非空时，保留显式原样节点或零宽可承载批注的结构；itemsOf 只有来源确认为纯间隔的空段落才能当间隔。空首截的分组信息必须在丢弃空内容之前参与 resolve。加入空/仅空标记文件和空首截带后截的字节、意见断言。
+
+### 12. 嵌套互斥标记在读入时被静默覆盖，内层颜色和下标丢失
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`packages/neuro-book/src/plugins/editor/web/markdown/codec/read.ts:108–121,147`；`syntax/text-marks/index.ts:219–225`。
+- **现象**：`<span style="color:red">a<span style="color:blue">b</span>c</span>` 读成整段 abc 都是 red，内层 blue 丢失；`<sup>a<sub>b</sub>c</sup>` 读成 abc 全是上标，内层下标丢失。重写该块成功输出 `<span style="color:red">abc</span>` 或 `<sup>abc</sup>`，`problems` 都为空。
+- **为什么是问题**：`context.mark` 将外层标记追加在内层标记之后，`toNode` 再依次 `addToSet`，后追加的外层按 schema 的互斥规则抹掉内层。合法 HTML 的最近内层颜色本可表达为分段标记；如果选择不支持某种组合，输出 9 要求整体原样保留，而不是在 `check()` 前先把结构改成合法但含义不同的树。现有上/下标测试只测用户给单段重新加标记，没测嵌套源文。
+- **如何核实**：`bun zz-review-lab/omp/mark-conflicts.ts`，上述两例直接经公共 codec 读入与重写，明确树中内层属性消失，输出与原语义不同。没有构造 schema 不可能出现的编辑状态。
+- **建议改法**：读取嵌套标记时按内层优先计算逐段有效标记，避免用施加顺序偶然决定优先级；表达不了的互斥组合在建节点前识别并保为原样片段。补嵌套同类不同属性、上下标交错、外层格式覆盖内层纯文字标记的读入期望。
+
+### 13. 转义哨兵占用了合法的 U+E000 正文，输入该字就永远写不出
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`packages/neuro-book/src/plugins/editor/web/markdown/codec/render/escape.ts:10–11,193–194`；`codec/write.ts:254,377–385`。
+- **现象**：编辑器里输入 `私用\uE000字`（U+E000 私用区字符），公共 writer 走完各级后返回 `unrepresentable`。原文件已有这个字符时不编辑可写回，改动其所在段落后就无法写回；同样的合法字符在普通段落其他位置没有 Markdown 歧义。
+- **为什么是问题**：注释直接假定“正文里不会出现”私用区字符，却没有编码合同支持。每次校验 `stripSentinels` 都无条件删掉它，编辑器期望仍有该字符，因此所有层级必败；full 撤回还会把正文字符后两字节当作插入的转义候选。UTF-8/Unicode 正文可包含私用字符，不能保留一个未声明的禁用码点。
+- **如何核实**：`bun zz-review-lab/omp/sentinel-probe.ts`，三个原文读入后不编辑的对照均成功；末项在真实已挂载 Editor 调用 `insertContent("私用\uE000字")`，`save` 返回 `{ok:false,code:"unrepresentable"}`。`write-boundary-probe.ts` 的普通段落直接新建也复现。
+- **建议改法**：用结构化的转义候选位置/片段表，避免在正文字符串中插入哨兵；至少必须对字面哨兵有无歧义的编码与恢复规则。补含私用区字符的实际输入、已有原文局部编辑及撤销。
+
+### 14. 宽容开闭标签与正式分词采用不同语法，合法变体没有相同的块含义
+
+- **严重程度**：重要；**类别**：合同 / 正确性。
+- **位置**：`packages/neuro-book/src/plugins/editor/web/markdown/codec/source.ts:114,127–131`；`language.ts:110`；`syntax/align/index.ts:93`；`syntax/tags.ts:22–25,103,161–175`。
+- **现象**：`正文<align value="center" data-x=">">\n甲\n</align>\n` 读成包含整个标签串的 rawInline；只在开标签前按标准补一个空行，立即读成 paragraph 加 markdownAlign。黏着的 `<COMMENT body="x">…</COMMENT>` 和闭标签写成 `</comment >` 也只读成行内批注，标准写法却能读成块。反向 `<align value=centerx>` 被宽容正则误命中并拆开，但正式 tokenizer 不认可 value。
+- **为什么是问题**：正式属性解析能处理引号内 `>`、标签大小写与闭标签前空白，宽容正则分别用 `[^>]`、无 `i` 标志、严格 `</tag>`，align 还没有 value 的词边界。来源映射只能保持字节，不能让同一种合法写法有一致结构。违反输出 17，也直接违背 source.ts:145 和类型接口对“与分词规则一致”的约束。
+- **如何核实**：`bun zz-review-lab/omp/tag-parity.ts`，每一对只差开标签前的标准空行，前 3 对产生不同的块/行内语义；`bun zz-review-lab/omp/dialect-probe.ts` 输出另外的无效 value 对照。直接调用公共 codec，不是只测正则。
+- **建议改法**：宽容扫描调用各语法模块实际的开标签/属性接受函数和闭标签判定，移除单独拼接的近似正则；标签名按同一大小写规则归一，value 必须完整匹配。用成对原文断言宽容与标准形态的结构相同。
+
+### 15. 编辑器复制的 HTML 不携带批注组身份，粘贴会把同意见的独立批注合成一条
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`packages/neuro-book/src/plugins/editor/web/markdown/syntax/comment/index.ts:78–94,110–121,282–283`（`pastedComments`、`key` 的 HTML 属性、`groupOf`）。
+- **现象**：文件中 `<comment id="x" body="意见">甲</comment>` 与 `<comment id="x" body="意见">乙</comment>` 是同 id、同意见但不同 key 的两条批注。选中两段，经编辑器自己的 `serializeForClipboard` 复制 HTML，再在末段 `pasteHTML`；两条粘贴批注得到相同新 key 和 id `c1`，保存成一个分截批注，第二段不再有 body。
+- **为什么是问题**：`key` 设置为 `rendered:false`，真实复制 HTML 中只能看到相同的 id/body；parseHTML 把 key 都变回 null，`groupOf` 再把本来独立的两条视为一组。当前粘贴测试只覆盖“一条多截”，没有覆盖“多条意见相同”。这是输出 11 明确允许的输入，不能为维持多截而合并独立批注。
+- **如何核实**：`bun zz-review-lab/omp/clipboard-roundtrip.ts`。使用已挂载真实 Editor 的选区、`view.serializeForClipboard(selection.content())` 和 `view.pasteHTML`，输出完整 HTML、粘贴后的树和保存重读树；原两条 key 为 k1/k2，粘贴两条均为 k3。不是人工编造浏览器不会产生的剪贴板结构。
+- **建议改法**：在编辑器自有剪贴板 HTML 中携带仅用于复制粘贴的分组身份，粘贴时按该身份统一换新 key/id；磁盘 Markdown 仍不写内存 key。外部 HTML 的无身份分组需单独按显式规则处理。增加两条同 body、同/不同 id 与一条多截同次复制的组合断言。
+
+### 16. 颜色校验只验字符集合，rgb()、rgb(deg) 等无效颜色被当作合法格式
+
+- **严重程度**：重要；**类别**：合同 / 正确性。
+- **位置**：`packages/neuro-book/src/plugins/editor/web/markdown/syntax/text-marks/index.ts:38–51,128–140`（`isColor`、`onlyColor`、`attributesOf`）。
+- **现象**：`<span style="color: rgb()">色</span>`、`rgb(1)`、`rgb(1,2,3,4,5)`、`hsl(0)`、`rgb(deg)` 都读成 markdownTextColor，不是原样片段。实际 Chrome 的 `CSS.supports("color", value)` 对这五个值全部返回 false；`rgb(0 0 0)`、`hsl(0 100% 50%)` 对照为 true。
+- **为什么是问题**：函数正则只有允许字符，没有参数个数、分隔符、单位所属参数等语法校验。无效 CSS 在实际渲染时被浏览器忽略，但数据树宣称有颜色；违反输出 15“颜色不合法时整体原样”。检查 DOM 是否存在某个 style 属性或同一个比较器读回不能代替 CSS 合法性。
+- **如何核实**：`bun zz-review-lab/omp/dialect-probe.ts` 的颜色矩阵经公共 codec 读取；另在内置 Chromium 实验页通过原生 `CSS.supports` 验证上述真假值，不依赖 happy-dom 的 CSS 实现，也没有为 codec 引入 DOM。
+- **建议改法**：使用无 DOM 的完整颜色语法解析，或为承诺支持的 hex/rgb/hsl/颜色名写完整参数语法并拒绝其它形式；保持浏览器与无 DOM 环境判据一致。补无效参数数目、空参数、错误单位、逗号与空格混用的明确原样节点断言。
+
+### 17. 块标签配对把 htmlEmbed 里的反引号当 Markdown 围栏，正常包装操作写不出
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`packages/neuro-book/src/plugins/editor/web/markdown/syntax/tags.ts:102–128`（`closeBlock`）；`syntax/html-embed/index.ts:137–165`。
+- **现象**：原文 `<html>\n\`\`\`\n</html>\n\n正文\n` 能正常读为 htmlEmbed 加段落。真实编辑器全选后 `wrapIn("commentBlock", {body:"意见"})`、包双语或对齐均成功，随后保存全部返回 `unrepresentable`。writer 输出的合法 `<comment>\n<html>\n\`\`\`\n</html>…</comment>` 被 reader 当成原样块加普通段落，外层闭标签没配到。
+- **为什么是问题**：closeBlock 只区分“本次块是否是 html”，没有在 Markdown 容器里识别嵌入的 `<html>` 子块。HTML 内的反引号开启了外层扫描的 fence 状态，之后的 `</html>`、`</comment>` 都被屏蔽。输出 16 明确 HTML 内容不是 Markdown；合法块容器能包含这些节点，不能因为内容里有反引号就拒绝正常包装。
+- **如何核实**：`bun zz-review-lab/omp/html-container.ts`，真实 Editor 使用 `selectAll()` 和 `wrapIn`，三种容器 `wrapped:true` 但写出失败。`bun zz-review-lab/omp/html-container-render.ts` 额外给出实际 writer 字符串及公共 reader 的错误树；直接 renderBlock 仅用来定位，严重程度依据前一个真实操作。
+- **建议改法**：块配对扫描共享完整的嵌入 HTML/代码范围状态，进入 htmlEmbed 后只按其闭标签退出，不解释其中围栏；其它块级原样语法中的同名闭标签也应屏蔽。补 HTML 内围栏、外层批注/双语/对齐和后续真实围栏的组合读写。
+
+### 18. 行内 start 钩子与深层配对反复扫描剩余全文，十万字符异常输入读入达 213 秒
+
+- **严重程度**：重要；**类别**：性能。
+- **位置**：`packages/neuro-book/src/plugins/editor/web/markdown/syntax/tags.ts:22–30,41–90,102–129,137–144`；`syntax/core/index.ts:107,120`；`syntax/raw/index.ts:186`；各方言 tokenizer 的 `start`/`closeInline`。
+- **现象**：真实公共 codec 读取 100,000 个 `<` 用时 **212,999.76 ms**，同块插一字后的五次写出为 13,275.13 / 11,783.54 / 11,755.76 / 11,742.02 / 11,633.79 ms。较小冷启动 1,000 / 2,000 / 4,000 个 `<` 的读入为 29.73 / 97.46 / 359.15 ms。1,000 / 2,000 行 `正文<comment>\n` 加最后一个闭标签，读入为 715.02 / 2,755.71 ms。500 层行内批注 14,001 字符读入 894.01 ms；2,000 层 56,001 字符读入 **26,119.40 ms**。
+- **为什么是问题**：marked 在无法成标签的 `<` 处逐步消费文字，每次又对剩余输入调用各扩展 start 的全尾部搜索；未闭合/嵌套标签又逐层向后寻找配对。`normalize` 单次扫描线性不等于整个 read 线性。普通粘贴或外部文件能让主线程长时间失去响应，异常输入没有隔离或复杂度上限。
+- **如何核实**：`bun zz-review-lab/omp/perf-probe.ts less 100000` 为实际 codec 的完整读写测量；`less 1000/2000/4000`、`unclosed 1000/2000` 与 `bun zz-review-lab/omp/read-failure.ts 2000` 测缩放。`bun --cpu-prof --cpu-prof-dir zz-review-lab/omp zz-review-lab/omp/perf-probe.ts less 8000` 的 CPU profile 显示 self time 中六个标签 start 正则合计 **72.7%**，read 的 inlineTokens 占 61.7%。内置 Chromium 对 8,000 个 `<` 也测得 read 225.10 ms、write 中位 282.90 ms；1,000 行未闭合标签 read 911.60 ms。Bun/浏览器是不同引擎且 JIT 状态不同，不把 213 秒冒充 Chrome 数字。
+- **建议改法**：预扫描并缓存真实候选标签/代码区间，以偏移推进，start 只定位下一个候选，不在每个字符位置重扫剩余全文；配对一次栈扫描，嵌套解析复用范围。将缺闭合、多 `<`、多反引号、深层嵌套作为独立输入族量复杂度，而不是只测 normalize 的 8,000 行小断言。
+
+### 19. 转义和硬换行桥接有独立平方路径，短异常段落与十万字长段都超过 16 ms
+
+- **严重程度**：重要；**类别**：性能。
+- **位置**：`packages/neuro-book/src/plugins/editor/web/markdown/codec/render/escape.ts:143–165`（每个星号调用 `delimiterNeedsEscape`）；`codec/compare.ts:76–82`（`bridge` 的 `slice().find()`）；`codec/render/inline.ts:51–77,123–125`。
+- **现象**：`*a ` 重复 1,000 / 2,000 / 4,000 次，同块插字后 Bun 写出中位 **77.66 / 286.97 / 1,052.19 ms**；Chrome 中位 **73.40 / 256.90 / 998.90 ms**。单独定位 escapeText：3,000 / 6,000 / 12,000 / 24,000 / 48,000 字符用时 56.07 / 202.17 / 767.54 / 2,916.13 / **11,889.78 ms**。一条批注中 2,000 / 4,000 个 `<br>` 的 Bun 写出中位 154.88 / 554.08 ms，Chrome 中位 108.40 / 221.50 ms。100,000 字符无特殊语法的单段落，Bun 写出中位 **226.66 ms**、Chrome 中位 **66.40 ms**。
+- **为什么是问题**：每遇一个 `*`/`_` 都重新收集整段的全部分隔符并 `includes`，O(L×K)；每个硬换行都复制剩余数组再找后面的非换行节点，连续 B 个换行为 O(B²)。普通长段还逐字符摊成 InlineItem，再做多轮标记整理和重建，即使没有标记/转义需求也全做。read 的依赖成本不是这条 writer 平方路径的借口，前述 escapeText 定位实验隔离出了实现自己的成本。
+- **如何核实**：`bun zz-review-lab/omp/perf-probe.ts stars 1000/2000/4000`、`long 100000`、`br 2000/4000`（具体参数各为一条命令）；`bun zz-review-lab/omp/perf-isolate.ts` 同时量原生 marked、CJK 插件、完整 codec 和 escapeText。Chrome 用 `zz-review-lab/omp/browser-server.ts` 实验页的实际打包公共 codec，在主线程调用 `reviewCodec.run(mode,size)`，每项五次写出取中位。escapeText 直接调用仅用于根因定位，严重程度依据公共 codec 和 Chrome 结果。
+- **建议改法**：每段一次计算可配对分隔符及必要转义位置，索引查表；反向一次扫描记下每个换行后的最近非换行项，不 `slice`。没有特殊字符/标记的长文本直接分段输出，不为每个字符分配对象。性能门禁覆盖长单段和密集分隔符/硬换行，不只覆盖短段组成的十万字章节。
+
+### 20. 单块编辑仍重排整篇批注、遍历所有定义，密集但正常的十万字章节超过写出目标
+
+- **严重程度**：重要；**类别**：性能。
+- **位置**：`packages/neuro-book/src/plugins/editor/web/markdown/codec/write.ts:179–204,279–299,359,419`；`syntax/comment/index.ts:305–352,408–448`（`prepareWrite`、`rawRuns`、依赖闭包）。
+- **现象**：2,000 个独立批注、104,671 字符，仅改第一段一字，Bun 写出五次为 93.33 / 49.33 / 62.48 / 51.05 / 43.84 ms（中位 **51.05 ms**）；Chrome 为 53.00 / 37.50 / 36.40 / 26.20 / 26.40 ms（中位 **36.40 ms**）。4,000 个独立批注、212,671 字符，Bun 中位 95.47 ms。3,000 个定义、121,558 字符/6,000 顶层块，仅改首段，Bun 中位 27.46 ms。普通十万字符、879 短段的对照：Bun 中位 6.39 ms、Chrome 中位 3.30 ms。
+- **为什么是问题**：每次 write 都 itemsOf 全文动态规划，prepareWrite 扫所有文本块并给所有有批注的块重新执行逐字 normalized/layout，rawRuns 多次重扫全部源码，定义表和引用依赖也遍历全文，最后 gluedOpenings 再扫整篇。密集批注不是罕见降级；没有编辑的 1,999 段也参与热路径，单块 16 ms 目标因此被正常输入打破。`rawRuns` 的逐项扩展数组还对同组多截有额外平方复制。
+- **如何核实**：`bun zz-review-lab/omp/perf-probe.ts chapter 100000`、`comments 2000`、`comments 4000`、`defs 3000`，参数分别运行；实际生成长度在输出中核对。Chrome 实验页 `reviewCodec.run("chapter",100000)`、`reviewCodec.run("comments",2000)` 调用同一打包 codec，五次写出取中位。另测 2,000 截同条批注为 Bun 中位 365.20 ms，其中整条必须重写是合同本身要求，不能把这个数全部归因于可省全篇扫描。
+- **建议改法**：按不可变节点对象缓存批注 opening/layout、来源中已解析的开标签/定义元数据；增量更新全篇组索引与依赖表，只对变更组计算闭包。全篇必须检查的候选范围用持久索引维护；同组数组用 push，不在每个元素复制历史数组。验收分别量普通多段、密集独立批注、同条跨篇批注，避免拿第一种代表全部。
+
+### 21. 间隔表从全局 START 强引用所有历史来源，WeakMap 不能回收已退出撤销历史的原文
+
+- **严重程度**：重要；**类别**：不变量 / 性能。
+- **位置**：`packages/neuro-book/src/plugins/editor/web/markdown/codec/read.ts:44–60,77–82`（`START`、`SourceMap.gaps`、`recordGap`）；`codec/write.ts:434–443`。
+- **现象**：同一个 SourceMap 连续写回 200 / 1,000 个新首段，不保存编辑后节点和写回结果，强制 GC 后，`map.gaps.get(START).size` 仍为 **201 / 1001**；从 START 沿 after 键可达 **202 / 1002** 个来源对象，持有原文 **40,894 / 204,894** 字符。原编辑节点是否仍在撤销历史不影响这些来源可达。
+- **为什么是问题**：外层虽是 WeakMap，START 是全局常驻键；其值的普通 Map 强引用每一代首来源，再通过每个来源的 gap Map 强引用后续来源，形成保留全部历史原文的有根图。origins 截八代既破坏第 1 条撤销合同，也没有实现想要的内存回收；长时间写作每次停手会累计保留改过的块全文，直到整个 SourceMap 被释放。
+- **如何核实**：`bun zz-review-lab/omp/retention-probe.ts 200` 与 `bun zz-review-lab/omp/retention-probe.ts 1000`。写回通过公共 codec、每次调用成功结果 record；只有统计可达图时读取内部表，所以这里的实验用于确认所有权/强引用事实，不冒充 UI 堆快照或具体浏览器泄漏字节数。
+- **建议改法**：让间隔两侧关联也不强持有已经没有节点/历史所有者的来源，例如把 after 映射设计成 WeakMap 并按活历史维护必要记录，或按源代和撤销事件显式释放。保留仍能撤销的来源与回收已淘汰来源必须用同一所有权模型，不要一边固定截断、一边从 START 永久保存。
+
+### 22. 性质 5 对整篇文档使用一个已知限制开关，导致正常块的失败不被断言
+
+- **严重程度**：建议；**类别**：测试。
+- **位置**：`packages/neuro-book/src/plugins/editor/web/markdown/codec/properties.test.ts:185–194,329–333`（`startsWithHtmlBlock` 的全篇布尔值）。
+- **现象**：性质测试只要文档任意处有“段首 HTML 原样片段”或独占标签，就令本步 `unrepresentable` 直接 return。将文档 `前<div>原样</div>尾\n\n正常段` 在第一段拆分后，再在正常段输入私用区字符，失败位置是正常段 `from:3,to:7`，但 `startsWithHtmlBlock` 仍为 true，于是该性质通过跳过。
+- **为什么是问题**：Spec 的已知限制只适用于受影响的那个原样片段，不能成为整篇失败的豁免。当前条件没有把 `result.from/to` 与限制节点范围相交，也不检查 failure 的来源区间；它能掩盖列表、批注、长段和任意其它块的回归。性质 5 因此没有验证“正常编辑不写不出”的声明。
+- **如何核实**：`bun zz-review-lab/omp/property-skip.ts`，直接调用与测试同一 `startsWithHtmlBlock` 判据模型和公共 codec：`skip:true`，而返回失败区间落在普通段，不含 rawInline。未改动测试文件，实验只验证其条件的可观察漏洞。
+- **建议改法**：已知限制按节点身份/来源区间与失败区间精确匹配，只跳过该限制确实涉及的失败；其它失败继续断言。测试再加一个同篇有 raw 限制、另一个普通块不可写的组合，变异检查应确认它失败。
+
+第 22 条复现勘正：上段第一次实验的 `from:3,to:7` 实际落在拆出的 rawInline 段，不足以证明“别处失败被跳过”，不采用该位置说明。已把普通段移到前面，脚本现用 `正常段\n\n前<div>原样</div>尾`，拆后者、在第一段输入 U+E000；实测失败 `from:0,to:6`，文档第一段为 `正\uE000常段`，后面的第三段才是已知 HTML 限制，仍 `skip:true`。以此修正后的实测为准，结论不变。
+
+第 19 条的降级最坏路径补测：`bun zz-review-lab/omp/fallback-discover.ts` 找到实际会从 minimal 升到 full 的合法段落；`bun zz-review-lab/omp/fallback-scale.ts` 将同一组“普通文字反引号/括号、粗体反斜杠竖线、斜体美元、删除线下划线”重复 1 / 4 / 16 / 64 / 256 次。19 / 76 / 304 / 1,216 / 4,864 字符，三次写出中位分别为 **12.73 / 22.59 / 70.16 / 266.09 / 1,701.70 ms**，全部返回成功。输出前半仍有大量完全转义、最后约两组已撤回，符合只试最后 32 个候选的实现；达到上限没有计划第三版修订 8 要求的诊断（WriteResult 成功只有 text/record）。因此“候选有上限”只保证次数有限，不能保证 16 ms；该实测无需假设所有标点都会触发降级。
+
+第 18 条的递归补测边界：`bun zz-review-lab/omp/lexer-overflow.ts` 的 2,000 层 `<b>`、14,001 字符已完成，read **12,263.69 ms**；随后 6,000 层没有在整条 120 秒时限内完成，命令被终止，10,000 层未执行。没有观察到 read 抛错，不把超时写成栈溢出，也未重跑该输入确认。
+
+### 23. 性质测试的字节判据仍是 includes，重复原文的丢失和间隔变化均不可检出
+
+- **严重程度**：建议；**类别**：测试。
+- **位置**：`packages/neuro-book/src/plugins/editor/web/markdown/codec/properties.test.ts:34–43,108–182,315,334–343`。
+- **现象**：文档中有两段相隔几段的 `__甲__`，把第一段错误改写成 `**甲**`、保留第二段。性质测试采用的 canonical sameDoc 为 true，所有 `result.text.includes(origin.unit.raw)` 也仍为 true，尽管原写法的出现次数从 2 变成 1。性质 5 不断言未动间隔，也没有按来源定位或检查顺序；生成编辑序列最多八步，恰好覆盖不到第 1 条超过八代的来源截断。
+- **为什么是问题**：第三版修订 12 和设计复审已经要求“按事务足迹、上下文闭包、边界修复独立算补集，按位置/顺序/次数验字节”。当前 nearEdit 额外放宽相邻块，最后仍只做全串包含；sameDoc 又忽略写法和批注身份，二者不能相互补足。末尾所谓“撤销”直接写 `read.doc`，不是逐步经过 PM 历史，也没有验证中间代撤销的字节。
+- **如何核实**：`bun zz-review-lab/omp/oracle-probe.ts` 把明确损坏的候选代入测试相同的 canonical 比较和 includes 判据，实测 `sameDoc:true, allRawIncludes:true, sourceOccurrences:2, badOccurrences:1`。这是独立验证测试 oracle 不足，不宣称当前 writer 必然生成该候选；第 1、3、4 条已有真实 writer 漏网问题作为实际影响。
+- **建议改法**：按来源实例建立输出区间映射，对补集逐段、逐间隔比较；相同文本不能共享一次包含命中。增加超过八次 accepted writes 后真实 undo/redo、同原文重复块移动/删除、未改间隔空白、批注覆盖范围与意见的独立判据。保留有意义的随机测试，但不能拿被测比较器放宽后的相等代替产品合同。
+
+### 24. 硬换行被统一当作无标记节点，合法的换行批注意见静默丢失
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`packages/neuro-book/src/plugins/editor/web/markdown/codec/compare.ts:61–82,135–136`；`syntax/core/index.ts:363`；`syntax/comment/index.ts:125–139,313–323`。
+- **现象**：在真实 Editor 中打开 `前<br>后`，只选中换行调用 `addComment("换行意见")`，命令返回 true，文档 hardBreak 确实带着 comment/body，但成功写出仍是 `前<br>后`，批注完全消失。外部原文 `前<comment body="意见"><br></comment>后` 能读进来；只改最前面的“前”，写回也删除整条意见。
+- **为什么是问题**：硬换行的视觉粗体可以按两边共同标记整理，但批注承载独立意见与身份，不能因为“标记看不出来”就消除数据。flatten 清空 hardBreak 的全部 marks，bridge 只恢复前后都有的，比较器又不比较换行上的标记，因此正常格式层命令所创建的批注没有任何保护。输出 11 没有禁止批注仅覆盖换行；表达不了也应显式失败或保原样，不能返回成功丢意见。
+- **如何核实**：`bun zz-review-lab/omp/break-comment.ts`，三项均为已挂载真实 Editor；最后一项使用实际 `setTextSelection({from:2,to:3})`、`addComment`，写前树和写后字符串可直接对照。不是手工构造不可能的 hardBreak mark。
+- **建议改法**：区分纯视觉标记和带内容/身份的批注，后者按实际 hardBreak marks 编排，必要时用 `<comment …><br></comment>` 表达；只盖文字的 mark 仍可拒绝不合法选区。对应的比较与 prepareWrite opening 计数必须保留这类批注，不能把所有换行标记一律忽略。
+
+### 25. frontmatter 在 EOF 闭合且没有末尾换行时，正文任何输入都写不出
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`packages/neuro-book/src/plugins/editor/web/markdown/codec/source.ts:15–35`（允许闭分隔符到 EOF）；`codec/write.ts:207–218,388–401`。
+- **现象**：打开合法文件 `---\na: 1\n---`（闭合 `---` 后没有换行），在空正文输入“正文”，writer 返回 `{ok:false,code:"unrepresentable",reason:"正文开头会被读成 frontmatter"}`。BOM/CRLF 版本同样失败；原文多一个末尾换行则正常写出正文。
+- **为什么是问题**：splitFrontmatter 明确接受 EOF 闭合，prefix 保持到最后的 `---`，但新正文前的 gap 仍生成空字符串。直接拼接成 `---正文` 后，闭分隔符不再独占一行，最终 frontmatter 检查只能拒绝。这里有无损可表达的写法：在保持前缀已有字节之后，给新正文补一个结构换行；不需要更改任何 frontmatter 内容，也不是 Spec 的已知不可写状态。
+- **如何核实**：`bun zz-review-lab/omp/frontmatter-probe.ts`，四个样例均用已挂载真实 Editor 输入“正文”；两个无末尾换行的 frontmatter 版本失败，有末尾换行和只有 BOM 的对照成功。
+- **建议改法**：SourceMap 显式记录前缀是否以行结束符结尾，首次出现非空正文时生成前缀/正文之间必要的结构换行；空正文不编辑仍逐字节写回。窗口读回/前缀检验覆盖该边界，补仅 frontmatter 的 EOF、LF、CRLF、BOM 组合。
+
+### 26. minimal 模式仍无条件多转义，不触发降级时不会撤回
+
+- **严重程度**：建议；**类别**：合同。
+- **位置**：`packages/neuro-book/src/plugins/editor/web/markdown/codec/render/escape.ts:156–176`；`codec/write.ts:376–385`。
+- **现象**：普通文字 `a == b == c` 写成 `a \== b \== c`，`a ~~ b ~~ c` 写成 `a \~~ b \~~ c`，残缺的 `a <tag` 写成 `a \<tag`，无效命名实体 `a &unknown; b` 写成 `a \&unknown; b`。这四个原字符串直接经同一个公共 reader 读入，都与目标普通文字相同，不需要任何转义。
+- **为什么是问题**：`~`/`=` 只查前后有无同串，没采用实际侧翼规则；`<` 只查下个字符像标签而不查标签能否形成；实体正则也没查 HTML5 表。多加的转义仍能读回，校验不会失败，只有 full 层才试撤回，所以这条“最小转义”的合同没有闭环。输出 4 特别要求只在会读成语法时转义。
+- **如何核实**：`bun zz-review-lab/omp/minimality-probe.ts`，前四项 `unescapedSame:true`，writer 字符串却都有多余反斜杠；对照行内代码 `` `a`b`c` `` 为 false，证明实验不是把所有无转义输入都当相同。
+- **建议改法**：对 `~~`/`==` 复用实际开闭侧翼判定，对标签/实体采用实际识别范围；最小化判据应在明确字符串测试中覆盖“看起来像、实际上不是语法”的反例，不能只测试确实需要转义的样例。到 full 候选上限的已接受取舍与本条无关。
+
+第 7 条写法保持的补充：`bun zz-review-lab/omp/markup-style.ts` 使用真实 Editor 在句首插字，`前<B>粗</B>后\n`、`前<STRONG>粗</STRONG>后\n` 分别被改成 `改前**粗**后\n`；`前<BR />后\n` 改成小写 `<br>`；`前![图][]后\n\n[图]: a.png\n` 和 shortcut 图片也改成行内形式。原因分别在 `syntax/core/write.ts:221` 的小写标签正则、`core/index.ts:174` 只保存 `br` 而不保原标签串，以及 `core/write.ts:289–293` 只实现 reference 图片而无 collapsed/shortcut；这些原写法都能读回，不是不得已降级。应与第 7 条同属“写法模型未覆盖合同”的修正，不另加数量。
+
+第 20 条读回窗口与降级次数补测：`bun zz-review-lab/omp/window-scale.ts` 新建 10 / 50 / 100 / 200 个相邻独立 bulletList，都是合法 schema，写出成功且整篇重读列表数正确；总耗时 **57.19 / 279.09 / 843.90 / 2,923.12 ms**。所有变动项合并成一个大窗口，每修一个列表符号又重读该窗口；`windows().map(check).find(...)` 还会先检查所有窗口而非首错即停。阶梯轮数有上限，实测会终止，但“有上限”不等于线性或满足交互时延，应按冲突批量修复边界再验证。
+
