@@ -21,6 +21,8 @@
 - [规格驱动开发：文档分工与 Spec 写法](spec-and-docs-governance.md)：各类文档的分工与寿命、Spec 写什么不写什么、提案与 ADR 的 frontmatter 与机检、规格驱动与验收先行的开发方式。
 - [Storage 跨设备同步](storage-service-and-sync.md)：跨独立 data 在线同步的身份对齐、复制确认、冲突与删除收敛。
 - [书架页](bookshelf.md)：没打开项目时的首页，继续写作与书脊书架，作品信息与统计的来源。
+- [V9 小说记忆图](novel-memory-v9.md)：读者视角的小说记忆图，模型只写章草稿，其余记录由程序生成；评测在 w00005 分支上，2026-10-15 搬到 master。
+- [剧情图谱（nb-story）第一版](novel-story-app.md)：用 V9 记忆图做查看器、问答、命令行与 Skill，先独立服务、后接插件；界面设计定在 w00024 t01。
 
 ### 旧应用的提案（只作参照）
 
