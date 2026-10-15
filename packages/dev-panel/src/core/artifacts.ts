@@ -1,10 +1,23 @@
 import {createHash, randomBytes} from "node:crypto";
 import {lstat, readdir, readFile} from "node:fs/promises";
-import {join, resolve} from "node:path";
+import {join, posix, resolve} from "node:path";
 import {NbdevError, systemErrorCode, type Warning} from "./errors.js";
 import {gitOutput, splitNul} from "./git.js";
 import {isIsoTime, isNullableString, isOtherSchemaVersion, isRecord, isStringArray} from "./json.js";
-import {isEarlierPageQuestion, QUESTION_ID_PATTERN, QUESTION_TYPES, validateAnswerValue, type MarkupQuestion, type QuestionDefinition, type QuestionOption, type QuestionType} from "./questions.js";
+import {
+    isEarlierPageQuestion,
+    parseQuestionMarkup,
+    QUESTION_ID_PATTERN,
+    QUESTION_TYPES,
+    scriptWritesQuestionMarkup,
+    validateAnswerValue,
+    type MarkupQuestion,
+    type ParsedMarkup,
+    type QuestionDefinition,
+    type QuestionOption,
+    type QuestionType,
+} from "./questions.js";
+import {cssReferences, scriptImports} from "./references.js";
 import {readTitle} from "./frontmatter.js";
 import {WORKS_ROOT} from "./repo.js";
 
@@ -49,6 +62,11 @@ export type ArtifactVersion = {
     state: "open" | "closed";
     entry: string | null;
     contentHash: string | null;
+    /**
+     * 这一版文件集里的路径（相对产物目录，UTF-8 字节序）；Task 的提问集为 null，旧记录没有这个字段时读成空清单。
+     * 发布记录先落盘、`git add` 后执行：add 失败时 `--include` 的文件还没被跟踪，面板与下一次发布靠这份清单找回同一个文件集。
+     */
+    files: string[] | null;
     questions: VersionQuestion[];
     publishedAt: string;
 };
@@ -194,6 +212,8 @@ export function parseArtifactVersion(text: string, ref: ArtifactRef, version: nu
     if (typeof value.title !== "string" || (value.state !== "open" && value.state !== "closed") || !isNullableString(value.entry) || !isNullableString(value.contentHash)) {
         return {problem: "title、state、entry、contentHash 不合规"};
     }
+    const files = value.files === undefined ? (value.kind === "questions" ? null : []) : value.files;
+    if (!(files === null || isStringArray(files))) return {problem: "files 不合规"};
     if (!isIsoTime(value.publishedAt) || !Array.isArray(value.questions)) return {problem: "publishedAt 或 questions 不合规"};
     const questions: VersionQuestion[] = [];
     const seen = new Set<string>();
@@ -218,6 +238,7 @@ export function parseArtifactVersion(text: string, ref: ArtifactRef, version: nu
             state: value.state,
             entry: value.entry,
             contentHash: value.contentHash,
+            files: files === null ? null : [...files],
             questions,
             publishedAt: value.publishedAt,
         },
@@ -576,9 +597,13 @@ export function closeQuestions(previous: ArtifactVersion, answeredIds: ReadonlyS
     return {questions, withdrawn};
 }
 
-// ---------- 页面文件与 contentHash ----------
+// ---------- 页面文件、文件集与 contentHash ----------
 
 export type ArtifactFile = {path: string; size: number};
+
+export const PAGE_PATTERN = /\.html?$/iu;
+export const STYLE_PATTERN = /\.css$/iu;
+export const SCRIPT_PATTERN = /\.m?js$/iu;
 
 function byUtf8(left: string, right: string): number {
     return Buffer.compare(Buffer.from(left, "utf8"), Buffer.from(right, "utf8"));
@@ -586,7 +611,7 @@ function byUtf8(left: string, right: string): number {
 
 /**
  * 产物目录里 Git 会跟踪的页面文件（已跟踪的加上没被忽略的新文件，只算磁盘上还在的），路径相对产物目录、按 UTF-8 字节序排列；
- * 不含 `versions/` 与 `answers/`。遇到符号链接就拒绝：链接指向的内容不在产物里，哈希与提交都会对不上。
+ * 不含 `versions/` 与 `answers/`。这是文件集的候选，文件集只从这里取。遇到符号链接就拒绝：链接指向的内容不在产物里，哈希与提交都会对不上。
  */
 export async function listArtifactFiles(mainRoot: string, ref: ArtifactRef): Promise<ArtifactFile[]> {
     const dir = artifactDirPath(ref);
@@ -608,15 +633,127 @@ export async function listArtifactFiles(mainRoot: string, ref: ArtifactRef): Pro
     return files.sort((left, right) => byUtf8(left.path, right.path));
 }
 
-/** 产物内容的哈希：对“路径、NUL、文件 sha256、换行”逐行求 sha256。t09 用它判断发布之后页面有没有被改过。 */
-export async function artifactContentHash(mainRoot: string, ref: ArtifactRef, files?: readonly ArtifactFile[]): Promise<string> {
-    const list = files ?? await listArtifactFiles(mainRoot, ref);
+function decodeURIComponentSafe(path: string): string {
+    try {
+        return decodeURIComponent(path);
+    } catch (error) {
+        // 不是合法的百分号编码：按字面路径判断。
+        if (!(error instanceof URIError)) throw error;
+        return path;
+    }
+}
+
+/** 一处引用归一化之后：`external` 是带协议的、`//` 开头的与页内锚点，不归产物管；`outside` 是 `/` 开头的或指出了产物目录。 */
+export type ResolvedReference = {kind: "external"} | {kind: "outside"} | {kind: "local"; path: string};
+
+/** 把 `from`（相对产物目录的文件）里写的引用归一化：去掉 `?…`、`#…`，百分号解码（解码失败按字面），按 `from` 所在目录解析。 */
+export function resolveReference(from: string, target: string): ResolvedReference {
+    if (/^[a-z][a-z0-9+.-]*:/iu.test(target) || target.startsWith("//") || target.startsWith("#")) return {kind: "external"};
+    const path = target.replace(/[?#].*$/u, "");
+    if (path === "") return {kind: "external"};
+    if (path.startsWith("/")) return {kind: "outside"};
+    const resolved = posix.normalize(posix.join(posix.dirname(from), decodeURIComponentSafe(path)));
+    if (resolved === ".." || resolved.startsWith("../")) return {kind: "outside"};
+    return {kind: "local", path: resolved};
+}
+
+/** 文件集里的文件写下的一处引用；`path` 为 null 表示指向产物目录之外。带协议的等不归产物管的引用不列。 */
+export type ArtifactReference = {page: string; line: number | null; target: string; path: string | null};
+
+export type ArtifactFileSet = {
+    /** 文件集，路径相对产物目录、按 UTF-8 字节序排列。 */
+    files: ArtifactFile[];
+    /** 候选里不在文件集里的文件（都没被跟踪），仓库根相对路径。 */
+    unreferenced: string[];
+    /** 文件集里的页面与解析结果，按路径排列。 */
+    pages: Array<{page: string; markup: ParsedMarkup}>;
+    /** 文件集里各文件写下的引用；文件集的闭包与引用检查共用这一份。 */
+    references: ArtifactReference[];
+    /** 文件集里的页面（内联脚本、模板）或脚本文件写了提问标记。 */
+    scriptMarkers: boolean;
+};
+
+/**
+ * 产物的文件集：从种子出发、沿引用做广度遍历直到不再增长，只取 `listArtifactFiles` 的候选。种子是入口、已跟踪的文件（`git ls-files --cached`）
+ * 与调用方给的 `seeds`（上一版的 `files` 与题所在的页面见 `versionSeeds`，再加 `--include`）；种子本身引用的文件同样追进来，
+ * 已经发布过的内容不会因为页面不再链接它而从哈希、提交与题表里掉出去。规则见 docs/file-formats.md 的“发布记录”。
+ * 页面经 `parseQuestionMarkup` 解析（按需加载 parse5），所以只在发布与面板的产物页上调用，`status` 不走这里。
+ */
+export async function artifactFileSet(root: string, ref: ArtifactRef, input: {entry: string | null; seeds: readonly string[]}): Promise<ArtifactFileSet> {
+    const dir = artifactDirPath(ref);
+    const candidates = new Map((await listArtifactFiles(root, ref)).map((file) => [file.path, file]));
+    const tracked = splitNul(await gitOutput(root, ["ls-files", "-z", "--cached", "--", `${dir}/`], {readOnly: true})).map((path) => path.slice(dir.length + 1));
+    const included = new Set<string>();
+    const queue: string[] = [];
+    const add = (path: string) => {
+        if (!candidates.has(path) || included.has(path)) return;
+        included.add(path);
+        queue.push(path);
+    };
+    if (input.entry !== null) add(input.entry);
+    for (const path of [...tracked, ...input.seeds]) add(path);
+
+    const pages: ArtifactFileSet["pages"] = [];
+    const references: ArtifactReference[] = [];
+    let scriptMarkers = false;
+    while (queue.length > 0) {
+        const path = queue.shift()!;
+        const found: Array<{target: string; line: number | null}> = [];
+        const read = () => readFile(resolve(root, dir, path), "utf8");
+        if (PAGE_PATTERN.test(path)) {
+            const markup = await parseQuestionMarkup(await read(), path);
+            pages.push({page: path, markup});
+            found.push(...markup.references);
+            scriptMarkers ||= markup.scriptMarkers;
+        } else if (STYLE_PATTERN.test(path)) {
+            found.push(...cssReferences(await read()).map(({target, lineOffset}) => ({target, line: lineOffset + 1})));
+        } else if (SCRIPT_PATTERN.test(path)) {
+            const text = await read();
+            scriptMarkers ||= scriptWritesQuestionMarkup(text);
+            found.push(...scriptImports(text).map(({target, lineOffset}) => ({target, line: lineOffset + 1})));
+        }
+        for (const {target, line} of found) {
+            const resolved = resolveReference(path, target);
+            if (resolved.kind === "external") continue;
+            references.push({page: path, line, target, path: resolved.kind === "local" ? resolved.path : null});
+            if (resolved.kind === "local") add(resolved.path);
+        }
+    }
+    const order = (left: {page: string}, right: {page: string}) => byUtf8(left.page, right.page);
+    return {
+        files: [...included].sort(byUtf8).map((path) => candidates.get(path)!),
+        unreferenced: [...candidates.keys()].filter((path) => !included.has(path)).map((path) => `${dir}/${path}`),
+        pages: pages.sort(order),
+        // 稳定排序：同一个文件里的引用保持出现的先后。
+        references: references.sort(order),
+        scriptMarkers,
+    };
+}
+
+/** 一版发布记录留给下一次发布与面板的种子：这一版的 `files`，以及题表里题所在的页面（没被链接、但有题的页面不会被当作删了）。 */
+export function versionSeeds(version: ArtifactVersion | null): string[] {
+    if (!version) return [];
+    return [...(version.files ?? []), ...version.questions.flatMap((question) => (question.page === null ? [] : [question.page]))];
+}
+
+/** 产物内容的哈希：对文件集里每个文件的“路径、NUL、文件 sha256、换行”逐行求 sha256。t09 用它判断发布之后页面有没有被改过。 */
+export async function artifactContentHash(root: string, ref: ArtifactRef, files: readonly ArtifactFile[]): Promise<string> {
     const hash = createHash("sha256");
     const dir = artifactDirPath(ref);
-    for (const file of list) {
-        hash.update(`${file.path}\0${sha256Hex(await readFile(resolve(mainRoot, dir, file.path)))}\n`);
+    for (const file of files) {
+        hash.update(`${file.path}\0${sha256Hex(await readFile(resolve(root, dir, file.path)))}\n`);
     }
     return hash.digest("hex");
+}
+
+/**
+ * 按最新一版的种子重算磁盘上的哈希（面板的“发布后有改动”）；种子与发布时相同，`--include` 已经记在 `files` 里。
+ * 没有页面的版本（Task 的提问集）返回 null。产物目录里有符号链接时抛 `unsafe_path`。
+ */
+export async function currentContentHash(root: string, ref: ArtifactRef, latest: ArtifactVersion): Promise<string | null> {
+    if (latest.entry === null || latest.contentHash === null) return null;
+    const set = await artifactFileSet(root, ref, {entry: latest.entry, seeds: versionSeeds(latest)});
+    return artifactContentHash(root, ref, set.files);
 }
 
 // ---------- 文档类产物 ----------

@@ -12,6 +12,7 @@ import {AGENT_LOCAL_ROOT} from "../core/registry.js";
 import {listCheckouts, type CheckoutInfo, type RepoContext} from "../core/repo.js";
 import {collectDescendants, currentBootId, evaluateRun, mergeRefs, newRunId, readProcRecord, readProcRecords, stopRunProcesses, updateProcRecord, withProcsLock, writeProcRecord, PROC_SCHEMA, listProcRuns, type ProcRecord, type ProcRef, type RunEvaluation, type RunView as ProcRunView, type StartedBy} from "../core/procs.js";
 import {compileReadyPattern, createReadyMatcher, LineSplitter, readyStatus, stripAnsi} from "./ready.js";
+import {followSample, SAMPLE_ENV, type SampleReport} from "./sample.js";
 
 /**
  * `nbdev dev start`、`dev status`、`dev stop`（t14）。合同见 docs/cli.md 的“dev”，登记见 docs/file-formats.md。
@@ -36,11 +37,17 @@ const LEFTOVER_GRACE_MS = 3_000;
 export type DevEvent =
     | {event: "ready"; runId: string; url: string; logPath: string; pid: number | null; reused: boolean; owner: string | null}
     | {event: "not_ready"; runId: string; logPath: string; lastStatus: number | null; reused: boolean; owner: string | null}
-    | {event: "exited"; runId: string; exitCode: number | null; signal: string | null; leftovers: number};
+    | {event: "exited"; runId: string; exitCode: number | null; signal: string | null; leftovers: number}
+    | {event: "sample"; runId: string; url: string}
+    | {event: "sample_failed"; runId: string; reason: string};
+
+function sampleEvent(runId: string, report: SampleReport): DevEvent {
+    return report.ok ? {event: "sample", runId, url: report.url} : {event: "sample_failed", runId, reason: report.reason};
+}
 
 export type DevTarget = {checkout: CheckoutInfo; key: string; packageDir: string; script: string};
 
-export type DevStartInput = {checkoutRef: string | null; packageDir: string; script: string; task: {workId: string; taskId: string} | null; readyPattern: string | null; readyTimeoutMs: number; graceMs: number};
+export type DevStartInput = {checkoutRef: string | null; packageDir: string; script: string; task: {workId: string; taskId: string} | null; readyPattern: string | null; readyTimeoutMs: number; graceMs: number; sample: boolean; sampleTimeoutMs: number};
 
 /** 找 checkout：`--checkout` 写 key 或路径；不写时取调用者所在的 checkout。 */
 export async function resolveDevTarget(context: RepoContext, checkoutRef: string | null, packageDir: string, script: string, cwd: string): Promise<DevTarget> {
@@ -236,8 +243,12 @@ export async function devStart(context: RepoContext, cwd: string, input: DevStar
         // O_CREAT|O_EXCL：两份服务不会写进同一个日志、认到对方的就绪行（t14 设计审查 S3）。
         const fd = openSync(logPath, "wx", 0o600);
         const argv = [setpriv, "--pdeathsig", "TERM", "--", setsid, process.execPath, "run", target.script];
+        // 不带 --sample 时去掉调用者环境里的 NBDEV_SAMPLE：登记里的 sample 要与应用收到的一致（t18）。
+        const childEnv: NodeJS.ProcessEnv = {...env};
+        if (input.sample) childEnv[SAMPLE_ENV] = "1";
+        else delete childEnv[SAMPLE_ENV];
         try {
-            child = spawn(argv[0]!, argv.slice(1), {cwd: packageRoot, env, stdio: ["pipe", fd, fd]});
+            child = spawn(argv[0]!, argv.slice(1), {cwd: packageRoot, env: childEnv, stdio: ["pipe", fd, fd]});
         } finally {
             closeSync(fd);
         }
@@ -247,7 +258,7 @@ export async function devStart(context: RepoContext, cwd: string, input: DevStar
         if (startTicks === null) throw new NbdevError("dev_exited", `服务刚起就退出了，日志：${logPath}`, {details: {logPath}});
         const record: ProcRecord = {
             schema: PROC_SCHEMA, runId, kind: "dev", checkout: target.checkout.root, checkoutKey: target.key, package: target.packageDir, script: target.script,
-            argv: ["bun", "run", target.script], readyPattern: input.readyPattern, workId: input.task?.workId ?? null, taskId: input.task?.taskId ?? null, logPath, bootId,
+            argv: ["bun", "run", target.script], readyPattern: input.readyPattern, sample: input.sample, workId: input.task?.workId ?? null, taskId: input.task?.taskId ?? null, logPath, bootId,
             startedAt: new Date().toISOString(), startedBy, supervisor: {pid: process.pid, startTicks: supervisorTicks}, pid, pgid: pid, startTicks, descendants: [],
             url: null, readyAt: null, lastProbeStatus: null, stoppingAt: null, stoppedBy: null, endedAt: null, endedReason: null, exitCode: null, signal: null, leftovers: null, leftoverPids: [],
         };
@@ -267,11 +278,41 @@ async function reuse(context: RepoContext, record: ProcRecord, evaluation: RunEv
     const differences: string[] = [];
     if (input.readyPattern !== null && input.readyPattern !== record.readyPattern) differences.push("ready-pattern");
     if (input.task && (input.task.workId !== record.workId || input.task.taskId !== record.taskId)) differences.push("work/task");
+    if (input.sample !== record.sample) differences.push("sample");
     if (differences.length > 0) warnings.push({code: "reused_with_different_options", message: `复用了已在跑的服务，这些参数与它起时不同、没有生效：${differences.join("、")}`, details: {runId: record.runId, differences}});
     const owner = record.startedBy?.key ?? null;
     const mine = caller.kind === "session" && owner === caller.ref.key;
     if (!mine) warnings.push({code: "reused_other_owner", message: `这份服务由 ${owner ?? "未认出的调用者"} 起，随它的会话结束而停；要独立的一份请换 checkout`, details: {runId: record.runId, owner}});
     if (evaluation.state === "orphaned") warnings.push({code: "supervisor_gone", message: `没有人监管 ${record.runId}（监管进程不在了），用完请 nbdev dev stop ${record.runId}`, details: {runId: record.runId}});
+    // 等的时候每秒重读一次登记：复用的服务在就绪之前结束了就不再等满时限、也不打 NOT_READY（t14 实现审查 S1）。
+    // 等样例结果时同样（t18）：结束了就打 EXITED，之后不再补发样例结果。
+    const bootId = await currentBootId();
+    let ended: ProcRecord | null = null;
+    let nextCheck = 0;
+    const checkEnded = async (): Promise<boolean> => {
+        if (Date.now() < nextCheck) return false;
+        nextCheck = Date.now() + 1_000;
+        const latest = await readProcRecord(context.mainRoot, record.runId) ?? record;
+        if ((await evaluateRun(latest, bootId)).state !== "ended") return false;
+        ended = latest;
+        return true;
+    };
+    const exited = (): DevStartResult => {
+        const gone: ProcRecord = ended!;
+        emitEvent({event: "exited", runId: record.runId, exitCode: gone.exitCode, signal: gone.signal, leftovers: gone.leftovers ?? 0});
+        return {exitCode: 1, warnings};
+    };
+    // 打过 READY 之后：带 --sample 时等本代的样例结果（最多 --sample-timeout），打 SAMPLE 或 SAMPLE_FAILED 再以 0 退出。
+    const afterReady = async (url: string): Promise<DevStartResult> => {
+        if (!input.sample) return {exitCode: 0, warnings};
+        // 它起时没有 NBDEV_SAMPLE，应用不会报结果：不必等满时限。
+        if (!record.sample) {
+            emitEvent({event: "sample_failed", runId: record.runId, reason: "复用的服务起时没有带 --sample，应用没有准备样例"});
+            return {exitCode: 0, warnings};
+        }
+        await followSample(record.logPath, {readyUrl: url, tail: true, timeoutMs: input.sampleTimeoutMs, follow: false, shouldStop: checkEnded, emit: (report) => emitEvent(sampleEvent(record.runId, report))});
+        return ended !== null ? exited() : {exitCode: 0, warnings};
+    };
     if (record.readyAt && record.url) {
         if (!await urlReady(record.url)) {
             throw new NbdevError("dev_unresponsive", `同键的 ${record.runId} 登记为已就绪，但地址 ${record.url} 现在连不上：先 nbdev dev stop ${record.runId}${mine || evaluation.state === "orphaned" ? "" : "（不是你起的、它的属主还在要加 --force）"}，再起`, {
@@ -279,29 +320,14 @@ async function reuse(context: RepoContext, record: ProcRecord, evaluation: RunEv
             });
         }
         emitEvent({event: "ready", runId: record.runId, url: record.url, logPath: record.logPath, pid: record.pid, reused: true, owner});
-        return {exitCode: 0, warnings};
+        return afterReady(record.url);
     }
-    // 等的时候每秒重读一次登记：复用的服务在就绪之前结束了就不再等满时限、也不打 NOT_READY（t14 实现审查 S1）。
-    const bootId = await currentBootId();
-    let ended: ProcRecord | null = null;
-    let nextCheck = 0;
     const result = await waitReady(record.logPath, record.readyPattern, {
         deadline: Date.now() + input.readyTimeoutMs,
         onUrl: async () => undefined,
-        shouldStop: async () => {
-            if (Date.now() < nextCheck) return false;
-            nextCheck = Date.now() + 1_000;
-            const latest = await readProcRecord(context.mainRoot, record.runId) ?? record;
-            if ((await evaluateRun(latest, bootId)).state !== "ended") return false;
-            ended = latest;
-            return true;
-        },
+        shouldStop: checkEnded,
     });
-    if (ended !== null) {
-        const gone: ProcRecord = ended;
-        emitEvent({event: "exited", runId: record.runId, exitCode: gone.exitCode, signal: gone.signal, leftovers: gone.leftovers ?? 0});
-        return {exitCode: 1, warnings};
-    }
+    if (ended !== null) return exited();
     const fresh = await readProcRecord(context.mainRoot, record.runId) ?? record;
     if (result.ready && result.url) {
         // 认出就绪写回登记（锁内，只在还没有 readyAt 时写）：`dev status --wait-ready`、`shot` 只看登记（t14 实现审查 I3）。
@@ -313,7 +339,9 @@ async function reuse(context: RepoContext, record: ProcRecord, evaluation: RunEv
             entry.lastProbeStatus = result.lastStatus;
         });
         emitEvent({event: "ready", runId: record.runId, url: result.url, logPath: record.logPath, pid: fresh.pid, reused: true, owner});
-    } else emitEvent({event: "not_ready", runId: record.runId, logPath: record.logPath, lastStatus: result.lastStatus, reused: true, owner});
+        return afterReady(result.url);
+    }
+    emitEvent({event: "not_ready", runId: record.runId, logPath: record.logPath, lastStatus: result.lastStatus, reused: true, owner});
     return {exitCode: 0, warnings};
 }
 
@@ -392,6 +420,14 @@ async function supervise(context: RepoContext, initial: ProcRecord, child: Child
                 entry.lastProbeStatus = result.lastStatus;
             });
             emitEvent({event: "ready", runId, url, logPath: record.logPath, pid: record.pid, reused: false, owner: record.startedBy?.key ?? null});
+            if (!input.sample) return;
+            // 样例结果在 READY 之后才到（t18）：接着读日志，后端每重启一代、报一次结果就打一行，直到服务退出或开始停。
+            // 下面先等这一段结束再打 EXITED，所以 EXITED 之后不会再有样例结果。
+            await followSample(record.logPath, {
+                readyUrl: url, tail: false, timeoutMs: input.sampleTimeoutMs, follow: true,
+                shouldStop: () => leaderGone || stopping !== null,
+                emit: (report) => emitEvent(sampleEvent(runId, report)),
+            }).catch((error: unknown) => warnings.push({code: "sample_watch_failed", message: `读日志等样例结果时出错：${error instanceof Error ? error.message : String(error)}`}));
         });
         const {code, signal} = await exited;
         await readiness.catch((error: unknown) => warnings.push({code: "ready_watch_failed", message: `读日志认就绪时出错：${error instanceof Error ? error.message : String(error)}`}));

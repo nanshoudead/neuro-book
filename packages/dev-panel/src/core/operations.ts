@@ -9,7 +9,7 @@ import type {Caller, DeveloperCaller} from "./identity.js";
 import {releaseTaskLeases, touchCallerLease, type LeaseEffects, type LeaseOptions} from "./lease-ops.js";
 import {isClaimedTask, readRegistry, type RegistryBy} from "./registry.js";
 import {existsInCommit, listCheckouts, WORKS_ROOT, type RepoContext} from "./repo.js";
-import {findConflicts, nextTaskNumber, nextWorkNumber, scanNumbers, type NumberConflict, type NumberScan} from "./scan.js";
+import {findConflicts, nextTaskNumber, nextWorkNumber, partitionConflicts, scanNumbers, type ClaimedNumber, type NumberConflict, type NumberScan} from "./scan.js";
 import {chooseExecutionCheckout, findBranchRecordChanges, type ExecutionCheckout} from "./sources.js";
 import {matchRef} from "./status.js";
 import {taskReadmeTemplate, workReadmeTemplate} from "./templates.js";
@@ -18,7 +18,10 @@ import {recordDate, runWriteTransaction, sha256, type CommitOutcome, type Transa
 import {assertNotStagedRename, readUncommitted} from "./uncommitted.js";
 
 export type OperationResult<T> = {data: T; commit: CommitOutcome; warnings: Warning[]};
-export type CreateResult = {workId: string; taskId: string; paths: string[]; conflicts: NumberConflict[]; registryOnly: string[]} & LeaseEffects;
+/** `conflicts` 只有涉及这次领号的撞号，`otherConflicts` 是其余撞号的组数。 */
+export type CreateResult = {workId: string; taskId: string; paths: string[]; conflicts: NumberConflict[]; otherConflicts: number; registryOnly: string[]} & LeaseEffects;
+/** `skipLease`：命令行的 `--no-lease`，不取得租约、不写 pane 标签；登记表的 `by` 照记调用者。 */
+export type CreateOptions = TransactionOptions & Partial<LeaseOptions> & {skipLease?: boolean};
 export type SetStatusResult = {workId: string; taskId: string | null; path: string; previous: unknown; next: string; changed: boolean};
 export type ImportResult = {
     added: string[];
@@ -44,11 +47,16 @@ function conflictWarning(conflicts: readonly NumberConflict[]): Warning | null {
     };
 }
 
-async function reportConflicts(tx: WriteTx, scan: NumberScan): Promise<{conflicts: NumberConflict[]; registryOnly: string[]}> {
+/**
+ * 查撞号并给 `number_conflicts` 警告。给了 `claimed`（领号命令）时只报涉及这些号的撞号，其余的只计组数：
+ * 别处的旧撞号与这次领号无关，每次新建都列一遍只会淹没真正要看的。不给时（`registry import`）报全部。
+ */
+async function reportConflicts(tx: WriteTx, scan: NumberScan, claimed?: readonly ClaimedNumber[]): Promise<{conflicts: NumberConflict[]; otherConflicts: number; registryOnly: string[]}> {
     const found = await findConflicts(tx.context.mainRoot, scan);
-    const warning = conflictWarning(found.conflicts);
+    const {related, others} = claimed === undefined ? {related: found.conflicts, others: 0} : partitionConflicts(found.conflicts, claimed);
+    const warning = conflictWarning(related);
     if (warning) tx.warn(warning);
-    return found;
+    return {conflicts: related, otherConflicts: others, registryOnly: found.registryOnly};
 }
 
 type WritableWork = {workId: string; execution: ExecutionCheckout | null};
@@ -116,7 +124,7 @@ export async function resolveWritableTask(tx: RecordScope, workRef: string, task
 }
 
 /** 领号新建 Work 与首个 Task（Work 必须至少有一个 Task），提交这两个 README。 */
-export async function createWork(context: RepoContext, input: CreateInput, options: TransactionOptions & Partial<LeaseOptions> = {}): Promise<OperationResult<CreateResult>> {
+export async function createWork(context: RepoContext, input: CreateInput, options: CreateOptions = {}): Promise<OperationResult<CreateResult>> {
     assertSlug(input.slug);
     assertSlug(input.taskSlug);
     const title = assertTitle(input.title, "Work 标题");
@@ -133,7 +141,7 @@ export async function createWork(context: RepoContext, input: CreateInput, optio
         const workId = formatWorkId(number, input.slug);
         const taskId = formatTaskId(1, input.taskSlug);
         // 撞号检查要在领号之前做：领了号还没落位时，新 id 只在登记表里，会被误报成 registryOnly。
-        const found = await reportConflicts(tx, scan);
+        const found = await reportConflicts(tx, scan, [{kind: "work", number: workNumberLabel(number)}, {kind: "task", workId, number: taskNumberLabel(1)}]);
         tx.claimWork(workId, byOf(options.caller));
         tx.claimTask(workId, taskId, byOf(options.caller));
         const date = recordDate(tx.now);
@@ -147,13 +155,13 @@ export async function createWork(context: RepoContext, input: CreateInput, optio
             result: {workId, taskId, paths: [workReadmePath(workId), taskReadmePath(workId, taskId)], ...found},
         };
     });
-    // 提交失败但文件已写、号已领时也取得租约：会话会接着在这个 Task 上做。
-    const lease = await touchCallerLease(context, {workId: result.workId, taskId: result.taskId, action: "work new"}, leaseOptionsOf(options), warnings);
+    // 提交失败但文件已写、号已领时也取得租约：会话会接着在这个 Task 上做。`--no-lease` 两种情况都不取。
+    const lease = options.skipLease ? null : await touchCallerLease(context, {workId: result.workId, taskId: result.taskId, action: "work new"}, leaseOptionsOf(options), warnings);
     return {data: {...result, lease, released: []}, commit, warnings};
 }
 
 /** 领该 Work 的下一个 Task 号，建 Task README 并提交；记录还在分支上维护的 Work 也一律写进 master。 */
-export async function createTask(context: RepoContext, input: CreateTaskInput, options: TransactionOptions & Partial<LeaseOptions> = {}): Promise<OperationResult<CreateResult>> {
+export async function createTask(context: RepoContext, input: CreateTaskInput, options: CreateOptions = {}): Promise<OperationResult<CreateResult>> {
     assertSlug(input.slug);
     const title = assertTitle(input.title, "Task 标题");
     if (input.goal !== undefined) assertPlainText(input.goal, "goal", true);
@@ -163,7 +171,7 @@ export async function createTask(context: RepoContext, input: CreateTaskInput, o
         const scan = await tx.scan();
         const number = nextTaskNumber(scan, workId);
         const taskId = formatTaskId(number, input.slug);
-        const found = await reportConflicts(tx, scan);
+        const found = await reportConflicts(tx, scan, [{kind: "task", workId, number: taskNumberLabel(number)}]);
         tx.claimTask(workId, taskId, byOf(options.caller));
         const date = recordDate(tx.now);
         tx.createDirectory(`${WORKS_ROOT}/${workId}/tasks/${taskId}`, {
@@ -174,7 +182,7 @@ export async function createTask(context: RepoContext, input: CreateTaskInput, o
             result: {workId, taskId, paths: [taskReadmePath(workId, taskId)], ...found},
         };
     });
-    const lease = await touchCallerLease(context, {workId: result.workId, taskId: result.taskId, action: "task new"}, leaseOptionsOf(options), warnings);
+    const lease = options.skipLease ? null : await touchCallerLease(context, {workId: result.workId, taskId: result.taskId, action: "task new"}, leaseOptionsOf(options), warnings);
     return {data: {...result, lease, released: []}, commit, warnings};
 }
 
@@ -376,14 +384,14 @@ export async function previewCreateTask(context: RepoContext, input: CreateTaskI
 export async function importRegistry(context: RepoContext, options: TransactionOptions = {}): Promise<OperationResult<ImportResult>> {
     const {result, commit, warnings} = await runWriteTransaction(context, {...options, repoWrites: false}, async (tx) => {
         const scan = await tx.scan();
-        const found = await reportConflicts(tx, scan);
+        const {conflicts, registryOnly} = await reportConflicts(tx, scan);
         const nextTaskNumbers: Record<string, string> = {};
         for (const workId of [...new Set([...scan.works.keys(), ...scan.tasks.keys()])].sort()) {
             if (parseWorkId(workId)) nextTaskNumbers[workId] = taskNumberLabel(nextTaskNumber(scan, workId));
         }
         return {
             message: null,
-            result: {added: [...tx.imported], nextWorkNumber: workNumberLabel(nextWorkNumber(scan)), nextTaskNumbers, ...found},
+            result: {added: [...tx.imported], nextWorkNumber: workNumberLabel(nextWorkNumber(scan)), nextTaskNumbers, conflicts, registryOnly},
         };
     });
     return {data: result, commit, warnings};

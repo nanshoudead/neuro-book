@@ -22,11 +22,11 @@ import type {SettingsService} from "nbook/shared/settings";
 
 import {librarySetting, projectsRemoteContract} from "../shared/contracts";
 import {projectDirectoryName} from "../shared/directory-name";
+import {projectUrl} from "../shared/project-url";
 import type {ShelfItem} from "../shared/shelf";
 import {browseDirectory} from "./browse";
 import type {BrowseOutcome} from "./browse";
 import {failureReason, fieldName, projectsText, registerFailureReason, shelfText} from "./messages";
-import {projectUrl} from "./open-project";
 import {sortShelf} from "./shelf-format";
 import type {ShelfSort} from "./shelf-format";
 import type {ShelfView} from "./shelf-preferences";

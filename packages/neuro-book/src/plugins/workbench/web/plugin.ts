@@ -57,8 +57,6 @@ import {workbenchState, workbenchStateBindings} from "./state/public-state";
 import {ViewRegistry} from "./views/registry";
 
 const CommandHost = defineAsyncComponent(() => import("./commands/WorkbenchCommandHost.vue"));
-const WorkbenchDocument = defineAsyncComponent(() => import("./document/WorkbenchDocument.vue"));
-const WorkbenchShell = defineAsyncComponent(() => import("./components/WorkbenchShell.vue"));
 const Notifications = defineAsyncComponent(() => import("./components/WorkbenchNotifications.vue"));
 
 /**
@@ -159,15 +157,17 @@ export const workbenchBrowserPlugin: PluginDefinition = {
             const projectName = project?.name ?? null;
             const projectTitle = project?.title ?? null;
             const workbenchPages = createWorkbenchPages({
-                renderDocument: () => h(WorkbenchDocument, {locale, theme, appearance}),
+                // 文档根的设置与外壳由页面自己加载，挂上后页面根才标 `data-page-rendered`（home-page.ts）。
+                document: {load: async () => (await import("./document/WorkbenchDocument.vue")).default, props: () => ({locale, theme, appearance})},
                 // 布局 store 在外壳渲染时才取：首页贡献在场的 `/` 页与直接打开 Lab 的窗口都不读产品布局记录。
-                renderShell: () => h(WorkbenchShell, {layout: layout.acquire(), commands, views, editorArea, chrome, project: projectTitle, locale: locale.value}),
+                shell: {load: async () => (await import("./components/WorkbenchShell.vue")).default, props: () => ({layout: layout.acquire(), commands, views, editorArea, chrome, project: projectTitle, locale: locale.value})},
                 renderCommandHost: () => h(CommandHost, {commands, report, locale, attach: (host: PaletteHost) => palettes.attach(host)}),
                 renderNotifications: () => h(Notifications, {queue: notifications.queue}),
                 renderOverlays: () => h(OverlayHost),
                 projectName,
                 home: homeSlot,
                 reportHome: (message) => diagnostics.record({level: "warn", event: "workbench.home", message, source: {plugin: descriptor.id}}),
+                reportPart: (message) => diagnostics.record({level: "error", event: "workbench.page", message, source: {plugin: descriptor.id}}),
             });
             const pages = new PageTable([
                 {path: "/", title: "NeuroBook", load: async () => workbenchPages.home},

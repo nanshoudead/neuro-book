@@ -68,6 +68,7 @@ const TEXT = {
     create: {"zh-CN": "新建作品", "en-US": "New Book"},
     addExisting: {"zh-CN": "打开已有作品…", "en-US": "Open Existing…"},
     retry: {"zh-CN": "重试", "en-US": "Retry"},
+    loading: {"zh-CN": "正在读取书架…", "en-US": "Loading the bookshelf…"},
 } satisfies Record<string, LocalizedText>;
 
 /** 不足这个宽度只用列表：卡片一列时信息密度不如列表。 */
@@ -137,10 +138,12 @@ defineExpose({focusShelf});
                 </div>
             </header>
 
-            <template v-if="status === 'loading'">
+            <!-- 骨架只是装饰（aria-hidden）：读屏听到的是这一句，截图工具按 aria-busy 等书架出来。 -->
+            <div v-if="status === 'loading'" class="bookshelf-page__loading" role="status" aria-busy="true" data-shelf-loading>
+                <span class="sr-only">{{ text(TEXT.loading) }}</span>
                 <Skeleton shape="block" height="150px" />
                 <Skeleton shape="block" height="240px" />
-            </template>
+            </div>
 
             <div v-else-if="status === 'error'" class="bookshelf-page__error" role="alert">
                 <p>{{ error }}</p>
@@ -218,6 +221,13 @@ defineExpose({focusShelf});
     max-width: 1120px;
     margin: 0 auto;
     padding: var(--space-6) 40px var(--space-8);
+}
+
+/* 两块骨架之间沿用内容列的间距（窄屏时也一样），包了这一层仍排成没包时的样子。 */
+.bookshelf-page__loading {
+    display: flex;
+    flex-direction: column;
+    gap: inherit;
 }
 
 .bookshelf-page--narrow .bookshelf-page__column {

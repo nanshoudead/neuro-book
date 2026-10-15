@@ -50,8 +50,10 @@ function handleChange(event: Event): void {
 </script>
 
 <template>
+    <!-- relative：sr-only（绝对定位）的 input 以 label 为包含块。否则包含块落到外层，外层的滚动不带着 input 走，
+         聚焦它时浏览器会去滚外面 overflow: hidden 的容器，把内容推出视野（见同名 .md 的“布局”）。 -->
     <label
-        class="group inline-flex items-start gap-2.5 text-[length:var(--text-sm)] text-[var(--text-main)] select-none transition-opacity"
+        class="group relative inline-flex items-start gap-2.5 text-[length:var(--text-sm)] text-[var(--text-main)] select-none transition-opacity"
         :class="props.disabled ? 'cursor-not-allowed opacity-40' : 'cursor-pointer'"
     >
         <input

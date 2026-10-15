@@ -147,7 +147,7 @@ Lab 落地本身不授权删除任何既有的 preview 页面。既有 preview �
 11. Given 带 frontmatter 别名的部件文档，When 在导航检索里输入组件名、文档显示名或中文/英文别名，Then 都能命中同一个 canonical 条目；没有别名的组件只按组件名与显示名匹配，别名写坏时给开发诊断且不影响其余条目。
 12. Given fixture 通过类型化登记声明分层输入，When 打开数据 tab，Then 只显示声明过的层；When fixture 声明的 model 对应 update 事件发生，Then 事件 tab 记录它且数据 tab 的 model 值通过输入 sink 更新。Given 场景缺 input 且无合法 noInput，Then `fixtures/index.dom.test.ts` 报出组件与场景；Given 登记键名、值类型、必填 prop 或层级错误，Then `bun run typecheck` 报错。Lab 不读取组件运行时签名。
 13. Given 地址 `/lab?c=<组件>&s=<场景>&vp=phone&cw=light`，When 打开，Then 直接显示该场景、画布为 `390 × 844`、配色为浅色，且 `window.__nbLab.state().ready` 在 fixture 挂载后为 true；Given `vp=wide` 或不存在的配色，Then 该参数被忽略，其余参数照常生效；Given 地址另带 `zoom` 与 `tab=data`，Then 缩放与检视页签按参数打开，切场景后刷新仍停在原处；地址里的主题与配色不写进偏好，在界面上换主题后从地址栏去掉、写进偏好。
-14. Given 舞台内有一个比舞台宽的元素和一个放在横向滚动容器里的长行，When 调用 `window.__nbLab.measure()`，Then 只报前者及其越界像素；When 对该组件运行 `lab:shot`，Then 每个组合产出一张舞台截图与报告条目，存在越界时命令以非零退出。
+14. Given 舞台内有一个比舞台宽的元素和一个放在横向滚动容器里的长行，When 调用 `window.__nbLab.measure()`，Then 只报前者及其越界像素；When 对该组件运行 `lab:shot`，Then 每个组合产出一张舞台截图与报告条目，存在越界时命令以非零退出；组件或场景不在 Lab 的清单里时立即失败，并提示重启开发服务。
 15. Given 只需绑定场景输入、记录事件、回写受控输入和补运行期 props 的零件，When 用 `defineSubjectFixture` 登记，Then 不需要单独的 fixture `.vue`，场景输入的类型检查与 `defineLabFixture<typeof C>` 相同，数据面板与事件面板行为与手写 fixture 一致。
 16. Given `WorkbenchCommandPalette` 场景与真实的编辑器样板（Monaco 随第 5 步的编辑器插件迁入前，是 textarea 实现的最小编辑器，提供聚焦、撤销、重做与行号跳转），When 按 `Ctrl/Cmd+Shift+P` 打开再按 Escape 关闭，Then 打开中的面板是受检零件、执行记录进入事件 tab；When 切到其它组件再按同一快捷键，Then 不打开任何面板，也不残留命令检视。
 17. Given 已加载的 Lab 文档，When 经应用内路由进入产品页，Then 发生整页加载，不在 Lab 文档中渲染产品页。

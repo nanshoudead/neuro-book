@@ -5,6 +5,7 @@ import {once} from "node:events";
 import {connect} from "node:net";
 import {join} from "node:path";
 import {pathToFileURL} from "node:url";
+import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 import {locateRepository} from "../src/core/repo.js";
 import {createHerdrClient, HERDR_PANEL_READ_METHODS} from "../src/herdr/client.js";
 import {createLoginTicket} from "../src/server/auth.js";
@@ -12,6 +13,7 @@ import {computeBuildHash, ensureWebBuild} from "../src/server/build.js";
 import {backoffDelay, HerdrMonitor} from "../src/server/herdr-monitor.js";
 import {startPanelServer, type PanelServer} from "../src/server/serve.js";
 import {claudePane, shellPane, startFakeHerdr, type FakeHerdr} from "./fake-herdr.js";
+import {holdFileLeases} from "./file-lease.js";
 import {cleanupFixtures, createFixture, git, panelEnv, run, taskReadme, workReadme, type Fixture} from "./git-fixture.js";
 import {startFakeClaude, spawnMarked, stopProcess, type MarkedChild} from "./processes.js";
 
@@ -110,6 +112,11 @@ describe("面板服务（场景）", () => {
     test("场景 1：概览列出全部 Work（状态与目标、来自分支、未标）、收件箱的提问与提问者是否还在；herdr 的状态变化 1 秒内推到 /ws", async () => {
         const fixture = await publishedFixture("panel-s1");
         const sessionId = randomUUID();
+        // 会话标题从本机的 Claude Code 会话文件里读（t15 阶段 4 第 3 批）。文件在面板起来之前就有：找不到的会话文件要记 60 秒。
+        const project = join(panelEnv(fixture).HOME!, ".claude", "projects", "-repo");
+        await mkdir(project, {recursive: true});
+        const sessionFile = join(project, `${sessionId}.jsonl`);
+        await writeFile(sessionFile, `${JSON.stringify({type: "ai-title", aiTitle: "会话页重做", sessionId})}\n`);
         const panel = await startPanel(fixture, [claudePane("w9:p1", sessionId, {cwd: fixture.main})]);
         const {status, body} = await panel.json<{works: Array<{workId: string; status: {value: string | null}; goal: {value: string | null}; source: string; tasks: Array<{taskId: string; currentState: string | null}>}>; inbox: Array<{kind: string; questionId?: string; askedBy?: string; askerActive?: boolean}>}>("/api/overview");
         expect(status).toBe(200);
@@ -135,16 +142,19 @@ describe("面板服务（场景）", () => {
         panel.fake!.emit("pane.agent_status_changed", {pane_id: "w9:p1", workspace_id: "w9", agent_status: "working"});
         while (!messages.some((message) => message.type === "changed" && message.parts?.includes("sessions"))) await Bun.sleep(10);
         expect(Date.now() - started).toBeLessThan(1_000);
-        // 会话标题从本机的 Claude Code 会话文件里读（t15 阶段 4 第 3 批）；文件更新之后下一次请求就带上新的。
-        const project = join(panelEnv(fixture).HOME!, ".claude", "projects", "-repo");
-        await mkdir(project, {recursive: true});
-        const sessionFile = join(project, `${sessionId}.jsonl`);
-        await writeFile(sessionFile, `${JSON.stringify({type: "ai-title", aiTitle: "会话页重做", sessionId})}\n`);
-        const sessions = await panel.json<{panes: Array<{paneId: string; status: string; inRepository: boolean}>}>("/api/sessions");
-        expect(sessions.body.data.panes).toEqual([expect.objectContaining({paneId: "w9:p1", status: "working", inRepository: true, title: {text: "会话页重做", source: "claude-ai-title"}})]);
+        // 标题由活动刷新之后的后台任务读（t17）：herdr 报上这格之后，这格没有租约也带上标题。
+        type SessionsBody = {panes: Array<{paneId: string; status: string; inRepository: boolean; title: {text: string; source: string} | null}>};
+        const sessions = await waitUntil("会话页带上标题", async () => {
+            const body = (await panel.json<SessionsBody>("/api/sessions")).body;
+            return body.data.panes[0]?.title ? body : null;
+        });
+        expect(sessions.data.panes).toEqual([expect.objectContaining({paneId: "w9:p1", status: "working", inRepository: true, title: {text: "会话页重做", source: "claude-ai-title"}})]);
+        // 文件更新之后，下一轮活动刷新（有浏览器连着时每 5 秒）之后读到新标题，并推 activity 的 changed 给已打开的页面。
+        const changedBefore = messages.filter((message) => message.type === "changed" && message.parts?.includes("activity")).length;
         await appendFile(sessionFile, `${JSON.stringify({type: "ai-title", aiTitle: "会话页重做：两栏", sessionId})}\n`);
-        const titled = await panel.json<{panes: Array<{paneId: string; title: {text: string; source: string} | null}>}>("/api/sessions");
-        expect(titled.body.data.panes.map((pane) => [pane.paneId, pane.title])).toEqual([["w9:p1", {text: "会话页重做：两栏", source: "claude-ai-title"}]]);
+        const paneTitles = async () => (await panel.json<SessionsBody>("/api/sessions")).body.data.panes.map((pane) => [pane.paneId, pane.title]);
+        await waitUntil("取到新标题", async () => JSON.stringify(await paneTitles()) === JSON.stringify([["w9:p1", {text: "会话页重做：两栏", source: "claude-ai-title"}]]), {timeoutMs: 15_000, intervalMs: 50});
+        await waitUntil("标题变了推 activity", () => messages.filter((message) => message.type === "changed" && message.parts?.includes("activity")).length > changedBefore);
     }, 30_000);
 
     test("场景 2：产物页的题与状态、答复；iframe 地址在产物来源上、带随机前缀；改了页面没发布时标出来；产物来源只给 .agents/works/ 下的文件", async () => {
@@ -152,9 +162,12 @@ describe("面板服务（场景）", () => {
         expect((await fixture.cli(["answers", "record", "w00002", "t01", "review", "--set", "approve=yes", "--as", "bob", "--json"])).exitCode).toBe(0);
         await fixture.write(".agents/works/w00002-alpha/tasks/t01-board/artifacts/review/index.html", (await Bun.file(join(fixture.main, ".agents/works/w00002-alpha/tasks/t01-board/artifacts/review/index.html")).text()).replace('data-nbdev-question="layout"', 'data-nbdev-question="layout-v2"'));
         expect((await fixture.cli(["artifact", "publish", "w00002", "t01", "review", "--as", "bob", "--json"])).exitCode).toBe(0);
-        await fixture.write(".agents/works/w00002-alpha/tasks/t01-board/artifacts/review/notes.txt", "没发布的改动\n");
+        // 页面没有引用的未跟踪文件（检查页面时的截图）不在文件集里，不算改动；页面引用的图片改了才算。
+        await fixture.write(".agents/works/w00002-alpha/tasks/t01-board/artifacts/review/notes.txt", "没被引用的草稿\n");
         const panel = await startPanel(fixture, null);
         type ArtifactData = {versions: number[]; version: number; questions: Array<{question: {id: string}; state: string}>; answers: unknown[]; pageUrl: string; unpublishedChanges: boolean};
+        expect((await panel.json<ArtifactData>("/api/artifact/w00002-alpha/t01-board/review")).body.data.unpublishedChanges).toBe(false);
+        await writeFile(join(fixture.main, ".agents/works/w00002-alpha/tasks/t01-board/artifacts/review/shot.png"), randomBytes(64));
         const {body} = await panel.json<ArtifactData>("/api/artifact/w00002-alpha/t01-board/review");
         expect([body.data.versions, body.data.version, body.data.questions.map((state) => [state.question.id, state.state]), body.data.answers.length, body.data.unpublishedChanges]).toEqual([
             [1, 2], 2, [["layout", "superseded"], ["approve", "answered"], ["layout-v2", "open"]], 1, true,
@@ -281,6 +294,197 @@ describe("面板服务（场景）", () => {
         expect(data.sessions).toEqual([expect.objectContaining({key: `claude:${claude.sessionId}`, herdr: {paneId: "w9:p1", status: "idle"}, runs: [expect.objectContaining({pid: tool})]})]);
         expect(data.unownedRuns).toEqual([expect.objectContaining({paneId: "w9:pJ", command: "sleep 62"})]);
         expect(panel.fake!.requests.every((request) => HERDR_PANEL_READ_METHODS.includes(request.method))).toBe(true);
+    }, 30_000);
+});
+
+/** 会话标题的文件：Claude Code 的会话文件与 omp 的会话文件，都放在面板的 HOME 下（t17）。 */
+async function claudeTitleFile(fixture: Fixture, sessionId: string, title: string): Promise<string> {
+    const project = join(panelEnv(fixture).HOME!, ".claude", "projects", "-repo");
+    await mkdir(project, {recursive: true});
+    const file = join(project, `${sessionId}.jsonl`);
+    await writeFile(file, `${JSON.stringify({type: "ai-title", aiTitle: title, sessionId})}\n`);
+    return file;
+}
+
+function ompSessionPath(fixture: Fixture, id: string): string {
+    // omp 的会话值是文件的绝对路径；目录名带冒号，键只能按第一个冒号拆。
+    return join(panelEnv(fixture).HOME!, ".omp", "agent", "sessions", "-repo:main", `2026-10-14T01-00-00-000Z_${id}.jsonl`);
+}
+
+async function ompTitleFile(path: string, title: string): Promise<void> {
+    await mkdir(join(path, ".."), {recursive: true});
+    await writeFile(path, `${JSON.stringify({type: "title", v: 1, title, source: "auto"})}\n`);
+}
+
+type Titles = Record<string, {text: string; source: string}>;
+
+/** 登记一次经 nbdev 起过、已经结束的服务，属主是 `owner`：它就成了要读标题的会话，不需要 herdr 或租约。 */
+async function registerEndedRun(fixture: Fixture, owner: {key: string; agent: string}): Promise<void> {
+    const procs = join(fixture.main, ".local", "agent", "run", "procs");
+    await mkdir(procs, {recursive: true});
+    const now = new Date().toISOString();
+    const bootId = (await Bun.file("/proc/sys/kernel/random/boot_id").text()).trim();
+    const runId = "dev-20261014T010000Z-0e0e0e0e";
+    await writeFile(join(procs, `${runId}.json`), JSON.stringify({
+        schema: "nbdev.proc/v1", runId, kind: "dev", checkout: fixture.main, checkoutKey: "main", package: "apps/web", script: "dev", argv: [],
+        logPath: join(fixture.root, "dev.log"), bootId, startedAt: now, startedBy: {...owner, label: null, process: null},
+        supervisor: {pid: 1, startTicks: "0"}, endedAt: now, endedReason: "exited", exitCode: 0,
+    }));
+}
+
+describe("会话标题（t17）", () => {
+    test("首页、Work 页、Task 页、运行页各带 sessionTitles，只放本视图出现的会话：首页含已不在活动里的提问者，运行页含只剩进程登记的属主；会话页的 title 取自同一份", async () => {
+        const fixture = await createFixture("panel-titles-views");
+        const asker = await startFakeClaude(randomUUID());
+        closers.push(() => asker.stop());
+        const worker = await startFakeClaude(randomUUID());
+        closers.push(() => worker.stop());
+        await claudeTitleFile(fixture, asker.sessionId, "提问的会话");
+        await claudeTitleFile(fixture, worker.sessionId, "在动的会话");
+        const ompPath = ompSessionPath(fixture, "0c0c0c0c-0000-4000-8000-000000000000");
+        await ompTitleFile(ompPath, "起服务的会话");
+
+        // 提问者发布一道必答题后退出：租约失效、不在活动里，收件箱里还留着它的键。
+        await fixture.write(".agents/works/w00001-seed/tasks/t01-seed/artifacts/review/index.html", '<!doctype html><title>评审</title><section data-nbdev-question="approve" data-nbdev-type="confirm"><h2>批准</h2></section>\n');
+        const publish = await asker.cli(["artifact", "publish", "w00001", "t01", "review", "--kind", "design", "--json"], fixture.main);
+        expect([publish.exitCode, publish.json?.errors]).toEqual([0, []]);
+        await asker.stop();
+        expect((await worker.cli(["lease", "take", "w00001", "t01", "--json"], fixture.main)).exitCode).toBe(0);
+        expect((await fixture.cli(["lease", "take", "w00001", "t01", "--as", "bob", "--json"])).exitCode).toBe(0);
+        // 经 nbdev 起过、已经结束的服务：属主只剩登记里的 startedBy。
+        const procs = join(fixture.main, ".local", "agent", "run", "procs");
+        await mkdir(procs, {recursive: true});
+        const now = new Date().toISOString();
+        const bootId = (await Bun.file("/proc/sys/kernel/random/boot_id").text()).trim();
+        await writeFile(join(procs, "dev-20261014T010000Z-0a0b0c0d.json"), JSON.stringify({
+            schema: "nbdev.proc/v1", runId: "dev-20261014T010000Z-0a0b0c0d", kind: "dev", checkout: fixture.main, checkoutKey: "main", package: "apps/web", script: "dev", argv: [],
+            logPath: join(fixture.root, "dev.log"), bootId, startedAt: now, startedBy: {key: `omp:${ompPath}`, agent: "omp", label: null, process: null},
+            supervisor: {pid: 1, startTicks: "0"}, endedAt: now, endedReason: "exited", exitCode: 0,
+        }));
+
+        const panel = await startPanel(fixture, []);
+        const askerKey = `claude:${asker.sessionId}`;
+        const workerKey = `claude:${worker.sessionId}`;
+        const ompKey = `omp:${ompPath}`;
+        // 标题由活动刷新之后的后台任务读，一轮读完一起并进快照：首页带上两个标题时，各视图用的是同一份。
+        await waitUntil("标题读进快照", async () => Object.keys((await panel.json<{sessionTitles: Titles}>("/api/overview")).body.data.sessionTitles).length === 2, {intervalMs: 50});
+        const overview = (await panel.json<{inbox: Array<{askedBy?: string | null; askerActive?: boolean | null}>; sessionTitles: Titles}>("/api/overview")).body.data;
+        expect(overview.inbox.map((item) => [item.askedBy, item.askerActive])).toEqual([[askerKey, false]]);
+        expect(overview.sessionTitles).toEqual({
+            [askerKey]: {text: "提问的会话", source: "claude-ai-title"},
+            [workerKey]: {text: "在动的会话", source: "claude-ai-title"},
+        });
+        expect((await panel.json<{sessionTitles: Titles}>("/api/work/w00001-seed")).body.data.sessionTitles).toEqual({[workerKey]: {text: "在动的会话", source: "claude-ai-title"}});
+        expect((await panel.json<{sessionTitles: Titles}>("/api/task/w00001-seed/t01-seed")).body.data.sessionTitles).toEqual({[workerKey]: {text: "在动的会话", source: "claude-ai-title"}});
+        const runs = (await panel.json<{procs: Array<{startedBy: {key: string} | null}>; sessionTitles: Titles}>("/api/runs")).body.data;
+        expect(runs.procs.map((run) => run.startedBy?.key)).toEqual([ompKey]);
+        expect(runs.sessionTitles).toEqual({[ompKey]: {text: "起服务的会话", source: "omp"}});
+        const sessions = (await panel.json<{sessions: Array<{key: string; title: unknown}>}>("/api/sessions")).body.data.sessions;
+        expect(sessions.map((session) => [session.key, session.title]).sort()).toEqual([[workerKey, {text: "在动的会话", source: "claude-ai-title"}], ["external:bob", null]]);
+    }, 60_000);
+
+    test("标题改名、文件删掉、文件后来出现：已打开的页面收到 activity 的 changed，再取到的是新标题", async () => {
+        const fixture = await createFixture("panel-titles-refresh");
+        const worker = await startFakeClaude(randomUUID());
+        closers.push(() => worker.stop());
+        const file = await claudeTitleFile(fixture, worker.sessionId, "第一版");
+        expect((await worker.cli(["lease", "take", "w00001", "t01", "--json"], fixture.main)).exitCode).toBe(0);
+        // herdr 上一格 omp 会话，它的会话文件还没建。
+        const ompPath = ompSessionPath(fixture, "0d0d0d0d-0000-4000-8000-000000000000");
+        const ompPane = {...claudePane("w9:p2", ompPath, {cwd: fixture.main}), agent: "omp", agent_session: {agent: "omp", kind: "path", source: "herdr:omp", value: ompPath}};
+        const panel = await startPanel(fixture, [ompPane]);
+        const workerKey = `claude:${worker.sessionId}`;
+        const ompKey = `omp:${ompPath}`;
+        const socket = new WebSocket(`${panel.server.url.replace("http", "ws")}/ws`, {headers: {Cookie: panel.cookie, Origin: panel.server.url}} as unknown as string[]);
+        closers.push(async () => socket.close());
+        let activityChanges = 0;
+        socket.addEventListener("message", (event) => {
+            const message = JSON.parse(String(event.data)) as {type: string; parts?: string[]};
+            if (message.type === "changed" && message.parts?.includes("activity")) activityChanges += 1;
+        });
+        await waitUntil("连上 /ws", () => socket.readyState === WebSocket.OPEN);
+        const taskTitles = async () => (await panel.json<{sessionTitles: Titles}>("/api/task/w00001-seed/t01-seed")).body.data.sessionTitles;
+        const titlesAre = (expected: Titles) => async () => JSON.stringify(await taskTitles()) === JSON.stringify(expected);
+        await waitUntil("读到第一版标题", titlesAre({[workerKey]: {text: "第一版", source: "claude-ai-title"}}), {intervalMs: 50});
+        const paneTitle = async () => (await panel.json<{panes: Array<{paneId: string; title: unknown}>}>("/api/sessions")).body.data.panes.find((pane) => pane.paneId === "w9:p2")?.title;
+        await waitUntil("herdr 报上 omp 那一格", async () => (await panel.json<{panes: unknown[]}>("/api/sessions")).body.data.panes.length === 1);
+        expect(await paneTitle()).toBeNull();
+
+        // 每一步：等取到新标题（有浏览器连着时活动每 5 秒重算一次，之后的后台任务读标题），再等这次变化推来的 activity changed。
+        async function afterChange(change: () => Promise<void>, settled: () => Promise<boolean>): Promise<void> {
+            const before = activityChanges;
+            await change();
+            await waitUntil("取到新标题", settled, {timeoutMs: 15_000, intervalMs: 50});
+            await waitUntil("标题变了推 activity", () => activityChanges > before);
+        }
+        const activityRevision = async () => (await panel.json("/api/runs")).body.revisions.activity!;
+        // 文字不变、只有来源变了（自动起的名被 /rename 成同一个名字）：页面显示的来源变了，照样增加 revision、推送。
+        const beforeSource = await activityRevision();
+        await afterChange(() => appendFile(file, `${JSON.stringify({type: "custom-title", customTitle: "第一版"})}\n`), titlesAre({[workerKey]: {text: "第一版", source: "claude-custom"}}));
+        expect(await activityRevision()).toBeGreaterThan(beforeSource);
+        await afterChange(() => appendFile(file, `${JSON.stringify({type: "custom-title", customTitle: "改过的名"})}\n`), titlesAre({[workerKey]: {text: "改过的名", source: "claude-custom"}}));
+        await afterChange(() => rm(file), titlesAre({}));
+        await afterChange(() => ompTitleFile(ompPath, "后来建的"), async () => JSON.stringify(await paneTitle()) === JSON.stringify({text: "后来建的", source: "omp"}));
+        expect((await panel.json<{sessionTitles: Titles}>("/api/overview")).body.data.sessionTitles).toEqual({});
+
+        // 读到的 {text, source} 不变时不推送：omp 的文件按原样重写（修改时间变了，会重读），同时 Claude 的文件重新出现。
+        // 读到 Claude 新标题的那一轮一定也重读了 omp 的文件；两处只有 Claude 一处变了，revision 只能多 1。
+        const beforeSame = await activityRevision();
+        await afterChange(async () => {
+            await ompTitleFile(ompPath, "后来建的");
+            await writeFile(file, `${JSON.stringify({type: "ai-title", aiTitle: "又回来了"})}\n`);
+        }, titlesAre({[workerKey]: {text: "又回来了", source: "claude-ai-title"}}));
+        expect(await activityRevision()).toBe(beforeSame + 1);
+        expect(await paneTitle()).toEqual({text: "后来建的", source: "omp"});
+    }, 60_000);
+
+    test("运行中停止：读标题卡在文件系统上时，stop 等那次读盘结束才返回；返回之后快照与 revision 不再变", async () => {
+        const fixture = await createFixture("panel-titles-stop");
+        const sessionId = randomUUID();
+        const file = await claudeTitleFile(fixture, sessionId, "停止后才读完的标题");
+        await registerEndedRun(fixture, {key: `claude:${sessionId}`, agent: "claude"});
+        // 标题文件挂上租约：面板读它的 open() 卡在内核里，直到测试放掉。
+        const leases = await holdFileLeases([file]);
+        closers.push(() => leases.close());
+        const panel = await startPanel(fixture, null);
+        await waitUntil("读标题卡在打开文件上", async () => (await leases.states())[0] === "breaking");
+        const revision = panel.server.state.revisions().activity;
+        expect((await panel.json<{sessionTitles: Titles}>("/api/runs")).body.data.sessionTitles).toEqual({});
+
+        let released = false;
+        const stopping = panel.server.stop().then(() => released);
+        // 端口关了：stop 除了等读标题，别的收口都做完了。这时还没放租约，stop 不能已经返回。
+        const refused = (url: string) => fetch(url).then(() => false, () => true);
+        await waitUntil("面板的两个端口都已关闭", async () => await refused(panel.server.url) && await refused(panel.server.artifactUrl));
+        released = true;
+        await leases.release(0);
+        expect(await stopping).toBe(true);
+        // 读盘已经结束：面板关了标题文件，租约才挂得回去。读到的标题没有并进快照。
+        await leases.reacquire(0);
+        expect(panel.server.state.revisions().activity).toBe(revision);
+        expect(panel.server.state.activity.part.value?.sessionTitles).toEqual({});
+    }, 30_000);
+
+    test("预热中停止：预热之后算出的活动不再起读标题，预热与 stop 返回之后没有打开过标题文件、快照里没有标题", async () => {
+        const fixture = await createFixture("panel-titles-warm-stop");
+        const sessionId = randomUUID();
+        const file = await claudeTitleFile(fixture, sessionId, "不该读到的标题");
+        await registerEndedRun(fixture, {key: `claude:${sessionId}`, agent: "claude"});
+        // 有人打开标题文件，租约就会进入 breaking：用它看停止之后有没有读标题。
+        const leases = await holdFileLeases([file]);
+        closers.push(() => leases.close());
+        const server = await startPanelServer({
+            context: await locateRepository(fixture.main), host: "127.0.0.1", port: 0, artifactPort: 0, herdr: null,
+            token: randomBytes(32).toString("hex"), log: () => undefined, env: panelEnv(fixture),
+        });
+        closers.push(() => server.stop());
+        // 预热的第一步要等 git，stop 一定落在预热中途；预热随后照常算一遍记录与活动。
+        const warming = server.warm();
+        await server.stop();
+        expect(await warming).toBe(false);
+        expect(server.state.activity.part.value?.procs.map((run) => run.startedBy?.key)).toEqual([`claude:${sessionId}`]);
+        expect(await leases.states()).toEqual(["held"]);
+        expect(server.state.activity.part.value?.sessionTitles).toEqual({});
     }, 30_000);
 });
 

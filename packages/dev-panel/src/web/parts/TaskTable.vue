@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import {Badge} from "@notnotype/nb-ui/components";
-import {relativeDay, shortSession, taskLabel} from "../host/format.js";
+import {relativeDay, sessionName, taskLabel} from "../host/format.js";
 import {isPlainClick, taskHref} from "../host/routes.js";
 import type {TaskTableDetail} from "../host/task-expand.js";
-import type {TaskView} from "../host/types.js";
+import type {SessionTitle, TaskView} from "../host/types.js";
 import LeaseChip from "./LeaseChip.vue";
 import LoadState from "./LoadState.vue";
 import MarkdownView from "./MarkdownView.vue";
@@ -22,6 +22,8 @@ const props = defineProps<{
     details: Readonly<Record<string, TaskTableDetail>>;
     /** “当前情况”按行内 Markdown 渲染后的 HTML，键是 Task id；没有当前情况的缺项。 */
     currentHtml: Readonly<Record<string, string>>;
+    /** 会话标题（Work 页数据的 `sessionTitles`，t17）：展开内容里的“谁在动”写标题加短键，表格列里只进提示。 */
+    sessionTitles: Readonly<Record<string, SessionTitle>>;
 }>();
 const emit = defineEmits<{navigate: [href: string]; toggle: [taskId: string]; retry: [taskId: string]}>();
 function follow(event: MouseEvent, href: string): void {
@@ -75,7 +77,7 @@ const COLUMNS = ["Task", "状态", "当前情况", "最近更新", "产物", "�
                         <span v-if="task.uncommitted" class="nbdev-warn"> · 未提交</span>
                     </span>
                     <span role="cell" class="nbdev-task-wide flex min-w-0 flex-wrap gap-1">
-                        <LeaseChip v-for="lease in task.leases" :key="lease.sessionKey" :session="shortSession(lease.sessionKey, lease.label)" :stale="lease.stale" />
+                        <LeaseChip v-for="lease in task.leases" :key="lease.sessionKey" :session="sessionName(lease.sessionKey, lease.label, sessionTitles)" :stale="lease.stale" compact />
                     </span>
                 </div>
                 <div v-if="isOpen(task.taskId)" :id="detailId(task.taskId)" role="row" class="nbdev-task-detail nbdev-divider border-b">
@@ -112,7 +114,7 @@ const COLUMNS = ["Task", "状态", "当前情况", "最近更新", "产物", "�
                                 </ul>
                                 <h3 class="nbdev-card-title mt-2">谁在动</h3>
                                 <p v-if="task.leases.length === 0" class="nbdev-empty">没有</p>
-                                <div v-else class="flex flex-wrap gap-1"><LeaseChip v-for="lease in task.leases" :key="lease.sessionKey" :session="shortSession(lease.sessionKey, lease.label)" :stale="lease.stale" /></div>
+                                <div v-else class="flex flex-wrap gap-1"><LeaseChip v-for="lease in task.leases" :key="lease.sessionKey" :session="sessionName(lease.sessionKey, lease.label, sessionTitles)" :stale="lease.stale" /></div>
                             </section>
                         </div>
                     </div>
@@ -123,9 +125,10 @@ const COLUMNS = ["Task", "状态", "当前情况", "最近更新", "产物", "�
 </template>
 
 <style scoped>
-/* 列宽：标题列最宽、单行截断；整张表最窄约 60rem，再窄就由外层横向滚动。 */
+/* 列宽：标题列最宽、单行截断。整张表最窄约 67rem（定宽列 25.5、三个 minmax 的下限 35、8 个列间距 6、行的左右内边距 0.5），
+   再窄就由外层横向滚动；min-width 与这个和一致，行的分隔线才横跨到最后一列。“谁在动”一列只有约 7rem，胶囊用紧凑写法。 */
 .nbdev-task-grid {
-    min-width: 60rem;
+    min-width: 67rem;
 }
 .nbdev-task-row {
     display: grid;

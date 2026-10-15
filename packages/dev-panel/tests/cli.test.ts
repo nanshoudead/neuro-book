@@ -64,24 +64,35 @@ describe("命令行合同", () => {
         expect(await snapshot(fixture)).toBe(before);
     });
 
-    test("场景 6：两个同号不同名的 Work，work new 照常发号，conflicts 列出两处", async () => {
+    test("场景 6：已有一组 Work 撞号与一组 Task 撞号时 work new、task new 照常发号，只报涉及这次领号的撞号（没有），其余只给组数；status 与 registry import 仍列出两组", async () => {
         const fixture = await createFixture("cli-conflict");
         const worktree = await fixture.addWorktree("w00003-other", "feat/other");
         await fixture.addWork("w00003-mine", ["t01-a"]);
-        await fixture.commit("master allocates w00003");
+        await fixture.addWork("w00001-seed", ["t01-seed", "t02-mine"]);
+        await fixture.commit("master allocates w00003 and w00001/t02");
         await fixture.addWork("w00003-theirs", ["t01-a"], worktree);
-        await fixture.commit("branch allocates w00003", worktree);
-        const result = await fixture.cli(["work", "new", "next", "--title", "下一个", "--goal", "目标。", "--task", "a", "--json"]);
-        expect(result.exitCode).toBe(0);
-        expect(result.json?.data).toMatchObject({workId: "w00004-next"});
-        const conflicts = result.json?.data?.conflicts as Array<{label: string; live: boolean; ids: Array<{id: string; locations: Array<{source: string}>}>}>;
-        expect(conflicts.map((conflict) => [conflict.label, conflict.live, conflict.ids.map((entry) => entry.id)])).toEqual([["w00003", true, ["w00003-mine", "w00003-theirs"]]]);
-        expect(conflicts[0]!.ids[1]!.locations.map((location) => location.source).sort()).toEqual(["ref", "worktree"]);
-        expect(result.json?.warnings.map((warning) => warning.code)).toContain("number_conflicts");
+        await fixture.addWork("w00001-seed", ["t01-seed", "t02-theirs"], worktree);
+        await fixture.commit("branch allocates the same numbers", worktree);
+        const unrelated = (result: Awaited<ReturnType<Fixture["cli"]>>) => [result.exitCode, result.json?.data?.conflicts, result.json?.data?.otherConflicts, result.json?.warnings.some((warning) => warning.code === "number_conflicts")];
+
+        const work = await fixture.cli(["work", "new", "next", "--title", "下一个", "--goal", "目标。", "--task", "a", "--json"]);
+        expect(work.json?.data).toMatchObject({workId: "w00004-next"});
+        expect(unrelated(work)).toEqual([0, [], 2, false]);
+        const task = await fixture.cli(["task", "new", "w00001", "third", "--title", "第三个", "--json"]);
+        expect(task.json?.data).toMatchObject({taskId: "t03-third"});
+        expect(unrelated(task)).toEqual([0, [], 2, false]);
+        const human = await fixture.cli(["task", "new", "w00001", "fourth", "--title", "第四个"]);
+        expect(human.stdout).toContain("另有 2 组撞号与这次领号无关，见 nbdev status");
+
         // 收件箱里的撞号也带各个 id 与位置：首页据此写明原因。
         const status = await fixture.cli(["status", "--json"]);
         const inbox = (status.json?.data?.inbox as Array<{kind: string; label: string; ids?: Array<{id: string}>}>).filter((item) => item.kind === "number_conflict");
-        expect(inbox.map((item) => [item.label, item.ids?.map((entry) => entry.id)])).toEqual([["w00003", ["w00003-mine", "w00003-theirs"]]]);
+        expect(inbox.map((item) => [item.label, item.ids?.map((entry) => entry.id)])).toEqual([["w00003", ["w00003-mine", "w00003-theirs"]], ["w00001-seed/t02", ["t02-mine", "t02-theirs"]]]);
+        const imported = await fixture.cli(["registry", "import", "--json"]);
+        const conflicts = imported.json?.data?.conflicts as Array<{label: string; live: boolean; ids: Array<{id: string; locations: Array<{source: string}>}>}>;
+        expect(conflicts.map((conflict) => [conflict.label, conflict.live, conflict.ids.map((entry) => entry.id)])).toEqual([["w00003", true, ["w00003-mine", "w00003-theirs"]], ["w00001-seed/t02", true, ["t02-mine", "t02-theirs"]]]);
+        expect(conflicts[0]!.ids[1]!.locations.map((location) => location.source).sort()).toEqual(["ref", "worktree"]);
+        expect(imported.json?.warnings.map((warning) => warning.code)).toContain("number_conflicts");
     });
 
     test("场景 7：分支上较新的 Work 标 branch（带分支名），只在 master 上的 Task 标 master；改分支上的记录退出码 3", async () => {

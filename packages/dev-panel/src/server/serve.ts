@@ -87,7 +87,7 @@ function equalSecret(given: string | null, expected: string): boolean {
 
 export async function startPanelServer(options: PanelServerOptions): Promise<PanelServer> {
     const {context, host, log} = options;
-    const state = new PanelState(context, options.herdr, log);
+    const state = new PanelState(context, options.herdr, log, createSessionTitles(options.env, log));
     // cookie 名带上面板端口：cookie 不按端口区分，同一个浏览器登录第二个面板时同名 cookie 会把第一个踢下线。
     const auth = createPanelAuth(options.token, () => `nbdev_panel_${panelPort()}`);
     const csrf = randomBytes(24).toString("base64url");
@@ -129,7 +129,6 @@ export async function startPanelServer(options: PanelServerOptions): Promise<Pan
     const controls = new ControlRegistry();
     const notifier = new Notifier({state, client: options.herdr, audit, locks, controls, log, onChange: () => state.notifyChanged()});
     const writes = createWriteHandler({state, envelope, log, audit, afterWrite: () => void notifier.tick()});
-    const sessionTitles = createSessionTitles(options.env, log);
     const sessionIo = createSessionIo({state, notifier, locks, controls, audit, client: options.herdr, envelope, log});
     const terminalTools = resolveTerminalTools(options.env, options.herdr?.socketPath ?? null, (name) => Bun.which(name));
     if (!terminalTools.available) log(`网页终端不可用：${terminalTools.reason}`);
@@ -230,7 +229,7 @@ export async function startPanelServer(options: PanelServerOptions): Promise<Pan
                 return view ? envelope(view.data, view.warnings, null) : notFound();
             }
             if (route === "sessions" && rest.length === 0) {
-                const {data, warnings} = await sessionsView(state, sessionTitles);
+                const {data, warnings} = sessionsView(state);
                 return envelope(data, warnings, null);
             }
             if (route === "search" && rest.length === 0) return search(req, url);
@@ -496,9 +495,10 @@ export async function startPanelServer(options: PanelServerOptions): Promise<Pan
             await terminals.stop();
             github.stop();
             await notifier.stop();
-            state.stop();
+            // `state.stop()` 同步停掉监视与定时器，返回的 Promise 等读标题的文件操作结束（有上限）：与关连接、关端口一起等。
+            const stateStopped = state.stop();
             for (const ws of sockets) ws.close(1001, "面板退出");
-            await Promise.all([panel?.stop(true), artifacts?.stop(true)]);
+            await Promise.all([panel?.stop(true), artifacts?.stop(true), stateStopped]);
         },
     };
 }

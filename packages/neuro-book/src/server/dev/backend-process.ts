@@ -14,6 +14,12 @@ export interface BackendSpec {
     readonly output?: (line: string, stream: "stdout" | "stderr") => void;
 }
 
+/**
+ * 样例作品的结果行（`sample.ts`）。nbdev 以最后一行 `[dev] backend-ready` 划分后端的代，只认其后的结果；后端在就绪之后才放
+ * 样例，但它的结果行可能在监督进程的就绪探测返回之前就到，所以就绪结算之前到达的这两种行等结算之后再转发。
+ */
+const SAMPLE_RESULT_LINE = /^\[dev\] (?:open-path|sample-failed)\b/u;
+
 function forwardToOwnOutput(line: string, stream: "stdout" | "stderr"): void {
     (stream === "stdout" ? process.stdout : process.stderr).write(`${line}\n`);
 }
@@ -47,8 +53,16 @@ export function spawnBackend(spec: BackendSpec): BackendProcess {
     // 调用方可能只关心 exited（例如启动中就被要求停止）；没有人等 ready 时它的 reject 不算未处理。
     ready.promise.catch(() => undefined);
     const exited = child.exited.then(() => child.exitCode);
+    // 先于调用方（监督进程）挂上：结算时它先置位，同一轮里监督进程再打出 `backend-ready`，其间不会插进别的转发。
+    let readySettled = false;
+    void ready.promise.then(() => (readySettled = true), () => (readySettled = true));
     void forwardLines(child.stderr, (line) => output(line, "stderr"));
     void forwardLines(child.stdout, (line) => {
+        if (!readySettled && SAMPLE_RESULT_LINE.test(line)) {
+            // 在调用方挂的回调之后执行，排在 `backend-ready` 之后。
+            void ready.promise.then(() => output(line, "stdout"), () => output(line, "stdout"));
+            return;
+        }
         output(line, "stdout");
         const match = /^Listening on (\S+)/u.exec(line);
         if (match) void probeReady(match[1] as string).then(ready.resolve, ready.reject);
