@@ -1,0 +1,186 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00025-editor",
+    "taskId": "t03-tabs-and-split",
+    "artifactId": "review",
+    "version": 3,
+    "supersedes": 2,
+    "action": "publish",
+    "kind": "design",
+    "title": "编辑器标签栏评审板",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "5cb3969028eca12add2c4d14a7517d5c1913b8ab42f93b1ce4b09a4b27ed955a",
+    "files": [
+        "index.html",
+        "r1/bold-dark.webp",
+        "r1/bold-light.webp",
+        "r1/bold-many-light.webp",
+        "r1/hover-pinned-light.webp",
+        "r1/scroll-many-light.webp",
+        "r1/underline-dark.webp",
+        "r1/underline-light.webp",
+        "r1/underline-many-dark.webp",
+        "r2/card-dark.webp",
+        "r2/card-light.webp",
+        "r2/card-top-dark.webp",
+        "r2/card-top-light.webp",
+        "r2/many-light.webp",
+        "r2/picker-folder-light.webp",
+        "r2/picker-outline-dark.webp",
+        "r2/scroll-dark.webp",
+        "r3/many-light.webp",
+        "r3/no-separators-dark.webp",
+        "r3/no-separators-light.webp",
+        "r3/tone-89-dark.webp",
+        "r3/tone-89-light.webp",
+        "r3/tone-93-dark.webp",
+        "r3/tone-93-light.webp",
+        "r3/tone-96-dark.webp",
+        "r3/tone-96-light.webp"
+    ],
+    "questions": [
+        {
+            "id": "r1-emphasis",
+            "type": "single",
+            "label": "活动标签怎么突出",
+            "options": [
+                {
+                    "value": "bold",
+                    "label": "A 加粗（现在的做法）"
+                },
+                {
+                    "value": "underline",
+                    "label": "B 底部强调短线"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "underline"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "r1-notes",
+            "type": "text",
+            "label": "其它状态有没有要改的",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "r2-emphasis",
+            "type": "single",
+            "label": "VS Code 式的活动标签",
+            "options": [
+                {
+                    "value": "card",
+                    "label": "C 只有标签块"
+                },
+                {
+                    "value": "card-top",
+                    "label": "D 标签块，活动组的那块加顶部强调线"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "card-top"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 2,
+            "outcome": null
+        },
+        {
+            "id": "r2-breadcrumbs",
+            "type": "confirm",
+            "label": "面包屑按这样做",
+            "options": [],
+            "required": true,
+            "recommend": [],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 2,
+            "outcome": null
+        },
+        {
+            "id": "r2-notes",
+            "type": "text",
+            "label": "其它要改的",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 2,
+            "outcome": null
+        },
+        {
+            "id": "r3-tone",
+            "type": "single",
+            "label": "标签条的深浅",
+            "options": [
+                {
+                    "value": "t96",
+                    "label": "浅（4%）"
+                },
+                {
+                    "value": "t93",
+                    "label": "中（7%，第 2 轮用的）"
+                },
+                {
+                    "value": "t89",
+                    "label": "深（11%）"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "t93"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 3,
+            "outcome": null
+        },
+        {
+            "id": "r3-separators",
+            "type": "confirm",
+            "label": "分隔线按这样画",
+            "options": [],
+            "required": true,
+            "recommend": [],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 3,
+            "outcome": null
+        },
+        {
+            "id": "r3-plan",
+            "type": "confirm",
+            "label": "实施计划可以定稿",
+            "options": [],
+            "required": true,
+            "recommend": [],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 3,
+            "outcome": null
+        }
+    ],
+    "publishedAt": "2026-10-15T05:58:29.903Z"
+}

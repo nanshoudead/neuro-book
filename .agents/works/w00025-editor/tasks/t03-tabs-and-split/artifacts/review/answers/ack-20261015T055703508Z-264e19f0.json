@@ -1,0 +1,15 @@
+{
+    "schema": "nbdev.answer-ack/v1",
+    "workId": "w00025-editor",
+    "taskId": "t03-tabs-and-split",
+    "artifactId": "review",
+    "ackId": "20261015T055703508Z-264e19f0",
+    "answers": [
+        "20261015T055554534Z-a8616ec3"
+    ],
+    "through": "20261015T055554534Z-a8616ec3",
+    "included": [
+        ".agents/works/w00025-editor/tasks/t03-tabs-and-split/README.md"
+    ],
+    "ackedAt": "2026-10-15T05:57:03.508Z"
+}

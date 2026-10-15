@@ -1,0 +1,196 @@
+# w00024 t03 实施计划只读审查
+
+审查对象：`/home/notnotype/CodeRepository/neuro-book/.worktree/w00024-t03-review/.agents/works/w00024-nb-story/tasks/t03-impl/plan.md`。以下 `plan.md`、Spec 与源码路径均相对此 worktree；其它 worktree 与实验路径写绝对路径。未修改 worktree，未启动 e2e 或开发服务。实验只验证计划所列算法依赖的真实机制，不冒充尚不存在的 nb-story 实现。
+
+### 1. 先读代号再按书 id 读图，不能固定查询所属的一代
+
+- **严重程度**：阻断；**类别**：不变量。
+- **位置**：plan.md“`src/core/book-index.ts`”第 70 行、“`src/core/library.ts`”第 64 行；`story.queries` 时序第 2 条、验收 9。
+- **现象**：缓存未命中时，`openBook` 先读 `<id>/book.json` 得到 A 的代号，再读 `<id>/graph.json`。两次读取之间，另一进程可以把 A 改名删除并用同 id 导入 B。第一次查询会把 B 的图建在 A 的缓存键下；没有重导入时则会读到 `ENOENT`。持有索引只保护已经加载完成的查询，不保护加载过程。
+- **为什么是问题**：Spec 要求删除前已开始的查询仍用 A 完成，而不是失败或读取 B。错误索引还会让后续 A 的在途查询与游标使用 B 的数据。随机代号和 4 项 LRU 均不能把两个路径读取变成快照。
+- **如何核实**：运行 `node /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00024-nb-story/tasks/t03-impl/reports/plan-review/lab/fs-races.mjs`。实验用两个真实 Node 子进程按计划顺序读取与改名，输出 `{"scenario":"generation","cacheKey":"A","graph":"B"}`。未运行产品服务。
+- **建议改法**：把“选中一代并取得该代可继续读取的资源”设计成跨进程原子步骤；例如以书库锁保护选代与打开数据文件，查询持有固定文件句柄或不可变代目录，删除与回收遵守持有者寿命。仅事后重读代号并重试会切换到 B，不满足已开始查询仍返回 A。S1 与 S2 共同确定这一协议；验收 9 必须覆盖冷缓存加载中发生删除及同 id 重导入，而不只测索引已经在内存时的情况。
+
+### 2. 登记文件的排他创建没有保护“判旧后替换”，两个启动者都能成功
+
+- **严重程度**：阻断；**类别**：不变量。
+- **位置**：plan.md“`src/server/`”第 126、131 行；`story.cli` 状态第 3 条、副作用第 4 条、验收 4。
+- **现象**：A、B 都读到同一份失效登记；A 改名旧文件、用 `wx` 写入有效登记并启动成功；B 仍按旧判断把路径上的 A 登记改名，然后也用 `wx` 成功。还有一个更早的窗口：`open(\"wx\")` 已创建空文件但 JSON 尚未写完，另一启动者会把它当坏登记移走。撤销时“读回实例号再删”同样不是条件删除，读取与删除之间登记可以已换人。
+- **为什么是问题**：`wx` 只排他执行单次创建，不能覆盖校验、改名、创建、撤销这一组操作；计划声称“两次并发启动只有一个成功”不成立。A 已开始监听且已打印链接，不会因 B 移走登记自动停止。启动失败的收口也未明确保证先起的监听器被关闭。
+- **如何核实**：同一 `fs-races.mjs` 的两个真实进程输出：旧登记替换场景 `exclusiveCreatesSucceeded: 2`、`current: \"live-B\"`、`movedLiveRegistration: \"live-A\"`；空文件发布场景同样 `exclusiveCreatesSucceeded: 2`，A 最终写入的是已被移走的 inode。实验没有运行 `serve` 或假造网络结果，证实的是计划的文件排他协议本身不成立。
+- **建议改法**：登记的读取、判活、失效回收、完整发布与按实例撤销必须处于同一跨进程互斥协议下；锁本身也要明确崩溃恢复和所有权，不能再用无条件“读后改名”抢锁。取得互斥权后重新读取并判活，完整写入临时文件后发布；任何启动失败都关闭本次监听器。真实 `serve` 测试除普通并发外，必须可控地卡在旧登记判活后、`wx` 创建后未写完、撤销读回后三个窗口。
+
+### 3. 阅读状态的原子改名只保证文件完整，不保证按到达顺序覆盖
+
+- **严重程度**：重要；**类别**：不变量。
+- **位置**：plan.md“`src/core/library.ts`”第 65 行；`story.queries` 输出 19、时序第 5 条。
+- **现象**：较早到达的 A 写临时文件后暂停；较晚到达的 B 写完并改名、返回成功；A 恢复后再改名、返回成功。最终保留 A，B 的较新位置被较旧位置覆盖。网页的“一个在途”只约束一个客户端，不约束另一浏览器、CLI 或另一进程。
+- **为什么是问题**：Spec 明确要求按到达书库的先后生效，后到的整份覆盖先到的，两次都成功。`rename` 提供原子替换，不提供请求排队；“后到者覆盖”不能由最后完成者覆盖替代。验收映射没有列阅读状态的跨进程顺序用例。
+- **如何核实**：`fs-races.mjs` 用两个真实子进程先让 A、再让 B 写各自临时文件，按 B、A 的顺序执行改名，输出 `arrived: ["A","B"]`、`completed: ["B","A"]`、`final: 1`、`successCount: 2`。
+- **建议改法**：明确书库接收写请求的线性化点，并在该点进入跨进程顺序化协议，不能只在网页加队列或文件写完后抢改名。把 A 已到达但未完成、B 后到、两个进程均成功、最终读取 B 写成合同测试。顺序与选代协议在 S1 定下，避免 S5 接上第二个调用方时重做持久层。
+
+### 4. 按一小时年龄清扫导入目录，会删除仍在使用它的另一进程
+
+- **严重程度**：重要；**类别**：不变量。
+- **位置**：plan.md“`src/core/library.ts`”第 63 行。
+- **现象**：计划一面要求启动不清扫别人的 `.importing-*`，一面让下一次导入删除超过 1 小时的目录；没有 owner、活性判断或受锁保护的回收协议。进程被暂停、磁盘阻塞或大文件导入超过 3600 秒后，它的目录仍是活跃事务，却会被其它导入进程删除。
+- **为什么是问题**：年龄不是进程已退出的证据。不同书 id 的导入原本互不冲突，这个回收器会使其中一本正在完成的导入丢失文件或在提交时失败；也与“启动不清扫别人的目录”的所有权承诺冲突。仅用 5.4 MB 样例跑普通并发测不到该窗口。
+- **如何核实**：这是从计划的回收条件直接推导的可执行交错，不宣称已等待 1 小时或执行删除。对照 `docs/testing/README.md:97-100` 的仓库既有回收原则：合法 owner marker、超窗、owner 已死三者同时成立，活跃 owner 保留。此处产品回收不必引用测试支持实现，但不能丢掉活性条件。
+- **建议改法**：第一版可以完全不自动回收他人的导入目录；要做则记录 owner 与事务身份，仅在确认 owner 已死、且与提交互斥后回收。用可注入的时间与真实进程覆盖“超窗但仍活着”和“超窗且已退出”，不得靠固定等待 1 小时验收。
+
+### 5. 统一要求数组元素有 id/at，会拒绝指定的真实 V9 样例书
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：plan.md“`src/core/dataset.ts`、`src/core/position.ts`”第 46-47 行；S1。
+- **现象**：计划的导入 schema 要求“各数组存在且元素有 id/at”，真实编译结构并不统一：100 条 `sources` 都没有 `id` 和 `at`；9615 条 `mentions` 都没有 `id`；455 条 `summaries` 都没有 `id`。照这条约束写，唯一指定的样例书就会得到 `unsupported_format`。
+- **为什么是问题**：不是脏数据或版本差异。旧 `schema.ts:257,266,314,319-338` 明确定义了这三种不同形状。只搬类型再手写一个统一的运行期约束，会把合法 V9 拒绝掉；反过来，只检查少数 id/at 又不足以证明 `names`、`source.evidence`、`who` 等下游必读结构可用。`docs/standards/code/languages/typescript.md:7-8` 不允许用类型声明代替 JSON 边界校验。
+- **如何核实**：运行 `node /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00024-nb-story/tasks/t03-impl/reports/plan-review/lab/data-probe.mjs`，`shape` 输出上述缺字段数量；原文件 5472354 字节，只读。另对照 w00005 t27 的编译后接口，不使用草稿 zod schema 推断成品格式。
+- **建议改法**：按编译后各类结构分别定义 schema，并至少校验核心查询实际解引用的字段与嵌套结构。S1 第一条真实导入 smoke 就用这本书；另用缺少必读字段的输入确认在导入边界得到 `unsupported_format`，不让坏数据入库后才在查询中崩溃。不需要搬入草稿 schema，也不能靠给原始数据补假 id/at 解决。
+
+### 6. 顶层 at 过滤和 ref(id) 不能成为计划声称的统一防剧透出口
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：plan.md“`src/core/projection.ts`”第 75-76 行、“验收映射”第 193 行；`story.queries` 输出 1、11、12、13。
+- **现象**：投影只约定筛掉顶层 `at > P` 的记录，以及隐藏不可见的关联对象，没有定义记录内部各字段自己的可见位置。真实样例在 38.57 时，已经可见的对象里仍挂着 23 个未来称呼，可见悬念里仍挂着 17 条未来进展。更不能只查引用端是否可见：`p37-1` 在 37.51 成立，它到已存在的 `p36-2` 的连接却到 37.114 才成立；P=37.60 时两端都可见，连接仍必须隐藏。
+- **为什么是问题**：调用方只用此视图、不摸原索引，仍能得到后文内容。旧 `query.ts` 已经把 `names`、`updates`、`Episode.links.at`、`TimeAnchor.clockAt/dateAt` 分开处理（第 13、38-42、175、180-181 行）；搬类型并不继承这些行为。计划称 `source.read` 是唯一特殊处理，遗漏了这些逐字段投影。
+- **如何核实**：`data-probe.mjs` 的 `nested-visibility` 输出 23 与 17；只读检索真实 `dataset-v9.json` 的 `episodes[].links` 得到上述 37.51/37.114 案例。旧编译 schema 的 `Episode.links` 与 `Question.updates` 都有独立 `at`；`timeFacts` 证明时间字段也不是随顶层一次性公开。本样例没有延迟的钟点/日期字段，该边界需小书覆盖。
+- **建议改法**：在 S2 就定义完整的深层投影：称呼、进展、连接、延迟时间字段及不可见引用都经过同一可见性约束，不让查询作者自行记住哪些嵌套字段还要补筛。测试直接经公开 API 覆盖“父可见、子不可见”和“连接两端已可见、连接本身未可见”，并检查计数与排序使用投影后的集合。
+
+### 7. 身份连接的筛选漏掉 neg，会把“不是同一个人”用于合并
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：plan.md“`src/core/identity.ts`”第 80 行；`story.queries` 术语“身份连接”、输出 3、5。
+- **现象**：计划给出的确定连接条件只有 `family === "identity"`、`certainty === "certain"`、`kind` 为 `fact` 或 `belief`，随后连接 `about` 中两个对象。编译后 `Statement` 还有 `neg`；确定的否定身份说法同样通过这三个条件。
+- **为什么是问题**：否定同一性不是“把两个对象说成同一人”的连接，不能进入并查集。旧 `query.ts:73` 在其它条件之前就排除了 `item.neg`，搬运时不能丢掉。指定 100 章样例中否定身份记录为 0，只跑真实样例和 Spec 的几个正向身份场景抓不到这个错误。
+- **如何核实**：运行 `bun /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00024-nb-story/tasks/t03-impl/reports/plan-review/lab/mechanism-probe.ts`。用一条合法形状的 `identity/fact/certain/neg:true` 说法，计划筛选命中 1 条，旧真实 `identityGroups` 返回 0 组合并；同时确认真实样例 `realSampleNegativeRows: 0`。这是对计划条件和旧实现的核实，不是对尚未实现的产品作通过声明。
+- **建议改法**：在唯一的确定身份连接判定中要求 `neg === false`、恰好两个不同的有效对象；读者合并、角色合并、秘密读者格与图边复用这一判定。小书里至少覆盖确定否定与确定肯定不能混淆的场景。
+
+### 8. relative 用 op 是否为 set 判断，误把已有原文余额的首笔当作起始金额未知
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：plan.md“各组查询”第 105 行；`story.queries` 输出 10。
+- **现象**：计划写“第一笔不是 `set` 时 `relative: true`”。V9 的 `gain`、`spend` 也可以同时有数值 `value`，表示原文报出的变动后余额；`op` 不是是否知道余额的判据。
+- **为什么是问题**：若首笔为 `gain 1000, value 2000`，余额 2000 已经由原文确定，不能显示为相对值。Spec 说的是“第一笔不是原文报数时”，不是“第一笔不是 set 时”。真实数据 `l55-3` 正是 `gain`、`amount:1000`、`value:2000` 的形状，虽然它不是该样例账本的首笔，说明这种组合不是虚构格式。
+- **如何核实**：`mechanism-probe.ts` 的 `relative-balance` 输出 `relativeByPlan:true` 与 `relativeByReportedBalance:false`，并列出真实 `l55-3`。旧编译 `schema.ts:169-177,302-308` 允许任意操作带 `value`；没有限制只有 `set` 才能报余额。
+- **建议改法**：按是否已出现原文给出的数值余额维护“相对/绝对”状态；在 `set` 或带数值 `value` 的收支处确定绝对余额。账本测试补首笔收支同时报余额，以及相对账本后来首次报余额的场景，保留既定的 38.36 差额 +800 场景。
+
+### 9. 页面隐藏时只靠 keepalive 保存，覆盖不了合同允许的 64 KiB 状态
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：plan.md“阅读状态与路由”第 145 行、“`src/core/library.ts`”第 65 行；`story.queries` 输出 19、`story.viewer` 时序第 1 条。
+- **现象**：Spec 允许 `view` 的 JSON 至多 64 KiB；`reading.set` 还必须包装 `position` 等字段。合法的 65536 字节 `view`，仅加 `position` 与 `view` 的 JSON 外壳，请求体就有 65584 字节。浏览器的 keepalive 限额却是整个请求体与同组在途 keepalive 请求体合计不超过 65536 字节，不是只算 `view`。
+- **为什么是问题**：位置刚变化便关闭页面时，这份合法状态不能由计划指定的 `fetch(...,{keepalive:true})` 发出，最后 1 秒的防抖尚未执行，状态丢失。普通“等 reading.get 读到后再关浏览器”的验收 2 恰好避开了这个窗口。服务端若按整份文件或请求体而非 `view` 计 64 KiB，又会错误拒绝合法输入。
+- **如何核实**：已计算 `JSON.stringify("a".repeat(65534))` 为 65536 字节，包装 `{position:{chapter:1,paragraph:1},view}` 为 65584 字节。另读 [WHATWG Fetch 的 HTTP-network-or-cache fetch 算法](https://fetch.spec.whatwg.org/#http-network-or-cache-fetch)：`contentLength + inflightKeepaliveBytes > 64 kibibytes` 时直接返回网络错误。本次未运行浏览器，不把标准与字节计算写成 Chromium 实测。
+- **建议改法**：区分 `view` 的 UTF-8 JSON 限额与传输封装限额，不能暗中缩小 Spec 的 64 KiB。为关闭路径设计能容纳这份状态的传输方式，例如同一公开保存方法支持压缩后的请求体，并由注入客户端统一承担；若无法保证，必须先提交明确的合同取舍，不宣称 keepalive 已满足。补“合法上限状态、变化后立即隐藏/关闭、重新读取最新状态”的浏览器验收，以及在途保存时隐藏的顺序场景。
+
+### 10. CLI 只改参数名后原样送入校验，章段与数值参数会被拒绝
+
+- **严重程度**：重要；**类别**：合同。
+- **位置**：plan.md“`src/cli/`”第 136 行、“`src/core/api.ts`”第 116 行；`story.cli` 输入命令表、验收 1、2。
+- **现象**：计划规定连字符转驼峰后“原样交给 api.call”，而 `api.call` 第一步就是按方法 schema 校验。CLI 的 `--at 38.57` 是字符串，公开合同的 `Position` 是 `{chapter, paragraph?}`；`read 38.48-81` 要变成 `from/to`，`para 38.57` 要变成 `chapter/paragraph`，`--min-together`、`--limit` 也要从文字变成数值。改参数名不完成这些转换。
+- **为什么是问题**：直接照此流水线实现，合法 CLI 输入在业务查询前就得到 `invalid_params`；若为了通过而让合同也接受 CLI 字符串，就反过来污染已定的对象形状与网页接口。计划虽列了 `parsePosition`，没有把它接到 CLI 校验之前，`validationProblems` 也不会替调用者做转换或补默认值。
+- **如何核实**：`mechanism-probe.ts` 调用仓库真实 `validationProblems`：`{at:"38.57"}` 不通过，`{at:{chapter:38,paragraph:57}}` 通过；带 `default:50` 的可选 `limit` 校验后仍未补入。源码 `protocol.ts:100-107` 只做 `Value.Check/Errors`。
+- **建议改法**：命令表显式声明各选项与位置参数的解码器，先把 CLI 语法解码为公开方法参数，再调用同一份 schema 校验；默认值的归一化由核心 API 一处负责。S4 子进程测试按命令表逐条覆盖，特别保留 `read` 范围、`para` 章段、`--at` 与数值选项，不只测试没有位置参数的命令。
+
+### 11. 先解析书再验证游标，会把已删除书的游标报成 book_not_found
+
+- **严重程度**：重要；**类别**：合同。
+- **位置**：plan.md“`src/core/cursor.ts`、`src/core/errors.ts`、`src/core/api.ts`”第 114-116 行、“验收映射”第 198 行；`story.queries` 时序第 4 条、F10。
+- **现象**：API 的顺序是输入 schema 校验、解析 `book`、进入查询；游标的代号检查在查询内需要当前索引。如果取第一页后删除这本书、尚未重导入，解析书已经以 `book_not_found` 结束，走不到 `cursor_invalid`。
+- **为什么是问题**：F10 明确包括“书已删除”，要求 410 `cursor_invalid`，而不是 F1 的 404。计划映射的验收 9 只检查删除后已同 id 重导入的情况，当前书存在，掩盖了错误优先级的缺口。
+- **如何核实**：对照计划的 API 顺序与 `docs/specs/story/queries.md:155,169,178,202`。不需要伪造不存在的运行实现：按该顺序，没有书时无法到达要求当前一代的游标分支。
+- **建议改法**：在 API 编排层明确带游标的解析与错误优先级：合法旧游标对应的书消失时映射为 `cursor_invalid`；普通无游标查询仍为 `book_not_found`。测试拆成“删除未重导入”“同 id 换代”“参数改变”“另一进程及服务重启仍可继续”四组，不用一个换代场景代表整个游标合同。
+
+### 12. defineRemoteService 不执行方法，API 只校验输入仍缺少结果的运行期校验
+
+- **严重程度**：重要；**类别**：合同。
+- **位置**：plan.md“`src/core/api.ts`”第 116 行、“`src/contract/contract.ts`”第 120-122 行；`story.queries` 方法清单第 4 条。
+- **现象**：计划的 API 流程只有 input schema 校验，然后调用纯函数并直接返回；把结果类型写成 `Static<>`、把 schema 交给 `defineRemoteService`，都不会在这条进程内/自建 HTTP 调用链上自动执行 output 校验。
+- **为什么是问题**：Spec 要求参数和结果共用 schema 并按它校验。两种入口走同一个错误结果时，HTTP 与进程内“逐字段相同”的测试仍通过，却不满足公开结果合同。后续换成真正的 remote 通道时，才会额外触发 `provider-error`，反而与第一版行为分叉。
+- **如何核实**：`contract.ts:94-142` 检查合同元信息、input 是否严格对象、effect 和错误码，返回冻结的描述对象；不包装或调用业务方法。真正的输出检查在 `node.ts:692,849`，计划没有使用这个节点执行路径。`validationProblems` 只校验显式传给它的那个 schema，不会顺带找 output。`mechanism-probe.ts` 也确认合同返回的只有描述字段。
+- **建议改法**：在共享 `createStoryApi.call` 中明确成功结果与声明的业务错误详情的运行期校验，以及违反输出合同的诊断/失败处理；HTTP 与 CLI 只适配外层输出形状。结果 schema 的必填字段、分页总数形状与代表性错误详情通过公开边界验证，不把跨入口相等当作符合 schema 的替代证据。
+
+### 13. 图排版的确定性和无重叠承诺，没有覆盖依赖库的随机与未收敛出口
+
+- **严重程度**：建议；**类别**：覆盖。
+- **位置**：plan.md“图”第 148 行、“验收映射”第 203-204 行；`story.viewer` 输出 25。
+- **现象**：计划用“id 哈希初始位置、固定迭代次数加 noverlap”推出同一数据同一排版。实际 `graphology-layout-noverlap@0.4.2` 在两点坐标完全相同时调用 `Math.random()` 打散；达到迭代上限时也直接返回坐标，不保证已收敛。草稿 `layoutForce` 只把圆半径传给 noverlap，未对最终屏幕上的全部节点标签矩形做重叠验证；同心、环形是另两条手排路径。
+- **为什么是问题**：确定初始种子不等于整个流水线确定，也不等于点和名字不会重叠。哈希碰撞、Float32 坐标重合、密集图或很长的名字都需要明确处理；现有 8 个 viewer 验收场景只测交互、平滑移动与可见性，不测重复布局坐标相同或节点/标签无重叠。
+- **如何核实**：已读依赖 `iterate.js:27-28,148-164` 与 `index.js:48-62`、草稿 `sigma-kit.ts:218-239,258-298`。运行 `node /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00024-nb-story/tasks/t03-impl/reports/plan-review/lab/graph-probe.mjs`：同一对重合点连续排两次，`equal:false`。另一项 64 点、300 轮实验剩余重叠为 0，不据此声称真实 100 章图已经失败或已证明永不重叠。
+- **建议改法**：把坐标重合的确定性处理、迭代上限后的有效性检查写进排版设计；分别验证三种排版在重复调用、切层后切回、重置拖动后的稳定性。真实浏览器按实际字体与视口检查点和标签矩形，不能只对图坐标中的圆做检查。若只承诺某些缩放档位无重叠，先明确合同边界，不把 noverlap 的名字当作保证。
+
+### 14. 递归核对出处与 id，测不出提前合并、后文计数和未来章标题
+
+- **严重程度**：重要；**类别**：覆盖。
+- **位置**：plan.md“`src/core/projection.ts`”第 75 行、“验收映射”第 193-194 行；`story.queries` 输出 1、验收 1。
+- **现象**：全量防剧透测试只写“递归检查结果里每个出处与 id 的成立位置”，并把投影本身当测试对象。两个对象早已出现但身份连接尚未成立时，提前合并后两个 id 都合法；`total/mentions/counts` 偷用了全书数据也没有未来 id；`toc` 的未来标题字符串也没有独立记录 id。以上都能通过该检查。
+- **为什么是问题**：验收 1 要检查记录、称呼、合并、引用、主线、章标题，输出 1 还要求计数与排序只用可见记录。一个位置检查器不是这些合同的判定器。反过来，`book.info.extractedThrough`、书库列表的书元信息、`book.stats.extraction` 本来就含全书元数据，不能被通用递归规则一概判成剧透。只测内部投影也证明不了 API 的对象名解析、查询聚合和结果装配没有旁路。
+- **如何核实**：按计划判据做静态变异分析：把合法结果的 `total` 改大、把两个已可见 id 提前塞进同一 `entities` 组、把未来 `toc.title` 改成真实标题，均不新增任何未来出处或 id，因此该判据不可能失败。这里没有修改 worktree 做实际变异测试，结论来自判据能观察到的信息；Spec 对照见 `queries.md:64-65,110,112,194`。
+- **建议改法**：全量检查经公开 `api.call` 执行，并为显示名/称呼、身份分组、计数、排序、主线批次、章标题建立独立的期望或针对性不变量；只对明确允许的全书元数据及本章后续原文开例外。递归出处检查保留作辅助，不能作为输出 1 的唯一证据。按 `docs/testing/README.md:28` 对这些具体判据逐项做变异检查，不只在用例名写输出编号。
+
+### 15. 查看器验收映射漏掉时序合同，8 个验收场景不能代表全部行为
+
+- **严重程度**：重要；**类别**：覆盖。
+- **位置**：plan.md“验收映射”第 203-204 行、S6-S9；`story.viewer` 输出 4、状态与转换第 1、3、5 条。
+- **现象**：映射把“输出 1 到 33”交给浏览器自检，把 8 个验收场景和 F1-F5 交给 e2e，却没有映射以下独立判据：旧位置请求晚到仍不能覆盖新位置；保存返回不能回滚当前界面；地址对象/视角在当前位置不存在时剔除并提示；打开着的抽屉跨宽度档位时内容保持。第 9 条指出的隐藏/关闭保存边界也不在现有回到上次场景中。
+- **为什么是问题**：这些是已定的状态与时序合同，不属于输出 1-33 的静态内容检查。现有 viewer 验收 1 只等两个位置各自显示，验收 2 是等保存完成才关闭，验收 7 只检查各宽度能显示；三者都不会制造晚到响应、在途保存或带内容跨档的状态转换。按现有 8 场景全部通过，仍可违反这些合同。
+- **如何核实**：逐项对照 `viewer.md:43,96-100,123-132` 与计划第 203-204 行；没有运行或声称已有 e2e 失败。计划尚无这些场景的输入顺序、最终可观察结果和证据位置，不能把一句“覆盖全部输出”当作时序测试。
+- **建议改法**：给 S9 补最小的时序矩阵：可控地延后真实请求的返回，再读取页面实际内容与书库里的最终状态；分别覆盖页面、人物卡/原文抽屉、搜索、图。地址恢复覆盖非法对象和视角；宽度测试带着同一抽屉内容跨档。等待可观察状态，不用固定时长，也不以回调调用次数代替用户最终看到的内容。
+
+### 16. 只增加 playwright-core，缺少计划所需的 Playwright 测试运行器
+
+- **严重程度**：重要；**类别**：仓库规则。
+- **位置**：plan.md“包与目录”第 33、40-41 行、S9、“验证”第 210 行。
+- **现象**：devDependencies 计划照 dev-panel，再只加根已有的 `playwright-core`。dev-panel 本身没有 Playwright 测试依赖；`playwright-core` 提供浏览器自动化 API 和 `playwright-core` 命令，不提供 `@playwright/test` 的 `test`、`expect`、测试配置与正常的 `playwright test` 运行器。
+- **为什么是问题**：S9 的 `playwright.config.ts`、`*.e2e.ts` 和 Node 测试运行方式缺少包内声明的执行依赖。在当前 monorepo 里恰好可以借到主应用的 `@playwright/test`，只会掩盖跨包/根依赖泄漏，不符合包可独立按自己的 scripts 验证的规则。
+- **如何核实**：已读 `packages/dev-panel/package.json:39-51`，没有测试运行器；本机 `playwright-core@1.61.1` 的 exports 没有 `./test`，bin 只有 `playwright-core`。`mechanism-probe.ts` 解析 `playwright-core/test` 失败，而 `@playwright/test` 从共享 node_modules 借到；现有 `packages/neuro-book/e2e/browser-host.e2e.ts:10` 实际从 `@playwright/test` 导入。未执行 `test` 命令、未打开浏览器。
+- **建议改法**：在 nb-story 自己声明与现有仓库约定一致的 `@playwright/test`，脚本明确由 Node 执行它的测试 CLI；若代码直接使用 `playwright-core` API，再同时声明该依赖并核对版本关系。继续使用 `channel:"chrome"`、包脚本自行构建、用例自行收口服务的既有约定，不借 sibling 包的未声明依赖。
+
+### 17. 新领域包把全部测试放 tests/，没有遵守测试与源码同目录的规则
+
+- **严重程度**：建议；**类别**：仓库规则。
+- **位置**：plan.md 包目录第 36 行、S1-S5 与验收映射中的 `tests/*.test.ts`。
+- **现象**：计划把 `library.test.ts`、`queries-*.test.ts`、`cursor.test.ts`、`cli.test.ts`、`server.test.ts` 全放包根的 `tests/`；对应源码却在 `src/core/`、`src/cli/`、`src/server/`。
+- **为什么是问题**：`docs/testing/README.md:118` 要求测试与被测源码同目录。第 185 行允许 `src/**` 或 `tests/**` 的例外属于“通用包测试合同”，明确适用于 `packages/agent-*` 这类领域无关通用包；nb-story 是小说领域包。dev-panel 的既有目录不能自动成为新包的规则豁免。开发者只批准样例书放 `tests/fixtures/`，没有批准所有测试离开源码目录。
+- **如何核实**：对照计划目录与测试路径、测试规范第 116-120、175-185 行，以及 t03 README 决定 1。未移动任何测试或修改规范。
+- **建议改法**：把新的行为测试与对应模块并列；真实浏览器 e2e 可单独有入口目录。样例书继续按已批准决定放 `tests/fixtures/`，共享无断言支持放 `testing/`。同步改验收映射与命令，避免写完 S1-S5 后再整体搬测试。
+
+### 18. 不登记 Component Lab 的决定，没有免除可复用零件的同名文档
+
+- **严重程度**：建议；**类别**：文档。
+- **位置**：plan.md“`src/web/`”第 147-149 行、“Spec 与文档改动”第 161-168 行。
+- **现象**：计划把组件说明安排为“照 dev-panel，在组件头写用途与约束”，没有安排 `RefLink`、`NameLink`、`RecordTags`、`PagedList`、`EntityCard`、`SourceExcerpt`、`LedgerChart`、图零件的并列同名 `.md`。
+- **为什么是问题**：`docs/standards/code/components.md:3,16-20` 明确区分页面/整体外壳与可拿 props 在别处渲染的零件；开发工具里的零件同样受约束，新零件要先写同名文档，包含能力标签与可观察合同。t03 决定 2 只免除 Component Lab 场景登记，不免除组件文档。注释规则允许模块头讲约束，但不能拿注释替代伴生需求书。
+- **如何核实**：对照上述组件规范、`ui-development` 的“组件复用与伴生文档”第 4 条与 t03 README 决定 2；计划文档表只有 Spec、包登记和 AGENTS，没有组件文档交付。这里不要求重开界面评审，也不质疑免登记 Lab 的已定决定。
+- **建议改法**：在 S6-S8 先给真正可复用的零件写同名 `.md`，声明 props/emits/slots、隐藏通道理由、图上游边界与关键状态；页面与整体外壳仍按规范豁免。按实际是否有可独立演示场景选择文档详略，不能引用不存在的 Lab 场景作为省略正文的理由。
+
+## 实际核实与边界
+
+以下 4 个一次性探针均已运行，退出码均为 0；脚本与运行生成的数据全部留在指定 `lab/`，没有删除文件。文件系统探针的子进程已正常退出。
+
+```sh
+node /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00024-nb-story/tasks/t03-impl/reports/plan-review/lab/fs-races.mjs
+node /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00024-nb-story/tasks/t03-impl/reports/plan-review/lab/data-probe.mjs
+bun /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00024-nb-story/tasks/t03-impl/reports/plan-review/lab/mechanism-probe.ts
+node /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00024-nb-story/tasks/t03-impl/reports/plan-review/lab/graph-probe.mjs
+```
+
+文件系统实验验证的是计划算法允许的真实跨进程交错，不是已经实现的 nb-story；否定身份与首笔余额是边界构造，真实数据对应的存在性/数量在各条里单独说明。图实验只运行实际依赖库，不代表完整浏览器排版。
+
+未运行：e2e、开发服务、产品构建、类型检查、现有产品测试、外部 Agent/真实模型评测。没有执行 `bun install`，没有修改 worktree、Git 状态或分支。LSP 查询结果是 `No language servers configured for this project`，现有机制由源码与探针核实。每追加一条发现后均运行 `grep -c '^### ' /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00024-nb-story/tasks/t03-impl/reports/plan-review/report.md`，条数从 1 单调增加到 18。
+
+## 未发现问题的方面
+
+- **合同命名**：已读 `packages/nb-runtime/src/remote/contract.ts`，带点的方法名可以使用；`nb-story/queries` 不触犯保留前缀；下划线业务错误码与当前路由层连字符错误码不重名。没有根据命名相似性把它们报成冲突。
+- **分栏复用**：已读 `useGridLayout.ts` 与 Grid 文档；现有装配有容器/context/revision 校验、一次 `resizeBranches` 提交和显式失效入口。计划由 nb-story 宿主决定收起、响应式与保存，没有要求这套原语凭空提供书阅读状态或网络同步。
+- **已定范围与授权**：100 章样例 gzip 入库、网页不登记 Component Lab、S1-S5 先合入均已有 t03 决定，没有重新质疑这些决定；本次也没有据此执行任何合入。第一版不做内置问答、3D 与插件接入，与最新决定一致。
+- **部分明确的合同映射**：计划对最近一批主线、本章位置之后仅原文例外、段落概要要等整段可见、Skill 的 16 题各 3 次共 48 份且一审答错至多 11 份，均与已定 Spec 一致。这里只确认文字对齐，不声称产品已通过验收。
+
+## 数量
+
+| 严重程度 | 数量 | 编号 |
+|---|---:|---|
+| 阻断 | 2 | 1、2 |
+| 重要 | 13 | 3-12、14-16 |
+| 建议 | 3 | 13、17、18 |
+| 合计 | 18 | 1-18 |

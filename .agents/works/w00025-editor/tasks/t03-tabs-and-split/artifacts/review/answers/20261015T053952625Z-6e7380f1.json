@@ -1,0 +1,22 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00025-editor",
+    "taskId": "t03-tabs-and-split",
+    "artifactId": "review",
+    "answerId": "20261015T053952625Z-6e7380f1",
+    "artifactVersion": 1,
+    "contentHash": "dea5c5a38ba90e0c6494fba504990a8983c148cf6a52fe6f0043fe556353c16a",
+    "submittedAt": "2026-10-15T05:39:52.217Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "r1-emphasis": "underline",
+        "r1-notes": "1. 固定标签：多行模式下固定标签要单独一行\n2. /home/notnotype/CodeRepository/neuro-book/.local/image.png vscode 的做法可以学习一下\n3. 面包屑组件也可以做一个"
+    },
+    "comments": {
+        "r1-emphasis": "目前两种都不行。"
+    },
+    "note": null
+}

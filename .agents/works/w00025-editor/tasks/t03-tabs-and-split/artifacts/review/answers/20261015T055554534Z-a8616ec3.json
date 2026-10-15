@@ -1,0 +1,23 @@
+{
+    "schema": "nbdev.answer/v1",
+    "workId": "w00025-editor",
+    "taskId": "t03-tabs-and-split",
+    "artifactId": "review",
+    "answerId": "20261015T055554534Z-a8616ec3",
+    "artifactVersion": 2,
+    "contentHash": "cca95b67cfacf6c57461141047974f7de81640edf9e73b3135c3eacf6f1c8f47",
+    "submittedAt": "2026-10-15T05:55:54.129Z",
+    "submittedBy": {
+        "kind": "developer",
+        "device": "local"
+    },
+    "values": {
+        "r2-emphasis": "card",
+        "r2-breadcrumbs": true,
+        "r2-notes": "1. 水平 Tab 之间的分割线使用开放式线条。"
+    },
+    "comments": {
+        "r2-emphasis": "调一下配色看看效果会不会更好"
+    },
+    "note": null
+}

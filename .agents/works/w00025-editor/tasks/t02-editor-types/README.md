@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t02-editor-types
-status: active
+status: done
 updated: 2026-10-15
 ---
 
@@ -73,4 +73,4 @@ updated: 2026-10-15
 
 ## 下一步
 
-开发者体验后：图片查看器与 HTML 预览两份 Spec 是否晋升 `implemented`；是否合入 master。
+完成。开发者 2026-10-15 批准两份 Spec 晋升 `implemented`（`8747176f7`、`cbe19fb0a`）；分支不单独合入，与 t03 到 t05 一起合入 master（见 Work README 的“集成分支”）。

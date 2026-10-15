@@ -1,0 +1,123 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00025-editor",
+    "taskId": "t03-tabs-and-split",
+    "artifactId": "review",
+    "version": 2,
+    "supersedes": 1,
+    "action": "publish",
+    "kind": "design",
+    "title": "编辑器标签栏评审板",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "cca95b67cfacf6c57461141047974f7de81640edf9e73b3135c3eacf6f1c8f47",
+    "files": [
+        "index.html",
+        "r1/bold-dark.webp",
+        "r1/bold-light.webp",
+        "r1/bold-many-light.webp",
+        "r1/hover-pinned-light.webp",
+        "r1/scroll-many-light.webp",
+        "r1/underline-dark.webp",
+        "r1/underline-light.webp",
+        "r1/underline-many-dark.webp",
+        "r2/card-dark.webp",
+        "r2/card-light.webp",
+        "r2/card-top-dark.webp",
+        "r2/card-top-light.webp",
+        "r2/many-light.webp",
+        "r2/picker-folder-light.webp",
+        "r2/picker-outline-dark.webp",
+        "r2/scroll-dark.webp"
+    ],
+    "questions": [
+        {
+            "id": "r1-emphasis",
+            "type": "single",
+            "label": "活动标签怎么突出",
+            "options": [
+                {
+                    "value": "bold",
+                    "label": "A 加粗（现在的做法）"
+                },
+                {
+                    "value": "underline",
+                    "label": "B 底部强调短线"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "underline"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "r1-notes",
+            "type": "text",
+            "label": "其它状态有没有要改的",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "r2-emphasis",
+            "type": "single",
+            "label": "VS Code 式的活动标签",
+            "options": [
+                {
+                    "value": "card",
+                    "label": "C 只有标签块"
+                },
+                {
+                    "value": "card-top",
+                    "label": "D 标签块，活动组的那块加顶部强调线"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "card-top"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 2,
+            "outcome": null
+        },
+        {
+            "id": "r2-breadcrumbs",
+            "type": "confirm",
+            "label": "面包屑按这样做",
+            "options": [],
+            "required": true,
+            "recommend": [],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 2,
+            "outcome": null
+        },
+        {
+            "id": "r2-notes",
+            "type": "text",
+            "label": "其它要改的",
+            "options": [],
+            "required": false,
+            "recommend": [],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 2,
+            "outcome": null
+        }
+    ],
+    "publishedAt": "2026-10-15T05:45:11.264Z"
+}
