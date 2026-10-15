@@ -62,11 +62,13 @@ code { font-family: var(--mono); font-size: 12.5px; }
 </style>
 </head>
 <body>
-<header class="top"><b>nb-story 界面评审板</b><small>w00024 t01-ui-design 的产物 · 第 5 轮 · 2026-10-14</small></header>
+<header class="top"><b>nb-story 界面评审板</b><small>w00024 t01-ui-design 的产物 · 第 6 轮 · 2026-10-15</small></header>
 <main>
 
 <div class="lead">
-    <h1>第 5 轮：剩下五页，以及平板、手机宽度</h1>
+    <h1>第 6 轮：图改用 Sigma.js 重做</h1>
+    <p>第 3 到 5 轮的五道题你都按推荐答了（Task README 决定 9 到 13）。另外你在会话里说现在的图很乱：没有像样的自动排版，节点和文字大多挤在一起，要深入打磨，直接用 Sigma.js（决定 14）。这一轮把关系图、全书图（按章节、按关联）和人物卡里的小关系图都换成 Sigma.js 重做，问两道题（13、14）。</p>
+    <h1 style="margin-top:20px;font-size:18px">第 5 轮：剩下五页，以及平板、手机宽度</h1>
     <p>第 4 轮的三道题（9、10，以及第 3 轮的 8）还没答，等答复期间先把计划里剩下的部分做完：数值、悬念、时间线、情节、原文五页，人物卡记录“在主区打开”的宽表格，以及平板、手机宽度。这一轮新问两道题（11、12），第 4 轮的内容在下面原样保留。</p>
     <h1 style="margin-top:20px;font-size:18px">第 4 轮：图、段落级的阅读位置、成百上千条记录</h1>
     <p>第 3 轮你定了版式可以往下细化，另提了三点（Task README 决定第 8 条）。这一轮按这三点改了稿子：读到哪里可以精确到段；人物卡改成页签，记录按几百条的量级做了筛选、搜索和按章分组；加了“关系图”和“全书图”两页，人物卡里也有一张小关系图。数据仍是“读到第 38 章”的真实样本。</p>
@@ -74,6 +76,62 @@ code { font-family: var(--mono); font-size: 12.5px; }
 </div>
 
 <div class="round">待定</div>
+
+<section class="q">
+    <h2>第 6 轮的改动（不用答）</h2>
+    <p>换成 Sigma.js（WebGL 画点和线，几千个点也流畅），排版用 graphology 的 ForceAtlas2 加 noverlap。具体打磨了这几处：</p>
+    <ol>
+        <li><b>先少画：</b>关系图默认只画人物与组织（13 个），物品、地点、概念、任务按开关加进来；以前一次画 65 个，概念、任务这类点把人挤在中间。</li>
+        <li><b>排版不重叠：</b>先用力导向拉开结构，再把点推开到互不重叠；推的时候按标签宽度给要显示名字的点留位置。初始位置按权重确定地摆开，同样的数据每次排出来一样。</li>
+        <li><b>文字分级：</b>点少时名字全显示；点多时按格子去重，同一格只出最大的点的名字，放大后逐级出来。名字带底色，不会被线压住。</li>
+        <li><b>线上写关系：</b>线上横排写归纳出的关系（姐妹、朋友、亲属、同伴、所属），线越粗说法越多；只有说法、没有关系词的线，悬停时才写“说法 N 条”。</li>
+        <li><b>悬停聚焦：</b>悬停一个点，只留它和它的邻居，其余淡到背景色；打开人物卡时选中的人加粗、邻居出名字，但不把别的点淡掉。</li>
+        <li><b>在图里找、缩放：</b>搜索命中的点高亮，镜头移过去；右下角放大、缩小、铺满。</li>
+    </ol>
+    <div class="shots">
+        <figure><img src="r6/graph-free.webp" alt="关系图"><figcaption>关系图（默认）：人物与组织，名字全显示，线上写关系。对照第 4 轮那张挤成一团的图。</figcaption></figure>
+        <figure><img src="r6/graph-hover.webp" alt="悬停聚焦"><figcaption>悬停在南小风上：只留她和她的邻居（花铃“朋友”、南嘉鱼“姐妹”、父母“亲属”、英雄协会“同伴”），其余淡掉；没有关系词的线写出说法条数。</figcaption></figure>
+        <figure><img src="r6/graph.webp" alt="关系图加人物卡"><figcaption>打开南嘉鱼的人物卡：图上她加粗、邻居出名字，别的点照常显示。</figcaption></figure>
+        <figure><img src="r6/ego.webp" alt="人物卡里的小关系图"><figcaption>人物卡里的小图：只画关系最多的 12 个，绕着这个人排成一圈，关系最多的在正上方顺时针往下；左半边的名字写在点的左边，邻居之间的线画淡、不写字。位置是算出来的，不跑力导向，不会挤。</figcaption></figure>
+        <figure><img src="r6/storyline.webp" alt="全书图按章节"><figcaption>全书图“按章节”（默认，决定 10）：行距按画布比例算，铺满高度；行的顺序把交汇最多的人（苏天晴）放中间，和她交汇多的排两侧，竖线短、交叉少。悬停一个点，同一段情节在各行上的点和竖线高亮，显示章号和标题。</figcaption></figure>
+        <figure><img src="r6/datagraph.webp" alt="全书图按关联"><figcaption>全书图“按关联”：默认按主线聚合（见第 14 题），主线是深灰的点，连着各段情节里出场的人，线越粗出场越多；红点是秘密。点多时只显示大点的名字，放大逐级出来。</figcaption></figure>
+        <figure><img src="r6/graph-dark.webp" alt="深色主题"><figcaption>深色主题：颜色都从主题变量取，换主题后重画。</figcaption></figure>
+        <figure><img src="r6/graph-tablet.webp" alt="平板宽度"><figcaption>平板宽度：工具栏换行，图照样铺满。</figcaption></figure>
+    </div>
+</section>
+
+<section class="q" data-nbdev-question="relation-graph-default" data-nbdev-type="single" data-nbdev-recommend="people-groups">
+    <h2><span class="badge todo" data-nbdev-skip>待定</span>13. 关系图默认画哪些点？</h2>
+    <p class="ask">读到第 38 章有 65 个对象：人物 9、组织 4、物品 13、地点 12、概念 19、任务 8。全画出来概念和任务会把人挤在中间（第 4 轮的图）。</p>
+    <div class="opts">
+        <div class="opt rec" data-nbdev-option="people-groups"><h3>默认只画人物与组织，其余按开关加</h3><p>就是现在的稿子。类别开关记住上次的选择。</p></div>
+        <div class="opt" data-nbdev-option="people-groups-items"><h3>人物、组织，加上常出场的物品</h3><p>出场多的物品（例如会说话的黑色古书、苏天晴的手机）默认也画。</p></div>
+        <div class="opt" data-nbdev-option="all"><h3>全部都画</h3><p>靠标签分级和悬停聚焦去看清。</p></div>
+    </div>
+    <div class="rec-note"><b>推荐默认只画人物与组织。</b>“关系图”回答的是人和人之间的事；物品、概念要看时一键打开。黑色古书这类会说话、实际是角色的物品，见下面问题 2。</div>
+</section>
+
+<section class="q" data-nbdev-question="data-graph-grain" data-nbdev-type="single" data-nbdev-recommend="arc">
+    <h2><span class="badge todo" data-nbdev-skip>待定</span>14. 全书图“按关联”默认按主线聚合，还是逐段情节？</h2>
+    <p class="ask">93 段情节几乎每段都有苏天晴，逐段画时所有情节都挂在她身上，排出来是一个均匀的球，看不出结构；按 33 条主线聚合后能看出哪几条主线围着哪几个人。</p>
+    <div class="opts">
+        <div class="opt rec" data-nbdev-option="arc"><h3>默认按主线，可切到逐段情节</h3><p>还没归入主线的最近几段情节照常单独画。</p></div>
+        <div class="opt" data-nbdev-option="episode"><h3>默认逐段情节，可切到按主线</h3><p>点最全，靠搜索和悬停去找。</p></div>
+    </div>
+    <div class="rec-note"><b>推荐默认按主线。</b>“按关联”是用来看结构的；逐段的细节在故事线（按章节）和情节页里看更清楚。</div>
+</section>
+
+<section class="q">
+    <h2>第 6 轮搭稿时发现的问题（不用答，记下来进计划）</h2>
+    <ol>
+        <li><b>关系词大多归纳不出来。</b>66 条关系线里只有 14 条能从说法的分类里拼出关系词：亲属类说法里有“姐妹”就写姐妹，社交类说法里出现“朋友、同桌、同伴……”就写它，所属类写“所属”。其余 52 条只能写“说法 N 条”。第 4 轮问题 1 的根子还在：记忆图要给每对人归纳“是什么关系”，并随读到哪里变化。</li>
+        <li><b>会说话的物品被归为物品。</b>黑色古书（墨丘利秘典）会和主角对话、发任务，实际是个角色，但抽取把它归为物品，默认的关系图里就没有它（人物卡小图里有）。要么抽取时把“能说话、会行动”的对象归为角色，要么界面允许把某个对象钉到关系图上。</li>
+        <li><b>拖读到哪里时图会重排。</b>每个阅读位置单独排版，拖滑块时点会跳。实现时用上一个位置的坐标作为下一次排版的起点，只让新出现的点找位置。</li>
+        <li><b>Sigma 4.0 刚发布。</b>草稿用的是稳定的 3.0.3；4.0.0 是 2026-10-08 发的、10-14 已到 4.0.2，接口有变化。实现时再看要不要直接上 4。</li>
+    </ol>
+</section>
+
+<div class="round">已定（第 3 到 5 轮的题，2026-10-15 答复）</div>
 
 <section class="q">
     <h2>第 5 轮的改动（不用答）</h2>
@@ -93,17 +151,18 @@ code { font-family: var(--mono); font-size: 12.5px; }
 </section>
 
 <section class="q" data-nbdev-question="phone-scope" data-nbdev-type="single" data-nbdev-recommend="desktop-tablet-first">
-    <h2><span class="badge todo" data-nbdev-skip>待定</span>11. 手机宽度要不要进第一版？</h2>
+    <h2><span class="badge done" data-nbdev-skip>已定</span>11. 手机宽度要不要进第一版？</h2>
     <p class="ask">上面的手机稿说明版式能收进手机，但真做出来还要处理触屏上的图（双指缩放、点选）、局域网访问（独立服务跑在电脑上）和一套手机宽度的检查。平板宽度只是收起导航、抽屉改浮层，代价小。</p>
     <div class="opts">
         <div class="opt rec" data-nbdev-option="desktop-tablet-first"><h3>第一版做宽屏和平板，手机后做</h3><p>代码按三档宽度写（手机档先能显示、不保证好用），手机的触屏交互和局域网访问放到下一版。</p></div>
         <div class="opt" data-nbdev-option="all-three"><h3>三档都进第一版</h3><p>手机上图页也要能用；第一版的工作量和检查范围都更大。</p></div>
     </div>
     <div class="rec-note"><b>推荐第一版做宽屏和平板。</b>第一版是本机跑的独立服务，最常见的用法是在电脑上边读边查、边写边查；手机要先解决怎么连到电脑上的服务。版式已经按三档留好，以后加手机不用改结构。</div>
+    <div class="decided"><b>已定（2026-10-15）：</b>第一版做宽屏和平板，手机后做（决定 12）。</div>
 </section>
 
 <section class="q" data-nbdev-question="ledger-mismatch" data-nbdev-type="single" data-nbdev-recommend="show-gap">
-    <h2><span class="badge todo" data-nbdev-skip>待定</span>12. 原文报的余额和逐笔累加对不上时怎么显示？</h2>
+    <h2><span class="badge done" data-nbdev-skip>已定</span>12. 原文报的余额和逐笔累加对不上时怎么显示？</h2>
     <p class="ask">神典石 18 笔里有 6 处，原文直接写出的余额比抽到的收支逐笔累加多出 100 到 800（例如第 38 章原文说余额 1300，累加只有 500）：中间有任务奖励没抽到。现金第一笔就是支出，起始金额不明。</p>
     <div class="opts">
         <div class="opt rec" data-nbdev-option="show-gap"><h3>以原文报数为准，标出差额</h3><p>余额跟着原文报数走；对不上的那一笔标黄，写“比累加多 800”，页顶提示有几处对不上（就是现在的稿子）。</p></div>
@@ -111,6 +170,7 @@ code { font-family: var(--mono); font-size: 12.5px; }
         <div class="opt" data-nbdev-option="sum-only"><h3>只显示逐笔累加</h3><p>余额全按累加算，原文报数只当一条说明。</p></div>
     </div>
     <div class="rec-note"><b>推荐以原文报数为准、标出差额。</b>原文报的数是读者在书里看到的，必须对得上；差额本身也是有用的信息：告诉读者“中间有没记到的收支”，也告诉我们抽取漏了什么。</div>
+    <div class="decided"><b>已定（2026-10-15）：</b>以原文报数为准，标出差额（决定 13）。</div>
 </section>
 
 <section class="q">
@@ -134,7 +194,7 @@ code { font-family: var(--mono); font-size: 12.5px; }
 </section>
 
 <section class="q" data-nbdev-question="data-graph-layout" data-nbdev-type="single" data-nbdev-recommend="both-storyline">
-    <h2><span class="badge todo" data-nbdev-skip>待定</span>9. 全书图怎么排？<small data-nbdev-skip>（第 4 轮的题，还没答）</small></h2>
+    <h2><span class="badge done" data-nbdev-skip>已定</span>9. 全书图怎么排？</h2>
     <p class="ask">“整个数据结构用一张图展示”有两种排法。读到第 38 章是 258 个点、669 条连线；读到第 100 章约 700 个点、几千条连线。</p>
     <div class="shots">
         <figure><img src="r4/datagraph.webp" alt="按关联排"><figcaption>按关联（力导向）：人物、情节、秘密、悬念四类点，按类型开关。能看出谁是中心、什么和什么连着，但点一多就成一团，要靠搜索、选中高亮和类型开关才看得清。</figcaption></figure>
@@ -146,26 +206,29 @@ code { font-family: var(--mono); font-size: 12.5px; }
         <div class="opt" data-nbdev-option="force-only"><h3>只要按关联</h3><p>故事线以后再说。</p></div>
     </div>
     <div class="rec-note"><b>推荐两种都要、默认按章节。</b>按关联在几百个点时已经成团，默认给它要先学会筛选才有用；按章节第一眼就能读，人物出场和交汇正是“梳理剧情”要的。</div>
+    <div class="decided"><b>已定（2026-10-15）：</b>两种都要，默认按章节（决定 10）。</div>
 </section>
 
 <section class="q" data-nbdev-question="card-tabs" data-nbdev-type="single" data-nbdev-recommend="tabs">
-    <h2><span class="badge todo" data-nbdev-skip>待定</span>10. 人物卡分页签，还是一长页？<small data-nbdev-skip>（第 4 轮的题，还没答）</small></h2>
+    <h2><span class="badge done" data-nbdev-skip>已定</span>10. 人物卡分页签，还是一长页？</h2>
     <p class="ask">记录上千条以后，人物卡一长页往下翻就到不了底。上面两张人物卡的图是分页签的做法：概况（含知道的秘密）、关系、记录、情节，页签上带条数。</p>
     <div class="opts">
         <div class="opt rec" data-nbdev-option="tabs"><h3>分页签</h3><p>默认停在“概况”；从别处点进来时直接停在对应的页签（例如从关系图点进来停在“关系”）。</p></div>
         <div class="opt" data-nbdev-option="long"><h3>一长页，各节折叠</h3><p>各节标题带条数，默认只展开概况；展开的节在抽屉里各自滚动。</p></div>
     </div>
     <div class="rec-note"><b>推荐分页签。</b>抽屉只有三四百像素宽，几个可以各自滚动的折叠节叠在一起很难用；页签让每一类都能占满抽屉的高度。</div>
+    <div class="decided"><b>已定（2026-10-15）：</b>分页签（决定 11）。</div>
 </section>
 
 <section class="q" data-nbdev-question="qa-answer-format" data-nbdev-type="single" data-nbdev-recommend="table">
-    <h2><span class="badge todo" data-nbdev-skip>待定</span>8. 问答的答案怎么呈现？<small data-nbdev-skip>（第 3 轮的题，还没答）</small></h2>
+    <h2><span class="badge done" data-nbdev-skip>已定</span>8. 问答的答案怎么呈现？</h2>
     <p class="ask">现在的答案是模型写的一大段文字（见上面问答页那张图）：结论一段，之后每个人物一段，编号夹在句子里。“谁知道什么”这类题一屏看不完，也很难对照。要改的话，作答规则要让模型按固定格式输出，属于问答核心的改动，要随问答回归一起测。</p>
     <div class="opts">
         <div class="opt" data-nbdev-option="prose"><h3>保持长文</h3><p>结论加底色放最上面，其余照原样；编号做成可点的链接（就是现在的稿子）。</p></div>
         <div class="opt rec" data-nbdev-option="table"><h3>结论加表格，长文收起</h3><p>“谁知道什么”的题，答案先给结论，再给一张表：一行一个人，列是“知道吗”（知道、不知道、原文没有表明）、“怎么知道的”、依据编号；模型的完整说明收在“展开说明”里。其他题型（概括、关系）仍是结论加分点。</p></div>
     </div>
     <div class="rec-note"><b>推荐结论加表格。</b>这类题是 nb-story 最常被问的（t34 的 16 道知情、身份题），表格和秘密矩阵是同一种读法，扫一眼就能对照；依据编号集中在一列，点开就是原文。</div>
+    <div class="decided"><b>已定（2026-10-15）：</b>结论加表格，长文收起（决定 9）。</div>
 </section>
 
 <section class="q">
