@@ -1,7 +1,7 @@
 ---
 schema: nbook.spec/v1
 kind: behavior
-status: planned
+status: implemented
 capability: workbench.image-viewer
 owners:
   - nbook.image-viewer
@@ -70,7 +70,7 @@ Smoke：`e2e/editor-types.e2e.ts`（生产构建、本机 Chrome、真实 Files�
 
 ## 证据
 
-- 批准依据：[w00025 t01 的决定](../../../.agents/works/w00025-editor/tasks/t01-requirements/README.md#开发者的决定) 4、5 与 [t02 实施计划](../../../.agents/works/w00025-editor/tasks/t02-editor-types/plan.md) 第 7 节，开发者 2026-10-14 确认。
+- 批准依据：[w00025 t01 的决定](../../../.agents/works/w00025-editor/tasks/t01-requirements/README.md#开发者的决定) 4、5 与 [t02 实施计划](../../../.agents/works/w00025-editor/tasks/t02-editor-types/plan.md) 第 7 节，开发者 2026-10-14 确认；2026-10-15 批准晋升 `implemented`。
 - 实现入口：[`plugins/image-viewer/web/plugin.ts`](../../../packages/neuro-book/src/plugins/image-viewer/web/plugin.ts)、[`ImageViewer.vue`](../../../packages/neuro-book/src/plugins/image-viewer/web/components/ImageViewer.vue)
 - 合同测试：[`editor/area.test.ts`](../../../packages/neuro-book/src/plugins/editor/area.test.ts)（字节标签）、[`editor/editor-registry.test.ts`](../../../packages/neuro-book/src/plugins/editor/editor-registry.test.ts)（交付先后与停止）
 - Smoke：[`e2e/editor-types.e2e.ts`](../../../packages/neuro-book/e2e/editor-types.e2e.ts)

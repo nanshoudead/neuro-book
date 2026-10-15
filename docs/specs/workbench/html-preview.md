@@ -1,7 +1,7 @@
 ---
 schema: nbook.spec/v1
 kind: behavior
-status: planned
+status: implemented
 capability: workbench.html-preview
 owners:
   - nbook.html-preview
@@ -83,7 +83,7 @@ Smoke：`e2e/editor-types.e2e.ts`（生产构建、本机 Chrome、真实 Files�
 
 ## 证据
 
-- 批准依据：[w00025 t01 的决定](../../../.agents/works/w00025-editor/tasks/t01-requirements/README.md#开发者的决定) 2、3 与 [t02 实施计划](../../../.agents/works/w00025-editor/tasks/t02-editor-types/plan.md) 第 6 节（预览方式为开发者 2026-10-14 在计划审查后定的“沙箱加受限读文件接口”；默认允许联网为开发者 2026-10-15 定）。
+- 批准依据：[w00025 t01 的决定](../../../.agents/works/w00025-editor/tasks/t01-requirements/README.md#开发者的决定) 2、3 与 [t02 实施计划](../../../.agents/works/w00025-editor/tasks/t02-editor-types/plan.md) 第 6 节（预览方式为开发者 2026-10-14 在计划审查后定的“沙箱加受限读文件接口”；默认允许联网为开发者 2026-10-15 定）；2026-10-15 批准晋升 `implemented`。
 - 实现入口：[`plugins/html-preview/web/plugin.ts`](../../../packages/neuro-book/src/plugins/html-preview/web/plugin.ts)、[`HtmlPreview.vue`](../../../packages/neuro-book/src/plugins/html-preview/web/components/HtmlPreview.vue)、[`compose.ts`](../../../packages/neuro-book/src/plugins/html-preview/web/compose.ts)、令牌服务与预览路由 [`files/backend/raw-route.ts`](../../../packages/neuro-book/src/plugins/files/backend/raw-route.ts)
 - 合同测试：[`html-preview/compose.test.ts`](../../../packages/neuro-book/src/plugins/html-preview/compose.test.ts)、[`files/raw-route.test.ts`](../../../packages/neuro-book/src/plugins/files/raw-route.test.ts)（预览的受限读取）
 - Smoke：[`e2e/editor-types.e2e.ts`](../../../packages/neuro-book/e2e/editor-types.e2e.ts)

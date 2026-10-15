@@ -197,8 +197,8 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过开发者授权
 | 插件运行期启用与禁用 | [`runtime/plugin-hot-plug.md`](runtime/plugin-hot-plug.md) | 热插拔三档、引用账本与转发器、三步停止、在途调用结算 |
 | 插件安装与热升级 | [`runtime/plugin-install.md`](runtime/plugin-install.md) | 本地文件夹安装、卸载、兼容、安全模式、热升级与回滚 |
 | 插件代码的装载与回收 | [`runtime/plugin-code-loading.md`](runtime/plugin-code-loading.md) | 服务端装载与缓存回收、浏览器宿主模块表、纯度检查、插件文件端点 |
-| 图片查看器 | [`workbench/image-viewer.md`](workbench/image-viewer.md) | 图片的字节编辑器：适应与缩放、棋盘格底、尺寸与大小、随文件更新；待晋升 |
-| HTML 预览 | [`workbench/html-preview.md`](workbench/html-preview.md) | 沙箱里的预览编辑器：令牌限定的只读文件访问、相对引用、默认不联网、随正文更新；待晋升 |
+| 图片查看器 | [`workbench/image-viewer.md`](workbench/image-viewer.md) | 图片的字节编辑器：适应与缩放、棋盘格底、尺寸与大小、随文件更新 |
+| HTML 预览 | [`workbench/html-preview.md`](workbench/html-preview.md) | 沙箱里的预览编辑器：令牌限定的只读文件访问、相对引用、默认联网可关、随正文更新 |
 | 插件公开 API | [`runtime/plugin-api.md`](runtime/plugin-api.md) | 远程形态约束、激活上下文、错误码、worker 池、私有存储、配置与密钥 |
 | 主线程卡死看门狗 | [`runtime/stall-watchdog.md`](runtime/stall-watchdog.md) | 卡死检测、报告、退出码 76、Manager 自动重启与桌面呈现、提示禁用与自动安全模式 |
 | Component Lab 时间线回放 | [`ui/component-lab-timeline.md`](ui/component-lab-timeline.md) | fixture 声明时间线、虚拟时钟、可复现定位与播放控件 |
