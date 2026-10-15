@@ -13,6 +13,7 @@ import {mergeAttributes, Node} from "@tiptap/core";
 import type {MarkedExtension} from "marked";
 
 import type {MarkdownSyntax, TokenReader} from "../types";
+import {Unrepresentable} from "../types";
 
 /** 能读的行内 HTML（输出 25）：交给核心语法配对成粗体、斜体、删除线与换行，这里不抢。 */
 export const READABLE_INLINE_HTML = ["strong", "b", "em", "i", "del", "s", "br"] as const;
@@ -72,6 +73,12 @@ const FOOTNOTE_REF = /^\[\^[^\]\s]+\]/u;
 /** 行内数学（Pandoc 的 tex_math_dollars）：开 `$` 后不是空白，闭 `$` 前不是空白、后面不是数字。 */
 const MATH_INLINE = /^\$(?=\S)(?:\\.|[^$\\\n])*?\S\$(?!\d)|^\$[^\s$]\$(?!\d)/u;
 const MATH_BLOCK = /^\$\$[^\n]*\$\$[ \t]*(?=\n|$)|^\$\$[ \t]*\n[\s\S]*?\n[ \t]*\$\$[ \t]*(?=\n|$)/u;
+
+/**
+ * 行首出现时会开启一个 HTML 块（CommonMark 的第 1–6 类，它们还能打断段落）的写法：注释、处理指令、声明、CDATA、`<script>`
+ * 这类、块级标签。原样片段以它开头时，不能写在一行的开头。
+ */
+export const OPENS_HTML_BLOCK = /^<(?:!--|\?|![A-Za-z]|!\[CDATA\[|(?:script|pre|style|textarea)(?:\s|>|$)|\/?(?:address|article|aside|base|basefont|blockquote|body|caption|center|col|colgroup|dd|details|dialog|dir|div|dl|dt|fieldset|figcaption|figure|footer|form|frame|frameset|h[1-6]|head|header|hr|html|iframe|legend|li|link|main|menu|menuitem|nav|noframes|ol|optgroup|option|p|param|search|section|summary|table|tbody|td|tfoot|th|thead|title|tr|track|ul)(?:\s|\/?>|$))/iu;
 
 export const RawBlock = Node.create({
     name: "rawBlock",
@@ -214,6 +221,15 @@ export function createRawSyntax(tags: {readonly blockTags: ReadonlyArray<string>
             mathInline: inline,
             // 能读的行内 HTML 已由核心语法整体认领，落到这里的是 HTML 注释与配不上对的标签。
             html: inline,
+        },
+        writeBlock: {rawBlock: (node) => String(node.attrs.raw ?? "")},
+        writeInline: {
+            // 段首就是会开启 HTML 块的原样片段时写不出（方言 Spec 输出 9）：它会被读成原样块。
+            rawInline: (node, _context, around) => {
+                const raw = String(node.attrs.raw ?? "");
+                if (around.previous === null && around.place.table !== true && OPENS_HTML_BLOCK.test(raw)) throw new Unrepresentable("段首的 HTML 会被读成 HTML 块");
+                return raw;
+            },
         },
     };
 }

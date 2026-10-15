@@ -9,7 +9,7 @@ import type {AnyExtension} from "@tiptap/core";
 import {Marked} from "marked";
 
 import {createRawSyntax} from "./syntax/raw";
-import type {MarkdownSyntax, TokenReader} from "./syntax/types";
+import type {BlockWriter, InlineWriter, MarkdownSyntax, MarkWriter, TokenReader} from "./syntax/types";
 
 export interface MarkdownLanguage {
     readonly marked: Marked;
@@ -18,6 +18,14 @@ export interface MarkdownLanguage {
     /** 块层与行内的词法单元类型 → 读法（按模块顺序，先试先赢）。 */
     readonly readers: ReadonlyMap<string, ReadonlyArray<TokenReader>>;
     readonly inlineReaders: ReadonlyMap<string, ReadonlyArray<TokenReader>>;
+    /** 节点与标记类型 → 写法（每种类型只能有一个模块给写法）。 */
+    readonly blockWriters: ReadonlyMap<string, BlockWriter>;
+    readonly inlineWriters: ReadonlyMap<string, InlineWriter>;
+    readonly markWriters: ReadonlyMap<string, MarkWriter>;
+    /** 读入时推导出来的属性（读回校验不比较）。 */
+    readonly derivedAttrs: ReadonlyMap<string, ReadonlySet<string>>;
+    /** 身上的标记不写出、不比较的行内节点类型。 */
+    readonly marklessInline: ReadonlySet<string>;
     /** 块级方言标签名与“行尾开标签”的正则（宽容写法用）。 */
     readonly blockTags: ReadonlyArray<string>;
     readonly openTagAtLineEnd: RegExp;
@@ -45,12 +53,27 @@ export function createMarkdownLanguage(syntaxes: ReadonlyArray<MarkdownSyntax>):
         }
         return readers;
     };
+    const writers = <W>(pick: (syntax: MarkdownSyntax) => Readonly<Record<string, W>> | undefined): Map<string, W> => {
+        const map = new Map<string, W>();
+        for (const syntax of all) {
+            for (const [type, writer] of Object.entries(pick(syntax) ?? {})) {
+                if (map.has(type)) throw new Error(`${type} 的写法登记了两次（${syntax.name}）`);
+                map.set(type, writer);
+            }
+        }
+        return map;
+    };
     const opens = syntaxes.flatMap((syntax) => (syntax.openTagAtLineEnd === undefined ? [] : [syntax.openTagAtLineEnd]));
     return {
         marked,
         extensions: all.flatMap((syntax) => syntax.extensions),
         readers: table((syntax) => syntax.read),
         inlineReaders: table((syntax) => syntax.readInline),
+        blockWriters: writers((syntax) => syntax.writeBlock),
+        inlineWriters: writers((syntax) => syntax.writeInline),
+        markWriters: writers((syntax) => syntax.writeMark),
+        marklessInline: new Set(all.flatMap((syntax) => syntax.marklessInline ?? [])),
+        derivedAttrs: new Map(all.flatMap((syntax) => Object.entries(syntax.derivedAttrs ?? {})).map(([type, names]) => [type, new Set(names)])),
         blockTags,
         openTagAtLineEnd: opens.length === 0 ? NEVER : new RegExp(`<(?:${opens.join("|")})>[ \\t]*$`, "u"),
     };

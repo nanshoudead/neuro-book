@@ -9,15 +9,15 @@ import type {Node as PMNode, Schema} from "@tiptap/pm/model";
 
 import type {MarkdownLanguage} from "../language";
 import {readMarkdown} from "./read";
-import type {ReadResult} from "./read";
+import type {ReadResult, SourceMap} from "./read";
 import {writeMarkdown} from "./write";
 import type {WriteResult} from "./write";
 
 export interface MarkdownCodec {
     /** 读入；永不失败（输出 9）。 */
     read(source: string): ReadResult;
-    /** 写回：没编辑的块写原文，编辑过的块重新写出（输出 1–3）。 */
-    write(doc: PMNode, base: ReadResult): WriteResult;
+    /** 写回：没编辑的块写原文，编辑过的块重新写出并读回校验（输出 1–3）。成功后提交被接受时调用结果的 `record`。 */
+    write(doc: PMNode, map: SourceMap): WriteResult;
 }
 
 const codecs = new WeakMap<Schema, WeakMap<MarkdownLanguage, MarkdownCodec>>();
@@ -29,8 +29,7 @@ export function codecFor(schema: Schema, language: MarkdownLanguage): MarkdownCo
     if (codec === undefined) {
         codec = {
             read: (source) => readMarkdown(language, schema, source),
-            // 重新写出的部分在写出器完成之前一律写不出。
-            write: (doc, base) => writeMarkdown(doc, base, () => null),
+            write: (doc, map) => writeMarkdown(doc, map, language, schema),
         };
         bySchema.set(language, codec);
     }

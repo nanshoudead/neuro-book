@@ -20,6 +20,7 @@ import type {MarkedExtension, Token, Tokens} from "marked";
 import markedCjkFriendly from "marked-cjk-friendly";
 
 import type {MarkdownSyntax, ReadContext, TokenReader} from "../types";
+import {coreWriters} from "./write";
 
 
 /** 需要记写法的节点与标记类型。 */
@@ -175,18 +176,59 @@ function headingStyle(raw: string): Record<string, unknown> {
     return {style: "setext", char: trimmed.endsWith("=") ? "=" : "-"};
 }
 
-/** 列表的写法：符号、有序分隔符与编号方式（全同一个数或按顺序）、松紧。 */
+/**
+ * 列表的写法：符号、有序分隔符与编号方式（全同一个数或按顺序）。松紧不记：编辑器里看不出差别，重新写出时只在一项里有几段时
+ * 才写成松散列表。
+ */
 function listStyle(list: Tokens.List, items: ReadonlyArray<Tokens.ListItem>): Record<string, unknown> {
     const first = items[0]?.raw ?? "";
-    if (!list.ordered) return {marker: /^\s*([-*+])/u.exec(first)?.[1] ?? "-", loose: list.loose};
+    if (!list.ordered) return {marker: /^\s*([-*+])/u.exec(first)?.[1] ?? "-"};
     const numbers = items.map((item) => Number(/^\s*(\d+)/u.exec(item.raw)?.[1] ?? "1"));
     const same = numbers.length > 1 && numbers.every((value) => value === numbers[0]);
-    return {delimiter: /^\s*\d+([.)])/u.exec(first)?.[1] ?? ".", numbering: same ? "same" : "sequential", loose: list.loose};
+    return {delimiter: /^\s*\d+([.)])/u.exec(first)?.[1] ?? ".", numbering: same ? "same" : "sequential"};
 }
 
 function readListItem(item: Tokens.ListItem, context: ReadContext): JSONContent[] {
     const content = context.blocks(item.tokens.filter((token) => token.type !== "checkbox"));
     return content.length > 0 ? content : [{type: "paragraph"}];
+}
+
+/**
+ * 复选框后面没有文字的任务项（`- [ ]` 单独一行，例如刚建、还没写字的）：`marked` 不把它当任务项，项的第一个单元是文字 `[ ]`。
+ * 返回复选框的字符，不是这种形态为 null。
+ */
+function emptyTaskBox(item: Tokens.ListItem): string | null {
+    const first = item.tokens[0];
+    if (first === undefined || (first.type !== "text" && first.type !== "paragraph")) return null;
+    return /^\[([ xX])\][ \t]*$/u.exec(first.raw.split("\n")[0] ?? "")?.[1] ?? null;
+}
+
+/**
+ * 任务项：复选框不是正文。紧凑列表里 `marked` 把它放在项的块层，松散列表里放进第一段的行内单元，两处都去掉。
+ */
+function readTaskItem(item: Tokens.ListItem, context: ReadContext): JSONContent[] {
+    if (item.task !== true) {
+        // `- [ ]` 后面没有文字：第一段为空，其余（下一行起的块）照常。
+        const [first, ...rest] = item.tokens as [Tokens.Text, ...Token[]];
+        // 第一个单元是 `[ ]` 那一行加上接着的几行文字：去掉 `[ ]` 那一行（它在行内单元里也是第一个文字单元的开头）。
+        const box = /^\[[ xX]\][ \t]*(?:\n|$)/u;
+        const inline = [...(first.tokens ?? [])];
+        const head = inline[0];
+        if (head?.type === "text") {
+            const raw = head.raw.replace(box, "");
+            if (raw === "") inline.shift();
+            else inline[0] = {...head, raw, text: raw} as Token;
+        }
+        const tail = first.raw.replace(box, "").trim() === "" ? [] : context.blocks([{type: "paragraph", raw: first.raw.replace(box, ""), text: first.raw.replace(box, ""), tokens: inline} as Token]);
+        return [{type: "paragraph"}, ...tail, ...context.blocks(rest)];
+    }
+    const [first, ...rest] = item.tokens.filter((token) => token.type !== "checkbox");
+    if (first !== undefined && (first.type === "paragraph" || first.type === "text") && "tokens" in first && Array.isArray(first.tokens) && first.tokens[0]?.type === "checkbox") {
+        const stripped = {...first, tokens: first.tokens.slice(1)} as Token;
+        const content = context.blocks([stripped, ...rest]);
+        return content.length > 0 ? content : [{type: "paragraph"}];
+    }
+    return readListItem(item, context);
 }
 
 /**
@@ -213,7 +255,7 @@ const readList: TokenReader = (token, context) => {
     }
     const groups: Array<{task: boolean; items: Tokens.ListItem[]}> = [];
     for (const item of list.items) {
-        const task = item.task === true;
+        const task = item.task === true || emptyTaskBox(item) !== null;
         const last = groups.at(-1);
         if (last !== undefined && last.task === task) last.items.push(item);
         else groups.push({task, items: [item]});
@@ -226,14 +268,22 @@ const readList: TokenReader = (token, context) => {
             type: "taskList",
             content: items.map((item) => ({
                 type: "taskItem",
-                attrs: {checked: item.checked === true, markdown: {marker: /^\s*([-*+])/u.exec(item.raw)?.[1] ?? "-", check: /\[([xX ])\]/u.exec(item.raw)?.[1] ?? " "}},
-                content: readListItem(item, context),
+                attrs: {checked: item.checked === true || /^[xX]$/u.test(emptyTaskBox(item) ?? ""), markdown: {marker: /^\s*([-*+])/u.exec(item.raw)?.[1] ?? "-", check: /\[([xX ])\]/u.exec(item.raw)?.[1] ?? " "}},
+                content: readTaskItem(item, context),
             })),
         };
     });
 };
 
+/** 一行里只有 `<br>`：`marked` 把它当成 HTML 块，其实是只有换行的一段（只有硬换行的段落就这样写出）。 */
+const ONLY_BREAKS = /^(?:[ \t]*<br\s*\/?>)+[ \t]*\n*$/iu;
+
 const blockReaders: Readonly<Record<string, TokenReader>> = {
+    html: (token) => {
+        if (!ONLY_BREAKS.test(token.raw)) return null;
+        const count = token.raw.match(/<br/giu)?.length ?? 0;
+        return [{type: "paragraph", content: Array.from({length: count}, () => ({type: "hardBreak", attrs: {markdown: "br"}}))}];
+    },
     paragraph: (token, context) => [{type: "paragraph", content: context.inline((token as Tokens.Paragraph).tokens)}],
     heading: (token, context) => {
         const heading = token as Tokens.Heading;
@@ -247,10 +297,8 @@ const blockReaders: Readonly<Record<string, TokenReader>> = {
     code: (token) => {
         const code = token as Tokens.Code;
         const fence = /^ {0,3}(`{3,}|~{3,})/u.exec(code.raw)?.[1];
-        const lines = code.raw.replace(/\n+$/u, "").split("\n");
-        const closing = new RegExp(`^ {0,3}${fence?.[0] ?? "`"}{${fence?.length ?? 3},}[ \\t]*$`, "u");
-        // 没闭合的围栏（读到文末）记下来：重新写出时要不要补上闭合，由写出与读回校验决定（第三版修订 7）。
-        const style = code.codeBlockStyle === "indented" || fence === undefined ? {indented: true} : {fence, closed: lines.length > 1 && closing.test(lines.at(-1) as string)};
+        // 没闭合的围栏（读到文末）重新写出时总会补上闭合，所以不记它。
+        const style = code.codeBlockStyle === "indented" || fence === undefined ? {indented: true} : {fence};
         return [{type: "codeBlock", attrs: {language: code.lang || null, markdown: style}, content: code.text === "" ? [] : [text(code.text)]}];
     },
     hr: (token) => [{type: "horizontalRule", attrs: {markdown: token.raw.trim()}}],
@@ -298,4 +346,9 @@ export const coreSyntax: MarkdownSyntax = {
     marked: [markedCjkFriendly(), doubleTildeOnly, htmlInline],
     read: blockReaders,
     readInline: inlineReaders,
+    writeBlock: coreWriters.blocks,
+    writeInline: coreWriters.inline,
+    writeMark: coreWriters.marks,
+    derivedAttrs: {tableCell: ["align"]},
+    marklessInline: ["hardBreak"],
 };

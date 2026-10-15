@@ -4,6 +4,7 @@
  */
 
 import type {AnyExtension, JSONContent} from "@tiptap/core";
+import type {Mark, Node as PMNode} from "@tiptap/pm/model";
 import type {MarkedExtension, Token, Tokens} from "marked";
 
 /** 读入时交给读法的上下文。 */
@@ -24,6 +25,59 @@ export interface ReadContext {
 /** 一种词法单元的读法：返回 null 表示不认领，交给下一个读法。 */
 export type TokenReader = (token: Token, context: ReadContext) => JSONContent[] | null;
 
+/** 写出的选项：降级阶梯（方言 Spec 输出 3）每一级换一组。 */
+export interface WriteOptions {
+    /** `keep` 按节点记下的写法写；`canonical` 一律用规范写法（跟随的写法读不回时）。 */
+    readonly styles: "keep" | "canonical";
+    /** `minimal` 只转义会被读成语法的字符；`full` 转义全部 ASCII 标点（再由写出器逐个撤回）。 */
+    readonly escape: "minimal" | "full";
+    /** 强调与删除线写成 `<strong>`、`<em>`、`<del>`。 */
+    readonly htmlEmphasis: boolean;
+    /**
+     * 列表的符号轮换几次（`-`、`*`、`+` 轮换，有序列表在 `.` 与 `)` 之间轮换）：相邻的同类列表要读成几个列表时，每个比前一个
+     * 多换一次。0 是不换。
+     */
+    readonly alternate: number;
+}
+
+/** 行内内容所在的位置：表格单元格里换行写 `<br>`、`|` 要转义；标题里不能有换行。 */
+export interface InlinePlace {
+    readonly table?: boolean;
+    readonly heading?: boolean;
+}
+
+/** 写出时交给写法的上下文。写出的文字一律用 `\n` 换行，编解码器最后换成原文的换行符。 */
+export interface WriteContext {
+    readonly options: WriteOptions;
+    /** 一个文本块（段落、标题、单元格）的行内内容。 */
+    inline(node: PMNode, place?: InlinePlace): string;
+    /** 一个块；写不出时抛 `Unrepresentable`。`alternate` 给容器里相邻的同类列表换符号用，不传时沿用当前的。 */
+    block(node: PMNode, alternate?: number): string;
+    /** 节点或标记记下的写法；`styles` 为 `canonical` 时一律为 null。 */
+    style<T>(target: PMNode | Mark): T | null;
+    /** 全篇的引用定义：标签（小写）→ 地址。`[注]` 只有在有同名定义时才会被读成链接；引用式链接要定义的地址就是它的地址。 */
+    readonly definitions: ReadonlyMap<string, string>;
+}
+
+/** 写不出：写法遇到 GFM 表达不了的结构（多段单元格、没有表头的表格、合并单元格）时抛出。 */
+export class Unrepresentable extends Error {}
+
+/** 一种块节点的写法。 */
+export type BlockWriter = (node: PMNode, context: WriteContext) => string;
+
+/** 一种行内节点的写法（硬换行、图片、原样片段……）。`around` 给出前后的节点与位置：换行的写法要看它在段首、段末还是紧跟另一个换行。 */
+export type InlineWriter = (node: PMNode, context: WriteContext, around: {readonly previous: PMNode | null; readonly next: PMNode | null; readonly place: InlinePlace}) => string;
+
+/** 一种标记的写法。`run` 是这个标记覆盖的那一段的纯文字（链接据它判断能不能写成自动链接）。 */
+export interface MarkWriter {
+    open(mark: Mark, context: WriteContext, run: {readonly text: string}): string;
+    close(mark: Mark, context: WriteContext, run: {readonly text: string}): string;
+    /** 标记里的文字原样写、不转义：行内代码，写成自动链接的链接（`<https://…>`、裸网址）。 */
+    verbatim?(mark: Mark, context: WriteContext, run: {readonly text: string}): boolean;
+    /** 开闭符号能被侧翼规则吃掉的强调类标记：标记两端的空白移到标记外面写。 */
+    readonly emphasis?: boolean;
+}
+
 /** 一种语法。 */
 export interface MarkdownSyntax {
     readonly name: string;
@@ -41,6 +95,17 @@ export interface MarkdownSyntax {
     readonly openTagAtLineEnd?: string;
     /** 行内方言标签名（HTML 兜底不抢的名单）。 */
     readonly inlineTags?: ReadonlyArray<string>;
+    /**
+     * 读入时推导出来、写不回去的属性（节点类型 → 属性名）：读回校验不比较它们，写回被接受后按读回的值回填。例如正文单元格的
+     * `align`：GFM 只有列级对齐，读入时每个单元格取所在列的对齐。
+     */
+    readonly derivedAttrs?: Readonly<Record<string, ReadonlyArray<string>>>;
+    /** 标记看不出来、也写不出来的行内节点（硬换行）：写出与读回校验都不管它身上的标记。 */
+    readonly marklessInline?: ReadonlyArray<string>;
+    /** 写法：块节点类型、行内节点类型、标记类型 → 写法。 */
+    readonly writeBlock?: Readonly<Record<string, BlockWriter>>;
+    readonly writeInline?: Readonly<Record<string, InlineWriter>>;
+    readonly writeMark?: Readonly<Record<string, MarkWriter>>;
 }
 
 export type {Token, Tokens};

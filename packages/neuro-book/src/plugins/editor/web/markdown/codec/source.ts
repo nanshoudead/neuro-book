@@ -191,13 +191,30 @@ export function segment<U extends LexedUnit>(normalized: Normalized, source: str
     const ranges: Array<{unit: U | null; from: number; to: number}> = [];
     let skipped = 0;
     let offset = 0;
-    /** 一段非空白文字作为块：去掉两端的换行，换行归间隔。 */
+    /**
+     * 一段非空白文字作为块：去掉两端的换行，换行归间隔。对不上单元的原文按空行切成几块：同一段原文在不同的上下文里
+     * （例如写回校验预置了引用定义表，两条定义都被当成重复的丢掉）切出来的块要一样。
+     */
     const pushBlock = (unit: U | null, from: number, to: number): void => {
+        if (unit === null) {
+            const pattern = /\n[ \t]*\n/gu;
+            pattern.lastIndex = from;
+            let start = from;
+            for (let matched = pattern.exec(text); matched !== null && matched.index < to; matched = pattern.exec(text)) {
+                pushTrimmed(null, start, matched.index);
+                start = matched.index + matched[0].length;
+            }
+            pushTrimmed(null, start, to);
+            return;
+        }
+        pushTrimmed(unit, from, to);
+    };
+    const pushTrimmed = (unit: U | null, from: number, to: number): void => {
         let start = from;
         let end = to;
         while (start < end && text.charCodeAt(start) === 10) start += 1;
         while (end > start && text.charCodeAt(end - 1) === 10) end -= 1;
-        if (start === end || (unit === null && text.slice(start, end).trim() === "")) return;
+        if (start >= end || (unit === null && text.slice(start, end).trim() === "")) return;
         ranges.push({unit, from: start, to: end});
     };
     for (const unit of units) {

@@ -7,7 +7,7 @@
  * 读入永不失败：读不出、不合 schema 的块读成原样块，原文字节照留。
  */
 
-import {Mark} from "@tiptap/pm/model";
+import {Fragment, Mark} from "@tiptap/pm/model";
 import type {Node as PMNode, Schema} from "@tiptap/pm/model";
 import type {JSONContent} from "@tiptap/core";
 import type {Token} from "marked";
@@ -18,20 +18,14 @@ import {normalize, segment, splitFrontmatter} from "./source";
 import type {Normalized} from "./source";
 
 /**
- * 一块原文在它那一代里的来源。写回时，节点还挂着这个来源、同一块的节点都还在、前后的邻居也没变，这一块就写原文。
- * `prev`、`next` 是这一代原文里的前后两块（第三版修订 4：相邻关系不靠序号，撤销回到旧节点时仍能判断）。
+ * 一块原文：写回时节点还挂着它、同一块的节点都还在且按原顺序相邻，这一块就写原文。没被编辑过的块一直用读入时的这个对象；
+ * 重新写出的块在写回被接受后换一个新对象（`SourceMap.record`）。
  */
 export interface SourceUnit {
     /** 这一块的原文字节（不含结尾的换行）。 */
     readonly raw: string;
-    /** 这一块之前的间隔的原文字节。 */
-    readonly gapBefore: string;
-    /** 间隔在编辑器里表示成几个空段落。 */
-    readonly emptiesBefore: number;
     /** 这一块读出了几个顶层节点（一个列表可能拆成任务列表与普通列表）。 */
     readonly size: number;
-    prev: SourceUnit | null;
-    next: SourceUnit | null;
 }
 
 /** 一个顶层节点的来源：所属的块与它是这一块的第几个节点。 */
@@ -40,21 +34,52 @@ export interface Origin {
     readonly part: number;
 }
 
-export interface ReadResult {
+/** 一个间隔：原文字节与它在编辑器里表示成几个空段落。 */
+export interface Gap {
+    readonly raw: string;
+    readonly empties: number;
+}
+
+/** 间隔登记里的开头与结尾（“文件开头 → 第一块”“最后一块 → 文件末尾”）。 */
+export const START: object = Object.freeze({start: true});
+export const END: object = Object.freeze({end: true});
+
+/**
+ * 一份文档的原文对照，随写回累积（方言 Spec 输出 2 的“更早的原文仍然记着”）：
+ * - `origins`：顶层节点对象 → 它出现过的来源，新的在前。没被编辑的节点也可能换来源（一块原文读成几个节点，编辑了其中一个，
+ *   其余的随之重新写出），旧的来源留着：撤销恢复同一块的其它旧节点时，它们仍能凑成那一块原文。`WeakMap`，不阻止回收。
+ * - `gaps`：前一块 → 后一块 → 空段落数 → 间隔。按一对来源与其间的空段落数登记，历史上出现过的都留着：撤销恢复旧节点、
+ *   删掉后来插入的空段落后，旧的间隔还查得到。
+ */
+export interface SourceMap {
     /** BOM 与 frontmatter，原样。 */
     readonly prefix: string;
-    /** 正文原文（空文档与整篇写回时用）。 */
-    readonly body: string;
-    readonly doc: PMNode;
-    readonly origins: WeakMap<PMNode, Origin>;
-    /** 最后一块之后的间隔原文（含文件末尾的换行）。 */
-    readonly trailing: string;
-    /** 原文里用得多的换行符。 */
+    /** 原文里用得多的换行符：重新写出的块与间隔用它。 */
     readonly eol: "\n" | "\r\n";
+    readonly origins: WeakMap<PMNode, ReadonlyArray<Origin>>;
+    readonly gaps: WeakMap<object, Map<object, Map<number, Gap>>>;
+    /** 读入时正文里没有任何块（空文件、只有空行）：正文原文；否则为 null。 */
+    readonly emptyBody: string | null;
+    /** 读入时文件末尾有没有换行：重新生成结尾的间隔时保持。 */
+    readonly finalNewline: boolean;
+}
+
+export interface ReadResult {
+    readonly doc: PMNode;
+    readonly map: SourceMap;
     /** 对不上任何词法单元的原文段数（诊断用）。 */
     readonly skipped: number;
     /** 读不出或不合 schema、换成原样块的块：原因（诊断用；语料测试断言它为空）。 */
     readonly problems: ReadonlyArray<string>;
+}
+
+/** 登记一个间隔。 */
+export function recordGap(map: SourceMap, before: object, after: object, gap: Gap): void {
+    const inner = map.gaps.get(before) ?? new Map<object, Map<number, Gap>>();
+    const byEmpties = inner.get(after) ?? new Map<number, Gap>();
+    byEmpties.set(gap.empties, gap);
+    inner.set(after, byEmpties);
+    map.gaps.set(before, inner);
 }
 
 const newlines = (gap: string): number => {
@@ -87,6 +112,12 @@ function toNode(schema: Schema, json: JSONContent): PMNode {
     const type = schema.nodes[json.type ?? ""];
     if (type === undefined) throw new RangeError(`未知的节点类型 ${json.type ?? ""}`);
     const content = (json.content ?? []).filter((child) => child.type !== "text" || (child.text ?? "") !== "").map((child) => toNode(schema, child));
+    // 容器的最小合法填充：内容缺了必需的节点（例如任务项开头必须是段落，原文里第一块是标题，或者容器是空的），由 schema 补上；
+    // 补不上才算不合 schema（这一块读成原样块）。容器里的空段落在写出时会去掉，比较时也不算（方言 Spec 的“块”）。
+    if (!type.validContent(Fragment.from(content))) {
+        const filled = type.createAndFill(json.attrs ?? null, content, marks as Mark[]);
+        if (filled !== null) return filled;
+    }
     return type.create(json.attrs ?? null, content, marks as Mark[]);
 }
 
@@ -128,14 +159,26 @@ function readBlock(language: MarkdownLanguage, schema: Schema, normalized: Norma
  */
 export function readMarkdown(language: MarkdownLanguage, schema: Schema, source: string): ReadResult {
     const {prefix, body} = splitFrontmatter(source);
+    return readBody(language, schema, prefix, body, null);
+}
+
+/** 引用定义表：标签（小写）→ 地址与标题。 */
+export type Definitions = Readonly<Record<string, {readonly href: string; readonly title: string | null}>>;
+
+/**
+ * 读一段正文（没有 frontmatter）。`definitions` 不为 null 时预置进词法器：写回校验只读一个窗口，引用定义可能在窗口外面。
+ */
+export function readBody(language: MarkdownLanguage, schema: Schema, prefix: string, body: string, definitions: Definitions | null): ReadResult {
     const normalized = normalize(body, language.blockTags, language.openTagAtLineEnd);
-    const tokens = language.marked.lexer(normalized.text);
+    const lexer = new language.marked.Lexer(language.marked.defaults);
+    if (definitions !== null) Object.assign(lexer.tokens.links, definitions);
+    const tokens = lexer.lex(normalized.text);
     const {blocks, gaps, skipped} = segment(normalized, body, tokens);
-    const origins = new WeakMap<PMNode, Origin>();
+    const map: SourceMap = {prefix, eol: dominantEol(body), origins: new WeakMap(), gaps: new WeakMap(), emptyBody: blocks.length === 0 ? body : null, finalNewline: /\n$|\r$/u.test(body)};
     const nodes: PMNode[] = [];
     const empty = (): PMNode => schema.nodes.paragraph!.create();
     const problems: string[] = [];
-    let previous: SourceUnit | null = null;
+    let previous: object = START;
     blocks.forEach((block, index) => {
         const gap = gaps[index] as string;
         const empties = index === 0 ? emptiesLeading(gap) : emptiesBetween(gap);
@@ -149,14 +192,18 @@ export function readMarkdown(language: MarkdownLanguage, schema: Schema, source:
             read = [];
         }
         if (read.length === 0) read = [schema.nodes.rawBlock!.create({raw: block.raw})];
-        const unit: SourceUnit = {raw: block.raw, gapBefore: gap, emptiesBefore: empties, size: read.length, prev: previous, next: null};
-        if (previous !== null) previous.next = unit;
+        const unit: SourceUnit = {raw: block.raw, size: read.length};
+        recordGap(map, previous, unit, {raw: gap, empties});
         previous = unit;
-        read.forEach((node, part) => origins.set(node, {unit, part}));
+        read.forEach((node, part) => map.origins.set(node, [{unit, part}]));
         nodes.push(...read);
     });
     const trailing = gaps[blocks.length] as string;
-    if (blocks.length > 0) for (let count = emptiesTrailing(trailing); count > 0; count -= 1) nodes.push(empty());
+    if (blocks.length > 0) {
+        const empties = emptiesTrailing(trailing);
+        recordGap(map, previous, END, {raw: trailing, empties});
+        for (let count = 0; count < empties; count += 1) nodes.push(empty());
+    }
     if (nodes.length === 0) nodes.push(empty());
-    return {prefix, body, doc: schema.nodes.doc!.create(null, nodes), origins, trailing, eol: dominantEol(body), skipped, problems};
+    return {doc: schema.nodes.doc!.create(null, nodes), map, skipped, problems};
 }

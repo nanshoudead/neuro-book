@@ -30,8 +30,8 @@ describe("语料：读入与原样写回", () => {
             const read = codec.read(source);
             expect(read.problems).toEqual([]);
             expect(() => read.doc.check()).not.toThrow();
-            const written = codec.write(read.doc, read);
-            expect(written).toEqual({ok: true, text: source});
+            const written = codec.write(read.doc, read.map);
+            expect(written.ok && written.text).toBe(source);
         });
     }
 });
@@ -77,7 +77,7 @@ describe("读入的明确期望", () => {
         expect(shape("1. [ ] 甲")[0]?.content?.[0]?.content?.[0]?.content).toEqual([{type: "text", text: "[ ] 甲"}]);
     });
 
-    it("任务项里的引用式链接可以用后面才定义的引用（第三版修订 1）", () => {
+    it("任务项里的引用式链接可以用后面才定义的引用", () => {
         const item = shape("- [ ] [甲][r]\n\n[r]: /dest")[0]?.content?.[0]?.content?.[0]?.content?.[0];
         expect(item?.marks?.[0]).toMatchObject({type: "link", attrs: {href: "/dest", markdown: {style: "reference", label: "r"}}});
     });
@@ -107,11 +107,10 @@ describe("读入的明确期望", () => {
     });
 
     it("写法属性：列表符号、有序分隔符与编号方式、标题写法、代码围栏", () => {
-        expect(shape("* 甲\n* 乙")[0]?.attrs?.markdown).toEqual({marker: "*", loose: false});
-        expect(shape("1) 甲\n1) 乙")[0]?.attrs?.markdown).toEqual({delimiter: ")", numbering: "same", loose: false});
+        expect(shape("* 甲\n* 乙")[0]?.attrs?.markdown).toEqual({marker: "*"});
+        expect(shape("1) 甲\n1) 乙")[0]?.attrs?.markdown).toEqual({delimiter: ")", numbering: "same"});
         expect(shape("甲\n===")[0]?.attrs?.markdown).toEqual({style: "setext", char: "="});
         expect(shape("## 甲 ##")[0]?.attrs?.markdown).toEqual({style: "atx", closing: "##"});
-        expect(shape("~~~js\nx\n~~~")[0]?.attrs).toMatchObject({language: "js", markdown: {fence: "~~~", closed: true}});
-        expect(shape("```\nx")[0]?.attrs?.markdown).toEqual({fence: "```", closed: false});
+        expect(shape("~~~js\nx\n~~~")[0]?.attrs).toMatchObject({language: "js", markdown: {fence: "~~~"}});
     });
 });
