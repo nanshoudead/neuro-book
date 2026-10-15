@@ -5,7 +5,8 @@ created: 2026-10-15
 decided: 2026-10-15
 supersedes: []
 superseded-by: null
-specs: []
+specs:
+  - docs/specs/agent/harness.md
 adrs: []
 ---
 

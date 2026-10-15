@@ -11,7 +11,7 @@ updated: 2026-10-15
 
 按 [nb-harness 提案](../../../../../docs/proposals/nb-harness-profile-and-tools.md) 加强 `packages/nb-harness`（连带 `nb-profile`、`nb-session`）：Profile 声明工具与上下文、生效工具集、`turn()` 返回停止原因与用量、收尾工具、单次请求、按配置给模型、缓存键。第一个调用方是 [w00024 t05 内置问答](../../../w00024-nb-story/tasks/t05-qa/README.md)，它等本 Task 完成再接。
 
-合同：新建 `docs/specs/agent/harness.md`（`planned`，提案审查处理完后写）。
+合同：[`agent/harness.md`](../../../../../docs/specs/agent/harness.md)（`planned`）。
 
 ## 当前状态
 

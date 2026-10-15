@@ -203,6 +203,7 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过开发者授权
 | 剧情图谱：书库与查询 | [`story/queries.md`](story/queries.md) | 书库与导入、按阅读位置与视角的查询、接口合同与独立服务的 HTTP、数值对账、阅读状态 |
 | 剧情图谱：查看器 | [`story/viewer.md`](story/viewer.md) | 网页查看器的外壳、阅读位置、各页、关系图与全书图、出处与地址、宽度三档 |
 | 剧情图谱：命令行与 Skill | [`story/cli-skill.md`](story/cli-skill.md) | `nbstory` 命令与查询方法一一对应、`serve`、给外部 Agent 的 Skill |
+| Agent harness | [`agent/harness.md`](agent/harness.md) | 只经 Profile 运行：生效工具集与会话快照、渲染即上下文、一次运行的结果与错误归类、收尾工具、单次请求、按配置给模型 |
 
 ## 旧应用的规范与 Reference（只作参照）
 
