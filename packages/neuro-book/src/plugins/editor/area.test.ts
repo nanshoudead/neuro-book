@@ -201,6 +201,24 @@ describe("Spec workbench.editor 输出 1、4、37–40：编辑器的选择与�
         expect(at.area.groups.groups.value[0]?.tabs).toHaveLength(2);
     });
 
+    it("关掉 dirty 的源码标签、只剩它的预览视图时选“不保存”：修改丢掉，预览回到磁盘上的内容，之后的全部保存不写它", async () => {
+        const at = await world(null, WITH_PREVIEW);
+        at.area.open("project://a.html", {mode: "permanent"});
+        await ready(at);
+        const source = at.area.groups.activeTab()!;
+        const binding = textBinding(at.area, groupId(at))!;
+        binding.commit(binding.revision.value, "<p>改</p>");
+        at.area.open("project://a.html", {mode: "permanent", editor: "test.html.preview"});
+        const closing = at.area.close(source.id);
+        await until(at, "问", () => at.area.dialog.value !== null);
+        at.area.answer("discard");
+        expect(await closing).toBe("closed");
+        const preview = textBinding(at.area, groupId(at))!;
+        expect([preview.text.value, at.area.documentOf(groupId(at))?.dirty.value]).toEqual(["<p>A</p>", false]);
+        expect(await at.area.saveAll()).toEqual({ok: true});
+        expect(await readFile(join(at.scene.project, "a.html"), "utf8")).toBe("<p>A</p>");
+    });
+
     it("关掉 dirty 的源码标签、只剩它的预览视图时照常询问；还有另一个可编辑的标签时不问", async () => {
         const at = await world(null, WITH_PREVIEW);
         at.area.open("project://a.html", {mode: "permanent"});

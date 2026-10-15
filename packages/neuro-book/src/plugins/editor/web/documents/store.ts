@@ -202,8 +202,9 @@ export function createDocumentStore(options: DocumentStoreOptions): DocumentStor
             if (message.kind === "ready" && first) {
                 first = false;
                 markReady();
-                // 字节引用不等订阅就绪：控件先取了一次，订阅建好之前的变化没有事件。就绪时让它们再取一次。
-                for (const entry of entries.values()) if (entry.textRefs === 0 && schemeOf(entry.address) === scheme) entry.version.value += 1;
+                // 字节引用不等订阅就绪：控件先取了一次，订阅建好之前的变化没有事件。就绪时让持有字节引用的条目再取一次（同时
+                // 有文本引用的也算：文本随就绪读到新正文，字节不会跟着变）。
+                for (const entry of entries.values()) if (entry.refs > entry.textRefs && schemeOf(entry.address) === scheme) entry.version.value += 1;
                 return;
             }
             onMessage(scheme, watch, message);

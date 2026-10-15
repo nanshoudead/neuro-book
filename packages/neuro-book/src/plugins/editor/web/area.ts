@@ -520,6 +520,8 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
      */
     const closeTab = async (tabId: string): Promise<"closed" | "cancelled"> => {
         const hadFocus = focused.value;
+        /** 选了“不保存”、又没有别的能编辑的标签时要还原的文档。 */
+        let discarded: TextDocument | null = null;
         for (;;) {
             const found = groups.find(tabId);
             if (found === null) return "cancelled";
@@ -535,8 +537,10 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
             const choice = await ask(found.tab.address);
             if (choice === "cancel") return "cancelled";
             if (choice === "discard") {
-                // 文档还有别的标签时只丢这个视图的未裁决输入；否则最后一个引用释放时整份文档连同输入一起丢弃。
+                // 文档还有别的能编辑的标签时只丢这个视图的未裁决输入。没有时整份修改都不要了：只剩这个标签的引用，释放时
+                // 整份文档连同输入一起丢弃；预览视图这类只读标签还持有正文时释放丢不掉，关闭后按磁盘还原。
                 if (own !== null) documents.discardInput(document, own.token);
+                if (!shared) discarded = document;
                 break;
             }
             // 保存这个视图看到的内容：它的未裁决输入先成为正文。
@@ -550,6 +554,7 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
         if (bindings.get(current.group.id)?.binding.tabId === tabId) bindings.delete(current.group.id);
         groups.close(tabId);
         releaseTab(current.tab, current.group.id);
+        if (discarded !== null && documents.get(current.tab.address) === discarded) await documents.revert(discarded);
         // 开始关闭时焦点在编辑器区：交给关闭后的活动视图，键盘用户不至于落到页面根（输出 3）。不看此刻的 `focused`：
         // 被关的标签按钮、询问对话框都会先把它置假。
         if (hadFocus) focusActive();

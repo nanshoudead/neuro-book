@@ -129,10 +129,12 @@ export function createProjectRoots(sources: {readonly projects: Pick<ProjectsSer
             if (!listed.ok) return {ok: false, status: 500, code: "registry-invalid", detail: listed.detail};
             const project = listed.value.find((item) => item.id === id);
             // 宽限期里的项目仍是同一代、仍在运行（只是暂时没有窗口持有它）。
-            if (project === undefined || project.generation !== generation || (project.state !== "running" && project.state !== "idle-grace")) {
-                opened.delete(id);
-                return {ok: false, status: 410, code: "generation-gone", detail: `作品 ${id} 的第 ${String(generation)} 代不在运行`};
-            }
+            const running = project !== undefined && (project.state === "running" || project.state === "idle-grace") ? project.generation : null;
+            // 缓存只随实际运行的代次失效：URL 里写错（或迟到的旧窗口带着）的代次不能把正在用的根丢掉，否则下一次会按登记
+            // 路径重新打开、认到换进来的目录。
+            const cached = opened.get(id);
+            if (cached !== undefined && cached.generation !== running) opened.delete(id);
+            if (project === undefined || running !== generation) return {ok: false, status: 410, code: "generation-gone", detail: `作品 ${id} 的第 ${String(generation)} 代不在运行`};
             let entry = opened.get(id);
             if (entry === undefined || entry.generation !== generation) {
                 const root = (async (): Promise<Opened> => {

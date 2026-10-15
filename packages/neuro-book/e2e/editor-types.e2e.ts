@@ -309,4 +309,9 @@ test("语言：py、html 里的 script、Markdown 的 ts 代码块都有着色�
     await expect(page.locator("[data-workbench-root]")).toHaveAttribute("data-rpc-state", "online");
     await expect(status(page, "nbook.editor.language")).toHaveText("纯文本");
     await expect(token(page, "def\\shello\\(\\):")).toHaveClass(/\bmtk1\b/u);
+
+    // 拆分：新组的源码编辑器为同一文件建自己的模型，两组都显示正文（模型的 URI 整页不重复）。
+    await runCommand(page, "向右拆分编辑器");
+    await expect(page.locator("[data-editor-group]")).toHaveCount(2);
+    for (const group of await page.locator("[data-editor-group]").all()) await expect(group.locator(".view-lines")).toContainText("def");
 });

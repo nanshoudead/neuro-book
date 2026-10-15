@@ -2,8 +2,9 @@
  * 预览页的 `srcdoc`（docs/specs/workbench/html-preview.md 输出 3、5）：在文档开头插入 CSP、`<base>` 与页内锚点的处理脚本。
  * 纯函数，浏览器与 Bun 测试共用。
  *
- * 插入位置：`<head>` 之后；没有 `<head>` 时在 `<html>` 之后；都没有时在 doctype 之后，再没有就放最前面。不能放到 doctype
- * 前面：那样页面进怪异模式。CSP 的 meta 只管它后面的内容，所以它排第一个。
+ * 插入位置：开头的 doctype 之后（它前面只能有空白与注释），没有 doctype 就放最前面。浏览器解析时这几个元素进入隐含的
+ * `<head>`，页面自己的 `<html>`、`<head>` 随后照常合并。不在正文里找 `<head>`：注释、脚本与属性里都可能出现这几个字，插进
+ * 去保护就失效了（CSP 的 meta 只管它后面的内容）。不能放到 doctype 前面：那样页面进怪异模式。
  */
 
 import {previewContentSecurityPolicy} from "nbook/plugins/files/shared/contracts";
@@ -34,14 +35,12 @@ const ANCHOR_SCRIPT = `document.addEventListener("click",function(e){var t=e.tar
 
 const escapeAttribute = (value: string): string => value.replaceAll("&", "&amp;").replaceAll("\"", "&quot;").replaceAll("<", "&lt;");
 
+/** 文档开头的 doctype：前面只有 BOM、空白与注释（注释到第一个 `-->` 为止，与 HTML 的规则相同）。 */
+const LEADING_DOCTYPE = /^\uFEFF?(?:\s|<!--[\s\S]*?-->)*<!doctype[^>]*>/iu;
+
 export function composePreview(html: string, options: ComposeOptions): string {
     const injected = `<meta http-equiv="Content-Security-Policy" content="${escapeAttribute(previewContentSecurityPolicy(options.base, options.network))}"><meta name="referrer" content="no-referrer"><base href="${escapeAttribute(directoryUrl(options.base, options.path))}"><script>${ANCHOR_SCRIPT}</script>`;
-    for (const pattern of [/<head(?:\s[^>]*)?>/iu, /<html(?:\s[^>]*)?>/iu, /<!doctype[^>]*>/iu]) {
-        const match = pattern.exec(html);
-        if (match !== null) {
-            const at = match.index + match[0].length;
-            return html.slice(0, at) + injected + html.slice(at);
-        }
-    }
-    return injected + html;
+    const doctype = LEADING_DOCTYPE.exec(html);
+    const at = doctype === null ? 0 : doctype[0].length;
+    return html.slice(0, at) + injected + html.slice(at);
 }

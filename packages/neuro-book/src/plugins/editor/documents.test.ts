@@ -510,6 +510,21 @@ describe("Spec workbench.editor 输出 41：字节引用", () => {
         bytes.release();
     });
 
+    it("字节与文本引用同时在、订阅建立前文件被改：就绪时字节的 version 也加一，文本读到新正文", async () => {
+        const at = await world({...LAYOUT, "a.svg": "<svg/>"});
+        const subscribe = at.tap.holdSend((frame) => frame.type === "subscribe" && frame.contract === "nbook.files/project");
+        const bytes = at.store.acquire("project://a.svg", {text: false});
+        const text = at.store.acquire("project://a.svg");
+        await subscribe.arrived;
+        expect(bytes.document.version.value).toBe(0);
+        await writeFile(join(at.scene.project, "a.svg"), "<svg id=\"new\"/>");
+        subscribe.release();
+        await until(at, "文本读到新正文", () => text.document.text.value === "<svg id=\"new\"/>");
+        expect(bytes.document.version.value).toBeGreaterThan(0);
+        text.release();
+        bytes.release();
+    });
+
     it("改名与资源管理器的删除对字节引用同样生效：条目跟到新地址、关闭时通知标签", async () => {
         const at = await world({...LAYOUT, "dir/p.png": "PNG"});
         const reference = at.store.acquire("project://dir/p.png", {text: false});

@@ -159,16 +159,19 @@ const serverEntry = defineEntry({
         const registry = projects.status === "resolved" ? projects.instance : null;
         const tokens = createPreviewTokens();
         const routes = createRawRoutes({projects: registry, user: root, tokens, record: (event, detail, error) => record("warn", event, detail, {}, error)});
-        // 每个调用方（一个窗口里的一个入口）一份门面，记着它签发的令牌；门面释放时全部作废。
-        const issued = new WeakMap<object, Set<string>>();
+        // 每个调用方（一个窗口里的一个入口）一份门面，记着它签发的令牌；门面释放时全部作废，并关上签发：运行时释放门面
+        // 不等在途的调用，`open` 等登记查询回来时门面可能已经释放，那时签的令牌没人能撤回。
+        const issued = new WeakMap<object, {readonly tokens: Set<string>; released: boolean}>();
         const preview = provideRemote(filesPreviewContract, () => {
-            const mine = new Set<string>();
+            const state = {tokens: new Set<string>(), released: false};
+            const mine = state.tokens;
             const facade = {methods: {
                 open: async ({project, generation, network}: {readonly project: string; readonly generation: number; readonly network: boolean}) => {
                     if (registry === null) return {ok: false as const, code: "unavailable-project" as const, detail: {detail: "这个实例没有项目登记"}};
                     const listed = await registry.list();
                     const running = listed.ok ? listed.value.find((item) => item.id === project) : undefined;
                     if (running === undefined || running.generation !== generation) return {ok: false as const, code: "generation-gone" as const, detail: {detail: `作品 ${project} 的第 ${String(generation)} 代不在运行`}};
+                    if (state.released) return {ok: false as const, code: "unavailable-project" as const, detail: {detail: "调用方已经断开"}};
                     const token = tokens.issue(project, generation, network);
                     mine.add(token);
                     return {ok: true as const, value: {token, base: `${PREVIEW_PREFIX}${token}/`}};
@@ -179,10 +182,13 @@ const serverEntry = defineEntry({
                     return {ok: true as const, value: {}};
                 },
             }};
-            issued.set(facade, mine);
+            issued.set(facade, state);
             return facade;
         }, {release: (facade) => {
-            for (const token of issued.get(facade) ?? []) tokens.revoke(token);
+            const state = issued.get(facade);
+            if (state === undefined) return;
+            state.released = true;
+            for (const token of state.tokens) tokens.revoke(token);
         }});
         return {
             remote: [provideRemote(userFilesContract, (consumer) => implementation(backend, consumer)), preview],

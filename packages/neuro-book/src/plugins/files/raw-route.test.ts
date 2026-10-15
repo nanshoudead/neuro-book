@@ -5,7 +5,7 @@
  */
 
 import {afterAll, beforeAll, describe, expect, it} from "bun:test";
-import {mkdir, rm, stat, symlink, truncate, utimes, writeFile} from "node:fs/promises";
+import {cp, mkdir, rename, rm, stat, symlink, truncate, utimes, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
@@ -124,6 +124,17 @@ describe("workspace.files 按地址读取字节", () => {
         run.state = "running";
         run.generation = 4;
         expect((await get(`/raw/project/${id}/4/images/a.png`)).status).toBe(200);
+    });
+
+    it("这一代的根被换成同一身份的另一个目录：不再给出文件；带错代次的请求也不让它重新打开登记路径", async () => {
+        const {book, id, get} = await world();
+        expect((await get(`/raw/project/${id}/3/images/a.png`)).status).toBe(200);
+        await rename(book, `${book}.old`);
+        await cp(`${book}.old`, book, {recursive: true});
+        const gone = (await get(`/raw/project/${id}/3/images/a.png`)).status;
+        expect(gone).not.toBe(200);
+        expect((await get(`/raw/project/${id}/2/images/a.png`)).status).toBe(410);
+        expect((await get(`/raw/project/${id}/3/images/a.png`)).status).toBe(gone);
     });
 
     it("登记路径上的身份文件不是这部作品：409，不交出别的作品的文件", async () => {

@@ -37,3 +37,14 @@ export function loadMonaco(): Promise<MonacoApi> {
     });
     return loading;
 }
+
+/**
+ * 模型的 URI 只为让 Monaco 按文件名与首行识别语言（docs/specs/workbench/editor.md 输出 44）。Monaco 的模型登记整页共用、URI
+ * 不能重复，而同一文件在几个组里各有模型、不同目录也有同名文件：序号放在模块里，整页递增，不随控件实例重来。
+ */
+let modelSequence = 0;
+
+export function modelUri(api: MonacoApi, address: string): InstanceType<MonacoApi["Uri"]> {
+    modelSequence += 1;
+    return api.Uri.from({scheme: "nbook-model", authority: `m${String(modelSequence)}`, path: `/${address.slice(address.lastIndexOf("/") + 1)}`});
+}

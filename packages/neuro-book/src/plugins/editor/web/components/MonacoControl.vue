@@ -7,7 +7,7 @@ import type {DisplayLocale} from "nbook/shared/localized-text";
 
 import type {EditorControlHandle, TextEditorBinding, ViewStateSlot} from "../area";
 import {editorLanguagesKey} from "../code/languages";
-import {loadMonaco} from "../code/load-monaco";
+import {loadMonaco, modelUri} from "../code/load-monaco";
 import type {MonacoApi} from "../code/load-monaco";
 import {buildMonacoTheme, MONACO_THEME} from "../code/monaco-theme";
 import type {EditorControlEmits} from "../control";
@@ -51,13 +51,6 @@ let cursorTimer: ReturnType<typeof setTimeout> | null = null;
 const CURSOR_REMEMBER_MS = 1000;
 
 const stateOf = (binding: TextEditorBinding): CodeViewState | null => binding.slot.state as CodeViewState | null;
-
-/** 模型的 URI 只为让 Monaco 按文件名与首行识别语言（输出 44）：同一文件在几个组里各有模型，URI 不能重复，前面加序号。 */
-let modelSequence = 0;
-const modelUri = (api: MonacoApi, address: string): Monaco.Uri => {
-    modelSequence += 1;
-    return api.Uri.from({scheme: "nbook-model", authority: `m${String(modelSequence)}`, path: `/${address.slice(address.lastIndexOf("/") + 1)}`});
-};
 
 /** 标签记着的语言，已登记时才用；不在了回退到识别，不改写记录（输出 44）。 */
 const wantedLanguage = (binding: TextEditorBinding): string | null => {
