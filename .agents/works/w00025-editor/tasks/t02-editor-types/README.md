@@ -39,6 +39,24 @@ updated: 2026-10-15
 - S7 Spec 去掉 planned 标记、补实现合同与证据（图片查看器与 HTML 预览两份 Spec 待晋升）；预览 e2e 补字体与切走、刷新后令牌作废；预览申请失败按种类说明：`13bedd9af`。
 - 验证（2026-10-15，`13bedd9af`）：`bun run test:affected --typecheck` 全部通过（Bun 1183、组件 209）；生产构建上 `e2e/editor-types.e2e.ts` 3 例、`editor-area`、`lab-editor`、`welcome`、`bookshelf-stats`、`workbench-titlebar` 共 30 例通过；`lab:shot` 图片查看器与 HTML 预览各场景在 390×800、1400×900、亮暗两种配色下 28 张无溢出（截图在本地 `.local/agent/works/w00025-editor/tasks/t02-editor-types/shots/s7/`）；`docs:check`、`governance:check` 无新增问题。
 
+## 实现审查
+
+快速审查 `0e0126753..13bedd9af`，修正在 `de1480c9f`（`test:affected --typecheck` 全部通过，Bun 1186、组件 209；生产构建上 `editor-types` 3 例与编辑器相关的 30 例 e2e 通过）。
+
+- Opus，后端与领域（`evidences/impl-review-opus.txt`）：12 条，阻断 1、重要 2、建议 9。
+  - 第 1 条（阻断，预览路由的响应没有 CSP，iframe 里导航到作品里别的 HTML 就能联网）：成立。预览路由按令牌给出 `Content-Security-Policy: sandbox allow-scripts` 加网络限制，“允许联网”并进令牌（`open` 多了 `network`，切换时换令牌）；e2e 加了“在预览里导航到另一页仍不能联网”，去掉响应头时这一例失败。
+  - 第 3 条（换成字节编辑器时没替未取引用的标签接过正文，未保存的修改丢失）、第 8 条（在途保存回来把只按字节的条目写成 dirty 的空正文）：成立，各补一例测试，去掉修正时都失败。
+  - 第 2、4、6、7、9 条：成立并修正（无 `Host` 为 421；暂存后激活失败为“不在了”；语言 id 至多 64 字符、会话记录引用同一写法；选择期间编辑器区换了为 `stale-target`；只按字节的条目不可写、不收输入）。
+  - 第 5 条（语言撤回期间被要过规则，再交付要刷新页面）：接受取舍，写进 editor.md 的已知情形；第三方语言插件那期再看。第 4 条里 `activate` 交出贡献之前就失败的情形内核不通知接收方，同样写明。
+  - 第 10 条（热路径）：`HEAD` 不再读内容；每个请求读一次项目登记、整段读入（上限 32 MiB）接受取舍：只在本机单用户，改要给项目服务加只看内存的查询，超出本 Task。
+  - 第 11 条（preview 标签被替换时不询问）、第 12 条（Windows 上控制目录名的变体）：base 上就有，不是本次回归，另记。
+- Sonnet，前端（`evidences/impl-review-sonnet.txt`）：4 条，重要 3、建议 1。
+  - 第 1 条（减少动态效果的媒体查询里混入重复规则）：成立，恢复原样。
+  - 第 3 条（打开失败把失败码显示给用户）：成立，改为与保存失败一样给文件服务的说明。
+  - 第 2 条（不可见分支没有调用方走到）：同时修正了“不可见时不作废令牌”，与 Spec 输出 2 一致；分支本身由切走标签时的绑定变化覆盖，e2e 验证了切走后令牌作废。
+  - 第 4 条（图片查看器没有组件测试）：接受，显示、外部改写、键盘缩放与状态栏由 e2e 覆盖；Ctrl+滚轮与旧请求晚到没有自动化验证。
+- omp，后端与领域：后台运行中，报告回来后另行处理并单独提交。
+
 ## 下一步
 
-实现审查（快速）：前端 Sonnet、后端与领域 Opus 与 omp 同审 `0e0126753..13bedd9af`，报告在本地 `.local/agent/works/w00025-editor/tasks/t02-editor-types/reports/impl-review/`；Opus 与 Sonnet 的结论处理完即交付，omp 的报告回来后另行处理。
+等 omp 的实现审查；处理完后请开发者确认两件事：预览默认不联网是否保留；图片查看器与 HTML 预览两份 Spec 是否晋升 `implemented`。另记的 base 问题（preview 标签替换时不询问、Windows 控制目录名）待开发者决定是否立项。

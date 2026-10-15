@@ -1,0 +1,96 @@
+# w00025 t02 前端界面与组件审查报告（Sonnet）
+
+审查范围：提交 0e0126753..13bedd9af，界面与组件部分。只读审查，逐条核实后追加。
+
+### 1. EditorGroup.vue 的 reduced-motion 媒体查询里混入了与外层完全重复的死代码
+
+**严重程度**：建议；**类别**：代码质量
+
+**位置**：`packages/neuro-book/src/plugins/editor/web/components/EditorGroup.vue:343-364`
+
+**现象**：base（`0e0126753`）里 `@media (prefers-reduced-motion: reduce)` 只包一条规则——冻结 `.editor-group__progress` 的滑动动画。这次提交给“编辑器还没交付”新增了 `.editor-group__pending`（800ms 延迟淡入）与它的 `@keyframes editor-group-reveal`，但新规则被插进了这个媒体查询块内部而不是它之前：媒体查询里先原样重复了一遍外层已经有的 `.editor-group__pending`/`@keyframes editor-group-reveal`（属性、动画时长分毫不差），再跟着原来那条 `.editor-group__progress` 覆盖规则。花括号本身是配平的（媒体查询语法合法，能通过构建），但这段重复对 `prefers-reduced-motion: reduce` 没有任何实际效果——减弱动态效果的用户看到的 `.editor-group__pending` 延迟淡入与普通用户完全一样，这条“重复”纯粹是死代码，和缩进也能看出是插入位置错了（本该插在 `@media` 块之前）。
+
+**为什么是问题**：
+1. 死代码本身误导读者，像是特意为减弱动态效果做了什么处理，实际没有；
+2. 如果以后有人想真的让这条 800ms 淡入在 reduced-motion 下禁用（比较合理的诉求，这确实是一种延时/透明度动画），会被这坨重复代码掩盖，不知道该改哪一处；
+3. 暴露这次编辑用的工具/手法（大概是在媒体查询结束括号前插入新内容）不可靠，其它 `.vue` 文件如果用了同样手法也值得抽查。
+
+**如何核实**：对比 `git show 0e0126753:.../EditorGroup.vue` 与当前文件的 `<style>` 尾部；或在浏览器开 `prefers-reduced-motion: reduce` 模拟，观察“还没交付”提示仍然是 800ms 后才出现（与不开减弱动态效果时一致，没有被禁用）。
+
+**建议改法**：把 `.editor-group__pending` 与它的 `@keyframes editor-group-reveal` 移到 `@media` 块之前（跟现有的非 reduced-motion 规则放一起），媒体查询内只留 `.editor-group__progress` 的覆盖；如果产品决定这条淡入也该在 reduced-motion 下禁用，再专门加一条针对性的覆盖规则，而不是整段复制。
+
+### 2. HtmlPreview.vue 的“不可见保留令牌”分支在产品与 Lab 里都从未被触发，该行为未经验证
+
+**严重程度**：重要；**类别**：测试 / 正确性
+
+**位置**：`packages/neuro-book/src/plugins/html-preview/web/components/HtmlPreview.vue:73-98`（`sync()`）、`:103-113`（两个 watcher）；对照 `.md:38-39`
+
+**现象**：`.md` 写明的合同是“可见且有绑定时申请令牌…不可见时移除 iframe（令牌仍持有），重新可见时按当时的正文重建”，`sync()` 里确实分别写了 `if (!props.visible)`（只摘掉 `page`，不调用 `release()`）与顶部 `grant.value.binding !== binding` 才 `release()` 两条不同的路径，是两件事。但检查所有把这个组件挂起来的地方：
+- `EditorGroup.vue:221-232` 给 `visible` 与 `binding` 传的是同一个布尔表达式：`binding !== null && binding.editor === mounted.editor`。也就是说只要 `binding` 非空，`visible` 必为 `true`；只要 `visible` 为 `false`，`binding` 必为 `null`。
+- Lab 场景 `HtmlPreviewFixture.vue:57` 直接硬编码 `:visible="true"`，从不变化。
+- `html-preview/compose.test.ts` 与 `e2e/editor-types.e2e.ts` 都没有出现 `visible` 字样（已用 grep 核实，零命中）。
+
+也就是说“`binding` 非空但 `visible` 为假”这个组合，在当前仓库里任何一条路径都构造不出来。`sync()` 顶部的 `release()` 判断用的是 `grant.value.binding !== binding`——当 EditorGroup 把标签切走时，`binding` 直接变成 `null`，这一条本身就会先把 `release()` 触发掉，根本轮不到下面 `if (!props.visible)` 这条“只摘 iframe、留着令牌”的分支生效。同理 `:103` 这条文本 watcher 里 `if (!props.visible || grant.value === null) return;` 的 `!props.visible` 短路，与 `:111` 的联网开关 watcher 里同样的判断，也都从未被单独命中过。
+
+**为什么是问题**：
+1. `.md` 对外承诺的“不可见时留着令牌、只摘 iframe，重新可见按当时正文重建”这条行为，在当前产品形态下不可达，没有任何测试验证它是否真的正确（比如“重新可见时按当时的正文重建”有没有正确处理期间文本又变了几次的情况）——这是文档/合同描述了一个实际没人验证过、甚至可能永远不会发生的行为，读者会误以为这条路径是关键能力；
+2. 如果这是为将来某种“侧边预览面板收起但保留”场景预留的接口（例如折叠面板不销毁控件），那么当前两处调用方（EditorGroup、Lab 场景）都没有体现这个场景，Lab 场景本该补一个“可见性单独切换”的开关来覆盖这条分支，却没有；
+3. 如果这只是防御性但实际不需要的复杂度，应该简化掉（`visible` 退化为与 `binding` 等价，不如直接在 `binding === null` 分支里处理，少一套从未被验证的状态机分支）。
+
+**如何核实**：`grep -rn "visible" packages/neuro-book/src/plugins/html-preview/ packages/neuro-book/e2e/editor-types.e2e.ts` 核实没有测试或调用方让 `visible=false` 且 `binding` 非空同时出现；读 `EditorGroup.vue:221-232` 确认两个 prop 来自同一个表达式。
+
+**建议改法**：二选一——(a) 如果这条“不可见保持令牌”行为确有产品意义（例如将来的收起式侧边预览），在 Lab 场景里加一个独立的可见性开关，写一条场景测试覆盖“不可见时令牌不作废、重新可见按当时正文重建、期间文本变了几次”的情况；(b) 如果目前没有这个场景，去掉这条从未可达的分支，把 `.md` 里的描述改成实际会发生的行为（`visible` 退化为由 `binding` 推出的派生量），减少没人验证的状态组合。
+
+### 3. 文本文档读取失败时，内部失败码原样显示给用户（“打不开 X：generation-gone”）
+
+**严重程度**：重要；**类别**：正确性 / 文档
+
+**位置**：`packages/neuro-book/src/plugins/editor/web/components/EditorGroup.vue:101-107`（`failure` computed）、`packages/neuro-book/src/plugins/editor/web/messages.ts:24`（`openFailed`）
+
+**现象**：`failure` 计算属性只对 `code === "not-text"` 单独处理成“{name} 不是 UTF-8 文本……”，其余所有失败码一律走：
+```ts
+return {text: editorText(props.locale, "openFailed", {name: nameOf(current.target.value.path), reason: current.failure.value?.code ?? ""}), retry: true};
+```
+`openFailed` 文案是“打不开 {name}：{reason}”，这里的 `{reason}` 直接是 `current.failure.value?.code`——`packages/neuro-book/src/plugins/files/shared/contracts.ts` 里能看到的失败码至少有 `not-found`、`permission-denied`、`too-large`、`generation-gone`、`unavailable-project`，以及远端通用的 `RemoteFailureCode`（断线一类）。一份已打开的文档如果因为作品关闭读到 `generation-gone`，或权限问题读到 `permission-denied`，用户会直接看到“打不开 report.md：generation-gone”这种内部代号，不是一句人话。
+
+**为什么是问题**：这正是审查说明第 5 点点名要查的问题（“是否把内部失败码显示给用户”）。同一批改动里的 `ImageViewer.vue`（`problemOf()` 把 404/410/413 各翻成一句话）与 `HtmlPreview.vue`（`PreviewDenial` 只分三种说明，“具体失败码只进诊断”，`.md` 里写明）都认真做了翻译，`EditorGroup.vue` 的文本文档失败路径却只翻了 `not-text` 一种，其余原样暴露——同一个 Task 里两套处理方式不一致，像是漏掉了别的几种码。
+
+**如何核实**：读 `files/shared/contracts.ts` 列出的失败码（`permission-denied`、`not-found`、`too-large`、`generation-gone`、`unavailable-project` 等）与 `documents/store.ts:280-291` 确认这些码会原样存进 `entry.failure.value.code`；对照 `EditorGroup.vue:105-106` 确认只有 `not-text` 被特殊处理。可以在 Lab 或单测里构造一个 `files.read` 返回 `generation-gone`/`permission-denied` 的场景，断言内容区文案不包含裸码。
+
+**对照 base**：`git show 0e0126753:.../EditorGroup.vue` 里 `openFailed` 本来就是唯一的失败文案、同样直接塞 `code`，这部分不是本次改动引入的回归。但本次改动恰恰是把“读取失败几种状态的文案”（Spec 输出 37 第 3 步）补完的那次提交，只加了 `not-text` 一种特殊文案，其余码照旧原样暴露——按这次任务自己的范围衡量，是没做完，不是跟这次无关的旧账。
+
+**建议改法**：按 `ImageViewer.vue`/`HtmlPreview.vue` 的做法，给 `openFailed` 之外的每个已知失败码各配一句本地化文案（至少覆盖 `not-found`、`permission-denied`、`too-large`、`generation-gone`、`unavailable-project`），未知/断线类才落到一个通用兜底文案（不含裸码），具体码只经 `diagnostics` 记录。
+
+### 4. ImageViewer.vue 完全没有组件级自动化测试，竞态丢弃、对象 URL 释放、Ctrl+滚轮缩放都未被任何测试覆盖
+
+**严重程度**：重要；**类别**：测试
+
+**位置**：`packages/neuro-book/src/plugins/image-viewer/`（目录下没有任何 `*.test.ts`）；对照审查说明重点 1 列出的“适应与 100% 的切换、Ctrl+滚轮与键盘缩放、对象 URL 的释放（换图、卸载、读取失败）、`version` 变化时重新取图的竞态（旧请求晚到）”
+
+**现象**：
+- `find packages/neuro-book/src/plugins/image-viewer -name "*.test.ts"` 零命中：图片查看器没有任何组件级单测（源码编辑器、Markdown 控件、HtmlPreview 所在插件分别有 `area.test.ts`、`editors.test.ts` 等或至少一个 `compose.test.ts` 落在同一插件目录，ImageViewer 一个也没有）。
+- 唯一的间接覆盖是 Lab 场景（人工交互，不是自动化回归）与 `e2e/editor-types.e2e.ts` 第一个用例。e2e 覆盖了：显示、外部改写后状态栏尺寸更新（`5 × 4`）、键盘 `=`/`0` 缩放（125%/100%）、svg 透明、pdf/GBK 失败态。但没有覆盖：
+  - **竞态丢弃**：`ImageViewer.vue:65-126` 的 `load()` 用 `AbortController` 处理“旧请求晚到”（换绑定、`version` 连续变化时取消在途请求）。Lab 场景的“外部改写”按钮是 `await source(...)` 全部落定后才一次性推进 `version`（`ImageViewerFixture.vue:67-72`），不会产生两个真正重叠在途的请求；e2e 的文件改写也是串行等待文件系统与状态栏文字变化，同样不会制造重叠请求。没有任何测试真正让两次 `load()` 同时在途、断言后到的旧结果被丢弃、它的对象 URL 被撤销。
+  - **对象 URL 释放**：没有测试断言 `URL.revokeObjectURL` 在换绑定、卸载、读取失败时真的被调用（既没有 mock 过 `URL.revokeObjectURL`，也没有在 e2e 里用 Chrome DevTools Protocol 之类核实 blob 没有泄漏）。
+  - **Ctrl/Cmd+滚轮缩放与指针锚点缩放**：e2e 只测了键盘 `=`/`0`，`onWheel` 整个路径（含按指针位置换算 `scrollLeft`/`scrollTop`）没有被任何自动化测试触达。
+
+**为什么是问题**：这几条行为本身写得仔细（我读 `ImageViewer.vue` 的 `load()`/`zoom()`/`onWheel()` 没有发现逻辑错误），但“看起来对”和“被测试钉住”是两回事——这几条又恰好是本次审查说明点名要查的重点，说明这类边界正是容易在后续改动中被悄悄破坏而不被发现的地方（例如以后改 `load()` 的早退顺序，abort 之后忘记检查 `signal.aborted` 就 `replaceShown`，现在不会有任何测试变红）。
+
+**如何核实**：`find packages/neuro-book/src/plugins/image-viewer -name "*.test.ts"` 确认零文件；读 `ImageViewerFixture.vue:61-72` 确认“外部改写”在推进 `version` 前已经 `await` 完新图源，不产生重叠请求；`grep -n "onWheel\|revokeObjectURL" packages/neuro-book/e2e/editor-types.e2e.ts` 确认 e2e 没有触达这两处。
+
+**建议改法**：给 `ImageViewer.vue` 补一个组件级单测（`@vue/test-utils` + 可控的 `fetch`/`Image.decode` 替身），至少覆盖：连续两次换 `version`/`binding` 时只有最后一次结果生效、全过程 `revokeObjectURL` 调用次数与时机、`onWheel` 按指针位置缩放后滚动位置的计算。如果团队认为这类浏览器原生 API（`Image.decode`、`ResizeObserver`）更适合用真实 Chrome 验证，至少把 Lab 的“外部改写”改成可以人为制造重叠（例如加一个可控延迟），再在 e2e 里补一条“快速连续外部改写两次，只显示第二张图”的场景。
+
+
+## 未发现问题的方面
+
+- `ImageViewer.vue` 的适应/100% 切换、键盘 `+`/`-`/`0`/`1`、`Ctrl`/`Cmd`+滚轮按指针位置缩放、比例上下限（10%–1600%）的实现逻辑读下来是对的（竞态处理也对，见发现 4 只是没测，不是写错了）；换绑定/换 `version`/卸载时对象 URL 的撤销路径（`replaceShown`）逐条检查没有遗漏分支。
+- 棋盘格在亮暗两种主题下的对比度用截图核实过（`shots/s7/ImageViewer/*svg*`），两种格色分得清。
+- `HtmlPreview.vue` 的 `sandbox="allow-scripts"`、`referrerpolicy="no-referrer"`、CSP 由 `compose.ts` 处理、`PreviewDenial` 三种失败文案（窗口没有作品 / 作品已关闭 / 连不上服务端）与“具体失败码只进诊断”的落实（没有在 `problem.value` 里拼出原始 code）都核实无误；e2e 对越界尝试（拿不到 `parent`、联网默认拦截、写请求 403、RPC 拒绝、关闭/切走/刷新后令牌真的失效）覆盖得比较完整。
+- 标题动作“打开预览”“在侧边打开预览”用 `whenHidden` 正确实现“不可用时隐藏而不是禁用”；OWN 数组里“打开预览”在“向右拆分”之前，符合 Spec 输出 47 的顺序；`previewEditor()` 在活动标签已经是预览视图时正确返回 null，使两个按钮都不出现。
+- `EditorGroup.vue` 的状态条优先级（未裁决输入 / 磁盘冲突 / 订阅结束 / 已删除 / 磁盘已变化 / 保存失败或结果未知）与 `.md`、Spec 一致；“已知二进制”“编辑器不在了”“还没交付”三种 `unavailable` 状态的文案、按钮与 `data-*` 标记都对得上 Spec 输出 40；预览标签标题“预览 {name}”对得上输出 47，e2e 也断言了。
+- `MarkdownControl.vue`、`EditorArea.vue` 这次改动基本是 `ViewBinding`→`TextEditorBinding`、`binding.document.X`→`binding.X` 的机械改名加 `locale` 属性补全，逐处核对没有漏改或改错的字段访问。
+- `e2e/editor-types.e2e.ts` 全篇没有 `waitForTimeout` 或固定时长等待，断言都基于 `expect(...).toHaveAttribute/toContainText/toHaveCount` 或 `expect.poll`；对欢迎页标签的干扰用 `labels(...).filter({hasText: ...})` 显式避开，没有看到因外部状态（欢迎页、焦点）脆弱的写法。
+
+## 统计
+
+共 4 条：阻断 0、重要 3（HtmlPreview 的 `visible` 死分支未验证、文本文档失败码原样暴露、ImageViewer 无组件级测试）、建议 1（EditorGroup.vue reduced-motion 媒体查询里的死代码重复）。
