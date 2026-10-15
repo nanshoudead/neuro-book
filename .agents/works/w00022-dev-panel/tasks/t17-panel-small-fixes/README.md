@@ -1,8 +1,8 @@
 ---
 schema: nbook.task/v2
 taskId: t17-panel-small-fixes
-status: active
-updated: 2026-10-14
+status: done
+updated: 2026-10-15
 ---
 
 # 面板小修：勾选框的根上修法、会话页终端高度、各处显示会话标题
