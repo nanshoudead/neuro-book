@@ -2,7 +2,7 @@
 /** 编辑组的面包屑（同名 .md）。 */
 import {Dropdown} from "@notnotype/nb-ui/components";
 import type {DropdownItem} from "@notnotype/nb-ui/components";
-import {computed, nextTick, ref, shallowRef, watch} from "vue";
+import {computed, nextTick, onBeforeUnmount, ref, shallowRef, watch} from "vue";
 
 import FileIcon from "nbook/ui/file-icons/FileIcon.vue";
 import type {CatppuccinIcon} from "nbook/ui/file-icons/catppuccin";
@@ -188,6 +188,12 @@ const onKeydown = (event: KeyboardEvent, index: number): void => {
         emit("escape");
     }
 };
+
+// 卸下（关掉了面包屑的设置、换成页面标签）：在途读取作废；焦点在面包屑里时交还编辑器（输出 52）。
+onBeforeUnmount(() => {
+    stop();
+    if (nav.value !== null && nav.value.contains(document.activeElement)) emit("escape");
+});
 
 // 命令 `focus-breadcrumbs`：焦点放到最后一段（标题段或文件段）。
 watch(() => props.focusSeq, (next, previous) => {

@@ -6,7 +6,7 @@
 
 import {flushPromises, mount} from "@vue/test-utils";
 import {afterEach, describe, expect, it} from "vitest";
-import {nextTick} from "vue";
+import {defineComponent, h, nextTick, ref} from "vue";
 
 import type {EditorOutline} from "../../shared/contracts";
 import EditorBreadcrumbs from "./EditorBreadcrumbs.vue";
@@ -125,5 +125,16 @@ describe("EditorBreadcrumbs", () => {
         await wrapper.setProps({focusSeq: 1});
         await nextTick();
         expect(document.activeElement?.getAttribute("data-breadcrumb-segment")).toBe("file");
+        // 卸下（宿主用 v-if 关掉面包屑）时焦点在里面：交出 escape，宿主把焦点还给编辑器。
+        let escapes = 0;
+        const shown = ref(true);
+        const host = mount(defineComponent({setup: () => () => (shown.value ? h(EditorBreadcrumbs, {segments: SEGMENTS, parent: null, outline: null, list: async () => ({ok: true as const, entries: []}), locale: "zh-CN", onEscape: () => {
+            escapes += 1;
+        }}) : null)}), {attachTo: document.body});
+        mounted.push(host);
+        (host.get("[data-breadcrumb-segment=\"root\"]").element as HTMLElement).focus();
+        shown.value = false;
+        await nextTick();
+        expect(escapes).toBe(1);
     });
 });
