@@ -23,7 +23,8 @@ updated: 2026-10-14
 - 评审板 [artifacts/review/index.html](artifacts/review/index.html)：第 1 轮五道题已答（见下文“决定”）。第 2 轮（2026-10-14）只问一题 `host`，已答：先做独立服务（见下文“决定”第 7 条）。第 3 轮（2026-10-14）是静态稿：五个画面（全书总览、人物名册加人物卡、秘密矩阵、问答页加原文、导航收起），问两题：版式能否往下细化（`draft-layout`），问答答案怎么呈现（`qa-answer-format`）；另列了搭稿时发现的四个问题（矩阵与问答说法不一、化名按读到哪里合并、后面章节标题会剧透、称呼噪音）。
 - 第 4 轮（2026-10-14）按决定第 8 条改稿：段落级阅读位置、人物卡分页签与几百条记录的筛选、关系图、全书图（按关联与按章节两种排布）。问两题：全书图怎么排（`data-graph-layout`）、人物卡分页签还是一长页（`card-tabs`）；第 3 轮的 `qa-answer-format` 仍待答。另列三个问题：关系线上的字不是关系（记忆图缺“两人是什么关系”）、同名对象、小关系图太挤。
 - 第 5 轮（2026-10-14，第 4 轮的题还没答时先做）：补齐数值、悬念、时间线、情节、原文五页，人物卡记录“在主区打开”的宽表格，以及平板、手机宽度（按组件自身宽度分三档：平板时导航收成图标条、抽屉浮在主区上；手机时顶栏两行、底部页签、抽屉改成底部面板）。问两题：手机宽度要不要进第一版（`phone-scope`）、原文报的余额和逐笔累加对不上时怎么显示（`ledger-mismatch`）。另列四个问题：收支漏抽（神典石 6 处对不上）、最近几章还没归入主线、显示名取哪个称呼、时间线有日子不明的点。
-- 静态稿：草稿 worktree 的 `packages/neuro-book/src/plugins/lab/web/components/drafts/`（`NbStoryDraft.vue`、`StoryGraph.vue`、`StoryLine.vue`），Lab 场景 `NbStoryDraft`（20 个场景），数据 `fixtures/drafts/story-draft-data.json` 由 t34 `dataset-v9.json` 抽“读到第 38 章”的样本；画图库 Cytoscape.js 只装在草稿 worktree；都不提交。截图集在主工作区 `.local/agent/works/w00024-nb-story/tasks/t01-ui-design/shots/`。
+- 第 6 轮（2026-10-15，决定 14）：关系图、全书图两种排法、人物卡小图改用 Sigma.js 3.0.3 重做（graphology 的 ForceAtlas2 加 noverlap 排版，标签按格子分级、带底色，线上横排写关系词，悬停聚焦，搜索定位，缩放按钮）。关系图默认只画人物与组织；全书图“按关联”默认按主线聚合；人物卡小图改为确定的放射排布。问两题：关系图默认画哪些点（`relation-graph-default`）、全书图按关联的粒度（`data-graph-grain`）。另列四个问题：关系词大多归纳不出来（66 条里 14 条）、会说话的物品被归为物品、拖读到哪里时图会重排、Sigma 4.0 刚发布。
+- 静态稿：草稿 worktree 的 `packages/neuro-book/src/plugins/lab/web/components/drafts/`（`NbStoryDraft.vue`、`StoryGraph.vue`、`StoryLine.vue`、`sigma-kit.ts`），Lab 场景 `NbStoryDraft`（22 个场景），数据 `fixtures/drafts/story-draft-data.json` 由 t34 `dataset-v9.json` 抽“读到第 38 章”的样本；画图库 Sigma.js 与 graphology 只装在草稿 worktree（第 4、5 轮用的 Cytoscape.js 已移除）；都不提交。截图集在主工作区 `.local/agent/works/w00024-nb-story/tasks/t01-ui-design/shots/`。
 
 ## 决定
 
@@ -75,5 +76,5 @@ updated: 2026-10-14
 
 ## 下一步
 
-1. 按决定 14 用 Sigma.js 重做关系图、全书图（两种排法）与人物卡里的小关系图，打磨排版和文字，出第 6 轮评审板。之后设计才算定（决定 1 到 14）。下一步写 `planned` Spec，先把要写哪几份、各管什么拿给开发者看，确认后再写；之后写实施计划。
+1. 等开发者答第 6 轮两题（`relation-graph-default`、`data-graph-grain`），并看图是否还要继续打磨；图定了设计才算定。之后写 `planned` Spec：先把要写哪几份、各管什么拿给开发者看（拟 `docs/specs/story/` 下 queries、viewer、qa、cli-skill 四份，另开 t02），确认后再写。下一步写 `planned` Spec，先把要写哪几份、各管什么拿给开发者看，确认后再写；之后写实施计划。
 2. 搭稿时发现、要进计划的问题：第 3 到 5 轮评审板“发现的问题”各节（矩阵与问答说法不一、化名按读到哪里合并、章节标题剧透、称呼噪音、关系线上的字不是关系、同名对象、小关系图太挤、收支漏抽、最近几章没归入主线、显示名规则、日子不明的时间点）。
