@@ -27,7 +27,7 @@ updated: 2026-10-14
 - 第 7 轮（2026-10-15，决定 17）：修收起右侧栏后画布不重绘（监听容器尺寸，变了就 resize 再重画）；选中也降暗其他点，加“只看选中的周边”；点可拖动（拖动不算点选）；借 viewer-v7 的空心圆圈、分层连线开关（关系说法、同场、认知）、带箭头的认知联系、全屏；3D 用 3d-force-graph 另做了一个，可在关系图里切换。问两题：3D 要不要进第一版（`graph-3d`）、关系图要不要加“知情视角”（`perspective-view`）。
 - 第 8 轮（2026-10-15，决定 19、20）：点一样大、线一样粗；一对点之间的关系说法、同场、认知合并成一条直线（颜色按最要紧的一种，认知用箭头标方向），线上平时只写关系词、聚焦时写全，线上的字互相避让；名字改成带描边的文字，选中时圈加粗、填色、带光晕；排版控件（力导向、同心、环形）加“重新排版”，切换连线层时重新排版并带过渡；关系图加知情视角（读者与四个主要人物）。3D 从界面拿掉（决定 18），草稿文件留着。问两题：多种联系合并还是平行（`edge-merge`）、默认排版（`default-layout`）。另列三个问题：视角分不清“不知道”和“没有记录”、只在一列里的化名哪些算公开、没有名字的身份。
 - 第 9 轮（2026-10-15，决定 23）：悬停、选中时其余的点和线只变淡（点和名字都保留，只去掉线上的字），不再隐藏。问两题：图能否定稿（`graph-final`）、定稿后的 Spec 提纲（`spec-plan`：`docs/specs/story/` 下 queries、viewer、qa、cli-skill 四份，另开 t02，先把提案搬到 master）。
-- 静态稿：草稿 worktree 的 `packages/neuro-book/src/plugins/lab/web/components/drafts/`（`NbStoryDraft.vue`、`StoryGraph.vue`、`StoryGraph3D.vue`、`StoryLine.vue`、`sigma-kit.ts`），Lab 场景 `NbStoryDraft`（28 个场景），数据 `fixtures/drafts/story-draft-data.json` 由 t34 `dataset-v9.json` 抽“读到第 38 章”的样本；画图库 Sigma.js、graphology 与 3D 用的 3d-force-graph 只装在草稿 worktree（第 4、5 轮用的 Cytoscape.js 已移除）；都不提交。截图集在主工作区 `.local/agent/works/w00024-nb-story/tasks/t01-ui-design/shots/`。
+- 静态稿：草稿 worktree 的 `packages/neuro-book/src/plugins/drafts/web/components/nb-story/`（第 9 轮以前在 `src/plugins/lab/web/components/drafts/`）（`NbStoryDraft.vue`、`StoryGraph.vue`、`StoryGraph3D.vue`、`StoryLine.vue`、`sigma-kit.ts`），Lab 场景 `NbStoryDraft`（28 个场景），数据是同目录的 `story-draft-data.json`， 由 t34 `dataset-v9.json` 抽“读到第 38 章”的样本；画图库 Sigma.js、graphology 与 3D 用的 3d-force-graph 只装在草稿 worktree（第 4、5 轮用的 Cytoscape.js 已移除）；都不提交。截图集在主工作区 `.local/agent/works/w00024-nb-story/tasks/t01-ui-design/shots/`。
 
 ## 决定
 
@@ -111,6 +111,6 @@ updated: 2026-10-14
 
 ## 下一步
 
-1. 按决定 26 把草稿目录提升为 `drafts/` 并写进规范。
-2. 设计定稿（决定 1 到 25）。开 t02-specs，把提案搬到 master，写四份 Spec 的要点先给开发者看。之后写 `planned` Spec：先把要写哪几份、各管什么拿给开发者看（拟 `docs/specs/story/` 下 queries、viewer、qa、cli-skill 四份，另开 t02），确认后再写。下一步写 `planned` Spec，先把要写哪几份、各管什么拿给开发者看，确认后再写；之后写实施计划。
+1. 设计定稿（决定 1 到 26）。决定 26 已做：草稿挪到草稿 worktree 的 `src/plugins/drafts/web/components/nb-story/`（Lab 里显示为 `drafts/nb-story/…`），用途写进 design-review Skill 的“草稿放在哪里”与 `packages/neuro-book/AGENTS.md`。
+2. 开 t02-specs，把提案搬到 master，写四份 Spec 的要点先给开发者看。之后写 `planned` Spec：先把要写哪几份、各管什么拿给开发者看（拟 `docs/specs/story/` 下 queries、viewer、qa、cli-skill 四份，另开 t02），确认后再写。下一步写 `planned` Spec，先把要写哪几份、各管什么拿给开发者看，确认后再写；之后写实施计划。
 2. 搭稿时发现、要进计划的问题：第 3 到 5 轮评审板“发现的问题”各节（矩阵与问答说法不一、化名按读到哪里合并、章节标题剧透、称呼噪音、关系线上的字不是关系、同名对象、小关系图太挤、收支漏抽、最近几章没归入主线、显示名规则、日子不明的时间点）。

@@ -18,7 +18,8 @@ description: 新界面或界面大改需要开发者拍板外观与交互时使�
 
 ## 草稿放在哪里
 
-- **草稿代码**：单独的草稿 worktree（例如 `.worktree/<Work 短名>-<Task>-drafts`，分支 `<Task>/drafts`，不合并、不推送），场景放在 Lab 的 `fixtures/drafts/`，登记改动同样不提交。草稿和编码不在同一个 worktree：开发服务热重载会把编码中途的错误带进草稿截图，草稿的类型错误也会让编码的 typecheck 失败。
+- **草稿代码**：单独的草稿 worktree（例如 `.worktree/<Work 短名>-<Task>-drafts`，分支 `<Task>/drafts`，不合并、不推送）。草稿和编码不在同一个 worktree：开发服务热重载会把编码中途的错误带进草稿截图，草稿的类型错误也会让编码的 typecheck 失败。
+- **草稿目录**：草稿组件、它们的同名 `.md` 和样本数据都放在 `packages/neuro-book/src/plugins/drafts/web/components/<草稿名>/`，不另建目录。`drafts` 不是插件：不写 `plugin.ts`，也不在宿主登记，只是借 Lab 按 `src/plugins/*/web/components/` 扫描组件的约定，所以草稿在 Lab 里显示为 `drafts/<草稿名>/…`，与产品组件分开。场景的包装组件放在 Lab 的 `fixtures/drafts/`，并在 `fixtures/index.ts` 里登记（场景可以引用其它插件的 `web/`，`drafts` 也一样）。这些文件与登记改动都留在草稿 worktree，不提交。
 - **评审板**：Task 的产物，放主工作区的 `.agents/works/<workId>/tasks/<taskId>/artifacts/review/`，入库，任何会话都能读到。`index.html` 是唯一入口，每轮的图放 `r1/`、`r2/`…；`versions/`（发布记录）与 `answers/`（开发者的答复与确认）只由 nbdev 写。图片按 [本地与入库](../../works/README.md#本地与入库) 的体积上限转成 WebP，原图与完整截图集留在本地 `.local/agent/works/<workId>/tasks/<taskId>/shots/`。
 - **不入库**：草稿代码（留在草稿 worktree，不提交）与完整截图集。
 

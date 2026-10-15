@@ -37,7 +37,7 @@
 - 测试分两个运行器：纯 TS 模块、后端与窗口合同用 `bun test`；Vue 组件测试命名 `*.dom.test.ts`，由 Vitest 在 happy-dom 里运行（`vitest.config.ts` 沿用 Vite 配置，包内 `bunfig.toml` 让 `bun test` 跳过它们）。需要真实布局的交互（尺寸、拖放、滚动）走 Playwright（`e2e/`）。
 - `bun test` 不能导入 `.vue`：Bun 测试会导入的模块（例如工作台交出的根界面）用 `defineComponent` 与渲染函数写。
 - `vite.config.ts` 关闭了依赖发现、预构建清单写死（依赖发现进行中时 Vite 的 `close()` 不结算，开发命令停止时会卡住）；页面直接或经 nb-ui 用到新的第三方包，或已列入包的新子路径（例如 `typebox/compile`）时加进 `optimizeDeps.include`：漏列的 CommonJS 模块在开发模式加载失败，漏列的子路径不进预构建、首次加载按需打包，e2e 曾因此间歇失败。
-- Component Lab（[`ui.component-lab`](../../docs/specs/ui/component-lab.md)）是开发插件 `src/plugins/lab/`：新组件写同名 `.md` 就进索引，可挂载的组件在 `src/plugins/lab/web/fixtures/index.ts` 登记场景（场景登记门禁 `fixtures/index.dom.test.ts`）。
+- Component Lab（[`ui.component-lab`](../../docs/specs/ui/component-lab.md)）是开发插件 `src/plugins/lab/`：新组件写同名 `.md` 就进索引，可挂载的组件在 `src/plugins/lab/web/fixtures/index.ts` 登记场景（场景登记门禁 `fixtures/index.dom.test.ts`）。 `src/plugins/drafts/` 是界面设计评审的静态稿目录：只出现在草稿 worktree、从不提交，不是插件，在 Lab 里显示为 `drafts/…`；用法见 [`design-review`](../../.agents/skills/design-review/SKILL.md#草稿放在哪里)，做静态稿不要另建目录。
 
 ## 命令
 
