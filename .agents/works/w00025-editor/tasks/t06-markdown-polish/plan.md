@@ -1,191 +1,195 @@
-# t06 实施计划：Markdown 读写重做与常用方言
+# t06 实施计划：Markdown 读写重做与常用方言（第二版）
+
+第一版经第 1 轮深入审查（omp 19 条、Opus 29 条，处理见 [README](README.md) 的“计划审查”）后改写。主要变化：读入的调度自己写（保留 Tiptap 扩展的 Markdown 接口）；编解码器按 schema 建；空段落与空行归间隔；读回校验改为窗口校验加上下文表；写法属性与校验用的“期望节点”分开；写不回改为独立的“写不出”状态，不借用未裁决输入；切片重排；性质测试加“真实编辑序列”。
 
 ## Context
 
-- **为什么做**：实验（[conversion.md](conversion.md)）在现有的 Markdown 富文本编辑器里测出 8 类会改坏内容的问题（中文引号旁的粗体丢失、改一项列表拆成几个、任务列表让编辑器出错、表格丢数据与写进控制字符、脚注与引用式链接变形、实体变字面、行首文字变块语法），根因是写出不保留写法、写出后不读回校验、解析结果不校验、按行合并而结构按块。开发者 2026-10-15 决定重做转换并加上常用方言，可以重构或重写，先搭好代码结构。
-- **合同**：`workspace.markdown-dialect`（t06 分支的 `docs/specs/workspace/markdown-dialect.md`，`planned`，下称“方言 Spec”）；[`workbench.editor`](../../../../../docs/specs/workbench/editor.md) 输出 13、14、19、27。
-- **开发者已确认**（[README](README.md) 的“开发者的决定”7–12）：不换 `@tiptap/markdown`；只做富文本；中文强调放宽、只有 `~~` 是删除线、段内单换行是换行；任务列表正式支持、脚注原样保留；新加提示块与 `==高亮==`；批注分截；写不出读得回来的内容时保存失败。
-- **工作方式**：worktree `.worktree/w00025-t06-markdown-polish`（分支 `feat/w00025-t06-markdown-polish`，从 t03 拉出，随 Work 一次合入）。主会话编码；逐片自跑验证后提交，只暂存本片文件。审查按深入审查（开发者 2026-10-15 批准的三轮：设计、转换核心、收尾），见 README。
+- **为什么做**：实验（[conversion.md](conversion.md)）在现有的 Markdown 富文本编辑器里测出 8 类会改坏内容的问题，根因是写出不保留写法、写出后不读回校验、解析结果不校验、按行合并而结构按块。开发者 2026-10-15 决定重做转换并加上常用方言，可以重构或重写，先搭好代码结构。
+- **合同**：`workspace.markdown-dialect`（t06 分支的 `docs/specs/workspace/markdown-dialect.md`，`planned`，下称“方言 Spec”）；[`workbench.editor`](../../../../../docs/specs/workbench/editor.md) 输出 4、13、19、21–23、27、验收 5。
+- **开发者已确认**（[README](README.md) 的“开发者的决定”1–13）。第二版有三处要开发者再确认，见文末“待确认”。
+- **工作方式**：worktree `.worktree/w00025-t06-markdown-polish`（分支 `feat/w00025-t06-markdown-polish`）。主会话编码；逐片自跑验证后提交，只暂存本片文件。深入审查三轮：设计（本计划，改完由原审查者复审）、转换核心（S3 后）、收尾（S6 后）。
 
 ## 关键设计
 
-### 1. 总体：一个编解码器，编辑器只经它读写
-
-现在编辑器用 `@tiptap/markdown` 的 `setContent(…, {contentType: "markdown"})` 读、`getMarkdown()` 写，再用 `source-merge.ts` 按行三方合并。改为一个与编辑器无关的**编解码器**：
+### 1. 总体：语法集、编解码器与读写的单位
 
 ```ts
-// web/markdown/codec/codec.ts
+// web/markdown/language.ts —— 按语法模块（第 7 节）建一次，全应用共用：Marked 实例、分词规则、写出表、上下文规则
+interface MarkdownLanguage { readonly marked: Marked; readonly extensions: ReadonlyArray<AnyExtension>; /* … */ }
+
+// web/markdown/codec/codec.ts —— 按 schema 建：编辑器各有一份 schema（Tiptap 的 ExtensionManager 每个实例建一份）
+function codecFor(schema: Schema, language: MarkdownLanguage): MarkdownCodec;   // WeakMap<Schema, MarkdownCodec> 缓存
 interface MarkdownCodec {
-    readonly schema: Schema;
-    /** 读：frontmatter 前缀、文档、每个顶层节点的来源。永不失败（方言 Spec 输出 9）。 */
-    read(source: string): ReadResult;
-    /** 写：不变的块写原文，变了的块重新写出并读回校验（输出 1–3）。 */
-    write(doc: PMNode, read: ReadResult): {ok: true; text: string} | {ok: false; code: "unrepresentable"; block: number};
+    read(source: string): ReadResult;                       // 永不失败（方言 Spec 输出 9）
+    write(doc: PMNode, base: ReadResult): WriteResult;
 }
-interface ReadResult {
-    readonly prefix: string;               // BOM 与 frontmatter，原样
-    readonly doc: PMNode;
-    readonly origins: Origins;             // 顶层节点对象 → 来源
-}
+type WriteResult =
+    | {ok: true; text: string; next: ReadResult}             // next：以这次写出为原文的来源，提交被接受后接替 base
+    | {ok: false; code: "unrepresentable"; from: number; to: number; fallback: string};
 ```
 
-- 编解码器按扩展组建一次、全应用共用（模块级单例），自己 `new Marked()` 一个实例交给 `MarkdownManager({marked})`。现在每个编辑器都把全部方言分词规则 `use()` 进全局的 `marked`，开的编辑器越多重复登记越多（从 `@tiptap/markdown` 的 `registerTokenizer` 读出）；改后全局 `marked` 不再被改动。
-- 编辑器不再装 `@tiptap/markdown` 的 `Markdown` 扩展（不再用 `getMarkdown`、`setContent` 的 markdown 模式）；粘贴 Markdown 以后经编解码器的 `read` 做。
-- 不变量：编解码器不依赖 DOM 与 Vue，在 `bun test` 里直接测。
+- 读出的文档属于传入的 schema；编辑器用 `codecFor(editor.schema, language)`，测试用 `getSchema(language.extensions)`。
+- `language` 自己 `new Marked()`，分词规则只登记一次；全局 `marked` 不被改动（现在每建一个编辑器都把全部分词规则 `use()` 进全局 `marked` 一次）。
+- 不变量：编解码器不读 `window`、不用 DOM；在 `bun test` 与浏览器里读同一份原文得到同一棵树（S1 有一条测试在装与不装 `DOMParser` 两种环境下各读一遍语料，断言相等）。
 
-### 2. `web/markdown/codec/source.ts`：原文、规范化与分块
+### 2. `codec/source.ts`：原文、规范化与分块
 
 - `splitFrontmatter` 从 `source-merge.ts` 搬来，行为不变。
-- **规范化带偏移表**：`normalize(body) → {text, toSource(offset)}`。两件事：CRLF 换成 LF（`marked` 自己也会这样做，提前做以便记偏移）；宽容写法（方言 Spec 输出 17）在开标签前补空行。规范化只插入或删除字符，偏移表记下每处改动，任意规范化后的偏移能换回原文偏移。现在的 `normalizeMarkdownDialectBlocks` 判据整体沿用（含 fence 与缩进代码的跳过），移进这里。
-- **分块**：用编解码器的词法器 `lex` 规范化后的文字，取顶层词法单元。已核实：顶层单元的 `raw` 依次拼接等于输入（LF 文字）。每个非 `space` 单元是一块；块的原文是经偏移表换回的原文切片（含 CR、含宽容写法里没有的那个空行之外的原字节），块之间的原文切片是间隔。引用定义（`def` 单元）也是块。
-- 不变量：所有块与间隔的原文切片依次拼接，等于正文原文（逐字节）。这是输出 1 的基础，单独有测试。
+- **规范化带偏移表**：`normalize(body) → {text, toSource(offset)}`。CRLF 与单独的 `\r` 都换成 `\n`（`marked` 的 `lex` 也这样做）；宽容写法（方言 Spec 输出 17）在开标签前补空行。宽容写法的扫描改为一次线性配对（先找出全部独占一行的闭标签与行尾开标签，再一次决定插入点），判据沿用现有 `normalizeMarkdownDialectBlocks`（fence 与缩进代码跳过、容器前缀不拆、悬尾不拆）。现有实现每个开标签都向后搜索并 `splice`，96013 字符的异常输入同步耗时 1.3 秒（omp 实测）。
+- **分块不信任 `raw` 拼接**：`marked` 遇到同名的第二条引用定义会把它整个丢掉（既不出单元，也不进别的单元的 `raw`）。分块时按偏移逐个核对：单元的 `raw` 必须恰好出现在当前偏移；不在时，跳过的那段原文成为一个原样块（显示源码），并记一条诊断。
+- **块与间隔**：块的文字不含结尾的换行；块与块之间的全部换行（含空行）是间隔。
+- 不变量：全部块与间隔的原文切片依次拼接，逐字节等于正文原文。单独有测试，语料加重复定义、单独 `\r`、CRLF 与 LF 混用、未闭合的代码围栏、可吞到文末的 HTML 块。
 
-### 3. `web/markdown/codec/read.ts`：逐块解析与来源
+### 3. `codec/read.ts`：自己的读入调度
 
-- 每块单独交给 `MarkdownManager` 解析成节点（一块可能得到零到多个节点）。引用定义是全篇共享的：解析每块时把全篇的定义作为链接表交给词法器（S1 先用“在块后附上全篇定义行”的做法，`def` 单元不产出节点；若 `marked` 的 `Lexer` 能直接接收 `links` 表就改用它）。
-- `space` 单元：多出来的空行按 `@tiptap/markdown` 现在的规则成为空段落（与现状一致）；这些空段落也有来源，原文是对应的那段空行。
-- **校验**：每块解析出的节点逐个 `check()`；不合 schema 的那一块整体换成原样块（输出 9 最后一项），原文是这块的切片。
-- **实体解码**：解析后在正文的文字节点（代码以外）里解码 HTML 实体，`&nbsp;` 成为 U+00A0（输出 4）。
-- **来源**：`Origins` 记每个顶层节点对象的 `{index, raw, gapBefore}`：`index` 是它在读入时的顶层序号，`raw` 是它独占的原文（一块产出几个节点时，原文给第一个，其余为空串并标记属于同一块），`gapBefore` 是它前面的间隔原文。
+`@tiptap/markdown` 的 `MarkdownManager` 把“单元 → 节点”的调度放在私有方法里，两份审查查出的读入问题都出在这里：引用定义只能整篇一起解析、文字里的实体被解码一次后再也分不清、行内 HTML 有没有 DOM 走不同分支、混合任务列表用全局 `marked` 重新分词。改为自己写调度，**保留 Tiptap 扩展的 Markdown 接口**：各扩展声明的 `markdownTokenizer`（登记进 `language.marked`）与 `parseMarkdown(token, helpers)`，`helpers` 按 `@tiptap/core` 的 `MarkdownParseHelpers` 类型自己实现（7 个函数）。不再使用 `MarkdownManager` 与 `@tiptap/markdown` 的 `Markdown` 扩展。
 
-### 4. `web/markdown/codec/write.ts`：以块为单位写回
+- **整篇一次分词**：一个 `Lexer` 读整篇，顶层单元与引用定义表（`tokens.links`）都来自它；任何地方不再往正文里拼定义行。
+- **顶层单元 → 节点**：逐个调用认领它的扩展；每个单元产出的节点数由调度器自己知道，来源（第 4 节）直接按单元记。
+- **行内文字**：文字单元从 `raw` 用完整的 HTML5 实体表解码一次（含数字实体）；转义单元原样取字符。`&nbsp;`、`&amp;nbsp;`、`\&nbsp;` 三者读出来不同（方言 Spec 输出 4）。
+- **段内换行**：段落（与其它行内容器）里的软换行读成 `hardBreak{markdown: "newline"}`，文字节点里不留 `\n`；两空格、反斜杠、`<br>` 读成带各自写法的 `hardBreak`。富文本里 Shift+Enter 新建的硬换行没有写法属性，写成单换行。
+- **行内 HTML**：全部由分词规则认领：项目方言的标签、`<br>`，以及 `<strong>`、`<b>`、`<em>`、`<i>`、`<del>`、`<s>`（读成粗体、斜体、删除线，写法属性记标签名，写回保持）；其余行内标签与残片是原样片段。块级 HTML 是原样块（`<html>` 块除外）。调度器不调用 `generateJSON`。
+- **混合任务列表**：普通项与任务项混在一个列表里时拆成相邻的列表与任务列表（与 Tiptap 现在的做法一致），嵌套内容用同一个 `Lexer` 分词，引用定义仍可用。
+- **校验**：每个顶层单元产出的节点 `check()`；不合 schema 的整块换成原样块。
+- **空正文**：零个块时编辑器要求的那个空段落记一个来源（原文是整个正文）。
 
-- ProseMirror 的节点不可变：编辑某处只替换那里的节点，其余顶层子节点还是读入时的同一个对象。依次走当前文档的顶层子节点：
-  - 来源表里有它、并且同一块的节点都还在且相邻、上下文没变（见下）：写原文；
-  - 否则重新写出这一块（第 5、6 节），然后读回校验。
-- **间隔**：两个相邻的顶层节点在读入时也相邻（`index` 连续）时，写原来的间隔；否则写一个空行。开头与末尾同理：第一个节点仍是原来的第一个时写原来的开头间隔；最后一个仍是原来的最后一个时写原来的结尾（含末尾有无换行），否则按原文末尾有无换行决定。
-- **换行符**：重新写出的块与新间隔用原文里用得多的换行符（沿用 `source-merge.ts` 的 `dominantEol`）。
-- **上下文依赖**：一块的写法依赖别的块时，即使节点没变也要重新写出。现在只有一种：分截批注的 `body` 写在第一截（输出 11）。写出前先算出每个批注 `id` 的第一截在哪一块；原文里不是第一截、现在成了第一截（或反过来）的块重新写出。
-- **读回校验**（输出 3）：重新写出的块，用同一套读的流程读回，节点与原节点 `eq`（含写法属性，见第 6 节）才接受。不等时按顺序换写法再试：最小转义 → 完全转义（每个 Markdown 标点都转义）→ 强调与删除线改写成 HTML 形式（`<strong>`、`<em>`、`<del>`）；都不等就返回 `unrepresentable` 与块号。
-- 删掉 `source-merge.ts` 的 `mergeSource` 与它的按行合并。
+### 4. 来源、间隔与写回
 
-### 5. `web/markdown/codec/render/`：自己的写出器
+- **来源**：`ReadResult.origins` 以顶层节点对象为键，值是 `{unit, raw, context}`：`unit` 是读入时的顶层单元序号（一个单元产出几个节点时共用），`raw` 是这个单元的原文切片（只给单元的第一个节点，其余标为“同单元”），`context` 是这块读入时依赖的上下文（第 5 节）。
+- **空段落属于间隔**：`marked` 把多出的空行读成空段落（`space` 单元）。空段落节点只是间隔在编辑器里的表示：两个内容块之间的间隔 = 原文间隔，前提是两侧块都是原来的、在读入时相邻（单元序号连续）、中间的空段落数没变；否则按空段落数重新生成（`k` 个空段落写成 `k + 1` 个空行，与读入的计数一致）。文件开头与结尾同理。新建的空段落因此不需要“写出再读回”，也不会触发写不出。
+- **零节点的单元**：引用定义、脚注定义读成原样块（显示为一张源码卡片），有来源、能被看到，删除是用户的显式动作。
+- **节点对象不变就写原文**：ProseMirror 编辑只替换改动处的节点，其余顶层子节点还是同一个对象（两份审查都在真实 Editor 里核实过普通编辑；撤销还原的是原对象）。同一单元的节点都还在、相邻、上下文没变时写原文；否则重新写出这一单元的节点。
+- **以本次写出为新的原文**：写出成功、提交被接受后，`next` 接替 `base`：每个顶层节点的原文是这次写给它的文字。被编辑过的集合因此不会一直增长，下一次停手只需写出新改的块（审查第 26 条的性能问题）。
+- **换行符**：重新写出的块与新间隔用原文里用得多的那种（沿用 `dominantEol`）。
 
-`@tiptap/markdown` 的写出把正文转义放在私有方法里（`encodeTextForMarkdown`、`escapeMarkdownSyntax`），没有接口能换掉，表格的写出也有缺陷；所以写出由我们自己做，解析仍用 `@tiptap/markdown`。
+### 5. 上下文与读回校验
 
-- `blocks.ts`：按节点类型的块写出表（段落、标题、列表、任务列表、引用、提示块、代码块、分割线、表格、图片所在段落，以及各方言的块）。列表项的子块按列表符号的宽度缩进；表格的单元格里的 `|` 写成 `\|`、单元格里的换行写成 `<br>`（输出 20），不再出现 U+001F。
-- `inline.ts`：行内内容写出。标记的开闭按标记的优先级嵌套（同 schema 的 mark rank），相邻文字节点的标记集合变化时先关后开；同类型、不同属性的标记（例如两条批注）各自成段，保证标签正确嵌套。
-- `escape.ts`：最小转义（输出 4）。按位置判断：行首的块语法字符；会开闭强调、删除线、`==高亮==` 的 `*`、`_`、`~`、`=`（按与解析相同的侧翼判定）；`` ` ``、`[`（后面跟得成链接时）、`!`（在 `[` 前）、`<`（后面是字母、`/`、`!`、`?`）、`&`（后面像实体）、`\`（在标点前）；U+00A0 与零宽字符写成实体。判断不准的情况由第 4 节的读回校验兜底。
-- 写出器由各语法模块（第 6、7 节）登记自己的块与标记写法，`render/` 本身不认识具体方言。
+- **上下文**：一块的意思或写法依赖别处时，写成显式的上下文规则（每个语法模块可以声明），读与写共用：
+  - 引用定义表：引用式链接的块依赖它；被引用的定义删掉或改名时，依赖它的块重新写出（写成行内链接）；
+  - 批注的分组：分截批注的 `body` 写在组里的第一截（方言 Spec 输出 11 的归属规则），组的第一截变了的块重新写出；
+  - 原样片段与行内原文：原样片段直接持有原文字节（不是规范化后的 `raw`），父块重新写出时片段的字节不变。
+- **读回校验的单位是窗口**：每个重新写出的块、每个重新生成的间隔，连同前后各一个块，按“上下文表 + 窗口文字”读回，窗口里的块数、边界与节点都要对得上。这样“标题改成正文后吞掉下一段”“删掉中间一段后两个列表合成一个”“新列表紧挨旧列表”这类跨块的变化能被抓到。对不上时先只改间隔（在两块之间多写一个空行，或在两个同符号列表之间写 `<!-- -->` 分隔），再按第 6 节换写法。
+- **期望节点**：写出器写每块时同时产出“按实际写法补齐写法属性的节点”（新建的节点补规范写法或跟随到的写法，例如在 `__` 的段落里新加的粗体补 `__`）。读回结果与期望节点 `eq`，不与编辑器里的节点直接比；比较函数单测。
+- **不读回的情况**：写原文的块不读回（它没变）；只有窗口里有重写的块或间隔才读。
 
-### 6. `web/markdown/syntax/`：每种语法一个模块
+### 6. `codec/render/`：写出器与转义
 
-每个模块导出同一个形状，规则只写在一处：
+`@tiptap/markdown` 的写出把正文转义放在私有方法里，表格写出有缺陷，所以写出也自己做。
+
+- `blocks.ts`：块写出表（各语法模块登记，第 7 节）。列表项的子块按符号宽度缩进；有序列表按写法属性保持“全写 `1.`”或“按顺序编号”。
+- `inline.ts`：标记按 schema 的 mark 优先级嵌套，相邻文字节点的标记集合变化时先关后开；两条批注重叠时按嵌套写出（第 7 节的批注模块负责配对读入）。
+- `escape.ts`：最小转义（方言 Spec 输出 4），与读入共用同一组判定函数（强调、删除线、`==` 的 CJK 友好侧翼判定在 `syntax/inline-rules.ts` 里，只写一处）。覆盖：行首块语法；强调、删除线、`==`、行内代码、链接、图片、HTML 标签、实体、反斜杠；GFM 裸自动链接（`www.`、`http://`、邮箱：转义起始处的一个字符）；数学的 `$`。
+- **降级**：最小转义读不回时，先试“完全转义”，读回通过后逐个撤掉不需要的转义，直到再撤就读不回（结果仍是最小的）；还不行，强调与删除线改写成 HTML 形式（`<strong>`、`<em>`、`<del>`，在 Spec 里是能读的写法）；仍不行为写不出（第 9 节）。降级步数有上限。
+
+### 7. `web/markdown/syntax/`：每种语法一个模块
 
 ```ts
 interface MarkdownSyntax {
     readonly name: string;
-    /** schema 与解析：Tiptap 扩展（带 markdownTokenizer / parseMarkdown）。 */
-    readonly extensions: ReadonlyArray<AnyExtension>;
-    /** 写出：节点类型 → 块写法；标记类型 → 开闭写法。 */
-    readonly blocks?: Readonly<Record<string, BlockRenderer>>;
-    readonly marks?: Readonly<Record<string, MarkRenderer>>;
-    /** 块级方言标签名：宽容写法的规范化与 HTML 兜底的排除名单都从这里取。 */
-    readonly blockTags?: ReadonlyArray<string>;
-    /** 词法器的覆盖（例如删除线只认两个波浪线）。 */
-    readonly marked?: MarkedExtension;
+    readonly extensions: ReadonlyArray<AnyExtension>;          // schema 与 parseMarkdown、markdownTokenizer
+    readonly blocks?: Readonly<Record<string, BlockRenderer>>; // 节点类型 → 块写法
+    readonly marks?: Readonly<Record<string, MarkRenderer>>;   // 标记类型 → 开闭写法
+    readonly blockTags?: ReadonlyArray<string>;                // 宽容写法与 HTML 兜底的名单
+    readonly context?: ContextRule;                            // 第 5 节
+    readonly marked?: MarkedExtension;                         // 词法器覆盖
 }
 ```
 
-`syntax/index.ts` 按固定顺序列出全部模块，编解码器与编辑器都从这里取，代替现在的 `markdown-dialect-extensions.ts` 与分散的名单。
+`syntax/index.ts` 按固定顺序列出全部模块，建出 `MarkdownLanguage`；编辑器另加的只有界面扩展（占位、行内代码快捷输入、链接点击）。写法属性 `markdown` 不渲染到 DOM，按第一版的表记下列表符号、有序分隔符与编号方式、任务项的 `x`/`X`、标题写法（含 ATX 结尾的 `#`）、代码围栏、分割线、强调符号或 HTML 标签名、高亮写法、链接形式（行内、引用式标签、自动链接、尖括号地址、标题）、硬换行写法、注音写法、行内方言标签的原写法。
 
-**写法属性**（输出 2）：需要保留写法的节点与标记加一个 `markdown` 属性（不渲染到 DOM），解析时从词法单元的 `raw` 取，写出时照用；新建的节点没有这个属性，用规范写法（输出 10）：
+- `core/`：段落、标题、列表、任务列表（`@tiptap/extension-list`；只有无序任务项，`1. [ ]` 按文字读写）、引用、代码、分割线、硬换行、强调、删除线、链接、图片、表格。**关掉 StarterKit 的下划线**（`++文字++` 现在被读成下划线，`他会C++和C++。` 读错；见“待确认”2）。**表格**：单元格只能有一段（覆盖 `content` 为 `paragraph`），单元格里的 Enter 是硬换行，写成 `<br>`；要求有表头行；合并单元格的命令不提供，读到 HTML 表格是原样块。
+- `inline-rules.ts`：CJK 友好的侧翼判定，`*`、`_`、`~~`、`==` 共用；强调用 `marked-cjk-friendly`（见“待确认”3），`~~` 与 `==` 按同一规范（上游的删除线规则）自己实现；单个 `~` 是文字。
+- `comment/`：重写分词规则，按开闭标签计数配对（行内只数行内的 `<comment`，块只数独占一行的），支持嵌套；`Comment` 标记 `excludes: ""`。分组按方言 Spec 输出 11（修订后）：没有 `body` 的截归文件顺序上它之前最近的、同 `id` 的带 `body` 截。提供格式层命令 `addComment(body)`：按选区决定形态（整块、行内、分截）与分配 `id`，粘贴进来与已有 `id` 冲突时换新。界面以后再做，命令在组件测试里经真实编辑器调用。评论列表缓存插件保留。
+- `ruby/`、`bilingual/`、`align/`、`text-marks/`（颜色、高亮含 `==`、上下标）、`html-embed/`：从 `dialect/*.ts` 搬入，补写法属性、写出与上下文；颜色合法性按输出 15。
+- `callout/`：提示块（输出 23）。
+- `raw/`：原样块与原样片段（`rawBlock`、`rawInline`，属性是原文字节），覆盖未知 HTML（现有 `HtmlFallback.ts` 的判据）、HTML 注释、脚注引用与定义、引用定义、数学（`$…$` 按 Pandoc 规则、`$$` 块）、分块时跳过的原文、不合 schema 的块。
 
-| 节点或标记 | 记下什么 |
-|---|---|
-| 无序列表 | 符号 `-`、`*`、`+` |
-| 有序列表 | 分隔符 `.`、`)` 与起始编号 |
-| 任务项 | `x` 或 `X` |
-| 标题 | `#` 或下划线式（`=`、`-`） |
-| 代码块 | 围栏符号与长度；缩进代码 |
-| 分割线 | 原写法 |
-| 粗体、斜体 | `*` 或 `_` |
-| 高亮 | `==` 或 `<mark>` |
-| 链接 | 行内、引用式（标签）、自动链接 |
-| 硬换行 | 单换行、两空格、反斜杠、`<br>` |
-| 注音 | 属性式或标准 `<rt>` 式 |
-| 行内 HTML 方言 | 原开标签的写法（大小写、属性顺序） |
+### 8. `MarkdownControl.vue`：接入
 
-**模块清单**：
+- `load`：`codecFor(editor.schema, language).read(text)`；视图状态记 `ReadResult`。
+- `commitNow`：`write(doc, view.read)`；成功则 `binding.commit(text)`，被接受后 `view.read = next`；写不出见第 9 节。
+- `reload`：读新正文，按 `findDiffStart/End` 替换不同的那一段，事务带 `preventAutolink`（自动链接插件会给重载进来的网址加链接，omp 实测）并且不进撤销；之后断言 `doc.eq(新读入的文档)`：相等时按位置接过新来源，不等时整篇替换并全部用新来源。
+- 编辑器里的显示：提示块、任务复选框、原样块与原样片段、引用定义卡片，样式用主题 token。
 
-- `syntax/core/`：段落（高优先级，沿用 `MarkdownParagraph` 的理由）、标题、列表、任务列表（`@tiptap/extension-list` 的 `TaskList`、`TaskItem`）、引用、代码、分割线、硬换行、强调、删除线、链接、图片、表格。
-- `syntax/cjk/`：中文友好的强调（输出 6）与删除线只认 `~~`（输出 7）。强调先评估 `marked-cjk-friendly`（0.1.2）：用往返语料与它自己的样例验证，合格就用；不合格就在我们的 `Marked` 实例上按[同一规则](https://github.com/tats-u/markdown-cjk-friendly/blob/main/specification.md)覆盖强调的侧翼判定。删除线覆盖 `del` 分词：单个 `~` 返回文字单元。
-- `syntax/comment/`：行内、块、分截（输出 11）。`Comment` 标记设 `excludes: ""`，允许不同 `id` 的批注重叠；读入时同一 `id` 的各截合成一条（`body` 取带 `body` 的那截，冲突的各自成条），写出时 `body` 只写第一截（第 4 节的上下文依赖）。块批注仍是 `CommentBlock` 节点。新建批注选哪种形态由以后的批注界面决定（见“Spec 与文档改动”）。现有的评论列表缓存插件（只在文档变化时重扫）保留。
-- `syntax/ruby/`、`syntax/bilingual/`、`syntax/align/`、`syntax/text-marks/`（颜色、高亮含 `==`、上下标）、`syntax/html-embed/`：从现有 `dialect/*.ts` 搬入并补写法属性与写出；颜色的合法性检查按输出 15。
-- `syntax/callout/`：提示块（输出 23）。解析在引用的 `parseMarkdown` 里识别第一行的 `[!类型]`，产出 `callout` 节点（属性：类型原文、折叠标记、标题原文），内容是其余的块。显示：五种类型的图标与颜色用主题 token，其余用 `NOTE` 的样子；折叠只是视图状态。
-- `syntax/raw/`：原样块与原样片段（输出 9）。HTML 兜底（现有 `HtmlFallback.ts` 的三件）、脚注引用与定义、数学 `$…$`（按 Pandoc 的规则：开 `$` 后不是空白、闭 `$` 前不是空白且后面不是数字）与 `$$` 块、HTML 注释，统一成两种节点 `rawBlock`、`rawInline`（属性 `raw`），显示源码，可以整体删除、复制。
+### 9. 写不出：独立的“写不出”状态
 
-### 7. `web/components/MarkdownControl.vue`：接入
+不借用未裁决输入：那个通道的每个出口（关闭询问的“保存”先采用候选正文、终态页的抢救、“保留本视图的内容”）都假定有一份候选正文，`unrepresentable` 没有。
 
-- `load`：`codec.read(binding.text.value)`，用结果的 `doc` 建 `EditorState`；视图状态记 `ReadResult`（代替现在的 `split` 与 `base`）。
-- `commitNow`：`codec.write(editor.state.doc, view.read)`；成功按现在的方式 `binding.commit`；失败调用绑定的新方法 `refuse({code: "unrepresentable", block})`，这次不提交。
-- `reload`：`codec.read` 新正文，照旧按 `findDiffStart/End` 只替换不同的那一段；之后按位置把新读入结果的来源对到当前文档的顶层节点上（留下来的旧节点与新读入的节点结构相同、原文以新正文为准），这样外部只改了写法的块不会被旧原文写回。
-- 写法属性不画到 DOM；提示块、任务复选框、原样块与原样片段的显示在各自的语法模块里（NodeView 或 `renderHTML`），样式用主题 token。
+- 写不出在**输入时**发现（停手、失焦、切走时的写出），不是保存时：这次输入不交给文档，视图保留编辑（设 `held`，另一组的提交不会把它重载掉）。
+- `TextEditorBinding.block(reason: {code: "unrepresentable"; from: number; to: number; fallback: string})` 与 `unblock()`：文档记一个独立的标记 `blocked`。它挡保存（`nbook.editor.save` 说明原因）、计入关闭询问与“需要保存”；关闭询问只给“不保存”与“取消”；组顶部提示写不回、给“定位”（选中那一块并滚动过去）与“采用当前正文”（丢弃视图的输入）；终态抢救用 `fallback`（写不出的块写它的纯文字，其余照常），并标明有一块丢了格式。之后任何一次写出成功并被接受就 `unblock`。
+- 正常写作不应碰到它：空段落归间隔、表格单元格只有一段、Shift+Enter 有写法、三级降级之后，剩下的写不出视为缺陷；语料与随机编辑都断言“不出现写不出”，只有专门构造的样例例外。
 
-### 8. `web/area.ts` 与 `shared/contracts.ts`：写不出的输入
+### 10. 字数
 
-- `TextEditorBinding` 增加 `refuse(reason: {code: "unrepresentable"; block: number}): void`：把这个绑定记成有未裁决输入（与 [editor](../../../../../docs/specs/workbench/editor.md) 输出 13 同一通道），原因是 `unrepresentable`；之后一次被接受的 `commit` 清掉它。
-- 组顶部的提示：“第 N 块的格式写不回 Markdown”，只给“采用当前正文”（丢弃这份输入）；保存遇到它按输出 13 不发出写入，关闭询问照计入。
-- 控件句柄的 `flushPendingChange` 不变。
+方言 Spec 要求批注意见、注音小字、双语译文与原样内容不计字数，而字数（`shared/word-count.ts`）浏览器与服务端（作品统计）共用、不能依赖编辑器代码。在 `shared/` 写一个只做“去掉不计内容”的轻量扫描，标签名单与属性解析从一份共用的方言常量（`shared/markdown-dialect-tags.ts`）取，编解码器的语法模块也从它取；一致性测试：对语料，轻量扫描剩下的文字与编解码器读出的正文纯文字字数相同。
 
-### 9. 测试：往返语料与性质
+### 11. 测试
 
-- `web/markdown/codec/corpus/`：一组 `.md` 样例（小说正文；方言 Spec 每条输出至少一例；[conversion.md](conversion.md) 的全部发现；旧应用 101 任务修过的方言形态；现有 `markdown-dialect.test.ts` 的样例搬入）。
-- `codec.test.ts`（`bun test`）对每个样例检查四条性质：
+- **语料**（`codec/corpus/`）：小说正文；方言 Spec 每条输出的样例；[conversion.md](conversion.md) 的全部发现；两份审查的全部复现样例（重复定义、单独 `\r`、未闭合围栏、空文件、只有 frontmatter、只有空行、嵌套与交替的批注、`C++`、实体四例、`5*3*2`、裸网址、混合换行的原样片段、`~~“删除”~~`、有序任务项）。现有 `markdown-dialect.test.ts` 的断言保留成**明确期望**（节点类型、属性、文字），不只搬成样例。
+- **明确期望**：每类语法有“读出什么树”的断言与“新建后写成什么字符串”的断言，往返性质不能代替它们。
+- **性质**（`bun test`）：
   1. 不编辑写回，逐字节等于原文；
-  2. 每一块单独标记为“变了”后写回，再读入，文档 `eq` 读入时的文档（写出读得回来，且写法属性保持）；
-  3. 在每一块的文字里插一个字后写回：其余块与间隔的原文逐字节不变，再读入的文档只有那一处不同；
-  4. 读入的文档 `check()` 通过。
-- **随机往返**：加开发依赖 `fast-check`，随机生成小文档（段落、列表、引用、强调、链接、批注、注音、中文标点与各种特殊字符），新建（无写法属性）后写出、读回，必须 `eq`。
-- 组件层：`MarkdownControl` 的现有 DOM 测试改走编解码器；任务列表里回车、勾选；`refuse` 的通道（area 测试）。
-- e2e：`editor-area.e2e.ts` 增补方言 Spec 场景 1、2、4、6 的真实浏览器版本。
+  2. 每块标为“变了”后写回再读，等于期望节点；
+  3. 读入的文档 `check()` 通过；
+  4. 不出现写不出（构造样例除外）；
+  5. **真实编辑序列**：用 `fast-check` 对语料文档施加随机的 ProseMirror 编辑（插字、拆段、并段、删块、移动块、改块类型、包进列表与引用、表格里回车、文末追加段落、加删标记与批注、撤销），每步写回：整篇重读后与编辑后的文档相等（按第 5 节的比较），没被编辑触及的顶层块原文字节都还在输出里。失败时自动缩到最短复现。
+- **随机新建**：随机生成覆盖整个 schema 的小文档（含表格、任务项、提示块、原样节点、硬换行、中文标点与特殊字符），写出再读回等于期望节点。
+- **组件**：`MarkdownControl` 的 DOM 测试改走编解码器；任务列表回车与勾选；`addComment` 的三种形态；`reload` 后的来源与自动链接；`block` 的通道（area 测试：挡保存、关闭询问只有不保存与取消、抢救）。
+- **e2e**：方言 Spec 场景 1、2、4 的真实浏览器版本。
+- **性能**：十万字章节、多块多定义、密集方言标签、未闭合输入四种，记 `read`、单块编辑后 `write`、`reload` 的主线程耗时；上限：单块编辑后写出 16ms 内，读入与重载不慢于现在。
 
 ## Spec 与文档改动
 
 | 文档 | 改什么 |
 |---|---|
-| `docs/specs/workspace/markdown-dialect.md`（t06 分支） | 输出 11“写出时选哪种形态”改为“写回保持形态；在富文本里新建时，选区正好是连续的完整块写成块，只在一段里写成行内，其余分截”（写回不改变形态，避免读回校验时形态变化）；实现后补实现合同与证据，晋升由开发者批准 |
-| [`workbench/editor.md`](../../../../../docs/specs/workbench/editor.md) | 输出 13 补“写不出的输入（`unrepresentable`）也是未裁决输入，只能采用当前正文”（planned）；输出 19 的 planned 句随实现去掉旧句；“控件合同”补 `refuse` |
+| `docs/specs/workspace/markdown-dialect.md`（t06 分支） | 输出 3：写不出在输入时发现，不交出这次输入，进入“写不出”状态（链接 editor）；失败表随之改。输出 4：转义清单补裸自动链接与 `$`；例子 `[注]` 加“全篇没有同名定义时”。输出 5：段内换行在编辑器里是换行节点（可观察的部分：Shift+Enter 写单换行）。输出 6、7、24 统一：`*`、`_`、`~~`、`==` 都按 CJK 友好规则。输出 2：块的单位、空行与空段落属于间隔、有序列表编号方式、写回以本次写出为新原文。输出 9：引用定义与跳过的原文是原样块；`<strong>`、`<b>`、`<em>`、`<i>`、`<del>`、`<s>` 是能读的写法；`++` 是普通文字。输出 11：没有 `body` 的截的归属；行内批注里按回车拆段时改为分截（结构使原形态写不出时的例外）。输出 14：`value="left"` 改为“保持原样，取消对齐时去掉标签”。输出 17：被编辑后与前文之间补一个空行。输出 19：有序任务项按文字读写。输出 20：单元格只有一段、要求表头行、合并单元格不支持。输出 18：旧文件链接的兼容（见“待确认”1）。“状态与转换”：另一视图的输入被接受后同样重新计。场景 6、7 的“在富文本里新建批注”改为经格式层命令 |
+| [`workbench/editor.md`](../../../../../docs/specs/workbench/editor.md) | 输出 4、13、21–23 补“写不出”状态（planned）；输出 19 的 planned 句改为引用新状态；验收 5 的“只有那一行变化”改为“只有那一块”；控件合同补 `block`/`unblock` |
 | `MarkdownControl.md` | 视图状态改为读入结果；写不出时的行为 |
-| 删除 | `source-merge.ts` 与测试、`markdown-workbench.ts`、`markdown-dialect-extensions.ts`、`dialect/` 目录（内容迁入 `syntax/`） |
+| `docs/specs/workbench/editor.md` 输出 27 | 字数不计内容链接方言 Spec |
+| 删除（S5） | `source-merge.ts` 与测试、`markdown-workbench.ts`、`markdown-dialect-extensions.ts`、`dialect/` |
 
 ## 切片
 
 | 片 | 内容 | 自跑验证 |
 |---|---|---|
-| S0 | 记录：计划交审、处理第 1 轮审查；Spec 按上表改 | `docs:check`、`governance:check` |
-| S1 | 编解码器骨架：`codec.ts`、`source.ts`（含偏移表与分块）、`read.ts`、`write.ts`（先只有“原文写回”与间隔规则）、独立 `Marked` 实例；语料目录与性质 1、4 | `bun test src/plugins/editor/web/markdown`、`typecheck` |
-| S2 | `render/` 与 `syntax/core/`、`syntax/cjk/`：写法属性、最小转义、读回校验与降级；性质 2、3 与随机往返；修掉表格、实体、行首、单波浪线 | 同上 |
-| S3 | 方言迁入 `syntax/`：批注（含分截与重叠）、注音、双语、对齐、文字标记、HTML 嵌入、原样（HTML、脚注、数学、注释）；新增提示块与 `==高亮==`、任务列表；删除旧文件 | 同上；第 2 轮审查（转换核心） |
-| S4 | 接入：`MarkdownControl` 改用编解码器、`refuse` 与 area 的未裁决通道、编辑器里的显示（提示块、复选框、原样块）；组件测试 | `test:affected --typecheck` |
-| S5 | e2e、Lab 场景（提示块、原样块）、`lab:shot`、Spec 实现合同与证据；第 3 轮审查（收尾） | `test:affected --typecheck`、`test:e2e` 编辑器相关、`docs:check` |
+| S0 | 第 1 轮审查处理与复审；Spec 按上表改；锁定版本、加依赖 | `docs:check`、`governance:check` |
+| S1 | `language.ts`、`codec/source.ts`、`codec/read.ts`（调度、实体、换行、行内 HTML、校验）、`syntax/raw/` 与 `syntax/core/` 的读入部分；语料与性质 1、3；DOM 两种环境一致 | `bun test src/plugins/editor/web/markdown`、`typecheck` |
+| S2 | `codec/write.ts`（来源、间隔、上下文、窗口校验、期望节点）、`codec/render/`、`syntax/inline-rules.ts`、`syntax/core/` 的写出；性质 2、4、5（不含方言的样例）；随机新建 | 同上 |
+| S3 | 方言迁入：批注（含分词重写、分组、`addComment`）、注音、双语、对齐、文字标记、HTML 嵌入、提示块、`==`；语料全量过性质 1–5 | 同上；第 2 轮审查 |
+| S4 | 字数的轻量扫描与共用常量、服务端一致性 | `test:affected --typecheck` |
+| S5 | 接入：`MarkdownControl`、`block` 通道（store、area、命令与提示）、编辑器里的显示；删除旧文件 | `test:affected --typecheck` |
+| S6 | e2e、Lab 场景（提示块、原样块、写不出提示）、`lab:shot`、性能数字、Spec 实现合同与证据 | `test:affected --typecheck`、`test:e2e` 编辑器相关、`docs:check`；第 3 轮审查 |
 
 ## 验收映射
 
 | 方言 Spec | 覆盖 |
 |---|---|
-| 输出 1、2、9（原样字节）、17 | 语料性质 1、3 |
-| 输出 2（写法）、3、4、5、6、7、10 | 语料性质 2；随机往返；读回失败的降级与 `unrepresentable` 单测 |
-| 输出 11–16、18–24 | 每条的语料样例走性质 1–4；分截与重叠的专门样例 |
-| 输出 9（不合 schema） | 语料：任务列表的旧坏形态、表达不了的嵌套 |
-| 失败码 `unrepresentable` | 编解码器单测（构造读不回的块）；area 测试（未裁决通道）；e2e 不做（真实输入难以构造） |
-| 场景 1、2、4、6 | e2e |
-| 场景 3、5、7 | 语料 |
-| editor 输出 13（planned 句）、19 | area 测试、`MarkdownControl` DOM 测试 |
-| editor 输出 27（字数不计批注等） | 字数的单测补样例 |
+| 输出 1、2（原样字节）、9、17 | 性质 1、5；明确期望 |
+| 输出 2（写法）、3、4、5、6、7、10 | 明确期望；性质 2、5；随机新建；降级单测 |
+| 输出 11–16、18–24 | 每条的明确期望与语料样例；批注的嵌套、交替、分组与 `addComment`（组件测试） |
+| 失败与“写不出”状态 | 编解码器单测（构造样例）；area 测试；Lab 场景 |
+| 场景 1、2、4 | e2e |
+| 场景 3、5 | 语料与明确期望 |
+| 场景 6、7 | 组件测试（真实编辑器经 `addComment`） |
+| editor 输出 4、13、19、21–23、27、验收 5 | area 与 store 测试、`MarkdownControl` DOM 测试、字数一致性测试 |
 
 ## 验证
 
-- 每片：`bun test src/plugins/editor/web/markdown`、`bun run --cwd packages/neuro-book typecheck`；S4 起 `bun run test:affected --typecheck`。
-- 端到端：生产构建上跑 `editor-area.e2e.ts` 的新场景；开发服务上手动打开一份含全部方言与 [conversion.md](conversion.md) 样例的文件，编辑、保存，用 `git diff --no-index` 对比原文，确认只有编辑的块变了。
-- 性能：一章十万字的文件，打开、打字时写回的耗时与现在比较（写回只重新写出变了的块，应不慢于现在每次整篇序列化）；数字写进 Task。
-- 未验证边界：粘贴 Markdown 与网页内容（不在本 Task）；批注界面（新建、侧栏）不在本 Task，分截只在格式层与语料里验证。
+- 每片自跑上表命令。
+- 端到端：生产构建上跑 `editor-area.e2e.ts` 的新场景；开发服务上打开一份含全部方言与审查样例的文件，编辑、保存，用 `git diff --no-index` 对比原文，确认只有编辑的块变了。
+- 性能：第 11 节的四种输入，数字写进 Task。
+- 未验证边界：粘贴 Markdown 与网页内容；批注界面；输入法组字期间的停手写出（沿用现有提交时机，不改）。
 
 ## 不做与风险
 
-- **不做**：排版菜单、右键菜单、批注界面、frontmatter 面板、相对路径图片的显示与插入、`<html>` 块的预览令牌（方言 Spec 输出 16 的 planned 句、输出 18 的显示）——这些是 t06 后续的界面工作，另起计划。
+- **不做**：排版菜单、右键菜单、批注界面、frontmatter 面板、相对路径图片的显示与插入、`<html>` 块的预览令牌，另起计划。
 - **风险**：
-  - 一块产出多个节点、或宽容写法跨多个词法单元时，来源的对应最容易错：S1 先以“全部块与间隔拼回原文”的不变量测试锁住。
-  - `marked-cjk-friendly` 版本很新：S2 先验证，不合格就自己覆盖强调判定。
-  - 写法属性让同一文字上的标记因属性不同而不合并（`**a**` 与 `__b__` 相邻）：这是预期的，写出各自保持；在语料里放这类样例。
-  - `@tiptap/markdown` 升级可能改变解析：锁定 `@tiptap/*` 与 `marked` 的确切版本，升级时先跑语料与随机往返。
+  - 自己写读入调度后，Tiptap 扩展升级若改了 `parseMarkdown` 依赖的辅助函数行为，要跟着改：辅助函数按 `@tiptap/core` 的公开类型实现，版本锁定，升级先跑语料与性质测试。
+  - 窗口校验抓不到跨越两块以上的影响（例如引用定义被删影响远处的块）：这类由上下文规则显式处理；性质 5 的随机编辑兜底。
+  - 写不出状态是新的文档状态，影响关闭、保存、抢救几条路径：area 与 store 的测试逐条覆盖。
+
+## 待确认（第二版新增，交开发者）
+
+1. **旧文件的链接**：旧应用推荐不带 `/` 的作品根相对路径（`lorebook/…`），新规则把它解释为相对当前文件。建议读时回退：相对当前文件找不到、作品根下有时按作品根解析；写新链接仍用相对当前文件。另一种是保持新规则并提供迁移。
+2. **关掉下划线**：`++文字++` 现在被读成下划线（StarterKit 自带），小说里 `C++` 比下划线常见。建议关掉，`++` 是普通文字，`<u>` 是原样片段，Ctrl+U 不再有效。
+3. **两处依赖与一处接口变化**：强调的 CJK 友好规则用 `marked-cjk-friendly`（运行时依赖，0.1.2，作者就是该规则的作者，锁版本）；读入调度自己写，不再使用 `@tiptap/markdown` 的 `MarkdownManager`（保留 Tiptap 扩展的 Markdown 接口与各扩展的解析函数，`@tiptap/markdown` 只剩类型与少数工具，可能整个移除）。这与决定 8 的“不换 `@tiptap/markdown`”字面上有出入。
