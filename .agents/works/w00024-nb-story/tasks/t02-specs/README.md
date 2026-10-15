@@ -27,7 +27,14 @@ updated: 2026-10-15
 3. **知情视角里的“没有记录”（`no-record-perspective`）**：仍画成分开的点，但标“没有记录”，与“明确不知道”区分。
 4. **位置之后的原文（`source-beyond`）**：不给；接口拒绝（`beyond_position`），本章内位置之后的段落给原文、不给记录。
 
+要点评审板 v2（开发者 2026-10-15 在面板上答复，答复 `20261015T025951971Z-73d6a6cb`）：
+
+5. **问答范围（`qa-scope`）**：内置问答整个不做：不做网页问答页、顶栏提问框，也不做 `nbstory ask`；做成 Skill 加命令行，由外部 Agent 作答。答复里选的是 `keep-cli-ask`，但备注写“nbstory.ask 也不用做。做成 skill + cli，外部 agent 来做 agent”，与所选项相反，按备注的文字记。连带：
+   1. 能力剩三份：`story.queries`（含工具接口：每个查询方法的参数与结果有 schema，命令行与以后插件的 Agent 工具共用）、`story.viewer`、`story.cli`（命令行加 Skill）；`story.qa` 不写。
+   2. 查看器去掉顶栏提问框与问答页（t01 决定 3、决定 9 的页面推迟）；决定 9 的答案格式写进 Skill。
+   3. 命令行每条查询命令对应接口合同里的一个方法，`--json` 输出就是方法结果，参数同名。
+   4. 提案的决策记录记下这次范围调整。
+
 ## 下一步
 
-1. 回答决定 1 的问题，并请开发者定问答的范围（第 2 轮）。
-2. 按答复写四份 Spec 正文，登记进 `docs/specs/README.md` 的待实现规范，跑 `bun run docs:check`；正文按记忆先给开发者看要点，再交 omp 审查、提交。
+1. 按决定 1 到 5 写三份 Spec 正文（`story/queries.md`、`story/viewer.md`、`story/cli-skill.md`），登记进 `docs/specs/README.md` 的待实现规范，跑 `bun run docs:check`；正文按记忆先给开发者看要点，再交 omp 审查、提交。
