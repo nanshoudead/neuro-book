@@ -1,0 +1,168 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00024-nb-story",
+    "taskId": "t02-specs",
+    "artifactId": "review",
+    "version": 3,
+    "supersedes": 2,
+    "action": "publish",
+    "kind": "review",
+    "title": "nb-story Spec 要点",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "edc9a758f1b75edd6db42c2313940f8d2cfd371c4f81687b63a51c903708fff5",
+    "files": [
+        "index.html"
+    ],
+    "questions": [
+        {
+            "id": "capability-map",
+            "type": "single",
+            "label": "1. 能力地图：这样分四份行吗？",
+            "options": [
+                {
+                    "value": "go",
+                    "label": "按这个分"
+                },
+                {
+                    "value": "adjust",
+                    "label": "要调整"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "go"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "reading-state-store",
+            "type": "single",
+            "label": "2. “读到哪里”和上次的界面存在哪里？",
+            "options": [
+                {
+                    "value": "library",
+                    "label": "存进书库，跟着书走"
+                },
+                {
+                    "value": "browser",
+                    "label": "存在浏览器本地"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "library"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "no-record-perspective",
+            "type": "single",
+            "label": "3. 知情视角里，“没有记录”的身份秘密怎么算？",
+            "options": [
+                {
+                    "value": "separate-mark",
+                    "label": "当作不知道画成分开的点，但标“没有记录”"
+                },
+                {
+                    "value": "unknown",
+                    "label": "当作不知道，不另外标"
+                },
+                {
+                    "value": "merge",
+                    "label": "当作知道，合并成一个点"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "separate-mark"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "source-beyond",
+            "type": "single",
+            "label": "4. 读到位置之后的章，原文能不能看？",
+            "options": [
+                {
+                    "value": "block",
+                    "label": "之后的章不给原文，要看先把“读到哪里”往后拨"
+                },
+                {
+                    "value": "allow",
+                    "label": "原文都能看，只是记录、标题不显示"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "block"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "qa-scope",
+            "type": "single",
+            "label": "5. 第一版的问答做到哪里？",
+            "options": [
+                {
+                    "value": "defer-all",
+                    "label": "内置问答整个以后做，第一版的问答交给外部 Agent"
+                },
+                {
+                    "value": "keep-cli-ask",
+                    "label": "留 nbstory ask，只是不做网页问答"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "defer-all"
+            ],
+            "origin": "markup",
+            "page": "index.html",
+            "about": null,
+            "since": 2,
+            "outcome": null
+        },
+        {
+            "id": "spec-judgments",
+            "type": "single",
+            "label": "6. 写正文时我自己定的这些，可以吗？",
+            "options": [
+                {
+                    "value": "go",
+                    "label": "可以，交审查"
+                },
+                {
+                    "value": "adjust",
+                    "label": "有要改的"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "go"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 3,
+            "outcome": null
+        }
+    ],
+    "publishedAt": "2026-10-15T03:05:24.437Z"
+}
