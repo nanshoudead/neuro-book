@@ -16,7 +16,11 @@ updated: 2026-10-15
 ## 当前状态
 
 - 2026-10-15：经 nbdev 新建；计划初稿写好，开发者确认（见“决定”）。
-- 2026-10-15：omp 审查计划，18 条，处理写进 [plan.md](plan.md) 的“计划审查”一节，报告 [evidences/plan-review.txt](evidences/plan-review.txt)。worktree `.worktree/w00024-t03-impl`（分支 `feat/w00024-nb-story`）：S1 已提交（`003fdc4ad`），并按审查改了一代的固定、导入校验与测试位置；S2 进行中。
+- 2026-10-15：omp 审查计划，18 条，处理写进 [plan.md](plan.md) 的“计划审查”一节，报告 [evidences/plan-review.txt](evidences/plan-review.txt)。worktree `.worktree/w00024-t03-impl`（分支 `feat/w00024-nb-story`）。
+
+- 2026-10-15：S1 到 S5（书库、查询、命令行、服务）与 Skill 完成；omp 代码审查 16 条（阻断 1：情节步骤的出处晚于情节自己的位置，提前泄露后文），全部处理（`c31dc676b`、`b31f9531b`），报告 [evidences/code-review-s1-s5.txt](evidences/code-review-s1-s5.txt)。处理中改了成立位置的取法：每条记录取自身位置与全部出处终点里最晚的那个。
+- 2026-10-15：S6 到 S9 网页查看器与 e2e 完成（`d2f83b306`、`5954422bf`）：包内 142 条测试、e2e 12 条（验收 1 到 8、时序、登录、命令行地址）通过。e2e 发现并修了两处界面缺陷（地址覆盖存下的状态时打开即保存；地址总写视角）。Sonnet 前端审查进行中。
+- 和计划不同的两处：三栏用 nb-ui 的 Splitter（t01 定稿的草稿用它），没用 createGrid；S1 到 S5 没有单独先合入，因为审查修正与网页提交交错，改为前端审查处理完后整条分支一起合入。
 
 ## 决定
 
@@ -28,4 +32,6 @@ updated: 2026-10-15
 
 ## 下一步
 
-1. 完成 S2（合同、API、索引与投影、身份合并、人物与秘密查询）及其测试，接着 S3 到 S5，合入一次。
+1. 处理前端审查意见，整条分支合入 master。
+2. S10：用外部 Agent 跑 Skill 评测（`story.cli` 验收 5，16 题各 3 遍），答案与判分进证据。
+3. 晋升三份 Spec 为 implemented（开发者批准）。

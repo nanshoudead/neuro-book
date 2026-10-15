@@ -1,0 +1,229 @@
+# w00024 t03 S1 到 S5 与 Skill 只读审查
+
+审查对象：`138a1c60a` 的 `packages/nb-story` 及指定的包登记改动。以下源码位置均相对于 `/home/notnotype/CodeRepository/neuro-book/.worktree/w00024-t03-code-review/`。实验脚本保存在本报告同目录的 `lab/`；实验只操作临时书库。采用主工作区 `plan.md` 的“计划审查”已定决定，不把 worktree 中旧版计划的差异当成实现问题。
+
+### 1. 角色视角中按独立身份打开人物卡，实际返回另一身份的人物卡
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`packages/nb-story/src/core/api.ts:93-96`、`packages/nb-story/src/core/queries/entities.ts:38-40`。
+- **现象**：第 38 章以苏天晴为视角，关系图与名册将南嘉鱼 `e8-2`、地狱猫 `e33-1` 分成两个点，但 `entity.card(entity="e33-1")` 和 `entity.card(entity="地狱猫")` 都返回 `id="e8-2"`、`label="南嘉鱼"`、`entities=["e8-2"]`。人物卡的知情、说法、情节三个分页入口也共用这个错误的解析。
+- **为什么是问题**：`resolveEntity` 先按读者分组把输入 id 不可逆地折叠为 `e8-2`，`nodeFor` 再映射到角色分组，已经无法找回输入的 `e33-1`。查询角色尚未合并的两个身份，本应分别读取，实际交叉读取，破坏输出 5 的身份隔离。点击角色关系图中的地狱猫也会打开南嘉鱼。
+- **如何核实**：运行 `bun /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00024-nb-story/tasks/t03-impl/reports/code-review-s1-s5/lab/queries.ts`。输出三次 `card`（输入分别为 `e8-2`、`e33-1`、`地狱猫`），三次结果均为 `{"id":"e8-2","label":"南嘉鱼","entities":["e8-2"],"identities":[]}`。
+- **建议改法**：对象参数在当前查询分组中解析；原始对象 id 必须先保留再映射到该分组，名字匹配也在该分组中去重。视角人物自身的解析与普通查询对象的解析分开，不复用只返回读者代表 id 的接口。
+
+### 2. 秘密矩阵把历史上的“知道”永久保留，忽略最新知情状态
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`packages/nb-story/src/core/queries/secrets.ts:38-43`。
+- **现象**：没有确定身份连接的秘密，读者在 `1.2` 为 `knows`、`2.2` 改为 `unaware`，第 3 章的矩阵仍返回 `state="knows"`、`revealedAt="1.2"`。
+- **为什么是问题**：输出 9 要求判断“读者最新的知情状态为知道或读到”，否则取最新状态。实现虽然先计算 `own`，却又把全部历史 `knows/read` 加入候选；只要曾经知道，最新状态永远不生效。`chapter.digest` 的揭晓列表也消费此结果。
+- **如何核实**：同一个 `lab/queries.ts` 后半段通过公开导入接口导入合法 V9 小书，秘密不含身份说法，只有上述两条知情记录。输出 `latestSecret` 为 `{"columns":[{"id":"reader","label":"读者"}],"rows":[{"id":"x-test","title":"秘密","revealedAt":"1.2","cells":[{"column":"reader","state":"knows","ref":"1.2"}]}]}`。
+- **建议改法**：先按最新知情记录决定读者知情分支是否成立，再与可见确定身份连接一起确定出处；不能用任意一条历史 `knows/read` 代替“最新状态”。补充从知道变成非知道状态的行为测试。
+
+### 3. 人物说法列表接受角色视角，却仍返回该角色没有知情记录的全部说法
+
+- **严重程度**：重要；**类别**：合同。
+- **位置**：`packages/nb-story/src/core/api.ts:70-71`、`packages/nb-story/src/core/queries/entities.ts:107-111,140-152`；对照 `packages/nb-story/src/core/queries/graph.ts:38-47`。
+- **现象**：第 38 章以苏天晴视角查询南嘉鱼的 `entity.statements`，返回 107 条，其中 80 条不满足关系图实际使用的同一视角知情规则。列表与人物卡的 `counts.statements` 均没有按视角过滤。
+- **为什么是问题**：输出 5.2 要求角色视角“只用 C 在 P 时知道、听说或认为的说法”。该方法明确被登记为适用视角，却只有分组随视角改变，内容仍是读者的完整说法；同一视角在关系图和人物记录页给出不一致的知识边界。
+- **如何核实**：`lab/queries.ts` 从原始样例数据独立找出苏天晴各身份对每条说法的最新知情记录，按 `knows/read/heard/believes` 核对公开接口结果。输出 `perspectiveStatements {"returned":107,"forbidden":80,...,"graphStatements":228}`；不被该规则允许的实际返回记录包括 `s8-15`、`s9-2`、`s9-1`。
+- **建议改法**：把适用角色视角的说法选择收敛为共享出口，人物卡计数、说法列表与关系图使用同一份集合；不要只在关系图的私有函数里过滤。对跨页面同一角色视角增加行为断言。
+
+### 4. 不认识的书格式仍可被直接删除
+
+- **严重程度**：重要；**类别**：不变量。
+- **位置**：`packages/nb-story/src/core/library.ts:215-225`，对照 `245-248`。
+- **现象**：一本书的 `book.json.format` 为 2 时，`reading.set` 有版本保护，`book.remove` 却直接成功并递归删除书的全部文件。
+- **为什么是问题**：书格式不认识时“只读不写”是已定计划第 67 行与 queries 的格式保护要求。删除是不可逆的写入；不能只检查 `library.json` 而漏掉书自己的版本，否则旧程序会删除新版本数据。
+- **如何核实**：运行本报告同目录的 `lab/boundaries.ts`：在临时书库将已导入书的 `book.json.format` 改为 2，然后经公开 API 删除。输出 `unknownBookFormat.remove {"ok":true,"value":{}}`、`unknownBookFormat.books {"ok":true,"value":{"books":[]}}`。实验只删除临时样例书。
+- **建议改法**：`removeBook` 读取元数据后检查 `meta.format`，不认识时在任何改名前返回 `unsupported_format`；版本测试同时覆盖书库版本与单书版本，且验证书与阅读状态未变。
+
+### 5. 范围解码器静默丢弃第二个短横线及其后的输入
+
+- **严重程度**：建议；**类别**：合同。
+- **位置**：`packages/nb-story/src/cli/commands.ts:41-49`。
+- **现象**：`read 38.1-2-999 --at 38` 被当成 `38.1-2` 执行，退出码为 0，并返回 2 段原文。
+- **为什么是问题**：声明的范围语法只允许一个终点，错误输入应得到用法错误。`const [start, end] = value.split("-")` 没有检查剩余项，用户写错范围会得到被悄悄截断的成功结果。
+- **如何核实**：`bun /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00024-nb-story/tasks/t03-impl/reports/code-review-s1-s5/lab/boundaries.ts` 输出 `decode ["read","38.1-2-999","--at","38"] {"code":0,"stdout":"38.1  第38章 猫咪营养挺高的\n38.2  【任务：猫咪营养高吗，已完成】  〔2 条记录〕\n","stderr":""}`。
+- **建议改法**：完整匹配输入语法，或显式要求分隔后的项数为 1 或 2；多余分隔符返回 `UsageError`，退出码 2。
+
+### 6. 文件系统阶段的 serve 启动失败绕过退出码 3
+
+- **严重程度**：建议；**类别**：合同。
+- **位置**：`packages/nb-story/src/server/serve.ts:38-40`、`packages/nb-story/src/cli/main.ts:141-143`、`packages/nb-story/src/cli.ts:8`。
+- **现象**：`--library` 的父路径是普通文件时，`mkdir` 抛错直接冒出顶层；真实命令退出码为 1，输出 Bun 堆栈，而不是 serve 启动失败的退出码 3。
+- **为什么是问题**：cli 输出 7 规定 serve 启动失败为 3，不只限于监听端口失败。拿锁前的目录创建与 `acquireServeLock` 都在启动错误收口之外，自动化无法凭退出码区分查询失败和服务启动失败。
+- **如何核实**：`lab/boundaries.ts` 在临时根创建普通文件 `not-a-directory`，运行真实 CLI `serve --library <该文件>/library`；输出 `serveFsError {"code":1,"stdout":"","stderr":...}`，错误堆栈指向 `await mkdir(library, {recursive: true})`。
+- **建议改法**：以一个拥有全部启动资源的外层错误分支覆盖目录、锁、监听、登记的建立；所有启动失败统一诊断并返回 3，已取得的资源按实际状态释放。
+
+### 7. 人物卡将早期候选身份说法当成已确认身份的成立出处
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`packages/nb-story/src/core/identity.ts:173-177`、`packages/nb-story/src/core/queries/entities.ts:97-102`。
+- **现象**：花铃与白色少女在 `27.90` 才合并，但此时人物卡的“同一身份”给出的出处是 `27.23—27.26`，那里的说法只是 `certainty="candidate"`。
+- **为什么是问题**：`joinedBy` 在最终分组完成后遍历全部身份连接，只要两端最终在同一组，就把第一条连接记作成立依据，没有要求 `certain`，也没有记录真正触发合并的边。结果把先前的猜测标成确定身份的依据，违反 queries 输出 3 的确定连接条件，并误导 Skill 核对原文。
+- **如何核实**：运行本报告同目录 `lab/provenance.ts`。原始样例中 `s27-6` 为 `belief/candidate`、`at=27.26`、出处 `27.23—27.26`；真正确定的 `s27-8` 为 `belief/certain`、`at=27.90`、出处 `27.83—27.90`。公开接口输出 `flowerCard 89 []`，而 `flowerCard 90 [{"id":"e26-2","label":"白色少女","ref":"27.23—27.26"}]`。
+- **建议改法**：在确定连接真正执行合并时保存依据，传递合并保存能连到代表对象的确定路径；不能从最终组内的任意早期边反推成立依据。测试同时断言合并时刻和返回的依据出处。
+
+### 8. 样例书在 16.29 已通过情节、章摘要和段落记录泄露后文
+
+- **严重程度**：阻断；**类别**：不变量。
+- **位置**：`packages/nb-story/src/core/projection.ts:130-137`、`packages/nb-story/src/core/queries/episodes.ts:34-36,64`、`packages/nb-story/src/core/queries/source.ts:119-123`。
+- **现象**：原封不动导入 100 章样例书，`episodes.list(at=16.29)` 返回 `p16-1` 的步骤出处 `16.27—16.51`、`16.52—16.53`，提前给出南小风“打败过二十多只怪人”的答案。该情节的整段概要也在 `chapter.digest(16)` 和 `source.records(16.29)` 中提前返回，包括尚未读到的谈话。
+- **为什么是问题**：真实样例有 5 个步骤的证据终点晚于所属情节的 `at`。当前深投影只判断情节顶层 `at`，没有检查步骤范围，也把覆盖这些步骤的概要原样带出。queries 输出 1 禁止未来情节内容与引用；只有 `source.read` 的原文享有本章例外，章摘要与段落记录不享有。不是人为制造的数据时序，也不是单纯错误出处：`16.52` 原文才问打败过多少怪人，`16.53` 才回答“二十多”。
+- **如何核实**：运行 `lab/spoilers.ts`，输出 `sampleFutureEpisodeSteps 5`。再运行 `lab/spoiler-steps.ts`，它通过公开 API 读取原始样例：`episodes.list` 的 `p16-1.steps` 含上述两个未来范围；`chapter.digest` 与 `source.records` 含完整的未来谈话概要。作为对照，`source.read(16.52—16.53, at=16.29)` 给出该问答原文，且两段 `recordCount` 均为 0。
+- **建议改法**：在统一投影出口处理情节的全部证据范围与步骤，不把顶层 `at` 当成“全部子内容都已可见”的保证。概要、结果没有独立可见位置时，至少把整条情节的有效可见位置推迟到全部依据可见；只过滤步骤仍会从概要继续泄露。加入样例 `16.29`、`33.87` 等实际跨界位置的外部行为断言，不能只测固定的 5 个章末/位置。
+
+### 9. 畸形的 RPC 方法编码逃出错误边界，返回无实例号的 HTML 500
+
+- **严重程度**：重要；**类别**：合同。
+- **位置**：`packages/nb-story/src/server/http.ts:84-86,92-95`。
+- **现象**：已登录后向 `/api/rpc/%` 发 `POST {}`，服务返回 500、`content-type: text/html;charset=utf-8`，没有 `x-nbstory-instance`，不是约定的 JSON 错误。此后 SIGTERM 虽删掉登记，但该进程退出码为 1。
+- **为什么是问题**：`decodeURIComponent` 在 RPC 的 try/catch 之外抛出 `URIError`，外层 route 也没有错误边界，最后的实例号响应头根本没有执行。无效的外部路径编码不能变成运行时默认错误页；机器客户端既拿不到失败码，也不能按实例头识别该响应。
+- **如何核实**：运行 `lab/server-runtime.ts`，通过真实 CLI 启动服务、登录，再请求上述路径。输出 `badMethodEncoding {"status":500,"contentType":"text/html;charset=utf-8","instance":null,...}`；日志含 `POST - /api/rpc/% failed`，最后 `serveExit 1`。该服务 PID 为 `3558954`，脚本已发送 SIGTERM 并等待其退出。
+- **建议改法**：将路径解码纳入输入边界，畸形编码返回 400 与 `invalid_params`；在整个 HTTP 路由的最外层统一错误响应与实例号响应头，避免框架默认 HTML 错误页漏出。
+
+### 10. 不带 --at 的命令生成无阅读位置的链接，不能重现命令结果
+
+- **严重程度**：重要；**类别**：合同。
+- **位置**：`packages/nb-story/src/cli/main.ts:104-107`。
+- **现象**：书的阅读状态保存在第 7 章时，运行不带 `--at` 的 `card 苏天晴`，命令按默认读到第 100 章，输出已经包含“心月狐”；附加地址却只有 `/book/fox/roster?entity=e1-1&tab=summary`，没有 `at`。
+- **为什么是问题**：queries 规定不给 `at` 表示已抽取的最后位置；viewer 输出 4 则规定地址没写的位置用已保存的状态补齐。因此按既定查看器合同打开此地址会回到第 7 章，不是命令所展示的第 100 章，违反 cli 输出 4 的“对应画面”。不是要求实现尚未开始的网页，而是当前链接已经缺少重现结果必需的参数。
+- **如何核实**：`lab/server-runtime.ts` 经 `reading.set` 存 `{chapter:7}`，再跑真实 `card 苏天晴`。输出 `defaultAtViewerURL {"code":0,"url":"http://127.0.0.1:34193/book/fox/roster?entity=e1-1&tab=summary","hasLateAlias":true,"savedPosition":{"chapter":7}}`。命令结果与链接缺参数已实测；网页尚未实现，打开后取第 7 章的行为是从 viewer 合同推断，未声称浏览器已验证。
+- **建议改法**：链接始终显式携带本次查询实际使用的阅读位置，包括省略 `--at` 时的默认末尾位置；不要把“调用参数没写”误当作“链接可以省略”。
+
+### 11. serve 接受 --json，却输出无法解析的普通文字
+
+- **严重程度**：建议；**类别**：合同。
+- **位置**：`packages/nb-story/src/cli/main.ts:140-146`、`packages/nb-story/src/server/serve.ts:77-78`。
+- **现象**：`serve --json` 被合法接受，但标准输出仍以“剧情图谱查看器已启动：”开头，不是 JSON。
+- **为什么是问题**：cli 输入规定所有命令都接受 `--json`，输出 2 规定标准输出只有一个 JSON。分派 serve 在读取 `json` 开关之前就返回，服务端甚至不知道用户要求了结构化输出，外部 Agent 不能按约定解析启动结果。
+- **如何核实**：`lab/server-runtime.ts` 真实启动时使用 `serve --json`，把标准输出落到临时文件并执行 `JSON.parse`。输出 `serveJson {"jsonValid":false,"startsWith":"剧情图谱查看器已启动："}`。脚本结束已用 SIGTERM 停止服务。
+- **建议改法**：将输出模式传给 serve，启动成功向标准输出写一份包含登录地址的结构化结果，诊断放标准错误；按现有合同覆盖启动失败的 JSON 行为。
+
+### 12. 机器可读的查询合同没有公开出口
+
+- **严重程度**：重要；**类别**：合同。
+- **位置**：`packages/nb-story/package.json:12-14`、`packages/nb-story/src/core/index.ts:5-9`。
+- **现象**：包只导出核心库入口，既没有计划承诺的 `./contract` 子路径，核心库入口也没有导出 `storyContract`、`STORY_METHODS` 或公开结果 schema。
+- **为什么是问题**：queries 方法清单要求 schema 随包公开；已定计划明确通过 `exports["./contract"]` 提供。包外调用方无法经公开入口读取方法 schema 与查询类型，只能违反包边界深导入源码。
+- **如何核实**：运行 `node -e 'const r=require("node:module").createRequire("/home/notnotype/CodeRepository/neuro-book/.worktree/w00024-t03-code-review/packages/nb-story/package.json"); console.log("core",r.resolve("@notnotype/nb-story"));try{console.log(r.resolve("@notnotype/nb-story/contract"));}catch(e){console.log(e.code,e.message);}'`。核心入口解析成功，合同子路径返回 `ERR_PACKAGE_PATH_NOT_EXPORTED Package subpath './contract' is not defined by "exports"`。
+- **建议改法**：按计划增加 `./contract` 的公开导出，并经包名做真实消费检查，确认消费者不必跨包深导入即可获得方法 schema 与类型。
+
+### 13. Skill 把所有 unaware 记录解释为原文明确写明，忽略推断标记
+
+- **严重程度**：重要；**类别**：文档。
+- **位置**：`packages/nb-story/skill/SKILL.md:46`。
+- **现象**：Skill 明确告诉 Agent：“记录里的‘不知道’（`unaware`）是原文明确写了他不知道。”但样例书的 `k6-1` 是 `basis="inferred"`，公开接口也返回 `tags.inferred=true`，命令行显示 `[推断、秘密]`。
+- **为什么是问题**：知情题需要区分明说、推断与原文没有表明。当前说明用状态值代替证据性质，会把抽取者的推断升级成原文明确表述，和 queries 输出 8、cli 输出 11、12 的规则冲突。该区别是这份 Skill 的核心用途。
+- **如何核实**：运行 `lab/skill-check.ts`，通过真实样例查询 `knowledge 南小风 --at 6 --state unaware`。输出 `不知道：视频中的魔法少女狐狐就是苏天晴（南小风只把视频中的人认作昨晚遇见的陌生魔法少女，没有认出她是苏天晴。） [推断、秘密] 〔6.91—6.94〕`；JSON 对应 `id="k6-1"`、`state="unaware"`、`tags={"kind":null,"inferred":true}`。
+- **建议改法**：说明 `unaware` 是记录给出的状态，是否原文明说仍须看推断标记并读原文；推断不能按明确不知道直接落表，必须按证据和答案格式标明推断或无法确定。
+
+### 14. 默认时间线按原始 order 排序，已知日子会从第 21 天倒退到第 20 天
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`packages/nb-story/src/core/queries/timeline.ts:27-41`；覆盖缺口见 `packages/nb-story/src/core/queries/timeline.test.ts:20-27`。
+- **现象**：样例书的默认故事时间线先给 `t64-2`（`day=21`、`part="evening"`），紧接着给 `t64-3`（`day=20`、`part="night"`）；后者的相对时间还明确写为前者“之前 1 天”。第 64 章与第 100 章的位置都能看到这个次序。
+- **为什么是问题**：queries 输出 12 要求按第几天、时段、同一天内的先后排序。实现只信任数据中的 `order`（这两点分别是 115、116），没有让已知日子参与排序；真实样例的结果与其自己的日子、相对时间矛盾。现有测试名称写“按故事时间排”，实际只检查存在补叙、补叙字段与章号相同，以及另一个 `order=source` 分支的章号有序，完全未断言默认排序。
+- **如何核实**：运行 `bun /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00024-nb-story/tasks/t03-impl/reports/code-review-s1-s5/lab/timeline-order.ts`，经公开 API 得到 `backwardsKnownDays` 中恰有上述一组逆序；`timelineAt64` 仍是先 21 后 20。对原始样例的 `lab/sample-invariants.ts` 检查同时显示这两个 `order` 值。包内 128 条测试全部通过，不能检出这个问题。
+- **建议改法**：已知日子的故事顺序首先按日子和时段决定，数据中的 `order` 仅用于同一天内仍需区分的先后；未知日子保留独立组。补叙判定使用同一套故事时间比较，避免排序与标记各用一套含义。用真实样例这两点断言结果顺序与相对时间一致。
+
+### 15. 停止时撤销登记失败会让服务继续监听，之后的中断也不能完成清理
+
+- **严重程度**：重要；**类别**：资源。
+- **位置**：`packages/nb-story/src/server/serve.ts:81-92`、`packages/nb-story/src/server/registry.ts:58-60`。
+- **现象**：服务启动后，将临时书库目录权限改为 `0500` 再发 SIGTERM，撤销 `.serve.json` 报权限错误。等待 2 秒后进程仍未退出，登记仍在，HTTP 仍返回 401。恢复权限后再发 SIGINT 也无法完成停止，实验最后用 SIGKILL 才结束。
+- **为什么是问题**：`stop` 在第一步就把 `stopping` 置为 true，但 `await lock.withdraw()` 没有异常收口；失败后 `server.stop(true)`、`lock.release()` 和 `resolve(0)` 均不会执行，后续信号又被 `stopping` 拦住。一个登记文件的删除失败不应让服务无法关闭并永久持锁。权限变化、只读文件系统与 I/O 失败都是文件系统边界可发生的失败。
+- **如何核实**：运行 `bun /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00024-nb-story/tasks/t03-impl/reports/code-review-s1-s5/lab/shutdown-failure.ts`，真实 CLI 服务 PID 为 `3657946`；输出 `shutdown.result="still-running"`、`registration=true`、`stillListening 401`，错误日志指向 `withdraw` 的 `rm`，最终 `finalExit 137`。脚本在 finally 恢复临时目录权限并等待该 PID 退出，未留下服务。
+- **建议改法**：保留撤销登记先于停止监听的正常顺序，但停止流程使用 finally 保证关闭监听与释放锁，登记失败保留诊断并返回适当的失败退出码；重复中断不应把失败的停止流程锁死。用真实服务测试文件系统失败后的监听、锁与退出状态。
+
+### 16. 服务测试的通用收尾全部强杀，无法发现正常停止失败
+
+- **严重程度**：重要；**类别**：测试。
+- **位置**：`packages/nb-story/src/server/server.test.ts:22-24`、`packages/nb-story/testing/processes.ts:34-50`；同类失败收口缺口在 `packages/nb-story/src/core/library.test.ts:19-21,118-138`。
+- **现象**：服务测试的 afterEach 对所有实例执行 `stop("SIGKILL")`，也不检查返回码。只有两个用例中途显式检查 SIGTERM 的正常退出；其余服务用例的清理都直接跳过撤销登记、关闭监听和放锁的正常流程。`startServe` 的就绪等待若超时，会在返回进程句柄前抛错，调用方的 running 数组拿不到这个进程；换代测试的子进程与 pinned 句柄也没有失败路径的 finally，afterEach 只删临时目录。
+- **为什么是问题**：仓库测试规则明确要求失败时也收口、在 afterEach 停止并核对正常关闭。强杀是“模拟崩溃恢复”用例需要的动作，但把它当作通用清理，会让第 15 条这样的停止流程缺陷在正常测试中被掩盖；就绪超时或中途断言失败时还会遗留进程或打开的文件。
+- **如何核实**：逐行核对上述 afterEach、`serve()` 在 `startServe` 返回后才 push 的顺序，以及 library 的循环和清理。包内 128 条测试实跑全过。另用真实服务运行 `lab/shutdown-failure.ts`，已证明撤销登记失败后 SIGTERM 不能停服，最后必须强杀；测试通用收尾恰好不会验证这个正常关闭合同。超时和断言失败下的遗留风险是从现有所有权路径推断，未声称本轮制造了测试超时。
+- **建议改法**：通用收尾发送 SIGTERM、等待并核对退出与登记撤销，SIGKILL 只用于明确的崩溃场景或有诊断的最后兜底。进程在 spawn 成功时就登记 owner；就绪等待失败、测试断言失败也经 finally 停止并 await。pinned 文件句柄与 watcher 同样在 finally 释放，再清理临时目录。
+
+## 按影响排序的阅读索引
+
+正文按核实顺序持续追加，保留原编号。按影响阅读与处理时使用下表，避免为了重排而改写已追加的证据。
+
+| 顺序 | 问题编号 | 严重程度 | 类别 | 问题 |
+|---|---|---|---|---|
+| 1 | 8 | 阻断 | 不变量 | 样例书在 16.29 经情节、章摘要与段落记录泄露后文 |
+| 2 | 1 | 重要 | 正确性 | 角色视角打开地狱猫，实际得到南嘉鱼的人物卡 |
+| 3 | 2 | 重要 | 正确性 | 秘密矩阵忽略读者最新知情状态 |
+| 4 | 7 | 重要 | 正确性 | 把候选身份说法当成已确认身份的成立出处 |
+| 5 | 14 | 重要 | 正确性 | 默认故事时间线先第 21 天、后第 20 天 |
+| 6 | 4 | 重要 | 不变量 | 未知书格式仍能被删除 |
+| 7 | 15 | 重要 | 资源 | 撤销登记失败后服务不能正常停止 |
+| 8 | 3 | 重要 | 合同 | 人物说法列表没有按角色知情边界过滤 |
+| 9 | 9 | 重要 | 合同 | 畸形 RPC 路径返回无实例头的 HTML 500 |
+| 10 | 10 | 重要 | 合同 | 省略 --at 后的查看器地址不能重现命令结果 |
+| 11 | 12 | 重要 | 合同 | 查询合同缺少公开包出口 |
+| 12 | 13 | 重要 | 文档 | Skill 把推断的 unaware 当成原文明说 |
+| 13 | 16 | 重要 | 测试 | 通用收尾强杀服务，失败路径缺少资源 owner |
+| 14 | 5 | 建议 | 合同 | read 范围静默截断多余短横线后的输入 |
+| 15 | 6 | 建议 | 合同 | 文件系统启动失败退出码为 1 而非 3 |
+| 16 | 11 | 建议 | 合同 | serve --json 输出普通文字 |
+
+## 验证记录与覆盖边界
+
+本轮在审查 worktree 根实际执行：
+
+| 命令 | 结果 |
+|---|---|
+| `bun run --cwd packages/nb-story test` | 退出码 0；128 pass、0 fail，16 个文件，1781 次 expect，测试器报告 14.77 秒 |
+| `bun run --cwd packages/nb-story typecheck` | 退出码 0；`tsc --noEmit` 与 `tsc --noEmit -p tsconfig.core.json` 均通过 |
+| `bun run governance:check --since master` | 退出码 0；`failures=[]`、`warnings=[]`；另有 291 条范围外存量警告，不是本轮改动警告 |
+| `bun run governance:check -- packages/nb-story` | 首次调用退出码 2，`未知参数：packages/nb-story`；已查明脚本只支持改动范围参数，改用上面的有效命令 |
+
+独立实验均经真实临时书库、公开 API 或真实 CLI/HTTP 边界执行；不修改产品实现。脚本的可重跑命令如下，`REVIEW_LAB` 是本报告的实验目录：
+
+```bash
+REVIEW_LAB=/home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00024-nb-story/tasks/t03-impl/reports/code-review-s1-s5/lab
+bun "$REVIEW_LAB/queries.ts"
+bun "$REVIEW_LAB/boundaries.ts"
+bun "$REVIEW_LAB/provenance.ts"
+bun "$REVIEW_LAB/spoilers.ts"
+bun "$REVIEW_LAB/spoiler-steps.ts"
+bun "$REVIEW_LAB/concurrency.ts"
+bun "$REVIEW_LAB/reading-replacement.ts"
+bun "$REVIEW_LAB/server-runtime.ts"
+bun "$REVIEW_LAB/skill-check.ts"
+bun "$REVIEW_LAB/sample-invariants.ts"
+bun "$REVIEW_LAB/timeline-order.ts"
+bun "$REVIEW_LAB/static-boundary.ts"
+bun "$REVIEW_LAB/shutdown-failure.ts"
+bun "$REVIEW_LAB/cursor-process.ts"
+```
+
+- `spoilers.ts` 在合同列出的 5 个位置扩展调用到每个人物卡、人物列表、账本与当章段落记录，共执行 1964 次检查，扫描到的未来记录 id/出处为 0。它不能证明所有章内位置安全；定向的 `spoiler-steps.ts` 随后在 16.29 证实第 8 条，不把前一个扫描的通过误写成全量不剧透成立。
+- `concurrency.ts` 做 40 轮、每轮 6 个真实子进程竞争导入：240 个进程，40 轮都恰有一次成功，无初始化异常。另做 200 轮删除/重导入与阅读写入竞争，没有观察到旧阅读状态落进新一代；`reading-replacement.ts` 完成 445 轮，写进程尝试 20000 次（成功 450 次、处理失败 19550 次、未捕获异常 0 次），没有观察到新的一章书带入旧书第 2 章的位置。这是本轮调度下的观察结果，不是竞态不存在的证明。
+- `cursor-process.ts` 在进程内取得第一页游标，再让真实 CLI 子进程接下一页，退出码 0，下一页对象为 `["e37-1"]`，与进程内预期逐字段一致。现有 `api.test.ts:87-91` 虽称“另一个进程”，实际只是同进程新建 API 实例；本轮补了真实进程边界的独立检查，产品未在该边界暴露问题。
+- `server-runtime.ts` 的真实服务 PID `3558954` 已 SIGTERM 并等待退出；`shutdown-failure.ts` 的 PID `3657946` 在已证实的停止失败后恢复目录权限，SIGINT 仍不能停止，最后 SIGKILL 并等待退出。其它实验内的服务与子进程均已停止或自然退出，没有把实验服务留给调用方。
+- 静态目录边界实验使用真实 Bun HTTP 服务和临时网页产物；3 种路径写法均返回临时 `INDEX`，未读到相邻目录的标记文件。未据 `startsWith` 的外观直接报告目录穿越。
+- 未运行：浏览器界面与 S6–S9 的 e2e、网页构建、外部 Agent 的 48 份真实模型评测、macOS 运行验证、全仓测试。S1–S5 与 Skill 的只读审查不能替代这些验收；没有真实模型调用或远端写入。
+
+## 未发现问题的方面
+
+- inode 核对固定一代与已打开文件的读取寿命，在现有真实换代测试及本轮竞争实验中未发现混代；不重新讨论已批准的 inode 设计、flock 设计、改名生效点或导入临时目录保留决定。
+- 并发导入的正式目录可见性、同 id 恰有一次成功、崩溃后的导入临时目录不被列为书，以及阅读状态完整替换、64 KiB 限制和删除后重置，现有行为测试均通过；第 4 条的单书格式保护缺口单列。
+- 登录口令可重复使用、会话重启失效、未认证 RPC/页面拒绝、服务并发启动独占、SIGKILL 后重新启动、正常路径下停止后删除登记，现有真实进程测试通过；第 9、15、16 条是不同的错误路径和覆盖缺口。
+- 合同指定的账本差额 `38.36 → +800`、先相对后首次报余额、否定身份说法不合并、三个身份合并边界、最近主线批次、38.57 的原文和段落概要边界，都有现有测试并在本轮包测试中通过。
+- 查询命令与进程内结果的逐字段一致性、7 组 HTTP/进程内结果一致性、基本参数 schema 拒绝与输出 schema 校验均有实际测试通过；测试中的跨层比较适用于“两个入口一致”的合同，未把这种比较当作业务值本身正确的证明。
+- 源码与测试同目录、真实文件系统与子进程 fixture、Node 兼容核心的独立类型检查，以及根 workspace、包列表、模块边界的登记未发现新的阻断问题。直接读索引的调用已核对：全书统计与未来目录章号是合同例外，其余身份连接、秘密归属与出处查找仍有局部可见性检查；没有仅凭“访问了 index”把它们重复算作已证实的后文泄露。第 8 条记录的是实际可复现的投影缺口。
+
+## 数量与范围
+
+共 **16 条**：**阻断 1、重要 12、建议 3**。每条均含位置、现象、原因、核实方式与建议。审查 worktree 内没有改动；本轮只写入指定报告与 `lab/`，未 commit、push、stash、切换分支、安装依赖或删除仓库文件。只读审查不修复已报告问题。
+
+## 规范回写建议
+
+| 编号 | 类别 | 依据 | 建议修改 | 目标位置 |
+|---|---|---|---|---|
+| 1 | 规范缺陷 | 审查要求每核实一条立即追加、禁止重写，同时要求正文最终按影响排序；后发现的高影响问题无法插回前面 | 新增：“只追加的审查报告保留发现编号，结束时追加按影响排序的阅读索引；不为重排改写已有证据。” | `.agents/skills/reviewing/SKILL.md` 的“报告格式” |
+
+此项仅为建议，未修改规范。计时器清理与命名进程类型的提醒已修正到本轮实验脚本；已有规则足以覆盖，不另建议新增同义规则。
