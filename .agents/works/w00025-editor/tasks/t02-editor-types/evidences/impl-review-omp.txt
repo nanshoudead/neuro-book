@@ -1,0 +1,176 @@
+# w00025 t02 后端与领域实现审查
+
+审查范围：`0e0126753..13bedd9af`，worktree `/home/notnotype/CodeRepository/neuro-book/.worktree/w00025-t02-review`。下文位置均相对于这个 worktree。只读审查；未安装依赖、未运行产品测试、e2e 或开发服务。实验仅放在本报告同级 `lab/`，不修改产品文件。
+
+报告按核实顺序追加，末尾提供按影响排序的索引与各级数量。代码可直接证明但未跑真实宿主的场景明确标为“从代码推断”；实验不等同于产品端到端验收。
+
+### 1. 用正则找 head 会把整套预览保护插进 HTML 注释，默认禁网失效
+
+- **严重程度**：重要；**类别**：安全与性能；
+- **位置**：`packages/neuro-book/src/plugins/html-preview/web/compose.ts:57-64`；`packages/neuro-book/src/plugins/html-preview/compose.test.ts:13-20`。
+- **现象**：输入 `<!doctype html><!-- <head> --><html><head>…` 时，第一个正则命中注释里的 `<head>`，把 CSP meta、no-referrer meta、令牌 base 和锚点脚本全部插在注释里。真实 head 里没有任何一项保护。文档脚本仍会按 iframe 的 `allow-scripts` 执行；它还能从注释文本中取得刚签发的令牌。
+- **为什么是问题**：Spec `workbench/html-preview.md` 输出 5 与信任边界承诺默认不能联网、不能把作品内容发到外网。合法注释就能移除这一层，不需要用户打开“允许联网”。这是本范围新增的拼装函数，base 中没有预览实现。仅测试字符串匹配位置没有验到 HTML 解析语义。
+- **如何核实**：已运行 `bun /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00025-editor/tasks/t02-editor-types/reports/impl-review/lab/compose-probe.ts`，直接调用实际 `composePreview`，输出 `policyInComment: true`、`policyPosition: 26`、`commentEnd: 1409`、`realHeadPosition: 1412`。该实验只验证实际拼装产物，不是浏览器或真实插件宿主验收；浏览器出网结果从 HTML 注释解析规则与现有 iframe 属性推断，未执行。请主 Agent 在现有预览 e2e 中加入“注释含 head、实际页面发外网请求”，断言请求被挡。
+- **建议改法**：用能识别注释、raw-text 元素和真实标签的 HTML 解析/插入方式，把保护放到真正会执行的文档前部；不要用三个不感知 HTML 上下文的正则作为安全边界。让同一个插入过程处理 base，避免另起一套扫描。
+
+### 2. 预览跳到另一份 HTML 后不再有禁网 CSP
+
+- **严重程度**：重要；**类别**：安全与性能；
+- **位置**：`packages/neuro-book/src/plugins/files/backend/raw-route.ts:210-224`；`packages/neuro-book/src/plugins/html-preview/web/compose.ts:31-46,57-58`。
+- **现象**：禁网策略只存在于初始 `srcdoc` 的 meta。Spec 明确允许点击链接跳到另一份 `.html`，这次导航由 preview 路由原样返回 HTML，响应只有 CORS/no-referrer，没有任何 CSP；不会再经过 `composePreview`。新 HTTP 文档不继承前一个 srcdoc 的 meta CSP，iframe 的 sandbox 仍允许脚本执行。第二页可读同令牌下的作品文件并向外网发送；不需要打开联网开关。
+- **为什么是问题**：跳页显示磁盘内容是已接受的限制，不等于放弃默认不能联网的安全边界。修好第 1 条的插入位置也不能修复这个独立入口。preview URL 若直接在普通顶层标签中打开，响应连 sandbox 头也没有，会在应用源下运行 HTML；原始字节路由专门用 sandbox 防的路径在这里重新出现。
+- **如何核实**：从代码推断，未运行浏览器：`composePreview` 仅拼初始文档；路由 `serveFile(..., {...cors, "Referrer-Policy": "no-referrer"})` 不附 CSP。现有 `e2e/editor-types.e2e.ts:188-263` 只测初始 srcdoc 与 `#` 锚点，没有跨 HTML 导航。请主 Agent 在真实预览里跳到 `next.html`，让第二页 `fetch` 项目 JSON 后用 no-cors 请求外部受控地址，并断言未授权时无外发；另验证直接打开预览 HTML URL 不取得应用源权限。
+- **建议改法**：把随令牌生效的安全策略放在 preview HTML 响应的 HTTP CSP 中，至少始终施加 `sandbox allow-scripts`，并让禁网/授权联网策略覆盖导航后的文档；或者将 HTML 导航统一交回受保护的预览拼装入口。保持沙箱 iframe 与令牌方案，不需要另开源；不要只靠初始 srcdoc 的 meta 保护整个导航生命周期。
+
+### 3. 错误代次的请求会清掉正在运行那一代的根身份缓存
+
+- **严重程度**：重要；**类别**：不变量；
+- **位置**：`packages/neuro-book/src/plugins/files/backend/raw-route.ts:120-139`，尤其 `124-125`。
+- **现象**：缓存按项目 id 存当前根，但“URL 代次不符”分支无条件 `opened.delete(id)`。先成功读取第 3 代，根被替换后第 3 代请求正确得到 `root-gone`；此时发一次 `/raw/project/<id>/2/...`，它虽返回 410，却把第 3 代缓存删了。接着第 3 代请求重新 `openRoot`，若新目录保留同一个 `.nbook/project.json` 的 id，就会服务新目录，而原项目子进程仍拒绝这个根。
+- **为什么是问题**：拒绝旧代请求不能撤掉当前代的根身份。违反 `workspace/files.md` 的“根被替换后不重新解析到新目录”及 HTTP 与项目文件服务使用同一代根的约定；一个迟到的旧窗口请求就能触发，不是只能恶意调用内部函数才有的时序。本范围新加缓存，base 没有此入口。
+- **如何核实**：从代码推断，未运行产品测试。`opened` 只以 id 为 key；条件把“登记中的项目已结束”和“调用方 URL 写错代次”混成一支。请主 Agent 给 `files/raw-route.test.ts` 补真实目录场景：第 3 代热缓存后移走原目录、复制相同身份到原路径；依次请求第 3、2、3 代，最后一次仍应为 410，不能为 200。
+- **建议改法**：仅当实际运行代次结束/改变时撤掉对应缓存；拒绝请求代次不符时保留实际正在运行的根。最好让根缓存直接归代次生命周期所有，而不是用不可信 URL 的匹配结果驱动失效。
+
+### 4. 没有 Host 的真实请求得到 500，不经过约定的 421 拒绝路径
+
+- **严重程度**：建议；**类别**：正确性；
+- **位置**：`packages/neuro-book/src/plugins/http/backend/dispatch.ts:75-88`；`packages/neuro-book/src/plugins/http/backend/plugin.ts:80-82`；`packages/neuro-book/src/plugins/http/backend/dispatch.test.ts:61,225-235`。
+- **现象**：分发器在读 Host 之前先 `new URL(request.url)`。本机 Bun 对 `GET /api/runtime/health HTTP/1.0` 且没有 Host 的请求交出相对 `request.url: "/api/runtime/health"`，这里抛 `TypeError`，最后由 Bun 的 `error` 回调变成 500 `internal-error`，不是 Host 不被允许时的 421。
+- **为什么是问题**：本次新增的“分发前核对 Host”没有覆盖缺头输入；每个这样的请求还会进入内部故障诊断。base 原先也不支持这种相对 URL，本条不把旧行为冒称为新安全漏洞，仅指出新增来源核对合同缺了一条输入边界。现有测试用 `new Request("http://"+host+path)` 模拟 Host，永远构造不出 Bun 实际交出的这种请求。
+- **如何核实**：已运行 `bun /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00025-editor/tasks/t02-editor-types/reports/impl-review/lab/host-probe.ts`，用真实 Bun HTTP 监听和 TCP 请求核对：普通 evil Host 与 absolute-form 都进入 evil URL；大写 `LOCALHOST` 被规范化；缺 Host 的结果为 `{"url":"/api/runtime/health","host":null}`。该探针没加载产品分发器；500 由上述实际源码调用链推断。请主 Agent 在 HTTP 合同测试中加真实监听/原始 TCP 场景。
+- **建议改法**：把缺失或不可解析 Host 明确作为边界拒绝，在 URL 构造之前完成；保留统一 421 错误响应，不让不合法请求变成内部异常。
+
+### 5. 文本与字节同时引用时，订阅就绪不会刷新先取到的字节
+
+- **严重程度**：重要；**类别**：正确性；
+- **位置**：`packages/neuro-book/src/plugins/editor/web/documents/store.ts:200-205`；`packages/neuro-book/src/plugins/editor/documents.test.ts:456-485`。
+- **现象**：同一 SVG 在图片标签与源码标签中打开，图片先取了字节，订阅还未建立；期间磁盘改写，随后订阅 ready。代码只给 `textRefs === 0` 的条目加 version，此时条目有文本引用，version 不动。源码在 ready 后读到新内容，图片却继续显示旧内容，直到下一次磁盘事件。
+- **为什么是问题**：Spec 输出 41 特意要求第一次订阅就绪时字节 version 加一，补齐建立前无事件的窗口；有文本引用不代表没有字节引用。现有两个测试分别覆盖“只有字节引用等待 ready”和“字节加文本读正文”，没有把建立前变化与两类引用交叉。本范围新增的条件直接漏掉混合引用。
+- **如何核实**：从代码推断，未运行产品测试。请主 Agent 沿现有 `documents.test.ts:136` 的真实 RPC `holdSend(subscribe)` 做：先 acquire bytes 并取旧字节，再 acquire text，外部改 SVG，再放开 subscribe；断言 bytes version 前进且显示新字节、text 读到新正文。不要用同步伪回调代替真实建立顺序。
+- **建议改法**：按“条目有字节引用”判断（`refs > textRefs`），或对该方案全部现存条目统一 bump；不能用“没有文本引用”替代“有字节消费者”。
+
+### 6. 只剩 HTML 预览时，关闭源码选择“不保存”仍保留未保存正文
+
+- **严重程度**：重要；**类别**：正确性；
+- **位置**：`packages/neuro-book/src/plugins/editor/web/area.ts:523-542,174-183`；`packages/neuro-book/src/plugins/editor/area.test.ts:204-220`。
+- **现象**：源码改为 B、磁盘仍为 A，同组留有只读预览；关闭最后一个源码标签，询问框里选“不保存”。代码只丢当前视图的未裁决输入，不还原文档；预览持有文本引用，`releaseTab` 不会让文档丢弃。因此预览仍是 B、文档仍 dirty，“全部保存”还能把这次明确选了“不保存”的 B 写回磁盘；重新开源码也会得到 B。
+- **为什么是问题**：本次把免询问条件从“还有同地址标签”收紧为“还有可编辑标签”，却保留了依靠“最后一个引用释放”实现放弃正文的旧分支。新增询问只有取消被测试，保存/不保存没有覆盖。base 中同地址只有一种标签身份，不存在本次新增的同组源码与只读预览组合。
+- **如何核实**：从代码推断，未运行产品测试。`closeTab` 的 `discard` 分支在 `529` 仅执行 `discardInput`，之后预览文本引用仍存在；`stopText` 也不会触发。请主 Agent 扩展现有“关掉 dirty 的源码、只剩预览”用例，选 discard 后核对预览回到磁盘 A、dirty 为 false，随后 save-all 不把 B 写盘。
+- **建议改法**：关闭前区分“仍有可编辑持有者”和“只有只读文本持有者”；后者选择“不保存”时明确丢弃这份文档的修改并同步刷新所有只读视图，不能再把丢弃动作寄托于引用数归零。
+
+### 7. Monaco 模型序号是组件实例局部变量，拆分后会产生重复 URI
+
+- **严重程度**：重要；**类别**：不变量；
+- **位置**：`packages/neuro-book/src/plugins/editor/web/components/MonacoControl.vue:1,55-60,108-112`；`packages/neuro-book/src/plugins/editor/web/components/EditorGroup.vue:220-233`。
+- **现象**：`modelSequence` 定义在 `<script setup>` 中，每个组的 MonacoControl 都从 0 开始。第一个组首次打开 `a.json` 创建 `nbook-model://m1/a.json`；拆分后的第二个控件也第一次创建模型，仍然请求同一个 URI。Monaco 的模型登记是整个页面共享的，第二次 `createModel` 会因 URI 已存在而失败。两组分别打开不同目录下同名文件也会碰撞；布局重挂后局部序号重置，但保留槽里的旧模型还在，后续新文件也可能碰撞。
+- **为什么是问题**：输出 2 要求同文档拆分有独立视图和撤销历史。base 调用 `createModel` 时不指定 URI，由 Monaco 自己生成唯一资源；本次为了自动识别语言引入 URI 后，唯一性从页面级退成实例级。它是模型身份和共享状态问题，不是组件外观问题。
+- **如何核实**：已用 `git diff 0e0126753..13bedd9af -- packages/neuro-book/src/plugins/editor/web/components/MonacoControl.vue` 核对新增的序号与显式 URI。Vue `<script setup>` 在每次组件 setup 执行，这里不是模块作用域。真实 Monaco/浏览器未运行；请主 Agent 运行已有源码编辑器拆分场景，再补两个目录的 `a.json` 分别在两组首次打开，核对两边均可编辑、各自撤销不串线。
+- **建议改法**：把 URI 分配交给真正页面级的模型 owner，或直接从宿主提供的唯一绑定/视图身份构造；不要把页面共享模型登记表的唯一序号放在控件实例里。保留文件名以供语言识别，但不能只靠 basename 加局部计数。
+
+### 8. 最后一个文本引用在保存途中释放后，迟到保存会把字节条目重新标成 dirty
+
+- **严重程度**：重要；**类别**：不变量；
+- **位置**：`packages/neuro-book/src/plugins/editor/web/documents/store.ts:416-427,535-548,675-681`；`packages/neuro-book/src/plugins/editor/web/area.ts:523-542,740-745`。
+- **现象**：SVG 同时有源码与图片标签；发起保存并让写入结果在途，关闭最后一个源码标签、选择“不保存”，留下图片。`stopText` 把 `text` 清为 `""`、`saved` 清为 null；原保存返回后 `saveNow` 又把 `saved` 设回保存快照。此时 `text === ""`、`saved === "<svg>…</svg>"`，只剩字节引用的条目变成 dirty。后续离页检查仍遍历字节引用，弹未保存确认；终态抢救还会把空正文当作未保存内容。
+- **为什么是问题**：输出 41 要求只剩字节引用时不保留正文、不 dirty。base 中最后一个标签释放后 Entry 被丢弃，迟到保存至多修改已脱离仓库的对象；本次保留同一个 Entry 给字节消费者，旧保存的内存回执现在会污染仍存活的条目。不能仅靠 `read()` 里的 `textRefs === 0` 检查隔离文本异步任务。
+- **如何核实**：从代码推断，未运行产品测试。请主 Agent 用现有真实 Files RPC tap 扣住 write，建立源码加字节双引用，启动保存，关闭源码并选 discard，再放行 write；断言字节条目 `text === ""`、dirty 为 false、离页无正文确认、rescue 不出现空稿。这里允许已经发出的保存按实际磁盘结果完成，不要求撤销磁盘提交。
+- **建议改法**：文本生命周期结束后，异步保存仍结算调用结果，但不要重新填充字节条目的正文基线/dirty 状态；用文本代次或明确的最后文本引用收口统一隔离读取与保存回执。下一次 acquire 文本必须重新读取磁盘，不能接纳上一段文本生命周期的回执。
+
+### 9. 预览 open 等登记查询时释放门面，迟到结果仍签发无人能撤回的令牌
+
+- **严重程度**：重要；**类别**：不变量；
+- **位置**：`packages/neuro-book/src/plugins/files/backend/plugin.ts:164-186`；实际调用链 `packages/nb-runtime/src/remote/node.ts:835-846,935-943,1004-1006`。
+- **现象**：`open` 在 `await registry.list()` 让出；窗口此时断开或入口停止，门面的 release 遍历当时的 `mine` 并撤销全部令牌。登记查询随后返回，旧 `open` 不看请求 signal，也没有门面 alive 标记，继续 `tokens.issue()`、`mine.add()`。这个令牌在释放之后才加入；门面已从运行时表中移除，不会再释放一次。客户端迟到结果拿不到时，前端也无法补发 close。
+- **为什么是问题**：Spec 要求门面释放后它签发的令牌全部作废；当前代码只有遍历集合，没有关闭签发入口。运行时不会替它保证“先等待读调用，再释放门面”：`handleRelease` 直接调用 release，正在执行的方法只收到中止 signal。每次命中这个窗口会留下 1 个没有 owner 的令牌条目，项目仍运行时它也一直有效。
+- **如何核实**：从实际远程运行时调用链推断，未伪造同步释放，也未运行测试。`handleRequest` 将 linked signal 交给方法，但方法只接收第一个参数；`handleRelease` 不等待该方法。请主 Agent 在真实远程门面测试里扣住登记查询，发 open 后断开调用方，再放行查询，核对签发总数/可用令牌为 0；不要仅测试已经返回 token 之后刷新窗口。
+- **建议改法**：门面 release 同步标记 closed；open 在查询回来、签发前同时核对门面仍活着与调用 signal 未中止，失效就返回失败。已签发令牌的集合和签发门禁由同一个门面 owner 管，不新增另一套回收器。
+
+### 10. 语言规则的等待、加载与 Monaco 注册没有随贡献结束
+
+- **严重程度**：重要；**类别**：不变量；
+- **位置**：`packages/neuro-book/src/plugins/editor/web/code/languages.ts:53-61,70-80,100-118,128-148`；`packages/neuro-book/src/plugins/editor/web/plugin.ts:98-112`。
+- **现象**：有 3 条结束路径缺失：①贡献已准备但最终没有发布，内核调用 revoke 时 `#published.get(id) !== handle`，直接返回，已有 `#waiting` 永不 settle；②load 已经发出后撤回，返回的旧 definition 没有再核对句柄，仍被 tokens factory/`setLanguageConfiguration` 接纳；③同 id 再交付只替换 `#published`，`#installed` 阻止再次注册，之前创建的分词支持和已经触发过的 `onLanguageEncountered` 不会换成新规则。另一个 LanguageRegistry/整个编辑器入口停止时也没有 dispose 来结算 waiting 或释放 Monaco 注册。
+- **为什么是问题**：等待尚未激活的语言是正常的；确定失败/撤回后继续等待、使用旧代加载结果不是。输出 43 的语言贡献按运行时寿命交付，不能只把静态声明装进页面级 Monaco 后不再管理。现有 `languages.test.ts` 只测声明与生成源字符串，未测任何 LanguageRegistry 的交付或撤回。
+- **如何核实**：从代码与 `runtime/plugins.md` 输出 17、24 推断，未运行 Monaco。运行时允许准备后仅 revoke、不 published；这恰好被 `76` 的 guard 丢掉。请主 Agent 用真实插件宿主覆盖：另一接收者 prepare 失败导致这批撤回；load 在途时关闭提供方；拥有者重新建立/贡献重新补交后实际 tokenize 新规则。不要直接手造一个运行时不可能交付的句柄序列来抬高严重程度。
+- **建议改法**：让语言注册归激活作用域所有：保存 Monaco 返回的 disposables、停止时撤销并 settle 所有 waiting；对每个 load 的完成结果核对当前句柄/代次仍一致。再交付需要重建该语言的规则工厂与配置，而不是只改一个 Map。prepare/revoke 的失败路径也要有明确的等待结束结果。
+
+### 11. 页面自带的 base 仍被覆盖，上轮确认的处理没有落实
+
+- **严重程度**：建议；**类别**：正确性；
+- **位置**：`packages/neuro-book/src/plugins/html-preview/web/compose.ts:57-64`；`docs/specs/workbench/html-preview.md:19`。
+- **现象**：拼装函数无条件在 head 的最前面加自己的 base，即使原页面已有带 href 的 base。浏览器使用第一个带 href 的 base，原页面的值不会生效。
+- **为什么是问题**：计划第二版第 6 节与 Spec 的已知限制明确是“页面自带 base 时以页面的为准”。上轮 omp 计划审查第 18 条专门要求补检测与插入策略；本次仍是完全相反的实现，使用自带 base 的页面资源路径会被改写。这不是重提已解决的计划问题。
+- **如何核实**：已运行前述 `lab/compose-probe.ts`，实际 `composePreview` 对 `<base href="/custom/">` 的结果依次有令牌目录 base、`/custom/` base。浏览器 first-base 规则未在本次重新动态验证。请主 Agent 补真实预览的已有 href base、只有 target 的 base 两种场景。
+- **建议改法**：与第 1 条一起用同一个可靠 HTML 解析过程处理：已有有效 href base 就保留它，只有 target 时补目录 href 而保留 target。默认 CSP 仍限制可访问目标；若决定始终覆盖用户 base，应先改明 Spec 的行为取舍，不能把覆盖实现称作“页面优先”。
+
+### 12. 生成器为抽取声明而执行依赖源码，并把格式一致性当成主要测试
+
+- **严重程度**：建议；**类别**：代码质量 / 测试；
+- **位置**：`packages/neuro-book/scripts/gen-monaco-languages.ts:32,49-65`；`packages/neuro-book/src/plugins/editor/languages.test.ts:18-21`。
+- **现象**：生成器先用精确到单引号和换行的正则删一行 import，再 `new Function` 执行剩下全部 contribution 源码，最后对函数 `toString()` 再用正则改动态 import。首条测试比较整个生成源文件与同一个生成器的输出，另只验数量大于 50 和声明 schema；生成器若错误漏掉/改坏 loader，这条“与 Monaco 一致”测试仍能在重新生成后一同通过。
+- **为什么是问题**：当前锁定依赖是受信的，本条不把它夸大成已发现的供应链漏洞；问题是只需读取静态登记，却额外承担执行源码与两轮格式解析的耦合。仅引号或排版变化即可使升级失败，而真正的消费者错误又未被这条测试保护。`--check` 保留为生成物可复现检查有意义，不等于永久行为测试；测试规范明确反对源码/实现快照式断言。
+- **如何核实**：静态核对生成脚本及测试；未执行生成器、没有写生成文件。已检查生成结果确实保留 C/C++、SystemVerilog/Verilog、FreeMarker2 的多条登记与变体导出，本条不是说当前已漏这些语言。现有 e2e 只 tokenize Python、HTML 内嵌 JS、Markdown 内嵌 TS，没覆盖 FreeMarker2 的特殊 loader。
+- **建议改法**：用仓库已有 TypeScript AST 读取每个 `registerLanguage` 的字面量声明，原样保留并结构化改写 loader 的模块说明符；遇到超出支持的 AST 形状明确失败，不执行依赖的顶层代码。把源文件一致性留给 `--check`，永久测试改为实际登记集合与代表性 loader/tokenize 行为，至少包括一个 FreeMarker2 变体。
+
+## 基线核对与更正
+
+- **第 4 条仅列为 base 既有问题，不计本次发现，也不要求本 Task 为它扩范围修复。** 已运行 `git show 0e0126753:packages/neuro-book/src/plugins/http/backend/dispatch.ts`：原分发器同样对 Bun 的相对 request.url 直接 `new URL()`。新版只是将构造位置前移；缺 Host 导致 500 不是这批提交引入的结果。原条目保留以遵守报告只追加，不在末尾统计里重复计算。
+- 第 1、2、3、9、10、11、12 条所在功能/文件是范围内新增；用 `git diff --name-status 0e0126753..13bedd9af` 已核对。第 5、8 条由新 `textRefs`/字节条目生命周期引入；第 6 条是新增同组多编辑器身份后，关闭判断已更新、丢弃分支没同步；第 7 条的显式模型 URI 是本范围新加。已分别用 `git diff` 对照 store、area、MonacoControl 与 commands/session-record，不把旧代码的既有问题直接算成回归。
+- `Root.read()` 在 stat 后一次 `readFile()`、并额外构造 Uint8Array 的实现 base 已存在；本报告没有把追加增长窗口或原语内额外复制单列为这次的新回归。
+- 没有修改产品代码、测试、Spec、Work 记录；没有 commit、push、stash、切分支或删除文件。保留的两个实验文件均在批准的 `lab/` 目录。
+
+## 按影响排序的阅读索引
+
+报告正文按核实顺序只追加；本索引是最终处理顺序：
+
+| 顺序 | 条目 | 影响 |
+|---|---|---|
+| 1 | 第 7 条 | 页面级模型 URI 冲突，破坏源码拆分与多组打开 |
+| 2 | 第 6 条 | “不保存”后仍留 dirty 正文，可被之后 save-all 写盘 |
+| 3 | 第 8 条 | 文本生命周期已结束，迟到保存污染字节条目与抢救 |
+| 4 | 第 3 条 | 错误 URL 代次撤掉正确根身份，重开被替换的目录 |
+| 5 | 第 9 条 | 门面释放后仍签发令牌，没有剩余 owner 收口 |
+| 6 | 第 10 条 | 语言等待、迟到规则与再次交付缺少结束管理 |
+| 7 | 第 5 条 | 混合引用漏掉首次订阅就绪刷新，图片与源码不一致 |
+| 8 | 第 1、2 条 | 初始拼装或后续导航绕过默认禁网保护 |
+| 9 | 第 11 条 | 自带 base 的既定处理未落实 |
+| 10 | 第 12 条 | 生成流程与测试耦合到源码格式，而非消费者行为 |
+
+第 4 条放在基线问题清单，不进入此索引。
+
+## 已执行与交给主 Agent 的验证
+
+本次实际执行：
+
+1. `git log --oneline 0e0126753..13bedd9af`：列出计划/实现/合同相关的 9 个提交。
+2. `git diff --name-status 0e0126753..13bedd9af` 与文内列出的聚焦 `git diff`/`git show`：核对新增文件、旧调用路径与本次引入的状态变化。
+3. `bun /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00025-editor/tasks/t02-editor-types/reports/impl-review/lab/compose-probe.ts`：调用实际拼装函数，确认 CSP 被插入注释、自带 base 排在注入 base 之后；退出码 0。**未在浏览器验证出网。**
+4. `bun /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00025-editor/tasks/t02-editor-types/reports/impl-review/lab/host-probe.ts`：真实 Bun/TCP 的 4 种请求，确认 Host/URL 规范化及缺 Host 的相对 URL；监听在 finally 停止，退出码 0。**不是产品服务器 smoke。**
+5. 每次追加后执行 `grep -c '^### ' /home/notnotype/CodeRepository/neuro-book/.local/agent/works/w00025-editor/tasks/t02-editor-types/reports/impl-review/omp-report.md`，发现条目数单调从 1 增到 12；第 4 条基线归类不删除原条目。
+
+按本次限制，以下**没有运行**：产品 Bun/Vitest 测试、typecheck、生成器、构建、e2e、开发服务、真实 Monaco 分词/组件挂载。各条已写明需要主 Agent 补的场景。主 Agent 在有依赖的实现 worktree 可先运行包内聚焦合同测试（工作目录 `packages/neuro-book`）：
+
+```sh
+bun run test:bun src/plugins/files/raw-route.test.ts src/plugins/http/backend/dispatch.test.ts src/plugins/editor/documents.test.ts src/plugins/editor/area.test.ts src/plugins/editor/web/groups/groups.test.ts src/plugins/editor/editors.test.ts src/plugins/editor/editor-registry.test.ts src/plugins/editor/languages.test.ts src/plugins/html-preview/compose.test.ts
+```
+
+这只是已有测试的可复跑入口，不宣称它们目前能抓住以上缺口；先按各条补齐真实生命周期场景。涉及 iframe/CSP、Monaco URI 与规则替换的发现仍须实际浏览器场景确认，不用 Bun 合同测试通过代替。
+
+## 未发现问题的方面
+
+以下均指本次代码阅读没有发现新增问题，不代表未执行的测试已经通过：
+
+- 普通静态路径包含：`..`/反斜杠/NUL/空段由共享 pathProblem 拒绝，编码路径解码后仍经同一 Root；根外符号链接与根下 `.nbook` 的词法路径、真实链接别名均进入既有保护。未实测恶意并发替换，也未验证 Windows/macOS。
+- 32 MiB 上限正常文件路径在句柄 stat 后、读正文前判断；超限不先把整个内容读进内存。raw 的 nosniff、sandbox、no-cache 与 inode/ctime/mtime/size ETag 已接上；同大小恢复 mtime 的测试存在。没有发现本次削弱这些既有原语检查。
+- 正常 HTTP 来源路径：IPv6 `[::1]`、端口与大小写由 URL 规范化；普通 evil Host 在准入前拒绝；写方法的 `Origin: null`/不允许来源使用与 RPC 相同的 allowOrigin 闭包。宿主接口、静态页面、插件路由均在同一个前置检查之后；配置当前只接受 3 个回环别名，未出现“配置允许的非回环主机却被分发拒绝”的产品路径。
+- 文档仍按地址唯一；同一组的标签已按地址加编辑器区分；setEditor 撞同组已有标签时激活目标、移除原标签的基本模型路径成立，文本/字节切换先取得新引用再释放旧引用。稳定引用下普通字节事件会 bump version，不发文本读取。
+- 会话读取迁移旧 `markdown`/`code`，保留新增 language；拆分复制 language，换编辑器清掉 language/光标。reopen-with/change-language 的选择返回处已核对活动 tab id 与 editor，普通“等待期间切到别的标签”不会改投新标签；入口停止/重新建立的复杂场景未跑。
+- 编辑器声明和实现分开；已发布后撤回的编辑器能从 ready 变 gone，而非 pending。选择器的大小写、多段后缀、全文件名优先、`.png` 不按扩展名命中、同级 id 顺序，与当前 Spec/测试一致；已知二进制未认领时不取正文。
+- 语言表保留 mimetypes 与多个 registerLanguage 的登记，包含 7 个 FreeMarker2 id 和对应变体 loader；plaintext/json 为源码编辑器保留，不接受贡献覆盖。JSON 的语言服务/worker 保留。
+- 没有发现本次引入跨包源码深导入，或在核心路由按错误消息字符串分支。未把沿用的 Monaco `Canceled` 过滤冒称为本次新增。
+
+## 各级数量
+
+- **本次发现 11 条**：阻断 **0**，重要 **9**（第 1、2、3、5、6、7、8、9、10 条），建议 **2**（第 11、12 条）。
+- **base 既有问题 1 条**：第 4 条，不计本次发现与严重程度数量。
+- 正文保留 **12 个 `### N.` 条目**；没有删除或覆盖先前追加内容。所有未动态验证的产品行为已在各条标明。
