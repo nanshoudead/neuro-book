@@ -55,7 +55,7 @@ h3.spec { margin-top: 14px; }
 
 </head>
 <body>
-<header class="top"><b>nb-story Spec 要点</b><small>w00024 t02-specs 的产物 · 第 1 轮 · 2026-10-15</small></header>
+<header class="top"><b>nb-story Spec 要点</b><small>w00024 t02-specs 的产物 · 第 2 轮 · 2026-10-15</small></header>
 <main>
 
 <div class="lead">
@@ -66,8 +66,36 @@ h3.spec { margin-top: 14px; }
 
 <div class="round">待定</div>
 
+<section class="q">
+    <h2>回答：<code>story.qa</code> 原来打算怎么做（不用答）</h2>
+    <p>按提案第四节第 6 小节，问答是<b>内置在核心库里</b>的：核心库里有一个问答引擎，网页的问答页和 <code>nbstory ask</code> 都调它。引擎内部是一个小的 Agent 循环：</p>
+    <ol class="items">
+        <li>“挑章 Agent”（一个模型）用几个进程内的只读工具在图里找线索：按名字查对象、在图里搜记录、按章段读原文、在原文里搜关键词（评测里是在 Linux 沙箱里跑 grep、sed，产品里改成这些工具）；</li>
+        <li>挑出至多 20 章后，再一次模型调用，只凭这些章的原文作答；</li>
+        <li>模型经注入的端口调用：单独使用时由命令行和独立服务装配，以后接进 NeuroBook 时换成 NeuroBook 的模型角色。</li>
+    </ol>
+    <p>也就是说，它本身就是一个带工具调用的 Agent，和你说的 Agent 框架、nb-harness 重叠。你说得对：这些只读工具和命令行本质上是同一套接口，都是接口合同里的查询方法；命令行是给人和外部 Agent 用的形式，以后插件的 Agent 工具是给 NeuroBook 里的 Agent 用的形式。</p>
+</section>
+
+<section class="q" data-nbdev-question="qa-scope" data-nbdev-type="single" data-nbdev-recommend="defer-all">
+    <h2><span class="badge todo" data-nbdev-skip>待定</span>5. 第一版的问答做到哪里？</h2>
+    <p class="ask">你说独立服务的网页问答可以先不做。剩下的问题是 <code>nbstory ask</code>（命令行里的内置问答）要不要留在第一版。</p>
+    <div class="opts">
+        <div class="opt rec" data-nbdev-option="defer-all"><h3>内置问答整个以后做，第一版的问答交给外部 Agent</h3><p>不做网页问答页、顶栏提问框、<code>nbstory ask</code>，不写 <code>story.qa</code>。第一版的问答 = Claude Code、Codex 这类 Agent 读 Skill、调命令行作答（就是 t34 评测里“图当目录”的做法），Skill 里写作答规则 v5 和答案格式（决定 9 的结论加表格）。等 Agent 框架和 nb-harness 定了，再用同一套查询接口当工具做内置问答。</p></div>
+        <div class="opt" data-nbdev-option="keep-cli-ask"><h3>留 <code>nbstory ask</code>，只是不做网页问答</h3><p>核心库里先自己写一个小的挑章循环，以后再迁到 nb-harness 上；要配模型和密钥。</p></div>
+    </div>
+    <div class="rec-note"><b>推荐整个以后做。</b>内置问答就是一个 Agent，先自己写一个，以后迁到 nb-harness 时要重写；外部 Agent 加 Skill 已经能答（t34 的评测就是这么跑的），第一版不用碰模型配置和密钥。</div>
+    <p>选“整个以后做”时的连带改动：</p>
+    <ul>
+        <li>能力地图剩三份：<code>story.queries</code>（含“工具接口”：每个查询方法的参数与结果有 schema，命令行和以后的插件工具都按它）、<code>story.viewer</code>、<code>story.cli</code>（命令行加 Skill）。<code>story.qa</code> 不写。</li>
+        <li>查看器去掉顶栏提问框和问答页（t01 决定 3 的提问框、决定 9 的答案页面都推迟），导航里不出现“问答”。决定 9 的答案格式改成写进 Skill，让 Agent 按这个格式回答。</li>
+        <li>命令行每条查询命令对应接口合同里的一个方法，<code>--json</code> 输出就是这个方法的结果，参数同名；以后插件的 Agent 工具直接用同一份方法清单。</li>
+        <li>在提案的决策记录里记下这次范围调整。</li>
+    </ul>
+</section>
+
 <section class="q" data-nbdev-question="capability-map" data-nbdev-type="single" data-nbdev-recommend="go">
-    <h2><span class="badge todo" data-nbdev-skip>待定</span>1. 能力地图：这样分四份行吗？</h2>
+    <h2><span class="badge done" data-nbdev-skip>已定</span>1. 能力地图：这样分四份行吗？</h2>
     <table>
         <thead><tr><th>能力</th><th>文件</th><th>职责</th><th>依赖</th></tr></thead>
         <tbody>
@@ -82,6 +110,7 @@ h3.spec { margin-top: 14px; }
         <div class="opt rec" data-nbdev-option="go"><h3>按这个分</h3><p>按下面各节的要点写正文。</p></div>
         <div class="opt" data-nbdev-option="adjust"><h3>要调整</h3><p>在备注里写怎么分。</p></div>
     </div>
+    <div class="decided"><b>已定（2026-10-15）：</b>按推荐。</div>
 </section>
 
 <section class="q">
@@ -133,17 +162,18 @@ h3.spec { margin-top: 14px; }
 </section>
 
 <section class="q" data-nbdev-question="reading-state-store" data-nbdev-type="single" data-nbdev-recommend="library">
-    <h2><span class="badge todo" data-nbdev-skip>待定</span>2. “读到哪里”和上次的界面存在哪里？</h2>
+    <h2><span class="badge done" data-nbdev-skip>已定</span>2. “读到哪里”和上次的界面存在哪里？</h2>
     <p class="ask">决定 1 要求打开一本书回到上一次的界面（页面、人物、阅读位置）。存的位置决定换浏览器、换设备时还在不在。</p>
     <div class="opts">
         <div class="opt rec" data-nbdev-option="library"><h3>存进书库，跟着书走</h3><p>服务端按书保存；换浏览器、以后接进 NeuroBook 都还在。命令行不读它，命令行的位置都写在参数里。</p></div>
         <div class="opt" data-nbdev-option="browser"><h3>存在浏览器本地</h3><p>简单，但换浏览器就没了。</p></div>
     </div>
     <div class="rec-note"><b>推荐存进书库。</b>阅读位置是防剧透的根，丢了就可能剧透；书库本来就在服务端。</div>
+    <div class="decided"><b>已定（2026-10-15）：</b>按推荐。</div>
 </section>
 
 <section class="q" data-nbdev-question="no-record-perspective" data-nbdev-type="single" data-nbdev-recommend="separate-mark">
-    <h2><span class="badge todo" data-nbdev-skip>待定</span>3. 知情视角里，“没有记录”的身份秘密怎么算？</h2>
+    <h2><span class="badge done" data-nbdev-skip>已定</span>3. 知情视角里，“没有记录”的身份秘密怎么算？</h2>
     <p class="ask">第 8 轮发现：以南嘉鱼的视角，“风信子就是南小风”没有任何记录（她是南小风的姐姐，原文也许只是没写到）。秘密矩阵里“没有记录”与“不知道”是两回事。</p>
     <div class="opts">
         <div class="opt rec" data-nbdev-option="separate-mark"><h3>当作不知道画成分开的点，但标“没有记录”</h3><p>“明确不知道”的黄线写“其实是同一人”；“没有记录”的写“可能知道（没有记录）”，样式区分开。</p></div>
@@ -151,16 +181,18 @@ h3.spec { margin-top: 14px; }
         <div class="opt" data-nbdev-option="merge"><h3>当作知道，合并成一个点</h3><p>只有明确不知道的才分开。</p></div>
     </div>
     <div class="rec-note"><b>推荐分开画、标“没有记录”。</b>和秘密矩阵的图例一致（“没有记录不等于不知道”，决定 5），既不替角色编造知道，也不让读者误以为她确定不知道。</div>
+    <div class="decided"><b>已定（2026-10-15）：</b>按推荐。</div>
 </section>
 
 <section class="q" data-nbdev-question="source-beyond" data-nbdev-type="single" data-nbdev-recommend="block">
-    <h2><span class="badge todo" data-nbdev-skip>待定</span>4. 读到位置之后的章，原文能不能看？</h2>
+    <h2><span class="badge done" data-nbdev-skip>已定</span>4. 读到位置之后的章，原文能不能看？</h2>
     <p class="ask">稿子里原文页的目录把之后的章画成“未读”、点不开；段落级位置时，本章位置之后的原文照常显示，只是记录不显示。</p>
     <div class="opts">
         <div class="opt rec" data-nbdev-option="block"><h3>之后的章不给原文，要看先把“读到哪里”往后拨</h3><p>接口也拒绝（<code>beyond_position</code>）；本章内位置之后的段落照常给原文，不给记录。</p></div>
         <div class="opt" data-nbdev-option="allow"><h3>原文都能看，只是记录、标题不显示</h3><p>原文页当阅读器用，往后翻不受限。</p></div>
     </div>
     <div class="rec-note"><b>推荐不给。</b>防剧透靠核心库统一过滤；原文是最直接的剧透。想往后读的人拨一下位置即可，拨动本身就是“我读到这里了”的表态。</div>
+    <div class="decided"><b>已定（2026-10-15）：</b>按推荐。</div>
 </section>
 
 </main>
