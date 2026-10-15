@@ -28,7 +28,7 @@ bun <仓库>/packages/nb-story/src/cli.ts <命令> [参数] [选项]
 1. **查清对象**：用 `nbstory find <名字>` 查问题里每个人物的全部称呼与“同一身份”（化名、变身后的代号）。名字或称呼对应不止一个对象时，命令会列出候选，改用 id。
 2. **按题型找线索**：
    - 谁知道什么、身份有没有暴露：`knows`（秘密矩阵）、`knowledge <对象>`、`relations --perspective <对象>`；
-   - 人物之间的关系：`relations`、`card <对象>`、`statements <对象>`；
+   - 人物之间的关系：`ties <对象>`（他和每个对象的关系一览）、`between <对象> <另一个>`（两人之间的全部说法、一起出场的情节、互相知道的事）、`relations`、`card <对象>`；
    - 数值、任务、道具：`ledger`、`track <名目>`；
    - 悬念与伏笔：`questions`；
    - 先后与时间：`timeline`；

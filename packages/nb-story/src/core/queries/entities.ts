@@ -7,12 +7,11 @@ import type {Facet} from "../dataset";
 import {formatPosition, formatSpan} from "../position";
 import type {VisibleEntity} from "../projection";
 import {compareText, matches, nodeRef, participantNodes, perspectiveStatements, refs, tags, type QueryContext} from "./context";
+import {relationPairs} from "./relations";
 import {personSecretState} from "./secrets";
 
 /** 名册里每个点列出的称呼个数。 */
 const TOP_NAMES = 6;
-/** 算“关系”条数用的说法类别。 */
-const RELATION_FAMILIES = new Set(["kinship", "social", "membership"]);
 
 function membersOf(ctx: QueryContext, node: string): VisibleEntity[] {
     return (ctx.grouping.members.get(node) ?? []).map(id => ctx.view.entity(id)!);
@@ -76,14 +75,6 @@ export function entityCard(ctx: QueryContext, params: StoryParams<"entity.card">
     }
 
     const statements = perspectiveStatements(ctx);
-    const related = new Set<string>();
-    for (const statement of statements) {
-        if (!RELATION_FAMILIES.has(statement.family) || !statement.about.some(id => ids.has(id))) continue;
-        for (const id of statement.about) {
-            const other = grouping.nodeOf.get(id);
-            if (other !== undefined && other !== node) related.add(other);
-        }
-    }
 
     return {
         id: node,
@@ -108,7 +99,8 @@ export function entityCard(ctx: QueryContext, params: StoryParams<"entity.card">
             return {id: secret.id, title: secret.title, state, ref};
         }),
         counts: {
-            relations: related.size,
+            // 关系页签的条数与 entity.relations 列出的对象一致（输出 20）。
+            relations: relationPairs(ctx, node).size,
             knowledge: view.knowledge.filter(item => ids.has(item.who)).length,
             statements: statements.filter(statement => statement.about.some(id => ids.has(id))).length,
             episodes: view.episodes.filter(episode => participantNodes(ctx, episode).includes(node)).length,

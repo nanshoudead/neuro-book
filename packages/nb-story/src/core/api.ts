@@ -25,6 +25,7 @@ import {bookInfo, bookStats} from "./queries/books";
 import {makePager} from "./queries/context";
 import type {QueryContext} from "./queries/context";
 import {entitiesList, entityCard, entityEpisodes, entityKnowledge, entityStatements} from "./queries/entities";
+import {entityRelation, entityRelations} from "./queries/relations";
 import {arcsList, chapterDigest, episodesList} from "./queries/episodes";
 import {bookGraph, relationsGraph, storyline} from "./queries/graph";
 import {ledgerTrack, ledgerTracks} from "./queries/ledger";
@@ -52,6 +53,8 @@ const BOOK_HANDLERS: Partial<Record<StoryMethod, BookHandler>> = {
     "entity.knowledge": entityKnowledge,
     "entity.statements": entityStatements,
     "entity.episodes": entityEpisodes,
+    "entity.relations": entityRelations,
+    "entity.relation": entityRelation,
     "secrets.matrix": secretsMatrix,
     "chapter.digest": chapterDigest,
     "ledger.tracks": ledgerTracks,
@@ -69,7 +72,7 @@ const BOOK_HANDLERS: Partial<Record<StoryMethod, BookHandler>> = {
 };
 
 /** 不适用视角的方法：忽略 perspective，用读者视角。 */
-const PERSPECTIVE_METHODS: ReadonlySet<StoryMethod> = new Set(["entities.list", "entity.card", "entity.knowledge", "entity.statements", "entity.episodes", "secrets.matrix", "graph.relations"]);
+const PERSPECTIVE_METHODS: ReadonlySet<StoryMethod> = new Set(["entities.list", "entity.card", "entity.knowledge", "entity.statements", "entity.episodes", "entity.relations", "entity.relation", "secrets.matrix", "graph.relations"]);
 
 const compiled = new Map<TSchema, ReturnType<typeof Compile<TSchema>>>();
 

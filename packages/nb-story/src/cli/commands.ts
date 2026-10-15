@@ -123,6 +123,16 @@ export const COMMANDS: readonly CommandSpec[] = [
     command({name: "knowledge", method: "entity.knowledge", summary: "他知道的事", book: true, paged: true, positionals: [entityArg], options: {state: {decode: text}, ...query}}),
     command({name: "statements", method: "entity.statements", summary: "关于他的说法", book: true, paged: true, positionals: [entityArg], options: query}),
     command({name: "appearances", method: "entity.episodes", summary: "他参与的情节", book: true, paged: true, positionals: [entityArg], options: query}),
+    command({name: "ties", method: "entity.relations", summary: "他和每个对象的关系：关系词、身份连接、一句说明", book: true, paged: false, positionals: [entityArg], options: {perspective: {decode: text}}}),
+    command({
+        name: "between",
+        method: "entity.relation",
+        summary: "两个对象之间的全部说法、一起出场的情节、互相知道的事",
+        book: true,
+        paged: false,
+        positionals: [entityArg, {name: "另一个", decode: value => ({other: value})}],
+        options: {perspective: {decode: text}},
+    }),
     command({name: "knows", method: "secrets.matrix", summary: "谁知道什么（秘密矩阵）", book: true, paged: false}),
     command({
         name: "relations",

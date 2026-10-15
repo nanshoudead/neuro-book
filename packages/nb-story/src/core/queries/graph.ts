@@ -22,7 +22,7 @@ function pairKey(a: string, b: string): [string, string, string] {
 }
 
 /** 一对点的关系词：亲属词 → 社交称谓 → “所属”，都没有时为 null（输出 16）。 */
-function relationWord(statements: readonly Statement[]): string | null {
+export function relationWord(statements: readonly Statement[]): string | null {
     const labels = (family: string) => statements.filter(statement => statement.family === family).map(statement => statement.label ?? statement.text);
     const kinship = labels("kinship");
     if (kinship.length > 0) return KINSHIP_WORDS.find(word => kinship.some(label => label.includes(word))) ?? "亲属";

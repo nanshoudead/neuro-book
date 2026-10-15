@@ -31,6 +31,8 @@ const CASES: {args: string[]; method: StoryMethod; params: Record<string, unknow
     {args: ["knowledge", "e1-1", "--state", "unaware", "--query", "南", "--at", "100"], method: "entity.knowledge", params: {entity: "e1-1", state: "unaware", query: "南", at: {chapter: 100}}},
     {args: ["statements", "e8-2", "--at", "38"], method: "entity.statements", params: {entity: "e8-2", at: {chapter: 38}}},
     {args: ["appearances", "苏天晴", "--query", "风信子", "--at", "38"], method: "entity.episodes", params: {entity: "苏天晴", query: "风信子", at: {chapter: 38}}},
+    {args: ["ties", "苏天晴", "--at", "50"], method: "entity.relations", params: {entity: "苏天晴", at: {chapter: 50}}},
+    {args: ["between", "苏天晴", "e47-5", "--at", "50"], method: "entity.relation", params: {entity: "苏天晴", other: "e47-5", at: {chapter: 50}}},
     {args: ["knows", "--at", "38"], method: "secrets.matrix", params: {at: {chapter: 38}}},
     {args: ["relations", "--perspective", "e1-1", "--kinds", "person,persona", "--min-together", "2", "--at", "38"], method: "graph.relations", params: {perspective: "e1-1", kinds: ["person", "persona"], minTogether: 2, at: {chapter: 38}}},
     {args: ["ledger", "--at", "38"], method: "ledger.tracks", params: {at: {chapter: 38}}},

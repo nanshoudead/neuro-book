@@ -144,6 +144,48 @@ const StatementItem = Type.Object({
 
 const EpisodeBrief = Type.Object({id: Type.String(), title: Type.String(), chapter: Type.Integer(), refs: Type.Array(RefSchema)});
 
+// ---- 两个对象之间的关系（输出 20、21） ----
+
+/** 一条关系最要紧的联系：身份连接、关系说法（亲属、交往、所属）、态度、其他说法、同场、认知，从强到弱。 */
+const RelationStrength = oneOf(["identity", "relation", "attitude", "statement", "together", "knows"] as const);
+const RelationListItem = Type.Object({
+    other: Type.Object({id: Type.String(), label: Type.String(), kind: EntityKindSchema}),
+    strength: RelationStrength,
+    /** 关系词（姐妹、朋友……），推不出时为 null。 */
+    word: Type.Union([Type.String(), Type.Null()]),
+    identity: Type.Union([IdentityStateSchema, Type.Null()]),
+    /** 两人之间的说法条数、同场的情节段数；认知是 a 知道关于 b 的条数与反过来的条数（a 是这次查询的对象），角色视角下为 null。 */
+    counts: Type.Object({statements: Type.Integer(), episodes: Type.Integer(), knows: Type.Union([Type.Object({ab: Type.Integer(), ba: Type.Integer()}), Type.Null()])}),
+    /**
+     * 最能说明这段关系的一句：只涉及这两人的说法优先，其中最近的关系说法 → 最近的态度说法 → 最近的一条；只有和别人
+     * 一起提到的说法时照同样的顺序挑；都没有为 null。
+     */
+    summary: Type.Union([Type.Object({text: Type.String(), family: Type.String(), holder: Type.Union([NodeRefSchema, Type.Null()]), ref: RefSchema, chapter: Type.Integer()}), Type.Null()]),
+    /** 最近一段两人一起出场的情节；没有为 null。 */
+    lastEpisode: Type.Union([Type.Object({id: Type.String(), title: Type.String(), chapter: Type.Integer()}), Type.Null()]),
+});
+const RelationDetail = Type.Object({
+    a: NodeRefSchema,
+    b: NodeRefSchema,
+    word: Type.Union([Type.String(), Type.Null()]),
+    identity: Type.Union([IdentityStateSchema, Type.Null()]),
+    /** 两人之间的全部说法（about 同时含两人），按出处先后。label 是数据里这条说法的短标签。 */
+    statements: Type.Array(Type.Object({
+        id: Type.String(),
+        text: Type.String(),
+        label: Type.Union([Type.String(), Type.Null()]),
+        family: Type.String(),
+        tags: TagsSchema,
+        holder: Type.Union([NodeRefSchema, Type.Null()]),
+        refs: Type.Array(RefSchema),
+        chapter: Type.Integer(),
+    })),
+    /** 两人一起出场的情节。 */
+    episodes: Type.Array(EpisodeBrief),
+    /** a 知道的关于 b 的事、b 知道的关于 a 的事（各取最近的至多 20 条）；角色视角下为 null。 */
+    knows: Type.Union([Type.Object({ab: Type.Array(Type.Object({text: Type.String(), state: oneOf(KNOWLEDGE_STATES), how: Type.Union([Type.String(), Type.Null()]), refs: Type.Array(RefSchema)})), ba: Type.Array(Type.Object({text: Type.String(), state: oneOf(KNOWLEDGE_STATES), how: Type.Union([Type.String(), Type.Null()]), refs: Type.Array(RefSchema)}))}), Type.Null()]),
+});
+
 // ---- 秘密、数值、悬念、时间、情节 ----
 
 const SecretsMatrix = Type.Object({
@@ -365,6 +407,18 @@ export const STORY_METHODS = {
         output: page(EpisodeBrief),
         effect: "read",
         errors: {...EntityErrors, ...PageErrors},
+    },
+    "entity.relations": {
+        input: Type.Object({...BookParams, entity: Type.String({minLength: 1})}, strict),
+        output: Type.Object({items: Type.Array(RelationListItem)}),
+        effect: "read",
+        errors: EntityErrors,
+    },
+    "entity.relation": {
+        input: Type.Object({...BookParams, entity: Type.String({minLength: 1}), other: Type.String({minLength: 1})}, strict),
+        output: RelationDetail,
+        effect: "read",
+        errors: EntityErrors,
     },
     "secrets.matrix": {input: Type.Object({...BookParams}, strict), output: SecretsMatrix, effect: "read", errors: BookErrors},
     "ledger.tracks": {input: Type.Object({...BookParams}, strict), output: Type.Object({tracks: Type.Array(LedgerTrack)}), effect: "read", errors: BookErrors},

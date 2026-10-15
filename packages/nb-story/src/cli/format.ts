@@ -70,6 +70,20 @@ const FORMATTERS: {[M in StoryMethod]?: Formatter<M>} = {
     "entity.knowledge": result => [...result.items.map(item => `${STATE_WORDS[item.state]}：${item.text}${item.how ? `（${item.how}）` : ""} [${tagText(item.tags)}${item.secret ? "、秘密" : ""}] ${at(item.refs)}`), ...pageFooter(result)],
     "entity.statements": result => [...result.items.map(item => `${item.text} [${tagText(item.tags)}] ${at(item.refs)}`), ...pageFooter(result)],
     "entity.episodes": result => [...result.items.map(item => `第 ${item.chapter} 章  ${item.title} ${at(item.refs)}`), ...pageFooter(result)],
+    "entity.relations": result =>
+        result.items.map(item => {
+            const head = [item.other.label, item.word ? `（${item.word}）` : "", item.identity ? ` ${IDENTITY_WORDS[item.identity]}` : ""].join("");
+            const counts = [item.counts.statements ? `说法 ${item.counts.statements}` : "", item.counts.episodes ? `同场 ${item.counts.episodes}` : "", item.counts.knows && (item.counts.knows.ab || item.counts.knows.ba) ? `互相知道 ${item.counts.knows.ab}/${item.counts.knows.ba}` : ""].filter(Boolean).join("，");
+            const line = item.summary ? `${item.summary.text}〔${item.summary.ref}〕` : item.lastEpisode ? `一起出场：${item.lastEpisode.title}（第 ${item.lastEpisode.chapter} 章）` : "";
+            return `${head}  ${counts}${line ? `\n  ${line}` : ""}`;
+        }),
+    "entity.relation": result => [
+        `${result.a.label} 与 ${result.b.label}${result.word ? `：${result.word}` : ""}${result.identity ? `，${IDENTITY_WORDS[result.identity]}` : ""}`,
+        ...(result.statements.length ? ["说法：", ...result.statements.map(item => `  第 ${item.chapter} 章 [${item.family}] ${item.text} [${tagText(item.tags)}] ${at(item.refs)}`)] : []),
+        ...(result.episodes.length ? ["一起出场：", ...result.episodes.map(item => `  第 ${item.chapter} 章 ${item.title} ${at(item.refs)}`)] : []),
+        ...(result.knows && result.knows.ab.length ? [`${result.a.label}知道的关于${result.b.label}的事：`, ...result.knows.ab.map(item => `  ${STATE_WORDS[item.state]}：${item.text} ${at(item.refs)}`)] : []),
+        ...(result.knows && result.knows.ba.length ? [`${result.b.label}知道的关于${result.a.label}的事：`, ...result.knows.ba.map(item => `  ${STATE_WORDS[item.state]}：${item.text} ${at(item.refs)}`)] : []),
+    ],
     "secrets.matrix": result =>
         result.rows.flatMap(row => [
             `${row.title}（${row.id}）`,

@@ -95,6 +95,8 @@ describe.each(POSITIONS)("阅读位置 $label", ({at, resolved}) => {
             ["entity.knowledge", {entity: "e1-1", limit: 500}],
             ["entity.statements", {entity: "e1-1", limit: 500}],
             ["entity.episodes", {entity: "e1-1", limit: 500}],
+            ["entity.relations", {entity: "e1-1"}],
+            ["entity.relation", {entity: "e1-1", other: "e1-2"}],
             ["secrets.matrix", {}],
             ["ledger.tracks", {}],
             ["questions.list", {limit: 500}],
