@@ -1,0 +1,127 @@
+/**
+ * `nbstory` 命令行（docs/specs/story/cli-skill.md 输出 1 到 3、6、7，F1、F2，验收 1、2）。子进程跑真实命令。
+ */
+
+import {afterAll, beforeAll, describe, expect, test} from "bun:test";
+import {readdir, writeFile} from "node:fs/promises";
+import {join} from "node:path";
+
+import type {StoryMethod} from "../contract/contract";
+import {openTestBook, type TestBook} from "../../testing/api";
+import {runCli} from "../../testing/processes";
+
+let book: TestBook;
+
+beforeAll(async () => {
+    book = await openTestBook("cli");
+});
+
+afterAll(async () => {
+    await book.close();
+});
+
+/** 每条查询命令：命令行参数，以及对应方法与解码后应得的参数。 */
+const CASES: {args: string[]; method: StoryMethod; params: Record<string, unknown>}[] = [
+    {args: ["books"], method: "books.list", params: {}},
+    {args: ["info", "--at", "7"], method: "book.info", params: {at: {chapter: 7}}},
+    {args: ["stats", "--at", "38.57"], method: "book.stats", params: {at: {chapter: 38, paragraph: 57}}},
+    {args: ["chapter", "37", "--at", "38"], method: "chapter.digest", params: {chapter: 37, at: {chapter: 38}}},
+    {args: ["find", "狐", "--kind", "person", "--at", "38", "--limit", "5"], method: "entities.list", params: {query: "狐", kind: "person", at: {chapter: 38}, limit: 5}},
+    {args: ["card", "狐狐", "--at", "38", "--perspective", "e8-2"], method: "entity.card", params: {entity: "狐狐", at: {chapter: 38}, perspective: "e8-2"}},
+    {args: ["knowledge", "e1-1", "--state", "unaware", "--query", "南", "--at", "100"], method: "entity.knowledge", params: {entity: "e1-1", state: "unaware", query: "南", at: {chapter: 100}}},
+    {args: ["statements", "e8-2", "--at", "38"], method: "entity.statements", params: {entity: "e8-2", at: {chapter: 38}}},
+    {args: ["appearances", "苏天晴", "--query", "风信子", "--at", "38"], method: "entity.episodes", params: {entity: "苏天晴", query: "风信子", at: {chapter: 38}}},
+    {args: ["knows", "--at", "38"], method: "secrets.matrix", params: {at: {chapter: 38}}},
+    {args: ["relations", "--perspective", "e1-1", "--kinds", "person,persona", "--min-together", "2", "--at", "38"], method: "graph.relations", params: {perspective: "e1-1", kinds: ["person", "persona"], minTogether: 2, at: {chapter: 38}}},
+    {args: ["ledger", "--at", "38"], method: "ledger.tracks", params: {at: {chapter: 38}}},
+    {args: ["track", "神典石", "--at", "38"], method: "ledger.track", params: {track: "神典石", at: {chapter: 38}}},
+    {args: ["questions", "--state", "open", "--sort", "raised", "--at", "38"], method: "questions.list", params: {state: "open", sort: "raised", at: {chapter: 38}}},
+    {args: ["timeline", "--order", "source", "--at", "38"], method: "timeline", params: {order: "source", at: {chapter: 38}}},
+    {args: ["episodes", "--query", "风信子", "--at", "38"], method: "episodes.list", params: {query: "风信子", at: {chapter: 38}}},
+    {args: ["arcs", "--at", "38"], method: "arcs.list", params: {at: {chapter: 38}}},
+    {args: ["search", "神典石", "--kinds", "statement,source", "--at", "38.57"], method: "search", params: {query: "神典石", kinds: ["statement", "source"], at: {chapter: 38, paragraph: 57}}},
+    {args: ["read", "38.48-60", "--at", "38.57"], method: "source.read", params: {from: {chapter: 38, paragraph: 48}, to: {chapter: 38, paragraph: 60}, at: {chapter: 38, paragraph: 57}}},
+    {args: ["read", "37", "--at", "38"], method: "source.read", params: {from: {chapter: 37}, at: {chapter: 38}}},
+    {args: ["para", "38.36", "--at", "38"], method: "source.records", params: {chapter: 38, paragraph: 36, at: {chapter: 38}}},
+];
+
+describe("命令与方法一致（输出 1、验收 1）", () => {
+    test.each(CASES)("$args.0：--json 的 data 与进程内调用的结果逐字段相同", async ({args, method, params}) => {
+        const run = await runCli([...args, "--library", book.library, "--json"]);
+        expect(run.code).toBe(0);
+        const local = await book.api.call(method, params);
+        expect(local.ok).toBe(true);
+        expect(JSON.parse(run.stdout)).toEqual({ok: true, data: local.ok ? local.value : null});
+    });
+
+    test("给人读的输出出处写成“章.段”", async () => {
+        const run = await runCli(["track", "神典石", "--at", "38", "--library", book.library]);
+        expect(run.code).toBe(0);
+        expect(run.stdout).toContain("〔38.36〕");
+        expect(run.stdout).toContain("原文比累加多 800");
+    });
+});
+
+describe("退出码与失败（输出 2、7，F1、F2）", () => {
+    test("查询失败退出码 1；--json 时标准输出只有一个带错误码的 JSON", async () => {
+        const run = await runCli(["card", "心月狐", "--at", "7", "--library", book.library, "--json"]);
+        expect(run.code).toBe(1);
+        expect(JSON.parse(run.stdout)).toEqual({ok: false, error: expect.objectContaining({code: "entity_not_found"})});
+        const human = await runCli(["card", "心月狐", "--at", "7", "--library", book.library]);
+        expect(human.code).toBe(1);
+        expect(human.stderr).toContain("entity_not_found");
+        expect(human.stderr).toContain("下一步");
+    });
+
+    test("未知命令、未知选项、缺参数、写法不对的位置都是用法错误，退出码 2 并打印用法", async () => {
+        for (const args of [["nope"], ["card", "e1-1", "--nope", "1"], ["card"], ["card", "e1-1", "--at", "abc"], ["read", "38.x"], []]) {
+            const run = await runCli([...args, "--library", book.library]);
+            expect(run.code).toBe(2);
+            expect(`${run.stdout}${run.stderr}`).toContain("用法：nbstory");
+        }
+    });
+
+    test("名字对应几个对象时列出候选", async () => {
+        const run = await runCli(["card", "小破书", "--at", "38", "--library", book.library]);
+        expect(run.code).toBe(1);
+        expect(run.stderr).toContain("e1-1");
+        expect(run.stderr).toContain("e1-2");
+    });
+});
+
+describe("不剧透（验收 2）", () => {
+    test("card 苏天晴 --at 7 里没有 8.48 才出现的“心月狐”；knows --at 7 里没有第 8 章及以后揭晓的秘密", async () => {
+        const card = await runCli(["card", "苏天晴", "--at", "7", "--library", book.library]);
+        expect(card.code).toBe(0);
+        expect(card.stdout).not.toContain("心月狐");
+        const knows = await runCli(["knows", "--at", "7", "--library", book.library, "--json"]);
+        const rows = (JSON.parse(knows.stdout) as {data: {rows: {id: string}[]}}).data.rows.map(row => row.id);
+        expect(rows.every(id => ["x4-1", "x6-1", "x21-1"].includes(id))).toBe(true);
+    });
+
+    test("read 39.1 --at 38.57 退出码 1，错误码 beyond_position", async () => {
+        const run = await runCli(["read", "39.1", "--at", "38.57", "--library", book.library, "--json"]);
+        expect(run.code).toBe(1);
+        expect((JSON.parse(run.stdout) as {error: {code: string}}).error.code).toBe("beyond_position");
+    });
+});
+
+describe("导入（输出 6）", () => {
+    test("成功时输出新书的 id；失败时书库不变", async () => {
+        const isolated = await openTestBook("cli-import");
+        try {
+            const ok = await runCli(["import", join(isolated.root, "sample-100ch.json"), "--title", "Fox Two", "--library", isolated.library]);
+            expect(ok.code).toBe(0);
+            expect(ok.stdout).toContain("fox-two");
+            const bad = join(isolated.root, "bad.json");
+            await writeFile(bad, "{}");
+            const before = (await readdir(isolated.library)).sort();
+            const failed = await runCli(["import", bad, "--title", "Bad", "--library", isolated.library, "--json"]);
+            expect(failed.code).toBe(1);
+            expect((JSON.parse(failed.stdout) as {error: {code: string}}).error.code).toBe("unsupported_format");
+            expect((await readdir(isolated.library)).sort()).toEqual(before);
+        } finally {
+            await isolated.close();
+        }
+    });
+});
