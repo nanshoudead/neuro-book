@@ -10,7 +10,7 @@ import type {SplitterPanelConfig} from "@notnotype/nb-ui/components";
 import {computed, defineAsyncComponent, onBeforeUnmount, onMounted, provide, ref, watch} from "vue";
 import {useRouter} from "vue-router";
 
-import {BOOK_SESSION, type BookSession, type Page} from "../host/book";
+import {BOOK_SESSION, type BookSession, type DrawerContent, type Page} from "../host/book";
 import {StoryCallError, useStoryClient} from "../host/client";
 import {readDrawerWidth, readNavCollapsed, writeDrawerWidth, writeNavCollapsed, type ThemeChoice} from "../host/prefs";
 import {useAppearance} from "../host/theme";
@@ -93,6 +93,46 @@ const panels = computed<SplitterPanelConfig[]>(() => [
     {id: "main", minSizePx: 360, sizing: "weight"},
     {id: "drawer", defaultSizePx: drawerWidth.value, minSizePx: 280, maxSizePx: 640, sizing: "fixed", collapse: {collapsedSize: 0, restoreSize: drawerWidth.value, collapseThreshold: 80, expandThreshold: 40, collapsed: book.drawer.value === null}},
 ]);
+
+// ---- 收起、展开的过渡（输出 1） ----
+// Splitter 在过渡的 180 毫秒里逐帧改面板宽度。如果主区与抽屉的内容跟着逐帧按新宽度重排（表格、长文字、图的画布），
+// 一帧就要几十到上百毫秒。所以过渡期间把内容的宽度固定住，只让面板本身变宽变窄，多出来的部分由面板裁掉：
+// - 主区固定在过渡开始时的宽度，过渡结束后才放开：重排与画布换尺寸（图要整张重画，慢机器上一帧上百毫秒）都放到
+//   动作结束之后，不拖住动画；关闭时抽屉滑走露出的一条先是空白，结束后铺满；
+// - 抽屉内容固定在抽屉的宽度、贴右边，看起来是从右边滑进滑出；关闭时继续显示原来的内容，直到滑出去。
+// 宽度变化在 flush: "pre" 的监听里量：这时 DOM 还是变化之前的样子。
+const mainEl = ref<HTMLElement | null>(null);
+const frozenMain = ref<number | null>(null);
+const drawerSliding = ref(false);
+const closingDrawer = ref<DrawerContent | null>(null);
+/** 比 Splitter 的过渡（--motion-base，180 毫秒）稍长，确保过渡结束后才放开。 */
+const MOTION_MS = 240;
+let unfreezeTimer: ReturnType<typeof setTimeout> | null = null;
+function freeze(): void {
+    if (tier.value !== "wide" || mainEl.value === null) return;
+    if (frozenMain.value === null) frozenMain.value = mainEl.value.clientWidth;
+    drawerSliding.value = true;
+    if (unfreezeTimer !== null) clearTimeout(unfreezeTimer);
+    unfreezeTimer = setTimeout(() => {
+        unfreezeTimer = null;
+        frozenMain.value = null;
+        drawerSliding.value = false;
+        closingDrawer.value = null;
+    }, MOTION_MS);
+}
+watch(() => book.drawer.value === null, (closed, wasClosed) => {
+    if (closed === wasClosed || overlayDrawer.value) return;
+    if (closed) closingDrawer.value = book.lastDrawer.value;
+    freeze();
+}, {flush: "pre"});
+watch(navIsCollapsed, (collapsed, was) => {
+    if (collapsed !== was) freeze();
+}, {flush: "pre"});
+onBeforeUnmount(() => {
+    if (unfreezeTimer !== null) clearTimeout(unfreezeTimer);
+});
+/** 抽屉里显示的内容：关闭的过渡期间仍是刚关掉的那个。 */
+const shownDrawer = computed(() => book.drawer.value ?? closingDrawer.value);
 
 function onGestureEnd(state: {collapsed?: Readonly<Record<string, boolean>>; sizesPx?: readonly number[]}): void {
     const collapsed = state.collapsed ?? {};
@@ -213,17 +253,24 @@ watch(notice, value => {
                     </nav>
                 </template>
                 <template #panel-main>
-                    <main class="h-full min-w-0" data-testid="main">
+                    <main ref="mainEl" class="h-full min-w-0" :style="frozenMain === null ? undefined : {width: `${frozenMain}px`}" data-testid="main">
                         <RecordsTable v-if="book.wideRecords.value" :entity="book.wideRecords.value" />
                         <component :is="PAGES[book.page.value]" v-else :key="book.page.value" />
                     </main>
                 </template>
                 <template v-if="!overlayDrawer" #panel-drawer>
-                    <aside class="h-full min-w-0 overflow-hidden border-l border-[var(--divider)]" data-testid="drawer">
-                        <DrawerCard v-if="book.drawer.value?.kind === 'card'" :key="book.drawer.value.entity" :entity="book.drawer.value.entity" :tab="book.drawer.value.tab" />
-                        <DrawerSource v-else-if="book.drawer.value?.kind === 'source'" :ref-text="book.drawer.value.ref" class="story-scroll-y h-full" />
-                        <DrawerParagraph v-else-if="book.drawer.value?.kind === 'para'" :chapter="book.drawer.value.chapter" :paragraph="book.drawer.value.paragraph" class="story-scroll-y h-full" />
-                        <DrawerNode v-else-if="book.drawer.value?.kind === 'node'" :id="book.drawer.value.id" :label="book.drawer.value.label" class="story-scroll-y h-full" />
+                    <aside
+                        class="flex h-full min-w-0 flex-col overflow-hidden border-l border-[var(--divider)] bg-[var(--panel-surface)]" :class="drawerSliding ? 'absolute inset-y-0 right-0' : ''"
+                        :style="drawerSliding ? {width: `${drawerWidth}px`} : undefined" data-testid="drawer" :data-closing="book.drawer.value === null ? 'true' : undefined"
+                    >
+                        <!-- 人物卡自己带关闭按钮；其余几种内容在这里补一个（反馈：右侧栏要有关闭按钮） -->
+                        <div v-if="shownDrawer && shownDrawer.kind !== 'card'" class="flex shrink-0 justify-end px-2 pt-1"><IconButton size="xs" icon-class="i-lucide-x" aria-label="关闭" @click="book.closeDrawer()" /></div>
+                        <div class="min-h-0 flex-1">
+                            <DrawerCard v-if="shownDrawer?.kind === 'card'" :key="shownDrawer.entity" :entity="shownDrawer.entity" :tab="shownDrawer.tab" />
+                            <DrawerSource v-else-if="shownDrawer?.kind === 'source'" :ref-text="shownDrawer.ref" class="story-scroll-y h-full" />
+                            <DrawerParagraph v-else-if="shownDrawer?.kind === 'para'" :chapter="shownDrawer.chapter" :paragraph="shownDrawer.paragraph" class="story-scroll-y h-full" />
+                            <DrawerNode v-else-if="shownDrawer?.kind === 'node'" :id="shownDrawer.id" :label="shownDrawer.label" class="story-scroll-y h-full" />
+                        </div>
                     </aside>
                 </template>
             </Splitter>

@@ -1,17 +1,17 @@
 <script setup lang="ts">
 /**
  * 关系图（docs/specs/story/viewer.md 输出 22 到 28）：类别开关、连线的三层与同场门槛、视角、三种排版、“只看选中的周边”、
- * 图里搜名字。点一下一个点只选中它，旁边浮出小卡片，从卡片打开人物卡（人物，停在关系页签）或连线说明；右侧抽屉
- * 已经开着时，跟着选中的点换内容。
+ * 图里搜名字。单击一个点只选中它；双击、Enter 或右键菜单打开人物卡（人物，停在关系页签）或连线说明；F 或右键菜单
+ * 切换“只看周边”。右侧抽屉已经开着时，跟着选中的点换内容。
  */
-import {FormCheckbox, FormInput, FormSelect, IconButton, Popover, SegmentedControl, Slider} from "@notnotype/nb-ui/components";
+import {ContextMenu, FormCheckbox, FormInput, FormSelect, IconButton, Popover, SegmentedControl, Slider} from "@notnotype/nb-ui/components";
+import type {ContextMenuItem} from "@notnotype/nb-ui/components";
 import {computed, ref} from "vue";
 
 import type {EntityKind} from "../../core/dataset";
 import {useBook} from "../host/book";
 import {useStoryQuery} from "../host/query";
 import PageState from "../parts/PageState.vue";
-import NodePopover from "../graph/NodePopover.vue";
 import StoryNetwork, {type GraphLayout} from "../graph/StoryNetwork.vue";
 
 const book = useBook();
@@ -44,15 +44,21 @@ const edges = computed(() => (graph.data.value?.edges ?? []).map(edge => ({a: ed
 const pinned = computed(() => (graph.data.value?.nodes ?? []).filter(node => node.kind === "person" || node.kind === "persona").slice(0, 8).map(node => node.id));
 // 选中的点：打开页面时沿用抽屉里正开着的对象。
 const selected = ref<string | null>(book.drawer.value?.kind === "card" ? book.drawer.value.entity : book.drawer.value?.kind === "node" ? book.drawer.value.id : null);
-const selectedNode = computed(() => (selected.value === null ? null : (graph.data.value?.nodes.find(node => node.id === selected.value) ?? null)));
-// 小卡片只在用户点了这个点之后弹出：进页面时沿用抽屉里的对象只高亮，不和抽屉重复。
-const popoverFor = ref<string | null>(null);
-const openedInDrawer = computed(() => {
-    const drawer = book.drawer.value;
-    return selected.value !== null && ((drawer?.kind === "card" && drawer.entity === selected.value) || (drawer?.kind === "node" && drawer.id === selected.value));
-});
-const KIND_LABEL: Record<string, string> = {person: "人物", persona: "身份", group: "组织", item: "物品", place: "地点", concept: "概念", task: "任务", other: "其他"};
 const isPerson = (kind: string) => kind === "person" || kind === "persona";
+
+/** 右键菜单（输出 27）：打开、只看周边或看全图、取消选中；快捷键写在条目右边。 */
+const menu = ref<{id: string; x: number; y: number} | null>(null);
+const menuItems = computed<ContextMenuItem[]>(() => {
+    const target = menu.value;
+    const node = target === null ? undefined : graph.data.value?.nodes.find(item => item.id === target.id);
+    if (target === null || node === undefined) return [];
+    return [
+        {label: isPerson(node.kind) ? `打开${node.label}的人物卡` : `${node.label}的连线说明`, iconClass: isPerson(node.kind) ? "i-lucide-id-card" : "i-lucide-share-2", shortcut: "Enter", action: () => open(node.id)},
+        {label: neighborhood.value ? "看全图" : "只看它的周边", iconClass: neighborhood.value ? "i-lucide-maximize-2" : "i-lucide-focus", shortcut: "F", action: () => (neighborhood.value = !neighborhood.value)},
+        {separator: true},
+        {label: "取消选中", shortcut: "Esc", action: () => (selected.value = null)},
+    ];
+});
 
 /** 角色视角的说明（输出 28）：平时只是视角选择旁的一个小标记，点开看完整的不合并列表。 */
 const perspectiveNote = computed(() => {
@@ -77,7 +83,6 @@ function open(id: string): void {
 }
 function onSelect(id: string): void {
     selected.value = id;
-    popoverFor.value = id;
     // 抽屉开着时跟着换；关着时只选中，等用户在小卡片上点打开。
     if (book.drawer.value !== null) open(id);
 }
@@ -116,22 +121,17 @@ function onSelect(id: string): void {
             <SegmentedControl v-model="layout" size="xs" :options="[{value: 'force', label: '力导向'}, {value: 'concentric', label: '同心'}, {value: 'circle', label: '环形'}]" aria-label="排版方式" />
             <IconButton size="xs" icon-class="i-lucide-refresh-cw" aria-label="重新排版" title="重新排版" @click="relayoutKey += 1" />
             <FormCheckbox v-model="neighborhood" label="只看选中的周边" />
+            <span class="text-[length:var(--text-2xs)] text-[var(--text-secondary)]" data-testid="graph-hint">单击选中 · 双击打开 · 右键更多 · F 只看周边 · Esc 取消</span>
             <div class="ml-auto w-40"><FormInput v-model="search" size="sm" icon-class="i-lucide-search" placeholder="在图里找" /></div>
         </div>
         <PageState class="px-3" :loading="graph.loading.value && !graph.data.value" :error="graph.error.value?.message ?? null" @retry="graph.reload()" />
         <div class="relative min-h-0 flex-1" data-testid="relation-graph">
             <StoryNetwork
                 v-if="graph.data.value" mode="relation" :nodes="nodes" :edges="edges" :layers="shownLayers" :min-co="minTogether" :layout="layout" :relayout-key="relayoutKey"
-                :neighborhood="neighborhood" :query="search" :pinned="pinned" :selected="selected" @select="onSelect" @clear="selected = null"
-            >
-                <template v-if="selectedNode && popoverFor === selectedNode.id" #selected>
-                    <NodePopover
-                        :label="selectedNode.label" :kind="KIND_LABEL[selectedNode.kind] ?? selectedNode.kind" :detail="`出场 ${selectedNode.mentions} 次`"
-                        :action="isPerson(selectedNode.kind) ? '打开人物卡' : '连线说明'" :opened="openedInDrawer" :neighborhood="neighborhood"
-                        @open="open(selectedNode.id)" @neighborhood="(value: boolean) => (neighborhood = value)" @close="selected = null"
-                    />
-                </template>
-            </StoryNetwork>
+                :neighborhood="neighborhood" :query="search" :pinned="pinned" :selected="selected"
+                @select="onSelect" @open="open" @menu="(payload: {id: string; x: number; y: number}) => (menu = payload)" @neighborhood="(value: boolean) => (neighborhood = value)" @clear="selected = null"
+            />
+            <ContextMenu :visible="menu !== null" :x="menu?.x ?? 0" :y="menu?.y ?? 0" :items="menuItems" @close="menu = null" />
         </div>
     </div>
 </template>

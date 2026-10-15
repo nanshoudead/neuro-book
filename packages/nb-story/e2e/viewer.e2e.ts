@@ -115,7 +115,7 @@ async function centerOn(page: Page, name: string): Promise<{x: number; y: number
     return {x: box.x + box.width / 2, y: box.y + box.height / 2};
 }
 
-test("关系图（验收 3、输出 27）：页面上已有文字选区时拖动一个点照样能拖、不打开人物卡；点一下只出小卡，从小卡打开人物卡；打开认知层后图照常", async ({page}) => {
+test("关系图（验收 3、输出 27）：页面上已有文字选区时拖动一个点照样能拖、不打开人物卡；单击只选中，双击打开人物卡；右键菜单与快捷键；打开认知层后图照常", async ({page}) => {
     await open(page, "/book/fox/relations?at=38&perspective=reader");
     await expect(page.getByTestId("relation-graph").locator("canvas").first()).toBeVisible();
     const center = await centerOn(page, "花铃");
@@ -133,18 +133,28 @@ test("关系图（验收 3、输出 27）：页面上已有文字选区时拖动
     await expect(page.getByTestId("entity-card")).toHaveCount(0);
     // 松手后马上再点会被 Sigma 当成双击（放大镜头）：等画布稳定（超过双击间隔）再点。
     await settle(page);
-    // 点在拖到的新位置上：说明点确实被拖过去了。点一下只选中、浮出小卡，不开抽屉。
+    // 在拖到的新位置上单击只选中、不开抽屉；按 Enter 打开的是花铃：说明点确实被拖过去了、也选中了它。
     await page.mouse.click(center.x + 60, center.y + 40);
-    await expect(page.getByTestId("node-popover-name")).toHaveText("花铃");
     await expect(page.getByTestId("entity-card")).toHaveCount(0);
-    await page.getByTestId("node-popover-open").click();
+    await page.keyboard.press("Enter");
     await expect(page.getByTestId("card-name")).toHaveText("花铃");
-    // 抽屉开着时点另一个点，抽屉跟着换人。
+    // F 切换“只看周边”。
+    const neighborhood = page.getByRole("checkbox", {name: "只看选中的周边"});
+    await page.keyboard.press("f");
+    await expect(neighborhood).toBeChecked();
+    await page.keyboard.press("f");
+    await expect(neighborhood).not.toBeChecked();
+    // 抽屉开着时单击另一个点，抽屉跟着换人。
     const other = await centerOn(page, "南小风");
     await page.mouse.click(other.x, other.y);
     await expect(page.getByTestId("card-name")).toHaveText("南小风");
-    await page.keyboard.press("Escape");
-    await expect(page.getByTestId("node-popover")).toHaveCount(0);
+    await page.getByTestId("entity-card").getByRole("button", {name: "关闭"}).click();
+    await expect(page.getByTestId("entity-card")).toHaveCount(0);
+    // 右键菜单：打开人物卡。关掉抽屉后画布变宽、点的屏幕位置变了，换一个人重新定位。
+    const third = await centerOn(page, "白灵");
+    await page.mouse.click(third.x, third.y, {button: "right"});
+    await page.getByRole("menuitem", {name: /白灵的人物卡/u}).click();
+    await expect(page.getByTestId("card-name")).toHaveText("白灵");
     await page.getByTestId("entity-card").getByRole("button", {name: "关闭"}).click();
     await settle(page);
     const beforeLayer = await page.getByTestId("relation-graph").screenshot();
@@ -187,10 +197,9 @@ test("视角（验收 5）：苏天晴视角下南嘉鱼与地狱猫不合并；
     await open(page, "/book/fox/relations?at=38&perspective=reader");
     await expect(page.getByTestId("perspective-banner")).toHaveCount(0);
     await expect.poll(() => graphs.find(graph => graph.view.perspective === "reader")?.edges.find(edge => edge.a === "e30-1" && edge.b === "e8-2")?.identity).toBe("uncertain");
-    // 点猫娘魔法少女，从小卡打开人物卡的关系页签，身份连接写在列表里。
+    // 双击猫娘魔法少女打开人物卡的关系页签，身份连接写在列表里。
     const center = await centerOn(page, "猫娘魔法少女");
-    await page.mouse.click(center.x, center.y);
-    await page.getByTestId("node-popover-open").click();
+    await page.mouse.dblclick(center.x, center.y);
     await expect(page.getByTestId("card-relations").getByTestId("identity")).toContainText("可能是同一人");
 });
 

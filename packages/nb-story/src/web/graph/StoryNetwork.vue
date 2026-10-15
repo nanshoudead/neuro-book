@@ -66,11 +66,17 @@ const props = withDefaults(defineProps<{
     hiddenTypes: () => [], minCo: 2, compact: false, query: "", pinned: () => [],
 });
 
-/** select：点了一个点（拖动不算）；clear：点了空白处或按 Escape，宿主应取消选中（输出 27）。 */
-const emit = defineEmits<{(event: "select", id: string): void; (event: "clear"): void}>();
-defineSlots<{
-    /** 选中的点旁边浮出的小卡片（输出 27）；跟着点在画布上的位置走，点被隐藏时不显示。 */
-    selected?: () => unknown;
+/**
+ * 交互（输出 27）：单击选中一个点（拖动不算）→ select；双击或在图上按 Enter → open，宿主打开它的人物卡或连线说明；
+ * 右键 → menu（带视口坐标，宿主弹出右键菜单；右键也会先选中这个点）；按 F → neighborhood，宿主切换“只看周边”；
+ * 点空白处或按 Escape → clear。快捷键只在焦点在图上时生效（按下画布时焦点移到图上）。
+ */
+const emit = defineEmits<{
+    (event: "select", id: string): void;
+    (event: "open", id: string): void;
+    (event: "menu", payload: {id: string; x: number; y: number}): void;
+    (event: "neighborhood", value: boolean): void;
+    (event: "clear"): void;
 }>();
 
 const root = ref<HTMLElement | null>(null);
@@ -181,8 +187,12 @@ function buildRelation(target: Graph): void {
         addNode(target, node.id, {label: node.label, color: kindColor(node.kind), forceLabel: true, weight: node.weight});
     }
     fillRelationEdges(target);
-    // 没有任何线连着的点不画（人物卡小图里的中心点除外）
-    for (const node of target.nodes()) if (target.degree(node) === 0 && node !== props.ego) target.dropNode(node);
+    // 没有任何线连着的点不画（人物卡小图里的中心点除外）。人物卡小图只画和中心直接相连的点：选邻居时按全部联系排，
+    // 但小图不画认知层，只靠认知连着中心的点会只剩和别的邻居之间的线，放射排布给不了它位置。
+    for (const node of target.nodes()) {
+        if (node === props.ego) continue;
+        if (target.degree(node) === 0 || (props.ego !== null && target.hasNode(props.ego) && !target.areNeighbors(node, props.ego))) target.dropNode(node);
+    }
 }
 
 /** 全书图：对象、主线（或情节）、秘密、悬念。情节、主线标题很长，图上只显示前 12 个字，悬停显示全文。 */
@@ -480,7 +490,6 @@ function render(how: "fresh" | "continue" | "keep" = "fresh"): void {
     });
     // 线上的字互相避让：每画一帧前清空已占的位置
     sigma.on("beforeRender", drawEdgeLabel.reset);
-    sigma.on("afterRender", updateAnchor);
     bindEvents(sigma, graph);
     applyQuery();
     if (props.neighborhood && focus.selected !== null) enterNeighborhood();
@@ -544,6 +553,22 @@ function bindEvents(instance: Sigma, target: Graph): void {
         else if (props.layout === "concentric") relayout(false);
         emit("select", node);
     });
+    // 双击打开，不做 Sigma 默认的双击放大。
+    instance.on("doubleClickNode", ({node, event}) => {
+        event.preventSigmaDefault();
+        emit("open", node);
+    });
+    instance.on("rightClickNode", ({node, event}) => {
+        event.original.preventDefault();
+        if (focus!.selected !== node) {
+            focus!.selected = node;
+            instance.refresh({skipIndexation: true});
+            if (props.neighborhood) enterNeighborhood();
+            emit("select", node);
+        }
+        const original = event.original as MouseEvent;
+        emit("menu", {id: node, x: original.clientX, y: original.clientY});
+    });
     instance.on("clickStage", () => {
         if (focus!.selected === null) return;
         focus!.selected = null;
@@ -553,42 +578,20 @@ function bindEvents(instance: Sigma, target: Graph): void {
     });
 }
 
-/**
- * 小卡片左上角在画布里的位置；没有选中、点被隐藏或点移出画布时为 null。卡片先放在点的右边，放不下放左边，再上下
- * 左右夹在画布内（留 8 像素），不压到画布外的筛选条与顶栏。卡片尺寸量渲染出来的元素，第一次还没渲染时按 240×90 估。
- */
-const anchor = ref<{x: number; y: number} | null>(null);
-const card = ref<HTMLElement | null>(null);
-const CARD_GAP = 16;
-const EDGE = 8;
-function updateAnchor(): void {
-    const selected = focus?.selected ?? null;
-    if (sigma === null || graph === null || host.value === null || selected === null || !graph.hasNode(selected)) {
-        if (anchor.value !== null) anchor.value = null;
-        return;
-    }
-    const data = sigma.getNodeDisplayData(selected);
-    const width = host.value.clientWidth;
-    const height = host.value.clientHeight;
-    const point = data === undefined || data.hidden ? null : sigma.framedGraphToViewport(data);
-    if (point === null || point.x < 0 || point.y < 0 || point.x > width || point.y > height) {
-        anchor.value = null;
-        return;
-    }
-    const cardWidth = card.value?.offsetWidth ?? 240;
-    const cardHeight = card.value?.offsetHeight ?? 90;
-    const right = point.x + CARD_GAP;
-    const x = right + cardWidth <= width - EDGE ? right : point.x - CARD_GAP - cardWidth;
-    anchor.value = {
-        x: Math.min(Math.max(EDGE, x), Math.max(EDGE, width - cardWidth - EDGE)),
-        y: Math.min(Math.max(EDGE, point.y - cardHeight / 2), Math.max(EDGE, height - cardHeight - EDGE)),
-    };
-}
+/** 图上的快捷键：监听挂在图的根元素上，焦点在图上才生效（输入框里的 Escape、Enter 不受影响）。 */
 function onKey(event: KeyboardEvent): void {
-    if (event.key !== "Escape" || focus === null || focus.selected === null || sigma === null) return;
-    // 在输入框里按 Escape 是给输入框的（例如清空搜索），不取消图上的选中。
-    const target = event.target as HTMLElement | null;
-    if (target !== null && (target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName))) return;
+    if (focus === null || focus.selected === null || sigma === null) return;
+    if (event.key === "Enter") {
+        event.preventDefault();
+        emit("open", focus.selected);
+        return;
+    }
+    if (event.key === "f" || event.key === "F") {
+        event.preventDefault();
+        emit("neighborhood", !props.neighborhood);
+        return;
+    }
+    if (event.key !== "Escape") return;
     focus.selected = null;
     sigma.refresh({skipIndexation: true});
     leaveNeighborhood();
@@ -636,13 +639,11 @@ const legend = computed(() => {
 
 let observer: ResizeObserver | null = null;
 let lastSize = "";
-let resizeTimer: ReturnType<typeof setTimeout> | null = null;
-/** 尺寸停止变化多久后才重设画布：分栏收起、展开的过渡约 200 毫秒，过渡中每帧都在变。 */
-const RESIZE_SETTLE_MS = 120;
+let resizeFrame: number | null = null;
 onMounted(() => {
     // 容器在 Splitter 量好尺寸之前是 0：有了尺寸才排版。之后尺寸变了（收起、展开右侧栏，拖分隔条，全屏）
-    // Sigma 不会自己发现，要调 resize 重设画布大小再重画（输出 27）。过渡期间尺寸每帧都变，逐帧重画会掉帧
-    // （输出 1）：等尺寸停下来再重画一次，过渡中画布暂时保持原来的像素大小。
+    // Sigma 不会自己发现，要调 resize 重设画布大小再重画（输出 27）。一帧里最多重设一次；分栏收起、展开时外壳把
+    // 主区宽度固定住（BookFrame 的 freeze），这里只会收到一两次变化，不会逐帧重画（输出 1）。
     observer = new ResizeObserver(([entry]) => {
         const size = `${Math.round(entry!.contentRect.width)}x${Math.round(entry!.contentRect.height)}`;
         if (size === lastSize || entry!.contentRect.width === 0 || entry!.contentRect.height === 0) return;
@@ -653,12 +654,12 @@ onMounted(() => {
             themeReady.value += 1;
             return;
         }
-        if (resizeTimer !== null) clearTimeout(resizeTimer);
-        resizeTimer = setTimeout(() => {
-            resizeTimer = null;
+        if (resizeFrame !== null) return;
+        resizeFrame = requestAnimationFrame(() => {
+            resizeFrame = null;
             sigma?.resize();
             sigma?.refresh();
-        }, RESIZE_SETTLE_MS);
+        });
     });
     if (host.value !== null) observer.observe(host.value);
 });
@@ -683,10 +684,7 @@ watch(() => props.relayoutKey, () => relayout(true));
 watch(() => props.selected, (value) => {
     if (sigma === null || focus === null || graph === null) return;
     const next = value !== null && graph.hasNode(value) ? value : null;
-    if (next === focus.selected && (next === null || !props.neighborhood)) {
-        updateAnchor();
-        return;
-    }
+    if (next === focus.selected && (next === null || !props.neighborhood)) return;
     focus.selected = next;
     sigma.refresh({skipIndexation: true});
     if (!props.neighborhood) return;
@@ -701,19 +699,17 @@ watch(() => props.neighborhood, (value) => {
     else leaveNeighborhood();
 });
 watch(() => props.query, applyQuery);
-// 卡片第一次渲染出来后才量得到尺寸：按实际尺寸重新夹一次。
-watch(card, () => updateAnchor());
-window.addEventListener("keydown", onKey);
-onBeforeUnmount(() => { observer?.disconnect(); if (resizeTimer !== null) clearTimeout(resizeTimer); window.removeEventListener("keydown", onKey); stopAnimation?.(); sigma?.kill(); });
+onBeforeUnmount(() => { observer?.disconnect(); if (resizeFrame !== null) cancelAnimationFrame(resizeFrame); stopAnimation?.(); sigma?.kill(); });
 </script>
 
 <template>
-    <!-- 按下画布时把焦点从“在图里找”等输入框移到图上：之后的 Escape 才是给图的（见 onKey） -->
-    <div ref="root" class="story-graph" tabindex="-1" :style="{'--know-color': themeReady > 0 && theme ? fixedColors(theme).know : 'transparent'}" @pointerdown="root?.focus({preventScroll: true})">
+    <!-- 按下画布时把焦点从“在图里找”等输入框移到图上，图的快捷键才生效（见 onKey）。画布上不弹浏览器自己的右键菜单，
+         也不让这次 contextmenu 冒泡到 document：nb-ui 的 ContextMenu 在 document 上监听“外部右键”，会把刚打开的菜单关掉。 -->
+    <div
+        ref="root" class="story-graph" tabindex="-1" :style="{'--know-color': themeReady > 0 && theme ? fixedColors(theme).know : 'transparent'}"
+        @pointerdown="root?.focus({preventScroll: true})" @keydown="onKey" @contextmenu.prevent.stop
+    >
         <div ref="host" class="canvas" />
-        <div v-if="anchor && $slots.selected" ref="card" class="node-card" :style="{left: `${anchor.x}px`, top: `${anchor.y}px`}" data-testid="node-card">
-            <slot name="selected" />
-        </div>
         <div v-if="!compact && themeReady > 0" class="legend">
             <span v-for="item in legend" :key="item.label"><i :style="{borderColor: item.color}" />{{ item.label }}</span>
             <template v-if="mode === 'relation'">
@@ -733,7 +729,6 @@ onBeforeUnmount(() => { observer?.disconnect(); if (resizeTimer !== null) clearT
 
 <style scoped>
 .story-graph { position: relative; width: 100%; height: 100%; background: var(--panel-surface); user-select: none; outline: none; }
-.node-card { position: absolute; z-index: 3; max-width: calc(100% - 16px); }
 .canvas { position: absolute; inset: 0; }
 .legend { position: absolute; left: 10px; bottom: 8px; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; padding: 3px 8px; border-radius: 6px; background: color-mix(in srgb, var(--panel-surface) 88%, transparent); color: var(--text-secondary); font-size: var(--text-2xs); pointer-events: none; }
 .legend span { display: inline-flex; align-items: center; gap: 4px; }

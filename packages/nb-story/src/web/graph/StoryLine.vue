@@ -243,12 +243,10 @@ function onPointerDown(event: PointerEvent): void {
 
 let observer: ResizeObserver | null = null;
 let rendered = false;
-let resizeTimer: ReturnType<typeof setTimeout> | null = null;
-/** 尺寸停止变化多久后才重画（同 StoryNetwork：分栏过渡期间每帧都在变）。 */
-const RESIZE_SETTLE_MS = 120;
+let resizeFrame: number | null = null;
 onMounted(() => {
-    // 行名区与行距按画布尺寸算，尺寸变了（收起右侧栏、拖分隔条）就整张重画，范围不变；第一次有尺寸时马上画，
-    // 之后等尺寸停下来再画一次，过渡中不逐帧重建。
+    // 行名区与行距按画布尺寸算，尺寸变了（收起右侧栏、拖分隔条）就整张重画，范围不变；一帧里最多重画一次
+    // （分栏过渡期间外壳固定了主区宽度，见 BookFrame 的 freeze）。
     observer = new ResizeObserver(([entry]) => {
         if (entry!.contentRect.width === 0 || entry!.contentRect.height === 0) return;
         if (!rendered) {
@@ -256,11 +254,11 @@ onMounted(() => {
             render();
             return;
         }
-        if (resizeTimer !== null) clearTimeout(resizeTimer);
-        resizeTimer = setTimeout(() => {
-            resizeTimer = null;
+        if (resizeFrame !== null) return;
+        resizeFrame = requestAnimationFrame(() => {
+            resizeFrame = null;
             render();
-        }, RESIZE_SETTLE_MS);
+        });
     });
     if (host.value !== null) observer.observe(host.value);
 });
@@ -274,7 +272,7 @@ watch(appearance, () => {
 });
 onBeforeUnmount(() => {
     observer?.disconnect();
-    if (resizeTimer !== null) clearTimeout(resizeTimer);
+    if (resizeFrame !== null) cancelAnimationFrame(resizeFrame);
     sigma?.kill();
 });
 </script>
