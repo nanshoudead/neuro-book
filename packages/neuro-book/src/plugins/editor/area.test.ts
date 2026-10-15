@@ -427,6 +427,26 @@ describe("Spec workbench.editor 输出 30–31：上次的光标与最近打开"
         expect(tabsOf(restored.saved.at(-1)).map((tab) => tab.cursor)).toEqual([{offset: 4}, undefined]);
     });
 
+    it("语言记在标签上（输出 45）：换语言不换绑定；随快照保存与恢复；拆分带过去；换编辑器丢掉", async () => {
+        const at = await world();
+        at.area.open("project://c.json", {mode: "permanent"});
+        await ready(at);
+        const binding = textBinding(at.area, groupId(at))!;
+        expect(binding.language.value).toBeNull();
+        at.area.groups.setLanguage(binding.tabId, "plaintext");
+        expect(textBinding(at.area, groupId(at))).toBe(binding);
+        expect(binding.language.value).toBe("plaintext");
+        expect(tabsOf(at.saved.at(-1)).map((tab) => tab.language)).toEqual(["plaintext"]);
+
+        const restored = await world(at.saved.at(-1) ?? null);
+        await ready(restored);
+        expect(textBinding(restored.area, groupId(restored))!.language.value).toBe("plaintext");
+        expect(restored.area.split("right")).toMatchObject({ok: true});
+        expect(tabsOf(restored.saved.at(-1)).map((tab) => tab.language)).toEqual(["plaintext", "plaintext"]);
+        expect(restored.area.reopenWith(MARKDOWN_EDITOR)).toMatchObject({ok: true});
+        expect(tabsOf(restored.saved.at(-1)).map((tab) => tab.language)).toEqual(["plaintext", undefined]);
+    });
+
     it("恢复的会话：活动标签就绪、控件交出句柄后聚焦一次，不定位到末尾；就绪前、或就绪后定位执行前焦点离开编辑器区就不聚焦；读取失败不另提示", async () => {
         const seed = await world();
         seed.area.open("project://a.md", {mode: "permanent"});

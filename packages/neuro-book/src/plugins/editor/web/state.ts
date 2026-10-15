@@ -35,6 +35,8 @@ export const editorState = definePublicState("nbook.editor", {
     hasPreview: {type: "boolean", unready: false, reason: reason("这个文件没有预览", "This file has no preview")},
     // 活动控件交出了一行状态（输出 42）：状态栏的编辑器状态条目据此显示。
     hasEditorStatus: {type: "boolean", unready: false, reason: reason("活动的编辑器没有状态可显示", "The active editor reports no status")},
+    // 活动控件分语言（源码编辑器，输出 45）：状态栏的语言条目与“更改语言模式”据此可用。
+    hasLanguage: {type: "boolean", unready: false, reason: reason("活动的编辑器不分语言", "The active editor has no language mode")},
 });
 
 /** 文档需要保存：dirty 或有未裁决输入（与关闭时询问的判据相同，输出 4、26）。 */
@@ -67,5 +69,6 @@ export function editorStateValues(area: Readonly<ShallowRef<EditorArea | null>>)
         activeEditor: computed(() => fileTab.value?.editor ?? ""),
         hasPreview: computed(() => area.value?.previewEditor() != null),
         hasEditorStatus: computed(() => fileTab.value !== null && handle.value?.status?.value != null),
+        hasLanguage: computed(() => fileTab.value !== null && handle.value?.language?.value != null),
     };
 }

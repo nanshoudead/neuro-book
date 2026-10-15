@@ -9,6 +9,7 @@ import type {Static} from "typebox";
 import {Value} from "typebox/value";
 
 import type {Ref} from "@vue/reactivity";
+import type {languages as MonacoLanguages} from "monaco-editor/esm/vs/editor/editor.api.js";
 import type {Component} from "vue";
 
 import type {ContributionDescriptor} from "@notnotype/nb-runtime/plugins";
@@ -148,6 +149,68 @@ export interface EditorImplementation {
     load(): Promise<Component>;
 }
 
+/**
+ * 语言贡献点（docs/specs/workbench/editor.md 输出 43–45）：源码编辑器给文本着色与提供编辑规则的方式。贡献 id 是语言 id，
+ * 跨编辑器共用（例如 `python`），不要求带插件前缀；两个插件登记同一 id 时两条都被拒（运行时的 `duplicate-contribution`）。
+ */
+export const EDITOR_LANGUAGES_POINT = "editor.languages";
+
+const LANGUAGE_ID = /^[a-z][a-z0-9_.-]*$/u;
+
+/** 源码编辑器自带的语言：纯文本（Monaco 的缺省）与 JSON（Monaco 的语言服务，带校验与格式化）。 */
+export const SOURCE_EDITOR_LANGUAGE_IDS: ReadonlyArray<string> = ["plaintext", "json"];
+
+/** 与 Monaco 的语言登记同一套字段；扩展名的写法与 `editor.editors` 相同（不带点、小写）。 */
+export const LanguageDeclarationSchema = Type.Object({
+    /** 第一个是显示的名字；其余（连同第一个）也是 Markdown 代码块、HTML 嵌入这类按名字找语言时认的名字。 */
+    aliases: Type.Array(Type.String({minLength: 1}), {minItems: 1}),
+    extensions: Type.Optional(Type.Array(EXTENSION, {minItems: 1})),
+    filenames: Type.Optional(Type.Array(Type.String({minLength: 1, pattern: "^[^/\\\\]+$"}), {minItems: 1})),
+    /** 首行匹配的正则（例如 `#!` 行）。 */
+    firstLine: Type.Optional(Type.String({minLength: 1})),
+    /** HTML 的 `<script type>`、`<style>` 这类按 mimetype 嵌入时认的类型。 */
+    mimetypes: Type.Optional(Type.Array(Type.String({minLength: 1}), {minItems: 1})),
+}, {additionalProperties: false});
+
+export type LanguageDeclaration = Static<typeof LanguageDeclarationSchema>;
+
+export function validateLanguageContribution(descriptor: ContributionDescriptor): string | null {
+    if (descriptor.location !== "browser") return `${EDITOR_LANGUAGES_POINT} 只接受浏览器入口的贡献`;
+    if (!LANGUAGE_ID.test(descriptor.id)) return `语言 id 只能用小写字母、数字与 . _ -，并以字母开头：${descriptor.id}`;
+    if (SOURCE_EDITOR_LANGUAGE_IDS.includes(descriptor.id)) return `语言 ${descriptor.id} 由源码编辑器自带，不接受贡献`;
+    if (!Value.Check(LanguageDeclarationSchema, descriptor.declaration)) {
+        const first = [...Value.Errors(LanguageDeclarationSchema, descriptor.declaration)][0];
+        return `语言 ${descriptor.id} 的声明不合格：${first === undefined ? "" : `${first.instancePath === "" ? "/" : first.instancePath}：${first.message}`}`;
+    }
+    const firstLine = (descriptor.declaration as LanguageDeclaration).firstLine;
+    if (firstLine !== undefined) {
+        try {
+            new RegExp(firstLine);
+        } catch {
+            return `语言 ${descriptor.id} 的 firstLine 不是合法的正则：${firstLine}`;
+        }
+    }
+    return null;
+}
+
+/**
+ * 语言的规则。`format` 这期只有 `monarch`（TextMate 留给第三方插件的 Work）：`language` 是 Monarch 分词规则，`configuration`
+ * 是括号、注释、自动闭合与缩进规则，形状分别是 Monaco 的 `IMonarchLanguage` 与 `LanguageConfiguration`。
+ */
+type MonarchLanguage = MonacoLanguages.IMonarchLanguage;
+type MonarchLanguageConfiguration = MonacoLanguages.LanguageConfiguration;
+
+export interface LanguageDefinition {
+    readonly format: "monarch";
+    readonly language: MonarchLanguage;
+    readonly configuration: MonarchLanguageConfiguration;
+}
+
+/** 语言的实现：第一次遇到这门语言时才调用。 */
+export interface LanguageImplementation {
+    load(): Promise<LanguageDefinition>;
+}
+
 /** 视图状态的槽：控件放自己的状态（模型、编辑状态、滚动位置）；淘汰时编辑器区调 `dispose`。 */
 export interface ViewStateSlot {
     state: unknown;
@@ -180,8 +243,8 @@ export interface TextEditorBinding {
     /** 标签记下的光标：第一次为这份文档建视图状态时放回去。 */
     readonly cursor: TabCursor | null;
     remember(cursor: TabCursor): void;
-    /** 标签记下的语言（输出 45）；没有为 null。 */
-    readonly language: string | null;
+    /** 标签记下的语言（输出 45）；没有为 null。换语言不换绑定：控件看着它换模型的语言。 */
+    readonly language: Readonly<Ref<string | null>>;
 }
 
 /**
@@ -220,6 +283,8 @@ export interface EditorControlHandle {
     revealEnd?(): void;
     /** 状态栏的编辑器状态条目显示的一行（输出 42）；没有为 null。 */
     readonly status?: Readonly<Ref<LocalizedText | string | null>>;
+    /** 视图此刻用的语言 id（输出 44、45）：标签记着的，或按文件识别出的；只有分语言的控件（源码编辑器）提供。 */
+    readonly language?: Readonly<Ref<string | null>>;
 }
 
 /** 控件的属性与事件（`binding` 的类型按编辑器的 `input`）。 */

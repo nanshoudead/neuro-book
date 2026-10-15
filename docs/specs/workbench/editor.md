@@ -50,7 +50,7 @@ owners:
   - 声明 `{title, selector?: {extensions?: string[], filenames?: string[]}, priority: "default" | "option", input: "text" | "bytes", role?: "preview", cursor?: "offset" | "line"}`。`extensions` 写不带点的小写后缀，可以多段（`d.ts`）；`filenames` 写完整文件名。`cursor` 是这种编辑器记光标的写法（输出 30），没有就不记。
   - 实现 `{load(): Promise<Component>}`；组件按下面的控件合同接收绑定。
   - 编辑器 id 的规则与页面 id 相同。
-- 语言贡献点 `editor.languages`（输出 43–45，只接受浏览器入口；planned）：声明 `{aliases: LocalizedText[] | string[], extensions?: string[], filenames?: string[], firstLine?: string, mimetypes?: string[]}`，与 Monaco 的语言登记同一套字段；实现 `{load(): Promise<{format: "monarch", language, configuration}>}`，`language` 是 Monarch 分词规则，`configuration` 是括号、注释、自动闭合与缩进规则。语言 id 写小写字母、数字与 `-`、`_`，不要求带插件前缀：语言 id 是跨编辑器共用的名字（例如 `python`），与 Monaco 和 VS Code 一致；同一 id 被两个插件登记时按插件 id 的码元顺序取第一个，另一条记诊断。
+- 语言贡献点 `editor.languages`（输出 43–45，只接受浏览器入口；planned）：声明 `{aliases: string[], extensions?: string[], filenames?: string[], firstLine?: string, mimetypes?: string[]}`，与 Monaco 的语言登记同一套字段：`aliases` 至少一个，第一个是显示的名字，全部（不分大小写）也是 Markdown 代码块这类按名字找语言时认的名字；`extensions` 与 `editor.editors` 的写法相同（不带点、小写）；`firstLine` 是匹配首行的正则；`mimetypes` 是 HTML 的 `<script type>` 这类按类型嵌入时认的类型。实现 `{load(): Promise<{format: "monarch", language, configuration}>}`，`language` 是 Monarch 分词规则，`configuration` 是括号、注释、自动闭合与缩进规则。语言 id 以小写字母开头，只用小写字母、数字与 `.`、`-`、`_`，不要求带插件前缀：语言 id 是跨编辑器共用的名字（例如 `python`），与 Monaco 和 VS Code 一致。`plaintext`（纯文本）与 `json` 由源码编辑器自带，不接受贡献；同一 id 被两个插件登记时两条都被拒（[runtime.plugins](../runtime/plugins.md) 的 `duplicate-contribution`）。
 - 控件合同（类型在 `editor/shared/contracts.ts`，供编辑器的实现组件使用；planned）：
 
   ```ts
@@ -69,7 +69,8 @@ owners:
       unresolved(): boolean;
       readonly cursor: {offset: number} | {line: number; column: number} | null;
       remember(cursor: {offset: number} | {line: number; column: number}): void;
-      readonly language: string | null;
+      /** 标签记下的语言（输出 45）；换语言不换绑定。 */
+      readonly language: Readonly<Ref<string | null>>;
       readonly slot: ViewStateSlot;
   }
   /** 字节编辑器（input: "bytes"）收到的绑定：`url` 读文件字节，`version` 在文件每次变化时加一。 */
@@ -85,7 +86,7 @@ owners:
   }
   ```
 
-  能不能输入由组件属性 `readonly` 给出（输出 48 的预览视图、只读文档为真）。组件属性为 `{binding, host, readonly, visible, label, locale}`（`locale` 是界面语言，控件自己显示的说明按它取），事件为 `ready(handle | null)`、`focus(boolean)`；句柄在现有的聚焦、撤销、重做、结算、行号导航之外，可以交出 `status: Readonly<Ref<LocalizedText | null>>`，由状态栏的编辑器状态条目显示（输出 42）。
+  能不能输入由组件属性 `readonly` 给出（输出 48 的预览视图、只读文档为真）。组件属性为 `{binding, host, readonly, visible, label, locale}`（`locale` 是界面语言，控件自己显示的说明按它取），事件为 `ready(handle | null)`、`focus(boolean)`；句柄在现有的聚焦、撤销、重做、结算、行号导航之外，可以交出 `status: Readonly<Ref<LocalizedText | null>>`，由状态栏的编辑器状态条目显示（输出 42）；分语言的控件（源码编辑器）交出 `language: Readonly<Ref<string | null>>`，即视图此刻用的语言 id（标签记着的，或识别出的），由语言条目显示（输出 45）。
 - 地址参数：`/?project=<短名>&open=<地址>&at=end`，书架页的“继续写作”用它跨页传递打开目标（输出 29）。
 - 命令（`editor` 域；参数为 `{}` 的作用于活动编辑组的活动标签）：
 
@@ -102,10 +103,10 @@ owners:
   | `nbook.editor.split-down` | `{}` | `active` | read | auto | — |
   | `nbook.editor.reopen-with` | `{editor?}`（不给时弹出选择，输出 39） | `active` | read | auto | — |
   | `nbook.editor.open-preview` | `{side?: boolean}` | `hasPreview` | read | auto | — |
-  | `nbook.editor.change-language` | `{language?}`（不给时弹出选择，输出 45） | `activeEditor` 是 `nbook.editor.code` | read | auto | — |
+  | `nbook.editor.change-language` | `{language?}`（不给时弹出选择，输出 45） | `hasLanguage` | read | auto | — |
 
   `when` 列写 `nbook.editor/` 下的公开键名。`revert` 丢弃未保存修改，对 Agent 不开放。`open-preview` 与 `change-language` 两行是（planned）。键位只在编辑器区有焦点时由编辑器区处理并执行同一命令，不写成全局键位，`when` 也不含焦点：命令面板取得焦点时这些命令仍可选。第一批的 `nbook.editor.focus`、`nbook.edit.undo`、`nbook.edit.redo`、`nbook.editor.go-to-line` 由本插件登记，`when` 改用下面的公开键，其余声明不变。
-- 公开状态（布尔）：`nbook.editor/focused`（编辑区获得焦点）、`nbook.editor/active`（有活动视图）、`nbook.editor/writable`（活动视图可写）、`nbook.editor/lineNavigation`（活动视图支持行导航）、`nbook.editor/dirty`（活动文档 dirty）、`nbook.editor/hasUnsavedDocuments`（本窗口有任一打开的文档需要保存，按文档去重）、`nbook.editor/hasCursorPosition`（活动控件给出光标位置）、`nbook.editor/ready`（编辑器区已建好：绑定项目的窗口读完会话记录之后），前四个对应命令目录第一批的 `editor-focus`、`editor-active`、`editor-writable`、`editor-line-navigation`。公开状态（字符串）：`nbook.editor/activeDocument`（活动组的活动标签的地址，文档还没读到也有；没有时为空串），资源管理器在打开作品时据此揭示活动文件（[workbench.files-explorer](files-explorer.md)）。（planned）`nbook.editor/active` 改为“活动组有活动的文件标签且它的控件交出了句柄”，不再要求文本文档；新增字符串 `nbook.editor/activeEditor`（活动标签的编辑器 id，页面标签或空组为空串），布尔 `nbook.editor/hasPreview`（活动标签的文件有可用的预览编辑器，且活动标签本身不是预览视图）、`nbook.editor/hasDocument`（活动标签有文本文档；字节标签与页面为假）、`nbook.editor/hasEditorStatus`（活动控件交出了一行状态，输出 42）；`nbook.editor/writable` 改为活动视图能输入（预览视图为假，输出 48）。
+- 公开状态（布尔）：`nbook.editor/focused`（编辑区获得焦点）、`nbook.editor/active`（有活动视图）、`nbook.editor/writable`（活动视图可写）、`nbook.editor/lineNavigation`（活动视图支持行导航）、`nbook.editor/dirty`（活动文档 dirty）、`nbook.editor/hasUnsavedDocuments`（本窗口有任一打开的文档需要保存，按文档去重）、`nbook.editor/hasCursorPosition`（活动控件给出光标位置）、`nbook.editor/ready`（编辑器区已建好：绑定项目的窗口读完会话记录之后），前四个对应命令目录第一批的 `editor-focus`、`editor-active`、`editor-writable`、`editor-line-navigation`。公开状态（字符串）：`nbook.editor/activeDocument`（活动组的活动标签的地址，文档还没读到也有；没有时为空串），资源管理器在打开作品时据此揭示活动文件（[workbench.files-explorer](files-explorer.md)）。（planned）`nbook.editor/active` 改为“活动组有活动的文件标签且它的控件交出了句柄”，不再要求文本文档；新增字符串 `nbook.editor/activeEditor`（活动标签的编辑器 id，页面标签或空组为空串），布尔 `nbook.editor/hasPreview`（活动标签的文件有可用的预览编辑器，且活动标签本身不是预览视图）、`nbook.editor/hasDocument`（活动标签有文本文档；字节标签与页面为假）、`nbook.editor/hasEditorStatus`（活动控件交出了一行状态，输出 42）、`nbook.editor/hasLanguage`（活动控件交出了语言，即活动视图是源码编辑器，输出 45）；`nbook.editor/writable` 改为活动视图能输入（预览视图为假，输出 48）。
 - 文档协调服务 `documentCoordinatorKey`（`nbook.editor` 的共享合同），资源管理器作为可选依赖使用：
 
   ```ts
@@ -181,6 +182,7 @@ owners:
 | `nbook.editor.unsaved` | 未保存 N 个 | `nbook.editor/hasUnsavedDocuments` | `nbook.editor.save-all` | 10 | 30 |
 | `nbook.editor.word-count` | 活动文档的字数，例如“1,234 字” | `nbook.editor/active` 且 `nbook.editor/hasDocument`（planned：之前只要 `active`） | 无 | 20 | 20 |
 | `nbook.editor.editor-status`（planned） | 活动控件交出的一行状态，例如图片的尺寸 | `nbook.editor/hasEditorStatus` | 无 | 25 | 15 |
+| `nbook.editor.language`（planned） | 活动视图的语言名，例如“Python” | `nbook.editor/hasLanguage` | `nbook.editor.change-language` | 28 | 12 |
 | `nbook.editor.cursor` | 第 L 行，第 C 列 | `nbook.editor/hasCursorPosition` | 无 | 30 | 10 |
 
 26. 未保存数按文档计（同一文件在几个组里打开只算一个），含非活动的文档；“需要保存”与第 4 条询问的判据相同（dirty、未裁决输入）。提示列出至多 5 个文件；有文档正在保存时写“正在保存”；有保存失败的文档时条目为 `error` 状态，提示列出失败的文件与原因。点击执行全部保存。
@@ -229,7 +231,7 @@ owners:
 
 43. **语言登记**：源码编辑器加载时一次登记全部已接受的 `editor.languages` 声明（id、别名、扩展名、文件名、首行、mimetypes），分词规则与编辑规则在第一次遇到这门语言时才加载，包括 HTML 里的 `<script>`、`<style>` 与 Markdown 代码块按名字或 mimetype 嵌入的语言。内置：`nbook.editor` 登记源码编辑器（Monaco）自带的全部 Monarch 语言；JSON 另有语言服务（校验与格式化）。
 44. **选语言**：标签记着语言（输出 45）且它已登记时用它；否则按文件名、扩展名、首行识别，都不中为纯文本。记下的语言已不在时回退到识别，不改写记录。
-45. **语言条目与切换**：状态栏右侧条目 `nbook.editor.language`（`when` 为活动编辑器是 `nbook.editor.code`，order 28、priority 12）显示当前语言的名字，点击执行 `nbook.editor.change-language`：经选择服务列出全部已登记的语言（当前的标“当前”），选中后换当前视图的语言并记在标签上，随会话记录保存；带 `language` 参数时直接换，语言未登记为 `unavailable`。语言随拆分复制，换编辑器时丢弃。
+45. **语言条目与切换**：状态栏右侧条目 `nbook.editor.language`（`when: nbook.editor/hasLanguage`，order 28、priority 12）显示当前语言的名字，点击执行 `nbook.editor.change-language`：经选择服务列出全部已登记的语言（纯文本与 JSON 在前，当前的标“当前”），选中后换当前视图的语言并记在标签上，随会话记录保存；选择期间活动标签换了为 `stale-target`，不改别的标签。带 `language` 参数时直接换，语言未登记为 `unavailable`。语言随拆分复制，换编辑器时丢弃。
 
 **预览**（planned）
 

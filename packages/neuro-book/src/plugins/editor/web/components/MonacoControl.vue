@@ -1,12 +1,13 @@
 <script setup lang="ts">
 /** 源码编辑器控件（同名 .md）：一个 Monaco 编辑器实例，按编辑器控件合同（`control.ts`）绑定文档。 */
-import {onBeforeUnmount, onMounted, ref, shallowRef, watch} from "vue";
+import {inject, onBeforeUnmount, onMounted, ref, shallowRef, watch} from "vue";
 import type * as Monaco from "monaco-editor/esm/vs/editor/editor.api.js";
 
 import type {DisplayLocale} from "nbook/shared/localized-text";
 
 import type {EditorControlHandle, TextEditorBinding, ViewStateSlot} from "../area";
-import {languageOf, loadMonaco} from "../code/load-monaco";
+import {editorLanguagesKey} from "../code/languages";
+import {loadMonaco} from "../code/load-monaco";
 import type {MonacoApi} from "../code/load-monaco";
 import {buildMonacoTheme, MONACO_THEME} from "../code/monaco-theme";
 import type {EditorControlEmits} from "../control";
@@ -31,6 +32,9 @@ interface CodeViewState {
     base: string;
 }
 
+/** 贡献点登记的语言（编辑器区提供）；Lab 这类没有提供的场合只有 Monaco 自带的纯文本与 JSON。 */
+const languages = inject(editorLanguagesKey, null);
+
 const root = ref<HTMLElement | null>(null);
 const failed = ref<string | null>(null);
 let monaco: MonacoApi | null = null;
@@ -47,6 +51,19 @@ let cursorTimer: ReturnType<typeof setTimeout> | null = null;
 const CURSOR_REMEMBER_MS = 1000;
 
 const stateOf = (binding: TextEditorBinding): CodeViewState | null => binding.slot.state as CodeViewState | null;
+
+/** 模型的 URI 只为让 Monaco 按文件名与首行识别语言（输出 44）：同一文件在几个组里各有模型，URI 不能重复，前面加序号。 */
+let modelSequence = 0;
+const modelUri = (api: MonacoApi, address: string): Monaco.Uri => {
+    modelSequence += 1;
+    return api.Uri.from({scheme: "nbook-model", authority: `m${String(modelSequence)}`, path: `/${address.slice(address.lastIndexOf("/") + 1)}`});
+};
+
+/** 标签记着的语言，已登记时才用；不在了回退到识别，不改写记录（输出 44）。 */
+const wantedLanguage = (binding: TextEditorBinding): string | null => {
+    const wanted = binding.language.value;
+    return wanted !== null && languages?.has(wanted) === true ? wanted : null;
+};
 
 /** 模型的文本带上 BOM（`getValue` 默认去掉它）。 */
 const valueOf = (model: Monaco.editor.ITextModel): string => model.getValue(undefined, true);
@@ -85,13 +102,17 @@ const enter = (binding: TextEditorBinding): void => {
     if (monaco === null || editor === null) return;
     let state = stateOf(binding);
     const fresh = state === null;
+    // 后来才交付声明的语言也在建模型之前登记进去。
+    languages?.install(monaco);
+    const wanted = wantedLanguage(binding);
     if (state === null) {
-        const model = monaco.editor.createModel(binding.text.value, languageOf(binding.address.value));
+        const model = monaco.editor.createModel(binding.text.value, wanted ?? undefined, modelUri(monaco, binding.address.value));
         state = {model, view: null, confirmed: binding.revision.value, held: false, source: binding.text.value, base: valueOf(model)};
         binding.slot.state = state;
         binding.slot.dispose = () => model.dispose();
-    } else if (!state.held && state.confirmed !== binding.revision.value) {
-        adopt(binding, state);
+    } else {
+        if (!state.held && state.confirmed !== binding.revision.value) adopt(binding, state);
+        if (wanted !== null && state.model.getLanguageId() !== wanted) monaco.editor.setModelLanguage(state.model, wanted);
     }
     editor.setModel(state.model);
     if (state.view !== null) editor.restoreViewState(state.view);
@@ -104,6 +125,7 @@ const enter = (binding: TextEditorBinding): void => {
         if (placed !== null) editor.revealPositionInCenter(placed);
     }
     readPosition();
+    language.value = state.model.getLanguageId();
     editor.updateOptions({readOnly: props.readonly});
     bound = binding;
     // 每次输入立即交出，没有缓冲；结算只需补交与文档不同的内容（例如回执冲突后）。
@@ -132,6 +154,7 @@ const leave = (binding: TextEditorBinding): void => {
     if (bound === binding) bound = null;
     editor?.setModel(null);
     position.value = null;
+    language.value = null;
 };
 
 watch(() => props.binding, (next, previous) => {
@@ -148,6 +171,15 @@ watch(() => [props.binding?.revision.value, props.binding?.unresolved()] as cons
     if (state.held && binding.unresolved()) return;
     if (!state.held && state.confirmed === binding.revision.value) return;
     adopt(binding, state);
+});
+
+// 换语言（输出 45）：标签记下的语言变了，换这个模型的语言；绑定不变。
+watch(() => (props.binding === null ? null : wantedLanguage(props.binding)), (wanted) => {
+    const binding = props.binding;
+    const state = binding === null ? null : stateOf(binding);
+    if (monaco === null || binding !== bound || state === null || wanted === null || state.model.getLanguageId() === wanted) return;
+    monaco.editor.setModelLanguage(state.model, wanted);
+    language.value = state.model.getLanguageId();
 });
 
 watch(() => props.readonly, (readonly) => editor?.updateOptions({readOnly: readonly}));
@@ -168,8 +200,12 @@ const readPosition = (): void => {
     position.value = selection === null ? null : {line: selection.positionLineNumber, column: selection.positionColumn};
 };
 
+/** 视图此刻的语言（输出 45 的状态栏条目显示它）；换文档、卸载时为 null。 */
+const language = shallowRef<string | null>(null);
+
 const handle: EditorControlHandle = {
     position,
+    language,
     focus: () => editor?.focus(),
     undo: () => editor?.trigger("nbook", "undo", null),
     redo: () => editor?.trigger("nbook", "redo", null),
@@ -206,6 +242,7 @@ onMounted(async () => {
     }
     if (unmounted || root.value === null) return;
     applyTheme();
+    languages?.install(monaco);
     editor = monaco.editor.create(root.value, {
         model: null,
         automaticLayout: true,

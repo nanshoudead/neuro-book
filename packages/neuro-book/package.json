@@ -24,6 +24,7 @@
         "smoke:server": "bun scripts/smoke-server.ts",
         "lab:shot": "node scripts/lab-shot.ts",
         "gen:file-icons": "bun scripts/gen-file-icons.ts",
+        "gen:monaco-languages": "bun scripts/gen-monaco-languages.ts",
         "perf:files": "bun scripts/perf/files-perf.ts"
     },
     "dependencies": {

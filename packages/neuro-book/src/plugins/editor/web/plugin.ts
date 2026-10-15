@@ -4,7 +4,7 @@
  * 文件），绑定项目的窗口先读会话记录。
  */
 
-import {computed, defineAsyncComponent, defineComponent, h, reactive, shallowRef, watch} from "vue";
+import {computed, defineAsyncComponent, defineComponent, h, provide as provideToChildren, reactive, shallowRef, watch} from "vue";
 import type {Component, PropType} from "vue";
 
 import {diagnosticsKey} from "@notnotype/nb-runtime/diagnostics";
@@ -23,8 +23,10 @@ import {windowProjectKey} from "nbook/shared/projects";
 import {bindingsOf} from "nbook/shared/store/public";
 
 import {descriptor} from "../plugin";
-import {CODE_EDITOR, documentCoordinatorKey, EDITOR_EDITORS_POINT, EDITOR_PAGES_POINT, EDITOR_TITLE_POINT, MARKDOWN_EDITOR, validateEditorContribution, validateEditorPageContribution, validateEditorTitleItem} from "../shared/contracts";
+import {CODE_EDITOR, documentCoordinatorKey, EDITOR_EDITORS_POINT, EDITOR_LANGUAGES_POINT, EDITOR_PAGES_POINT, EDITOR_TITLE_POINT, MARKDOWN_EDITOR, validateEditorContribution, validateEditorPageContribution, validateEditorTitleItem, validateLanguageContribution} from "../shared/contracts";
 import type {EditorImplementation, EditorTitleItemDeclaration} from "../shared/contracts";
+import {editorLanguagesKey, LanguageRegistry, monacoLanguageImplementation} from "./code/languages";
+import {MONACO_LANGUAGES} from "./code/monaco-languages";
 import {CLOSE_COMMAND, EDITOR_COMMAND_DECLARATIONS, editorCommands, SAVE_COMMAND, SPLIT_RIGHT_COMMAND} from "./commands";
 import {EditorPageRegistry} from "./pages";
 import {continueRequestOf, withoutContinueParams} from "./continue-writing";
@@ -64,6 +66,8 @@ export const editorBrowserPlugin: PluginDefinition = {
         {id: EDITOR_TITLE_POINT, implementation: "required", validate: validateEditorTitleItem},
         // 编辑器（docs/specs/workbench/editor.md 输出 36）：内置的两个也声明在这里。
         {id: EDITOR_EDITORS_POINT, implementation: "required", validate: validateEditorContribution},
+        // 语言（输出 43）：源码编辑器（Monaco）自带的也声明在这里。
+        {id: EDITOR_LANGUAGES_POINT, implementation: "required", validate: validateLanguageContribution},
     ],
     entries: [defineEntry({
         id: "browser",
@@ -71,7 +75,7 @@ export const editorBrowserPlugin: PluginDefinition = {
         activationEvents: ["onStartup"],
         dependencies: [{key: diagnosticsKey}, {key: filesKey}, {key: commandServiceKey}, {key: storageKey}, {key: windowProjectKey}, {key: settingsKey}, {key: clockKey}, {key: windowNavigationKey}, {key: publicStateKey}, {key: windowRescueKey, required: false}, {key: quickPickKey, required: false}],
         provides: [documentCoordinatorKey],
-        receives: [EDITOR_PAGES_POINT, EDITOR_TITLE_POINT, EDITOR_EDITORS_POINT],
+        receives: [EDITOR_PAGES_POINT, EDITOR_TITLE_POINT, EDITOR_EDITORS_POINT, EDITOR_LANGUAGES_POINT],
         contributions: [
             {capability: WORKBENCH_EDITOR_AREA_POINT, id: EDITOR_AREA_ID, declaration: {order: 0}},
             ...Object.entries(EDITOR_COMMAND_DECLARATIONS).map(([id, declaration]) => ({capability: COMMANDS_POINT, id, declaration})),
@@ -79,6 +83,7 @@ export const editorBrowserPlugin: PluginDefinition = {
             ...EDITOR_TITLEBAR_MENU_ITEMS.map(({id, declaration}) => ({capability: WORKBENCH_TITLEBAR_MENU_POINT, id, declaration})),
             ...Object.entries(EDITOR_STATUS_ITEMS).map(([id, declaration]) => ({capability: WORKBENCH_STATUSBAR_ITEMS_POINT, id, declaration})),
             ...Object.entries(BUILTIN_EDITORS).map(([id, declaration]) => ({capability: EDITOR_EDITORS_POINT, id, declaration})),
+            ...MONACO_LANGUAGES.map(({id, declaration}) => ({capability: EDITOR_LANGUAGES_POINT, id, declaration})),
         ],
         activate: async (context) => {
             const diagnostics = context.services.require(diagnosticsKey);
@@ -91,6 +96,9 @@ export const editorBrowserPlugin: PluginDefinition = {
                 diagnostics.record({level: "error", event: "editor.error", message: error instanceof Error ? error.message : String(error), error, source: {plugin: descriptor.id}});
             };
             const editors = new EditorRegistry(context.declarations, BUILTIN_COMPONENTS);
+            const languages = new LanguageRegistry(context.declarations, (error, language) => {
+                diagnostics.record({level: "error", event: "editor.language", message: `语言 ${language} 的规则加载失败，按纯文本显示：${error instanceof Error ? error.message : String(error)}`, error, data: {language}, source: {plugin: descriptor.id}});
+            });
             const session = createEditorSession({
                 editors: editors.catalog,
                 conflict: (address, ids) => diagnostics.record({level: "warn", event: "editor.editors.conflict", message: `${address} 有 ${String(ids.length)} 个默认编辑器同级命中，取 ${ids[0] ?? ""}`, data: {address, editors: ids}, source: {plugin: descriptor.id}}),
@@ -192,27 +200,31 @@ export const editorBrowserPlugin: PluginDefinition = {
                     return defineComponent({
                         name: "EditorAreaHost",
                         props: {context: {type: Object as PropType<EditorAreaContext>, required: true}},
-                        setup: () => () => (session.area.value === null ? null : h(EditorArea, {area: session.area.value, locale: locale.value, control, pages: pages.source(pageContext), emptyTips: tips(), titleActions: titleActions(), onRunTip: execute, onTitleAction: (key: string) => {
+                        setup: () => {
+                            provideToChildren(editorLanguagesKey, languages);
+                            return () => (session.area.value === null ? null : h(EditorArea, {area: session.area.value, locale: locale.value, control, pages: pages.source(pageContext), emptyTips: tips(), titleActions: titleActions(), onRunTip: execute, onTitleAction: (key: string) => {
                             session.area.value?.activeHandle.value?.flushPendingChange();
                             titles.run(key);
                         }, onIntent: (intent: "save" | "close" | "split-right") => {
                             // 控件有输入延迟：先把活动视图里还没交出的输入交给文档，命令的 `when`（例如保存要求 dirty）才看得到它。
                             session.area.value?.activeHandle.value?.flushPendingChange();
                             execute(INTENTS[intent]);
-                        }})),
+                        }}));
+                        },
                     });
                 },
             };
             const published = bindingsOf(editorState, editorStateValues(session.area));
             return {
                 services: [provide(documentCoordinatorKey, session.coordinator)],
-                receivers: {[EDITOR_PAGES_POINT]: pages.receiver(), [EDITOR_TITLE_POINT]: titleItems.receiver(), [EDITOR_EDITORS_POINT]: editors.receiver()},
+                receivers: {[EDITOR_PAGES_POINT]: pages.receiver(), [EDITOR_TITLE_POINT]: titleItems.receiver(), [EDITOR_EDITORS_POINT]: editors.receiver(), [EDITOR_LANGUAGES_POINT]: languages.receiver()},
                 contributions: {
                     [WORKBENCH_EDITOR_AREA_POINT]: {[EDITOR_AREA_ID]: area},
-                    [COMMANDS_POINT]: editorCommands(session.area, {pages, editors: editors.catalog, pick: quickPick.status === "resolved" ? quickPick.instance : null}),
+                    [COMMANDS_POINT]: editorCommands(session.area, {pages, editors: editors.catalog, languages, pick: quickPick.status === "resolved" ? quickPick.instance : null}),
                     [EDITOR_EDITORS_POINT]: {[MARKDOWN_EDITOR]: builtinImplementation(MARKDOWN_EDITOR), [CODE_EDITOR]: builtinImplementation(CODE_EDITOR)},
+                    [EDITOR_LANGUAGES_POINT]: Object.fromEntries(MONACO_LANGUAGES.map((entry) => [entry.id, monacoLanguageImplementation(entry)])),
                     [PUBLIC_STATE_POINT]: Object.fromEntries(published.bindings),
-                    [WORKBENCH_STATUSBAR_ITEMS_POINT]: editorStatusItems(session.area, locale, context.services.require(clockKey)),
+                    [WORKBENCH_STATUSBAR_ITEMS_POINT]: editorStatusItems(session.area, locale, context.services.require(clockKey), languages),
                     [WORKBENCH_TITLEBAR_MENU_POINT]: menuImplementations(EDITOR_TITLEBAR_MENU_ITEMS),
                 },
             };

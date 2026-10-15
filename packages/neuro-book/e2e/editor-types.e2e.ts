@@ -1,5 +1,5 @@
 /**
- * 按文件类型选编辑器在真实 Chrome 中的验收（docs/specs/workbench/editor.md 场景 22–24、26，workbench/image-viewer.md、
+ * 按文件类型选编辑器在真实 Chrome 中的验收（docs/specs/workbench/editor.md 场景 22–26，workbench/image-viewer.md、
  * workbench/html-preview.md 的验收）：生产构建的后端与前端，项目 `book` 先登记好，文件在真实目录里。预览页在真实的沙箱
  * iframe 里运行，外网地址由 Playwright 的路由接住，不真的出网。等页面上可观察的变化，不按时长等待。
  */
@@ -7,10 +7,13 @@
 import {randomUUID} from "node:crypto";
 import {mkdir, rm, writeFile} from "node:fs/promises";
 import {dirname, join} from "node:path";
+import {DatabaseSync} from "node:sqlite";
 
 import {expect, test} from "@playwright/test";
 import type {Frame, Page} from "@playwright/test";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
+
+import {CLIENT_IDENTITY_KEY} from "nbook/web/host/client-identity";
 
 import {startProductServer} from "./fixtures";
 import type {ProductServer} from "./fixtures";
@@ -64,6 +67,9 @@ test.beforeAll(async () => {
         "site/m.js": "document.body.dataset.module = \"ok\";\n",
         "site/data.json": "{\"ok\": true}\n",
         "site/img/a.png": PNG_3X2,
+        "code/a.py": "def hello():\n    return 1\n",
+        "code/a.html": "<p>x</p>\n<script>\nconst answer = 42;\n</script>\n",
+        "code/b.md": "# 标题\n\n```ts\nconst n: number = 1;\n```\n",
     };
     for (const [path, content] of Object.entries(files)) {
         await mkdir(dirname(join(projectDir, path)), {recursive: true});
@@ -105,6 +111,21 @@ async function runCommand(page: Page, title: string): Promise<void> {
     }).toPass();
     await combobox.fill(title);
     await page.getByRole("option", {name: new RegExp(title, "u")}).first().click();
+}
+
+/** 源码编辑器里文字正好匹配 `text`（正则源码）的第一个 token：Monaco 按 token 种类给类名 `mtkN`，没有着色的文字是 `mtk1`。 */
+const token = (page: Page, text: string) => activeGroup(page).locator(".view-lines span > span").filter({hasText: new RegExp(`^${text}$`, "u")}).first();
+
+/** 本窗口的编辑器会话记录（Storage 的 project 场地）。 */
+async function editorSession(page: Page): Promise<{groups: Array<{tabs: Array<{address: string; language?: string}>}>} | null> {
+    const client = await page.evaluate((identity) => localStorage.getItem(identity), CLIENT_IDENTITY_KEY);
+    const db = new DatabaseSync(join(projectDir, ".nbook", "storage.sqlite"));
+    try {
+        const row = db.prepare("SELECT value FROM records WHERE owner = 'nbook.editor' AND key = 'editor.session' AND client = ?").get(client) as {value: string} | undefined;
+        return row === undefined ? null : JSON.parse(row.value) as {groups: Array<{tabs: Array<{address: string; language?: string}>}>};
+    } finally {
+        db.close();
+    }
 }
 
 /** 预览 iframe 的框架：从当前挂着的那个元素取（换令牌、重建时是新的框架）。 */
@@ -222,4 +243,38 @@ test("HTML 预览：标题栏打开预览；相对引用的样式、图片、模
     }
     await expect(page.locator("[data-html-preview-frame]")).toHaveCount(0);
     await expect.poll(async () => (await fetch(new URL("data.json", base))).status).toBe(404);
+});
+
+test("语言：py、html 里的 script、Markdown 的 ts 代码块都有着色，状态栏显示语言名；换成纯文本后着色消失，刷新后仍是纯文本", async ({page}) => {
+    await open(page);
+    await expand(page, "project://code");
+    await item(page, "project://code/a.py").dblclick();
+    await expect(token(page, "def")).toBeVisible();
+    await expect(token(page, "def")).not.toHaveClass(/\bmtk1\b/u);
+    await expect(status(page, "nbook.editor.language")).toHaveText("Python");
+
+    // 嵌入的语言：HTML 按 mimetype（text/javascript），Markdown 代码块按名字（ts）找到。
+    await item(page, "project://code/a.html").dblclick();
+    await expect(status(page, "nbook.editor.language")).toHaveText("HTML");
+    await expect(token(page, "const")).not.toHaveClass(/\bmtk1\b/u);
+    await item(page, "project://code/b.md").dblclick();
+    await expect(status(page, "nbook.editor.language")).toHaveCount(0);
+    await runCommand(page, "用其它编辑器重新打开");
+    await page.getByRole("option", {name: /源码编辑器/u}).click();
+    await expect(status(page, "nbook.editor.language")).toHaveText("Markdown");
+    await expect(token(page, "const")).not.toHaveClass(/\bmtk1\b/u);
+
+    await item(page, "project://code/a.py").click();
+    await expect(status(page, "nbook.editor.language")).toHaveText("Python");
+    await status(page, "nbook.editor.language").click();
+    await page.getByRole("option", {name: /纯文本/u}).click();
+    await expect(status(page, "nbook.editor.language")).toHaveText("纯文本");
+    // 纯文本不分 token：整行是一个没有着色的 token。
+    await expect(token(page, "def\\shello\\(\\):")).toHaveClass(/\bmtk1\b/u);
+    await expect.poll(async () => (await editorSession(page))?.groups.flatMap((group) => group.tabs).find((tab) => tab.address === "project://code/a.py")?.language).toBe("plaintext");
+
+    await page.reload();
+    await expect(page.locator("[data-workbench-root]")).toHaveAttribute("data-rpc-state", "online");
+    await expect(status(page, "nbook.editor.language")).toHaveText("纯文本");
+    await expect(token(page, "def\\shello\\(\\):")).toHaveClass(/\bmtk1\b/u);
 });

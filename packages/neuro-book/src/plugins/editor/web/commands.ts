@@ -15,6 +15,7 @@ import {OPEN_PAGE_COMMAND} from "../shared/contracts";
 import type {ActionResult, EditorArea} from "./area";
 import {candidatesFor} from "./editors";
 import type {EditorCatalog} from "./editors";
+import type {LanguageRegistry} from "./code/languages";
 import type {EditorPageRegistry} from "./pages";
 import {editorState} from "./state";
 
@@ -28,6 +29,7 @@ export const SPLIT_RIGHT_COMMAND = "nbook.editor.split-right";
 export const SPLIT_DOWN_COMMAND = "nbook.editor.split-down";
 export const REOPEN_WITH_COMMAND = "nbook.editor.reopen-with";
 export const OPEN_PREVIEW_COMMAND = "nbook.editor.open-preview";
+export const CHANGE_LANGUAGE_COMMAND = "nbook.editor.change-language";
 export const FOCUS_COMMAND = "nbook.editor.focus";
 export const UNDO_COMMAND = "nbook.edit.undo";
 export const REDO_COMMAND = "nbook.edit.redo";
@@ -58,6 +60,9 @@ const REOPEN_ARGS = Type.Object({editor: Type.Optional(Type.String({minLength: 1
 /** `side` 为真时在活动组右侧的组打开（docs/specs/workbench/editor.md 输出 46）。 */
 const OPEN_PREVIEW_ARGS = Type.Object({side: Type.Optional(Type.Boolean())}, {additionalProperties: false});
 
+/** 不给 `language` 时弹出选择（输出 45）。 */
+const CHANGE_LANGUAGE_ARGS = Type.Object({language: Type.Optional(Type.String({minLength: 1}))}, {additionalProperties: false});
+
 const GO_TO_LINE_ARGS = Type.Object({
     target: Type.Object({
         workspaceKey: Type.String(),
@@ -81,6 +86,7 @@ export const EDITOR_COMMAND_DECLARATIONS: Readonly<Record<string, CommandDeclara
     [SPLIT_DOWN_COMMAND]: {title: title("向下拆分编辑器", "Split Editor Down"), category: EDITOR, description: "Open the active document in a new group below.", args: NO_ARGS, effect: "read", when: when("active"), expose: {agent: "auto"}},
     [REOPEN_WITH_COMMAND]: {title: title("用其它编辑器重新打开", "Reopen Editor With"), category: EDITOR, description: "Reopen the active tab with another editor, given by id; without an editor, pick one from the editors that can open the file.", args: REOPEN_ARGS, effect: "read", when: when("active"), expose: {agent: "auto"}},
     [OPEN_PREVIEW_COMMAND]: {title: title("打开预览", "Open Preview"), category: EDITOR, description: "Open the preview of the active file (for example an HTML page) in the active group, or with side true in the group to the right.", args: OPEN_PREVIEW_ARGS, effect: "read", when: when("hasPreview"), expose: {agent: "auto"}},
+    [CHANGE_LANGUAGE_COMMAND]: {title: title("更改语言模式", "Change Language Mode"), category: EDITOR, description: "Change the language (syntax highlighting and editing rules) of the active source editor, given by language id; without a language, pick one from the registered languages. The choice is remembered on the tab.", args: CHANGE_LANGUAGE_ARGS, effect: "read", when: when("hasLanguage"), expose: {agent: "auto"}},
     [FOCUS_COMMAND]: {title: title("聚焦编辑器", "Focus Editor"), category: EDITOR, description: "Focus the active editor.", args: NO_ARGS, effect: "read", when: when("active"), expose: {agent: "auto"}},
     [UNDO_COMMAND]: {title: title("撤销", "Undo"), category: EDIT, description: "Undo the latest edit in the active editor.", args: NO_ARGS, effect: "write", when: when("active", "writable"), expose: {agent: "confirm"}},
     [REDO_COMMAND]: {title: title("重做", "Redo"), category: EDIT, description: "Redo the latest undone edit in the active editor.", args: NO_ARGS, effect: "write", when: when("active", "writable"), expose: {agent: "never"}},
@@ -94,7 +100,9 @@ const fromAction = (result: ActionResult): CommandResult<unknown> => (result.ok 
 export interface EditorCommandSources {
     readonly pages: Pick<EditorPageRegistry, "available">;
     readonly editors: EditorCatalog;
-    /** 工作台的选择服务（“用其它编辑器重新打开”不带参数时）；没有为 null。 */
+    /** 已登记的语言（输出 43）。 */
+    readonly languages: Pick<LanguageRegistry, "has" | "list" | "name">;
+    /** 工作台的选择服务（“用其它编辑器重新打开”“更改语言模式”不带参数时）；没有为 null。 */
     readonly pick: QuickPick | null;
 }
 
@@ -163,6 +171,30 @@ export function editorCommands(area: Readonly<ShallowRef<EditorArea | null>>, so
             const still = current.groups.activeTab();
             if (still?.id !== tab.id || still.kind === "page" || still.editor !== tab.editor) return {ok: false, code: "stale-target", reason: "选择期间活动标签已经换了"};
             return fromAction(picked.id === tab.editor ? {ok: true} : current.reopenWith(picked.id));
+        }),
+        [CHANGE_LANGUAGE_COMMAND]: run(async (current, args) => {
+            const given = (args as Static<typeof CHANGE_LANGUAGE_ARGS>).language;
+            const tab = current.groups.activeTab();
+            const shown = current.activeHandle.value?.language?.value ?? null;
+            if (tab === null || tab.kind === "page" || shown === null) return unavailable("活动的编辑器不分语言");
+            if (given !== undefined) {
+                if (!sources.languages.has(given)) return unavailable(`没有登记语言 ${given}`);
+                current.groups.setLanguage(tab.id, given);
+                return {ok: true, value: null};
+            }
+            if (sources.pick === null) return unavailable("没有选择服务，请给出 language 参数");
+            const picked = await sources.pick.pick({
+                title: {"zh-CN": "更改语言模式", "en-US": "Change Language Mode"},
+                placeholder: {"zh-CN": "选择语言", "en-US": "Select a language"},
+                items: sources.languages.list().map((id) => ({id, label: sources.languages.name(id), detail: id === shown ? {"zh-CN": `${id}（当前）`, "en-US": `${id} (current)`} : id})),
+            });
+            if (picked.kind === "unavailable") return unavailable(picked.reason);
+            if (picked.kind !== "item") return {ok: true, value: null};
+            // 选择期间活动标签可能已经换了：只对发起时的那个标签生效。
+            const still = current.groups.activeTab();
+            if (still?.id !== tab.id || still.kind === "page" || still.editor !== tab.editor) return {ok: false, code: "stale-target", reason: "选择期间活动标签已经换了"};
+            current.groups.setLanguage(tab.id, picked.id);
+            return {ok: true, value: null};
         }),
         [OPEN_PREVIEW_COMMAND]: run((current, args) => fromAction(current.openPreview((args as Static<typeof OPEN_PREVIEW_ARGS>).side === true))),
         [FOCUS_COMMAND]: run((current) => {

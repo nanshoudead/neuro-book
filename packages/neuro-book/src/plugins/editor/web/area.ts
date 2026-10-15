@@ -300,7 +300,10 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
             unresolved: () => document.unresolved.value.includes(token),
             cursor: tab.cursor ?? null,
             remember: (cursor) => groups.setCursor(tab.id, cursor),
-            language: tab.language ?? null,
+            language: computed(() => {
+                const found = groups.find(tabId)?.tab;
+                return found === undefined || found.kind === "page" ? null : found.language ?? null;
+            }),
         };
         bindings.set(groupId, {binding: created, document});
         return created;
