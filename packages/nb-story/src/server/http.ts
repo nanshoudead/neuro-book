@@ -23,6 +23,7 @@ export interface HandlerOptions {
 }
 
 const PAGE_401 = `<!doctype html><meta charset="utf-8"><title>剧情图谱</title><p>登录已失效，请用服务启动时打印的链接重新打开。</p>`;
+const PAGE_400 = `<!doctype html><meta charset="utf-8"><title>剧情图谱</title><p>地址的编码不对。</p>`;
 const PAGE_UNBUILT = `<!doctype html><meta charset="utf-8"><title>剧情图谱</title><p>查看器还没有构建：运行 <code>bun run --cwd packages/nb-story build:web</code> 后刷新。</p>`;
 
 function json(status: number, body: unknown): Response {
@@ -64,7 +65,13 @@ export function createHandler(options: HandlerOptions): (request: Request) => Pr
     async function staticFile(pathname: string): Promise<Response> {
         const index = join(webRoot, "index.html");
         if (!(await isFile(index))) return html(200, PAGE_UNBUILT);
-        const relative = normalize(decodeURIComponent(pathname)).replace(/^([/\\])+/u, "");
+        let decoded: string;
+        try {
+            decoded = decodeURIComponent(pathname);
+        } catch {
+            return html(400, PAGE_400);
+        }
+        const relative = normalize(decoded).replace(/^([/\\])+/u, "");
         const candidate = join(webRoot, relative);
         // 只托管产物目录里的文件；其余路径（前端路由）都回到 index.html。
         if (relative !== "" && candidate.startsWith(webRoot) && (await isFile(candidate))) return new Response(Bun.file(candidate));
@@ -83,14 +90,29 @@ export function createHandler(options: HandlerOptions): (request: Request) => Pr
             if (!authorized) return json(HTTP_STATUS.unauthorized, {code: "unauthorized", message: "没有有效的会话，请用服务启动时打印的登录链接重新登录"});
             const match = /^\/api\/rpc\/([^/]+)$/u.exec(url.pathname);
             if (!match || request.method !== "POST") return json(404, {code: "invalid_params", message: "没有这个接口"});
-            return rpc(request, decodeURIComponent(match[1]!));
+            let method: string;
+            try {
+                method = decodeURIComponent(match[1]!);
+            } catch {
+                return json(HTTP_STATUS.invalid_params, {code: "invalid_params", message: "方法名的编码不对"});
+            }
+            return rpc(request, method);
         }
         if (!authorized) return html(401, PAGE_401);
         return staticFile(url.pathname);
     }
 
+    // 最外层的错误边界：任何没接住的异常都给出 JSON 或页面形式的 500，并且照样带实例号，不落到运行时的默认错误页。
     return async request => {
-        const response = await route(request);
+        let response: Response;
+        try {
+            response = await route(request);
+        } catch (error) {
+            console.error({url: request.url, error}, "请求出错");
+            response = new URL(request.url).pathname.startsWith("/api/")
+                ? json(500, {code: "internal", message: "服务内部出错，详情见服务的日志"})
+                : html(500, `<!doctype html><meta charset="utf-8"><title>剧情图谱</title><p>服务内部出错。</p>`);
+        }
         response.headers.set(INSTANCE_HEADER, instance);
         return response;
     };

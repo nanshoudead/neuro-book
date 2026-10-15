@@ -249,4 +249,16 @@ describe("书库版本", () => {
         expect(await codeOf(lib.setReading("fox", {chapter: 1}, null))).toBe("unsupported_format");
         expect(await codeOf(lib.removeBook("fox"))).toBe("unsupported_format");
     });
+
+    test("单本书的格式版本不认识时也只读：删除报 unsupported_format，书与阅读状态都还在", async () => {
+        const {lib, file, library} = await setup("book-format");
+        await lib.importBook({file, title: SAMPLE_TITLE, id: "fox"});
+        await lib.setReading("fox", {chapter: 3}, null);
+        const metaPath = join(library, "fox", "book.json");
+        const meta = JSON.parse(await Bun.file(metaPath).text()) as Record<string, unknown>;
+        await writeFile(metaPath, JSON.stringify({...meta, format: 2}));
+        expect(await codeOf(lib.removeBook("fox"))).toBe("unsupported_format");
+        expect((await lib.listBooks()).map(book => book.id)).toEqual(["fox"]);
+        expect((await lib.getReading("fox")).position).toEqual({chapter: 3});
+    });
 });

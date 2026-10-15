@@ -4,15 +4,13 @@
  */
 
 import type {RelationEdge, StoryParams, StoryResult} from "../../contract/contract";
-import type {EntityKind, KnowledgeState, Statement} from "../dataset";
+import type {EntityKind, Statement} from "../dataset";
 import {READER, readerGrouping} from "../identity";
-import type {QueryContext} from "./context";
+import {perspectiveStatements, type QueryContext} from "./context";
 
 /** 关系图默认画的类别：人物与组织（身份是人物的化名，算人物）。 */
 const DEFAULT_KINDS: readonly EntityKind[] = ["person", "persona", "group"];
 const RELATION_FAMILIES = new Set(["kinship", "social", "membership"]);
-/** 角色视角能用的说法：他知道、读到、听说或认为的（输出 5）。 */
-const PERSPECTIVE_STATES: ReadonlySet<KnowledgeState> = new Set(["knows", "read", "heard", "believes"]);
 const KINSHIP_WORDS = ["姐妹", "兄弟", "姐弟", "兄妹", "父女", "母女", "父子", "母子", "叔侄", "夫妻", "祖孙"];
 /** 社交类说法里认作关系称谓的词，沿用 w00024 t01 关系图定稿时的词表。 */
 const SOCIAL_WORDS = ["朋友", "同桌", "同学", "室友", "舍友", "搭档", "对手", "敌人", "师徒", "恋人", "邻居", "同伴", "队友", "上司", "下属", "雇主", "契约"];
@@ -32,19 +30,6 @@ function relationWord(statements: readonly Statement[]): string | null {
     const word = SOCIAL_WORDS.find(candidate => social.some(label => label.includes(candidate)));
     if (word) return word;
     return labels("membership").length > 0 ? "所属" : null;
-}
-
-/** 这个视角能用的关系说法与说法总数。 */
-function usableStatements(ctx: QueryContext): Statement[] {
-    const {view, grouping} = ctx;
-    if (grouping.perspective === READER) return view.statements;
-    return view.statements.filter(statement => {
-        for (const who of grouping.self) {
-            const latest = view.knowledgeOf(who, statement.id).at(-1);
-            if (latest && PERSPECTIVE_STATES.has(latest.state)) return true;
-        }
-        return false;
-    });
 }
 
 /** 每对点同场的情节数。 */
@@ -69,7 +54,7 @@ export function relationsGraph(ctx: QueryContext, params: StoryParams<"graph.rel
     const nodeIds = [...grouping.members.keys()].filter(node => kinds.has(view.entity(node)!.kind));
     const included = new Set(nodeIds);
 
-    const statements = usableStatements(ctx);
+    const statements = perspectiveStatements(ctx);
     const relationByPair = new Map<string, Statement[]>();
     for (const statement of statements) {
         if (!RELATION_FAMILIES.has(statement.family)) continue;

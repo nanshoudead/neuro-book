@@ -5,12 +5,12 @@
 
 import {afterAll, afterEach, beforeAll, describe, expect, test} from "bun:test";
 import {existsSync} from "node:fs";
-import {readFile} from "node:fs/promises";
+import {readFile, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
 import type {StoryMethod} from "../contract/contract";
 import {openTestBook, type TestBook} from "../../testing/api";
-import {loginCookie, rpc, runCli, startServe, type ServeProcess} from "../../testing/processes";
+import {CLI, loginCookie, rpc, runCli, startServe, type ServeProcess} from "../../testing/processes";
 
 let book: TestBook;
 const running: ServeProcess[] = [];
@@ -97,6 +97,10 @@ describe("RPC（验收 8）", () => {
         expect((await rpc(server.base!, "book.info", {book: "nope"}, cookie)).status).toBe(404);
         expect((await rpc(server.base!, "book.info", "{not json", cookie)).status).toBe(400);
         expect((await rpc(server.base!, "no.such", {}, cookie)).status).toBe(400);
+        const bad = await rpc(server.base!, "%", {}, cookie);
+        expect(bad.status).toBe(400);
+        expect(bad.body).toEqual(expect.objectContaining({code: "invalid_params"}));
+        expect(bad.instance).toBeTruthy();
     });
 });
 
@@ -132,6 +136,31 @@ describe("单实例与登记（cli-skill 验收 4、F3）", () => {
     });
 });
 
+describe("启动失败与 --json（cli-skill 输出 2、7）", () => {
+    test("--json 时启动成功只输出一份 JSON；书库目录用不了时退出码 3", async () => {
+        const child = Bun.spawn(["bun", CLI, "serve", "--library", book.library, "--json"], {stdout: "pipe", stderr: "pipe"});
+        // 服务在前台一直运行，标准输出不会结束：读到第一行为止。
+        const reader = child.stdout.getReader();
+        let line = "";
+        while (!line.includes("\n")) {
+            const {value, done} = await reader.read();
+            if (done) break;
+            line += new TextDecoder().decode(value);
+        }
+        line = line.trim();
+        const parsed = JSON.parse(line) as {ok: boolean; data: {login: string}};
+        expect(parsed.ok).toBe(true);
+        expect(parsed.data.login).toContain("/login?token=");
+        child.kill("SIGTERM");
+        expect(await child.exited).toBe(0);
+        const file = join(book.root, "not-a-directory");
+        await writeFile(file, "x");
+        const failed = await runCli(["serve", "--library", join(file, "library"), "--json"]);
+        expect(failed.code).toBe(3);
+        expect(JSON.parse(failed.stdout)).toEqual({ok: false, error: expect.objectContaining({code: "serve_failed"})});
+    });
+});
+
 describe("命令行的查看器地址（cli-skill 输出 4）", () => {
     test("有有效登记时给人读的输出末尾附地址，不含口令；登记失效后不附", async () => {
         const server = await serve();
@@ -140,6 +169,8 @@ describe("命令行的查看器地址（cli-skill 输出 4）", () => {
         const url = /查看器：(\S+)$/u.exec(live.stdout.trim())?.[1] ?? null;
         expect(url).toBe(`${server.base}/book/fox/roster?at=38&entity=e1-1&tab=summary`);
         expect(live.stdout).not.toContain("token");
+        const noAt = await runCli(["card", "苏天晴", "--library", book.library]);
+        expect(/查看器：(\S+)$/u.exec(noAt.stdout.trim())?.[1]).toBe(`${server.base}/book/fox/roster?at=100.94&entity=e1-1&tab=summary`);
         await server.stop("SIGKILL");
         const stale = await runCli(["card", "苏天晴", "--at", "38", "--library", book.library]);
         expect(stale.stdout).not.toContain("查看器：");

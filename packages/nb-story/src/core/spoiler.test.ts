@@ -35,10 +35,16 @@ const POSITIONS: {label: string; at: {chapter: number; paragraph?: number}; reso
     {label: "8", at: {chapter: 8}, resolved: () => ({chapter: 8, paragraph: dataset.sources[7]!.paragraphs.length})},
     {label: "38", at: {chapter: 38}, resolved: () => ({chapter: 38, paragraph: dataset.sources[37]!.paragraphs.length})},
     {label: "38.57", at: {chapter: 38, paragraph: 57}, resolved: () => ({chapter: 38, paragraph: 57})},
+    // 这两处有记录的出处终点晚于它自己的 at（情节步骤、悬念进展），用来核对成立位置取的是出处终点。
+    {label: "16.29", at: {chapter: 16, paragraph: 29}, resolved: () => ({chapter: 16, paragraph: 29})},
+    {label: "33.87", at: {chapter: 33, paragraph: 87}, resolved: () => ({chapter: 33, paragraph: 87})},
     {label: "100", at: {chapter: 100}, resolved: () => dataset.through},
 ];
 
 const notAfter = (at: Position, p: Position) => at.chapter < p.chapter || (at.chapter === p.chapter && at.paragraph <= p.paragraph);
+/** 记录的成立位置：自身 at 与全部出处终点里最晚的那个（book-index.ts 的模块头）。 */
+const settled = (at: Position, spans: readonly {chapter: number; to: number}[]): Position =>
+    spans.reduce<Position>((latest, span) => (notAfter({chapter: span.chapter, paragraph: span.to}, latest) ? latest : {chapter: span.chapter, paragraph: span.to}), at);
 const REF = /^(\d+)\.(\d+)(?:—(\d+)\.(\d+))?$/u;
 
 /** 递归找出结果里成立位置晚于 P 的出处与记录 id。 */
@@ -137,12 +143,15 @@ describe.each(POSITIONS)("阅读位置 $label", ({at, resolved}) => {
     test("计数只按可见的记录算；主线是最近一批；目录里之后的章没有标题", async () => {
         const p = resolved();
         const stats = await book.ok("book.stats", {at});
-        expect(stats.visible.statements).toBe(dataset.statements.filter(s => notAfter(s.at, p)).length);
-        expect(stats.visible.episodes).toBe(dataset.episodes.filter(e => notAfter(e.at, p)).length);
+        expect(stats.visible.statements).toBe(dataset.statements.filter(s => notAfter(settled(s.at, s.source.evidence), p)).length);
+        expect(stats.visible.episodes).toBe(dataset.episodes.filter(e => notAfter(settled(e.at, [...e.evidence, ...e.steps.map(step => step.evidence)]), p)).length);
         const card = await book.ok("entity.card", {at, entity: "e1-1"});
         const members = new Set(card.entities);
-        const visibleTargets = new Set([...dataset.statements, ...dataset.secrets].filter(r => notAfter(r.at, p)).map(r => r.id));
-        expect(card.counts.knowledge).toBe(dataset.knowledge.filter(k => members.has(k.who) && notAfter(k.at, p) && visibleTargets.has(k.about)).length);
+        const visibleTargets = new Set([
+            ...dataset.statements.filter(r => notAfter(settled(r.at, r.source.evidence), p)).map(r => r.id),
+            ...dataset.secrets.filter(r => notAfter(r.at, p)).map(r => r.id),
+        ]);
+        expect(card.counts.knowledge).toBe(dataset.knowledge.filter(k => members.has(k.who) && notAfter(settled(k.at, k.evidence), p) && visibleTargets.has(k.about)).length);
         const arcs = await book.ok("arcs.list", {at});
         const throughs = dataset.arcs.filter(arc => notAfter(arc.at, p)).map(arc => arc.through);
         expect(arcs.through).toBe(throughs.length > 0 ? Math.max(...throughs) : null);

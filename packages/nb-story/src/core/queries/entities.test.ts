@@ -5,6 +5,7 @@
 import {afterAll, beforeAll, describe, expect, test} from "bun:test";
 
 import {openTestBook, type TestBook} from "../../../testing/api";
+import {sampleDataset} from "../../../testing/sample";
 
 let book: TestBook;
 
@@ -62,6 +63,23 @@ describe("人物卡（输出 7）", () => {
             expect(outcome.error.code).toBe("entity_ambiguous");
             expect(outcome.error.candidates!.map(item => item.id).sort()).toEqual(["e1-1", "e1-2"]);
         }
+    });
+});
+
+describe("角色视角的说法（输出 5 第 2 条）", () => {
+    test("只给他知道、读到、听说或认为的说法；人物卡的条数与列表一致", async () => {
+        const dataset = await sampleDataset();
+        const tqSelf = new Set((await book.ok("entity.card", {at: {chapter: 38}, entity: "e1-1"})).entities);
+        const allowed = new Set(["knows", "read", "heard", "believes"]);
+        const latest = new Map<string, string>();
+        for (const item of dataset.knowledge.filter(k => tqSelf.has(k.who) && (k.at.chapter < 38 || (k.at.chapter === 38 && k.at.paragraph <= 200)))) latest.set(`${item.who}|${item.about}`, item.state);
+        const knowsStatement = (id: string) => [...tqSelf].some(who => allowed.has(latest.get(`${who}|${id}`) ?? ""));
+        const list = await book.ok("entity.statements", {at: {chapter: 38}, perspective: "e1-1", entity: "e8-2", limit: 500});
+        const reader = await book.ok("entity.statements", {at: {chapter: 38}, entity: "e8-2", limit: 500});
+        expect(list.total).toBeLessThan(reader.total);
+        expect(list.items.every(item => knowsStatement(item.id))).toBe(true);
+        const card = await book.ok("entity.card", {at: {chapter: 38}, perspective: "e1-1", entity: "e8-2"});
+        expect(card.counts.statements).toBe(list.total);
     });
 });
 

@@ -39,7 +39,9 @@ const list: Decoder = value =>
 
 /** `read` 的范围：`38`、`38.48`、`38.48-81`（同一章到第 81 段）或 `38.48-39.3`。 */
 export function decodeRange(value: string): {from: PositionInput; to?: PositionInput} {
-    const [start, end] = value.split("-");
+    const parts = value.split("-");
+    if (parts.length > 2) throw new UsageError(`范围只能有一个终点，例如 38.48-81：${value}`);
+    const [start, end] = parts;
     const from = start === undefined ? null : parsePositionText(start);
     if (!from) throw new UsageError(`范围要写“章.段[-段]”，例如 38.48-81：${value}`);
     if (end === undefined) return {from};

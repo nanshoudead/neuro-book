@@ -103,7 +103,13 @@ async function viewerUrl(api: StoryApi, spec: CommandSpec, params: Record<string
     if (!registration) return null;
     const bookId = await api.library.resolveBookId(params.book as string | undefined);
     const query = new URLSearchParams();
-    const at = formatAt(params.at);
+    // 地址总带上这次查询实际用的阅读位置：不带 --at 时是全书已抽取到的位置。地址省略的部分查看器会用存下的阅读
+    // 状态补齐（viewer 输出 4），省略就打开不了与命令同一个位置的画面。
+    let at = formatAt(params.at);
+    if (!at) {
+        const info = await api.call("book.info", {book: bookId});
+        if (info.ok) at = `${info.value.at.chapter}.${info.value.at.paragraph}`;
+    }
     if (at) query.set("at", at);
     if (typeof params.perspective === "string") query.set("perspective", params.perspective);
     let entity: string | null = null;
@@ -140,7 +146,7 @@ export async function main(argv: readonly string[], io: CliIo = processIo): Prom
     const library = parsed.options.get("library");
     if (spec.method === null) {
         const {serveCommand} = await import("../server/serve");
-        return serveCommand({library, port: params.port as number | undefined, open: parsed.options.has("open")}, io);
+        return serveCommand({library, port: params.port as number | undefined, open: parsed.options.has("open"), json: parsed.options.has("json")}, io);
     }
 
     const json = parsed.options.has("json");

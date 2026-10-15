@@ -109,7 +109,7 @@ export function ledgerTracks(ctx: QueryContext): StoryResult<"ledger.tracks"> {
 }
 
 export function ledgerTrack(ctx: QueryContext, params: StoryParams<"ledger.track">): StoryResult<"ledger.track"> {
-    const owner = params.owner === undefined ? undefined : ctx.grouping.nodeOf.get(ctx.resolveEntity(params.owner));
+    const owner = params.owner === undefined ? undefined : ctx.resolveEntity(params.owner);
     const matching = tracksOf(ctx).filter(track => track.name === params.track && (owner === undefined || track.owner.id === owner));
     if (matching.length === 0) throw new StoryError("entity_not_found", `这个阅读位置没有“${params.track}”这项数值`);
     if (matching.length > 1) {

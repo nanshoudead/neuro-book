@@ -10,7 +10,8 @@
         "nbstory": "./src/cli.ts"
     },
     "exports": {
-        ".": "./src/core/index.ts"
+        ".": "./src/core/index.ts",
+        "./contract": "./src/contract/contract.ts"
     },
     "scripts": {
         "test": "bun test",

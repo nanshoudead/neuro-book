@@ -214,7 +214,8 @@ export class Library {
     /** 删除一本书；之后同一 id 可以重新导入（得到新的一代）。 */
     async removeBook(id: string): Promise<void> {
         await this.assertWritable();
-        await this.readMeta(id);
+        const meta = await this.readMeta(id);
+        if (meta.format !== LIBRARY_FORMAT) throw new StoryError("unsupported_format", `书 ${id} 的格式版本 ${meta.format} 不认识，只能读`);
         const trash = join(this.root, `.removed-${randomUUID()}`);
         try {
             await rename(join(this.root, id), trash);

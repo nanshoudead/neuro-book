@@ -35,7 +35,7 @@ export interface Grouping {
     readonly mentions: ReadonlyMap<string, number>;
     /** 两点之间的身份连接状态：读者视角下只有不确定连接（uncertain）；角色视角下是读者合并而他不合并的。 */
     readonly identity: readonly UnmergedPair[];
-    /** 合并进点里的对象各由哪条连接连进来（第一条成立的），给人物卡的“同一身份”用。 */
+    /** 合并进点里的对象各由哪条确定连接连进来（真正触发合并的那条），给人物卡的“同一身份”写出处。 */
     readonly joinedBy: ReadonlyMap<string, IdentityLink>;
 }
 
@@ -120,11 +120,14 @@ function shortNote(entity: VisibleEntity, label: string): string {
     return text.length > 14 ? `${text.slice(0, 14)}…` : text;
 }
 
-function buildGrouping(view: BookView, perspective: string, union: (uf: UnionFind, links: IdentityLink[], self: ReadonlySet<string>) => UnmergedPair[] | null, self: ReadonlySet<string>): Grouping {
+/** 合并的做法：按位置先后把该合并的连接并进去，返回真正触发了合并的连接，以及要标身份状态的两点。 */
+type Merge = (uf: UnionFind, links: IdentityLink[]) => {joins: IdentityLink[]; unmerged: UnmergedPair[]};
+
+function buildGrouping(view: BookView, perspective: string, merge: Merge, self: ReadonlySet<string>, fallbackJoins?: ReadonlyMap<string, IdentityLink>): Grouping {
     const entities = view.entities;
     const uf = new UnionFind();
     const links = visibleLinks(view);
-    const unmergedRaw = union(uf, links, self);
+    const {joins, unmerged: unmergedRaw} = merge(uf, links);
 
     const groups = new Map<string, VisibleEntity[]>();
     for (const entity of entities) {
@@ -170,11 +173,30 @@ function buildGrouping(view: BookView, perspective: string, union: (uf: UnionFin
         ordered.forEach((id, position) => labels.set(id, position === 0 ? label : `${label}（${shortNote(reps.get(id)!, label)}）`));
     }
 
+    // 触发合并的连接在每个点里连成一棵树：从代表对象出发走这棵树，每个成员的来路就是连上它的那条连接。
     const joinedBy = new Map<string, IdentityLink>();
-    for (const link of links) {
-        if (nodeOf.get(link.a) !== nodeOf.get(link.b)) continue;
-        for (const id of [link.a, link.b]) if (!joinedBy.has(id) && nodeOf.get(id) !== id) joinedBy.set(id, link);
+    const adjacency = new Map<string, {other: string; link: IdentityLink}[]>();
+    for (const link of joins) {
+        for (const [from, to] of [[link.a, link.b], [link.b, link.a]] as const) {
+            const list = adjacency.get(from);
+            if (list) list.push({other: to, link});
+            else adjacency.set(from, [{other: to, link}]);
+        }
     }
+    for (const node of members.keys()) {
+        const queue = [node];
+        const seen = new Set(queue);
+        while (queue.length > 0) {
+            const current = queue.shift()!;
+            for (const {other, link} of adjacency.get(current) ?? []) {
+                if (seen.has(other)) continue;
+                seen.add(other);
+                joinedBy.set(other, link);
+                queue.push(other);
+            }
+        }
+    }
+    for (const [id, link] of fallbackJoins ?? []) if (!joinedBy.has(id) && nodeOf.get(id) !== id) joinedBy.set(id, link);
 
     const seen = new Set<string>();
     const identity: UnmergedPair[] = [];
@@ -199,8 +221,8 @@ export function readerGrouping(view: BookView): Grouping {
             view,
             READER,
             (uf, links) => {
-                for (const link of links) if (link.certain) uf.union(link.a, link.b);
-                return links.filter(link => !link.certain).map(link => ({a: link.a, b: link.b, identity: "uncertain" as const}));
+                const joins = links.filter(link => link.certain && uf.union(link.a, link.b));
+                return {joins, unmerged: links.filter(link => !link.certain).map(link => ({a: link.a, b: link.b, identity: "uncertain" as const}))};
             },
             new Set(),
         ),
@@ -223,17 +245,21 @@ export function characterGrouping(view: BookView, entityId: string): Grouping {
             (uf, links) => {
                 const selfList = [...self];
                 for (const id of selfList.slice(1)) uf.union(selfList[0]!, id);
+                const joins: IdentityLink[] = [];
                 const unmerged: UnmergedPair[] = [];
                 for (const link of links) {
                     if (!link.certain) continue;
                     if (self.has(link.a) && self.has(link.b)) continue;
                     const awareness = awarenessOfLink(view, self, link);
-                    if (awareness && AWARE_MERGE.has(awareness.state)) uf.union(link.a, link.b);
-                    else unmerged.push({a: link.a, b: link.b, identity: awareness ? (awareness.state as Exclude<KnowledgeState, "knows" | "read">) : "no-record"});
+                    if (awareness && AWARE_MERGE.has(awareness.state)) {
+                        if (uf.union(link.a, link.b)) joins.push(link);
+                    } else unmerged.push({a: link.a, b: link.b, identity: awareness ? (awareness.state as Exclude<KnowledgeState, "knows" | "read">) : "no-record"});
                 }
-                return unmerged;
+                return {joins, unmerged};
             },
             self,
+            // 视角人物自己的几个对象不经连接合并，来路沿用读者视角的。
+            reader.joinedBy,
         );
     });
 }

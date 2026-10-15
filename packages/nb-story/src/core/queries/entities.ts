@@ -6,7 +6,7 @@ import type {StoryParams, StoryResult} from "../../contract/contract";
 import type {Facet} from "../dataset";
 import {formatPosition, formatSpan} from "../position";
 import type {VisibleEntity} from "../projection";
-import {compareText, matches, nodeRef, refs, tags, type QueryContext} from "./context";
+import {compareText, matches, nodeRef, perspectiveStatements, refs, tags, type QueryContext} from "./context";
 import {personSecretState} from "./secrets";
 
 /** 名册里每个点列出的称呼个数。 */
@@ -36,8 +36,7 @@ function namesOf(ctx: QueryContext, members: readonly VisibleEntity[]): {text: s
 
 /** 调用参数里的对象 → 这次视角分组里的点。 */
 function nodeFor(ctx: QueryContext, entity: string): string {
-    const readerNode = ctx.resolveEntity(entity);
-    return ctx.grouping.nodeOf.get(readerNode)!;
+    return ctx.resolveEntity(entity);
 }
 
 export function entitiesList(ctx: QueryContext, params: StoryParams<"entities.list">): StoryResult<"entities.list"> {
@@ -76,8 +75,9 @@ export function entityCard(ctx: QueryContext, params: StoryParams<"entity.card">
         if (!current || summary.through >= current.through) latest.set(summary.facet, {through: summary.through, items: summary.items.map(item => item.text)});
     }
 
+    const statements = perspectiveStatements(ctx);
     const related = new Set<string>();
-    for (const statement of view.statements) {
+    for (const statement of statements) {
         if (!RELATION_FAMILIES.has(statement.family) || !statement.about.some(id => ids.has(id))) continue;
         for (const id of statement.about) {
             const other = grouping.nodeOf.get(id);
@@ -107,7 +107,7 @@ export function entityCard(ctx: QueryContext, params: StoryParams<"entity.card">
         counts: {
             relations: related.size,
             knowledge: view.knowledge.filter(item => ids.has(item.who)).length,
-            statements: view.statements.filter(statement => statement.about.some(id => ids.has(id))).length,
+            statements: statements.filter(statement => statement.about.some(id => ids.has(id))).length,
             episodes: view.episodes.filter(episode => episode.who.some(member => ids.has(member.e))).length,
         },
     };
@@ -139,7 +139,7 @@ export function entityKnowledge(ctx: QueryContext, params: StoryParams<"entity.k
 
 export function entityStatements(ctx: QueryContext, params: StoryParams<"entity.statements">): StoryResult<"entity.statements"> {
     const ids = new Set(ctx.grouping.members.get(nodeFor(ctx, params.entity)) ?? []);
-    const items = ctx.view.statements
+    const items = perspectiveStatements(ctx)
         .filter(statement => statement.about.some(id => ids.has(id)) && matches(statement.text, params.query))
         .map(statement => ({
             id: statement.id,

@@ -3,14 +3,14 @@
  */
 
 import type {Awareness, StoryResult} from "../../contract/contract";
-import type {Knowledge, Secret} from "../dataset";
+import type {Knowledge, Position, Secret} from "../dataset";
 import {READER} from "../identity";
-import {comparePosition, formatSpan} from "../position";
+import {comparePosition} from "../position";
 import type {BookView} from "../projection";
 import {firstRef, type QueryContext} from "./context";
 
-/** 一个人在 P 时对一个秘密的状态：对秘密本身或它名下说法的知情记录里最晚的一条；同一位置以对秘密的为准。 */
-export function personSecretState(view: BookView, who: Iterable<string>, secret: Secret): {state: Awareness; ref: string | null} {
+/** 一个人（几个对象）在 P 之前对一个秘密最新的知情记录：对秘密本身或它名下的说法，取最晚的一条；同一位置以对秘密的为准。 */
+function latestRecord(view: BookView, who: Iterable<string>, secret: Secret): Knowledge | null {
     let best: {item: Knowledge; onSecret: boolean} | null = null;
     const targets = [secret.id, ...secret.statements];
     for (const person of who) {
@@ -22,27 +22,33 @@ export function personSecretState(view: BookView, who: Iterable<string>, secret:
             }
         }
     }
-    return best ? {state: best.item.state, ref: firstRef(best.item.evidence, best.item.at)} : {state: "no-record", ref: null};
+    return best?.item ?? null;
+}
+
+/** 人物一格（输出 9）：这个人最新的知情状态与出处；没有记录时为“没有记录”。 */
+export function personSecretState(view: BookView, who: Iterable<string>, secret: Secret): {state: Awareness; ref: string | null} {
+    const latest = latestRecord(view, who, secret);
+    return latest ? {state: latest.state, ref: firstRef(latest.evidence, latest.at)} : {state: "no-record", ref: null};
 }
 
 /**
- * 读者对一个秘密的状态：名下有一条已成立的确定身份连接，或读者最新的知情为知道、读到，就是“知道”，出处取最早
- * 成立的那条；否则取读者最新的知情状态。
+ * 读者一格（输出 9）：名下有一条已成立的确定身份连接，或读者最新的知情为知道、读到，就是“知道”，出处取这些里最早
+ * 成立的那条；否则取读者最新的知情状态。读者后来又被写成不知道、怀疑的，不再算知道。
  */
 export function readerSecretState(view: BookView, secret: Secret): {state: Awareness; ref: string | null} {
-    const candidates: {at: {chapter: number; paragraph: number}; ref: string}[] = [];
+    const candidates: {at: Position; ref: string}[] = [];
     for (const link of view.index.identityLinks) {
-        if (!link.certain || !secret.statements.includes(link.statement.id) || view.statement(link.statement.id) === undefined) continue;
-        candidates.push({at: link.statement.at, ref: link.statement.source.evidence[0] ? formatSpan(link.statement.source.evidence[0]) : `${link.statement.at.chapter}.${link.statement.at.paragraph}`});
+        const statement = view.statement(link.statement.id);
+        if (!link.certain || !secret.statements.includes(link.statement.id) || !statement) continue;
+        candidates.push({at: statement.at, ref: firstRef(statement.source.evidence, statement.at)});
     }
-    const own = personSecretState(view, [READER], secret);
-    const ownKnowledge = [secret.id, ...secret.statements].flatMap(target => view.knowledgeOf(READER, target)).filter(item => item.state === "knows" || item.state === "read");
-    for (const item of ownKnowledge) candidates.push({at: item.at, ref: firstRef(item.evidence, item.at)});
+    const latest = latestRecord(view, [READER], secret);
+    if (latest && (latest.state === "knows" || latest.state === "read")) candidates.push({at: latest.at, ref: firstRef(latest.evidence, latest.at)});
     if (candidates.length > 0) {
         candidates.sort((a, b) => comparePosition(a.at, b.at));
         return {state: "knows", ref: candidates[0]!.ref};
     }
-    return own;
+    return latest ? {state: latest.state, ref: firstRef(latest.evidence, latest.at)} : {state: "no-record", ref: null};
 }
 
 export function secretsMatrix(ctx: QueryContext): StoryResult<"secrets.matrix"> {

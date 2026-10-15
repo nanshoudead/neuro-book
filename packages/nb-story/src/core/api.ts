@@ -17,6 +17,7 @@ import {decodeCursor, paramsDigest} from "./cursor";
 import {StoryError} from "./errors";
 import type {EntityCandidate, StoryErrorCode} from "./errors";
 import {characterGrouping, READER, readerGrouping} from "./identity";
+import type {Grouping} from "./identity";
 import {Library} from "./library";
 import {resolvePosition} from "./position";
 import {BookView} from "./projection";
@@ -87,11 +88,12 @@ function isMethod(method: string): method is StoryMethod {
 }
 
 /**
- * 调用参数里的对象 → 读者视角下的点 id。可以写对象 id（任一成员），也可以写名字或称呼（按 P 时可见的称呼与
- * 显示名精确匹配）。对象在这本书里不存在或还没出现报 `entity_not_found`；对应几个点报 `entity_ambiguous`。
+ * 调用参数里的对象 → 给定分组（缺省读者视角）下的点 id。可以写对象 id（任一成员），也可以写名字或称呼（按 P 时
+ * 可见的称呼与显示名精确匹配）。对象在这本书里不存在或还没出现报 `entity_not_found`；对应几个点报
+ * `entity_ambiguous`。角色视角下读者合并、他不合并的两个身份是两个点，所以要在查询自己的分组里解析。
  */
-export function resolveEntity(view: BookView, text: string): string {
-    const reader = readerGrouping(view);
+export function resolveEntity(view: BookView, text: string, grouping: Grouping = readerGrouping(view)): string {
+    const reader = grouping;
     const byId = reader.nodeOf.get(text);
     if (byId !== undefined) return byId;
     if (view.index.entityById.has(text)) throw new StoryError("entity_not_found", `对象 ${text} 在这个阅读位置还没出现`);
@@ -143,7 +145,7 @@ export function createStoryApi(options: {library?: Library | string} = {}): Stor
             view,
             grouping,
             page: makePager(index.meta.generation, paramsDigest(method, params), cursor, params.limit as number | undefined),
-            resolveEntity: text => resolveEntity(view, text),
+            resolveEntity: text => resolveEntity(view, text, grouping),
         };
         const handler = BOOK_HANDLERS[method];
         if (!handler) throw new Error(`书级方法 ${method} 没有登记查询函数`);

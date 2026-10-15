@@ -5,6 +5,7 @@
 import {afterAll, beforeAll, describe, expect, test} from "bun:test";
 
 import {openTestBook, type TestBook} from "../../../testing/api";
+import {smallDataset} from "../../../testing/sample";
 
 let book: TestBook;
 
@@ -14,6 +15,28 @@ beforeAll(async () => {
 
 afterAll(async () => {
     await book.close();
+});
+
+describe("读者格取最新的知情（输出 9）", () => {
+    test("没有确定身份连接的秘密，读者先知道、后来被写成不知道，就是不知道", async () => {
+        const dataset = await smallDataset(3, "latest");
+        const base = {basis: "explicit" as const, derived: false};
+        dataset.secrets = [{id: "x-test", title: "秘密", about: [], statements: [], at: {chapter: 1, paragraph: 2}}];
+        dataset.knowledge = [
+            {...base, id: "k-a", who: "reader", about: "x-test", state: "knows", evidence: [{chapter: 1, from: 2, to: 2}], at: {chapter: 1, paragraph: 2}},
+            {...base, id: "k-b", who: "reader", about: "x-test", state: "unaware", evidence: [{chapter: 2, from: 2, to: 2}], at: {chapter: 2, paragraph: 2}},
+        ];
+        const small = await openTestBook("secrets-latest", dataset);
+        try {
+            const atOne = await small.ok("secrets.matrix", {at: {chapter: 1}});
+            expect(atOne.rows[0]!.cells[0]).toEqual({column: "reader", state: "knows", ref: "1.2"});
+            const atThree = await small.ok("secrets.matrix", {at: {chapter: 3}});
+            expect(atThree.rows[0]!.cells[0]).toEqual({column: "reader", state: "unaware", ref: "2.2"});
+            expect(atThree.rows[0]!.revealedAt).toBeNull();
+        } finally {
+            await small.close();
+        }
+    });
 });
 
 describe("秘密矩阵（输出 9、验收 4）", () => {

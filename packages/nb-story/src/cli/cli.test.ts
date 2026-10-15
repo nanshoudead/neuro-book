@@ -27,7 +27,7 @@ const CASES: {args: string[]; method: StoryMethod; params: Record<string, unknow
     {args: ["stats", "--at", "38.57"], method: "book.stats", params: {at: {chapter: 38, paragraph: 57}}},
     {args: ["chapter", "37", "--at", "38"], method: "chapter.digest", params: {chapter: 37, at: {chapter: 38}}},
     {args: ["find", "狐", "--kind", "person", "--at", "38", "--limit", "5"], method: "entities.list", params: {query: "狐", kind: "person", at: {chapter: 38}, limit: 5}},
-    {args: ["card", "狐狐", "--at", "38", "--perspective", "e8-2"], method: "entity.card", params: {entity: "狐狐", at: {chapter: 38}, perspective: "e8-2"}},
+    {args: ["card", "e6-2", "--at", "38", "--perspective", "e8-2"], method: "entity.card", params: {entity: "e6-2", at: {chapter: 38}, perspective: "e8-2"}},
     {args: ["knowledge", "e1-1", "--state", "unaware", "--query", "南", "--at", "100"], method: "entity.knowledge", params: {entity: "e1-1", state: "unaware", query: "南", at: {chapter: 100}}},
     {args: ["statements", "e8-2", "--at", "38"], method: "entity.statements", params: {entity: "e8-2", at: {chapter: 38}}},
     {args: ["appearances", "苏天晴", "--query", "风信子", "--at", "38"], method: "entity.episodes", params: {entity: "苏天晴", query: "风信子", at: {chapter: 38}}},
@@ -74,7 +74,7 @@ describe("退出码与失败（输出 2、7，F1、F2）", () => {
     });
 
     test("未知命令、未知选项、缺参数、写法不对的位置都是用法错误，退出码 2 并打印用法", async () => {
-        for (const args of [["nope"], ["card", "e1-1", "--nope", "1"], ["card"], ["card", "e1-1", "--at", "abc"], ["read", "38.x"], []]) {
+        for (const args of [["nope"], ["card", "e1-1", "--nope", "1"], ["card"], ["card", "e1-1", "--at", "abc"], ["read", "38.x"], ["read", "38.1-2-999"], []]) {
             const run = await runCli([...args, "--library", book.library]);
             expect(run.code).toBe(2);
             expect(`${run.stdout}${run.stderr}`).toContain("用法：nbstory");

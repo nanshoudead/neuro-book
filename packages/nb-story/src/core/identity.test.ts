@@ -72,9 +72,25 @@ describe("角色视角（输出 5）", () => {
         expect(await groupOf("e1-1", {chapter: 38}, "e1-1")).toContain("e6-2");
     });
 
+    test("角色视角下没合并的身份各自打开自己的人物卡，名字对应两个点时报 entity_ambiguous", async () => {
+        const hellcat = await book.ok("entity.card", {at: {chapter: 38}, perspective: "e1-1", entity: "e33-1"});
+        expect(hellcat.id).toBe("e33-1");
+        expect(hellcat.entities).toEqual(["e33-1"]);
+        const njy = await book.ok("entity.card", {at: {chapter: 38}, perspective: "e1-1", entity: "e8-2"});
+        expect(njy.entities).not.toContain("e33-1");
+        expect((await book.ok("entity.card", {at: {chapter: 38}, entity: "e33-1"})).id).toBe("e8-2");
+    });
+
     test("可以用任一成员或名字指定视角；还没有知情记录的人物不能作视角", async () => {
         expect(await groupOf("e8-2", {chapter: 38}, "狐狐")).not.toContain("e33-1");
         expect(await book.fail("entities.list", {at: {chapter: 38}, perspective: "e2-2"})).toBe("invalid_params");
+    });
+});
+
+describe("同一身份的出处", () => {
+    test("花铃与白色少女在 27.90 合并，出处是触发合并的确定连接 27.83—27.90，不是更早的候选说法", async () => {
+        const card = await book.ok("entity.card", {at: {chapter: 27, paragraph: 90}, entity: "e12-5"});
+        expect(card.identities).toEqual([expect.objectContaining({id: "e26-2", ref: "27.83—27.90"})]);
     });
 });
 
