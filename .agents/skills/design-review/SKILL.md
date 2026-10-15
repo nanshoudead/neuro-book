@@ -32,6 +32,8 @@ description: 新界面或界面大改需要开发者拍板外观与交互时使�
 
 ## 提问、发布与答复
 
+- **先分清问在哪里**：要看图、要把几个候选并排比较的问题，写进评审板；几乎是纯文字、几句话就讲得清的问题（例如确认提纲、确认写正文时自定的几条、二选一的范围），直接在会话里问，不发评审板。会话里得到的决定照样按编号写进 Task README（开发者 2026-10-15 定）。
+
 - **待定的问题写成提问**：在包住这一节的元素上加 `data-nbdev-question="<题号>"` 与 `data-nbdev-type`，候选上加 `data-nbdev-option="<值>"`，推荐写 `data-nbdev-recommend`；写法见 [提问标记](../../../packages/dev-panel/docs/file-formats.md#提问标记) 与 [例子页](../../../packages/dev-panel/docs/examples/questions.html)。标题里的“待定”“已定”徽标、候选里的“打开”按钮加 `data-nbdev-skip`，不进题目与选项名。标题后直接跟兄弟元素的扁平板，先给每道题包一层 `section`。
 - **发布**：每轮写好后运行 `nbdev artifact publish <workId> <taskId> review --kind design`（第一次要 `--kind`），它解析提问、检查图片体积、写发布记录并与页面文件一起提交。输出逐题列出解析到的题，核对一遍。题意变了就换题号；被后一轮取代的问题换题号或从页面删掉，输出会列出被取代的题（已答的题删掉不算取代）。
 - **读答复**：`nbdev answers <workId> <taskId> review --json`，记下输出里的 `cursor`；要挂着等，加 `--wait`，用会话自己的后台机制运行。退出码 4（超时、被打断，或被宿主结束）时按原参数重挂；退出码 0 是有了答复，先处理答复并 `answers ack --through <cursor>`，或带 `--since <cursor>` 重挂，否则按原参数重挂会立刻返回。开发者在会话里口头定的，用 `nbdev answers record … --set <题号>=<值>` 代录。
