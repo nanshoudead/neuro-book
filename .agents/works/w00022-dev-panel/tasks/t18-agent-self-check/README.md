@@ -1,8 +1,8 @@
 ---
 schema: nbook.task/v2
 taskId: t18-agent-self-check
-status: active
-updated: 2026-10-14
+status: done
+updated: 2026-10-15
 ---
 
 # Agent 自助验收：dev start 带样例作品、shot 截产品页面
