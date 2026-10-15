@@ -23,6 +23,8 @@ type Props = {
     emptyTips?: ReadonlyArray<{command: string; label: string; keys: ReadonlyArray<string> | null; hint: string | null}>;
     /** 标签条右侧的标题动作（输出 34）：只有活动组拿到（`group` 是这一组），别的组为 null；缺省 null。 */
     titleActions?: {group: string; model: (maxButtons: number) => TitleActionsModel; identity: string} | null;
+    /** 标签的右键菜单（输出 57，`web/tab-menu.ts` 算好）：按标签 id 给出菜单项与菜单身份；缺省 null，右键不出菜单。 */
+    tabMenu?: {entries: (tabId: string) => ReadonlyArray<TabMenuEntry> | null; identity: (tabId: string) => string | null} | null;
 };
 
 type Emits = {
@@ -30,10 +32,14 @@ type Emits = {
     (event: "run-tip", command: string): void;
     /** 点了标题动作：交出它的 key，由宿主执行。 */
     (event: "title-action", key: string): void;
+    /** 点了标签菜单的一项：交出被右击的标签 id 与项的 key，由宿主执行。 */
+    (event: "tab-menu", tabId: string, key: string): void;
 };
 ```
 
 无 slots、expose；attrs 落在根 `section`（`data-editor-group`，活动组另有 `data-editor-group-active`）。
+
+标签的右键菜单（`EditorTabBar` 的 `menu` 事件）用 nb-ui 的 `ContextMenu` 在给出的位置打开；右键不让这一组成为活动组（只有主键按下才切换活动组），菜单的项作用于被右击的标签而不是活动的那个；打开时记下这个标签的菜单身份，身份变了（标签关闭、移到别的组、换编辑器）就关上，之前的选择不交出。
 
 ## 布局与状态
 

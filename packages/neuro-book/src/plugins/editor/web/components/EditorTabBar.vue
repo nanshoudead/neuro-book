@@ -18,6 +18,8 @@ const emit = defineEmits<{
     (event: "pin", id: string): void;
     (event: "close", id: string): void;
     (event: "move", id: string, delta: -1 | 1): void;
+    /** 右键、Shift+F10 或菜单键：在视口坐标 (x, y) 打开这个标签的菜单。 */
+    (event: "menu", id: string, x: number, y: number): void;
 }>();
 
 const list = ref<HTMLElement | null>(null);
@@ -47,6 +49,12 @@ const focusTab = (index: number): void => {
 };
 
 const onKeydown = (event: KeyboardEvent, index: number, id: string): void => {
+    if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) {
+        event.preventDefault();
+        const box = (event.currentTarget as HTMLElement).getBoundingClientRect();
+        emit("menu", id, box.left, box.bottom);
+        return;
+    }
     if (event.altKey && (event.key === "ArrowLeft" || event.key === "ArrowRight")) {
         event.preventDefault();
         emit("move", id, event.key === "ArrowLeft" ? -1 : 1);
@@ -107,6 +115,8 @@ const onAuxClick = (event: MouseEvent, id: string): void => {
                 @click="emit('activate', tab.id)"
                 @dblclick="emit('pin', tab.id)"
                 @auxclick="onAuxClick($event, tab.id)"
+                @mousedown="(event: MouseEvent) => event.button === 2 && event.preventDefault()"
+                @contextmenu.prevent="(event: MouseEvent) => emit('menu', tab.id, event.clientX, event.clientY)"
                 @keydown="onKeydown($event, index, tab.id)"
             >
                 <span class="editor-tab__label" data-editor-tab-label>{{ tab.label }}</span><span v-if="tab.dirty" class="sr-only">（{{ unsavedLabel }}）</span>

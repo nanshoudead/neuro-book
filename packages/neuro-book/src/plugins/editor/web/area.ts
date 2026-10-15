@@ -53,6 +53,8 @@ export interface EditorAreaOptions {
     readonly editors?: EditorCatalog;
     /** 同一级有两个 default 编辑器命中同一个文件时（输出 37）。 */
     readonly conflict?: (address: string, editors: ReadonlyArray<string>) => void;
+    /** 设置“预览标签页”（输出 52）：为假时单击打开也是常驻标签，已有的 preview 标签转正。缺省为真。 */
+    readonly enablePreview?: () => boolean;
 }
 
 export type ActionResult = {readonly ok: true} | {readonly ok: false; readonly reason: string};
@@ -550,6 +552,14 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
             if (shared ? !ownInput : !needsSettle(document)) break;
             const choice = await ask(found.tab.address);
             if (choice === "cancel") return "cancelled";
+            // 等用户回答期间别处可能关掉或换掉了另一个能编辑的标签、这个标签换了组或编辑器：照询问前的判断执行会用错丢弃
+            // 的范围，所以按此刻的状态重新判断，变了就重新问。
+            const now = groups.find(tabId);
+            if (now === null) return "gone";
+            const nowShown = bindings.get(now.group.id);
+            const nowOwn = nowShown !== undefined && nowShown.binding.tabId === tabId && nowShown.binding.kind === "text" ? nowShown.binding : null;
+            const nowShared = groups.groups.value.some((group) => group.tabs.some((tab) => tab.id !== tabId && tab.address === now.tab.address && editable(tab)));
+            if (nowShared !== shared || nowOwn?.token !== own?.token || references.get(tabId)?.document !== document) continue;
             if (choice === "discard") {
                 // 文档还有别的能编辑的标签时只丢这个视图的未裁决输入。没有时整份修改都不要了：只剩这个标签的引用，释放时
                 // 整份文档连同输入一起丢弃；预览视图这类只读标签还持有正文时释放丢不掉，关闭后按磁盘还原。
@@ -581,18 +591,20 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
      * 一批：两批交错时询问对话框会互相顶掉，结果说不清是谁取消的。
      */
     let batchRunning = false;
-    const closeBatch = async (tabId: string, pick: (group: {readonly id: string; readonly tabs: ReadonlyArray<EditorTab>}, index: number) => ReadonlyArray<EditorTab>): Promise<BatchCloseResult> => {
+    const unpinned = (tab: EditorTab): boolean => !(tab.kind === "file" && tab.pinned === true);
+    const closeBatch = async (tabId: string, pick: (group: {readonly id: string; readonly tabs: ReadonlyArray<EditorTab>}, index: number) => ReadonlyArray<EditorTab>, eligible: (tab: EditorTab) => boolean = unpinned): Promise<BatchCloseResult> => {
         if (batchRunning) return {ok: false, closed: 0, reason: "正在关闭编辑器"};
         const found = groups.find(tabId);
         if (found === null) return {ok: false, closed: 0, reason: "标签已关闭"};
         const groupId = found.group.id;
-        const targets = pick(found.group, found.group.tabs.findIndex((tab) => tab.id === tabId)).filter((tab) => !(tab.kind === "file" && tab.pinned === true)).map((tab) => tab.id);
+        const targets = pick(found.group, found.group.tabs.findIndex((tab) => tab.id === tabId)).filter(eligible).map((tab) => tab.id);
         batchRunning = true;
         let closed = 0;
         try {
             for (const id of targets) {
                 const where = groups.find(id);
-                if (where === null || where.group.id !== groupId) continue;
+                // 定下之后可能被移走、固定或又有了修改：按此刻的状态再看一次，不合格的跳过、不停下。
+                if (where === null || where.group.id !== groupId || !eligible(where.tab)) continue;
                 const outcome = await closeOne(id);
                 if (outcome === "closed") closed += 1;
                 else if (outcome === "cancelled") return {ok: false, closed, reason: `关了 ${String(closed)} 个，在 ${where.tab.address} 处取消`};
@@ -635,8 +647,11 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
             if (target.active !== twin.id && !leave(target.id)) return {ok: false, reason: "目标组有未裁决的输入"};
             groups.activate(twin.id);
             const outcome = await closeOne(tabId);
+            if (outcome !== "closed" && outcome !== "gone") return {ok: false, reason: outcome === "failed" ? "保存失败" : "已取消"};
+            // 关掉之后再把留下的那个放到落点（位置与固定区）；它已经在那里时不动。
+            if (groups.find(twin.id)?.group.id === target.id) groups.moveTab(twin.id, place);
             focusActive();
-            return outcome === "closed" || outcome === "gone" ? {ok: true} : {ok: false, reason: outcome === "failed" ? "保存失败" : "已取消"};
+            return {ok: true};
         }
         if (found.group.active === tabId && target.id !== found.group.id && !leave(found.group.id)) return {ok: false, reason: "当前视图有未裁决的输入"};
         if (target.active !== tabId && !leave(target.id)) return {ok: false, reason: "目标组有未裁决的输入"};
@@ -661,8 +676,15 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
         if (!others) groups.keep(preview.id);
     };
 
-    const open: EditorArea["open"] = (address, request) => {
+    const previewEnabled = (): boolean => options.enablePreview?.() ?? true;
+    // 关掉“预览标签页”时现有的 preview 标签都转正（输出 52），恢复出来的会话同样。
+    stops.push(watch(() => previewEnabled() ? [] : groups.groups.value.flatMap((group) => group.tabs.filter((tab) => tab.preview).map((tab) => tab.id)), (ids) => {
+        for (const id of ids) groups.keep(id);
+    }, {immediate: true}));
+
+    const open: EditorArea["open"] = (address, given) => {
         if (disposed) return {ok: false, reason: "编辑器已关闭"};
+        const request = given.mode === "preview" && !previewEnabled() ? {...given, mode: "permanent" as const} : given;
         if (pageIdOf(address) !== null) return {ok: false, reason: "页面用 nbook.editor.open-page 打开"};
         if (request.group !== undefined && request.group !== "side" && !groups.groups.value.some((candidate) => candidate.id === request.group)) return {ok: false, reason: "编辑组已关闭"};
         // 只结算活动标签要换掉的那一组（同 `activate`）：目标组；侧边还没有组时要新建，没有要结算的。
@@ -778,7 +800,7 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
         close: closeTab,
         closeOthers: (tabId) => closeBatch(tabId, (group) => group.tabs.filter((tab) => tab.id !== tabId)),
         closeToRight: (tabId) => closeBatch(tabId, (group, index) => group.tabs.slice(index + 1)),
-        closeSaved: (tabId) => closeBatch(tabId, (group) => group.tabs.filter(saved)),
+        closeSaved: (tabId) => closeBatch(tabId, (group) => group.tabs, (tab) => unpinned(tab) && saved(tab)),
         answer: (choice) => {
             const resolve = answerDialog;
             answerDialog = null;

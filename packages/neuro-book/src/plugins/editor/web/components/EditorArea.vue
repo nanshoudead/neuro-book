@@ -14,7 +14,7 @@ import type {EditorState} from "../editor-registry";
 import type {EditorPageSource} from "../pages";
 import {editorText, nameOf} from "../messages";
 import EditorGroup from "./EditorGroup.vue";
-import type {EditorGroupTitleActions} from "./EditorGroup.vue";
+import type {EditorGroupTabMenu, EditorGroupTitleActions} from "./EditorGroup.vue";
 
 /** 编辑器区内的键位对应的意图：宿主把它换成命令执行（组件不认识命令）。 */
 export type EditorIntent = "save" | "close" | "split-right";
@@ -27,8 +27,10 @@ const props = defineProps<{
     emptyTips?: ReadonlyArray<EmptyTip>;
     /** 活动组的标题动作（`title-actions.ts`）：只画在 `group` 那一组；没有时为 null。 */
     titleActions?: EditorGroupTitleActions | null;
+    /** 标签的右键菜单（输出 57），每组都用。 */
+    tabMenu?: EditorGroupTabMenu | null;
 }>();
-const emit = defineEmits<{(event: "intent", intent: EditorIntent): void; (event: "run-tip", command: string): void; (event: "title-action", key: string): void}>();
+const emit = defineEmits<{(event: "intent", intent: EditorIntent): void; (event: "run-tip", command: string): void; (event: "title-action", key: string): void; (event: "tab-menu", tabId: string, key: string): void}>();
 
 const root = ref<HTMLElement | null>(null);
 const extent = useLayoutExtent(root);
@@ -98,6 +100,8 @@ const dialog = computed(() => props.area.dialog.value);
                     :pages="pages ?? null"
                     :empty-tips="emptyTips ?? []"
                     :title-actions="titleActions != null && titleActions.group === node.id ? titleActions : null"
+                    :tab-menu="tabMenu ?? null"
+                    @tab-menu="(tabId: string, key: string) => emit('tab-menu', tabId, key)"
                     @run-tip="(command) => emit('run-tip', command)"
                     @title-action="(key) => emit('title-action', key)"
                 />

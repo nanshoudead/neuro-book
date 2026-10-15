@@ -71,6 +71,18 @@ export const editorTitleLocation = menuLocation(EDITOR_TITLE_POINT, {...MENU_BUT
 
 export const validateEditorTitleItem = menuItemValidator(editorTitleLocation);
 
+/**
+ * 编辑器标签右键的菜单位置（docs/specs/workbench/editor.md 输出 57）：当前文件是被右击的文件标签（页面标签没有），
+ * `context: "resource"` 的项执行时收到 `{address}`。
+ */
+export const EDITOR_TAB_CONTEXT_POINT = "editor.tab-context";
+
+export type EditorTabContextItemDeclaration = MenuItemDeclaration;
+
+export const editorTabContextLocation = menuLocation(EDITOR_TAB_CONTEXT_POINT, {...MENU_EXTENSIONS}, {contexts: ["resource"]});
+
+export const validateEditorTabContextItem = menuItemValidator(editorTabContextLocation);
+
 /** 按 id 打开一个页面（同一页面在窗口里只开一个，已开就切过去）。 */
 export const OPEN_PAGE_COMMAND = "nbook.editor.open-page";
 

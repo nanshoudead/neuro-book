@@ -103,6 +103,8 @@ owners:
   | `nbook.editor.close-saved` | `{tabId?}`（planned） | `active` | read | auto | — |
   | `nbook.editor.pin-tab` | `{tabId?}`（planned） | `active` | read | auto | — |
   | `nbook.editor.unpin-tab` | `{tabId?}`（planned） | `active` | read | auto | — |
+  | `nbook.editor.copy-path` | `{tabId?}`（planned） | `active` | read | never | — |
+  | `nbook.editor.copy-relative-path` | `{tabId?}`（planned） | `active` | read | never | — |
   | `nbook.editor.split-right` | `{tabId?}`（planned） | `active` | read | auto | Ctrl+\\ |
   | `nbook.editor.split-down` | `{tabId?}`（planned） | `active` | read | auto | — |
   | `nbook.editor.focus-breadcrumbs` | `{}`（planned） | `active` | read | never | — |
@@ -110,7 +112,7 @@ owners:
   | `nbook.editor.open-preview` | `{side?: boolean}` | `hasPreview` | read | auto | — |
   | `nbook.editor.change-language` | `{language?}`（不给时弹出选择，输出 45） | `hasLanguage` | read | auto | — |
 
-  `tabId` 是被右击的标签（输出 57），缺省为活动组的活动标签；标签不存在为 `unavailable`，命令的可用性按目标标签算。`close-others`、`close-to-right`、`close-saved` 作用于目标标签所在的组（输出 51）。`when` 列写 `nbook.editor/` 下的公开键名。`revert` 丢弃未保存修改，对 Agent 不开放。键位只在编辑器区有焦点时由编辑器区处理并执行同一命令，不写成全局键位，`when` 也不含焦点：命令面板取得焦点时这些命令仍可选。第一批的 `nbook.editor.focus`、`nbook.edit.undo`、`nbook.edit.redo`、`nbook.editor.go-to-line` 由本插件登记，`when` 改用下面的公开键，其余声明不变。
+  `tabId` 是要作用的标签，缺省为活动组的活动标签；标签不存在为 `unavailable`。`when` 仍按活动标签求值（命令面板、快捷键与 Agent 用）；标签右键菜单里编辑器自己的项不经命令的 `when`，按被右击的标签判断（输出 57）。`close-others`、`close-to-right`、`close-saved` 作用于目标标签所在的组（输出 51）。`when` 列写 `nbook.editor/` 下的公开键名。`revert` 丢弃未保存修改，对 Agent 不开放。键位只在编辑器区有焦点时由编辑器区处理并执行同一命令，不写成全局键位，`when` 也不含焦点：命令面板取得焦点时这些命令仍可选。第一批的 `nbook.editor.focus`、`nbook.edit.undo`、`nbook.edit.redo`、`nbook.editor.go-to-line` 由本插件登记，`when` 改用下面的公开键，其余声明不变。
 - 公开状态（布尔）：`nbook.editor/focused`（编辑区获得焦点）、`nbook.editor/active`（有活动视图）、`nbook.editor/writable`（活动视图可写）、`nbook.editor/lineNavigation`（活动视图支持行导航）、`nbook.editor/dirty`（活动文档 dirty）、`nbook.editor/hasUnsavedDocuments`（本窗口有任一打开的文档需要保存，按文档去重）、`nbook.editor/hasCursorPosition`（活动控件给出光标位置）、`nbook.editor/ready`（编辑器区已建好：绑定项目的窗口读完会话记录之后），前四个对应命令目录第一批的 `editor-focus`、`editor-active`、`editor-writable`、`editor-line-navigation`。公开状态（字符串）：`nbook.editor/activeDocument`（活动组的活动标签的地址，文档还没读到也有；没有时为空串），资源管理器在打开作品时据此揭示活动文件（[workbench.files-explorer](files-explorer.md)）。`nbook.editor/active` 是“活动组有活动的文件标签且它的控件交出了句柄”，不要求文本文档；字符串 `nbook.editor/activeEditor` 是活动标签的编辑器 id（页面标签或空组为空串）；另有布尔 `nbook.editor/hasPreview`（活动标签的文件有可用的预览编辑器，且活动标签本身不是预览视图）、`nbook.editor/hasDocument`（活动标签有文本文档；字节标签与页面为假）、`nbook.editor/hasEditorStatus`（活动控件交出了一行状态，输出 42）、`nbook.editor/hasLanguage`（活动控件交出了语言，即活动视图是源码编辑器，输出 45）；`nbook.editor/writable` 是活动视图能输入（预览视图为假，输出 48）。
 - 文档协调服务 `documentCoordinatorKey`（`nbook.editor` 的共享合同），资源管理器作为可选依赖使用：
 
@@ -251,11 +253,11 @@ owners:
 51. **批量关闭**：“关闭其他”“关闭右侧”“关闭已保存”作用于一个组：开始时定下要关的标签（跳过固定标签；“关闭已保存”先结算各视图的输入，再取不需要保存、没有未裁决输入、没有在途保存的标签），之后新开或移进来的标签不在其中。逐个按第 3、4 条关闭：已经不在这一组的跳过；用户在询问里取消、或选“保存”而保存失败时停下，已关的不恢复，结果写明关了几个、停在哪个文件、为什么停。同一时刻只进行一次批量关闭，第二次为 `unavailable`。（planned）
 52. **设置**：设置窗口的“编辑器”分区有三项，缺省都开，改了立即生效：`nbook.editor/enablePreview`（预览标签页：关掉时单击打开也是 permanent，已有的 preview 标签立即转为 permanent，恢复的会话同样）；`nbook.editor/wrapTabs`（多行标签，输出 54；切换后活动标签滚到可见，键盘焦点留在原标签）；`nbook.editor/breadcrumbs`（面包屑，输出 60；关掉时它的下拉收起、在途读取作废，焦点在面包屑里时交给本组的编辑器）。（planned）
 53. **标签栏的样子**：标签条的底色比正文低一档（主题 token `--editor-tabs-surface`，[theme.system](../theme/system.md)），活动标签是与正文同色的一块、顶部两角圆，像从正文里长出来；不用加粗区分。别的组的活动标签同样是一块，文字为次级色。每个标签依次是文件图标（与资源管理器同一套）、名字、同名提示（输出 56）与状态位：未保存时是圆点，活动或悬停时换成关闭按钮，固定标签是图钉（点它取消固定）；关闭按钮不显示时仍占位，preview 标签的名字是斜体。同一行相邻标签之间是 1px 的竖线，上下各空出四分之一的高度，活动与悬停标签两侧不画。切换活动标签、悬停与状态变化都不改变标签的宽度。（planned）
-54. **多行标签**：多行时固定标签单独占第一行，这一行不换行，放不下时在行内横向滚动；普通标签放不下时换行，最多显示 3 行，再多在标签区里纵向滚动（悬停滚动条）；编辑区标题（输出 34）在最后一行的右侧。编辑组最小（220×120）时正文仍有可用的高度，标题动作与菜单仍能打开。关掉多行时所有标签在一行里横向滚动，固定标签排在最前。（planned）
+54. **多行标签**：多行时固定标签单独占第一行，这一行不换行，放不下时在行内横向滚动；普通标签放不下时换行，最多显示 3 行，再多在标签区里纵向滚动（悬停滚动条）；编辑区标题（输出 34）在最后一行的右侧。组矮的时候标签区跟着让：先给正文留至少一行字的高度、给组顶部的提示条与面包屑它们本来的高度，余下的才给标签区（至多 3 行，至少 1 行，在区内滚动）；编辑组最小（220×120）时正文、提示条的按钮、标题动作与菜单都仍能用。关掉多行时所有标签在一行里横向滚动，固定标签排在最前。（planned）
 55. **拖动标签**：按住标签的名字或图标拖动（鼠标与笔移动 6px、触摸按住 200 毫秒起拖），关闭按钮、图钉与编辑区标题不起拖；按下落在组与组之间分隔线的命中带里时是调整大小，不是拖标签。落点有两种：某组的标签条（插入位置画一条竖线，多行时先按纵向距离选行；行尾的插入位是下一行的行首之前），或某组的正文区（中央是移到那一组普通标签的末尾，四边按 nb-ui 的边缘落点拆出新组，画出预览区域）。放在原位不移动。Escape、指针被取消或丢失、窗口失焦、页面隐藏都取消且不改任何东西。拖动中组或标签的结构变了（组关闭、标签增减、固定状态或多行设置变化）整场取消；只是窗口尺寸或滚动变了时按当前位置重新显示落点。松手时按当前位置再算一次，与最后显示的落点相同才按第 49 条移动。（planned）
 56. **同名提示**：同一组里显示名相同的文件标签，名字后面用次级色附上能区分它们的最短上级目录（`…/notes`）；目录一直到根都相同（例如 `project://` 与 `user://` 下的同一路径）时附根的名字（“作品”“用户资产”）；同一个文件的两种非预览编辑器附编辑器的名字。改名或关掉其中一个后，提示按剩下的标签重新算。（planned）
-57. **标签的右键菜单**：在标签上右击（或聚焦标签按 Shift+F10、菜单键）打开菜单，作用于被右击的标签，不先激活它。编辑器自己的项：关闭、关闭其他、关闭右侧、关闭已保存；固定或取消固定；向右拆分、向下拆分；文件标签另有复制路径、复制相对路径、在资源管理器中显示（执行 `nbook.files.copy-path`、`copy-relative-path`、`reveal` 并带这个标签的地址）。之后是别的插件经贡献点 `editor.tab-context` 贡献的项（共同规则见 [workbench.menus](menus.md)，`context: "resource"` 的项收到 `{address}`）。菜单打开期间被右击的标签被关闭、移到别的组或换了编辑器时菜单关闭，之前的选择不执行。（planned）
-58. **悬停时显示**：编辑区标题（输出 34）与非活动标签的关闭按钮只在鼠标位于这个编辑组上、焦点在组里或它的菜单打开时显示，其余时候透明（仍占位、仍能用 Tab 到达），淡入淡出 100 毫秒；不能悬停的设备一直显示。规则同 [workbench.views](views.md) 输出 10。（planned）
+57. **标签的右键菜单**：在标签上右击（或聚焦标签按 Shift+F10、菜单键）打开菜单，作用于被右击的标签，不先激活它。编辑器自己的项直接作用于这个标签（与带 `tabId` 的同名命令同一个动作），有没有、能不能点都按这个标签判断，不受活动标签的影响：关闭、关闭其他、关闭右侧、关闭已保存；固定或取消固定；向右拆分、向下拆分；文件标签另有复制路径、复制相对路径（`nbook.editor.copy-path`、`copy-relative-path`：服务端机器上的绝对路径取自 Files 的 `realPath`，相对路径是相对所在根的路径，写进系统剪贴板；取不到路径或剪贴板不可用时为 `unavailable`）、在资源管理器中显示（执行 `nbook.files.reveal` 并带这个标签的地址；资源管理器还没就绪时同它自己的规则）。之后是别的插件经贡献点 `editor.tab-context` 贡献的项（共同规则见 [workbench.menus](menus.md)，`context: "resource"` 的项收到 `{address}`）。菜单打开期间被右击的标签被关闭、移到别的组或换了编辑器时菜单关闭，之前的选择不执行。（planned）
+58. **悬停时显示**：编辑区标题（输出 34）只在鼠标位于这个编辑组上、焦点在组里或它的“⋯”打开时显示，其余时候透明（仍占位、仍能用 Tab 到达），淡入淡出 100 毫秒；不能悬停的设备一直显示（规则同 [workbench.views](views.md) 输出 10）。标签的关闭按钮按标签算，不随整组显示：只在活动标签、鼠标所在的标签与键盘聚焦的标签上显示（输出 53），不进 Tab 顺序（键盘用 Delete 关闭）；不能悬停的设备上每个标签都显示。（planned）
 59. **标签的键盘**：多行时 ↑/↓ 换到上一行或下一行水平位置最近的标签并激活；其余按键见组件合同（←/→、Home/End、Delete、Alt+←/→）。（planned）
 60. **面包屑**：标签条下面一行：作品名（`user://` 下为“用户资产”）› 目录 › 文件；Markdown 文件再接光标所在的标题。每个组显示自己活动标签的路径；页面标签没有面包屑。放不下时先把中间的目录收成“…”（点它列出收起的段），文件段与标题段保留。点目录段列出它的子项：目录点了在下拉里进入下一层，文件点了在这一组打开，符号链接、其它类型与缺失的项显示但不可选；读取中显示进度，空目录写“空”，读取失败写原因并给“重试”。点文件段列出同级。点标题段列出这一章的大纲（按标题层级缩进，当前标题高亮），选中后光标跳到那个标题；下拉打开后正文或绑定变了，旧的选项不再跳转，下拉关闭。下拉关闭、换段或换文档后，还没回来的读取结果丢掉。键盘：`nbook.editor.focus-breadcrumbs` 聚焦面包屑，←/→ 换段，Enter 或 ↓ 打开下拉，Escape 先关下拉、再回到编辑器。（planned）
 

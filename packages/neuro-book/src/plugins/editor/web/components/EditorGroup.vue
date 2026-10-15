@@ -1,7 +1,8 @@
 <script setup lang="ts">
 /** 一个编辑组（同名 .md）：标签条、状态条、进度条与控件。 */
-import {Button, Kbd} from "@notnotype/nb-ui/components";
-import {computed, onBeforeUnmount, onMounted, ref} from "vue";
+import {Button, ContextMenu, Kbd} from "@notnotype/nb-ui/components";
+import type {ContextMenuItem} from "@notnotype/nb-ui/components";
+import {computed, onBeforeUnmount, onMounted, ref, shallowRef, watch} from "vue";
 import type {Component} from "vue";
 
 import type {DisplayLocale} from "nbook/shared/localized-text";
@@ -15,6 +16,7 @@ import type {EditorState} from "../editor-registry";
 import {BINARY_TAB_EDITOR} from "../editors";
 import type {EmptyTip} from "../empty-tips";
 import {EDITOR_TITLE_MAX_BUTTONS, EDITOR_TITLE_TAB_RESERVE} from "../title-actions";
+import type {TabMenuEntry} from "../tab-menu";
 import {pageIdOf} from "../pages";
 import type {EditorPageSource} from "../pages";
 import {editorText, nameOf} from "../messages";
@@ -32,10 +34,35 @@ const props = withDefaults(defineProps<{
     emptyTips?: ReadonlyArray<EmptyTip>;
     /** 标签条右侧的标题动作：只有活动组拿到，别的组为 null（docs/specs/workbench/editor.md 输出 34）。 */
     titleActions?: EditorGroupTitleActions | null;
-}>(), {pages: null, emptyTips: () => [], titleActions: null});
+    /** 标签的右键菜单（输出 57）；没有时右键不出菜单。 */
+    tabMenu?: EditorGroupTabMenu | null;
+}>(), {pages: null, emptyTips: () => [], titleActions: null, tabMenu: null});
 
-/** 点了空态里的一条提示：交出它的命令，由宿主执行（组件不执行命令）。点了标题动作：交出它的 key。 */
-const emit = defineEmits<{(event: "run-tip", command: string): void; (event: "title-action", key: string): void}>();
+/** 点了空态里的一条提示：交出它的命令，由宿主执行（组件不执行命令）。点了标题动作、标签菜单的一项：交出它的 key。 */
+const emit = defineEmits<{(event: "run-tip", command: string): void; (event: "title-action", key: string): void; (event: "tab-menu", tabId: string, key: string): void}>();
+
+/** 打开着的标签菜单：被右击的标签、位置与打开时的身份；身份变了（标签关闭、换组、换编辑器）就关上（输出 57）。 */
+const tabMenuState = shallowRef<{readonly tabId: string; readonly x: number; readonly y: number; readonly identity: string} | null>(null);
+const openTabMenu = (tabId: string, x: number, y: number): void => {
+    const identity = props.tabMenu?.identity(tabId) ?? null;
+    tabMenuState.value = identity === null ? null : {tabId, x, y, identity};
+};
+watch(() => (tabMenuState.value === null ? null : props.tabMenu?.identity(tabMenuState.value.tabId) ?? null), (identity) => {
+    if (tabMenuState.value !== null && identity !== tabMenuState.value.identity) tabMenuState.value = null;
+});
+const tabMenuItems = computed((): ContextMenuItem[] => {
+    const opened = tabMenuState.value;
+    if (opened === null) return [];
+    return (props.tabMenu?.entries(opened.tabId) ?? []).map((entry) => (entry.kind === "separator"
+        ? {separator: true}
+        : {
+            label: entry.label,
+            disabled: entry.disabled,
+            ...(entry.shortcut === null ? {} : {shortcut: entry.shortcut}),
+            ...(entry.reason === null ? {} : {title: entry.reason}),
+            action: () => emit("tab-menu", opened.tabId, entry.key),
+        }));
+});
 
 /** 标签条一行的宽度：标题动作按它决定放几个按钮，标签条至少留一个截断标签的宽度（输出 34）。 */
 const header = ref<HTMLElement | null>(null);
@@ -135,6 +162,13 @@ const controls = computed((): Array<{readonly editor: string; readonly component
     });
 });
 
+export interface EditorGroupTabMenu {
+    /** 标签的菜单项；标签已不在为 null。 */
+    readonly entries: (tabId: string) => ReadonlyArray<TabMenuEntry> | null;
+    /** 菜单身份；标签已不在为 null。 */
+    readonly identity: (tabId: string) => string | null;
+}
+
 export interface EditorGroupTitleActions {
     /** 拿到标题动作的组（活动组）。 */
     readonly group: string;
@@ -153,7 +187,7 @@ export interface EditorGroupTitleActions {
         :data-editor-group="groupId"
         :data-editor-group-active="active ? '' : undefined"
         @focusin="area.focusGroup(groupId)"
-        @pointerdown="area.focusGroup(groupId)"
+        @pointerdown="(event: PointerEvent) => event.button === 0 && area.focusGroup(groupId)"
     >
         <!-- 标签多时标签条自己横向滚动，标题动作固定在右侧、不随之滚动。 -->
         <div ref="header" class="editor-group__header">
@@ -167,7 +201,9 @@ export interface EditorGroupTitleActions {
                 @pin="(id: string) => area.keep(id)"
                 @close="(id: string) => void area.close(id)"
                 @move="(id: string, delta: -1 | 1) => area.groups.move(id, delta)"
+                @menu="openTabMenu"
             />
+            <ContextMenu :visible="tabMenuState !== null" :x="tabMenuState?.x ?? 0" :y="tabMenuState?.y ?? 0" :items="tabMenuItems" @close="tabMenuState = null" />
             <TitleActions
                 v-if="hasTitleActions"
                 class="editor-group__title-actions"

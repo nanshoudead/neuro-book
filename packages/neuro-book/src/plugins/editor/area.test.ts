@@ -883,7 +883,68 @@ describe("Spec workbench.editor 输出 49–51：移动、固定与批量关闭"
         at.area.answer("cancel");
         expect(await closing).toMatchObject({ok: false, closed: 2});
         expect(names(at, 0)).toEqual(["a.md", "c.json", "a.html"]);
-        expect(at.saved.at(-1)?.groups[0]?.tabs.map((tab) => [tab.address, tab.pinned ?? false])).toEqual([["project://a.md", true], ["project://c.json", false], ["project://a.html", false]]);
+        // 等待期间才固定的标签同样跳过：关闭右侧时先问 c.json，问着的时候固定 a.html。
+        const right = at.area.closeToRight(tabId(at, 0, "a.md"));
+        await until(at, "问", () => at.area.dialog.value !== null);
+        at.area.setPinned(tabId(at, 0, "a.html"), true);
+        at.area.answer("discard");
+        expect(await right).toEqual({ok: true, closed: 1});
+        expect(names(at, 0)).toEqual(["a.md", "a.html"]);
+        expect(at.saved.at(-1)?.groups[0]?.tabs.map((tab) => [tab.address, tab.pinned ?? false])).toEqual([["project://a.md", true], ["project://a.html", true]]);
+    });
+
+    it("移走源组里非活动的标签：活动视图的绑定与它的未裁决输入不动，仍可裁决后保存", async () => {
+        const at = await world();
+        at.area.open("project://b.md", {mode: "permanent"});
+        at.area.open("project://a.md", {mode: "permanent"});
+        await ready(at);
+        expect(at.area.split("right")).toEqual({ok: true});
+        const [left, right] = [groupAt(at, 0), groupAt(at, 1)];
+        const kept = await boundIn(at, left);
+        const other = await boundIn(at, right);
+        const base = kept.revision.value;
+        other.commit(base, "右");
+        expect(kept.commit(base, "左")).toMatchObject({status: "conflict"});
+        expect(await at.area.moveTab(tabId(at, 0, "b.md"), {group: right, partition: "normal", before: null})).toEqual({ok: true});
+        expect(textBinding(at.area, left)?.token).toBe(kept.token);
+        expect(kept.unresolved()).toBe(true);
+        at.area.resolve(left, "keep-view");
+        expect(await at.area.documents.save(at.area.documentOf(left)!)).toEqual({ok: true});
+        expect(await readFile(join(at.scene.project, "a.md"), "utf8")).toBe("左");
+    });
+
+    it("并掉时落点在固定区：关掉被移动的标签之后，留下的那个固定并排到落点", async () => {
+        const at = await world();
+        at.area.open("project://a.md", {mode: "permanent"});
+        at.area.open("project://b.md", {mode: "permanent", group: "side"});
+        at.area.open("project://a.md", {mode: "permanent", group: groupAt(at, 1)});
+        const right = groupAt(at, 1);
+        at.area.setPinned(tabId(at, 1, "b.md"), true);
+        expect(await at.area.moveTab(tabId(at, 0, "a.md"), {group: right, partition: "pinned", before: tabId(at, 1, "b.md")})).toEqual({ok: true});
+        expect(at.area.groups.groups.value.map((group) => group.tabs.map((tab) => `${tab.address.replace("project://", "")}${tab.kind === "file" && tab.pinned === true ? "^" : ""}`))).toEqual([["a.md^", "b.md^"]]);
+    });
+
+    it("询问期间另一个能编辑的标签被关掉：选“不保存”时按此刻的状态重新问，不按询问前的判断只丢这个视图的输入", async () => {
+        const at = await world();
+        at.area.open("project://a.md", {mode: "permanent"});
+        await ready(at);
+        expect(at.area.split("right")).toEqual({ok: true});
+        const [left, right] = [groupAt(at, 0), groupAt(at, 1)];
+        const one = await boundIn(at, left);
+        const two = await boundIn(at, right);
+        const base = one.revision.value;
+        one.commit(base, "一");
+        expect(two.commit(base, "二")).toMatchObject({status: "conflict"});
+        const closing = at.area.close(tabId(at, 1, "a.md"));
+        await until(at, "问", () => at.area.dialog.value !== null);
+        // 左边的标签没有自己的未裁决输入：关它不问。
+        const leftClose = at.area.close(tabId(at, 0, "a.md"));
+        expect(await leftClose).toBe("closed");
+        at.area.answer("discard");
+        await until(at, "再问", () => at.area.dialog.value !== null);
+        at.area.answer("discard");
+        expect(await closing).toBe("closed");
+        expect(at.area.needsLeaveConfirm()).toBe(false);
     });
 
     it("关闭已保存：先结算视图输入，留下要保存的与固定的；保存失败时批量停下", async () => {

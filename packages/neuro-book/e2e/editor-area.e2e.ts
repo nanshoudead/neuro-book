@@ -790,6 +790,36 @@ test.describe("编辑区标题（docs/specs/workbench/editor.md 输出 34，验�
         await expect(first.locator('[data-title-action-key="test.menus.editor-md"]')).toHaveCount(1);
     });
 
+    test("标签的右键菜单作用于被右击的标签、不先激活它：贡献的项收到它的地址；关闭其他只关它所在组的", async ({page}) => {
+        await page.setViewportSize({width: 1440, height: 900});
+        await page.goto(new URL("/?project=book", probe.url).href);
+        await item(page, "project://a.md").dblclick();
+        await item(page, "project://b.txt").dblclick();
+        await page.locator('[data-editor-group-active] [data-title-action-key="own:split-right"]').click();
+        await expect(page.locator("[data-editor-group]")).toHaveCount(2);
+        const [left, right] = [page.locator("[data-editor-group]").first(), page.locator("[data-editor-group]").nth(1)];
+        await expect(right).toHaveAttribute("data-editor-group-active", "");
+        const menu = page.getByRole("menu");
+
+        await left.locator("[data-editor-tab]").filter({hasText: "a.md"}).click({button: "right"});
+        await menu.getByRole("menuitem", {name: "测试标签菜单"}).click();
+        await expect(page.getByText(`收到 ${JSON.stringify({address: "project://a.md"})}`)).toBeVisible();
+        await expect(right).toHaveAttribute("data-editor-group-active", "");
+
+        await left.locator("[data-editor-tab]").filter({hasText: "a.md"}).click({button: "right"});
+        await expect(menu.getByRole("menuitem", {name: "固定"})).toBeVisible();
+        await menu.getByRole("menuitem", {name: "关闭其他"}).click();
+        await expect(left.locator("[data-editor-tab-label]")).toHaveText(["a.md"]);
+        await expect(right.locator("[data-editor-tab-label]")).toHaveText(["b.txt"]);
+
+        // 键盘：聚焦标签按 Shift+F10 打开同一个菜单，Escape 关上。
+        await left.locator("[data-editor-tab]").filter({hasText: "a.md"}).focus();
+        await page.keyboard.press("Shift+F10");
+        await expect(menu.getByRole("menuitem", {name: "关闭"}).first()).toBeVisible();
+        await page.keyboard.press("Escape");
+        await expect(menu).toHaveCount(0);
+    });
+
     test("编辑组窄到放不下按钮时：按钮都收进“⋯”，“⋯”与至少一个标签宽的标签条都在这一组里，“⋯”里仍能执行拆分与贡献的项", async ({page}) => {
         // 编辑组至少 220px（输出 2）：窗口放不下四个最小宽度时各组按比例压缩，活动组才会窄到放不下按钮。
         await page.setViewportSize({width: 900, height: 900});

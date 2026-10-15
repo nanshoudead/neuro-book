@@ -22,6 +22,8 @@ type Props = {
     emptyTips?: ReadonlyArray<EmptyTip>;
     /** 活动组的标题动作（输出 34，`web/title-actions.ts` 算好）：只交给 `group` 那一组；缺省 null。 */
     titleActions?: {group: string; model: (maxButtons: number) => TitleActionsModel; identity: string} | null;
+    /** 标签的右键菜单（输出 57，`web/tab-menu.ts` 算好），原样交给每个编辑组；缺省 null。 */
+    tabMenu?: {entries: (tabId: string) => ReadonlyArray<TabMenuEntry> | null; identity: (tabId: string) => string | null} | null;
 };
 
 type Emits = {
@@ -31,6 +33,8 @@ type Emits = {
     "run-tip": [command: string];
     /** 点了活动组的一个标题动作：宿主按 key 执行。 */
     "title-action": [key: string];
+    /** 点了某个编辑组标签菜单的一项：宿主按标签 id 与 key 执行。 */
+    "tab-menu": [tabId: string, key: string];
 };
 ```
 

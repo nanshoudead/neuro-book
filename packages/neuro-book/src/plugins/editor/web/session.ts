@@ -32,6 +32,8 @@ export interface EditorSessionOptions {
     /** 已接受的编辑器声明；缺省只有内置的两个。 */
     readonly editors?: EditorCatalog;
     readonly conflict?: (address: string, editors: ReadonlyArray<string>) => void;
+    /** 设置“预览标签页”（docs/specs/workbench/editor.md 输出 52）；缺省为开。 */
+    readonly enablePreview?: () => boolean;
 }
 
 export interface EditorSession {
@@ -71,6 +73,7 @@ export function createEditorSession(options: EditorSessionOptions): EditorSessio
             report: options.report,
             ...(options.editors === undefined ? {} : {editors: options.editors}),
             ...(options.conflict === undefined ? {} : {conflict: options.conflict}),
+            ...(options.enablePreview === undefined ? {} : {enablePreview: options.enablePreview}),
         });
     };
 
