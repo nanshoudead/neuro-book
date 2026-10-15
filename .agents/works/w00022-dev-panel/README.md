@@ -53,6 +53,6 @@ status: active
 | [t13](tasks/t13-cross-device/README.md) | 跨设备访问；2026-10-13 写了计划后搁置：开发者定先不做 Tailscale，SSH 转发加常驻服务够用 |
 | [t14](tasks/t14-runs-and-github/README.md) | 运行登记、开发服务与现场补充，含 t11 通知误报与 t12 接管尺寸的修正；2026-10-13 两轮实现审查修正后合入 `master`（`da3781d99`） |
 | [t15](tasks/t15-ui-polish/README.md) | 面板界面打磨：左栏可调宽度、细滚动条、系统审查 UI、UX 与前端设计后调优；2026-10-14 阶段 1 到 4 全部合入 `master`（最后一批 `66bb8a5fe`），完成；阶段 5 推迟 |
-| [t16](tasks/t16-cli-papercuts/README.md) | nbdev 命令行修补：产物只提交引用到的文件、不合规逐条列出、`answers --wait` 接 SIGHUP、`shot` 找不到组件立即失败、`--no-lease`、只报相关撞号；2026-10-14 实施并处理完实现审查，在集成分支上，待合入 `master` |
-| [t17](tasks/t17-panel-small-fixes/README.md) | 面板小修：nb-ui 勾选框的根上修法、会话页紧凑写法（1440×650 下终端 222 到 345px）、显示租约处带会话标题；2026-10-14 实施并处理完实现审查，在集成分支上，待合入 `master` |
-| [t18](tasks/t18-agent-self-check/README.md) | Agent 自助验收：`dev start --sample` 带样例作品、`nbdev shot --page` 与 `page:shot` 截产品页面；2026-10-14 实施并处理完实现审查，合进集成分支，待合入 `master` |
+| [t16](tasks/t16-cli-papercuts/README.md) | nbdev 命令行修补：产物只提交引用到的文件、不合规逐条列出、`answers --wait` 接 SIGHUP、`shot` 找不到组件立即失败、`--no-lease`、只报相关撞号；2026-10-15 合入 `master`（`8634c9d70`），完成 |
+| [t17](tasks/t17-panel-small-fixes/README.md) | 面板小修：nb-ui 勾选框的根上修法、会话页紧凑写法（1440×650 下终端 222 到 345px）、显示租约处带会话标题；2026-10-15 合入 `master`（`8634c9d70`），完成 |
+| [t18](tasks/t18-agent-self-check/README.md) | Agent 自助验收：`dev start --sample` 带样例作品、`nbdev shot --page` 与 `page:shot` 截产品页面；2026-10-15 合入 `master`（`8634c9d70`），完成 |

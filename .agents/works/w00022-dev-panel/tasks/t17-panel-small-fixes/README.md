@@ -19,7 +19,7 @@ updated: 2026-10-14
 
 ## 当前状态
 
-2026-10-14 实施完成，在集成分支 `feat/w00022-dev-panel` 上，未合入 `master`：
+2026-10-14 实施完成；2026-10-15 经开发者同意合入 `master`（合并提交 `8634c9d70`），面板 4400 已重启。各片：
 
 | 片 | 提交 | 内容 |
 |---|---|---|
@@ -35,8 +35,8 @@ updated: 2026-10-14
   - 前端 Sonnet，报告 [evidences/impl-review-ui.txt](evidences/impl-review-ui.txt)：重要 5、建议 10。改了 11 条（`c203248fe`、`87dbfd657`，交付报告 [evidences/impl-review-ui-fix.txt](evidences/impl-review-ui-fix.txt)）：Task 表一列只显示短键、标题进提示；不能发的原因放回可见文字并用 `aria-describedby` 关联；输入框改用 `field-sizing: content`；撤掉 provide/inject，页面直接传 prop；“标题 + 短键”抽成 `SessionLabel`；手机档发送按钮回到同一行；文档对齐。不改 4 条（“确认”说明要很宽才出现、Tab 顺序、表格 chip 的停靠点、再铺一层前端自动检查），理由见交付报告。
   - 服务端 omp，报告 [evidences/impl-review-server.txt](evidences/impl-review-server.txt)：重要 3、建议 1，全部修正（`4d3c48e59`，交付报告 [evidences/impl-review-server-fix.txt](evidences/impl-review-server-fix.txt)）：冷查找的 4 个名额跨轮共享、面板停止时等标题任务收口、Codex 索引只读末尾 4 MiB（288 MB 的索引下独立客户端最长响应从 2078ms 降到 14 到 26ms）、补“只改来源”的推送用例。
 - 修正后：1440×650 下空草稿时终端 345px；草稿写满 4 行时 289px，低于 320px 的目标。目标按空草稿定，写长草稿时暂时变矮可以接受，主会话判断不再压缩。dev-panel 全量 454 个通过。
-- 未验证：合入后在真实面板 4400 上截图。
+- 合入后在真实面板 4400 上复核（2026-10-15，截图在本地 `shots/real_*.png`）：会话页 1440×650 下终端约 350px、1440×900 下约 600px；首页 Work 卡片、会话页列表、运行页都显示“会话标题 + 短键”。
 
 ## 下一步
 
-处理实现审查；合入 `master` 要开发者授权，合入后重启面板 4400 并在真实面板上补截图。
+无，Task 完成。
