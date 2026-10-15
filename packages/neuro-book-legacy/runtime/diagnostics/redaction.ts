@@ -10,9 +10,9 @@
 
 const REDACTED = "[REDACTED]";
 
-const SENSITIVE_LABEL = "api[-_ ]?key|apikey|authorization|cookie|set-cookie|password|token|secret|credential|device[-_ ]?code|grant|access[-_ ]?token|refresh[-_ ]?token|recovery[-_ ]?code|backup[-_ ]?key|backup[-_ ]?keyring";
-const SENSITIVE_VALUE_LABEL = "api[-_ ]?key|apikey|password|token|secret|credential|device[-_ ]?code|grant|access[-_ ]?token|refresh[-_ ]?token|recovery[-_ ]?code|backup[-_ ]?key|backup[-_ ]?keyring";
-const SENSITIVE_KEY_PATTERN = /(authorization|cookie|set-cookie|api[-_]?key|apikey|password|token|secret|credential|device[-_]?code|grant|recovery[-_]?code|backup[-_]?key|backup[-_]?keyring)/iu;
+const SENSITIVE_LABEL = "api[-_ ]?key|apikey|authorization|cookie|set-cookie|password|token|secret|credential|private[-_ ]?key|device[-_ ]?code|grant|access[-_ ]?token|refresh[-_ ]?token|recovery[-_ ]?code|backup[-_ ]?key|backup[-_ ]?keyring";
+const SENSITIVE_VALUE_LABEL = "api[-_ ]?key|apikey|password|token|secret|credential|private[-_ ]?key|device[-_ ]?code|grant|access[-_ ]?token|refresh[-_ ]?token|recovery[-_ ]?code|backup[-_ ]?key|backup[-_ ]?keyring";
+const SENSITIVE_KEY_PATTERN = /(authorization|cookie|set-cookie|api[-_]?key|apikey|password|token|secret|credential|private[-_]?key|device[-_]?code|grant|recovery[-_]?code|backup[-_]?key|backup[-_]?keyring)/iu;
 
 /** 单个字符串字段的默认长度上限；诊断消息预算缺省也取它。 */
 export const MAX_STRING_LENGTH = 4000;
@@ -39,7 +39,8 @@ export function redactSensitiveText(input: string): string {
         .replace(new RegExp(`\\b(cookie|set-cookie)\\s*[:=]\\s*[^\\r\\n]+`, "giu"), `$1=${REDACTED}`)
         .replace(new RegExp(`(\\b(?:${SENSITIVE_VALUE_LABEL})\\s*[:=]\\s*)(?:"[^"]*"|'[^']*'|[^\\s,;}]+)`, "giu"), `$1${REDACTED}`)
         .replace(/\bNBK1-[A-Za-z0-9_-]{43}-[0-9a-f]{8}\b/gu, REDACTED)
-        .replace(/\bsk-[A-Za-z0-9_-]{8,}\b/gu, REDACTED);
+        .replace(/\bsk-[A-Za-z0-9_-]{8,}\b/gu, REDACTED)
+        .replace(/-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z0-9 ]*PRIVATE KEY-----/gu, REDACTED);
 }
 
 /**

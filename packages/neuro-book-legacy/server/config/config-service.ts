@@ -27,6 +27,7 @@ import type {
     GlobalConfigUpdateDto,
     ProjectConfigDto,
 } from "nbook/shared/dto/config.dto";
+import {readVertexServiceAccount} from "nbook/server/models/vertex-credentials";
 import {resolveStateWorkspaceRoot} from "nbook/server/runtime/installation-paths";
 import {absoluteFsPath, type AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
 import {CONFIG_REGISTRY, CONFIG_VERSION} from "nbook/server/config/registry";
@@ -1310,6 +1311,15 @@ function maskSecret(value: string | null | undefined): {configured: boolean; mas
             configured: false,
             maskedValue: null,
         };
+    }
+    if (normalized.startsWith("{")) {
+        try {
+            if (readVertexServiceAccount(normalized)) {
+                return {configured: true, maskedValue: "service_account"};
+            }
+        } catch {
+            return {configured: true, maskedValue: "********"};
+        }
     }
     return {
         configured: true,

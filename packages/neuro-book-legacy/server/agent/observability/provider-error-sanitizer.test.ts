@@ -29,4 +29,13 @@ describe("sanitizeProviderErrorMessage", () => {
         expect(sanitized).not.toContain("session=abc");
         expect(sanitized).not.toContain("sk-live-1234567890");
     });
+
+    it("清理服务账号私钥", () => {
+        const sanitized = sanitizeProviderErrorMessage([
+            "{\"private_key\":\"-----BEGIN PRIVATE KEY-----\\nMIIBsecret\\n-----END PRIVATE KEY-----\\n\"}",
+            "-----BEGIN PRIVATE KEY-----\nMIIBsecret\n-----END PRIVATE KEY-----",
+        ].join("\n"));
+
+        expect(sanitized).not.toContain("MIIBsecret");
+    });
 });

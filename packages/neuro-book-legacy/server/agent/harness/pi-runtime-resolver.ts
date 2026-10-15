@@ -14,6 +14,7 @@ const CUSTOM_API_STREAMS = {
     "openai-responses": lazyApi(() => import("@earendil-works/pi-ai/api/openai-responses")),
     "anthropic-messages": lazyApi(() => import("@earendil-works/pi-ai/api/anthropic-messages")),
     "google-generative-ai": lazyApi(() => import("@earendil-works/pi-ai/api/google-generative-ai")),
+    "google-vertex": lazyApi(() => import("@earendil-works/pi-ai/api/google-vertex")),
     "bedrock-converse-stream": lazyApi(() => import("@earendil-works/pi-ai/api/bedrock-converse-stream")),
 } satisfies Record<SupportedPiApi, ProviderStreams>;
 
@@ -45,6 +46,9 @@ export function resolvePiModelsFromConfig(
     }
     if (hasApi(model, "google-generative-ai")) {
         return createCustomModels(model, CUSTOM_API_STREAMS["google-generative-ai"]);
+    }
+    if (hasApi(model, "google-vertex")) {
+        return createCustomModels(model, CUSTOM_API_STREAMS["google-vertex"]);
     }
     if (hasApi(model, "bedrock-converse-stream")) {
         return createCustomModels(model, CUSTOM_API_STREAMS["bedrock-converse-stream"]);

@@ -287,7 +287,7 @@ function orderedAdapters(provider: ModelProviderDraftDto, baseURL: URL): Discove
     if (provider.modelApi === "anthropic-messages") {
         return [anthropicAdapter];
     }
-    if (provider.modelApi === "bedrock-converse-stream") {
+    if (provider.modelApi === "bedrock-converse-stream" || provider.modelApi === "google-vertex") {
         return [];
     }
     if (provider.modelApi === "google-generative-ai") {

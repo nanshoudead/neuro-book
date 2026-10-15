@@ -47,10 +47,13 @@ const {t} = useI18n();
 /** 已保存 Provider 的身份字段（id / baseURL / proxy）在本页只读，改动只能来自配置文件。 */
 const isSavedProvider = computed(() => props.provider?.sourceIndex !== undefined);
 const enabledModelCount = computed(() => props.provider?.models.filter((model) => model.enabled).length ?? 0);
+const usesVertexCredential = computed(() => props.provider?.modelApi === "google-vertex");
 const apiKeyPlaceholder = computed(() => {
     const options = props.provider?.options;
     if (!options?.apiKeyConfigured) {
-        return "sk-...";
+        return usesVertexCredential.value
+            ? t("settings.panels.models.vertexCredentialPlaceholder")
+            : "sk-...";
     }
     return t("settings.panels.models.configuredApiKeyPlaceholder", {value: options.apiKeyMaskedValue ?? ""});
 });
@@ -210,7 +213,7 @@ function patchOptions(patch: Partial<ModelSettingsProviderDraft["options"]>): vo
 
                 <label class="provider-field-span block min-w-0">
                     <span class="flex items-center justify-between gap-[var(--space-3)]">
-                        <span class="text-[var(--text-xs)] [font-weight:var(--weight-medium)] leading-[var(--leading-ui)] text-[var(--text-secondary)]">API Key</span>
+                        <span class="text-[var(--text-xs)] [font-weight:var(--weight-medium)] leading-[var(--leading-ui)] text-[var(--text-secondary)]">{{ usesVertexCredential ? t("settings.panels.models.vertexCredentialLabel") : "API Key" }}</span>
                         <button
                             v-if="props.provider.options.apiKeyConfigured"
                             type="button"
@@ -221,7 +224,19 @@ function patchOptions(patch: Partial<ModelSettingsProviderDraft["options"]>): vo
                             {{ t("settings.panels.models.clearApiKey") }}
                         </button>
                     </span>
+                    <FormTextarea
+                        v-if="usesVertexCredential"
+                        class="mt-[var(--space-2)] font-mono"
+                        autocomplete="off"
+                        spellcheck="false"
+                        :rows="6"
+                        :model-value="props.provider.options.apiKey"
+                        :placeholder="apiKeyPlaceholder"
+                        :disabled="props.saving"
+                        @update:model-value="patchOptions({apiKey: $event})"
+                    />
                     <FormInput
+                        v-else
                         class="mt-[var(--space-2)]"
                         size="sm"
                         type="password"
@@ -230,6 +245,10 @@ function patchOptions(patch: Partial<ModelSettingsProviderDraft["options"]>): vo
                         :disabled="props.saving"
                         @update:model-value="patchOptions({apiKey: $event})"
                     />
+                    <span
+                        v-if="usesVertexCredential"
+                        class="mt-[var(--space-1)] block text-[var(--text-2xs)] leading-[var(--leading-ui)] text-[var(--text-muted)]"
+                    >{{ t("settings.panels.models.vertexCredentialHint") }}</span>
                 </label>
             </div>
         </section>

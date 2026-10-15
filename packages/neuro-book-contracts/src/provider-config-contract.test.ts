@@ -96,4 +96,16 @@ describe("Provider Config contract", () => {
         ]);
         expect(result.runnableModelKeys.size).toBe(0);
     });
+
+    it("Vertex 不要求 Base URL，官方地址由项目和区域决定", () => {
+        const input = validInput();
+        input.providers[0]!.modelApi = "google-vertex";
+        input.providers[0]!.options.baseURL = "";
+        input.providers[0]!.models[0]!.api = "google-vertex";
+
+        const result = inspectProviderConfigDocument(input);
+
+        expect(result.issues).toEqual([]);
+        expect(result.runnableModelKeys).toEqual(new Set(["provider/model"]));
+    });
 });

@@ -42,6 +42,7 @@ defineRouteMeta({
                                                 "openai-responses",
                                                 "anthropic-messages",
                                                 "google-generative-ai",
+                                                "google-vertex",
                                                 "bedrock-converse-stream"
                                             ]
                                         },

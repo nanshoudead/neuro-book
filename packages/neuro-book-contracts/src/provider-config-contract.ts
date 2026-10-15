@@ -4,6 +4,7 @@ export const SUPPORTED_PI_APIS = [
     "openai-responses",
     "anthropic-messages",
     "google-generative-ai",
+    "google-vertex",
     "bedrock-converse-stream",
 ] as const;
 
@@ -76,6 +77,14 @@ export function isSupportedPiApi(value: string | null | undefined): value is Sup
 }
 
 /**
+ * Bedrock 与 Vertex 的官方地址由各自 SDK 按区域拼出。
+ * 空 Base URL 仍可运行；填了自定义地址时照原样传给适配器。
+ */
+function modelNeedsProviderBaseUrl(api: string | null): boolean {
+    return isSupportedPiApi(api) && api !== "bedrock-converse-stream" && api !== "google-vertex";
+}
+
+/**
  * 校验单个模型能力快照，不检查 Provider Base URL。
  * Discovery/Catalog 草稿和 runtime 校验共用该 Interface。
  */
@@ -114,7 +123,7 @@ export function inspectModelCapability(
 /** 校验单个模型的完整运行条件。 */
 export function inspectRunnableModel(provider: ProviderConfigInput, model: ProviderConfigModelInput): ProviderConfigIssue[] {
     const issues = inspectModelCapability(provider.id, model);
-    if (isSupportedPiApi(model.api) && model.api !== "bedrock-converse-stream" && !provider.options.baseURL.trim()) {
+    if (modelNeedsProviderBaseUrl(model.api) && !provider.options.baseURL.trim()) {
         issues.push(issue(
             "missing_base_url",
             ["providers", provider.id, "options", "baseURL"],
@@ -177,7 +186,7 @@ export function inspectProviderConfigDocument(input: ModelSettingsContractInput)
         }
 
         const runnableCandidates = provider.models.filter((model) => provider.enabled && model.enabled && !duplicateModelIds.has(model.id.trim()));
-        const needsBaseUrl = runnableCandidates.some((model) => isSupportedPiApi(model.api) && model.api !== "bedrock-converse-stream");
+        const needsBaseUrl = runnableCandidates.some((model) => modelNeedsProviderBaseUrl(model.api));
         const baseUrlMissing = needsBaseUrl && !provider.options.baseURL.trim();
         if (baseUrlMissing) {
             issues.push(issue("missing_base_url", [...providerPath, "options", "baseURL"], null, `Provider ${providerId} 缺少 Base URL。`));
@@ -193,7 +202,7 @@ export function inspectProviderConfigDocument(input: ModelSettingsContractInput)
             if (!provider.enabled || providerDuplicated || !model.enabled) {
                 continue;
             }
-            const modelNeedsBaseUrl = isSupportedPiApi(model.api) && model.api !== "bedrock-converse-stream";
+            const modelNeedsBaseUrl = modelNeedsProviderBaseUrl(model.api);
             if (modelIssues.length === 0 && (!modelNeedsBaseUrl || !baseUrlMissing)) {
                 runnableModelKeys.add(`${providerId}/${modelId}`);
             }

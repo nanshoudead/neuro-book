@@ -72,6 +72,7 @@ export const MODEL_API_OPTIONS: ModelApiOption[] = [
     {value: "openai-responses", label: "OpenAI Responses", description: "OpenAI Responses API"},
     {value: "anthropic-messages", label: "Anthropic Messages", description: "Anthropic Claude Messages"},
     {value: "google-generative-ai", label: "Google Generative AI", description: "Gemini / Google GenAI"},
+    {value: "google-vertex", label: "Google Vertex AI", description: "Vertex 上的 Gemini，可填写 API Key 或服务账号 JSON"},
     {value: "bedrock-converse-stream", label: "Bedrock Converse", description: "AWS Bedrock Converse Stream"},
 ];
 

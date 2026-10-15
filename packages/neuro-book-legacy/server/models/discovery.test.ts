@@ -344,11 +344,11 @@ describe("Automatic Model Discovery", () => {
         expect(headers.has("authorization")).toBe(false);
     });
 
-    it("Bedrock 明确提示不支持自动发现且不发送请求", async () => {
+    it.each(["bedrock-converse-stream", "google-vertex"] as const)("%s 不支持自动发现且不发送请求", async (modelApi) => {
         const fetchMock = vi.fn();
         globalThis.fetch = fetchMock as unknown as typeof fetch;
 
-        await expect(discoverProviderModelMetadata(createProvider("https://example.com", "secret", "bedrock-converse-stream"))).rejects.toMatchObject({code: "unsupported-discovery"});
+        await expect(discoverProviderModelMetadata(createProvider("https://example.com", "secret", modelApi))).rejects.toMatchObject({code: "unsupported-discovery"});
         expect(fetchMock).not.toHaveBeenCalled();
     });
 });
