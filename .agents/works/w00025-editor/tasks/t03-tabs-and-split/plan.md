@@ -1,107 +1,155 @@
 # t03 实施计划：编辑器区的标签栏与拆分
 
+第三版（2026-10-15）：第二版按 omp 设计审查（`evidences/design-review-omp.txt`，16 条全部成立）改写；第三版按第二轮（`evidences/design-review-omp-r2.txt`，10 条全部成立）修订第 1、3、5、7、8 节与验收映射，已实施的 S2、S3 按第三版写成。更早的版本见本文件的提交历史。
+
 ## Context
 
-- **为什么做**：开发者 2026-10-15 要求打磨编辑器区。现状：拆分后拖不动分隔线（已修，`80d9cdbd5`）；标签栏只有单行横向滚动、没有图标；不能拖动标签排序、换组或拖到边缘拆分（旧应用有）；没有固定标签、多行标签、标签右键菜单；标题动作一直显示。
-- **依据**：[`workbench/editor.md`](../../../../../docs/specs/workbench/editor.md)（“不承诺”里列着拖放、固定、多行与标签右键菜单）、[`workbench/menus.md`](../../../../../docs/specs/workbench/menus.md)、[`workbench/views.md`](../../../../../docs/specs/workbench/views.md) 输出 10（悬停时显示）、[`settings/configuration.md`](../../../../../docs/specs/settings/configuration.md)、[`ui/nested-grid.md`](../../../../../docs/specs/ui/nested-grid.md)。
-- **已定**：Task README 的“开发者的决定”1 到 10（注意力排序；VS Code 式标签块；多行时固定标签单独一行；面包屑；开放式分隔线）；标签条的深浅等评审板第 3 轮的答复。
-- **工作方式**：在 `.worktree/w00025-t03-tabs-and-split` 逐片提交；视觉在草稿 worktree 定稿后才写进组件。测试用真实的组模型、文档模型与浏览器，不用 mock。
+- **为什么做**：开发者 2026-10-15 要求打磨编辑器区。现状：拆分后拖不动分隔线（已修，`80d9cdbd5`）；标签栏只有单行横向滚动、没有图标；不能拖动标签排序、换组或拖到边缘拆分（旧应用有）；没有固定标签、多行标签、标签右键菜单与面包屑；标题动作一直显示。
+- **依据**：[`workbench/editor.md`](../../../../../docs/specs/workbench/editor.md)（“不承诺”里列着拖放、固定、多行、标签右键菜单与面包屑）、[`workbench/menus.md`](../../../../../docs/specs/workbench/menus.md)、[`workbench/views.md`](../../../../../docs/specs/workbench/views.md) 输出 10（悬停时显示）、[`ui/workbench-shell.md`](../../../../../docs/specs/ui/workbench-shell.md)（第 208 行“编辑器标签栏当前标签加粗”要改）、[`theme/system.md`](../../../../../docs/specs/theme/system.md)、[`settings/configuration.md`](../../../../../docs/specs/settings/configuration.md)、[`ui/nested-grid.md`](../../../../../docs/specs/ui/nested-grid.md)。
+- **已定**：Task README 的“开发者的决定”1 到 11（注意力排序；VS Code 式标签块，标签条比正文低一档取 7%；多行时固定标签单独一行；开放式分隔线；面包屑；标签右键菜单）。
+- **工作方式**：在 `.worktree/w00025-t03-tabs-and-split` 逐片提交。测试用真实的组模型、文档模型、Files 场地与生产构建的浏览器；不用 mock、spy、假计时器、伪造的几何或固定等待。DOM 测试只测不依赖几何的行为，截图只证明外观。
 
 ## 关键设计
 
-### 1. 组模型 `plugins/editor/web/groups/groups.ts`
+### 1. 移动事务归控制器（`web/area.ts`），模型只做纯结构变更（`web/groups/groups.ts`）
 
-- `FileTab` 加 `pinned: boolean`，会话记录里写 `pinned?: true`（旧记录没有时为 false）。不变量：每组里固定标签在前、普通标签在后；所有改顺序的操作都维持它。
-- 现有的 `pin(tabId)`（preview 转正）改名为 `keep(tabId)`，避免与“固定”混淆；新增 `setPinned(tabId, pinned)`：固定时转正并移到固定区末尾，取消时移到普通区开头。页面标签不能固定。
-- 新增 `moveTab(tabId, {group, before, pinned})`：组内排序或换组。目标组已有同地址同编辑器的标签时不新增，激活那一个并关掉源标签（同 VS Code）。落点跨过固定区边界时随之固定或取消固定。源组空了就关掉（与关闭最后一个标签相同）。返回消失的标签，交给控制器释放引用。
-- 新增 `moveToNewGroup(tabId, {group, edge})`：在目标组的上下左右边拆出新组并把标签移过去（拖到边缘）。源组只有这一个标签并且就是目标组时拒绝（拆不出东西）。
-- `closeOthers`、新增的 `closeToRight`、`closeSaved` 跳过固定标签。
+绑定按组记（`bindings`），视图状态槽按“组 × 编辑器 × 文档”记（`slotKey`），组消失时同步销毁它的控件槽；引用按标签 id 记。所以“标签 id 不变、引用不动”不能保证换组安全，移动由控制器做成一次事务：
 
-### 2. 控制器 `plugins/editor/web/area.ts`
+1. **核对**：源标签仍在、仍属于记下的源组；目标组仍在。
+2. **结算**：源标签是源组的活动标签时 `leave(源组)`；目标组的活动标签会被换下，`leave(目标组)`。任一组有未裁决输入就不改结构，给出现有的提示（与 `open` 换文档同一规则）。
+3. **提交结构**：一次调用模型的纯结构方法（下文），拿回完整结果：搬动的标签、被关掉的标签、被删除的组。
+4. **收尾**：只撤下真正换了活动视图的绑定：被移走的标签是源组此刻的绑定时删掉它（旧绑定的 `commit` 从此是 `stale`），源组搬走的是非活动标签时源组的绑定与它的未裁决输入不动；目标组旧的绑定由下一次取绑定时按现有规则换下。被移走的标签在源组的视图状态槽（`源组 × 编辑器 × 文档`）随之释放，不留成无主的槽（Monaco 模型）；被删除组的控件槽随现有 watch 销毁；`pendingReveal` 只按原组身份取消，不迁到新组；焦点交给目标组的活动视图。
 
-- 按第 1 节的操作补控制器方法：换组时文档引用随标签走（标签 id 不变，引用不动）；`moveTab` 关掉的源标签按现有的 `releaseTab` 释放；需要结算的标签被并掉时先按 `closeTab` 的规则问（它其实是被关掉）。
-- 多个标签一起关（关闭其他、关闭右侧、关闭已保存）：逐个走 `closeTab`，有人选“取消”就停在那里，已关的不回滚（同 VS Code）。
-- 预览标签页开关：设置 `enablePreview` 为假时，`open` 的 `mode: "preview"` 按 `permanent` 处理。
+搬到别的组的视图在目标组建新的视图状态槽：光标按标签记下的光标恢复（输出 30），撤销历史从空开始（与拆分一致）。目标组以前开过同一文档留下的槽照常重用（槽键相同），这是现有规则，写进 Spec。
 
-### 3. 设置 `plugins/editor/shared/settings.ts`（新）
+模型新增的纯结构方法（都不读文档、不问用户）：
 
-- 照 `plugins/explorer/shared/settings.ts` 的写法：分区“编辑器”（list），设置项 `nbook.editor/enablePreview`（缺省 true）、`nbook.editor/wrapTabs`（缺省 true）。改了即时生效。
+- `moveTab(tabId, {group, partition, before})`：组内排序或换组。`partition` 是 `"pinned" | "normal"`，`before` 是该分区完整顺序里的标签 id 或 `null`（分区末尾）。落在另一个分区时随之固定或取消固定。真实发生移动的 preview 标签转为 permanent（每组至多一个 preview 的不变量因此不会被换组打破）。源组空了就删除。
+- `moveToNewGroup(tabId, {group, edge})`：在目标组的一边拆出新组并把标签移过去；源组只有这一个标签并且就是目标组时拒绝。搬过去的标签转正、取消固定。
+- 目标组已有同地址同编辑器的标签（并掉）**不在模型里做**：控制器先激活目标组那个标签，再对源标签走 `closeTab`。目标是能编辑的标签时共享的 dirty 不问，只问源视图自己的未裁决输入（现有规则）；用户取消就停在这里，结构只多了一次激活。关闭询问的回答回来后按此刻的状态重判（标签还在不在、还有没有别的能编辑的标签、它自己的绑定是不是还是询问时的那个），变了就重新问，不沿用询问前的判断。关掉之后再把留下的那个标签按落点（分区与位置）放好，所以拖进固定区的并掉同样得到固定。
 
-### 4. 标签栏 `plugins/editor/web/components/EditorTabBar.vue` 与 `.md`
+### 2. 固定标签的不变量（`web/groups/groups.ts`、`web/session-record.ts`）
 
-- 按评审定稿重写外观（VS Code 式）：标签条低一档、活动标签是与正文同色的一块；文件图标、名字、同名附 `…/目录`、状态位（未保存圆点，悬停或活动时换成关闭；固定的换成图钉）、预览斜体；标题动作在最后一行右侧；同一行相邻标签之间是开放式分隔线（活动与悬停标签两侧不画）。低一档的颜色按 nb-ui 表面模型提案加层级色阶，不在组件里混色。
-- 文件图标：`FileIcon.vue` 与 `icons/` 现在在资源管理器插件里；编辑器插件不跨插件引用别人的组件，挪到共享的 `src/ui/file-icons/`，资源管理器与编辑器都从那里引。
-- 同名的目录提示：在组内按名字分组，同名的取能区分它们的最短上级目录（VS Code 的做法），在 `area` 侧算好随 `TabItem` 给出，组件只画。
-- 多行：`wrap` 属性，固定标签单独占第一行；关掉时保持现在的横向滚动（悬停滚动条），固定标签排在最前。键盘：多行时 ↑/↓ 换到上下一行最近的标签。
-- 零布局位移：隐藏的关闭按钮占位；活动标签的突出不改变宽度。
+`FileTab` 加 `pinned: boolean`。每组里固定标签在前、普通标签在后，固定标签不是 preview。所有改标签的入口逐一守住：
 
-### 5. 拖动标签 `plugins/editor/web/tab-drag.ts`（新）
+| 入口 | 规则 |
+|---|---|
+| `insert`（打开文件、打开页面、恢复） | 插在活动标签之后，但夹到普通区：活动标签是固定的时插在普通区开头 |
+| preview 替换 | 只找普通区的 preview；固定标签不会是 preview |
+| `move`（Alt+←/→） | 只在本分区内移动，到分区边界就不动 |
+| `setPinned(tabId, pinned)`（新） | 固定：转正、移到固定区末尾；取消：移到普通区开头。页面标签不能固定 |
+| `setEditor`（换编辑器） | 保留 `pinned`（重建标签时一并拷过去）；并到同组已有的同编辑器标签时，留下的那个取两者固定状态的“或” |
+| `split` | 拆出的标签不固定 |
+| `rebind`（改名） | 保留 `pinned` |
+| `closeWithin`（资源删除）与 `close` | 照常关闭固定标签；“跳过固定”只属于批量关闭的筛选 |
+| `keep(tabId)` | 现在的 `pin`（preview 转正）改名，避免与“固定”混淆 |
 
-- 手势照 `plugins/explorer/web/tree-drag.ts`：指针拖动，鼠标 6px、触摸按住 200ms 起拖；Escape、失焦、`pointercancel` 取消不写；吞掉末尾的 click。
-- 落点两类：某组的标签条（插入位，`resolveListInsertion`，多行时先按纵向距离选行，同旧应用 `editor-tab-drop.ts`）；某组的正文区（`resolveGridEdgeDrop`：中央为移到这一组末尾，四边为拆分）。反馈用 nb-ui 的 `DropIndicator` 与 `DropFeedbackOverlay`。
-- 放下时按最后显示的动作提交到第 2 节的方法；动作不可提交（例如拖到自己原位）只显示不写。
-- 资源管理器拖到编辑区（`data-editor-group`，输出 35）不变：只打开到那一组，不支持拖到边缘拆分。
+会话记录的标签加 `pinned?: true`（`session-record.ts` 的 schema 同步加字段）；旧记录没有时为 false；恢复时若记录里固定与普通交错，按出现顺序归整为固定在前，活动标签按 id 保持。
 
-### 6. 标签右键菜单
+### 3. 批量关闭（`web/area.ts`）
 
-- 菜单位置 `editor.tab-context`（拥有者 `nbook.editor`，`contexts: ["resource"]`，与 `editor.title` 同一套共同规则），编辑器自己的项：关闭、关闭其他、关闭右侧、关闭已保存；固定或取消固定；向右拆分、向下拆分；复制路径、复制相对路径、在资源管理器中显示（执行 `nbook.files.copy-path`、`copy-relative-path`、`reveal`）。别的插件可以往里加。
-- 新命令：`nbook.editor.close-to-right`、`close-saved`、`pin-tab`、`unpin-tab`，参数 `{tabId?}`，缺省是活动标签；菜单执行时带被右击的那个标签。
-- 菜单用 nb-ui 的 `ContextMenu`，与资源管理器右键同一种画法；键盘 Shift+F10 与菜单键在聚焦的标签上打开。
+“关闭其他”“关闭右侧”“关闭已保存”：
 
-### 7. 悬停时显示
+- 开始时冻结目标：组 id 与当时符合条件的标签 id 列表（跳过固定；“关闭已保存”先对组里每份文档 `settle`，再取不需要结算的）。之后新开、移进来的标签不属于这一批。
+- 逐个执行：标签已不存在、已不在这一组，或此刻已不合格（被固定了；“关闭已保存”的又有了要保存的东西）就跳过，不停下；对其余的走 `closeTab`。`closeTab` 的结果区分三种：关了、用户取消、保存失败（现在都是 `cancelled`，改成带原因）。用户取消或保存失败就停，已关的不回滚；结果报告“关了几个、停在哪个、为什么”。
+- 同一时刻只有一批：已有一批在进行时，新的批量关闭返回 `unavailable`（“正在关闭编辑器”）。单个关闭照旧：`ask` 换掉前一个询问时，前一批得到“用户取消”而停下。
 
-- 编辑区标题动作与非活动标签的关闭按钮：鼠标在编辑组上、焦点在组里或菜单打开时显示，其余时候透明（仍占位、仍能 Tab 到），100ms 淡入淡出；不能悬停的设备一直显示。规则同 views.md 输出 10。
+### 4. 设置（`plugins/editor/shared/settings.ts`，新）
 
-### 8. 面包屑 `plugins/editor/web/components/EditorBreadcrumbs.vue`（新）
+照 `plugins/explorer/shared/settings.ts`：分区“编辑器”（list），设置项都缺省 true：
 
-- 标签条下面一行：作品名 › 目录 › 文件；Markdown 再接光标所在的标题（Markdown 控件经句柄交出大纲与当前标题，与 `status`、`language` 同一种做法：句柄加可选的 `outline`）。
-- 点目录段列出它的子项（读文件服务的 `list`），点文件段列出同级，点标题段列出这一章的大纲；选中即打开（普通 `open`）或跳到标题（句柄的定位）。下拉用 nb-ui 的菜单浮层。
-- 设置 `nbook.editor/breadcrumbs`（缺省 true）。命令 `nbook.editor.focus-breadcrumbs`；←/→ 换段、Enter 或 ↓ 打开下拉、Escape 回到编辑器。
-- `user://` 的文件以“用户资产”为第一段；页面标签没有面包屑。
+| 设置项 | 变化时 |
+|---|---|
+| `nbook.editor/enablePreview` | 关掉时之后的 preview 打开按 permanent；现有的 preview 标签全部转正（恢复的会话同样） |
+| `nbook.editor/wrapTabs` | 切换后重新测量，把活动标签滚到可见；键盘焦点留在原标签 |
+| `nbook.editor/breadcrumbs` | 关掉时收起面包屑的下拉、作废在途的目录读取；焦点在面包屑里时交给本组的编辑器 |
 
-## Spec 与文档改动
+### 5. 标签栏（`web/components/EditorTabBar.vue` 与 `.md`）
+
+- **外观**（决定 5、8、10、11）：标签条比正文低一档，活动标签是与正文同色的一块（顶部两角圆）；不加粗；同一行相邻标签之间是开放式分隔线（1px，上下各留四分之一，活动与悬停标签两侧不画）；文件图标、名字、同名提示、状态位（未保存圆点，悬停或活动时换成关闭；固定的换成图钉）、预览斜体；非活动组的活动标签文字降为次级色。
+- **颜色的拥有者**：新增主题角色 `--editor-tabs-surface`，走主题包 `manifest.declares` 加 fallback 这条现有路径（`theme/system.md` 第 3 层）：nbook 取 `color-mix(in srgb, var(--panel-surface) 93%, var(--text-main))`，fallback 相同，切到 macos 时照样有值；别的主题可以覆盖。不借本 Task 落地整个表面模型提案。
+- **多行**：固定标签单独占第一行；固定行本身不换行，放不下时在这一行里横向滚动。普通标签换行，标签区最多显示 3 行，再多在标签区里纵向滚动（悬停滚动条）。标签区的高度随组的可用高度收缩：先给正文留至少一行字、给提示条与面包屑它们本来的高度，余下的才给标签区（至多 3 行，至少 1 行），220×120 的组里正文、提示条的按钮、标题动作都能用。标题动作在最后一个可见行的右侧。关掉多行时一行横向滚动，固定标签排在最前。
+- **键盘**：←/→、Home/End、Delete、Alt+←/→（分区内）照旧；多行时 ↑/↓ 换到上下一行水平位置最近的标签；Shift+F10 与菜单键在聚焦的标签上打开右键菜单。
+- **文件图标**：`FileIcon.vue` 与 `icons/` 挪到共享的 `src/ui/file-icons/`，资源管理器与编辑器都从那里引；生成脚本 `scripts/gen-file-icons.ts` 的输出路径、Lab 的引用与伴生文档一起改。
+- **同名提示**：在组内按显示名分组；不同资源取能区分它们的最短上级目录（`…/notes`）；目录一直到根仍相同（`project://a/x.md` 与 `user://a/x.md`）时显示根名（“作品”“用户资产”）；同一资源的多个非预览编辑器以编辑器名区分。由 `area` 算好随 `TabItem` 给出，组件只画。
+- 零布局位移：隐藏的关闭按钮占位；活动标签的样子不改变宽度。
+
+### 6. 拖动标签（`web/tab-drag.ts`，新）
+
+- **起拖源**：标签主体（文字与图标）；关闭、图钉按钮与标题动作带 `data-editor-tab-action`，不起拖。会话在标签条的**冒泡阶段**接 `pointerdown`：grid 分隔线在捕获阶段拿下的按下（命中带内）先被它吃掉，标签拖动不会和改大小抢。一个编辑器区同时只有一场标签拖动；不用外壳视图拖动的标记，`data-editor-group` 仍留给资源管理器。
+- **门槛与取消**：鼠标与笔 6px、触摸按住 200ms（同 `tree-drag.ts`）；Escape、`pointercancel`、失去指针捕获、窗口失焦、页面隐藏、组件销毁都取消且不写；吞掉末尾的 click。
+- **落点**：标签条（目标组 + 分区 + 完整顺序里的 `before`）或正文区（中央是移到那一组普通区末尾，四边是拆分，`resolveGridEdgeDrop`）。多行时先按纵向距离选行，再用 `resolveListInsertion` 求行内位置；行尾的 `null` 映射到完整分区里这一行最后一项的后继，换行处的插入线归一到下一行行首之前；`before` 是被拖标签自己或它的后继时是原位，不提交。没有固定标签时标签条上没有固定区的落点，固定经右键菜单（实现审查第 5 条，接受取舍）。
+- **失效**：起拖时记下结构键（组、各组标签 id 与固定状态、wrap）；结构键变了就取消整场。只有几何变化（窗口尺寸、滚动、换行位置）时按当前坐标重算并刷新反馈。放下时先结束会话，再按当前坐标重算一次，与最后显示的动作逐字段相同才交给第 1 节的事务；不同或目标已不存在就不写。
+
+### 7. 标签右键菜单与命令
+
+- **菜单位置** `editor.tab-context`（拥有者 `nbook.editor`，与 `editor.title` 同一套共同规则，`contexts: ["resource"]`）。打开时冻结被右击的标签 id、组 id 与地址；菜单打开期间这个标签被关、换组或换编辑器，菜单关闭，之前的选择不执行（同输出 34 “⋯”的规则）。
+- **编辑器自己的项与命令**：既有的 `close`、`close-others`、`split-right`、`split-down` 加可选参数 `{tabId}`（缺省活动标签）；新命令 `close-to-right`、`close-saved`、`pin-tab`、`unpin-tab`、`copy-path`、`copy-relative-path`，参数同样是 `{tabId?}`。命令的 `when` 仍按活动标签求值（命令面板、快捷键、Agent）；命令服务的可用性不接参数，所以菜单里编辑器自己的项不经命令服务，直接作用于被右击的标签（与命令同一个动作），有没有、能不能点按这个标签判断。
+- **复制路径与在资源管理器中显示**：资源管理器的复制命令有 `hasSelection` 门禁、依赖它的控制器，所以复制路径由编辑器自己做（`nbook.editor.copy-path`、`copy-relative-path`：`realPath` 与相对所在根的路径，写系统剪贴板）；“在资源管理器中显示”执行 `nbook.files.reveal {address}`，可用与否照它自己的 `when`。页面标签没有这三项。
+- 菜单用 nb-ui 的 `ContextMenu`，与资源管理器右键同一种画法。
+
+### 8. 悬停时显示
+
+两条规则分开：编辑区标题动作按组，鼠标在这个编辑组上、焦点在组里或“⋯”打开时显示，其余时候透明（仍占位、仍能 Tab 到），100ms 淡入淡出，不能悬停的设备一直显示（同 views.md 输出 10）；标签的关闭按钮按标签，只在活动标签、鼠标所在的标签与键盘聚焦的标签上显示，不进 Tab 顺序（键盘用 Delete），不能悬停的设备上每个标签都显示。右键不让组成为活动组（右键按下不聚焦、不切换活动组）。
+
+### 9. 面包屑（`web/components/EditorBreadcrumbs.vue`，新）
+
+- **一行**：作品名（或“用户资产”）› 目录 › 文件；Markdown 再接光标所在的标题。单行，放不下时先收起中间的目录段为“…”（点它列出收起的段），文件段与标题段保留。
+- **每组自己的**：控制器加 `handleOf(groupId)`，面包屑读本组的句柄，不读全局的 `activeHandle`。
+- **大纲合同**（控件句柄的可选字段，先写进 `shared/contracts.ts` 的控件合同与 `MarkdownControl.md`）：`outline: Readonly<Ref<{binding: string; version: number; items: ReadonlyArray<{id: string; level: number; text: string}>; current: string | null} | null>>`，`binding` 是当前绑定的 token，`id` 按位置生成（同名标题不冲突），正文变了 `version` 加一；换绑定、没有绑定、卸载时同步变成 `null`。`revealHeading(binding, version, id) → "ok" | "stale"`：`binding` 或 `version` 对不上为 `stale`，不跳。菜单打开时记下 `binding` 与 `version`，选中时带上；`stale` 时菜单关闭、不动光标。
+- **目录下拉**：点目录段读 `list`（文件服务），目录项点了在下拉里进入下一层，文件项按菜单打开时记下的组 id 普通 `open`；`link`、`other`、`missing` 显示但不可选；内容文件夹里的 `index.md` 照常显示为文件。请求归属“菜单会话 + 组 + 地址 + 段 + 请求代次”，菜单关闭、换段、换绑定、卸载时作废，迟到的结果丢掉。读取中显示进度，空目录显示“空”，失败显示文件服务给的原因与“重试”。
+- **键盘**：命令 `nbook.editor.focus-breadcrumbs`；←/→ 换段，Enter 或 ↓ 打开下拉，Escape 先关下拉、再回到编辑器。页面标签没有面包屑。
+
+## Spec 与文档改动（S1）
 
 | 文件 | 改什么 |
 |---|---|
-| `docs/specs/workbench/editor.md` | “不承诺”去掉拖放、固定、多行、标签右键菜单、面包屑；新增输出：固定标签、拖动标签、多行与设置项、预览标签页开关、标签右键菜单与命令、同名提示、悬停显示；会话记录加 `pinned`；验收场景 |
+| `docs/specs/workbench/editor.md` | “不承诺”去掉拖放、固定、多行、标签右键菜单、面包屑；新增输出：移动事务与并掉、固定标签的不变量与入口表、批量关闭、三个设置项与变化时的规则、标签栏外观与多行、拖动的落点与失效、右键菜单与命令参数、悬停显示、同名提示、面包屑与大纲合同；会话记录加 `pinned`；控件合同加 `outline`、`revealHeading`；验收场景 |
+| `docs/specs/ui/workbench-shell.md` | 第 208 行：编辑器标签栏不再用加粗区分当前标签，改为链接 editor.md 的标签栏外观 |
+| `docs/specs/theme/system.md` | 登记 `--editor-tabs-surface` |
 | `docs/specs/workbench/menus.md` | 第五处位置 `editor.tab-context` |
-| `docs/specs/workbench/files-explorer.md` | 文件图标挪到共享位置（只改实现入口的链接） |
-| 组件 `.md` | `EditorTabBar.md` 重写；`FileIcon.md` 随文件挪位置 |
+| `docs/specs/workbench/files-explorer.md` | `copy-path`、`copy-relative-path` 的可选 `{address}`；文件图标挪位置的实现入口链接 |
+| 组件 `.md` | `EditorTabBar.md` 重写；新 `EditorBreadcrumbs.md`；`MarkdownControl.md` 加大纲；`FileIcon.md` 随文件挪位置 |
 
 ## 切片
 
 | 片 | 内容 | 自跑验证 |
 |---|---|---|
 | S0 | 拆分调整大小（已完成 `80d9cdbd5`） | — |
-| S1 | Spec 改动（planned 标记） | `docs:check`、`governance:check` |
-| S2 | 第 1、2 节：组模型与控制器的固定、换组、拆到边缘、批量关闭 | `test:affected --typecheck`（`groups.test.ts`、`area.test.ts`） |
-| S3 | 第 3 节设置与预览开关；第 6 节的命令与菜单位置（菜单先接现在的标签条） | 同上；`editor-area.e2e.ts` 右键菜单一例 |
-| S4 | 第 4 节标签栏外观（等评审定稿）与第 7 节悬停显示；文件图标挪位置 | 同上；`EditorTabBar.dom.test.ts`；`lab:shot` 亮暗、390 与 1400 宽 |
-| S5 | 第 5 节拖动 | 同上；`editor-area.e2e.ts` 拖动用例 |
-| S5b | 第 8 节面包屑 | 同上；`EditorBreadcrumbs.dom.test.ts`、`editor-area.e2e.ts` 面包屑用例 |
-| S6 | Spec 去掉 planned、证据；审查与修正 | `test:affected --typecheck`、编辑器相关 e2e、`docs:check`、`governance:check` |
+| S1 | 上表的 Spec 与组件文档（新增条目标 planned） | `docs:check`、`governance:check` |
+| S2 | 第 1、2、3 节：模型的固定与移动、控制器的移动事务与并掉、批量关闭、会话记录 | `test:affected --typecheck`（`groups.test.ts`、`area.test.ts`） |
+| S3 | 第 4 节设置；第 7 节命令参数、菜单位置与右键菜单（先接现在的标签条） | 同上；命令与菜单测试；`editor-area.e2e.ts` 右键菜单 |
+| S4 | 第 5 节标签栏与第 8 节悬停显示；主题 token；文件图标挪位置 | 同上；`EditorTabBar.dom.test.ts`；`lab:shot` 亮暗、390 与 1400 宽、220×120 的组；e2e 外观与键盘 |
+| S5 | 第 6 节拖动 | 同上；`editor-area.e2e.ts` 拖动用例 |
+| S6 | 第 9 节面包屑与 Markdown 大纲 | 同上；`EditorBreadcrumbs.dom.test.ts`、e2e |
+| S7 | Spec 去掉 planned、证据；实现审查与修正 | `test:affected --typecheck`、编辑器相关 e2e、`docs:check`、`governance:check` |
 
 ## 验收映射
 
 | 行为 | 覆盖 |
 |---|---|
-| 固定后排到固定区末尾；关闭其他与关闭右侧不关固定标签；刷新后仍固定 | `groups.test.ts`、`area.test.ts`、e2e |
-| 组内拖动排序；拖到别的组；拖到别的组的边缘拆出新组；源组空了关掉；目标组已有同一标签时并掉 | `groups.test.ts`（模型）、`editor-area.e2e.ts`（真实指针拖动） |
-| 拖动中 Escape 取消，什么都不变 | `editor-area.e2e.ts` |
-| 并掉的标签有未保存修改时照常结算 | `area.test.ts` |
-| 关掉预览标签页后单击打开的是普通标签；关掉多行后标签条横向滚动 | `area.test.ts`、e2e |
-| 标签右键菜单的项、可用性与执行；贡献的项出现在里面 | `editor/title-actions.test.ts` 同类的菜单测试、e2e |
-| 同名标签附上能区分的最短目录 | `area.test.ts` |
-| 标签栏外观与零布局位移 | `EditorTabBar.dom.test.ts`、`lab:shot` |
-| 面包屑的段与下拉：点目录列子项、点文件列同级、点标题列大纲并跳转；关掉设置后不显示 | `EditorBreadcrumbs.dom.test.ts`、`editor-area.e2e.ts` |
+| 换组：源视图刚输入（Markdown 缓冲内）就拖走，源组剩别的标签与只剩它两种；目标组有未裁决输入时拒绝；保存后两边输入都在磁盘上 | `editor-area.e2e.ts`（真实控件与文件） |
+| 换组后旧绑定的 `commit` 为 `stale`；搬过去的 preview 转正，每组至多一个 preview；源组空了删除 | `area.test.ts` |
+| 并掉：共享 dirty 不问；源视图有未裁决输入时问，取消、不保存、保存三种结果；等待期间目标被关后重新判断 | `area.test.ts` |
+| 固定的入口表逐行：固定区中间打开文件或页面、Alt+方向键跨区、换编辑器、并到同编辑器、拆分、改名、资源删除、旧记录与交错记录的恢复 | `groups.test.ts`、`area.test.ts` |
+| 批量关闭：跳过固定；中途取消与保存失败各停在哪里、已关与未关的集合、磁盘内容；新开的不被关；第二批被拒；关闭已保存不关缓冲里还没交出的输入 | `area.test.ts`（真实 Files 场地的请求闸门扣住保存） |
+| 三个设置项的变化表：存量 preview 转正、wrap 切换后活动标签可见且焦点不丢、关掉面包屑时下拉收起与焦点归还 | `area.test.ts`、e2e |
+| 标签栏外观：条底是正文面混 7%、活动块等于正文面、分隔线 1px 上下各留四分之一且活动与悬停两侧不画、切换活动标签宽度不变（删掉旧的字重断言） | e2e 读计算样式；`lab:shot` |
+| 多行：固定行独占且超宽时横向滚动；普通标签最多 3 行后纵向滚动；220×120 的组里正文有可用高度、标题动作与菜单可达、分隔线可拖 | e2e（真实几何） |
+| 键盘：两种列宽下 ↑/↓ 到最近标签；Shift+F10 与菜单键打开右键菜单 | e2e |
+| 拖动：组内排序（第一行尾、第二行首、被拖标签自己前后）、换组、拖到边缘拆分、进固定区；从关闭按钮、图钉、标题动作、离分隔线 4px 处按下不起拖；拖动中改窗口宽度使换行、关闭目标组后松手不写；Escape、失焦、`pointercancel`、失去指针捕获、页面隐藏、组件卸载各自取消且不写 | e2e（真实指针；卸载在组件合同层） |
+| 移走源组的非活动标签：源组活动视图的绑定与未裁决输入不动，仍可裁决后保存；反复跨组移动后源组不留视图状态槽 | `area.test.ts` |
+| 右键菜单：活动 A（含页面、控件还没就绪）、右击非活动组里的 B：每一项作用于 B、不改活动组；菜单打开期间 B 被关、移到别的组、换编辑器则菜单关闭；贡献的项出现并收到 B 的地址；页面标签没有路径项；资源管理器没就绪时“在资源管理器中显示”禁用 | `tab-menu.test.ts`（真实编辑器区与命令注册表）、e2e |
+| 悬停显示：标题动作随组（移入移出、焦点在组里、“⋯”打开期间移走鼠标仍显示）；关闭按钮随标签（悬停正文时其它非活动标签不显示）；触摸上下文里一直显示 | e2e |
+| 同名提示：不同目录、跨根同路径、同一文件两种编辑器、改名或关掉一个后变短 | `area.test.ts` |
+| 面包屑：两组各自的路径与大纲；A→B→A、改标题、菜单打开期间切文件后点旧项为 `stale` 不跳；换成源码编辑器后标题段消失；目录下拉的进入下一层、打开文件、不可选项、空、失败与重试、迟到结果丢弃；键盘 | `EditorBreadcrumbs.dom.test.ts`、`area.test.ts`（真实 Files 场地的请求闸门）、e2e |
 
 ## 验证
 
 - 每片：`bun run test:affected --typecheck`；动到界面的片跑 `lab:shot` 与编辑器相关 e2e（`editor-area`、`editor-types`、`lab-editor`）。
-- 收口：生产构建上的编辑器相关 e2e、`docs:check`、`governance:check`；按 `reviewing` Skill 做实现审查（前端 Sonnet；后端与领域逻辑 omp）。
-- 未验证边界：触摸设备上的拖动只按代码与 tree-drag 的同一套门槛，不在真机上测。
+- 收口：生产构建上的编辑器相关 e2e、`docs:check`、`governance:check`；实现审查前端 Sonnet，后端与领域逻辑 omp。
+- 未验证边界：触摸拖动只在浏览器里模拟触摸事件（`hasTouch` 的上下文），不在真机上测；粗指针下分隔线 15px 的命中带与标签起拖的先后按代码与模拟核对。
 
-## 不做与风险
+## 不做
 
-- 不做：拖动时按 Ctrl 复制标签；把标签拖出窗口；资源管理器拖到编辑区边缘拆分；固定标签的紧凑样式；标签条的滚动按钮。
-- 风险：换组时同一文档在两组的视图与撤销历史。标签 id 不变、引用不动，控件随组重挂；Markdown 的撤销历史按组，换组后撤销历史从空开始（与拆分一致）。实现时若发现控件依赖组 id，先停下补 Spec。
+拖动时按 Ctrl 复制标签（Ctrl 不改变移动语义）；把标签拖出窗口（离开有效落点或失焦时撤反馈、取消）；资源管理器拖到编辑区边缘拆分（仍只打开到那一组）；固定标签的紧凑样式；标签条的滚动按钮（滚轮、触控板、触摸与键盘仍能到达全部标签）。

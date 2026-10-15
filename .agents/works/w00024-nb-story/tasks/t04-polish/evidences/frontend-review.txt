@@ -1,0 +1,126 @@
+nb-story 查看器 t04 打磨（提交 2a719bd46）前端审查
+审查人：Sonnet 子代理；只读；截图在 /home/notnotype/.claude/jobs/568d0811/tmp/（生产构建，真实服务 44705）
+说明：每核实一条追加一条；级别 阻断 / 重要 / 建议；“从代码推断”表示没有复现。
+
+====
+F01 重要 packages/nb-story/src/web/graph/StoryNetwork.vue:553-566（updateAnchor）、:711-712（.node-card）
+问题：图上小卡片的定位只按“点离右边不足 300 像素就放到左边”二选一，没有按画布四边夹住，也不管点在不在画布里。实测（Playwright，关系图 at=38，用“在图里找”把花铃移到中央后点选，再拖空白处把点平移到右上）：
+  - 手机 390 宽：点在中央时卡片 x=-46（左边被裁掉，“打开人物卡”按钮只剩半个）；平移后 x=179 到 399，右边出画布。
+  - 平板 900 宽（抽屉收起）：点平移到右上外后，卡片 x=681 到 901（画布右沿 890）、y=33（画布顶 131），卡片半截被顶栏切掉，点其实已不在画布内但卡片还显示。
+  - 宽屏 1440：点靠近画布顶部时卡片 y=84（画布顶 131），盖在筛选条与“在图里找”输入框上，挡住操作。
+  卡片竖向只做 translateY(-50%)，没有任何上下夹边。
+依据：截图 pop-390-dark-center.png、pop-390-dark-edge.png、pop-900-dark-edge.png、pop-1440-light-edge.png；数据见 t3.mjs 输出（card box）。
+建议改法：updateAnchor 里按卡片实际尺寸（220 乘约 87，可 getBoundingClientRect）与画布尺寸算位置：先按“右侧放不下就放左侧”，两边都放不下（画布窄于约 540）就放到点的下方或上方居中；再把 left、top 夹进 [0, 宽-卡宽]、[0, 高-卡高]；点移出画布可见范围时隐藏卡片（或夹在边上并保留一个指向点的角）。把 .node-card 的 transform 改成由 JS 算好的 left、top，避免 CSS 与 JS 各算一半。
+
+====
+F02 重要 packages/nb-story/src/web/graph/StoryNetwork.vue:427-431（render 里接着排的分支）
+问题：悬空 else。写法是
+    if (how === "keep" && complete) for (const [node, position] of previous) if (graph.hasNode(node)) graph.setNodeAttribute(...);
+    else applyLayout(graph, false);
+JS 里 else 属于最近的 if，也就是 for 循环体里的 `if (graph.hasNode(node))`，不属于外层 `if (how === "keep" && complete)`。后果：
+  - how === "continue"（换阅读位置、视角、类别、数据变了）时整个 if 不执行，applyLayout 一次也没调，只有 placeFrom 把已有点放回原位、新点放在邻居旁边（偏移仅 span 的 5%），之后没有任何力导向迭代。Spec 输出 25 写的是“从当前位置接着排：已有的点只做小的移动，新出现的点放在它的邻居旁边。点、名字互不重叠”，现在新点之间、新点与旧点会叠在一起。
+  - how === "keep" 且 complete 为假时同样不排。
+实测：关系图 at=38 先只开“人物、组织”，再依次加“物品”“地点”，新点按邻居放置后没有重新排，“心月魔杖”与“随身摄像头”两个名字叠在一起，几个物品点叠在人物线上。截图 cont-after-place.png（左上方，坐标约 (835,222) 与 (880,224)）。
+依据：代码；截图 cont-after-place.png；对照 cont-before.png。
+建议改法：把意图写成明确的块：
+    if (previous === null) applyLayout(graph, true);
+    else {
+        const complete = placeFrom(graph, previous);
+        if (how === "keep" && complete) restoreLabelSides(graph, previous);
+        else applyLayout(graph, false);
+    }
+（把 for 循环收进 restoreLabelSides 或加花括号）。e2e 里补一个“换类别后新出现的名字不重叠”的行为检查（可用截图像素差以外的办法：暴露点坐标的测试钩子之外，至少核对 applyLayout 被走到的可观察结果）。
+
+====
+F03 重要 packages/nb-story/src/web/shell/BookFrame.vue:177-193（平板档顶栏右侧一组）
+问题：平板档（宽度 720 到 1100）顶栏右侧一组是 搜索图标、“阅读位置没存上”（whitespace-nowrap 的整句文字）、明暗、抽屉开关；左组和阅读位置控件都不让步，这一组也不能收缩。保存失败时 760 宽的窗口里顶栏 scrollWidth 787 大于 clientWidth 750，明暗按钮被切掉一半，抽屉开关整个被挤出屏外，开关在出问题的时候反而用不了。没有保存失败时 760、1099、1100 都放得下。同一档里书名也被挤成“转生反派萝莉，…”只剩六七个字。
+依据：Playwright 把 reading.set 回 500、翻一章触发失败后量顶栏。截图 /home/notnotype/.claude/jobs/568d0811/tmp/hdr-760.png；量出的数字见 t17.mjs（w=760 时 sw=787、cw=750）。
+建议改法：平板档的失败提示只留警告图标（aria-label 与 title 写“阅读位置没存上”，role=status 保留），宽屏再写全文；或把提示放到阅读位置控件旁（左侧可收缩的一组）。同时让阅读位置控件在平板档可收缩（slider 的 is-short 再窄一点），给书名多留一点地方。e2e 的“外壳”用例补一条 760 宽加保存失败时开关仍可点。
+
+====
+F04 重要 全局：text-muted 在小字号上的用法（例 pages/SecretsPage.vue:51、pages/QuestionsPage.vue:97、pages/TimelinePage.vue 的 .part、graph/ChapterRange.vue 的 .edge-label、parts/ChapterBars.vue 轴字）
+问题：--text-muted 对页面底色的对比度，亮色 3.57:1（#8b857b 对 #fffcf5）、暗色 4.22:1（#918a7e 对 #2d2925），都低于正文要求的 4.5:1，而它大量用在 --text-2xs（10 到 11 像素）的信息文字上：“第 4 章读者知道”、悬念右侧“1 次进展 · 最近 38.23—38.32”、时间线的时段（早上、晚上）、章节条的“1”“100”、图表轴字。这些是页面的承载信息而不是装饰。暗色下 --status-danger 作文字色（顶栏“阅读位置没存上”、F 系错误提示）是 4.24:1，12 像素字也不到 4.5。
+依据：Playwright 取 :root 的计算色，按 WCAG 公式算（t12.mjs）：light text-muted 3.57、text-secondary 7.47、accent-text 5.48；dark text-muted 4.22、text-secondary 7.65、status-danger 4.24。截图 pg-questions-1440-dark.png 右侧计数、pg-secrets-1440-dark.png 第一列小字。
+建议改法：承载信息的小字（章号、次数、时段、轴字）改用 --text-secondary，--text-muted 只留给占位符、分隔和真正次要的装饰；顶栏失败提示在暗色下用 --status-danger 之外的更亮色或加粗并带图标（已带图标）。如果是主题 token 本身偏暗，应到 nb-ui 的 nbook 主题里把 muted 调到 4.5 以上，而不是在 nb-story 里逐个改。
+
+====
+F05 重要 packages/nb-story/src/web/parts/CastHeatmap.vue:26-33、parts/ChapterBars.vue:48（g @click）、parts/QuestionCurve.vue:35-38（rect @click）
+问题：三张新图的“点一章打开原文页”只能用鼠标，或者键盘代价极大。
+  - CastHeatmap：每个格子是一个 <button>，12 个人乘 100 章约 1200 个 Tab 停靠点，键盘用户进了这张图要按上千次 Tab 才能出来，也没有方向键漫游。
+  - ChapterBars、QuestionCurve：可点的是 <g>/<rect> 加 @click，没有 tabindex、role、键盘事件，键盘与读屏完全点不到；svg 只有 role="img" 与一个笼统的 aria-label，里面的 <title> 在 role=img 下读屏读不到，数据没有文字替代。
+依据：代码；CastHeatmap 的格子数见 pg-stats-1440-dark.png（12 行乘 100 列）。
+建议改法：热力图格子 tabindex=-1，整行一个停靠点，用方向键在格子间移动（roving tabindex），或者只给每行放“跳到章”的输入；柱图与曲线加一个键盘可用的章选择（比如图下一个“章号”数字输入加“打开原文”按钮，或 roving tabindex 的柱），svg 的 aria-label 里写出摘要（“逐章记录量，最多的是第 N 章 56 条”）。
+
+====
+F06 建议 packages/nb-story/src/web/graph/StoryLine.vue:77-80（tickStep）
+问题：章号刻度按“看着的章数除以步长不超过 22”选步长，与画布像素宽度无关。手机 390 宽、看全部 100 章时步长是 5，20 个刻度挤在约 280 像素里，标签互相叠成“15 10152023…”一团，读不出章号。900 宽时正常。
+依据：截图 sl-390-dark-full.png（顶部刻度行）、sl-900-dark-full.png（对照，正常）。
+建议改法：tickStep 接收画布宽度，按“每个标签至少约 36 像素”算步长（宽度除以 36 得最多几个标签），render 时和 range 一起算；窗口变化重画时已经会重算。
+
+====
+F07 建议 packages/nb-story/src/web/pages/BookGraphPage.vue:69（StoryLine 的 v-if 与数据加载）与 graph/StoryLine.vue:204-208
+问题：在全书图按章节里把范围缩放到 19 到 38 章，点“下一章”后范围被重置成“第 1 到 61 章”（放大倍数回到 1.0×）。原因是阅读位置变了会重取 graph.storyline，数据为空期间 v-if 卸载了 StoryLine，再挂载时 range 回到全书。换阅读位置本来就是逐章往后读时的常见动作，每读一章缩放就丢一次；切明暗倒是保持的（render 不重建 range）。Spec 输出 30 没写，但与输出 25“换阅读位置时从当前位置接着排”的精神不一致。
+依据：Playwright：at=60，Ctrl 加滚轮 6 下得“第 19 到 38 章 3.0×”，点下一章后读到“第 1 到 61 章 横向 1.0×”（t10.mjs 输出）。
+建议改法：把 range 提到 BookGraphPage（或 useBook 级的页面状态）里持有，或在查询重取时保留旧数据直到新数据到（页面其它地方的“loading 且无数据才显示骨架”写法已经这么做，但这里 StoryLine 用 storyline.data.value 作 v-if，重取时数据被清空）；章数变大时若原来看的是全书则跟着扩到新的全书。
+
+====
+F08 建议 packages/nb-story/src/web/pages/SecretsPage.vue:19-20、:74
+问题：秘密矩阵格子里“怎么知道的”只留前 10 个字加省略号，完整内容只在鼠标悬停（title）时出现，触屏、键盘和读屏都看不到。这一列是 Spec 输出 11 要写的“怎么知道的”，实际显示成“苏天晴以自己的普通身…”“风信子仍把心月狐当作…”，两格开头相同时区分不出来。页面右侧还有一百多像素空白（矩阵没撑满），而格子是窄列。
+依据：截图 pg-secrets-1440-dark.png。
+建议改法：改为最多两行的 line-clamp（line-clamp-2，列宽放到约 11em），全文放进可聚焦的展开（点一格展开或用 nb-ui 的 Tooltip/HoverCard 且可键盘触发），而不是只靠 title。
+
+====
+F09 建议 packages/nb-story/src/web/pages/OverviewPage.vue 的 .entry（style 段，约 :170）
+问题：总览里“每一条都可以点”，但 .entry 的样式只有 hover 时变色加下划线（color: inherit，平时和普通文字完全一样），主线、秘密行、悬念、本章情节、新提出的悬念看起来就是静态文字，用户不会知道可以点；触屏没有 hover，更看不出。
+依据：截图 top-1440-dark.png（主线、悬念列表与普通文字没有区别）。
+建议改法：给 .entry 一个平时可见的提示，例如虚线下划线（text-decoration: underline dotted; text-underline-offset），或行尾加一个很淡的 chevron；:focus-visible 也走同样的强调。
+
+====
+F10 建议 packages/nb-story/src/web/graph/StoryNetwork.vue:555-566（onKey）与 :687（window.addEventListener）
+问题：Escape 的处理挂在 window 上，不看按键来自哪里。实测：选中一个点后在“在图里找”输入框里按 Escape（想取消输入），小卡片消失、选中和“只看周边”被取消；同理，用 Escape 关闭明暗下拉、视角说明、搜索结果也会顺带取消图上的选中。Spec 输出 27 说的是“点空白处或按 Escape 取消选中”，没说在别的控件里按 Escape 也算。
+依据：Playwright：t23.mjs，选中花铃后焦点放进“在图里找”按 Escape，node-popover 数量从 1 变 0。
+建议改法：onKey 里忽略来自输入框与已打开浮层的事件（event.defaultPrevented、target 是 input/textarea/select 或在 [role=menu]、[role=dialog] 内就返回），或把监听挂到图的根元素并让其可聚焦。
+
+====
+F11 建议 packages/nb-story/src/web/pages/RelationsPage.vue:61-63、pages/BookGraphPage.vue:38-41、graph/NodePopover.vue
+问题：小卡片与抽屉的分工有几处重叠或不一致。
+  - 抽屉里已经开着这个人的人物卡时，小卡片仍显示主按钮“打开人物卡”（点了什么也不变）。关系图页打开时，选中的点又取自抽屉当前对象（RelationsPage.vue:61），所以一进页面就是抽屉加小卡片同时出现，重复。截图 drawer-1440-dark-2.png。
+  - 全书图按关联里，抽屉开着时选中一个非对象的点（主线、情节、秘密、悬念），抽屉仍显示上一个人的人物卡，小卡片却是新点：两边内容对不上；Spec 输出 27 只规定对象跟着换，这里是缺口而不是错。
+依据：截图 drawer-1440-dark-2.png；代码。
+建议改法：当抽屉当前正是这个对象时，主按钮改为“已在右侧打开”并禁用，或隐藏主按钮只留“只看周边”；初次进入页面时不要拿抽屉对象当选中（或选中但不弹小卡）；全书图里非对象的点抽屉开着时给一句提示，或把抽屉留着不变并在卡片上写清楚。
+
+====
+F12 建议 packages/nb-story/src/web/graph/ChapterRange.vue:30-53、:62-69、graph/StoryLine.vue 的 onWheel（:176-184）
+问题：
+  - 章节条是手写的指针拖动，没有键盘操作、没有 role/aria-valuenow（两个把手是只有 aria-label 的 span，aria-label 在无 role 的 span 上不被读出）。nb-ui 的 Slider 已支持数组（双滑块，键盘、读屏都有），两端范围可以直接用它；高亮段整体平移才是要自己做的部分。
+  - 范围最窄（4 章）时 thumb 宽度小（手机 390 宽实测 8 像素，min-width 也是 8），两个把手各 6 像素且向外各挪 3 像素，把中间“平移”的区域几乎盖没，只能改两端，不能平移（桌面 1440 宽实测 36 像素还够用）。
+  - Ctrl 加滚轮每个事件固定缩放 1.2 倍，触控板捏合会连发很多个小 deltaY 的 ctrl 滚轮事件，几下就缩到最小范围；鼠标滚轮每格 100 像素时 1.2 倍合适。这条从代码推断，没有用触控板试。
+依据：thumb 宽度见 t8.mjs（390 宽 thumb width 8、1440 宽 36.5）；其余从代码推断。
+建议改法：缩放因子按 deltaY 大小连续算（例如 Math.exp(deltaY * 0.002)）；两个把手改到 thumb 内侧，thumb 的最小宽度取 16 像素以上；给 thumb 加 role="slider"、方向键平移、aria-valuetext 写“第 a 到 b 章”，或直接改用 Slider 的数组模式。
+
+====
+F13 建议 packages/nb-story/src/web/pages/EpisodesPage.vue:70-76、:62-64
+问题：情节行的展开按钮没有 aria-expanded（悬念页同类按钮有，不一致）；左侧主线筛选按钮的当前项只靠 is-active 样式，没有 aria-pressed 或 aria-current，读屏不知道当前筛的是哪条主线。
+依据：Playwright 在情节页查 [aria-expanded] 数量为 0；代码。
+建议改法：展开按钮加 :aria-expanded="expanded.has(item.id)"；主线按钮加 :aria-pressed="arc === item.id"（“全部情节”用 arc === null）。
+
+====
+F14 建议 packages/nb-story/src/web/shell/BookFrame.vue:182-193（右侧栏开关只在 tier !== 'phone' 里）
+问题：Spec 输出 1 写“抽屉的按钮在顶栏最右”。手机档顶栏没有这个开关，也没有别的重开办法（以前宽屏导航底部那个“展开右侧抽屉”也被删了）：手机上把抽屉关掉后，要重新看刚才的人物卡只能再去点名字。关闭一次就没有回头路。
+依据：截图 top-390-light.png 顶栏（没有开关）；代码。
+建议改法：手机档第一行右侧也放同样的开关（图标按钮，宽度可以挤进“搜索、明暗”旁边），或在手机档顶栏第二行右侧放。
+
+====
+F15 建议 packages/nb-story/src/web/parts/ChapterBars.vue:14-19、parts/QuestionCurve.vue:33-37
+问题：逐章记录量的四个系列借用了状态色：说法=accent、知情=success（绿）、情节=warning（橙）、数值=danger（红）。数据系列不是状态：红色在别处表示“不知道”“错误”，绿色表示“知道”，读者容易把“数值”的红柱误读成异常；绿加红还是最常见的色觉缺陷组合，堆叠柱里相邻段只靠这两色区分。悬念曲线的“提出=橙、解答=绿”则是合理的语义色。
+依据：截图 pg-stats-1440-dark.png；代码。
+建议改法：柱图改用不带状态含义的分类色（sigma-kit 的 fixedColors 里有 lanes 一组，或 nb-ui 有无图表分类 token 先查），并保证相邻两色在灰度和色觉缺陷下可分；图例保持现在的写法即可。
+
+====
+统计：共 15 条（重要 5 条：F01 F02 F03 F04 F05；建议 10 条：F06 到 F15）。阻断 0 条。
+核实过没有问题的点（不报）：
+  - 字号类：src、e2e 里已无 text-[var(--text-*)]；其余带 var() 的任意值类（font-、border-、shadow-、bg-、rounded-）在生产构建 CSS 里都编译成了预期的属性（font-[var(--weight-strong)] 是 font-weight，border-[var(--divider)] 是 border-color，shadow-[var(--shadow-panel)] 是 box-shadow），没有同类误判。
+  - 所有 var(--…) token 在运行时都有值（--know-color 由图组件内联给出）。
+  - 顶栏：1440、1100、900、720（手机档）下无横向溢出；明暗下拉有 aria-haspopup、radio 项有 aria-checked；换书下拉只有一本书时只剩“全部书（书架）”，书架来回与浏览器后退正常。
+  - 滚轮、Ctrl 加滚轮、拖动、范围条、滑块：6 格 Ctrl 滚轮得 3.0×、30 格到最大 25.0×（第 50 到 53 章，最小 4 章），拖过头不出界，滑块与范围条读数一致；切明暗时范围保持。
+  - 只看周边：放射排布正常，Escape 后回到全图，勾选框保持勾选（与 Spec 26 的“取消选中时回到原来的位置”一致）。
