@@ -75,7 +75,12 @@ updated: 2026-10-15
 
 ## 当前状态
 
-2026-10-15 开工：旧应用调研（`legacy-markdown.md`）与功能分析（`analysis.md`）已完成；开发者定了决定 1–9：只做富文本模式，继续用 Tiptap 与 `@tiptap/markdown`；方言 Spec 已写好并提交（t06 分支，`planned`）；第 1 轮深入审查完成，计划第三版（[plan.md](plan.md)）与 Spec 已按第 1 轮复审修订；开始实施 S0（锁版本、加依赖）与 S1。
+实施中（t06 分支 `feat/w00025-t06-markdown-polish`，worktree `.worktree/w00025-t06-markdown-polish`）：
+
+- S0（`0c4766710`）：锁定 `@tiptap/*` 3.27.3 与 `marked` 17.0.6；加 `@tiptap/extension-list`、`marked-cjk-friendly` 0.1.2、`entities` 8.0.0 与开发依赖 `fast-check`。
+- S1（`b2ba4a029`）：原文分块（偏移表、线性宽容扫描、按偏移核对）、自己的读入调度、核心与原样语法的读法、没编辑时的原样写回。15 份语料不编辑写回逐字节相等、读出合 schema、没有读不出的块；读入的明确期望 18 条；有没有 DOM 读出相同。变异检查：去掉分块的偏移核对、去掉实体解码，各有测试失败。语料目录在 `.gitattributes` 标为 `-text`，检出不改写换行。
+
+下一步：S2 写出器（来源按代、间隔、窗口读回与降级阶梯、最小转义、硬换行与列表的写法、写法回填所需的期望节点），性质 2、4、5 与随机新建。
 
 ## 下一步
 
