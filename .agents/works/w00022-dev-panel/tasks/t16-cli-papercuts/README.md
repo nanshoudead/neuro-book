@@ -1,8 +1,8 @@
 ---
 schema: nbook.task/v2
 taskId: t16-cli-papercuts
-status: active
-updated: 2026-10-14
+status: done
+updated: 2026-10-15
 ---
 
 # nbdev 命令行修补：产物只提交引用到的文件等六条
