@@ -5,7 +5,7 @@
 import type {NodeRef, StoryMethod, Tags} from "../../contract/contract";
 import type {BookIndex} from "../book-index";
 import {paginate} from "../cursor";
-import type {Basis, KnowledgeState, Position, Span, Statement, StatementKind} from "../dataset";
+import type {Basis, Episode, KnowledgeState, Position, Span, Statement, StatementKind} from "../dataset";
 import {READER, type Grouping} from "../identity";
 import {formatSpan} from "../position";
 import type {BookView} from "../projection";
@@ -78,6 +78,46 @@ export function nodeRefs(grouping: Grouping, entityIds: Iterable<string>): NodeR
         }
     }
     return result;
+}
+
+/** 一个对象自己的名字：P 时可见的最后一个主名，没有就取第一个可见称呼，再没有用它的说明标签。 */
+export function entityName(view: BookView, entityId: string): string {
+    const entity = view.entity(entityId);
+    if (!entity) return entityId;
+    return entity.names.filter(name => name.primary).at(-1)?.text ?? entity.names[0]?.text ?? entity.label;
+}
+
+/**
+ * 情节参与者在这次分组里落到的点（docs/specs/story/queries.md 输出 1、13）。数据里 `as` 记着他以哪个身份出场
+ * （例如南小风以风信子出场）：分组已把真身与化名合成一个点时，取这个点并写出化名；还没合并时只取化名的点，不借
+ * 参与者名单暴露真身。化名不可见时退回真身。
+ */
+export function participant(ctx: QueryContext, member: Episode["who"][number]): {node: NodeRef; as: string | null} | null {
+    const self = nodeRef(ctx.grouping, member.e);
+    const persona = member.as !== undefined && member.as !== member.e ? nodeRef(ctx.grouping, member.as) : null;
+    if (persona === null) return self && {node: self, as: null};
+    if (self === null || self.id !== persona.id) return {node: persona, as: null};
+    // 化名没有可见称呼（只有抽取时的说明），或者就是这个点的显示名时，不另写。
+    const name = (ctx.view.entity(member.as!)?.names.length ?? 0) > 0 ? entityName(ctx.view, member.as!) : null;
+    return {node: self, as: name === null || name === self.label ? null : name};
+}
+
+/** 一段情节的参与者：去重、保持先后；同一个点出现几次时取第一个写了化名的。 */
+export function participants(ctx: QueryContext, episode: Episode): (NodeRef & {as: string | null})[] {
+    const result: (NodeRef & {as: string | null})[] = [];
+    for (const member of episode.who) {
+        const found = participant(ctx, member);
+        if (!found) continue;
+        const existing = result.find(item => item.id === found.node.id);
+        if (!existing) result.push({...found.node, as: found.as});
+        else if (existing.as === null) existing.as = found.as;
+    }
+    return result;
+}
+
+/** 一段情节的参与者所在的点 id。 */
+export function participantNodes(ctx: QueryContext, episode: Episode): string[] {
+    return participants(ctx, episode).map(item => item.id);
 }
 
 /** 搜索用的“包含这段文字”：忽略大小写与首尾空白。 */

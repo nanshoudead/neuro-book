@@ -4,7 +4,7 @@
 
 import type {StoryParams, StoryResult} from "../../contract/contract";
 import {StoryError} from "../errors";
-import {firstRef, matches, nodeRef, nodeRefs, refs, type QueryContext} from "./context";
+import {firstRef, matches, nodeRef, participants, refs, type QueryContext} from "./context";
 import {readerSecretState} from "./secrets";
 
 /** 情节 → 它在当前这一批里所属的主线。 */
@@ -20,6 +20,12 @@ function arcsByEpisode(ctx: QueryContext): Map<string, string[]> {
     return map;
 }
 
+/** 情节所挂的时间点；不可见时为 null（输出 1 的“引用省略”）。 */
+function timeRef(ctx: QueryContext, id: string): {id: string; label: string} | null {
+    const time = ctx.view.time(id);
+    return time ? {id: time.id, label: time.label} : null;
+}
+
 export function episodesList(ctx: QueryContext, params: StoryParams<"episodes.list">): StoryResult<"episodes.list"> {
     const {view, grouping} = ctx;
     const byEpisode = arcsByEpisode(ctx);
@@ -30,11 +36,13 @@ export function episodesList(ctx: QueryContext, params: StoryParams<"episodes.li
             id: episode.id,
             title: episode.title,
             chapter: episode.at.chapter,
-            who: nodeRefs(grouping, episode.who.map(member => member.e)),
+            who: participants(ctx, episode),
+            place: episode.place === undefined ? null : nodeRef(grouping, episode.place),
+            time: timeRef(ctx, episode.time),
             summary: episode.summary,
             steps: episode.steps.map(step => ({text: step.text, ref: refs([step.evidence])[0]!})),
             outcome: episode.outcome ?? null,
-            links: episode.links.map(link => ({type: link.type, to: {id: link.to, title: view.episode(link.to)!.title}})),
+            links: episode.links.map(link => ({type: link.type, to: {id: link.to, title: view.episode(link.to)!.title}, note: link.note ?? null})),
             arcs: byEpisode.get(episode.id) ?? [],
             refs: refs(episode.evidence),
         }));

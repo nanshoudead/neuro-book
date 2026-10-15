@@ -6,7 +6,7 @@
 import type {RelationEdge, StoryParams, StoryResult} from "../../contract/contract";
 import type {EntityKind, Statement} from "../dataset";
 import {READER, readerGrouping} from "../identity";
-import {perspectiveStatements, type QueryContext} from "./context";
+import {participantNodes, perspectiveStatements, type QueryContext} from "./context";
 
 /** 关系图默认画的类别：人物与组织（身份是人物的化名，算人物）。 */
 const DEFAULT_KINDS: readonly EntityKind[] = ["person", "persona", "group"];
@@ -36,7 +36,7 @@ function relationWord(statements: readonly Statement[]): string | null {
 function togetherCounts(ctx: QueryContext): Map<string, number> {
     const counts = new Map<string, number>();
     for (const episode of ctx.view.episodes) {
-        const nodes = [...new Set(episode.who.map(member => ctx.grouping.nodeOf.get(member.e)).filter((node): node is string => node !== undefined))].sort();
+        const nodes = participantNodes(ctx, episode).sort();
         for (let i = 0; i < nodes.length; i += 1) {
             for (let j = i + 1; j < nodes.length; j += 1) {
                 const key = `${nodes[i]}|${nodes[j]}`;
@@ -149,8 +149,8 @@ export function bookGraph(ctx: QueryContext, params: StoryParams<"graph.book">):
             nodes.push({id: arc.id, type: "arc", label: arc.title, weight: arc.episodes.length});
             const counts = new Map<string, number>();
             for (const id of arc.episodes) {
-                for (const node of new Set(view.episode(id)!.who.map(member => grouping.nodeOf.get(member.e)))) {
-                    if (node !== undefined) counts.set(node, (counts.get(node) ?? 0) + 1);
+                for (const node of participantNodes(ctx, view.episode(id)!)) {
+                    counts.set(node, (counts.get(node) ?? 0) + 1);
                 }
             }
             for (const [node, count] of [...counts].sort()) {
@@ -162,7 +162,10 @@ export function bookGraph(ctx: QueryContext, params: StoryParams<"graph.book">):
     if (grain === "episode" && types.has("episode")) {
         for (const episode of view.episodes) {
             nodes.push({id: episode.id, type: "episode", label: episode.title, weight: episode.who.length});
-            for (const node of [...new Set(episode.who.map(member => touch(member.e)))].sort()) if (node !== undefined) edges.push({a: node, b: episode.id, type: "participates", count: 1});
+            for (const node of participantNodes(ctx, episode).sort()) {
+                entityNodes.add(node);
+                edges.push({a: node, b: episode.id, type: "participates", count: 1});
+            }
             for (const link of episode.links) edges.push({a: episode.id, b: link.to, type: "link", count: 1});
         }
     }
@@ -197,7 +200,7 @@ export function bookGraph(ctx: QueryContext, params: StoryParams<"graph.book">):
 
 export function storyline(ctx: QueryContext): StoryResult<"graph.storyline"> {
     const {view, grouping} = ctx;
-    const episodeNodes = view.episodes.map(episode => ({episode, nodes: [...new Set(episode.who.map(member => grouping.nodeOf.get(member.e)).filter((node): node is string => node !== undefined && DEFAULT_KINDS.includes(view.entity(node)!.kind)))]}));
+    const episodeNodes = view.episodes.map(episode => ({episode, nodes: participantNodes(ctx, episode).filter(node => DEFAULT_KINDS.includes(view.entity(node)!.kind))}));
     const appearances = new Map<string, number>();
     for (const {nodes} of episodeNodes) for (const node of nodes) appearances.set(node, (appearances.get(node) ?? 0) + 1);
     const chosen = [...appearances].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1)).slice(0, STORYLINE_LANES).map(([node]) => node);

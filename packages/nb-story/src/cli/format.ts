@@ -73,7 +73,11 @@ const FORMATTERS: {[M in StoryMethod]?: Formatter<M>} = {
     "secrets.matrix": result =>
         result.rows.flatMap(row => [
             `${row.title}（${row.id}）`,
-            ...row.cells.map(cell => `  ${result.columns.find(column => column.id === cell.column)!.label}：${STATE_WORDS[cell.state]}${cell.ref ? `〔${cell.ref}〕` : ""}`),
+            ...row.cells.map(cell => {
+                const column = result.columns.find(item => item.id === cell.column)!;
+                const name = column.aliases.length ? `${column.label}（${column.aliases.join("、")}）` : column.label;
+                return `  ${name}：${STATE_WORDS[cell.state]}${cell.how ? `，${cell.how}` : ""}${cell.ref ? `〔${cell.ref}〕` : ""}`;
+            }),
         ]),
     "graph.relations": result => [
         ...(result.view.perspective === "reader" ? [] : [`视角 ${result.view.perspective}：用了 ${result.view.statements} 条说法`]),
@@ -105,12 +109,17 @@ const FORMATTERS: {[M in StoryMethod]?: Formatter<M>} = {
         ]),
         ...pageFooter(result),
     ],
-    timeline: result => result.points.map(point => `${point.day === null ? "日子不明" : `第 ${point.day} 天`}${point.part ? ` ${point.part}` : ""}${point.clock ? ` ${point.clock}` : ""}  ${point.label}${point.relative ? `（${point.relative}）` : ""}${point.flashback ? `  第 ${point.flashback} 章补叙` : ""} ${at(point.refs)}`),
+    timeline: result =>
+        result.points.flatMap(point => [
+            `${point.day === null ? "日子不明" : `第 ${point.day} 天`}${point.part ? ` ${point.part}` : ""}${point.clock ? ` ${point.clock}` : ""}  ${point.label}${point.relative ? `（${point.relative}）` : ""}${point.flashback ? `  第 ${point.flashback} 章补叙` : ""} ${at(point.refs)}`,
+            ...point.episodes.map(episode => `  情节 ${episode.id} ${episode.title}（${episode.who.map(who => who.label).join("、")}${episode.place ? `；${episode.place.label}` : ""}）`),
+        ]),
     "episodes.list": result => [
         ...result.items.flatMap(item => [
-            `第 ${item.chapter} 章  ${item.title}（${item.who.map(who => who.label).join("、")}）${item.arcs.length ? "" : "  未归入主线"} ${at(item.refs)}`,
+            `第 ${item.chapter} 章  ${item.title}（${item.who.map(who => (who.as ? `${who.label}，以${who.as}` : who.label)).join("、")}）${item.arcs.length ? "" : "  未归入主线"} ${at(item.refs)}`,
+            ...(item.time || item.place ? [`  ${[item.time ? `时间：${item.time.label}` : "", item.place ? `地点：${item.place.label}` : ""].filter(Boolean).join("；")}`] : []),
             `  ${item.summary}`,
-            ...item.links.map(link => `  ${link.type} → ${link.to.title}`),
+            ...item.links.map(link => `  ${link.type} → ${link.to.title}${link.note ? `（${link.note}）` : ""}`),
         ]),
         ...pageFooter(result),
     ],

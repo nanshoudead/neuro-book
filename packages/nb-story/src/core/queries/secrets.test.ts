@@ -29,9 +29,9 @@ describe("读者格取最新的知情（输出 9）", () => {
         const small = await openTestBook("secrets-latest", dataset);
         try {
             const atOne = await small.ok("secrets.matrix", {at: {chapter: 1}});
-            expect(atOne.rows[0]!.cells[0]).toEqual({column: "reader", state: "knows", ref: "1.2"});
+            expect(atOne.rows[0]!.cells[0]).toEqual({column: "reader", state: "knows", how: null, ref: "1.2"});
             const atThree = await small.ok("secrets.matrix", {at: {chapter: 3}});
-            expect(atThree.rows[0]!.cells[0]).toEqual({column: "reader", state: "unaware", ref: "2.2"});
+            expect(atThree.rows[0]!.cells[0]).toEqual({column: "reader", state: "unaware", how: null, ref: "2.2"});
             expect(atThree.rows[0]!.revealedAt).toBeNull();
         } finally {
             await small.close();
@@ -44,7 +44,7 @@ describe("秘密矩阵（输出 9、验收 4）", () => {
         const matrix = await book.ok("secrets.matrix", {at: {chapter: 38}});
         const row = matrix.rows.find(item => item.id === "x30-1")!;
         const reader = row.cells.find(cell => cell.column === "reader")!;
-        expect(reader).toEqual({column: "reader", state: "knows", ref: "37.8"});
+        expect(reader).toEqual({column: "reader", state: "knows", how: "旁白", ref: "37.8"});
         expect(row.revealedAt).toBe("37.8");
     });
 
@@ -61,6 +61,18 @@ describe("秘密矩阵（输出 9、验收 4）", () => {
         expect(cells.some(cell => cell.state === "no-record" && cell.ref === null)).toBe(true);
         const tq = matrix.rows.find(row => row.id === "x30-1")!.cells.find(cell => cell.column === "e1-1")!;
         expect(tq.state).toBe("unaware");
+        // 有记录的格带上记录里写的“怎么知道的”。
+        expect(tq.how).toEqual(expect.any(String));
+    });
+
+    test("人物列带读者此时知道的化名：苏天晴 6.96 起带“狐狐”，6.95 还没有；没有名字的身份不列", async () => {
+        const after = await book.ok("secrets.matrix", {at: {chapter: 6, paragraph: 96}});
+        expect(after.columns.find(column => column.id === "e1-1")!.aliases).toContain("狐狐");
+        expect(after.columns[0]).toEqual({id: "reader", label: "读者", aliases: []});
+        const before = await book.ok("secrets.matrix", {at: {chapter: 6, paragraph: 95}});
+        expect(before.columns.find(column => column.id === "e1-1")!.aliases).not.toContain("狐狐");
+        const at38 = await book.ok("secrets.matrix", {at: {chapter: 38}});
+        expect(at38.columns.find(column => column.label === "南嘉鱼")!.aliases).toEqual(["地狱猫"]);
     });
 
     test("第 7 章时没有第 8 章及以后才有的秘密", async () => {

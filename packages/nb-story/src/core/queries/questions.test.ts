@@ -33,4 +33,15 @@ describe("悬念（输出 11）", () => {
         const chapters = raised.items.map(item => item.raised.chapter);
         expect(chapters).toEqual([...chapters].sort((a, b) => a - b));
     });
+
+    test("相关情节：出处与提出或进展重叠的可见情节，按章排序（输出 11）", async () => {
+        const all = await book.ok("questions.list", {at: {chapter: 38}, limit: 500});
+        const withEpisodes = all.items.filter(item => item.episodes.length > 0);
+        expect(withEpisodes.length).toBeGreaterThan(all.items.length / 2);
+        for (const item of withEpisodes) {
+            const chapters = item.episodes.map(episode => episode.chapter);
+            expect(chapters).toEqual([...chapters].sort((a, b) => a - b));
+            expect(chapters.every(chapter => chapter <= 38)).toBe(true);
+        }
+    });
 });

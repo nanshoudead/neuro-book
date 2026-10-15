@@ -9,7 +9,7 @@
 import type {StoryParams, StoryResult} from "../../contract/contract";
 import {DAY_PARTS, type TimeAnchor} from "../dataset";
 import {comparePosition} from "../position";
-import {refs, type QueryContext} from "./context";
+import {nodeRef, participants, refs, type QueryContext} from "./context";
 
 const REL_WORDS = {after: "之后", before: "之前", same: "同时"} as const;
 
@@ -46,6 +46,18 @@ export function timeline(ctx: QueryContext, params: StoryParams<"timeline">): St
         if (latestBefore && compareStory(time, latestBefore) < 0) flashback.set(time.id, time.at.chapter);
         if (!latestInChapter || compareStory(time, latestInChapter) > 0) latestInChapter = time;
     }
+    // 每个时间点上发生的情节：情节的 time 指向这个点。
+    const episodesAt = new Map<string, StoryResult<"timeline">["points"][number]["episodes"]>();
+    for (const episode of ctx.view.episodes) {
+        const list = episodesAt.get(episode.time) ?? [];
+        list.push({
+            id: episode.id,
+            title: episode.title,
+            who: participants(ctx, episode).map(({id, label}) => ({id, label})),
+            place: episode.place === undefined ? null : nodeRef(ctx.grouping, episode.place),
+        });
+        episodesAt.set(episode.time, list);
+    }
     const ordered = (params.order ?? "story") === "story"
         ? [...known.sort(compareStory), ...times.filter(time => time.day === undefined).sort((a, b) => a.order - b.order || comparePosition(a.at, b.at))]
         : [...times].sort((a, b) => comparePosition(a.at, b.at));
@@ -61,6 +73,7 @@ export function timeline(ctx: QueryContext, params: StoryParams<"timeline">): St
             flashback: flashback.get(time.id) ?? null,
             refs: refs(time.evidence),
             chapter: time.at.chapter,
+            episodes: episodesAt.get(time.id) ?? [],
         })),
     };
 }

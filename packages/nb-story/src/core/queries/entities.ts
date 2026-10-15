@@ -6,7 +6,7 @@ import type {StoryParams, StoryResult} from "../../contract/contract";
 import type {Facet} from "../dataset";
 import {formatPosition, formatSpan} from "../position";
 import type {VisibleEntity} from "../projection";
-import {compareText, matches, nodeRef, perspectiveStatements, refs, tags, type QueryContext} from "./context";
+import {compareText, matches, nodeRef, participantNodes, perspectiveStatements, refs, tags, type QueryContext} from "./context";
 import {personSecretState} from "./secrets";
 
 /** 名册里每个点列出的称呼个数。 */
@@ -103,12 +103,15 @@ export function entityCard(ctx: QueryContext, params: StoryParams<"entity.card">
                 };
             }),
         facets: [...latest.entries()].map(([facet, value]) => ({facet, ...value})),
-        secrets: view.secrets.map(secret => ({id: secret.id, title: secret.title, ...personSecretState(view, ids, secret)})),
+        secrets: view.secrets.map(secret => {
+            const {state, ref} = personSecretState(view, ids, secret);
+            return {id: secret.id, title: secret.title, state, ref};
+        }),
         counts: {
             relations: related.size,
             knowledge: view.knowledge.filter(item => ids.has(item.who)).length,
             statements: statements.filter(statement => statement.about.some(id => ids.has(id))).length,
-            episodes: view.episodes.filter(episode => episode.who.some(member => ids.has(member.e))).length,
+            episodes: view.episodes.filter(episode => participantNodes(ctx, episode).includes(node)).length,
         },
     };
 }
@@ -154,9 +157,9 @@ export function entityStatements(ctx: QueryContext, params: StoryParams<"entity.
 }
 
 export function entityEpisodes(ctx: QueryContext, params: StoryParams<"entity.episodes">): StoryResult<"entity.episodes"> {
-    const ids = new Set(ctx.grouping.members.get(nodeFor(ctx, params.entity)) ?? []);
+    const node = nodeFor(ctx, params.entity);
     const items = ctx.view.episodes
-        .filter(episode => episode.who.some(member => ids.has(member.e)) && (matches(episode.title, params.query) || matches(episode.summary, params.query)))
+        .filter(episode => participantNodes(ctx, episode).includes(node) && (matches(episode.title, params.query) || matches(episode.summary, params.query)))
         .map(episode => ({id: episode.id, title: episode.title, chapter: episode.at.chapter, refs: refs(episode.evidence)}));
     return ctx.page(items);
 }

@@ -38,4 +38,24 @@ describe("情节与主线（输出 13、验收 6）", () => {
         expect(digest.revealedSecrets.map(item => item.id)).toContain("x30-1");
         expect(await book.fail("chapter.digest", {at: {chapter: 38}, chapter: 39})).toBe("beyond_position");
     });
+
+    test("参与者带出场身份，另有地点、故事时间与连接说明（输出 13）", async () => {
+        const {items} = await book.ok("episodes.list", {at: {chapter: 38}, limit: 500});
+        const p41 = items.find(item => item.id === "p4-1")!;
+        expect(p41.who).toContainEqual({id: "e4-1", label: "南小风", as: "风信子"});
+        expect(p41.place?.label).toBe("蓉城市绿心公园");
+        expect(p41.time).toEqual({id: expect.any(String), label: "风信子赶往绿心公园并与怪人交战"});
+        const p22 = items.find(item => item.id === "p2-2")!;
+        expect(p22.links[0]!.note).toBe("发生在苏天晴答应与墨丘利秘典签约之后");
+    });
+
+    test("还没认出化名的视角里，以化名出场的参与者只算化名，不暴露真身（输出 1、13）", async () => {
+        // p37-1、p37-2 里南嘉鱼以地狱猫出场。第 38 章读者已经知道二者是同一人，情节里写成“南嘉鱼（以化名）”；
+        // 苏天晴还不知道，她视角的关系图里这两段算苏天晴与地狱猫同场（共 6 段），不算在南嘉鱼头上（只按真身算是 4 段）。
+        const reader = await book.ok("episodes.list", {at: {chapter: 38}, query: "补充魔力的方法"});
+        expect(reader.items.find(item => item.id === "p37-1")!.who).toContainEqual({id: "e8-2", label: "南嘉鱼", as: expect.any(String)});
+        const tq = await book.ok("graph.relations", {at: {chapter: 38}, perspective: "e1-1", minTogether: 1});
+        const edge = tq.edges.find(item => [item.a, item.b].sort().join("|") === "e1-1|e33-1")!;
+        expect(edge.together).toBe(6);
+    });
 });

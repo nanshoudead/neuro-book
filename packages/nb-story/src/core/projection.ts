@@ -132,7 +132,8 @@ export class BookView {
             const visibleIds = new Set(this.#prefix(this.index.episodes).map(episode => episode.id));
             return this.#prefix(this.index.episodes).map(episode => ({
                 ...episode,
-                who: episode.who.filter(member => this.entity(member.e) !== undefined),
+                // 真身或出场身份有一个可见就留下；落到哪个点由查询按分组决定（queries/context.ts 的 participant）。
+                who: episode.who.filter(member => this.entity(member.e) !== undefined || (member.as !== undefined && this.entity(member.as) !== undefined)),
                 links: episode.links.filter(link => this.visible(link.at) && visibleIds.has(link.to)),
             }));
         });

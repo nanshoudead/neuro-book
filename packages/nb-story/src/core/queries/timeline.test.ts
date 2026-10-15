@@ -43,4 +43,14 @@ describe("时间线（输出 12）", () => {
         const chapters = bySource.points.map(point => point.chapter);
         expect(chapters).toEqual([...chapters].sort((a, b) => a - b));
     });
+
+    test("每个点带故事时间是它的情节：标题、参与者与地点（输出 12）", async () => {
+        const {points} = await book.ok("timeline", {at: {chapter: 38}});
+        const point = points.find(item => item.episodes.some(episode => episode.id === "p4-1"))!;
+        const episode = point.episodes.find(item => item.id === "p4-1")!;
+        expect(episode.who.map(who => who.label)).toContain("南小风");
+        expect(episode.place?.label).toBe("蓉城市绿心公园");
+        // 第 38 章之后的情节不挂到任何点上。
+        expect(points.flatMap(item => item.episodes).every(item => Number(item.id.slice(1).split("-")[0]) <= 38)).toBe(true);
+    });
 });

@@ -15,13 +15,13 @@
 | `knowledge <对象> [--state <状态>] [--query <字>]` | 他知道的事（状态：knows、believes、suspects、heard、read、unaware） | `nbstory knowledge 苏天晴 --state unaware --at 38` |
 | `statements <对象> [--query <字>]` | 关于他的说法，带明说、角色的说法、角色认为、推断 | `nbstory statements 南嘉鱼 --at 38` |
 | `appearances <对象> [--query <字>]` | 他参与的情节 | `nbstory appearances 苏天晴 --query 风信子 --at 38` |
-| `knows` | 秘密矩阵：每个秘密、读者与各人物的知情状态与出处 | `nbstory knows --at 38` |
+| `knows` | 秘密矩阵：每个秘密、读者与各人物（带读者此时知道的化名）的知情状态、怎么知道的与出处 | `nbstory knows --at 38` |
 | `relations [--perspective <对象>] [--kinds <类别,…>] [--min-together <次>]` | 人物之间的关系词、同场次数、认知条数与身份连接；带视角时按那个人知道的 | `nbstory relations --perspective 苏天晴 --at 38` |
 | `ledger` | 各项数值、任务、道具的当前值 | `nbstory ledger --at 38` |
 | `track <名目> [--owner <对象>]` | 一项的流水，原文报数与累加对不上的差额 | `nbstory track 神典石 --at 38` |
 | `questions [--state open\|partial\|answered] [--sort recent\|raised] [--query <字>]` | 悬念与每次进展 | `nbstory questions --state open --at 38` |
-| `timeline [--order story\|source]` | 时间线（按故事时间或按章），补叙标出 | `nbstory timeline --at 38` |
-| `episodes [--arc <主线 id>] [--query <字>]` | 情节：参与者、概要、与前情的连接、所属主线 | `nbstory episodes --query 风信子 --at 38` |
+| `timeline [--order story\|source]` | 时间线（按故事时间或按章），补叙标出；每个点下列出这一刻的情节、参与者与地点 | `nbstory timeline --at 38` |
+| `episodes [--arc <主线 id>] [--query <字>]` | 情节：参与者（以化名出场时写出化名）、故事时间、地点、概要、与前情的连接、所属主线 | `nbstory episodes --query 风信子 --at 38` |
 | `arcs` | 当前这一批主线 | `nbstory arcs --at 38` |
 | `search <文字> [--kinds entity,statement,source]` | 搜对象、说法、原文 | `nbstory search 神典石 --at 38.57` |
 | `read <章[.段[-段]]>` | 读原文：一章、一段或一个范围（`38.48-81`） | `nbstory read 38.30-40 --at 38` |

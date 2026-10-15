@@ -3,9 +3,12 @@
  */
 
 import type {StoryParams, StoryResult} from "../../contract/contract";
-import type {Question} from "../dataset";
+import type {Episode, Question, Span} from "../dataset";
 import {comparePosition} from "../position";
 import {matches, nodeRefs, refs, type QueryContext} from "./context";
+
+/** 展开一条悬念时列出的相关情节至多几段。 */
+const RELATED_EPISODES = 6;
 
 type State = "open" | "partial" | "answered";
 
@@ -25,6 +28,19 @@ function trivialOf(question: Question): boolean {
 /** 最近一次被提到（提出或进展）的位置，用于“最近有进展的在前”。 */
 function lastTouched(question: Question) {
     return question.updates.reduce((latest, update) => (comparePosition(update.at, latest) > 0 ? update.at : latest), question.at);
+}
+
+function overlaps(a: Span, b: Span): boolean {
+    return a.chapter === b.chapter && a.from <= b.to && b.from <= a.to;
+}
+
+/** 相关情节（输出 11）：出处与悬念的提出或可见进展的出处有重叠的可见情节，按章排序，至多 RELATED_EPISODES 段。 */
+function relatedEpisodes(episodes: readonly Episode[], question: Question) {
+    const spans = [...question.evidence, ...question.updates.flatMap(update => update.evidence)];
+    return episodes
+        .filter(episode => episode.evidence.some(span => spans.some(other => overlaps(span, other))))
+        .slice(0, RELATED_EPISODES)
+        .map(episode => ({id: episode.id, title: episode.title, chapter: episode.at.chapter, refs: refs(episode.evidence)}));
 }
 
 export function questionsList(ctx: QueryContext, params: StoryParams<"questions.list">): StoryResult<"questions.list"> {
@@ -54,6 +70,7 @@ export function questionsList(ctx: QueryContext, params: StoryParams<"questions.
                 refs: refs(update.evidence),
                 chapter: update.at.chapter,
             })),
+            episodes: relatedEpisodes(view.episodes, question),
         })),
     );
 }

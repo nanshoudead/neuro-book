@@ -75,6 +75,20 @@ const BookStats = Type.Object({
     /** 到阅读位置为止各类可见记录的条数。 */
     visible: Type.Record(Type.String(), Type.Integer()),
     /** 全书抽取统计，不随阅读位置变。 */
+    /** 第 1 章到阅读位置所在章，各章成立的可见记录数（输出 2）。 */
+    chapters: Type.Array(Type.Object({
+        chapter: Type.Integer(),
+        statements: Type.Integer(),
+        knowledge: Type.Integer(),
+        episodes: Type.Integer(),
+        ledger: Type.Integer(),
+        /** 这一章新提出的悬念。 */
+        raised: Type.Integer(),
+        /** 这一章得到解答的悬念。 */
+        answered: Type.Integer(),
+    })),
+    /** 出场最多的至多 12 个人物；`counts[i]` 是第 i+1 章里被提到的次数，长度与 `chapters` 相同。 */
+    cast: Type.Array(Type.Object({id: Type.String(), label: Type.String(), counts: Type.Array(Type.Integer())})),
     extraction: Type.Object({scope: Type.Literal("book"), written: Type.Record(Type.String(), Type.Number()), generated: Type.Record(Type.String(), Type.Number()), chars: Type.Number()}),
 });
 
@@ -133,14 +147,16 @@ const EpisodeBrief = Type.Object({id: Type.String(), title: Type.String(), chapt
 // ---- 秘密、数值、悬念、时间、情节 ----
 
 const SecretsMatrix = Type.Object({
-    columns: Type.Array(Type.Object({id: Type.String(), label: Type.String()})),
+    /** 读者一列在前；人物列的 `aliases` 是读者此时知道的他的其他身份名（读者列为空）。 */
+    columns: Type.Array(Type.Object({id: Type.String(), label: Type.String(), aliases: Type.Array(Type.String())})),
     rows: Type.Array(
         Type.Object({
             id: Type.String(),
             title: Type.String(),
             /** 读者知道这个秘密的出处；读者还不知道时为 null。 */
             revealedAt: Type.Union([RefSchema, Type.Null()]),
-            cells: Type.Array(Type.Object({column: Type.String(), state: AwarenessSchema, ref: Type.Union([RefSchema, Type.Null()])})),
+            /** `how` 是取到的那条记录写的“怎么知道的”；读者凭身份说法知道时为“旁白”；没有记录时为 null。 */
+            cells: Type.Array(Type.Object({column: Type.String(), state: AwarenessSchema, how: Type.Union([Type.String(), Type.Null()]), ref: Type.Union([RefSchema, Type.Null()])})),
         }),
     ),
 });
@@ -179,6 +195,8 @@ const QuestionItem = Type.Object({
     about: Type.Array(NodeRefSchema),
     raised: Type.Object({refs: Type.Array(RefSchema), chapter: Type.Integer()}),
     updates: Type.Array(Type.Object({type: oneOf(["raised", "partial", "answered"] as const), answer: Type.Union([Type.String(), Type.Null()]), note: Type.Union([Type.String(), Type.Null()]), refs: Type.Array(RefSchema), chapter: Type.Integer()})),
+    /** 出处与提出或可见进展的出处重叠的情节，按章排序（输出 11）。 */
+    episodes: Type.Array(EpisodeBrief),
 });
 
 const TimelinePoint = Type.Object({
@@ -194,6 +212,8 @@ const TimelinePoint = Type.Object({
     flashback: Type.Union([Type.Integer(), Type.Null()]),
     refs: Type.Array(RefSchema),
     chapter: Type.Integer(),
+    /** 故事时间是这个点的可见情节（输出 12）。 */
+    episodes: Type.Array(Type.Object({id: Type.String(), title: Type.String(), who: Type.Array(NodeRefSchema), place: Type.Union([NodeRefSchema, Type.Null()])})),
 });
 
 const EpisodeLinkType = oneOf(["after", "continues", "retells", "causes", "motivates", "enables"] as const);
@@ -201,11 +221,15 @@ const EpisodeItem = Type.Object({
     id: Type.String(),
     title: Type.String(),
     chapter: Type.Integer(),
-    who: Type.Array(NodeRefSchema),
+    /** 参与者；`as` 是读者此时认得出的出场身份（例如“风信子”），没有或还认不出时为 null（输出 13）。 */
+    who: Type.Array(Type.Object({id: Type.String(), label: Type.String(), as: Type.Union([Type.String(), Type.Null()])})),
+    place: Type.Union([NodeRefSchema, Type.Null()]),
+    /** 所挂的时间点；不可见时为 null。 */
+    time: Type.Union([Type.Object({id: Type.String(), label: Type.String()}), Type.Null()]),
     summary: Type.String(),
     steps: Type.Array(Type.Object({text: Type.String(), ref: RefSchema})),
     outcome: Type.Union([Type.String(), Type.Null()]),
-    links: Type.Array(Type.Object({type: EpisodeLinkType, to: Type.Object({id: Type.String(), title: Type.String()})})),
+    links: Type.Array(Type.Object({type: EpisodeLinkType, to: Type.Object({id: Type.String(), title: Type.String()}), note: Type.Union([Type.String(), Type.Null()])})),
     /** 所属主线（当前这一批里的 id，可以有几条）；为空表示“未归入主线”。 */
     arcs: Type.Array(Type.String()),
     refs: Type.Array(RefSchema),
