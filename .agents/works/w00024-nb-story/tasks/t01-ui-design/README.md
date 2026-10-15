@@ -24,7 +24,8 @@ updated: 2026-10-14
 - 第 4 轮（2026-10-14）按决定第 8 条改稿：段落级阅读位置、人物卡分页签与几百条记录的筛选、关系图、全书图（按关联与按章节两种排布）。问两题：全书图怎么排（`data-graph-layout`）、人物卡分页签还是一长页（`card-tabs`）；第 3 轮的 `qa-answer-format` 仍待答。另列三个问题：关系线上的字不是关系（记忆图缺“两人是什么关系”）、同名对象、小关系图太挤。
 - 第 5 轮（2026-10-14，第 4 轮的题还没答时先做）：补齐数值、悬念、时间线、情节、原文五页，人物卡记录“在主区打开”的宽表格，以及平板、手机宽度（按组件自身宽度分三档：平板时导航收成图标条、抽屉浮在主区上；手机时顶栏两行、底部页签、抽屉改成底部面板）。问两题：手机宽度要不要进第一版（`phone-scope`）、原文报的余额和逐笔累加对不上时怎么显示（`ledger-mismatch`）。另列四个问题：收支漏抽（神典石 6 处对不上）、最近几章还没归入主线、显示名取哪个称呼、时间线有日子不明的点。
 - 第 6 轮（2026-10-15，决定 14）：关系图、全书图两种排法、人物卡小图改用 Sigma.js 3.0.3 重做（graphology 的 ForceAtlas2 加 noverlap 排版，标签按格子分级、带底色，线上横排写关系词，悬停聚焦，搜索定位，缩放按钮）。关系图默认只画人物与组织；全书图“按关联”默认按主线聚合；人物卡小图改为确定的放射排布。问两题：关系图默认画哪些点（`relation-graph-default`）、全书图按关联的粒度（`data-graph-grain`）。另列四个问题：关系词大多归纳不出来（66 条里 14 条）、会说话的物品被归为物品、拖读到哪里时图会重排、Sigma 4.0 刚发布。
-- 静态稿：草稿 worktree 的 `packages/neuro-book/src/plugins/lab/web/components/drafts/`（`NbStoryDraft.vue`、`StoryGraph.vue`、`StoryLine.vue`、`sigma-kit.ts`），Lab 场景 `NbStoryDraft`（22 个场景），数据 `fixtures/drafts/story-draft-data.json` 由 t34 `dataset-v9.json` 抽“读到第 38 章”的样本；画图库 Sigma.js 与 graphology 只装在草稿 worktree（第 4、5 轮用的 Cytoscape.js 已移除）；都不提交。截图集在主工作区 `.local/agent/works/w00024-nb-story/tasks/t01-ui-design/shots/`。
+- 第 7 轮（2026-10-15，决定 17）：修收起右侧栏后画布不重绘（监听容器尺寸，变了就 resize 再重画）；选中也降暗其他点，加“只看选中的周边”；点可拖动（拖动不算点选）；借 viewer-v7 的空心圆圈、分层连线开关（关系说法、同场、认知）、带箭头的认知联系、全屏；3D 用 3d-force-graph 另做了一个，可在关系图里切换。问两题：3D 要不要进第一版（`graph-3d`）、关系图要不要加“知情视角”（`perspective-view`）。
+- 静态稿：草稿 worktree 的 `packages/neuro-book/src/plugins/lab/web/components/drafts/`（`NbStoryDraft.vue`、`StoryGraph.vue`、`StoryGraph3D.vue`、`StoryLine.vue`、`sigma-kit.ts`），Lab 场景 `NbStoryDraft`（25 个场景），数据 `fixtures/drafts/story-draft-data.json` 由 t34 `dataset-v9.json` 抽“读到第 38 章”的样本；画图库 Sigma.js、graphology 与 3D 用的 3d-force-graph 只装在草稿 worktree（第 4、5 轮用的 Cytoscape.js 已移除）；都不提交。截图集在主工作区 `.local/agent/works/w00024-nb-story/tasks/t01-ui-design/shots/`。
 
 ## 决定
 
@@ -87,5 +88,5 @@ updated: 2026-10-14
 
 ## 下一步
 
-1. 按决定 17 继续打磨图（第 7 轮）：修收起右侧栏后不重绘、选中时降暗、节点可拖拽，借鉴 viewer-v7 的画法，另做一个 3D 图的样子；图定了设计才算定。之后写 `planned` Spec：先把要写哪几份、各管什么拿给开发者看（拟 `docs/specs/story/` 下 queries、viewer、qa、cli-skill 四份，另开 t02），确认后再写。下一步写 `planned` Spec，先把要写哪几份、各管什么拿给开发者看，确认后再写；之后写实施计划。
+1. 等开发者答第 7 轮两题（`graph-3d`、`perspective-view`），并看图是否还要打磨；图定了设计才算定。之后写 `planned` Spec：先把要写哪几份、各管什么拿给开发者看（拟 `docs/specs/story/` 下 queries、viewer、qa、cli-skill 四份，另开 t02），确认后再写。下一步写 `planned` Spec，先把要写哪几份、各管什么拿给开发者看，确认后再写；之后写实施计划。
 2. 搭稿时发现、要进计划的问题：第 3 到 5 轮评审板“发现的问题”各节（矩阵与问答说法不一、化名按读到哪里合并、章节标题剧透、称呼噪音、关系线上的字不是关系、同名对象、小关系图太挤、收支漏抽、最近几章没归入主线、显示名规则、日子不明的时间点）。
