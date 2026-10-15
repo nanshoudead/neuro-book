@@ -206,11 +206,36 @@ export async function openBookSession(client: StoryClient, router: Router, bookI
         if (to.params.id !== bookId) return;
         if (isPage(to.params.page) && to.params.page !== page.value) page.value = to.params.page;
         const nextAt = parseAt(to.query.at);
-        if (validAt(info, nextAt) && formatAt(nextAt) !== formatAt(at.value)) at.value = nextAt;
+        if (validAt(info, nextAt) && formatAt(nextAt) !== formatAt(at.value)) void moveTo(nextAt);
         if (typeof to.query.perspective === "string" && to.query.perspective !== perspectiveRef.value) perspectiveRef.value = to.query.perspective;
         const chapter = typeof to.query.chapter === "string" && /^\d+$/u.test(to.query.chapter) ? Number(to.query.chapter) : null;
         if (chapter !== sourceChapter.value && (chapter === null || chapter <= info.chapters)) sourceChapter.value = chapter;
     });
+
+    // ---- 换阅读位置 ----
+    // 视角人物在新位置还没出现（往回拨到他出场之前）时，查询会报 entity_not_found：先查一次，不存在就和位置一起换回
+    // 读者视角并提示（输出 4 的规则用到位置变化上）。只认最后一次换位置的结果，前面在途的作废。
+    let moveToken = 0;
+    async function moveTo(next: PositionInput): Promise<void> {
+        const token = ++moveToken;
+        const current = perspectiveRef.value;
+        let fallback = false;
+        if (current !== "reader") {
+            try {
+                await client.call("entities.list", {book: bookId, at: next, perspective: current, limit: 1});
+            } catch (error) {
+                if (!(error instanceof StoryCallError) || error.code !== "entity_not_found") throw error;
+                fallback = true;
+            }
+        }
+        if (token !== moveToken) return;
+        if (fallback && perspectiveRef.value === current) {
+            perspectiveRef.value = "reader";
+            const where = next.paragraph === undefined ? `第 ${next.chapter} 章` : `第 ${next.chapter} 章第 ${next.paragraph} 段`;
+            notice.value = `这个视角的人物到${where}还没出现，已换回读者视角`;
+        }
+        at.value = next;
+    }
 
     // ---- 保存 ----
     let timer: ReturnType<typeof setTimeout> | null = null;
@@ -294,7 +319,7 @@ export async function openBookSession(client: StoryClient, router: Router, bookI
             if (drawer.value === null && lastDrawer.value !== null) drawer.value = lastDrawer.value;
         },
         setAt(next) {
-            if (validAt(info, next)) at.value = next;
+            if (validAt(info, next)) void moveTo(next);
         },
         goPage(next) {
             page.value = next;

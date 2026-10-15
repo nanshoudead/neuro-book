@@ -7,12 +7,13 @@
 import {Dropdown, IconButton, Splitter} from "@notnotype/nb-ui/components";
 import type {DropdownItem} from "@notnotype/nb-ui/components";
 import type {SplitterPanelConfig} from "@notnotype/nb-ui/components";
-import {computed, defineAsyncComponent, onBeforeUnmount, onMounted, provide, ref, watch} from "vue";
+import {computed, defineAsyncComponent, onBeforeUnmount, onMounted, provide, readonly, ref, watch} from "vue";
 import {useRouter} from "vue-router";
 
 import {BOOK_SESSION, type BookSession, type DrawerContent, type Page} from "../host/book";
 import {StoryCallError, useStoryClient} from "../host/client";
 import {readDrawerWidth, readNavCollapsed, writeDrawerWidth, writeNavCollapsed, type ThemeChoice} from "../host/prefs";
+import {LAYOUT_MOTION} from "../host/motion";
 import {useAppearance} from "../host/theme";
 import ReadingControl from "../parts/ReadingControl.vue";
 import DrawerCard from "./DrawerCard.vue";
@@ -95,41 +96,36 @@ const panels = computed<SplitterPanelConfig[]>(() => [
 ]);
 
 // ---- 收起、展开的过渡（输出 1） ----
-// Splitter 在过渡的 180 毫秒里逐帧改面板宽度。如果主区与抽屉的内容跟着逐帧按新宽度重排（表格、长文字、图的画布），
-// 一帧就要几十到上百毫秒。所以过渡期间把内容的宽度固定住，只让面板本身变宽变窄，多出来的部分由面板裁掉：
-// - 主区固定在过渡开始时的宽度，过渡结束后才放开：重排与画布换尺寸（图要整张重画，慢机器上一帧上百毫秒）都放到
-//   动作结束之后，不拖住动画；关闭时抽屉滑走露出的一条先是空白，结束后铺满；
-// - 抽屉内容固定在抽屉的宽度、贴右边，看起来是从右边滑进滑出；关闭时继续显示原来的内容，直到滑出去。
-// 宽度变化在 flush: "pre" 的监听里量：这时 DOM 还是变化之前的样子。
-const mainEl = ref<HTMLElement | null>(null);
-const frozenMain = ref<number | null>(null);
-const drawerSliding = ref(false);
+// Splitter 在过渡的 180 毫秒里逐帧改面板宽度。主区里的页面跟着逐帧重排，文字与表格的重排不贵，平滑跟随更顺眼
+// （之前把主区宽度冻住、结束时一次重排，内容会在动画末尾跳一下）；贵的是图的画布：Sigma 换尺寸要整张重画，所以
+// 过渡期间经 LAYOUT_MOTION 告诉图先不换尺寸，结束后换一次。抽屉内容固定在抽屉宽度、贴右边，看起来从右边滑进
+// 滑出，不随宽度重排；关闭时继续显示原来的内容，直到滑出去。
+const motion = ref(false);
+provide(LAYOUT_MOTION, readonly(motion));
 const closingDrawer = ref<DrawerContent | null>(null);
-/** 比 Splitter 的过渡（--motion-base，180 毫秒）稍长，确保过渡结束后才放开。 */
+/** 比 Splitter 的过渡（--motion-base，180 毫秒）稍长，确保过渡结束后才算结束。 */
 const MOTION_MS = 240;
-let unfreezeTimer: ReturnType<typeof setTimeout> | null = null;
-function freeze(): void {
-    if (tier.value !== "wide" || mainEl.value === null) return;
-    if (frozenMain.value === null) frozenMain.value = mainEl.value.clientWidth;
-    drawerSliding.value = true;
-    if (unfreezeTimer !== null) clearTimeout(unfreezeTimer);
-    unfreezeTimer = setTimeout(() => {
-        unfreezeTimer = null;
-        frozenMain.value = null;
-        drawerSliding.value = false;
+let motionTimer: ReturnType<typeof setTimeout> | null = null;
+function startMotion(): void {
+    if (tier.value !== "wide") return;
+    motion.value = true;
+    if (motionTimer !== null) clearTimeout(motionTimer);
+    motionTimer = setTimeout(() => {
+        motionTimer = null;
+        motion.value = false;
         closingDrawer.value = null;
     }, MOTION_MS);
 }
 watch(() => book.drawer.value === null, (closed, wasClosed) => {
     if (closed === wasClosed || overlayDrawer.value) return;
     if (closed) closingDrawer.value = book.lastDrawer.value;
-    freeze();
+    startMotion();
 }, {flush: "pre"});
 watch(navIsCollapsed, (collapsed, was) => {
-    if (collapsed !== was) freeze();
+    if (collapsed !== was) startMotion();
 }, {flush: "pre"});
 onBeforeUnmount(() => {
-    if (unfreezeTimer !== null) clearTimeout(unfreezeTimer);
+    if (motionTimer !== null) clearTimeout(motionTimer);
 });
 /** 抽屉里显示的内容：关闭的过渡期间仍是刚关掉的那个。 */
 const shownDrawer = computed(() => book.drawer.value ?? closingDrawer.value);
@@ -253,15 +249,15 @@ watch(notice, value => {
                     </nav>
                 </template>
                 <template #panel-main>
-                    <main ref="mainEl" class="h-full min-w-0" :style="frozenMain === null ? undefined : {width: `${frozenMain}px`}" data-testid="main">
+                    <main class="h-full min-w-0" data-testid="main">
                         <RecordsTable v-if="book.wideRecords.value" :entity="book.wideRecords.value" />
                         <component :is="PAGES[book.page.value]" v-else :key="book.page.value" />
                     </main>
                 </template>
                 <template v-if="!overlayDrawer" #panel-drawer>
                     <aside
-                        class="flex h-full min-w-0 flex-col overflow-hidden border-l border-[var(--divider)] bg-[var(--panel-surface)]" :class="drawerSliding ? 'absolute inset-y-0 right-0' : ''"
-                        :style="drawerSliding ? {width: `${drawerWidth}px`} : undefined" data-testid="drawer" :data-closing="book.drawer.value === null ? 'true' : undefined"
+                        class="flex h-full min-w-0 flex-col overflow-hidden border-l border-[var(--divider)] bg-[var(--panel-surface)]" :class="motion ? 'absolute inset-y-0 right-0' : ''"
+                        :style="motion ? {width: `${drawerWidth}px`} : undefined" data-testid="drawer" :data-closing="book.drawer.value === null ? 'true' : undefined"
                     >
                         <!-- 人物卡自己带关闭按钮；其余几种内容在这里补一个（反馈：右侧栏要有关闭按钮） -->
                         <div v-if="shownDrawer && shownDrawer.kind !== 'card'" class="flex shrink-0 justify-end px-2 pt-1"><IconButton size="xs" icon-class="i-lucide-x" aria-label="关闭" @click="book.closeDrawer()" /></div>

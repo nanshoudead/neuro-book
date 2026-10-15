@@ -394,3 +394,14 @@ test("全书图按章节（输出 30）：Ctrl 加滚轮只在水平方向放大
     await page.mouse.wheel(0, 300);
     await expect(label).not.toHaveText(zoomed!);
 });
+
+test("往回拨到视角人物出场之前（输出 4）：换回读者视角并提示，页面不报错", async ({page}) => {
+    // e47-5（导购员）第 47 章才出场：以他的视角在第 47 章打开关系图，再拨到第 46 章。
+    await open(page, "/book/fox/relations?at=47&perspective=e47-5");
+    await expect(page.getByTestId("relation-graph").locator("canvas").first()).toBeVisible();
+    await page.getByRole("button", {name: "上一章"}).click();
+    await expect(page.getByTestId("notice")).toContainText("已换回读者视角");
+    await expect(page).toHaveURL(/perspective=reader/u);
+    await expect(page.getByTestId("reading-label")).toContainText("第 46 章");
+    await expect(page.getByTestId("page-error")).toHaveCount(0);
+});

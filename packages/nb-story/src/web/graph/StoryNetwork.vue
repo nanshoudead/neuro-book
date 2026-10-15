@@ -25,6 +25,7 @@ import {edgeLabelDrawer, estimateLabelWidth, fixedColors, Focus, hoverDrawer, la
 import type {Theme} from "./sigma-kit";
 
 import type {IdentityState} from "../../contract/contract";
+import {useLayoutMotion} from "../host/motion";
 import {appearance} from "../host/theme";
 
 /** 点：`kind` 是对象类别，或全书图里的 arc、episode、secret、question。 */
@@ -640,10 +641,30 @@ const legend = computed(() => {
 let observer: ResizeObserver | null = null;
 let lastSize = "";
 let resizeFrame: number | null = null;
+const layoutMotion = useLayoutMotion();
+/** 分栏过渡期间收到的尺寸变化先记下，过渡结束后再换（见 host/motion.ts）。 */
+let resizePending = false;
+function resizeCanvas(): void {
+    if (layoutMotion.value) {
+        resizePending = true;
+        return;
+    }
+    if (resizeFrame !== null) return;
+    resizeFrame = requestAnimationFrame(() => {
+        resizeFrame = null;
+        sigma?.resize();
+        sigma?.refresh();
+    });
+}
+watch(layoutMotion, (moving) => {
+    if (moving || !resizePending) return;
+    resizePending = false;
+    resizeCanvas();
+});
 onMounted(() => {
     // 容器在 Splitter 量好尺寸之前是 0：有了尺寸才排版。之后尺寸变了（收起、展开右侧栏，拖分隔条，全屏）
-    // Sigma 不会自己发现，要调 resize 重设画布大小再重画（输出 27）。一帧里最多重设一次；分栏收起、展开时外壳把
-    // 主区宽度固定住（BookFrame 的 freeze），这里只会收到一两次变化，不会逐帧重画（输出 1）。
+    // Sigma 不会自己发现，要调 resize 重设画布大小再重画（输出 27）。一帧里最多重设一次；分栏收起、展开的过渡期间
+    // 不换，结束后换一次（输出 1）。
     observer = new ResizeObserver(([entry]) => {
         const size = `${Math.round(entry!.contentRect.width)}x${Math.round(entry!.contentRect.height)}`;
         if (size === lastSize || entry!.contentRect.width === 0 || entry!.contentRect.height === 0) return;
@@ -654,12 +675,7 @@ onMounted(() => {
             themeReady.value += 1;
             return;
         }
-        if (resizeFrame !== null) return;
-        resizeFrame = requestAnimationFrame(() => {
-            resizeFrame = null;
-            sigma?.resize();
-            sigma?.refresh();
-        });
+        resizeCanvas();
     });
     if (host.value !== null) observer.observe(host.value);
 });

@@ -16,6 +16,7 @@ import {computed, onBeforeUnmount, onMounted, ref, watch} from "vue";
 import {IconButton, Slider} from "@notnotype/nb-ui/components";
 
 import type {StoryResult} from "../../contract/contract";
+import {useLayoutMotion} from "../host/motion";
 import {appearance} from "../host/theme";
 import ChapterRange, {type ChapterWindow} from "./ChapterRange.vue";
 import {fixedColors, Focus, hoverDrawer, labelDrawer, mix, readTheme} from "./sigma-kit";
@@ -244,9 +245,28 @@ function onPointerDown(event: PointerEvent): void {
 let observer: ResizeObserver | null = null;
 let rendered = false;
 let resizeFrame: number | null = null;
+const layoutMotion = useLayoutMotion();
+/** 分栏过渡期间收到的尺寸变化先记下，过渡结束后再重画（见 host/motion.ts）。 */
+let resizePending = false;
+function redrawForSize(): void {
+    if (layoutMotion.value) {
+        resizePending = true;
+        return;
+    }
+    if (resizeFrame !== null) return;
+    resizeFrame = requestAnimationFrame(() => {
+        resizeFrame = null;
+        render();
+    });
+}
+watch(layoutMotion, (moving) => {
+    if (moving || !resizePending) return;
+    resizePending = false;
+    redrawForSize();
+});
 onMounted(() => {
-    // 行名区与行距按画布尺寸算，尺寸变了（收起右侧栏、拖分隔条）就整张重画，范围不变；一帧里最多重画一次
-    // （分栏过渡期间外壳固定了主区宽度，见 BookFrame 的 freeze）。
+    // 行名区与行距按画布尺寸算，尺寸变了（收起右侧栏、拖分隔条）就整张重画，范围不变；一帧里最多重画一次，
+    // 分栏收起、展开的过渡期间不画，结束后画一次。
     observer = new ResizeObserver(([entry]) => {
         if (entry!.contentRect.width === 0 || entry!.contentRect.height === 0) return;
         if (!rendered) {
@@ -254,11 +274,7 @@ onMounted(() => {
             render();
             return;
         }
-        if (resizeFrame !== null) return;
-        resizeFrame = requestAnimationFrame(() => {
-            resizeFrame = null;
-            render();
-        });
+        redrawForSize();
     });
     if (host.value !== null) observer.observe(host.value);
 });
