@@ -49,10 +49,46 @@ th { color: var(--muted); font-weight: 600; border-top: 0; }
 <p>已定的注意力排序（2026-10-15）：标签上是文件图标、文件名与状态位；关闭按钮只在活动标签与悬停的标签上显示，其余隐藏但占位；宽度随名字，过长截断；固定标签排最前、关闭位换成图钉；同名标签附灰色目录；多行默认开。</p>
 </div>
 
+<div class="round">第 2 轮</div>
+
+<section class="q" data-nbdev-question="r2-emphasis" data-nbdev-type="single" data-nbdev-recommend="card-top">
+<h2>VS Code 式的活动标签 <span class="badge todo" data-nbdev-skip>待定</span></h2>
+<p>按第 1 轮的答复改学 VS Code：标签条比正文低一档，活动标签是与正文同色的一块（顶部两角圆），像从正文里长出来；不加粗、不加底线。两张图都是两个编辑组，左组是活动组；左组里“第一章 雨夜”呈现为悬停。多行时活动标签不在最后一行也照样是一块（VS Code 相同）。</p>
+<div class="opts">
+<div class="opt" data-nbdev-option="card">
+<h3>C 只有标签块</h3>
+<p>活动组与非活动组的活动标签都是一块，非活动组的那块文字降成次级色。分辨活动组只靠这点字色差别。</p>
+<figure><img src="r2/card-light.webp" alt="C 标签块，亮色"><figcaption>C · 亮色</figcaption></figure>
+<figure><img src="r2/card-dark.webp" alt="C 标签块，暗色"><figcaption>C · 暗色</figcaption></figure>
+</div>
+<div class="opt rec" data-nbdev-option="card-top">
+<h3>D 标签块，活动组的那块加顶部强调线</h3>
+<p>在 C 的基础上，活动组的活动标签顶部多一条 2px 强调色线（VS Code 的 <code>tab.activeBorderTop</code>）；别的组没有。</p>
+<figure><img src="r2/card-top-light.webp" alt="D 标签块加顶线，亮色"><figcaption>D · 亮色</figcaption></figure>
+<figure><img src="r2/card-top-dark.webp" alt="D 标签块加顶线，暗色"><figcaption>D · 暗色</figcaption></figure>
+</div>
+</div>
+<div class="rec-note"><b>推荐 D。</b>标签块回答“正文是哪个文件”，顶线回答“键盘输入进哪个组”；拆分后后者只靠字色差别不够明显。</div>
+</section>
+
+<section class="q" data-nbdev-question="r2-breadcrumbs" data-nbdev-type="confirm">
+<h2>面包屑按这样做 <span class="badge todo" data-nbdev-skip>待定</span></h2>
+<p>标签条下面一行：作品名 › 目录 › 文件；Markdown 文件后面再接光标所在的标题。点目录段列出它下面的文件与文件夹，点文件段列出同级，点标题段列出这一章的大纲（按标题层级缩进），选中即打开或跳到那里。面包屑默认显示，设置里可以关掉。键盘：命令“聚焦面包屑”后用 ←/→ 换段、Enter 打开下拉。</p>
+<figure><img src="r2/picker-folder-light.webp" alt="点目录段"><figcaption>点“正文”：列出同级的章节</figcaption></figure>
+<figure><img src="r2/picker-outline-dark.webp" alt="点标题段"><figcaption>点“雨夜的来客”：列出这一章的大纲 · 暗色</figcaption></figure>
+</section>
+
+<section class="q" data-nbdev-question="r2-notes" data-nbdev-type="text" data-nbdev-optional>
+<h2>其它要改的 <span class="badge todo" data-nbdev-skip>选答</span></h2>
+<p>多行时固定标签单独一行；同名附 <code>…/目录</code>；标题动作在最后一行右侧（多行时贴着正文）。</p>
+<figure><img src="r2/many-light.webp" alt="多行"><figcaption>多行：第一行是固定标签</figcaption></figure>
+<figure><img src="r2/scroll-dark.webp" alt="关掉多行"><figcaption>关掉多行：一行横向滚动，固定标签排在最前 · 暗色</figcaption></figure>
+</section>
+
 <div class="round">第 1 轮</div>
 
 <section class="q" data-nbdev-question="r1-emphasis" data-nbdev-type="single" data-nbdev-recommend="underline">
-<h2>活动标签怎么突出 <span class="badge todo" data-nbdev-skip>待定</span></h2>
+<h2>活动标签怎么突出 <span class="badge done" data-nbdev-skip>已定</span></h2>
 <p>两张图都是两个编辑组：左组是活动组，右组不是。左组里“第一章 雨夜”呈现为鼠标悬停，“第二章 旧城”是活动标签并且未保存（悬停态与活动标签显示关闭按钮，别的未保存标签显示圆点）。</p>
 <div class="opts">
 <div class="opt" data-nbdev-option="bold">
@@ -68,11 +104,12 @@ th { color: var(--muted); font-weight: 600; border-top: 0; }
 <figure><img src="r1/underline-dark.webp" alt="B 短线，暗色"><figcaption>B 短线 · 暗色</figcaption></figure>
 </div>
 </div>
+<div class="rec-note" style="background:var(--ok-soft)"><b style="color:var(--ok)">开发者：两种都不行，学 VS Code 的做法（见第 2 轮）。</b></div>
 <div class="rec-note"><b>推荐 B。</b>拆分之后要知道键盘输入会进哪个组，A 只能靠标题动作的位置判断；B 的强调色短线随活动组走，不活动的组降成灰色。代价是编辑器标签与侧栏、面板的标签样子不同：编辑器标签有多组之分，侧栏和面板没有，这个差别是有理由的。</p>
 </section>
 
 <section class="q" data-nbdev-question="r1-notes" data-nbdev-type="text" data-nbdev-optional>
-<h2>其它状态有没有要改的 <span class="badge todo" data-nbdev-skip>选答</span></h2>
+<h2>其它状态有没有要改的 <span class="badge done" data-nbdev-skip>已定</span></h2>
 <p>下面几张按已定的排序画，供核对：多行、关掉多行时的横向滚动、悬停在固定标签上。看到要改的写在这里。</p>
 <table>
 <tr><th>看点</th><th>画法</th></tr>
@@ -85,6 +122,7 @@ th { color: var(--muted); font-weight: 600; border-top: 0; }
 <figure><img src="r1/bold-many-light.webp" alt="多行，亮色"><figcaption>多行（A 加粗）· 亮色</figcaption></figure>
 <figure><img src="r1/underline-many-dark.webp" alt="多行，暗色"><figcaption>多行（B 短线）· 暗色</figcaption></figure>
 <figure><img src="r1/scroll-many-light.webp" alt="关掉多行"><figcaption>关掉多行：一行横向滚动（滚动条为悬停滚动条，静止时不画）</figcaption></figure>
+<div class="rec-note" style="background:var(--ok-soft)"><b style="color:var(--ok)">开发者：</b>多行时固定标签单独一行；学 VS Code；面包屑也做（见第 2 轮）。</div>
 <figure><img src="r1/hover-pinned-light.webp" alt="悬停在固定标签上"><figcaption>悬停在固定的“大纲.md”上：关闭位显示图钉</figcaption></figure>
 </section>
 </main>
