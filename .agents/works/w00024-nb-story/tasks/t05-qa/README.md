@@ -36,7 +36,7 @@ updated: 2026-10-16
   - 工具参数 schema 不写 `additionalProperties: false`：写了 OMP 会在调用前悄悄删掉多余字段，模型写了 `at` 得不到提示；现在 `at`、`book` 由工具明确拒绝。
   - nb-harness 新增 `onProcessInterrupt`（harness Spec 输出 19）：OMP 的 `pi-utils` 一被导入就装 SIGINT 处理，跑完登记的清理就以 130 退出，`process.on("SIGINT")` 拦不住，Ctrl-C 时“中断”的记录写不下来。
   - 修了 nb-harness 的竞态：OMP 异步投递事件，同一批并行工具里最后一条结果可能晚于下一次请求前的钩子，模型会收到缺结果的工具调用（真实服务会拒绝）。引擎测试偶发失败时发现，nb-harness 补了能稳定复现的测试。
-  - `knowledge`、`statements` 等列表方法的 `query` 仍是整串匹配，模型照 `search` 的习惯写几个词会查不到；这次只在工具说明里写明，方法本身要不要也拆词交开发者（改 queries Spec）。
+  - `knowledge`、`statements` 等列表方法的 `query` 仍是整串匹配，模型照 `search` 的习惯写几个词会查不到；这次只在工具说明里写明；开发者定先保持整串匹配（决定 21）。
 - 2026-10-16：真实模型 Smoke（gpt-6-luna，知情题 H24，阅读位置 27）：交卷，读第 26、27 章，用时 81 秒。前两次在第 4、9 次请求时遇上渠道的 `upstream_error`（没有状态码，归为 network），同一渠道 12 次小请求全部成功，判断为渠道偶发；问答本身遇到模型失败就以 `model_failed` 结束（Spec F2），回归脚本对这类失败整题重试至多 3 次。
 - 2026-10-16：回归脚本 [scripts/qa-eval.ts](scripts/qa-eval.ts) 写好（answer、judge、check 三步，整数门槛，缺答缺判非零退出），等实现审查处理完再跑。omp 实现审查。
 - 2026-10-16：omp 实现审查 10 条（阻断 1、重要 6、建议 3），报告 [evidences/impl-review.txt](evidences/impl-review.txt)，全部成立，修正 `8cfb86258`（nb-harness）、`94cf493de`（nb-story）：
@@ -77,6 +77,7 @@ updated: 2026-10-16
 18. **作答引用的出处必须是这一问读过的原文**，没读过的退回；全读时全部原文都算读过。
 19. **全读模式只记录不设门槛**：知情、身份 16 题跑一遍。
 20. **历史的查看与删除现在做**：`nbstory qa [<id>]`、`nbstory qa rm <id>`。
+21. **列表方法的 `query` 先保持整串匹配**（2026-10-16）：`knowledge`、`statements` 等不跟 `search` 一起拆词，queries Spec 不改；工具说明里让模型每次给一个关键词。以后有需求再议。
 
 ## 下一步
 
