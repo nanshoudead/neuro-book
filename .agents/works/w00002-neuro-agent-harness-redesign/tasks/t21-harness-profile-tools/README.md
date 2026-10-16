@@ -1,8 +1,8 @@
 ---
 schema: nbook.task/v2
 taskId: t21-harness-profile-tools
-status: active
-updated: 2026-10-15
+status: done
+updated: 2026-10-16
 ---
 
 # nb-harness：Profile 定义、工具三层与一次运行的结果
