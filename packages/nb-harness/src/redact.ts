@@ -4,15 +4,15 @@
  */
 
 import type {AssistantMessage} from "@oh-my-pi/pi-ai";
+import {NO_AUTH_SENTINEL} from "@oh-my-pi/pi-ai/providers/openai-shared";
 
 /** 遮盖时用的固定文字。 */
 export const REDACTED_KEY = "[REDACTED]";
-/** 短于这个长度的密钥不遮盖：替换普通的短词会把错误文字改得面目全非，而这么短的值也算不上秘密。 */
-const MIN_REDACT_LENGTH = 8;
 
+/** 把文字里出现的每个密钥换成遮盖文字。密钥不论长短都遮盖；“端点不要认证”的占位值不是密钥，不动。 */
 export function redactText(text: string, keys: Iterable<string>): string {
     let result = text;
-    for (const key of keys) if (key.length >= MIN_REDACT_LENGTH) result = result.split(key).join(REDACTED_KEY);
+    for (const key of keys) if (key !== "" && key !== NO_AUTH_SENTINEL) result = result.split(key).join(REDACTED_KEY);
     return result;
 }
 

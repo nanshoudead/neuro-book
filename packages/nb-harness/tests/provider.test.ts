@@ -132,8 +132,8 @@ describe("模型与密钥（输出 18）", () => {
         expect(server.seen).toEqual([]);
     });
 
-    test("401 的错误正文回显了密钥：结果与会话日志里都遮盖掉，归类仍是 auth（验收 7）", async () => {
-        process.env.NB_PROVIDER_TEST_KEY = "secret-key-echoed-123";
+    test.each(["secret-key-echoed-123", "sk-abcd"])("401 的错误正文回显了密钥（%s）：结果与会话日志里都遮盖掉，归类仍是 auth（验收 7）", async (key) => {
+        process.env.NB_PROVIDER_TEST_KEY = key;
         server.reply({status: 401, echoKey: true});
         const harness = await session();
         const result = await harness.turn("问");
@@ -142,14 +142,14 @@ describe("模型与密钥（输出 18）", () => {
 
         expect(result.error).toMatchObject({kind: "auth", status: 401});
         expect(result.error?.message).toContain(REDACTED_KEY);
-        expect(result.error?.message).not.toContain("secret-key-echoed-123");
+        expect(result.error?.message).not.toContain(key);
         expect(logged).toContain(REDACTED_KEY);
-        expect(logged).not.toContain("secret-key-echoed-123");
+        expect(logged).not.toContain(key);
 
         server.reply({status: 401, echoKey: true});
         const single = await complete({profile: noToolsProfile, initial: {}, input: "x", model: model()});
         expect(single.error).toMatchObject({kind: "auth", status: 401});
-        expect(single.error?.message).not.toContain("secret-key-echoed-123");
+        expect(single.error?.message).not.toContain(key);
     });
 
     test("apiKey: none 的端点不带认证头", async () => {

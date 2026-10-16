@@ -107,14 +107,17 @@ describe("收尾工具的结束时刻（输出 16）", () => {
         }
     });
 
-    test("工具结果不能写进日志（details 有循环引用）：error（local），不再请求模型", async () => {
+    test("工具结果不能写进日志（details 有循环引用）：error（local），不再请求模型；之后的运行同样以 local 结束，会话照常关闭", async () => {
         const details: Record<string, unknown> = {};
         details.self = details;
-        const profile = qaProfile({answer: async () => ({content: [{type: "text", text: "已记录"}], details})});
-        const {harness, script} = await open([[toolCall("a1", "submit_answer", {conclusion: "好"})], "不应请求"], {profile});
+        const {harness, script} = await open([[toolCall("s1", "story_search", {query: "x"})], "不应请求"], {registry: storyRegistry(async () => ({content: [{type: "text", text: "结果"}], details})).registry});
         try {
             const result = await harness.turn("问");
             expect(result).toMatchObject({stopReason: "error", error: {kind: "local"}});
+            expect(script.requests).toHaveLength(1);
+            // 那条结果永远进不了日志：第二次运行不能等它，也不能带着缺结果的历史去请求模型。
+            const again = await harness.turn("再问");
+            expect(again).toMatchObject({stopReason: "error", error: {kind: "local"}});
             expect(script.requests).toHaveLength(1);
         } finally {
             await harness.close();
@@ -364,6 +367,40 @@ describe("调度保真", () => {
             await harness.close();
             const results = script.requests[1]!.messages.filter((message) => message.role === "toolResult").map((message) => (message as {toolCallId: string}).toolCallId);
             expect([...results].sort()).toEqual(["l0", "l1", "l2", "l3"]);
+        }
+    });
+
+    test("系统提示词与消息出自同一份历史：随历史变化的系统提示词与同一请求里的工具结果数一致（输出 7）", async () => {
+        const registry = createToolRegistry();
+        registerPlugin(registry, {
+            name: "q",
+            version: "1",
+            tools: [
+                {
+                    declaration: {id: "q.look", name: "look", description: "", parameters: {type: "object", properties: {n: {type: "integer"}}}},
+                    impl: {
+                        execute: async (args) => {
+                            for (let tick = 0; tick < Number(args.n); tick += 1) await Promise.resolve();
+                            return text("看了");
+                        },
+                    },
+                },
+            ],
+        });
+        const profile = defineProfile({
+            manifest: {key: "q", version: "1", name: "q", description: "q"},
+            initialSchema: Type.Object({}),
+            tools: [toolRef("q.look")],
+            context: (ctx) => ProfilePrompt({children: [System({children: [`results=${ctx.history.filter((message) => (message as {role?: string}).role === "toolResult").length}`]}), HistorySet()]}),
+        });
+        for (let round = 0; round < 8; round += 1) {
+            const calls = [3, 0, 2, 5].map((n, index) => toolCall(`l${index}`, "look", {n: (n + round) % 6}));
+            const {harness, script} = await open([calls, "好"], {registry, profile, initial: {}});
+            await harness.turn("看");
+            await harness.close();
+            const request = script.requests[1]!;
+            const results = request.messages.filter((message) => message.role === "toolResult").length;
+            expect(request.systemPrompt).toEqual([`results=${results}`]);
         }
     });
 
