@@ -1,0 +1,159 @@
+# w00025 t06 第 3 轮实现审查（OMP）
+
+审查范围：`git diff cdad39eac b74d6611a`。只读实现审查；实验目录为审查 worktree 的 `packages/neuro-book/zz-review-lab/omp/`。下列命令均在 `/home/notnotype/CodeRepository/neuro-book/.worktree/w00025-t06-review/packages/neuro-book` 执行，除非另行说明。发现按核实顺序追加，最终附影响优先级与统计。
+
+### 1. 第二轮的跨行代码修正只看当前行，代码中间行仍被宽容写法拆成真实批注
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`packages/neuro-book/src/plugins/editor/web/markdown/codec/source.ts:116–124,169–180`，`unclosedCode`、`gluedSplits`。
+- **现象**：打开下列原文，反引号从第一行延续到第三行，`<comment>` 本应是行内代码的文字。实际读成普通段落加 `commentBlock`，代码标记消失。真实 Tiptap 编辑器在第一段开头插“改”后成功写出，却在 `代码` 后插入空行，把代码里的开标签挪成真实块批注。
+  ```markdown
+  正文`开始
+  代码<comment body="意见">
+  结束`
+
+  </comment>
+  ```
+- **为什么是问题**：`unclosedCode(text.slice(0, matched.index))` 只检查候选标签所在物理行，无法知道代码在前一行已经开始。第二轮报告要求屏蔽跨行代码；目前仅修了“反引号与标签在同一行”的那个样例。违反方言输出 17“不在代码里才拆”和输出 21“代码里不解释语法”。
+- **如何核实**：`bun zz-review-lab/omp/r3-codec.ts` 输出“跨行代码的中间行”的真实公共 reader 树；`bun zz-review-lab/omp/r3-runtime.ts` 在 happy-dom 挂载真实 Tiptap `Editor`，`setContent(read.doc)` 后 `insertContentAt(1, "改")`，公共 writer 返回成功，原文为 `改正文\`开始\n代码\n\n<comment body="意见">\n结束\`\n\n</comment>\n`。不是模拟 tokenizer 或伪造编辑时序。
+- **建议改法**：在整段范围一次确定真实的配对行内代码跨度，跨行延续状态；只有落在实际配对代码跨度外的候选能拆。不能简单把任意没闭合反引号后的所有内容都屏蔽：没有配对闭反引号时它本来是普通文字。补代码第一行、第二行、中间多行、闭合后同行标签的成对用例。
+
+### 2. 两块同时写不出时，抢救正文退化为整篇纯文字，正常块的格式与原样内容也被删除
+
+- **严重程度**：重要；**类别**：正确性 / 合同。
+- **位置**：`packages/neuro-book/src/plugins/editor/web/markdown/codec/write.ts:257–270`，`plainFallback`。
+- **现象**：原文 `甲\n\n乙\n\n**粗体**\n\n```js\nconsole.log(1)\n```\n`，在前两段各插入一个段首原样片段 `<div>`。两块都写不出时，`fallback()` 返回 `\n甲\n\n\n乙\n\n粗体\n\nconsole.log(1)`：没有出问题的粗体与代码块也失去 Markdown 格式；同一路径会把其它原样块与可渲染 HTML 叶节点整个丢掉。
+- **为什么是问题**：函数只替换第一次失败的范围，再写一次；第二个块仍失败就直接走整篇 `doc.textBetween`。editor 输出 61、计划 S5 修订第 5 条和成功分支的函数注释均承诺“写不出的那块换成纯文字，其余照常写出”。终态页还只说“那一块只留下了文字”，没有告诉用户整篇都被降级。
+- **如何核实**：`bun zz-review-lab/omp/r3-runtime.ts` 的“两个坏块的抢救”；happy-dom 中真实 Editor 载入上述文件，`insertContentAt` 在两段首各插原样节点，之后公共 `codec.write(...).fallback()` 输出如上。它是实际可达的多处编辑，不是手工调用私有降级器。
+- **建议改法**：对每个新返回的失败范围继续替换为纯文字、保留其余块；保证每轮消除一个失败节点且有界。确实不得不整篇降级时，抢救结果要明确携带降级范围，终态页不能宣称只丢一块格式。补两个不相邻坏块、其间正常粗体、代码与原样块的抢救断言。
+
+### 3. 含批注的重载给未变化的批注换 key，扩大替换区间并使无关编辑无法撤销
+
+- **严重程度**：重要；**类别**：不变量 / 正确性。
+- **位置**：`packages/neuro-book/src/plugins/editor/web/markdown/codec/codec.ts:50–66`，`adoptRead`；`syntax/comment/index.ts` 的 `resolve` / `newCommentKey`；`components/MarkdownControl.vue:148–158`。
+- **现象**：打开 `<comment body="意见">甲</comment>\n\n中间\n\n尾\n`，在第二段前输入“改”、成功写回并 `accept`；另一视图或磁盘只把末段“尾”改成“尾外改”。本组重载后按撤销，第二段仍是“改中间”，刚才那次输入撤不掉。对照文件把第一段改为普通“甲”，同样操作能撤回到“中间”，且保留“尾外改”。
+- **为什么是问题**：重新读入为所有批注生成新 `key`；`findDiffStart` 把未变的第一段也当成变化，从第一条批注到真实改动末尾一次替换。中间没有变化、且有本组历史的第二段也被换成新节点，ProseMirror 把它的撤销步骤映射进已删除范围。重载事务不进历史不等于历史保留；违反控件合同和 editor 输出 12 的“只替换不同的那一段、已有撤销步骤映射后仍可用”。现有 `editing.test.ts:85–93` 把历史文档直接传给 writer，根本没执行真实 undo 映射，测不到这个问题。
+- **如何核实**：`bun zz-review-lab/omp/r3-runtime.ts` 的两组“重载步数 / 重载后撤销”，使用真实挂载 Editor、真实 undo 插件，成功写出后派发 `accept`，再派发 `codec.reload` 的事务，两者均设 `addToHistory: false`、`preventAutolink: true`，与控件相同。无批注为 `replace from:10,to:10`，中段对象保留，撤销后 `甲中间尾外改`；有批注为 `replace from:1,to:10`，中段对象不保留，撤销虽返回 true 但正文仍为 `甲改中间尾外改`。
+- **建议改法**：重载 diff 前按批注语义与覆盖范围对齐新旧身份，对没变的批注保留旧 key；或者让语义 diff 忽略仅由本次解析生成的 key，再按稳定身份登记新来源。不能为了通过 `eq` 而整段覆盖未变区域。补真实 Editor 的“首段批注、中段本地历史、末段外部修改”撤销与重做用例。
+
+### 4. 未裁决输入与写不出可以同时挂在同一视图，顶部提示隐藏写不出，“采用当前正文”也不丢弃当前输入
+
+- **严重程度**：重要；**类别**：正确性 / 合同。
+- **位置**：`packages/neuro-book/src/plugins/editor/web/documents/store.ts:751–780`；`components/EditorGroup.vue:163–175`；`components/MarkdownControl.vue:212–219`；`area.ts:909–924`。
+- **现象**：两个组基于同一修订各输入，左组先交出、右组成为未裁决输入；右组继续编辑，产生一个写不出的块。此时同一 token 同时 `unresolved() === true`、`blocked() === true`。组顶部只显示旧的裁决条，既没有写不出原因也没有“定位”；点它的“采用当前正文”只清掉旧候选，右组仍显示自己的输入、仍 blocked，必须再点第二次另一条提示上的同名按钮才真正采用正文。
+- **为什么是问题**：`block` 保留旧 candidate；顶部提示却按互斥状态渲染，`resolve` 和 `unblock` 也各只清一个通道，控件的 held 守卫因另一通道还在而拒绝重载。违反输出 61 的写不出提示与“采用当前正文丢弃本视图输入”。“保留本视图的内容”在此状态更是旧候选正文，不是目前屏幕上无法写出的内容。
+- **如何核实**：`bunx vitest run --config zz-review-lab/omp/vitest.config.ts zz-review-lab/omp/r3-control.dom.test.ts`，1 条通过。实验挂载两个真实 `MarkdownControl`，真实编辑器区绑定和内存文件适配器；两边先输入、依次 flush 形成冲突，再在右组首段插 `<div>` 原样节点并 flush；`area.resolve(rightGroup, "adopt-current")` 后让 Vue 执行 `nextTick`，断言右组仍 blocked、文字仍含“右”。未伪造 store 事件或 held 状态。
+- **建议改法**：明确两通道的组合语义。当前输入写不出时优先显示写不出提示并禁用“保留”旧候选；“采用当前正文”一次原子地丢掉该视图全部候选与 blocked，再触发重载。补“冲突后继续编辑至写不出、采用一次”和“写不出修好后交出冲突”两向转换。
+
+### 5. 字数扫描仍用不完整的引用定义正则，合法多行定义被计入正文
+
+- **严重程度**：重要；**类别**：正确性 / 合同。
+- **位置**：`packages/neuro-book/src/shared/word-count.ts:58–59,157–160`，`DEFINITION`、`DEFINITION_TITLE`。
+- **现象**：`[r]:\n  /dest\n` 在编辑器中是一个引用定义原样块、正文为 0 字，字数却为 2；`[r]: /dest\n  "多行\n  标题"\n` 同样整块原样、正文 0 字，字数为 4。它们是 marked 接受的合法引用定义，不是非法方言。
+- **为什么是问题**：定义正则要求地址和标签同一行，续行标题最多认一条完整单行；未覆盖地址另起一行、标题自身跨行。Spec 明确引用定义不计，已知偏差只允许链接使用处的地址、引用标签等计入，没有允许定义块自身计入。第二轮在 codec 里刚移除了同类近似解析，新的字数扫描又建立了一套缺同样语法的识别器。
+- **如何核实**：`bun zz-review-lab/omp/r3-words.ts`，前两项打印公共 `countWords` 的 2 / 4、公共 `codec.read` 的 rawBlock 树及正文计数 0 / 0。没有借用编辑器的比较器忽略差异。
+- **建议改法**：轻量扫描按 CommonMark 的定义连续行状态识别标签、地址与可选多行标题，不只认一行正则；共享可复用的边界判据，保留“不依赖编辑器”的分层。补这两类定义的明确计数与一致性测试。
+
+### 6. 字数扫描有两条平方路径，9.6 万字符的未闭合 HTML 输入阻塞同步调用 12.17 秒
+
+- **严重程度**：重要；**类别**：性能。
+- **位置**：`packages/neuro-book/src/shared/word-count.ts:125–127,186–188,259–277`，`findLine`、`completeElementEnd`。
+- **现象**：`("<html>\n\n正文\n\n").repeat(n)` 没有 `</html>`，每行开标签重新向文末 `findLine`；`"前" + "<kbd>".repeat(n) + "字</kbd>后"` 只有一个闭标签，每个未配上的开标签都重新做嵌套配对。公共 `countWords` 的实测如下：
+
+  | n | 未闭合 HTML 字符数 / 耗时 | 嵌套片段字符数 / 耗时 |
+  |---|---|---|
+  | 1000 | 12,000 / 217.03 ms | 5,009 / 45.96 ms |
+  | 2000 | 24,000 / 779.55 ms | 10,009 / 146.95 ms |
+  | 4000 | 48,000 / 3,252.20 ms | 20,009 / 683.81 ms |
+  | 8000 | 96,000 / 12,171.69 ms | 40,009 / 2,519.15 ms |
+
+- **为什么是问题**：字数统计在状态栏停手后同步运行、书架逐文件运行，不能把短坏文件变成数秒的阻塞。只缓存“这个标签最后有没有闭标签”无法排除有一个闭标签但嵌套深度不够的情况；“两万行没有任何闭标签”的现有测量没有覆盖这条路径。S4 的“病态输入在 40 ms 内”不是这两族输入的上界。
+- **如何核实**：`bun zz-review-lab/omp/r3-words.ts perf`；时间为 Bun 同一进程中真实共享 `countWords` 调用的 wall time，不是浏览器测量，不冒充 Chrome 数字。输入翻倍约四倍，未起开发服务。
+- **建议改法**：块级结束行一次索引或反向扫描，缺闭合时后续同类开标签直接判定；行内标签一次栈配对或复用已失败的范围，避免每个开标签重扫同一尾部。增加有少量闭标签但大量未配对开标签、没有闭合的 `<html>` 分行输入的缩放检查。
+
+### 7. 提示块标题按字面显示，字数却把标题再次当 Markdown 解释
+
+- **严重程度**：重要；**类别**：正确性 / 合同。
+- **位置**：`packages/neuro-book/src/shared/word-count.ts:175–177,91–93`；`syntax/callout/index.ts:135–147`。
+- **现象**：`> [!NOTE] $伏笔$\n> 正文\n` 的标题为字面 `$伏笔$`，编辑器正文加标题应计 4，扫描只计 2；标题换成 `<kbd>伏笔</kbd>` 时应计 6（可见的两处 `kbd` 各一个词、伏笔和正文各两字），扫描仍只计 2。
+- **为什么是问题**：扫描仅去掉 `[!NOTE]`，随后整条标题与正文一起进入 `inline`，标题里的数学、HTML、实体等被当成真正的正文语法删除或解码。方言输出 23 明确标题按原文、不解释 Markdown，“副作用与数据”明确标题计入；这不在列明的偏差中。
+- **如何核实**：`bun zz-review-lab/omp/r3-words.ts` 的两个相应提示块项，输出 public reader 的 `attrs.title` 原文、提取的可见文字和 2 对 4 / 2 对 6 的计数差异。
+- **建议改法**：识别提示块头部时把标题直接计入字面文本通道，只有内容区经过行内语法过滤。增加标题含数学、HTML 和实体文字的明确字数例。
+
+### 8. 提示块 NodeView 把折叠状态带到另一份文档，默认折叠标记不再生效
+
+- **严重程度**：建议；**类别**：正确性 / 合同。
+- **位置**：`packages/neuro-book/src/plugins/editor/web/markdown/syntax/callout/index.ts:77–79,122–126`；`components/MarkdownControl.vue:123–139,161–177`。
+- **现象**：同组先打开以 `> [!NOTE] A` 开头的文件，再切到以 `> [!WARNING]- B` 开头的文件，后者正文没有折叠。`folded` 只在 NodeView 首建时取一次；同一个编辑器换 EditorState 时 ProseMirror 复用了同类 NodeView，`update(next)` 只换 node，仍沿用前一文件的 folded 值。
+- **为什么是问题**：方言输出 23 的 `-` 默认折叠对第二个文件不成立。折叠状态属于当前视图，不应由另一个文档恰好复用的 DOM 实例决定；当前测试只在第一次挂载时检查折叠，没有换文件。
+- **如何核实**：`bun zz-review-lab/omp/r3-runtime.ts` 的“切换文件提示块”，真实挂载的 Tiptap Editor 按控件 `load` 相同方式依次 `view.updateState(EditorState.create({doc, plugins}))`，两文件的 `.nb-callout__content.hidden` 都是 false，第二文件的 `fold` 属性为 `-`。这是实际 ProseMirror NodeView 重用，不是直接调用 `update` 的模拟；未验证浏览器几何，但 hidden 布尔属性足以证明默认状态错误。
+- **建议改法**：在文档绑定切换时隔离或重建 NodeView 的界面状态；若要保留每文件折叠状态，则以文档/视图身份与提示块身份存储，不能只靠 DOM 实例闭包。至少在来源文档改变或 fold 标记改变时按新节点初始化。补 A（无标记）→B（`-`）、A（手动折叠）→B（`+`）及返回 A 的用例。
+
+### 9. 批注章节的提速依赖写出缓存预热，第一次单块编辑仍耗时 204 ms；41 次中位数掩盖了它
+
+- **严重程度**：重要；**类别**：性能 / 测试。
+- **位置**：`packages/neuro-book/src/plugins/editor/web/markdown/syntax/comment/index.ts:362–390`，`prepareWrite` / `rawTagCache`；`codec/render/inline.ts:142–161`，`openingCache`；计划 S6 性能证据。
+- **现象**：98,988 字符、1,300 个短段，每段一条独立行内批注，公共 `read` 后只在首段插一个“改”。第一次 `codec.write` 为 **204.14 ms**；对完全相同文档再写 40 次，中位 **11.05 ms**。这里没有长单段或深层嵌套，是通常的多段章节。S6 取 41 次中位数会把第一次真实停手所付的成本过滤掉。
+- **为什么是问题**：读入没有建立 writer 的批注 opening 与原文开标签缓存。第一次写出仍对全部 1,300 个文本块做两种布局并对原文分词，之后才命中缓存。修正改善了后续热写出，但没有满足首次单块编辑的 16 ms 目标；不能把热缓存测量当作首次编辑也满足合同的证据。
+- **如何核实**：在新 Bun 进程运行 `bun zz-review-lab/omp/r3-cold.ts`。脚本通过公共 codec 读入，真实 ProseMirror `Transform.insert` 改首段，分别记录第 1 次与后 40 次写出；实际输出 `firstWriteMs:204.13953800000002,next40MedianMs:11.054997000000071`。这是 Bun 结果，未运行 Chrome，不据此宣称浏览器的具体毫秒数。
+- **建议改法**：把真实布局 / 原文开标签元数据在读入时记录或在非输入热路径准备，只在写出时重算被编辑块；性能证据同时列首次编辑、稳定态每次“编辑→写出→accept”，不要只对同一份不可变文档反复写再取中位数。16 ms 如果只承诺热态，需要先由开发者明确接受这个取舍并修改目标，而不是由测试方式隐含缩小。
+
+### 10. accept 丢掉已通过校验的读回结果，再把所有重写窗口解析一次
+
+- **严重程度**：建议；**类别**：代码质量 / 性能。
+- **位置**：`packages/neuro-book/src/plugins/editor/web/markdown/codec/write.ts:389–407,589–601`，`check`、`accept`。
+- **现象**：`check` 刚通过的 `readBack(...).read` 没保留；调用方接受写出时，`accept` 再按相同窗口调用 `readBack`。这一回不是验证新的输入，只为取写法属性。实际“写出→accept”的停手链路比 S6 只量 `write` 多一轮窗口解析与回填。
+- **为什么是问题**：与计划 S5 修订第 3 条“取写出时最后一次通过的窗口校验，不再读一遍”不一致，也让耗时最高的段落再付一次解析成本。`r3-perf.ts` 中 100,000 字符单段的稳态 write 中位 215.52 ms、accept 整体中位另加 113.45 ms；多短段普通章节则分别为 2.18 / 0.67 ms。这里没有把 accept 的全部时间都归因于分词，但重复读回本身由代码确定。
+- **如何核实**：`bun zz-review-lab/omp/r3-perf.ts`，每一步真实 `Transform.insert` 后单独计时 `codec.write` 与 `result.accept(new Transform(doc))`；对照上述两个调用点确认后者重复 `readBody`。脚本不是 UI 延迟测试，数字为 Bun 模块运行。
+- **建议改法**：成功结果保留最终通过的各窗口读回树，交出被接受时只做回填与来源登记；转义撤回、边界修复等令窗口文字变化时只失效相应结果。性能证据另列 write 和完整交出链路，避免漏掉 accept 的同步成本。
+
+## 第 4 条的出口补充
+
+同一个视图同时 unresolved、blocked 时，实验还核对了 `area.documents.coordinator.affected(["project://a.md"])`：只返回 `state: "unresolved"`。从代码推断，`explorer/web/controller.ts:554–560` 仅按 `state === "unrepresentable"` 隐藏“先保存再复制”，因此这个组合会重新显示本来不允许的保存选项；保存本身仍被 store 挡住，不会覆盖磁盘。本次没有挂载资源管理器验证该按钮，已验证的是实际控制器返回的状态，按钮结论来自调用链。
+
+## 本次写出耗时与输入
+
+命令：`bun zz-review-lab/omp/r3-perf.ts`。下表为 Bun v1.4.2，不是 Chrome；“稳定态”每次真的插一个新字、write、accept，21 次取中位。输入构造完整留在脚本中，短段落的基本句为“林雪推开窗，晚风吹过长街，远处的灯光落在石板上。她想起旧事，却只写下短短一行。”。
+
+| 输入 | 字符 / 顶层块 | read | 首次 write | 稳定态 write 中位 | accept 中位 |
+|---|---|---|---|---|---|
+| 普通短段章节，1000 段、每段基本句重复 3 次 | 118,998 / 1000 | 59.08 ms | 16.56 ms | 2.18 ms | 0.67 ms |
+| 1500 段、300 条引用定义 | 92,018 / 1800 | 111.27 ms | 12.56 ms | 4.01 ms | 1.12 ms |
+| 2000 段、每段一条独立批注 | 152,888 / 2000 | 108.15 ms | 256.16 ms | 14.24 ms | 1.11 ms |
+| 1000 段、每段句末有没闭合的 `<a` | 43,998 / 1000 | 35.47 ms | 2.60 ms | 1.54 ms | 0.50 ms |
+| 100,000 字符单段 | 100,000 / 1 | 113.10 ms | 236.76 ms | 215.52 ms | 113.45 ms |
+
+长单段写出慢是第二轮已经记录并接受的边界，本轮不把它重复算成新发现；这里另外量出 S5 新增 accept 的同步成本。98,988 字符批注输入的独立冷进程测量见第 9 条。多短段的热态 write 在这些输入上低于 16 ms；首次批注写出不满足，不能由热态数字代替。
+
+## 实际验证与未运行项
+
+- `bun test src/plugins/editor/web/markdown/codec`：158 pass、0 fail，7 文件，21,336 次 expect，7.05 s。
+- `bun test src/plugins/editor/documents.test.ts src/plugins/editor/area.test.ts src/plugins/explorer/documents.test.ts`：87 pass、0 fail，3 文件，529 次 expect，3.08 s。
+- `bun test src/shared/word-count.test.ts src/plugins/editor/web/code/source-merge.test.ts`：14 pass、0 fail，2 文件，55 次 expect，40 ms。
+- `bunx vitest run --config zz-review-lab/omp/vitest.config.ts src/plugins/editor/web/components/MarkdownControl.dom.test.ts src/plugins/editor/web/markdown/syntax/comment/comment.dom.test.ts zz-review-lab/omp/r3-control.dom.test.ts`：3 文件、16 tests 通过，2.43 s；其中 1 条是本次复现实验，15 条是现有测试。
+- 公共 codec、真实 Tiptap / ProseMirror 历史、字数与性能实验：`r3-codec.ts`、`r3-runtime.ts`、`r3-words.ts`、`r3-perf.ts`、`r3-cold.ts`。完整路径前缀为 `/home/notnotype/CodeRepository/neuro-book/.worktree/w00025-t06-review/packages/neuro-book/zz-review-lab/omp/`。
+- Vitest 最初两次未进入测试：符号链接依赖把 setupFiles 解析到实施 worktree 的 `/@fs/.../neuro-book-test-support/src/vitest.ts`，报 `Cannot find module`；隔离配置第一次改绝对路径时多退了一层，报 `ERR_LOAD_URL`。只修了授权实验目录内的 runner，显式使用审查 worktree 的同一支持文件；之后上面的 16 条实际执行通过。未改仓库 Vitest 配置或依赖。
+- 只读检查新增 e2e 三例、Spec 的证据链接与删除文件引用；没有起开发服务、没有跑 e2e、没有 bun install、没有全量测试 / typecheck / 构建 / docs:check。DOM 验证为 happy-dom，不把它冒充真实浏览器的选区、布局或性能证据。未运行真实模型。
+- 产品源码、正式测试、Spec、主工作区 Task 均未修改；只在授权实验目录新增脚本和 runner，并只追加本报告。未 commit、push、stash、切分支或删除仓库文件；未开子审查。
+
+## 按影响排序的阅读索引
+
+正确性与不变量优先：**3 → 1 → 2 → 4 → 5 → 7**；同步阻塞与验收证据：**6 → 9**；界面状态与可简化之处：**8 → 10**。条目编号沿核实顺序保留，以满足报告只追加的要求。
+
+## 未发现问题的方面
+
+以下仅指本轮实际抽查覆盖，仔细检查后没有发现新的反例，不包括前述问题和未运行的浏览器路径：
+
+- 第二轮修正的显式空 body 分组、同 id 两组挪动后的 `separateSharedIds`、多行 / 容器引用定义、尖括号自动链接、原样片段换行保持：对应明确期望随本次 158 条 codec 测试通过。没有把这等同于真实撤销映射已经正确；真实映射的反例见第 3 条。
+- 普通成功写出后的 markdown 回填、批注 key 保持，以及 accept 后不再编辑的逐字节写回：本次 editing、性质测试和控件测试通过。除第 3 条外，没有发现回填把链接 href、批注意见或正文结构改掉的新问题。
+- 单独的 blocked 状态挡保存、租约、换文档与关闭询问、抢救内容更新、别组交出不解除本组 blocked：本次 store / area / 控件测试覆盖通过。双通道组合另见第 4 条，不能用单状态测试代替。
+- `itemsOf` 快速路径、按不可变节点缓存引用 / 定义，在当前产品单例语言与本次测试输入中没有找到改变结果的反例；宽容快检对常规 LF / CRLF 和现有属性样例未见新增反例。跨行行内代码的范围问题仍在，见第 1 条。
+- 删除旧转换器后的源码、e2e 与两份目标 Spec 中，搜索 `markdown-workbench`、`markdown-dialect-extensions`、`markdown/dialect/`、`./dialect/`、`markdown/source-merge` 无遗留引用；保留的源码合并器在 `web/code/`，相关测试通过。
+- e2e 三例从代码看确实分别断言整文件字节、中文粗体重开和任务列表新增 / 勾选的磁盘内容，没有用“非空”替代目标行为；本轮没有执行它们，作者既有通过记录不作为本轮运行结果。
+
+## 各级数量
+
+- 阻断：0。
+- 重要：8（第 1、2、3、4、5、6、7、9 条）。
+- 建议：2（第 8、10 条）。
+- 合计：10。
