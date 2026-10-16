@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t11-markdown-input
-status: active
+status: done
 updated: 2026-10-16
 ---
 
