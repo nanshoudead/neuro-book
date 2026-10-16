@@ -16,11 +16,9 @@
 插件之间只经服务与贡献点协作（`packages/neuro-book/AGENTS.md`），所以 Markdown 的核心从编辑器插件挪进一个独立插件。
 
 - **目录与运行位置**：`shared/`（贡献点 id、声明 schema、字数）、`web/`（编解码器、语法模块、展示器、Composer 编辑组件、小块与图片零件）。运行位置 `browser`、`project`：项目位置的定义只有方言贡献点、没有入口（同 `nbook.settings` 的 `settings/shared/point.ts`），这样顶层声明在项目进程里也有拥有者、能查到。
-- **挪动**（S1，只挪不改）：`plugins/editor/web/markdown/` 的 `codec/`、`syntax/`、`language.ts` 与语料、测试；`src/shared/markdown-dialect.ts`、`src/shared/word-count.ts`。**留在编辑器**：`MarkdownControl.vue`、`markdown-editor-extensions.ts`（改为收 `language.extensions` 参数，再加占位与行内代码快捷输入）、`inline-code-shortcut.ts`：它们是编辑器界面层。
-- **服务** `markdownKey`（浏览器，普通共享服务）：
-  - `language(): Promise<MarkdownLanguage>`：第一次调用时才动态加载语法模块与 `marked`、Tiptap，之后返回同一个对象，直到方言集合变了（第 4 节）；`onLanguageChange(listener) → () => void`。
-  - `codecFor(schema, language)`：与现在同一个函数。
-  - `components`：`MarkdownDisplay`、`PromptEditor`、`PromptTextView`、`InlineChip`、`MarkdownImage`，一律 `defineAsyncComponent` 包一层再交出。
+- **挪动**（S1，只挪不改）：`plugins/editor/web/markdown/` 的 `codec/`、`syntax/`、`language.ts` 与语料、测试；`src/shared/markdown-dialect.ts`、`src/shared/word-count.ts`；Markdown 控件 `MarkdownControl.vue`（连同 `.md`、组件测试）挪到 `web/components/`，`markdown-editor-extensions.ts`、`inline-code-shortcut.ts` 挪到 `web/editor/`。控件只按类型引用编辑器区的控件合同（跨插件的类型引用是允许的）。
+- **服务** `markdownKey`（浏览器，普通共享服务）只交组件：`MarkdownControl`、`MarkdownDisplay`、`PromptEditor`、`PromptTextView`、`InlineChip`、`MarkdownImage`，一律 `defineAsyncComponent` 包一层再交出。编辑器区把 `MarkdownControl` 当内置的 Markdown 编辑器直接持有（id、声明、“直接持有、不等交付”都不变）。
+  - **为什么只交组件**（实施 S1 时发现，第二版计划原来是服务交 `language()` 与 `codecFor`、控件留在编辑器）：后端的类型检查（`tsconfig.json`，不带 DOM）包含装配浏览器插件的 bun 测试（`projects.test.ts`、`shelf-page.test.ts`、`window.test.ts`），会顺着浏览器插件定义里的动态 `import()` 检查下去；语法模块的节点视图用了 DOM，服务要动态加载语言就会把它们带进后端检查。仓库的做法是带 DOM 的代码只经 `.vue` 组件加载（`src/types/vue-sfc.d.ts` 让后端检查不展开 `.vue`），所以语言与编解码器只在 Markdown 插件自己的组件里用，插件定义只动态加载 `.vue`。
   - 首屏不含 Tiptap、ProseMirror、`marked` 与 Composer：`check:dist` 加一条，入口直接引用的 chunk 里没有它们的标记字符串。
 - **字数不经服务**：`shared/contracts.ts` 导出 `dialectTable(declarations)` 与 `countWords(text, table)`（同步纯函数），编辑器状态栏与书架统计在各自入口激活时用 `context.declarations` 算一次表（第 3 节）。
 
@@ -55,7 +53,7 @@
 - **第一份语言**只用内置方言与核心语法，在第一次 `language()` 时组成，不等任何别的插件。
 - **外来方言**的实现交付或撤回后，组成新的语言对象、通知订阅者。
 - **使用方不在运行中换语言**：已打开的视图沿用建立时的语言，之后新建的用最新的。
-  - `MarkdownControl`：编辑器实例（`KeptEditor`）记下建它时的语言与编解码器，整个寿命都用这一份，不重建、不迁移。所以写不出、未裁决的输入与撤销历史都不受影响。新建的实例（新的组、重新创建）取最新语言。
+  - `MarkdownControl`：编辑器实例（`KeptEditor`）记下建它时的语言与编解码器（语言注册表在 Markdown 插件的组件一侧，经组件的包装交给控件），整个寿命都用这一份，不重建、不迁移。所以写不出、未裁决的输入与撤销历史都不受影响。新建的实例（新的组、重新创建）取最新语言。
   - `MarkdownDisplay`：一条消息的显示在挂上时取定语言。
   - 后来的方言在已打开的视图里按原样块显示、字节不变；重新打开后生效。不加提示（第一版产品里没有运行中改变方言集合的场景，只有测试插件）。
 - 运行中重建、光标换算留给做热插拔的 Task。
@@ -160,7 +158,7 @@ Spec 写好后按编号补全；先按行为列出：
 
 ## 不做与风险
 
-- **不做**：Composer 外壳；`@`、`/`、`$` 候选的贡献点；运行中换语言与编辑器重建（归热插拔）；菜单、工具栏、块手柄（t08）；插入图片与存放位置（t09）；frontmatter 面板（t10）；`MarkdownControl` 挪进 `nbook.markdown`（它依赖编辑器的控件合同，留在编辑器）。
+- **不做**：Composer 外壳；`@`、`/`、`$` 候选的贡献点；运行中换语言与编辑器重建（归热插拔）；菜单、工具栏、块手柄（t08）；插入图片与存放位置（t09）；frontmatter 面板（t10）。
 - **风险**：
   - S1 挪动牵涉的引用多：先只挪不改，测试原样通过再进 S2。
   - 静态视图与节点视图的外观一致：共用外观构建函数与同一份样式，测试按归一化后的结构比对，Lab 截图目视核对。

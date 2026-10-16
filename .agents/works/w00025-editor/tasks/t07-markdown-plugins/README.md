@@ -75,6 +75,10 @@ updated: 2026-10-16
 
 按[第二版计划](plan.md)实施中。执行位置：worktree `.worktree/w00025-t07-markdown-plugins`，分支 `feat/w00025-t07-markdown-plugins`（从 master `ee9cee973` 拉出）。
 
+- S0（`fe32a7327`）：三份新 Spec（planned）：[`workspace/markdown-syntaxes.md`](../../../../../docs/specs/workspace/markdown-syntaxes.md)、[`ui/markdown-display.md`](../../../../../docs/specs/ui/markdown-display.md)、[`ui/prompt-editor.md`](../../../../../docs/specs/ui/prompt-editor.md)；方言 Spec 加“方言由插件贡献”与输出 27“引用的目标分类”、字数口径，编辑器输出 19、27，书架统计输出 16 的口径指纹，热插拔输出 8。
+- S1（`863d006f8`）：新插件 `nbook.markdown`。编解码器、语法模块、字数（`markdown-dialect.ts`、`word-count.ts`）与 Markdown 控件挪进来，内容只改导入路径；编辑器区把服务交出的 `MarkdownControl` 当内置编辑器直接持有；`check:dist` 加首屏检查（入口脚本与预加载的 chunk 里没有 ProseMirror 与 `marked`）。`test:affected --typecheck` 通过（bun 1398 条、vitest 257 条）；生产构建上编辑器区、编辑器类型、Lab 编辑器与资源管理器、书架统计、资源管理器的 e2e 共 54 个通过。
+  - **和计划不同**：第二版计划是服务交 `language()` 与 `codecFor`、控件留在编辑器。实施时发现后端的类型检查（不带 DOM）包含装配浏览器插件的 bun 测试，会顺着插件定义里的动态 `import()` 检查到语法模块的节点视图（用 DOM）。仓库的做法是带 DOM 的代码只经 `.vue` 加载，所以改成控件挪进 `nbook.markdown`、服务只交组件；产品行为不变。计划第 1、4 节与 Spec 已随之修改。
+
 ## 下一步
 
-S0：写三份新 Spec 与相关改动。
+S2：两个贡献点、内置方言声明、配对与冲突、核心按组排斥、字数按声明与指纹、测试方言插件。
