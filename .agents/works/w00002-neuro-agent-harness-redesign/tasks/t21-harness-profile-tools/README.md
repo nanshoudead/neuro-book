@@ -46,4 +46,4 @@ updated: 2026-10-16
 
 ## 下一步
 
-1. 请开发者合入 `feat/w00002-t21-harness`；合入后 w00024 t05 接着做问答。
+无。2026-10-16 开发者合入（`8b0830c28`），worktree 与分支已删；问答接着在 [w00024 t05](../../../w00024-nb-story/tasks/t05-qa/README.md) 做。Spec 晋升 `implemented` 待开发者批准。
