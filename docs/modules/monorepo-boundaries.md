@@ -17,7 +17,7 @@ NeuroBook 以一个 monorepo 维护应用、共享合同与可独立维护的包
 | Agent harness 重构 | `packages/nb-harness/`、`nb-profile/`、`nb-session/` | 包内测试 | w00002 新建；`nb-harness` 将作为 Agent 内置插件的基础 |
 | 通用基础包 | `packages/owned-process/`、`file-snapshot-cache/`、`neuro-book-test-support/`、`neuro-book-contracts/` | 各包公开 exports | `neuro-book-contracts` 的交付链出口不再维护，旧应用退出时一并清理 |
 | 开发工具 | `packages/dev-panel/` | `nbdev` 命令行（用户级 shim 指向主工作区）、开发者面板、根 `scripts/ci/dev-panel-records.test.ts` | 开发工具，不是产品功能：不进产品与发布产物；不依赖应用包、不导入根 `scripts/`；读写主工作区的 `.agents/works/` 与 `.local/agent/` |
-| 剧情图谱 | `packages/nb-story/` | `nbstory` 命令行、`nbstory serve` 的独立服务与网页查看器、给外部 Agent 的 Skill；验证命令见包内 [`AGENTS.md`](../../packages/nb-story/AGENTS.md) | w00024 新建，第一版单独使用、只从仓库运行；只依赖 `nb-runtime` 的 `./remote` 与 `nb-ui`，不依赖应用包与 `nb-memory`；行为合同见 `docs/specs/story/` |
+| 剧情图谱 | `packages/nb-story/` | `nbstory` 命令行、`nbstory serve` 的独立服务与网页查看器、给外部 Agent 的 Skill；验证命令见包内 [`AGENTS.md`](../../packages/nb-story/AGENTS.md) | w00024 新建，第一版单独使用、只从仓库运行；依赖 `nb-runtime` 的 `./remote`、`nb-ui`，内置问答另依赖 `nb-harness`、`nb-profile`、`nb-session`；不依赖应用包与 `nb-memory`；行为合同见 `docs/specs/story/` |
 
 所有 `packages/*` 默认继承根 Rule/Skill、临时根、安全和 Git 规则。包可以保留自己的 `AGENTS.md`、`docs/`、legacy `.agents/tasks/` 和 `PROJECT-STATUS.md`，但 current Work/Task 只在根 `.agents/works/` 创建；`AGENTS.md` 必须引用 `../../AGENTS.md`。`.agent/.local` 必须被忽略且不得跟踪，`.worktree` 只允许迁移期间短暂存在并在 checkpoint 前清理。linked worktree 统一位于主 checkout 的 `/.worktree/` 下，主 checkout 是唯一目录外例外。
 

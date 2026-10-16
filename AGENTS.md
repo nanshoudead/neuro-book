@@ -68,7 +68,7 @@ neuro-book/
 │   ├── owned-process/              # 受管子进程托管
 │   ├── file-snapshot-cache/        # 文件快照缓存
 │   ├── dev-panel/                  # 开发工具：nbdev 命令行与开发者面板（w00022）
-│   ├── nb-story/                   # 剧情图谱：小说记忆图的书库、查询、nbstory 命令行、查看器与 Skill（w00024）
+│   ├── nb-story/                   # 剧情图谱：小说记忆图的书库、查询、nbstory 命令行、查看器、内置问答与 Skill（w00024）
 │   └── neuro-book-test-support/    # 系统临时根与 fixture 支持
 ├── scripts/                        # 仓库治理与自动化
 ├── docs/                           # monorepo 级文档治理
