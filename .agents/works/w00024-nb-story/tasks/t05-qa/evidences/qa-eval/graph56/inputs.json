@@ -1,0 +1,7 @@
+{
+  "commit": "f87412c2f574b9e15da2ad134e2e9d30bf9d0f2a",
+  "model": "{\"id\":\"gpt-6-luna\",\"maxTokens\":64000,\"thinking\":\"xhigh\"}",
+  "mode": "graph",
+  "questions": "13c99d02dfeb6284",
+  "sample": "0ef05e31e5e9b49f"
+}
