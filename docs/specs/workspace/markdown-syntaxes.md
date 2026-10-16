@@ -1,0 +1,124 @@
+---
+schema: nbook.spec/v1
+kind: behavior
+status: planned
+capability: workspace.markdown-syntaxes
+owners:
+  - nbook.markdown
+---
+
+# Markdown 方言的贡献
+
+## 目标与非目标
+
+让一种 Markdown 方言连同它的读写与显示由插件贡献，编辑器、展示器与字数共用同一组生效的方言。方言的读写规则本身由 [workspace.markdown-dialect](markdown-dialect.md) 规定，本 Spec 规定方言怎样加入、什么时候生效、不生效时怎样。
+
+不承诺：
+
+- 第三方插件贡献方言。现在没有安装第三方插件的途径，装配清单里的插件都是内置的（输出 12）。
+- 运行中改变已打开视图的方言：视图在建立时取定语言（输出 7），运行中停用、启用插件归 [runtime.plugin-hot-plug](../runtime/plugin-hot-plug.md)。
+- 非标签写法的方言参与字数规则：提示块、可渲染 HTML 的字数规则是核心扫描的一部分（输出 9）。
+- Composer 的编辑组件不用本 Spec 的方言（[ui.prompt-editor](../ui/prompt-editor.md) 有自己的文字写法）。
+
+## 术语与参与者
+
+- **方言声明**：一种方言的静态信息（顺序、标签名、字数规则），投到贡献点 `markdown.dialects`。
+- **方言实现**：一种方言的语法模块（schema、读法、写法、编辑视图、静态视图），投到贡献点 `markdown.syntaxes`。
+- **内置方言**：批注、注音、双语、对齐、文字标记、可渲染 HTML、提示块。它们的声明投到 `markdown.dialects`，实现由 `nbook.markdown` 直接持有，不经贡献点交付。
+- **核心语法**：CommonMark 与 GFM 的部分与原样保留，由 `nbook.markdown` 直接持有，不是方言。
+- **语言**：核心语法加上全部生效的方言组成的一份读写规则，有自己的 schema。
+- **生效**：一种方言进入语言（输出 3）。没生效的方言，它的写法按 [workspace.markdown-dialect](markdown-dialect.md) 输出 9 原样保留。
+- **视图**：用某份语言读写或显示 Markdown 的一个实例：编辑器里的一个 Markdown 编辑器实例、展示器里一条消息的显示。
+
+## 输入与前置条件
+
+两个贡献点都由 `nbook.markdown` 拥有，合同在 `nbook/plugins/markdown/shared/contracts.ts`：
+
+| 贡献点 | 实现 | 位置 | 贡献 id | 内容 |
+|---|---|---|---|---|
+| `markdown.dialects` | 无（只有声明） | 插件描述的顶层贡献，浏览器与项目两个位置都登记 | `<插件 id>.<名字>` | 声明，见下表 |
+| `markdown.syntaxes` | 必需 | 浏览器入口 | 与它的声明相同 | `{load(): Promise<MarkdownSyntax>}` |
+
+声明的字段：
+
+| 字段 | 类型 | 规则 |
+|---|---|---|
+| `order` | 整数 | 同一种词法单元有几种方言认领时，小的先试 |
+| `blockTags` | 标签名数组，可省略 | 本方言的块级标签 |
+| `inlineTags` | 标签名数组，可省略 | 本方言的行内标签 |
+| `tagWords` | `{tag, content: "count" \| "skip"}` 数组，可省略 | 标签里的字计不计；标签必须出现在 `blockTags` 或 `inlineTags` 里 |
+
+`MarkdownSyntax` 是语法模块的形状（`shared/contracts.ts` 导出类型）：schema 扩展、各词法单元的读法、各节点与标记的写法、标签名、编辑视图与静态视图（[ui.markdown-display](../ui/markdown-display.md) 输出 2）。
+
+`nbook.markdown` 的浏览器入口提供服务 `markdownKey`：
+
+```ts
+interface MarkdownService {
+    /** 当前语言；第一次调用时加载。 */
+    language(): Promise<MarkdownLanguage>;
+    /** 语言换成新的一份时调用；返回取消订阅。 */
+    onLanguageChange(listener: (language: MarkdownLanguage) => void): () => void;
+    codecFor(schema: Schema, language: MarkdownLanguage): MarkdownCodec;
+    readonly components: MarkdownComponents;
+}
+```
+
+字数在两个位置都用同一组纯函数：`dialectTable(declarations)` 由已接受的 `markdown.dialects` 声明算出声明表，`countWords(text, table)` 计数。
+
+## 输出与可观察行为
+
+1. **第一份语言**：由核心语法与内置方言组成，不等任何别的插件。`nbook.markdown` 的激活不等任何贡献。
+2. **按需加载**：语法模块、Markdown 解析器与编辑内核在第一次调用 `language()` 时才加载；没有用到 Markdown 的窗口不加载它们，首屏的脚本里没有它们。
+3. **生效的条件**：一种外来方言同时满足以下几条时生效：声明已被接受；同一插件交付了同 id 的实现，且 `load()` 成功；实现交出的标签名与声明的 `blockTags`、`inlineTags` 相同；与别的生效方言没有冲突（输出 4）。少了任何一条，这种方言不生效，记诊断（“失败与恢复”），贡献方的其它贡献照常。
+4. **冲突**：两种方言声明了同一个标签名，或者实现交出了同名的节点、标记或同一种节点的写法，两种都不生效，与登记、交付的先后无关；核心语法与内置方言不参与这条比较，外来方言与它们同名时只有外来的那种不生效。
+5. **顺序**：生效的方言按 `order` 从小到大试，相同时按 id 的码元顺序；核心语法排在最后。同一份方言集合在任何窗口里组成的语言都相同。
+6. **晚到与撤回**：外来方言的实现交付或撤回后，`nbook.markdown` 组成一份新的语言，调用 `onLanguageChange` 的订阅者；之后的 `language()` 返回新的一份。
+7. **视图在建立时取定语言**：已有的视图继续用它建立时的语言读写与显示，直到视图结束；之后建立的视图用当时的语言。编辑器里一个 Markdown 编辑器实例的寿命见 [workbench.editor](../workbench/editor.md) 输出 19；展示器见 [ui.markdown-display](../ui/markdown-display.md) 输出 1。
+8. **不生效时不损坏文件**：一种方言不生效时，它的写法读成原样块或原样片段，不编辑写回字节不变；编辑了别处写回，它们的字节仍不变（[workspace.markdown-dialect](markdown-dialect.md) 输出 1、9）。
+9. **字数**：字数只按已接受的声明计，与浏览器里实现是否加载成功无关。`tagWords` 为 `skip` 的标签里的字不计，为 `count` 的计；属性一律不计；没有任何声明认领的标签按普通 HTML 处理（原样内容不计）。提示块的类型标记与可渲染 HTML 块由核心扫描处理，不随方言变化。其余规则见 [workspace.markdown-dialect](markdown-dialect.md) 的“副作用与数据”。
+10. **声明表在一个进程里固定**：同一个运行实例的寿命内，`markdown.dialects` 的已接受声明不变；浏览器与项目进程装配同一份清单，声明表相同。声明表的指纹用于书架统计判断口径是否变了（[runtime.projects](../runtime/projects.md) 输出 16）。
+11. **id 与形状**：两个点的贡献 id 都要以贡献方的插件 id 加 `.` 开头；声明不合上表的规则时按 [runtime.plugins](../runtime/plugins.md) 的单条校验为 `invalid-declaration`。
+12. **只给内置插件**：第一版不判断贡献方的来源，前提是装配清单里的插件都是内置的。安装第三方插件的机制落地时，方言的贡献按装配方给出的允许清单接受，不按 id 前缀判断。
+
+## 状态与转换
+
+语言按代次组成：第一份是第 1 代，每次方言集合变化加一代。旧代次的语言对象在仍有视图使用它时照常可用。
+
+时序与寿命：
+
+- `markdownKey` 在 `nbook.markdown` 的浏览器入口激活后可用；`language()` 第一次调用时开始加载，加载完成前调用的都等同一次加载。
+- 外来方言的声明与实现分开到达：声明随清单在实例登记时就有；实现在贡献方入口激活后交付。实现交付之前，这种方言不生效。
+- 实现的 `load()` 在交付后由 `nbook.markdown` 调用一次；失败的方言不生效，直到同一插件下一次交付。
+- 订阅者在新语言组成之后收到通知；通知顺序与组成顺序相同。取消订阅后不再收到。
+- 贡献方入口停止时，它的实现撤回，按输出 6 组成新语言；已有视图不受影响（输出 7）。
+
+## 副作用与数据
+
+不写文件。不生效的原因写进诊断（事件 `markdown.dialect.inactive`，带方言 id 与失败码）。
+
+## 失败与恢复
+
+| 码 | 含义 | 调用方怎么办 |
+|---|---|---|
+| `missing-declaration` | 实现没有同 id 的已接受声明 | 在插件描述里补声明 |
+| `load-failed` | 实现的 `load()` 失败或抛错 | 修正实现；下一次交付重试 |
+| `tag-mismatch` | 实现交出的标签名与声明不同 | 让两边一致 |
+| `conflict` | 与另一种方言撞名（输出 4） | 改名；两种都不生效直到冲突消失 |
+
+## 边界与兼容
+
+- 公开接口：两个贡献点、`MarkdownSyntax` 类型、`markdownKey`、`dialectTable` 与 `countWords`。`MarkdownSyntax` 直接用到 Markdown 解析器与编辑内核的类型，第一版只给内置插件，版本随它们升级可能变化。
+- 方言的写法属于作品文件的格式，兼容规则见 [workspace.markdown-dialect](markdown-dialect.md) 的“边界与兼容”。
+
+## 验收与 Smoke
+
+1. Given 测试插件 `test.markdown-dialect` 声明了 `<kbd>` 方言、实现要经测试命令才交付，When 打开一份含 `<kbd>Ctrl</kbd>` 的文件，Then 它是原样片段；When 执行测试命令后在另一组打开同一文件，Then 新的编辑器把它读成方言，原来那组仍是原样片段，两边不编辑保存字节都不变。
+2. Given 两个测试方言声明了同一个标签名，When 两者都交付，Then 两种都不生效、诊断各一条、两个插件的其它贡献照常；交换登记顺序结果相同。
+3. Given 内置方言逐个缺席，When 组成语言，Then 都能组成，缺席方言的写法读成原样。
+4. Given `<kbd>` 方言的声明为 `skip`，When 它的实现加载失败，Then 编辑器里它是原样片段，状态栏与书架的字数都不计其中的字。
+
+Smoke：`markdown/syntaxes.test.ts`（真实插件宿主）运行场景 1–3，`word-count.test.ts` 运行场景 4；场景 1 另在本机 Chrome 上由 `e2e/editor-area.e2e.ts` 运行。
+
+## 证据
+
+- 批准依据：开发者 2026-10-16 的决定，记录在主工作区 master 的 `.agents/works/w00025-editor/tasks/t07-markdown-plugins/README.md`（“开发者的决定”1、5、7、8）与同目录的 `plan.md`。

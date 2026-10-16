@@ -193,6 +193,9 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过开发者授权
 
 | 功能域 | 当前规范 | 说明 |
 |---|---|---|
+| Markdown 方言的贡献 | [`workspace/markdown-syntaxes.md`](workspace/markdown-syntaxes.md) | 方言的声明与实现两个贡献点、生效条件与冲突、视图在建立时取定语言、字数按声明 |
+| Markdown 展示器 | [`ui/markdown-display.md`](ui/markdown-display.md) | 只读显示、与编辑器一致的方言外观、交互出口、流式更新与释放、长对话性能 |
+| 写给 Agent 的编辑组件 | [`ui/prompt-editor.md`](ui/prompt-editor.md) | Composer 的编辑组件与已发送消息的静态显示：文字写法、小块、触发菜单、粘贴分档、附件、输入历史 |
 | Storage 架构边界 | [`storage/boundaries.md`](storage/boundaries.md) | Config、Storage、内存与领域数据的归属，插件与 grid 的消费边界 |
 | 工作台与插件嵌套 grid | [`ui/nested-grid.md`](ui/nested-grid.md) | 二维原语、原子手势、共享测量与宿主、scope 仲裁与绝对指针跟随 |
 | 插件清单、入口与服务依赖 | [`runtime/plugin-manifest.md`](runtime/plugin-manifest.md) | 清单格式、按入口声明的服务依赖、同一运行位置解析、受阻推导与启停顺序 |
