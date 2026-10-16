@@ -90,6 +90,9 @@ updated: 2026-10-16
   - 和计划不同：静态视图由 `nbook.markdown` 持有，不经语法模块交出，外来方言按 `renderHTML` 显示；流式比较不对齐身份，直接去掉身份属性。计划第 6 节与两份 Spec 已随之修改。
   - 留意：流式到一半的方言标签（例如还没写完的 `<comment body="…`）按原样片段显示源码，写完后变成方言元素。
 
+- S6（`5fbf30ca4`）：移植 Composer 的编辑组件。`PromptEditor`、`PromptTextView` 与附件条、候选菜单、粘贴块、节点视图从旧应用移植到 `web/components/prompt/`，外观不变，小块换成 `InlineChip`；经服务交出（`components.PromptEditor`、`components.PromptTextView`）。引用、图片与文件的写法改按 Markdown 行内链接的词法认（新的 `shared/link-syntax.ts`，编解码器写地址的函数也挪到这里共用）：目标可以是尖括号里带空格的、带配对括号的、带标题的；任何有文字与地址的链接都是引用小块，图标按目标分类取（`chapter://` 这类旧地址归“其它”）。`@` 菜单的宿主用 `promptReferenceText` 拼以 `/` 开头的作品根地址。文字表从 vue-i18n 改为 `localize`，`locale` 经属性与节点视图的上下文传下去。旧测试 4 份全部移植、期望值不变（小块的标记属性换名是有意改变，测试里注明）；撤销分组用 ProseMirror 历史的 `closeHistory` 边界，不用假时钟；新加 Markdown 链接写法、`@` 菜单（场景 4）、切换语言（场景 5）几例；变异检查：节点视图的语言固定为中文时切换语言那例失败。Lab 加 `PromptEditor`（11 个场景，夹具扮演宿主：假上传、菜单数据、模拟粘贴）、`PromptTextView`、`PromptAttachmentStrip`、`PromptMenuPanel`、`PromptPasteFrame`，`lab:shot` 120 张 0 个问题，截图目视核对过。`e2e/lab-markdown.e2e.ts` 加三例真实键盘（手打技能写完变小块与退格整枚删除、回车发送与上方向键调出、`@` 菜单确认）与粘贴分档，5 例全过。`test:affected --typecheck` 中只有 test-support 的路径测试与 scripts 的 CI 工作流测试失败，两者在 master 上同样失败；生产构建与首屏检查通过。
+  - 和计划不同：放在 `web/components/prompt/`（Lab 只扫这里）；`@tiptap/vue-3` 不加进 Vite 预构建清单（会让 `@tiptap/core` 有两份）。计划第 7 节已随之修改。
+
 ## 下一步
 
-S6：移植 Composer 的 `PromptEditor` 与 `PromptTextView`（计划第 7 节）。
+S7：Spec 补实现合同与证据（晋升 implemented 要开发者批准）；实现阶段的深入审查（先报审查计划与预算）；全量 e2e（含 lab-scenes）、`docs:check`、`governance:check`。

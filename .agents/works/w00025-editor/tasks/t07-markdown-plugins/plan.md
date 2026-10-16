@@ -81,7 +81,9 @@
 - **流式**：`text` 变了，下一帧重新读入，按“头尾相同的块保留”比较，比较的键是节点 JSON 去掉 `identityAttrs` 之后的形状（S5 实施时改：展示器不写回，不需要把身份对齐到上一次，去掉身份即可）：只替换中间变了的块，被替换的块调 `destroy`。后面的引用定义改变了前面块的含义时，前面那块也因比较不等而替换。`streaming` 为真时在末尾显示光标。
 - **性能**：根元素自带 `content-visibility: auto` 与按上次高度的 `contain-intrinsic-size`。
 
-### 7. Composer 的编辑组件 `PromptEditor`（`src/plugins/markdown/web/prompt/`）
+### 7. Composer 的编辑组件 `PromptEditor`（`src/plugins/markdown/web/components/prompt/`）
+
+S6 实施时改：放在 `web/components/` 下，Lab 的组件清单只扫这里。
 
 - **移植范围**：`PromptEditor.vue`、`prompt-editor/` 下的扩展、文字写法 `prompt-text.ts`、附件条、粘贴块、候选菜单、`PromptTextView`，与它们的测试。外观不重调。
 - **保留**：它自己的文字写法（技能 `$`、命令 `/`、粘贴块、图片与文件 `#N`），不经编解码器。
@@ -90,7 +92,7 @@
   - `[名称](目标)` 的词法按 Markdown 链接的规则（尖括号、括号、空格），目标经共用的“目标分类”（作品根 `/…`、`project://`、`user://`、外部链接、附件）；Composer 的 `@` 插入以 `/` 开头的作品根地址（Composer 没有“当前文件”，不写相对地址）；旧的领域地址不迁；
   - 文字写法的其余部分不变，节点仍存原文、原样写回。
 - **迁移清单**：
-  - `packages/neuro-book/package.json` 声明 `@tiptap/vue-3`（3.27.3，与其它 `@tiptap/*` 一致），并加进 `vite.config.ts` 的预构建清单；
+  - `packages/neuro-book/package.json` 声明 `@tiptap/vue-3`（3.27.3，与其它 `@tiptap/*` 一致）；不加进 `vite.config.ts` 的预构建清单（S6 实施时改：预构建会把 `@tiptap/core` 打进它自己的包，和别处直接加载的 `@tiptap/core` 成两份，节点类型的 `instanceof` 判断失效；不预构建时它对 `vue` 的引用照样落到预构建的那一份）；
   - 图片写法不用 `mdast-util-*`，改用本应用已有的 `marked` 或手写的小解析，不引新依赖；
   - 文字表：`vue-i18n` 改为本应用的 `localize`，locale 经 props 与节点视图的上下文显式传下去，测试覆盖切换语言；
   - 测试：组件测试改名为 `*.dom.test.ts`（Vitest，happy-dom）；撤销分组用真实的 ProseMirror 历史边界，不用假时钟；断言的期望值不变，只改装配与引用目标的写法（有意改变的期望，在测试里注明）。
@@ -147,7 +149,7 @@ Spec 写好后按编号补全；先按行为列出：
 | 流式追加：开头的批注、折叠的提示块、已渲染的 `<html>` 块的元素与状态不变；替换掉的块释放了监听与图片；后面的引用定义改变前面块的含义时那块重画 | 同上 |
 | 展示器根元素带 `content-visibility`；点小块、链接、图片发出 `activate` | 同上；`e2e/lab-markdown.e2e.ts`（流式播完、长对话改宽度） |
 | 编辑器里作品内链接是一个引用小块（被批注盖住一半时仍是一个），文字可编辑、写回不变；图片按作品文件显示，根外地址显示说明；同一张图两处显示、删掉一处另一处仍在，全部卸载后没有未释放的 URL；文件变了图片更新 | `MarkdownControl.dom.test.ts`、`parts/image-cache.test.ts` |
-| Composer 的文字写法读写原样、小块、粘贴分档、附件状态、候选菜单；引用按新的目标分类；切换语言后文字跟着变 | 移植来的 `prompt-text.test.ts`、`prompt-editor-extensions.test.ts`、`PromptEditor.dom.test.ts`、`PromptTextView.dom.test.ts` |
+| Composer 的文字写法读写原样、小块、粘贴分档、附件状态、候选菜单；引用按新的目标分类；切换语言后文字跟着变 | 移植来的 `prompt-text.test.ts`、`prompt-editor-extensions.dom.test.ts`、`PromptEditor.dom.test.ts`、`PromptTextView.dom.test.ts`；真实按键与粘贴在 `e2e/lab-markdown.e2e.ts` |
 
 ## 验证
 
