@@ -8,21 +8,25 @@ export interface ProfileNode {
     readonly children: readonly ProfileChild[];
 }
 
-/** 历史消息：由宿主（harness）注入给 `HistorySet`/`ToolCall`/`ToolResult`。 */
-export interface ProfileRenderMessage {
-    readonly role: "user" | "assistant" | "tool";
-    readonly text: string;
-    readonly callId?: string;
-}
+/**
+ * 渲染出的一条消息：Profile 里静态写的文字消息，或宿主交来的一条历史消息的原样。
+ * nb-profile 不认识历史消息的形状（harness 交的是 OMP 的 AgentMessage），只按顺序搬运。
+ */
+export type RenderedMessage<H> =
+    | {readonly kind: "text"; readonly role: "user" | "assistant"; readonly text: string}
+    | {readonly kind: "history"; readonly message: H};
 
-export interface ProfileRenderInput {
-    readonly messages: readonly ProfileRenderMessage[];
+export interface ProfileRenderInput<H> {
+    /** 会话历史，按先后排好；`HistorySet` 原样展开它。 */
+    readonly history: readonly H[];
+    /** 本会话的生效工具集（工具 id）；`<If tool>` 按它判断。 */
+    readonly tools: ReadonlySet<string>;
     readonly now?: () => Date;
 }
 
-export interface RenderedProfile {
+export interface RenderedProfile<H> {
     readonly systemPrompt: readonly string[];
-    readonly messages: readonly ProfileRenderMessage[];
+    readonly messages: readonly RenderedMessage<H>[];
 }
 
 function normalizeChildren(children: ProfileChild | readonly ProfileChild[] | undefined): readonly ProfileChild[] {
@@ -46,7 +50,7 @@ export function System(props: {readonly children?: ProfileChild | readonly Profi
     return createNode("System", props);
 }
 
-export function HistorySet(props: {readonly kind?: "messages" | "tool-results"; readonly children?: ProfileChild | readonly ProfileChild[]}): ProfileNode {
+export function HistorySet(props: {readonly children?: ProfileChild | readonly ProfileChild[]} = {}): ProfileNode {
     return createNode("HistorySet", props);
 }
 
@@ -62,19 +66,19 @@ export function AIMessage(props: {readonly children?: ProfileChild | readonly Pr
     return createNode("AIMessage", props);
 }
 
-export function ToolCall(props: {readonly callId?: string; readonly children?: ProfileChild | readonly ProfileChild[]}): ProfileNode {
-    return createNode("ToolCall", props);
-}
-
-export function ToolResult(props: {readonly callId?: string; readonly children?: ProfileChild | readonly ProfileChild[]}): ProfileNode {
-    return createNode("ToolResult", props);
-}
-
 export function Reminder(props: {readonly children?: ProfileChild | readonly ProfileChild[]}): ProfileNode {
     return createNode("Reminder", props);
 }
 
-export function If(props: {readonly when: boolean; readonly children?: ProfileChild | readonly ProfileChild[]}): ProfileNode {
+/** 条件段落：`when` 是布尔条件，`tool` 是工具 id（在生效工具集里才渲染）；二者恰给一个。 */
+export type IfProps =
+    | {readonly when: boolean; readonly tool?: undefined; readonly children?: ProfileChild | readonly ProfileChild[]}
+    | {readonly tool: string; readonly when?: undefined; readonly children?: ProfileChild | readonly ProfileChild[]};
+
+export function If(props: IfProps): ProfileNode {
+    const hasWhen = typeof props.when === "boolean";
+    const hasTool = typeof props.tool === "string" && props.tool !== "";
+    if (hasWhen === hasTool) throw new Error("If 要恰好给 when 或 tool 中的一个");
     return createNode("If", props);
 }
 

@@ -3,12 +3,18 @@ import {extname, isAbsolute, resolve} from "node:path";
 import type {AgentTool, AgentToolResult} from "@oh-my-pi/pi-agent-core";
 import {formatBytes} from "@oh-my-pi/pi-utils";
 import type {EditStore} from "@oh-my-pi/pi-natives";
-import type {PluginReadFormat} from "../plugins.js";
 import {truncateText} from "../text-budget.js";
+
+/** 额外的读取格式：`canRead` 命中即用 `read` 的结果（返回 null 表示放弃，交给下一个格式）。 */
+export interface ReadFormat {
+    readonly id: string;
+    canRead(path: string): boolean;
+    read(path: string, options: {readonly offset?: number; readonly limit?: number}): Promise<{readonly text: string} | null>;
+}
 
 export interface ReadToolOptions {
     readonly cwd: string;
-    readonly formats?: readonly PluginReadFormat[];
+    readonly formats?: readonly ReadFormat[];
     readonly maxLines?: number;
     readonly maxBytes?: number;
     /** 与 edit 工具共享的快照存储：登记本次展示的内容与行，并输出 `[path#tag]` 头。 */
