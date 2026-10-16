@@ -124,6 +124,84 @@ describe("交出（方言 Spec 输出 1–3）", () => {
     });
 });
 
+/**
+ * 打字：与浏览器里打字同一条路径。ProseMirror 读到页面里插入的字后先交 `handleTextInput`（输入规则在这里），没人接手时按
+ * 光标处该带的格式插入（`insertText`，见 prosemirror-view 的 `readDOMChange`）。不能用 `insertContentAt`：它不按光标处的格式插入。
+ */
+function type(editor: Editor, text: string): void {
+    const view = editor.view;
+    for (const char of text) {
+        const {from, to} = view.state.selection;
+        const insert = () => view.state.tr.insertText(char, from, to);
+        if (!view.someProp("handleTextInput", (handle) => handle(view, from, to, char, insert))) view.dispatch(insert());
+    }
+}
+
+/**
+ * 按键：先交编辑器的按键处理（Tiptap 的键位：回车分段、段首退格并段）。退格删一个字没人接手时是浏览器自己删，ProseMirror
+ * 读回这次删除时把被删文字的格式记成接着打字要用的格式（`readDOMChange` 的 `ensureMarks`），这里照做。
+ */
+function press(editor: Editor, key: "Enter" | "Backspace"): void {
+    const view = editor.view;
+    if (view.someProp("handleKeyDown", (handle) => handle(view, new KeyboardEvent("keydown", {key})))) return;
+    if (key !== "Backspace") throw new Error(`没人接手的 ${key}`);
+    const {from} = view.state.selection;
+    const marks = view.state.doc.resolve(from - 1).marksAcross(view.state.doc.resolve(from));
+    const tr = view.state.tr.delete(from - 1, from);
+    if (marks !== null) tr.ensureMarks(marks);
+    view.dispatch(tr);
+}
+
+/** 打开 `text`，光标放到第一段的行首（`start`）、行尾（`end`）或行尾往前数 n 个字，按键、打字，返回写出的原文。 */
+async function typed(text: string, at: "start" | "end" | number, keys: ReadonlyArray<"Enter" | "Backspace">, input: string): Promise<string> {
+    const {editor, handle, binding} = await opened(text);
+    const end = endOfBlock(editor, 0);
+    editor.commands.setTextSelection(at === "start" ? 1 : at === "end" ? end : end - at);
+    for (const key of keys) press(editor, key);
+    type(editor, input);
+    handle.flushPendingChange();
+    return binding.text.value;
+}
+
+describe("在格式的边界打字（workbench.editor 输出 62）", () => {
+    const cases: ReadonlyArray<readonly [string, string, "start" | "end" | number, string, string]> = [
+        ["引用小块的行尾", "[123](project://123)\n", "end", "后", "[123](project://123)后\n"],
+        ["引用小块的行首", "[123](project://123)\n", "start", "前", "前[123](project://123)\n"],
+        ["引用小块的文字中间", "[123](project://123)\n", 1, "x", "[12x3](project://123)\n"],
+        ["外部链接的末尾，后面还有字", "看[官网](https://example.com)。\n", 1, "后", "看[官网](https://example.com)后。\n"],
+        ["粗体的末尾：接着是粗体", "**粗**\n", "end", "体", "**粗体**\n"],
+        ["斜体的末尾：接着是斜体", "*斜*\n", "end", "体", "*斜体*\n"],
+        ["删除线的末尾：接着是删除线", "~~删~~\n", "end", "掉", "~~删掉~~\n"],
+        ["文字颜色的末尾：接着是同一颜色", "<span style=\"color: red\">红</span>\n", "end", "字", "<span style=\"color: red\">红字</span>\n"],
+        ["行内代码的末尾", "`code`\n", "end", "后", "`code`后\n"],
+        ["高亮的末尾", "==亮==\n", "end", "后", "==亮==后\n"],
+        ["批注的末尾", "她<comment body=\"节奏\">看了他一眼</comment>\n", "end", "。", "她<comment body=\"节奏\">看了他一眼</comment>。\n"],
+        ["注音的末尾", "<ruby>临川<rt>línchuān</rt></ruby>\n", "end", "城", "<ruby>临川<rt>línchuān</rt></ruby>城\n"],
+    ];
+    for (const [name, text, at, input, expected] of cases) {
+        it(name, async () => {
+            expect(await typed(text, at, [], input)).toBe(expected);
+        });
+    }
+
+    it("引用小块的行尾回车再打字：新的一段是普通文字", async () => {
+        expect(await typed("[123](project://123)\n", "end", ["Enter"], "下")).toBe("[123](project://123)\n\n下\n");
+    });
+
+    it("链接末尾退格再打字：字在链接外（不带的格式删字后同样不带）；链接文字删光再打字是普通文字，不留空链接", async () => {
+        expect(await typed("[123](project://123)\n", "end", ["Backspace"], "4")).toBe("[12](project://123)4\n");
+        expect(await typed("看[12](project://12)\n", "end", ["Backspace", "Backspace"], "新")).toBe("看新\n");
+    });
+
+    it("粗体删光再打字仍是粗体（与常见的文字处理软件相同）", async () => {
+        expect(await typed("看**粗**\n", "end", ["Backspace"], "体")).toBe("看**体**\n");
+    });
+
+    it("打网址与邮箱再打空格：是文字，写回时转义", async () => {
+        expect(await typed("见\n", "end", [], " https://example.com 与 me@example.com 了")).toBe("见 https\\://example.com 与 me\\@example.com 了\n");
+    });
+});
+
 describe("显示（方言 Spec 输出 23）", () => {
     it("带 `-` 的提示块一开始折叠，点标题展开、再点折叠；折叠状态不写回文件；没有折叠标记的不能折叠", async () => {
         const source = "> [!WARNING]- 伏笔\n> 她早就知道。\n\n> [!NOTE]\n> 普通。\n";

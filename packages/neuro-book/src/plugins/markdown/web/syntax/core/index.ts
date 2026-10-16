@@ -56,6 +56,13 @@ const MarkdownParagraph = Paragraph.extend({priority: 1500});
  */
 const MarkdownCode = Code.extend({group: CODE_EXCLUSIVE, excludes: CODE_EXCLUSIVE, inclusive: false});
 
+/**
+ * 链接（docs/specs/workbench/editor.md 输出 62）：光标在链接的开头或末尾时打的字不进链接，退格删到最后一个字、删光了再打也不进；
+ * 打出的网址是文字，不自动变成链接（写回时按 docs/specs/workspace/markdown-dialect.md 输出 4 转义）。Tiptap 的链接默认开着自动
+ * 链接，“包含边界”跟着它走，所以配置里关掉自动链接，这里再显式写 `inclusive`，不依赖那层联动。
+ */
+const MarkdownLink = Link.extend({inclusive: () => false});
+
 /** 表格单元格只有一段（输出 20）：单元格里的 Enter 是换行，GFM 写不出多段。 */
 const SingleParagraphCell = TableCell.extend({content: "paragraph"});
 const SingleParagraphHeader = TableHeader.extend({content: "paragraph"});
@@ -386,7 +393,7 @@ export const coreExtensions: ReadonlyArray<AnyExtension> = [
     SingleParagraphCell,
     SingleParagraphHeader,
     Image.configure({inline: true, allowBase64: false, HTMLAttributes: {class: "nb-markdown-image-node"}}),
-    Link.configure({openOnClick: false, enableClickSelection: true, linkOnPaste: false, isAllowedUri: (url, {defaultValidate}) => defaultValidate(url) || keepsHref(url)}),
+    MarkdownLink.configure({openOnClick: false, enableClickSelection: true, linkOnPaste: false, autolink: false, isAllowedUri: (url, {defaultValidate}) => defaultValidate(url) || keepsHref(url)}),
     MarkdownStyle,
 ];
 

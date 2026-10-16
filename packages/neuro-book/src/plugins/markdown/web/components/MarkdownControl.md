@@ -41,6 +41,7 @@ type Emits = {
 - 显示（方言 Spec 输出 9、11–16、19、23）：批注的正文带波浪线，块批注左侧一条虚线；注音小字在上；双语的译文行在原文上方；提示块按类型有图标与颜色，带折叠标记的可以点标题行折叠（折叠状态按编辑状态记、不写回；光标进去或内容被改到时自动展开）；任务项有复选框；原样块与原样片段显示源码；可渲染 HTML 是源码卡片。颜色都取主题 token。
 - 文件被外部删除后只读：之前敲下、还在 150 ms 延迟里的输入照常交出（文档在已删除时仍接受输入回执）。
 - 链接点击不打开（编辑器里点链接是要编辑它）。
+- 在格式的边界打字（[`workbench/editor.md`](../../../../../../../docs/specs/workbench/editor.md) 输出 62）：引入第三方编辑扩展时，逐项核对它影响输入的默认值（自动转换、标记是否包含边界、输入规则），与 Spec 不符的显式关掉，并在 `MarkdownControl.dom.test.ts` 的“在格式的边界打字”一组里补一行。
 - 纸面（[`workbench/editor.md`](../../../../../../../docs/specs/workbench/editor.md) 输出 32）：界面字体，版心 720px（含左右各 48px 留白）、上 64px 下 120px、正文 17px、行距 1.95、段距 1.1em。这些值是控件根上的变量（`--markdown-measure`、`--markdown-padding-*`、`--markdown-font-size`、`--markdown-line-height`、`--markdown-block-gap`），以后做成偏好时只换变量。
 - 上次的光标（输出 30）：第一次为这份文档建编辑状态、标签记着光标时，把选区放到记下的位置（正文变短时夹到末尾）并滚到它；编辑状态还在时用它自己的选区。光标停下 1 秒、失焦或换文档时把选区活动端交给 `binding.remember`。
 - 句柄：聚焦、撤销、重做、结算；不提供行号导航（富文本没有行号）。另交出大纲 `outline` 与 `revealHeading`（[`workbench/editor.md`](../../../../../../../docs/specs/workbench/editor.md) 的控件合同，面包屑用）：大纲跟着当前绑定，`binding` 是它的 token，正文每变一次（含按文档的正文重载）`version` 加一，光标动了只换 `current`；换绑定、没有绑定、卸载时为 null。标题 id 按位置给（同名不冲突），位置只记在控件里；`revealHeading` 的 `binding` 或 `version` 对不上为 `stale`、不移动光标，对得上时把光标放到标题开头并滚到它。
