@@ -17,6 +17,7 @@ import {RPC_MAX_MESSAGE_BYTES} from "nbook/shared/rpc-socket";
 
 import {FILES_FAILURES} from "./failures";
 import type {FilesFailureCode} from "./failures";
+import {parseResource} from "./resource";
 import type {Scheme} from "./resource";
 
 export {FILES_FAILURES};
@@ -233,6 +234,57 @@ export const projectFilesContract = defineRemoteService({id: "nbook.files/projec
 
 export const userFilesContract = defineRemoteService({id: "nbook.files/user", version: 5, provider: "server", callers: CALLERS, methods, events});
 
+/**
+ * 预览的受限读取（docs/specs/workspace/files.md 的“预览的受限读取”）：签发只放行这部作品这一代的只读令牌，HTML 预览在沙箱里
+ * 按 `base` 拼出相对引用的地址。调用方的门面释放（窗口断开、入口停止）时它签发的令牌全部作废。
+ */
+/**
+ * 预览页的内容安全策略（docs/specs/workspace/files.md 的“预览的受限读取”，docs/specs/workbench/html-preview.md 输出 5）：
+ * 默认只放行令牌下的地址与 `data:`、`blob:`、内联脚本与样式，页面读得到作品里的文件，却发不到外网；`network` 为真时只去掉
+ * 网络限制。两种都不让提交表单、不让嵌套框架。`base` 是令牌的 URL 前缀，带应用源、以 `/` 结尾。
+ *
+ * 两处用它：预览控件注入 `srcdoc` 的 meta，与预览路由的响应头（页面在 iframe 里导航到作品里别的 HTML 时，加载的是路由给的
+ * 原文，没有注入的 meta）。
+ */
+export function previewContentSecurityPolicy(base: string, network: boolean): string {
+    if (network) return "default-src * data: blob: 'unsafe-inline' 'unsafe-eval'; form-action 'none'; frame-src 'none'";
+    const own = `${base} data: blob:`;
+    return [
+        "default-src 'none'",
+        `script-src ${own} 'unsafe-inline' 'unsafe-eval'`,
+        `style-src ${own} 'unsafe-inline'`,
+        `img-src ${own}`,
+        `font-src ${own}`,
+        `connect-src ${own}`,
+        `media-src ${own}`,
+        "worker-src blob:",
+        "frame-src 'none'",
+        "form-action 'none'",
+        `base-uri ${base}`,
+    ].join("; ");
+}
+
+export const filesPreviewContract = defineRemoteService({
+    id: "nbook.files/preview",
+    version: 1,
+    provider: "server",
+    callers: ["browser"],
+    methods: {
+        open: {
+            /** `network`：这个令牌下的响应放不放行外网（预览的“允许联网”，默认开）；切换时换令牌。 */
+            input: Type.Object({project: Type.String({minLength: 1}), generation: Type.Integer({minimum: 1}), network: Type.Boolean()}, {additionalProperties: false}),
+            output: Type.Object({token: Type.String(), base: Type.String()}, {additionalProperties: false}),
+            effect: "read",
+            errors: {"generation-gone": Detail, "unavailable-project": Detail},
+        },
+        close: {
+            input: Type.Object({token: Type.String()}, {additionalProperties: false}),
+            output: Type.Object({}, {additionalProperties: false}),
+            effect: "read",
+        },
+    },
+});
+
 export type FilesContract = typeof projectFilesContract | typeof userFilesContract;
 
 export function contractOf(scheme: Scheme): FilesContract {
@@ -304,6 +356,17 @@ export interface FilesService {
     delete(items: ReadonlyArray<{readonly address: string; readonly expected?: string}>): BatchHandle;
     /** 订阅一个方案的变更：同一窗口同一方案共用一条远程订阅。返回释放函数（幂等），释放后不再有回调。 */
     watch(scheme: Scheme, listener: (message: WatchMessage) => void): () => void;
+    /** 按地址读取字节的 URL（docs/specs/workspace/files.md 的“按地址读取字节”），本页面同源；没有绑定项目时 `project://` 为 null。 */
+    rawUrl(address: string): string | null;
+}
+
+/** 字节路由的 URL：`project://` 带窗口绑定的作品与代次；地址不合法或没有绑定项目时为 null。 */
+export function rawUrlOf(address: string, project: {readonly id: string; readonly generation: number} | null): string | null {
+    const parsed = parseResource(address);
+    if (!parsed.ok) return null;
+    const path = parsed.resource.path.split("/").map((segment) => encodeURIComponent(segment)).join("/");
+    if (parsed.resource.scheme === "user") return `/api/nbook.files/raw/user/${path}`;
+    return project === null ? null : `/api/nbook.files/raw/project/${encodeURIComponent(project.id)}/${String(project.generation)}/${path}`;
 }
 
 /** 浏览器里的插件依赖它取得按调用方的文件客户端。 */

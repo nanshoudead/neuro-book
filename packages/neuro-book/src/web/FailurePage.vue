@@ -79,6 +79,7 @@ const copy = async (index: number, text: string): Promise<void> => {
                     <code>{{ item.path }}</code>
                     <button type="button" @click="copy(index, item.text)">{{ copied === index ? "已复制" : "复制正文" }}</button>
                 </div>
+                <p v-if="item.note !== undefined" data-host-rescued-note>{{ item.note }}</p>
                 <textarea readonly :value="item.text" :aria-label="`${item.path} 未保存的正文`" rows="6" />
             </div>
         </section>

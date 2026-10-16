@@ -10,8 +10,8 @@ import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
 import {COMMANDS_POINT, menuImplementations} from "nbook/plugins/commands/shared/contracts";
 import type {CommandDeclaration} from "nbook/plugins/commands/shared/contracts";
-import {EDITOR_TITLE_POINT} from "nbook/plugins/editor/shared/contracts";
-import type {EditorTitleItemDeclaration} from "nbook/plugins/editor/shared/contracts";
+import {EDITOR_TAB_CONTEXT_POINT, EDITOR_TITLE_POINT} from "nbook/plugins/editor/shared/contracts";
+import type {EditorTabContextItemDeclaration, EditorTitleItemDeclaration} from "nbook/plugins/editor/shared/contracts";
 import {EXPLORER_CONTEXT_POINT} from "nbook/plugins/explorer/shared/contracts";
 import type {ExplorerContextItemDeclaration} from "nbook/plugins/explorer/shared/contracts";
 import {notificationsKey, WORKBENCH_VIEW_TITLE_POINT} from "nbook/plugins/workbench/shared/contracts";
@@ -52,6 +52,12 @@ const EDITOR_ITEMS: ReadonlyArray<{readonly id: string; readonly declaration: Ed
     {id: "test.menus.editor-md", declaration: {section: "1", command: TEST_MENUS_RECORD_COMMAND, icon: "i-lucide-eye", label: label("测试编辑区按钮"), extensions: [".md"], context: "resource"}},
 ];
 
+/** 标签右键（docs/specs/workbench/editor.md 输出 57）：`.md` 文件标签上多一项，收到被右击标签的地址。 */
+const TAB_ITEMS: ReadonlyArray<{readonly id: string; readonly declaration: EditorTabContextItemDeclaration}> = [
+    {id: "test.menus.tab-md", declaration: {section: "1", command: TEST_MENUS_RECORD_COMMAND, label: label("测试标签菜单"), extensions: [".md"], context: "resource"}},
+];
+
+
 export function createTestMenusBrowserPlugin(): PluginDefinition {
     return {
         id: testMenusDescriptor.id,
@@ -65,6 +71,7 @@ export function createTestMenusBrowserPlugin(): PluginDefinition {
                 ...VIEW_TITLE_ITEMS.map(({id, declaration}) => ({capability: WORKBENCH_VIEW_TITLE_POINT, id, declaration})),
                 ...EXPLORER_ITEMS.map(({id, declaration}) => ({capability: EXPLORER_CONTEXT_POINT, id, declaration})),
                 ...EDITOR_ITEMS.map(({id, declaration}) => ({capability: EDITOR_TITLE_POINT, id, declaration})),
+                ...TAB_ITEMS.map(({id, declaration}) => ({capability: EDITOR_TAB_CONTEXT_POINT, id, declaration})),
             ],
             activate: (context) => {
                 const notifications = context.services.require(notificationsKey);
@@ -76,6 +83,7 @@ export function createTestMenusBrowserPlugin(): PluginDefinition {
                     [WORKBENCH_VIEW_TITLE_POINT]: menuImplementations(VIEW_TITLE_ITEMS),
                     [EXPLORER_CONTEXT_POINT]: menuImplementations(EXPLORER_ITEMS),
                     [EDITOR_TITLE_POINT]: menuImplementations(EDITOR_ITEMS),
+                    [EDITOR_TAB_CONTEXT_POINT]: menuImplementations(TAB_ITEMS),
                 }};
             },
         })],

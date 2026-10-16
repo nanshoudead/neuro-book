@@ -9,7 +9,7 @@ import {fileIconOf} from "../icons/file-icons";
 import {explorerText} from "../messages";
 import {displayLabel} from "../tree/rows";
 import type {Problem, Row} from "../tree/rows";
-import FileIcon from "./FileIcon.vue";
+import FileIcon from "nbook/ui/file-icons/FileIcon.vue";
 
 const props = defineProps<{
     row: Row;

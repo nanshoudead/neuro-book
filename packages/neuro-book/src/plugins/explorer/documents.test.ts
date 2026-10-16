@@ -77,7 +77,7 @@ describe("Spec workbench.editor 输出 23：复制有未保存修改的文档", 
             select(controller, `project://${target}`);
             const pasting = controller.paste();
             await until(p.at, "问", () => controller.dialog.value?.kind === "dirty-copy");
-            expect(controller.dialog.value).toEqual({kind: "dirty-copy", documents: ["project://plain/a.md"]});
+            expect(controller.dialog.value).toEqual({kind: "dirty-copy", documents: ["project://plain/a.md"], saveable: true});
             controller.answerDirtyCopy(choice);
             await pasting;
             if (expected === null) expect(filesWrites(p.at.tap.requests)).toEqual([]);
@@ -85,6 +85,22 @@ describe("Spec workbench.editor 输出 23：复制有未保存修改的文档", 
         }
         expect(document.dirty.value).toBe(false);
         expect(await disk(p.at, "plain/a.md")).toBe("A（未保存）");
+    });
+
+    it("有视图写不出的文档（输出 61）：询问里没有“先保存再复制”，复制磁盘版本照常", async () => {
+        const p = await pair();
+        const {controller} = p.at;
+        const document = await dirty(p, "project://plain/a.md", "A（未保存）");
+        p.store.block(document, "v2", {reason: "段首的 HTML", from: 0, to: 1, index: 1, excerpt: "A", fallback: "A"});
+        select(controller, "project://plain/a.md");
+        await controller.copy();
+        select(controller, "project://dest");
+        const pasting = controller.paste();
+        await until(p.at, "问", () => controller.dialog.value?.kind === "dirty-copy");
+        expect(controller.dialog.value).toEqual({kind: "dirty-copy", documents: ["project://plain/a.md"], saveable: false});
+        controller.answerDirtyCopy("disk");
+        await pasting;
+        expect(await disk(p.at, "dest/a.md")).toBe("A");
     });
 });
 

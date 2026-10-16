@@ -235,7 +235,7 @@ defineExpose({focusTree});
             @request-close="emit('dirty-copy', 'cancel')"
         >
             <div class="flex flex-col gap-2 text-sm" data-explorer-dirty-copy>
-                <p>{{ explorerText(locale, "dirtyCopyBody") }}</p>
+                <p>{{ explorerText(locale, dirtyCopyDialog?.saveable === false ? "dirtyCopyUnrepresentable" : "dirtyCopyBody") }}</p>
                 <ul class="max-h-[30vh] overflow-y-auto break-words text-xs">
                     <li v-for="address in dirtyCopyDialog?.documents ?? []" :key="address">{{ address }}</li>
                 </ul>
@@ -244,7 +244,7 @@ defineExpose({focusTree});
                 <div class="flex flex-wrap justify-end gap-2">
                     <Button variant="ghost" size="sm" data-explorer-dirty-copy-cancel @click="emit('dirty-copy', 'cancel')">{{ explorerText(locale, "cancel") }}</Button>
                     <Button variant="secondary" size="sm" data-explorer-dirty-copy-disk @click="emit('dirty-copy', 'disk')">{{ explorerText(locale, "dirtyCopyDisk") }}</Button>
-                    <Button variant="primary" size="sm" data-explorer-dirty-copy-save @click="emit('dirty-copy', 'save')">{{ explorerText(locale, "dirtyCopySave") }}</Button>
+                    <Button v-if="dirtyCopyDialog?.saveable !== false" variant="primary" size="sm" data-explorer-dirty-copy-save @click="emit('dirty-copy', 'save')">{{ explorerText(locale, "dirtyCopySave") }}</Button>
                 </div>
             </template>
         </Dialog>

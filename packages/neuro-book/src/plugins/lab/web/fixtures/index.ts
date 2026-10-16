@@ -2,11 +2,15 @@ import type {Component} from "vue";
 
 import type ExplorerFeedback from "nbook/plugins/explorer/web/components/ExplorerFeedback.vue";
 import type EditorArea from "nbook/plugins/editor/web/components/EditorArea.vue";
+import type HtmlPreview from "nbook/plugins/html-preview/web/components/HtmlPreview.vue";
+import type ImageViewer from "nbook/plugins/image-viewer/web/components/ImageViewer.vue";
+import type EditorBreadcrumbs from "nbook/plugins/editor/web/components/EditorBreadcrumbs.vue";
 import type EditorTabBar from "nbook/plugins/editor/web/components/EditorTabBar.vue";
+import {fileIconForName} from "nbook/ui/file-icons/file-icons";
 import type ExplorerRow from "nbook/plugins/explorer/web/components/ExplorerRow.vue";
 import type ExplorerTree from "nbook/plugins/explorer/web/components/ExplorerTree.vue";
 import type FilesExplorerView from "nbook/plugins/explorer/web/components/FilesExplorerView.vue";
-import type FileIcon from "nbook/plugins/explorer/web/components/FileIcon.vue";
+import type FileIcon from "nbook/ui/file-icons/FileIcon.vue";
 import type BookCard from "nbook/plugins/projects/web/components/BookCard.vue";
 import type WelcomePage from "nbook/plugins/projects/web/components/WelcomePage.vue";
 import type BookCover from "nbook/plugins/projects/web/components/BookCover.vue";
@@ -588,7 +592,7 @@ export const labFixtures: LabFixture[] = [
                 {id: "unsaved", label: "偏好未保存、编辑器尚未接入", input: {props: {...base, problem: {kind: "unsaved" as const, code: "conflict"}, notice: {kind: "editor-missing" as const, address: "project://plain/a.md"}}}},
                 {id: "loading", label: "偏好还在读取", input: {props: {...base, ready: false}}},
                 {id: "delete", label: "删除确认：多项与长路径", input: {props: {...base, dialog: {kind: "delete" as const, items: Array.from({length: 12}, (_, index) => ({address: `project://一个很深的目录/第${String(index + 1)}章 一个相当长的章节标题.md`, token: `t${String(index)}`})), busy: false, unsaved: ["project://一个很深的目录/第1章 一个相当长的章节标题.md"]}}}},
-                {id: "dirty-copy", label: "复制有未保存修改的文件", input: {props: {...base, dialog: {kind: "dirty-copy" as const, documents: ["project://chapters/第一章.md", "project://chapters/第二章.md"]}}}},
+                {id: "dirty-copy", label: "复制有未保存修改的文件", input: {props: {...base, dialog: {kind: "dirty-copy" as const, documents: ["project://chapters/第一章.md", "project://chapters/第二章.md"], saveable: true}}}},
                 {id: "report", label: "删除部分失败、进行中", input: {props: {...base, running: {action: "delete" as const, count: 3}, report: {action: "delete" as const, items: [
                     {address: "project://plain", target: null, result: {status: "failed" as const, code: "permission-denied", detail: "没有权限", partial: {removed: {paths: ["plain/a.md", "plain/b.md"], truncated: false}}}},
                     {address: "project://a.md", target: null, result: {status: "done" as const}},
@@ -617,23 +621,88 @@ export const labFixtures: LabFixture[] = [
             {id: "split", label: "向右拆分的两组", input: {props: {locale: "zh-CN"}}},
             {id: "english", label: "英文界面", input: {props: {locale: "en-US"}}},
             {id: "empty", label: "没有标签：标志与提示", input: {props: {locale: "zh-CN"}}},
+            {id: "dialect", label: "Markdown 方言、提示块与原样内容", input: {props: {locale: "zh-CN"}}},
+            {id: "unrepresentable", label: "写不出：组顶部的提示", input: {props: {locale: "zh-CN"}}},
         ],
         load: async () => (await import("./editor-scene/EditorAreaFixture.vue")).default,
     }),
-    defineSubjectFixture<typeof EditorTabBar>({
-        component: "EditorTabBar",
-        events: ["activate", "pin", "close", "move"],
+    defineLabFixture<typeof ImageViewer>({
+        component: "ImageViewer",
+        // 字节绑定与图片由夹具生成（这里登记的 binding、host 只占位，夹具换成自己的）；可调的是文件名与界面语言。
+        scenes: (() => {
+            const base = {binding: null, host: {state: null, dispose: null}, readonly: true, visible: true};
+            return [
+                {id: "small", label: "比舞台小的图：原尺寸居中", input: {props: {...base, label: "插图.png", locale: "zh-CN" as const}}},
+                {id: "large", label: "比舞台大的图：适应、点一下 100%", input: {props: {...base, label: "地图.png", locale: "zh-CN" as const}}},
+                {id: "svg", label: "带透明的 SVG：棋盘格", input: {props: {...base, label: "图标.svg", locale: "zh-CN" as const}}},
+                {id: "broken", label: "不是图片：说明与重试", input: {props: {...base, label: "坏图.png", locale: "en-US" as const}}},
+            ];
+        })(),
+        load: async () => (await import("./image-viewer-scene/ImageViewerFixture.vue")).default,
+    }),
+    defineLabFixture<typeof HtmlPreview>({
+        component: "HtmlPreview",
+        // 文本绑定、令牌服务与时钟由夹具给出（这里登记的 binding、host 只占位）；可调的是界面语言。
+        scenes: (() => {
+            const base = {binding: null, host: {state: null, dispose: null}, readonly: true, visible: true, label: "index.html"};
+            return [
+                {id: "page", label: "预览一张带脚本的页面", input: {props: {...base, locale: "zh-CN" as const}}},
+                {id: "user", label: "不是作品里的文件", input: {props: {...base, locale: "zh-CN" as const}}},
+                {id: "denied", label: "令牌申请失败：说明与重试", input: {props: {...base, locale: "en-US" as const}}},
+            ];
+        })(),
+        load: async () => (await import("./html-preview-scene/HtmlPreviewFixture.vue")).default,
+    }),
+    defineSubjectFixture<typeof EditorBreadcrumbs>({
+        component: "EditorBreadcrumbs",
+        events: ["open", "reveal", "escape"],
         class: "w-full",
         scenes: (() => {
-            const tab = (id: string, label: string, extra: {preview?: boolean; dirty?: boolean; active?: boolean} = {}) => ({id, label, title: `project://chapters/${label}`, preview: extra.preview ?? false, dirty: extra.dirty ?? false, active: extra.active ?? false});
-            const base = {label: "打开的编辑器", unsavedLabel: "未保存"};
+            const segments = [
+                {kind: "root" as const, label: "长夜", address: "project://"},
+                {kind: "dir" as const, label: "正文", address: "project://正文"},
+                {kind: "dir" as const, label: "卷一 一个相当长的卷名用来看截断", address: "project://正文/卷一 一个相当长的卷名用来看截断"},
+                {kind: "file" as const, label: "第二章 旧城.md", address: "project://正文/卷一 一个相当长的卷名用来看截断/第二章 旧城.md", icon: fileIconForName("第二章 旧城.md")},
+            ];
+            const outline = {binding: "lab", version: 1, items: [{id: "h0", level: 1, text: "第二章 旧城"}, {id: "h1", level: 2, text: "雨夜的来客"}, {id: "h2", level: 2, text: "旧书店"}], current: "h1"};
+            const base = {segments, parent: segments[2]?.address ?? null, locale: "zh-CN" as const};
             return [
-                {id: "mixed", label: "预览、未保存与活动标签", input: {props: {...base, tabs: [tab("t1", "第一章.md", {dirty: true}), tab("t2", "第二章.md", {active: true}), tab("t3", "第三章.md", {preview: true})]}}},
-                {id: "many", label: "放不下时横向滚动", input: {props: {...base, tabs: Array.from({length: 18}, (_, index) => tab(`t${String(index)}`, `第${String(index + 1)}章 一个相当长的章节标题.md`, {active: index === 9, dirty: index % 4 === 0}))}}},
+                {id: "outline", label: "目录、文件与光标所在的标题", input: {props: {...base, outline}}},
+                {id: "plain", label: "不是 Markdown：没有标题段", input: {props: {...base, outline: null}}},
+            ];
+        })(),
+        // 目录下拉的列表：场景里的假数据，点哪个目录都列出同样几项。
+        runtimeProps: async () => ({list: async (address: string) => ({ok: true as const, entries: [{name: "卷二", address: `${address}/卷二`, kind: "directory" as const}, {name: "第一章 雨夜.md", address: `${address}/第一章 雨夜.md`, kind: "file" as const}, {name: "第二章 旧城.md", address: `${address}/第二章 旧城.md`, kind: "file" as const}]})}),
+        subject: () => import("nbook/plugins/editor/web/components/EditorBreadcrumbs.vue"),
+    }),
+    defineSubjectFixture<typeof EditorTabBar>({
+        component: "EditorTabBar",
+        events: ["activate", "keep", "close", "unpin", "move", "menu"],
+        class: "w-full",
+        scenes: (() => {
+            type Extra = {preview?: boolean; dirty?: boolean; active?: boolean; pinned?: boolean; hint?: string};
+            const tab = (id: string, label: string, extra: Extra = {}) => ({id, label, title: `project://chapters/${label}`, preview: extra.preview ?? false, dirty: extra.dirty ?? false, active: extra.active ?? false, pinned: extra.pinned ?? false, icon: fileIconForName(label), hint: extra.hint ?? null});
+            const base = {label: "打开的编辑器", unsavedLabel: "未保存", pinnedLabel: "已固定"};
+            const typical = [
+                tab("p1", "大纲.md", {pinned: true}),
+                tab("p2", "人物.md", {pinned: true, dirty: true}),
+                tab("t1", "第一章 雨夜.md"),
+                tab("t2", "第二章 旧城.md", {active: true, dirty: true}),
+                tab("t3", "README.md", {hint: "notes"}),
+                tab("t4", "README.md", {hint: "drafts"}),
+                tab("t5", "cover.png"),
+                tab("t6", "第三章 渡口.md", {preview: true}),
+            ];
+            const many = [tab("p1", "大纲.md", {pinned: true}), ...Array.from({length: 18}, (_, index) => tab(`t${String(index)}`, `第${String(index + 1)}章 一个相当长的章节标题.md`, {active: index === 9, dirty: index % 4 === 0}))];
+            return [
+                {id: "mixed", label: "固定、未保存、同名、预览与活动标签", input: {props: {...base, tabs: typical}}},
+                {id: "many", label: "多行：固定标签单独一行，普通标签至多 3 行后滚动", input: {props: {...base, tabs: many}}},
+                {id: "single-line", label: "关掉多行：一行横向滚动", input: {props: {...base, tabs: many, wrap: false}}},
+                {id: "inactive-group", label: "不是活动组：活动标签文字为次级色", input: {props: {...base, tabs: typical, groupActive: false}}},
                 {id: "single", label: "只有一个预览标签", input: {props: {...base, tabs: [tab("t1", "第一章.md", {preview: true, active: true})]}}},
             ];
         })(),
-        runtimeProps: async () => ({closeLabel: (name: string) => `关闭 ${name}`}),
+        runtimeProps: async () => ({closeLabel: (name: string) => `关闭 ${name}`, unpinLabel: (name: string) => `取消固定 ${name}`}),
         subject: () => import("nbook/plugins/editor/web/components/EditorTabBar.vue"),
     }),
     defineSubjectFixture<typeof SkillChip>({

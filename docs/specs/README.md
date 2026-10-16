@@ -162,7 +162,7 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过开发者授权
 | 插件描述与激活 | [`runtime/plugins.md`](runtime/plugins.md) | 描述目录、入口与代次、贡献事务、局部失败与普通关闭、按调用方提供项、委托与远程提供项，不含热卸载；**内核已迁入 `packages/nb-runtime`，宿主与 smoke 迁移中** |
 | 环境适配与应用门禁 | [`runtime/application.md`](runtime/application.md) | 浏览器与后端环境适配、启动门禁、接纳、有界停止、实例身份、子实例与租约；**内核已迁入 `packages/nb-runtime`，宿主与 smoke 迁移中** |
 | 运行时诊断 | [`runtime/diagnostics.md`](runtime/diagnostics.md) | 有界记录与查询、脱敏、早期缓冲补写、日志位置授予与冲突降级、关闭未完成与显式恢复；**组合 smoke 仍是旧应用的 `--services`** |
-| 服务端宿主 | [`runtime/server-host.md`](runtime/server-host.md) | 内核拥有进程、启动与停止序列、停止来源汇合、退出码、开发模式重启与停止、内核 RPC 端口与项目子进程；看门狗属 `runtime.stall-watchdog` |
+| 服务端宿主 | [`runtime/server-host.md`](runtime/server-host.md) | 内核拥有进程、启动与停止序列、停止来源汇合、退出码、开发模式重启与停止、内核 RPC 端口与项目子进程、HTTP 端口的 `Host` 与写请求来源核对；看门狗属 `runtime.stall-watchdog` |
 | 平台文件 | [`platform/files.md`](platform/files.md) | 受根约束的 I/O、授予隔离、watch 与锁、关闭门禁，不是业务文件树服务；**实现迁移中** |
 | SQLite 机制 | [`platform/sqlite.md`](platform/sqlite.md) | 具名资源 owner、连接借用、单库事务、代次与关闭，不自动迁移；**实现迁移中** |
 | Storage 插件记录 | [`storage/persistence.md`](storage/persistence.md) | `nbook.storage` 的记录定义、user 与 project 分区、读取分类、条件保存与订阅 |
@@ -177,10 +177,13 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过开发者授权
 | 工作台外壳 | [`ui/workbench-shell.md`](ui/workbench-shell.md) | 七个 Part 的几何与面板形态、紧凑呈现、布局记录与公开状态（外壳一）；容器与视图（外壳二）；拖放（外壳三）；标题栏、状态栏与条目贡献点（外壳四）；无项目首页、工作台打磨、活动栏底部条目与页面浮层 |
 | 工作台视图 | [`workbench/views.md`](workbench/views.md) | 视图贡献点、声明与实现、交付状态、加载门禁、三种失败与撤回、标题动作；输出 7（声明消失时清理布局项）随插件热插拔落地，标 `(planned)` |
 | 文件资源管理器 | [`workbench/files-explorer.md`](workbench/files-explorer.md) | 三类文件夹呈现、浏览与基础操作、拖放、命令化、持久化、与编辑器的 dirty 结算；跨机器基础操作为已知限制 |
-| 编辑器区 | [`workbench/editor.md`](workbench/editor.md) | 编辑组与标签、文档模型（保存、冲突、外部修改）、Markdown 与源码编辑器、资源管理器的 dirty 结算 |
-| 工作区文件访问与操作 | [`workspace/files.md`](workspace/files.md) | 文件读写、目录与批量操作、无覆盖冲突、逐项失败与取消；跨机器访问与非 Linux 平台的排他改名验证为已知限制 |
+| 编辑器区 | [`workbench/editor.md`](workbench/editor.md) | 编辑组与标签、文档模型（保存、冲突、外部修改）、Markdown 与源码编辑器、资源管理器的 dirty 结算、编辑器与语言贡献点、选择顺序、字节标签、预览的打开方式 |
+| 图片查看器 | [`workbench/image-viewer.md`](workbench/image-viewer.md) | 图片的字节编辑器：适应与缩放、棋盘格底、尺寸与大小、随文件更新 |
+| HTML 预览 | [`workbench/html-preview.md`](workbench/html-preview.md) | 沙箱里的预览编辑器：令牌限定的只读文件访问、相对引用、默认联网可关、随正文更新 |
+| 工作区文件访问与操作 | [`workspace/files.md`](workspace/files.md) | 文件读写、目录与批量操作、无覆盖冲突、逐项失败与取消；跨机器访问与非 Linux 平台的排他改名验证为已知限制；按地址读取字节与预览的受限读取 |
 | 资源寻址与文件服务 | [`workspace/resources.md`](workspace/resources.md) | `方案://路径` 寻址、`project://`/`user://` 两个真实目录型提供者的读写列出监视与订阅、写入来源与变更事件；glob、grep、bash 真实路径解析、`tmp://`/`local://`/`docs://`/`projects://` 与插件注册新方案的接口标 `(planned)` |
 | 文件夹类型与清单 | [`workspace/folder-kinds.md`](workspace/folder-kinds.md) | 普通、内容、活页夹三类文件夹，后缀识别、XML 清单、未列入与缺失处理、渲染贡献点 |
+| Markdown 方言 | [`workspace/markdown-dialect.md`](workspace/markdown-dialect.md) | 作品 Markdown 的读写规则：CommonMark 与 GFM 之上的中文规则、项目方言、认不出的语法原样保留、以块为单位写回与读回校验 |
 | 浏览器宿主 | [`runtime/browser-host.md`](runtime/browser-host.md) | 挂载前建立窗口运行实例、引导接口、RPC 首连与断线重连、多窗口隔离、项目绑定与可分离边界；按需激活、插件集合订阅与热插拔联动、鉴权与第三方浏览器入口标 `(planned)` |
 | 远程服务与 RPC 协议 | [`runtime/plugin-channel.md`](runtime/plugin-channel.md) | 跨实例的远程服务合同、内核路由、请求阶段与失败码、两层版本、订阅、按需激活与等待环、进程间链路 |
 

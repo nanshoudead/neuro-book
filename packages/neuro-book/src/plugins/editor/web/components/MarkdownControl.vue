@@ -1,17 +1,23 @@
 <script setup lang="ts">
 /** Markdown 富文本控件（同名 .md）：一个 Tiptap 编辑器实例，按编辑器控件合同（`control.ts`）绑定文档。 */
 import {Editor} from "@tiptap/core";
-import {EditorState, Selection} from "@tiptap/pm/state";
-import {onBeforeUnmount, onMounted, ref, watch} from "vue";
+import {EditorState, Selection, TextSelection} from "@tiptap/pm/state";
+import type {Transaction} from "@tiptap/pm/state";
+import {onBeforeUnmount, onMounted, ref, shallowRef, watch} from "vue";
 
-import type {EditorControlHandle, ViewBinding, ViewStateSlot} from "../area";
+import type {DisplayLocale} from "nbook/shared/localized-text";
+
+import type {EditorControlHandle, TextEditorBinding, ViewStateSlot} from "../area";
+import type {EditorOutline} from "../../shared/contracts";
 import type {EditorControlEmits} from "../control";
+import {codecFor} from "../markdown/codec/codec";
+import type {MarkdownCodec} from "../markdown/codec/codec";
+import type {SourceMap} from "../markdown/codec/read";
 import {createMarkdownEditorExtensions} from "../markdown/markdown-editor-extensions";
-import {normalizeMarkdownDialectBlocks} from "../markdown/markdown-workbench";
-import {mergeSource, splitFrontmatter} from "../markdown/source-merge";
-import type {SourceSplit} from "../markdown/source-merge";
+import {markdownLanguage} from "../markdown/syntax";
 
-const props = defineProps<{binding: ViewBinding | null; host: ViewStateSlot; readonly: boolean; visible: boolean; label: string; placeholder?: string}>();
+// `locale`：控件合同的一员；富文本控件自己不显示要翻译的文字（占位文字由宿主给出）。
+const props = defineProps<{binding: TextEditorBinding | null; host: ViewStateSlot; readonly: boolean; visible: boolean; label: string; placeholder?: string; locale?: DisplayLocale}>();
 const emit = defineEmits<EditorControlEmits>();
 
 /** 停止输入这么久才把正文交给文档；保存、切换与离开之前会立即结算。 */
@@ -21,13 +27,12 @@ const COMMIT_DELAY_MS = 150;
 const CURSOR_REMEMBER_MS = 1000;
 
 /**
- * 每“文档 × 组”一份，存在绑定的槽里：编辑状态（含撤销历史与选区）、打开时的原文拆分与序列化结果（保存时三方合并
- * 用）、确认过的修订、“有未裁决输入”标记与滚动位置。
+ * 每“文档 × 组”一份，存在绑定的槽里：编辑状态（含撤销历史与选区）、原文对照（编解码器写回用，随每次被接受的写出累积）、
+ * 确认过的修订、`held`（这个视图的输入没有进入正文：未裁决或写不出，别处的修改不重载它）与滚动位置。
  */
 interface MarkdownViewState {
     state: EditorState;
-    split: SourceSplit;
-    base: string;
+    map: SourceMap;
     confirmed: number;
     held: boolean;
     scroll: number;
@@ -36,14 +41,44 @@ interface MarkdownViewState {
 const root = ref<HTMLElement | null>(null);
 const scroller = ref<HTMLElement | null>(null);
 let editor: Editor | null = null;
-let bound: ViewBinding | null = null;
+let bound: TextEditorBinding | null = null;
 let detach: (() => void) | null = null;
 let timer: ReturnType<typeof setTimeout> | null = null;
 let cursorTimer: ReturnType<typeof setTimeout> | null = null;
 /** 程序换内容时不当成用户输入。 */
 let loading = false;
 
-const stateOf = (binding: ViewBinding): MarkdownViewState | null => binding.slot.state as MarkdownViewState | null;
+const stateOf = (binding: TextEditorBinding): MarkdownViewState | null => binding.slot.state as MarkdownViewState | null;
+
+/**
+ * 编解码器按编辑器自己的 schema 建（每个编辑器实例一份 schema），缓存在 `codecFor` 里。schema 从编辑状态的文档上取：组关闭时
+ * 编辑器区先释放实例，Tiptap 销毁后 `editor.schema` 不再可用，而卸载前的结算还要写出这个视图的输入。
+ */
+const codec = (current: Editor): MarkdownCodec => codecFor(current.state.doc.type.schema, markdownLanguage());
+
+/** 写不出的那一块给人看的样子：第几块（顶层块，从 1 起）与开头几个字（组顶部的提示用）。 */
+const EXCERPT_LENGTH = 16;
+const blockAt = (doc: EditorState["doc"], from: number, to: number): {index: number; excerpt: string} => {
+    let index = 0;
+    doc.forEach((_node, offset, at) => {
+        if (offset <= from) index = at;
+    });
+    const text = doc.textBetween(from, Math.min(to, doc.content.size), " ", " ").replace(/\s+/gu, " ").trim();
+    return {index: index + 1, excerpt: text.length > EXCERPT_LENGTH ? `${text.slice(0, EXCERPT_LENGTH)}…` : text};
+};
+
+/** 程序做的、不算用户输入的改动（重载、写法回填）：不进撤销历史，不让自动链接插件给内容加链接。 */
+const quietly = (current: Editor, change: (tr: Transaction) => void): void => {
+    const tr = current.state.tr;
+    change(tr);
+    if (!tr.docChanged) return;
+    loading = true;
+    try {
+        current.view.dispatch(tr.setMeta("addToHistory", false).setMeta("preventAutolink", true));
+    } finally {
+        loading = false;
+    }
+};
 
 /** 组的实例槽里存的编辑器实例（焦点在重挂后由编辑器区交还给活动视图，见 `area.ts` 的 `focusActive`）。 */
 interface KeptEditor {
@@ -52,7 +87,10 @@ interface KeptEditor {
 
 const attributes = (): Record<string, string> => ({"aria-label": props.label, "class": "markdown-control__prose", "data-editor-prose": ""});
 
-/** 编辑器里的正文交给文档：只把编辑过的行换成编辑器的写法，其余保持原文字节（`source-merge.ts`）。 */
+/**
+ * 编辑器里的正文交给文档（docs/specs/workspace/markdown-dialect.md 输出 1–3）：没编辑的块写原文，编辑过的块重新写出并读回校验。
+ * 写不出时这次输入不交，文档记下这个视图写不出（editor 输出 61）；被接受时把写出的写法回填进编辑器。
+ */
 const commitNow = (): void => {
     if (timer !== null) {
         clearTimeout(timer);
@@ -60,31 +98,33 @@ const commitNow = (): void => {
     }
     const binding = bound;
     // 只读时编辑区本来就不接受输入；只读之前敲下的输入仍要交出（例如订阅刚结束、要抢救）。
-    if (binding === null || editor === null) return;
+    const current = editor;
+    if (binding === null || current === null) return;
     const view = stateOf(binding);
     if (view === null) return;
-    const text = view.split.prefix + mergeSource(view.split.body, view.base, editor.getMarkdown());
-    if (text === binding.document.text.value && !view.held) return;
-    const result = binding.commit(view.confirmed, text);
+    const written = codec(current).write(current.state.doc, view.map);
+    if (!written.ok) {
+        view.held = true;
+        binding.block({reason: written.reason, from: written.from, to: written.to, ...blockAt(current.state.doc, written.from, written.to), fallback: written.fallback()});
+        return;
+    }
+    if (written.text === binding.text.value && !view.held) return;
+    const result = binding.commit(view.confirmed, written.text);
     if (result.status === "accepted") {
         view.confirmed = result.revision;
         view.held = false;
+        quietly(current, (tr) => written.accept(tr));
+        view.state = current.state;
     } else if (result.status === "conflict") {
         view.held = true;
     }
 };
 
-/** 按文档的正文新建编辑状态：新的撤销历史，记下原文拆分与打开时的序列化结果。 */
-const load = (binding: ViewBinding): MarkdownViewState | null => {
+/** 按文档的正文新建编辑状态：新的撤销历史，原文对照取这次读入的。 */
+const load = (binding: TextEditorBinding): MarkdownViewState | null => {
     if (editor === null) return null;
-    const split = splitFrontmatter(binding.document.text.value);
-    loading = true;
-    try {
-        editor.commands.setContent(normalizeMarkdownDialectBlocks(split.body), {contentType: "markdown", emitUpdate: false});
-        editor.view.updateState(EditorState.create({doc: editor.state.doc, plugins: editor.state.plugins}));
-    } finally {
-        loading = false;
-    }
+    const read = codec(editor).read(binding.text.value);
+    editor.view.updateState(EditorState.create({doc: read.doc, plugins: editor.state.plugins}));
     // 标签记着上次的光标：放回去，正文变短时夹到末尾（输出 30）。
     const cursor = binding.cursor;
     if (cursor !== null && "offset" in cursor) {
@@ -96,44 +136,29 @@ const load = (binding: ViewBinding): MarkdownViewState | null => {
             loading = false;
         }
     }
-    const view: MarkdownViewState = {state: editor.state, split, base: editor.getMarkdown(), confirmed: binding.document.revision.value, held: false, scroll: 0};
+    const view: MarkdownViewState = {state: editor.state, map: read.map, confirmed: binding.revision.value, held: false, scroll: 0};
     binding.slot.state = view;
     return view;
 };
 
 /**
  * 正文被别处改了（另一组的输入、磁盘的新内容、裁决）：只把不同的那一段换掉，这次替换不进撤销历史（输出 12），本组已有
- * 的撤销步骤映射过这次替换后仍可用。原文拆分与序列化结果按新正文重记，之后的保存以它为准。
+ * 的撤销步骤映射过这次替换后仍可用。原文对照换成按新正文读入的（`codec.reload`）。
  */
-const reload = (binding: ViewBinding, view: MarkdownViewState): void => {
-    if (editor === null || editor.markdown === undefined) return;
-    const split = splitFrontmatter(binding.document.text.value);
-    const next = editor.schema.nodeFromJSON(editor.markdown.parse(normalizeMarkdownDialectBlocks(split.body)));
-    const current = editor.state.doc;
-    const start = current.content.findDiffStart(next.content);
-    const end = current.content.findDiffEnd(next.content);
-    if (start !== null && end !== null) {
-        let {a: endA, b: endB} = end;
-        const overlap = start - Math.min(endA, endB);
-        if (overlap > 0) {
-            endA += overlap;
-            endB += overlap;
-        }
-        loading = true;
-        try {
-            editor.view.dispatch(editor.state.tr.replace(start, endA, next.slice(start, endB)).setMeta("addToHistory", false));
-        } finally {
-            loading = false;
-        }
-    }
-    view.state = editor.state;
-    view.split = split;
-    view.base = editor.getMarkdown();
-    view.confirmed = binding.document.revision.value;
+const reload = (binding: TextEditorBinding, view: MarkdownViewState): void => {
+    const current = editor;
+    if (current === null) return;
+    let map = view.map;
+    quietly(current, (tr) => {
+        map = codec(current).reload(tr, binding.text.value);
+    });
+    view.map = map;
+    view.state = current.state;
+    view.confirmed = binding.revision.value;
     view.held = false;
 };
 
-const enter = (binding: ViewBinding): void => {
+const enter = (binding: TextEditorBinding): void => {
     if (editor === null) return;
     bound = binding;
     let view = stateOf(binding);
@@ -143,13 +168,14 @@ const enter = (binding: ViewBinding): void => {
         view = load(binding);
     } else if (view !== null) {
         editor.view.updateState(view.state);
-        if (!view.held && view.confirmed !== binding.document.revision.value) reload(binding, view);
+        if (!view.held && !binding.blocked() && view.confirmed !== binding.revision.value) reload(binding, view);
     }
     editor.setEditable(!props.readonly);
     if (scroller.value !== null) scroller.value.scrollTop = view?.scroll ?? 0;
     // 按记下的光标新建的视图：滚到光标处。
     if (fresh && binding.cursor !== null) editor.commands.scrollIntoView();
     detach = binding.attach(commitNow);
+    refreshOutline(true);
 };
 
 /** 把光标记到当前绑定的标签上。 */
@@ -161,7 +187,7 @@ const rememberCursor = (): void => {
     if (bound !== null && editor !== null) bound.remember({offset: editor.state.selection.head});
 };
 
-const leave = (binding: ViewBinding): void => {
+const leave = (binding: TextEditorBinding): void => {
     if (bound === binding) {
         commitNow();
         rememberCursor();
@@ -174,6 +200,7 @@ const leave = (binding: ViewBinding): void => {
     detach?.();
     detach = null;
     if (bound === binding) bound = null;
+    refreshOutline(true);
 };
 
 watch(() => props.binding, (next, previous) => {
@@ -181,35 +208,107 @@ watch(() => props.binding, (next, previous) => {
     if (next !== null) enter(next);
 }, {flush: "sync"});
 
-// 正文被别处改了，或自己的未裁决输入被裁决了：按文档的正文更新。
-watch(() => [props.binding?.document.revision.value, props.binding?.unresolved()] as const, () => {
+// 正文被别处改了，或自己的未裁决输入被裁决了、写不出被“采用当前正文”解除了：按文档的正文更新。写不出期间不更新（输出 61）。
+watch(() => [props.binding?.revision.value, props.binding?.unresolved(), props.binding?.blocked()] as const, () => {
     const binding = props.binding;
     if (binding === null || binding !== bound) return;
     const view = stateOf(binding);
     if (view === null) return;
-    if (view.held && binding.unresolved()) return;
-    if (!view.held && view.confirmed === binding.document.revision.value) return;
+    if (view.held && (binding.unresolved() || binding.blocked())) return;
+    if (!view.held && view.confirmed === binding.revision.value) return;
     reload(binding, view);
 });
 
 // 变成只读（例如文件被外部删除）之前敲下、还在延迟里的输入照常由计时器交出：文档在已删除时仍接受输入回执。
 watch(() => props.readonly, (readonly) => editor?.setEditable(!readonly));
 
+/**
+ * 大纲（面包屑用，docs/specs/workbench/editor.md 输出 60）：跟着当前绑定。正文变了重算、`version` 加一；光标动了只换
+ * `current`。标题的位置只在这里记，面包屑拿到的是 id，跳转时按 `binding` 与 `version` 核对，对不上不跳。
+ */
+const outline = shallowRef<EditorOutline | null>(null);
+let outlineVersion = 0;
+let headingPositions: ReadonlyMap<string, number> = new Map();
+const currentHeading = (): string | null => {
+    if (editor === null) return null;
+    const at = editor.state.selection.from;
+    let current: string | null = null;
+    for (const [id, position] of headingPositions) if (position <= at) current = id;
+    return current;
+};
+const refreshOutline = (contentChanged: boolean): void => {
+    const binding = bound;
+    if (binding === null || editor === null) {
+        outline.value = null;
+        headingPositions = new Map();
+        return;
+    }
+    const previous = outline.value;
+    if (!contentChanged && previous !== null && previous.binding === binding.token) {
+        const current = currentHeading();
+        if (current !== previous.current) outline.value = {...previous, current};
+        return;
+    }
+    outlineVersion += 1;
+    const items: Array<{id: string; level: number; text: string}> = [];
+    const positions = new Map<string, number>();
+    editor.state.doc.descendants((node, position) => {
+        if (node.type.name !== "heading") return true;
+        const id = `h${String(items.length)}`;
+        items.push({id, level: Number(node.attrs.level), text: node.textContent});
+        positions.set(id, position);
+        return false;
+    });
+    headingPositions = positions;
+    outline.value = {binding: binding.token, version: outlineVersion, items, current: currentHeading()};
+};
+const revealHeading = (binding: string, version: number, id: string): "ok" | "stale" => {
+    const position = headingPositions.get(id);
+    if (editor === null || outline.value?.binding !== binding || outline.value.version !== version || position === undefined) return "stale";
+    editor.chain().focus().setTextSelection(position + 1).scrollIntoView().run();
+    return "ok";
+};
+
 const handle: EditorControlHandle = {
+    outline,
+    revealHeading,
     focus: () => editor?.commands.focus(),
     undo: () => editor?.commands.undo(),
     redo: () => editor?.commands.redo(),
     flushPendingChange: commitNow,
     rememberCursor,
     revealEnd: () => editor?.commands.focus("end"),
+    revealRange: (from, to) => {
+        if (editor === null) return;
+        const doc = editor.state.doc;
+        const clamp = (position: number): number => Math.max(0, Math.min(position, doc.content.size));
+        // 位置是块的边界（写不出的那几块的起止）：选中其中的全部文字与行内节点。
+        editor.view.dispatch(editor.state.tr.setSelection(TextSelection.between(doc.resolve(clamp(from)), doc.resolve(clamp(to)))).scrollIntoView());
+        editor.view.focus();
+    },
+};
+
+/**
+ * 停手的结算：输入法还在组字时不交（交出被接受后的写法回填会重画这一块，打断组字），组字结束后的下一次停手再交。失焦、换文档
+ * 与保存之前的结算照常立即进行。
+ */
+const commitWhenSettled = (): void => {
+    if (editor?.view.composing === true) {
+        timer = setTimeout(commitWhenSettled, COMMIT_DELAY_MS);
+        return;
+    }
+    commitNow();
 };
 
 const onUpdate = ({transaction}: {transaction: {docChanged: boolean}}): void => {
+    // 程序换的内容（按文档的正文重载）也改大纲。
+    if (transaction.docChanged) refreshOutline(true);
     if (loading || !transaction.docChanged) return;
     if (timer !== null) clearTimeout(timer);
-    timer = setTimeout(commitNow, COMMIT_DELAY_MS);
+    timer = setTimeout(commitWhenSettled, COMMIT_DELAY_MS);
 };
 const onSelection = (): void => {
+    refreshOutline(false);
     if (loading) return;
     if (cursorTimer !== null) clearTimeout(cursorTimer);
     cursorTimer = setTimeout(rememberCursor, CURSOR_REMEMBER_MS);
@@ -263,6 +362,7 @@ onBeforeUnmount(() => {
         editor.unmount();
     }
     editor = null;
+    refreshOutline(true);
     emit("ready", null);
 });
 </script>
@@ -370,6 +470,241 @@ onBeforeUnmount(() => {
 .markdown-control :deep(a) {
     color: var(--accent-text);
     text-decoration: underline;
+}
+
+/* 批注（方言 Spec 输出 11）：被批注的正文带波浪线；块批注另在左侧画一条虚线标出范围。意见的界面另做。 */
+.markdown-control :deep(comment),
+.markdown-control :deep(.nb-comment-block) {
+    text-decoration: underline wavy var(--status-warning);
+    text-decoration-thickness: 1px;
+    text-underline-offset: 0.3em;
+}
+
+.markdown-control :deep(.nb-comment-block) {
+    border-left: 2px dashed var(--status-warning-border);
+    padding-left: 1em;
+}
+
+/* 注音（输出 12）：正文上方的小字。 */
+.markdown-control :deep(.nb-ruby-text) {
+    color: var(--text-muted);
+    font-size: 0.6em;
+}
+
+/* 双语对照（输出 13）：原文上方一行弱色的译文。 */
+.markdown-control :deep(.nb-bilingual-block::before) {
+    content: attr(data-bilingual-text);
+    display: block;
+    margin-bottom: 0.25em;
+    color: var(--text-muted);
+    font-size: 0.85em;
+}
+
+/* 对齐（输出 14）：`<align>` 是块，对齐写在它的行内样式里。 */
+.markdown-control :deep(align) {
+    display: block;
+}
+
+/*
+ * 高亮（输出 15、24）：没有颜色时的底色；带颜色的写在行内样式里，盖过这里。不用 `--status-warning-bg`：它是给面板底色配的
+ * 浅色，叠在偏暖的浅色纸面上几乎看不出来。
+ */
+.markdown-control :deep(mark) {
+    border-radius: 2px;
+    background: color-mix(in srgb, var(--status-warning) 32%, transparent);
+    color: inherit;
+}
+
+/* 上标、下标（输出 15）。 */
+.markdown-control :deep(sup),
+.markdown-control :deep(sub) {
+    position: relative;
+    font-size: 0.75em;
+    line-height: 0;
+    vertical-align: baseline;
+}
+
+.markdown-control :deep(sup) {
+    top: -0.5em;
+}
+
+.markdown-control :deep(sub) {
+    bottom: -0.25em;
+}
+
+/* 原样块与原样片段（输出 9）：显示源码，整体选中、删除或复制，不能在里面编辑。 */
+.markdown-control :deep(.nb-html-block),
+.markdown-control :deep(.nb-raw-inline-html) {
+    border: 1px dashed var(--border-color);
+    background: var(--bg-subtle);
+    color: var(--text-secondary);
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 0.85em;
+}
+
+.markdown-control :deep(.nb-html-block) {
+    white-space: pre-wrap;
+}
+
+.markdown-control :deep(.nb-raw-inline-html) {
+    border-radius: 3px;
+    padding: 0 0.2em;
+}
+
+/*
+ * 任务列表（输出 19）：复选框在左，内容在右。任务项的视图（`@tiptap/extension-list`）不给 `li` 加 `data-type`，按所在的列表选；
+ * 全局样式把输入框的外观清掉了，复选框在这里恢复。
+ */
+.markdown-control :deep(ul[data-type="taskList"]) {
+    list-style: none;
+    padding-left: 0.25em;
+}
+
+.markdown-control :deep(ul[data-type="taskList"] > li) {
+    display: flex;
+    gap: 0.5em;
+}
+
+.markdown-control :deep(ul[data-type="taskList"] > li > label) {
+    display: flex;
+    flex: none;
+    align-items: center;
+    height: calc(var(--markdown-line-height) * 1em);
+}
+
+.markdown-control :deep(ul[data-type="taskList"] > li > label > input) {
+    appearance: auto;
+    width: 1em;
+    height: 1em;
+    margin: 0;
+    accent-color: var(--accent-main);
+}
+
+.markdown-control :deep(ul[data-type="taskList"] > li > div) {
+    flex: 1;
+    min-width: 0;
+}
+
+/* 提示块（输出 23）：五种类型各有颜色，其它类型按 NOTE。 */
+.markdown-control :deep(.nb-callout) {
+    --callout-color: var(--status-info);
+    --callout-bg: var(--status-info-bg);
+    border-left: 3px solid var(--callout-color);
+    border-radius: 6px;
+    background: var(--callout-bg);
+    padding: 0.5em 1em;
+}
+
+.markdown-control :deep(.nb-callout--tip) {
+    --callout-color: var(--status-success);
+    --callout-bg: var(--status-success-bg);
+}
+
+.markdown-control :deep(.nb-callout--important) {
+    --callout-color: var(--accent-main);
+    --callout-bg: var(--accent-bg);
+}
+
+.markdown-control :deep(.nb-callout--warning) {
+    --callout-color: var(--status-warning);
+    --callout-bg: var(--status-warning-bg);
+}
+
+.markdown-control :deep(.nb-callout--caution) {
+    --callout-color: var(--status-danger);
+    --callout-bg: var(--status-danger-bg);
+}
+
+.markdown-control :deep(.nb-callout__title:has(> .nb-callout__toggle:not([hidden]))) {
+    cursor: pointer;
+}
+
+.markdown-control :deep(.nb-callout__title) {
+    display: flex;
+    align-items: center;
+    gap: 0.4em;
+    color: var(--callout-color);
+    font-weight: 600;
+    user-select: none;
+}
+
+.markdown-control :deep(.nb-callout__toggle) {
+    display: inline-flex;
+    margin-left: auto;
+    border-radius: 4px;
+    padding: 0.15em;
+    color: inherit;
+}
+
+.markdown-control :deep(.nb-callout__toggle[hidden]) {
+    display: none;
+}
+
+.markdown-control :deep(.nb-callout__toggle:hover) {
+    background: var(--bg-hover);
+}
+
+.markdown-control :deep(.nb-callout__toggle[aria-expanded="true"] > span) {
+    transform: rotate(90deg);
+}
+
+.markdown-control :deep(.nb-callout__content > * + *) {
+    margin-top: var(--markdown-block-gap);
+}
+
+/* 可渲染 HTML（输出 16）：源码卡片，标题行给“渲染”与“查看源码”。 */
+.markdown-control :deep(.nb-html-embed) {
+    overflow: hidden;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+}
+
+.markdown-control :deep(.nb-html-embed__header) {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-bottom: 1px solid var(--border-color);
+    background: var(--bg-subtle);
+    padding: 0.3em 0.75em;
+    color: var(--text-secondary);
+    font-size: 0.85em;
+}
+
+.markdown-control :deep(.nb-html-embed__caption),
+.markdown-control :deep(.nb-html-embed__toggle) {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35em;
+}
+
+.markdown-control :deep(.nb-html-embed__toggle) {
+    border-radius: 4px;
+    padding: 0.1em 0.5em;
+}
+
+.markdown-control :deep(.nb-html-embed__toggle.is-idle) {
+    color: var(--accent-text);
+}
+
+.markdown-control :deep(.nb-html-embed__toggle:hover) {
+    background: var(--bg-hover);
+}
+
+.markdown-control :deep(.nb-html-embed__source) {
+    margin: 0;
+    border-radius: 0;
+}
+
+.markdown-control :deep(.nb-html-embed__frame) {
+    display: block;
+    width: 100%;
+    min-height: 240px;
+    border: 0;
+    opacity: 0;
+}
+
+.markdown-control :deep(.nb-html-embed__frame.is-loaded) {
+    opacity: 1;
 }
 
 .markdown-control :deep(p.is-editor-empty:first-child::before) {

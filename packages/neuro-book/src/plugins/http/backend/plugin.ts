@@ -34,6 +34,8 @@ export interface HttpPluginOptions {
     /** 监听成功后报告实际地址（端口为 0 时由系统分配）。 */
     readonly onListening: (url: string) => void;
     readonly hostRoutes?: ReadonlyArray<HostRoute>;
+    /** 写请求的 `Origin` 是否允许（与 RPC 端口同一份判定）。 */
+    readonly allowOrigin: (origin: string) => boolean;
     /** `vite build` 的输出目录；缺少 `index.html` 时入口激活失败。null 时不提供页面。 */
     readonly staticRoot?: string | null;
 }
@@ -74,7 +76,7 @@ export function createHttpPlugin(options: HttpPluginOptions): PluginDefinition {
                     port: options.port,
                     // 关闭空闲超时：长请求与事件流由排空合同收口，不被 Bun 默认的 10 秒空闲断开。
                     idleTimeout: 0,
-                    fetch: createDispatcher({admission: options.admission, routes, hostRoutes, staticFiles, reportError}),
+                    fetch: createDispatcher({admission: options.admission, routes, hostRoutes, staticFiles, reportError, allowOrigin: options.allowOrigin}),
                     error: (error) => {
                         reportError(error, {plugin: null, path: ""});
                         return errorResponse(500, "internal-error", "处理请求时出错。");

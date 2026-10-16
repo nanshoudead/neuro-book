@@ -1,7 +1,7 @@
 /**
  * 生成资源管理器的文件图标（docs/specs/workbench/files-explorer.md 的“行的样子”）：从 `@iconify-json/catppuccin`（MIT，
  * devDependency）挑出 `ICONS` 列出的图标，把 SVG 里 catppuccin Macchiato 的颜色换成 CSS 变量 `var(--file-icon-<色名>)`，
- * 写成 `src/plugins/explorer/web/icons/catppuccin.ts`。亮暗两套颜色由 `FileIcon.vue` 按色名定义，换配色不用重新生成。
+ * 写成 `src/ui/file-icons/catppuccin.ts`。亮暗两套颜色由 `FileIcon.vue` 按色名定义，换配色不用重新生成。
  * 只打包用到的几十个图标，不把整套 600 多个带进前端。
  *
  *   bun scripts/gen-file-icons.ts [--check]
@@ -13,7 +13,7 @@ import {readFile, writeFile} from "node:fs/promises";
 import {createRequire} from "node:module";
 import {dirname, join} from "node:path";
 
-/** 映射表（`src/plugins/explorer/web/icons/file-icons.ts`）用到的图标；加图标先加在这里再生成。 */
+/** 映射表（`src/ui/file-icons/file-icons.ts` 与 `src/plugins/explorer/web/icons/file-icons.ts`）用到的图标；加图标先加在这里再生成。 */
 const ICONS = [
     "file", "text", "markdown", "json", "yaml", "toml", "xml", "csv", "pdf", "image", "svg", "audio", "video", "font", "zip", "database",
     "html", "css", "javascript", "typescript",
@@ -35,7 +35,7 @@ interface IconSet {
 }
 
 const packageRoot = join(import.meta.dir, "..");
-const target = join(packageRoot, "src/plugins/explorer/web/icons/catppuccin.ts");
+const target = join(packageRoot, "src/ui/file-icons/catppuccin.ts");
 const require = createRequire(join(packageRoot, "package.json"));
 const setPath = require.resolve("@iconify-json/catppuccin/icons.json");
 const set = JSON.parse(await readFile(setPath, "utf8")) as IconSet;

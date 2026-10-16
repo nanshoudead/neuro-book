@@ -45,6 +45,8 @@ interface World {
     readonly reports: unknown[];
     /** 文档模型发出、还没有结果的读取（经真实客户端，只多记一笔）。 */
     readonly pendingReads: Set<symbol>;
+    /** 文档模型发出过的全部读取的地址。 */
+    readonly readAddresses: string[];
 }
 
 const LAYOUT: Layout = {"a.md": "A", "b.md": "B", "dir/c.md": "C"};
@@ -55,8 +57,10 @@ async function world(layout: Layout = LAYOUT): Promise<World> {
     const scene = await filesScene(join(tmp, `case-${String(counter)}`), {project: layout, user: {"u.md": "U"}}, {wrapLink: tap.wrap});
     const reports: unknown[] = [];
     const pendingReads = new Set<symbol>();
+    const readAddresses: string[] = [];
     const client = files(scene.window);
     const observed: FilesService = {...client, read: async (address, options) => {
+        readAddresses.push(address);
         const marker = Symbol(address);
         pendingReads.add(marker);
         try {
@@ -74,7 +78,7 @@ async function world(layout: Layout = LAYOUT): Promise<World> {
         for (const result of closed) expect(result).toMatchObject({status: "closed"});
         await rm(scene.root, {recursive: true, force: true});
     });
-    return {scene, tap, store, events, reports, pendingReads};
+    return {scene, tap, store, events, reports, pendingReads, readAddresses};
 }
 
 /** 等可观察的条件，期间推进场地的时钟（变化事件按批延迟交付）。 */
@@ -166,6 +170,66 @@ describe("Spec workbench.editor 输出 11：打开与读取", () => {
         const big = at.store.acquire("project://big.md").document;
         await until(at, "过大", () => big.status.value === "failed");
         expect(big.failure.value?.code).toBe("too-large");
+    });
+});
+
+describe("Spec workbench.editor 输出 61：写不出", () => {
+    const input = {reason: "段首的 HTML", from: 0, to: 3, index: 1, excerpt: "A", fallback: "A（纯文字）"};
+
+    it("写不出的视图挡保存与资源管理器的租约、计入需要结算的文档与抢救；别的视图的输入不解除它，它自己交出成功才解除", async () => {
+        const at = await world();
+        const document = await opened(at, "project://a.md");
+        at.store.block(document, "v1", input);
+        expect(document.blocked.value.get("v1")).toEqual(input);
+        expect(await at.store.save(document)).toEqual({ok: false, code: "unrepresentable"});
+        expect(count(at, "write")).toBe(0);
+        expect(at.store.coordinator.affected(["project://"])).toEqual([{address: "project://a.md", state: "unrepresentable"}]);
+        expect(await at.store.coordinator.begin(["project://a.md"])).toEqual({ok: false, reason: "blocked", documents: [{address: "project://a.md", state: "unrepresentable"}]});
+        expect(await at.store.coordinator.save(["project://"])).toEqual([{address: "project://a.md", ok: false, code: "unrepresentable"}]);
+        expect(at.store.rescue()).toEqual([{path: "project://a.md", text: "A（纯文字）", note: expect.any(String)}]);
+
+        expect(at.store.commit(document, "v2", document.revision.value, "A（另一视图）")).toMatchObject({status: "accepted"});
+        expect(document.blocked.value.has("v1")).toBe(true);
+        expect(at.store.commit(document, "v1", document.revision.value, "A（写得出了）")).toMatchObject({status: "accepted"});
+        expect(document.blocked.value.size).toBe(0);
+        expect(await at.store.save(document)).toEqual({ok: true});
+        expect(await disk(at, "a.md")).toBe("A（写得出了）");
+    });
+
+    it("视图有未裁决输入、继续编辑到写不出：旧的未裁决输入丢掉，只剩写不出", async () => {
+        const at = await world();
+        const document = await opened(at, "project://a.md");
+        const base = document.revision.value;
+        at.store.commit(document, "v1", base, "A1");
+        expect(at.store.commit(document, "v2", base, "A2")).toMatchObject({status: "conflict"});
+        at.store.block(document, "v2", input);
+        expect(document.unresolved.value).toEqual([]);
+        expect([...document.blocked.value.keys()]).toEqual(["v2"]);
+        expect(at.store.coordinator.affected(["project://"])).toEqual([{address: "project://a.md", state: "unrepresentable"}]);
+    });
+
+    it("丢弃这个视图的输入、采用当前正文（unblock）解除；重新载入磁盘版本不解除（那些输入从没进过正文）", async () => {
+        const at = await world();
+        const document = await opened(at, "project://a.md");
+        at.store.block(document, "v1", input);
+        at.store.discardInput(document, "v1");
+        expect(document.blocked.value.size).toBe(0);
+        at.store.block(document, "v1", input);
+        at.store.unblock(document, "v1");
+        expect(document.blocked.value.size).toBe(0);
+        at.store.block(document, "v1", input);
+        await at.store.revert(document);
+        expect([...document.blocked.value.keys()]).toEqual(["v1"]);
+    });
+
+    it("一个视图写不出、另一个视图有未裁决输入：资源管理器看到的是写不出（不能先保存）", async () => {
+        const at = await world();
+        const document = await opened(at, "project://a.md");
+        const base = document.revision.value;
+        at.store.commit(document, "v1", base, "A1");
+        at.store.commit(document, "v2", base, "A2");
+        at.store.block(document, "v3", input);
+        expect(at.store.coordinator.affected(["project://"])).toEqual([{address: "project://a.md", state: "unrepresentable"}]);
     });
 });
 
@@ -446,6 +510,90 @@ describe("Spec workbench.editor 输出 17–18：改名、删除与订阅结束"
         await until(at, "订阅结束", () => document.ended.value !== null);
         expect(document.writable.value).toBe(false);
         expect(await at.store.save(document)).toMatchObject({ok: false, code: "ended"});
+    });
+});
+
+describe("Spec workbench.editor 输出 41：字节引用", () => {
+    it("只有字节引用时不读正文：就绪、没有正文、不 dirty；文件每次变化 version 加一；删除标为已删除，又出现回到就绪", async () => {
+        const at = await world({...LAYOUT, "a.png": "PNG"});
+        const reference = at.store.acquire("project://a.png", {text: false});
+        const document = reference.document;
+        expect(document.status.value).toBe("ready");
+        expect([document.text.value, document.dirty.value, document.writable.value]).toEqual(["", false, false]);
+        expect(at.store.commit(document, "v", document.revision.value, "x")).toEqual({status: "stale"});
+        // 订阅就绪时 version 加一（就绪之前的变化没有事件，控件要再取一次）。
+        await until(at, "订阅就绪", () => document.version.value > 0);
+        const start = document.version.value;
+        await writeFile(join(at.scene.project, "a.png"), "PNG2");
+        await until(at, "变化交付", () => document.version.value > start);
+        await rm(join(at.scene.project, "a.png"));
+        await until(at, "标为已删除", () => document.status.value === "deleted");
+        await writeFile(join(at.scene.project, "a.png"), "PNG3");
+        await until(at, "又出现", () => document.status.value === "ready");
+        expect(at.readAddresses).not.toContain("project://a.png");
+        reference.release();
+        expect(at.store.get("project://a.png")).toBeNull();
+    });
+
+    it("同一地址先有字节引用、后来有文本引用：开始读正文；文本引用都释放后丢掉正文、回到只按字节", async () => {
+        const at = await world({...LAYOUT, "a.svg": "<svg/>"});
+        const bytes = at.store.acquire("project://a.svg", {text: false});
+        const text = at.store.acquire("project://a.svg");
+        expect(text.document).toBe(bytes.document);
+        await until(at, "读到正文", () => text.document.status.value === "ready" && text.document.text.value === "<svg/>");
+        expect(text.document.writable.value).toBe(true);
+        text.release();
+        await until(at, "丢掉正文", () => bytes.document.text.value === "");
+        expect([bytes.document.status.value, bytes.document.dirty.value, bytes.document.writable.value]).toEqual(["ready", false, false]);
+        bytes.release();
+    });
+
+    it("保存在途时放掉最后一个文本引用（关闭时选了不保存）：保存回来之后才丢正文，字节条目不会变成 dirty 的空正文", async () => {
+        const at = await world({...LAYOUT, "a.svg": "<svg/>"});
+        const bytes = at.store.acquire("project://a.svg", {text: false});
+        const text = at.store.acquire("project://a.svg");
+        await until(at, "读到正文", () => text.document.status.value === "ready" && text.document.text.value === "<svg/>");
+        at.store.commit(text.document, "v", text.document.revision.value, "<svg id=\"x\"/>");
+        const held = at.tap.hold((request) => request.method === "write");
+        const saving = at.store.save(text.document);
+        await held.arrived;
+        text.release();
+        held.release();
+        expect(await saving).toEqual({ok: true});
+        await until(at, "丢掉正文", () => bytes.document.text.value === "");
+        expect([bytes.document.dirty.value, bytes.document.saving.value]).toEqual([false, false]);
+        // 再开文本标签读到的是磁盘上的新内容。
+        const again = at.store.acquire("project://a.svg");
+        await until(at, "重新读到正文", () => again.document.status.value === "ready" && again.document.text.value === "<svg id=\"x\"/>");
+        expect(again.document.dirty.value).toBe(false);
+        again.release();
+        bytes.release();
+    });
+
+    it("字节与文本引用同时在、订阅建立前文件被改：就绪时字节的 version 也加一，文本读到新正文", async () => {
+        const at = await world({...LAYOUT, "a.svg": "<svg/>"});
+        const subscribe = at.tap.holdSend((frame) => frame.type === "subscribe" && frame.contract === "nbook.files/project");
+        const bytes = at.store.acquire("project://a.svg", {text: false});
+        const text = at.store.acquire("project://a.svg");
+        await subscribe.arrived;
+        expect(bytes.document.version.value).toBe(0);
+        await writeFile(join(at.scene.project, "a.svg"), "<svg id=\"new\"/>");
+        subscribe.release();
+        await until(at, "文本读到新正文", () => text.document.text.value === "<svg id=\"new\"/>");
+        expect(bytes.document.version.value).toBeGreaterThan(0);
+        text.release();
+        bytes.release();
+    });
+
+    it("改名与资源管理器的删除对字节引用同样生效：条目跟到新地址、关闭时通知标签", async () => {
+        const at = await world({...LAYOUT, "dir/p.png": "PNG"});
+        const reference = at.store.acquire("project://dir/p.png", {text: false});
+        expect(await files(at.scene.window).rename("project://dir", "moved")).toMatchObject({ok: true});
+        await until(at, "改到新地址", () => reference.document.target.value.path === "project://moved/p.png");
+        expect(at.events).toContainEqual({kind: "rebound", from: "project://dir", to: "project://moved", kept: []});
+        at.store.coordinator.close(["project://moved"]);
+        expect(at.events.at(-1)).toEqual({kind: "closed", addresses: ["project://moved/p.png"]});
+        expect(at.readAddresses).not.toContain("project://dir/p.png");
     });
 });
 

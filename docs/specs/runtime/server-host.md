@@ -54,6 +54,11 @@ owners:
 
 **内核 RPC 端口：** 协议、握手与 `Origin` 规则见 [远程服务与 RPC 协议](plugin-channel.md) 的“WebSocket 传输与握手”。允许的来源是本进程 HTTP 端口在三个回环别名上的来源（`http://127.0.0.1:<端口>`、`http://localhost:<端口>`、`http://[::1]:<端口>`，端口取实际监听的端口），加上 `NBOOK_ALLOWED_ORIGINS`；比较前按 URL 规范化。服务端用 WebSocket ping 发现失联客户端：空闲 120 秒且不回应即断开。
 
+**HTTP 端口的来源核对：** 未加载鉴权时，分发请求之前先核对两件事，对所有路由（含宿主接口与页面资源）都适用：
+- `Host` 必须是回环名（`127.0.0.1`、`localhost`、`[::1]`，可带端口）或 `NBOOK_ALLOWED_ORIGINS` 里来源的主机，否则 421 `misdirected-host`。这一条防 DNS 重绑定：重绑定后攻击页与本机端口同源、GET 请求不带 `Origin`，只有 `Host` 分得出来。
+- `GET`、`HEAD` 以外的请求带了 `Origin` 且它不是允许的来源（与 RPC 端口同一份：HTTP 端口的三个回环来源加 `NBOOK_ALLOWED_ORIGINS`；`null` 不是允许的来源）时为 403 `origin-not-allowed`。不带 `Origin` 的本机进程照常放行（见已知限制）。
+错误体是 HTTP 端口统一的 `{error: {code, message}}`。
+
 **页面资源：** 设置了 `NBOOK_WEB_ROOT` 时，`/api/` 之外的路径由前端构建产物提供：只有 GET、HEAD；路径（含符号链接）不能越出该目录；没有扩展名的页面路径回退到 `index.html`，`/assets/` 下与带扩展名的缺失文件是 404；`/assets/` 下的文件长期缓存（Vite 只往这个目录放文件名带内容哈希的产物），其余（含 `index.html`）每次重新验证。页面资源同样经过准入，就绪前等待、排空期间 503。目录缺少 `index.html` 时 `nbook.http` 激活失败，即启动失败。未设置时 `/api/` 之外的路径一律 404（开发模式由 Vite 提供页面）。`/api` 命名空间（按解码后的路径判断）里没有匹配的路径不回退到页面。
 
 **停止序列：** 任一停止来源触发后：
@@ -152,6 +157,7 @@ owners:
 14. **项目子进程的停止顺序**。Given 一个打开的项目与绑定它的窗口；When 发送 SIGTERM；Then 新握手与新的打开项目被拒，项目子进程先于服务端插件退出，进程以 0 退出。
 15. **项目子进程停止超时**。Given 一个不响应停止请求的项目子进程；When 服务端停止；Then 到 `NBOOK_PROJECT_STOP_MS` 时它被强制结束并记为外部终止，其余步骤照常，进程以 1 退出。
 16. **项目参数与输出**。`NBOOK_PROJECT_GRACE_MS`、`NBOOK_PROJECT_START_MS`、`NBOOK_PROJECT_STOP_MS` 不是合法毫秒数时以 1 退出；项目子进程的输出带 `[project <短名>#<代次>]` 前缀出现在服务端输出里。
+17. **HTTP 来源核对。** `Host: evil.example:<端口>` 的请求得到 421；带 `Origin: null` 或 `Origin: http://evil.example` 的 `POST` 得到 403；页面自己的写请求、不带 `Origin` 的本机写请求与任意来源的 `GET` 照常。
 
 Smoke：生产打包产物在 Bun 下用临时状态根运行场景 1、2、4、11，以及一次 RPC 握手（场景 12 的来源核对）和一次打开项目（登记临时目录、经 RPC 绑定、项目子进程报告身份）；开发模式运行场景 7、8，并核对页面直连 RPC 端口、后端重启后页面显示服务端已重启。
 
@@ -165,6 +171,7 @@ Smoke：生产打包产物在 Bun 下用临时状态根运行场景 1、2、4、
   - RPC 监听先于插件装配（引导接口要告诉浏览器实际端口），运行实例之前只建了远程节点与路由，没有要关闭的插件资源。升级先过 HTTP 准入的门（与页面资源同一道门：就绪前等待，启动失败与排空开始后 503），再核对 `Origin`：顺序不能反，HTTP 端口为 0 时允许的来源要等 `nbook.http` 监听后才知道。
   - `beforeStop` 并行执行 HTTP 排空与 RPC 排空（路由先停止接纳再排空，两者各有 20 秒上限、用同一个注入时钟），任一未完成都记为停止步骤失败；内核关闭全部插件之后才关闭路由链路与 RPC 监听，启动失败时同样关闭。
   - 测试插件只经 `startServer({plugins})` 注入，产品清单与产品代码不含测试分支。
+  - HTTP 的 `Host` 与写请求 `Origin` 核对在 `dispatch.ts` 的分发入口，先于准入的门与路由匹配；允许的来源与 RPC 端口同一份（`loopbackOrigins`），由 `start.ts` 经 `nbook.http` 的 `allowOrigin` 交给分发（`dispatch.test.ts`）。
   - 项目：停止的同步段里先关项目管理器的接纳，再开始两路排空；项目管理器建在服务端运行实例上（子实例的停止阶段在内核关闭插件之前停完项目子进程），宿主能力 `projectsKey` 等项目管理器建好再交出（内核在建立运行实例的同步段里就开始启动激活）。项目子进程先把链路交给路由（带 `expect`）再起进程；没有被要求停止时 IPC 断开或进程结束即报告这一代结束，退出码等进程真正结束后写诊断；停止中被强制结束或以非 0 退出的子进程计入停止问题，退出码 1。项目子进程只认 SIGTERM，终端的 Ctrl+C 不让它自行退出；它的日志位置是 `<状态根>/logs/projects/<短名>/`。
 - **合同测试**：项目`src/server/server-projects.test.ts`（同进程：绑定与共用代次、宽限期内重连与期满后 `project-gone`、崩溃、宽限期中不唤醒、停止开始后打开被拒与绑定中的租约释放；真实子进程：场景 14 的收口顺序与场景 15 的强制结束）、`src/server/projects/manager.test.ts`（真实项目子进程：打开、关闭与崩溃、启动与停止的收口、父实例停止）、`projects-capability.test.ts`、`registry.test.ts`，`config.test.ts` 的项目时限；`src/server/server.test.ts`（真实子进程：启动、标准输入与 SIGTERM 停止、在途请求、启动失败、关闭失败、未捕获异常、未处理的 Promise 拒绝、标准输入结束、非回环地址；同进程：排空超时、启动失败时等待就绪的请求得到 503、未处理异常汇合为一次停止且停止后监听全部移除、插件装配失败、页面目录缺少 index.html）、`src/server/config.test.ts`、`src/plugins/http/backend/admission.test.ts`、`src/plugins/http/backend/dispatch.test.ts`、`src/plugins/http/backend/static.test.ts`；开发模式 `src/server/dev/supervisor.test.ts`（真实后端子进程：场景 7 的有序重启、去抖、启动失败不循环、运行中退出、门）、`src/server/dev/run.test.ts`（真实会话子进程：场景 8 的停止顺序、终端 Ctrl+C、第二个信号、页面端口被占用）、`src/server/dev/watch.test.ts`、`src/server/dev/config.test.ts`。RPC 端口：`src/server/rpc/listener.test.ts`（真实 Bun 监听与内核路由：来源、路径、门、消息上限、停止后拒绝连接）、`server.test.ts` 的 RPC 一组（同进程：两类允许来源与额外来源、在途远程请求时停止、RPC 排空超时、启动失败时等待中的升级得到 503、RPC 端口被占用；真实子进程：`RPC listening on` 与停止后端口关闭）、`config.test.ts`（RPC 端口与额外来源的解析与拒绝）、`src/server/dev/run.test.ts`（开发会话把页面来源传给后端、重启后经引导取得新端口）。
 - **实际 smoke**：`bun run smoke:server`（先打包再运行场景 1、2、4、11、页面资源、RPC 握手 S6 与打包产物的项目绑定 S7），检查未执行时以非零退出；开发模式由 `e2e/dev.e2e.ts`（`bun run test:e2e`）以真实的 `bun run dev` 入口、本机 Chrome 运行场景 7、8，并核对页面直连 RPC 端口、后端重启后页面显示服务端已重启。

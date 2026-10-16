@@ -9,9 +9,16 @@ import type {Static} from "typebox";
 import type {ShallowRef} from "@vue/reactivity";
 
 import type {CommandDeclaration, CommandImplementation, CommandResult} from "nbook/plugins/commands/shared/contracts";
+import type {FilesService} from "nbook/plugins/files/shared/contracts";
+import type {QuickPick} from "nbook/plugins/workbench/shared/contracts";
 
 import {OPEN_PAGE_COMMAND} from "../shared/contracts";
-import type {ActionResult, EditorArea} from "./area";
+import type {ActionResult, BatchCloseResult, EditorArea} from "./area";
+import type {EditorTab} from "./groups/groups";
+import {resourceOf} from "./documents/address";
+import {candidatesFor} from "./editors";
+import type {EditorCatalog} from "./editors";
+import type {LanguageRegistry} from "./code/languages";
 import type {EditorPageRegistry} from "./pages";
 import {editorState} from "./state";
 
@@ -21,9 +28,18 @@ export const SAVE_ALL_COMMAND = "nbook.editor.save-all";
 export const REVERT_COMMAND = "nbook.editor.revert";
 export const CLOSE_COMMAND = "nbook.editor.close";
 export const CLOSE_OTHERS_COMMAND = "nbook.editor.close-others";
+export const CLOSE_TO_RIGHT_COMMAND = "nbook.editor.close-to-right";
+export const CLOSE_SAVED_COMMAND = "nbook.editor.close-saved";
+export const PIN_TAB_COMMAND = "nbook.editor.pin-tab";
+export const UNPIN_TAB_COMMAND = "nbook.editor.unpin-tab";
+export const COPY_PATH_COMMAND = "nbook.editor.copy-path";
+export const FOCUS_BREADCRUMBS_COMMAND = "nbook.editor.focus-breadcrumbs";
+export const COPY_RELATIVE_PATH_COMMAND = "nbook.editor.copy-relative-path";
 export const SPLIT_RIGHT_COMMAND = "nbook.editor.split-right";
 export const SPLIT_DOWN_COMMAND = "nbook.editor.split-down";
 export const REOPEN_WITH_COMMAND = "nbook.editor.reopen-with";
+export const OPEN_PREVIEW_COMMAND = "nbook.editor.open-preview";
+export const CHANGE_LANGUAGE_COMMAND = "nbook.editor.change-language";
 export const FOCUS_COMMAND = "nbook.editor.focus";
 export const UNDO_COMMAND = "nbook.edit.undo";
 export const REDO_COMMAND = "nbook.edit.redo";
@@ -38,7 +54,8 @@ const title = (zh: string, en: string) => ({"zh-CN": zh, "en-US": en});
 const OPEN_ARGS = Type.Object({
     address: Type.String(),
     mode: Type.Union([Type.Literal("preview"), Type.Literal("permanent")]),
-    editor: Type.Optional(Type.Union([Type.Literal("markdown"), Type.Literal("code")])),
+    /** 编辑器 id（docs/specs/workbench/editor.md 输出 38）；缺省按输出 37 的顺序选。 */
+    editor: Type.Optional(Type.String({minLength: 1})),
     /** 打开后把光标放到末尾（docs/specs/workbench/editor.md 输出 29）。 */
     reveal: Type.Optional(Type.Literal("end")),
     /** 在哪一组打开：组 id，或 `side`（活动组右侧）；缺省活动组（输出 35）。 */
@@ -46,9 +63,17 @@ const OPEN_ARGS = Type.Object({
 }, {additionalProperties: false});
 
 const OPEN_PAGE_ARGS = Type.Object({id: Type.String({minLength: 1})}, {additionalProperties: false});
+/** 作用于哪个标签：标签的右键菜单给被右击的那个（docs/specs/workbench/editor.md 输出 57），缺省活动组的活动标签。 */
+const TAB_ARGS = Type.Object({tabId: Type.Optional(Type.String({minLength: 1}))}, {additionalProperties: false});
 
-/** 不给 `editor` 时换成另一种（命令面板里不必手写参数）。 */
-const REOPEN_ARGS = Type.Object({editor: Type.Optional(Type.Union([Type.Literal("markdown"), Type.Literal("code")]))}, {additionalProperties: false});
+/** 不给 `editor` 时弹出选择（输出 39），命令面板里不必手写参数。 */
+const REOPEN_ARGS = Type.Object({editor: Type.Optional(Type.String({minLength: 1}))}, {additionalProperties: false});
+
+/** `side` 为真时在活动组右侧的组打开（docs/specs/workbench/editor.md 输出 46）。 */
+const OPEN_PREVIEW_ARGS = Type.Object({side: Type.Optional(Type.Boolean())}, {additionalProperties: false});
+
+/** 不给 `language` 时弹出选择（输出 45）。 */
+const CHANGE_LANGUAGE_ARGS = Type.Object({language: Type.Optional(Type.String({minLength: 1}))}, {additionalProperties: false});
 
 const GO_TO_LINE_ARGS = Type.Object({
     target: Type.Object({
@@ -67,11 +92,22 @@ export const EDITOR_COMMAND_DECLARATIONS: Readonly<Record<string, CommandDeclara
     [SAVE_COMMAND]: {title: title("保存", "Save"), category: EDITOR, description: "Save the active document against its disk baseline; a changed disk is reported as a conflict, never overwritten.", args: NO_ARGS, effect: "write", when: when("dirty"), expose: {agent: "confirm"}},
     [SAVE_ALL_COMMAND]: {title: title("全部保存", "Save All"), category: EDITOR, description: "Save every open document with unsaved changes.", args: NO_ARGS, effect: "write", expose: {agent: "confirm"}},
     [REVERT_COMMAND]: {title: title("还原为磁盘版本", "Revert to Disk Version"), category: EDITOR, description: "Discard the active document's unsaved changes and reload it from disk.", args: NO_ARGS, effect: "write", when: when("active"), expose: {agent: "never", hints: {destructive: true}}},
-    [CLOSE_COMMAND]: {title: title("关闭编辑器", "Close Editor"), category: EDITOR, description: "Close the active tab; asks first when its document has unsaved changes.", args: NO_ARGS, effect: "read", when: when("active"), expose: {agent: "auto"}},
-    [CLOSE_OTHERS_COMMAND]: {title: title("关闭其它编辑器", "Close Other Editors"), category: EDITOR, description: "Close the other tabs in the active group.", args: NO_ARGS, effect: "read", when: when("active"), expose: {agent: "auto"}},
-    [SPLIT_RIGHT_COMMAND]: {title: title("向右拆分编辑器", "Split Editor Right"), category: EDITOR, description: "Open the active document in a new group to the right.", args: NO_ARGS, effect: "read", when: when("active"), expose: {agent: "auto"}},
-    [SPLIT_DOWN_COMMAND]: {title: title("向下拆分编辑器", "Split Editor Down"), category: EDITOR, description: "Open the active document in a new group below.", args: NO_ARGS, effect: "read", when: when("active"), expose: {agent: "auto"}},
-    [REOPEN_WITH_COMMAND]: {title: title("用其它编辑器重新打开", "Reopen Editor With"), category: EDITOR, description: "Reopen the active tab with the Markdown or the source editor; without an editor, switch to the other one.", args: REOPEN_ARGS, effect: "read", when: when("active"), expose: {agent: "auto"}},
+    [CLOSE_COMMAND]: {title: title("关闭编辑器", "Close Editor"), category: EDITOR, description: "Close a tab (the active one unless tabId is given); asks first when its document has unsaved changes.", args: TAB_ARGS, effect: "read", when: when("active"), expose: {agent: "auto"}},
+    [CLOSE_OTHERS_COMMAND]: {title: title("关闭其它编辑器", "Close Other Editors"), category: EDITOR, description: "Close the other tabs in the tab's group (the active tab unless tabId is given), keeping pinned tabs; stops when the user cancels a prompt or a save fails.", args: TAB_ARGS, effect: "read", when: when("active"), expose: {agent: "auto"}},
+    [CLOSE_TO_RIGHT_COMMAND]: {title: title("关闭右侧编辑器", "Close Editors to the Right"), category: EDITOR, description: "Close the tabs to the right of the tab (the active tab unless tabId is given), keeping pinned tabs; stops when the user cancels a prompt or a save fails.", args: TAB_ARGS, effect: "read", when: when("active"), expose: {agent: "auto"}},
+    [CLOSE_SAVED_COMMAND]: {title: title("关闭已保存的编辑器", "Close Saved Editors"), category: EDITOR, description: "Close the tabs in the tab's group (the active tab unless tabId is given) that have nothing to save, keeping pinned tabs.", args: TAB_ARGS, effect: "read", when: when("active"), expose: {agent: "auto"}},
+    [PIN_TAB_COMMAND]: {title: title("固定编辑器", "Pin Editor"), category: EDITOR, description: "Pin a file tab (the active one unless tabId is given): pinned tabs stay at the start of the group and are kept by close others and close to the right.", args: TAB_ARGS, effect: "read", when: when("active"), expose: {agent: "auto"}},
+    [UNPIN_TAB_COMMAND]: {title: title("取消固定编辑器", "Unpin Editor"), category: EDITOR, description: "Unpin a tab (the active one unless tabId is given).", args: TAB_ARGS, effect: "read", when: when("active"), expose: {agent: "auto"}},
+    // 写系统剪贴板：Agent 不调用（与资源管理器的复制路径相同）。
+    [COPY_PATH_COMMAND]: {title: title("复制路径", "Copy Path"), category: EDITOR, description: "Copy the absolute path (on the server machine) of a file tab (the active one unless tabId is given) to the system clipboard.", args: TAB_ARGS, effect: "read", when: when("active"), expose: {agent: "never"}},
+    [COPY_RELATIVE_PATH_COMMAND]: {title: title("复制相对路径", "Copy Relative Path"), category: EDITOR, description: "Copy the path of a file tab (the active one unless tabId is given) relative to its root to the system clipboard.", args: TAB_ARGS, effect: "read", when: when("active"), expose: {agent: "never"}},
+    [SPLIT_RIGHT_COMMAND]: {title: title("向右拆分编辑器", "Split Editor Right"), category: EDITOR, description: "Open the tab's document (the active tab unless tabId is given) in a new group to the right.", args: TAB_ARGS, effect: "read", when: when("active"), expose: {agent: "auto"}},
+    [SPLIT_DOWN_COMMAND]: {title: title("向下拆分编辑器", "Split Editor Down"), category: EDITOR, description: "Open the tab's document (the active tab unless tabId is given) in a new group below.", args: TAB_ARGS, effect: "read", when: when("active"), expose: {agent: "auto"}},
+    [REOPEN_WITH_COMMAND]: {title: title("用其它编辑器重新打开", "Reopen Editor With"), category: EDITOR, description: "Reopen the active tab with another editor, given by id; without an editor, pick one from the editors that can open the file.", args: REOPEN_ARGS, effect: "read", when: when("active"), expose: {agent: "auto"}},
+    [OPEN_PREVIEW_COMMAND]: {title: title("打开预览", "Open Preview"), category: EDITOR, description: "Open the preview of the active file (for example an HTML page) in the active group, or with side true in the group to the right.", args: OPEN_PREVIEW_ARGS, effect: "read", when: when("hasPreview"), expose: {agent: "auto"}},
+    [CHANGE_LANGUAGE_COMMAND]: {title: title("更改语言模式", "Change Language Mode"), category: EDITOR, description: "Change the language (syntax highlighting and editing rules) of the active source editor, given by language id; without a language, pick one from the registered languages. The choice is remembered on the tab.", args: CHANGE_LANGUAGE_ARGS, effect: "read", when: when("hasLanguage"), expose: {agent: "auto"}},
+    // 只移动键盘焦点：Agent 不需要。
+    [FOCUS_BREADCRUMBS_COMMAND]: {title: title("聚焦面包屑", "Focus Breadcrumbs"), category: EDITOR, description: "Move keyboard focus to the breadcrumbs of the active editor group.", args: NO_ARGS, effect: "read", when: when("active"), expose: {agent: "never"}},
     [FOCUS_COMMAND]: {title: title("聚焦编辑器", "Focus Editor"), category: EDITOR, description: "Focus the active editor.", args: NO_ARGS, effect: "read", when: when("active"), expose: {agent: "auto"}},
     [UNDO_COMMAND]: {title: title("撤销", "Undo"), category: EDIT, description: "Undo the latest edit in the active editor.", args: NO_ARGS, effect: "write", when: when("active", "writable"), expose: {agent: "confirm"}},
     [REDO_COMMAND]: {title: title("重做", "Redo"), category: EDIT, description: "Redo the latest undone edit in the active editor.", args: NO_ARGS, effect: "write", when: when("active", "writable"), expose: {agent: "never"}},
@@ -80,10 +116,43 @@ export const EDITOR_COMMAND_DECLARATIONS: Readonly<Record<string, CommandDeclara
 };
 
 const unavailable = (reason: string): CommandResult<unknown> => ({ok: false, code: "unavailable", reason});
+/** 把文件标签的路径写进剪贴板（docs/specs/workbench/editor.md 输出 57）：绝对路径取自 Files 的 `realPath`，相对路径是相对所在根的路径。 */
+export async function copyTabPath(sources: Pick<EditorCommandSources, "files" | "clipboard">, tab: EditorTab, relative: boolean): Promise<ActionResult> {
+    if (tab.kind === "page") return {ok: false, reason: "页面标签没有路径"};
+    if (sources.clipboard === null) return {ok: false, reason: "剪贴板不可用"};
+    let text = resourceOf(tab.address).path;
+    if (!relative) {
+        const real = await sources.files.realPath(tab.address);
+        if (!real.ok) return {ok: false, reason: `取不到 ${tab.address} 的绝对路径：${real.code}`};
+        text = real.value;
+    }
+    try {
+        await sources.clipboard.writeText(text);
+    } catch (error) {
+        return {ok: false, reason: `写剪贴板失败：${error instanceof Error ? error.message : String(error)}`};
+    }
+    return {ok: true};
+}
+
 const fromAction = (result: ActionResult): CommandResult<unknown> => (result.ok ? {ok: true, value: null} : unavailable(result.reason));
+const fromBatch = (result: BatchCloseResult): CommandResult<unknown> => (result.ok ? {ok: true, value: {closed: result.closed}} : unavailable(result.reason));
+
+export interface EditorCommandSources {
+    readonly pages: Pick<EditorPageRegistry, "available">;
+    readonly editors: EditorCatalog;
+    /** 已登记的语言（输出 43）。 */
+    readonly languages: Pick<LanguageRegistry, "has" | "list" | "name">;
+    /** 工作台的选择服务（“用其它编辑器重新打开”“更改语言模式”不带参数时）；没有为 null。 */
+    readonly pick: QuickPick | null;
+    /** 复制路径：绝对路径取自 Files 的 `realPath`。 */
+    readonly files: Pick<FilesService, "realPath">;
+    /** 系统剪贴板；浏览器不给时为 null，复制路径为 `unavailable`。 */
+    readonly clipboard: {writeText(text: string): Promise<void>} | null;
+}
 
 /** 命令的实现：执行时才问编辑器区，不在登记时捕获。 */
-export function editorCommands(area: Readonly<ShallowRef<EditorArea | null>>, pages: Pick<EditorPageRegistry, "available">): Record<string, CommandImplementation> {
+export function editorCommands(area: Readonly<ShallowRef<EditorArea | null>>, sources: EditorCommandSources): Record<string, CommandImplementation> {
+    const {pages} = sources;
     const run = (action: (current: EditorArea, args: unknown) => CommandResult<unknown> | Promise<CommandResult<unknown>>): CommandImplementation => ({
         run: (args) => {
             const current = area.value;
@@ -91,6 +160,16 @@ export function editorCommands(area: Readonly<ShallowRef<EditorArea | null>>, pa
             return action(current, args);
         },
     });
+    /** 命令作用的标签：给了 `tabId` 就是它（已关为 null），否则活动组的活动标签。 */
+    const targetOf = (current: EditorArea, args: unknown): EditorTab | null => {
+        const {tabId} = args as Static<typeof TAB_ARGS>;
+        return tabId === undefined ? current.groups.activeTab() : current.groups.find(tabId)?.tab ?? null;
+    };
+    const onTab = (action: (current: EditorArea, tab: EditorTab) => CommandResult<unknown> | Promise<CommandResult<unknown>>): CommandImplementation => run((current, args) => {
+        const tab = targetOf(current, args);
+        return tab === null ? unavailable((args as Static<typeof TAB_ARGS>).tabId === undefined ? "没有活动标签" : "标签已关闭") : action(current, tab);
+    });
+    const copyPath = async (tab: EditorTab, relative: boolean): Promise<CommandResult<unknown>> => fromAction(await copyTabPath(sources, tab, relative));
     /** 写入类动作前后各交出一次缓冲输入：文档立刻看到撤销后的正文，而不是等编辑器自己的防抖。 */
     const edit = (current: EditorArea, name: "undo" | "redo"): CommandResult<unknown> => {
         const handle = current.activeHandle.value;
@@ -114,25 +193,64 @@ export function editorCommands(area: Readonly<ShallowRef<EditorArea | null>>, pa
         [SAVE_COMMAND]: run(async (current) => fromAction(await current.save())),
         [SAVE_ALL_COMMAND]: run(async (current) => fromAction(await current.saveAll())),
         [REVERT_COMMAND]: run(async (current) => fromAction(await current.revert())),
-        [CLOSE_COMMAND]: run(async (current) => {
+        [CLOSE_COMMAND]: onTab(async (current, tab) => ((await current.close(tab.id)) === "closed" ? {ok: true, value: null} : unavailable("用户取消了关闭"))),
+        [CLOSE_OTHERS_COMMAND]: onTab(async (current, tab) => fromBatch(await current.closeOthers(tab.id))),
+        [CLOSE_TO_RIGHT_COMMAND]: onTab(async (current, tab) => fromBatch(await current.closeToRight(tab.id))),
+        [CLOSE_SAVED_COMMAND]: onTab(async (current, tab) => fromBatch(await current.closeSaved(tab.id))),
+        [PIN_TAB_COMMAND]: onTab((current, tab) => fromAction(current.setPinned(tab.id, true))),
+        [UNPIN_TAB_COMMAND]: onTab((current, tab) => fromAction(current.setPinned(tab.id, false))),
+        [COPY_PATH_COMMAND]: onTab((_current, tab) => copyPath(tab, false)),
+        [COPY_RELATIVE_PATH_COMMAND]: onTab((_current, tab) => copyPath(tab, true)),
+        [SPLIT_RIGHT_COMMAND]: onTab((current, tab) => fromAction(current.split("right", tab.id))),
+        [SPLIT_DOWN_COMMAND]: onTab((current, tab) => fromAction(current.split("down", tab.id))),
+        [REOPEN_WITH_COMMAND]: run(async (current, args) => {
+            const given = (args as Static<typeof REOPEN_ARGS>).editor;
             const tab = current.groups.activeTab();
-            if (tab === null) return unavailable("没有活动标签");
-            return (await current.close(tab.id)) === "closed" ? {ok: true, value: null} : unavailable("用户取消了关闭");
+            if (tab === null || tab.kind === "page") return unavailable("没有活动的文件标签");
+            if (given !== undefined) return fromAction(current.reopenWith(given));
+            if (sources.pick === null) return unavailable("没有选择服务，请给出 editor 参数");
+            // 当前的那个也列出（标“当前”），选它等于不换。
+            const ids = candidatesFor(sources.editors, tab.address);
+            const picked = await sources.pick.pick({
+                title: {"zh-CN": "用其它编辑器重新打开", "en-US": "Reopen Editor With"},
+                placeholder: {"zh-CN": "选择打开这个文件的编辑器", "en-US": "Select an editor for this file"},
+                items: ids.map((id) => ({id, label: sources.editors.declaration(id)?.title ?? id, ...(id === tab.editor ? {detail: {"zh-CN": "当前", "en-US": "Current"}} : {})})),
+            });
+            if (picked.kind === "unavailable") return unavailable(picked.reason);
+            if (picked.kind !== "item") return {ok: true, value: null};
+            // 选择期间编辑器区可能已经换了（窗口换绑项目）、活动标签可能已经换了：只对发起时的那个标签生效。
+            if (area.value !== current) return {ok: false, code: "stale-target", reason: "选择期间编辑器区已经换了"};
+            const still = current.groups.activeTab();
+            if (still?.id !== tab.id || still.kind === "page" || still.editor !== tab.editor) return {ok: false, code: "stale-target", reason: "选择期间活动标签已经换了"};
+            return fromAction(picked.id === tab.editor ? {ok: true} : current.reopenWith(picked.id));
         }),
-        [CLOSE_OTHERS_COMMAND]: run(async (current) => {
+        [CHANGE_LANGUAGE_COMMAND]: run(async (current, args) => {
+            const given = (args as Static<typeof CHANGE_LANGUAGE_ARGS>).language;
             const tab = current.groups.activeTab();
-            if (tab === null) return unavailable("没有活动标签");
-            await current.closeOthers(tab.id);
+            const shown = current.activeHandle.value?.language?.value ?? null;
+            if (tab === null || tab.kind === "page" || shown === null) return unavailable("活动的编辑器不分语言");
+            if (given !== undefined) {
+                if (!sources.languages.has(given)) return unavailable(`没有登记语言 ${given}`);
+                current.groups.setLanguage(tab.id, given);
+                return {ok: true, value: null};
+            }
+            if (sources.pick === null) return unavailable("没有选择服务，请给出 language 参数");
+            const picked = await sources.pick.pick({
+                title: {"zh-CN": "更改语言模式", "en-US": "Change Language Mode"},
+                placeholder: {"zh-CN": "选择语言", "en-US": "Select a language"},
+                items: sources.languages.list().map((id) => ({id, label: sources.languages.name(id), detail: id === shown ? {"zh-CN": `${id}（当前）`, "en-US": `${id} (current)`} : id})),
+            });
+            if (picked.kind === "unavailable") return unavailable(picked.reason);
+            if (picked.kind !== "item") return {ok: true, value: null};
+            // 选择期间编辑器区可能已经换了（窗口换绑项目）、活动标签可能已经换了：只对发起时的那个标签生效。
+            if (area.value !== current) return {ok: false, code: "stale-target", reason: "选择期间编辑器区已经换了"};
+            const still = current.groups.activeTab();
+            if (still?.id !== tab.id || still.kind === "page" || still.editor !== tab.editor) return {ok: false, code: "stale-target", reason: "选择期间活动标签已经换了"};
+            current.groups.setLanguage(tab.id, picked.id);
             return {ok: true, value: null};
         }),
-        [SPLIT_RIGHT_COMMAND]: run((current) => fromAction(current.split("right"))),
-        [SPLIT_DOWN_COMMAND]: run((current) => fromAction(current.split("down"))),
-        [REOPEN_WITH_COMMAND]: run((current, args) => {
-            const chosen = (args as Static<typeof REOPEN_ARGS>).editor;
-            const tab = current.groups.activeTab();
-            if (tab === null) return unavailable("没有活动标签");
-            return fromAction(current.reopenWith(chosen ?? (tab.editor === "markdown" ? "code" : "markdown")));
-        }),
+        [OPEN_PREVIEW_COMMAND]: run((current, args) => fromAction(current.openPreview((args as Static<typeof OPEN_PREVIEW_ARGS>).side === true))),
+        [FOCUS_BREADCRUMBS_COMMAND]: run((current) => fromAction(current.focusBreadcrumbs())),
         [FOCUS_COMMAND]: run((current) => {
             const handle = current.activeHandle.value;
             if (handle === null) return unavailable("当前没有可聚焦的编辑器");

@@ -1,5 +1,5 @@
 /**
- * 请求分发：先经准入，再按路径前缀交给宿主自有路由、插件贡献的处理器或前端构建产物，并在响应体发送完毕时
+ * 请求分发：先核对 `Host` 与写请求的 `Origin`（docs/specs/runtime/server-host.md 的“HTTP 端口的来源核对”），再经准入，再按路径前缀交给宿主自有路由、插件贡献的处理器或前端构建产物，并在响应体发送完毕时
  * 归还在途计数。页面资源同样经过准入：排空期间发出外壳，紧接着的引导请求也只会得到 503。
  *
  * 插件路由随贡献交付挂上、随撤回摘下；分发时每次经 `implementation()` 取实现，入口停止后的请求
@@ -59,12 +59,35 @@ export interface DispatchOptions {
     readonly staticFiles: StaticFiles | null;
     /** 处理器抛错时的诊断；不改变响应。 */
     readonly reportError: (error: unknown, context: {readonly plugin: string | null; readonly path: string}) => void;
+    /** 写请求的 `Origin` 是否允许：与 RPC 端口同一份判定（`server/start.ts`）。 */
+    readonly allowOrigin: (origin: string) => boolean;
+}
+
+/**
+ * 未加载鉴权时 `Host` 只能是回环名：监听只在回环地址上，别的主机名只会来自 DNS 重绑定（攻击页与本机端口同源、GET
+ * 不带 `Origin`，只有 `Host` 分得出来）。`URL.hostname` 对 IPv6 带方括号。
+ */
+const LOOPBACK_HOSTS: ReadonlySet<string> = new Set(["127.0.0.1", "localhost", "[::1]"]);
+
+/** 读请求放行任何来源（拿不到响应由浏览器的 CORS 保证）；其余方法带了 `Origin` 就要是允许的来源，`null` 不是。 */
+const SAFE_METHODS: ReadonlySet<string> = new Set(["GET", "HEAD"]);
+
+function rejected(request: Request, url: URL, allowOrigin: (origin: string) => boolean): Response | null {
+    if (!LOOPBACK_HOSTS.has(url.hostname)) return errorResponse(421, "misdirected-host", `不接受主机名 ${url.hostname} 的请求。`);
+    const origin = request.headers.get("origin");
+    if (!SAFE_METHODS.has(request.method) && origin !== null && !allowOrigin(origin)) return errorResponse(403, "origin-not-allowed", `不接受来源 ${origin} 的写请求。`);
+    return null;
 }
 
 const API_PATH_PATTERN = /^\/api\/([^/]+)(\/.*)?$/u;
 
 export function createDispatcher(options: DispatchOptions): (request: Request) => Promise<Response> {
     return async (request) => {
+        // 不带 `Host`（HTTP/1.0）或 `Host` 为空时，Bun 给的 `request.url` 是相对地址：同样是不认识的主机名。
+        if (!URL.canParse(request.url)) return errorResponse(421, "misdirected-host", "请求没有主机名。");
+        const url = new URL(request.url);
+        const refused = rejected(request, url, options.allowOrigin);
+        if (refused !== null) return refused;
         let ticket: RequestTicket;
         try {
             ticket = await options.admission.admit();
@@ -72,7 +95,6 @@ export function createDispatcher(options: DispatchOptions): (request: Request) =
             if (error instanceof HttpAdmissionRejected) return errorResponse(503, error.code, error.message);
             throw error;
         }
-        const url = new URL(request.url);
         const match = API_PATH_PATTERN.exec(url.pathname);
         if (match === null) {
             if (options.staticFiles === null || isApiPath(url.pathname)) {

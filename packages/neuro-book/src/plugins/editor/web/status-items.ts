@@ -1,5 +1,6 @@
 /**
- * 编辑器贡献给状态栏的三个条目（docs/specs/workbench/editor.md 输出 26–28）：未保存数、活动文档的字数、光标位置。
+ * 编辑器贡献给状态栏的条目（docs/specs/workbench/editor.md 输出 26–28、42、45）：未保存数、活动文档的字数、活动控件的状态、
+ * 语言、光标位置。
  * 显示与否由声明的 `when`（本插件的公开键）决定；文字由本插件从自己的编辑器区算出，外壳只渲染。
  */
 
@@ -15,17 +16,23 @@ import type {DisplayLocale, LocalizedText} from "nbook/shared/localized-text";
 import {countWords} from "nbook/shared/word-count";
 
 import type {EditorArea} from "./area";
-import {SAVE_ALL_COMMAND} from "./commands";
+import type {LanguageRegistry} from "./code/languages";
+import {CHANGE_LANGUAGE_COMMAND, SAVE_ALL_COMMAND} from "./commands";
 import type {TextDocument} from "./documents/store";
 import {editorState, needsSaving} from "./state";
 
 export const UNSAVED_ITEM = "nbook.editor.unsaved";
 export const WORD_COUNT_ITEM = "nbook.editor.word-count";
 export const CURSOR_ITEM = "nbook.editor.cursor";
+export const EDITOR_STATUS_ITEM = "nbook.editor.editor-status";
+export const LANGUAGE_ITEM = "nbook.editor.language";
 
 export const EDITOR_STATUS_ITEMS: Readonly<Record<string, ItemDeclaration>> = {
     [UNSAVED_ITEM]: {title: {"zh-CN": "未保存的文档", "en-US": "Unsaved documents"}, alignment: "right", order: 10, priority: 30, command: {id: SAVE_ALL_COMMAND}, when: {requires: [editorState.key("hasUnsavedDocuments")]}},
-    [WORD_COUNT_ITEM]: {title: {"zh-CN": "字数", "en-US": "Word count"}, alignment: "right", order: 20, priority: 20, when: {requires: [editorState.key("active")]}},
+    [WORD_COUNT_ITEM]: {title: {"zh-CN": "字数", "en-US": "Word count"}, alignment: "right", order: 20, priority: 20, when: {requires: [editorState.key("active"), editorState.key("hasDocument")]}},
+    // 活动控件交出的一行状态（输出 42），例如图片的尺寸；控件没给时不显示文字。
+    [EDITOR_STATUS_ITEM]: {title: {"zh-CN": "编辑器状态", "en-US": "Editor status"}, alignment: "right", order: 25, priority: 15, when: {requires: [editorState.key("hasEditorStatus")]}},
+    [LANGUAGE_ITEM]: {title: {"zh-CN": "语言模式", "en-US": "Language mode"}, alignment: "right", order: 28, priority: 12, command: {id: CHANGE_LANGUAGE_COMMAND}, when: {requires: [editorState.key("hasLanguage")]}},
     [CURSOR_ITEM]: {title: {"zh-CN": "光标位置", "en-US": "Cursor position"}, alignment: "right", order: 30, priority: 10, when: {requires: [editorState.key("hasCursorPosition")]}},
 };
 
@@ -100,8 +107,9 @@ function activeWordCount(area: Readonly<ShallowRef<EditorArea | null>>, clock: R
     };
 }
 
-export function editorStatusItems(area: Readonly<ShallowRef<EditorArea | null>>, locale: Readonly<ComputedRef<DisplayLocale>>, clock: RuntimeClock): Readonly<Record<string, ItemImplementation>> {
+export function editorStatusItems(area: Readonly<ShallowRef<EditorArea | null>>, locale: Readonly<ComputedRef<DisplayLocale>>, clock: RuntimeClock, languages: Pick<LanguageRegistry, "name">): Readonly<Record<string, ItemImplementation>> {
     const text = (value: LocalizedText): string => localize(value, locale.value);
+    const display = (value: LocalizedText | string): string => (typeof value === "string" ? value : text(value));
     const wordCount = activeWordCount(area, clock);
     const unsaved = () => area.value?.openDocuments.value.filter(needsSaving) ?? [];
     const failures = () => unsaved().filter((document) => document.saveProblem.value !== null);
@@ -123,6 +131,18 @@ export function editorStatusItems(area: Readonly<ShallowRef<EditorArea | null>>,
         },
         [WORD_COUNT_ITEM]: {
             text: () => text(formatText(TEXT.words, {count: number(wordCount())})),
+        },
+        [EDITOR_STATUS_ITEM]: {
+            text: () => {
+                const status = area.value?.activeHandle.value?.status?.value ?? null;
+                return status === null ? "" : display(status);
+            },
+        },
+        [LANGUAGE_ITEM]: {
+            text: () => {
+                const language = area.value?.activeHandle.value?.language?.value ?? null;
+                return language === null ? "" : display(languages.name(language));
+            },
         },
         [CURSOR_ITEM]: {
             text: () => {

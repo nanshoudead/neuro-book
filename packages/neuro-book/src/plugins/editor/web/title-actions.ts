@@ -15,7 +15,7 @@ import type {TitleActionCandidate, TitleActionsModel} from "nbook/ui/menus/title
 
 import type {EditorTitleItemDeclaration} from "../shared/contracts";
 import type {EditorArea} from "./area";
-import {REOPEN_WITH_COMMAND, SPLIT_RIGHT_COMMAND} from "./commands";
+import {OPEN_PREVIEW_COMMAND, REOPEN_WITH_COMMAND, SPLIT_RIGHT_COMMAND} from "./commands";
 import {nameOf} from "./messages";
 
 export const EDITOR_TITLE_MAX_BUTTONS = 4;
@@ -24,10 +24,19 @@ export const EDITOR_TITLE_MAX_BUTTONS = 4;
 export const EDITOR_TITLE_TAB_RESERVE = 96 + 8;
 
 /** 编辑器自己的标题动作：key 以 `own:` 开头，与贡献 id 分开。 */
-const OWN: ReadonlyArray<{readonly key: string; readonly command: string; readonly icon: string; readonly menu: boolean}> = [
+/**
+ * `whenHidden`：命令不可用时不出现（而不是画成禁用）。“打开预览”只对有预览的文件有意义，其余文件上一直灰着是噪音
+ * （docs/specs/workbench/editor.md 输出 47）。
+ */
+const OWN: ReadonlyArray<{readonly key: string; readonly command: string; readonly icon: string; readonly menu: boolean; readonly args?: Readonly<Record<string, unknown>>; readonly whenHidden?: true}> = [
+    {key: "own:open-preview", command: OPEN_PREVIEW_COMMAND, icon: "i-lucide-eye", menu: false, whenHidden: true},
     {key: "own:split-right", command: SPLIT_RIGHT_COMMAND, icon: "i-lucide-columns-2", menu: false},
+    {key: "own:open-preview-side", command: OPEN_PREVIEW_COMMAND, icon: "i-lucide-eye", menu: true, args: {side: true}, whenHidden: true},
     {key: "own:reopen-with", command: REOPEN_WITH_COMMAND, icon: "i-lucide-file-cog", menu: true},
 ];
+
+/** “在侧边打开预览”的标题：同一条命令带参数，标题另给。 */
+const SIDE_TITLE = {"zh-CN": "在侧边打开预览", "en-US": "Open Preview to the Side"};
 
 const RESOURCE: ReadonlySet<string> = new Set(["resource"]);
 const NONE: ReadonlySet<string> = new Set();
@@ -56,7 +65,7 @@ export function createEditorTitleActions(options: {
         const group = area.groups.activeGroup.value;
         const found = area.groups.groups.value.find((candidate) => candidate.id === group);
         const tab = found?.tabs.find((candidate) => candidate.id === found.active) ?? null;
-        return {group, tab, file: tab !== null && tab.editor !== "page" ? tab.address : null};
+        return {group, tab, file: tab !== null && tab.kind === "file" ? tab.address : null};
     };
 
     return {
@@ -67,8 +76,9 @@ export function createEditorTitleActions(options: {
             const own = OWN.flatMap((action): TitleActionCandidate[] => {
                 const command = options.commands.get(action.command);
                 if (!command.ok) return [];
-                const title = localize(command.value.title, locale);
+                const title = localize(action.key === "own:open-preview-side" ? SIDE_TITLE : command.value.title, locale);
                 const enabled = options.commands.isEnabled(action.command);
+                if (action.whenHidden === true && !(enabled.ok && enabled.value)) return [];
                 const keybinding = command.value.keybinding;
                 return [{menu: action.menu, entry: {
                     key: action.key,
@@ -107,7 +117,7 @@ export function createEditorTitleActions(options: {
         run: (key) => {
             const own = OWN.find((action) => action.key === key);
             if (own !== undefined) {
-                void options.commands.execute(own.command, {}, {source: "user"});
+                void options.commands.execute(own.command, {...(own.args ?? {})}, {source: "user"});
                 return;
             }
             const area = options.area();
