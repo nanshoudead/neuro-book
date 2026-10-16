@@ -1,0 +1,59 @@
+{
+ "id": "J23",
+ "grade": {
+  "points": [
+   {
+    "status": "对",
+    "stance": "确定",
+    "note": "正确指出第68章她自称“新晋的新人魔法少女”，未提及“夜莺”或代号。"
+   },
+   {
+    "status": "对",
+    "stance": "确定",
+    "note": "正确说明协会原定代号为“向日葵”，后应本人要求改为“夜莺”（70.47）。"
+   },
+   {
+    "status": "对",
+    "stance": "确定",
+    "note": "正确指出原文未交代她选择“夜莺”的原因，苏天晴也在心里询问原因（70.48—70.49）。"
+   }
+  ],
+  "core": "对",
+  "errors": [],
+  "extras": [],
+  "honesty": "恰当",
+  "goldIssue": "",
+  "note": "答案纠正了题目中的前提，并准确概括代号变更及其原因未明。"
+ },
+ "goldRefs": [
+  "68.26",
+  "68.27",
+  "68.28",
+  "68.46",
+  "70.46",
+  "70.47",
+  "70.48"
+ ],
+ "answerRefs": [
+  "68.29",
+  "70.49"
+ ],
+ "call": {
+  "status": 200,
+  "ms": 8396,
+  "usage": {
+   "prompt_tokens": 7107,
+   "completion_tokens": 679,
+   "total_tokens": 7786,
+   "prompt_tokens_details": {
+    "cached_tokens": 5120
+   },
+   "completion_tokens_details": {
+    "reasoning_tokens": 493
+   }
+  },
+  "error": null,
+  "parseError": null,
+  "resends": 0
+ }
+}
