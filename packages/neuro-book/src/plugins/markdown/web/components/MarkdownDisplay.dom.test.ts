@@ -3,7 +3,7 @@
  * 释放。语言与编辑器同一份（内置方言），编辑器一侧用同一套扩展建真实的 Tiptap 编辑器。
  */
 
-import {Editor} from "@tiptap/core";
+import {Editor, Mark, Node} from "@tiptap/core";
 import {flushPromises, mount} from "@vue/test-utils";
 import {afterEach, describe, expect, it} from "vitest";
 
@@ -12,7 +12,10 @@ import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 import {codecFor} from "../codec/codec";
 import {createMarkdownEditorExtensions} from "../editor/markdown-editor-extensions";
 import {markdownLanguage} from "../syntax";
+import {markdownReportKey} from "../parts/report";
 import {SyntaxCatalog, syntaxCatalogKey} from "../syntax-catalog";
+import {startMarkdownBrowserHost} from "../testing/browser-host";
+import {kbdDialectPlugin, kbdSyntax} from "../testing/kbd-dialect";
 import MarkdownDisplay from "./MarkdownDisplay.vue";
 import type {ResolveAsset} from "./MarkdownImage.vue";
 
@@ -23,8 +26,10 @@ afterEach(() => {
     for (const cleanup of cleanups.splice(0).reverse()) cleanup();
 });
 
-function display(props: {text: string; streaming?: boolean; resolveAsset?: ResolveAsset}) {
-    const wrapper = mount(MarkdownDisplay, {props: {locale: "zh-CN", ...props}, attachTo: document.body, global: {provide: {[syntaxCatalogKey as symbol]: catalog}}});
+function display(props: {text: string; streaming?: boolean; resolveAsset?: ResolveAsset}, options: {catalog?: SyntaxCatalog; reports?: string[]} = {}) {
+    const provide: Record<symbol, unknown> = {[syntaxCatalogKey as symbol]: options.catalog ?? catalog};
+    if (options.reports !== undefined) provide[markdownReportKey as symbol] = (event: string) => options.reports?.push(event);
+    const wrapper = mount(MarkdownDisplay, {props: {locale: "zh-CN", ...props}, attachTo: document.body, global: {provide}});
     cleanups.push(() => wrapper.unmount());
     return wrapper;
 }
@@ -138,5 +143,52 @@ describe("Spec ui.markdown-display", () => {
         cleanups.pop();
         expect(released).toEqual(["a.png", "b.png"]);
         expect(document.querySelector("[data-markdown-display]")).toBeNull();
+    });
+
+    it("输出 3、5：`project://`、`user://` 与旧应用的 `chapter://` 都是引用小块（地址不被清掉），点击交出原文地址；外部链接是普通链接", async () => {
+        const wrapper = display({text: "[甲](project://设定/甲.md) [乙](user://b.png) [丙](chapter://c1) [丁](https://example.com)\n"});
+        await settled(wrapper, (root) => root.querySelectorAll("a").length === 4);
+        const anchors = [...wrapper.element.querySelectorAll("a")];
+        expect(anchors.map((anchor) => [anchor.getAttribute("href"), anchor.querySelector(".nb-chip-link") !== null])).toEqual([["project://设定/甲.md", true], ["user://b.png", true], ["chapter://c1", true], ["https://example.com", false]]);
+        for (const anchor of anchors) anchor.dispatchEvent(new MouseEvent("click", {bubbles: true, cancelable: true}));
+        expect(wrapper.emitted("activate")).toEqual([[{kind: "reference", target: "project://设定/甲.md"}], [{kind: "reference", target: "user://b.png"}], [{kind: "reference", target: "chapter://c1"}], [{kind: "link", href: "https://example.com"}]]);
+    });
+
+    it("宽表格包在 `tableWrapper` 里，在自己里面横向滚动", async () => {
+        const wrapper = display({text: "| 甲 | 乙 |\n|---|---|\n| 1 | 2 |\n"});
+        await settled(wrapper, (root) => root.querySelector("table") !== null);
+        expect(wrapper.element.querySelector("table")?.parentElement?.classList.contains("tableWrapper")).toBe(true);
+    });
+
+    it("输出 1 与“失败与恢复”：某一块画不出来时按文字显示、记诊断，别的块与之后的更新照常", async () => {
+        const broken = kbdSyntax();
+        const throwing = Mark.create({name: "test-kbd", priority: 700, parseHTML: () => [{tag: "kbd"}], renderHTML: () => {
+            throw new Error("画不出来");
+        }});
+        const host = await startMarkdownBrowserHost([kbdDialectPlugin({implementation: {load: async () => ({...broken, extensions: [throwing]})}})], "display-broken");
+        cleanups.push(() => void host.application.stop());
+        await waitUntil("方言生效", () => (host.catalog.active.value.length === 1 ? true : null));
+        const reports: string[] = [];
+        const wrapper = display({text: "按 <kbd>K</kbd>\n\n第二段\n"}, {catalog: host.catalog, reports});
+        await settled(wrapper, (root) => root.querySelector(".nb-markdown-display__plain") !== null);
+        expect(wrapper.element.querySelector(".nb-markdown-display__plain")?.textContent).toBe("按 K");
+        expect(wrapper.element.querySelector("p")?.textContent).toBe("第二段");
+        expect(reports).toEqual(["markdown.display.block-failed"]);
+        await wrapper.setProps({text: "按 <kbd>K</kbd>\n\n第二段，继续写\n"});
+        await settled(wrapper, (root) => (root.textContent ?? "").includes("继续写"));
+    });
+
+    it("“失败与恢复”：组不成 schema 时按纯文字显示原文、记诊断，之后的更新照常显示新的原文", async () => {
+        const base = kbdSyntax();
+        const invalid = Node.create({name: "test-broken", group: "block", content: "nosuch+"});
+        const host = await startMarkdownBrowserHost([kbdDialectPlugin({implementation: {load: async () => ({...base, extensions: [...base.extensions, invalid]})}})], "display-invalid");
+        cleanups.push(() => void host.application.stop());
+        await waitUntil("方言生效", () => (host.catalog.active.value.length === 1 ? true : null));
+        const reports: string[] = [];
+        const wrapper = display({text: "**粗**\n"}, {catalog: host.catalog, reports});
+        await settled(wrapper, (root) => root.textContent === "**粗**\n");
+        expect(reports).toEqual(["markdown.display.failed"]);
+        await wrapper.setProps({text: "**粗** 又一句\n"});
+        await settled(wrapper, (root) => root.textContent === "**粗** 又一句\n");
     });
 });

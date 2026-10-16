@@ -8,7 +8,7 @@ import {join} from "node:path";
 
 import {afterEach, describe, expect, it} from "bun:test";
 
-import {getSchema} from "@tiptap/core";
+import {getSchema, Mark} from "@tiptap/core";
 
 import {createApplication} from "@notnotype/nb-runtime/application";
 import type {Application} from "@notnotype/nb-runtime/application";
@@ -19,7 +19,7 @@ import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 import {createConsoleExporterFactory, createConsoleFallback} from "nbook/plugins/diagnostics/web/console-exporter";
 
 import {descriptor} from "../plugin";
-import {MARKDOWN_SYNTAXES_POINT, validateSyntaxContribution} from "../shared/contracts";
+import {MARKDOWN_DIALECTS_POINT, MARKDOWN_SYNTAXES_POINT, validateSyntaxContribution} from "../shared/contracts";
 import {dialectsPoint} from "../shared/plugin";
 import {codecFor} from "./codec/codec";
 import {createMarkdownLanguage} from "./language";
@@ -134,6 +134,23 @@ describe("Spec workspace.markdown-syntaxes：方言的贡献", () => {
         expect(roundTrip(languageFor(builtin.catalog as SyntaxCatalog), "<ruby text=\"zhù\">注</ruby>\n").written).toBe("<ruby text=\"zhù\">注</ruby>\n");
     });
 
+    it("输出 4：与组合扩展里的子扩展（`StarterKit` 的 `bold`）或原样语法的写法（`rawInline`）撞名的外来方言不生效，只拒它们；语言照常组成，别的外来方言照常生效", async () => {
+        const key = kbdSyntax({tag: "key"});
+        const pad = kbdSyntax({tag: "pad"});
+        const holder = await start([
+            kbdDialectPlugin({id: "test.bold", declaration: {order: 80, inlineTags: ["key"]}, implementation: {load: async () => ({...key, extensions: [...key.extensions, Mark.create({name: "bold"})]})}}),
+            kbdDialectPlugin({id: "test.raw", declaration: {order: 81, inlineTags: ["pad"]}, implementation: {load: async () => ({...pad, writeInline: {rawInline: () => "x"}})}}),
+            kbdDialectPlugin({id: "test.ok", declaration: {order: 82, inlineTags: ["ok"]}, implementation: {load: async () => kbdSyntax({tag: "ok"})}}),
+        ]);
+        const catalog = await waitUntil("三种都交付", () => (holder.catalog?.active.value.length === 3 ? holder.catalog : null));
+        const language = languageFor(catalog);
+        expect(new Set(holder.inactive.map((entry) => `${entry.id} ${entry.code}`))).toEqual(new Set(["test.bold.kbd conflict", "test.raw.kbd conflict"]));
+        const source = "**粗** 与 <key>K</key> <ok>O</ok>\n";
+        const read = roundTrip(language, source);
+        expect(read.written).toBe(source);
+        expect(read.first).toContainEqual({type: "text", text: "O", marks: [{type: "test-ok"}]});
+    });
+
     it("输出 6、7：贡献方停止，方言撤回，组成新的语言；之前拿到的语言照旧能读写它", async () => {
         let contributor: ActivationContext | null = null;
         const holder = await start([kbdDialectPlugin({onActivate: (context) => {
@@ -145,6 +162,30 @@ describe("Spec workspace.markdown-syntaxes：方言的贡献", () => {
         expect(catalog.active.value).toEqual([]);
         expect(languageFor(catalog)).not.toBe(before);
         expect(roundTrip(before, SOURCE).written).toBe(SOURCE);
+    });
+
+    it("输出 6、7：生效的方言集合没变（晚到的方言没生效）时不换数组，组成的语言还是同一份", async () => {
+        const holder = await start([
+            kbdDialectPlugin({id: "test.keys", declaration: {order: 90, inlineTags: ["key"]}, implementation: {load: async () => kbdSyntax({tag: "key"})}}),
+            kbdDialectPlugin({id: "test.mismatch", activationEvents: [], implementation: {load: async () => kbdSyntax({declaredTags: ["other"]})}}),
+        ]);
+        const application = started.at(-1) as Application;
+        const catalog = await waitUntil("一种方言生效", () => (holder.catalog?.active.value.length === 1 ? holder.catalog : null));
+        const language = languageFor(catalog);
+        expect(await application.plugins.activate({plugin: "test.mismatch", entry: "browser"})).toMatchObject({status: "activated"});
+        await waitUntil("晚到的那种不生效", () => (holder.inactive.length === 1 ? true : null));
+        expect(languageFor(catalog)).toBe(language);
+    });
+
+    it("输出 3：块级与行内分开核对（声明成块级、实现只认行内的不生效）；声明与实现出自不同插件的不配对", async () => {
+        const holder = await start([
+            kbdDialectPlugin({id: "test.block", declaration: {order: 80, blockTags: ["kbd"]}}),
+            kbdDialectPlugin({id: "test.a", declaration: null, implementation: {load: async () => kbdSyntax({tag: "key"})}}),
+            // 插件 `test` 声明的 `test.a.kbd` 合乎 id 规则（以 `test.` 开头），但实现出自插件 `test.a`。
+            {id: "test", contributions: [{capability: MARKDOWN_DIALECTS_POINT, id: "test.a.kbd", declaration: {order: 85, inlineTags: ["key"]}}], entries: []},
+        ]);
+        await waitUntil("两条诊断", () => (holder.inactive.length === 2 ? true : null));
+        expect(new Set(holder.inactive.map((entry) => `${entry.id} ${entry.code}`))).toEqual(new Set(["test.block.kbd tag-mismatch", "test.a.kbd missing-declaration"]));
     });
 
     it("验收 3：内置方言逐个缺席时语言照常组成（核心语法不依赖可选的方言），方言语料不编辑写回字节不变", () => {

@@ -95,6 +95,7 @@ describe("PromptEditor 草稿", () => {
         exposed(wrapper).insertText("x");
         expect(changes(wrapper)).toEqual([]);
         expect(prosemirror(wrapper).getAttribute("aria-readonly")).toBe("true");
+        expect([prosemirror(wrapper).getAttribute("role"), prosemirror(wrapper).getAttribute("aria-multiline")]).toEqual(["textbox", "true"]);
     });
 });
 

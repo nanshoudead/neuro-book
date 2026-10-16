@@ -360,6 +360,13 @@ function cellCount(line: string): number {
     return count;
 }
 
+/**
+ * 页面上的链接元素保留哪些地址：Tiptap 默认只留 `http:` 这类常见方案与相对地址，别的写成空 `href`。作品里的文件
+ * （`project://`）、用户资产、会话附件与旧应用的领域地址（`chapter://`）要留着，展示器按它画引用小块、交出点击的目标
+ * （方言 Spec 输出 27）；能执行代码的方案照旧清掉。点击都由编辑器与展示器接管，不会自己跳转。只影响页面，写回用的是标记属性。
+ */
+const keepsHref = (url: string): boolean => /^[a-z][a-z0-9+.-]*:\/\//iu.test(url) && !/^(?:javascript|vbscript|data|file):/iu.test(url);
+
 export const coreExtensions: ReadonlyArray<AnyExtension> = [
     StarterKit.configure({
         paragraph: false,
@@ -374,11 +381,12 @@ export const coreExtensions: ReadonlyArray<AnyExtension> = [
     MarkdownCode,
     TaskList,
     TaskItem.configure({nested: true}),
-    TableKit.configure({tableCell: false, tableHeader: false}),
+    // 展示器按 `renderHTML` 生成页面，要它也包一层 `tableWrapper`，宽表格才在自己里面横向滚动（编辑器的表格节点视图本来就包）。
+    TableKit.configure({table: {renderWrapper: true}, tableCell: false, tableHeader: false}),
     SingleParagraphCell,
     SingleParagraphHeader,
     Image.configure({inline: true, allowBase64: false, HTMLAttributes: {class: "nb-markdown-image-node"}}),
-    Link.configure({openOnClick: false, enableClickSelection: true, linkOnPaste: false}),
+    Link.configure({openOnClick: false, enableClickSelection: true, linkOnPaste: false, isAllowedUri: (url, {defaultValidate}) => defaultValidate(url) || keepsHref(url)}),
     MarkdownStyle,
 ];
 

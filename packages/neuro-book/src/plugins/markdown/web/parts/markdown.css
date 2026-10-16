@@ -64,6 +64,12 @@
     overflow-x: auto;
 }
 
+/* 宽表格在自己里面横向滚动，不撑宽正文（与代码块一致）。编辑器的表格节点视图与展示器都包这一层。 */
+.nb-markdown .tableWrapper {
+    max-width: 100%;
+    overflow-x: auto;
+}
+
 .nb-markdown table {
     border-collapse: collapse;
 }
@@ -310,8 +316,15 @@
     min-height: 240px;
     border: 0;
     opacity: 0;
+    transition: opacity 0.16s ease;
 }
 
 .nb-markdown .nb-html-embed__frame.is-loaded {
     opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .nb-markdown .nb-html-embed__frame {
+        transition: none;
+    }
 }

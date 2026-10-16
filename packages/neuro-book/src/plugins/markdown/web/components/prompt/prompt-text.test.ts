@@ -5,6 +5,11 @@
  */
 
 import {describe, expect, it} from "bun:test";
+import type {Token} from "marked";
+
+import {findInlineLinks} from "../../../shared/link-syntax";
+import {classifyTarget} from "../../../shared/targets";
+import {markdownLanguage} from "../../syntax";
 
 import {
     DEFAULT_PASTE_POLICY,
@@ -356,5 +361,87 @@ describe("prompt-text 点击标签", () => {
             .toEqual({kind: "selection", path: "a.md", startLine: 3, endLine: 9});
         expect(promptTokenFromAttrs({kind: "selection", raw: "[[a.md]]", number: null, label: "a.md", target: "a.md"}))
             .toEqual({kind: "selection", path: "a.md", startLine: null, endLine: null});
+    });
+});
+
+describe("prompt-text 链接与代码", () => {
+    const tokens = (text: string): Array<[string, string]> => tokensOf(parsePromptText(text, {commands: []})).map((token) => [token.kind, token.raw]);
+
+    /** 编解码器用的 `marked` 是否把这段文字（整段）读出一个链接或图片。 */
+    function markedSeesLink(text: string): boolean {
+        const has = (list: ReadonlyArray<Token>): boolean => list.some((token) => token.type === "link" || token.type === "image" || has(("tokens" in token && Array.isArray(token.tokens) ? token.tokens : []) as Token[]));
+        return has(markdownLanguage().lexer().lex(text));
+    }
+
+    it.each([
+        ["[a](b.md)", true],
+        ["[`a]b`](x.md)", true],
+        ["[x](a\\ b)", false],
+        ["`[a](b.md)`", false],
+        ["[a](设定/林　雪.md)", true],
+        ["[a](设定/林\u00a0雪.md)", true],
+        ["[a](b c)", false],
+        ["\\[a](b.md)", false],
+        ["[a](<b c.md>)", true],
+        ["[a](b(c).md)", true],
+        ["[a](b.md \"t\")", true],
+        ["[![图](a.png)](b.md)", true],
+    ] as const)("与编解码器对 %j 是不是链接的判断一致", (text, expected) => {
+        expect(markedSeesLink(text)).toBe(expected);
+        expect(findInlineLinks(text).length > 0).toBe(expected);
+    });
+
+    it("反斜杠只转义 ASCII 标点：转义后的换行不让写法跨行", () => {
+        const text = "[a](<b\\\nc>)";
+        expect(tokens(text)).toEqual([]);
+        expect(promptNodeText(parsePromptText(text, {commands: []}))).toBe(text);
+    });
+
+    it("代码片段与围栏代码块里的写法都是文字（不生出图片附件与引用），原样写回", () => {
+        expect(tokens("用 `![logo](/资料/logo.png)` 这种写法")).toEqual([]);
+        const fenced = "看这段：\n```ts\nconst img = \"![x](a.png)\";\nhandlers[key](event) $writer\n```\n然后 $writer";
+        expect(tokens(fenced)).toEqual([["skill", "$writer"]]);
+        expect(promptNodeText(parsePromptText(fenced, {commands: []}))).toBe(fenced);
+    });
+
+    it("不带方案的相对地址不是引用（代码里的 `handlers[key](event)`），旧应用的工作区路径与带方案的旧地址照常是", () => {
+        expect(tokens("handlers[key](event) 与 arr[0](x)")).toEqual([]);
+        expect(tokens("[设定](lorebook/world.md) [旧](chapter://c1) [根](/设定/a.md)").map(([kind]) => kind)).toEqual(["reference", "reference", "reference"]);
+    });
+
+    it("场景 4：文件名里有 `#`、`?`、`%` 时，`promptReferenceText` 写出的引用读回仍是同一个文件", () => {
+        for (const path of ["设定/第1章#草稿.md", "设定/为什么?.md", "设定/100%20分.md"]) {
+            const [token] = tokensOf(parsePromptText(promptReferenceText("名", `/${path}`), {commands: []}));
+            expect(classifyTarget(token?.target ?? "", null).address).toBe(`project://${path}`);
+        }
+    });
+
+    it("没闭合的方括号、反引号与引号很多时仍是线性的（几万字的草稿每打一个字都要重新识别一行）", () => {
+        for (const unit of ["[a", "[[a", "`a ", "[a](b \"", "[a](<b "]) {
+            const text = unit.repeat(Math.ceil(120_000 / unit.length));
+            const started = performance.now();
+            parsePromptText(text, {commands: []});
+            expect(performance.now() - started).toBeLessThan(2000);
+        }
+    });
+});
+
+describe("prompt-text 选区写法沿用旧版", () => {
+    const selection = (text: string) => tokensOf(parsePromptText(text, {commands: []})).filter((token) => token.kind === "selection").map((token) => promptTokenFromAttrs(token));
+
+    it("短写法、行号前小写的 `l`、开头的 `./` 与旧版读出同样的路径与行号；行号 0 不算范围", () => {
+        expect(selection("看 manuscript/ch1.md#L3-L9。")).toEqual([{kind: "selection", path: "manuscript/ch1.md", startLine: 3, endLine: 9}]);
+        expect(selection("[[manuscript/ch1.md#l3-l9]]")).toEqual([{kind: "selection", path: "manuscript/ch1.md", startLine: 3, endLine: 9}]);
+        expect(selection("[[./manuscript/ch1.md#L3]]")).toEqual([{kind: "selection", path: "manuscript/ch1.md", startLine: 3, endLine: 3}]);
+        expect(selection("[[a.md#L0]]")).toEqual([{kind: "selection", path: "a.md", startLine: null, endLine: null}]);
+    });
+
+    it("像网址的、绝对路径、带 `..` 的不是选区", () => {
+        for (const text of ["example.com/a.md#1-2", "https://x.com/a.md#1-2", "[[/etc/a.md#L1]]", "[[a/../b.md#L1]]", "词abc/def.md#1"]) expect(selection(text)).toEqual([]);
+    });
+
+    it("链接的地址里的短写法属于链接；方括号写法的选区后面跟着括号时仍是选区", () => {
+        expect(tokensOf(parsePromptText("[a](manuscript/ch1.md#1-2)", {commands: []})).map((token) => token.kind)).toEqual(["reference"]);
+        expect(tokensOf(parsePromptText("[[a.md#L1]](b.md)", {commands: []})).map((token) => token.kind)).toEqual(["selection"]);
     });
 });

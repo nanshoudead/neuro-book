@@ -11,7 +11,7 @@ import type {Mark, Node as PMNode} from "@tiptap/pm/model";
 import {Plugin, PluginKey} from "@tiptap/pm/state";
 import {Decoration, DecorationSet} from "@tiptap/pm/view";
 
-import {classifyTarget} from "../../shared/targets";
+import {classifyTarget, showsAsChip} from "../../shared/targets";
 import {chipView, renderChipIcon} from "../parts/chip";
 import type {MarkdownViewHost} from "./view-host";
 
@@ -53,7 +53,7 @@ function decorationsOf(doc: PMNode, host: MarkdownViewHost): DecorationSet {
     for (const {from, to, mark} of linkRanges(doc)) {
         const href = String(mark.attrs.href ?? "");
         const target = classifyTarget(href, base);
-        if (target.kind !== "work" && target.kind !== "user") continue;
+        if (!showsAsChip(target.kind)) continue;
         const chip = chipView({kind: "reference", label: doc.textBetween(from, to), target: href, base, number: null, state: "ready", error: "", locale: host.locale()});
         decorations.push(Decoration.inline(from, to, {class: "nb-chip-link", title: chip.title, "data-reference-link": target.kind}));
         decorations.push(Decoration.inline(to - 1, to, {class: "nb-chip-link--end"}));

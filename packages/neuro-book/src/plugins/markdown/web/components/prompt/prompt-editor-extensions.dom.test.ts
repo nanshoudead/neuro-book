@@ -380,6 +380,16 @@ describe("prompt-editor-extensions 写完即成标签", () => {
         expect(textOf(editor)).toBe("看 [第一章](chapter://c1)");
     });
 
+    it("围栏代码块里打完写法不变成小块，块外照常", () => {
+        const editor = createEditor("```\n$review\n```\n");
+        placeCursor(editor, 1, "$review".length);
+        typeText(editor, "er ");
+        expect(tokens(editor)).toEqual([]);
+        placeCursor(editor, 3, 0);
+        for (const char of "$reviewer ") typeText(editor, char);
+        expect(tokens(editor)).toEqual(["skill"]);
+    });
+
     it("一次插入多行的内容（粘贴原文）不自动变", () => {
         const editor = createEditor("");
         editor.view.dispatch(replaceWithBlocks(editor.state.tr, 1, 1, [{type: "paragraph", content: [{type: "text", text: "$reviewer "}]}]));

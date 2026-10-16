@@ -7,7 +7,7 @@
  * （`syntaxCatalogKey`、`markdownAssetsKey`）。
  */
 
-import {defineAsyncComponent, defineComponent, h, provide as provideToChildren} from "vue";
+import {defineAsyncComponent, defineComponent, h, provide as provideToChildren, ref} from "vue";
 import type {Component} from "vue";
 
 import {diagnosticsKey} from "@notnotype/nb-runtime/diagnostics";
@@ -22,18 +22,35 @@ import type {MarkdownService} from "../shared/contracts";
 import {dialectsPoint} from "../shared/plugin";
 import {createAssetUrls, markdownAssetsKey} from "./parts/asset-urls";
 import type {AssetUrls} from "./parts/asset-urls";
+import {markdownReportKey} from "./parts/report";
+import type {MarkdownReport} from "./parts/report";
 import {SyntaxCatalog, syntaxCatalogKey} from "./syntax-catalog";
 
-/** 包一层：给组件交方言目录与图片地址服务；属性、事件与插槽原样转给它。 */
-function withHost(catalog: SyntaxCatalog, assets: AssetUrls, name: string, load: () => Promise<Component>): Component {
-    const inner = defineAsyncComponent(load);
+interface Host {
+    readonly catalog: SyntaxCatalog;
+    readonly assets: AssetUrls;
+    readonly report: MarkdownReport;
+}
+
+/**
+ * 包一层：给组件交方言目录、图片地址服务与诊断出口；属性、事件与插槽原样转给它。组件的代码加载失败（部署换了版本、网络断了）
+ * 时记诊断，有 `fallback` 的按它显示（展示器按纯文字显示原文）。
+ */
+function withHost(host: Host, name: string, load: () => Promise<Component>, fallback?: (attrs: Record<string, unknown>) => ReturnType<typeof h>): Component {
+    const failed = ref(false);
+    const inner = defineAsyncComponent(() => load().catch((error: unknown) => {
+        host.report("markdown.component.load-failed", `${name} 的代码加载失败`, error);
+        failed.value = true;
+        throw error;
+    }));
     return defineComponent({
         name,
         inheritAttrs: false,
         setup: (_props, {attrs, slots}) => {
-            provideToChildren(syntaxCatalogKey, catalog);
-            provideToChildren(markdownAssetsKey, assets);
-            return () => h(inner, attrs, slots);
+            provideToChildren(syntaxCatalogKey, host.catalog);
+            provideToChildren(markdownAssetsKey, host.assets);
+            provideToChildren(markdownReportKey, host.report);
+            return () => (failed.value && fallback !== undefined ? fallback(attrs) : h(inner, attrs, slots));
         },
     });
 }
@@ -54,11 +71,13 @@ export const markdownBrowserPlugin: PluginDefinition = {
                 diagnostics.record({level: "warn", event: "markdown.dialect.inactive", message, ...(error === undefined ? {} : {error}), data: {dialect: id, code}, source: {plugin: descriptor.id}});
             });
             const assets = createAssetUrls(context.services.require(filesKey));
+            const report: MarkdownReport = (event, message, error) => diagnostics.record({level: "warn", event, message, error, source: {plugin: descriptor.id}});
+            const host: Host = {catalog, assets, report};
             context.signal.addEventListener("abort", () => assets.dispose(), {once: true});
             const service: MarkdownService = {
                 components: {
-                    MarkdownControl: withHost(catalog, assets, "MarkdownControlHost", async () => (await import("./components/MarkdownControl.vue")).default),
-                    MarkdownDisplay: withHost(catalog, assets, "MarkdownDisplayHost", async () => (await import("./components/MarkdownDisplay.vue")).default),
+                    MarkdownControl: withHost(host, "MarkdownControlHost", async () => (await import("./components/MarkdownControl.vue")).default),
+                    MarkdownDisplay: withHost(host, "MarkdownDisplayHost", async () => (await import("./components/MarkdownDisplay.vue")).default, (attrs) => h("div", {class: "nb-markdown-display", style: {whiteSpace: "pre-wrap"}}, String(attrs.text ?? ""))),
                     InlineChip: defineAsyncComponent(async () => (await import("./components/InlineChip.vue")).default),
                     MarkdownImage: defineAsyncComponent(async () => (await import("./components/MarkdownImage.vue")).default),
                     PromptEditor: defineAsyncComponent(async () => (await import("./components/prompt/PromptEditor.vue")).default),

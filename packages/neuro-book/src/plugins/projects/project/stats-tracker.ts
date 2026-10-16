@@ -22,10 +22,16 @@ import type {RemoteResult, RemoteSubscribeOptions, RemoteSubscription} from "@no
 
 import {encodedTextBytes, parseResource, TEXT_BUDGET_BYTES} from "nbook/plugins/files/shared/contracts";
 import type {ChangesMessage, FileChange} from "nbook/plugins/files/shared/contracts";
-import {countWords} from "nbook/plugins/markdown/shared/contracts";
+import {BUILTIN_DIALECT_TABLE, countWords} from "nbook/plugins/markdown/shared/contracts";
 import type {DialectTable} from "nbook/plugins/markdown/shared/contracts";
 
 import {localDate} from "../backend/shelf";
+
+/**
+ * 记录里没有口径指纹（这个字段之前写的记录）时它是按哪份声明表计的：那时字数只认内置方言的标签，与只有内置方言的声明表相同。
+ * 按它比较，升级后第一次打开不会把今天已写的字当作口径差额清掉。
+ */
+const UNRECORDED_WORD_RULES = BUILTIN_DIALECT_TABLE.fingerprint;
 import {SHELF_EXCERPT_MAX_LENGTH} from "../shared/contracts";
 import type {ProjectStatsSnapshot, ShelfLastEdit} from "../shared/contracts";
 
@@ -97,7 +103,7 @@ export function createStatsTracker(options: StatsTrackerOptions): StatsTracker {
     let complete = false;
     // 记录是按别的口径算的（指纹不同，或旧记录没有指纹）：今天的基线不接着用，首扫完成时按新口径的总字数重定，口径带来的
     // 差额不算今天写的字（runtime.projects 输出 16）。
-    let today = openingToday(initial?.wordRules === dialects.fingerprint ? initial : null, clock.now());
+    let today = openingToday((initial?.wordRules ?? UNRECORDED_WORD_RULES) === dialects.fingerprint ? initial : null, clock.now());
     let last: ShelfLastEdit | null = initial?.last ?? null;
     let computedAt = clock.now();
 

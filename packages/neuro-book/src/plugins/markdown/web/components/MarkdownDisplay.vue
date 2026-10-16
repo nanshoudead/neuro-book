@@ -1,16 +1,14 @@
 <script setup lang="ts">
 /** Markdown 展示器（同名 .md；docs/specs/ui/markdown-display.md）：编解码器读入后按 schema 生成页面元素，不建编辑器。 */
-import {getSchema} from "@tiptap/core";
-import type {Schema} from "@tiptap/pm/model";
 import {inject, onBeforeUnmount, onMounted, ref, watch} from "vue";
 
 import type {DisplayLocale} from "nbook/shared/localized-text";
 
-import {classifyTarget} from "../../shared/targets";
-import {DisplayRenderer} from "../display/renderer";
+import {classifyTarget, showsAsChip} from "../../shared/targets";
+import {DisplayRenderer, schemaFor} from "../display/renderer";
 import type {DisplayActivation} from "../display/static-views";
-import type {MarkdownLanguage} from "../language";
 import {languageFor} from "../language-registry";
+import {markdownReportKey} from "../parts/report";
 import "../parts/markdown.css";
 import {syntaxCatalogKey} from "../syntax-catalog";
 import type {ResolveAsset} from "./MarkdownImage.vue";
@@ -21,21 +19,20 @@ const emit = defineEmits<{(e: "activate", activation: DisplayActivation): void}>
 const catalog = inject(syntaxCatalogKey, null);
 if (catalog === null) throw new Error("MarkdownDisplay 要由 nbook.markdown 交出的组件挂上：缺少方言目录（syntaxCatalogKey）");
 
-/** 每份语言一份 schema：同一时刻挂上的消息共用，编解码器按它缓存。 */
-const schemas = new WeakMap<MarkdownLanguage, Schema>();
-const schemaOf = (language: MarkdownLanguage): Schema => {
-    let schema = schemas.get(language);
-    if (schema === undefined) {
-        schema = getSchema([...language.extensions]);
-        schemas.set(language, schema);
-    }
-    return schema;
-};
+const report = inject(markdownReportKey, () => undefined);
 
 const root = ref<HTMLElement | null>(null);
 let renderer: DisplayRenderer | null = null;
+/** 组不成语言或建不起渲染器时为真：之后只按纯文字显示原文（“失败与恢复”）。 */
+let plain = false;
 let frame: number | null = null;
+let timer: ReturnType<typeof setTimeout> | null = null;
+/** 上一次读入很慢时，下一次读入不早于这个时刻（`performance.now()`）。 */
+let resumeAt = 0;
 let cursor: HTMLElement | null = null;
+
+/** 读入超过这么久，下一次读入至少隔同样长：长回复流式时每帧整篇重读，不让它占满主线程（输出 6）。 */
+const SLOW_READ_MS = 8;
 
 const placeCursor = (): void => {
     cursor?.remove();
@@ -50,36 +47,67 @@ const placeCursor = (): void => {
 
 const flush = (): void => {
     frame = null;
+    if (plain) {
+        if (root.value !== null) {
+            root.value.style.whiteSpace = "pre-wrap";
+            root.value.textContent = props.text;
+        }
+        return;
+    }
+    const started = performance.now();
     renderer?.update(props.text);
+    const cost = performance.now() - started;
+    resumeAt = cost > SLOW_READ_MS ? performance.now() + cost : 0;
     placeCursor();
+};
+
+/** 排下一次读入：同一帧里多次改变只读入最后一次；上一次读入慢时先等一会儿。 */
+const schedule = (): void => {
+    if (frame !== null || timer !== null || (renderer === null && !plain)) return;
+    const wait = resumeAt - performance.now();
+    if (wait <= 0) {
+        frame = requestAnimationFrame(flush);
+        return;
+    }
+    timer = setTimeout(() => {
+        timer = null;
+        frame = requestAnimationFrame(flush);
+    }, wait);
 };
 
 onMounted(() => {
     if (root.value === null) return;
-    // 挂上时取定语言（docs/specs/workspace/markdown-syntaxes.md 输出 7）。
-    const language = languageFor(catalog);
     const document = root.value.ownerDocument;
-    renderer = new DisplayRenderer(root.value, language, schemaOf(language), {
-        document,
-        get locale() {
-            return props.locale;
-        },
-        get resolveAsset() {
-            return props.resolveAsset;
-        },
-        activate: (activation) => emit("activate", activation),
-    });
-    flush();
+    try {
+        // 挂上时取定语言（docs/specs/workspace/markdown-syntaxes.md 输出 7）。
+        const language = languageFor(catalog);
+        renderer = new DisplayRenderer(root.value, language, schemaFor(language), {
+            document,
+            get locale() {
+                return props.locale;
+            },
+            get resolveAsset() {
+                return props.resolveAsset;
+            },
+            activate: (activation) => emit("activate", activation),
+            report: (message, error) => report("markdown.display.block-failed", message, error),
+        });
+        flush();
+    } catch (error) {
+        renderer?.destroy();
+        renderer = null;
+        plain = true;
+        report("markdown.display.failed", "展示器组不成语言，按纯文字显示原文", error);
+        flush();
+    }
 });
 
-// 同一帧里多次改变只读入最后一次（输出 6）。
-watch(() => props.text, () => {
-    if (frame === null && renderer !== null) frame = requestAnimationFrame(flush);
-});
+watch(() => props.text, schedule);
 watch(() => props.streaming, placeCursor);
 
 onBeforeUnmount(() => {
     if (frame !== null) cancelAnimationFrame(frame);
+    if (timer !== null) clearTimeout(timer);
     renderer?.destroy();
     renderer = null;
 });
@@ -91,7 +119,7 @@ const onClick = (event: MouseEvent): void => {
     event.preventDefault();
     const href = anchor.getAttribute("href") ?? "";
     const target = classifyTarget(href, null);
-    emit("activate", target.kind === "work" || target.kind === "user" ? {kind: "reference", target: href} : {kind: "link", href});
+    emit("activate", showsAsChip(target.kind) ? {kind: "reference", target: href} : {kind: "link", href});
 };
 </script>
 

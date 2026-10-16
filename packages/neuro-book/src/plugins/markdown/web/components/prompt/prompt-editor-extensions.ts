@@ -18,6 +18,7 @@ import {
     PROMPT_PENDING_NODE,
     PROMPT_TOKEN_NODE,
     fileTokenAttrs,
+    fencedLines,
     findCompletedWriting,
     findPromptTrigger,
     imageTokenAttrs,
@@ -375,6 +376,10 @@ function createCompletionPlugin(commands: () => readonly string[]): Plugin {
                 return null;
             }
             const paragraph = $from.parent;
+            // 围栏代码块里打字不变成小块：按正文开头到这一行的各行判断这一行在不在块里。
+            const lines: string[] = [];
+            for (let index = 0; index <= $from.index(0); index += 1) lines.push(newState.doc.child(index).textContent);
+            if (fencedLines(lines).at(-1) === true) return null;
             const line = paragraph.textBetween(0, paragraph.content.size, undefined, PROMPT_ATOM_CHAR);
             const found = findCompletedWriting(line, $from.parentOffset, $to.parentOffset, {commands: commands(), firstLine: $from.index(0) === 0});
             if (!found) {

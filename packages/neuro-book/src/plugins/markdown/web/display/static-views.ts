@@ -24,6 +24,8 @@ export interface StaticViewHost {
     readonly locale: DisplayLocale;
     readonly resolveAsset: ResolveAsset | undefined;
     activate(activation: DisplayActivation): void;
+    /** 记一条诊断：某一块画不出来，按文字显示了。 */
+    report(message: string, error: unknown): void;
 }
 
 export interface StaticView {

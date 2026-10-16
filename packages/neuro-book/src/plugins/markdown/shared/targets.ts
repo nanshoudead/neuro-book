@@ -55,6 +55,9 @@ function resource(scheme: "project" | "user", path: string | null): string | nul
     return parseResource(address).ok ? address : null;
 }
 
+/** 这一类目标的链接显示成引用小块：外部链接是普通链接，别的都是小块（输出 27；“其它”不带文件图标）。 */
+export const showsAsChip = (kind: TargetKind): boolean => kind !== "external";
+
 /**
  * 归类并解析一个目标。`base` 是目标所在文件的地址（编辑器里的文档）；没有所在文件时（Composer、展示器）为 null，这时以 `/`
  * 开头的按作品根解析，相对地址无从解析，归为 `other`。
@@ -80,4 +83,16 @@ export function classifyTarget(target: string, base: string | null): Target {
     if (baseResource?.ok !== true) return {kind: "other", address: null, name: lastSegment(path)};
     const directory = baseResource.resource.path.split("/").slice(0, -1);
     return {kind, address: resource(root, normalized([...directory, ...segments])), name: lastSegment(path)};
+}
+
+/**
+ * 作品里的文件与用户资产写进链接时的地址：路径里的 `%`、`#`、`?` 按百分号编码，读回时（`classifyTarget` 去掉查询与片段、再
+ * 解码）仍是同一个文件。别的方案（外部链接）原样：那里的 `#`、`?` 本来就是片段与查询。
+ */
+export function encodeFileTarget(target: string): string {
+    const scheme = SCHEME.exec(target)?.[1]?.toLowerCase();
+    if (scheme !== undefined && scheme !== "project" && scheme !== "user") return target;
+    const prefix = scheme === undefined ? "" : `${scheme}://`;
+    const path = target.slice(prefix.length === 0 ? 0 : target.indexOf("://") + 3);
+    return `${prefix}${path.replace(/[%#?]/gu, (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`)}`;
 }

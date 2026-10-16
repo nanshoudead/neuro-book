@@ -10,10 +10,17 @@ import type {Component} from "vue";
 import {defineServiceKey} from "@notnotype/nb-runtime/services";
 import type {ServiceKey} from "@notnotype/nb-runtime/services";
 
+import {BUILTIN_DIALECTS} from "./dialects";
+import {dialectTable} from "./word-count";
+
 export {MARKDOWN_DIALECTS_POINT, MARKDOWN_SYNTAXES_POINT, validateDialectDeclaration, validateSyntaxContribution} from "./dialects";
 export type {DialectDeclaration} from "./dialects";
 export {countWords, dialectTable} from "./word-count";
 export type {DialectTable} from "./word-count";
+
+
+/** 只有内置方言时的声明表：书架统计用它看待没有口径指纹的旧记录（docs/specs/runtime/projects.md 输出 16）。 */
+export const BUILTIN_DIALECT_TABLE = dialectTable(Object.values(BUILTIN_DIALECTS).map((declaration) => ({declaration})));
 
 export interface MarkdownComponents {
     /** Markdown 富文本控件，按编辑器区的控件合同（`nbook/plugins/editor/shared/contracts.ts`）收属性、交句柄。 */

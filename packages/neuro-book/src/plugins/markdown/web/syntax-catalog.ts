@@ -32,12 +32,17 @@ export const syntaxCatalogKey: InjectionKey<SyntaxCatalog> = Symbol("nbook.markd
 
 type Handle = ContributionHandle<Record<string, never>, MarkdownSyntaxImplementation>;
 
-const tagsOf = (syntax: MarkdownSyntax): ReadonlyArray<string> => [...Object.keys(syntax.blockOpens ?? {}), ...(syntax.inlineTags ?? [])];
+const blockTagsOf = (syntax: MarkdownSyntax): ReadonlyArray<string> => Object.keys(syntax.blockOpens ?? {});
+const tagsOf = (syntax: MarkdownSyntax): ReadonlyArray<string> => [...blockTagsOf(syntax), ...(syntax.inlineTags ?? [])];
 const sameSet = (a: ReadonlyArray<string>, b: ReadonlyArray<string>): boolean => new Set(a).size === new Set(b).size && a.every((item) => b.includes(item));
 
-/** 一种方言占用的名字：标签、schema 里的节点与标记、写法。两种方言占了同一个名字就撞名（输出 4）。 */
+/**
+ * 一种方言占用的名字：标签、schema 里的节点与标记、写法、模块名（语言按模块名存写前准备）。两种方言占了同一个名字就撞名
+ * （输出 4）。组合扩展里的子扩展名要展开才看得出，由 `language-registry.ts` 补。
+ */
 export function namesOf(syntax: MarkdownSyntax): ReadonlyArray<string> {
     return [
+        `module:${syntax.name}`,
         ...tagsOf(syntax).map((tag) => `tag:${tag}`),
         ...syntax.extensions.map((extension) => `type:${extension.name}`),
         ...Object.keys({...syntax.writeBlock, ...syntax.writeInline, ...syntax.writeMark}).map((type) => `writer:${type}`),
@@ -53,6 +58,11 @@ export class SyntaxCatalog {
     readonly #loaded = new Map<string, {readonly handle: Handle; readonly syntax: MarkdownSyntax}>();
     /** 每种方言上一次记下的不生效原因：同一原因不重复记诊断。 */
     readonly #reported = new Map<string, InactiveCode>();
+    /**
+     * 组成语言时才判出不生效的方言（`language-registry.ts`）：目录看来它们仍生效，所以重算不清这张表；方言换一次交付（撤回或重新
+     * 加载）才清，同一次交付只记一次诊断。
+     */
+    readonly #rejected = new Set<string>();
     readonly #active: ShallowRef<ReadonlyArray<ActiveSyntax>> = shallowRef([]);
 
     constructor(declarations: ContributionDeclarations, report: SyntaxReport) {
@@ -72,19 +82,34 @@ export class SyntaxCatalog {
             },
             // 与编辑器、语言的交付同一规则：新一次交付之后旧句柄迟到的撤回不算。
             revoke: (handle) => {
-                if (this.#loaded.get(handle.id)?.handle !== handle) return;
+                const loaded = this.#loaded.get(handle.id);
+                // 没加载成功的（加载失败、还在加载）也清掉它的记录：重新交付后再失败照常记。
+                if (loaded === undefined) {
+                    this.#reported.delete(handle.id);
+                    this.#rejected.delete(handle.id);
+                    return;
+                }
+                if (loaded.handle !== handle) return;
                 this.#loaded.delete(handle.id);
                 this.#reported.delete(handle.id);
+                this.#rejected.delete(handle.id);
                 this.#recompute();
             },
         };
     }
 
-    /** 记一次不生效（`language-registry.ts` 判出 schema 撞名时也经这里）。同一种方言同一原因只记一次。 */
+    /** 记一次不生效。同一种方言同一原因只记一次；它生效或撤回之后再不生效照常记。 */
     report(id: string, code: InactiveCode, message: string, error?: unknown): void {
         if (this.#reported.get(id) === code) return;
         this.#reported.set(id, code);
         this.#report(id, code, message, error);
+    }
+
+    /** 组成语言时判出的不生效（展开后的名字撞名、组不成语言）：同一次交付只记一次。 */
+    reject(id: string, message: string, error?: unknown): void {
+        if (this.#rejected.has(id)) return;
+        this.#rejected.add(id);
+        this.#report(id, "conflict", message, error);
     }
 
     async #load(handle: Handle): Promise<void> {
@@ -92,25 +117,28 @@ export class SyntaxCatalog {
         try {
             syntax = await handle.implementation().load();
         } catch (error) {
-            this.report(handle.id, "load-failed", `方言 ${handle.id} 的实现加载失败，按原样保留它的写法`, error);
+            // 加载期间撤回了：这次失败没有意义，不记。
+            if (handle.published) this.report(handle.id, "load-failed", `方言 ${handle.id} 的实现加载失败，按原样保留它的写法`, error);
             return;
         }
         // 加载期间撤回了：迟到的结果丢掉。
         if (!handle.published) return;
+        this.#rejected.delete(handle.id);
         this.#loaded.set(handle.id, {handle, syntax});
         this.#recompute();
     }
 
     #recompute(): void {
         const candidates: Array<ActiveSyntax & {readonly names: ReadonlyArray<string>}> = [];
-        for (const [id, {syntax}] of this.#loaded) {
+        for (const [id, {handle, syntax}] of this.#loaded) {
             const declared = this.#declarations.get<DialectDeclaration>(MARKDOWN_DIALECTS_POINT, id);
-            if (declared === null) {
-                this.report(id, "missing-declaration", `方言实现 ${id} 没有同 id 的已接受声明，不生效`);
+            // 声明与实现要出自同一个插件：方言 id 只要求以插件 id 开头，插件 id 互为前缀时（`a` 与 `a.b`）只比 id 会跨插件配对。
+            if (declared === null || declared.plugin !== handle.plugin) {
+                this.report(id, "missing-declaration", `方言实现 ${id} 没有同一插件的同 id 已接受声明，不生效`);
                 continue;
             }
-            const declaredTags = [...(declared.declaration.blockTags ?? []), ...(declared.declaration.inlineTags ?? [])];
-            if (!sameSet(tagsOf(syntax), declaredTags)) {
+            // 块级与行内分开比：声明决定字数怎么认标签，实现决定读写怎么认，两边要认成同一种。
+            if (!sameSet(blockTagsOf(syntax), declared.declaration.blockTags ?? []) || !sameSet(syntax.inlineTags ?? [], declared.declaration.inlineTags ?? [])) {
                 this.report(id, "tag-mismatch", `方言 ${id} 的实现交出的标签名与声明不同，不生效`);
                 continue;
             }
@@ -130,6 +158,9 @@ export class SyntaxCatalog {
             .sort((a, b) => a.order - b.order || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
         // 生效的那些清掉旧的不生效记录：之后再不生效时照常记。
         for (const {id} of active) this.#reported.delete(id);
+        // 集合没变时不换数组：组成语言按数组缓存，换了就要重新组成一份一样的语言。
+        const current = this.#active.value;
+        if (current.length === active.length && current.every((entry, index) => entry.id === active[index]?.id && entry.syntax === active[index]?.syntax)) return;
         this.#active.value = active;
     }
 }

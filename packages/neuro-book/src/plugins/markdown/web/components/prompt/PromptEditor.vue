@@ -213,6 +213,7 @@ onMounted(() => {
             attributes: {
                 class: "prompt-editor__prosemirror",
                 spellcheck: "false",
+                role: "textbox",
                 "aria-multiline": "true",
             },
             handleKeyDown,

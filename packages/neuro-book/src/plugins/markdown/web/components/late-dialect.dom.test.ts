@@ -8,67 +8,35 @@ import type {Editor} from "@tiptap/core";
 import {mount} from "@vue/test-utils";
 import {afterEach, describe, expect, it} from "vitest";
 
-import {createApplication} from "@notnotype/nb-runtime/application";
-import {createDiagnosticsPlugin, createDiagnosticsStore} from "@notnotype/nb-runtime/diagnostics";
 import {systemClock} from "@notnotype/nb-runtime/lifecycle";
-import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 
 import {MARKDOWN_EDITOR} from "nbook/plugins/editor/shared/contracts";
 import type {EditorControlHandle, TextEditorBinding} from "nbook/plugins/editor/shared/contracts";
 import {createEditorArea} from "nbook/plugins/editor/web/area";
-import {createConsoleExporterFactory, createConsoleFallback} from "nbook/plugins/diagnostics/web/console-exporter";
 import {createMemoryFiles} from "nbook/plugins/lab/web/fixtures/explorer-scene/memory-files";
 
-import {descriptor} from "../../plugin";
-import {MARKDOWN_SYNTAXES_POINT, validateSyntaxContribution} from "../../shared/contracts";
-import {dialectsPoint} from "../../shared/plugin";
 import {SyntaxCatalog, syntaxCatalogKey} from "../syntax-catalog";
+import {startMarkdownBrowserHost} from "../testing/browser-host";
 import {kbdDialectPlugin} from "../testing/kbd-dialect";
 import MarkdownControl from "./MarkdownControl.vue";
 
-const silent = {error: () => undefined};
 const cleanups: Array<() => void | Promise<void>> = [];
 afterEach(async () => {
     for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
 });
 
-/** 起一个浏览器实例：拥有者与 `nbook.markdown` 的浏览器定义同样的贡献点与内置声明；测试方言等测试激活。 */
+/** 起一个浏览器实例；测试方言等测试激活。 */
 async function start(): Promise<{readonly catalog: SyntaxCatalog; readonly deliver: () => Promise<void>}> {
-    let catalog: SyntaxCatalog | null = null;
-    const owner: PluginDefinition = {
-        id: descriptor.id,
-        contributionPoints: [dialectsPoint, {id: MARKDOWN_SYNTAXES_POINT, implementation: "required", validate: validateSyntaxContribution}],
-        contributions: descriptor.contributions ?? [],
-        entries: [{
-            id: "browser",
-            location: "browser",
-            activationEvents: ["onStartup"],
-            receives: [MARKDOWN_SYNTAXES_POINT],
-            activate: (context) => {
-                catalog = new SyntaxCatalog(context.declarations, () => undefined);
-                return {receivers: {[MARKDOWN_SYNTAXES_POINT]: catalog.receiver()}};
-            },
-        }],
-    };
-    const identity = {location: "browser" as const, instanceId: "late-dialect"};
-    const store = createDiagnosticsStore({identity});
-    const diagnostics = createDiagnosticsPlugin({location: "browser", store, exporter: createConsoleExporterFactory(silent), fallback: createConsoleFallback(silent)});
-    const application = createApplication(
-        {identity, stopSignal: new AbortController().signal, emergency: () => undefined},
-        {capabilities: [], plugins: [diagnostics, owner, kbdDialectPlugin({activationEvents: []})], requiredPlugins: [diagnostics.id, descriptor.id], gates: []},
-    );
+    const host = await startMarkdownBrowserHost([kbdDialectPlugin({activationEvents: []})], "late-dialect");
     cleanups.push(async () => {
-        await application.stop();
+        await host.application.stop();
     });
-    await application.startup;
-    const ready = catalog as SyntaxCatalog | null;
-    if (ready === null) throw new Error("拥有者没有激活");
     return {
-        catalog: ready,
+        catalog: host.catalog,
         deliver: async () => {
-            expect(await application.plugins.activate({plugin: "test.kbd", entry: "browser"})).toMatchObject({status: "activated"});
-            await waitUntil("方言生效", () => (ready.active.value.length === 1 ? true : null));
+            expect(await host.application.plugins.activate({plugin: "test.kbd", entry: "browser"})).toMatchObject({status: "activated"});
+            await waitUntil("方言生效", () => (host.catalog.active.value.length === 1 ? true : null));
         },
     };
 }

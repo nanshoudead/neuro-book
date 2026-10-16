@@ -13,12 +13,16 @@ Markdown 富文本控件：一个 Tiptap 编辑器实例，按编辑器控件合
 ```ts
 type Props = {
     binding: TextEditorBinding | null;
+    /** 编辑器区给的视图状态槽：控件把编辑器实例放在这里，切走再切回时接着用；淘汰时编辑器区调它的 `dispose`（workbench.editor 输出 19）。 */
+    host: ViewStateSlot;
     readonly: boolean;
     visible: boolean;
     /** 编辑区的可访问名称（文件名）。 */
     label: string;
     /** 空文档的占位文字；可选。 */
     placeholder?: string;
+    /** 界面语言：引用小块的悬停提示与图片的说明按它显示；默认 `"zh-CN"`。 */
+    locale?: DisplayLocale;
 };
 
 type Emits = {

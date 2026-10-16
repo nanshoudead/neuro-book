@@ -6,6 +6,8 @@
  */
 
 import {findInlineLinks, unescapeMarkdown, writeInlineLink} from "../../../shared/link-syntax";
+import {classifyTarget, encodeFileTarget} from "../../../shared/targets";
+import {findSelections, parseSelectionText} from "./prompt-selection";
 import type {PromptEditorPastePolicy, PromptEditorToken} from "./prompt-editor.types";
 
 export const PROMPT_TOKEN_NODE = "promptToken";
@@ -83,10 +85,12 @@ export const DEFAULT_PASTE_POLICY: PromptEditorPastePolicy = {
 const PASTE_OPEN_PATTERN = /^<paste id="([1-9]\d*)">$/u;
 const PASTE_CLOSE_LINE = "</paste>";
 const FILE_LABEL_PATTERN = /^file #([1-9]\d*) · (.+)$/u;
-const SELECTION_PATTERN = /\[\[([^\]\n]+?)\]\]/gu;
-const SELECTION_INNER_PATTERN = /^(.+?)(?:#L?(\d+)(?:-L?(\d+))?)?$/u;
 const PASTE_MARKER_PATTERN = /\[paste #([1-9]\d*)\](?!\()/gu;
 const IMAGE_LABEL_PATTERN = /^image #([1-9]\d*)$/u;
+const SCHEME_PREFIX = /^[A-Za-z][A-Za-z0-9+.-]*:/u;
+/** 旧应用认作引用的工作区路径前缀（旧版 `plain-reference-text.ts` 的 `WORKSPACE_REFERENCE_PREFIXES`）。 */
+const LEGACY_WORKSPACE_PREFIXES = ["agents/", "assets/", "docs/", "lorebook/", "manuscript/", "reference/", "simulation/", "workspace/", ".agent/", ".nbook/agent/"];
+const FENCE_PATTERN = /^ {0,3}(`{3,}|~{3,})/u;
 const COMMAND_PATTERN = /^\/([^\s/]+)(?=\s|$)/u;
 /** 中文与全角标点：中文里技能写法与触发字符前面常常不是空格，而是逗号、顿号这类标点。 */
 const CJK_PUNCTUATION = "\\u3000-\\u303F\\uFF01-\\uFF0F\\uFF1A-\\uFF20\\uFF3B-\\uFF40\\uFF5B-\\uFF65\\u2018-\\u201F";
@@ -107,10 +111,10 @@ export function serializeFileToken(number: number, name: string, target: string)
 
 /**
  * 引用的写法：`@` 菜单的宿主用它拼 `insertText`。作品里的文件写以 `/` 开头的作品根地址（docs/specs/ui/prompt-editor.md 输出 3），
- * 地址含空白或括号时写成 `<地址>`。
+ * 地址含空白或括号时写成 `<地址>`，文件名里的 `%`、`#`、`?` 按百分号编码（`encodeFileTarget`），读回仍指向同一个文件。
  */
 export function promptReferenceText(label: string, target: string): string {
-    return writeInlineLink(label, target);
+    return writeInlineLink(label, encodeFileTarget(target));
 }
 
 export function serializePasteMarker(number: number): string {
@@ -231,7 +235,7 @@ export function promptTokenFromAttrs(attrs: PromptTokenAttrs): PromptEditorToken
         case "skill":
             return {kind: "skill", name: attrs.label};
         case "selection": {
-            const range = parseSelection(attrs.raw.slice(2, -2));
+            const range = parseSelectionText(attrs.raw);
             return {kind: "selection", path: attrs.target, startLine: range?.startLine ?? null, endLine: range?.endLine ?? null};
         }
         case "command":
@@ -421,8 +425,45 @@ interface LocatedToken {
 }
 
 /**
- * 命令、位置标记与选区先识别，再把它们遮成占位字符交给链接的词法，这样 `[[设定/林雪.md]]` 不会再被读成方括号里的文字；
- * 链接按方括号里的文字分成图片、文件与引用。技能最后认，落在已认出的写法里面的不算。
+ * 每一行是否在围栏代码块里（包括围栏那两行）。块里的写法都是文字：用户贴给 Agent 的代码里的 `![x](a.png)` 不是图片附件，
+ * `handlers[key](event)` 不是引用（旧版用 CommonMark 解析图片，同样排除代码）。围栏按 CommonMark：三个以上的反引号或波浪号开头，
+ * 同一种符号、不短于开头的一行收尾；没收尾的到文字末尾。
+ */
+export function fencedLines(lines: ReadonlyArray<string>): boolean[] {
+    const fenced: boolean[] = [];
+    let open: string | null = null;
+    for (const line of lines) {
+        const fence = FENCE_PATTERN.exec(line)?.[1];
+        if (open === null) {
+            fenced.push(fence !== undefined);
+            if (fence !== undefined) open = fence;
+            continue;
+        }
+        fenced.push(true);
+        if (fence !== undefined && fence[0] === open[0] && fence.length >= open.length && line.trim() === fence) open = null;
+    }
+    return fenced;
+}
+
+/** `value` 里落在围栏代码块里的位置。 */
+function fenceTest(value: string): (position: number) => boolean {
+    const lines = value.split("\n");
+    const fenced = fencedLines(lines);
+    if (!fenced.includes(true)) return () => false;
+    const ranges: Array<[number, number]> = [];
+    let offset = 0;
+    lines.forEach((line, index) => {
+        if (fenced[index]) ranges.push([offset, offset + line.length + 1]);
+        offset += line.length + 1;
+    });
+    return (position) => ranges.some(([start, end]) => position >= start && position < end);
+}
+
+/**
+ * 一行文字里的写法。命令与位置标记先认，遮成占位字符，链接的词法不会把它们读成方括号；选区与链接都在遮过的文字上找。
+ * 互相重叠时按旧版的规则取舍（`plain-reference-text.ts` 的 `tokenizePlainReferenceText`）：开头靠前的赢；同一个开头时命令与
+ * 位置标记先于选区，选区先于链接（`[[a]](b)` 是选区）；开头落在选区里面的链接不算。跨行的写法不算。技能最后认，落在已认出的
+ * 写法里面的不算。
  */
 function tokenizeInline(value: string, context: InlineContext): LocatedToken[] {
     const own: LocatedToken[] = [];
@@ -438,27 +479,32 @@ function tokenizeInline(value: string, context: InlineContext): LocatedToken[] {
             }
         }
     }
-    for (const match of value.matchAll(SELECTION_PATTERN)) {
-        const selection = parseSelection(match[1] ?? "");
-        const start = match.index;
-        const end = start + match[0].length;
-        if (selection !== null && !own.some((item) => start < item.end && item.start < end)) {
-            own.push({start, end, attrs: {kind: "selection", raw: match[0], number: null, label: selection.label, target: selection.path}});
-        }
-    }
     const masked = maskTokens(value, own);
-    const located = [...own];
+    const selections: LocatedToken[] = findSelections(masked).map((chip) => ({start: chip.start, end: chip.end, attrs: {kind: "selection", raw: value.slice(chip.start, chip.end), number: null, label: chip.label, target: chip.path}}));
+    const links: LocatedToken[] = [];
     for (const link of findInlineLinks(masked)) {
+        if (selections.some((item) => link.start >= item.start && link.start < item.end)) continue;
         const attrs = linkAttrs(value.slice(link.start, link.end), link.image, link.label, link.destination);
-        if (attrs !== null && !own.some((item) => link.start < item.end && item.start < link.end)) {
-            located.push({start: link.start, end: link.end, attrs});
-        }
+        if (attrs !== null) links.push({start: link.start, end: link.end, attrs});
+    }
+    const inFence = fenceTest(value);
+    const candidates = [...own, ...selections, ...links]
+        .filter((token) => !token.attrs.raw.includes("\n") && !inFence(token.start))
+        .map((token, rank) => ({token, rank}))
+        .sort((left, right) => left.token.start - right.token.start || left.rank - right.rank);
+    const located: LocatedToken[] = [];
+    let cursor = 0;
+    for (const {token} of candidates) {
+        if (token.start < cursor) continue;
+        located.push(token);
+        cursor = token.end;
     }
     // 技能写法前面可以是开头、空白、括号或中文标点；链接里面的 `$` 不算。
     const skillText = maskTokens(value, located);
     for (const match of skillText.matchAll(SKILL_TOKEN_PATTERN)) {
         const start = match.index + (match[1]?.length ?? 0);
         const raw = match[2] ?? "";
+        if (inFence(start)) continue;
         located.push({start, end: start + raw.length, attrs: {kind: "skill", raw, number: null, label: match[3] ?? match[4] ?? "", target: ""}});
     }
     return located.sort((left, right) => left.start - right.start);
@@ -472,7 +518,12 @@ function maskTokens(value: string, tokens: readonly LocatedToken[]): string {
     return masked;
 }
 
-/** 一个链接是哪种小块：图片；方括号里是 `file #N · 文件名` 的是文件；其余有文字与地址的是引用。 */
+/**
+ * 一个链接是哪种小块：图片；方括号里是 `file #N · 文件名` 的是文件；其余有文字与地址的是引用。引用的地址是不带方案的相对地址时，
+ * 只有旧应用的工作区路径（`LEGACY_WORKSPACE_PREFIXES`，旧草稿里的写法）算引用：Composer 没有所在文件，别的相对地址无从解析，
+ * 而写代码时的 `handlers[key](event)`、`arr[0](x)` 正是这种样子。带方案的（`chapter://c1` 这类旧地址）与以 `/` 开头的作品根
+ * 地址照常是引用。
+ */
 function linkAttrs(raw: string, image: boolean, label: string, target: string): PromptTokenAttrs | null {
     const text = unescapeMarkdown(label);
     if (image) {
@@ -482,21 +533,8 @@ function linkAttrs(raw: string, image: boolean, label: string, target: string): 
     if (text === "" || target === "") return null;
     const file = FILE_LABEL_PATTERN.exec(text);
     if (file?.[1] && file[2]) return {kind: "file", raw, number: Number(file[1]), label: file[2], target};
+    if (classifyTarget(target, null).kind === "other" && !SCHEME_PREFIX.test(target) && !LEGACY_WORKSPACE_PREFIXES.some((prefix) => target.replace(/^\.\//u, "").startsWith(prefix))) return null;
     return {kind: "reference", raw, number: null, label: text, target};
-}
-
-/**
- * 选区写法 `[[路径]]`、`[[路径#L起]]`、`[[路径#L起-L止]]` 方括号里的部分；路径含空白、`..` 段或方案（`https:`）时不算。
- * 显示名是路径的最后一段加行号。
- */
-function parseSelection(inner: string): {path: string; label: string; startLine: number | null; endLine: number | null} | null {
-    const matched = SELECTION_INNER_PATTERN.exec(inner.trim());
-    const path = matched?.[1]?.replace(/\\/gu, "/");
-    if (!matched || !path || /\s/u.test(path) || path.split("/").includes("..") || /^[a-z][a-z0-9+.-]*:/iu.test(path)) return null;
-    const startLine = matched[2] ? Number(matched[2]) : null;
-    const endLine = matched[3] ? Math.max(Number(matched[3]), startLine ?? 0) : startLine;
-    const name = path.split("/").filter(Boolean).at(-1) ?? path;
-    return {path, label: startLine === null ? name : `${name}:${String(startLine)}-${String(endLine)}`, startLine, endLine};
 }
 
 /**

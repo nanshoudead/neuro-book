@@ -325,8 +325,12 @@ describe("Spec projects 输出 16、验收 16：今天", () => {
         const withKbd = dialectTable([...Object.values(BUILTIN_DIALECTS).map((declaration) => ({declaration})), {declaration: {order: 80, inlineTags: ["kbd"]}}]);
         const changed = track(created, {initial: recorded({words: 10, date: "2026-10-10", baseline: 10}), dialects: withKbd});
         expect(await completed(changed.tracker)).toMatchObject({words: 15, today: {date: "2026-10-10", baseline: 15}, wordRules: withKbd.fingerprint});
+        // 没有指纹的旧记录是按内置声明表计的：口径没换，今天已写的 6 个字保留，补上指纹。
         const legacy = track(created, {initial: recorded({words: 10, date: "2026-10-10", baseline: 4, wordRules: null})});
-        expect(await completed(legacy.tracker)).toMatchObject({words: 10, today: {date: "2026-10-10", baseline: 10}, wordRules: BUILTIN_TABLE.fingerprint});
+        expect(await completed(legacy.tracker)).toMatchObject({words: 10, today: {date: "2026-10-10", baseline: 4}, wordRules: BUILTIN_TABLE.fingerprint});
+        // 没有指纹、但当前多了一种方言：照常按口径换了处理。
+        const legacyChanged = track(created, {initial: recorded({words: 10, date: "2026-10-10", baseline: 4, wordRules: null}), dialects: withKbd});
+        expect(await completed(legacyChanged.tracker)).toMatchObject({words: 15, today: {date: "2026-10-10", baseline: 15}, wordRules: withKbd.fingerprint});
     });
 });
 

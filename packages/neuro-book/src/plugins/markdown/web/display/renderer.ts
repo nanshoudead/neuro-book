@@ -7,10 +7,11 @@
  * 变了。
  */
 
+import {getSchema} from "@tiptap/core";
 import type {Node as PMNode, Schema} from "@tiptap/pm/model";
 import {DOMSerializer} from "@tiptap/pm/model";
 
-import {classifyTarget} from "../../shared/targets";
+import {classifyTarget, showsAsChip} from "../../shared/targets";
 import {codecFor} from "../codec/codec";
 import type {MarkdownLanguage} from "../language";
 import {chipView, renderChipIcon} from "../parts/chip";
@@ -21,6 +22,18 @@ interface Block {
     readonly key: string;
     readonly dom: globalThis.Node;
     readonly views: ReadonlyArray<StaticView>;
+}
+
+/** 每份语言一份 schema：同一份语言的消息共用，编解码器按 schema 缓存，所以读入也共用。 */
+const schemas = new WeakMap<MarkdownLanguage, Schema>();
+
+export function schemaFor(language: MarkdownLanguage): Schema {
+    let schema = schemas.get(language);
+    if (schema === undefined) {
+        schema = getSchema([...language.extensions]);
+        schemas.set(language, schema);
+    }
+    return schema;
 }
 
 /** 文本块的元素名：图标不越过它往外放，流式光标放在最后一个里面。 */
@@ -72,7 +85,7 @@ function decorateLinks(root: HTMLElement, host: StaticViewHost): void {
         const first = group[0] as HTMLAnchorElement;
         const href = first.getAttribute("href") ?? "";
         const target = classifyTarget(href, null);
-        if (target.kind !== "work" && target.kind !== "user") continue;
+        if (!showsAsChip(target.kind)) continue;
         const chip = chipView({kind: "reference", label: group.map((anchor) => anchor.textContent ?? "").join(""), target: href, base: null, number: null, state: "ready", error: "", locale: host.locale});
         // 与编辑器的装饰同一个结构：小块的样子画在链接里面的一层 span 上，链接本身的样式按 `:has(.nb-chip-link)` 去掉。
         const spans = group.map((anchor) => {
@@ -135,22 +148,35 @@ export class DisplayRenderer {
         while (head < old.length && head < keys.length && old[head]?.key === keys[head]) head += 1;
         let tail = 0;
         while (tail < old.length - head && tail < keys.length - head && old[old.length - 1 - tail]?.key === keys[keys.length - 1 - tail]) tail += 1;
+        // 先生成新块，再换下旧块：生成到一半抛错时页面与 `#blocks` 仍对得上，下一次更新照常比较。
+        const added = next.slice(head, next.length - tail).map((node, index): Block => ({key: keys[head + index] as string, ...this.#render(node)}));
         const removed = old.slice(head, old.length - tail);
         const anchor = old[old.length - tail]?.dom ?? null;
         for (const block of removed) {
             for (const view of block.views) view.destroy?.();
             this.#root.removeChild(block.dom);
         }
-        const added = next.slice(head, next.length - tail).map((node, index) => {
-            this.#collecting = [];
+        for (const block of added) this.#root.insertBefore(block.dom, anchor);
+        this.#blocks = [...old.slice(0, head), ...added, ...old.slice(old.length - tail)];
+    }
+
+    /** 生成一块。画不出来（外来方言的 `renderHTML` 抛错之类）时按它的文字显示，只影响这一块（输出 1）。 */
+    #render(node: PMNode): Omit<Block, "key"> {
+        this.#collecting = [];
+        try {
             const dom = this.#serializer.serializeNode(node, {document: this.#host.document});
             if (dom.nodeType === 1) decorateLinks(dom as HTMLElement, this.#host);
-            const block: Block = {key: keys[head + index] as string, dom, views: this.#collecting};
+            return {dom, views: this.#collecting};
+        } catch (error) {
+            for (const view of this.#collecting) view.destroy?.();
+            this.#host.report(`展示器画不出一块 ${node.type.name}，按文字显示`, error);
+            const pre = this.#host.document.createElement("pre");
+            pre.className = "nb-markdown-display__plain";
+            pre.textContent = node.textContent;
+            return {dom: pre, views: []};
+        } finally {
             this.#collecting = [];
-            this.#root.insertBefore(dom, anchor);
-            return block;
-        });
-        this.#blocks = [...old.slice(0, head), ...added, ...old.slice(old.length - tail)];
+        }
     }
 
     /** 最后一块里最后一个文本块的元素（放流式光标）。 */
