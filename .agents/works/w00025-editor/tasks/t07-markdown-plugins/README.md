@@ -81,6 +81,8 @@ updated: 2026-10-16
 
 - S2（`22bbd8fe1`）：方言的两个贡献点。`markdown.dialects`（顶层声明，浏览器与项目两个位置都有拥有者，项目位置只有贡献点没有入口）、`markdown.syntaxes`（浏览器入口交实现）。内置方言的声明写在插件描述里，实现由 `nbook.markdown` 直接持有；外来方言由方言目录（`web/syntax-catalog.ts`，不碰 DOM）配对声明、核对标签名、判撞名与加载失败，不生效时记诊断 `markdown.dialect.inactive`；组成语言（`web/language-registry.ts`）只在组件一侧，Markdown 控件在建实例时取定语言。行内代码改按标记组排斥注音，内置方言逐个缺席都能组成语言。字数改为按声明表计（`dialectTable`），书架统计的快照记声明表指纹，指纹不同（或旧记录没有）时首扫后重定今天的基线。测试方言插件 `web/testing/kbd-dialect.ts`。`test:affected --typecheck` 通过（bun 1405 条、vitest 257 条），随机性质测试默认种子与 1–60 全过；生产构建上编辑器区、编辑器类型、Lab 编辑器、书架、书架统计与项目的 e2e 共 48 个通过。变异检查：行内代码的排斥改回写死 `markdownRuby`，缺注音的组成测试失败。
 
+- S3（`85647109c`）：外来方言晚到。S2 已让控件在建实例时取定语言，这一片补验收：真实内核的浏览器实例里测试方言由测试激活，之后新建的编辑器认得它，已打开的实例仍按原样片段读写、未交出的输入照常交出（`web/components/late-dialect.dom.test.ts`）；变异检查（控件每次写出都取最新的语言）时这一例失败。运行中晚到的方言只有测试插件会产生，不另做浏览器 e2e，Spec 的 Smoke 行随之改写。`test:affected --typecheck` 中两例文件监视测试（`files/changes.test.ts`、`settings/backend/layer-owner.test.ts`）在负载下失败，单独重跑两遍都过，这一片没改它们。
+
 ## 下一步
 
-S3：外来方言晚到时，之后新建的编辑器用新语言、已打开的不变（真实插件宿主上的组件测试与编辑器区 e2e）。
+S4：引用小块与图片零件（`InlineChip`、`MarkdownImage`）、图片地址的缓存、编辑器里的引用小块装饰与图片节点视图；先写组件文档。
