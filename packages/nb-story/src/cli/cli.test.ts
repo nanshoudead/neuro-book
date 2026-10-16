@@ -83,6 +83,25 @@ describe("退出码与失败（输出 2、7，F1、F2）", () => {
         }
     });
 
+    test("--help 退出码 0：不带命令列出全部命令，带命令只列这条命令的用法与选项", async () => {
+        const all = await runCli(["--help"]);
+        expect(all.code).toBe(0);
+        expect(all.stdout).toContain("用法：nbstory");
+        expect(all.stdout).toContain("card");
+        const one = await runCli(["relations", "--help"]);
+        expect(one.code).toBe(0);
+        expect(one.stdout).toContain("用法：nbstory relations");
+        expect(one.stdout).toContain("--min-together");
+        expect(one.stdout).not.toContain("人物卡");
+    });
+
+    test("选项写在命令前后、写成 --名=值都一样", async () => {
+        const trailing = await runCli(["card", "e1-1", "--at", "38", "--library", book.library, "--json"]);
+        const leading = await runCli(["--library", book.library, "--json", "card", "e1-1", "--at=38"]);
+        expect(trailing.code).toBe(0);
+        expect(leading.stdout).toBe(trailing.stdout);
+    });
+
     test("名字对应几个对象时列出候选", async () => {
         const run = await runCli(["card", "小破书", "--at", "38", "--library", book.library]);
         expect(run.code).toBe(1);
