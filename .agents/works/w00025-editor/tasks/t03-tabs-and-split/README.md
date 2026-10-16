@@ -1,8 +1,8 @@
 ---
 schema: nbook.task/v2
 taskId: t03-tabs-and-split
-status: active
-updated: 2026-10-15
+status: done
+updated: 2026-10-16
 ---
 
 # 编辑器区的标签栏与拆分
@@ -95,4 +95,4 @@ updated: 2026-10-15
 
 ## 下一步
 
-t03 完成，待开发者验收（开发服务 http://127.0.0.1:4217/）；按 Work 的集成分支约定不单独合入。开发者 2026-10-15 定下一个任务是 t06 Markdown 打磨。
+完成。2026-10-16 开发者授权后与 t02、t06 一起合入 master（合并提交 `c948c588a`）。

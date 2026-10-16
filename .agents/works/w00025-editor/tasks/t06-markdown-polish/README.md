@@ -2,7 +2,7 @@
 schema: nbook.task/v2
 taskId: t06-markdown-polish
 status: active
-updated: 2026-10-15
+updated: 2026-10-16
 ---
 
 # Markdown 编辑器打磨
@@ -35,6 +35,7 @@ updated: 2026-10-15
 13. （2026-10-15）实施计划第一版（[plan.md](plan.md)）确认，连同三处：方言 Spec 输出 11 改为写回保持批注形态、新建时按选区选形态；范围到格式层与编辑器接入为止，菜单、批注界面、frontmatter 面板、图片另起计划；加开发依赖 `fast-check`，锁定 `@tiptap/*` 与 `marked` 的版本。先审计划再实施。
 14. （2026-10-15）计划第二版的三处待确认：旧文件的链接坚持新规则（不带 `/` 的地址相对当前文件，不做回退，本 Task 不做迁移）；关掉下划线（`++` 是普通文字，`<u>` 是原样片段）；其余都同意：加运行时依赖 `marked-cjk-friendly` 并锁版本，读入调度自己写、不再使用 `MarkdownManager`（保留 Tiptap 扩展的 Markdown 接口）。
 15. （2026-10-15）HTML 实体按完整的 HTML5 表解码，用 `entities` 包（依赖树里已有 8.0.0），加为直接依赖并锁版本。
+16. （2026-10-16）方言 Spec 晋升 `implemented`（`31dacefcd`）；接受批注很多的章节打开后第一次写出约 0.1 秒（之后每次约 8 毫秒）；t02–t06 合入 master。
 
 ## 计划审查
 
@@ -196,4 +197,6 @@ updated: 2026-10-15
 
 ## 下一步
 
-请开发者确认：方言 Spec 晋升为 `implemented`；批注很多的章节打开后第一次写出约 0.1 秒的取舍。之后把 t02–t06 的分支一起合入（合入与推送需要开发者授权）。
+格式层与编辑器接入已合入 master（合并提交 `c948c588a`，未推送）。合并结果上 `test:affected --typecheck`（依赖锁有改动，全部包）与编辑器相关的 68 个 e2e 跑过：失败的几项在 master 上同样失败或偶发，与本次合并无关——llmlint 缺 `diff-match-patch`、test-support 路径测试、scripts 的 CI 工作流测试、nb-story 服务停止（master 上 10 次失败 2 次）、workbench-shell“拖动边界”。
+
+按决定 13，菜单、批注界面、frontmatter 面板与图片另起计划，等开发者定先做哪一项。
