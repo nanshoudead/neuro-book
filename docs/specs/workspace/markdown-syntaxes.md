@@ -119,7 +119,7 @@ interface MarkdownService {
 3. Given 内置方言逐个缺席，When 组成语言，Then 都能组成，缺席方言的写法读成原样。
 4. Given `<kbd>` 方言的声明为 `skip`，When 它的实现加载失败，Then 编辑器里它是原样片段，状态栏与书架的字数都不计其中的字。
 
-Smoke：`markdown/syntaxes.test.ts`（真实插件宿主）运行场景 1–3，`word-count.test.ts` 运行场景 4；场景 1 另在本机 Chrome 上由 `e2e/editor-area.e2e.ts` 运行。
+Smoke：场景 1 由 `web/components/late-dialect.dom.test.ts` 运行（真实内核的浏览器实例、真实编辑器区与文档模型，happy-dom）；场景 2、3 由 `web/syntaxes.test.ts`（真实插件宿主）运行；场景 4 由 `web/syntaxes.test.ts` 的加载失败一例与 `shared/word-count.test.ts` 的按声明计数一例共同覆盖。运行中晚到的方言只有测试插件会产生，不另做浏览器 e2e。
 
 ## 证据
 
