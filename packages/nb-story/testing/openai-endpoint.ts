@@ -1,5 +1,5 @@
 /**
- * 本机的 OpenAI 兼容端点：按顺序给出脚本里的回复，记下每次请求带的认证头。命令行测试用它代替真实模型服务，
+ * 本机的 OpenAI 兼容端点：按顺序给出脚本里的回复，记下每次请求带的认证头与正文。命令行测试用它代替真实模型服务，
  * 请求经真实的 OMP provider 与 HTTP 发出（写法同 nb-harness 的 tests/provider.test.ts）。
  */
 
@@ -15,6 +15,8 @@ export interface Endpoint {
     readonly url: string;
     /** 每次请求的认证头。 */
     readonly authorizations: (string | null)[];
+    /** 每次请求的 JSON 正文。 */
+    readonly bodies: Record<string, unknown>[];
     /** 第一次收到请求时 resolve。 */
     readonly firstRequest: Promise<void>;
     stop(): void;
@@ -26,6 +28,7 @@ function sse(chunks: object[]): string {
 
 export function startEndpoint(replies: EndpointReply[]): Endpoint {
     const authorizations: (string | null)[] = [];
+    const bodies: Record<string, unknown>[] = [];
     let signalFirst!: () => void;
     const firstRequest = new Promise<void>(resolve => (signalFirst = resolve));
     let calls = 0;
@@ -35,7 +38,7 @@ export function startEndpoint(replies: EndpointReply[]): Endpoint {
         async fetch(request) {
             authorizations.push(request.headers.get("authorization"));
             signalFirst();
-            await request.text();
+            bodies.push(JSON.parse(await request.text()) as Record<string, unknown>);
             const reply = replies.shift() ?? {kind: "text", text: "脚本用完了"};
             const usage = {choices: [], usage: {prompt_tokens: 100, completion_tokens: 10, total_tokens: 110}};
             switch (reply.kind) {
@@ -61,5 +64,5 @@ export function startEndpoint(replies: EndpointReply[]): Endpoint {
             }
         },
     });
-    return {url: `http://127.0.0.1:${server.port}/v1`, authorizations, firstRequest, stop: () => server.stop(true)};
+    return {url: `http://127.0.0.1:${server.port}/v1`, authorizations, bodies, firstRequest, stop: () => server.stop(true)};
 }

@@ -34,11 +34,11 @@ afterAll(async () => {
     if (root !== "") await rm(root, {recursive: true, force: true});
 });
 
-async function configFor(replies: EndpointReply[]): Promise<{config: string; endpoint: Endpoint}> {
+async function configFor(replies: EndpointReply[], model: Record<string, unknown> = {}): Promise<{config: string; endpoint: Endpoint}> {
     const endpoint = startEndpoint(replies);
     endpoints.push(endpoint);
     const config = join(root, `config-${endpoints.length}.json`);
-    await writeFile(config, JSON.stringify({model: {baseUrl: endpoint.url, id: "test-model", apiKeyEnv: KEY_ENV}}));
+    await writeFile(config, JSON.stringify({model: {baseUrl: endpoint.url, id: "test-model", apiKeyEnv: KEY_ENV, ...model}}));
     return {config, endpoint};
 }
 
@@ -94,6 +94,16 @@ describe("nbstory ask", () => {
         const parsed = JSON.parse(result.stdout) as {ok: boolean; data: {status: string; recordSaved: boolean; usage: {input: number}}};
         expect(parsed).toMatchObject({ok: true, data: {status: "answered", recordSaved: true, usage: {input: 200}}});
         expect(`${result.stdout}${result.stderr}${await qaFiles()}`).not.toContain(FAKE_KEY);
+    });
+
+    test("配置的 thinking 原样作为推理档发给端点；不写时请求里没有推理档，由服务端的默认档决定", async () => {
+        const {config, endpoint} = await configFor([...READ_THEN_ANSWER], {thinking: "xhigh"});
+        expect((await run(["ask", "地狱猫是谁？", "--at", "38", "--config", config])).code).toBe(0);
+        expect(endpoint.bodies.map(body => body.reasoning_effort)).toEqual(["xhigh", "xhigh"]);
+
+        const plain = await configFor([...READ_THEN_ANSWER]);
+        expect((await run(["ask", "地狱猫是谁？", "--at", "38", "--config", plain.config])).code).toBe(0);
+        expect(plain.endpoint.bodies.map(body => "reasoning_effort" in body)).toEqual([false, false]);
     });
 
     test("401 的错误正文回显了密钥：model_failed（auth），退出码 4，到处都没有密钥", async () => {

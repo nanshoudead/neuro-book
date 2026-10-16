@@ -20,7 +20,7 @@ const ConfigSchema = Type.Object({
         apiKeyEnv: Type.String({minLength: 1}),
         contextWindow: Type.Optional(Type.Integer({minimum: 1})),
         maxTokens: Type.Optional(Type.Integer({minimum: 1})),
-        thinking: Type.Optional(Type.Union([Type.Literal("low"), Type.Literal("medium"), Type.Literal("high")])),
+        thinking: Type.Optional(Type.Union([Type.Literal("low"), Type.Literal("medium"), Type.Literal("high"), Type.Literal("xhigh")])),
         price: Type.Optional(
             Type.Object({
                 input: Type.Number({minimum: 0}),
