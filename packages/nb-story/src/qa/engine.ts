@@ -21,7 +21,7 @@ import type {Position} from "../core/dataset";
 import {StoryError} from "../core/errors";
 import type {PositionInput} from "../core/position";
 import {newQaRecordId, QaRecords, type QaMode, type QaRecord, type QaUsage} from "../core/qa-records";
-import {configuredModel, qaLimits, type QaConfig} from "./config";
+import {configuredModel, qaLimits, thinkingOption, type QaConfig} from "./config";
 import {QaError} from "./errors";
 import {ReadLedger} from "./read-ledger";
 import profile from "./story-qa.profile";
@@ -131,8 +131,7 @@ export async function askQuestion(input: AskInput): Promise<QaOutcome> {
             registry,
             model,
             sessionLog,
-            // OMP 的思考档是字符串值的 const enum（"low"、"medium"、"high" 等），配置里的字符串就是它的值。
-            ...(input.config.model.thinking === undefined ? {} : {thinkingLevel: input.config.model.thinking as NonNullable<HarnessOptions["thinkingLevel"]>}),
+            ...thinkingOption(input.config),
             ...(input.streamFn === undefined ? {} : {streamFn: input.streamFn}),
         });
         harness.subscribe(event => {

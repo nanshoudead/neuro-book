@@ -194,12 +194,32 @@ export const COMMANDS: readonly CommandSpec[] = [
             {name: "记录 id", decode: value => ({second: value}), optional: true},
         ],
     }),
+    command({
+        name: "config",
+        method: null,
+        summary: "问答配置：init、show、set <字段> <值>、unset <字段>、test",
+        book: false,
+        paged: false,
+        positionals: [
+            {name: "动作", decode: value => ({action: value}), optional: true},
+            {name: "字段", decode: value => ({field: value}), optional: true},
+            {name: "值", decode: value => ({value}), optional: true},
+        ],
+        options: {
+            config: {decode: value => resolve(value)},
+            "base-url": {decode: text},
+            model: {decode: text},
+            "api-key-env": {decode: text},
+            thinking: {decode: text},
+            force: {decode: () => true},
+        },
+    }),
 ];
 
 /** 所有命令都接受的选项（不进方法参数）。 */
 export const GLOBAL_OPTIONS = new Set(["library", "json", "help"]);
 /** 不带值的开关。 */
-export const FLAGS = new Set(["json", "help", "open"]);
+export const FLAGS = new Set(["json", "help", "open", "force"]);
 
 /** 选项在 `--help` 里的说明；同名选项在各命令里含义相同，所以按名字写一份。 */
 export const OPTION_HELP: Record<string, string> = {
@@ -226,6 +246,11 @@ export const OPTION_HELP: Record<string, string> = {
     open: "启动后在浏览器里打开",
     mode: "graph（图当目录，默认）或 full（全读）",
     config: "配置文件（默认 ~/.config/nbstory/config.json）",
+    "base-url": "OpenAI 兼容服务的地址",
+    model: "模型名",
+    "api-key-env": "存密钥的环境变量名（密钥本身不进配置）",
+    thinking: "推理档：low、medium、high、xhigh；不写则请求不带推理档",
+    force: "覆盖已有的配置文件",
 };
 
 export function camelCase(name: string): string {
@@ -264,5 +289,6 @@ export function usage(): string {
         "",
         "通用选项：--library <目录>、--json；书级命令另有 --book <书>、--at <章或章.段>；列表命令另有 --limit、--cursor。",
         "ask 另有 --mode graph|full（图当目录或全读，默认 graph）、--config <配置文件>。",
+        "config 的动作：init（交互或用 --base-url --model --api-key-env 写配置）、show、set <字段> <值>、unset <字段>、test。",
     ].join("\n");
 }

@@ -7,7 +7,7 @@ import {mkdir, readFile, rename, rm, writeFile} from "node:fs/promises";
 import {homedir} from "node:os";
 import {dirname, join} from "node:path";
 
-import {defineModel, type ResolvedModel} from "@notnotype/nb-harness";
+import {defineModel, type HarnessOptions, type ResolvedModel} from "@notnotype/nb-harness";
 import {Type, type Static} from "typebox";
 import {Compile} from "typebox/compile";
 
@@ -118,6 +118,11 @@ export function configuredModel(config: QaConfig): ResolvedModel {
         ...(model.maxTokens === undefined ? {} : {maxTokens: model.maxTokens}),
         ...(model.price === undefined ? {} : {price: model.price}),
     });
+}
+
+/** 配置的推理档 → `createHarness` 的选项；OMP 的思考档是字符串值的 const enum（"low"、"medium"、"high" 等），配置里的字符串就是它的值。不写就不传，请求里没有推理档。 */
+export function thinkingOption(config: QaConfig): Pick<HarnessOptions, "thinkingLevel"> {
+    return config.model.thinking === undefined ? {} : {thinkingLevel: config.model.thinking as NonNullable<HarnessOptions["thinkingLevel"]>};
 }
 
 export function qaLimits(config: QaConfig): {maxChapters: number; fullReadMaxChars: number} {

@@ -19,8 +19,8 @@ import {QaError} from "../qa/errors";
 import {recordText} from "../qa/format";
 import {NEXT_STEP, type CliIo} from "./main";
 
-const EXIT_QA_FAILED = 4;
-const EXIT_INTERRUPTED = 130;
+export const EXIT_QA_FAILED = 4;
+export const EXIT_INTERRUPTED = 130;
 
 function progressLine(event: QaProgress): string {
     switch (event.kind) {
@@ -41,7 +41,8 @@ interface AskOptions {
     json: boolean;
 }
 
-export async function askCommand(options: AskOptions, io: CliIo): Promise<number> {
+/** 跑 `run`，期间收到中断信号就取消它的 `signal`，并等它收尾后才让 OMP 的退出继续。 */
+export async function runInterruptible<T>(io: CliIo, run: (signal: AbortSignal) => Promise<T>): Promise<T> {
     const controller = new AbortController();
     const finished = Promise.withResolvers<void>();
     const unregister = onProcessInterrupt(async () => {
@@ -50,12 +51,14 @@ export async function askCommand(options: AskOptions, io: CliIo): Promise<number
         await finished.promise;
     });
     try {
-        return await ask(options, io, controller.signal);
+        return await run(controller.signal);
     } finally {
         unregister();
         finished.resolve();
     }
 }
+
+export const askCommand = (options: AskOptions, io: CliIo): Promise<number> => runInterruptible(io, signal => ask(options, io, signal));
 
 async function ask(options: AskOptions, io: CliIo, signal: AbortSignal): Promise<number> {
     const {params, json} = options;

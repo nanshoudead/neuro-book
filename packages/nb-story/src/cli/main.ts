@@ -118,6 +118,10 @@ export async function main(argv: readonly string[], io: CliIo = processIo): Prom
         const {askCommand} = await import("./ask");
         return askCommand({library, params, json: parsed.json}, io);
     }
+    if (spec.name === "config") {
+        const {configCommand} = await import("./config");
+        return configCommand({params, json: parsed.json}, io);
+    }
     if (spec.name === "qa") {
         const {qaCommand} = await import("./qa");
         return qaCommand({library, params, json: parsed.json}, io);

@@ -272,6 +272,7 @@
         "nbstory": "./src/cli.ts",
       },
       "dependencies": {
+        "@clack/prompts": "^1.0.0",
         "@notnotype/nb-harness": "workspace:*",
         "@notnotype/nb-profile": "workspace:*",
         "@notnotype/nb-runtime": "workspace:*",
