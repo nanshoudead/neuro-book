@@ -179,8 +179,10 @@ async function judgeAll(): Promise<void> {
     for (let sweep = 1; sweep <= 2; sweep += 1) {
         await Promise.all(selectedBatches().flatMap(batch => batch.runs.map(async runName => {
             const answers = join(OUT, batch.name, "answers", runName);
-            if (!existsSync(answers)) return;
-            const result = await run(["bun", JUDGE, batch.questions, answers, join(OUT, batch.name, "judge", runName)], {env: {JUDGE_SOURCE: SOURCE, JUDGE_CONCURRENCY: "2", LUNA_TIMEOUT_MS: "1800000"}});
+            // 判分器对没有答案的题也会判（判成“无答案”）并缓存，之后补上的答案就被跳过：只把已答、还没判的题交给它。
+            const ids = (await questionsOf(batch)).map(question => question.id).filter(id => existsSync(join(answers, `batch-${id}.json`)) && !existsSync(join(OUT, batch.name, "judge", runName, `${id}.json`)));
+            if (ids.length === 0) return;
+            const result = await run(["bun", JUDGE, batch.questions, answers, join(OUT, batch.name, "judge", runName)], {env: {JUDGE_SOURCE: SOURCE, JUDGE_CONCURRENCY: "2", LUNA_TIMEOUT_MS: "1800000", JUDGE_IDS: ids.join(",")}});
             process.stdout.write(`judge ${batch.name} ${runName} sweep ${sweep}：退出码 ${result.code}\n`);
         })));
     }
