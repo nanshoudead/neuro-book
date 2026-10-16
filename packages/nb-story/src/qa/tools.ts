@@ -18,12 +18,11 @@ import {AnswerSchema, type Answer} from "../core/qa-records";
 import {validateAnswer} from "./answer";
 import type {ReadLedger} from "./read-ledger";
 
-/** 一问的状态；工具执行时读它、`read` 改账本、`answer` 记退回次数。 */
+/** 一问的状态；工具执行时读它、`read` 改账本、`answer` 通过校验时写下答案。 */
 export interface QaToolState {
     readonly book: BookSession;
     readonly at: Position;
     readonly ledger: ReadLedger;
-    rejections: number;
     /** 通过校验的答案；`answer` 成功时写下。 */
     answer: Answer | null;
 }
@@ -32,20 +31,20 @@ export interface QaToolState {
 const TOOL_USAGE: Partial<Record<string, string>> = {
     info: "书名、章数与目录。例：{}",
     chapter: "某一章的情节、新出现的对象、揭晓的秘密、数值变动与悬念。例：{\"chapter\": 12}",
-    find: "按名字或称呼找对象，列出 id、全部称呼与同一身份。例：{\"query\": \"狐狐\"}；可加 \"kind\"",
+    find: "按名字或称呼找对象，列出 id、全部称呼与同一身份。例：{\"query\": \"狐狐\"}（整串匹配，一个名字）；可加 \"kind\"",
     card: "人物卡：称呼、读者此时知道的同一身份、各方面概况、知道的秘密。entity 写 id、名字或称呼。例：{\"entity\": \"苏天晴\"}",
-    knowledge: "这个对象知道、认为、怀疑或不知道的事，带怎么知道的与出处。例：{\"entity\": \"南小风\", \"query\": \"花铃\"}；可加 \"state\"（knows、believes、suspects、heard、read、unaware）",
-    statements: "关于这个对象的说法，带记录标记与出处。例：{\"entity\": \"林沐瑶\", \"query\": \"心月狐\"}",
-    appearances: "这个对象参与的情节。例：{\"entity\": \"花铃\"}",
+    knowledge: "这个对象知道、认为、怀疑或不知道的事，带怎么知道的与出处。例：{\"entity\": \"南小风\", \"query\": \"花铃\"}；可加 \"state\"（knows、believes、suspects、heard、read、unaware）。query 按整串匹配，只写一个关键词；不写就列出全部",
+    statements: "关于这个对象的说法，带记录标记与出处。例：{\"entity\": \"林沐瑶\", \"query\": \"心月狐\"}。query 按整串匹配，只写一个关键词",
+    appearances: "这个对象参与的情节。例：{\"entity\": \"花铃\"}；可加 \"query\"（整串匹配，一个关键词）",
     ties: "这个对象和每个对象的关系：关系词、身份连接、一句说明。例：{\"entity\": \"苏天晴\"}",
     between: "两个对象之间的全部说法、一起出场的情节、互相知道的事。例：{\"entity\": \"苏天晴\", \"other\": \"南嘉鱼\"}",
     relations: "人物之间的关系、同场、认知与身份连接的总表。例：{}；可加 \"kinds\": [\"character\"]、\"minTogether\": 2",
     knows: "秘密矩阵：每个秘密，读者与各人物此时知不知道、怎么知道的。例：{}",
     ledger: "各项数值、道具与任务的当前值。例：{}",
     track: "某一项数值的逐笔流水与对账差额。例：{\"track\": \"神典石\"}",
-    questions: "书里的悬念与进展。例：{\"state\": \"open\"}；可加 \"query\"",
+    questions: "书里的悬念与进展。例：{\"state\": \"open\"}；可加 \"query\"（整串匹配，一个关键词）",
     timeline: "按故事时间排的时间点与当时的情节。例：{}；可加 \"order\": \"source\"",
-    episodes: "情节列表，带参与者、地点、步骤与出处。例：{\"query\": \"楼顶\"}；可加 \"arc\"",
+    episodes: "情节列表，带参与者、地点、步骤与出处。例：{\"query\": \"楼顶\"}（整串匹配，一个关键词）；可加 \"arc\"",
     arcs: "当前这一批主线。例：{}",
     search: "在可见的名字、说法与原文里搜，按空白拆成几个词，含的词多的排前面。例：{\"query\": \"地狱猫 南嘉鱼\"}；可加 \"kinds\": [\"source\"]",
     read: "读原文，返回“章.段 正文”。from、to 是 {chapter, paragraph}；只给 from 的章就读整章。例：{\"from\": {\"chapter\": 37}}、{\"from\": {\"chapter\": 37, \"paragraph\": 1}, \"to\": {\"chapter\": 37, \"paragraph\": 40}}",
@@ -129,7 +128,6 @@ function answerTool(state: QaToolState): {declaration: PluginToolDeclaration; im
             async execute(args) {
                 const check = validateAnswer(args, state.ledger);
                 if (!check.ok) {
-                    state.rejections += 1;
                     return text(`答案没有通过校验，改了再交：\n${check.problems.map(problem => `- ${problem}`).join("\n")}`, true);
                 }
                 state.answer = check.answer;

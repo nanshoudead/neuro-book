@@ -31,7 +31,7 @@ const STATUS_WORDS = {answered: "已答", failed: "失败", interrupted: "中断
 
 function usageText(record: QaRecord): string {
     const {usage} = record;
-    const tokens = `输入 ${usage.input}（缓存读 ${usage.cacheRead}、写 ${usage.cacheWrite}）、输出 ${usage.output} token`;
+    const tokens = `输入 ${usage.input}、缓存读 ${usage.cacheRead}、缓存写 ${usage.cacheWrite}、输出 ${usage.output} token`;
     const cost = usage.cost === null ? "费用未知（没有配置单价）" : `费用 ${usage.cost.toFixed(4)}`;
     return `${tokens}；${cost}${usage.complete ? "" : "（不完整，只是下界）"}`;
 }

@@ -109,7 +109,9 @@ export async function askQuestion(input: AskInput): Promise<QaOutcome> {
 
     const id = newQaRecordId(new Date(started));
     const ledger = new ReadLedger({paragraphs: book.meta.paragraphs, at, maxChapters: input.mode === "graph" ? limits.maxChapters : null, readAll: input.mode === "full"});
-    const state: QaToolState = {book, at, ledger, rejections: 0, answer: null};
+    const state: QaToolState = {book, at, ledger, answer: null};
+    // 作答被退回的次数：不只是我们的校验，OMP 的参数校验与“收尾要单独调用”的退回也算，所以按工具结束事件数。
+    let rejections = 0;
     const registry = createToolRegistry();
     registerPlugin(registry, storyQaPlugin(state));
     const sessionLog = createMemorySessionLog({sessionId: id});
@@ -131,6 +133,7 @@ export async function askQuestion(input: AskInput): Promise<QaOutcome> {
         harness.subscribe(event => {
             if (event.type === "tool_execution_start") input.onProgress?.({kind: "tool", tool: event.toolName, text: describeTool(event.toolName, (event.args ?? {}) as Record<string, unknown>)});
             if (event.type === "tool_execution_end" && event.toolName === "answer" && event.isError) {
+                rejections += 1;
                 const result = event.result as {content?: {type: string; text?: string}[]} | undefined;
                 input.onProgress?.({kind: "rejected", text: result?.content?.map(block => block.text ?? "").join("") ?? ""});
             }
@@ -172,7 +175,7 @@ export async function askQuestion(input: AskInput): Promise<QaOutcome> {
         mode: input.mode,
         ...outcome,
         chaptersRead: ledger.chapters(),
-        rejections: state.rejections,
+        rejections,
         usage,
         ms: Date.now() - started,
         model: input.config.model.id,
