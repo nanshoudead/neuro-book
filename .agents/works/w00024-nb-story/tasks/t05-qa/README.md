@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t05-qa
-status: active
+status: done
 updated: 2026-10-16
 ---
 
@@ -89,6 +89,6 @@ updated: 2026-10-16
 
 ## 下一步
 
-1. 合入 `feat/w00024-t05-qa`（开发者执行），之后删 worktree 与分支，t05 标完成。
+1. 已合入 master（`ee65f646c`），worktree 与分支已删；master 上 nb-story 199、nb-harness 75（2 跳过）通过，类型检查通过。
 2. qa Spec 晋升 `implemented` 要开发者批准。
 3. 后续：t06 ingest；BM25 混合检索验证；网页问答页（届时改 viewer Spec 的“不做问答”）。
