@@ -1,7 +1,7 @@
 ---
 schema: nbook.spec/v1
 kind: behavior
-status: planned
+status: implemented
 capability: workspace.markdown-dialect
 owners:
   - nbook.editor
@@ -202,9 +202,17 @@ owners:
 
 Smoke：往返语料测试（每条输出与以上场景各有样例）、字数与编辑器读出的正文逐块对照的一致性测试，与编辑器区的真实浏览器 e2e。
 
+## 实现合同
+
+- 公开入口：编辑器浏览器端的 `codecFor(schema, language)`（`read`、`write`、`reload`）与 `markdownLanguage()`（核心语法、原样保留与各项目方言的语法模块）；字数是 `src/shared/word-count.ts` 的 `countWords(text)`，前后端共用。
+- owner 与依赖方向：`nbook.editor` 拥有。编解码器只经语言对象使用语法模块；编辑器控件只经编解码器读写正文，不直接调用 markdown 解析库；字数与语法模块共用 `src/shared/markdown-dialect.ts` 的标签名与判据，不依赖编辑器。
+- 不变量：没被编辑过的块写原文，撤销回原来内容的块同样写原文（`codec.test.ts`、`editing.test.ts`）。
+- 不变量：每次写出都读回比对，读回不等就降级，最后一级仍不等时整篇写不出、不交出正文（`write.test.ts`、`properties.test.ts`）。
+- 不变量：写出被接受后回填写法，之后不再编辑时写出字节不变；重载时批注的身份按出现顺序对齐，不因重新读入而变（`editing.test.ts`）。
+
 ## 证据
 
-- 批准依据：开发者 2026-10-15 的决定，记录在主工作区 master 的 `.agents/works/w00025-editor/tasks/t06-markdown-polish/README.md`（“开发者的决定”7–9），依据同一目录的 `conversion.md`（转换的难点与改进方案）与旧应用的 [Markdown 方言](../../../packages/neuro-book-legacy/assets/reference/content/markdown-dialect.md)。
+- 批准依据：开发者 2026-10-15 的决定，记录在主工作区 master 的 `.agents/works/w00025-editor/tasks/t06-markdown-polish/README.md`（“开发者的决定”7–9），2026-10-16 批准晋升 `implemented`；依据同一目录的 `conversion.md`（转换的难点与改进方案）与旧应用的 [Markdown 方言](../../../packages/neuro-book-legacy/assets/reference/content/markdown-dialect.md)。
 - 实现入口：[`markdown/codec/codec.ts`](../../../packages/neuro-book/src/plugins/editor/web/markdown/codec/codec.ts)（编解码器）、[`markdown/syntax/index.ts`](../../../packages/neuro-book/src/plugins/editor/web/markdown/syntax/index.ts)（语法模块）、[`shared/markdown-dialect.ts`](../../../packages/neuro-book/src/shared/markdown-dialect.ts) 与 [`shared/word-count.ts`](../../../packages/neuro-book/src/shared/word-count.ts)（字数）、[`MarkdownControl.vue`](../../../packages/neuro-book/src/plugins/editor/web/components/MarkdownControl.vue)（编辑器接入）
 - 合同测试：[`codec.test.ts`](../../../packages/neuro-book/src/plugins/editor/web/markdown/codec/codec.test.ts)（读入与原样写回）、[`write.test.ts`](../../../packages/neuro-book/src/plugins/editor/web/markdown/codec/write.test.ts)（写回、转义、降级、引用定义、换行符）、[`dialects.test.ts`](../../../packages/neuro-book/src/plugins/editor/web/markdown/codec/dialects.test.ts)（项目方言与宽容写法）、[`properties.test.ts`](../../../packages/neuro-book/src/plugins/editor/web/markdown/codec/properties.test.ts)（随机新建与真实编辑序列）、[`editing.test.ts`](../../../packages/neuro-book/src/plugins/editor/web/markdown/codec/editing.test.ts)（写法回填、重载、抢救正文）、[`comment.dom.test.ts`](../../../packages/neuro-book/src/plugins/editor/web/markdown/syntax/comment/comment.dom.test.ts)（场景 6、7）、[`codec/word-count.test.ts`](../../../packages/neuro-book/src/plugins/editor/web/markdown/codec/word-count.test.ts) 与 [`shared/word-count.test.ts`](../../../packages/neuro-book/src/shared/word-count.test.ts)（场景 10）、[`MarkdownControl.dom.test.ts`](../../../packages/neuro-book/src/plugins/editor/web/components/MarkdownControl.dom.test.ts)（编辑器里的交出、重载与显示）
 - Smoke：[`editor-area.e2e.ts`](../../../packages/neuro-book/e2e/editor-area.e2e.ts) 的“Markdown 方言”一组（场景 1、2、4）

@@ -183,6 +183,7 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过开发者授权
 | 工作区文件访问与操作 | [`workspace/files.md`](workspace/files.md) | 文件读写、目录与批量操作、无覆盖冲突、逐项失败与取消；跨机器访问与非 Linux 平台的排他改名验证为已知限制；按地址读取字节与预览的受限读取 |
 | 资源寻址与文件服务 | [`workspace/resources.md`](workspace/resources.md) | `方案://路径` 寻址、`project://`/`user://` 两个真实目录型提供者的读写列出监视与订阅、写入来源与变更事件；glob、grep、bash 真实路径解析、`tmp://`/`local://`/`docs://`/`projects://` 与插件注册新方案的接口标 `(planned)` |
 | 文件夹类型与清单 | [`workspace/folder-kinds.md`](workspace/folder-kinds.md) | 普通、内容、活页夹三类文件夹，后缀识别、XML 清单、未列入与缺失处理、渲染贡献点 |
+| Markdown 方言 | [`workspace/markdown-dialect.md`](workspace/markdown-dialect.md) | 作品 Markdown 的读写规则：CommonMark 与 GFM 之上的中文规则、项目方言、认不出的语法原样保留、以块为单位写回与读回校验 |
 | 浏览器宿主 | [`runtime/browser-host.md`](runtime/browser-host.md) | 挂载前建立窗口运行实例、引导接口、RPC 首连与断线重连、多窗口隔离、项目绑定与可分离边界；按需激活、插件集合订阅与热插拔联动、鉴权与第三方浏览器入口标 `(planned)` |
 | 远程服务与 RPC 协议 | [`runtime/plugin-channel.md`](runtime/plugin-channel.md) | 跨实例的远程服务合同、内核路由、请求阶段与失败码、两层版本、订阅、按需激活与等待环、进程间链路 |
 
@@ -202,7 +203,6 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过开发者授权
 | 插件公开 API | [`runtime/plugin-api.md`](runtime/plugin-api.md) | 远程形态约束、激活上下文、错误码、worker 池、私有存储、配置与密钥 |
 | 主线程卡死看门狗 | [`runtime/stall-watchdog.md`](runtime/stall-watchdog.md) | 卡死检测、报告、退出码 76、Manager 自动重启与桌面呈现、提示禁用与自动安全模式 |
 | Component Lab 时间线回放 | [`ui/component-lab-timeline.md`](ui/component-lab-timeline.md) | fixture 声明时间线、虚拟时钟、可复现定位与播放控件 |
-| Markdown 方言 | [`workspace/markdown-dialect.md`](workspace/markdown-dialect.md) | 作品 Markdown 的读写规则：CommonMark 与 GFM 之上的中文规则、项目方言、认不出的语法原样保留、以块为单位写回与读回校验；待晋升 |
 
 ## 旧应用的规范与 Reference（只作参照）
 
