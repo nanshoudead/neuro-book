@@ -263,7 +263,7 @@ async function check(): Promise<number> {
             "",
             `- 份数 ${rows.length}；没答 ${count(row => row.outcome === "未答")}，没判 ${count(row => row.outcome.startsWith("未判"))}；没有出处 ${noRef}，提到阅读位置之后 ${spoil}`,
             `- 一审答错 **${wrong}/${rows.length}**${batch.maxWrong === null ? "" : `，门槛 ${batch.maxWrong}`}：${verdict}`,
-            `- 结果分布：${["答对", "答对但不全", "没把握", "答错"].map(name => `${name} ${count(row => row.outcome.startsWith(name))}`).join("，")}；没有交卷 ${count(row => row.outcome.includes("没有交卷"))}`,
+            `- 结果分布：${["答对", "答对但不全", "没把握", "答错"].map(name => `${name} ${count(row => row.outcome.replace("（没有交卷）", "") === name)}`).join("，")}；没有交卷 ${count(row => row.outcome.includes("没有交卷"))}`,
             `- 每份平均读 ${average(answered.map(row => row.chapters!))} 章，退回 ${average(answered.map(row => row.rejections ?? 0))} 次；撞 20 章上限 ${count(row => row.capped)} 份；token 输入 ${rows.reduce((a, row) => a + row.input, 0)}、输出 ${rows.reduce((a, row) => a + row.output, 0)}`,
             "",
             "| 题 | 阅读位置 | " + batch.runs.join(" | ") + " |",
