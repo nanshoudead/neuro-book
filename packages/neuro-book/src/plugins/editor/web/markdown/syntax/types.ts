@@ -165,6 +165,11 @@ export interface MarkdownSyntax {
      */
     readonly joinedInline?: Readonly<Record<string, string>>;
     /**
+     * 只在内存里用的身份属性（标记类型 → 属性名），每次读入都重新生成，例如批注的 `key`。重载时按出现顺序从两头把新读入的
+     * 对齐回编辑器里的，没变的内容才认得出没变（`codec.reload`）。
+     */
+    readonly identityAttrs?: Readonly<Record<string, string>>;
+    /**
      * 由跨块的上下文决定、读回一个窗口时对不上的属性（节点或标记类型 → 属性名）：读回校验不比较它们。例如分截批注的 `body`
      * 只写在第一截，窗口里的后几截读回来没有意见。
      */

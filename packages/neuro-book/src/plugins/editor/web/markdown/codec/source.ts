@@ -113,15 +113,61 @@ function fencedLines(body: string, lines: ReadonlyArray<SourceLine>): boolean[] 
     return fenced;
 }
 
-/** 一行的这一段里有没有没闭合的行内代码：有一串反引号，后面没有同样长度的一串。 */
-function unclosedCode(text: string): boolean {
-    const runs = [...text.matchAll(/`+/gu)].map((matched) => matched[0].length);
-    for (let at = 0; at < runs.length; at += 1) {
-        const close = runs.indexOf(runs[at] as number, at + 1);
-        if (close < 0) return true;
-        at = close;
+/**
+ * 全篇的行内代码范围（原文里的起止位置，升序、互不重叠）。行内代码可以跨行（同一段里），所以按段配对：一串反引号与它后面
+ * 同样长度的第一串配成一段代码，配不上的是普通文字（CommonMark）。段是前后连着的非空行，围栏里的行不算。
+ */
+function inlineCodeSpans(body: string, lines: ReadonlyArray<SourceLine>, fenced: ReadonlyArray<boolean>): Array<readonly [number, number]> {
+    const spans: Array<readonly [number, number]> = [];
+    const blank = (at: number): boolean => fenced[at] === true || body.slice((lines[at] as SourceLine).start, (lines[at] as SourceLine).end).trim() === "";
+    let index = 0;
+    while (index < lines.length) {
+        if (blank(index)) {
+            index += 1;
+            continue;
+        }
+        let last = index;
+        while (last + 1 < lines.length && !blank(last + 1)) last += 1;
+        const start = (lines[index] as SourceLine).start;
+        const text = body.slice(start, (lines[last] as SourceLine).end);
+        if (text.includes("`")) {
+            const runs = [...text.matchAll(/`+/gu)].map((matched) => ({at: matched.index, length: matched[0].length}));
+            // 每种长度的反引号串按位置排好，配对时往后找同样长度的下一串。
+            const byLength = new Map<number, number[]>();
+            runs.forEach((run, at) => {
+                const same = byLength.get(run.length);
+                if (same === undefined) byLength.set(run.length, [at]);
+                else same.push(at);
+            });
+            const cursor = new Map<number, number>();
+            for (let open = 0; open < runs.length; open += 1) {
+                const opening = runs[open] as {at: number; length: number};
+                const same = byLength.get(opening.length) as number[];
+                let next = cursor.get(opening.length) ?? 0;
+                while (next < same.length && (same[next] as number) <= open) next += 1;
+                cursor.set(opening.length, next);
+                const close = same[next];
+                if (close === undefined) continue;
+                spans.push([start + opening.at + opening.length, start + (runs[close] as {at: number}).at]);
+                open = close;
+            }
+        }
+        index = last + 1;
     }
-    return false;
+    return spans;
+}
+
+/** 位置在不在某一段行内代码里（`spans` 升序、互不重叠）。 */
+function insideSpans(spans: ReadonlyArray<readonly [number, number]>, position: number): boolean {
+    let low = 0;
+    let high = spans.length;
+    while (low < high) {
+        const middle = (low + high) >> 1;
+        if ((spans[middle] as readonly [number, number])[1] <= position) low = middle + 1;
+        else high = middle;
+    }
+    const span = spans[low];
+    return span !== undefined && span[0] <= position && position < span[1];
 }
 
 /** 宽容写法的规则：块级方言标签名，与“写在行尾的这个开标签是不是这种方言的块开标签”（由各语法模块的分词规则判断）。 */
@@ -132,14 +178,6 @@ export interface GluedRules {
 
 const ATTRIBUTES = `(?:"[^"\\n]*"|'[^'\\n]*'|[^>"'\\n])*`;
 
-/**
- * 宽容写法（输出 17）的拆分点：每行至多一处，值是开标签在行内的列。
- *
- * 判据（每条都对应过一次真实的回归，改动前读 `dialects.test.ts` 的“宽容写法”）：开标签在行尾，并且是这种方言认的块开标签
- * （`rules.accepts`，大小写与属性形态与分词规则一致）；往下有独占一行的同名闭标签（只看围栏外的行）；开标签前有真实正文，
- * 不只是容器标记；不在围栏里（含容器里的围栏）、不是缩进代码；原文不以换行结尾时最后一行不算“行尾”（流式写入的半截不被
- * 抢拆）。“往下有闭标签”用每个标签最后一次出现的闭标签行号判断，整篇一次扫描。
- */
 /**
  * 全篇可能有拆分点吗：要有这些方言的闭标签，还要有一行以开标签结尾、开标签前面除了容器标记还有别的字。都没有就不用逐行认
  * 围栏（写回时每次都要对整篇输出查一遍）。
@@ -152,6 +190,14 @@ function mayGlue(body: string, rules: GluedRules): boolean {
     return false;
 }
 
+/**
+ * 宽容写法（输出 17）的拆分点：每行至多一处，值是开标签在行内的列。
+ *
+ * 判据（每条都对应过一次真实的回归，改动前读 `dialects.test.ts` 的“宽容写法”）：开标签在行尾，并且是这种方言认的块开标签
+ * （`rules.accepts`，大小写与属性形态与分词规则一致）；往下有独占一行的同名闭标签（只看围栏外的行）；开标签前有真实正文，
+ * 不只是容器标记；不在围栏里（含容器里的围栏）、不是缩进代码；原文不以换行结尾时最后一行不算“行尾”（流式写入的半截不被
+ * 抢拆）。“往下有闭标签”用每个标签最后一次出现的闭标签行号判断，整篇一次扫描。
+ */
 function gluedSplits(body: string, lines: ReadonlyArray<SourceLine>, rules: GluedRules): Map<number, number> {
     const splits = new Map<number, number>();
     if (!mayGlue(body, rules)) return splits;
@@ -166,6 +212,8 @@ function gluedSplits(body: string, lines: ReadonlyArray<SourceLine>, rules: Glue
     });
     if (lastClose.size === 0) return splits;
     const lastLine = lines.length - 1;
+    // 行内代码的范围：碰到第一个候选才算（多数文件没有候选）。
+    let spans: Array<readonly [number, number]> | undefined;
     lines.forEach((line, index) => {
         if (fenced[index] === true || (index === lastLine && line.eol === "")) return;
         const text = body.slice(line.start, line.end);
@@ -173,8 +221,9 @@ function gluedSplits(body: string, lines: ReadonlyArray<SourceLine>, rules: Glue
         const matched = openPattern.exec(text);
         if (matched === null || matched.index === 0) return;
         if (CONTAINER_ONLY_PREFIX.test(text.slice(0, matched.index))) return;
-        // 开标签在一段没闭合的行内代码里（前面有一串没配对的反引号）：它是代码的文字，不拆。
-        if (unclosedCode(text.slice(0, matched.index))) return;
+        // 开标签在行内代码里（代码可以从前面的行开始）：它是代码的文字，不拆。
+        spans ??= inlineCodeSpans(body, lines, fenced);
+        if (insideSpans(spans, line.start + matched.index)) return;
         const tag = (matched[1] as string).toLowerCase();
         if ((lastClose.get(tag) ?? -1) <= index || !rules.accepts(tag, matched[0].trimEnd())) return;
         splits.set(index, matched.index);

@@ -6,10 +6,10 @@
  */
 
 import type {Node as PMNode, Schema} from "@tiptap/pm/model";
-import type {Transform} from "@tiptap/pm/transform";
+import {Transform} from "@tiptap/pm/transform";
 
 import type {MarkdownLanguage} from "../language";
-import {readMarkdown} from "./read";
+import {readMarkdown, setOrigins} from "./read";
 import type {ReadResult, SourceMap} from "./read";
 import {writeMarkdown} from "./write";
 import type {WriteResult} from "./write";
@@ -36,7 +36,7 @@ export function codecFor(schema: Schema, language: MarkdownLanguage): MarkdownCo
         codec = {
             read: (source) => readMarkdown(language, schema, source),
             write: (doc, map) => writeMarkdown(doc, map, language, schema),
-            reload: (tr, source) => adoptRead(tr, readMarkdown(language, schema, source)),
+            reload: (tr, source) => adoptRead(tr, readMarkdown(language, schema, source), language.identityAttrs),
         };
         bySchema.set(language, codec);
     }
@@ -47,8 +47,8 @@ export function codecFor(schema: Schema, language: MarkdownLanguage): MarkdownCo
  * 把 `tr` 的文档换成 `read.doc` 的样子：只替换不同的那一段（没变的顶层节点还是编辑器里原来的对象，撤销历史映射过去后仍可用），
  * 换完不相等时（替换片段的边界落在节点中间，补出来的结构不同）整篇替换。之后按位置把新读入的来源登记到 `tr.doc` 的顶层节点。
  */
-function adoptRead(tr: Transform, read: ReadResult): SourceMap {
-    const next = read.doc;
+function adoptRead(tr: Transform, read: ReadResult, identities: ReadonlyMap<string, string>): SourceMap {
+    const next = alignIdentities(tr.doc, read.doc, identities);
     const start = tr.doc.content.findDiffStart(next.content);
     if (start !== null) {
         let {a: endA, b: endB} = tr.doc.content.findDiffEnd(next.content) ?? {a: tr.doc.content.size, b: next.content.size};
@@ -61,9 +61,55 @@ function adoptRead(tr: Transform, read: ReadResult): SourceMap {
         tr.replace(start, endA, next.slice(start, endB));
     }
     if (!tr.doc.eq(next)) tr.replaceWith(0, tr.doc.content.size, next.content);
+    // 对齐身份后的顶层节点与读入的一一对应（只改了标记属性，块数不变）：来源按位置取读入时的。
     tr.doc.forEach((node, _offset, index) => {
-        const origins = read.map.origins.get(next.child(index));
-        if (origins !== undefined) read.map.origins.set(node, origins);
+        const origins = read.map.origins.get(read.doc.child(index));
+        if (origins !== undefined) setOrigins(read.map, node, origins);
     });
     return read.map;
+}
+
+/**
+ * 把 `next` 里只在内存里用的身份（批注的 `key`）对齐成 `current` 里的：两边各按第一次出现的顺序排出身份，从头、从尾逐个配对，
+ * 其余属性（批注的 `id`、`body`）相同才配；配不上的保留新读入的。改动之前、之后的内容因此身份不变，比较出的不同只在改动处。
+ */
+function alignIdentities(current: PMNode, next: PMNode, identities: ReadonlyMap<string, string>): PMNode {
+    let aligned = next;
+    for (const [markName, attr] of identities) {
+        const sequence = (doc: PMNode): Array<{readonly value: unknown; readonly rest: string}> => {
+            const seen = new Map<unknown, {readonly value: unknown; readonly rest: string}>();
+            doc.descendants((node) => {
+                for (const mark of node.marks) {
+                    if (mark.type.name !== markName || seen.has(mark.attrs[attr])) continue;
+                    const {[attr]: _identity, ...rest} = mark.attrs;
+                    seen.set(mark.attrs[attr], {value: mark.attrs[attr], rest: JSON.stringify(rest)});
+                }
+            });
+            return [...seen.values()];
+        };
+        const before = sequence(current);
+        const after = sequence(aligned);
+        const renamed = new Map<unknown, unknown>();
+        let head = 0;
+        while (head < before.length && head < after.length && before[head]?.rest === after[head]?.rest) {
+            renamed.set(after[head]?.value, before[head]?.value);
+            head += 1;
+        }
+        for (let tail = 1; tail <= Math.min(before.length, after.length) - head && before[before.length - tail]?.rest === after[after.length - tail]?.rest; tail += 1) {
+            renamed.set(after[after.length - tail]?.value, before[before.length - tail]?.value);
+        }
+        if ([...renamed].every(([from, to]) => from === to)) continue;
+        const transform = new Transform(aligned);
+        aligned.descendants((node, pos) => {
+            if (!node.isInline) return true;
+            for (const mark of node.marks) {
+                if (mark.type.name !== markName || !renamed.has(mark.attrs[attr])) continue;
+                transform.removeMark(pos, pos + node.nodeSize, mark);
+                transform.addMark(pos, pos + node.nodeSize, mark.type.create({...mark.attrs, [attr]: renamed.get(mark.attrs[attr])}));
+            }
+            return false;
+        });
+        aligned = transform.doc;
+    }
+    return aligned;
 }

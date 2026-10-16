@@ -48,7 +48,7 @@ const TEXT = {
     diskChanged: {"zh-CN": "磁盘上的文件已被修改；保存会得到冲突。", "en-US": "The file changed on disk; saving will conflict."},
     unresolved: {"zh-CN": "另一个视图同时改了这份文档，这里的输入还没有进入正文。", "en-US": "Another view edited this document at the same time; this view's input has not been applied."},
     adopt: {"zh-CN": "采用当前正文", "en-US": "Use Current Text"},
-    unrepresentable: {"zh-CN": "这个视图的第 {index} 块{excerpt}写不回 Markdown（{reason}），输入没有进入正文，也不能保存。", "en-US": "Block {index}{excerpt} in this view cannot be written back as Markdown ({reason}); the input has not been applied and cannot be saved."},
+    unrepresentable: {"zh-CN": "这个视图的第 {index} 块{excerpt}写不回 Markdown，输入没有进入正文，也不能保存。改一改这一块的格式，或采用当前正文。", "en-US": "Block {index}{excerpt} in this view cannot be written back as Markdown; the input has not been applied and cannot be saved. Change the formatting of that block, or use the current text."},
     unrepresentableExcerpt: {"zh-CN": "（“{excerpt}”）", "en-US": " (“{excerpt}”)"},
     locate: {"zh-CN": "定位", "en-US": "Show Block"},
     keep: {"zh-CN": "保留本视图的内容", "en-US": "Keep This View's Text"},

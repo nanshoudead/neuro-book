@@ -20,7 +20,7 @@ import type {AffectedDocument, DocumentCoordinator, DocumentLease, LeaseResult, 
 import {isWithin, rebase, schemeOf, textHash} from "./address";
 
 /** 写不出的视图交出的抢救正文的说明（输出 61）。 */
-const LOST_FORMAT = "这个视图有一块写不回 Markdown，那一块只留下了文字（格式丢了）";
+const LOST_FORMAT = "这个视图有写不回 Markdown 的块，那些块只留下了文字（格式丢了）";
 
 /** 空正文的 SHA-256：删除后重建时排他新建的空文件就是这个基线。 */
 export const EMPTY_HASH = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
@@ -72,6 +72,7 @@ export interface TextDocument {
  * 一个视图写不出的输入（输出 61）：哪一块（编辑器文档里的位置，与给人看的第几块、开头几个字）、原因，与终态页抢救用的正文。
  */
 export interface BlockedInput {
+    /** 编解码器给的原因（诊断用，界面不显示：它是内部的说法）。 */
     readonly reason: string;
     readonly from: number;
     readonly to: number;
@@ -610,8 +611,9 @@ export function createDocumentStore(options: DocumentStoreOptions): DocumentStor
     };
 
     const settleState = (entry: Entry): SettleState | null => {
-        if (entry.candidates.value.size > 0) return "unresolved";
+        // 写不出优先：它连“先保存”都不能（复制询问按它去掉“先保存再复制”），未裁决输入还能先裁决再保存。
         if (entry.blocked.value.size > 0) return "unrepresentable";
+        if (entry.candidates.value.size > 0) return "unresolved";
         if (entry.conflict.value !== null) return "conflict";
         if (entry.inflight.value !== null || entry.pending.value !== null) return "saving";
         return isDirty(entry) ? "dirty" : null;
@@ -777,6 +779,13 @@ export function createDocumentStore(options: DocumentStoreOptions): DocumentStor
         block: (document, token, input) => {
             const entry = entryOf(document);
             if (entry === null || entry.textRefs === 0) return;
+            // 这个视图之前的未裁决输入是它更早的内容，屏幕上的已经比它新、又写不出：两份不并存，丢掉旧的，只剩“写不出”
+            // （组顶部给写不出的提示，“采用当前正文”一次丢掉这个视图的输入）。
+            if (entry.candidates.value.has(token)) {
+                const candidates = new Map(entry.candidates.value);
+                candidates.delete(token);
+                entry.candidates.value = candidates;
+            }
             entry.blocked.value = new Map(entry.blocked.value).set(token, input);
         },
         unblock: (document, token) => {
@@ -804,7 +813,8 @@ export function createDocumentStore(options: DocumentStoreOptions): DocumentStor
                 return;
             }
             entry.candidates.value = new Map();
-            entry.blocked.value = new Map();
+            // 写不出不随之解除（输出 61）：那些视图的输入从没进过正文，重新载入丢不掉它们；视图保留自己的内容，由用户在那一组
+            // 定位修改或采用当前正文。
             entry.status.value = "ready";
             adopt(entry, result.value.text, result.value.baseline);
         },

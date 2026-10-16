@@ -325,6 +325,9 @@ const blockReaders: Readonly<Record<string, TokenReader>> = {
     hr: (token) => [{type: "horizontalRule", attrs: {markdown: token.raw.trim()}}],
     table: (token, context) => {
         const table = token as Tokens.Table;
+        // 某一行的单元格比表头多：GFM 丢掉多出的（包括行内代码里没转义的 `|` 切出来的），编辑器表达不了，整张表是原样块
+        // （方言 Spec 输出 9），不然改过这张表，多出的字就从文件里没了。
+        if (table.raw.split("\n").slice(2).some((line) => cellCount(line) > table.header.length)) return [context.raw(token, false)];
         const cell = (type: string, value: Tokens.TableCell, align: string | null): JSONContent => ({type, attrs: {align}, content: [{type: "paragraph", content: context.inline(value.tokens)}]});
         return [{
             type: "table",
@@ -340,6 +343,18 @@ const blockReaders: Readonly<Record<string, TokenReader>> = {
         return [{type: "paragraph", content: value.tokens !== undefined && value.tokens.length > 0 ? context.inline(value.tokens) : readText(value.raw)}];
     },
 };
+
+/** 表格一行的单元格数，按 GFM 的切法：没转义的 `|` 分隔，行首行尾的 `|` 不算。 */
+function cellCount(line: string): number {
+    const row = line.trim();
+    if (row === "") return 0;
+    let count = 1;
+    for (let index = 0; index < row.length; index += 1) {
+        if (row[index] === "\\") index += 1;
+        else if (row[index] === "|" && index !== 0 && index !== row.length - 1) count += 1;
+    }
+    return count;
+}
 
 export const coreExtensions: ReadonlyArray<AnyExtension> = [
     StarterKit.configure({

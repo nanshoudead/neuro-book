@@ -310,6 +310,11 @@ type Openings = ReadonlyMap<PMNode, ReadonlyArray<{readonly mark: PMMark; readon
 interface Prepared {
     readonly plans: ReadonlyMap<string, Plan>;
     readonly openings: Openings;
+    /**
+     * 全篇每条批注都只有一截、也都没有 `id`：一条批注只在一块里，别处的改动牵连不到它，不用排全篇的截（`contextDependents`
+     * 直接没有），也不用给原文分词找沿用的 `id`。
+     */
+    readonly local: boolean;
     /** 写原文的各块里批注开标签（按出现的先后），按原文缓存。 */
     readonly rawTags: (raw: string) => ReadonlyArray<RawTag>;
 }
@@ -393,6 +398,8 @@ function prepareWrite(doc: PMNode, blocks: ReadonlyArray<ContextBlock>, tools: W
     const counts = new Map<string, number>();
     for (const {group} of found) counts.set(group, (counts.get(group) ?? 0) + 1);
     const ownId = (mark: PMMark): string | null => (typeof mark.attrs.id === "string" && mark.attrs.id !== "" ? mark.attrs.id : null);
+    const local = used.size === 0 && found.every(({mark}) => ownId(mark) === null) && [...counts.values()].every((count) => count === 1) && [...canonicalCounts.values()].every((count) => count <= 1);
+    if (local) return {plans: new Map(found.map(({group, parent, offset}) => [group, {id: null, first: {parent, offset}, runs: 1}])), openings, rawTags, local};
     // 原文里沿用的 `id`：一条没有 `id` 的分截批注，各截都在原文里、写着同一个 `id`。
     const reserved = new Map<string, string>();
     for (const [group, runs] of rawRuns(blocks, openings, rawTags).groups) {
@@ -418,7 +425,7 @@ function prepareWrite(doc: PMNode, blocks: ReadonlyArray<ContextBlock>, tools: W
         plans.set(group, {id, first: {parent, offset}, runs});
     }
     separateSharedIds(found, plans, freshId);
-    return {plans, openings, rawTags};
+    return {plans, openings, rawTags, local};
 }
 
 /**
@@ -430,7 +437,7 @@ function separateSharedIds(found: ReadonlyArray<{readonly group: string; readonl
     const owners = new Map<string, Set<string>>();
     for (const [group, plan] of plans) if (plan.id !== null) owners.set(plan.id, (owners.get(plan.id) ?? new Set()).add(group));
     if (![...owners.values()].some((groups) => groups.size > 1)) return;
-    const prepared: Prepared = {plans, openings: new Map(), rawTags: () => []};
+    const prepared: Prepared = {plans, openings: new Map(), rawTags: () => [], local: false};
     const {heads} = simulate(found.map(({mark, parent, offset}) => tagOf(mark, prepared, {parent, offset})));
     const readAs = new Map<string, Set<number>>();
     const members = new Map<number, Set<string>>();
@@ -587,6 +594,7 @@ function simulate(tags: ReadonlyArray<{readonly id: string | null; readonly body
  */
 function contextDependents(blocks: ReadonlyArray<ContextBlock>, prepared: unknown): Set<number> {
     const typed = prepared as Prepared;
+    if (typed.local) return new Set();
     const {segments, unknown} = writtenSegments(blocks, typed.openings, typed.rawTags);
     const dependents = new Set(unknown);
     const tags = segments.map((segment) => segment.tag ?? tagOf(segment.opening.mark, typed, segment.opening));
@@ -681,6 +689,7 @@ export const commentSyntax: MarkdownSyntax = {
     contextDependents,
     verifyWindow,
     contextAttrs: {comment: ["id", "body", "key"]},
+    identityAttrs: {comment: "key"},
     blockOpens: {comment: () => true},
     inlineTags: NAMES,
 };

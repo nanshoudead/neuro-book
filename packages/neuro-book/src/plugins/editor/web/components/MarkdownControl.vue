@@ -288,12 +288,24 @@ const handle: EditorControlHandle = {
     },
 };
 
+/**
+ * 停手的结算：输入法还在组字时不交（交出被接受后的写法回填会重画这一块，打断组字），组字结束后的下一次停手再交。失焦、换文档
+ * 与保存之前的结算照常立即进行。
+ */
+const commitWhenSettled = (): void => {
+    if (editor?.view.composing === true) {
+        timer = setTimeout(commitWhenSettled, COMMIT_DELAY_MS);
+        return;
+    }
+    commitNow();
+};
+
 const onUpdate = ({transaction}: {transaction: {docChanged: boolean}}): void => {
     // 程序换的内容（按文档的正文重载）也改大纲。
     if (transaction.docChanged) refreshOutline(true);
     if (loading || !transaction.docChanged) return;
     if (timer !== null) clearTimeout(timer);
-    timer = setTimeout(commitNow, COMMIT_DELAY_MS);
+    timer = setTimeout(commitWhenSettled, COMMIT_DELAY_MS);
 };
 const onSelection = (): void => {
     refreshOutline(false);

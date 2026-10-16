@@ -53,6 +53,10 @@ describe("字数", () => {
         expect(countWords("公式 $x^2$ 与 $5，价格 $3 和 $4。\n\n$$\na+b\n$$")).toBe(9);
         expect(countWords("正文[^1]。\n\n[^1]: 脚注内容。\n    续行。\n\n乙")).toBe(3);
         expect(countWords("甲\n\n[定义]: https://example.com/a\n  \"下一行的标题\"\n[另一个]: <b c>\n\n乙")).toBe(2);
+        // 地址另起一行、标题跨行的定义同样整块不计；同一行地址后面跟着不是标题的字时不是定义。
+        expect(countWords("[r]:\n  /dest\n")).toBe(0);
+        expect(countWords("[r]: /dest\n  \"多行\n  标题\"\n")).toBe(0);
+        expect(countWords("[r]: /dest 不是标题\n")).toBe(6);
         expect(countWords("<html>\n卡片的字\n\n空行后的字\n</html>\n\n正文<html>\n粘着的\n</html>")).toBe(2);
     });
 
@@ -64,10 +68,22 @@ describe("字数", () => {
 
     it("提示块的类型与任务项的勾选框是标记，不计；实体按解码后的字计，转义的字符是文字", () => {
         expect(countWords("> [!NOTE]- 折叠的标题\n> 内容")).toBe(7);
+        // 标题是原文，按字面计：里面的 `$…$`、标签不当语法。
+        expect(countWords("> [!NOTE] $伏笔$\n> 正文")).toBe(4);
+        expect(countWords("> [!NOTE] <kbd>伏笔</kbd>\n> 正文")).toBe(6);
         expect(countWords("> 引用\n> [!NOTE] 不在第一行")).toBe(8);
         expect(countWords("- [ ] todo\n- [x] done")).toBe(2);
         expect(countWords("&#20013;&#25991;&copy;&nbsp;")).toBe(2);
         expect(countWords("\\<kbd> 与 \\&lt;")).toBe(3);
         expect(countWords("见 <https://a.example> 与 <me@b.cn>")).toBe(8);
+    });
+
+    it("病态输入不是平方级：几万个没闭合的 `<html>`、只有一个闭标签的成串开标签都很快数完", () => {
+        for (const text of ["<html>\n\n正文\n\n".repeat(8000), `前${"<kbd>".repeat(8000)}字</kbd>后`, "$$\n\n甲\n\n".repeat(8000)]) {
+            const started = performance.now();
+            countWords(text);
+            // 平方级时这几种要几秒到十几秒；上限放宽到 1 秒，只拦数量级。
+            expect(performance.now() - started).toBeLessThan(1000);
+        }
     });
 });

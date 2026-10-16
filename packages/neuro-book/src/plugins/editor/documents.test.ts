@@ -196,7 +196,19 @@ describe("Spec workbench.editor 输出 61：写不出", () => {
         expect(await disk(at, "a.md")).toBe("A（写得出了）");
     });
 
-    it("丢弃这个视图的输入、采用当前正文（unblock）、重新载入磁盘版本都解除", async () => {
+    it("视图有未裁决输入、继续编辑到写不出：旧的未裁决输入丢掉，只剩写不出", async () => {
+        const at = await world();
+        const document = await opened(at, "project://a.md");
+        const base = document.revision.value;
+        at.store.commit(document, "v1", base, "A1");
+        expect(at.store.commit(document, "v2", base, "A2")).toMatchObject({status: "conflict"});
+        at.store.block(document, "v2", input);
+        expect(document.unresolved.value).toEqual([]);
+        expect([...document.blocked.value.keys()]).toEqual(["v2"]);
+        expect(at.store.coordinator.affected(["project://"])).toEqual([{address: "project://a.md", state: "unrepresentable"}]);
+    });
+
+    it("丢弃这个视图的输入、采用当前正文（unblock）解除；重新载入磁盘版本不解除（那些输入从没进过正文）", async () => {
         const at = await world();
         const document = await opened(at, "project://a.md");
         at.store.block(document, "v1", input);
@@ -207,7 +219,17 @@ describe("Spec workbench.editor 输出 61：写不出", () => {
         expect(document.blocked.value.size).toBe(0);
         at.store.block(document, "v1", input);
         await at.store.revert(document);
-        expect(document.blocked.value.size).toBe(0);
+        expect([...document.blocked.value.keys()]).toEqual(["v1"]);
+    });
+
+    it("一个视图写不出、另一个视图有未裁决输入：资源管理器看到的是写不出（不能先保存）", async () => {
+        const at = await world();
+        const document = await opened(at, "project://a.md");
+        const base = document.revision.value;
+        at.store.commit(document, "v1", base, "A1");
+        at.store.commit(document, "v2", base, "A2");
+        at.store.block(document, "v3", input);
+        expect(at.store.coordinator.affected(["project://"])).toEqual([{address: "project://a.md", state: "unrepresentable"}]);
     });
 });
 

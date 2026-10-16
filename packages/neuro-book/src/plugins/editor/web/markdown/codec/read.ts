@@ -57,6 +57,11 @@ export interface SourceMap {
     /** 原文里用得多的换行符：重新写出的块与间隔用它。 */
     readonly eol: Eol;
     readonly origins: WeakMap<PMNode, ReadonlyArray<Origin>>;
+    /**
+     * 登记过来源的顶层节点，按内容分桶（`twinKey`）：真实的撤销按步骤重建出内容相同的新节点对象，按对象找不到来源时，借用内容
+     * 完全相同（含写法属性）的那个节点的来源（`originsOf`）。
+     */
+    readonly twins: Map<string, PMNode[]>;
     readonly gaps: WeakMap<object, Map<object, Map<number, Gap>>>;
     /** 读入时正文里没有任何块（空文件、只有空行）：正文原文；否则为 null。 */
     readonly emptyBody: string | null;
@@ -71,6 +76,30 @@ export interface ReadResult {
     readonly skipped: number;
     /** 读不出或不合 schema、换成原样块的块：原因（诊断用；语料测试断言它为空）。 */
     readonly problems: ReadonlyArray<string>;
+}
+
+const twinKey = (node: PMNode): string => `${node.type.name}\u0000${String(node.nodeSize)}\u0000${node.textContent}`;
+
+/** 登记一个顶层节点的来源（同时记进按内容的表）。 */
+export function setOrigins(map: SourceMap, node: PMNode, origins: ReadonlyArray<Origin>): void {
+    map.origins.set(node, origins);
+    const key = twinKey(node);
+    const bucket = map.twins.get(key);
+    if (bucket === undefined) map.twins.set(key, [node]);
+    else if (!bucket.includes(node)) bucket.push(node);
+}
+
+/**
+ * 顶层节点的来源：先按对象找；找不到时找一个登记过的、内容完全相同（`eq`，含写法属性）的节点，借用它的来源并记到这个节点上。
+ * 撤销回到某一块以前的样子时，那一块因此写回它那时的字节（方言 Spec 输出 2）。
+ */
+export function originsOf(map: SourceMap, node: PMNode): ReadonlyArray<Origin> | undefined {
+    const known = map.origins.get(node);
+    if (known !== undefined) return known;
+    const twin = map.twins.get(twinKey(node))?.find((other) => other !== node && other.eq(node));
+    const origins = twin === undefined ? undefined : map.origins.get(twin);
+    if (origins !== undefined) map.origins.set(node, origins);
+    return origins;
 }
 
 /** 登记一个间隔。 */
@@ -216,7 +245,7 @@ export function readBody(language: MarkdownLanguage, schema: Schema, prefix: str
     if (definitions !== null) Object.assign(lexer.tokens.links, definitions);
     const tokens = lexer.lex(normalized.text);
     const {blocks, gaps, skipped} = segment(normalized, body, tokens);
-    const map: SourceMap = {prefix, eol: dominantEol(prefix + body), origins: new WeakMap(), gaps: new WeakMap(), emptyBody: blocks.length === 0 ? body : null, finalNewline: /\n$|\r$/u.test(body)};
+    const map: SourceMap = {prefix, eol: dominantEol(prefix + body), origins: new WeakMap(), twins: new Map(), gaps: new WeakMap(), emptyBody: blocks.length === 0 ? body : null, finalNewline: /\n$|\r$/u.test(body)};
     const nodes: PMNode[] = [];
     const empty = (): PMNode => schema.nodes.paragraph!.create();
     const problems: string[] = [];
@@ -255,7 +284,7 @@ export function readBody(language: MarkdownLanguage, schema: Schema, prefix: str
         const unit: SourceUnit = {raw: block.raw, size: read.length};
         recordGap(map, previous, unit, {raw: gap, empties});
         previous = unit;
-        read.forEach((node, part) => map.origins.set(node, [{unit, part}]));
+        read.forEach((node, part) => setOrigins(map, node, [{unit, part}]));
         nodes.push(...read);
     });
     const trailing = gaps[blocks.length] as string;

@@ -55,8 +55,8 @@ const EMBED_GLUED = /<html>[ \t]*$/iu;
 const MATH_FENCE = /^\$\$[ \t]*$/u;
 const MATH_LINE = /^\$\$.*\$\$[ \t]*$/u;
 const FOOTNOTE_DEF = /^\[\^[^\]\s]+\]:/u;
-const DEFINITION = /^\[(?!\^)(?:\\.|[^[\]\\])+\]:[ \t]*(?:<[^<>\n]*>|\S+)(?:[ \t]+(?:"[^"]*"|'[^']*'|\([^()]*\)))?[ \t]*$/u;
-const DEFINITION_TITLE = /^(?:"[^"]*"|'[^']*'|\([^()]*\))[ \t]*$/u;
+const DEFINITION_LABEL = /^\[(?!\^)(?:\\.|[^[\]\\])+\]:[ \t]*/u;
+const DEFINITION_DESTINATION = /^(?:<[^<>\n]*>|\S+)/u;
 const CALLOUT = /^((?:[ \t]*>)+[ \t]*)\[![A-Za-z][\w-]*\][+-]?(?=[ \t]|$)/u;
 const TASK = /^((?:[ \t]*>)*[ \t]*[-*+][ \t]+)\[[ xX]\](?=[ \t]|$)/u;
 const OPEN_TAG_AT_START = /^<([A-Za-z][\w-]*)(?=[\s/>]|$)/u;
@@ -86,6 +86,26 @@ function countable(body: string): string {
         offset += line.length + 1;
     }
     const joined = scanned(lines.join("\n"));
+    // 往下找某种行：每种只建一次行号表，二分找下一个（没闭合的 `<html>`、`$$` 一行接一行时不至于每行都扫到文末）。
+    const tables = new Map<RegExp, number[]>();
+    const nextLine = (pattern: RegExp, from: number): number => {
+        let table = tables.get(pattern);
+        if (table === undefined) {
+            table = [];
+            lines.forEach((line, at) => {
+                if (pattern.test(line.replace(CONTAINER, "").trimStart())) (table as number[]).push(at);
+            });
+            tables.set(pattern, table);
+        }
+        let low = 0;
+        let high = table.length;
+        while (low < high) {
+            const middle = (low + high) >> 1;
+            if ((table[middle] as number) < from) low = middle + 1;
+            else high = middle;
+        }
+        return table[low] ?? -1;
+    };
     const out: string[] = [];
     let paragraph: string[] = [];
     const flush = (): void => {
@@ -124,7 +144,7 @@ function countable(body: string): string {
         }
         const embedAt = EMBED_OPEN.test(content) ? 0 : content.search(EMBED_GLUED);
         if (embedAt >= 0) {
-            const last = findLine(lines, index + 1, (next) => EMBED_CLOSE.test(next.replace(CONTAINER, "").trimStart()));
+            const last = nextLine(EMBED_CLOSE, index + 1);
             if (last >= 0) {
                 // 宽容写法 `正文<html>`：前面的正文照常计。
                 if (embedAt > 0) paragraph.push(line.slice(0, line.length - content.length + embedAt));
@@ -137,7 +157,7 @@ function countable(body: string): string {
             continue;
         }
         if (MATH_FENCE.test(content)) {
-            const last = findLine(lines, index + 1, (next) => MATH_FENCE.test(next.replace(CONTAINER, "")));
+            const last = nextLine(MATH_FENCE, index + 1);
             if (last >= 0) {
                 skipTo(last);
                 continue;
@@ -154,9 +174,9 @@ function countable(body: string): string {
             skipTo(last);
             continue;
         }
-        if (blockStart && DEFINITION.test(content)) {
-            const title = lines[index + 1];
-            skipTo(title !== undefined && DEFINITION_TITLE.test(title.replace(CONTAINER, "")) ? index + 1 : index);
+        const definition = blockStart ? definitionEnd(lines, index) : -1;
+        if (definition >= 0) {
+            skipTo(definition);
             continue;
         }
         const html = htmlBlockEnd(joined, lines, offsets, index, content, blockStart);
@@ -172,14 +192,65 @@ function countable(body: string): string {
             blockStart = true;
             continue;
         }
-        // 提示块的类型只在引用的第一行。
+        // 提示块的类型只在引用的第一行；后面的标题是原文，按字面计（不当 Markdown 解释，方言 Spec 输出 23）。
         const quoteStart = index === 0 || !/^[ \t]*>/u.test(lines[index - 1] as string);
-        paragraph.push((quoteStart ? line.replace(CALLOUT, "$1") : line).replace(TASK, "$1"));
+        const callout = quoteStart ? CALLOUT.exec(line) : null;
+        if (callout !== null) {
+            flush();
+            out.push(line.slice(callout[0].length));
+            index += 1;
+            blockStart = true;
+            continue;
+        }
+        paragraph.push(line.replace(TASK, "$1"));
         blockStart = false;
         index += 1;
     }
     flush();
     return out.join("\n");
+}
+
+/**
+ * 从第 `index` 行开始的引用定义的最后一行；不是定义返回 -1。按 CommonMark：`[标签]:` 后面是地址（可以在下一行），再后面可以有
+ * 标题（同一行或下一行开始，可以跨行，不能隔空行）；同一行的地址后面跟着不是标题的字时不是定义，下一行的标题没闭合时定义到
+ * 地址为止。
+ */
+function definitionEnd(lines: ReadonlyArray<string>, index: number): number {
+    const content = (at: number): string | undefined => lines[at]?.replace(CONTAINER, "");
+    const first = content(index) as string;
+    const label = DEFINITION_LABEL.exec(first);
+    if (label === null) return -1;
+    let line = index;
+    let rest = first.slice(label[0].length).trim();
+    if (rest === "") {
+        line += 1;
+        rest = content(line)?.trim() ?? "";
+        if (rest === "") return -1;
+    }
+    const destination = DEFINITION_DESTINATION.exec(rest);
+    if (destination === null) return -1;
+    const after = rest.slice(destination[0].length);
+    if (after.trim() !== "") return /^[ \t]+["'(]/u.test(after) ? titleEnd(lines, line, after.trimStart()) : -1;
+    const next = content(line + 1)?.trimStart() ?? "";
+    if (!/^["'(]/u.test(next)) return line;
+    const end = titleEnd(lines, line + 1, next);
+    return end < 0 ? line : end;
+}
+
+/** 从第 `line` 行的 `text`（以引号或括号开头）开始的标题在哪一行闭合、闭合后这一行没有别的字；不成立返回 -1。 */
+function titleEnd(lines: ReadonlyArray<string>, line: number, text: string): number {
+    const close = text[0] === "(" ? ")" : (text[0] as string);
+    let rest = text.slice(1);
+    for (let at = line; ; ) {
+        for (let index = 0; index < rest.length; index += 1) {
+            if (rest[index] === "\\") index += 1;
+            else if (rest[index] === close) return rest.slice(index + 1).trim() === "" ? at : -1;
+        }
+        at += 1;
+        const next = lines[at]?.replace(CONTAINER, "");
+        if (next === undefined || next.trim() === "") return -1;
+        rest = next;
+    }
 }
 
 /** 从 `from` 起第一行满足 `test` 的行号；没有返回 -1。 */
@@ -236,21 +307,35 @@ interface Scanned {
     readonly text: string;
     readonly lower: string;
     readonly lastClose: number;
-    readonly lastCloseTag: Map<string, number>;
+    /** 各标签名的开标签位置 → 配对的闭标签的结束位置（一次栈配对）。 */
+    readonly pairs: Map<string, Map<number, number>>;
 }
 
 const scanned = (text: string): Scanned => {
     const lower = text.toLowerCase();
-    return {text, lower, lastClose: text.lastIndexOf(">"), lastCloseTag: new Map()};
+    return {text, lower, lastClose: text.lastIndexOf(">"), pairs: new Map()};
 };
 
-function lastCloseTag(source: Scanned, name: string): number {
-    let at = source.lastCloseTag.get(name);
-    if (at === undefined) {
-        at = source.lower.lastIndexOf(`</${name}`);
-        source.lastCloseTag.set(name, at);
+/**
+ * `start` 处名为 `name` 的开标签配上的闭标签的结束位置；没配上返回 -1。整段一次栈配对（闭标签配最近一个还没配上的开标签，
+ * 与从开标签起按嵌套计数找闭标签结果相同），按标签名缓存：成千上万个没配上的开标签不至于每个都扫到末尾。
+ */
+function pairedEnd(source: Scanned, start: number, name: string): number {
+    let pairs = source.pairs.get(name);
+    if (pairs === undefined) {
+        pairs = new Map();
+        const open: number[] = [];
+        if (source.lower.includes(`</${name}`)) {
+            const pattern = new RegExp(`<(/?)${name}(?=[\\s/>])((?:"[^"]*"|'[^']*'|[^>"'])*)>`, "giu");
+            for (const matched of source.text.matchAll(pattern)) {
+                if ((matched[2] ?? "").endsWith("/")) continue;
+                if (matched[1] !== "/") open.push(matched.index);
+                else if (open.length > 0) pairs.set(open.pop() as number, matched.index + matched[0].length);
+            }
+        }
+        source.pairs.set(name, pairs);
     }
-    return at;
+    return pairs.get(start) ?? -1;
 }
 
 const TAG = new RegExp(`<(/?)([A-Za-z][\\w-]*)(?=[\\s/>])(${ATTRIBUTES_SOURCE})>`, "uy");
@@ -264,17 +349,7 @@ function completeElementEnd(source: Scanned, start: number, name: string): numbe
     if (open === null || open[1] === "/") return -1;
     const end = start + open[0].length;
     if (VOID_HTML_TAGS.has(name) || (open[3] as string).endsWith("/")) return end;
-    // 后面根本没有这个名字的闭标签时直接返回：一段里成千上万个没闭合的 `<a>` 不至于每个都数到末尾。
-    if (lastCloseTag(source, name) < end) return -1;
-    const pattern = new RegExp(`<(/?)${name}(?=[\\s/>])((?:"[^"]*"|'[^']*'|[^>"'])*)>`, "giu");
-    pattern.lastIndex = end;
-    let depth = 1;
-    for (let matched = pattern.exec(text); matched !== null; matched = pattern.exec(text)) {
-        if ((matched[2] ?? "").endsWith("/")) continue;
-        depth += matched[1] === "/" ? -1 : 1;
-        if (depth === 0) return matched.index + matched[0].length;
-    }
-    return -1;
+    return pairedEnd(source, start, name);
 }
 
 // ---- 行内：一段的文字 ----

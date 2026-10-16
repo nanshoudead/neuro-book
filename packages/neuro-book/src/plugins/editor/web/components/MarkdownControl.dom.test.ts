@@ -5,6 +5,7 @@
  */
 
 import type {Editor} from "@tiptap/core";
+import {EditorState} from "@tiptap/pm/state";
 import {mount} from "@vue/test-utils";
 import {afterEach, describe, expect, it} from "vitest";
 
@@ -17,6 +18,8 @@ import {MARKDOWN_EDITOR} from "../../shared/contracts";
 import type {EditorControlHandle, TextEditorBinding} from "../../shared/contracts";
 import {createEditorArea} from "../area";
 import type {EditorArea} from "../area";
+import {codecFor} from "../markdown/codec/codec";
+import {markdownLanguage} from "../markdown/syntax";
 import MarkdownControl from "./MarkdownControl.vue";
 
 const cleanups: Array<() => void> = [];
@@ -128,6 +131,30 @@ describe("显示（方言 Spec 输出 23）", () => {
         handle.flushPendingChange();
         expect(binding.text.value).toBe(source);
     });
+
+    it("折叠的提示块里看不见的内容不会被悄悄改掉：在后一段段首退格并进去、或光标移进去，它就展开", async () => {
+        const {editor} = await opened("> [!WARNING]- 伏笔\n> 内容\n\n后一段\n");
+        const content = (): HTMLElement => document.querySelector(".nb-callout__content") as HTMLElement;
+        expect(content().hidden).toBe(true);
+        editor.commands.setTextSelection(editor.state.doc.child(0).nodeSize + 1);
+        expect(content().hidden).toBe(true);
+        editor.commands.joinBackward();
+        expect(editor.state.doc.childCount).toBe(1);
+        expect(content().hidden).toBe(false);
+
+        const second = await opened("> [!WARNING]- 伏笔\n> 内容\n\n后一段\n");
+        second.editor.commands.setTextSelection(3);
+        expect((document.querySelectorAll(".nb-callout__content")[1] as HTMLElement).hidden).toBe(false);
+    });
+
+    it("同一个编辑器换到另一份文档：提示块按新文档的折叠标记显示，不沿用前一份的", async () => {
+        const {editor} = await opened("> [!NOTE] 甲\n> 内容\n");
+        expect((document.querySelector(".nb-callout__content") as HTMLElement).hidden).toBe(false);
+        // 控件换文档时的做法（`load`）：按新正文建编辑状态。
+        const read = codecFor(editor.schema, markdownLanguage()).read("> [!WARNING]- 乙\n> 内容\n");
+        editor.view.updateState(EditorState.create({doc: read.doc, plugins: editor.state.plugins}));
+        expect((document.querySelector(".nb-callout__content") as HTMLElement).hidden).toBe(true);
+    });
 });
 
 describe("卸载", () => {
@@ -144,6 +171,19 @@ describe("卸载", () => {
 });
 
 describe("重载（“状态与转换”、editor 输出 12）", () => {
+    it("有批注的文件：别处只改了末段，本组之前的输入仍能撤销，撤销后末段保留别处的修改", async () => {
+        const {editor, handle, binding, memory, area, groupId} = await opened("<comment body=\"意见\">甲</comment>\n\n中间\n\n尾\n");
+        editor.commands.insertContentAt(endOfBlock(editor, 1), "改");
+        handle.flushPendingChange();
+        expect(binding.text.value).toBe("<comment body=\"意见\">甲</comment>\n\n中间改\n\n尾\n");
+        // 保存之后磁盘的新内容才直接换进正文（没保存时只提示磁盘变了）。
+        expect(await area.documents.save(area.documentOf(groupId)!)).toEqual({ok: true});
+        memory.externalWrite("project://a.md", "<comment body=\"意见\">甲</comment>\n\n中间改\n\n尾外改\n");
+        await waitUntil("重载", () => editor.state.doc.textContent.includes("尾外改"));
+        editor.commands.undo();
+        expect(editor.state.doc.textContent).toBe("甲中间尾外改");
+    });
+
     it("磁盘的新内容：只换不同的那一段，之后只改一块时其余块按新原文写回", async () => {
         const {editor, handle, binding, memory} = await opened("* 甲&amp;\n\n乙\n");
         // 新内容里也有重新写出时会变的写法（`&amp;` 会写成 `&`）：只有按新原文写回时才保持。
@@ -168,7 +208,7 @@ describe("写不出（editor 输出 61）", () => {
         expect(binding.blocked()).toBe(true);
         expect(binding.text.value).toBe("甲\n\n乙\n");
         const blocked = area.documentOf(groupId)?.blocked.value.get(binding.token);
-        expect(blocked?.fallback).toBe("甲\n\n乙\n");
+        expect(blocked?.fallback).toBe("\\<div>甲\n\n乙\n");
         // 组顶部的提示写明是哪一块：第几块与开头几个字。
         expect([blocked?.index, blocked?.excerpt]).toEqual([1, "甲"]);
         area.locate(groupId);
@@ -179,6 +219,18 @@ describe("写不出（editor 输出 61）", () => {
         handle.flushPendingChange();
         expect(binding.blocked()).toBe(false);
         expect(binding.text.value).toBe("甲改\n\n乙\n");
+    });
+
+    it("写不出期间文档的正文被别处改了：这个视图不随之更新，保留自己的内容（editor 输出 61）", async () => {
+        const {editor, handle, binding, memory} = await opened("甲\n\n乙\n");
+        breakFirst(editor);
+        editor.commands.insertContentAt(endOfBlock(editor, 1), "改");
+        handle.flushPendingChange();
+        expect(binding.blocked()).toBe(true);
+        memory.externalWrite("project://a.md", "甲\n\n乙外\n");
+        await waitUntil("文档换成磁盘内容", () => binding.text.value === "甲\n\n乙外\n");
+        expect(editor.state.doc.textContent).toBe("甲乙改");
+        expect(binding.blocked()).toBe(true);
     });
 
     it("采用当前正文：丢弃这个视图的输入，按文档的正文重载", async () => {

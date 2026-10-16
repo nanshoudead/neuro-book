@@ -20,7 +20,7 @@ import type {WriteOptions} from "../syntax/types";
 import {normalizeLabel, Unrepresentable} from "../syntax/types";
 import {equivalent} from "./compare";
 import type {Definitions, Eol, Gap, SourceMap, SourceUnit} from "./read";
-import {END, START, emptiesBetween, emptiesLeading, emptiesTrailing, readBody, recordGap} from "./read";
+import {END, START, emptiesBetween, emptiesLeading, emptiesTrailing, originsOf, readBody, recordGap, setOrigins} from "./read";
 import {renderBlock} from "./render";
 import {gluedOpenings, splitFrontmatter} from "./source";
 import {decodeRawBreaks, SENTINEL, stripSentinels} from "./render/escape";
@@ -111,11 +111,11 @@ function itemsOf(doc: PMNode, map: SourceMap): {items: Item[]; trailing: number}
     const trailing = empties;
     /** 从第 k 个内容节点开始的、完整的来源（它的每一部分都按顺序紧挨着在这里），新的在前。 */
     const candidates = contents.map((index) =>
-        (map.origins.get((children[index] as {node: PMNode}).node) ?? [])
+        (originsOf(map, (children[index] as {node: PMNode}).node) ?? [])
             .filter((origin) => {
                 if (origin.part !== 0) return false;
                 const run = children.slice(index, index + origin.unit.size);
-                return run.length === origin.unit.size && run.every((child, part) => map.origins.get(child.node)?.some((other) => other.unit === origin.unit && other.part === part) === true);
+                return run.length === origin.unit.size && run.every((child, part) => originsOf(map, child.node)?.some((other) => other.unit === origin.unit && other.part === part) === true);
             })
             .map((origin) => origin.unit),
     );
@@ -243,7 +243,6 @@ function definitionsOf(language: MarkdownLanguage, doc: PMNode, skip: ReadonlySe
     return definitions;
 }
 
-/** 重新写出的文字换成原文的换行符；原样内容里自带的 `\r\n` 不动。 */
 /**
  * 重新写出的文字换成原文的主换行符，原样内容自带的换行（带标记，见 `encodeRawBreaks`）不动，最后去掉标记。
  */
@@ -255,19 +254,33 @@ export function writeMarkdown(doc: PMNode, map: SourceMap, language: MarkdownLan
 }
 
 /**
- * 抢救用的正文：`failed` 那一段顶层块换成纯文字段落（每一行一段）再写；仍写不出时整篇按纯文字。
+ * 抢救用的正文：写不出的那一段顶层块换成纯文字段落（每一行一段）再写，还有写不出的块就接着换，直到写得出。每一轮至少换掉
+ * 一块，轮数以顶层块数为上限；到上限仍写不出（不应发生）时整篇按纯文字。
  */
 function plainFallback(doc: PMNode, map: SourceMap, language: MarkdownLanguage, schema: Schema, failed: Failed): string {
     const paragraph = schema.nodes.paragraph!;
-    const lines: string[] = [];
-    doc.nodesBetween(failed.from, failed.to, (node) => {
-        if (!node.isTextblock) return true;
-        lines.push(...node.textBetween(0, node.content.size, "", (leaf) => (leaf.type.name === "hardBreak" ? "\n" : "")).split("\n"));
-        return false;
-    });
-    const paragraphs = (lines.length === 0 ? [""] : lines).map((line) => paragraph.create(null, line === "" ? null : schema.text(line)));
-    const again = writeOnce(doc.replace(failed.from, failed.to, new Slice(Fragment.from(paragraphs), 0, 0)), map, language, schema);
-    return again.ok ? again.text : map.prefix + doc.textBetween(0, doc.content.size, "\n\n", "\n");
+    let current = doc;
+    let failure = failed;
+    for (let round = 0; round <= doc.childCount; round += 1) {
+        const lines: string[] = [];
+        // 原样块、可渲染 HTML 与行内原样片段的原文也作为文字留下（例如没闭合的 `<!--` 吞掉了后面的新段落，写不出的就是它）。
+        const source = (node: PMNode): string => String(node.attrs.raw ?? node.attrs.html ?? "");
+        current.nodesBetween(failure.from, failure.to, (node) => {
+            if (node.isBlock && node.isAtom) {
+                lines.push(...source(node).split("\n"));
+                return false;
+            }
+            if (!node.isTextblock) return true;
+            lines.push(...node.textBetween(0, node.content.size, "", (leaf) => (leaf.type.name === "hardBreak" ? "\n" : source(leaf))).split("\n"));
+            return false;
+        });
+        const paragraphs = (lines.length === 0 ? [""] : lines).map((line) => paragraph.create(null, line === "" ? null : schema.text(line)));
+        current = current.replace(failure.from, failure.to, new Slice(Fragment.from(paragraphs), 0, 0));
+        const again = writeOnce(current, map, language, schema);
+        if (again.ok) return again.text;
+        failure = again;
+    }
+    return map.prefix + doc.textBetween(0, doc.content.size, "\n\n", "\n");
 }
 
 type Written = Exclude<WriteResult, {ok: false}> | Failed;
@@ -347,6 +360,7 @@ function writeOnce(doc: PMNode, map: SourceMap, language: MarkdownLanguage, sche
         }
     };
 
+    const readBacks = new Map<string, PMNode>();
     /**
      * 读回窗口 [first, last]：期望的节点（含间隔里的空段落）与读回的文档。开头、结尾的间隔只在窗口挨着文件首尾时带上。
      */
@@ -379,8 +393,16 @@ function writeOnce(doc: PMNode, map: SourceMap, language: MarkdownLanguage, sche
             pushEmpties(emptiesTrailing(gap), last);
         }
         // 窗口外的引用定义预置进词法器；窗口里的不预置，让 `marked` 照常读它们（预置了同名的，窗口里的会被当成重复的丢掉）。
-        const inside = new Set(items.slice(first, last + 1).flatMap((item) => item.nodes));
-        return {expected, read: readBody(language, schema, "", parts.join(""), definitionsOf(language, doc, inside)).doc};
+        // 同一个窗口、同样的原文读回的结果相同：校验通过时读过的，`accept` 取写法时直接用。
+        const text = parts.join("");
+        const key = `${String(first)}:${String(last)}\u0000${text}`;
+        let read = readBacks.get(key);
+        if (read === undefined) {
+            const inside = new Set(items.slice(first, last + 1).flatMap((item) => item.nodes));
+            read = readBody(language, schema, "", text, definitionsOf(language, doc, inside)).doc;
+            readBacks.set(key, read);
+        }
+        return {expected, read};
     };
     /**
      * 校验读回窗口：返回第一个对不上的项（都对上为 -1），以及读回的块是不是比预期少（有块被前一块吞了：两个列表合成一个、
@@ -571,7 +593,7 @@ function writeOnce(doc: PMNode, map: SourceMap, language: MarkdownLanguage, sche
             if (known[0]?.unit === unit) return;
             // 同一个节点反复被重新写出时来源会一直加：只留最近的几代，但最早的一代（读入时的）总留着，撤销回打开时要用。
             const next = [{unit, part}, ...known];
-            map.origins.set(node, next.length <= ORIGIN_HISTORY ? next : [...next.slice(0, ORIGIN_HISTORY - 1), known.at(-1) as {unit: SourceUnit; part: number}]);
+            setOrigins(map, node, next.length <= ORIGIN_HISTORY ? next : [...next.slice(0, ORIGIN_HISTORY - 1), known.at(-1) as {unit: SourceUnit; part: number}]);
         };
         units.forEach((unit, index) => (items[index] as Item).nodes.forEach((node, part) => {
             register(node, unit, part);

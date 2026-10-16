@@ -7,6 +7,8 @@
 import {getSchema} from "@tiptap/core";
 import {Fragment, Slice} from "@tiptap/pm/model";
 import type {Node as PMNode} from "@tiptap/pm/model";
+import {closeHistory, history, undo} from "@tiptap/pm/history";
+import {EditorState} from "@tiptap/pm/state";
 import {Transform} from "@tiptap/pm/transform";
 import {describe, expect, it} from "bun:test";
 
@@ -66,6 +68,43 @@ describe("写法回填（输出 2：新加的内容一旦写回，写法就固�
     });
 });
 
+describe("真实撤销（输出 2：撤销回打开时的状态再写回，字节与打开时相同）", () => {
+    /** 每个文字节点里第一个字之后的位置。 */
+    const textPositions = (state: EditorState): number[] => {
+        const found: number[] = [];
+        state.doc.descendants((node, pos) => {
+            if (node.isText) found.push(pos + 1);
+        });
+        return found;
+    };
+
+    /** 编辑器的做法：每步输入进撤销历史，写出被接受后回填（不进历史）；最后撤销到底再写出。 */
+    function editThenUndo(source: string, steps: ReadonlyArray<(state: EditorState) => number>): string {
+        const read = codec.read(source);
+        let state = EditorState.create({doc: read.doc, plugins: [history()]});
+        steps.forEach((at, step) => {
+            state = state.apply(closeHistory(state.tr.insertText(`改${String(step)}`, at(state))));
+            const written = codec.write(state.doc, read.map);
+            if (!written.ok) throw new Error(written.reason);
+            const tr = state.tr;
+            written.accept(tr);
+            state = state.apply(tr.setMeta("addToHistory", false));
+        });
+        while (undo(state, (tr) => {
+            state = state.apply(tr);
+        }));
+        const again = codec.write(state.doc, read.map);
+        if (!again.ok) throw new Error(again.reason);
+        return again.text;
+    }
+
+    it("撤销重建出的是内容相同的新节点：仍写回原文（实体、转义、下划线式标题、表格的对齐行、属性的单引号）", () => {
+        for (const source of ["甲&amp;乙\n\n丙\n", "他__说__了 \\* 号\n", "Title\n=====\n\n正文\n", "| a | b |\n|---|:-:|\n| 1 | 22 |\n", "开<comment id='c1' body='意见'>one</comment>\r\n \r\n<comment id='c1'>two</comment>\r\n"]) {
+            expect(editThenUndo(source, [(state) => textPositions(state)[0] as number, (state) => textPositions(state).at(-1) as number])).toBe(source);
+        }
+    });
+});
+
 describe("重载（“状态与转换”：外部修改后重新读入，哪些块被编辑过按新的原文重新计）", () => {
     // 第一块用实体写：重新写出时会写成 `&`，写原文才保持 `&amp;`。
     const before = "* 甲&amp;\n\n乙\n\n丙\n";
@@ -93,6 +132,15 @@ describe("重载（“状态与转换”：外部修改后重新读入，哪些�
         expect(undone.ok && codec.read(undone.text).doc.eq(edited)).toBe(true);
     });
 
+    it("有批注时只换不同的那一段：没变的批注还是编辑器里原来的节点（身份不因重新读入而变）", () => {
+        const read = codec.read("<comment body=\"意见\">甲</comment>\n\n中间\n\n尾\n");
+        const tr = new Transform(read.doc);
+        codec.reload(tr, "<comment body=\"意见\">甲</comment>\n\n中间\n\n尾外改\n");
+        expect(tr.doc.child(0)).toBe(read.doc.child(0));
+        expect(tr.doc.child(1)).toBe(read.doc.child(1));
+        expect(tr.doc.textContent).toBe("甲中间尾外改");
+    });
+
     it("frontmatter 也按新正文", () => {
         const read = codec.read("---\na: 1\n---\n甲\n");
         const tr = new Transform(read.doc);
@@ -110,6 +158,30 @@ describe("写不出时的抢救正文（editor 输出 61）", () => {
         const doc = read.doc.replace(read.doc.child(0).nodeSize, read.doc.content.size, new Slice(Fragment.from(blocked), 0, 0));
         const result = codec.write(doc, read.map);
         expect(result.ok).toBe(false);
-        if (!result.ok) expect(result.fallback()).toBe("前\n\n文字\n");
+        // 原样片段的原文也作为文字留下（转义后读回仍是这几个字）。
+        if (!result.ok) expect(result.fallback()).toBe("前\n\n\\<div>文字\n");
+    });
+
+    it("没闭合的原样块吞掉了后面新写的一段：原样块的原文与新的一段都作为文字留下", () => {
+        const read = codec.read("前\n\n<!-- 没闭合的注释\n");
+        const doc = read.doc.copy(read.doc.content.addToEnd(schema.nodes.paragraph!.create(null, schema.text("新写的一段"))));
+        const result = codec.write(doc, read.map);
+        expect(result.ok).toBe(false);
+        if (!result.ok) {
+            const rescued = result.fallback();
+            expect(rescued).toContain("没闭合的注释");
+            expect(rescued).toContain("新写的一段");
+            expect(rescued.startsWith("前\n\n")).toBe(true);
+        }
+    });
+
+    it("两块写不出：各自换成纯文字，中间正常的粗体与代码块照常写出", () => {
+        const read = codec.read("甲\n\n**粗体**\n\n```js\nconsole.log(1)\n```\n\n乙\n");
+        const broken = (text: string): PMNode => schema.nodes.paragraph!.create(null, [schema.nodes.rawInline!.create({raw: "<div>"}), schema.text(text)]);
+        const children: PMNode[] = [];
+        read.doc.forEach((node, _offset, index) => children.push(index === 0 ? broken("甲") : index === read.doc.childCount - 1 ? broken("乙") : node));
+        const result = codec.write(schema.nodes.doc!.create(null, children), read.map);
+        expect(result.ok).toBe(false);
+        if (!result.ok) expect(result.fallback()).toBe("\\<div>甲\n\n**粗体**\n\n```js\nconsole.log(1)\n```\n\n\\<div>乙\n");
     });
 });

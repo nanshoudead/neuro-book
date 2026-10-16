@@ -94,6 +94,10 @@ describe("读入的明确期望", () => {
         const table = shape("| a \\| b | c |\n|---|---|\n| 1 | 2 |")[0];
         expect(table?.content?.[0]?.content?.[0]?.content?.[0]?.content).toEqual([{type: "text", text: "a | b"}]);
         expect(shape("[1]: https://a.b")).toEqual([{type: "rawBlock", attrs: {raw: "[1]: https://a.b"}}]);
+        // 某一行的单元格比表头多（GFM 会丢掉多出的，含行内代码里没转义的 `|` 切出来的）：整张表是原样块，多出的字不丢。
+        expect(shape("| 名 |\n|---|\n| 甲 | 多出的一格 |")).toEqual([{type: "rawBlock", attrs: {raw: "| 名 |\n|---|\n| 甲 | 多出的一格 |"}}]);
+        expect(shape("| 名 |\n|---|\n| `a|b` |")[0]?.type).toBe("rawBlock");
+        expect(shape("| a | b |\n|---|---|\n| 1 |")[0]?.type).toBe("table");
         expect(paragraph("文[^1]、$x^2$、$5 与 $6<!-- 注 -->").filter((node) => node.type === "rawInline").map((node) => node.attrs?.raw)).toEqual(["[^1]", "$x^2$", "<!-- 注 -->"]);
     });
 

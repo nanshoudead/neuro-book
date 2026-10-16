@@ -8,6 +8,8 @@
 
 import {mergeAttributes, Node} from "@tiptap/core";
 import type {Node as PMNode} from "@tiptap/pm/model";
+import {Plugin, PluginKey} from "@tiptap/pm/state";
+import {Decoration, DecorationSet} from "@tiptap/pm/view";
 import type {NodeView} from "@tiptap/pm/view";
 import type {Tokens} from "marked";
 
@@ -57,7 +59,13 @@ export const Callout = Node.create({
         };
     },
     addNodeView() {
-        return ({node}) => calloutView(node);
+        return ({node, decorations, getPos, editor}) => calloutView(node, decorations, () => {
+            const pos = typeof getPos === "function" ? getPos() : undefined;
+            if (typeof pos === "number") editor.view.dispatch(editor.state.tr.setMeta(FOLDED, {toggle: pos}).setMeta("addToHistory", false));
+        });
+    },
+    addProseMirrorPlugins() {
+        return [foldPlugin];
     },
 });
 
@@ -71,12 +79,64 @@ const ICONS: Readonly<Record<string, string>> = {
 };
 
 /**
- * 编辑器里的提示块：标题行（图标、标题或类型名、有折叠标记时的展开按钮）不可编辑，内容区是可编辑的子块。折叠状态只在这个
- * 视图里，不写回文件：带 `-` 的一开始折叠，`+` 的一开始展开，没有折叠标记的不能折叠。
+ * 折叠的提示块（方言 Spec 输出 23）：按编辑状态记，不写回文件。每份文档建编辑状态时带 `-` 的折叠；点标题切换（只有带折叠
+ * 标记的能折叠）。光标进到折叠的内容里、或这次改动碰到了折叠的提示块（例如在下一段段首退格并了进去），它就展开：看不见的
+ * 内容不能被悄悄改掉。
  */
-function calloutView(initial: PMNode): NodeView {
+const FOLDED = new PluginKey<DecorationSet>("nb-callout-fold");
+
+const folded = (doc: PMNode, pos: number): Decoration | null => {
+    const node = doc.nodeAt(pos);
+    return node?.type.name === "callout" && node.attrs.fold !== null ? Decoration.node(pos, pos + node.nodeSize, {}, {folded: true}) : null;
+};
+
+const foldPlugin = new Plugin<DecorationSet>({
+    key: FOLDED,
+    state: {
+        init: (_config, state) => {
+            const decorations: Decoration[] = [];
+            state.doc.descendants((node, pos) => {
+                if (node.type.name === "callout" && node.attrs.fold === "-") decorations.push(Decoration.node(pos, pos + node.nodeSize, {}, {folded: true}));
+                return true;
+            });
+            return DecorationSet.create(state.doc, decorations);
+        },
+        apply: (tr, set, oldState, newState) => {
+            let next = set.map(tr.mapping, tr.doc);
+            const toggle = (tr.getMeta(FOLDED) as {toggle?: number} | undefined)?.toggle;
+            if (toggle !== undefined) {
+                const existing = next.find(toggle, toggle + 1, (spec) => spec.folded === true).filter((decoration) => decoration.from === toggle);
+                if (existing.length > 0) next = next.remove(existing);
+                else {
+                    const decoration = folded(newState.doc, toggle);
+                    if (decoration !== null) next = next.add(newState.doc, [decoration]);
+                }
+                return next;
+            }
+            // 碰到了的（节点换了，或不再是可折叠的提示块）、光标进去了的展开。
+            const {from, to} = newState.selection;
+            const opened = next.find().filter((decoration) => {
+                const node = newState.doc.nodeAt(decoration.from);
+                if (node?.type.name !== "callout" || node.attrs.fold === null || decoration.to !== decoration.from + node.nodeSize) return true;
+                const before = oldState.doc.nodeAt(tr.mapping.invert().map(decoration.from));
+                if (tr.docChanged && before !== node) return true;
+                return (from > decoration.from && from < decoration.to) || (to > decoration.from && to < decoration.to);
+            });
+            return opened.length > 0 ? next.remove(opened) : next;
+        },
+    },
+    props: {
+        decorations: (state) => FOLDED.getState(state),
+    },
+});
+
+/**
+ * 编辑器里的提示块：标题行（图标、标题或类型名、有折叠标记时的展开按钮）不可编辑，内容区是可编辑的子块。折叠与否来自
+ * `foldPlugin` 给这个节点的装饰；点标题行请插件切换。
+ */
+function calloutView(initial: PMNode, initialDecorations: ReadonlyArray<Decoration>, toggleFold: () => void): NodeView {
     let node = initial;
-    let folded = node.attrs.fold === "-";
+    let decorations = initialDecorations;
     const dom = document.createElement("div");
     const head = document.createElement("div");
     head.className = "nb-callout__title";
@@ -94,8 +154,7 @@ function calloutView(initial: PMNode): NodeView {
     head.addEventListener("click", (event) => {
         if (node.attrs.fold === null) return;
         event.preventDefault();
-        folded = !folded;
-        render();
+        toggleFold();
     });
     const content = document.createElement("div");
     content.className = "nb-callout__content";
@@ -105,23 +164,25 @@ function calloutView(initial: PMNode): NodeView {
         const type = String(node.attrs.type ?? "NOTE");
         const kind = ICONS[type.toLowerCase()] === undefined ? "note" : type.toLowerCase();
         const foldable = node.attrs.fold !== null;
+        const isFolded = foldable && decorations.some((decoration) => (decoration.spec as {folded?: boolean}).folded === true);
         dom.className = `nb-callout nb-callout--${kind}`;
         dom.dataset.callout = type;
-        dom.dataset.calloutFolded = String(foldable && folded);
+        dom.dataset.calloutFolded = String(isFolded);
         icon.className = `nb-callout__icon ${ICONS[kind] as string}`;
         label.textContent = node.attrs.title === null || node.attrs.title === "" ? type : String(node.attrs.title);
         toggle.hidden = !foldable;
-        toggle.setAttribute("aria-expanded", String(!(foldable && folded)));
+        toggle.setAttribute("aria-expanded", String(!isFolded));
         toggle.setAttribute("aria-label", label.textContent);
-        content.hidden = foldable && folded;
+        content.hidden = isFolded;
     };
     render();
     return {
         dom,
         contentDOM: content,
-        update: (next) => {
+        update: (next, nextDecorations) => {
             if (next.type !== node.type) return false;
             node = next;
+            decorations = nextDecorations;
             render();
             return true;
         },

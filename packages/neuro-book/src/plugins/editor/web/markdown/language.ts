@@ -47,6 +47,8 @@ export interface MarkdownLanguage {
     readonly textOnlyMarks: ReadonlySet<string>;
     /** 挨着时读回合成一个的行内节点类型 → 存原文的属性（`MarkdownSyntax.joinedInline`）。 */
     readonly joinedInline: ReadonlyMap<string, string>;
+    /** 只在内存里用的身份属性：标记类型 → 属性名（`MarkdownSyntax.identityAttrs`）。 */
+    readonly identityAttrs: ReadonlyMap<string, string>;
     /** 块级方言标签名与宽容写法的规则（行尾的开标签认不认，由各模块的分词规则判断）。 */
     readonly blockTags: ReadonlyArray<string>;
     /** 行内方言标签名（各模块的 `inlineTags`）。 */
@@ -117,6 +119,7 @@ export function createMarkdownLanguage(syntaxes: ReadonlyArray<MarkdownSyntax>):
         marklessInline: new Set(all.flatMap((syntax) => syntax.marklessInline ?? [])),
         textOnlyMarks: new Set(all.flatMap((syntax) => Object.entries(syntax.writeMark ?? {}).filter(([, writer]) => writer.textOnly === true).map(([type]) => type))),
         joinedInline: new Map(all.flatMap((syntax) => Object.entries(syntax.joinedInline ?? {}))),
+        identityAttrs: new Map(all.flatMap((syntax) => Object.entries(syntax.identityAttrs ?? {}))),
         derivedAttrs,
         contextAttrs,
         uncomparedAttrs,

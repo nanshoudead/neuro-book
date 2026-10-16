@@ -79,10 +79,11 @@ describe("规范化", () => {
     });
 
     it("宽容扫描是线性的：八千行异常输入在 100 毫秒内", () => {
-        const body = `${"正文<comment>\n".repeat(8000)}</comment>\n`;
-        const started = performance.now();
-        normalize(body, RULES);
-        expect(performance.now() - started).toBeLessThan(100);
+        for (const body of [`${"正文<comment>\n".repeat(8000)}</comment>\n`, `${"正`文<comment>\n".repeat(8000)}</comment>\n`]) {
+            const started = performance.now();
+            normalize(body, RULES);
+            expect(performance.now() - started).toBeLessThan(100);
+        }
     });
 });
 

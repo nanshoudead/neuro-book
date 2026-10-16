@@ -11,11 +11,19 @@ import {describe, expect, it} from "bun:test";
 
 import {markdownLanguage} from "../syntax";
 import {codecFor} from "./codec";
+import type {MarkdownCodec} from "./codec";
 import {equivalent} from "./compare";
 
 const language = markdownLanguage();
 const schema = getSchema([...language.extensions]);
-const codec = codecFor(schema, language);
+/**
+ * 测试用换成内容相同的新节点对象来模拟“这块改过了”。产品的编解码器会按内容借用来源（`SourceMap.twins`，给真实撤销用），把这样
+ * 的节点认回原文；这里写出时去掉按内容的表，只按对象判断，好测重新写出的写法。
+ */
+const codec: MarkdownCodec = (() => {
+    const base = codecFor(schema, language);
+    return {...base, write: (doc, map) => base.write(doc, {...map, twins: new Map()})};
+})();
 const emphasis = new Set([...language.markWriters].filter(([, writer]) => writer.emphasis === true).map(([type]) => type));
 const compareOptions = {styles: "canonical" as const, emphasis, ignored: language.uncomparedAttrs, markless: language.marklessInline, textOnly: language.textOnlyMarks, joined: language.joinedInline};
 
@@ -339,6 +347,12 @@ describe("宽容写法（输出 17）", () => {
         expect(shape("> ```\n> 正文<comment body=\"x\">\n> </comment>\n> ```\n")).toEqual([{type: "blockquote", content: [{type: "codeBlock", attrs: {markdown: {fence: "```"}, language: null}, content: [{type: "text", text: "正文<comment body=\"x\">\n</comment>"}]}]}]);
         expect(shape("- ```\n  正文<comment>\n  ```\n</comment>\n")[0]?.type).toBe("bulletList");
         expect(paragraph("正文`<comment body=\"x\">\n代码`\n\n</comment>\n").map((node) => node.type)).toEqual(["text", "text"]);
+        // 代码从前一行开始、开标签在中间一行：仍在代码里，不拆，改过这一段也不把它挪成真的批注。
+        const spanning = "正文`开始\n代码<comment body=\"意见\">\n结束`\n\n</comment>\n";
+        expect(shape(spanning).map((block) => block.type)).toEqual(["paragraph", "rawBlock"]);
+        expect(rewritten(spanning)).not.toContain("代码\n\n<comment");
+        // 前一行的反引号配不上（没有闭合）：它是文字，开标签照常拆。
+        expect(shape("正文`开始\n代码<comment body=\"意见\">\n块\n</comment>\n").map((block) => block.type)).toEqual(["paragraph", "commentBlock"]);
     });
 
     it("块分词规则不认的开标签不拆（align 的 value 不合规定）；没闭合的 <html> 不关掉后面的宽容写法", () => {
