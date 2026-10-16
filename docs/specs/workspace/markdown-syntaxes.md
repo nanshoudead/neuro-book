@@ -1,7 +1,7 @@
 ---
 schema: nbook.spec/v1
 kind: behavior
-status: planned
+status: implemented
 capability: workspace.markdown-syntaxes
 owners:
   - nbook.markdown
@@ -121,6 +121,20 @@ interface MarkdownService {
 
 Smoke：场景 1 由 `web/components/late-dialect.dom.test.ts` 运行（真实内核的浏览器实例、真实编辑器区与文档模型，happy-dom）；场景 2、3 由 `web/syntaxes.test.ts`（真实插件宿主）运行；场景 4 由 `web/syntaxes.test.ts` 的加载失败一例与 `shared/word-count.test.ts` 的按声明计数一例共同覆盖。运行中晚到的方言只有测试插件会产生，不另做浏览器 e2e。
 
+## 实现合同
+
+- 公开入口：`nbook/plugins/markdown/shared/contracts` 的两个贡献点 id、声明的校验、`dialectTable`、`countWords` 与服务键 `markdownKey`；浏览器一侧 `web/contracts.ts` 的 `MarkdownSyntax` 类型。
+- owner 与依赖方向：`nbook.markdown` 拥有两个贡献点、方言目录与语言。编辑器区经 `markdownKey` 拿 Markdown 控件，书架统计只用 `shared/` 的纯函数与声明表，都不依赖语言与编解码器。插件定义与贡献的接收不碰 DOM 与编辑内核（服务端的类型检查不带 DOM）；语言只在组件一侧组成。
+- 不变量：
+  - 撞名按组合扩展展开后的名字、原样语法的写法与语法模块名比较；按名字判不出、组成语言仍出错时外来方言都不生效，语言照常用内置方言组成（`syntaxes.test.ts` 的输出 4 两例）；
+  - 生效的方言集合没变时不换数组，组成的语言还是同一份（`syntaxes.test.ts` 输出 6、7 的第二例）；
+  - Markdown 控件在建实例时取定语言，之后的写出都用它（`late-dialect.dom.test.ts`）；
+  - 内置方言逐个缺席都能组成语言：核心语法只按标记组排斥，不按名字依赖方言（`syntaxes.test.ts` 的验收 3）；
+  - 首屏的入口脚本与预加载的 chunk 里没有 ProseMirror 与 `marked`（`check:dist`）。
+
 ## 证据
 
 - 批准依据：开发者 2026-10-16 的决定，记录在主工作区 master 的 `.agents/works/w00025-editor/tasks/t07-markdown-plugins/README.md`（“开发者的决定”1、5、7、8）与同目录的 `plan.md`。
+- 实现入口：[`plugin.ts`](../../../packages/neuro-book/src/plugins/markdown/plugin.ts)（插件描述与内置方言的声明）、[`shared/contracts.ts`](../../../packages/neuro-book/src/plugins/markdown/shared/contracts.ts)、[`shared/dialects.ts`](../../../packages/neuro-book/src/plugins/markdown/shared/dialects.ts) 与 [`shared/word-count.ts`](../../../packages/neuro-book/src/plugins/markdown/shared/word-count.ts)（声明表与字数）、[`web/plugin.ts`](../../../packages/neuro-book/src/plugins/markdown/web/plugin.ts)（浏览器入口与服务）、[`web/syntax-catalog.ts`](../../../packages/neuro-book/src/plugins/markdown/web/syntax-catalog.ts)（配对、核对与不生效）、[`web/language-registry.ts`](../../../packages/neuro-book/src/plugins/markdown/web/language-registry.ts)（组成语言与撞名）
+- 合同测试：[`web/syntaxes.test.ts`](../../../packages/neuro-book/src/plugins/markdown/web/syntaxes.test.ts)（真实插件宿主，输出 1、3–8 与验收 2、3）、[`web/components/late-dialect.dom.test.ts`](../../../packages/neuro-book/src/plugins/markdown/web/components/late-dialect.dom.test.ts)（验收 1）、[`shared/word-count.test.ts`](../../../packages/neuro-book/src/plugins/markdown/shared/word-count.test.ts)（输出 9 与验收 4）
+- Smoke：[`scripts/check-dist.ts`](../../../packages/neuro-book/scripts/check-dist.ts)（输出 2：生产构建的首屏检查）；运行中晚到的方言只有测试插件会产生，验收 1 由真实内核浏览器实例的组件测试运行，见“验收与 Smoke”

@@ -1,7 +1,7 @@
 ---
 schema: nbook.spec/v1
 kind: behavior
-status: planned
+status: implemented
 capability: ui.prompt-editor
 owners:
   - nbook.markdown
@@ -108,6 +108,19 @@ owners:
 
 Smoke：`packages/neuro-book/src/plugins/markdown/web/components/prompt/` 下的 `prompt-text.test.ts`、`prompt-editor-extensions.dom.test.ts`、`PromptEditor.dom.test.ts`、`PromptTextView.dom.test.ts` 运行场景 1–5 与各输出条目；Lab 场景 `PromptEditor` 另在本机 Chrome 上由 `packages/neuro-book/e2e/lab-markdown.e2e.ts` 运行真实按键与粘贴的一组。
 
+## 实现合同
+
+- 公开入口：服务 `markdownKey` 交出的 `components.PromptEditor` 与 `components.PromptTextView`，属性、事件与命令面见组件文档；宿主拼 `@` 菜单的插入文字用 `promptReferenceText`。
+- owner 与依赖方向：`nbook.markdown` 拥有。小块的外观用 `InlineChip`，引用的目标分类与 Markdown 编辑器、展示器共用（[workspace.markdown-dialect](../workspace/markdown-dialect.md) 输出 27）；链接的词法与编解码器写地址的函数共用一份。不用方言与语言，不依赖编辑器区。
+- 不变量：
+  - 读入的文字不编辑写回逐字符相同（`prompt-text.test.ts` 的读入与写回一组、`PromptEditor.dom.test.ts` 的场景 1）；
+  - 识别的先后：命令与粘贴块先找出并遮住，再找选区与链接，重叠时起点早的胜；跨行的、代码片段与围栏代码块里的写法都是文字（`prompt-text.test.ts` 的链接与代码一组）；
+  - 链接的词法与编解码器的 `marked` 读出相同的文字与目标（同一组的对照表）；
+  - 识别是线性的：没闭合的方括号、反引号与引号很多的 12 万字仍在限时内（同一组的线性一例）。
+
 ## 证据
 
 - 批准依据：开发者 2026-10-16 的决定，记录在主工作区 master 的 `.agents/works/w00025-editor/tasks/t07-markdown-plugins/README.md`（“开发者的决定”2、4、6）与同目录的 `plan.md`；行为来自 w00019 t07 经开发者 2026-09-30 逐条确认的 `PromptEditor` 需求（分支 `archive/legacy-ui-tuning`，提交 `865c9f593`）。
+- 实现入口：[`PromptEditor.vue`](../../../packages/neuro-book/src/plugins/markdown/web/components/prompt/PromptEditor.vue)、[`PromptTextView.vue`](../../../packages/neuro-book/src/plugins/markdown/web/components/prompt/PromptTextView.vue)、[`prompt-text.ts`](../../../packages/neuro-book/src/plugins/markdown/web/components/prompt/prompt-text.ts)（文字写法的读写）、[`prompt-selection.ts`](../../../packages/neuro-book/src/plugins/markdown/web/components/prompt/prompt-selection.ts)（选区写法）、[`prompt-editor-extensions.ts`](../../../packages/neuro-book/src/plugins/markdown/web/components/prompt/prompt-editor-extensions.ts)（节点、按键与菜单）、[`shared/link-syntax.ts`](../../../packages/neuro-book/src/plugins/markdown/shared/link-syntax.ts)（链接的词法）
+- 合同测试：[`prompt-text.test.ts`](../../../packages/neuro-book/src/plugins/markdown/web/components/prompt/prompt-text.test.ts)、[`prompt-editor-extensions.dom.test.ts`](../../../packages/neuro-book/src/plugins/markdown/web/components/prompt/prompt-editor-extensions.dom.test.ts)、[`PromptEditor.dom.test.ts`](../../../packages/neuro-book/src/plugins/markdown/web/components/prompt/PromptEditor.dom.test.ts)（场景 1–5）、[`PromptTextView.dom.test.ts`](../../../packages/neuro-book/src/plugins/markdown/web/components/prompt/PromptTextView.dom.test.ts)（输出 14）
+- Smoke：[`lab-markdown.e2e.ts`](../../../packages/neuro-book/e2e/lab-markdown.e2e.ts)（Lab 场景 `PromptEditor` 的真实按键与粘贴分档，本机 Chrome）

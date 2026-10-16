@@ -1,7 +1,7 @@
 ---
 schema: nbook.spec/v1
 kind: behavior
-status: planned
+status: implemented
 capability: ui.markdown-display
 owners:
   - nbook.markdown
@@ -101,6 +101,19 @@ interface MarkdownDisplayEmits {
 
 Smoke：`packages/neuro-book/src/plugins/markdown/web/components/MarkdownDisplay.dom.test.ts` 运行场景 1、3、4 与输出 5、6；场景 1、2 在本机 Chrome 上由 `packages/neuro-book/e2e/lab-markdown.e2e.ts` 运行（Lab 场景 `MarkdownDisplay` 的 `streaming`、`conversation`）。
 
+## 实现合同
+
+- 公开入口：服务 `markdownKey` 交出的 `components.MarkdownDisplay`；属性、事件与布局见组件文档 [`MarkdownDisplay.md`](../../../packages/neuro-book/src/plugins/markdown/web/components/MarkdownDisplay.md)。
+- owner 与依赖方向：`nbook.markdown` 拥有。展示器用与编辑器同一份语言、编解码器与外观（提示块、可渲染 HTML、引用小块的构建函数与 `.nb-markdown` 样式）；静态视图由插件持有，不经语法模块交出；诊断经插件交给组件的报告函数记录。不依赖编辑器区与 Tiptap 的编辑器实例。
+- 不变量：
+  - 流式更新按块比较，键是去掉批注身份属性后的节点内容；头尾相同的块保留原来的元素与折叠状态（`MarkdownDisplay.dom.test.ts` 的场景 1）；
+  - 一次更新先生成全部新块再换下旧块；某一块画不出来时只这一块按文字显示，之后的更新照常（“失败与恢复”两例）；
+  - 被换下的块与卸载时释放图片地址与 `<html>` 块的沙箱（场景 4）；
+  - 每条消息 `content-visibility: auto`，看不见的消息不参与排版（`lab-markdown.e2e.ts` 的场景 2；去掉时中位数约 10 毫秒、失败）。
+
 ## 证据
 
 - 批准依据：开发者 2026-10-16 的决定，记录在主工作区 master 的 `.agents/works/w00025-editor/tasks/t07-markdown-plugins/README.md`（“开发者的决定”1、3、4）与同目录的 `plan.md`、`evidences/display-perf.md`。
+- 实现入口：[`MarkdownDisplay.vue`](../../../packages/neuro-book/src/plugins/markdown/web/components/MarkdownDisplay.vue)、[`display/renderer.ts`](../../../packages/neuro-book/src/plugins/markdown/web/display/renderer.ts)（按块生成与更新）、[`display/static-views.ts`](../../../packages/neuro-book/src/plugins/markdown/web/display/static-views.ts)（提示块、可渲染 HTML 与图片的静态视图）
+- 合同测试：[`MarkdownDisplay.dom.test.ts`](../../../packages/neuro-book/src/plugins/markdown/web/components/MarkdownDisplay.dom.test.ts)（场景 1、3、4，输出 2、3、5–8 与“失败与恢复”）
+- Smoke：[`lab-markdown.e2e.ts`](../../../packages/neuro-book/e2e/lab-markdown.e2e.ts)（场景 1、2，本机 Chrome）
