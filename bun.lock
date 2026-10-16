@@ -272,7 +272,10 @@
         "nbstory": "./src/cli.ts",
       },
       "dependencies": {
+        "@notnotype/nb-harness": "workspace:*",
+        "@notnotype/nb-profile": "workspace:*",
         "@notnotype/nb-runtime": "workspace:*",
+        "@notnotype/nb-session": "workspace:*",
         "@notnotype/nb-ui": "workspace:*",
         "@sigma/node-border": "3.0.0",
         "@sigma/utils": "3.0.0",

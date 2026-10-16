@@ -4,10 +4,12 @@
  * 一次 `turn()` 里几件事的先后（读懂这个文件要先知道它）：
  * 1. 占用会话（重叠的调用在任何副作用之前报 `session_busy`），解析密钥，把本轮用户消息写进日志，再交给
  *    `agent.prompt`；它的 `message_end` 按对象身份跳过，所以恰写一次。
- * 2. OMP 每次请求模型前先跑 `addBeforeModelCallHook` 的钩子：这里等写队列（只等已经排进去的写入，不等之后
- *    才发生的事件，否则环等），用已落盘的原样消息渲染 Profile，`setSystemPrompt` 并暂存渲染出的消息；随后
- *    OMP 同步系统提示词、调 `transformContext`，后者交回暂存的消息。送模型的内容以渲染为准，Agent 内部的
- *    调度历史不动。
+ * 2. 每次请求模型前，OMP 先调 `transformContext(循环自己的上下文)`，再把转换好的 provider 上下文交给
+ *    `transformProviderContext`。送模型的内容只在 `transformContext` 里渲染一次：先等循环上下文里的每条工具
+ *    结果都写进日志（OMP 的循环把事件推进流里就往下走，订阅者异步收到，上一批最后几条结果的 `message_end`
+ *    可能还没投递），再用已落盘的原样消息渲染 Profile，交回消息、暂存系统提示词；`transformProviderContext`
+ *    换上同一次渲染的系统提示词。系统提示词与消息因此出自同一份历史（输出 7、8），Agent 内部的调度历史不动。
+ *    一条消息写不进日志（写失败、不能序列化）时会话坏掉：它永远进不了历史，之后的运行都以 local 失败，不等它。
  * 3. 模型消息与工具结果在 `message_end` 时按到达顺序排进写队列（原样消息，助手消息后跟一条用量）。
  * 4. 收尾工具：`beforeToolCall` 拦下混在一批里的；`afterToolCall` 只记“候选”并用 OMP 的 terminal reason
  *    停止循环。OMP 的顺序是 execute → afterToolCall → tool_execution_end → 工具结果的 message_end，所以
@@ -21,6 +23,7 @@ import type {JsonValue, SessionEntry, SessionEntryInput, SessionLog} from "@notn
 import {renderContext} from "./context.js";
 import {HarnessError} from "./errors.js";
 import {MissingModelKeyError, type ResolvedModel} from "./model.js";
+import {redactErrorMessage} from "./redact.js";
 import {classifyProviderError, usageEntry, UsageMeter, type RunError, type StopReason, type TurnResult} from "./run-result.js";
 import {bridgeTools} from "./tools/bridge.js";
 import {declarationJson, resolveEffectiveTools, restoreEffectiveTools, type ToolPolicy} from "./tools/effective.js";
@@ -120,6 +123,21 @@ export async function createHarness(options: HarnessOptions): Promise<Harness> {
     // 写队列：条目按事件到达的顺序串行写入；`history` 只收已写进日志的原样消息，渲染就用它。
     let writes: Promise<void> = Promise.resolve();
     let writeError: unknown = null;
+    // 已写进日志的工具结果；transformContext 据此判断循环上下文里的结果是否都已落盘。
+    const writtenResults = new Set<string>();
+    const recordWritten = (messages: readonly AgentMessage[]): void => {
+        for (const message of messages) if (message.role === "toolResult") writtenResults.add((message as {toolCallId: string}).toolCallId);
+    };
+    recordWritten(history);
+    // 会话坏掉的原因：有消息写不进日志，历史从此缺一块，不能再渲染出完整的上下文（见文件头第 2 条）。
+    let broken: RunError | null = null;
+    // 每写进一批消息、会话坏掉或运行被取消时唤醒一次 transformContext 里的等待。
+    let historyChanged = Promise.withResolvers<void>();
+    const notifyHistory = (): void => {
+        const changed = historyChanged;
+        historyChanged = Promise.withResolvers<void>();
+        changed.resolve();
+    };
     const enqueue = (owner: Run | null, inputs: readonly SessionEntryInput[], onWritten?: () => void, messages: readonly AgentMessage[] = []): Promise<void> => {
         const write = writes.then(async () => {
             if (writeError !== null) throw writeError;
@@ -128,10 +146,14 @@ export async function createHarness(options: HarnessOptions): Promise<Harness> {
                 stamped = await sessionLog.append(inputs);
             } catch (error) {
                 writeError = error;
+                broken ??= localError(`写会话日志失败：${String(error)}`);
+                notifyHistory();
                 throw error;
             }
             owner?.entries.push(...stamped);
             history.push(...messages);
+            recordWritten(messages);
+            if (messages.length > 0) notifyHistory();
             onWritten?.();
         });
         writes = write.catch(() => undefined);
@@ -145,18 +167,23 @@ export async function createHarness(options: HarnessOptions): Promise<Harness> {
     let run: Run | null = null;
     let state: "idle" | "running" | "closing" | "closed" = "idle";
     let closing: Promise<void> | null = null;
-    let renderedMessages: AgentMessage[] | null = null;
+    // 这一次请求渲染出的系统提示词，transformContext 写、transformProviderContext 读。
+    let renderedSystemPrompt: string[] | null = null;
     const persisted = new WeakSet<object>();
     const listeners = new Set<(event: AgentEvent) => void>();
 
     const baseStream = options.streamFn ?? (streamSimple as StreamFn);
+    // 这个会话交给 provider 的密钥，用来遮盖错误正文里的回显。
+    const usedKeys = new Set<string>();
     const agent = new Agent({
         initialState: {model: model.model, systemPrompt: [], tools: bridged.agentTools, messages: [...history]},
         sessionId,
         // 每次请求前 OMP 都会取密钥：缺失时在这里记下 auth，否则经 Agent 外层捕获后只剩文字（输出 18）。
         getApiKey: () => {
             try {
-                return model.apiKey();
+                const key = model.apiKey();
+                usedKeys.add(key);
+                return key;
             } catch (error) {
                 if (error instanceof MissingModelKeyError && run !== null && run.hostError === null) run.hostError = authError(error);
                 throw error;
@@ -171,7 +198,29 @@ export async function createHarness(options: HarnessOptions): Promise<Harness> {
             }) as typeof fetch;
             return baseStream(streamModel, context, {...streamOptions, fetch: counted});
         },
-        transformContext: async (messages) => renderedMessages ?? messages,
+        transformContext: async (messages) => {
+            const pending = messages.flatMap((message) => (message.role === "toolResult" ? [(message as {toolCallId: string}).toolCallId] : []));
+            for (;;) {
+                const fail = broken ?? run?.hostError ?? null;
+                if (fail !== null) {
+                    if (run !== null) run.hostError ??= fail;
+                    throw new Error(fail.message);
+                }
+                // 取消之后这次请求本来就会被中止，不必等齐。
+                if (run?.cancelled || pending.every((id) => writtenResults.has(id))) break;
+                await historyChanged.promise;
+            }
+            try {
+                const rendered = renderContext(profile, {initial, tools: toolIds, history, model: model.model});
+                agent.setSystemPrompt(rendered.systemPrompt);
+                renderedSystemPrompt = rendered.systemPrompt;
+                return rendered.messages;
+            } catch (error) {
+                if (run !== null) run.hostError = localError(`渲染 Profile 失败：${String(error)}`);
+                throw error;
+            }
+        },
+        transformProviderContext: (context) => (renderedSystemPrompt === null ? context : {...context, systemPrompt: renderedSystemPrompt}),
         beforeToolCall: ({assistantMessage, toolCall}) => {
             if (!finishNames.has(toolCall.name)) return undefined;
             const calls = assistantMessage.content.filter((block) => block.type === "toolCall").length;
@@ -187,26 +236,15 @@ export async function createHarness(options: HarnessOptions): Promise<Harness> {
     });
     if (options.thinkingLevel !== undefined) agent.setThinkingLevel(options.thinkingLevel);
 
-    agent.addBeforeModelCallHook(async () => {
+    agent.addBeforeModelCallHook(() => {
         // 取消可能发生在 prompt 刚开始、Agent 还没有可中止的请求时：在进模型之前补一次中止。
         if (run?.cancelled) agent.abort();
-        try {
-            await drain();
-        } catch (error) {
-            if (run !== null) run.hostError = localError(`写会话日志失败：${String(error)}`);
-            throw error;
-        }
-        try {
-            const rendered = renderContext(profile, {initial, tools: toolIds, history, model: model.model});
-            agent.setSystemPrompt(rendered.systemPrompt);
-            renderedMessages = rendered.messages;
-        } catch (error) {
-            if (run !== null) run.hostError = localError(`渲染 Profile 失败：${String(error)}`);
-            throw error;
-        }
     });
 
     const unsubscribeAgent = agent.subscribe((event) => {
+        // provider 的错误正文可能回显收到的密钥：在交给订阅者、写日志、归类错误之前就地遮盖。改的是 Agent 状态里的
+        // 同一个对象，之后 classifyProviderError 读到的也是遮盖后的文字（输出 18）。
+        if (event.type === "message_end" && event.message.role === "assistant") redactErrorMessage(event.message as AssistantMessage, usedKeys);
         for (const listener of [...listeners]) listener(event);
         if (event.type !== "message_end") return;
         const message = event.message;
@@ -219,7 +257,9 @@ export async function createHarness(options: HarnessOptions): Promise<Harness> {
         } catch (error) {
             // 不能原样写进日志的消息（例如工具 details 里有循环引用）：这次运行以 local 失败、不再请求模型，
             // 不让日志里留下没有结果的工具调用却报成功。
-            if (current !== null && current.hostError === null) current.hostError = localError(`消息不能写进会话日志：${String(error)}`);
+            broken ??= localError(`消息不能写进会话日志：${String(error)}`);
+            if (current !== null && current.hostError === null) current.hostError = broken;
+            notifyHistory();
             agent.abort();
             return;
         }
@@ -268,6 +308,8 @@ export async function createHarness(options: HarnessOptions): Promise<Harness> {
             return {stopReason: reason, text, finish: reason === "finished" ? current.finished : null, error: finalError, usage: current.meter.snapshot(), entries: [...current.entries]};
         };
 
+        // 会话已经坏掉（之前有消息写不进日志）：不再请求模型，每次运行都以同一个 local 错误结束。
+        if (broken !== null) return finishRun("error", broken, "");
         try {
             model.apiKey();
         } catch (error) {
@@ -323,13 +365,14 @@ export async function createHarness(options: HarnessOptions): Promise<Harness> {
             const signal = turnOptions?.signal;
             const cancel = (): void => {
                 current.cancelled = true;
+                notifyHistory();
                 agent.abort();
             };
             if (signal?.aborted) current.cancelled = true;
             else signal?.addEventListener("abort", cancel, {once: true});
             current.task = execute(current, input).finally(() => {
                 signal?.removeEventListener("abort", cancel);
-                renderedMessages = null;
+                renderedSystemPrompt = null;
                 run = null;
                 if (state === "running") state = "idle";
             });
@@ -349,6 +392,7 @@ export async function createHarness(options: HarnessOptions): Promise<Harness> {
                 const current = run;
                 if (current !== null) {
                     current.cancelled = true;
+                    notifyHistory();
                     agent.abort();
                     await current.task?.catch(() => undefined);
                 }

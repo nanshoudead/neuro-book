@@ -1,7 +1,10 @@
 /**
  * `nbstory` 命令行（docs/specs/story/cli-skill.md）。查询命令直接调核心库，不经 HTTP；只有 `serve` 才加载服务端代码。
  *
- * 退出码：0 成功；1 查询失败；2 用法错误；3 `serve` 启动失败。`--json` 时标准输出只有一个 JSON。
+ * 退出码：0 成功；1 查询失败；2 用法错误；3 `serve` 启动失败；`ask` 另有 4（问答失败）与 130（取消），见
+ * docs/specs/story/qa.md 输出 14。`--json` 时标准输出只有一个 JSON。
+ *
+ * `serve` 与 `ask` 用到的代码（服务端、OMP）只在这两条命令里动态导入，其余命令不加载它们。
  */
 
 import type {StoryMethod} from "../contract/contract";
@@ -24,7 +27,7 @@ const processIo: CliIo = {
 };
 
 /** 失败时给人读的下一步。 */
-const NEXT_STEP: Partial<Record<StoryErrorCode, string>> = {
+export const NEXT_STEP: Partial<Record<StoryErrorCode, string>> = {
     book_not_found: "用 nbstory books 查看书库里的书",
     book_ambiguous: "用 --book 指定书",
     book_exists: "换书名或用 --id 指定新 id",
@@ -144,10 +147,19 @@ export async function main(argv: readonly string[], io: CliIo = processIo): Prom
     }
 
     const library = parsed.options.get("library");
-    if (spec.method === null) {
+    if (spec.name === "serve") {
         const {serveCommand} = await import("../server/serve");
         return serveCommand({library, port: params.port as number | undefined, open: parsed.options.has("open"), json: parsed.options.has("json")}, io);
     }
+    if (spec.name === "ask") {
+        const {askCommand} = await import("./ask");
+        return askCommand({library, params, json: parsed.options.has("json")}, io);
+    }
+    if (spec.name === "qa") {
+        const {qaCommand} = await import("./qa");
+        return qaCommand({library, params, json: parsed.options.has("json")}, io);
+    }
+    if (spec.method === null) throw new Error(`命令 ${spec.name} 没有对应的方法，也没有单独分派`);
 
     const json = parsed.options.has("json");
     const api = createStoryApi(library === undefined ? {} : {library});

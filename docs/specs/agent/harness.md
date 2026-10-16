@@ -144,6 +144,10 @@ complete({profile, initial, input, model, signal?}): Promise<CompleteResult>
 
 18. **只用指定的密钥。** 模型用 `apiKeyEnv` 指定的环境变量作密钥；它缺失或为空时，在发出任何请求之前以 `error.kind: "auth"` 结束运行，不改用别的凭据（同一 provider 的默认密钥、其他环境变量）。请求发往模型配置里的 `baseUrl`。密钥不写进会话日志、快照与结果；provider 的错误正文回显了这次请求所用的密钥时，写进日志与结果之前替换成固定的遮盖文字，错误归类与状态码不变。
 
+### 进程中断
+
+19. **（planned）中断时的收尾。** 导入 nb-harness 的进程收到 SIGINT 时，经 `onProcessInterrupt(callback)` 登记的回调都会被调用，进程等它们返回的 Promise 完成（最多约 10 秒）后以 130 退出；宿主自己注册的 SIGINT 处理拦不住这次退出。正常退出时不调用回调；返回的函数解除登记。
+
 ## 状态与转换
 
 | 状态 | 进入 | 可调用 |

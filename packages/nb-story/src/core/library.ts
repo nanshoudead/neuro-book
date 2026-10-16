@@ -7,6 +7,7 @@
  *   <书库>/<书 id>/book.json      BookMeta
  *   <书库>/<书 id>/graph.json     导入的数据文件原样
  *   <书库>/<书 id>/reading.json   ReadingState
+ *   <书库>/<书 id>/qa/            问答记录（qa-records.ts）
  *
  * 并发与原子性都靠同一个文件系统内的 rename，前提是书目录从不原地改写：
  * - 导入先写进 `.importing-<随机>/`，写完整个目录改名成 `<书 id>/`。目标已存在时改名失败，于是同一个 id 的并发
@@ -87,6 +88,24 @@ export class Library {
 
     constructor(root: string = defaultLibraryRoot()) {
         this.root = root;
+    }
+
+    /** 书目录的路径（不检查存在）。 */
+    bookDir(id: string): string {
+        return join(this.root, id);
+    }
+
+    /**
+     * 给书目录里的附加数据（问答记录）用的写门禁：书库与这本书的格式都认识、书还在且仍是 `generation` 这一代时返回
+     * 书目录；否则报 `unsupported_format` 或 `book_not_found`。通过之后书仍可能被删除，调用方的写入要能承受书目录
+     * 随时被改名移走（按路径写会失败，不会重新造出书目录）。
+     */
+    async writableBook(id: string, generation: string): Promise<string> {
+        await this.assertWritable();
+        const meta = await this.readMeta(id);
+        assertBookFormat(meta);
+        if (meta.generation !== generation) throw new StoryError("book_not_found", `书 ${id} 已换了一代`);
+        return this.bookDir(id);
     }
 
     /** 可用的书，按书名排序。导入中的、已删除的不在里面。 */
@@ -214,8 +233,7 @@ export class Library {
     /** 删除一本书；之后同一 id 可以重新导入（得到新的一代）。 */
     async removeBook(id: string): Promise<void> {
         await this.assertWritable();
-        const meta = await this.readMeta(id);
-        if (meta.format !== LIBRARY_FORMAT) throw new StoryError("unsupported_format", `书 ${id} 的格式版本 ${meta.format} 不认识，只能读`);
+        assertBookFormat(await this.readMeta(id));
         const trash = join(this.root, `.removed-${randomUUID()}`);
         try {
             await rename(join(this.root, id), trash);
@@ -245,8 +263,7 @@ export class Library {
      */
     async setReading(id: string, position: PositionInput, view: unknown): Promise<ReadingState> {
         await this.assertWritable();
-        const meta = await this.readMeta(id);
-        if (meta.format !== LIBRARY_FORMAT) throw new StoryError("unsupported_format", `书 ${id} 的格式版本 ${meta.format} 不认识，只能读`);
+        assertBookFormat(await this.readMeta(id));
         const viewBytes = Buffer.byteLength(JSON.stringify(view ?? null), "utf8");
         if (viewBytes > MAX_VIEW_BYTES) throw new StoryError("state_too_large", `界面状态 ${viewBytes} 字节，超过上限 ${MAX_VIEW_BYTES}`);
         const state: ReadingState = {position, view: view ?? null, savedAt: new Date().toISOString()};
@@ -288,6 +305,11 @@ export class Library {
         await mkdir(this.root, {recursive: true});
         await writeFile(path, `${JSON.stringify({format: LIBRARY_FORMAT})}\n`);
     }
+}
+
+/** 单本书的格式版本不认识时只读。 */
+function assertBookFormat(meta: BookMeta): void {
+    if (meta.format !== LIBRARY_FORMAT) throw new StoryError("unsupported_format", `书 ${meta.id} 的格式版本 ${meta.format} 不认识，只能读`);
 }
 
 /** pinBook 固定下来的一代。 */

@@ -1,5 +1,6 @@
 /**
- * 查询接口的失败：码、含义与 HTTP 状态码见 docs/specs/story/queries.md 的“失败与恢复”。
+ * 查询接口的失败：码、含义与 HTTP 状态码见 docs/specs/story/queries.md 的“失败与恢复”；`qa_record_not_found`、`qa_record_broken` 见
+ * docs/specs/story/qa.md 的 F5、F6。
  * 核心库只抛 StoryError；命令行与独立服务按 `code` 分支，不看 `message`。
  */
 
@@ -16,6 +17,8 @@ export const STORY_ERROR_CODES = [
     "cursor_invalid",
     "state_too_large",
     "unauthorized",
+    "qa_record_not_found",
+    "qa_record_broken",
 ] as const;
 
 export type StoryErrorCode = (typeof STORY_ERROR_CODES)[number];
@@ -33,6 +36,8 @@ export const HTTP_STATUS: Readonly<Record<StoryErrorCode, number>> = {
     cursor_invalid: 410,
     state_too_large: 413,
     unauthorized: 401,
+    qa_record_not_found: 404,
+    qa_record_broken: 422,
 };
 
 /** `entity_ambiguous` 时列出的候选。 */

@@ -7,12 +7,13 @@
  */
 
 import {afterAll, afterEach, beforeAll, describe, expect, test} from "bun:test";
-import {rm} from "node:fs/promises";
+import {readFile, rm} from "node:fs/promises";
+import {join} from "node:path";
 import {AIMessage, defineProfile, Message, ProfilePrompt, System, toolRef} from "@notnotype/nb-profile";
 import {createJsonlSessionLog} from "@notnotype/nb-session";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {Type} from "typebox";
-import {complete, createHarness, defineModel, HarnessError, type DefineModelOptions} from "../src";
+import {complete, createHarness, defineModel, HarnessError, REDACTED_KEY, type DefineModelOptions} from "../src";
 import {qaProfile, storyRegistry} from "./support";
 
 interface Seen {
@@ -26,7 +27,7 @@ const bodies: {role: string; content: unknown}[][] = [];
 /** 按顺序给出响应的本机端点；每个响应是状态码加正文（200 的正文按 SSE 发）。 */
 function endpoint() {
     const seen: Seen[] = [];
-    let replies: {status: number; text?: string}[] = [];
+    let replies: {status: number; text?: string; echoKey?: boolean}[] = [];
     const server = Bun.serve({
         port: 0,
         hostname: "127.0.0.1",
@@ -36,7 +37,9 @@ function endpoint() {
             bodies.push(body.messages ?? []);
             const reply = replies.shift() ?? {status: 200, text: "默认回答"};
             if (reply.status !== 200) {
-                return new Response(JSON.stringify({error: {message: "unavailable"}}), {status: reply.status, headers: {"content-type": "application/json", "retry-after": "0"}});
+                // 有的服务在错误正文里原样带上收到的认证头（输出 18 要遮盖它）。
+                const message = reply.echoKey ? `invalid api key: ${request.headers.get("authorization") ?? ""}` : "unavailable";
+                return new Response(JSON.stringify({error: {message}}), {status: reply.status, headers: {"content-type": "application/json", "retry-after": "0"}});
             }
             const chunk = (body: object) => `data: ${JSON.stringify({id: "c", object: "chat.completion.chunk", created: 0, model: "m", ...body})}\n\n`;
             const sse =
@@ -50,12 +53,20 @@ function endpoint() {
     return {
         seen,
         url: `http://127.0.0.1:${server.port}/v1`,
-        reply(...next: {status: number; text?: string}[]) {
+        reply(...next: {status: number; text?: string; echoKey?: boolean}[]) {
             replies = next;
         },
         stop: () => server.stop(true),
     };
 }
+
+/** 不带工具的 Profile；静态消息是会话用的，单次请求不应把它们发出去（输出 17）。 */
+const noToolsProfile = defineProfile({
+    manifest: {key: "summary", version: "1", name: "摘要", description: "测试"},
+    initialSchema: Type.Object({}),
+    tools: [],
+    context: () => ProfilePrompt({children: [System({children: ["只回答一个词。"]}), Message({children: ["静态的问题"]}), AIMessage({children: ["静态的回答"]})]}),
+});
 
 let root = "";
 let server: ReturnType<typeof endpoint>;
@@ -121,6 +132,26 @@ describe("模型与密钥（输出 18）", () => {
         expect(server.seen).toEqual([]);
     });
 
+    test.each(["secret-key-echoed-123", "sk-abcd"])("401 的错误正文回显了密钥（%s）：结果与会话日志里都遮盖掉，归类仍是 auth（验收 7）", async (key) => {
+        process.env.NB_PROVIDER_TEST_KEY = key;
+        server.reply({status: 401, echoKey: true});
+        const harness = await session();
+        const result = await harness.turn("问");
+        await harness.close();
+        const logged = await readFile(join(root, `p${counter}.jsonl`), "utf8");
+
+        expect(result.error).toMatchObject({kind: "auth", status: 401});
+        expect(result.error?.message).toContain(REDACTED_KEY);
+        expect(result.error?.message).not.toContain(key);
+        expect(logged).toContain(REDACTED_KEY);
+        expect(logged).not.toContain(key);
+
+        server.reply({status: 401, echoKey: true});
+        const single = await complete({profile: noToolsProfile, initial: {}, input: "x", model: model()});
+        expect(single.error).toMatchObject({kind: "auth", status: 401});
+        expect(single.error?.message).not.toContain(key);
+    });
+
     test("apiKey: none 的端点不带认证头", async () => {
         process.env.OPENAI_API_KEY = "someone-elses-key";
         server.reply({status: 200, text: "无认证"});
@@ -158,13 +189,7 @@ describe("用量（输出 11，验收 6）", () => {
 });
 
 describe("单次请求（输出 17）", () => {
-    const noTools = defineProfile({
-        manifest: {key: "summary", version: "1", name: "摘要", description: "测试"},
-        initialSchema: Type.Object({}),
-        tools: [],
-        // 静态消息是会话用的：单次请求不应把它们发出去（输出 17）。
-        context: () => ProfilePrompt({children: [System({children: ["只回答一个词。"]}), Message({children: ["静态的问题"]}), AIMessage({children: ["静态的回答"]})]}),
-    });
+    const noTools = noToolsProfile;
 
     test("不带工具的 Profile：请求一次，input 是唯一一条用户消息", async () => {
         process.env.NB_PROVIDER_TEST_KEY = "k";

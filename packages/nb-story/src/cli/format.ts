@@ -20,11 +20,15 @@ function at(refs: readonly string[]): string {
     return refs.length > 0 ? `〔${refs.join("，")}〕` : "";
 }
 
-function pageFooter(result: {total: number; items: unknown[]; next: string | null}): string[] {
-    return [`共 ${result.total} 条，本页 ${result.items.length} 条${result.next ? `；下一页：--cursor ${result.next}` : ""}`];
+/** 续页提示写给谁：命令行写 `--cursor` 选项；问答 Agent 的工具写 `cursor` 参数（docs/specs/story/qa.md 输出 3）。 */
+export type CursorStyle = "option" | "param";
+
+function pageFooter(result: {total: number; items: unknown[]; next: string | null}, style: CursorStyle): string[] {
+    const next = result.next === null ? "" : style === "option" ? `；下一页：--cursor ${result.next}` : `；下一页：cursor 参数传 "${result.next}"`;
+    return [`共 ${result.total} 条，本页 ${result.items.length} 条${next}`];
 }
 
-type Formatter<M extends StoryMethod> = (result: StoryResult<M>) => string[];
+type Formatter<M extends StoryMethod> = (result: StoryResult<M>, style: CursorStyle) => string[];
 
 const FORMATTERS: {[M in StoryMethod]?: Formatter<M>} = {
     "books.list": result => (result.books.length === 0 ? ["书库里还没有书"] : result.books.map(book => `${book.id}  ${book.title}  ${book.chapters} 章，抽取到 ${book.extractedThrough.chapter}.${book.extractedThrough.paragraph}`)),
@@ -54,9 +58,9 @@ const FORMATTERS: {[M in StoryMethod]?: Formatter<M>} = {
         ...(result.questions.raised.length ? ["新悬念：", ...result.questions.raised.map(item => `  ${item.text}〔${item.ref}〕`)] : []),
         ...(result.questions.progressed.length ? ["悬念进展：", ...result.questions.progressed.map(item => `  ${item.text}（${item.type === "answered" ? "已解" : "有进展"}）〔${item.ref}〕`)] : []),
     ],
-    "entities.list": result => [
+    "entities.list": (result, style) => [
         ...result.items.map(item => `${item.id}  ${item.label}（${item.kind}，出场 ${item.mentions}）称呼：${item.names.top.join("、")}${item.names.total > item.names.top.length ? ` 等 ${item.names.total} 个` : ""}${item.entities.length > 1 ? `；同一身份：${item.entities.join("、")}` : ""}`),
-        ...pageFooter(result),
+        ...pageFooter(result, style),
     ],
     "entity.card": result => [
         `${result.label}（${result.id}，${result.kind}）`,
@@ -67,9 +71,9 @@ const FORMATTERS: {[M in StoryMethod]?: Formatter<M>} = {
         ...result.secrets.map(item => `  ${item.title}：${STATE_WORDS[item.state]}${item.ref ? `〔${item.ref}〕` : ""}`),
         `条数：关系 ${result.counts.relations}，知情 ${result.counts.knowledge}，说法 ${result.counts.statements}，情节 ${result.counts.episodes}`,
     ],
-    "entity.knowledge": result => [...result.items.map(item => `${STATE_WORDS[item.state]}：${item.text}${item.how ? `（${item.how}）` : ""} [${tagText(item.tags)}${item.secret ? "、秘密" : ""}] ${at(item.refs)}`), ...pageFooter(result)],
-    "entity.statements": result => [...result.items.map(item => `${item.text} [${tagText(item.tags)}] ${at(item.refs)}`), ...pageFooter(result)],
-    "entity.episodes": result => [...result.items.map(item => `第 ${item.chapter} 章  ${item.title} ${at(item.refs)}`), ...pageFooter(result)],
+    "entity.knowledge": (result, style) => [...result.items.map(item => `${STATE_WORDS[item.state]}：${item.text}${item.how ? `（${item.how}）` : ""} [${tagText(item.tags)}${item.secret ? "、秘密" : ""}] ${at(item.refs)}`), ...pageFooter(result, style)],
+    "entity.statements": (result, style) => [...result.items.map(item => `${item.text} [${tagText(item.tags)}] ${at(item.refs)}`), ...pageFooter(result, style)],
+    "entity.episodes": (result, style) => [...result.items.map(item => `第 ${item.chapter} 章  ${item.title} ${at(item.refs)}`), ...pageFooter(result, style)],
     "entity.relations": result =>
         result.items.map(item => {
             const head = [item.other.label, item.word ? `（${item.word}）` : "", item.identity ? ` ${IDENTITY_WORDS[item.identity]}` : ""].join("");
@@ -116,38 +120,38 @@ const FORMATTERS: {[M in StoryMethod]?: Formatter<M>} = {
             return `  ${entry.op} ${change} → ${balance}${gap} ${entry.reason} ${at(entry.refs)}`;
         }),
     ],
-    "questions.list": result => [
+    "questions.list": (result, style) => [
         ...result.items.flatMap(item => [
             `${item.text}（${QUESTION_WORDS[item.state]}${item.trivial ? "，琐碎" : ""}）提出 ${at(item.raised.refs)}`,
             ...item.updates.filter(update => update.type !== "raised").map(update => `  ${update.type === "answered" ? "解答" : "进展"}：${update.answer ?? update.note ?? ""} ${at(update.refs)}`),
         ]),
-        ...pageFooter(result),
+        ...pageFooter(result, style),
     ],
     timeline: result =>
         result.points.flatMap(point => [
             `${point.day === null ? "日子不明" : `第 ${point.day} 天`}${point.part ? ` ${point.part}` : ""}${point.clock ? ` ${point.clock}` : ""}  ${point.label}${point.relative ? `（${point.relative}）` : ""}${point.flashback ? `  第 ${point.flashback} 章补叙` : ""} ${at(point.refs)}`,
             ...point.episodes.map(episode => `  情节 ${episode.id} ${episode.title}（${episode.who.map(who => who.label).join("、")}${episode.place ? `；${episode.place.label}` : ""}）`),
         ]),
-    "episodes.list": result => [
+    "episodes.list": (result, style) => [
         ...result.items.flatMap(item => [
             `第 ${item.chapter} 章  ${item.title}（${item.who.map(who => (who.as ? `${who.label}，以${who.as}` : who.label)).join("、")}）${item.arcs.length ? "" : "  未归入主线"} ${at(item.refs)}`,
             ...(item.time || item.place ? [`  ${[item.time ? `时间：${item.time.label}` : "", item.place ? `地点：${item.place.label}` : ""].filter(Boolean).join("；")}`] : []),
             `  ${item.summary}`,
             ...item.links.map(link => `  ${link.type} → ${link.to.title}${link.note ? `（${link.note}）` : ""}`),
         ]),
-        ...pageFooter(result),
+        ...pageFooter(result, style),
     ],
     "arcs.list": result => (result.through === null ? ["还没有主线"] : [`归纳到第 ${result.through} 章：`, ...result.arcs.map(arc => `${arc.title}（${arc.status === "closed" ? "已结束" : "进行中"}，${arc.episodes.length} 段情节）：${arc.summary}`)]),
     "source.read": result => result.paragraphs.map(paragraph => `${paragraph.chapter}.${paragraph.paragraph}  ${paragraph.text}${paragraph.recordCount ? `  〔${paragraph.recordCount} 条记录〕` : ""}`),
     "source.records": result => (result.records.length === 0 ? ["这一段没有可见的记录"] : result.records.map(record => `${record.type}  ${record.text}${record.tags ? ` [${tagText(record.tags)}]` : ""} ${at(record.refs)}`)),
-    search: result => [
+    search: (result, style) => [
         `对象 ${result.counts.entity}、说法 ${result.counts.statement}、原文 ${result.counts.source}`,
         ...result.items.map(item => `${item.kind === "entity" ? "对象" : item.kind === "statement" ? "说法" : "原文"}〔${item.ref}〕 ${item.text}`),
-        ...pageFooter(result),
+        ...pageFooter(result, style),
     ],
 };
 
-export function formatResult<M extends StoryMethod>(method: M, result: StoryResult<M>): string {
+export function formatResult<M extends StoryMethod>(method: M, result: StoryResult<M>, style: CursorStyle = "option"): string {
     const formatter = FORMATTERS[method] as Formatter<M> | undefined;
-    return formatter ? formatter(result).join("\n") : JSON.stringify(result, null, 2);
+    return formatter ? formatter(result, style).join("\n") : JSON.stringify(result, null, 2);
 }

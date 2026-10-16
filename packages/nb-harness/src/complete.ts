@@ -8,6 +8,7 @@ import {isProfileDefinition, ProfileError, type ProfileDefinition} from "@notnot
 import {renderContext} from "./context.js";
 import {HarnessError} from "./errors.js";
 import {MissingModelKeyError, type ResolvedModel} from "./model.js";
+import {redactErrorMessage, redactText} from "./redact.js";
 import {classifyProviderError, UsageMeter, type CompleteResult, type RunError} from "./run-result.js";
 
 export interface CompleteOptions {
@@ -65,8 +66,9 @@ export async function complete(options: CompleteOptions): Promise<CompleteResult
         // provider 在建流时抛错或流 reject：没有结构化的错误信息，归为 provider（取消归 aborted），不按文字猜。
         meter.markIncomplete();
         if (options.signal?.aborted) return {stopReason: "aborted", text: "", error: null, usage: meter.snapshot()};
-        return fail({kind: "provider", status: null, message: String(error)});
+        return fail({kind: "provider", status: null, message: redactText(String(error), [apiKey])});
     }
+    redactErrorMessage(message, [apiKey]);
     meter.add(message);
     if (options.signal?.aborted) meter.markIncomplete();
     const text = message.content.flatMap((block) => (block.type === "text" ? [block.text] : [])).join("");

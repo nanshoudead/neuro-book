@@ -31,6 +31,10 @@ const position: Decoder = (value, name) => {
     if (!parsed) throw new UsageError(`${name} 要写“章”或“章.段”，例如 38 或 38.57：${value}`);
     return parsed;
 };
+const mode: Decoder = (value, name) => {
+    if (value !== "graph" && value !== "full") throw new UsageError(`${name} 只能是 graph（图当目录）或 full（全读）：${value}`);
+    return value;
+};
 const list: Decoder = value =>
     value
         .split(",")
@@ -55,6 +59,8 @@ export function decodeRange(value: string): {from: PositionInput; to?: PositionI
 interface Positional {
     name: string;
     decode: (value: string) => Record<string, unknown>;
+    /** 可以不给；可选的位置参数只能排在必需的后面。 */
+    optional?: boolean;
 }
 
 interface OptionSpec {
@@ -168,6 +174,26 @@ export const COMMANDS: readonly CommandSpec[] = [
         ],
     }),
     command({name: "serve", method: null, summary: "启动查看器的独立服务", book: false, paged: false, options: {port: {decode: integer}}}),
+    command({
+        name: "ask",
+        method: null,
+        summary: "内置问答：调用模型回答一个问题",
+        book: true,
+        paged: false,
+        positionals: [{name: "问题", decode: value => ({question: value})}],
+        options: {mode: {decode: mode}, config: {decode: value => resolve(value)}},
+    }),
+    command({
+        name: "qa",
+        method: null,
+        summary: "问答记录：列出、显示（qa <id>）、删除（qa rm <id>）",
+        book: true,
+        paged: false,
+        positionals: [
+            {name: "记录 id 或 rm", decode: value => ({first: value}), optional: true},
+            {name: "记录 id", decode: value => ({second: value}), optional: true},
+        ],
+    }),
 ];
 
 /** 所有命令都接受的选项（不进方法参数）。 */
@@ -181,11 +207,13 @@ export function camelCase(name: string): string {
 
 /** 按命令表把命令行参数解码成方法参数。 */
 export function decodeArguments(spec: CommandSpec, positionals: readonly string[], options: ReadonlyMap<string, string>): Record<string, unknown> {
-    if (positionals.length !== spec.positionals.length) {
-        throw new UsageError(`${spec.name} 要 ${spec.positionals.length} 个参数（${spec.positionals.map(item => `<${item.name}>`).join(" ") || "无"}），给了 ${positionals.length} 个`);
+    const required = spec.positionals.filter(item => !item.optional).length;
+    if (positionals.length < required || positionals.length > spec.positionals.length) {
+        const wanted = required === spec.positionals.length ? `${required}` : `${required} 到 ${spec.positionals.length}`;
+        throw new UsageError(`${spec.name} 要 ${wanted} 个参数（${spec.positionals.map(item => (item.optional ? `[${item.name}]` : `<${item.name}>`)).join(" ") || "无"}），给了 ${positionals.length} 个`);
     }
     const params: Record<string, unknown> = {};
-    spec.positionals.forEach((positional, index) => Object.assign(params, positional.decode(positionals[index]!)));
+    positionals.forEach((value, index) => Object.assign(params, spec.positionals[index]!.decode(value)));
     for (const [name, value] of options) {
         if (GLOBAL_OPTIONS.has(name) || (name === "open" && spec.name === "serve")) continue;
         const option = spec.options[name];
@@ -198,7 +226,7 @@ export function decodeArguments(spec: CommandSpec, positionals: readonly string[
 export function usage(): string {
     const width = Math.max(...COMMANDS.map(spec => spec.name.length));
     const lines = COMMANDS.map(spec => {
-        const args = spec.positionals.map(item => `<${item.name}>`).join(" ");
+        const args = spec.positionals.map(item => (item.optional ? `[${item.name}]` : `<${item.name}>`)).join(" ");
         return `  ${spec.name.padEnd(width)}  ${spec.summary}${args ? `  ${args}` : ""}`;
     });
     return [
@@ -208,5 +236,6 @@ export function usage(): string {
         ...lines,
         "",
         "通用选项：--library <目录>、--json；书级命令另有 --book <书>、--at <章或章.段>；列表命令另有 --limit、--cursor。",
+        "ask 另有 --mode graph|full（图当目录或全读，默认 graph）、--config <配置文件>。",
     ].join("\n");
 }

@@ -11,6 +11,8 @@
             "node"
         ],
         "strict": true,
+        "jsx": "react-jsx",
+        "jsxImportSource": "@notnotype/nb-profile",
         "noEmit": true,
         "skipLibCheck": true,
         "forceConsistentCasingInFileNames": true
