@@ -131,8 +131,9 @@ export function escapeText(text: string, around: EscapeAround): string {
         }
     }
     const lineEscape = around.lineStart ? lineStartEscape(text.slice(start)) : -1;
-    // 行尾的空白也会被吃掉（两个以上的空格还会变成硬换行）：最后一个写成实体。
-    const trailingAt = around.lineEnd && (trimmed ? /\s$/u : /[ \t]$/u).test(text) && text.length > start ? text.length - 1 : -1;
+    // 行尾的空白也会被吃掉（两个以上的空格还会变成硬换行）：最后一个写成实体。列表项末尾的全角空格这类 Unicode 空白也会被
+    // 去掉（marked 收列表项时按 `\s` 去尾），最小转义不知道所在的块是不是列表项，完全转义时一并写成实体。
+    const trailingAt = around.lineEnd && (trimmed || around.full ? /\s$/u : /[ \t]$/u).test(text) && text.length > start ? text.length - 1 : -1;
     for (let index = start; index < text.length; index += 1) {
         const char = text[index] as string;
         const previous = index === 0 ? around.before : (text[index - 1] as string);

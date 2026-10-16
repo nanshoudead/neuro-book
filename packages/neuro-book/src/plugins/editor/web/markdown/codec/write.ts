@@ -121,6 +121,22 @@ function itemsOf(doc: PMNode, map: SourceMap): {items: Item[]; trailing: number}
     );
     const unknown = (before: object | null, after: object | null, between: number): number => (before !== null && after !== null && map.gaps.get(before)?.get(after)?.has(between) === true ? 0 : 1);
 
+    // 每个节点至多一个完整来源（没有撤销回旧节点的常见情形）：写原文从不比重新写出差（重新写出的项两侧的间隔总是新生成的，
+    // 写原文的项至多与重新写出一样多一个没登记的间隔，覆盖的节点更多），不用比较切法。
+    if (candidates.every((units) => units.length <= 1)) {
+        const items: Item[] = [];
+        for (let k = 0; k < contents.length; ) {
+            const unit = (candidates[k] as SourceUnit[])[0] ?? null;
+            const index = contents[k] as number;
+            const size = unit?.size ?? 1;
+            const first = children[index] as {node: PMNode; pos: number};
+            const last = children[index + size - 1] as {node: PMNode; pos: number};
+            items.push({nodes: children.slice(index, index + size).map((child) => child.node), unit, empties: emptiesBefore[k] as number, from: first.pos, to: last.pos + last.node.nodeSize, level: unit === null ? 0 : -1, alternate: 0, text: unit?.raw ?? ""});
+            k += size;
+        }
+        return {items, trailing};
+    }
+
     // 从后往前：best[k] 是“前一项的来源为 key（重新写出的为 null）时，从第 k 个内容节点到结尾的最好切法”。
     interface Plan {
         readonly unknown: number;
@@ -171,6 +187,18 @@ function itemsOf(doc: PMNode, map: SourceMap): {items: Item[]; trailing: number}
     return {items, trailing};
 }
 
+/** 原样块节点的定义，按节点缓存（节点不可变；每次写回都要收集全篇的定义）。 */
+const nodeLinks = new WeakMap<PMNode, ReadonlyArray<readonly [string, {readonly href: string; readonly title: string | null}]>>();
+
+function linksOfNode(language: MarkdownLanguage, node: PMNode): ReadonlyArray<readonly [string, {readonly href: string; readonly title: string | null}]> {
+    let links = nodeLinks.get(node);
+    if (links === undefined) {
+        links = Object.entries(linksOf(language, String(node.attrs.raw ?? "")));
+        nodeLinks.set(node, links);
+    }
+    return links;
+}
+
 /** 原样块里的引用定义（`marked` 认的全部写法：标题另起一行、地址带转义、尖括号地址），按原文缓存。 */
 const linkCache = new Map<string, Definitions>();
 
@@ -195,8 +223,9 @@ function linksOf(language: MarkdownLanguage, raw: string): Definitions {
 function definitionsOf(language: MarkdownLanguage, doc: PMNode, skip: ReadonlySet<PMNode> = new Set()): Definitions {
     const first = new Map<string, {node: PMNode; href: string; title: string | null}>();
     doc.descendants((node) => {
-        if (node.type.name !== "rawBlock") return true;
-        for (const [label, {href, title}] of Object.entries(linksOf(language, String(node.attrs.raw ?? "")))) {
+        // 定义只在原样块里；文本块里只有行内内容，不用往下走。
+        if (node.type.name !== "rawBlock") return !node.isTextblock;
+        for (const [label, {href, title}] of linksOfNode(language, node)) {
             if (!first.has(label)) first.set(label, {node, href, title: title ?? null});
         }
         return false;
@@ -273,6 +302,16 @@ function writeOnce(doc: PMNode, map: SourceMap, language: MarkdownLanguage, sche
         items = items.flatMap((item, index): Item[] => (dependents.has(index) ? splitItem(item) : [item]));
     }
     const definitions = definitionsOf(language, doc);
+    // 一次写出里定义不变，每项的判断只算一次（窗口每一轮都要重算）。
+    const depending = new Map<Item, boolean>();
+    const dependsOn = (item: Item): boolean => {
+        let known = depending.get(item);
+        if (known === undefined) {
+            known = dependsOnChangedDefinition(item, definitions);
+            depending.set(item, known);
+        }
+        return known;
+    };
     const labels = new Map(Object.entries(definitions).map(([label, value]) => [label, value.href]));
     const emphasis = new Set([...language.markWriters].filter(([, writer]) => writer.emphasis === true).map(([type]) => type));
 
@@ -372,7 +411,7 @@ function writeOnce(doc: PMNode, map: SourceMap, language: MarkdownLanguage, sche
     const windows = (): Array<[number, number]> => {
         const marked = new Set<number>();
         items.forEach((item, index) => {
-            if (item.unit === null || dependsOnChangedDefinition(item, definitions)) marked.add(index);
+            if (item.unit === null || dependsOn(item)) marked.add(index);
         });
         gaps.forEach(({kept}, index) => {
             if (kept) return;
@@ -618,28 +657,43 @@ function markerOf(item: Item): string {
  * （改成行内链接）。
  */
 function dependsOnChangedDefinition(item: Item, definitions: Definitions): boolean {
-    let changed = false;
+    // 地址与标题都要对得上：删掉同名的第一条定义后，第二条的标题可能不同。图片只比地址。
+    return item.nodes.some((node) => referencesOf(node).some(({label, href, title}) => definitions[label]?.href !== href || (title !== undefined && (definitions[label]?.title ?? null) !== title)));
+}
+
+interface Reference {
+    readonly label: string;
+    readonly href: unknown;
+    /** 图片不比标题，为 undefined。 */
+    readonly title?: unknown;
+}
+
+/** 节点里的引用式链接与图片；节点不可变，按节点缓存（没编辑的块每次写回都要查）。 */
+const references = new WeakMap<PMNode, ReadonlyArray<Reference>>();
+
+function referencesOf(node: PMNode): ReadonlyArray<Reference> {
+    const known = references.get(node);
+    if (known !== undefined) return known;
+    const found: Reference[] = [];
     const reference = (style: unknown, text: string): string | null => {
         const value = style as {style?: string; label?: string} | null;
         if (value?.style === "reference") return normalizeLabel(value.label ?? "");
         if (value?.style === "collapsed" || value?.style === "shortcut") return normalizeLabel(text);
         return null;
     };
-    for (const node of item.nodes) {
-        node.descendants((child) => {
-            for (const mark of child.marks) {
-                if (mark.type.name !== "link") continue;
-                const label = reference(mark.attrs.markdown, child.textContent);
-                // 地址与标题都要对得上：删掉同名的第一条定义后，第二条的标题可能不同。
-                if (label !== null && (definitions[label]?.href !== mark.attrs.href || (definitions[label]?.title ?? null) !== (mark.attrs.title ?? null))) changed = true;
-            }
-            if (child.type.name === "image") {
-                const label = reference(child.attrs.markdown, "");
-                if (label !== null && definitions[label]?.href !== child.attrs.src) changed = true;
-            }
-        });
-    }
-    return changed;
+    node.descendants((child) => {
+        for (const mark of child.marks) {
+            if (mark.type.name !== "link") continue;
+            const label = reference(mark.attrs.markdown, child.textContent);
+            if (label !== null) found.push({label, href: mark.attrs.href, title: mark.attrs.title ?? null});
+        }
+        if (child.type.name === "image") {
+            const label = reference(child.attrs.markdown, "");
+            if (label !== null) found.push({label, href: child.attrs.src});
+        }
+    });
+    references.set(node, found);
+    return found;
 }
 
 /** 会读成同一个列表的几类：无序列表与任务列表（符号相同就合并），有序列表。不是列表为 null。 */

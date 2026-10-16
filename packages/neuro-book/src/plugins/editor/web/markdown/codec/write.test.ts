@@ -141,6 +141,9 @@ describe("写出的明确期望", () => {
         // 只有全角空格的一行：marked 把它当成空行，列表项会在这里断开。
         const item = schema.nodes.listItem!.create(null, [p(t("\u3000")), p(t("\u3000正文"))]);
         expect(written(schema.nodes.bulletList!.create(null, [item]))).toBe("- &#x3000;\n\n  \u3000正文");
+        // 列表项末尾的全角空格：marked 收列表项时去掉它，写成实体；段落末尾的不会被去掉，照写。
+        expect(written(schema.nodes.bulletList!.create(null, [schema.nodes.listItem!.create(null, [p(t("\u3000\u3000雾散了。\u3000"))])]))).toBe("- \u3000\u3000雾散了。&#x3000;");
+        expect(written(p(t("雾散了。\u3000")))).toBe("雾散了。\u3000");
     });
 
     it("行内代码外面的链接、粗体读得进来，改过这一块写回不丢；只盖住一部分代码的格式写在反引号外面", () => {

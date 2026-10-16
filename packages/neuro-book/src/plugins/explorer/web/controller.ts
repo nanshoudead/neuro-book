@@ -83,7 +83,8 @@ export type Dialog =
     /** `unsaved`：删除后会丢掉未保存修改的打开文档（编辑器的文档协调给出）。 */
     | {readonly kind: "delete"; readonly items: ReadonlyArray<Frozen>; readonly busy: boolean; readonly unsaved: ReadonlyArray<string>}
     /** 复制的源里有未保存修改的打开文档：先保存再复制、复制磁盘版本或取消（docs/specs/workbench/editor.md 输出 23）。 */
-    | {readonly kind: "dirty-copy"; readonly documents: ReadonlyArray<string>}
+    /** `saveable` 为假：其中有文档的视图写不出（docs/specs/workbench/editor.md 输出 61），不能“先保存再复制”。 */
+    | {readonly kind: "dirty-copy"; readonly documents: ReadonlyArray<string>; readonly saveable: boolean}
     | {readonly kind: "display"; readonly address: string; readonly name: string; readonly title: string; readonly icon: string; readonly busy: boolean}
     /** 粘贴或拖动移入时同名：源与目标的真实地址、预填的候选名，以及改名输入的错误。 */
     | {readonly kind: "collision"; readonly action: "copy" | "move"; readonly source: string; readonly target: string; readonly candidate: string; readonly error: NameError | null; readonly busy: false};
@@ -550,11 +551,13 @@ export function createExplorerController(options: ExplorerControllerOptions): Ex
     const settleCopy = async (sources: ReadonlyArray<string>): Promise<boolean> => {
         const documents = options.documents;
         if (documents === undefined) return true;
-        const unsaved = documents.affected(sources).map((document) => document.address);
+        const affected = documents.affected(sources);
+        const unsaved = affected.map((document) => document.address);
         if (unsaved.length === 0) return true;
+        const saveable = !affected.some((document) => document.state === "unrepresentable");
         const choice = await new Promise<"save" | "disk" | "cancel">((resolve) => {
             dirtyCopy?.("cancel");
-            dialog.value = {kind: "dirty-copy", documents: unsaved};
+            dialog.value = {kind: "dirty-copy", documents: unsaved, saveable};
             dirtyCopy = resolve;
         });
         refocus();

@@ -255,10 +255,11 @@ export interface TextEditorBinding {
     /** 这个绑定有没有未裁决输入。 */
     unresolved(): boolean;
     /**
-     * 写不出（输出 61，Markdown 编辑器用）：这次输入没有交出，`from`–`to` 是写不出的那一块在控件文档里的位置，`fallback` 是终态页
+     * 写不出（输出 61，Markdown 编辑器用）：这次输入没有交出，`from`–`to` 是写不出的那一块在控件文档里的位置（`index`、`excerpt`
+     * 是给人看的第几块与开头几个字），`fallback` 是终态页
      * 抢救用的正文。每次写不出都再调用一次（按视图此刻的内容更新）；之后这个视图的一次输入交出成功时自动解除。
      */
-    block(input: {readonly reason: string; readonly from: number; readonly to: number; readonly fallback: string}): void;
+    block(input: {readonly reason: string; readonly from: number; readonly to: number; readonly index: number; readonly excerpt: string; readonly fallback: string}): void;
     /** 这个绑定是不是写不出。 */
     blocked(): boolean;
     /** 标签记下的光标：第一次为这份文档建视图状态时放回去。 */

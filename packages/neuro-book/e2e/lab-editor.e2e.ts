@@ -44,9 +44,10 @@ const stage = (page: Page) => page.locator("[data-lab-stage]");
 const prose = (page: Page) => stage(page).locator("[data-editor-group-active] [data-editor-prose]");
 const tab = (page: Page, label: string) => stage(page).locator("[data-editor-group-active] [data-editor-tab]").filter({hasText: label});
 
-/** 场景不多时 Lab 用分段控件切场景。 */
+/** 场景多于四个，Lab 用下拉框切场景。 */
 async function chooseScene(page: Page, label: string): Promise<void> {
-    await page.getByRole("group", {name: "场景"}).getByRole("radio", {name: label, exact: true}).click();
+    await page.getByRole("combobox", {name: "场景"}).click();
+    await page.getByRole("option", {name: label, exact: true}).click();
 }
 
 test("Lab 集成场景：输入后保存清掉未保存标记；外部改写进入正文；外部删除给出提示；拆分场景两种控件都渲染；不发产品接口请求；切出再回是新数据", async ({page}) => {

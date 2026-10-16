@@ -7,7 +7,7 @@
  */
 import {SegmentedControl} from "@notnotype/nb-ui/components";
 import {systemClock} from "@notnotype/nb-runtime/lifecycle";
-import {computed, defineAsyncComponent, onBeforeUnmount} from "vue";
+import {computed, defineAsyncComponent, onBeforeUnmount, watch} from "vue";
 import type {Component} from "vue";
 
 import {createEditorArea} from "nbook/plugins/editor/web/area";
@@ -104,6 +104,19 @@ if (props.scene === "dialect") {
 if (props.scene === "split") {
     area.split("right");
     area.open("project://notes/设定.json", {mode: "permanent"});
+}
+if (props.scene === "unrepresentable") {
+    // 写不出（docs/specs/workbench/editor.md 输出 61）：第二章读到后让这个视图写不出，看组顶部的提示、“定位”与“采用当前正文”，
+    // 关闭标签时的询问没有“保存”。真实输入很难构造出写不出，这里直接经绑定登记。
+    const stop = watch(() => {
+        const group = area.groups.activeGroup.value;
+        const binding = area.binding(group);
+        return binding?.kind === "text" && area.documentOf(group)?.status.value === "ready" ? binding : null;
+    }, (binding) => {
+        if (binding === null) return;
+        binding.block({reason: "段首的 HTML 会被读成 HTML 块", from: 0, to: 6, index: 1, excerpt: "第二章", fallback: "# 第二章\n\n雨下了一整夜。\n"});
+        queueMicrotask(() => stop());
+    }, {immediate: true});
 }
 
 const MonacoControl = defineAsyncComponent(() => import("nbook/plugins/editor/web/components/MonacoControl.vue"));

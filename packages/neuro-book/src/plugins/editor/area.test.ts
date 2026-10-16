@@ -186,7 +186,7 @@ describe("Spec workbench.editor 输出 6–8：打开与切换", () => {
         const right = textBinding(at.area, groupId(at));
         const left = textBinding(at.area, at.area.groups.groups.value[0]?.id ?? "");
         if (right === null || left === null) throw new Error("没有绑定");
-        right.block({reason: "段首的 HTML", from: 1, to: 4, fallback: "A"});
+        right.block({reason: "段首的 HTML", from: 1, to: 4, index: 1, excerpt: "A", fallback: "A"});
         expect(right.blocked()).toBe(true);
         expect(at.area.open("project://b.md", {mode: "preview"})).toEqual({ok: false, reason: "当前视图有一块写不回 Markdown"});
         expect(at.area.notice.value).toContain("写不回");
@@ -661,7 +661,7 @@ describe("Spec workbench.editor 输出 4、13：关闭时的结算", () => {
         await ready(at);
         const binding = textBinding(at.area, groupId(at));
         if (binding === null) throw new Error("没有绑定");
-        binding.block({reason: "段首的 HTML", from: 1, to: 4, fallback: "A"});
+        binding.block({reason: "段首的 HTML", from: 1, to: 4, index: 1, excerpt: "A", fallback: "A"});
         const document = at.area.documentOf(groupId(at));
         const closing = at.area.close(at.area.groups.activeTab()?.id ?? "");
         await until(at, "问", () => at.area.dialog.value !== null);

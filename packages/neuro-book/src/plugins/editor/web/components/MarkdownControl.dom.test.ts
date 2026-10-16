@@ -34,7 +34,7 @@ interface Opened {
 }
 
 /** 打开 `a.md`（正文 `text`），挂一个 Markdown 控件到活动组。 */
-async function opened(text: string, area?: {readonly area: EditorArea; readonly memory: ReturnType<typeof createMemoryFiles>}): Promise<Opened> {
+async function opened(text: string, area?: {readonly area: EditorArea; readonly memory: ReturnType<typeof createMemoryFiles>}, onError?: (error: unknown) => void): Promise<Opened> {
     const memory = area?.memory ?? createMemoryFiles({project: [["a.md", text]], user: []});
     const editorArea = area?.area ?? createEditorArea({files: memory.files, clock: systemClock, workspaceKey: "test", generation: 1, initial: null, report: (error) => {
         throw error;
@@ -55,7 +55,7 @@ async function opened(text: string, area?: {readonly area: EditorArea; readonly 
     const wrapper = mount(MarkdownControl, {props: {binding, host, readonly: false, visible: true, label: "a.md", onReady: (ready: EditorControlHandle | null) => {
         handle = ready;
         editorArea.registerHandle(groupId, MARKDOWN_EDITOR, ready);
-    }}, attachTo: document.body});
+    }}, attachTo: document.body, global: onError === undefined ? {} : {config: {errorHandler: onError}}});
     cleanups.push(() => wrapper.unmount());
     const editor = (host.state as {editor: Editor}).editor;
     return {area: editorArea, memory, binding, editor, handle: handle as unknown as EditorControlHandle, groupId};
@@ -110,6 +110,39 @@ describe("交出（方言 Spec 输出 1–3）", () => {
     });
 });
 
+describe("显示（方言 Spec 输出 23）", () => {
+    it("带 `-` 的提示块一开始折叠，点标题展开、再点折叠；折叠状态不写回文件；没有折叠标记的不能折叠", async () => {
+        const source = "> [!WARNING]- 伏笔\n> 她早就知道。\n\n> [!NOTE]\n> 普通。\n";
+        const {handle, binding} = await opened(source);
+        const [foldable, plain] = [...document.querySelectorAll<HTMLElement>(".nb-callout")];
+        const content = (callout: HTMLElement | undefined): HTMLElement => callout?.querySelector(".nb-callout__content") as HTMLElement;
+        expect(content(foldable).hidden).toBe(true);
+        foldable?.querySelector<HTMLElement>(".nb-callout__label")?.click();
+        expect(content(foldable).hidden).toBe(false);
+        expect(foldable?.querySelector(".nb-callout__toggle")?.getAttribute("aria-expanded")).toBe("true");
+        foldable?.querySelector<HTMLElement>(".nb-callout__toggle")?.click();
+        expect(content(foldable).hidden).toBe(true);
+        plain?.querySelector<HTMLElement>(".nb-callout__label")?.click();
+        expect(content(plain).hidden).toBe(false);
+        expect((plain?.querySelector(".nb-callout__toggle") as HTMLElement).hidden).toBe(true);
+        handle.flushPendingChange();
+        expect(binding.text.value).toBe(source);
+    });
+});
+
+describe("卸载", () => {
+    it("编辑器区先释放了实例（组关闭、Lab 切走）再卸载控件：卸载前的结算照常写出，不报错", async () => {
+        const errors: unknown[] = [];
+        const {editor, binding, area, groupId} = await opened("甲\n", undefined, (error) => errors.push(error));
+        editor.commands.insertContentAt(endOfBlock(editor, 0), "乙");
+        area.controlSlot(groupId, MARKDOWN_EDITOR).dispose?.();
+        // 最后登记的清理是卸载控件（见 `opened`）：文档还在，只卸载控件。
+        cleanups.pop()?.();
+        expect(errors).toEqual([]);
+        expect(binding.text.value).toBe("甲乙\n");
+    });
+});
+
 describe("重载（“状态与转换”、editor 输出 12）", () => {
     it("磁盘的新内容：只换不同的那一段，之后只改一块时其余块按新原文写回", async () => {
         const {editor, handle, binding, memory} = await opened("* 甲&amp;\n\n乙\n");
@@ -136,6 +169,8 @@ describe("写不出（editor 输出 61）", () => {
         expect(binding.text.value).toBe("甲\n\n乙\n");
         const blocked = area.documentOf(groupId)?.blocked.value.get(binding.token);
         expect(blocked?.fallback).toBe("甲\n\n乙\n");
+        // 组顶部的提示写明是哪一块：第几块与开头几个字。
+        expect([blocked?.index, blocked?.excerpt]).toEqual([1, "甲"]);
         area.locate(groupId);
         const {from, to, empty} = editor.state.selection;
         expect(blocked !== undefined && !empty && from >= blocked.from && to <= blocked.to).toBe(true);

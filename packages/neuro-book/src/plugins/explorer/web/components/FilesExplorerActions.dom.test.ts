@@ -186,7 +186,7 @@ describe("FilesExplorerView：确认框与结果区", () => {
     });
 
     it("复制有未保存修改的文件：列出文档，三个按钮各自发出；关闭等于取消", async () => {
-        const dialog: Dialog = {kind: "dirty-copy", documents: ["project://plain/a.md"]};
+        const dialog: Dialog = {kind: "dirty-copy", documents: ["project://plain/a.md"], saveable: true};
         const wrapper = view({dialog});
         await flushPromises();
         expect(document.querySelector("[data-explorer-dirty-copy]")?.textContent).toContain("project://plain/a.md");

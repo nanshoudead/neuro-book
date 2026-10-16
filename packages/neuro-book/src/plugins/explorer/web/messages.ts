@@ -79,6 +79,7 @@ const MESSAGES = {
     codeUnsettledAt: {"zh-CN": "{documents} 有未裁决的输入、写不回的修改或磁盘冲突，先在编辑器里处理", "en-US": "{documents} has unresolved input, changes that cannot be written back, or a disk conflict; resolve it in the editor first"},
     dirtyCopyTitle: {"zh-CN": "要复制的文件有未保存的修改", "en-US": "Files to copy have unsaved changes"},
     dirtyCopyBody: {"zh-CN": "先保存再复制，副本包含最新正文；复制磁盘版本，副本不含未保存的修改。", "en-US": "Save first so the copies include the latest text, or copy the versions on disk without the unsaved changes."},
+    dirtyCopyUnrepresentable: {"zh-CN": "其中有文档的视图写不回 Markdown，不能先保存；可以复制磁盘版本，副本不含未保存的修改。", "en-US": "A view of one of these documents cannot be written back as Markdown, so it cannot be saved first; copy the versions on disk without the unsaved changes."},
     dirtyCopySave: {"zh-CN": "先保存再复制", "en-US": "Save, Then Copy"},
     dirtyCopyDisk: {"zh-CN": "复制磁盘版本", "en-US": "Copy Disk Versions"},
     deleteUnsaved: {"zh-CN": "这些打开的文件有未保存的修改，删除后会丢失：", "en-US": "These open files have unsaved changes that will be lost:"},

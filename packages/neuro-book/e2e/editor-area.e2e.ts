@@ -36,6 +36,50 @@ const DIALECT = [
     "",
 ].join("\r\n");
 
+/**
+ * 方言 Spec 场景 1 的文件：frontmatter、CRLF、`*` 列表、`_斜体_`、下划线式标题、`~~~` 代码块、引用式链接、脚注、表格（含
+ * `\|`）、数学与各种方言。
+ */
+const DIALECT_ALL = [
+    "---",
+    "title: 方言",
+    "---",
+    "",
+    "下划线式标题",
+    "===",
+    "",
+    "* 第一项",
+    "* 第二项",
+    "* 第三项",
+    "",
+    "_斜体_ 与 [引用][r] 与脚注[^1]，公式 $x^2$。",
+    "",
+    "~~~",
+    "代码",
+    "~~~",
+    "",
+    "| 名 | 值 |",
+    "|---|---|",
+    "| a \\| b | 1 |",
+    "",
+    "她抬头<comment body=\"节奏\">看了他一眼</comment>，<ruby>临川<rt>línchuān</rt></ruby>，<mark>高亮</mark>，<span style=\"color: red\">红字</span>。",
+    "",
+    "<bilingual text=\"译文\">",
+    "原文",
+    "</bilingual>",
+    "",
+    "<align value=\"center\">",
+    "居中",
+    "</align>",
+    "",
+    "> [!NOTE] 提示",
+    "> 内容",
+    "",
+    "[r]: https://example.com",
+    "[^1]: 脚注。",
+    "",
+].join("\r\n");
+
 let tmp = "";
 let projectDir = "";
 let stateRoot = "";
@@ -60,6 +104,9 @@ test.beforeAll(async () => {
         "target/.keep": "",
         "notes/i.md": "乙\n",
         "notes/dialect.md": DIALECT,
+        "notes/dialect-all.md": DIALECT_ALL,
+        "notes/bold.md": "他说：“走吧。”然后离开。\n",
+        "notes/tasks.md": "- [ ] 甲\n- [x] 乙\n",
         "data/g.json": "{\"g\": 2}\n",
         "notes/u.md": "基线\n",
         "notes/v.md": "收\n",
@@ -603,6 +650,62 @@ test("Markdown：打开、切走、关闭都不改磁盘字节；编辑最后一
     await page.keyboard.press("Control+s");
     await expect.poll(() => disk("notes/dialect.md")).toBe(DIALECT.replace("雨下了一整夜。", "雨下了一整夜。天亮了。"));
     await closeAll(page);
+});
+
+test.describe("Markdown 方言（docs/specs/workspace/markdown-dialect.md 场景 1、2、4）", () => {
+    test("场景 1：含全部方言的文件打开不编辑、保存字节不变；只改列表第二项，只有那一个列表重新写出，仍是一个 `*` 列表", async ({page}) => {
+        await open(page);
+        await closeAll(page);
+        await item(page, "project://notes/dialect-all.md").dblclick();
+        await expect(prose(page)).toContainText("看了他一眼");
+        await page.keyboard.press("Control+s");
+        await closeAll(page);
+        expect(await disk("notes/dialect-all.md")).toBe(DIALECT_ALL);
+
+        await item(page, "project://notes/dialect-all.md").dblclick();
+        await prose(page).locator("li", {hasText: "第二项"}).click();
+        await page.keyboard.press("End");
+        await page.keyboard.type("改");
+        await page.keyboard.press("Control+s");
+        await expect.poll(() => disk("notes/dialect-all.md")).toBe(DIALECT_ALL.replace("* 第二项", "* 第二项改"));
+        // 不出现控制字符（编解码器内部的转义标记不漏进文件）。
+        expect(await disk("notes/dialect-all.md")).not.toMatch(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/u);
+        await closeAll(page);
+    });
+
+    test("场景 2：给“走吧。”连引号加粗，保存、关闭再打开仍是粗体，原文是中文友好的 `**`", async ({page}) => {
+        await open(page);
+        await closeAll(page);
+        await item(page, "project://notes/bold.md").dblclick();
+        await prose(page).click();
+        await page.keyboard.press("Home");
+        for (let step = 0; step < 3; step += 1) await page.keyboard.press("ArrowRight");
+        for (let step = 0; step < 5; step += 1) await page.keyboard.press("Shift+ArrowRight");
+        // 编辑器在 `selectionchange` 时才读页面的选区：等页面选区到位、再过一帧，加粗作用于整个选区。
+        await expect.poll(() => page.evaluate(() => globalThis.getSelection()?.toString())).toBe("“走吧。”");
+        await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+        await page.keyboard.press("Control+b");
+        await page.keyboard.press("Control+s");
+        await expect.poll(() => disk("notes/bold.md")).toBe("他说：**“走吧。”**然后离开。\n");
+        await closeAll(page);
+        await item(page, "project://notes/bold.md").dblclick();
+        await expect(prose(page).locator("strong")).toHaveText("“走吧。”");
+        await closeAll(page);
+    });
+
+    test("场景 4：任务列表里回车加一项、勾选一项、保存：原文的复选框都在，新加的项是 `- [ ] `", async ({page}) => {
+        await open(page);
+        await closeAll(page);
+        await item(page, "project://notes/tasks.md").dblclick();
+        await prose(page).locator("li", {hasText: "乙"}).click();
+        await page.keyboard.press("End");
+        await page.keyboard.press("Enter");
+        await page.keyboard.type("丙");
+        await prose(page).locator("li", {hasText: "甲"}).locator("input[type=checkbox]").check();
+        await page.keyboard.press("Control+s");
+        await expect.poll(() => disk("notes/tasks.md")).toBe("- [x] 甲\n- [x] 乙\n- [ ] 丙\n");
+        await closeAll(page);
+    });
 });
 
 test("Markdown：A 输入、切到 B 输入、回 A 撤销只作用于 A；重做回来", async ({page}) => {

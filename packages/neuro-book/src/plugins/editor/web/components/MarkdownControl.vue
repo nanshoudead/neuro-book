@@ -50,8 +50,22 @@ let loading = false;
 
 const stateOf = (binding: TextEditorBinding): MarkdownViewState | null => binding.slot.state as MarkdownViewState | null;
 
-/** 编解码器按编辑器自己的 schema 建（每个编辑器实例一份 schema），缓存在 `codecFor` 里。 */
-const codec = (current: Editor): MarkdownCodec => codecFor(current.schema, markdownLanguage());
+/**
+ * 编解码器按编辑器自己的 schema 建（每个编辑器实例一份 schema），缓存在 `codecFor` 里。schema 从编辑状态的文档上取：组关闭时
+ * 编辑器区先释放实例，Tiptap 销毁后 `editor.schema` 不再可用，而卸载前的结算还要写出这个视图的输入。
+ */
+const codec = (current: Editor): MarkdownCodec => codecFor(current.state.doc.type.schema, markdownLanguage());
+
+/** 写不出的那一块给人看的样子：第几块（顶层块，从 1 起）与开头几个字（组顶部的提示用）。 */
+const EXCERPT_LENGTH = 16;
+const blockAt = (doc: EditorState["doc"], from: number, to: number): {index: number; excerpt: string} => {
+    let index = 0;
+    doc.forEach((_node, offset, at) => {
+        if (offset <= from) index = at;
+    });
+    const text = doc.textBetween(from, Math.min(to, doc.content.size), " ", " ").replace(/\s+/gu, " ").trim();
+    return {index: index + 1, excerpt: text.length > EXCERPT_LENGTH ? `${text.slice(0, EXCERPT_LENGTH)}…` : text};
+};
 
 /** 程序做的、不算用户输入的改动（重载、写法回填）：不进撤销历史，不让自动链接插件给内容加链接。 */
 const quietly = (current: Editor, change: (tr: Transaction) => void): void => {
@@ -91,7 +105,7 @@ const commitNow = (): void => {
     const written = codec(current).write(current.state.doc, view.map);
     if (!written.ok) {
         view.held = true;
-        binding.block({reason: written.reason, from: written.from, to: written.to, fallback: written.fallback()});
+        binding.block({reason: written.reason, from: written.from, to: written.to, ...blockAt(current.state.doc, written.from, written.to), fallback: written.fallback()});
         return;
     }
     if (written.text === binding.text.value && !view.held) return;
@@ -479,10 +493,13 @@ onBeforeUnmount(() => {
     display: block;
 }
 
-/* 高亮（输出 15、24）：没有颜色时的底色；带颜色的写在行内样式里，盖过这里。 */
+/*
+ * 高亮（输出 15、24）：没有颜色时的底色；带颜色的写在行内样式里，盖过这里。不用 `--status-warning-bg`：它是给面板底色配的
+ * 浅色，叠在偏暖的浅色纸面上几乎看不出来。
+ */
 .markdown-control :deep(mark) {
     border-radius: 2px;
-    background: var(--status-warning-bg);
+    background: color-mix(in srgb, var(--status-warning) 32%, transparent);
     color: inherit;
 }
 
@@ -584,6 +601,10 @@ onBeforeUnmount(() => {
 .markdown-control :deep(.nb-callout--caution) {
     --callout-color: var(--status-danger);
     --callout-bg: var(--status-danger-bg);
+}
+
+.markdown-control :deep(.nb-callout__title:has(> .nb-callout__toggle:not([hidden]))) {
+    cursor: pointer;
 }
 
 .markdown-control :deep(.nb-callout__title) {

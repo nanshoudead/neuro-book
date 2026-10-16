@@ -68,11 +68,17 @@ export interface TextDocument {
     readonly version: Readonly<Ref<number>>;
 }
 
-/** 一个视图写不出的输入（输出 61）：哪一块（编辑器文档里的位置）、原因，与终态页抢救用的正文。 */
+/**
+ * 一个视图写不出的输入（输出 61）：哪一块（编辑器文档里的位置，与给人看的第几块、开头几个字）、原因，与终态页抢救用的正文。
+ */
 export interface BlockedInput {
     readonly reason: string;
     readonly from: number;
     readonly to: number;
+    /** 第几块（顶层块，从 1 起）。 */
+    readonly index: number;
+    /** 这一块开头的几个字；没有文字时为空串。 */
+    readonly excerpt: string;
     readonly fallback: string;
 }
 

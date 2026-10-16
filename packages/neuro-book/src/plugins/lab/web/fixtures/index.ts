@@ -592,7 +592,7 @@ export const labFixtures: LabFixture[] = [
                 {id: "unsaved", label: "偏好未保存、编辑器尚未接入", input: {props: {...base, problem: {kind: "unsaved" as const, code: "conflict"}, notice: {kind: "editor-missing" as const, address: "project://plain/a.md"}}}},
                 {id: "loading", label: "偏好还在读取", input: {props: {...base, ready: false}}},
                 {id: "delete", label: "删除确认：多项与长路径", input: {props: {...base, dialog: {kind: "delete" as const, items: Array.from({length: 12}, (_, index) => ({address: `project://一个很深的目录/第${String(index + 1)}章 一个相当长的章节标题.md`, token: `t${String(index)}`})), busy: false, unsaved: ["project://一个很深的目录/第1章 一个相当长的章节标题.md"]}}}},
-                {id: "dirty-copy", label: "复制有未保存修改的文件", input: {props: {...base, dialog: {kind: "dirty-copy" as const, documents: ["project://chapters/第一章.md", "project://chapters/第二章.md"]}}}},
+                {id: "dirty-copy", label: "复制有未保存修改的文件", input: {props: {...base, dialog: {kind: "dirty-copy" as const, documents: ["project://chapters/第一章.md", "project://chapters/第二章.md"], saveable: true}}}},
                 {id: "report", label: "删除部分失败、进行中", input: {props: {...base, running: {action: "delete" as const, count: 3}, report: {action: "delete" as const, items: [
                     {address: "project://plain", target: null, result: {status: "failed" as const, code: "permission-denied", detail: "没有权限", partial: {removed: {paths: ["plain/a.md", "plain/b.md"], truncated: false}}}},
                     {address: "project://a.md", target: null, result: {status: "done" as const}},
@@ -622,6 +622,7 @@ export const labFixtures: LabFixture[] = [
             {id: "english", label: "英文界面", input: {props: {locale: "en-US"}}},
             {id: "empty", label: "没有标签：标志与提示", input: {props: {locale: "zh-CN"}}},
             {id: "dialect", label: "Markdown 方言、提示块与原样内容", input: {props: {locale: "zh-CN"}}},
+            {id: "unrepresentable", label: "写不出：组顶部的提示", input: {props: {locale: "zh-CN"}}},
         ],
         load: async () => (await import("./editor-scene/EditorAreaFixture.vue")).default,
     }),

@@ -140,9 +140,21 @@ const ATTRIBUTES = `(?:"[^"\\n]*"|'[^'\\n]*'|[^>"'\\n])*`;
  * 不只是容器标记；不在围栏里（含容器里的围栏）、不是缩进代码；原文不以换行结尾时最后一行不算“行尾”（流式写入的半截不被
  * 抢拆）。“往下有闭标签”用每个标签最后一次出现的闭标签行号判断，整篇一次扫描。
  */
+/**
+ * 全篇可能有拆分点吗：要有这些方言的闭标签，还要有一行以开标签结尾、开标签前面除了容器标记还有别的字。都没有就不用逐行认
+ * 围栏（写回时每次都要对整篇输出查一遍）。
+ */
+function mayGlue(body: string, rules: GluedRules): boolean {
+    if (rules.tags.length === 0 || !new RegExp(`</(?:${rules.tags.join("|")})\\s*>`, "iu").test(body)) return false;
+    for (const matched of body.matchAll(new RegExp(`^([^\\n]*?)<(?:${rules.tags.join("|")})(?=[\\s>/])${ATTRIBUTES}>[ \\t]*\\r?$`, "gimu"))) {
+        if (!CONTAINER_ONLY_PREFIX.test(matched[1] as string)) return true;
+    }
+    return false;
+}
+
 function gluedSplits(body: string, lines: ReadonlyArray<SourceLine>, rules: GluedRules): Map<number, number> {
     const splits = new Map<number, number>();
-    if (rules.tags.length === 0) return splits;
+    if (!mayGlue(body, rules)) return splits;
     const fenced = fencedLines(body, lines);
     const closePattern = new RegExp(`^[ \\t]*</(${rules.tags.join("|")})\\s*>[ \\t]*$`, "iu");
     const openPattern = new RegExp(`<(${rules.tags.join("|")})(?=[\\s>/])${ATTRIBUTES}>[ \\t]*$`, "iu");
@@ -172,6 +184,7 @@ function gluedSplits(body: string, lines: ReadonlyArray<SourceLine>, rules: Glue
 
 /** 宽容写法会在哪里拆开：开标签在正文里的位置，从小到大。写回用它检查整篇输出（拆分点只能在块的开头）。 */
 export function gluedOpenings(body: string, rules: GluedRules): number[] {
+    if (!mayGlue(body, rules)) return [];
     const lines = linesOf(body);
     return [...gluedSplits(body, lines, rules)].map(([line, column]) => (lines[line] as SourceLine).start + column).sort((left, right) => left - right);
 }

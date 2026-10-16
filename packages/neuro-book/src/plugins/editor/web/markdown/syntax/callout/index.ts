@@ -90,7 +90,9 @@ function calloutView(initial: PMNode): NodeView {
     const chevron = document.createElement("span");
     chevron.className = "i-lucide-chevron-right";
     toggle.append(chevron);
-    toggle.addEventListener("click", (event) => {
+    // 整个标题行都能点（输出 23“点标题展开或折叠”）；按钮是键盘与读屏的入口，点它同样经过这里。
+    head.addEventListener("click", (event) => {
+        if (node.attrs.fold === null) return;
         event.preventDefault();
         folded = !folded;
         render();

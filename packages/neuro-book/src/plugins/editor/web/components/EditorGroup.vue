@@ -168,7 +168,8 @@ const banner = computed((): Banner | null => {
     }
     const blocked = binding.value?.kind === "text" ? current.blocked.value.get(binding.value.token) : undefined;
     if (blocked !== undefined) {
-        return {tone: "danger", text: t("unrepresentable", {reason: blocked.reason}), actions: [
+        const excerpt = blocked.excerpt === "" ? "" : t("unrepresentableExcerpt", {excerpt: blocked.excerpt});
+        return {tone: "danger", text: t("unrepresentable", {index: String(blocked.index), excerpt, reason: blocked.reason}), actions: [
             {id: "locate", label: t("locate"), run: () => props.area.locate(props.groupId)},
             {id: "adopt", label: t("adopt"), run: () => props.area.unblock(props.groupId)},
         ]};

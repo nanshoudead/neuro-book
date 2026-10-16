@@ -174,7 +174,7 @@ describe("Spec workbench.editor 输出 11：打开与读取", () => {
 });
 
 describe("Spec workbench.editor 输出 61：写不出", () => {
-    const input = {reason: "段首的 HTML", from: 0, to: 3, fallback: "A（纯文字）"};
+    const input = {reason: "段首的 HTML", from: 0, to: 3, index: 1, excerpt: "A", fallback: "A（纯文字）"};
 
     it("写不出的视图挡保存与资源管理器的租约、计入需要结算的文档与抢救；别的视图的输入不解除它，它自己交出成功才解除", async () => {
         const at = await world();
