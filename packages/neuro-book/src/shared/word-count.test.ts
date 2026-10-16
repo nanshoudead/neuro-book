@@ -1,4 +1,7 @@
-/** 写作字数（docs/specs/workbench/editor.md 输出 27）。 */
+/**
+ * 写作字数（docs/specs/workbench/editor.md 输出 27；不计的方言与原样内容见 docs/specs/workspace/markdown-dialect.md 的“副作用与
+ * 数据”）。与编辑器读出的正文逐块对照的一致性测试在 `plugins/editor/web/markdown/codec/word-count.test.ts`。
+ */
 
 import {describe, expect, it} from "bun:test";
 
@@ -28,5 +31,43 @@ describe("字数", () => {
         expect(countWords("﻿---\ntitle: Hidden\n---\n正文")).toBe(2);
         expect(countWords("---\ntitle: Hidden\n---\n正文")).toBe(2);
         expect(countWords("﻿雨")).toBe(1);
+    });
+
+    it("方言标签与属性不计（批注意见、注音、译文、颜色、对齐），标签中间的正文照常计", () => {
+        expect(countWords("她抬头<comment body=\"节奏太快\">看了他一眼</comment>，按 <kbd>Ctrl</kbd> 保存。")).toBe(11);
+        expect(countWords("<comment id=\"c1\" body=\"整段的意见\">\n老人走向祭坛。\n</comment>")).toBe(6);
+        expect(countWords("<ruby text=\"hàn zì\">汉字</ruby>与<ruby>汉字<rt>hàn zì</rt></ruby>")).toBe(5);
+        expect(countWords("<bilingual text=\"老人缓缓走向祭坛。\">\nThe old man walked.\n</bilingual>")).toBe(4);
+        expect(countWords("<span style=\"color: red\">红字</span>与<mark style=\"background-color: yellow\">黄底</mark>，x<sup>2</sup>")).toBe(6);
+        expect(countWords("<align value=\"center\">\n居中\n</align>")).toBe(2);
+        expect(countWords("正文<strong>粗</strong><br>Word<BR/>Next")).toBe(5);
+    });
+
+    it("原样块与原样片段不计：方言之外的 HTML、HTML 注释、数学、脚注、引用定义与可渲染 HTML", () => {
+        expect(countWords("按 <kbd>Ctrl</kbd> 与 <u>下划线</u> 保存<!-- 注释 -->。Vec<String> 列表")).toBe(7);
+        expect(countWords("甲\n\n<div>\n块级 HTML\n</div>\n\n乙")).toBe(2);
+        expect(countWords("<details>\n<summary>展开</summary>\n\n内容\n</details>\n\n乙")).toBe(1);
+        expect(countWords("<script>\nlet 脚本;\n\n</script>\n乙")).toBe(1);
+        expect(countWords("<!--\n多行\n注释\n-->\n乙")).toBe(1);
+        expect(countWords("<kbd>\n没配上的标签独占一行\n\n乙")).toBe(1);
+        expect(countWords("公式 $x^2$ 与 $5，价格 $3 和 $4。\n\n$$\na+b\n$$")).toBe(9);
+        expect(countWords("正文[^1]。\n\n[^1]: 脚注内容。\n    续行。\n\n乙")).toBe(3);
+        expect(countWords("甲\n\n[定义]: https://example.com/a\n  \"下一行的标题\"\n[另一个]: <b c>\n\n乙")).toBe(2);
+        expect(countWords("<html>\n卡片的字\n\n空行后的字\n</html>\n\n正文<html>\n粘着的\n</html>")).toBe(2);
+    });
+
+    it("代码里的字照常计，其中的标签与实体是文字；围栏的语言名不计", () => {
+        expect(countWords("`<comment body=\"x\">y</comment>` 与 `` `<sup>` ``")).toBe(7);
+        expect(countWords("```js\n<b>粗</b> &amp;\n```")).toBe(4);
+        expect(countWords("> ```\n> <!-- 不是注释 -->\n> ```")).toBe(4);
+    });
+
+    it("提示块的类型与任务项的勾选框是标记，不计；实体按解码后的字计，转义的字符是文字", () => {
+        expect(countWords("> [!NOTE]- 折叠的标题\n> 内容")).toBe(7);
+        expect(countWords("> 引用\n> [!NOTE] 不在第一行")).toBe(8);
+        expect(countWords("- [ ] todo\n- [x] done")).toBe(2);
+        expect(countWords("&#20013;&#25991;&copy;&nbsp;")).toBe(2);
+        expect(countWords("\\<kbd> 与 \\&lt;")).toBe(3);
+        expect(countWords("见 <https://a.example> 与 <me@b.cn>")).toBe(8);
     });
 });

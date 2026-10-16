@@ -3,9 +3,26 @@
  *
  * - 汉字、假名、谚文每字计 1；
  * - 连续的拉丁字母与数字计 1 个词，中间可夹 `'`、`’`、`-`（`don't`、`well-known` 各算一个词）；
- * - 标点、空白与 Markdown 标记不计（标记本身多是标点；链接地址里的字母会计入，第一版不剥离）；
- * - 开头的 YAML frontmatter 不计。
+ * - 标点、空白与 Markdown 标记不计；开头的 YAML frontmatter 不计；
+ * - 方言标签与原样内容里的字不计（docs/specs/workspace/markdown-dialect.md 的“副作用与数据”），由下面的轻量扫描去掉。
+ *
+ * 浏览器与服务端都用这个算法，不能依赖编辑器的编解码器：扫描只按行与标签判断，判据从 `markdown-dialect.ts` 取，与编解码器
+ * 同一份。它与编解码器读出的正文是否一致，由 `word-count.test.ts` 对照编辑器的语料核对；已知的偏差写在方言 Spec。
  */
+
+import {decodeHTMLStrict} from "entities";
+
+import {
+    ATTRIBUTES_SOURCE,
+    BLOCK_DIALECT_TAGS,
+    FOOTNOTE_REF_SOURCE,
+    INLINE_DIALECT_TAGS,
+    LONE_TAG,
+    MATH_INLINE_SOURCE,
+    OPENS_HTML_BLOCK,
+    READABLE_INLINE_HTML,
+    VOID_HTML_TAGS,
+} from "./markdown-dialect";
 
 const BOM = /^﻿/u;
 const FRONTMATTER = /^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/u;
@@ -14,7 +31,7 @@ const WORD = /[\p{Script=Latin}\p{Nd}]+(?:['’-][\p{Script=Latin}\p{Nd}]+)*/gu;
 
 export function countWords(text: string): number {
     // 文件服务把 BOM 留在正文里（保存时原样写回），作品统计读文件时又去掉它：这里先剥掉再认 frontmatter，两边的字数才一致。
-    const body = text.replace(BOM, "").replace(FRONTMATTER, "");
+    const body = countable(text.replace(BOM, "").replace(FRONTMATTER, ""));
     // 先数中日韩的字，再把它们换成空格数拉丁词：两类紧挨着时（“第3章”）不会被当成一个词。
     let count = 0;
     const latin = body.replace(CJK, () => {
@@ -23,4 +40,345 @@ export function countWords(text: string): number {
     });
     for (const _ of latin.matchAll(WORD)) count += 1;
     return count;
+}
+
+// ---- 块：按行判断 ----
+
+/** 容器的前缀（引用符号、列表符号与缩进）：判断一行开始什么块时去掉。 */
+const CONTAINER = /^(?:[ \t]*>|[ \t]*(?:[-*+]|\d{1,9}[.)])(?=[ \t]|$))*[ \t]*/u;
+const FENCE = /^(`{3,}(?=[^`]*$)|~{3,})/u;
+const HEADING = /^#{1,6}(?:[ \t]|$)/u;
+/** 可渲染 HTML 的开闭行（与编辑器的 `syntax/html-embed` 相同：只认不带属性的 `<html>`）。 */
+const EMBED_OPEN = /^<html>[ \t]*$/iu;
+const EMBED_CLOSE = /^<\/html\s*>[ \t]*$/iu;
+const EMBED_GLUED = /<html>[ \t]*$/iu;
+const MATH_FENCE = /^\$\$[ \t]*$/u;
+const MATH_LINE = /^\$\$.*\$\$[ \t]*$/u;
+const FOOTNOTE_DEF = /^\[\^[^\]\s]+\]:/u;
+const DEFINITION = /^\[(?!\^)(?:\\.|[^[\]\\])+\]:[ \t]*(?:<[^<>\n]*>|\S+)(?:[ \t]+(?:"[^"]*"|'[^']*'|\([^()]*\)))?[ \t]*$/u;
+const DEFINITION_TITLE = /^(?:"[^"]*"|'[^']*'|\([^()]*\))[ \t]*$/u;
+const CALLOUT = /^((?:[ \t]*>)+[ \t]*)\[![A-Za-z][\w-]*\][+-]?(?=[ \t]|$)/u;
+const TASK = /^((?:[ \t]*>)*[ \t]*[-*+][ \t]+)\[[ xX]\](?=[ \t]|$)/u;
+const OPEN_TAG_AT_START = /^<([A-Za-z][\w-]*)(?=[\s/>]|$)/u;
+
+/** CommonMark 第 1–5 类 HTML 块：开头的写法 → 结束它的那一行里有什么。其余的块（第 6、7 类）到空行结束。 */
+const HTML_BLOCK_ENDS: ReadonlyArray<readonly [RegExp, RegExp]> = [
+    [/^<(?:script|pre|style|textarea)(?:\s|>|$)/iu, /<\/(?:script|pre|style|textarea)>/iu],
+    [/^<!--/u, /-->/u],
+    [/^<\?/u, /\?>/u],
+    [/^<![A-Za-z]/u, />/u],
+    [/^<!\[CDATA\[/u, /\]\]>/u],
+];
+
+/** 方言与能读的 HTML 标签：只去掉标签本身，中间的正文照常计。其余成对的标签连同中间的字是原样片段。 */
+const KNOWN_TAGS: ReadonlySet<string> = new Set([...BLOCK_DIALECT_TAGS, ...INLINE_DIALECT_TAGS, ...READABLE_INLINE_HTML]);
+
+/**
+ * 去掉不计字数的内容，剩下的交给计数。顺序与编辑器读入一致：先认代码、原样块与可渲染 HTML 这类整块的结构（按行），段落里的
+ * 文字再按行内规则去掉标签、原样片段与注音小字。代码里的字照常计，其中的标签不当标签。
+ */
+function countable(body: string): string {
+    const lines = body.split(/\r\n|\r|\n/u);
+    const offsets: number[] = [];
+    let offset = 0;
+    for (const line of lines) {
+        offsets.push(offset);
+        offset += line.length + 1;
+    }
+    const joined = scanned(lines.join("\n"));
+    const out: string[] = [];
+    let paragraph: string[] = [];
+    const flush = (): void => {
+        if (paragraph.length > 0) out.push(inline(paragraph.join("\n")));
+        paragraph = [];
+    };
+    // 这一行能不能开始只在块开头成立的结构（引用定义、第 7 类 HTML 块）：前面是空行、文件开头或另一个整块的结构。
+    let blockStart = true;
+    let index = 0;
+    while (index < lines.length) {
+        const line = lines[index] as string;
+        const content = line.replace(CONTAINER, "");
+        const skipTo = (last: number): void => {
+            flush();
+            index = last + 1;
+            blockStart = true;
+        };
+        if (content.trim() === "") {
+            flush();
+            blockStart = true;
+            index += 1;
+            continue;
+        }
+        const fence = FENCE.exec(content);
+        if (fence !== null) {
+            // 围栏里的文字照常计；开闭行上的语言名是标记。没闭合的围栏到文末。
+            const mark = fence[1] as string;
+            const closing = new RegExp(`^${mark[0] === "`" ? "`" : "~"}{${mark.length},}[ \\t]*$`, "u");
+            let last = index + 1;
+            while (last < lines.length && !closing.test((lines[last] as string).replace(CONTAINER, ""))) last += 1;
+            flush();
+            out.push(lines.slice(index + 1, last).join("\n"));
+            index = last + 1;
+            blockStart = true;
+            continue;
+        }
+        const embedAt = EMBED_OPEN.test(content) ? 0 : content.search(EMBED_GLUED);
+        if (embedAt >= 0) {
+            const last = findLine(lines, index + 1, (next) => EMBED_CLOSE.test(next.replace(CONTAINER, "").trimStart()));
+            if (last >= 0) {
+                // 宽容写法 `正文<html>`：前面的正文照常计。
+                if (embedAt > 0) paragraph.push(line.slice(0, line.length - content.length + embedAt));
+                skipTo(last);
+                continue;
+            }
+        }
+        if (MATH_LINE.test(content) && content.trim().length > 4) {
+            skipTo(index);
+            continue;
+        }
+        if (MATH_FENCE.test(content)) {
+            const last = findLine(lines, index + 1, (next) => MATH_FENCE.test(next.replace(CONTAINER, "")));
+            if (last >= 0) {
+                skipTo(last);
+                continue;
+            }
+        }
+        if (FOOTNOTE_DEF.test(content)) {
+            // 续行是缩进的行，中间可以隔空行。
+            let last = index;
+            for (let next = index + 1; next < lines.length; next += 1) {
+                const text = lines[next] as string;
+                if (/^[ \t]+\S/u.test(text)) last = next;
+                else if (text.trim() !== "") break;
+            }
+            skipTo(last);
+            continue;
+        }
+        if (blockStart && DEFINITION.test(content)) {
+            const title = lines[index + 1];
+            skipTo(title !== undefined && DEFINITION_TITLE.test(title.replace(CONTAINER, "")) ? index + 1 : index);
+            continue;
+        }
+        const html = htmlBlockEnd(joined, lines, offsets, index, content, blockStart);
+        if (html >= 0) {
+            skipTo(html);
+            continue;
+        }
+        if (HEADING.test(content)) {
+            flush();
+            paragraph.push(line);
+            flush();
+            index += 1;
+            blockStart = true;
+            continue;
+        }
+        // 提示块的类型只在引用的第一行。
+        const quoteStart = index === 0 || !/^[ \t]*>/u.test(lines[index - 1] as string);
+        paragraph.push((quoteStart ? line.replace(CALLOUT, "$1") : line).replace(TASK, "$1"));
+        blockStart = false;
+        index += 1;
+    }
+    flush();
+    return out.join("\n");
+}
+
+/** 从 `from` 起第一行满足 `test` 的行号；没有返回 -1。 */
+function findLine(lines: ReadonlyArray<string>, from: number, test: (line: string) => boolean): number {
+    for (let index = from; index < lines.length; index += 1) if (test(lines[index] as string)) return index;
+    return -1;
+}
+
+/**
+ * 从第 `index` 行开始的 HTML 块（原样块）的最后一行；不是 HTML 块返回 -1。认法与编辑器的 `syntax/raw` 一致：行首是方言之外的
+ * 标签、到配对的闭标签为止的完整片段（可以跨空行）后面紧跟行尾时整体是原样块；否则按 CommonMark 的 HTML 块。
+ */
+function htmlBlockEnd(joined: Scanned, lines: ReadonlyArray<string>, offsets: ReadonlyArray<number>, index: number, content: string, blockStart: boolean): number {
+    const name = OPEN_TAG_AT_START.exec(content)?.[1]?.toLowerCase();
+    if (name !== undefined && !KNOWN_TAGS.has(name)) {
+        const start = (offsets[index] as number) + (lines[index] as string).length - content.length;
+        const end = completeElementEnd(joined, start, name);
+        if (end >= 0) {
+            const lineEnd = joined.text.indexOf("\n", end);
+            if (/^[ \t]*$/u.test(joined.text.slice(end, lineEnd < 0 ? joined.text.length : lineEnd))) return lineOf(offsets, end - 1);
+        }
+    }
+    for (const [opens, ends] of HTML_BLOCK_ENDS) {
+        if (!opens.test(content)) continue;
+        const last = findLine(lines, index, (line) => ends.test(line));
+        return last < 0 ? lines.length - 1 : last;
+    }
+    const lone = name === undefined || !(BLOCK_DIALECT_TAGS as ReadonlyArray<string>).includes(name);
+    if (OPENS_HTML_BLOCK.test(content) || (blockStart && lone && LONE_TAG.test(content.trimEnd()))) {
+        const blank = findLine(lines, index + 1, (line) => line.trim() === "");
+        return blank < 0 ? lines.length - 1 : blank - 1;
+    }
+    return -1;
+}
+
+/** 位置 `at` 所在的行号。 */
+function lineOf(offsets: ReadonlyArray<number>, at: number): number {
+    let low = 0;
+    let high = offsets.length - 1;
+    while (low < high) {
+        const middle = (low + high + 1) >> 1;
+        if ((offsets[middle] as number) <= at) low = middle;
+        else high = middle - 1;
+    }
+    return low;
+}
+
+/**
+ * 一段要找标签的文字，带上只算一次的辅助：小写形式、最后一个 `>` 的位置、各标签名最后一个闭标签的位置。属性串可以跨行、
+ * 一直延伸到下一个 `>`，后面没有 `>` 的 `<` 不必试；后面没有同名闭标签的开标签不必配对。否则成千上万个 `a<b`、没闭合的
+ * `<kbd>` 每个都要扫到末尾。
+ */
+interface Scanned {
+    readonly text: string;
+    readonly lower: string;
+    readonly lastClose: number;
+    readonly lastCloseTag: Map<string, number>;
+}
+
+const scanned = (text: string): Scanned => {
+    const lower = text.toLowerCase();
+    return {text, lower, lastClose: text.lastIndexOf(">"), lastCloseTag: new Map()};
+};
+
+function lastCloseTag(source: Scanned, name: string): number {
+    let at = source.lastCloseTag.get(name);
+    if (at === undefined) {
+        at = source.lower.lastIndexOf(`</${name}`);
+        source.lastCloseTag.set(name, at);
+    }
+    return at;
+}
+
+const TAG = new RegExp(`<(/?)([A-Za-z][\\w-]*)(?=[\\s/>])(${ATTRIBUTES_SOURCE})>`, "uy");
+
+/** 从 `start` 处的开标签起，完整片段（自闭合、空元素，或同名标签按嵌套计数配上的闭标签）的结束位置；不完整返回 -1。 */
+function completeElementEnd(source: Scanned, start: number, name: string): number {
+    const {text} = source;
+    if (start > source.lastClose) return -1;
+    TAG.lastIndex = start;
+    const open = TAG.exec(text);
+    if (open === null || open[1] === "/") return -1;
+    const end = start + open[0].length;
+    if (VOID_HTML_TAGS.has(name) || (open[3] as string).endsWith("/")) return end;
+    // 后面根本没有这个名字的闭标签时直接返回：一段里成千上万个没闭合的 `<a>` 不至于每个都数到末尾。
+    if (lastCloseTag(source, name) < end) return -1;
+    const pattern = new RegExp(`<(/?)${name}(?=[\\s/>])((?:"[^"]*"|'[^']*'|[^>"'])*)>`, "giu");
+    pattern.lastIndex = end;
+    let depth = 1;
+    for (let matched = pattern.exec(text); matched !== null; matched = pattern.exec(text)) {
+        if ((matched[2] ?? "").endsWith("/")) continue;
+        depth += matched[1] === "/" ? -1 : 1;
+        if (depth === 0) return matched.index + matched[0].length;
+    }
+    return -1;
+}
+
+// ---- 行内：一段的文字 ----
+
+const SPECIAL = /[`\\<$[&]/gu;
+const ASCII_PUNCTUATION = /^[!-/:-@[-`{-~]$/u;
+const AUTOLINK = /<([A-Za-z][A-Za-z0-9+.-]{1,31}:[^\s<>]*|[\w.!#$%&'*+/=?^`{|}~-]+@[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*)>/uy;
+const COMMENT_END = "-->";
+const MATH_INLINE = new RegExp(MATH_INLINE_SOURCE, "uy");
+const FOOTNOTE_REF = new RegExp(FOOTNOTE_REF_SOURCE, "uy");
+const ENTITY = /&(?:#[0-9]{1,7}|#[xX][0-9a-fA-F]{1,6}|[A-Za-z][A-Za-z0-9]{1,31});/uy;
+
+/** 一段里不计的内容去掉后的文字：行内代码原样留下，标签、HTML 注释、行内数学与脚注引用去掉，实体解码，转义取字符本身。 */
+function inline(text: string): string {
+    const source = scanned(text);
+    const runs = backtickRuns(text);
+    // 每种长度下一个还没走过的反引号串（扫描只往后走）。
+    const cursors = new Map<number, number>();
+    const parts: string[] = [];
+    let copied = 0;
+    const replace = (from: number, to: number, value: string): number => {
+        parts.push(text.slice(copied, from), value);
+        copied = to;
+        return to;
+    };
+    let at = 0;
+    while (at < text.length) {
+        SPECIAL.lastIndex = at;
+        const special = SPECIAL.exec(text);
+        if (special === null) break;
+        const position = special.index;
+        at = position + 1;
+        switch (special[0]) {
+            case "`": {
+                // 行内代码：同样长的一串反引号闭合，中间原样计入；配不上时这串反引号是文字。
+                let length = 1;
+                while (text[position + length] === "`") length += 1;
+                const starts = runs.get(length) ?? [];
+                let cursor = cursors.get(length) ?? 0;
+                while (cursor < starts.length && (starts[cursor] as number) <= position) cursor += 1;
+                cursors.set(length, cursor);
+                const close = starts[cursor];
+                at = close === undefined ? position + length : close + length;
+                break;
+            }
+            case "\\":
+                if (ASCII_PUNCTUATION.test(text[position + 1] ?? "")) at = replace(position, position + 2, text[position + 1] as string);
+                break;
+            case "<":
+                at = tagAt(source, position, replace) ?? at;
+                break;
+            case "$":
+                MATH_INLINE.lastIndex = position;
+                if (MATH_INLINE.test(text)) at = replace(position, MATH_INLINE.lastIndex, "");
+                break;
+            case "[":
+                FOOTNOTE_REF.lastIndex = position;
+                if (FOOTNOTE_REF.test(text)) at = replace(position, FOOTNOTE_REF.lastIndex, "");
+                break;
+            case "&": {
+                ENTITY.lastIndex = position;
+                const entity = ENTITY.exec(text)?.[0];
+                if (entity !== undefined) at = replace(position, position + entity.length, decodeHTMLStrict(entity));
+                break;
+            }
+        }
+    }
+    parts.push(text.slice(copied));
+    return parts.join("");
+}
+
+/** 一段里每种长度的反引号串的起点（升序）。 */
+function backtickRuns(text: string): Map<number, number[]> {
+    const runs = new Map<number, number[]>();
+    for (const matched of text.matchAll(/`+/gu)) {
+        const starts = runs.get(matched[0].length) ?? [];
+        starts.push(matched.index);
+        runs.set(matched[0].length, starts);
+    }
+    return runs;
+}
+
+/**
+ * `<` 开头的写法：自动链接留下地址，HTML 注释与标签去掉；方言之外的完整片段连同中间的字去掉（标准写法注音里的 `<rt>` 小字
+ * 也由这一条去掉）。返回处理到的位置。
+ */
+function tagAt(source: Scanned, position: number, replace: (from: number, to: number, value: string) => number): number | null {
+    const {text, lastClose} = source;
+    if (position > lastClose) return null;
+    if (text.startsWith("<!--", position)) {
+        const end = text.indexOf(COMMENT_END, position + 4);
+        return end < 0 ? null : replace(position, end + COMMENT_END.length, "");
+    }
+    AUTOLINK.lastIndex = position;
+    const link = AUTOLINK.exec(text);
+    if (link !== null) return replace(position, position + link[0].length, link[1] as string);
+    TAG.lastIndex = position;
+    const tag = TAG.exec(text);
+    if (tag === null) return null;
+    const name = (tag[2] as string).toLowerCase();
+    const end = position + tag[0].length;
+    // `<br>` 是换行：两边的词不连成一个。
+    if (name === "br") return replace(position, end, " ");
+    if (tag[1] === "/" || KNOWN_TAGS.has(name)) return replace(position, end, "");
+    const element = completeElementEnd(source, position, name);
+    return replace(position, element < 0 ? end : element, "");
 }

@@ -69,6 +69,14 @@ describe("读入的明确期望", () => {
             {type: "rawInline", attrs: {raw: "<u>下</u>"}},
             {type: "text", text: "、C++和C++"},
         ]);
+        // 尖括号里的网址与邮箱是自动链接，不是标签。
+        expect(paragraph("<https://a.example>与<me@b.cn>与Vec<String>").map((node) => node.type === "text" ? [node.text, node.marks?.[0]?.attrs?.href] : node.attrs?.raw)).toEqual([
+            ["https://a.example", "https://a.example"],
+            ["与", undefined],
+            ["me@b.cn", "mailto:me@b.cn"],
+            ["与Vec", undefined],
+            "<String>",
+        ]);
     });
 
     it("任务项与普通项混在一起时拆成相邻的两个列表；有序列表里的复选框是文字（输出 19）", () => {

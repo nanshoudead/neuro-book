@@ -12,17 +12,16 @@
 import {mergeAttributes, Node} from "@tiptap/core";
 import type {MarkedExtension, Token, Tokens} from "marked";
 
+import {FOOTNOTE_REF_SOURCE, LONE_TAG, MATH_INLINE_SOURCE, OPENS_HTML_BLOCK, READABLE_INLINE_HTML, VOID_HTML_TAGS} from "nbook/shared/markdown-dialect";
+
 import {encodeRawBreaks} from "../../codec/render/escape";
 import {lastMatch, nextMatch, paragraphEnd} from "../tags";
 import type {MarkdownSyntax, TokenReader} from "../types";
 import {Unrepresentable} from "../types";
 
-/** 能读的行内 HTML（输出 25）：交给核心语法配对成粗体、斜体、删除线与换行，这里不抢。 */
-export const READABLE_INLINE_HTML = ["strong", "b", "em", "i", "del", "s", "br"] as const;
-
-const VOID_TAGS = new Set(["area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "source", "track", "wbr"]);
-const OPEN_TAG = /^<([a-zA-Z][\w-]*)((?:"[^"]*"|'[^']*'|[^>"'])*)>/u;
-const SELF_CLOSING = /^<([a-zA-Z][\w-]*)(?:"[^"]*"|'[^']*'|[^>"'])*\/>/u;
+// 标签名后面紧跟空白、`/` 或 `>`：`<https://例子>`、`<a@b.cn>` 是自动链接，不是标签。
+const OPEN_TAG = /^<([a-zA-Z][\w-]*)(?=[\s/>])((?:"[^"]*"|'[^']*'|[^>"'])*)>/u;
+const SELF_CLOSING = /^<([a-zA-Z][\w-]*)(?=[\s/>])(?:"[^"]*"|'[^']*'|[^>"'])*\/>/u;
 const CLOSE_TAG = /^<\/([a-zA-Z][\w-]*)\s*>/u;
 
 /** 同名标签嵌套计数下，从 `from` 起找配对的闭标签，返回它的结束位置；没有返回 -1。 */
@@ -51,7 +50,7 @@ function completeHtml(src: string, known: ReadonlySet<string>, lineEnd: boolean)
         if (open === null) return null;
         const tag = (open[1] as string).toLowerCase();
         if (known.has(tag)) return null;
-        if (VOID_TAGS.has(tag)) captured = open[0];
+        if (VOID_HTML_TAGS.has(tag)) captured = open[0];
         else {
             const end = matchingCloseEnd(src, tag, open[0].length);
             captured = end < 0 ? null : src.slice(0, end);
@@ -73,22 +72,9 @@ function htmlFragment(src: string, known: ReadonlySet<string>): string | null {
 
 /** 脚注定义：`[^标签]: 文字`，后面缩进的行是它的续行。 */
 const FOOTNOTE_DEF = /^\[\^[^\]\s]+\]:[^\n]*(?:\n(?:[ \t]+[^\n]*|[ \t]*(?=\n[ \t]+\S)))*/u;
-const FOOTNOTE_REF = /^\[\^[^\]\s]+\]/u;
-/** 行内数学（Pandoc 的 tex_math_dollars）：开 `$` 后不是空白，闭 `$` 前不是空白、后面不是数字。 */
-const MATH_INLINE = /^\$(?=\S)(?:\\.|[^$\\\n])*?\S\$(?!\d)|^\$[^\s$]\$(?!\d)/u;
+const FOOTNOTE_REF = new RegExp(`^${FOOTNOTE_REF_SOURCE}`, "u");
+const MATH_INLINE = new RegExp(`^(?:${MATH_INLINE_SOURCE})`, "u");
 const MATH_BLOCK = /^\$\$[^\n]*\$\$[ \t]*(?=\n|$)|^\$\$[ \t]*\n[\s\S]*?\n[ \t]*\$\$[ \t]*(?=\n|$)/u;
-
-/**
- * 行首出现时会开启一个 HTML 块（CommonMark 的第 1–6 类，它们还能打断段落）的写法：注释、处理指令、声明、CDATA、`<script>`
- * 这类、块级标签。原样片段以它开头时，不能写在一行的开头。
- */
-export const OPENS_HTML_BLOCK = /^<(?:!--|\?|![A-Za-z]|!\[CDATA\[|(?:script|pre|style|textarea)(?:\s|>|$)|\/?(?:address|article|aside|base|basefont|blockquote|body|caption|center|col|colgroup|dd|details|dialog|dir|div|dl|dt|fieldset|figcaption|figure|footer|form|frame|frameset|h[1-6]|head|header|hr|html|iframe|legend|li|link|main|menu|menuitem|nav|noframes|ol|optgroup|option|p|param|search|section|summary|table|tbody|td|tfoot|th|thead|title|tr|track|ul)(?:\s|\/?>|$))/iu;
-
-/**
- * 单个完整的标签（开标签或闭标签）：独占一行时会开启 HTML 块（CommonMark 的第 7 类，不能打断段落，但能开始一个块）。原样片段
- * 是这样的标签时，不能一个人占一行。
- */
-export const LONE_TAG = /^<\/?[A-Za-z][\w-]*(?:\s(?:"[^"]*"|'[^']*'|[^>"'])*)?\/?>$/u;
 
 export const RawBlock = Node.create({
     name: "rawBlock",

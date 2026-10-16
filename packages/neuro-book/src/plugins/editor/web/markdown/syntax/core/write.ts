@@ -5,8 +5,9 @@
 
 import type {Mark, Node as PMNode} from "@tiptap/pm/model";
 
+import {LONE_TAG, OPENS_HTML_BLOCK} from "nbook/shared/markdown-dialect";
+
 import type {BlockWriter, InlineWriter, MarkWriter, WriteContext} from "../types";
-import {LONE_TAG, OPENS_HTML_BLOCK} from "../raw";
 import {normalizeLabel, Unrepresentable} from "../types";
 
 /** 写出的列表开头的符号（无序的 `-`、`*`、`+`，有序的分隔符）；不是列表时为 null。 */
@@ -169,7 +170,7 @@ const hardBreak: InlineWriter = (node, context, around) => {
     // `<br>` 不会单独占一行（单独一行的 `<br>` 会被读成 HTML 块）。
     if (around.previous === null || around.next === null || around.previous.type.name === "hardBreak" || around.next.type.name === "hardBreak") return "<br>";
     // 换行后面紧跟会开启 HTML 块的原样片段：换了行它会打断段落，写 `<br>` 留在同一行。挨着单个完整标签的原样片段时也写
-    // `<br>`：标签独占一行会被读成 HTML 块（`../raw` 的 `LONE_TAG`）。
+    // `<br>`：标签独占一行会被读成 HTML 块（`nbook/shared/markdown-dialect` 的 `LONE_TAG`）。
     const raw = (other: PMNode): string | null => (other.type.name === "rawInline" ? String(other.attrs.raw ?? "") : null);
     const nextRaw = raw(around.next);
     const previousRaw = raw(around.previous);

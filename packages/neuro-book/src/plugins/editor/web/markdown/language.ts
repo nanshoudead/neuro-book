@@ -49,6 +49,8 @@ export interface MarkdownLanguage {
     readonly joinedInline: ReadonlyMap<string, string>;
     /** 块级方言标签名与宽容写法的规则（行尾的开标签认不认，由各模块的分词规则判断）。 */
     readonly blockTags: ReadonlyArray<string>;
+    /** 行内方言标签名（各模块的 `inlineTags`）。 */
+    readonly inlineTags: ReadonlyArray<string>;
     readonly glued: GluedRules;
 }
 
@@ -123,6 +125,7 @@ export function createMarkdownLanguage(syntaxes: ReadonlyArray<MarkdownSyntax>):
         contextDependents: byName((syntax) => syntax.contextDependents),
         verifyWindow: byName((syntax) => syntax.verifyWindow),
         blockTags,
+        inlineTags,
         glued: {
             tags: blockTags,
             accepts: (name, source) => {
