@@ -130,13 +130,19 @@ const foldPlugin = new Plugin<DecorationSet>({
     },
 });
 
-/**
- * 编辑器里的提示块：标题行（图标、标题或类型名、有折叠标记时的展开按钮）不可编辑，内容区是可编辑的子块。折叠与否来自
- * `foldPlugin` 给这个节点的装饰；点标题行请插件切换。
- */
-function calloutView(initial: PMNode, initialDecorations: ReadonlyArray<Decoration>, toggleFold: () => void): NodeView {
-    let node = initial;
-    let decorations = initialDecorations;
+/** 提示块的元素：标题行（图标、标题或类型名、有折叠标记时的展开按钮）与内容区。编辑器的节点视图与展示器的静态视图共用。 */
+export interface CalloutElement {
+    readonly dom: HTMLElement;
+    readonly head: HTMLElement;
+    /** 子块放在这里（编辑器里是可编辑的 `contentDOM`）。 */
+    readonly content: HTMLElement;
+    /** 按节点与是否折叠画（只有带折叠标记的能折叠）。 */
+    render(node: PMNode, folded: boolean): void;
+}
+
+/** 画一个提示块；点标题行调用 `onToggle`（只在带折叠标记时）。`document` 是要放进去的那个文档。 */
+export function buildCallout(document: Document, onToggle: () => void): CalloutElement {
+    let node: PMNode | null = null;
     const dom = document.createElement("div");
     const head = document.createElement("div");
     head.className = "nb-callout__title";
@@ -152,43 +158,55 @@ function calloutView(initial: PMNode, initialDecorations: ReadonlyArray<Decorati
     toggle.append(chevron);
     // 整个标题行都能点（输出 23“点标题展开或折叠”）；按钮是键盘与读屏的入口，点它同样经过这里。
     head.addEventListener("click", (event) => {
-        if (node.attrs.fold === null) return;
+        if (node === null || node.attrs.fold === null) return;
         event.preventDefault();
-        toggleFold();
+        onToggle();
     });
     const content = document.createElement("div");
     content.className = "nb-callout__content";
     head.append(icon, label, toggle);
     dom.append(head, content);
-    const render = (): void => {
-        const type = String(node.attrs.type ?? "NOTE");
-        const kind = ICONS[type.toLowerCase()] === undefined ? "note" : type.toLowerCase();
-        const foldable = node.attrs.fold !== null;
-        const isFolded = foldable && decorations.some((decoration) => (decoration.spec as {folded?: boolean}).folded === true);
-        dom.className = `nb-callout nb-callout--${kind}`;
-        dom.dataset.callout = type;
-        dom.dataset.calloutFolded = String(isFolded);
-        icon.className = `nb-callout__icon ${ICONS[kind] as string}`;
-        label.textContent = node.attrs.title === null || node.attrs.title === "" ? type : String(node.attrs.title);
-        toggle.hidden = !foldable;
-        toggle.setAttribute("aria-expanded", String(!isFolded));
-        toggle.setAttribute("aria-label", label.textContent);
-        content.hidden = isFolded;
-    };
-    render();
     return {
         dom,
-        contentDOM: content,
+        head,
+        content,
+        render: (next, folded) => {
+            node = next;
+            const type = String(next.attrs.type ?? "NOTE");
+            const kind = ICONS[type.toLowerCase()] === undefined ? "note" : type.toLowerCase();
+            const foldable = next.attrs.fold !== null;
+            const isFolded = foldable && folded;
+            dom.className = `nb-callout nb-callout--${kind}`;
+            dom.dataset.callout = type;
+            dom.dataset.calloutFolded = String(isFolded);
+            icon.className = `nb-callout__icon ${ICONS[kind] as string}`;
+            label.textContent = next.attrs.title === null || next.attrs.title === "" ? type : String(next.attrs.title);
+            toggle.hidden = !foldable;
+            toggle.setAttribute("aria-expanded", String(!isFolded));
+            toggle.setAttribute("aria-label", label.textContent);
+            content.hidden = isFolded;
+        },
+    };
+}
+
+/** 编辑器里的提示块：内容区是可编辑的子块，折叠与否来自 `foldPlugin` 给这个节点的装饰，点标题行请插件切换。 */
+function calloutView(initial: PMNode, initialDecorations: ReadonlyArray<Decoration>, toggleFold: () => void): NodeView {
+    const element = buildCallout(document, toggleFold);
+    let node = initial;
+    const isFolded = (decorations: ReadonlyArray<Decoration>): boolean => decorations.some((decoration) => (decoration.spec as {folded?: boolean}).folded === true);
+    element.render(initial, isFolded(initialDecorations));
+    return {
+        dom: element.dom,
+        contentDOM: element.content,
         update: (next, nextDecorations) => {
             if (next.type !== node.type) return false;
             node = next;
-            decorations = nextDecorations;
-            render();
+            element.render(next, isFolded(nextDecorations));
             return true;
         },
         // 标题行是界面，不是正文：点击与它的变化不交给编辑器。
-        stopEvent: (event) => head.contains(event.target as globalThis.Node | null),
-        ignoreMutation: (mutation) => !content.contains(mutation.target),
+        stopEvent: (event) => element.head.contains(event.target as globalThis.Node | null),
+        ignoreMutation: (mutation) => !element.content.contains(mutation.target),
     };
 }
 

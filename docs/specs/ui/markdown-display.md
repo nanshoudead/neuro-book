@@ -23,7 +23,7 @@ owners:
 
 - **宿主**：挂上展示器的界面（以后的 Agent 对话视图；本轮是 Lab 场景）。
 - **块**：顶层块，含义同 [workspace.markdown-dialect](../workspace/markdown-dialect.md) 的“块”。
-- **静态视图**：方言里需要专门样子的节点（提示块、可渲染 HTML、图片）在展示器里的样子，由语法模块交出，与编辑器里的编辑视图共用同一套外观（输出 2）。
+- **静态视图**：内置方言里需要专门样子的节点（提示块、可渲染 HTML、图片）在展示器里的样子，由 `nbook.markdown` 自己持有，与编辑器里的节点视图共用同一套外观函数（输出 2）。外来方言没有静态视图，节点按 schema 的 `renderHTML` 显示。
 
 ## 输入与前置条件
 
@@ -54,7 +54,7 @@ interface MarkdownDisplayEmits {
 ## 输出与可观察行为
 
 1. **语言**：挂上时取当时的语言（[workspace.markdown-syntaxes](../workspace/markdown-syntaxes.md) 输出 7），直到卸载都用这一份。读法与编辑器相同：不认识的写法原样显示源码，读不出的块不会让整条消息失败。
-2. **外观与编辑器一致**：同一份 Markdown，展示器与 Markdown 编辑器生成的方言元素结构与类名相同（不计编辑器自带的可编辑属性、`ProseMirror-*` 类名与占位元素），共用同一份样式。提示块、可渲染 HTML、图片的样子由语法模块的同一套外观函数画出。
+2. **外观与编辑器一致**：同一份 Markdown，展示器与 Markdown 编辑器生成的方言元素结构与类名相同（不计编辑器自带的可编辑属性、`ProseMirror-*` 类名与占位元素），共用同一份样式。提示块、可渲染 HTML、图片的样子由与编辑器同一套外观函数画出；外来方言的节点按 schema 的 `renderHTML` 显示，与编辑器里没有节点视图时相同。
 3. **引用小块**：指向作品里文件的链接显示为引用小块（[`InlineChip`](../../../packages/neuro-book/src/plugins/markdown/web/components/InlineChip.md)），一个链接只显示一个小块，被批注盖住一部分时也是；外部链接显示为普通链接。
 4. **图片**：按 [`MarkdownImage`](../../../packages/neuro-book/src/plugins/markdown/web/components/MarkdownImage.md) 显示：`resolveAsset` 返回 null 或省略时显示说明文字；读取中显示占位。
 5. **交互**：点击引用小块发出 `{kind: "reference"}`，点击外部链接发出 `{kind: "link"}`（不由展示器自己跳转），点击图片发出 `{kind: "image"}`。文字可以选中复制。提示块的标题点了折叠或展开，状态只在这次显示里记，不写回原文。可渲染 HTML 默认是源码卡片，点“渲染”后在沙箱里显示，规则同编辑器（[workspace.markdown-dialect](../workspace/markdown-dialect.md) 输出 16）。
@@ -98,7 +98,7 @@ interface MarkdownDisplayEmits {
 3. Given 同一份含全部方言的语料，When 分别用展示器与编辑器显示，Then 方言元素的结构与类名按输出 2 的规则一致。
 4. Given 一条含已渲染 `<html>` 块的回复，When 流式更新替换掉它、再卸载展示器，Then 页面上不再有它的监听与沙箱，图片的地址都已释放。
 
-Smoke：`display/display.dom.test.ts` 运行场景 1、3、4；场景 2 在本机 Chrome 上由 `e2e/lab-markdown.e2e.ts` 运行。
+Smoke：`packages/neuro-book/src/plugins/markdown/web/components/MarkdownDisplay.dom.test.ts` 运行场景 1、3、4 与输出 5、6；场景 1、2 在本机 Chrome 上由 `packages/neuro-book/e2e/lab-markdown.e2e.ts` 运行（Lab 场景 `MarkdownDisplay` 的 `streaming`、`conversation`）。
 
 ## 证据
 

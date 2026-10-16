@@ -12,6 +12,7 @@ import type ExplorerTree from "nbook/plugins/explorer/web/components/ExplorerTre
 import type FilesExplorerView from "nbook/plugins/explorer/web/components/FilesExplorerView.vue";
 import type FileIcon from "nbook/ui/file-icons/FileIcon.vue";
 import type InlineChip from "nbook/plugins/markdown/web/components/InlineChip.vue";
+import type MarkdownDisplay from "nbook/plugins/markdown/web/components/MarkdownDisplay.vue";
 import type MarkdownImage from "nbook/plugins/markdown/web/components/MarkdownImage.vue";
 import type BookCard from "nbook/plugins/projects/web/components/BookCard.vue";
 import type WelcomePage from "nbook/plugins/projects/web/components/WelcomePage.vue";
@@ -64,6 +65,33 @@ import {nbUiFixtures} from "./nb-ui";
 import {SHELF_COVER_SRC, SHELF_ITEMS, SHELF_ITEM_REVISING, SHELF_NOW} from "./shelf-fixture-data";
 import {SETTINGS_WINDOW_SCENES, snippetsSettings} from "./settings-scene/scene-settings";
 import {defineSubjectFixture} from "./subject-fixture";
+
+/** MarkdownDisplay 场景用的回复：每种内置方言各一段，加引用小块、外部链接与图片。 */
+const DISPLAY_REPLY = [
+    "我读了[<comment body=\"她第一次出场\">林</comment>雪](/设定/林雪.md)的设定和[第三章](/正文/第三章.md)，有三处可以改：",
+    "",
+    "1. 开头<ruby text=\"jì tán\">祭坛</ruby>的描写偏长，==可以压到两句==。",
+    "2. 对话里的 <kbd>Ctrl</kbd> 是笔误，H<sub>2</sub>O 与 x<sup>2</sup> 也要统一写法。",
+    "",
+    "> [!WARNING]- 伏笔会提前暴露",
+    "> 第二段直接说出了她的来历，读者在第五章前不该知道。",
+    "",
+    "<align value=\"center\">",
+    "—— 改写示例 ——",
+    "</align>",
+    "",
+    "<bilingual text=\"老人缓缓走向祭坛。\">",
+    "The old man walked slowly toward the altar.",
+    "</bilingual>",
+    "",
+    "<html>",
+    "<div style=\"padding:8px;border:1px solid #ccc\"><b>人物卡</b>：林雪，二十岁</div>",
+    "</html>",
+    "",
+    "![示意图](/资料/地图.png)",
+    "",
+    "参考：[写作手册](https://example.com/guide)。",
+].join("\n");
 
 /**
  * 场景登记。这不是第二份组件清单——组件清单由 component-index 扫文档得到，
@@ -584,6 +612,17 @@ export const labFixtures: LabFixture[] = [
             {id: "english", label: "英文界面", input: {props: {kind: "file", locale: "en-US", label: "notes.txt", number: 2, state: "uploading"}}},
         ],
         load: async () => (await import("./InlineChipFixture.vue")).default,
+    }),
+    defineLabFixture<typeof MarkdownDisplay>({
+        component: "MarkdownDisplay",
+        scenes: [
+            {id: "reply", label: "一条完整的回复（各方言）", input: {props: {text: DISPLAY_REPLY, locale: "zh-CN"}}},
+            {id: "streaming", label: "流式追加", input: {props: {text: DISPLAY_REPLY, locale: "zh-CN"}}},
+            {id: "conversation", label: "100 条消息的长对话", input: {props: {text: DISPLAY_REPLY, locale: "zh-CN"}}},
+            {id: "plain", label: "只有普通 Markdown", input: {props: {text: "## 小结\n\n- 第一章节奏偏快\n- 第二章的伏笔可以提前\n\n```ts\nconst answer = 42;\n```\n\n| 章 | 字数 |\n|---|---|\n| 一 | 3200 |", locale: "zh-CN"}}},
+            {id: "empty", label: "空文本", input: {props: {text: "", locale: "zh-CN"}}},
+        ],
+        load: async () => (await import("./MarkdownDisplayFixture.vue")).default,
     }),
     defineLabFixture<typeof MarkdownImage>({
         component: "MarkdownImage",

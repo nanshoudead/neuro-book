@@ -23,7 +23,7 @@ owners:
 ## 术语与参与者
 
 - **方言声明**：一种方言的静态信息（顺序、标签名、字数规则），投到贡献点 `markdown.dialects`。
-- **方言实现**：一种方言的语法模块（schema、读法、写法、编辑视图、静态视图），投到贡献点 `markdown.syntaxes`。
+- **方言实现**：一种方言的语法模块（schema、读法、写法、编辑视图），投到贡献点 `markdown.syntaxes`。
 - **内置方言**：批注、注音、双语、对齐、文字标记、可渲染 HTML、提示块。它们的声明投到 `markdown.dialects`，实现由 `nbook.markdown` 直接持有，不经贡献点交付。
 - **核心语法**：CommonMark 与 GFM 的部分与原样保留，由 `nbook.markdown` 直接持有，不是方言。
 - **语言**：核心语法加上全部生效的方言组成的一份读写规则，有自己的 schema。
@@ -48,7 +48,7 @@ owners:
 | `inlineTags` | 标签名数组，可省略 | 本方言的行内标签 |
 | `tagWords` | `{tag, content: "count" \| "skip"}` 数组，可省略 | 标签里的字计不计；标签必须出现在 `blockTags` 或 `inlineTags` 里；没列出的声明标签计入 |
 
-`MarkdownSyntax` 是语法模块的形状（`shared/contracts.ts` 导出类型）：schema 扩展、各词法单元的读法、各节点与标记的写法、标签名、编辑视图与静态视图（[ui.markdown-display](../ui/markdown-display.md) 输出 2）。
+`MarkdownSyntax` 是语法模块的形状（浏览器一侧的 `web/contracts.ts` 导出类型）：schema 扩展、各词法单元的读法、各节点与标记的写法、标签名与编辑视图。外来方言在展示器里按 schema 的 `renderHTML` 显示，没有专门的静态视图（[ui.markdown-display](../ui/markdown-display.md) 输出 2）。
 
 `nbook.markdown` 的浏览器入口提供服务 `markdownKey`，交出用 Markdown 的组件；语言与编解码器只在这些组件里用，不经服务交出：
 

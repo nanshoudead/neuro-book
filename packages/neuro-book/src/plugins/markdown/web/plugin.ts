@@ -58,6 +58,7 @@ export const markdownBrowserPlugin: PluginDefinition = {
             const service: MarkdownService = {
                 components: {
                     MarkdownControl: withHost(catalog, assets, "MarkdownControlHost", async () => (await import("./components/MarkdownControl.vue")).default),
+                    MarkdownDisplay: withHost(catalog, assets, "MarkdownDisplayHost", async () => (await import("./components/MarkdownDisplay.vue")).default),
                     InlineChip: defineAsyncComponent(async () => (await import("./components/InlineChip.vue")).default),
                     MarkdownImage: defineAsyncComponent(async () => (await import("./components/MarkdownImage.vue")).default),
                 },

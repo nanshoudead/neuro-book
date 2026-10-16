@@ -21,7 +21,7 @@ export interface HtmlEmbedLabels {
 /** 宿主数据接口路由；type 为请求类别，payload 为请求参数，返回值会原样回传 iframe */
 export type HtmlEmbedDataApi = (type: string, payload: unknown) => Promise<unknown>;
 
-interface HtmlEmbedOptions {
+export interface HtmlEmbedOptions {
     /** NodeView 按钮文案；NodeView 是纯 DOM，无法直接消费 i18n，由宿主注入 */
     resolveLabels: () => HtmlEmbedLabels;
     /** 可选数据接口路由；不注入时 iframe 内所有 nbook.request 都会被拒绝 */
@@ -180,7 +180,7 @@ export const htmlEmbedSyntax: MarkdownSyntax = {
  * 渲染嵌入卡片 DOM：源码态显示代码预览，渲染态挂 sandbox iframe。
  * 返回清理函数（渲染态时解除 message 监听）。
  */
-function renderHtmlEmbedElement(wrapper: HTMLElement, html: string, rendered: boolean, options: HtmlEmbedOptions, onToggle: () => void): (() => void) | null {
+export function renderHtmlEmbedElement(wrapper: HTMLElement, html: string, rendered: boolean, options: HtmlEmbedOptions, onToggle: () => void): (() => void) | null {
     const labels = options.resolveLabels();
     const header = document.createElement("div");
     header.className = "nb-html-embed__header";
