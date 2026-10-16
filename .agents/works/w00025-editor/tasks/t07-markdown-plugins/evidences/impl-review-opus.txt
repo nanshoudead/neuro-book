@@ -1,0 +1,212 @@
+# w00025 t07 实现审查（Opus，后端与领域部分）
+
+审查对象：`ee9cee973..5fbf30ca4`（S0–S6）。实验脚本在 `packages/neuro-book/zz-review-lab/opus/`（审查 worktree `.worktree/w00025-t07-review`）。
+
+### 1. 外来方言与“原样保留”语法撞名时组成语言直接抛错，所有 Markdown 视图都建不起来
+
+- **严重程度**：重要；**类别**：正确性
+- **位置**：`packages/neuro-book/src/plugins/markdown/web/language-registry.ts:26`（`taken` 只收 `builtinOrder()` 与 `coreSyntax`）；`web/language.ts` 的 `createMarkdownLanguage` 在 `writers()` 里遇到重名写法 `throw`；原样语法 `createRawSyntax` 由 `createMarkdownLanguage` 自己追加，不在 `taken` 里。
+- **现象**：外来方言的实现交出 `writeInline.rawInline`（或 `writeBlock.rawBlock`、名为 `rawBlock`/`rawInline` 的节点）时，目录判它生效（与内置标签、与其它外来方言都不撞），`languageFor` 的 schema 撞名检查也放过它，随后 `createMarkdownLanguage` 抛 `rawInline 的写法登记了两次（raw）`。`languageFor` 不捕获，`MarkdownControl.vue:358` 与 `MarkdownDisplay.vue:60` 建视图时都会抛出：之后打开的每个 Markdown 编辑器与每条消息显示都失败，而不是只有这种外来方言不生效。
+- **为什么是问题**：Spec `docs/specs/workspace/markdown-syntaxes.md` 输出 4 规定外来方言与核心语法（术语里明确“核心语法：CommonMark 与 GFM 的部分与原样保留”）同名时“只有外来的那种不生效”；这里一个贡献方的错误扩散成整个 Markdown 能力不可用，没有诊断。
+- **如何核实**：`bun test zz-review-lab/opus/raw-collide.test.ts`（在 `packages/neuro-book` 下），第一例输出 `active 1 []` 与 `languageFor threw: Error: rawInline 的写法登记了两次（raw）`。
+- **建议改法**：让原样语法成为 `coreSyntax` 一侧的固定部分参与 `taken`：把 `createRawSyntax` 的结果（它的名字与标签无关，只有标签名单随语言变）的 `namesOf` 并进 `taken`；或者 `namesOf` 的比较对象直接用“不含外来方言时组成的语言”的 `extensions` 名与三张写法表的键（`markdownLanguage()` 已有），一处得出，不再手列。再在 `syntaxes.test.ts` 的输出 4 一例补“与核心语法的节点或写法同名”的情形（现有测试只测了与内置方言同标签，走的是目录的判断，`languageFor` 这条分支没有测试）。
+
+### 2. 撞名判定不看语法模块的 `name`：外来方言取名与内置模块相同时悄悄顶掉内置的写前准备，写回抛 TypeError
+
+- **严重程度**：重要；**类别**：正确性
+- **位置**：`web/syntax-catalog.ts:39`（`namesOf` 只收标签、扩展名、写法键）；`web/language.ts` 的 `byName`（`prepareWrite`、`contextDependents`、`verifyWindow` 按 `syntax.name` 建 `Map`，后来的覆盖先来的）；`WriteContext.prepared(syntax)` 按模块名取。
+- **现象**：外来方言的语法模块 `name: "comment"`（标签 `kbd`，与批注无关）且带 `prepareWrite`，目录与 `languageFor` 都判它生效，组成的语言里 `prepareWrite.get("comment")` 是外来的那个；读入一段批注再不编辑写回，`codec.write` 抛 `TypeError: undefined is not an object (evaluating 'openings.get')`（批注写法取到的是外来模块的准备结果）。外来方言 order 小于内置时则反过来：外来的准备被内置顶掉，外来方言自己写不对。
+- **为什么是问题**：模块名是语言内部的第二套键，`namesOf` 没把它算作“名字”，撞了不报 `conflict`、也不拒，结果是批注这类内置方言写回崩溃；违反输出 4“外来方言与内置同名时只有外来的那种不生效”的意图。
+- **如何核实**：`bun test zz-review-lab/opus/raw-collide.test.ts` 第二例输出 `reports [] prepare is foreign: true` 与写回的 TypeError。
+- **建议改法**：`namesOf` 加一项 `module:${syntax.name}`，与第 1 条同一处修；或 `createMarkdownLanguage` 对重复的模块名与写法一样直接拒绝（再由 `languageFor` 在组成前按同一张名单过滤外来方言，组成本身就不会抛）。
+
+### 3. 不生效诊断的去重表清得不对：加载失败的方言重新交付后再失败不记；与内置 schema 撞名的每次方言集合变化都重记
+
+- **严重程度**：建议；**类别**：正确性
+- **位置**：`web/syntax-catalog.ts:74-78`（`revoke` 只在 `#loaded` 里有这个句柄时才 `#reported.delete`）、`:95`（`load-failed` 不进 `#loaded`）、`:132`（生效的一律清记录）；`web/language-registry.ts:27`（schema 撞名经 `catalog.report` 记）。
+- **现象**：
+  - `load()` 失败的方言不进 `#loaded`，贡献方停止时 `revoke` 直接 `return`，`#reported` 里留着 `load-failed`；贡献方重新启动、`load()` 再次失败时 `report` 因“同一原因”被吞掉，这次失败没有任何诊断。Spec 的失败表写“下一次交付重试”，重试的失败理应可见。
+  - 反过来，与内置 schema 撞名的方言在目录看来是生效的（目录只比内置的标签），每次 `#recompute` 都会把它的记录清掉；下一次 `languageFor` 换了数组身份重新组成时再记一条 `conflict`。别的外来方言每晚到或撤回一次，它就多一条重复诊断。而在没有任何视图建立之前，这种撞名一条诊断都没有，`catalog.active` 也一直把它列为生效。
+  - 另：`load()` 在句柄已撤回后才失败时，仍会记一条 `load-failed` 并占住去重表。
+- **为什么是问题**：任务要求“每个原因只记一次、恢复后能再记”；现在两边都不成立，诊断是这类失败唯一的可观察信号。
+- **如何核实**：读代码可见；可在 `syntaxes.test.ts` 的写法下用 `kbdDialectPlugin({implementation: 失败的 load, activationEvents: []})` 激活、关作用域、再激活，第二次 `holder.inactive` 不增加。
+- **建议改法**：撞名判定整体挪进目录（目录在 `#recompute` 时就拿内置与核心语法的名单比，见第 1 条），`languageFor` 不再判、不再 `report`，`active` 就是真正进语言的集合；`revoke` 无条件 `this.#reported.delete(handle.id)`（或按句柄记 `load-failed`），`#load` 失败时先看 `handle.published` 再记。
+
+### 4. 没有 `wordRules` 的旧记录一律当作“口径换了”：升级当天每部作品今天已写的字归零，而旧记录的口径其实与内置声明表完全相同
+
+- **严重程度**：建议；**类别**：正确性
+- **位置**：`packages/neuro-book/src/plugins/projects/project/stats-tracker.ts:100`；测试 `src/plugins/projects/stats-tracker.test.ts` 新增一例的 `legacy` 部分（断言基线从 4 重定为 10）。
+- **现象**：`initial?.wordRules === dialects.fingerprint` 对旧记录（字段缺省）为假，`today` 从 `null` 起，首扫完成后基线取新总数。base 上 `countWords` 的已知标签是 `BLOCK_DIALECT_TAGS ∪ INLINE_DIALECT_TAGS ∪ READABLE_INLINE_HTML`（`git show ee9cee973:packages/neuro-book/src/shared/markdown-dialect.ts` 第 12、15 行），与 `BUILTIN_DIALECTS` 算出的 `known`、`blockTags` 完全相同，所以旧记录就是按内置声明表的口径记的；把它当作口径变了，只会让升级后第一次打开时“今天”从已写的字数跳回 0（测试里 6 个字丢了），没有任何口径差额需要排除。
+- **为什么是问题**：Spec `docs/specs/runtime/projects.md` 输出 16 的“口径换了”说的是记录的指纹与当前不同；没有指纹的记录在本次之前只可能是内置口径。用户在升级当天看到今天的字数清零。
+- **如何核实**：把测试的 `legacy` 例与上面两份标签表对照即可；`dialectTable(内置声明)` 的 `known` 与 base 的 `KNOWN_TAGS` 相同。
+- **建议改法**：缺省指纹按“只有内置方言的声明表”看待：`(initial?.wordRules ?? BUILTIN_FINGERPRINT) === dialects.fingerprint`，`BUILTIN_FINGERPRINT` 由 `dialectTable(BUILTIN_DIALECTS 的声明)` 算一次；测试的 `legacy` 例改为沿用基线。（口径真的换了时 Spec 规定以新总数作基线，那天已写的字也会清零；若要保留，可用 `新总数 − (记录的 words − 记录的 baseline)` 作基线，这需要改 Spec，由开发者定。）
+
+### 5. 展示器里 `project://`、`user://` 链接的地址被 Tiptap Link 的 `renderHTML` 清空：不画引用小块，点击发出 `{kind: "link", href: ""}`
+
+- **严重程度**：重要；**类别**：正确性
+- **位置**：`web/display/renderer.ts:187-231`（`decorateLinks` 读 DOM 上的 `href`）、`web/components/MarkdownDisplay.vue:88-95`（`onClick` 读 DOM 上的 `href`）；根因是 `web/syntax/core/index.ts:381` 的 `Link.configure(...)` 没配 `protocols`/`isAllowedUri`，`@tiptap/extension-link` 的 `renderHTML` 对不在允许名单里的方案（`project`、`user`、`local`、`chapter`……）把 `href` 写成 `""`（`node_modules/@tiptap/extension-link/dist/index.js:341-348`）。
+- **现象**：`见[林雪](project://设定/林雪.md)、[封面](user://a.png)、[旧](chapter://c1)与[根](/设定/b.md)。` 在 `MarkdownDisplay` 里，前三个 `<a>` 的 `href` 都是 `""`、都没有 `data-reference-link`；只有 `/设定/b.md` 是引用小块。依次点击，`activate` 收到 `[{"kind":"link","href":""} ×3, {"kind":"reference","target":"/设定/b.md"}]`：宿主拿不到目标。方言 Spec 输出 27 明确 `project://` 地址归“作品里的文件”、`user://` 归“用户资产”，展示器输出 3 要求它们显示为引用小块。Agent 的回复里用 `project://` 地址引用文件是很自然的写法。
+- **为什么是问题**：展示器的分类与点击都依赖 DOM 属性，而 DOM 属性已被 schema 的输出改写；编辑器里不受影响只是因为装饰按标记的 `attrs.href` 算（`editor/reference-links.ts:54`），两条路径不一致，现有测试的语料只用了以 `/` 开头的地址，没覆盖到。
+- **如何核实**：`bunx vitest run --config zz-review-lab/opus/vitest.config.ts --silent=false --reporter=verbose`（`packages/neuro-book` 下），看 `A ""` 三行与 `ACT` 行。
+- **建议改法**：在核心语法的 `Link.configure` 里给 `isAllowedUri`：沿用默认判断，再放行 `project`、`user`、`local`（展示与编辑器共用，一处改）；`javascript:` 照旧被清空。另在 `MarkdownDisplay.dom.test.ts` 的语料加一个 `project://` 链接与一个 `user://` 链接。
+
+### 6. “其它”类目标在编辑器与展示器里不是引用小块，展示器点击还按外部链接发出 `kind: "link"`，与方言 Spec 输出 27 和 Composer 不一致
+
+- **严重程度**：重要；**类别**：正确性
+- **位置**：`web/editor/reference-links.ts:56`、`web/display/renderer.ts:210`（都是 `if (target.kind !== "work" && target.kind !== "user") continue;`）；`web/components/MarkdownDisplay.vue:94`（非 `work`/`user` 一律 `{kind: "link"}`）。
+- **现象**：方言 Spec 输出 27 规定“其它显示为不带文件图标的引用小块”，并说“三种界面按同一分类显示”；Composer 照此把 `chapter://c1` 画成“其它”小块（`parts/chip.ts:73` 有 `REFERENCE_ICONS[target.kind]`），而编辑器与展示器把 `other`（以及 `attachment`）当普通链接画。展示器点击这类链接发出 `{kind: "link", href: "chapter://c1"}`；展示器 Spec 输出 5 的 `link` 只用于外部链接，宿主按“打开外部链接”处理一个 `chapter://` 或空地址是错的。展示器里没有所在文件，相对地址也归 `other`，同样被当外部链接发出。
+- **为什么是问题**：同一段 Agent 回复复制进 Composer 与在展示器里显示，样子与点击语义不同；旧应用写出的 `chapter://` 引用（Spec 明确“照常是引用小块的原文”）在展示器里点了会被宿主当网址打开。
+- **如何核实**：第 5 条的实验里 `[旧](chapter://c1)` 一项（先修第 5 条，否则地址已被清空）；读三处代码。
+- **建议改法**：分类到显示的映射只写一处（例如 `shared/targets.ts` 加 `displayAs(target): "chip" | "link"`：`external` 为 `link`，其余为 `chip`），编辑器装饰、展示器装饰与点击都用它；`activate` 对非 `external` 一律发 `reference`。
+
+### 7. Composer 把任何 `[x](y)` 都认作引用：写代码时 `handlers[key](event)` 一敲 `)` 就变成整枚小块，反引号里的也一样
+
+- **严重程度**：重要；**类别**：正确性
+- **位置**：`web/components/prompt/prompt-text.ts:476-486`（`linkAttrs`：有文字与地址就是 `reference`）、`:505-523`（`findCompletedWriting`）；`shared/link-syntax.ts:123`（`findInlineLinks` 不认代码段）。
+- **现象**：`parsePromptText("handlers[key](event)")` 得到 `["handlers", <reference:key->event>]`；`` `arr[0](x)` `` 得到 `` ["`arr", <reference:0->x>, "`"] ``；在 `handlers[key](event` 后敲 `)`，`findCompletedWriting` 立即返回这枚引用，编辑器把它换成原子小块，之后退格整枚删除。旧版（`865c9f593` 的 `app/utils/plain-reference-text.ts` 的 `isSystemWorkspaceReferenceTarget`）只把指向工作区前缀或引用 URI 的链接认作引用，代码片段不会变。
+- **为什么是问题**：Composer 是写给 Agent 的输入框，代码片段（下标调用、数组访问后紧跟括号）很常见；文字照样逐字写回，但编辑体验被破坏，而且模块头声称“与编辑器、展示器对链接的判断一致”，编辑器与展示器在反引号里不会认链接（marked 对 `` `[a](b.md)` `` 不出链接，见第 8 条的实验）。Spec `ui/prompt-editor.md` 第 40 行写“`[名称](目标)`”就是引用，没讨论代码，这是 Spec 未覆盖的情形。
+- **如何核实**：`bun test zz-review-lab/opus/prompt-code.test.ts`。
+- **建议改法**：至少在 `findInlineLinks` 里跳过反引号代码段（按 CommonMark 的等长反引号配对，与 marked 一致）；是否再按目标分类收窄（例如 `other` 类且不含 `/`、`.` 的目标不认）由开发者定，写进 Spec 的文字写法表。
+
+### 8. `link-syntax.ts` 与编解码器用的 `marked` 对行内链接判断不一致：地址里的全角空格、不换行空格，链接文字里的代码段
+
+- **严重程度**：建议；**类别**：正确性
+- **位置**：`shared/link-syntax.ts:76`（非尖括号地址遇 `\s` 就断，`\s` 含 U+3000、U+00A0）；`:43-53`（`closeBracket` 不认代码段）；`:123-137`（`findInlineLinks` 不认代码段）。
+- **现象**（`bun test zz-review-lab/opus/link-lexer.test.ts`，左为 `findInlineLinks`，右为语言的 `marked` 词法器）：
+  - `见[林雪](设定/林　雪.md)`（U+3000）与 `设定/林 雪.md`：本模块不认，marked 认作链接；
+  - ``[a `]` b](x.md)``：本模块不认，marked 认；
+  - `` `[a](b.md)` ``：本模块认，marked 不认（第 7 条）；
+  - `[a](b.md\n)`：本模块不认，marked 认（本模块有意不跨行，已写在模块头，可接受）。
+  CommonMark 的地址规则只排除 ASCII 空格与控制字符，marked 用 `[^ \t\n\x00-\x1f]`；中文文件名带全角空格时，同一段文字在展示器里是引用小块，在 Composer 里是纯文字。
+- **为什么是问题**：模块头写明它存在的理由就是“两边对什么算一个链接的判断一致”。`writeDestination` 写出时会把这类地址包成 `<…>`，所以本应用自己写出的不受影响，受影响的是手打与 Agent 写出的文字。
+- **如何核实**：上面的命令。
+- **建议改法**：非尖括号地址的终止条件改为 `/[ \t\n\u0000-\u001f]/`（与 CommonMark、marked 相同）；`closeBracket` 与 `findInlineLinks` 遇到反引号时按等长反引号跳过整段代码；在 `prompt-text.test.ts` 或新的 `link-syntax.test.ts` 加一张与 marked 对照的表（用 `markdownLanguage().lexer()`），以后两边分叉时测试会报。
+
+### 9. 移植回归：Composer 把代码段与代码块里的 `![…](…)` 认成图片附件，旧版用 CommonMark 解析专门排除了这种情形
+
+- **严重程度**：重要；**类别**：正确性
+- **位置**：`web/components/prompt/prompt-text.ts:476-481`（`linkAttrs` 的图片分支）、`shared/link-syntax.ts:123`；旧版 `865c9f593:packages/neuro-book/shared/agent/agent-image-markdown.ts` 的 `parseAgentImageMarkdown`（用 `mdast-util-from-markdown` 解析，注释写明“code、inlineCode 与 HTML block 没有图片子节点，因此不会被误判”）。
+- **现象**：`parsePromptText("用 \`![logo](assets/logo.png)\` 这种写法")` 得到 `["用 \`", <image #1:assets/logo.png>, "\` 这种写法"]`；三个反引号围起的代码块里的 `![x](a.png)` 同样变成 `<image #1:a.png>`。没有编号的图片会被 `numberLegacyImages` 补号，成为附件条里的一张“图片”。
+- **为什么是问题**：用户向 Agent 讲 Markdown 写法、贴含图片语法的代码时，正文里凭空多出图片小块与附件卡片，编号还会挤占后面真正上传的图片的号；这是旧版明确防过、移植后丢掉的行为，任务说明要求“移植时改动的地方”要对照旧版。
+- **如何核实**：`bun test zz-review-lab/opus/prompt-image-code.test.ts`。
+- **建议改法**：与第 7 条同一处修：`findInlineLinks` 跳过反引号代码段；粘贴与读入时按行认出围栏代码块（``` 与 ~~~），块内不认任何写法。在 `prompt-text.test.ts` 补“代码里的图片与链接写法保持文字”一例。
+
+### 10. 展示器每帧整条重新读入，长回复流式时每帧几十毫秒；证据只测到 3700 字
+
+- **严重程度**：重要；**类别**：安全与性能
+- **位置**：`web/display/renderer.ts:263-267`（`update` 每次 `codecFor(...).read(text)` 全文）、`web/components/MarkdownDisplay.vue:76-78`（每次 `text` 变化排一帧）。
+- **现象**：在 bun（JSC，无 DOM）里只计读入与比较键，不计 DOM：
+  - 普通段落：2564 字 2.1 ms，10289 字 5.1 ms，20689 字 11.2 ms；
+  - 带批注、粗体、链接的段落：5114 字 13.7 ms，20489 字 51.0 ms，41089 字 102 ms；其中词法（`language.lexer().lex`）占 90% 以上，键的 `JSON.stringify` 只有 0.3–1.6 ms。
+  - 单个长段落里词法是超线性的：每段 100 个批注 5001 字 19 ms，400 个 20001 字 258 ms（这是 base 上编解码器词法器的性质，不是本次引入的，另记）。
+  流式时每帧都付一次全文的代价，长度增长后整段流式的总代价是平方级；每 40 ms 追加一次、回复写到一两万字时，每帧 25–50 ms 的主线程占用会让整页掉帧。`evidences/display-perf.md` 的“流式追加约 4 毫秒”是在最后一条消息 1300–3700 字时测的，没覆盖写作类 Agent 常见的长回复。
+- **为什么是问题**：开发者对展示器的要求是“性能、速度与流式渲染是重点”；计划审查里对热路径的整篇读入已经被点过名（任务说明第 6 条），实现没有给出上限或数字。
+- **如何核实**：`bun test zz-review-lab/opus/perf2.test.ts`、`bun test zz-review-lab/opus/perf3.test.ts`。浏览器里的数字未测，可在 Lab 的 `MarkdownDisplay` 流式场景换成 2 万字的语料用 Performance 面板看。
+- **建议改法**：流式追加时只重读尾部：记下上一次读入时最后一个“稳定”顶层块的源码起点（倒数第二块的结束处），新文本以旧文本为前缀且追加部分不含引用定义（`^ {0,3}\[[^\]]+\]:`）时，只从那个起点读入尾部、与旧的尾块比较；否则整篇读。若暂不改结构，至少按上次 `update` 的耗时退避（耗时超过 8 ms 时下一次延后到 `max(1 帧, 2×耗时)`），并在 `display-perf.md` 补 1 万、2 万字的测量。
+
+### 11. 展示器的失败路径没有实现：语言或组件加载失败时什么都不显示；一块生成抛错后渲染器永久坏掉
+
+- **严重程度**：重要；**类别**：正确性
+- **位置**：`web/plugin.ts:280-291`（`withHost` 的 `defineAsyncComponent(load)` 没有 `errorComponent`/`onError`）；`web/components/MarkdownDisplay.vue:57-73`（`languageFor`、`new DisplayRenderer` 不捕获）；`web/display/renderer.ts:275-288`（先把要替换的块从页面上拆掉，再逐块 `serializeNode`，最后才写 `#blocks`）。
+- **现象**：
+  - 展示器 Spec“失败与恢复”第一行：语言加载失败时“按纯文字显示原文，记诊断”。代码里没有这条路径：动态 `import()` 失败（chunk 404、部署切换后的旧页面）时异步组件只留空白，`languageFor` 抛错（第 1、2 条的情形）时 `onMounted` 抛出，消息区空白，也没有诊断。
+  - `update` 中途抛错（外来方言的 `renderHTML`、静态视图工厂抛出）时，被替换的旧块已经 `removeChild`，`#blocks` 仍是旧数组；下一帧它们又落在 `removed` 里，`removeChild` 抛 `NotFoundError`，这条消息之后的每次更新都失败。Spec 输出 1 要求“读不出的块不会让整条消息失败”。
+- **为什么是问题**：展示器显示的是 Agent 的输出，消息区整条空白比显示原文更糟；Spec 写明的失败行为没有实现，也没有测试。
+- **如何核实**：读代码；可在 `MarkdownDisplay.dom.test.ts` 里给目录交一个 `renderHTML` 抛错的外来方言，追加两次文本观察第二次的异常。
+- **建议改法**：`withHost` 给异步组件配 `errorComponent`（一个 `<pre>` 显示 `attrs.text`）并经 `diagnostics.record` 记一条；`MarkdownDisplay` 的 `onMounted` 包住组成语言与首帧，失败时退回纯文字；`update` 先生成全部新块（在 `try` 里，单块失败时用该块原文的 `<pre>` 代替），成功后再统一拆旧插新、写 `#blocks`。
+
+### 12. 标签名核对不分块级与行内：声明成块级、实现只认行内的方言照样生效，字数与编辑器读出的正文不一致
+
+- **严重程度**：建议；**类别**：正确性
+- **位置**：`web/syntax-catalog.ts:35-36`（`tagsOf` 把 `blockOpens` 的键与 `inlineTags` 并成一个集合，`sameSet` 比较并集）、`:112-113`。
+- **现象**：声明 `{order: 80, blockTags: ["kbd"]}`、实现是只有行内规则的 `kbdSyntax()`：目录判它生效、没有诊断。字数按声明把 `kbd` 当块级标签，`<kbd>\n按键说明\n</kbd>\n\n正文\n` 计 6；编辑器里 `<kbd>` 独占一行时实现不认块级，编解码器读成 HTML 原样块，正文只有“正文”两个字（按行内声明计也是 2）。
+- **为什么是问题**：`tag-mismatch` 这条规则的意义就是让“声明决定字数、实现决定读写”两边一致（Spec 输出 3、9）；按并集比较放过了最容易写错的一种不一致。
+- **如何核实**：`bun test zz-review-lab/opus/tag-kind.test.ts`，输出 `active 1 []` 与 `block-declared 6 inline-declared 2`。
+- **建议改法**：分别比较：`sameSet(Object.keys(syntax.blockOpens ?? {}), declared.blockTags ?? [])` 与 `sameSet(syntax.inlineTags ?? [], declared.inlineTags ?? [])`；`syntaxes.test.ts` 的不生效一例加这种情形。
+
+### 13. 图片地址的测试只覆盖“外部修改一个文件”：改名、删除上级、失同步三条分支同时删掉测试照样通过
+
+- **严重程度**：建议；**类别**：测试
+- **位置**：`packages/neuro-book/src/plugins/markdown/asset-urls.test.ts`（只有一例）；被测 `web/parts/asset-urls.ts:38-54`。
+- **现象**：变异检查：同时去掉 `renamed` 时对 `event.from` 的处理、上级目录事件对后代订阅者的通知、`resync` 的 `epoch += 1`，`bun test src/plugins/markdown/asset-urls.test.ts` 仍是 0 fail（已还原）。`dispose` 后不再通知、`rawUrl` 为 null（没有绑定项目）时 `resolve` 返回 null 也没有测试。
+- **为什么是问题**：任务说明点名要看“改名与删除对后代的影响、`resync` 时版本号”；这几条是这个模块里唯一有逻辑的部分，现在没有判据守着。
+- **如何核实**：上面的变异（三处 `sed` 后跑该文件）。
+- **建议改法**：同一场地里各补一例：改名图片所在目录（旧地址的订阅者收到通知、新 URL 不同）；删除上级目录；`resync`（用场地断开重连或直接造 `resync` 消息经 `files.watch` 推入）；`dispose` 之后改文件不再通知。没有绑定项目的窗口客户端 `resolve` 返回 null 一行即可。
+
+### 14. 声明与实现的配对只看 id，不核对是不是同一个插件；插件 id 互为前缀时可以跨插件配对
+
+- **严重程度**：建议；**类别**：正确性
+- **位置**：`web/syntax-catalog.ts:107`（`this.#declarations.get(MARKDOWN_DIALECTS_POINT, id)` 后不比较 `declared.plugin` 与 `handle.plugin`）；`shared/dialects.ts:199-201`（`idProblem` 只要求以“贡献方插件 id + `.`”开头）。
+- **现象**：插件 `test.a` 声明 `test.a.b.kbd`（以 `test.a.` 开头，合格），插件 `test.a.b` 交付实现 `test.a.b.kbd`（以 `test.a.b.` 开头，合格），目录把两者配成一对生效。Spec 输出 3 写的是“同一插件交付了同 id 的实现”，`dialects.ts:198` 的注释也说“配对因此只在同一插件里”，这个“因此”在插件 id 互为前缀时不成立。
+- **为什么是问题**：现在只有内置插件，概率低；但规则写成了不变量，代码没守住，第三方插件落地时就是一个可被利用的配对。
+- **如何核实**：读代码；可用 `kbdDialectPlugin({id: "test.a.b", declaration: null})` 加一个只带声明 `test.a.b.kbd` 的插件 `test.a` 复现。
+- **建议改法**：`#recompute` 里 `declared.plugin !== handle.plugin` 时按 `missing-declaration` 记，一行。
+
+### 15. 与核心语法的节点撞名按扩展名比，`StarterKit`、`TableKit` 里的节点（`listItem`、`blockquote`、`tableRow`、`underline`……）都比不到
+
+- **严重程度**：重要；**类别**：正确性
+- **位置**：`web/syntax-catalog.ts:42`（`type:${extension.name}`）、`web/language-registry.ts:26`。
+- **现象**：`namesOf(coreSyntax)` 的 `type:` 只有 `starterKit, paragraph, code, taskList, taskItem, tableKit, tableCell, tableHeader, image, link, markdownStyle`：套件只算一个名字。外来方言交一个名为 `listItem` 的节点，目录与 `languageFor` 都判它生效、没有诊断；`getSchema` 只打一条 `[tiptap warn]: Duplicate extension names found: ['listItem']`，核心的 `listItem` 胜出（核心排在最后），外来方言的节点被悄悄丢掉，它的读法产出的 `listItem` 会按核心的 schema 建，读写都不对。若撞的是核心没有写法的类型（`listItem`、`tableRow`、`doc`、`text`、`underline`），`writer:` 的比较也兜不住。
+- **为什么是问题**：Spec 输出 4 要求“实现交出了同名的节点、标记……外来方言与它们同名时只有外来的那种不生效”并记 `conflict`；现在既不拒也不记，结果取决于 Tiptap 的覆盖顺序。与第 1、2 条是同一个根因：撞名的“名字”是手列的，不是从 schema 来的。
+- **如何核实**：`bun test zz-review-lab/opus/raw-collide.test.ts -t StarterKit`，输出 `reports [] accepted: true` 与 tiptap 的重复警告。
+- **建议改法**：内置一侧的名字从“只有内置的语言”的 schema 取：`const schema = getSchema([...markdownLanguage().extensions])`，`taken = Object.keys(schema.nodes) ∪ Object.keys(schema.marks) ∪ 三张写法表的键 ∪ 模块名`；外来一侧用 `getSchema(syntax.extensions)` 的节点与标记名（在 `language-registry.ts` 里算，那里本来就带着语法模块）。第 1、2、15 条一起改，`namesOf` 不再手列。
+
+### 16. 展示器“每份语言一份 schema”的缓存写在 `<script setup>` 里，实际是每条消息建一份 schema 与编解码器
+
+- **严重程度**：重要；**类别**：安全与性能
+- **位置**：`web/components/MarkdownDisplay.vue:24-33`。
+- **现象**：`const schemas = new WeakMap<MarkdownLanguage, Schema>()` 位于 `<script setup>` 顶层，每个组件实例执行一次，注释说的“同一时刻挂上的消息共用”不成立：每条消息 `getSchema(...)` 一次，`codecFor` 按 schema 缓存，所以每条消息还各有一份编解码器缓存。bun 里 100 条消息“每条新建 schema 再读一句”139.9 ms，共用一份 schema 12.4 ms，每条多约 1.3 ms；`evidences/display-perf.md` 300 条首次显示约 0.5 秒，这一项会再加约 0.4 秒，堆也随消息数线性多出 300 份 schema。
+- **为什么是问题**：长对话的首次显示是展示器的性能目标之一；注释与行为不符，读者会以为已经共用。
+- **如何核实**：`bun test zz-review-lab/opus/schema-cost.test.ts`；或在组件里打印 `schemas` 的身份。
+- **建议改法**：把缓存挪到模块级（另起一个普通 `<script>` 块，或放进 `language-registry.ts`：`languageFor` 组成语言时顺便建好 schema，返回 `{language, schema}`，编辑器与展示器共用），一处缓存，不再每个组件各写一份。
+
+### 17. 方言集合没变也换新数组：任何外来方言的撤回或交付都让之后的视图重新组成语言、重建 schema
+
+- **严重程度**：建议；**类别**：代码质量
+- **位置**：`web/syntax-catalog.ts:127-133`（每次 `#recompute` 都赋新数组）；`web/language-registry.ts:15-23`（按数组身份缓存）。
+- **现象**：一个从未生效的方言（缺声明、标签不对、撞名）撤回，或一个已生效方言的旧句柄迟到的撤回被忽略之外的情形，都会走 `#recompute`，生效集合不变也得到新数组；下一次 `languageFor` 组成一份内容相同的新语言（`createMarkdownLanguage` 建新的 `Marked` 实例与全部表），随后的编辑器与展示器各自再建 schema 与编解码器缓存，旧语言只要还有视图就一直占着内存。模块头写“集合变了换成新数组”，代码并不是这样。
+- **为什么是问题**：Spec 的状态与转换写“每次方言集合变化加一代”，现在是“每次重算加一代”；不影响正确性，浪费可观（每份语言一套词法器与 schema）。
+- **如何核实**：读代码；在 `syntaxes.test.ts` 的写法下交付一个缺声明的方言后撤回，前后两次 `languageFor` 不是同一个对象。
+- **建议改法**：`#recompute` 末尾比较新旧数组的 `id` 序列（以及各自的 `syntax` 身份），相同就不赋值。
+
+### 18. 文件名含 `#`、`?`、`%` 时，`promptReferenceText` 写出的引用被目标分类解析到别的文件
+
+- **严重程度**：重要；**类别**：正确性
+- **位置**：`web/components/prompt/prompt-text.ts:107-114`（`promptReferenceText` 直接 `writeInlineLink(label, target)`）；`shared/link-syntax.ts:25-34`（`writeDestination` 只处理空白、尖括号与括号）；`shared/targets.ts:32`（`pathPart` 去掉 `?`、`#` 之后的部分）与 `:22-29`（整体 `decodeURIComponent`）。
+- **现象**：`@` 菜单的宿主按 Spec 输出 3 传作品根地址：
+  - `/设定/第1章#草稿.md` → 文字 `[林雪](/设定/第1章#草稿.md)` → 分类出 `project://设定/第1章`；
+  - `/设定/为什么?.md` → `project://设定/为什么`；
+  - `/设定/100%20分.md`（磁盘上的文件名就是 `100%20分.md`）→ `project://设定/100 分.md`。
+  小块的图标、悬停提示与点击后交给宿主的地址都指向一个不存在或不同的文件，没有任何提示。这几个字符在文件名里都合法。
+- **为什么是问题**：Spec `ui/prompt-editor.md` 验收 4 只测了普通文件名；写出与读回的规则不对称（写出按“路径”，读回按“URL”），`promptReferenceText` 写出的文字并不总能读回同一个引用（任务说明第 6 条要求核对的正是这一点）。编辑器以后新建链接（方言 Spec 输出 18 的 planned 一条）会碰到同一个问题。
+- **如何核实**：`bun test zz-review-lab/opus/hash-name.test.ts`。
+- **建议改法**：写出作品内地址时按段做百分号编码，只编 `%`、`#`、`?`（以及已由 `writeDestination` 处理的空白、括号可保持原样），放在 `link-syntax.ts` 一个 `writeFileDestination(path)` 里，`promptReferenceText` 与以后编辑器插入链接共用；`prompt-text.test.ts` 的场景 4 补这三种文件名，断言 `classifyTarget(读回的 target)` 等于原地址。
+
+### 19. 服务交出的组件都是无类型的 `Component`，属性、事件与 `expose` 的类型只在插件内部文件里，使用方只能深导入
+
+- **严重程度**：建议；**类别**：代码质量
+- **位置**：`shared/contracts.ts:17-30`（`MarkdownComponents` 的六个成员都是 `Component`）；类型实际在 `web/components/prompt/prompt-editor.types.ts`（`PromptEditorDraft`、`PromptEditorExpose`、`PromptEditorMenu`……）、`web/components/MarkdownImage.vue`（`ResolveAsset`）、`web/display/static-views.ts`（`DisplayActivation`）。
+- **现象**：唯一的使用方 Lab 已经是深导入（`plugins/lab/web/fixtures/prompt-scene/PromptEditorFixture.vue:12-13`、`MarkdownDisplayFixture.vue:9-10` 直接引 `nbook/plugins/markdown/web/components/...`），以后的 Agent 对话视图要么照做，要么对一个 `Component` 盲传属性。包规则要求插件之间只经 `shared/contracts.ts` 与服务协作；`MarkdownControl` 有编辑器区的控件合同兜着，另外五个没有。
+- **为什么是问题**：Spec 把属性与事件列为“公开接口”（`ui/markdown-display.md`“边界与兼容”、`ui/prompt-editor.md`），但合同文件里没有它们，改名不会让使用方类型检查失败。
+- **如何核实**：`grep -rn "plugins/markdown/web" packages/neuro-book/src/plugins --include=*.vue --include=*.ts | grep -v "^packages/neuro-book/src/plugins/markdown/"`。
+- **建议改法**：把这几组纯类型挪进 `shared/contracts.ts`（或 `web/contracts.ts`，只放类型，不碰 DOM），`MarkdownComponents` 的成员写成 `DefineComponent<Props, …>` 或至少导出 `MarkdownDisplayProps`、`PromptEditorProps`、`PromptEditorExpose` 供使用方 `h()` 时标注；Lab 改为从合同取类型。
+
+## 阅读顺序
+
+报告按核实的先后追加，编号不代表影响大小。按影响排的读法：正确性与不变量先看 5、1、15、2、18、9、7、6、11；性能看 10、16；其余（3、4、8、12、14、17、13、19）是建议。1、2、15 同一个根因（撞名的名字是手列的），建议一起改；7、8、9 同一处（`link-syntax.ts` 不认代码段）。
+
+## 未发现问题的方面
+
+- `writeDestination` 挪到 `shared/link-syntax.ts` 后与 base 的 `destination()` 逐字相同（`git show ee9cee973:packages/neuro-book/src/plugins/editor/web/markdown/syntax/core/write.ts` 第 192–201 行），编解码器写回不变。
+- 展示器的比较键：七份语料（方言三份、formats、novel-chapter、raw、dup-defs）各读两次键完全相同，末尾追加一段后前面的块键都不变（`zz-review-lab/opus/keys.test.ts`）；去掉 `identityAttrs` 足够，没有发现别的每次读入都变的属性。头尾比较在重复块、块整体前移、只改中间时的下标推演正确（`tail < old.length - head` 防止重叠）。
+- 静态视图的释放：被替换的块与卸载时各释放一次；`<html>` 块的 `teardown` 与图片的 `render(null)` 都在 `destroy` 里；rAF 在卸载时取消，`streaming` 由真变假只挪光标不重读。
+- 渲染路径上没有 `v-html`、`innerHTML`；原样内容以文字进 `<pre>`/`<span>`；文字颜色属性读入时按颜色白名单校验；`javascript:` 链接被 Link 的 `renderHTML` 清空。
+- 书架统计：指纹不同时首扫完成前对外仍给记录里的快照、首扫完成后才定基线，跨午夜的 `rollover` 在首扫前用记录的总数，今天的字数不会被重复计；浏览器与项目进程都由 `pluginsAt`/`definitionAt` 装配同一份清单的顶层声明，声明表相同。
+- 字数的 `tagWords: skip` 对块级与行内标签都按原样内容处理（`zz-review-lab/opus/skip-block.test.ts`）；字数测试从旧位置完整移过来，另加了按声明计数一例。
+- 方言目录的迟到加载：撤回后、或被新句柄取代后才完成的 `load()` 结果被丢弃（`handle.published` 为假）。
+- 后端类型检查（`tsc --noEmit`，不带 DOM）通过；浏览器插件定义的引用链只经 `.vue` 动态加载语法模块；`check:dist` 的首屏检查按 `index.html` 的入口与 `modulepreload` 找文件，逻辑正确。
+- Composer 移植：`PromptEditor.vue`、`prompt-editor-extensions.ts`、`prompt-attachments.ts`、`prompt-editor.types.ts`、`PromptTextView.vue` 与旧版的差异只有导入路径、`locale` 与文字表，未见行为改动；`parsePromptText` 后 `promptNodeText` 对任意输入逐字往返（小块的 `raw` 就是原文切片）。
+
+## 各级数量
+
+共 19 条：阻断 0，重要 11（1、2、5、6、7、9、10、11、15、16、18），建议 8（3、4、8、12、13、14、17、19）。
