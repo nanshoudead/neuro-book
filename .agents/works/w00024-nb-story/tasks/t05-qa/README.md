@@ -31,6 +31,14 @@ updated: 2026-10-16
   - 11 镜像测试与措辞测试：去掉，改断言模型拿到的已知事实；规则效果交回归检验。
   - 12 Spec 混入实现与历程：原子写法、测试接缝、Profile 版本规则、字数与 token 的换算移出，证据只留批准依据。
   - 审查用的 worktree `.worktree/w00024-t05-review` 已删。
+- 2026-10-16：开发者确认修订后的计划。实现在 worktree `.worktree/w00024-t05-qa`（分支 `feat/w00024-t05-qa`）：S1 搜索 `744c22751`；S2 固定一代、问答记录、nb-harness 遮盖密钥 `7eed50d65`；S3 问答引擎 `601ce95d8`；nb-harness 修正 `51a2486e4`；S4 命令行与包边界 `268dda9a0`；真实模型 Smoke 后的小修 `770a36078`。nb-story 193、nb-harness 73、nb-profile 17、nb-session 17 条测试通过，类型检查通过。和计划不同的地方：
+  - 工具不按 sessionId 在进程里共享状态：每一问新建登记表，工具实现捕获这一问的状态。
+  - 工具参数 schema 不写 `additionalProperties: false`：写了 OMP 会在调用前悄悄删掉多余字段，模型写了 `at` 得不到提示；现在 `at`、`book` 由工具明确拒绝。
+  - nb-harness 新增 `onProcessInterrupt`（harness Spec 输出 19）：OMP 的 `pi-utils` 一被导入就装 SIGINT 处理，跑完登记的清理就以 130 退出，`process.on("SIGINT")` 拦不住，Ctrl-C 时“中断”的记录写不下来。
+  - 修了 nb-harness 的竞态：OMP 异步投递事件，同一批并行工具里最后一条结果可能晚于下一次请求前的钩子，模型会收到缺结果的工具调用（真实服务会拒绝）。引擎测试偶发失败时发现，nb-harness 补了能稳定复现的测试。
+  - `knowledge`、`statements` 等列表方法的 `query` 仍是整串匹配，模型照 `search` 的习惯写几个词会查不到；这次只在工具说明里写明，方法本身要不要也拆词交开发者（改 queries Spec）。
+- 2026-10-16：真实模型 Smoke（gpt-6-luna，知情题 H24，阅读位置 27）：交卷，读第 26、27 章，用时 81 秒。前两次在第 4、9 次请求时遇上渠道的 `upstream_error`（没有状态码，归为 network），同一渠道 12 次小请求全部成功，判断为渠道偶发；问答本身遇到模型失败就以 `model_failed` 结束（Spec F2），回归脚本对这类失败整题重试至多 3 次。
+- 2026-10-16：回归脚本 [scripts/qa-eval.ts](scripts/qa-eval.ts) 写好（answer、judge、check 三步，整数门槛，缺答缺判非零退出），等实现审查处理完再跑。omp 实现审查进行中（worktree `.worktree/w00024-t05-impl-review`）。
 
 ## 决定
 
@@ -60,4 +68,4 @@ updated: 2026-10-16
 
 ## 下一步
 
-1. 修订后的计划交开发者确认，再按切片实施。
+1. 处理 omp 实现审查的结论，再跑回归（S5）。
