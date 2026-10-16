@@ -16,6 +16,7 @@ updated: 2026-10-16
 ## 当前状态
 
 - 2026-10-15：经 nbdev 新建（建时 slug 误写成 `t05-qa`，生成了 `t05-t05-qa`，已改名）。开发者定了方向（见“决定”）。
+- 2026-10-16：Spec [`story/qa.md`](../../../../../docs/specs/story/qa.md) 与 [plan.md](plan.md) 提交（`0766e11fc`），开发者看过要点同意交审查；omp 设计审查进行中（worktree `.worktree/w00024-t05-review`，报告写到本地 `reports/design-review.md`）。
 
 ## 决定
 
@@ -45,4 +46,4 @@ updated: 2026-10-16
 
 ## 下一步
 
-1. 写问答 Spec 与 `plan.md`，提交后交 omp 设计审查（[w00002 t21](../../../w00002-neuro-agent-harness-redesign/tasks/t21-harness-profile-tools/README.md) 已于 2026-10-16 合入）。
+1. 处理 omp 设计审查的结论，修订后的计划交开发者确认，再按切片实施。
