@@ -13,11 +13,14 @@ import {codecFor} from "../codec/codec";
 import type {MarkdownCodec} from "../codec/codec";
 import type {SourceMap} from "../codec/read";
 import {createMarkdownEditorExtensions} from "../editor/markdown-editor-extensions";
+import {REFRESH_REFERENCE_LINKS} from "../editor/reference-links";
+import type {MarkdownViewHost} from "../editor/view-host";
 import type {MarkdownLanguage} from "../language";
 import {languageFor} from "../language-registry";
+import {markdownAssetsKey} from "../parts/asset-urls";
 import {syntaxCatalogKey} from "../syntax-catalog";
 
-// `locale`：控件合同的一员；富文本控件自己不显示要翻译的文字（占位文字由宿主给出）。
+// `locale`：控件合同的一员；引用小块的悬停提示与图片的说明按它显示（占位文字由宿主给出）。
 const props = defineProps<{binding: TextEditorBinding | null; host: ViewStateSlot; readonly: boolean; visible: boolean; label: string; placeholder?: string; locale?: DisplayLocale}>();
 const emit = defineEmits<EditorControlEmits>();
 
@@ -41,6 +44,13 @@ interface MarkdownViewState {
     held: boolean;
     scroll: number;
 }
+
+/** 方言外观（引用小块、图片）要的宿主信息：地址与语言按函数取，换文档不重建扩展。 */
+const viewHost: MarkdownViewHost = {
+    base: () => bound?.address.value ?? null,
+    locale: () => props.locale ?? "zh-CN",
+    assets: inject(markdownAssetsKey, null),
+};
 
 const root = ref<HTMLElement | null>(null);
 const scroller = ref<HTMLElement | null>(null);
@@ -179,6 +189,8 @@ const enter = (binding: TextEditorBinding): void => {
     } else if (view !== null) {
         editor.view.updateState(view.state);
         if (!view.held && !binding.blocked() && view.confirmed !== binding.revision.value) reload(binding, view);
+        // 留着的编辑状态里，引用小块是按当时的地址算的：文件可能改过名。
+        editor.view.dispatch(editor.state.tr.setMeta(REFRESH_REFERENCE_LINKS, true).setMeta("addToHistory", false));
     }
     editor.setEditable(!props.readonly);
     if (scroller.value !== null) scroller.value.scrollTop = view?.scroll ?? 0;
@@ -344,7 +356,7 @@ onMounted(() => {
         const current = languageFor(catalog);
         const created = new Editor({
             element: root.value,
-            extensions: createMarkdownEditorExtensions({language: current, placeholder: props.placeholder ?? ""}),
+            extensions: createMarkdownEditorExtensions({language: current, placeholder: props.placeholder ?? "", host: viewHost}),
             editable: !props.readonly,
             editorProps: {attributes: attributes()},
         });
@@ -481,7 +493,8 @@ onBeforeUnmount(() => {
     padding: 0.25em 0.5em;
 }
 
-.markdown-control :deep(a) {
+/* 指向作品里文件的链接画成引用小块（`../parts/chip.css`），不带链接的颜色与下划线。 */
+.markdown-control :deep(a:not(:has(.nb-chip-link))) {
     color: var(--accent-text);
     text-decoration: underline;
 }

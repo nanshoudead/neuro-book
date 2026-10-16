@@ -28,7 +28,7 @@ owners:
 ## 术语与参与者
 
 - **宿主**：挂上组件的界面（以后的 Agent 输入框；本轮是 Lab 场景）。
-- **小块**：与正文同一行高、不可拆的行内块，外观是 `InlineChip`（组件文档 `src/plugins/markdown/web/parts/InlineChip.md`）。
+- **小块**：与正文同一行高、不可拆的行内块，外观是 [`InlineChip`](../../../packages/neuro-book/src/plugins/markdown/web/components/InlineChip.md)。
 - **草稿**：宿主给的 `{text, version}`；版本号变了才读入。
 
 ## 输入与前置条件

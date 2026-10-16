@@ -18,6 +18,10 @@ export type {DialectTable} from "./word-count";
 export interface MarkdownComponents {
     /** Markdown 富文本控件，按编辑器区的控件合同（`nbook/plugins/editor/shared/contracts.ts`）收属性、交句柄。 */
     readonly MarkdownControl: Component;
+    /** 行内小块（`web/components/InlineChip.md`）。 */
+    readonly InlineChip: Component;
+    /** Markdown 里的一张图片（`web/components/MarkdownImage.md`）。 */
+    readonly MarkdownImage: Component;
 }
 
 export interface MarkdownService {

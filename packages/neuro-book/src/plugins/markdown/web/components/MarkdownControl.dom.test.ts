@@ -5,6 +5,7 @@
  */
 
 import type {Editor} from "@tiptap/core";
+import type {Node as PMNode} from "@tiptap/pm/model";
 import {EditorState} from "@tiptap/pm/state";
 import {mount} from "@vue/test-utils";
 import {afterEach, describe, expect, it} from "vitest";
@@ -20,11 +21,17 @@ import {createEditorArea} from "nbook/plugins/editor/web/area";
 import type {EditorArea} from "nbook/plugins/editor/web/area";
 import {codecFor} from "../codec/codec";
 import {markdownLanguage} from "../syntax";
+import {createAssetUrls, markdownAssetsKey} from "../parts/asset-urls";
 import {SyntaxCatalog, syntaxCatalogKey} from "../syntax-catalog";
 import MarkdownControl from "./MarkdownControl.vue";
 
 /** nbook.markdown 交组件时给的方言目录（`web/plugin.ts`）：这里没有外来方言。 */
 const catalog = new SyntaxCatalog({get: () => null, list: () => []}, () => undefined);
+/**
+ * 图片地址服务：字节路由的 URL 换成可读的 `/raw/<地址>`（真实的 `rawUrl` 带作品与代次，见 `asset-urls.test.ts`）；这里不看
+ * 磁盘变化。
+ */
+const assets = createAssetUrls({rawUrl: (address) => `/raw/${address}`, watch: () => () => undefined});
 
 const cleanups: Array<() => void> = [];
 afterEach(() => {
@@ -62,7 +69,7 @@ async function opened(text: string, area?: {readonly area: EditorArea; readonly 
     const wrapper = mount(MarkdownControl, {props: {binding, host, readonly: false, visible: true, label: "a.md", onReady: (ready: EditorControlHandle | null) => {
         handle = ready;
         editorArea.registerHandle(groupId, MARKDOWN_EDITOR, ready);
-    }}, attachTo: document.body, global: {provide: {[syntaxCatalogKey as symbol]: catalog}, ...(onError === undefined ? {} : {config: {errorHandler: onError}})}});
+    }}, attachTo: document.body, global: {provide: {[syntaxCatalogKey as symbol]: catalog, [markdownAssetsKey as symbol]: assets}, ...(onError === undefined ? {} : {config: {errorHandler: onError}})}});
     cleanups.push(() => wrapper.unmount());
     const editor = (host.state as {editor: Editor}).editor;
     return {area: editorArea, memory, binding, editor, handle: handle as unknown as EditorControlHandle, groupId};
@@ -250,3 +257,46 @@ describe("写不出（editor 输出 61）", () => {
         expect(binding.text.value).toBe("甲\n\n乙\n");
     });
 });
+
+describe("引用小块与图片（方言 Spec 输出 18、27）", () => {
+    it("指向作品里文件的链接是一个引用小块，被批注盖住一半时也是一个；文字照常可编辑，写回不变；外部链接仍是普通链接", async () => {
+        const source = "见[<comment body=\"意见\">林</comment>雪](设定/林雪.md)与[官网](https://example.com)。\n";
+        const {editor, handle, binding} = await opened(source);
+        const root = editor.view.dom;
+        expect(root.querySelectorAll(".nb-chip-link__icon")).toHaveLength(1);
+        expect(root.querySelectorAll(".nb-chip-link--end")).toHaveLength(1);
+        expect([...root.querySelectorAll("[data-reference-link]")].map((element) => element.textContent).join("")).toBe("林雪");
+        expect(root.querySelector(".nb-chip-link__icon svg[data-file-icon]")?.getAttribute("data-icon")).toBe("markdown");
+        handle.flushPendingChange();
+        expect(binding.text.value).toBe(source);
+        // 在链接文字中间打字：仍是同一个链接、同一个小块。
+        let inside = -1;
+        editor.state.doc.descendants((node, pos) => {
+            if (inside < 0 && node.isText && node.text === "雪") inside = pos + 1;
+        });
+        editor.commands.insertContentAt(inside, "儿");
+        handle.flushPendingChange();
+        // 重新写出时批注写在最外层（它的优先级最高），链接的原文可能拆成两个 `[…](…)`；读回仍是同一个链接，仍是一个小块。
+        const linked = (doc: PMNode): string[] => {
+            const runs: string[] = [];
+            doc.descendants((node) => {
+                const href = node.marks.find((mark) => mark.type.name === "link")?.attrs.href as string | undefined;
+                if (node.isText && href !== undefined) runs.push(`${node.text ?? ""}→${href}`);
+            });
+            return runs;
+        };
+        expect(linked(codecFor(editor.schema, markdownLanguage()).read(binding.text.value).doc)).toEqual(linked(editor.state.doc));
+        expect(root.querySelectorAll(".nb-chip-link__icon")).toHaveLength(1);
+    });
+
+    it("图片按所在文件的目录解析，经文件服务显示；作品根以外的不显示、写明原因；不编辑写回不变", async () => {
+        const source = "![封面](images/a.png) ![外面](../外面.png)\n";
+        const {editor, handle, binding} = await opened(source);
+        await waitUntil("图片显示", () => editor.view.dom.querySelector("img"));
+        expect(editor.view.dom.querySelector("img")?.getAttribute("src")).toBe("/raw/project://images/a.png");
+        expect(editor.view.dom.querySelector("[data-markdown-image][data-state='none']")?.textContent?.trim()).toBe("外面（不在作品里，不显示）");
+        handle.flushPendingChange();
+        expect(binding.text.value).toBe(source);
+    });
+});
+

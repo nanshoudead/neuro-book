@@ -166,7 +166,7 @@ owners:
 
 **编辑器**
 
-19. `.md` 缺省用 Markdown 富文本编辑器（输出 37 的选择顺序里，它是 `.md`、`.markdown` 的默认编辑器）。打开后不编辑，切走、关闭或保存都不改变磁盘字节。读写规则由 [workspace.markdown-dialect](../workspace/markdown-dialect.md) 规定：未编辑的块字节不变（含换行符、列表标记、方言写法），被编辑的块按原写法写出且必须读得回来；写不出读得回来的内容时进入输出 61 的写不出状态。frontmatter 不进入富文本，原样保留；工作区与领域链接按普通链接保留源码。Markdown 控件由 `nbook.markdown` 的服务交出，编辑器区把它当内置编辑器直接持有。（planned）生效的方言由 `nbook.markdown` 决定（[workspace.markdown-syntaxes](../workspace/markdown-syntaxes.md)）：一个 Markdown 编辑器实例在建立时取定语言，整个寿命都用这一份；之后建立的实例用当时的语言。作品里的文件链接显示为引用小块、图片按作品里的文件显示（[workspace.markdown-dialect](../workspace/markdown-dialect.md) 输出 18、27），写回的源码不变。
+19. `.md` 缺省用 Markdown 富文本编辑器（输出 37 的选择顺序里，它是 `.md`、`.markdown` 的默认编辑器）。打开后不编辑，切走、关闭或保存都不改变磁盘字节。读写规则由 [workspace.markdown-dialect](../workspace/markdown-dialect.md) 规定：未编辑的块字节不变（含换行符、列表标记、方言写法），被编辑的块按原写法写出且必须读得回来；写不出读得回来的内容时进入输出 61 的写不出状态。frontmatter 不进入富文本，原样保留；工作区与领域链接按普通链接保留源码。Markdown 控件由 `nbook.markdown` 的服务交出，编辑器区把它当内置编辑器直接持有。生效的方言由 `nbook.markdown` 决定（[workspace.markdown-syntaxes](../workspace/markdown-syntaxes.md)）：一个 Markdown 编辑器实例在建立时取定语言，整个寿命都用这一份；之后建立的实例用当时的语言。作品里的文件链接显示为引用小块、图片按作品里的文件显示（[workspace.markdown-dialect](../workspace/markdown-dialect.md) 输出 18、27），写回的源码不变。
 20. 其余可编辑文本用源码编辑器；Markdown 也可以“用源码编辑器重新打开”，选择记在标签上（经输出 39 的“用其它编辑器重新打开”）。只读文档的视图不接受输入；撤销、重做、跳转到行按命令目录作用于活动视图。
 
 **离开与终态**
@@ -193,7 +193,7 @@ owners:
 | `nbook.editor.cursor` | 第 L 行，第 C 列 | `nbook.editor/hasCursorPosition` | 无 | 30 | 10 |
 
 26. 未保存数按文档计（同一文件在几个组里打开只算一个），含非活动的文档；“需要保存”与第 4 条询问的判据相同（dirty、未裁决输入、写不出，输出 61）。提示列出至多 5 个文件；有文档正在保存时写“正在保存”；有保存失败的文档时条目为 `error` 状态，提示列出失败的文件与原因。点击执行全部保存。
-27. 字数取活动文档当前正文：汉字、假名、谚文每字计 1，连续的拉丁字母与数字（中间可夹 `'`、`’`、`-`）计 1 个词，标点、空白与 Markdown 标记不计，开头的 YAML frontmatter 不计；Markdown 方言的标签与属性、原样内容不计，规则与已知偏差见 [workspace.markdown-dialect](../workspace/markdown-dialect.md) 的“副作用与数据”；（planned）方言的字数规则来自它们的声明（[workspace.markdown-syntaxes](../workspace/markdown-syntaxes.md) 输出 9）。打开或切换文档时立即显示它的字数；输入时停手 300ms 后更新，停手之前显示上一次的值（全文计数随正文变长，不在每次按键时算）。书架的作品统计用同一套算法（[`runtime.projects`](../runtime/projects.md)）。
+27. 字数取活动文档当前正文：汉字、假名、谚文每字计 1，连续的拉丁字母与数字（中间可夹 `'`、`’`、`-`）计 1 个词，标点、空白与 Markdown 标记不计，开头的 YAML frontmatter 不计；Markdown 方言的标签与属性、原样内容不计，规则与已知偏差见 [workspace.markdown-dialect](../workspace/markdown-dialect.md) 的“副作用与数据”；方言的字数规则来自它们的声明（[workspace.markdown-syntaxes](../workspace/markdown-syntaxes.md) 输出 9）。打开或切换文档时立即显示它的字数；输入时停手 300ms 后更新，停手之前显示上一次的值（全文计数随正文变长，不在每次按键时算）。书架的作品统计用同一套算法（[`runtime.projects`](../runtime/projects.md)）。
 28. 光标位置只由源码编辑器给出：选区活动端的行号与列号，都从 1 起，列按源码编辑器的列计（制表符计 1）。Markdown 富文本编辑器不给出位置：富文本里的段落位置与源文件的行号不同（frontmatter 与写出时的格式都会改变行数），条目在它活动时不显示。控件换文档或卸载时位置随之撤回。
 
 **继续写作**（随书架页实现）

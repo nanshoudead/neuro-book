@@ -11,6 +11,8 @@ import type ExplorerRow from "nbook/plugins/explorer/web/components/ExplorerRow.
 import type ExplorerTree from "nbook/plugins/explorer/web/components/ExplorerTree.vue";
 import type FilesExplorerView from "nbook/plugins/explorer/web/components/FilesExplorerView.vue";
 import type FileIcon from "nbook/ui/file-icons/FileIcon.vue";
+import type InlineChip from "nbook/plugins/markdown/web/components/InlineChip.vue";
+import type MarkdownImage from "nbook/plugins/markdown/web/components/MarkdownImage.vue";
 import type BookCard from "nbook/plugins/projects/web/components/BookCard.vue";
 import type WelcomePage from "nbook/plugins/projects/web/components/WelcomePage.vue";
 import type BookCover from "nbook/plugins/projects/web/components/BookCover.vue";
@@ -559,6 +561,40 @@ export const labFixtures: LabFixture[] = [
         ],
         runtimeProps: async () => ({handleKey: () => "none" as const}),
         subject: () => import("nbook/plugins/explorer/web/components/ExplorerTree.vue"),
+    }),
+    defineLabFixture<typeof InlineChip>({
+        component: "InlineChip",
+        scenes: [
+            {id: "reference", label: "引用作品里的文件", input: {props: {kind: "reference", locale: "zh-CN", label: "林雪", target: "/设定/林雪.md"}}},
+            {id: "reference-image", label: "引用一张图片", input: {props: {kind: "reference", locale: "zh-CN", label: "地图", target: "/资料/地图.png"}}},
+            {id: "attachment", label: "引用会话附件", input: {props: {kind: "reference", locale: "zh-CN", label: "截图", target: "local://截图.png"}}},
+            {id: "external", label: "外部链接", input: {props: {kind: "reference", locale: "zh-CN", label: "官网", target: "https://example.com"}}},
+            {id: "other", label: "旧应用的领域地址", input: {props: {kind: "reference", locale: "zh-CN", label: "第一章", target: "chapter://c1"}}},
+            {id: "long", label: "过长的名称截断", input: {props: {kind: "reference", locale: "zh-CN", label: "一个非常非常非常非常非常非常长的设定文件名字", target: "/设定/很长.md"}}},
+            {id: "skill", label: "技能", input: {props: {kind: "skill", locale: "zh-CN", label: "reviewer"}}},
+            {id: "selection", label: "选区", input: {props: {kind: "selection", locale: "zh-CN", label: "第一章.md#L3-L8"}}},
+            {id: "command", label: "命令", input: {props: {kind: "command", locale: "zh-CN", label: "plan"}}},
+            {id: "image", label: "图片 #1", input: {props: {kind: "image", locale: "zh-CN", number: 1}}},
+            {id: "uploading", label: "文件上传中", input: {props: {kind: "file", locale: "zh-CN", label: "笔记.txt", number: 2, state: "uploading"}}},
+            {id: "failed", label: "上传失败", input: {props: {kind: "image", locale: "zh-CN", number: 3, state: "failed", error: "文件太大"}}},
+            {id: "paste", label: "粘贴位置", input: {props: {kind: "paste", locale: "zh-CN", number: 4}}},
+            {id: "highlighted", label: "联动高亮", input: {props: {kind: "image", locale: "zh-CN", number: 1, highlighted: true}}},
+            {id: "selected", label: "在选区里", input: {props: {kind: "reference", locale: "zh-CN", label: "林雪", target: "/设定/林雪.md", selected: true}}},
+            {id: "interactive", label: "可聚焦（静态显示里）", input: {props: {kind: "reference", locale: "zh-CN", label: "林雪", target: "/设定/林雪.md", interactive: true}}},
+            {id: "english", label: "英文界面", input: {props: {kind: "file", locale: "en-US", label: "notes.txt", number: 2, state: "uploading"}}},
+        ],
+        load: async () => (await import("./InlineChipFixture.vue")).default,
+    }),
+    defineLabFixture<typeof MarkdownImage>({
+        component: "MarkdownImage",
+        scenes: [
+            {id: "shown", label: "显示", input: {props: {src: "images/封面.png", alt: "封面", title: "第一卷封面", locale: "zh-CN"}}},
+            {id: "loading", label: "读取中", input: {props: {src: "lab://loading", alt: "封面", locale: "zh-CN"}}},
+            {id: "outside", label: "不在作品里", input: {props: {src: "lab://outside", alt: "外面的图", locale: "zh-CN"}}},
+            {id: "broken", label: "读不出", input: {props: {src: "lab://broken", alt: "坏图", locale: "zh-CN"}}},
+            {id: "no-alt", label: "没有说明", input: {props: {src: "lab://outside", locale: "zh-CN"}}},
+        ],
+        load: async () => (await import("./MarkdownImageFixture.vue")).default,
     }),
     defineLabFixture<typeof FileIcon>({
         component: "FileIcon",

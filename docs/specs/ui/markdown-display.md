@@ -55,8 +55,8 @@ interface MarkdownDisplayEmits {
 
 1. **语言**：挂上时取当时的语言（[workspace.markdown-syntaxes](../workspace/markdown-syntaxes.md) 输出 7），直到卸载都用这一份。读法与编辑器相同：不认识的写法原样显示源码，读不出的块不会让整条消息失败。
 2. **外观与编辑器一致**：同一份 Markdown，展示器与 Markdown 编辑器生成的方言元素结构与类名相同（不计编辑器自带的可编辑属性、`ProseMirror-*` 类名与占位元素），共用同一份样式。提示块、可渲染 HTML、图片的样子由语法模块的同一套外观函数画出。
-3. **引用小块**：指向作品里文件的链接显示为引用小块（组件 `InlineChip`，文档 `src/plugins/markdown/web/parts/InlineChip.md`），一个链接只显示一个小块，被批注盖住一部分时也是；外部链接显示为普通链接。
-4. **图片**：按组件 `MarkdownImage`（文档 `src/plugins/markdown/web/parts/MarkdownImage.md`）显示：`resolveAsset` 返回 null 或省略时显示说明文字；读取中显示占位。
+3. **引用小块**：指向作品里文件的链接显示为引用小块（[`InlineChip`](../../../packages/neuro-book/src/plugins/markdown/web/components/InlineChip.md)），一个链接只显示一个小块，被批注盖住一部分时也是；外部链接显示为普通链接。
+4. **图片**：按 [`MarkdownImage`](../../../packages/neuro-book/src/plugins/markdown/web/components/MarkdownImage.md) 显示：`resolveAsset` 返回 null 或省略时显示说明文字；读取中显示占位。
 5. **交互**：点击引用小块发出 `{kind: "reference"}`，点击外部链接发出 `{kind: "link"}`（不由展示器自己跳转），点击图片发出 `{kind: "image"}`。文字可以选中复制。提示块的标题点了折叠或展开，状态只在这次显示里记，不写回原文。可渲染 HTML 默认是源码卡片，点“渲染”后在沙箱里显示，规则同编辑器（[workspace.markdown-dialect](../workspace/markdown-dialect.md) 输出 16）。
 6. **流式更新**：`text` 变了，下一帧重新读入并比较块：头尾相同的块保留原来的页面元素与交互状态（折叠、已渲染的 HTML），只替换中间变了的块；比较时不看每次读入都重新生成的内存身份（例如批注的 `key`）。后面的内容改变了前面块的含义时（例如新出现的引用定义），前面那块也替换。同一帧里多次改变 `text` 只读入最后一次。
 7. **流式光标**：`streaming` 为真时，最后一块的末尾显示一个闪烁的光标；用户要求减少动效时不闪。
