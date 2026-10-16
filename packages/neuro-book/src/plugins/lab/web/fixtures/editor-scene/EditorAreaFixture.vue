@@ -7,13 +7,14 @@
  */
 import {SegmentedControl} from "@notnotype/nb-ui/components";
 import {systemClock} from "@notnotype/nb-runtime/lifecycle";
-import {computed, defineAsyncComponent, onBeforeUnmount, watch} from "vue";
+import {computed, defineAsyncComponent, onBeforeUnmount, provide, watch} from "vue";
 import type {Component} from "vue";
 
 import {createEditorArea} from "nbook/plugins/editor/web/area";
 import EditorArea from "nbook/plugins/editor/web/components/EditorArea.vue";
 import type {EmptyTip} from "nbook/plugins/editor/web/empty-tips";
 import type {EditorState} from "nbook/plugins/editor/web/editor-registry";
+import {SyntaxCatalog, syntaxCatalogKey} from "nbook/plugins/markdown/web/syntax-catalog";
 import {CODE_EDITOR, MARKDOWN_EDITOR} from "nbook/plugins/editor/shared/contracts";
 import type {DisplayLocale} from "nbook/shared/localized-text";
 
@@ -120,6 +121,8 @@ if (props.scene === "unrepresentable") {
 }
 
 const MonacoControl = defineAsyncComponent(() => import("nbook/plugins/editor/web/components/MonacoControl.vue"));
+// Markdown 控件要 nbook.markdown 交组件时给的方言目录：场景里没有外来方言，目录是空的，语言只有内置方言。
+provide(syntaxCatalogKey, new SyntaxCatalog({get: () => null, list: () => []}, () => undefined));
 const MarkdownControl = defineAsyncComponent(() => import("nbook/plugins/markdown/web/components/MarkdownControl.vue"));
 /** 只有内置的两个编辑器，组件直接给出（产品里由编辑器的登记表给出，`editor-registry.ts`）。 */
 const controls: Readonly<Record<string, Component>> = {[CODE_EDITOR]: MonacoControl, [MARKDOWN_EDITOR]: MarkdownControl};

@@ -3,7 +3,7 @@
 import {Editor} from "@tiptap/core";
 import {EditorState, Selection, TextSelection} from "@tiptap/pm/state";
 import type {Transaction} from "@tiptap/pm/state";
-import {onBeforeUnmount, onMounted, ref, shallowRef, watch} from "vue";
+import {inject, onBeforeUnmount, onMounted, ref, shallowRef, watch} from "vue";
 
 import type {EditorControlHandle, EditorOutline, TextEditorBinding, ViewStateSlot} from "nbook/plugins/editor/shared/contracts";
 import type {EditorControlEmits} from "nbook/plugins/editor/web/control";
@@ -12,12 +12,17 @@ import type {DisplayLocale} from "nbook/shared/localized-text";
 import {codecFor} from "../codec/codec";
 import type {MarkdownCodec} from "../codec/codec";
 import type {SourceMap} from "../codec/read";
-import {markdownLanguage} from "../syntax";
 import {createMarkdownEditorExtensions} from "../editor/markdown-editor-extensions";
+import type {MarkdownLanguage} from "../language";
+import {languageFor} from "../language-registry";
+import {syntaxCatalogKey} from "../syntax-catalog";
 
 // `locale`：控件合同的一员；富文本控件自己不显示要翻译的文字（占位文字由宿主给出）。
 const props = defineProps<{binding: TextEditorBinding | null; host: ViewStateSlot; readonly: boolean; visible: boolean; label: string; placeholder?: string; locale?: DisplayLocale}>();
 const emit = defineEmits<EditorControlEmits>();
+
+const catalog = inject(syntaxCatalogKey, null);
+if (catalog === null) throw new Error("MarkdownControl 要由 nbook.markdown 交出的组件挂上：缺少方言目录（syntaxCatalogKey）");
 
 /** 停止输入这么久才把正文交给文档；保存、切换与离开之前会立即结算。 */
 const COMMIT_DELAY_MS = 150;
@@ -40,6 +45,8 @@ interface MarkdownViewState {
 const root = ref<HTMLElement | null>(null);
 const scroller = ref<HTMLElement | null>(null);
 let editor: Editor | null = null;
+/** 这个实例建好时取定的语言（docs/specs/workspace/markdown-syntaxes.md 输出 7）：与 `editor` 同时设上、同时清空。 */
+let language: MarkdownLanguage | null = null;
 let bound: TextEditorBinding | null = null;
 let detach: (() => void) | null = null;
 let timer: ReturnType<typeof setTimeout> | null = null;
@@ -53,7 +60,10 @@ const stateOf = (binding: TextEditorBinding): MarkdownViewState | null => bindin
  * 编解码器按编辑器自己的 schema 建（每个编辑器实例一份 schema），缓存在 `codecFor` 里。schema 从编辑状态的文档上取：组关闭时
  * 编辑器区先释放实例，Tiptap 销毁后 `editor.schema` 不再可用，而卸载前的结算还要写出这个视图的输入。
  */
-const codec = (current: Editor): MarkdownCodec => codecFor(current.state.doc.type.schema, markdownLanguage());
+const codec = (current: Editor): MarkdownCodec => {
+    if (language === null) throw new Error("MarkdownControl：编辑器实例没有记下语言");
+    return codecFor(current.state.doc.type.schema, language);
+};
 
 /** 写不出的那一块给人看的样子：第几块（顶层块，从 1 起）与开头几个字（组顶部的提示用）。 */
 const EXCERPT_LENGTH = 16;
@@ -82,6 +92,7 @@ const quietly = (current: Editor, change: (tr: Transaction) => void): void => {
 /** 组的实例槽里存的编辑器实例（焦点在重挂后由编辑器区交还给活动视图，见 `area.ts` 的 `focusActive`）。 */
 interface KeptEditor {
     readonly editor: Editor;
+    readonly language: MarkdownLanguage;
 }
 
 const attributes = (): Record<string, string> => ({"aria-label": props.label, "class": "markdown-control__prose", "data-editor-prose": ""});
@@ -326,18 +337,21 @@ onMounted(() => {
     const kept = props.host.state as KeptEditor | null;
     if (kept !== null) {
         editor = kept.editor;
+        language = kept.language;
         editor.mount(root.value);
         editor.setOptions({editorProps: {attributes: attributes()}});
     } else {
+        const current = languageFor(catalog);
         const created = new Editor({
             element: root.value,
-            extensions: createMarkdownEditorExtensions({placeholder: props.placeholder ?? ""}),
+            extensions: createMarkdownEditorExtensions({language: current, placeholder: props.placeholder ?? ""}),
             editable: !props.readonly,
             editorProps: {attributes: attributes()},
         });
-        props.host.state = {editor: created} satisfies KeptEditor;
+        props.host.state = {editor: created, language: current} satisfies KeptEditor;
         props.host.dispose = () => created.destroy();
         editor = created;
+        language = current;
     }
     // 事件处理器属于这一次挂载的组件，卸载时摘掉；实例本身留在槽里。
     editor.on("update", onUpdate);
@@ -361,6 +375,7 @@ onBeforeUnmount(() => {
         editor.unmount();
     }
     editor = null;
+    language = null;
     refreshOutline(true);
     emit("ready", null);
 });

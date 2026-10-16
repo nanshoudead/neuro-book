@@ -15,6 +15,7 @@ import {decodeHTMLStrict} from "entities";
 import {escapeAttribute} from "nbook/plugins/markdown/shared/markdown-dialect";
 
 import {closeInline, openTagAt, openTagIndex} from "../tags";
+import {CODE_EXCLUSIVE} from "../types";
 import type {MarkdownSyntax, MarkWriter, TokenReader, WriteContext} from "../types";
 
 declare module "@tiptap/core" {
@@ -39,6 +40,7 @@ export const MarkdownRuby = Mark.create({
     name: "markdownRuby",
     // 最低：写出时在最里层（见文件头）。
     priority: 50,
+    group: CODE_EXCLUSIVE,
     inclusive: false,
     addAttributes() {
         return {

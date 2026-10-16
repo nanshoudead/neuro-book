@@ -13,8 +13,8 @@ import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
 import {COMMANDS_POINT, commandServiceKey, currentKeyPlatform, menuImplementations, MenuItemRegistry} from "nbook/plugins/commands/shared/contracts";
 import {filesKey} from "nbook/plugins/files/shared/contracts";
-import {markdownKey} from "nbook/plugins/markdown/shared/contracts";
-import type {MarkdownService} from "nbook/plugins/markdown/shared/contracts";
+import {dialectTable, MARKDOWN_DIALECTS_POINT, markdownKey} from "nbook/plugins/markdown/shared/contracts";
+import type {DialectDeclaration, MarkdownService} from "nbook/plugins/markdown/shared/contracts";
 import {displayLocale, SETTINGS_SECTIONS_POINT, settingsKey} from "nbook/plugins/settings/shared/contracts";
 import {breadcrumbsSetting, EDITOR_SECTION, EDITOR_SECTION_DECLARATION, enablePreviewSetting, wrapTabsSetting} from "../shared/settings";
 import {PUBLIC_STATE_POINT, publicStateKey} from "nbook/plugins/state/shared/contracts";
@@ -257,7 +257,7 @@ export const editorBrowserPlugin: PluginDefinition = {
                     [EDITOR_EDITORS_POINT]: {[MARKDOWN_EDITOR]: builtinImplementation(builtins, MARKDOWN_EDITOR), [CODE_EDITOR]: builtinImplementation(builtins, CODE_EDITOR)},
                     [EDITOR_LANGUAGES_POINT]: Object.fromEntries(MONACO_LANGUAGES.map((entry) => [entry.id, monacoLanguageImplementation(entry)])),
                     [PUBLIC_STATE_POINT]: Object.fromEntries(published.bindings),
-                    [WORKBENCH_STATUSBAR_ITEMS_POINT]: editorStatusItems(session.area, locale, context.services.require(clockKey), languages),
+                    [WORKBENCH_STATUSBAR_ITEMS_POINT]: editorStatusItems(session.area, locale, context.services.require(clockKey), languages, dialectTable(context.declarations.list<DialectDeclaration>(MARKDOWN_DIALECTS_POINT))),
                     [WORKBENCH_TITLEBAR_MENU_POINT]: menuImplementations(EDITOR_TITLEBAR_MENU_ITEMS),
                     // list 分区没有要实现的东西，设置窗口照声明画配置项（docs/specs/settings/settings-window.md）。
                     [SETTINGS_SECTIONS_POINT]: {[EDITOR_SECTION]: Object.freeze({})},

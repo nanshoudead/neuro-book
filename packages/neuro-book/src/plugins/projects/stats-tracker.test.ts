@@ -19,6 +19,9 @@ import {projectFilesContract, TEXT_BUDGET_BYTES} from "nbook/plugins/files/share
 import type {WatchMessage} from "nbook/plugins/files/shared/contracts";
 import {files, filesScene, remote} from "nbook/plugins/files/testing/scene";
 import type {Layout, Scene} from "nbook/plugins/files/testing/scene";
+import {BUILTIN_DIALECTS} from "nbook/plugins/markdown/shared/dialects";
+import {dialectTable} from "nbook/plugins/markdown/shared/word-count";
+import type {DialectTable} from "nbook/plugins/markdown/shared/word-count";
 
 import {localDate} from "./backend/shelf";
 import {createStatsTracker, lastParagraphExcerpt} from "./project/stats-tracker";
@@ -67,7 +70,7 @@ interface Tracked {
 const at = (year: number, month: number, day: number, hour = 0, minute = 0): number => new Date(year, month - 1, day, hour, minute).getTime();
 
 /** 在项目实例里起统计：订阅走测试插件 `x.project` 的远程门面，与产品入口同一条本地路径。 */
-function track(created: Scene, options: {readonly initial?: ProjectStatsSnapshot | null; readonly now?: number} = {}): Tracked {
+function track(created: Scene, options: {readonly initial?: ProjectStatsSnapshot | null; readonly now?: number; readonly dialects?: DialectTable} = {}): Tracked {
     const clock = new ManualClock();
     clock.advance(options.now ?? at(2026, 10, 10, 10));
     const records: Array<Omit<DiagnosticInput, "source">> = [];
@@ -77,6 +80,7 @@ function track(created: Scene, options: {readonly initial?: ProjectStatsSnapshot
         root: created.project,
         clock,
         initial: options.initial ?? null,
+        dialects: options.dialects ?? BUILTIN_TABLE,
         subscribe: (listener, subscribeOptions) => client.events.changes.subscribe({}, listener, subscribeOptions),
         record: (input) => records.push(input),
         changed: () => {
@@ -114,12 +118,15 @@ async function save(created: Scene, path: string, text: string): Promise<void> {
     expect(await client.write(`project://${path}`, text, read.value.baseline)).toMatchObject({ok: true});
 }
 
-/** 记录里的一份快照。 */
-function recorded(fields: {readonly words: number; readonly date: string; readonly baseline: number; readonly last?: ProjectStatsSnapshot["last"]}): ProjectStatsSnapshot {
-    return {computedAt: "2026-10-09T08:30:00.000Z", words: fields.words, files: 2, unreadable: 0, today: {date: fields.date, baseline: fields.baseline}, last: fields.last ?? null};
+/** 记录里的一份快照；缺省按产品的口径（内置方言的声明表）记的。 */
+function recorded(fields: {readonly words: number; readonly date: string; readonly baseline: number; readonly last?: ProjectStatsSnapshot["last"]; readonly wordRules?: string | null}): ProjectStatsSnapshot {
+    const wordRules = fields.wordRules === undefined ? BUILTIN_TABLE.fingerprint : fields.wordRules;
+    return {computedAt: "2026-10-09T08:30:00.000Z", words: fields.words, files: 2, unreadable: 0, today: {date: fields.date, baseline: fields.baseline}, last: fields.last ?? null, ...(wordRules === null ? {} : {wordRules})};
 }
 
 const hanzi = (count: number): string => "字".repeat(count);
+/** 产品项目进程里的方言声明表：内置方言（插件描述的顶层贡献）。 */
+const BUILTIN_TABLE = dialectTable(Object.values(BUILTIN_DIALECTS).map((declaration) => ({declaration})));
 
 describe("Spec projects 输出 16、验收 16：口径", () => {
     it("非隐藏的 .md 都计入（内容文件夹的 index.md、活页夹章节、大写扩展名），frontmatter 不计；隐藏目录与文件、非 .md、符号链接不计；读不出的文件（坏编码、NUL、超过 Files 的正文上限）计入 unreadable", async () => {
@@ -154,6 +161,7 @@ describe("Spec projects 输出 16、验收 16：口径", () => {
             // 从没统计过：第一次扫完的总字数就是基线。
             today: {date: "2026-10-10", baseline: 13},
             last: null,
+            wordRules: BUILTIN_TABLE.fingerprint,
         });
     });
 
@@ -310,6 +318,15 @@ describe("Spec projects 输出 16、验收 16：今天", () => {
         const nextDay = track(created, {initial: recorded({words: 150, date: "2026-10-09", baseline: 100})});
         expect(nextDay.tracker.current()).toEqual({status: "counting", snapshot: recorded({words: 150, date: "2026-10-09", baseline: 100})});
         expect(await completed(nextDay.tracker)).toMatchObject({words: 160, today: {date: localDate(nextDay.clock.now()), baseline: 150}});
+    });
+
+    it("口径换了（记录的方言声明表指纹不同，或旧记录没有指纹）：今天的基线按新口径的总字数重定，口径带来的差额不算今天写的字", async () => {
+        const created = await scene({"a.md": `${hanzi(10)}<kbd>${hanzi(5)}</kbd>`});
+        const withKbd = dialectTable([...Object.values(BUILTIN_DIALECTS).map((declaration) => ({declaration})), {declaration: {order: 80, inlineTags: ["kbd"]}}]);
+        const changed = track(created, {initial: recorded({words: 10, date: "2026-10-10", baseline: 10}), dialects: withKbd});
+        expect(await completed(changed.tracker)).toMatchObject({words: 15, today: {date: "2026-10-10", baseline: 15}, wordRules: withKbd.fingerprint});
+        const legacy = track(created, {initial: recorded({words: 10, date: "2026-10-10", baseline: 4, wordRules: null})});
+        expect(await completed(legacy.tracker)).toMatchObject({words: 10, today: {date: "2026-10-10", baseline: 10}, wordRules: BUILTIN_TABLE.fingerprint});
     });
 });
 

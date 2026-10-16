@@ -21,6 +21,7 @@ import type {MarkedExtension, Token, Tokens} from "marked";
 import markedCjkFriendly from "marked-cjk-friendly";
 
 import {closeInline, nextMatch} from "../tags";
+import {CODE_EXCLUSIVE} from "../types";
 import type {MarkdownSyntax, ReadContext, TokenReader} from "../types";
 import {coreWriters} from "./write";
 
@@ -49,8 +50,11 @@ const MarkdownParagraph = Paragraph.extend({priority: 1500});
  * 行内代码只排斥自己与注音：Tiptap 自带的排斥一切别的标记，读入 `` [`代码`](地址) ``、`` **`代码`** `` 时外面的链接与粗体会被
  * 丢掉，改过这一块再写回就没了。别的标记盖住行内代码时写在反引号外面（写法里它在最里层，`textOnly`）；注音的正文只能是文字，
  * 两者不能同在。光标在行内代码末尾继续输入时不带它（`inclusive: false`，沿旧应用）。
+ *
+ * 排斥按标记组写（`CODE_EXCLUSIVE`，注音也在这一组）：注音是方言，可能不在语言里（docs/specs/workspace/markdown-syntaxes.md
+ * 输出 8），写成类型名时缺了它 schema 就建不起来。组里至少有行内代码自己，所以组不会是空的。
  */
-const MarkdownCode = Code.extend({excludes: "code markdownRuby", inclusive: false});
+const MarkdownCode = Code.extend({group: CODE_EXCLUSIVE, excludes: CODE_EXCLUSIVE, inclusive: false});
 
 /** 表格单元格只有一段（输出 20）：单元格里的 Enter 是换行，GFM 写不出多段。 */
 const SingleParagraphCell = TableCell.extend({content: "paragraph"});

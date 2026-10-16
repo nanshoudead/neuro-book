@@ -6,17 +6,17 @@
  * - 标点、空白与 Markdown 标记不计；开头的 YAML frontmatter 不计；
  * - 方言标签与原样内容里的字不计（docs/specs/workspace/markdown-dialect.md 的“副作用与数据”），由下面的轻量扫描去掉。
  *
- * 浏览器与服务端都用这个算法，不能依赖编辑器的编解码器：扫描只按行与标签判断，判据从 `markdown-dialect.ts` 取，与编解码器
- * 同一份。它与编解码器读出的正文是否一致，由 `word-count.test.ts` 对照编辑器的语料核对；已知的偏差写在方言 Spec。
+ * 浏览器与项目进程都用这个算法，不能依赖编辑器的编解码器：扫描只按行与标签判断，原样内容的判据从 `markdown-dialect.ts` 取，
+ * 方言标签按声明表（`dialectTable`，docs/specs/workspace/markdown-syntaxes.md 输出 9）。它与编解码器读出的正文是否一致，由
+ * `web/codec/word-count.test.ts` 对照编辑器的语料核对；已知的偏差写在方言 Spec。
  */
 
 import {decodeHTMLStrict} from "entities";
 
+import type {DialectDeclaration} from "./dialects";
 import {
     ATTRIBUTES_SOURCE,
-    BLOCK_DIALECT_TAGS,
     FOOTNOTE_REF_SOURCE,
-    INLINE_DIALECT_TAGS,
     LONE_TAG,
     MATH_INLINE_SOURCE,
     OPENS_HTML_BLOCK,
@@ -29,9 +29,40 @@ const FRONTMATTER = /^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/u;
 const CJK = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/gu;
 const WORD = /[\p{Script=Latin}\p{Nd}]+(?:['’-][\p{Script=Latin}\p{Nd}]+)*/gu;
 
-export function countWords(text: string): number {
+/** 按方言声明算出的字数规则。在一个进程的寿命内不变（输出 10），调用方算一次、每次计数都用它。 */
+export interface DialectTable {
+    /** 只去掉标签本身、中间的正文照常计的标签：声明的方言标签（`tagWords` 为 `skip` 的除外）与能读的 HTML。其余成对的标签连同中间的字是原样片段。 */
+    readonly known: ReadonlySet<string>;
+    /** 块级方言标签：独占一行时不开启 HTML 块。 */
+    readonly blockTags: ReadonlySet<string>;
+    /** 规则的指纹：书架统计据此判断口径变没变（docs/specs/runtime/projects.md 输出 16）。 */
+    readonly fingerprint: string;
+}
+
+export function dialectTable(declarations: ReadonlyArray<{readonly declaration: DialectDeclaration}>): DialectTable {
+    const known = new Set<string>(READABLE_INLINE_HTML);
+    const blockTags = new Set<string>();
+    for (const {declaration} of declarations) {
+        const skipped = new Set((declaration.tagWords ?? []).filter((rule) => rule.content === "skip").map((rule) => rule.tag));
+        for (const tag of declaration.blockTags ?? []) blockTags.add(tag);
+        for (const tag of [...(declaration.blockTags ?? []), ...(declaration.inlineTags ?? [])]) if (!skipped.has(tag)) known.add(tag);
+    }
+    return {known, blockTags, fingerprint: fingerprintOf(`${[...known].sort().join(",")}|${[...blockTags].sort().join(",")}`)};
+}
+
+/** FNV-1a（32 位）：只用来比较两次的规则是不是同一份，不防碰撞攻击。 */
+function fingerprintOf(text: string): string {
+    let hash = 0x811c9dc5;
+    for (let index = 0; index < text.length; index += 1) {
+        hash ^= text.charCodeAt(index);
+        hash = Math.imul(hash, 0x01000193) >>> 0;
+    }
+    return hash.toString(16).padStart(8, "0");
+}
+
+export function countWords(text: string, table: DialectTable): number {
     // 文件服务把 BOM 留在正文里（保存时原样写回），作品统计读文件时又去掉它：这里先剥掉再认 frontmatter，两边的字数才一致。
-    const body = countable(text.replace(BOM, "").replace(FRONTMATTER, ""));
+    const body = countable(text.replace(BOM, "").replace(FRONTMATTER, ""), table);
     // 先数中日韩的字，再把它们换成空格数拉丁词：两类紧挨着时（“第3章”）不会被当成一个词。
     let count = 0;
     const latin = body.replace(CJK, () => {
@@ -70,14 +101,11 @@ const HTML_BLOCK_ENDS: ReadonlyArray<readonly [RegExp, RegExp]> = [
     [/^<!\[CDATA\[/u, /\]\]>/u],
 ];
 
-/** 方言与能读的 HTML 标签：只去掉标签本身，中间的正文照常计。其余成对的标签连同中间的字是原样片段。 */
-const KNOWN_TAGS: ReadonlySet<string> = new Set([...BLOCK_DIALECT_TAGS, ...INLINE_DIALECT_TAGS, ...READABLE_INLINE_HTML]);
-
 /**
  * 去掉不计字数的内容，剩下的交给计数。顺序与编辑器读入一致：先认代码、原样块与可渲染 HTML 这类整块的结构（按行），段落里的
  * 文字再按行内规则去掉标签、原样片段与注音小字。代码里的字照常计，其中的标签不当标签。
  */
-function countable(body: string): string {
+function countable(body: string, table: DialectTable): string {
     const lines = body.split(/\r\n|\r|\n/u);
     const offsets: number[] = [];
     let offset = 0;
@@ -109,7 +137,7 @@ function countable(body: string): string {
     const out: string[] = [];
     let paragraph: string[] = [];
     const flush = (): void => {
-        if (paragraph.length > 0) out.push(inline(paragraph.join("\n")));
+        if (paragraph.length > 0) out.push(inline(paragraph.join("\n"), table));
         paragraph = [];
     };
     // 这一行能不能开始只在块开头成立的结构（引用定义、第 7 类 HTML 块）：前面是空行、文件开头或另一个整块的结构。
@@ -179,7 +207,7 @@ function countable(body: string): string {
             skipTo(definition);
             continue;
         }
-        const html = htmlBlockEnd(joined, lines, offsets, index, content, blockStart);
+        const html = htmlBlockEnd(joined, lines, offsets, index, content, blockStart, table);
         if (html >= 0) {
             skipTo(html);
             continue;
@@ -263,9 +291,9 @@ function findLine(lines: ReadonlyArray<string>, from: number, test: (line: strin
  * 从第 `index` 行开始的 HTML 块（原样块）的最后一行；不是 HTML 块返回 -1。认法与编辑器的 `syntax/raw` 一致：行首是方言之外的
  * 标签、到配对的闭标签为止的完整片段（可以跨空行）后面紧跟行尾时整体是原样块；否则按 CommonMark 的 HTML 块。
  */
-function htmlBlockEnd(joined: Scanned, lines: ReadonlyArray<string>, offsets: ReadonlyArray<number>, index: number, content: string, blockStart: boolean): number {
+function htmlBlockEnd(joined: Scanned, lines: ReadonlyArray<string>, offsets: ReadonlyArray<number>, index: number, content: string, blockStart: boolean, table: DialectTable): number {
     const name = OPEN_TAG_AT_START.exec(content)?.[1]?.toLowerCase();
-    if (name !== undefined && !KNOWN_TAGS.has(name)) {
+    if (name !== undefined && !table.known.has(name)) {
         const start = (offsets[index] as number) + (lines[index] as string).length - content.length;
         const end = completeElementEnd(joined, start, name);
         if (end >= 0) {
@@ -278,7 +306,7 @@ function htmlBlockEnd(joined: Scanned, lines: ReadonlyArray<string>, offsets: Re
         const last = findLine(lines, index, (line) => ends.test(line));
         return last < 0 ? lines.length - 1 : last;
     }
-    const lone = name === undefined || !(BLOCK_DIALECT_TAGS as ReadonlyArray<string>).includes(name);
+    const lone = name === undefined || !table.blockTags.has(name);
     if (OPENS_HTML_BLOCK.test(content) || (blockStart && lone && LONE_TAG.test(content.trimEnd()))) {
         const blank = findLine(lines, index + 1, (line) => line.trim() === "");
         return blank < 0 ? lines.length - 1 : blank - 1;
@@ -363,7 +391,7 @@ const FOOTNOTE_REF = new RegExp(FOOTNOTE_REF_SOURCE, "uy");
 const ENTITY = /&(?:#[0-9]{1,7}|#[xX][0-9a-fA-F]{1,6}|[A-Za-z][A-Za-z0-9]{1,31});/uy;
 
 /** 一段里不计的内容去掉后的文字：行内代码原样留下，标签、HTML 注释、行内数学与脚注引用去掉，实体解码，转义取字符本身。 */
-function inline(text: string): string {
+function inline(text: string, table: DialectTable): string {
     const source = scanned(text);
     const runs = backtickRuns(text);
     // 每种长度下一个还没走过的反引号串（扫描只往后走）。
@@ -399,7 +427,7 @@ function inline(text: string): string {
                 if (ASCII_PUNCTUATION.test(text[position + 1] ?? "")) at = replace(position, position + 2, text[position + 1] as string);
                 break;
             case "<":
-                at = tagAt(source, position, replace) ?? at;
+                at = tagAt(source, position, replace, table) ?? at;
                 break;
             case "$":
                 MATH_INLINE.lastIndex = position;
@@ -436,7 +464,7 @@ function backtickRuns(text: string): Map<number, number[]> {
  * `<` 开头的写法：自动链接留下地址，HTML 注释与标签去掉；方言之外的完整片段连同中间的字去掉（标准写法注音里的 `<rt>` 小字
  * 也由这一条去掉）。返回处理到的位置。
  */
-function tagAt(source: Scanned, position: number, replace: (from: number, to: number, value: string) => number): number | null {
+function tagAt(source: Scanned, position: number, replace: (from: number, to: number, value: string) => number, table: DialectTable): number | null {
     const {text, lastClose} = source;
     if (position > lastClose) return null;
     if (text.startsWith("<!--", position)) {
@@ -453,7 +481,7 @@ function tagAt(source: Scanned, position: number, replace: (from: number, to: nu
     const end = position + tag[0].length;
     // `<br>` 是换行：两边的词不连成一个。
     if (name === "br") return replace(position, end, " ");
-    if (tag[1] === "/" || KNOWN_TAGS.has(name)) return replace(position, end, "");
+    if (tag[1] === "/" || table.known.has(name)) return replace(position, end, "");
     const element = completeElementEnd(source, position, name);
     return replace(position, element < 0 ? end : element, "");
 }

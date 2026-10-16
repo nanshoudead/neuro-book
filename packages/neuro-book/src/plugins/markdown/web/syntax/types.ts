@@ -100,6 +100,9 @@ export interface ContextBlock {
 /** 引用定义的标签按 Markdown 的规则归一：去掉两端空白、中间的空白合成一个、不分大小写（与 `marked` 的定义表一致）。 */
 export const normalizeLabel = (label: string): string => label.trim().replace(/\s+/gu, " ").toLowerCase();
 
+/** 不能与行内代码同在的标记组：行内代码自己与注音（`core/` 的 `MarkdownCode`、`ruby/`）。按组写，注音缺席时 schema 照常建。 */
+export const CODE_EXCLUSIVE = "markdownCodeExclusive";
+
 /** 写不出：写法遇到 GFM 表达不了的结构（多段单元格、没有表头的表格、合并单元格）时抛出。 */
 export class Unrepresentable extends Error {}
 

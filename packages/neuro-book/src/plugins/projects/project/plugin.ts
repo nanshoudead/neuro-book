@@ -14,6 +14,8 @@ import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import {provideRemote} from "@notnotype/nb-runtime/remote";
 
 import {projectFilesContract} from "nbook/plugins/files/shared/contracts";
+import {dialectTable, MARKDOWN_DIALECTS_POINT} from "nbook/plugins/markdown/shared/contracts";
+import type {DialectDeclaration} from "nbook/plugins/markdown/shared/contracts";
 import {storageKey} from "nbook/plugins/storage/shared/contracts";
 import {clockKey} from "nbook/shared/host";
 import {currentProjectKey} from "nbook/shared/projects";
@@ -54,6 +56,7 @@ export const projectsProjectPlugin: PluginDefinition = {
                 root: project.root,
                 clock,
                 initial,
+                dialects: dialectTable(context.declarations.list<DialectDeclaration>(MARKDOWN_DIALECTS_POINT)),
                 subscribe: (listener, options) => files.events.changes.subscribe({}, listener, options),
                 record,
                 changed: () => writer.changed(),

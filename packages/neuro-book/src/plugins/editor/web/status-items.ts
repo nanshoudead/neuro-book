@@ -14,6 +14,7 @@ import type {ItemImplementation} from "nbook/plugins/workbench/web/contracts";
 import {formatText, localize} from "nbook/shared/localized-text";
 import type {DisplayLocale, LocalizedText} from "nbook/shared/localized-text";
 import {countWords} from "nbook/plugins/markdown/shared/contracts";
+import type {DialectTable} from "nbook/plugins/markdown/shared/contracts";
 
 import type {EditorArea} from "./area";
 import type {LanguageRegistry} from "./code/languages";
@@ -61,7 +62,7 @@ export const WORD_COUNT_DELAY_MS = 300;
  *
  * 由条目文字的求值驱动，不另开监听：状态栏每次求值都会调到这里（移动光标也会），所以计时只在待算的修订号变了时重排。
  */
-function activeWordCount(area: Readonly<ShallowRef<EditorArea | null>>, clock: RuntimeClock): () => number {
+function activeWordCount(area: Readonly<ShallowRef<EditorArea | null>>, clock: RuntimeClock, dialects: DialectTable): () => number {
     /**
      * 文档对象在打开期间不变。只缓存正文就是文件内容时算出的值：就绪，或外部删除后保留着正文；加载中与加载失败时不缓存。
      * 删除后也要缓存：否则到点算完、缓存的修订号仍旧，又排一次计时，字数停在旧值并反复重算。
@@ -77,7 +78,7 @@ function activeWordCount(area: Readonly<ShallowRef<EditorArea | null>>, clock: R
         pending = null;
     };
     const countNow = (document: TextDocument, revision: number): number => {
-        const count = countWords(document.text.value);
+        const count = countWords(document.text.value, dialects);
         if (document.status.value === "ready" || document.status.value === "deleted") counts.set(document, {revision, count});
         return count;
     };
@@ -107,10 +108,11 @@ function activeWordCount(area: Readonly<ShallowRef<EditorArea | null>>, clock: R
     };
 }
 
-export function editorStatusItems(area: Readonly<ShallowRef<EditorArea | null>>, locale: Readonly<ComputedRef<DisplayLocale>>, clock: RuntimeClock, languages: Pick<LanguageRegistry, "name">): Readonly<Record<string, ItemImplementation>> {
+/** `dialects`：方言声明表（docs/specs/workspace/markdown-syntaxes.md 输出 9、10），在一个窗口的寿命内不变。 */
+export function editorStatusItems(area: Readonly<ShallowRef<EditorArea | null>>, locale: Readonly<ComputedRef<DisplayLocale>>, clock: RuntimeClock, languages: Pick<LanguageRegistry, "name">, dialects: DialectTable): Readonly<Record<string, ItemImplementation>> {
     const text = (value: LocalizedText): string => localize(value, locale.value);
     const display = (value: LocalizedText | string): string => (typeof value === "string" ? value : text(value));
-    const wordCount = activeWordCount(area, clock);
+    const wordCount = activeWordCount(area, clock, dialects);
     const unsaved = () => area.value?.openDocuments.value.filter(needsSaving) ?? [];
     const failures = () => unsaved().filter((document) => document.saveProblem.value !== null);
     const number = (count: number): string => new Intl.NumberFormat(locale.value).format(count);

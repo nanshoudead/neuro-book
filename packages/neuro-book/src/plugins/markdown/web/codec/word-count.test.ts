@@ -11,16 +11,18 @@ import {getSchema} from "@tiptap/core";
 import type {Node as PMNode} from "@tiptap/pm/model";
 import {describe, expect, it} from "bun:test";
 
-import {BLOCK_DIALECT_TAGS, INLINE_DIALECT_TAGS} from "nbook/plugins/markdown/shared/markdown-dialect";
-import {countWords} from "nbook/plugins/markdown/shared/word-count";
+import {BUILTIN_DIALECTS} from "nbook/plugins/markdown/shared/dialects";
+import {countWords, dialectTable} from "nbook/plugins/markdown/shared/word-count";
 
-import {markdownLanguage} from "../syntax";
+import {BUILTIN_SYNTAXES, markdownLanguage} from "../syntax";
 import {codecFor} from "./codec";
 
 const language = markdownLanguage();
 const codec = codecFor(getSchema([...language.extensions]), language);
 const CORPUS = join(import.meta.dir, "corpus");
 const corpus = readdirSync(CORPUS).filter((name) => name.endsWith(".md")).sort();
+const TABLE = dialectTable(Object.values(BUILTIN_DIALECTS).map((declaration) => ({declaration})));
+const DECLARED_TAGS = Object.values(BUILTIN_DIALECTS).flatMap((declaration) => [...(declaration.blockTags ?? []), ...(declaration.inlineTags ?? [])]);
 
 /** 读出的正文文字：块与块、换行处断开，原样与其它不含文字的节点没有字。 */
 function plain(node: PMNode): string {
@@ -35,10 +37,10 @@ function plain(node: PMNode): string {
 /** 一段读出的文字的字数：放进围栏，扫描不把正文里的 `<…>`、`&…;` 再当标签与实体。 */
 function wordsOf(text: string): number {
     const fence = "`".repeat(Math.max(3, ...[...text.matchAll(/`+/gu)].map((run) => run[0].length + 1)));
-    return countWords(`${fence}\n${text}\n${fence}`);
+    return countWords(`${fence}\n${text}\n${fence}`, TABLE);
 }
 
-const DIALECT_TAG = new RegExp(`^<(?:${[...BLOCK_DIALECT_TAGS, ...INLINE_DIALECT_TAGS].join("|")})[\\s>]`, "iu");
+const DIALECT_TAG = new RegExp(`^<(?:${DECLARED_TAGS.join("|")})[\\s>]`, "iu");
 
 /**
  * 这一块里有没有 Spec 写明的已知偏差：链接与图片的地址、有序列表的编号照常计入；写法不合法、整体读成原样的方言标签里的字
@@ -58,9 +60,14 @@ function deviates(node: PMNode): boolean {
 }
 
 describe("字数与编解码器一致", () => {
-    it("方言标签名单：字数用的与编解码器从各语法模块收集的相同", () => {
-        expect(new Set(language.blockTags)).toEqual(new Set(BLOCK_DIALECT_TAGS));
-        expect(new Set(language.inlineTags)).toEqual(new Set(INLINE_DIALECT_TAGS));
+    it("方言标签名单：每种内置方言的声明与它的语法模块交出的相同（docs/specs/workspace/markdown-syntaxes.md 输出 3）", () => {
+        expect(Object.keys(BUILTIN_SYNTAXES).sort()).toEqual(Object.keys(BUILTIN_DIALECTS).sort());
+        for (const [id, syntax] of Object.entries(BUILTIN_SYNTAXES)) {
+            const declaration = BUILTIN_DIALECTS[id];
+            expect([id, new Set(Object.keys(syntax.blockOpens ?? {}))]).toEqual([id, new Set(declaration?.blockTags ?? [])]);
+            expect([id, new Set(syntax.inlineTags ?? [])]).toEqual([id, new Set(declaration?.inlineTags ?? [])]);
+        }
+        expect(new Set([...language.blockTags, ...language.inlineTags])).toEqual(new Set(DECLARED_TAGS));
     });
 
     it("语料的每一块：轻量扫描数原文，与数读出的正文文字相同（已知偏差的块除外）", () => {
@@ -80,7 +87,7 @@ describe("字数与编解码器一致", () => {
             for (const {raw, nodes} of units.values()) {
                 if (nodes.some(deviates)) continue;
                 compared += 1;
-                const light = countWords(raw);
+                const light = countWords(raw, TABLE);
                 const exact = nodes.reduce((sum, node) => sum + wordsOf(plain(node)), 0);
                 if (light !== exact) differences.push(`${name}：${JSON.stringify(raw)} 扫描 ${light}，正文 ${exact}`);
             }

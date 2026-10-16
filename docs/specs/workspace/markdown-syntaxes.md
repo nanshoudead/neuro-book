@@ -46,7 +46,7 @@ owners:
 | `order` | 整数 | 同一种词法单元有几种方言认领时，小的先试 |
 | `blockTags` | 标签名数组，可省略 | 本方言的块级标签 |
 | `inlineTags` | 标签名数组，可省略 | 本方言的行内标签 |
-| `tagWords` | `{tag, content: "count" \| "skip"}` 数组，可省略 | 标签里的字计不计；标签必须出现在 `blockTags` 或 `inlineTags` 里 |
+| `tagWords` | `{tag, content: "count" \| "skip"}` 数组，可省略 | 标签里的字计不计；标签必须出现在 `blockTags` 或 `inlineTags` 里；没列出的声明标签计入 |
 
 `MarkdownSyntax` 是语法模块的形状（`shared/contracts.ts` 导出类型）：schema 扩展、各词法单元的读法、各节点与标记的写法、标签名、编辑视图与静态视图（[ui.markdown-display](../ui/markdown-display.md) 输出 2）。
 

@@ -20,7 +20,11 @@ import {createEditorArea} from "nbook/plugins/editor/web/area";
 import type {EditorArea} from "nbook/plugins/editor/web/area";
 import {codecFor} from "../codec/codec";
 import {markdownLanguage} from "../syntax";
+import {SyntaxCatalog, syntaxCatalogKey} from "../syntax-catalog";
 import MarkdownControl from "./MarkdownControl.vue";
+
+/** nbook.markdown 交组件时给的方言目录（`web/plugin.ts`）：这里没有外来方言。 */
+const catalog = new SyntaxCatalog({get: () => null, list: () => []}, () => undefined);
 
 const cleanups: Array<() => void> = [];
 afterEach(() => {
@@ -58,7 +62,7 @@ async function opened(text: string, area?: {readonly area: EditorArea; readonly 
     const wrapper = mount(MarkdownControl, {props: {binding, host, readonly: false, visible: true, label: "a.md", onReady: (ready: EditorControlHandle | null) => {
         handle = ready;
         editorArea.registerHandle(groupId, MARKDOWN_EDITOR, ready);
-    }}, attachTo: document.body, global: onError === undefined ? {} : {config: {errorHandler: onError}}});
+    }}, attachTo: document.body, global: {provide: {[syntaxCatalogKey as symbol]: catalog}, ...(onError === undefined ? {} : {config: {errorHandler: onError}})}});
     cleanups.push(() => wrapper.unmount());
     const editor = (host.state as {editor: Editor}).editor;
     return {area: editorArea, memory, binding, editor, handle: handle as unknown as EditorControlHandle, groupId};
