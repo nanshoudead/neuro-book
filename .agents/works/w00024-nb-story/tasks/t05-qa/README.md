@@ -2,7 +2,7 @@
 schema: nbook.task/v2
 taskId: t05-qa
 status: active
-updated: 2026-10-15
+updated: 2026-10-16
 ---
 
 # nb-story 内置问答：网页问答页与 nbstory ask
@@ -11,7 +11,7 @@ updated: 2026-10-15
 
 在 nb-harness 上做 nb-story 的问答引擎：默认“图当目录”（挑章 Agent 用查询接口找出至多 20 章，再只凭这些章的原文作答），可选“全读”。网页问答页与 `nbstory ask` 共用这一个引擎。用 t34 的题回归，不劣于提案定的基线。
 
-合同：待写 `docs/specs/story/` 下问答的 Spec（`planned`），并改 queries、viewer、cli-skill 里“不做内置问答”的条目。依据：[剧情图谱提案](../../../../../docs/proposals/novel-story-app.md)第四节第 6 小节“问答”与 2026-10-15 的决策记录。
+合同：[`story/qa.md`](../../../../../docs/specs/story/qa.md)（`planned`），连带改 [`story/queries.md`](../../../../../docs/specs/story/queries.md)（输出 15 搜索、问答记录）与 [`story/cli-skill.md`](../../../../../docs/specs/story/cli-skill.md)（`ask`、`qa` 命令与退出码）；`story/viewer.md` 的“不做问答”等网页问答页再改。依据：[剧情图谱提案](../../../../../docs/proposals/novel-story-app.md)第四节第 6 小节“问答”与 2026-10-15 的决策记录。
 
 ## 当前状态
 
@@ -37,7 +37,12 @@ updated: 2026-10-15
 14. **工具三层**：登记表（内置工具与插件工具，带命名空间、查撞名）、Profile 声明（带类型的引用，分必需与可选；缺必需工具时会话起不来、报 `tool_unavailable`；可选的缺了用 `<If tool>` 去掉相关提示词；Profile 可以自带工具）、用户配置（禁用）。会话开始时算出生效工具集，会话内不变。插件只贡献工具。
 15. **搁置到后续 Task**：工具发现（OMP 的 `loadMode`、Claude Code 的延迟工具）、插件给所有 Profile 提供的公共工具（MCP）、配置里追加工具与审批；BM25 混合检索是否有效另开 Task 验证。
 
+16. **Spec 要点**（2026-10-16 在会话里确认）：一问一个 Agent（TSX Profile `story-qa`），工具用命令行现成的文字格式；阅读位置由程序固定，读原文只到 P；全读是第一条消息带上 P 以前的原文；作答工具 `answer` 由程序校验、不通过退回；不调作答工具时最多提醒两次，再不交报 `no_answer`；规则 v5 加答案格式与“猜测、情境推断写成推断知道”；`nbstory ask` 进度走标准错误；记录存书库 `qa/`；配置 `~/.config/nbstory/config.json`；模型失败退出码 4；`search` 按词拆开按命中排序；回归门槛：gpt-6-luna 作答、t22 判分器 v2 一审，56 题各三遍答错不超过 19.6%，知情、身份 16 题各三遍答错不超过 11/48。
+17. **图当目录一问最多读 20 个不同的章**，再读时工具拒绝。
+18. **作答引用的出处必须是这一问读过的原文**，没读过的退回；全读时全部原文都算读过。
+19. **全读模式只记录不设门槛**：知情、身份 16 题跑一遍。
+20. **历史的查看与删除现在做**：`nbstory qa [<id>]`、`nbstory qa rm <id>`。
+
 ## 下一步
 
-1. 等 [w00002 t21](../../../w00002-neuro-agent-harness-redesign/tasks/t21-harness-profile-tools/README.md) 做完 nb-harness 的加强（[提案](../../../../../docs/proposals/nb-harness-profile-and-tools.md)，开发者 2026-10-15 确认要点，在 w00002 下实施）。
-2. 写问答 Spec 与 `plan.md`（单个 Agent、作答工具带程序校验与退回、`search` 按词拆开按命中排序），要点先给开发者看。
+1. 写问答 Spec 与 `plan.md`，提交后交 omp 设计审查（[w00002 t21](../../../w00002-neuro-agent-harness-redesign/tasks/t21-harness-profile-tools/README.md) 已于 2026-10-16 合入）。
