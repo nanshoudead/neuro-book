@@ -68,7 +68,7 @@ describe("问答记录", () => {
         expect(await records.save(first, '{"seq":1}\n')).toEqual({saved: true});
         expect(await records.save(second, '{"seq":1}\n{"seq":2}\n')).toEqual({saved: true});
 
-        expect((await records.list(generation)).map(item => item.question)).toEqual(["第二问", "谁知道地狱猫是谁？"]);
+        expect((await records.list(generation)).records.map(item => item.question)).toEqual(["第二问", "谁知道地狱猫是谁？"]);
         expect(await records.get(first.id, generation)).toEqual(first);
         expect(await records.sessionLog(second.id, generation)).toBe('{"seq":1}\n{"seq":2}\n');
     });
@@ -78,7 +78,7 @@ describe("问答记录", () => {
         const item = record(generation);
         await records.save(item, "{}\n");
         await records.remove(item.id, generation);
-        expect(await records.list(generation)).toEqual([]);
+        expect((await records.list(generation)).records).toEqual([]);
         expect(await readdir(join(lib.bookDir("fox"), "qa"))).toEqual([]);
         expect(await codeOf(records.get(item.id, generation))).toBe("qa_record_not_found");
         expect(await codeOf(records.remove(item.id, generation))).toBe("qa_record_not_found");
@@ -106,7 +106,7 @@ describe("问答记录", () => {
         expect(await records.save(record(old), "{}\n")).toEqual({saved: false, reason: "book_not_found"});
         const mine = record(fresh, {question: "新一代"});
         await records.save(mine, "{}\n");
-        expect((await records.list(fresh)).map(item => item.question)).toEqual(["新一代"]);
+        expect((await records.list(fresh)).records.map(item => item.question)).toEqual(["新一代"]);
         expect(await codeOf(records.get(before.id, fresh))).toBe("qa_record_not_found");
     });
 
@@ -120,7 +120,46 @@ describe("问答记录", () => {
 
         expect(await records.save(record(generation), "{}\n")).toEqual({saved: false, reason: "unsupported_format"});
         expect(await codeOf(records.remove(item.id, generation))).toBe("unsupported_format");
-        expect((await records.list(generation)).map(entry => entry.id)).toEqual([item.id]);
+        expect((await records.list(generation)).records.map(entry => entry.id)).toEqual([item.id]);
+    });
+});
+
+describe("损坏的记录与换代的窗口（F6、“时序与寿命”）", () => {
+    test("一份损坏的记录：列表照常列出其余记录并标出它；显示报 qa_record_broken；可以删除", async () => {
+        const {lib, records, generation} = await setup("qa-broken");
+        const good = record(generation);
+        await records.save(good, "{}\n");
+        const badId = newQaRecordId(new Date("2026-01-01T00:00:00Z"));
+        await writeFile(join(lib.bookDir("fox"), "qa", `${badId}.json`), "{");
+
+        const listed = await records.list(generation);
+        expect(listed.records.map(item => item.id)).toEqual([good.id]);
+        expect(listed.broken.map(item => item.id)).toEqual([badId]);
+        expect(await codeOf(records.get(badId, generation))).toBe("qa_record_broken");
+        await records.remove(badId, generation);
+        expect((await records.list(generation)).broken).toEqual([]);
+    });
+
+    test("写门禁通过之后书被删除又同 id 导入：不保存，新一代目录里也不留下旧问的文件", async () => {
+        const sample = await makeSampleRoot("qa-race");
+        roots.push(sample.root);
+        const file = join(sample.root, "small.json");
+        await writeFile(file, JSON.stringify(await smallDataset(2, "小书")));
+        // 只在写门禁返回之后插一步：删除并重新导入，落在 save 本来就有的 await 窗口里。
+        class SwappingLibrary extends Library {
+            override async writableBook(id: string, generation: string): Promise<string> {
+                const dir = await super.writableBook(id, generation);
+                await this.removeBook(id);
+                await this.importBook({file, title: "小书", id});
+                return dir;
+            }
+        }
+        const lib = new SwappingLibrary(sample.library);
+        const {generation} = await lib.importBook({file, title: "小书", id: "fox"});
+        const records = new QaRecords(lib, "fox");
+
+        expect(await records.save(record(generation), "{}\n")).toEqual({saved: false, reason: "book_not_found"});
+        expect(await readdir(join(lib.bookDir("fox"), "qa"))).toEqual([]);
     });
 });
 

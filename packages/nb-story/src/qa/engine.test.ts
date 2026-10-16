@@ -154,6 +154,22 @@ describe("作答的校验与退回（输出 7、8、验收 3）", () => {
         expect(outcome.record.answer?.knowledge?.[0]?.refs).toEqual(["37.9"]);
     });
 
+    test("正文里的出处带句末点号或写成全角也照样校验；三段的版本号不当作出处", async () => {
+        const {model, outcome} = await askScripted(
+            book,
+            [
+                [read("r1", {chapter: 38, paragraph: 55}, {chapter: 38, paragraph: 55})],
+                answer({explanation: "参考 39.1."}),
+                answer({explanation: "参考 ３９．１"}),
+                answer({explanation: "规则 3.5.0 版；见 38.55。"}),
+            ],
+            {at: P},
+        );
+        expect(toolResults(model, 2)[0]!.text).toContain("39.1");
+        expect(toolResults(model, 3)[0]!.text).toContain("39.1");
+        expect(outcome.record).toMatchObject({status: "answered", rejections: 2});
+    });
+
     test("分两次读完的范围可以整段引用；留一段没读就被退回", async () => {
         const whole = await askScripted(book, [[read("r1", {chapter: 38, paragraph: 1}, {chapter: 38, paragraph: 20})], [read("r2", {chapter: 38, paragraph: 21}, {chapter: 38, paragraph: 40})], answer({evidence: ["38.1—38.40"]})], {at: P});
         expect(whole.outcome.record.rejections).toBe(0);
@@ -248,7 +264,7 @@ describe("运行中删除书（“时序与寿命”、验收 7）", () => {
         try {
             const {outcome} = await askScripted(target, stepsWith(async () => void (await target.api.call("book.remove", {book: "fox"}))), {at: P});
             expect(outcome.record.status).toBe("answered");
-            expect(outcome).toMatchObject({recordSaved: false, notSavedReason: "book_not_found"});
+            expect(outcome).toMatchObject({recordSaved: false, notSaved: {reason: "book_not_found"}});
             expect((await readdir(target.library)).filter(name => !name.startsWith(".") && name !== "library.json")).toEqual([]);
         } finally {
             await target.close();
@@ -274,7 +290,7 @@ describe("运行中删除书（“时序与寿命”、验收 7）", () => {
             expect(outcome.record.status).toBe("answered");
             expect(outcome.recordSaved).toBe(false);
             const {generation} = await target.api.library.readMeta("fox");
-            expect((await new QaRecords(target.api.library, "fox").list(generation)).map(item => item.id)).toEqual([other]);
+            expect((await new QaRecords(target.api.library, "fox").list(generation)).records.map(item => item.id)).toEqual([other]);
         } finally {
             await target.close();
         }

@@ -6,7 +6,7 @@
  */
 
 import {afterAll, beforeAll, describe, expect, test} from "bun:test";
-import {readdir, readFile, rm, writeFile} from "node:fs/promises";
+import {chmod, mkdir, readdir, readFile, rm, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
 import {createStoryApi} from "../core/api";
@@ -120,6 +120,27 @@ describe("nbstory ask", () => {
         const noBook = await run(["ask", "问", "--book", "nope", "--config", config, "--json"]);
         expect(noBook.code).toBe(1);
         expect(JSON.parse(noBook.stdout)).toMatchObject({ok: false, error: {code: "book_not_found"}});
+    });
+
+    test("记录写不下来（qa/ 没有写权限）：照常给出答案，标准错误说明记录没保存", async () => {
+        const qaDir = join(library, "fox", "qa");
+        await mkdir(qaDir, {recursive: true});
+        await chmod(qaDir, 0o555);
+        try {
+            const {config} = await configFor([...READ_THEN_ANSWER]);
+            const result = await run(["ask", "地狱猫是谁？", "--at", "38", "--config", config, "--json"]);
+            expect(result.code).toBe(0);
+            expect(JSON.parse(result.stdout)).toMatchObject({ok: true, data: {status: "answered", recordSaved: false, notSaved: {reason: "write_failed"}}});
+            expect(result.stderr).toContain("记录没有保存：写盘失败");
+        } finally {
+            await chmod(qaDir, 0o755);
+        }
+    });
+
+    test("qa 的用法错误不看书库：空书库里 qa rm 不给 id 也是退出码 2", async () => {
+        const empty = join(root, "empty-library");
+        const child = Bun.spawn(["bun", CLI, "qa", "rm", "--library", empty], {stdout: "pipe", stderr: "pipe"});
+        expect(await child.exited).toBe(2);
     });
 
     test("模型请求进行中收到中断信号：以 130 退出，留下一条“中断”的记录（验收 6）", async () => {

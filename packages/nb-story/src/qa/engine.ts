@@ -7,8 +7,10 @@
  *    QaError 抛出：这时还没开始运行，不写记录。
  * 2. 为这一问新建登记表、登记工具，建内存里的会话日志与 harness，`turn(问题)`。
  * 3. 按停止原因分派：交卷即已答；停止或输出到上限而没交卷时提醒，至多两次；出错为失败；取消为中断。
- * 4. finally 里关 harness，把会话日志排成 JSONL 与记录一起保存。运行期间书库里不写任何东西：删除书的改名与
+ * 4. 关 harness，把会话日志排成 JSONL 与记录一起保存。运行期间书库里不写任何东西：删除书的改名与
  *    递归删除不会和一问的写入交错（见 core/qa-records.ts）。
+ * 第 2、3 步里 harness 抛出的错误（不是作为结果返回的）都是本机故障：收成 `model_failed`（`local`）的失败记录，
+ * 不让它逃出这个函数；保存失败不改变这一问的结果，只在返回值里说明记录没保存。
  */
 
 import {createHarness, createToolRegistry, registerPlugin, type Harness, type HarnessOptions, type TurnResult} from "@notnotype/nb-harness";
@@ -48,7 +50,10 @@ export interface AskInput {
     streamFn?: HarnessOptions["streamFn"];
 }
 
-export type QaOutcome = {record: QaRecord} & ({recordSaved: true} | {recordSaved: false; notSavedReason: "book_not_found" | "unsupported_format"});
+/** 记录没保存的原因：书删了或换了代、格式不认识只读，或写盘失败（附说明）。 */
+export type NotSaved = {reason: "book_not_found" | "unsupported_format"} | {reason: "write_failed"; message: string};
+
+export type QaOutcome = {record: QaRecord} & ({recordSaved: true} | {recordSaved: false; notSaved: NotSaved});
 
 function emptyUsage(): QaUsage {
     return {input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, complete: true};
@@ -162,8 +167,13 @@ export async function askQuestion(input: AskInput): Promise<QaOutcome> {
             result = await harness.turn(REMINDER, input.signal === undefined ? undefined : {signal: input.signal});
             usage = addUsage(usage, result.usage);
         }
-    } finally {
+    } catch (error) {
+        outcome = {status: "failed", answer: null, error: {code: "model_failed", kind: "local", message: `本机错误：${error instanceof Error ? error.message : String(error)}`}};
+    }
+    try {
         await harness?.close();
+    } catch (error) {
+        if (outcome.status !== "failed") outcome = {status: "failed", answer: null, error: {code: "model_failed", kind: "local", message: `关闭会话失败：${error instanceof Error ? error.message : String(error)}`}};
     }
 
     const record: QaRecord = {
@@ -182,6 +192,11 @@ export async function askQuestion(input: AskInput): Promise<QaOutcome> {
         startedAt,
     };
     const entries = await sessionLog.read();
-    const saved = await new QaRecords(input.api.library, book.id).save(record, entries.map(entry => `${JSON.stringify(entry)}\n`).join(""));
-    return saved.saved ? {record, recordSaved: true} : {record, recordSaved: false, notSavedReason: saved.reason};
+    let saved: Awaited<ReturnType<QaRecords["save"]>>;
+    try {
+        saved = await new QaRecords(input.api.library, book.id).save(record, entries.map(entry => `${JSON.stringify(entry)}\n`).join(""));
+    } catch (error) {
+        return {record, recordSaved: false, notSaved: {reason: "write_failed", message: error instanceof Error ? error.message : String(error)}};
+    }
+    return saved.saved ? {record, recordSaved: true} : {record, recordSaved: false, notSaved: {reason: saved.reason}};
 }

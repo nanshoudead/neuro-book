@@ -88,9 +88,13 @@ async function ask(options: AskOptions, io: CliIo, signal: AbortSignal): Promise
     }
 
     const {record} = outcome;
-    if (!outcome.recordSaved) io.stderr(`· 记录没有保存：${outcome.notSavedReason === "unsupported_format" ? "书库或这本书的格式版本不认识，只读" : "这本书在问答期间被删除或重新导入了"}`);
+    if (!outcome.recordSaved) {
+        const {notSaved} = outcome;
+        const why = notSaved.reason === "unsupported_format" ? "书库或这本书的格式版本不认识，只读" : notSaved.reason === "write_failed" ? `写盘失败：${notSaved.message}` : "这本书在问答期间被删除或重新导入了";
+        io.stderr(`· 记录没有保存：${why}`);
+    }
     if (record.status === "interrupted") return fail("cancelled", `已取消，记录 ${record.id} 标为中断`, EXIT_INTERRUPTED);
     if (record.status === "failed") return fail(record.error!.code, `${record.error!.message}（记录 ${record.id}）`, EXIT_QA_FAILED, record.error!.kind);
-    io.stdout(json ? JSON.stringify({ok: true, data: {...record, recordSaved: outcome.recordSaved}}) : recordText(record));
+    io.stdout(json ? JSON.stringify({ok: true, data: {...record, recordSaved: outcome.recordSaved, ...(outcome.recordSaved ? {} : {notSaved: outcome.notSaved})}}) : recordText(record));
     return 0;
 }

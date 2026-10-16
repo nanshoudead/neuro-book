@@ -10,7 +10,9 @@
  *
  * 和书的删除（整个书目录改名移走再递归删）的关系：写之前经 Library.writableBook 核对书还在、还是这一代、格式认识；
  * 核对之后被删除时，按路径写临时文件或改名会找不到目录而失败，按“没保存”返回，不会重新造出书目录（`qa/` 只用
- * 不递归的 mkdir 建）。核对之后被删除又同 id 导入时，记录写进了新目录但带着旧的代号，列表按代过滤，看不到它。
+ * 不递归的 mkdir 建）。核对之后被删除又同 id 导入时，按路径的写入会落进新一代的目录：所以两个文件都改好名之后
+ * 再读一次这本书的代号，已经不是这一代就删掉刚写的文件、按“没保存”返回。复查通过之后才发生的删除，等同于
+ * 保存之后书被删除，记录随旧目录一起删掉。
  *
  * 只用 Node 的文件接口：以后的独立服务（网页问答页）直接读同一份记录。
  */
@@ -93,6 +95,12 @@ export interface QaRecord {
 
 export type SaveResult = {saved: true} | {saved: false; reason: "book_not_found" | "unsupported_format"};
 
+/** 一份读不成 QaRecord 的记录文件：`nbstory qa` 列出时标为损坏，可以删除（qa.md F6）。 */
+export interface BrokenQaRecord {
+    id: string;
+    problem: string;
+}
+
 const RECORD_ID = /^\d{17}-[0-9a-z]{6}$/u;
 
 /** 新的记录 id：UTC 时间到毫秒加 6 位随机，按名字排序即按时间排序。 */
@@ -140,38 +148,50 @@ export class QaRecords {
             await writeFile(temps[0], `${JSON.stringify(record, null, 2)}\n`);
             await rename(temps[1], logPath);
             await rename(temps[0], recordPath);
-            return {saved: true};
         } catch (error) {
             await Promise.all(temps.map(path => rm(path, {force: true})));
             // 核对之后书目录被改名移走：按路径的写入找不到目录。
             if (systemErrorCode(error) === "ENOENT") return {saved: false, reason: "book_not_found"};
             throw error;
         }
+        const current = await this.#library.readMeta(this.#bookId).catch((error: unknown) => {
+            if (error instanceof StoryError && error.code === "book_not_found") return null;
+            throw error;
+        });
+        if (current?.generation !== record.generation) {
+            await Promise.all([recordPath, logPath].map(path => rm(path, {force: true})));
+            return {saved: false, reason: "book_not_found"};
+        }
+        return {saved: true};
     }
 
-    /** 这一代的记录，新的在前。 */
-    async list(generation: string): Promise<QaRecord[]> {
+    /** 这一代的记录，新的在前；读不成记录的文件另列为损坏，不挡住其余记录。 */
+    async list(generation: string): Promise<{records: QaRecord[]; broken: BrokenQaRecord[]}> {
         let names: string[];
         try {
             names = await readdir(this.#dir());
         } catch (error) {
-            if (systemErrorCode(error) === "ENOENT") return [];
+            if (systemErrorCode(error) === "ENOENT") return {records: [], broken: []};
             throw error;
         }
         const records: QaRecord[] = [];
+        const broken: BrokenQaRecord[] = [];
         for (const name of names) {
             const id = name.endsWith(".json") ? name.slice(0, -".json".length) : "";
             if (!RECORD_ID.test(id)) continue;
-            const record = await this.#read(id);
-            if (record && record.generation === generation) records.push(record);
+            const read = await this.#read(id);
+            if (read.kind === "broken") broken.push({id, problem: read.problem});
+            else if (read.kind === "record" && read.record.generation === generation) records.push(read.record);
         }
-        return records.sort((a, b) => (a.id < b.id ? 1 : a.id > b.id ? -1 : 0));
+        const byIdDesc = (a: {id: string}, b: {id: string}): number => (a.id < b.id ? 1 : a.id > b.id ? -1 : 0);
+        return {records: records.sort(byIdDesc), broken: broken.sort(byIdDesc)};
     }
 
     async get(id: string, generation: string): Promise<QaRecord> {
-        const record = RECORD_ID.test(id) ? await this.#read(id) : null;
-        if (!record || record.generation !== generation) throw notFound(id);
-        return record;
+        const read = RECORD_ID.test(id) ? await this.#read(id) : ({kind: "missing"} as const);
+        if (read.kind === "broken") throw new StoryError("qa_record_broken", `问答记录 ${id} 已损坏（${read.problem}），可以用 nbstory qa rm 删除`);
+        if (read.kind === "missing" || read.record.generation !== generation) throw notFound(id);
+        return read.record;
     }
 
     /** 这一问的会话日志（JSONL）。 */
@@ -180,9 +200,13 @@ export class QaRecords {
         return readFile(join(this.#dir(), `${id}.session.jsonl`), "utf8");
     }
 
-    /** 删除一条记录与它的会话日志。先删记录，列表立刻看不到它；再删日志。 */
+    /**
+     * 删除一条记录与它的会话日志。损坏的记录也能删：读不出它属于哪一代，但它就在这本书的目录里。先删记录，
+     * 列表立刻看不到它；再删日志。
+     */
     async remove(id: string, generation: string): Promise<void> {
-        await this.get(id, generation);
+        const read = RECORD_ID.test(id) ? await this.#read(id) : ({kind: "missing"} as const);
+        if (read.kind === "missing" || (read.kind === "record" && read.record.generation !== generation)) throw notFound(id);
         await this.#library.writableBook(this.#bookId, generation);
         try {
             await rm(join(this.#dir(), `${id}.json`));
@@ -193,13 +217,36 @@ export class QaRecords {
         await rm(join(this.#dir(), `${id}.session.jsonl`), {force: true});
     }
 
-    async #read(id: string): Promise<QaRecord | null> {
+    async #read(id: string): Promise<{kind: "record"; record: QaRecord} | {kind: "broken"; problem: string} | {kind: "missing"}> {
+        let text: string;
         try {
-            return JSON.parse(await readFile(join(this.#dir(), `${id}.json`), "utf8")) as QaRecord;
+            text = await readFile(join(this.#dir(), `${id}.json`), "utf8");
         } catch (error) {
             const code = systemErrorCode(error);
-            if (code === "ENOENT" || code === "ENOTDIR") return null;
+            if (code === "ENOENT" || code === "ENOTDIR") return {kind: "missing"};
             throw error;
         }
+        let value: unknown;
+        try {
+            value = JSON.parse(text) as unknown;
+        } catch (error) {
+            return {kind: "broken", problem: `不是 JSON：${error instanceof Error ? error.message : String(error)}`};
+        }
+        const problem = recordProblem(value, id);
+        return problem === null ? {kind: "record", record: value as QaRecord} : {kind: "broken", problem};
     }
+}
+
+/** 记录文件是外部输入：读出来后核对显示与筛选要用到的字段，形状不对的当作损坏。 */
+function recordProblem(value: unknown, id: string): string | null {
+    if (typeof value !== "object" || value === null || Array.isArray(value)) return "不是对象";
+    const record = value as Record<string, unknown>;
+    if (record.id !== id) return "id 与文件名不符";
+    for (const field of ["book", "generation", "question", "startedAt", "model"]) if (typeof record[field] !== "string") return `缺少 ${field}`;
+    if (record.status !== "answered" && record.status !== "failed" && record.status !== "interrupted") return "status 不对";
+    const at = record.at as Record<string, unknown> | null;
+    if (typeof at !== "object" || at === null || typeof at.chapter !== "number" || typeof at.paragraph !== "number") return "at 不对";
+    if (!Array.isArray(record.chaptersRead) || typeof record.usage !== "object" || record.usage === null) return "缺少 chaptersRead 或 usage";
+    if (record.status === "answered" && (typeof record.answer !== "object" || record.answer === null)) return "已答却没有 answer";
+    return null;
 }

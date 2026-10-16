@@ -17,11 +17,14 @@ export type ReadPlan = {ok: true; from: Position; to: Position} | {ok: false; re
 
 /** “章.段”或“章.段—章.段”（也接受短横线）。 */
 const REF = /^(\d+)\.(\d+)(?:[—–-](\d+)\.(\d+))?$/u;
-/** 文字里形如出处的片段：前后不紧挨数字或小数点。 */
-const REF_IN_TEXT = /(?<![\d.])(\d+)\.(\d+)(?:[—–-](\d+)\.(\d+))?(?![\d.])/gu;
+/**
+ * 文字里形如出处的片段：前面不紧挨数字或小数点，后面不紧跟数字、也不紧跟“小数点加数字”。所以句末的“39.1。”
+ * “39.1.”算出处，“3.5.0”这类三段数字不算。先做 NFKC 归一，全角的“３９．１”与半角同样识别。
+ */
+const REF_IN_TEXT = /(?<![\d.])(\d+)\.(\d+)(?:[—–-](\d+)\.(\d+))?(?!\d)(?!\.\d)/gu;
 
 export function refsInText(text: string): string[] {
-    return [...text.matchAll(REF_IN_TEXT)].map(match => match[0]);
+    return [...text.normalize("NFKC").matchAll(REF_IN_TEXT)].map(match => match[0]);
 }
 
 function before(a: Position, b: Position): boolean {
@@ -102,7 +105,7 @@ export class ReadLedger {
 
     /** 一个出处的问题；没有问题时为 null。 */
     checkRef(ref: string): string | null {
-        const match = REF.exec(ref.trim());
+        const match = REF.exec(ref.normalize("NFKC").trim());
         if (!match) return `出处 ${ref} 的写法不对，要写“章.段”或“章.段—章.段”`;
         const start: Position = {chapter: Number(match[1]), paragraph: Number(match[2])};
         const end: Position = match[3] === undefined ? start : {chapter: Number(match[3]), paragraph: Number(match[4])};
