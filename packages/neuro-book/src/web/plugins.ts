@@ -15,6 +15,7 @@ import {createBrowserDiagnosticsPlugin} from "nbook/plugins/diagnostics/web/plug
 import {editorBrowserPlugin} from "nbook/plugins/editor/web/plugin";
 import {htmlPreviewBrowserPlugin} from "nbook/plugins/html-preview/web/plugin";
 import {imageViewerBrowserPlugin} from "nbook/plugins/image-viewer/web/plugin";
+import {markdownBrowserPlugin} from "nbook/plugins/markdown/web/plugin";
 import {explorerBrowserPlugin} from "nbook/plugins/explorer/web/plugin";
 import {filesBrowserPlugin} from "nbook/plugins/files/web/plugin";
 import {projectsBrowserPlugin} from "nbook/plugins/projects/web/plugin";
@@ -48,6 +49,7 @@ export const browserPluginDefinitions: Readonly<Record<string, PluginDefinition>
     "nbook.storage": storageBrowserPlugin,
     "nbook.files": filesBrowserPlugin,
     "nbook.explorer": explorerBrowserPlugin,
+    "nbook.markdown": markdownBrowserPlugin,
     "nbook.editor": editorBrowserPlugin,
     "nbook.image-viewer": imageViewerBrowserPlugin,
     "nbook.html-preview": htmlPreviewBrowserPlugin,

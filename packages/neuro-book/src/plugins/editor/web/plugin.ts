@@ -13,6 +13,8 @@ import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
 import {COMMANDS_POINT, commandServiceKey, currentKeyPlatform, menuImplementations, MenuItemRegistry} from "nbook/plugins/commands/shared/contracts";
 import {filesKey} from "nbook/plugins/files/shared/contracts";
+import {dialectTable, MARKDOWN_DIALECTS_POINT, markdownKey} from "nbook/plugins/markdown/shared/contracts";
+import type {DialectDeclaration, MarkdownService} from "nbook/plugins/markdown/shared/contracts";
 import {displayLocale, SETTINGS_SECTIONS_POINT, settingsKey} from "nbook/plugins/settings/shared/contracts";
 import {breadcrumbsSetting, EDITOR_SECTION, EDITOR_SECTION_DECLARATION, enablePreviewSetting, wrapTabsSetting} from "../shared/settings";
 import {PUBLIC_STATE_POINT, publicStateKey} from "nbook/plugins/state/shared/contracts";
@@ -45,17 +47,19 @@ import {EDITOR_TITLEBAR_MENU_ITEMS} from "./titlebar-menu";
 
 export const EDITOR_AREA_ID = "nbook.editor.area";
 
+type BuiltinEditor = typeof MARKDOWN_EDITOR | typeof CODE_EDITOR;
+
 /**
- * 内置编辑器的组件：编辑器区直接持有，不等交付（`editor-registry.ts`）。第一次挂上控件时才加载 Monaco 与 Tiptap，首屏
- * 不含它们。
+ * 内置编辑器的组件：编辑器区直接持有，不等交付（`editor-registry.ts`）。Markdown 控件由 `nbook.markdown` 的服务给出，源码
+ * 控件是自己的；都在第一次挂上时才加载 Tiptap 与 Monaco，首屏不含它们。
  */
-const BUILTIN_COMPONENTS = {
-    [MARKDOWN_EDITOR]: defineAsyncComponent(() => import("./components/MarkdownControl.vue")),
+const builtinComponents = (markdown: MarkdownService): Readonly<Record<BuiltinEditor, Component>> => ({
+    [MARKDOWN_EDITOR]: markdown.components.MarkdownControl,
     [CODE_EDITOR]: defineAsyncComponent(() => import("./components/MonacoControl.vue")),
-};
+});
 
 /** 内置编辑器投给自己贡献点的实现：交付的组件与直接持有的是同一个，给统一的交付状态用。 */
-const builtinImplementation = (id: keyof typeof BUILTIN_COMPONENTS): EditorImplementation => ({load: async () => BUILTIN_COMPONENTS[id]});
+const builtinImplementation = (components: Readonly<Record<BuiltinEditor, Component>>, id: BuiltinEditor): EditorImplementation => ({load: async () => components[id]});
 
 /** 编辑器区内键位的意图对应的命令。 */
 const INTENTS = {"save": SAVE_COMMAND, "close": CLOSE_COMMAND, "split-right": SPLIT_RIGHT_COMMAND} as const;
@@ -77,7 +81,7 @@ export const editorBrowserPlugin: PluginDefinition = {
         id: "browser",
         location: "browser",
         activationEvents: ["onStartup"],
-        dependencies: [{key: diagnosticsKey}, {key: filesKey}, {key: commandServiceKey}, {key: storageKey}, {key: windowProjectKey}, {key: settingsKey}, {key: clockKey}, {key: windowNavigationKey}, {key: publicStateKey}, {key: windowRescueKey, required: false}, {key: quickPickKey, required: false}],
+        dependencies: [{key: diagnosticsKey}, {key: filesKey}, {key: commandServiceKey}, {key: storageKey}, {key: windowProjectKey}, {key: settingsKey}, {key: clockKey}, {key: windowNavigationKey}, {key: publicStateKey}, {key: markdownKey}, {key: windowRescueKey, required: false}, {key: quickPickKey, required: false}],
         provides: [documentCoordinatorKey],
         receives: [EDITOR_PAGES_POINT, EDITOR_TITLE_POINT, EDITOR_TAB_CONTEXT_POINT, EDITOR_EDITORS_POINT, EDITOR_LANGUAGES_POINT],
         contributions: [
@@ -100,7 +104,8 @@ export const editorBrowserPlugin: PluginDefinition = {
             const report = (error: unknown): void => {
                 diagnostics.record({level: "error", event: "editor.error", message: error instanceof Error ? error.message : String(error), error, source: {plugin: descriptor.id}});
             };
-            const editors = new EditorRegistry(context.declarations, BUILTIN_COMPONENTS);
+            const builtins = builtinComponents(context.services.require(markdownKey));
+            const editors = new EditorRegistry(context.declarations, builtins);
             const languages = new LanguageRegistry(context.declarations, (error, language) => {
                 diagnostics.record({level: "error", event: "editor.language", message: `语言 ${language} 的规则加载失败，按纯文本显示：${error instanceof Error ? error.message : String(error)}`, error, data: {language}, source: {plugin: descriptor.id}});
             });
@@ -249,10 +254,10 @@ export const editorBrowserPlugin: PluginDefinition = {
                 contributions: {
                     [WORKBENCH_EDITOR_AREA_POINT]: {[EDITOR_AREA_ID]: area},
                     [COMMANDS_POINT]: editorCommands(session.area, {pages, editors: editors.catalog, languages, pick: quickPick.status === "resolved" ? quickPick.instance : null, ...commandSources}),
-                    [EDITOR_EDITORS_POINT]: {[MARKDOWN_EDITOR]: builtinImplementation(MARKDOWN_EDITOR), [CODE_EDITOR]: builtinImplementation(CODE_EDITOR)},
+                    [EDITOR_EDITORS_POINT]: {[MARKDOWN_EDITOR]: builtinImplementation(builtins, MARKDOWN_EDITOR), [CODE_EDITOR]: builtinImplementation(builtins, CODE_EDITOR)},
                     [EDITOR_LANGUAGES_POINT]: Object.fromEntries(MONACO_LANGUAGES.map((entry) => [entry.id, monacoLanguageImplementation(entry)])),
                     [PUBLIC_STATE_POINT]: Object.fromEntries(published.bindings),
-                    [WORKBENCH_STATUSBAR_ITEMS_POINT]: editorStatusItems(session.area, locale, context.services.require(clockKey), languages),
+                    [WORKBENCH_STATUSBAR_ITEMS_POINT]: editorStatusItems(session.area, locale, context.services.require(clockKey), languages, dialectTable(context.declarations.list<DialectDeclaration>(MARKDOWN_DIALECTS_POINT))),
                     [WORKBENCH_TITLEBAR_MENU_POINT]: menuImplementations(EDITOR_TITLEBAR_MENU_ITEMS),
                     // list 分区没有要实现的东西，设置窗口照声明画配置项（docs/specs/settings/settings-window.md）。
                     [SETTINGS_SECTIONS_POINT]: {[EDITOR_SECTION]: Object.freeze({})},

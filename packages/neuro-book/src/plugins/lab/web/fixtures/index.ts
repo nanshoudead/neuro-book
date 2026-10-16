@@ -11,6 +11,14 @@ import type ExplorerRow from "nbook/plugins/explorer/web/components/ExplorerRow.
 import type ExplorerTree from "nbook/plugins/explorer/web/components/ExplorerTree.vue";
 import type FilesExplorerView from "nbook/plugins/explorer/web/components/FilesExplorerView.vue";
 import type FileIcon from "nbook/ui/file-icons/FileIcon.vue";
+import type InlineChip from "nbook/plugins/markdown/web/components/InlineChip.vue";
+import type MarkdownDisplay from "nbook/plugins/markdown/web/components/MarkdownDisplay.vue";
+import type MarkdownImage from "nbook/plugins/markdown/web/components/MarkdownImage.vue";
+import type PromptAttachmentStrip from "nbook/plugins/markdown/web/components/prompt/PromptAttachmentStrip.vue";
+import type PromptEditor from "nbook/plugins/markdown/web/components/prompt/PromptEditor.vue";
+import type PromptMenuPanel from "nbook/plugins/markdown/web/components/prompt/PromptMenuPanel.vue";
+import type PromptPasteFrame from "nbook/plugins/markdown/web/components/prompt/PromptPasteFrame.vue";
+import type PromptTextView from "nbook/plugins/markdown/web/components/prompt/PromptTextView.vue";
 import type BookCard from "nbook/plugins/projects/web/components/BookCard.vue";
 import type WelcomePage from "nbook/plugins/projects/web/components/WelcomePage.vue";
 import type BookCover from "nbook/plugins/projects/web/components/BookCover.vue";
@@ -59,9 +67,37 @@ import type {LabInputOf, LabJsonPropOf, LabSlotOf, LabSubjectProps} from "../lab
 
 import {EXPLORER_ROWS, manyRows, UNBOUND_ROWS} from "./explorer-rows";
 import {nbUiFixtures} from "./nb-ui";
+import {PROMPT_LAB_THUMBNAILS, promptAttachmentStripScenes, promptEditorScenes, promptMenuPanelScenes, promptPasteFrameScenes, promptTextViewScenes} from "./prompt-scene/scenes";
 import {SHELF_COVER_SRC, SHELF_ITEMS, SHELF_ITEM_REVISING, SHELF_NOW} from "./shelf-fixture-data";
 import {SETTINGS_WINDOW_SCENES, snippetsSettings} from "./settings-scene/scene-settings";
 import {defineSubjectFixture} from "./subject-fixture";
+
+/** MarkdownDisplay 场景用的回复：每种内置方言各一段，加引用小块、外部链接与图片。 */
+const DISPLAY_REPLY = [
+    "我读了[<comment body=\"她第一次出场\">林</comment>雪](/设定/林雪.md)的设定和[第三章](/正文/第三章.md)，有三处可以改：",
+    "",
+    "1. 开头<ruby text=\"jì tán\">祭坛</ruby>的描写偏长，==可以压到两句==。",
+    "2. 对话里的 <kbd>Ctrl</kbd> 是笔误，H<sub>2</sub>O 与 x<sup>2</sup> 也要统一写法。",
+    "",
+    "> [!WARNING]- 伏笔会提前暴露",
+    "> 第二段直接说出了她的来历，读者在第五章前不该知道。",
+    "",
+    "<align value=\"center\">",
+    "—— 改写示例 ——",
+    "</align>",
+    "",
+    "<bilingual text=\"老人缓缓走向祭坛。\">",
+    "The old man walked slowly toward the altar.",
+    "</bilingual>",
+    "",
+    "<html>",
+    "<div style=\"padding:8px;border:1px solid #ccc\"><b>人物卡</b>：林雪，二十岁</div>",
+    "</html>",
+    "",
+    "![示意图](/资料/地图.png)",
+    "",
+    "参考：[写作手册](https://example.com/guide)。",
+].join("\n");
 
 /**
  * 场景登记。这不是第二份组件清单——组件清单由 component-index 扫文档得到，
@@ -559,6 +595,87 @@ export const labFixtures: LabFixture[] = [
         ],
         runtimeProps: async () => ({handleKey: () => "none" as const}),
         subject: () => import("nbook/plugins/explorer/web/components/ExplorerTree.vue"),
+    }),
+    defineLabFixture<typeof InlineChip>({
+        component: "InlineChip",
+        scenes: [
+            {id: "reference", label: "引用作品里的文件", input: {props: {kind: "reference", locale: "zh-CN", label: "林雪", target: "/设定/林雪.md"}}},
+            {id: "reference-image", label: "引用一张图片", input: {props: {kind: "reference", locale: "zh-CN", label: "地图", target: "/资料/地图.png"}}},
+            {id: "attachment", label: "引用会话附件", input: {props: {kind: "reference", locale: "zh-CN", label: "截图", target: "local://截图.png"}}},
+            {id: "external", label: "外部链接", input: {props: {kind: "reference", locale: "zh-CN", label: "官网", target: "https://example.com"}}},
+            {id: "other", label: "旧应用的领域地址", input: {props: {kind: "reference", locale: "zh-CN", label: "第一章", target: "chapter://c1"}}},
+            {id: "long", label: "过长的名称截断", input: {props: {kind: "reference", locale: "zh-CN", label: "一个非常非常非常非常非常非常长的设定文件名字", target: "/设定/很长.md"}}},
+            {id: "skill", label: "技能", input: {props: {kind: "skill", locale: "zh-CN", label: "reviewer"}}},
+            {id: "selection", label: "选区", input: {props: {kind: "selection", locale: "zh-CN", label: "第一章.md#L3-L8"}}},
+            {id: "command", label: "命令", input: {props: {kind: "command", locale: "zh-CN", label: "plan"}}},
+            {id: "image", label: "图片 #1", input: {props: {kind: "image", locale: "zh-CN", number: 1}}},
+            {id: "uploading", label: "文件上传中", input: {props: {kind: "file", locale: "zh-CN", label: "笔记.txt", number: 2, state: "uploading"}}},
+            {id: "failed", label: "上传失败", input: {props: {kind: "image", locale: "zh-CN", number: 3, state: "failed", error: "文件太大"}}},
+            {id: "paste", label: "粘贴位置", input: {props: {kind: "paste", locale: "zh-CN", number: 4}}},
+            {id: "highlighted", label: "联动高亮", input: {props: {kind: "image", locale: "zh-CN", number: 1, highlighted: true}}},
+            {id: "selected", label: "在选区里", input: {props: {kind: "reference", locale: "zh-CN", label: "林雪", target: "/设定/林雪.md", selected: true}}},
+            {id: "interactive", label: "可聚焦（静态显示里）", input: {props: {kind: "reference", locale: "zh-CN", label: "林雪", target: "/设定/林雪.md", interactive: true}}},
+            {id: "english", label: "英文界面", input: {props: {kind: "file", locale: "en-US", label: "notes.txt", number: 2, state: "uploading"}}},
+        ],
+        load: async () => (await import("./InlineChipFixture.vue")).default,
+    }),
+    defineLabFixture<typeof MarkdownDisplay>({
+        component: "MarkdownDisplay",
+        scenes: [
+            {id: "reply", label: "一条完整的回复（各方言）", input: {props: {text: DISPLAY_REPLY, locale: "zh-CN"}}},
+            {id: "streaming", label: "流式追加", input: {props: {text: DISPLAY_REPLY, locale: "zh-CN"}}},
+            {id: "conversation", label: "100 条消息的长对话", input: {props: {text: DISPLAY_REPLY, locale: "zh-CN"}}},
+            {id: "plain", label: "只有普通 Markdown", input: {props: {text: "## 小结\n\n- 第一章节奏偏快\n- 第二章的伏笔可以提前\n\n```ts\nconst answer = 42;\n```\n\n| 章 | 字数 |\n|---|---|\n| 一 | 3200 |", locale: "zh-CN"}}},
+            {id: "empty", label: "空文本", input: {props: {text: "", locale: "zh-CN"}}},
+        ],
+        load: async () => (await import("./MarkdownDisplayFixture.vue")).default,
+    }),
+    defineLabFixture<typeof PromptEditor>({
+        component: "PromptEditor",
+        scenes: promptEditorScenes,
+        load: async () => (await import("./prompt-scene/PromptEditorFixture.vue")).default,
+    }),
+    defineSubjectFixture<typeof PromptTextView>({
+        component: "PromptTextView",
+        scenes: promptTextViewScenes,
+        subject: () => import("nbook/plugins/markdown/web/components/prompt/PromptTextView.vue"),
+        events: ["token-activate"],
+        class: "w-full p-4 text-[13px] leading-[1.6] text-[var(--text-main)]",
+        runtimeProps: () => Promise.resolve({resolveThumbnail: (target: string) => PROMPT_LAB_THUMBNAILS[target] ?? null}),
+    }),
+    defineSubjectFixture<typeof PromptAttachmentStrip>({
+        component: "PromptAttachmentStrip",
+        scenes: promptAttachmentStripScenes,
+        subject: () => import("nbook/plugins/markdown/web/components/prompt/PromptAttachmentStrip.vue"),
+        events: ["activate", "remove", "retry", "hover"],
+        writeBack: {hover: {layer: "props", key: "highlighted"}},
+        class: "w-full",
+    }),
+    defineSubjectFixture<typeof PromptMenuPanel>({
+        component: "PromptMenuPanel",
+        scenes: promptMenuPanelScenes,
+        subject: () => import("nbook/plugins/markdown/web/components/prompt/PromptMenuPanel.vue"),
+        events: ["select", "highlight", "search", "search-keydown"],
+        writeBack: {highlight: {layer: "props", key: "activeId"}, search: {layer: "props", key: "search"}},
+        class: "w-full",
+    }),
+    defineSubjectFixture<typeof PromptPasteFrame>({
+        component: "PromptPasteFrame",
+        scenes: promptPasteFrameScenes,
+        subject: () => import("nbook/plugins/markdown/web/components/prompt/PromptPasteFrame.vue"),
+        events: ["hover"],
+        class: "w-full",
+    }),
+    defineLabFixture<typeof MarkdownImage>({
+        component: "MarkdownImage",
+        scenes: [
+            {id: "shown", label: "显示", input: {props: {src: "images/封面.png", alt: "封面", title: "第一卷封面", locale: "zh-CN"}}},
+            {id: "loading", label: "读取中", input: {props: {src: "lab://loading", alt: "封面", locale: "zh-CN"}}},
+            {id: "outside", label: "不在作品里", input: {props: {src: "lab://outside", alt: "外面的图", locale: "zh-CN"}}},
+            {id: "broken", label: "读不出", input: {props: {src: "lab://broken", alt: "坏图", locale: "zh-CN"}}},
+            {id: "no-alt", label: "没有说明", input: {props: {src: "lab://outside", locale: "zh-CN"}}},
+        ],
+        load: async () => (await import("./MarkdownImageFixture.vue")).default,
     }),
     defineLabFixture<typeof FileIcon>({
         component: "FileIcon",

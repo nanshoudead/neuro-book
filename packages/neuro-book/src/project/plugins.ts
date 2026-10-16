@@ -11,6 +11,7 @@ import {definitionAt, pluginsAt} from "nbook/manifest";
 import type {PluginDescriptor} from "nbook/manifest";
 import {createServerDiagnosticsPlugin} from "nbook/plugins/diagnostics/backend/plugin";
 import {filesBackendPlugin} from "nbook/plugins/files/backend/plugin";
+import {markdownProjectPlugin} from "nbook/plugins/markdown/shared/plugin";
 import {projectsProjectPlugin} from "nbook/plugins/projects/project/plugin";
 import {settingsBackendPlugin} from "nbook/plugins/settings/backend/plugin";
 import {statePlugin} from "nbook/plugins/state/shared/plugin";
@@ -35,6 +36,7 @@ export const projectPluginDefinitions: Readonly<Record<string, PluginDefinition>
     "nbook.storage": storageBackendPlugin,
     "nbook.settings": settingsBackendPlugin,
     "nbook.files": filesBackendPlugin,
+    "nbook.markdown": markdownProjectPlugin,
     "nbook.projects": projectsProjectPlugin,
 };
 

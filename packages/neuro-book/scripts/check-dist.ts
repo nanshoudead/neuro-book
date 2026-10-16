@@ -1,6 +1,7 @@
 /**
  * 生产产物检查（ui.component-lab 场景 10）：`dist/` 里不能有开发插件（Lab）的代码，也不能带本机的绝对路径。
- * 同时要求产品自己的标记在场，证明扫描读到的是这次构建的真实产物，而不是空目录或换了位置的输出。
+ * 同时要求产品自己的标记在场，证明扫描读到的是这次构建的真实产物，而不是空目录或换了位置的输出。首屏（入口脚本与它预加载的
+ * chunk）里不能有 Markdown 的编辑内核与解析器（workspace.markdown-syntaxes 输出 2）。
  *
  *   bun run check:dist        # `bun run build` 的最后一步
  */
@@ -19,6 +20,12 @@ export const PRODUCT_MARKERS: Readonly<Record<"web" | "server", ReadonlyArray<st
     web: ["nbook.workbench", "data-workbench-root"],
     server: ["nbook.http", "Listening on"],
 };
+
+/**
+ * 只出现在 ProseMirror 与 `marked` 里的字符串（压缩后字符串字面量还在）：它们进了首屏，说明有人在插件定义或首屏代码里
+ * 静态引了 Markdown 的语法模块或编辑内核。
+ */
+export const FIRST_SCREEN_FORBIDDEN = ["Invalid content for node", "marked(): input parameter"];
 
 export interface DistReport {
     /** `<相对 dist 的文件>: <命中的字符串>`。 */
@@ -45,6 +52,14 @@ export async function scanDist(distRoot: string, localPaths: ReadonlyArray<strin
         }
         for (const marker of markers) {
             if (!texts.some(({text}) => text.includes(marker))) missing.push(`${part}: ${marker}`);
+        }
+    }
+    const page = await readFile(join(distRoot, "web", "index.html"), "utf8").catch(() => "");
+    const firstScreen = [...page.matchAll(/<script[^>]*\ssrc="\/?([^"]+\.js)"|<link[^>]*rel="modulepreload"[^>]*href="\/?([^"]+\.js)"/gu)].map((match) => match[1] ?? match[2] ?? "");
+    for (const file of firstScreen) {
+        const text = await readFile(join(distRoot, "web", file), "utf8").catch(() => "");
+        for (const marker of FIRST_SCREEN_FORBIDDEN) {
+            if (text.includes(marker)) forbidden.push(`web/${file}（首屏）: ${marker}`);
         }
     }
     return {forbidden, missing};

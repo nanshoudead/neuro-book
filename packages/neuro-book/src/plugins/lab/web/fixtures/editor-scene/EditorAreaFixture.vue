@@ -7,13 +7,15 @@
  */
 import {SegmentedControl} from "@notnotype/nb-ui/components";
 import {systemClock} from "@notnotype/nb-runtime/lifecycle";
-import {computed, defineAsyncComponent, onBeforeUnmount, watch} from "vue";
+import {computed, defineAsyncComponent, onBeforeUnmount, provide, watch} from "vue";
 import type {Component} from "vue";
 
 import {createEditorArea} from "nbook/plugins/editor/web/area";
 import EditorArea from "nbook/plugins/editor/web/components/EditorArea.vue";
 import type {EmptyTip} from "nbook/plugins/editor/web/empty-tips";
 import type {EditorState} from "nbook/plugins/editor/web/editor-registry";
+import {createAssetUrls, markdownAssetsKey} from "nbook/plugins/markdown/web/parts/asset-urls";
+import {SyntaxCatalog, syntaxCatalogKey} from "nbook/plugins/markdown/web/syntax-catalog";
 import {CODE_EDITOR, MARKDOWN_EDITOR} from "nbook/plugins/editor/shared/contracts";
 import type {DisplayLocale} from "nbook/shared/localized-text";
 
@@ -75,6 +77,10 @@ const DIALECT = [
     "",
     "[^1]: 脚注内容。",
     "",
+    "她翻开[<comment body=\"出场\">林雪</comment>的设定](../设定/林雪.md)，又看了[外部的资料](https://example.com)。",
+    "",
+    "![封面](images/封面.png) ![外面的图](../../外面.png)",
+    "",
 ].join("\n");
 
 const memory = createMemoryFiles({
@@ -120,7 +126,12 @@ if (props.scene === "unrepresentable") {
 }
 
 const MonacoControl = defineAsyncComponent(() => import("nbook/plugins/editor/web/components/MonacoControl.vue"));
-const MarkdownControl = defineAsyncComponent(() => import("nbook/plugins/editor/web/components/MarkdownControl.vue"));
+// Markdown 控件要 nbook.markdown 交组件时给的方言目录：场景里没有外来方言，目录是空的，语言只有内置方言。
+provide(syntaxCatalogKey, new SyntaxCatalog({get: () => null, list: () => []}, () => undefined));
+// 图片地址：内存适配器没有字节路由，作品里的 png 一律给一张画出来的图。
+const PICTURE = `data:image/svg+xml;utf8,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="480" height="270"><rect width="480" height="270" fill="#7287fd"/><text x="240" y="145" font-size="30" text-anchor="middle" fill="white">封面</text></svg>')}`;
+provide(markdownAssetsKey, createAssetUrls({rawUrl: (address) => (address.endsWith(".png") ? PICTURE : null), watch: () => () => undefined}));
+const MarkdownControl = defineAsyncComponent(() => import("nbook/plugins/markdown/web/components/MarkdownControl.vue"));
 /** 只有内置的两个编辑器，组件直接给出（产品里由编辑器的登记表给出，`editor-registry.ts`）。 */
 const controls: Readonly<Record<string, Component>> = {[CODE_EDITOR]: MonacoControl, [MARKDOWN_EDITOR]: MarkdownControl};
 const control = (editor: string): EditorState => {

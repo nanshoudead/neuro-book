@@ -1,0 +1,330 @@
+/*
+ * Markdown 正文的样子（docs/specs/ui/markdown-display.md 输出 2）：Markdown 编辑器（`MarkdownControl` 的正文元素）与展示器
+ * （`MarkdownDisplay` 的根元素）共用，挂在 `.nb-markdown` 下。字号、行距与段距用变量（`--markdown-font-size`、
+ * `--markdown-line-height`、`--markdown-block-gap`），由各自的宿主给出：编辑器是纸面，展示器是对话里的正文。
+ */
+
+.nb-markdown {
+    color: var(--text-main);
+    font-size: var(--markdown-font-size, 1em);
+    line-height: var(--markdown-line-height, 1.7);
+}
+
+.nb-markdown > * + * {
+    margin-top: var(--markdown-block-gap, 0.75em);
+}
+
+.nb-markdown h1 {
+    font-size: 1.6em;
+    font-weight: 600;
+    line-height: 1.3;
+}
+
+.nb-markdown h2 {
+    font-size: 1.35em;
+    font-weight: 600;
+}
+
+.nb-markdown h3 {
+    font-size: 1.15em;
+    font-weight: 600;
+}
+
+.nb-markdown ul,
+.nb-markdown ol {
+    padding-left: 1.5em;
+}
+
+.nb-markdown ul {
+    list-style: disc;
+}
+
+.nb-markdown ol {
+    list-style: decimal;
+}
+
+.nb-markdown blockquote {
+    border-left: 3px solid var(--divider);
+    padding-left: 1em;
+    color: var(--text-secondary);
+}
+
+.nb-markdown code {
+    border-radius: 4px;
+    background: var(--bg-hover);
+    padding: 0.1em 0.3em;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 0.9em;
+}
+
+.nb-markdown pre {
+    border-radius: 6px;
+    background: var(--bg-hover);
+    padding: 0.75em 1em;
+    overflow-x: auto;
+}
+
+/* 宽表格在自己里面横向滚动，不撑宽正文（与代码块一致）。编辑器的表格节点视图与展示器都包这一层。 */
+.nb-markdown .tableWrapper {
+    max-width: 100%;
+    overflow-x: auto;
+}
+
+.nb-markdown table {
+    border-collapse: collapse;
+}
+
+.nb-markdown td,
+.nb-markdown th {
+    border: 1px solid var(--divider);
+    padding: 0.25em 0.5em;
+}
+
+/* 指向作品里文件的链接画成引用小块（`../parts/chip.css`），不带链接的颜色与下划线。 */
+.nb-markdown a:not(:has(.nb-chip-link)) {
+    color: var(--accent-text);
+    text-decoration: underline;
+}
+
+/* 批注（方言 Spec 输出 11）：被批注的正文带波浪线；块批注另在左侧画一条虚线标出范围。意见的界面另做。 */
+.nb-markdown comment,
+.nb-markdown .nb-comment-block {
+    text-decoration: underline wavy var(--status-warning);
+    text-decoration-thickness: 1px;
+    text-underline-offset: 0.3em;
+}
+
+.nb-markdown .nb-comment-block {
+    border-left: 2px dashed var(--status-warning-border);
+    padding-left: 1em;
+}
+
+/* 注音（输出 12）：正文上方的小字。 */
+.nb-markdown .nb-ruby-text {
+    color: var(--text-muted);
+    font-size: 0.6em;
+}
+
+/* 双语对照（输出 13）：原文上方一行弱色的译文。 */
+.nb-markdown .nb-bilingual-block::before {
+    content: attr(data-bilingual-text);
+    display: block;
+    margin-bottom: 0.25em;
+    color: var(--text-muted);
+    font-size: 0.85em;
+}
+
+/* 对齐（输出 14）：`<align>` 是块，对齐写在它的行内样式里。 */
+.nb-markdown align {
+    display: block;
+}
+
+/*
+ * 高亮（输出 15、24）：没有颜色时的底色；带颜色的写在行内样式里，盖过这里。不用 `--status-warning-bg`：它是给面板底色配的
+ * 浅色，叠在偏暖的浅色纸面上几乎看不出来。
+ */
+.nb-markdown mark {
+    border-radius: 2px;
+    background: color-mix(in srgb, var(--status-warning) 32%, transparent);
+    color: inherit;
+}
+
+/* 上标、下标（输出 15）。 */
+.nb-markdown sup,
+.nb-markdown sub {
+    position: relative;
+    font-size: 0.75em;
+    line-height: 0;
+    vertical-align: baseline;
+}
+
+.nb-markdown sup {
+    top: -0.5em;
+}
+
+.nb-markdown sub {
+    bottom: -0.25em;
+}
+
+/* 原样块与原样片段（输出 9）：显示源码，整体选中、删除或复制，不能在里面编辑。 */
+.nb-markdown .nb-html-block,
+.nb-markdown .nb-raw-inline-html {
+    border: 1px dashed var(--border-color);
+    background: var(--bg-subtle);
+    color: var(--text-secondary);
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 0.85em;
+}
+
+/* 写成 `pre.` 是为了压过 ProseMirror 自带的 `.ProseMirror [contenteditable="false"] { white-space: normal }`：原样块不可编辑，源码的换行要留着。 */
+.nb-markdown pre.nb-html-block {
+    white-space: pre-wrap;
+}
+
+.nb-markdown .nb-raw-inline-html {
+    border-radius: 3px;
+    padding: 0 0.2em;
+}
+
+/*
+ * 任务列表（输出 19）：复选框在左，内容在右。任务项的视图（`@tiptap/extension-list`）不给 `li` 加 `data-type`，按所在的列表选；
+ * 全局样式把输入框的外观清掉了，复选框在这里恢复。
+ */
+.nb-markdown ul[data-type="taskList"] {
+    list-style: none;
+    padding-left: 0.25em;
+}
+
+.nb-markdown ul[data-type="taskList"] > li {
+    display: flex;
+    gap: 0.5em;
+}
+
+.nb-markdown ul[data-type="taskList"] > li > label {
+    display: flex;
+    flex: none;
+    align-items: center;
+    height: calc(var(--markdown-line-height) * 1em);
+}
+
+.nb-markdown ul[data-type="taskList"] > li > label > input {
+    appearance: auto;
+    width: 1em;
+    height: 1em;
+    margin: 0;
+    accent-color: var(--accent-main);
+}
+
+.nb-markdown ul[data-type="taskList"] > li > div {
+    flex: 1;
+    min-width: 0;
+}
+
+/* 提示块（输出 23）：五种类型各有颜色，其它类型按 NOTE。 */
+.nb-markdown .nb-callout {
+    --callout-color: var(--status-info);
+    --callout-bg: var(--status-info-bg);
+    border-left: 3px solid var(--callout-color);
+    border-radius: 6px;
+    background: var(--callout-bg);
+    padding: 0.5em 1em;
+}
+
+.nb-markdown .nb-callout--tip {
+    --callout-color: var(--status-success);
+    --callout-bg: var(--status-success-bg);
+}
+
+.nb-markdown .nb-callout--important {
+    --callout-color: var(--accent-main);
+    --callout-bg: var(--accent-bg);
+}
+
+.nb-markdown .nb-callout--warning {
+    --callout-color: var(--status-warning);
+    --callout-bg: var(--status-warning-bg);
+}
+
+.nb-markdown .nb-callout--caution {
+    --callout-color: var(--status-danger);
+    --callout-bg: var(--status-danger-bg);
+}
+
+.nb-markdown .nb-callout__title:has(> .nb-callout__toggle:not([hidden])) {
+    cursor: pointer;
+}
+
+.nb-markdown .nb-callout__title {
+    display: flex;
+    align-items: center;
+    gap: 0.4em;
+    color: var(--callout-color);
+    font-weight: 600;
+    user-select: none;
+}
+
+.nb-markdown .nb-callout__toggle {
+    display: inline-flex;
+    margin-left: auto;
+    border-radius: 4px;
+    padding: 0.15em;
+    color: inherit;
+}
+
+.nb-markdown .nb-callout__toggle[hidden] {
+    display: none;
+}
+
+.nb-markdown .nb-callout__toggle:hover {
+    background: var(--bg-hover);
+}
+
+.nb-markdown .nb-callout__toggle[aria-expanded="true"] > span {
+    transform: rotate(90deg);
+}
+
+.nb-markdown .nb-callout__content > * + * {
+    margin-top: var(--markdown-block-gap);
+}
+
+/* 可渲染 HTML（输出 16）：源码卡片，标题行给“渲染”与“查看源码”。 */
+.nb-markdown .nb-html-embed {
+    overflow: hidden;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+}
+
+.nb-markdown .nb-html-embed__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-bottom: 1px solid var(--border-color);
+    background: var(--bg-subtle);
+    padding: 0.3em 0.75em;
+    color: var(--text-secondary);
+    font-size: 0.85em;
+}
+
+.nb-markdown .nb-html-embed__caption,
+.nb-markdown .nb-html-embed__toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35em;
+}
+
+.nb-markdown .nb-html-embed__toggle {
+    border-radius: 4px;
+    padding: 0.1em 0.5em;
+}
+
+.nb-markdown .nb-html-embed__toggle.is-idle {
+    color: var(--accent-text);
+}
+
+.nb-markdown .nb-html-embed__toggle:hover {
+    background: var(--bg-hover);
+}
+
+.nb-markdown .nb-html-embed__source {
+    margin: 0;
+    border-radius: 0;
+}
+
+.nb-markdown .nb-html-embed__frame {
+    display: block;
+    width: 100%;
+    min-height: 240px;
+    border: 0;
+    opacity: 0;
+    transition: opacity 0.16s ease;
+}
+
+.nb-markdown .nb-html-embed__frame.is-loaded {
+    opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .nb-markdown .nb-html-embed__frame {
+        transition: none;
+    }
+}

@@ -4,7 +4,7 @@ kind: behavior
 status: implemented
 capability: workspace.markdown-dialect
 owners:
-  - nbook.editor
+  - nbook.markdown
 ---
 
 # NeuroBook Markdown 方言
@@ -12,6 +12,8 @@ owners:
 ## 目标与非目标
 
 规定 NeuroBook 怎样读、写作品里的 Markdown 文件：在 CommonMark 与 GFM 之上的几条通用规则（中文的强调、换行、删除线），项目方言（批注、注音、双语对照、对齐、文字标记、可渲染 HTML），以及富文本编辑后写回原文的规则。富文本编辑器、字数统计与之后的导出、Agent 读写都按这一份理解同一个文件。界面上怎样编辑（菜单、快捷键、浮动菜单）归 [workbench.editor](../workbench/editor.md)。
+
+项目方言由插件贡献：哪些方言生效、什么时候生效由 [workspace.markdown-syntaxes](markdown-syntaxes.md) 规定；没生效的方言，它的写法按输出 9 原样保留。
 
 不承诺：
 
@@ -137,7 +139,7 @@ owners:
 18. **链接与图片的地址**：
     - 相对地址（`../设定/林雪.md`、`images/a.png`）按当前文件所在目录解析；以 `/` 开头的地址按作品根（`user://` 下按用户资产根）解析；带方案的地址（`https:`、`mailto:` 等）是外部链接。
     - 在富文本里新建指向作品里文件的链接或图片时，写相对当前文件的地址；`@` 引用插入的也是这种普通链接。（planned）
-    - 富文本里显示图片时按上面的规则读出作品里的文件；解析出作品根以外的地址时不显示，显示说明。（planned）
+    - 富文本里显示图片时按上面的规则读出作品里的文件；解析出作品根以外的地址时不显示，显示说明。
     - 标题（`[文字](地址 "标题")`）以反斜杠结尾时写不出（输出 3；Markdown 解析器的限制）。
     - 图片的说明是纯文字：说明里的格式与转义读成文字（`![*甲* &amp; 乙](a.png)` 的说明是“甲 & 乙”）；所在的块被编辑后，说明按纯文字写出，引用式图片写成行内图片。
     - 旧应用推荐的不带 `/` 的作品根路径（例如 `lorebook/location/initial-stage/`）在这里按相对当前文件解析，这类旧链接要作者自己改。
@@ -153,6 +155,13 @@ owners:
 24. **`==高亮==`**：`==文本==` 读成高亮，与不带颜色的 `<mark>文本</mark>` 相同。开闭判定与 `~~` 相同，并按输出 6 对中文放宽：`a == b` 这类两侧有空格的不是高亮。写回时保持原来的写法（输出 2）；在富文本里新加的高亮写成 `<mark>`（GitHub 等工具也能显示），带颜色的高亮总是 `<mark style="…">`。
 25. **HTML 形式的强调与换行**：`<strong>`、`<b>` 是粗体，`<em>`、`<i>` 是斜体，`<del>`、`<s>` 是删除线，`<br>` 是换行；写回时保持原来的标签。`<u>` 与其它行内标签按输出 9 是原样片段。
 26. **没有下划线**：NeuroBook 没有下划线格式；`++文字++` 是普通文字，`<u>` 是原样片段。
+27. **引用的目标分类**：链接、图片与 Composer 里引用的目标按以下顺序归为一类，三种界面（编辑器、[ui.markdown-display](../ui/markdown-display.md)、[ui.prompt-editor](../ui/prompt-editor.md)）按同一分类显示：
+    - **作品里的文件**：相对地址、以 `/` 开头的地址（按输出 18 解析）与 `project://` 地址；
+    - **用户资产**：`user://` 地址；
+    - **附件**：`local://` 地址（Composer 的会话附件）；
+    - **外部**：`http:`、`https:`、`mailto:` 方案；
+    - **其它**：别的方案（包括旧应用的 `chapter://` 等领域地址）。
+    作品里的文件与用户资产显示为引用小块，按文件扩展名取图标；外部链接显示为普通链接；其它显示为不带文件图标的引用小块。分类只影响显示，写回的地址不变。
 
 ## 状态与转换
 
@@ -170,6 +179,7 @@ owners:
 - 字数统计（[workbench.editor](../workbench/editor.md) 输出 27）按本方言去掉不计的内容再数：
   - 不计：标签本身与属性（批注的 `body`、注音、双语的译文、颜色、对齐，`<br>` 当作换行）；原样块与原样片段（输出 9：方言之外的 HTML 连同成对标签中间的字、HTML 注释、数学、脚注的引用与定义、引用定义）；可渲染 HTML 的内容；标准写法注音里 `<rt>` 的小字；提示块的类型（`[!NOTE]`）与任务项的勾选框；
   - 计入：方言标签中间的正文、提示块的标题、行内代码与代码块里的字（其中的标签与实体按文字计）；实体按解码后的字计；
+  - 标签类方言计不计由它的声明决定，提示块与可渲染 HTML 的规则在核心扫描里、不随方言是否生效变化；方言的实现在浏览器里没加载成功时，字数仍按声明计（[workspace.markdown-syntaxes](markdown-syntaxes.md) 输出 9）；
   - 字数统计不经编辑器读入，与编辑器读出的正文有已知的偏差：链接与图片的地址和标题、图片的说明、引用式链接的标签、有序列表的编号照常计入；写法不合法而整体成为原样的方言标签（不合法的颜色、注音的正文里有格式、`value` 不合法的对齐）中间的字照常计入；缩进代码块里的标签当作标签。
 
 ## 失败与恢复
@@ -204,8 +214,8 @@ Smoke：往返语料测试（每条输出与以上场景各有样例）、字数
 
 ## 实现合同
 
-- 公开入口：编辑器浏览器端的 `codecFor(schema, language)`（`read`、`write`、`reload`）与 `markdownLanguage()`（核心语法、原样保留与各项目方言的语法模块）；字数是 `src/shared/word-count.ts` 的 `countWords(text)`，前后端共用。
-- owner 与依赖方向：`nbook.editor` 拥有。编解码器只经语言对象使用语法模块；编辑器控件只经编解码器读写正文，不直接调用 markdown 解析库；字数与语法模块共用 `src/shared/markdown-dialect.ts` 的标签名与判据，不依赖编辑器。
+- 公开入口：`nbook.markdown` 插件内的 `codecFor(schema, language)`（`read`、`write`、`reload`）与 `markdownLanguage()`（核心语法、原样保留与各项目方言的语法模块），用它们的是同插件的组件；别的插件经服务 `markdownKey` 交出的组件使用（编辑器区的 Markdown 控件）。字数是 `nbook/plugins/markdown/shared/contracts` 的 `countWords(text)`，前后端共用。
+- owner 与依赖方向：`nbook.markdown` 拥有。编解码器只经语言对象使用语法模块；Markdown 控件只经编解码器读写正文，不直接调用 markdown 解析库，只按类型引用编辑器区的控件合同；字数与语法模块共用 `plugins/markdown/shared/markdown-dialect.ts` 的标签名与判据，不依赖编辑器。
 - 不变量：没被编辑过的块写原文，撤销回原来内容的块同样写原文（`codec.test.ts`、`editing.test.ts`）。
 - 不变量：每次写出都读回比对，读回不等就降级，最后一级仍不等时整篇写不出、不交出正文（`write.test.ts`、`properties.test.ts`）。
 - 不变量：写出被接受后回填写法，之后不再编辑时写出字节不变；重载时批注的身份按出现顺序对齐，不因重新读入而变（`editing.test.ts`）。
@@ -213,6 +223,6 @@ Smoke：往返语料测试（每条输出与以上场景各有样例）、字数
 ## 证据
 
 - 批准依据：开发者 2026-10-15 的决定，记录在主工作区 master 的 `.agents/works/w00025-editor/tasks/t06-markdown-polish/README.md`（“开发者的决定”7–9），2026-10-16 批准晋升 `implemented`；依据同一目录的 `conversion.md`（转换的难点与改进方案）与旧应用的 [Markdown 方言](../../../packages/neuro-book-legacy/assets/reference/content/markdown-dialect.md)。
-- 实现入口：[`markdown/codec/codec.ts`](../../../packages/neuro-book/src/plugins/editor/web/markdown/codec/codec.ts)（编解码器）、[`markdown/syntax/index.ts`](../../../packages/neuro-book/src/plugins/editor/web/markdown/syntax/index.ts)（语法模块）、[`shared/markdown-dialect.ts`](../../../packages/neuro-book/src/shared/markdown-dialect.ts) 与 [`shared/word-count.ts`](../../../packages/neuro-book/src/shared/word-count.ts)（字数）、[`MarkdownControl.vue`](../../../packages/neuro-book/src/plugins/editor/web/components/MarkdownControl.vue)（编辑器接入）
-- 合同测试：[`codec.test.ts`](../../../packages/neuro-book/src/plugins/editor/web/markdown/codec/codec.test.ts)（读入与原样写回）、[`write.test.ts`](../../../packages/neuro-book/src/plugins/editor/web/markdown/codec/write.test.ts)（写回、转义、降级、引用定义、换行符）、[`dialects.test.ts`](../../../packages/neuro-book/src/plugins/editor/web/markdown/codec/dialects.test.ts)（项目方言与宽容写法）、[`properties.test.ts`](../../../packages/neuro-book/src/plugins/editor/web/markdown/codec/properties.test.ts)（随机新建与真实编辑序列）、[`editing.test.ts`](../../../packages/neuro-book/src/plugins/editor/web/markdown/codec/editing.test.ts)（写法回填、重载、抢救正文）、[`comment.dom.test.ts`](../../../packages/neuro-book/src/plugins/editor/web/markdown/syntax/comment/comment.dom.test.ts)（场景 6、7）、[`codec/word-count.test.ts`](../../../packages/neuro-book/src/plugins/editor/web/markdown/codec/word-count.test.ts) 与 [`shared/word-count.test.ts`](../../../packages/neuro-book/src/shared/word-count.test.ts)（场景 10）、[`MarkdownControl.dom.test.ts`](../../../packages/neuro-book/src/plugins/editor/web/components/MarkdownControl.dom.test.ts)（编辑器里的交出、重载与显示）
+- 实现入口：[`markdown/codec/codec.ts`](../../../packages/neuro-book/src/plugins/markdown/web/codec/codec.ts)（编解码器）、[`markdown/syntax/index.ts`](../../../packages/neuro-book/src/plugins/markdown/web/syntax/index.ts)（语法模块）、[`shared/markdown-dialect.ts`](../../../packages/neuro-book/src/plugins/markdown/shared/markdown-dialect.ts) 与 [`shared/word-count.ts`](../../../packages/neuro-book/src/plugins/markdown/shared/word-count.ts)（字数）、[`shared/targets.ts`](../../../packages/neuro-book/src/plugins/markdown/shared/targets.ts)（目标分类）、[`MarkdownControl.vue`](../../../packages/neuro-book/src/plugins/markdown/web/components/MarkdownControl.vue)（编辑器接入）
+- 合同测试：[`codec.test.ts`](../../../packages/neuro-book/src/plugins/markdown/web/codec/codec.test.ts)（读入与原样写回）、[`write.test.ts`](../../../packages/neuro-book/src/plugins/markdown/web/codec/write.test.ts)（写回、转义、降级、引用定义、换行符）、[`dialects.test.ts`](../../../packages/neuro-book/src/plugins/markdown/web/codec/dialects.test.ts)（项目方言与宽容写法）、[`properties.test.ts`](../../../packages/neuro-book/src/plugins/markdown/web/codec/properties.test.ts)（随机新建与真实编辑序列）、[`editing.test.ts`](../../../packages/neuro-book/src/plugins/markdown/web/codec/editing.test.ts)（写法回填、重载、抢救正文）、[`comment.dom.test.ts`](../../../packages/neuro-book/src/plugins/markdown/web/syntax/comment/comment.dom.test.ts)（场景 6、7）、[`codec/word-count.test.ts`](../../../packages/neuro-book/src/plugins/markdown/web/codec/word-count.test.ts) 与 [`shared/word-count.test.ts`](../../../packages/neuro-book/src/plugins/markdown/shared/word-count.test.ts)（场景 10）、[`shared/targets.test.ts`](../../../packages/neuro-book/src/plugins/markdown/shared/targets.test.ts)（输出 18、27）、[`MarkdownControl.dom.test.ts`](../../../packages/neuro-book/src/plugins/markdown/web/components/MarkdownControl.dom.test.ts)（编辑器里的交出、重载与显示）
 - Smoke：[`editor-area.e2e.ts`](../../../packages/neuro-book/e2e/editor-area.e2e.ts) 的“Markdown 方言”一组（场景 1、2、4）
