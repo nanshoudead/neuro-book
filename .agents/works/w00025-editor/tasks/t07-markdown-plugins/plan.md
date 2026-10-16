@@ -65,10 +65,10 @@
   - 旧应用的色调在全局 `reference-chips.css`，改为零件自己的样式、只用主题 token；不沿用旧的全局类名（新应用已有全局 `.nb-skill-chip`，避免叠加）。
 - **`MarkdownImage`**：按方言 Spec 输出 18 解析地址；作品根以外的地址不显示，显示说明；读取中、失败、说明文字的样子。
   - 宿主接口 `resolveAsset(address, signal) → Promise<{url, release()} | null>`。
-  - `nbook.markdown` 提供按地址引用计数的缓存：最后一个使用者 `release` 时 `revokeObjectURL`；编辑器的宿主用文件服务按地址读字节（同图片查看器），经 `watch` 订阅文件变化，变了就作废对应条目、重新读取。
+  - 编辑器的宿主直接用文件服务的字节路由 URL（`rawUrl`，同源，浏览器按 ETag 校验缓存），不读成 blob，所以没有要释放的对象 URL（`release` 是空函数）；经 `watch` 订阅文件变化，变了就给地址加版本号、通知图片重新取（实施 S4 时改：比引用计数的 blob 缓存少一层状态）。
   - 卸载、地址变化、读取中被取消，都不留 URL。
 - **编辑器里的引用小块**：指向作品里文件的链接用装饰画外框与图标，不用标记视图：批注只盖住链接的一部分时，标记视图会把一个链接拆成两个元素。一个插件按同一个链接标记的连续范围算起止，起点放图标（`Decoration.widget`），整段加类名（`Decoration.inline`），只在两端画圆角。文字照常可编辑，写回不变；外部链接仍是普通链接。展示器在序列化后按同样的连续范围补类名。
-- **编辑器里的图片**：节点视图套 `MarkdownImage`。方言 Spec 输出 18 里“富文本按作品里的文件显示图片”这一条由此实现。
+- **编辑器里的图片**：节点视图是普通 DOM，用 Vue 的 `render()` 挂 `MarkdownImage`（控件用 `@tiptap/core` 的编辑器、没有 `EditorContent`，Tiptap 的 Vue 节点视图挂不上）。方言 Spec 输出 18 里“富文本按作品里的文件显示图片”这一条由此实现。
 
 ### 6. 展示器 `MarkdownDisplay`（`src/plugins/markdown/web/display/`）
 

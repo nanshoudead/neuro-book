@@ -83,6 +83,9 @@ updated: 2026-10-16
 
 - S3（`85647109c`）：外来方言晚到。S2 已让控件在建实例时取定语言，这一片补验收：真实内核的浏览器实例里测试方言由测试激活，之后新建的编辑器认得它，已打开的实例仍按原样片段读写、未交出的输入照常交出（`web/components/late-dialect.dom.test.ts`）；变异检查（控件每次写出都取最新的语言）时这一例失败。运行中晚到的方言只有测试插件会产生，不另做浏览器 e2e，Spec 的 Smoke 行随之改写。`test:affected --typecheck` 中两例文件监视测试（`files/changes.test.ts`、`settings/backend/layer-owner.test.ts`）在负载下失败，单独重跑两遍都过，这一片没改它们。
 
+- S4（`1a0951524`）：引用小块与图片。`InlineChip`（由旧 `PromptTokenChip` 移植，外观判断在 `parts/chip.ts`、样式在 `parts/chip.css`，与普通 DOM 共用）、`MarkdownImage`；目标分类 `shared/targets.ts`（方言 Spec 输出 27）；图片地址 `parts/asset-urls.ts`（文件服务的字节路由 URL，文件变了加版本号重新取，真实文件服务场地测过）；编辑器里作品内链接用装饰画成一个引用小块（被批注盖住一半时也是一个；变异检查：不合并同一链接的连续范围时测试失败），图片节点视图用 `render()` 挂 `MarkdownImage`。文件图标的配色挪到 `ui/file-icons/palette.css`，加不经 Vue 的 `renderFileIcon`。Lab 加 `InlineChip`（17 个场景）、`MarkdownImage`（5 个）两个组件，编辑器的方言场景加引用链接与图片；`lab:shot` 在手机与 1400×900、明暗两态下 0 个问题，截图目视核对过（编辑器区是集成场景，`lab:shot` 要加 `--wait 6000` 才等到控件加载与读文档）。`test:affected --typecheck` 通过（bun 1410 条、vitest 266 条）。
+  - 和计划不同：图片不读成 blob、不做引用计数缓存，直接用字节路由的 URL；节点视图不用 Tiptap 的 Vue 节点视图。计划第 5 节已随之修改。
+
 ## 下一步
 
-S4：引用小块与图片零件（`InlineChip`、`MarkdownImage`）、图片地址的缓存、编辑器里的引用小块装饰与图片节点视图；先写组件文档。
+S5：展示器 `MarkdownDisplay` 与静态视图、方言共用样式、Lab 场景与长对话性能复测。
