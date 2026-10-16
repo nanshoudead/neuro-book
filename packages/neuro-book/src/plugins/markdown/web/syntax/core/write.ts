@@ -5,6 +5,7 @@
 
 import type {Mark, Node as PMNode} from "@tiptap/pm/model";
 
+import {writeDestination} from "nbook/plugins/markdown/shared/link-syntax";
 import {LONE_TAG, OPENS_HTML_BLOCK} from "nbook/plugins/markdown/shared/markdown-dialect";
 
 import type {BlockWriter, InlineWriter, MarkWriter, WriteContext} from "../types";
@@ -188,18 +189,6 @@ const hardBreak: InlineWriter = (node, context, around) => {
     }
 };
 
-/** 链接与图片地址：含空白、尖括号或括号不配对时写成 `<地址>`。 */
-function destination(href: string): string {
-    let depth = 0;
-    let balanced = true;
-    for (const char of href) {
-        if (char === "(") depth += 1;
-        else if (char === ")" && --depth < 0) balanced = false;
-    }
-    if (/[\s<>]/u.test(href) || !balanced || depth !== 0 || href === "") return `<${href.replace(/[<>\\]/gu, (char) => `\\${char}`)}>`;
-    return href.replace(/\\(?=[!-/:-@[-`{-~])/gu, "\\\\");
-}
-
 const title = (value: string | null | undefined): string => (value === null || value === undefined || value === "" ? "" : ` "${value.replace(/["\\]/gu, (char) => `\\${char}`)}"`);
 
 interface LinkStyle {
@@ -293,7 +282,7 @@ const marks: Readonly<Record<string, MarkWriter>> = {
                 case "shortcut":
                     return "]";
                 default:
-                    return `](${destination(mark.attrs.href as string)}${title(mark.attrs.title as string | null)})`;
+                    return `](${writeDestination(mark.attrs.href as string)}${title(mark.attrs.title as string | null)})`;
             }
         },
     },
@@ -307,7 +296,7 @@ const image: InlineWriter = (node, context) => {
     const alt = context.escape(String(node.attrs.alt ?? "")).replace(/(?<!\\)[[\]]/gu, (char) => `\\${char}`);
     const style = context.style<LinkStyle>(node);
     if (style?.style === "reference" && context.definitions.get(normalizeLabel(style.label ?? "")) === String(node.attrs.src ?? "")) return `![${alt}][${style.label}]`;
-    return `![${alt}](${destination(String(node.attrs.src ?? ""))}${title(node.attrs.title as string | null)})`;
+    return `![${alt}](${writeDestination(String(node.attrs.src ?? ""))}${title(node.attrs.title as string | null)})`;
 };
 
 export const coreWriters = {blocks, inline: {hardBreak, image} as Readonly<Record<string, InlineWriter>>, marks};

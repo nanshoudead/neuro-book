@@ -61,6 +61,8 @@ export const markdownBrowserPlugin: PluginDefinition = {
                     MarkdownDisplay: withHost(catalog, assets, "MarkdownDisplayHost", async () => (await import("./components/MarkdownDisplay.vue")).default),
                     InlineChip: defineAsyncComponent(async () => (await import("./components/InlineChip.vue")).default),
                     MarkdownImage: defineAsyncComponent(async () => (await import("./components/MarkdownImage.vue")).default),
+                    PromptEditor: defineAsyncComponent(async () => (await import("./components/prompt/PromptEditor.vue")).default),
+                    PromptTextView: defineAsyncComponent(async () => (await import("./components/prompt/PromptTextView.vue")).default),
                 },
             };
             return {services: [provide(markdownKey, service)], receivers: {[MARKDOWN_SYNTAXES_POINT]: catalog.receiver()}};

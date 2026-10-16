@@ -1,7 +1,9 @@
 /**
- * Markdown 展示器在真实浏览器里的验收（docs/specs/ui/markdown-display.md 验收场景 1、2）：真实的 `bun run dev` 里的 Lab
- * 场景。组件测试（`MarkdownDisplay.dom.test.ts`）证明更新只替换变了的块；这里证明真实的帧调度下流式能播完，以及长对话
- * 改宽度时排版只算看得见的消息。
+ * `nbook.markdown` 交出的组件在真实浏览器里的验收，用真实的 `bun run dev` 里的 Lab 场景：
+ * - Markdown 展示器（docs/specs/ui/markdown-display.md 验收场景 1、2）：组件测试（`MarkdownDisplay.dom.test.ts`）证明更新只替换
+ *   变了的块；这里证明真实的帧调度下流式能播完，以及长对话改宽度时排版只算看得见的消息。
+ * - Composer 的编辑组件（docs/specs/ui/prompt-editor.md 输出 2、4、5、6、7、10）：组件测试里按键与输入是合成的，这里用真实键盘
+ *   打字、回车、方向键与退格，粘贴用 Lab 的“模拟”按钮（剪贴板事件）。
  */
 
 import {rm} from "node:fs/promises";
@@ -62,4 +64,56 @@ test("场景 2：100 条消息的长对话，宽度来回改 40 次，每次改�
         return times.sort((a, b) => a - b)[20] as number;
     });
     expect(median).toBeLessThan(5);
+});
+
+const prose = (page: Page) => page.locator("[data-lab-stage] .ProseMirror");
+/** 组件交出的文字（与 `change` 的值同一个来源：编辑器的 `getText`）。 */
+const promptText = (page: Page) => prose(page).evaluate((element) => (element as HTMLElement & {editor: {getText(options: {blockSeparator: string}): string}}).editor.getText({blockSeparator: "\n"}));
+
+async function openPrompt(page: Page, scene: string): Promise<void> {
+    await page.goto(`${dev.pageUrl}lab?c=PromptEditor&s=${scene}&vp=1200x900`);
+    await expect.poll(() => labState(page)).toMatchObject({ready: true, scene});
+    await expect(prose(page)).toBeVisible();
+}
+
+test("PromptEditor 真实按键：手打的技能写完才变小块，退格删整枚；回车发送后正文清空，上方向键调出刚发的一条", async ({page}) => {
+    await openPrompt(page, "empty");
+    await prose(page).click();
+    await page.keyboard.type("$review");
+    await expect(prose(page).locator("[data-inline-chip='skill']")).toHaveCount(0);
+    await page.keyboard.type("er ");
+    await expect(prose(page).locator("[data-inline-chip='skill']")).toHaveCount(1);
+    await page.keyboard.press("Escape");
+    await page.keyboard.press("Backspace");
+    await page.keyboard.press("Backspace");
+    await expect(prose(page).locator("[data-inline-chip='skill']")).toHaveCount(0);
+    expect(await promptText(page)).toBe("");
+    await page.keyboard.type("$writer 看第三章");
+    await page.keyboard.press("Enter");
+    await expect.poll(() => promptText(page)).toBe("");
+    await page.keyboard.press("ArrowUp");
+    await expect.poll(() => promptText(page)).toBe("$writer 看第三章");
+    await expect(prose(page).locator("[data-inline-chip='skill']")).toHaveCount(1);
+});
+
+test("PromptEditor `@` 菜单：打 ` @第一` 出候选，回车确认得到以 `/` 开头的作品根地址，显示为引用小块", async ({page}) => {
+    await openPrompt(page, "empty");
+    await prose(page).click();
+    await page.keyboard.type("看 @第一");
+    const option = page.locator("[data-lab-stage] [role='option']", {hasText: "第一章 雨夜"});
+    await expect(option).toBeVisible();
+    await page.keyboard.press("Enter");
+    await expect(option).toHaveCount(0);
+    expect(await promptText(page)).toBe("看 [第一章 雨夜](/正文/第一章.md) ");
+    await expect(prose(page).locator("[data-inline-chip='reference']")).toContainText("第一章 雨夜");
+});
+
+test("PromptEditor 粘贴分档：30 行成为粘贴块，150 行转为文件附件、上传完成后写回附件的写法", async ({page}) => {
+    await openPrompt(page, "empty");
+    await page.locator("[data-lab-action='paste-medium']").click();
+    await expect(page.locator("[data-lab-stage] [data-prompt-paste]")).toHaveCount(1);
+    expect(await promptText(page)).toMatch(/^<paste id="1">\nline 001: clock\.tick\(0\);[\s\S]*\n<\/paste>\n$/u);
+    await page.locator("[data-lab-action='paste-large']").click();
+    await expect(page.locator("[data-lab-stage] [data-prompt-card-state='ready']")).toHaveCount(1, {timeout: 10_000});
+    await expect.poll(() => promptText(page)).toContain("[file #2 · paste-2.txt](local://paste-2.txt)");
 });

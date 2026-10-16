@@ -15,7 +15,7 @@ owners:
 
 **文字是唯一真相**：组件对外只交出一段文字，特殊内容都按“文字写法”写在文字里；读进来的文字原样写回，一个字符都不变。
 
-属性、事件、布局与各状态的样子是组件合同，见组件文档 `src/plugins/markdown/web/prompt/PromptEditor.md` 与 `src/plugins/markdown/web/prompt/PromptTextView.md`。
+属性、事件、布局与各状态的样子是组件合同，见组件文档 [`PromptEditor.md`](../../../packages/neuro-book/src/plugins/markdown/web/components/prompt/PromptEditor.md) 与 [`PromptTextView.md`](../../../packages/neuro-book/src/plugins/markdown/web/components/prompt/PromptTextView.md)。
 
 不承诺：
 
@@ -104,7 +104,7 @@ owners:
 4. Given `@` 菜单列出作品里的 `设定/林雪.md`，When 确认，Then 文字是 `[林雪](/设定/林雪.md)`，显示为引用小块。
 5. Given 界面语言从中文换成英文，When 组件挂着，Then 粘贴块与附件条的按钮文字换成英文，正文与撤销历史不变。
 
-Smoke：`prompt/prompt-text.test.ts`、`prompt/prompt-editor-extensions.test.ts`、`prompt/PromptEditor.dom.test.ts`、`prompt/PromptTextView.dom.test.ts` 运行场景 1–5 与各输出条目；Lab 场景另在本机 Chrome 上由 `e2e/lab-markdown.e2e.ts` 运行按键与粘贴的一组。
+Smoke：`packages/neuro-book/src/plugins/markdown/web/components/prompt/` 下的 `prompt-text.test.ts`、`prompt-editor-extensions.dom.test.ts`、`PromptEditor.dom.test.ts`、`PromptTextView.dom.test.ts` 运行场景 1–5 与各输出条目；Lab 场景 `PromptEditor` 另在本机 Chrome 上由 `packages/neuro-book/e2e/lab-markdown.e2e.ts` 运行真实按键与粘贴的一组。
 
 ## 证据
 

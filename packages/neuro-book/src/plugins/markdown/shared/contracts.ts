@@ -24,6 +24,10 @@ export interface MarkdownComponents {
     readonly InlineChip: Component;
     /** Markdown 里的一张图片（`web/components/MarkdownImage.md`）。 */
     readonly MarkdownImage: Component;
+    /** 写给 Agent 的编辑组件（docs/specs/ui/prompt-editor.md）。 */
+    readonly PromptEditor: Component;
+    /** 已发送文字的静态显示，与 PromptEditor 同一套文字写法（docs/specs/ui/prompt-editor.md 输出 14）。 */
+    readonly PromptTextView: Component;
 }
 
 export interface MarkdownService {

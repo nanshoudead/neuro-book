@@ -14,6 +14,11 @@ import type FileIcon from "nbook/ui/file-icons/FileIcon.vue";
 import type InlineChip from "nbook/plugins/markdown/web/components/InlineChip.vue";
 import type MarkdownDisplay from "nbook/plugins/markdown/web/components/MarkdownDisplay.vue";
 import type MarkdownImage from "nbook/plugins/markdown/web/components/MarkdownImage.vue";
+import type PromptAttachmentStrip from "nbook/plugins/markdown/web/components/prompt/PromptAttachmentStrip.vue";
+import type PromptEditor from "nbook/plugins/markdown/web/components/prompt/PromptEditor.vue";
+import type PromptMenuPanel from "nbook/plugins/markdown/web/components/prompt/PromptMenuPanel.vue";
+import type PromptPasteFrame from "nbook/plugins/markdown/web/components/prompt/PromptPasteFrame.vue";
+import type PromptTextView from "nbook/plugins/markdown/web/components/prompt/PromptTextView.vue";
 import type BookCard from "nbook/plugins/projects/web/components/BookCard.vue";
 import type WelcomePage from "nbook/plugins/projects/web/components/WelcomePage.vue";
 import type BookCover from "nbook/plugins/projects/web/components/BookCover.vue";
@@ -62,6 +67,7 @@ import type {LabInputOf, LabJsonPropOf, LabSlotOf, LabSubjectProps} from "../lab
 
 import {EXPLORER_ROWS, manyRows, UNBOUND_ROWS} from "./explorer-rows";
 import {nbUiFixtures} from "./nb-ui";
+import {PROMPT_LAB_THUMBNAILS, promptAttachmentStripScenes, promptEditorScenes, promptMenuPanelScenes, promptPasteFrameScenes, promptTextViewScenes} from "./prompt-scene/scenes";
 import {SHELF_COVER_SRC, SHELF_ITEMS, SHELF_ITEM_REVISING, SHELF_NOW} from "./shelf-fixture-data";
 import {SETTINGS_WINDOW_SCENES, snippetsSettings} from "./settings-scene/scene-settings";
 import {defineSubjectFixture} from "./subject-fixture";
@@ -623,6 +629,42 @@ export const labFixtures: LabFixture[] = [
             {id: "empty", label: "空文本", input: {props: {text: "", locale: "zh-CN"}}},
         ],
         load: async () => (await import("./MarkdownDisplayFixture.vue")).default,
+    }),
+    defineLabFixture<typeof PromptEditor>({
+        component: "PromptEditor",
+        scenes: promptEditorScenes,
+        load: async () => (await import("./prompt-scene/PromptEditorFixture.vue")).default,
+    }),
+    defineSubjectFixture<typeof PromptTextView>({
+        component: "PromptTextView",
+        scenes: promptTextViewScenes,
+        subject: () => import("nbook/plugins/markdown/web/components/prompt/PromptTextView.vue"),
+        events: ["token-activate"],
+        class: "w-full p-4 text-[13px] leading-[1.6] text-[var(--text-main)]",
+        runtimeProps: () => Promise.resolve({resolveThumbnail: (target: string) => PROMPT_LAB_THUMBNAILS[target] ?? null}),
+    }),
+    defineSubjectFixture<typeof PromptAttachmentStrip>({
+        component: "PromptAttachmentStrip",
+        scenes: promptAttachmentStripScenes,
+        subject: () => import("nbook/plugins/markdown/web/components/prompt/PromptAttachmentStrip.vue"),
+        events: ["activate", "remove", "retry", "hover"],
+        writeBack: {hover: {layer: "props", key: "highlighted"}},
+        class: "w-full",
+    }),
+    defineSubjectFixture<typeof PromptMenuPanel>({
+        component: "PromptMenuPanel",
+        scenes: promptMenuPanelScenes,
+        subject: () => import("nbook/plugins/markdown/web/components/prompt/PromptMenuPanel.vue"),
+        events: ["select", "highlight", "search", "search-keydown"],
+        writeBack: {highlight: {layer: "props", key: "activeId"}, search: {layer: "props", key: "search"}},
+        class: "w-full",
+    }),
+    defineSubjectFixture<typeof PromptPasteFrame>({
+        component: "PromptPasteFrame",
+        scenes: promptPasteFrameScenes,
+        subject: () => import("nbook/plugins/markdown/web/components/prompt/PromptPasteFrame.vue"),
+        events: ["hover"],
+        class: "w-full",
     }),
     defineLabFixture<typeof MarkdownImage>({
         component: "MarkdownImage",
