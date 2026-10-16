@@ -11,7 +11,8 @@
 //   graph56  图当目录，第 21 到 100 章 56 题 × 3，168 份，一审答错不超过 33 份（基线 33/168，约 19.6%）
 //   graph16  图当目录，知情、身份 16 题 × 3，48 份，一审答错不超过 11 份
 //   full16   全读，知情、身份 16 题 × 1，16 份，只记录
-// 判定（check 的退出码）：任何一份没答、没判分、答案没有出处或提到阅读位置之后的内容，或图当目录两批超门槛，非零退出。
+// 判定（check 的退出码）：任何一份没答、没判分、答案没有出处或提到阅读位置之后的内容（EXCUSED 里人工核对过的误报除外），
+// 或图当目录两批超门槛，非零退出。
 //
 // 作答结果：
 // - 交卷：送判的 answer 是 answerText（结论、表或分点、说明与覆盖），evidence 是三处 refs 的并集，conclusionType 照填；
@@ -201,6 +202,14 @@ function outcomeOf(question: Question, grade: any): string {
 const REF = /(\d{1,3})\.(\d{1,3})(?:\s*[-—–~～至]\s*(?:(\d{1,3})\.)?(\d{1,3}))?/gu;
 const CHAPTER = /第\s*(\d{1,3})\s*章/gu;
 
+/**
+ * 人工核对过的误报：检测只认章号，看不出否定句。按“批次/遍/题”精确放行，只放行写明的那一段原文，同一份答案里别的
+ * 越界仍然会报；放行的每一条都写进报告。
+ */
+const EXCUSED: Record<string, {mention: string; reason: string}> = {
+    "graph56/run3/A21": {mention: "第27章", reason: "覆盖说明写“未涉及第27章及之后内容”，是声明没越界；出处全部在第 26 章"},
+};
+
 async function check(): Promise<number> {
     const lines = ["# story.qa 验收 9：内置问答回归", ""];
     let pass = true;
@@ -210,6 +219,7 @@ async function check(): Promise<number> {
         const inputs = existsSync(inputsPath) ? await readFile(inputsPath, "utf8") : "（没有）";
         type Row = {run: string; id: string; prefix: number; outcome: string; refs: number; beyond: string[]; chapters: number | null; rejections: number | null; capped: boolean; cost: number | null; input: number; output: number};
         const rows: Row[] = [];
+        const excusedNotes: string[] = [];
         for (const runName of batch.runs) {
             for (const question of questions) {
                 const file = answerFile(batch, runName, question.id);
@@ -228,6 +238,12 @@ async function check(): Promise<number> {
                     if (Number(match[1]) > question.requiredPrefix || last > question.requiredPrefix) beyond.push(match[0]);
                 }
                 for (const match of answer.answer.matchAll(CHAPTER)) if (Number(match[1]) > question.requiredPrefix) beyond.push(match[0]);
+                const excuse = EXCUSED[`${batch.name}/${runName}/${question.id}`];
+                const excused = excuse === undefined ? [] : beyond.filter(mention => mention.replace(/\s+/gu, "") === excuse.mention);
+                if (excuse !== undefined && excused.length > 0) {
+                    beyond.splice(0, beyond.length, ...beyond.filter(mention => !excused.includes(mention)));
+                    excusedNotes.push(`${runName} ${question.id}：“${excuse.mention}”，${excuse.reason}`);
+                }
                 const gradeFile = join(OUT, batch.name, "judge", runName, `${question.id}.json`);
                 const grade = existsSync(gradeFile) ? JSON.parse(await readFile(gradeFile, "utf8")).grade : null;
                 const chapters = data.run.chaptersRead?.length ?? null;
@@ -262,6 +278,7 @@ async function check(): Promise<number> {
             `## ${batch.name}（${batch.mode === "graph" ? "图当目录" : "全读"}，${questions.length} 题 × ${batch.runs.length}）`,
             "",
             `- 份数 ${rows.length}；没答 ${count(row => row.outcome === "未答")}，没判 ${count(row => row.outcome.startsWith("未判"))}；没有出处 ${noRef}，提到阅读位置之后 ${spoil}`,
+            ...excusedNotes.map(note => `- 人工核对放行（检测的误报）：${note}`),
             `- 一审答错 **${wrong}/${rows.length}**${batch.maxWrong === null ? "" : `，门槛 ${batch.maxWrong}`}：${verdict}`,
             `- 结果分布：${["答对", "答对但不全", "没把握", "答错"].map(name => `${name} ${count(row => row.outcome.replace("（没有交卷）", "") === name)}`).join("，")}；没有交卷 ${count(row => row.outcome.includes("没有交卷"))}`,
             `- 每份平均读 ${average(answered.map(row => row.chapters!))} 章，退回 ${average(answered.map(row => row.rejections ?? 0))} 次；撞 20 章上限 ${count(row => row.capped)} 份；token 输入 ${rows.reduce((a, row) => a + row.input, 0)}、输出 ${rows.reduce((a, row) => a + row.output, 0)}`,
