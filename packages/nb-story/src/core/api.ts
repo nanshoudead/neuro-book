@@ -19,6 +19,7 @@ import type {EntityCandidate, StoryErrorCode} from "./errors";
 import {characterGrouping, READER, readerGrouping} from "./identity";
 import type {Grouping} from "./identity";
 import {Library} from "./library";
+import type {BookMeta} from "./library";
 import {resolvePosition} from "./position";
 import {BookView} from "./projection";
 import {bookInfo, bookStats} from "./queries/books";
@@ -39,6 +40,20 @@ export type StoryOutcome<M extends StoryMethod> = {ok: true; value: StoryResult<
 
 export interface StoryApi {
     readonly library: Library;
+    call<M extends StoryMethod>(method: M, params: unknown): Promise<StoryOutcome<M>>;
+    /**
+     * 固定这本书当前的一代（`book` 的省略规则同书级方法）。之后经它的调用都查这一代，删除与同 id 重新导入不影响
+     * 它；内置问答一问用一个（docs/specs/story/qa.md 的“时序与寿命”）。书不存在等失败以 StoryError 抛出。
+     */
+    openBook(book: string | undefined): Promise<BookSession>;
+}
+
+/** 固定在一代上的书。索引整份在内存里，不持有文件，不需要释放。 */
+export interface BookSession {
+    readonly id: string;
+    readonly generation: string;
+    readonly meta: BookMeta;
+    /** 只接受书级方法；参数里的 `book` 被忽略。 */
     call<M extends StoryMethod>(method: M, params: unknown): Promise<StoryOutcome<M>>;
 }
 
@@ -130,6 +145,12 @@ export function createStoryApi(options: {library?: Library | string} = {}): Stor
             }
             throw error;
         }
+        return queryIndex(index, method, params);
+    }
+
+    /** 在给定的一代上跑一个书级方法。 */
+    function queryIndex(index: BookIndex, method: StoryMethod, params: Record<string, unknown>): unknown {
+        const cursor = typeof params.cursor === "string" ? params.cursor : undefined;
         const at = resolvePosition(params.at as {chapter: number; paragraph?: number} | undefined, index.chapters, index.meta.extractedThrough);
         const view = new BookView(index, at);
         const perspective = PERSPECTIVE_METHODS.has(method) ? (params.perspective as string | undefined) : undefined;
@@ -181,22 +202,38 @@ export function createStoryApi(options: {library?: Library | string} = {}): Stor
         }
     }
 
+    /** 按合同校验参数 → 执行 → 按合同校验结果；业务失败转成 StoryOutcome。 */
+    async function checked<M extends StoryMethod>(method: M, params: unknown, run: (params: Record<string, unknown>) => Promise<unknown> | unknown): Promise<StoryOutcome<M>> {
+        try {
+            if (!isMethod(method)) throw new StoryError("invalid_params", `没有方法 ${String(method)}`);
+            const spec = STORY_METHODS[method];
+            const invalid = problems(spec.input, params);
+            if (invalid) throw new StoryError("invalid_params", `参数不符合 ${method} 的 schema：${invalid}`);
+            const value = await run(params as Record<string, unknown>);
+            const broken = problems(spec.output, value);
+            if (broken) throw new Error(`${method} 的结果不符合合同：${broken}`);
+            return {ok: true, value: value as StoryResult<M>};
+        } catch (error) {
+            if (!(error instanceof StoryError)) throw error;
+            return {ok: false, error: {code: error.code, message: error.message, ...(error.candidates ? {candidates: error.candidates} : {})}};
+        }
+    }
+
     return {
         library,
-        async call<M extends StoryMethod>(method: M, params: unknown): Promise<StoryOutcome<M>> {
-            try {
-                if (!isMethod(method)) throw new StoryError("invalid_params", `没有方法 ${String(method)}`);
-                const spec = STORY_METHODS[method];
-                const invalid = problems(spec.input, params);
-                if (invalid) throw new StoryError("invalid_params", `参数不符合 ${method} 的 schema：${invalid}`);
-                const value = await dispatch(method, params as Record<string, unknown>);
-                const broken = problems(spec.output, value);
-                if (broken) throw new Error(`${method} 的结果不符合合同：${broken}`);
-                return {ok: true, value: value as StoryResult<M>};
-            } catch (error) {
-                if (!(error instanceof StoryError)) throw error;
-                return {ok: false, error: {code: error.code, message: error.message, ...(error.candidates ? {candidates: error.candidates} : {})}};
-            }
+        call: (method, params) => checked(method, params, input => dispatch(method, input)),
+        async openBook(book) {
+            const index = await openBookIndex(library, await library.resolveBookId(book));
+            return {
+                id: index.meta.id,
+                generation: index.meta.generation,
+                meta: index.meta,
+                call: (method, params) =>
+                    checked(method, params, input => {
+                        if (!BOOK_HANDLERS[method]) throw new StoryError("invalid_params", `${method} 不是书级方法`);
+                        return queryIndex(index, method, input);
+                    }),
+            };
         },
     };
 }
