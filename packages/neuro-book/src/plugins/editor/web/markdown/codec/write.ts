@@ -11,7 +11,9 @@
  * 判断“没被编辑”靠节点对象：ProseMirror 的编辑只替换改动处的节点，其余顶层子节点还是读入时的同一个对象。
  */
 
-import type {Node as PMNode, Schema} from "@tiptap/pm/model";
+import {Fragment, Slice} from "@tiptap/pm/model";
+import type {Mark as PMMark, Node as PMNode, Schema} from "@tiptap/pm/model";
+import type {Transform} from "@tiptap/pm/transform";
 
 import type {MarkdownLanguage} from "../language";
 import type {WriteOptions} from "../syntax/types";
@@ -25,8 +27,28 @@ import {decodeRawBreaks, SENTINEL, stripSentinels} from "./render/escape";
 import {follow, openings} from "./render/inline";
 
 export type WriteResult =
-    | {readonly ok: true; readonly text: string; readonly record: () => void}
-    | {readonly ok: false; readonly code: "unrepresentable"; readonly from: number; readonly to: number; readonly reason: string};
+    | {
+          readonly ok: true;
+          readonly text: string;
+          /** 这次写出被接受：登记重新写出的块的来源与全部间隔（方言 Spec 输出 2 的“写回成功之后，这次写出的字节就是新的原文”）。 */
+          readonly record: () => void;
+          /**
+           * 编辑器里的写出被接受：`record` 之外，把重新写出的块实际用的写法回填到 `tr` 上（“新加的内容一旦写回，写法就固定下来”），
+           * 来源登记到 `tr.doc` 的顶层节点上。`tr` 必须从写出的这份文档开始；回填只改属性，不改结构。
+           */
+          readonly accept: (tr: Transform) => void;
+      }
+    | {
+          readonly ok: false;
+          readonly code: "unrepresentable";
+          readonly from: number;
+          readonly to: number;
+          readonly reason: string;
+          /** 抢救用的正文：写不出的那几块换成它们的纯文字段落，其余照常写出（editor 输出 61 的终态页）。 */
+          readonly fallback: () => string;
+      };
+
+type Failed = {readonly ok: false; readonly code: "unrepresentable"; readonly from: number; readonly to: number; readonly reason: string};
 
 /**
  * 降级阶梯（方言 Spec 输出 3），按顺序试。分开相邻列表的“换符号”是每一项自己的标记（`Item.alternate`），升级时不丢；
@@ -198,17 +220,40 @@ function definitionsOf(language: MarkdownLanguage, doc: PMNode, skip: ReadonlySe
  */
 const withEol = (text: string, eol: Eol): string => decodeRawBreaks(eol === "\n" ? text : text.replace(/(?<![\r\u0001\u0002])\n/gu, eol));
 
+export function writeMarkdown(doc: PMNode, map: SourceMap, language: MarkdownLanguage, schema: Schema): WriteResult {
+    const result = writeOnce(doc, map, language, schema);
+    return result.ok ? result : {...result, fallback: () => plainFallback(doc, map, language, schema, result)};
+}
+
+/**
+ * 抢救用的正文：`failed` 那一段顶层块换成纯文字段落（每一行一段）再写；仍写不出时整篇按纯文字。
+ */
+function plainFallback(doc: PMNode, map: SourceMap, language: MarkdownLanguage, schema: Schema, failed: Failed): string {
+    const paragraph = schema.nodes.paragraph!;
+    const lines: string[] = [];
+    doc.nodesBetween(failed.from, failed.to, (node) => {
+        if (!node.isTextblock) return true;
+        lines.push(...node.textBetween(0, node.content.size, "", (leaf) => (leaf.type.name === "hardBreak" ? "\n" : "")).split("\n"));
+        return false;
+    });
+    const paragraphs = (lines.length === 0 ? [""] : lines).map((line) => paragraph.create(null, line === "" ? null : schema.text(line)));
+    const again = writeOnce(doc.replace(failed.from, failed.to, new Slice(Fragment.from(paragraphs), 0, 0)), map, language, schema);
+    return again.ok ? again.text : map.prefix + doc.textBetween(0, doc.content.size, "\n\n", "\n");
+}
+
+type Written = Exclude<WriteResult, {ok: false}> | Failed;
+
 /**
  * `forced` 是要重新写出的节点：整篇检查（见文末）发现没被编辑的块会被宽容写法拆开时，带上它们再写一遍。
  */
-export function writeMarkdown(doc: PMNode, map: SourceMap, language: MarkdownLanguage, schema: Schema, forced: ReadonlySet<PMNode> = new Set()): WriteResult {
+function writeOnce(doc: PMNode, map: SourceMap, language: MarkdownLanguage, schema: Schema, forced: ReadonlySet<PMNode> = new Set()): Written {
     const {items: listed, trailing} = itemsOf(doc, map);
     const found = listed.flatMap((item) => (item.unit !== null && item.nodes.some((node) => forced.has(node)) ? splitItem(item) : [item]));
     const eol = map.eol;
     // 整篇没有内容（只有空段落：没有块就没有间隔，几个空段落都读成一个）：读入时就没有块的，写原文的空白；否则写空正文（输出 2）。
     if (found.length === 0) {
         const text = map.prefix + (map.emptyBody ?? "");
-        return {ok: true, text, record: () => undefined};
+        return {ok: true, text, record: () => undefined, accept: () => undefined};
     }
     const view = found.map((item) => ({nodes: item.nodes, raw: item.unit?.raw ?? null}));
     const writers = {inline: language.inlineWriters, marks: language.markWriters, markless: language.marklessInline, textOnly: language.textOnlyMarks};
@@ -264,10 +309,9 @@ export function writeMarkdown(doc: PMNode, map: SourceMap, language: MarkdownLan
     };
 
     /**
-     * 读回窗口 [first, last]：开头、结尾的间隔只在窗口挨着文件首尾时带上。返回第一个对不上的项（都对上为 -1），以及读回的块
-     * 是不是比预期少（有块被前一块吞了：两个列表合成一个、缩进代码被读进列表项……）。
+     * 读回窗口 [first, last]：期望的节点（含间隔里的空段落）与读回的文档。开头、结尾的间隔只在窗口挨着文件首尾时带上。
      */
-    const check = (first: number, last: number, override?: {index: number; text: string}): {item: number; absorbed: boolean} => {
+    const readBack = (first: number, last: number, override?: {index: number; text: string}): {expected: Array<{node: PMNode; item: number}>; read: PMNode} => {
         const parts: string[] = [];
         const expected: Array<{node: PMNode; item: number}> = [];
         const empty = schema.nodes.paragraph!.create();
@@ -297,7 +341,14 @@ export function writeMarkdown(doc: PMNode, map: SourceMap, language: MarkdownLan
         }
         // 窗口外的引用定义预置进词法器；窗口里的不预置，让 `marked` 照常读它们（预置了同名的，窗口里的会被当成重复的丢掉）。
         const inside = new Set(items.slice(first, last + 1).flatMap((item) => item.nodes));
-        const read = readBody(language, schema, "", parts.join(""), definitionsOf(language, doc, inside)).doc;
+        return {expected, read: readBody(language, schema, "", parts.join(""), definitionsOf(language, doc, inside)).doc};
+    };
+    /**
+     * 校验读回窗口：返回第一个对不上的项（都对上为 -1），以及读回的块是不是比预期少（有块被前一块吞了：两个列表合成一个、
+     * 缩进代码被读进列表项……）。
+     */
+    const check = (first: number, last: number, override?: {index: number; text: string}): {item: number; absorbed: boolean} => {
+        const {expected, read} = readBack(first, last, override);
         const count = Math.max(read.childCount, expected.length);
         for (let at = 0; at < count; at += 1) {
             const want = expected[at];
@@ -469,27 +520,92 @@ export function writeMarkdown(doc: PMNode, map: SourceMap, language: MarkdownLan
             if (item.unit === null) return unrepresentable(item, "段末的方言开标签会把这一段拆开（宽容写法）");
             for (const node of item.nodes) nodes.add(node);
         }
-        return writeMarkdown(doc, map, language, schema, nodes);
+        return writeOnce(doc, map, language, schema, nodes);
     }
+    /** 登记来源与间隔；`carried` 是写出的顶层节点 → 回填之后的同一位置的节点（来源两边都登记）。 */
+    const record = (carried?: ReadonlyMap<PMNode, PMNode>): void => {
+        // 重新写出的块总是新的一代，即使字节与上一代相同：间隔按一对来源登记，沿用旧的来源对象会让这一次重新生成的间隔
+        // 覆盖旧一代登记的间隔，撤销回去就写不回原来的间隔了。
+        const units = items.map((item, index) => item.unit ?? {raw: texts[index] as string, size: item.nodes.length});
+        const register = (node: PMNode, unit: SourceUnit, part: number): void => {
+            const known = map.origins.get(node) ?? [];
+            if (known[0]?.unit === unit) return;
+            // 同一个节点反复被重新写出时来源会一直加：只留最近的几代，但最早的一代（读入时的）总留着，撤销回打开时要用。
+            const next = [{unit, part}, ...known];
+            map.origins.set(node, next.length <= ORIGIN_HISTORY ? next : [...next.slice(0, ORIGIN_HISTORY - 1), known.at(-1) as {unit: SourceUnit; part: number}]);
+        };
+        units.forEach((unit, index) => (items[index] as Item).nodes.forEach((node, part) => {
+            register(node, unit, part);
+            const after = carried?.get(node);
+            if (after !== undefined && after !== node) register(after, unit, part);
+        }));
+        for (let index = 0; index <= items.length; index += 1) {
+            recordGap(map, index === 0 ? START : (units[index - 1] as SourceUnit), index === items.length ? END : (units[index] as SourceUnit), (gaps[index] as {gap: Gap}).gap);
+        }
+    };
     return {
         ok: true,
         text: map.prefix + body,
-        record: () => {
-            // 重新写出的块总是新的一代，即使字节与上一代相同：间隔按一对来源登记，沿用旧的来源对象会让这一次重新生成的间隔
-            // 覆盖旧一代登记的间隔，撤销回去就写不回原来的间隔了。
-            const units = items.map((item, index) => item.unit ?? {raw: texts[index] as string, size: item.nodes.length});
-            units.forEach((unit, index) => (items[index] as Item).nodes.forEach((node, part) => {
-                const known = map.origins.get(node) ?? [];
-                if (known[0]?.unit === unit) return;
-                // 同一个节点反复被重新写出时来源会一直加：只留最近的几代，但最早的一代（读入时的）总留着，撤销回打开时要用。
-                const next = [{unit, part}, ...known];
-                map.origins.set(node, next.length <= ORIGIN_HISTORY ? next : [...next.slice(0, ORIGIN_HISTORY - 1), known.at(-1) as {unit: SourceUnit; part: number}]);
-            }));
-            for (let index = 0; index <= items.length; index += 1) {
-                recordGap(map, index === 0 ? START : (units[index - 1] as SourceUnit), index === items.length ? END : (units[index] as SourceUnit), (gaps[index] as {gap: Gap}).gap);
+        record: () => record(),
+        accept: (tr) => {
+            if (tr.doc !== doc) throw new Error("accept 的事务要从写出的这份文档开始");
+            // 读回重新写出的块所在的窗口（与校验时同样的窗口与上下文），把读回的写法抄到编辑器的节点上。
+            const positions = new Map<PMNode, number>();
+            doc.forEach((node, pos) => positions.set(node, pos));
+            for (const [first, last] of windows()) {
+                if (!items.slice(first, last + 1).some((item) => item.unit === null)) continue;
+                const {expected, read} = readBack(first, last);
+                if (read.childCount !== expected.length) continue;
+                expected.forEach(({node, item}, at) => {
+                    const pos = positions.get(node);
+                    if ((items[item] as Item).unit === null && pos !== undefined) restyle(tr, pos, node, read.child(at));
+                });
             }
+            const carried = new Map<PMNode, PMNode>();
+            doc.forEach((node, _offset, index) => carried.set(node, tr.doc.child(index)));
+            record(carried);
         },
     };
+}
+
+/** 写法属性（`markdown`）：节点与标记的类型里声明了它才有。 */
+const styled = (spec: {readonly attrs?: Readonly<Record<string, unknown>> | null}): boolean => spec.attrs?.markdown !== undefined;
+const sameStyle = (left: unknown, right: unknown): boolean => JSON.stringify(left ?? null) === JSON.stringify(right ?? null);
+
+/**
+ * 把读回的节点 `read` 的写法属性抄到编辑器里 `pos` 处的节点 `mine` 上，逐层往下；类型或结构对不上的子树不抄（那一块下次重写时
+ * 按规范写法与跟随写出，与没有回填时一样）。只改 `markdown` 属性，其余属性（批注的 `key` 等身份）保留编辑器里的。
+ */
+function restyle(tr: Transform, pos: number, mine: PMNode, read: PMNode): void {
+    if (mine.type !== read.type) return;
+    if (styled(mine.type.spec) && !sameStyle(mine.attrs.markdown, read.attrs.markdown)) tr.setNodeMarkup(pos, undefined, {...mine.attrs, markdown: read.attrs.markdown});
+    if (mine.isTextblock) {
+        restyleInline(tr, pos + 1, mine, read);
+        return;
+    }
+    if (mine.childCount !== read.childCount) return;
+    mine.forEach((child, offset, index) => restyle(tr, pos + 1 + offset, child, read.child(index)));
+}
+
+function restyleInline(tr: Transform, start: number, mine: PMNode, read: PMNode): void {
+    if (mine.content.size !== read.content.size || mine.textContent !== read.textContent) return;
+    read.forEach((child, offset) => {
+        if (!child.isText) {
+            const own = mine.nodeAt(offset);
+            if (own !== null && own.type === child.type && styled(own.type.spec) && !sameStyle(own.attrs.markdown, child.attrs.markdown)) tr.setNodeMarkup(start + offset, undefined, {...own.attrs, markdown: child.attrs.markdown});
+        }
+        for (const mark of child.marks) {
+            if (!styled(mark.type.spec)) continue;
+            mine.nodesBetween(offset, offset + child.nodeSize, (own, ownOffset) => {
+                const existing: PMMark | undefined = mark.type.isInSet(own.marks);
+                if (existing === undefined || sameStyle(existing.attrs.markdown, mark.attrs.markdown)) return;
+                const from = start + Math.max(offset, ownOffset);
+                const to = start + Math.min(offset + child.nodeSize, ownOffset + own.nodeSize);
+                tr.removeMark(from, to, existing);
+                tr.addMark(from, to, existing.type.create({...existing.attrs, markdown: mark.attrs.markdown}));
+            });
+        }
+    });
 }
 
 /** 列表写出来的符号（无序的 `-`、`*`、`+`，有序的分隔符），从写出的文字取。 */
@@ -549,6 +665,6 @@ function splitItem(item: Item): Item[] {
     });
 }
 
-function unrepresentable(item: Item, reason: string): WriteResult {
+function unrepresentable(item: Item, reason: string): Failed {
     return {ok: false, code: "unrepresentable", from: item.from, to: item.to, reason};
 }

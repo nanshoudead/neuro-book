@@ -453,7 +453,13 @@ describe("真实编辑序列：每步写回、重读相同，离编辑远的块�
                     previous = far ? {index, unit: (origin as {unit: {raw: string}}).unit} : null;
                     empties = 0;
                 });
-                result.record();
+                // 编辑器的做法：写出被接受后回填写法（只改属性），之后的编辑在回填后的文档上继续。不再编辑时写出与这一次逐字节相同。
+                const tr = new Transform(doc);
+                result.accept(tr);
+                expect(tr.doc.textContent).toBe(doc.textContent);
+                doc = tr.doc;
+                const again = codec.write(doc, read.map);
+                expect(again.ok && again.text === result.text ? null : `回填后不编辑写出不同：${JSON.stringify(again.ok ? again.text : again.reason)}`).toBeNull();
                 history.push({doc, text: result.text});
             }
             // 撤销（方言 Spec 输出 2）：回到打开时的文档，写出与原文逐字节相同；回到中间某一步，写出读回与那一步的文档相同。中间步
