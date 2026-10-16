@@ -86,6 +86,10 @@ updated: 2026-10-16
 - S4（`1a0951524`）：引用小块与图片。`InlineChip`（由旧 `PromptTokenChip` 移植，外观判断在 `parts/chip.ts`、样式在 `parts/chip.css`，与普通 DOM 共用）、`MarkdownImage`；目标分类 `shared/targets.ts`（方言 Spec 输出 27）；图片地址 `parts/asset-urls.ts`（文件服务的字节路由 URL，文件变了加版本号重新取，真实文件服务场地测过）；编辑器里作品内链接用装饰画成一个引用小块（被批注盖住一半时也是一个；变异检查：不合并同一链接的连续范围时测试失败），图片节点视图用 `render()` 挂 `MarkdownImage`。文件图标的配色挪到 `ui/file-icons/palette.css`，加不经 Vue 的 `renderFileIcon`。Lab 加 `InlineChip`（17 个场景）、`MarkdownImage`（5 个）两个组件，编辑器的方言场景加引用链接与图片；`lab:shot` 在手机与 1400×900、明暗两态下 0 个问题，截图目视核对过（编辑器区是集成场景，`lab:shot` 要加 `--wait 6000` 才等到控件加载与读文档）。`test:affected --typecheck` 通过（bun 1410 条、vitest 266 条）。
   - 和计划不同：图片不读成 blob、不做引用计数缓存，直接用字节路由的 URL；节点视图不用 Tiptap 的 Vue 节点视图。计划第 5 节已随之修改。
 
+- S5（`e8e0a5d27`）：展示器 `MarkdownDisplay`（静态渲染，`display/renderer.ts`）。编解码器读入后按 schema 的 `DOMSerializer` 逐块生成，提示块、可渲染 HTML、图片用 `display/static-views.ts`，与编辑器共用外观函数（提示块拆出 `buildCallout`，`<html>` 块导出 `renderHtmlEmbedElement`）；作品内链接画成引用小块，结构与编辑器的装饰相同。流式更新按块比较，键是去掉 `identityAttrs` 后的节点 JSON，头尾相同的块保留元素与折叠状态；同一帧多次改变只读一次。方言样式从 `MarkdownControl` 挪到共用的 `parts/markdown.css`（`.nb-markdown`）。组件测试 5 例（`components/MarkdownDisplay.dom.test.ts`：与编辑器同一份语料的方言元素结构一致、流式时元素不变、后来的引用定义重画前面的块、`activate`、替换与卸载时释放图片与沙箱）；变异检查：比较时不去掉身份属性，流式那例失败。Lab 加 `MarkdownDisplay`（5 个场景），`lab:shot` 在 900×900 与手机、明暗两态下 0 个问题，截图目视核对过。新增 `e2e/lab-markdown.e2e.ts`（流式播完、100 条长对话改宽度的布局中位数在 5 毫秒以内），2 例通过；变异检查：去掉 `content-visibility` 时中位数 10.2 毫秒、失败。性能见 [`evidences/display-perf.md`](evidences/display-perf.md) 的“实现后复测”。`test:affected --typecheck` 通过（bun 1410 条、vitest 271 条）；生产构建上编辑器区、编辑器类型、Lab 编辑器与 lab-scenes 的 e2e 35 个，一次全量中 editor-area 的“场景 2 加粗”在负载下超时，单独重跑 4 次与整个文件重跑都过。
+  - 和计划不同：静态视图由 `nbook.markdown` 持有，不经语法模块交出，外来方言按 `renderHTML` 显示；流式比较不对齐身份，直接去掉身份属性。计划第 6 节与两份 Spec 已随之修改。
+  - 留意：流式到一半的方言标签（例如还没写完的 `<comment body="…`）按原样片段显示源码，写完后变成方言元素。
+
 ## 下一步
 
-S5：展示器 `MarkdownDisplay` 与静态视图、方言共用样式、Lab 场景与长对话性能复测。
+S6：移植 Composer 的 `PromptEditor` 与 `PromptTextView`（计划第 7 节）。

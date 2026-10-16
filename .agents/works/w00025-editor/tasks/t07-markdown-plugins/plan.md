@@ -30,7 +30,7 @@
   - `order: number`：同一词法单元有几个模块认领时小的先试；相同时按方言 id 的码元顺序；
   - `blockTags`、`inlineTags`：本方言的标签名；
   - `tagWords`：每个标签一条 `{tag, content: "count" | "skip"}`，属性一律不计。只描述“标签里的字计不计”，提示块与可渲染 HTML 这类非标签写法的字数规则仍在核心扫描里（第 3 节）。
-- **`markdown.syntaxes`**（`implementation: "required"`，浏览器入口贡献）：实现 `{load(): Promise<MarkdownSyntax>}`。`MarkdownSyntax` 是现在 `syntax/types.ts` 的形状，另加第 6 节的静态视图。
+- **`markdown.syntaxes`**（`implementation: "required"`，浏览器入口贡献）：实现 `{load(): Promise<MarkdownSyntax>}`。`MarkdownSyntax` 是现在 `syntax/types.ts` 的形状（S5 起不含静态视图，见第 6 节）。
 - **单条校验只做形状**：声明与实现的 id 都要以贡献方插件 id 加 `.` 开头（同 `editor/shared/contracts.ts` 的写法），所以同 id 配对天然限定在同一插件内。
 - **配对与冲突在组成语言时判**（拥有者的接收层，不在单条校验里）：
   - 实现没有同 id 声明，或模块交出的标签名与声明不同：这种方言不生效，记诊断；
@@ -72,13 +72,13 @@
 
 ### 6. 展示器 `MarkdownDisplay`（`src/plugins/markdown/web/display/`）
 
-- **渲染**：`codec.read(text)` 读成文档，用 schema 的 `DOMSerializer` 逐个顶层块生成页面结构；标记一律走 `renderHTML`（批注本来就没有节点视图）。有节点视图的节点（提示块、可渲染 HTML、图片）改用语法模块交出的**静态视图**：
+- **渲染**：`codec.read(text)` 读成文档，用 schema 的 `DOMSerializer` 逐个顶层块生成页面结构；标记一律走 `renderHTML`（批注本来就没有节点视图）。有节点视图的内置节点（提示块、可渲染 HTML、图片）改用 `nbook.markdown` 自己持有的**静态视图**（`display/static-views.ts`）；外来方言没有静态视图，按 schema 的 `renderHTML` 显示（S5 实施时改：贡献点第一版只给内置插件，给语法模块加一个只有内置方言用的接口不值得）：
   - `staticView(node, host) → {dom, contentDOM?, destroy?}`。容器把子块交给 `contentDOM`，由渲染器递归填入；`destroy` 释放监听与图片。
-  - `host` 给文字表与当前语言（locale）、`activate` 出口、`resolveAsset`、折叠状态的读写。
+  - `host` 给 `document`、当前语言（locale）、`activate` 出口与 `resolveAsset`；折叠状态由静态视图自己记。
   - 节点视图与静态视图共用“按节点与状态画 DOM”的外观构建函数，事件接线各写各的：折叠在编辑器里由 ProseMirror 插件管，在展示器里由展示器自己记。
 - **样式**：方言的样式从 `MarkdownControl` 的 `.markdown-control :deep(...)` 挪到 `nbook.markdown` 的一份共用样式，挂在两边共同的根类名下，展示器与编辑器同一份。
 - **交互**：点引用小块、链接、图片、提示块标题，经一个出口发出 `activate({kind, target})`，宿主决定做什么；提示块的折叠只在展示器里记，不写回。可渲染 HTML 默认是源码卡片，点“渲染”后在沙箱里显示（同编辑器）。
-- **流式**：`text` 变了，下一帧重新读入，先按 `identityAttrs` 把新读入的身份对齐到上一次（与 `codec.reload` 同一个对齐函数，挪成编解码器的公开函数），再按“头尾相同的块保留”比较：只替换中间变了的块，被替换的块调 `destroy`。后面的引用定义改变了前面块的含义时，前面那块也因比较不等而替换。`streaming` 为真时在末尾显示光标。
+- **流式**：`text` 变了，下一帧重新读入，按“头尾相同的块保留”比较，比较的键是节点 JSON 去掉 `identityAttrs` 之后的形状（S5 实施时改：展示器不写回，不需要把身份对齐到上一次，去掉身份即可）：只替换中间变了的块，被替换的块调 `destroy`。后面的引用定义改变了前面块的含义时，前面那块也因比较不等而替换。`streaming` 为真时在末尾显示光标。
 - **性能**：根元素自带 `content-visibility: auto` 与按上次高度的 `contain-intrinsic-size`。
 
 ### 7. Composer 的编辑组件 `PromptEditor`（`src/plugins/markdown/web/prompt/`）
@@ -143,9 +143,9 @@ Spec 写好后按编号补全；先按行为列出：
 | 实现没有声明、标签名与声明不同、两种方言撞名：不生效、诊断可查，其它方言与贡献方其它贡献照常，与登记顺序无关 | `markdown/syntaxes.test.ts` |
 | 逐个去掉内置方言时语言照常组成（注音缺席不抛错） | `markdown/language.test.ts` |
 | 字数按声明；实现加载失败时字数不变；指纹变了书架整轮重扫、今天的字数不跳 | `word-count.test.ts`、`stats-tracker.test.ts` 增补 |
-| 展示器与编辑器对同一份语料的方言外观一致：比对去掉 `contenteditable`、`ProseMirror-*` 类名与占位元素后的结构 | `display/display.dom.test.ts` |
+| 展示器与编辑器对同一份语料的方言外观一致：比对去掉 `contenteditable`、`ProseMirror-*` 类名与占位元素后的结构 | `components/MarkdownDisplay.dom.test.ts` |
 | 流式追加：开头的批注、折叠的提示块、已渲染的 `<html>` 块的元素与状态不变；替换掉的块释放了监听与图片；后面的引用定义改变前面块的含义时那块重画 | 同上 |
-| 展示器根元素带 `content-visibility`；点小块、链接、图片发出 `activate` | 同上；Lab e2e 一例 |
+| 展示器根元素带 `content-visibility`；点小块、链接、图片发出 `activate` | 同上；`e2e/lab-markdown.e2e.ts`（流式播完、长对话改宽度） |
 | 编辑器里作品内链接是一个引用小块（被批注盖住一半时仍是一个），文字可编辑、写回不变；图片按作品文件显示，根外地址显示说明；同一张图两处显示、删掉一处另一处仍在，全部卸载后没有未释放的 URL；文件变了图片更新 | `MarkdownControl.dom.test.ts`、`parts/image-cache.test.ts` |
 | Composer 的文字写法读写原样、小块、粘贴分档、附件状态、候选菜单；引用按新的目标分类；切换语言后文字跟着变 | 移植来的 `prompt-text.test.ts`、`prompt-editor-extensions.test.ts`、`PromptEditor.dom.test.ts`、`PromptTextView.dom.test.ts` |
 
