@@ -1,8 +1,8 @@
 ---
 schema: nbook.task/v2
 taskId: t01-requirements
-status: active
-updated: 2026-10-14
+status: done
+updated: 2026-10-16
 ---
 
 # 编辑器需求讨论：现状、旧应用对照与范围
