@@ -87,7 +87,7 @@ const BOOK_HANDLERS: Partial<Record<StoryMethod, BookHandler>> = {
 };
 
 /** 不适用视角的方法：忽略 perspective，用读者视角。 */
-const PERSPECTIVE_METHODS: ReadonlySet<StoryMethod> = new Set(["entities.list", "entity.card", "entity.knowledge", "entity.statements", "entity.episodes", "entity.relations", "entity.relation", "secrets.matrix", "graph.relations"]);
+export const PERSPECTIVE_METHODS: ReadonlySet<StoryMethod> = new Set(["entities.list", "entity.card", "entity.knowledge", "entity.statements", "entity.episodes", "entity.relations", "entity.relation", "secrets.matrix", "graph.relations"]);
 
 const compiled = new Map<TSchema, ReturnType<typeof Compile<TSchema>>>();
 
