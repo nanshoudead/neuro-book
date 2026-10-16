@@ -24,6 +24,14 @@ updated: 2026-10-16
 
 合同：[`workspace/markdown-dialect.md`](../../../../../docs/specs/workspace/markdown-dialect.md)（读写规则）、[`workbench/editor.md`](../../../../../docs/specs/workbench/editor.md)（编辑器接入）；贡献点、外观、Composer 与展示器的 Spec 待写。
 
+## 开发者的决定
+
+1. （2026-10-16）先做方言插件化；菜单一类的任务先建好、搁置（t08–t10）。三种界面本轮一起做好。
+2. （2026-10-16）Composer 只做编辑组件；模型切换、各种控件、发送按钮等外壳留给以后的 Agent Work。没有另说怎么做，按推荐：移植旧应用调好的 `PromptEditor`，保留它自己的文字写法，与编辑器共用小块外观与引用的识别。
+3. （2026-10-16）展示器用静态渲染（编解码器读入后按 schema 生成页面结构，不建编辑器）。
+4. （2026-10-16）Composer 与展示器在 Lab 里用假数据验收（流式用定时追加模拟）。
+5. （2026-10-16）没有异议，按推荐：方言贡献点第一版只给内置插件；`[文字](地址)` 显示成的小块叫“引用小块”。
+
 ## 调研
 
 - **现在的方言结构**：每种方言是一个语法模块（`plugins/editor/web/markdown/syntax/types.ts` 的 `MarkdownSyntax`：schema、读法、写法、节点视图都在模块里，编解码器不认识具体语法）。还不是贡献点：`markdownLanguage()` 里列死了八个模块；只有编辑这一面，没有展示用的渲染；字数在 `src/shared/` 里写死了方言标签名（服务端书架统计也用）；模块直接交出 `marked` 的词法单元与 Tiptap 扩展。
@@ -34,8 +42,8 @@ updated: 2026-10-16
 
 ## 当前状态
 
-调研完成，方案要点待开发者确认后再写 `plan.md`。执行位置：worktree `.worktree/w00025-t07-markdown-plugins`，分支 `feat/w00025-t07-markdown-plugins`（从 master `ee9cee973` 拉出）。
+调研完成，方案要点开发者已确认（决定 2–5），实施计划见 [plan.md](plan.md)，待开发者确认。执行位置：worktree `.worktree/w00025-t07-markdown-plugins`，分支 `feat/w00025-t07-markdown-plugins`（从 master `ee9cee973` 拉出）。
 
 ## 下一步
 
-把方案要点给开发者确认（展示器的做法、Composer 怎么接入方言、贡献点的形状与开放范围），再写计划。
+开发者确认计划后，先审计划（审查计划与预算先报开发者），再从 S0 开始。
