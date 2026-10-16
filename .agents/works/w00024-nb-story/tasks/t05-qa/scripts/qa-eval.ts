@@ -42,7 +42,7 @@ const LOCAL = join(REPO, ".local/agent/works/w00024-nb-story/tasks/t05-qa/eval")
 const LIBRARY = join(LOCAL, "library");
 const CONFIG = join(LOCAL, "config.json");
 
-const MODEL = {id: "gpt-6-luna", maxTokens: 16000};
+const MODEL = {id: "gpt-6-luna", maxTokens: 64000, thinking: "xhigh"};
 
 interface Batch {
     name: string;
@@ -90,7 +90,7 @@ async function prepare(): Promise<void> {
     await mkdir(LOCAL, {recursive: true});
     const base = process.env.JIJI_LUNA_BASE_URL;
     if (!base || !process.env.JIJI_LUNA_API_KEY) throw new Error("JIJI_LUNA_BASE_URL 或 JIJI_LUNA_API_KEY 没有设置：用 bun --env-file=.env 运行");
-    await writeFile(CONFIG, JSON.stringify({model: {baseUrl: base, id: MODEL.id, apiKeyEnv: "JIJI_LUNA_API_KEY", maxTokens: MODEL.maxTokens}}, null, 2));
+    await writeFile(CONFIG, JSON.stringify({model: {baseUrl: base, id: MODEL.id, apiKeyEnv: "JIJI_LUNA_API_KEY", maxTokens: MODEL.maxTokens, thinking: MODEL.thinking}}, null, 2));
     if (existsSync(join(LIBRARY, "fox", "book.json"))) return;
     const json = join(LOCAL, "sample-100ch.json");
     await writeFile(json, Bun.gunzipSync(await readFile(SAMPLE)));
