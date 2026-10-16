@@ -142,7 +142,7 @@ complete({profile, initial, input, model, signal?}): Promise<CompleteResult>
 
 ### 模型与密钥
 
-18. **只用指定的密钥。** 模型用 `apiKeyEnv` 指定的环境变量作密钥；它缺失或为空时，在发出任何请求之前以 `error.kind: "auth"` 结束运行，不改用别的凭据（同一 provider 的默认密钥、其他环境变量）。请求发往模型配置里的 `baseUrl`。密钥不写进会话日志、快照与结果。
+18. **只用指定的密钥。** 模型用 `apiKeyEnv` 指定的环境变量作密钥；它缺失或为空时，在发出任何请求之前以 `error.kind: "auth"` 结束运行，不改用别的凭据（同一 provider 的默认密钥、其他环境变量）。请求发往模型配置里的 `baseUrl`。密钥不写进会话日志、快照与结果；provider 的错误正文回显了这次请求所用的密钥时，写进日志与结果之前替换成固定的遮盖文字，错误归类与状态码不变。
 
 ## 状态与转换
 
@@ -198,7 +198,7 @@ complete({profile, initial, input, model, signal?}): Promise<CompleteResult>
 4. **撤回在途调用。** 工具执行中撤回它的句柄：这次调用记一条中断结果，迟到的完成被丢弃，之后的调用得到 `plugin-unavailable`，运行继续（输出 6）。
 5. **两个会话。** 同一 Profile 以不同 `initial` 开两个会话并行运行，各自的工具调用拿到各自的 `initial`（输出 5）。
 6. **用量与重试。** provider 第一次返回空回复、第二次正常：`usage` 只含第二次，`complete` 为 `false`；单价未知时 `cost` 为 `null`（输出 11）。
-7. **密钥不外泄。** `apiKeyEnv` 指向的变量未设、另有同一 provider 的默认密钥时：运行以 `auth` 结束，没有任何请求发出（输出 18）。
+7. **密钥不外泄。** `apiKeyEnv` 指向的变量未设、另有同一 provider 的默认密钥时：运行以 `auth` 结束，没有任何请求发出（输出 18）。端点回 401、错误正文里带着收到的密钥时：运行以 `auth` 结束，`error.message` 与会话日志里都没有这个密钥（输出 18）。
 
 Smoke：用真实模型跑两条：自定义端点（`defineModel`）的一次 `turn`；带收尾工具的 Profile 以 `finished` 结束。缺凭据时跳过并记为未验证。
 
