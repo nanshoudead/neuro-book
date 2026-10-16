@@ -24,7 +24,7 @@ import {Plugin, PluginKey} from "@tiptap/pm/state";
 import {findWrapping} from "@tiptap/pm/transform";
 import type {MarkedExtension, Token, Tokens} from "marked";
 
-import {escapeAttribute} from "nbook/shared/markdown-dialect";
+import {escapeAttribute} from "nbook/plugins/markdown/shared/markdown-dialect";
 
 import {children} from "../core/write";
 import {blockTagExtension, closeInline, openTagAt, openTagIndex} from "../tags";

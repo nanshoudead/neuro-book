@@ -14,12 +14,12 @@ import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 
 import {createMemoryFiles} from "nbook/plugins/lab/web/fixtures/explorer-scene/memory-files";
 
-import {MARKDOWN_EDITOR} from "../../shared/contracts";
-import type {EditorControlHandle, TextEditorBinding} from "../../shared/contracts";
-import {createEditorArea} from "../area";
-import type {EditorArea} from "../area";
-import {codecFor} from "../markdown/codec/codec";
-import {markdownLanguage} from "../markdown/syntax";
+import {MARKDOWN_EDITOR} from "nbook/plugins/editor/shared/contracts";
+import type {EditorControlHandle, TextEditorBinding} from "nbook/plugins/editor/shared/contracts";
+import {createEditorArea} from "nbook/plugins/editor/web/area";
+import type {EditorArea} from "nbook/plugins/editor/web/area";
+import {codecFor} from "../codec/codec";
+import {markdownLanguage} from "../syntax";
 import MarkdownControl from "./MarkdownControl.vue";
 
 const cleanups: Array<() => void> = [];

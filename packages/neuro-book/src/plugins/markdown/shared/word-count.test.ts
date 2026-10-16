@@ -1,6 +1,6 @@
 /**
  * 写作字数（docs/specs/workbench/editor.md 输出 27；不计的方言与原样内容见 docs/specs/workspace/markdown-dialect.md 的“副作用与
- * 数据”）。与编辑器读出的正文逐块对照的一致性测试在 `plugins/editor/web/markdown/codec/word-count.test.ts`。
+ * 数据”）。与编辑器读出的正文逐块对照的一致性测试在 `plugins/markdown/web/codec/word-count.test.ts`。
  */
 
 import {describe, expect, it} from "bun:test";

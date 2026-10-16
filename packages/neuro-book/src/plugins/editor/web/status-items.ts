@@ -13,7 +13,7 @@ import type {ItemDeclaration} from "nbook/plugins/workbench/shared/contracts";
 import type {ItemImplementation} from "nbook/plugins/workbench/web/contracts";
 import {formatText, localize} from "nbook/shared/localized-text";
 import type {DisplayLocale, LocalizedText} from "nbook/shared/localized-text";
-import {countWords} from "nbook/shared/word-count";
+import {countWords} from "nbook/plugins/markdown/shared/contracts";
 
 import type {EditorArea} from "./area";
 import type {LanguageRegistry} from "./code/languages";

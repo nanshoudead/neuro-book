@@ -18,7 +18,7 @@ import {Transform, findWrapping} from "@tiptap/pm/transform";
 import {describe, expect, it} from "bun:test";
 import fc from "fast-check";
 
-import {LONE_TAG, OPENS_HTML_BLOCK} from "nbook/shared/markdown-dialect";
+import {LONE_TAG, OPENS_HTML_BLOCK} from "nbook/plugins/markdown/shared/markdown-dialect";
 
 import {markdownLanguage} from "../syntax";
 import {codecFor} from "./codec";

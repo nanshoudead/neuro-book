@@ -1,6 +1,6 @@
 /**
  * 字数与编解码器一致（docs/specs/workspace/markdown-dialect.md 的“副作用与数据”、docs/specs/workbench/editor.md 输出 27）：字数的
- * 轻量扫描（`nbook/shared/word-count`）不计的内容，与编解码器读成方言属性、原样块与原样片段的内容相同。对照对象是语料里每一块
+ * 轻量扫描（`nbook/plugins/markdown/shared/word-count`）不计的内容，与编解码器读成方言属性、原样块与原样片段的内容相同。对照对象是语料里每一块
  * 原文：轻量扫描数原文，编解码器一侧数读出的正文文字（提示块的标题也是正文）。Spec 写明的已知偏差所在的块不对照。
  */
 
@@ -11,8 +11,8 @@ import {getSchema} from "@tiptap/core";
 import type {Node as PMNode} from "@tiptap/pm/model";
 import {describe, expect, it} from "bun:test";
 
-import {BLOCK_DIALECT_TAGS, INLINE_DIALECT_TAGS} from "nbook/shared/markdown-dialect";
-import {countWords} from "nbook/shared/word-count";
+import {BLOCK_DIALECT_TAGS, INLINE_DIALECT_TAGS} from "nbook/plugins/markdown/shared/markdown-dialect";
+import {countWords} from "nbook/plugins/markdown/shared/word-count";
 
 import {markdownLanguage} from "../syntax";
 import {codecFor} from "./codec";

@@ -50,16 +50,19 @@ owners:
 
 `MarkdownSyntax` 是语法模块的形状（`shared/contracts.ts` 导出类型）：schema 扩展、各词法单元的读法、各节点与标记的写法、标签名、编辑视图与静态视图（[ui.markdown-display](../ui/markdown-display.md) 输出 2）。
 
-`nbook.markdown` 的浏览器入口提供服务 `markdownKey`：
+`nbook.markdown` 的浏览器入口提供服务 `markdownKey`，交出用 Markdown 的组件；语言与编解码器只在这些组件里用，不经服务交出：
 
 ```ts
 interface MarkdownService {
-    /** 当前语言；第一次调用时加载。 */
-    language(): Promise<MarkdownLanguage>;
-    /** 语言换成新的一份时调用；返回取消订阅。 */
-    onLanguageChange(listener: (language: MarkdownLanguage) => void): () => void;
-    codecFor(schema: Schema, language: MarkdownLanguage): MarkdownCodec;
-    readonly components: MarkdownComponents;
+    readonly components: {
+        /** Markdown 富文本控件，按编辑器区的控件合同收属性、交句柄（workbench.editor 输出 19）。 */
+        readonly MarkdownControl: Component;
+        readonly MarkdownDisplay: Component;   // ui.markdown-display
+        readonly PromptEditor: Component;      // ui.prompt-editor
+        readonly PromptTextView: Component;
+        readonly InlineChip: Component;
+        readonly MarkdownImage: Component;
+    };
 }
 ```
 
@@ -68,11 +71,11 @@ interface MarkdownService {
 ## 输出与可观察行为
 
 1. **第一份语言**：由核心语法与内置方言组成，不等任何别的插件。`nbook.markdown` 的激活不等任何贡献。
-2. **按需加载**：语法模块、Markdown 解析器与编辑内核在第一次调用 `language()` 时才加载；没有用到 Markdown 的窗口不加载它们，首屏的脚本里没有它们。
+2. **按需加载**：语法模块、Markdown 解析器与编辑内核在第一次挂上用 Markdown 的组件时才加载；没有用到 Markdown 的窗口不加载它们，首屏的脚本里没有它们。
 3. **生效的条件**：一种外来方言同时满足以下几条时生效：声明已被接受；同一插件交付了同 id 的实现，且 `load()` 成功；实现交出的标签名与声明的 `blockTags`、`inlineTags` 相同；与别的生效方言没有冲突（输出 4）。少了任何一条，这种方言不生效，记诊断（“失败与恢复”），贡献方的其它贡献照常。
 4. **冲突**：两种方言声明了同一个标签名，或者实现交出了同名的节点、标记或同一种节点的写法，两种都不生效，与登记、交付的先后无关；核心语法与内置方言不参与这条比较，外来方言与它们同名时只有外来的那种不生效。
 5. **顺序**：生效的方言按 `order` 从小到大试，相同时按 id 的码元顺序；核心语法排在最后。同一份方言集合在任何窗口里组成的语言都相同。
-6. **晚到与撤回**：外来方言的实现交付或撤回后，`nbook.markdown` 组成一份新的语言，调用 `onLanguageChange` 的订阅者；之后的 `language()` 返回新的一份。
+6. **晚到与撤回**：外来方言的实现交付或撤回后，`nbook.markdown` 组成一份新的语言，之后建立的视图用它。
 7. **视图在建立时取定语言**：已有的视图继续用它建立时的语言读写与显示，直到视图结束；之后建立的视图用当时的语言。编辑器里一个 Markdown 编辑器实例的寿命见 [workbench.editor](../workbench/editor.md) 输出 19；展示器见 [ui.markdown-display](../ui/markdown-display.md) 输出 1。
 8. **不生效时不损坏文件**：一种方言不生效时，它的写法读成原样块或原样片段，不编辑写回字节不变；编辑了别处写回，它们的字节仍不变（[workspace.markdown-dialect](markdown-dialect.md) 输出 1、9）。
 9. **字数**：字数只按已接受的声明计，与浏览器里实现是否加载成功无关。`tagWords` 为 `skip` 的标签里的字不计，为 `count` 的计；属性一律不计；没有任何声明认领的标签按普通 HTML 处理（原样内容不计）。提示块的类型标记与可渲染 HTML 块由核心扫描处理，不随方言变化。其余规则见 [workspace.markdown-dialect](markdown-dialect.md) 的“副作用与数据”。
@@ -86,10 +89,9 @@ interface MarkdownService {
 
 时序与寿命：
 
-- `markdownKey` 在 `nbook.markdown` 的浏览器入口激活后可用；`language()` 第一次调用时开始加载，加载完成前调用的都等同一次加载。
+- `markdownKey` 在 `nbook.markdown` 的浏览器入口激活后可用；组件第一次挂上时开始加载语言，同时挂上的几个组件等同一次加载。
 - 外来方言的声明与实现分开到达：声明随清单在实例登记时就有；实现在贡献方入口激活后交付。实现交付之前，这种方言不生效。
 - 实现的 `load()` 在交付后由 `nbook.markdown` 调用一次；失败的方言不生效，直到同一插件下一次交付。
-- 订阅者在新语言组成之后收到通知；通知顺序与组成顺序相同。取消订阅后不再收到。
 - 贡献方入口停止时，它的实现撤回，按输出 6 组成新语言；已有视图不受影响（输出 7）。
 
 ## 副作用与数据
@@ -107,7 +109,7 @@ interface MarkdownService {
 
 ## 边界与兼容
 
-- 公开接口：两个贡献点、`MarkdownSyntax` 类型、`markdownKey`、`dialectTable` 与 `countWords`。`MarkdownSyntax` 直接用到 Markdown 解析器与编辑内核的类型，第一版只给内置插件，版本随它们升级可能变化。
+- 公开接口：两个贡献点、`MarkdownSyntax` 类型、`markdownKey` 交出的组件、`dialectTable` 与 `countWords`。`MarkdownSyntax` 直接用到 Markdown 解析器与编辑内核的类型，第一版只给内置插件，版本随它们升级可能变化。
 - 方言的写法属于作品文件的格式，兼容规则见 [workspace.markdown-dialect](markdown-dialect.md) 的“边界与兼容”。
 
 ## 验收与 Smoke

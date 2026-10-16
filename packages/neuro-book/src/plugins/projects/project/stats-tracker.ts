@@ -22,7 +22,7 @@ import type {RemoteResult, RemoteSubscribeOptions, RemoteSubscription} from "@no
 
 import {encodedTextBytes, parseResource, TEXT_BUDGET_BYTES} from "nbook/plugins/files/shared/contracts";
 import type {ChangesMessage, FileChange} from "nbook/plugins/files/shared/contracts";
-import {countWords} from "nbook/shared/word-count";
+import {countWords} from "nbook/plugins/markdown/shared/contracts";
 
 import {localDate} from "../backend/shelf";
 import {SHELF_EXCERPT_MAX_LENGTH} from "../shared/contracts";

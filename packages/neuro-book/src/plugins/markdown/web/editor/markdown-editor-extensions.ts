@@ -8,7 +8,7 @@ import type {AnyExtension} from "@tiptap/core";
 import {Placeholder} from "@tiptap/extension-placeholder";
 
 import {MarkdownInlineCodeShortcut} from "./inline-code-shortcut";
-import {markdownLanguage} from "./syntax";
+import {markdownLanguage} from "../syntax";
 
 export function createMarkdownEditorExtensions(options: {readonly placeholder: string}): AnyExtension[] {
     return [...markdownLanguage().extensions, Placeholder.configure({placeholder: options.placeholder, emptyEditorClass: "is-editor-empty"}), MarkdownInlineCodeShortcut];

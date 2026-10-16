@@ -120,7 +120,7 @@ if (props.scene === "unrepresentable") {
 }
 
 const MonacoControl = defineAsyncComponent(() => import("nbook/plugins/editor/web/components/MonacoControl.vue"));
-const MarkdownControl = defineAsyncComponent(() => import("nbook/plugins/editor/web/components/MarkdownControl.vue"));
+const MarkdownControl = defineAsyncComponent(() => import("nbook/plugins/markdown/web/components/MarkdownControl.vue"));
 /** 只有内置的两个编辑器，组件直接给出（产品里由编辑器的登记表给出，`editor-registry.ts`）。 */
 const controls: Readonly<Record<string, Component>> = {[CODE_EDITOR]: MonacoControl, [MARKDOWN_EDITOR]: MarkdownControl};
 const control = (editor: string): EditorState => {

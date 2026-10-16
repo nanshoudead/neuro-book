@@ -1,6 +1,6 @@
 /**
  * NeuroBook Markdown 方言的标签名单、属性写法与原样语法的判据（docs/specs/workspace/markdown-dialect.md 输出 9、11–17、23–25）。
- * 编辑器的编解码器（`plugins/editor/web/markdown/syntax/`）与字数的轻量扫描（`word-count.ts`）都从这里取，两边认法一致：
+ * 编辑器的编解码器（`plugins/markdown/web/syntax/`）与字数的轻量扫描（`word-count.ts`）都从这里取，两边认法一致：
  * 新增方言标签时在这里登记（编解码器从各语法模块收集的名单与这里不同时，字数的一致性测试失败）。
  *
  * 只放两边都要的东西：标签名、属性的读与写、原样内容的判据。标签的配对、读成什么节点由编辑器的语法模块决定。

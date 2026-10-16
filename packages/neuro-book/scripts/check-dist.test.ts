@@ -52,6 +52,16 @@ describe("生产产物检查", () => {
         expect((await scanDist(root, [])).forbidden).toEqual(["web/assets/index-abc.js: 标签: ["]);
     });
 
+    it("首屏的脚本里有 Markdown 的编辑内核或解析器时报出；按需加载的 chunk 里有不算（workspace.markdown-syntaxes 输出 2）", async () => {
+        const root = await dist({
+            ...product,
+            "web/index.html": "<script type=\"module\" src=\"/assets/index-abc.js\"></script><link rel=\"modulepreload\" href=\"/assets/shared-1.js\">",
+            "web/assets/shared-1.js": "throw new RangeError(\"Invalid content for node \" + name);",
+            "web/assets/MarkdownControl-2.js": "throw new Error(\"marked(): input parameter is undefined or null\");",
+        });
+        expect((await scanDist(root, [])).forbidden).toEqual(["web/assets/shared-1.js（首屏）: Invalid content for node"]);
+    });
+
     it("缺少产品标记时报告，扫描空目录或别处的输出不会误判通过", async () => {
         const root = await dist({"web/index.html": "", "server/main.js": "Listening on"});
         expect((await scanDist(root, [])).missing).toEqual(["web: nbook.workbench", "web: data-workbench-root", "server: nbook.http"]);

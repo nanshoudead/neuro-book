@@ -1,20 +1,19 @@
 <script setup lang="ts">
-/** Markdown 富文本控件（同名 .md）：一个 Tiptap 编辑器实例，按编辑器控件合同（`control.ts`）绑定文档。 */
+/** Markdown 富文本控件（同名 .md）：一个 Tiptap 编辑器实例，按编辑器控件合同（`nbook/plugins/editor/web/control.ts`）绑定文档。 */
 import {Editor} from "@tiptap/core";
 import {EditorState, Selection, TextSelection} from "@tiptap/pm/state";
 import type {Transaction} from "@tiptap/pm/state";
 import {onBeforeUnmount, onMounted, ref, shallowRef, watch} from "vue";
 
+import type {EditorControlHandle, EditorOutline, TextEditorBinding, ViewStateSlot} from "nbook/plugins/editor/shared/contracts";
+import type {EditorControlEmits} from "nbook/plugins/editor/web/control";
 import type {DisplayLocale} from "nbook/shared/localized-text";
 
-import type {EditorControlHandle, TextEditorBinding, ViewStateSlot} from "../area";
-import type {EditorOutline} from "../../shared/contracts";
-import type {EditorControlEmits} from "../control";
-import {codecFor} from "../markdown/codec/codec";
-import type {MarkdownCodec} from "../markdown/codec/codec";
-import type {SourceMap} from "../markdown/codec/read";
-import {createMarkdownEditorExtensions} from "../markdown/markdown-editor-extensions";
-import {markdownLanguage} from "../markdown/syntax";
+import {codecFor} from "../codec/codec";
+import type {MarkdownCodec} from "../codec/codec";
+import type {SourceMap} from "../codec/read";
+import {markdownLanguage} from "../syntax";
+import {createMarkdownEditorExtensions} from "../editor/markdown-editor-extensions";
 
 // `locale`：控件合同的一员；富文本控件自己不显示要翻译的文字（占位文字由宿主给出）。
 const props = defineProps<{binding: TextEditorBinding | null; host: ViewStateSlot; readonly: boolean; visible: boolean; label: string; placeholder?: string; locale?: DisplayLocale}>();
