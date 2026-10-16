@@ -167,16 +167,16 @@ const dialog = computed(() => props.area.dialog.value);
         <DropFeedbackOverlay :preview="drop?.preview ?? null" :label="dropLabel" :data-editor-drop="drop === null ? undefined : drop.label" />
         <Dialog
             :model-value="dialog !== null"
-            :title="editorText(locale, 'closeTitle', {name: dialog === null ? '' : nameOf(dialog.address)})"
+            :title="editorText(locale, dialog?.saveable === false ? 'closeTitleUnrepresentable' : 'closeTitle', {name: dialog === null ? '' : nameOf(dialog.address)})"
             size="sm"
             @request-close="area.answer('cancel')"
         >
-            <p class="text-sm" data-editor-close-dialog>{{ editorText(locale, "closeBody") }}</p>
+            <p class="text-sm" data-editor-close-dialog>{{ editorText(locale, dialog?.saveable === false ? "closeBodyUnrepresentable" : "closeBody") }}</p>
             <template #footer>
                 <div class="flex flex-wrap justify-end gap-2">
                     <Button variant="ghost" size="sm" data-editor-close-cancel @click="area.answer('cancel')">{{ editorText(locale, "cancel") }}</Button>
                     <Button variant="secondary" size="sm" data-editor-close-discard @click="area.answer('discard')">{{ editorText(locale, "discard") }}</Button>
-                    <Button variant="primary" size="sm" data-editor-close-save @click="area.answer('save')">{{ editorText(locale, "save") }}</Button>
+                    <Button v-if="dialog?.saveable !== false" variant="primary" size="sm" data-editor-close-save @click="area.answer('save')">{{ editorText(locale, "save") }}</Button>
                 </div>
             </template>
         </Dialog>

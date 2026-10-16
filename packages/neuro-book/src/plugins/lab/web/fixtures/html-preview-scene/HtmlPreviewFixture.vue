@@ -35,7 +35,7 @@ const access = computed((): PreviewAccess => ({
 
 watch(() => props.scene, (scene) => {
     const address = scene === "user" ? "user://notes/page.html" : "project://site/index.html";
-    binding.value = {kind: "text", token: `lab-${scene}`, tabId: "lab-tab", editor: "nbook.html-preview.html", address: computed(() => address), text, revision, slot, commit: () => ({status: "stale"}), attach: () => () => undefined, unresolved: () => false, cursor: null, remember: () => undefined, language: computed(() => null)};
+    binding.value = {kind: "text", token: `lab-${scene}`, tabId: "lab-tab", editor: "nbook.html-preview.html", address: computed(() => address), text, revision, slot, commit: () => ({status: "stale"}), attach: () => () => undefined, unresolved: () => false, block: () => undefined, blocked: () => false, cursor: null, remember: () => undefined, language: computed(() => null)};
 }, {immediate: true});
 
 const edit = (): void => {

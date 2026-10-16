@@ -90,6 +90,8 @@ export interface WindowPlugins {
 export interface RescuedText {
     readonly path: string;
     readonly text: string;
+    /** 这份正文与用户看到的不完全一样时的说明（例如有一块只留下了文字）；没有为 undefined。 */
+    readonly note?: string;
 }
 
 /**

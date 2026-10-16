@@ -173,6 +173,44 @@ describe("Spec workbench.editor 输出 11：打开与读取", () => {
     });
 });
 
+describe("Spec workbench.editor 输出 61：写不出", () => {
+    const input = {reason: "段首的 HTML", from: 0, to: 3, fallback: "A（纯文字）"};
+
+    it("写不出的视图挡保存与资源管理器的租约、计入需要结算的文档与抢救；别的视图的输入不解除它，它自己交出成功才解除", async () => {
+        const at = await world();
+        const document = await opened(at, "project://a.md");
+        at.store.block(document, "v1", input);
+        expect(document.blocked.value.get("v1")).toEqual(input);
+        expect(await at.store.save(document)).toEqual({ok: false, code: "unrepresentable"});
+        expect(count(at, "write")).toBe(0);
+        expect(at.store.coordinator.affected(["project://"])).toEqual([{address: "project://a.md", state: "unrepresentable"}]);
+        expect(await at.store.coordinator.begin(["project://a.md"])).toEqual({ok: false, reason: "blocked", documents: [{address: "project://a.md", state: "unrepresentable"}]});
+        expect(await at.store.coordinator.save(["project://"])).toEqual([{address: "project://a.md", ok: false, code: "unrepresentable"}]);
+        expect(at.store.rescue()).toEqual([{path: "project://a.md", text: "A（纯文字）", note: expect.any(String)}]);
+
+        expect(at.store.commit(document, "v2", document.revision.value, "A（另一视图）")).toMatchObject({status: "accepted"});
+        expect(document.blocked.value.has("v1")).toBe(true);
+        expect(at.store.commit(document, "v1", document.revision.value, "A（写得出了）")).toMatchObject({status: "accepted"});
+        expect(document.blocked.value.size).toBe(0);
+        expect(await at.store.save(document)).toEqual({ok: true});
+        expect(await disk(at, "a.md")).toBe("A（写得出了）");
+    });
+
+    it("丢弃这个视图的输入、采用当前正文（unblock）、重新载入磁盘版本都解除", async () => {
+        const at = await world();
+        const document = await opened(at, "project://a.md");
+        at.store.block(document, "v1", input);
+        at.store.discardInput(document, "v1");
+        expect(document.blocked.value.size).toBe(0);
+        at.store.block(document, "v1", input);
+        at.store.unblock(document, "v1");
+        expect(document.blocked.value.size).toBe(0);
+        at.store.block(document, "v1", input);
+        await at.store.revert(document);
+        expect(document.blocked.value.size).toBe(0);
+    });
+});
+
 describe("Spec workbench.editor 输出 12–13：输入回执与未裁决输入", () => {
     it("基于当前修订的输入被接受；基于旧修订的不同内容成为未裁决输入，阻止保存；采用当前正文丢弃它，保留本视图则以最新修订提交", async () => {
         const at = await world();

@@ -21,8 +21,8 @@ import type {MenuItemDeclaration} from "nbook/plugins/commands/shared/contracts"
 import {LocalizedTextSchema} from "nbook/shared/localized-text";
 import type {DisplayLocale, LocalizedText} from "nbook/shared/localized-text";
 
-/** 需要结算的文档此刻的状态：dirty、在保存、有未裁决输入、磁盘冲突。 */
-export type SettleState = "dirty" | "saving" | "unresolved" | "conflict";
+/** 需要结算的文档此刻的状态：dirty、在保存、有未裁决输入、有视图写不出（输出 61）、磁盘冲突。 */
+export type SettleState = "dirty" | "saving" | "unresolved" | "unrepresentable" | "conflict";
 
 export interface AffectedDocument {
     readonly address: string;
@@ -45,9 +45,9 @@ export type LeaseResult =
 export interface DocumentCoordinator {
     /** 地址本身或其后代里需要结算的文档。 */
     affected(addresses: ReadonlyArray<string>): ReadonlyArray<AffectedDocument>;
-    /** 结算这些文档的视图输入、等在途保存，再挡住它们的新保存；有未裁决输入或磁盘冲突时为 blocked，不取租约。 */
+    /** 结算这些文档的视图输入、等在途保存，再挡住它们的新保存；有未裁决输入、写不出的视图或磁盘冲突时为 blocked，不取租约。 */
     begin(addresses: ReadonlyArray<string>): Promise<LeaseResult>;
-    /** 保存这些地址下的 dirty 文档，逐项结果；有未裁决输入或磁盘冲突的项不保存、为失败。 */
+    /** 保存这些地址下的 dirty 文档，逐项结果；有未裁决输入、写不出的视图或磁盘冲突的项不保存、为失败。 */
     save(addresses: ReadonlyArray<string>): Promise<ReadonlyArray<{readonly address: string; readonly ok: boolean; readonly code?: string}>>;
     /** 本窗口的保存形成了从 `token` 起的目录项身份链时返回链尾的令牌，否则原样返回。 */
     translate(address: string, token: string): string;
@@ -254,6 +254,13 @@ export interface TextEditorBinding {
     attach(flush: () => void): () => void;
     /** 这个绑定有没有未裁决输入。 */
     unresolved(): boolean;
+    /**
+     * 写不出（输出 61，Markdown 编辑器用）：这次输入没有交出，`from`–`to` 是写不出的那一块在控件文档里的位置，`fallback` 是终态页
+     * 抢救用的正文。每次写不出都再调用一次（按视图此刻的内容更新）；之后这个视图的一次输入交出成功时自动解除。
+     */
+    block(input: {readonly reason: string; readonly from: number; readonly to: number; readonly fallback: string}): void;
+    /** 这个绑定是不是写不出。 */
+    blocked(): boolean;
     /** 标签记下的光标：第一次为这份文档建视图状态时放回去。 */
     readonly cursor: TabCursor | null;
     remember(cursor: TabCursor): void;
@@ -303,6 +310,8 @@ export interface EditorControlHandle {
     readonly outline?: Readonly<Ref<EditorOutline | null>>;
     /** 跳到大纲里的一个标题：`binding`、`version` 与此刻的大纲对不上为 `stale`，不移动光标。 */
     revealHeading?(binding: string, version: number, id: string): "ok" | "stale";
+    /** 选中 `from`–`to` 并滚过去、聚焦（写不出时的“定位”，输出 61）：位置是控件交给 `binding.block` 的那一对，超出时夹到文档里。 */
+    revealRange?(from: number, to: number): void;
 }
 
 /** 大纲（docs/specs/workbench/editor.md 的控件合同）：`binding` 是当前绑定的 token，正文每变一次 `version` 加一；`id` 按位置给，同名标题不冲突。 */

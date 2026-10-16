@@ -35,6 +35,8 @@ export type CloseChoice = "save" | "discard" | "cancel";
 
 export interface CloseDialog {
     readonly address: string;
+    /** 能不能选“保存”：这个视图写不出时不能（输出 61），只有“不保存”与“取消”。 */
+    readonly saveable: boolean;
 }
 
 export interface EditorAreaOptions {
@@ -137,6 +139,10 @@ export interface EditorArea {
     revert(): Promise<ActionResult>;
     overwrite(): Promise<ActionResult>;
     resolve(groupId: string, choice: "adopt-current" | "keep-view"): void;
+    /** 写不出的视图（输出 61）：定位到写不出的那一块。 */
+    locate(groupId: string): void;
+    /** 写不出的视图选了“采用当前正文”：丢弃这个视图的输入，控件按文档的正文重载。 */
+    unblock(groupId: string): void;
     /** 焦点落到了编辑器区之外（用户去了资源管理器等）：撤销还在等控件就绪的焦点交接。 */
     focusLeft(): void;
     /** 控件交出（或撤回）句柄。 */
@@ -244,7 +250,7 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
                 const documentId = candidate.split("|")[2];
                 for (const reference of references.values()) {
                     const document = reference.document;
-                    if (document.target.value.documentId === documentId && (document.dirty.value || document.saving.value || document.unresolved.value.length > 0 || document.conflict.value !== null)) return false;
+                    if (document.target.value.documentId === documentId && (document.dirty.value || document.saving.value || document.unresolved.value.length > 0 || document.blocked.value.size > 0 || document.conflict.value !== null)) return false;
                 }
                 return true;
             });
@@ -328,6 +334,10 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
             },
             attach: (flush) => (current() ? documents.attachView(document, flush) : () => undefined),
             unresolved: () => document.unresolved.value.includes(token),
+            block: (input) => {
+                if (current()) documents.block(document, token, input);
+            },
+            blocked: () => document.blocked.value.has(token),
             cursor: tab.cursor ?? null,
             remember: (cursor) => groups.setCursor(tab.id, cursor),
             language: computed(() => {
@@ -488,19 +498,29 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
     const restoredTab = options.initial === null ? null : groups.activeTab();
     if (restoredTab !== null) pendingReveal.value = {groupId: groups.activeGroup.value, tabId: restoredTab.id, address: restoredTab.address, reveal: "cursor"};
 
-    /** 换文档前结算活动视图的输入；它有未裁决输入时不换。 */
+    /** 组的活动视图为什么不能换下（输出 9、49、61）：有未裁决输入、写不出；能换下为 null。 */
+    const holding = (groupId: string): "unresolved" | "unrepresentable" | null => {
+        const current = bindings.get(groupId);
+        if (current === undefined) return null;
+        if (current.document.unresolved.value.includes(current.binding.token)) return "unresolved";
+        if (current.document.blocked.value.has(current.binding.token)) return "unrepresentable";
+        return null;
+    };
+    /** `leave` 不让换时给调用方的理由。 */
+    const refusal = (groupId: string, who: "当前视图" | "目标组"): string => (holding(groupId) === "unrepresentable" ? `${who}有一块写不回 Markdown` : `${who}有未裁决的输入`);
+
+    /** 换文档前结算活动视图的输入；它有未裁决输入或写不出时不换。 */
     const leave = (groupId: string): boolean => {
         const current = bindings.get(groupId);
         if (current === undefined) return true;
         documents.settle(current.document);
-        if (current.document.unresolved.value.includes(current.binding.token)) {
-            notice.value = "有未裁决的输入：先在组顶部选择采用当前正文或保留本视图的内容";
-            return false;
-        }
-        return true;
+        const held = holding(groupId);
+        if (held === "unresolved") notice.value = "有未裁决的输入：先在组顶部选择采用当前正文或保留本视图的内容";
+        if (held === "unrepresentable") notice.value = "这个视图有一块写不回 Markdown：先在组顶部定位并修改它，或采用当前正文";
+        return held === null;
     };
 
-    const needsSettle = (document: TextDocument): boolean => document.dirty.value || document.unresolved.value.length > 0 || document.saving.value;
+    const needsSettle = (document: TextDocument): boolean => document.dirty.value || document.unresolved.value.length > 0 || document.blocked.value.size > 0 || document.saving.value;
 
     /**
      * 换编辑器（输出 39）：文本与字节之间换了，标签的引用随之换一份（先取新的再放旧的，条目不会因此被丢掉）。从文本换到
@@ -532,9 +552,9 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
         return {ok: true};
     };
 
-    const ask = (address: string): Promise<CloseChoice> => new Promise<CloseChoice>((resolve) => {
+    const ask = (address: string, saveable: boolean): Promise<CloseChoice> => new Promise<CloseChoice>((resolve) => {
         answerDialog?.("cancel");
-        dialog.value = {address};
+        dialog.value = {address, saveable};
         answerDialog = resolve;
     });
 
@@ -555,11 +575,12 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
             documents.settle(document);
             const shown = bindings.get(found.group.id);
             const own = shown !== undefined && shown.binding.tabId === tabId && shown.binding.kind === "text" ? shown.binding : null;
-            const ownInput = own !== null && own.unresolved();
+            const ownInput = own !== null && (own.unresolved() || own.blocked());
             // 只剩预览视图或只读的编辑器时照常问：它们改不了正文（输出 4）。
             const shared = groups.groups.value.some((group) => group.tabs.some((tab) => tab.id !== tabId && tab.address === found.tab.address && editable(tab)));
             if (shared ? !ownInput : !needsSettle(document)) break;
-            const choice = await ask(found.tab.address);
+            // 这个视图写不出时没有“保存”（输出 61）：它的输入交不出去，保存只会保存别的视图的正文。
+            const choice = await ask(found.tab.address, own === null || !own.blocked());
             if (choice === "cancel") return "cancelled";
             // 等用户回答期间别处可能新开、关掉或换掉了另一个能编辑的标签，这个标签也可能换了组或编辑器：回答按此刻的状态
             // 执行。“保存”在任何状态下都照做；“不保存”丢弃的范围取决于还有没有别的能编辑的标签，状态变了就重新问，不按
@@ -656,7 +677,7 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
         const twin = target.id === found.group.id || moving.kind !== "file" ? undefined : target.tabs.find((tab) => tab.kind === "file" && tab.address === moving.address && tab.editor === moving.editor);
         if (twin !== undefined) {
             // 目标组已有同一标签：激活它，再按关闭的规则关掉被移动的这个（只问它自己的未裁决输入）。
-            if (target.active !== twin.id && !leave(target.id)) return {ok: false, reason: "目标组有未裁决的输入"};
+            if (target.active !== twin.id && !leave(target.id)) return {ok: false, reason: refusal(target.id, "目标组")};
             groups.activate(twin.id);
             const outcome = await closeOne(tabId);
             if (outcome !== "closed" && outcome !== "gone") return {ok: false, reason: outcome === "failed" ? "保存失败" : "已取消"};
@@ -665,8 +686,8 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
             focusActive();
             return {ok: true};
         }
-        if (found.group.active === tabId && target.id !== found.group.id && !leave(found.group.id)) return {ok: false, reason: "当前视图有未裁决的输入"};
-        if (target.active !== tabId && !leave(target.id)) return {ok: false, reason: "目标组有未裁决的输入"};
+        if (found.group.active === tabId && target.id !== found.group.id && !leave(found.group.id)) return {ok: false, reason: refusal(found.group.id, "当前视图")};
+        if (target.active !== tabId && !leave(target.id)) return {ok: false, reason: refusal(target.id, "目标组")};
         const reference = references.get(tabId);
         const moved = groups.moveTab(tabId, place);
         if (moved === null) return {ok: false, reason: "位置没有变化"};
@@ -701,7 +722,7 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
         if (request.group !== undefined && request.group !== "side" && !groups.groups.value.some((candidate) => candidate.id === request.group)) return {ok: false, reason: "编辑组已关闭"};
         // 只结算活动标签要换掉的那一组（同 `activate`）：目标组；侧边还没有组时要新建，没有要结算的。
         const target = request.group === "side" ? groups.rightOf(groups.activeGroup.value) : (request.group ?? groups.activeGroup.value);
-        if (target !== null && !leave(target)) return {ok: false, reason: target === groups.activeGroup.value ? "当前视图有未裁决的输入" : "目标组有未裁决的输入"};
+        if (target !== null && !leave(target)) return {ok: false, reason: refusal(target, target === groups.activeGroup.value ? "当前视图" : "目标组")};
         if (request.editor !== undefined) {
             const refusal = editorRefusal(catalog, request.editor, address);
             if (refusal !== null) return {ok: false, reason: refusal};
@@ -779,11 +800,11 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
             const existing = groups.groups.value.flatMap((group) => group.tabs).find((tab) => tab.address === address);
             if (existing !== undefined) {
                 const found = groups.find(existing.id);
-                if (found !== null && found.group.active !== existing.id && !leave(found.group.id)) return {ok: false, reason: "当前视图有未裁决的输入"};
+                if (found !== null && found.group.active !== existing.id && !leave(found.group.id)) return {ok: false, reason: refusal(found.group.id, "当前视图")};
                 groups.activate(existing.id);
                 return {ok: true, tabId: existing.id};
             }
-            if (!leave(groups.activeGroup.value)) return {ok: false, reason: "当前视图有未裁决的输入"};
+            if (!leave(groups.activeGroup.value)) return {ok: false, reason: refusal(groups.activeGroup.value, "当前视图")};
             pendingReveal.value = null;
             const tab = groups.openPage(address);
             return {ok: true, tabId: tab.id};
@@ -791,7 +812,7 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
         activate: (tabId) => {
             const found = groups.find(tabId);
             if (found === null) return {ok: false, reason: "标签已关闭"};
-            if (found.group.active !== tabId && !leave(found.group.id)) return {ok: false, reason: "当前视图有未裁决的输入"};
+            if (found.group.active !== tabId && !leave(found.group.id)) return {ok: false, reason: refusal(found.group.id, "当前视图")};
             groups.activate(tabId);
             return {ok: true};
         },
@@ -809,7 +830,7 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
             const found = groups.find(tabId);
             if (found === null) return {ok: false, reason: "标签已关闭"};
             if (!groups.groups.value.some((group) => group.id === groupId)) return {ok: false, reason: "编辑组已关闭"};
-            if (found.group.active === tabId && !leave(found.group.id)) return {ok: false, reason: "当前视图有未裁决的输入"};
+            if (found.group.active === tabId && !leave(found.group.id)) return {ok: false, reason: refusal(found.group.id, "当前视图")};
             const reference = references.get(tabId);
             const moved = groups.moveToNewGroup(tabId, groupId, edge);
             if (moved === null) return {ok: false, reason: "不能再拆分"};
@@ -847,9 +868,9 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
             const tab = groups.activeTab();
             if (tab === null) return {ok: false, reason: "没有活动标签"};
             if (tab.kind === "page") return {ok: false, reason: "页面不是文件，不能换编辑器"};
-            const refusal = editorRefusal(catalog, editor, tab.address);
-            if (refusal !== null) return {ok: false, reason: refusal};
-            if (!leave(group)) return {ok: false, reason: "当前视图有未裁决的输入"};
+            const unusable = editorRefusal(catalog, editor, tab.address);
+            if (unusable !== null) return {ok: false, reason: unusable};
+            if (!leave(group)) return {ok: false, reason: refusal(group, "当前视图")};
             // 换成的编辑器在本组已有这个文件的标签：切过去，当前这个关掉并释放。
             return changeEditor(tab, group, editor);
         },
@@ -864,7 +885,9 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
             const document = activeDocument.value;
             if (document === null) return {ok: false, reason: "没有活动文档"};
             const result = await documents.save(document);
-            return result.ok ? {ok: true} : {ok: false, reason: result.code};
+            if (result.ok) return {ok: true};
+            // 写不出（输出 61）：保存不发出写入，说明原因。
+            return {ok: false, reason: result.code === "unrepresentable" ? "有视图写不回 Markdown，没有保存：先在组顶部定位并修改，或采用当前正文" : result.code};
         },
         saveAll: async () => {
             const results = await documents.coordinator.save(["project://", "user://"]);
@@ -887,6 +910,17 @@ export function createEditorArea(options: EditorAreaOptions): EditorArea {
             const current = bindings.get(groupId);
             if (current === undefined) return;
             documents.resolve(current.document, current.binding.token, choice);
+            if (notice.value !== null) notice.value = null;
+        },
+        locate: (groupId) => {
+            const current = bindings.get(groupId);
+            const input = current?.document.blocked.value.get(current.binding.token);
+            if (input !== undefined) handleOf(groupId)?.revealRange?.(input.from, input.to);
+        },
+        unblock: (groupId) => {
+            const current = bindings.get(groupId);
+            if (current === undefined) return;
+            documents.unblock(current.document, current.binding.token);
             if (notice.value !== null) notice.value = null;
         },
         focusLeft: () => {

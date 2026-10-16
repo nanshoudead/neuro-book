@@ -166,6 +166,13 @@ const banner = computed((): Banner | null => {
             {id: "keep", label: t("keep"), run: () => props.area.resolve(props.groupId, "keep-view")},
         ]};
     }
+    const blocked = binding.value?.kind === "text" ? current.blocked.value.get(binding.value.token) : undefined;
+    if (blocked !== undefined) {
+        return {tone: "danger", text: t("unrepresentable", {reason: blocked.reason}), actions: [
+            {id: "locate", label: t("locate"), run: () => props.area.locate(props.groupId)},
+            {id: "adopt", label: t("adopt"), run: () => props.area.unblock(props.groupId)},
+        ]};
+    }
     if (current.conflict.value !== null) {
         return {tone: "danger", text: t("conflict"), actions: [
             {id: "reload", label: t("reload"), run: () => void props.area.revert()},

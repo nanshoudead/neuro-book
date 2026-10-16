@@ -1,6 +1,5 @@
 /**
- * 全部语法模块，按固定顺序（同一种词法单元有几个模块认领时，靠前的先试）。编辑器与编解码器都从这里取，代替旧的
- * `markdown-dialect-extensions.ts` 与分散在各处的名单。
+ * 全部语法模块，按固定顺序（同一种词法单元有几个模块认领时，靠前的先试）。编辑器与编解码器都从这里取。
  */
 
 import {createMarkdownLanguage} from "../language";

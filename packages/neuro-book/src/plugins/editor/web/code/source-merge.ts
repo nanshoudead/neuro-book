@@ -1,49 +1,16 @@
 /**
- * Markdown 富文本保存时保持原文字节（docs/specs/workbench/editor.md 输出 19）。Tiptap 的序列化会改写没编辑过的部分
- * （CRLF 变 LF、`*` 列表变 `-`、标准 ruby 变属性式），所以保存不直接用序列化结果，而是按行三方合并：
+ * 源码编辑器交给文档的正文保持原文字节（docs/specs/workbench/editor.md 输出 19、workspace/files.md 的字节往返）。编辑器的模型
+ * 把换行统一成一种，所以交出的不直接是模型文本，而是按行三方合并：
  *
- * - `base`：打开时的正文序列化一次的结果（没编辑过的文档在编辑器里的样子）；
- * - `ours`：磁盘原文；
- * - `theirs`：编辑后的序列化结果。
+ * - `base`：换入模型时模型里的文本；
+ * - `ours`：原文；
+ * - `theirs`：模型此刻的文本。
  *
- * 只有 `theirs` 改了的行取 `theirs`，只有序列化规范化造成的差异（`ours` 与 `base` 不同、`theirs` 与 `base` 相同）保留
- * 原文。两边都改的区域里，`base` 与原文行数相同时规范化是逐行发生的（列表标记、ruby 写法），按位置对应，仍只把 `theirs`
- * 改了的行换掉；行数不同才整片取 `theirs`。行按文字比较、不看换行符；原文的行连同它自己的换行符原样写出，`theirs` 的行
- * 用原文主导的换行符。`theirs` 与 `base` 相同时原样返回原文。
- *
- * 另有 frontmatter 的拆分：按原始字符串的偏移切出开头的 `---` 块（BOM 留在前缀里），不归一化换行、不补换行，正文才交给
- * 编辑器与合并。
+ * 只有 `theirs` 改了的行取 `theirs`，只有模型规范化造成的差异（`ours` 与 `base` 不同、`theirs` 与 `base` 相同）保留原文。两边都改
+ * 的区域里，`base` 与原文行数相同时规范化是逐行发生的，按位置对应，仍只把 `theirs` 改了的行换掉；行数不同才整片取 `theirs`。
+ * 行按文字比较、不看换行符；原文的行连同它自己的换行符原样写出，`theirs` 的行用原文主导的换行符。`theirs` 与 `base` 相同时
+ * 原样返回原文。
  */
-
-/** 原文拆成前缀（BOM 与 frontmatter，原样）与正文。 */
-export interface SourceSplit {
-    readonly prefix: string;
-    readonly body: string;
-}
-
-const FENCE = /^---[ \t]*(\r\n|\n)/u;
-const CLOSE = /^---[ \t]*(\r\n|\n|$)/u;
-
-export function splitFrontmatter(source: string): SourceSplit {
-    const bom = source.startsWith("\uFEFF") ? "\uFEFF" : "";
-    const rest = source.slice(bom.length);
-    const open = FENCE.exec(rest);
-    if (open === null) return {prefix: bom, body: rest};
-    let offset = open[0].length;
-    while (offset <= rest.length) {
-        const line = rest.slice(offset);
-        const close = CLOSE.exec(line);
-        if (close !== null) {
-            const end = offset + close[0].length;
-            return {prefix: bom + rest.slice(0, end), body: rest.slice(end)};
-        }
-        const next = rest.indexOf("\n", offset);
-        if (next < 0) break;
-        offset = next + 1;
-    }
-    // 没有闭合的分隔线：不是 frontmatter，整段都是正文。
-    return {prefix: bom, body: rest};
-}
 
 /** 一行：文字与它自己的换行符（最后一行没有）。 */
 interface Line {

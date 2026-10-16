@@ -621,6 +621,7 @@ export const labFixtures: LabFixture[] = [
             {id: "split", label: "向右拆分的两组", input: {props: {locale: "zh-CN"}}},
             {id: "english", label: "英文界面", input: {props: {locale: "en-US"}}},
             {id: "empty", label: "没有标签：标志与提示", input: {props: {locale: "zh-CN"}}},
+            {id: "dialect", label: "Markdown 方言、提示块与原样内容", input: {props: {locale: "zh-CN"}}},
         ],
         load: async () => (await import("./editor-scene/EditorAreaFixture.vue")).default,
     }),

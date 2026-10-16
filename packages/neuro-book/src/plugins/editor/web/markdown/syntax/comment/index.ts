@@ -36,8 +36,6 @@ declare module "@tiptap/core" {
         comment: {
             setComment: (body: string, id?: string | null) => ReturnType;
             unsetComment: () => ReturnType;
-        };
-        markdownComment: {
             /**
              * 给选区加一条批注（输出 11 的“新建”）：选区正好是连续的几个完整块（不止一个）时写成块批注；只在一段里时是行内
              * 批注；其余（跨段、起止在段中间）是分截批注，写回时分配 `id`。选区为空时不做。

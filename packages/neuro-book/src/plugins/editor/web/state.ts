@@ -39,9 +39,9 @@ export const editorState = definePublicState("nbook.editor", {
     hasLanguage: {type: "boolean", unready: false, reason: reason("活动的编辑器不分语言", "The active editor has no language mode")},
 });
 
-/** 文档需要保存：dirty 或有未裁决输入（与关闭时询问的判据相同，输出 4、26）。 */
+/** 文档需要保存：dirty、有未裁决输入或有视图写不出（与关闭时询问的判据相同，输出 4、26、61）。 */
 export function needsSaving(document: TextDocument): boolean {
-    return document.dirty.value || document.unresolved.value.length > 0;
+    return document.dirty.value || document.unresolved.value.length > 0 || document.blocked.value.size > 0;
 }
 
 /** 各公开键此刻的值；编辑器区还没建立时都为假。 */

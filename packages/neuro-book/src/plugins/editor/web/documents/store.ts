@@ -19,6 +19,9 @@ import type {Baseline, FilesService, Scheme, WatchMessage} from "nbook/plugins/f
 import type {AffectedDocument, DocumentCoordinator, DocumentLease, LeaseResult, SettleState} from "../../shared/contracts";
 import {isWithin, rebase, schemeOf, textHash} from "./address";
 
+/** 写不出的视图交出的抢救正文的说明（输出 61）。 */
+const LOST_FORMAT = "这个视图有一块写不回 Markdown，那一块只留下了文字（格式丢了）";
+
 /** 空正文的 SHA-256：删除后重建时排他新建的空文件就是这个基线。 */
 export const EMPTY_HASH = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
 
@@ -58,9 +61,19 @@ export interface TextDocument {
     readonly saveProblem: Readonly<Ref<DocumentProblem | null>>;
     /** 有未裁决输入的视图标识。 */
     readonly unresolved: ComputedRef<ReadonlyArray<string>>;
+    /** 写不出的视图（输出 61）：视图标识 → 写不出的那一块与抢救用的正文。 */
+    readonly blocked: Readonly<ShallowRef<ReadonlyMap<string, BlockedInput>>>;
     readonly writable: ComputedRef<boolean>;
     /** 磁盘上这个文件每有一次变化（变更事件、resync）加一：按字节显示的控件据此重新取。 */
     readonly version: Readonly<Ref<number>>;
+}
+
+/** 一个视图写不出的输入（输出 61）：哪一块（编辑器文档里的位置）、原因，与终态页抢救用的正文。 */
+export interface BlockedInput {
+    readonly reason: string;
+    readonly from: number;
+    readonly to: number;
+    readonly fallback: string;
 }
 
 export type CommitResult = {readonly status: "accepted"; readonly revision: number} | {readonly status: "conflict"; readonly revision: number} | {readonly status: "stale"};
@@ -87,8 +100,12 @@ export interface DocumentStore {
     commit(document: TextDocument, token: string, baseRevision: number, text: string): CommitResult;
     /** 裁决一份未裁决输入：采用当前正文（丢弃它），或以最新修订重新提交它。 */
     resolve(document: TextDocument, token: string, choice: "adopt-current" | "keep-view"): void;
-    /** 丢弃一个视图的未裁决输入（用户选择不保存、视图关闭）。 */
+    /** 丢弃一个视图的未裁决输入与写不出的输入（用户选择不保存、视图关闭）。 */
     discardInput(document: TextDocument, token: string): void;
+    /** 视图写不出（输出 61）：这次输入没有交出，记下它；每次写不出都按视图此刻的内容更新。 */
+    block(document: TextDocument, token: string, input: BlockedInput): void;
+    /** 视图不再写不出：它的一次输入交出成功（提交时自动解除），或用户选了采用当前正文。 */
+    unblock(document: TextDocument, token: string): void;
     /** 视图登记自己的结算函数：保存、切换、资源管理器的操作之前同步调用，让视图把还没交出的输入交给文档。 */
     attachView(document: TextDocument, flush: () => void): () => void;
     /** 同步结算这份文档全部视图的输入。 */
@@ -101,8 +118,8 @@ export interface DocumentStore {
     /** 重试打开失败的文档。 */
     retry(document: TextDocument): void;
     readonly coordinator: DocumentCoordinator;
-    /** 未保存的正文与未裁决输入（终态页的抢救）；同步返回。 */
-    rescue(): ReadonlyArray<{readonly path: string; readonly text: string}>;
+    /** 未保存的正文、未裁决输入与写不出的视图的抢救正文（终态页）；同步返回。 */
+    rescue(): ReadonlyArray<{readonly path: string; readonly text: string; readonly note?: string}>;
     subscribe(listener: (event: StoreEvent) => void): () => void;
     dispose(): void;
 }
@@ -137,6 +154,7 @@ interface Entry {
     readonly ended: Ref<string | null>;
     readonly saveProblem: Ref<DocumentProblem | null>;
     readonly candidates: ShallowRef<Map<string, string>>;
+    readonly blocked: ShallowRef<Map<string, BlockedInput>>;
     readonly flushers: Set<() => void>;
     /** 结果未知的那次保存的快照：之后的核对读到它的哈希就算已保存。 */
     uncertain: {readonly text: string; readonly hash: Promise<string>} | null;
@@ -348,6 +366,7 @@ export function createDocumentStore(options: DocumentStoreOptions): DocumentStor
         const text = ref("");
         const saved = ref<string | null>(null);
         const candidates = shallowRef(new Map<string, string>());
+        const blocked = shallowRef(new Map<string, BlockedInput>());
         const inflight = ref<{readonly text: string; readonly hash: Promise<string>} | null>(null);
         const pending = shallowRef<Promise<SaveResult> | null>(null);
         const ended = ref<string | null>(watches.get(schemeOf(address))?.ended ?? null);
@@ -367,6 +386,7 @@ export function createDocumentStore(options: DocumentStoreOptions): DocumentStor
             ended,
             saveProblem: ref(null),
             unresolved: computed(() => [...candidates.value.keys()]),
+            blocked,
             // 外部删除后只读（输出 18）：dirty 的正文仍可保存重建，那是保存的事，不是继续输入。
             // 只剩字节引用的条目没有正文可改（输出 41）。
             writable: computed(() => status.value === "ready" && ended.value === null && textual.value),
@@ -392,6 +412,7 @@ export function createDocumentStore(options: DocumentStoreOptions): DocumentStor
             ended,
             saveProblem: document.saveProblem as Ref<DocumentProblem | null>,
             candidates,
+            blocked,
             flushers: new Set(),
             uncertain: null,
             overwrite: null,
@@ -425,12 +446,20 @@ export function createDocumentStore(options: DocumentStoreOptions): DocumentStor
         entry.baseline = null;
         entry.revision.value += 1;
         entry.candidates.value = new Map();
+        entry.blocked.value = new Map();
         entry.conflict.value = null;
         entry.diskChanged.value = false;
         entry.saveProblem.value = null;
         entry.failure.value = null;
         entry.uncertain = null;
         if (entry.status.value !== "deleted") entry.status.value = "ready";
+    };
+
+    const unblockEntry = (entry: Entry, token: string): void => {
+        if (!entry.blocked.value.has(token)) return;
+        const blocked = new Map(entry.blocked.value);
+        blocked.delete(token);
+        entry.blocked.value = blocked;
     };
 
     const drop = (entry: Entry): void => {
@@ -440,7 +469,7 @@ export function createDocumentStore(options: DocumentStoreOptions): DocumentStor
     };
 
     /** 需要结算的文档：关掉它会丢东西。 */
-    const holdsWork = (entry: Entry): boolean => isDirty(entry) || entry.candidates.value.size > 0 || entry.inflight.value !== null || entry.pending.value !== null || entry.conflict.value !== null;
+    const holdsWork = (entry: Entry): boolean => isDirty(entry) || entry.candidates.value.size > 0 || entry.blocked.value.size > 0 || entry.inflight.value !== null || entry.pending.value !== null || entry.conflict.value !== null;
 
     /**
      * 改名或移动：from 之下的文档改到新地址。目标地址上已经有一份文档时（磁盘上没有这个文件，它是外部删除后保留着的，
@@ -516,6 +545,7 @@ export function createDocumentStore(options: DocumentStoreOptions): DocumentStor
         if (entry.closed) return {ok: false, code: "closed"};
         flush(entry);
         if (entry.candidates.value.size > 0) return {ok: false, code: "unresolved"};
+        if (entry.blocked.value.size > 0) return {ok: false, code: "unrepresentable"};
         if (entry.conflict.value !== null && overwrite === null) return {ok: false, code: "conflict"};
         if (entry.ended.value !== null) return {ok: false, code: "ended", detail: entry.ended.value};
         const status = entry.status.value;
@@ -575,6 +605,7 @@ export function createDocumentStore(options: DocumentStoreOptions): DocumentStor
 
     const settleState = (entry: Entry): SettleState | null => {
         if (entry.candidates.value.size > 0) return "unresolved";
+        if (entry.blocked.value.size > 0) return "unrepresentable";
         if (entry.conflict.value !== null) return "conflict";
         if (entry.inflight.value !== null || entry.pending.value !== null) return "saving";
         return isDirty(entry) ? "dirty" : null;
@@ -600,7 +631,7 @@ export function createDocumentStore(options: DocumentStoreOptions): DocumentStor
             }
             const blocked = affected.flatMap((entry): AffectedDocument[] => {
                 const state = settleState(entry);
-                return state === "unresolved" || state === "conflict" ? [{address: entry.address, state}] : [];
+                return state === "unresolved" || state === "unrepresentable" || state === "conflict" ? [{address: entry.address, state}] : [];
             });
             if (blocked.length > 0) return {ok: false, reason: "blocked", documents: blocked};
             for (const entry of affected) entry.leases += 1;
@@ -623,7 +654,7 @@ export function createDocumentStore(options: DocumentStoreOptions): DocumentStor
             for (const entry of within(addresses)) {
                 // 先结算视图输入再看要不要保存：控件的输入延迟里可能还有没交出的修改。
                 flush(entry);
-                if (!isDirty(entry) && entry.candidates.value.size === 0 && entry.conflict.value === null) continue;
+                if (!isDirty(entry) && entry.candidates.value.size === 0 && entry.blocked.value.size === 0 && entry.conflict.value === null) continue;
                 const result = await save(entry);
                 results.push(result.ok ? {address: entry.address, ok: true} : {address: entry.address, ok: false, code: result.code});
             }
@@ -702,6 +733,8 @@ export function createDocumentStore(options: DocumentStoreOptions): DocumentStor
             // 订阅结束只挡保存，不挡输入进入正文：结束之前敲下、还没交出的输入要能抢救（输出 22）。
             const status = entry?.status.value;
             if (entry === null || entry.textRefs === 0 || (status !== "ready" && status !== "deleted")) return {status: "stale"};
+            // 这个视图写得出了、输入交了出来（成为正文或未裁决输入）：不再写不出。
+            unblockEntry(entry, token);
             const revision = entry.revision.value;
             if (text === entry.text.value) return {status: "accepted", revision};
             if (baseRevision === revision) {
@@ -728,10 +761,21 @@ export function createDocumentStore(options: DocumentStoreOptions): DocumentStor
         },
         discardInput: (document, token) => {
             const entry = entryOf(document);
-            if (entry === null || !entry.candidates.value.has(token)) return;
+            if (entry === null) return;
+            unblockEntry(entry, token);
+            if (!entry.candidates.value.has(token)) return;
             const candidates = new Map(entry.candidates.value);
             candidates.delete(token);
             entry.candidates.value = candidates;
+        },
+        block: (document, token, input) => {
+            const entry = entryOf(document);
+            if (entry === null || entry.textRefs === 0) return;
+            entry.blocked.value = new Map(entry.blocked.value).set(token, input);
+        },
+        unblock: (document, token) => {
+            const entry = entryOf(document);
+            if (entry !== null) unblockEntry(entry, token);
         },
         attachView: (document, settle) => {
             const entry = live(document);
@@ -754,6 +798,7 @@ export function createDocumentStore(options: DocumentStoreOptions): DocumentStor
                 return;
             }
             entry.candidates.value = new Map();
+            entry.blocked.value = new Map();
             entry.status.value = "ready";
             adopt(entry, result.value.text, result.value.baseline);
         },
@@ -773,11 +818,12 @@ export function createDocumentStore(options: DocumentStoreOptions): DocumentStor
         },
         coordinator,
         rescue: () => {
-            const found: Array<{path: string; text: string}> = [];
+            const found: Array<{path: string; text: string; note?: string}> = [];
             for (const entry of entries.values()) {
                 flush(entry);
                 if (isDirty(entry)) found.push({path: entry.address, text: entry.text.value});
                 for (const candidate of entry.candidates.value.values()) found.push({path: entry.address, text: candidate});
+                for (const input of entry.blocked.value.values()) found.push({path: entry.address, text: input.fallback, note: LOST_FORMAT});
             }
             return found;
         },

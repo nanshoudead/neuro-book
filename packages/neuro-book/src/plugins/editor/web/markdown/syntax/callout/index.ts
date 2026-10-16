@@ -7,6 +7,8 @@
  */
 
 import {mergeAttributes, Node} from "@tiptap/core";
+import type {Node as PMNode} from "@tiptap/pm/model";
+import type {NodeView} from "@tiptap/pm/view";
 import type {Tokens} from "marked";
 
 import {children} from "../core/write";
@@ -54,7 +56,78 @@ export const Callout = Node.create({
             unsetCallout: () => ({commands}) => commands.lift(this.name),
         };
     },
+    addNodeView() {
+        return ({node}) => calloutView(node);
+    },
 });
+
+/** 有专门图标与颜色的五种类型（不分大小写）；其它类型按 `note` 显示。 */
+const ICONS: Readonly<Record<string, string>> = {
+    note: "i-lucide-info",
+    tip: "i-lucide-lightbulb",
+    important: "i-lucide-message-square-warning",
+    warning: "i-lucide-triangle-alert",
+    caution: "i-lucide-octagon-alert",
+};
+
+/**
+ * 编辑器里的提示块：标题行（图标、标题或类型名、有折叠标记时的展开按钮）不可编辑，内容区是可编辑的子块。折叠状态只在这个
+ * 视图里，不写回文件：带 `-` 的一开始折叠，`+` 的一开始展开，没有折叠标记的不能折叠。
+ */
+function calloutView(initial: PMNode): NodeView {
+    let node = initial;
+    let folded = node.attrs.fold === "-";
+    const dom = document.createElement("div");
+    const head = document.createElement("div");
+    head.className = "nb-callout__title";
+    head.contentEditable = "false";
+    const icon = document.createElement("span");
+    const label = document.createElement("span");
+    label.className = "nb-callout__label";
+    const toggle = document.createElement("button");
+    toggle.type = "button";
+    toggle.className = "nb-callout__toggle";
+    const chevron = document.createElement("span");
+    chevron.className = "i-lucide-chevron-right";
+    toggle.append(chevron);
+    toggle.addEventListener("click", (event) => {
+        event.preventDefault();
+        folded = !folded;
+        render();
+    });
+    const content = document.createElement("div");
+    content.className = "nb-callout__content";
+    head.append(icon, label, toggle);
+    dom.append(head, content);
+    const render = (): void => {
+        const type = String(node.attrs.type ?? "NOTE");
+        const kind = ICONS[type.toLowerCase()] === undefined ? "note" : type.toLowerCase();
+        const foldable = node.attrs.fold !== null;
+        dom.className = `nb-callout nb-callout--${kind}`;
+        dom.dataset.callout = type;
+        dom.dataset.calloutFolded = String(foldable && folded);
+        icon.className = `nb-callout__icon ${ICONS[kind] as string}`;
+        label.textContent = node.attrs.title === null || node.attrs.title === "" ? type : String(node.attrs.title);
+        toggle.hidden = !foldable;
+        toggle.setAttribute("aria-expanded", String(!(foldable && folded)));
+        toggle.setAttribute("aria-label", label.textContent);
+        content.hidden = foldable && folded;
+    };
+    render();
+    return {
+        dom,
+        contentDOM: content,
+        update: (next) => {
+            if (next.type !== node.type) return false;
+            node = next;
+            render();
+            return true;
+        },
+        // 标题行是界面，不是正文：点击与它的变化不交给编辑器。
+        stopEvent: (event) => head.contains(event.target as globalThis.Node | null),
+        ignoreMutation: (mutation) => !content.contains(mutation.target),
+    };
+}
 
 /** 第一行：`[!类型]`，可跟 `-` 或 `+`，再跟标题。 */
 const HEAD = /^\[!([A-Za-z][\w-]*)\]([+-])?(?:[ \t]+(.*?))?[ \t]*$/u;

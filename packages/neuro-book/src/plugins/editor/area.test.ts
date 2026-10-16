@@ -176,6 +176,28 @@ describe("Spec workbench.editor 输出 6–8：打开与切换", () => {
         expect(right.text.value).toBe("右");
         expect(at.area.open("project://b.md", {mode: "preview"})).toMatchObject({ok: true});
     });
+
+    it("当前视图写不出时不换文档、不换编辑器（输出 61）：理由说是写不回；别的视图的输入被接受不解除它；采用当前正文后可以换", async () => {
+        const at = await world();
+        at.area.open("project://a.md", {mode: "permanent"});
+        await ready(at);
+        at.area.split("right");
+        await ready(at);
+        const right = textBinding(at.area, groupId(at));
+        const left = textBinding(at.area, at.area.groups.groups.value[0]?.id ?? "");
+        if (right === null || left === null) throw new Error("没有绑定");
+        right.block({reason: "段首的 HTML", from: 1, to: 4, fallback: "A"});
+        expect(right.blocked()).toBe(true);
+        expect(at.area.open("project://b.md", {mode: "preview"})).toEqual({ok: false, reason: "当前视图有一块写不回 Markdown"});
+        expect(at.area.notice.value).toContain("写不回");
+        expect(at.area.reopenWith(CODE_EDITOR)).toEqual({ok: false, reason: "当前视图有一块写不回 Markdown"});
+        left.commit(left.revision.value, "左");
+        expect(right.blocked()).toBe(true);
+        expect(await at.area.save()).toMatchObject({ok: false, reason: expect.stringContaining("写不回")});
+        at.area.unblock(groupId(at));
+        expect(right.blocked()).toBe(false);
+        expect(at.area.open("project://b.md", {mode: "preview"})).toMatchObject({ok: true});
+    });
 });
 
 /** 内置两个编辑器加一个 HTML 预览编辑器与一个只认 png 的字节编辑器。 */
@@ -374,7 +396,7 @@ describe("Spec workbench.editor 输出 3–5：关闭、拆分与会话", () => 
         const tab = at.area.groups.activeTab()?.id ?? "";
         const cancelled = at.area.close(tab);
         await until(at, "问", () => at.area.dialog.value !== null);
-        expect(at.area.dialog.value).toEqual({address: "project://a.md"});
+        expect(at.area.dialog.value).toEqual({address: "project://a.md", saveable: true});
         at.area.answer("cancel");
         expect(await cancelled).toBe("cancelled");
         expect(at.area.groups.activeTab()?.id).toBe(tab);
@@ -631,6 +653,23 @@ describe("Spec workbench.editor 输出 4、13：关闭时的结算", () => {
         at.area.resolve(leftGroup, "keep-view");
         expect(left.text.value).toBe("左");
         expect(await at.area.documents.save(at.area.documentOf(leftGroup)!)).toEqual({ok: true});
+    });
+
+    it("关掉写不出的视图（输出 61）：询问里没有保存；不保存时丢掉它的输入，文档的正文不变", async () => {
+        const at = await world();
+        at.area.open("project://a.md", {mode: "permanent"});
+        await ready(at);
+        const binding = textBinding(at.area, groupId(at));
+        if (binding === null) throw new Error("没有绑定");
+        binding.block({reason: "段首的 HTML", from: 1, to: 4, fallback: "A"});
+        const document = at.area.documentOf(groupId(at));
+        const closing = at.area.close(at.area.groups.activeTab()?.id ?? "");
+        await until(at, "问", () => at.area.dialog.value !== null);
+        expect(at.area.dialog.value).toEqual({address: "project://a.md", saveable: false});
+        at.area.answer("discard");
+        expect(await closing).toBe("closed");
+        expect(document?.blocked.value.size ?? 0).toBe(0);
+        expect(await readFile(join(at.scene.project, "a.md"), "utf8")).toBe("A");
     });
 
     it("同一文档还在别的组：关掉有未裁决输入的视图要问；不保存只丢这个视图的输入，文档仍可保存", async () => {
