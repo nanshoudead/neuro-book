@@ -8,6 +8,10 @@
  *    才发生的事件，否则环等），用已落盘的原样消息渲染 Profile，`setSystemPrompt` 并暂存渲染出的消息；随后
  *    OMP 同步系统提示词、调 `transformContext`，后者交回暂存的消息。送模型的内容以渲染为准，Agent 内部的
  *    调度历史不动。
+ *    OMP 的循环把事件推进流里就往下走，订阅者是异步收到的：钩子运行时，上一批最后几条工具结果的 `message_end`
+ *    可能还没投递，也就还没写进日志。`transformContext` 拿到的是循环自己的完整上下文，所以在那里等它里面的每条
+ *    工具结果都写进日志，日志有变化就重新渲染消息，模型不会收到缺了结果的工具调用。系统提示词在钩子里就定了，
+ *    Profile 的系统提示词若随历史变化，这一次请求用的是钩子当时的历史。
  * 3. 模型消息与工具结果在 `message_end` 时按到达顺序排进写队列（原样消息，助手消息后跟一条用量）。
  * 4. 收尾工具：`beforeToolCall` 拦下混在一批里的；`afterToolCall` 只记“候选”并用 OMP 的 terminal reason
  *    停止循环。OMP 的顺序是 execute → afterToolCall → tool_execution_end → 工具结果的 message_end，所以
@@ -121,6 +125,14 @@ export async function createHarness(options: HarnessOptions): Promise<Harness> {
     // 写队列：条目按事件到达的顺序串行写入；`history` 只收已写进日志的原样消息，渲染就用它。
     let writes: Promise<void> = Promise.resolve();
     let writeError: unknown = null;
+    // 每写进一批消息（或写不进、不能写）就唤醒一次，transformContext 据此等落后的工具结果。
+    let historyChanged = Promise.withResolvers<void>();
+    let historyVersion = 0;
+    const notifyHistory = (): void => {
+        const changed = historyChanged;
+        historyChanged = Promise.withResolvers<void>();
+        changed.resolve();
+    };
     const enqueue = (owner: Run | null, inputs: readonly SessionEntryInput[], onWritten?: () => void, messages: readonly AgentMessage[] = []): Promise<void> => {
         const write = writes.then(async () => {
             if (writeError !== null) throw writeError;
@@ -129,10 +141,15 @@ export async function createHarness(options: HarnessOptions): Promise<Harness> {
                 stamped = await sessionLog.append(inputs);
             } catch (error) {
                 writeError = error;
+                notifyHistory();
                 throw error;
             }
             owner?.entries.push(...stamped);
             history.push(...messages);
+            if (messages.length > 0) {
+                historyVersion += 1;
+                notifyHistory();
+            }
             onWritten?.();
         });
         writes = write.catch(() => undefined);
@@ -147,6 +164,7 @@ export async function createHarness(options: HarnessOptions): Promise<Harness> {
     let state: "idle" | "running" | "closing" | "closed" = "idle";
     let closing: Promise<void> | null = null;
     let renderedMessages: AgentMessage[] | null = null;
+    let renderedVersion = -1;
     const persisted = new WeakSet<object>();
     const listeners = new Set<(event: AgentEvent) => void>();
 
@@ -176,7 +194,22 @@ export async function createHarness(options: HarnessOptions): Promise<Harness> {
             }) as typeof fetch;
             return baseStream(streamModel, context, {...streamOptions, fetch: counted});
         },
-        transformContext: async (messages) => renderedMessages ?? messages,
+        transformContext: async (messages) => {
+            const expected = messages.filter((message) => message.role === "toolResult").map((message) => (message as {toolCallId: string}).toolCallId);
+            const written = (): Set<string> => new Set(history.filter((message) => message.role === "toolResult").map((message) => (message as {toolCallId: string}).toolCallId));
+            // 写不进日志或消息不能序列化时，那条结果永远不会进 history：这次运行已记下 local，不再等。
+            while (expected.some((id) => !written().has(id)) && writeError === null && run?.hostError == null) await historyChanged.promise;
+            if (renderedMessages !== null && renderedVersion !== historyVersion) {
+                try {
+                    renderedMessages = renderContext(profile, {initial, tools: toolIds, history, model: model.model}).messages;
+                    renderedVersion = historyVersion;
+                } catch (error) {
+                    if (run !== null) run.hostError = localError(`渲染 Profile 失败：${String(error)}`);
+                    throw error;
+                }
+            }
+            return renderedMessages ?? messages;
+        },
         beforeToolCall: ({assistantMessage, toolCall}) => {
             if (!finishNames.has(toolCall.name)) return undefined;
             const calls = assistantMessage.content.filter((block) => block.type === "toolCall").length;
@@ -205,6 +238,7 @@ export async function createHarness(options: HarnessOptions): Promise<Harness> {
             const rendered = renderContext(profile, {initial, tools: toolIds, history, model: model.model});
             agent.setSystemPrompt(rendered.systemPrompt);
             renderedMessages = rendered.messages;
+            renderedVersion = historyVersion;
         } catch (error) {
             if (run !== null) run.hostError = localError(`渲染 Profile 失败：${String(error)}`);
             throw error;
@@ -228,6 +262,7 @@ export async function createHarness(options: HarnessOptions): Promise<Harness> {
             // 不能原样写进日志的消息（例如工具 details 里有循环引用）：这次运行以 local 失败、不再请求模型，
             // 不让日志里留下没有结果的工具调用却报成功。
             if (current !== null && current.hostError === null) current.hostError = localError(`消息不能写进会话日志：${String(error)}`);
+            notifyHistory();
             agent.abort();
             return;
         }

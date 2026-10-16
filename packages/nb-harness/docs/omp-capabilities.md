@@ -146,6 +146,9 @@ read omp://sdk.md               # 读某一篇
 12. **`getApiKey` 返回空会退回默认密钥**：自定义 `baseUrl` 下也会改用同一 provider 的环境变量（例如 `OPENAI_API_KEY`）。指定的密钥缺失时必须在发请求前失败；无认证的 OpenAI 兼容端点返回公开的 `NO_AUTH_SENTINEL`（`@oh-my-pi/pi-ai/providers/openai-shared`），不带认证头。
 13. **`buildModel` 会套目录修正**（2026-10-15 w00002 t21 实现审查实测）：`@oh-my-pi/pi-catalog/build` 按 provider 与 id 应用目录里的单价、分时价、上下文与输出上限、模态修正，宿主显式给的值会被覆盖（例如 `deepseek/deepseek-flash` 的 `maxTokens: 100` 变成 384000）。自定义端点要在构建后用宿主的值盖回去，`cost` 整个替换，并以实际请求参数与费用验证。
 14. **错误归类不按文字**：失败的助手消息带 `errorStatus` 与 `errorId`（`@oh-my-pi/pi-ai/error/flags` 的 `Flag` 位）；没有状态码不等于网络故障（SSE 里的内容拦截、模型终态错误也没有状态码，带 `ContentBlocked`、`ProviderFinishError`）； `getApiKey`、上下文变换、`streamFn` 抛出的错误经 Agent 外层捕获后只剩文字，要在调用 OMP 之前或钩子里自己捕获并保留类型。
+15. **import 期装上 SIGINT 处理**（2026-10-16 w00024 t05 实测）：`@oh-my-pi/pi-utils` 的 postmortem 在主线程顶层注册 SIGINT，跑完 `postmortem.register` 登记的清理（最多 10 秒）就以 130 退出。宿主自己的 `process.on("SIGINT")` 照样被调用，却拦不住退出，回调里异步的收尾会丢。要在中断时收尾，经 nb-harness 的 `onProcessInterrupt` 登记。
+16. **多余的工具参数被悄悄删掉**：工具参数 schema 写了 `additionalProperties: false` 时，OMP 在调用 `execute` 之前删掉模型多写的字段，不报错；要让模型知道哪个参数写错了，schema 不写这一项，由 `execute` 或下游的严格校验报错。
+17. **事件是异步投递的**（2026-10-16 w00024 t05 实测）：循环把事件推进流里就往下走，`Agent.subscribe` 的订阅者异步收到。同一批并行工具里最后完成的那条结果，它的 `message_end` 可能晚于下一次请求前的 `addBeforeModelCallHook`；按订阅到的消息渲染上下文时会漏掉它，真实服务会因为工具调用没有结果而拒绝请求。`transformContext` 拿到的是循环自己的完整上下文，在那里等落后的消息。
 
 ## 8. 本仓库的使用位置
 

@@ -337,6 +337,36 @@ describe("调度保真", () => {
         expect(order).toEqual(["start 1", "end 1", "start 2", "end 2"]);
     });
 
+    test("同一批并行工具的结果，下一次请求里一条不少（输出 8）", async () => {
+        // OMP 的循环把事件推进流里就往下走，订阅者异步收到；最后一条工具结果的 message_end 可能晚于下一次请求前的
+        // 钩子。多跑几次，让完成先后与投递时机都变一变。
+        const registry = createToolRegistry();
+        registerPlugin(registry, {
+            name: "q",
+            version: "1",
+            tools: [
+                {
+                    declaration: {id: "q.look", name: "look", description: "", parameters: {type: "object", properties: {n: {type: "integer"}}}},
+                    impl: {
+                        execute: async (args) => {
+                            for (let tick = 0; tick < Number(args.n); tick += 1) await Promise.resolve();
+                            return text(`看了 ${String(args.n)}`);
+                        },
+                    },
+                },
+            ],
+        });
+        const profile = defineProfile({manifest: {key: "q", version: "1", name: "q", description: "q"}, initialSchema: Type.Object({}), tools: [toolRef("q.look")], context: () => ProfilePrompt({children: [System({children: ["q"]}), HistorySet()]})});
+        for (let round = 0; round < 8; round += 1) {
+            const calls = [3, 0, 2, 5].map((n, index) => toolCall(`l${index}`, "look", {n: (n + round) % 6}));
+            const {harness, script} = await open([calls, "好"], {registry, profile, initial: {}});
+            await harness.turn("看");
+            await harness.close();
+            const results = script.requests[1]!.messages.filter((message) => message.role === "toolResult").map((message) => (message as {toolCallId: string}).toolCallId);
+            expect([...results].sort()).toEqual(["l0", "l1", "l2", "l3"]);
+        }
+    });
+
     test("thinking 与签名在关闭再恢复后原样交回模型", async () => {
         const thinking = {type: "thinking" as const, thinking: "先想一下", thinkingSignature: "sig-abc"};
         const first = await open([[thinking, {type: "text", text: "答"}]]);
