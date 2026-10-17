@@ -1,6 +1,6 @@
 # 实施计划：清单校验与第三方插件安装（S1）
 
-2026-10-17 起草，待开发者确认。范围见 [README](README.md)。
+2026-10-17 起草，同日开发者确认（决定见 [t01 plan](../t01-requirements/plan.md#已确认2026-10-17)）。范围见 [README](README.md)。
 
 ## 交付顺序
 
@@ -14,7 +14,7 @@
 
 ## S1a 内核清单
 
-新文件 `packages/nb-runtime/src/plugins/manifest.ts`（零依赖，手写校验）：
+独立机制入口 `@notnotype/nb-runtime/plugin-manifest`（`packages/nb-runtime/src/plugin-manifest/`，用 TypeBox 校验）。不放进 `src/plugins/`：该目录的边界测试只允许同目录相对导入与 `lifecycle`／`services` 公开入口，不能依赖 TypeBox。
 
 - `readPluginManifest(value: unknown): ManifestReadResult`，`ok` 时给出规范化清单；`invalid` 时给出 `{path, message}[]`（按路径稳定排序）。
 - 校验：`name`、`publisher`、`version`（semver）、`engines.neurobook`、`entries`、`contributes`、`contributionPoints`、`activationEventPrefixes`、`pluginVersions`；插件 id 为 `<publisher>.<name>`，第三方不得以 `nbook.` 开头；入口 `main` 必须是相对路径、不含 `..`、不以 `/` 开头；`provides` 的服务 id 以本插件 id 加 `/` 开头；`remoteDelegates` 只允许内置插件；`activationEventPrefixes` 不含 `onRemote`；`pluginVersions` 不列内置插件。
@@ -22,6 +22,7 @@
 - `definitionOf(manifest, location)` → `PluginDefinition`（本位置入口的 `id`、`location`、`dependencies`、`provides`、`activationEvents`、`receives`、`contributions`；`activate` 留空占位，代码装载由 t04 提供）。
 - 入口 `main` 是否存在、是否真实位于插件目录内，由调用方（安装器）在文件系统上核对；解析器只做字符串与结构校验。
 - 清单字段与 npm `package.json` 同名，额外字段集中在 `nbook` 下还是平铺，按 Spec 的表格（当前平铺）。实现前先把 id 与 `publisher`／`name` 的精确规则补进 `plugin-manifest`（S0）。
+- 内置插件对齐测试（应用侧）：把 `productPlugins` 的每个描述与各位置定义转成清单格式，经 `readPluginManifest` 校验，再用 `descriptorOf`／`definitionOf` 转回，与原值比对（`activate` 除外）。内置插件不生成清单文件。
 
 不做的：`version-mismatch` 受阻推导。它要求定义携带插件版本，而 `PluginDefinition` 目前没有版本字段；等第三方插件可以依赖彼此（t04 之后）再加。
 
@@ -77,7 +78,7 @@
 
 ## 风险与未决
 
-- **产品版本**：应用 `package.json` 的 `version` 是 `0.0.0`，`engines.neurobook` 目前无法表达兼容范围。先按该版本实现（`>=0.0.0` 之外的范围拒绝），并在 Spec 与安装界面写明；是否给产品一个正式版本由开发者定。
-- **semver 范围匹配**：应用没有 `semver` 依赖。引入 `semver`（小、成熟）或手写 `^`／`~`／比较符子集；倾向前者，等实施时按锁文件成本决定。
+- **产品版本**（已定）：应用版本改为 `0.1.0`，`PRODUCT_VERSION` 读它；安装时真检查 `engines.neurobook`，不满足拒绝 `incompatible-engine`。0.x 期间插件 API 有破坏性改动时 minor 加一，这条规则写进 `plugin-install` 与 SDK README。
+- **semver 范围匹配**（已定）：用 `Bun.semver.satisfies`，不新增依赖。
 - **npm `files` glob**：Bun 的 `Glob` 可用；实施时用真实样例核对 `files` 的目录与通配语义，并写进 Spec 的 S0 收口。
-- **启停即时生效**：本轮下次启动生效；若开发者要求即时，先做 `plugin-hot-plug`（t01 plan 的 S5）。
+- **启停即时生效**（已定）：本轮下次启动生效，`plugin-hot-plug` 留在 t01 plan 的 S5。

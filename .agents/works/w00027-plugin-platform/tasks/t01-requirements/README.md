@@ -48,7 +48,7 @@ updated: 2026-10-17
 
 | Spec | 缺口 |
 |---|---|
-| `runtime.plugin-manifest` | 清单文件与校验器、`version-mismatch` 推导、由 `defineEntry` 生成清单、内置插件描述迁移到同一清单 |
+| `runtime.plugin-manifest` | 清单文件与校验器、`version-mismatch` 推导、第三方由 SDK 构建预设从 `defineEntry` 生成清单、内置插件以对齐测试证明能用同一清单表达（不生成清单文件） |
 | `runtime.plugin-install` | State Root 安装目录与 `plugins.json` 登记表、`nbook.plugins`（列表／安装／启停／卸载／升级）、`engines.neurobook`、安全模式 |
 | `runtime.plugin-code-loading` | 服务端入口装载、浏览器宿主模块表与插件文件端点、代码回收 |
 | `runtime.plugin-api` | SDK 包与构建预设、激活上下文、worker、兼容承诺 |

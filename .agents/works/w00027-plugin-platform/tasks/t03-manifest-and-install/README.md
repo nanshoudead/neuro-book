@@ -22,7 +22,7 @@ updated: 2026-10-17
 非目标：
 
 - 代码装载、入口激活与 SDK（[t04](../t04-browser-loading-sdk/README.md)）。
-- 启用／禁用即时生效：本轮只写登记表，下次启动生效，界面标明（开发者 2026-10-17 待确认；若要求即时生效，先做 `plugin-hot-plug` 再回到本 Task）。
+- 启用／禁用即时生效：本轮只写登记表，下次启动生效，界面标明（开发者 2026-10-17 确认）。
 - 热升级与回滚：不同版本安装本轮返回明确失败，要求先卸载；私有数据的删除选项、影响预览、文件选择器。
 
 ## 行为合同
@@ -36,20 +36,20 @@ updated: 2026-10-17
 
 ## 当前状态
 
-2026-10-17 建 Task。计划见 [plan.md](plan.md)，**尚未获开发者确认，实施暂停**。
+2026-10-17 建 Task。计划见 [plan.md](plan.md)，同日开发者确认（产品版本 `0.1.0`、内置插件不生成清单文件、启停下次启动生效），可以实施。
 
 同日曾先行写出一版原型（内核清单解析、安装登记表、`nbook.plugins` 与设置页、引导协议 v3），开发者要求先做计划，原型已移出主工作区、停在实现 worktree：
 
 - worktree：`.worktree/w00027-t03-manifest-and-install`，分支 `feat/w00027-t03-manifest-and-install`，**未提交、未 push**；worktree 尚未 `bun install`。
 - 已在原型上验证：内核 `bun test` 310 例通过、内核与应用 typecheck 通过；应用 `src/server/server.test.ts` 23 例中 14 例通过。失败分两类：断言里的插件清单需要加入 `nbook.plugins`（预期内），以及两个“启动失败等待就绪”用例超时（原因未查清）。
-- 计划批准后从 worktree 里继续；先处理这两类失败，再按 plan.md 的 S1a–S1e 收口。原型不等于已交付，不据此宣称任何 Spec 已实现。
+- 从 worktree 里继续；先处理这两类失败，再按 plan.md 的 S1a–S1e 收口。原型不等于已交付，不据此宣称任何 Spec 已实现。
 
 已核实的关键约束：
 
 - 窗口的 `selectPlugins` 要求引导集合里的每个插件都在页面构建内的 `builtin` 里、版本一致，且 `locations` 含 `browser` 时必须有定义（`packages/neuro-book/src/web/host/window.ts:301-333`）。第三方插件必须经运行期描述注入，引导协议要携带描述而不只是 id 与版本。
 - 插件集合在进程生命期内不变（`src/server/browser-bootstrap.ts` 的注释与实现），所以本轮启停只能下次启动生效。
-- 内核是零依赖包，清单校验用普通 TypeScript 手写，不引入 schema 库。
+- 内核 `src/plugins/` 的边界测试不允许依赖 TypeBox，清单校验因此放在独立机制入口 `@notnotype/nb-runtime/plugin-manifest`，用 TypeBox（内核唯一的运行时依赖）。
 
 ## 下一步
 
-开发者确认 plan.md 后开工；先做内核清单解析与表驱动测试，再做登记表与 `nbook.plugins`。
+在 worktree 里 `bun install`，修掉 `server.test.ts` 的两类失败，补内置插件对齐测试与产品版本 `0.1.0`，再按 plan.md 的 S1a–S1e 收口。

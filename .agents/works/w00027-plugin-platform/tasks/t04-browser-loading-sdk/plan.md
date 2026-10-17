@@ -22,10 +22,10 @@
     - 服务端入口：单文件 ESM，依赖全部打进来（除 Node／Bun 内置）。
     - 浏览器入口：单文件 CJS，`format: "cjs"`，`external` 为宿主模块表（`vue`、`@notnotype/nb-ui/components`、SDK），产物导出登记工厂。
     - 样式：入口引用的 CSS 汇总成 `style.css`。
-    - `package.json`：写入生成的清单（`name`、`publisher`、`version`、`engines.neurobook`、`entries`、`contributes` 等），来源是作者的 `plugin.config.ts`。
+    - `package.json`：写入生成的清单（`name`、`publisher`、`version`、`engines.neurobook`、`entries`、`contributes` 等），来源是作者的 `plugin.ts`（与内置插件同一写法：描述加 `defineEntry` 定义）。
   - 纯度检查：构建后扫描浏览器产物，出现 `vue`／nb-ui／SDK 的实现代码即失败，报出模块名；检查在构建脚本里跑一次，不进入产品运行时。
 - 浏览器产物合同（写进 `plugin-code-loading` 的 S0 收口）：模块导出一个 `register(require)` 函数，返回该入口的 `activate(context)`；组件作为惰性工厂，首次渲染时才 `require("vue")`。
-- 清单生成：`dist/package.json` 是可安装目录的清单；作者源目录的 `package.json` 只用于开发，不参与安装（安装器只认 `dist`）。
+- 清单生成：`dist/package.json` 是可安装目录的清单；作者源目录的 `package.json` 只用于开发，安装时指向 `dist`。安装器只认带合法 `package.json` 清单的目录，不区分手写与生成（声明式插件可以直接手写清单安装）。
 
 ## S2c／S2d 装载
 
