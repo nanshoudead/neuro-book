@@ -36,7 +36,13 @@ updated: 2026-10-17
 
 ## 当前状态
 
-2026-10-17 建 Task，未开工。设计见 plan.md。
+2026-10-17 建 Task。计划见 [plan.md](plan.md)，**尚未获开发者确认，实施暂停**。
+
+同日曾先行写出一版原型（内核清单解析、安装登记表、`nbook.plugins` 与设置页、引导协议 v3），开发者要求先做计划，原型已移出主工作区、停在实现 worktree：
+
+- worktree：`.worktree/w00027-t03-manifest-and-install`，分支 `feat/w00027-t03-manifest-and-install`，**未提交、未 push**；worktree 尚未 `bun install`。
+- 已在原型上验证：内核 `bun test` 310 例通过、内核与应用 typecheck 通过；应用 `src/server/server.test.ts` 23 例中 14 例通过。失败分两类：断言里的插件清单需要加入 `nbook.plugins`（预期内），以及两个“启动失败等待就绪”用例超时（原因未查清）。
+- 计划批准后从 worktree 里继续；先处理这两类失败，再按 plan.md 的 S1a–S1e 收口。原型不等于已交付，不据此宣称任何 Spec 已实现。
 
 已核实的关键约束：
 
