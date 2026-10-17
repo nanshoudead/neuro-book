@@ -101,8 +101,11 @@ test("安装 → 重启后配置项出现、能写进本作品层 → 禁用 →
     await page.locator("[data-settings-tabs]").getByRole("radio", {name: "用户"}).click();
     await page.locator("[data-settings-nav='nbook.plugins.installed']").click();
     await expect(pluginRow(page, "example.hello").locator("[data-plugin-pending]")).toHaveCount(0);
-    await pluginRow(page, "example.hello").locator("[data-plugin-toggle]").click();
+    // 键盘切换：结算之后焦点仍在这个开关上。
+    await pluginRow(page, "example.hello").locator("[data-plugin-toggle]").focus();
+    await page.keyboard.press("Space");
     await expect(pluginRow(page, "example.hello").locator("[data-plugin-pending='disable']")).toBeVisible();
+    await expect(pluginRow(page, "example.hello").locator("[data-plugin-toggle]")).toBeFocused();
 
     await restart(page);
     await openSettings(page, "nbook.plugins.installed");
@@ -110,6 +113,8 @@ test("安装 → 重启后配置项出现、能写进本作品层 → 禁用 →
     await pluginRow(page, "example.hello").locator("[data-plugin-uninstall]").click();
     await page.getByRole("dialog", {name: "卸载插件"}).getByRole("button", {name: "卸载"}).click();
     await expect(pluginRow(page, "example.hello").locator("[data-plugin-pending='uninstall']")).toBeVisible();
+    // “卸载”不再显示：焦点落到第三方插件的小标题，不丢到页面上。
+    await expect(page.locator("[data-plugin-group='third-party'] h3")).toBeFocused();
     expect(await exists(join(stateRoot, "plugins", "example.hello", "1.0.0", "package.json"))).toBe(true);
 
     await restart(page);

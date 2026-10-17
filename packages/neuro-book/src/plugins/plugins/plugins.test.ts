@@ -93,6 +93,7 @@ describe("nbook.plugins/registry", () => {
         await writeFile(join(source, "package.json"), JSON.stringify({publisher: "example", name: "hello", version: "1.0.0", engines: {neurobook: ">=0.1.0"}}));
 
         expect(await registry.list({})).toEqual({ok: true, value: {safeMode: false, plugins: [{id: "nbook.plugins", version: "0.1.0", source: "builtin", state: "enabled", pending: [], notLoaded: null}]}});
+        expect(await registry.inspect({path: source})).toEqual({ok: true, value: {id: "example.hello", version: "1.0.0", installed: null, relation: "install"}});
         expect(await registry.install({path: source})).toMatchObject({ok: true, value: {plugin: {id: "example.hello", pending: [{kind: "install"}]}}});
         expect(await registry.disable({id: "example.hello"})).toMatchObject({ok: true, value: {plugin: {state: "disabled", pending: [{kind: "install"}, {kind: "disable"}]}}});
         expect(await registry.uninstall({id: "example.hello"})).toMatchObject({ok: true, value: {plugin: {state: "uninstalling", pending: [{kind: "uninstall"}]}}});

@@ -17,3 +17,8 @@ export const npmVersions: VersionSyntax = {
 export function engineAccepts(productVersion: string, range: string): boolean {
     return semver.satisfies(productVersion, range);
 }
+
+/** 两个合法版本的先后：大于 0 表示 `left` 更新。 */
+export function compareVersions(left: string, right: string): number {
+    return semver.compare(left, right);
+}

@@ -233,6 +233,11 @@ describe("升级（输出 8、场景 12、16）", () => {
         expect(v3).toMatchObject({ok: true, value: {version: "1.0.0", pending: [{kind: "upgrade", version: "3.0.0"}]}});
         expect(await namesIn(join(w.root, "example.hello"))).toEqual(["1.0.0", "3.0.0"]);
         // 与当前版本或待切换版本相同都拒绝：待切换不能靠再装旧版本撤销。
+        // 确认之前的预览：只读，区分升级与降级，冲突照样报出。
+        expect(await w.inventory.inspect(await w.source("v4", manifest("4.0.0")))).toEqual({ok: true, value: {id: "example.hello", version: "4.0.0", installed: "1.0.0", relation: "upgrade"}});
+        expect(await w.inventory.inspect(await w.source("v0", manifest("0.9.0")))).toEqual({ok: true, value: {id: "example.hello", version: "0.9.0", installed: "1.0.0", relation: "downgrade"}});
+        expect(await w.inventory.inspect(await w.source("v3-peek", manifest("3.0.0")))).toMatchObject({ok: false, code: "already-installed"});
+        expect(await namesIn(join(w.root, "example.hello"))).toEqual(["1.0.0", "3.0.0"]);
         expect(await w.inventory.install(await w.source("v1-again", manifest("1.0.0")))).toMatchObject({ok: false, code: "already-installed"});
         expect(await w.inventory.install(await w.source("v3-again", manifest("3.0.0")))).toMatchObject({ok: false, code: "already-installed"});
 

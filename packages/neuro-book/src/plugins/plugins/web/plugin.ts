@@ -10,7 +10,6 @@ import type {Component, PropType} from "vue";
 
 import {defineEntry} from "@notnotype/nb-runtime/plugins";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
-import type {RemoteClient} from "@notnotype/nb-runtime/remote";
 
 import {displayLocale, SETTINGS_SECTIONS_POINT, settingsKey} from "nbook/plugins/settings/shared/contracts";
 import type {SettingsSectionDeclaration} from "nbook/plugins/settings/shared/contracts";
@@ -19,13 +18,14 @@ import type {DisplayLocale} from "nbook/shared/localized-text";
 
 import {descriptor} from "../plugin";
 import {pluginsRegistryContract} from "../shared/contracts";
+import type {PluginsRegistry} from "../shared/contracts";
 
 /** 设置分区 id：内置插件以 `nbook.` 开头，点分小写段。 */
 export const PLUGINS_SECTION = "nbook.plugins.installed";
 
 const SECTION: SettingsSectionDeclaration = {
     title: {"zh-CN": "插件", "en-US": "Plugins"},
-    description: {"zh-CN": "从本地文件夹安装第三方插件，启用、禁用或卸载它们", "en-US": "Install third-party plugins from a local folder, enable, disable or uninstall them"},
+    description: {"zh-CN": "安装与管理第三方插件", "en-US": "Install and manage third-party plugins"},
     icon: "i-lucide-puzzle",
     category: "plugins",
     kind: "page",
@@ -47,7 +47,7 @@ export const pluginsBrowserPlugin: PluginDefinition = {
             const registry = context.remote.use(pluginsRegistryContract);
             const locale = computed(() => displayLocale(settings));
             const page: SettingsPageImplementation = {
-                load: async () => withRegistry((await import("./PluginsPage.vue")).default, registry, locale),
+                load: async () => withRegistry((await import("./components/PluginsPage.vue")).default, registry, locale),
             };
             return {contributions: {[SETTINGS_SECTIONS_POINT]: {[PLUGINS_SECTION]: page}}};
         },
@@ -58,7 +58,7 @@ export const pluginsBrowserPlugin: PluginDefinition = {
  * 设置窗口只给页面一个 `context` 属性；合同客户端与当前显示语言由这里补上。用渲染函数写：插件的合同测试在 bun test
  * 里导入本文件，Bun 不能加载 `.vue`，`.vue` 只在 `load()` 里动态导入。
  */
-function withRegistry(page: Component, registry: RemoteClient<typeof pluginsRegistryContract>, locale: Readonly<{value: DisplayLocale}>): Component {
+function withRegistry(page: Component, registry: PluginsRegistry, locale: Readonly<{value: DisplayLocale}>): Component {
     return defineComponent({
         name: "PluginsSettingsSection",
         props: {context: {type: Object as PropType<SettingsPageContext>, required: true}},

@@ -14,24 +14,27 @@ import {mkdir, realpath, rename, rm, stat} from "node:fs/promises";
 import {join, relative, resolve, isAbsolute} from "node:path";
 
 import type {DiagnosticInput} from "@notnotype/nb-runtime/diagnostics";
+import type {PluginManifest} from "@notnotype/nb-runtime/plugin-manifest";
 import {defineServiceKey} from "@notnotype/nb-runtime/services";
 import type {ServiceKey} from "@notnotype/nb-runtime/services";
 
 import {holdLock} from "nbook/backend/locked-replace";
-import type {PendingChange, PluginFailureCode, PluginList, PluginListItem} from "nbook/plugins/plugins/shared/contracts";
+import type {InstallPreview, PendingChange, PluginFailureCode, PluginList, PluginListItem} from "nbook/plugins/plugins/shared/contracts";
 
 import {collectCopyRange, copyRange} from "./copy";
 import {assertHeld, brief, byId, LockLost, ownedPath, readRecord, STAGING_DIR, withRecordLock, writeRecord} from "./record";
 import type {PluginRecord, RecordEntry} from "./record";
 import {installedManifest, missingEntries} from "./startup";
 import type {StartupPlugins} from "./startup";
-import {engineAccepts} from "./versions";
+import {compareVersions, engineAccepts} from "./versions";
 
 export type InventoryFailure = {readonly ok: false; readonly code: PluginFailureCode; readonly detail: string; readonly problems?: ReadonlyArray<string>};
 export type InventoryResult<T> = {readonly ok: true; readonly value: T} | InventoryFailure;
 
 export interface PluginInventory {
     list(): Promise<InventoryResult<PluginList>>;
+    /** 只读：安装这个文件夹会是首次安装、升级还是降级；校验与 `install` 相同，但不复制、不写登记表。 */
+    inspect(sourcePath: string): Promise<InventoryResult<InstallPreview>>;
     /** `sourcePath` 是服务端本地的插件文件夹；已安装另一版本时按升级处理。 */
     install(sourcePath: string): Promise<InventoryResult<PluginListItem>>;
     setEnabled(id: string, enabled: boolean): Promise<InventoryResult<PluginListItem>>;
@@ -49,6 +52,16 @@ export interface PluginInventoryOptions {
     readonly builtin: ReadonlyArray<{readonly id: string; readonly version: string}>;
     readonly startup: StartupPlugins;
     readonly record: (input: DiagnosticInput) => void;
+}
+
+/** `prepare` 核对通过的安装源。 */
+interface Prepared {
+    readonly source: string;
+    readonly manifest: PluginManifest;
+    readonly raw: unknown;
+    readonly files: ReadonlyArray<string> | null;
+    /** 已安装的当前版本；没有安装为 null。 */
+    readonly installed: string | null;
 }
 
 function failure(code: PluginFailureCode, detail: string, problems?: ReadonlyArray<string>): InventoryFailure {
@@ -131,7 +144,8 @@ export function createPluginInventory(options: PluginInventoryOptions): PluginIn
         return locked.ok ? locked.value : failure("registry-failed", locked.detail);
     }
 
-    async function install(sourcePath: string): Promise<InventoryResult<PluginListItem>> {
+    /** 安装前的核对，`inspect` 与 `install` 共用：源路径、清单、兼容、`files` 写法与登记表里的冲突。 */
+    async function prepare(sourcePath: string): Promise<InventoryResult<Prepared>> {
         let source: string;
         try {
             source = await realpath(resolve(sourcePath));
@@ -162,11 +176,27 @@ export function createPluginInventory(options: PluginInventoryOptions): PluginIn
         const files = filesOf(raw);
         if (files === undefined) return failure("manifest-invalid", "package.json 的 files 必须是字符串数组", ["files：必须是字符串数组"]);
 
-        // 先不持锁核对一次，免得白复制；提交时持锁再核对。
-        const before = await readRecord(root);
-        if (!before.ok) return failure("registry-failed", before.detail);
-        const early = conflict(before.record.plugins[manifest.id], manifest.id, manifest.version);
+        // 不持锁的核对：免得白复制，也让确认界面先知道结果；提交时持锁再核对。
+        const record = await readRecord(root);
+        if (!record.ok) return failure("registry-failed", record.detail);
+        const existing = record.record.plugins[manifest.id];
+        const early = conflict(existing, manifest.id, manifest.version);
         if (early !== null) return early;
+        return {ok: true, value: {source, manifest, raw, files, installed: existing?.version ?? null}};
+    }
+
+    async function inspect(sourcePath: string): Promise<InventoryResult<InstallPreview>> {
+        const prepared = await prepare(sourcePath);
+        if (!prepared.ok) return prepared;
+        const {manifest, installed} = prepared.value;
+        const relation = installed === null ? "install" : compareVersions(manifest.version, installed) > 0 ? "upgrade" : "downgrade";
+        return {ok: true, value: {id: manifest.id, version: manifest.version, installed, relation}};
+    }
+
+    async function install(sourcePath: string): Promise<InventoryResult<PluginListItem>> {
+        const prepared = await prepare(sourcePath);
+        if (!prepared.ok) return prepared;
+        const {source, manifest, raw, files} = prepared.value;
 
         const staging = join(root, STAGING_DIR, randomUUID());
         try {
@@ -264,6 +294,7 @@ export function createPluginInventory(options: PluginInventoryOptions): PluginIn
             const thirdParty = [...ids].map((id) => itemOf(id, read.record.plugins[id])).sort(byId);
             return {ok: true, value: {safeMode: options.startup.safeMode, plugins: [...builtin, ...thirdParty]}};
         },
+        inspect: (sourcePath) => inspect(sourcePath),
         install: (sourcePath) => serial(async () => {
             const result = await install(sourcePath);
             if (!result.ok) options.record({level: "warn", event: "plugins.install.rejected", message: "安装没有完成", data: {source: sourcePath, code: result.code, detail: result.detail}});

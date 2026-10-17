@@ -7,6 +7,7 @@
  */
 
 import {defineRemoteService} from "@notnotype/nb-runtime/remote";
+import type {RemoteClient} from "@notnotype/nb-runtime/remote";
 import {Type} from "typebox";
 import type {Static} from "typebox";
 
@@ -54,6 +55,19 @@ const ListSchema = Type.Object({
 
 export type PluginList = Static<typeof ListSchema>;
 
+/**
+ * 安装前的预览（plugin-install 输出 8.1）：确认界面据此区分首次安装、升级与降级，降级时提示数据可能已被新版本迁移。
+ * `installed` 是已安装的当前版本，没有安装为 null。
+ */
+const InstallPreviewSchema = Type.Object({
+    id: Type.String({minLength: 1}),
+    version: Type.String({minLength: 1}),
+    installed: Type.Union([Type.String({minLength: 1}), Type.Null()]),
+    relation: Type.Union([Type.Literal("install"), Type.Literal("upgrade"), Type.Literal("downgrade")]),
+}, {additionalProperties: false});
+
+export type InstallPreview = Static<typeof InstallPreviewSchema>;
+
 const IdInput = Type.Object({id: Type.String({minLength: 1})}, {additionalProperties: false});
 const PathInput = Type.Object({path: Type.String({minLength: 1})}, {additionalProperties: false});
 const One = Type.Object({plugin: PluginListItemSchema}, {additionalProperties: false});
@@ -86,9 +100,13 @@ export const pluginsRegistryContract = defineRemoteService({
     callers: ["browser"],
     methods: {
         list: {input: Type.Object({}, {additionalProperties: false}), output: ListSchema, effect: "read", errors: {"registry-failed": Detail}},
+        inspect: {input: PathInput, output: InstallPreviewSchema, effect: "read", errors},
         install: {input: PathInput, output: One, effect: "write", errors},
         enable: {input: IdInput, output: One, effect: "write", errors},
         disable: {input: IdInput, output: One, effect: "write", errors},
         uninstall: {input: IdInput, output: One, effect: "write", errors},
     },
 });
+
+/** 插件页用到的合同方法（浏览器入口经 `context.remote.use` 取得的客户端满足它）。 */
+export type PluginsRegistry = Pick<RemoteClient<typeof pluginsRegistryContract>, "list" | "inspect" | "install" | "enable" | "disable" | "uninstall">;

@@ -28,6 +28,7 @@ import type ProjectInfoDialog from "nbook/plugins/projects/web/components/Projec
 import type ShelfCards from "nbook/plugins/projects/web/components/ShelfCards.vue";
 import type ShelfDesk from "nbook/plugins/projects/web/components/ShelfDesk.vue";
 import type ShelfList from "nbook/plugins/projects/web/components/ShelfList.vue";
+import type PluginsPage from "nbook/plugins/plugins/web/components/PluginsPage.vue";
 import type WorksSettingsPage from "nbook/plugins/projects/web/components/WorksSettingsPage.vue";
 import type {ShelfItem} from "nbook/plugins/projects/shared/shelf";
 import type SettingsControl from "nbook/plugins/settings/web/components/SettingsControl.vue";
@@ -1016,6 +1017,21 @@ function shelfFixtures(): LabFixture[] {
                 {id: "english", label: "英文界面", input: {props: {locale: "en-US", layer: "user"}}},
             ],
             load: async () => (await import("./WorksSettingsPageFixture.vue")).default,
+        }),
+        defineLabFixture<typeof PluginsPage>({
+            component: "PluginsPage",
+            scenes: [
+                {id: "pending", label: "有待生效的变化（升级、安装、禁用、卸载）", input: {props: {locale: "zh-CN"}}},
+                {id: "empty", label: "没有第三方插件", input: {props: {locale: "zh-CN"}}},
+                {id: "not-loaded", label: "没有登记：清单无效、不兼容、只有声明", input: {props: {locale: "zh-CN"}}},
+                {id: "safe-mode", label: "安全模式", input: {props: {locale: "zh-CN"}}},
+                {id: "long", label: "很长的 id 与版本", input: {props: {locale: "zh-CN"}}},
+                {id: "downgrade", label: "安装预览为降级", input: {props: {locale: "zh-CN"}}},
+                {id: "loading", label: "读取中", input: {props: {locale: "zh-CN"}}},
+                {id: "failed", label: "读取失败", input: {props: {locale: "zh-CN"}}},
+                {id: "english", label: "英文界面", input: {props: {locale: "en-US"}}},
+            ],
+            load: async () => (await import("./PluginsPageFixture.vue")).default,
         }),
     ];
 }

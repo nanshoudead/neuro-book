@@ -40,6 +40,10 @@ export const pluginsBackendPlugin: PluginDefinition = {
                             const listed = await inventory.list();
                             return listed.ok ? {ok: true as const, value: listed.value} : {ok: false as const, code: "registry-failed" as const, detail: {detail: listed.detail}};
                         },
+                        inspect: async ({path}) => {
+                            const preview = await inventory.inspect(path);
+                            return preview.ok ? {ok: true as const, value: preview.value} : refused(preview);
+                        },
                         install: async ({path}) => {
                             const installed = await inventory.install(path);
                             return installed.ok ? {ok: true as const, value: {plugin: installed.value}} : refused(installed);
