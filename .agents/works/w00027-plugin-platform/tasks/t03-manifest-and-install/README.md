@@ -36,20 +36,13 @@ updated: 2026-10-17
 
 ## 当前状态
 
-2026-10-17 建 Task。计划见 [plan.md](plan.md)，同日开发者确认（产品版本 `0.1.0`、内置插件不生成清单文件、启停下次启动生效），可以实施。
+2026-10-17 建 Task，同日开发者确认计划与设计审查后的修订（[plan.md](plan.md)），在 worktree `.worktree/w00027-t03-manifest-and-install`（分支 `feat/w00027-t03-manifest-and-install`，未 push、未合入）实施完 S1a–S1e，并按两份实现审查修订：
 
-同日曾先行写出一版原型（内核清单解析、安装登记表、`nbook.plugins` 与设置页、引导协议 v3），开发者要求先做计划，原型已移出主工作区、停在实现 worktree：
-
-- worktree：`.worktree/w00027-t03-manifest-and-install`，分支 `feat/w00027-t03-manifest-and-install`，**未提交、未 push**；worktree 尚未 `bun install`。
-- 已在原型上验证：内核 `bun test` 310 例通过、内核与应用 typecheck 通过；应用 `src/server/server.test.ts` 23 例中 14 例通过。失败分两类：断言里的插件清单需要加入 `nbook.plugins`（预期内），以及两个“启动失败等待就绪”用例超时（原因未查清）。
-- 从 worktree 里继续；先处理这两类失败，再按 plan.md 的 S1a–S1e 收口。原型不等于已交付，不据此宣称任何 Spec 已实现。
-
-已核实的关键约束：
-
-- 窗口的 `selectPlugins` 要求引导集合里的每个插件都在页面构建内的 `builtin` 里、版本一致，且 `locations` 含 `browser` 时必须有定义（`packages/neuro-book/src/web/host/window.ts:301-333`）。第三方插件必须经运行期描述注入，引导协议要携带描述而不只是 id 与版本。
-- 插件集合在进程生命期内不变（`src/server/browser-bootstrap.ts` 的注释与实现），所以本轮启停只能下次启动生效。
-- 内核 `src/plugins/` 的边界测试不允许依赖 TypeBox，清单校验因此放在独立机制入口 `@notnotype/nb-runtime/plugin-manifest`，用 TypeBox（内核唯一的运行时依赖）。
+- 提交：`b41cc5025`（实现）、`3cce46618`（真实浏览器 e2e）、`98db53316`（插件页分组）、`fea2c9410`（后端审查修正）、`7ec47e9d8`（插件页按界面审查重做）。
+- 实现审查：后端与内核交 omp（[evidences/impl-review-omp.txt](evidences/impl-review-omp.txt)，9 条：重要 8、建议 1），插件页交 Sonnet（[evidences/impl-review-ui.txt](evidences/impl-review-ui.txt)，17 条：重要 9、建议 8）。处理见 plan.md 的“实施记录”。
+- 验证（修订后）：内核 `bun test` 342 例、应用 `bun test` 1545 例、Vitest 372 例通过；两包 typecheck；`docs:check`、`governance:check` 无失败；`e2e/plugins.e2e.ts` 在 Chrome 上通过（含键盘切换与卸载后的焦点）。修订前另跑过 `settings`、`browser-host`、`rpc` 三组 e2e，22 例通过。`markdown/asset-urls.test.ts` 的失同步用例在 master 上也约一半概率超时，与本次无关。
+- 本机 `/tmp` 的用户配额被别的会话占满时，Chrome 报 `Disk quota exceeded`；这次给 Playwright 设 `TMPDIR` 到家目录下绕开，没有动别的会话的文件。
 
 ## 下一步
 
-在 worktree 里 `bun install`，修掉 `server.test.ts` 的两类失败，补内置插件对齐测试与产品版本 `0.1.0`，再按 plan.md 的 S1a–S1e 收口。
+开发者决定是否对审查后的修订再审一轮，然后合入 master；之后去掉 Spec 里本次实现条目的“（planned）”并补实现合同（晋升由开发者批准），再开 t04。
