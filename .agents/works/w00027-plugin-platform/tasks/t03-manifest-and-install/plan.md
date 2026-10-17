@@ -17,7 +17,7 @@
 独立机制入口 `@notnotype/nb-runtime/plugin-manifest`（`packages/nb-runtime/src/plugin-manifest/`，用 TypeBox 校验）。不放进 `src/plugins/`：该目录的边界测试只允许同目录相对导入与 `lifecycle`／`services` 公开入口，不能依赖 TypeBox。
 
 - `readPluginManifest(value: unknown): ManifestReadResult`，`ok` 时给出规范化清单；`invalid` 时给出 `{path, message}[]`（按路径稳定排序）。
-- 校验：`name`、`publisher`、`version`（semver）、`engines.neurobook`、`entries`、`contributes`、`contributionPoints`、`activationEventPrefixes`、`pluginVersions`；插件 id 为 `<publisher>.<name>`，第三方不得以 `nbook.` 开头；入口 `main` 必须是相对路径、不含 `..`、不以 `/` 开头；`provides` 的服务 id 以本插件 id 加 `/` 开头；`remoteDelegates` 只允许内置插件；`activationEventPrefixes` 不含 `onRemote`；`pluginVersions` 不列内置插件。
+- 校验：`name`、`publisher`、`version`（semver）、`engines.neurobook`、`entries`、`contributes`、`contributionPoints`、`activationEventPrefixes`、`pluginVersions`；插件 id 为 `<publisher>.<name>`，第三方不得以 `nbook.` 开头；入口 `main` 必须是相对路径、不含 `..`、不以 `/` 开头；`provides` 的服务 id 以本插件 id 加 `/` 开头；`activationEventPrefixes` 不含 `onRemote`；`pluginVersions` 不列内置插件。
 - `descriptorOf(manifest)` → `PluginDescriptor`（id、version、`locations` 取入口位置的并集、顶层 `contributions`）。
 - `definitionOf(manifest, location)` → `PluginDefinition`（本位置入口的 `id`、`location`、`dependencies`、`provides`、`activationEvents`、`receives`、`contributions`；`activate` 留空占位，代码装载由 t04 提供）。
 - 入口 `main` 是否存在、是否真实位于插件目录内，由调用方（安装器）在文件系统上核对；解析器只做字符串与结构校验。
@@ -32,7 +32,7 @@
 - `registry.ts`：
   - 读：`plugins.json` 不存在时视为空；结构不符合 `nbook.plugins/v1` 时整体不加载并记诊断，不覆盖文件。
   - 写：写临时文件再 `rename`（与 `settings` 的层写入同一模式）；串行队列，同一插件的操作不并发。
-  - `list()`：合并登记表与磁盘现状，给出 `installed`、`enabled`、`manifestProblem`、`source`。
+  - `list()`：合并登记表与磁盘现状，给出 `installed`、`enabled`、`manifestProblem`、`source`。内置插件也列出（`source: "builtin"`、恒为启用、版本为产品版本）；本轮对内置插件的 `enable`／`disable`／`uninstall` 拒绝 `builtin-fixed`。
   - `install(sourcePath)`：解析路径 → 读 `package.json` → `readPluginManifest` → 拒绝 `nbook.` 前缀 → 检查 `engines.neurobook`（用产品版本，见风险）→ 目标 id 已安装时：同版本拒绝 `already-installed`，不同版本拒绝 `upgrade-unsupported`（本轮）→ 复制（有 `files` 按它，否则整目录排除 `node_modules`、`.git`）→ 拒绝符号链接与越界项 → 核对全部 `main` 存在 → 写登记表 `enabled: true` → 返回新条目。
   - `uninstall(id)`：只限第三方；删目录与登记项；不删私有存储与配置（本轮无该选项）。
   - `setEnabled(id, enabled)`：写登记表；本轮的效果在下次启动。
@@ -61,8 +61,13 @@
 ## S1e 设置页
 
 - `web/plugin.ts`：浏览器入口贡献 page 分区，`load()` 返回 `PluginsPage.vue`；页面经 `context` 属性拿到当前层（插件页固定用户层）与窗口连接，调用远程合同。
-- 页面内容：列表（名称、id、版本、来源、状态、启用开关、卸载）、安装（路径输入 + 确认，确认文案写明完全信任）、顶部提示“启用／禁用与安装在下一次启动后生效”。
+- 页面内容：列表（名称、id、版本、来源、状态、启用开关、卸载；内置插件标“内置”，没有开关与卸载）、安装（路径输入 + 确认，确认文案写明完全信任）、顶部提示“启用／禁用与安装在下一次启动后生效”。
 - 复用 `nb-ui` 的 `SettingsRow`、`Switch`、`Button`、`Dialog` 与通知；不新建样式体系。
+
+## 内置插件版本与信任
+
+- 内置插件描述的 `version` 改为引用 `PRODUCT_VERSION`（`src/shared/product.ts`），不再各写各的；窗口按 id 与版本核对构建的规则不变。
+- 本轮默认信任所有插件：第三方入口也可以声明 `remoteDelegates`，宿主给内核的代理允许清单由“内置三项”改为“声明了 `remoteDelegates` 的已登记插件”（`manifest.ts` 的 `delegatingPlugins` 随之改写）。宿主适配器 `nbook.diagnostics`、`nbook.http` 仍按 ADR 0026 只能内置。
 
 ## 验收映射
 

@@ -44,7 +44,7 @@
 
 ## 示例与验收
 
-示例：`packages/neuro-book/examples/external/hello/`（源码 + `plugin.config.ts` + 构建脚本，产物到 `dist/`）。能力：设置项、命令、视图、服务端远程服务（例如“服务端问候”）。
+示例：把现有示例插件改为外置插件作验收载体（开发者 2026-10-17 定），不另写新示例。S2 用 snippets（设置项、page 分区、浏览器代码）；S3 用 clock、notes、counter（服务端入口、远程服务、项目实例、命令）。每个示例保留 `plugin.ts` 与 `defineEntry` 写法，加构建脚本，产物到 `dist/`；进程内场景测试保留，另加“构建 → 安装 → 重启 → 使用”的 smoke。
 
 | Spec 条目 | 验证 |
 |---|---|
