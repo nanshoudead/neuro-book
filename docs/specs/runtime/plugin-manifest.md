@@ -18,7 +18,7 @@ owners:
 - 不定义外部插件从哪里发现、如何安装与升级（[`runtime.plugin-install`](plugin-install.md)）；不定义运行期启用、禁用与引用撤回（[`runtime.plugin-hot-plug`](plugin-hot-plug.md)）；不定义代码如何装载与回收（[`runtime.plugin-code-loading`](plugin-code-loading.md)）。
 - 不定义单次激活的事务、贡献接收者五态与普通关闭，它们沿用 [`runtime.plugins`](plugins.md)；服务解析与初始化沿用 [`runtime.services`](services.md)。
 - 不定义各贡献点的声明字段与校验规则，它们归定义贡献点的拥有者插件的能力 Spec。
-- 不提供可选依赖，不提供同一服务的多个提供者（多个提供者用贡献点）。
+- 不提供同一服务的多个提供者（多个提供者用贡献点）。
 - 运行位置是开放集合，由宿主声明，内核不列举（2026-10-07，[ADR 0024](../../adr/0024-multi-instance-runtime-topology.md)）；各位置的宿主（服务端、项目、浏览器、TUI）由各自的宿主 Spec 定义，本能力只规定入口按位置装配。
 
 ## 术语与参与者
@@ -38,7 +38,7 @@ owners:
 清单有两种载体，字段与规则相同：
 
 - 第三方插件安装时，清单是插件目录中的 `package.json`；
-- 内置插件的清单是代码中的插件描述与各运行位置的入口定义，不另存 `package.json`。代码定义里 `requires`、`remoteProvides`、`remoteDelegates` 写服务键与合同对象，`package.json` 写 id；两者按 id 对应。每个内置插件的代码定义都必须能表达为 `package.json` 形式，并通过同一套校验。
+- 内置插件的清单是代码中的插件描述与各运行位置的入口定义，不另存 `package.json`。代码定义里 `requires`、`remoteProvides`、`remoteDelegates` 写服务键与合同对象，`package.json` 写 id；两者按 id 对应。代码定义里的函数（入口的激活函数、贡献点的校验函数）是运行期钩子，不属于清单；除此之外，每个内置插件的代码定义都必须能表达为 `package.json` 形式，并通过同一套校验，转回代码定义后相同。
 
 下表按 `package.json` 的字段写。与本能力有关的字段：
 
@@ -52,6 +52,8 @@ owners:
 | `entries.<id>.remoteProvides` | 可选，本入口提供的远程服务合同 id 列表；合同 id 以本插件 id 加 `/` 开头 |
 | `entries.<id>.remoteDelegates` | 可选，本入口可代表调用方调用的远程服务合同 id 列表；任何插件都可以声明 |
 | `entries.<id>.requires` | 必需依赖的服务 id 列表 |
+| `entries.<id>.optional` | 可选依赖的服务 id 列表：缺了不使入口受阻，只有用到它的那一处不可用（[`runtime.plugins`](plugins.md)） |
+| `entries.<id>.receives` | 本入口接收贡献的贡献点 id 列表；只能是本插件在 `contributionPoints` 中定义的贡献点 |
 | `entries.<id>.provides` | 本入口提供的服务 id 列表 |
 | `entries.<id>.activationEvents` | 激活事件列表 |
 | `entries.<id>.contributes` | 需要本入口提供实现的贡献，例如命令、视图、Agent 工具、路由、公开状态的键（`state.public`，实现是激活时绑定的读取函数，[`state.public`](../state/public-state.md)） |

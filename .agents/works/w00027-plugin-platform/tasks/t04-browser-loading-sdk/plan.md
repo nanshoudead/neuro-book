@@ -58,6 +58,8 @@ e2e 流程：`bun run build` 示例 → 经 `nbook.plugins` 安装 `dist/` → �
 
 ## 风险与未决
 
+- **开工前要决定（t03 设计审查第 7 条）**：清单里 `remoteProvides`、`remoteDelegates` 只有合同 id，内核却要求激活产出的远程合同与声明是同一个对象。合同对象从 SDK 合同模块怎样进入登记、怎样保证激活产物用的是同一个对象，不能靠登记时提前 import 入口代码（违反“登记不执行插件代码”）。第三方拥有的贡献点怎样校验贡献（内置插件用校验函数，清单里只有可序列化的 schema）也在此时定。
+- **`version-mismatch`**：第三方插件互相依赖从本 Task 起成立，S3 一并实现受阻推导与场景。
 - **CSP**：若页面设有 `script-src`，`new Function` 需要 `unsafe-eval`，与 Spec“不放宽 CSP”冲突。先做 S2a 预检，必要时改为 `<script type="module">` + blob URL 或重新评估方案（会改动 Spec）。
 - **共享模块表的打包一致性**：nb-ui 与 Vue 的版本必须由宿主固定，插件构建预设从宿主包读取版本；不一致时装载失败并提示重新构建。
 - **SDK 分发**：本轮 `private`，外部作者从仓库取 SDK；正式发布形态（npm 包或 tarball）另定。

@@ -34,6 +34,10 @@ updated: 2026-10-17
 
 平台设计已 acceptance，机制部分已实现，但外部插件的运行路径完全没有：应用只用代码里的静态 `productPlugins` 装配内置插件，没有从目录发现、安装或执行外部代码的入口（`packages/neuro-book/src/manifest.ts`、`server/plugins.ts`、`web/plugins.ts`）。详见 [t01](tasks/t01-requirements/README.md)。
 
+## 范围外发现
+
+- `packages/neuro-book/src/server/projects/registry.ts` 的作品登记表 `projects.json` 只做进程内串行，注释写“只由本服务端进程写入”；而同一状态根可以有多个服务端进程（`runtime/projects.md`）。两个进程同时登记作品会互相覆盖。与 t03 设计审查第 8 条（插件登记表）同类，t03 改用 `replaceLocked`；`projects.json` 不在本 Work 范围，待开发者安排。
+
 ## 授权与限制
 
 - 当前只做需求、规范与设计；实施切片经开发者确认后另建 Task。

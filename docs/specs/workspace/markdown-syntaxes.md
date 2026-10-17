@@ -109,7 +109,7 @@ interface MarkdownService {
 
 ## 边界与兼容
 
-- 公开接口：两个贡献点、`MarkdownSyntax` 类型、`markdownKey` 交出的组件、`dialectTable` 与 `countWords`。`MarkdownSyntax` 直接用到 Markdown 解析器与编辑内核的类型，第一版只给内置插件，版本随它们升级可能变化。
+- 公开接口：两个贡献点、`MarkdownSyntax` 类型、`markdownKey` 交出的组件、`dialectTable` 与 `countWords`。`MarkdownSyntax` 直接用到 Markdown 解析器与编辑内核的类型，任何插件都可以使用（[ADR 0027](../../adr/0027-builtin-and-third-party-plugins-are-equal.md)）；这些类型随解析器与编辑内核升级可能不兼容，按 [`runtime.plugin-api`](../runtime/plugin-api.md) 的产品版本规则体现。
 - 方言的写法属于作品文件的格式，兼容规则见 [workspace.markdown-dialect](markdown-dialect.md) 的“边界与兼容”。
 
 ## 验收与 Smoke
