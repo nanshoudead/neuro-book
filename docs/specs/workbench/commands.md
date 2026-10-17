@@ -108,9 +108,9 @@ owners:
 
 ## 边界与兼容
 
-### 命令服务只限内置插件
+### 命令服务是内部服务
 
-命令服务的 `get`、`list`、`isEnabled` 是同步的，按 [`runtime.plugin-api`](../runtime/plugin-api.md) 的选用规则，命令服务属于内置插件之间的内部服务，只给内置插件依赖。第三方插件贡献命令不受影响；第三方查询与执行命令的写法随第三方插件 API 设计。
+命令服务的 `get`、`list`、`isEnabled` 是同步的，按 [`runtime.plugin-api`](../runtime/plugin-api.md) 的选用规则属于内部服务；任何插件都可以依赖它查询与执行命令（[ADR 0027](../../adr/0027-builtin-and-third-party-plugins-are-equal.md)）。
 
 ### 命名与域词表（第一批）
 

@@ -33,7 +33,7 @@
   - 读：`plugins.json` 不存在时视为空；结构不符合 `nbook.plugins/v1` 时整体不加载并记诊断，不覆盖文件。
   - 写：写临时文件再 `rename`（与 `settings` 的层写入同一模式）；串行队列，同一插件的操作不并发。
   - `list()`：合并登记表与磁盘现状，给出 `installed`、`enabled`、`manifestProblem`、`source`。内置插件也列出（`source: "builtin"`、恒为启用、版本为产品版本）；本轮对内置插件的 `enable`／`disable`／`uninstall` 拒绝 `builtin-fixed`。
-  - `install(sourcePath)`：解析路径 → 读 `package.json` → `readPluginManifest` → 拒绝 `nbook.` 前缀 → 检查 `engines.neurobook`（用产品版本，见风险）→ 目标 id 已安装时：同版本拒绝 `already-installed`，不同版本拒绝 `upgrade-unsupported`（本轮）→ 复制（有 `files` 按它，否则整目录排除 `node_modules`、`.git`）→ 拒绝符号链接与越界项 → 核对全部 `main` 存在 → 写登记表 `enabled: true` → 返回新条目。
+  - `install(sourcePath)`：解析路径 → 读 `package.json` → `readPluginManifest` → 拒绝 `nbook.` 前缀 → 检查 `engines.neurobook`（用产品版本，见风险）→ 目标 id 已安装时：同版本拒绝 `already-installed`，不同版本按重启生效的升级处理（复制到新版本目录，登记表记下待切换版本，下次启动切换并删除旧版本目录）→ 复制（有 `files` 按它，否则整目录排除 `node_modules`、`.git`）→ 拒绝符号链接与越界项 → 核对全部 `main` 存在 → 写登记表 `enabled: true` → 返回新条目。
   - `uninstall(id)`：只限第三方；删目录与登记项；不删私有存储与配置（本轮无该选项）。
   - `setEnabled(id, enabled)`：写登记表；本轮的效果在下次启动。
 - 源目录位于 `<State Root>/plugins/` 之内时拒绝（自我复制）。
@@ -67,7 +67,7 @@
 ## 内置插件版本与信任
 
 - 内置插件描述的 `version` 改为引用 `PRODUCT_VERSION`（`src/shared/product.ts`），不再各写各的；窗口按 id 与版本核对构建的规则不变。
-- 本轮默认信任所有插件：第三方入口也可以声明 `remoteDelegates`，宿主给内核的代理允许清单由“内置三项”改为“声明了 `remoteDelegates` 的已登记插件”（`manifest.ts` 的 `delegatingPlugins` 随之改写）。宿主适配器 `nbook.diagnostics`、`nbook.http` 仍按 ADR 0026 只能内置。
+- 信任所有插件（ADR 0027）：删除代理允许清单——内核 `PluginHostOptions.delegation` 与 `ApplicationManifest.delegation`、`src/manifest.ts` 的 `delegatingPlugins`、三个宿主的接线与测试里的配置；`delegation.test.ts` 与示例场景 05 中“不在允许清单被拒”的用例删除。身份签发核对（`issuedTo`）与合同须在 `remoteDelegates` 里的核对保留。代码落地后：去掉 `runtime/services.md` 输出 13、`runtime/plugins.md` 输出 20、`runtime/plugin-channel.md` 输出 10 的“（planned）”，并改写三处实现合同（`runtime/application.md` 的 `ApplicationManifest`、`runtime/plugins.md` 的经代理远程调用、`settings/configuration.md` 的 owner 与依赖方向）里的允许清单。宿主适配器 `nbook.diagnostics`、`nbook.http` 仍按 ADR 0026 只能内置。
 
 ## 验收映射
 

@@ -20,7 +20,6 @@ owners:
 - 内存层、策略层、语言或资源级覆盖（VS Code 的 `[markdown]`）、多套用户配置（VS Code 的 Profile）、层间对象深合并：每个键整体覆盖。
 - 启动配置：端口、状态根等由宿主的环境变量决定（[`runtime.server-host`](../runtime/server-host.md)），不经本插件。
 - 跨设备同步。
-- 第三方插件的读写写法：`get` 是同步的，同步服务只限内置插件（[`runtime.plugin-api`](../runtime/plugin-api.md)）。
 - 与不走本插件写入锁的外部编辑器之间的写入互斥：只缩小竞态窗口（输出 13）。
 - 已知限制：网络文件系统与部分容器挂载上收不到文件事件时，外部修改到下一次写入或重启才生效；Windows、macOS 未实测。
 

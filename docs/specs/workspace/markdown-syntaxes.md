@@ -81,7 +81,7 @@ interface MarkdownService {
 9. **字数**：字数只按已接受的声明计，与浏览器里实现是否加载成功无关。`tagWords` 为 `skip` 的标签里的字不计，为 `count` 的计；属性一律不计；没有任何声明认领的标签按普通 HTML 处理（原样内容不计）。提示块的类型标记与可渲染 HTML 块由核心扫描处理，不随方言变化。其余规则见 [workspace.markdown-dialect](markdown-dialect.md) 的“副作用与数据”。
 10. **声明表在一个进程里固定**：同一个运行实例的寿命内，`markdown.dialects` 的已接受声明不变；浏览器与项目进程装配同一份清单，声明表相同。声明表的指纹用于书架统计判断口径是否变了（[runtime.projects](../runtime/projects.md) 输出 16）。
 11. **id 与形状**：两个点的贡献 id 都要以贡献方的插件 id 加 `.` 开头；声明不合上表的规则时按 [runtime.plugins](../runtime/plugins.md) 的单条校验为 `invalid-declaration`。
-12. **只给内置插件**：第一版不判断贡献方的来源，前提是装配清单里的插件都是内置的。安装第三方插件的机制落地时，方言的贡献按装配方给出的允许清单接受，不按 id 前缀判断。
+12. **不按来源区分**：方言的贡献不判断贡献方是内置插件还是第三方插件，一律按贡献点的规则接受（[ADR 0027](../../adr/0027-builtin-and-third-party-plugins-are-equal.md)）。
 
 ## 状态与转换
 

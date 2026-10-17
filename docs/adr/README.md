@@ -26,3 +26,4 @@ ADR 0001–0021 是旧应用的决策，随旧包留在 [`../../packages/neuro-b
 | [0024](0024-multi-instance-runtime-topology.md) | 多实例运行时拓扑：项目子进程、内核路由的远程服务与专用 RPC 端口 |
 | [0025](0025-service-keys-by-id.md) | 服务键按服务 id 识别，插件之间可引用对方的合同模块（已被 0026 取代） |
 | [0026](0026-plugin-definitions-as-constants.md) | 插件定义是常量，宿主的东西走宿主能力服务；沿用 0025 的服务 id 与合同模块约定 |
+| [0027](0027-builtin-and-third-party-plugins-are-equal.md) | 内置插件与第三方插件能力相同，信任所有插件：删除代理允许清单，内部服务对所有插件开放 |
