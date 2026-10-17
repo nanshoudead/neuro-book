@@ -13,6 +13,7 @@
         "./lifecycle/testing": "./src/lifecycle/testing/manual-clock.ts",
         "./services": "./src/services/services.ts",
         "./plugins": "./src/plugins/plugins.ts",
+        "./plugin-manifest": "./src/plugin-manifest/plugin-manifest.ts",
         "./application": "./src/application/application.ts",
         "./diagnostics": "./src/diagnostics/diagnostics.ts",
         "./remote": "./src/remote/remote.ts",

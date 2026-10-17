@@ -17,7 +17,7 @@ import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import {createRemoteNode} from "@notnotype/nb-runtime/remote";
 import {Value} from "typebox/value";
 
-import {definitionAt, delegatingPlugins} from "nbook/manifest";
+import {definitionAt, thirdPartyDefinition} from "nbook/manifest";
 import type {PluginDescriptor} from "nbook/manifest";
 import type {DiagnosticsConsole} from "nbook/plugins/diagnostics/web/console-exporter";
 import {workbenchRootKey} from "nbook/plugins/workbench/web/contracts";
@@ -238,7 +238,6 @@ export function createBrowserWindow(options: BrowserWindowOptions): BrowserWindo
                         windowPlugins.diagnosticRecorded(diagnostic);
                     }}},
                     remote: node,
-                    delegation: (plugin) => delegatingPlugins.includes(plugin),
                 },
             });
             const application = host.application;
@@ -290,7 +289,8 @@ export function createBrowserWindow(options: BrowserWindowOptions): BrowserWindo
 
 /**
  * 按引导响应选出要登记的插件。协议版本先于结构校验：新版本的服务端可能改了结构，此时应提示刷新而不是报格式错误。
- * 服务端启用了本外壳没有的插件或版本不同，说明外壳与服务端不是同一次构建，刷新即可对齐。
+ * 服务端启用了本外壳没有的内置插件（`nbook.` 开头），或构建里有的插件版本不同，说明外壳与服务端不是同一次构建，刷新即可
+ * 对齐。构建里没有的其它插件是第三方插件，按引导带来的描述登记（docs/specs/runtime/browser-host.md 输出 2、4）。
  */
 type SelectedPlugin =
     | {readonly id: string; readonly kind: "definition"; readonly definition: PluginDefinition}
@@ -311,8 +311,16 @@ function selectPlugins(
     for (const plugin of raw.plugins) {
         if (selected.some((item) => item.id === plugin.id)) throw new BootstrapRejected("startup-failed", `引导集合中插件重复：${plugin.id}`);
         const local = builtin.find((item) => item.id === plugin.id);
-        if (local === undefined || local.version !== plugin.version) {
-            throw new BootstrapRejected("incompatible", `本页面没有服务端启用的浏览器插件 ${plugin.id}@${plugin.version}`);
+        if (local === undefined) {
+            // 内置插件的 id 以 `nbook.` 开头：本页面没有它，说明外壳与服务端不是同一次构建，刷新即可对齐。
+            if (plugin.id.startsWith("nbook.")) throw new BootstrapRejected("incompatible", `本页面没有服务端启用的浏览器插件 ${plugin.id}@${plugin.version}`);
+            // 第三方插件不在构建里：按引导带来的描述登记它的顶层声明（`thirdPartyDefinition`）。
+            const descriptor: PluginDescriptor = {id: plugin.id, version: plugin.version, locations: plugin.locations ?? [], contributions: plugin.contributions ?? []};
+            selected.push({id: plugin.id, kind: "definition", definition: thirdPartyDefinition(descriptor)});
+            continue;
+        }
+        if (local.version !== plugin.version) {
+            throw new BootstrapRejected("incompatible", `本页面构建的插件 ${plugin.id} 是 ${local.version}，服务端启用的是 ${plugin.version}`);
         }
         if (isBrowserHostPlugin(plugin.id)) {
             selected.push({id: plugin.id, kind: "host", factory: hostPlugins[plugin.id]});

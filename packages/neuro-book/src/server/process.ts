@@ -7,8 +7,12 @@
  */
 
 import {writeSync} from "node:fs";
+import {join} from "node:path";
 
+import {prepareInstalledPlugins, safeModeOf} from "nbook/backend/plugins/startup";
+import type {PreparedPlugins} from "nbook/backend/plugins/startup";
 import type {PluginDescriptor} from "nbook/manifest";
+import {PRODUCT_VERSION} from "nbook/shared/product";
 
 import {readServerConfig, ServerConfigError} from "./config";
 import type {ServerConfig} from "./config";
@@ -25,11 +29,12 @@ function readConfigOrExit(): ServerConfig {
     }
 }
 
-function startOrExit(config: ServerConfig, manifest: ReadonlyArray<PluginDescriptor>, options: ServerProcessOptions): RunningServer {
+function startOrExit(config: ServerConfig, manifest: ReadonlyArray<PluginDescriptor>, installed: PreparedPlugins, options: ServerProcessOptions): RunningServer {
     try {
         return startServer({
             config,
             manifest,
+            installed,
             projectEntry: options.projectEntry,
             devTask: options.devTask,
             stopInput: config.stopStdin ? process.stdin : null,
@@ -55,7 +60,10 @@ export interface ServerProcessOptions {
 }
 
 export async function runServerProcess(manifest: ReadonlyArray<PluginDescriptor>, options: ServerProcessOptions = {}): Promise<never> {
-    const server = startOrExit(readConfigOrExit(), manifest, options);
+    const config = readConfigOrExit();
+    // 第三方插件集合在装配之前确定：要处理上次留下的待生效变化，并取跨进程的写入锁。
+    const installed = await prepareInstalledPlugins({root: join(config.stateRoot, "plugins"), productVersion: PRODUCT_VERSION, safeMode: safeModeOf(process.env)});
+    const server = startOrExit(config, manifest, installed, options);
     const {exitCode} = await server.stopped;
     process.exit(exitCode);
 }

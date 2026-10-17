@@ -175,7 +175,7 @@ describe("场景 4：远程服务", () => {
 
     it("计数存在 nbook.storage 里，服务端重启后还在；公开键随计数变化，命令 example.counter.reset 随之可用与不可用", async () => {
         const stage = newStage();
-        // 探针站在“执行命令的内置插件”（例如命令面板）的位置上：命令服务的同步查询只给内置插件用。
+        // 探针站在执行命令的插件（例如命令面板）的位置上，经同步的命令服务查询命令是否可用。
         const shell = serviceProbe("example.shell", "server", [commandServiceKey]);
         const {router} = await stage.server({plugins: [counterBackendPlugin, shell.definition]});
         const counter = (await panelIn(stage, router, "window-1")).use(counterContract);

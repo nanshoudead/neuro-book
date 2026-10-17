@@ -82,7 +82,7 @@ export class ApplicationImpl implements Application {
         this.root = this.#instance.root;
         this.assembly = createServiceAssembly(this.#instance, {observer: manifest.observers?.services});
         this.#startupSignal = AbortSignal.any([this.root.stopSignal, this.#stopRequested.signal]);
-        this.plugins = createPluginHost(this.#instance, this.assembly, {observer: manifest.observers?.plugins, remote: manifest.remote, delegation: manifest.delegation});
+        this.plugins = createPluginHost(this.#instance, this.assembly, {observer: manifest.observers?.plugins, remote: manifest.remote});
         if (host.stopSignal.aborted) {
             void this.stop();
         } else {

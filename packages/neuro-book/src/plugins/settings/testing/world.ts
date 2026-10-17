@@ -17,7 +17,7 @@ import {createRemoteNode, createRemoteRouter} from "@notnotype/nb-runtime/remote
 import type {InstanceDescriptor, RemoteLink, RemoteRouter} from "@notnotype/nb-runtime/remote";
 import {createLinkPair} from "@notnotype/nb-runtime/remote/testing";
 
-import {definitionAt, delegatingPlugins} from "nbook/manifest";
+import {definitionAt} from "nbook/manifest";
 import {createConsoleExporterFactory, createConsoleFallback} from "nbook/plugins/diagnostics/web/console-exporter";
 import {quickPickKey} from "nbook/plugins/workbench/shared/contracts";
 import type {QuickPick} from "nbook/plugins/workbench/shared/contracts";
@@ -59,8 +59,6 @@ export interface SettingsWorldOptions {
     readonly hubGate?: Promise<void>;
 }
 
-/** 代理允许清单取产品的：产品漏装时这里的写入也被拒，测试不替产品补授权。 */
-const DELEGATION = (plugin: string): boolean => delegatingPlugins.includes(plugin);
 
 export async function settingsWorld(root: string, hubPlugins: ReadonlyArray<PluginDefinition>, options: SettingsWorldOptions = {}): Promise<SettingsWorld> {
     const apps: Application[] = [];
@@ -93,7 +91,6 @@ export async function settingsWorld(root: string, hubPlugins: ReadonlyArray<Plug
             plugins: [diagnosticsFor("server", "hub"), definitionAt("server", descriptor, settingsBackendPlugin), ...hubPlugins],
             gates: [],
             remote: hubNode,
-            delegation: DELEGATION,
         },
     );
     apps.push(hub);
@@ -139,7 +136,6 @@ export async function settingsWorld(root: string, hubPlugins: ReadonlyArray<Plug
                     plugins: [diagnosticsFor("project", instance.id), definitionAt("project", descriptor, settingsBackendPlugin), ...plugins],
                     gates: [],
                     remote: node,
-                    delegation: DELEGATION,
                 },
             );
             const pair = createLinkPair();
@@ -178,7 +174,6 @@ export async function settingsWorld(root: string, hubPlugins: ReadonlyArray<Plug
                     plugins: [diagnosticsFor("browser", id), definitionAt("browser", descriptor, {...settings, entries: [...settings.entries, ...(windowOptions.settingsEntries ?? [])]}), ...plugins],
                     gates: [],
                     remote: node,
-                    delegation: DELEGATION,
                 },
             ));
             return {

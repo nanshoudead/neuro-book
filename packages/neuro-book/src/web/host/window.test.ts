@@ -301,6 +301,38 @@ describe("窗口运行实例", () => {
         stub.stop();
     });
 
+    it("第三方插件不在构建里：按引导带来的描述登记顶层声明；构建里没有的 nbook.* 插件仍提示刷新（browser-host 输出 2、4）", async () => {
+        const seen: {listed: string[]} = {listed: []};
+        const owner = {
+            descriptor: {id: "test.notes-owner", version: "0.1.0", locations: ["browser"] as const},
+            definition: {
+                id: "test.notes-owner",
+                contributionPoints: [{id: "test.notes", implementation: "none" as const, validate: () => null}],
+                entries: [{id: "browser", location: "browser", activationEvents: ["onStartup"], activate: (context: ActivationContext) => {
+                    seen.listed = context.declarations.list("test.notes").map((declaration) => `${declaration.plugin}:${declaration.id}`);
+                    return {};
+                }}],
+            } satisfies PluginDefinition,
+        };
+        const builtin = [...builtinBrowserPlugins, owner.descriptor];
+        const thirdParty = {id: "example.notes", version: "2.0.0", locations: [], contributions: [{capability: "test.notes", id: "example.notes/first", declaration: {}}]};
+        const plugins = [...builtin.map(({id, version}) => ({id, version})), thirdParty];
+        const stub = serveBootstrap(() => Response.json({protocolVersion: BROWSER_PROTOCOL_VERSION, rpc: rpcOf(backend), revision: "r", plugins}));
+        const definitions = {...browserPluginDefinitions, [owner.descriptor.id]: owner.definition};
+        const {browserWindow} = openWindow({url: stub.url, builtin, definitions});
+        await browserWindow.start();
+        expect(browserWindow.state.status).toBe("ready");
+        expect(seen.listed).toEqual(["example.notes:example.notes/first"]);
+        await browserWindow.stop();
+        stub.stop();
+
+        const future = serveBootstrap(() => Response.json({protocolVersion: BROWSER_PROTOCOL_VERSION, rpc: rpcOf(backend), revision: "r", plugins: [...plugins, {id: "nbook.future", version: "0.1.0"}]}));
+        const {browserWindow: stale} = openWindow({url: future.url, builtin, definitions});
+        await stale.start();
+        expect(failureOf(stale.state)).toMatchObject({status: "incompatible", reason: expect.stringContaining("nbook.future")});
+        future.stop();
+    });
+
     it("宿主适配器的表只收适配器：普通插件放进去编译不过", () => {
         const options: Partial<BrowserWindowOptions> = {
             // @ts-expect-error 普通插件的定义是常量，不能经宿主适配器的工厂取宿主上下文

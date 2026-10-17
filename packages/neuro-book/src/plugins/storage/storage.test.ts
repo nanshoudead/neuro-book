@@ -107,13 +107,12 @@ async function world(): Promise<World> {
     const userPath = join(root, "state", "storage", "user.sqlite");
     const projectPath = join(root, "Book", ".nbook", "storage.sqlite");
     const seen = new Map<string, Seen>();
-    const delegation = (plugin: string): boolean => plugin === "nbook.storage";
 
     const hubNode = createRemoteNode({instance: {id: "hub", kind: "server", role: "hub", project: null, client: null}});
     const hubPlugins = [silentDiagnostics("server", "hub"), storageBackendPlugin, consumer("app.notes", "server", seen, "hub"), consumer("app.other", "server", seen, "hub")];
     const hub = createApplication(
         {identity: {location: "server", instanceId: "hub"}, stopSignal: new AbortController().signal, emergency: () => undefined},
-        {capabilities: [{id: "host.state-root", key: stateRootKey, create: () => ({path: join(root, "state")})}], plugins: hubPlugins, gates: [], remote: hubNode, delegation},
+        {capabilities: [{id: "host.state-root", key: stateRootKey, create: () => ({path: join(root, "state")})}], plugins: hubPlugins, gates: [], remote: hubNode},
     );
     apps.push(hub);
     expect(await hub.startup).toMatchObject({status: "available", failures: []});
@@ -145,7 +144,7 @@ async function world(): Promise<World> {
             const current = {id: "P", name: "book", generation: next, root: join(root, "Book")};
             const app = createApplication(
                 {identity: {location: "project", instanceId: descriptor.id}, stopSignal: new AbortController().signal, emergency: () => undefined},
-                {capabilities: [{id: "project.current", key: currentProjectKey, create: () => current}], plugins, gates: [], remote: node, delegation},
+                {capabilities: [{id: "project.current", key: currentProjectKey, create: () => current}], plugins, gates: [], remote: node},
             );
             apps.push(app);
             const pair = createLinkPair();
@@ -169,7 +168,6 @@ async function world(): Promise<World> {
                     plugins,
                     gates: [],
                     remote: node,
-                    delegation,
                 },
             );
             apps.push(app);

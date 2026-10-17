@@ -31,7 +31,7 @@ import {createRemoteNode, createRemoteRouter} from "@notnotype/nb-runtime/remote
 import type {InstanceDescriptor, RemoteLink, RemoteNode, RemoteRouter} from "@notnotype/nb-runtime/remote";
 import {createLinkPair} from "@notnotype/nb-runtime/remote/testing";
 
-import {definitionAt, delegatingPlugins} from "nbook/manifest";
+import {definitionAt} from "nbook/manifest";
 import {commandsPlugin} from "nbook/plugins/commands/shared/plugin";
 import {createConsoleExporterFactory, createConsoleFallback} from "nbook/plugins/diagnostics/web/console-exporter";
 import {settingsBackendPlugin} from "nbook/plugins/settings/backend/plugin";
@@ -82,11 +82,6 @@ export class StageClock implements HostClock {
 export interface InstanceOptions {
     /** 本实例要装的示例插件或测试插件；内置插件由场地按运行位置装上。 */
     readonly plugins: ReadonlyArray<PluginDefinition>;
-    /**
-     * 代理允许清单里另加的插件。产品第一版只允许内置插件以调用方身份代理（`src/manifest.ts` 的 `delegatingPlugins`），
-     * 场地总是带上它们；示例要演示第三方插件的代理时在这里加。
-     */
-    readonly delegation?: ReadonlyArray<string>;
 }
 
 /** 一个项目：代次单调递增，同一时刻至多一代在运行。 */
@@ -251,11 +246,10 @@ export class Stage {
         // 诊断照常记进内存（场景可以查询），只是不输出到控制台。
         const silent = {error: () => undefined};
         const diagnostics = createDiagnosticsPlugin({location: identity.location, store, exporter: createConsoleExporterFactory(silent), fallback: createConsoleFallback(silent)});
-        const delegation = new Set([...delegatingPlugins, ...(options.delegation ?? [])]);
         const app = createApplication(
             // 宿主给出的上下文：实例身份、停止来源、紧急输出。
             {identity, stopSignal: new AbortController().signal, emergency: () => undefined},
-            {capabilities, plugins: [diagnostics, ...builtins, ...options.plugins], gates: [], remote, delegation: (plugin) => delegation.has(plugin)},
+            {capabilities, plugins: [diagnostics, ...builtins, ...options.plugins], gates: [], remote},
         );
         this.#apps.push(app);
         const startup = await app.startup;

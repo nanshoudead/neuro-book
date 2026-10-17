@@ -36,8 +36,7 @@ export type PublicStateRead =
 /**
  * 本实例的公开状态：同步、不失败；在 `@vue/reactivity` 的 computed 或 effect 里读，绑定与值的变化都会使它重新求值。
  *
- * 同步读取按选用规则只限内置插件之间使用；第三方插件声明公开键不受影响，读取的异步写法随第三方插件 API 设计
- * （docs/specs/state/public-state.md）。
+ * 同步读取是同一实例内的内部服务，任何插件都可以依赖（ADR 0027，docs/specs/state/public-state.md）。
  */
 export interface PublicStateService {
     read(key: string): PublicStateRead;

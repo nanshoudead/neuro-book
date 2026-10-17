@@ -15,7 +15,7 @@ import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import {createRemoteNode} from "@notnotype/nb-runtime/remote";
 import type {InstanceDescriptor} from "@notnotype/nb-runtime/remote";
 
-import {delegatingPlugins, productPlugins} from "nbook/manifest";
+import {productPlugins} from "nbook/manifest";
 import type {PluginDescriptor} from "nbook/manifest";
 import {startServerHost} from "nbook/server/host";
 import type {FatalKind, ProcessEvents, ServerHost} from "nbook/server/host";
@@ -128,11 +128,11 @@ export async function startProject(options: StartProjectOptions): Promise<Projec
         manifest: {
             capabilities: [{id: "project.current", key: currentProjectKey, create: () => current}, {id: "host.clock", key: clockKey, create: () => systemClock}],
             plugins,
-            requiredPlugins: plugins.map((plugin) => plugin.id),
+            // 第三方插件不是启动必需，失败只影响自己。
+            requiredPlugins: plugins.filter((plugin) => !config.thirdParty.some((descriptor) => descriptor.id === plugin.id)).map((plugin) => plugin.id),
             gates: [],
             observers: mechanismObservers(store),
             remote: node,
-            delegation: (plugin) => delegatingPlugins.includes(plugin),
         },
         emergency: recordingEmergency(store, (emergency) => {
             writeFatal(fatalLine(emergency.stage === "startup" ? "project.startup.failed" : "project.stop.emergency", {report: emergency}));

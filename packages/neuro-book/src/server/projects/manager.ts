@@ -22,6 +22,8 @@ import type {BindRequest, CallerFrame, InstanceDescriptor, ProjectBindResult, Re
 import {perConsumer} from "@notnotype/nb-runtime/services";
 import type {ConsumerIdentity, PerConsumerProvision} from "@notnotype/nb-runtime/services";
 
+import {pluginsAt} from "nbook/manifest";
+import type {PluginDescriptor} from "nbook/manifest";
 import {PROJECT_ENV} from "nbook/project/config";
 import {projectInstance} from "nbook/project/start";
 import type {
@@ -68,6 +70,8 @@ export interface ProjectManagerOptions {
     readonly record: (record: DiagnosticInput) => void;
     /** 子进程输出的去处（每行已加前缀与换行）；缺省本进程的标准输出与标准错误。 */
     readonly output?: {readonly stdout: (text: string) => void; readonly stderr: (text: string) => void};
+    /** 服务端本次启动登记的第三方插件；每个子进程收到其中在项目实例登记的那些。 */
+    readonly thirdParty?: ReadonlyArray<PluginDescriptor>;
 }
 
 export interface ProjectManager {
@@ -165,12 +169,15 @@ class ProjectManagerImpl implements ProjectManager {
      * 不会出现写表中被打开、或打开中被移出的半状态（输出第 15 条）。只覆盖到进入 starting 为止，等子进程启动不在里面。
      */
     readonly #serial = new Map<string, Promise<void>>();
+    /** 交给每个子进程的第三方插件描述（JSON），服务端启动时就定了。 */
+    readonly #thirdParty: string;
     #admission = true;
 
     constructor(options: ProjectManagerOptions) {
         this.registry = options.registry;
         this.#options = options;
         this.#clock = options.clock ?? systemClock;
+        this.#thirdParty = JSON.stringify(pluginsAt("project", options.thirdParty ?? []));
         this.#children = createChildInstances<ProjectChild>(options.application, {
             create: (id, generation) => this.#create(id, generation),
             stop: (child, {signal}) => this.#stop(child, signal),
@@ -472,6 +479,7 @@ class ProjectManagerImpl implements ProjectManager {
                     [PROJECT_ENV.name]: record.name,
                     [PROJECT_ENV.generation]: String(generation),
                     [PROJECT_ENV.root]: record.path,
+                    [PROJECT_ENV.thirdParty]: this.#thirdParty,
                 },
                 stdin: "ignore",
                 stdout: "pipe",

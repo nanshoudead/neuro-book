@@ -100,8 +100,6 @@ export interface ApplicationManifest {
     readonly observers?: MechanismObservers;
     /** 本实例的远程节点（`@notnotype/nb-runtime/remote`）；插件宿主据此提供 `context.remote`。 */
     readonly remote?: PluginHostOptions["remote"];
-    /** 代理允许清单（委托），见 runtime.services 输出第 13 条。 */
-    readonly delegation?: PluginHostOptions["delegation"];
 }
 
 export type GateOutcome =

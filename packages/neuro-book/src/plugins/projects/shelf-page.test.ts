@@ -19,7 +19,7 @@ import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 import {ref} from "vue";
 
-import {definitionAt, delegatingPlugins} from "nbook/manifest";
+import {definitionAt} from "nbook/manifest";
 import {createConsoleExporterFactory, createConsoleFallback} from "nbook/plugins/diagnostics/web/console-exporter";
 import {settingsKey} from "nbook/plugins/settings/shared/contracts";
 import {standaloneSettings} from "nbook/plugins/settings/testing/standalone";
@@ -216,8 +216,6 @@ async function world(initial: ShelfItem[], options: {readonly failShelf?: Script
             })],
             gates: [],
             remote: node,
-            // 配置的写入经代理（浏览器核心替调用方写用户层），与产品窗口相同的允许清单。
-            delegation: (plugin) => delegatingPlugins.includes(plugin),
         },
     );
     const pair = createLinkPair();

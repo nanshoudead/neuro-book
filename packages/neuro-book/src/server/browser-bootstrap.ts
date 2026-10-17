@@ -3,6 +3,9 @@
  * RPC 端口（runtime.browser-host 启动序列第 2 步）。请求带 `project`（地址栏的项目引用）时附上这部作品的显示名，
  * 窗口在连上服务端、打开项目之前就能显示书名。
  *
+ * 内置插件只给 id 与版本：它们的定义随前端构建，窗口按 id 与版本核对。第三方插件不在构建里，另带运行位置与顶层
+ * 声明，窗口据此在运行期登记它们（docs/specs/runtime/browser-host.md 输出 2、4）。
+ *
  * 插件集合在进程生命期内不变（插件热插拔尚未实现），这部分在构造时算好。修订号由排序后的
  * `id@version` 得出，跨重启稳定；集合或任一版本变化时才变化。
  */
@@ -18,16 +21,17 @@ import type {BrowserBootstrap} from "nbook/shared/browser-bootstrap";
 /** 相对 `/api/runtime/` 的路径；完整路径见 `BROWSER_BOOTSTRAP_PATH`。 */
 const ROUTE_PATH = "/browser-bootstrap";
 
-export function browserBootstrap(plugins: ReadonlyArray<PluginDescriptor>, rpc: BrowserBootstrap["rpc"]): BrowserBootstrap {
-    const browser = pluginsAt("browser", plugins)
-        .map(({id, version}) => ({id, version}))
-        .sort((left, right) => (left.id < right.id ? -1 : left.id > right.id ? 1 : 0));
+export function browserBootstrap(builtin: ReadonlyArray<PluginDescriptor>, thirdParty: ReadonlyArray<PluginDescriptor>, rpc: BrowserBootstrap["rpc"]): BrowserBootstrap {
+    const browser: BrowserBootstrap["plugins"] = [
+        ...pluginsAt("browser", builtin).map(({id, version}) => ({id, version})),
+        ...pluginsAt("browser", thirdParty).map(({id, version, locations, contributions}) => ({id, version, locations: [...locations], contributions: (contributions ?? []).map((contribution) => ({...contribution}))})),
+    ].sort((left, right) => (left.id < right.id ? -1 : left.id > right.id ? 1 : 0));
     const revision = createHash("sha256").update(browser.map((plugin) => `${plugin.id}@${plugin.version}`).join("\n")).digest("hex").slice(0, 16);
     return {protocolVersion: BROWSER_PROTOCOL_VERSION, revision, plugins: browser, rpc: {port: rpc.port, path: rpc.path}};
 }
 
-export function createBrowserBootstrapRoute(plugins: ReadonlyArray<PluginDescriptor>, rpc: BrowserBootstrap["rpc"], projectTitle: (reference: string) => Promise<string | null>): HostRoute {
-    const body = browserBootstrap(plugins, rpc);
+export function createBrowserBootstrapRoute(builtin: ReadonlyArray<PluginDescriptor>, thirdParty: ReadonlyArray<PluginDescriptor>, rpc: BrowserBootstrap["rpc"], projectTitle: (reference: string) => Promise<string | null>): HostRoute {
+    const body = browserBootstrap(builtin, thirdParty, rpc);
     return {
         method: "GET",
         path: ROUTE_PATH,

@@ -7,7 +7,7 @@
 import type {DiagnosticsStore} from "@notnotype/nb-runtime/diagnostics";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
-import {definitionAt, pluginsAt} from "nbook/manifest";
+import {definitionAt, pluginsAt, thirdPartyDefinition} from "nbook/manifest";
 import type {PluginDescriptor} from "nbook/manifest";
 import {createServerDiagnosticsPlugin} from "nbook/plugins/diagnostics/backend/plugin";
 import {filesBackendPlugin} from "nbook/plugins/files/backend/plugin";
@@ -47,8 +47,10 @@ export const projectHostPlugins: Readonly<Record<ProjectHostPluginId, ProjectHos
 
 /** 按清单装配项目实例的插件：有项目入口的，加上只有顶层声明式贡献的；有项目入口而两张表都没有时直接失败。 */
 export function manifestProjectPlugins(context: ProjectPluginContext): PluginDefinition[] {
-    return pluginsAt("project", context.manifest).map((plugin) => {
+    const builtin = pluginsAt("project", context.manifest).map((plugin) => {
         if (!plugin.locations.includes("project")) return definitionAt("project", plugin, undefined);
         return definitionAt("project", plugin, plugin.id === "nbook.diagnostics" ? projectHostPlugins[plugin.id](context) : projectPluginDefinitions[plugin.id]);
     });
+    // 第三方插件只登记顶层声明（`thirdPartyDefinition`）。
+    return [...builtin, ...pluginsAt("project", context.config.thirdParty).map(thirdPartyDefinition)];
 }

@@ -112,11 +112,19 @@ examples/
 | 插件 | 运行位置 | 演示什么 |
 |---|---|---|
 | [clock](plugins/clock/) | server | 依赖宿主能力里的时钟，包成共享服务（`provide`）；不声明激活事件，有入口依赖它时才激活；`context.scope` 登记宿主计时器、收口时释放，`context.signal` 一触发就答复还在等的调用 |
-| [notes](plugins/notes/) | server、browser | 服务端：必需依赖 `nbook.storage`（真实 SQLite，按调用方插件分开）、可选依赖 clock（`resolve`，按原因分别处理），`provideRemote` 按调用方生成门面，事件 `changed`。浏览器：按调用方提供笔记视图，以调用方身份代理（`remote.on`、`remoteDelegates`、代理允许清单），维护同步可读的缓存，`nbook.storage` 的缩小版 |
+| [notes](plugins/notes/) | server、browser | 服务端：必需依赖 `nbook.storage`（真实 SQLite，按调用方插件分开）、可选依赖 clock（`resolve`，按原因分别处理），`provideRemote` 按调用方生成门面，事件 `changed`。浏览器：按调用方提供笔记视图，以调用方身份代理（`remote.on`、`remoteDelegates`），维护同步可读的缓存，`nbook.storage` 的缩小版 |
 | [counter](plugins/counter/) | server、project | 一份后端定义两个入口。服务端：`defineStore` 把计数持久化进 `nbook.storage`，公开键 `example.counter/nonzero`，命令 `example.counter.reset` 的 `when` 引用它，远程合同与订阅、提供方看到的调用方。项目：每个项目实例一份的计数，第一次调用时按需激活，窗口省略 `.at()` 即到达绑定的项目 |
 | [menu](plugins/menu/) | server | 定义贡献点 `menu.items`：逐条校验、接收者 `published` 与 `revoke`、执行时经 `implementation()` 取实现；`context.declarations` 列出已接受声明的标题，贡献方还没激活也列得出 |
 | [file-menu](plugins/file-menu/) | server | 向贡献点提交声明与实现，与拥有者之间没有服务依赖；注释说明为什么还只能启动即激活 |
 | [snippets](plugins/snippets/) | browser（配置项在每个实例登记） | 配置项写在插件描述里、由宿主登记进每个实例；向 `settings.sections` 贡献 page 分区，`load()` 按需加载页面；页面用 `SettingsRow` 的宽排法按 `context.layer` 只编辑这一层，按层读（`inspect`）与按层写（`update(..., {layer})`）；什么时候用 page 而不是 list |
+
+## 可安装的外置插件
+
+[`external/`](external/) 下是可以经设置窗口的“插件”页安装的插件文件夹（[`runtime.plugin-install`](../../../docs/specs/runtime/plugin-install.md)）：清单就是文件夹里的 `package.json`（[`runtime.plugin-manifest`](../../../docs/specs/runtime/plugin-manifest.md)），装进状态根、重启后生效。入口代码的装载还没有实现（[`runtime.plugin-code-loading`](../../../docs/specs/runtime/plugin-code-loading.md)），所以现在只有只含声明的插件：
+
+- [declarative](external/declarative/package.json)：一项配置 `example.hello/greeting`，用户层与本作品层都能改。安装、重启后设置窗口出现这一项；禁用、重启后消失。
+
+上面六个示例插件在代码装载实现后分批改成外置插件。
 
 ## 场景
 
@@ -126,7 +134,7 @@ examples/
 | [02-per-consumer](scenarios/02-per-consumer.test.ts) | notes（服务端） | 两个调用方各自只看到自己的笔记；调用方停止后旧门面不能再用、数据还在；服务端重启后笔记仍在 | [services](../../../docs/specs/runtime/services.md) 输出第 11–12 条、[plugin-channel](../../../docs/specs/runtime/plugin-channel.md)、[persistence](../../../docs/specs/storage/persistence.md) |
 | [03-contribution-point](scenarios/03-contribution-point.test.ts) | menu、file-menu | 校验不合格只拒那一条；贡献方停止后撤回；声明先于激活 | [plugins](../../../docs/specs/runtime/plugins.md) 输出第 15–18、23、24 条 |
 | [04-remote-service](scenarios/04-remote-service.test.ts) | counter | 窗口直接用合同、`orThrow`、订阅归发起入口；项目按绑定到达与按需激活；`lookup` 的 `not-provided` 降级；`instances()`；计数持久化，命令随公开键可用与不可用 | [plugin-channel](../../../docs/specs/runtime/plugin-channel.md)、[projects](../../../docs/specs/runtime/projects.md)、[store](../../../docs/specs/state/store.md)、[public-state](../../../docs/specs/state/public-state.md)、[commands](../../../docs/specs/workbench/commands.md) |
-| [05-delegating-proxy](scenarios/05-delegating-proxy.test.ts) | notes（浏览器端） | 两个插件经代理各写各的，服务端看到原调用方与 `via`；同步缓存随 `changed` 更新；不在代理允许清单为 `denied` | [services](../../../docs/specs/runtime/services.md) 输出第 13 条、[plugin-channel](../../../docs/specs/runtime/plugin-channel.md) 输出第 10 条 |
+| [05-delegating-proxy](scenarios/05-delegating-proxy.test.ts) | notes（浏览器端） | 两个插件经代理各写各的，服务端看到原调用方与 `via`；同步缓存随 `changed` 更新 | [services](../../../docs/specs/runtime/services.md) 输出第 13 条、[plugin-channel](../../../docs/specs/runtime/plugin-channel.md) 输出第 10 条 |
 | [06-settings-page](scenarios/06-settings-page.test.ts) | snippets | 配置项在服务端、项目实例与窗口都被接受；page 分区交付给设置窗口、插件停用后撤回；按层写用户层与本作品层，`inspect` 读回各层、`get` 读有效值，删掉本作品层回到沿用，不带 `layer` 时按 `auto` 选层；写别人的项为 `denied`、不合 schema 为 `invalid-value` | [settings-window](../../../docs/specs/settings/settings-window.md)、[configuration](../../../docs/specs/settings/configuration.md) 输出第 3、6、11、12 条 |
 
 ## 场地与探针
@@ -139,7 +147,7 @@ examples/
 
 - **拥有者定义的激活事件**（`activationEventPrefixes`）：现在只有宿主能触发，插件写不出“菜单打开时才激活贡献方”，file-menu 因此启动即激活（见它的注释）。是否给插件补触发接口由开发者决定。
 - **工作台视图**：随工作台外壳实现后补。
-- **插件清单文件**（`package.json`，[`runtime.plugin-manifest`](../../../docs/specs/runtime/plugin-manifest.md)）：实现后示例随之改成清单格式。
+- **带代码的外置插件**：入口代码的装载实现后，上面的示例插件分批改成 `external/` 下的外置插件。
 
 ## 写法与维护
 

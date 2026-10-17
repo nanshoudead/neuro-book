@@ -104,7 +104,7 @@ type SubscribeResult = {ok: true; handle: {release(): void}} | {ok: false; code:
 4. **条件保存**：`save` 只在当前 revision 等于 `expect` 时写入（从未写过为 `null`），成功返回新 revision。删除标记的 revision 不是 `null`，所以持有 `null` 或旧 revision 的保存不能复活已删除的值。
 5. **删除与重置**：`remove` 同样以 revision 为条件，留下删除标记。`reset` 以 revision 为条件写入新值；当前是 `corrupt` 或 `unsupported-version` 时先把原件保存进原件区（每个分区最多 64 份、合计 4 MiB，满了为 `originals-full`），对其它状态与 `save` 相同。对 `corrupt`、`unsupported-version` 做 `save`、`remove` 为 `protected`。
 6. **订阅**：先推一次当前快照，之后推送分区拥有者进程里对同一条记录（owner、键、资源 id、客户端分区）的每次写入，按写入顺序送达；只推当前状态，不重放每个中间值。
-7. **命名空间**：owner 取内核填写的调用方身份里的插件，经代理时也是原插件；`local` 记录另按调用方的客户端身份分开。插件之间的同名记录互不可见；同一客户端身份的两个窗口共用一份 `local` 记录。接口上没有 owner、客户端或项目参数，插件无法指定别人的命名空间。命名空间是对守约插件的隔离，不是安全边界：代理入口可以用它收到的调用方身份访问该调用方的记录（[ADR 0027](../../adr/0027-builtin-and-third-party-plugins-are-equal.md)）（planned）。
+7. **命名空间**：owner 取内核填写的调用方身份里的插件，经代理时也是原插件；`local` 记录另按调用方的客户端身份分开。插件之间的同名记录互不可见；同一客户端身份的两个窗口共用一份 `local` 记录。接口上没有 owner、客户端或项目参数，插件无法指定别人的命名空间。命名空间是对守约插件的隔离，不是安全边界：代理入口可以用它收到的调用方身份访问该调用方的记录（[ADR 0027](../../adr/0027-builtin-and-third-party-plugins-are-equal.md)）。
 
 ## 状态与转换
 

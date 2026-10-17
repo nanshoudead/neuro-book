@@ -11,11 +11,13 @@
 
 import {join} from "node:path";
 
-import {definitionAt, pluginsAt, productPlugins} from "nbook/manifest";
+import {prepareInstalledPlugins, safeModeOf} from "nbook/backend/plugins/startup";
+import {definitionAt, pluginsAt, productPlugins, thirdPartyDefinition} from "nbook/manifest";
 import {readServerConfig} from "nbook/server/config";
 import {devSampleEnabled, startDevSample} from "nbook/server/dev/sample";
 import {serverPlugin} from "nbook/server/plugins";
 import {startServer} from "nbook/server/start";
+import {PRODUCT_VERSION} from "nbook/shared/product";
 import type {DevTask, StartServerOptions} from "nbook/server/start";
 import {remoteProbeDescriptor} from "nbook/shared/testing/remote-probe-contract";
 import {testMenusDescriptor} from "nbook/shared/testing/menus-contract";
@@ -60,10 +62,13 @@ const server = startServer({
     stopInput: config.stopStdin ? process.stdin : null,
     devTask: sampleTask(),
     projectEntry: join(import.meta.dir, "..", "..", "project", "testing", "fixture-entry.ts"),
+    // 与产品入口相同：安装过的第三方插件照常登记（插件管理的 e2e 用它）。
+    installed: await prepareInstalledPlugins({root: join(config.stateRoot, "plugins"), productVersion: PRODUCT_VERSION, safeMode: safeModeOf(process.env)}),
     // 产品插件按产品清单取定义（测试插件不在产品的表里），宿主适配器拿到的上下文仍是含测试插件的清单。
     plugins: (context) => [
         ...pluginsAt("server", manifest).map((plugin) => definitionAt("server", plugin, plugin.locations.includes("server") ? serverPlugin(plugin.id, context) : undefined)),
         ...requested.filter((id) => !BROWSER_ONLY_IDS.includes(id)).map((id) => createTestPlugin(id as TestPluginId)),
+        ...pluginsAt("server", context.thirdParty).map(thirdPartyDefinition),
     ],
     onListening: (url) => {
         console.log(`Listening on ${url}`);

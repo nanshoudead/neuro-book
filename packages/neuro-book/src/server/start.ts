@@ -21,11 +21,15 @@ import type {RuntimeClock} from "@notnotype/nb-runtime/lifecycle";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 import {createRemoteNode, createRemoteRouter} from "@notnotype/nb-runtime/remote";
 
-import {delegatingPlugins, productPlugins} from "nbook/manifest";
+import {createPluginInventory, pluginInventoryKey} from "nbook/backend/plugins/inventory";
+import {loadedDescriptors, NO_INSTALLED_PLUGINS} from "nbook/backend/plugins/startup";
+import type {PreparedPlugins} from "nbook/backend/plugins/startup";
+import {productPlugins} from "nbook/manifest";
 import type {PluginDescriptor} from "nbook/manifest";
 import {HTTP_DRAIN_LIMIT_MS, HttpAdmission, HttpAdmissionRejected} from "nbook/plugins/http/backend/admission";
 import type {DrainClock} from "nbook/plugins/http/backend/admission";
 import {clockKey, stateRootKey, userDirectoriesKey} from "nbook/shared/host";
+import {PRODUCT_VERSION} from "nbook/shared/product";
 import {projectsKey} from "nbook/shared/projects";
 import {RPC_PATH} from "nbook/shared/rpc-socket";
 
@@ -52,6 +56,11 @@ export interface StartServerOptions {
     readonly manifest?: ReadonlyArray<PluginDescriptor>;
     /** 装配插件；缺省按清单。测试经这里加入自己的插件，产品代码不含测试分支。 */
     readonly plugins?: (context: ServerPluginContext) => ReadonlyArray<PluginDefinition>;
+    /**
+     * 本次启动的第三方插件，由进程入口在启动之前用 `prepareInstalledPlugins` 得出（它要取跨进程的锁，是异步的）。
+     * 缺省没有第三方插件。
+     */
+    readonly installed?: PreparedPlugins;
     readonly process?: ProcessEvents;
     readonly signals?: ReadonlyArray<NodeJS.Signals>;
     readonly stopInput?: NodeJS.ReadableStream | null;
@@ -219,9 +228,16 @@ export function startServer(options: StartServerOptions): RunningServer {
     }
     options.onRpcListening?.(rpc.url);
 
+    const builtinManifest = options.manifest ?? productPlugins;
+    // 第三方插件集合在启动前已确定，进程生命期内不变（docs/specs/runtime/plugin-install.md）。
+    const installed = options.installed ?? {startup: NO_INSTALLED_PLUGINS, diagnostics: []};
+    for (const record of installed.diagnostics) store.record(record);
+    const thirdParty = loadedDescriptors(installed.startup);
+    const thirdPartyIds = new Set(thirdParty.map((plugin) => plugin.id));
     const context: ServerPluginContext = {
         config,
-        manifest: options.manifest ?? productPlugins,
+        manifest: builtinManifest,
+        thirdParty,
         store,
         admission,
         onListening: (address) => {
@@ -291,17 +307,28 @@ export function startServer(options: StartServerOptions): RunningServer {
                 {id: "host.user-directories", key: userDirectoriesKey, create: () => userDirectories},
                 {id: "host.clock", key: clockKey, create: () => systemClock},
                 {
+                    id: "host.plugin-inventory",
+                    key: pluginInventoryKey,
+                    create: () => createPluginInventory({
+                        root: join(options.config.stateRoot, "plugins"),
+                        productVersion: PRODUCT_VERSION,
+                        builtin: builtinManifest.map(({id, version}) => ({id, version})),
+                        startup: installed.startup,
+                        record: (record) => void store.record(record),
+                    }),
+                },
+                {
                     id: "host.projects",
                     key: projectsKey,
                     create: async () => (await projectsReady.promise).provision(),
                 },
             ],
             plugins,
-            requiredPlugins: plugins.map((plugin) => plugin.id),
+            // 第三方插件不是启动必需：它们失败只影响自己（docs/specs/runtime/plugin-manifest.md 的“失败与恢复”）。
+            requiredPlugins: plugins.filter((plugin) => !thirdPartyIds.has(plugin.id)).map((plugin) => plugin.id),
             gates: [],
             observers: mechanismObservers(store),
             remote: node,
-            delegation: (plugin) => delegatingPlugins.includes(plugin),
         },
         emergency,
         process: options.process,
@@ -336,6 +363,7 @@ export function startServer(options: StartServerOptions): RunningServer {
         env: options.projectEnv,
         output: options.projectOutput,
         record: (record) => void store.record(record),
+        thirdParty,
     });
     projects = projectManager;
     projectsReady.resolve(projectManager);

@@ -87,7 +87,6 @@ async function windowOf(id: string): Promise<Window> {
             ],
             gates: [],
             remote: node,
-            delegation: (plugin) => plugin === "nbook.files",
         },
     );
     expect(await app.startup).toMatchObject({status: "available", failures: []});

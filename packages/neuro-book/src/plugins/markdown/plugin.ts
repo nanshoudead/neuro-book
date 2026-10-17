@@ -1,4 +1,5 @@
 import type {PluginDescriptor} from "nbook/manifest";
+import {PRODUCT_VERSION} from "nbook/shared/product";
 
 import {BUILTIN_DIALECTS, MARKDOWN_DIALECTS_POINT} from "./shared/dialects";
 
@@ -8,7 +9,7 @@ import {BUILTIN_DIALECTS, MARKDOWN_DIALECTS_POINT} from "./shared/dialects";
  */
 export const descriptor: PluginDescriptor = {
     id: "nbook.markdown",
-    version: "0.1.0",
+    version: PRODUCT_VERSION,
     locations: ["browser", "project"],
     contributions: Object.entries(BUILTIN_DIALECTS).map(([id, declaration]) => ({capability: MARKDOWN_DIALECTS_POINT, id, declaration})),
 };

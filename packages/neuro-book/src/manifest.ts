@@ -17,6 +17,7 @@ import {descriptor as htmlPreview} from "./plugins/html-preview/plugin";
 import {descriptor as http} from "./plugins/http/plugin";
 import {descriptor as imageViewer} from "./plugins/image-viewer/plugin";
 import {descriptor as markdown} from "./plugins/markdown/plugin";
+import {descriptor as plugins} from "./plugins/plugins/plugin";
 import {descriptor as projects} from "./plugins/projects/plugin";
 import {descriptor as settings} from "./plugins/settings/plugin";
 import {descriptor as state} from "./plugins/state/plugin";
@@ -29,13 +30,7 @@ import {descriptor as workbench} from "./plugins/workbench/plugin";
  */
 export type {PluginDescriptor};
 
-export const productPlugins: ReadonlyArray<PluginDescriptor> = [diagnostics, http, state, settings, commands, storage, workbench, projects, files, explorer, markdown, editor, imageViewer, htmlPreview];
-
-/**
- * 代理允许清单：可以以调用方的身份代为解析服务、发出远程调用的插件（runtime/services.md 输出第 13 条）。
- * 三个宿主都按它给内核的 `delegation`；第一版只有内置插件，第三方插件一律不允许。
- */
-export const delegatingPlugins: ReadonlyArray<string> = [storage.id, settings.id, files.id];
+export const productPlugins: ReadonlyArray<PluginDescriptor> = [diagnostics, http, state, settings, commands, storage, plugins, workbench, projects, files, explorer, markdown, editor, imageViewer, htmlPreview];
 
 /**
  * 在某个运行位置登记的插件：本位置有入口的，加上描述里有顶层声明式贡献的（runtime/plugin-manifest.md 输出 11）。
@@ -55,4 +50,12 @@ export function definitionAt(location: RuntimeLocation, descriptor: PluginDescri
     if (definition === undefined) throw new Error(`清单中的插件 ${descriptor.id} 没有 ${location} 入口定义`);
     if (definition.id !== descriptor.id) throw new Error(`${location} 入口定义的插件 id ${definition.id} 与清单 ${descriptor.id} 不一致`);
     return contributions.length === 0 ? definition : {...definition, contributions: [...(definition.contributions ?? []), ...contributions]};
+}
+
+/**
+ * 第三方插件在本位置登记的定义。入口代码的装载（docs/specs/runtime/plugin-code-loading.md）实现之前，只登记描述里的
+ * 顶层声明式贡献，不论描述写了哪些运行位置；集合按 `pluginsAt` 取。
+ */
+export function thirdPartyDefinition(descriptor: PluginDescriptor): PluginDefinition {
+    return {id: descriptor.id, entries: [], contributions: descriptor.contributions ?? []};
 }

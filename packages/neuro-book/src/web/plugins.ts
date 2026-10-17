@@ -18,6 +18,7 @@ import {imageViewerBrowserPlugin} from "nbook/plugins/image-viewer/web/plugin";
 import {markdownBrowserPlugin} from "nbook/plugins/markdown/web/plugin";
 import {explorerBrowserPlugin} from "nbook/plugins/explorer/web/plugin";
 import {filesBrowserPlugin} from "nbook/plugins/files/web/plugin";
+import {pluginsBrowserPlugin} from "nbook/plugins/plugins/web/plugin";
 import {projectsBrowserPlugin} from "nbook/plugins/projects/web/plugin";
 import {settingsBrowserPlugin} from "nbook/plugins/settings/web/plugin";
 import {statePlugin} from "nbook/plugins/state/shared/plugin";
@@ -46,6 +47,7 @@ export const browserPluginDefinitions: Readonly<Record<string, PluginDefinition>
     "nbook.workbench": workbenchBrowserPlugin,
     "nbook.projects": projectsBrowserPlugin,
     "nbook.settings": settingsBrowserPlugin,
+    "nbook.plugins": pluginsBrowserPlugin,
     "nbook.storage": storageBrowserPlugin,
     "nbook.files": filesBrowserPlugin,
     "nbook.explorer": explorerBrowserPlugin,

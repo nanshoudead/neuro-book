@@ -5,8 +5,9 @@
  * 1. **按调用方提供本地服务**：`providePerConsumer` 的工厂对每个依赖 `notesViewKey` 的入口各调用一次，参数是内核
  *    签发的调用方身份。门面随调用方入口的这一代释放（docs/specs/runtime/services.md 输出第 11–13 条）。
  * 2. **以调用方身份代理**：`context.remote.on(调用方).use(合同)` 发出的调用与订阅，到达服务端时调用方是窗口里的原
- *    插件，另附 `via`（本入口）。这是受控的能力：合同要写进 `remoteDelegates`，插件要在宿主的代理允许清单里，否则得到
- *    `denied`（docs/specs/runtime/plugin-channel.md 输出第 10 条、docs/specs/runtime/plugins.md 输出第 20 条）。
+ *    插件，另附 `via`（本入口）。任何插件都可以这样做（ADR 0027），内核只核对合同写在 `remoteDelegates` 里、身份是
+ *    签发给本入口门面的，否则得到 `denied`（docs/specs/runtime/plugin-channel.md 输出第 10 条、docs/specs/runtime/plugins.md
+ *    输出第 20 条）。
  * 3. **为什么值得包这一层**：它在远程合同之上加了一份同步可读、随服务端变化更新的缓存。只转发 `add`、`list` 的包装
  *    不写：窗口里的插件可以直接用合同（docs/specs/runtime/plugin-api.md 的“选用规则”）。
  *

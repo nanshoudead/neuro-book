@@ -23,7 +23,7 @@ import {basename, dirname, join} from "node:path";
 import {lock} from "proper-lockfile";
 
 /** 锁目录 10 秒没有刷新视为残留，可被接管；所有 NeuroBook 进程必须一致。 */
-const LOCK_STALE_MS = 10_000;
+export const LOCK_STALE_MS = 10_000;
 /** 等锁的退避：约 3 秒仍等不到为失败。 */
 const LOCK_RETRIES = {retries: 12, factor: 1.5, minTimeout: 20, maxTimeout: 600} as const;
 /** 改名前发现文件被别人改过时，从新字节重做的次数上限。 */

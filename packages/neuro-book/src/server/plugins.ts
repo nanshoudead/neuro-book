@@ -7,13 +7,14 @@
 import type {DiagnosticsStore} from "@notnotype/nb-runtime/diagnostics";
 import type {PluginDefinition} from "@notnotype/nb-runtime/plugins";
 
-import {definitionAt, pluginsAt} from "nbook/manifest";
+import {definitionAt, pluginsAt, thirdPartyDefinition} from "nbook/manifest";
 import type {PluginDescriptor} from "nbook/manifest";
 import {commandsPlugin} from "nbook/plugins/commands/shared/plugin";
 import {createServerDiagnosticsPlugin} from "nbook/plugins/diagnostics/backend/plugin";
 import {filesBackendPlugin} from "nbook/plugins/files/backend/plugin";
 import type {HttpAdmission} from "nbook/plugins/http/backend/admission";
 import {createHttpPlugin} from "nbook/plugins/http/backend/plugin";
+import {pluginsBackendPlugin} from "nbook/plugins/plugins/backend/plugin";
 import {projectsBackendPlugin} from "nbook/plugins/projects/backend/plugin";
 import {settingsBackendPlugin} from "nbook/plugins/settings/backend/plugin";
 import {statePlugin} from "nbook/plugins/state/shared/plugin";
@@ -25,8 +26,10 @@ import type {ServerConfig} from "./config";
 
 export interface ServerPluginContext {
     readonly config: ServerConfig;
-    /** 本进程加载的插件：产品清单，开发入口另加开发清单。引导接口按它列出浏览器插件。 */
+    /** 本进程加载的内置插件：产品清单，开发入口另加开发清单。 */
     readonly manifest: ReadonlyArray<PluginDescriptor>;
+    /** 本次启动登记的第三方插件（docs/specs/runtime/plugin-install.md）；安全模式下为空。 */
+    readonly thirdParty: ReadonlyArray<PluginDescriptor>;
     readonly store: DiagnosticsStore;
     readonly admission: HttpAdmission;
     readonly onListening: (url: string) => void;
@@ -49,6 +52,7 @@ export const serverPluginDefinitions: Readonly<Record<string, PluginDefinition>>
     "nbook.commands": commandsPlugin,
     "nbook.projects": projectsBackendPlugin,
     "nbook.settings": settingsBackendPlugin,
+    "nbook.plugins": pluginsBackendPlugin,
     "nbook.storage": storageBackendPlugin,
     "nbook.files": filesBackendPlugin,
 };
@@ -65,7 +69,7 @@ export const serverHostPlugins: Readonly<Record<ServerHostPluginId, ServerHostPl
         port: context.config.port,
         onListening: context.onListening,
         allowOrigin: context.allowOrigin,
-        hostRoutes: [createBrowserBootstrapRoute(context.manifest, context.rpc, context.projectTitle)],
+        hostRoutes: [createBrowserBootstrapRoute(context.manifest, context.thirdParty, context.rpc, context.projectTitle)],
         staticRoot: context.config.webRoot,
     }),
 };
@@ -79,7 +83,11 @@ function isServerHostPlugin(id: string): id is ServerHostPluginId {
     return Object.hasOwn(serverHostPlugins, id);
 }
 
-/** 按清单装配服务端实例的插件：有后端入口的，加上只有顶层声明式贡献的；有后端入口而两张表都没有时直接失败。 */
+/**
+ * 按清单装配服务端实例的插件：内置插件有后端入口的，加上只有顶层声明式贡献的；有后端入口而两张表都没有时直接失败。
+ * 第三方插件只登记顶层声明（`thirdPartyDefinition`）。
+ */
 export function manifestServerPlugins(context: ServerPluginContext): PluginDefinition[] {
-    return pluginsAt("server", context.manifest).map((plugin) => definitionAt("server", plugin, plugin.locations.includes("server") ? serverPlugin(plugin.id, context) : undefined));
+    const builtin = pluginsAt("server", context.manifest).map((plugin) => definitionAt("server", plugin, plugin.locations.includes("server") ? serverPlugin(plugin.id, context) : undefined));
+    return [...builtin, ...pluginsAt("server", context.thirdParty).map(thirdPartyDefinition)];
 }

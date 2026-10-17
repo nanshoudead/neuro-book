@@ -269,7 +269,6 @@ export class PluginHostImpl implements PluginHost {
     readonly #client: string | null;
     readonly #assembly: ServiceAssembly;
     readonly #observer: PluginObserver | undefined;
-    readonly #delegation: ((pluginId: string) => boolean) | null;
     readonly #remote: RemoteHostBinding | null;
     readonly #plugins = new Map<string, PluginRecord>();
     /** 贡献目录：贡献点 id + 贡献 id → 全部当前登记，重复判定不区分运行位置。 */
@@ -308,7 +307,6 @@ export class PluginHostImpl implements PluginHost {
         this.#client = instance.identity.client ?? null;
         this.#assembly = assembly;
         this.#observer = options.observer;
-        this.#delegation = options.delegation ?? null;
         this.#remote = options.remote ?? null;
         this.#remote?.attach({
             lookup: (contractId, chain, signal) => this.#lookupRemote(contractId, chain, signal),
@@ -573,9 +571,6 @@ export class PluginHostImpl implements PluginHost {
             return message;
         };
         const on = (issued: ConsumerIdentity): DelegatedRemoteAccess => {
-            if (this.#delegation?.(plugin) !== true) {
-                return refusedRemote("denied", denial(`插件 ${plugin} 不在代理允许清单内`));
-            }
             const issue = this.#assembly.issuedTo(record.consumerId, issued);
             if (issue.status === "denied") {
                 return refusedRemote("denied", denial(issue.message));

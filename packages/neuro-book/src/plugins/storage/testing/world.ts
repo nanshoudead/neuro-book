@@ -48,7 +48,6 @@ export interface StorageWorld {
     close(): Promise<ReadonlyArray<StopResult>>;
 }
 
-const DELEGATION = (plugin: string): boolean => plugin === "nbook.storage";
 
 export async function storageWorld(root: string, hubPlugins: ReadonlyArray<PluginDefinition>): Promise<StorageWorld> {
     const apps: Application[] = [];
@@ -75,7 +74,6 @@ export async function storageWorld(root: string, hubPlugins: ReadonlyArray<Plugi
             plugins: [diagnosticsFor("server", "hub"), storageBackendPlugin, ...hubPlugins],
             gates: [],
             remote: hubNode,
-            delegation: DELEGATION,
         },
     )).catch(async (error: unknown) => {
         for (const app of apps.splice(0)) await app.stop();
@@ -116,7 +114,6 @@ export async function storageWorld(root: string, hubPlugins: ReadonlyArray<Plugi
                     plugins: [diagnosticsFor("project", descriptor.id), storageBackendPlugin, ...plugins],
                     gates: [],
                     remote: node,
-                    delegation: DELEGATION,
                 },
             );
             const pair = createLinkPair();
@@ -140,7 +137,6 @@ export async function storageWorld(root: string, hubPlugins: ReadonlyArray<Plugi
                     plugins: [diagnosticsFor("browser", id), storageBrowserPlugin, ...plugins],
                     gates: [],
                     remote: node,
-                    delegation: DELEGATION,
                 },
             ));
             return {

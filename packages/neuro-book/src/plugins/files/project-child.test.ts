@@ -84,7 +84,6 @@ async function windowOf(h: ProjectHarness, id: string): Promise<Window> {
             plugins,
             gates: [],
             remote: node,
-            delegation: (plugin) => plugin === "nbook.files",
         },
     );
     expect(await app.startup).toMatchObject({status: "available", failures: []});

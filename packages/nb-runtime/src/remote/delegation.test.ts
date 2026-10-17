@@ -145,14 +145,14 @@ interface Browser {
     readonly proxies: Map<string, ActivationContext>;
 }
 
-async function setup(allowed: ReadonlyArray<string> = ["app.proxy", "app.other-proxy"], remoteDelegates?: ReadonlyArray<RemoteContract>): Promise<Browser> {
+async function setup(remoteDelegates?: ReadonlyArray<RemoteContract>): Promise<Browser> {
     const clock = new ManualClock();
     const {server, router} = await startServer(clock);
     const node = createRemoteNode({instance: {id: "browser-1", kind: "browser", role: "client", project: null, client: "profile-1"}, clock});
     const runtime = createRuntimeInstance({location: "browser", instanceId: "browser-1", client: "profile-1"});
     runtime.root.open();
     const assembly = createServiceAssembly(runtime, {});
-    const host = createPluginHost(runtime, assembly, {delegation: (plugin) => allowed.includes(plugin), remote: node});
+    const host = createPluginHost(runtime, assembly, {remote: node});
     const pair = createLinkPair();
     router.accept(pair.right);
     expect(await node.connect(pair.left)).toEqual({ok: true});
@@ -193,7 +193,7 @@ describe("Spec plugin-channel 输出 10、场景 19：经代理的远程调用",
         });
     });
 
-    it("拒绝：伪造的身份、签发给别的入口的身份、未声明的合同、不在允许清单的插件，都是 denied 且没有发出请求", async () => {
+    it("拒绝：伪造的身份、签发给别的入口的身份、未声明的合同，都是 denied 且没有发出请求", async () => {
         const b = await setup();
         const [proxy, otherProxy] = await activateUser(b, [proxyKey, otherProxyKey]);
 
@@ -201,13 +201,6 @@ describe("Spec plugin-channel 输出 10、场景 19：经代理的远程调用",
         expect(await proxy!.whoamiAs(otherProxy!.identity())).toMatchObject({ok: false, code: "denied"});
         expect(await proxy!.ping()).toMatchObject({ok: false, code: "denied"});
         expect(b.server.calls).toBe(0);
-
-        const unlisted = await setup(["app.other-proxy"]);
-        const [notAllowed] = await activateUser(unlisted);
-        expect(await notAllowed!.whoami()).toMatchObject({ok: false, code: "denied"});
-        expect(await notAllowed!.subscribe("a")).toMatchObject({ok: false, code: "denied"});
-        await drain();
-        expect(unlisted.server.sinks).toEqual([]);
     });
 
     it("原调用方入口停止（代理仍在）：代理的释放函数运行时仍可调用，之后经代理的订阅结束、服务端释放为它生成的门面", async () => {

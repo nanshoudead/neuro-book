@@ -247,8 +247,8 @@ export interface ServiceAssembly {
     access(entryId: EntryId, scope?: Scope, options?: AccessOptions): ServiceAccess;
     /**
      * 跨实例委托的核对与挂载（runtime/plugin-channel.md 输出第 10 条）：`consumer` 是装配签发给 `entryId`
-     * 所属插件入口的门面、且签发它的门面还没释放时返回挂载点，否则返回拒绝原因。代理允许清单与合同声明由
-     * 插件宿主核对，这里只核对身份。
+     * 所属插件入口的门面、且签发它的门面还没释放时返回挂载点，否则返回拒绝原因。合同声明由插件宿主核对，
+     * 这里只核对身份。
      */
     issuedTo(entryId: EntryId, consumer: ConsumerIdentity): IssuedConsumer | {readonly status: "denied"; readonly message: string};
     /** 显式恢复稳定失败的提供者：上次服务作用域收口完成才重置为未解析；不自动重新初始化。 */

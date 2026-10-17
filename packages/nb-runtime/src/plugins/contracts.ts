@@ -123,8 +123,8 @@ export interface PluginEntryDefinition {
     /** 本入口提供的远程服务合同；首次远程调用时按需激活本入口（onRemote）。 */
     readonly remoteProvides?: ReadonlyArray<RemoteContract>;
     /**
-     * 本入口可代表调用方调用的远程服务合同（经 `context.remote.on`，runtime.plugins 输出第 20 条）；
-     * 只对代理允许清单里的插件生效。
+     * 本入口可代表调用方调用的远程服务合同（经 `context.remote.on`，runtime.plugins 输出第 20 条）。
+     * 任何插件都可以声明（ADR 0027）。
      */
     readonly remoteDelegates?: ReadonlyArray<RemoteContract>;
     /** 入口激活后向贡献点提交的声明。 */
@@ -137,9 +137,8 @@ export interface PluginEntryDefinition {
 export interface PluginRemoteAccess extends RemoteAccess {
     /**
      * 跨实例委托（runtime/plugin-channel.md 输出第 10 条）：在本入口交出的按调用方门面里，以收到的调用方身份
-     * 发出远程调用与订阅，提供方看到原调用方、`via` 为本入口。合同必须在 `remoteDelegates` 里，插件必须在
-     * 宿主的代理允许清单内，`consumer` 必须是装配签发给本入口门面、且签发它的门面还没释放的身份；不满足时
-     * 调用与订阅得到 `denied`。经它建立的远程门面与订阅在签发它的门面释放（释放函数结束之后）时结束。
+     * 发出远程调用与订阅，提供方看到原调用方、`via` 为本入口。合同必须在 `remoteDelegates` 里，`consumer` 必须是
+     * 装配签发给本入口门面、且签发它的门面还没释放的身份；不满足时调用与订阅得到 `denied`。经它建立的远程门面与订阅在签发它的门面释放（释放函数结束之后）时结束。
      */
     on(consumer: ConsumerIdentity): DelegatedRemoteAccess;
 }
@@ -440,8 +439,6 @@ export interface PluginHost {
 
 export interface PluginHostOptions {
     readonly observer?: PluginObserver;
-    /** 代理允许清单：返回 true 的插件才能委托解析；不给时一律不允许。第一版只给内置插件。 */
-    readonly delegation?: (pluginId: string) => boolean;
     /** 本实例的远程节点；宿主据此提供 `context.remote`，并作为远程提供项的来源接入节点。 */
     readonly remote?: RemoteHostBinding;
 }
