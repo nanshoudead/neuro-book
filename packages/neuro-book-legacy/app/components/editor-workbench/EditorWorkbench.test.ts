@@ -241,6 +241,41 @@ describe("EditorWorkbench 受控外壳", () => {
         expect(wrapper.get("[data-body]").element).toBe(bodyBefore);
     });
 
+    it("面包屑打开方式显示当前编辑器，可以选择另一个切回去", async () => {
+        const {wrapper, emitted} = mountShell({
+            tabs: [tab("a.md")],
+            activePath: "a.md",
+            menus: [{id: "open-with", label: "打开方式", items: [
+                {value: "editor:markdown", label: "富文本", type: "checkbox", checked: false},
+                {value: "editor:code", label: "源码", type: "checkbox", checked: true},
+            ]}],
+        });
+        const trigger = wrapper.get<HTMLButtonElement>("button[aria-label='editorWorkbench.openWith']").element;
+        expect(trigger.textContent).toContain("源码");
+        trigger.click();
+        await flushPromises();
+
+        const item = (label: string) => {
+            const found = [...document.querySelectorAll<HTMLElement>("[role='menuitemcheckbox']")]
+                .find((candidate) => candidate.textContent?.includes(label) === true);
+            if (!found) throw new Error(`打开方式里没有「${label}」`);
+            return found;
+        };
+        item("源码").click();
+        await flushPromises();
+        expect(emitted("select-menu")).toBeFalsy();
+
+        trigger.click();
+        await flushPromises();
+        item("富文本").click();
+        await flushPromises();
+        expect(emitted("select-menu")).toEqual([[
+            "main",
+            {value: "editor:markdown", label: "富文本", type: "checkbox", checked: false},
+        ]]);
+        expect(emitted("open-as-code")).toBeFalsy();
+    });
+
     it("没有文档时画欢迎页：关闭最后一个标签后焦点交给欢迎区主动作，且不渲染多余顶栏", async () => {
         // 干净标签的关闭路径：宿主在同一事件里接受，标签随即消失（脏标签要等保存/放弃决策，另见 useEditorWorkbench 测试）。
         const {wrapper, emitted} = mountShell({tabs: [tab("only.md")], activePath: "only.md", menus: FILE_MENUS});

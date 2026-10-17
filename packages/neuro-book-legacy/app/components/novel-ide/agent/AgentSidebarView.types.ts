@@ -19,7 +19,7 @@ import type {
     AgentSessionListQueryDto,
     AgentSessionSummaryDto,
 } from "nbook/shared/dto/agent-session.dto";
-import type {EnabledModelOptionDto} from "nbook/shared/dto/app-settings.dto";
+import type {EnabledModelOptionDto, ThinkingLevelDto} from "nbook/shared/dto/app-settings.dto";
 import type {AgentPendingResolutionDraft, AgentPendingSubmissionIssue} from "nbook/app/components/novel-ide/agent/agent-pending-resolution";
 import type {AgentSessionModelDraft} from "nbook/app/components/novel-ide/agent/agent-session-model-controls";
 import type {AgentTriggerMenuContext, AgentTriggerMenuState} from "nbook/app/components/novel-ide/agent/trigger-menu";
@@ -295,6 +295,7 @@ export interface AgentSidebarViewEmits {
     (e: "composer-cycle-mode"): void;
     (e: "composer-toggle-session-model-popover"): void;
     (e: "composer-apply-session-model-settings"): void;
+    (e: "composer-update-session-thinking-level", value: ThinkingLevelDto | null): void;
     (e: "composer-reset-session-model-settings"): void;
     (e: "composer-reconnect-events"): void;
     (e: "composer-refresh-history"): void;

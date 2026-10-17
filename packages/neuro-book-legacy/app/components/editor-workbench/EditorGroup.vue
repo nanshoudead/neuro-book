@@ -1,6 +1,14 @@
 <script setup lang="ts">
-import {computed, nextTick, ref, watch} from "vue";
+import {computed, inject, nextTick, ref, watch} from "vue";
 import {IconButton, type MenubarItemData, type MenubarMenuData} from "@notnotype/nb-ui/components";
+import {
+    DropdownMenuCheckboxItem,
+    DropdownMenuContent,
+    DropdownMenuPortal,
+    DropdownMenuRoot,
+    DropdownMenuTrigger,
+} from "reka-ui";
+import {NB_POPOVER_Z_INDEX, NB_Z_INDEX} from "@notnotype/nb-ui/theme";
 import type {EditorGroupState, EditorTabDropPosition} from "./editor-view.types";
 import EditorTabBar from "./EditorTabBar.vue";
 import EditorToolbar from "./EditorToolbar.vue";
@@ -53,6 +61,16 @@ const toolbarMenus = computed<MenubarMenuData[]>(() => [
 function selectToolbarMenu(item: MenubarItemData): void {
     if (item.value === WRAP_TABS_ACTION) wrapTabs.value = !wrapTabs.value;
     else emit("select-menu", item);
+}
+
+const popoverZIndex = inject(NB_POPOVER_Z_INDEX, NB_Z_INDEX.popover);
+/** 面包屑右侧是打开方式：列出本组可用编辑器，当前项打勾，再点可以切回，而不是只进源码。 */
+const openWithItems = computed(() => props.group.menus?.find((menu) => menu.id === "open-with")?.items.filter((item) => !item.separator) ?? []);
+const currentEditorLabel = computed(() => openWithItems.value.find((item) => item.checked)?.label || t("editorWorkbench.textEditor"));
+
+function selectOpenWith(item: MenubarItemData): void {
+    if (item.disabled || item.checked) return;
+    emit("select-menu", item);
 }
 
 const emptyContainerRef = ref<HTMLElement | null>(null);
@@ -181,14 +199,51 @@ watch(hasTabs, (newHasTabs, oldHasTabs) => {
             >
                 <template #trailing>
                     <slot name="breadcrumbs-trailing">
+                        <DropdownMenuRoot v-if="openWithItems.length > 0">
+                            <DropdownMenuTrigger as-child>
+                                <button
+                                    type="button"
+                                    class="flex items-center gap-1 rounded px-1.5 py-0.5 text-[10.5px] text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-hover)] transition-colors [transition-duration:var(--motion-fast)] motion-reduce:transition-none cursor-pointer select-none outline-none focus-visible:ring-1 focus-visible:ring-[var(--accent-main)]"
+                                    :title="t('editorWorkbench.openWith')"
+                                    :aria-label="t('editorWorkbench.openWith')"
+                                >
+                                    <span>{{ currentEditorLabel }}</span>
+                                    <span class="i-lucide-chevron-down h-3 w-3" aria-hidden="true" />
+                                </button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuPortal>
+                                <DropdownMenuContent
+                                    align="end"
+                                    side="bottom"
+                                    :side-offset="6"
+                                    :style="{zIndex: popoverZIndex}"
+                                    class="nb-ui-popover-surface nb-ui-menu-surface nb-ui-popover-motion min-w-[160px] p-1.5 text-[var(--text-main)] outline-none select-none"
+                                >
+                                    <DropdownMenuCheckboxItem
+                                        v-for="item in openWithItems"
+                                        :key="item.value"
+                                        :model-value="Boolean(item.checked)"
+                                        :disabled="item.disabled"
+                                        class="nb-ui-popover-item flex items-center gap-2 px-2.5 py-1.5 text-xs text-[var(--text-main)] transition-colors [transition-duration:var(--motion-fast)] motion-reduce:transition-none cursor-pointer disabled:cursor-not-allowed disabled:opacity-40 hover:bg-[var(--overlay-item-active)] data-[highlighted]:bg-[var(--overlay-item-active)]"
+                                        @select="selectOpenWith(item)"
+                                    >
+                                        <span class="flex h-3.5 w-3.5 shrink-0 items-center justify-center" aria-hidden="true">
+                                            <span v-if="item.checked" class="i-lucide-check h-3.5 w-3.5 text-[var(--accent-text)]" />
+                                        </span>
+                                        <span class="truncate">{{ item.label }}</span>
+                                    </DropdownMenuCheckboxItem>
+                                </DropdownMenuContent>
+                            </DropdownMenuPortal>
+                        </DropdownMenuRoot>
                         <button
+                            v-else
                             type="button"
                             class="flex items-center gap-1 rounded px-1.5 py-0.5 text-[10.5px] text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-hover)] transition-colors [transition-duration:var(--motion-fast)] motion-reduce:transition-none cursor-pointer select-none outline-none focus-visible:ring-1 focus-visible:ring-[var(--accent-main)]"
-                            :title="t('editorWorkbench.openAsCode') || '以源码打开'"
-                            :aria-label="t('editorWorkbench.textEditor') || '文本编辑器'"
+                            :title="t('editorWorkbench.openAsCode')"
+                            :aria-label="t('editorWorkbench.textEditor')"
                             @click="emit('open-as-code')"
                         >
-                            <span>{{ t("editorWorkbench.textEditor") || "文本编辑器" }}</span>
+                            <span>{{ t("editorWorkbench.textEditor") }}</span>
                             <span class="i-lucide-chevron-down h-3 w-3" aria-hidden="true" />
                         </button>
                     </slot>

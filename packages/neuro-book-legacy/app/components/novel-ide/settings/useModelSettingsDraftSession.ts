@@ -469,8 +469,9 @@ export function useModelSettingsDraftSession(options: DraftSessionOptions) {
     }
 
     /**
-     * 显式复制当前连接。新 Provider 不继承 Secret 或既有引用，用户确认后再单独保存。
-     * 这是修改 ID、Base URL 或代理的唯一设置页入口；Provider Model API 可在原连接上直接修改。
+     * 显式复制当前连接。新 Provider 不继承 Secret、既有引用，也不带来源索引。
+     * 来源索引要等这次草稿写回之后才有；在那之前配置 ID、Base URL 和代理还可以改。
+     * 这是修改这三项的唯一设置页入口；Provider Model API 可在原连接上直接修改。
      */
     function cloneActiveProviderConnection(): void {
         const provider = activeProvider.value;

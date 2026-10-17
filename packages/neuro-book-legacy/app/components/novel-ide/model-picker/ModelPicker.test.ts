@@ -279,6 +279,10 @@ describe("ModelPickerContent", () => {
 
         expect(wrapper.emitted("update:thinkingLevel")).toBeTruthy();
         expect(wrapper.emitted("update:thinkingLevel")![0]).toEqual(["high"]);
+        expect(wrapper.emitted("commit:thinkingLevel")).toBeFalsy();
+
+        await slider.vm.$emit("valueCommit", 5);
+        expect(wrapper.emitted("commit:thinkingLevel")?.[0]).toEqual(["high"]);
     });
 
     it("复用 SegmentedControl 并在顶部正确渲染选项卡", async () => {
@@ -398,6 +402,11 @@ describe("ModelPickerPopover", () => {
 
         expect(wrapper.emitted("update:thinkingLevel")).toBeTruthy();
         expect(wrapper.emitted("update:thinkingLevel")![0]).toEqual(["medium"]);
+        expect(wrapper.emitted("update:open")).toBeFalsy();
+
+        await slider.vm.$emit("valueCommit", 4);
+        expect(wrapper.emitted("commit:thinkingLevel")?.[0]).toEqual(["medium"]);
+        expect(wrapper.emitted("update:open")).toBeFalsy();
     });
 
     it("ModelPickerPopover 弹出浮层具有 nb-popover 过渡动画配置", () => {

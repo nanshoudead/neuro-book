@@ -40,6 +40,7 @@ const emit = defineEmits<{
     (e: "update-session-model-selection", value: string | null): void;
     (e: "toggle-session-model-popover"): void;
     (e: "apply-session-model-settings"): void;
+    (e: "update-session-thinking-level", value: ThinkingLevelDto | null): void;
     (e: "reset-session-model-settings"): void;
 }>();
 
@@ -205,7 +206,11 @@ function handleModelSelect(value: string, item: ModelPickerRoleItem | ModelPicke
 
 function handleThinkingLevelUpdate(level: ThinkingLevelDto | null): void {
     updateSessionModelDraft({ reasoningEffort: level });
-    emit("apply-session-model-settings");
+}
+
+function handleThinkingLevelCommit(level: ThinkingLevelDto | null): void {
+    updateSessionModelDraft({ reasoningEffort: level });
+    emit("update-session-thinking-level", level);
 }
 
 const effectivePopoverClass = computed(() => {
@@ -236,6 +241,7 @@ const effectivePopoverClass = computed(() => {
             :popover-class="effectivePopoverClass"
             @select="handleModelSelect"
             @update:thinking-level="handleThinkingLevelUpdate"
+            @commit:thinking-level="handleThinkingLevelCommit"
         />
     </div>
 </template>

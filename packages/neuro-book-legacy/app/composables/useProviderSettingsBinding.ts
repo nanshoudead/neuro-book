@@ -23,6 +23,11 @@ export type ProviderSettingsBindingOptions = {
     targetLabel: () => string;
     /** 区段真的被打开时才取数：没进过的区段不发请求，进过之后切作用域才重新读取。 */
     enabled: () => boolean;
+    /**
+     * 防抖写回延迟。产品不传，用 {@link SAVE_DEBOUNCE_MS}。
+     * 测试传 0：让出一轮事件循环就能区分「已经写回」和「还留在草稿」。
+     */
+    saveDelayMs?: number;
 };
 
 const MODEL_API_OPTIONS: ModelApiOption[] = [
@@ -88,6 +93,7 @@ export function useProviderSettingsBinding(options: ProviderSettingsBindingOptio
         validationState,
         validationIssues,
         validationIssueDetails,
+        defaultModelOptions,
         enabledModelGroups,
         disabledModels,
         createProviderKey,
@@ -146,28 +152,52 @@ export function useProviderSettingsBinding(options: ProviderSettingsBindingOptio
         }
     }
 
-    /** 只有能力完整的临时候选才能进入 Provider Config。 */
-    function confirmTransientCandidate(): void {
+    /** 只有能力完整的临时候选才能进入 Provider Config。成功进入草稿时返回 true。 */
+    function confirmTransientCandidate(): boolean {
         const model = editingModel.value;
         if (!editingTransientCandidate.value || !model) {
-            return;
+            return false;
         }
         try {
             const candidate = buildModelCheckDraft(model);
             const missingFields = requiredModelFields(candidate);
             if (missingFields.length > 0) {
                 notification.error(t("settings.panels.models.transientMissingFields", {fields: missingFields.join(", ")}));
-                return;
+                return false;
             }
             enableModel({...candidate, enabled: true});
         } catch (error) {
             notification.error(error instanceof Error ? error.message : String(error));
-            return;
+            return false;
         }
         editingTransientCandidate.value = false;
         editingModel.value = null;
         modelEditDialogOpen.value = false;
         notification.success(t("settings.panels.models.manualAdded"));
+        return true;
+    }
+
+    /**
+     * 把当前模型草稿写回配置。
+     * 编辑窗口直接改草稿对象，不走自动保存；保存成功后按 Provider 与模型 ID 重新接上新草稿，避免接着改到已替换的旧对象。
+     */
+    async function saveModelEdits(): Promise<void> {
+        const providerKey = activeProvider.value?.localKey ?? "";
+        const modelId = editingModel.value?.id ?? "";
+        userDirty = true;
+        const saved = await saveSettingsResult();
+        if (!saved) {
+            return;
+        }
+        userDirty = false;
+        if (!providerKey || !modelId) {
+            return;
+        }
+        const provider = draft.value.providers.find((item) => item.localKey === providerKey);
+        const model = provider?.models.find((item) => item.id === modelId);
+        if (model) {
+            editingModel.value = model;
+        }
     }
 
     /** 用 Model Library 补齐通用能力，不覆盖 Provider 专属字段。 */
@@ -362,17 +392,24 @@ export function useProviderSettingsBinding(options: ProviderSettingsBindingOptio
         hasLoaded.value = true;
     }
 
-    /** 视图每次改动后调用：这是「用户改过」的唯一入口，同时安排一次防抖写回。 */
+    /**
+     * 视图每次改动后调用：这是「用户改过」的唯一入口，同时安排一次防抖写回。
+     * 当前连接还没有 sourceIndex 时不排定时器：一写回它就会变成已保存连接，配置 ID、API Base 和代理立刻只读。
+     * 离开这条连接、离开模型区段或关闭配置中心时由 flushSave 写回。
+     */
     function scheduleSave(): void {
         userDirty = true;
         if (!hasLoaded.value) {
             return;
         }
         cancelScheduledSave();
+        if (activeProvider.value && activeProvider.value.sourceIndex === undefined) {
+            return;
+        }
         saveTimer = setTimeout(() => {
             saveTimer = null;
             void persist();
-        }, SAVE_DEBOUNCE_MS);
+        }, options.saveDelayMs ?? SAVE_DEBOUNCE_MS);
     }
 
     /** 切区段、切作用域前立即写一次（跳过防抖）；没读过配置或用户没改过就什么都不写。 */
@@ -382,6 +419,16 @@ export function useProviderSettingsBinding(options: ProviderSettingsBindingOptio
             return;
         }
         await persist();
+    }
+
+    /** Vertex 查询会把目录模型写进草稿；只有草稿真的变了才安排写回。 */
+    function discoverAndPersist(): Promise<boolean> {
+        return discoverModels().then((changed) => {
+            if (changed) {
+                scheduleSave();
+            }
+            return changed;
+        });
     }
 
     watch(modelEditDialogOpen, (open) => {
@@ -418,6 +465,11 @@ export function useProviderSettingsBinding(options: ProviderSettingsBindingOptio
         },
         {immediate: true},
     );
+
+    function updateDraft(value: typeof draft.value): void {
+        draft.value = value;
+        scheduleSave();
+    }
 
     const viewBindings = computed(() => ({
         draft: draft.value,
@@ -456,12 +508,15 @@ export function useProviderSettingsBinding(options: ProviderSettingsBindingOptio
         modelLibrarySearchQuery: modelLibrarySearchQuery.value,
         modelLibraryExpandedGroups: modelLibraryExpandedGroups.value,
         enabledModelIds: enabledModelIds.value,
-        "onUpdate:draft": (value: typeof draft.value) => {
-            draft.value = value;
-            scheduleSave();
-        },
+        "onUpdate:draft": updateDraft,
         "onSelect-provider": (key: string) => {
+            const leavingUnsaved = activeProvider.value !== null
+                && activeProvider.value.sourceIndex === undefined
+                && activeProvider.value.localKey !== key;
             activeProviderKey.value = key;
+            if (leavingUnsaved) {
+                void flushSave();
+            }
         },
         "onToggle-provider-enabled": () => {
             toggleActiveProviderEnabled();
@@ -488,7 +543,7 @@ export function useProviderSettingsBinding(options: ProviderSettingsBindingOptio
             scheduleSave();
         },
         "onDiscover-models": () => {
-            void discoverModels();
+            void discoverAndPersist();
         },
         "onCheck-model": (model: ModelSettingsModelDraft) => void checkModel(model),
         "onCancel-model-check": (model: ModelSettingsModelDraft) => {
@@ -509,7 +564,7 @@ export function useProviderSettingsBinding(options: ProviderSettingsBindingOptio
             deleteModel(model);
             scheduleSave();
         },
-        "onOpen-discovery": () => void discoverModels(),
+        "onOpen-discovery": () => void discoverAndPersist(),
         "onOpen-library": () => openModelLibrary(),
         "onRepair": () => {
             void repairModelSettings();
@@ -535,7 +590,14 @@ export function useProviderSettingsBinding(options: ProviderSettingsBindingOptio
         "onConfirm-delete-provider": () => {
             void confirmDeleteActiveProvider();
         },
-        "onConfirm-model-edit": () => confirmTransientCandidate(),
+        "onConfirm-model-edit": () => {
+            if (confirmTransientCandidate()) {
+                void saveModelEdits();
+            }
+        },
+        "onSave-model-edit": () => {
+            void saveModelEdits();
+        },
         "onToggle-model-input": (model: ModelSettingsModelDraft, inputKind: ModelInputKind) => toggleModelInput(model, inputKind),
         "onReset-model-input": (model: ModelSettingsModelDraft) => {
             model.input = "";
@@ -561,7 +623,7 @@ export function useProviderSettingsBinding(options: ProviderSettingsBindingOptio
             scheduleSave();
         },
         "onDiscover": () => {
-            void discoverModels();
+            void discoverAndPersist();
         },
         "onAdd-manual-model": () => {
             void addManualModel();
@@ -576,6 +638,9 @@ export function useProviderSettingsBinding(options: ProviderSettingsBindingOptio
 
     return {
         viewBindings,
+        draft,
+        defaultModelOptions,
+        updateDraft,
         /** 是否已经成功读过一次：宿主用它判断这个区段有没有数据可渲染。 */
         loaded: hasLoaded as Readonly<Ref<boolean>>,
         load: loadProviderSettings,

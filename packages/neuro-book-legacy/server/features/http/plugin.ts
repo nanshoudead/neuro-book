@@ -7,6 +7,7 @@ import {defineServiceKey} from "nbook/runtime/services/services";
 import {ProductHttpAdmission} from "./admission";
 import type {NitroApp} from "nitropack/types";
 import {diagnosticsKey} from "nbook/runtime/diagnostics/diagnostics";
+import {loadBootConfigSync} from "nbook/server/config/boot-config";
 import {flushServerTiming} from "nbook/server/utils/server-timing";
 import {logRequestError} from "./request-error";
 
@@ -55,8 +56,11 @@ export function createHttpPlugin(
 }
 
 function listen(server: Server, baseURL: string): Promise<void> {
-    const port = destr<number>(process.env.NITRO_PORT || process.env.PORT) || 3000;
-    const host = process.env.NITRO_HOST || process.env.HOST;
+    // config.yaml 的 server.port / server.host 是这次进程的监听地址。
+    // 没写时才退回 NITRO_PORT、PORT 和 3000，避免 data/.env 里残留的旧端口盖掉配置。
+    const configured = loadBootConfigSync().server;
+    const port = listenPort(configured?.port);
+    const host = configured?.host?.trim() || process.env.NITRO_HOST || process.env.HOST;
     const {promise, resolve, reject} = Promise.withResolvers<void>();
     const failed = (error: Error): void => {
         server.off("listening", listening);
@@ -77,6 +81,13 @@ function listen(server: Server, baseURL: string): Promise<void> {
     server.once("listening", listening);
     server.listen({port, host});
     return promise;
+}
+
+function listenPort(configured: number | undefined): number {
+    if (typeof configured === "number" && Number.isInteger(configured) && configured >= 1 && configured <= 65_535) {
+        return configured;
+    }
+    return destr<number>(process.env.NITRO_PORT || process.env.PORT) || 3000;
 }
 
 function closeListener(server: Server): Promise<void> {

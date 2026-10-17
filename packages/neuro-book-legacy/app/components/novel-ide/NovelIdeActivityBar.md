@@ -46,7 +46,7 @@ type Emits = {
 - `primary` ← `containers`（主侧栏当前生效的容器；条目 id 就是 containerId，`active` 只跟 `activeContainerId`）。
 - `secondary` ← `createWorkbenchActivityItems().tools`（`home` / `plot` / `world` / `trace` / `history`，放不下从尾部进 More）。
 - `footer` ← `createWorkbenchActivityItems().footer`（`account` / `settings`）；`account` 由插槽替换成账户菜单，`settings` 仍走默认图标按钮。
-- 容器条目点击回传 `open-container`；**重复点击当前项**的语义（保持选择并显式打开被隐藏 / 拖收起的主侧栏）归页面命令，组件不切成 null。
+- 容器条目点击回传 `open-container`；**重复点击当前项**的语义归页面：主侧栏已展开时收起，已收起时再打开。组件不切成 null。
 - 禁用理由统一取 `ide.activityBar.needOpenProject`，由通用组件拼进 tooltip 与 `aria-label`；容器条目不参与这套门禁（选择只改可见性偏好，不因书架态被禁）。
 
 ## 注意事项

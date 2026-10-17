@@ -23,6 +23,7 @@ import EmbeddingSettingsView from "nbook/app/components/novel-ide/settings/secti
 import {buildGlobalEmbeddingPayload, buildProjectEmbeddingPayload, createEmbeddingSettingsDraftFromConfig} from "nbook/app/components/novel-ide/settings/sections/embedding/embedding-settings-draft";
 import ObservabilitySettingsView from "nbook/app/components/novel-ide/settings/sections/observability/ObservabilitySettingsView.vue";
 import {buildObservabilityPayload, createObservabilityDraft} from "nbook/app/components/novel-ide/settings/sections/observability/observability-settings-draft";
+import AgentVisibleModelsView from "nbook/app/components/novel-ide/settings/sections/agent-visible-models/AgentVisibleModelsView.vue";
 import ProviderSettingsView from "nbook/app/components/novel-ide/settings/sections/providers/ProviderSettingsView.vue";
 import SecuritySettingsView from "nbook/app/components/novel-ide/settings/sections/security/SecuritySettingsView.vue";
 import FrontendSettingsView from "nbook/app/components/novel-ide/settings/sections/frontend/FrontendSettingsView.vue";
@@ -54,7 +55,7 @@ import type {ConfigAgentProfileSettingsDto, ConfigEditorSnapshotDto, ConfigWorks
 import {DEFAULT_DESKTOP_SETTINGS, type DesktopCloseBehavior, type DesktopSettings, type DesktopStatus} from "@notnotype/neuro-book-contracts/desktop";
 import {DEFAULT_MARKDOWN_EDITOR_PREFERENCES, DEFAULT_MONACO_EDITOR_PREFERENCES, type MarkdownEditorPreferences, type MonacoEditorPreferences} from "nbook/shared/editor-workbench";
 
-type SettingsSection = "security" | "frontend" | "editor" | "providers" | "embedding" | "cost" | "web-tools" | "agent-profile-models" | "observability" | "desktop";
+type SettingsSection = "security" | "frontend" | "editor" | "providers" | "agent-visible-models" | "embedding" | "cost" | "web-tools" | "agent-profile-models" | "observability" | "desktop";
 type AppVersionKind = "release" | "tag" | "commit" | "package";
 
 interface AppVersionDto {
@@ -100,6 +101,13 @@ const sectionItems = computed<SettingsSectionOption[]>(() => [
         scopes: ["global"],
         // 两栏型：外壳不给内边距、也不再套一层滚动，服务商列表与连接设置各自滚动。
         layout: "fill",
+    },
+    {
+        value: "agent-visible-models",
+        label: t("settings.section.agentVisibleModels.label"),
+        description: t("settings.section.agentVisibleModels.description"),
+        iconClass: "i-lucide-list-checks",
+        scopes: ["global"],
     },
     {
         value: "embedding",
@@ -506,7 +514,7 @@ const providerBinding = useProviderSettingsBinding({
     scope: () => activeScope.value === "project" ? "project" : "global",
     targetQuery: () => targetQuery.value,
     targetLabel: () => targetLabel.value,
-    enabled: () => activeSection.value === "providers",
+    enabled: () => activeSection.value === "providers" || activeSection.value === "agent-visible-models",
 });
 
 /**
@@ -514,7 +522,7 @@ const providerBinding = useProviderSettingsBinding({
  * 这些取数折进外壳的同一块加载占位——一个区段在任何时刻只会有一个加载呈现。
  */
 const activeSectionReady = computed(() => {
-    if (activeSection.value === "providers") {
+    if (activeSection.value === "providers" || activeSection.value === "agent-visible-models") {
         // 重新读取期间也不算就绪：避免上一轮的数据先渲染一帧再被替换。
         return providerBinding.loaded.value && !providerBinding.loading.value;
     }
@@ -537,7 +545,7 @@ function reloadSettings(): void {
     if (activeSection.value === "agent-profile-models") {
         void loadAgentProfileMeta();
     }
-    if (activeSection.value === "providers") {
+    if (activeSection.value === "providers" || activeSection.value === "agent-visible-models") {
         void providerBinding.load();
     }
 }
@@ -596,7 +604,7 @@ function selectScope(scope: SettingsScopeId): void {
     void flushSectionDrafts();
 }
 
-/** 选择配置分区；未落盘的改动会在防抖窗口里自己写完，不需要在切换时阻断。 */
+/** 选择配置分区。已改的草稿立刻写回；还没落盘的新连接不会自己防抖，离开时必须写。 */
 function selectSection(section: string): void {
     if (section === activeSection.value) {
         return;
@@ -605,6 +613,7 @@ function selectSection(section: string): void {
         return;
     }
     activeSection.value = section as SettingsSection;
+    void flushSectionDrafts();
 }
 
 /**
@@ -764,6 +773,7 @@ async function loadAppVersion(): Promise<void> {
 
 watch(() => props.modelValue, (open) => {
     if (!open) {
+        void flushSectionDrafts();
         return;
     }
     void loadAppVersion();
@@ -912,6 +922,15 @@ async function updateDesktopSettings(patch: Partial<Pick<DesktopSettings, "zoomF
 
                         <!-- Provider 与模型清单：四个会话留在宿主，视图只消费绑定 -->
                         <ProviderSettingsView v-else-if="section?.value === 'providers'" v-bind="providerBinding.viewBindings.value" />
+
+                        <AgentVisibleModelsView
+                            v-else-if="section?.value === 'agent-visible-models'"
+                            :entries="providerBinding.draft.value.agentVisibleModels"
+                            :models="providerBinding.defaultModelOptions.value"
+                            :default-model-key="providerBinding.draft.value.defaultModelKey"
+                            :disabled="providerBinding.saving.value"
+                            @update:entries="providerBinding.updateDraft({...providerBinding.draft.value, agentVisibleModels: $event})"
+                        />
 
                         <!-- 向量嵌入 -->
                         <EmbeddingSettingsView

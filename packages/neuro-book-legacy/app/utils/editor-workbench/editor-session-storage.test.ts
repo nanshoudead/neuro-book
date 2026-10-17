@@ -98,6 +98,8 @@ type Harness = {
          * 返回 `null`/`undefined` 表示照常写入。
          */
         beforeSave: ((address: string, value: WorkbenchEditorSessionRecord) => unknown) | null;
+        /** 读取前钩子：返回错误对象时抛出它，用来模拟订阅轮询中断。 */
+        beforeRead: ((address: string) => unknown) | null;
     };
     readonly adapters: WorkbenchStorageAdapters;
     key(scope: "project" | "user", key?: string): string;
@@ -115,7 +117,7 @@ function storageHarness(): Harness {
     const saves: string[] = [];
     const attempts: string[] = [];
     const reads: string[] = [];
-    const hooks: Harness["hooks"] = {beforeSave: null};
+    const hooks: Harness["hooks"] = {beforeSave: null, beforeRead: null};
     const gate: {current: ReadGate} = {current: {reads: Promise.resolve(), release: () => undefined}};
     let sequence = 0;
     const credential = (revision: string | null): StorageCredential => ({revision, partitionGeneration: 1});
@@ -141,6 +143,8 @@ function storageHarness(): Harness {
             const path = address(scope, action.key);
             if (action.kind === "read") {
                 reads.push(path);
+                const blocked = hooks.beforeRead?.(path) ?? null;
+                if (blocked !== null) throw blocked;
                 await gate.current.reads;
                 const record = records.get(path);
                 if (record === undefined) {
@@ -875,6 +879,27 @@ describe("useEditorSessionStorage：订阅与工作面", () => {
         await vi.waitFor(() => { expect(session.notice.value?.kind).toBe("conflict"); });
         expect(harness.saves).toEqual([]);
         expect(layoutOf(harness.value("project")).groups).toEqual([["main", ["b.md"]], ["g9", ["b.md"]]]);
+        stop();
+    });
+
+    it("订阅超时只保留一条提示，下一次读成功后撤下", async () => {
+        const {store, harness, session, stop} = await setup();
+        seedBuffers(store, {"a.md": {content: "A", synced: "A"}});
+        store.workspaceTree = [node("a.md")];
+        const grid = multiGroupGrid(["main"]);
+        harness.write("project", serializeEditorSession(openEditorSessionState(grid, {main: ["a.md"]}), grid));
+        await session.initialize();
+
+        const timeout = new StorageAdapterError({code: null, status: null, message: "Storage 请求超时", committed: null});
+        let failing = true;
+        harness.hooks.beforeRead = () => failing ? timeout : null;
+        await vi.waitFor(() => {
+            expect(session.issues.value.filter((issue) => issue.startsWith("编辑记录的订阅故障："))).toEqual(["编辑记录的订阅故障：Storage 请求超时"]);
+        });
+        failing = false;
+        await vi.waitFor(() => {
+            expect(session.issues.value.some((issue) => issue.startsWith("编辑记录的订阅故障："))).toBe(false);
+        });
         stop();
     });
 

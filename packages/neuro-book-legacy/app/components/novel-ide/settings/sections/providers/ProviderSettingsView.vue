@@ -183,6 +183,7 @@ function toggleGroup(group: string): void {
             :active-provider="activeProvider"
             :library-model="props.editingLibraryModel"
             :confirm-mode="props.editingTransientCandidate"
+            :saving="props.saving"
             :missing-fields="props.editingModelMissingFields"
             :model-api-options="props.modelApiOptions"
             :teleport-target="props.teleportTarget"
@@ -194,6 +195,7 @@ function toggleGroup(group: string): void {
             @enable-model-cost="emit('enable-model-cost', $event)"
             @reapply-library="emit('reapply-library', $event)"
             @confirm="emit('confirm-model-edit')"
+            @save="emit('save-model-edit')"
         />
     </div>
 </template>

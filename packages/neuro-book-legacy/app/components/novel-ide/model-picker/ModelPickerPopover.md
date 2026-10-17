@@ -30,9 +30,10 @@ type Emits = {
     (e: "update:open", value: boolean): void;
     (e: "update:modelValue", value: string): void;
     (e: "update:thinkingLevel", value: ThinkingLevelDto | null): void;
+    (e: "commit:thinkingLevel", value: ThinkingLevelDto | null): void;
     (e: "select", value: string, item: ModelPickerRoleItem | ModelPickerModelItem): void;
 };
 ```
 
 - **弹出动效**：通过动态计算的 `transform-origin` 结合减速弹簧曲线 `cubic-bezier(0.16, 1, 0.3, 1)`（`var(--motion-enter)`），自触发胶囊按钮平滑向外展开与收拢。
-- **选择语义**：选择角色时不自动关闭弹出层，保留浮层以便调整思考等级；选择物理模型或按 Esc / 点击外部时自动收拢。
+- **选择语义**：选择角色时不自动关闭弹出层，保留浮层以便调整思考等级；选择物理模型或按 Esc / 点击外部时自动收拢。拖动思考等级时 `update:thinkingLevel` 只刷新预览，松手才发 `commit:thinkingLevel`，这次提交不关闭浮层。

@@ -21,8 +21,14 @@ export type WorkbenchChromeRegistration = Readonly<{
     currentProjectRoot: () => string | null;
     projects: () => readonly WorkbenchProjectItem[];
     agentPanelOpen: () => boolean;
+    /** 主侧栏是否展开：拖到零或书架态都算收起，标题栏按钮用它画按下态。 */
+    sidebarOpen: () => boolean;
+    /** 底部面板是否占位：`hidden` 为收起。 */
+    bottomPanelOpen: () => boolean;
     openBookshelf: () => void | Promise<void>;
     switchProject: (projectRoot: string) => void | Promise<void>;
+    toggleSidebar: () => void | Promise<void>;
+    toggleBottomPanel: () => void | Promise<void>;
     toggleAgentPanel: () => void | Promise<void>;
     /** 菜单命令在页面里的执行入口：没有桌面宿主时自绘菜单直接走它（两种宿主同一份派发）。 */
     invokeMenuCommand: (command: DesktopMenuCommandId) => void | Promise<void>;

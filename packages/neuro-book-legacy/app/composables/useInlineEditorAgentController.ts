@@ -626,7 +626,6 @@ export function useInlineEditorAgentController(
         if (!await updateSessionThinkingLevel(nextThinkingLevel, operation)) return;
         if (!acceptsOperation(operation.owner, operation.sessionId)) return;
         restoreSessionModelDraft();
-        sessionModelPopoverOpen.value = false;
     }
 
     async function resetSessionModelSettings(): Promise<void> {

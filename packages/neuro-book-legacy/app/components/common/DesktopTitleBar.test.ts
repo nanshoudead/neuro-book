@@ -72,12 +72,16 @@ function mountHost(): Harness {
             {projectRoot: "novels/rain-and-tea", title: "雨与茶"},
         ],
         agentPanelOpen: () => false,
+        sidebarOpen: () => true,
+        bottomPanelOpen: () => false,
         openBookshelf: () => {
             opened.push("bookshelf");
         },
         switchProject: (projectRoot) => {
             switched.push(projectRoot);
         },
+        toggleSidebar: () => undefined,
+        toggleBottomPanel: () => undefined,
         toggleAgentPanel: () => undefined,
         invokeMenuCommand: (command: DesktopMenuCommandId) => {
             invoked.push(command);

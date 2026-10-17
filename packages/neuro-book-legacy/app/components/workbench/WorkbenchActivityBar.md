@@ -47,8 +47,8 @@ type Slots = {
 
 ## 布局
 
-- 上段与底部各放在自己的滚动容器里，内层是自然高度的组；`footer` 组带 `margin-top: auto`，所以有空余时它贴底，中段紧接上段。
-- 中段是「可见次要入口 + More 触发器」：溢出判定沿用 `app/utils/workbench-chrome.ts` 的 `resolveActivityBarSecondaryItems`，`fixedHeight` = 容器纵向内边距 + 上段自然高度 + 底部自然高度。**只要存在溢出就先给 More 留一个完整按钮位**。
+- 上段与底部各放在自己的滚动容器里，内层是自然高度的组；`footer` 组带 `margin-top: auto`，所以有空余时它贴底，中段紧接上段。上段外层会撑满剩余高度，当作拖放落点；量占用高度只用里面那层不伸展的内容。量外层会把空白算成已占用，次要入口全部进 More，栏变高后也不会回来。
+- 中段是「可见次要入口 + More 触发器」：溢出判定沿用 `app/utils/workbench-chrome.ts` 的 `resolveActivityBarSecondaryItems`，`fixedHeight` = 容器纵向内边距 + 上段内容自然高度 + 底部自然高度。**只要存在溢出就先给 More 留一个完整按钮位**。
 - 组的高度变化经由 `ResizeObserver` 重新分配可见项；可见数取「最近一次实测」的上限，容器变大等实测回来再补，避免来回抖。
 - 极短高度时上段与底部组被压扁并各自滚动，中段的 More 始终可达；卡片整体 `overflow: hidden`，不会越过 Part 边界。
 

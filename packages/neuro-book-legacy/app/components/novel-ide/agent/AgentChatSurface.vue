@@ -2883,7 +2883,6 @@ async function applySessionModelSettings(): Promise<void> {
         modelKey: nextModelKey,
         reasoningEffort: nextThinkingLevel,
     };
-    sessionModelPopoverOpen.value = false;
 }
 
 async function resetSessionModelSettings(): Promise<void> {
@@ -3075,7 +3074,6 @@ async function applyInlineSessionModelSettings(): Promise<void> {
     if (!await updateInlineSessionThinkingLevel(nextThinkingLevel, operation)) return;
     if (!acceptsInlineSurfaceOperation(operation.owner, operation.sessionId)) return;
     restoreInlineSessionModelDraft();
-    inlineSessionModelPopoverOpen.value = false;
 }
 
 async function resetInlineSessionModelSettings(): Promise<void> {
@@ -4475,6 +4473,7 @@ const sidebarContextInspectorProps = computed<AgentSidebarContextInspectorProps>
             @composer-cycle-mode="void cycleAgentMode()"
             @composer-toggle-session-model-popover="toggleSessionModelPopover"
             @composer-apply-session-model-settings="void applySessionModelSettings()"
+            @composer-update-session-thinking-level="void updateSessionThinkingLevel($event)"
             @composer-reset-session-model-settings="void resetSessionModelSettings()"
             @composer-reconnect-events="void reconnectActiveSessionEvents()"
             @composer-refresh-history="void syncActiveSessionRecovery()"

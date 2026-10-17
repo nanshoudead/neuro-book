@@ -46,6 +46,7 @@ const effectiveHeightClass = computed(() => {
 const emit = defineEmits<{
     (e: "update:modelValue", value: string): void;
     (e: "update:thinkingLevel", value: ThinkingLevelDto | null): void;
+    (e: "commit:thinkingLevel", value: ThinkingLevelDto | null): void;
     (e: "select", value: string, item: ModelPickerRoleItem | ModelPickerModelItem): void;
     (e: "close"): void;
 }>();
@@ -94,6 +95,12 @@ function handleThinkingSliderUpdate(val: number | number[]): void {
 function selectThinkingLevel(val: ThinkingLevelDto | null): void {
     localThinkingLevel.value = val;
     emit("update:thinkingLevel", val);
+}
+
+/** 松手才提交。拖动中的 update 只改预览，避免每格都写会话并把浮层关掉。 */
+function handleThinkingSliderCommit(val: number | number[]): void {
+    const idx = typeof val === "number" ? val : val[0] ?? 0;
+    emit("commit:thinkingLevel", THINKING_LEVELS[idx]?.value ?? null);
 }
 
 // 梯度轴角色（固定 4 档，始终展示）
@@ -497,6 +504,7 @@ function handleFilterChange(val: string | number | boolean | null): void {
                         aria-label="思考推理等级滑块"
                         class="w-full cursor-pointer"
                         @update:model-value="handleThinkingSliderUpdate"
+                        @value-commit="handleThinkingSliderCommit"
                     />
                 </div>
             </div>

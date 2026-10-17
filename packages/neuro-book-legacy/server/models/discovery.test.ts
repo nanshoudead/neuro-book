@@ -344,11 +344,43 @@ describe("Automatic Model Discovery", () => {
         expect(headers.has("authorization")).toBe(false);
     });
 
-    it.each(["bedrock-converse-stream", "google-vertex"] as const)("%s 不支持自动发现且不发送请求", async (modelApi) => {
+    it("服务账号 JSON 即使模型 API 还不是 google-vertex，也使用内置目录且不发送请求", async () => {
+        const fetchMock = vi.fn();
+        globalThis.fetch = fetchMock as unknown as typeof fetch;
+        const credential = JSON.stringify({
+            type: "service_account",
+            project_id: "demo-project",
+            private_key: "-----BEGIN PRIVATE KEY-----\nabc\n-----END PRIVATE KEY-----\n",
+            client_email: "demo@demo.iam.gserviceaccount.com",
+        });
+
+        const result = await discoverProviderModelMetadata(createProvider(
+            "https://aiplatform.googleapis.com/v1",
+            credential,
+            "openai-completions",
+        ));
+
+        expect(fetchMock).not.toHaveBeenCalled();
+        expect(result.models.map((model) => model.id)).toContain("gemini-2.5-flash");
+    });
+
+    it("google-vertex 使用内置目录且不发送请求", async () => {
         const fetchMock = vi.fn();
         globalThis.fetch = fetchMock as unknown as typeof fetch;
 
-        await expect(discoverProviderModelMetadata(createProvider("https://example.com", "secret", modelApi))).rejects.toMatchObject({code: "unsupported-discovery"});
+        const result = await discoverProviderModelMetadata(createProvider("", "secret", "google-vertex"));
+
+        expect(fetchMock).not.toHaveBeenCalled();
+        expect(result.diagnostics.pageCount).toBe(0);
+        expect(result.models.map((model) => model.id)).toContain("gemini-2.5-flash");
+        expect(result.models.every((model) => model.api === "google-vertex")).toBe(true);
+    });
+
+    it("bedrock-converse-stream 不支持自动发现且不发送请求", async () => {
+        const fetchMock = vi.fn();
+        globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+        await expect(discoverProviderModelMetadata(createProvider("https://example.com", "secret", "bedrock-converse-stream"))).rejects.toMatchObject({code: "unsupported-discovery"});
         expect(fetchMock).not.toHaveBeenCalled();
     });
 });

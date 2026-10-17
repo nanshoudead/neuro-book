@@ -134,6 +134,7 @@ function patchOptions(patch: Partial<ModelSettingsProviderDraft["options"]>): vo
         <section class="mt-[var(--space-6)] border-t border-[var(--divider)] pt-[var(--space-4)]">
             <h3 class="text-[var(--text-sm)] [font-weight:var(--weight-strong)] leading-[var(--leading-ui)] text-[var(--text-main)]">{{ t("settings.panels.models.connectionGroup") }}</h3>
             <p v-if="isSavedProvider" class="mt-[var(--space-1)] text-[var(--text-2xs)] leading-[var(--leading-ui)] text-[var(--text-muted)]">{{ t("settings.panels.models.providerIdentityHint") }}</p>
+            <p v-else class="mt-[var(--space-1)] text-[var(--text-2xs)] leading-[var(--leading-ui)] text-[var(--text-muted)]">{{ t("settings.panels.models.providerIdentityEditableHint") }}</p>
 
             <div class="provider-form-grid mt-[var(--space-4)] grid gap-x-[var(--space-3)] gap-y-[var(--space-4)]">
                 <label class="block min-w-0">

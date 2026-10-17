@@ -88,6 +88,8 @@ const dragEntriesEnabled = computed(() => props.containers !== undefined
 
 const activityBarRef = ref<HTMLElement | null>(null);
 const primaryGroupRef = ref<HTMLElement | null>(null);
+/** 主入口的自然高度。外层盒子会 flex 撑满剩余空间，不能拿它的 offsetHeight 当已占用高度。 */
+const primaryContentRef = ref<HTMLElement | null>(null);
 const footerGroupRef = ref<HTMLElement | null>(null);
 const visibleSecondaryCount = ref(props.secondary.length);
 let resizeObserver: ResizeObserver | null = null;
@@ -128,15 +130,16 @@ const moreItems = computed<DropdownItem[]>(() => secondaryItems.value.overflow.m
 })));
 
 /**
- * 固定开销：容器纵向内边距 + 主入口组 + 底部组的自然高度。
- * 两组都放在自己的滚动容器里，量的是内层自然高度——被压扁时读数不变，容量计算才不会自激。
+ * 固定开销：容器纵向内边距 + 主入口内容 + 底部组的自然高度。
+ * 主入口外层会撑满剩余高度（拖放落点），量它会把空白算成已占用，次要入口就全部进 More 并且不再回来。
+ * 被压扁时内层不收缩，读数保持内容高度，容量计算才不会自激。
  */
 function resolveFixedHeight(): number {
     const activityBar = activityBarRef.value;
     if (activityBar === null) return 0;
     const style = getComputedStyle(activityBar);
     const paddingBlock = Number.parseFloat(style.paddingTop || "0") + Number.parseFloat(style.paddingBottom || "0");
-    return paddingBlock + (primaryGroupRef.value?.offsetHeight ?? 0) + (footerGroupRef.value?.offsetHeight ?? 0);
+    return paddingBlock + (primaryContentRef.value?.offsetHeight ?? 0) + (footerGroupRef.value?.offsetHeight ?? 0);
 }
 
 function measureSecondaryItems(): void {
@@ -153,7 +156,7 @@ function measureSecondaryItems(): void {
 
 function observeGroups(): void {
     resizeObserver?.disconnect();
-    for (const target of [activityBarRef.value, primaryGroupRef.value, footerGroupRef.value]) {
+    for (const target of [activityBarRef.value, primaryContentRef.value, footerGroupRef.value]) {
         if (target !== null) resizeObserver?.observe(target);
     }
 }
@@ -233,7 +236,8 @@ onBeforeUnmount(() => {
                 :allow-container-move="allowContainerMove === true"
                 :allow-view-move="allowViewMove === true"
             />
-            <div ref="primaryGroupRef" data-activity-group="primary" class="flex min-h-0 w-full flex-1 flex-col items-center">
+            <div ref="primaryGroupRef" class="flex min-h-0 w-full flex-1 flex-col items-center">
+            <div ref="primaryContentRef" data-activity-group="primary" class="flex w-full shrink-0 flex-col items-center">
                 <template v-for="item in primaryItems" :key="item.id">
                     <slot :name="`item-${item.id}`" :item="item">
                         <!-- 容器条目：主侧栏的容器切换发生在这里，所以它既要能拖也要能接收。 -->
@@ -274,6 +278,7 @@ onBeforeUnmount(() => {
                 </template>
 
                 <div v-if="primaryItems.length > 0" class="workbench-activity-bar__separator my-1"></div>
+            </div>
             </div>
         </div>
 

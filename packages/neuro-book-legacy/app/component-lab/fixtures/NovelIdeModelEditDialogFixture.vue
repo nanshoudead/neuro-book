@@ -3,7 +3,7 @@ import NovelIdeModelEditDialog from "../../components/novel-ide/settings/section
 import {useLabSubject, type LabFixtureProps} from "../lab-subject";
 
 const props = defineProps<LabFixtureProps>();
-const subject = useLabSubject<typeof NovelIdeModelEditDialog>(() => props.input, ["confirm", "model-id-change", "toggle-model-input", "reset-model-input", "reset-model-cost", "enable-model-cost", "reapply-library"]);
+const subject = useLabSubject<typeof NovelIdeModelEditDialog>(() => props.input, ["confirm", "save", "model-id-change", "toggle-model-input", "reset-model-input", "reset-model-cost", "enable-model-cost", "reapply-library"]);
 </script>
 
 <template>

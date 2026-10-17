@@ -13,7 +13,7 @@ import type {
     AgentTriggerMenuContext,
     AgentTriggerMenuState,
 } from "nbook/app/components/novel-ide/agent/trigger-menu";
-import type {EnabledModelOptionDto} from "nbook/shared/dto/app-settings.dto";
+import type {EnabledModelOptionDto, ThinkingLevelDto} from "nbook/shared/dto/app-settings.dto";
 import type {ModelPickerRoleItem} from "nbook/app/components/novel-ide/model-picker/model-picker.types";
 import type {AgentQueuedMessageDto, AgentMode, AgentSessionAttachmentItemDto} from "nbook/shared/dto/agent-session.dto";
 import {agentAttachmentUrl} from "nbook/app/components/novel-ide/agent/agent-attachment";
@@ -79,6 +79,7 @@ const emit = defineEmits<{
     (e: "cycle-mode"): void;
     (e: "toggle-session-model-popover"): void;
     (e: "apply-session-model-settings"): void;
+    (e: "update-session-thinking-level", value: ThinkingLevelDto | null): void;
     (e: "reset-session-model-settings"): void;
     (e: "attachment-registered", item: AgentSessionAttachmentItemDto): void;
     (e: "availability-action", action: AgentComposerAvailabilityAction): void;
@@ -587,6 +588,7 @@ defineExpose({focus, insertAttachment});
                         @update-session-model-selection="emit('update-session-model-selection', $event)"
                         @toggle-session-model-popover="emit('toggle-session-model-popover')"
                         @apply-session-model-settings="emit('apply-session-model-settings')"
+                        @update-session-thinking-level="emit('update-session-thinking-level', $event)"
                         @reset-session-model-settings="emit('reset-session-model-settings')"
                     />
                 </template>

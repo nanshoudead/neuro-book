@@ -493,16 +493,30 @@ async function handleMoveContainer(request: ContainerMoveRequest): Promise<void>
 /**
  * 选择一个 Part 的活动容器（活动栏 / 标签 / 落点三条入口共用）。
  *
- * 重复点当前项**保持选择**并显式打开该 Part：`select-container` 意图在同一次合成里清掉
- * 显式隐藏与拖收起，页面不切换成 null 来表达「当前项」。
+ * `select-container` 在同一次合成里清掉显式隐藏与拖收起。活动栏再点当前已展开的主侧栏
+ * 不走这条，改由 `handleOpenContainer` 把它拖收起。
  */
 async function handleSelectContainer(partId: ToolPartId, containerId: string): Promise<void> {
     reportPlacementOutcome(await viewPlacements.selectContainer(partId, containerId), "ide.workbench.container.selectRejected");
 }
 
-/** 活动栏回传容器 id → 它此刻生效的 Part（容器可能已被搬到别的落位）。 */
+/**
+ * 活动栏回传容器 id → 它此刻生效的 Part（容器可能已被搬到别的落位）。
+ * 主侧栏已经展开、点的又是当前容器时收起文件栏；收起后再点一次走选择，把侧栏打开。
+ */
 function handleOpenContainer(containerId: string): void {
     const partId = containerPart(containerId) ?? "left";
+    const sidebarOpen = partId === "left"
+        && !projectPickerActive.value
+        && dragCollapsedParts.value.left !== true
+        && partPresentation("left").activeContainerId === containerId;
+    if (sidebarOpen) {
+        void (async () => {
+            const outcome = await viewPlacements.setPartVisibility({partId: "left", dragCollapsed: true});
+            reportPlacementOutcome(outcome, "ide.workbench.container.visibilityRejected");
+        })();
+        return;
+    }
     void handleSelectContainer(partId, containerId);
 }
 
@@ -542,13 +556,23 @@ async function handlePanelState(patch: Partial<WorkbenchPanelPreferences>): Prom
         notification.warning(outcome.diagnosis, {title: t("ide.workbench.panel.stateRejected")});
     }
 }
-/** 状态栏的面板显隐：隐藏是零占用；再点一次同时清 hidden 与 collapsed，按原尺寸恢复。 */
+/** 状态栏与标题栏共用的面板显隐：隐藏是零占用；再点一次同时清 hidden 与 collapsed，按原尺寸恢复。 */
 async function togglePanelVisibility(): Promise<void> {
     if (panelPreferences.value.hidden) {
         await handlePanelState({hidden: false, collapsed: false});
         return;
     }
     await handlePanelState({hidden: true});
+}
+
+/** 标题栏「切换主侧栏」：书架没有左栏，不写拖收起；项目里在展开与拖到零之间翻转。 */
+async function toggleLeftSidebar(): Promise<void> {
+    if (projectPickerActive.value) {
+        return;
+    }
+    const collapsed = dragCollapsedParts.value.left === true;
+    const outcome = await viewPlacements.setPartVisibility({partId: "left", dragCollapsed: !collapsed});
+    reportPlacementOutcome(outcome, "ide.workbench.container.visibilityRejected");
 }
 
 /**
@@ -754,16 +778,6 @@ const dropOverlay = computed<{label: string; iconClass: string | undefined} | nu
     return {label: container?.title ?? source.containerId, iconClass: container?.icon};
 });
 const workbenchShellRef = ref<InstanceType<typeof WorkbenchShell> | null>(null);
-/**
- * 叶的显隐都由页面事实驱动，走外壳暴露的 `setLeafVisible`：
- * - `titlebar` **两种宿主都显示**：浏览器没有 bridge 也要有可用标题栏（菜单按真实能力裁剪）；
- * - `left` / `right` 在书架（picker）态收起，主区整个让给书架视图——与接入前「图标条 + 书架」等价。
- */
-watch([workbenchShellRef, projectPickerActive], ([shell, pickerActive]) => {
-    if (!shell) return;
-    shell.setLeafVisible("left", !pickerActive);
-    shell.setLeafVisible("right", !pickerActive);
-});
 
 /**
  * 工作台命令宿主：与 Lab 同形的 provide/inject host。
@@ -1049,6 +1063,22 @@ const buildProjectRoute = (projectTarget: string): string => {
 const consumingRouteOpenPath = ref(false);
 const displayAgentPanelOpen = computed(() => workspaceBootstrapped.value && agentPanelOpen.value);
 const isAgentMode = computed(() => layoutMode.value === "agent");
+/**
+ * 叶的显隐都由页面事实驱动，走外壳暴露的 `setLeafVisible`：
+ * - `titlebar` 两种宿主都显示：浏览器没有 bridge 也要有可用标题栏；
+ * - `left` 在书架收起；
+ * - `right` 是 Agent 面板的落点，没打开 Agent、也没有被搬过来的容器时收起。
+ */
+const rightLeafVisible = computed(() => !projectPickerActive.value && (
+    displayAgentPanelOpen.value
+    || isAgentMode.value
+    || partPresentation("right").containers.length > 0
+));
+watch([workbenchShellRef, projectPickerActive, rightLeafVisible], ([shell, pickerActive, rightVisible]) => {
+    if (!shell) return;
+    shell.setLeafVisible("left", !pickerActive);
+    shell.setLeafVisible("right", rightVisible);
+});
 const agentSurfaceActive = computed(() => projectSurfaceActive.value && (displayAgentPanelOpen.value || isAgentMode.value));
 const agentModeSessions = computed(() => agentSurfaceRef.value?.sessions ?? []);
 const agentModeActiveSessionId = computed(() => agentSurfaceRef.value?.activeSessionId ?? null);
@@ -2266,6 +2296,9 @@ const toggleAgentPanel = async (): Promise<void> => {
     }
     agentPanelOpen.value = !agentPanelOpen.value;
     if (!agentPanelOpen.value) return;
+    if (dragCollapsedParts.value.right === true) {
+        await viewPlacements.setPartVisibility({partId: "right", dragCollapsed: false});
+    }
     await nextTick();
     await agentSurfaceRef.value?.ensureSessionReady();
 };
@@ -3042,8 +3075,12 @@ useWorkbenchChromeRegistration({
         title: novel.title,
     })),
     agentPanelOpen: () => displayAgentPanelOpen.value,
+    sidebarOpen: () => !projectPickerActive.value && dragCollapsedParts.value.left !== true,
+    bottomPanelOpen: () => !panelPreferences.value.hidden,
     openBookshelf: () => openProjectPicker(),
     switchProject: (projectRoot) => handleSwitchNovel(projectRoot),
+    toggleSidebar: () => toggleLeftSidebar(),
+    toggleBottomPanel: () => togglePanelVisibility(),
     toggleAgentPanel: () => toggleAgentPanel(),
     invokeMenuCommand: (command) => dispatchMenuCommand(command),
     editTarget: () => titleBarEdit.target.value,
@@ -3344,8 +3381,26 @@ onBeforeUnmount(() => {
                 </div>
             </template>
             <template #right>
-                <!-- 右 Part 宿主：与左栏、底部共用同一份容器切片；容器可以被用户搬到这里。 -->
+                <!-- 右叶是 Agent 面板。打开时挂完整 Surface；关掉后若有被搬来的容器，仍由 Part 宿主显示。 -->
+                <div class="flex h-full min-h-0 w-full flex-col">
+                <AgentChatSurface
+                    v-if="displayAgentPanelOpen || isAgentMode"
+                    ref="agentSurfaceRef"
+                    class="contain-layout-paint min-h-0 flex-1"
+                    :active="agentSurfaceActive"
+                    :layout="isAgentMode ? 'workbench' : 'drawer'"
+                    :novel-id="displayNovelIdForAgent"
+                    :project-ready-revision="agentProjectReadyRevision"
+                    :history-inbox-refresh-key="historyInboxRefreshKey"
+                    :selected-file-path="selectedFilePath || undefined"
+                    :open-reference="openWorkspaceReference"
+                    @close="closeAgentSurface"
+                    @open-reference="void openWorkspaceReference($event)"
+                    @open-history-inbox="historyInboxOpen = true"
+                />
                 <WorkbenchPartHost
+                    v-show="!(displayAgentPanelOpen || isAgentMode)"
+                    class="min-h-0 flex-1"
                     :presentation="partPresentation('right')"
                     :context-key="viewPlacements.contextKey()"
             :actions-context-key="titleActionsContextKey"
@@ -3363,6 +3418,7 @@ onBeforeUnmount(() => {
                     @move-view="(request) => void handleMoveView(request)"
                     @title-action="(payload) => void handleTitleAction(payload)"
                 />
+                </div>
             </template>
             <template #panel="{ collapsed }">
                 <!-- 底部 Part 宿主：收起时只留 32px 标题头（叶仍在树里，容器里的实例不重挂）。 -->

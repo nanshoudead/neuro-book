@@ -80,7 +80,10 @@ vi.mock("nbook/server/agent/session/agent-session-store-runtime", () => ({
     observeAgentSessionStoreRuntimeCompromised: mocks.observeAgentSessionStoreRuntimeCompromised,
     stopAgentSessionStoreRuntime: mocks.stopAgentSessionStoreRuntime,
 }));
-vi.mock("nbook/server/config/boot-config", () => ({loadBootAuthEnabledSync: mocks.bootConfig}));
+vi.mock("nbook/server/config/boot-config", () => ({
+    loadBootAuthEnabledSync: mocks.bootConfig,
+    loadBootConfigSync: () => ({}),
+}));
 vi.mock("nbook/server/app-logs/logger", () => ({appLogger: {
     info: mocks.info, warn: mocks.warn, error: vi.fn(async () => undefined), fatalSync: mocks.fatalSync,
     flush: mocks.flush, close: mocks.closeLogs, writeDiagnostic: mocks.writeDiagnostic,

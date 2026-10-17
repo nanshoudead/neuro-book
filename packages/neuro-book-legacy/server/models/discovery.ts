@@ -1,5 +1,7 @@
+import {builtinProviders} from "@earendil-works/pi-ai/providers/all";
 import {z} from "zod";
-import type {DiscoveryDiagnosticsDto, DiscoveredProviderModelDto, ModelProviderDraftDto} from "nbook/shared/dto/app-settings.dto";
+import {readVertexServiceAccount} from "nbook/server/models/vertex-credentials";
+import {DiscoveredProviderModelDtoSchema, type DiscoveryDiagnosticsDto, type DiscoveredProviderModelDto, type ModelProviderDraftDto} from "nbook/shared/dto/app-settings.dto";
 import {deriveModelGroup} from "nbook/shared/models/model-group";
 
 type ProviderFetchInit = RequestInit & {proxy?: string};
@@ -114,7 +116,8 @@ const googleAdapter: DiscoveryAdapter = {
     url: (provider, baseURL, pageToken) => {
         const url = modelsUrl(baseURL);
         const apiKey = provider.options.apiKey.trim();
-        if (apiKey) {
+        // 服务账号 JSON 不是 API key。放进 query 会把私钥写进 URL，也查不到模型列表。
+        if (apiKey && !apiKey.startsWith("{")) {
             url.searchParams.set("key", apiKey);
         }
         url.searchParams.set("pageSize", "1000");
@@ -132,6 +135,12 @@ const googleAdapter: DiscoveryAdapter = {
 
 /** 自动发现当前 Provider 的模型，并返回可用于设置页诊断的稳定统计。 */
 export async function discoverProviderModelMetadata(provider: ModelProviderDraftDto): Promise<DiscoveryResult> {
+    // Vertex 不使用调用方的 Base URL。清单来自 Pi 内置目录，设置页据此直接写入连接。
+    // 密钥框里已经是服务账号 JSON 时，即使模型 API 还没改成 google-vertex，也不要拿这份 JSON 去打 /models。
+    if (provider.modelApi === "google-vertex" || isVertexServiceAccountCredential(provider.options.apiKey)) {
+        return discoverVertexCatalog();
+    }
+
     const baseUrlText = provider.options.baseURL.trim();
     if (!baseUrlText) {
         throw new ProviderDiscoveryError("missing-base-url", `${provider.name} 缺少 API Base，无法发现模型。`);
@@ -273,6 +282,55 @@ async function runAdapter(provider: ModelProviderDraftDto, baseURL: URL, adapter
     }
 }
 
+/** 密钥框里的合法服务账号 JSON。普通 API key 和非法 JSON 都返回 false。 */
+function isVertexServiceAccountCredential(value: string): boolean {
+    try {
+        return readVertexServiceAccount(value) !== null;
+    } catch {
+        return false;
+    }
+}
+
+/** 把 Pi 的 google-vertex 目录变成发现结果。不访问网络，因此没有分页。 */
+function discoverVertexCatalog(): DiscoveryResult {
+    const provider = builtinProviders().find((item) => item.id === "google-vertex");
+    const models = (provider?.getModels() ?? []).flatMap((model) => {
+        if (model.api !== "google-vertex") {
+            return [];
+        }
+        const parsed = DiscoveredProviderModelDtoSchema.safeParse({
+            id: model.id,
+            name: model.name,
+            group: deriveModelGroup(model.id),
+            api: "google-vertex",
+            reasoning: model.reasoning,
+            input: model.input,
+            contextWindowTokens: model.contextWindow,
+            maxTokens: model.maxTokens,
+            cost: null,
+            compat: null,
+            headers: null,
+            thinkingLevelMap: model.thinkingLevelMap ?? null,
+        });
+        return parsed.success ? [parsed.data] : [];
+    }).sort((left, right) => left.id.localeCompare(right.id));
+    if (models.length === 0) {
+        throw new ProviderDiscoveryError("empty-result", "没有可用的 Vertex 模型。");
+    }
+    return {
+        models,
+        diagnostics: {
+            fetchedCount: models.length,
+            returnedCount: models.length,
+            skippedCount: 0,
+            duplicateCount: 0,
+            pageCount: 0,
+            truncated: false,
+            partial: false,
+        },
+    };
+}
+
 function parseHttpUrl(value: string): URL {
     const parsed = new URL(value);
     if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
@@ -287,7 +345,7 @@ function orderedAdapters(provider: ModelProviderDraftDto, baseURL: URL): Discove
     if (provider.modelApi === "anthropic-messages") {
         return [anthropicAdapter];
     }
-    if (provider.modelApi === "bedrock-converse-stream" || provider.modelApi === "google-vertex") {
+    if (provider.modelApi === "bedrock-converse-stream") {
         return [];
     }
     if (provider.modelApi === "google-generative-ai") {

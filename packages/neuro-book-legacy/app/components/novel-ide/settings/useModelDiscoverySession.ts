@@ -29,7 +29,8 @@ type DiscoveryCacheEntry = {
 
 /**
  * 管理 Automatic Model Discovery 的前端临时会话。
- * 发现结果、搜索和手动候选均不会进入 Provider Config，只有调用 enableModel 后才持久化为草稿。
+ * 发现结果、搜索和手动候选默认不进入 Provider Config。
+ * Vertex 是例外：它没有远端列表，查询成功后会把目录里还没有的模型启用进草稿。
  */
 export function useModelDiscoverySession(options: ModelDiscoverySessionOptions) {
     const {t} = useI18n();
@@ -67,15 +68,15 @@ export function useModelDiscoverySession(options: ModelDiscoverySessionOptions) 
         }
     }
 
-    /** 使用当前连接执行一次 Automatic Model Discovery。 */
-    async function discover(): Promise<void> {
+    /** 使用当前连接执行一次 Automatic Model Discovery。返回这次有没有把模型写进草稿。 */
+    async function discover(): Promise<boolean> {
         const provider = options.activeProvider.value;
         if (!provider || discoveringProviderId.value) {
-            return;
+            return false;
         }
         if (!provider.modelApi.trim()) {
             notification.error(t("settings.panels.models.providerModelApiRequired"));
-            return;
+            return false;
         }
         discoveringProviderId.value = provider.id;
         try {
@@ -101,16 +102,45 @@ export function useModelDiscoverySession(options: ModelDiscoverySessionOptions) 
                     diagnostics: response.diagnostics,
                 },
             };
-            if (response.diagnostics.partial) {
+            const configuredCount = configureVertexCatalog(response.models);
+            if (configuredCount > 0) {
+                notification.success(t("settings.panels.models.vertexModelsConfigured", {count: configuredCount}));
+            } else if (response.diagnostics.partial) {
                 notification.warning(discoveryDiagnosticsMessage(response.diagnostics, t));
             } else {
                 notification.success(response.message);
             }
+            return configuredCount > 0;
         } catch (error) {
             notification.error(resolveApiErrorMessage(error, t("settings.panels.models.discoverFailed")));
+            return false;
         } finally {
             discoveringProviderId.value = "";
         }
+    }
+
+    /**
+     * Vertex 没有远端模型列表。把这次目录里还没出现在连接上的模型直接启用。
+     * 已经存在的条目保持原状，包括用户停用过的。
+     */
+    function configureVertexCatalog(models: DiscoveredProviderModelDto[]): number {
+        const provider = options.activeProvider.value;
+        if (!provider || provider.modelApi !== "google-vertex") {
+            return 0;
+        }
+        let configured = 0;
+        for (const remote of models) {
+            if (provider.models.some((model) => model.id === remote.id)) {
+                continue;
+            }
+            const completed = completeModelCandidate(remote, options.findLibraryModel(remote.id), "google-vertex");
+            if (completed.status !== "complete") {
+                continue;
+            }
+            options.enableModel(completed.model);
+            configured += 1;
+        }
+        return configured;
     }
 
     /** 手动候选经统一补全后加入 Provider Config，或进入临时编辑器。 */

@@ -1,7 +1,8 @@
 import {readFileSync} from "node:fs";
 import {resolve} from "node:path";
-import {defineConfig, presetUno, presetIcons} from "unocss";
+import {getIconData, iconToHTML, iconToSVG} from "@iconify/utils";
 import {icons as lucideIcons} from "@iconify-json/lucide";
+import {defineConfig, presetIcons, presetUno} from "unocss";
 
 /*
  * 位移 / 缩放 / 旋转 / 斜切的类名必须按 nb-ui 发货的那一份封禁掉。
@@ -40,10 +41,32 @@ function readNbUiTransformClasses(): string[] {
     return [...names].sort();
 }
 
+/*
+ * preset-icons 的规则带 prefix，UnoCSS 把它放进 fallback。
+ * preset-uno 里有一条可选前缀的正则能配上任意类名，于是 fallback 不会再被查询，
+ * `i-lucide-*` 一条样式都产不出来。这里写成不带 prefix 的具体规则，才能进索引。
+ * 只写 `--svg`：遮罩、尺寸由 nb-ui 的 `[class*="i-lucide-"]` 垫片负责。
+ */
+function lucideMaskUrl(name: string): string | undefined {
+    const data = getIconData(lucideIcons, name);
+    if (!data) return;
+    const rendered = iconToSVG(data);
+    const svg = iconToHTML(rendered.body.replaceAll("currentColor", "black"), rendered.attributes);
+    return `url("data:image/svg+xml,${encodeURIComponent(svg)}")`;
+}
+
 export default defineConfig({
     presets: [
         presetUno(),
         presetIcons(),
+    ],
+    rules: [
+        [/^i-lucide-([a-z0-9-]+)$/, ([, name]) => {
+            if (!name) return;
+            const url = lucideMaskUrl(name);
+            if (!url) return;
+            return {"--svg": url};
+        }],
     ],
     safelist: Object.keys(lucideIcons.icons).map((iconName) => `i-lucide-${iconName}`),
     blocklist: readNbUiTransformClasses(),

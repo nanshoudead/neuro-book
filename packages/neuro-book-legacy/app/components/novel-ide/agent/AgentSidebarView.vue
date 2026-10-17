@@ -254,6 +254,7 @@ defineExpose({
                     @cycle-mode="emit('composer-cycle-mode')"
                     @toggle-session-model-popover="emit('composer-toggle-session-model-popover')"
                     @apply-session-model-settings="emit('composer-apply-session-model-settings')"
+                    @update-session-thinking-level="emit('composer-update-session-thinking-level', $event)"
                     @reset-session-model-settings="emit('composer-reset-session-model-settings')"
                     @attachment-registered="emit('attachment-registered', $event)"
                     @availability-action="emit('composer-availability-action', $event)"

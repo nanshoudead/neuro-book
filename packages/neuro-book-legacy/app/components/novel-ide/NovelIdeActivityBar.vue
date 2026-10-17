@@ -16,7 +16,7 @@ import {
  *
  * 分工与接入前一致——这一层只做图标表、译文表与条目到事件的路由，测量与溢出在通用组件里：
  * - **容器**由页面按生效落位求值后传入（`containers` / `activeContainerId`），选择只回传 `open-container`，
- *   「重复点击当前项」的语义（保持选择并显式打开被隐藏 / 拖收起的主侧栏）归页面；
+ *   「重复点击当前项」的语义归页面：主侧栏已展开时收起，已收起时再打开；
  * - **非容器命令**来自 `createWorkbenchActivityItems` 的能力表，禁用与原因按原有 Project / user-assets 门禁；
  * - `files` / `characters` 这类工具视图与 `agent-panel` 不再是活动项：它们分别归主侧栏容器里的视图
  *   与 Agent 面板自己的入口，这里不画第二个开关。

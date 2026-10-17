@@ -44,12 +44,16 @@ const props = withDefaults(defineProps<{
     /** 当前模型在 NeuroBook Model Library 中的标准资料；未命中时为空。 */
     libraryModel: ModelLibraryEntryDto | null;
     confirmMode?: boolean;
+    /** 整份模型配置正在写回时禁用保存。 */
+    saving?: boolean;
     missingFields: string[];
     modelApiOptions: SelectOption[];
     /** 浮层宿主；Lab 里没有 .novel-ide-theme，fixture 传 false 就地渲染。 */
     teleportTarget?: string | boolean;
 }>(), {
     teleportTarget: ".novel-ide-theme",
+    confirmMode: false,
+    saving: false,
 });
 
 const emit = defineEmits<{
@@ -61,6 +65,7 @@ const emit = defineEmits<{
     (e: "enable-model-cost", model: ModelDraft): void;
     (e: "reapply-library", model: ModelDraft): void;
     (e: "confirm"): void;
+    (e: "save"): void;
 }>();
 
 const {t} = useI18n();
@@ -388,9 +393,14 @@ function updateOpen(value: boolean): void {
                 </section>
             </div>
         </div>
-        <template v-if="props.confirmMode ?? false" #footer>
+        <template v-if="props.confirmMode" #footer>
             <Button size="sm" variant="secondary" @click="updateOpen(false)">{{ t("common.cancel") }}</Button>
             <Button size="sm" @click="emit('confirm')">{{ t("common.confirm") }}</Button>
+        </template>
+        <template v-else #footer>
+            <div class="flex w-full justify-end">
+                <Button size="sm" :disabled="props.saving" @click="emit('save')">{{ t("common.save") }}</Button>
+            </div>
         </template>
     </DialogWindow>
 </template>

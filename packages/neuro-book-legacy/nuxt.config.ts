@@ -1,4 +1,5 @@
-import {fileURLToPath} from "node:url";
+import {readdir, readFile, writeFile} from "node:fs/promises";
+import {fileURLToPath, pathToFileURL} from "node:url";
 import {join, resolve} from "node:path";
 import {
     isProductRuntimeIslandModule,
@@ -240,6 +241,11 @@ export default defineNuxtConfig({
             });
             nuxt.hook("nitro:init", (nitro) => {
                 nitro.hooks.hook("prerender:config", (config) => { delete config.entry; });
+                // 非入口 chunk 会先于入口执行，Nitro 用 file:///_entry.js 占位。
+                // Windows 上这个地址没有盘符，fileURLToPath 在模块加载时直接抛错。
+                nitro.hooks.hook("compiled", async () => {
+                    await rewriteNitroImportMetaStub(nitro.options.output.serverDir);
+                });
             });
         },
         "nuxt-auth-utils",
@@ -285,3 +291,30 @@ export default defineNuxtConfig({
         appManifest: productImageRoot ? false : undefined,
     },
 });
+
+const NITRO_IMPORT_META_STUB = "\"file:///_entry.js\"";
+
+/** 把 Nitro 的占位地址换成这次产物入口的绝对 file URL。 */
+async function rewriteNitroImportMetaStub(serverDir: string): Promise<void> {
+    const replacement = JSON.stringify(pathToFileURL(resolve(serverDir, "index.mjs")).href);
+    await rewriteStubInDir(serverDir, replacement);
+}
+
+async function rewriteStubInDir(dir: string, replacement: string): Promise<void> {
+    const entries = await readdir(dir, {withFileTypes: true});
+    for (const entry of entries) {
+        const fullPath = join(dir, entry.name);
+        if (entry.isDirectory()) {
+            await rewriteStubInDir(fullPath, replacement);
+            continue;
+        }
+        if (!entry.name.endsWith(".mjs")) {
+            continue;
+        }
+        const text = await readFile(fullPath, "utf8");
+        if (!text.includes(NITRO_IMPORT_META_STUB)) {
+            continue;
+        }
+        await writeFile(fullPath, text.replaceAll(NITRO_IMPORT_META_STUB, replacement));
+    }
+}

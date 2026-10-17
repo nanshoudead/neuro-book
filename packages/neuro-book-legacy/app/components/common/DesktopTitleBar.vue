@@ -5,7 +5,7 @@
  * - 有没有 bridge（桌面 / B/S 两态）：**两种宿主都画标题栏**，没有 bridge 时应用动作走页面登记的回调；
  * - bridge 状态（菜单由谁画、窗口按钮由谁画、连接方式）；
  * - 宿主能力投影（`TitleBarHostCapabilities`）：菜单的 enabled / visible 由它决定；
- * - 菜单命令派发、Project 切换、Agent 面板开关、外观上报。
+ * - 菜单命令派发、Project 切换、主侧栏 / 底部面板 / Agent 面板开关、外观上报。
  *
  * chrome 本身在 `DesktopTitleBarChrome.vue`（受控零件，Lab 可挂载），本组件只做投影与派发；
  * 点组件外收起菜单也归 chrome（它自己知道传送到 body 的下拉层）。
@@ -32,6 +32,8 @@ const title = computed(() => registration.value?.title() || "NeuroBook");
 const currentProjectRoot = computed(() => registration.value?.currentProjectRoot() ?? null);
 const projects = computed(() => registration.value?.projects() ?? []);
 const agentPanelOpen = computed(() => registration.value?.agentPanelOpen() ?? false);
+const sidebarOpen = computed(() => registration.value?.sidebarOpen() ?? true);
+const bottomPanelOpen = computed(() => registration.value?.bottomPanelOpen() ?? false);
 const rendererMenus = computed(() => status.value?.menuPresentation !== "native");
 const customWindowControls = computed(() => status.value?.windowControls === "custom");
 /**
@@ -71,6 +73,14 @@ async function selectProject(projectRoot: string | null): Promise<void> {
     if (projectRoot !== currentProjectRoot.value) {
         await registration.value.switchProject(projectRoot);
     }
+}
+
+async function toggleSidebar(): Promise<void> {
+    await registration.value?.toggleSidebar();
+}
+
+async function toggleBottomPanel(): Promise<void> {
+    await registration.value?.toggleBottomPanel();
 }
 
 async function toggleAgentPanel(): Promise<void> {
@@ -118,11 +128,15 @@ watch(
         :project-url="projectUrl"
         :agent-panel-available="Boolean(registration)"
         :agent-panel-open="agentPanelOpen"
+        :sidebar-open="sidebarOpen"
+        :bottom-panel-open="bottomPanelOpen"
         :renderer-menus="rendererMenus"
         :custom-window-controls="customWindowControls"
         :connection="status?.connection ?? null"
         @invoke-command="void invoke($event)"
         @select-project="void selectProject($event)"
+        @toggle-sidebar="void toggleSidebar()"
+        @toggle-bottom-panel="void toggleBottomPanel()"
         @toggle-agent-panel="void toggleAgentPanel()"
         @window-command="windowCommand"
         @open-command-palette="handleOpenCommandPalette"

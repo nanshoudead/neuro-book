@@ -71,6 +71,11 @@ export type StorageOwnerSubscribeOptions<T> = {
     readonly onUpdate?: (snapshot: StorageReadResult<T>) => void;
     /** 读取故障与订阅终止的可见通道；观察者异常不影响已提交事实。 */
     readonly onError?: (error: unknown) => void;
+    /**
+     * 报告过故障之后，下一次读取成功时调用。
+     * 快照没变不会走 `onUpdate`，调用方仍要能撤下「订阅故障」这类提示。
+     */
+    readonly onRecovered?: () => void;
 };
 
 export type StorageOwnerHandle = {
@@ -92,6 +97,9 @@ type ReadEntry = {
     readonly key: string;
     onUpdate: ((snapshot: StorageReadResult<unknown>) => void) | undefined;
     onError: ((error: unknown) => void) | undefined;
+    onRecovered: (() => void) | undefined;
+    /** 已经通过 onError 报告过、还没有一次成功读取把它撤下。 */
+    faulted: boolean;
     closed: boolean;
     dirty: boolean;
     backoffMs: number;
@@ -289,6 +297,8 @@ export async function openStorageOwnerHandle(input: StorageOwnerHandleOptions): 
             key: recordKey(definition, options.resource),
             onUpdate: options.onUpdate as ((snapshot: StorageReadResult<unknown>) => void) | undefined,
             onError: options.onError,
+            onRecovered: options.onRecovered,
+            faulted: false,
             closed: false,
             dirty: false,
             backoffMs: intervalMs,
@@ -339,10 +349,13 @@ export async function openStorageOwnerHandle(input: StorageOwnerHandleOptions): 
             entry.backoffMs = entry.lastKey === key
                 ? Math.min(entry.backoffMs * 2, maxBackoffMs)
                 : intervalMs;
+            const recovered = entry.faulted;
+            entry.faulted = false;
             if (!entry.closed && entry.lastKey !== key) {
                 entry.lastKey = key;
                 if (publish) emit(entry, snapshot);
             }
+            if (recovered && !entry.closed) recover(entry);
             return snapshot;
         });
         entry.tail = reading.then(() => undefined, () => undefined);
@@ -391,10 +404,19 @@ export async function openStorageOwnerHandle(input: StorageOwnerHandleOptions): 
     };
 
     const report = (entry: ReadEntry, error: unknown): void => {
+        entry.faulted = true;
         try {
             entry.onError?.(error);
         } catch {
             // 观察者自己的错误处理器抛错不能变成适配器的未处理 rejection。
+        }
+    };
+
+    const recover = (entry: ReadEntry): void => {
+        try {
+            entry.onRecovered?.();
+        } catch {
+            // 与 onError 一样：恢复回调抛错不能打断后续轮询。
         }
     };
 

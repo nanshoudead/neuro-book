@@ -31,6 +31,7 @@ type Props = {
 type Emits = {
     (e: "update:modelValue", value: string): void;
     (e: "update:thinkingLevel", value: ThinkingLevelDto | null): void;
+    (e: "commit:thinkingLevel", value: ThinkingLevelDto | null): void;
     (e: "select", value: string, item: ModelPickerRoleItem | ModelPickerModelItem): void;
     (e: "close"): void;
 };

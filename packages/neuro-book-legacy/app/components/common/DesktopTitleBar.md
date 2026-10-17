@@ -10,7 +10,7 @@
 
 chrome 高度由 Workbench 标题栏几何常量决定（标准为 36px），内部品牌、菜单、Project 切换、命令中心、布局按钮和可选窗口控制由 `DesktopTitleBarChrome` 绘制。屏幕宽度和标题栏测量决定完整菜单与紧凑菜单切换；详细键盘漫游、折行与子控件规格见同目录 `DesktopTitleBarChrome.md`。
 
-浏览器与桌面共用标题栏，但能力不同：浏览器没有桌面 bridge 时不显示桌面窗口控制；File/Edit/View/Help 动作按页面注册的实际焦点和功能可用性显示、隐藏或禁用。Project 的本标签切换、书架打开、菜单命令、Agent 面板与命令面板都调用页面注册的回调；如果当前没有页面注册信息，标题显示 NeuroBook，Project 列表为空，页面动作没有可执行回调。桌面状态读取失败时连接状态为空。组件不自行提供业务路由或 Project 加载。
+浏览器与桌面共用标题栏，但能力不同：浏览器没有桌面 bridge 时不显示桌面窗口控制；File/Edit/View/Help 动作按页面注册的实际焦点和功能可用性显示、隐藏或禁用。Project 的本标签切换、书架打开、菜单命令、主侧栏、底部面板、Agent 面板与命令面板都调用页面注册的回调；如果当前没有页面注册信息，标题显示 NeuroBook，Project 列表为空，页面动作没有可执行回调。桌面状态读取失败时连接状态为空。组件不自行提供业务路由或 Project 加载。
 
 真实页面集成位于 `app/pages/index.vue`：页面把标题栏放进 `WorkbenchShell` 的 `titlebar` 插槽，同时作为 Workbench Chrome 注册项的持有页面。app 根另行提供注册表。当前 Component Lab 的 `WorkbenchShellLayout` 场景展示的是纯 `DesktopTitleBarChrome`，没有挂载这个宿主，也没有可直接跳转的 Lab 集成条目；不能用纯 chrome 场景代替宿主链验证。
 

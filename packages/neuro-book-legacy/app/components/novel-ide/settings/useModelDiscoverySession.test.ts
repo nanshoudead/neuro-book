@@ -48,6 +48,38 @@ describe("Automatic Model Discovery frontend session", () => {
         expect(notificationSpies.warning).not.toHaveBeenCalled();
     });
 
+    it("Vertex 查询会启用目录里还没有的模型，已有模型保持原状", async () => {
+        const provider = createProvider({
+            modelApi: "google-vertex",
+            models: [
+                createModel("gemini-2.5-flash", true),
+                createModel("gemini-2.5-pro", false),
+            ],
+        });
+        const enabled: string[] = [];
+        vi.stubGlobal("$fetch", vi.fn(async () => ({
+            models: [
+                remoteModel({id: "gemini-2.5-flash", name: "Gemini 2.5 Flash", api: "google-vertex"}),
+                remoteModel({id: "gemini-2.5-pro", name: "Gemini 2.5 Pro", api: "google-vertex"}),
+                remoteModel({id: "gemini-2.5-flash-lite", name: "Gemini 2.5 Flash-Lite", api: "google-vertex"}),
+            ],
+            message: "ok",
+            diagnostics: completeDiagnostics(),
+        })));
+        const session = createSession(provider, "cleared", {
+            enableModel: (model) => {
+                enabled.push(model.id);
+                provider.models.push(createModel(model.id, model.enabled));
+            },
+        });
+
+        await expect(session.discover()).resolves.toBe(true);
+
+        expect(enabled).toEqual(["gemini-2.5-flash-lite"]);
+        expect(provider.models.find((model) => model.id === "gemini-2.5-pro")?.enabled).toBe(false);
+        expect(notificationSpies.success).toHaveBeenCalledWith("settings.panels.models.vertexModelsConfigured");
+    });
+
     it("普通 OpenAI 发现使用 Provider Model API 补全 Responses", async () => {
         const provider = createProvider({modelApi: "openai-responses", models: []});
         vi.stubGlobal("$fetch", vi.fn(async () => ({
@@ -175,7 +207,11 @@ describe("Automatic Model Discovery frontend session", () => {
 });
 
 /** 创建被测发现会话。 */
-function createSession(provider: ModelSettingsProviderDraft, credentialSource: "provided" | "saved" | "cleared" = "cleared") {
+function createSession(
+    provider: ModelSettingsProviderDraft,
+    credentialSource: "provided" | "saved" | "cleared" = "cleared",
+    hooks: {enableModel?: (model: {id: string; enabled: boolean}) => void} = {},
+) {
     const activeProvider = computed(() => provider);
     const modelLibrary = ref<ModelLibraryDto>({models: []});
     return useModelDiscoverySession({
@@ -196,7 +232,7 @@ function createSession(provider: ModelSettingsProviderDraft, credentialSource: "
             },
         }),
         credentialSource: () => credentialSource,
-        enableModel: () => undefined,
+        enableModel: (model) => hooks.enableModel?.(model),
         disableModel: () => undefined,
         openTransientCandidate: async () => undefined,
         ensureDefaultModel: () => undefined,

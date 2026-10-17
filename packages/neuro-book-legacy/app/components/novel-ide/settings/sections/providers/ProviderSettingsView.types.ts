@@ -99,6 +99,7 @@ export type ProviderSettingsViewEmits = {
     (event: "update:modelLibraryDialogOpen", value: boolean): void;
     (event: "confirm-delete-provider"): void;
     (event: "confirm-model-edit"): void;
+    (event: "save-model-edit"): void;
     (event: "model-id-change"): void;
     (event: "toggle-model-input", model: ModelSettingsModelDraft, inputKind: ModelInputKind): void;
     (event: "reset-model-input", model: ModelSettingsModelDraft): void;

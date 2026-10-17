@@ -387,7 +387,19 @@ export function useEditorSessionStorage(options: EditorSessionStorageOptions): E
                     if (generation !== surfaceGeneration || released) {
                         return;
                     }
-                    issues.value = [...issues.value, `编辑记录的订阅故障：${failureMessage(error)}`];
+                    // 同一条故障只留最新一次：轮询会反复失败，不能把提示堆成一条越来越长的状态。
+                    const message = `编辑记录的订阅故障：${failureMessage(error)}`;
+                    const rest = issues.value.filter((issue) => !issue.startsWith("编辑记录的订阅故障："));
+                    if (issues.value.length === rest.length + 1 && issues.value.at(-1) === message) return;
+                    issues.value = [...rest, message];
+                },
+                onRecovered: () => {
+                    if (generation !== surfaceGeneration || released) {
+                        return;
+                    }
+                    // 快照未变时不会走 onUpdate；读取已经恢复，故障提示不能继续留在状态栏。
+                    const rest = issues.value.filter((issue) => !issue.startsWith("编辑记录的订阅故障："));
+                    if (rest.length !== issues.value.length) issues.value = rest;
                 },
             });
             if (generation !== surfaceGeneration || released) {

@@ -6,7 +6,7 @@ import AgentMarkdownContent from "nbook/app/components/novel-ide/agent/bubbles/b
 import AgentSessionModelControls from "nbook/app/components/novel-ide/agent/panels/header/AgentSessionModelControls.vue";
 import type {AgentSessionModelDraft} from "nbook/app/components/novel-ide/agent/agent-session-model-controls";
 import {parseSelectionRefChip, type InlineEditReference, type InlineEditTask} from "nbook/app/utils/inline-editor-selection";
-import type {EnabledModelOptionDto} from "nbook/shared/dto/app-settings.dto";
+import type {EnabledModelOptionDto, ThinkingLevelDto} from "nbook/shared/dto/app-settings.dto";
 import type {AgentSessionSummaryDto} from "nbook/shared/dto/agent-session.dto";
 
 interface InlineTaskOption {
@@ -64,6 +64,7 @@ const emit = defineEmits<{
     (e: "update:sessionModelPopoverOpen", value: boolean): void;
     (e: "toggle-session-model-popover"): void;
     (e: "apply-session-model-settings"): void;
+    (e: "update-session-thinking-level", value: ThinkingLevelDto | null): void;
     (e: "reset-session-model-settings"): void;
 }>();
 
@@ -387,6 +388,7 @@ onBeforeUnmount(() => {
                             @update-session-model-selection="emit('update-session-model-selection', $event)"
                             @toggle-session-model-popover="emit('toggle-session-model-popover')"
                             @apply-session-model-settings="emit('apply-session-model-settings')"
+                            @update-session-thinking-level="emit('update-session-thinking-level', $event)"
                             @reset-session-model-settings="emit('reset-session-model-settings')"
                         />
 

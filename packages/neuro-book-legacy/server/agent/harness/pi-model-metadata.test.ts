@@ -31,6 +31,23 @@ describe("Pi model metadata contract", () => {
         expect(() => resolvePiModelMetadata("custom", provider, model)).toThrow();
     });
 
+    it("Vertex 主机地址不带项目时不传给 Pi，避免丢掉服务账号里的 project", () => {
+        const resolved = resolvePiModelMetadata("vertex", createProvider({
+            baseURL: "https://aiplatform.googleapis.com/v1",
+            modelApi: "google-vertex",
+        }), createModel({api: "google-vertex"}));
+        expect(resolved.baseUrl).toBe("");
+    });
+
+    it("Vertex 集合根保留 projects 与 locations", () => {
+        const baseURL = "https://aiplatform.googleapis.com/v1/projects/demo/locations/global";
+        const resolved = resolvePiModelMetadata("vertex", createProvider({
+            baseURL,
+            modelApi: "google-vertex",
+        }), createModel({api: "google-vertex"}));
+        expect(resolved.baseUrl).toBe(baseURL);
+    });
+
     it("拒绝 maxTokens 大于 contextWindowTokens", () => {
         expect(() => resolvePiModelMetadata("custom", createProvider(), createModel({
             contextWindowTokens: 4096,
@@ -39,11 +56,11 @@ describe("Pi model metadata contract", () => {
     });
 });
 
-function createProvider(overrides: {baseURL?: string} = {}): ConfiguredProviderConfig {
+function createProvider(overrides: {baseURL?: string; modelApi?: ConfiguredProviderConfig["modelApi"]} = {}): ConfiguredProviderConfig {
     return {
         name: "Custom",
         enabled: true,
-        modelApi: null,
+        modelApi: overrides.modelApi ?? null,
         options: {
             apiKey: "",
             baseURL: overrides.baseURL ?? "http://127.0.0.1:11434/v1",

@@ -23,6 +23,7 @@ export {default as Table} from "./display/Table.vue";
 export {default as AlertDialog} from "./feedback/AlertDialog.vue";
 export {default as ContextMenu} from "./feedback/ContextMenu.vue";
 export {default as Dialog} from "./feedback/Dialog.vue";
+export {default as DialogWindow} from "./feedback/DialogWindow.vue";
 export {default as Drawer} from "./feedback/Drawer.vue";
 export {default as HoverCard} from "./feedback/HoverCard.vue";
 export {default as InfoTip} from "./feedback/InfoTip.vue";

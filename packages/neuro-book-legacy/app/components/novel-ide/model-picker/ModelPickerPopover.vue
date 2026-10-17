@@ -47,6 +47,7 @@ const emit = defineEmits<{
     (e: "update:open", value: boolean): void;
     (e: "update:modelValue", value: string): void;
     (e: "update:thinkingLevel", value: ThinkingLevelDto | null): void;
+    (e: "commit:thinkingLevel", value: ThinkingLevelDto | null): void;
     (e: "select", value: string, item: ModelPickerRoleItem | ModelPickerModelItem): void;
 }>();
 
@@ -222,6 +223,7 @@ onUnmounted(() => {
                     height-class="h-full"
                     @update:model-value="emit('update:modelValue', $event)"
                     @update:thinking-level="emit('update:thinkingLevel', $event)"
+                    @commit:thinking-level="emit('commit:thinkingLevel', $event)"
                     @select="handleSelect"
                     @close="handleClose"
                 />

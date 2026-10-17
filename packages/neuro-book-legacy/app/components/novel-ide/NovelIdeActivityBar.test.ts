@@ -22,7 +22,7 @@ import NovelIdeActivityBar, {type WorkbenchActivityContainer} from "./NovelIdeAc
  * 产品活动栏：上半是**主侧栏容器单选**，下半是非容器命令（工具组 + 账户 / 设置）。
  *
  * 这里钉三件事：容器条目的选中与回传、非容器命令的原有门禁与事件路由、账户格仍是插槽替换。
- * 「重复点击当前项保持选择并显式打开主侧栏」的语义在页面命令里，不在这一层。
+ * 「重复点击当前项收起或打开主侧栏」的语义在页面命令里，不在这一层。
  */
 
 class ResizeObserverStub {
