@@ -5,10 +5,6 @@
 
 import {join} from "node:path";
 
-import type {PluginDescriptor} from "@notnotype/nb-runtime/plugins";
-import {Type} from "typebox";
-import {Value} from "typebox/value";
-
 export interface ProjectConfig {
     readonly stateRoot: string;
     readonly id: string;
@@ -18,19 +14,7 @@ export interface ProjectConfig {
     readonly root: string;
     /** 诊断文件出口获授的日志位置：每个项目一个目录，与服务端的日志位置各自持有授予。 */
     readonly logDirectory: string;
-    /**
-     * 服务端本次启动登记、且在项目实例登记的第三方插件（docs/specs/runtime/plugin-install.md）：子进程不自己读登记表，
-     * 同一次服务端运行中先后打开的作品看到同一个集合。
-     */
-    readonly thirdParty: ReadonlyArray<PluginDescriptor>;
 }
-
-const ThirdPartySchema = Type.Array(Type.Object({
-    id: Type.String({minLength: 1}),
-    version: Type.String({minLength: 1}),
-    locations: Type.Array(Type.String({minLength: 1})),
-    contributions: Type.Optional(Type.Array(Type.Object({capability: Type.String({minLength: 1}), id: Type.String({minLength: 1}), declaration: Type.Unknown()}, {additionalProperties: false}))),
-}, {additionalProperties: false}));
 
 export class ProjectConfigError extends Error {
     readonly variable: string;
@@ -49,8 +33,6 @@ export const PROJECT_ENV = {
     name: "NBOOK_PROJECT_NAME",
     generation: "NBOOK_PROJECT_GENERATION",
     root: "NBOOK_PROJECT_ROOT",
-    /** JSON 数组；没有第三方插件时可以不给。 */
-    thirdParty: "NBOOK_THIRD_PARTY_PLUGINS",
 } as const;
 
 export function readProjectConfig(env: Readonly<Record<string, string | undefined>>): ProjectConfig {
@@ -66,17 +48,5 @@ export function readProjectConfig(env: Readonly<Record<string, string | undefine
     if (!/^[1-9]\d*$/.test(generationText) || !Number.isSafeInteger(generation)) {
         throw new ProjectConfigError(PROJECT_ENV.generation, `${PROJECT_ENV.generation} 必须是正整数，收到 ${generationText}`);
     }
-    return {stateRoot, id: read(PROJECT_ENV.id), name, generation, root: read(PROJECT_ENV.root), logDirectory: join(stateRoot, "logs", "projects", name), thirdParty: readThirdParty(env[PROJECT_ENV.thirdParty])};
-}
-
-function readThirdParty(text: string | undefined): ReadonlyArray<PluginDescriptor> {
-    if (text === undefined || text.trim() === "") return [];
-    let parsed: unknown;
-    try {
-        parsed = JSON.parse(text);
-    } catch {
-        throw new ProjectConfigError(PROJECT_ENV.thirdParty, `${PROJECT_ENV.thirdParty} 不是合法 JSON`);
-    }
-    if (!Value.Check(ThirdPartySchema, parsed)) throw new ProjectConfigError(PROJECT_ENV.thirdParty, `${PROJECT_ENV.thirdParty} 不是插件描述的数组`);
-    return parsed;
+    return {stateRoot, id: read(PROJECT_ENV.id), name, generation, root: read(PROJECT_ENV.root), logDirectory: join(stateRoot, "logs", "projects", name)};
 }

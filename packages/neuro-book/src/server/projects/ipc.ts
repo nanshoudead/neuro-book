@@ -2,20 +2,36 @@
  * 服务端与项目子进程之间的进程间通信（Bun IPC，`serialization: "json"`），父子两侧共用。
  *
  * 一条通道上走两类消息：远程服务的帧（`frame`，内容是内核 JSON 编码后的文本，IPC 只搬运字符串，三种链路的
- * 编码语义因此一致），以及宿主之间的控制消息（`started`、`stop`），后者不进入链路。
+ * 编码语义因此一致），以及宿主之间的控制消息（`plugins`、`started`、`stop`），后者不进入链路。
  * 行为合同见 docs/specs/runtime/plugin-channel.md 的“进程间链路”。
  */
+
+import type {PluginDescriptor} from "@notnotype/nb-runtime/plugins";
+import {Type} from "typebox";
+import {Value} from "typebox/value";
 
 import {createSocketLink} from "nbook/shared/rpc-socket";
 import type {SocketLink} from "nbook/shared/rpc-socket";
 
 export type ProjectEnvelope =
     | {readonly t: "frame"; readonly d: string}
+    /**
+     * 服务端起子进程后发的第一条消息：服务端本次启动登记、且在项目实例登记的第三方插件（docs/specs/runtime/plugin-install.md）。
+     * 子进程等到它才装配插件，不自己读登记表；不放环境变量：插件声明可以很大，单个环境字符串有长度上限。
+     */
+    | {readonly t: "plugins"; readonly descriptors: ReadonlyArray<PluginDescriptor>}
     /** 项目宿主的启动结果：运行实例可用之后才报 `available`，不报半就绪。 */
     | {readonly t: "started"; readonly status: "available"}
     | {readonly t: "started"; readonly status: "failed"; readonly detail: string}
     /** 服务端请求项目宿主按停止序列停止。 */
     | {readonly t: "stop"};
+
+const DescriptorsSchema = Type.Array(Type.Object({
+    id: Type.String({minLength: 1}),
+    version: Type.String({minLength: 1}),
+    locations: Type.Array(Type.String({minLength: 1})),
+    contributions: Type.Optional(Type.Array(Type.Object({capability: Type.String({minLength: 1}), id: Type.String({minLength: 1}), declaration: Type.Unknown()}, {additionalProperties: false}))),
+}, {additionalProperties: false}));
 
 /** 收到的消息不是约定的信封时为 null；调用方记诊断后丢弃。 */
 export function parseEnvelope(value: unknown): ProjectEnvelope | null {
@@ -29,6 +45,10 @@ export function parseEnvelope(value: unknown): ProjectEnvelope | null {
             return envelope.status === "failed" && typeof envelope.detail === "string" ? {t: "started", status: "failed", detail: envelope.detail} : null;
         case "stop":
             return {t: "stop"};
+        case "plugins": {
+            const descriptors = (value as {readonly descriptors?: unknown}).descriptors;
+            return Value.Check(DescriptorsSchema, descriptors) ? {t: "plugins", descriptors} : null;
+        }
         default:
             return null;
     }

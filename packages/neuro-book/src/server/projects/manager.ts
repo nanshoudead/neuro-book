@@ -169,15 +169,15 @@ class ProjectManagerImpl implements ProjectManager {
      * 不会出现写表中被打开、或打开中被移出的半状态（输出第 15 条）。只覆盖到进入 starting 为止，等子进程启动不在里面。
      */
     readonly #serial = new Map<string, Promise<void>>();
-    /** 交给每个子进程的第三方插件描述（JSON），服务端启动时就定了。 */
-    readonly #thirdParty: string;
+    /** 交给每个子进程的第三方插件描述，服务端启动时就定了。 */
+    readonly #thirdParty: ReadonlyArray<PluginDescriptor>;
     #admission = true;
 
     constructor(options: ProjectManagerOptions) {
         this.registry = options.registry;
         this.#options = options;
         this.#clock = options.clock ?? systemClock;
-        this.#thirdParty = JSON.stringify(pluginsAt("project", options.thirdParty ?? []));
+        this.#thirdParty = pluginsAt("project", options.thirdParty ?? []);
         this.#children = createChildInstances<ProjectChild>(options.application, {
             create: (id, generation) => this.#create(id, generation),
             stop: (child, {signal}) => this.#stop(child, signal),
@@ -479,7 +479,6 @@ class ProjectManagerImpl implements ProjectManager {
                     [PROJECT_ENV.name]: record.name,
                     [PROJECT_ENV.generation]: String(generation),
                     [PROJECT_ENV.root]: record.path,
-                    [PROJECT_ENV.thirdParty]: this.#thirdParty,
                 },
                 stdin: "ignore",
                 stdout: "pipe",
@@ -495,6 +494,8 @@ class ProjectManagerImpl implements ProjectManager {
         }
         child.proc = proc;
         this.#processes.set(record.id, child);
+        // 第一条消息：子进程等到它才装配插件（ipc.ts 的 `plugins`）。
+        this.#send(child, {t: "plugins", descriptors: this.#thirdParty});
         const output = this.#options.output ?? {stdout: (text: string) => void process.stdout.write(text), stderr: (text: string) => void process.stderr.write(text)};
         for (const [stream, write] of [[proc.stdout, output.stdout], [proc.stderr, output.stderr]] as const) {
             forwardLines(stream, label, write).catch((error: unknown) => this.#options.record({level: "warn", event: "project.output.failed", message: `${label}转发子进程输出失败`, error}));
@@ -512,7 +513,7 @@ class ProjectManagerImpl implements ProjectManager {
 
     #receive(child: ProjectChild, message: unknown): void {
         const envelope = parseEnvelope(message);
-        if (envelope === null || envelope.t === "stop") {
+        if (envelope === null || envelope.t === "stop" || envelope.t === "plugins") {
             this.#options.record({level: "warn", event: "project.ipc.invalid", message: `项目 ${child.record.name}#${String(child.generation)} 发来无法识别的 IPC 消息`});
             return;
         }

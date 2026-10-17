@@ -22,6 +22,11 @@ import type {ProjectConfig} from "./config";
 export interface ProjectPluginContext {
     readonly config: ProjectConfig;
     readonly manifest: ReadonlyArray<PluginDescriptor>;
+    /**
+     * 服务端本次启动登记、且在项目实例登记的第三方插件（IPC 的 `plugins` 消息）：子进程不自己读登记表，同一次服务端
+     * 运行中先后打开的作品看到同一个集合。
+     */
+    readonly thirdParty: ReadonlyArray<PluginDescriptor>;
     readonly store: DiagnosticsStore;
 }
 
@@ -52,5 +57,5 @@ export function manifestProjectPlugins(context: ProjectPluginContext): PluginDef
         return definitionAt("project", plugin, plugin.id === "nbook.diagnostics" ? projectHostPlugins[plugin.id](context) : projectPluginDefinitions[plugin.id]);
     });
     // 第三方插件只登记顶层声明（`thirdPartyDefinition`）。
-    return [...builtin, ...pluginsAt("project", context.config.thirdParty).map(thirdPartyDefinition)];
+    return [...builtin, ...pluginsAt("project", context.thirdParty).map(thirdPartyDefinition)];
 }

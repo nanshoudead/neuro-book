@@ -15,6 +15,7 @@ import {definitionOf, descriptorOf, readPluginManifest} from "@notnotype/nb-runt
 import type {ContributionPointDefinition, PluginDefinition, PluginDescriptor, PluginEntryDefinition} from "@notnotype/nb-runtime/plugins";
 import type {RemoteContract} from "@notnotype/nb-runtime/remote";
 
+import {npmVersions} from "nbook/backend/plugins/versions";
 import {productPlugins} from "nbook/manifest";
 import {projectPluginDefinitions} from "nbook/project/plugins";
 import {serverPluginDefinitions} from "nbook/server/plugins";
@@ -40,6 +41,8 @@ function locatedDefinitions(descriptor: PluginDescriptor): Located[] {
     return descriptor.locations.map((location) => {
         const definition = definitionTables[location]?.[descriptor.id];
         if (definition === undefined) throw new Error(`${descriptor.id} 写了 ${location}，定义表里没有`);
+        // 清单的 id 来自描述：定义自己的 id 要单独核对，否则对齐比较是同源的，发现不了定义归错插件。
+        if (definition.id !== descriptor.id) throw new Error(`${location} 的定义表里 ${descriptor.id} 对应的定义 id 是 ${definition.id}`);
         return {location, definition, entries: definition.entries.filter((entry) => entry.location === location)};
     });
 }
@@ -128,7 +131,7 @@ describe("内置插件的代码定义与清单格式对齐", () => {
         it(`${descriptor.id}：转成清单通过校验，转回后除运行期钩子外相同`, () => {
             expect(descriptor.version).toBe(PRODUCT_VERSION);
             const located = locatedDefinitions(descriptor);
-            const result = readPluginManifest(manifestJson(descriptor, located), {builtin: true});
+            const result = readPluginManifest(manifestJson(descriptor, located), {builtin: true, versions: npmVersions});
             if (result.status !== "valid") throw new Error(`${descriptor.id} 的清单无效：${JSON.stringify(result.problems)}`);
             const {manifest} = result;
 

@@ -6,7 +6,7 @@
  *
  * 安装先在 `.staging/<随机名>/` 里复制与核对（持这个准备目录自己的锁，别的进程启动回收时跳过它），再持登记表的写入锁
  * 重新核对、把准备目录改名为 `<id>/<版本>/`、写登记表：写登记表就是提交点。提交前任何失败都删掉准备目录与已改名的
- * 版本目录；替换待切换版本时，提交之后才删除被取代的版本目录（删不掉的留给下次启动回收）。
+ * 版本目录；替换待切换版本时，提交之后、仍持锁时删除被取代的版本目录（删不掉的留给下次启动回收）。
  */
 
 import {randomUUID} from "node:crypto";
@@ -21,10 +21,11 @@ import {holdLock} from "nbook/backend/locked-replace";
 import type {PendingChange, PluginFailureCode, PluginList, PluginListItem} from "nbook/plugins/plugins/shared/contracts";
 
 import {collectCopyRange, copyRange} from "./copy";
-import {brief, byId, readRecord, STAGING_DIR, withRecordLock, writeRecord} from "./record";
+import {assertHeld, brief, byId, LockLost, ownedPath, readRecord, STAGING_DIR, withRecordLock, writeRecord} from "./record";
 import type {PluginRecord, RecordEntry} from "./record";
 import {installedManifest, missingEntries} from "./startup";
 import type {StartupPlugins} from "./startup";
+import {engineAccepts} from "./versions";
 
 export type InventoryFailure = {readonly ok: false; readonly code: PluginFailureCode; readonly detail: string; readonly problems?: ReadonlyArray<string>};
 export type InventoryResult<T> = {readonly ok: true; readonly value: T} | InventoryFailure;
@@ -83,18 +84,32 @@ export function createPluginInventory(options: PluginInventoryOptions): PluginIn
         return next;
     };
 
-    function itemOf(id: string, entry: RecordEntry): PluginListItem {
+    /**
+     * 一个第三方插件的列表项：登记表是目标状态，本次启动的集合是本进程实际运行的状态，待生效变化是两者之差
+     * （plugin-install 输出 9）。同一状态根的另一个服务端启动时会消费掉待切换版本与卸载记录，所以版本也按两者比较，
+     * 不只看 `pendingVersion`。
+     */
+    function itemOf(id: string, entry: RecordEntry | undefined): PluginListItem {
         const atStartup = startupOf.get(id);
+        const running = atStartup === undefined || atStartup.state === "uninstalling" ? null : atStartup;
         const pending: PendingChange[] = [];
-        if (entry.state === "uninstalling") {
+        if (entry === undefined || entry.state === "uninstalling") {
             pending.push({kind: "uninstall"});
         } else {
-            if (atStartup === undefined || atStartup.state === "uninstalling") pending.push({kind: "install"});
-            if (entry.pendingVersion !== null) pending.push({kind: "upgrade", version: entry.pendingVersion});
-            const before = atStartup === undefined || atStartup.state === "uninstalling" ? "enabled" : atStartup.state;
+            if (running === null) pending.push({kind: "install"});
+            const target = entry.pendingVersion ?? entry.version;
+            if (running !== null && target !== running.version) pending.push({kind: "upgrade", version: target});
+            const before = running?.state ?? "enabled";
             if (before !== entry.state) pending.push({kind: entry.state === "enabled" ? "enable" : "disable"});
         }
-        return {id, version: entry.version, source: "third-party", state: entry.state, pending, notLoaded: atStartup?.notLoaded ?? null};
+        return {
+            id,
+            version: running?.version ?? entry?.version ?? atStartup?.version ?? "",
+            source: "third-party",
+            state: entry?.state ?? "uninstalling",
+            pending,
+            notLoaded: atStartup?.notLoaded ?? null,
+        };
     }
 
     /** 持写入锁读改写登记表；`change` 返回 null 表示不用写。 */
@@ -104,11 +119,9 @@ export function createPluginInventory(options: PluginInventoryOptions): PluginIn
             if (!read.ok) return failure("registry-failed", read.detail);
             const changed = change(read.record);
             if (!changed.ok) return changed;
-            if (changed.value === null) return {ok: true, value: itemOf(id, read.record.plugins[id]!)};
+            if (changed.value === null) return {ok: true, value: itemOf(id, read.record.plugins[id])};
             try {
-                const lost = await lock.stillHeld();
-                if (lost !== null) return failure("registry-failed", lost);
-                await writeRecord(root, {...read.record, plugins: {...read.record.plugins, [id]: changed.value}});
+                await writeRecord(root, {...read.record, plugins: {...read.record.plugins, [id]: changed.value}}, lock);
             } catch (error) {
                 options.record({level: "error", event: "plugins.registry.write-failed", message: "写入插件登记表失败", data: {id}, error});
                 return failure("registry-failed", `写入插件登记表失败：${brief(error)}`);
@@ -143,7 +156,7 @@ export function createPluginInventory(options: PluginInventoryOptions): PluginIn
             return failure(read.code, read.detail, read.problems);
         }
         const {manifest, raw} = read;
-        if (!Bun.semver.satisfies(options.productVersion, manifest.engines.neurobook)) {
+        if (!engineAccepts(options.productVersion, manifest.engines.neurobook)) {
             return failure("incompatible-engine", `插件要求 NeuroBook ${manifest.engines.neurobook}，当前是 ${options.productVersion}`);
         }
         const files = filesOf(raw);
@@ -165,7 +178,7 @@ export function createPluginInventory(options: PluginInventoryOptions): PluginIn
         if (!stagingLock.ok) return failure("copy-failed", `无法锁定准备目录：${stagingLock.detail}`);
         try {
             await mkdir(staging);
-            const range = await collectCopyRange(source, files);
+            const range = await collectCopyRange(source, files, raw);
             if (!range.ok) return failure(range.code, range.detail);
             const copied = await copyRange(source, staging, range.files);
             if (!copied.ok) return failure(copied.code, copied.detail);
@@ -183,54 +196,60 @@ export function createPluginInventory(options: PluginInventoryOptions): PluginIn
         }
     }
 
-    /** 持锁提交：再核对一次、改名进安装目录、写登记表。登记表写入之前的失败删除已改名的目录。 */
+    /**
+     * 持锁提交：再核对一次、改名进安装目录、写登记表，提交之后在同一把锁里删除被取代的待切换版本。每一步删改之前核对仍
+     * 持有锁；失去锁之后什么都不再删：接管者可能已经提交了同名目录，留下的残留由下次启动的回收处理。
+     */
     async function commit(id: string, version: string, staging: string): Promise<InventoryResult<PluginListItem>> {
-        let replaced: string | null = null;
         const locked = await withRecordLock(root, reportLock, async (lock): Promise<InventoryResult<PluginListItem>> => {
             const read = await readRecord(root);
             if (!read.ok) return failure("registry-failed", read.detail);
             const existing = read.record.plugins[id];
             const late = conflict(existing, id, version);
             if (late !== null) return late;
-            const target = join(root, id, version);
+            const target = ownedPath(root, id, version);
             try {
-                await mkdir(join(root, id), {recursive: true});
+                await assertHeld(lock);
+                await mkdir(ownedPath(root, id), {recursive: true});
                 // 同名目录没有被登记表引用（上面核对过），是崩溃留下的残留。
                 await rm(target, {recursive: true, force: true});
                 await rename(staging, target);
             } catch (error) {
+                if (error instanceof LockLost) return failure("registry-failed", error.message);
                 return failure("copy-failed", `移入安装目录失败：${brief(error)}`);
             }
             const entry: RecordEntry = existing === undefined
                 ? {version, pendingVersion: null, state: "enabled", deleteData: false}
                 : {...existing, pendingVersion: version};
             try {
-                const lost = await lock.stillHeld();
-                if (lost !== null) throw new Error(lost);
-                await writeRecord(root, {...read.record, plugins: {...read.record.plugins, [id]: entry}});
+                await writeRecord(root, {...read.record, plugins: {...read.record.plugins, [id]: entry}}, lock);
             } catch (error) {
-                await rm(target, {recursive: true, force: true}).catch((cleanup: unknown) => {
-                    options.record({level: "warn", event: "plugins.cleanup.failed", message: "撤回安装目录失败，下次启动回收", data: {path: target}, error: cleanup});
-                });
                 options.record({level: "error", event: "plugins.registry.write-failed", message: "写入插件登记表失败，安装已撤回", data: {id, version}, error});
+                if (!(error instanceof LockLost)) {
+                    await rm(target, {recursive: true, force: true}).catch((cleanup: unknown) => {
+                        options.record({level: "warn", event: "plugins.cleanup.failed", message: "撤回安装目录失败，下次启动回收", data: {path: target}, error: cleanup});
+                    });
+                }
                 return failure("registry-failed", `写入插件登记表失败：${brief(error)}`);
             }
-            replaced = existing?.pendingVersion ?? null;
+            const replaced = existing?.pendingVersion ?? null;
+            if (replaced !== null) {
+                // 提交之后、释放锁之前删：释放之后别的进程可能重新装回这个版本、让登记表又引用它。
+                await assertHeld(lock)
+                    .then(() => rm(ownedPath(root, id, replaced), {recursive: true, force: true}))
+                    .catch((error: unknown) => {
+                        options.record({level: "warn", event: "plugins.cleanup.failed", message: "删除被取代的待切换版本失败，下次启动回收", data: {id, version: replaced}, error});
+                    });
+            }
             options.record({
                 level: "info",
                 event: existing === undefined ? "plugins.install.committed" : "plugins.upgrade.pending",
                 message: existing === undefined ? `已安装 ${id}@${version}，下一次启动生效` : `${id} 将在下一次启动时切换到 ${version}`,
-                data: {id, version, ...(existing === undefined ? {} : {from: existing.version, replacedPending: existing.pendingVersion})},
+                data: {id, version, ...(existing === undefined ? {} : {from: existing.version, replacedPending: replaced})},
             });
             return {ok: true, value: itemOf(id, entry)};
         });
-        if (!locked.ok) return failure("registry-failed", locked.detail);
-        if (locked.value.ok && replaced !== null) {
-            await rm(join(root, id, replaced), {recursive: true, force: true}).catch((error: unknown) => {
-                options.record({level: "warn", event: "plugins.cleanup.failed", message: "删除被取代的待切换版本失败，下次启动回收", data: {id, version: replaced}, error});
-            });
-        }
-        return locked.value;
+        return locked.ok ? locked.value : failure("registry-failed", locked.detail);
     }
 
     return {
@@ -240,7 +259,9 @@ export function createPluginInventory(options: PluginInventoryOptions): PluginIn
             const builtin: PluginListItem[] = options.builtin
                 .map((plugin): PluginListItem => ({id: plugin.id, version: plugin.version, source: "builtin", state: "enabled", pending: [], notLoaded: null}))
                 .sort(byId);
-            const thirdParty = Object.entries(read.record.plugins).map(([id, entry]) => itemOf(id, entry)).sort(byId);
+            // 本次启动时还在、已被另一个服务端卸载掉记录的插件也列出：本进程里它仍在运行，重启后才没有。
+            const ids = new Set([...Object.keys(read.record.plugins), ...startupOf.keys()]);
+            const thirdParty = [...ids].map((id) => itemOf(id, read.record.plugins[id])).sort(byId);
             return {ok: true, value: {safeMode: options.startup.safeMode, plugins: [...builtin, ...thirdParty]}};
         },
         install: (sourcePath) => serial(async () => {

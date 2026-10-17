@@ -11,7 +11,7 @@
 
 import {randomUUID} from "node:crypto";
 import {mkdir, open, readFile, rename, unlink} from "node:fs/promises";
-import {join} from "node:path";
+import {join, resolve, sep} from "node:path";
 
 import {Type} from "typebox";
 import type {Static} from "typebox";
@@ -19,6 +19,8 @@ import {Value} from "typebox/value";
 
 import {errno, holdLock} from "nbook/backend/locked-replace";
 import type {HeldLock} from "nbook/backend/locked-replace";
+
+import {npmVersions} from "./versions";
 
 export const RECORD_FILE = "plugins.json";
 export const RECORD_SCHEMA = "nbook.plugins/v1";
@@ -46,6 +48,20 @@ export const EMPTY_RECORD: PluginRecord = {schema: RECORD_SCHEMA, plugins: {}};
 
 export type RecordRead = {readonly ok: true; readonly record: PluginRecord} | {readonly ok: false; readonly detail: string};
 
+/** 第三方插件 id：两段小写 id，不以 `nbook.` 开头（plugin-manifest 的输入表）。 */
+const THIRD_PARTY_ID = /^[a-z0-9][a-z0-9-]*\.[a-z0-9][a-z0-9-]*$/u;
+
+/**
+ * 登记表里每一项的 id 与版本都要能当安装目录的一段路径用：启动时要按它们删除与回收目录，坏掉或被手改的登记表
+ * 不能让删除越出 `<State Root>/plugins/`。有一项不合格就整表不可用。
+ */
+function entryProblem(id: string, entry: RecordEntry): string | null {
+    if (!THIRD_PARTY_ID.test(id) || id.startsWith("nbook.")) return `插件 id 不合格：${id}`;
+    if (!npmVersions.isVersion(entry.version)) return `${id} 的版本不合格：${entry.version}`;
+    if (entry.pendingVersion !== null && !npmVersions.isVersion(entry.pendingVersion)) return `${id} 的待切换版本不合格：${entry.pendingVersion}`;
+    return null;
+}
+
 /** 读登记表：不存在视为空表；不是合法 JSON 或结构不符时整体不可用，调用方不得覆盖它。 */
 export async function readRecord(root: string): Promise<RecordRead> {
     let text: string;
@@ -65,11 +81,32 @@ export async function readRecord(root: string): Promise<RecordRead> {
         const first = [...Value.Errors(RecordSchema, parsed)][0];
         return {ok: false, detail: `插件登记表不符合 ${RECORD_SCHEMA}：${first === undefined ? "" : `${first.instancePath} ${first.message}`}`};
     }
+    for (const [id, entry] of Object.entries(parsed.plugins)) {
+        const problem = entryProblem(id, entry);
+        if (problem !== null) return {ok: false, detail: `插件登记表不符合 ${RECORD_SCHEMA}：${problem}`};
+    }
     return {ok: true, record: parsed};
 }
 
-/** 原子替换登记表：写同目录的临时文件、落盘后改名。只在持有写入锁时调用。 */
-export async function writeRecord(root: string, record: PluginRecord): Promise<void> {
+/** 失去写入锁：锁被判为残留、由别的进程接管。之后不能再按手里的旧登记表改任何东西。 */
+export class LockLost extends Error {
+    constructor(detail: string) {
+        super(detail);
+        this.name = "LockLost";
+    }
+}
+
+/** 删除、改名这类改共享目录的操作之前调用：失去锁时抛 `LockLost`。 */
+export async function assertHeld(lock: HeldLock): Promise<void> {
+    const lost = await lock.stillHeld();
+    if (lost !== null) throw new LockLost(lost);
+}
+
+/**
+ * 原子替换登记表：写同目录的临时文件、落盘，改名前再核对一次仍持有写入锁（同 `replaceLocked`），失去锁时抛 `LockLost`、
+ * 不覆盖接管者写的表。
+ */
+export async function writeRecord(root: string, record: PluginRecord, lock: HeldLock): Promise<void> {
     const temporary = join(root, `.${RECORD_FILE}.${randomUUID()}.tmp`);
     try {
         const handle = await open(temporary, "wx", 0o644);
@@ -79,6 +116,7 @@ export async function writeRecord(root: string, record: PluginRecord): Promise<v
         } finally {
             await handle.close();
         }
+        await assertHeld(lock);
         await rename(temporary, join(root, RECORD_FILE));
     } catch (error) {
         await unlink(temporary).catch(() => undefined);
@@ -89,8 +127,8 @@ export async function writeRecord(root: string, record: PluginRecord): Promise<v
 export type LockedResult<T> = {readonly ok: true; readonly value: T} | {readonly ok: false; readonly detail: string};
 
 /**
- * 持写入锁执行 `task`。`task` 在提交（改名版本目录、写登记表）之前用 `lock.stillHeld()` 核对仍持有锁：锁被判为
- * 残留、被别的进程接管之后再提交会与接管者互相覆盖。
+ * 持写入锁执行 `task`。`task` 在每一步删除、改名与写登记表之前用 `assertHeld` 核对仍持有锁：锁被判为残留、被别的
+ * 进程接管之后，按旧登记表删改目录会毁掉接管者已提交的安装。核对与操作之间仍有一个很小的窗口。
  */
 export async function withRecordLock<T>(root: string, report: (event: string, error: unknown) => void, task: (lock: HeldLock) => Promise<T>): Promise<LockedResult<T>> {
     try {
@@ -117,6 +155,15 @@ export function brief(error: unknown): string {
 /** 列表与诊断按 id 排序，同一输入得到同一结果。 */
 export function byId<T extends {readonly id: string}>(left: T, right: T): number {
     return left.id < right.id ? -1 : left.id > right.id ? 1 : 0;
+}
+
+/**
+ * 安装根下的路径。各段来自已校验的登记表或目录名，这里再核对一次结果仍在安装根里：删除与回收只能动自己拥有的目录。
+ */
+export function ownedPath(root: string, ...segments: string[]): string {
+    const path = resolve(root, ...segments);
+    if (segments.length === 0 || !path.startsWith(`${resolve(root)}${sep}`)) throw new Error(`路径越出了插件目录：${segments.join("/")}`);
+    return path;
 }
 
 /** 写登记表时崩溃留下的临时文件；启动回收时删除。插件 id 不以 `.` 开头，安装根下以 `.` 开头的都不是插件目录。 */

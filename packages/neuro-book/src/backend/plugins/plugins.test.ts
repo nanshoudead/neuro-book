@@ -161,6 +161,17 @@ describe("复制范围（输入与前置条件、场景 10）", () => {
         const whole = await w.source("whole", manifest("2.0.0"), {"lib/a.js": "", "node_modules/dep/index.js": "", ".git/HEAD": ""});
         expect(await w.inventory.install(whole)).toMatchObject({ok: true});
         expect(await namesIn(join(w.root, "example.hello", "2.0.0"))).toEqual(["lib", "package.json"]);
+
+        // npm 总是包含的：README、LICENSE 与 main 指向的文件，即使 files 为空。
+        const always = await w.source("always", manifest("3.0.0", {files: [], main: "index.js"}), {"index.js": "", "README.md": "", "LICENSE": "", "notes.txt": ""});
+        expect(await w.inventory.install(always)).toMatchObject({ok: true});
+        expect(await namesIn(join(w.root, "example.hello", "3.0.0"))).toEqual(["LICENSE", "README.md", "index.js", "package.json"]);
+    });
+
+    it("files 写了 npm 的扩展 glob：清单无效，不静默少复制", async () => {
+        const w = await world();
+        const source = await w.source("extglob", manifest("1.0.0", {files: ["+(dist|lib)"]}), {"dist/a.js": "", "lib/b.js": ""});
+        expect(await w.inventory.install(source)).toMatchObject({ok: false, code: "manifest-invalid"});
     });
 
     it("复制范围内的符号链接被拒：中间目录、末级文件、package.json 本身；范围外的链接不影响安装", async () => {
@@ -186,6 +197,13 @@ describe("复制范围（输入与前置条件、场景 10）", () => {
         const unrelated = await w.source("unrelated", manifest("1.0.0", {files: ["dist"]}), {"dist/a.js": ""});
         await symlink(outside, join(unrelated, "docs"));
         expect(await w.inventory.install(unrelated)).toMatchObject({ok: true});
+
+        // 排除项剪掉的目录不在范围内，里面的链接同样不影响安装。
+        const excluded = await w.source("excluded", manifest("2.0.0", {files: ["dist", "!dist/tests"]}), {"dist/a.js": ""});
+        await mkdir(join(excluded, "dist", "tests"), {recursive: true});
+        await symlink(join(outside, "ui.js"), join(excluded, "dist", "tests", "link.js"));
+        expect(await w.inventory.install(excluded)).toMatchObject({ok: true});
+        expect(await namesIn(join(w.base, "state", "plugins", "example.hello", "2.0.0", "dist"))).toEqual(["a.js"]);
         expect(await namesIn(join(w.base, "state", "plugins", ".staging"))).toEqual([]);
     });
 
@@ -327,9 +345,42 @@ describe("启动时的登记（输出 6、7）与回收（提交点表）", () =
         expect(await w.inventory.install(await w.source("other", {...manifest(), name: "other"}))).toMatchObject({ok: false, code: "registry-failed"});
         expect(JSON.parse(await readFile(join(w.root, "plugins.json"), "utf8"))).toEqual({schema: "nbook.plugins/v0"});
     });
+
+    it("登记表里的 id 或版本不能当路径用：整表不可用，启动不删安装根之外的任何东西", async () => {
+        const w = await world();
+        const victim = join(w.base, "state", "user-data");
+        await mkdir(victim, {recursive: true});
+        await writeFile(join(victim, "keep.txt"), "作品数据");
+        await mkdir(w.root, {recursive: true});
+        for (const plugins of [
+            {"../user-data": {version: "1.0.0", pendingVersion: null, state: "uninstalling", deleteData: false}},
+            {"example.hello": {version: "../../user-data", pendingVersion: null, state: "enabled", deleteData: false}},
+        ]) {
+            await writeFile(join(w.root, "plugins.json"), JSON.stringify({schema: "nbook.plugins/v1", plugins}));
+            expect((await w.restart()).registryProblem).toEqual(expect.any(String));
+            expect(await readFile(join(victim, "keep.txt"), "utf8")).toBe("作品数据");
+        }
+    });
 });
 
 describe("同一状态根上的两个服务端进程（场景 15）", () => {
+    it("另一个服务端启动时切换了版本、完成了卸载：本进程的列表仍按自己启动时的集合给出待生效变化", async () => {
+        const w = await world();
+        await w.inventory.install(await w.source("v1", manifest("1.0.0")));
+        await w.inventory.install(await w.source("other", {...manifest(), name: "other"}));
+        await w.restart();
+        const mine = w.inventory;
+        await mine.install(await w.source("v2", manifest("2.0.0")));
+        await mine.uninstall("example.other");
+        // 另一个服务端在同一状态根上启动：消费掉待切换版本与卸载记录。
+        await prepareInstalledPlugins({root: w.root, productVersion: PRODUCT, safeMode: false});
+        expect(await w.record()).toMatchObject({plugins: {"example.hello": {version: "2.0.0", pendingVersion: null}}});
+        const listed = await mine.list();
+        expect(itemOf(listed, "example.hello")).toMatchObject({version: "1.0.0", pending: [{kind: "upgrade", version: "2.0.0"}]});
+        expect(itemOf(listed, "example.other")).toMatchObject({pending: [{kind: "uninstall"}]});
+    });
+
+
     it("两个进程同时安装不同插件，登记表两条都在", async () => {
         const w = await world();
         const sources = [

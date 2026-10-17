@@ -9,7 +9,17 @@ import {readdir, readFile} from "node:fs/promises";
 import {dirname, join} from "node:path";
 import {fileURLToPath} from "node:url";
 
-import {definitionOf, descriptorOf, readPluginManifest} from "./plugin-manifest";
+import semver from "semver";
+
+import {definitionOf, descriptorOf, readPluginManifest as read} from "./plugin-manifest";
+import type {ReadManifestOptions} from "./plugin-manifest";
+
+/** 与应用侧相同的写法校验：npm 的 semver（测试依赖，内核运行时不依赖它）。 */
+const versions: ReadManifestOptions["versions"] = {isVersion: (value) => semver.valid(value) !== null, isRange: (value) => semver.validRange(value) !== null};
+
+function readPluginManifest(value: unknown, options: {readonly builtin?: boolean} = {}) {
+    return read(value, {...options, versions});
+}
 
 const base = {
     name: "notes",
@@ -158,8 +168,13 @@ describe("readPluginManifest", () => {
         });
     }
 
+    it("版本与范围按调用方给的 npm 写法校验：非法的预发布标识、写错的范围都无效", () => {
+        expect(problemsOf({...base, version: "1.0.0-01"})).toContain("version");
+        expect(problemsOf({...base, engines: {neurobook: ">=0.0.0-01"}})).toContain("engines.neurobook");
+    });
+
     it("接受 npm 的常见范围写法", () => {
-        for (const range of ["*", "0.1.0", ">=0.1.0", "^0.1", "~1.x", ">=0.1.0 <0.2.0", "1.0.0 - 2.0.0", "^0.1.0 || ^1.0.0", "0.1.0-beta.1", "=0.1.0"]) {
+        for (const range of ["*", "0.1.0", ">=0.1.0", "^0.1", "~1.x", ">=0.1.0 <0.2.0", "1.0.0 - 2.0.0", "^0.1.0 || ^1.0.0", "0.1.0-beta.1", "=0.1.0", "1.0.0 ||"]) {
             expect(readPluginManifest({...base, engines: {neurobook: range}}).status, range).toBe("valid");
         }
     });

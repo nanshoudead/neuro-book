@@ -89,6 +89,8 @@ export async function startProject(options: StartProjectOptions): Promise<Projec
         instance,
         observer: {diagnosticRecorded: (diagnostic) => store.record({level: "warn", event: `remote.${diagnostic.reason}`, message: "远程服务诊断", data: diagnostic})},
     });
+    // 服务端起子进程后的第一条消息是第三方插件集合（ipc.ts 的 `plugins`），装配插件前等它。
+    const thirdParty = Promise.withResolvers<ReadonlyArray<PluginDescriptor>>();
     const link = createEnvelopeLink(channel, (error) => store.record({level: "warn", event: "project.ipc.send-failed", message: "IPC 通道已断，帧没有发出", error}));
     channel.onMessage((value) => {
         const envelope = parseEnvelope(value);
@@ -98,9 +100,12 @@ export async function startProject(options: StartProjectOptions): Promise<Projec
         }
         if (envelope.t === "frame") link.receive(envelope.d);
         else if (envelope.t === "stop") requestStop("parent:stop");
+        else if (envelope.t === "plugins") thirdParty.resolve(envelope.descriptors);
         else store.record({level: "warn", event: "project.ipc.unexpected", message: `服务端不该发送 ${envelope.t}`});
     });
     channel.onDisconnect(() => {
+        // 服务端没发插件集合就断开：照样往下走到连接失败，不停在等待里。
+        thirdParty.resolve([]);
         link.closed();
         requestStop("parent:gone");
     });
@@ -112,7 +117,7 @@ export async function startProject(options: StartProjectOptions): Promise<Projec
         return 1;
     }
 
-    const context: ProjectPluginContext = {config, manifest: options.manifest ?? productPlugins, store};
+    const context: ProjectPluginContext = {config, manifest: options.manifest ?? productPlugins, thirdParty: await thirdParty.promise, store};
     let plugins: ReadonlyArray<PluginDefinition>;
     try {
         plugins = (options.plugins ?? manifestProjectPlugins)(context);
@@ -129,7 +134,7 @@ export async function startProject(options: StartProjectOptions): Promise<Projec
             capabilities: [{id: "project.current", key: currentProjectKey, create: () => current}, {id: "host.clock", key: clockKey, create: () => systemClock}],
             plugins,
             // 第三方插件不是启动必需，失败只影响自己。
-            requiredPlugins: plugins.filter((plugin) => !config.thirdParty.some((descriptor) => descriptor.id === plugin.id)).map((plugin) => plugin.id),
+            requiredPlugins: plugins.filter((plugin) => !context.thirdParty.some((descriptor) => descriptor.id === plugin.id)).map((plugin) => plugin.id),
             gates: [],
             observers: mechanismObservers(store),
             remote: node,

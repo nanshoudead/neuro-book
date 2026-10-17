@@ -5,6 +5,9 @@
  * （runtime.plugin-install 输出 2）。内置插件不写清单文件，它的代码定义就是清单；应用侧的对齐测试把代码定义转成
  * 清单格式，经同一个 `readPluginManifest` 校验后转回比对。
  *
+ * 版本与版本范围按 npm semver 的写法，校验由调用方经 `versions` 给出：内核的运行时依赖只有 TypeBox，而手写的近似语法
+ * 会放过非法写法、拒绝合法写法（Bun 的 `semver.satisfies` 还把写错的范围当成匹配一切）。
+ *
  * 贡献点与激活事件前缀按插件声明。第三方插件的定义在它有入口的每个运行位置都带上它们；内置插件的代码定义可以只在
  * 部分位置定义（例如校验函数只在那里用得到），对齐测试按插件汇总比较。
  *
@@ -28,18 +31,6 @@ import {KERNEL_ACTIVATION_PREFIXES} from "../plugins/plugins";
 
 /** 一个小写的 id 段：字母或数字开头，只含小写字母、数字与连字符。 */
 const ID_SEGMENT = /^[a-z0-9][a-z0-9-]*$/u;
-
-/** semver 的完整形式（含预发布与构建元数据）。范围匹配归安装器。 */
-const SEMVER = /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/u;
-
-/**
- * npm 的版本范围写法：`||` 分隔的比较集，每集是空格分隔的比较式（`>=1.2.0`、`^0.1`、`~1.x`、`*`）或连字符范围
- * （`1.0.0 - 2.0.0`）。Bun 的 `semver.satisfies` 把写错的范围当成匹配一切，所以写法在这里先校验。
- */
-const PARTIAL = String.raw`v?(?:0|[1-9]\d*|[xX*])(?:\.(?:0|[1-9]\d*|[xX*])){0,2}(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?`;
-const COMPARATOR = String.raw`(?:<=|>=|<|>|=|~>?|\^)?\s*${PARTIAL}`;
-const COMPARATOR_SET = String.raw`(?:${PARTIAL}\s+-\s+${PARTIAL}|${COMPARATOR}(?:\s+${COMPARATOR})*)`;
-const SEMVER_RANGE = new RegExp(String.raw`^\s*${COMPARATOR_SET}(?:\s*\|\|\s*${COMPARATOR_SET})*\s*$`, "u");
 
 const NonEmptyString = Type.String({minLength: 1});
 const StringArray = Type.Array(NonEmptyString);
@@ -135,7 +126,14 @@ export type ManifestReadResult =
     | {readonly status: "valid"; readonly manifest: PluginManifest}
     | {readonly status: "invalid"; readonly problems: ReadonlyArray<ManifestProblem>};
 
+/** 版本写法的校验，按 npm semver（应用侧用 `semver` 包的 `valid` 与 `validRange`）。 */
+export interface VersionSyntax {
+    isVersion(value: string): boolean;
+    isRange(value: string): boolean;
+}
+
 export interface ReadManifestOptions {
+    readonly versions: VersionSyntax;
     /** 内置插件：允许 `nbook.` 开头的 id 与 `pluginVersions` 里的内置 id。 */
     readonly builtin?: boolean;
 }
@@ -157,7 +155,7 @@ function byPath(left: ManifestProblem, right: ManifestProblem): number {
  * 读取一份清单。`value` 是 `JSON.parse` 之后的 `package.json` 内容；有任一问题时整份清单无效，
  * 调用方按 runtime.plugin-manifest 的失败规则不登记这个插件。问题按字段路径排序，同一输入总是同一结果。
  */
-export function readPluginManifest(value: unknown, options: ReadManifestOptions = {}): ManifestReadResult {
+export function readPluginManifest(value: unknown, options: ReadManifestOptions): ManifestReadResult {
     if (!Value.Check(ManifestSchema, value)) {
         const problems: ManifestProblem[] = [...Value.Errors(ManifestSchema, value)].map((error) => ({
             path: fieldPath(error.instancePath),
@@ -173,8 +171,8 @@ export function readPluginManifest(value: unknown, options: ReadManifestOptions 
 
     if (!ID_SEGMENT.test(input.publisher)) add("publisher", `必须是单个小写 id 段（字母或数字开头，只含小写字母、数字与连字符）：${input.publisher}`);
     if (!ID_SEGMENT.test(input.name)) add("name", `必须是单个小写 id 段（字母或数字开头，只含小写字母、数字与连字符）：${input.name}`);
-    if (!SEMVER.test(input.version)) add("version", `必须是 semver：${input.version}`);
-    if (!SEMVER_RANGE.test(input.engines.neurobook)) add("engines.neurobook", `必须是版本范围：${input.engines.neurobook}`);
+    if (!options.versions.isVersion(input.version)) add("version", `必须是 semver：${input.version}`);
+    if (!options.versions.isRange(input.engines.neurobook)) add("engines.neurobook", `必须是版本范围：${input.engines.neurobook}`);
     const id = `${input.publisher}.${input.name}`;
     if (id.startsWith("nbook.") && options.builtin !== true) add("publisher", `第三方插件的 id 不能以 nbook. 开头：${id}`);
 
@@ -199,7 +197,7 @@ export function readPluginManifest(value: unknown, options: ReadManifestOptions 
         const segments = pluginId.split(".");
         if (segments.length !== 2 || !segments.every((segment) => ID_SEGMENT.test(segment))) add(at, "键必须是插件 id");
         if (pluginId.startsWith("nbook.") && options.builtin !== true) add(at, "不能约束内置插件的版本");
-        if (!SEMVER_RANGE.test(range)) add(at, `必须是版本范围：${range}`);
+        if (!options.versions.isRange(range)) add(at, `必须是版本范围：${range}`);
     }
 
     const entries: ManifestEntry[] = [];
