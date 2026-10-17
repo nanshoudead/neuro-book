@@ -37,6 +37,9 @@ const TEXT = {
     uninstallBody: {"zh-CN": "卸载 {id}？重启后删除插件的安装目录，配置与私有数据保留。", "en-US": "Uninstall {id}? Its install folder is removed after restart; its settings and private data are kept."},
     toggle: {"zh-CN": "启用 {id}", "en-US": "Enable {id}"},
     builtin: {"zh-CN": "内置", "en-US": "Built-in"},
+    thirdPartyHeading: {"zh-CN": "第三方插件", "en-US": "Third-party plugins"},
+    builtinHeading: {"zh-CN": "内置插件", "en-US": "Built-in plugins"},
+    noThirdParty: {"zh-CN": "还没有安装第三方插件。", "en-US": "No third-party plugins installed."},
     failed: {"zh-CN": "{reason}（{code}）{detail}", "en-US": "{reason} ({code}){detail}"},
 } satisfies Record<string, LocalizedText>;
 
@@ -87,6 +90,11 @@ const confirmingInstall = ref(false);
 const uninstalling = ref<PluginListItem | null>(null);
 
 const hasPending = computed(() => items.value.some((item) => item.pending.length > 0));
+/** 第三方插件在前：它们才有操作；内置插件随产品，放在后面。 */
+const groups = computed(() => [
+    {key: "third-party", heading: TEXT.thirdPartyHeading, items: items.value.filter((item) => item.source === "third-party")},
+    {key: "builtin", heading: TEXT.builtinHeading, items: items.value.filter((item) => item.source === "builtin")},
+]);
 
 function report(failure: Failure): void {
     const detail = typeof failure.detail === "object" && failure.detail !== null && "detail" in failure.detail && typeof failure.detail.detail === "string" ? failure.detail.detail : "";
@@ -183,30 +191,34 @@ onMounted(() => {
         <p v-if="problem !== null" class="plugins-page__problem" role="status" :data-plugin-problem="problem.code">{{ problem.message }}</p>
 
         <p v-if="loading" class="plugins-page__muted">{{ text(TEXT.loading) }}</p>
-        <ul v-else class="plugins-page__list">
-            <li v-for="item in items" :key="item.id" class="plugins-page__item" :data-plugin-row="item.id" :data-plugin-source="item.source">
-                <div class="plugins-page__meta">
-                    <div class="plugins-page__heading">
-                        <span class="plugins-page__id">{{ item.id }}</span>
-                        <span class="plugins-page__version">{{ item.version }}</span>
-                        <Badge v-if="item.source === 'builtin'" size="sm" variant="soft">{{ text(TEXT.builtin) }}</Badge>
-                        <Badge v-for="change in item.pending" :key="change.kind" size="sm" variant="soft" tone="warning" :data-plugin-pending="change.kind">{{ pendingText(change) }}</Badge>
-                        <Badge v-if="item.notLoaded !== null" size="sm" variant="soft" :tone="item.notLoaded.code === 'entries-not-loaded' ? 'neutral' : 'danger'" :data-plugin-not-loaded="item.notLoaded.code">{{ text(NOT_LOADED_TEXT[item.notLoaded.code]) }}</Badge>
+        <section v-for="group in loading ? [] : groups" :key="group.key" class="plugins-page__group" :data-plugin-group="group.key">
+            <h3 class="plugins-page__heading-label">{{ text(group.heading) }}</h3>
+            <p v-if="group.items.length === 0" class="plugins-page__muted" data-plugins-empty>{{ text(TEXT.noThirdParty) }}</p>
+            <ul v-else class="plugins-page__list">
+                <li v-for="item in group.items" :key="item.id" class="plugins-page__item" :data-plugin-row="item.id" :data-plugin-source="item.source">
+                    <div class="plugins-page__meta">
+                        <div class="plugins-page__heading">
+                            <span class="plugins-page__id">{{ item.id }}</span>
+                            <span class="plugins-page__version">{{ item.version }}</span>
+                            <Badge v-if="item.source === 'builtin'" size="sm" variant="soft">{{ text(TEXT.builtin) }}</Badge>
+                            <Badge v-for="change in item.pending" :key="change.kind" size="sm" variant="soft" tone="warning" :data-plugin-pending="change.kind">{{ pendingText(change) }}</Badge>
+                            <Badge v-if="item.notLoaded !== null" size="sm" variant="soft" :tone="item.notLoaded.code === 'entries-not-loaded' ? 'neutral' : 'danger'" :data-plugin-not-loaded="item.notLoaded.code">{{ text(NOT_LOADED_TEXT[item.notLoaded.code]) }}</Badge>
+                        </div>
+                        <p v-if="item.notLoaded !== null && item.notLoaded.code !== 'safe-mode'" class="plugins-page__reason">{{ item.notLoaded.detail }}</p>
                     </div>
-                    <p v-if="item.notLoaded !== null && item.notLoaded.code !== 'safe-mode'" class="plugins-page__reason">{{ item.notLoaded.detail }}</p>
-                </div>
-                <div v-if="item.source === 'third-party'" class="plugins-page__actions">
-                    <Switch
-                        :model-value="item.state === 'enabled'"
-                        :disabled="busy || item.state === 'uninstalling'"
-                        :aria-label="localize(formatText(TEXT.toggle, {id: item.id}), locale)"
-                        data-plugin-toggle
-                        @update:model-value="(value: boolean) => toggle(item, value)"
-                    />
-                    <Button variant="danger" size="sm" :disabled="busy || item.state === 'uninstalling'" data-plugin-uninstall @click="uninstalling = item">{{ text(TEXT.uninstall) }}</Button>
-                </div>
-            </li>
-        </ul>
+                    <div v-if="item.source === 'third-party'" class="plugins-page__actions">
+                        <Switch
+                            :model-value="item.state === 'enabled'"
+                            :disabled="busy || item.state === 'uninstalling'"
+                            :aria-label="localize(formatText(TEXT.toggle, {id: item.id}), locale)"
+                            data-plugin-toggle
+                            @update:model-value="(value: boolean) => toggle(item, value)"
+                        />
+                        <Button variant="danger" size="sm" :disabled="busy || item.state === 'uninstalling'" data-plugin-uninstall @click="uninstalling = item">{{ text(TEXT.uninstall) }}</Button>
+                    </div>
+                </li>
+            </ul>
+        </section>
 
         <Dialog
             v-model="confirmingInstall"
@@ -276,6 +288,20 @@ onMounted(() => {
     line-height: var(--leading-ui);
     color: var(--status-danger);
     overflow-wrap: anywhere;
+}
+
+.plugins-page__group {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+}
+
+.plugins-page__heading-label {
+    margin: 0;
+    font-size: var(--text-xs);
+    font-weight: 600;
+    line-height: var(--leading-ui);
+    color: var(--text-muted);
 }
 
 .plugins-page__list {

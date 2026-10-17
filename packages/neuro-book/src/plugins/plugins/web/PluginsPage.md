@@ -14,7 +14,7 @@
 1. 说明横幅（`Banner`，信息色）：“安装、卸载、升级、启用与禁用在下一次启动后生效”。有待生效变化时换成警告色，并写“重启 NeuroBook 后生效”。安全模式下另有一条警告色横幅：“安全模式：第三方插件没有加载”。
 2. 安装：一行输入框（插件文件夹的路径，伸缩）加“安装…”按钮。窄屏时按钮仍在同一行，输入框收窄。
 3. 操作失败时一行危险色的说明（可在任意处折行）。
-4. 插件列表：先内置、后第三方，各按 id 排序。每个插件一行带边框的块：左边是 id、版本与徽标（“内置”；待生效变化，例如“重启后安装”“重启后升级到 1.1.0”；没有登记的原因，例如“清单无效”“不兼容”“安全模式未加载”），没有登记时下面另起一行写原因的说明；右边是第三方插件的启用开关与“卸载”按钮。左边的文字放不下时换行，右边的控件不缩。
+4. 插件列表，分两组，各有一行小标题、组内按 id 排序：先“第三方插件”（它们才有操作；没有时写“还没有安装第三方插件。”），后“内置插件”。每个插件一行带边框的块：左边是 id、版本与徽标（“内置”；待生效变化，例如“重启后安装”“重启后升级到 1.1.0”；没有登记的原因，例如“清单无效”“不兼容”“安全模式未加载”），没有登记时下面另起一行写原因的说明；右边是第三方插件的启用开关与“卸载”按钮。左边的文字放不下时换行，右边的控件不缩。
 
 列表自己不滚动，由设置窗口的内容列滚动。
 
@@ -41,13 +41,13 @@ type Props = {
 };
 ```
 
-没有 emits、slots、expose；attrs 落在根上。根带 `data-plugins-page`；路径输入框带 `data-plugin-path`，“安装…”带 `data-plugin-install`；每个插件一行带 `data-plugin-row`（id）与 `data-plugin-source`（`builtin` 或 `third-party`），其中待生效变化的徽标带 `data-plugin-pending`（种类），没有登记的原因带 `data-plugin-not-loaded`（码），开关带 `data-plugin-toggle`，“卸载”带 `data-plugin-uninstall`；失败说明带 `data-plugin-problem`（失败码）；安全模式横幅带 `data-plugins-safe-mode`。
+没有 emits、slots、expose；attrs 落在根上。根带 `data-plugins-page`；两组各带 `data-plugin-group`（`third-party` 或 `builtin`），第三方插件为空时的说明带 `data-plugins-empty`；路径输入框带 `data-plugin-path`，“安装…”带 `data-plugin-install`；每个插件一行带 `data-plugin-row`（id）与 `data-plugin-source`（`builtin` 或 `third-party`），其中待生效变化的徽标带 `data-plugin-pending`（种类），没有登记的原因带 `data-plugin-not-loaded`（码），开关带 `data-plugin-toggle`，“卸载”带 `data-plugin-uninstall`；失败说明带 `data-plugin-problem`（失败码）；安全模式横幅带 `data-plugins-safe-mode`。
 
 ## 状态
 
 - 加载中：列表的位置写“正在读取插件…”。
 - 读取失败：失败说明写原因，列表为空；之后的操作成功会重新读。
-- 空：不会出现（内置插件总在）。
+- 空：没有第三方插件时第三方一组只有一句说明；内置插件一组总有内容。
 - 进行中：见“交互”。
 
 ## 隐藏通道理由
