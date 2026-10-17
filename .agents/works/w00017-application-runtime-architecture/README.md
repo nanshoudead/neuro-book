@@ -130,7 +130,7 @@ status: done
 | [t89](tasks/t89-explorer-polish-2/README.md) | 资源管理器打磨（二）：内联输入、选中两种样子、视图的叠加悬停滚动条（nb-ui `OverlayScrollbar`）与随鼠标显示的标题动作，修侧栏拖到零与拉出时活动栏的相连、行底色右端被裁、“移动到”菜单被行盖住，再点活动栏当前项收起侧栏；开发者在页面上验收，2026-10-14 合入 master（`8685972a6`），完成 |
 | [t90](tasks/t90-spec-promotion/README.md) | 本 Work 收尾的 Spec 晋升：9 份对照实现晋升 `implemented`，plugin-channel 的逐条 HTTP 路由一节移到 `runtime/api-docs.md`，三份 Spec 的“待开发者追认”改为已追认；2026-10-14 合入 master（`4d382ba33`），完成 |
 
-**收尾（2026-10-14）**：workbench 打磨完成，w00017 已在 t85 合入 `master`，此后的 t86、t89、t90 也已合入；开发者整体追认了 [待开发者确认](pending-confirmations.md) 的全部事项，K1–K6 验收通过。t87（从系统拖入文件）、t88（搜索插件）暂时搁置，以后另开 Work 时再取；t63 与插件清单移到“第三方插件规范与示例”的 Work。下一个 Work 是编辑器。
+**收尾（2026-10-14）**：workbench 打磨完成，w00017 已在 t85 合入 `master`，此后的 t86、t89、t90 也已合入；开发者整体追认了 [待开发者确认](pending-confirmations.md) 的全部事项，K1–K6 验收通过。t87（从系统拖入文件）、t88（搜索插件）暂时搁置，以后另开 Work 时再取；t63 与插件清单移到“第三方插件规范与示例”的 Work（现 [w00027 插件平台](../w00027-plugin-platform/README.md)）。下一个 Work 是编辑器。
 
 已收尾：`8685972a6`；待清理：`.worktree/w00017-t89-explorer-polish-2`、`feat/w00017-t89-explorer-polish-2`，`.worktree/w00017-t90-spec-promotion`、`docs/w00017-t90-spec-promotion`（2026-10-14 已按开发者授权清理）。
 
