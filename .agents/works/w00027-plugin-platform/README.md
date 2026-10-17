@@ -24,8 +24,11 @@ updated: 2026-10-17
 
 | Task | 当前范围 |
 |---|---|
-| [t01](tasks/t01-requirements/README.md) | 需求与规范范围：确定本轮落点与切片顺序，产出规范地图、缺口清单与实施计划 |
-| [t02](tasks/t02-settings-completion/README.md) | 设置插件补齐：密钥、长文本与数组／对象的通用编辑、设置内搜索等（未开工，范围待 t01 确认） |
+| [t01](tasks/t01-requirements/README.md) | 需求与规范范围：规范收口、切片与实施计划（计划已写，见 [plan.md](tasks/t01-requirements/plan.md)） |
+| [t03](tasks/t03-manifest-and-install/README.md) | S1：清单校验与第三方插件安装、`nbook.plugins` 与设置页 |
+| [t04](tasks/t04-browser-loading-sdk/README.md) | S2–S3：浏览器入口装载、插件文件端点与 SDK 构建预设 |
+| [t05](tasks/t05-author-experience/README.md) | S4：脚手架、作者文档与完整示例 |
+| [t02](tasks/t02-settings-completion/README.md) | 设置补齐：先做长文本／数组／对象的通用编辑，密钥与搜索随后（插件平台之后） |
 
 ## 关键现状
 
