@@ -708,32 +708,48 @@ function cycleMembers(pending: ReadonlySet<string>, after: ReadonlyMap<string, R
 /**
  * 在原文里找出每个称呼的每次出现。
  * 长称呼优先，避免“南小风”里的“小风”被重复计入；同一个字串属于多个对象时，取最早登记的那个，除非草稿指定了归属。
+ *
+ * 书越长段落与称呼都越多，每段里的工作不能随称呼总数增长，否则编译随章数三次方变慢（抽取每章要整本编译几次；t09
+ * 实测原来的写法 98 章一次 12 秒）：字串的归属与草稿指定的提及在进段落之前算好，每段只扫它里面实际出现的字串。
  */
 export function matchMentions(sources: SourceChapter[], entities: Entity[], notes: {at: Position; text: string; entity: string}[]): Mention[] {
     const names = entities.flatMap(entity => entity.names.map(name => ({entity: entity.id, text: name.text, at: name.at})))
         .filter(name => [...name.text].length >= 2)
         .sort((a, b) => b.text.length - a.text.length || comparePosition(a.at, b.at));
-    const texts = [...new Set(names.map(name => name.text))];
+    // 每个字串最早的登记：它在某段还没登记时，更晚的登记也都还没有，所以某段的归属只看它一个。登记位置相同的取
+    // 排在前面的那个。
+    const earliest = new Map<string, {entity: string; at: Position}>();
+    for (const name of names) if (!earliest.has(name.text)) earliest.set(name.text, name);
+    const notesAt = new Map<string, typeof notes>();
+    for (const note of notes) {
+        const key = `${note.at.chapter}.${note.at.paragraph}`;
+        const list = notesAt.get(key) ?? [];
+        list.push(note);
+        notesAt.set(key, list);
+    }
+    const occurring = occurrenceFinder(earliest.keys());
+    const rank = new Map([...earliest.keys()].map((text, index) => [text, index]));
     const result: Mention[] = [];
     for (const source of sources) {
         source.paragraphs.forEach((paragraph, index) => {
             const at = {chapter: source.chapter, paragraph: index + 1};
-            const taken: boolean[] = Array.from({length: paragraph.length}, () => false);
+            const taken = new Uint8Array(paragraph.length);
             const claim = (start: number, end: number): boolean => {
                 for (let i = start; i < end; i++) if (taken[i]) return false;
-                for (let i = start; i < end; i++) taken[i] = true;
+                taken.fill(1, start, end);
                 return true;
             };
-            const here = notes.filter(note => comparePosition(note.at, at) === 0).sort((a, b) => b.text.length - a.text.length);
+            const here = [...(notesAt.get(`${at.chapter}.${at.paragraph}`) ?? [])].sort((a, b) => b.text.length - a.text.length);
             // 草稿指定的提及先占位，可以是登记过的称呼，也可以是“她”“这只狐狐”这类代称。
             for (const note of here) {
                 for (let start = paragraph.indexOf(note.text); start >= 0; start = paragraph.indexOf(note.text, start + note.text.length)) {
                     if (claim(start, start + note.text.length)) result.push({entity: note.entity, text: note.text, at, start, end: start + note.text.length, via: "note"});
                 }
             }
-            for (const text of texts) {
-                const owner = names.filter(name => name.text === text && comparePosition(name.at, at) <= 0).sort((a, b) => comparePosition(a.at, b.at))[0];
-                if (!owner) continue;
+            // 按称呼的长短顺序（earliest 的插入顺序）。
+            for (const text of [...occurring(paragraph)].sort((a, b) => rank.get(a)! - rank.get(b)!)) {
+                const owner = earliest.get(text)!;
+                if (comparePosition(owner.at, at) > 0) continue;
                 for (let start = paragraph.indexOf(text); start >= 0; start = paragraph.indexOf(text, start + text.length)) {
                     if (claim(start, start + text.length)) result.push({entity: owner.entity, text, at, start, end: start + text.length, via: "match"});
                 }
@@ -741,6 +757,26 @@ export function matchMentions(sources: SourceChapter[], entities: Entity[], note
         });
     }
     return result.sort((a, b) => comparePosition(a.at, b.at) || a.start - b.start);
+}
+
+/**
+ * 返回一个函数：给一段文字，找出 `texts` 里在其中出现过的那些。按前两个 UTF-16 码元分桶，扫一遍文字、只在命中的
+ * 桶里逐个比，所以用时随文字长度增长，不随字串个数增长。字串至少要有两个码元（称呼至少两个字）。
+ */
+function occurrenceFinder(texts: Iterable<string>): (text: string) => Set<string> {
+    const buckets = new Map<string, string[]>();
+    for (const text of new Set(texts)) {
+        const head = text.slice(0, 2);
+        buckets.set(head, [...(buckets.get(head) ?? []), text]);
+    }
+    return text => {
+        const found = new Set<string>();
+        for (let i = 0; i + 1 < text.length; i++) {
+            const bucket = buckets.get(text.slice(i, i + 2));
+            if (bucket) for (const candidate of bucket) if (text.startsWith(candidate, i)) found.add(candidate);
+        }
+        return found;
+    };
 }
 
 /** 按“谁的哪个量”累加，并在原文给出数值的地方核对。 */
@@ -786,12 +822,17 @@ function runLedger(ledger: LedgerEntry[], issue: Report): void {
  */
 function checkNameLeaks(dataset: Dataset, issue: Report): void {
     const names = dataset.entities.flatMap(entity => entity.names.map(name => ({text: name.text, at: name.at}))).filter(name => [...name.text].length >= 2);
+    const longFirst = [...names].sort((a, b) => b.text.length - a.text.length);
+    // 每条记录只看它的文字里出现的称呼：抹掉称呼只会让文字变少，原来没有的称呼抹完也不会冒出来。
+    const occurring = occurrenceFinder(names.map(name => name.text));
     const check = (what: string, text: string | undefined, at: Position, record: string) => {
         if (!text) return;
+        const present = occurring(text);
+        if (present.size === 0) return;
         let rest = text;
         // 先抹掉此时已经可用的称呼（长的优先），剩下的文字里再出现后文称呼才算泄露。
-        for (const name of names.filter(item => comparePosition(item.at, at) <= 0).sort((a, b) => b.text.length - a.text.length)) rest = rest.split(name.text).join("\u0000");
-        const leaked = [...new Set(names.filter(item => comparePosition(item.at, at) > 0 && rest.includes(item.text)).map(item => `“${item.text}”（${item.at.chapter}.${item.at.paragraph} 才出现）`))];
+        for (const name of longFirst) if (present.has(name.text) && comparePosition(name.at, at) <= 0) rest = rest.split(name.text).join("\u0000");
+        const leaked = [...new Set(names.filter(item => present.has(item.text) && comparePosition(item.at, at) > 0 && rest.includes(item.text)).map(item => `“${item.text}”（${item.at.chapter}.${item.at.paragraph} 才出现）`))];
         if (leaked.length) issue("warning", at.chapter, "name-leak", `${what} 用了后文才出现的称呼：${leaked.join("、")}`, {records: [record]});
     };
     for (const item of dataset.entities) {
