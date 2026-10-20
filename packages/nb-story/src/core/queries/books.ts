@@ -3,6 +3,7 @@
  */
 
 import type {StoryResult} from "../../contract/contract";
+import {featuresOf} from "../dataset";
 import type {QueryContext} from "./context";
 
 /** 说明与统计里的出场热力图画几个人物。 */
@@ -25,6 +26,7 @@ export function bookInfo(ctx: QueryContext): StoryResult<"book.info"> {
         toc,
         extractedThrough: meta.extractedThrough,
         at,
+        features: featuresOf(ctx.index.dataset.book.features),
     };
 }
 

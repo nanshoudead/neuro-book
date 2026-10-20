@@ -12,6 +12,7 @@
 
 import {randomUUID} from "node:crypto";
 
+import type {BookFeatures} from "../core/dataset";
 import {StoryError} from "../core/errors";
 import {bookIdFromTitle, isValidBookId, type Library} from "../core/library";
 import type {FileLock} from "../platform/flock";
@@ -50,6 +51,8 @@ export interface StartInput {
     text?: string;
     title?: string;
     id?: string;
+    /** 请求的开关：新建时生效；已有抽取记录时只核对（与保存值不同报 invalid_params）。 */
+    features?: Partial<BookFeatures>;
     endpoint: EndpointConfig;
     price: Price | null;
     /** 挑相关说法用的模型；null 时不挑（默认）。 */
@@ -73,7 +76,7 @@ export async function startIngest(input: StartInput): Promise<{plan: IngestPlan;
     if (!lock) throw new StoryError("ingest_running", `书 ${id} 已有抽取任务在运行`);
     try {
         // 判定在锁里做：两个发起者不会都以为是新建。
-        const plan = input.text !== undefined ? await planFromText(input.library, {text: input.text, title: input.title ?? "", id}) : await planFromSaved(input.library, id);
+        const plan = input.text !== undefined ? await planFromText(input.library, {text: input.text, title: input.title ?? "", id, ...(input.features ? {features: input.features} : {})}) : await planFromSaved(input.library, id, input.features);
         if (plan.action === "done") {
             lock.release();
             return {plan, runner: null};

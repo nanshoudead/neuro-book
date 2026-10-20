@@ -99,6 +99,41 @@ describe("挑相关说法开着时的进度（ingest.md 输出 4、13）", () =>
     }, 120_000);
 });
 
+describe("按书关闭数值与秘密（ingest.md 输出 18）", () => {
+    test("预览与开始收开关，进度与书单给出生效值；已有抽取记录时给了不同的值：invalid_params（400），不改；预览也一样", async () => {
+        const env = await setup(key => (key.chapter === 2 && key.step === "beats" ? hang : undefined));
+        const content = base64(await sampleSourceText(3));
+        const off = {ledger: true, secrets: false};
+
+        const preview = await env.call("ingest.preview", {content, title: "开关", features: {secrets: false}});
+        expect((preview.body as {action: string; features: unknown})).toMatchObject({action: "new", features: off});
+        expect((await env.call("ingest.preview", {content, title: "开关"})).body).toMatchObject({features: {ledger: true, secrets: true}});
+
+        const started = await env.call("ingest.start", {content, title: "开关", features: {secrets: false}});
+        const id = (started.body as {id: string}).id;
+        await waitUntil("第 1 章提交", async () => (await env.status(id)).committed === 1, {timeoutMs: 60_000});
+        expect((await env.status(id)).features).toEqual(off);
+        const books = (await env.call("books.list", {})).body as {books: {id: string; features: unknown}[]};
+        expect(books.books.find(book => book.id === id)?.features).toEqual(off);
+        expect(((await env.call("book.info", {book: id})).body as {features: unknown}).features).toEqual(off);
+        expect((await env.call("ingest.stop", {book: id})).status).toBe(200);
+        await waitUntil("停下", async () => (await env.status(id)).state === "stopped", {timeoutMs: 30_000});
+
+        for (const [method, params] of [
+            ["ingest.preview", {content, title: "开关", features: {secrets: true}}],
+            ["ingest.start", {content, title: "开关", features: {secrets: true}}],
+            ["ingest.start", {book: id, features: {ledger: false}}],
+        ] as const) {
+            const result = await env.call(method, params);
+            expect({method, status: result.status, code: errorCode(result)}).toEqual({method, status: 400, code: "invalid_params"});
+        }
+        expect((await env.status(id))).toMatchObject({state: "stopped", committed: 1, features: off});
+        // 给相同的值、或不给：照常。
+        expect((await env.call("ingest.preview", {content, title: "开关", features: {secrets: false}})).body).toMatchObject({action: "resume", features: off});
+        expect((await env.call("ingest.preview", {content, title: "开关"})).body).toMatchObject({action: "resume", features: off});
+    }, 120_000);
+});
+
 describe("预览、发起、停止、继续（viewer 验收 9 的服务部分）", () => {
     test("预览写明新书 10 章与抽取模型；第 3 章草稿时停止：书是 2 章、用户停止；继续接着抽完", async () => {
         let hold = true;

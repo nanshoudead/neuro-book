@@ -12,7 +12,7 @@
 
 import {randomUUID} from "node:crypto";
 
-import type {Dataset, SourceChapter} from "../core/dataset";
+import {featuresOf, type Dataset, type SourceChapter} from "../core/dataset";
 import {StoryError} from "../core/errors";
 import type {Library} from "../core/library";
 import {consolidate, extractChapter, IngestBadReply, type ChapterRun, type RecallSource, type Step} from "./chapter";
@@ -124,7 +124,8 @@ async function extractAll(options: JobOptions, ledger: Ledger, markChapter: (cha
     const {library, store} = options;
     const source = await store.readSource();
     if (!source) throw new StoryError("book_not_found", `书 ${store.id} 没有抽取记录`);
-    const book = {id: source.id, title: source.title};
+    // 开关跟着书的数据走：已有记录、核对与编译都从 `dataset.book.features` 取（输出 4）。
+    const book = {id: source.id, title: source.title, features: featuresOf(source.features)};
     const total = source.chapters.length;
     let {generation, data} = await readCommitted(library, store.id);
     const sourcesThrough = (chapter: number): SourceChapter[] => source.chapters.filter(item => item.chapter <= chapter);

@@ -205,9 +205,15 @@ const ArcSchema = Type.Object({
     at: PositionSchema,
 });
 
+/**
+ * 这本书记不记数值（`ledger`）与秘密（`secrets`）（docs/specs/story/ingest.md 的按书开关）。没有这一项、或缺了某一项
+ * 的书按开着算：开关之前的书与导入的数据文件都是全记的。
+ */
+export const BookFeaturesSchema = Type.Object({ledger: Type.Boolean(), secrets: Type.Boolean()});
+
 export const DatasetSchema = Type.Object({
     schema: Type.Literal(DATASET_SCHEMA),
-    book: Type.Object({id: Text, title: Text}),
+    book: Type.Object({id: Text, title: Text, features: Type.Optional(Type.Partial(BookFeaturesSchema))}),
     through: PositionSchema,
     sources: Type.Array(SourceChapterSchema, {minItems: 1}),
     entities: Type.Array(EntitySchema),
@@ -252,6 +258,23 @@ export type Question = Static<typeof QuestionSchema>;
 export type Summary = Static<typeof SummarySchema>;
 export type Arc = Static<typeof ArcSchema>;
 export type Dataset = Static<typeof DatasetSchema>;
+export type BookFeatures = Static<typeof BookFeaturesSchema>;
+
+/** 补上缺省值（开）的开关。 */
+export function featuresOf(features?: Partial<BookFeatures>): BookFeatures {
+    return {ledger: features?.ledger ?? true, secrets: features?.secrets ?? true};
+}
+
+/**
+ * 数据集与开关冲突的那一项：关掉了某类，却带着这类记录。导入时据此拒绝（docs/specs/story/queries.md 的 `book.import`），
+ * 书里就一定没有关掉的那类记录，查询不用逐个判断开关。
+ */
+export function featureConflict(dataset: Dataset): string | null {
+    const features = featuresOf(dataset.book.features);
+    if (!features.ledger && dataset.ledger.length) return `book.features.ledger 是 false，却有 ${dataset.ledger.length} 条数值记录`;
+    if (!features.secrets && dataset.secrets.length) return `book.features.secrets 是 false，却有 ${dataset.secrets.length} 个秘密`;
+    return null;
+}
 
 let compiled: ReturnType<typeof Compile<TSchema>> | undefined;
 

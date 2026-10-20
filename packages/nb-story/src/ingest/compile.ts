@@ -65,7 +65,7 @@ const DEFAULT_KIND: Record<string, StatementKind> = {narrator: "fact", author: "
 
 type Report = (level: Issue["level"], chapter: number | null, code: string, message: string, subject?: IssueSubject) => void;
 
-export function compile(book: {id: string; title: string}, sources: SourceChapter[], rawDrafts: unknown[], rawConsolidations: unknown[] = []): CompileResult {
+export function compile(book: Dataset["book"], sources: SourceChapter[], rawDrafts: unknown[], rawConsolidations: unknown[] = []): CompileResult {
     const issues: Issue[] = [];
     const issue: Report = (level, chapter, code, message, subject = {}) => {
         issues.push({level, chapter, code, message, ...subject});

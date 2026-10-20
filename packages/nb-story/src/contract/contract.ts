@@ -54,7 +54,10 @@ const Empty = Type.Object({}, strict);
 
 // ---- 书库与书 ----
 
-const BookSummary = Type.Object({id: Type.String(), title: Type.String(), generation: Type.String(), chapters: Type.Integer(), extractedThrough: PositionSchema});
+/** 这本书记不记数值与秘密（生效值：缺省的已补成开）。 */
+const Features = Type.Object({ledger: Type.Boolean(), secrets: Type.Boolean()});
+
+const BookSummary = Type.Object({id: Type.String(), title: Type.String(), generation: Type.String(), chapters: Type.Integer(), extractedThrough: PositionSchema, features: Features});
 
 const BookInfo = Type.Object({
     id: Type.String(),
@@ -68,6 +71,7 @@ const BookInfo = Type.Object({
     extractedThrough: PositionSchema,
     /** 这次查询实际用的阅读位置。 */
     at: PositionSchema,
+    features: Features,
 });
 
 const BookStats = Type.Object({
@@ -508,6 +512,8 @@ const IngestStatusSchema = Type.Object({
     /** 分子含失败与作废的尝试，分母是已提交的章数；还没有提交的章时为 null。 */
     average: Type.Union([Type.Object({ms: Type.Number(), costs: Costs}), Type.Null()]),
     chapters: Type.Array(Type.Object({chapter: Type.Integer(), title: Type.String(), ms: Type.Number(), usage: IngestUsage, dropped: Type.Integer()})),
+    /** 这本书保存的开关。 */
+    features: Features,
 });
 const IngestPlanSchema = Type.Object({
     id: Type.String(),
@@ -521,9 +527,13 @@ const IngestPlanSchema = Type.Object({
     committed: Type.Integer(),
     /** 抽取会用的模型；配置读不出来时为 null（开始时得到 qa_unconfigured）。 */
     model: Type.Union([Type.Object({id: Type.String(), source: oneOf(["ingest.model", "model"] as const)}), Type.Null()]),
+    /** 生效的开关：新建时是请求值（没给的项为开），已有抽取记录时是保存的值。 */
+    features: Features,
 });
+/** 请求里的开关：只在新建时生效；已有抽取记录时给了与保存值不同的项得到 invalid_params。 */
+const FeaturesInput = {features: Type.Optional(Type.Object({ledger: Type.Optional(Type.Boolean()), secrets: Type.Optional(Type.Boolean())}, strict))};
 /** 原文文件的字节，base64。 */
-const SourceContent = {content: Type.String(), title: Type.Optional(Type.String({minLength: 1})), id: Type.Optional(Type.String({minLength: 1}))};
+const SourceContent = {content: Type.String(), title: Type.Optional(Type.String({minLength: 1})), id: Type.Optional(Type.String({minLength: 1})), ...FeaturesInput};
 const IngestErrors = {invalid_params: Type.Object({}), unsupported_format: Type.Object({}), book_exists: Type.Object({}), ingest_bad_text: Type.Object({}), ingest_text_changed: Type.Object({}), ingest_running: Type.Object({})};
 
 /**
@@ -533,7 +543,7 @@ const IngestErrors = {invalid_params: Type.Object({}), unsupported_format: Type.
 export const INGEST_METHODS = {
     "ingest.preview": {input: Type.Object(SourceContent, strict), output: IngestPlanSchema, effect: "read", errors: IngestErrors},
     "ingest.start": {
-        input: Type.Union([Type.Object(SourceContent, strict), Type.Object({book: Type.String({minLength: 1})}, strict)]),
+        input: Type.Union([Type.Object(SourceContent, strict), Type.Object({book: Type.String({minLength: 1}), ...FeaturesInput}, strict)]),
         output: Type.Object({id: Type.String(), action: oneOf(["new", "resume", "append", "done"] as const)}),
         effect: "write",
         errors: {...IngestErrors, book_not_found: Type.Object({}), qa_unconfigured: Type.Object({})},

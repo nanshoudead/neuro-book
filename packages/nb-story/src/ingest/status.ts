@@ -13,6 +13,7 @@
 import {readdir} from "node:fs/promises";
 import {join} from "node:path";
 
+import {featuresOf, type BookFeatures} from "../core/dataset";
 import {StoryError, systemErrorCode} from "../core/errors";
 import {isValidBookId, type Library} from "../core/library";
 import type {Step} from "./chapter";
@@ -53,6 +54,8 @@ export interface IngestStatus {
     /** 每章平均：分子含失败与作废的尝试，分母是已提交的章数；还没有提交的章时为 null。 */
     average: {ms: number; costs: {currency: string; amount: number}[]} | null;
     chapters: ChapterProgress[];
+    /** 新建时定下的开关。 */
+    features: BookFeatures;
 }
 
 const time = (at: string) => Date.parse(at);
@@ -164,6 +167,7 @@ export async function ingestStatus(library: Library, id: string): Promise<Ingest
         allRuns: {...all, ms: allMs},
         average: data.through > 0 ? {ms: spent / data.through, costs: all.costs.map(cost => ({currency: cost.currency, amount: cost.amount / data.through}))} : null,
         chapters,
+        features: featuresOf(source.features),
     };
 }
 

@@ -6,8 +6,10 @@
 import {afterAll, beforeAll, describe, expect, test} from "bun:test";
 import {join} from "node:path";
 
+import {writeFile} from "node:fs/promises";
+
 import {openTestBook, type TestBook} from "../../testing/api";
-import {SAMPLE_TITLE} from "../../testing/sample";
+import {SAMPLE_TITLE, smallDataset} from "../../testing/sample";
 import {createStoryApi} from "./api";
 
 let book: TestBook;
@@ -65,6 +67,34 @@ describe("书的信息与统计（输出 1、2）", () => {
         expect(early.visible.statements).toBeLessThan(late.visible.statements!);
         expect(early.extraction).toEqual(late.extraction);
         expect(early.extraction.scope).toBe("book");
+    });
+
+    test("书单与书的信息给出开关：数据文件不写时都开；关掉了某类却带着这类记录的文件不能导入（ingest.md 输出 18）", async () => {
+        const api = createStoryApi({library: book.library});
+        const imported = async (id: string, edit: (dataset: Awaited<ReturnType<typeof smallDataset>>) => void) => {
+            const dataset = await smallDataset(2, id);
+            edit(dataset);
+            const file = join(book.root, `${id}.json`);
+            await writeFile(file, JSON.stringify(dataset));
+            return api.call("book.import", {file, title: id, id});
+        };
+        expect((await imported("plain", () => undefined)).ok).toBe(true);
+        expect((await imported("quiet", dataset => {
+            dataset.book.features = {ledger: false, secrets: false};
+            dataset.ledger = [];
+            dataset.secrets = [];
+        })).ok).toBe(true);
+        const conflict = await imported("noisy", dataset => {
+            dataset.book.features = {ledger: false};
+            expect(dataset.ledger.length).toBeGreaterThan(0);
+        });
+        expect(!conflict.ok && conflict.error.code).toBe("unsupported_format");
+
+        const features = Object.fromEntries((await book.ok("books.list", {})).books.map(item => [item.id, item.features]));
+        expect(features).toMatchObject({fox: {ledger: true, secrets: true}, plain: {ledger: true, secrets: true}, quiet: {ledger: false, secrets: false}});
+        expect("noisy" in features).toBe(false);
+        expect((await book.ok("book.info", {book: "quiet"})).features).toEqual({ledger: false, secrets: false});
+        for (const id of ["plain", "quiet"]) await api.call("book.remove", {book: id});
     });
 });
 

@@ -208,6 +208,8 @@ export const COMMANDS: readonly CommandSpec[] = [
             preview: {decode: () => true},
             status: {decode: () => true},
             config: {decode: value => resolve(value)},
+            "no-ledger": {decode: () => true},
+            "no-secrets": {decode: () => true},
         },
     }),
     command({
@@ -236,7 +238,7 @@ export const COMMANDS: readonly CommandSpec[] = [
 /** 所有命令都接受的选项（不进方法参数）。 */
 export const GLOBAL_OPTIONS = new Set(["library", "json", "help"]);
 /** 不带值的开关。 */
-export const FLAGS = new Set(["json", "help", "open", "force", "preview", "status", "ingest"]);
+export const FLAGS = new Set(["json", "help", "open", "force", "preview", "status", "ingest", "no-ledger", "no-secrets"]);
 
 /** 选项在 `--help` 里的说明；同名选项在各命令里含义相同，所以按名字写一份。 */
 export const OPTION_HELP: Record<string, string> = {
@@ -270,6 +272,8 @@ export const OPTION_HELP: Record<string, string> = {
     force: "覆盖已有的配置文件",
     preview: "只切章并列出结果，不调用模型、不写书库",
     status: "看抽取进度；不给 --book 时列出全部",
+    "no-ledger": "新建时不记数值（钱、道具、任务进度）；之后不能改",
+    "no-secrets": "新建时不记秘密（身份秘密与谁知道）；之后不能改",
     ingest: "检查抽取用的模型（按 minimal、medium 两档各试一次）",
 };
 
@@ -310,6 +314,6 @@ export function usage(): string {
         "通用选项：--library <目录>、--json；书级命令另有 --book <书>、--at <章或章.段>；列表命令另有 --limit、--cursor。",
         "ask 另有 --mode graph|full（图当目录或全读，默认 graph）、--config <配置文件>。",
         "config 的动作：init（交互或用 --base-url --model --api-key-env 写配置）、show、set <字段> <值>、unset <字段>、test（加 --ingest 检查抽取模型）。",
-        "ingest 另有 --title、--id、--preview、--book <书 id>（用保存的原文接着抽）、--status、--config。",
+        "ingest 另有 --title、--id、--preview、--book <书 id>（用保存的原文接着抽）、--status、--config；新建时可加 --no-ledger（不记数值）、--no-secrets（不记秘密）。",
     ].join("\n");
 }
