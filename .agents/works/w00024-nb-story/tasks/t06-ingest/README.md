@@ -51,8 +51,12 @@ updated: 2026-10-20
 
 已完成，2026-10-20 合入 master（a0284ce64，合入前把 master 并进 Work 分支后重跑了 typecheck、283 个测试与 19 条 e2e）。留给开发者的：
 
-- Spec 晋升 `implemented`：`story/ingest.md`、viewer 输出 36 到 40 与验收 9、queries 的“抽取进度”、qa 输出 23。晋升时补实现合同与证据。
-- 长书的编译性能（见上文 S6 的风险）另立 Task；`ingest.status` 只要进度的参数（前端审查第 15 条）随它一起考虑。
+开发者 2026-10-20 在会话里对上面的交付“全部同意”：
+
+13. **切章规则**：以“！？…”结尾的行仍是章标题候选（00abb75f8），接受“第二章怎么还没结束？”这类正文短行被切成新章的代价。
+14. **Spec**：`story/ingest.md` 晋升 `implemented`，qa 输出 23 去掉 planned（80b80bf8e）。viewer、queries、cli-skill 整份仍是 planned，其中的抽取条目随整份晋升。
+15. **前端审查第 15、16 条**按上文处理；长书的编译性能与 `ingest.status` 只要进度的参数另立 [t09](../t09-ingest-compile-perf/README.md)。
+16. **规范回写**：AGENTS.md 写明 Spec、提案与 Task 记录读主工作区的那份（80b80bf8e）。
 
 开发者 2026-10-20 在会话里定：
 
