@@ -1,0 +1,90 @@
+{
+    "schema": "nbdev.artifact-version/v1",
+    "workId": "w00025-editor",
+    "taskId": "t08-editing-menus",
+    "artifactId": "review",
+    "version": 1,
+    "supersedes": null,
+    "action": "publish",
+    "kind": "design",
+    "title": "编辑命令与菜单评审板",
+    "state": "open",
+    "entry": "index.html",
+    "contentHash": "0882015a11efcbb081e1746355545ff20787b278d17ef1deb9d44ac9978257a4",
+    "files": [
+        "index.html",
+        "r1/compact-card-light.webp",
+        "r1/compact-flat-dark.webp",
+        "r1/compact-flat-light.webp",
+        "r1/context.webp",
+        "r1/full-card-dark.webp",
+        "r1/full-flat-dark.webp",
+        "r1/full-flat-light.webp",
+        "r1/gutter-handle.webp",
+        "r1/gutter-plus.webp"
+    ],
+    "questions": [
+        {
+            "id": "r1-set",
+            "type": "single",
+            "label": "工具栏放哪些按钮",
+            "options": [
+                {
+                    "value": "full",
+                    "label": "完整（19 个）"
+                },
+                {
+                    "value": "compact",
+                    "label": "精简（9 个）"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "compact"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "r1-surface",
+            "type": "single",
+            "label": "工具栏的样子",
+            "options": [
+                {
+                    "value": "flat",
+                    "label": "平铺"
+                },
+                {
+                    "value": "card",
+                    "label": "卡片"
+                }
+            ],
+            "required": true,
+            "recommend": [
+                "flat"
+            ],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        },
+        {
+            "id": "r1-gutter",
+            "type": "confirm",
+            "label": "块左侧的两个按钮这样画",
+            "options": [],
+            "required": true,
+            "recommend": [],
+            "page": "index.html",
+            "origin": "markup",
+            "about": null,
+            "since": 1,
+            "outcome": null
+        }
+    ],
+    "publishedAt": "2026-10-20T01:22:34.074Z"
+}
