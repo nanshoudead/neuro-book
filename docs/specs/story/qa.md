@@ -1,7 +1,7 @@
 ---
 schema: nbook.spec/v1
 kind: behavior
-status: planned
+status: implemented
 capability: story.qa
 owners:
   - nb-story
@@ -209,6 +209,20 @@ type QaConfig = {
 
 Smoke：在真实书库上用 100 章样例书与真实模型跑 `nbstory ask` 一问（图当目录），答案带出处、记录可以用 `nbstory qa` 列出与显示。
 
+## 实现合同
+
+- **公开入口**：命令行 `nbstory ask`、`nbstory qa`、`nbstory config`（包 `@notnotype/nb-story` 的 bin）；问答引擎 `askQuestion`（`src/qa/engine.ts`，命令行与以后的网页问答页共用）；问答记录的读写经包入口导出的 `QaRecords`。
+- **owner 与依赖方向**：nb-story。问答（`src/qa`）依赖 `@notnotype/nb-harness`、`@notnotype/nb-profile`、`@notnotype/nb-session` 与本包的查询接口；查询、独立服务与查看器不依赖问答。`config init` 的交互依赖 `@clack/prompts`，只在交互时加载。
+- **关键不变量**：
+  - 阅读位置在一问开始时由程序落定，查询与读原文工具都按它裁剪，Agent 的参数改不了它；交卷的出处逐条对照已读范围与阅读位置校验（`engine.test.ts` 的防剧透、作答校验分组）。
+  - 已读章的登记在同一条模型消息的并发工具调用之间也只算一次，超上限整次拒绝、不计入（`engine.test.ts` 的章数上限分组）。
+  - 一问运行期间不写书库；结束时按开始时固定的那一代保存记录，那一代已经不在就不保存（`engine.test.ts` 的运行中删除书分组）。
+  - 密钥只在发请求时从环境变量读取，不进记录、会话日志与任何输出；`config test` 不输出模型回的正文（`ask.test.ts`、`cli/config.test.ts`）。
+  - 配置写盘先整份过 schema，再写同目录临时文件并改名；配置里只有密钥环境变量名，所有写入路径共用同一条变量名写法检查（`cli/config.test.ts`、`qa/config.test.ts`）。
+
 ## 证据
 
 - 批准依据：[剧情图谱第一版提案](../../proposals/novel-story-app.md)（accepted，2026-10-15 改为做内置问答）；[nb-harness 提案](../../proposals/nb-harness-profile-and-tools.md)；开发者 2026-10-15、2026-10-16 在 [w00024 t05](../../../.agents/works/w00024-nb-story/tasks/t05-qa/README.md) 的决定（第 13 条一个 Agent 从头答到尾，第 16 到 20 条 Spec 要点；回归的输入清单见该 Task 的计划）。
+- 实现入口：[`engine.ts`](../../../packages/nb-story/src/qa/engine.ts)、[`ask.ts`](../../../packages/nb-story/src/cli/ask.ts)、[`config.ts`](../../../packages/nb-story/src/cli/config.ts)
+- 合同测试：[`engine.test.ts`](../../../packages/nb-story/src/qa/engine.test.ts)、[`ask.test.ts`](../../../packages/nb-story/src/cli/ask.test.ts)、[`cli/config.test.ts`](../../../packages/nb-story/src/cli/config.test.ts)、[`qa/config.test.ts`](../../../packages/nb-story/src/qa/config.test.ts)
+- Smoke：[`qa-eval.ts`](../../../.agents/works/w00024-nb-story/tasks/t05-qa/scripts/qa-eval.ts)（验收 9 的回归，真实模型逐题跑 `nbstory ask`；2026-10-16 一审答错 11/168、4/48，均在门槛内）
