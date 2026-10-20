@@ -32,6 +32,13 @@ const gunzipJson = async <T>(name: string): Promise<T> => JSON.parse(gunzipSync(
 const withoutSchemaDetails = (text: string) => text.replace(/格式不对：[^\n]*/gu, "格式不对：…");
 const sha256 = (text: string) => createHash("sha256").update(text).digest("hex");
 
+/**
+ * t10 合入时默认路径实际发出的每个请求（系统提示词、用户消息原样，不换回全量已有记录）的 SHA-256，按“章:步骤”。
+ * 按书关闭数值与秘密（w00024 t11）之后，两项都开时必须与它逐字相同。
+ */
+const requestBaseline = (name: "replay-ch001-010" | "recall-ch010") => readFile(join(FIXTURES, "requests-t10.json"), "utf8").then(text => (JSON.parse(text) as Record<string, Record<string, string>>)[name]!);
+const requestHashes = (requests: {key: string; system: string; user: string}[]) => Object.fromEntries(requests.map(request => [request.key, sha256(`${request.system}\n\u0000\n${request.user}`)]));
+
 let endpoint: Endpoint | undefined;
 afterEach(() => {
     endpoint?.stop();
@@ -122,6 +129,8 @@ describe("回放前 10 章（输出 4、7）", () => {
         }
         // 第 2 章起的普通请求确实只带了一部分已有记录。
         expect(narrowed).toBeGreaterThan(0);
+        // 实际发出的请求与 t10 合入时逐字相同。
+        expect(requestHashes(requests)).toEqual(await requestBaseline("replay-ch001-010"));
     }, 120_000);
 });
 
@@ -168,6 +177,7 @@ describe("挑相关说法（输出 4、9、10）", () => {
         const expected = run.candidates.slice(-RECALL_LIMIT).map(item => item.id);
         expect(run.outcome.ok && run.outcome.result.recall).toEqual({source: "model", ids: expected});
         expect(run.statementsIn("draft")).toEqual({note: "只列挑出来的与本章可能相关的说法。", ids: expected});
+        expect(requestHashes(run.requests)).toEqual(await requestBaseline("recall-ch010"));
     }, 60_000);
 
     test("回复两次都不成形：这一章照常抽完，说法退回规则缩减，说明里写明", async () => {
