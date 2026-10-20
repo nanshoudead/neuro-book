@@ -12,6 +12,20 @@ export function toPointer(path: FieldPath): string {
     return path.map((segment) => `/${String(segment).replaceAll("~", "~0").replaceAll("/", "~1")}`).join("");
 }
 
+/** `toPointer` 的反向。 */
+export function fromPointer(pointer: string): string[] {
+    if (pointer === "") return [];
+    return pointer.split("/").slice(1).map((segment) => segment.replaceAll("~1", "/").replaceAll("~0", "~"));
+}
+
+/**
+ * TypeBox 错误里 `instancePath` 的写法（不转义）。只用来把 TypeBox 的错误对到字段上，不能当路径用：属性名里有 `/`
+ * 时它有歧义。
+ */
+export function typeboxPath(path: FieldPath): string {
+    return path.map((segment) => `/${String(segment)}`).join("");
+}
+
 export function getAt(value: unknown, path: FieldPath): unknown {
     let current = value;
     for (const segment of path) {

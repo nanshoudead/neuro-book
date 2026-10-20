@@ -2,12 +2,14 @@
  * 描述检查（docs/specs/ui/forms.md 输出 1、13、23）：一份描述能不能用、哪些部分只能用 JSON 编辑、哪里写错了。
  * 可信作者（插件、设置）的描述按完整写法检查；模型生成的描述（`policy: "agent"`）只接受一个能列举清楚的子集。
  *
- * 检查从不抛异常：描述来自模型时，坏 schema 本身就是要报告的结果。`x-form` 在这里按原始 JSON 完整校验形状；
- * `resolveForm` 读提示时只留合格的部分，所以不能拿解析后的结果代替这里的检查。
+ * 检查从不抛异常：描述来自模型时，坏 schema 本身就是要报告的结果。`x-form` 的形状按原始 JSON 检查
+ * （`hintProblems`）：`resolveForm` 读提示时只留合格的部分，解析后的结果里已经看不到写错的键。
  */
 
-import {BUILTIN_WIDGETS, findNode, resolveForm} from "./model";
-import type {FieldKind, FieldNode, FormLayout} from "./model";
+import {isRecord} from "./guards";
+import {hintProblems} from "./hints";
+import {findNode, isBuiltinWidget, resolveForm, WIDGETS_FOR_KIND} from "./model";
+import type {FieldNode, FormLayout} from "./model";
 import {toPointer} from "./path";
 import {badPatterns, walkSchema} from "./schema-walk";
 import {isFormText} from "./text";
@@ -35,65 +37,8 @@ export const AGENT_LIMITS = {nodes: 100, unionWidth: 50, objectNesting: 1, schem
 const AGENT_FORMATS = new Set(["uri", "email"]);
 const AGENT_FORBIDDEN_KEYWORDS = ["pattern", "patternProperties", "$ref", "$defs", "definitions", "writeOnly", "$dynamicRef", "dependentSchemas", "if", "then", "else", "not", "allOf", "oneOf", "contains", "propertyNames", "prefixItems"] as const;
 
-const TEXT_HINTS = ["label", "help", "placeholder", "unit"] as const;
-const STRING_HINTS = ["widget", "options", "itemLabel"] as const;
-const HINT_KEYS = new Set<string>([...TEXT_HINTS, ...STRING_HINTS, "choices", "searchable", "visibleWhen", "recommend", "rows"]);
-
-/** 每种种类能写的内建控件；`json` 对任何种类都能写。 */
-const WIDGETS_FOR_KIND: Readonly<Record<FieldKind, ReadonlySet<string>>> = {
-    "boolean": new Set(["confirm"]),
-    "choice": new Set(["radio", "select", "search-select"]),
-    "multi": new Set(["checkboxes"]),
-    "number": new Set(),
-    "text": new Set(["multiline", "secret", "select", "search-select"]),
-    "string-list": new Set(["list"]),
-    "object": new Set(),
-    "object-list": new Set(["list", "master-detail"]),
-    "json": new Set(),
-};
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-    return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function isChoiceValue(value: unknown): boolean {
-    return typeof value === "string" || typeof value === "boolean" || (typeof value === "number" && Number.isFinite(value));
-}
-
 function problem(path: string, code: string, params: Readonly<Record<string, unknown>> = {}, severity: "error" | "warning" = "error"): DescriptionProblem {
     return {path, code, params, severity};
-}
-
-/** `x-form` 的原始形状：每个键的类型，数组逐项。 */
-function checkHintShapes(at: string, raw: unknown, into: DescriptionProblem[]): void {
-    if (raw === undefined) return;
-    if (!isRecord(raw)) {
-        into.push(problem(at, "hints-not-object"));
-        return;
-    }
-    for (const key of Object.keys(raw)) if (!HINT_KEYS.has(key)) into.push(problem(at, "unknown-hint", {key}));
-    for (const key of TEXT_HINTS) if (raw[key] !== undefined && !isFormText(raw[key])) into.push(problem(at, "bad-hint", {key}));
-    for (const key of STRING_HINTS) if (raw[key] !== undefined && (typeof raw[key] !== "string" || raw[key] === "")) into.push(problem(at, "bad-hint", {key}));
-    if (raw.searchable !== undefined && typeof raw.searchable !== "boolean") into.push(problem(at, "bad-hint", {key: "searchable"}));
-    if (raw.rows !== undefined && !(typeof raw.rows === "number" && Number.isInteger(raw.rows) && raw.rows > 0)) into.push(problem(at, "bad-hint", {key: "rows"}));
-    if (raw.choices !== undefined) {
-        if (!Array.isArray(raw.choices)) into.push(problem(at, "bad-hint", {key: "choices"}));
-        else raw.choices.forEach((choice, index) => {
-            const ok = isRecord(choice) && isChoiceValue(choice.value) && isFormText(choice.label)
-                && (choice.description === undefined || isFormText(choice.description)) && (choice.disabled === undefined || typeof choice.disabled === "boolean");
-            if (!ok) into.push(problem(at, "bad-hint", {key: "choices", index}));
-        });
-    }
-    if (raw.recommend !== undefined) {
-        if (!Array.isArray(raw.recommend)) into.push(problem(at, "bad-hint", {key: "recommend"}));
-        else raw.recommend.forEach((value, index) => {
-            if (!isChoiceValue(value)) into.push(problem(at, "bad-hint", {key: "recommend", index}));
-        });
-    }
-    if (raw.visibleWhen !== undefined) {
-        const condition = raw.visibleWhen;
-        if (!isRecord(condition) || typeof condition.field !== "string" || condition.field === "" || !isRecord(condition.schema)) into.push(problem(at, "bad-hint", {key: "visibleWhen"}));
-    }
 }
 
 /** 字段自己这一层写错的正则（对象与列表的成员由成员各自检查）。 */
@@ -107,11 +52,10 @@ function ownBadPatterns(node: FieldNode): string[] {
 /** 一个字段的提示与 schema 的配合。 */
 function checkNode(node: FieldNode, root: FieldNode, policy: "trusted" | "agent", into: DescriptionProblem[]): void {
     const at = toPointer(node.path);
-    checkHintShapes(at, node.schema["x-form"], into);
+    for (const hint of hintProblems(node.schema["x-form"])) into.push(problem(at, hint.code, hint.params));
     const widget = node.hints.widget;
     if (widget !== undefined) {
-        const builtin = (BUILTIN_WIDGETS as readonly string[]).includes(widget) || widget === "list";
-        if (!builtin) {
+        if (!isBuiltinWidget(widget)) {
             if (policy === "agent") into.push(problem(at, "custom-widget-not-allowed", {widget}));
         } else if (widget !== "json" && !WIDGETS_FOR_KIND[node.kind].has(widget)) {
             into.push(problem(at, "widget-mismatch", {widget, kind: node.kind}));

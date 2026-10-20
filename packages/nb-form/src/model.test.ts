@@ -6,7 +6,7 @@ import {describe, expect, it} from "bun:test";
 import {Type} from "typebox";
 
 import {fallbackWidget} from "./fallback";
-import {itemNode, kindOf, MAX_DEPTH, resolveForm} from "./model";
+import {findNode, itemNode, kindOf, MAX_DEPTH, resolveForm} from "./model";
 import type {FieldKind, FieldNode} from "./model";
 import {optionKey, optionValue} from "./options";
 
@@ -95,6 +95,20 @@ describe("字段树", () => {
         expect(node.choices).toEqual([{value: 1, label: "1"}, {value: "1", label: "字符串一"}, {value: true, label: "是", disabled: true}]);
     });
 
+    it("x-form 的数组里写错的项只丢掉那一项", () => {
+        const schema = Type.Union([Type.Literal("a"), Type.Literal("b")], {"x-form": {choices: [{value: "a", label: "甲"}, {value: {}, label: "坏"}], recommend: ["b", null]}});
+        const node = resolveForm(schema).root;
+        expect(node.choices).toEqual([{value: "a", label: "甲"}, {value: "b", label: "b"}]);
+        expect(node.hints.recommend).toEqual(["b"]);
+    });
+
+    it("按 JSON Pointer 找字段：属性名里的 / 与 ~ 要转义", () => {
+        const root = resolveForm(Type.Object({"a/b": Type.String(), "c~d": Type.String(), a: Type.Object({b: Type.String()})})).root;
+        expect(findNode(root, "/a~1b")?.path).toEqual(["a/b"]);
+        expect(findNode(root, "/c~0d")?.path).toEqual(["c~d"]);
+        expect(findNode(root, "/a/b")?.path).toEqual(["a", "b"]);
+    });
+
     it("没有布局时按属性顺序；布局漏写的字段补在末尾", () => {
         const schema = Type.Object({a: Type.String(), b: Type.String(), c: Type.String()});
         expect(resolveForm(schema).layout).toEqual({type: "column", items: [{type: "field", path: "/a"}, {type: "field", path: "/b"}, {type: "field", path: "/c"}]});
@@ -123,6 +137,9 @@ describe("控件选择（输出 2）", () => {
         ["左列表右详情", Type.Array(Type.Object({a: Type.String()}), {"x-form": {widget: "master-detail"}}), "master-detail"],
         ["JSON 兜底", Type.Record(Type.String(), Type.String()), "json"],
         ["自定义控件", Type.String({"x-form": {widget: "color-swatch"}}), {custom: "color-swatch"}],
+        ["list 是列表缺省画法的别名", Type.Array(Type.String(), {"x-form": {widget: "list"}}), "string-list"],
+        ["与种类不配的内建控件按没写处理", Type.Integer({"x-form": {widget: "multiline"}}), "number"],
+        ["单选写了复选组也按没写处理", Type.Union([Type.Literal("a"), Type.Literal("b")], {"x-form": {widget: "checkboxes"}}), "radio-row"],
     ];
     for (const [name, schema, widget] of cases) {
         it(name, () => expect(widgetOf(schema)).toEqual(widget));

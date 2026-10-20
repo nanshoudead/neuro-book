@@ -117,6 +117,11 @@ describe("校验与问题（输出 7–10）", () => {
         expect(codes(validateForm(resolveForm(schema), {extra: {a: 1, b: "x"}}))).toEqual(["/extra type"]);
     });
 
+    it("JSON 字段里一个值不合联合只报一条，不报每个分支的错误", () => {
+        const schema = Type.Object({extra: Type.Record(Type.String(), Type.Union([Type.String({minLength: 3}), Type.Integer()]))});
+        expect(codes(validateForm(resolveForm(schema), {extra: {a: "x"}}))).toEqual(["/extra not-in-choices"]);
+    });
+
     it("字段有错时，对象与列表自身的约束照样报出", () => {
         const object = Type.Object({a: Type.String({minLength: 2}), b: Type.Optional(Type.String())}, {minProperties: 2});
         expect(codes(validateForm(resolveForm(object), {a: "x"}))).toEqual([" min-properties", "/a min-length"]);

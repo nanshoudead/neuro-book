@@ -3,6 +3,12 @@
  * 结构兼容，但不依赖应用包：nbdev 面板与模型生成的描述都只给字符串。
  */
 
+import {Type} from "typebox";
+import {Value} from "typebox/value";
+
+/** 文字的形状：`x-form` 的文字提示与布局分组的标题都按它检查。 */
+export const FormTextSchema = Type.Union([Type.String(), Type.Record(Type.String(), Type.String(), {minProperties: 1})]);
+
 export type FormText = string | Readonly<Record<string, string>>;
 
 /** 回退的语言：所给语言没有时取它，再没有取第一种。 */
@@ -15,8 +21,5 @@ export function resolveText(text: FormText | undefined, locale: string): string 
 }
 
 export function isFormText(value: unknown): value is FormText {
-    if (typeof value === "string") return true;
-    if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
-    const entries = Object.values(value);
-    return entries.length > 0 && entries.every((entry) => typeof entry === "string");
+    return Value.Check(FormTextSchema, value);
 }

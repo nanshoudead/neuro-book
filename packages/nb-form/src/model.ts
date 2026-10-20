@@ -6,10 +6,14 @@
  * `enum` 与 TypeBox 的字面量联合（`anyOf` 加 `const`）推出同一种类。表外的写法一律用 JSON 编辑，不让字段消失。
  */
 
-import {toPointer} from "./path";
+import {isChoiceValue, isRecord} from "./guards";
+import {readHints} from "./hints";
+import type {ChoiceValue, FormChoice, FormHints} from "./hints";
+import {fromPointer, toPointer} from "./path";
 import type {FieldPath} from "./path";
-import {isFormText} from "./text";
 import type {FormText} from "./text";
+
+export type {ChoiceValue, FormChoice, FormHints, VisibleWhen} from "./hints";
 
 /** 字段树展开的最深层数；更深的部分用 JSON 编辑，递归的 schema 也在这里停下。 */
 export const MAX_DEPTH = 6;
@@ -33,37 +37,25 @@ export const BUILTIN_WIDGETS = [
 ] as const;
 export type BuiltinWidget = (typeof BUILTIN_WIDGETS)[number];
 
-/** 描述里能写的控件名（`radio-row` 是 3 项以内单选的缺省，不由作者写）。 */
-const WRITABLE_WIDGETS = new Set<string>(["radio", "select", "search-select", "checkboxes", "multiline", "secret", "json", "list", "master-detail", "confirm"]);
+/**
+ * 每种种类在描述里能写的控件（输出 2）；`json` 对任何种类都能写，不在表里。`selectWidget` 只采用表里有的，
+ * `checkDescription` 对表外的报 `widget-mismatch`。`list` 是列表的缺省画法的别名。
+ */
+export const WIDGETS_FOR_KIND: Readonly<Record<FieldKind, ReadonlySet<string>>> = {
+    "boolean": new Set(["confirm"]),
+    "choice": new Set(["radio", "select", "search-select"]),
+    "multi": new Set(["checkboxes"]),
+    "number": new Set(),
+    "text": new Set(["multiline", "secret", "select", "search-select"]),
+    "string-list": new Set(["list"]),
+    "object": new Set(),
+    "object-list": new Set(["list", "master-detail"]),
+    "json": new Set(),
+};
 
-export type ChoiceValue = string | number | boolean;
-
-export interface FormChoice {
-    readonly value: ChoiceValue;
-    readonly label: FormText;
-    readonly description?: FormText;
-    readonly disabled?: boolean;
-}
-
-export interface VisibleWhen {
-    /** 同一对象里的兄弟字段名；以 `/` 开头时是根上的 JSON Pointer。 */
-    readonly field: string;
-    readonly schema: Readonly<Record<string, unknown>>;
-}
-
-export interface FormHints {
-    readonly label?: FormText;
-    readonly help?: FormText;
-    readonly placeholder?: FormText;
-    readonly unit?: FormText;
-    readonly widget?: string;
-    readonly choices?: ReadonlyArray<FormChoice>;
-    readonly options?: string;
-    readonly searchable?: boolean;
-    readonly visibleWhen?: VisibleWhen;
-    readonly itemLabel?: string;
-    readonly recommend?: ReadonlyArray<ChoiceValue>;
-    readonly rows?: number;
+/** 内建的控件名：内建画法与描述里能写的名字；其余的名字是自定义控件。 */
+export function isBuiltinWidget(name: string): boolean {
+    return name === "json" || name === "list" || (BUILTIN_WIDGETS as readonly string[]).includes(name);
 }
 
 /** 字段树里的 schema：普通 JSON 对象的视图。入口参数收任何对象（TypeBox 的类型没有索引签名）。 */
@@ -103,14 +95,6 @@ export interface FormModel {
     readonly root: FieldNode;
     /** 显示用的布局：给了就用它（漏写的字段补在末尾），没给按属性顺序排成一列。 */
     readonly layout: FormLayout;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-    return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function isChoiceValue(value: unknown): value is ChoiceValue {
-    return typeof value === "string" || typeof value === "boolean" || (typeof value === "number" && Number.isFinite(value));
 }
 
 /** 字面量联合（`anyOf` 全是 `const`，或 `enum`）的取值；不是时为 null。 */
@@ -181,26 +165,6 @@ export function kindOf(input: object, depth = 0): FieldKind {
     }
 }
 
-/** 读 `x-form`：只留写法合格的键，形状不对的键丢掉（是否报问题由 `checkDescription` 决定）。 */
-export function readHints(schema: JsonSchema): FormHints {
-    const raw = schema["x-form"];
-    if (!isRecord(raw)) return {};
-    const hints: Record<string, unknown> = {};
-    for (const key of ["label", "help", "placeholder", "unit"] as const) if (isFormText(raw[key])) hints[key] = raw[key];
-    for (const key of ["widget", "options", "itemLabel"] as const) if (typeof raw[key] === "string" && raw[key] !== "") hints[key] = raw[key];
-    if (typeof raw.searchable === "boolean") hints.searchable = raw.searchable;
-    if (typeof raw.rows === "number" && Number.isInteger(raw.rows) && raw.rows > 0) hints.rows = raw.rows;
-    if (Array.isArray(raw.choices)) {
-        const choices = raw.choices.filter((choice): choice is FormChoice => isRecord(choice) && isChoiceValue(choice.value) && isFormText(choice.label));
-        hints.choices = choices;
-    }
-    if (Array.isArray(raw.recommend)) hints.recommend = raw.recommend.filter(isChoiceValue);
-    if (isRecord(raw.visibleWhen) && typeof raw.visibleWhen.field === "string" && isRecord(raw.visibleWhen.schema)) {
-        hints.visibleWhen = {field: raw.visibleWhen.field, schema: raw.visibleWhen.schema};
-    }
-    return hints as FormHints;
-}
-
 /** 字面量与它们的名字：`x-form.choices` 按值（类型也要相同）对上，没对上的用值本身。 */
 function choicesOf(values: ReadonlyArray<ChoiceValue>, hints: FormHints): FormChoice[] {
     return values.map((value) => {
@@ -212,35 +176,42 @@ function choicesOf(values: ReadonlyArray<ChoiceValue>, hints: FormHints): FormCh
 /** 按种类与提示选内建控件；写了不认识的名字时当作自定义控件，由渲染层的登记解析。 */
 export function selectWidget(kind: FieldKind, hints: FormHints, schema: JsonSchema, choiceCount: number): FieldNode["widget"] {
     const asked = hints.widget;
-    if (asked !== undefined && !WRITABLE_WIDGETS.has(asked) && !(BUILTIN_WIDGETS as readonly string[]).includes(asked)) return {custom: asked};
+    if (asked !== undefined && !isBuiltinWidget(asked)) return {custom: asked};
     // 显式 json 对任何种类都成立：作者可以主动选择 JSON 编辑一个能结构化的值。
     if (asked === "json") return "json";
+    // 与种类不配的控件按没写处理（checkDescription 另报 widget-mismatch）。
+    const wanted = asked !== undefined && WIDGETS_FOR_KIND[kind].has(asked) ? asked : undefined;
+    if (kind === "text") {
+        if (schema.writeOnly === true || wanted === "secret") return "secret";
+        // 动态选项的值是字符串：选项由调用方运行时给出（输出 11），没有选项来源时写了下拉也画成输入框。
+        if (hints.options !== undefined) return wanted === "search-select" || hints.searchable === true ? "search-select" : "select";
+        return wanted === "multiline" ? "multiline" : "text";
+    }
+    if (wanted !== undefined && wanted !== "list") return wanted as BuiltinWidget;
+    return defaultWidget(kind, hints, choiceCount);
+}
+
+/** 没写控件（或写的是 `list`）时每种种类的画法。 */
+function defaultWidget(kind: Exclude<FieldKind, "text">, hints: FormHints, choiceCount: number): BuiltinWidget {
     switch (kind) {
         case "boolean":
-            return asked === "confirm" ? "confirm" : "switch";
-        case "choice": {
-            if (asked === "radio" || asked === "select" || asked === "search-select") return asked;
+            return "switch";
+        case "choice":
             if (hints.searchable === true) return "search-select";
             // 动态选项的项数要到运行时才知道：缺省用下拉，项多时搜索由 `searchable` 打开。
             if (hints.options !== undefined) return "select";
             if (choiceCount > SEARCH_LIMIT) return "search-select";
             return choiceCount <= RADIO_ROW_LIMIT ? "radio-row" : "select";
-        }
         case "multi":
             return "checkboxes";
         case "number":
             return "number";
-        case "text":
-            if (schema.writeOnly === true || asked === "secret") return "secret";
-            // 动态选项的值是字符串：选项由调用方运行时给出（输出 11）。
-            if (hints.options !== undefined) return asked === "search-select" || hints.searchable === true ? "search-select" : "select";
-            return asked === "multiline" ? "multiline" : "text";
         case "string-list":
             return "string-list";
         case "object":
             return "object";
         case "object-list":
-            return asked === "master-detail" ? "master-detail" : "object-list";
+            return "object-list";
         case "json":
             return "json";
     }
@@ -267,7 +238,7 @@ function buildNode(schema: JsonSchema, path: FieldPath, name: string, required: 
     const inner = nullableInner(schema);
     const effective = inner === null ? schema : mergeNullable(schema, inner);
     const nullable = inner;
-    const hints = readHints(effective);
+    const hints = readHints(effective["x-form"]);
     const kind = kindOf(effective, depth);
     const readOnly = context.readOnly || effective.readOnly === true;
     const values = kind === "choice" ? literalValues(effective) ?? [] : kind === "multi" && isRecord(effective.items) ? literalValues(effective.items) ?? [] : [];
@@ -321,10 +292,8 @@ export function itemNode(list: FieldNode, index: number): FieldNode | undefined 
 
 /** 按 JSON Pointer 找字段（列表里的字段不能这样找：它们的下标随值变化）。 */
 export function findNode(root: FieldNode, pointer: string): FieldNode | undefined {
-    if (pointer === "") return root;
-    const segments = pointer.split("/").slice(1).map((segment) => segment.replaceAll("~1", "/").replaceAll("~0", "~"));
     let node: FieldNode | undefined = root;
-    for (const segment of segments) {
+    for (const segment of fromPointer(pointer)) {
         node = node?.children.find((child) => child.path[child.path.length - 1] === segment);
         if (node === undefined) return undefined;
     }

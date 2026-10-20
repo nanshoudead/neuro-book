@@ -8,14 +8,14 @@
 import {Value} from "typebox/value";
 
 import type {FieldNode} from "./model";
-import {getAt} from "./path";
+import {fromPointer, getAt} from "./path";
 
 /** 字段在给定的根值下是否显示。条件的 schema 求值出错时按显示处理：宁可多显示，不让字段因描述写错而消失。 */
 export function isVisible(node: FieldNode, root: unknown): boolean {
     const condition = node.hints.visibleWhen;
     if (condition === undefined) return true;
     const target = condition.field.startsWith("/")
-        ? condition.field.split("/").slice(1).map((segment) => segment.replaceAll("~1", "/").replaceAll("~0", "~"))
+        ? fromPointer(condition.field)
         : [...node.path.slice(0, -1), condition.field];
     try {
         return Value.Check(condition.schema, getAt(root, target));
