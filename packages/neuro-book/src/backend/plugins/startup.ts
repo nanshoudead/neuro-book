@@ -23,7 +23,7 @@ import {errno, LOCK_STALE_MS} from "nbook/backend/locked-replace";
 import type {HeldLock} from "nbook/backend/locked-replace";
 import type {NotLoaded} from "nbook/plugins/plugins/shared/contracts";
 
-import {assertHeld, brief, byId, isRecordTemporary, ownedPath, readRecord, STAGING_DIR, withRecordLock, writeRecord} from "./record";
+import {assertHeld, brief, byId, isLink, isRecordTemporary, ownedPath, readRecord, STAGING_DIR, withRecordLock, writeRecord} from "./record";
 import type {PluginRecord, RecordEntry} from "./record";
 import {engineAccepts, npmVersions} from "./versions";
 
@@ -193,6 +193,10 @@ async function reclaim(root: string, record: PluginRecord, lock: HeldLock, warn:
         }
     }
     const staging = join(root, STAGING_DIR);
+    if (await isLink(staging)) {
+        warn("plugins.cleanup.skipped", "准备目录是符号链接，不回收其中的残留", {path: staging});
+        return;
+    }
     for (const name of await namesIn(staging)) {
         if (name.endsWith(".lock")) continue;
         const lockPath = join(staging, `${name}.lock`);

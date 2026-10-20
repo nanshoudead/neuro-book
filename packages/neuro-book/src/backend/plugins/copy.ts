@@ -21,8 +21,8 @@ import {brief} from "./record";
 
 const ALWAYS_EXCLUDED = new Set(["node_modules", ".git"]);
 const GLOB_CHARACTERS = /[*?[\]{}]/u;
-/** npm 的扩展 glob：`?(…)`、`*(…)`、`+(…)`、`@(…)`、`!(…)`。 */
-const EXTGLOB = /[?*+@!]\(/u;
+/** npm 的扩展 glob：`?(…)`、`*(…)`、`+(…)`、`@(…)`、`!(…)`，括号配对才算；没有配对的 `@(` 是文件名里的普通字符。 */
+const EXTGLOB = /[?*+@!]\([^)]*\)/u;
 /** npm 总是包含的根目录文件（不分大小写，可以带扩展名）。 */
 const ALWAYS_INCLUDED = /^(?:readme|license|licence)(?:\..*)?$/iu;
 
@@ -49,12 +49,17 @@ function relativeItem(item: string): string | null {
     return outside ? null : path;
 }
 
-/** `files` 的一项：越出源文件夹与扩展 glob 的写法拒绝。 */
-function normalizeItem(item: string): string {
-    const path = relativeItem(item);
-    if (path === null) throw new Rejected("path-rejected", `files 里的项必须是相对插件文件夹、不越出它的路径：${item}`);
-    if (EXTGLOB.test(path)) throw new Rejected("manifest-invalid", `files 不支持 npm 的扩展 glob：${item}`);
-    return path;
+/**
+ * `files` 的一项，返回去掉排除号后的相对路径：越出源文件夹与扩展 glob 的写法拒绝。扩展 glob 在去掉排除号之前判断：
+ * `!(src)` 本身就是扩展 glob，不能当成“排除 `(src)`”。
+ */
+function normalizeItem(written: string): {readonly negated: boolean; readonly path: string} {
+    const item = written.trim();
+    if (EXTGLOB.test(item)) throw new Rejected("manifest-invalid", `files 不支持 npm 的扩展 glob：${written}`);
+    const negated = item.startsWith("!");
+    const path = relativeItem(negated ? item.slice(1) : item);
+    if (path === null) throw new Rejected("path-rejected", `files 里的项必须是相对插件文件夹、不越出它的路径：${written}`);
+    return {negated, path};
 }
 
 /** 复制范围的遍历：`skip` 为真的路径（排除项命中的、总排除的）连同其下的一切都不看。 */
@@ -94,11 +99,18 @@ async function walk(context: Walk, prefix: string): Promise<void> {
     }
 }
 
+/** `files` 的一项命中的路径：目录递归包含。 */
 async function include(context: Walk, path: string): Promise<void> {
     if (context.skip(path)) return;
     const kind = await plainKind(context.source, path);
     if (kind === "directory") await walk(context, path);
     else if (kind === "file") context.into.add(path);
+}
+
+/** npm 总是包含的一项：只包含普通文件，同名的目录不递归（npm 不打包它们）。 */
+async function includeFile(context: Walk, path: string): Promise<void> {
+    if (context.skip(path)) return;
+    if ((await plainKind(context.source, path)) === "file") context.into.add(path);
 }
 
 /**
@@ -126,10 +138,9 @@ export async function collectCopyRange(source: string, files: ReadonlyArray<stri
             const includes: string[] = [];
             const negations: Bun.Glob[] = [];
             for (const written of files) {
-                const negated = written.trim().startsWith("!");
-                const item = normalizeItem(negated ? written.trim().slice(1) : written);
-                if (negated) negations.push(new Bun.Glob(item));
-                else includes.push(item);
+                const {negated, path} = normalizeItem(written);
+                if (negated) negations.push(new Bun.Glob(path));
+                else includes.push(path);
             }
             // 排除项命中路径本身或它的某个祖先目录。
             const excludedByFiles = (path: string): boolean => {
@@ -149,11 +160,11 @@ export async function collectCopyRange(source: string, files: ReadonlyArray<stri
             }
             const always: Walk = {source, into: collected, skip: excludedAlways};
             for (const entry of await readdir(source, {withFileTypes: true})) {
-                if (ALWAYS_INCLUDED.test(entry.name)) await include(always, entry.name);
+                if (ALWAYS_INCLUDED.test(entry.name)) await includeFile(always, entry.name);
             }
-            for (const path of entryPoints(raw)) await include(always, path);
+            for (const path of entryPoints(raw)) await includeFile(always, path);
         }
-        await include({source, into: collected, skip: () => false}, "package.json");
+        await includeFile({source, into: collected, skip: () => false}, "package.json");
     } catch (error) {
         if (error instanceof Rejected) return {ok: false, code: error.code, detail: error.message};
         return {ok: false, code: "copy-failed", detail: `读取插件文件夹失败：${brief(error)}`};

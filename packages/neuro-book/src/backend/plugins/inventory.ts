@@ -22,7 +22,7 @@ import {holdLock} from "nbook/backend/locked-replace";
 import type {InstallPreview, PendingChange, PluginFailureCode, PluginList, PluginListItem} from "nbook/plugins/plugins/shared/contracts";
 
 import {collectCopyRange, copyRange} from "./copy";
-import {assertHeld, brief, byId, LockLost, ownedPath, readRecord, STAGING_DIR, withRecordLock, writeRecord} from "./record";
+import {assertHeld, brief, byId, isLink, LockLost, ownedPath, readRecord, STAGING_DIR, withRecordLock, writeRecord} from "./record";
 import type {PluginRecord, RecordEntry} from "./record";
 import {installedManifest, missingEntries} from "./startup";
 import type {StartupPlugins} from "./startup";
@@ -115,9 +115,11 @@ export function createPluginInventory(options: PluginInventoryOptions): PluginIn
             const before = running?.state ?? "enabled";
             if (before !== entry.state) pending.push({kind: entry.state === "enabled" ? "enable" : "disable"});
         }
+        // 本次没有运行的插件，行上的版本是重启后要装上的版本。
+        const version = running?.version ?? (entry === undefined ? atStartup?.version : entry.pendingVersion ?? entry.version) ?? "";
         return {
             id,
-            version: running?.version ?? entry?.version ?? atStartup?.version ?? "",
+            version,
             source: "third-party",
             state: entry?.state ?? "uninstalling",
             pending,
@@ -241,8 +243,11 @@ export function createPluginInventory(options: PluginInventoryOptions): PluginIn
             try {
                 await assertHeld(lock);
                 await mkdir(ownedPath(root, id), {recursive: true});
+                if (await isLink(ownedPath(root, id))) return failure("copy-failed", `安装目录里的 ${id} 是符号链接，不能往里面安装`);
                 // 同名目录没有被登记表引用（上面核对过），是崩溃留下的残留。
+                await assertHeld(lock);
                 await rm(target, {recursive: true, force: true});
+                await assertHeld(lock);
                 await rename(staging, target);
             } catch (error) {
                 if (error instanceof LockLost) return failure("registry-failed", error.message);
@@ -256,7 +261,7 @@ export function createPluginInventory(options: PluginInventoryOptions): PluginIn
             } catch (error) {
                 options.record({level: "error", event: "plugins.registry.write-failed", message: "写入插件登记表失败，安装已撤回", data: {id, version}, error});
                 if (!(error instanceof LockLost)) {
-                    await rm(target, {recursive: true, force: true}).catch((cleanup: unknown) => {
+                    await assertHeld(lock).then(() => rm(target, {recursive: true, force: true})).catch((cleanup: unknown) => {
                         options.record({level: "warn", event: "plugins.cleanup.failed", message: "撤回安装目录失败，下次启动回收", data: {path: target}, error: cleanup});
                     });
                 }

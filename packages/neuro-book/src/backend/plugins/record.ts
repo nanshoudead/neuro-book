@@ -10,7 +10,7 @@
  */
 
 import {randomUUID} from "node:crypto";
-import {mkdir, open, readFile, rename, unlink} from "node:fs/promises";
+import {lstat, mkdir, open, readFile, rename, unlink} from "node:fs/promises";
 import {join, resolve, sep} from "node:path";
 
 import {Type} from "typebox";
@@ -164,6 +164,19 @@ export function ownedPath(root: string, ...segments: string[]): string {
     const path = resolve(root, ...segments);
     if (segments.length === 0 || !path.startsWith(`${resolve(root)}${sep}`)) throw new Error(`路径越出了插件目录：${segments.join("/")}`);
     return path;
+}
+
+/**
+ * `path` 存在且是符号链接。安装根下的目录可能被换成指向别处的链接（例如插件开发者把源码目录链进来）：往它里面
+ * 删改会越出安装根，`ownedPath` 只核对字面路径，看不出来。
+ */
+export async function isLink(path: string): Promise<boolean> {
+    try {
+        return (await lstat(path)).isSymbolicLink();
+    } catch (error) {
+        if (errno(error) === "ENOENT") return false;
+        throw error;
+    }
 }
 
 /** 写登记表时崩溃留下的临时文件；启动回收时删除。插件 id 不以 `.` 开头，安装根下以 `.` 开头的都不是插件目录。 */

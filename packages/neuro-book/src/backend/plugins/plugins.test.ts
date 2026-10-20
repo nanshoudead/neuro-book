@@ -166,12 +166,23 @@ describe("复制范围（输入与前置条件、场景 10）", () => {
         const always = await w.source("always", manifest("3.0.0", {files: [], main: "index.js"}), {"index.js": "", "README.md": "", "LICENSE": "", "notes.txt": ""});
         expect(await w.inventory.install(always)).toMatchObject({ok: true});
         expect(await namesIn(join(w.root, "example.hello", "3.0.0"))).toEqual(["LICENSE", "README.md", "index.js", "package.json"]);
+
+        // 总是包含的只是文件：main 指向目录、README 是目录时都不递归复制，目录里的链接也不在范围内。
+        const directories = await w.source("always-directories", manifest("4.0.0", {files: [], main: "lib"}), {"lib/a.js": "", "README.md/inner.txt": ""});
+        await symlink(join(directories, "lib", "a.js"), join(directories, "lib", "link.js"));
+        expect(await w.inventory.install(directories)).toMatchObject({ok: true});
+        expect(await namesIn(join(w.root, "example.hello", "4.0.0"))).toEqual(["package.json"]);
     });
 
     it("files 写了 npm 的扩展 glob：清单无效，不静默少复制", async () => {
         const w = await world();
         const source = await w.source("extglob", manifest("1.0.0", {files: ["+(dist|lib)"]}), {"dist/a.js": "", "lib/b.js": ""});
         expect(await w.inventory.install(source)).toMatchObject({ok: false, code: "manifest-invalid"});
+        expect(await w.inventory.install(await w.source("negated-extglob", manifest("1.0.0", {files: ["dist", "!(src)"]}), {"dist/a.js": ""}))).toMatchObject({ok: false, code: "manifest-invalid"});
+        // 没有配对的括号不是扩展 glob，是文件名里的普通字符。
+        const literal = await w.source("literal", manifest("1.0.0", {files: ["x@(draft.txt"]}), {"x@(draft.txt": ""});
+        expect(await w.inventory.install(literal)).toMatchObject({ok: true});
+        expect(await namesIn(join(w.root, "example.hello", "1.0.0"))).toEqual(["package.json", "x@(draft.txt"]);
     });
 
     it("复制范围内的符号链接被拒：中间目录、末级文件、package.json 本身；范围外的链接不影响安装", async () => {
@@ -237,6 +248,9 @@ describe("升级（输出 8、场景 12、16）", () => {
         expect(await w.inventory.inspect(await w.source("v4", manifest("4.0.0")))).toEqual({ok: true, value: {id: "example.hello", version: "4.0.0", installed: "1.0.0", relation: "upgrade"}});
         expect(await w.inventory.inspect(await w.source("v0", manifest("0.9.0")))).toEqual({ok: true, value: {id: "example.hello", version: "0.9.0", installed: "1.0.0", relation: "downgrade"}});
         expect(await w.inventory.inspect(await w.source("v3-peek", manifest("3.0.0")))).toMatchObject({ok: false, code: "already-installed"});
+        // 只差构建元数据的版本不是降级；`v1.0.0` 这类非规范写法不是合法版本，免得同一版本装成两个目录。
+        expect(await w.inventory.inspect(await w.source("v1-build", manifest("1.0.0+build.2")))).toMatchObject({ok: true, value: {relation: "upgrade"}});
+        expect(await w.inventory.inspect(await w.source("v1-alias", manifest("v1.0.0")))).toMatchObject({ok: false, code: "manifest-invalid"});
         expect(await namesIn(join(w.root, "example.hello"))).toEqual(["1.0.0", "3.0.0"]);
         expect(await w.inventory.install(await w.source("v1-again", manifest("1.0.0")))).toMatchObject({ok: false, code: "already-installed"});
         expect(await w.inventory.install(await w.source("v3-again", manifest("3.0.0")))).toMatchObject({ok: false, code: "already-installed"});
@@ -246,6 +260,16 @@ describe("升级（输出 8、场景 12、16）", () => {
         expect(await w.record()).toMatchObject({plugins: {"example.hello": {version: "3.0.0", pendingVersion: null}}});
         expect(await namesIn(join(w.root, "example.hello"))).toEqual(["3.0.0"]);
         expect(w.diagnostics.some((record) => record.event === "plugins.upgrade.switched")).toBe(true);
+    });
+
+    it("首次安装后、重启之前又换了版本：列表写重启后要装上的版本", async () => {
+        const w = await world();
+        await w.inventory.install(await w.source("v1", manifest("1.0.0")));
+        await w.inventory.setEnabled("example.hello", false);
+        const v2 = await w.inventory.install(await w.source("v2", manifest("2.0.0")));
+        expect(v2).toMatchObject({ok: true, value: {version: "2.0.0", pending: [{kind: "install"}, {kind: "disable"}]}});
+        expect(itemOf(await w.inventory.list(), "example.hello")).toMatchObject({version: "2.0.0", pending: [{kind: "install"}, {kind: "disable"}]});
+        expect((await w.restart()).plugins).toMatchObject([{id: "example.hello", version: "2.0.0", state: "disabled"}]);
     });
 
     it("已禁用的插件升级后仍为已禁用，只切换文件与登记", async () => {
@@ -365,6 +389,24 @@ describe("启动时的登记（输出 6、7）与回收（提交点表）", () =
             expect((await w.restart()).registryProblem).toEqual(expect.any(String));
             expect(await readFile(join(victim, "keep.txt"), "utf8")).toBe("作品数据");
         }
+    });
+
+    it("安装根里的目录换成了指向外面的符号链接：安装与回收都不跟着链接删改", async () => {
+        const w = await world();
+        const victim = join(w.base, "state", "user-data");
+        await mkdir(join(victim, "1.0.0"), {recursive: true});
+        await mkdir(join(victim, "draft"), {recursive: true});
+        await writeFile(join(victim, "1.0.0", "keep.txt"), "作品数据");
+        await writeFile(join(victim, "draft", "keep.txt"), "作品数据");
+        await mkdir(w.root, {recursive: true});
+        await symlink(victim, join(w.root, "example.hello"));
+        expect(await w.inventory.install(await w.source("hello", manifest()))).toMatchObject({ok: false, code: "copy-failed"});
+        await rm(join(w.root, ".staging"), {recursive: true});
+        await symlink(victim, join(w.root, ".staging"));
+        await w.restart();
+        expect(await namesIn(victim)).toEqual(["1.0.0", "draft"]);
+        expect(await readFile(join(victim, "1.0.0", "keep.txt"), "utf8")).toBe("作品数据");
+        expect(await readFile(join(victim, "draft", "keep.txt"), "utf8")).toBe("作品数据");
     });
 });
 

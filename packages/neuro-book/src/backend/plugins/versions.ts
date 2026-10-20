@@ -8,8 +8,17 @@
 import type {VersionSyntax} from "@notnotype/nb-runtime/plugin-manifest";
 import semver from "semver";
 
+/**
+ * 版本只接受规范写法：`semver.valid` 也接受 `v1.0.0` 与带首尾空白的写法并把它们规范成 `1.0.0`，而版本会当安装目录名、
+ * 按字符串比较是否已安装，同一个版本有两种写法就会装成两个目录。规范写法带上构建元数据（`semver.valid` 会去掉它）。
+ */
+export function isCanonicalVersion(value: string): boolean {
+    const parsed = semver.parse(value);
+    return parsed !== null && `${parsed.version}${parsed.build.length > 0 ? `+${parsed.build.join(".")}` : ""}` === value;
+}
+
 export const npmVersions: VersionSyntax = {
-    isVersion: (value) => semver.valid(value) !== null,
+    isVersion: isCanonicalVersion,
     isRange: (value) => semver.validRange(value) !== null,
 };
 
@@ -18,7 +27,10 @@ export function engineAccepts(productVersion: string, range: string): boolean {
     return semver.satisfies(productVersion, range);
 }
 
-/** 两个合法版本的先后：大于 0 表示 `left` 更新。 */
+/**
+ * 两个合法版本的先后：大于 0 表示 `left` 更新。semver 的优先级不看构建元数据（`1.0.0+abc` 与 `1.0.0` 相等），这里再按
+ * 构建元数据排出先后，两个不同的版本总有先后，不会把同优先级的另一个构建当成降级。
+ */
 export function compareVersions(left: string, right: string): number {
-    return semver.compare(left, right);
+    return semver.compareBuild(left, right);
 }

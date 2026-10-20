@@ -14,7 +14,7 @@ import semver from "semver";
 import {definitionOf, descriptorOf, readPluginManifest as read} from "./plugin-manifest";
 import type {ReadManifestOptions} from "./plugin-manifest";
 
-/** 与应用侧相同的写法校验：npm 的 semver（测试依赖，内核运行时不依赖它）。 */
+/** 调用方注入的写法校验，这里用 npm 的 semver（测试依赖，内核运行时不依赖它）；应用侧另外只接受规范写法。 */
 const versions: ReadManifestOptions["versions"] = {isVersion: (value) => semver.valid(value) !== null, isRange: (value) => semver.validRange(value) !== null};
 
 function readPluginManifest(value: unknown, options: {readonly builtin?: boolean} = {}) {
