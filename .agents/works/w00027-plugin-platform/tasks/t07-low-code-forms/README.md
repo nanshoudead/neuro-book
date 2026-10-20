@@ -40,6 +40,10 @@ updated: 2026-10-20
   - 影响清单：`Field` 的调用方 dev-panel 的 `NewWorkForm`、`NewTaskForm`（包着单选组的两处改成组形态，名字从读不出变成字段标签）、`AnswerForm`、应用的 `ProjectInfoDialog`，普通形态不变；`Switch` 的四处调用方（dev-panel `DocsSidebar`、应用的 `SettingsControl`、`PluginsPage`、Lab 的 `SampleSnippetsPage`）都自己给名字，不变；`SegmentedControl` 的二十多处调用方只按属性用，依赖旧 `role="group"`、`aria-pressed` 的只有 nb-ui 自己的一条测试，已按新角色改；`CheckboxGroup`、`RadioGroup` 只有 dev-panel 用（`QuestionControl` 不在 `Field` 里，接入低代码时再命名，见 w00022 followups）。
   - 验证：nb-ui 502 例（新 `field-names.test.ts`，3 处变异都被拦下）、dev-panel 461 例、nb-story 284 例与各自类型检查；应用类型检查、Vitest 382 例；设置、书架、nb-ui Lab、插件、Lab 场景五组 e2e 28 例。
   - 偏离计划：可访问名称在组件测试里核对 `aria-labelledby` 指向的元素与文字，没有写 Lab 的 Playwright 用例（Lab 场景的插槽只有一份预设内容，做不出组形态的场景）。
+- S2b（`6b4dcb8ba`）：各表单控件加同名的 `invalid`（与字段上下文取或）；`Switch`、`Checkbox`、`CheckboxGroup`、`RadioGroup`、`Select` 加只读：可聚焦、写 `aria-readonly`，值由组件给定、交互不发出变化，下拉不打开浮层；出错时单选圆钮、开关轨道描红，复选组里的框经包内注入只描红（`aria-invalid` 只在组上）；`Input` 的“清空输入”、`NumberInput` 的“增加”“减少”改为可覆盖的属性（“展开选项”现行代码里已经没有）；新组件 `SearchSelect`（combobox 输入框加 `SuggestionMenu`，列表就是 t04 统一后的弹出列表）；Lab 加只读、出错场景与 `SearchSelect` 场景；`dist/nb-ui.css` 重新生成。
+  - 偏离计划：`SecretInput` 不做（凭据搁置，没有使用方），Spec 输出 31 改为 planned，`writeOnly` 与 `secret` 的字段在此之前按文字画（master `b13673166`）；下拉只读时原想拦“逐字查找”，真实浏览器里浮层关着时 Reka 的逐字查找本就不生效，删掉了这道到不了的拦截，由 Lab 的 e2e 守住“只读时值不变”。
+  - 验证：nb-ui 518 例（`readonly-matrix.test.ts` 10 例、`SearchSelect.test.ts` 6 例，只读的四处拦截各做变异都被拦下）；dev-panel、nb-story、应用的类型检查；nb-story 284 例与 e2e 19 例；应用 Vitest 382 例；设置、书架、插件与 Lab 各组 e2e 71 例，其中新增下拉只读、`SearchSelect` 两条；改动的六个控件在 nbook、macos × 浅、深 × 手机、自由画布下截图 288 张，没有溢出、焦点被裁或页面报错，截图在 `.local/agent/works/w00027-plugin-platform/tasks/t07-low-code-forms/reports/s2b-shots/`。看图时补了两处：`SearchSelect` 的输入框关掉拼写检查；单选组、开关、复选组原来出错时只有属性没有外观。
+  - 审查：Sonnet 界面审查进行中。
 
 ## 下一步
 
