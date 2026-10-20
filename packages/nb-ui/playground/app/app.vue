@@ -1,14 +1,11 @@
 <script setup lang="ts">
 import {onMounted} from "vue";
-import {provideThemeComponents} from "../../src/theme/component-registry";
 import {useColorway} from "./composables/useColorway";
 import {useTheme} from "./composables/useTheme";
 
 const colorway = useColorway();
 const theme = useTheme();
 
-// 把当前主题的组件覆盖表接进 provide/inject 链。少了这一句，主题带的组件实现装得上但用不上
-provideThemeComponents(theme.components);
 
 onMounted(() => {
     colorway.initColorway();
