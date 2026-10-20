@@ -58,9 +58,6 @@ export interface DropdownFloatingReturn {
     /** macOS 悬浮滑块鼠标按住事件处理函数 */
     handleThumbMouseDown: (e: MouseEvent) => void;
 
-    /** 项级同心圆角与垂直留白类名 */
-    itemBaseClass: string;
-
     /** 原始子 Composable 句柄（供需要精细定制时取用） */
     surface: DropdownSurfaceReturn;
     height: DropdownTruncatedHeightReturn;
@@ -101,8 +98,6 @@ export function useDropdownFloating(options: DropdownFloatingOptions = {}): Drop
         scrollThumbTop: computed(() => scrollbar.scrollThumbTop.value),
         scrollThumbHeight: computed(() => scrollbar.scrollThumbHeight.value),
         handleThumbMouseDown: scrollbar.handleThumbMouseDown,
-
-        itemBaseClass: surface.itemBaseClass,
 
         surface,
         height,

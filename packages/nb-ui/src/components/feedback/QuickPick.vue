@@ -89,8 +89,6 @@ const panelStyle = computed(() => ({
     width: "min(640px, calc(100cqw - 24px))",
     top: "clamp(16px, 8cqh, 72px)",
     maxHeight: "min(560px, calc(100cqh - 48px))",
-    borderRadius: "14px",
-    "--nb-popover-radius": "14px",
 }));
 
 const teleportTo = useTeleportTarget(() => props.teleportTarget);
@@ -211,7 +209,11 @@ function onItemPointerDown(event: PointerEvent): void {
     event.preventDefault();
 }
 
-function onItemMouseEnter(item: QuickPickItem): void {
+/**
+ * 只认指针真的移动：键盘滚动列表时，静止的鼠标底下换了一项，浏览器会补发 mouseenter，但不会发 pointermove；
+ * 用 mouseenter 的话，按方向键滚到看不见的项时高亮会被鼠标抢回去。
+ */
+function onItemPointerMove(item: QuickPickItem): void {
     if (item.disabled || item.id === props.activeId) return;
     emit("update:activeId", item.id);
 }
@@ -286,7 +288,7 @@ function isLowSurrogate(code: number): boolean {
                 :aria-describedby="undefined"
                 v-bind="$attrs"
                 :style="panelStyle"
-                class="nb-ui-popover-surface fixed inset-x-0 mx-auto flex flex-col gap-[var(--space-2)] overflow-hidden p-[var(--space-3)] text-[var(--text-main)] outline-none"
+                class="nb-ui-popover-surface nb-ui-menu-surface fixed inset-x-0 mx-auto flex flex-col gap-[var(--space-2)] overflow-hidden text-[var(--text-main)] outline-none"
                 :class="{ 'nb-ui-popover-motion': props.open }"
                 @open-auto-focus="onOpenAutoFocus"
                 @close-auto-focus="onCloseAutoFocus"
@@ -321,18 +323,16 @@ function isLowSurrogate(code: number): boolean {
                             role="option"
                             :aria-selected="isActive(item) ? 'true' : 'false'"
                             :aria-disabled="item.disabled ? 'true' : undefined"
-                            class="nb-ui-popover-item flex items-center gap-[var(--space-2)] px-[var(--space-2)] py-1.5 text-[length:var(--text-sm)] select-none"
-                            :class="item.disabled
-                                ? 'cursor-not-allowed text-[var(--text-muted)] opacity-60'
-                                : isActive(item)
-                                    ? 'cursor-pointer bg-[var(--overlay-item-active)] text-[var(--text-main)]'
-                                    : 'cursor-pointer text-[var(--text-secondary)]'"
+                            class="nb-ui-menu-item"
+                            :class="{'nb-ui-menu-item--multiline': metaText(item) !== ''}"
+                            :data-highlighted="isActive(item) ? '' : undefined"
+                            :data-disabled="item.disabled ? '' : undefined"
                             @pointerdown="onItemPointerDown"
-                            @mouseenter="onItemMouseEnter(item)"
+                            @pointermove="onItemPointerMove(item)"
                             @click="onItemClick(item)"
                         >
-                            <span v-if="item.iconClass" :class="item.iconClass" class="h-4 w-4 shrink-0" aria-hidden="true"></span>
-                            <span class="min-w-0 flex-1">
+                            <span v-if="item.iconClass" :class="item.iconClass" class="nb-ui-menu-item__icon" aria-hidden="true"></span>
+                            <span class="nb-ui-menu-item__label">
                                 <span class="block truncate">
                                     <template v-for="(segment, index) in labelSegments(item)" :key="index">
                                         <span v-if="segment.match" class="font-medium text-[var(--accent-main)]">{{ segment.text }}</span>
@@ -341,7 +341,7 @@ function isLowSurrogate(code: number): boolean {
                                 </span>
                                 <span
                                     v-if="metaText(item) !== ''"
-                                    class="block truncate text-[length:var(--text-xs)] text-[var(--text-muted)]"
+                                    class="mt-0.5 block truncate text-[11px] leading-[14px] text-[var(--text-muted)]"
                                 >{{ metaText(item) }}</span>
                             </span>
                             <Kbd v-if="item.shortcut" size="sm">{{ item.shortcut }}</Kbd>

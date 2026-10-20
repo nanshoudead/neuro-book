@@ -22,7 +22,7 @@ import {useFieldContext} from "./field-context";
  * 接入 65% 面色 + 8px 高斯模糊 + 130% 饱和度 + 1.0 亮度 与 4 层微反光立体阴影。
  *
  * 视觉与交互规范：
- * 1. 间距对称与空间避让：内容容器四周统一 6px 内边距（p-1.5），内容溢出时视口右侧自动保留 6px（pr-1.5）避让槽，杜绝滚动条与选项高亮/对勾重合；
+ * 1. 选项是弹出列表共用的一行（`.nb-ui-menu-item`）：一档行高与字号，选中只画左侧勾选列的勾、底色不变；内容溢出时视口右侧保留 6px（pr-1.5）避让槽，杜绝滚动条与选项高亮重合；
  * 2. 齐腰截半露底：锁定黄金视口截断高度，精准呈现单行第 5.5 项 / 双行第 3.5 项 50% 截断视觉线索；
  * 3. 动态双向渐隐（后续虚化半个 item）：当有更多未读项时，视口底部通过 16px 精确散焦 mask 呈现柔润透光的虚化半项线索；滑到底部后虚化自动消除；
  * 4. 100% 绝对可见 macOS 悬浮微胶囊滑块：置于 Viewport 外侧、Content 内侧，不受渐隐遮罩切断，不受 Reka UI scrollbar-width:none 影响，自由抓取拖拽；
@@ -102,10 +102,6 @@ const triggerClass = computed(() => cn(
     isInvalid.value ? "nb-ui-control-invalid" : "",
     attrs.class as string | undefined,
 ));
-const optionSizeClass = computed(() => isSmall.value
-    ? "min-h-[calc(var(--control-h-sm)-var(--space-1))] px-2.5 py-0.5 text-[12px]"
-    : "min-h-[var(--control-h-sm)] px-2.5 py-1.5 text-[13px]");
-
 const popperSide = computed(() => {
     if (props.dropdownDirection === "up") return "top" as const;
     if (props.dropdownDirection === "down") return "bottom" as const;
@@ -200,21 +196,21 @@ const {
                         :value="option.value"
                         :data-value="option.value"
                         :disabled="option.disabled"
-                        class="nb-ui-popover-item mb-1 flex cursor-pointer select-none items-center gap-2 outline-none transition-colors last:mb-0 data-[disabled]:cursor-not-allowed data-[disabled]:opacity-45 data-[highlighted]:bg-[var(--overlay-item-active)] data-[highlighted]:text-[var(--text-main)] data-[state=checked]:bg-[color-mix(in_srgb,var(--accent-main)_14%,transparent)] data-[state=checked]:text-[var(--text-main)] font-normal data-[state=checked]:font-medium"
-                        :class="optionSizeClass"
+                        class="nb-ui-menu-item"
+                        :class="{'nb-ui-menu-item--multiline': Boolean(option.description)}"
                     >
-                        <span v-if="option.indicatorClass" class="h-1.5 w-1.5 shrink-0 rounded-full shadow-sm" :class="option.indicatorClass" aria-hidden="true"></span>
-                        <span v-else-if="option.iconClass" class="h-3.5 w-3.5 shrink-0 text-[var(--text-secondary)]" :class="option.iconClass" aria-hidden="true"></span>
-                        <span class="min-w-0 flex-1">
+                        <span v-if="!props.hideCheckmark" class="nb-ui-menu-item__check">
+                            <SelectItemIndicator class="inline-flex"><span class="i-lucide-check h-3.5 w-3.5" aria-hidden="true"></span></SelectItemIndicator>
+                        </span>
+                        <span v-if="option.indicatorClass" class="nb-ui-menu-item__icon inline-flex items-center justify-center" aria-hidden="true"><span class="h-1.5 w-1.5 rounded-full shadow-sm" :class="option.indicatorClass"></span></span>
+                        <span v-else-if="option.iconClass" class="nb-ui-menu-item__icon text-[var(--text-secondary)]" :class="option.iconClass" aria-hidden="true"></span>
+                        <span class="nb-ui-menu-item__label">
                             <SelectItemText class="block truncate">{{ option.label }}</SelectItemText>
                             <span
                                 v-if="option.description"
-                                class="mt-[calc(var(--space-1)*0.5)] block truncate text-[length:var(--text-2xs)] font-normal text-[var(--text-muted)] group-data-[state=checked]:text-[var(--accent-text)]"
+                                class="mt-0.5 block truncate text-[11px] leading-[14px] text-[var(--text-muted)]"
                             >{{ option.description }}</span>
                         </span>
-                        <SelectItemIndicator v-if="!props.hideCheckmark" class="shrink-0">
-                            <span class="i-lucide-check h-[1.15em] w-[1.15em] text-[var(--accent-main)]" aria-hidden="true"></span>
-                        </SelectItemIndicator>
                     </SelectItem>
                 </SelectViewport>
 

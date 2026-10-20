@@ -60,7 +60,7 @@ export const ACCEPTANCE_DEFINITIONS: Record<string, LabComponentDefinition> = {
     "popup-lists": {
         id: "popup-lists",
         label: "弹出列表",
-        scenes: [{id: "menus", label: "菜单一族"}],
+        scenes: [{id: "menus", label: "菜单一族"}, {id: "select", label: "Select"}, {id: "quick-pick", label: "QuickPick"}],
         controls: [],
         events: [],
     },

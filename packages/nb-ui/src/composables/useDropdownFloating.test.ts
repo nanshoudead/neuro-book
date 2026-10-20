@@ -7,12 +7,11 @@ import {
 import {useDropdownFloating} from "./useDropdownFloating";
 
 describe("useDropdownSurfaceStyle", () => {
-    it("provides standard popoverClasses and itemBaseClass", () => {
-        const {popoverClasses, itemBaseClass, viewportClasses, viewportBaseStyle} = useDropdownSurfaceStyle();
+    it("provides standard popoverClasses", () => {
+        const {popoverClasses, viewportClasses, viewportBaseStyle} = useDropdownSurfaceStyle();
 
         expect(popoverClasses).toContain("nb-ui-popover-surface");
         expect(popoverClasses).toContain("nb-ui-menu-surface");
-        expect(itemBaseClass).toBe("nb-ui-popover-item mb-1 last:mb-0");
         expect(viewportClasses).toBe("nb-ui-popover-scroll w-full");
         expect(viewportBaseStyle.borderRadius).toBe("var(--nb-popover-inner-radius)");
     });

@@ -5,14 +5,17 @@ import DropdownMenu from "../../../src/components/controls/DropdownMenu.vue";
 import Menubar from "../../../src/components/controls/Menubar.vue";
 import ContextMenu from "../../../src/components/feedback/ContextMenu.vue";
 import type {ContextMenuItem} from "../../../src/components/feedback/context-menu.types";
+import QuickPick, {type QuickPickItem} from "../../../src/components/feedback/QuickPick.vue";
+import Select from "../../../src/components/form/Select.vue";
 import FixtureShell from "./AcceptanceShell.vue";
 import type {LabComponentDefinition} from "./definitions";
 
 /**
  * 弹出列表的验收夹具（w00029 t04，e2e/popup-lists.spec.ts）：行高、字号、圆角、高亮与勾选列要在真实布局与真实指针下量，
- * happy-dom 没有布局也不产生指针移动。菜单一族各放一个：DropdownMenu（reka 的项加手工级联）、Menubar、右键菜单（全是普通按钮项）。
+ * happy-dom 没有布局也不产生指针移动。场景 `menus` 放菜单一族各一个：DropdownMenu（reka 的项加手工级联）、Menubar、
+ * 右键菜单（全是普通按钮项）；`select`、`quick-pick` 各放一个，带说明的两行项与单行项混排。
  */
-defineProps<{
+const props = defineProps<{
     definition: LabComponentDefinition;
     sceneId: string;
 }>();
@@ -47,6 +50,23 @@ const CONTEXT_ITEMS: ContextMenuItem[] = [
     {label: "删除", iconClass: "i-lucide-trash-2", tone: "danger"},
 ];
 
+const SELECT_OPTIONS = [
+    {label: "Markdown", value: "md", iconClass: "i-lucide-file-text"},
+    {label: "纯文本", value: "txt", iconClass: "i-lucide-file", description: "不带格式，换行照原样保留"},
+    {label: "PDF（暂不可用）", value: "pdf", iconClass: "i-lucide-file-x", disabled: true},
+];
+const format = ref("txt");
+
+const QUICK_PICK_ITEMS: QuickPickItem[] = [
+    {id: "open", label: "打开项目", iconClass: "i-lucide-folder-open", shortcut: "Ctrl+O"},
+    {id: "chapter", label: "新建章节", iconClass: "i-lucide-file-plus", description: "在当前卷末尾"},
+    {id: "export", label: "导出", iconClass: "i-lucide-download", disabled: true},
+    {id: "settings", label: "设置", iconClass: "i-lucide-settings"},
+];
+const quickPickOpen = ref(props.sceneId === "quick-pick");
+const quickPickQuery = ref("");
+const quickPickActive = ref<string | null>("open");
+
 const context = ref<{x: number; y: number} | null>(null);
 function openContext(event: MouseEvent): void {
     context.value = {x: event.clientX, y: event.clientY};
@@ -55,7 +75,22 @@ function openContext(event: MouseEvent): void {
 
 <template>
     <FixtureShell v-model:controls="controls" :definition="definition" :scene-id="sceneId">
-        <div id="nb-lab-target" class="popup-lists-stage">
+        <div v-if="props.sceneId === 'select'" id="nb-lab-target" class="popup-lists-stage">
+            <Select v-model="format" :options="SELECT_OPTIONS" class="w-[220px]" data-fixture-select />
+        </div>
+        <div v-else-if="props.sceneId === 'quick-pick'" id="nb-lab-target" class="popup-lists-stage">
+            <QuickPick
+                v-model:open="quickPickOpen"
+                v-model:query="quickPickQuery"
+                v-model:active-id="quickPickActive"
+                :items="QUICK_PICK_ITEMS"
+                title="命令"
+                placeholder="输入命令"
+                empty-text="没有匹配的命令"
+                data-fixture-quick-pick
+            />
+        </div>
+        <div v-else id="nb-lab-target" class="popup-lists-stage">
             <DropdownMenu :items="DROPDOWN_ITEMS" :content-props="{'data-fixture-dropdown': ''}">
                 <Button variant="secondary" size="sm" data-fixture-dropdown-trigger>下拉菜单</Button>
             </DropdownMenu>

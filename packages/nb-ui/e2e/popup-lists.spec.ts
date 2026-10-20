@@ -103,3 +103,44 @@ test("菜单栏：手工级联里的普通按钮项在悬停时高亮", async ({
     expect(await highlightedLabels(page)).toEqual(["Markdown"]);
     await expectRowGeometry(markdown);
 });
+
+test("Select：单行项 28px、带说明的项由内容撑高；选中只画左侧的勾，底色不变", async ({page}) => {
+    await page.goto("/acceptance/popup-lists?scene=select&theme=nbook&colorway=nbook-light");
+    await page.locator("[data-fixture-select]").click();
+    const listbox = page.getByRole("listbox");
+    await settled(listbox);
+
+    const markdown = page.getByRole("option", {name: /Markdown/});
+    const text = page.getByRole("option", {name: /纯文本/});
+    await expectRowGeometry(markdown);
+    const textBox = (await text.boundingBox())!;
+    expect(textBox.height, "带说明的项比一档行高高").toBeGreaterThan(28);
+    await expect(text).toHaveCSS("border-radius", "5px");
+
+    await expect(text.locator(".i-lucide-check")).toHaveCount(1);
+    await expect(markdown.locator(".i-lucide-check")).toHaveCount(0);
+    // reka 打开时把焦点与高亮放在选中项上；把指针移到别的项，选中项就只剩勾。
+    await markdown.hover();
+    expect(await highlightedLabels(page)).toEqual(["Markdown"]);
+    expect(await background(text), "选中项不另画底色").toBe("rgba(0, 0, 0, 0)");
+    await expect(text, "选中项不加粗").toHaveCSS("font-weight", "400");
+});
+
+test("QuickPick：项 28px、带说明的项由内容撑高；高亮跟着指针移动，只亮一项", async ({page}) => {
+    await page.goto("/acceptance/popup-lists?scene=quick-pick&theme=nbook&colorway=nbook-light");
+    const panel = page.locator("[data-fixture-quick-pick]");
+    await settled(panel);
+    await expect(panel).toHaveCSS("border-radius", "10px");
+
+    const open = page.getByRole("option", {name: /打开项目/});
+    const chapter = page.getByRole("option", {name: /新建章节/});
+    const settings = page.getByRole("option", {name: /设置/});
+    await expectRowGeometry(open);
+    await expectRowGeometry(settings);
+    expect((await chapter.boundingBox())!.height, "带说明的项比一档行高高").toBeGreaterThan(28);
+    expect(await highlightedLabels(page)).toEqual(["打开项目Ctrl+O"]);
+
+    await settings.hover();
+    expect(await highlightedLabels(page)).toEqual(["设置"]);
+    await expect(page.getByRole("combobox"), "指针移动不夺走输入框的焦点").toBeFocused();
+});

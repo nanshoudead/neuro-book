@@ -38,8 +38,6 @@ export interface DropdownSurfaceReturn {
     viewportClasses: string;
     /** 视口同心内圆角样式（直接绑定至 Viewport :style） */
     viewportBaseStyle: Record<string, string>;
-    /** 菜单列表项基础几何与留白类名（保证贴边同心圆角与 mb-1 last:mb-0） */
-    itemBaseClass: string;
     /** 统一 Popper 定位与行为参数（用于 v-bind 或逐项绑定） */
     popperProps: ComputedRef<{
         position: "popper";
@@ -105,7 +103,6 @@ export function useDropdownSurfaceStyle(options: DropdownSurfaceOptions = {}): D
         viewportBaseStyle: {
             borderRadius: "var(--nb-popover-inner-radius)",
         },
-        itemBaseClass: "nb-ui-popover-item mb-1 last:mb-0",
         popperProps,
         handleCloseAutoFocus,
     };

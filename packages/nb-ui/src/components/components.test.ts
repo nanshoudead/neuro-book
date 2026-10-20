@@ -409,9 +409,9 @@ describe("nb-ui components", () => {
              * 直边上项与框之间有 6px 留白，绕到角上只剩不到 1px，两条弧线根本不平行。
              *
              * 所以这条盯的不是「圆角等于几」（那是主题的事），而是**取值从哪来**：
-             * 项必须挂 .nb-ui-popover-item，由它从 --nb-popover-inner-radius 推出来。
+             * 项必须挂 .nb-ui-menu-item，由它从 --nb-popover-inner-radius 推出来。
              * 谁把 rounded-* 加回模板，这条就红——那类原子类还会被排在 utilities 之后的
-             * .nb-ui-popover-item 压掉，写了也不生效，是一处「看代码以为改了其实没改」。
+             * .nb-ui-menu-item 压掉，写了也不生效，是一处「看代码以为改了其实没改」。
              *
              * 禁用项一起验：用户正是指着「PDF（暂不可用）」这一行说的，它和普通项走同一套几何。
              */
@@ -434,7 +434,7 @@ describe("nb-ui components", () => {
             const options = [...document.querySelectorAll("[role='option']")];
             expect(options).toHaveLength(3);
             for (const option of options) {
-                expect([...option.classList], option.textContent ?? "").toContain("nb-ui-popover-item");
+                expect([...option.classList], option.textContent ?? "").toContain("nb-ui-menu-item");
                 expect(
                     [...option.classList].filter((name) => name.startsWith("rounded-")),
                     `${option.textContent} 自己写了圆角`,

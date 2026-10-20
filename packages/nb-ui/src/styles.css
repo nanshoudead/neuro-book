@@ -250,13 +250,9 @@ input.nb-ui-native-input[type="number"] {
  * 判据：把浮层的一角放大到 4 倍截图，看项的弧线与框的弧线是否平行、之间的留白是否等宽。
  * 只看 1 倍的整体图是分辨不出来的——本轮就是放大之后才确认根因的。
  *
- * 兜底 6px 是给「不在 .nb-ui-popover-surface 里面用」这种误用留的，正常路径上永远取不到。
- */
-.nb-ui-popover-item {
-    border-radius: var(--nb-popover-inner-radius, 6px);
-}
-
-/*
+ * 下面 .nb-ui-menu-item 的圆角取的就是这个推出来的值；兜底 6px 是给「不在 .nb-ui-popover-surface 里面用」
+ * 这种误用留的，正常路径上永远取不到。
+ *
  * 弹出列表的一行（w00029 t04）。六个列表的项结构不同（reka 的菜单项与选择项、普通按钮、受控的 option），共用的是行的
  * 外观：一档行高与字号、同心圆角、中性叠色的高亮、左侧勾选列。
  *
