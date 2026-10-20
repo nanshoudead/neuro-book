@@ -31,9 +31,9 @@ export async function makeLibrary(name: string): Promise<{root: string; library:
     return {root, library, cleanup: () => rm(root, {recursive: true, force: true})};
 }
 
-export function runCli(args: string[]): Promise<{code: number | null; stdout: string; stderr: string}> {
+export function runCli(args: string[], env: Record<string, string> = {}): Promise<{code: number | null; stdout: string; stderr: string}> {
     return new Promise((resolve, reject) => {
-        const child = spawn("bun", [CLI, ...args], {stdio: ["ignore", "pipe", "pipe"]});
+        const child = spawn("bun", [CLI, ...args], {stdio: ["ignore", "pipe", "pipe"], env: {...process.env, ...env}});
         let stdout = "";
         let stderr = "";
         child.stdout.on("data", chunk => (stdout += chunk));
@@ -43,8 +43,9 @@ export function runCli(args: string[]): Promise<{code: number | null; stdout: st
     });
 }
 
-export async function startServe(library: string): Promise<StoryServer> {
-    const child: ChildProcess = spawn("bun", [CLI, "serve", "--library", library], {stdio: ["ignore", "pipe", "pipe"]});
+/** `env` 补进服务进程的环境变量（例如指向测试配置的 XDG_CONFIG_HOME 与模型密钥）。 */
+export async function startServe(library: string, env: Record<string, string> = {}): Promise<StoryServer> {
+    const child: ChildProcess = spawn("bun", [CLI, "serve", "--library", library], {stdio: ["ignore", "pipe", "pipe"], env: {...process.env, ...env}});
     let output = "";
     const exited = new Promise<number | null>(resolve => child.on("exit", code => resolve(code)));
     const login = await new Promise<string>((resolve, reject) => {
@@ -78,4 +79,49 @@ export async function login(context: BrowserContext, server: StoryServer): Promi
 export async function readingState(context: BrowserContext, server: StoryServer): Promise<{position: {chapter: number; paragraph?: number}; view: Record<string, unknown> | null}> {
     const response = await context.request.post(`${server.base}/api/rpc/reading.get`, {data: {book: "fox"}});
     return (await response.json()) as never;
+}
+
+export interface ReplayServer {
+    /** OpenAI 兼容端点的地址（写进配置的 baseUrl）。 */
+    url: string;
+    /** 关上或打开某一步的闸门（`章/步骤`，例如 `2/beats`）；关着时这一步的请求先等着。 */
+    close(key: string): Promise<void>;
+    open(key: string): Promise<void>;
+    seen(): Promise<{chapter: number; step: string; round: number}[]>;
+    stop(): Promise<void>;
+}
+
+/** 在 Bun 子进程里起回放端点（testing/replay-server.ts）：e2e 由 Node 运行，用不了 Bun.serve。 */
+export async function startReplay(): Promise<ReplayServer> {
+    const child = spawn("bun", [join(PACKAGE, "testing", "replay-server.ts")], {stdio: ["ignore", "pipe", "pipe"]});
+    let output = "";
+    const exited = new Promise<void>(resolve => child.on("exit", () => resolve()));
+    const [url, control] = await new Promise<[string, string]>((resolve, reject) => {
+        child.stdout.on("data", chunk => {
+            output += chunk;
+            const match = /^ready (\S+) (\S+)$/mu.exec(output);
+            if (match) resolve([match[1]!, match[2]!]);
+        });
+        child.stderr.on("data", chunk => (output += chunk));
+        void exited.then(() => reject(new Error(`回放端点提前退出：${output}`)));
+    });
+    const post = async (path: string, key: string) => {
+        await fetch(`${control}${path}?key=${encodeURIComponent(key)}`, {method: "POST"});
+    };
+    return {
+        url,
+        close: key => post("/close", key),
+        open: key => post("/open", key),
+        seen: async () => (await (await fetch(`${control}/seen`)).json()) as never,
+        async stop() {
+            if (child.exitCode === null) child.kill("SIGTERM");
+            await exited;
+        },
+    };
+}
+
+/** 样例书前 `chapters` 章拼回的 TXT 原文（同 testing/sample.ts 的 sampleSourceText；e2e 由 Node 运行，不导入 Bun 的测试工具）。 */
+export async function sampleSourceText(chapters: number): Promise<string> {
+    const sample = JSON.parse(gunzipSync(await readFile(join(PACKAGE, "tests", "fixtures", "sample-100ch.json.gz"))).toString("utf8")) as {sources: {paragraphs: string[]}[]};
+    return `转生反派萝莉，找茬魔法少女\n作者：测试\n\n${sample.sources.slice(0, chapters).map(source => source.paragraphs.join("\n")).join("\n\n")}`;
 }

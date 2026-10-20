@@ -475,6 +475,89 @@ export const STORY_METHODS = {
     "graph.storyline": {input: Type.Object({...BookParams}, strict), output: Storyline, effect: "read", errors: BookErrors},
 } as const;
 
+// ---- 抽取（docs/specs/story/ingest.md 的“网页”） ----
+
+const Costs = Type.Array(Type.Object({currency: Type.String(), amount: Type.Number()}));
+/** 一组用量：有任何一次请求的用量拿不到时 `complete` 为 false，数值是下界。费用按币种分开。 */
+const IngestUsage = Type.Object({input: Type.Integer(), output: Type.Integer(), cacheRead: Type.Integer(), costs: Costs, complete: Type.Boolean()});
+const IngestStatusSchema = Type.Object({
+    id: Type.String(),
+    title: Type.String(),
+    state: oneOf(["running", "stopped", "done"] as const),
+    /** 运行中由谁运行。 */
+    runner: Type.Union([oneOf(["cli", "serve"] as const), Type.Null()]),
+    stopReason: Type.Union([
+        Type.Object({kind: Type.Literal("user")}),
+        Type.Object({kind: Type.Literal("failed"), code: Type.String(), errorKind: Type.Optional(Type.String()), message: Type.String()}),
+        Type.Object({kind: Type.Literal("exited")}),
+        Type.Null(),
+    ]),
+    total: Type.Integer(),
+    committed: Type.Integer(),
+    /** 只在运行中：正在抽的章与步骤、正在等待的重试。 */
+    current: Type.Union([
+        Type.Object({
+            chapter: Type.Union([Type.Integer(), Type.Null()]),
+            step: Type.Union([oneOf(["beats", "draft", "review", "repair", "consolidation"] as const), Type.Null()]),
+            retry: Type.Union([Type.Object({attempt: Type.Integer(), waitMs: Type.Number(), until: Type.String()}), Type.Null()]),
+        }),
+        Type.Null(),
+    ]),
+    thisRun: Type.Object({...IngestUsage.properties, ms: Type.Number()}),
+    allRuns: Type.Object({...IngestUsage.properties, ms: Type.Number()}),
+    /** 分子含失败与作废的尝试，分母是已提交的章数；还没有提交的章时为 null。 */
+    average: Type.Union([Type.Object({ms: Type.Number(), costs: Costs}), Type.Null()]),
+    chapters: Type.Array(Type.Object({chapter: Type.Integer(), title: Type.String(), ms: Type.Number(), usage: IngestUsage, dropped: Type.Integer()})),
+});
+const IngestPlanSchema = Type.Object({
+    id: Type.String(),
+    title: Type.String(),
+    action: oneOf(["new", "resume", "append", "done"] as const),
+    chapters: Type.Array(Type.Object({chapter: Type.Integer(), title: Type.String(), chars: Type.Integer()})),
+    preambleChars: Type.Integer(),
+    volumeLines: Type.Integer(),
+    newChapters: Type.Integer(),
+    /** 已提交到第几章。 */
+    committed: Type.Integer(),
+    /** 抽取会用的模型；配置读不出来时为 null（开始时得到 qa_unconfigured）。 */
+    model: Type.Union([Type.Object({id: Type.String(), source: oneOf(["ingest.model", "model"] as const)}), Type.Null()]),
+});
+/** 原文文件的字节，base64。 */
+const SourceContent = {content: Type.String(), title: Type.Optional(Type.String({minLength: 1})), id: Type.Optional(Type.String({minLength: 1}))};
+const IngestErrors = {invalid_params: Type.Object({}), unsupported_format: Type.Object({}), book_exists: Type.Object({}), ingest_bad_text: Type.Object({}), ingest_text_changed: Type.Object({}), ingest_running: Type.Object({})};
+
+/**
+ * 抽取的方法只在独立服务里有：任务要跑在服务进程的抽取线程里，命令行用 `nbstory ingest`。所以不在 STORY_METHODS
+ * 里，核心库的 api 不认它们。
+ */
+export const INGEST_METHODS = {
+    "ingest.preview": {input: Type.Object(SourceContent, strict), output: IngestPlanSchema, effect: "read", errors: IngestErrors},
+    "ingest.start": {
+        input: Type.Union([Type.Object(SourceContent, strict), Type.Object({book: Type.String({minLength: 1})}, strict)]),
+        output: Type.Object({id: Type.String(), action: oneOf(["new", "resume", "append", "done"] as const)}),
+        effect: "write",
+        errors: {...IngestErrors, book_not_found: Type.Object({}), qa_unconfigured: Type.Object({})},
+    },
+    "ingest.stop": {input: Type.Object({book: Type.String({minLength: 1})}, strict), output: Empty, effect: "write", errors: {invalid_params: Type.Object({}), book_not_found: Type.Object({}), ingest_running: Type.Object({})}},
+    "ingest.status": {
+        input: Type.Object({book: Type.Optional(Type.String({minLength: 1}))}, strict),
+        output: Type.Object({books: Type.Array(IngestStatusSchema)}),
+        effect: "read",
+        errors: {invalid_params: Type.Object({}), book_not_found: Type.Object({})},
+    },
+} as const;
+
+export type IngestMethods = typeof INGEST_METHODS;
+export type IngestMethod = keyof IngestMethods;
+export type IngestStatusView = Static<typeof IngestStatusSchema>;
+export type IngestPlanView = Static<typeof IngestPlanSchema>;
+
+/** 网页能调的全部方法：查询加抽取。 */
+export type ViewerMethods = StoryMethods & IngestMethods;
+export type ViewerMethod = keyof ViewerMethods;
+export type ViewerParams<M extends ViewerMethod> = Static<ViewerMethods[M]["input"]>;
+export type ViewerResult<M extends ViewerMethod> = Static<ViewerMethods[M]["output"]>;
+
 export type StoryMethods = typeof STORY_METHODS;
 export type StoryMethod = keyof StoryMethods;
 export type StoryParams<M extends StoryMethod> = Static<StoryMethods[M]["input"]>;

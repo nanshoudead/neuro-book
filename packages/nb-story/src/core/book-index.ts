@@ -1,5 +1,5 @@
 /**
- * 按一代建的只读索引：查询要的查找表与按位置排好的数组。建一次约几十毫秒，按 (书 id, 代号) 缓存在进程里。
+ * 按一代与数据版本建的只读索引：查询要的查找表与按位置排好的数组。建一次约几十毫秒，按 (书 id, 代号, 版本) 缓存在进程里。
  *
  * 一次查询开始时用 openBookIndex 固定一代（Library.pinBook），之后一直用拿到的这份索引：删除、重新导入只会让以后
  * 的查询拿到新的一份，不影响已经拿到的（docs/specs/story/queries.md 的“时序与寿命”第 2 条）。
@@ -224,7 +224,7 @@ const cache = new Map<string, BookIndex>();
 export async function openBookIndex(library: Library, bookId: string): Promise<BookIndex> {
     const pinned = await library.pinBook(bookId);
     try {
-        const key = `${library.root}\u0000${bookId}\u0000${pinned.meta.generation}`;
+        const key = `${library.root}\u0000${bookId}\u0000${pinned.meta.generation}\u0000${pinned.meta.revision}`;
         const cached = cache.get(key);
         if (cached) {
             cache.delete(key);

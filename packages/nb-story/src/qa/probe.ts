@@ -8,7 +8,8 @@
 import {createHarness, createToolRegistry, type HarnessOptions, type RunError, type TurnResult} from "@notnotype/nb-harness";
 import {createMemorySessionLog} from "@notnotype/nb-session";
 
-import {configuredModel, thinkingOption, type QaConfig} from "./config";
+import type {QaConfig} from "./config";
+import {configuredModel, thinkingOption} from "./harness-model";
 import probeProfile from "./probe.profile";
 
 export type ProbeResult =

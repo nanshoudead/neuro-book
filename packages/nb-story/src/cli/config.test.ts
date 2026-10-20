@@ -11,6 +11,7 @@ import {join} from "node:path";
 import {PassThrough} from "node:stream";
 
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
+import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 
 import {startEndpoint, type Endpoint, type EndpointReply} from "../../testing/openai-endpoint";
 import {CLI} from "../../testing/processes";
@@ -64,7 +65,7 @@ describe("init、show、set、unset", () => {
         expect(unset.stdout).toContain("没有设置");
 
         const json = await run(["config", "show", "--config", path, "--json"]);
-        expect(JSON.parse(json.stdout)).toEqual({ok: true, data: {path, config: await written(path), apiKeySet: true}});
+        expect(JSON.parse(json.stdout)).toEqual({ok: true, data: {path, config: await written(path), apiKeySet: true, ingest: {source: "model", id: "m1", apiKeySet: true}}});
     });
 
     test("缺必填项又不在终端：用法错误，退出码 2，不写文件，不挂起等输入", async () => {
@@ -213,11 +214,7 @@ describe("init 的交互", () => {
         let screen = "";
         output.on("data", chunk => (screen += String(chunk)));
         const type = async (keys: string, expectScreen: string): Promise<void> => {
-            const deadline = Date.now() + 4000;
-            while (!screen.includes(expectScreen)) {
-                if (Date.now() > deadline) throw new Error(`屏幕上等不到“${expectScreen}”：${screen}`);
-                await Bun.sleep(10);
-            }
+            await waitUntil(`屏幕上出现“${expectScreen}”`, () => screen.includes(expectScreen), {timeoutMs: 4000});
             input.write(keys);
         };
         const close = (): void => {

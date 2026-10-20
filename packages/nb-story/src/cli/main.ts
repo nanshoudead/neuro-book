@@ -9,6 +9,7 @@
 
 import type {StoryMethod} from "../contract/contract";
 import {createStoryApi} from "../core/api";
+import {coordinatedLibrary} from "../ingest/coordinator";
 import type {StoryApi} from "../core/api";
 import type {StoryErrorCode} from "../core/errors";
 import {decodeArguments, usage, UsageError} from "./commands";
@@ -122,6 +123,10 @@ export async function main(argv: readonly string[], io: CliIo = processIo): Prom
         const {configCommand} = await import("./config");
         return configCommand({params, json: parsed.json}, io);
     }
+    if (spec.name === "ingest") {
+        const {ingestCommand} = await import("./ingest");
+        return ingestCommand({library, params, json: parsed.json}, io);
+    }
     if (spec.name === "qa") {
         const {qaCommand} = await import("./qa");
         return qaCommand({library, params, json: parsed.json}, io);
@@ -129,7 +134,8 @@ export async function main(argv: readonly string[], io: CliIo = processIo): Prom
     if (spec.method === null) throw new Error(`命令 ${spec.name} 没有对应的方法，也没有单独分派`);
 
     const json = parsed.json;
-    const api = createStoryApi(library === undefined ? {} : {library});
+    // 导入与删除要与抽取任务协调同一个书 id（抽取在别的进程里运行时删除得到 ingest_running）。
+    const api = createStoryApi({library: coordinatedLibrary(library)});
     const method: StoryMethod = spec.method;
     const outcome = await api.call(method, params);
     if (json) {

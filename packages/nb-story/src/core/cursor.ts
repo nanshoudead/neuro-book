@@ -1,8 +1,8 @@
 /**
- * 分页游标：绑定书的一代与一组参数（docs/specs/story/queries.md 的“时序与寿命”第 4 条）。
+ * 分页游标：绑定书的一代、数据版本（抽取进度）与一组参数（docs/specs/story/queries.md 的“时序与寿命”第 4 条）。
  *
- * 游标只由数据与参数决定，不含进程状态，所以跨进程、跨服务重启都能继续用。查询结果是一代与参数的纯函数，
- * 同一代、同一参数的第 n 页总是同样的内容，偏移量就够了。
+ * 游标只由数据与参数决定，不含进程状态，所以跨进程、跨服务重启都能继续用。查询结果是一代、版本与参数的纯函数，
+ * 同一代、同一版本、同一参数的第 n 页总是同样的内容，偏移量就够了。下面的 `generation` 是“代号:版本”。
  */
 
 import {createHash} from "node:crypto";
@@ -10,7 +10,7 @@ import {createHash} from "node:crypto";
 import {StoryError} from "./errors";
 
 interface CursorBody {
-    /** 书的一代。 */
+    /** 书的一代与数据版本（“代号:版本”）。 */
     g: string;
     /** 参数摘要。 */
     h: string;
@@ -65,7 +65,7 @@ export function paginate<T>(items: readonly T[], request: PageRequest): {items: 
     if (request.cursor !== undefined) {
         const body = decodeCursor(request.cursor);
         if (!body || body.g !== request.generation || body.h !== request.digest || body.o > items.length) {
-            throw new StoryError("cursor_invalid", "分页游标已失效（书被删除、换了一代或参数不同），请从第一页重新取");
+            throw new StoryError("cursor_invalid", "分页游标已失效（书被删除、换了一代、抽取进度变了或参数不同），请从第一页重新取");
         }
         offset = body.o;
     }

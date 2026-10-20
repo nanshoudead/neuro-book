@@ -60,3 +60,12 @@ export async function smallDataset(chapters: number, title: string): Promise<Dat
         arcs: keep(full.arcs),
     };
 }
+
+/**
+ * 样例书前 `chapters` 章拼回的 TXT 原文，前面加书名与一段简介（切章时不算正文）。抽取测试用它：要抽完的书用 5 或
+ * 10 章，因为末章要整理，录下的整理回复只有第 5、10 章的（testing/ingest-replay.ts）。
+ */
+export async function sampleSourceText(chapters: number): Promise<string> {
+    const sample = await sampleDataset();
+    return `${SAMPLE_TITLE}\n作者：测试\n\n${sample.sources.slice(0, chapters).map(source => source.paragraphs.join("\n")).join("\n\n")}`;
+}

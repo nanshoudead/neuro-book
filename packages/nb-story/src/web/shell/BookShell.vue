@@ -17,15 +17,24 @@ const session = shallowRef<BookSession | null>(null);
 const error = shallowRef<string | null>(null);
 
 const attempt = shallowRef(0);
+// 打开一本书要等几次请求；等的时候又换了书，先开的那次回来时作废（销毁它，不盖掉后来的）。
+let opening = 0;
 watch([() => route.params.id, attempt], async ([id]) => {
     if (typeof id !== "string") return;
     if (session.value?.bookId === id) return;
+    const token = ++opening;
     session.value?.dispose();
     session.value = null;
     error.value = null;
     try {
-        session.value = await openBookSession(client, router, id);
+        const opened = await openBookSession(client, router, id);
+        if (token !== opening) {
+            opened.dispose();
+            return;
+        }
+        session.value = opened;
     } catch (caught) {
+        if (token !== opening) return;
         if (caught instanceof StoryCallError && caught.code === "book_not_found") {
             await router.replace({path: "/", query: {missing: id}});
             return;
