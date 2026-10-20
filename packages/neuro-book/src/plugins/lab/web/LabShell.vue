@@ -478,8 +478,6 @@ onBeforeUnmount(() => {
 
 // ——— 场景 ———
 
-// reka 的单选组再次点击当前项会把值清空，画布必须始终有一个尺寸档，因此挡住空值。
-// nb-ui 声明的类型是 string | string[]，但运行时确实会给 undefined，两处都要挡。
 function applyPreset(value: SegmentedControlValue): void {
     const size = typeof value === "string" ? presetSizes[value] : undefined;
     if (!size) {

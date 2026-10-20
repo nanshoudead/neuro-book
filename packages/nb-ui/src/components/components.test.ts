@@ -13,6 +13,7 @@ import Kbd from "./display/Kbd.vue";
 import Progress from "./display/Progress.vue";
 import Table from "./display/Table.vue";
 import AlertDialog from "./feedback/AlertDialog.vue";
+import Banner from "./feedback/Banner.vue";
 import Dialog from "./feedback/Dialog.vue";
 import Drawer from "./feedback/Drawer.vue";
 import Notification from "./feedback/Notification.vue";
@@ -193,6 +194,64 @@ describe("nb-ui components", () => {
         expect(group.attributes("role")).toBe("group");
         expect(group.attributes("aria-label")).toBe("视图");
         expect(wrapper.findAll("button")[0]?.attributes("aria-pressed")).toBe("true");
+    });
+
+    it("segmented control without a matching value still has one tab stop and arrows start from the ends", async () => {
+        const options = [
+            {label: "随窗口", value: "free"},
+            {label: "平板", value: "tablet"},
+            {label: "手机", value: "phone"},
+        ];
+        const wrapper = mount(SegmentedControl, {props: {modelValue: null, options}});
+        const buttons = wrapper.findAll("button");
+
+        expect(buttons.map((button) => button.attributes("aria-checked"))).toEqual(["false", "false", "false"]);
+        expect(buttons.map((button) => button.attributes("tabindex"))).toEqual(["0", "-1", "-1"]);
+
+        await buttons[0]!.trigger("keydown", {key: "ArrowLeft"});
+        await buttons[0]!.trigger("keydown", {key: "ArrowRight"});
+        expect(wrapper.emitted("update:modelValue")).toEqual([["phone"], ["free"]]);
+        wrapper.unmount();
+    });
+
+    it("segmented control takes icon-only options named by title", () => {
+        const wrapper = mount(SegmentedControl, {
+            props: {modelValue: "tree", options: [{value: "text", iconClass: "i-lucide-file-json-2", title: "文本"}, {value: "tree", iconClass: "i-lucide-git-branch", title: "树形"}]},
+        });
+        const buttons = wrapper.findAll("button");
+
+        expect(buttons.map((button) => button.attributes("aria-label"))).toEqual(["文本", "树形"]);
+        expect(buttons.map((button) => button.text())).toEqual(["", ""]);
+        expect(buttons[1]!.attributes("aria-checked")).toBe("true");
+        wrapper.unmount();
+    });
+
+    it("banner: actions slot holds several buttons, error is announced as alert, icon can be replaced, dismiss only emits", async () => {
+        const wrapper = mount(Banner, {
+            props: {tone: "error", message: "磁盘上的文件已被修改。", iconClass: "i-lucide-refresh-cw", dismissible: true, closeLabel: "知道了"},
+            slots: {actions: "<button data-a>重新载入</button><button data-b>覆盖</button>"},
+        });
+
+        expect(wrapper.attributes("role")).toBe("alert");
+        expect(wrapper.find("[data-a]").exists()).toBe(true);
+        expect(wrapper.find("[data-b]").exists()).toBe(true);
+        expect(wrapper.find(".i-lucide-refresh-cw").exists()).toBe(true);
+        expect(wrapper.find(".i-lucide-circle-x").exists()).toBe(false);
+
+        await wrapper.get("[aria-label='知道了']").trigger("click");
+        expect(wrapper.emitted("dismiss")).toHaveLength(1);
+        expect(wrapper.exists()).toBe(true);
+        wrapper.unmount();
+    });
+
+    it("banner without actions or close button renders only the message as status", () => {
+        const wrapper = mount(Banner, {props: {tone: "warning", message: "已与服务端断开。"}});
+
+        expect(wrapper.attributes("role")).toBe("status");
+        expect(wrapper.text()).toBe("已与服务端断开。");
+        expect(wrapper.findAll("button")).toHaveLength(0);
+        expect(wrapper.find(".i-lucide-alert-triangle").exists()).toBe(true);
+        wrapper.unmount();
     });
 
     it("renders notifications with theme tone classes", () => {
@@ -1370,6 +1429,24 @@ describe("nb-ui dialog anatomy", () => {
         expect(items[0]!.attributes("data-state")).toBe("on");
         expect(items[1]!.attributes("data-state")).toBe("on");
         expect(items[2]!.attributes("data-state")).toBe("off");
+        wrapper.unmount();
+    });
+
+    it("toggle group toggles one item at a time and always emits the pressed values as an array", async () => {
+        const options = [
+            {value: "bold", label: "B", title: "加粗"},
+            {value: "italic", label: "I", title: "斜体"},
+        ];
+        const wrapper = mount(ToggleGroup, {props: {modelValue: ["bold"], options}});
+        const items = wrapper.findAll("button");
+
+        await items[1]!.trigger("click");
+        await wrapper.setProps({modelValue: ["bold", "italic"]});
+        await items[0]!.trigger("click");
+        await wrapper.setProps({modelValue: ["italic"]});
+        await items[1]!.trigger("click");
+
+        expect(wrapper.emitted("update:modelValue")).toEqual([[["bold", "italic"]], [["italic"]], [[]]]);
         wrapper.unmount();
     });
 
