@@ -134,7 +134,7 @@
 
 1. 新组件叫 `SuggestionMenu`（“输入时弹出的候选”，与 `QuickPick`、`DropdownMenu` 分开）。
 2. `DropdownMenu` 去掉 `compact` 档与项的 `active` 字段。
-3. 候选菜单的定位用 floating-ui。计划审查后改为经 reka 的 Popover 原语使用它（reka 底层就是 floating-ui），不直接调 `@floating-ui/dom`、不另加依赖；**待开发者确认这一改动**。
+3. 候选菜单的定位用 floating-ui。计划审查后改为经 reka 的 Popover 原语使用它（reka 底层就是 floating-ui），不直接调 `@floating-ui/dom`、不另加依赖（开发者 2026-10-20 确认）。
 
 ## 审查处理
 
