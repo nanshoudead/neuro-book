@@ -36,7 +36,7 @@ updated: 2026-10-17
 
 ## 当前状态
 
-2026-10-17 建 Task，同日开发者确认计划与设计审查后的修订（[plan.md](plan.md)），在 worktree `.worktree/w00027-t03-manifest-and-install`（分支 `feat/w00027-t03-manifest-and-install`，未 push、未合入）实施完 S1a–S1e，并按两轮实现审查修订：
+2026-10-17 建 Task，同日开发者确认计划与设计审查后的修订（[plan.md](plan.md)），在 worktree `.worktree/w00027-t03-manifest-and-install`（分支 `feat/w00027-t03-manifest-and-install`；2026-10-20 改名为 Work 分支 `feat/w00027-plugin-platform`、worktree 移到 `.worktree/w00027-plugin-platform`；未 push、未合入）实施完 S1a–S1e，并按两轮实现审查修订：
 
 - 提交：`b41cc5025`（实现）、`3cce46618`（真实浏览器 e2e）、`98db53316`（插件页分组）、`fea2c9410`（后端审查修正）、`7ec47e9d8`（插件页按界面审查重做）、`724ceb465`（后端第二轮审查修正）、`c3ee307de`（插件页第二轮审查修正）。
 - 第一轮实现审查：后端与内核交 omp（[evidences/impl-review-omp.txt](evidences/impl-review-omp.txt)，9 条：重要 8、建议 1），插件页交 Sonnet（[evidences/impl-review-ui.txt](evidences/impl-review-ui.txt)，17 条：重要 9、建议 8）。
@@ -47,4 +47,4 @@ updated: 2026-10-17
 
 ## 下一步
 
-开发者知悉第二轮中接受取舍、不改的几条（plan.md 的“第二轮实现审查的处理”）后合入 master；之后去掉 Spec 里本次实现条目的“（planned）”并补实现合同（晋升由开发者批准），再开 t04。
+开发者 2026-10-20 定：先不合入 master，在 Work 分支上继续 t04。合入 master 时再去掉 Spec 里本次实现条目的“（planned）”并补实现合同（晋升由开发者批准）。

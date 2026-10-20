@@ -20,6 +20,10 @@ updated: 2026-10-17
 - 已确认不做（[ADR 0022](../../../docs/adr/0022-extensible-platform-and-plugin-trust.md)）：插件市场、在线分发、签名、权限沙箱；第一版完全信任，安装即告知插件可访问全部作品、服务器与本机资源。不支持多个用户各自安装插件。
 - 内置插件仍随产品构建静态装配；本 Work 不把它们迁出仓库。
 
+## 分支
+
+本 Work 的代码在 worktree `.worktree/w00027-plugin-platform`、分支 `feat/w00027-plugin-platform` 上（2026-10-20 按“一个 Work 一条分支”由 t03 的分支改名而来），各 Task 依次在这条分支上提交、在这条分支上验证；合入 master 的时机由开发者决定（2026-10-20：先不合入，继续往后做）。
+
 ## 任务
 
 | Task | 当前范围 |
