@@ -40,10 +40,19 @@ updated: 2026-10-17
 - 可维护性修订（开发者 2026-10-20 同意）：密钥的存储与服务拆到 [t08](../t08-secret-store/README.md)，做成独立的服务与远程合同，主密钥丢失时显式重置、不分代次；t02 只做密钥项的声明与设置窗口里的界面。按需激活用内核上下文上通用的 `ctx.activation.trigger`。
 - 设置界面的外观收口另建 [t06](../t06-settings-ui-polish/README.md)，不在本轮。
 
+S1（Work 分支，2026-10-20）：
+
+- `18d14f5c1`：内核激活上下文加 `ctx.activation.trigger`，`requester` 绑成入口所属插件，跟着这一代次（停止、同 id 重新登记之后为 `requester-stopped`）。
+- `35ef756b3`：`defineSettings`；声明字段 `choices: {from}`（动态选项，只用在字符串上）与 `ui`（单个字段的界面提示，控件配不配交给 `ui.forms` 的描述检查，应用因此依赖 `@notnotype/nb-form`）；`SettingsService.update` 的值类型改用 `NoInfer` 只从定义推出（原来字面量联合之外的值能编译）。
+- `411de6cb2`：`settings.sections` 改为 list 分区的顶层声明（三个位置都登记），新增 `settings.pages`；内置分区、示例、Lab 局部宿主与测试一起迁移；跨点同 id 两者都不显示并记诊断。
+- `99b9ac7cb`：按需激活。窗口显示 page 分区时触发 `onSettingsPage:<id>`，触发前经 `window.plugins.activationEvents` 核对所属入口（内核目录的入口描述因此加了 `activationEvents`）；新状态 `entry-not-activatable`。`settingsPage(load, props?)` 放在 `nbook/ui/settings/settings-page`（插件只能在运行时引用别的插件的 `shared/contracts.ts`）。示例 snippets 与插件页改为按需激活。
+- 偏离计划：`settingsPage` 的签名改为 `(load, props?)`，位置不在 `web/contracts.ts`；`window.plugins` 多了 `activationEvents`（计划写“不变”）。原因见上。
+- 验证：内核 347 例、nb-form 93 例、应用 Bun 1559 例、Vitest 382 例、类型检查、`docs:check`、`governance:check` 通过；settings、plugins、browser-host、bookshelf 四组 e2e 24 例通过（插件页的 e2e 经设置窗口打开分区，走过真实浏览器里的按需激活）。按需激活、触发口寿命、三处登记做过变异检查。
+
 - 开发者 2026-10-20 定：低代码（[t07](../t07-low-code-forms/README.md)）排在 t02 之前实现，t02 的控件改用低代码的字段；[plan.md](plan.md) 已按此起草，待 t07 的接口定下后回改，再交开发者确认。
 
 说明页：[设置分区的两种画法，与旧应用的 provider 设置](artifacts/settings-sections/index.html)。
 
 ## 下一步
 
-写 `plan.md`（先修订 `settings/configuration.md`、`settings-window.md` 的相关条目），要点交开发者确认后交设计审查，再开工。
+S1 交 omp 实现审查（报告在 `.local/agent/works/w00027-plugin-platform/tasks/t02-settings-completion/reports/impl-review-s1-omp.md`），处理后做 S6（Monaco 排版设置）；S3–S5、S7 等 t07 完成后做（[plan.md](plan.md)“切片”）。
