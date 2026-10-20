@@ -12,6 +12,7 @@ import {itemNode} from "../../model";
 import {toPointer} from "../../path";
 import {useList} from "../list";
 import {messagesFor} from "../messages";
+import {itemTitle} from "../order";
 import {issuesUnder, useFormScope} from "../scope";
 import ListActions from "./ListActions.vue";
 import ObjectControl from "./ObjectControl.vue";
@@ -25,16 +26,49 @@ const field = useFieldContext();
 const prefix = `nb-form-md-${useId()}`;
 const root = useTemplateRef<HTMLElement>("root");
 const messages = computed(() => messagesFor(props.locale));
-const editable = computed(() => scope.mode.value === "edit" && !props.readonly && !props.disabled);
+const editable = computed(() => scope.editable(props.node) && !props.disabled);
 const showActions = computed(() => scope.mode.value === "edit" && !props.readonly);
+
+const detail = () => root.value?.querySelector<HTMLElement>("[data-nb-detail]") ?? null;
+const FOCUSABLE = "input:not([type='hidden']):not([disabled]), textarea:not([disabled]), button:not([disabled]), [tabindex='0']";
+
+/**
+ * 选中项随增删排序的调整都挂在 `useList` 的钩子上，按钮与 `Alt+↑ / ↓` 走同一条路（审查 S3 omp 16）；在调用方采纳、
+ * 换上 id 的同时改，详情不会先闪一下别的项。
+ */
 const list = useList({
     node: () => props.node,
     value: () => props.modelValue,
     locale: () => props.locale,
+    scope,
     editable: () => editable.value,
     emit: (next) => emit("update:modelValue", next),
     root,
     blank: () => ({}),
+    hooks: {
+        // 新项选中；渲染出它的详情以后聚焦详情里的第一个控件。
+        add: (index) => ({adopt: () => selection.value.set(index), focus: () => detail()?.querySelector<HTMLElement>(FOCUSABLE)?.focus()}),
+        // 删掉选中项：选中留在同一位置（即下一项），没有下一项时由 `selected` 退到上一项；删掉前面的项，选中跟着原来那一项走。
+        remove: (index) => {
+            const current = selected.value;
+            return {adopt: () => {
+                if (index < current) selection.value.set(current - 1);
+            }};
+        },
+        move: (index, delta) => {
+            const current = selected.value;
+            return {adopt: () => {
+                if (index === current) selection.value.set(index + delta);
+                else if (index + delta === current) selection.value.set(current - delta);
+            }};
+        },
+    },
+    // 聚焦问题时选中问题所在的项，它的详情才挂载。
+    reveal: (index) => {
+        if (selected.value === index) return false;
+        selection.value.set(index);
+        return true;
+    },
 });
 
 const selection = computed(() => scope.selection(toPointer(props.node.path)));
@@ -44,40 +78,8 @@ const selected = computed(() => {
 });
 const selectedEntry = computed(() => list.entries.value[selected.value]);
 
-function title(value: unknown, index: number): string {
-    const key = props.node.hints.itemLabel;
-    const named = key !== undefined && value !== null && typeof value === "object" ? (value as Record<string, unknown>)[key] : undefined;
-    return typeof named === "string" && named.trim() !== "" ? named : messages.value.item(index + 1);
-}
+const title = (value: unknown, index: number) => itemTitle(props.node, value, index, props.locale);
 const issueCount = (index: number) => issuesUnder(scope.shownIssues.value, [...props.node.path, index]).length;
-
-const detail = () => root.value?.querySelector<HTMLElement>("[data-nb-detail]") ?? null;
-const FOCUSABLE = "input:not([type='hidden']):not([disabled]), textarea:not([disabled]), button:not([disabled]), [tabindex='0']";
-
-function add(): void {
-    const count = list.items.value.length;
-    // 新项传回来时选中它；渲染出它的详情以后聚焦详情里的第一个控件。
-    list.add({
-        adopt: () => selection.value.set(count),
-        focus: () => detail()?.querySelector<HTMLElement>(FOCUSABLE)?.focus(),
-    });
-}
-
-/** 删掉选中项：选中留在同一位置（即下一项），没有下一项时由 `selected` 退到上一项；删掉前面的项，选中跟着原来那一项走。 */
-function remove(index: number): void {
-    const current = selected.value;
-    list.remove(index, {adopt: () => {
-        if (index < current) selection.value.set(current - 1);
-    }});
-}
-
-function move(index: number, delta: -1 | 1): void {
-    const current = selected.value;
-    list.move(index, delta, {adopt: () => {
-        if (index === current) selection.value.set(index + delta);
-        else if (index + delta === current) selection.value.set(current - delta);
-    }});
-}
 
 // 外部把列表换短了：选中项落回范围内（`selected` 已经夹住，这里把记下的值也改掉，免得以后变长时跳回去）。
 watch(() => list.items.value.length, (count) => {
@@ -86,7 +88,17 @@ watch(() => list.items.value.length, (count) => {
 </script>
 
 <template>
-    <div ref="root" class="nb-form-md" role="group" :aria-labelledby="field?.labelId.value">
+    <div
+        ref="root"
+        class="nb-form-md"
+        :class="{'nb-form-md--invalid': props.invalid}"
+        role="group"
+        tabindex="-1"
+        data-nb-focus-target
+        :aria-labelledby="field?.labelId.value"
+        :aria-describedby="field?.ariaDescribedby.value"
+        :aria-invalid="props.invalid || undefined"
+    >
         <div class="nb-form-md__master">
             <p v-if="list.items.value.length === 0" class="nb-form-md__empty">{{ messages.noItems }}</p>
             <div v-else-if="list.folded.value" class="nb-form-md__empty">
@@ -100,14 +112,14 @@ watch(() => list.items.value.length, (count) => {
                     class="nb-form-md__item"
                     :class="{'nb-form-md__item--selected': entry.index === selected}"
                     :data-nb-list-item="entry.id"
-                    @keydown="list.onItemKeydown($event, entry.index)"
+                    @keydown.capture="list.onItemKeydownCapture($event, entry.index)"
                 >
                     <button
                         type="button"
                         class="nb-form-md__select"
                         data-nb-list-action="select"
                         :aria-current="entry.index === selected ? 'true' : undefined"
-                        :aria-controls="`${prefix}-detail`"
+                        :aria-controls="entry.index === selected ? `${prefix}-detail` : undefined"
                         @click="selection.set(entry.index)"
                     >
                         <span class="nb-form-md__title">{{ title(entry.value, entry.index) }}</span>
@@ -122,8 +134,8 @@ watch(() => list.items.value.length, (count) => {
                         :disabled="!editable"
                         :can-remove="list.canRemove.value"
                         :locale="props.locale"
-                        @move="(delta) => move(entry.index, delta)"
-                        @remove="remove(entry.index)"
+                        @move="(delta) => list.move(entry.index, delta)"
+                        @remove="list.remove(entry.index)"
                     />
                 </li>
             </ul>
@@ -133,14 +145,14 @@ watch(() => list.items.value.length, (count) => {
                 <button type="button" class="nb-form-md__link" :disabled="list.page.value >= list.pageCount.value - 1" @click="list.page.value += 1">{{ messages.nextPage }}</button>
             </div>
             <div v-if="showActions">
-                <Button size="sm" variant="secondary" data-nb-list-add :disabled="!list.canAdd.value" @click="add">{{ messages.add }}</Button>
+                <Button size="sm" variant="secondary" data-nb-list-add :disabled="!list.canAdd.value" @click="list.add()">{{ messages.add }}</Button>
             </div>
         </div>
         <div v-if="selectedEntry !== undefined" :id="`${prefix}-detail`" class="nb-form-md__detail" data-nb-detail>
             <div :id="`${prefix}-detail-title`" class="nb-form-md__detail-title">{{ title(selectedEntry.value, selectedEntry.index) }}</div>
-            <ObjectControl :key="selectedEntry.id" v-bind="props" :node="itemNode(props.node, selectedEntry.index)!" :labelledby="`${prefix}-detail-title`" flat />
+            <ObjectControl :key="selectedEntry.id" v-bind="props" widget="object" :node="itemNode(props.node, selectedEntry.index)!" :labelledby="`${prefix}-detail-title`" flat />
         </div>
-        <span class="nb-form-sr-only" aria-live="polite">{{ list.announcement.value }}</span>
+        <span class="nb-form-sr-only" aria-live="polite"><span :key="list.announcement.value.sequence">{{ list.announcement.value.text }}</span></span>
     </div>
 </template>
 
@@ -151,6 +163,16 @@ watch(() => list.items.value.length, (count) => {
     flex-wrap: wrap;
     align-items: flex-start;
     gap: var(--space-6);
+}
+
+.nb-form-md:focus-visible {
+    outline: none;
+    box-shadow: var(--focus-ring);
+}
+
+.nb-form-md--invalid {
+    border-left: 2px solid var(--status-danger);
+    padding-left: var(--space-5);
 }
 
 .nb-form-md__master {
@@ -218,8 +240,8 @@ watch(() => list.items.value.length, (count) => {
 
 .nb-form-md__select:focus-visible,
 .nb-form-md__link:focus-visible {
-    outline: 2px solid var(--focus-ring);
-    outline-offset: 1px;
+    outline: none;
+    box-shadow: var(--focus-ring);
 }
 
 .nb-form-md__title {

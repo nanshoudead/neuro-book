@@ -30,6 +30,12 @@ interface Messages {
     readonly clearInput: string;
     readonly noMatch: string;
     readonly warning: string;
+    readonly required: string;
+    readonly unit: (unit: string) => string;
+    readonly fillIn: string;
+    readonly copyOf: (label: string) => string;
+    readonly expandOf: (label: string) => string;
+    readonly collapseOf: (label: string) => string;
     readonly add: string;
     readonly remove: string;
     readonly moveUp: string;
@@ -74,6 +80,12 @@ const ZH: Messages = {
     clearInput: "清空输入",
     noMatch: "没有匹配的选项",
     warning: "警告",
+    required: "必填",
+    unit: (unit) => `单位：${unit}`,
+    fillIn: "填写",
+    copyOf: (label) => `复制：${label}`,
+    expandOf: (label) => `展开：${label}`,
+    collapseOf: (label) => `收起：${label}`,
     add: "添加",
     remove: "删除",
     moveUp: "上移",
@@ -105,7 +117,20 @@ const ZH: Messages = {
         "not-in-choices": () => "不是可选的值",
         "no-match": () => "不符合任何一种写法",
         "unparseable": () => "无法解析",
+        "read-only": () => "只读的内容不能改",
         "schema-error": () => "描述有误，无法校验",
+        "contains": () => "缺少符合要求的项",
+        "min-contains": (params) => `符合要求的项至少 ${String(params.limit ?? params.minContains ?? "")} 个`,
+        "max-contains": (params) => `符合要求的项至多 ${String(params.limit ?? params.maxContains ?? "")} 个`,
+        "min-properties": (params) => `至少填写 ${String(params.limit)} 项`,
+        "max-properties": (params) => `至多填写 ${String(params.limit)} 项`,
+        "dependent-required": () => "缺少与已填内容配套的项",
+        "dependent-schemas": () => "与已填内容配套的部分不符合要求",
+        "additional-property": (params) => (typeof params.key === "string" ? `不认识的项：${params.key}` : "有不认识的项"),
+        "property-names": () => "有名称不合要求的项",
+        "one-of": () => "必须恰好符合一种写法",
+        "not": () => "写成了不允许的形式",
+        "if-then": () => "不满足条件对应的要求",
     },
     fallback: (code) => `不符合要求（${code}）`,
 };
@@ -134,6 +159,12 @@ const EN: Messages = {
     clearInput: "Clear input",
     noMatch: "No matching options",
     warning: "Warning",
+    required: "required",
+    unit: (unit) => `Unit: ${unit}`,
+    fillIn: "Fill in",
+    copyOf: (label) => `Copy: ${label}`,
+    expandOf: (label) => `Expand: ${label}`,
+    collapseOf: (label) => `Collapse: ${label}`,
     add: "Add",
     remove: "Remove",
     moveUp: "Move up",
@@ -165,7 +196,20 @@ const EN: Messages = {
         "not-in-choices": () => "Not one of the options",
         "no-match": () => "Does not match any allowed form",
         "unparseable": () => "Cannot be parsed",
+        "read-only": () => "Read-only content cannot be changed",
         "schema-error": () => "The description is invalid and cannot be checked",
+        "contains": () => "Missing a matching item",
+        "min-contains": (params) => `At least ${String(params.limit ?? params.minContains ?? "")} matching items`,
+        "max-contains": (params) => `At most ${String(params.limit ?? params.maxContains ?? "")} matching items`,
+        "min-properties": (params) => `At least ${String(params.limit)} entries`,
+        "max-properties": (params) => `At most ${String(params.limit)} entries`,
+        "dependent-required": () => "Missing entries required by what is filled in",
+        "dependent-schemas": () => "Does not meet the requirements of what is filled in",
+        "additional-property": (params) => (typeof params.key === "string" ? `Unknown entry: ${params.key}` : "Has unknown entries"),
+        "property-names": () => "Has entries with invalid names",
+        "one-of": () => "Must match exactly one allowed form",
+        "not": () => "Uses a form that is not allowed",
+        "if-then": () => "Does not meet the conditional requirements",
     },
     fallback: (code) => `Invalid (${code})`,
 };
@@ -180,5 +224,8 @@ export function messagesFor(locale: string): Messages {
 export function issueText(issue: FormIssue, locale: string): string {
     if (issue.message !== undefined) return resolveText(issue.message, locale);
     const messages = messagesFor(locale);
-    return messages.codes[issue.code]?.(issue.params) ?? messages.fallback(issue.code);
+    const text = messages.codes[issue.code]?.(issue.params) ?? messages.fallback(issue.code);
+    // JSON 字段里的问题带着值里的位置（`/a/0`），不写出来用户找不到是哪一处。
+    const at = issue.params.at;
+    return typeof at === "string" && at !== "" ? `${text}（${at}）` : text;
 }

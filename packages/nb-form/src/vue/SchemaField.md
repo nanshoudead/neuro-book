@@ -15,7 +15,8 @@
 控件选择、提交时机、草稿、问题的标记与展示态都与 `SchemaForm` 相同（见它的“交互”）。另外：
 
 - 字段就是根：它的路径是空的，没有“清除”（可为 null 的除外，清除写 `null`），标题旁不画必填的 `*`。
-- `bare` 时名字来自调用方：单个控件用调用方的 `<label for="<id>">`，组合控件（单选组、复选组、确认）经 `labelledby` 指向调用方的标签元素。出错的文字照样经 `aria-describedby` 给读屏。
+- `bare` 时名字来自调用方：单个控件用调用方的 `<label for="<id>">`，组合控件（单选组、复选组、确认）经 `labelledby` 指向调用方的标签元素。出错的文字照样经 `aria-describedby` 给读屏；调用方自己的说明经 `describedby` 接在后面（外壳不画说明，也不引用它）。
+- `commit()`、`reset()` 作用到字段里的全部草稿，包括对象与列表的成员；`commit()` 也显示全部问题（必填缺失）。没有问题汇总，也不发 `focus-issue`。
 - 没有问题汇总；看得见的问题文字由调用方放在自己的固定位置。
 - 根是左列表右详情时，选中项可以由调用方用 `v-model:selected` 接管；不接管时组件自己记。
 
@@ -35,6 +36,8 @@ type SchemaFieldProps = {
     bare?: boolean;
     /** `bare` 时组合控件的名字来源：调用方标签元素的 id。 */
     labelledby?: string;
+    /** `bare` 时调用方说明元素的 id，接在错误后面写进 `aria-describedby`。 */
+    describedby?: string;
     // 以下与 SchemaForm 相同。
     mode?: "edit" | "view";
     readonly?: boolean;
@@ -58,10 +61,11 @@ type SchemaFieldEmits = {
 };
 
 type SchemaFieldExpose = {
-    /** 提交可解析的草稿；解析不了时返回 false。 */
+    /** 提交字段里所有可解析的草稿（合成一个值发出）并显示全部问题；有草稿解析不了或被拒时返回 false。 */
     commit(): boolean;
     reset(): void;
-    focus(): void;
+    /** 聚焦字段的控件；焦点移过去了时 resolve 为 true。 */
+    focus(): Promise<boolean>;
 };
 ```
 

@@ -1,17 +1,18 @@
 /**
- * 文字、数字（以后还有 JSON）控件的草稿与提交时机（docs/specs/ui/forms.md 输出 15、16 与“状态与转换”）。
+ * 文字、数字、JSON 控件的草稿与提交时机（docs/specs/ui/forms.md 输出 15、16 与“状态与转换”）。
  *
- * 控件显示的是草稿，没有草稿时显示当前值。草稿在提交成功、外部值或 `revision` 变化（且字段没有焦点）、`reset()`
- * 时丢掉。不可解析的草稿提交失败过一次以后，才报出 `unparseable` 问题：用户敲到一半的 `-` 不该马上标红。
+ * 控件显示的是草稿，没有草稿时显示当前值。草稿在提交成功、外部值或 `revision` 变化（且字段没有焦点）、`reset()`、
+ * 字段变得不可改（只读、停用、展示态）时丢掉。不可解析的草稿提交失败过一次以后，才报出 `unparseable` 问题：用户
+ * 敲到一半的 `-` 不该马上标红。提交被拒（会改到只读的成员）时草稿留着，报 `read-only`。
+ *
+ * 草稿按本控件的所有者 token 登记在表单上（见 `scope.ts` 模块头），路径随列表项移动；卸载时无条件注销。
  */
 
 import {computed, onBeforeUnmount, ref, watch} from "vue";
 
 import type {FieldNode} from "../model";
-import {toPointer} from "../path";
-import type {FormIssue} from "../validate";
 import type {FormScope} from "./scope";
-import {CLEAR} from "./scope";
+import {CLEAR, stablePath} from "./scope";
 
 export type ParseResult = {readonly ok: true; readonly value: unknown} | {readonly ok: false};
 
@@ -26,17 +27,17 @@ export interface DraftOptions {
     readonly value: () => unknown;
     readonly codec: DraftCodec;
     readonly scope: FormScope;
-    /** 提交一个值（或 `CLEAR`）。 */
-    readonly emit: (value: unknown) => void;
 }
 
 export function useDraft(options: DraftOptions) {
     const {scope, codec} = options;
+    const owner = Symbol("nb-form-draft");
+    const path = stablePath(() => options.node().path);
     const draft = ref<string | null>(null);
     /** `input` 模式下草稿已随输入提交：显示仍用草稿（`1.50` 不被改写成 `1.5`），状态算干净。 */
     const synced = ref(false);
-    /** 不可解析的草稿提交失败过：问题从此显示，直到草稿可以解析或被丢掉。 */
-    const attempted = ref(false);
+    /** 提交失败过（解析不了或被拒）：问题从此显示，直到草稿改了或被丢掉。 */
+    const failed = ref<"unparseable" | "read-only" | null>(null);
     const focused = ref(false);
 
     const text = computed(() => draft.value ?? codec.format(options.value()));
@@ -45,29 +46,34 @@ export function useDraft(options: DraftOptions) {
     function drop(): void {
         draft.value = null;
         synced.value = false;
-        attempted.value = false;
+        failed.value = null;
+    }
+
+    function submit(value: unknown): boolean {
+        return scope.update(options.node(), value);
     }
 
     function input(next: string): void {
         draft.value = next;
         synced.value = false;
+        failed.value = null;
         const result = parsed.value;
-        if (result?.ok === true) attempted.value = false;
-        if (scope.commitMode.value === "input" && result?.ok === true) {
-            options.emit(result.value);
-            synced.value = true;
-        }
+        if (scope.commitMode.value === "input" && result?.ok === true) synced.value = submit(result.value);
     }
 
-    /** 提交草稿；不可解析时保留草稿并报出问题，返回 false。 */
+    /** 提交草稿；不可解析或被拒时保留草稿并报出问题，返回 false。 */
     function commit(): boolean {
         const result = parsed.value;
         if (result === null) return true;
         if (!result.ok) {
-            attempted.value = true;
+            failed.value = "unparseable";
             return false;
         }
-        if (!synced.value) options.emit(result.value);
+        if (!synced.value && !submit(result.value)) {
+            failed.value = scope.editable(options.node()) ? "read-only" : null;
+            if (failed.value === null) drop();
+            return false;
+        }
         drop();
         return true;
     }
@@ -75,27 +81,16 @@ export function useDraft(options: DraftOptions) {
     watch([options.value, scope.revision], () => {
         if (!focused.value) drop();
     });
+    // 变得不可改时丢掉草稿：留着的草稿以后经 `commit()` 或失焦写出去，就绕过了只读（审查 S3 omp 9）。
+    watch(() => scope.editable(options.node()), (editable) => {
+        if (!editable) drop();
+    });
 
     const state = computed(() => (draft.value === null || synced.value ? "clean" : parsed.value?.ok === true ? "dirty" : "unparseable"));
-    function report(): void {
-        const node = options.node();
-        const issues: FormIssue[] = state.value === "unparseable" && attempted.value
-            ? [{path: node.path, code: "unparseable", params: {}, severity: "error", source: "schema"}]
-            : [];
-        scope.reportDraft({path: node.path, state: state.value, issues});
-    }
-    watch([state, attempted], report);
-    // 列表里删掉或挪动前面的项时，这一项的路径变了、草稿跟着组件走：旧路径上报过的状态撤掉，在新路径上重报。
-    watch(() => options.node().path, (now, before) => {
-        if (toPointer(now) === toPointer(before) || state.value === "clean") return;
-        scope.reportDraft({path: before, state: "clean", issues: []});
-        report();
+    watch([state, failed, path], () => {
+        scope.setDraft(owner, {path: () => path.value, state: state.value, ...(failed.value === null ? {} : {problem: failed.value})});
     });
-
-    // 字段卸载（布局或描述变了）时撤掉它报过的草稿问题，汇总里不留一条找不到字段的“无法解析”。
-    onBeforeUnmount(() => {
-        if (state.value !== "clean") scope.reportDraft({path: options.node().path, state: "clean", issues: []});
-    });
+    onBeforeUnmount(() => scope.clearDraft(owner));
 
     return {
         text,
@@ -105,7 +100,7 @@ export function useDraft(options: DraftOptions) {
         reset: drop,
         clear: () => {
             drop();
-            options.emit(CLEAR);
+            submit(CLEAR);
         },
     };
 }

@@ -11,6 +11,8 @@ import {afterEach, describe, expect, it} from "vitest";
 
 import type {OptionSource} from "../options";
 import type {FormIssue} from "../validate";
+import {SCHEMA_ISSUE_CODES} from "../validate";
+import {issueText, messagesFor} from "./messages";
 import SchemaForm from "./SchemaForm.vue";
 import type {DraftState} from "./scope";
 
@@ -46,6 +48,7 @@ async function mountForm(schema: object, value: unknown, props: Props = {}) {
 }
 
 const field = (wrapper: VueWrapper, widget: string) => wrapper.get(`[data-nb-widget='${widget}']`);
+/** 组的名字：标题文字去掉看得见的 `*`；组合控件的标题里另有给读屏的“（必填）”。 */
 const labelled = (id: string | undefined) => (id === undefined ? undefined : document.getElementById(id)?.textContent?.replace("*", "").trim());
 
 async function typeInto(wrapper: VueWrapper, selector: string, text: string) {
@@ -85,7 +88,7 @@ describe("控件选择（输出 2）", () => {
         expect(name.get("label").attributes("for")).toBe(name.get("input").attributes("id"));
         const sw = field(wrapper, "switch");
         expect(sw.get("label").attributes("for")).toBe(sw.get("[role='switch']").attributes("id"));
-        for (const [widget, label] of [["radio-row", "格式"], ["confirm", "同意"], ["checkboxes", "标签"]] as const) {
+        for (const [widget, label] of [["radio-row", "格式（必填）"], ["confirm", "同意（必填）"], ["checkboxes", "标签（必填）"]] as const) {
             expect(labelled(field(wrapper, widget).get("[role='radiogroup'], [role='group']").attributes("aria-labelledby"))).toBe(label);
         }
     });
@@ -170,6 +173,30 @@ describe("提交与草稿（输出 15、16）", () => {
         expect(wrapper.get("[data-nb-form-summary]").attributes("data-nb-form-summary")).toBe("none");
     });
 
+    it("字段变得不可改时草稿作废：之后 commit() 不会把它写出去", async () => {
+        const {wrapper, emitted} = await mountForm(schema, {name: "a", nested: {deep: ""}, timeout: 1});
+        await typeInto(wrapper, "[data-nb-widget='text'] input", "new");
+        await wrapper.setProps({readonly: true});
+        expect((wrapper.vm as unknown as {commit(): boolean}).commit()).toBe(true);
+        await flushPromises();
+        expect(emitted).toEqual([]);
+        expect((wrapper.get("[data-nb-widget='text'] input").element as HTMLInputElement).value).toBe("a");
+    });
+
+    it("先 reset() 再在同一个任务里把字段拿掉，汇总里不留它的“无法解析”", async () => {
+        const {wrapper} = await mountForm(schema, {name: "", nested: {deep: ""}, timeout: 1});
+        const timeout = wrapper.findAll("[data-nb-widget='number']").find((node) => node.text().includes("超时"))!.get("input");
+        await timeout.trigger("focusin");
+        (timeout.element as HTMLInputElement).value = "-";
+        await timeout.trigger("input");
+        await timeout.trigger("focusout");
+        await flushPromises();
+        (wrapper.vm as unknown as {reset(): void}).reset();
+        await wrapper.setProps({schema: Type.Object({name: Type.String()}), modelValue: {name: "ok"}});
+        await flushPromises();
+        expect(wrapper.get("[data-nb-form-summary]").attributes("data-nb-form-summary")).toBe("none");
+    });
+
     it("可选数字清空后离开是清除：删去这个键", async () => {
         const {wrapper, emitted} = await mountForm(schema, {name: "", nested: {deep: ""}, timeout: 1, retries: 3});
         const retries = wrapper.findAll("[data-nb-widget='number']").find((node) => node.text().includes("重试"))!;
@@ -242,6 +269,61 @@ describe("缺失、默认与清除（输出 4、5）", () => {
         await clears[0]!.trigger("click");
         await clears[1]!.trigger("click");
         expect(emitted).toEqual([{name: "a", proxy: "p"}, {name: "a", proxy: null}]);
+    });
+
+    it("清除以后焦点回到这个字段的控件，不掉到页面上", async () => {
+        const schema = Type.Object({note: Type.Optional(Type.String({title: "备注"}))});
+        const {wrapper} = await mountForm(schema, {note: "n"});
+        const clear = wrapper.findAll("button").find((button) => button.text() === "清除")!;
+        (clear.element as HTMLButtonElement).focus();
+        await clear.trigger("click");
+        await flushPromises();
+        expect(document.activeElement).toBe(wrapper.get("input").element);
+    });
+
+    it("多选缺值时标题旁写全部默认项，不预选", async () => {
+        const schema = Type.Object({tags: Type.Optional(Type.Array(Type.Union([Type.Literal("a"), Type.Literal("b"), Type.Literal("c")]), {title: "标签", uniqueItems: true, default: ["a", "c"]}))});
+        const {wrapper} = await mountForm(schema, {});
+        expect(wrapper.get("[data-nb-widget='checkboxes']").text()).toContain("默认：a、c");
+        expect(wrapper.findAll("[role='checkbox'][data-state='checked']")).toHaveLength(0);
+    });
+
+    it("JSON 编辑一个对象时，改到它里面只读的成员会被拒绝：不提交，报“只读的内容不能改”", async () => {
+        const schema = Type.Object({config: Type.Object({id: Type.String({readOnly: true}), name: Type.String()}, {title: "配置", "x-form": {widget: "json"}})});
+        const {wrapper, emitted} = await mountForm(schema, {config: {id: "locked", name: "a"}});
+        const textarea = wrapper.get("textarea");
+        await textarea.trigger("focusin");
+        (textarea.element as HTMLTextAreaElement).value = JSON.stringify({id: "changed", name: "b"});
+        await textarea.trigger("input");
+        await textarea.trigger("focusout");
+        await flushPromises();
+        expect(emitted).toEqual([]);
+        expect(textarea.attributes("aria-invalid")).toBe("true");
+        // 只改可改的成员就能提交。
+        await textarea.trigger("focusin");
+        (textarea.element as HTMLTextAreaElement).value = JSON.stringify({id: "locked", name: "b"});
+        await textarea.trigger("input");
+        await textarea.trigger("focusout");
+        await flushPromises();
+        expect(emitted).toEqual([{config: {id: "locked", name: "b"}}]);
+    });
+
+    it("可为 null 的对象为 null 时给“填写”，填写后成员能改；清除写回 null", async () => {
+        const schema = Type.Object({proxy: Type.Union([Type.Object({host: Type.String({title: "主机"})}), Type.Null()], {title: "代理"})});
+        const {wrapper, emitted} = await mountForm(schema, {proxy: null});
+        expect(wrapper.findAll("input")).toHaveLength(0);
+        await wrapper.findAll("button").find((button) => button.text() === "填写")!.trigger("click");
+        await flushPromises();
+        expect(emitted.at(-1)).toEqual({proxy: {}});
+        const host = wrapper.get("input");
+        await host.trigger("focusin");
+        (host.element as HTMLInputElement).value = "h";
+        await host.trigger("input");
+        await host.trigger("focusout");
+        await flushPromises();
+        expect(emitted.at(-1)).toEqual({proxy: {host: "h"}});
+        await wrapper.findAll("button").find((button) => button.attributes("aria-label") === "清除：代理")!.trigger("click");
+        expect(emitted.at(-1)).toEqual({proxy: null});
     });
 
     it("`readOnly` 的字段与表单的只读：控件只读、没有清除；停用时控件停用", async () => {
@@ -332,12 +414,43 @@ describe("问题的显示（输出 9、14）", () => {
         expect(toggle.text()).toBe("3 个问题");
         await toggle.trigger("click");
         const items = wrapper.findAll("[data-nb-form-summary] li button");
-        expect(items.map((item) => item.text())).toEqual(["名称：至少 2 个字符", "邮箱：已被占用", "年龄：年纪偏小"]);
+        // 警告的条目带“警告：”前缀（给读屏）与警告图标。
+        expect(items.map((item) => item.text())).toEqual(["名称：至少 2 个字符", "邮箱：已被占用", "警告：年龄：年纪偏小"]);
         await items[1]!.trigger("click");
         expect(document.activeElement).toBe(email!.element);
         expect(focused.map((issue) => issue.code)).toEqual(["taken"]);
-        (wrapper.vm as unknown as {focusFirstIssue(): boolean}).focusFirstIssue();
+        expect(await (wrapper.vm as unknown as {focusFirstIssue(): Promise<boolean>}).focusFirstIssue()).toBe(true);
         expect(document.activeElement).toBe(name!.element);
+    });
+
+    it("汇总按看得见的顺序排：布局重排了字段时跟着布局", async () => {
+        const schema = Type.Object({a: Type.String({title: "甲", minLength: 2}), b: Type.String({title: "乙", minLength: 2})});
+        const layout = {type: "column", items: [{type: "field", path: "/b"}, {type: "field", path: "/a"}]};
+        const {wrapper} = await mountForm(schema, {a: "x", b: "y"}, {layout});
+        await wrapper.get("[data-nb-form-summary] button").trigger("click");
+        expect(wrapper.findAll("[data-nb-form-summary] li").map((item) => item.text())).toEqual(["乙：至少 2 个字符", "甲：至少 2 个字符"]);
+        await (wrapper.vm as unknown as {focusFirstIssue(): Promise<boolean>}).focusFirstIssue();
+        expect(document.activeElement).toBe(wrapper.findAll("input")[0]!.element);
+    });
+
+    it("被条件隐藏的字段上的问题不进汇总（开发者 2026-10-20 定），校验照样报给调用方", async () => {
+        const schema = Type.Object({
+            format: Type.Union([Type.Literal("openai"), Type.Literal("anthropic")], {title: "格式"}),
+            proxy: Type.Optional(Type.String({title: "代理", minLength: 5, "x-form": {visibleWhen: {field: "format", schema: {const: "openai"}}}})),
+        });
+        const {wrapper} = await mountForm(schema, {format: "anthropic", proxy: "ab"});
+        expect(wrapper.get("[data-nb-form-summary]").attributes("data-nb-form-summary")).toBe("none");
+        await wrapper.setProps({modelValue: {format: "openai", proxy: "ab"}});
+        expect(wrapper.get("[data-nb-form-summary]").attributes("data-nb-form-summary")).toBe("error");
+    });
+
+    it("核心可能报出的每个问题码都有中英文的写法，不显示成内部码", () => {
+        for (const code of SCHEMA_ISSUE_CODES) {
+            for (const locale of ["zh-CN", "en-US"]) {
+                const text = issueText({path: [], code, params: {limit: 2}, severity: "error", source: "schema"}, locale);
+                expect(text, `${locale} ${code}`).not.toBe(messagesFor(locale).fallback(code));
+            }
+        }
     });
 
     it("没有问题时汇总一行照样占位；关掉汇总时不画", async () => {
@@ -388,7 +501,7 @@ describe("条件显示（输出 13）", () => {
         // 失焦已提交草稿；再写一份留着，看隐藏后是否还在。
         await typeInto(wrapper, "[data-nb-widget='text'] input", "again");
         await wrapper.setProps({modelValue: {format: "anthropic", proxy: "draft"}});
-        const node = wrapper.get("[data-nb-widget='text']").element.parentElement!;
+        const node = wrapper.get("[data-nb-widget='text']").element as HTMLElement;
         expect(node.style.display).toBe("none");
         expect(node.hasAttribute("inert")).toBe(true);
         await wrapper.setProps({modelValue: {format: "openai", proxy: "draft"}});

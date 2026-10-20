@@ -7,7 +7,7 @@
  * 画成结构，成员各自画成静态的值。
  */
 import type {Component} from "vue";
-import {computed, onBeforeUnmount, onMounted, ref, useId, useTemplateRef, watch} from "vue";
+import {computed, nextTick, onBeforeUnmount, onMounted, ref, useId, useTemplateRef} from "vue";
 
 import type {BuiltinWidget, FieldNode} from "../model";
 import {toPointer} from "../path";
@@ -27,7 +27,7 @@ import ObjectControl from "./controls/ObjectControl.vue";
 import TextControl from "./controls/TextControl.vue";
 import FieldShell from "./FieldShell.vue";
 import {issueText, messagesFor} from "./messages";
-import {CLEAR, issuesAt, useFormScope} from "./scope";
+import {CLEAR, issuesAt, stablePath, useFormScope} from "./scope";
 import ViewValue from "./ViewValue.vue";
 import {resolveWidget} from "./widgets";
 
@@ -37,7 +37,8 @@ const props = withDefaults(defineProps<{
     bare?: boolean;
     id?: string;
     labelledby?: string;
-}>(), {bare: false, id: undefined, labelledby: undefined});
+    describedby?: string;
+}>(), {bare: false, id: undefined, labelledby: undefined, describedby: undefined});
 
 const CONTROLS: Readonly<Record<BuiltinWidget, Component>> = {
     "switch": BooleanControl,
@@ -65,6 +66,8 @@ const STRUCTURE_WIDGETS: ReadonlySet<string> = new Set(["object", "string-list",
 const TEXT_KINDS: ReadonlySet<string> = new Set(["text", "multiline"]);
 
 const scope = useFormScope();
+/** 本字段在表单里的所有者 token：句柄与“碰过”跟着它，不跟着路径（见 `scope.ts` 模块头）。 */
+const owner = Symbol("nb-form-field");
 const generatedId = `nb-form-${useId()}`;
 const id = computed(() => props.id ?? generatedId);
 const pointer = computed(() => toPointer(props.node.path));
@@ -81,7 +84,7 @@ const choices = computed(() => {
     const name = props.node.hints.options;
     return choiceState(props.node, value.value, name === undefined ? undefined : scope.source(name), locale.value);
 });
-const readonly = computed(() => scope.readonly.value || props.node.readOnly);
+const readonly = computed(() => scope.readonly.value || props.node.readOnly || scope.mode.value === "view");
 const disabled = computed(() => scope.disabled.value || (choices.value !== undefined && choices.value.status !== "ready"));
 
 const shown = computed(() => issuesAt(scope.shownIssues.value, props.node.path));
@@ -94,15 +97,20 @@ const warnings = computed(() => [
     ...(choices.value?.items.some((item) => item.stale) === true ? [messages.value.stale] : []),
 ]);
 
-/** 缺值时标题旁的标记（输出 4）：选择类写“默认：X”，开关标“默认”。 */
+/** 缺值时标题旁的标记（输出 4）：选择类写“默认：X”（多选写全部默认项），开关标“默认”。 */
 const note = computed(() => {
-    if (value.value !== undefined || props.node.schema.default === undefined) return undefined;
+    const fallback = props.node.schema.default;
+    if (value.value !== undefined || fallback === undefined) return undefined;
     if (widget.value === "switch") return messages.value.default;
-    if (choices.value !== undefined && !Array.isArray(props.node.schema.default)) return messages.value.defaultValue(choiceLabel(choices.value, props.node.schema.default));
+    if (choices.value !== undefined) {
+        const state = choices.value;
+        const labels = Array.isArray(fallback) ? fallback.map((entry) => choiceLabel(state, entry)) : [choiceLabel(state, fallback)];
+        return messages.value.defaultValue(labels.join(locale.value === "zh-CN" ? "、" : ", "));
+    }
     if (widget.value === "confirm" && typeof props.node.schema.default === "boolean") return messages.value.defaultValue(props.node.schema.default ? messages.value.yes : messages.value.no);
     return undefined;
 });
-const clearable = computed(() => scope.mode.value === "edit" && !readonly.value && !disabled.value
+const clearable = computed(() => scope.editable(props.node) && !disabled.value
     && (props.node.nullable ? value.value !== undefined && value.value !== null : !props.node.required && value.value !== undefined));
 const help = computed(() => {
     const own = resolveText(props.node.help, locale.value);
@@ -138,7 +146,10 @@ const copyable = computed(() => {
 const viewEmpty = computed(() => !props.node.writeOnly && (value.value === undefined || value.value === null || value.value === ""));
 
 const control = computed<Component>(() => ("builtin" in resolved.value ? CONTROLS[resolved.value.builtin] : CustomControl));
-const controlProps = computed(() => ("custom" in resolved.value ? {widget: resolved.value.custom} : choices.value === undefined ? {} : {choices: choices.value}));
+const controlProps = computed(() => ("custom" in resolved.value
+    ? {custom: resolved.value.custom}
+    : {widget: resolved.value.builtin, ...(choices.value === undefined ? {} : {choices: choices.value})}));
+const unit = computed(() => (widget.value === "number" ? resolveText(props.node.hints.unit, locale.value) : ""));
 const viewAsStructure = computed(() => STRUCTURE_WIDGETS.has(widget.value) && "builtin" in resolved.value);
 const controlRef = ref<Partial<DraftControl> & {focus?: () => void} | null>(null);
 const root = useTemplateRef<HTMLElement>("root");
@@ -147,78 +158,86 @@ function update(next: unknown): void {
     scope.update(props.node, next);
 }
 
-/** 聚焦字段的控件：带字段 id 的元素能聚焦就聚焦它，否则（单选组、复选组的根）聚焦组里当前的 Tab 停靠点。 */
-function focus(): void {
-    if (controlRef.value?.focus !== undefined) {
-        controlRef.value.focus();
-        return;
-    }
+/**
+ * 聚焦字段的控件：自定义控件用它暴露的 `focus()`；带字段 id 的元素能聚焦就聚焦它；结构控件（对象、列表）聚焦它们
+ * 标了 `data-nb-focus-target` 的组根，读屏念出组名、说明与出错；否则（单选组、复选组）聚焦组里当前的 Tab 停靠点。
+ * 不退到随便一个按钮上：列表里的第一个按钮是别的项的“下移”（审查 S3 Sonnet 2）。
+ */
+function focus(): boolean {
     const element = root.value;
-    if (element === null) return;
-    const target = element.querySelector<HTMLElement>(`[id="${id.value.replaceAll("\"", "\\\"")}"]`);
-    if (target !== null && target.tabIndex >= 0 && !target.hasAttribute("disabled")) {
-        target.focus();
-        return;
+    if (element === null) return false;
+    if (controlRef.value?.focus !== undefined) controlRef.value.focus();
+    else {
+        const byId = element.querySelector<HTMLElement>(`[id="${id.value.replaceAll("\"", "\\\"")}"]`);
+        const target = byId !== null && byId.tabIndex >= 0 && !byId.hasAttribute("disabled")
+            ? byId
+            : element.querySelector<HTMLElement>("[data-nb-focus-target]")
+                ?? element.querySelector<HTMLElement>("[tabindex='0'], input:not([type='hidden']):not([disabled]), textarea:not([disabled])");
+        target?.focus();
     }
-    element.querySelector<HTMLElement>("[tabindex='0'], input:not([type='hidden']):not([disabled]), textarea:not([disabled]), button:not([disabled])")?.focus();
+    return element.contains(document.activeElement);
 }
 
-let unregister: (() => void) | undefined;
-function registerHandle(): void {
-    unregister?.();
-    unregister = scope.register(pointer.value, {
-        focus,
-        commit: () => controlRef.value?.commit?.() ?? true,
-        reset: () => controlRef.value?.reset?.(),
-    });
+/** 清除以后“清除”按钮随值消失，焦点交给控件，不掉到页面上（审查 S3 Sonnet 4）。 */
+function clear(): void {
+    update(CLEAR);
+    void nextTick(focus);
 }
-onMounted(registerHandle);
-watch(pointer, registerHandle);
-onBeforeUnmount(() => unregister?.());
+
+const path = stablePath(() => props.node.path);
+onMounted(() => scope.register(owner, () => path.value, {
+    focus,
+    commit: () => controlRef.value?.commit?.() ?? true,
+    reset: () => controlRef.value?.reset?.(),
+}));
+onBeforeUnmount(() => scope.unregister(owner));
 
 function onFocusOut(event: FocusEvent): void {
     const next = event.relatedTarget;
     if (next instanceof Node && root.value?.contains(next)) return;
-    scope.touch(pointer.value);
+    scope.touch(owner);
 }
 </script>
 
 <template>
-    <div v-show="visible" ref="root" class="nb-form-node" :inert="!visible || undefined" @focusout="onFocusOut">
+    <div v-show="visible" ref="root" class="nb-form-node" :data-nb-widget="widget" :inert="!visible || undefined" @focusout="onFocusOut">
         <FieldShell
             v-if="scope.mode.value === 'view' && !viewAsStructure"
             :id="id"
-            :widget="widget"
             :label="resolveText(props.node.label, locale)"
             :help="help"
             :bare="props.bare"
             :labelledby="props.labelledby"
+            :describedby="props.describedby"
+            :locale="locale"
             group
         >
             <ViewValue
                 :text="viewText"
                 :locale="locale"
+                :label="resolveText(props.node.label, locale)"
                 :empty="viewEmpty"
                 :copyable="copyable"
-                :labelledby="props.bare ? props.labelledby : `${id}-label`"
             />
         </FieldShell>
         <FieldShell
             v-else
             :id="id"
-            :widget="widget"
             :label="resolveText(props.node.label, locale)"
             :help="help"
             :required="props.node.required && props.node.path.length > 0"
             :group="GROUP_WIDGETS.has(widget)"
             :bare="props.bare"
             :labelledby="props.labelledby"
+            :describedby="props.describedby"
+            :locale="locale"
             :inline="widget === 'switch'"
             :error-text="errorText"
             :warnings="warnings"
             :note="note"
+            :unit="unit"
             :clear-label="clearable ? messages.clear : undefined"
-            @clear="update(CLEAR)"
+            @clear="clear"
         >
             <component
                 :is="control"

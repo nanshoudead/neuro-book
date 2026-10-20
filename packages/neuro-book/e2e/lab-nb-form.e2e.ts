@@ -33,8 +33,8 @@ test.afterAll(async () => {
 
 const labState = (page: Page) => page.evaluate(() => (window as unknown as {__nbLab?: {state(): LabDebugState}}).__nbLab?.state() ?? null);
 
-async function openScene(page: Page, query: string): Promise<void> {
-    await page.setViewportSize({width: 1440, height: 1200});
+async function openScene(page: Page, query: string, viewport = {width: 1440, height: 1200}): Promise<void> {
+    await page.setViewportSize(viewport);
     await page.goto(`${dev.pageUrl}lab?${query}`);
     await expect.poll(async () => (await labState(page))?.ready).toBe(true);
 }
@@ -138,7 +138,7 @@ test("服务商连接：扩展参数写坏时报无法解析，汇总里点它�
 
 test("对象列表：添加、删除中间项、上移与 Alt+↑，焦点落点与读屏播报（验收 4）", async ({page}) => {
     await openScene(page, "c=SchemaForm&s=lists");
-    const people = stage(page).getByRole("group", {name: "人物", exact: true});
+    const people = stage(page).getByRole("group", {name: /^人物\s*（必填）$/u});
     const live = people.locator("[aria-live='polite']");
 
     await people.getByRole("button", {name: "添加"}).click();
@@ -164,7 +164,7 @@ test("对象列表：添加、删除中间项、上移与 Alt+↑，焦点落点
 
 test("左列表右详情：点标题选中，新增的项自动选中并聚焦详情", async ({page}) => {
     await openScene(page, "c=SchemaForm&s=lists");
-    const servers = stage(page).getByRole("group", {name: "服务", exact: true});
+    const servers = stage(page).getByRole("group", {name: /^服务\s*（必填）$/u});
     await servers.getByRole("button", {name: "备用", exact: true}).click();
     await expect(servers.getByRole("button", {name: "备用", exact: true})).toHaveAttribute("aria-current", "true");
     await expect(servers.getByRole("textbox", {name: "名称"})).toHaveValue("备用");
@@ -179,4 +179,70 @@ test("自定义控件：名字来自字段标签，选一颗星就提交", async
     await expect(rating.getByRole("radio", {name: "4 星"})).toHaveAttribute("aria-checked", "true");
     await rating.getByRole("radio", {name: "2 星"}).click();
     await expect(rating.getByRole("radio", {name: "2 星"})).toHaveAttribute("aria-checked", "true");
+});
+
+test("自己画的按钮有看得见的键盘焦点（与 nb-ui 同一套阴影）", async ({page}) => {
+    await openScene(page, "c=SchemaForm&s=defaults");
+    const form = stage(page);
+    const proxy = form.getByRole("textbox", {name: "代理"});
+    await proxy.focus();
+    await page.keyboard.press("Tab");
+    const clear = form.getByRole("button", {name: "清除：代理"});
+    await expect(clear).toBeFocused();
+    expect(await clear.evaluate((element) => getComputedStyle(element).boxShadow)).not.toBe("none");
+    await page.keyboard.press("Enter");
+    await expect(proxy).toBeFocused();
+});
+
+test("只读时控件可以聚焦、不能改；停用时不进 Tab 顺序", async ({page}) => {
+    await openScene(page, "c=SchemaForm&s=readonly");
+    const form = stage(page);
+    const sync = form.getByRole("switch", {name: "启用同步"});
+    await sync.focus();
+    await expect(sync).toBeFocused();
+    await expect(sync).toHaveAttribute("aria-readonly", "true");
+    await page.keyboard.press("Space");
+    await expect(sync).toHaveAttribute("data-state", "checked");
+    await expect(form.getByRole("textbox", {name: "名称"})).toHaveAttribute("readonly", "");
+
+    await openScene(page, "c=SchemaForm&s=disabled");
+    const stops = await stage(page).locator("*").evaluateAll((elements) => elements.filter((element) => (element as HTMLElement).tabIndex >= 0 && !(element as HTMLButtonElement).disabled).map((element) => element.tagName));
+    expect(stops).toEqual([]);
+});
+
+test("字符串列表的输入框名字是“第 N 项”；连着两次删除都有播报", async ({page}) => {
+    await openScene(page, "c=SchemaForm&s=lists");
+    const stops = stage(page).getByRole("group", {name: /^停止词\s*（必填）$/u});
+    await expect(stops.getByRole("textbox", {name: "第 1 项"})).toHaveValue("。");
+    const people = stage(page).getByRole("group", {name: /^人物\s*（必填）$/u});
+    await people.getByRole("button", {name: "添加"}).click();
+    await people.getByRole("button", {name: "添加"}).click();
+    const live = people.locator("[aria-live='polite'] > span");
+    await people.getByRole("button", {name: "删除：第 3 项"}).click();
+    await expect(live).toHaveText("已删除第 3 项");
+    const first = await live.elementHandle();
+    await people.getByRole("button", {name: "删除：第 3 项"}).click();
+    await expect(live).toHaveText("已删除第 3 项");
+    expect(await live.evaluate((element, previous) => element !== previous, first)).toBe(true);
+});
+
+test("汇总里列表项与折叠分组里的问题：写出项的标题，点它打开分组并聚焦字段", async ({page}) => {
+    await openScene(page, "c=SchemaForm&s=structure-issues");
+    const form = stage(page);
+    await form.getByRole("button", {name: /^\d+ 个问题$/u}).click();
+    await form.getByRole("button", {name: "人物 · x · 名字：至少 2 个字符"}).click();
+    await expect(form.getByRole("group", {name: /^人物\s*（必填）$/u}).getByRole("textbox", {name: "名字"}).nth(1)).toBeFocused();
+    const advanced = form.getByRole("button", {name: "高级"});
+    await expect(advanced).toHaveAttribute("aria-expanded", "false");
+    await form.getByRole("button", {name: "重试：不能大于 5"}).click();
+    await expect(advanced).toHaveAttribute("aria-expanded", "true");
+    await expect(form.getByLabel("重试")).toBeFocused();
+});
+
+test("390 宽的窗口里列表与服务商连接不出横向滚动", async ({page}) => {
+    for (const scene of ["lists", "conditional", "structure-issues"]) {
+        await openScene(page, `c=SchemaForm&s=${scene}&vp=phone`);
+        const overflow = await stage(page).evaluate((element) => element.scrollWidth - element.clientWidth);
+        expect(overflow, scene).toBeLessThanOrEqual(0);
+    }
 });

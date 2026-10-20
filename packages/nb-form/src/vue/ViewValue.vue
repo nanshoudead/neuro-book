@@ -18,8 +18,9 @@ const props = withDefaults(defineProps<{
     copyable?: boolean;
     /** 没有值：显示占位，弱化。 */
     empty?: boolean;
-    labelledby?: string;
-}>(), {copyable: false, empty: false, labelledby: undefined});
+    /** 字段的标签：按钮的读屏名称带上它（“复制：路径”），一张表单里几个“复制”才分得开。 */
+    label?: string;
+}>(), {copyable: false, empty: false, label: ""});
 
 const contentId = `nb-form-view-${useId()}`;
 const messages = computed(() => messagesFor(props.locale));
@@ -50,14 +51,27 @@ const copyLabel = computed(() => (copyState.value === "copied" ? messages.value.
             :id="contentId"
             class="nb-form-view__text"
             :class="{'nb-form-view__text--folded': foldable && !expanded, 'nb-form-view__text--empty': props.empty}"
-            role="group"
-            :aria-labelledby="props.labelledby"
         >{{ props.empty ? messages.empty : props.text }}</div>
         <div v-if="!props.empty && (foldable || props.copyable)" class="nb-form-view__actions">
-            <button v-if="foldable" type="button" class="nb-form-view__action" :aria-expanded="expanded" :aria-controls="contentId" @click="expanded = !expanded">
+            <button
+                v-if="foldable"
+                type="button"
+                class="nb-form-view__action"
+                :aria-label="props.label ? (expanded ? messages.collapseOf(props.label) : messages.expandOf(props.label)) : undefined"
+                :aria-expanded="expanded"
+                :aria-controls="contentId"
+                @click="expanded = !expanded"
+            >
                 {{ expanded ? messages.collapse : messages.expand }}
             </button>
-            <button v-if="props.copyable" type="button" class="nb-form-view__action" @click="copy" @blur="copyState = 'idle'">
+            <button
+                v-if="props.copyable"
+                type="button"
+                class="nb-form-view__action"
+                :aria-label="props.label && copyState === 'idle' ? messages.copyOf(props.label) : undefined"
+                @click="copy"
+                @blur="copyState = 'idle'"
+            >
                 {{ copyLabel }}
             </button>
             <span class="nb-form-sr-only" aria-live="polite">{{ copyState === "idle" ? "" : copyLabel }}</span>
@@ -109,9 +123,10 @@ const copyLabel = computed(() => (copyState.value === "copied" ? messages.value.
     cursor: pointer;
 }
 
+/* `--focus-ring` 是一串 box-shadow，不能写进 outline（审查 S3 Sonnet 9）。 */
 .nb-form-view__action:focus-visible {
-    outline: 2px solid var(--focus-ring);
-    outline-offset: 2px;
+    outline: none;
+    box-shadow: var(--focus-ring);
 }
 
 .nb-form-sr-only {

@@ -10,14 +10,12 @@ import {useFormScope} from "../scope";
 import type {ControlProps, DraftControl} from "./control";
 
 const props = defineProps<ControlProps>();
-const emit = defineEmits<{(event: "update:modelValue", value: unknown): void}>();
 
 const draft = useDraft({
     node: () => props.node,
     value: () => props.modelValue,
     codec: jsonCodec(() => props.node),
     scope: useFormScope(),
-    emit: (value) => emit("update:modelValue", value),
 });
 
 function onFocusOut(event: FocusEvent): void {

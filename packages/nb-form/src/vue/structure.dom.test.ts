@@ -63,7 +63,7 @@ describe("对象", () => {
         const value = {server: {host: "a", port: 1}};
         const {wrapper, emitted} = await mountForm(schema, value);
         const group = wrapper.get("[data-nb-widget='object'] [role='group']");
-        expect(document.getElementById(group.attributes("aria-labelledby")!)?.textContent?.replace("*", "").trim()).toBe("服务器");
+        expect(document.getElementById(group.attributes("aria-labelledby")!)?.textContent?.replace("*", "").trim()).toBe("服务器（必填）");
         await edit(wrapper.findAll("input")[0]!, "b");
         expect(emitted).toEqual([{server: {host: "b", port: 1}}]);
     });
@@ -145,10 +145,49 @@ describe("字符串列表（输出 19）", () => {
         expect(emitted.at(-1)).toEqual({tags: ["a", "b", "c"]});
     });
 
+    it("每个输入框的名字是“第 N 项”，组的名字是列表标题，组上带说明与出错", async () => {
+        const schema = Type.Object({tags: Type.Array(Type.String(), {title: "标签", description: "每行一个", minItems: 3})});
+        const {wrapper} = await mountForm(schema, {tags: ["a", "b"]});
+        const inputs = wrapper.findAll("input");
+        expect(inputs.map((input) => document.querySelector(`label[for="${input.attributes("id")!}"]`)?.textContent)).toEqual(["第 1 项", "第 2 项"]);
+        const group = wrapper.get("[data-nb-widget='string-list'] [role='group']");
+        expect(group.attributes("aria-invalid")).toBe("true");
+        expect(group.attributes("aria-describedby")!.split(" ").map((id) => document.getElementById(id)?.textContent)).toEqual(["至少 3 项", "每行一个"]);
+    });
+
+    it("连着两次同样的操作，读屏都念：播报的节点换新", async () => {
+        const {wrapper} = await mountForm(schema, {tags: ["a", "b", "c"]});
+        const live = () => wrapper.get("[aria-live='polite']").element.firstElementChild;
+        await buttonByLabel(wrapper, "删除：第 1 项")!.trigger("click");
+        await flushPromises();
+        const first = live();
+        await buttonByLabel(wrapper, "删除：第 1 项")!.trigger("click");
+        await flushPromises();
+        expect(live()?.textContent).toBe("已删除第 1 项");
+        expect(live()).not.toBe(first);
+    });
+
+    it("项里的多行文字框上按 Alt+↑ 不排序，交给文字框自己", async () => {
+        const items = Type.Object({notes: Type.Array(Type.Object({body: Type.String({title: "正文", "x-form": {widget: "multiline"}})}))});
+        const {wrapper, emitted} = await mountForm(items, {notes: [{body: "a"}, {body: "b"}]});
+        const textarea = wrapper.findAll("textarea")[1]!;
+        const event = new KeyboardEvent("keydown", {key: "ArrowUp", altKey: true, bubbles: true, cancelable: true});
+        textarea.element.dispatchEvent(event);
+        await flushPromises();
+        expect(event.defaultPrevented).toBe(false);
+        expect(emitted).toEqual([]);
+    });
+
     it("只读时没有结构操作", async () => {
         const {wrapper} = await mountForm(schema, {tags: ["a"]}, {readonly: true});
         expect(wrapper.find("[data-nb-list-add]").exists()).toBe(false);
         expect(wrapper.find("[data-nb-list-action]").exists()).toBe(false);
+    });
+
+    it("对象只差属性的先后也算重复，与核心的校验一致", async () => {
+        const items = Type.Object({rows: Type.Array(Type.Object({a: Type.String(), b: Type.String()}), {uniqueItems: true})});
+        const {wrapper} = await mountForm(items, {rows: [{a: "x", b: "y"}, {b: "y", a: "x"}]});
+        expect(wrapper.findAll("[data-nb-list-item]").map((item) => item.find(".nb-form-list__duplicate").exists())).toEqual([false, true]);
     });
 
     it("uniqueItems 下的重复项标出来", async () => {
@@ -167,6 +206,11 @@ describe("字符串列表（输出 19）", () => {
         expect(wrapper.text()).toContain("第 1 / 2 页");
         await buttonByLabel(wrapper, "下一页")!.trigger("click");
         expect(inputValues(wrapper)).toEqual(["t50"]);
+        // 删掉最后一页唯一的一项：页码收回到最后一页，内容与页码一致，“上一页”一次就到第 1 页。
+        await buttonByLabel(wrapper, "删除：第 51 项")!.trigger("click");
+        await flushPromises();
+        expect(wrapper.text()).not.toContain("第 2 / 1 页");
+        expect(inputValues(wrapper)[0]).toBe("t0");
     });
 });
 
@@ -195,6 +239,75 @@ describe("对象列表（输出 19、验收 4）", () => {
     });
 });
 
+describe("列表项的身份（时序与寿命）", () => {
+    const schema = Type.Object({rows: Type.Array(Type.Object({n: Type.Optional(Type.Integer({title: "数"})), m: Type.Integer({title: "必填数"})}), {title: "行"})});
+    const numberIn = (wrapper: VueWrapper, item: number, field: number) => wrapper.findAll("[data-nb-list-item]")[item]!.findAll("input")[field]!;
+
+    it("两项都有写坏的草稿时互换位置：两条“无法解析”都还在", async () => {
+        const {wrapper} = await mountForm(schema, {rows: [{m: 1}, {m: 2}]});
+        await edit(numberIn(wrapper, 0, 0), "-");
+        await edit(numberIn(wrapper, 1, 0), "-");
+        await buttonByLabel(wrapper, "下移：第 1 项")!.trigger("click");
+        await flushPromises();
+        expect(wrapper.get("[data-nb-form-summary] button").text()).toBe("2 个问题");
+    });
+
+    it("“碰过”跟着项走：删掉前面一项后，后面那项的必填缺失照样显示", async () => {
+        const {wrapper} = await mountForm(schema, {rows: [{}, {}]});
+        const second = numberIn(wrapper, 1, 1);
+        await second.trigger("focusin");
+        await second.trigger("focusout");
+        await flushPromises();
+        expect(second.attributes("aria-invalid")).toBe("true");
+        await buttonByLabel(wrapper, "删除：第 1 项")!.trigger("click");
+        await flushPromises();
+        expect(numberIn(wrapper, 0, 1).attributes("aria-invalid")).toBe("true");
+        expect(numberIn(wrapper, 0, 1).element).toBe(second.element);
+    });
+
+    it("外部换成同样长度、内容不同的数组：重建身份，不把原来的草稿留给新的项", async () => {
+        const {wrapper} = await mountForm(schema, {rows: [{n: 1, m: 1}, {n: 2, m: 2}]});
+        const before = wrapper.findAll("[data-nb-list-item]").map((item) => item.attributes("data-nb-list-item"));
+        await wrapper.setProps({modelValue: {rows: [{n: 10, m: 1}, {n: 20, m: 2}]}});
+        await flushPromises();
+        const after = wrapper.findAll("[data-nb-list-item]").map((item) => item.attributes("data-nb-list-item"));
+        expect(after.some((id) => before.includes(id))).toBe(false);
+        // 本表单自己的成员编辑不重建。
+        await edit(numberIn(wrapper, 0, 0), "11");
+        expect(wrapper.findAll("[data-nb-list-item]").map((item) => item.attributes("data-nb-list-item"))).toEqual(after);
+    });
+
+    it("两次操作都在调用方传回之前发出、再按顺序以副本传回：身份跟着最后采纳的结果", async () => {
+        const held: unknown[] = [];
+        const strings = Type.Object({tags: Type.Array(Type.String())});
+        const wrapper = mount(SchemaForm, {attachTo: document.body, props: {schema: strings, modelValue: {tags: ["a", "b", "c"]}, locale: "zh-CN", "onUpdate:modelValue": (next: unknown) => held.push(next)}});
+        mounted.push(wrapper);
+        const idOf = (value: string) => wrapper.findAll("[data-nb-list-item]").find((item) => (item.get("input").element as HTMLInputElement).value === value)!.attributes("data-nb-list-item");
+        const ids = {a: idOf("a"), b: idOf("b"), c: idOf("c")};
+        await buttonByLabel(wrapper, "上移：第 2 项")!.trigger("click");
+        // 调用方还没传回第一次的结果，第二次在原来的值上算：把 c 上移。
+        await buttonByLabel(wrapper, "上移：第 3 项")!.trigger("click");
+        for (const next of held.splice(0)) {
+            await wrapper.setProps({modelValue: JSON.parse(JSON.stringify(next)) as unknown});
+            await flushPromises();
+        }
+        expect(inputValues(wrapper)).toEqual(["a", "c", "b"]);
+        expect([idOf("a"), idOf("c"), idOf("b")]).toEqual([ids.a, ids.c, ids.b]);
+    });
+
+    it("数字框里按 Alt+↑ 只排序，不步进数字", async () => {
+        const {wrapper, emitted} = await mountForm(schema, {rows: [{n: 1, m: 1}, {n: 2, m: 2}]});
+        const input = numberIn(wrapper, 1, 0);
+        (input.element as HTMLInputElement).focus();
+        await input.trigger("focusin");
+        await input.trigger("keydown", {key: "ArrowUp", altKey: true});
+        await flushPromises();
+        await input.trigger("focusout");
+        await flushPromises();
+        expect(emitted).toEqual([{rows: [{n: 2, m: 2}, {n: 1, m: 1}]}]);
+    });
+});
+
 describe("左列表右详情（输出 20）", () => {
     const item = Type.Object({name: Type.String({title: "名称"}), url: Type.Optional(Type.String({title: "地址"}))});
     const schema = Type.Object({servers: Type.Array(item, {title: "服务", "x-form": {widget: "master-detail", itemLabel: "name"}})});
@@ -218,6 +331,17 @@ describe("左列表右详情（输出 20）", () => {
         await buttonByLabel(wrapper, "删除：二")!.trigger("click");
         await flushPromises();
         expect((wrapper.get("[data-nb-detail] input").element as HTMLInputElement).value).toBe("三");
+    });
+
+    it("在选中项上按 Alt+↑：选中跟着这一项走，与按“上移”一样", async () => {
+        const {wrapper, emitted} = await mountForm(schema, {servers: [{name: "甲"}, {name: "乙"}, {name: "丙"}]});
+        const select = () => wrapper.findAll("[data-nb-list-action='select']");
+        await select()[1]!.trigger("click");
+        await select()[1]!.trigger("keydown", {key: "ArrowUp", altKey: true});
+        await flushPromises();
+        expect(emitted.at(-1)).toEqual({servers: [{name: "乙"}, {name: "甲"}, {name: "丙"}]});
+        expect((wrapper.get("[data-nb-detail] input").element as HTMLInputElement).value).toBe("乙");
+        expect(select()[0]!.attributes("aria-current")).toBe("true");
     });
 
     it("SchemaField 的根是左列表右详情时，v-model:selected 由调用方接管", async () => {
@@ -306,6 +430,37 @@ describe("自定义控件（输出 22）", () => {
         const instant = await mountForm(schema, {a: 1}, {widgets, commit: "input"});
         await instant.wrapper.get("[data-nb-widget='stars'] button").trigger("click");
         expect(instant.emitted).toEqual([{a: 2}]);
+    });
+});
+
+describe("聚焦问题（输出 14）", () => {
+    it("列表项里的问题：汇总写出项的标题，点它聚焦到那一项的那个字段", async () => {
+        const schema = Type.Object({people: Type.Array(Type.Object({name: Type.String({title: "名字", minLength: 2})}), {title: "人物", "x-form": {itemLabel: "name"}})});
+        const {wrapper} = await mountForm(schema, {people: [{name: "林照"}, {name: "x"}]});
+        await wrapper.get("[data-nb-form-summary] button").trigger("click");
+        const item = wrapper.get("[data-nb-form-summary] li button");
+        expect(item.text()).toBe("人物 · x · 名字：至少 2 个字符");
+        await item.trigger("click");
+        await flushPromises();
+        expect(document.activeElement).toBe(wrapper.findAll("[data-nb-list-item]")[1]!.get("input").element);
+    });
+
+    it("折叠分组、未选中的详情里的问题：先打开再聚焦；去不了时不发 focus-issue", async () => {
+        const schema = Type.Object({
+            name: Type.String({title: "名称"}),
+            servers: Type.Array(Type.Object({url: Type.String({title: "地址", minLength: 5})}), {title: "服务", "x-form": {widget: "master-detail"}}),
+        });
+        const layout = {type: "column", items: [{type: "field", path: "/name"}, {type: "group", label: "高级", collapsed: true, items: [{type: "field", path: "/servers"}]}]};
+        const focused: unknown[] = [];
+        const {wrapper} = await mountForm(schema, {name: "a", servers: [{url: "http://ok"}, {url: "x"}]}, {layout, onFocusIssue: (issue: unknown) => focused.push(issue)});
+        expect(wrapper.find("[data-nb-detail]").exists()).toBe(false);
+        const exposed = wrapper.vm as unknown as {focusFirstIssue(): Promise<boolean>; focusIssue(path: ReadonlyArray<string | number>): Promise<boolean>};
+        expect(await exposed.focusFirstIssue()).toBe(true);
+        await flushPromises();
+        expect((document.activeElement as HTMLInputElement).value).toBe("x");
+        expect(focused).toHaveLength(1);
+        expect(await exposed.focusIssue(["nothing"])).toBe(false);
+        expect(focused).toHaveLength(1);
     });
 });
 

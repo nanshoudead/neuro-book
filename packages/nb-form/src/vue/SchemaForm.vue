@@ -12,7 +12,7 @@ import type {FieldPath} from "../path";
 import type {FormIssue, FormMeta} from "../validate";
 import IssueSummary from "./IssueSummary.vue";
 import LayoutItem from "./LayoutItem.vue";
-import {fieldOrder, nearestField, sortIssues} from "./order";
+import {sortIssues} from "./order";
 import {createFormScope, provideFormScope} from "./scope";
 import type {CommitMode, DraftState, FormMode, FormOptionSources} from "./scope";
 import type {FormWidget} from "./widgets";
@@ -77,39 +77,32 @@ const scope = createFormScope({
 });
 provideFormScope(scope);
 
-function focusIssue(issue: FormIssue): void {
+/**
+ * 把焦点移到一条问题的字段上：目标在折叠的分组、折叠或别的页的列表、未选中的详情里时先打开它们（`scope.focusPath`）。
+ * 焦点确实移过去了才发 `focus-issue`、返回 true（审查 S3 omp 8）。
+ */
+async function focusIssue(issue: FormIssue): Promise<boolean> {
     scope.revealAll();
-    const order = fieldOrder(model.value.root);
-    scope.handle(toPointer(nearestField(order, issue.path)))?.focus();
-    emit("focus-issue", issue);
+    const moved = await scope.focusPath(issue.path);
+    if (moved) emit("focus-issue", issue);
+    return moved;
 }
 
 defineExpose({
-    /** 提交所有可解析的草稿（一次发出一个根值），并显示全部问题；有不可解析的草稿时返回 false。 */
-    commit(): boolean {
-        scope.revealAll();
-        let parsed = true;
-        scope.batch(() => {
-            for (const handle of scope.handles()) if (!handle.commit()) parsed = false;
-        });
-        return parsed;
-    },
+    /** 提交所有可解析的草稿（一次发出一个根值），并显示全部问题；有草稿提交不了时返回 false。 */
+    commit: (): boolean => scope.commitAll(),
     /** 丢掉草稿：给了路径只丢那个字段的。 */
-    reset(path?: FieldPath): void {
-        if (path === undefined) for (const handle of scope.handles()) handle.reset();
-        else scope.handle(toPointer(path))?.reset();
+    reset: (path?: FieldPath): void => scope.resetAll(path),
+    /** 聚焦到路径上第一条问题的字段；焦点移过去了时 resolve 为 true。 */
+    focusIssue(path: FieldPath): Promise<boolean> {
+        const issue = scope.shownIssues.value.find((entry) => toPointer(entry.path) === toPointer(path)) ?? scope.issues.value.find((entry) => toPointer(entry.path) === toPointer(path));
+        return issue === undefined ? Promise.resolve(false) : focusIssue(issue);
     },
-    /** 聚焦到路径上第一条问题的字段。 */
-    focusIssue(path: FieldPath): void {
-        const issue = scope.issues.value.find((entry) => toPointer(entry.path) === toPointer(path));
-        if (issue !== undefined) focusIssue(issue);
-    },
-    /** 聚焦到排在最前的问题；没有问题时返回 false。 */
-    focusFirstIssue(): boolean {
-        const first = sortIssues(scope.issues.value, fieldOrder(model.value.root))[0];
-        if (first === undefined) return false;
-        focusIssue(first);
-        return true;
+    /** 聚焦到排在最前的问题（被条件隐藏的字段上的不算）；没有问题或去不了时 resolve 为 false。 */
+    focusFirstIssue(): Promise<boolean> {
+        scope.revealAll();
+        const first = sortIssues(scope.shownIssues.value, model.value)[0];
+        return first === undefined ? Promise.resolve(false) : focusIssue(first);
     },
 });
 </script>
@@ -117,7 +110,7 @@ defineExpose({
 <template>
     <div class="nb-form" role="group">
         <LayoutItem :layout="model.layout" />
-        <IssueSummary v-if="props.summary" @focus="focusIssue" />
+        <IssueSummary v-if="props.summary" @focus="(issue) => void focusIssue(issue)" />
     </div>
 </template>
 

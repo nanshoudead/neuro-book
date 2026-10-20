@@ -2,6 +2,10 @@
 /**
  * 字符串列表与对象列表（docs/specs/ui/forms.md 输出 19）：每项一行（字符串）或一张卡片（对象），右侧上移、下移、删除，
  * 末尾“添加”。身份、焦点落点、播报与分页在 `useList`。只读与展示态不给结构操作。
+ *
+ * 组根读外壳的上下文：名字是字段标题，说明与第一条错误经 `aria-describedby`，出错时 `aria-invalid` 并描红（审查 S3
+ * Sonnet 5）。字符串列表的每个输入框配一个看不见的 `<label for>`（“第 N 项”）：nb-ui 的单个控件靠 `<label for>`
+ * 取名，`aria-labelledby` 传不进去（审查 S3 Sonnet 1）。
  */
 import {Button, useFieldContext} from "@notnotype/nb-ui/components";
 import {computed, useId, useTemplateRef} from "vue";
@@ -10,6 +14,7 @@ import {itemNode} from "../../model";
 import {useList} from "../list";
 import {messagesFor} from "../messages";
 import NodeField from "../NodeField.vue";
+import {itemTitle} from "../order";
 import {issuesUnder, useFormScope} from "../scope";
 import ListActions from "./ListActions.vue";
 import ObjectControl from "./ObjectControl.vue";
@@ -24,33 +29,39 @@ const prefix = `nb-form-list-${useId()}`;
 const root = useTemplateRef<HTMLElement>("root");
 const messages = computed(() => messagesFor(props.locale));
 const isObjectList = computed(() => props.node.kind === "object-list");
-const editable = computed(() => scope.mode.value === "edit" && !props.readonly && !props.disabled);
+const editable = computed(() => scope.editable(props.node) && !props.disabled);
 const list = useList({
     node: () => props.node,
     value: () => props.modelValue,
     locale: () => props.locale,
+    scope,
     editable: () => editable.value,
     emit: (next) => emit("update:modelValue", next),
     root,
     blank: () => (isObjectList.value ? {} : ""),
 });
 const showActions = computed(() => scope.mode.value === "edit" && !props.readonly);
-
-/** 项标题：`itemLabel` 指向的字段有文字时用它，否则“第 N 项”（输出 20）。 */
-function title(value: unknown, index: number): string {
-    const key = props.node.hints.itemLabel;
-    const named = key !== undefined && value !== null && typeof value === "object" ? (value as Record<string, unknown>)[key] : undefined;
-    return typeof named === "string" && named.trim() !== "" ? named : messages.value.item(index + 1);
-}
-const foldedIssues = computed(() => issuesUnder(scope.shownIssues.value, props.node.path).length);
+const title = (value: unknown, index: number) => itemTitle(props.node, value, index, props.locale);
+const foldedIssues = computed(() => issuesUnder(scope.shownIssues.value, props.node.path));
+const foldedHasError = computed(() => foldedIssues.value.some((issue) => issue.severity === "error"));
 </script>
 
 <template>
-    <div ref="root" class="nb-form-list" role="group" :aria-labelledby="field?.labelId.value">
+    <div
+        ref="root"
+        class="nb-form-list"
+        :class="{'nb-form-list--invalid': props.invalid}"
+        role="group"
+        tabindex="-1"
+        data-nb-focus-target
+        :aria-labelledby="field?.labelId.value"
+        :aria-describedby="field?.ariaDescribedby.value"
+        :aria-invalid="props.invalid || undefined"
+    >
         <p v-if="list.items.value.length === 0" class="nb-form-list__empty">{{ messages.noItems }}</p>
         <div v-else-if="list.folded.value" class="nb-form-list__folded">
             <span>{{ messages.items(list.items.value.length) }}</span>
-            <span v-if="foldedIssues > 0" class="nb-form-list__issues">{{ messages.containsIssues(foldedIssues) }}</span>
+            <span v-if="foldedIssues.length > 0" class="nb-form-list__issues" :class="{'nb-form-list__issues--error': foldedHasError}">{{ messages.containsIssues(foldedIssues.length) }}</span>
             <button type="button" class="nb-form-list__link" :aria-expanded="false" @click="list.expanded.value = true">{{ messages.expand }}</button>
         </div>
         <ol v-else class="nb-form-list__items" :class="{'nb-form-list__items--cards': isObjectList}">
@@ -59,7 +70,7 @@ const foldedIssues = computed(() => issuesUnder(scope.shownIssues.value, props.n
                 :key="entry.id"
                 class="nb-form-list__item"
                 :data-nb-list-item="entry.id"
-                @keydown="list.onItemKeydown($event, entry.index)"
+                @keydown.capture="list.onItemKeydownCapture($event, entry.index)"
             >
                 <template v-if="isObjectList">
                     <div class="nb-form-list__head">
@@ -78,14 +89,14 @@ const foldedIssues = computed(() => issuesUnder(scope.shownIssues.value, props.n
                         />
                     </div>
                     <div data-nb-list-body>
-                        <ObjectControl v-bind="props" :node="itemNode(props.node, entry.index)!" :labelledby="`${prefix}-${entry.id}`" flat />
+                        <ObjectControl v-bind="props" widget="object" :node="itemNode(props.node, entry.index)!" :labelledby="`${prefix}-${entry.id}`" flat />
                     </div>
                 </template>
                 <template v-else>
-                    <span :id="`${prefix}-${entry.id}`" class="nb-form-sr-only">{{ title(entry.value, entry.index) }}</span>
+                    <label :for="`${prefix}-${entry.id}-input`" class="nb-form-sr-only">{{ title(entry.value, entry.index) }}</label>
                     <div class="nb-form-list__row">
                         <div class="nb-form-list__value" data-nb-list-body>
-                            <NodeField :node="itemNode(props.node, entry.index)!" bare :labelledby="`${prefix}-${entry.id}`" />
+                            <NodeField :id="`${prefix}-${entry.id}-input`" :node="itemNode(props.node, entry.index)!" bare />
                         </div>
                         <span v-if="list.duplicates.value.has(entry.index)" class="nb-form-list__duplicate">{{ messages.duplicate }}</span>
                         <ListActions
@@ -111,7 +122,7 @@ const foldedIssues = computed(() => issuesUnder(scope.shownIssues.value, props.n
         <div v-if="showActions">
             <Button size="sm" variant="secondary" data-nb-list-add :disabled="!list.canAdd.value" @click="list.add()">{{ messages.add }}</Button>
         </div>
-        <span class="nb-form-sr-only" aria-live="polite">{{ list.announcement.value }}</span>
+        <span class="nb-form-sr-only" aria-live="polite"><span :key="list.announcement.value.sequence">{{ list.announcement.value.text }}</span></span>
     </div>
 </template>
 
@@ -121,6 +132,18 @@ const foldedIssues = computed(() => issuesUnder(scope.shownIssues.value, props.n
     min-width: 0;
     flex-direction: column;
     gap: var(--space-4);
+    border-radius: var(--radius-control);
+}
+
+.nb-form-list:focus-visible {
+    outline: none;
+    box-shadow: var(--focus-ring);
+}
+
+/* 列表整体出错（条数不够、有重复）：左侧一条出错色的线，与对象的层级线同一位置。 */
+.nb-form-list--invalid {
+    border-left: 2px solid var(--status-danger);
+    padding-left: var(--space-5);
 }
 
 .nb-form-list__empty,
@@ -180,10 +203,16 @@ const foldedIssues = computed(() => issuesUnder(scope.shownIssues.value, props.n
 }
 
 .nb-form-list__duplicate,
-.nb-form-list__issues {
+.nb-form-list__issues--error {
     flex: none;
     font-size: var(--text-xs);
     color: var(--status-danger);
+}
+
+.nb-form-list__issues {
+    flex: none;
+    font-size: var(--text-xs);
+    color: var(--status-warning);
 }
 
 .nb-form-list__pager {
@@ -210,9 +239,10 @@ const foldedIssues = computed(() => issuesUnder(scope.shownIssues.value, props.n
     cursor: default;
 }
 
+/* `--focus-ring` 是一串 box-shadow，不能写进 outline（审查 S3 Sonnet 9）。 */
 .nb-form-list__link:focus-visible {
-    outline: 2px solid var(--focus-ring);
-    outline-offset: 2px;
+    outline: none;
+    box-shadow: var(--focus-ring);
 }
 
 .nb-form-sr-only {

@@ -25,6 +25,8 @@ const props = withDefaults(defineProps<{
     bare?: boolean;
     /** `bare` 时组合控件（单选组、复选组）的名字来源：调用方标签元素的 id。 */
     labelledby?: string;
+    /** `bare` 时调用方的说明元素的 id，接在字段的错误后面写进 `aria-describedby`。 */
+    describedby?: string;
     mode?: FormMode;
     readonly?: boolean;
     disabled?: boolean;
@@ -43,6 +45,7 @@ const props = withDefaults(defineProps<{
     id: undefined,
     bare: false,
     labelledby: undefined,
+    describedby: undefined,
     mode: "edit",
     readonly: false,
     disabled: false,
@@ -83,13 +86,14 @@ const scope = createFormScope({
 provideFormScope(scope);
 
 defineExpose({
-    /** 提交可解析的草稿；不可解析时返回 false。 */
-    commit: (): boolean => scope.handle("")?.commit() ?? true,
-    reset: (): void => scope.handle("")?.reset(),
-    focus: (): void => scope.handle("")?.focus(),
+    /** 提交字段里（包括对象与列表的成员）所有可解析的草稿，合成一个值发出，并显示全部问题；有草稿提交不了时返回 false。 */
+    commit: (): boolean => scope.commitAll(),
+    reset: (): void => scope.resetAll(),
+    /** 聚焦字段的控件。 */
+    focus: (): Promise<boolean> => scope.focusPath([]),
 });
 </script>
 
 <template>
-    <NodeField :node="model.root" :bare="props.bare" :id="props.id" :labelledby="props.labelledby" />
+    <NodeField :node="model.root" :bare="props.bare" :id="props.id" :labelledby="props.labelledby" :describedby="props.describedby" />
 </template>

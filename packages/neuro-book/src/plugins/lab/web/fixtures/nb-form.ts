@@ -109,6 +109,23 @@ const LISTS_VALUE = {
     servers: [{name: "本地", url: "http://localhost:11434", enabled: true}, {name: "备用", url: "https://example.com/v1", enabled: false}],
 };
 
+/** 结构里的问题：到下限的列表、重复项、列表项里的错误、嵌套对象、折叠分组里的问题。 */
+const STRUCTURE_ISSUES = Type.Object({
+    stops: Type.Array(Type.String(), {title: "停止词", minItems: 2, uniqueItems: true}),
+    characters: Type.Array(Type.Object({name: Type.String({title: "名字", minLength: 2})}), {title: "人物", "x-form": {itemLabel: "name"}}),
+    publisher: Type.Object({name: Type.String({title: "出版社"}), city: Type.Optional(Type.String({title: "城市"}))}, {title: "出版信息"}),
+    retries: Type.Integer({title: "重试", maximum: 5}),
+});
+const STRUCTURE_ISSUES_LAYOUT = {
+    type: "column",
+    items: [
+        {type: "field", path: "/stops"},
+        {type: "field", path: "/characters"},
+        {type: "field", path: "/publisher"},
+        {type: "group", label: "高级", collapsed: true, items: [{type: "field", path: "/retries"}]},
+    ],
+} as const;
+
 /** 自定义控件：一个“评分”控件，经 `widgets` 登记，描述里写名字选中它。 */
 const Rating = defineComponent({
     name: "LabRatingWidget",
@@ -179,6 +196,7 @@ export const nbFormFixtures: LabFixture[] = [
             {id: "options", label: "动态选项", input: {props: {schema: OPTIONS, locale: "zh-CN", options: OPTION_SOURCES}, model: {modelValue: {provider: "anthropic"}}}},
             {id: "conditional", label: "服务商连接", input: {props: {schema: CONNECTION, layout: CONNECTION_LAYOUT, locale: "zh-CN"}, model: {modelValue: {id: "conn-01", name: "本地", baseUrl: "http://localhost:11434", format: "openai", timeout: 30, retries: 2, extra: {temperature: 0.7}}}}},
             {id: "lists", label: "列表", input: {props: {schema: LISTS, locale: "zh-CN"}, model: {modelValue: LISTS_VALUE}}},
+            {id: "structure-issues", label: "结构里的问题", input: {props: {schema: STRUCTURE_ISSUES, layout: STRUCTURE_ISSUES_LAYOUT, locale: "zh-CN"}, model: {modelValue: {stops: ["。", "。"], characters: [{name: "林照"}, {name: "x"}], publisher: {name: "长河"}, retries: 9}}}},
             {id: "custom", label: "自定义控件", input: {props: {schema: CUSTOM, locale: "zh-CN"}, model: {modelValue: {title: "长夜行", rating: 4}}}},
             {id: "readonly", label: "只读", input: {props: {schema: CONTROLS, locale: "zh-CN", readonly: true}, model: {modelValue: CONTROLS_VALUE}}},
             {id: "disabled", label: "停用", input: {props: {schema: CONTROLS, locale: "zh-CN", disabled: true}, model: {modelValue: CONTROLS_VALUE}}},
@@ -195,7 +213,6 @@ export const nbFormFixtures: LabFixture[] = [
         scenes: [
             {id: "number", label: "数字带单位", input: {props: {schema: Type.Integer({title: "字号", minimum: 8, maximum: 72, "x-form": {unit: "px"}}), locale: "zh-CN"}, model: {modelValue: 14}}},
             {id: "select", label: "下拉", input: {props: {schema: Type.Union([Type.Literal("system"), Type.Literal("light"), Type.Literal("dark"), Type.Literal("sepia")], {title: "主题"}), locale: "zh-CN"}, model: {modelValue: "dark"}}},
-            {id: "bare", label: "只有控件（bare）", input: {props: {schema: Type.String({minLength: 1}), locale: "zh-CN", bare: true, id: "lab-schema-field-bare"}, model: {modelValue: "只画控件，标签由调用方给"}}},
         ],
         subject: nbFormSubject("SchemaField"),
     }),

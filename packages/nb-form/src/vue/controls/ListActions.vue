@@ -62,13 +62,18 @@ const messages = computed(() => messagesFor(props.locale));
 .nb-form-actions {
     display: flex;
     flex: none;
-    gap: var(--space-1);
+    gap: var(--space-2);
+}
+
+/* 删除没有确认也没有撤销：与移动按钮隔开一段，免得点“下移”误中它（审查 S3 Sonnet 18）。 */
+.nb-form-actions__button[data-nb-list-action="remove"] {
+    margin-left: var(--space-3);
 }
 
 .nb-form-actions__button {
     display: inline-flex;
-    width: var(--control-h-sm, 24px);
-    height: var(--control-h-sm, 24px);
+    width: 28px;
+    height: 28px;
     align-items: center;
     justify-content: center;
     border: 0;
@@ -84,12 +89,20 @@ const messages = computed(() => messagesFor(props.locale));
 }
 
 .nb-form-actions__button:disabled {
-    opacity: 0.35;
+    color: color-mix(in srgb, var(--text-muted) 45%, transparent);
     cursor: default;
 }
 
+/* 触屏上放大到手指点得准的大小。 */
+@media (pointer: coarse) {
+    .nb-form-actions__button {
+        width: 40px;
+        height: 40px;
+    }
+}
+
 .nb-form-actions__button:focus-visible {
-    outline: 2px solid var(--focus-ring);
-    outline-offset: 1px;
+    outline: none;
+    box-shadow: var(--focus-ring);
 }
 </style>

@@ -5,10 +5,15 @@
  * id、说明与出错的关联由字段外壳经 nb-ui 的 `Field` 上下文交给控件，控件不必自己写。
  */
 
-import type {FieldNode} from "../../model";
+import type {BuiltinWidget, FieldNode} from "../../model";
 
 export interface ControlProps {
     readonly node: FieldNode;
+    /**
+     * 实际用的内建画法。控件按它分派，不读 `node.widget`：描述里写了没登记的自定义控件名时，`node.widget` 还是那个名字，
+     * 实际画法是退回的内建控件（审查 S3 omp 11）。
+     */
+    readonly widget: BuiltinWidget;
     readonly modelValue: unknown;
     readonly readonly: boolean;
     readonly disabled: boolean;

@@ -38,8 +38,8 @@ function onSelect(key: string): void {
 
 <template>
     <RadioGroup
-        v-if="props.node.widget === 'radio-row' || props.node.widget === 'radio'"
-        :orientation="props.node.widget === 'radio-row' ? 'horizontal' : 'vertical'"
+        v-if="props.widget === 'radio-row' || props.widget === 'radio'"
+        :orientation="props.widget === 'radio-row' ? 'horizontal' : 'vertical'"
         :model-value="selectedKey"
         :options="options"
         :readonly="props.readonly"
@@ -48,7 +48,7 @@ function onSelect(key: string): void {
         @update:model-value="onSelect"
     />
     <SearchSelect
-        v-else-if="props.node.widget === 'search-select'"
+        v-else-if="props.widget === 'search-select'"
         :model-value="selectedKey"
         :options="options"
         :placeholder="placeholder"

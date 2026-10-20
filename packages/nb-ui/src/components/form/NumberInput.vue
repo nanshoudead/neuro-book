@@ -127,7 +127,7 @@ function decimalPlaces(value: string): number {
     <!-- 用自定义步进按钮替代浏览器原生 spinner：原生 spinner 的样式任何 CSS 都够不着 -->
     <div
         class="nb-ui-control flex w-full min-w-0 items-center rounded-[var(--radius-control)] border bg-[var(--control-surface)] text-[var(--text-main)] focus-within:outline-none"
-        :class="[controlSizeClass, isInvalid ? 'nb-ui-control-invalid' : '', props.disabled || props.readonly ? 'cursor-default opacity-60' : '']"
+        :class="[controlSizeClass, isInvalid ? 'nb-ui-control-invalid' : '', props.disabled ? 'cursor-default opacity-60' : props.readonly ? 'cursor-default' : '']"
         :title="props.title"
     >
         <input

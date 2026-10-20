@@ -27,7 +27,7 @@ function onConfirm(key: string): void {
 
 <template>
     <RadioGroup
-        v-if="props.node.widget === 'confirm'"
+        v-if="props.widget === 'confirm'"
         orientation="horizontal"
         :model-value="confirmKey"
         :options="confirmOptions"

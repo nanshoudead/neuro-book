@@ -14,14 +14,12 @@ import {defaultPlaceholder} from "./placeholder";
 import type {ControlProps, DraftControl} from "./control";
 
 const props = defineProps<ControlProps>();
-const emit = defineEmits<{(event: "update:modelValue", value: unknown): void}>();
 
 const draft = useDraft({
     node: () => props.node,
     value: () => props.modelValue,
     codec: TEXT_CODEC,
     scope: useFormScope(),
-    emit: (value) => emit("update:modelValue", value),
 });
 
 const placeholder = computed(() => (props.modelValue === undefined ? defaultPlaceholder(props.node, props.locale) : undefined) ?? resolveText(props.node.hints.placeholder, props.locale));
@@ -50,7 +48,7 @@ defineExpose<DraftControl>({commit: draft.commit, reset: draft.reset});
 <template>
     <div class="nb-form-text" @focusin="draft.focused.value = true" @focusout="onFocusOut">
         <Textarea
-            v-if="props.node.widget === 'multiline'"
+            v-if="props.widget === 'multiline'"
             :model-value="draft.text.value"
             :rows="props.node.hints.rows ?? 4"
             :placeholder="placeholder"
@@ -68,7 +66,7 @@ defineExpose<DraftControl>({commit: draft.commit, reset: draft.reset});
             :placeholder="placeholder"
             :minlength="minLength"
             :maxlength="maxLength"
-            :autocomplete="props.node.widget === 'secret' ? 'off' : undefined"
+            :autocomplete="props.widget === 'secret' ? 'off' : undefined"
             :clear-label="messagesFor(props.locale).clearInput"
             :readonly="props.readonly"
             :disabled="props.disabled"
