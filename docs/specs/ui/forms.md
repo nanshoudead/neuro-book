@@ -52,7 +52,7 @@ owners:
 | `searchable` | 选项要能搜索 |
 | `visibleWhen` | `{field, schema}`：条件显示（输出 13） |
 | `itemLabel` | 对象列表里当作每项标题的字段名 |
-| `recommend` | 推荐的值，只作标记，必须在选项里 |
+| `recommend` | 推荐的值，只作标记（写在选项的说明里，不预选），必须在选项里 |
 | `rows` | 多行文字的初始行数 |
 
 文字取值 `FormText` 是字符串，或按语言给出的文字（例如 `{"zh-CN": "名称", "en-US": "Name"}`）；显示时取当前语言，没有就取 `en-US`，再没有取第一种。
@@ -72,8 +72,9 @@ setAt(value, path, next), removeAt(value, path)
 fallbackWidget(widget: BuiltinWidget): TerminalWidget   // 终端里的退回画法（输出 25）
 
 // Vue 渲染层（@notnotype/nb-form/vue）
-<SchemaForm  :schema :layout? v-model :mode? :readonly? :disabled? :issues? :meta? :options? :widgets? :locale :commit? :revision? @draft-state @focus-issue />
-<SchemaField :schema :hints? v-model :id? :bare? （其余同上） />
+<SchemaForm  :schema :layout? v-model :mode? :readonly? :disabled? :issues? :meta? :options? :widgets? :locale :commit? :revision? :summary? @draft-state @focus-issue />
+            // expose: commit(): boolean、reset(path?)、focusIssue(path)、focusFirstIssue(): boolean
+<SchemaField :schema :hints? v-model :id? :bare? :labelledby? （其余同上，没有 layout、summary） />   // expose: commit()、reset()、focus()
 widgetLayout(schema, hints?): {block: boolean; width: "narrow" | "medium" | "wide" | "content"}
 ```
 
@@ -119,11 +120,11 @@ widgetLayout(schema, hints?): {block: boolean; width: "narrow" | "medium" | "wid
 ### 条件与显示
 
 13. **条件显示**：`visibleWhen.field` 指同一个对象里的兄弟字段（数组项里是同一项的兄弟），以 `/` 开头时指根上的字段；那个字段的值满足 `schema` 时显示。求值只做 schema 检查，不执行任何代码；字段缺值时按缺值检查。隐藏只影响显示：值保留，完整的 schema 照样校验。必填字段上不许写 `visibleWhen`（`checkDescription` 报不合格），条件里写错的正则、指向不存在的字段同样报不合格；运行时条件求值仍出错时按显示处理。隐藏的字段不卸载，草稿与折叠状态在重新显示后还在。
-14. **问题的显示**：字段只标出错（`aria-invalid`），第一条错误的文字给读屏；警告不标出错，用图标与色调。看得见的文字集中在一个固定位置：`SchemaForm` 底部一行问题汇总（“N 个问题”，展开列出，点一条聚焦到字段）；调用方可以关掉它，经 `focus-issue` 与 `focusFirstIssue()` 放到自己的固定位置。字段下不插文字，排版不因校验结果跳动。折叠的分组与列表项在头部标出“含 N 个问题”。
+14. **问题的显示**：字段只标出错（`aria-invalid`），第一条错误的文字给读屏；警告不标出错，用图标与色调。看得见的文字集中在一个固定位置：`SchemaForm` 底部一行问题汇总（“N 个问题”，展开列出，点一条聚焦到字段）；调用方可以关掉它（`summary: false`），经 `focusIssue(path)`、`focusFirstIssue()` 放到自己的固定位置；表单因为一条问题把焦点移到字段时发出 `focus-issue`。汇总按字段在表单里的先后排。字段下不插文字，排版不因校验结果跳动（没有问题时汇总一行照样占位）。必填缺失在字段失过一次焦点、或调用方调用 `commit()`、`focusIssue`、`focusFirstIssue()` 之后才显示，其余问题一直显示：新打开的表单不一上来满屏标红。折叠的分组与列表项在头部标出“含 N 个问题”。
 
 ### 提交与草稿
 
-15. **提交时机**：`commit` 缺省为 `change`：文字、数字、JSON 在失焦或回车时提交，开关与选择类立即提交；`input` 时每次输入提交。解析不了的草稿（`1.`、`-`、残缺的 JSON）不提交，以 `draft-state`（`{path, state: "clean" | "dirty" | "unparseable", issues}`）报告。
+15. **提交时机**：`commit` 缺省为 `change`：文字、数字、JSON 在失焦或回车时提交，开关与选择类立即提交；`input` 时每次输入提交。解析不了的草稿（`1.`、`-`、残缺的 JSON）不提交，以 `draft-state`（`{path, state: "clean" | "dirty" | "unparseable", issues}`）报告；失焦或回车提交失败一次之后，`issues` 里才有 `unparseable`，字段标出错、汇总列出，输入到一半的 `-` 不马上标红。可选的数字清空后离开是清除，必填的算解析不了。
 16. **外部更新**：传入的值或 `revision` 变化时，没有焦点的字段丢掉草稿、显示新值；有焦点的字段保留草稿。调用方在写入被拒、值没变时把 `revision` 加一，字段回到实际值。`reset(path?)` 与 `commit()` 可以由调用方显式调用。
 
 ### 模式

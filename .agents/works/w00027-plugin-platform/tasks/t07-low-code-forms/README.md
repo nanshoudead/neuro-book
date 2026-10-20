@@ -53,6 +53,12 @@ updated: 2026-10-20
     - 不改 1 条（第 12 条，`Field` 组形态误用在单个控件上会丢名字）：组形态只给组合控件，S3 的渲染层按种类选形态；给单个控件也补 `aria-labelledby` 会让名字里多出必填的星号，在 `Field.md` 写明适用范围。
     - 修正后 nb-ui 528 例、应用 Vitest 382 例、dev-panel 与 nb-story 类型检查、Lab 的 nb-ui e2e 12 例、设置、书架、插件、Lab 场景等 e2e 33 例通过。
 
+- S3a（`b68fda7ad`）：nb-form 的 Vue 渲染层 `@notnotype/nb-form/vue`：`SchemaForm`、`SchemaField`、`widgetLayout`；字段外壳自己提供 nb-ui 的字段上下文（标题行要放“默认”、警告与清除），组合控件用组形态；内建标量控件（开关、确认、各种单选、多选、数字、单行、多行，密钥按单行）；选项编码、动态选项三态与“已不存在”；草稿与提交时机、`revision`、`commit()` 合成一个根值；展示态（折叠、复制）；问题汇总与聚焦。样式用 scoped CSS 加 nb-ui 的 token，不依赖宿主的原子类引擎。包的测试配置（Vitest、`*.dom.test.ts`）、`./lab-sources` 与 Lab 的 `nb-form` 一组场景；依赖边界测试扩到渲染层；`docs:check` 的受管组件加上 nb-form 渲染层入口（`components.md` 同步）。
+  - 开发者 2026-10-20 确认的做法（Spec 输出 14、15、接口与 `recommend` 已同步）：必填缺失在字段失过一次焦点或调用方要求之后才显示；不可解析的草稿提交失败一次后才报；“推荐”写在选项说明里；新增 `summary`、`focusIssue(path)`、`SchemaField` 的 `labelledby`；数字严格解析，可选数字清空是清除；“已不存在”只用于动态选项，固定选项之外的值照样显示出来。
+  - 偏离计划：对象、列表、JSON 与自定义控件、分组折叠留在 S3b，这一片不画这些字段；Lab 的“服务商连接”只有标量部分。
+  - 顺带：`code-baseline.yml` 的路径清单漏了 `nb-form` 与 `nb-story`（master 上 scripts 的工作流合同测试因此失败），补上。
+  - 验证：nb-form 核心 94 例、渲染层 27 例与两份类型检查（数字解析、合并提交、必填延后、卸载撤掉草稿问题四处变异都被拦下，渲染层越界导入也被拦下）；应用类型检查、`bun test` 1560 例、Vitest 382 例；scripts 111 例；`docs:check`、`governance:check`；Lab 的 nb-form、nb-ui、场景与 Lab 四组 e2e 32 例（新增 4 例：可访问名称与说明、汇总聚焦、`1.` 不提交与条件显示保值、展示态 Tab 顺序）；两主题 × 浅、深 × 手机、自由画布截图 96 张没有溢出或报错，看图后把“推荐”从选项名挪到说明。截图在 `.local/agent/works/w00027-plugin-platform/tasks/t07-low-code-forms/reports/s3a-shots/`。
+
 ## 下一步
 
-计划 [plan.md](plan.md) 经设计审查（omp、Sonnet，见 `evidences/`）重写，并按 w00029 的改名与删除修订，开发者 2026-10-20 确认：表单出错的文字放在固定位置（字段只标红）；审批用展示态；一次做完再给 t02；按 w00029 的先后（S0、S1 现在做，S2 起等 w00029 t04 合入，w00029 t05 排在本 Task S3 之后）；设置的短选项改用横排 `RadioGroup`。接着做 S0：先把 master 合进 Work 分支。
+S3b：结构控件（`ObjectFields`、`StringList`、`ObjectList`、`MasterDetail`）、`JsonEditor`、自定义控件合同、分组折叠与条件显示的渲染，补全 Lab 的“服务商连接”；之后 Sonnet（渲染层）加 omp（接口）审查。计划见 [plan.md](plan.md)。
