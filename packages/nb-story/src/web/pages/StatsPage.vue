@@ -42,7 +42,7 @@ const LABEL: Record<string, string> = {
             <template v-if="stats.data.value">
                 <section class="story-block" data-testid="stats-charts">
                     <h2>逐章记录量 <span class="sub">点一章看原文</span></h2>
-                    <ChapterBars :rows="stats.data.value.chapters" :total="book.info.chapters" :hidden="hiddenSeries" @select="openChapter" />
+                    <ChapterBars :rows="stats.data.value.chapters" :total="book.info.chapters" :omit="hiddenSeries" @select="openChapter" />
                 </section>
                 <section class="story-block">
                     <h2>主要人物逐章出场 <span class="sub">颜色越深，这一章被提到得越多</span></h2>

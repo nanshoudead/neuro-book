@@ -19,6 +19,9 @@ const arrange = ref<"storyline" | "force">("storyline");
 const grain = ref<"arc" | "episode">("arc");
 const TYPES = [{id: "entity", label: "对象"}, {id: "arc", label: "主线"}, {id: "episode", label: "情节"}, {id: "secret", label: "秘密"}, {id: "question", label: "悬念"}] as const;
 const hidden = ref<string[]>(["question"]);
+// 书关掉了秘密（ingest.md 输出 18）：没有这类点，类型开关与图例里也不出它。
+const typeChips = computed(() => TYPES.filter(item => item.id !== (grain.value === "arc" ? "episode" : "arc") && (item.id !== "secret" || book.info.features.secrets)));
+const hiddenTypes = computed(() => (book.info.features.secrets ? hidden.value : [...hidden.value, "secret"]));
 const search = ref("");
 
 const storyline = useStoryQuery("graph.storyline", () => (arrange.value === "storyline" ? {} : null));
@@ -72,7 +75,7 @@ function openNode(id: string): void {
             <SegmentedControl v-model="arrange" size="xs" :options="[{value: 'storyline', label: '按章节'}, {value: 'force', label: '按关联'}]" aria-label="排布" />
             <template v-if="arrange === 'force'">
                 <SegmentedControl v-model="grain" size="xs" :options="[{value: 'arc', label: '按主线'}, {value: 'episode', label: '逐段情节'}]" aria-label="情节的粒度" />
-                <button v-for="type in TYPES.filter(item => item.id !== (grain === 'arc' ? 'episode' : 'arc') && (item.id !== 'secret' || book.info.features.secrets))" :key="type.id" type="button" class="story-chip" :class="hidden.includes(type.id) ? '' : 'is-on'" :aria-pressed="!hidden.includes(type.id)" @click="toggle(type.id)">{{ type.label }}</button>
+                <button v-for="type in typeChips" :key="type.id" type="button" class="story-chip" :class="hidden.includes(type.id) ? '' : 'is-on'" :aria-pressed="!hidden.includes(type.id)" @click="toggle(type.id)">{{ type.label }}</button>
                 <Checkbox v-model="neighborhood" label="只看选中的周边" />
                 <span class="text-[length:var(--text-2xs)] text-[var(--text-secondary)]">单击选中 · 双击打开 · 右键更多 · F 只看周边</span>
                 <div class="ml-auto w-40"><Input v-model="search" size="sm" icon-class="i-lucide-search" placeholder="在图里找" /></div>
@@ -82,7 +85,7 @@ function openNode(id: string): void {
         <div class="relative min-h-0 flex-1">
             <StoryLine v-if="arrange === 'storyline' && storyline.data.value" v-model:range="storyRange" :storyline="storyline.data.value" :chapters="book.at.value.chapter" @select="(episode: string) => book.jump('episodes', {kind: 'episode', id: episode})" />
             <StoryNetwork
-                v-else-if="arrange === 'force' && data.data.value" mode="data" :nodes="nodes" :data-edges="dataEdges" :hidden-types="hidden" :query="search" :pinned="pinned" :selected="selected"
+                v-else-if="arrange === 'force' && data.data.value" mode="data" :nodes="nodes" :data-edges="dataEdges" :hidden-types="hiddenTypes" :query="search" :pinned="pinned" :selected="selected"
                 :neighborhood="neighborhood" @select="onSelect" @open="openNode" @menu="(payload: {id: string; x: number; y: number}) => (menu = payload)"
                 @neighborhood="(value: boolean) => (neighborhood = value)" @clear="selected = null"
             />

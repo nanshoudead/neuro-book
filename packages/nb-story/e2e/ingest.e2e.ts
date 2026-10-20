@@ -191,8 +191,17 @@ test("新书关掉数值与秘密（ingest.md 输出 18）：进度页写明设�
     await expect(nav.locator('[data-page="roster"]')).toBeVisible();
     await expect(nav.locator('[data-page="secrets"]')).toHaveCount(0);
     await expect(nav.locator('[data-page="ledger"]')).toHaveCount(0);
+    await expect(page.getByTestId("page-overview")).toContainText("未解悬念");
     await expect(page.getByTestId("page-overview")).not.toContainText("身份秘密");
     await expect(page.getByTestId("page-overview")).not.toContainText("秘密矩阵");
+    await expect(page.getByTestId("page-overview")).not.toContainText("进行中的任务");
+    // 已经在总览时改地址指向关掉的页：留在总览，地址改回总览。
+    await page.evaluate(path => {
+        history.pushState({}, "", path);
+        dispatchEvent(new PopStateEvent("popstate"));
+    }, `/book/${id}/secrets`);
+    await expect(page).toHaveURL(new RegExp(`/book/${id}/overview`, "u"));
+    await expect(page.getByTestId("notice")).toContainText("这本书没有记录秘密");
 
     // 存下的状态停在秘密页（例如开关之前存的）：打开时同样落到总览。先离开书页：离开时它会把自己的状态存一次，
     // 等那次保存落定再写，免得被它盖掉。
@@ -206,7 +215,8 @@ test("新书关掉数值与秘密（ingest.md 输出 18）：进度页写明设�
 
     // 同一本书里改地址（后退、手改）指向关掉的页：也落到总览。
     await nav.locator('[data-page="stats"]').click();
-    await expect(page.getByTestId("visible-stats")).toBeVisible();
+    await expect(page.getByTestId("visible-stats")).toContainText("说法");
+    await expect(page.getByTestId("stats-charts")).toContainText("情节");
     await expect(page.getByTestId("visible-stats")).not.toContainText("数值流水");
     await expect(page.getByTestId("visible-stats")).not.toContainText("秘密");
     await expect(page.getByTestId("stats-charts")).not.toContainText("数值");
@@ -223,6 +233,9 @@ test("新书关掉数值与秘密（ingest.md 输出 18）：进度页写明设�
     await page.getByTestId("page-book-graph").getByText("按关联").click();
     await expect(page.getByTestId("page-book-graph").locator(".story-chip", {hasText: "悬念"})).toBeVisible();
     await expect(page.getByTestId("page-book-graph").locator(".story-chip", {hasText: "秘密"})).toHaveCount(0);
+    // 图例里也没有秘密。
+    await expect(page.getByTestId("page-book-graph")).toContainText("主线");
+    await expect(page.getByTestId("page-book-graph")).not.toContainText("秘密");
 
     await page.goto(`${server.base}/ingest/${id}`);
     await page.getByTestId("ingest-stop").click();
