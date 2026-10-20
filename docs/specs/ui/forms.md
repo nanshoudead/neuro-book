@@ -73,8 +73,9 @@ fallbackWidget(widget: BuiltinWidget): TerminalWidget   // 终端里的退回画
 
 // Vue 渲染层（@notnotype/nb-form/vue）
 <SchemaForm  :schema :layout? v-model :mode? :readonly? :disabled? :issues? :meta? :options? :widgets? :locale :commit? :revision? :summary? @draft-state @focus-issue />
-            // expose: commit(): boolean、reset(path?)、focusIssue(path)、focusFirstIssue(): boolean
-<SchemaField :schema :hints? v-model :id? :bare? :labelledby? （其余同上，没有 layout、summary） />   // expose: commit()、reset()、focus()
+            // expose: commit(): boolean、reset(path?)、focusIssue(path): Promise<boolean>、focusFirstIssue(): Promise<boolean>
+<SchemaField :schema :hints? v-model :id? :bare? :labelledby? :describedby? v-model:selected? （其余同上，没有 layout、summary、focus-issue） />
+            // expose: commit(): boolean、reset()、focus(): Promise<boolean>；commit、reset 作用到字段里的全部成员
 widgetLayout(schema, hints?): {block: boolean; width: "narrow" | "medium" | "wide" | "content"}
 ```
 
@@ -101,8 +102,8 @@ widgetLayout(schema, hints?): {block: boolean; width: "narrow" | "medium" | "wid
 ### 值
 
 3. **受控**：表单不持有值。每次提交出一个新的根值；未改动的分支保持原引用，传入冻结的值也能用，表单从不原地修改传入的值。路径与值的形状不合（数组上的字符串段、小数或负数下标、越过末尾超过一位、中间遇到基本类型）时，`setAt`、`removeAt` 不改值、原样返回。
-4. **缺失与清除**：表单不补默认值。缺值时，文字与数字的占位文字写“默认：X”（有 `default` 时），选择类不预选、在标题旁写“默认：X”，开关显示 `default` 的状态并标“默认”。可选字段有值时外壳给“清除”，清除删去这个键（不写 `undefined`、`0`、`""`）；必填字段没有清除。
-5. **只读**：`readOnly` 的字段，以及父级 `readOnly` 下的全部成员，不能改；结构操作与 JSON 编辑同样不能改它们。
+4. **缺失与清除**：表单不补默认值。缺值时，文字与数字的占位文字写“默认：X”（有 `default` 时），选择类不预选、在标题旁写“默认：X”，开关显示 `default` 的状态并标“默认”。可选字段有值时外壳给“清除”，清除删去这个键（不写 `undefined`、`0`、`""`），焦点回到这个字段的控件；必填字段没有清除。可为 null 的对象值为 null 时给“填写”，把它设成空对象。
+5. **只读**：`readOnly` 的字段，以及父级 `readOnly` 下的全部成员，不能改；结构操作与 JSON 编辑同样不能改它们。这由表单统一的提交入口保证，不靠控件自己挡：用 JSON 编辑一个对象时改到其中只读的成员，这次提交被拒，字段报 `read-only`，草稿留着；字段变得不可改（只读、停用、展示态）时没提交的草稿作废。
 6. **路径**：对外的路径是按 RFC 6901 转义的 JSON Pointer（属性名里的 `~`、`/` 转义），由表单自己生成；属性名 `"a/b"` 与嵌套的 `a.b` 是两个不同的路径。
 
 ### 校验与问题
@@ -120,7 +121,7 @@ widgetLayout(schema, hints?): {block: boolean; width: "narrow" | "medium" | "wid
 ### 条件与显示
 
 13. **条件显示**：`visibleWhen.field` 指同一个对象里的兄弟字段（数组项里是同一项的兄弟），以 `/` 开头时指根上的字段；那个字段的值满足 `schema` 时显示。求值只做 schema 检查，不执行任何代码；字段缺值时按缺值检查。隐藏只影响显示：值保留，完整的 schema 照样校验。必填字段上不许写 `visibleWhen`（`checkDescription` 报不合格），条件里写错的正则、指向不存在的字段同样报不合格；运行时条件求值仍出错时按显示处理。隐藏的字段不卸载，草稿与折叠状态在重新显示后还在。
-14. **问题的显示**：字段只标出错（`aria-invalid`），第一条错误的文字给读屏；警告不标出错，用图标与色调。看得见的文字集中在一个固定位置：`SchemaForm` 底部一行问题汇总（“N 个问题”，展开列出，点一条聚焦到字段）；调用方可以关掉它（`summary: false`），经 `focusIssue(path)`、`focusFirstIssue()` 放到自己的固定位置；表单因为一条问题把焦点移到字段时发出 `focus-issue`。汇总按字段在表单里的先后排。字段下不插文字，排版不因校验结果跳动（没有问题时汇总一行照样占位）。必填缺失在字段失过一次焦点、或调用方调用 `commit()`、`focusIssue`、`focusFirstIssue()` 之后才显示，其余问题一直显示：新打开的表单不一上来满屏标红。折叠的分组与列表项在头部标出“含 N 个问题”。
+14. **问题的显示**：字段只标出错（`aria-invalid`），第一条错误的文字给读屏；警告不标出错，用图标与色调。看得见的文字集中在一个固定位置：`SchemaForm` 底部一行问题汇总（“N 个问题”，展开列出，点一条聚焦到字段）；调用方可以关掉它（`summary: false`），经 `focusIssue(path)`、`focusFirstIssue()` 放到自己的固定位置。聚焦一条问题时，字段在折叠的分组、折叠或别的页的列表、未选中的详情里就先打开它们；焦点确实移过去了才发出 `focus-issue`、resolve 为 true。汇总按看得见的先后排（根上的字段按布局，往下按成员与列表项的下标），列表项里的问题写出项的标题（“人物 · 林照 · 名字”）。被条件隐藏的字段上的问题不进汇总，也不计入问题数（校验照样报给调用方；开发者 2026-10-20 定）。字段下不插文字，排版不因校验结果跳动（没有问题时汇总一行照样占位）。必填缺失在字段失过一次焦点、或调用方调用 `commit()`、`focusIssue`、`focusFirstIssue()` 之后才显示，其余问题一直显示：新打开的表单不一上来满屏标红。折叠的分组与列表项在头部标出“含 N 个问题”。
 
 ### 提交与草稿
 
@@ -134,7 +135,7 @@ widgetLayout(schema, hints?): {block: boolean; width: "narrow" | "medium" | "wid
 
 ### 列表编辑
 
-19. **增删排序**：列表每项有稳定的身份，不随删除与排序串到别的项；添加后焦点进新项的第一个控件；删除后焦点到下一项的同类控件，没有就上一项，列表空了到“添加”；排序用“上移 / 下移”按钮与 `Alt+↑ / ↓`，焦点跟着被移动的项，读屏播报移动结果。焦点在调用方把新数组传回来、渲染出来之后才移；传回来的可以是内容相同的副本（经过 JSON 或 RPC），调用方没采纳时身份与焦点都不动。`minItems`、`maxItems` 到界时停用删除或添加；`uniqueItems` 下的重复项标问题；空列表显示“还没有项”与“添加”；超过 50 项默认折叠成“N 项”，展开后分页。
+19. **增删排序**：列表每项有稳定的身份，不随删除与排序串到别的项；添加后焦点进新项的第一个控件；删除后焦点到下一项的同类控件，没有就上一项，列表空了到“添加”；排序用“上移 / 下移”按钮与 `Alt+↑ / ↓`，焦点跟着被移动的项，读屏播报移动结果。焦点在调用方把新数组传回来、渲染出来之后才移；传回来的可以是内容相同的副本（经过 JSON 或 RPC）；连着几次操作都在传回之前发出时，身份跟着最后采纳的那次；调用方没采纳时身份与焦点都不动；外部换成长度不同、或不是本表单发出过的数组时重建身份。焦点在多行文字框或下拉上时 `Alt+↑ / ↓` 留给它们。`minItems`、`maxItems` 到界时停用删除或添加；`uniqueItems` 下的重复项标问题（与校验同一种等值判定）；空列表显示“还没有项”与“添加”；超过 50 项默认折叠成“N 项”，展开后分页。
 20. **左列表右详情**：`v-model:selected` 给出选中项；新增项自动选中并聚焦详情；删除选中项后选中下一项；列表项的选中区与操作按钮并列，不嵌套按钮；项标题取 `itemLabel` 的字段，空时写“第 N 项”。
 
 ### 表单根
@@ -206,6 +207,7 @@ widgetLayout(schema, hints?): {block: boolean; width: "narrow" | "medium" | "wid
 | `not-in-choices` | 值不是选项之一 | 同上 |
 | `no-match` | 值不满足联合里的任何一种写法 | 同上 |
 | `unparseable` | 草稿解析不了 | 等用户改；不提交 |
+| `read-only` | 提交会改到只读的成员（JSON 编辑） | 等用户改回；不提交 |
 | `schema-error` | schema 本身求值出错（例如写错的正则） | 修描述；表单照常显示其余字段 |
 | 描述检查的问题 | 描述不合格或违反 Agent 策略 | 不渲染这份描述，把问题交回给描述的来源 |
 
