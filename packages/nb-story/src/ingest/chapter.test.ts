@@ -159,6 +159,12 @@ describe("渠道失败与不成形的回复（输出 9、10，验收 5）", () =
         expect(beats).toEqual([{ok: false, complete: false}, {ok: true, complete: true}]);
     });
 
+    test("流到一半来了错误事件（luna 的 upstream_error，没有状态码）：按渠道失败重发", async () => {
+        const run = await chapterOne((key, nth) => (key.step === "draft" && nth === 1 ? {kind: "stream-error", message: "Upstream service temporarily unavailable"} : undefined));
+        expect(run.outcome.ok).toBe(true);
+        expect(run.waits).toEqual([30_000]);
+    });
+
     test("流没有结束原因就断了：按渠道失败重发", async () => {
         const run = await chapterOne((key, nth) => (key.step === "draft" && nth === 1 ? {kind: "cut", text: '{"chapter":1'} : undefined));
         expect(run.outcome.ok).toBe(true);

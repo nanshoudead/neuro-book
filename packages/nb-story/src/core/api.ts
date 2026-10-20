@@ -168,7 +168,7 @@ export function createStoryApi(options: {library?: Library | string} = {}): Stor
             index,
             view,
             grouping,
-            page: makePager(index.meta.generation, paramsDigest(method, params), cursor, params.limit as number | undefined),
+            page: makePager(`${index.meta.generation}:${index.meta.revision}`, paramsDigest(method, params), cursor, params.limit as number | undefined),
             resolveEntity: text => resolveEntity(view, text, grouping),
         };
         const handler = BOOK_HANDLERS[method];

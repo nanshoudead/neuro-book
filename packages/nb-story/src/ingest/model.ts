@@ -124,6 +124,9 @@ function classify(error: unknown, apiKey: string): ModelError {
     if (error instanceof OpenAI.APIConnectionError) return new ModelError("network", null, redact(`连接失败：${error.message}`));
     if (error instanceof OpenAI.APIError) {
         const status = typeof error.status === "number" ? error.status : null;
+        // 没有状态码：请求已经成功、错误是流到一半服务发来的错误事件（例如 luna 渠道的 upstream_error）。这是渠道侧
+        // 的临时故障，按网络失败重发（与 nb-harness 把没有状态码的临时错误归为 network 同口径）。
+        if (status === null) return new ModelError("network", null, redact(error.message));
         const code = typeof error.code === "string" ? error.code : "";
         const message = redact(error.message);
         if (status === 401 || status === 403) return new ModelError("auth", status, message);

@@ -12,6 +12,8 @@ export type EndpointReply =
     | {kind: "runaway"; text: string}
     /** 给这段文字后直接结束，没有结束原因也没有用量（流中断）。 */
     | {kind: "cut"; text: string}
+    /** HTTP 200 开始流，流到一半发一个错误事件（luna 渠道的 upstream_error 就是这样）。 */
+    | {kind: "stream-error"; message: string}
     /** 回错误状态码；`echoKey` 时错误正文里原样带上收到的认证头。 */
     | {kind: "status"; status: number; echoKey?: boolean}
     /** 不回应，直到请求被取消。 */
@@ -68,6 +70,10 @@ export function startEndpoint(replies: EndpointReply[] | Responder): Endpoint {
                         ]),
                         {headers: {"content-type": "text/event-stream"}},
                     );
+                case "stream-error": {
+                    const first = sse([{choices: [{index: 0, delta: {role: "assistant", content: "{"}, finish_reason: null}]}]).replace("data: [DONE]\n\n", "");
+                    return new Response(`${first}data: ${JSON.stringify({error: {message: reply.message, type: "upstream_error"}})}\n\n`, {headers: {"content-type": "text/event-stream"}});
+                }
                 case "cut": {
                     const chunk = sse([{choices: [{index: 0, delta: {role: "assistant", content: reply.text}, finish_reason: null}]}]).replace("data: [DONE]\n\n", "");
                     return new Response(chunk, {headers: {"content-type": "text/event-stream"}});
