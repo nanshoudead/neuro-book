@@ -1,0 +1,70 @@
+# w00029 t03 实现审查报告（只追加）
+
+## 1. [重要] 正确性 / 不变量：Banner 动作区 `shrink-0` 使 220px 编辑组里按钮溢出，换行形同虚设
+- 位置：`packages/nb-ui/src/components/feedback/Banner.vue:56`（`<span v-if="$slots.actions" class="flex shrink-0 flex-wrap ...">`），用于 `packages/neuro-book/src/plugins/editor/web/components/EditorGroup.vue:304-308`
+- 现象：动作区自己是 `flex-wrap`，但又 `shrink-0`，宽度被固定为全部按钮并排的 max-content，不会收窄到父级宽度，里面的 `flex-wrap` 不起作用。组件文档说“动作区整组换到下一行”，只对“按钮并排宽度不超过一行”成立；超过时按钮直接冲出横幅右边。旧实现（按钮直接是外层 `flex-wrap` 的子项）会逐个换行。
+- 核实：用 `/opt/google/chrome/chrome --headless=new --screenshot` 加载真实 `dist/nb-ui.css`、按 Banner 模板手写的静态页（`/tmp/w29t03/review/exp/t.html`，截图 `t.png`），容器 220px（box-sizing: border-box，与 `docs/specs/workbench/editor.md` 编辑组最小 220px 一致）：
+  - zh-CN 冲突条两个按钮“重新载入磁盘版本 / 覆盖磁盘版本”并排 212px，可用宽度 196px，右按钮右沿超出容器右边 4px（含内边距）；
+  - en-US（`messages.ts:48-49` 的 “Reload Disk Version / Overwrite Disk Version”）并排 273px，右按钮右沿超出容器右边 65px，会被编辑组的 overflow 裁掉或造成横向滚动。
+  - 把 `shrink-0` 换成 `max-w-full`（`t2.html`、`t2.png`）后两个按钮各占一行，全部可见可点。
+- 为什么是问题：违反 `editor.md` 输出 54“编辑组最小（220×120）时……提示条的按钮……都仍能用”；这是本次改动引入的回归（旧手写状态条按钮可单个换行）。
+- 建议改法：动作区去掉 `shrink-0`，改 `max-w-full min-w-0`（保留 `flex-wrap`）。补一个 dom 或 e2e 用例：Banner 放进 220px 宽容器，两个长按钮的 `getBoundingClientRect().right` 不超过容器右边（jsdom 不排版，需浏览器用例，由主 Agent 跑）。Lab 场景“带两个动作”目前在 `max-w-[640px]` 下，看不出这个问题，可再加一个 220px 宽的场景。
+
+## 2. [重要] 正确性 / 可访问性：`SegmentedControl` 在 `modelValue` 没有匹配项（`null`）时没有任何 Tab 停靠点，键盘用户进不去
+- 位置：`packages/nb-ui/src/components/controls/SegmentedControl.vue` 的按钮 `:tabindex="isSelected(option) ? 0 : -1"`；调用处 `packages/neuro-book/src/plugins/lab/web/LabShell.vue:208-219`（`activePreset` 在手动拖出尺寸时返回 `null`）和 `LabShell.vue:759-768`
+- 现象：本次让“画布宽度”预设条在手动拖出尺寸时传 `null`（意图是“一个都不选中”），而该组件的 roving tabindex 只给选中项 0，其余全是 -1。此时三个按钮都 `tabindex=-1`，Tab 键跳过整个控件，只能用鼠标回到某个预设。
+- 同一路径的第二个小问题：`handleKeydown` 里 `currentIdx` 为 -1 时，ArrowLeft/ArrowUp 算出 `(−1 −1 + n) % n = n−2`（3 个选项时落在第 2 项，不是最后一项）；ArrowRight 落在第 1 项，两个方向不对称。
+- 文档层面：`SegmentedControl.md`（状态节）写“没有匹配项时不显示选中项或指示块”，但没写键盘怎么进入；本次新写的分工段还说它“始终选中一个”，与 LabShell 的用法自相矛盾。
+- 如何核实：从代码推断（未跑浏览器）。可在 `components.test.ts` 里挂载 `modelValue: null`，断言至少一个按钮 `tabindex="0"`；主 Agent 可在 Lab 拖一下画布边缘后按 Tab 验证。
+- 建议改法：二选一。（a）组件里没有选中项时让第一个启用项 `tabindex=0`（并把 `currentIdx<0` 时 ArrowLeft 定到末项）；（b）LabShell 不传 `null`，找不到预设时给一个“自定义”选项或用 `disabled` 的占位项。选 (a) 要同步写进 `SegmentedControl.md` 的交互与状态节，并补单测；`SegmentedControl.md` 的“始终选中一个”改成“通常有一个选中”。
+
+## 3. [建议] 代码质量：`LabShell.vue` 里 `applyPreset` 上方的注释已过期
+- 位置：`packages/neuro-book/src/plugins/lab/web/LabShell.vue:481-483`
+- 现象：注释写“reka 的单选组再次点击当前项会把值清空……nb-ui 声明的类型是 string | string[]，但运行时确实会给 undefined，两处都要挡”。本次改成 `SegmentedControl` 后事件值类型是 `SegmentedControlValue`，不会再发空值；函数里的 `typeof value === "string" ? … : undefined` 仍然需要（值类型含 number/boolean/null），但理由变了。
+- 为什么是问题：`docs/standards/code/common.md#注释` 要求写还成立的理由；这条注释描述的是已删除的上游行为，会误导以后的人保留不必要的守卫或去找并不存在的 reka 行为。
+- 建议改法：改成“值类型包含非字符串；只有预设表里有的 id 才改画布尺寸”，或直接删注释。（`JsonViewer.vue` 的 `switchMode` 里对应注释这次已删，做法一致。）
+
+## 4. [建议] 文档：`docs/specs/workbench/bookshelf.md:164` 仍写“目录选择器用 nb-ui 的 `FileBrowser`”
+- 位置：`docs/specs/workbench/bookshelf.md:164`（行尾一句）
+- 现象：`FileBrowser` 本次已挪出 nb-ui，并从 `@notnotype/nb-ui/components` 删除导出；这句 Spec 没改（diff 的 `docs/specs` 部分不含 bookshelf.md）。全仓搜 `FileBrowser` 只剩这一处过期。
+- 如何核实：`grep -rn "nb-ui 的 \`FileBrowser\`" docs/specs`。
+- 建议改法：改成“目录选择器用本插件的 `FileBrowser`（`web/components/FileBrowser.md`）”。
+
+## 5. [建议] 文档规范：`DropIndicator.md` 用 `验证入口` 不符合 `components.md` 对该键的判据
+- 位置：`packages/nb-ui/src/components/layout/DropIndicator.md:3`
+- 现象：`docs/standards/code/components.md:30` 写明 `验证入口` 登记的是“props 全部来自宿主链（`state:inject` / `env:portal`）、脱离宿主没有可验证状态”的零件。`DropIndicator` 只有 `variant` 与插槽两个普通 props，能独立挂载，只是作者决定不再导出、不再单独演示。
+- 为什么是问题：借这个键让 Lab 把它标成“不可独立挂载”，等于扩大了键的语义；下一个读规范的人无法从判据推出“内部件也可以用它”。另外组件不导出之后，`.md` 与 `.vue` 仍按 Lab 的规则被当成一个组件条目，删掉场景是靠这个键才没有被判为“缺场景”。
+- 如何核实：读 `components.md:30` 与 `DropIndicator.md`；`component-index-model.test.ts` 与 `governance:check` 都通过（已跑，0 失败），所以这是规范层面的偏差，不是机检失败。
+- 建议改法：要么在 `components.md` 的 `验证入口` 一节加一句“不导出的内部件也可以用，指向使用它的覆盖层”，要么保留原 Lab 场景（它原来有，删掉的只有 11 行）。请开发者决定；不是阻断。
+
+## 6. [建议] 行为差异：dev-panel 的“知道了”从可见文字按钮变成只有图标的关闭按钮
+- 位置：`packages/dev-panel/src/web/App.vue:403-413`，`packages/nb-ui/src/components/feedback/Banner.vue:60`
+- 现象：旧实现是文字按钮“知道了”；现在是 `Banner` 的 X 图标，仅 `aria-label` 与 `title` 为“知道了”。可访问名称没变，`packages/dev-panel` 下没有测试或 e2e 按这个名字查询（已 grep，唯一出现处是 App.vue 与注释/文档）。
+- 为什么是问题：这条横幅的“关闭”会把选择记入偏好、关掉后不再出现（`dismissAudit`），语义比单纯关闭窗口重；`panel.md` 与 `App.vue:324` 注释都还写“可以‘知道了’”。视觉上变成了无字图标，开发者要悬停才知道。
+- 建议改法：可保持现状（任务已定用 `dismissible`），但 `panel.md` 外壳一段里“横幅可以‘知道了’”后补一句“显示为带‘知道了’提示的关闭按钮”，免得后来的人按文档找文字按钮。这一条按需处理。
+
+## 7. [建议] 文档：同样的“和同类零件的分工”四项清单被原样复制进 4 份 `.md`
+- 位置：`packages/nb-ui/src/components/controls/Tabs.md`、`SegmentedControl.md`、`ToggleGroup.md`、`packages/nb-ui/src/components/form/RadioGroup.md`
+- 现象：四项条目各 4 行逐字相同。以后改一项（例如 `RadioGroup` 增加“不提交”能力）要同步四处，漏一处文档就互相矛盾；`SegmentedControl.md` 里已经出现“始终选中一个”与 LabShell 用法冲突（见第 2 条）。
+- 建议改法：写在一处（例如 `docs/ui-development-spec.md` 的选择控件一节或 nb-ui README 一节），四份组件文档各留一句指向它加本组件自己的一句话分工。不是必须。
+
+## 8. [建议] 测试：本次非机械改动缺少测试
+- `Banner`：全仓没有 Banner 的单测或 dom 测试。新增的 `actions` 插槽、`iconClass` 覆盖、`role` 随色调（error 为 alert，其余 status）、`dismissible` 的 `dismiss` 事件都没有断言；第 1 条的溢出也没有浏览器用例能捕捉（jsdom 不排版）。`EditorGroup` 的状态条没有 dom 断言 `data-editor-banner`/`data-editor-banner-action` 落在哪个元素上（只有 e2e 间接覆盖，主 Agent 在跑）。
+- `ToggleGroup`：旧的单选场景删了（符合方案），但 `onUpdate` 把上游联合类型收成 `string[]` 这一步没有单测；`components.test.ts` 只测了渲染，没有点击后 `update:modelValue` 的值是数组的断言，也没有 `modelValue: []`（“都没按下”场景是 Lab 有、单测没有）。
+- `SegmentedControl`：仅图标选项（无 `label`，用 `title` 做可访问名称）与 `modelValue: null` 没有断言（`components.test.ts:181` 附近只有基本渲染）。这两点正是本次新增用法（JsonViewer、LabShell）依赖的行为。
+- 建议改法：给 `Banner` 加 `Banner.test.ts`（role、actions 插槽、iconClass、dismiss）；给 `SegmentedControl` 加 `null`/仅图标两个用例；给 `ToggleGroup` 加点击发数组的用例。
+
+## 未发现问题的方面
+- 机械改名：抽查 `DropdownMenu.vue`、`dropdown-menu.types.ts`、`MenuNodes.vue`、`Tabs.vue`，reka-ui 的 `DropdownMenuRoot/Trigger/Content/Item/Portal` 原语没有被误改；全仓（排除 legacy、proposals、archived、.agents、llmlint 自带副本）搜旧名（FormInput 等、QuickInput、GridRenderer、NotificationViewport、Dropdown、dropdown.types）无残留；dev-panel 里本地类型 `Banner` 已改 `ShellBanner`，没有和导入的组件冲突。
+- `data-editor-banner` 与 `data-editor-banner-action` 经根节点 attrs 落在 `Banner` 根 div（`data-editor-banner`）与按钮（`data-editor-banner-action`）上，e2e（`editor-area.e2e.ts`、`lab-editor.e2e.ts`）与 `scripts/perf/browser-runner.ts` 的选择器仍成立；全仓没有测试按 `role="status"` 或 `getByRole("alert")` 查这条状态条。
+- `FileBrowser` 挪出：用本仓 `uno.config.ts` 对 `FileBrowser.vue` 实跑 UnoCSS 生成器，54 个类全部生成，`border-[var(--control-outline)]` 生成的是 `border-color`、`rounded-[calc(var(--radius-control)+2px)]` 的 calc 运算符带空格、三个 `i-lucide-*` 图标都生成；`dist/nb-ui.css` 已同步删除对应类并新增 Banner 用到的类。`bunx vitest run src/plugins/projects src/plugins/editor/web src/plugins/lab/web/component-index-model.test.ts`：13 文件 43 用例通过。
+- `bun run governance:check`：0 失败、0 本次范围内警告。
+- `ToggleGroup`：固定 `type="multiple"`，`onUpdate` 里 `Array.isArray(...) ? value.map(String) : []` 对上游多选模式不会丢值；`README.md`、Lab 场景已同步去掉单选。
+- 读屏：Banner 图标已加 `aria-hidden`，`role` 随色调（error 为 alert，其余 status）与文档一致；dev-panel 移除外层 `role="status"` 后，每条横幅自带 role，行为不降级（error 档反而是立即播报）。
+
+## 条数
+- 阻断：0
+- 重要：2（第 1、2 条）
+- 建议：6（第 3 至 8 条）
+
+实验文件：`/tmp/w29t03/review/exp/`（`t.html`、`t.png`、`t2.html`、`t2.png` 为第 1 条的浏览器复现，`gen.mjs` 为 UnoCSS 生成检查，`gov.txt` 为治理检查输出）。第 1 条的按钮是按 Banner 模板与真实 `dist/nb-ui.css` 手写的静态页，按钮用了近似样式，不是真实 `Button`；真实宽度可能差几 px，结论（en-US 必然溢出、zh-CN 临界）需要主 Agent 在 Lab 的 220px 画布里用真实组件复核。
