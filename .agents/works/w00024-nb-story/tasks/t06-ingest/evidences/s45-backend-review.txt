@@ -1,0 +1,142 @@
+# w00024/t06：S4 与 S5 服务端只读实现审查
+
+范围：`6a0624636..c36600b51`，`packages/nb-story/` 排除 `src/web/` 与 `e2e/`。以主工作区 `docs/specs/story/`、t06 计划与已确认决定为依据；不重复上一轮已处理的 S1 到 S3 问题。先读测试，再读实现；未修改仓库源码或测试。
+
+### 1. 整组配置的 JSON 写错时，会把贴入的密钥原样输出
+
+- **严重程度**：重要；**类别**：安全与性能。
+- **位置**：`packages/nb-story/src/qa/config-edit.ts:86-96`，`packages/nb-story/src/cli/config.ts:105-106`。
+- **现象**：`config set ingest.model` 收到末尾多一个逗号的 JSON 时，JSON.parse 的错误分支先把整段输入拼进错误，根本没到 `apiKeyEnv` 的检查。真实 CLI 以 2 退出，标准错误包含 1 次完整假密钥 `sk-proj-REVIEW_FAKE_SECRET_0042`；原配置未改动。
+- **为什么是问题**：qa 输出 20、ingest 验收 9 要求贴入密钥不落盘、不回显。当前正常 JSON 的拒绝测试通过，但配置输入最常见的语法错误会绕过脱敏。通用 JSON 错误分支在 base 已存在，本次把含凭据字段的 `ingest.model` 接到这条分支，新增了这条泄露路径。
+- **如何核实**：仓库根执行 `bun --no-env-file /tmp/review-w00024-t06-s45/scratch/cli-boundaries.ts`。真实 `src/cli.ts` 子进程，假密钥，本机无模型请求；`malformed-secret` 输出 `code:2, leaked:true, unchanged:true`。实验根 `/tmp/review-w00024-t06-s45/scratch/cli-1792486420251`。
+- **建议改法**：JSON 解析失败只报告字段与安全示例，不拼接输入原文；不要试图在尚未成功解析的 JSON 中逐字段找密钥。给整组配置的语法错误补真实 CLI 的 stdout/stderr 无假密钥断言。
+
+### 2. 原文读取失败没有归一为合同错误，`--json` 会得到空输出与 Bun 堆栈
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`packages/nb-story/src/cli/ingest.ts:95-104`、`:88-91`。
+- **现象**：`readSource` 只把 `stat` 失败转成 `StoryError`，后面的 `readFile` 失败直接冒到顶层。把存在的目录当原文传给 `ingest --preview --json`，退出码为 1，但 stdout 是空串，stderr 是 `EISDIR`、源码片段与调用堆栈。文件可 stat 但不可读、stat 后文件消失也走同一分支（后两种是从代码推断，未冒充实测）。
+- **为什么是问题**：ingest 输出 14 承诺 JSON 模式返回单个成功或失败对象；文件系统异常是外部输入失败，不该变成未捕获异常。现有测试只测了不存在文件的 stat 失败，未覆盖真正读取失败。
+- **如何核实**：`bun --no-env-file /tmp/review-w00024-t06-s45/scratch/cli-boundaries.ts` 的 `directory` 场景，真实 CLI 子进程，观察到 `code:1, stdout:""` 与 `EISDIR: illegal operation on a directory, read`。
+- **建议改法**：把 stat 与 readFile 的 I/O 失败统一转成 `StoryError`，保留 decodeUtf8 的 `ingest_bad_text`，经已有 fail 输出 JSON；可同时在文件边界拒绝目录。测试经过 CLI 断言错误码、退出码与可解析的单个 JSON，不断言堆栈或错误措辞。
+
+### 3. 48 MiB 请求体上限只检查 Content-Length，分块传输可以绕过
+
+- **严重程度**：重要；**类别**：安全与性能。
+- **位置**：`packages/nb-story/src/server/http.ts:56-63`，`packages/nb-story/src/server/serve.ts:72-76`。
+- **现象**：超过 48 MiB 的同一份 JSON 请求，有 Content-Length 时得到 400 / `ingest_bad_text`；改用 HTTP chunked 传输、不带 Content-Length 时得到 200，成功返回预览。实测请求体 **50332672 字节**，比 48 MiB 多 **1024 字节**。正文是合法的一章 base64 加 JSON 允许的空白，因此不会被解码后的 32 MiB 原文检查挡住。
+- **为什么是问题**：计划明确要求 `ingest.*` 的请求体上限为 48 MiB；这是外部输入的资源边界，不能依赖客户端自报长度。当前 `request.json()` 会先完整收取并解析超限正文。认证会话并不消除误传或恶意超量输入的内存与主线程开销；实际运行已证明可以越过约定上限，无须推测能无限增长。
+- **如何核实**：`env TMPDIR=/tmp/review-w00024-t06-s45/scratch NBOOK_AGENT_TEMP_ROOT=/tmp/review-w00024-t06-s45/scratch bun --no-env-file /tmp/review-w00024-t06-s45/scratch/http-boundaries.ts`。真实 `nbstory serve`、登录会话、Node HTTP 客户端；输出 `content-length:400`、`chunked:200`，正常 SIGTERM 后退出码 0。书库在 `/tmp/review-w00024-t06-s45/scratch/http-1792486648980`。
+- **建议改法**：Content-Length 只作提前拒绝；实际按流读取并累计字节，超过 48 MiB 立即取消读取、返回 `ingest_bad_text`，在未超限时再解析 JSON。补同正文的有长度与 chunked 两种真实 HTTP 用例，不能只测会自动带长度的 fetch 字符串请求。
+
+### 4. `config test --ingest --json` 有一档失败时，另一档的结果从输出消失
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`packages/nb-story/src/cli/config.ts:228-233`。
+- **现象**：minimal 被拒、medium 正常时，两次 HTTP 都确实发出，但 JSON 只返回 minimal 的 `model_failed`，丢掉整个 `efforts` 数组。实测 400、503、401、402、429 五种错误分别正确归为 provider、network、auth、quota、rate_limit，**5 次命令每次都收到了 minimal 与 medium 各 1 个请求**，却都没有返回 medium 通过的信息。
+- **为什么是问题**：qa 输出 23 要求两档分别报告通过或失败，且所有 config 动作支持 `--json`。非 JSON 路径会写两档的结果，JSON 失败路径没有，因此程序调用者分不出第二档成功、失败或根本没测；现有测试只在两档全通过时测 JSON、在有失败时改测文本，刚好避开这个分支。
+- **如何核实**：`bun --no-env-file /tmp/review-w00024-t06-s45/scratch/config-probes.ts`，真实 CLI、OpenAI SDK、本机端点。5 个 `probe` 输出均为 `code:4`、stdout 单个失败对象、`efforts:["minimal","medium"]`（此字段是实验统计端点收到的请求，不是 CLI 返回值）。实验根 `/tmp/review-w00024-t06-s45/scratch/config-1792486888960`。
+- **建议改法**：保持失败退出码 4 与 model_failed/kind，同时在失败 JSON 中保留两档完整结果；为一档失败一档通过、两档不同失败均增加 CLI JSON 场景，断言每档可观察结果。
+
+## 第 1 条的补充核实
+
+同一实验 `config-probes.ts` 还验证了有效 JSON 的重复键：先写假密钥 `apiKeyEnv`、后写正常变量名 `apiKeyEnv`。JSON.parse 留下后者、校验通过；磁盘未保存假密钥，但 `cli/config.ts:98` 把原始 `params.value` 当成功提示回显，stdout 包含 1 次假密钥（`duplicate-secret: code:0, leaked:true, diskLeaked:false`）。这与第 1 条是同一个“输出不该使用含凭据的原始输入”缺陷，**不另计条数**；成功提示应只确认字段已更新，或使用已校验对象的安全字段。
+
+### 5. 同服务的发起还在启动时，删除把它误判成别的进程运行，不能先停后删
+
+- **严重程度**：重要；**类别**：不变量。
+- **位置**：`packages/nb-story/src/server/ingest-service.ts:84-105`，`packages/nb-story/src/ingest/coordinator.ts:14-18`。
+- **现象**：服务先接纳 `ingest.start`，`startIngest` 已进入这个 id 的拿锁与建记录流程，但还没返回 Runner；此时 `book.remove` 看不到本地任务表中的条目，直接争锁失败，返回 409 / `ingest_running`，说明“正在别的进程里抽取”。真实 HTTP 实验 **10/10 次**：start 返回 200 / new，remove 返回 409，紧接着 status 显示同实例内 `runner:serve, state:running, committed:0`。
+- **为什么是问题**：ingest 输出 16、验收 8 与计划“停止与删除”要求同服务任务先停后删；这里只有真正在别的进程运行的任务才应拒绝。`starting` 已经承认这段启动期需要纳入生命周期，但它是一个不带书 id 的私有集合，只给 close 使用；书库协调者只看启动完成后的 runners，所以同一任务在两个生命周期管理入口里的身份不同。这里没有声称删除已经成功后旧任务重建书库；实测缺陷是本应可处理的本服务删除被拒绝。
+- **如何核实**：`env TMPDIR=/tmp/review-w00024-t06-s45/scratch NBOOK_AGENT_TEMP_ROOT=/tmp/review-w00024-t06-s45/scratch bun --no-env-file /tmp/review-w00024-t06-s45/scratch/lifecycle.ts remove`。真实 serve、HTTP、flock 与 Worker；仅用 fs.watch 观察 `.locks/book.lock` 首次创建，在启动尚未完成时发 HTTP book.remove，不替换时间源、文件 API 或任务。实验根 `/tmp/review-w00024-t06-s45/scratch/lifecycle-1792487181419`，10 次结果相同；finally 正常关服。
+- **建议改法**：按书 id 管理已经接纳的启动与运行态，让删除能等待该 id 的启动完成并立即停止、等放锁，然后在同一协调流程里拿锁删除。不要把“本地表暂时没条目”直接当成跨进程任务。补 start/remove 同时到达、首章前与启动失败两种场景。
+
+### 6. ingest 的用法分支忽略 `--json`，失败时没有 JSON 对象
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`packages/nb-story/src/cli/ingest.ts:55-60`。
+- **现象**：`nbstory ingest --json`，以及 `nbstory ingest a.txt --book x --json`，都以 2 退出，stdout 是空串，只在 stderr 输出文字用法。这里已成功经过全局解析并进入新增 ingestCommand，JSON 标志已经可用，却在构造 fail 之前直接返回。
+- **为什么是问题**：ingest 输出 14、cli-skill 输出 2 要求 JSON 模式给单个成功或失败对象；输出 15 单独规定用法错误为 2，没有豁免 JSON 形状。现有“用法错误”测试只测非 JSON 的退出码，未锁住 JSON 错误合同。base 的全局解析器也有相似的既有行为，本条只针对本次新增、直接拥有 json 参数的 ingest 组合检查，不把全局解析器算作本次回归。
+- **如何核实**：`bun --no-env-file /tmp/review-w00024-t06-s45/scratch/cli-boundaries.ts` 的两个 `usage-json` 场景。真实 CLI 子进程，两次均 `code:2, stdout:""`，没有读取不存在的 a.txt，也没有模型请求。
+- **建议改法**：让用法错误走同一个 JSON fail 分支（仍退出 2），stderr 可继续给帮助；为 ingest 的每个互斥参数组合同时测普通与 JSON 模式，后者断言整段 stdout 可以解析为一个 `ok:false` 对象。
+
+### 7. 删除“等启动完成”这步，现有服务端测试仍全部通过
+
+- **严重程度**：重要；**类别**：测试。
+- **位置**：`packages/nb-story/src/server/ingest.test.ts:167-175`；计划 S5 的“关服与 ingest.start 同时到达”。
+- **现象**：只在 scratch 副本删除 `ingest-service.ts` 的 `await Promise.allSettled([...starting])`，保留关门、停止已有 Runner 与等待 done；运行服务端全部 5 条非长书测试，仍是 **5 pass、0 fail、28 expect()**。现有停止用例先等到第 2 章请求已到，所有 Runner 早已登记，完全没有覆盖启动集合。长书用例同样先 await start，不覆盖这条时序。
+- **为什么是问题**：本次重点与计划 S5 明确要求 close 等已经接纳但尚未完成的发起，不能仅测已经运行的任务。这个变异会让 close 的快照漏掉启动中的任务；只有 start 内“看到 closing 就 stop”不等于 close 等它放锁后才退出。现有测试无法保护该停止顺序。这里只报告已核实的测试缺口，不把变异代码的结果冒充当前实现故障。
+- **如何核实**：真实源码的同组测试是 `5 pass、0 fail、28 expect()`；复制 `src/`、`testing/`、`tests/` 到 `/tmp/review-w00024-t06-s45/scratch/mutation-nb-story/`，仅删副本这一行。在副本执行 `env TMPDIR=/tmp/review-w00024-t06-s45/scratch NBOOK_AGENT_TEMP_ROOT=/tmp/review-w00024-t06-s45/scratch bun --no-env-file test src/server/ingest.test.ts --test-name-pattern '预览|别的进程|删除与服务停止'`，得到相同结果，5.83 秒。未改仓库文件；按用户要求没有运行依赖未提交前缀数据的长书用例。
+- **建议改法**：用真实进程与文件系统边界让 start 已接纳、仍在启动时触发 SIGTERM；断言退出前任务已经停止、锁可重拿、状态不再 running，之后无旧任务写回；再加关门后 start 被拒绝。以本变异确认新增用例确实失败。
+
+## 切章规则的实测边界（不计实现缺陷）
+
+`bun --no-env-file /tmp/review-w00024-t06-s45/scratch/text-boundary.ts` 经真实 CLI 预览：正文样的短行 `第二章怎么还没结束？` 被切成新章，`第三回合开始了！` 与 `他说第九章的故事……` 留在段落里。这确实是宽松标题启发式会产生的误认，但**完全符合主工作区当前 Spec**（允许以问号结尾、章字之后无须分隔符），不能在本审查里把合同规定的行为报成实现错误。样例书 100 章的严格逐段对照测试在本次聚焦测试中通过；不据此宣称任意 TXT 都没有误切风险。
+
+### 8. 服务响应测试不检查查询是否成功，快速的 500 也会被当成合格响应
+
+- **严重程度**：重要；**类别**：测试。
+- **位置**：`packages/nb-story/src/server/ingest.test.ts:203-215`、`:240-242`。
+- **现象**：长书测试的 `timed` 只记录用时并原样返回；循环丢弃 book.info、entities.list 的全部结果，ingest.status 也不检查 HTTP 状态。最终只断言在 98、99 章时有测量记录、没有一次耗时达到 1000 ms。只要进度能走完，另一本书的这两条查询一直快速返回 500，现有断言仍可满足。
+- **为什么是问题**：ingest 输出 12、验收 10 要求抽取期间查询“照常可用”，不能只证明 HTTP 能及时报错。这个用例还是本次服务响应判据的主要证据，缺少成功检查会把查询回归掩盖成性能通过。
+- **如何核实**：逐行核对上述源码与它使用的 `testing/processes.ts:81-87`：rpc 对非 2xx 也只返回 `{status, body}`，不抛错；两个调用没有 expect、没有读取返回值。**未运行这个依赖未提交前缀数据的用例，也未把它的已知失败算成新问题**；这是由测试的可执行断言直接确定的缺口，未声称做过这条长书用例的变异运行。
+- **建议改法**：每次计时都验证 HTTP 200，且核对一个能证明查到另一本书/列表页的稳定字段；让失败响应立即使 poller 失败并被用例收口。用快速 500 的副本变异确认测试失败，再恢复；不以仅有采样数量替代成功行为。
+
+## 按影响排序的发现索引
+
+为保留逐条核实后只追加的记录，上文编号不重排；处理顺序按下表。所有源码位置相对于 worktree `/home/notnotype/CodeRepository/neuro-book/.worktree/w00024-nb-story`。
+
+| 优先顺序 | 条目 | 严重程度 | 影响 |
+|---|---|---|---|
+| 1 | 1 | 重要 | 含密钥的原始配置输入进入错误或成功输出 |
+| 2 | 3 | 重要 | chunked 请求绕过 48 MiB 请求体边界 |
+| 3 | 5 | 重要 | 同服务启动期的删除被错报为跨进程冲突 |
+| 4 | 2 | 重要 | 原文读取异常破坏 JSON 错误合同 |
+| 5 | 6 | 重要 | 用法错误不返回 JSON 对象 |
+| 6 | 4 | 重要 | 两档探测失败时丢掉另一档结果 |
+| 7 | 7 | 重要 | 停服等待启动的核心时序未被测试保护 |
+| 8 | 8 | 重要 | 响应测试把快速失败也算成可用 |
+
+第 1 到 6 条均经真实 CLI 或真实 HTTP/serve 复现；第 7 条经 scratch 副本变异运行核实；第 8 条从源码中缺少断言与 rpc 不拒绝非 2xx 的控制流核实，未运行长书测试。没有把实现推断写成已发生的数据损坏或服务退出后仍写入。
+
+## 已执行的验证与限制
+
+命令未另写工作目录的，均从本次 worktree 根执行。下表包内命令的工作目录均为 `/home/notnotype/CodeRepository/neuro-book/.worktree/w00024-nb-story/packages/nb-story`。
+
+| 实际命令 | 结果 |
+|---|---|
+| `env TMPDIR=/tmp/review-w00024-t06-s45/scratch NBOOK_AGENT_TEMP_ROOT=/tmp/review-w00024-t06-s45/scratch bun --no-env-file test src/cli/ingest.test.ts src/cli/config.test.ts src/qa/config.test.ts src/ingest/text.test.ts` | **37 pass、2 fail、1 error、170 expect()**，39 条，47.79 秒，退出 1。字段编辑用例超过默认 5000 ms，随后子进程得到 143；交互贴密钥后改变量名的用例等待“推理档”4000 ms 超时。不能写成全绿。 |
+| `env TMPDIR=/tmp/review-w00024-t06-s45/scratch NBOOK_AGENT_TEMP_ROOT=/tmp/review-w00024-t06-s45/scratch bun --no-env-file test src/cli/config.test.ts --test-name-pattern 'set 改一个字段\|贴进来的是密钥而不是变量名'` | **1 pass、1 fail、8 expect()**，14 条被过滤，8.24 秒，退出 1。字段编辑通过；交互同一等待再次超时。没有在 base 上复跑，故未把它判成本次新增回归，也没有宣称它是已验证的旧基线。 |
+| `env TMPDIR=/tmp/review-w00024-t06-s45/scratch NBOOK_AGENT_TEMP_ROOT=/tmp/review-w00024-t06-s45/scratch bun --no-env-file test src/server/ingest.test.ts --test-name-pattern '预览\|别的进程\|删除与服务停止'` | **5 pass、0 fail、28 expect()**，1 条被过滤，9.74 秒。 |
+| `env TMPDIR=/tmp/review-w00024-t06-s45/scratch NBOOK_AGENT_TEMP_ROOT=/tmp/review-w00024-t06-s45/scratch bun --no-env-file test src/ingest/model.test.ts src/ingest/chapter.test.ts` | **18 pass、0 fail、118 expect()**，3.70 秒。 |
+| `bun --no-env-file run typecheck` | tsc、core tsc、vue-tsc、e2e tsc 均结束，无诊断，57.55 秒；未运行 e2e。 |
+| scratch 副本运行上面的 5 条服务测试（命令及变异见第 7 条） | **5 pass、0 fail、28 expect()**，5.83 秒；这是测试缺口的证据，不是产品验证。 |
+
+其他真实入口实验：
+
+- `bun --no-env-file /tmp/review-w00024-t06-s45/scratch/ingest-errors.ts`：401 只发 **1 次**请求，退出 **4**、`model_failed/auth`，回显假密钥被遮盖；坏回复发 **2 次**请求，退出 **4**、`ingest_bad_reply`。两次 stdout 都是单个失败 JSON。实验根 `/tmp/review-w00024-t06-s45/scratch/errors-1792487633684`。
+- `env TMPDIR=/tmp/review-w00024-t06-s45/scratch NBOOK_AGENT_TEMP_ROOT=/tmp/review-w00024-t06-s45/scratch bun --no-env-file /tmp/review-w00024-t06-s45/scratch/lifecycle.ts shutdown`：在启动的 `.locks` 可见、start 还在途时 SIGTERM，**10/10 次**正常退出 **0**，status 均 `stopped/user`、锁均可重拿，模型端点累计收到 **0 次**请求。没有在当前实现上观察到停服遗漏该批任务。实验根 `/tmp/review-w00024-t06-s45/scratch/lifecycle-1792487060226`。
+- `bun --no-env-file /tmp/review-w00024-t06-s45/scratch/stop-in-retry.ts`：真实 503 后进入 **30000 ms** 退避，再停服；退出 **0**，停服 **19.35 ms**，总请求 **1 次**，状态 `stopped/user`、锁可重拿。实验根 `/tmp/review-w00024-t06-s45/scratch/retry-1792488060584`。
+- `bun --no-env-file /tmp/review-w00024-t06-s45/scratch/imports.ts`：按模块加载边界依次观测，main、ingest、qa/config 导入后 SIGINT 监听数都为 **0**、nb-harness/OMP 模块缓存项为 **0**；加载 cli/config 后监听数变 **1**、相关缓存项 **491**。后者来自 cli/config 对 ask 的既有静态依赖；`ingest` 分派不加载 cli/config，未发现抽取入口间接加载 OMP。
+- `bun --no-env-file /tmp/review-w00024-t06-s45/scratch/ledger-before-http.ts`：真实 CLI、Worker、SDK 发来的第一个 HTTP 到端点时，直接从磁盘读到对应 **1 条 start** 账本（chapter 1、beats、attempt 1）；端点回 401 后退出 **4**。证明开始记录在请求之前已落到文件，不只观察内部回调。实验根 `/tmp/review-w00024-t06-s45/scratch/ledger-1792488494594`。
+- `config-probes.ts` 另核实了 400/503/401/402/429 每档都只请求 **1 次**、无降档；已存在 model 下 unset 缺失的 maxTokens/price、整组 unset、重复整组 unset 均成功，不残留空 ingest 节。没有 ingest.model 时对子字段 unset 的报错行为来自 locate 的合同要求，不列为问题。
+- 已用 `git diff --name-only c36600b51 -- packages/nb-story ':(exclude)packages/nb-story/src/web' ':(exclude)packages/nb-story/e2e'` 核对读取的范围内文件与目标提交一致，输出为空。没有审查网页或 e2e；没有调用真实模型或读取真实密钥；没有运行全包测试、开发服务或已知缺前缀数据的长书用例。
+
+实验文件、隔离书库与变异副本均只创建在 `/tmp/review-w00024-t06-s45/scratch/`，保留供复查；启动的 serve、模型协议端点与 CLI 子进程都已停止并等待退出。唯一的仓库侧写入是本地报告的创建与追加；没有改源码、测试、Spec、计划或 Task，没有 commit、push、stash、切分支、删文件或开子审查。语言服务引用查询返回 `No language server found for this action`，未将其当作类型检查结果。
+
+## 未发现问题的方面
+
+- **当前 close 的接纳与收口顺序**：从 Promise 的实际注册先后核对，start 在 launched 完成后先登记 Runner，close 的 allSettled 才继续取得 Runner 快照；close 同步设门禁，后续发起拒绝。上述 10 次真实启动中停服与 1 次退避中停服均未留下运行态或锁。未穷举 native I/O 在 15 秒强制 terminate 边界的所有交错，不宣称穷尽证明。
+- **已运行任务的停止、删除与跨进程冲突**：服务 5 条测试覆盖真实 HTTP 停止续抽、运行中删除后同 id new、CLI 任务由 cli 标识且网页 start/stop/remove 返回 409、服务关闭后用户停止。没有发现这些已启动路径越过 id 锁或误停另一进程；启动期删除的遗漏单列第 5 条。
+- **抽取命令的 OMP 隔离、失败退出码与密钥遮盖**：动态分派与真实模块加载边界均未加载 nb-harness；已有 Ctrl-C/续抽测试通过。auth 与 bad_reply 的真实 CLI 退出码 4、请求数和脱敏符合合同；文件/用法 JSON 边界分别见第 2、6 条。
+- **抽取配置与探测次数**：整组配置、已有整组后的逐项更改、去掉整组后回落，聚焦用例通过；探测的两档和 5 类失败归类已通过真实端点核对，无 SDK 或应用层额外重发、无降档。结果报告与原始输入回显的例外见第 1、4 条。
+- **base64 与 UTF-8 的已测边界**：非法字符/错误填充布局被拒、合法 base64 但不是 UTF-8 得到 ingest_bad_text；请求体带长度的超限被拒。没有把接受非规范 pad bits 的编码当成安全问题；实际字节上限仍经 decodeUtf8 校验，分块请求体总量的独立缺口见第 3 条。
+- **模型、回放与切章的已测行为**：18 条模型/单章测试通过，涵盖 6 次重试预算、真实 TCP 断线、整流超时、401、不接受 minimal、不成形重发、坏 SSE 的密钥遮盖与停止后用量不完整。开始记录先于实际 HTTP 已独立观察；切章的 !/?/… 标题符合更新后的 Spec，样例 100 章逐段还原测试通过。未重复上一轮已经处理的 S1 到 S3 缺陷。
+- **测试依赖与写法**：本次新 CLI/服务测试经真实子进程、文件系统、HTTP、Worker 与录制回复，不使用 mock、spy、假计时器、非零固定等待；显式子进程清理会 await exited。测试门禁的两处实质覆盖缺口见第 7、8 条；未把辅助工具内部的类型推导或注释措辞凑成问题。
+
+## 各级数量
+
+- **阻断：0 条。**
+- **重要：8 条**（1 到 8，其中产品行为 6 条、测试缺口 2 条）。
+- **建议：0 条。**
+- **合计：8 条。**三级标题每条只出现一次；第 1 条的重复键实验不重复计数。
