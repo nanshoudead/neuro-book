@@ -39,12 +39,13 @@ describe("已有记录", () => {
 });
 
 /**
- * 25 章的小书。第 1 章登记五个对象：林晚、北斗星、医学院（称呼是“蓉城最好的医学院”）、两个都叫“守护之星”的对象；
- * 两个秘密、两个量各挂在林晚与医学院上；疑问三个：第 1 章提出后再没提起、第 2 章提出第 10 章再提起、第 22 章提出。
- * 每章一个时间点。北斗星第 23 章出现过；第 25 章原文只写到林晚与守护之星。
+ * 25 章的小书。第 1 章登记六个对象：林晚、北斗星、医学院（称呼是“蓉城最好的医学院”）、两个都叫“守护之星”的对象、
+ * 一个没有称呼的“神秘人”；三个秘密：一个关于医学院、一个关于林晚、一个关于医学院但林晚知道它的说法；两个量各挂在
+ * 林晚与医学院上；疑问四个：第 1 章提出后再没提起、第 2 章提出第 10 章再提起、第 22 章提出、第 21 章提出第 23 章解答。
+ * 每章一个时间点。北斗星与神秘人（只被叫作“那人”）第 23 章出现过；第 25 章原文只写到林晚与守护之星。
  */
 function longBook() {
-    const bodies: Record<number, string> = {1: "林晚来到蓉城最好的医学院，北斗星在天边，守护之星亮了。", 23: "北斗星又出现了。", 25: "林晚抬头看见守护之星。"};
+    const bodies: Record<number, string> = {1: "林晚来到蓉城最好的医学院，北斗星在天边，守护之星亮了。", 23: "北斗星又出现了，那人走远了。", 25: "林晚抬头看见守护之星。"};
     const sources = Array.from({length: 25}, (_, index) => sourceChapter(index + 1, `第${index + 1}章`, [`第${index + 1}章`, bodies[index + 1] ?? `平静的一天，第${index + 1}章。`]));
     const drafts = sources.map(({chapter}) => ({
         chapter,
@@ -58,15 +59,20 @@ function longBook() {
                       {id: "e1-3", kind: "place", label: "苏天晴就读的医学院", at: "1.2", names: [{text: "蓉城最好的医学院", at: "1.2", primary: true}]},
                       {id: "e1-4", kind: "person", label: "天上的守护者", at: "1.2", names: [{text: "守护之星", at: "1.2", primary: true}]},
                       {id: "e1-5", kind: "item", label: "守护之星挂坠", at: "1.2", names: [{text: "守护之星", at: "1.2", primary: true}]},
+                      {id: "e1-6", kind: "person", label: "神秘人", at: "1.2", names: []},
                   ],
                   statements: [
                       {id: "s1-1", text: "书中人物都是虚构的", family: "rule", about: [], src: {at: ["1.1"], ch: "author"}},
                       {id: "s1-2", text: "林晚来到医学院", family: "event", about: ["e1-1", "e1-3"], src: {at: ["1.2"], ch: "narrator"}},
+                      {id: "s1-3", text: "医学院有一间暗室", family: "location", about: ["e1-3"], src: {at: ["1.2"], ch: "narrator"}},
                   ],
                   secrets: [
                       {id: "x1-1", title: "医学院的地下室", about: ["e1-3"]},
                       {id: "x1-2", title: "林晚的来历", about: ["e1-1"]},
+                      {id: "x1-3", title: "医学院的暗室", about: ["e1-3"], statements: ["s1-3"]},
                   ],
+                  // 林晚的知情指向秘密列的说法，不是秘密本身。
+                  knowledge: [{id: "k1-1", who: "e1-1", about: "s1-3", state: "knows", at: ["1.2"]}],
                   ledger: [
                       {id: "l1-1", owner: "e1-3", track: "经费", op: "set", value: 100, reason: "开学", at: ["1.2"]},
                       {id: "l1-2", owner: "e1-1", track: "神典石", op: "set", value: 3, reason: "随身带着", at: ["1.2"]},
@@ -76,7 +82,13 @@ function longBook() {
             : {}),
         ...(chapter === 2 ? {questions: [{id: "q2-1", text: "医学院为什么招她？", at: ["2.2"], about: ["e1-3"]}]} : {}),
         ...(chapter === 10 ? {questionUpdates: [{q: "q2-1", type: "raised", at: ["10.2"]}]} : {}),
+        ...(chapter === 21 ? {questions: [{id: "q21-1", text: "谁在敲门？", at: ["21.2"], about: []}]} : {}),
         ...(chapter === 22 ? {questions: [{id: "q22-1", text: "明天会怎样？", at: ["22.2"], about: []}]} : {}),
+        ...(chapter === 23 ? {
+                  mentions: [{entity: "e1-6", text: "那人", at: "23.2"}],
+                  statements: [{id: "s23-1", text: "敲门的是那人", family: "event", about: ["e1-6"], src: {at: ["23.2"], ch: "narrator"}}],
+                  questionUpdates: [{q: "q21-1", type: "answered", at: ["23.2"], answer: "s23-1"}],
+              } : {}),
     }));
     const {dataset, issues} = compile({id: "long", title: "小书"}, sources, drafts);
     expect(issues.filter(issue => issue.level === "error")).toEqual([]);
@@ -93,10 +105,11 @@ describe("抽普通章时只详列相关的行", () => {
         const text = renderContext(dataset, 24, {text: chapter25});
         const ids = (title: string) => section(text, title).map(line => /^([a-z]\d+-\d+)[｜　]/u.exec(line)?.[1]).filter(id => id !== undefined);
 
-        // 同一称呼“守护之星”属于两个对象，两个都详列；北斗星是第 23 章出现过的。
-        expect(ids("对象名册").sort()).toEqual(["e1-1", "e1-2", "e1-4", "e1-5"]);
+        // 同一称呼“守护之星”属于两个对象，两个都详列；北斗星与只被叫作“那人”的神秘人是第 23 章出现过的。
+        expect(ids("对象名册").sort()).toEqual(["e1-1", "e1-2", "e1-4", "e1-5", "e1-6"]);
         expect(section(text, "其他对象")).toContain("e1-3｜地点｜蓉城最好的医学院｜苏天晴就读的医学院");
-        expect(ids("秘密与知情")).toEqual(["x1-2"]);
+        // 医学院的暗室：林晚知道它列的说法，也算有相关对象的知情记录。
+        expect(ids("秘密与知情")).toEqual(["x1-2", "x1-3"]);
         expect(section(text, "当前状态").join("\n")).toContain("神典石");
         expect(section(text, "当前状态").join("\n")).not.toContain("经费");
         expect(ids("未解的疑问").sort()).toEqual(["q2-1", "q22-1"]);
@@ -106,7 +119,7 @@ describe("抽普通章时只详列相关的行", () => {
         // 不传本章（整理）时照旧全列。
         const full = renderContext(dataset, 24);
         expect(section(full, "其他对象")).toEqual([]);
-        expect(section(full, "对象名册").filter(line => /^e\d/u.test(line))).toHaveLength(5);
+        expect(section(full, "对象名册").filter(line => /^e\d/u.test(line))).toHaveLength(6);
         expect(section(full, "未解的疑问").join("\n")).toContain("q1-1");
     });
 

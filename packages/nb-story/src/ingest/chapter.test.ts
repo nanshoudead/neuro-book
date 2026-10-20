@@ -95,6 +95,8 @@ describe("回放前 10 章（输出 4、7）", () => {
         expect(drafts).toEqual(final.drafts.slice(0, 10) as RawDraft[]);
         expect(consolidations).toEqual(final.consolidations.slice(0, 2));
         expect(results.map(result => result.dropped)).toEqual(Array(10).fill(0));
+        // 挑选关着：第 1 章没有已提交的记录，什么都不用选；之后各章按规则缩减。
+        expect(results.map(result => result.recall.source)).toEqual(["none", ...Array(9).fill("rule")]);
 
         // 每一步都发了，而且只发了一次；推理档与当时相同。
         expect(requests.map(request => request.key).sort()).toEqual(Object.entries(recordedRequests).flatMap(([chapter, steps]) => Object.keys(steps).map(step => `${chapter}:${step}`)).sort());
@@ -185,8 +187,9 @@ describe("挑相关说法（输出 4、9、10）", () => {
     }, 60_000);
 
     test("挑选中途停止：以停止结束，不往下抽", async () => {
+        // 端点收到挑选请求时停止，流卡住不结束。
         const run = await chapterTen((_nth, abort) => {
-            setTimeout(abort, 50);
+            abort();
             return {kind: "stall", text: "{"};
         });
         expect(!run.outcome.ok && run.outcome.error instanceof ModelAborted).toBe(true);

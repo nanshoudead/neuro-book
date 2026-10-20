@@ -156,7 +156,8 @@ function relevanceFor(dataset: Dataset, afterChapter: number, readAt: Position, 
         .filter(entity => visibleAt(entity.at, readAt))
         .flatMap(entity => entity.names.filter(name => visibleAt(name.at, readAt) && [...name.text].length >= 2).map(name => ({entity: entity.id, text: name.text})));
     const found = occurrenceFinder(names.map(name => name.text))(text);
-    const visibleIds = new Set(names.map(name => name.entity));
+    // 最近的提及只要求对象此时可见，不要求它有可见的称呼：只用代称出现过的对象也算（实现审查第 7 条）。
+    const visibleIds = new Set(dataset.entities.filter(entity => visibleAt(entity.at, readAt)).map(entity => entity.id));
     const entities = new Set(names.filter(name => found.has(name.text)).map(name => name.entity));
     for (const mention of dataset.mentions) {
         if (mention.at.chapter > afterChapter - RECENT_CHAPTERS && visibleAt(mention.at, readAt) && visibleIds.has(mention.entity)) entities.add(mention.entity);
@@ -169,10 +170,13 @@ function relevanceFor(dataset: Dataset, afterChapter: number, readAt: Position, 
         who.add(item.who);
         knowers.set(item.about, who);
     }
-    const secrets = dataset.secrets.filter(secret => visibleAt(secret.at, readAt) && (secret.about.some(id => entities.has(id)) || [...(knowers.get(secret.id) ?? [])].some(id => entities.has(id))));
+    // 知情记录可以指向秘密本身，也可以指向它列的说法（与 secretTable 的目标相同）。
+    const knowsAbout = (secret: Secret) => [secret.id, ...secret.statements].some(target => [...(knowers.get(target) ?? [])].some(id => entities.has(id)));
+    const secrets = dataset.secrets.filter(secret => visibleAt(secret.at, readAt) && (secret.about.some(id => entities.has(id)) || knowsAbout(secret)));
 
     const since = afterChapter - QUESTION_WINDOW;
-    const questions = dataset.questions.filter(question => visibleAt(question.at, readAt) && (question.at.chapter > since || question.updates.some(update => visibleAt(update.at, readAt) && update.at.chapter > since)));
+    // 只要会列出的：已解答的不列，它的答案也不算“列出的疑问的答案”（实现审查第 4 条）。
+    const questions = dataset.questions.filter(question => visibleAt(question.at, readAt) && questionState(question, readAt) !== "answered" && (question.at.chapter > since || question.updates.some(update => visibleAt(update.at, readAt) && update.at.chapter > since)));
     return {entities, secrets, questions};
 }
 
@@ -184,11 +188,14 @@ function linkedIds(relevance: Relevance, readAt: Position): Set<string> {
     ]);
 }
 
-/** 说法挂在列出的秘密、疑问上，或不针对任何对象、秘密、疑问（世界设定、作者声明：没有别的途径会被选中）。 */
+/** 说法挂在列出的秘密、疑问上。 */
 function linkedTo(relevance: Relevance, linked: Set<string>): (item: Statement) => boolean {
     const secrets = new Set(relevance.secrets.map(secret => secret.id));
-    return item => linked.has(item.id) || (item.secret !== undefined && secrets.has(item.secret)) || (item.about.length === 0 && item.source.by === null && item.holder === null && item.secret === undefined);
+    return item => linked.has(item.id) || (item.secret !== undefined && secrets.has(item.secret));
 }
+
+/** 不针对任何对象、秘密的说法（世界设定、作者声明）：没有别的途径会被选中，所以排在最前（样例书全书 3 条）。 */
+const unattached = (item: Statement) => item.about.length === 0 && item.source.by === null && item.holder === null && item.secret === undefined;
 
 /** 按顺序从几组里取说法，合计不超过 `budget` 字（按已有记录里的一行算）；每组取到放不下为止。 */
 function takeWithin(groups: Statement[][], budget: number): Statement[] {
@@ -211,11 +218,11 @@ function selectFor(dataset: Dataset, afterChapter: number, readAt: Position, foc
     let statements: Set<string>;
     if (focus.statements) statements = new Set(focus.statements);
     else {
-        // 先放与列出的秘密、疑问相连的和不针对具体对象的，再用最近的补满。旧管线的跨章说法引用在 8,000 字时全部
+        // 先放不针对具体对象的与挂在列出的秘密、疑问上的，再用最近的补满。旧管线的跨章说法引用在 8,000 字时全部
         // 留住，只取最近的会丢一些（t10 README 决定 9）。
-        const preferred = linkedTo(relevance, linkedIds(relevance, readAt));
+        const linked = linkedTo(relevance, linkedIds(relevance, readAt));
         const newestFirst = dataset.statements.filter(item => visibleAt(item.at, readAt)).sort((a, b) => comparePosition(b.at, a.at));
-        statements = new Set(takeWithin([newestFirst.filter(preferred), newestFirst.filter(item => !preferred(item))], STATEMENT_BUDGET).map(item => item.id));
+        statements = new Set(takeWithin([newestFirst.filter(unattached), newestFirst.filter(item => !unattached(item) && linked(item)), newestFirst.filter(item => !unattached(item) && !linked(item))], STATEMENT_BUDGET).map(item => item.id));
     }
     return {entities: relevance.entities, secrets: new Set(relevance.secrets.map(secret => secret.id)), questions: new Set(relevance.questions.map(question => question.id)), times, statements};
 }
@@ -224,17 +231,18 @@ function selectFor(dataset: Dataset, afterChapter: number, readAt: Position, foc
 export const RECALL_CANDIDATE_BUDGET = 25_000;
 
 /**
- * 挑选相关说法的候选（ingest.md 输出 4）：挂在列出的秘密、疑问上的与不针对具体对象的先放，再放涉及相关对象（`about`、
- * 说话人、持有人）的，各自从新到旧，合计到上限为止。按原文先后返回。
+ * 挑选相关说法的候选（ingest.md 输出 4）：不针对具体对象的先放，再放挂在列出的秘密、疑问上的，再放涉及相关对象
+ * （`about`、说话人、持有人）的，各自从新到旧，合计到上限为止。按原文先后返回。
  */
 export function recallCandidates(dataset: Dataset, afterChapter: number, text: string): {id: string; text: string}[] {
     const last = dataset.sources.find(item => item.chapter === afterChapter);
     const readAt: Position = {chapter: afterChapter, paragraph: last?.paragraphs.length ?? 1};
     const relevance = relevanceFor(dataset, afterChapter, readAt, text);
-    const preferred = linkedTo(relevance, linkedIds(relevance, readAt));
+    const linked = linkedTo(relevance, linkedIds(relevance, readAt));
     const involved = (item: Statement) => item.about.some(id => relevance.entities.has(id)) || (item.source.by !== null && relevance.entities.has(item.source.by)) || (item.holder !== null && relevance.entities.has(item.holder));
     const newestFirst = dataset.statements.filter(item => visibleAt(item.at, readAt)).sort((a, b) => comparePosition(b.at, a.at));
-    const taken = new Set(takeWithin([newestFirst.filter(preferred), newestFirst.filter(item => !preferred(item) && involved(item))], RECALL_CANDIDATE_BUDGET));
+    const rest = newestFirst.filter(item => !unattached(item));
+    const taken = new Set(takeWithin([newestFirst.filter(unattached), rest.filter(linked), rest.filter(item => !linked(item) && involved(item))], RECALL_CANDIDATE_BUDGET));
     return dataset.statements.filter(item => taken.has(item)).map(item => ({id: item.id, text: item.text}));
 }
 

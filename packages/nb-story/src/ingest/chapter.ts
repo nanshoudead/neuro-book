@@ -139,7 +139,8 @@ export async function extractChapter(input: ChapterInput, run: ChapterRun): Prom
     const targets = [{chapter, paragraphs}];
     const text = paragraphs.join("\n");
     const notes: string[] = [];
-    let recall: ChapterResult["recall"] = {source: run.recallEndpoint ? "none" : "rule", ids: []};
+    // 第 1 章没有已提交的记录，什么都不用选（实现审查第 6 条）。
+    let recall: ChapterResult["recall"] = {source: prior && !run.recallEndpoint ? "rule" : "none", ids: []};
     let statements: string[] | undefined;
     if (prior && run.recallEndpoint) {
         const candidates = recallCandidates(prior, chapter - 1, text);
