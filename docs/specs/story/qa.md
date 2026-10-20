@@ -136,6 +136,7 @@ type QaConfig = {
 20. **写入规则。** 写之前整份配置过校验，不通过就不写、原文件不变（`qa_unconfigured`，写明哪个字段）；通过的写同目录临时文件再改名，正在读它的 `ask` 读到的要么是旧的整份、要么是新的整份；写不进去报 `qa_config_write_failed`（F7）。配置里只有环境变量名，密钥值不出现在配置文件、输出与错误里。
 21. **test。** 用配置里的模型、推理档和密钥环境变量，经与问答相同的路径向模型发一个最小请求：通过时输出模型名、用时、用量，以及配置里写的推理档；失败按 `ask` 的归类以 `model_failed` 失败，退出码 4；取消 130。请求带推理档当且仅当配置写了。输出只报告配置里写的推理档，不声称服务端已按该档思考。
 22. **config 的退出码。** 0 成功；1 配置不合格或写失败（`qa_unconfigured`、`qa_config_write_failed`）；2 用法错误（未知动作、参数个数不对、字段名或值的写法不对、缺必填项又不在终端、已有配置而没有 `--force`）；`test` 失败为 4，取消为 130。
+23. **抽取模型的字段。** `config set`、`unset`、`show` 另认 `ingest.model.*`（字段同 `model.*`，`thinking` 除外，见 [`story.ingest`](ingest.md#抽取模型)）；`ingest.model` 整节可以去掉，去掉后抽取用 `model`；`config test --ingest` 检查抽取模型。（planned）
 
 ## 状态与转换
 

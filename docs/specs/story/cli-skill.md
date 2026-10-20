@@ -15,7 +15,7 @@ owners:
 
 明确不承诺：
 
-- 只有 `ask`（内置问答）与 `config test`（检查问答配置）调用模型，见 [`story.qa`](qa.md)；其余命令不调用模型。Skill 教外部 Agent 自己查、自己答，不引导它调 `ask`。
+- 只有 `ask`（内置问答）、`config test`（检查问答配置）与 `ingest`（抽取）调用模型，见 [`story.qa`](qa.md)、[`story.ingest`](ingest.md)；其余命令不调用模型。Skill 教外部 Agent 自己查、自己答，不引导它调 `ask`。
 - 不发布安装包：第一版从仓库运行。
 - Skill 不保证外部 Agent 一定按它做；它给出步骤、规则与判据。
 
@@ -56,6 +56,7 @@ owners:
 | `nbstory para <章.段> [--at]` | `source.records` | 引用某一段的记录 |
 | `nbstory serve [--port <端口>] [--open]` | — | 启动查看器的独立服务 |
 | `nbstory ask <问题>`、`nbstory qa`、`nbstory config` | — | 内置问答、问答记录与问答配置，见 [`story.qa`](qa.md#命令) |
+| `nbstory ingest <原文文件>`、`nbstory ingest --book`、`nbstory ingest --status` | — | 导入原文并抽取、接着抽、看进度，见 [`story.ingest`](ingest.md#命令) |
 
 - 所有书级命令都接受 `--book <书>`（书库只有一本书时可省略）；所有命令都接受 `--library <目录>` 与 `--json`；分页的命令接受 `--limit` 与 `--cursor`。
 - 参数名与方法参数同名（多词的写成连字符形式，例如 `--min-together` 对 `minTogether`）。
@@ -69,7 +70,7 @@ owners:
 4. **查看器地址。** 有一个有效的独立服务登记（见“副作用与数据”）时，给人读的输出末尾附上查看器里对应画面的地址，形状按 [`story.viewer`](viewer.md#边界与兼容)；地址里不含登录口令。
 5. **`serve`。** 启动只监听本机的独立服务（不给端口时自动选一个空闲端口），先开始监听、再写下服务登记，然后打印登录链接（形状见 [`story.queries`](queries.md#边界与兼容)）；`--open` 用默认浏览器打开它。服务在前台运行，收到中断信号时停止：先撤销自己的登记，再停止监听，口令与会话随之作废。同一书库同时只允许一个有效的服务。
 6. **`import`。** 成功时输出新书的 id；失败时书库不变。
-7. **退出码。** 0 成功；1 查询失败（错误码见 [`story.queries`](queries.md#失败与恢复)）；2 用法错误（未知命令或参数）；`serve` 启动失败为 3；`ask` 另有 4 与 130，见 [`story.qa`](qa.md) 输出 14；`config` 的退出码见 [`story.qa`](qa.md) 输出 22。
+7. **退出码。** 0 成功；1 查询失败（错误码见 [`story.queries`](queries.md#失败与恢复)）；2 用法错误（未知命令或参数）；`serve` 启动失败为 3；`ask` 另有 4 与 130，见 [`story.qa`](qa.md) 输出 14；`config` 的退出码见 [`story.qa`](qa.md) 输出 22；`ingest` 的见 [`story.ingest`](ingest.md) 输出 11。
 
 ### Skill
 
@@ -110,7 +111,7 @@ owners:
 
 - **公开接口**：命令名、参数名、`--json` 的输出形状与退出码；新增命令与可选参数不算破坏兼容。
 - **Skill**：随包提供的 `SKILL.md` 与参考文件；属于开发者以外用户可用的资产，内容随命令变化同步更新。
-- 除 `ask`、`config test` 外，命令行不读密钥、不发起网络请求（`serve` 只监听本机）；这两条命令从配置指定的环境变量读密钥，只向配置里的模型服务发请求。`config` 的其它动作只读写配置文件，不读密钥值。
+- 除 `ask`、`config test`、`ingest` 外，命令行不读密钥、不发起网络请求（`serve` 只监听本机，它运行网页发起的抽取任务时同样读密钥、向模型服务发请求）；这几条命令从配置指定的环境变量读密钥，只向配置里的模型服务发请求。`config` 的其它动作只读写配置文件，不读密钥值。
 
 ## 验收与 Smoke
 
