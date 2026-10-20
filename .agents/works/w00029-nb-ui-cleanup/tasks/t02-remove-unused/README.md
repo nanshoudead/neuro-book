@@ -1,7 +1,7 @@
 ---
 schema: nbook.task/v2
 taskId: t02-remove-unused
-status: active
+status: done
 updated: 2026-10-20
 ---
 
@@ -31,4 +31,4 @@ updated: 2026-10-20
 
 ## 下一步
 
-已合入 master（合并提交 `cd085308b`，未推送）；`Banner` 的去留等开发者定。
+已合入 master（合并提交 `cd085308b`，未推送）；`Banner` 的去留并入 t03（功能重复的一组）。
