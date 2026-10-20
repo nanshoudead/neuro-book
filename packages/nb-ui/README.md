@@ -96,6 +96,7 @@ import {useNotification} from "@notnotype/nb-ui/composables";
 - `Popover`：通用气泡卡片，消费磨砂浮层材质基座。
 - `Tooltip` / `ContextMenu`：延迟/即时提示框与右键上下文菜单。
 - `InfoTip`：字段标签旁的问号说明图标，悬停或聚焦时用 Tooltip 显示说明。
+- `SuggestionMenu`：输入时弹出的候选菜单（Composer 的 `@`、`/`、`$`，编辑器的斜杠菜单）：不抢焦点，键盘由宿主处理；贴光标或贴输入框，逐帧跟随、按可用空间翻转与收矮；`suggestionOptionId` 给宿主的 `aria-activedescendant`。
 - `QuickPick`：输入筛选、从候选里挑一项的浮层（命令面板、快速打开、跳到行都用它，S4 层级）；纯受控候选项/查询/活动项，`>` 命令与 `:` 行号等前缀解析归宿主。模态键盘与焦点合同、`closed` 真实关闭交接事件、`NB_Z_INDEX.commandPalette`（9200）层级。
 - `Notification` / `NotificationStack`：一条通知，与屏幕一角排队显示通知的容器；队列可用 `createNotificationQueue()` 自建一份传给它，通知可带进度。队列本身不碰 DOM，从子路径 `@notnotype/nb-ui/notifications` 单独导入时不会把别的 composable 带进无 DOM 的编译组。
 - `Banner`：区域或页面顶部的常驻横幅（已断开正在重连、有新版本要刷新），不进队列、不自动消失。
@@ -123,9 +124,10 @@ Shared style registries (register instead of copying values):
 - `NB_Z_INDEX` (`@notnotype/nb-ui/theme`) — overlay z-indexes; bind via `:style`.
 - `.nb-ui-popover-surface` (`styles.css`) — floating panel border/background/shadow/backdrop base (DropdownMenu, Select, ContextMenu, Tooltip, Dialog).
 - `.nb-ui-tooltip-surface` (`styles.css`) — compact paper Tooltip modifier: control-radius surface, short attached arrow, and theme-aware text/padding.
-- `.nb-ui-menu-surface` — menu/dropdown radius modifier; consumes `--radius-menu` and keeps nested items concentric.
+- `.nb-ui-menu-surface` — popup-list modifier (DropdownMenu, Select, Menubar, ContextMenu, QuickPick, SuggestionMenu): consumes `--radius-menu` and writes the `--menu-pad` padding, so nested items stay concentric.
+- `.nb-ui-menu-item` (+ `__check`, `__icon`, `__label`, `__hint`, `--multiline`), `.nb-ui-menu-label`, `.nb-ui-menu-separator` — one popup-list row: `--menu-item-h` / `--menu-item-font`, concentric radius, highlight only on `[data-highlighted]`, left check column.
 - `.nb-ui-surface-rim` — opt-in Liquid Glass edge sheen for complete Dialog surfaces (modal and window); nbook small popovers leave it off.
-- `.nb-ui-menu-item-danger` (`styles.css`) — destructive menu items (DropdownMenu, ContextMenu).
+- `.nb-ui-menu-item-danger` (`styles.css`) — destructive menu items: danger text and icon colour; the highlight stays neutral.
 
 ## UI development contract
 
