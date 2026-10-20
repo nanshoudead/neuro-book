@@ -26,7 +26,7 @@ updated: 2026-10-20
 
 ## 当前状态
 
-第 1 轮已定（见上）。第 1、2 轮已定（见上）。第 3 轮也已定，静态稿问完；下一步写实施计划。静态稿：草稿 worktree `.worktree/w00029-t04-drafts`（分支 `t04/drafts`，不合并），问列表项的高亮与选中各统一成哪一种；先并排画出六个弹出列表的现状。原图放本地 `.local/agent/works/w00029-nb-ui-cleanup/tasks/t04-popup-lists/shots/`。
+第 1 轮已定（见上）。第 1、2 轮已定（见上）。第 3 轮也已定，静态稿问完。实施计划 [`plan.md`](plan.md) 开发者 2026-10-20 已确认（含新组件名 `SuggestionMenu`、去掉 `DropdownMenu` 的 `compact` 与 `active`、定位用 `@floating-ui/dom`）；交 omp 做计划审查，处理完再开工。静态稿：草稿 worktree `.worktree/w00029-t04-drafts`（分支 `t04/drafts`，不合并），问列表项的高亮与选中各统一成哪一种；先并排画出六个弹出列表的现状。原图放本地 `.local/agent/works/w00029-nb-ui-cleanup/tasks/t04-popup-lists/shots/`。
 
 ## 下一步
 
