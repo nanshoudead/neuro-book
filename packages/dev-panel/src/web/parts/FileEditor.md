@@ -4,7 +4,7 @@
 
 # FileEditor
 
-编辑页的 Markdown 编辑器（t10）：组合 nb-ui 的 `FormTextarea`、`SegmentedControl` 与本包的 `MarkdownView`，在编辑与预览之间切换；不改 nb-ui、不加编辑器依赖（决定点 5）。根级治理入口（`AGENTS.md`、`WATCHDOG.md` 等）另显示非空行数与治理检查的上限，超了标红。
+编辑页的 Markdown 编辑器（t10）：组合 nb-ui 的 `Textarea`、`SegmentedControl` 与本包的 `MarkdownView`，在编辑与预览之间切换；不改 nb-ui、不加编辑器依赖（决定点 5）。根级治理入口（`AGENTS.md`、`WATCHDOG.md` 等）另显示非空行数与治理检查的上限，超了标红。
 
 ## 数据
 

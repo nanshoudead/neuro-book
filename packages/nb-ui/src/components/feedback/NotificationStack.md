@@ -2,9 +2,9 @@
 标签: [env:timer]
 ---
 
-# NotificationViewport
+# NotificationStack
 
-`NotificationViewport` 是一份通知队列的可视出口：把队列里的通知固定显示在视口边缘，并集中处理自动消失、悬停暂停、关闭和通知动作。它本身不创建通知；宿主挂一个视口，就能显示经该队列发出的通知。队列缺省是 `useNotification()` 的模块级队列；要隔离时（一个窗口一份、Lab 场景、测试）用 `createNotificationQueue()` 自建一份传给 `queue`。
+`NotificationStack` 是一份通知队列的可视出口：把队列里的通知固定显示在视口边缘，并集中处理自动消失、悬停暂停、关闭和通知动作。它本身不创建通知；宿主挂一个视口，就能显示经该队列发出的通知。队列缺省是 `useNotification()` 的模块级队列；要隔离时（一个窗口一份、Lab 场景、测试）用 `createNotificationQueue()` 自建一份传给 `queue`。
 
 ## 布局
 
@@ -25,7 +25,7 @@
 ```ts
 type NotificationPosition = "bottom-center" | "bottom-right" | "top-right";
 
-interface NotificationViewportProps {
+interface NotificationStackProps {
     /** 通知堆叠位置；默认 "bottom-center"。 */
     position?: NotificationPosition;
     /** 每条通知关闭按钮的可访问名称与 title；默认 "关闭通知"。 */
@@ -34,11 +34,11 @@ interface NotificationViewportProps {
     queue?: NotificationQueue;
 }
 
-interface NotificationViewportEmits {}
-interface NotificationViewportSlots {}
+interface NotificationStackEmits {}
+interface NotificationStackSlots {}
 ```
 
-没有 `update:*` 事件，通知列表不受控于 props；组件不 expose 方法或属性。根节点是一个固定定位的容器（`data-notification-viewport`），未声明的 attrs 落在它上面。
+没有 `update:*` 事件，通知列表不受控于 props；组件不 expose 方法或属性。根节点是一个固定定位的容器（`data-notification-stack`），未声明的 attrs 落在它上面。
 
 ## 状态与边界
 

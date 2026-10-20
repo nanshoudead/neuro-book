@@ -9,7 +9,7 @@
 
 ## 布局
 
-占满父容器的高度，自己是滚动容器（视图 `layout: "fill"`），滚动条是叠在树上、不占宽度、鼠标进来才显示的 nb-ui `OverlayScrollbar`（[`workbench/views.md`](../../../../../../../docs/specs/workbench/views.md) 输出 12），树与它一起包在一层定位的外壳里。树自成层叠上下文：行与落点反馈的层级只在树里比，不盖过页面上的菜单。缩进参考线（[`workbench/files-explorer.md`](../../../../../../../docs/specs/workbench/files-explorer.md) 的“行的样子”）由各行自己画，树决定显隐与加深哪一段：根上 `data-guides` 是 `indentGuides` 的档位，`always`，或 `hover` 时鼠标在树上、树里有焦点，给后代 `--explorer-guide-opacity: 1`；加深的是焦点行（没有焦点时取第一个选中行）连续的同层兄弟那一段（中间更深的行也算）上级的那一层，焦点在根或根的直接子项上时不加深。行左右离边的距离取视图外框给的 `--view-inset-inline`（nbook 是 6px，见 `WorkbenchViewFrame.md`），悬停与选中的底色是圆角块，块边与别的视图的内容边对齐。行高取主题的 `--control-h-sm`（能装下 `FormInput` 的 `sm` 与焦点框）：一个隐藏的探针元素量出它，主题或字号变了随之重算，并按滚动锚点换算滚动位置，阅读位置停在同一资源上。视口高度用布局盒测量；视图停放时尺寸为零，不改记住的滚动位置。滚动锚点是首个可见行的地址与行内偏移：前方插入或删除行时阅读位置不跳；内容变短时夹到合法范围。
+占满父容器的高度，自己是滚动容器（视图 `layout: "fill"`），滚动条是叠在树上、不占宽度、鼠标进来才显示的 nb-ui `OverlayScrollbar`（[`workbench/views.md`](../../../../../../../docs/specs/workbench/views.md) 输出 12），树与它一起包在一层定位的外壳里。树自成层叠上下文：行与落点反馈的层级只在树里比，不盖过页面上的菜单。缩进参考线（[`workbench/files-explorer.md`](../../../../../../../docs/specs/workbench/files-explorer.md) 的“行的样子”）由各行自己画，树决定显隐与加深哪一段：根上 `data-guides` 是 `indentGuides` 的档位，`always`，或 `hover` 时鼠标在树上、树里有焦点，给后代 `--explorer-guide-opacity: 1`；加深的是焦点行（没有焦点时取第一个选中行）连续的同层兄弟那一段（中间更深的行也算）上级的那一层，焦点在根或根的直接子项上时不加深。行左右离边的距离取视图外框给的 `--view-inset-inline`（nbook 是 6px，见 `WorkbenchViewFrame.md`），悬停与选中的底色是圆角块，块边与别的视图的内容边对齐。行高取主题的 `--control-h-sm`（能装下 `Input` 的 `sm` 与焦点框）：一个隐藏的探针元素量出它，主题或字号变了随之重算，并按滚动锚点换算滚动位置，阅读位置停在同一资源上。视口高度用布局盒测量；视图停放时尺寸为零，不改记住的滚动位置。滚动锚点是首个可见行的地址与行内偏移：前方插入或删除行时阅读位置不跳；内容变短时夹到合法范围。
 
 ## 交互
 

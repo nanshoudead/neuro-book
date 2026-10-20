@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /** 资源管理器视图的界面（同名 .md）。 */
-import {AlertDialog, Button, ContextMenu, Dialog, FormCheckbox, FormInput} from "@notnotype/nb-ui/components";
+import {AlertDialog, Button, ContextMenu, Dialog, Checkbox, Input} from "@notnotype/nb-ui/components";
 import type {ContextMenuCloseReason, ContextMenuItem} from "@notnotype/nb-ui/components";
 import {computed, nextTick, ref, watch} from "vue";
 
@@ -262,11 +262,11 @@ defineExpose({focusTree});
             <div class="flex flex-col gap-3 text-sm" data-explorer-display>
                 <label class="flex flex-col gap-1">
                     <span class="text-xs text-[var(--text-secondary)]">{{ explorerText(locale, "displayName") }}</span>
-                    <FormInput v-model="displayTitle" size="sm" data-explorer-display-title />
+                    <Input v-model="displayTitle" size="sm" data-explorer-display-title />
                 </label>
                 <label class="flex flex-col gap-1">
                     <span class="text-xs text-[var(--text-secondary)]">{{ explorerText(locale, "displayIcon") }}</span>
-                    <FormInput v-model="displayIcon" size="sm" data-explorer-display-icon />
+                    <Input v-model="displayIcon" size="sm" data-explorer-display-icon />
                 </label>
                 <p class="text-xs text-[var(--text-muted)]">{{ explorerText(locale, "displayHint") }}</p>
             </div>
@@ -287,7 +287,7 @@ defineExpose({focusTree});
                 </dl>
                 <label class="flex flex-col gap-1">
                     <span class="text-xs text-[var(--text-secondary)]">{{ explorerText(locale, "collisionName") }}</span>
-                    <FormInput
+                    <Input
                         v-model="collisionName"
                         size="sm"
                         :aria-invalid="collisionError ? 'true' : undefined"
@@ -296,7 +296,7 @@ defineExpose({focusTree});
                     />
                 </label>
                 <p v-if="collisionError" id="explorer-collision-error" role="alert" class="text-xs text-[var(--status-danger)]">{{ collisionError }}</p>
-                <FormCheckbox v-model="collisionAll" :label="explorerText(locale, 'collisionAll')" data-explorer-collision-all />
+                <Checkbox v-model="collisionAll" :label="explorerText(locale, 'collisionAll')" data-explorer-collision-all />
             </form>
             <template #footer>
                 <div class="flex flex-wrap justify-end gap-2">

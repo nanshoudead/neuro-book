@@ -2,9 +2,9 @@
 标签: [state:local, state:inject, env:portal, env:global]
 ---
 
-# FormSelect
+# Select
 
-`FormSelect` 是可主题化的单值下拉选择控件。它把选项的 label、描述、图标或状态点渲染到可滚动的 Reka Select 浮层中，支持受控字符串值、禁用选项、固定向上/向下或自动碰撞定位；与原生 `<select>` 不同，浮层内容属于组件库 DOM，可以统一应用 nb-ui 材质、尺寸和滚动条。
+`Select` 是可主题化的单值下拉选择控件。它把选项的 label、描述、图标或状态点渲染到可滚动的 Reka Select 浮层中，支持受控字符串值、禁用选项、固定向上/向下或自动碰撞定位；与原生 `<select>` 不同，浮层内容属于组件库 DOM，可以统一应用 nb-ui 材质、尺寸和滚动条。
 
 ## 布局
 
@@ -27,10 +27,10 @@
 ## 数据
 
 ```ts
-export type FormSelectSize = "default" | "sm";
-export type FormSelectDirection = "auto" | "up" | "down";
+export type SelectSize = "default" | "sm";
+export type SelectDirection = "auto" | "up" | "down";
 
-export type FormSelectOption = {
+export type SelectOption = {
     /** 主标签；必填。 */
     label: string;
     /** 发给 update:modelValue 的值；必填且应在 options 中唯一。 */
@@ -45,39 +45,39 @@ export type FormSelectOption = {
     disabled?: boolean;
 };
 
-type FormSelectProps = {
+type SelectProps = {
     /** 当前选项 value；受控字符串，默认 ""。 */
     modelValue?: string;
     /** 选项列表；必填。 */
-    options: FormSelectOption[];
-    /** 触发器 id；空时优先使用 FormField 上下文 id，默认 ""。 */
+    options: SelectOption[];
+    /** 触发器 id；空时优先使用 Field 上下文 id，默认 ""。 */
     id?: string;
     /** 原生 name；空时不设置 name，默认 ""。 */
     name?: string;
     /** 没有匹配选项时的占位文字；默认 ""。 */
     placeholder?: string;
     /** 控件尺寸；默认 "default"。 */
-    size?: FormSelectSize;
+    size?: SelectSize;
     /** 浮层方向；默认 "auto"。 */
-    dropdownDirection?: FormSelectDirection;
+    dropdownDirection?: SelectDirection;
     /** 禁止打开和选择；默认 false。 */
     disabled?: boolean;
-    /** required 语义；默认 false，并与 FormField required 合并。 */
+    /** required 语义；默认 false，并与 Field required 合并。 */
     required?: boolean;
     /** 是否隐藏选中勾选标记；默认 false。 */
     hideCheckmark?: boolean;
 };
 
-type FormSelectEmits = {
+type SelectEmits = {
     /** 选择变化时发出；value 是字符串，非字符串上游值回退为 ""。 */
     (event: "update:modelValue", value: string): void;
     /** 触发器获得焦点时发出。 */
     (event: "focus", event: FocusEvent): void;
 };
 
-type FormSelectSlots = {
-    /** 触发器左侧内容；selected 是当前匹配的 FormSelectOption 或 undefined。 */
-    leading?: (props: {selected: FormSelectOption | undefined}) => unknown;
+type SelectSlots = {
+    /** 触发器左侧内容；selected 是当前匹配的 SelectOption 或 undefined。 */
+    leading?: (props: {selected: SelectOption | undefined}) => unknown;
 };
 ```
 
@@ -90,7 +90,7 @@ type FormSelectSlots = {
 - **默认/空值**：触发器显示 placeholder；无匹配 `modelValue` 时也按空选择处理，选项列表仍可打开；`options=[]` 时没有选项行，也不显示自定义空状态。
 - **已选值**：显示匹配选项的 label，并按 `indicatorClass` 优先、否则 `iconClass` 显示前导标识；浮层中该项显示勾选标记（除非 hideCheckmark）。
 - **禁用**：触发器不可操作；单个 disabled 选项保留在列表中但不可选。
-- **错误**：FormField 的 invalid 上下文使触发器使用错误样式并设置 `aria-invalid`、`aria-describedby`；required 与字段上下文取逻辑或。
+- **错误**：Field 的 invalid 上下文使触发器使用错误样式并设置 `aria-invalid`、`aria-describedby`；required 与字段上下文取逻辑或。
 - **长列表**：浮层内部可滚动；内容超出视口时显示拖动滑块和渐隐提示。
 - **只读、加载中、出错**：组件没有统一 readonly、loading 或请求错误状态；宿主应通过 disabled、options 或外围状态表达。
 
@@ -108,6 +108,6 @@ Reka UI 的 Select 原语负责 combobox/listbox 角色、键盘漫游、Escape/
 ## 隐藏通道理由
 
 - `state:local`：组件使用下拉浮层 composable 持有滚动条几何、滚动端点、拖拽状态与 ResizeObserver 观察结果。这些是本次浮层实例的临时呈现状态，组件销毁即丢失，不替代父组件的选中值。
-- `state:inject`：浮层样式通过 `NB_POPOVER_Z_INDEX` 可选读取 `Dialog` 的窗口层级，使窗口内下拉菜单压在窗口表面之上；未注入时回退到公共 popover 层级。FormField 的字段语义上下文也通过 `useFormFieldContext` 可选读取，但不读取业务 store。
+- `state:inject`：浮层样式通过 `NB_POPOVER_Z_INDEX` 可选读取 `Dialog` 的窗口层级，使窗口内下拉菜单压在窗口表面之上；未注入时回退到公共 popover 层级。Field 的字段语义上下文也通过 `useFieldContext` 可选读取，但不读取业务 store。
 - `env:portal`：`SelectPortal` 将选项浮层移出触发器所在 stacking context，避免被表单或面板裁剪；组件不暴露自定义目标，目标与缺失目标行为遵循 Reka Portal。
 - `env:global`：拖动悬浮滚动条需要在手势期间向 `window` 注册 `mousemove`/`mouseup`，以便指针离开滑块后仍能完成拖动；结束或卸载时解除监听，不是常驻全局快捷键。

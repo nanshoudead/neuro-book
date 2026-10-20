@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /** 编辑组的面包屑（同名 .md）。 */
-import {Dropdown} from "@notnotype/nb-ui/components";
-import type {DropdownItem} from "@notnotype/nb-ui/components";
+import {DropdownMenu} from "@notnotype/nb-ui/components";
+import type {DropdownMenuItemData} from "@notnotype/nb-ui/components";
 import {computed, nextTick, onBeforeUnmount, ref, shallowRef, watch} from "vue";
 
 import FileIcon from "nbook/ui/file-icons/FileIcon.vue";
@@ -120,20 +120,20 @@ watch(opened, (index) => {
     outlineAtOpen.value = index === HEADING && props.outline !== null ? {binding: props.outline.binding, version: props.outline.version} : null;
 });
 
-const directoryItems = computed((): DropdownItem[] => {
+const directoryItems = computed((): DropdownMenuItemData[] => {
     const current = listing.value;
     if (current === null) return [];
     if (current.state === "loading") return [{label: t("crumbLoading"), value: "state:loading", disabled: true}];
     if (current.state === "failed") return [{label: current.reason, value: "state:failed", disabled: true, tone: "danger"}, {label: t("crumbRetry"), value: "state:retry", iconClass: "i-lucide-rotate-cw"}];
     if (current.entries.length === 0) return [{label: t("crumbEmpty"), value: "state:empty", disabled: true}];
-    return current.entries.map((entry): DropdownItem => {
+    return current.entries.map((entry): DropdownMenuItemData => {
         if (entry.kind === "directory") return {label: entry.name, value: `dir:${entry.address}`, iconClass: "i-lucide-folder", rightIconClass: "i-lucide-chevron-right"};
         if (entry.kind === "file") return {label: entry.name, value: `file:${entry.address}`, iconClass: "i-lucide-file-text", type: "radio", group: "files", checked: entry.address === current.current};
         return {label: entry.name, value: `other:${entry.address}`, iconClass: "i-lucide-file-question", disabled: true};
     });
 });
 
-const outlineItems = computed((): DropdownItem[] => (props.outline?.items ?? []).map((item) => ({
+const outlineItems = computed((): DropdownMenuItemData[] => (props.outline?.items ?? []).map((item) => ({
     // 按层级缩进：一级不缩，往下每级一个全角空格。
     label: `${"　".repeat(Math.max(0, item.level - 1))}${item.text}`,
     value: `heading:${item.id}`,
@@ -205,7 +205,7 @@ watch(() => props.focusSeq, (next, previous) => {
     <nav v-if="segments.length > 0" ref="nav" class="editor-crumbs" :aria-label="t('crumbsLabel')" data-editor-breadcrumbs>
         <template v-for="(segment, index) in segments" :key="segment.address">
             <span v-if="index > 0" class="i-lucide-chevron-right editor-crumbs__separator" aria-hidden="true"></span>
-            <Dropdown :items="directoryItems" :open="opened === index" compact menu-max-height="320px" @update:open="(open: boolean) => openSegment(index, open)" @select="select">
+            <DropdownMenu :items="directoryItems" :open="opened === index" compact menu-max-height="320px" @update:open="(open: boolean) => openSegment(index, open)" @select="select">
                 <button
                     type="button"
                     class="editor-crumbs__segment nb-ui-focus-ring-inset"
@@ -219,11 +219,11 @@ watch(() => props.focusSeq, (next, previous) => {
                     <FileIcon v-if="segment.icon !== undefined" :icon="segment.icon" class="editor-crumbs__icon" />
                     <span class="editor-crumbs__label">{{ segment.label }}</span>
                 </button>
-            </Dropdown>
+            </DropdownMenu>
         </template>
         <template v-if="currentHeading !== null">
             <span class="i-lucide-chevron-right editor-crumbs__separator" aria-hidden="true"></span>
-            <Dropdown :items="outlineItems" :open="opened === HEADING" compact menu-max-height="320px" @update:open="(open: boolean) => openSegment(HEADING, open)" @select="select">
+            <DropdownMenu :items="outlineItems" :open="opened === HEADING" compact menu-max-height="320px" @update:open="(open: boolean) => openSegment(HEADING, open)" @select="select">
                 <button
                     type="button"
                     class="editor-crumbs__segment nb-ui-focus-ring-inset"
@@ -236,7 +236,7 @@ watch(() => props.focusSeq, (next, previous) => {
                     <span class="i-lucide-hash editor-crumbs__icon" aria-hidden="true"></span>
                     <span class="editor-crumbs__label">{{ currentHeading.text }}</span>
                 </button>
-            </Dropdown>
+            </DropdownMenu>
         </template>
     </nav>
 </template>

@@ -5,7 +5,7 @@
  * 选中的组件由 LabShell 持有，地址栏换组件时这里把树展开到它。
  */
 import {computed, ref, watch} from "vue";
-import {FormInput as NbFormInput, Tree as NbTree} from "@notnotype/nb-ui/components";
+import {Input as NbInput, Tree as NbTree} from "@notnotype/nb-ui/components";
 
 import CollapsibleSidePanel from "./components/CollapsibleSidePanel.vue";
 import {findLabComponent, labComponentLabel, labComponents, matchesLabQuery} from "./component-index";
@@ -192,7 +192,7 @@ function select(id: string): void {
         @update:collapsed="emit('update:collapsed', $event)"
     >
         <template #search>
-            <NbFormInput
+            <NbInput
                 v-model="treeQuery"
                 size="sm"
                 type="search"

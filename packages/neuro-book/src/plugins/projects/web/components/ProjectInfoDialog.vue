@@ -8,10 +8,10 @@
  *
  * 点遮罩关闭只在没改过时生效：改过之后误点一下空白就丢掉一整页输入，代价太大；Esc 与“取消”照常关闭。
  *
- * 主题色与保存位置两个字段不用 `FormField`：它的根是 `<label>`，点到标签里的空白会把点击转给第一个可标记的控件，色板里那就是
+ * 主题色与保存位置两个字段不用 `Field`：它的根是 `<label>`，点到标签里的空白会把点击转给第一个可标记的控件，色板里那就是
  * “自动”那一格；这两个字段自己画标签行。
  */
-import {Button, ColorSwatches, Dialog, FormField, FormInput, FormTextarea, InfoTip} from "@notnotype/nb-ui/components";
+import {Button, ColorSwatches, Dialog, Field, Input, Textarea, InfoTip} from "@notnotype/nb-ui/components";
 import type {DialogCloseReason} from "@notnotype/nb-ui/components";
 import {computed, nextTick, ref, useId, watch} from "vue";
 
@@ -252,15 +252,15 @@ function onConfirm(): void {
             </div>
             <div class="project-info__fields">
                 <div class="project-info__field">
-                    <FormField :for="`${uid}-title`" :label="text(TEXT.title)" required :error="errorOf('title')">
-                        <FormInput v-model="title" :maxlength="PROJECT_TITLE_MAX_LENGTH" :disabled="busy" data-project-title />
-                    </FormField>
+                    <Field :for="`${uid}-title`" :label="text(TEXT.title)" required :error="errorOf('title')">
+                        <Input v-model="title" :maxlength="PROJECT_TITLE_MAX_LENGTH" :disabled="busy" data-project-title />
+                    </Field>
                     <span v-if="titleCount !== ''" class="project-info__count">{{ titleCount }}</span>
                 </div>
                 <div class="project-info__field project-info__field--grow">
-                    <FormField :label="text(TEXT.description)" :error="errorOf('description')">
-                        <FormTextarea v-model="description" :rows="3" :maxlength="PROJECT_DESCRIPTION_MAX_LENGTH" :placeholder="text(TEXT.descriptionPlaceholder)" :disabled="busy" class="project-info__description" data-project-description />
-                    </FormField>
+                    <Field :label="text(TEXT.description)" :error="errorOf('description')">
+                        <Textarea v-model="description" :rows="3" :maxlength="PROJECT_DESCRIPTION_MAX_LENGTH" :placeholder="text(TEXT.descriptionPlaceholder)" :disabled="busy" class="project-info__description" data-project-description />
+                    </Field>
                     <span v-if="descriptionCount !== ''" class="project-info__count">{{ descriptionCount }}</span>
                 </div>
                 <div v-if="mode === 'create'" class="project-info__field project-info__field--plain">
@@ -268,17 +268,17 @@ function onConfirm(): void {
                         <span>{{ text(TEXT.location) }}</span>
                         <InfoTip :text="text(TEXT.locationHint)" :label="text(TEXT.locationInfo)" />
                     </label>
-                    <!-- 没有标题的 FormField：只为让路径框随服务端的拒绝标红；标签行在上面自己画（要放说明图标）。 -->
-                    <FormField :for="`${uid}-location`" :error="errorOf('location')">
+                    <!-- 没有标题的 Field：只为让路径框随服务端的拒绝标红；标签行在上面自己画（要放说明图标）。 -->
+                    <Field :for="`${uid}-location`" :error="errorOf('location')">
                         <div class="project-info__location" data-project-location>
-                            <FormInput :model-value="location" :disabled="busy" class="project-info__path" data-project-location-input @update:model-value="emit('update:location', $event)">
+                            <Input :model-value="location" :disabled="busy" class="project-info__path" data-project-location-input @update:model-value="emit('update:location', $event)">
                                 <template #suffix>
                                     <span v-if="folderName !== ''" class="project-info__folder" data-project-folder>/{{ folderName }}</span>
                                 </template>
-                            </FormInput>
+                            </Input>
                             <Button variant="secondary" :disabled="busy" data-project-browse @click="emit('browse-location')">{{ text(TEXT.browse) }}</Button>
                         </div>
-                    </FormField>
+                    </Field>
                 </div>
             </div>
             <!-- 让回车提交；按钮本身在窗口页脚。 -->
@@ -337,7 +337,7 @@ function onConfirm(): void {
     flex-direction: column;
 }
 
-/* FormField 的根是单根的 label，带着本组件的作用域属性；让它与里面的输入框一起撑开。 */
+/* Field 的根是单根的 label，带着本组件的作用域属性；让它与里面的输入框一起撑开。 */
 .project-info__field--grow > label {
     display: flex;
     flex: 1;
@@ -350,7 +350,7 @@ function onConfirm(): void {
     resize: none;
 }
 
-/* 计数靠在标签行右端：标签由 FormField 画，计数不占行。 */
+/* 计数靠在标签行右端：标签由 Field 画，计数不占行。 */
 .project-info__count {
     position: absolute;
     top: 0;

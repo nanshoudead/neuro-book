@@ -1,6 +1,6 @@
 /** nb-ui 展示类（`display/`）与导航类（`navigation/`）的场景。 */
 
-import type {Badge, Breadcrumb, EmptyState, FileBrowser, Kbd, Progress, Skeleton, Spinner, Table, Tree} from "@notnotype/nb-ui/components";
+import type {Badge, Breadcrumb, EmptyState, Kbd, Progress, Skeleton, Spinner, Table, Tree} from "@notnotype/nb-ui/components";
 import {h} from "vue";
 
 import {Button as NbButton} from "@notnotype/nb-ui/components";
@@ -118,28 +118,6 @@ export const displayFixtures: LabFixture[] = [
             {id: "long", label: "很多级", input: {props: {items: ["manuscript", "第二卷", "上部", "雪线", "草稿", "第十七章 雪线（修订三）"].map((label, index, all) => ({label, current: index === all.length - 1}))}}},
         ],
         subject: nbUiSubject("Breadcrumb"),
-    }),
-    defineSubjectFixture<typeof FileBrowser>({
-        component: "FileBrowser",
-        events: ["navigate", "up", "activate"],
-        class: "w-full max-w-[560px]",
-        scenes: [
-            {id: "default", label: "作品目录", input: {props: {
-                segments: [{label: "/", path: "/"}, {label: "home", path: "/home"}, {label: "writer", path: "/home/writer"}, {label: "Documents", path: "/home/writer/Documents"}, {label: "NeuroBook", path: "/home/writer/Documents/NeuroBook"}],
-                entries: [
-                    {id: "/home/writer/Documents/NeuroBook/changyexing", name: "changyexing", kind: "directory", badge: "已在书架上", disabled: true, swatch: "#2f5fa0"},
-                    {id: "/home/writer/Documents/NeuroBook/beifang", name: "beifang", kind: "directory", badge: "作品 · 北方以北", badgeTone: "accent", swatch: "#8f3f2e"},
-                    {id: "/home/writer/Documents/NeuroBook/drafts", name: "drafts", kind: "directory"},
-                    {id: "/home/writer/Documents/NeuroBook/old-notes", name: "old-notes", kind: "directory"},
-                    {id: "/home/writer/Documents/NeuroBook/notes.md", name: "notes.md", kind: "file"},
-                ],
-                label: "作品目录",
-            }, model: {selectedId: "/home/writer/Documents/NeuroBook/beifang"}}},
-            {id: "empty", label: "空目录", input: {props: {segments: [{label: "/", path: "/"}, {label: "tmp", path: "/tmp"}], entries: [], emptyText: "这里没有子目录"}, model: {selectedId: null}}},
-            {id: "loading", label: "加载中", input: {props: {segments: [{label: "/", path: "/"}], entries: [], loading: true}, model: {selectedId: null}}},
-            {id: "error", label: "读不出", input: {props: {segments: [{label: "/", path: "/"}, {label: "root", path: "/root"}], entries: [], error: "目录不可读：/root"}, model: {selectedId: null}}},
-        ],
-        subject: nbUiSubject("FileBrowser"),
     }),
     defineSubjectFixture<typeof Tree>({
         component: "Tree",

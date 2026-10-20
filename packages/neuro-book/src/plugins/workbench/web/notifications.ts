@@ -1,6 +1,6 @@
 /**
  * 工作台的通知服务（docs/specs/workbench/notifications.md）：本窗口一份 nb-ui 通知队列，`notificationsKey` 的提供项包着它，
- * 页面根上的 `NotificationViewport` 显示它。常驻规则在这里定：error 与带动作的通知不自动消失，调用方不用自己算时长。
+ * 页面根上的 `NotificationStack` 显示它。常驻规则在这里定：error 与带动作的通知不自动消失，调用方不用自己算时长。
  * 动作抛错由这里接住并经 `report` 记诊断（`workbench.notifications`）；视口在动作之后移除通知。
  */
 

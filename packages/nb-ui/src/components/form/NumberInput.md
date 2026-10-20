@@ -2,9 +2,9 @@
 标签: [state:inject]
 ---
 
-# FormNumberInput
+# NumberInput
 
-`FormNumberInput` 是以字符串保存数字编辑过程的单行数字控件。它用 `text` input 加 `inputmode="decimal"` 保留空字符串、负号和小数点等中间态，同时提供不进入 Tab 顺序的上下步进按钮、边界钳制、方向键步进和 Enter 提交；它与只提供原生数字属性的 `FormInput type="number"` 不同。
+`NumberInput` 是以字符串保存数字编辑过程的单行数字控件。它用 `text` input 加 `inputmode="decimal"` 保留空字符串、负号和小数点等中间态，同时提供不进入 Tab 顺序的上下步进按钮、边界钳制、方向键步进和 Enter 提交；它与只提供原生数字属性的 `Input type="number"` 不同。
 
 ## 布局
 
@@ -26,10 +26,10 @@
 ```ts
 type NumberInputSize = "default" | "sm";
 
-type FormNumberInputProps = {
+type NumberInputProps = {
     /** 受控字符串值；默认 ""，组件不把它转换为 number。 */
     modelValue?: string;
-    /** 原生 input id；空时优先使用 FormField 上下文 id，默认 ""。 */
+    /** 原生 input id；空时优先使用 Field 上下文 id，默认 ""。 */
     id?: string;
     /** 原生 input name；空时不设置 name，默认 ""。 */
     name?: string;
@@ -39,7 +39,7 @@ type FormNumberInputProps = {
     disabled?: boolean;
     /** 只读输入并禁用步进；默认 false。 */
     readonly?: boolean;
-    /** 原生 required；默认 false，并与 FormField required 合并。 */
+    /** 原生 required；默认 false，并与 Field required 合并。 */
     required?: boolean;
     /** 原生 autofocus；默认 false。 */
     autofocus?: boolean;
@@ -55,21 +55,21 @@ type FormNumberInputProps = {
     title?: string;
 };
 
-type FormNumberInputEmits = {
+type NumberInputEmits = {
     /** 手动输入或一次步进后的字符串值。 */
     (event: "update:modelValue", value: string): void;
     /** Enter 键提交；无 payload。 */
     (event: "submit"): void;
 };
 
-type FormNumberInputSlots = {
+type NumberInputSlots = {
     /** 无插槽。 */
 };
 ```
 
 `modelValue` 是受控值：输入事件和步进事件只发出新字符串，不在组件内部保存模型副本。组件没有 expose API。根节点是单个控制容器，未声明 attrs、`class` 和 `style` 按 Vue 默认行为落到该容器；它们不会自动转发到原生 input。
 
-组件通过 `useFormFieldContext()` 可选读取 input id、required、`aria-describedby` 和 invalid，并将这些语义属性应用到原生 input 或控制器样式。没有 FormField 时仍可独立使用。
+组件通过 `useFieldContext()` 可选读取 input id、required、`aria-describedby` 和 invalid，并将这些语义属性应用到原生 input 或控制器样式。没有 Field 时仍可独立使用。
 
 ## 状态
 
@@ -77,7 +77,7 @@ type FormNumberInputSlots = {
 - **受控**：父组件通过 `modelValue` 决定显示值；输入和步进结果必须由父组件回写才能持续显示。
 - **禁用**：输入与两个步进按钮均 disabled，容器降低不透明度。
 - **只读**：输入保留值但不允许修改，两个步进按钮禁用；Enter 提交行为见「交互」。
-- **错误**：FormField 的 invalid 上下文使容器使用错误样式，并给 input 设置 `aria-invalid`。
+- **错误**：Field 的 invalid 上下文使容器使用错误样式，并给 input 设置 `aria-invalid`。
 - **加载中、空数据**：没有专用状态；宿主通过 disabled、placeholder 或外部文案表达。
 
 ## 不支持
@@ -92,4 +92,4 @@ type FormNumberInputSlots = {
 
 ## 隐藏通道理由
 
-`state:inject`：组件可选读取 `FormField` 的字段语义上下文，避免每个数字输入重复接收生成 id、required、错误关联和 invalid 状态。上下文缺失时回退到显式 props，组件不读取共享 store。
+`state:inject`：组件可选读取 `Field` 的字段语义上下文，避免每个数字输入重复接收生成 id、required、错误关联和 invalid 状态。上下文缺失时回退到显式 props，组件不读取共享 store。

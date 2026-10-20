@@ -1,10 +1,10 @@
 import {mount, type VueWrapper} from "@vue/test-utils";
 import {afterEach, describe, expect, it, vi} from "vitest";
 import {h, nextTick} from "vue";
-import Dropdown from "./Dropdown.vue";
+import DropdownMenu from "./DropdownMenu.vue";
 
 /**
- * Dropdown 的行为面：菜单项执行、子菜单展开、radio/checkbox 受控勾选、
+ * DropdownMenu 的行为面：菜单项执行、子菜单展开、radio/checkbox 受控勾选、
  * 禁用不执行、受控展开与关闭后的焦点归还。断言全部落在真实 DOM 与原语行为上，
  * 不钉组件内部实现。
  */
@@ -19,11 +19,11 @@ function menuItems(): HTMLElement[] {
     return Array.from(document.querySelectorAll<HTMLElement>("[role=menuitem], [role=menuitemradio], [role=menuitemcheckbox]"));
 }
 
-describe("Dropdown", () => {
+describe("DropdownMenu", () => {
     const wrappers: VueWrapper[] = [];
 
-    function mountDropdown(props: Record<string, unknown>): VueWrapper {
-        const wrapper = mount(Dropdown, {
+    function mountDropdownMenu(props: Record<string, unknown>): VueWrapper {
+        const wrapper = mount(DropdownMenu, {
             attachTo: document.body,
             props: {
                 items: [],
@@ -52,7 +52,7 @@ describe("Dropdown", () => {
     });
 
     it("扁平项：分隔线渲染、禁用项不执行、选中项只发 value", async () => {
-        const wrapper = mountDropdown({
+        const wrapper = mountDropdownMenu({
             items: [
                 {label: "保存", value: "save"},
                 {label: "", value: "sep-1", separator: true},
@@ -75,7 +75,7 @@ describe("Dropdown", () => {
     });
 
     it("子菜单：父项不执行，键盘展开后选中子项", async () => {
-        const wrapper = mountDropdown({
+        const wrapper = mountDropdownMenu({
             items: [
                 {
                     label: "面板位置",
@@ -111,7 +111,7 @@ describe("Dropdown", () => {
     });
 
     it("子菜单的键盘：展开后焦点进第一项，上下移动，左方向键收起回到父项；在子项上按下指针菜单不关，选中后整个菜单收起", async () => {
-        const wrapper = mountDropdown({
+        const wrapper = mountDropdownMenu({
             items: [
                 {label: "视图", value: "group:view", children: [{label: "侧栏", value: "sidebar"}, {label: "面板", value: "panel"}]},
                 {label: "帮助", value: "help"},
@@ -146,7 +146,7 @@ describe("Dropdown", () => {
     });
 
     it("radio/checkbox 的勾选态只读宿主的 checked，组件不代为切换", async () => {
-        const wrapper = mountDropdown({
+        const wrapper = mountDropdownMenu({
             items: [
                 {label: "居中", value: "center", type: "radio", group: "alignment", checked: true},
                 {label: "左对齐", value: "left", type: "radio", group: "alignment"},
@@ -176,7 +176,7 @@ describe("Dropdown", () => {
 
     it("任意层级的 children 都继续展开，不再降成普通项", async () => {
         const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
-        const wrapper = mountDropdown({
+        const wrapper = mountDropdownMenu({
             items: [
                 {label: "孤例", value: "lonely", type: "radio", checked: true},
                 {
@@ -208,7 +208,7 @@ describe("Dropdown", () => {
     });
 
     it("受控展开：宿主不改 open 就不会展开，update:open 照常上报", async () => {
-        const wrapper = mountDropdown({
+        const wrapper = mountDropdownMenu({
             items: [{label: "保存", value: "save"}],
             open: false,
         });
@@ -226,7 +226,7 @@ describe("Dropdown", () => {
     it("Escape 关闭后焦点还给触发器", async () => {
         vi.useFakeTimers();
         try {
-            const wrapper = mountDropdown({
+            const wrapper = mountDropdownMenu({
                 items: [
                     {label: "保存", value: "save"},
                     {label: "另存为", value: "save-as"},
@@ -250,7 +250,7 @@ describe("Dropdown", () => {
     });
 
     it("支持通过 contentProps 透传属性与 #item 自定义槽位", async () => {
-        const wrapper = mount(Dropdown, {
+        const wrapper = mount(DropdownMenu, {
             attachTo: document.body,
             props: {
                 items: [{label: "自定义项", value: "custom-1"}],

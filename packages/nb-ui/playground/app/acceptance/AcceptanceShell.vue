@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import {computed} from "vue";
-import FormCheckbox from "../../../src/components/form/FormCheckbox.vue";
-import FormSelect from "../../../src/components/form/FormSelect.vue";
+import Checkbox from "../../../src/components/form/Checkbox.vue";
+import Select from "../../../src/components/form/Select.vue";
 import {getLabScene, type LabComponentDefinition} from "./definitions";
 
 /**
@@ -38,7 +38,7 @@ function setControl(id: string, value: string | boolean): void {
                 <span class="text-[11px] font-medium uppercase tracking-wider text-[var(--text-muted)]">场景属性:</span>
                 <div v-for="control in definition.controls" :key="control.id" :data-control="control.id" class="flex items-center gap-1.5 text-xs text-[var(--text-secondary)]">
                     <template v-if="control.type === 'boolean'">
-                        <FormCheckbox
+                        <Checkbox
                             :model-value="Boolean(controlValue(control.id))"
                             :label="control.label"
                             @update:model-value="setControl(control.id, $event)"
@@ -46,7 +46,7 @@ function setControl(id: string, value: string | boolean): void {
                     </template>
                     <template v-else>
                         <span class="text-[11px] text-[var(--text-muted)]">{{ control.label }}</span>
-                        <FormSelect
+                        <Select
                             v-if="control.type === 'select'"
                             :model-value="String(controlValue(control.id))"
                             :options="(control.options ?? []).map((option) => ({label: option.label, value: option.value}))"

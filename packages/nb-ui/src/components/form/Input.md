@@ -2,9 +2,9 @@
 标签: [state:inject]
 ---
 
-# FormInput
+# Input
 
-`FormInput` 是单行文本输入控件，统一提供 nb-ui 的尺寸、主题、原生输入约束和可选的前后缀/图标/清除入口。它始终以字符串作为模型值，即使 `type="number"` 也不会把输入转换成数字；与 `FormNumberInput` 的区别是它不提供步进按钮或数字步进逻辑。
+`Input` 是单行文本输入控件，统一提供 nb-ui 的尺寸、主题、原生输入约束和可选的前后缀/图标/清除入口。它始终以字符串作为模型值，即使 `type="number"` 也不会把输入转换成数字；与 `NumberInput` 的区别是它不提供步进按钮或数字步进逻辑。
 
 ## 布局
 
@@ -23,27 +23,27 @@
 ## 数据
 
 ```ts
-type FormInputType = "text" | "search" | "password" | "number";
-type FormInputSize = "default" | "sm" | "md";
+type InputType = "text" | "search" | "password" | "number";
+type InputSize = "default" | "sm" | "md";
 
-type FormInputProps = {
+type InputProps = {
     /** 受控字符串值；默认 ""。 */
     modelValue?: string;
-    /** 原生 input id；空时优先使用 FormField 上下文 id，默认 ""。 */
+    /** 原生 input id；空时优先使用 Field 上下文 id，默认 ""。 */
     id?: string;
     /** 原生 input name；空时不设置 name，默认 ""。 */
     name?: string;
     /** 原生输入类型；默认 "text"。 */
-    type?: FormInputType;
+    type?: InputType;
     /** 原生占位文字；默认 ""。 */
     placeholder?: string;
     /** 控件尺寸；默认 "default"；"default" 与 "md" 采用同一标准尺寸。 */
-    size?: FormInputSize;
+    size?: InputSize;
     /** 禁止输入；默认 false。 */
     disabled?: boolean;
     /** 只读输入；默认 false。 */
     readonly?: boolean;
-    /** 原生 required；默认 false，并与 FormField required 合并。 */
+    /** 原生 required；默认 false，并与 Field required 合并。 */
     required?: boolean;
     /** 原生 autofocus；默认 false。 */
     autofocus?: boolean;
@@ -67,7 +67,7 @@ type FormInputProps = {
     max?: string;
 };
 
-type FormInputEmits = {
+type InputEmits = {
     /** 输入内容变化时发出；value 始终是字符串。 */
     (event: "update:modelValue", value: string): void;
     /** 原生 input 获得焦点时发出。 */
@@ -76,7 +76,7 @@ type FormInputEmits = {
     (event: "clear"): void;
 };
 
-type FormInputSlots = {
+type InputSlots = {
     /** 输入区左侧内容；有内容时启用扩展容器。 */
     prefix?: () => unknown;
     /** 输入区右侧内容；有内容时启用扩展容器。 */
@@ -86,7 +86,7 @@ type FormInputSlots = {
 
 `modelValue` 是受控值：组件用它设置原生 input 的 value，不在内部复制一份输入值。没有传入 `modelValue` 时使用默认空字符串。组件没有 expose API。
 
-组件通过 `useFormFieldContext()` 可选读取外层 `FormField` 的 input id、required、`aria-describedby` 和 invalid；显式 `id`、`required` 优先或合并到该上下文。有前缀、后缀、图标或清除入口时活动根节点是扩展容器，其他情况下根节点是原生 input；未声明 attrs 按 Vue 默认 fallthrough 到活动根节点，因此不能稳定地透传到 input，应使用上面声明的 props。
+组件通过 `useFieldContext()` 可选读取外层 `Field` 的 input id、required、`aria-describedby` 和 invalid；显式 `id`、`required` 优先或合并到该上下文。有前缀、后缀、图标或清除入口时活动根节点是扩展容器，其他情况下根节点是原生 input；未声明 attrs 按 Vue 默认 fallthrough 到活动根节点，因此不能稳定地透传到 input，应使用上面声明的 props。
 
 ## 状态
 
@@ -94,15 +94,15 @@ type FormInputSlots = {
 - **受控**：父组件通过 `modelValue` 决定输入值，输入事件只向外报告。
 - **禁用**：原生 input 不可编辑，视觉降低不透明度，清空入口隐藏。
 - **只读**：原生 input 保留值但不接受编辑，清空入口隐藏。
-- **错误**：从 FormField 收到 `invalid` 时控制器使用错误样式并向 input 设置 `aria-invalid`、`aria-describedby`。
+- **错误**：从 Field 收到 `invalid` 时控制器使用错误样式并向 input 设置 `aria-invalid`、`aria-describedby`。
 - **加载中、空数据**：没有专用状态；加载/业务校验由宿主表达。
 
 ## 不支持
 
-- 不支持将 `type="number"` 的值转换为 number、步进或边界钳制；需要这些行为使用 `FormNumberInput`。
+- 不支持将 `type="number"` 的值转换为 number、步进或边界钳制；需要这些行为使用 `NumberInput`。
 - 不提供 debounce、异步校验、搜索请求或浏览器存储。
 - 不提供自定义 input 元素 slot；prefix/suffix 只扩展输入两侧内容。
 
 ## 隐藏通道理由
 
-`state:inject`：组件可选读取 `FormField` 提供的字段语义上下文，复用容器生成的 id、required、错误关联和 invalid 状态，使标签、文案与原生 input 保持同一份可访问性关系。没有 FormField 时返回 null，所有显式 props 仍可独立工作；组件不读取共享 store。
+`state:inject`：组件可选读取 `Field` 提供的字段语义上下文，复用容器生成的 id、required、错误关联和 invalid 状态，使标签、文案与原生 input 保持同一份可访问性关系。没有 Field 时返回 null，所有显式 props 仍可独立工作；组件不读取共享 store。

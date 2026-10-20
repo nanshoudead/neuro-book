@@ -204,7 +204,7 @@
      */
     --sidebar-surface: color-mix(in srgb, var(--bg-sidebar) 26%, transparent);
     --toolbar-surface: color-mix(in srgb, var(--bg-sidebar) 30%, transparent);
-    /* 浮层 Surface 黄金标准（FormSelect 调优规范）：
+    /* 浮层 Surface 黄金标准（Select 调优规范）：
        必须提供一层半透明温润白底（65% --bg-panel）压住对比并保证文字可读性，
        搭配 8px 高斯模糊 + 130% 饱和度滤波与 4 阶立体柔影，杜绝过薄透明导致的透光干扰与眩光。 */
     --overlay-surface: color-mix(in srgb, var(--bg-panel) 65%, transparent);

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import {computed} from "vue";
-import {useFormFieldContext} from "./form-field-context";
+import {useFieldContext} from "./field-context";
 
 export type NumberInputSize = "default" | "sm";
 type StepDirection = "down" | "up";
@@ -40,7 +40,7 @@ const emit = defineEmits<{
     (e: "update:modelValue", value: string): void;
 }>();
 
-const field = useFormFieldContext();
+const field = useFieldContext();
 const controlSizeClass = computed(() => props.size === "sm" ? "nb-ui-control-h-sm px-[calc(var(--control-px)*0.75)] text-[length:var(--text-xs)]" : "nb-ui-control-h-md nb-ui-control-px text-[length:var(--text-sm)]");
 const stepAmount = computed(() => {
     const parsed = Number.parseFloat(props.step || "1");

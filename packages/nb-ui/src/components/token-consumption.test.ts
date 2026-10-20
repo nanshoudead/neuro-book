@@ -37,7 +37,7 @@ const LITERAL_COLOR_ALLOWLIST = new Map<string, string>([
 ]);
 
 const LITERAL_COLOR_VALUE_ALLOWLIST = new Map<string, ReadonlySet<string>>([
-    ["form/FormCheckbox.vue", new Set(["#000000"])],
+    ["form/Checkbox.vue", new Set(["#000000"])],
 ]);
 
 function collectVueFiles(dir: string): string[] {

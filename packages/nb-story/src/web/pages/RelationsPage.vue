@@ -4,7 +4,7 @@
  * 图里搜名字。单击一个点只选中它；双击、Enter 或右键菜单打开人物卡（人物，停在关系页签）或连线说明；F 或右键菜单
  * 切换“只看周边”。右侧抽屉已经开着时，跟着选中的点换内容。
  */
-import {ContextMenu, FormCheckbox, FormInput, FormSelect, IconButton, Popover, SegmentedControl, Slider} from "@notnotype/nb-ui/components";
+import {ContextMenu, Checkbox, Input, Select, IconButton, Popover, SegmentedControl, Slider} from "@notnotype/nb-ui/components";
 import type {ContextMenuItem} from "@notnotype/nb-ui/components";
 import {computed, ref} from "vue";
 
@@ -104,7 +104,7 @@ function onSelect(id: string): void {
         </div>
         <div class="flex flex-wrap items-center gap-2 px-3 py-2 text-[length:var(--text-xs)] select-none">
             <span class="text-[var(--text-secondary)]">视角</span>
-            <div class="w-36"><FormSelect :model-value="book.perspective.value" size="sm" :options="perspectiveOptions" data-testid="perspective" @update:model-value="(value: string) => (book.perspective.value = value)" /></div>
+            <div class="w-36"><Select :model-value="book.perspective.value" size="sm" :options="perspectiveOptions" data-testid="perspective" @update:model-value="(value: string) => (book.perspective.value = value)" /></div>
             <Popover v-if="perspectiveNote" side="bottom" align="start">
                 <template #trigger>
                     <button type="button" class="story-chip is-on" data-testid="perspective-banner">{{ perspectiveNote.statements }} 条说法<template v-if="perspectiveNote.unmerged.length"> · {{ perspectiveNote.unmerged.length }} 处不合并</template></button>
@@ -120,9 +120,9 @@ function onSelect(id: string): void {
             <span class="text-[var(--text-secondary)]">排版</span>
             <SegmentedControl v-model="layout" size="xs" :options="[{value: 'force', label: '力导向'}, {value: 'concentric', label: '同心'}, {value: 'circle', label: '环形'}]" aria-label="排版方式" />
             <IconButton size="xs" icon-class="i-lucide-refresh-cw" aria-label="重新排版" title="重新排版" @click="relayoutKey += 1" />
-            <FormCheckbox v-model="neighborhood" label="只看选中的周边" />
+            <Checkbox v-model="neighborhood" label="只看选中的周边" />
             <span class="text-[length:var(--text-2xs)] text-[var(--text-secondary)]" data-testid="graph-hint">单击选中 · 双击打开 · 右键更多 · F 只看周边 · Esc 取消</span>
-            <div class="ml-auto w-40"><FormInput v-model="search" size="sm" icon-class="i-lucide-search" placeholder="在图里找" /></div>
+            <div class="ml-auto w-40"><Input v-model="search" size="sm" icon-class="i-lucide-search" placeholder="在图里找" /></div>
         </div>
         <PageState class="px-3" :loading="graph.loading.value && !graph.data.value" :error="graph.error.value?.message ?? null" @retry="graph.reload()" />
         <div class="relative min-h-0 flex-1" data-testid="relation-graph">

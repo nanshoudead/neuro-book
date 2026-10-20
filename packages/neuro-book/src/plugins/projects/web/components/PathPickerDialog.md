@@ -5,7 +5,7 @@
 
 # PathPickerDialog
 
-选一个服务端上的目录的模态对话框（[书架页](../../../../../../../docs/specs/workbench/bookshelf.md) 输出 12）：nb-ui [`Dialog`](../../../../../../nb-ui/src/components/feedback/Dialog.md) 包 nb-ui [`FileBrowser`](../../../../../../nb-ui/src/components/navigation/FileBrowser.md)，数据经 `source.list` 取（产品里是 `nbook.projects/projects` 的 `browse`）。两种用途：`project` 选一部作品（“打开已有作品”），`directory` 选一个目录（“更改作品目录”）。
+选一个服务端上的目录的模态对话框（[书架页](../../../../../../../docs/specs/workbench/bookshelf.md) 输出 12）：nb-ui [`Dialog`](../../../../../../nb-ui/src/components/feedback/Dialog.md) 包 [`FileBrowser`](FileBrowser.md)，数据经 `source.list` 取（产品里是 `nbook.projects/projects` 的 `browse`）。两种用途：`project` 选一部作品（“打开已有作品”），`directory` 选一个目录（“更改作品目录”）。
 
 ## 布局
 

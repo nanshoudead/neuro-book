@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import {computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, useAttrs, watch} from "vue";
-import Dropdown from "./Dropdown.vue";
-import type {DropdownItem} from "./dropdown.types";
+import DropdownMenu from "./DropdownMenu.vue";
+import type {DropdownMenuItemData} from "./dropdown-menu.types";
 import {adaptTabs} from "./tabs-adapt";
 import type {TabsAdaptState} from "./tabs-adapt";
 
@@ -128,7 +128,7 @@ function iconOnly(item: TabsItem): boolean {
     return adaptive.value && adapt.value.level >= 2 && !isSelected(item) && item.iconClass !== undefined;
 }
 const visibleItems = computed(() => (adaptive.value ? props.items.filter((item) => !adapt.value.hidden.has(item.value)) : props.items));
-const moreItems = computed<DropdownItem[]>(() => props.items.filter((item) => adapt.value.hidden.has(item.value)).map((item) => ({label: item.label, value: item.value, ...(item.iconClass === undefined ? {} : {iconClass: item.iconClass}), ...(item.disabled === true ? {disabled: true} : {})})));
+const moreItems = computed<DropdownMenuItemData[]>(() => props.items.filter((item) => adapt.value.hidden.has(item.value)).map((item) => ({label: item.label, value: item.value, ...(item.iconClass === undefined ? {} : {iconClass: item.iconClass}), ...(item.disabled === true ? {disabled: true} : {})})));
 
 /** 按测量层的实测宽度与标签带的可用宽度求这一档；量不到（还没挂上、不可见）时保持原状。 */
 function measure(): void {
@@ -231,11 +231,11 @@ function selectHidden(value: string): void {
                 <span v-if="item.count !== undefined && !iconOnly(item)" class="rounded-[var(--radius-pill)] bg-[var(--bg-subtle)] px-[var(--space-1)] font-mono text-[length:var(--text-2xs)] text-[var(--text-muted)]">{{ item.count }}</span>
             </button>
         </div>
-        <Dropdown v-if="moreItems.length > 0" :items="moreItems" compact align="end" @select="selectHidden">
+        <DropdownMenu v-if="moreItems.length > 0" :items="moreItems" compact align="end" @select="selectHidden">
             <button type="button" class="nb-ui-focus-ring-inset text-[var(--text-secondary)] hover:text-[var(--text-main)]" :class="tabBoxClass" data-tabs-more>
                 {{ props.moreLabel }} {{ moreItems.length }}<span class="i-lucide-chevron-down h-[1em] w-[1em]" aria-hidden="true"></span>
             </button>
-        </Dropdown>
+        </DropdownMenu>
         <!-- 测量层：完整标题的每个标签、只留图标的标签与“更多”，不可见、不占位、不进无障碍树。 -->
         <div ref="measureRef" class="nb-ui-tabs-adapt__measure" aria-hidden="true" inert>
             <span v-for="item in props.items" :key="item.value" :class="tabBoxClass" data-measure-tab>

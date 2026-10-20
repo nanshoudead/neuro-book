@@ -11,7 +11,7 @@ export const renderFailures = new Set<string>();
  * 视图场景里的样例视图：自己持有输入与滚动，显示实例编号、代际与是否可见。移动、换轴、切模式、停放都不该重建它：
  * 同一场景里连续操作，实例编号与创建次数不变就说明没有重挂；代际只在重新加载或重试时变。
  */
-import {FormInput} from "@notnotype/nb-ui/components";
+import {Input} from "@notnotype/nb-ui/components";
 import {onBeforeUnmount, ref} from "vue";
 
 import type {ViewContext} from "nbook/plugins/workbench/web/contracts";
@@ -35,7 +35,7 @@ onBeforeUnmount(() => {
 <template>
     <div class="flex h-full min-h-0 flex-col gap-1 px-2 pt-1 pb-2 text-sm" :data-sample-view="context.id" :data-instance="instance" :data-created="created" :data-generation="context.generation" :data-visible="context.visible.value ? 'true' : 'false'" :data-location="context.location.value">
         <div class="text-xs text-[var(--text-muted)]">实例 #{{ instance }} · 代际 {{ context.generation }} · {{ context.visible.value ? "可见" : "不可见" }} · {{ context.location.value }}</div>
-        <div data-sample-input><FormInput v-model="draft" size="sm" placeholder="输入几个字，再移动视图" /></div>
+        <div data-sample-input><Input v-model="draft" size="sm" placeholder="输入几个字，再移动视图" /></div>
         <div class="min-h-0 flex-1 overflow-auto" data-sample-scroll>
             <p v-for="line in lines" :key="line" class="py-0.5 text-[var(--text-secondary)]">{{ line }}</p>
         </div>

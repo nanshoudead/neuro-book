@@ -3,7 +3,7 @@
  * 抽屉里的人物卡（viewer 输出 10）：名字、称呼、同一身份；概况、关系、记录、情节四个页签，带条数。
  * 页签停在哪由会话决定（从关系图点进来停在关系），切页签写回会话，所以地址与保存都跟着变。
  */
-import {FormInput, IconButton, SegmentedControl, Tabs} from "@notnotype/nb-ui/components";
+import {Input, IconButton, SegmentedControl, Tabs} from "@notnotype/nb-ui/components";
 import {computed, ref, watch} from "vue";
 
 import {useBook, type Tab} from "../host/book";
@@ -115,7 +115,7 @@ const FAMILY_WORD: Record<string, string> = {
                     <div class="flex flex-wrap items-center gap-2 py-1">
                         <SegmentedControl v-model="recordKind" size="xs" :options="[{value: 'knowledge', label: `他知道的 ${card.data.value.counts.knowledge}`}, {value: 'statements', label: `关于他的 ${card.data.value.counts.statements}`}]" aria-label="记录的种类" />
                         <SegmentedControl v-if="recordKind === 'knowledge'" v-model="stateFilter" size="xs" :options="STATES" aria-label="按状态筛" />
-                        <div class="w-32"><FormInput v-model="recordQuery" size="sm" icon-class="i-lucide-search" placeholder="按字搜" /></div>
+                        <div class="w-32"><Input v-model="recordQuery" size="sm" icon-class="i-lucide-search" placeholder="按字搜" /></div>
                         <button type="button" class="story-chip" :class="showIds ? 'is-on' : ''" :aria-pressed="showIds" @click="showIds = !showIds">编号</button>
                         <button type="button" class="story-chip" data-testid="open-wide" @click="book.wideRecords.value = card.data.value!.id">在主区打开</button>
                     </div>

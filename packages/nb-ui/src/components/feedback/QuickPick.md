@@ -2,9 +2,9 @@
 标签: [state:local, env:portal, env:timer]
 ---
 
-# QuickInput
+# QuickPick
 
-`QuickInput` 是全局快速选择面板的受控 UI 基座：宿主提供查询、候选列表和活动项，组件只发出用户操作请求，不解释查询语义，也不执行候选项。它因此可以承载命令面板、资源跳转或其它快速选择，而不把业务执行逻辑带进组件。
+`QuickPick` 是全局快速选择面板的受控 UI 基座：宿主提供查询、候选列表和活动项，组件只发出用户操作请求，不解释查询语义，也不执行候选项。它因此可以承载命令面板、资源跳转或其它快速选择，而不把业务执行逻辑带进组件。
 
 ## 布局
 
@@ -23,7 +23,7 @@
 ## 数据
 
 ```ts
-type QuickInputItem = Readonly<{
+type QuickPickItem = Readonly<{
     id: string;
     label: string;
     description?: string;
@@ -35,15 +35,15 @@ type QuickInputItem = Readonly<{
     labelMatches?: readonly (readonly [number, number])[];
 }>;
 
-type QuickInputCloseReason = "escape" | "outside";
+type QuickPickCloseReason = "escape" | "outside";
 
-type QuickInputProps = {
+type QuickPickProps = {
     /** 是否打开；必填且受控。 */
     open: boolean;
     /** 当前查询；必填、受控。 */
     query: string;
     /** 完整候选列表；必填、受控。id 应唯一。 */
-    items: readonly QuickInputItem[];
+    items: readonly QuickPickItem[];
     /** 活动候选 id 或 null；必填、受控。 */
     activeId: string | null;
     /** Dialog 标题和列表可访问名称；必填。 */
@@ -64,7 +64,7 @@ type QuickInputProps = {
     focusRequest?: number;
 };
 
-interface QuickInputEmits {
+interface QuickPickEmits {
     /** 根弹层状态变化；Escape/外点还会发 close。 */
     (event: "update:open", value: boolean): void;
     /** 查询输入变化。 */
@@ -74,12 +74,12 @@ interface QuickInputEmits {
     /** Enter 或点击有效候选项时发出。 */
     (event: "accept", id: string): void;
     /** Escape 或外点关闭请求；不等价于组件自行关闭。 */
-    (event: "close", reason: QuickInputCloseReason): void;
+    (event: "close", reason: QuickPickCloseReason): void;
     /** 浮层卸载、焦点交还完成后发出；中止的关闭交接不发。 */
     (event: "closed"): void;
 }
 
-interface QuickInputSlots {}
+interface QuickPickSlots {}
 ```
 
 组件不提供 slot 或 expose 方法。继承属性被关闭，并显式绑定到浮层 `DialogContent` 根节点；ARIA 标记由组件生成，不应依赖覆盖这些关系属性。

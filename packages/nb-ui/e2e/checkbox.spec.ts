@@ -2,7 +2,7 @@ import type {Locator, Page} from "@playwright/test";
 import {test, expect} from "./fixtures";
 
 /**
- * FormCheckbox 的原生 input 聚焦时不滚动外层容器（w00022 t17）。单元测试环境没有布局引擎，聚焦滚动只能在真实浏览器里看。
+ * Checkbox 的原生 input 聚焦时不滚动外层容器（w00022 t17）。单元测试环境没有布局引擎，聚焦滚动只能在真实浏览器里看。
  *
  * 复现条件（与 Splitter 的格子相同）：`relative overflow-hidden` 的定高格子里套一个不定位的可滚动列表，勾选框在列表靠下处。
  * 组件的 label 不是定位上下文时，`sr-only`（绝对定位）input 的包含块越过列表落到格子上，列表滚动不带着它走，
@@ -13,7 +13,7 @@ import {test, expect} from "./fixtures";
  */
 
 async function gotoFixture(page: Page): Promise<void> {
-    await page.goto("/acceptance/form-checkbox-focus?scene=default&theme=nbook&colorway=nbook-light");
+    await page.goto("/acceptance/checkbox-focus?scene=default&theme=nbook&colorway=nbook-light");
     await expect(page.locator("#nb-lab-target")).toBeVisible();
 }
 

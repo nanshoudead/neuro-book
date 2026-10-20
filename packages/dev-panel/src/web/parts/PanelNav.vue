@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import {Badge, FormInput, FormSelect, Tooltip} from "@notnotype/nb-ui/components";
+import {Badge, Input, Select, Tooltip} from "@notnotype/nb-ui/components";
 import {computed, nextTick, onBeforeUnmount, onMounted, ref, useId, watch} from "vue";
 import {statusDisplay, taskLabel, workLabel, type Tone} from "../host/format.js";
 import {arrangeNavWorks, entryActive, NAV_ARRANGES, NAV_GROUPS, NAV_RECENT_DAYS, type NavArrange, type NavCount} from "../host/nav.js";
@@ -184,9 +184,9 @@ onBeforeUnmount(() => observer?.disconnect());
             </section>
             <div class="flex items-center gap-1 pr-1">
                 <h2 :id="worksHeadingId" class="nbdev-nav-heading flex-1 pb-0">工作</h2>
-                <div class="w-32"><FormSelect :model-value="arrange" :options="arrangeOptions" size="sm" aria-label="Work 的排列方式" @update:model-value="(value: string) => emit('arrange', value as NavArrange)" /></div>
+                <div class="w-32"><Select :model-value="arrange" :options="arrangeOptions" size="sm" aria-label="Work 的排列方式" @update:model-value="(value: string) => emit('arrange', value as NavArrange)" /></div>
             </div>
-            <FormInput v-model="query" size="sm" placeholder="筛选 Work（编号或标题）" aria-label="筛选 Work" />
+            <Input v-model="query" size="sm" placeholder="筛选 Work（编号或标题）" aria-label="筛选 Work" />
         </div>
         <div ref="scroller" class="nbdev-scroll-y min-h-0 flex-1 pb-3" :class="inset ? 'px-3' : ''">
             <p v-if="works === null" class="px-2 nbdev-empty nbdev-small">正在读取</p>

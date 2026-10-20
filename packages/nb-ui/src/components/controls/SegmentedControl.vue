@@ -19,7 +19,7 @@ export type SegmentedControlOption = {
     count?: number | string;
     disabled?: boolean;
     iconClass?: string;
-    label: string;
+    label?: string;
     testId?: string;
     title?: string;
     tone?: SegmentedControlTone;

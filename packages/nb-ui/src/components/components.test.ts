@@ -16,17 +16,17 @@ import AlertDialog from "./feedback/AlertDialog.vue";
 import Dialog from "./feedback/Dialog.vue";
 import Drawer from "./feedback/Drawer.vue";
 import Notification from "./feedback/Notification.vue";
-import NotificationViewport from "./feedback/NotificationViewport.vue";
+import NotificationStack from "./feedback/NotificationStack.vue";
 import Popover from "./feedback/Popover.vue";
 import Tooltip from "./feedback/Tooltip.vue";
 import ContextMenu from "./feedback/ContextMenu.vue";
 import {clampMenuPosition, computeCascadePosition} from "./feedback/menu-cascade";
 import {moveHighlight} from "./form/option-highlight";
-import FormCheckbox from "./form/FormCheckbox.vue";
-import FormField from "./form/FormField.vue";
-import FormInput from "./form/FormInput.vue";
-import FormNumberInput from "./form/FormNumberInput.vue";
-import FormSelect from "./form/FormSelect.vue";
+import Checkbox from "./form/Checkbox.vue";
+import Field from "./form/Field.vue";
+import Input from "./form/Input.vue";
+import NumberInput from "./form/NumberInput.vue";
+import Select from "./form/Select.vue";
 import RadioGroup from "./form/RadioGroup.vue";
 import Slider from "./form/Slider.vue";
 import Collapsible from "./layout/Collapsible.vue";
@@ -55,7 +55,7 @@ describe("nb-ui components", () => {
     });
 
     it("passes common input attributes to the native input", () => {
-        const wrapper = mount(FormInput, {
+        const wrapper = mount(Input, {
             props: {
                 modelValue: "abc",
                 id: "username",
@@ -73,9 +73,9 @@ describe("nb-ui components", () => {
     });
     it("uses the theme-controlled md height and padding classes for single-line controls", () => {
         const wrappers = [
-            mount(FormInput, {props: {modelValue: "abc"}}),
-            mount(FormNumberInput, {props: {modelValue: "3"}}),
-            mount(FormSelect, {props: {modelValue: "md", options: [{label: "Markdown", value: "md"}]}}),
+            mount(Input, {props: {modelValue: "abc"}}),
+            mount(NumberInput, {props: {modelValue: "3"}}),
+            mount(Select, {props: {modelValue: "md", options: [{label: "Markdown", value: "md"}]}}),
         ];
 
         for (const wrapper of wrappers) {
@@ -88,12 +88,12 @@ describe("nb-ui components", () => {
 
     it("renders the required mark; an error keeps the layout: the description stays and the reason is only for assistive tech", () => {
         const wrapper = mount({
-            components: {FormField, FormInput},
+            components: {Field, Input},
             data: () => ({value: ""}),
             template: `
-                <FormField label="用户名" description="公开显示" required error="已被占用">
-                    <FormInput v-model="value" name="username" />
-                </FormField>
+                <Field label="用户名" description="公开显示" required error="已被占用">
+                    <Input v-model="value" name="username" />
+                </Field>
             `,
         });
 
@@ -109,12 +109,12 @@ describe("nb-ui components", () => {
 
     it("connects form field semantics to nested inputs", () => {
         const wrapper = mount({
-            components: {FormField, FormInput},
+            components: {Field, Input},
             data: () => ({value: ""}),
             template: `
-                <FormField label="用户名" description="公开显示" required>
-                    <FormInput v-model="value" name="username" />
-                </FormField>
+                <Field label="用户名" description="公开显示" required>
+                    <Input v-model="value" name="username" />
+                </Field>
             `,
         });
         const input = wrapper.get("input");
@@ -198,7 +198,7 @@ describe("nb-ui components", () => {
     it("renders notifications with theme tone classes", () => {
         const notification = useNotification();
         const id = notification.success("保存成功");
-        const wrapper = mount(NotificationViewport, {
+        const wrapper = mount(NotificationStack, {
             global: {
                 stubs: {
                     ClientOnly: {template: "<slot />"},
@@ -231,7 +231,7 @@ describe("nb-ui components", () => {
     });
 
     it("renders themed checkbox and emits updates", async () => {
-        const wrapper = mount(FormCheckbox, {
+        const wrapper = mount(Checkbox, {
             props: {modelValue: false, label: "接收通知"},
         });
         const input = wrapper.get("input");
@@ -243,12 +243,12 @@ describe("nb-ui components", () => {
 
     it("passes form field semantics to checkboxes", () => {
         const wrapper = mount({
-            components: {FormCheckbox, FormField},
+            components: {Checkbox, Field},
             data: () => ({value: false}),
             template: `
-                <FormField label="许可" description="用于测试" required>
-                    <FormCheckbox v-model="value" label="同意" name="agree" />
-                </FormField>
+                <Field label="许可" description="用于测试" required>
+                    <Checkbox v-model="value" label="同意" name="agree" />
+                </Field>
             `,
         });
         const input = wrapper.get("input");
@@ -260,12 +260,12 @@ describe("nb-ui components", () => {
 
     it("shows danger border on inputs inside an errored form field", () => {
         const wrapper = mount({
-            components: {FormField, FormInput},
+            components: {Field, Input},
             data: () => ({value: ""}),
             template: `
-                <FormField label="用户名" error="必填">
-                    <FormInput v-model="value" name="username" />
-                </FormField>
+                <Field label="用户名" error="必填">
+                    <Input v-model="value" name="username" />
+                </Field>
             `,
         });
         const input = wrapper.get("input");
@@ -275,16 +275,16 @@ describe("nb-ui components", () => {
     });
 
     /*
-     * FormSelect 从原生 <select> 换成 Reka Select 原语（Task 146 批 4）。
+     * Select 从原生 <select> 换成 Reka Select 原语（Task 146 批 4）。
      * 原生 select 的弹出列表由操作系统绘制，任何 CSS 都够不着，主题只能做到控件本身为止。
      *
      * 换实现最容易悄悄丢掉的是**契约**，所以这几条盯的都是契约不是外观：
-     * 触发器仍然接 FormField 的 id / describedby / invalid，仍然吐 update:modelValue，
+     * 触发器仍然接 Field 的 id / describedby / invalid，仍然吐 update:modelValue，
      * 且弹出层必须是页面内的 DOM——那正是原生实现做不到的那件事。
      */
     describe("form select", () => {
         it("no longer renders a native select the theme cannot reach into", () => {
-            const wrapper = mount(FormSelect, {
+            const wrapper = mount(Select, {
                 props: {modelValue: "md", options: [{label: "Markdown", value: "md"}]},
             });
 
@@ -294,7 +294,7 @@ describe("nb-ui components", () => {
         });
 
         it("shows the label of the current value rather than the raw value", () => {
-            const wrapper = mount(FormSelect, {
+            const wrapper = mount(Select, {
                 props: {
                     modelValue: "docx",
                     options: [
@@ -317,7 +317,7 @@ describe("nb-ui components", () => {
              * 教训是断言面：**只测关着的状态测不出弹出层**。弹出层被 portal 到 body，
              * 所以要 attachTo 并从 document 查，从 wrapper 查是查不到的。
              */
-            const wrapper = mount(FormSelect, {
+            const wrapper = mount(Select, {
                 props: {
                     modelValue: "md",
                     options: [
@@ -356,7 +356,7 @@ describe("nb-ui components", () => {
              *
              * 禁用项一起验：用户正是指着「PDF（暂不可用）」这一行说的，它和普通项走同一套几何。
              */
-            const wrapper = mount(FormSelect, {
+            const wrapper = mount(Select, {
                 props: {
                     modelValue: "md",
                     options: [
@@ -394,7 +394,7 @@ describe("nb-ui components", () => {
              * 这条盯的是真回归——把模板里那两个 :body-lock="false" / :disable-outside-pointer-events="false"
              * 任意删掉一个，它就红。
              */
-            const wrapper = mount(FormSelect, {
+            const wrapper = mount(Select, {
                 props: {
                     modelValue: "md",
                     options: [
@@ -418,12 +418,12 @@ describe("nb-ui components", () => {
 
         it("keeps wiring itself to the surrounding form field", () => {
             const wrapper = mount({
-                components: {FormField, FormSelect},
+                components: {Field, Select},
                 data: () => ({value: "md"}),
                 template: `
-                    <FormField label="导出格式" error="必填">
-                        <FormSelect v-model="value" name="format" :options="[{label: 'Markdown', value: 'md'}]" />
-                    </FormField>
+                    <Field label="导出格式" error="必填">
+                        <Select v-model="value" name="format" :options="[{label: 'Markdown', value: 'md'}]" />
+                    </Field>
                 `,
             });
             const trigger = wrapper.get("[role='combobox']");
@@ -434,7 +434,7 @@ describe("nb-ui components", () => {
         });
 
         it("emits a string when the value changes, never undefined", async () => {
-            const wrapper = mount(FormSelect, {
+            const wrapper = mount(Select, {
                 props: {modelValue: "md", options: [{label: "Markdown", value: "md"}]},
             });
 
@@ -531,7 +531,7 @@ describe("nb-ui new primitives", () => {
     });
 
     it("renders table rows, custom cell slots and empty state", () => {
-        // mount 无法从 props 推断泛型 Row，用宿主模板组件挂载（与本文件 FormField 测试同风格）
+        // mount 无法从 props 推断泛型 Row，用宿主模板组件挂载（与本文件 Field 测试同风格）
         const wrapper = mount({
             components: {Table},
             data: () => ({
@@ -921,11 +921,11 @@ describe("nb-ui dialog window (Dialog modal=false)", () => {
             wrapper.unmount();
         }
     });
-    it("raises FormSelect popovers above the window surface", async () => {
+    it("raises Select popovers above the window surface", async () => {
         const wrapper = mount(Dialog, {
             props: {modelValue: true, modal: false, showFooter: false, title: "设置", teleportTarget: false},
             slots: {
-                default: () => h(FormSelect, {
+                default: () => h(Select, {
                     modelValue: "one",
                     options: [{label: "第一项", value: "one"}, {label: "第二项", value: "two"}],
                 }),
@@ -956,7 +956,7 @@ describe("nb-ui dialog window (Dialog modal=false)", () => {
                     teleportTarget: false,
                     width: 600,
                 }, {
-                    default: () => h(FormSelect, {
+                    default: () => h(Select, {
                         modelValue: "one",
                         options: [{label: "第一项", value: "one"}, {label: "第二项", value: "two"}],
                     }),
@@ -1353,7 +1353,6 @@ describe("nb-ui dialog anatomy", () => {
     it("renders toggle group with multiple selection options", () => {
         const wrapper = mount(ToggleGroup, {
             props: {
-                type: "multiple",
                 modelValue: ["bold", "italic"],
                 options: [
                     {value: "bold", label: "B", title: "加粗"},

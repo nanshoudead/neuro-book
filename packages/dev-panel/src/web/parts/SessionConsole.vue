@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import {Badge, Button, FormTextarea} from "@notnotype/nb-ui/components";
+import {Badge, Button, Textarea} from "@notnotype/nb-ui/components";
 import {computed, ref, useId, watch} from "vue";
 import {HERDR_STATUS_LABEL, relativeTime, shortSession} from "../host/format.js";
 
@@ -94,7 +94,7 @@ function send(): void {
                 <span :id="purposeId" class="sr-only">替你在这个会话的输入框里打字并回车</span>
                 <!-- 输入框与发送同一行，发送贴着输入框的最后一行；按键自成一行，窄时按键折行也不会把发送挤到单独一行（t17 实现审查第 6 条）。 -->
                 <div class="grid grid-cols-[minmax(0,1fr)_auto] items-end gap-2">
-                    <FormTextarea v-model="draft" class="nbdev-prompt-input" :rows="1" :maxlength="MAX" :disabled="promptBlocked !== null" :placeholder="placeholder" aria-label="发给会话的文字" :aria-describedby="describedBy" @keydown="onKeydown" />
+                    <Textarea v-model="draft" class="nbdev-prompt-input" :rows="1" :maxlength="MAX" :disabled="promptBlocked !== null" :placeholder="placeholder" aria-label="发给会话的文字" :aria-describedby="describedBy" @keydown="onKeydown" />
                     <div class="nbdev-send flex items-center gap-2">
                         <span v-if="waitReason" :id="reasonId" class="nbdev-note nbdev-reason-wide whitespace-nowrap">{{ waitReason }}</span>
                         <span v-if="showCount" class="nbdev-caption nbdev-num" :class="{'nbdev-warn': draft.length >= MAX}">{{ draft.length }} / {{ MAX }}</span>
@@ -153,7 +153,7 @@ function send(): void {
 }
 /*
  * 输入框随内容长高（软换行也算），1 到 4 行，再多在框里滚动；不能拖高（field-sizing 下拖动把手不起作用）。
- * 1lh 是输入框自己的行高，加上 FormTextarea 的上下内边距（py-2）与 1px 边框。选择器带 scoped 属性，权重盖过 FormTextarea 的 resize-y。
+ * 1lh 是输入框自己的行高，加上 Textarea 的上下内边距（py-2）与 1px 边框。选择器带 scoped 属性，权重盖过 Textarea 的 resize-y。
  */
 .nbdev-prompt-input {
     field-sizing: content;

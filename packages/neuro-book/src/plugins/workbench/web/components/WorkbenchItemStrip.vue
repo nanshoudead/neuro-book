@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /** 条目条（同名 .md）：排一行，放不下时按优先级收进“更多”；只发 run 事件。 */
-import {Button, Dropdown} from "@notnotype/nb-ui/components";
-import type {DropdownItem} from "@notnotype/nb-ui/components";
+import {Button, DropdownMenu} from "@notnotype/nb-ui/components";
+import type {DropdownMenuItemData} from "@notnotype/nb-ui/components";
 import {useElementSize} from "@vueuse/core";
 import {computed, nextTick, onBeforeUnmount, onMounted, ref, watch} from "vue";
 
@@ -74,7 +74,7 @@ const layout = computed(() => {
 const shown = computed(() => props.entries.filter((entry) => layout.value.shown.includes(entry.id)));
 const hidden = computed(() => props.entries.filter((entry) => layout.value.hidden.includes(entry.id)));
 
-const moreItems = computed<DropdownItem[]>(() => hidden.value.map((entry) => ({
+const moreItems = computed<DropdownMenuItemData[]>(() => hidden.value.map((entry) => ({
     value: entry.id,
     label: entry.command === null ? `${entry.title}：${entry.text}` : entry.text,
     title: entry.disabledReason ?? entry.tooltip ?? undefined,
@@ -119,11 +119,11 @@ function tooltipOf(entry: StripEntry): string | undefined {
                 :data-workbench-item="entry.id"
             >{{ entry.text }}</span>
         </template>
-        <Dropdown v-if="hidden.length > 0" :items="moreItems" align="end" side="top" wrap @select="emit('run', $event)">
+        <DropdownMenu v-if="hidden.length > 0" :items="moreItems" align="end" side="top" wrap @select="emit('run', $event)">
             <Button variant="ghost" size="sm" focus-ring="inset" class="workbench-item-strip__item" :aria-label="localize(MORE, locale)" data-workbench-item-more>
                 <span class="i-lucide-ellipsis h-3.5 w-3.5" aria-hidden="true"></span>
             </Button>
-        </Dropdown>
+        </DropdownMenu>
 
         <!-- 测量层：与显示同一种元素（有命令的是 Button、没有的是文字），量每个条目与“更多”的宽度；不可见、不进读屏与 Tab 顺序。 -->
         <div ref="measure" class="workbench-item-strip__measure" aria-hidden="true" inert>

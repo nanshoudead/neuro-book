@@ -3,9 +3,9 @@
 验证入口: WorkbenchShellLayout
 ---
 
-# GridRenderer
+# NestedGrid
 
-`GridRenderer` 把 `createGrid` 一类领域无关的树与其同源布局结果递归呈现为嵌套分隔面板：分支成为 `Splitter`，叶交给宿主插槽。它同时把一次指针或键盘手势的预览投影到整棵子树，并将最终提交交回宿主；树、布局意图和任何持久化都不由渲染器拥有。
+`NestedGrid` 把 `createGrid` 一类领域无关的树与其同源布局结果递归呈现为嵌套分隔面板：分支成为 `Splitter`，叶交给宿主插槽。它同时把一次指针或键盘手势的预览投影到整棵子树，并将最终提交交回宿主；树、布局意图和任何持久化都不由渲染器拥有。
 
 ## 布局
 
@@ -25,7 +25,7 @@ import type {GridGestureCommit, GridGesturePreview} from "./grid-gesture";
 import type {GridSashRef} from "./sash-gesture";
 import type {SplitterGestureCancelReason, SplitterGestureSource} from "./splitter-gesture";
 
-type GridRendererProps = {
+type NestedGridProps = {
     /** 当前树；null 时呈现 empty 插槽。必填。 */
     node: GridNode<unknown> | null;
     /** 与 node 同源的已计算呈现几何；必填。 */
@@ -42,7 +42,7 @@ type GridRendererProps = {
     onIssues?: (issues: readonly string[]) => void;
 };
 
-type GridRendererEmits = {
+type NestedGridEmits = {
     /** 手势建立并冻结上下文时发出。 */
     (event: "gesture-start", info: {sessionId: string; contextKey: string; source: SplitterGestureSource; revision: number; sashes: readonly GridSashRef[]}): void;
     /** 每次产生新几何预览时发出；预览撤回、画面回到已发布的布局时（拖回基线、无变化松手、取消、提交被拒）也发一次，`changes` 为空、`layout` 是已发布的布局。 */
@@ -55,7 +55,7 @@ type GridRendererEmits = {
     (event: "issues", issues: readonly string[]): void;
 };
 
-type GridRendererSlots = {
+type NestedGridSlots = {
     leaf(props: {node: GridLeaf<unknown>}): unknown;
     empty(): unknown;
 };
@@ -79,4 +79,4 @@ Grid 根/叶结构的公开类型是 `GridNode<T> = GridLeaf<T> | GridBranch<T>`
 
 ## 上游边界
 
-`Splitter` 负责面板渲染与 sash 输入绑定，`useSashGesture` 负责命中、指针/键盘生命周期、取消和手势仲裁；布局计算与手势求解由 grid 几何模块及 Grid session 提供。`GridRenderer` 承诺递归映射、预览呈现、事件和同步提交回调语义，不承诺这些局部模块未声明的实现细节。
+`Splitter` 负责面板渲染与 sash 输入绑定，`useSashGesture` 负责命中、指针/键盘生命周期、取消和手势仲裁；布局计算与手势求解由 grid 几何模块及 Grid session 提供。`NestedGrid` 承诺递归映射、预览呈现、事件和同步提交回调语义，不承诺这些局部模块未声明的实现细节。

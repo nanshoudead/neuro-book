@@ -18,8 +18,8 @@ import {
 describe("inspect", () => {
     describe("shortenFile", () => {
         it("shortens absolute path to package relative path", () => {
-            expect(shortenFile("C:/repo/packages/nb-ui/src/components/form/FormSelect.vue"))
-                .toBe("packages/nb-ui/src/components/form/FormSelect.vue");
+            expect(shortenFile("C:/repo/packages/nb-ui/src/components/form/Select.vue"))
+                .toBe("packages/nb-ui/src/components/form/Select.vue");
             expect(shortenFile("/usr/local/repo/packages/neuro-book/src/plugins/lab/web/LabShell.vue"))
                 .toBe("packages/neuro-book/src/plugins/lab/web/LabShell.vue");
             expect(shortenFile("")).toBe("");
@@ -136,8 +136,8 @@ describe("inspect", () => {
                 id: "",
                 classes: ["nb-ui-control", "w-[170px]"],
                 selector: "header.lab-bar > button.nb-ui-control",
-                componentName: "FormSelect",
-                componentFile: "packages/nb-ui/src/components/form/FormSelect.vue",
+                componentName: "Select",
+                componentFile: "packages/nb-ui/src/components/form/Select.vue",
                 width: 170,
                 height: 26,
                 isSubject: false,
@@ -146,8 +146,8 @@ describe("inspect", () => {
             });
 
             expect(report).toContain("元素  header.lab-bar > button.nb-ui-control");
-            expect(report).toContain("组件  FormSelect");
-            expect(report).toContain("源文件  packages/nb-ui/src/components/form/FormSelect.vue");
+            expect(report).toContain("组件  Select");
+            expect(report).toContain("源文件  packages/nb-ui/src/components/form/Select.vue");
             expect(report).toContain("标签  <button class=\"nb-ui-control\">");
             expect(report).toContain("文本  \"选择对话\"");
             expect(report).toContain("尺寸  170 × 26");

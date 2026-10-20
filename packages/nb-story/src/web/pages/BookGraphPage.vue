@@ -3,7 +3,7 @@
  * 全书图（docs/specs/story/viewer.md 输出 30、31）：默认按章节（故事线），可切到按关联（对象、主线或逐段情节、秘密、
  * 悬念四类点，悬念默认不显示）。
  */
-import {ContextMenu, FormCheckbox, FormInput, SegmentedControl} from "@notnotype/nb-ui/components";
+import {ContextMenu, Checkbox, Input, SegmentedControl} from "@notnotype/nb-ui/components";
 import type {ContextMenuItem} from "@notnotype/nb-ui/components";
 import {computed, ref} from "vue";
 
@@ -73,9 +73,9 @@ function openNode(id: string): void {
             <template v-if="arrange === 'force'">
                 <SegmentedControl v-model="grain" size="xs" :options="[{value: 'arc', label: '按主线'}, {value: 'episode', label: '逐段情节'}]" aria-label="情节的粒度" />
                 <button v-for="type in TYPES.filter(item => item.id !== (grain === 'arc' ? 'episode' : 'arc'))" :key="type.id" type="button" class="story-chip" :class="hidden.includes(type.id) ? '' : 'is-on'" :aria-pressed="!hidden.includes(type.id)" @click="toggle(type.id)">{{ type.label }}</button>
-                <FormCheckbox v-model="neighborhood" label="只看选中的周边" />
+                <Checkbox v-model="neighborhood" label="只看选中的周边" />
                 <span class="text-[length:var(--text-2xs)] text-[var(--text-secondary)]">单击选中 · 双击打开 · 右键更多 · F 只看周边</span>
-                <div class="ml-auto w-40"><FormInput v-model="search" size="sm" icon-class="i-lucide-search" placeholder="在图里找" /></div>
+                <div class="ml-auto w-40"><Input v-model="search" size="sm" icon-class="i-lucide-search" placeholder="在图里找" /></div>
             </template>
         </div>
         <PageState class="px-3" :loading="(storyline.loading.value && !storyline.data.value) || (data.loading.value && !data.data.value)" :error="storyline.error.value?.message ?? data.error.value?.message ?? null" @retry="arrange === 'storyline' ? storyline.reload() : data.reload()" />

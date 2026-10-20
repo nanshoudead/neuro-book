@@ -1,17 +1,17 @@
 <script setup lang="ts">
 import {computed} from "vue";
-import {useFormFieldContext} from "./form-field-context";
+import {useFieldContext} from "./field-context";
 
-export type FormInputType = "text" | "search" | "password" | "number";
-export type FormInputSize = "default" | "sm" | "md";
+export type InputType = "text" | "search" | "password" | "number";
+export type InputSize = "default" | "sm" | "md";
 
 const props = withDefaults(defineProps<{
     modelValue?: string;
     id?: string;
     name?: string;
-    type?: FormInputType;
+    type?: InputType;
     placeholder?: string;
-    size?: FormInputSize;
+    size?: InputSize;
     disabled?: boolean;
     readonly?: boolean;
     required?: boolean;
@@ -47,7 +47,7 @@ const emit = defineEmits<{
     (e: "clear"): void;
 }>();
 
-const field = useFormFieldContext();
+const field = useFieldContext();
 
 const isSmall = computed(() => props.size === "sm");
 const controlSizeClass = computed(() => isSmall.value

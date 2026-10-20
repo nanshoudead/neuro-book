@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import {Badge, FormSelect} from "@notnotype/nb-ui/components";
+import {Badge, Select} from "@notnotype/nb-ui/components";
 import {computed, ref, watch} from "vue";
 import {useRouter} from "vue-router";
 import {relativeTime, taskLabel, workLabel} from "../host/format.js";
@@ -125,7 +125,7 @@ const navigate = (href: string) => void router.push(href);
             </template>
             <template v-if="data" #actions>
                 <div v-if="versionOptions.length > 1" class="w-40">
-                    <FormSelect :model-value="String(data.version)" :options="versionOptions" aria-label="看哪一版的题表" @update:model-value="(value: string) => (version = Number(value) === data!.latestVersion ? null : Number(value))" />
+                    <Select :model-value="String(data.version)" :options="versionOptions" aria-label="看哪一版的题表" @update:model-value="(value: string) => (version = Number(value) === data!.latestVersion ? null : Number(value))" />
                 </div>
                 <ActionLink v-if="data.pageUrl" :href="data.pageUrl" icon="i-lucide-external-link" external>单独打开</ActionLink>
             </template>

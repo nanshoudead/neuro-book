@@ -18,7 +18,7 @@
 
 - 菜单会话：Alt（单独按下再松开）或 F10 聚焦菜单入口（完整时是第一组，否则是“菜单”按钮），或任一菜单打开，都开始一次会话，记下标题栏之外的上一个焦点。菜单关闭后焦点落回入口（Escape、选中一项）时，焦点回到那个位置；焦点在菜单入口上、菜单都关着时按 Escape 也是。用户点了别处、或把焦点挪到搜索与布局按钮再按 Escape，不还焦点。
 - 会话开始时焦点在原生输入框里（`input`、`textarea`；编辑器区里的除外）：菜单里的撤销、重做禁用并说明原因，根上带 `data-titlebar-native-editing`。
-- 菜单里的键盘由 nb-ui `Menubar`、`Dropdown` 负责（上下键、Home、End、Enter、Escape）。
+- 菜单里的键盘由 nb-ui `Menubar`、`DropdownMenu` 负责（上下键、Home、End、Enter、Escape）。
 - 搜索按钮发 `search`；布局按钮发 `toggle-part`；项目切换在有项目时点开列出“打开项目…”，没有项目时直接发 `open-project`。
 
 ## 数据

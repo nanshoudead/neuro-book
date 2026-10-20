@@ -5,7 +5,7 @@ import {h} from "vue";
 import {Button as NbButton, IconButton as NbIconButton} from "@notnotype/nb-ui/components";
 import type {
     Button,
-    Dropdown,
+    DropdownMenu,
     IconButton,
     Menubar,
     SegmentedControl,
@@ -103,8 +103,8 @@ export const controlsFixtures: LabFixture[] = [
         ],
         subject: nbUiSubject("IconButton"),
     }),
-    defineSubjectFixture<typeof Dropdown>({
-        component: "Dropdown",
+    defineSubjectFixture<typeof DropdownMenu>({
+        component: "DropdownMenu",
         events: ["select"],
         slotPresets: {default: () => h(NbButton, {variant: "secondary", size: "sm", iconClass: "i-lucide-ellipsis"}, () => "更多操作")},
         scenes: [
@@ -114,7 +114,7 @@ export const controlsFixtures: LabFixture[] = [
             {id: "disabled", label: "禁用", input: {props: {items: DROPDOWN_ITEMS, disabled: true, align: "start", side: "bottom"}, model: {open: false}, slots: {default: true}}},
             {id: "wrap", label: "长文字换行", input: {props: {items: [{label: "未保存的文档：未保存 3 个（第一章.md、第二章.md、第三章.md）", value: "unsaved"}, {label: "字数：12,345 字", value: "words", disabled: true}, ...DROPDOWN_ITEMS.slice(0, 2)], wrap: true, align: "start", side: "bottom"}, model: {open: false}, slots: {default: true}}},
         ],
-        subject: nbUiSubject("Dropdown"),
+        subject: nbUiSubject("DropdownMenu"),
     }),
     defineSubjectFixture<typeof Menubar>({
         component: "Menubar",
@@ -168,10 +168,10 @@ export const controlsFixtures: LabFixture[] = [
     defineSubjectFixture<typeof ToggleGroup>({
         component: "ToggleGroup",
         scenes: [
-            {id: "single", label: "单选", input: {props: {type: "single", options: [{value: "left", iconClass: "i-lucide-align-left", title: "左对齐"}, {value: "center", iconClass: "i-lucide-align-center", title: "居中"}, {value: "right", iconClass: "i-lucide-align-right", title: "右对齐"}], size: "md"}, model: {modelValue: "left"}}},
-            {id: "multiple", label: "多选", input: {props: {type: "multiple", options: [{value: "bold", iconClass: "i-lucide-bold", title: "粗体"}, {value: "italic", iconClass: "i-lucide-italic", title: "斜体"}, {value: "strike", iconClass: "i-lucide-strikethrough", title: "删除线"}], size: "md"}, model: {modelValue: ["bold"]}}},
-            {id: "labels", label: "文字选项", input: {props: {type: "single", options: [{value: "shelf", label: "书架"}, {value: "list", label: "列表"}], size: "sm"}, model: {modelValue: "shelf"}}},
-            {id: "vertical", label: "纵向", input: {props: {type: "single", orientation: "vertical", options: [{value: "a", label: "第一卷"}, {value: "b", label: "第二卷"}, {value: "c", label: "第三卷", disabled: true}], size: "md"}, model: {modelValue: "a"}}},
+            {id: "multiple", label: "格式开关", input: {props: {options: [{value: "bold", iconClass: "i-lucide-bold", title: "粗体"}, {value: "italic", iconClass: "i-lucide-italic", title: "斜体"}, {value: "strike", iconClass: "i-lucide-strikethrough", title: "删除线"}], size: "md"}, model: {modelValue: ["bold"]}}},
+            {id: "labels", label: "文字选项", input: {props: {options: [{value: "notes", label: "批注"}, {value: "changes", label: "修订"}], size: "sm"}, model: {modelValue: ["notes", "changes"]}}},
+            {id: "none", label: "都没按下", input: {props: {options: [{value: "bold", iconClass: "i-lucide-bold", title: "粗体"}, {value: "italic", iconClass: "i-lucide-italic", title: "斜体"}], size: "md"}, model: {modelValue: []}}},
+            {id: "vertical", label: "纵向", input: {props: {orientation: "vertical", options: [{value: "a", label: "第一卷"}, {value: "b", label: "第二卷"}, {value: "c", label: "第三卷", disabled: true}], size: "md"}, model: {modelValue: ["a"]}}},
         ],
         subject: nbUiSubject("ToggleGroup"),
     }),

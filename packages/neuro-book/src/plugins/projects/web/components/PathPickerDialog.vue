@@ -1,11 +1,11 @@
 <script setup lang="ts">
 /**
- * 目录选择器（同名 .md）：模态 `Dialog` 包 nb-ui `FileBrowser`，数据从 `source.list` 取（产品里是远程 `browse`）。
+ * 目录选择器（同名 .md）：模态 `Dialog` 包 `FileBrowser`，数据从 `source.list` 取（产品里是远程 `browse`）。
  * 从作品信息对话框里打开时叠在它上面（模态按打开顺序叠放），Esc 与点遮罩只关这一层。
  * 选作品（打开已有作品）或选目录（更改作品目录）两种用途，区别只在哪些条目能选、确认按钮叫什么。
  */
-import {Button, Dialog, FileBrowser, FormInput, IconButton, InfoTip, Tooltip} from "@notnotype/nb-ui/components";
-import type {FileBrowserEntry, FileBrowserSegment} from "@notnotype/nb-ui/components";
+import {Button, Dialog, Input, IconButton, InfoTip, Tooltip} from "@notnotype/nb-ui/components";
+
 import {computed, nextTick, ref, useId, watch} from "vue";
 
 import {localize} from "nbook/shared/localized-text";
@@ -13,6 +13,8 @@ import type {DisplayLocale, LocalizedText} from "nbook/shared/localized-text";
 
 import type {BrowseEntry} from "../../shared/contracts";
 import {autoBookColor} from "../shelf-format";
+import FileBrowser from "./FileBrowser.vue";
+import type {FileBrowserEntry, FileBrowserSegment} from "./FileBrowser.vue";
 
 defineOptions({name: "PathPickerDialog", inheritAttrs: false});
 
@@ -159,7 +161,7 @@ async function startTyping(): Promise<void> {
     typed.value = listing.value?.path ?? "";
     typing.value = true;
     await nextTick();
-    // 按 id 找：FormInput 带前后缀时根是外框、不带时根就是 input，id 总落在真正的 input 上。
+    // 按 id 找：Input 带前后缀时根是外框、不带时根就是 input，id 总落在真正的 input 上。
     document.getElementById(inputId)?.focus();
 }
 
@@ -203,7 +205,7 @@ function activate(path: string): void {
         </template>
         <div class="path-picker" data-path-picker>
             <div v-if="typing" class="path-picker__typing">
-                <FormInput :id="inputId" v-model="typed" size="sm" :placeholder="text(TEXT.pathPlaceholder)" data-path-picker-input @keydown.enter.prevent="submitTyped" @keydown.esc.prevent="typing = false" />
+                <Input :id="inputId" v-model="typed" size="sm" :placeholder="text(TEXT.pathPlaceholder)" data-path-picker-input @keydown.enter.prevent="submitTyped" @keydown.esc.prevent="typing = false" />
                 <Button size="sm" variant="secondary" @click="submitTyped">{{ text(TEXT.typePath) }}</Button>
             </div>
             <FileBrowser

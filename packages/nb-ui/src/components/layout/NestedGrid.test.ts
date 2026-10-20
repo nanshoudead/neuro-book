@@ -1,7 +1,7 @@
 import {afterEach, describe, expect, it} from "vitest";
 import {mount, type VueWrapper} from "@vue/test-utils";
 import {h, nextTick} from "vue";
-import GridRenderer from "./GridRenderer.vue";
+import NestedGrid from "./NestedGrid.vue";
 import Splitter, {type SplitterPanelConfig} from "./Splitter.vue";
 import {createGrid, type Grid, type GridLayoutResult, type GridNode} from "./grid";
 import {createGridGestureSession, type GridGestureCommit, type GridGesturePreview, type GridGestureSession} from "./grid-gesture";
@@ -118,7 +118,7 @@ type RendererOptions = {
 };
 
 function mountRenderer(node: GridNode<string> | null, layout: GridLayoutResult, options: RendererOptions = {}): VueWrapper {
-    const wrapper = mount(GridRenderer, {
+    const wrapper = mount(NestedGrid, {
         attachTo: attachContainer(),
         props: {
             node,
@@ -135,7 +135,7 @@ function mountRenderer(node: GridNode<string> | null, layout: GridLayoutResult, 
     return wrapper;
 }
 
-describe("GridRenderer 递归渲染", () => {
+describe("NestedGrid 递归渲染", () => {
     it("单叶根直接交给叶插槽，不挂 Splitter", () => {
         const grid = createGrid<string>({kind: "leaf", id: "only", ref: "only", size: {width: 0, height: 0}}, {sashSize: SASH});
         const wrapper = mountRenderer(grid.root(), grid.layout(CONTAINER));

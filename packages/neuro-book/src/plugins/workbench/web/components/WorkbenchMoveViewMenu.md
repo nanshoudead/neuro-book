@@ -12,7 +12,7 @@ multiple 时放在视图标题的动作区，single 时由宿主上提到容器�
 ## 交互
 
 - 点按钮打开菜单；每个目标容器一项（图标、标题，右侧是所在 Part），每段末尾一项“新建容器（在 X）”。不用级联子菜单：子菜单浮层对菜单原语是“外部”，真实浏览器里指针点进去会先关掉整个菜单。没有任何目标且不能重置时按钮禁用。
-- 选一个容器发带 `targetContainerId` 的 `move`，选“新建容器（在 X）”发带 `newContainerIn` 的 `move`，选“重置位置”发 `reset`；菜单随即关闭，焦点回到按钮（nb-ui Dropdown 的行为）。Escape 与点外关闭同样把焦点还给按钮。
+- 选一个容器发带 `targetContainerId` 的 `move`，选“新建容器（在 X）”发带 `newContainerIn` 的 `move`，选“重置位置”发 `reset`；菜单随即关闭，焦点回到按钮（nb-ui DropdownMenu 的行为）。Escape 与点外关闭同样把焦点还给按钮。
 - 菜单开着时 `identity` 变化：菜单关闭，不发任何事件。
 
 ## 数据
@@ -57,7 +57,7 @@ type Emits = {
 };
 ```
 
-没有 slot、没有 expose；attrs 落在触发按钮外的 Dropdown 根上。
+没有 slot、没有 expose；attrs 落在触发按钮外的 DropdownMenu 根上。
 
 ## 状态
 

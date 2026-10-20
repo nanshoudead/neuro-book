@@ -23,6 +23,7 @@ import type BookCard from "nbook/plugins/projects/web/components/BookCard.vue";
 import type WelcomePage from "nbook/plugins/projects/web/components/WelcomePage.vue";
 import type BookCover from "nbook/plugins/projects/web/components/BookCover.vue";
 import type BookshelfPage from "nbook/plugins/projects/web/components/BookshelfPage.vue";
+import type FileBrowser from "nbook/plugins/projects/web/components/FileBrowser.vue";
 import type PathPickerDialog from "nbook/plugins/projects/web/components/PathPickerDialog.vue";
 import type ProjectInfoDialog from "nbook/plugins/projects/web/components/ProjectInfoDialog.vue";
 import type ShelfCards from "nbook/plugins/projects/web/components/ShelfCards.vue";
@@ -990,6 +991,28 @@ function shelfFixtures(): LabFixture[] {
                 {id: "english", label: "英文界面", input: {props: {locale: "en-US", open: true, mode: "create"}, model: {location: "/Users/writer/Documents/NeuroBook"}}},
             ],
             subject: () => import("nbook/plugins/projects/web/components/ProjectInfoDialog.vue"),
+        }),
+        defineSubjectFixture<typeof FileBrowser>({
+            component: "FileBrowser",
+            events: ["navigate", "up", "activate"],
+            class: "w-full max-w-[560px]",
+            scenes: [
+                {id: "default", label: "作品目录", input: {props: {
+                    segments: [{label: "/", path: "/"}, {label: "home", path: "/home"}, {label: "writer", path: "/home/writer"}, {label: "Documents", path: "/home/writer/Documents"}, {label: "NeuroBook", path: "/home/writer/Documents/NeuroBook"}],
+                    entries: [
+                        {id: "/home/writer/Documents/NeuroBook/changyexing", name: "changyexing", kind: "directory", badge: "已在书架上", disabled: true, swatch: "#2f5fa0"},
+                        {id: "/home/writer/Documents/NeuroBook/beifang", name: "beifang", kind: "directory", badge: "作品 · 北方以北", badgeTone: "accent", swatch: "#8f3f2e"},
+                        {id: "/home/writer/Documents/NeuroBook/drafts", name: "drafts", kind: "directory"},
+                        {id: "/home/writer/Documents/NeuroBook/old-notes", name: "old-notes", kind: "directory"},
+                        {id: "/home/writer/Documents/NeuroBook/notes.md", name: "notes.md", kind: "file"},
+                    ],
+                    label: "作品目录",
+                }, model: {selectedId: "/home/writer/Documents/NeuroBook/beifang"}}},
+                {id: "empty", label: "空目录", input: {props: {segments: [{label: "/", path: "/"}, {label: "tmp", path: "/tmp"}], entries: [], emptyText: "这里没有子目录"}, model: {selectedId: null}}},
+                {id: "loading", label: "加载中", input: {props: {segments: [{label: "/", path: "/"}], entries: [], loading: true}, model: {selectedId: null}}},
+                {id: "error", label: "读不出", input: {props: {segments: [{label: "/", path: "/"}, {label: "root", path: "/root"}], entries: [], error: "目录不可读：/root"}, model: {selectedId: null}}},
+            ],
+            subject: () => import("nbook/plugins/projects/web/components/FileBrowser.vue"),
         }),
         defineSubjectFixture<typeof PathPickerDialog>({
             component: "PathPickerDialog",

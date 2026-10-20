@@ -13,10 +13,10 @@ import {
 } from "reka-ui";
 import {useDropdownFloating} from "../../composables/useDropdownFloating";
 import {cn} from "../../utils/cn";
-import {useFormFieldContext} from "./form-field-context";
+import {useFieldContext} from "./field-context";
 
 /**
- * 下拉选择（FormSelect · 65% 磨砂、8px 模糊、双向虚化遮罩与 macOS 悬浮滑块体系）。
+ * 下拉选择（Select · 65% 磨砂、8px 模糊、双向虚化遮罩与 macOS 悬浮滑块体系）。
  *
  * 弹出层基于 Reka Select 原语构建，通过 `.nb-ui-popover-surface` 与 `.nb-ui-menu-surface`
  * 接入 65% 面色 + 8px 高斯模糊 + 130% 饱和度 + 1.0 亮度 与 4 层微反光立体阴影。
@@ -30,10 +30,10 @@ import {useFormFieldContext} from "./form-field-context";
  * 6. 尺寸规范：严格消费 nb-ui-control-h-sm / nb-ui-control-h-md 主题高度。
  */
 
-export type FormSelectSize = "default" | "sm";
-export type FormSelectDirection = "auto" | "up" | "down";
+export type SelectSize = "default" | "sm";
+export type SelectDirection = "auto" | "up" | "down";
 
-export type FormSelectOption = {
+export type SelectOption = {
     label: string;
     value: string;
     /** 次行说明文字，富选项场景使用 */
@@ -47,12 +47,12 @@ export type FormSelectOption = {
 
 const props = withDefaults(defineProps<{
     modelValue?: string;
-    options: FormSelectOption[];
+    options: SelectOption[];
     id?: string;
     name?: string;
     placeholder?: string;
-    size?: FormSelectSize;
-    dropdownDirection?: FormSelectDirection;
+    size?: SelectSize;
+    dropdownDirection?: SelectDirection;
     disabled?: boolean;
     required?: boolean;
     hideCheckmark?: boolean;
@@ -73,7 +73,7 @@ const emit = defineEmits<{
     (e: "focus", event: FocusEvent): void;
 }>();
 
-const field = useFormFieldContext();
+const field = useFieldContext();
 const controlId = computed(() => props.id || field?.inputId.value || undefined);
 const isRequired = computed(() => props.required || field?.required.value === true);
 const isInvalid = computed(() => field?.invalid.value === true);

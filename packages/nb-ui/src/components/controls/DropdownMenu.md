@@ -2,9 +2,9 @@
 标签: [state:local, state:inject, env:portal, env:global, env:timer]
 ---
 
-# Dropdown
+# DropdownMenu
 
-`Dropdown` 把一个触发器和可滚动的非模态菜单组合起来，支持普通项、分隔线、受控 radio/checkbox、任意层级级联子菜单和自定义菜单项。它把选中结果交给宿主，不替宿主修改 `checked` 或执行业务动作；与只负责打开单层菜单的原语相比，它额外提供统一浮层材质、碰撞避让、长列表滚动条和级联面板。
+`DropdownMenu` 把一个触发器和可滚动的非模态菜单组合起来，支持普通项、分隔线、受控 radio/checkbox、任意层级级联子菜单和自定义菜单项。它把选中结果交给宿主，不替宿主修改 `checked` 或执行业务动作；与只负责打开单层菜单的原语相比，它额外提供统一浮层材质、碰撞避让、长列表滚动条和级联面板。
 
 ## 布局
 
@@ -28,11 +28,11 @@
 ## 数据
 
 ```ts
-import type {DropdownItem, DropdownItemType} from "./dropdown.types";
+import type {DropdownMenuItemData, DropdownMenuItemType} from "./dropdown-menu.types";
 
-type DropdownProps = {
+type DropdownMenuProps = {
     /** 顶层及级联菜单项；必填；数组顺序决定显示顺序 */
-    items: DropdownItem[];
+    items: DropdownMenuItemData[];
     /** 主菜单补充 class；默认 undefined */
     menuClass?: string;
     /** 菜单视口最大高度；默认 undefined；非空 CSS 字符串直接作为视口 max-height，空字符串按密度计算 */
@@ -59,7 +59,7 @@ type DropdownProps = {
     wrap?: boolean;
 };
 
-type DropdownEmits = {
+type DropdownMenuEmits = {
     /** 叶子项被选择时发出；禁用项和级联父项不发出 */
     (event: "select", value: string): void;
     /** 声明的焦点事件；当前实现没有触发路径，见「已知偏差」 */
@@ -68,16 +68,16 @@ type DropdownEmits = {
     (event: "update:open", value: boolean): void;
 };
 
-type DropdownSlots = {
+type DropdownMenuSlots = {
     /** 触发器内容；必需，否则没有可操作的触发器 */
     default?: () => unknown;
-    /** 自定义条目主体；slot props 为 { item: DropdownItem } */
-    item?: (props: {item: DropdownItem}) => unknown;
-    /** 自定义条目右侧内容；slot props 为 { item: DropdownItem }；有 children 或 checked 时相应的箭头/勾选优先显示 */
-    "item-right"?: (props: {item: DropdownItem}) => unknown;
+    /** 自定义条目主体；slot props 为 { item: DropdownMenuItemData } */
+    item?: (props: {item: DropdownMenuItemData}) => unknown;
+    /** 自定义条目右侧内容；slot props 为 { item: DropdownMenuItemData }；有 children 或 checked 时相应的箭头/勾选优先显示 */
+    "item-right"?: (props: {item: DropdownMenuItemData}) => unknown;
 };
 
-interface DropdownItem {
+interface DropdownMenuItemData {
     /** 菜单项可见文字；必填，分隔项会忽略 */
     label: string;
     /** 菜单项稳定值；必填，也用作分隔项 key */
@@ -99,16 +99,16 @@ interface DropdownItem {
     /** 是否显示分隔线；默认 false */
     separator?: boolean;
     /** 子菜单数据；非空时本项只展开子菜单、不发 select；默认 undefined */
-    children?: readonly DropdownItem[];
+    children?: readonly DropdownMenuItemData[];
     /** 菜单语义；默认省略时按普通 item 处理 */
-    type?: DropdownItemType;
+    type?: DropdownMenuItemType;
     /** radio/checkbox 是否勾选，由父级受控；默认 false */
     checked?: boolean;
     /** radio 的分组标识；默认 undefined；仅供缺失值诊断，不执行分组 */
     group?: string;
 }
 
-type DropdownItemType = "item" | "radio" | "checkbox";
+type DropdownMenuItemType = "item" | "radio" | "checkbox";
 ```
 
 省略 `open` 时由上游维护展开状态；传入时由父组件回写 `update:open` 才能改变显示，两种模式都上报更新。`menuMaxHeight` 非空时直接作为 CSS 最大高度；省略或空字符串时按密度计算。radio `group` 缺失会输出开发诊断，但当前菜单节点不执行分组或互斥，勾选仍完全由 `checked` 控制。
@@ -143,5 +143,5 @@ Reka UI 负责菜单角色、Escape/outside dismiss、焦点归还、受控展�
 ## 已知偏差
 
 - `focus` 事件在 `defineEmits` 中声明，但组件没有调用 `emit("focus", ...)` 的路径；使用方不能依赖它报告焦点。
-- `DropdownItem.rightIconClass` 有类型定义但 `MenuNodes` 未渲染；右侧自定义内容使用 `item-right` slot。
+- `DropdownMenuItemData.rightIconClass` 有类型定义但 `MenuNodes` 未渲染；右侧自定义内容使用 `item-right` slot。
 - `popoverStyle` 被传入浮层 composable，但模板未绑定其返回的浮层样式；该 prop 当前不改变显示样式，可通过 `contentProps` 传原生浮层属性。

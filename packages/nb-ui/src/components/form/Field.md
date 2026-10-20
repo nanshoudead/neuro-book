@@ -2,15 +2,15 @@
 标签: [state:inject]
 ---
 
-# FormField
+# Field
 
-`FormField` 是一层表单语义容器，负责把标签、描述或错误文案与一个字段控件放在同一结构中，并通过 Vue provide 将生成的 id、required、invalid 和 `aria-describedby` 关系传给树内的 nb-ui 表单控件。它不持有字段值，也不替父组件执行校验或提交。
+`Field` 是一层表单语义容器，负责把标签、描述或错误文案与一个字段控件放在同一结构中，并通过 Vue provide 将生成的 id、required、invalid 和 `aria-describedby` 关系传给树内的 nb-ui 表单控件。它不持有字段值，也不替父组件执行校验或提交。
 
 ## 布局
 
 根节点是一个 block 级 `label`，内部依次是可选字段标题、默认 slot 内容与可选描述文字。标题和描述各占一行，默认间距由 `space-y-1.5` 提供。`error` 不显示成文字：出错时字段的排版不变，只有控件标红，原因放在视觉隐藏的元素里给读屏；看得见的原因由宿主写在固定位置（对话框里是页脚左侧的状态行），规则见 [UI 开发规范](../../../docs/ui-development-spec.md) 的“表单与无障碍”。标题过长或辅助文案过长时由父级宽度决定换行，组件不设置固定宽度。
 
-`390×844` 下布局仍是单列结构，字段控件由默认 slot 决定宽度；FormField 自身不创建横向滚动区域，也不改变 slot 内容的尺寸。
+`390×844` 下布局仍是单列结构，字段控件由默认 slot 决定宽度；Field 自身不创建横向滚动区域，也不改变 slot 内容的尺寸。
 
 ## 交互
 
@@ -22,7 +22,7 @@
 ## 数据
 
 ```ts
-type FormFieldProps = {
+type FieldProps = {
     /** 字段标题；默认空字符串，空时不渲染标题。 */
     label?: string;
     /** 辅助描述；默认空字符串；有 error 时照常显示。 */
@@ -35,11 +35,11 @@ type FormFieldProps = {
     required?: boolean;
 };
 
-type FormFieldEmits = {
+type FieldEmits = {
     /** 无 emits；组件不持有或修改字段值。 */
 };
 
-type FormFieldSlots = {
+type FieldSlots = {
     /** 字段控件与自定义内容；slot props 是当前字段的可访问性上下文。 */
     default?: (props: {
         inputId: string;
@@ -53,7 +53,7 @@ type FormFieldSlots = {
 
 组件生成的 id 形如 `nb-field-<Vue useId>`，只有 `for` prop 非空时才使用调用方给出的 id。组件不提供 expose API。未声明的 attrs、`class` 和 `style` 按 Vue 默认行为落到根 `label`，不应把它们当作内部控件属性透传入口。
 
-FormField 通过 `NB_FORM_FIELD_CONTEXT_KEY` provide 下列只读计算值给后代：`inputId`、`descriptionId`、`errorId`、`ariaDescribedby`、`required` 和 `invalid`。`FormInput`、`FormNumberInput`、`FormSelect` 与 `FormCheckbox` 会可选读取这份上下文；其它默认 slot 内容不会自动获得原生属性。没有这些消费者时，provide 不产生额外副作用。
+Field 通过 `NB_FIELD_CONTEXT_KEY` provide 下列只读计算值给后代：`inputId`、`descriptionId`、`errorId`、`ariaDescribedby`、`required` 和 `invalid`。`Input`、`NumberInput`、`Select` 与 `Checkbox` 会可选读取这份上下文；其它默认 slot 内容不会自动获得原生属性。没有这些消费者时，provide 不产生额外副作用。
 
 ## 隐藏通道理由
 
@@ -75,4 +75,4 @@ FormField 通过 `NB_FORM_FIELD_CONTEXT_KEY` provide 下列只读计算值给后
 
 ## 组合边界
 
-`FormField` 是表单控件与可访问性文案之间的组合边界：它只生成并提供语义关系，不规定后代控件必须是 nb-ui 组件，也不替普通 slot 内容注入原生属性。实际值、校验、提交和禁用策略仍由父组件通过 props、emits 与 slot 内容控制。
+`Field` 是表单控件与可访问性文案之间的组合边界：它只生成并提供语义关系，不规定后代控件必须是 nb-ui 组件，也不替普通 slot 内容注入原生属性。实际值、校验、提交和禁用策略仍由父组件通过 props、emits 与 slot 内容控制。

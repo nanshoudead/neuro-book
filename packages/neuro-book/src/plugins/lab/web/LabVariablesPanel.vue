@@ -8,7 +8,7 @@
  * 错误处理吞掉。
  */
 import {computed, ref} from "vue";
-import {FormInput as NbFormInput} from "@notnotype/nb-ui/components";
+import {Input as NbInput} from "@notnotype/nb-ui/components";
 
 import type {LabTokenGroup} from "./lab-tokens";
 
@@ -86,7 +86,7 @@ async function importFile(event: Event): Promise<void> {
             <input ref="fileInput" type="file" accept="application/json,.json" class="hidden" data-lab-override-file @change="importFile">
         </div>
         <p v-if="status" role="status" class="lab-note" :class="status.ok ? '' : 'text-[var(--status-danger)]'" data-lab-override-status>{{ status.text }}</p>
-        <NbFormInput v-model="query" type="search" size="sm" placeholder="筛选变量" icon-class="i-lucide-search" aria-label="筛选变量" />
+        <NbInput v-model="query" type="search" size="sm" placeholder="筛选变量" icon-class="i-lucide-search" aria-label="筛选变量" />
         <p v-if="filtered.length === 0" class="lab-note">没有匹配的变量</p>
         <section v-for="group in filtered" :key="group.id">
             <p class="lab-panel-label">{{ group.label }}</p>

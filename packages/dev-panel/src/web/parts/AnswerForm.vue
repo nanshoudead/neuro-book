@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import {Badge, Button, FormField, FormTextarea} from "@notnotype/nb-ui/components";
+import {Badge, Button, Field, Textarea} from "@notnotype/nb-ui/components";
 import {computed, ref, watch} from "vue";
 import {controlCharProblem} from "../../core/text-rules.js";
 import {validateAnswerValue} from "../../core/questions.js";
@@ -122,9 +122,9 @@ function submit(): void {
                 <p v-if="state.question.about" class="nbdev-note">关于 {{ state.question.about }}</p>
                 <p v-if="state.stale" class="nbdev-hint nbdev-hint-warn">{{ staleText(state) }}</p>
                 <QuestionControl :question="state.question" :model-value="values[state.question.id]" @update:model-value="(value) => set(state.question.id, value)" />
-                <FormField v-if="commenting[state.question.id]" label="说明（可选）">
-                    <FormTextarea :model-value="comments[state.question.id] ?? ''" :rows="2" @update:model-value="(value: string) => (comments = {...comments, [state.question.id]: value})" />
-                </FormField>
+                <Field v-if="commenting[state.question.id]" label="说明（可选）">
+                    <Textarea :model-value="comments[state.question.id] ?? ''" :rows="2" @update:model-value="(value: string) => (comments = {...comments, [state.question.id]: value})" />
+                </Field>
                 <button v-else type="button" class="nbdev-note self-start" @click="commenting = {...commenting, [state.question.id]: true}">加说明</button>
                 <p v-if="problems[state.question.id] ?? errors[state.question.id]" class="nbdev-danger nbdev-small" role="alert">{{ problems[state.question.id] ?? errors[state.question.id] }}</p>
             </fieldset>
@@ -139,9 +139,9 @@ function submit(): void {
                 </legend>
                 <template v-if="editing[state.question.id]">
                     <QuestionControl :question="state.question" :model-value="values[state.question.id]" @update:model-value="(value) => set(state.question.id, value)" />
-                    <FormField v-if="commenting[state.question.id]" label="说明（可选）">
-                        <FormTextarea :model-value="comments[state.question.id] ?? ''" :rows="2" @update:model-value="(value: string) => (comments = {...comments, [state.question.id]: value})" />
-                    </FormField>
+                    <Field v-if="commenting[state.question.id]" label="说明（可选）">
+                        <Textarea :model-value="comments[state.question.id] ?? ''" :rows="2" @update:model-value="(value: string) => (comments = {...comments, [state.question.id]: value})" />
+                    </Field>
                     <button v-else type="button" class="nbdev-note self-start" @click="commenting = {...commenting, [state.question.id]: true}">加说明</button>
                     <p v-if="problems[state.question.id] ?? errors[state.question.id]" class="nbdev-danger nbdev-small" role="alert">{{ problems[state.question.id] ?? errors[state.question.id] }}</p>
                     <Button class="self-start" size="sm" variant="ghost" icon-class="i-lucide-undo-2" @click="cancelEdit(state)">取消改答</Button>
@@ -155,9 +155,9 @@ function submit(): void {
             </fieldset>
         </section>
         <slot name="readonly" />
-        <FormField v-if="hasControls" label="整份答复的备注（可选）" :error="noteProblem ?? ''">
-            <FormTextarea v-model="note" :rows="2" :disabled="disabledReason !== null || pending" />
-        </FormField>
+        <Field v-if="hasControls" label="整份答复的备注（可选）" :error="noteProblem ?? ''">
+            <Textarea v-model="note" :rows="2" :disabled="disabledReason !== null || pending" />
+        </Field>
         <!-- 提交栏贴在侧栏底部：题多时人在下面填，按钮与结果都要看得到。 -->
         <div v-if="hasControls || $slots.result" class="nbdev-submit-bar nbdev-divider sticky bottom-0 z-10 -mx-4 flex flex-col gap-2 border-t px-4 py-3">
             <!-- 结果与这次答复的通知可能很长：限高、自己滚，按钮总在栏里。 -->

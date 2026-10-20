@@ -4,7 +4,14 @@
 
 # SegmentedControl
 
-`SegmentedControl` 用紧凑的互斥选项在少量固定模式之间切换，例如列表/网格或显示范围。它将当前选项表现为一组 radio 按钮，并以滑动指示块强调选中项；与 `Tabs` 不同，它面向控件级模式切换，不承载对应的内容面板。
+`SegmentedControl` 用紧凑的互斥选项在少量固定模式之间切换，例如列表/网格或显示范围。它将当前选项表现为一组 radio 按钮，并以滑动指示块强调选中项；它不承载对应的内容面板。
+
+和同类零件的分工：
+
+- `Tabs` 换去处：选中哪一项，下面就换成哪一块内容（设置的分页、面板里的几页）。
+- `SegmentedControl` 换模式：内容还是同一份，换个看法（列表 / 网格、文本 / 树形），始终选中一个。
+- `RadioGroup` 在表单里选一个值，每项可以带说明，跟别的字段一起提交。
+- `ToggleGroup` 是一组可以叠加的开关（粗体、斜体），可以同时按下几个，也可以都不按下。
 
 ## 布局
 
@@ -41,8 +48,8 @@ export type SegmentedControlOption = {
     disabled?: boolean;
     /** 装饰图标 class；默认不显示 */
     iconClass?: string;
-    /** 可见标签；必填；允许空字符串，此时无标签文字 */
-    label: string;
+    /** 可见标签；省略或空字符串时只显示图标，这时应给 title 作可访问名称 */
+    label?: string;
     /** 透传到按钮的数据测试标识；默认 undefined */
     testId?: string;
     /** 原生 title 与可访问名称；默认回退到 label */

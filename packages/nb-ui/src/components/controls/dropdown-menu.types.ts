@@ -1,10 +1,10 @@
 /** 菜单项的渲染形态：普通项、受控 radio、受控 checkbox。 */
-export type DropdownItemType = "item" | "radio" | "checkbox";
+export type DropdownMenuItemType = "item" | "radio" | "checkbox";
 
 /**
  * 下拉菜单项。
  */
-export interface DropdownItem {
+export interface DropdownMenuItemData {
     label: string;
     value: string;
     active?: boolean;
@@ -23,8 +23,8 @@ export interface DropdownItem {
      * 任意层级子菜单。带 children 的项是子菜单父项：**自己不执行 select**，
      * 只在右侧展开下一级；每一级都使用同一套对齐、重叠和翻边规则。
      */
-    children?: readonly DropdownItem[];
-    type?: DropdownItemType;
+    children?: readonly DropdownMenuItemData[];
+    type?: DropdownMenuItemType;
     /** radio / checkbox 的受控勾选态；宿主在 select 之后自己改它，组件不代为切换。 */
     checked?: boolean;
     /**

@@ -16,13 +16,13 @@ import {moveHighlight, type HighlightAction} from "../form/option-highlight";
 import {useCloseHandoff} from "./close-handoff";
 
 /**
- * 全局快速输入浮层（S4 命令面板基座）：纯受控，不持数据。
+ * 输入筛选、挑选一项的浮层（S4 命令面板基座）：纯受控，不持数据。
  *
  * 组件只报告请求——`update:query` / `update:activeId` / `accept` / `close`——候选项顺序、
  * 查询含义、活动项与执行时机全归宿主；`>` 命令与 `:` 行号的前缀解析不在这里。
  * 宿主的配套义务：列表变化时先保留仍然有效的 activeId，失效就选第一个 enabled，空列表给 null。
  */
-export type QuickInputItem = Readonly<{
+export type QuickPickItem = Readonly<{
     id: string;
     label: string;
     description?: string;
@@ -34,12 +34,12 @@ export type QuickInputItem = Readonly<{
     labelMatches?: readonly (readonly [number, number])[];
 }>;
 
-export type QuickInputCloseReason = "escape" | "outside";
+export type QuickPickCloseReason = "escape" | "outside";
 
-export type QuickInputProps = {
+export type QuickPickProps = {
     open: boolean;
     query: string;
-    items: readonly QuickInputItem[];
+    items: readonly QuickPickItem[];
     activeId: string | null;
     title: string;
     placeholder: string;
@@ -52,7 +52,7 @@ export type QuickInputProps = {
     focusRequest?: number;
 };
 
-const props = withDefaults(defineProps<QuickInputProps>(), {
+const props = withDefaults(defineProps<QuickPickProps>(), {
     message: "",
     loading: false,
     teleportTarget: undefined,
@@ -65,7 +65,7 @@ const emit = defineEmits<{
     (event: "update:query", value: string): void;
     (event: "update:activeId", value: string | null): void;
     (event: "accept", id: string): void;
-    (event: "close", reason: QuickInputCloseReason): void;
+    (event: "close", reason: QuickPickCloseReason): void;
     (event: "closed"): void;
 }>();
 
@@ -73,7 +73,7 @@ const emit = defineEmits<{
 defineOptions({inheritAttrs: false});
 
 const instanceId = useId();
-const inputId = `nb-quick-input-${instanceId}`;
+const inputId = `nb-quick-pick-${instanceId}`;
 const listboxId = `${inputId}-listbox`;
 
 const inputRef = ref<HTMLInputElement | null>(null);
@@ -131,7 +131,7 @@ function onCloseAutoFocus(event: Event): void {
     });
 }
 
-function requestClose(reason: QuickInputCloseReason): void {
+function requestClose(reason: QuickPickCloseReason): void {
     if (!props.open) return;
     // 组件只报这一次请求：宿主不接就还是打开状态，下一次按键照常再报
     emit("update:open", false);
@@ -211,27 +211,27 @@ function onItemPointerDown(event: PointerEvent): void {
     event.preventDefault();
 }
 
-function onItemMouseEnter(item: QuickInputItem): void {
+function onItemMouseEnter(item: QuickPickItem): void {
     if (item.disabled || item.id === props.activeId) return;
     emit("update:activeId", item.id);
 }
 
-function onItemClick(item: QuickInputItem): void {
+function onItemClick(item: QuickPickItem): void {
     if (item.disabled || props.loading) return;
     emit("accept", item.id);
 }
 
-function isActive(item: QuickInputItem): boolean {
+function isActive(item: QuickPickItem): boolean {
     return activeItem.value?.id === item.id;
 }
 
-function metaText(item: QuickInputItem): string {
+function metaText(item: QuickPickItem): string {
     return [item.category, item.description].filter((part) => part).join(" · ");
 }
 
 type LabelSegment = Readonly<{text: string; match: boolean}>;
 
-function labelSegments(item: QuickInputItem): readonly LabelSegment[] {
+function labelSegments(item: QuickPickItem): readonly LabelSegment[] {
     const ranges = safeMatchRanges(item.labelMatches, item.label);
     if (ranges.length === 0) return [{text: item.label, match: false}];
     const segments: LabelSegment[] = [];

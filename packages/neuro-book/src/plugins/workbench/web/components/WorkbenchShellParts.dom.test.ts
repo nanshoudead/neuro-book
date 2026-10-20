@@ -1,5 +1,5 @@
 /**
- * 外壳的受控零件（同名 .md）：活动栏、“移动到”菜单、工具区域的框、视图外框。菜单走 nb-ui Dropdown 的真实原语与键盘路径。
+ * 外壳的受控零件（同名 .md）：活动栏、“移动到”菜单、工具区域的框、视图外框。菜单走 nb-ui DropdownMenu 的真实原语与键盘路径。
  */
 
 import {mount} from "@vue/test-utils";

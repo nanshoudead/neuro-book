@@ -1,16 +1,16 @@
 import {mount} from "@vue/test-utils";
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
 import {defineComponent, h, nextTick, ref} from "vue";
-import QuickInput, {type QuickInputItem} from "./QuickInput.vue";
+import QuickPick, {type QuickPickItem} from "./QuickPick.vue";
 
-const commandItems: readonly QuickInputItem[] = [
+const commandItems: readonly QuickPickItem[] = [
     {id: "outline.reorder", label: "重排分卷大纲", category: "大纲"},
     {id: "export.epub", label: "导出 EPUB 电子书", category: "导出"},
     {id: "theme.toggle", label: "切换明暗配色", category: "外观"},
 ];
 
 type HarnessOptions = Readonly<{
-    items?: readonly QuickInputItem[];
+    items?: readonly QuickPickItem[];
     activeId?: string | null;
     loading?: boolean;
     open?: boolean;
@@ -28,7 +28,7 @@ function mountHarness(options: HarnessOptions = {}) {
 
     const wrapper = mount(defineComponent({
         setup() {
-            return () => h(QuickInput, {
+            return () => h(QuickPick, {
                 open: open.value,
                 query: query.value,
                 items: options.items ?? commandItems,
@@ -70,7 +70,7 @@ async function settleHandoff(rounds = 4): Promise<void> {
 
 function inputElement(): HTMLInputElement {
     const element = document.body.querySelector<HTMLInputElement>('[role="combobox"]');
-    if (element === null) throw new Error("QuickInput 输入框未渲染");
+    if (element === null) throw new Error("QuickPick 输入框未渲染");
     return element;
 }
 
@@ -84,7 +84,7 @@ function cleanup(wrapper: {unmount: () => void}): void {
     document.body.replaceChildren();
 }
 
-describe("QuickInput 受控合同", () => {
+describe("QuickPick 受控合同", () => {
     beforeEach(() => {
         vi.useFakeTimers();
     });
@@ -94,7 +94,7 @@ describe("QuickInput 受控合同", () => {
     });
 
     it("活动项失效为禁用项时不接受 Enter 与点击", async () => {
-        const items: readonly QuickInputItem[] = [
+        const items: readonly QuickPickItem[] = [
             {id: "export.mobi", label: "导出 MOBI（转换器未安装）", disabled: true},
             ...commandItems,
         ];
@@ -129,7 +129,7 @@ describe("QuickInput 受控合同", () => {
     });
 
     it("全禁用列表里方向键清空失效活动项，且提交始终被抑制", async () => {
-        const items: readonly QuickInputItem[] = [
+        const items: readonly QuickPickItem[] = [
             {id: "export.mobi", label: "导出 MOBI（转换器未安装）", disabled: true},
             {id: "settings.sync", label: "同步设置（离线不可用）", disabled: true},
         ];
