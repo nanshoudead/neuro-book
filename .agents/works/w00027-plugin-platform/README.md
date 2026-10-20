@@ -32,11 +32,19 @@ updated: 2026-10-17
 | [t03](tasks/t03-manifest-and-install/README.md) | S1：清单校验与第三方插件安装、`nbook.plugins` 与设置页 |
 | [t04](tasks/t04-browser-loading-sdk/README.md) | S2–S3：浏览器入口装载、插件文件端点与 SDK 构建预设 |
 | [t05](tasks/t05-author-experience/README.md) | S4：脚手架、作者文档与完整示例 |
-| [t02](tasks/t02-settings-completion/README.md) | 设置补齐：先做长文本／数组／对象的通用编辑，密钥与搜索随后（插件平台之后） |
+| [t02](tasks/t02-settings-completion/README.md) | 设置补齐：通用编辑、密钥、搜索、页面未保存保护、动态选项、声明 API 易用性；开发者 2026-10-20 定提前到 t04 之前、不并行 |
 
 ## 关键现状
 
 平台设计已 acceptance，机制部分已实现，但外部插件的运行路径完全没有：应用只用代码里的静态 `productPlugins` 装配内置插件，没有从目录发现、安装或执行外部代码的入口（`packages/neuro-book/src/manifest.ts`、`server/plugins.ts`、`web/plugins.ts`）。详见 [t01](tasks/t01-requirements/README.md)。
+
+## 后续事项
+
+开发者 2026-10-20 确认记为本 Work 的后续，按插件需求再排，还没有建 Task：
+
+- 缺的贡献点：编辑器的补全与悬停（例如人物名补全、悬停显示人物卡）、编辑区正文的右键菜单、文件树装饰（徽标、字数）、快速打开的提供者（命令面板里搜人物与地点）、主题与配色贡献（现在主题是写死的两个选项）。
+- 内置插件都没有提供按需激活的事件，所有入口启动即激活；t02 先补“设置分区被显示时激活”。
+- `nbdev worktree new` 只能建 Task 级 worktree，要补 Work 级的（`.worktree/<Work 编号>-<短名>`、`{type}/<Work 编号>-<slug>`）。
 
 ## 范围外发现
 
