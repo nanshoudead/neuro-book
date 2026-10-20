@@ -6,3 +6,4 @@
   - `run-med-100-final.json.gz`：100 章的最终草稿（各章 `draft.json`）与 20 批整理稿（`consolidation-*.json`），编译迁移对照用。
   - `replay-ch001-010.json.gz`：前 10 章各步录下的模型回复（`content`、`usage`、`finishReason`），本机端点回放用。
   - `recorded-context-ch002-010.json.gz`：第 2 到 10 章请求里实际发出的“已有记录”，核对生成的文字逐字不变。
+  - `recorded-requests-ch001-010.json.gz`：前 10 章每一步请求的摘要（系统提示词加用户消息的 SHA-256，另一份把核对清单里的校验说明换成固定文字后的摘要）与推理档，核对回放时发出的请求逐字不变。
