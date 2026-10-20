@@ -13,6 +13,7 @@ import CheckboxGroup from "./CheckboxGroup.vue";
 import Input from "./Input.vue";
 import NumberInput from "./NumberInput.vue";
 import RadioGroup from "./RadioGroup.vue";
+import SearchSelect from "./SearchSelect.vue";
 import Select from "./Select.vue";
 import Textarea from "./Textarea.vue";
 
@@ -51,8 +52,10 @@ describe("只读与停用（输出 28）", () => {
         expect(box.emitted("update:modelValue")).toBeUndefined();
 
         const group = mount(CheckboxGroup, {props: {modelValue: ["a"], readonly: true, options: OPTIONS}, attachTo: document.body});
-        expect(group.get("[role='group']").attributes("aria-readonly")).toBe("true");
+        // group 角色不支持 aria-readonly：只读写在每个复选框上。
+        expect(group.get("[role='group']").attributes("aria-readonly")).toBeUndefined();
         const boxes = group.findAll("input[type='checkbox']");
+        expect(boxes.every((item) => item.attributes("aria-readonly") === "true")).toBe(true);
         await boxes[1]!.trigger("click");
         await boxes[0]!.trigger("click");
         expect(group.emitted("update:modelValue")).toBeUndefined();
@@ -100,6 +103,62 @@ describe("只读与停用（输出 28）", () => {
     });
 });
 
+describe("只读与可编辑之间切换、没给值时（输出 26、28）", () => {
+    it("下拉：以只读挂载、再改成可编辑后能打开；变成只读时关掉已开的浮层", async () => {
+        const wrapper = mount(Select, {props: {modelValue: "a", readonly: true, options: OPTIONS}, attachTo: document.body});
+        await wrapper.setProps({readonly: false});
+        await wrapper.get("[role='combobox']").trigger("keydown", {key: "Enter"});
+        await nextTick();
+        await nextTick();
+        expect(document.querySelectorAll("[role='listbox']")).toHaveLength(1);
+        await wrapper.setProps({readonly: true});
+        await nextTick();
+        // 退场动画期间浮层还在 DOM 里，看触发器的状态。
+        expect(wrapper.get("[role='combobox']").attributes("aria-expanded")).toBe("false");
+    });
+
+    it("开关与单选组没给值：只读时不改，改成可编辑后照常切换并显示", async () => {
+        const toggle = mount(Switch, {props: {defaultValue: false, readonly: true, ariaLabel: "x"}});
+        await toggle.get("button").trigger("click");
+        expect(toggle.get("button").attributes("aria-checked")).toBe("false");
+        await toggle.setProps({readonly: false});
+        await toggle.get("button").trigger("click");
+        expect(toggle.get("button").attributes("aria-checked")).toBe("true");
+        expect(toggle.emitted("update:modelValue")).toEqual([[true]]);
+
+        const radios = mount(RadioGroup, {props: {defaultValue: "a", readonly: true, options: OPTIONS}, attachTo: document.body});
+        await radios.findAll("[role='radio']")[1]!.trigger("click");
+        expect(radios.findAll("[role='radio']").map((item) => item.attributes("aria-checked"))).toEqual(["true", "false", "false"]);
+        await radios.setProps({readonly: false});
+        await radios.findAll("[role='radio']")[1]!.trigger("click");
+        expect(radios.findAll("[role='radio']").map((item) => item.attributes("aria-checked"))).toEqual(["false", "true", "false"]);
+        expect(radios.emitted("update:modelValue")).toEqual([["b"]]);
+    });
+
+    it("复选框与复选组没给值：勾选记在组件里，发出的值累计、与原生框一致", async () => {
+        const group = mount(CheckboxGroup, {props: {options: OPTIONS}, attachTo: document.body});
+        const boxes = group.findAll("input[type='checkbox']");
+        await boxes[0]!.trigger("click");
+        await boxes[1]!.trigger("click");
+        expect(group.emitted("update:modelValue")).toEqual([[["a"]], [["a", "b"]]]);
+        expect(boxes.map((item) => (item.element as HTMLInputElement).checked)).toEqual([true, true, false]);
+
+        const box = mount(Checkbox, {props: {label: "x"}, attachTo: document.body});
+        await box.get("input").trigger("click");
+        await nextTick();
+        expect(box.emitted("update:modelValue")).toEqual([[true]]);
+        expect((box.get("input").element as HTMLInputElement).checked).toBe(true);
+    });
+
+    it("受控的复选框：调用方不采纳变化时原生框摆回当前值", async () => {
+        const box = mount(Checkbox, {props: {modelValue: false, label: "x"}, attachTo: document.body});
+        await box.get("input").trigger("click");
+        await nextTick();
+        expect(box.emitted("update:modelValue")).toEqual([[true]]);
+        expect((box.get("input").element as HTMLInputElement).checked).toBe(false);
+    });
+});
+
 describe("统一的属性（输出 26）", () => {
     it("invalid 不经 Field 也写 aria-invalid", () => {
         expect(mount(Input, {props: {modelValue: "", invalid: true}}).get("input").attributes("aria-invalid")).toBe("true");
@@ -110,6 +169,9 @@ describe("统一的属性（输出 26）", () => {
         expect(mount(RadioGroup, {props: {options: OPTIONS, invalid: true}}).get("[role='radiogroup']").attributes("aria-invalid")).toBe("true");
         expect(mount(CheckboxGroup, {props: {options: OPTIONS, invalid: true}}).get("[role='group']").attributes("aria-invalid")).toBe("true");
         expect(mount(Select, {props: {options: OPTIONS, invalid: true}, attachTo: document.body}).get("[role='combobox']").attributes("aria-invalid")).toBe("true");
+        const search = mount(SearchSelect, {props: {options: OPTIONS, invalid: true}, attachTo: document.body});
+        expect(search.get("input[role='combobox']").attributes("aria-invalid")).toBe("true");
+        expect(search.get("[data-nb-search-select]").classes()).toContain("nb-ui-control-invalid");
     });
 
     it("出错有外观：单选圆钮与开关描红；复选组里每个框描红，aria-invalid 只在组上", () => {
@@ -122,6 +184,9 @@ describe("统一的属性（输出 26）", () => {
         const marks = group.findAll("input[type='checkbox'] + span");
         expect(marks).toHaveLength(3);
         expect(marks.every((mark) => danger(mark.classes().join(" ")))).toBe(true);
+        // 勾选时选中色与描红同特指度：描红要用 important 才压得过（真实浏览器的颜色见截图取证）。
+        const checked = mount(Checkbox, {props: {modelValue: true, invalid: true}});
+        expect(checked.get("input + span").classes()).toContain("!border-[color:var(--status-danger)]");
         expect(group.findAll("input").some((input) => input.attributes("aria-invalid") !== undefined)).toBe(false);
     });
 

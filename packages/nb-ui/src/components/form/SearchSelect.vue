@@ -6,7 +6,7 @@
  *
  * 焦点一直在输入框里：`SuggestionMenu` 按下时不夺焦点，所以点选项不会先触发失焦；高亮经 `aria-activedescendant` 交给读屏。
  */
-import {computed, ref, useId, watch} from "vue";
+import {computed, ref, useAttrs, useId, watch} from "vue";
 
 import SuggestionMenu from "../feedback/SuggestionMenu.vue";
 import {suggestionMenuOptions, suggestionOptionId} from "../feedback/suggestion-menu";
@@ -62,6 +62,17 @@ const emit = defineEmits<{
     (e: "focus", event: FocusEvent): void;
 }>();
 
+/**
+ * 根是外框 `div`：`class`、`style` 留在外框，其余属性（`aria-label` 这类）转给输入框。否则 Vue 把它们落到没有角色的外框
+ * 上，combobox 没有名字（同 `Select` 的转发）。
+ */
+defineOptions({inheritAttrs: false});
+const attrs = useAttrs();
+const inputAttrs = computed(() => {
+    const {class: _class, style: _style, ...rest} = attrs;
+    return rest;
+});
+
 const field = useFieldContext();
 const generatedId = useId();
 const controlId = computed(() => props.id || field?.inputId.value || `nb-search-select-${generatedId}`);
@@ -69,6 +80,9 @@ const menuId = computed(() => `${controlId.value}-listbox`);
 const isInvalid = computed(() => props.invalid || field?.invalid.value === true);
 
 const anchor = ref<HTMLElement | null>(null);
+const inputElement = ref<HTMLInputElement | null>(null);
+/** 输入法组字中：拼音字母不当搜索词，Enter 与方向键交给输入法。 */
+const composing = ref(false);
 const open = ref(false);
 /** 用户在输入框里打的字；没在搜索时为 null，输入框显示已选项的名字。 */
 const query = ref<string | null>(null);
@@ -84,7 +98,7 @@ const filtered = computed(() => {
 });
 const groups = computed((): SuggestionMenuGroup[] => [{
     id: "options",
-    items: filtered.value.map((option) => ({id: option.value, label: option.label, hint: option.description, iconClass: option.iconClass, disabled: option.disabled})),
+    items: filtered.value.map((option) => ({id: option.value, label: option.label, hint: option.description, iconClass: option.iconClass, disabled: option.disabled, checked: option.value === props.modelValue})),
 }]);
 const choosable = computed(() => suggestionMenuOptions(groups.value));
 const activeDescendant = computed(() => {
@@ -97,8 +111,15 @@ watch(choosable, (items) => {
     if (!items.some((item) => item.id === activeId.value)) activeId.value = items[0]?.id ?? null;
 });
 
-function openMenu(): void {
+/** 列表的名字：给了 `listLabel` 用它，否则指向字段的标签。 */
+const listLabelledby = computed(() => (props.listLabel === undefined ? field?.labelId.value : undefined));
+
+/**
+ * 打开列表。点击与方向键打开时全选已选项的名字：接着打的第一个字替换它，不会接在名字后面成为搜索词。
+ */
+function openMenu(selectText = true): void {
     if (props.disabled || props.readonly || open.value) return;
+    if (selectText) inputElement.value?.select();
     open.value = true;
     activeId.value = selected.value !== undefined && selected.value.disabled !== true ? selected.value.value : choosable.value[0]?.id ?? null;
 }
@@ -123,13 +144,19 @@ function move(action: HighlightAction): void {
 }
 
 function onInput(event: Event): void {
-    if (props.readonly || props.disabled) return;
+    if (props.readonly || props.disabled || composing.value) return;
     query.value = (event.target as HTMLInputElement).value;
-    if (!open.value) openMenu();
+    if (!open.value) openMenu(false);
+}
+
+function onCompositionEnd(event: CompositionEvent): void {
+    composing.value = false;
+    onInput(event);
 }
 
 function onKeydown(event: KeyboardEvent): void {
-    if (props.readonly || props.disabled) return;
+    // 组字中的 Enter 是上屏、方向键是翻候选词（Chrome 给的 keyCode 是 229），同 `QuickPick`。
+    if (props.readonly || props.disabled || event.isComposing || event.keyCode === 229) return;
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
         event.preventDefault();
         if (!open.value) openMenu();
@@ -144,6 +171,18 @@ function onKeydown(event: KeyboardEvent): void {
     }
 }
 
+/**
+ * 外框上放大镜与箭头的位置也算控件：按下不让输入框失焦，聚焦它并开合列表（同 `Select` 整个外框都是触发器）。
+ */
+function onFrameMousedown(event: MouseEvent): void {
+    if (event.target === inputElement.value) return;
+    event.preventDefault();
+    if (props.disabled) return;
+    inputElement.value?.focus();
+    if (open.value) closeMenu();
+    else openMenu();
+}
+
 const isSmall = computed(() => props.size === "sm");
 const controlSizeClass = computed(() => isSmall.value
     ? "nb-ui-control-h-sm px-[calc(var(--control-px)*0.75)] text-[length:var(--text-xs)]"
@@ -154,14 +193,19 @@ const controlSizeClass = computed(() => isSmall.value
     <div
         ref="anchor"
         class="nb-ui-control flex w-full items-center gap-[var(--space-2)] rounded-[var(--radius-control)] border bg-[var(--control-surface)] text-[var(--text-main)]"
-        :class="[controlSizeClass, isInvalid ? 'nb-ui-control-invalid' : '', props.disabled ? 'opacity-60' : '']"
+        :class="[controlSizeClass, isInvalid ? 'nb-ui-control-invalid' : '', props.disabled ? 'opacity-60' : '', attrs.class]"
+        :style="attrs.style as never"
         data-nb-search-select
+        @mousedown="onFrameMousedown"
     >
+        <!-- 表单提交的是值，不是输入框里的文字。 -->
+        <input v-if="props.name" type="hidden" :name="props.name" :value="props.modelValue">
         <span class="i-lucide-search h-3.5 w-3.5 shrink-0 text-[var(--text-muted)]" aria-hidden="true"></span>
         <input
+            v-bind="inputAttrs"
             :id="controlId"
+            ref="inputElement"
             :value="display"
-            :name="props.name || undefined"
             :placeholder="props.placeholder"
             :disabled="props.disabled"
             :readonly="props.readonly"
@@ -176,10 +220,12 @@ const controlSizeClass = computed(() => isSmall.value
             :aria-describedby="field?.ariaDescribedby.value"
             :aria-invalid="isInvalid || undefined"
             :aria-readonly="props.readonly || undefined"
-            class="nb-ui-native-input min-w-0 flex-1 h-full bg-transparent text-[var(--text-main)] outline-none placeholder:text-[var(--text-muted)] disabled:cursor-not-allowed"
+            class="nb-ui-native-input min-w-0 flex-1 h-full bg-transparent font-medium text-[var(--text-main)] outline-none placeholder:text-[var(--text-muted)] disabled:cursor-not-allowed"
             @focus="emit('focus', $event)"
-            @click="openMenu"
+            @click="openMenu()"
             @input="onInput"
+            @compositionstart="composing = true"
+            @compositionend="onCompositionEnd"
             @keydown="onKeydown"
             @blur="closeMenu"
         >
@@ -194,6 +240,7 @@ const controlSizeClass = computed(() => isSmall.value
             :active-id="activeId"
             :anchor="open ? anchor : null"
             :label="props.listLabel"
+            :labelledby="listLabelledby"
             :empty-text="props.emptyText"
             match-anchor-width
             @highlight="(id: string) => (activeId = id)"

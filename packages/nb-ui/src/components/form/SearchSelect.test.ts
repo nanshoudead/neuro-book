@@ -4,8 +4,10 @@
  */
 
 import {flushPromises, mount, type VueWrapper} from "@vue/test-utils";
+import {h} from "vue";
 import {afterEach, describe, expect, it} from "vitest";
 
+import Field from "./Field.vue";
 import SearchSelect from "./SearchSelect.vue";
 
 const OPTIONS = [
@@ -116,5 +118,68 @@ describe("SearchSelect", () => {
         expect(wrapper.emitted("update:modelValue")).toBeUndefined();
         const disabled = await mountSelect({disabled: true});
         expect(input(disabled).attributes("disabled")).toBeDefined();
+    });
+
+    it("点进去打开时全选已选项的名字：接着打的字替换它，不接在后面", async () => {
+        const wrapper = await mountSelect();
+        await input(wrapper).trigger("click");
+        const element = input(wrapper).element as HTMLInputElement;
+        expect([element.selectionStart, element.selectionEnd]).toEqual([0, "GPT-5".length]);
+    });
+
+    it("输入法组字中不筛选、Enter 不选中；组字结束后按上屏的字筛选", async () => {
+        const wrapper = await mountSelect();
+        await input(wrapper).trigger("click");
+        await input(wrapper).trigger("compositionstart");
+        (input(wrapper).element as HTMLInputElement).value = "qwe";
+        await input(wrapper).trigger("input");
+        await flushPromises();
+        expect(optionTexts()).toHaveLength(4);
+        await input(wrapper).trigger("keydown", {key: "Enter", isComposing: true, keyCode: 229});
+        expect(wrapper.emitted("update:modelValue")).toBeUndefined();
+        (input(wrapper).element as HTMLInputElement).value = "deep";
+        await input(wrapper).trigger("compositionend");
+        await flushPromises();
+        expect(optionTexts()).toEqual(["DeepSeek"]);
+    });
+
+    it("按外框上的放大镜或箭头：聚焦输入框、开合列表，不先失焦", async () => {
+        const wrapper = await mountSelect();
+        const frame = wrapper.get("[data-nb-search-select]");
+        const arrow = frame.findAll("span[aria-hidden='true']").at(-1)!;
+        const pressed = new MouseEvent("mousedown", {bubbles: true, cancelable: true});
+        arrow.element.dispatchEvent(pressed);
+        await flushPromises();
+        expect(pressed.defaultPrevented).toBe(true);
+        expect(document.activeElement).toBe(input(wrapper).element);
+        expect(input(wrapper).attributes("aria-expanded")).toBe("true");
+        arrow.element.dispatchEvent(new MouseEvent("mousedown", {bubbles: true, cancelable: true}));
+        await flushPromises();
+        expect(input(wrapper).attributes("aria-expanded")).toBe("false");
+    });
+
+    it("名字：aria-label 落在输入框上；在字段里时列表的名字指向字段标签；当前值在列表里打勾", async () => {
+        const named = await mountSelect({"aria-label": "模型"});
+        expect(input(named).attributes("aria-label")).toBe("模型");
+        expect(named.get("[data-nb-search-select]").attributes("aria-label")).toBeUndefined();
+        named.unmount();
+        const wrapper = mount(Field, {attachTo: document.body, props: {label: "默认模型"}, slots: {default: () => h(SearchSelect, {modelValue: "claude", options: OPTIONS})}});
+        mounted.push(wrapper);
+        await wrapper.get("input[role='combobox']").trigger("click");
+        await flushPromises();
+        const listbox = document.querySelector("[role='listbox']")!;
+        expect(document.getElementById(listbox.getAttribute("aria-labelledby")!)?.textContent).toBe("默认模型");
+        const checked = [...document.querySelectorAll("[role='option']")].filter((option) => option.querySelector("[data-suggestion-menu-checked]") !== null);
+        expect(checked.map((option) => option.textContent?.trim())).toEqual(["Claude OpusAnthropic"]);
+    });
+
+    it("表单提交的是值：name 在隐藏输入框上，可见输入框没有 name；选的就是当前值时不发出变化", async () => {
+        const wrapper = await mountSelect({name: "model"});
+        expect(wrapper.get("input[type='hidden']").attributes()).toMatchObject({name: "model", value: "gpt"});
+        expect(input(wrapper).attributes("name")).toBeUndefined();
+        await input(wrapper).trigger("click");
+        await flushPromises();
+        await input(wrapper).trigger("keydown", {key: "Enter"});
+        expect(wrapper.emitted("update:modelValue")).toBeUndefined();
     });
 });

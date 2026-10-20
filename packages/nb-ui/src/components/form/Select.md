@@ -96,7 +96,8 @@ type SelectSlots = {
 - **禁用**：触发器不可操作；单个 disabled 选项保留在列表中但不可选。
 - **错误**：Field 的 invalid 上下文使触发器使用错误样式并设置 `aria-invalid`、`aria-describedby`；required 与字段上下文取逻辑或。
 - **长列表**：浮层内部可滚动；内容超出视口时显示拖动滑块和渐隐提示。
-- **只读、加载中、出错**：组件没有统一 readonly、loading 或请求错误状态；宿主应通过 disabled、options 或外围状态表达。
+- **只读**（`readonly`）：触发器可以聚焦（Tab 与点击都行），写 `aria-readonly`；Enter、空格、方向键、逐字查找与点击都不打开浮层、不改值；光标不变成手形。浮层开合由组件持有、始终受控，挂载时只读、之后改成可编辑照常能打开；变成只读时关掉已开的浮层。
+- 加载中、请求错误：没有这些状态，宿主通过 disabled、options 或外围状态表达。
 
 ## 不支持
 

@@ -24,7 +24,7 @@
 
 ```ts
 type CheckboxProps = {
-    /** 受控选中值；可用 "indeterminate" 表示半选，默认 false。 */
+    /** 选中值；可用 "indeterminate" 表示半选；不给时组件自己记勾选（初值未勾选）。 */
     modelValue?: boolean | "indeterminate";
     /** 强制显示半选；与 modelValue === "indeterminate" 取或，默认 false。 */
     indeterminate?: boolean;
@@ -70,7 +70,10 @@ type CheckboxSlots = {
 - **半选**：显示短横并设置 `aria-checked="mixed"`，真实 checkbox 不视为 checked；`indeterminate` prop 与字符串值任一成立即进入该状态。
 - **字段错误**：从 `Field` 注入 invalid 时设置 `aria-invalid`、`aria-describedby` 并应用错误样式。
 - **禁用**：不可点击、视觉降低不透明度，原生 change 不发更新事件；父组件仍可改变受控值。
-- **只读、加载中、出错、空数据**：组件没有这些专用状态；只读或校验提示由宿主控制。
+- **只读**（`readonly`）：可以聚焦，输入框写 `aria-readonly`；点击与空格（原生复选框把空格变成点击）都不切换、不发出变化；光标不变成手形。
+- **出错**（`invalid` 或 Field 的出错）：写 `aria-invalid`，方框描红，勾选时也压过选中色；在出错的 `CheckboxGroup` 里只描红、不写 `aria-invalid`（出错写在组上）。
+- **没给 `modelValue`**：勾选记在组件里，原生框与发出的值一致；受控而调用方不采纳变化时，原生框摆回当前值。
+- 加载中、空数据：没有这些状态。
 
 ## 不支持
 

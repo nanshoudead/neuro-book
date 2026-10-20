@@ -540,6 +540,9 @@
 .animate-spin {
   animation: var(--animate-spin);
 }
+.\!cursor-default {
+  cursor: default !important;
+}
 .cursor-col-resize {
   cursor: col-resize;
 }
@@ -821,9 +824,6 @@
 }
 .border-\[color\:var\(--divider\)\] {
   border-color: var(--divider);
-}
-.border-\[color\:var\(--status-danger\)\] {
-  border-color: var(--status-danger);
 }
 .border-\[var\(--accent-main\)\] {
   border-color: var(--accent-main);

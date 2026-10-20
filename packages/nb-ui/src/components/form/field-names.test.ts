@@ -53,6 +53,15 @@ describe("字段的名字", () => {
         wrapper.unmount();
     });
 
+    it("字段的必填、说明到组合控件与开关上", () => {
+        const radios = mount(Field, {props: {label: "状态", required: true, group: true}, slots: {default: () => h(RadioGroup, {options: OPTIONS})}});
+        expect(radios.get("[role='radiogroup']").attributes("aria-required")).toBe("true");
+        const toggle = mount(Field, {attachTo: document.body, props: {label: "换行", description: "长行折到下一行"}, slots: {default: () => h(Switch, {modelValue: false})}});
+        const described = toggle.get("button").attributes("aria-describedby") ?? "";
+        expect(toggle.element.querySelector(`[id="${described}"]`)?.textContent).toBe("长行折到下一行");
+        toggle.unmount();
+    });
+
     it("开关没有缺省名称：在字段里经 label for 拿到字段标签；调用方给的名字照用", () => {
         const wrapper = mount(Field, {attachTo: document.body, props: {label: "自动换行"}, slots: {default: () => h(Switch, {modelValue: true})}});
         const button = wrapper.get("button[role='switch']");

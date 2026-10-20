@@ -15,7 +15,7 @@
 ## 交互
 
 - 点击标题或 label 区域会按原生 `<label>` 语义把焦点交给关联控件；关联 id 来自 `for` prop 或组件生成的 id。
-- **组形态**（`group`）：给单选组、复选组这类由几个控件组成的字段用。根是 `div`、带 `data-nb-field-group`，标题是带 id（`<id>-label`）的元素，不是 `<label for>`；组合控件读上下文的 `labelId` 写 `aria-labelledby`。点击标题不转移焦点。`<label>` 里放一组单选，读屏读不出组名，所以组合控件要用这个形态（docs/specs/ui/forms.md 输出 27）。
+- **组形态**（`group`）：给单选组、复选组这类由几个控件组成的字段用。根是 `div`、带 `data-nb-field-group`，标题是带 id（`<id>-label`）的元素，不是 `<label for>`；组合控件读上下文的 `labelId` 写 `aria-labelledby`。点击标题不转移焦点。`<label>` 里放一组单选，读屏读不出组名，所以组合控件要用这个形态（docs/specs/ui/forms.md 输出 27）。组形态只给组合控件：单个控件（`Input`、`Select`、`Switch` 等）靠 `<label for>` 命名，放进组形态会没有名字，组件不检查这种误用。
 - `required` 为 true 时标题后显示红色 `*`，并通过上下文让支持它的子控件设置原生 required 语义。
 - `error` 为非空字符串时生成视觉隐藏的错误元素与 id，子控件收到 `aria-invalid`，`aria-describedby` 先列错误 id、再列描述 id（有描述时）。
 - 组件本身没有键盘快捷键、提交动作或焦点事件；字段控件的键盘行为由 slot 内容负责。

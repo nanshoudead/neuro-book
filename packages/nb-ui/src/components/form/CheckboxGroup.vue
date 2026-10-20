@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import {computed, provide} from "vue";
+import {computed, provide, ref} from "vue";
 import {
     CheckboxGroupRoot,
 } from "reka-ui";
@@ -46,28 +46,31 @@ const isInvalid = computed(() => props.invalid || field?.invalid.value === true)
 provide(NB_FIELD_CONTEXT_KEY, null);
 provide(NB_CHOICE_GROUP_INVALID_KEY, isInvalid);
 
+/** 没给 `modelValue` 时选中的值记在这里（初值是 `defaultValue`），勾第二项不会丢掉第一项。 */
+const internal = ref<string[]>([...props.defaultValue]);
+const selected = computed(() => props.modelValue ?? internal.value);
+
 function isChecked(val: string): boolean {
-    const list = props.modelValue ?? props.defaultValue;
-    return list.includes(val);
+    return selected.value.includes(val);
 }
 
+/** 只读时组里的复选框自己拦下点击，不会走到这里。 */
 function handleToggle(val: string, checked: boolean): void {
-    if (props.readonly) return;
-    const current = [...(props.modelValue ?? props.defaultValue)];
+    const current = [...selected.value];
     const idx = current.indexOf(val);
     if (checked && idx === -1) {
         current.push(val);
     } else if (!checked && idx !== -1) {
         current.splice(idx, 1);
     }
+    internal.value = current;
     emit("update:modelValue", current);
 }
 </script>
 
 <template>
     <CheckboxGroupRoot
-        :model-value="props.modelValue"
-        :default-value="props.defaultValue"
+        :model-value="selected"
         :disabled="props.disabled"
         :orientation="props.orientation"
         role="group"
@@ -75,7 +78,6 @@ function handleToggle(val: string, checked: boolean): void {
         :aria-labelledby="field?.labelId.value"
         :aria-describedby="field?.ariaDescribedby.value"
         :aria-invalid="isInvalid ? 'true' : undefined"
-        :aria-readonly="props.readonly || undefined"
         class="flex gap-3 select-none"
         :class="props.orientation === 'horizontal' ? 'flex-row flex-wrap items-center' : 'flex-col'"
         @update:model-value="(val) => emit('update:modelValue', val as string[])"

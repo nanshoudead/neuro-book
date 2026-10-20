@@ -4,7 +4,7 @@ import {
     RadioGroupItem,
     RadioGroupRoot,
 } from "reka-ui";
-import {computed} from "vue";
+import {computed, ref} from "vue";
 
 import {useFieldContext} from "./field-context";
 
@@ -52,18 +52,22 @@ const field = useFieldContext();
 const isInvalid = computed(() => props.invalid || field?.invalid.value === true);
 
 /**
- * 只读：值由这里给定（reka 只在没给值时自己记），交出的变化不发出去。方向键仍在选项间移动焦点，选中不动。
+ * 始终受控：reka 在 setup 时就定受控与否，之后不再变，只读与可编辑之间切换时靠传不传值来切受控会让选中停住。没给
+ * `modelValue` 时值记在这里（初值是 `defaultValue`）；只读时不采纳变化、不发出去。
  */
-const shownValue = computed(() => (props.readonly ? props.modelValue ?? props.defaultValue ?? "" : props.modelValue));
+const internal = ref(props.defaultValue ?? "");
+const current = computed(() => props.modelValue ?? internal.value);
+/** 只读时方向键仍在选项间移动焦点，选中不动。 */
 function handleUpdate(value: unknown): void {
     if (props.readonly) return;
-    emit("update:modelValue", (value ?? "") as string);
+    internal.value = (value ?? "") as string;
+    emit("update:modelValue", internal.value);
 }
 </script>
 
 <template>
     <RadioGroupRoot
-        :model-value="shownValue"
+        :model-value="current"
         :default-value="props.defaultValue"
         :name="props.name"
         :disabled="props.disabled"
@@ -82,18 +86,20 @@ function handleUpdate(value: unknown): void {
             <label
                 v-for="option in props.options"
                 :key="option.value"
-                class="group flex items-start gap-2.5 cursor-pointer select-none"
+                class="group flex items-start gap-2.5 select-none"
                 :class="[
-                    (props.disabled || option.disabled) ? 'cursor-not-allowed opacity-45' : '',
+                    (props.disabled || option.disabled) ? 'cursor-not-allowed opacity-45' : props.readonly ? 'cursor-default' : 'cursor-pointer',
                 ]"
             >
                 <RadioGroupItem
                     :value="option.value"
                     :disabled="option.disabled"
-                    class="nb-ui-focus-ring relative flex shrink-0 items-center justify-center rounded-full border border-[color-mix(in_srgb,var(--text-main)_20%,transparent)] bg-[color-mix(in_srgb,var(--text-main)_8%,transparent)] transition-[background-color,border-color,transform,box-shadow] [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-standard)] hover:border-[var(--accent-main)] group-not-disabled:active:scale-[0.92] disabled:cursor-not-allowed disabled:active:transform-none data-[state=checked]:border-[var(--accent-main)] data-[state=checked]:bg-[var(--accent-main)]"
+                    class="nb-ui-focus-ring relative flex shrink-0 items-center justify-center rounded-full border border-[color-mix(in_srgb,var(--text-main)_20%,transparent)] bg-[color-mix(in_srgb,var(--text-main)_8%,transparent)] transition-[background-color,border-color,transform,box-shadow] [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-standard)] disabled:cursor-not-allowed disabled:active:transform-none data-[state=checked]:border-[var(--accent-main)] data-[state=checked]:bg-[var(--accent-main)]"
                     :class="[
                         props.size === 'sm' ? 'h-4 w-4 mt-0.5' : 'h-5 w-5 mt-0.5',
                         isInvalid ? '!border-[color:var(--status-danger)]' : '',
+                        // 只读不画成可点：悬停不描边、按下不缩。
+                        props.readonly ? '' : 'hover:border-[var(--accent-main)] group-not-disabled:active:scale-[0.92]',
                     ]"
                 >
                     <RadioGroupIndicator

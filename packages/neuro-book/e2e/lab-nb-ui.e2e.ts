@@ -87,8 +87,10 @@ test("可搜索的下拉：打字只筛选，点选才改值；Escape 与失焦�
     const input = stage(page).locator('input[role="combobox"]');
     await expect(input).toHaveValue("Claude Opus");
 
+    // 点进去直接打字：已选项的名字被全选，第一个字替换它，不接在后面。
     await input.click();
-    await input.fill("deep");
+    await page.keyboard.type("deep");
+    await expect(input).toHaveValue("deep");
     const listbox = page.locator('[data-suggestion-menu] [role="listbox"]');
     await expect(listbox).toBeVisible();
     await expect(listbox.getByRole("option")).toHaveText(["DeepSeek V4DeepSeek"]);
@@ -97,7 +99,11 @@ test("可搜索的下拉：打字只筛选，点选才改值；Escape 与失焦�
     await expect(input).toHaveValue("Claude Opus");
     await expect(listbox).toHaveCount(0);
 
-    await input.fill("qw");
+    // 点外框右侧的箭头也能打开，输入框不失焦。
+    await stage(page).locator("[data-nb-search-select] > span").last().click();
+    await expect(input).toBeFocused();
+    await expect(listbox).toBeVisible();
+    await page.keyboard.type("qw");
     await listbox.getByRole("option", {name: /Qwen/u}).click();
     await expect(input).toHaveValue("Qwen 3 Max");
     await expect(input).toBeFocused();

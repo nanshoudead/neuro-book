@@ -34,7 +34,7 @@ interface CheckboxOption {
 interface CheckboxGroupProps {
     /** 选中值数组；传入时受控，默认 undefined。 */
     modelValue?: string[];
-    /** 非受控初始值；默认空数组。选中显示仍由 modelValue ?? defaultValue 计算，详见已知偏差。 */
+    /** 非受控初始值；默认空数组。不给 modelValue 时组件按它起步并自己记选中的值。 */
     defaultValue?: string[];
     /** 选项列表；默认空数组。 */
     options?: CheckboxOption[];
@@ -62,11 +62,11 @@ interface CheckboxGroupSlots {}
 
 - 默认选中数组为空、无选项、纵向且启用。
 - 组禁用时所有选项禁用；单项禁用由选项字段控制。
-- 空列表不渲染选项；没有独立加载、错误或只读状态。
-
-## 已知偏差
-
-- 虽提供 `defaultValue`，每个 `Checkbox` 的选中态仍直接从 `modelValue ?? defaultValue` 计算；组件没有把本地更新后的数组写回内部显示状态。因此不传 `modelValue` 时，交互后显示是否保持更新未被组件自身保证。需要可靠多选状态时由父组件绑定 `v-model`。
+- 空列表不渲染选项。
+- **只读**（`readonly`）：每个复选框写 `aria-readonly`、点击不切换；组上不写（`group` 角色不支持 `aria-readonly`）。
+- **出错**（`invalid` 或 Field 的出错）：组上写 `aria-invalid`，每个框描红但不各自写 `aria-invalid`。
+- **没给 `modelValue`**：选中的值记在组件里（初值是 `defaultValue`），勾第二项时发出的数组含两项。
+- 没有独立的加载状态。
 
 ## 不支持
 

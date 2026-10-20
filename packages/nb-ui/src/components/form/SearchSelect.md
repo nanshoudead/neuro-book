@@ -12,10 +12,11 @@
 
 ## 交互
 
-- 点击输入框、按 ↓ 或 ↑ 打开列表，高亮落在已选项上（没有已选项时落在第一个可选项）；打字时列表打开并按名称包含搜索词（不分大小写）筛选，高亮落在第一个可选项。
+- 点击输入框（或外框上的放大镜、箭头）、按 ↓ 或 ↑ 打开列表，高亮落在已选项上（没有已选项时落在第一个可选项），输入框里已选项的名字全选，接着打的字替换它；再按外框一次关闭。按外框不让输入框失焦。打字时列表打开并按名称包含搜索词（不分大小写）筛选，高亮落在第一个可选项。列表里当前值的行尾有勾。
+- 输入法组字中不筛选，Enter（上屏）与方向键（翻候选词）交给输入法；组字结束后按上屏的字筛选。
 - ↑、↓ 在可选项之间移动高亮并循环，跳过停用项；Enter 选中高亮项；点击选项选中它。选中后列表关闭，输入框显示它的名字；选的就是当前值时不发出变化。
 - Escape 关闭列表并丢掉搜索词（不冒泡到外面，不会顺带关掉所在的对话框）；失焦同样关闭并恢复显示。点选项不会先触发失焦：列表按下时不夺焦点。
-- 焦点一直在输入框里，高亮项经 `aria-activedescendant` 交给读屏；列表的 id 是 `<控件 id>-listbox`，打开时写在 `aria-controls` 上。
+- 焦点一直在输入框里，高亮项经 `aria-activedescendant` 交给读屏；列表的 id 是 `<控件 id>-listbox`，打开时写在 `aria-controls` 上。列表的名字：给了 `listLabel` 用它，否则 `aria-labelledby` 指向 `Field` 的标签。
 - 只读：输入框可以聚焦、写 `aria-readonly`，打字、点击与方向键都不打开列表、不改值。停用：输入框停用，不可聚焦。
 
 ## 数据
@@ -40,7 +41,7 @@ type SearchSelectProps = {
     placeholder?: string;
     /** 没有匹配的选项时列表里的一行字；缺省“没有匹配的选项”，按显示语言传入。 */
     emptyText?: string;
-    /** 列表的可访问名称。 */
+    /** 列表的可访问名称；缺省指向 Field 的标签。 */
     listLabel?: string;
     size?: "default" | "sm";
     disabled?: boolean;
@@ -57,7 +58,7 @@ type SearchSelectEmits = {
 };
 ```
 
-没有插槽与 expose。attrs 按 Vue 默认落到外框。放在 `Field` 里时读上下文的 `inputId`、`aria-describedby`、`required` 与 `invalid`。
+没有插槽与 expose。`class`、`style` 落在外框，其余 attrs（`aria-label` 这类）落在输入框上。`name` 写在一个隐藏输入框上，提交的是值，不是输入框里的文字。放在 `Field` 里时读上下文的 `inputId`、`labelId`、`aria-describedby`、`required` 与 `invalid`。
 
 ## 状态
 

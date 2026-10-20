@@ -3,7 +3,7 @@ import {
     SwitchRoot,
     SwitchThumb,
 } from "reka-ui";
-import {computed} from "vue";
+import {computed, ref} from "vue";
 
 import {useFieldContext} from "../form/field-context";
 
@@ -39,16 +39,22 @@ const emit = defineEmits<{
 const field = useFieldContext();
 const isInvalid = computed(() => props.invalid || field?.invalid.value === true);
 
-/** 只读：值由这里给定（reka 只在没给值时自己记），切换不发出去。 */
-const shownValue = computed(() => (props.readonly ? props.modelValue ?? props.defaultValue : props.modelValue));
+/**
+ * 始终受控：reka 在 setup 时就定受控与否，之后不再变，只读与可编辑之间切换时靠传不传值来切受控会让选中停住。没给
+ * `modelValue` 时值记在这里（初值是 `defaultValue`）；只读时不采纳变化、不发出去。
+ */
+const internal = ref(props.defaultValue);
+const current = computed(() => props.modelValue ?? internal.value);
 function handleUpdate(value: boolean): void {
-    if (!props.readonly) emit("update:modelValue", value);
+    if (props.readonly) return;
+    internal.value = value;
+    emit("update:modelValue", value);
 }
 </script>
 
 <template>
     <SwitchRoot
-        :model-value="shownValue"
+        :model-value="current"
         :default-value="props.defaultValue"
         :disabled="props.disabled"
         :name="props.name"
@@ -66,6 +72,8 @@ function handleUpdate(value: boolean): void {
             props.size === 'lg' ? 'h-6 w-11 p-px' : '',
             // 出错时借那 1px 透明边框描红，尺寸不变。
             isInvalid ? '!border-[color:var(--status-danger)]' : '',
+            // 只读不画成可点。
+            props.readonly ? '!cursor-default' : '',
         ]"
         @update:model-value="handleUpdate"
     >
