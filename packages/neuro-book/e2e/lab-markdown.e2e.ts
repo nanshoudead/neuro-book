@@ -39,6 +39,8 @@ test("场景 1：流式播到结束，提示块的元素始终是同一个、保
     await expect.poll(() => labState(page)).toMatchObject({ready: true, scene: "streaming"});
     const display = page.locator("[data-lab-stage] [data-markdown-display]");
     await expect(display.locator(".nb-callout")).toHaveCount(1, {timeout: 20_000});
+    // 提示块自己还在追加时内容在变，按输出 6 会被替换；等它后面的一块出现、它不再变了，再记下它的元素。
+    await expect(display).toContainText("改写示例", {timeout: 20_000});
     await display.locator(".nb-callout").evaluate((element) => {
         (window as unknown as {__callout: Element}).__callout = element;
     });

@@ -159,8 +159,13 @@ export const workbenchBrowserPlugin: PluginDefinition = {
             const workbenchPages = createWorkbenchPages({
                 // 文档根的设置与外壳由页面自己加载，挂上后页面根才标 `data-page-rendered`（home-page.ts）。
                 document: {load: async () => (await import("./document/WorkbenchDocument.vue")).default, props: () => ({locale, theme, appearance})},
-                // 布局 store 在外壳渲染时才取：首页贡献在场的 `/` 页与直接打开 Lab 的窗口都不读产品布局记录。
-                shell: {load: async () => (await import("./components/WorkbenchShell.vue")).default, props: () => ({layout: layout.acquire(), commands, views, editorArea, chrome, project: projectTitle, locale: locale.value})},
+                // 布局 store 在要显示外壳时才创建：首页贡献在场的 `/` 页与直接打开 Lab 的窗口都不读产品布局记录。开始加载外壳时就
+                // 创建、开始读布局记录，与下载外壳代码并行：等外壳挂上才读的话，每次打开都先按缺省布局画出来（Spec 失败表的“记录
+                // 未读完”），记录到了再变过去，侧栏、面板从缺省尺寸动画收起，缺省可见的视图也被加载。
+                shell: {load: async () => {
+                    layout.acquire();
+                    return (await import("./components/WorkbenchShell.vue")).default;
+                }, props: () => ({layout: layout.acquire(), commands, views, editorArea, chrome, project: projectTitle, locale: locale.value})},
                 renderCommandHost: () => h(CommandHost, {commands, report, locale, attach: (host: PaletteHost) => palettes.attach(host)}),
                 renderNotifications: () => h(Notifications, {queue: notifications.queue}),
                 renderOverlays: () => h(OverlayHost),
