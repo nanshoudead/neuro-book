@@ -4,7 +4,7 @@
  * 抽取任务、等它放锁；别的进程在抽时拿不到锁，删除报 `ingest_running`（docs/specs/story/ingest.md 输出 16）。
  */
 
-import type {IdCoordinator, Library} from "../core/library";
+import {Library, type IdCoordinator} from "../core/library";
 import type {Runner} from "./runner";
 import {IngestStore} from "./store";
 
@@ -18,4 +18,10 @@ export function ingestCoordinator(library: () => Library, localRunners?: Readonl
             await local.done;
         },
     };
+}
+
+/** 带协调者的书库：命令行与独立服务都这样构造。`localRunners` 是本进程里正在运行的任务，删除时先停它们。 */
+export function coordinatedLibrary(root?: string, localRunners?: ReadonlyMap<string, Runner>): Library {
+    const library: Library = new Library(root, {coordinator: ingestCoordinator(() => library, localRunners)});
+    return library;
 }

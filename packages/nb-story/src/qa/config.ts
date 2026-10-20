@@ -1,17 +1,26 @@
 /**
- * 问答的配置文件（docs/specs/story/qa.md 的“配置”）。只有 `nbstory ask` 读它；密钥本身不在这里，只写存密钥的
- * 环境变量名。
+ * 问答与抽取共用的配置文件（docs/specs/story/qa.md 的“配置”、docs/specs/story/ingest.md 的“抽取模型”）。密钥本身
+ * 不在这里，只写存密钥的环境变量名。
+ *
+ * 这里不导入 nb-harness：它一被导入，OMP 就接管中断信号（`nbstory ingest` 要自己处理 Ctrl-C）。配置到 nb-harness
+ * 模型的转换在 harness-model.ts。
  */
 
 import {mkdir, readFile, rename, rm, writeFile} from "node:fs/promises";
 import {homedir} from "node:os";
 import {dirname, join} from "node:path";
 
-import {defineModel, type HarnessOptions, type ResolvedModel} from "@notnotype/nb-harness";
 import {Type, type Static} from "typebox";
 import {Compile} from "typebox/compile";
 
 import {QaError} from "./errors";
+
+const PriceSchema = Type.Object({
+    input: Type.Number({minimum: 0}),
+    output: Type.Number({minimum: 0}),
+    cacheRead: Type.Optional(Type.Number({minimum: 0})),
+    currency: Type.String({minLength: 1}),
+});
 
 const ConfigSchema = Type.Object({
     model: Type.Object({
@@ -21,15 +30,26 @@ const ConfigSchema = Type.Object({
         contextWindow: Type.Optional(Type.Integer({minimum: 1})),
         maxTokens: Type.Optional(Type.Integer({minimum: 1})),
         thinking: Type.Optional(Type.Union([Type.Literal("low"), Type.Literal("medium"), Type.Literal("high"), Type.Literal("xhigh")])),
-        price: Type.Optional(
-            Type.Object({
-                input: Type.Number({minimum: 0}),
-                output: Type.Number({minimum: 0}),
-                cacheRead: Type.Optional(Type.Number({minimum: 0})),
-                currency: Type.String({minLength: 1}),
-            }),
-        ),
+        price: Type.Optional(PriceSchema),
     }),
+    // 抽取的推理档由程序按步骤固定，所以这一节不收 `thinking`（写了就是配置不对，而不是悄悄不用）。
+    ingest: Type.Optional(
+        Type.Object({
+            model: Type.Optional(
+                Type.Object(
+                    {
+                        baseUrl: Type.String({minLength: 1}),
+                        id: Type.String({minLength: 1}),
+                        apiKeyEnv: Type.String({minLength: 1}),
+                        contextWindow: Type.Optional(Type.Integer({minimum: 1})),
+                        maxTokens: Type.Optional(Type.Integer({minimum: 1})),
+                        price: Type.Optional(PriceSchema),
+                    },
+                    {additionalProperties: false},
+                ),
+            ),
+        }),
+    ),
     qa: Type.Optional(
         Type.Object({
             maxChapters: Type.Optional(Type.Integer({minimum: 1, maximum: 20})),
@@ -104,30 +124,33 @@ export async function saveQaConfig(path: string, config: unknown): Promise<QaCon
     return valid;
 }
 
-/**
- * 配置里的模型 → nb-harness 的模型。provider 名用 `nbstory`：不是 OMP 目录里的 provider，OMP 按通用的 OpenAI
- * 兼容端点处理（system 角色、不带厂商私有参数），适合任意兼容服务。
- */
-export function configuredModel(config: QaConfig): ResolvedModel {
-    const {model} = config;
-    return defineModel({
-        provider: "nbstory",
-        api: "openai-completions",
+export function qaLimits(config: QaConfig): {maxChapters: number; fullReadMaxChars: number} {
+    return {maxChapters: config.qa?.maxChapters ?? MAX_CHAPTERS, fullReadMaxChars: config.qa?.fullReadMaxChars ?? DEFAULT_FULL_READ_MAX_CHARS};
+}
+
+/** 抽取一次请求的输出上限，配置里没写 `maxTokens` 时用（与抽取管线定型时相同）。 */
+export const DEFAULT_INGEST_MAX_TOKENS = 32_000;
+
+export interface IngestModel {
+    baseUrl: string;
+    id: string;
+    apiKeyEnv: string;
+    maxTokens: number;
+    price: Static<typeof PriceSchema> | null;
+    /** 取自哪一节：`ingest.model`，或没有它时的问答 `model`。 */
+    source: "ingest.model" | "model";
+}
+
+/** 抽取用的模型：`ingest.model`，没有时用问答的 `model`（其中的 `thinking` 不用）。 */
+export function ingestModel(config: QaConfig): IngestModel {
+    const own = config.ingest?.model;
+    const model = own ?? config.model;
+    return {
         baseUrl: model.baseUrl,
         id: model.id,
         apiKeyEnv: model.apiKeyEnv,
-        reasoning: model.thinking !== undefined,
-        ...(model.contextWindow === undefined ? {} : {contextWindow: model.contextWindow}),
-        ...(model.maxTokens === undefined ? {} : {maxTokens: model.maxTokens}),
-        ...(model.price === undefined ? {} : {price: model.price}),
-    });
-}
-
-/** 配置的推理档 → `createHarness` 的选项；OMP 的思考档是字符串值的 const enum（"low"、"medium"、"high" 等），配置里的字符串就是它的值。不写就不传，请求里没有推理档。 */
-export function thinkingOption(config: QaConfig): Pick<HarnessOptions, "thinkingLevel"> {
-    return config.model.thinking === undefined ? {} : {thinkingLevel: config.model.thinking as NonNullable<HarnessOptions["thinkingLevel"]>};
-}
-
-export function qaLimits(config: QaConfig): {maxChapters: number; fullReadMaxChars: number} {
-    return {maxChapters: config.qa?.maxChapters ?? MAX_CHAPTERS, fullReadMaxChars: config.qa?.fullReadMaxChars ?? DEFAULT_FULL_READ_MAX_CHARS};
+        maxTokens: model.maxTokens ?? DEFAULT_INGEST_MAX_TOKENS,
+        price: model.price ?? null,
+        source: own ? "ingest.model" : "model",
+    };
 }

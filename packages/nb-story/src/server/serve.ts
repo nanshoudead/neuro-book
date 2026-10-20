@@ -13,6 +13,7 @@ import {join} from "node:path";
 
 import {createStoryApi} from "../core/api";
 import {defaultLibraryRoot} from "../core/library";
+import {coordinatedLibrary} from "../ingest/coordinator";
 import type {CliIo} from "../cli/main";
 import {createServeAuth} from "./auth";
 import {createHandler} from "./http";
@@ -57,7 +58,7 @@ export async function serveCommand(options: ServeOptions, io: CliIo): Promise<nu
     }
 
     const instance = randomUUID();
-    const api = createStoryApi({library});
+    const api = createStoryApi({library: coordinatedLibrary(library)});
     let server: ReturnType<typeof Bun.serve>;
     let handler: ((request: Request) => Promise<Response>) | null = null;
     try {

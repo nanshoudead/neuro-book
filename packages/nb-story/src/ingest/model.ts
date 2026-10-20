@@ -85,6 +85,8 @@ export interface CallOptions {
     onAttemptStart?: (attempt: number) => void | Promise<void>;
     /** 每次 HTTP 尝试结束时调用（成功或失败），用来记账。 */
     onAttempt?: (attempt: Attempt) => void;
+    /** 至多几次 HTTP 尝试，默认按重发的延迟表（6 次）。`config test --ingest` 只试一次。 */
+    maxAttempts?: number;
     /** 这次调用的身份（写进请求头 `X-Nbstory-Step`），渠道重发时不变。 */
     tag?: string;
     /** 一次 HTTP 尝试的时限；默认 10 分钟。 */
@@ -197,7 +199,7 @@ export async function callModel(endpoint: ModelEndpoint, options: CallOptions): 
         const outcome = await attemptOnce(client, endpoint, options, attempt);
         if (outcome.ok) return outcome.reply;
         if (options.signal?.aborted) throw new ModelAborted();
-        const waitMs = RETRY_DELAYS_MS[attempt - 1];
+        const waitMs = attempt < (options.maxAttempts ?? Infinity) ? RETRY_DELAYS_MS[attempt - 1] : undefined;
         if (!retryable(outcome.error) || waitMs === undefined) throw outcome.error;
         options.onRetry?.({attempt, waitMs, error: outcome.error});
         await sleep(waitMs, options.signal);

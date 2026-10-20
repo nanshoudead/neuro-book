@@ -56,23 +56,30 @@ export interface IngestStatus {
 
 const time = (at: string) => Date.parse(at);
 
+/** 一次尝试按它当时记下的单价算的费用；没有单价时为 null。单价按每百万 token，缓存命中的部分按缓存价。 */
+export function lineCost(line: Extract<UsageLine, {kind: "end"}>): {currency: string; amount: number} | null {
+    if (!line.price) return null;
+    const uncached = Math.max(0, line.input - line.cacheRead);
+    return {currency: line.price.currency, amount: (uncached * line.price.input + line.cacheRead * (line.price.cacheRead ?? line.price.input) + line.output * line.price.output) / 1_000_000};
+}
+
+/** 按币种分开合计。 */
+export function sumCosts(costs: Iterable<{currency: string; amount: number} | null>): {currency: string; amount: number}[] {
+    const sums = new Map<string, number>();
+    for (const cost of costs) if (cost) sums.set(cost.currency, (sums.get(cost.currency) ?? 0) + cost.amount);
+    return [...sums].map(([currency, amount]) => ({currency, amount}));
+}
+
 function usageTotals(lines: UsageLine[]): UsageTotals {
     const ends = new Map<string, Extract<UsageLine, {kind: "end"}>>();
     for (const line of lines) if (line.kind === "end") ends.set(line.id, line);
     const settled = [...ends.values()];
-    const costs = new Map<string, number>();
-    for (const line of settled) {
-        if (!line.price) continue;
-        const uncached = Math.max(0, line.input - line.cacheRead);
-        const amount = (uncached * line.price.input + line.cacheRead * (line.price.cacheRead ?? line.price.input) + line.output * line.price.output) / 1_000_000;
-        costs.set(line.price.currency, (costs.get(line.price.currency) ?? 0) + amount);
-    }
     const unsettled = lines.some(line => line.kind === "start" && !ends.has(line.id));
     return {
         input: settled.reduce((sum, line) => sum + line.input, 0),
         output: settled.reduce((sum, line) => sum + line.output, 0),
         cacheRead: settled.reduce((sum, line) => sum + line.cacheRead, 0),
-        costs: [...costs].map(([currency, amount]) => ({currency, amount})),
+        costs: sumCosts(settled.map(lineCost)),
         complete: !unsettled && settled.every(line => line.complete),
     };
 }

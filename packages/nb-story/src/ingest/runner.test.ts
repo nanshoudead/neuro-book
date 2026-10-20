@@ -15,7 +15,7 @@ import {waitUntil} from "@notnotype/neuro-book-test-support/wait";
 
 import {loadReplay, replay, type ReplayKey, type Replay} from "../../testing/ingest-replay";
 import {startEndpoint, type Endpoint, type EndpointReply} from "../../testing/openai-endpoint";
-import {sampleDataset} from "../../testing/sample";
+import {sampleDataset, sampleSourceText} from "../../testing/sample";
 import {createStoryApi} from "../core/api";
 import {StoryError} from "../core/errors";
 import {Library} from "../core/library";
@@ -31,15 +31,6 @@ const cleanups: (() => Promise<unknown> | unknown)[] = [];
 afterEach(async () => {
     for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
 });
-
-/**
- * 样例书前 `chapters` 章拼回的原文，前面加一段简介（切章时丢掉）。要抽完的书用 5 或 10 章：末章要整理，录下的整理
- * 回复只有第 5、10 章的。
- */
-async function sampleText(chapters: number): Promise<string> {
-    const sample = await sampleDataset();
-    return `转生反派萝莉，找茬魔法少女\n作者：测试\n\n${sample.sources.slice(0, chapters).map(source => source.paragraphs.join("\n")).join("\n\n")}`;
-}
 
 async function setup(name: string, override?: (key: ReplayKey, nth: number) => EndpointReply | undefined) {
     const root = await createTestTmpRoot("nb-story", `ingest-${name}`);
@@ -78,7 +69,7 @@ describe("新建、停止、接着抽（验收 1）", () => {
     test("第 1 章提交书就出现；第 3 章草稿请求中停下：书是 2 章；接着抽到第 10 章，一代不变，阅读状态与问答记录还在", async () => {
         let holdChapter3 = true;
         const env = await setup("resume", key => (holdChapter3 && key.chapter === 3 && key.step === "draft" ? hang : undefined));
-        const text = await sampleText(10);
+        const text = await sampleSourceText(10);
         const first = await env.start({text});
         expect(first.plan.action).toBe("new");
         expect(first.plan.preambleChars).toBeGreaterThan(0);
@@ -125,13 +116,13 @@ describe("新建、停止、接着抽（验收 1）", () => {
 describe("追加、改稿、第 1 章前停下（验收 2）", () => {
     test("5 章抽完后追加到 10 章：第 5 章那批整理与对象不变、不再请求；改了第 2 章：ingest_text_changed；原样再交：done", async () => {
         const env = await setup("append");
-        const five = await env.start({text: await sampleText(5)});
+        const five = await env.start({text: await sampleSourceText(5)});
         expect(await five.runner!.done).toEqual({kind: "done"});
         const id = five.plan.id;
         const arcsAt5 = await env.api.call("arcs.list", {book: id, at: {chapter: 5}});
         const entitiesAt5 = await env.api.call("entities.list", {book: id, at: {chapter: 5}, limit: 500});
 
-        const ten = await env.start({text: await sampleText(10)});
+        const ten = await env.start({text: await sampleSourceText(10)});
         expect({action: ten.plan.action, newChapters: ten.plan.newChapters}).toEqual({action: "append", newChapters: 5});
         expect(await ten.runner!.done).toEqual({kind: "done"});
         expect(env.played.seen.filter(key => key.step === "consolidation").map(key => key.chapter)).toEqual([5, 10]);
@@ -139,20 +130,20 @@ describe("追加、改稿、第 1 章前停下（验收 2）", () => {
         expect(await env.api.call("entities.list", {book: id, at: {chapter: 5}, limit: 500})).toEqual(entitiesAt5);
 
         const sample = await sampleDataset();
-        const changed = (await sampleText(10)).replace(sample.sources[1]!.paragraphs[3]!, `${sample.sources[1]!.paragraphs[3]!}（改）`);
+        const changed = (await sampleSourceText(10)).replace(sample.sources[1]!.paragraphs[3]!, `${sample.sources[1]!.paragraphs[3]!}（改）`);
         const refused = await env.start({text: changed}).catch((error: unknown) => error);
         expect(refused instanceof StoryError && refused.code).toBe("ingest_text_changed");
         expect(refused instanceof StoryError && refused.message).toContain("第 2 章与已保存的不一样（第 4 段起不同）");
 
         const requests = env.played.seen.length;
-        const again = await env.start({text: await sampleText(10)});
+        const again = await env.start({text: await sampleSourceText(10)});
         expect({action: again.plan.action, runner: again.runner}).toEqual({action: "done", runner: null});
         expect(env.played.seen.length).toBe(requests);
     }, 120_000);
 
     test("第 1 章前停下：书库里没有书、进度列出它、id 被占用、再发起是 resume、能删除", async () => {
         const env = await setup("before-first", key => (key.chapter === 1 && key.step === "beats" ? hang : undefined));
-        const first = await env.start({text: await sampleText(3), title: "第一章前停下", id: "early"});
+        const first = await env.start({text: await sampleSourceText(3), title: "第一章前停下", id: "early"});
         await waitUntil("第 1 章段落块请求", () => env.played.seen.length > 0, {timeoutMs: 30_000});
         first.runner!.stop();
         await first.runner!.done;
@@ -171,7 +162,7 @@ describe("追加、改稿、第 1 章前停下（验收 2）", () => {
         await second.runner!.done;
         await env.library.removeBook("early");
         expect(await ingestStatuses(env.library)).toEqual([]);
-        const third = await env.start({text: await sampleText(3), title: "第一章前停下", id: "early"});
+        const third = await env.start({text: await sampleSourceText(3), title: "第一章前停下", id: "early"});
         expect(third.plan.action).toBe("new");
     }, 120_000);
 });
@@ -180,7 +171,7 @@ describe("抽取进度与查询（验收 3）", () => {
     test("提交后旧游标得到 cursor_invalid；提交前固定的会话仍读到旧数据，提交后新开始的查询读到新数据", async () => {
         let hold = true;
         const env = await setup("cursor", key => (hold && key.chapter === 3 && key.step === "beats" ? hang : undefined));
-        const run = await env.start({text: await sampleText(5)});
+        const run = await env.start({text: await sampleSourceText(5)});
         const id = run.plan.id;
         await waitUntil("第 3 章段落块请求", () => env.played.seen.some(key => key.chapter === 3), {timeoutMs: 30_000});
         const page = await env.api.call("entities.list", {book: id, limit: 2});
@@ -203,7 +194,7 @@ describe("抽取进度与查询（验收 3）", () => {
     test("提交写到一半（新版本的文件写好、book.json 没换）：查询与接着抽都按上一次提交，接着抽照常完成", async () => {
         let hold = true;
         const env = await setup("half-commit", key => (hold && key.chapter === 3 && key.step === "beats" ? hang : undefined));
-        const run = await env.start({text: await sampleText(5)});
+        const run = await env.start({text: await sampleSourceText(5)});
         const id = run.plan.id;
         await waitUntil("第 3 章段落块请求", () => env.played.seen.some(key => key.chapter === 3), {timeoutMs: 30_000});
         run.runner!.stop();
@@ -229,7 +220,7 @@ describe("抽取进度与查询（验收 3）", () => {
 describe("一个书 id 一个任务（验收 4）", () => {
     test("运行中再发起同一个 id：ingest_running；同时发起两次恰有一个开始", async () => {
         const env = await setup("single", key => (key.chapter === 1 ? hang : undefined));
-        const text = await sampleText(2);
+        const text = await sampleSourceText(2);
         const outcomes = await Promise.allSettled([env.start({text}), env.start({text})]);
         expect(outcomes.filter(outcome => outcome.status === "fulfilled")).toHaveLength(1);
         const rejected = outcomes.find(outcome => outcome.status === "rejected") as PromiseRejectedResult;
@@ -241,7 +232,7 @@ describe("一个书 id 一个任务（验收 4）", () => {
     test("强行结束运行任务的进程：进度报“运行它的进程已退出”，可以接着抽；别的进程在抽时删除得到 ingest_running", async () => {
         const env = await setup("killed", key => (key.chapter === 2 && key.step === "beats" ? hang : undefined));
         const file = join(env.root, "book.txt");
-        await writeFile(file, await sampleText(3));
+        await writeFile(file, await sampleSourceText(3));
         const child = Bun.spawn(["bun", join(import.meta.dir, "..", "..", "testing", "ingest-child.ts"), env.library.root, file, "子进程里抽", env.endpoint.url], {
             stdout: "pipe", stderr: "pipe", env: {...process.env, INGEST_CHILD_KEY: "k"},
         });
@@ -270,7 +261,7 @@ describe("一个书 id 一个任务（验收 4）", () => {
 describe("删除正在抽取的书（验收 8）", () => {
     test("本服务里的任务先停下再删；书与抽取记录都不在了，旧任务不再写回；同 id 再发起是 new", async () => {
         const env = await setup("remove", key => (key.chapter === 2 && key.step === "draft" ? hang : undefined));
-        const run = await env.start({text: await sampleText(3), id: "doomed", title: "要删的书"});
+        const run = await env.start({text: await sampleSourceText(3), id: "doomed", title: "要删的书"});
         await waitUntil("第 2 章草稿请求", () => env.played.seen.some(key => key.chapter === 2 && key.step === "draft"), {timeoutMs: 30_000});
         await env.library.removeBook("doomed");
         expect(await run.runner!.done).toEqual({kind: "stopped"});
@@ -278,7 +269,7 @@ describe("删除正在抽取的书（验收 8）", () => {
         const listed = await env.api.call("books.list", {});
         expect(listed.ok && listed.value.books).toEqual([]);
         expect((await readdir(env.library.root)).filter(name => !name.startsWith("."))).toEqual(["library.json"]);
-        const again = await env.start({text: await sampleText(3), id: "doomed", title: "要删的书"});
+        const again = await env.start({text: await sampleSourceText(3), id: "doomed", title: "要删的书"});
         expect(again.plan.action).toBe("new");
     }, 60_000);
 });
@@ -290,7 +281,7 @@ describe("导入与抽取争同一个 id（输出 1）", () => {
         const file = join(env.root, "graph.json");
         await writeFile(file, JSON.stringify(sample));
         await env.library.importBook({file, title: "导入的书", id: "imported"});
-        const refused = await env.start({text: await sampleText(2), id: "imported"}).catch((error: unknown) => error);
+        const refused = await env.start({text: await sampleSourceText(2), id: "imported"}).catch((error: unknown) => error);
         expect(refused instanceof StoryError && refused.code).toBe("book_exists");
         expect(await ingestStatuses(env.library)).toEqual([]);
     }, 60_000);
@@ -301,7 +292,7 @@ describe("发起前的检查（输出 1、F1）", () => {
         const env = await setup("unknown-format");
         await mkdir(env.library.root, {recursive: true});
         await writeFile(join(env.library.root, "library.json"), JSON.stringify({format: 99}));
-        for (const input of [{text: await sampleText(2)}, {id: "some-book"}]) {
+        for (const input of [{text: await sampleSourceText(2)}, {id: "some-book"}]) {
             const refused = await env.start(input).catch((error: unknown) => error);
             expect(refused instanceof StoryError && refused.code).toBe("unsupported_format");
         }
@@ -311,7 +302,7 @@ describe("发起前的检查（输出 1、F1）", () => {
 
     test("书 id 不合法（带路径）：invalid_params，书库内外都不留文件", async () => {
         const env = await setup("bad-id");
-        for (const input of [{text: await sampleText(2), id: "../../escaped"}, {id: "../../escaped"}, {id: "Upper"}]) {
+        for (const input of [{text: await sampleSourceText(2), id: "../../escaped"}, {id: "../../escaped"}, {id: "Upper"}]) {
             const refused = await env.start(input).catch((error: unknown) => error);
             expect(refused instanceof StoryError && refused.code).toBe("invalid_params");
         }
@@ -327,7 +318,7 @@ describe("导入与抽取同时争同一个 id（输出 1）", () => {
         const sample = await sampleDataset();
         const file = join(env.root, "graph.json");
         await writeFile(file, JSON.stringify(sample));
-        const text = await sampleText(2);
+        const text = await sampleSourceText(2);
         for (let round = 0; round < 6; round++) {
             const id = `race-${round}`;
             let settled = false;
@@ -369,7 +360,7 @@ describe("删除撞上第 1 章的提交（验收 8）", () => {
                 if (removal === null && name?.startsWith(".importing-")) removal = env.library.removeBook("first").catch((error: unknown) => error);
             });
             cleanups.push(() => watcher.close());
-            const run = await env.start({text: await sampleText(5), id: "first", title: "删掉"});
+            const run = await env.start({text: await sampleSourceText(5), id: "first", title: "删掉"});
             await waitUntil("删除发起", () => removal !== null, {timeoutMs: 30_000});
             expect(await removal).toBeUndefined();
             expect(await run.runner!.done).toEqual({kind: "stopped"});
@@ -393,7 +384,7 @@ describe("提交的先后（输出 6）", () => {
             }
             return undefined;
         });
-        const run = await env.start({text: await sampleText(5), id: "order", title: "提交顺序"});
+        const run = await env.start({text: await sampleSourceText(5), id: "order", title: "提交顺序"});
         const outcome = await run.runner!.done;
         expect(outcome.kind === "failed" && outcome.errorKind).toBe("local");
         const info = await env.api.call("book.info", {book: "order"});
@@ -441,7 +432,7 @@ describe("用量与用时（输出 13）", () => {
     test("停下后换了币种接着抽：费用按币种分开；用时含作废的尝试，历次用时不少于各章之和", async () => {
         let hold = true;
         const env = await setup("costs", key => (hold && key.chapter === 1 && key.step === "draft" ? hang : undefined));
-        const first = await env.start({text: await sampleText(5), id: "costs", title: "费用", currency: "USD"});
+        const first = await env.start({text: await sampleSourceText(5), id: "costs", title: "费用", currency: "USD"});
         await waitUntil("第 1 章草稿请求", () => env.played.seen.some(key => key.step === "draft"), {timeoutMs: 30_000});
         first.runner!.stop();
         await first.runner!.done;
