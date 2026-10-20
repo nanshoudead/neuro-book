@@ -67,7 +67,17 @@ describe("迁移对照：100 章最终草稿重新编译", () => {
         // 秘密：只有成立位置可能变晚。
         expect(dataset.secrets.map(({at: _at, ...secret}) => secret)).toEqual(sample.secrets.map(({at: _at, ...secret}) => secret));
         for (const secret of sample.secrets) expect(comparePosition(dataset.secrets.find(item => item.id === secret.id)!.at, secret.at)).toBeGreaterThanOrEqual(0);
-    }, 120_000);
+    }, 30_000);
+
+    // 抽取每提交一章要把已抽的部分整本编译三四次。100 章原来一次二三十秒（每段对每个称呼都扫一遍），改后一秒以内；
+    // 上限给机器负载留足余量，只挡住每段的工作又随称呼总数增长的写法（t09）。
+    test("一次编译在 5 秒内", async () => {
+        const sample = await sampleDataset();
+        const final = JSON.parse(gunzipSync(await readFile(FINAL)).toString("utf8")) as {drafts: unknown[]; consolidations: unknown[]};
+        const started = performance.now();
+        compile(sample.book, sample.sources, final.drafts, final.consolidations);
+        expect(performance.now() - started).toBeLessThan(5000);
+    }, 30_000);
 });
 
 /** 三章的小书：第 1 章出现“北斗星”这个字串，第 2 章才交代它是林晚的代号；第 3 章建秘密，补记第 1 章就知情的人。 */

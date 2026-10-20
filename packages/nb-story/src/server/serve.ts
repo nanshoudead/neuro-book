@@ -1,8 +1,10 @@
 /**
  * `nbstory serve`：启动查看器的独立服务（docs/specs/story/cli-skill.md 输出 5、F3）。
  *
- * 先后：拿服务锁 → 开始监听 → 写登记 → 打印登录链接。收到 SIGINT 或 SIGTERM 时：删登记 → 停止监听（在途请求随
- * 连接断开结束）→ 放锁。
+ * 先后：拿服务锁 → 开始监听 → 写登记 → 装上停止信号的处理 → 打印登录链接。收到 SIGINT 或 SIGTERM 时：删登记 →
+ * 停止监听（在途请求随连接断开结束）→ 放锁。
+ * 信号处理必须在打印之前装：调用方读到登录链接就可能马上发 SIGTERM，Bun 在监听期间先打印、后装处理时，这个信号会
+ * 按默认动作杀掉进程（退出码 143），登记留在书库里（2026-10-20 实测，先打印时 30 次全中）。
  * 任何一步启动失败（书库目录、锁、监听、登记）都先关掉已开的监听、放锁，不留下登记，退出码 3；`--json` 时失败也只
  * 输出一份 JSON。
  */
@@ -92,12 +94,7 @@ export async function serveCommand(options: ServeOptions, io: CliIo): Promise<nu
         return fail("serve_failed", `写服务登记失败：${error instanceof Error ? error.message : String(error)}`);
     }
 
-    const login = `${url}/login?token=${auth.token}`;
-    if (options.json) io.stdout(JSON.stringify({ok: true, data: {login, url}}));
-    else io.stdout(`剧情图谱查看器已启动：${login}`);
-    if (options.open) openInBrowser(login);
-
-    return new Promise<number>(resolve => {
+    const exited = new Promise<number>(resolve => {
         let stopping = false;
         const stop = async () => {
             if (stopping) return;
@@ -120,4 +117,10 @@ export async function serveCommand(options: ServeOptions, io: CliIo): Promise<nu
         process.once("SIGINT", stop);
         process.once("SIGTERM", stop);
     });
+
+    const login = `${url}/login?token=${auth.token}`;
+    if (options.json) io.stdout(JSON.stringify({ok: true, data: {login, url}}));
+    else io.stdout(`剧情图谱查看器已启动：${login}`);
+    if (options.open) openInBrowser(login);
+    return exited;
 }
