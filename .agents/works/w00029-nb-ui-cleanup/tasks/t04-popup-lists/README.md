@@ -21,10 +21,12 @@ updated: 2026-10-20
 2. （2026-10-20，r1-selection）选中统一用左侧勾选列：每行在图标前留一列给勾，底色不变；Select 去掉选中项的强调色淡底与中等字重，DropdownMenu 的 `active` 与勾选项合成一种。
 3. （2026-10-20，r2-radius）列表项圆角按同心规则取外框 10px、内边距 4px，项 5px（nbook 主题）；QuickPick 与 Composer 候选菜单不再各写一个外框圆角。
 4. （2026-10-20，r2-density）所有弹出列表一档行高：28px、13px 字（带说明的两行项另算）。
+5. （2026-10-20，r3-rows）长列表最多显示 8 项半（列表高约 246px），截在第 9 项中间露出半项，之后滚动；空间不够时按可用空间收矮。所有弹出列表共用一份截断计算。
+6. （2026-10-20，r3-footer）Composer 候选菜单去掉底部的按键提示，与编辑器的斜杠菜单一致。
 
 ## 当前状态
 
-第 1 轮已定（见上）。第 1、2 轮已定（见上）。第 3 轮（长列表最多显示几项、Composer 候选菜单的按键提示页脚）已发到评审板，等答复。静态稿：草稿 worktree `.worktree/w00029-t04-drafts`（分支 `t04/drafts`，不合并），问列表项的高亮与选中各统一成哪一种；先并排画出六个弹出列表的现状。原图放本地 `.local/agent/works/w00029-nb-ui-cleanup/tasks/t04-popup-lists/shots/`。
+第 1 轮已定（见上）。第 1、2 轮已定（见上）。第 3 轮也已定，静态稿问完；下一步写实施计划。静态稿：草稿 worktree `.worktree/w00029-t04-drafts`（分支 `t04/drafts`，不合并），问列表项的高亮与选中各统一成哪一种；先并排画出六个弹出列表的现状。原图放本地 `.local/agent/works/w00029-nb-ui-cleanup/tasks/t04-popup-lists/shots/`。
 
 ## 下一步
 
