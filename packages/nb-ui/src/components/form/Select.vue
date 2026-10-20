@@ -107,6 +107,8 @@ const allowSideFlip = computed(() => props.dropdownDirection === "auto");
 
 const selectedOption = computed(() => props.options.find((option) => option.value === props.modelValue));
 const selectedLabel = computed(() => selectedOption.value?.label ?? "");
+/** 有一项带图标或状态圆点时，其余项也留出这一列，名称左边对齐。 */
+const iconColumn = computed(() => props.options.some((option) => option.indicatorClass || option.iconClass));
 
 function handleUpdate(value: unknown): void {
     emit("update:modelValue", typeof value === "string" ? value : "");
@@ -193,6 +195,7 @@ function handleCloseAutoFocus(event: Event): void {
                         </span>
                         <span v-if="option.indicatorClass" class="nb-ui-menu-item__icon inline-flex items-center justify-center" aria-hidden="true"><span class="h-1.5 w-1.5 rounded-full shadow-sm" :class="option.indicatorClass"></span></span>
                         <span v-else-if="option.iconClass" class="nb-ui-menu-item__icon text-[var(--text-secondary)]" :class="option.iconClass" aria-hidden="true"></span>
+                        <span v-else-if="iconColumn" class="nb-ui-menu-item__icon" aria-hidden="true"></span>
                         <span class="nb-ui-menu-item__label">
                             <SelectItemText class="block truncate">{{ option.label }}</SelectItemText>
                             <span

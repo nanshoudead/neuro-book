@@ -11,9 +11,12 @@ import {suggestionOptionId, type SuggestionMenuAnchor, type SuggestionMenuGroup,
 /**
  * 输入时弹出的候选菜单，焦点留在输入处（行为见同名 `.md`）。
  *
- * 定位走 reka 的 Popover 原语，与 DropdownMenu 同一套：传送、层级、碰撞夹紧，以及 `--reka-popper-available-*`
- * 给外框收矮、收窄。锚点一律换成虚拟锚点并逐帧更新（`updatePositionStrategy: "always"`）：光标的矩形在同一个
- * 输入框里变化时，floating-ui 的 autoUpdate 观察不到任何元素变化，只有逐帧读才跟得上。
+ * 定位走 reka 的 Popover 原语（底下是 floating-ui），与 DropdownMenu 同一套：传送、碰撞夹紧，以及
+ * `--reka-popper-available-*` 给外框收矮、收窄；它也把浮层登记为一层，模态 `Dialog` 里照样能接收指针。
+ * reka 不公开更底层的 Popper 原语，所以 Popover 给内容写死的三个属性在挂上后去掉，见 `stripDialogSemantics`。
+ *
+ * 锚点一律换成虚拟锚点并逐帧更新（`updatePositionStrategy: "always"`）：光标的矩形在同一个输入框里变化时，
+ * floating-ui 的 autoUpdate 观察不到任何元素变化，只有逐帧读才跟得上。
  */
 const props = withDefaults(defineProps<{
     groups: readonly SuggestionMenuGroup[];
@@ -72,6 +75,8 @@ const rendered = computed(() => {
         rows: group.items.map((item) => ({item, domId: item.disabled === true ? undefined : suggestionOptionId(menuId.value, index++)})),
     }));
 });
+/** 整个菜单（跨组）有一项带图标时，其余项也留出图标列，名称左边对齐。 */
+const iconColumn = computed(() => props.groups.some((group) => group.items.some((item) => item.iconClass)));
 const empty = computed(() => !props.loading && props.groups.every((group) => group.items.length === 0));
 
 function isActive(item: SuggestionMenuItem): boolean {
@@ -81,6 +86,13 @@ function isActive(item: SuggestionMenuItem): boolean {
 function onPointermove(item: SuggestionMenuItem): void {
     if (item.disabled === true || item.id === props.activeId) return;
     emit("highlight", item.id);
+}
+
+/** `header` 里能接收焦点的元素（例如搜索框）照常按下；其余地方（项、内边距、标题、加载行）按下都不夺走输入处的焦点。 */
+const FOCUSABLE = "input, textarea, select, button, a[href], [contenteditable]:not([contenteditable='false']), [tabindex]:not([tabindex='-1'])";
+function onSurfaceMousedown(event: MouseEvent): void {
+    if (event.target instanceof Element && event.target.closest(FOCUSABLE) !== null) return;
+    event.preventDefault();
 }
 
 function onClick(item: SuggestionMenuItem): void {
@@ -131,6 +143,17 @@ const widthClass = computed(() => (props.matchAnchorWidth
     ? "w-[min(var(--reka-popper-anchor-width),var(--reka-popper-available-width))]"
     : "w-max min-w-[min(220px,var(--reka-popper-available-width))] max-w-[min(420px,var(--reka-popper-available-width))]"));
 
+/**
+ * Popover 给内容写死了 `role="dialog"`、指向触发器的 `aria-labelledby`（这里没有触发器，是悬空的引用）与焦点范围的
+ * `tabindex="-1"`。候选菜单不是对话框，可访问的结构只有里面的 listbox，所以内容每次挂上后去掉这三个属性。Vue 只重写
+ * 值变了的属性，这三个值不会变，去掉后不会被写回；reka 升级后若开始每次都写，`SuggestionMenu.test.ts` 会失败。
+ */
+function stripDialogSemantics(viewport: HTMLElement | null): void {
+    const surface = viewport?.closest("[data-suggestion-menu]");
+    for (const name of ["role", "aria-labelledby", "tabindex"]) surface?.removeAttribute(name);
+}
+watch(() => scroll.viewport.value, stripDialogSemantics, {flush: "post"});
+
 defineExpose({
     /** 节点是否在浮层里（浮层传送出去了，不在宿主的 DOM 里）。 */
     contains(node: Node | null): boolean {
@@ -163,6 +186,7 @@ defineExpose({
                 @pointer-down-outside.prevent
                 @focus-outside.prevent
                 @interact-outside.prevent
+                @mousedown="onSurfaceMousedown"
             >
                 <div v-if="$slots.header" class="shrink-0" data-suggestion-menu-header>
                     <slot name="header" />
@@ -176,7 +200,6 @@ defineExpose({
                     :class="scroll.fadeClass.value"
                     :style="scroll.viewportStyle.value"
                     @scroll="scroll.onScroll"
-                    @mousedown.prevent
                 >
                     <div
                         v-for="group in rendered"
@@ -199,6 +222,7 @@ defineExpose({
                             @click="onClick(row.item)"
                         >
                             <span v-if="row.item.iconClass" :class="row.item.iconClass" class="nb-ui-menu-item__icon text-[var(--text-secondary)]" aria-hidden="true"></span>
+                            <span v-else-if="iconColumn" class="nb-ui-menu-item__icon" aria-hidden="true"></span>
                             <span class="nb-ui-menu-item__label">{{ row.item.label }}</span>
                             <span v-if="row.item.hint" class="nb-ui-menu-item__hint">{{ row.item.hint }}</span>
                         </div>
@@ -210,7 +234,6 @@ defineExpose({
                     class="flex shrink-0 items-center gap-2 px-[10px] py-[6px] text-[12px] leading-4 text-[var(--text-muted)]"
                     role="status"
                     data-suggestion-menu-loading
-                    @mousedown.prevent
                 >
                     <Spinner size="sm" />
                     <span>{{ props.loadingText }}</span>

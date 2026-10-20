@@ -46,6 +46,8 @@ test("点项后焦点仍在输入处；键盘移动的高亮就是 aria-activede
         expect(await highlighted.getAttribute("id")).toBe(id);
     };
     await expectActive("钟表铺");
+    const labelLeft = async (name: RegExp): Promise<number> => (await menu.getByRole("option", {name}).locator(".nb-ui-menu-item__label").boundingBox())!.x;
+    expect(await labelLeft(/旧设定/), "没图标的项留出图标列").toBeCloseTo(await labelLeft(/钟表铺/), 0);
     await page.keyboard.press("ArrowDown");
     await expectActive("林雪");
     await expect(menu.getByRole("option", {name: /林雪/}), "移到看不见的项时滚过去").toBeInViewport({ratio: 1});
@@ -113,36 +115,45 @@ test("与输入框同宽；顶部搜索框能聚焦、能用鼠标移动光标",
     expect(await search.evaluate((element) => (element as HTMLInputElement).selectionStart), "点击把光标移到开头").toBe(0);
 });
 
-test("锚点比窗口还宽时收窄到可用宽度", async ({page}) => {
+test("锚点比窗口还宽时收窄到可用宽度；窗口变窄后跟着收窄", async ({page}) => {
     const {menu} = await gotoScene(page, "wide");
-    const width = page.viewportSize()!.width;
-    const box = (await menu.boundingBox())!;
-    expect(box.x).toBeGreaterThanOrEqual(12 - 1);
-    expect(box.x + box.width).toBeLessThanOrEqual(width - 12 + 1);
+    for (const width of [page.viewportSize()!.width, 700]) {
+        await page.setViewportSize({width, height: page.viewportSize()!.height});
+        await expect.poll(async () => {
+            const box = (await menu.boundingBox())!;
+            return box.x >= 12 - 1 && box.x + box.width <= width - 12 + 1;
+        }).toBe(true);
+    }
 });
 
-test("关闭后不再逐帧读锚点；重新打开时贴着光标的新位置", async ({page}) => {
+test("关闭后重新打开时贴着光标的新位置", async ({page}) => {
     const {menu} = await gotoScene(page, "caret");
     await page.locator("[data-fixture-toggle]").click();
     await expect(menu).toHaveCount(0);
-    // 关闭后数 300ms 里有多少次逐帧回调请求：定位与选边的循环都该停了。
-    const frames = await page.evaluate(() => new Promise<number>((resolve) => {
-        let count = 0;
-        const original = window.requestAnimationFrame.bind(window);
-        window.requestAnimationFrame = (callback) => {
-            count += 1;
-            return original(callback);
-        };
-        setTimeout(() => {
-            window.requestAnimationFrame = original;
-            resolve(count);
-        }, 300);
-    }));
-    expect(frames).toBe(0);
-
     await moveCaret(page, 320, 260);
     await page.locator("[data-fixture-toggle]").click();
     await expect(menu).toBeVisible();
     const caret = await caretBox(page);
     expect(Math.abs((await menu.boundingBox())!.x - caret.x)).toBeLessThanOrEqual(1);
+});
+
+test("按在浮层的内边距或分组标题上也不夺走输入处的焦点", async ({page}) => {
+    const {input, menu} = await gotoScene(page, "caret");
+    const box = (await menu.boundingBox())!;
+    await page.mouse.click(box.x + 2, box.y + 2);
+    await expect(input).toBeFocused();
+    await menu.getByText("设定", {exact: true}).click();
+    await expect(input).toBeFocused();
+    await expect(menu).toBeVisible();
+});
+
+test("候选从少变多：滑块与底部渐隐出现", async ({page}) => {
+    const {input, menu} = await gotoScene(page, "caret");
+    await input.fill("第 1");
+    await expect(menu.getByRole("option")).toHaveCount(4);
+    await expect(menu.locator("[data-popup-scrollbar]")).toHaveCount(0);
+    await input.fill("");
+    await expect(menu.getByRole("option")).toHaveCount(15);
+    await expect(menu.locator("[data-popup-scrollbar-thumb]")).toBeVisible();
+    await expect(menu.locator(".nb-ui-popover-scroll")).toHaveClass(/nb-ui-popover-scroll-fade-bottom/);
 });

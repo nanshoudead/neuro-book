@@ -112,9 +112,12 @@ export function measureCascadePanel(trigger: HTMLElement, panel: HTMLElement): {
     const firstHeight = panel.querySelector("[role^='menuitem']")?.getBoundingClientRect().height ?? anchor.height;
     const truncated = viewport ? measurePopupTruncation(viewport) : null;
     const contentHeight = truncated === null ? rect.height : Math.min(rect.height, truncated);
+    const maxHeight = window.innerHeight - MENU_VIEWPORT_PADDING * 2;
+    // 截断了，或者项不多但窗口太矮被夹住：两种情况视口都会滚动、右侧都要给滑块让位，宽度先算进去，否则内容被裁掉一截。
+    const scrolls = truncated !== null || contentHeight + padY > maxHeight;
     const size = {
-        width: rect.width + padX + (truncated === null ? 0 : POPUP_SCROLLBAR_GUTTER),
-        height: Math.min(contentHeight + padY, window.innerHeight - MENU_VIEWPORT_PADDING * 2),
+        width: rect.width + padX + (scrolls ? POPUP_SCROLLBAR_GUTTER : 0),
+        height: Math.min(contentHeight + padY, maxHeight),
     };
     const position = computeCascadePosition(
         {top: anchor.top - (Number.parseFloat(style.paddingTop) || 0) - (firstHeight - anchor.height) / 2, left: anchor.left, right: anchor.right, bottom: anchor.bottom, panelLeft: parent.left, panelRight: parent.right},

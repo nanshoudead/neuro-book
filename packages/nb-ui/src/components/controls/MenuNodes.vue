@@ -27,6 +27,8 @@ const emit = defineEmits<{
 
 /** 这一级有可勾选项时，每行都留出左侧勾选列，名称才对得齐。 */
 const checkColumn = computed(() => props.items.some((item) => item.type === "radio" || item.type === "checkbox" || item.checked !== undefined));
+/** 这一级有一项带图标时，没有图标的项也留出图标列，名称左边对齐。 */
+const iconColumn = computed(() => props.items.some((item) => item.iconClass));
 
 /** 普通按钮项里当前聚焦的那一项（下标）；reka 的项自己挂高亮，不经这里。 */
 const focusedIndex = ref<number | null>(null);
@@ -65,6 +67,15 @@ function onButtonPointermove(item: T, event: PointerEvent): void {
     const target = event.currentTarget as HTMLElement;
     if (document.activeElement !== target) target.focus({preventScroll: true});
 }
+/**
+ * 普通按钮项：指针离开时清掉高亮（与 reka 相同）。焦点交给所在的那一级面板（`role="menu"`，可以接收焦点），
+ * 而不是失焦：键盘仍在这一级，宿主的方向键从首末项接着走。
+ */
+function onButtonPointerleave(event: PointerEvent): void {
+    const target = event.currentTarget as HTMLElement;
+    if (event.pointerType !== "mouse" || document.activeElement !== target) return;
+    target.closest<HTMLElement>("[role='menu']")?.focus({preventScroll: true});
+}
 /** 两种形态共用的属性：语义、勾选、级联、说明（禁用原因经 `title` 给出，也作读屏的描述）。 */
 function common(item: T): Record<string, unknown> {
     return {
@@ -99,6 +110,7 @@ function common(item: T): Record<string, unknown> {
         >
             <span v-if="checkColumn" class="nb-ui-menu-item__check" aria-hidden="true"><span v-if="item.checked" class="i-lucide-check h-3.5 w-3.5"></span></span>
             <span v-if="item.iconClass" :class="[item.iconClass, 'nb-ui-menu-item__icon']" aria-hidden="true"></span>
+            <span v-else-if="iconColumn" class="nb-ui-menu-item__icon" aria-hidden="true"></span>
             <slot name="item" :item="item"><span class="nb-ui-menu-item__label">{{ item.label }}</span></slot>
             <span v-if="hasChildren(item)" class="i-lucide-chevron-right nb-ui-menu-item__chevron" aria-hidden="true"></span>
             <slot v-else name="item-right" :item="item"><span v-if="item.shortcut" class="nb-ui-menu-item__hint" data-menu-shortcut>{{ item.shortcut }}</span></slot>
@@ -112,6 +124,7 @@ function common(item: T): Record<string, unknown> {
             @pointerenter="emit('hover', hasChildren(item) ? item : null, $event.currentTarget as HTMLElement, false)"
             @mouseenter="emit('hover', hasChildren(item) ? item : null, $event.currentTarget as HTMLElement, false)"
             @pointermove="onButtonPointermove(item, $event)"
+            @pointerleave="onButtonPointerleave"
             @focus="focusedIndex = index"
             @blur="focusedIndex === index && (focusedIndex = null)"
             @click="onButtonClick(item, $event)"
@@ -119,6 +132,7 @@ function common(item: T): Record<string, unknown> {
         >
             <span v-if="checkColumn" class="nb-ui-menu-item__check" aria-hidden="true"><span v-if="item.checked" class="i-lucide-check h-3.5 w-3.5"></span></span>
             <span v-if="item.iconClass" :class="[item.iconClass, 'nb-ui-menu-item__icon']" aria-hidden="true"></span>
+            <span v-else-if="iconColumn" class="nb-ui-menu-item__icon" aria-hidden="true"></span>
             <slot name="item" :item="item"><span class="nb-ui-menu-item__label">{{ item.label }}</span></slot>
             <span v-if="hasChildren(item)" class="i-lucide-chevron-right nb-ui-menu-item__chevron" aria-hidden="true"></span>
             <slot v-else name="item-right" :item="item"><span v-if="item.shortcut" class="nb-ui-menu-item__hint" data-menu-shortcut>{{ item.shortcut }}</span></slot>

@@ -77,6 +77,17 @@ describe("SuggestionMenu 的选项 id", () => {
         expect(document.querySelectorAll("[data-highlighted]"), "禁用项不挂高亮").toHaveLength(0);
     });
 
+    it("外框不是对话框：没有 role、悬空的 aria-labelledby 与 tabindex，组改了也不写回；可访问的结构是里面的 listbox", async () => {
+        const wrapper = await mountMenu(GROUPS, "a1");
+        const surface = (): HTMLElement => document.querySelector<HTMLElement>("[data-suggestion-menu]")!;
+        const leftover = (): (string | null)[] => ["role", "aria-labelledby", "tabindex"].map((name) => surface().getAttribute(name));
+        expect(leftover()).toEqual([null, null, null]);
+        await wrapper.setProps({groups: GROUPS.slice(0, 1), activeId: "a3"});
+        await flushPromises();
+        expect(leftover()).toEqual([null, null, null]);
+        expect(surface().querySelector("[role='listbox']")?.id).toBe("menu");
+    });
+
     it("点禁用项不发 select；点可用项发它的 id", async () => {
         const wrapper = await mountMenu(GROUPS, null);
         const byText = (text: string): HTMLElement => [...document.querySelectorAll<HTMLElement>("[role='option']")].find((option) => option.textContent?.trim() === text)!;

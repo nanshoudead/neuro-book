@@ -3,10 +3,9 @@ import {ref, watch} from "vue";
 import {MenubarContent, MenubarItem, MenubarMenu, MenubarPortal, MenubarRoot, MenubarTrigger} from "reka-ui";
 import MenuLevelPanel from "./MenuLevelPanel.vue";
 import MenuNodes from "./MenuNodes.vue";
-import PopupScrollbar from "../layout/PopupScrollbar.vue";
+import PopupViewport from "../layout/PopupViewport.vue";
 import {useMenuCascade} from "../../composables/useMenuCascade";
 import {usePopoverLayer} from "../../composables/usePopoverLayer";
-import {usePopupScroll} from "../../composables/usePopupScroll";
 
 /** 对话框或浮动窗口里的浮层跟随它们的层级（由 Dialog 注入）；不在里面时回退到普通页面层级。 */
 const {zIndex: popoverZIndex} = usePopoverLayer();
@@ -96,13 +95,15 @@ function keepOpen(menuId: string, event: Event): void {
 
 const cascade = useMenuCascade<MenubarItemData>();
 
-/**
- * 同一时刻只有一组菜单打开，各组共用一份一级视口的滚动状态。切换组时新一组的内容先挂上、旧一组还在退场动画里，
- * 旧视口卸载时的空 ref 会把新视口清掉，所以只收非空的视口；旧视口的观察在换上新视口时断开。
- */
-const scroll = usePopupScroll();
-function setMenuViewport(element: unknown): void {
-    if (element !== null) scroll.setViewport(element);
+/** 打开着的那组菜单的一级条目容器（它的滚动视口）：级联的左方向键与父级滚动收起都在里面找展开子菜单的那一项。 */
+function openLevel(): Element | null {
+    return openMenu.value === "" ? null : document.querySelector(`[data-menubar-level="${CSS.escape(openMenu.value)}"]`);
+}
+
+/** 一级菜单（reka 内容）里，键盘在父项上展开子菜单：焦点跟进新的一级。 */
+function onContentKeydown(event: KeyboardEvent): void {
+    const target = event.target;
+    if (target instanceof HTMLElement && target.getAttribute("aria-haspopup") === "menu" && ["ArrowRight", "Enter", " "].includes(event.key)) cascade.expectKeyboardOpen();
 }
 
 /** 第 `depth` 级（0 为一级菜单）滚动了：收起它展开的更深层级，焦点在被收起的层级里时回到展开它的那一项。 */
@@ -114,9 +115,8 @@ function collapseBelow(depth: number, level: Element | null | undefined): void {
     if (focusInside) trigger?.focus({preventScroll: true});
 }
 
-function onMenuScroll(event: Event): void {
-    scroll.onScroll();
-    collapseBelow(0, event.currentTarget as Element | null);
+function onMenuScroll(): void {
+    collapseBelow(0, openLevel());
 }
 function scheduleLevel(item: MenubarItemData | null, trigger: HTMLElement, depth: number, immediate = false): void {
     cascade.schedule(item, trigger, depth, immediate, Boolean(item?.children?.length));
@@ -151,11 +151,12 @@ function scheduleLevel(item: MenubarItemData | null, trigger: HTMLElement, depth
                     @pointer-down-outside="(event) => keepOpen(menu.id, event)"
                     @focus-outside="(event) => keepOpen(menu.id, event)"
                     class="nb-ui-popover-surface nb-ui-menu-surface nb-ui-popover-motion relative flex max-h-[var(--reka-popper-available-height)] min-w-[200px] flex-col overflow-hidden text-[var(--text-main)] outline-none select-none"
+                    @keydown.capture="onContentKeydown"
                 >
-                    <div :ref="setMenuViewport" class="nb-ui-popover-scroll w-full" :class="scroll.fadeClass.value" :style="scroll.viewportStyle.value" @scroll="onMenuScroll">
+                    <!-- 每组各有一份滚动状态：切换组时旧一组还在退场动画里，共用一份会让它套上新一组的截断与渐隐。 -->
+                    <PopupViewport class="w-full" :data-menubar-level="menu.id" @scroll="onMenuScroll">
                         <MenuNodes :items="menu.items" :active="cascade.levels.value[0]?.value" :item-component="MenubarItem" @select="handleItemClick" @hover="(item, trigger, immediate) => scheduleLevel(item, trigger, 0, immediate)" />
-                    </div>
-                    <PopupScrollbar :scroll="scroll" />
+                    </PopupViewport>
                 </MenubarContent>
             </MenubarPortal>
         </MenubarMenu>
@@ -170,6 +171,8 @@ function scheduleLevel(item: MenubarItemData | null, trigger: HTMLElement, depth
                 :ref="(element) => cascade.setPanel(depth, element)"
                 :panel-style="{...level.style, zIndex: popoverZIndex + depth + 1}"
                 :switching="level.switching"
+                :content-key="level.value"
+                @keydown="(event: KeyboardEvent) => cascade.levelKeydown(depth, event, openLevel())"
                 @scroll="collapseBelow(depth + 1, cascade.panels.value[depth]?.querySelector('.nb-menu-level-content'))"
             >
                 <MenuNodes :items="level.value.children ?? []" :active="cascade.levels.value[depth + 1]?.value" @select="handleItemClick" @hover="(item, trigger, immediate) => scheduleLevel(item, trigger, depth + 1, immediate)" />

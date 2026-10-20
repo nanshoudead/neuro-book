@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import {computed, nextTick, provide, ref, watch} from "vue";
+import {computed, ref} from "vue";
 import {
     DropdownMenuContent,
     DropdownMenuItem,
@@ -12,7 +12,7 @@ import MenuNodes from "./MenuNodes.vue";
 import PopupScrollbar from "../layout/PopupScrollbar.vue";
 import {useMenuCascade} from "../../composables/useMenuCascade";
 import {usePopoverLayer} from "../../composables/usePopoverLayer";
-import {focusPopupItem, usePopupScroll} from "../../composables/usePopupScroll";
+import {usePopupScroll} from "../../composables/usePopupScroll";
 import {toPopoverReference} from "../feedback/popover-anchor";
 import type {DropdownMenuItemData} from "./dropdown-menu.types";
 /**
@@ -88,57 +88,10 @@ function keepOpenForCascade(event: Event): void {
     if (target instanceof Node && cascade.panels.value.some((panel) => panel?.contains(target) === true)) event.preventDefault();
 }
 
-/** 一级里可用的项，按显示顺序。 */
-function itemsIn(container: Element | null | undefined): HTMLElement[] {
-    return container === null || container === undefined ? [] : [...container.querySelectorAll<HTMLElement>(":scope > [role^='menuitem']:not([disabled])")];
-}
-
-/** 键盘展开了子菜单：它出现后把焦点放到它的第一项。 */
-let focusNewLevel = false;
-
 /** 一级菜单（Reka 内容）里，键盘在父项上展开子菜单（右方向键、Enter、空格）：焦点跟进新的一级。 */
 function onContentKeydown(event: KeyboardEvent): void {
     const target = event.target;
-    if (target instanceof HTMLElement && target.getAttribute("aria-haspopup") === "menu" && ["ArrowRight", "Enter", " "].includes(event.key)) focusNewLevel = true;
-}
-
-/** 级联面板里的键盘：上下、Home、End 在本级可用项之间移动；右方向键展开；左方向键收起本级、回到展开它的那一项。 */
-function onLevelKeydown(depth: number, event: KeyboardEvent): void {
-    const target = event.target as HTMLElement;
-    const items = itemsIn(cascade.panels.value[depth]?.querySelector(".nb-menu-level-content"));
-    const index = items.indexOf(target);
-    if (index < 0) return;
-    const move = (next: HTMLElement | undefined): void => {
-        event.preventDefault();
-        focusPopupItem(next);
-    };
-    switch (event.key) {
-        case "ArrowDown":
-            move(items[(index + 1) % items.length]);
-            return;
-        case "ArrowUp":
-            move(items[(index - 1 + items.length) % items.length]);
-            return;
-        case "Home":
-            move(items[0]);
-            return;
-        case "End":
-            move(items[items.length - 1]);
-            return;
-        case "ArrowRight":
-        case "Enter":
-        case " ":
-            if (target.getAttribute("aria-haspopup") === "menu") focusNewLevel = true;
-            return;
-        case "ArrowLeft": {
-            const parent = depth === 0 ? contentEl.value : cascade.panels.value[depth - 1]?.querySelector(".nb-menu-level-content");
-            const trigger = parent?.querySelector<HTMLElement>("[aria-expanded='true']") ?? null;
-            event.preventDefault();
-            if (trigger !== null) cascade.schedule(null, trigger, depth, true, false);
-            focusPopupItem(trigger);
-            return;
-        }
-    }
+    if (target instanceof HTMLElement && target.getAttribute("aria-haspopup") === "menu" && ["ArrowRight", "Enter", " "].includes(event.key)) cascade.expectKeyboardOpen();
 }
 
 const contentEl = ref<HTMLElement | null>(null);
@@ -190,12 +143,6 @@ function scheduleSubmenu(item: DropdownMenuItemData | null, trigger: HTMLElement
     cascade.schedule(item, trigger, depth, immediate, Boolean(item?.children?.length));
 }
 
-watch(() => cascade.levels.value.length, async (length, previous) => {
-    if (!focusNewLevel || length <= (previous ?? 0)) return;
-    focusNewLevel = false;
-    await nextTick();
-    focusPopupItem(itemsIn(cascade.panels.value[length - 1]?.querySelector(".nb-menu-level-content"))[0]);
-});
 </script>
 
 <template>
@@ -249,7 +196,8 @@ watch(() => cascade.levels.value.length, async (length, previous) => {
                 :ref="(element) => cascade.setPanel(depth, element)"
                 :panel-style="{...level.style, zIndex: zIndex + depth + 1}"
                 :switching="level.switching"
-                @keydown="(event: KeyboardEvent) => onLevelKeydown(depth, event)"
+                :content-key="level.value"
+                @keydown="(event: KeyboardEvent) => cascade.levelKeydown(depth, event, contentEl)"
                 @scroll="collapseBelow(depth + 1)"
             >
                 <MenuNodes :items="level.value.children ?? []" :active="cascade.levels.value[depth + 1]?.value" :wrap="props.wrap" @select="handleCascadeSelect" @hover="(item, trigger, immediate) => scheduleSubmenu(item, trigger, depth + 1, immediate)" />

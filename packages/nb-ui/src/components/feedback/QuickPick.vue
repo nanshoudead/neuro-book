@@ -84,6 +84,8 @@ const handoff = useCloseHandoff(() => props.open);
 let previouslyFocused: HTMLElement | null = null;
 
 const activeItem = computed(() => props.items.find((item) => item.id === props.activeId && !item.disabled) ?? null);
+/** 有一项带图标时，其余项也留出图标列，名称左边对齐。 */
+const iconColumn = computed(() => props.items.some((item) => item.iconClass));
 const activeDescendant = computed(() => (activeItem.value === null ? undefined : optionId(activeItem.value.id)));
 
 const panelStyle = computed(() => ({
@@ -335,6 +337,7 @@ function isLowSurrogate(code: number): boolean {
                             @click="onItemClick(item)"
                         >
                             <span v-if="item.iconClass" :class="item.iconClass" class="nb-ui-menu-item__icon" aria-hidden="true"></span>
+                            <span v-else-if="iconColumn" class="nb-ui-menu-item__icon" aria-hidden="true"></span>
                             <span class="nb-ui-menu-item__label">
                                 <span class="block truncate">
                                     <template v-for="(segment, index) in labelSegments(item)" :key="index">

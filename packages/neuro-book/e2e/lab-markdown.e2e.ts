@@ -151,6 +151,10 @@ test("PromptEditor `/` 菜单（输出 5、13）：贴着外框上方、与外�
     expect(box.y + box.height, "在外框上方").toBeLessThanOrEqual(frame.y);
     expect(Math.abs(box.width - frame.width), "与外框同宽").toBeLessThanOrEqual(1);
     await expect(menu.getByRole("option", {name: /clear/})).toHaveAttribute("aria-disabled", "true");
+    // 按在标题行上不夺走正文的焦点，菜单不关。
+    await menu.getByText("命令", {exact: true}).click();
+    await expect(prose(page)).toBeFocused();
+    await expect(menu).toBeVisible();
 
     await expectActiveOption(page, "/plan");
     await page.keyboard.press("ArrowDown");
@@ -215,7 +219,9 @@ test("PromptEditor 输入历史（输出 10、13）：Ctrl+R 后直接打字过�
     await page.keyboard.press("Enter");
     await expect(search).toHaveCount(0);
     await expect(prose(page)).toBeFocused();
-    expect((await promptText(page)).startsWith(chosen.slice(0, 6))).toBe(true);
+    // 过滤后第二条是 PROMPT_LAB_RECALL 的第二条（长消息），整条替换正文。
+    expect(chosen.startsWith("这是一段会折成好几行的长消息")).toBe(true);
+    await expect.poll(() => promptText(page)).toBe("这是一段会折成好几行的长消息：请通读第三章，把林默在钟表铺里等人的那一段改得更紧张一些，减少他对店内陈设的长篇观察，增加门外脚步声与座钟报时交错出现的细节，最后让学徒推门进来的时刻正好落在第十二下钟声上，并且保持第一人称视角不变。");
 });
 
 test("PromptEditor 界面语言（输出 12）：英文界面里加载提示与输入历史的文字是英文", async ({page}) => {

@@ -8,11 +8,11 @@
 
 ## 布局
 
-外框是弹出列表共用的外框（`.nb-ui-popover-surface .nb-ui-menu-surface`），项是共用的一行（`.nb-ui-menu-item`，28px 高、13px 字）：左侧图标、名称、右侧次要文字（`hint`，放不下时先截它）。分组按输入顺序排列，有标题的组画一行分组标题；顶部可以放 `header` 插槽（标题或搜索框），底部在加载时有一行加载提示，都不随列表滚动。没有按键提示的页脚。
+外框是弹出列表共用的外框（`.nb-ui-popover-surface .nb-ui-menu-surface`），项是共用的一行（`.nb-ui-menu-item`，28px 高、13px 字）：左侧图标、名称、右侧次要文字（`hint`，放不下时先截它）。整个菜单（跨组）有一项带图标时，没有图标的项也留出图标列，名称左边对齐。分组按输入顺序排列，有标题的组画一行分组标题；顶部可以放 `header` 插槽（标题或搜索框），底部在加载时有一行加载提示，都不随列表滚动。没有按键提示的页脚。
 
 列表在滚动视口里：项超过 8 个时截在第 9 项的中间，不超过时取自然高度；可滚动时显示悬浮滑块。
 
-定位经 reka 的浮层原语（floating-ui），浮层传送到 `body`（`teleportTarget` 写明了就传送到那里）：
+定位经 reka 的 Popover 原语（底下是 floating-ui），浮层传送到 `body`（`teleportTarget` 写明了就传送到那里）。外框不是对话框：Popover 写死的 `role="dialog"`、`aria-labelledby` 与 `tabindex` 在挂上后去掉，可访问的结构只有里面的 `listbox`。
 
 - `anchor` 是元素（例如输入框外框）或虚拟锚点（例如光标的矩形）。打开期间每帧重新读一次锚点矩形，光标在同一个输入框里移动、输入框内滚动、窗口缩放时都跟得上；关闭或卸载后不再读。
 - `placement: "auto"`（缺省）时优先放在锚点下方；下方放不下 96px、上方更宽时翻到上方。`"top"`、`"bottom"` 固定方向、不翻转。
@@ -24,7 +24,7 @@
 ## 交互
 
 - 打开与关闭都不移动焦点；点外面不关闭，是否关闭由宿主决定。
-- 在项列表与加载、空状态这些非交互区按下指针不夺焦点（`mousedown` 默认动作被阻止），点击可用项发出 `select`；禁用项不发。`header` 插槽里的元素照常接收焦点与指针，例如可以点进搜索框移动光标。
+- 在浮层里任何地方按下指针都不夺走输入处的焦点（项、内边距、标题、加载与空状态；`mousedown` 默认动作被阻止），只有能接收焦点的元素（例如 `header` 里的搜索框）照常接收焦点与指针，可以点进搜索框移动光标。点击可用项发出 `select`；禁用项不发。
 - 指针在可用项上真的移动时发出 `highlight`；键盘滚动让静止的指针底下换了一项时不发，高亮不会被鼠标抢走。
 - `activeId` 那一项挂高亮（`data-highlighted`）、`aria-selected="true"`；`activeId` 变化时把它滚进视口（只滚这个列表）。`activeId` 不在当前可选项里时不挂高亮，宿主应清掉 `aria-activedescendant`。
 - 每个可选项的 DOM id 是 `suggestionOptionId(id, index)`，`index` 是跨组累计、只数可选项的位置，与 `suggestionMenuOptions(groups)` 的下标相同；宿主的 `aria-activedescendant` 用同一个函数。列表本身的 id 是 `id`，宿主的 `aria-controls` 指向它。
@@ -110,7 +110,7 @@ function suggestionMenuOptions(groups: readonly SuggestionMenuGroup[]): Suggesti
 
 - `state:local`：滚动视口的截断高度、滑块几何与拖动状态，以及 `placement: "auto"` 时这一刻放在哪一侧。
 - `state:inject`：读取 `Dialog` 注入的浮层层级。
-- `env:portal`：浮层经 reka 的 `PopoverPortal` 传送到 `body` 或 `teleportTarget`。
+- `env:portal`：浮层经 reka 的 `PopoverPortal` 传送到 `body` 或 `teleportTarget`，并登记为浮层层（模态 `Dialog` 里也能接收指针；Escape 与外部点击不由它关闭）。
 - `env:timer`：打开期间每帧读一次锚点矩形（floating-ui 的逐帧更新，以及 `"auto"` 时选择上下哪一侧）；关闭或卸载时停止。
 
 ## 不支持

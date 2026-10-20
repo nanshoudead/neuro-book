@@ -54,14 +54,14 @@ const CONTEXT_ITEMS: ContextMenuItem[] = [
 const SELECT_OPTIONS = [
     {label: "Markdown", value: "md", iconClass: "i-lucide-file-text"},
     {label: "纯文本", value: "txt", iconClass: "i-lucide-file", description: "不带格式，换行照原样保留"},
-    {label: "PDF（暂不可用）", value: "pdf", iconClass: "i-lucide-file-x", disabled: true},
+    {label: "PDF（暂不可用）", value: "pdf", disabled: true},
 ];
 const format = ref("txt");
 
 const QUICK_PICK_ITEMS: QuickPickItem[] = [
     {id: "open", label: "打开项目", iconClass: "i-lucide-folder-open", shortcut: "Ctrl+O"},
     {id: "chapter", label: "新建章节", iconClass: "i-lucide-file-plus", description: "在当前卷末尾"},
-    {id: "export", label: "导出", iconClass: "i-lucide-download", disabled: true},
+    {id: "export", label: "导出", disabled: true},
     {id: "settings", label: "设置", iconClass: "i-lucide-settings"},
 ];
 const quickPickOpen = ref(props.sceneId === "quick-pick" || props.sceneId === "quick-pick-long");
@@ -71,10 +71,11 @@ const quickPickActive = ref<string | null>(props.sceneId === "quick-pick-long" ?
 const numbered = (prefix: string, count: number): {label: string; value: string}[] =>
     Array.from({length: count}, (_, index) => ({label: `${prefix} ${String(index + 1)}`, value: `${prefix}-${String(index + 1)}`}));
 
-/** 长列表：主菜单 30 多项、第一项展开 20 项的子菜单（其中第一项再展开 20 项）、第二项只展开 2 项。 */
+/** 长列表：主菜单 30 多项、第一项展开 20 项的子菜单（其中第一项再展开 20 项）、第二项只展开 2 项、第三项又是 20 项。 */
 const LONG_DROPDOWN_ITEMS = [
     {label: "长子菜单", value: "long", children: [{label: "更深", value: "deeper", children: numbered("孙项", 20)}, ...numbered("子项", 19)]},
     {label: "短子菜单", value: "short", children: numbered("短项", 2)},
+    {label: "长子菜单二", value: "long-2", children: numbered("二号子项", 20)},
     {label: "", value: "sep", separator: true},
     ...numbered("主项", 30),
 ];

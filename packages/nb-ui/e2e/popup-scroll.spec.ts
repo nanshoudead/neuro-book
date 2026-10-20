@@ -116,8 +116,44 @@ test("右键菜单：键盘移到看不见的项时滚过去；静止的指针�
     await expect(target).toBeInViewport({ratio: 1});
     expect(await page.locator("[data-highlighted]").evaluateAll((items) => items.map((item) => item.textContent?.trim()))).toEqual(["主项 13"]);
 
+    // 滚进来的项让开底部 22px 的渐隐，不落在半透明里。
+    const viewport = panel.locator(".nb-ui-popover-scroll").first();
+    const targetBox = (await target.boundingBox())!;
+    const viewportBox = (await viewport.boundingBox())!;
+    expect(targetBox.y + targetBox.height, "让开底部渐隐").toBeLessThanOrEqual(viewportBox.y + viewportBox.height - 22 + 1);
+
     await page.keyboard.press("End");
     await expect(panel.getByRole("menuitem", {name: "主项 30", exact: true})).toBeInViewport({ratio: 1});
+});
+
+test("下拉菜单的一级用键盘往下走：当前项一直在视口里", async ({page}) => {
+    await gotoLong(page);
+    const trigger = page.locator("[data-fixture-long-dropdown-trigger]");
+    await trigger.focus();
+    await page.keyboard.press("ArrowDown");
+    const dropdown = page.locator("[data-fixture-long-dropdown]");
+    await settled(dropdown);
+    for (let index = 0; index < 14; index += 1) await page.keyboard.press("ArrowDown");
+    const focused = page.locator("[data-fixture-long-dropdown] [data-highlighted]");
+    await expect(focused).toHaveCount(1);
+    await expect(focused).toBeInViewport({ratio: 1});
+});
+
+test("同级换成另一个长子菜单时从顶部开始，不接着上一份的滚动位置", async ({page}) => {
+    await gotoLong(page);
+    await page.locator("[data-fixture-long-dropdown-trigger]").click();
+    const dropdown = page.locator("[data-fixture-long-dropdown]");
+    await settled(dropdown);
+    await dropdown.getByRole("menuitem", {name: /^长子菜单$/}).hover();
+    const level = page.locator(".nb-menu-level").first();
+    await settled(level);
+    const levelViewport = level.locator(".nb-menu-level-viewport");
+    await levelViewport.hover();
+    await page.mouse.wheel(0, 200);
+    await expect.poll(() => scrollState(levelViewport).then((state) => state.top)).toBeGreaterThan(0);
+    await dropdown.getByRole("menuitem", {name: /长子菜单二/}).hover();
+    await expect(level.getByRole("menuitem", {name: "二号子项 1", exact: true})).toBeVisible();
+    expect((await scrollState(levelViewport)).top).toBe(0);
 });
 
 test("级联：父级滚轮或拖滑块时收起它展开的子菜单；同级换成短内容时子菜单变矮", async ({page}) => {
@@ -126,7 +162,7 @@ test("级联：父级滚轮或拖滑块时收起它展开的子菜单；同级�
     const dropdown = page.locator("[data-fixture-long-dropdown]");
     await settled(dropdown);
 
-    await dropdown.getByRole("menuitem", {name: /长子菜单/}).hover();
+    await dropdown.getByRole("menuitem", {name: /^长子菜单$/}).hover();
     const levels = page.locator(".nb-menu-level");
     await expect(levels).toHaveCount(1);
     await settled(levels.first());

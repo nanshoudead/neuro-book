@@ -24,7 +24,7 @@ const GROUPS: SuggestionMenuGroup[] = [
     {id: "chapters", label: "正文", items: Array.from({length: 12}, (_, index) => ({id: `chapter-${String(index + 1)}`, label: `第 ${String(index + 1)} 章`, iconClass: "i-lucide-file-text", hint: `正文/第${String(index + 1)}章.md`}))},
     {id: "settings", label: "设定", items: [
         {id: "clock", label: "钟表铺", iconClass: "i-lucide-map-pin", hint: "设定/地点/钟表铺.md"},
-        {id: "locked", label: "（只读）旧设定", iconClass: "i-lucide-lock", disabled: true},
+        {id: "locked", label: "（只读）旧设定", disabled: true},
         {id: "lin", label: "林雪", iconClass: "i-lucide-user", hint: "设定/人物/林雪.md"},
     ]},
 ];

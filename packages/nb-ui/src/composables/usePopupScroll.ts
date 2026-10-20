@@ -42,20 +42,29 @@ export function measurePopupTruncation(viewport: HTMLElement): number | null {
     const items = viewport.querySelectorAll<HTMLElement>(POPUP_ITEM_SELECTOR);
     const ninth = items[POPUP_VISIBLE_ITEMS];
     if (ninth === undefined) return null;
+    const rect = ninth.getBoundingClientRect();
+    // 还没有布局（隐藏、未插入文档）时量到的全是 0，返回的高度会是 0；等观察器在有布局后再量。
+    if (rect.height === 0) return null;
     const scale = rectScale(viewport);
     const top = viewport.getBoundingClientRect().top;
-    const rect = ninth.getBoundingClientRect();
     return (rect.top - top) / scale + viewport.scrollTop + rect.height / scale / 2;
 }
 
-/** 把视口里的一项滚进可见区，只滚这个视口、只滚最少的距离；键盘移到看不见的项时由列表调用。 */
+/**
+ * 顶底渐隐的高度（CSS 像素，与 `styles.css` 的 `--nb-popover-scroll-fade` 缺省值相同）：滚进可见区的项要让到它外面，
+ * 否则正好落在半透明的渐隐里。滚到列表两端时那一侧没有渐隐，浏览器把滚动位置夹在端点，项照样贴边。
+ */
+const FADE_MARGIN = 22;
+
+/** 把视口里的一项滚进可见区，只滚这个视口、只滚最少的距离（让开渐隐）；键盘移到看不见的项时由列表调用。 */
 export function revealPopupItem(viewport: HTMLElement | null, item: Element | null): void {
     if (viewport === null || item === null) return;
     const scale = rectScale(viewport);
     const view = viewport.getBoundingClientRect();
     const rect = item.getBoundingClientRect();
-    if (rect.top < view.top) viewport.scrollTop -= (view.top - rect.top) / scale;
-    else if (rect.bottom > view.bottom) viewport.scrollTop += (rect.bottom - view.bottom) / scale;
+    const margin = Math.min(FADE_MARGIN * scale, Math.max(0, (view.height - rect.height) / 2));
+    if (rect.top < view.top + margin) viewport.scrollTop -= (view.top + margin - rect.top) / scale;
+    else if (rect.bottom > view.bottom - margin) viewport.scrollTop += (rect.bottom - (view.bottom - margin)) / scale;
 }
 
 /** 键盘把焦点移到一项：不让浏览器按聚焦的规则居中滚动，只把它滚进它所在的列表视口。 */
@@ -161,6 +170,8 @@ export function usePopupScroll(): PopupScroll {
         const node = element !== null && typeof element === "object" && "$el" in element ? (element as {$el: unknown}).$el : element;
         const next = node instanceof HTMLElement ? node : null;
         if (next === viewport.value) return;
+        // 视口卸载时滑块也跟着离开文档，拖动的 pointerup 再也到不了它：在这里收口，否则下次打开滑块仍是“拖动中”。
+        endDrag();
         disconnect();
         viewport.value = next;
         if (next === null) return;
@@ -171,8 +182,12 @@ export function usePopupScroll(): PopupScroll {
         resizeObserver = new ResizeObserver(schedule);
         resizeObserver.observe(next);
         for (const child of Array.from(next.children)) resizeObserver.observe(child);
+        let observed = new Set(next.children);
         mutationObserver = new MutationObserver(() => {
-            for (const child of Array.from(next.children)) resizeObserver?.observe(child);
+            const current = new Set(next.children);
+            for (const child of observed) if (!current.has(child)) resizeObserver?.unobserve(child);
+            for (const child of current) if (!observed.has(child)) resizeObserver?.observe(child);
+            observed = current;
             schedule();
         });
         mutationObserver.observe(next, {childList: true, subtree: true});

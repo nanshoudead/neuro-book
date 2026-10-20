@@ -82,9 +82,13 @@ test("下拉选择的长列表：收起成截半高度，键盘走到最后一�
     await expect(viewport).toBeVisible();
     const size = await viewport.evaluate((element) => ({client: element.clientHeight, scroll: element.scrollHeight}));
     expect(size.scroll).toBeGreaterThan(size.client);
-    // 14 项不全展开：设计规范的截半高度在 194 与 228 之间。
-    expect(size.client).toBeGreaterThanOrEqual(180);
-    expect(size.client).toBeLessThanOrEqual(240);
+    // 14 项不全展开：截在第 9 项的中点（两行项照实计入，w00029 t04 决定 5）。打开时停在选中项上，先回到顶部再量。
+    const cut = await viewport.evaluate((element) => {
+        element.scrollTop = 0;
+        const ninth = element.querySelectorAll('[role="option"]')[8]!.getBoundingClientRect();
+        return element.getBoundingClientRect().bottom - (ninth.top + ninth.height / 2);
+    });
+    expect(Math.abs(cut)).toBeLessThanOrEqual(1);
     await expect(page.getByRole("option").filter({hasText: "EPUB 电子书"}).locator(".i-lucide-book-open")).toBeAttached();
     await expect(page.getByRole("option").filter({hasText: "EPUB 电子书"})).toContainText("按卷生成目录");
 
