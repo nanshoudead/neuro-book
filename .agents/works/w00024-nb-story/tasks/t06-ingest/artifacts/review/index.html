@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>nb-story 导入与抽取进度评审板</title>
+<style>
+:root {
+    --bg: #f6f5f1; --card: #ffffff; --text: #23211c; --muted: #6f6a60; --line: #e3dfd6; --accent: #0f766e; --accent-soft: #e3f1ef;
+    --warn: #b45309; --warn-soft: #fdf1df; --ok: #15803d; --ok-soft: #e4f4e8;
+    --radius: 10px;
+}
+@media (prefers-color-scheme: dark) {
+    :root { --bg: #18181b; --card: #222226; --text: #ececea; --muted: #a3a09a; --line: #34343a; --accent: #5eead4; --accent-soft: #123b37;
+        --warn: #fbbf24; --warn-soft: #3a2e12; --ok: #86efac; --ok-soft: #173322; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.7 system-ui, "PingFang SC", "Noto Sans CJK SC", sans-serif; }
+header.top { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 12px; padding: 10px 24px; background: var(--card); border-bottom: 1px solid var(--line); }
+header.top b { font-size: 15px; }
+header.top small { color: var(--muted); }
+main { max-width: 1180px; margin: 0 auto; padding: 28px 16px 120px; }
+h1 { font-size: 22px; margin: 0 0 8px; }
+h2 { font-size: 17px; margin: 0; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+h3 { font-size: 14px; margin: 0 0 4px; }
+p, li { max-width: 900px; }
+.lead p { color: var(--muted); margin: 6px 0; }
+.round { margin-top: 40px; font-size: 19px; font-weight: 700; border-bottom: 2px solid var(--line); padding-bottom: 6px; }
+section.q { margin-top: 28px; padding: 18px 20px; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); }
+.badge { font-size: 12px; font-weight: 600; padding: 1px 8px; border-radius: 999px; }
+.badge.todo { background: var(--warn-soft); color: var(--warn); }
+.badge.done { background: var(--ok-soft); color: var(--ok); }
+.ask { margin: 10px 0 12px; }
+.opts { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; margin: 10px 0; }
+.opt { border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; }
+.opt.rec { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+.opt p { margin: 4px 0 0; color: var(--muted); }
+.rec-note { margin-top: 10px; padding: 10px 14px; border-radius: var(--radius); background: var(--accent-soft); }
+.rec-note b { color: var(--accent); }
+figure { margin: 12px 0; }
+figure img { width: 100%; border: 1px solid var(--line); border-radius: var(--radius); display: block; }
+figcaption { color: var(--muted); font-size: 13px; margin-top: 6px; }
+.shots { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 16px; }
+.phone { max-width: 300px; }
+ul.found li { margin: 4px 0; }
+</style>
+</head>
+<body>
+<header class="top"><b>nb-story 导入原文与抽取进度</b><small>w00024 t06 · 第 1 轮 · 2026-10-20</small></header>
+<main>
+<div class="lead">
+    <h1>网页上怎样导入原文、看抽取进度</h1>
+    <p>抽取的行为已经写进 <code>docs/specs/story/ingest.md</code>（一条命令兼管新建、接着抽与追加；第 1 章抽完书就出现；能随时停、能接着抽）。这一轮只问版式：导入入口和切章预览放在哪，进度放在哪，正在看的书抽完新章时怎么换数据。</p>
+    <p>稿子是在 nb-story 网页里用真实 nb-ui 组件搭的静态页（草稿 worktree，不合并），数据是编的：以一本 1,394 章的长书为例，顺带让“剩下的还要约 4 天”这种长书的真实情况露出来。</p>
+</div>
+
+<div class="round">第 1 轮（待定）</div>
+
+<section class="q" data-nbdev-question="import-entry" data-nbdev-type="single" data-nbdev-recommend="page">
+    <h2><span class="badge todo" data-nbdev-skip>待定</span>1. 导入原文：单独一页，还是书架上的对话框？</h2>
+    <p class="ask">书架右上角“导入原文”。选好 TXT 后先给切章结果（章数、字数、丢掉的开头、每章标题与字数），确认后开始抽。</p>
+    <div class="opts">
+        <div class="opt rec" data-nbdev-option="page"><h3>单独一页（推荐）</h3><p>切章表能完整展开（长书上千章），追加新章与“改了已抽的章”的说明有地方写；开始后可以离开这一页。</p></div>
+        <div class="opt" data-nbdev-option="dialog"><h3>书架上的对话框</h3><p>不离开书架，但切章表只能在对话框里滚，说明要压缩。</p></div>
+    </div>
+    <div class="shots">
+        <figure><img src="r1/import-page-light.webp" alt="导入页：新书"><figcaption>单独一页：新书。书名可改，书 id 由书名得到；说明里写丢掉的开头、卷标题行、抽取模型与每章大约用时。</figcaption></figure>
+        <figure><img src="r1/import-dialog-light.webp" alt="导入对话框"><figcaption>对话框：同样的信息挤在 560px 宽的框里。</figcaption></figure>
+    </div>
+    <div class="shots">
+        <figure><img src="r1/import-append-light.webp" alt="导入页：追加新章"><figcaption>同一页的“追加”：书已抽完 100 章，文件多出 12 章，按钮写“接着抽 12 章”。</figcaption></figure>
+        <figure><img src="r1/import-changed-light.webp" alt="导入页：改了已抽的章"><figcaption>同一页的“改了已抽的章”：写明第几章第几段起不同，没有开始按钮，给出两条出路。</figcaption></figure>
+    </div>
+    <div class="rec-note"><b>推荐单独一页：</b>预览是这一步的主体，长书的切章表和几种情况的说明都需要地方；对话框适合一两个字段的确认。</div>
+</section>
+
+<section class="q" data-nbdev-question="progress-place" data-nbdev-type="single" data-nbdev-recommend="page">
+    <h2><span class="badge todo" data-nbdev-skip>待定</span>2. 抽取进度：每本书一个进度页，还是直接展开在书架上？</h2>
+    <p class="ask">进度要给出：状态、抽完几章 / 共几章、正在抽哪一章哪一步、重试、用时与费用、每章平均、丢弃的记录、每章明细；运行中能停，停下了能继续。</p>
+    <div class="opts">
+        <div class="opt rec" data-nbdev-option="page"><h3>进度页（推荐）</h3><p>书架每本书一行：状态徽标、进度条、正在抽的章，右边“进度”进入进度页；停止、继续、每章明细都在进度页。书里顶栏也有入口（第 3 题的图）。</p></div>
+        <div class="opt" data-nbdev-option="shelf"><h3>展开在书架上</h3><p>书架上直接有停止 / 继续按钮和用时、费用一行，不另开页；没有每章明细。</p></div>
+    </div>
+    <div class="shots">
+        <figure><img src="r1/shelf-a-light.webp" alt="书架：进度页做法"><figcaption>进度页做法的书架：抽完、抽取中、失败停下、还没抽完第 1 章（灰的书名，抽完第 1 章后才能打开）。</figcaption></figure>
+        <figure><img src="r1/shelf-b-light.webp" alt="书架：展开做法"><figcaption>展开做法的书架：每本书带停止或继续，运行中的书多一行用时与费用。</figcaption></figure>
+    </div>
+    <div class="shots">
+        <figure><img src="r1/progress-light.webp" alt="进度页：运行中"><figcaption>进度页，运行中：剩余时间按每章平均估计；四步里当前一步高亮；渠道超时的重试写在当前章下面。</figcaption></figure>
+        <figure><img src="r1/progress-failed-light.webp" alt="进度页：失败停下"><figcaption>失败停下：写明哪一章、什么错（这里是认证失败）、抽完的都保留、下一步怎么做，按钮变成“继续”。</figcaption></figure>
+    </div>
+    <div class="shots">
+        <figure><img src="r1/progress-cli-light.webp" alt="进度页：命令行运行"><figcaption>命令行运行的任务：网页上没有停止按钮，提示到终端里按 Ctrl-C（Spec 定的：网页只能停网页发起的任务）。</figcaption></figure>
+        <figure><img src="r1/progress-dark.webp" alt="进度页：暗色"><figcaption>暗色。</figcaption></figure>
+    </div>
+    <figure class="phone"><img src="r1/progress-phone.webp" alt="进度页：手机宽"><figcaption>手机宽：统计两列，明细只留章、用时、费用。</figcaption></figure>
+    <div class="rec-note"><b>推荐进度页：</b>长书一抽好几天，进度是会反复回来看的东西，每章明细与失败说明放在书架上会把书架撑乱；书架只留一眼能看懂的状态。</div>
+</section>
+
+<section class="q" data-nbdev-question="book-refresh" data-nbdev-type="single" data-nbdev-recommend="prompt">
+    <h2><span class="badge todo" data-nbdev-skip>待定</span>3. 正在看一本抽取中的书时，又抽完一章，怎么换数据？</h2>
+    <p class="ask">书名旁有“抽取中 37 / 1,394”徽标，点开进度页。抽完第 38 章时：</p>
+    <div class="opts">
+        <div class="opt rec" data-nbdev-option="prompt"><h3>顶栏提示，点了才换（推荐）</h3><p>徽标变成“第 38 章已抽完，点这里更新”。正在看的页面、展开的人物卡、翻到的页都不会自己变。</p></div>
+        <div class="opt" data-nbdev-option="auto"><h3>自动换</h3><p>后台换成新数据；阅读位置在最后时跟着往后挪一章。每 4 到 5 分钟页面内容可能变一次，翻页会回到第一页（游标失效）。</p></div>
+    </div>
+    <figure><img src="r1/book-badge-light.webp" alt="书里的顶栏徽标"><figcaption>书里的顶栏：书名旁的徽标（这张只画了顶栏，下面的页面不变）。</figcaption></figure>
+    <div class="rec-note"><b>推荐点了才换：</b>每次抽完一章，查询结果和翻页游标都会变（Spec 已写）；自动换会让正在读的列表突然跳回第一页。</div>
+</section>
+
+<section class="q" data-nbdev-question="rest-ok" data-nbdev-type="single" data-nbdev-recommend="go">
+    <h2><span class="badge todo" data-nbdev-skip>待定</span>4. 其余细节照稿子写进查看器的 Spec，行吗？</h2>
+    <p class="ask">包括：书架上各状态的写法、“还没抽完第 1 章的书不能打开”、失败与命令行运行时的说明文字、导入页上的模型与用时提示、手机宽度的收法。颜色、间距在实现时再调，不再回到评审板。</p>
+    <div class="opts">
+        <div class="opt rec" data-nbdev-option="go"><h3>照稿子写</h3><p>按前三题的答复改稿，写进 <code>docs/specs/story/viewer.md</code>，然后写计划。</p></div>
+        <div class="opt" data-nbdev-option="adjust"><h3>要调整</h3><p>在备注里写要改哪里，下一轮接着改。</p></div>
+    </div>
+</section>
+
+<div class="round">搭稿时注意到的</div>
+<section class="q">
+    <ul class="found">
+        <li><b>长书的时间与费用：</b>按 100 章的实测（每章约 4.5 分钟），1,394 章要四天多，费用按 deepseek-flash 低谷价粗算在千元以上（每章带全部已有记录，越往后越贵）。这次按决定不做费用控制，进度页只显示已花的钱和每章平均；“只带相关记录”另立 Task 时，这一页的数字就是对照。</li>
+        <li><b>还没抽完第 1 章的书：</b>Spec 定的是它不在书库里，书架上这一行只来自抽取进度，所以点不开；稿子里书名置灰并写“抽完第 1 章后可以打开”。</li>
+    </ul>
+</section>
+</main>
+</body>
+</html>
