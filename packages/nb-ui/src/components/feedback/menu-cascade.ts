@@ -1,3 +1,5 @@
+import {measurePopupTruncation, POPUP_SCROLLBAR_GUTTER} from "../../composables/usePopupScroll";
+
 /**
  * 多级菜单的共享几何。
  *
@@ -88,19 +90,35 @@ export function computeCascadePosition(
     return {x: Math.max(padding, nextX), y: Math.max(padding, nextY)};
 }
 
-/** 量出子面板相对父项的位置和含内边距的尺寸。三个菜单入口共用。 */
+/**
+ * 量出子面板相对父项的位置和含内边距、边框的尺寸。三个菜单入口共用。
+ *
+ * 高度与主菜单同一条规则：项超过 8 个时截在第 9 项中间（量这一级的滚动视口），再夹进窗口；截断了就在右侧给滑块让出位置。
+ * 父项取它此刻的真实盒子：父级滚动过，量到的就是滚动后的位置（父级一滚动宿主就收起子菜单，不会拿到过期的位置）。
+ */
 export function measureCascadePanel(trigger: HTMLElement, panel: HTMLElement): {x: number; y: number; width: number; height: number} | null {
     const element = panel && "querySelector" in panel ? panel : (panel as {$el?: HTMLElement} | null)?.$el ?? null;
     const parent = trigger.closest("[role='menu']")?.getBoundingClientRect();
     const anchor = trigger.getBoundingClientRect();
     const content = element?.querySelector<HTMLElement>(".nb-menu-level-content");
+    const viewport = element?.querySelector<HTMLElement>(".nb-menu-level-viewport");
     const rect = content?.getBoundingClientRect() ?? element?.getBoundingClientRect();
     if (!parent || !element || !rect) return null;
     const style = getComputedStyle(element);
-    const padX = (Number.parseFloat(style.paddingLeft) || 0) + (Number.parseFloat(style.paddingRight) || 0);
-    const padY = (Number.parseFloat(style.paddingTop) || 0) + (Number.parseFloat(style.paddingBottom) || 0);
-    const firstHeight = panel.querySelector("[role='menuitem']")?.getBoundingClientRect().height ?? anchor.height;
-    const size = {width: rect.width + padX, height: rect.height + padY};
+    const edgeX = ["paddingLeft", "paddingRight", "borderLeftWidth", "borderRightWidth"] as const;
+    const edgeY = ["paddingTop", "paddingBottom", "borderTopWidth", "borderBottomWidth"] as const;
+    const padX = edgeX.reduce((sum, key) => sum + (Number.parseFloat(style[key]) || 0), 0);
+    const padY = edgeY.reduce((sum, key) => sum + (Number.parseFloat(style[key]) || 0), 0);
+    const firstHeight = panel.querySelector("[role^='menuitem']")?.getBoundingClientRect().height ?? anchor.height;
+    const truncated = viewport ? measurePopupTruncation(viewport) : null;
+    const contentHeight = truncated === null ? rect.height : Math.min(rect.height, truncated);
+    const maxHeight = window.innerHeight - MENU_VIEWPORT_PADDING * 2;
+    // 截断了，或者项不多但窗口太矮被夹住：两种情况视口都会滚动、右侧都要给滑块让位，宽度先算进去，否则内容被裁掉一截。
+    const scrolls = truncated !== null || contentHeight + padY > maxHeight;
+    const size = {
+        width: rect.width + padX + (scrolls ? POPUP_SCROLLBAR_GUTTER : 0),
+        height: Math.min(contentHeight + padY, maxHeight),
+    };
     const position = computeCascadePosition(
         {top: anchor.top - (Number.parseFloat(style.paddingTop) || 0) - (firstHeight - anchor.height) / 2, left: anchor.left, right: anchor.right, bottom: anchor.bottom, panelLeft: parent.left, panelRight: parent.right},
         size,

@@ -346,7 +346,12 @@ describe("PromptEditor `@` 菜单", () => {
         exposed(wrapper).insertText("@林");
         await nextTick();
         expect(wrapper.emitted("menu-open")).toEqual([[{trigger: "@"}]]);
-        expect(wrapper.element.querySelector("[role='option']")?.textContent).toContain("林雪");
+        // 菜单传送到了 body：在整个文档里找；正文区的 aria-activedescendant 指向的就是高亮的那一项。
+        const option = document.querySelector<HTMLElement>("[role='option']");
+        expect(option?.textContent).toContain("林雪");
+        expect(option?.hasAttribute("data-highlighted")).toBe(true);
+        expect(prosemirror(wrapper).getAttribute("aria-activedescendant")).toBe(option?.id);
+        expect(document.getElementById(prosemirror(wrapper).getAttribute("aria-controls")!)?.getAttribute("role")).toBe("listbox");
         prosemirror(wrapper).dispatchEvent(new KeyboardEvent("keydown", {key: "Enter", bubbles: true, cancelable: true}));
         await nextTick();
         expect(changes(wrapper).at(-1)).toBe("[林雪](/设定/林雪.md) ");

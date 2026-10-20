@@ -20,8 +20,8 @@
 - **正文区**：随内容长高，夹在 `minHeight` 与 `maxHeight` 之间；超过上限后正文区内部滚动，外框与附件条不动。输入时光标始终保持可见。`fill` 为真时外框取父元素的高度，正文区占满附件条以外的部分，内容更长时在内部滚动，`maxHeight` 不起作用；父元素没有确定的高度时仍随内容长高。
 - **粘贴块**：在正文里独占一段，与正文同宽。头部一行：图标、`#N`、“粘贴的文本 · 42 行”，以及“展开”“转为文字”“删除”三个按钮；下面用等宽字显示内容，收起时只显示前 3 行，展开后显示全文并可以就地编辑，超过正文区高度时随正文区一起滚动。
 - **小块**：[`InlineChip`](../InlineChip.md)，与正文同一行高，名称过长时截断，悬停提示给出全称。图片与文件小块只显示图标加 `#N`。
-- **候选菜单**：与外框同宽，默认在外框上方（`menuPlacement: "below"` 时在下方）。自上而下：标题行（可选）、候选项（按组分段，组标题不可选）、底部一行按键提示。最多显示约 8 项，更多时菜单内部滚动。加载中显示转圈与“正在加载”，没有结果时显示宿主给的空结果文字或“没有匹配项”。
-- **输入历史搜索**：与候选菜单同一位置、同一外观，顶部多一个搜索框。
+- **候选菜单**：nb-ui 的 `SuggestionMenu`，锚在外框上、与外框同宽，默认在外框上方（`menuPlacement: "below"` 时在下方），固定方向、不跟随光标；可用高度不够时收矮。自上而下：标题行（可选）、候选项（按组分段，组标题不可选；项的说明显示在右侧）。项超过 8 个时截在第 9 项中间、内部滚动。加载中已有项照常显示，底部一行转圈与“正在加载”；没有结果时显示宿主给的空结果文字或“没有匹配项”。没有按键提示。
+- **输入历史搜索**：与候选菜单同一位置、同一外观，顶部多一个搜索框与“输入历史”标题。搜索框的聚焦、方向键、回车、Escape 与 `combobox`、`aria-controls`、`aria-activedescendant` 由本组件持有；焦点离开搜索框、又不在菜单里时关闭（菜单传送到了 `body`，判断时用 `SuggestionMenu.contains`）。
 - **390×844**：结构不变；附件条横向滚动，菜单仍与外框同宽，正文更早触到高度上限。
 
 ## 数据
@@ -195,6 +195,6 @@ interface PromptEditorExpose {
 ## 组成
 
 - [`PromptAttachmentStrip`](PromptAttachmentStrip.md)：附件条。
-- [`PromptMenuPanel`](PromptMenuPanel.md)：候选菜单与输入历史搜索。
+- nb-ui 的 `SuggestionMenu`：候选菜单与输入历史搜索；正文区的 `aria-activedescendant` 用 nb-ui 导出的 `suggestionOptionId`。
 - [`PromptTokenView`](PromptTokenView.md)、[`PromptPasteBlockView`](PromptPasteBlockView.md)：小块与粘贴块的节点视图；粘贴块的外框是 [`PromptPasteFrame`](PromptPasteFrame.md)，与 [`PromptTextView`](PromptTextView.md) 共用。
 - 文字写法在 `prompt-text.ts`，编辑内核的扩展在 `prompt-editor-extensions.ts`，附件簿记在 `prompt-attachments.ts`，界面文字在 `prompt-labels.ts`。

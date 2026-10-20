@@ -24,6 +24,8 @@ export {default as Notification} from "./feedback/Notification.vue";
 export {default as NotificationStack} from "./feedback/NotificationStack.vue";
 export {default as Popover} from "./feedback/Popover.vue";
 export {default as QuickPick} from "./feedback/QuickPick.vue";
+export {default as SuggestionMenu} from "./feedback/SuggestionMenu.vue";
+export {suggestionMenuOptions, suggestionOptionId} from "./feedback/suggestion-menu";
 export {default as Tooltip} from "./feedback/Tooltip.vue";
 export {default as Collapsible} from "./layout/Collapsible.vue";
 export {default as DropFeedbackOverlay} from "./layout/DropFeedbackOverlay.vue";
@@ -69,6 +71,7 @@ export type {ContextMenuCloseReason, ContextMenuItem} from "./feedback/context-m
 export type {DialogCloseReason, DialogSize} from "./feedback/Dialog.vue";
 export type {DrawerDirection} from "./feedback/Drawer.vue";
 export type {InfoTipPlacement} from "./feedback/InfoTip.vue";
+export type {SuggestionMenuAnchor, SuggestionMenuGroup, SuggestionMenuItem, SuggestionMenuPlacement} from "./feedback/suggestion-menu";
 export type {ColorSwatchesSize} from "./form/ColorSwatches.vue";
 export type {BannerTone} from "./feedback/Banner.vue";
 export type {NotificationTone} from "./feedback/Notification.vue";

@@ -7,8 +7,8 @@
 
 import {access} from "node:fs/promises";
 
-import {defaultConfigPath, loadQaConfig, parseQaConfig, qaLimits, saveQaConfig, type QaConfig} from "../qa/config";
-import {ConfigEditError, setConfigField, unsetConfigField} from "../qa/config-edit";
+import {defaultConfigPath, ingestModel, loadQaConfig, parseQaConfig, qaLimits, saveQaConfig, type QaConfig} from "../qa/config";
+import {ConfigEditError, echoable, setConfigField, unsetConfigField} from "../qa/config-edit";
 import {QaError} from "../qa/errors";
 import {EXIT_INTERRUPTED, EXIT_QA_FAILED, runInterruptible} from "./ask";
 import type {CliIo} from "./main";
@@ -18,7 +18,7 @@ interface ConfigOptions {
     json: boolean;
 }
 
-const USAGE = "用法：nbstory config init | show | set <字段> <值> | unset <字段> | test（都可加 --config <文件>、--json）";
+const USAGE = "用法：nbstory config init | show | set <字段> <值> | unset <字段> | test [--ingest]（都可加 --config <文件>、--json）";
 
 const THINKING_NOTE = "不写：请求不带推理档，由服务端的默认档决定";
 
@@ -39,6 +39,18 @@ function describe(path: string, config: QaConfig, env: NodeJS.ProcessEnv): strin
         ...(model.maxTokens === undefined ? [] : [`输出上限：${model.maxTokens}`]),
         ...(model.price === undefined ? [] : [`价格（每百万 token）：输入 ${model.price.input}，输出 ${model.price.output}${model.price.cacheRead === undefined ? "" : `，缓存读取 ${model.price.cacheRead}`}，${model.price.currency}`]),
         `图当目录最多读 ${limits.maxChapters} 章；全读上限 ${limits.fullReadMaxChars} 字`,
+        ingestLine(config, env),
+    ].join("\n");
+}
+
+function ingestLine(config: QaConfig, env: NodeJS.ProcessEnv): string {
+    const model = ingestModel(config);
+    if (model.source === "model") return "抽取模型：没有单独配置（ingest.model），用上面的模型，推理档由抽取按步骤固定";
+    return [
+        `抽取模型：${model.id}（${model.baseUrl}）`,
+        `抽取的密钥环境变量：${model.apiKeyEnv}（${env[model.apiKeyEnv] ? "已设置" : "没有设置"}）`,
+        `抽取的输出上限：${model.maxTokens}`,
+        ...(model.price === null ? [] : [`抽取的价格（每百万 token）：输入 ${model.price.input}，输出 ${model.price.output}${model.price.cacheRead === undefined ? "" : `，缓存读取 ${model.price.cacheRead}`}，${model.price.currency}`]),
     ].join("\n");
 }
 
@@ -65,12 +77,17 @@ export async function configCommand(options: ConfigOptions, io: CliIo): Promise<
     if (action === undefined || !(action in arity)) return usageError(action === undefined ? "缺少动作" : `没有动作 ${action}`);
     const given = [params.field, params.value].filter(item => item !== undefined).length;
     if (given !== arity[action]) return usageError(`${action} 要 ${arity[action]} 个参数，给了 ${given} 个`);
+    if (params.ingest === true && action !== "test") return usageError("--ingest 只用于 config test");
 
     try {
         switch (action) {
             case "show": {
                 const config = await loadQaConfig(path);
-                return done({path, config, apiKeySet: Boolean(process.env[config.model.apiKeyEnv])}, describe(path, config, process.env));
+                const ingest = ingestModel(config);
+                return done(
+                    {path, config, apiKeySet: Boolean(process.env[config.model.apiKeyEnv]), ingest: {source: ingest.source, id: ingest.id, apiKeySet: Boolean(process.env[ingest.apiKeyEnv])}},
+                    describe(path, config, process.env),
+                );
             }
             case "set":
             case "unset": {
@@ -78,12 +95,12 @@ export async function configCommand(options: ConfigOptions, io: CliIo): Promise<
                 const field = params.field as string;
                 const changed = action === "set" ? setConfigField(config, field, params.value as string, ` ${path} `) : unsetConfigField(config, field, ` ${path} `);
                 await saveQaConfig(path, changed);
-                return done({path, config: changed}, action === "set" ? `已改 ${field} = ${String(params.value)}` : `已去掉 ${field}`);
+                return done({path, config: changed}, action === "set" ? (echoable(field) ? `已改 ${field} = ${String(params.value)}` : `已改 ${field}`) : `已去掉 ${field}`);
             }
             case "init":
                 return await init(params, path, io, json, done, usageError);
             case "test":
-                return await runInterruptible(io, signal => test(path, signal, io, json, done, fail));
+                return await runInterruptible(io, signal => (params.ingest === true ? testIngest(path, signal, io, json, done, fail) : test(path, signal, io, json, done, fail)));
         }
     } catch (error) {
         if (error instanceof ConfigEditError) return usageError(error.message);
@@ -178,4 +195,47 @@ async function test(path: string, signal: AbortSignal, io: CliIo, json: boolean,
     if (result.reason === "aborted") return fail("cancelled", "已取消", EXIT_INTERRUPTED);
     if (result.reason === "not_finished") return fail("model_failed", `模型没有正常结束（${result.stopReason}）`, EXIT_QA_FAILED, "local");
     return fail("model_failed", result.error.message, EXIT_QA_FAILED, result.error.kind);
+}
+
+/**
+ * 用抽取实际用的模型，按抽取固定的两档各发一个最小请求（docs/specs/story/qa.md 输出 23），走抽取同一条传输路径
+ * （ingest/model.ts），所以通过就说明抽取发得出去。每档只试一次，不按抽取的延迟表等着重发；不降档。
+ */
+async function testIngest(path: string, signal: AbortSignal, io: CliIo, json: boolean, done: Done, fail: Fail): Promise<number> {
+    const config = await loadQaConfig(path);
+    const model = ingestModel(config);
+    const {callModel, ModelAborted, ModelError} = await import("../ingest/model");
+    const endpoint = {baseUrl: model.baseUrl, model: model.id, apiKey: process.env[model.apiKeyEnv] ?? "", maxTokens: model.maxTokens};
+    type Result = {effort: "minimal" | "medium"; ok: true; ms: number; usage: {input: number; output: number}} | {effort: "minimal" | "medium"; ok: false; kind: string; message: string};
+    const results: Result[] = [];
+    for (const effort of ["minimal", "medium"] as const) {
+        const started = Date.now();
+        let usage = {input: 0, output: 0};
+        try {
+            await callModel(endpoint, {
+                system: "只回一个 JSON 对象。",
+                user: '回 {"ok":true}',
+                effort, signal, maxAttempts: 1,
+                onAttempt: attempt => (usage = {input: attempt.usage.input, output: attempt.usage.output}),
+            });
+            results.push({effort, ok: true, ms: Date.now() - started, usage});
+        } catch (error) {
+            if (error instanceof ModelAborted) return fail("cancelled", "已取消", EXIT_INTERRUPTED);
+            if (!(error instanceof ModelError)) throw error;
+            results.push({effort, ok: false, kind: error.kind, message: error.message});
+        }
+    }
+    const lines = results.map(result => (result.ok ? `通过：${result.effort} 档正常回话（${(result.ms / 1000).toFixed(1)} 秒，输入 ${result.usage.input}、输出 ${result.usage.output} token）` : `失败：${result.effort} 档（${result.kind}）${result.message}`));
+    const failed = results.find((result): result is Extract<Result, {ok: false}> => !result.ok);
+    const head = `抽取模型：${model.id}（${model.baseUrl}，取自 ${model.source}）`;
+    const data = {path, model: model.id, source: model.source, efforts: results};
+    if (!failed) return done(data, [head, ...lines].join("\n"));
+    const message = `${failed.effort} 档：${failed.message}${failed.kind === "provider" ? "（模型不接受这一档时换模型；抽取不降档）" : ""}`;
+    // 失败时两档的结果都要给（qa 输出 23“分别报告”）：JSON 的失败对象另带 data。
+    if (json) {
+        io.stdout(JSON.stringify({ok: false, error: {code: "model_failed", message, kind: failed.kind}, data}));
+        return EXIT_QA_FAILED;
+    }
+    io.stderr([head, ...lines].join("\n"));
+    return fail("model_failed", message, EXIT_QA_FAILED, failed.kind);
 }

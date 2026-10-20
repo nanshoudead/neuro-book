@@ -1,5 +1,5 @@
 ---
-标签: [state:local, state:inject, env:portal, env:global]
+标签: [state:local, state:inject, env:portal]
 ---
 
 # Select
@@ -8,9 +8,9 @@
 
 ## 布局
 
-触发器默认全宽，左侧显示当前选项的状态点/图标和 label，右侧显示旋转的下拉箭头。调用方传入 `class` 时，组件在类名层合并并让调用方的宽度覆盖默认 `w-full`；其他 attrs 也显式落到触发器。选项可以有第二行 description，右侧可显示选中勾选标记。
+触发器默认全宽，左侧显示当前选项的状态点/图标和 label，右侧显示旋转的下拉箭头。调用方传入 `class` 时，组件在类名层合并并让调用方的宽度覆盖默认 `w-full`；其他 attrs 也显式落到触发器。选项是弹出列表共用的一行（`.nb-ui-menu-item`，28px 高、13px 字，与触发器尺寸无关）；有第二行 description 的项由内容撑高。选中项只在左侧勾选列画勾，底色与字重不变；有一项带图标或状态点时，其余项也留出这一列，名称左边对齐；高亮（悬停与键盘当前项）是中性叠色。
 
-`size="default"` 使用标准 md 控件高度与字号，`size="sm"` 使用紧凑高度。浮层与触发器相距 7px，默认按触发器宽度设置最小/固定宽度；长列表在内部视口滚动，默认按尺寸露出约 6 项（紧凑尺寸约 5 项）及下一项的一部分，并在可滚动时显示可拖动的悬浮胶囊滑块。
+`size="default"` 使用标准 md 控件高度与字号，`size="sm"` 使用紧凑高度。浮层与触发器相距 7px，默认按触发器宽度设置最小/固定宽度；长列表在内部视口滚动：项超过 8 个时视口截在第 9 项的中间、露出半项提示还能滚（按真实盒子量，分隔线与换行项照实计入），不超过 8 个时取自然高度；外框按可用空间夹紧，空间不够时视口跟着收矮；打开时停在选中项上。可滚动时显示可拖动的悬浮胶囊滑块。
 
 `390×844` 下触发器仍是一行，label/description 在选项内截断；浮层通过 Popper 碰撞避让收进视口，不锁定页面背景指针事件，也不锁定 body 滚动。
 
@@ -20,9 +20,9 @@
 - 选择可用项时发出 `update:modelValue`，payload 是选项的 `value` 字符串；未知或非字符串的上游值回退为空字符串。
 - `dropdownDirection="up"` 固定从触发器上方打开，`"down"` 固定从下方打开，`"auto"`（默认）允许上游根据碰撞翻转；固定方向不允许侧向翻转。
 - `disabled` 禁用触发器；选项自身的 `disabled` 禁止选择并降低不透明度。
-- `hideCheckmark` 隐藏选项右侧的选中指示器，不改变选择行为。
+- `hideCheckmark` 不留左侧勾选列，不改变选择行为；选中项在浮层里因此没有标记，只适合触发器本身已经显示当前值的场合。
 - 触发器获得焦点时发出 `focus`；浮层关闭时组件阻止上游把焦点弹回造成的二次闪烁，完整焦点生命周期由上游 Select 管理。
-- 浮层列表可滚动；拖动悬浮滑块时组件在手势期间监听窗口指针移动与释放，手势结束或销毁时解除监听。
+- 浮层列表可滚动；拖动悬浮滑块时指针捕获在滑块上，松开、取消或视口卸载时结束，不监听窗口。
 
 ## 数据
 
@@ -103,11 +103,10 @@ type SelectSlots = {
 
 ## 上游边界
 
-Reka UI 的 Select 原语负责 combobox/listbox 角色、键盘漫游、Escape/outside dismiss、焦点生命周期、受控选中生命周期与 Portal；`useDropdownFloating` 及其 composable 依赖负责 Popper 样式、碰撞参数、视口高度、渐隐和悬浮滚动条。本组件承诺选项数据映射、字符串模型事件、触发器 attrs/slot、方向设置、主题尺寸与浮层层级；上游未由本组件显式约束的定位、键盘和 aria 细节不属于稳定合同。
+Reka UI 的 Select 原语负责 combobox/listbox 角色、键盘漫游、Escape/outside dismiss、焦点生命周期、受控选中生命周期与 Portal；`usePopupScroll` 与内部零件 `PopupScrollbar` 负责视口的截断高度、渐隐和悬浮滑块，`usePopoverLayer` 负责浮层层级。本组件承诺选项数据映射、字符串模型事件、触发器 attrs/slot、方向设置、主题尺寸与浮层层级；上游未由本组件显式约束的定位、键盘和 aria 细节不属于稳定合同。
 
 ## 隐藏通道理由
 
 - `state:local`：组件使用下拉浮层 composable 持有滚动条几何、滚动端点、拖拽状态与 ResizeObserver 观察结果。这些是本次浮层实例的临时呈现状态，组件销毁即丢失，不替代父组件的选中值。
-- `state:inject`：浮层样式通过 `NB_POPOVER_Z_INDEX` 可选读取 `Dialog` 的窗口层级，使窗口内下拉菜单压在窗口表面之上；未注入时回退到公共 popover 层级。Field 的字段语义上下文也通过 `useFieldContext` 可选读取，但不读取业务 store。
+- `state:inject`：浮层层级经 `usePopoverLayer` 通过 `NB_POPOVER_Z_INDEX` 可选读取 `Dialog` 的窗口层级，使窗口内下拉菜单压在窗口表面之上；未注入时回退到公共 popover 层级。Field 的字段语义上下文也通过 `useFieldContext` 可选读取，但不读取业务 store。
 - `env:portal`：`SelectPortal` 将选项浮层移出触发器所在 stacking context，避免被表单或面板裁剪；组件不暴露自定义目标，目标与缺失目标行为遵循 Reka Portal。
-- `env:global`：拖动悬浮滚动条需要在手势期间向 `window` 注册 `mousemove`/`mouseup`，以便指针离开滑块后仍能完成拖动；结束或卸载时解除监听，不是常驻全局快捷键。

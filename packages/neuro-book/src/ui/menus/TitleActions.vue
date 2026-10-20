@@ -67,7 +67,7 @@ function select(key: string): void {
             :data-title-action-key="entry.key"
             @click="emit('run', entry.key)"
         />
-        <DropdownMenu v-if="model.menu.length > 0" :items="items" :open="open" align="end" compact @update:open="setOpen" @select="select">
+        <DropdownMenu v-if="model.menu.length > 0" :items="items" :open="open" align="end" @update:open="setOpen" @select="select">
             <IconButton size="xs" icon-class="i-lucide-ellipsis" :aria-label="moreLabel" :title="moreLabel" data-title-actions-more />
         </DropdownMenu>
     </span>

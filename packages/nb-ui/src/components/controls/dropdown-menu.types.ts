@@ -7,7 +7,6 @@ export type DropdownMenuItemType = "item" | "radio" | "checkbox";
 export interface DropdownMenuItemData {
     label: string;
     value: string;
-    active?: boolean;
     disabled?: boolean;
     iconClass?: string;
     rightIconClass?: string;
@@ -15,7 +14,7 @@ export interface DropdownMenuItemData {
     shortcut?: string;
     /** 原生 title 提示（如禁用原因或操作说明） */
     title?: string;
-    /** danger 用于删除等破坏性动作，文字与悬停底色使用 --status-danger */
+    /** danger 用于删除等破坏性动作：文字与图标用 --status-danger，高亮底色与其它项相同 */
     tone?: "default" | "danger";
     /** 为 true 时渲染为分隔线，label/图标被忽略；value 仍作为列表 key，用 "sep-1" 之类占位 */
     separator?: boolean;

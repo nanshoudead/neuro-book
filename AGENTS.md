@@ -116,6 +116,8 @@ neuro-book/
 
 行为、状态、数据、接口、失败语义和验收依据以 [`docs/specs/`](docs/specs/) 为准；架构取舍以 [`docs/adr/`](docs/adr/README.md) 为准；测试、临时根和证据以 [`docs/testing/`](docs/testing/) 为准；一次实现的 current 范围、授权与快照以 [`.agents/works/`](.agents/works/) 为准，历史 provenance 以 [`.agents/tasks/`](.agents/tasks/) 为准。入口文件只写职责、触发条件和链接，不复制下级正文
 
+Spec、提案与 Task 记录在主工作区的 `master` 上更新；在 worktree 里写代码时，读这些文档也读主工作区的那份，worktree 里的是开分支时的副本，可能已经过时
+
 当前仓库状态以 [`PROJECT-STATUS.md`](PROJECT-STATUS.md) 为准。`WATCHDOG.md` 是审查入口，不属于普通产品规范
 
 `CLAUDE.md` 仅兼容指向本文件。`WATCHDOG.md` 是 advisor 复核清单，不进入主 Agent 普通上下文

@@ -11,7 +11,7 @@ updated: 2026-10-20
 
 全项目共用一套 schema 驱动的表单（设置、nbdev 提问、Agent 提问与审批、命令参数），并把 nb-ui 的表单控件改造成统一合同；生成式视图复用同一套组件
 
-合同：待写（新 Spec，设计稿确认后起草）。调研：[`docs/research/low-code-forms.md`](../../../../../docs/research/low-code-forms.md)、[`docs/research/generative-ui-openui.md`](../../../../../docs/research/generative-ui-openui.md)（Work 分支 `ce5d72e45`）。
+合同：[`docs/specs/ui/forms.md`](../../../../../docs/specs/ui/forms.md)（`ui.forms`，planned，S0 起草）。调研：[`docs/research/low-code-forms.md`](../../../../../docs/research/low-code-forms.md)、[`docs/research/generative-ui-openui.md`](../../../../../docs/research/generative-ui-openui.md)（Work 分支 `ce5d72e45`）。
 
 ## 开发者已确认的决定（2026-10-20）
 
@@ -27,7 +27,15 @@ updated: 2026-10-20
 
 ## 当前状态
 
-2026-10-20 经 nbdev 新建，尚未开工；排在 t02 之前（t02 依赖它）。
+2026-10-20 经 nbdev 新建；排在 t02 之前（t02 依赖它）。在 Work 分支 `feat/w00027-plugin-platform` 上实施：
+
+- 先把 master 合进 Work 分支（`adbcff939`，拿到 w00029 的改名与删除），插件页改用 `Input`（`2d2ee4016`）；合并后应用 `bun test` 1547 例（一例已知的时好时坏用例，重跑通过）、Vitest 380 例、内核 342 例、nb-ui 505 例通过，typecheck 与 `docs:check` 通过。
+- S0（`8d4f12cb1`）：Spec `ui.forms`、新包 `@notnotype/nb-form` 的骨架与登记（根 workspaces、`monorepo-boundaries.md`、根 `AGENTS.md`、包内 `AGENTS.md` 与 `README.md`）。偏离计划：Vue 层的测试配置与 `docs:check` 受管组件目录等 S3 有 Vue 组件时再加；`checkDescription` 返回 `{status, problems}`，Spec 已同步。
+- S1（`b03e9f9a8`）：核心（字段树与控件选择、路径与不可变更新、校验与问题、条件显示、选项键、描述检查与 Agent 策略、终端退回、包边界测试），69 例通过，typecheck 通过；7 处关键行为做过变异检查，改回去测试都会失败。omp 的实现审查（[evidences/impl-review-s1-omp.txt](evidences/impl-review-s1-omp.txt)，17 条：重要 14、建议 3）全部成立，`7b0c74652` 修正：可为 null 的字段合并内外注解；引用只降级它所在的字段；每个字段自身的约束都报、整值检查不再跳过；必填完全由字段树处理，密钥豁免不再拼未转义的路径；JSON 字段接受合法的 null；显式 `json` 对任何种类成立；`additionalProperties: true` 与省略一样；允许重复的字面量数组改用 JSON 编辑；描述检查按 schema 结构遍历（名叫 `pattern` 的字段不再被拒）、完整检查 `x-form` 的形状与条件里的正则；Agent 策略计入组合器的嵌套与布局、根之下只许一层对象；布局只排根上的字段；非法路径不改值。Spec 同步（输出 1、2、3、8、13、23、验收 2，`fallbackWidget` 的类型）。nbdev 的文字按 UTF-16 计长度、去空白后非空、控制字符由 nbdev 的适配器以调用方问题报告，接入时在 dev-panel 里对照真实校验测。修正后核心 85 例通过，审查者的实验脚本重跑结果与预期一致。
+
+- 可维护性整理（`53047e3ff`，开发者 2026-10-20 同意）：`x-form` 的形状收成一份 TypeBox schema（`hints.ts`），读取与检查共用；“哪种字段能写哪个控件”收成 `model.ts` 的一张表，`selectWidget` 与检查共用；共用守卫放 `guards.ts`，`fromPointer`、TypeBox 路径写法放 `path.ts`；校验拆成 `walkJson`、`walkObject`、`ownerOf` 等有名字的步骤，三处读 TypeBox 错误共用 `codeOf`。91 例通过，10 处变异检查都被测试拦下。omp 实现审查（[evidences/impl-review-refactor-omp.txt](evidences/impl-review-refactor-omp.txt)，9 条：重要 5、建议 4），`a06ffd603` 处理：引用字段里对象的必填与额外属性归到该字段（原来被整值检查丢掉，非法值零问题）；JSON 字段里不满足普通联合报新码 `no-match`，`not-in-choices` 只留给选项；写了却没生效的内建控件都报 `widget-mismatch`（检查对照选中的结果，控件表不再公开）；文字字段有 `options` 时写的 `select`、`search-select` 生效；`FormHints` 的数组与数组项都只读；`readHints` 仍收 schema；`schema-walk` 用共用守卫；补空多语言文字与非整数行数的测试。属性名带 `/` 时整值检查的去重有歧义（第 2 条）接受为限制：值仍至少有一条问题，写进注释。Spec 输出 2、8 与失败码表同步。93 例通过，8 处变异检查都被拦下。
+
+S2 起等 w00029 t04 合入 master。
 
 ## 下一步
 

@@ -26,13 +26,13 @@ function nextAttachmentId(): string {
 import {computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, useId, watch, watchEffect} from "vue";
 import type {Editor} from "@tiptap/core";
 import {EditorContent} from "@tiptap/vue-3";
+import {SuggestionMenu, suggestionMenuOptions, suggestionOptionId, type SuggestionMenuGroup, type SuggestionMenuItem} from "@notnotype/nb-ui/components";
 import type {Node as PMNode} from "@tiptap/pm/model";
 import {EditorState as PMEditorState, TextSelection} from "@tiptap/pm/state";
 import type {EditorView} from "@tiptap/pm/view";
 import type {DisplayLocale} from "nbook/shared/localized-text";
 
 import PromptAttachmentStrip from "./PromptAttachmentStrip.vue";
-import PromptMenuPanel from "./PromptMenuPanel.vue";
 import PromptPasteBlockView from "./PromptPasteBlockView.vue";
 import PromptTokenView from "./PromptTokenView.vue";
 import {PromptAttachmentTracker, type PromptAttachmentExcerpt} from "./prompt-attachments";
@@ -147,7 +147,9 @@ const menuId = `prompt-menu-${useId()}`;
 
 const editor = shallowRef<PromptTiptapEditor | null>(null);
 const bodyRef = ref<HTMLElement | null>(null);
-const historyPanelRef = ref<InstanceType<typeof PromptMenuPanel> | null>(null);
+const rootRef = ref<HTMLElement | null>(null);
+const historyMenuRef = ref<InstanceType<typeof SuggestionMenu> | null>(null);
+const historySearchRef = ref<HTMLInputElement | null>(null);
 const focused = ref(false);
 const trigger = shallowRef<PromptTriggerActive | null>(null);
 const activeItemId = ref<string | null>(null);
@@ -363,6 +365,29 @@ watch(menuOpen, (open, wasOpen) => {
     }
 });
 
+/**
+ * 菜单项按组排成 SuggestionMenu 的分组：相邻的同组项是一段，组标题画在段首（与原来一样，组不合并不重排）。
+ * 宿主的上下键在 `suggestionMenuOptions` 的顺序上移动，与这里排出的顺序相同。
+ */
+function toGroups(items: readonly PromptEditorMenuItem[]): SuggestionMenuGroup[] {
+    const groups: {id: string; label?: string; items: SuggestionMenuItem[]}[] = [];
+    items.forEach((item, index) => {
+        const last = groups.at(-1);
+        if (last === undefined || (item.group ?? undefined) !== last.label) groups.push({id: String(index), label: item.group || undefined, items: []});
+        groups.at(-1)!.items.push({id: item.id, label: item.label, iconClass: item.iconClass, hint: item.description, disabled: item.disabled});
+    });
+    return groups;
+}
+
+/** 当前项的选项 id（`aria-activedescendant`）；当前项不在可选项里时为 null。 */
+function activeOptionId(groups: readonly SuggestionMenuGroup[], activeId: string | null): string | null {
+    const index = suggestionMenuOptions(groups).findIndex((item) => item.id === activeId);
+    return index < 0 ? null : suggestionOptionId(menuId, index);
+}
+
+const menuGroups = computed(() => toGroups(menu.value?.items ?? []));
+const menuSide = computed(() => (props.menuPlacement === "below" ? "bottom" : "top"));
+
 function keepActive(items: readonly PromptEditorMenuItem[], current: string | null): string | null {
     if (items.some((item) => item.id === current && !item.disabled)) {
         return current;
@@ -552,9 +577,23 @@ async function openHistory(view: EditorView): Promise<void> {
     dismissTrigger(view);
     historyQuery.value = "";
     historyActiveId.value = historyItems.value[0]?.id ?? null;
+    focusSearchWhenMounted = true;
     await nextTick();
-    historyPanelRef.value?.focusSearch();
+    historySearchRef.value?.focus();
 }
+
+/** 菜单的内容由浮层原语在打开后才挂上，搜索框可能晚于 nextTick 出现：它挂上时补一次聚焦。 */
+let focusSearchWhenMounted = false;
+function setHistorySearch(element: unknown): void {
+    historySearchRef.value = element instanceof HTMLInputElement ? element : null;
+    if (historySearchRef.value !== null && focusSearchWhenMounted) {
+        focusSearchWhenMounted = false;
+        historySearchRef.value.focus();
+    }
+}
+
+const historyGroups = computed(() => toGroups(historyItems.value));
+const historyDescendant = computed(() => activeOptionId(historyGroups.value, historyActiveId.value) ?? undefined);
 
 const historyItems = computed<PromptEditorMenuItem[]>(() => {
     if (historyQuery.value === null) {
@@ -609,9 +648,10 @@ function onHistoryKeydown(event: KeyboardEvent): void {
     }
 }
 
+/** 焦点离开搜索框、又不在菜单里（菜单传送出去了，不在组件的 DOM 里）：关掉输入历史，焦点去向不管。 */
 function onHistoryFocusOut(event: FocusEvent): void {
     const next = event.relatedTarget as Node | null;
-    if (!next || !(event.currentTarget as HTMLElement).contains(next)) {
+    if (historyMenuRef.value?.contains(next) !== true) {
         closeHistory(false);
     }
 }
@@ -873,12 +913,11 @@ watchEffect(() => {
     if (!dom) {
         return;
     }
-    const activeOptionIndex = menu.value?.items.findIndex((item) => item.id === activeItemId.value) ?? -1;
     setAttribute(dom, "aria-label", props.ariaLabel || props.placeholder || null);
     setAttribute(dom, "aria-readonly", String(props.readonly));
     setAttribute(dom, "aria-expanded", menuOpen.value ? "true" : "false");
     setAttribute(dom, "aria-controls", menuOpen.value ? menuId : null);
-    setAttribute(dom, "aria-activedescendant", menuOpen.value && activeOptionIndex >= 0 ? `${menuId}-${activeOptionIndex}` : null);
+    setAttribute(dom, "aria-activedescendant", menuOpen.value ? activeOptionId(menuGroups.value, activeItemId.value) : null);
 });
 
 function setAttribute(element: HTMLElement, name: string, value: string | null): void {
@@ -911,6 +950,7 @@ defineExpose({
 
 <template>
     <div
+        ref="rootRef"
         class="prompt-editor"
         :class="{'is-bare': props.bare, 'is-fill': props.fill, 'is-focused': focused, 'is-readonly': props.readonly}"
         data-prompt-editor
@@ -939,47 +979,64 @@ defineExpose({
                 @focusout="onContentFocusOut"
             />
         </div>
-        <Transition name="prompt-editor-menu">
-            <div
-                v-if="menu"
-                class="prompt-editor__menu"
-                :class="`is-${props.menuPlacement}`"
-            >
-                <PromptMenuPanel
-                    :id="menuId"
-                    :locale="props.locale"
-                    :title="menu.title"
-                    :items="menu.items"
-                    :active-id="activeItemId"
-                    :loading="menu.loading"
-                    :empty-text="menu.emptyText"
-                    @select="confirmItem"
-                    @highlight="activeItemId = $event"
-                />
-            </div>
-            <div
-                v-else-if="historyQuery !== null"
-                class="prompt-editor__menu"
-                :class="`is-${props.menuPlacement}`"
-                @focusout="onHistoryFocusOut"
-            >
-                <PromptMenuPanel
-                    :id="menuId"
-                    :locale="props.locale"
-                    ref="historyPanelRef"
-                    :title="promptText(props.locale, 'historyTitle')"
-                    :items="historyItems"
-                    :active-id="historyActiveId"
-                    :empty-text="props.recall.length > 0 ? promptText(props.locale, 'historyNoMatch') : promptText(props.locale, 'historyEmpty')"
-                    :search="historyQuery"
-                    :search-label="promptText(props.locale, 'historySearch')"
-                    @search="historyQuery = $event"
-                    @search-keydown="onHistoryKeydown"
-                    @select="selectHistory"
-                    @highlight="historyActiveId = $event"
-                />
-            </div>
-        </Transition>
+        <!-- 候选菜单与输入历史：与外框同宽，按 menuPlacement 在上方或下方，不跟随光标（ui/prompt-editor.md 的“不做”）。 -->
+        <SuggestionMenu
+            v-if="menu"
+            :id="menuId"
+            :groups="menuGroups"
+            :active-id="activeItemId"
+            :anchor="rootRef"
+            :label="menu.title || undefined"
+            :loading="menu.loading"
+            :loading-text="promptText(props.locale, 'menuLoading')"
+            :empty-text="menu.emptyText || promptText(props.locale, 'menuEmpty')"
+            :placement="menuSide"
+            match-anchor-width
+            @select="confirmItem"
+            @highlight="activeItemId = $event"
+        >
+            <template v-if="menu.title" #header>
+                <div class="nb-ui-menu-label">{{ menu.title }}</div>
+            </template>
+        </SuggestionMenu>
+        <SuggestionMenu
+            v-else-if="historyQuery !== null"
+            :id="menuId"
+            ref="historyMenuRef"
+            :groups="historyGroups"
+            :active-id="historyActiveId"
+            :anchor="rootRef"
+            :label="promptText(props.locale, 'historyTitle')"
+            :empty-text="props.recall.length > 0 ? promptText(props.locale, 'historyNoMatch') : promptText(props.locale, 'historyEmpty')"
+            :placement="menuSide"
+            match-anchor-width
+            @select="selectHistory"
+            @highlight="historyActiveId = $event"
+        >
+            <template #header>
+                <div class="prompt-editor__history-search">
+                    <span class="prompt-editor__history-search-icon i-lucide-search" aria-hidden="true" />
+                    <input
+                        :ref="setHistorySearch"
+                        class="prompt-editor__history-search-input"
+                        type="text"
+                        :value="historyQuery"
+                        :placeholder="promptText(props.locale, 'historySearch')"
+                        :aria-label="promptText(props.locale, 'historySearch')"
+                        role="combobox"
+                        aria-expanded="true"
+                        :aria-controls="menuId"
+                        :aria-activedescendant="historyDescendant"
+                        autocomplete="off"
+                        spellcheck="false"
+                        @input="historyQuery = ($event.target as HTMLInputElement).value"
+                        @keydown="onHistoryKeydown"
+                        @focusout="onHistoryFocusOut"
+                    >
+                </div>
+                <div class="nb-ui-menu-label">{{ promptText(props.locale, "historyTitle") }}</div>
+            </template>
+        </SuggestionMenu>
     </div>
 </template>
 
@@ -1085,54 +1142,40 @@ defineExpose({
     animation: prompt-editor-caret 1.1s steps(2, start) infinite;
 }
 
-.prompt-editor__menu {
-    position: absolute;
-    right: 0;
-    left: 0;
-    z-index: 20;
+.prompt-editor__history-search {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    margin-bottom: 4px;
+    padding: 0.35rem 0.6rem;
+    border-bottom: 1px solid var(--divider);
 }
 
-/* 定位以外框的内边为准，伸出边框宽度，让菜单与外框同宽。 */
-.prompt-editor:not(.is-bare) > .prompt-editor__menu {
-    right: -1px;
-    left: -1px;
+.prompt-editor__history-search-icon {
+    flex: none;
+    width: 0.9rem;
+    height: 0.9rem;
+    color: var(--text-muted);
 }
 
-.prompt-editor__menu.is-above {
-    bottom: calc(100% + 0.375rem);
+.prompt-editor__history-search-input {
+    min-width: 0;
+    flex: 1 1 auto;
+    border: 0;
+    background: transparent;
+    color: var(--text-main);
+    font: inherit;
+    font-size: 13px;
+    outline: none;
 }
 
-.prompt-editor__menu.is-below {
-    top: calc(100% + 0.375rem);
-}
-
-.prompt-editor-menu-enter-active,
-.prompt-editor-menu-leave-active {
-    transition: opacity 120ms ease, transform 120ms ease;
-}
-
-.prompt-editor-menu-enter-from.is-above,
-.prompt-editor-menu-leave-to.is-above {
-    opacity: 0;
-    transform: translateY(4px);
-}
-
-.prompt-editor-menu-enter-from.is-below,
-.prompt-editor-menu-leave-to.is-below {
-    opacity: 0;
-    transform: translateY(-4px);
+.prompt-editor__history-search-input::placeholder {
+    color: var(--text-muted);
 }
 
 @keyframes prompt-editor-caret {
     to {
         visibility: hidden;
-    }
-}
-
-@media (prefers-reduced-motion: reduce) {
-    .prompt-editor-menu-enter-active,
-    .prompt-editor-menu-leave-active {
-        transition: none;
     }
 }
 </style>

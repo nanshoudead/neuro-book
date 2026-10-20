@@ -1,0 +1,124 @@
+# w00027 t07 核心整理只读实现审查
+
+审查对象：`53047e3ff` 及 `packages/nb-form/src/` 的全部非 Vue 核心；对照 `53047e3ff^`。依据：`docs/specs/ui/forms.md`、主工作区 t07 `plan.md` 与上一轮 17 条审查；不重复上一轮已经处理的问题。
+
+源码位置相对于 `/home/notnotype/CodeRepository/neuro-book/.worktree/w00027-plugin-platform/`。实验工作目录为该 worktree 的 `packages/nb-form`，实验文件仅位于 `/tmp/neuro-book/review-w00027-r2/lab/t07/`。旧版由 `git archive 53047e3ff^ packages/nb-form/src` 导出，使用同一 worktree 的 TypeBox 依赖。问题逐条追加；区分本次回归与整理前已存在但上一轮未报告的问题。
+
+### 1. 整值校验无条件丢弃 required 与额外属性，引用字段里的非法值能通过
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`packages/nb-form/src/validate.ts:64-65,147-152,266-268`。
+- **现象**：根 `$defs.item` 是要求 `k:string` 的对象，`ref` 字段引用它；值 `{ref:{}}` 的真实 `Value.Check` 为 `false`，但 `validateForm` 返回 `[]`。把定义改成 `additionalProperties:false`，值 `{ref:{k:"ok",extra:1}}` 同样返回 `[]`。两条错误的 TypeBox `instancePath` 均为 `/ref`。
+- **为什么是问题**：`walkJson` 发现引用就完全交给整值检查；`leftovers` 却把全部 `required`、`additional-property` 当作字段树已经处理。JSON 引用字段没有展开子字段，这个前提不成立。输出 8 明确要求引用里的约束归到 JSON 字段；这里不是漏一个提示，而是非法数据得到零问题。
+- **如何核实**：在包目录运行 `bun /tmp/neuro-book/review-w00027-r2/lab/t07/validate.ts`，`reference-required`、`reference-additional` 分别输出 TypeBox 的 `required`、`additionalProperties` 错误，以及 `old:[]`、`now:[]`。**整理前已经存在，上一轮 17 条未覆盖；本次把无条件过滤提成 `FIELD_TREE_CODES`，继续保留了错误的不变量。**
+- **建议改法**：只豁免字段树实际处理过的对象约束；JSON/引用归属的错误必须保留，密钥必填豁免仍按真实字段与 meta 判定。删去“这两个码一律跳过”的全局规则，在现有引用行为测试中加入缺必填与禁止额外属性两个场景。
+
+### 2. 去重仍用有歧义的 TypeBox 路径，含斜线的字段会吞掉另一个字段的错误
+
+- **严重程度**：重要；**类别**：不变量。
+- **位置**：`packages/nb-form/src/validate.ts:149,250-253,264-272`；`packages/nb-form/src/path.ts:21-26`。
+- **现象**：根有文字字段 `"a/b"` 和对象字段 `a.b`，后者是引用的 JSON 字段，两者都要求 `minLength:3`。值 `{"a/b":"x",a:{b:"y"}}` 应有两个不同字段的问题，实际只有 `["a/b"] min-length`；`a.b` 的错误被去重吞掉。把两者都改为引用、仅让 `a.b` 错时，又只报根上的 `min-length`，不能归到实际 JSON 字段。
+- **为什么是问题**：输出 6 要求这两条路径互不混淆。`typeboxPath(["a/b"])` 与 `typeboxPath(["a","b"])` 都是 `/a/b`，它可以辅助匹配，不能成为确定身份的去重键。`ownerOf` 遇到两个候选退到根避免了错认，但前一步 `reported.has(...)` 已经会直接删除真实错误；仅提取函数和警告注释没有消除这个耦合。
+- **如何核实**：`bun /tmp/neuro-book/review-w00027-r2/lab/t07/validate.ts` 的 `slash-dedupe`：真实 TypeBox 给出两条 `minLength`，表单只返回一条；`slash-owner`：错误落根。**新旧两版相同，属于整理前遗留且上一轮未报告的问题**；上一轮第 3 条是密钥 meta 豁免，本条是不同字段错误身份的碰撞。
+- **建议改法**：表单自身的问题始终按片段路径生成的 RFC 6901 Pointer 去重。整值错误的非转义路径只能作为候选索引；候选不唯一时按实际字段及其原 schema 在根上下文中校验，或在带上下文的遍历中直接生成路径，不能凭字符串相同判为已报告。加入“两字段同时错”和“只有其中一个引用字段错”的行为用例。
+
+### 3. 公开 readHints 悄悄换了入参含义，旧调用不报类型错误却返回空提示
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`packages/nb-form/src/hints.ts:54-62`；`packages/nb-form/src/index.ts:10`；`packages/nb-form/src/model.ts:241`。
+- **现象**：同一调用 `readHints(Type.String({"x-form":{widget:"multiline",label:"Note"}}))`，整理前返回 `{label:"Note",widget:"multiline"}`，整理后返回 `{}`。原参数是完整 schema，新参数是 `x-form` 内容；函数名与包入口导出名都没变，参数由 `JsonSchema` 放宽为 `unknown`，原调用仍可编译，提示却全丢。
+- **为什么是问题**：这不是单纯搬文件或统一形状，而是公开 API 的静默语义变化。内部 `buildNode` 已迁移，包入口却继续暴露同名函数，没有可发现的类型错误帮助消费方迁移。当前仓库未发现包外消费方，不能声称已有产品界面因此损坏；但通过公开入口已能直接复现回归。
+- **如何核实**：`bun /tmp/neuro-book/review-w00027-r2/lab/t07/compare.ts` 的 `public-readHints` 输出上述新旧差异。旧实现 `53047e3ff^:packages/nb-form/src/model.ts:185-186` 明确先读 `schema["x-form"]`。
+- **建议改法**：保留原来的 schema 入参合同，在 `hints.ts` 内取 `x-form` 并共享 schema 校验；不需要再加一层兼容 wrapper。若读取 raw 提示确实只供内部使用，删去包入口导出并使用明确的内部名称，显式处理公开接口变更，而不是保留一个含义已改变的旧名字。
+
+### 4. Static 推导只套顶层 Readonly，丢失 FormHints 的只读数组与嵌套只读合同
+
+- **严重程度**：重要；**类别**：不变量。
+- **位置**：`packages/nb-form/src/hints.ts:37-46`；`packages/nb-form/src/model.ts:68,171-172`。
+- **现象**：整理前 `FormHints.choices`、`recommend` 接受 `ReadonlyArray`；整理后变成可变数组。相同的只读输入赋给 `FormHints`，旧版类型检查成功，新版在两个属性上均报 `TS4104`。反方向，新类型允许 `hints.choices!.push(...)`、修改 `hints.choices![0]!.disabled`、`hints.recommend!.push(...)`，顶层 `Readonly` 不保护这些成员。
+- **为什么是问题**：“形状只写一份”不应把消费方原本可传的冻结/只读描述排除，也不应放开修改解析结果的权限。`choicesOf` 会直接复用命中的提示项，修改 `node.hints.choices[0].disabled` 还会同时改变 `node.choices` 中同一个对象；这是从对象复用代码可确定的耦合。单独导出的 `FormChoice` 虽然仍是 `Readonly`，`FormHints` 的内嵌数组元素却没有使用它。
+- **如何核实**：在包目录分别执行 `bunx tsc --noEmit --strict --skipLibCheck --target esnext --module preserve --moduleResolution bundler --types bun --ignoreConfig /tmp/neuro-book/review-w00027-r2/lab/t07/readonly-old.ts` 与同命令的 `readonly-now.ts`；前者退出 0，后者退出 2，仅 `choices`、`recommend` 的只读赋值报错，3 条修改语句没有诊断。**本提交引入的公开类型回归**，包自己的 `tsc` 不含消费用例，因而仍通过。
+- **建议改法**：继续从 schema 推导字段与元素类型，但对公开类型做递归 readonly 映射，或仅对推导出的数组/对象成员作只读投影；不重写第二份字段清单，不靠类型断言强行接收。补一个真实消费的类型用例，要求接受只读选项与推荐数组，并拒绝经返回模型修改它们。
+
+### 5. 控件表允许文字 select，但检查器漏报它实际被改成 text 的条件
+
+- **严重程度**：重要；**类别**：正确性。
+- **位置**：`packages/nb-form/src/model.ts:44-53,177-190`；`packages/nb-form/src/check.ts:56-64`。
+- **现象**：`Type.String({"x-form":{widget:"select"}})` 与 `search-select` 两种描述都得到 `structured`、零问题，实际选中 `text`。`widget:"multiline"` 加 `options:"source"` 实际选中 `select`；显式 `select` 加 `options`、`searchable:true` 实际选中 `search-select`，检查仍均为零问题。
+- **为什么是问题**：输出 2 要求显式控件生效，不能生效的组合要诊断。“一张表”目前只统一种类名单；文字分支另藏“必须有 options”“动态选项盖过 multiline”“searchable 盖过显式 select”等规则，检查器完全不知情。尤其缺选项源的下拉，描述来源得到可用结论，却没有得到要求的交互。`writeOnly + multiline` 选密钥则符合密钥优先的既有规则，不把它当回归。
+- **如何核实**：`bun /tmp/neuro-book/review-w00027-r2/lab/t07/widgets.ts`，前 4 行全部是 `tableAllows:true`、`check:{status:"structured",problems:[]}`，但 `resolved` 不等于所写控件。`compare.ts` 确认**这些冲突行为整理前已存在**，本次的单一来源目标尚未覆盖它们；不声称本次新引入了选型回归。
+- **建议改法**：让显式控件的适用性同时考虑种类与必要提示，选择与检查复用同一判定；缺少 `options` 的文字下拉明确拒绝，其他冲突选择明确优先级后保持一致。不要在检查器再复制一份文字分支；可让现有选择步骤同时返回不适用原因。保留密钥优先，不为满足显式 multiline 把密钥改成普通文本。
+
+### 6. codeOf 把普通联合也叫“选项”，新增测试把错误语义固定下来了
+
+- **严重程度**：建议；**类别**：正确性。
+- **位置**：`packages/nb-form/src/validate.ts:57-59,74-80,158-164`；`packages/nb-form/src/validate.test.ts:120-123`。
+- **现象**：JSON 字段的 schema 为 `Type.Union([Type.String({minLength:3}),Type.Integer()])`，值 `"x"` 返回 `not-in-choices`；它没有任何字面量选项。新增测试里的 `Record` 元素正是这种非字面量联合，明确断言同一码。TypeBox 原始错误是 `minLength`、整数 `type` 与联合总错误，`codeOf` 把前两条全丢，只剩映射为“选项”的 `anyOf`。
+- **为什么是问题**：Spec 输出 8 只要求压缩**字面量联合**的选项错误；“失败与恢复”又把 `not-in-choices` 定义成“值不是选项之一”。普通字符串/整数联合不提供有限选项，下游按码翻译会给出错误的修复方向。现在函数注释声称处理字面量，实际只用路径正则，不检查联合形状；新增测试保护的是这个过宽的实现规则。
+- **如何核实**：`bun /tmp/neuro-book/review-w00027-r2/lab/t07/validate.ts` 的 `general-union`，真实 TypeBox 列出 3 条原始错误，表单只返回一条 `not-in-choices`。**旧版已有同样映射；本提交新增行为测试进一步固定了它。**
+- **建议改法**：仅对已识别的字面量联合使用 `not-in-choices`；普通联合可以仍只给一条总错误，但保留“没有满足任一分支”的独立码/语义，不伪装成枚举。修改现有联合测试，让它区分有限选项与普通 schema 联合；无需新建一层通用错误转换框架。
+
+### 7. 包入口新导出控件策略表，把内部实现扩大成可变的全局配置接口
+
+- **严重程度**：建议；**类别**：代码质量。
+- **位置**：`packages/nb-form/src/index.ts:11`；`packages/nb-form/src/model.ts:44-54,183,190`。
+- **现象**：新增 `WIDGETS_FOR_KIND` 根入口导出没有包外调用方，但任意 JavaScript 消费者可以执行 `WIDGETS_FOR_KIND.boolean.add("multiline")`。同一布尔 schema 随后从 `invalid/widget-mismatch`、`switch` 变成 `structured`、`multiline`；所有其他消费方共享改变后的策略。`ReadonlySet` 只是 TypeScript 视图，没有运行时隔离。
+- **为什么是问题**：整理需要的是 `model` 与 `check` 共用一份内部规则，不需要允许调用方改规则。公开一个带可变容器的策略表既扩大稳定 API，又让检查和选择依赖外部全局状态；它还依赖 `wanted as BuiltinWidget`，误加的字符串会直接进入模型。这里是可维护性与误用风险，不把同进程可信调用方误写升级成安全漏洞。
+- **如何核实**：`bun /tmp/neuro-book/review-w00027-r2/lab/t07/public-table.js` 通过公开入口执行上述操作，输出 `before: invalid/switch`、`after: structured/multiline`，`finally` 恢复集合。包内已读全部引用，其他包的字面量搜索未见消费；语言服务工具返回 `No language server found for this action`，没有声称获得了语言服务的全仓引用证明。
+- **建议改法**：删去 `index.ts` 的表导出，仍允许 `check.ts` 从同包 `model.ts` 使用它；`isBuiltinWidget` 同样只留包内所需出口。`fromPointer` 可作为 Pointer 工具有独立用途，`readHints` 原本已公开，不能把这两者与新暴露的内部表一概删除。无需为表加冻结包装、注册器或新的配置 API。
+
+### 8. 共用守卫还留着第二份 isRecord，schema 遍历没有完成迁移
+
+- **严重程度**：建议；**类别**：代码质量。
+- **位置**：`packages/nb-form/src/schema-walk.ts:22-24`；`packages/nb-form/src/guards.ts:3-5`。
+- **现象**：两个文件各自定义了完全相同的 `isRecord`，`schema-walk.ts` 在遍历 schema、映射表、条件提示与坏正则时继续使用自己的那份，`model`、`hints`、`check`、`validate` 才用新共用守卫。
+- **为什么是问题**：本次已明确选择把共用形状判断放进 `guards.ts`；解析器与遍历器仍有两份输入边界规则，之后调整对象判定时仍须记住两处。这里没有当前行为差异，是整理目标遗漏，不是要求建立新的抽象。
+- **如何核实**：逐行比较上述两个定义，两者都返回 `typeof value === "object" && value !== null && !Array.isArray(value)`；`schema-walk.ts` 的调用位置为 34、41、48、51、73 行。该文件没有导入 `guards.ts`。
+- **建议改法**：删除 `schema-walk.ts` 的本地定义，直接导入现有 `guards.isRecord`；不再拆文件、不加 wrapper。顺手审视单次调用的 `rootSecretSet`（`validate.ts:236-243`），可把短条件放回唯一调用点；但它不影响本条已核实的重复守卫问题。
+
+### 9. 文字空对象与 rows 整数边界没有测试保护，两种变异均全绿
+
+- **严重程度**：建议；**类别**：测试。
+- **位置**：`packages/nb-form/src/text.ts:10`；`packages/nb-form/src/hints.ts:36`；`packages/nb-form/src/model.test.ts:98-103`；`packages/nb-form/src/check.test.ts:42-57`。
+- **现象**：在隔离的当前提交副本中，单独把文字 schema 的 `minProperties:1` 改成 `0`，91 个测试全部通过；立即恢复后，再单独把 `rows` 的 `Type.Integer` 改成 `Type.Number`，91 个测试仍全部通过。前者会接受原先被拒绝的 `{}` 文字，后者会接受 `rows:1.5`。两次各 167 个断言，均没有测试失败。
+- **为什么是问题**：这次整理的关键风险就是用 TypeBox schema 替换手写守卫；现有用例只测了坏数字文字 `help:3`、负行数 `rows:-1` 和一个坏数组项，没有保护空本地化对象与正小数这两个改变守卫语义的边界。已有变异检查数量不能代替这些具体边界的覆盖。
+- **如何核实**：副本通过 `git archive 53047e3ff packages/nb-form/src` 导出到 `/tmp/neuro-book/review-w00027-r2/lab/t07/mutant/`。每次只改一处，运行 `bun test /tmp/neuro-book/review-w00027-r2/lab/t07/mutant/packages/nb-form/src`，得到 `91 pass / 0 fail / 167 expect()`，随后立即恢复，两个副本文件均已恢复。另用真实 `Value.Check` 实测 `Record(...,{minProperties:0})` 接受 `{}`、`Number({minimum:1})` 接受 `1.5`；未修改 worktree 源码。
+- **建议改法**：在现有提示行为测试中加入 `{}` 文字与 `rows:1.5` 的拒绝，以及非空本地化文字、正整数的接受；从 `checkDescription` 与解析后的模型观察结果，不断言内部 schema 常量、属性访问或调用次数。有限数、空条件字段与选择项可选属性也应按行为补边界，而不是新增源码形状测试。
+
+## 未发现问题的方面
+
+- **有限数没有依赖可切换的默认策略**：已安装的是 `typebox@1.3.6`，不是旧版 `@sinclair/typebox`。`Value.Check` 经 `schema.Check` 到 `CheckTypeName("number")`，最终直接调用 `Number.isFinite`（`node_modules/typebox/build/guard/guard.mjs:42-43`）；这条路径没有 `TypeSystemPolicy` 开关。已读其 `system/settings`，并搜索 `schema`、`value`、`system`，没有发现能放开 NaN/Infinity 的策略。实际 NaN、Infinity、-Infinity 均拒绝，1 接受。
+- **Record 的 minProperties 确实被检查**：`Type.Record(Type.String(),Type.String(),{minProperties:1})` 对 `{}` 为 false、对 `{en:"N"}` 为 true；空对象没有因 Record 特殊处理而被接受。`isFormText` 在字符串、空对象、合法/非法语言映射、数组、null、Date 与带原型的对象这些对照输入上，新旧结果相同。
+- **Optional 标记没有放宽单键检查**：直接 `Value.Check(Type.Optional(Type.String()),undefined)` 为 false，数字为 false，字符串为 true。`readHints`/`hintProblems` 在调用前都跳过 undefined，保留了原先的可选键语义。
+- **提示的已测正常与非法边界**：空文字映射、NaN/Infinity 推荐值、rows 的 0/正小数/1、带额外键的 choices 项，都与旧版的解析结果一致。空 `visibleWhen.field` 和带非法 `disabled` 的 choice 现在会在读取时被丢弃，旧读取器原先保留；这是非法输入过滤收紧，不作为合法描述回归报告。extra choice 键仍被保留，没有新增 `additionalProperties:false`。
+- **控件回归对照**：6 种 schema × 10 个控件名 × 3 种附加条件，共 180 组，新旧 `resolveForm(...).root.widget` 相同；包括内建但不可显式写的 `switch`、`radio-row`、`text`，`list`，自定义控件、动态选项与 writeOnly。第 5 条指出的是遗留的检查/选择不一致，不是声称 180 组里发生了新的选型回归。
+- **多选合并分支没有错误递归元素**：现有真实 TypeBox 用例仍将 `["a","c"]` 的非法元素报在 `/tags/1`，空数组的 `minItems` 报在 `/tags`；`node.kind === "multi"` 的分支在成员资格检查后立即 return，没有进入 `itemNode`。不把这一点扩大为多选支持全部附加约束的证明。
+- **依赖方向**：已读全部非 Vue 核心。运行期方向为 `check → model → hints → text`，各自向 `guards`、`path` 等下沉；`validate`、`visible` 消费模型，没有反向运行期导入形成环。`options`、`fallback` 对模型只用类型导入。未见 Vue/DOM/应用依赖、跨包源码深导入、按错误文案分支或新增测试专用产品分支。
+- **新增测试的大部分断言是行为断言**：过滤坏提示项、Pointer 查字段、列表别名与不兼容控件回退都观察模型结果，没有钉住私有调用顺序。第 6 条指出的是联合错误的语义不当，第 9 条是具体边界缺口，不把所有新增测试笼统归为测实现。
+
+## 实际验证与边界
+
+以下命令除另行说明外，工作目录均为 `/home/notnotype/CodeRepository/neuro-book/.worktree/w00027-plugin-platform/packages/nb-form`：
+
+| 命令 | 实际结果 |
+|---|---|
+| `bun test` | 退出 0；91 pass、0 fail、167 expect()，4 个测试文件 |
+| `bunx tsc --noEmit -p .` | 退出 0，无诊断 |
+| `bun /tmp/neuro-book/review-w00027-r2/lab/t07/compare.ts` | 提示读取、FormText、TypeBox 数值/Record/Optional、180 组控件的新旧对照；发现公开 readHints 入参回归 |
+| `bun /tmp/neuro-book/review-w00027-r2/lab/t07/validate.ts` | 真实 TypeBox 与新旧表单校验对照；复现引用漏报、斜线路径碰撞、非字面量联合错误码 |
+| `bun /tmp/neuro-book/review-w00027-r2/lab/t07/widgets.ts` | 复现表允许但实际改选的 4 种组合；另实测经新类型允许的写法修改冻结 choice 会抛 TypeError |
+| `bun /tmp/neuro-book/review-w00027-r2/lab/t07/constraints.ts` | 附加约束的新旧结果对照一致；未将“新旧一致”当作这些合同均正确的证明 |
+| `bun /tmp/neuro-book/review-w00027-r2/lab/t07/public-table.js` | 复现公开表的运行时修改影响检查和选择；进程内 finally 恢复集合 |
+| `bunx tsc --noEmit --strict --skipLibCheck --target esnext --module preserve --moduleResolution bundler --types bun --ignoreConfig /tmp/neuro-book/review-w00027-r2/lab/t07/readonly-old.ts` | 退出 0；只读数组消费用例通过 |
+| `bunx tsc --noEmit --strict --skipLibCheck --target esnext --module preserve --moduleResolution bundler --types bun --ignoreConfig /tmp/neuro-book/review-w00027-r2/lab/t07/readonly-now.ts` | 退出 2；2 个 TS4104，指向 choices、recommend 的只读数组赋值；预期的回归证据，不是包 typecheck 失败 |
+| `bun test /tmp/neuro-book/review-w00027-r2/lab/t07/mutant/packages/nb-form/src`，分别变异文字空对象、rows 整数判据 | 两次均退出 0；各 91 pass、0 fail、167 expect()；变异后立即恢复 |
+| 从 worktree 根执行 `git status --short packages/nb-form` | 无输出，无残留改动 |
+| 从 worktree 根对原件与副本的 `text.ts`、`hints.ts` 执行 `sha256sum` | 两对哈希分别一致，确认两处变异均恢复 |
+
+实验目录首次导出前未创建导致一次 tar 失败，随后创建指定 lab 目录再导出成功；没有扩大写入范围。语言服务无可用 server，使用已读源码与字面量引用搜索核对公开入口。本次未运行 e2e、开发服务、浏览器、构建、全仓测试或真实模型；未安装依赖，未修改仓库文件，未 commit/push/stash/切换分支，未开启子审查。
+
+## 数量
+
+**合计 9 条：阻断 0，重要 5，建议 4。** 第 3、4 条是本提交的接口/类型回归；第 1、2、5、6 条已用父提交对照，明确不是本次新引入的行为。第 7、8 条是接口边界与共用部件的可维护性问题，第 9 条有两个逃过现有测试的隔离变异证据。每次追加问题后执行 `grep -c '^### '`，结果从 1 递增到 9，没有减少。
+
+规则回写：没有提出新的通用规范。公开合同、只读类型、行为测试与共用逻辑已有仓库规范覆盖；本报告只给具体实现改法，不擅自改规范或接受产品取舍。

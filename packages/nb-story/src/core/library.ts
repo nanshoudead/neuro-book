@@ -3,18 +3,25 @@
  * “副作用与数据”。
  *
  * 落盘：
- *   <书库>/library.json          {format}
- *   <书库>/<书 id>/book.json      BookMeta
- *   <书库>/<书 id>/graph.json     导入的数据文件原样
- *   <书库>/<书 id>/reading.json   ReadingState
- *   <书库>/<书 id>/qa/            问答记录（qa-records.ts）
+ *   <书库>/library.json                 {format}
+ *   <书库>/<书 id>/book.json             BookMeta：这一代的代号、数据版本与它指向的数据文件
+ *   <书库>/<书 id>/graph.json            导入的数据文件原样（导入的书；版本 1）
+ *   <书库>/<书 id>/graph-<版本>.json      抽取得来的书每次提交的数据（docs/specs/story/ingest.md 输出 6）
+ *   <书库>/<书 id>/extraction-<版本>.json 抽取得来的书每次提交的已提交草稿与整理结果（内容归 src/ingest/ 管）
+ *   <书库>/<书 id>/reading.json          ReadingState
+ *   <书库>/<书 id>/qa/                   问答记录（qa-records.ts）
+ *   <书库>/.ingest/<书 id>/              抽取记录：原文、用量、瞬时状态（src/ingest/store.ts）；有它即占用这个 id
+ *   <书库>/.locks/<书 id>.lock           这个 id 的独占锁（IdCoordinator，抽取任务也用它）；永不删除
  *
- * 并发与原子性都靠同一个文件系统内的 rename，前提是书目录从不原地改写：
+ * 并发与原子性都靠同一个文件系统内的 rename：
  * - 导入先写进 `.importing-<随机>/`，写完整个目录改名成 `<书 id>/`。目标已存在时改名失败，于是同一个 id 的并发
  *   导入只有一次成功；进程中途被杀只留下临时目录，`books.list` 只列正式目录，看不到半本书。中途退出留下的临时
- *   目录不自动清：判断不了它的主人是否还活着，留着只占磁盘，不影响任何查询。
+ *   目录不自动清：判断不了它的主人是否还活着，留着只占磁盘，不影响任何查询。注入了 IdCoordinator 时，导入、
+ *   抽取占用（整个目录改名成 `.ingest/<书 id>/`）与删除都在这个 id 的独占权里判定与发布。
+ * - 书目录里只有 `book.json` 与数据文件会变：抽取每提交一章，先写新版本的数据文件，再把 `book.json` 改名替换成
+ *   指向它的一份（这一下就是提交），最后删旧版本的数据文件。导入的书只有版本 1，不再变。
  * - 删除先把目录改名成 `.removed-<随机>/`，再递归删。改名之后这个 id 立刻可以重新导入。
- * - 一次查询开始时用 pinBook 固定一代（见它的注释）：先打开数据文件，之后删除、重新导入都不影响已打开的文件。
+ * - 一次查询开始时用 pinBook 固定一代与版本（见它的注释），之后提交、删除、重新导入都不影响已打开的文件。
  * - 阅读状态写到临时文件再改名覆盖：改名的那一刻就是“写进书库”的时刻，后改名的整份生效，读到的总是某一次
  *   完整的写入。
  * 书库放在不支持原子 rename 的文件系统上（某些网络盘）时这些保证不成立。
@@ -36,6 +43,11 @@ export const LIBRARY_FORMAT = 1;
 export const MAX_VIEW_BYTES = 64 * 1024;
 const BOOK_ID_PATTERN = /^[a-z0-9][a-z0-9-]{0,63}$/u;
 
+/** 书 id 的写法：小写字母、数字与短横线。id 会拼进书库里的路径，任何文件操作之前都要先过这一关。 */
+export function isValidBookId(id: string): boolean {
+    return BOOK_ID_PATTERN.test(id);
+}
+
 export interface BookMeta {
     format: number;
     id: string;
@@ -49,6 +61,36 @@ export interface BookMeta {
     /** 各章的段数，按章号顺序。 */
     paragraphs: number[];
     extractedThrough: Position;
+    /** 数据版本：导入的书为 1；抽取得来的书每提交一章加 1。格式 1 的旧书没有这一项，读时补成 1。 */
+    revision: number;
+    /** 这个版本的数据文件名（书目录里）。格式 1 的旧书没有这一项，读时补成 `graph.json`。 */
+    graph: string;
+    /** 抽取得来的书：提交到第几章，与这次提交的抽取数据文件名。 */
+    extraction?: {through: number; file: string};
+}
+
+/** 抽取的一次提交（docs/specs/story/ingest.md 输出 6）。 */
+export interface ExtractionCommit {
+    id: string;
+    title: string;
+    /** 已有书的这一代；第 1 章（还没有书）时不给。书已被删除或换了一代时提交失败（`book_not_found`）。 */
+    generation?: string;
+    dataset: Dataset;
+    through: number;
+    /** 抽取数据（已提交的草稿与整理结果），原样写进书目录。 */
+    extraction: string;
+}
+
+/**
+ * 书 id 的协调者：导入、抽取占用与删除都先拿这个 id 的独占权，在里面判定、发布，所以同一个 id 上的这几件事不会
+ * 交错（不会先发布一本注定要撤回的书）。核心库只用 Node 的 API，独占权要用 flock，由命令行与独立服务注入
+ * （src/ingest/coordinator.ts）；不跑抽取的宿主不注入，导入与删除照旧。
+ */
+export interface IdCoordinator {
+    /** 拿这个 id 的独占权（与抽取任务用同一把锁）；被占着时返回 null。 */
+    lock(id: string): Promise<{release(): void} | null>;
+    /** 删除前停下本进程里这个 id 的抽取任务，并等它放锁。 */
+    stopLocal?(id: string): Promise<void>;
 }
 
 export interface ReadingState {
@@ -85,9 +127,16 @@ async function readJson(path: string): Promise<unknown> {
 
 export class Library {
     readonly root: string;
+    readonly #coordinator: IdCoordinator | undefined;
 
-    constructor(root: string = defaultLibraryRoot()) {
+    constructor(root: string = defaultLibraryRoot(), options: {coordinator?: IdCoordinator} = {}) {
         this.root = root;
+        this.#coordinator = options.coordinator;
+    }
+
+    /** 这个 id 的抽取记录目录（不检查存在）。 */
+    ingestDir(id: string): string {
+        return join(this.root, ".ingest", id);
     }
 
     /** 书目录的路径（不检查存在）。 */
@@ -143,38 +192,35 @@ export class Library {
     }
 
     /**
-     * 固定这本书当前的一代：返回这一代的信息与已打开的数据文件。之后这本书被删除或同 id 重新导入，已打开的文件
-     * 照样读得到这一代的数据（文件被删只是去掉了名字）。调用方读完或不再需要时 release。
+     * 固定这本书当前的一代与数据版本：返回它的信息与已打开的数据文件。之后提交新版本、删除或同 id 重新导入，已
+     * 打开的文件照样读得到固定时的数据（文件被删只是去掉了名字）。调用方读完或不再需要时 release。
      *
-     * 顺序是先打开 graph.json、再读 book.json、最后核对路径上的 graph.json 仍是打开的那个文件（同一个 inode）。
-     * 核对通过说明两次读之间路径上始终是同一个书目录（书目录只会整体改名移走、从不移回），读到的信息与打开的
-     * 文件属于同一代；不通过就是中途换了代，重来一次，这次查询就从新的一代开始。
+     * 顺序是先读 book.json、再打开它指向的数据文件、再读一次 book.json：两次读到同一代同一版本，说明打开的文件就是
+     * 这个版本的（数据文件按版本命名、写好后不再改）。打开失败（读到旧版本之后、打开之前，提交把旧文件回收了）或
+     * 两次不一样，就关掉重来，这次查询从新的版本开始。
      */
     async pinBook(id: string): Promise<PinnedBook> {
         if (!BOOK_ID_PATTERN.test(id)) throw new StoryError("book_not_found", `书库里没有书 ${id}`);
-        const graphPath = join(this.root, id, "graph.json");
         for (let attempt = 0; attempt < 5; attempt += 1) {
+            const before = await this.readMetaOrNull(id);
+            if (!before) throw new StoryError("book_not_found", `书库里没有书 ${id}`);
             let handle: FileHandle;
             try {
-                handle = await open(graphPath, "r");
+                handle = await open(join(this.root, id, before.graph), "r");
             } catch (error) {
-                if (systemErrorCode(error) === "ENOENT" || systemErrorCode(error) === "ENOTDIR") throw new StoryError("book_not_found", `书库里没有书 ${id}`, {cause: error});
+                if (systemErrorCode(error) === "ENOENT" || systemErrorCode(error) === "ENOTDIR") continue;
                 throw error;
             }
             try {
-                const meta = await this.readMetaOrNull(id);
-                const [opened, current] = await Promise.all([handle.stat(), stat(graphPath).catch((error: unknown) => {
-                    if (systemErrorCode(error) === "ENOENT") return null;
-                    throw error;
-                })]);
-                if (meta && current && current.ino === opened.ino && current.dev === opened.dev) return new PinnedBook(meta, handle);
+                const after = await this.readMetaOrNull(id);
+                if (after && after.generation === before.generation && after.revision === before.revision) return new PinnedBook(after, handle);
             } catch (error) {
                 await handle.close();
                 throw error;
             }
             await handle.close();
         }
-        // 连续几次都碰上换代，几乎只会是有进程在不停地删除与导入同一本书。
+        // 连续几次都碰上换代或新版本，几乎只会是有进程在不停地删除与导入同一本书。
         throw new StoryError("book_not_found", `书 ${id} 正在被反复删除与导入，没能固定一代`);
     }
 
@@ -210,13 +256,112 @@ export class Library {
             chapters: dataset.sources.length,
             paragraphs: [...dataset.sources].sort((a, b) => a.chapter - b.chapter).map(chapter => chapter.paragraphs.length),
             extractedThrough: dataset.through,
+            revision: 1,
+            graph: "graph.json",
         };
 
+        const hold = this.#coordinator ? await this.#coordinator.lock(id) : {release: () => undefined};
+        if (!hold) throw new StoryError("book_exists", `书 id ${id} 正在抽取`);
+        try {
+            if (await this.hasIngest(id)) throw new StoryError("book_exists", `书 id ${id} 已被抽取占用`);
+            await this.publishNewBook(id, generation, meta, [["graph.json", bytes]]);
+        } finally {
+            hold.release();
+        }
+        return {id, generation};
+    }
+
+    /** 书库可写：格式认识（不认识时报 `unsupported_format`，书库只读）。抽取在写任何东西、发任何请求之前先过这一关。 */
+    async ensureWritable(): Promise<void> {
+        await this.assertWritable();
+    }
+
+    /**
+     * 读这本书当前已提交的抽取数据（core 不解析内容，交回原文）：与 pinBook 同样“读 meta → 打开 → 再读 meta”，
+     * 提交回收了旧文件或换了版本就重来。书不存在为 null；书不是抽取得来的，`text` 为 null。
+     */
+    async readExtraction(id: string): Promise<{meta: BookMeta; text: string | null} | null> {
+        if (!BOOK_ID_PATTERN.test(id)) return null;
+        for (let attempt = 0; attempt < 5; attempt += 1) {
+            const before = await this.readMetaOrNull(id);
+            if (!before) return null;
+            if (!before.extraction) return {meta: before, text: null};
+            let handle: FileHandle;
+            try {
+                handle = await open(join(this.root, id, before.extraction.file), "r");
+            } catch (error) {
+                if (systemErrorCode(error) === "ENOENT" || systemErrorCode(error) === "ENOTDIR") continue;
+                throw error;
+            }
+            try {
+                const after = await this.readMetaOrNull(id);
+                if (after && after.generation === before.generation && after.revision === before.revision) return {meta: after, text: await handle.readFile("utf8")};
+            } finally {
+                await handle.close();
+            }
+        }
+        throw new StoryError("book_not_found", `书 ${id} 正在被反复提交或删除，没能读到一致的抽取数据`);
+    }
+
+    /**
+     * 抽取的一次提交（docs/specs/story/ingest.md 输出 6）：第 1 章时建书目录（新的一代），之后写新版本的数据与抽取数据，
+     * 再改名替换 book.json。调用方持有这个 id 的抽取锁，同一本书同时只有它在提交。
+     */
+    async commitExtraction(commit: ExtractionCommit): Promise<{generation: string; revision: number}> {
+        await this.assertWritable();
+        const dataBytes = Buffer.from(JSON.stringify(commit.dataset));
+        const extractedThrough = commit.dataset.through;
+        const shape = {
+            chapters: commit.dataset.sources.length,
+            paragraphs: [...commit.dataset.sources].sort((a, b) => a.chapter - b.chapter).map(chapter => chapter.paragraphs.length),
+            extractedThrough,
+        };
+        if (commit.generation === undefined) {
+            const generation = randomUUID();
+            const meta: BookMeta = {
+                format: LIBRARY_FORMAT, id: commit.id, title: commit.title, generation, importedAt: new Date().toISOString(),
+                source: {bookId: commit.dataset.book.id, title: commit.dataset.book.title, file: "（抽取）"},
+                ...shape, revision: 1, graph: "graph-1.json", extraction: {through: commit.through, file: "extraction-1.json"},
+            };
+            await this.publishNewBook(commit.id, generation, meta, [["graph-1.json", dataBytes], ["extraction-1.json", Buffer.from(commit.extraction)]]);
+            return {generation, revision: 1};
+        }
+        const current = await this.readMeta(commit.id);
+        assertBookFormat(current);
+        if (current.generation !== commit.generation) throw new StoryError("book_not_found", `书 ${commit.id} 已被删除或换了一代`);
+        const revision = current.revision + 1;
+        const dir = this.bookDir(commit.id);
+        const graph = `graph-${revision}.json`;
+        const extraction = `extraction-${revision}.json`;
+        await writeFile(join(dir, graph), dataBytes);
+        await writeFile(join(dir, extraction), commit.extraction);
+        const meta: BookMeta = {...current, ...shape, revision, graph, extraction: {through: commit.through, file: extraction}};
+        const temp = join(dir, `book.json.${randomUUID()}.tmp`);
+        await writeFile(temp, `${JSON.stringify(meta, null, 2)}\n`);
+        await rename(temp, join(dir, "book.json"));
+        // 提交之后回收上一版：已经 pin 住的查询持有打开的文件，不受影响；读到旧版本还没打开的会重来（见 pinBook）。
+        await Promise.all([current.graph, current.extraction?.file].filter((file): file is string => file !== undefined).map(file => rm(join(dir, file), {force: true})));
+        return {generation: current.generation, revision};
+    }
+
+    /** 这个 id 有没有抽取记录（第 1 章还没提交的也算）。 */
+    async hasIngest(id: string): Promise<boolean> {
+        try {
+            await stat(join(this.ingestDir(id), "source.json"));
+            return true;
+        } catch (error) {
+            if (systemErrorCode(error) === "ENOENT" || systemErrorCode(error) === "ENOTDIR") return false;
+            throw error;
+        }
+    }
+
+    /** 新书：写进临时目录，整个改名成书目录。目标已存在时报 `book_exists`。 */
+    private async publishNewBook(id: string, generation: string, meta: BookMeta, files: [string, Buffer][]): Promise<void> {
         await mkdir(this.root, {recursive: true});
         const staging = join(this.root, `.importing-${generation}`);
         await mkdir(staging);
         try {
-            await writeFile(join(staging, "graph.json"), bytes);
+            for (const [name, bytes] of files) await writeFile(join(staging, name), bytes);
             await writeFile(join(staging, "book.json"), `${JSON.stringify(meta, null, 2)}\n`);
             await rename(staging, join(this.root, id));
         } catch (error) {
@@ -227,21 +372,48 @@ export class Library {
             }
             throw error;
         }
-        return {id, generation};
     }
 
-    /** 删除一本书；之后同一 id 可以重新导入（得到新的一代）。 */
+    /** 把书目录改名移走再删掉。 */
+    private async discard(id: string): Promise<void> {
+        const trash = join(this.root, `.removed-${randomUUID()}`);
+        await rename(join(this.root, id), trash);
+        await rm(trash, {recursive: true, force: true});
+    }
+
+    /**
+     * 删除一本书与它的抽取记录；之后同一 id 可以重新导入或抽取（得到新的一代）。只有抽取记录、还没有书（第 1 章没
+     * 提交）的 id 也能删。别的进程正在抽这个 id 时报 `ingest_running`，什么都不删（docs/specs/story/ingest.md 输出 16）。
+     */
     async removeBook(id: string): Promise<void> {
         await this.assertWritable();
-        assertBookFormat(await this.readMeta(id));
-        const trash = join(this.root, `.removed-${randomUUID()}`);
+        if (!BOOK_ID_PATTERN.test(id)) throw new StoryError("book_not_found", `书库里没有书 ${id}`);
+        await this.#coordinator?.stopLocal?.(id);
+        const pass = this.#coordinator ? await this.#coordinator.lock(id) : {release: () => undefined};
+        if (!pass) throw new StoryError("ingest_running", `书 ${id} 正在别的进程里抽取，先在那里停下它`);
         try {
-            await rename(join(this.root, id), trash);
-        } catch (error) {
-            if (systemErrorCode(error) === "ENOENT") throw new StoryError("book_not_found", `书 ${id} 已被删除`, {cause: error});
-            throw error;
+            // 拿到独占权之后再看书与抽取记录：等待期间本进程的任务可能刚好发布了第 1 章（实现审查第 1 条）。
+            const meta = await this.readMetaOrNull(id);
+            const ingest = await this.hasIngest(id);
+            if (!meta && !ingest) throw new StoryError("book_not_found", `书库里没有书 ${id}`);
+            if (meta) assertBookFormat(meta);
+            if (meta) {
+                try {
+                    await this.discard(id);
+                } catch (error) {
+                    if (systemErrorCode(error) === "ENOENT") throw new StoryError("book_not_found", `书 ${id} 已被删除`, {cause: error});
+                    throw error;
+                }
+            }
+            if (ingest) {
+                const trash = join(this.root, ".ingest", `.removed-${randomUUID()}`);
+                await rename(this.ingestDir(id), trash).then(() => rm(trash, {recursive: true, force: true}), (error: unknown) => {
+                    if (systemErrorCode(error) !== "ENOENT") throw error;
+                });
+            }
+        } finally {
+            pass.release();
         }
-        await rm(trash, {recursive: true, force: true});
     }
 
     /** 这本书存的阅读状态；从没存过时是全书开头、界面状态为 null。 */
@@ -283,8 +455,9 @@ export class Library {
     private async readMetaOrNull(id: string): Promise<BookMeta | null> {
         try {
             const value = await readJson(join(this.root, id, "book.json"));
-            if (isObject(value) && value.id === id && typeof value.generation === "string") return value as unknown as BookMeta;
-            return null;
+            if (!isObject(value) || value.id !== id || typeof value.generation !== "string") return null;
+            // 格式 1 里早于抽取的书没有版本与数据文件名：它们只有版本 1 与 graph.json。只在读时补，不改写磁盘。
+            return {...(value as unknown as BookMeta), revision: typeof value.revision === "number" ? value.revision : 1, graph: typeof value.graph === "string" ? value.graph : "graph.json"};
         } catch (error) {
             const code = systemErrorCode(error);
             if (code === "ENOENT" || code === "ENOTDIR") return null;

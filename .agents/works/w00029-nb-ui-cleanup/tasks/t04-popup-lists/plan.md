@@ -25,7 +25,7 @@
 - 危险项：`.nb-ui-menu-item-danger` 只给危险色文字与图标，高亮时底色同样是中性叠色；去掉它现在的 `:hover` 与 `.is-active` 红底规则，`DropdownMenu` 的内联危险色一并去掉。
 - 子元素：`__check`（左侧 14px 勾选列，选中时画 `i-lucide-check`；整个面板没有可勾选项时不留这一列）、`__icon`、`__label`（单行截断）、`__hint`（快捷键或路径，右对齐、`--text-muted`，放不下时先截它）。
 - `.nb-ui-menu-label`（分组标题）、`.nb-ui-menu-separator`（分隔线）。
-- `.nb-ui-popover-item` 并进 `.nb-ui-menu-item` 后删掉；删除与所有使用方的迁移在同一片里（切片 S1）。
+- `.nb-ui-popover-item` 并进 `.nb-ui-menu-item` 后删掉；删除与最后的使用方（`Select`、`QuickPick`）的迁移在同一片里（切片 S2）。
 
 ### 3. 高亮属性由谁挂（`packages/nb-ui/src/components/`）
 
@@ -52,6 +52,7 @@
   - **所有权**：只操作现有的那一个视口，不另包滚动层；`Select` 仍由 reka 的 `SelectViewport` 滚动、打开时由 reka 滚到选中项，组合函数不在初始化时重置 `scrollTop`。挂载、视口换实例与卸载时各自清理观察器与拖动监听。
 - 新内部零件 `layout/PopupScrollbar.vue`：悬浮滑块的模板只写这一份。多级菜单的每一级各有自己的视口、滑块与组合函数实例。不从包入口导出。
 - **级联菜单的父级滚动**：父级面板一滚动（滚轮或拖滑块），收起它展开的子菜单，焦点留在父级；子菜单的位置与高度取父级受约束后的真实盒子（`menu-cascade.ts` 的测量对象改为视口）。这是 macOS 菜单的做法，比跟着重新定位简单，也不会出现父项已滚出视口、子菜单还挂着的情况。
+- **实施中的调整**（S3）：组合函数不收参数，视口经模板 ref 交给它（`usePopupScroll().setViewport`），截断量法另导出为纯函数 `measurePopupTruncation`，级联面板的测量复用它；级联的每一级是新内部零件 `controls/MenuLevelPanel.vue`（自带视口与滑块）。真实 Chrome 里发现右键菜单与 Menubar 的子菜单位置偏了一百多像素（本次之前就有）：外观层的 `backdrop-filter` 成了 fixed 子菜单的包含块。右键菜单改为外层只管定位、外观层与子菜单并列；Menubar 的子菜单传送到 `body`。
 - `useDropdownSurfaceStyle`：浮层外观的静态常量（底色、模糊、阴影）查实与 `.nb-ui-popover-surface` 一致后并回 CSS 类，对不上的留给 t05 由开发者定（t05 审查 F04、F05、F10、F43）；动态的部分——经 `NB_POPOVER_Z_INDEX` 注入的层级、reka 的 popper 参数——保留在一个组合函数里，改名为 `usePopoverLayer`。
 
 ### 6. 不抢焦点的候选菜单：新组件 `SuggestionMenu`（`packages/nb-ui/src/components/feedback/`）
@@ -60,7 +61,8 @@
 - **数据与 id**：`groups: ReadonlyArray<{id, label?, items: SuggestionMenuItem[]}>`，项：`id`、`label`、`iconClass?`、`hint?`、`disabled?`。项的 `id` 在整个菜单里唯一；组按输入顺序渲染、不合并不重排。每个可选项的 DOM id 由导出的纯函数 `suggestionOptionId(menuId, index)` 给出，`index` 是跨组累计、只数可选项的位置，与宿主键盘移动用的扁平顺序相同；宿主的 `aria-activedescendant` 用同一个函数。`activeId` 不在当前项里时不挂高亮，宿主应清掉 `aria-activedescendant`。
 - **其余属性**：`activeId`、`loading`、`loadingText`、`emptyText`、`anchor`、`placement`（`"auto" | "top" | "bottom"`，缺省 `"auto"`）、`matchAnchorWidth`、`id`、`teleportTarget`。事件：`select(id)`、`highlight(id)`（只在鼠标真的移动时发）。插槽 `header`：放标题或搜索框，**可以接收焦点**；“按下鼠标不夺焦点”（`mousedown` 的 `preventDefault`）只加在项列表与非交互区。暴露 `contains(node)`，宿主判断失焦时把浮层算进去（浮层是传送出去的，不在宿主的 DOM 里）。
 - **定位用 reka 的 Popover 原语**（`PopoverRoot` 非模态、`PopoverAnchor` 的 `reference`、`PopoverPortal`、`PopoverContent`），与 `DropdownMenu` 走同一条路，而不是直接调 `@floating-ui/dom`：reka 底层就是 floating-ui，现成提供
-  - 渲染目标：`useTeleportTarget`（Lab 画布与 `Dialog` 提供的落点，没有时落到 body），层级取第 5 节的 `usePopoverLayer`；
+  - 渲染目标：传送到 `body`，`teleportTarget` 写明了才传到那里，与 `DropdownMenu`、`Select` 相同；层级取第 5 节的 `usePopoverLayer`。（实施时查实：`useTeleportTarget` 的落点只有 Lab 画布提供，`Dialog` 不提供；Lab 画布用 CSS `zoom`，浮层进了画布会被一起缩放、坐标也要换算，所以不跟它。）
+  - 夹紧用 `sticky: "always"`：reka 缺省的 `"partial"` 为了贴着锚点，会让菜单越过 12px 的边距（光标贴在窗口边上时实测越出 2px）；
   - Lab 画布 CSS `zoom` 下的锚点换算：沿用 `DropdownMenu` 的 `unscaledRect`，挪成内部工具共用；
   - 翻转与夹紧：`avoidCollisions`、`collisionPadding: 12`；
   - 可用空间：`--reka-popper-available-height`、`--reka-popper-available-width`，外框 `max-height`、`max-width` 取它们（`matchAnchorWidth` 时宽度取锚点宽与可用宽的较小者，项文字与提示截断）；
@@ -92,8 +94,8 @@
 
 | 片 | 对应设计 | 提交边界 | 自跑验证 |
 |---|---|---|---|
-| S1 | 第 1、2、3 节；第 4 节的菜单一族 | token、列表项的类与高亮状态；`MenuNodes`、`DropdownMenu`、`Menubar`、`ContextMenu` 改用它（含 `compact`、`active`、`menuMaxHeight` 的去掉与 8 处调用方），`.nb-ui-popover-item` 删掉 | nb-ui、neuro-book、nb-story 的 `typecheck` 与 `test`；nb-ui Playwright 验收（新增菜单一族的验收页） |
-| S2 | 第 4 节的 `Select`、`QuickPick` | 两者改用列表项的类 | 同 S1 |
+| S1 | 第 1、2、3 节；第 4 节的菜单一族 | token、列表项的类与高亮状态；`MenuNodes`、`DropdownMenu`、`Menubar`、`ContextMenu` 改用它（含 `compact`、`active`、`menuMaxHeight` 的去掉与 9 处调用方，另有 nb-ui `Tabs` 1 处） | nb-ui、neuro-book、nb-story 的 `typecheck` 与 `test`；nb-ui Playwright 验收（新增菜单一族的验收页） |
+| S2 | 第 4 节的 `Select`、`QuickPick` | 两者改用列表项的类，`.nb-ui-popover-item` 删掉 | 同 S1 |
 | S3 | 第 5 节 | `usePopupScroll`、`PopupScrollbar`、`usePopoverLayer`，接上已有的五个列表；级联父级滚动收起子菜单；三个旧组合函数删掉 | 同 S1 |
 | S4 | 第 6 节 | `SuggestionMenu` 与 Lab 场景、验收页 | nb-ui `test` 与 Playwright 验收 |
 | S5 | 第 7 节 | Composer 改用它，`PromptMenuPanel` 删掉 | neuro-book `typecheck`、`test`；`lab-markdown.e2e.ts` |

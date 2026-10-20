@@ -1,7 +1,7 @@
 ---
 schema: nbook.spec/v1
 kind: behavior
-status: planned
+status: implemented
 capability: story.ingest
 owners:
   - nb-story
@@ -59,7 +59,7 @@ owners:
 ### 原文与切章
 
 - 原文文件须是 UTF-8（开头的 BOM 去掉），解码前不超过 32 MiB（网页经 base64 提交，同一个上限按解码后的字节算）；换行统一按 `\n` 处理。全角数字（０到９）按阿拉伯数字认。
-- 每行先去掉首尾空白。**标题候选**是不超过 40 字、且不以句末标点（。！？…”」』）结尾的行。
+- 每行先去掉首尾空白。**标题候选**是不超过 40 字、且不以句号或收尾的引号（。”」』）结尾的行。以“！”“？”“…”结尾的仍是候选：网文的章标题常这样写（“第36章 抓猫！”）。
 - **章标题行**是下面两种标题候选：
   1. `第` + 数字 + `章`、`回`或`节`开头，数字是阿拉伯数字或零〇一二三四五六七八九十百千万两，`第`、数字、标记之间可以有空白；标记是`回`时后面一个字不能是`合`（“第三回合”不是章标题）。标记之后的部分是标题，可以为空、可以紧接着写（“第一章绯红”）。前面可以带一段同一行的卷标题（“第一卷 小丑 第一章 绯红”，卷名不超过 20 字）。
   2. 整行就是 `序章`、`序言`、`楔子`、`引子`、`尾声`、`后记`、`番外` 之一，或以其中之一开头、后面紧跟空白或`：:、·—-`之一（“番外 一”“楔子：雨夜”）。“序言里提到的那个人”不是。
@@ -190,7 +190,7 @@ type IngestConfig = {
 3. **提交的原子性（确定性）。** 在第 3 章提交的各个阶段强行结束进程，之后查询与接着抽看到的章数一致（要么 2 章、要么 3 章），接着抽的结果与不中断时相同；已经开始的查询在提交后继续读到 2 章的数据，提交后新开始的查询（另一个进程、以及预先查询过这本书的同一进程）读到 3 章；第 3 章提交前取的分页游标在提交后得到 `cursor_invalid`；一问跨过这次提交，所有工具仍读到 2 章的数据，下一问读到 3 章。
 4. **一个书 id 一个任务（确定性）。** 命令行任务运行中，网页 `ingest.start` 同一个 id 得到 `ingest_running`，网页进度显示它由命令行运行；网页 `book.remove` 这本书得到 `ingest_running`，书不变；两个任务同时发起恰有一个开始；强行结束运行任务的进程后，`ingest.status` 报 `stopped`（运行它的进程已退出），可以接着抽。独立服务同时抽两本书，停止或删除其中一本，另一本照常。
 5. **重试、跑飞与不成形（确定性，注入时钟）。** 端点对草稿请求先回两次 503、再回正常：这一章照常提交，进度里有两次重试，端点共收到 3 次 HTTP 请求；一直回 503：端点共收到 6 次后以 `model_failed` 停下，退出码 4，已提交的章保留；回 401：不重试，立即停下；接受普通请求、拒绝 `minimal` 推理档：以 `model_failed`（`provider`）停下；回一段坏 JSON 后接着发空白：2000 个空白后中止、按跑飞重发；回非 JSON、被截断、没有段落块：重发一次后以 `ingest_bad_reply` 停下，这一章不提交；这一章的时间点与前一章的构成先后矛盾、且由丢弃这一章的时间点能消除：照常提交，问题数计入；整理回复不合格：这一章照常提交、问题记进这一章。中止与跑飞的请求让用量标为不完整。
-6. **切章（确定性）。** 一份含书名与简介、“第一卷 小丑”、“楔子”、“第1章”、“第 2 章”、“第３章”、“第二十三章绯红”、“第三回合开始了”、“序言里提到的那个人”、40 字与 41 字的标题样的行、以“」”结尾的短行、只有标题的章、两个同名标题的原文：`--preview` 的章、`preambleChars`、`volumeLines` 都与 Spec 的规则一致（“第三回合开始了”“序言里提到的那个人”、41 字的行、以“」”结尾的行留在所在章里）。不是 UTF-8 的文件、没有章标题的文件得到 `ingest_bad_text`。
+6. **切章（确定性）。** 一份含书名与简介、“第一卷 小丑”、“楔子”、“第1章”、“第 2 章”、“第３章”、“第二十三章绯红”、“第三回合开始了”、“序言里提到的那个人”、40 字与 41 字的标题样的行、以“」”结尾的短行、以“！”“？”“……”结尾的章标题、只有标题的章、两个同名标题的原文：`--preview` 的章、`preambleChars`、`volumeLines` 都与 Spec 的规则一致（“第三回合开始了”“序言里提到的那个人”、41 字的行、以“」”结尾的行留在所在章里，以“！”“？”“……”结尾的章标题各开一章）。样例书 100 章拼回的原文切回 100 章。不是 UTF-8 的文件、没有章标题的文件得到 `ingest_bad_text`。
 7. **称呼与回补知情的可见位置（确定性）。** 第 1 章原文里出现“北斗星”这个字串、第 2 章才交代它是林晚的代号：第 2 章提交后，阅读位置在第 1 章时林晚的人物卡、第 1 章原文段落的名字与搜索里都没有“北斗星”；阅读位置在第 2 章时有。第 6 章建的秘密只由第 3 章的说法组成，并给第 3 章已知情的人补记知情：阅读位置在第 5 章、第 6 章中间时这个秘密与这条知情都不可见，读完第 6 章可见。
 8. **删除（确定性）。** 网页发起的任务运行中删除这本书：任务停下，书与抽取记录都不在了，`ingest.status` 不再列出它，之后没有任何文件被旧任务写回；同 id 再发起是 `new`。
 9. **密钥与配置（确定性）。** 用可辨认的假密钥跑场景 1：端点收到它，抽取记录、书的数据、标准输出与标准错误里都没有它。只有 `model` 时抽取用它；用 `config set ingest.model '<JSON>'` 建抽取模型后用新的那个，`config unset ingest.model` 后回到 `model`。
@@ -199,6 +199,20 @@ type IngestConfig = {
 
 Smoke：在真实书库与独立服务上，网页导入样例书前 3 章的原文，用真实模型抽完，抽取中途停止一次再继续，抽完后在查看器里打开。
 
+## 实现合同
+
+- **公开入口**：命令行 `nbstory ingest`（包 `@notnotype/nb-story` 的 bin）；独立服务 `nbstory serve` 的 `ingest.preview`、`ingest.start`、`ingest.stop`、`ingest.status`（合同 `INGEST_METHODS`，与查询方法同一份 `src/contract/contract.ts`）；配置的 `ingest.model` 与 `nbstory config test --ingest`。
+- **owner 与依赖方向**：nb-story。抽取（`src/ingest`）依赖本包的核心库（`src/core`，只经注入的 id 协调者与它交互）与 `openai` SDK；不依赖 nb-harness，抽取线程与 `nbstory ingest` 不加载 OMP。核心库不依赖抽取。
+- **关键不变量**：
+  - 一章的提交是书目录里 `book.json` 的一次改名，新版本的数据文件先写好；提交前整本书编译没有错误（`runner.test.ts` 的提交先后、`chapter.test.ts` 的整理带来的错误）。
+  - 导入、抽取的发起与删除拿同一把不随书删除的 id 锁，锁由主线程持有；删除先停本进程这个 id 的任务（含正在启动的）（`runner.test.ts`、`server/ingest.test.ts` 的删除与停服分组）。
+  - 发给模型的文字（提示词、规则、已有记录）与抽取管线定型时录下的请求逐字相同（`context.test.ts`、`chapter.test.ts` 的回放）。
+  - 每次 HTTP 尝试先写“开始”再发请求，结束再结算；拿不到用量的合计标不完整（`runner.test.ts` 的强行结束、用量与用时分组）。
+  - 密钥只在发请求时从环境变量读取，不进抽取记录、书的数据、日志与任何输出（`model.test.ts`、`cli/ingest.test.ts`）。
+
 ## 证据
 
 - 批准依据：[剧情图谱第一版提案](../../proposals/novel-story-app.md) 2026-10-15 的决策记录（抽取搬进 nb-story，命令行与网页都能导入、看进度、追加新章）；[V9 记忆图提案](../../proposals/novel-memory-v9.md)的“抽取管线”与第十二节第 9 到 11 小节（称呼只认本章段落的修法见第 10 小节）；开发者 2026-10-20 在 [w00024 t06](../../../.agents/works/w00024-nb-story/tasks/t06-ingest/README.md) 的决定 3 到 8 与会话里确认的八条假设；验收 11 的尺子是 V9 记忆图提案第十二节第 9 小节所述的 53 条关键记录尺子与 20 章样例原文，随 w00024 t06 迁入该 Task 的脚本目录（来源 w00005 t33）。
+- 实现入口：[`runner.ts`](../../../packages/nb-story/src/ingest/runner.ts)、[`job.ts`](../../../packages/nb-story/src/ingest/job.ts)、[`cli/ingest.ts`](../../../packages/nb-story/src/cli/ingest.ts)、[`server/ingest-service.ts`](../../../packages/nb-story/src/server/ingest-service.ts)
+- 合同测试：[`runner.test.ts`](../../../packages/nb-story/src/ingest/runner.test.ts)、[`chapter.test.ts`](../../../packages/nb-story/src/ingest/chapter.test.ts)、[`model.test.ts`](../../../packages/nb-story/src/ingest/model.test.ts)、[`text.test.ts`](../../../packages/nb-story/src/ingest/text.test.ts)、[`cli/ingest.test.ts`](../../../packages/nb-story/src/cli/ingest.test.ts)、[`server/ingest.test.ts`](../../../packages/nb-story/src/server/ingest.test.ts)、[`e2e/ingest.e2e.ts`](../../../packages/nb-story/e2e/ingest.e2e.ts)
+- Smoke：[`smoke-web.mjs`](../../../.agents/works/w00024-nb-story/tasks/t06-ingest/scripts/smoke-web.mjs)（真实模型、网页导入前 3 章、停一次再继续）与 [`regress-20.sh`](../../../.agents/works/w00024-nb-story/tasks/t06-ingest/scripts/regress-20.sh)（验收 11；2026-10-20 三次合计 378，[结果](../../../.agents/works/w00024-nb-story/tasks/t06-ingest/evidences/regress-20/README.md)）

@@ -11,6 +11,7 @@ import {computed, defineAsyncComponent, onBeforeUnmount, onMounted, provide, rea
 import {useRouter} from "vue-router";
 
 import {BOOK_SESSION, type BookSession, type DrawerContent, type Page} from "../host/book";
+import {ingestBadge} from "../host/ingest";
 import {StoryCallError, useStoryClient} from "../host/client";
 import {readDrawerWidth, readNavCollapsed, writeDrawerWidth, writeNavCollapsed, type ThemeChoice} from "../host/prefs";
 import {LAYOUT_MOTION} from "../host/motion";
@@ -192,6 +193,8 @@ function toggleDrawer(): void {
     else book.reopenDrawer();
 }
 
+const ingestPill = computed(() => (book.ingest.value ? ingestBadge(book.ingest.value) : null));
+
 const notice = book.notice;
 watch(notice, value => {
     if (value) setTimeout(() => {
@@ -206,24 +209,33 @@ watch(notice, value => {
             <div class="flex min-w-0 items-center gap-1" :class="tier === 'phone' ? 'w-full' : ''">
                 <IconButton v-if="tier === 'phone'" size="sm" icon-class="i-lucide-menu" aria-label="打开导航" @click="navSheet = true" />
                 <IconButton size="sm" icon-class="i-lucide-library" aria-label="回到书架" title="回到书架" data-testid="go-shelf" @click="switchBook('')" />
-                <DropdownMenu :items="bookItems" compact menu-class="min-w-[220px]" @select="switchBook">
+                <DropdownMenu :items="bookItems" menu-class="min-w-[220px]" @select="switchBook">
                     <button type="button" class="book-title flex min-w-0 items-center gap-1 rounded-[var(--radius-control)] px-1.5 py-0.5" title="换一本书" data-testid="book-switcher">
                         <span class="truncate font-[var(--weight-strong)]" data-testid="book-title">{{ book.info.title }}</span>
                         <span class="i-lucide-chevron-down shrink-0 text-[var(--text-muted)]" />
                     </button>
                 </DropdownMenu>
+                <!-- 抽取中的书（输出 39）：平时是进度徽标、点开进度页；又提交了一章时变成“点这里更新”，点了才换数据。 -->
+                <button
+                    v-if="book.behind.value" type="button" class="ingest-pill ingest-pill-update shrink-0" data-testid="ingest-update"
+                    :title="`第 ${book.ingest.value!.committed} 章已抽完，点这里换成新数据`" @click="book.refresh()"
+                ><span class="i-lucide-refresh-cw" /><span>第 {{ book.ingest.value!.committed }} 章已抽完{{ tier === "phone" ? " · 更新" : "，点这里更新" }}</span></button>
+                <RouterLink
+                    v-else-if="ingestPill" :to="`/ingest/${encodeURIComponent(book.bookId)}`" class="ingest-pill shrink-0" :class="`ingest-pill-${ingestPill.tone}`" :data-state="book.ingest.value!.state"
+                    data-testid="ingest-pill" :title="'打开抽取进度'"
+                ><span v-if="ingestPill.dot" class="ingest-dot" /><span>{{ ingestPill.text }} {{ book.ingest.value!.committed }} / {{ book.ingest.value!.total }}</span></RouterLink>
                 <template v-if="tier === 'phone'">
                     <SearchBox class="ml-auto" compact />
-                    <DropdownMenu :items="themeItems" compact align="end" @select="setTheme"><IconButton size="sm" :icon-class="themeIcon" aria-label="明暗" data-testid="theme-menu" /></DropdownMenu>
+                    <DropdownMenu :items="themeItems" align="end" @select="setTheme"><IconButton size="sm" :icon-class="themeIcon" aria-label="明暗" data-testid="theme-menu" /></DropdownMenu>
                     <IconButton size="sm" icon-class="i-lucide-panel-bottom-open" aria-label="打开详情面板" :disabled="!drawerOpen && !book.lastDrawer.value" @click="toggleDrawer" />
                 </template>
             </div>
-            <ReadingControl :class="tier === 'phone' ? 'w-full' : 'shrink-0'" :at="book.at.value" :paragraphs="book.info.paragraphs" :end="book.info.extractedThrough.chapter" :at-end="book.atEnd.value" :compact="tier !== 'wide'" @update:at="book.setAt" />
+            <ReadingControl :class="tier === 'phone' ? 'w-full' : 'shrink-0'" :at="book.at.value" :paragraphs="book.info.paragraphs" :end="book.info.extractedThrough.chapter" :at-end="book.atEnd.value" :compact="tier !== 'wide'" @update:at="book.setAt" @to-end="book.setAt('end')" />
             <div v-if="tier !== 'phone'" class="ml-auto flex min-w-0 items-center gap-1">
                 <SearchBox :compact="tier === 'tablet'" />
                 <!-- 平板放不下整句：只留图标，文字给悬停与读屏（审查 F03：整句会把右侧栏开关挤出屏外） -->
                 <span v-if="book.saveFailed.value" class="save-failed whitespace-nowrap" role="status" title="阅读位置没存上" aria-label="阅读位置没存上" data-testid="save-failed"><span class="i-lucide-triangle-alert" /><span v-if="tier === 'wide'">阅读位置没存上</span></span>
-                <DropdownMenu :items="themeItems" compact align="end" @select="setTheme"><IconButton size="sm" :icon-class="themeIcon" aria-label="明暗" title="明暗" data-testid="theme-menu" /></DropdownMenu>
+                <DropdownMenu :items="themeItems" align="end" @select="setTheme"><IconButton size="sm" :icon-class="themeIcon" aria-label="明暗" title="明暗" data-testid="theme-menu" /></DropdownMenu>
                 <IconButton
                     size="sm" :icon-class="drawerOpen ? 'i-lucide-panel-right-close' : 'i-lucide-panel-right-open'" :aria-label="drawerOpen ? '收起右侧栏' : '展开右侧栏'"
                     :title="drawerOpen ? '收起右侧栏' : book.lastDrawer.value ? '展开右侧栏' : '还没有打开过内容'" :disabled="!drawerOpen && !book.lastDrawer.value" data-testid="toggle-drawer" @click="toggleDrawer"
@@ -315,6 +327,37 @@ watch(notice, value => {
 </template>
 
 <style scoped>
+.ingest-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    margin-left: 0.25rem;
+    padding: 0.125rem 0.5rem;
+    border: var(--border-w) solid var(--divider);
+    border-radius: 999px;
+    font-size: var(--text-xs);
+    color: var(--accent-text);
+    white-space: nowrap;
+}
+.ingest-pill:hover {
+    background: var(--bg-hover);
+}
+/* 颜色与 IngestBadge 同一套：运行中强调色，已停下中性，失败停下警示色。 */
+.ingest-pill-neutral {
+    color: var(--text-secondary);
+}
+.ingest-pill-danger {
+    color: var(--status-danger);
+}
+.ingest-pill-update {
+    border-color: var(--accent-text);
+}
+.ingest-dot {
+    width: 0.375rem;
+    height: 0.375rem;
+    border-radius: 999px;
+    background: currentColor;
+}
 .nav-item {
     color: var(--text-secondary);
 }

@@ -5,10 +5,11 @@
 
 import {inject, type InjectionKey} from "vue";
 
-import type {StoryMethod, StoryParams, StoryResult} from "../../contract/contract";
+import type {StoryMethod, ViewerMethod, ViewerParams, ViewerResult} from "../../contract/contract";
 
+/** 查询方法与抽取方法（`ingest.*`，只在独立服务里有）。 */
 export interface StoryClient {
-    call<M extends StoryMethod>(method: M, params: StoryParams<M>, options?: {signal?: AbortSignal}): Promise<StoryResult<M>>;
+    call<M extends ViewerMethod>(method: M, params: ViewerParams<M>, options?: {signal?: AbortSignal}): Promise<ViewerResult<M>>;
 }
 
 /** 查询失败：`code` 是 docs/specs/story/queries.md 的失败码；服务内部出错时为 "internal"。 */

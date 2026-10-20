@@ -98,7 +98,7 @@ const moreItems = computed(() => props.containers.filter((container) => strip.va
                     @click="emit('select', container.id)"
                 />
             </Tooltip>
-            <DropdownMenu v-if="moreItems.length > 0" :items="moreItems" side="right" align="end" compact @select="(id: string) => emit('select', id)">
+            <DropdownMenu v-if="moreItems.length > 0" :items="moreItems" side="right" align="end" @select="(id: string) => emit('select', id)">
                 <IconButton size="lg" icon-class="i-lucide-ellipsis" :aria-label="moreLabel" class="workbench-activity-bar__item" data-activity-more />
             </DropdownMenu>
         </div>

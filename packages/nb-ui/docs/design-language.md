@@ -336,10 +336,10 @@ Apple 的官方落点是 UIKit 的 `containerConcentricRadius` 与 SwiftUI 的 `
 );
 ```
 
-默认浮层沿用 `--radius-panel`；菜单 modifier 提供 `--radius-menu: 12px`，所以默认 1px 描边与
-6px 内边距推出约 5px 的内圈。浮层里贴着边的盒子（列表项、菜单项、滚动区）一律挂
-`.nb-ui-popover-item` 或直接取这个变量，**不要写 `rounded-*`**。改了浮层的内边距就得同时改
-`--nb-popover-pad`，否则半径和留白对不上——这正是它是变量而不是一个写死的数的理由。
+默认浮层沿用 `--radius-panel`；菜单 modifier（`.nb-ui-menu-surface`）改取 `--radius-menu`，内边距取 `--menu-pad`，
+同心公式也按 `--menu-pad` 算（nbook：10 − 1 − 4 = 5px；macOS：12 − 1 − 6 = 5px）。浮层里贴着边的盒子一律取这个推出来的
+变量：弹出列表的项挂 `.nb-ui-menu-item`，滚动区挂 `.nb-ui-popover-scroll`，**不要写 `rounded-*`**。内边距由
+`.nb-ui-menu-surface` 按 `--menu-pad` 真正写出来，不交给模板上的 `p-*`，所以半径和留白总是同一个数。
 走偏了的现象见坑 #42。
 浮层之外也有同心的地方，最典型的是分段控件：段是**贴着**外框四角的（内边距只有 `p-0.5` = 2px），
 所以段的圆角要按同一条式子从外框推出来，而不是取一个「小一点的档」：
@@ -505,8 +505,9 @@ Noto Sans CJK SC 覆盖 Linux 与装了 Noto 的环境。
 两个无障碍档要退回不透明：`prefers-reduced-transparency` 和 `prefers-contrast` 下玻璃已经
 退成实心面，这时半透明高亮反而对比不足，两个 block 里都写回 `var(--bg-hover)`。
 
-`.nb-ui-popover-item` 只管圆角，不管底色——底色由各组件按自己的状态语义
-（`data-[highlighted]` / `aria-selected` / `:hover`）挂上去，但取的值必须是这个角色。
+弹出列表的项（`.nb-ui-menu-item`）只认一个状态属性：`[data-highlighted]` 时取这个角色作底色，不写 `:hover`
+底色——鼠标与键盘指向同一项，不会一个停在悬停处、一个停在键盘当前项（w00029 t04）。reka 的项自己挂这个属性，
+普通按钮项与受控列表由组件挂。弹出列表之外的可点击行（标签、树行）仍按自己的状态语义挂，但取的值必须是这个角色。
 
 ### 配色表的三条不变量
 
@@ -865,7 +866,7 @@ Apple 的做法里**面上没有渐变**：Materials 那页从头到尾没提过
 判据：**把一角放大到 4 倍再截图**，看两条弧线平不平行、之间的留白等不等宽。
 1 倍的整体图分辨不出来——本轮就是放大之后才敢说根因的。放大的做法：
 给 `[data-reka-popper-content-wrapper]` 临时 `zoom: 4` 再截，不要靠截完再放大（那只会放大马赛克）。
-修法：项挂 `.nb-ui-popover-item`，半径由 `--nb-popover-inner-radius` 从外框推出来
+修法：项挂同心圆角的类（现在是 `.nb-ui-menu-item`），半径由 `--nb-popover-inner-radius` 从外框推出来
 （20 − 1 − 6 = 13px），见第三节。**别去调 6px 这个数**——它每次都得跟着外框和内边距变，
 写死一个数就是把同一个约束抄进 N 个模板。
 连带的一处：`.nb-ui-popover-scroll` 挂在浮层自己身上的组件（DropdownMenu / Combobox）
@@ -908,6 +909,11 @@ Combobox 用原本就在的 `<ul role="listbox">`），外框只剩 `overflow: h
 现象：编辑区标签的加粗副本写成 `content: attr(data-label) / ""`。审查按兼容数据指出 Firefox 124 不认带替代文本的写法，副本会消失，切换活动标签时其它标签跟着跳（本机没有 Firefox，未复现）。
 根因：浏览器不认一条声明里的值语法时，丢掉的是整条声明，不是只丢不认的那一段。
 判据：用比浏览器基线（`docs/specs/runtime/browser-host.md` 的输入与前置条件）新的写法（例如带替代文本的 `content`）时，先写一条基线浏览器能认的声明兜底，再写新写法覆盖。伪元素副本已经 `visibility: hidden` 时不进可访问名称，不需要替代文本。
+
+**58. 图标类的 `width: 1em` 在应用里盖掉组件写的图标尺寸**
+现象：菜单项的图标列（同一级有一项带图标就每项留出这一列）在 nb-ui 演练场里对齐，在新应用的 Lab 里没有图标的项多缩进 3px：图标只有 13px，空占位是 16px。
+根因：nb-ui 的样式不在 CSS layer 里，同一优先级按出现顺序取后者。图标类（UnoCSS 的 `i-lucide-*`）写 `width: 1em; height: 1em`，在应用里排在 nb-ui 样式之后，把 `.nb-ui-menu-item__icon` 的 16px 改成了字号大小；演练场里两者的先后相反，所以没暴露。
+判据：图标元素同时带图标类与组件的尺寸类时，尺寸写在优先级更高的选择器上（例如多带一级父类）；尺寸与对齐要在新应用（neuro-book Lab）里量，演练场的样式顺序和应用不同。
 
 ### B. DOM / 组件
 
@@ -1222,8 +1228,8 @@ Bun 下 CDP 握手超时。探针脚本一律 `node xxx.mjs`。
 - [ ] 打开时 `window.scrollY` 不变
 - [ ] 关闭后焦点回到触发器（点外面关闭除外——那时不要抢焦点）
 - [ ] `overflow` 在内部滚动层，不在浮层本体上；滚动区比外框缩进一圈
-- [ ] 列表项 / 菜单项挂 `.nb-ui-popover-item`，没有自己写 `rounded-*`——
-      圆角要与外框同心，写死的小半径在角上会被挤没（坑 #42）
+- [ ] 弹出列表的项挂 `.nb-ui-menu-item`，没有自己写 `rounded-*` 与 `:hover` 底色——
+      圆角要与外框同心，写死的小半径在角上会被挤没（坑 #42）；高亮只认 `data-highlighted`
 - [ ] 有一条用例把它**打开**并断言里面的内容，不是只测关闭态
 - [ ] 非模态的浮层（下拉 / 菜单）关掉了原语的 `body-lock` 与 `disable-outside-pointer-events`——
       默认值都是 true，开着的时候整页既不能滚也不能点（坑 #33）

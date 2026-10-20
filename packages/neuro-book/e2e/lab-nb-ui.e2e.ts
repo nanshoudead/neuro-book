@@ -82,9 +82,13 @@ test("下拉选择的长列表：收起成截半高度，键盘走到最后一�
     await expect(viewport).toBeVisible();
     const size = await viewport.evaluate((element) => ({client: element.clientHeight, scroll: element.scrollHeight}));
     expect(size.scroll).toBeGreaterThan(size.client);
-    // 14 项不全展开：设计规范的截半高度在 194 与 228 之间。
-    expect(size.client).toBeGreaterThanOrEqual(180);
-    expect(size.client).toBeLessThanOrEqual(240);
+    // 14 项不全展开：截在第 9 项的中点（两行项照实计入，w00029 t04 决定 5）。打开时停在选中项上，先回到顶部再量。
+    const cut = await viewport.evaluate((element) => {
+        element.scrollTop = 0;
+        const ninth = element.querySelectorAll('[role="option"]')[8]!.getBoundingClientRect();
+        return element.getBoundingClientRect().bottom - (ninth.top + ninth.height / 2);
+    });
+    expect(Math.abs(cut)).toBeLessThanOrEqual(1);
     await expect(page.getByRole("option").filter({hasText: "EPUB 电子书"}).locator(".i-lucide-book-open")).toBeAttached();
     await expect(page.getByRole("option").filter({hasText: "EPUB 电子书"})).toContainText("按卷生成目录");
 
@@ -206,6 +210,9 @@ test("下拉菜单：方向键跳过禁用项，禁用项带原因，Enter 选�
     const trash = menu.getByRole("menuitem", {name: "移到回收站"});
     await expect(trash).toHaveAttribute("aria-disabled", "true");
     await expect(trash).toHaveAttribute("aria-description", "根目录不能移到回收站");
+    // 没有图标的项留出图标列：应用的样式顺序里图标类排在 nb-ui 之后，图标与占位要同宽，名称才对齐。
+    const labelLeft = async (name: string): Promise<number> => (await menu.locator(".nb-ui-menu-item__label", {hasText: name}).boundingBox())!.x;
+    expect(await labelLeft("显示隐藏文件")).toBeCloseTo(await labelLeft("重命名"), 0);
 
     await page.keyboard.press("ArrowDown");
     await expect(menu.getByRole("menuitem", {name: "重命名"})).toBeFocused();

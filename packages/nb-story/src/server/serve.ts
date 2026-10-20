@@ -13,6 +13,8 @@ import {join} from "node:path";
 
 import {createStoryApi} from "../core/api";
 import {defaultLibraryRoot} from "../core/library";
+import {coordinatedLibrary} from "../ingest/coordinator";
+import {createIngestService, type IngestService} from "./ingest-service";
 import type {CliIo} from "../cli/main";
 import {createServeAuth} from "./auth";
 import {createHandler} from "./http";
@@ -57,7 +59,13 @@ export async function serveCommand(options: ServeOptions, io: CliIo): Promise<nu
     }
 
     const instance = randomUUID();
-    const api = createStoryApi({library});
+    // 本服务运行的抽取任务由抽取服务管；删除书时书库的协调者经它先停这个 id 的任务（含正在启动的）。抽取服务要用
+    // 书库，书库要用抽取服务，所以协调者在调用时才取它。
+    let ingest!: IngestService;
+    const books = coordinatedLibrary(library, {stop: id => ingest.stopLocal(id)});
+    const api = createStoryApi({library: books});
+    // 抽取的模型取自默认位置的配置（与 nbstory ingest 相同），每次发起时重读。
+    ingest = createIngestService({library: books});
     let server: ReturnType<typeof Bun.serve>;
     let handler: ((request: Request) => Promise<Response>) | null = null;
     try {
@@ -73,7 +81,7 @@ export async function serveCommand(options: ServeOptions, io: CliIo): Promise<nu
 
     const port = server.port!;
     const auth = createServeAuth(port);
-    handler = createHandler({api, auth, instance, webRoot: WEB_ROOT});
+    handler = createHandler({api, ingest, auth, instance, webRoot: WEB_ROOT});
     const url = `http://127.0.0.1:${port}`;
     try {
         await lock.publish({instance, url, port, pid: process.pid});
@@ -94,6 +102,8 @@ export async function serveCommand(options: ServeOptions, io: CliIo): Promise<nu
         const stop = async () => {
             if (stopping) return;
             stopping = true;
+            // 先停下本服务的抽取任务、等它们放锁，再撤销登记、停监听（ingest-service.ts 模块头）。
+            await ingest.close();
             // 撤销登记失败（例如书库目录变成只读）也要停掉监听、放锁，否则进程停不下来并一直占着锁；这时退出码为 1。
             let code = 0;
             try {

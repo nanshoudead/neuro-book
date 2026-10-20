@@ -33,6 +33,16 @@ const DROPDOWN_ITEMS = [
     {label: "删除", value: "delete", iconClass: "i-lucide-trash-2", tone: "danger" as const},
 ];
 
+/** 勾选项也带快捷键：左侧勾选列与右侧快捷键同时出现。 */
+const DROPDOWN_CHECKED_ITEMS = [
+    {label: "自动换行", value: "wrap", type: "checkbox" as const, checked: true, shortcut: "Alt+Z"},
+    {label: "显示行号", value: "line-numbers", type: "checkbox" as const, checked: false},
+    {label: "", value: "sep-1", separator: true},
+    {label: "浅色", value: "light", type: "radio" as const, checked: false, group: "theme"},
+    {label: "深色", value: "dark", type: "radio" as const, checked: true, group: "theme"},
+    {label: "跟随系统", value: "system", type: "radio" as const, checked: false, group: "theme"},
+];
+
 const MENUBAR_MENUS = [
     {id: "file", label: "文件", items: [
         {label: "新建章节", value: "new-chapter", shortcut: "Ctrl+N", iconClass: "i-lucide-file-plus"},
@@ -109,8 +119,8 @@ export const controlsFixtures: LabFixture[] = [
         slotPresets: {default: () => h(NbButton, {variant: "secondary", size: "sm", iconClass: "i-lucide-ellipsis"}, () => "更多操作")},
         scenes: [
             {id: "default", label: "图标、快捷键、子菜单与危险项", input: {props: {items: DROPDOWN_ITEMS, align: "start", side: "bottom"}, model: {open: false}, slots: {default: true}}},
-            {id: "compact", label: "紧凑", input: {props: {items: DROPDOWN_ITEMS, compact: true, align: "start", side: "bottom"}, model: {open: false}, slots: {default: true}}},
-            {id: "long", label: "很多项时内部滚动", input: {props: {items: Array.from({length: 40}, (_, index) => ({label: `第 ${String(index + 1)} 章`, value: `chapter-${String(index + 1)}`})), menuMaxHeight: "320px", align: "start", side: "bottom"}, model: {open: false}, slots: {default: true}}},
+            {id: "checked", label: "勾选项与快捷键", input: {props: {items: DROPDOWN_CHECKED_ITEMS, align: "start", side: "bottom"}, model: {open: false}, slots: {default: true}}},
+            {id: "long", label: "很多项时内部滚动", input: {props: {items: Array.from({length: 40}, (_, index) => ({label: `第 ${String(index + 1)} 章`, value: `chapter-${String(index + 1)}`})), align: "start", side: "bottom"}, model: {open: false}, slots: {default: true}}},
             {id: "disabled", label: "禁用", input: {props: {items: DROPDOWN_ITEMS, disabled: true, align: "start", side: "bottom"}, model: {open: false}, slots: {default: true}}},
             {id: "wrap", label: "长文字换行", input: {props: {items: [{label: "未保存的文档：未保存 3 个（第一章.md、第二章.md、第三章.md）", value: "unsaved"}, {label: "字数：12,345 字", value: "words", disabled: true}, ...DROPDOWN_ITEMS.slice(0, 2)], wrap: true, align: "start", side: "bottom"}, model: {open: false}, slots: {default: true}}},
         ],

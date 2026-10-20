@@ -3,7 +3,7 @@
 import {h} from "vue";
 
 import {Button as NbButton} from "@notnotype/nb-ui/components";
-import type {AlertDialog, Banner, ContextMenu, Dialog, Drawer, InfoTip, Notification, NotificationStack, Popover, QuickPick, Tooltip} from "@notnotype/nb-ui/components";
+import type {AlertDialog, Banner, ContextMenu, Dialog, Drawer, InfoTip, Notification, NotificationStack, Popover, QuickPick, SuggestionMenu, SuggestionMenuGroup, Tooltip} from "@notnotype/nb-ui/components";
 
 import {defineLabFixture} from "../index";
 import type {LabFixture} from "../index";
@@ -22,6 +22,21 @@ const CONTEXT_ITEMS = [
     {separator: true},
     {label: "删除", iconClass: "i-lucide-trash-2", tone: "danger" as const, shortcut: "Del"},
 ];
+
+const SUGGESTION_GROUPS: SuggestionMenuGroup[] = [
+    {id: "chapters", label: "正文", items: [
+        {id: "c1", label: "第一章 渡口", iconClass: "i-lucide-file-text", hint: "正文/第一章.md"},
+        {id: "c2", label: "第二章 旧钟", iconClass: "i-lucide-file-text", hint: "正文/第二章.md"},
+        {id: "c20", label: "第二十章 回信", iconClass: "i-lucide-file-text", hint: "正文/第二十章.md"},
+    ]},
+    {id: "settings", label: "设定", items: [
+        {id: "s1", label: "钟表铺", iconClass: "i-lucide-map-pin", hint: "设定/地点/钟表铺.md"},
+        {id: "s2", label: "林雪", iconClass: "i-lucide-user", hint: "设定/人物/林雪.md"},
+        {id: "s3", label: "旧档案（只读）", iconClass: "i-lucide-lock", disabled: true},
+    ]},
+];
+const SUGGESTION_LONG: SuggestionMenuGroup[] = [{id: "chapters", items: Array.from({length: 30}, (_, index) => ({id: `ch-${String(index + 1)}`, label: `第 ${String(index + 1)} 章`, iconClass: "i-lucide-file-text", hint: `正文/第${String(index + 1)}章.md`}))}];
+const SUGGESTION_BASE = {label: "引用候选", loadingText: "正在查找…", emptyText: "没有匹配的文件"};
 
 const QUICK_ITEMS = [
     {id: "open-project", label: "打开项目", category: "项目", iconClass: "i-lucide-folder-open", shortcut: "Ctrl+O", labelMatches: [[0, 2]] as const},
@@ -145,6 +160,18 @@ export const feedbackFixtures: LabFixture[] = [
             {id: "success", label: "成功", input: {props: {tone: "success", message: "已重新连接。", dismissible: true}}},
         ],
         subject: nbUiSubject("Banner"),
+    }),
+    defineLabFixture<typeof SuggestionMenu>({
+        component: "SuggestionMenu",
+        scenes: [
+            {id: "caret", label: "贴光标（下方放得下）", input: {props: {...SUGGESTION_BASE, groups: SUGGESTION_GROUPS, activeId: "c2"}}},
+            {id: "caret-bottom", label: "贴光标（下方不够时往上翻）", input: {props: {...SUGGESTION_BASE, groups: SUGGESTION_GROUPS, activeId: "c2"}}},
+            {id: "match-width", label: "与输入框同宽", input: {props: {...SUGGESTION_BASE, groups: SUGGESTION_GROUPS, activeId: "s1"}}},
+            {id: "loading", label: "加载中（已有项照常显示）", input: {props: {...SUGGESTION_BASE, groups: SUGGESTION_GROUPS.slice(0, 1), activeId: "c1", loading: true}}},
+            {id: "empty", label: "没有结果", input: {props: {...SUGGESTION_BASE, groups: [], activeId: null}}},
+            {id: "long", label: "长列表", input: {props: {...SUGGESTION_BASE, groups: SUGGESTION_LONG, activeId: "ch-1"}}},
+        ],
+        load: async () => (await import("./SuggestionMenuFixture.vue")).default,
     }),
     defineLabFixture<typeof QuickPick>({
         component: "QuickPick",

@@ -6,7 +6,6 @@
 
 import type PromptAttachmentStrip from "nbook/plugins/markdown/web/components/prompt/PromptAttachmentStrip.vue";
 import type PromptEditor from "nbook/plugins/markdown/web/components/prompt/PromptEditor.vue";
-import type PromptMenuPanel from "nbook/plugins/markdown/web/components/prompt/PromptMenuPanel.vue";
 import type PromptPasteFrame from "nbook/plugins/markdown/web/components/prompt/PromptPasteFrame.vue";
 import type PromptTextView from "nbook/plugins/markdown/web/components/prompt/PromptTextView.vue";
 
@@ -83,27 +82,6 @@ export const promptEditorScenes: Array<Scene<typeof PromptEditor>> = [
     {id: "expanded-bare", label: "展开、无外框", input: {props: {...BASE, fill: false, bare: true, enterSubmits: false, minHeight: 220, maxHeight: 420, draft: draft(LONG_TEXT)}}},
     {id: "menu-below", label: "菜单在下方", input: {props: {...BASE, menuPlacement: "below", draft: draft("")}}},
     {id: "english", label: "英文界面", input: {props: {...BASE, locale: "en-US", placeholder: "Message, @ to reference, $ for skills, / for commands", draft: draft(`看这段：\n<paste id="1">\n${PASTE_SAMPLE}\n</paste>`)}}},
-];
-
-const MENU_ITEMS = [
-    {id: "c1", label: "第一章 雨夜", description: "正文/第一章.md", iconClass: "i-lucide-file-text", group: "正文", insertText: "[第一章 雨夜](/正文/第一章.md)"},
-    {id: "c2", label: "第二章 旧钟", description: "正文/第二章.md", iconClass: "i-lucide-file-text", group: "正文", insertText: "[第二章 旧钟](/正文/第二章.md)"},
-    {id: "l1", label: "钟表铺", description: "设定/地点/钟表铺.md", iconClass: "i-lucide-map-pin", group: "设定", insertText: "[钟表铺](/设定/地点/钟表铺.md)"},
-    {id: "l2", label: "失踪的学徒", description: "需要先打开项目", iconClass: "i-lucide-user-round", group: "设定", disabled: true, insertText: ""},
-];
-
-export const promptMenuPanelScenes: Array<Scene<typeof PromptMenuPanel>> = [
-    {id: "grouped", label: "分组与禁用", input: {props: {id: "lab-menu", locale: "zh-CN", items: MENU_ITEMS, activeId: "c2"}}},
-    {id: "titled", label: "带标题", input: {props: {id: "lab-menu", locale: "zh-CN", title: "引用", items: MENU_ITEMS.slice(0, 2), activeId: "c1"}}},
-    {id: "loading", label: "加载中", input: {props: {id: "lab-menu", locale: "zh-CN", items: [], loading: true}}},
-    {id: "loading-partial", label: "已有结果仍在加载", input: {props: {id: "lab-menu", locale: "zh-CN", items: MENU_ITEMS.slice(0, 2), activeId: "c1", loading: true}}},
-    {id: "empty", label: "没有结果", input: {props: {id: "lab-menu", locale: "zh-CN", items: [], emptyText: "没有叫“钟楼”的文件"}}},
-    {
-        id: "search",
-        label: "带搜索框",
-        input: {props: {id: "lab-menu", locale: "zh-CN", title: "输入历史", items: PROMPT_LAB_RECALL.map((entry, index) => ({id: String(index), label: entry.split("\n")[0] ?? entry, insertText: entry})), activeId: "1", search: "章", searchLabel: "搜索已发送的内容"}},
-    },
-    {id: "english", label: "英文界面", input: {props: {id: "lab-menu", locale: "en-US", items: [], loading: true}}},
 ];
 
 export const promptAttachmentStripScenes: Array<Scene<typeof PromptAttachmentStrip>> = [

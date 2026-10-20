@@ -222,9 +222,14 @@ input.nb-ui-native-input[type="number"] {
     -webkit-user-select: none;
 }
 
-/* 菜单 / 下拉的半径与投影 modifier：两者各有一档主题变量；贴边菜单项的内圈半径照上面的公式由外圈推出。 */
+/*
+ * 弹出列表（菜单、下拉、选择器、候选）的外框 modifier：半径、投影与内边距各取一档主题变量。
+ * 内边距在这里真正写出来，不交给模板上的 p-* 原子类：同心公式按 --nb-popover-pad 算，盒子的留白必须是同一个数。
+ */
 .nb-ui-menu-surface {
     --nb-popover-radius: var(--radius-menu, var(--radius-panel));
+    --nb-popover-pad: var(--menu-pad);
+    padding: var(--menu-pad);
     box-shadow: var(--elevation-menu, var(--elevation-popover));
 }
 
@@ -245,10 +250,126 @@ input.nb-ui-native-input[type="number"] {
  * 判据：把浮层的一角放大到 4 倍截图，看项的弧线与框的弧线是否平行、之间的留白是否等宽。
  * 只看 1 倍的整体图是分辨不出来的——本轮就是放大之后才确认根因的。
  *
- * 兜底 6px 是给「不在 .nb-ui-popover-surface 里面用」这种误用留的，正常路径上永远取不到。
+ * 下面 .nb-ui-menu-item 的圆角取的就是这个推出来的值；兜底 6px 是给「不在 .nb-ui-popover-surface 里面用」
+ * 这种误用留的，正常路径上永远取不到。
+ *
+ * 弹出列表的一行（w00029 t04）。六个列表的项结构不同（reka 的菜单项与选择项、普通按钮、受控的 option），共用的是行的
+ * 外观：一档行高与字号、同心圆角、中性叠色的高亮、左侧勾选列。
+ *
+ * 高亮只认 [data-highlighted]，不写 :hover：鼠标与键盘指向同一项，不会一个停在悬停处、一个停在键盘当前项。
+ * reka 的项自己挂这个属性；普通按钮项与受控列表由组件挂（MenuNodes、QuickPick、SuggestionMenu）。
+ * 展开了子菜单的父项（aria-expanded）同样画高亮：指针移进子菜单后它失去焦点，仍要看得出是从哪一项展开的。
  */
-.nb-ui-popover-item {
+.nb-ui-menu-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    height: var(--menu-item-h);
+    padding: 0 10px;
     border-radius: var(--nb-popover-inner-radius, 6px);
+    font-size: var(--menu-item-font);
+    font-weight: var(--weight-normal);
+    line-height: 16px;
+    color: var(--text-main);
+    text-align: left;
+    white-space: nowrap;
+    cursor: pointer;
+    user-select: none;
+    outline: none;
+}
+
+.nb-ui-menu-item[data-highlighted],
+.nb-ui-menu-item[aria-expanded="true"] {
+    background-color: var(--overlay-item-active);
+}
+
+.nb-ui-menu-item:disabled,
+.nb-ui-menu-item[data-disabled] {
+    cursor: not-allowed;
+    opacity: 0.4;
+}
+
+/* 带第二行或允许换行的项：最矮一档行高，由内容撑高；上下留白让单行时仍是一档行高。 */
+.nb-ui-menu-item--multiline {
+    align-items: flex-start;
+    height: auto;
+    min-height: var(--menu-item-h);
+    padding-block: calc((var(--menu-item-h) - 16px) / 2);
+    white-space: normal;
+}
+
+/* 危险项只换文字与图标的颜色；高亮底色与其它项一样是中性叠色。 */
+.nb-ui-menu-item-danger {
+    color: var(--status-danger);
+}
+
+/* 左侧勾选列：同一面板里有可勾选项时每行都留这一列，勾只画在选中的那一项；列与图标之间比项内其它间隔窄。 */
+.nb-ui-menu-item:has(> .nb-ui-menu-item__check) {
+    padding-left: 6px;
+}
+
+.nb-ui-menu-item__check {
+    display: inline-flex;
+    flex-shrink: 0;
+    justify-content: center;
+    width: 14px;
+    margin-right: -4px;
+}
+
+/*
+ * 图标与图标列的占位同宽，名称才对得齐。图标自身的类（UnoCSS 的 `i-lucide-*`）写 `width: 1em`，在应用里排在本文件之后、
+ * 同一优先级时会把它改成字号大小，所以这里多带一级父类。
+ */
+.nb-ui-menu-item > .nb-ui-menu-item__icon {
+    flex-shrink: 0;
+    width: 16px;
+    height: 16px;
+}
+
+.nb-ui-menu-item__label {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.nb-ui-menu-item--multiline .nb-ui-menu-item__label {
+    overflow-wrap: anywhere;
+}
+
+/* 快捷键或路径：右对齐、次要色；放不下时它先收（收缩系数远大于名称）。 */
+.nb-ui-menu-item__hint {
+    flex: 0 1000 auto;
+    min-width: 0;
+    margin-left: auto;
+    padding-left: 6px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-size: 12px;
+    color: var(--text-muted);
+}
+
+.nb-ui-menu-item__chevron {
+    flex-shrink: 0;
+    width: 14px;
+    height: 14px;
+    margin-left: auto;
+}
+
+.nb-ui-menu-label {
+    padding: 6px 10px 4px;
+    font-size: 11px;
+    font-weight: var(--weight-strong);
+    line-height: 14px;
+    color: var(--text-muted);
+    user-select: none;
+}
+
+.nb-ui-menu-separator {
+    height: var(--border-w);
+    margin: 4px;
+    background-color: var(--divider);
 }
 
 /*
@@ -380,14 +501,21 @@ input.nb-ui-native-input[type="number"] {
  * 所以浮层本体只管外观并 overflow: hidden，滚动交给内部这一层，并让它比外框缩进一圈：
  * 切口因此落在描边内侧，是一条正常的滚动截断，而不是压在圆角上的破口。
  *
- * 滚动条本身用标准属性染色（Chromium 121+ 与 Firefox 都认），取值从 --text-main 派生，
- * 所以任何配色下都不会剩一条系统默认的亮色滚动条压在暗色玻璃上。
+ * 原生滚动条藏起来，滑块由 PopupScrollbar 画（usePopupScroll 给几何）：原生滚动条在视口盒子里面，
+ * 会被顶底渐隐的 mask 一起吞掉。视口是外框纵向 flex 里唯一能收缩的一块（min-height: 0），
+ * 外框按可用空间夹紧时由它让出高度；圆角取同心公式推出的内圈半径。
  */
 .nb-ui-popover-scroll {
+    min-height: 0;
+    overflow-x: hidden;
     overflow-y: auto;
     overscroll-behavior: contain;
-    scrollbar-width: thin;
-    scrollbar-color: color-mix(in srgb, var(--text-main) 24%, transparent) transparent;
+    border-radius: var(--nb-popover-inner-radius, 6px);
+    scrollbar-width: none;
+}
+
+.nb-ui-popover-scroll::-webkit-scrollbar {
+    display: none;
 }
 
 /*
@@ -471,17 +599,6 @@ input.nb-ui-native-input[type="number"] {
     }
 }
 
-/*
- * 危险菜单项（DropdownMenu / ContextMenu 共用）：常驻红字，悬停/子菜单展开态用 danger 12% 底色。
- */
-.nb-ui-menu-item-danger {
-    color: var(--status-danger);
-}
-
-.nb-ui-menu-item-danger:hover:not(:disabled),
-.nb-ui-menu-item-danger.is-active {
-    background: color-mix(in srgb, var(--status-danger) 12%, transparent);
-}
 
 /* ==========================================================================
    全库组件微物理动效与关键帧动画（Micro-physics & Keyframe Animations）

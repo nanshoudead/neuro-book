@@ -4,32 +4,17 @@
  * 单实例靠操作系统的文件锁：`serve` 对 `<书库>/.serve.lock` 拿 `flock(LOCK_EX | LOCK_NB)`，拿到就一直持有到进程
  * 退出。进程怎么结束锁都会被内核放掉，所以没有“判旧再回收”的竞争；两个同时启动的 `serve` 恰有一个拿到锁。
  * 登记 `.serve.json` 只由持锁者写（临时文件改名，发布是原子的），停止时先删登记再停监听、放锁。
- * Node 没有 flock，这里经 bun:ffi 调 libc，只支持 Linux 与 macOS。
+ * flock 的细节见 src/platform/flock.ts。
  */
 
-import {dlopen, FFIType} from "bun:ffi";
 import {randomUUID} from "node:crypto";
-import {closeSync, openSync} from "node:fs";
 import {readFile, rename, rm, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
 import {systemErrorCode} from "../core/errors";
+import {tryLock} from "../platform/flock";
 import {LOCK_FILE, REGISTRATION_FILE} from "../cli/registration";
 import type {Registration} from "../cli/registration";
-
-const LOCK_EX = 2;
-const LOCK_NB = 4;
-
-let flock: ((fd: number, operation: number) => number) | undefined;
-
-function loadFlock(): (fd: number, operation: number) => number {
-    if (flock) return flock;
-    const library = process.platform === "darwin" ? "libSystem.B.dylib" : process.platform === "linux" ? "libc.so.6" : null;
-    if (!library) throw new Error(`nbstory serve 不支持 ${process.platform}（单实例要用 flock）`);
-    const {symbols} = dlopen(library, {flock: {args: [FFIType.i32, FFIType.i32], returns: FFIType.i32}});
-    flock = (fd, operation) => symbols.flock(fd, operation);
-    return flock;
-}
 
 export interface ServeLock {
     /** 写登记（临时文件改名）。 */
@@ -42,13 +27,9 @@ export interface ServeLock {
 
 /** 拿服务锁；已被别的服务持有时返回 null。 */
 export function acquireServeLock(library: string): ServeLock | null {
-    const fd = openSync(join(library, LOCK_FILE), "a");
-    if (loadFlock()(fd, LOCK_EX | LOCK_NB) !== 0) {
-        closeSync(fd);
-        return null;
-    }
+    const lock = tryLock(join(library, LOCK_FILE));
+    if (!lock) return null;
     const registrationPath = join(library, REGISTRATION_FILE);
-    let released = false;
     return {
         async publish(registration) {
             const temp = `${registrationPath}.${randomUUID()}.tmp`;
@@ -59,10 +40,7 @@ export function acquireServeLock(library: string): ServeLock | null {
             await rm(registrationPath, {force: true});
         },
         release() {
-            if (released) return;
-            released = true;
-            // 关掉文件即放锁。
-            closeSync(fd);
+            lock.release();
         },
     };
 }

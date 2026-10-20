@@ -195,9 +195,25 @@ export const COMMANDS: readonly CommandSpec[] = [
         ],
     }),
     command({
+        name: "ingest",
+        method: null,
+        summary: "导入 TXT 原文并逐章抽取；接着抽（--book）、看进度（--status）",
+        book: false,
+        paged: false,
+        positionals: [{name: "原文文件", decode: value => ({file: resolve(value)}), optional: true}],
+        options: {
+            title: {decode: text},
+            id: {decode: text},
+            book: {decode: text},
+            preview: {decode: () => true},
+            status: {decode: () => true},
+            config: {decode: value => resolve(value)},
+        },
+    }),
+    command({
         name: "config",
         method: null,
-        summary: "问答配置：init、show、set <字段> <值>、unset <字段>、test",
+        summary: "问答与抽取的配置：init、show、set <字段> <值>、unset <字段>、test",
         book: false,
         paged: false,
         positionals: [
@@ -212,6 +228,7 @@ export const COMMANDS: readonly CommandSpec[] = [
             "api-key-env": {decode: text},
             thinking: {decode: text},
             force: {decode: () => true},
+            ingest: {decode: () => true},
         },
     }),
 ];
@@ -219,7 +236,7 @@ export const COMMANDS: readonly CommandSpec[] = [
 /** 所有命令都接受的选项（不进方法参数）。 */
 export const GLOBAL_OPTIONS = new Set(["library", "json", "help"]);
 /** 不带值的开关。 */
-export const FLAGS = new Set(["json", "help", "open", "force"]);
+export const FLAGS = new Set(["json", "help", "open", "force", "preview", "status", "ingest"]);
 
 /** 选项在 `--help` 里的说明；同名选项在各命令里含义相同，所以按名字写一份。 */
 export const OPTION_HELP: Record<string, string> = {
@@ -251,6 +268,9 @@ export const OPTION_HELP: Record<string, string> = {
     "api-key-env": "存密钥的环境变量名（密钥本身不进配置）",
     thinking: "推理档：low、medium、high、xhigh；不写则请求不带推理档",
     force: "覆盖已有的配置文件",
+    preview: "只切章并列出结果，不调用模型、不写书库",
+    status: "看抽取进度；不给 --book 时列出全部",
+    ingest: "检查抽取用的模型（按 minimal、medium 两档各试一次）",
 };
 
 export function camelCase(name: string): string {
@@ -289,6 +309,7 @@ export function usage(): string {
         "",
         "通用选项：--library <目录>、--json；书级命令另有 --book <书>、--at <章或章.段>；列表命令另有 --limit、--cursor。",
         "ask 另有 --mode graph|full（图当目录或全读，默认 graph）、--config <配置文件>。",
-        "config 的动作：init（交互或用 --base-url --model --api-key-env 写配置）、show、set <字段> <值>、unset <字段>、test。",
+        "config 的动作：init（交互或用 --base-url --model --api-key-env 写配置）、show、set <字段> <值>、unset <字段>、test（加 --ingest 检查抽取模型）。",
+        "ingest 另有 --title、--id、--preview、--book <书 id>（用保存的原文接着抽）、--status、--config。",
     ].join("\n");
 }

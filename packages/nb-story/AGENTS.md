@@ -14,6 +14,8 @@
 - 不剧透的过滤只在核心库里做：查询只经 `src/core/projection.ts` 的视图取数，不直接读索引里的数组；命令行、服务与网页不另外过滤或补数据。
 - 命令行（`src/cli/`）只有 `serve` 才加载服务端代码（`src/server/`）；服务单实例靠 `flock`（`bun:ffi` 调 libc），只支持 Linux 与 macOS。
 - 书库的并发与原子性靠同一文件系统内的 `rename`（见 `src/core/library.ts` 模块头）；不要改成“先写目标再补”的写法。
+- 抽取（`src/ingest/`，[`story/ingest.md`](../../docs/specs/story/ingest.md)）的编译、“已有记录”与提示词搬自 w00005 t27、t29（来源见各模块头）。发给模型的文字（提示词、规则、“已有记录”）必须逐字不变：抽取质量是用那份文字验证的，`context.test.ts` 对照当时实际发出的请求；要改就另做质量对照。
+- 抽取的模型调用（`src/ingest/model.ts`）直接用 `openai` SDK，不经 nb-harness：OMP 一次调用里自带最多 6 次重试、端点拒绝 `minimal` 时自动降成 `low`，都关不掉，而抽取要自己按延迟表重发、不降档。抽取线程与 `nbstory ingest` 不加载 OMP：它一被导入就接管中断信号、跑完清理就退出进程，`nbstory ingest` 要等任务停下、放锁后才退出。所以问答与抽取共用的 `src/qa/config.ts` 不导入 nb-harness，转换到 nb-harness 模型的部分在 `src/qa/harness-model.ts`。
 
 ## 测试
 

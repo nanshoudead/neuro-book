@@ -32,9 +32,9 @@ export interface ServeProcess {
     exited: Promise<number>;
 }
 
-/** 启动 `serve`，等到打印出登录链接或进程先退出。 */
-export async function startServe(library: string): Promise<ServeProcess> {
-    const child = Bun.spawn(["bun", CLI, "serve", "--library", library], {stdout: "pipe", stderr: "pipe"});
+/** 启动 `serve`，等到打印出登录链接或进程先退出。`env` 补进子进程的环境变量（例如指向测试配置的 XDG_CONFIG_HOME）。 */
+export async function startServe(library: string, env: Record<string, string> = {}): Promise<ServeProcess> {
+    const child = Bun.spawn(["bun", CLI, "serve", "--library", library], {stdout: "pipe", stderr: "pipe", env: {...process.env, ...env}});
     let out = "";
     let err = "";
     const decoder = new TextDecoder();
