@@ -1,8 +1,8 @@
 ---
 schema: nbook.task/v2
 taskId: t07-cli-config
-status: planned
-updated: 2026-10-16
+status: in-progress
+updated: 2026-10-20
 ---
 
 # nb-story 命令行换 commander，加 nbstory config
@@ -20,6 +20,8 @@ updated: 2026-10-16
 
 - 2026-10-16：开发者在会话里定：换 commander；配置命令现在就做；init 可以用常和 commander 搭配的交互库（问答连续对话另立 [t08](../t08-qa-conversation/README.md) 排后面）。经 nbdev 新建，plan.md 写好，等开发者看要点。
 
+- 2026-10-20：分支 `feat/w00024-t07-cli-config`（worktree `.worktree/w00024-t07-cli-config`）实现 S1 到 S5，nb-story 测试与类型检查通过；plan.md 补了“技术选型”一节（开发者 2026-10-16 要求实施前先做选型）。`src/server/server.test.ts` 的“--json 时启动成功只输出一份 JSON”在 master 上就不稳定（12 次挂 5 次，serve 收到 SIGTERM 后以 143 退出、留下 `.serve.json`），不是本 Task 引入的，另行处理。
+
 ## 决定
 
 开发者 2026-10-16 在会话里定：
@@ -30,4 +32,4 @@ updated: 2026-10-16
 
 ## 下一步
 
-开发者确认 plan.md 要点后：建 worktree，按切片实现，交 omp 审查。
+omp 实现审查与 smoke，之后交开发者合入。
