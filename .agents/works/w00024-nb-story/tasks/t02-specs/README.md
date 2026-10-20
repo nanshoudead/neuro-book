@@ -1,8 +1,8 @@
 ---
 schema: nbook.task/v2
 taskId: t02-specs
-status: active
-updated: 2026-10-15
+status: done
+updated: 2026-10-20
 ---
 
 # nb-story 第一版的 planned Spec
@@ -17,6 +17,7 @@ updated: 2026-10-15
 
 - 2026-10-15：两份提案从 w00005 分支搬到 master（`docs/proposals/novel-story-app.md`、`novel-memory-v9.md`）：加了提案 frontmatter（accepted），正文开头的“状态”一句去掉，指向 w00005 分支上 Task 记录的链接改写成文字引用（master 上没有这些文件），登记进提案目录的活跃提案。w00005 合并回 master 时这两个文件会冲突，以 master 上的为准。
 - 2026-10-15：要点评审板 [artifacts/review/index.html](artifacts/review/index.html) v1：能力地图（`story.queries`、`story.qa`、`story.viewer`、`story.cli`）与各份要点，问四题：能力地图（`capability-map`）、阅读状态存哪里（`reading-state-store`）、知情视角里“没有记录”怎么算（`no-record-perspective`）、位置之后的原文能不能看（`source-beyond`）。
+- 2026-10-20：关闭。三份 Spec 由 [t03](../t03-impl/README.md)、[t04](../t04-polish/README.md) 实现，之后 t05 到 t07、t09 修订；同日晋升为 `implemented`。
 
 ## 设计审查（2026-10-15）
 
