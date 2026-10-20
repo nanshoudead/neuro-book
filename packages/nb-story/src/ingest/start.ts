@@ -4,7 +4,7 @@
  */
 
 import {StoryError} from "../core/errors";
-import {bookIdFromTitle, type Library} from "../core/library";
+import {bookIdFromTitle, isValidBookId, type Library} from "../core/library";
 import {readCommitted} from "./job";
 import {IngestStore, type IngestSource} from "./store";
 import {countChars, splitChapters} from "./text";
@@ -26,13 +26,11 @@ export interface IngestPlan {
     source: IngestSource | null;
 }
 
-const BOOK_ID = /^[a-z0-9][a-z0-9-]{0,63}$/u;
-
 /** 从原文判定。`title` 不给时由调用方先用文件名补上；`id` 不给时由书名得到。 */
 export async function planFromText(library: Library, input: {text: string; title: string; id?: string}): Promise<IngestPlan> {
     const split = splitChapters(input.text);
     const id = input.id ?? bookIdFromTitle(input.title);
-    if (!BOOK_ID.test(id)) throw new StoryError("invalid_params", `书 id 只能用小写字母、数字与短横线：${id}`);
+    if (!isValidBookId(id)) throw new StoryError("invalid_params", `书 id 只能用小写字母、数字与短横线：${id}`);
     const store = new IngestStore(library, id);
     const existing = await store.readSource();
     const listing = split.chapters.map(chapter => ({chapter: chapter.chapter, title: chapter.title, chars: countChars(chapter.paragraphs.join(""))}));
@@ -67,6 +65,7 @@ export async function planFromText(library: Library, input: {text: string; title
 
 /** 不给原文，用保存的原文接着抽。 */
 export async function planFromSaved(library: Library, id: string): Promise<IngestPlan> {
+    if (!isValidBookId(id)) throw new StoryError("invalid_params", `书 id 只能用小写字母、数字与短横线：${id}`);
     const existing = await new IngestStore(library, id).readSource();
     if (!existing) throw new StoryError("book_not_found", `书 ${id} 没有抽取记录`);
     const {data} = await readCommitted(library, id);

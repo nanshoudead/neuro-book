@@ -41,6 +41,8 @@ export interface ChapterRun {
     fetch?: CallOptions["fetch"];
     /** 每一步开始时调用。 */
     onStep?: (step: Step) => void;
+    /** 每次 HTTP 尝试发出之前调用（用来记“发出过”）。 */
+    onAttemptStart?: (step: Step, attempt: number) => void | Promise<void>;
     /** 每次 HTTP 尝试结束时调用（成功或失败），用来记用量。 */
     onAttempt?: (step: Step, attempt: Attempt) => void;
     onRetry?: (step: Step, info: {attempt: number; waitMs: number; error: ModelError}) => void;
@@ -62,6 +64,9 @@ export interface ChapterResult {
     dropped: number;
     /** 提交时这一章还剩的问题（都是警告）。 */
     remaining: Issue[];
+    /** 已提交的各章加上这一章编译出的数据集，与这次编译的全部问题（不只本章）。 */
+    dataset: Dataset;
+    issues: Issue[];
 }
 
 const MAX_REVIEWS = 1;
@@ -91,6 +96,9 @@ function asker(run: ChapterRun, chapter: number): Ask {
         for (let round = 1; ; round++) {
             const reply = await callModel(run.endpoint, {
                 system: systemPrompt, user, effort, signal: run.signal, sleep: run.sleep, fetch: run.fetch,
+                // 请求头里的身份：章、步骤、这一步的第几次（不成形时重发算下一次；渠道重发不变）。
+                tag: `${chapter}/${step}/${round}`,
+                onAttemptStart: attempt => run.onAttemptStart?.(step, attempt),
                 onAttempt: attempt => run.onAttempt?.(step, attempt),
                 onRetry: info => run.onRetry?.(step, info),
             });
@@ -174,23 +182,25 @@ export async function extractChapter(input: ChapterInput, run: ChapterRun): Prom
         }
         await patchWith("repair", state.problems.map((problem, index) => `C${index + 1} [结构] ${problem.message}`));
     }
-    const final = input.compileWith(draft).issues;
-    const errors = chapterIssues(final, chapter).filter(issue => issue.level === "error");
+    const final = input.compileWith(draft);
+    const errors = chapterIssues(final.issues, chapter).filter(issue => issue.level === "error");
     if (errors.length) throw new IngestBadReply("repair", `第 ${chapter} 章仍有错误：${errors.map(issue => issue.message).join("；")}`);
-    return {draft, rounds, dropped, remaining: final.filter(issue => issue.chapter === chapter)};
+    return {draft, rounds, dropped, remaining: final.issues.filter(issue => issue.chapter === chapter), dataset: final.dataset, issues: final.issues};
 }
 
 /**
  * 整理（输出 7）：模型读截至本章的记忆图，输出对象合并、各方面的归纳与主线。不合格时返回 null（跳过这一次，问题记进
- * `problems`），不让这一章失败。`dataset` 是加上本章草稿后编译出的数据集；`compileWith` 加上这份整理稿再编译，用来确认
- * 它不引入错误。
+ * `problems`），不让这一章失败。`dataset` 是加上本章草稿后编译出的数据集；`compileWith` 加上这份整理稿再编译。
+ *
+ * 整理稿让整份数据出现任何错误都算不合格，不只看本章：合并对象会改动所有引用，可能让早先各章的账本累加对不上
+ * （实现审查第 11 条）。合格时一并交回加上整理稿的数据集与它的全部问题；跳过时 `issues` 为空，调用方用本章的。
  */
 export async function consolidate(
     chapter: number,
     dataset: Dataset,
     compileWith: (consolidation: unknown) => CompileResult,
     run: ChapterRun,
-): Promise<{consolidation: unknown | null; problems: string[]}> {
+): Promise<{consolidation: unknown | null; problems: string[]; dataset: Dataset; issues: Issue[]}> {
     const ask = asker(run, chapter);
     const details = dataset.episodes.map(item => `${item.id}（${item.at.chapter}.${item.at.paragraph}）${item.title}：${item.summary}`).join("\n");
     // 整理稿沿用原管线的系统提示词（不带 v2 的“消息的安排”），也不走本章的共用开头。
@@ -199,13 +209,14 @@ export async function consolidate(
         reply = await ask("consolidation", system, consolidationPrompt({through: chapter, context: renderContext(dataset, chapter), details, nextArc: `a${chapter}-1`}), "medium", candidate => isObject(candidate.json));
     } catch (error) {
         // 整理的回复重发一次后仍不成形：跳过这一次，不让这一章失败（输出 7）。渠道失败与停止照常往外抛。
-        if (error instanceof IngestBadReply) return {consolidation: null, problems: [`${error.message}，这一次整理跳过`]};
+        if (error instanceof IngestBadReply) return {consolidation: null, problems: [`${error.message}，这一次整理跳过`], dataset, issues: []};
         throw error;
     }
     const cleaned = sanitizeConsolidation(reply, chapter, dataset);
     const parsed = parseWith(ConsolidationSchema, cleaned.value);
-    if (!parsed.ok) return {consolidation: null, problems: [...cleaned.dropped, `整理稿格式不合格，这一次跳过：${parsed.problems[0]?.path} ${parsed.problems[0]?.message}`]};
-    const errors = compileWith(cleaned.value).issues.filter(issue => issue.level === "error" && issue.chapter === chapter);
-    if (errors.length) return {consolidation: null, problems: [...cleaned.dropped, `整理稿带来错误，这一次跳过：${errors.map(issue => issue.message).join("；")}`]};
-    return {consolidation: cleaned.value, problems: cleaned.dropped};
+    if (!parsed.ok) return {consolidation: null, problems: [...cleaned.dropped, `整理稿格式不合格，这一次跳过：${parsed.problems[0]?.path} ${parsed.problems[0]?.message}`], dataset, issues: []};
+    const compiled = compileWith(cleaned.value);
+    const errors = compiled.issues.filter(issue => issue.level === "error");
+    if (errors.length) return {consolidation: null, problems: [...cleaned.dropped, `整理稿带来错误，这一次跳过：${errors.map(issue => issue.message).join("；")}`], dataset, issues: []};
+    return {consolidation: cleaned.value, problems: cleaned.dropped, dataset: compiled.dataset, issues: compiled.issues};
 }

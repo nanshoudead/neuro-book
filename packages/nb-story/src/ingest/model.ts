@@ -78,8 +78,17 @@ export interface CallOptions {
     user: string;
     effort: IngestEffort;
     signal?: AbortSignal;
+    /**
+     * 每次 HTTP 尝试发出之前调用，等它完成才发请求：进程在这次尝试中途被杀时，账上一定已经留下“发出过、用量不知道”。
+     * 它失败时请求不发，错误原样抛给调用方。
+     */
+    onAttemptStart?: (attempt: number) => void | Promise<void>;
     /** 每次 HTTP 尝试结束时调用（成功或失败），用来记账。 */
     onAttempt?: (attempt: Attempt) => void;
+    /** 这次调用的身份（写进请求头 `X-Nbstory-Step`），渠道重发时不变。 */
+    tag?: string;
+    /** 一次 HTTP 尝试的时限；默认 10 分钟。 */
+    timeoutMs?: number;
     /** 决定重发、开始等待时调用。 */
     onRetry?: (info: {attempt: number; waitMs: number; error: ModelError}) => void;
     /** 等待；测试注入，默认真的等。被中止时 reject。 */
@@ -94,7 +103,10 @@ export const RETRY_DELAYS_MS = [30_000, 60_000, 120_000, 180_000, 300_000];
 /** 连续这么多个空白字符，判定为“跑飞”：模型写坏一段 JSON 后只输出空白，直到输出上限。 */
 export const RUNAWAY_WHITESPACE = 2000;
 
-const REQUEST_TIMEOUT_MS = 600_000;
+/** 一次 HTTP 尝试（含读完整个流）的时限。 */
+const ATTEMPT_TIMEOUT_MS = 600_000;
+/** 请求头里写这次调用的身份（章、步骤、轮次）：渠道重发时不变。只是诊断信息，服务可以忽略；回放端点按它认请求。 */
+export const STEP_HEADER = "X-Nbstory-Step";
 /** 错误文字里回显的密钥换成它（与 nb-harness 的 `REDACTED_KEY` 相同）。 */
 const REDACTED_KEY = "[REDACTED]";
 const NETWORK_STATUSES = new Set([408, 502, 503, 504, 520, 521, 522, 523, 524]);
@@ -117,9 +129,23 @@ function defaultSleep(ms: number, signal?: AbortSignal): Promise<void> {
     });
 }
 
+const redactKey = (text: string, apiKey: string) => (apiKey === "" ? text : text.split(apiKey).join(REDACTED_KEY));
+
+/**
+ * 给 SDK 的日志：每一项都先遮盖密钥再写到标准错误。SDK 解析坏的流数据时会把原始数据打进日志，早于本层归类错误时的
+ * 遮盖（实现审查第 6 条）。
+ */
+function redactingLogger(apiKey: string) {
+    const write = (level: string) => (...args: unknown[]) => {
+        const text = args.map(arg => (typeof arg === "string" ? arg : arg instanceof Error ? arg.message : JSON.stringify(arg))).join(" ");
+        console.error(`[openai ${level}] ${redactKey(text, apiKey)}`);
+    };
+    return {error: write("error"), warn: write("warn"), info: write("info"), debug: write("debug")};
+}
+
 /** 把服务的错误归成 Spec 的 `kind`（与 nb-harness 的归类同口径）；错误文字里回显的密钥遮盖掉。 */
 function classify(error: unknown, apiKey: string): ModelError {
-    const redact = (text: string) => (apiKey === "" ? text : text.split(apiKey).join(REDACTED_KEY));
+    const redact = (text: string) => redactKey(text, apiKey);
     if (error instanceof OpenAI.APIConnectionTimeoutError) return new ModelError("network", null, "请求超时");
     if (error instanceof OpenAI.APIConnectionError) return new ModelError("network", null, redact(`连接失败：${error.message}`));
     if (error instanceof OpenAI.APIError) {
@@ -161,7 +187,8 @@ export async function callModel(endpoint: ModelEndpoint, options: CallOptions): 
         apiKey: endpoint.apiKey,
         baseURL: endpoint.baseUrl,
         maxRetries: 0,
-        timeout: REQUEST_TIMEOUT_MS,
+        timeout: ATTEMPT_TIMEOUT_MS,
+        logger: redactingLogger(endpoint.apiKey),
         ...(options.fetch ? {fetch: options.fetch} : {}),
     });
     const sleep = options.sleep ?? defaultSleep;
@@ -179,19 +206,34 @@ export async function callModel(endpoint: ModelEndpoint, options: CallOptions): 
 
 type AttemptOutcome = {ok: true; reply: ModelReply} | {ok: false; error: ModelError};
 
+/**
+ * 一次 HTTP 尝试。流为什么停下决定结果，按这个先后判断：用户停止 → 跑飞 → 超时 → 出错 → 没有结束原因 → 正常结束。
+ * SDK 遇到中止时有时让迭代正常结束、不抛错（计划审查后的实现审查第 7 条），所以不能只在 catch 里认停止，要看
+ * 中止是谁发起的。
+ */
 async function attemptOnce(client: OpenAI, endpoint: ModelEndpoint, options: CallOptions, attempt: number): Promise<AttemptOutcome> {
+    await options.onAttemptStart?.(attempt);
     const started = Date.now();
-    // 跑飞时自己中止这次请求；外面的停止信号也接到同一个控制器上。
     const controller = new AbortController();
-    const forward = () => controller.abort();
-    options.signal?.addEventListener("abort", forward, {once: true});
+    let abortedBy: "stop" | "runaway" | "timeout" | null = null;
+    const abort = (why: "stop" | "runaway" | "timeout") => {
+        abortedBy ??= why;
+        controller.abort();
+    };
+    const onStop = () => abort("stop");
+    options.signal?.addEventListener("abort", onStop, {once: true});
+    // SDK 的 timeout 只管到收到响应头为止，流开始之后就没有计时了；这里的计时覆盖整个流。
+    const timer = setTimeout(() => abort("timeout"), options.timeoutMs ?? ATTEMPT_TIMEOUT_MS);
     const usage: AttemptUsage = {input: 0, output: 0, cacheRead: 0, complete: false};
     const record = (error: ModelError | null) => options.onAttempt?.({attempt, ms: Date.now() - started, usage, error});
     let text = "";
     let finishReason: string | null = null;
     let trailingWhitespace = 0;
-    let runaway = false;
+    /** 收到响应头、开始读流了：之后出的不是 API 错误的异常，都是读流时连接出了事。 */
+    let streaming = false;
+    let failure: unknown = null;
     try {
+        if (options.signal?.aborted) abort("stop");
         const stream = await client.chat.completions.create(
             {
                 model: endpoint.model,
@@ -202,8 +244,9 @@ async function attemptOnce(client: OpenAI, endpoint: ModelEndpoint, options: Cal
                 reasoning_effort: options.effort,
                 response_format: {type: "json_object"},
             },
-            {signal: controller.signal},
+            {signal: controller.signal, ...(options.tag ? {headers: {[STEP_HEADER]: options.tag}} : {})},
         );
+        streaming = true;
         for await (const chunk of stream) {
             if (chunk.usage) {
                 usage.input = chunk.usage.prompt_tokens;
@@ -218,41 +261,38 @@ async function attemptOnce(client: OpenAI, endpoint: ModelEndpoint, options: Cal
                 const tail = delta.length - delta.trimEnd().length;
                 trailingWhitespace = tail === delta.length ? trailingWhitespace + tail : tail;
                 if (trailingWhitespace >= RUNAWAY_WHITESPACE) {
-                    // 离开循环会取消响应体，服务才不会一直输出到上限。
-                    runaway = true;
-                    controller.abort();
+                    // 中止并离开循环会取消响应体，服务才不会一直输出到上限。
+                    abort("runaway");
                     break;
                 }
             }
             if (choice?.finish_reason) finishReason = choice.finish_reason;
         }
     } catch (error) {
-        options.signal?.removeEventListener("abort", forward);
-        if (options.signal?.aborted) {
-            usage.complete = false;
-            record(new ModelError("local", null, "被中止"));
-            throw new ModelAborted();
-        }
-        if (!runaway) {
-            usage.complete = false;
-            const classified = classify(error, endpoint.apiKey);
-            record(classified);
-            return {ok: false, error: classified};
-        }
+        failure = error;
+    } finally {
+        clearTimeout(timer);
+        options.signal?.removeEventListener("abort", onStop);
     }
-    options.signal?.removeEventListener("abort", forward);
-    if (runaway) {
+
+    const fail = (error: ModelError): AttemptOutcome => {
         usage.complete = false;
-        const error = new ModelError("network", null, `模型跑飞：写了 ${text.length - trailingWhitespace} 个字之后只输出空白`);
         record(error);
         return {ok: false, error};
-    }
-    if (finishReason === null) {
+    };
+    if (abortedBy === "stop") {
         usage.complete = false;
-        const error = new ModelError("network", null, "回复的流没有结束原因就断了");
-        record(error);
-        return {ok: false, error};
+        record(new ModelError("local", null, "被中止"));
+        throw new ModelAborted();
     }
+    if (abortedBy === "runaway") return fail(new ModelError("network", null, `模型跑飞：写了 ${text.length - trailingWhitespace} 个字之后只输出空白`));
+    if (abortedBy === "timeout") return fail(new ModelError("network", null, `一次请求超过 ${Math.round((options.timeoutMs ?? ATTEMPT_TIMEOUT_MS) / 1000)} 秒没有结束`));
+    if (failure !== null) {
+        // 读流时连接断了（Bun 直接从响应体抛出，SDK 不包装）：按网络失败重发，不看错误文字。
+        if (streaming && !(failure instanceof OpenAI.APIError)) return fail(new ModelError("network", null, redactKey(`读回复的流时连接断了：${failure instanceof Error ? failure.message : String(failure)}`, endpoint.apiKey)));
+        return fail(classify(failure, endpoint.apiKey));
+    }
+    if (finishReason === null) return fail(new ModelError("network", null, "回复的流没有结束原因就断了"));
     record(null);
     return {ok: true, reply: {text, finishReason, json: parseJsonObject(text)}};
 }

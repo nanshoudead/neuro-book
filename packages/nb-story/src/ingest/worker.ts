@@ -8,15 +8,14 @@
 
 import {Library} from "../core/library";
 import {runIngest, type IngestEvent, type JobOutcome} from "./job";
-import type {UsageLine} from "./store";
-import {IngestStore} from "./store";
+import {IngestStore, type Price} from "./store";
 
 export interface WorkerStart {
     type: "start";
     libraryRoot: string;
     id: string;
     endpoint: {baseUrl: string; model: string; apiKeyEnv: string; maxTokens: number};
-    price: UsageLine["price"];
+    price: Price | null;
     run: string;
     /** 一个 Int32：非 0 表示要停。 */
     stop: SharedArrayBuffer;

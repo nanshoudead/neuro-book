@@ -6,9 +6,11 @@
  * （core/library.ts 的 commitExtraction）。所以进程在任何时刻被杀，这里的内容与书都不会互相矛盾：state.json 落后了
  * 只是显示旧的步骤，进度永远以书为准（status.ts）。
  *
- *   source.json   切好的原文与书名；有它即占用这个 id（第 1 章还没提交也算）
- *   usage.jsonl   每次 HTTP 尝试一行，只追加：章、步骤、用量、当时的单价
- *   state.json    瞬时状态：由谁运行、当前章与步骤、在等的重试、停下的原因
+ *   source.json    切好的原文与书名；有它即占用这个 id（第 1 章还没提交也算）
+ *   usage.jsonl    每次 HTTP 尝试两行，只追加：发出前一行“开始”，结束后一行“结算”（用量、当时的单价）。只有开始
+ *                  没有结算的，是进程在这次请求中途被杀：用量不知道，合计标为不完整
+ *   activity.jsonl 任务与每章每次尝试的起止时间，只追加：用时按它算，作废的尝试也算在内
+ *   state.json     瞬时状态：由谁运行、当前章与步骤、在等的重试、停下的原因
  *
  * 锁文件放在不随抽取记录删除的 `.locks/` 里：flock 锁的是 inode，锁文件跟着记录一起删掉再建，就会出现两把互不
  * 排他的锁（w00024 t06 计划审查第 3 条）。
@@ -32,21 +34,19 @@ export interface IngestSource {
     createdAt: string;
 }
 
-/** 一次 HTTP 尝试的用量记账。价格记下当时的，以后改了配置也不改历史费用。 */
-export interface UsageLine {
-    run: string;
-    chapter: number;
-    step: string;
-    attempt: number;
-    ms: number;
-    input: number;
-    output: number;
-    cacheRead: number;
-    complete: boolean;
-    error: string | null;
-    price: {input: number; output: number; cacheRead?: number; currency: string} | null;
-    at: string;
-}
+export type Price = {input: number; output: number; cacheRead?: number; currency: string};
+
+/** 一次 HTTP 尝试的用量记账：发出前写 `start`，结束后写 `end`（同一个 `id`）。价格记下当时的，以后改了配置也不改历史费用。 */
+export type UsageLine =
+    | {kind: "start"; id: string; run: string; chapter: number; step: string; attempt: number; at: string}
+    | {kind: "end"; id: string; run: string; chapter: number; step: string; attempt: number; at: string; ms: number; input: number; output: number; cacheRead: number; complete: boolean; error: string | null; price: Price | null};
+
+/** 任务与每章每次尝试的起止。章的 `outcome`：提交、停下、失败。 */
+export type ActivityLine =
+    | {kind: "run-start"; run: string; at: string}
+    | {kind: "run-end"; run: string; at: string}
+    | {kind: "chapter-start"; run: string; chapter: number; at: string}
+    | {kind: "chapter-end"; run: string; chapter: number; at: string; outcome: "committed" | "stopped" | "failed"};
 
 export type RunnerKind = "cli" | "serve";
 
@@ -100,10 +100,15 @@ export class IngestStore {
     }
 
     /**
-     * 占用这个 id：原文写进临时目录，整个改名成抽取记录目录。之后再看一眼同 id 的书：导入同时占了它，就退回
-     * （与 Library.publishNewBook 的检查对称，两边同时发生时至少一边退回）。调用方持锁。
+     * 占用这个 id：原文写进临时目录，整个改名成抽取记录目录。调用方持这个 id 的锁，导入也要拿同一把锁，所以这里看到
+     * 没有同 id 的书，改名之前就不会冒出来。
      */
     async claim(source: IngestSource): Promise<void> {
+        const book = await this.#library.readMeta(this.id).then(() => true, (error: unknown) => {
+            if (error instanceof StoryError && error.code === "book_not_found") return false;
+            throw error;
+        });
+        if (book) throw new StoryError("book_exists", `书 id ${this.id} 已被导入占用`);
         const parent = join(this.#library.root, ".ingest");
         await mkdir(parent, {recursive: true});
         const staging = join(parent, `.claim-${randomUUID()}`);
@@ -116,14 +121,6 @@ export class IngestStore {
             const code = systemErrorCode(error);
             if (code === "ENOTEMPTY" || code === "EEXIST") throw new StoryError("book_exists", `书 id ${this.id} 已被占用`, {cause: error});
             throw error;
-        }
-        const book = await this.#library.readMeta(this.id).then(() => true, (error: unknown) => {
-            if (error instanceof StoryError && error.code === "book_not_found") return false;
-            throw error;
-        });
-        if (book) {
-            await this.discard();
-            throw new StoryError("book_exists", `书 id ${this.id} 已被导入占用`);
         }
     }
 
@@ -138,14 +135,26 @@ export class IngestStore {
         await appendFile(join(this.dir, "usage.jsonl"), `${JSON.stringify(line)}\n`);
     }
 
-    async readUsage(): Promise<UsageLine[]> {
+    async appendActivity(line: ActivityLine): Promise<void> {
+        await appendFile(join(this.dir, "activity.jsonl"), `${JSON.stringify(line)}\n`);
+    }
+
+    readUsage(): Promise<UsageLine[]> {
+        return this.readLines<UsageLine>("usage.jsonl");
+    }
+
+    readActivity(): Promise<ActivityLine[]> {
+        return this.readLines<ActivityLine>("activity.jsonl");
+    }
+
+    private async readLines<T>(name: string): Promise<T[]> {
         try {
-            const text = await readFile(join(this.dir, "usage.jsonl"), "utf8");
+            const text = await readFile(join(this.dir, name), "utf8");
             // 进程在写一行的中间被杀，最后一行可能不完整：只取完整的行。
             return text.split("\n").flatMap(line => {
                 if (line === "") return [];
                 try {
-                    return [JSON.parse(line) as UsageLine];
+                    return [JSON.parse(line) as T];
                 } catch {
                     return [];
                 }
@@ -171,10 +180,4 @@ export class IngestStore {
         }
     }
 
-    /** 退回占用：抽取记录目录改名移走再删。 */
-    private async discard(): Promise<void> {
-        const trash = join(this.#library.root, ".ingest", `.removed-${randomUUID()}`);
-        await rename(this.dir, trash);
-        await rm(trash, {recursive: true, force: true});
-    }
 }

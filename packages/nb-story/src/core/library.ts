@@ -11,12 +11,13 @@
  *   <书库>/<书 id>/reading.json          ReadingState
  *   <书库>/<书 id>/qa/                   问答记录（qa-records.ts）
  *   <书库>/.ingest/<书 id>/              抽取记录：原文、用量、瞬时状态（src/ingest/store.ts）；有它即占用这个 id
+ *   <书库>/.locks/<书 id>.lock           这个 id 的独占锁（IdCoordinator，抽取任务也用它）；永不删除
  *
  * 并发与原子性都靠同一个文件系统内的 rename：
  * - 导入先写进 `.importing-<随机>/`，写完整个目录改名成 `<书 id>/`。目标已存在时改名失败，于是同一个 id 的并发
  *   导入只有一次成功；进程中途被杀只留下临时目录，`books.list` 只列正式目录，看不到半本书。中途退出留下的临时
- *   目录不自动清：判断不了它的主人是否还活着，留着只占磁盘，不影响任何查询。抽取占用 id 也是整个目录改名
- *   （`.ingest/<书 id>/`）；导入与抽取各自改名成功后再看一眼对方，看到了就退回，两边同时发生时至少一边退回。
+ *   目录不自动清：判断不了它的主人是否还活着，留着只占磁盘，不影响任何查询。注入了 IdCoordinator 时，导入、
+ *   抽取占用（整个目录改名成 `.ingest/<书 id>/`）与删除都在这个 id 的独占权里判定与发布。
  * - 书目录里只有 `book.json` 与数据文件会变：抽取每提交一章，先写新版本的数据文件，再把 `book.json` 改名替换成
  *   指向它的一份（这一下就是提交），最后删旧版本的数据文件。导入的书只有版本 1，不再变。
  * - 删除先把目录改名成 `.removed-<随机>/`，再递归删。改名之后这个 id 立刻可以重新导入。
@@ -41,6 +42,11 @@ export const LIBRARY_FORMAT = 1;
 /** 界面状态的上限（JSON 序列化后的字节数）。 */
 export const MAX_VIEW_BYTES = 64 * 1024;
 const BOOK_ID_PATTERN = /^[a-z0-9][a-z0-9-]{0,63}$/u;
+
+/** 书 id 的写法：小写字母、数字与短横线。id 会拼进书库里的路径，任何文件操作之前都要先过这一关。 */
+export function isValidBookId(id: string): boolean {
+    return BOOK_ID_PATTERN.test(id);
+}
 
 export interface BookMeta {
     format: number;
@@ -76,10 +82,16 @@ export interface ExtractionCommit {
 }
 
 /**
- * 删除前的检查：别的进程正在抽这个 id 时返回 null（删除报 `ingest_running`）；否则返回放行的凭据，删完调用。
- * 核心库只用 Node 的 API，判断“有没有进程在抽”要用 flock，由命令行与独立服务注入（src/ingest/lock.ts）。
+ * 书 id 的协调者：导入、抽取占用与删除都先拿这个 id 的独占权，在里面判定、发布，所以同一个 id 上的这几件事不会
+ * 交错（不会先发布一本注定要撤回的书）。核心库只用 Node 的 API，独占权要用 flock，由命令行与独立服务注入
+ * （src/ingest/coordinator.ts）；不跑抽取的宿主不注入，导入与删除照旧。
  */
-export type RemoveGuard = (id: string) => Promise<{release(): Promise<void>} | null>;
+export interface IdCoordinator {
+    /** 拿这个 id 的独占权（与抽取任务用同一把锁）；被占着时返回 null。 */
+    lock(id: string): Promise<{release(): void} | null>;
+    /** 删除前停下本进程里这个 id 的抽取任务，并等它放锁。 */
+    stopLocal?(id: string): Promise<void>;
+}
 
 export interface ReadingState {
     position: PositionInput;
@@ -115,11 +127,11 @@ async function readJson(path: string): Promise<unknown> {
 
 export class Library {
     readonly root: string;
-    readonly #removeGuard: RemoveGuard | undefined;
+    readonly #coordinator: IdCoordinator | undefined;
 
-    constructor(root: string = defaultLibraryRoot(), options: {removeGuard?: RemoveGuard} = {}) {
+    constructor(root: string = defaultLibraryRoot(), options: {coordinator?: IdCoordinator} = {}) {
         this.root = root;
-        this.#removeGuard = options.removeGuard;
+        this.#coordinator = options.coordinator;
     }
 
     /** 这个 id 的抽取记录目录（不检查存在）。 */
@@ -217,7 +229,6 @@ export class Library {
         await this.assertWritable();
         const id = input.id ?? bookIdFromTitle(input.title);
         if (!BOOK_ID_PATTERN.test(id)) throw new StoryError("invalid_params", `书 id 只能用小写字母、数字与短横线：${id}`);
-        if (await this.hasIngest(id)) throw new StoryError("book_exists", `书 id ${id} 已被抽取占用`);
         let bytes: Buffer;
         try {
             bytes = await readFile(input.file);
@@ -249,8 +260,47 @@ export class Library {
             graph: "graph.json",
         };
 
-        await this.publishNewBook(id, generation, meta, [["graph.json", bytes]]);
+        const hold = this.#coordinator ? await this.#coordinator.lock(id) : {release: () => undefined};
+        if (!hold) throw new StoryError("book_exists", `书 id ${id} 正在抽取`);
+        try {
+            if (await this.hasIngest(id)) throw new StoryError("book_exists", `书 id ${id} 已被抽取占用`);
+            await this.publishNewBook(id, generation, meta, [["graph.json", bytes]]);
+        } finally {
+            hold.release();
+        }
         return {id, generation};
+    }
+
+    /** 书库可写：格式认识（不认识时报 `unsupported_format`，书库只读）。抽取在写任何东西、发任何请求之前先过这一关。 */
+    async ensureWritable(): Promise<void> {
+        await this.assertWritable();
+    }
+
+    /**
+     * 读这本书当前已提交的抽取数据（core 不解析内容，交回原文）：与 pinBook 同样“读 meta → 打开 → 再读 meta”，
+     * 提交回收了旧文件或换了版本就重来。书不存在为 null；书不是抽取得来的，`text` 为 null。
+     */
+    async readExtraction(id: string): Promise<{meta: BookMeta; text: string | null} | null> {
+        if (!BOOK_ID_PATTERN.test(id)) return null;
+        for (let attempt = 0; attempt < 5; attempt += 1) {
+            const before = await this.readMetaOrNull(id);
+            if (!before) return null;
+            if (!before.extraction) return {meta: before, text: null};
+            let handle: FileHandle;
+            try {
+                handle = await open(join(this.root, id, before.extraction.file), "r");
+            } catch (error) {
+                if (systemErrorCode(error) === "ENOENT" || systemErrorCode(error) === "ENOTDIR") continue;
+                throw error;
+            }
+            try {
+                const after = await this.readMetaOrNull(id);
+                if (after && after.generation === before.generation && after.revision === before.revision) return {meta: after, text: await handle.readFile("utf8")};
+            } finally {
+                await handle.close();
+            }
+        }
+        throw new StoryError("book_not_found", `书 ${id} 正在被反复提交或删除，没能读到一致的抽取数据`);
     }
 
     /**
@@ -277,6 +327,7 @@ export class Library {
             return {generation, revision: 1};
         }
         const current = await this.readMeta(commit.id);
+        assertBookFormat(current);
         if (current.generation !== commit.generation) throw new StoryError("book_not_found", `书 ${commit.id} 已被删除或换了一代`);
         const revision = current.revision + 1;
         const dir = this.bookDir(commit.id);
@@ -304,10 +355,7 @@ export class Library {
         }
     }
 
-    /**
-     * 新书：写进临时目录，整个改名成书目录。目标已存在时报 `book_exists`。改名之后再看一眼这个 id 有没有抽取记录：
-     * 与抽取同时占用同一个 id 时，至少一边会看到另一边并退回（抽取那边的对称检查见 src/ingest/store.ts）。
-     */
+    /** 新书：写进临时目录，整个改名成书目录。目标已存在时报 `book_exists`。 */
     private async publishNewBook(id: string, generation: string, meta: BookMeta, files: [string, Buffer][]): Promise<void> {
         await mkdir(this.root, {recursive: true});
         const staging = join(this.root, `.importing-${generation}`);
@@ -323,10 +371,6 @@ export class Library {
                 throw new StoryError("book_exists", `书 id ${id} 已被占用`, {cause: error});
             }
             throw error;
-        }
-        if (meta.extraction === undefined && (await this.hasIngest(id))) {
-            await this.discard(id);
-            throw new StoryError("book_exists", `书 id ${id} 已被抽取占用`);
         }
     }
 
@@ -344,13 +388,15 @@ export class Library {
     async removeBook(id: string): Promise<void> {
         await this.assertWritable();
         if (!BOOK_ID_PATTERN.test(id)) throw new StoryError("book_not_found", `书库里没有书 ${id}`);
-        const meta = await this.readMetaOrNull(id);
-        const ingest = await this.hasIngest(id);
-        if (!meta && !ingest) throw new StoryError("book_not_found", `书库里没有书 ${id}`);
-        if (meta) assertBookFormat(meta);
-        const pass = this.#removeGuard ? await this.#removeGuard(id) : {release: async () => undefined};
+        await this.#coordinator?.stopLocal?.(id);
+        const pass = this.#coordinator ? await this.#coordinator.lock(id) : {release: () => undefined};
         if (!pass) throw new StoryError("ingest_running", `书 ${id} 正在别的进程里抽取，先在那里停下它`);
         try {
+            // 拿到独占权之后再看书与抽取记录：等待期间本进程的任务可能刚好发布了第 1 章（实现审查第 1 条）。
+            const meta = await this.readMetaOrNull(id);
+            const ingest = await this.hasIngest(id);
+            if (!meta && !ingest) throw new StoryError("book_not_found", `书库里没有书 ${id}`);
+            if (meta) assertBookFormat(meta);
             if (meta) {
                 try {
                     await this.discard(id);
@@ -366,7 +412,7 @@ export class Library {
                 });
             }
         } finally {
-            await pass.release();
+            pass.release();
         }
     }
 

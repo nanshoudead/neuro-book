@@ -14,6 +14,12 @@ export type EndpointReply =
     | {kind: "cut"; text: string}
     /** HTTP 200 开始流，流到一半发一个错误事件（luna 渠道的 upstream_error 就是这样）。 */
     | {kind: "stream-error"; message: string}
+    /** 先给这段文字，然后不再输出也不结束，直到请求被取消（卡住的流）。 */
+    | {kind: "stall"; text: string}
+    /** 已经发了文字、结束原因与用量，但不发结束标记、不关连接，直到请求被取消。 */
+    | {kind: "finish-then-hang"; text: string}
+    /** 原样发这段流正文（用来发坏的流数据）。 */
+    | {kind: "raw"; body: string}
     /** 回错误状态码；`echoKey` 时错误正文里原样带上收到的认证头。 */
     | {kind: "status"; status: number; echoKey?: boolean}
     /** 不回应，直到请求被取消。 */
@@ -34,8 +40,8 @@ function sse(chunks: object[]): string {
     return `${chunks.map(chunk => `data: ${JSON.stringify({id: "c", object: "chat.completion.chunk", created: 0, model: "m", ...chunk})}\n\n`).join("")}data: [DONE]\n\n`;
 }
 
-/** 按请求正文决定回复；`index` 是这是第几次请求（从 0 起）。 */
-export type Responder = (body: Record<string, unknown>, index: number) => EndpointReply;
+/** 按请求决定回复；`index` 是这是第几次请求（从 0 起）。 */
+export type Responder = (body: Record<string, unknown>, index: number, headers: Headers) => EndpointReply;
 
 export function startEndpoint(replies: EndpointReply[] | Responder): Endpoint {
     const authorizations: (string | null)[] = [];
@@ -51,7 +57,7 @@ export function startEndpoint(replies: EndpointReply[] | Responder): Endpoint {
             signalFirst();
             const body = JSON.parse(await request.text()) as Record<string, unknown>;
             bodies.push(body);
-            const reply = typeof replies === "function" ? replies(body, bodies.length - 1) : replies.shift() ?? {kind: "text", text: "脚本用完了"};
+            const reply = typeof replies === "function" ? replies(body, bodies.length - 1, request.headers) : replies.shift() ?? {kind: "text", text: "脚本用完了"};
             const usage = {choices: [], usage: {prompt_tokens: 100, completion_tokens: 10, total_tokens: 110}};
             const encoder = new TextEncoder();
             switch (reply.kind) {
@@ -70,6 +76,22 @@ export function startEndpoint(replies: EndpointReply[] | Responder): Endpoint {
                         ]),
                         {headers: {"content-type": "text/event-stream"}},
                     );
+                case "stall":
+                case "finish-then-hang": {
+                    const chunks = [{choices: [{index: 0, delta: {role: "assistant", content: reply.text}, finish_reason: null}]}];
+                    if (reply.kind === "finish-then-hang") chunks.push({choices: [{index: 0, delta: {}, finish_reason: "stop"}]} as never, usage as never);
+                    const head = sse(chunks).replace("data: [DONE]\n\n", "");
+                    // 写完这些就不再写，也不关：直到客户端取消读取或请求被中止。
+                    const stream = new ReadableStream<Uint8Array>({
+                        start(controller) {
+                            controller.enqueue(encoder.encode(head));
+                            request.signal.addEventListener("abort", () => controller.close(), {once: true});
+                        },
+                    });
+                    return new Response(stream, {headers: {"content-type": "text/event-stream"}});
+                }
+                case "raw":
+                    return new Response(reply.body, {headers: {"content-type": "text/event-stream"}});
                 case "stream-error": {
                     const first = sse([{choices: [{index: 0, delta: {role: "assistant", content: "{"}, finish_reason: null}]}]).replace("data: [DONE]\n\n", "");
                     return new Response(`${first}data: ${JSON.stringify({error: {message: reply.message, type: "upstream_error"}})}\n\n`, {headers: {"content-type": "text/event-stream"}});

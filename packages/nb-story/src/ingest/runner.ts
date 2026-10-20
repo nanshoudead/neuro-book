@@ -13,11 +13,11 @@
 import {randomUUID} from "node:crypto";
 
 import {StoryError} from "../core/errors";
-import {bookIdFromTitle, type Library} from "../core/library";
+import {bookIdFromTitle, isValidBookId, type Library} from "../core/library";
 import type {FileLock} from "../platform/flock";
 import type {IngestEvent, JobOutcome} from "./job";
 import {applyPlan, planFromSaved, planFromText, type IngestPlan} from "./start";
-import {IngestStore, type IngestState, type RunnerKind, type UsageLine} from "./store";
+import {IngestStore, type IngestState, type Price, type RunnerKind} from "./store";
 import type {WorkerOutbound, WorkerStart} from "./worker";
 
 /** 停止后等抽取线程自己结束的时间；过了就结束它。 */
@@ -46,7 +46,7 @@ export interface StartInput {
     title?: string;
     id?: string;
     endpoint: EndpointConfig;
-    price: UsageLine["price"];
+    price: Price | null;
     runner: RunnerKind;
     onEvent?: (event: IngestEvent) => void;
 }
@@ -58,6 +58,9 @@ export interface StartInput {
 export async function startIngest(input: StartInput): Promise<{plan: IngestPlan; runner: Runner | null}> {
     const id = input.id ?? (input.text !== undefined ? bookIdFromTitle(input.title ?? "") : undefined);
     if (!id) throw new StoryError("invalid_params", "没有给原文，也没有给书 id");
+    // 书 id 拼进锁与记录的路径：在碰任何文件之前校验（实现审查第 15 条）；书库格式不认识时什么都不写、不发请求（第 3 条）。
+    if (!isValidBookId(id)) throw new StoryError("invalid_params", `书 id 只能用小写字母、数字与短横线：${id}`);
+    await input.library.ensureWritable();
     const store = new IngestStore(input.library, id);
     const lock = await store.tryLock();
     if (!lock) throw new StoryError("ingest_running", `书 ${id} 已有抽取任务在运行`);
@@ -96,6 +99,7 @@ function launch(input: StartInput, plan: IngestPlan, store: IngestStore, lock: F
         return writing;
     };
     void writeState({});
+    const runStart = store.appendActivity({kind: "run-start", run, at: new Date().toISOString()});
 
     let stopRequested = false;
     let graceTimer: ReturnType<typeof setTimeout> | undefined;
@@ -108,7 +112,9 @@ function launch(input: StartInput, plan: IngestPlan, store: IngestStore, lock: F
         if (graceTimer) clearTimeout(graceTimer);
         worker.terminate();
         const stopReason = outcome.kind === "failed" ? {kind: "failed" as const, code: outcome.code, ...(outcome.errorKind ? {errorKind: outcome.errorKind} : {}), message: outcome.message} : outcome.kind === "stopped" ? {kind: "user" as const} : null;
-        void writeState({state: "stopped", retry: null, stopReason}).finally(() => {
+        // 先记下任务结束（用时按它算），再放锁：放锁之后别人看到的进度要是完整的。
+        void Promise.allSettled([runStart, store.appendActivity({kind: "run-end", run, at: new Date().toISOString()}), writeState({state: "stopped", retry: null, stopReason})]).then(results => {
+            for (const result of results) if (result.status === "rejected") console.error(`写抽取记录失败：${result.reason instanceof Error ? result.reason.message : String(result.reason)}`);
             lock.release();
             settle(outcome);
         });

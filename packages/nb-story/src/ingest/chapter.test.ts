@@ -15,7 +15,7 @@ import {join} from "node:path";
 import {gunzipSync} from "node:zlib";
 
 import {loadReplay, replay, type ReplayKey} from "../../testing/ingest-replay";
-import {startEndpoint, type Endpoint, type EndpointReply} from "../../testing/openai-endpoint";
+import {startEndpoint, type Endpoint, type EndpointReply, type Responder} from "../../testing/openai-endpoint";
 import {sampleDataset} from "../../testing/sample";
 import type {Dataset, SourceChapter} from "../core/dataset";
 import {consolidate, extractChapter, IngestBadReply, type ChapterRun, type Step} from "./chapter";
@@ -37,10 +37,10 @@ afterEach(() => {
 });
 
 /** 起端点并记下每次请求：认出的步骤、系统提示词加用户消息的摘要、推理档。 */
-function serve(respond: (body: Record<string, unknown>, index: number) => EndpointReply, keyOf?: () => ReplayKey | undefined) {
+function serve(respond: Responder, keyOf?: () => ReplayKey | undefined) {
     const requests: {key: string; sha256: string; normalized: string; effort: unknown}[] = [];
-    endpoint = startEndpoint((body, index) => {
-        const reply = respond(body, index);
+    endpoint = startEndpoint((body, index, headers) => {
+        const reply = respond(body, index, headers);
         const messages = body.messages as {content: string}[];
         const key = keyOf?.();
         const full = `${messages[0]!.content}\n\u0000\n${messages[1]!.content}`;
@@ -232,5 +232,51 @@ describe("全图的时间矛盾（输出 5）", () => {
         expect(result.draft.beats?.map(beat => beat.time)).toEqual([null]);
         expect(result.dropped).toBe(1);
         expect(compile({id: "t", title: "t"}, sources, [chapterOneDraft, result.draft]).issues.filter(issue => issue.level === "error")).toEqual([]);
+    });
+});
+
+describe("核对与修复的请求正文相同（输出 4）", () => {
+    test("清单只有结构问题、核对没改草稿：紧接着的修复照样认成修复，用修复的回复", async () => {
+        const sample = await sampleDataset();
+        const data = await loadReplay();
+        // 草稿里一句台词没写是谁说的：编译报结构错误，进清单；核对回空补丁，修复删掉这一句。
+        const draft = {chapter: 1, statements: [{id: "s1-1", text: "有人说了一句话", family: "event", about: [], src: {at: ["1.2"], ch: "speech"}}]};
+        const played = replay(data, key => {
+            if (key.step === "draft") return {kind: "text", text: JSON.stringify(draft)};
+            if (key.step === "review-1") return {kind: "text", text: "{}"};
+            if (key.step === "repair-1") return {kind: "text", text: JSON.stringify({remove: ["s1-1"]})};
+            return undefined;
+        });
+        const {run} = serve(played.responder, () => played.seen.at(-1));
+        const result = await extractChapter({source: sample.sources[0]!, prior: null, compileWith: candidate => compile(sample.book, sample.sources.slice(0, 1), [candidate])}, run);
+        expect(played.seen.map(key => key.step)).toEqual(["beats", "draft", "review-1", "repair-1"]);
+        expect(result.dropped).toBe(0);
+        expect(result.draft.statements).toEqual([]);
+    });
+});
+
+describe("整理带来的错误（输出 5、7）", () => {
+    test("合并对象让更早一章的账本对不上：这次整理跳过，交回的数据集不变", async () => {
+        const sources = [
+            sourceChapter(1, "第1章", ["第1章", "阿青的钱袋里有十枚金币。"]),
+            sourceChapter(2, "第2章", ["第2章", "阿青又赚了两枚，袋里有两枚金币。"]),
+            sourceChapter(3, "第3章", ["第3章", "天黑了。"]),
+        ];
+        const beats = (chapter: number, to: number) => [{id: `b${chapter}-1`, from: 1, to, gist: "经过。", time: null}];
+        const drafts = [
+            {chapter: 1, beats: beats(1, 2), entities: [{id: "e1-1", kind: "person", label: "阿青", at: "1.2", names: [{text: "阿青", at: "1.2", primary: true}]}], ledger: [{id: "l1-1", owner: "e1-1", track: "金币", op: "set", value: 10, reason: "钱袋里有十枚", at: ["1.2"]}]},
+            // 第 2 章重复建了一个“阿青”，它自己的账从 0 起：加 2 得 2，与原文一致，单独编译没有错误。
+            {chapter: 2, beats: beats(2, 2), entities: [{id: "e2-1", kind: "person", label: "阿青", at: "2.2", names: [{text: "阿青", at: "2.2", primary: true}]}], ledger: [{id: "l2-1", owner: "e2-1", track: "金币", op: "gain", amount: 2, value: 2, reason: "又赚了两枚", at: ["2.2"]}]},
+            {chapter: 3, beats: beats(3, 2)},
+        ];
+        const book = {id: "t", title: "t"};
+        const before = compile(book, sources, drafts);
+        expect(before.issues.filter(issue => issue.level === "error")).toEqual([]);
+        // 第 3 章整理把两个阿青合并：第 2 章那一笔的累加变成 12，与原文的 2 对不上，错误落在第 2 章而不是第 3 章。
+        const {run} = serve(() => ({kind: "text", text: JSON.stringify({through: 3, merges: [{keep: "e1-1", drop: "e2-1", reason: "同一个阿青"}]})}));
+        const outcome = await consolidate(3, before.dataset, candidate => compile(book, sources, drafts, [candidate]), run);
+        expect(outcome.consolidation).toBeNull();
+        expect(outcome.problems.join("")).toContain("整理稿带来错误");
+        expect(outcome.dataset).toBe(before.dataset);
     });
 });
