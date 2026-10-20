@@ -11,7 +11,7 @@ updated: 2026-10-20
 
 全项目共用一套 schema 驱动的表单（设置、nbdev 提问、Agent 提问与审批、命令参数），并把 nb-ui 的表单控件改造成统一合同；生成式视图复用同一套组件
 
-合同：待写（新 Spec，设计稿确认后起草）。调研：[`docs/research/low-code-forms.md`](../../../../../docs/research/low-code-forms.md)、[`docs/research/generative-ui-openui.md`](../../../../../docs/research/generative-ui-openui.md)（Work 分支 `ce5d72e45`）。
+合同：[`docs/specs/ui/forms.md`](../../../../../docs/specs/ui/forms.md)（`ui.forms`，planned，S0 起草）。调研：[`docs/research/low-code-forms.md`](../../../../../docs/research/low-code-forms.md)、[`docs/research/generative-ui-openui.md`](../../../../../docs/research/generative-ui-openui.md)（Work 分支 `ce5d72e45`）。
 
 ## 开发者已确认的决定（2026-10-20）
 
@@ -27,7 +27,11 @@ updated: 2026-10-20
 
 ## 当前状态
 
-2026-10-20 经 nbdev 新建，尚未开工；排在 t02 之前（t02 依赖它）。
+2026-10-20 经 nbdev 新建；排在 t02 之前（t02 依赖它）。在 Work 分支 `feat/w00027-plugin-platform` 上实施：
+
+- 先把 master 合进 Work 分支（`adbcff939`，拿到 w00029 的改名与删除），插件页改用 `Input`（`2d2ee4016`）；合并后应用 `bun test` 1547 例（一例已知的时好时坏用例，重跑通过）、Vitest 380 例、内核 342 例、nb-ui 505 例通过，typecheck 与 `docs:check` 通过。
+- S0（`8d4f12cb1`）：Spec `ui.forms`、新包 `@notnotype/nb-form` 的骨架与登记（根 workspaces、`monorepo-boundaries.md`、根 `AGENTS.md`、包内 `AGENTS.md` 与 `README.md`）。偏离计划：Vue 层的测试配置与 `docs:check` 受管组件目录等 S3 有 Vue 组件时再加；`checkDescription` 返回 `{status, problems}`，Spec 已同步。
+- S1（`b03e9f9a8`）：核心（字段树与控件选择、路径与不可变更新、校验与问题、条件显示、选项键、描述检查与 Agent 策略、终端退回、包边界测试），69 例通过，typecheck 通过；7 处关键行为做过变异检查，改回去测试都会失败。正在交 omp 做 S0–S1 的实现审查。
 
 ## 下一步
 
