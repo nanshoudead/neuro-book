@@ -174,7 +174,7 @@ type RelationEdge = {
 |---|---|---|---|---|
 | F1 | `book_not_found` | 404 | 书不存在、已删除或还在导入 | 用 `books.list` 查可用的书 |
 | F2 | `book_ambiguous` | 400 | 省略了 `book`，书库里有不止一本 | 指定 `book` |
-| F3 | `book_exists` | 409 | 导入时书 id 已被占用 | 换书名或指定新 id |
+| F3 | `book_exists` | 409 | 导入时书 id 已被占用（含还在抽取、第 1 章没提交的 id，见 [`story.ingest`](ingest.md)） | 换书名或指定新 id |
 | F4 | `unsupported_format` | 415 | 导入文件不是 V9 记忆图，或书库版本不认识 | 换文件；升级程序 |
 | F5 | `position_out_of_range` | 400 | 阅读位置超出全书范围或不合法 | 改正位置 |
 | F6 | `beyond_position` | 403 | 请求了阅读位置之后的章 | 先把阅读位置往后拨 |
