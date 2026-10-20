@@ -20,7 +20,7 @@
 | 通用问题 | 选用 | 理由 | 否决 |
 |---|---|---|---|
 | 模型调用 | `openai` 官方 SDK（v6，依赖树里已有 6.26.0，nb-story 自己声明），`maxRetries: 0`，流式，`reasoning_effort` 与 `response_format` 原样发送 | 能精确控制：SDK 不重试，推理档不改写，流可以随时中止；错误带 HTTP 状态与错误码，归类成 Spec 的 `kind` 只需一张表；用量在流末尾的 `usage` 里（含缓存命中） | nb-harness（计划审查第 4、5 条实测：OMP 在一次调用里自带最多 6 次重试，端点拒绝 `minimal` 时自动降成 `low` 重发，都没有对外开关，违反“只一层重试、不降档”）；手写 fetch 加 SSE 解析（`luna.ts` 那样，SDK 已经做好） |
-| 错误归类与脱敏 | 照 `agent/harness.md` 的归类表写一个小函数（状态码、错误码 → `kind`）；错误文字里出现密钥就替换，复用 nb-harness 导出的 `REDACTED_KEY` 记号 | 归类口径与问答一致；表只有七类 | 深导入 nb-harness 内部的 `classifyProviderError`（不是公开入口） |
+| 错误归类与脱敏 | 照 `agent/harness.md` 的归类表写一个小函数（状态码、错误码 → `kind`；流到一半的错误事件没有状态码，归 `network`）；错误文字里出现密钥就替换成与 nb-harness 相同的记号 | 归类口径与问答一致；表只有七类；不导入 nb-harness（它的入口会加载整个 OMP） | 深导入 nb-harness 内部的 `classifyProviderError`（不是公开入口） |
 | 草稿与整理稿的校验 | TypeBox（照 `W5/t27…/schema.ts` 的 zod 写法翻） | nb-story 的数据集 schema 已是 TypeBox，一个包里不放两套 | 沿用 zod |
 | TXT 解码 | `TextDecoder("utf-8", {fatal: true})` | 内置，非 UTF-8 直接抛错 | `iconv-lite`、`chardet` |
 | 一个书 id 的排他 | `flock`（`src/server/registry.ts` 的做法抽成共用模块），锁文件放在不随书删除的 `<书库>/.locks/<书 id>.lock`，由主线程持有 | 进程怎么死都由内核放锁；锁文件不删，inode 不变，排他域稳定（计划审查第 2、3 条） | 锁放在抽取记录目录里（删除时一起删，会出现两把互不排他的锁）；worker 持锁（worker 被结束时锁不放） |
@@ -46,7 +46,7 @@
 - `draft-tools.ts`、`reconcile.ts`、`prompts.ts`（含 `rules.md` 与虚构示例，作为包内资源）。改：`dropOffending` 只按 `Issue.records` 里属于本章草稿的 id 丢，一轮没有进展就停，交回调用方判失败。
 - `model.ts`（传输层）：`callModel({system, user, effort, signal, sleep, stop}): {json, usage}`：建 OpenAI 客户端（`maxRetries: 0`）发流式请求；流式文字在一段内容之后连续 2000 个空白即中止，记为跑飞；网络、5xx、超时、跑飞按延迟表重发（同一逻辑请求合计至多 6 次 HTTP）；`auth`、`quota`、`rate_limit` 以外的 4xx（含拒绝推理档）不重发。只负责渠道、流、用量与取出 JSON 对象；每次 HTTP 尝试的用量（拿不到时标不完整）、当时的单价与币种交给调用方记账。
 - `chapter.ts`：一章的四步（`run-v2.ts` 第 170 到 254 行的单章、单份草稿路径），输入是已提交数据集与本章原文。各步的回复由这一层按自己的形状判断是否成形：段落块步骤要有本章与段落块；草稿与段落块合并后要是合法的章；核对与修复是补丁（`replace`、`remove`、`rewrite`、`skip`）；整理按整理稿 schema。不成形的这一步重发一次，仍不成形抛 `ingest_bad_reply`；整理不合格不抛，跳过并记进问题。改：结构检查算上编译出的全图错误里这一章新带来的；兜底后整份数据仍有错误，抛 `ingest_bad_reply`。
-- `store.ts`：抽取记录 `<书库>/.ingest/<书 id>/`：`source.json`（切好的章）、`commits/<revision>.json`（这次提交的清单：各章最终草稿与整理结果的文件名、章明细）、`drafts/`、`consolidations/`（内容寻址或按 revision 命名，只增不改）、`usage.jsonl`（每次 HTTP 尝试一行，只追加）、`state.json`（只放瞬时信息：由谁运行、当前章与步骤、等待中的重试、停下的原因）。
+- `store.ts`：抽取记录 `<书库>/.ingest/<书 id>/`：`source.json`（切好的章；有它即占用 id）、`usage.jsonl`（每次 HTTP 尝试一行，只追加）、`state.json`（只放瞬时信息：由谁运行、当前章与步骤、等待中的重试、停下的原因）。已提交的草稿、整理结果与章明细不放这里，放书目录（见下一节），与书的数据同一次改名生效。（实施中改：原计划放 `commits/<revision>.json`，跨两个目录要另做一致性恢复。）
 - `job.ts`：`runIngest(...)`（在 worker 里）：读 `book.json` 的 `extraction` 得到已提交的章与清单 → 从下一章起逐章抽 → 第 5 的倍数与原文末章先做整理 → 提交 → 循环。每次模型请求前、重试等待中、提交前检查停止标志。
 - `runner.ts`（主线程）：拿锁 → 起 worker → 转发进度 → 停止时置标志、发消息、等 worker 退出（宽限 15 秒，超时结束 worker）→ 把 `state.json` 记成停下 → 放锁。worker 的 `error`、`close` 与正常退出都走同一个幂等的收口。
 - `start.ts`：在锁里做 `planIngest`：切章并判断 `new`、`resume`、`append`、`done`，或报 `ingest_text_changed`、`book_exists`；“有抽取记录”按 `.ingest/<书 id>/source.json`。`new` 在锁里写好 `source.json` 才算占用 id。
@@ -54,7 +54,7 @@
 
 要守住的不变量：
 - 一章的输入只依赖已提交的数据与本章原文：接着抽、追加的结果与一口气抽完相同（回放测试锁定）。
-- 唯一的提交点是书目录里 `book.json` 的改名（第 1 章是整个书目录的改名）。提交顺序：写好草稿、整理结果、提交清单 `commits/<n+1>.json` 与新数据文件 → 改名替换 `book.json`（`extraction: {through, revision, commit}`）。改名前被杀：多写的文件没有被引用，下次拿锁后清掉；改名后被杀：一切以 `book.json` 为准。`book.json` 引用的清单或文件缺失时报错（抽取记录损坏），不跳章。
+- 唯一的提交点是书目录里 `book.json` 的改名（第 1 章是整个书目录的改名）；`book.json` 的 `extraction: {through, file}` 是“提交到第几章”的唯一依据。提交顺序：写新版本的 `graph-<n+1>.json` 与 `extraction-<n+1>.json`（已提交的全部草稿、整理结果、章明细）→ 改名替换 `book.json` → 删上一版的两个文件。改名前被杀：多写的文件没有被引用，下次提交同名覆盖；改名后被杀：一切以 `book.json` 为准。
 
 ### packages/nb-story/src/core/library.ts、cursor.ts、book-index.ts（同一代内更新）
 
@@ -63,13 +63,13 @@
 - `commitExtraction(id, …)`：书不存在时按现有导入流程建目录（临时目录改名，新的一代）；已存在时写新数据文件、改名替换 `book.json`，再回收旧数据文件。回收与 `pinBook` 的重试配合：读到旧版本、还没打开时文件没了，重试即可。
 - 书目录的不变量从“从不原地改写”改为“只有 `book.json` 与数据文件按上面的顺序替换”，模块头同步改写。
 - 游标、索引缓存的键改为 `(id, generation, revision)`；每次查询照常读 `book.json`，所以别的进程提交后，本进程的新查询拿到新版本。
-- `importBook` 加入同一个 id 锁：在锁里检查抽取记录与书目录，再改名占用；抽取的新建与首次提交、删除也都在这把锁里（计划审查第 8 条）。
+- id 的占用两边都靠整目录改名：导入改名成 `<书 id>/`，抽取新建改名成 `.ingest/<书 id>/`；各自改名成功后再看一眼对方，看到了就退回，两边同时发生时至少一边退回（计划审查第 8 条）。（实施中改：原计划让导入也拿 id 锁，但核心库只能用 Node 的 API，flock 要经 bun:ffi，进不了核心。）
 
 ### 停止与删除
 
 - 命令行：`onProcessInterrupt`（nb-harness 已有）→ `runner.stop()`。
 - serve：进程内的 Runner 表加一个“接纳”门禁。服务停止时先同步关闭门禁（之后的 `ingest.start` 得到“服务正在停止”），再停全部已接纳的 Runner（含正在启动的）、等它们放锁，再撤销登记、停监听（计划审查第 7 条）。
-- `book.remove`：先停本进程里这个 id 的 Runner；再非阻塞地拿 id 锁，拿不到（别的进程在抽）得到 `ingest_running`；拿到后在持锁期间删书目录与抽取记录，再放锁。锁文件本身不删。
+- `book.remove`：核心库的 `Library` 接受一个注入的 `removeGuard`（`src/ingest/guard.ts`，命令行与独立服务构造书库时传入）：先停本进程里这个 id 的 Runner；再非阻塞地拿 id 锁，拿不到（别的进程在抽）得到 `ingest_running`；拿到后在持锁期间删书目录与抽取记录，再放锁。锁文件本身不删。
 
 ### packages/nb-story/src/qa/config.ts、config-edit.ts、cli/config.ts
 
