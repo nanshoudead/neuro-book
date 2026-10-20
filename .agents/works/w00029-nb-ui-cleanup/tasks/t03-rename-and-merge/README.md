@@ -40,7 +40,7 @@ updated: 2026-10-20
 - 改了：横幅按钮在 220px 编辑组里超出（动作区可在区内再换行）；`SegmentedControl` 值不对应任何项时没有 Tab 停靠点（停在第一个启用项，方向键从两端开始）；两处过期说明；分工清单四份重复（收成一份）；补了 `Banner`、`ToggleGroup` 多选、`SegmentedControl` 空值与仅图标选项的测试。补测试时还发现横幅模板根前的注释让它在开发构建里成了多根片段，`role` 与使用方的 data 属性落不到横幅上，已挪进根元素。
 - 没改：`DropIndicator` 用 `验证入口` 不完全符合判据（它能独立挂载），取舍是内部件只在覆盖层里看，覆盖层的场景已经画出区域与插入线；dev-panel 文档里“知道了”的说法仍对，不补。
 
-验证：nb-ui 类型检查（含 playground）、单元测试 504 例、Playwright 验收 31 例；neuro-book 类型检查、Bun 1511 例、vitest 367 例；dev-panel 类型检查与 461 例；nb-story 类型检查与 199 例；`docs:check`、`governance:check` 没有失败。neuro-book 整套 e2e 230 例里 5 例失败：Lab 两例单独重跑通过；另外三例（`lab-markdown` 场景 1、`workbench-shell` 拖动边界、`workbench-views` 拖到零后刷新）在 master 上用同样方式跑也失败，是 master 原有的问题。vitest 全量里 `SnippetsPage` 一例失败，单独连跑 3 次都过。Lab 截图（640px 与 220px 的横幅、编辑组状态条、`JsonViewer`、`ToggleGroup`）没有溢出与越界。
+验证：nb-ui 类型检查（含 playground）、单元测试 504 例、Playwright 验收 31 例；neuro-book 类型检查、Bun 1511 例、vitest 367 例；dev-panel 类型检查与 461 例；nb-story 类型检查与 199 例；`docs:check`、`governance:check` 没有失败。neuro-book 整套 e2e 230 例里 5 例失败：Lab 两例单独重跑通过；另外三例（`lab-markdown` 场景 1、`workbench-shell` 拖动边界、`workbench-views` 拖到零后刷新）在 master 上用同样方式跑也失败，是 master 原有的问题。vitest 全量里 `SnippetsPage` 一例失败，单独连跑 3 次都过。Lab 截图（640px 与 220px 的横幅、编辑组状态条、`JsonViewer`、`ToggleGroup`）没有溢出与越界。外观变化的改动前后对比见报告产物 [`artifacts/report/`](artifacts/report/index.html)。
 
 ## 下一步
 
