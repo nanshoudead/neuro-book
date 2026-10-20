@@ -349,17 +349,19 @@ describe("问题的显示（输出 9、14）", () => {
 });
 
 describe("展示态（输出 17）", () => {
-    it("值画成静态文字，长文字折叠可展开，文字类可复制；Tab 只停在展开与复制按钮上；密钥只说有没有设置", async () => {
+    it("值画成静态文字，长文字折叠可展开，长的与多行的文字可复制（短值不给按钮）；Tab 只停在展开与复制按钮上；密钥只说有没有设置", async () => {
         const long = Array.from({length: 10}, (_, index) => `第 ${String(index + 1)} 行`).join("\n");
         const schema = Type.Object({
             path: Type.String({title: "路径"}),
             body: Type.String({title: "正文", "x-form": {widget: "multiline"}}),
             force: Type.Boolean({title: "强制"}),
             key: Type.Optional(Type.String({title: "密钥", writeOnly: true})),
+            short: Type.String({title: "短文字"}),
         });
-        const {wrapper} = await mountForm(schema, {path: "/a/b", body: long, force: true, key: "sk-secret"}, {mode: "view"});
+        const path = "/home/writer/novels/长夜行/第三卷/第二十七章 渡口的灯.md";
+        const {wrapper} = await mountForm(schema, {path, body: long, force: true, key: "sk-secret", short: "短"}, {mode: "view"});
         expect(wrapper.findAll("input, textarea, [role='switch']")).toHaveLength(0);
-        expect(wrapper.text()).toContain("/a/b");
+        expect(wrapper.text()).toContain(path);
         expect(wrapper.text()).toContain("是");
         expect(wrapper.text()).toContain("已设置");
         expect(wrapper.text()).not.toContain("sk-secret");

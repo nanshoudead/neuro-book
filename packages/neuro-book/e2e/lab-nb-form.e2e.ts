@@ -1,7 +1,8 @@
 /**
- * nb-form 渲染层在 Lab 场景里的真实浏览器行为（docs/specs/ui/forms.md 验收 1、3、6）：每种控件的可访问名称是字段
- * 标签、说明是字段说明、出错时有错误信息；问题汇总点一条聚焦到字段；条件显示切换后填过的值还在；展示态 Tab 只停在
- * 展开与复制按钮上。happy-dom 算不出可访问名称，所以这些在这里断言。
+ * nb-form 渲染层在 Lab 场景里的真实浏览器行为（docs/specs/ui/forms.md 验收 1、3、4、6）：每种控件的可访问名称是字段
+ * 标签、说明是字段说明、出错时有错误信息；问题汇总点一条聚焦到字段；条件显示切换后填过的值还在；扩展参数写坏时报
+ * 无法解析；列表增删排序的焦点落点与播报；展示态 Tab 只停在展开与复制按钮上。happy-dom 算不出可访问名称，也没有真实
+ * 的焦点移动，所以这些在这里断言。
  */
 
 import {rm} from "node:fs/promises";
@@ -108,4 +109,74 @@ test("展示态：长路径与多行文字完整可见，Tab 只停在展开与�
         .filter((element) => (element as HTMLElement).tabIndex >= 0 && !(element as HTMLElement).closest("[inert]"))
         .map((element) => `${element.tagName}:${element.textContent?.trim() ?? ""}`));
     expect(stops).toEqual(["BUTTON:复制", "BUTTON:收起", "BUTTON:复制"]);
+});
+
+test("服务商连接：扩展参数写坏时报无法解析，汇总里点它聚焦到 JSON 框", async ({page}) => {
+    await openScene(page, "c=SchemaForm&s=conditional");
+    const form = stage(page);
+    const extra = form.getByRole("textbox", {name: "扩展参数"});
+    await expect(extra).toHaveValue('{\n  "temperature": 0.7\n}');
+    await extra.fill('{"temperature": ');
+    await extra.press("Tab");
+    await expect(extra).toHaveAttribute("aria-invalid", "true");
+    await form.getByRole("button", {name: "1 个问题"}).click();
+    await form.getByRole("button", {name: "扩展参数：无法解析"}).click();
+    await expect(extra).toBeFocused();
+    // 分组可以折叠：折叠后里面的字段不挂载，标题旁写里面的问题数。折叠会丢掉没提交的草稿（输出 21：折叠的分组不
+    // 挂载），所以先改好扩展参数，再让超时违反 schema。
+    await extra.fill("{}");
+    await extra.press("Tab");
+    const timeout = form.getByLabel("超时");
+    await timeout.fill("0");
+    await timeout.press("Tab");
+    const advanced = form.getByRole("button", {name: "高级"});
+    await advanced.click();
+    await expect(advanced).toHaveAttribute("aria-expanded", "false");
+    await expect(timeout).toHaveCount(0);
+    await expect(advanced).toContainText("含 1 个问题");
+});
+
+test("对象列表：添加、删除中间项、上移与 Alt+↑，焦点落点与读屏播报（验收 4）", async ({page}) => {
+    await openScene(page, "c=SchemaForm&s=lists");
+    const people = stage(page).getByRole("group", {name: "人物", exact: true});
+    const live = people.locator("[aria-live='polite']");
+
+    await people.getByRole("button", {name: "添加"}).click();
+    await expect(people.getByRole("textbox", {name: "名字"}).nth(2)).toBeFocused();
+    await expect(live).toHaveText("已添加第 3 项");
+
+    await people.getByRole("button", {name: "删除：沈三"}).click();
+    await expect(people.getByRole("button", {name: "删除：第 2 项"})).toBeFocused();
+    await expect(live).toHaveText("已删除第 2 项");
+
+    await people.getByRole("button", {name: "上移：第 2 项"}).click();
+    await expect(people.getByRole("button", {name: "下移：第 1 项"})).toBeFocused();
+    await expect(live).toHaveText("第 2 项移到第 1 位");
+
+    // 焦点在项里的输入框时 Alt+↑ 移动这一项，焦点留在原来的输入框上。
+    const lin = people.getByRole("textbox", {name: "名字"}).nth(1);
+    await expect(lin).toHaveValue("林照");
+    await lin.focus();
+    await page.keyboard.press("Alt+ArrowUp");
+    await expect(people.getByRole("textbox", {name: "名字"}).first()).toHaveValue("林照");
+    await expect(people.getByRole("textbox", {name: "名字"}).first()).toBeFocused();
+});
+
+test("左列表右详情：点标题选中，新增的项自动选中并聚焦详情", async ({page}) => {
+    await openScene(page, "c=SchemaForm&s=lists");
+    const servers = stage(page).getByRole("group", {name: "服务", exact: true});
+    await servers.getByRole("button", {name: "备用", exact: true}).click();
+    await expect(servers.getByRole("button", {name: "备用", exact: true})).toHaveAttribute("aria-current", "true");
+    await expect(servers.getByRole("textbox", {name: "名称"})).toHaveValue("备用");
+    await servers.getByRole("button", {name: "添加"}).click();
+    await expect(servers.getByRole("button", {name: "第 3 项", exact: true})).toHaveAttribute("aria-current", "true");
+    await expect(servers.getByRole("textbox", {name: "名称"})).toBeFocused();
+});
+
+test("自定义控件：名字来自字段标签，选一颗星就提交", async ({page}) => {
+    await openScene(page, "c=SchemaForm&s=custom");
+    const rating = stage(page).getByRole("radiogroup", {name: "评分"});
+    await expect(rating.getByRole("radio", {name: "4 星"})).toHaveAttribute("aria-checked", "true");
+    await rating.getByRole("radio", {name: "2 星"}).click();
+    await expect(rating.getByRole("radio", {name: "2 星"})).toHaveAttribute("aria-checked", "true");
 });

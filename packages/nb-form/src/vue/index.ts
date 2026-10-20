@@ -8,3 +8,5 @@ export {default as SchemaForm} from "./SchemaForm.vue";
 export {widgetLayout} from "./layout";
 export type {WidgetLayout} from "./layout";
 export type {CommitMode, DraftState, FormMode, FormOptionSources} from "./scope";
+export {defineFormWidgets, FormWidgetError} from "./widgets";
+export type {CustomWidgetProps, FormWidget} from "./widgets";

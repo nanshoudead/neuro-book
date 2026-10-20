@@ -8,6 +8,7 @@
 import {computed, onBeforeUnmount, ref, watch} from "vue";
 
 import type {FieldNode} from "../model";
+import {toPointer} from "../path";
 import type {FormIssue} from "../validate";
 import type {FormScope} from "./scope";
 import {CLEAR} from "./scope";
@@ -76,12 +77,19 @@ export function useDraft(options: DraftOptions) {
     });
 
     const state = computed(() => (draft.value === null || synced.value ? "clean" : parsed.value?.ok === true ? "dirty" : "unparseable"));
-    watch([state, attempted], () => {
+    function report(): void {
         const node = options.node();
         const issues: FormIssue[] = state.value === "unparseable" && attempted.value
             ? [{path: node.path, code: "unparseable", params: {}, severity: "error", source: "schema"}]
             : [];
         scope.reportDraft({path: node.path, state: state.value, issues});
+    }
+    watch([state, attempted], report);
+    // 列表里删掉或挪动前面的项时，这一项的路径变了、草稿跟着组件走：旧路径上报过的状态撤掉，在新路径上重报。
+    watch(() => options.node().path, (now, before) => {
+        if (toPointer(now) === toPointer(before) || state.value === "clean") return;
+        scope.reportDraft({path: before, state: "clean", issues: []});
+        report();
     });
 
     // 字段卸载（布局或描述变了）时撤掉它报过的草稿问题，汇总里不留一条找不到字段的“无法解析”。
@@ -98,6 +106,22 @@ export function useDraft(options: DraftOptions) {
         clear: () => {
             drop();
             options.emit(CLEAR);
+        },
+    };
+}
+
+/** JSON：两格缩进写出；清空了的可选字段算清除，写坏了的算不可解析。 */
+export function jsonCodec(node: () => FieldNode): DraftCodec {
+    return {
+        format: (value) => (value === undefined ? "" : JSON.stringify(value, null, 2)),
+        parse: (text) => {
+            if (text.trim() === "") return node().required && !node().nullable ? {ok: false} : {ok: true, value: CLEAR};
+            try {
+                return {ok: true, value: JSON.parse(text) as unknown};
+            } catch {
+                // 写坏的 JSON 是草稿的正常状态，按不可解析报出（输出 15），不是程序错误。
+                return {ok: false};
+            }
         },
     };
 }

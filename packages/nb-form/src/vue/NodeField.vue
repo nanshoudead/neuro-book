@@ -3,7 +3,8 @@
  * 按字段树的一个节点画一个字段：外壳加控件（编辑态），或外壳加静态的值（展示态）。值、问题与选项都从表单的上下文
  * 取，提交经上下文改根值（docs/specs/ui/forms.md 输出 3）。
  *
- * 条件隐藏用 `v-show` 加 `inert`，不卸载：草稿与控件自己的状态在重新显示后还在（输出 13）。
+ * 条件隐藏用 `v-show` 加 `inert`，不卸载：草稿与控件自己的状态在重新显示后还在（输出 13）。对象与列表在展示态里照样
+ * 画成结构，成员各自画成静态的值。
  */
 import type {Component} from "vue";
 import {computed, onBeforeUnmount, onMounted, ref, useId, useTemplateRef, watch} from "vue";
@@ -16,13 +17,19 @@ import {choiceLabel, choiceState} from "./choices";
 import BooleanControl from "./controls/BooleanControl.vue";
 import ChoiceControl from "./controls/ChoiceControl.vue";
 import type {DraftControl} from "./controls/control";
+import CustomControl from "./controls/CustomControl.vue";
+import JsonControl from "./controls/JsonControl.vue";
+import ListControl from "./controls/ListControl.vue";
+import MasterDetailControl from "./controls/MasterDetailControl.vue";
 import MultiControl from "./controls/MultiControl.vue";
 import NumberControl from "./controls/NumberControl.vue";
+import ObjectControl from "./controls/ObjectControl.vue";
 import TextControl from "./controls/TextControl.vue";
 import FieldShell from "./FieldShell.vue";
 import {issueText, messagesFor} from "./messages";
 import {CLEAR, issuesAt, useFormScope} from "./scope";
 import ViewValue from "./ViewValue.vue";
+import {resolveWidget} from "./widgets";
 
 const props = withDefaults(defineProps<{
     node: FieldNode;
@@ -32,8 +39,7 @@ const props = withDefaults(defineProps<{
     labelledby?: string;
 }>(), {bare: false, id: undefined, labelledby: undefined});
 
-/** 内建控件；结构控件（对象、列表、JSON）与自定义控件在后续切片接入。 */
-const CONTROLS: Partial<Record<BuiltinWidget, Component>> = {
+const CONTROLS: Readonly<Record<BuiltinWidget, Component>> = {
     "switch": BooleanControl,
     "confirm": BooleanControl,
     "radio-row": ChoiceControl,
@@ -45,17 +51,26 @@ const CONTROLS: Partial<Record<BuiltinWidget, Component>> = {
     "text": TextControl,
     "multiline": TextControl,
     "secret": TextControl,
+    "json": JsonControl,
+    "object": ObjectControl,
+    "string-list": ListControl,
+    "object-list": ListControl,
+    "master-detail": MasterDetailControl,
 };
 const CHOICE_WIDGETS: ReadonlySet<string> = new Set(["radio-row", "radio", "select", "search-select", "checkboxes"]);
 /** 由几个控件组成：外壳用组形态，控件经 `aria-labelledby` 取名。 */
-const GROUP_WIDGETS: ReadonlySet<string> = new Set(["radio-row", "radio", "checkboxes", "confirm"]);
+const GROUP_WIDGETS: ReadonlySet<string> = new Set(["radio-row", "radio", "checkboxes", "confirm", "object", "string-list", "object-list", "master-detail"]);
+/** 展示态里仍画成结构的控件：成员各自是字段。 */
+const STRUCTURE_WIDGETS: ReadonlySet<string> = new Set(["object", "string-list", "object-list", "master-detail"]);
 const TEXT_KINDS: ReadonlySet<string> = new Set(["text", "multiline"]);
 
 const scope = useFormScope();
 const generatedId = `nb-form-${useId()}`;
 const id = computed(() => props.id ?? generatedId);
 const pointer = computed(() => toPointer(props.node.path));
-const widget = computed(() => (typeof props.node.widget === "string" ? props.node.widget : props.node.widget.custom));
+const resolved = computed(() => resolveWidget(props.node, scope.widgets.value));
+/** 字段根上 `data-nb-widget` 的值：内建控件名，或自定义控件的登记名。 */
+const widget = computed(() => ("builtin" in resolved.value ? resolved.value.builtin : resolved.value.custom.name));
 const locale = computed(() => scope.locale.value);
 const messages = computed(() => messagesFor(locale.value));
 const value = computed(() => scope.valueAt(props.node.path));
@@ -111,10 +126,21 @@ const viewText = computed(() => {
     }
     return typeof current === "string" ? current : JSON.stringify(current, null, 2);
 });
+/**
+ * 展示态的“复制”只给多行、JSON 与长的文字（输出 17）：短值本来就能选中复制，每个短值一个按钮只会把 Tab 顺序拉长。
+ */
+const COPY_MIN_LENGTH = 40;
+const copyable = computed(() => {
+    if (props.node.writeOnly) return false;
+    if (widget.value === "multiline" || props.node.kind === "json") return true;
+    return TEXT_KINDS.has(props.node.kind) && (viewText.value.length >= COPY_MIN_LENGTH || viewText.value.includes("\n"));
+});
 const viewEmpty = computed(() => !props.node.writeOnly && (value.value === undefined || value.value === null || value.value === ""));
 
-const control = computed(() => (typeof props.node.widget === "string" ? CONTROLS[props.node.widget] : undefined));
-const controlRef = ref<Partial<DraftControl> | null>(null);
+const control = computed<Component>(() => ("builtin" in resolved.value ? CONTROLS[resolved.value.builtin] : CustomControl));
+const controlProps = computed(() => ("custom" in resolved.value ? {widget: resolved.value.custom} : choices.value === undefined ? {} : {choices: choices.value}));
+const viewAsStructure = computed(() => STRUCTURE_WIDGETS.has(widget.value) && "builtin" in resolved.value);
+const controlRef = ref<Partial<DraftControl> & {focus?: () => void} | null>(null);
 const root = useTemplateRef<HTMLElement>("root");
 
 function update(next: unknown): void {
@@ -123,6 +149,10 @@ function update(next: unknown): void {
 
 /** 聚焦字段的控件：带字段 id 的元素能聚焦就聚焦它，否则（单选组、复选组的根）聚焦组里当前的 Tab 停靠点。 */
 function focus(): void {
+    if (controlRef.value?.focus !== undefined) {
+        controlRef.value.focus();
+        return;
+    }
     const element = root.value;
     if (element === null) return;
     const target = element.querySelector<HTMLElement>(`[id="${id.value.replaceAll("\"", "\\\"")}"]`);
@@ -156,7 +186,7 @@ function onFocusOut(event: FocusEvent): void {
 <template>
     <div v-show="visible" ref="root" class="nb-form-node" :inert="!visible || undefined" @focusout="onFocusOut">
         <FieldShell
-            v-if="scope.mode.value === 'view'"
+            v-if="scope.mode.value === 'view' && !viewAsStructure"
             :id="id"
             :widget="widget"
             :label="resolveText(props.node.label, locale)"
@@ -169,12 +199,12 @@ function onFocusOut(event: FocusEvent): void {
                 :text="viewText"
                 :locale="locale"
                 :empty="viewEmpty"
-                :copyable="TEXT_KINDS.has(props.node.kind) && !props.node.writeOnly"
+                :copyable="copyable"
                 :labelledby="props.bare ? props.labelledby : `${id}-label`"
             />
         </FieldShell>
         <FieldShell
-            v-else-if="control !== undefined"
+            v-else
             :id="id"
             :widget="widget"
             :label="resolveText(props.node.label, locale)"
@@ -199,7 +229,7 @@ function onFocusOut(event: FocusEvent): void {
                 :disabled="disabled"
                 :invalid="errorText !== undefined"
                 :locale="locale"
-                v-bind="choices === undefined ? {} : {choices}"
+                v-bind="controlProps"
                 @update:model-value="update"
             />
         </FieldShell>

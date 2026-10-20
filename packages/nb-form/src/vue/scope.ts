@@ -6,7 +6,7 @@
  * `emitRoot`，自己不留副本。唯一的例外是“同一个任务里的连续提交”，见 `createFormScope` 里的 `chained`。
  */
 
-import {computed, inject, provide, ref, shallowRef, toValue} from "vue";
+import {computed, inject, provide, reactive, ref, shallowRef, toRaw, toValue} from "vue";
 import type {ComputedRef, InjectionKey, MaybeRefOrGetter} from "vue";
 
 import type {FieldNode, FormModel} from "../model";
@@ -15,6 +15,7 @@ import {getAt, removeAt, setAt, toPointer} from "../path";
 import type {FieldPath} from "../path";
 import type {FormIssue, FormMeta} from "../validate";
 import {validateForm} from "../validate";
+import type {FormWidget} from "./widgets";
 
 export type FormMode = "edit" | "view";
 export type CommitMode = "change" | "input";
@@ -53,6 +54,15 @@ export interface FormScopeInput {
     readonly issues: () => ReadonlyArray<FormIssue>;
     readonly meta: () => FormMeta;
     readonly options: () => FormOptionSources;
+    readonly widgets: () => ReadonlyArray<FormWidget>;
+    /** 调用方用 `v-model:selected` 接管的左列表右详情（只有 `SchemaField` 的根）；其余的选中项由表单自己记。 */
+    readonly selected?: {readonly pointer: string; get(): number | undefined; set(index: number): void};
+}
+
+/** 左列表右详情的选中项。 */
+export interface Selection {
+    get(): number;
+    set(index: number): void;
 }
 
 export interface FormScope {
@@ -64,6 +74,7 @@ export interface FormScope {
     readonly revision: ComputedRef<number>;
     readonly meta: ComputedRef<FormMeta>;
     readonly model: ComputedRef<FormModel>;
+    readonly widgets: ComputedRef<ReadonlyArray<FormWidget>>;
     /** schema 的问题、调用方的问题与已经报出的草稿问题，合在一起（输出 9、14）。 */
     readonly issues: ComputedRef<ReadonlyArray<FormIssue>>;
     /** 要显示的问题：必填缺失只在字段碰过、或调用方要求显示全部之后才算（见 `touch`）。 */
@@ -83,6 +94,7 @@ export interface FormScope {
     touch(pointer: string): void;
     /** 显示全部问题（调用方提交、或要求聚焦第一条问题时）。 */
     revealAll(): void;
+    selection(pointer: string): Selection;
 }
 
 const FORM_SCOPE_KEY: InjectionKey<FormScope> = Symbol("nb-form-scope");
@@ -105,6 +117,11 @@ export function issuesAt(issues: ReadonlyArray<FormIssue>, path: FieldPath): For
     return issues.filter((issue) => samePath(issue.path, path));
 }
 
+/** 路径上与它下面的问题（折叠的分组、列表在头部标“含 N 个问题”）。 */
+export function issuesUnder(issues: ReadonlyArray<FormIssue>, path: FieldPath): FormIssue[] {
+    return issues.filter((issue) => issue.path.length >= path.length && path.every((segment, index) => issue.path[index] === segment));
+}
+
 export function createFormScope(input: FormScopeInput): FormScope {
     const model = computed(input.model);
     const meta = computed(input.meta);
@@ -112,6 +129,7 @@ export function createFormScope(input: FormScopeInput): FormScope {
     const touched = ref<ReadonlySet<string>>(new Set());
     const revealed = ref(false);
     const handles = new Map<string, FieldHandle>();
+    const selections = reactive(new Map<string, number>());
 
     /**
      * 同一个任务里接连两次提交（例如 `commit()` 一次提交几个草稿，或回车提交后紧接着失焦）时，调用方还没来得及把
@@ -150,13 +168,15 @@ export function createFormScope(input: FormScopeInput): FormScope {
         revision: computed(input.revision),
         meta,
         model,
+        widgets: computed(input.widgets),
         issues,
         shownIssues,
         valueAt: (path) => getAt(input.value(), path),
         rootValue: () => input.value(),
         update(node, next) {
             const current = base();
-            if (next !== CLEAR && Object.is(getAt(current, node.path), next)) return;
+            // 传回来的值可能是调用方 `ref()` 里的响应式代理，按原始对象比。
+            if (next !== CLEAR && Object.is(toRaw(getAt(current, node.path)), toRaw(next))) return;
             const result = next !== CLEAR ? setAt(current, node.path, next) : node.nullable ? setAt(current, node.path, null) : removeAt(current, node.path);
             if (!Object.is(result, current)) emit(result);
         },
@@ -203,6 +223,14 @@ export function createFormScope(input: FormScopeInput): FormScope {
         },
         revealAll() {
             revealed.value = true;
+        },
+        selection(pointer) {
+            const owned = input.selected;
+            if (owned !== undefined && owned.pointer === pointer) return {get: () => owned.get() ?? selections.get(pointer) ?? 0, set: (index) => {
+                selections.set(pointer, index);
+                owned.set(index);
+            }};
+            return {get: () => selections.get(pointer) ?? 0, set: (index) => selections.set(pointer, index)};
         },
     };
 }

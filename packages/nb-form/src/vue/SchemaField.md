@@ -17,6 +17,7 @@
 - 字段就是根：它的路径是空的，没有“清除”（可为 null 的除外，清除写 `null`），标题旁不画必填的 `*`。
 - `bare` 时名字来自调用方：单个控件用调用方的 `<label for="<id>">`，组合控件（单选组、复选组、确认）经 `labelledby` 指向调用方的标签元素。出错的文字照样经 `aria-describedby` 给读屏。
 - 没有问题汇总；看得见的问题文字由调用方放在自己的固定位置。
+- 根是左列表右详情时，选中项可以由调用方用 `v-model:selected` 接管；不接管时组件自己记。
 
 ## 数据
 
@@ -41,14 +42,19 @@ type SchemaFieldProps = {
     issues?: ReadonlyArray<FormIssue>;
     meta?: FormMeta;
     options?: Readonly<Record<string, MaybeRefOrGetter<OptionSource>>>;
+    widgets?: ReadonlyArray<FormWidget>;
     commit?: "change" | "input";
     revision?: number;
+    /** 根是左列表右详情时的选中项；缺省由组件自己记。 */
+    selected?: number;
 };
 
 type SchemaFieldEmits = {
     /** 提交出字段的新值。 */
     "update:modelValue": [value: unknown];
     "draft-state": [state: {path: ReadonlyArray<string | number>; state: "clean" | "dirty" | "unparseable"; issues: ReadonlyArray<FormIssue>}];
+    /** 根是左列表右详情时，选中项变了。 */
+    "update:selected": [index: number];
 };
 
 type SchemaFieldExpose = {
@@ -67,7 +73,6 @@ type SchemaFieldExpose = {
 
 ## 不支持
 
-- 对象、列表、JSON 与自定义控件（随结构控件接入）。
 - 问题汇总与布局。
 
 ## 隐藏通道理由

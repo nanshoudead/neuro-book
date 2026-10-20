@@ -12,6 +12,7 @@ import NodeField from "./NodeField.vue";
 import {createFormScope, provideFormScope} from "./scope";
 import {withHints} from "./with-hints";
 import type {CommitMode, DraftState, FormMode, FormOptionSources} from "./scope";
+import type {FormWidget} from "./widgets";
 
 const props = withDefaults(defineProps<{
     schema: object;
@@ -30,8 +31,12 @@ const props = withDefaults(defineProps<{
     issues?: ReadonlyArray<FormIssue>;
     meta?: FormMeta;
     options?: FormOptionSources;
+    /** 登记的自定义控件（`defineFormWidgets` 的结果，输出 22）。 */
+    widgets?: ReadonlyArray<FormWidget>;
     commit?: CommitMode;
     revision?: number;
+    /** 根是左列表右详情时的选中项（`v-model:selected`）；缺省由组件自己记。 */
+    selected?: number;
 }>(), {
     hints: undefined,
     modelValue: undefined,
@@ -44,13 +49,16 @@ const props = withDefaults(defineProps<{
     issues: () => [],
     meta: () => ({}),
     options: () => ({}),
+    widgets: () => [],
     commit: "change",
     revision: 0,
+    selected: undefined,
 });
 
 const emit = defineEmits<{
     (event: "update:modelValue", value: unknown): void;
     (event: "draft-state", state: DraftState): void;
+    (event: "update:selected", index: number): void;
 }>();
 
 const model = computed(() => resolveForm(withHints(props.schema, props.hints)));
@@ -68,6 +76,9 @@ const scope = createFormScope({
     issues: () => props.issues,
     meta: () => props.meta,
     options: () => props.options,
+    widgets: () => props.widgets,
+    // 根是左列表右详情时，选中项由调用方的 `v-model:selected` 接管（输出 20）。
+    selected: {pointer: "", get: () => props.selected, set: (index) => emit("update:selected", index)},
 });
 provideFormScope(scope);
 

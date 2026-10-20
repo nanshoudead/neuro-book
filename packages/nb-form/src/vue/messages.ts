@@ -30,6 +30,21 @@ interface Messages {
     readonly clearInput: string;
     readonly noMatch: string;
     readonly warning: string;
+    readonly add: string;
+    readonly remove: string;
+    readonly moveUp: string;
+    readonly moveDown: string;
+    readonly item: (position: number) => string;
+    readonly items: (count: number) => string;
+    readonly noItems: string;
+    readonly moved: (from: number, to: number) => string;
+    readonly removed: (position: number) => string;
+    readonly added: (position: number) => string;
+    readonly containsIssues: (count: number) => string;
+    readonly duplicate: string;
+    readonly previousPage: string;
+    readonly nextPage: string;
+    readonly page: (current: number, total: number) => string;
     /** schema 问题按码写出；`params` 是 TypeBox 给的参数（`limit`、`format` 等）。没有的码用 `fallback`。 */
     readonly codes: Readonly<Record<string, (params: Readonly<Record<string, unknown>>) => string>>;
     readonly fallback: (code: string) => string;
@@ -59,6 +74,21 @@ const ZH: Messages = {
     clearInput: "清空输入",
     noMatch: "没有匹配的选项",
     warning: "警告",
+    add: "添加",
+    remove: "删除",
+    moveUp: "上移",
+    moveDown: "下移",
+    item: (position) => `第 ${String(position)} 项`,
+    items: (count) => `${String(count)} 项`,
+    noItems: "还没有项",
+    moved: (from, to) => `第 ${String(from)} 项移到第 ${String(to)} 位`,
+    removed: (position) => `已删除第 ${String(position)} 项`,
+    added: (position) => `已添加第 ${String(position)} 项`,
+    containsIssues: (count) => `含 ${String(count)} 个问题`,
+    duplicate: "重复",
+    previousPage: "上一页",
+    nextPage: "下一页",
+    page: (current, total) => `第 ${String(current)} / ${String(total)} 页`,
     codes: {
         "required": () => "必填",
         "type": () => "类型不对",
@@ -104,6 +134,21 @@ const EN: Messages = {
     clearInput: "Clear input",
     noMatch: "No matching options",
     warning: "Warning",
+    add: "Add",
+    remove: "Remove",
+    moveUp: "Move up",
+    moveDown: "Move down",
+    item: (position) => `Item ${String(position)}`,
+    items: (count) => (count === 1 ? "1 item" : `${String(count)} items`),
+    noItems: "No items yet",
+    moved: (from, to) => `Item ${String(from)} moved to position ${String(to)}`,
+    removed: (position) => `Item ${String(position)} removed`,
+    added: (position) => `Item ${String(position)} added`,
+    containsIssues: (count) => (count === 1 ? "1 issue inside" : `${String(count)} issues inside`),
+    duplicate: "Duplicate",
+    previousPage: "Previous page",
+    nextPage: "Next page",
+    page: (current, total) => `Page ${String(current)} of ${String(total)}`,
     codes: {
         "required": () => "Required",
         "type": () => "Wrong type",

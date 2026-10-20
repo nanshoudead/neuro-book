@@ -5,6 +5,7 @@
 
 import type {SchemaField, SchemaForm} from "@notnotype/nb-form/vue";
 import {Type} from "typebox";
+import {defineComponent, h} from "vue";
 import type {Component} from "vue";
 
 import type {LabFixture} from "./index";
@@ -57,15 +58,20 @@ const OPTION_SOURCES = {
     offline: {status: "unavailable", reason: "服务商没有返回模型列表"},
 } as const;
 
-/** 服务商连接的一部分：切换接口格式时代理显示与隐藏，填过的值保留。对象、列表与 JSON 字段随结构控件补上。 */
+/**
+ * 服务商连接（Spec 验收 1）：只读 ID、名称、API 地址、两种接口格式、密钥（`SecretInput` 做好之前按单行画）、只在
+ * OpenAI 兼容格式下显示的代理，“高级”分组里并排的超时与重试和扩展参数 JSON。
+ */
 const CONNECTION = Type.Object({
     id: Type.Optional(Type.String({title: "ID", readOnly: true})),
     name: Type.String({title: "名称"}),
     baseUrl: Type.String({title: "API 地址", format: "uri"}),
     format: Type.Union([Type.Literal("openai"), Type.Literal("anthropic")], {title: "接口格式"}),
+    apiKey: Type.Optional(Type.String({title: "API 密钥", writeOnly: true})),
     proxy: Type.Optional(Type.String({title: "代理", description: "只在 OpenAI 兼容格式下使用", "x-form": {visibleWhen: {field: "format", schema: {const: "openai"}}}})),
     timeout: Type.Integer({title: "超时", minimum: 1, "x-form": {unit: "秒"}}),
     retries: Type.Integer({title: "重试", minimum: 0, maximum: 10}),
+    extra: Type.Optional(Type.Record(Type.String(), Type.Unknown(), {title: "扩展参数", description: "原样并进请求体"})),
 });
 const CONNECTION_LAYOUT = {
     type: "column",
@@ -74,10 +80,59 @@ const CONNECTION_LAYOUT = {
         {type: "field", path: "/name"},
         {type: "field", path: "/baseUrl"},
         {type: "field", path: "/format"},
+        {type: "field", path: "/apiKey"},
         {type: "field", path: "/proxy"},
-        {type: "row", items: [{type: "field", path: "/timeout"}, {type: "field", path: "/retries"}]},
+        {type: "group", label: "高级", items: [
+            {type: "row", items: [{type: "field", path: "/timeout"}, {type: "field", path: "/retries"}]},
+            {type: "field", path: "/extra"},
+        ]},
     ],
 } as const;
+
+/** 列表：字符串列表、按名字作标题的对象列表、左列表右详情。 */
+const LISTS = Type.Object({
+    stops: Type.Array(Type.String({minLength: 1}), {title: "停止词", minItems: 1, maxItems: 6, uniqueItems: true}),
+    characters: Type.Array(Type.Object({
+        name: Type.String({title: "名字"}),
+        role: Type.Union([Type.Literal("lead"), Type.Literal("support")], {title: "角色", "x-form": {choices: [{value: "lead", label: "主角"}, {value: "support", label: "配角"}]}}),
+        age: Type.Optional(Type.Integer({title: "年龄", minimum: 0})),
+    }), {title: "人物", "x-form": {itemLabel: "name"}}),
+    servers: Type.Array(Type.Object({
+        name: Type.String({title: "名称"}),
+        url: Type.String({title: "地址", format: "uri"}),
+        enabled: Type.Boolean({title: "启用"}),
+    }), {title: "服务", "x-form": {widget: "master-detail", itemLabel: "name"}}),
+});
+const LISTS_VALUE = {
+    stops: ["。", "\n\n"],
+    characters: [{name: "林照", role: "lead", age: 27}, {name: "沈三", role: "support"}],
+    servers: [{name: "本地", url: "http://localhost:11434", enabled: true}, {name: "备用", url: "https://example.com/v1", enabled: false}],
+};
+
+/** 自定义控件：一个“评分”控件，经 `widgets` 登记，描述里写名字选中它。 */
+const Rating = defineComponent({
+    name: "LabRatingWidget",
+    props: ["modelValue", "node", "readonly", "disabled", "invalid", "id", "labelledby", "describedby", "locale", "issues", "options", "meta"],
+    emits: ["update:modelValue", "commit"],
+    setup(props, {emit}) {
+        return () => h("div", {"id": props.id, "role": "radiogroup", "tabindex": -1, "aria-labelledby": props.labelledby, "aria-describedby": props.describedby, "style": "display:flex;gap:4px"}, [1, 2, 3, 4, 5].map((star) => h("button", {
+            "type": "button",
+            "role": "radio",
+            "aria-checked": String(props.modelValue === star),
+            "aria-label": `${String(star)} 星`,
+            "disabled": props.disabled === true || props.readonly === true,
+            "style": `border:0;background:transparent;font-size:18px;cursor:pointer;color:${Number(props.modelValue ?? 0) >= star ? "var(--status-warning)" : "var(--text-muted)"}`,
+            "onClick": () => {
+                emit("update:modelValue", star);
+                emit("commit");
+            },
+        }, "★")));
+    },
+});
+const CUSTOM = Type.Object({
+    title: Type.String({title: "书名"}),
+    rating: Type.Integer({title: "评分", minimum: 1, maximum: 5, "x-form": {widget: "rating"}}),
+});
 
 /** 审批展示：长路径与多行文字。 */
 const APPROVAL = Type.Object({
@@ -98,6 +153,11 @@ export const nbFormFixtures: LabFixture[] = [
         component: "SchemaForm",
         class: "w-full max-w-[560px]",
         events: ["update:modelValue", "draft-state", "focus-issue"],
+        // 自定义控件是组件，不是 JSON 输入：作为运行期 props 登记，只有写了 `widget: "rating"` 的字段用它。
+        runtimeProps: async () => {
+            const {defineFormWidgets} = await import("@notnotype/nb-form/vue");
+            return {widgets: defineFormWidgets([{name: "rating", component: Rating}])};
+        },
         scenes: [
             {id: "controls", label: "每种标量控件", input: {props: {schema: CONTROLS, locale: "zh-CN"}, model: {modelValue: CONTROLS_VALUE}}},
             {id: "defaults", label: "缺值与默认", input: {props: {schema: DEFAULTS, locale: "zh-CN"}, model: {modelValue: {proxy: "http://127.0.0.1:7890"}}}},
@@ -117,10 +177,13 @@ export const nbFormFixtures: LabFixture[] = [
                 },
             },
             {id: "options", label: "动态选项", input: {props: {schema: OPTIONS, locale: "zh-CN", options: OPTION_SOURCES}, model: {modelValue: {provider: "anthropic"}}}},
-            {id: "conditional", label: "服务商连接：条件显示与横排", input: {props: {schema: CONNECTION, layout: CONNECTION_LAYOUT, locale: "zh-CN"}, model: {modelValue: {id: "conn-01", name: "本地", baseUrl: "http://localhost:11434", format: "openai", timeout: 30, retries: 2}}}},
+            {id: "conditional", label: "服务商连接", input: {props: {schema: CONNECTION, layout: CONNECTION_LAYOUT, locale: "zh-CN"}, model: {modelValue: {id: "conn-01", name: "本地", baseUrl: "http://localhost:11434", format: "openai", timeout: 30, retries: 2, extra: {temperature: 0.7}}}}},
+            {id: "lists", label: "列表", input: {props: {schema: LISTS, locale: "zh-CN"}, model: {modelValue: LISTS_VALUE}}},
+            {id: "custom", label: "自定义控件", input: {props: {schema: CUSTOM, locale: "zh-CN"}, model: {modelValue: {title: "长夜行", rating: 4}}}},
             {id: "readonly", label: "只读", input: {props: {schema: CONTROLS, locale: "zh-CN", readonly: true}, model: {modelValue: CONTROLS_VALUE}}},
             {id: "disabled", label: "停用", input: {props: {schema: CONTROLS, locale: "zh-CN", disabled: true}, model: {modelValue: CONTROLS_VALUE}}},
             {id: "view", label: "展示态（审批）", input: {props: {schema: APPROVAL, locale: "zh-CN", mode: "view"}, model: {modelValue: APPROVAL_VALUE}}},
+            {id: "lists-view", label: "展示态里的列表", input: {props: {schema: LISTS, locale: "zh-CN", mode: "view"}, model: {modelValue: LISTS_VALUE}}},
             {id: "en", label: "English", input: {props: {schema: ISSUES, locale: "en-US"}, model: {modelValue: {name: "ab", email: "x", retries: 8}}}},
         ],
         subject: nbFormSubject("SchemaForm"),

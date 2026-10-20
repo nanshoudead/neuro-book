@@ -15,6 +15,7 @@ import LayoutItem from "./LayoutItem.vue";
 import {fieldOrder, nearestField, sortIssues} from "./order";
 import {createFormScope, provideFormScope} from "./scope";
 import type {CommitMode, DraftState, FormMode, FormOptionSources} from "./scope";
+import type {FormWidget} from "./widgets";
 
 const props = withDefaults(defineProps<{
     schema: object;
@@ -28,6 +29,8 @@ const props = withDefaults(defineProps<{
     issues?: ReadonlyArray<FormIssue>;
     meta?: FormMeta;
     options?: FormOptionSources;
+    /** 登记的自定义控件（`defineFormWidgets` 的结果，输出 22）。 */
+    widgets?: ReadonlyArray<FormWidget>;
     commit?: CommitMode;
     /** 调用方写入被拒、值没变时加一：没有焦点的字段丢掉草稿、回到实际值（输出 16）。 */
     revision?: number;
@@ -42,6 +45,7 @@ const props = withDefaults(defineProps<{
     issues: () => [],
     meta: () => ({}),
     options: () => ({}),
+    widgets: () => [],
     commit: "change",
     revision: 0,
     summary: true,
@@ -69,6 +73,7 @@ const scope = createFormScope({
     issues: () => props.issues,
     meta: () => props.meta,
     options: () => props.options,
+    widgets: () => props.widgets,
 });
 provideFormScope(scope);
 
