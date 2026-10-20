@@ -146,46 +146,72 @@ export function beatsTask(input: { targets: ChapterText[]; previousBeats: string
 ${input.previousBeats || "（这是第一章）"}`;
 }
 
-export function draftTask(input: { targets: ChapterText[]; structure: string }): string {
+/**
+ * 这本书关掉了哪几类（docs/specs/story/ingest.md 输出 18）。【任务】段按它去掉对应的条目，加一句“不要写”；两项都开时
+ * 文字与原来逐字相同（系统提示词不变，规则全文与示例照旧）。
+ */
+export interface TaskFeatures { ledger: boolean; secrets: boolean }
+const ALL_ON: TaskFeatures = { ledger: true, secrets: true };
+
+/** 关掉的那几类的一行说明；两项都开时为空串。 */
+const offNote = (features: TaskFeatures) => [
+    ...(features.ledger ? [] : ["这本书不记数值：不要写 ledger。"]),
+    ...(features.secrets ? [] : ["这本书不记秘密：不要写 secrets，说法也不写 secret 字段；知情记录的 about 写说法的编号。"]),
+].map(line => `\n${line}`).join("");
+
+/** 按开关留下的行：`when` 为假的去掉。 */
+const lines = (items: [boolean, string][]) => items.filter(([when]) => when).map(([, text]) => text).join("\n");
+
+export function draftTask(input: { targets: ChapterText[]; structure: string }, features: TaskFeatures = ALL_ON): string {
     const single = input.targets.length === 1, chapter = input.targets[0]!.chapter;
-    return `【任务】为${range(input.targets)}写草稿里除 times 和 beats 以外的全部内容：entities、names、mentions、secrets、statements、episodes、episodeLinks、knowledge、ledger、questions、questionUpdates。times 和 beats 已经写好，见下面，可以直接引用里面的时间点编号。${single ? `只输出：{"chapter":${chapter},"entities":[…],…}。` : ""}${batchNote(input.targets)}
+    const fields = ["entities", "names", "mentions", ...(features.secrets ? ["secrets"] : []), "statements", "episodes", "episodeLinks", "knowledge", ...(features.ledger ? ["ledger"] : []), "questions", "questionUpdates"].join("、");
+    return `【任务】为${range(input.targets)}写草稿里除 times 和 beats 以外的全部内容：${fields}。times 和 beats 已经写好，见下面，可以直接引用里面的时间点编号。${single ? `只输出：{"chapter":${chapter},"entities":[…],…}。` : ""}${batchNote(input.targets)}${offNote(features)}
 
 写之前逐项对照“已有记录”：
-- 名册里已有的对象直接用编号，不要重复新建；出现了新称呼就写进 names。
-- 秘密清单里的每个秘密，本章有没有人得知、起疑，或者表现出仍不知道。知情表里标了“推断”的判断，本章有没有新的依据（支持或反驳）；有就补一条知情记录，引用本章原文。已经明写的知情（本人知道自己的事、旁白写明的）不要每章重复写。
-- 未解的疑问，本章有没有再次提起、部分解答或解答。只要本章的某条说法和某个疑问有关，哪怕只是一条线索，也写一条 questionUpdates 指向它。
-- 当前状态里的每个量，本章有没有变化；沿用已有的名字。
-- 新情节要连到前面相关的情节。
+${lines([
+    [true, "- 名册里已有的对象直接用编号，不要重复新建；出现了新称呼就写进 names。"],
+    [features.secrets, "- 秘密清单里的每个秘密，本章有没有人得知、起疑，或者表现出仍不知道。知情表里标了“推断”的判断，本章有没有新的依据（支持或反驳）；有就补一条知情记录，引用本章原文。已经明写的知情（本人知道自己的事、旁白写明的）不要每章重复写。"],
+    [true, "- 未解的疑问，本章有没有再次提起、部分解答或解答。只要本章的某条说法和某个疑问有关，哪怕只是一条线索，也写一条 questionUpdates 指向它。"],
+    [features.ledger, "- 当前状态里的每个量，本章有没有变化；沿用已有的名字。"],
+    [true, "- 新情节要连到前面相关的情节。"],
+])}
 
 写完后自查下面几项，这几项最容易漏或写错：
-- 心理描写里的判断（她觉得、她认为、她猜某人知道某事）是这个人的看法：src.ch 写 thought，kind 写 belief，不要记成旁白确认的世界事实；相应的知情也只能标推断。
-- 台词的 by 必须是原文里能看出的说话人；原文没有标明是谁说的（例如“脑子里响起一个声音”），by 写 null，text 里写明“说话人不明”，不要安给附近的角色。
-- 知情记录的 who 是“谁知道或不知道”的那个人，about 是他知道或不知道的那个秘密的编号。写“南嘉鱼不知道心月狐就是苏天晴”时，who 是南嘉鱼、about 是“心月狐就是苏天晴”这个秘密，不要挂到南嘉鱼自己的秘密上。本人对自己的秘密总是知道，不要给当事人写 unaware。
-- 本章有没有新的秘密：有人以另一个身份活动而别人不知道背后是谁、旁白点明了某个身份的真名、主角瞒着别人的事。有就建 secrets，给表达它的说法加上 secret，并在 knowledge 里写清此时谁知道、谁表现出不知道。
-- 本章有没有人读到、听到、看到了以前不知道的事。读到了就是知道了，state 写 read 或 knows，不要写成 unaware。
-- 账本：每一笔收入、支出、购买和原文写出的余额都要记，金额写原文的数字；买道具时既记“道具”的 get，也记“神典石”的 spend。use 只用于用掉就没有的东西（药剂、消耗品），摄像头、陷阱这类工具用了还在，不写 use。
-- 本章留下了哪些没有回答的问题：来历不明的人和物、没解释的现象、角色自己想不通的事、章末的悬念。每章通常有 2 到 5 个。
-- 同一个人的马甲和本人是不是分成了两个对象，并用一条 identity 说法连了起来。
-- 本章有没有出现、接受、推进或完成任务（每日任务、长期任务都算）：每个任务都用 ledger 记进度，track 写“任务：任务名”，op 用 set，value 写“进行中”“已完成”或进度（例如“进行中 0/10”）。
+${lines([
+    [true, "- 心理描写里的判断（她觉得、她认为、她猜某人知道某事）是这个人的看法：src.ch 写 thought，kind 写 belief，不要记成旁白确认的世界事实；相应的知情也只能标推断。"],
+    [true, "- 台词的 by 必须是原文里能看出的说话人；原文没有标明是谁说的（例如“脑子里响起一个声音”），by 写 null，text 里写明“说话人不明”，不要安给附近的角色。"],
+    [features.secrets, "- 知情记录的 who 是“谁知道或不知道”的那个人，about 是他知道或不知道的那个秘密的编号。写“南嘉鱼不知道心月狐就是苏天晴”时，who 是南嘉鱼、about 是“心月狐就是苏天晴”这个秘密，不要挂到南嘉鱼自己的秘密上。本人对自己的秘密总是知道，不要给当事人写 unaware。"],
+    [!features.secrets, "- 知情记录的 who 是“谁知道或不知道”的那个人，about 是他知道或不知道的那条说法的编号（例如 s9-3）。本人对自己的事总是知道，不要给当事人写 unaware。"],
+    [features.secrets, "- 本章有没有新的秘密：有人以另一个身份活动而别人不知道背后是谁、旁白点明了某个身份的真名、主角瞒着别人的事。有就建 secrets，给表达它的说法加上 secret，并在 knowledge 里写清此时谁知道、谁表现出不知道。"],
+    [true, "- 本章有没有人读到、听到、看到了以前不知道的事。读到了就是知道了，state 写 read 或 knows，不要写成 unaware。"],
+    [features.ledger, "- 账本：每一笔收入、支出、购买和原文写出的余额都要记，金额写原文的数字；买道具时既记“道具”的 get，也记“神典石”的 spend。use 只用于用掉就没有的东西（药剂、消耗品），摄像头、陷阱这类工具用了还在，不写 use。"],
+    [true, "- 本章留下了哪些没有回答的问题：来历不明的人和物、没解释的现象、角色自己想不通的事、章末的悬念。每章通常有 2 到 5 个。"],
+    [true, "- 同一个人的马甲和本人是不是分成了两个对象，并用一条 identity 说法连了起来。"],
+    [features.ledger, "- 本章有没有出现、接受、推进或完成任务（每日任务、长期任务都算）：每个任务都用 ledger 记进度，track 写“任务：任务名”，op 用 set，value 写“进行中”“已完成”或进度（例如“进行中 0/10”）。"],
+])}
 
 【${single ? "本章" : "各章"}的时间点和段落块】
 ${input.structure}`;
 }
 
 /** 核对与修复的任务：程序核对出的清单，模型逐条处理，只输出修正。 */
-export function reviewTask(input: { chapter: number; draft: string; checklist: string[] }): string {
-    return `【任务】下面是你为第 ${input.chapter} 章写的草稿，以及程序核对出的清单。逐条处理，只输出修正：
-{"replace":{"statements":[完整的新记录，按 id 覆盖原记录],"ledger":[…],…},"remove":["要删掉的记录 id"],"rewrite":{"names":[…],"mentions":[…],"episodeLinks":[…],"questionUpdates":[…]},"skip":[{"item":"C3","reason":"为什么不用改"}]}
-- replace：有 id 的记录（times、beats、entities、secrets、statements、episodes、knowledge、ledger、questions）按 id 整条替换；补新记录也写在这里，编号接着本章已有的编号。
+export function reviewTask(input: { chapter: number; draft: string; checklist: string[] }, features: TaskFeatures = ALL_ON): string {
+    const sections = ["times", "beats", "entities", ...(features.secrets ? ["secrets"] : []), "statements", "episodes", "knowledge", ...(features.ledger ? ["ledger"] : []), "questions"].join("、");
+    return `【任务】下面是你为第 ${input.chapter} 章写的草稿，以及程序核对出的清单。逐条处理，只输出修正：${offNote(features)}
+{"replace":{"statements":[完整的新记录，按 id 覆盖原记录],${features.ledger ? `"ledger":[…],` : ""}…},"remove":["要删掉的记录 id"],"rewrite":{"names":[…],"mentions":[…],"episodeLinks":[…],"questionUpdates":[…]},"skip":[{"item":"C3","reason":"为什么不用改"}]}
+- replace：有 id 的记录（${sections}）按 id 整条替换；补新记录也写在这里，编号接着本章已有的编号。
 - remove：确实不该有的记录，列出 id。
 - rewrite：names、mentions、episodeLinks、questionUpdates 这四部分没有 id，需要改时把这一部分整段重写。
 - skip：清单里不需要改的条目，写明理由。
 处理原则：
-- 标“结构”的必须改好，修不了的记录宁可删掉，不要编造。
-- 标“对账”的：原文这一段有钱数、余额、任务而草稿没有对应记录，该补就补成完整的 ledger 记录（买道具同时记道具 get 和神典石 spend，金额写原文的数字）；确实不该记的写进 skip。
-- 标“归属”的是提醒，不是结论：回到所引段落核对说话人、来源渠道和断言类型。前后文能看出是谁说的（对话轮流、这场戏只有这两个人），保留原来的 by，写进 skip 说明依据；只有原文确实没有标明、前后文也看不出的（例如“脑子里响起一个声音”），才把 by 写 null，text 里写明“说话人不明”。心理活动里的判断一律是这个人的看法，kind 写 belief。
-- 标“身份”的：确实揭示了身份就补 identity 说法、秘密和知情；不是就 skip。
-- 没有问题的记录不要重写。
+${lines([
+    [true, "- 标“结构”的必须改好，修不了的记录宁可删掉，不要编造。"],
+    [features.ledger, "- 标“对账”的：原文这一段有钱数、余额、任务而草稿没有对应记录，该补就补成完整的 ledger 记录（买道具同时记道具 get 和神典石 spend，金额写原文的数字）；确实不该记的写进 skip。"],
+    [true, "- 标“归属”的是提醒，不是结论：回到所引段落核对说话人、来源渠道和断言类型。前后文能看出是谁说的（对话轮流、这场戏只有这两个人），保留原来的 by，写进 skip 说明依据；只有原文确实没有标明、前后文也看不出的（例如“脑子里响起一个声音”），才把 by 写 null，text 里写明“说话人不明”。心理活动里的判断一律是这个人的看法，kind 写 belief。"],
+    [features.secrets, "- 标“身份”的：确实揭示了身份就补 identity 说法、秘密和知情；不是就 skip。"],
+    [!features.secrets, "- 标“身份”的：确实揭示了身份就补 identity 说法和指向它的知情；不是就 skip。"],
+    [true, "- 没有问题的记录不要重写。"],
+])}
 
 【程序核对出的清单】
 ${input.checklist.map(item => `- ${item}`).join("\n")}

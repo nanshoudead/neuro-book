@@ -11,11 +11,11 @@
  * 这一层不碰书库：已提交的数据与编译由调用方（job.ts）给。
  */
 
-import type {Dataset, SourceChapter} from "../core/dataset";
+import type {BookFeatures, Dataset, SourceChapter} from "../core/dataset";
 import type {CompileResult, Issue} from "./compile";
 import {recallCandidates, renderContext} from "./context";
 import {ConsolidationSchema, parseWith} from "./draft-schema";
-import {applyPatch, checkDraft, dropOffending, fixBeats, fixPositions, normalizeDraft, sanitizeConsolidation, type Problem, type RawDraft} from "./draft-tools";
+import {applyPatch, checkDraft, dropOffending, fixBeats, fixPositions, normalizeDraft, sanitizeConsolidation, stripDisabled, type Problem, type RawDraft} from "./draft-tools";
 import {callModel, type Attempt, type CallOptions, type IngestEffort, type ModelEndpoint, type ModelError, type ModelReply} from "./model";
 import {beatsTask, consolidationPrompt, draftTask, prefixFor, reviewTask, system, systemV2} from "./prompts";
 import {llmRecaller, RECALL_LIMIT} from "./recall";
@@ -57,6 +57,8 @@ export interface ChapterInput {
     prior: Dataset | null;
     /** 已提交的各章草稿加上候选草稿一起编译（原文只到本章），给检查用。 */
     compileWith: (candidate: RawDraft) => CompileResult;
+    /** 这本书记不记数值与秘密（输出 18）；不给时都记。 */
+    features?: BookFeatures;
 }
 
 /** 这一章的说法怎么选的：按规则缩减（挑选关着）、模型挑的、挑选的回复不成形退回规则、没有候选。 */
@@ -139,6 +141,14 @@ export async function extractChapter(input: ChapterInput, run: ChapterRun): Prom
     const targets = [{chapter, paragraphs}];
     const text = paragraphs.join("\n");
     const notes: string[] = [];
+    const features = input.features ?? {ledger: true, secrets: true};
+    // 关掉的那几类：模型写了也在检查之前去掉（输出 18），条数累计到这一章的说明里。
+    const removed = {ledger: 0, secrets: 0, secretRefs: 0, knowledge: 0};
+    const strip = (candidate: RawDraft): RawDraft => {
+        const result = stripDisabled(candidate, features);
+        for (const key of Object.keys(removed) as (keyof typeof removed)[]) removed[key] += result.removed[key];
+        return result.draft;
+    };
     // 第 1 章没有已提交的记录，什么都不用选（实现审查第 6 条）。
     let recall: ChapterResult["recall"] = {source: prior && !run.recallEndpoint ? "rule" : "none", ids: []};
     let statements: string[] | undefined;
@@ -171,9 +181,9 @@ export async function extractChapter(input: ChapterInput, run: ChapterRun): Prom
     structure.beats = fixBeats(structure.beats ?? [], paragraphs.length);
     const structureText = JSON.stringify({times: structure.times ?? [], beats: structure.beats});
 
-    const bodyReply = await ask("draft", systemV2, prefix + draftTask({targets, structure: structureText}), "medium", reply => forChapter(reply.json, chapter) !== null);
+    const bodyReply = await ask("draft", systemV2, prefix + draftTask({targets, structure: structureText}, features), "medium", reply => forChapter(reply.json, chapter) !== null);
     const body = normalizeDraft(forChapter(bodyReply, chapter), chapter);
-    let draft: RawDraft = fixPositions({...body, chapter, times: structure.times ?? [], beats: structure.beats}, paragraphs);
+    let draft: RawDraft = strip(fixPositions({...body, chapter, times: structure.times ?? [], beats: structure.beats}, paragraphs));
 
     const structuralOf = (candidate: RawDraft) => {
         const checked = checkDraft(candidate);
@@ -182,16 +192,17 @@ export async function extractChapter(input: ChapterInput, run: ChapterRun): Prom
     };
     const rounds: ChapterResult["rounds"] = [];
     const patchWith = async (step: "review" | "repair", checklist: string[]) => {
-        const patch = await ask(step, systemV2, prefix + reviewTask({chapter, draft: JSON.stringify(draft), checklist}), "medium", reply => isObject(reply.json));
+        const patch = await ask(step, systemV2, prefix + reviewTask({chapter, draft: JSON.stringify(draft), checklist}, features), "medium", reply => isObject(reply.json));
         const skip = (patch as {skip?: unknown}).skip;
         rounds.push({step, checklist, skipped: Array.isArray(skip) ? skip : []});
-        draft = fixPositions(applyPatch(draft, patch, chapter), paragraphs);
+        // 修正里的 replace 可能把关掉的记录又加回来，每次都再去掉一遍。
+        draft = strip(fixPositions(applyPatch(draft, patch, chapter), paragraphs));
     };
 
     // 核对补漏：清单里既有结构错误，也有对账、归属、身份问题。清单空了就不用调用。
     for (let round = 0; round < MAX_REVIEWS; round++) {
         const state = structuralOf(draft);
-        const checklist = buildChecklist({draft, chapter, paragraphs, prior, structural: state.problems.map(problem => problem.message)});
+        const checklist = buildChecklist({draft, chapter, paragraphs, prior, structural: state.problems.map(problem => problem.message), features});
         if (!checklist.items.length) break;
         await patchWith("review", checklist.items);
     }
@@ -215,6 +226,13 @@ export async function extractChapter(input: ChapterInput, run: ChapterRun): Prom
         }
         await patchWith("repair", state.problems.map((problem, index) => `C${index + 1} [结构] ${problem.message}`));
     }
+    const removedNote = [
+        removed.ledger ? `${removed.ledger} 条数值记录` : "",
+        removed.secrets ? `${removed.secrets} 个秘密` : "",
+        removed.knowledge ? `${removed.knowledge} 条指向秘密的知情` : "",
+        removed.secretRefs ? `${removed.secretRefs} 条说法上的秘密` : "",
+    ].filter(Boolean);
+    if (removedNote.length) notes.push(`按书的设置去掉了 ${removedNote.join("、")}`);
     const final = input.compileWith(draft);
     const errors = chapterIssues(final.issues, chapter).filter(issue => issue.level === "error");
     if (errors.length) throw new IngestBadReply("repair", `第 ${chapter} 章仍有错误：${errors.map(issue => issue.message).join("；")}`);

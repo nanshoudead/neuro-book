@@ -16,6 +16,7 @@ import type {BookIndex} from "./book-index";
 import {decodeCursor, paramsDigest} from "./cursor";
 import {StoryError} from "./errors";
 import type {EntityCandidate, StoryErrorCode} from "./errors";
+import {featuresOf} from "./dataset";
 import {characterGrouping, READER, readerGrouping} from "./identity";
 import type {Grouping} from "./identity";
 import {Library} from "./library";
@@ -180,7 +181,7 @@ export function createStoryApi(options: {library?: Library | string} = {}): Stor
     async function dispatch(method: StoryMethod, params: Record<string, unknown>): Promise<unknown> {
         switch (method) {
             case "books.list":
-                return {books: (await library.listBooks()).map(({id, title, generation, chapters, extractedThrough}) => ({id, title, generation, chapters, extractedThrough}))};
+                return {books: (await library.listBooks()).map(({id, title, generation, chapters, extractedThrough, features}) => ({id, title, generation, chapters, extractedThrough, features: featuresOf(features)}))};
             case "book.import": {
                 const input = params as StoryParams<"book.import">;
                 return library.importBook({file: input.file, title: input.title, ...(input.id === undefined ? {} : {id: input.id})});

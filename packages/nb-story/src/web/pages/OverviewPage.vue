@@ -22,13 +22,15 @@ const roster = useStoryQuery("entities.list", () => ({limit: 50}));
 // 主要人物：出场最多的人物与身份（合并了化名的点，代表对象可能是“身份”类）。
 const cast = computed(() => (roster.data.value?.items ?? []).filter(item => item.kind === "person" || item.kind === "persona").slice(0, CAST));
 const arcs = useStoryQuery("arcs.list", () => ({}));
-const matrix = useStoryQuery("secrets.matrix", () => ({}));
+// 这本书关掉的那类（ingest.md 输出 18）不取、不显示，块也不出。
+const features = computed(() => book.info.features);
+const matrix = useStoryQuery("secrets.matrix", () => (features.value.secrets ? {} : null));
 const open = useStoryQuery("questions.list", () => ({state: "open", limit: 1}) as const);
 /** 最近有进展的几条没解开的悬念。 */
 const RECENT_QUESTIONS = 5;
 const recentQuestions = useStoryQuery("questions.list", () => ({state: "partial", sort: "recent", limit: RECENT_QUESTIONS}) as const);
 const partial = useStoryQuery("questions.list", () => ({state: "partial", limit: 1}) as const);
-const ledger = useStoryQuery("ledger.tracks", () => ({}));
+const ledger = useStoryQuery("ledger.tracks", () => (features.value.ledger ? {} : null));
 const digest = useStoryQuery("chapter.digest", () => ({chapter: book.at.value.chapter}));
 
 const resources = computed(() => (ledger.data.value?.tracks ?? []).filter(track => track.kind === "resource" && typeof track.current === "number").slice(0, 3));
@@ -50,9 +52,9 @@ function signed(value: number | null): string {
             <h1 class="story-page-title">全书总览 <span class="sub">截至{{ book.atLabel.value }}</span></h1>
             <div class="tiles">
                 <button type="button" class="tile" @click="book.goPage('roster')"><b>{{ roster.data.value?.total ?? "…" }}</b><span>人物与事物</span></button>
-                <button type="button" class="tile" @click="book.goPage('secrets')"><b>{{ matrix.data.value?.rows.length ?? "…" }}</b><span>身份秘密</span><small>读者已知 {{ matrix.data.value?.rows.filter(row => row.revealedAt).length ?? 0 }}</small></button>
+                <button v-if="features.secrets" type="button" class="tile" @click="book.goPage('secrets')"><b>{{ matrix.data.value?.rows.length ?? "…" }}</b><span>身份秘密</span><small>读者已知 {{ matrix.data.value?.rows.filter(row => row.revealedAt).length ?? 0 }}</small></button>
                 <button type="button" class="tile" @click="book.goPage('questions')"><b>{{ (open.data.value?.total ?? 0) + (partial.data.value?.total ?? 0) }}</b><span>未解悬念</span><small>其中 {{ partial.data.value?.total ?? 0 }} 条有进展</small></button>
-                <button type="button" class="tile" @click="book.goPage('ledger')">
+                <button v-if="features.ledger" type="button" class="tile" @click="book.goPage('ledger')">
                     <b>{{ resources[0]?.current ?? "—" }}</b><span>{{ resources[0] ? `${resources[0].name}余额` : "数值" }}</span><small>进行中的任务 {{ activeTasks }} 个</small>
                 </button>
             </div>
@@ -82,7 +84,7 @@ function signed(value: number | null): string {
                 </section>
             </div>
 
-            <section class="story-block">
+            <section v-if="features.secrets" class="story-block">
                 <h2>秘密矩阵 <span class="sub">精简</span><button type="button" class="more" @click="book.goPage('secrets')">完整矩阵</button></h2>
                 <PageState :loading="matrix.loading.value && !matrix.data.value" :error="matrix.error.value?.message ?? null" @retry="matrix.reload()" />
                 <div v-if="matrix.data.value" class="overflow-x-auto">

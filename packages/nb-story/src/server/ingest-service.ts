@@ -60,7 +60,7 @@ export function createIngestService(options: {library: Library; configPath?: str
     const loadConfig = (): Promise<QaConfig> => loadQaConfig(...(options.configPath === undefined ? [] : [options.configPath]));
 
     async function preview(params: ViewerParams<"ingest.preview">): Promise<ViewerResult<"ingest.preview">> {
-        const plan = await planFromText(library, {text: decodeContent(params.content), title: titleOf(params), ...(params.id === undefined ? {} : {id: params.id})});
+        const plan = await planFromText(library, {text: decodeContent(params.content), title: titleOf(params), ...(params.id === undefined ? {} : {id: params.id}), ...(params.features === undefined ? {} : {features: params.features})});
         // 预览不要求配置可用：读不出来时只是不写模型，开始时再报 qa_unconfigured。
         const model = await loadConfig().then(
             config => {
@@ -94,6 +94,7 @@ export function createIngestService(options: {library: Library; configPath?: str
             return startIngest({
                 library,
                 ...source,
+                ...(params.features === undefined ? {} : {features: params.features}),
                 ...modelChoice(ingestModel(config)),
                 recall: recall === null ? null : modelChoice(recall),
                 runner: "serve",

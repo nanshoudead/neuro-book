@@ -65,7 +65,7 @@ const DEFAULT_KIND: Record<string, StatementKind> = {narrator: "fact", author: "
 
 type Report = (level: Issue["level"], chapter: number | null, code: string, message: string, subject?: IssueSubject) => void;
 
-export function compile(book: {id: string; title: string}, sources: SourceChapter[], rawDrafts: unknown[], rawConsolidations: unknown[] = []): CompileResult {
+export function compile(book: Dataset["book"], sources: SourceChapter[], rawDrafts: unknown[], rawConsolidations: unknown[] = []): CompileResult {
     const issues: Issue[] = [];
     const issue: Report = (level, chapter, code, message, subject = {}) => {
         issues.push({level, chapter, code, message, ...subject});
@@ -552,8 +552,9 @@ export function compile(book: {id: string; title: string}, sources: SourceChapte
         count(generated, "knowledge");
     }
     // 把马甲和本人连起来的说法，要么挂在一个秘密上，要么说明这层身份是公开的；否则“谁知道、谁不知道”无处可记。
-    // 这是警告而不是错误：记录本身没有写错，只是少了一层。抽取管线把它和错误一起交给修复。
-    for (const item of statements.values()) {
+    // 这是警告而不是错误：记录本身没有写错，只是少了一层。抽取管线把它和错误一起交给修复。关掉秘密的书不查：
+    // 它本来就不记秘密（docs/specs/story/ingest.md 输出 18），提醒只会让修复去写被关掉的记录。
+    if (book.features?.secrets !== false) for (const item of statements.values()) {
         if (item.family !== "identity" || item.kind !== "fact" || item.neg || item.certainty !== "certain" || item.about.length !== 2 || item.secret) continue;
         if (item.label?.includes("公开")) continue;
         const [first, second] = item.about.map(id => entities.get(id));

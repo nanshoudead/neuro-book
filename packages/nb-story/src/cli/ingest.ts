@@ -13,10 +13,11 @@ import {StoryError} from "../core/errors";
 import {coordinatedLibrary, runnerTable} from "../ingest/coordinator";
 import type {IngestEvent, JobOutcome} from "../ingest/job";
 import {modelChoice, startIngest, type Runner} from "../ingest/runner";
-import {planFromText, type IngestPlan} from "../ingest/start";
+import {IngestUsageError, planFromText, type IngestPlan} from "../ingest/start";
 import {ingestStatus, ingestStatuses, lineCost, sumCosts, type IngestStatus, type UsageTotals} from "../ingest/status";
 import {STEP_NAMES} from "../ingest/chapter";
 import {decodeUtf8, MAX_SOURCE_BYTES} from "../ingest/text";
+import type {BookFeatures} from "../core/dataset";
 import type {Library} from "../core/library";
 import {ingestModel, loadQaConfig, recallModel} from "../qa/config";
 import {QaError} from "../qa/errors";
@@ -43,7 +44,7 @@ const ACTION_TEXT: Record<IngestPlan["action"], string> = {new: "新建", resume
 function usageProblem(params: Record<string, unknown>): string | null {
     const file = params.file !== undefined;
     if (params.status === true) {
-        if (file || params.title !== undefined || params.id !== undefined || params.preview === true) return "--status 只能与 --book 一起用";
+        if (file || params.title !== undefined || params.id !== undefined || params.preview === true || params.noLedger === true || params.noSecrets === true) return "--status 只能与 --book 一起用";
         return null;
     }
     if (file) return params.book !== undefined ? "给了原文文件时用 --id 指定书 id，不用 --book" : null;
@@ -81,16 +82,31 @@ export async function ingestCommand(options: IngestOptions, io: CliIo): Promise<
         const file = params.file as string | undefined;
         const text = file === undefined ? undefined : await readSource(file);
         const title = (params.title as string | undefined) ?? (file === undefined ? undefined : basename(file, extname(file)));
+        const features = requestedFeatures(params);
         if (params.preview === true) {
-            const plan = await planFromText(library, {text: text!, title: title!, ...(params.id === undefined ? {} : {id: params.id as string})});
+            const plan = await planFromText(library, {text: text!, title: title!, ...(params.id === undefined ? {} : {id: params.id as string}), ...(features ? {features} : {})});
             return done(planData(plan), previewText(plan));
         }
-        return await run(library, runners, {text, title, id: (params.id ?? params.book) as string | undefined, config: params.config as string | undefined}, io, json, done, fail);
+        return await run(library, runners, {text, title, id: (params.id ?? params.book) as string | undefined, features, config: params.config as string | undefined}, io, json, done, fail);
     } catch (error) {
+        // 开关与这本书新建时定的不同：是用法错误（输出 15），其余书库类失败照旧退出码 1。
+        if (error instanceof IngestUsageError) return fail(error.code, error.message, EXIT_USAGE);
         if (error instanceof StoryError) return fail(error.code, error.message, EXIT_LIBRARY);
         if (error instanceof QaError) return fail(error.code, error.message, EXIT_LIBRARY);
         throw error;
     }
+}
+
+/** 命令行上写了的开关（只有关：不写就是沿用保存值，新建时为开）；都没写时为 undefined。 */
+function requestedFeatures(params: Record<string, unknown>): Partial<BookFeatures> | undefined {
+    if (params.noLedger !== true && params.noSecrets !== true) return undefined;
+    return {...(params.noLedger === true ? {ledger: false} : {}), ...(params.noSecrets === true ? {secrets: false} : {})};
+}
+
+/** 设置的一句话；两项都开时为 null（默认，不写）。 */
+export function featuresText(features: BookFeatures): string | null {
+    const off = [...(features.ledger ? [] : ["数值"]), ...(features.secrets ? [] : ["秘密"])];
+    return off.length ? `不记${off.join("、")}` : null;
 }
 
 /** 读原文：先看大小，超过上限不读进内存。读不了（不存在、是目录、没有权限）一律 invalid_params。 */
@@ -123,6 +139,7 @@ function previewText(plan: IngestPlan): string {
         `书 ${plan.id}（${plan.title}）：${ACTION_TEXT[plan.action]}，共 ${plan.chapters.length} 章`,
         ...(plan.action === "append" ? [`多出 ${plan.newChapters} 章；已提交到第 ${plan.committed} 章`] : plan.action === "resume" ? [`已提交到第 ${plan.committed} 章`] : []),
         `第一个章标题之前 ${plan.preambleChars} 字（不算正文）；卷标题 ${plan.volumeLines} 行`,
+        ...withFeatures(plan.features),
         "",
     ];
     return [...head, ...plan.chapters.map(chapter => `第 ${chapter.chapter} 章  ${chapter.title}  ${chapter.chars} 字`)].join("\n");
@@ -152,9 +169,15 @@ function stateText(status: IngestStatus): string {
     return `已停下（${reason.code}${reason.errorKind ? `，${reason.errorKind}` : ""}：${reason.message}）`;
 }
 
+const withFeatures = (features: BookFeatures): string[] => {
+    const text = featuresText(features);
+    return text === null ? [] : [`设置：${text}`];
+};
+
 function statusText(status: IngestStatus, detail: boolean): string {
     const lines = [
         `${status.id}（${status.title}）：${stateText(status)}；已提交 ${status.committed}/${status.total} 章`,
+        ...withFeatures(status.features).map(line => `  ${line}`),
         `  这次：${usageText(status.thisRun)}`,
         `  历次：${usageText(status.allRuns)}`,
         ...(status.average ? [`  每章平均：用时 ${seconds(status.average.ms)}，${costText(status.average.costs)}`] : []),
@@ -197,7 +220,7 @@ function progressLine(event: IngestEvent, chapterStart: number, costs: ChapterCo
 async function run(
     library: Library,
     runners: Map<string, Runner>,
-    input: {text: string | undefined; title: string | undefined; id: string | undefined; config: string | undefined},
+    input: {text: string | undefined; title: string | undefined; id: string | undefined; features: Partial<BookFeatures> | undefined; config: string | undefined},
     io: CliIo,
     json: boolean,
     done: Done,
@@ -213,6 +236,7 @@ async function run(
         ...(input.text === undefined ? {} : {text: input.text}),
         ...(input.title === undefined ? {} : {title: input.title}),
         ...(input.id === undefined ? {} : {id: input.id}),
+        ...(input.features === undefined ? {} : {features: input.features}),
         ...modelChoice(model),
         recall: recall === null ? null : modelChoice(recall),
         runner: "cli",
@@ -231,7 +255,8 @@ async function run(
         return done({id: plan.id, action: plan.action, outcome: "done", committed: plan.committed, total: plan.chapters.length, status}, `书 ${plan.id}（${plan.title}）已经全部抽完，共 ${plan.chapters.length} 章；没有调用模型`);
     }
     runners.set(runner.id, runner);
-    io.stderr(`书 ${plan.id}（${plan.title}）：${ACTION_TEXT[plan.action]}，共 ${plan.chapters.length} 章，已提交 ${plan.committed} 章；抽取模型 ${model.id}`);
+    const setting = featuresText(plan.features);
+    io.stderr(`书 ${plan.id}（${plan.title}）：${ACTION_TEXT[plan.action]}，共 ${plan.chapters.length} 章，已提交 ${plan.committed} 章；抽取模型 ${model.id}${setting === null ? "" : `；${setting}`}`);
 
     const onInterrupt = () => {
         io.stderr("· 收到中断信号，正在停下（没提交的那一章作废）");

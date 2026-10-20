@@ -41,6 +41,8 @@ const NAV: ReadonlyArray<{id: Page; label: string; icon: string}> = [
     {id: "source", label: "原文", icon: "i-lucide-book-open"},
     {id: "stats", label: "说明与统计", icon: "i-lucide-info"},
 ];
+/** 导航只列这本书开着的页（输出 2）：关掉数值或秘密的书没有那一页。 */
+const nav = computed(() => NAV.filter(item => book.pages.value.includes(item.id)));
 const PHONE_TABS: ReadonlyArray<{id: Page; label: string; icon: string}> = [
     {id: "overview", label: "总览", icon: "i-lucide-layout-dashboard"},
     {id: "roster", label: "人物", icon: "i-lucide-users"},
@@ -249,7 +251,7 @@ watch(notice, value => {
                 <template #panel-nav>
                     <nav class="flex h-full flex-col gap-0.5 overflow-y-auto py-2" :class="navIsCollapsed ? 'items-center px-1' : 'px-2'" aria-label="页面">
                         <button
-                            v-for="item in NAV" :key="item.id" type="button" class="nav-item flex items-center gap-2 rounded-[var(--radius-control)] py-1.5 text-[length:var(--text-sm)]"
+                            v-for="item in nav" :key="item.id" type="button" class="nav-item flex items-center gap-2 rounded-[var(--radius-control)] py-1.5 text-[length:var(--text-sm)]"
                             :class="[book.page.value === item.id ? 'is-active' : '', navIsCollapsed ? 'justify-center px-1.5' : 'px-2']"
                             :title="item.label" :aria-current="book.page.value === item.id ? 'page' : undefined" :data-page="item.id" @click="goPage(item.id)"
                         >
@@ -315,7 +317,7 @@ watch(notice, value => {
             <template v-if="tier === 'phone' && navSheet">
                 <div class="absolute inset-0 z-20 bg-[var(--overlay-bg)]" @click="navSheet = false" />
                 <nav class="absolute inset-y-0 left-0 z-30 flex w-[220px] flex-col gap-0.5 bg-[var(--bg-panel)] p-2 shadow-[var(--shadow-panel)]" aria-label="页面">
-                    <button v-for="item in NAV" :key="item.id" type="button" class="nav-item flex items-center gap-2 rounded-[var(--radius-control)] px-2 py-2 text-[length:var(--text-sm)]" :class="book.page.value === item.id ? 'is-active' : ''" @click="goPage(item.id)">
+                    <button v-for="item in nav" :key="item.id" type="button" class="nav-item flex items-center gap-2 rounded-[var(--radius-control)] px-2 py-2 text-[length:var(--text-sm)]" :class="book.page.value === item.id ? 'is-active' : ''" @click="goPage(item.id)">
                         <span :class="item.icon" />{{ item.label }}
                     </button>
                 </nav>

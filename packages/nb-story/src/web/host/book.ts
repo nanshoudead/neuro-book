@@ -22,6 +22,27 @@ import {sendKeepalive, StoryCallError, type StoryClient} from "./client";
 
 export const PAGES = ["overview", "relations", "book-graph", "roster", "secrets", "ledger", "questions", "timeline", "episodes", "source", "stats"] as const;
 export type Page = (typeof PAGES)[number];
+/** 只在这本书记这一类时才有的页（docs/specs/story/viewer.md 输出 2；开关见 ingest.md 输出 18）。 */
+const PAGE_FEATURE: Partial<Record<Page, {feature: keyof Features; missing: string}>> = {
+    secrets: {feature: "secrets", missing: "这本书没有记录秘密"},
+    ledger: {feature: "ledger", missing: "这本书没有记录数值"},
+};
+type Features = StoryResult<"book.info">["features"];
+
+/** 这本书开着的页，按导航的顺序。导航、手机上的“更多”与跳转都只用它。 */
+export function allowedPages(features: Features): Page[] {
+    return PAGES.filter(page => {
+        const gate = PAGE_FEATURE[page];
+        return !gate || features[gate.feature];
+    });
+}
+
+/** 页不开着时为它的提示，开着时为 null。 */
+function closedPage(features: Features, page: Page): string | null {
+    const gate = PAGE_FEATURE[page];
+    return gate && !features[gate.feature] ? gate.missing : null;
+}
+
 export const TABS = ["summary", "relations", "records", "episodes"] as const;
 export type Tab = (typeof TABS)[number];
 
@@ -49,6 +70,8 @@ export interface BookSession {
     readonly bookId: string;
     /** 全书的信息（章数、各章段数）；不带阅读位置取，目录标题另按位置取。`refresh()` 后换成新的（读它的地方是响应式的）。 */
     readonly info: StoryResult<"book.info">;
+    /** 这本书开着的页（按 `info.features`）。 */
+    readonly pages: ComputedRef<readonly Page[]>;
     /** 数据版本：`refresh()` 一次加一。查询 hook 把它当参数，变了就重取。 */
     readonly dataVersion: Ref<number>;
     /** 这本书的抽取进度；没有抽取记录时为 null。 */
@@ -162,7 +185,14 @@ export async function openBookSession(client: StoryClient, router: Router, bookI
     // 从没存过（savedAt 为 null）的书第一次打开时读到抽取到的最后位置（输出 4）。
     const end: PositionInput = {chapter: info.extractedThrough.chapter};
     const at = ref<PositionInput>(validAt(info, urlAt) ? urlAt : saved.savedAt !== null && validAt(info, saved.position) ? saved.position : end);
-    const page = ref<Page>(isPage(route.params.page) ? route.params.page : (savedView.page ?? "overview"));
+    let initialPage: Page = isPage(route.params.page) ? route.params.page : (savedView.page ?? "overview");
+    // 地址或存下的状态指向这本书关掉的那类的页（旧链接、手改地址）：换成总览并提示，地址随后由 syncRoute 改写。
+    const closedNotice = closedPage(info.features, initialPage);
+    if (closedNotice !== null) {
+        notices.push(`${closedNotice}，已打开全书总览`);
+        initialPage = "overview";
+    }
+    const page = ref<Page>(initialPage);
     let perspective = typeof query.perspective === "string" ? query.perspective : (savedView.perspective ?? "reader");
     let entity: string | null = typeof query.entity === "string" ? query.entity : (savedView.entity ?? null);
     const tab: Tab = isTab(query.tab) ? query.tab : (savedView.tab ?? "summary");
@@ -196,6 +226,7 @@ export async function openBookSession(client: StoryClient, router: Router, bookI
     const atEnd = computed(() => isEnd(infoRef.value, at.value));
     const atLabel = computed(() => (atEnd.value ? "全部读完" : at.value.paragraph === undefined ? `第 ${at.value.chapter} 章` : `第 ${at.value.chapter} 章第 ${at.value.paragraph} 段`));
     const pendingJump = ref<JumpTarget | null>(null);
+    const pages = computed(() => allowedPages(infoRef.value.features));
 
     function viewState(): SavedView {
         const card = drawer.value?.kind === "card" ? drawer.value : null;
@@ -221,7 +252,16 @@ export async function openBookSession(client: StoryClient, router: Router, bookI
     }
     const stopRoute = router.afterEach(to => {
         if (to.params.id !== bookId) return;
-        if (isPage(to.params.page) && to.params.page !== page.value) page.value = to.params.page;
+        if (isPage(to.params.page) && to.params.page !== page.value) {
+            const closed = closedPage(infoRef.value.features, to.params.page);
+            if (closed === null) page.value = to.params.page;
+            else {
+                notice.value = `${closed}，已打开全书总览`;
+                // 页面没变时 watch 不会改写地址，这里直接改回去。
+                if (page.value === "overview") syncRoute();
+                else page.value = "overview";
+            }
+        }
         const nextAt = parseAt(to.query.at);
         if (validAt(infoRef.value, nextAt) && formatAt(nextAt) !== formatAt(at.value)) void moveTo(nextAt);
         if (typeof to.query.perspective === "string" && to.query.perspective !== perspectiveRef.value) perspectiveRef.value = to.query.perspective;
@@ -367,6 +407,7 @@ export async function openBookSession(client: StoryClient, router: Router, bookI
         get info() {
             return infoRef.value;
         },
+        pages,
         dataVersion,
         ingest,
         behind,
@@ -384,6 +425,7 @@ export async function openBookSession(client: StoryClient, router: Router, bookI
         lastDrawer,
         wideRecords: ref(null),
         jump(next, target) {
+            if (!pages.value.includes(next)) return;
             afterFresh(() => {
                 pendingJump.value = target;
                 page.value = next;
@@ -405,6 +447,7 @@ export async function openBookSession(client: StoryClient, router: Router, bookI
             });
         },
         goPage(next) {
+            if (!pages.value.includes(next)) return;
             afterFresh(() => (page.value = next));
         },
         openCard(entityId, tabName = "summary") {

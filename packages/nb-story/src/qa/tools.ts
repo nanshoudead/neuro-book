@@ -13,7 +13,7 @@ import {COMMANDS} from "../cli/commands";
 import {formatResult} from "../cli/format";
 import {STORY_METHODS, type StoryMethod} from "../contract/contract";
 import {PERSPECTIVE_METHODS, type BookSession} from "../core/api";
-import type {Position} from "../core/dataset";
+import type {BookFeatures, Position} from "../core/dataset";
 import {AnswerSchema, type Answer} from "../core/qa-records";
 import {validateAnswer} from "./answer";
 import type {ReadLedger} from "./read-ledger";
@@ -53,8 +53,15 @@ const TOOL_USAGE: Partial<Record<string, string>> = {
 
 const QUERY_COMMANDS = ["info", "chapter", "find", "card", "knowledge", "statements", "appearances", "ties", "between", "relations", "knows", "ledger", "track", "questions", "timeline", "episodes", "arcs", "search", "read", "para"] as const;
 
-/** 工具 id：`story.<命令名>`；`story.answer` 是收尾工具。Profile 按这些 id 声明工具。 */
+/** 只在这本书记这一类时才有的查询（docs/specs/story/qa.md；开关见 ingest.md 输出 18）。 */
+const FEATURE_OF: Partial<Record<(typeof QUERY_COMMANDS)[number], keyof BookFeatures>> = {knows: "secrets", ledger: "ledger", track: "ledger"};
+
+/**
+ * 工具 id：`story.<命令名>`；`story.answer` 是收尾工具。Profile 按这些 id 声明工具：`OPTIONAL_TOOL_IDS` 里的声明成可选，
+ * 关掉了那一类的书不登记它们，会话里就没有这几个工具（Profile 是模块级的、各问共用，不按书改它）。
+ */
 export const QUERY_TOOL_IDS: readonly string[] = QUERY_COMMANDS.map(name => `story.${name}`);
+export const OPTIONAL_TOOL_IDS: ReadonlySet<string> = new Set(Object.keys(FEATURE_OF).map(name => `story.${name}`));
 export const ANSWER_TOOL_ID = "story.answer";
 
 const PAGING_HINT = "列表结果分页：结果末尾给了下一页的 cursor 时，原样传 \"cursor\" 取下一页；\"limit\" 默认 50。";
@@ -137,7 +144,11 @@ function answerTool(state: QaToolState): {declaration: PluginToolDeclaration; im
     };
 }
 
-/** 这一问的全部工具，作为一个插件交给 nb-harness 的登记表。 */
-export function storyQaPlugin(state: QaToolState): HarnessPlugin {
-    return {name: "nb-story", version: "1", tools: [...QUERY_COMMANDS.map(name => queryTool(name, state)), answerTool(state)]};
+/** 这一问的全部工具，作为一个插件交给 nb-harness 的登记表；书关掉的那一类的查询不登记。 */
+export function storyQaPlugin(state: QaToolState, features: BookFeatures): HarnessPlugin {
+    const open = QUERY_COMMANDS.filter(name => {
+        const feature = FEATURE_OF[name];
+        return feature === undefined || features[feature];
+    });
+    return {name: "nb-story", version: "1", tools: [...open.map(name => queryTool(name, state)), answerTool(state)]};
 }

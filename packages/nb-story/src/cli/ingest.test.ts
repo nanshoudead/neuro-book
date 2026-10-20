@@ -177,6 +177,79 @@ describe("预览、改稿与已抽完（输出 2，验收 2）", () => {
     }, 60_000);
 });
 
+describe("按书关闭数值与秘密（输出 18）", () => {
+    test("新建时定下，接着抽不写就沿用；第 1 章没提交、接着抽、追加、已抽完时写了不同的值：退出码 2，什么都不改；删掉后可以换设置新建", async () => {
+        // 哪一章的段落块请求不回应（让任务停在那里）；null 时都回应。
+        let hold: number | null = 2;
+        const env = await setup(key => (key.chapter === hold && key.step === "beats" ? hang : undefined));
+        const file = join(env.dir, "sample.txt");
+        await writeFile(file, await sampleSourceText(5));
+        const beatsSeen = (chapter: number) => env.played.seen.filter(key => key.chapter === chapter && key.step === "beats").length;
+        const featuresOf = async (book: string) => {
+            const status = json((await run(["ingest", "--status", "--book", book, "--library", env.library, "--json"])).stdout).data!;
+            const books = json((await run(["books", "--library", env.library, "--json"])).stdout).data!.books as {id: string; features: unknown}[];
+            return {status: status.features, book: books.find(item => item.id === book)?.features ?? null};
+        };
+        const sourceFile = (book: string) => readFile(join(env.library, ".ingest", book, "source.json"), "utf8");
+
+        const first = spawnCli(["ingest", file, "--no-ledger", ...env.common]);
+        await waitUntil("第 2 章段落块请求", () => env.played.seen.some(key => key.chapter === 2 && key.step === "beats"), {timeoutMs: 60_000});
+        first.kill("SIGINT");
+        expect(await first.exited).toBe(130);
+        const off = {ledger: false, secrets: true};
+        expect(await featuresOf("sample")).toEqual({status: off, book: off});
+
+        const saved = await sourceFile("sample");
+        const requests = env.endpoint.bodies.length;
+        const refused = await run(["ingest", file, "--no-secrets", ...env.common, "--json"]);
+        expect({code: refused.code, error: json(refused.stdout).error!.code}).toEqual({code: 2, error: "invalid_params"});
+        expect(json(refused.stdout).error!.message).toContain("只能在新建时设");
+        expect(await sourceFile("sample")).toBe(saved);
+        expect(env.endpoint.bodies.length).toBe(requests);
+
+        // 写了相同的值照常接着抽。
+        hold = null;
+        const resumed = await run(["ingest", "--book", "sample", "--no-ledger", ...env.common, "--json"]);
+        expect({code: resumed.code, committed: json(resumed.stdout).data!.committed}).toEqual({code: 0, committed: 5});
+        expect(resumed.stderr).toContain("不记数值");
+        expect(await featuresOf("sample")).toEqual({status: off, book: off});
+        // 录下的回复里有数值记录，提交前都去掉了。
+        expect(json((await run(["ledger", "--book", "sample", "--library", env.library, "--json"])).stdout).data!.tracks).toEqual([]);
+
+        // 已抽完、追加：不同的值都在判定之前拒绝，不调用模型。
+        const done = await run(["ingest", file, "--no-secrets", ...env.common, "--json"]);
+        expect(done.code).toBe(2);
+        await writeFile(join(env.dir, "longer.txt"), await sampleSourceText(6));
+        const append = await run(["ingest", join(env.dir, "longer.txt"), "--id", "sample", "--no-secrets", ...env.common, "--json"]);
+        expect(append.code).toBe(2);
+        expect((await run(["ingest", file, ...env.common, "--json"])).code).toBe(0);
+        expect(await sourceFile("sample")).toBe(saved);
+
+        // 第 1 章还没提交（只占用了 id）的书同样不能改。
+        hold = 1;
+        const before = beatsSeen(1);
+        const early = spawnCli(["ingest", file, "--id", "early", ...env.common]);
+        await waitUntil("early 的第 1 章段落块请求", () => beatsSeen(1) > before, {timeoutMs: 60_000});
+        early.kill("SIGINT");
+        expect(await early.exited).toBe(130);
+        expect(json((await run(["ingest", "--status", "--book", "early", "--library", env.library, "--json"])).stdout).data!.committed).toBe(0);
+        // 开关之前的抽取记录没有 features：按都开算。
+        const earlySource = join(env.library, ".ingest", "early", "source.json");
+        const {features: _features, ...legacy} = JSON.parse(await readFile(earlySource, "utf8")) as Record<string, unknown>;
+        await writeFile(earlySource, JSON.stringify(legacy));
+        expect((await featuresOf("early")).status).toEqual({ledger: true, secrets: true});
+        const changed = await run(["ingest", "--book", "early", "--no-ledger", ...env.common, "--json"]);
+        expect({code: changed.code, error: json(changed.stdout).error!.code}).toEqual({code: 2, error: "invalid_params"});
+
+        // --status 不收开关。
+        expect((await run(["ingest", "--status", "--no-ledger", ...env.common])).code).toBe(2);
+
+        expect((await run(["remove", "sample", "--library", env.library])).code).toBe(0);
+        const fresh = json((await run(["ingest", file, "--no-secrets", "--preview", ...env.common, "--json"])).stdout).data!;
+        expect({action: fresh.action, features: fresh.features}).toEqual({action: "new", features: {ledger: true, secrets: false}});
+    }, 240_000);
+});
+
 describe("别的进程在抽（验收 4）", () => {
     test("删除与再发起都得到 ingest_running，进度显示由命令行运行；强行结束后报“运行它的进程已退出”，可以删除", async () => {
         const env = await setup(key => (key.chapter === 2 ? hang : undefined));

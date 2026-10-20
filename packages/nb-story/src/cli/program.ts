@@ -12,9 +12,12 @@
 
 import {Command, CommanderError} from "commander";
 
-import {COMMANDS, FLAGS, OPTION_HELP, usage, UsageError} from "./commands";
+import {camelCase, COMMANDS, FLAGS, OPTION_HELP, usage, UsageError} from "./commands";
 import type {CommandSpec} from "./commands";
 import type {CliIo} from "./main";
+
+/** commander 的否定选项（`--no-ledger`）。 */
+const NEGATED = /^no-/u;
 
 /** 命令行解析的结果：要执行的命令与未解码的参数。 */
 export interface ParsedCommandLine {
@@ -84,7 +87,13 @@ function buildProgram(io: CliIo, picked: {value: ParsedCommandLine | null}, unkn
         command.action(() => {
             const options = new Map<string, string>();
             for (const name of Object.keys(spec.options)) {
-                const value = command.getOptionValue(name.replace(/-([a-z])/gu, (_match, letter: string) => letter.toUpperCase())) as string | boolean | undefined;
+                // `--no-x` 是 commander 的否定选项：值存在 `x` 下，不传时也有一个缺省的 true。这里把它当成普通开关：
+                // 只有命令行上真写了才算给了（不然“没给”与“给了开”分不清）。
+                if (NEGATED.test(name)) {
+                    if (command.getOptionValueSource(camelCase(name.slice(3))) === "cli") options.set(name, "true");
+                    continue;
+                }
+                const value = command.getOptionValue(camelCase(name)) as string | boolean | undefined;
                 if (value !== undefined) options.set(name, value === true ? "true" : String(value));
             }
             const unknown = command.args.find(token => token.startsWith("--"));

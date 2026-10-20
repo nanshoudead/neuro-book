@@ -11,6 +11,7 @@
  */
 
 import type {Dataset, Entity, Knowledge, KnowledgeState, LedgerEntry, Position, Question, Secret, Span, Statement, TimeAnchor} from "../core/dataset";
+import {featuresOf} from "../core/dataset";
 import {comparePosition, formatPosition, visibleAt} from "../core/position";
 import {occurrenceFinder} from "./text-match";
 
@@ -46,6 +47,8 @@ export function renderContext(dataset: Dataset, afterChapter: number, focus?: Co
         const entity = dataset.entities.find(item => item.id === id);
         return entity ? unique.get(entity.id) ?? displayName(entity, readAt) : id;
     };
+    // 关掉的那类（docs/specs/story/ingest.md 输出 18）书里本来就没有记录，这里再明写一次不列，免得这条依赖藏在数据里。
+    const features = featuresOf(dataset.book.features);
     const lines: string[] = [`# 截至第 ${afterChapter} 章的已有记录`, ""];
 
     lines.push("## 对象名册", "");
@@ -67,7 +70,7 @@ export function renderContext(dataset: Dataset, afterChapter: number, focus?: Co
         for (const entity of others) lines.push(`${entity.id}｜${KIND_ZH[entity.kind]}｜${displayName(entity, readAt)}｜${entity.label}`);
     }
 
-    const secrets = dataset.secrets.filter(item => visibleAt(item.at, readAt) && (!selected || selected.secrets.has(item.id)));
+    const secrets = features.secrets ? dataset.secrets.filter(item => visibleAt(item.at, readAt) && (!selected || selected.secrets.has(item.id))) : [];
     if (secrets.length) {
         lines.push("", "## 秘密与知情", "", "每章都要留意：有没有人得知、起疑，或者表现出仍不知道。标了“推断”的知情判断，本章出现新依据（支持或反驳）时，补一条引用本章原文的知情记录。");
         if (selected) lines.push("只列与本章相关对象有关的秘密。");
@@ -89,7 +92,7 @@ export function renderContext(dataset: Dataset, afterChapter: number, focus?: Co
         for (const {item, state} of open) lines.push(`${item.id}　${item.text}（${formatPosition(item.at)} 提出${state === "partial" ? "，已有部分解答" : ""}）`);
     }
 
-    const tracks = ledgerState(dataset, readAt).filter(track => !selected || selected.entities.has(track.owner));
+    const tracks = features.ledger ? ledgerState(dataset, readAt).filter(track => !selected || selected.entities.has(track.owner)) : [];
     if (tracks.length) {
         lines.push("", "## 当前状态", "", "同一个量要沿用下面的名字。");
         if (selected) lines.push("只列本章相关对象的量；别的对象的量出现变化时，量的名字照原文写。");
@@ -125,7 +128,7 @@ export function renderContext(dataset: Dataset, afterChapter: number, focus?: Co
     const statements = selected ? visibleStatements.filter(item => selected.statements.has(item.id)) : visibleStatements.slice(-400);
     if (statements.length) {
         lines.push("", "## 已有的说法", "", "后文印证、反驳或修正这些说法时，用编号指向它们。");
-        if (selected) lines.push(focus?.statements ? "只列挑出来的与本章可能相关的说法。" : "只列一部分：挂在上面秘密与疑问上的、不针对具体对象的，以及最近的说法。");
+        if (selected) lines.push(focus?.statements ? "只列挑出来的与本章可能相关的说法。" : `只列一部分：挂在上面${features.secrets ? "秘密与" : ""}疑问上的、不针对具体对象的，以及最近的说法。`);
         for (const item of statements) lines.push(`${item.id}　${item.text}`);
     }
     return `${lines.join("\n")}\n`;

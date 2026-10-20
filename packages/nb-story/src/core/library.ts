@@ -33,8 +33,8 @@ import type {FileHandle} from "node:fs/promises";
 import {homedir} from "node:os";
 import {join} from "node:path";
 
-import {validateDataset} from "./dataset";
-import type {Dataset, Position} from "./dataset";
+import {featureConflict, featuresOf, validateDataset} from "./dataset";
+import type {BookFeatures, Dataset, Position} from "./dataset";
 import {StoryError, systemErrorCode} from "./errors";
 import type {PositionInput} from "./position";
 
@@ -67,6 +67,8 @@ export interface BookMeta {
     graph: string;
     /** 抽取得来的书：提交到第几章，与这次提交的抽取数据文件名。 */
     extraction?: {through: number; file: string};
+    /** 记不记数值与秘密（w00024 t11 起写；书单只读这份元数据，所以从数据集抄一份）。没有时按都开算（`featuresOf`）。 */
+    features?: BookFeatures;
 }
 
 /** 抽取的一次提交（docs/specs/story/ingest.md 输出 6）。 */
@@ -244,6 +246,8 @@ export class Library {
         const problem = validateDataset(parsed);
         if (problem) throw new StoryError("unsupported_format", `导入文件不是 V9 记忆图：${problem}`);
         const dataset = parsed as Dataset;
+        const conflict = featureConflict(dataset);
+        if (conflict) throw new StoryError("unsupported_format", `导入文件的开关与记录冲突：${conflict}`);
 
         const generation = randomUUID();
         const meta: BookMeta = {
@@ -258,6 +262,7 @@ export class Library {
             extractedThrough: dataset.through,
             revision: 1,
             graph: "graph.json",
+            features: featuresOf(dataset.book.features),
         };
 
         const hold = this.#coordinator ? await this.#coordinator.lock(id) : {release: () => undefined};
@@ -322,6 +327,7 @@ export class Library {
                 format: LIBRARY_FORMAT, id: commit.id, title: commit.title, generation, importedAt: new Date().toISOString(),
                 source: {bookId: commit.dataset.book.id, title: commit.dataset.book.title, file: "（抽取）"},
                 ...shape, revision: 1, graph: "graph-1.json", extraction: {through: commit.through, file: "extraction-1.json"},
+                features: featuresOf(commit.dataset.book.features),
             };
             await this.publishNewBook(commit.id, generation, meta, [["graph-1.json", dataBytes], ["extraction-1.json", Buffer.from(commit.extraction)]]);
             return {generation, revision: 1};
